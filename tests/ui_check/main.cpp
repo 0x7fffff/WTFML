@@ -1848,22 +1848,35 @@ int main(int argc, char *argv[]) {
         check(MainWindowUI::runStateRunningCountText(3) != MainWindowUI::runStateRunningText(),
               "和「一份」那句是两句不同的话（不然多开就看不出来）");
 
-        // 另外两句（ 加的）：没有实例在跑 / 正在启动；再加上 那
-        // 一句「有实例异常退出」。
+        // 另外两句：没有东西在跑 / 正在启动；再加上那一句「有实例异常退出」。
         // 四句话**两两不同**是这一节的要点 —— 那句话本来就是为了让人一眼看出是哪个状态。
-        check(MainWindowUI::runStateNotRunningText() == QStringLiteral("暂无运行实例"),
-              "一个都没在跑时那句是「暂无运行实例」",
+        // NOTE: 这一格**不只是实例** —— 服务端页起的服务端也在这台机器上跑着，所以
+        // 「什么都没有」那句不写死「实例」，服务端单跑时另有自己的一句。
+        check(MainWindowUI::runStateNotRunningText() == QStringLiteral("暂无实例或服务端"),
+              "一个都没在跑时那句是「暂无实例或服务端」（服务端也算）："
+              "字宽还要落在 bottomBarRunStateTextWidth() 那一档里，再长就被截成省略号",
               MainWindowUI::runStateNotRunningText());
+        check(MainWindowUI::runStateServerRunningText() == QStringLiteral("服务端运行中") &&
+                  MainWindowUI::runStateServerRunningCountText(2) ==
+                      QStringLiteral("2 个服务端运行中"),
+              "服务端单跑 / 两个以上在跑各有一句（和实例那两句分开说）",
+              MainWindowUI::runStateServerRunningText());
+        check(MainWindowUI::runStateServerRunningText() != MainWindowUI::runStateRunningText() &&
+                  MainWindowUI::runStateServerRunningCountText(2) !=
+                      MainWindowUI::runStateRunningCountText(2),
+              "★ 「服务端运行中」和「实例运行中」不是同一句话（那一格要说得清是谁在跑）");
         check(MainWindowUI::runStateNotRunningText() != MainWindowUI::runStateRunningText() &&
                   MainWindowUI::runStateNotRunningText() !=
-                      MainWindowUI::runStateRunningCountText(2),
-              "「没有在跑」和「运行中」是两句不同的话");
+                      MainWindowUI::runStateRunningCountText(2) &&
+                  MainWindowUI::runStateNotRunningText() !=
+                      MainWindowUI::runStateServerRunningText(),
+              "「没有在跑」和那几句「运行中」是不同的话");
         check(MainWindowUI::runStateNotRunningText() != QStringLiteral("实例未运行"),
               "（不再是「实例未运行」）",
               MainWindowUI::runStateNotRunningText());
 
-        // 第四句（ 用户加的）：「有实例异常退出」。要求就是这五个字。
-        // NOTE: 这一句和「暂无运行实例」**必须**是两句 —— 红那一档说的是"出过事"，
+        // 第四句：「有实例异常退出」。要求就是这五个字。
+        // NOTE: 这一句和「暂无实例或服务端」**必须**是两句 —— 红那一档说的是"出过事"，
         // 灰那一档说的是"没在跑"，两句混成一句的话用户根本分不出"要不要去看一眼"。
         check(MainWindowUI::runStateErrorText() == QStringLiteral("有实例异常退出"),
               "有实例异常退出时那句是「有实例异常退出」", MainWindowUI::runStateErrorText());
