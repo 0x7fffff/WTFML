@@ -9,6 +9,7 @@
 
 #include "InstanceFiles.hpp"
 #include "ModpackImport.hpp"
+#include "util/AppPaths.hpp"
 
 #include <QByteArrayView>
 #include <QCoreApplication>
@@ -462,7 +463,10 @@ QString instanceExclusionReason(const QString &relativePath, const QString &inst
         {"thumbs.db", QT_TRANSLATE_NOOP("ModpackExport", "系统的垃圾文件")},
         // 启动器自己的状态：instanceId / jvmArgs / 分组 / 图标。导出去等于把上一个人的
         // 实例设置抄给下一个人（而且 `icon.png` 是我们自己那份缓存，不是包的内容）。
-        {"wtfml.meta", QT_TRANSLATE_NOOP("ModpackExport", "启动器自己的实例设置")},
+        //
+        // NOTE: 实例设置那份文件名**不写死在这张表里**：`AppPaths::versionMetaFileName()`
+        // 是唯一出处（见下面那一条现算的判据）。表是静态初始化的，改文件名时它不跟着动，
+        // 而漏掉的症状是"导出整合包时那份实例设置没被排除"——不报错、也看不出来。
         {"icon.png", QT_TRANSLATE_NOOP("ModpackExport", "启动器自己的实例图标")},
         {"launcher_accounts.json", QT_TRANSLATE_NOOP("ModpackExport", "登录凭据")},
         {"launcher_msa_credentials.bin", QT_TRANSLATE_NOOP("ModpackExport", "登录凭据")},
@@ -502,6 +506,12 @@ QString instanceExclusionReason(const QString &relativePath, const QString &inst
     // 文件那几条要求**正好是顶层那一个文件**：`mods/icon.png` 是 mod 自己的资源，
     // 不能因为名字撞上就把它排掉。
     if (parts.size() == 1) {
+        // 这一份实例设置的文件名只有 `AppPaths::versionMetaFileName()` 一处出处：
+        // 表是静态初始化的，抄一份字面量进来就等于改文件名时必然漏掉这一处（漏掉的
+        // 症状是"导出整合包时那份实例设置没被排除"，不报错、也看不出来）。
+        if (lower == AppPaths::versionMetaFileName().toLower()) {
+            return QCoreApplication::translate("ModpackExport", "启动器自己的实例设置");
+        }
         for (const Rule &rule : kFileRules) {
             if (lower == QLatin1String(rule.name)) {
                 return QCoreApplication::translate("ModpackExport", rule.reason);
