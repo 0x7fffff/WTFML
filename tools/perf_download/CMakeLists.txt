@@ -6,11 +6,29 @@
 # 这个目录**不进 ctest**：它是量耗时的，不是断言。跑法与结论见 docs/PERFORMANCE.md。
 add_library(wtfml_perf_download_core STATIC
     ../../src/download/DownloadManager.cpp ../../src/download/DownloadManager.hpp
+    # 下载引擎按状态所有权拆出去的那几个翻译单元：DownloadManager.cpp 会直接调它们，
+    # 少一个就在链接期报一串 undefined reference（和 tests/CMakeLists.txt 同一份清单）。
+    ../../src/download/DownloadManagerRecovery.cpp
+    ../../src/download/DownloadManagerLocalReuse.cpp
+    ../../src/download/DownloadManagerMirror.cpp
+    ../../src/download/DownloadManagerThrottle.cpp
+    ../../src/download/DownloadManagerSegmented.cpp
+    ../../src/download/DownloadManagerMetadata.cpp
     ../../src/download/LocalFileReuse.cpp ../../src/download/LocalFileReuse.hpp
     ../../src/download/ResumableDownload.cpp ../../src/download/ResumableDownload.hpp
+    # 恢复记录（DownloadCheckpoint）用的是 TokenStore 那层字节保护，路径校验落在
+    # InstanceFiles 里。和 tools/network_diag 一样把这两块带上，否则链接期就断在
+    # `TokenStore::protect` / `InstanceFiles::validatePathSegment`。
+    ../../src/auth/TokenStore.cpp
+    ../../src/manage/InstanceFiles.cpp
+    ../../src/launcher/VersionInheritance.cpp
+    ../../src/util/ZipUtil.cpp
     ../../src/util/DownloadDiagnostics.cpp)
 target_include_directories(wtfml_perf_download_core PUBLIC ../../src)
 target_link_libraries(wtfml_perf_download_core PUBLIC Qt6::Core Qt6::Network Qt6::Gui)
+if(WIN32)
+    target_link_libraries(wtfml_perf_download_core PRIVATE crypt32)
+endif()
 set_target_properties(wtfml_perf_download_core PROPERTIES AUTOMOC ON)
 
 add_executable(WTFMLPerfDownload main.cpp HttpFileServer.cpp HttpFileServer.hpp)

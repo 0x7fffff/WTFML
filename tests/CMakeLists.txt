@@ -106,6 +106,7 @@ set(PROJECT_SOURCES
     ${REPO_ROOT}/src/net/HttpClient.hpp
     ${REPO_ROOT}/src/download/DownloadManager.cpp
     ${REPO_ROOT}/src/download/DownloadManagerRecovery.cpp
+    ${REPO_ROOT}/src/download/DownloadManagerLocalReuse.cpp
     ${REPO_ROOT}/src/download/DownloadManagerMirror.cpp
     ${REPO_ROOT}/src/download/DownloadManagerThrottle.cpp
     ${REPO_ROOT}/src/download/DownloadManagerSegmented.cpp
