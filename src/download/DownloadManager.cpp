@@ -2435,53 +2435,65 @@ void DownloadManager::onAssetIndexDownloaded() {
         // 东西，而它本身再也不会被重下）。
         QSaveFile file(indexPath);
         QDir().mkpath(QFileInfo(indexPath).absolutePath());
-        const QByteArray body = reply->readAll();
-        if (body.isEmpty()) {
-            errorMessage = QStringLiteral("Server returned an empty body");
-        } else if (file.open(QIODevice::WriteOnly)) {
-            if (file.write(body) != body.size() || !file.commit()) {
-                errorMessage = QStringLiteral("Failed to save asset index file");
-            } else {
-                // 和 onDownloadReplyFinished() 一样必须核 SHA1：镜像源下这条地址是拿索引号
-                // **拼**出来的（/indexes/<id>.json），拼错时回来的可能是一份别的索引，也可能是
-                // 一个 404 页面 —— 不拦住就会拿它去下几千个内容不对的资源。期望值在
-                // downloadAssets() 里就登记好了（version.json 的 assetIndex.sha1）。
-                const QString expectedSha1 = expectedSha1s.value(reply);
-                if (expectedSha1.isEmpty() || verifyFileSha1(indexPath, expectedSha1)) {
-                    // 已经放弃的那一批**不往下发**资源对象：那几千个作业会被算进**当前**
-                    // 这一批的总数里（用户点了取消却看见进度条的分母又涨了几千）。
-                    if (stale) {
-                        success = true;
-                    } else {
-                        // 解析失败必须让这一条作业**算失败**。资源对象故意
-                        // 不占 total/done 的格子（见 downloadAssets），所以这里
-                        // `qWarning` 一句就 return 的话，整批会以"0 个资源、全部成功"收尾
-                        // —— 版本装好了，材质音效一个都没有，界面上找不到任何异常。
-                        // 失败走下面同一条退路：先退官方地址重下一次，确实不行才
-                        // handleDownloadError 弹出来。
-                        QString parseProblem;
-                        if (parseAndDownloadAssets(indexPath, &parseProblem)) {
-                            success = true;
-                            if (DownloadDiag::enabled()) {
-                                DownloadDiag::line(
-                                    QStringLiteral("asset-index saved path=%1 bytes=%2")
-                                        .arg(QDir::toNativeSeparators(indexPath))
-                                        .arg(body.size()));
-                            }
-                        } else {
-                            errorMessage = parseProblem;
-                            // 坏索引同样不留盘：留着它下次还是解析失败，而且没有任何价值。
-                            QFile::remove(indexPath);
-                        }
-                    }
-                } else {
-                    // 坏文件不留盘：它是"资源列表"本身，留在那儿没有任何价值，只会误导排查。
-                    errorMessage = QStringLiteral("SHA1 verification failed");
-                    QFile::remove(indexPath);
+        // 按块搬，不 `readAll()`：读出来那份和 reply 自己缓存的那份在内存里是同一份
+        // 内容的两份拷贝，而这里做的事只是"把它挪到盘上"。
+        constexpr qint64 kChunkBytes = 256 * 1024;
+        qint64 bodyBytes = 0;
+        bool writeFailed = false;
+        const bool opened = file.open(QIODevice::WriteOnly);
+        if (opened) {
+            while (reply->bytesAvailable() > 0) {
+                const QByteArray chunk = reply->read(kChunkBytes);
+                if (chunk.isEmpty()) break;
+                if (file.write(chunk) != chunk.size()) {
+                    writeFailed = true;
+                    break;
                 }
+                bodyBytes += chunk.size();
             }
-        } else {
+        }
+        if (bodyBytes == 0) {
+            errorMessage = QStringLiteral("Server returned an empty body");
+        } else if (!opened || writeFailed || !file.commit()) {
             errorMessage = QStringLiteral("Failed to save asset index file");
+        } else {
+            // 和 onDownloadReplyFinished() 一样必须核 SHA1：镜像源下这条地址是拿索引号
+            // **拼**出来的（/indexes/<id>.json），拼错时回来的可能是一份别的索引，也可能是
+            // 一个 404 页面 —— 不拦住就会拿它去下几千个内容不对的资源。期望值在
+            // downloadAssets() 里就登记好了（version.json 的 assetIndex.sha1）。
+            const QString expectedSha1 = expectedSha1s.value(reply);
+            if (expectedSha1.isEmpty() || verifyFileSha1(indexPath, expectedSha1)) {
+                // 已经放弃的那一批**不往下发**资源对象：那几千个作业会被算进**当前**
+                // 这一批的总数里（用户点了取消却看见进度条的分母又涨了几千）。
+                if (stale) {
+                    success = true;
+                } else {
+                    // 解析失败必须让这一条作业**算失败**。资源对象故意
+                    // 不占 total/done 的格子（见 downloadAssets），所以这里
+                    // `qWarning` 一句就 return 的话，整批会以"0 个资源、全部成功"收尾
+                    // —— 版本装好了，材质音效一个都没有，界面上找不到任何异常。
+                    // 失败走下面同一条退路：先退官方地址重下一次，确实不行才
+                    // handleDownloadError 弹出来。
+                    QString parseProblem;
+                    if (parseAndDownloadAssets(indexPath, &parseProblem)) {
+                        success = true;
+                        if (DownloadDiag::enabled()) {
+                            DownloadDiag::line(
+                                QStringLiteral("asset-index saved path=%1 bytes=%2")
+                                    .arg(QDir::toNativeSeparators(indexPath))
+                                    .arg(bodyBytes));
+                        }
+                    } else {
+                        errorMessage = parseProblem;
+                        // 坏索引同样不留盘：留着它下次还是解析失败，而且没有任何价值。
+                        QFile::remove(indexPath);
+                    }
+                }
+            } else {
+                // 坏文件不留盘：它是"资源列表"本身，留在那儿没有任何价值，只会误导排查。
+                errorMessage = QStringLiteral("SHA1 verification failed");
+                QFile::remove(indexPath);
+            }
         }
     } else {
         errorMessage = DownloadRetryPolicy::displayError(reply->error(), reply->errorString());
