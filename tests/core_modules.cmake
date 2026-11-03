@@ -124,6 +124,8 @@ add_library(core_cases_resources OBJECT
  core_modules/ResourceDetailTests.cpp
  # ZI：资源商店那几发也走共享的 Control 额度（本机假接口，不碰外网）。
  core_modules/ResourceStoreBudgetTests.cpp
+ # R1：更新检查批次表在"一发已收场、一发还在飞"时的收场（R1）。
+ core_modules/ResourceStoreLatestRunTests.cpp
 )
 wtfml_core_compile(core_cases_resources)
 list(APPEND WTFML_CORE_CASE_OBJECTS $<TARGET_OBJECTS:core_cases_resources>)
@@ -159,6 +161,8 @@ add_library(core_cases_servers OBJECT
  core_modules/ServerInstallRunTests.cpp
  core_modules/ServerRunTests.cpp
  core_modules/ServerSettingsTests.cpp
+ # R2：NBT 读入的项数/元素上限（R2）。
+ core_modules/NbtLimitsTests.cpp
  core_modules/ServerPlayersTests.cpp
  core_modules/ServerRestartTests.cpp
  core_modules/ServerResourcePackTests.cpp

@@ -17,6 +17,8 @@
 #include <QUrl>
 #include <QRegularExpression>
 
+#include <utility>
+
 #include "manage/ModpackImport.hpp"  // curseForgeApiBase() —— 那条接口根地址的唯一出处
 #include "net/ControlGet.hpp"
 #include "net/HttpClient.hpp"
@@ -174,10 +176,10 @@ void ResourceStore::fetchLatestVersions(const QString &requestKey, const QString
     // 掐 = 删作业：排队中的不会再发出去，已发出的 abort 且不回调。下面那个回调拿"代号"
     // 认人那一句仍然要留 —— 换一批之后这一格可能已经是新的了（见 LatestRun）。
     if (auto previous = m_latestRuns.find(requestKey); previous != m_latestRuns.end()) {
-        const QList<RequestBudget::ControlGet *> stale = previous->replies;
+        const QList<QPointer<RequestBudget::ControlGet>> stale = previous->replies;
         m_latestRuns.erase(previous);
-        for (RequestBudget::ControlGet *job : stale) {
-            delete job;
+        for (const QPointer<RequestBudget::ControlGet> &job : stale) {
+            delete job.data();  // 已经自己收场的那几格是 null，跳过（见 LatestRun::replies）
         }
     }
 
@@ -253,8 +255,9 @@ void ResourceStore::fetchLatestVersions(const QString &requestKey, const QString
                     return;  // 还有几发没回来，等它们
                 }
                 // 收尾：**把这一批整个拿出来**再发信号 —— 发出去之后接的人可能立刻又开一批，
-                // 那时候这一格已经不是我的了。
-                const LatestRun finished = *it;
+                // 那时候这一格已经不是我的了。挪出去（不是拷一份）：这批里那几格哈希可能
+                // 有上百条，发完就扔，没必要再复制一遍。
+                LatestRun finished = std::move(*it);
                 m_latestRuns.erase(it);
                 emit latestVersionsFinished(requestKey, finished.merged, finished.problem);
             });
@@ -273,7 +276,11 @@ void ResourceStore::abortAll() {
     const QList<LatestRun> latestRuns = m_latestRuns.values();
     m_latestRuns.clear();
     for (const LatestRun &run : latestRuns) {
-        qDeleteAll(run.replies);
+        // 一格是 null = 那一发已经自己收场了（`ControlGet::finish()` 里 `deleteLater()`），
+        // 再删一次就是二次析构（见 LatestRun::replies 那段）。
+        for (const QPointer<RequestBudget::ControlGet> &job : run.replies) {
+            delete job.data();
+        }
     }
     qDeleteAll(replies);
     m_iconPending.clear();
