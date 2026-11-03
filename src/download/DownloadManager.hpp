@@ -315,6 +315,13 @@ public:
     /// `m_throttledReplies`；一个 100 ms 的定时器按限速往各个回复里"喂"字节。回复自己的
     /// `readBufferSize()`（256 KiB）就是闸门：读得慢，Qt 就不再从 socket 往下拉。
     /// 几档、上下限、归一化在 `DownloadSpeedLimit.hpp`（**唯一出处**）。
+    /// 令牌泵的节拍（毫秒）。桶的容量、预读高水位都按这个数算；改它等于改所有相关判据。
+    ///
+    /// 100 ms 是"看起来连续"和"定时器开销"之间的折中：Windows 上这个间隔常常迟到
+    /// 10~20 ms，所以令牌桶另外留了 1/4 秒的容量（见 `DownloadSpeedLimit::burstBytes()`）。
+    /// 实现在 `DownloadManagerThrottle.cpp`。
+    static constexpr int kSpeedPumpMs = 100;
+
     void setSpeedLimitBytesPerSecond(qint64 bytesPerSecond);
     qint64 speedLimitBytesPerSecond() const { return m_speedLimitBytesPerSecond; }
 
