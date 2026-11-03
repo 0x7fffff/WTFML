@@ -200,8 +200,8 @@ inline QList<Finding> inspect(const Facts &facts) {
         if (detail.isEmpty()) {
             detail = QStringLiteral("入口文件不在这个目录里。");
         }
-        detail += QStringLiteral("\n点「修复（重新装一遍）」把该下的下下来。");
-        findings.append(Finding{Severity::Problem, QStringLiteral("这个服务端还没装好"), detail,
+        detail += QStringLiteral("\n点「修复（重新安装）」下载缺失文件。");
+        findings.append(Finding{Severity::Problem, QStringLiteral("这个服务端尚未安装完成"), detail,
                                 Action::Reinstall});
     } else {
         // 装好了才有"记的那一份说不说得清"这一说（没装好那一条已经把话说了）。
@@ -218,7 +218,7 @@ inline QList<Finding> inspect(const Facts &facts) {
                 (facts.launchProblem.isEmpty()
                      ? QStringLiteral("我们记的那一份里缺了启动要用的版本信息。")
                      : facts.launchProblem)
-                    + QStringLiteral("\n点「修复（重新装一遍）」按记的这一档补齐。"),
+                    + QStringLiteral("\n点「修复（重新安装）」按记录的来源完整重装。"),
                 Action::Reinstall});
         }
     }

@@ -217,7 +217,7 @@ Snapshot create(const QString &instanceDir, const QString &instanceId,
     if (wanted.isEmpty()) {
         // 没有要碰的文件 = 这一趟没有回滚点这回事（调用方不该走到这儿，但别把空目录留下）。
         if (problemOut != nullptr) {
-            *problemOut = QObject::tr("这一趟没有要动的文件。");
+            *problemOut = QObject::tr("本次没有需要改动的文件。");
         }
         return snapshot;
     }
@@ -330,7 +330,7 @@ Snapshot create(const QString &instanceDir, const QString &instanceId,
             // 抄下来这一份自己读不动 = 这一份回滚点靠不住（"能退回来"这句话要能兑现）。
             if (entry.sha1.isEmpty() || entry.size != info.size()) {
                 if (problemOut != nullptr) {
-                    *problemOut = QObject::tr("抄下来的「%1」读不回来或者不完整，这一份回滚点不敢用。")
+                    *problemOut = QObject::tr("备份的「%1」无法读取或不完整，这份回滚点无法使用。")
                                       .arg(QDir::toNativeSeparators(target));
                 }
                 restorePrevious();
@@ -393,7 +393,7 @@ Snapshot read(const QString &instanceId, bool *ok, QString *problemOut) {
     Snapshot snapshot = manifestFromJson(bytes, &parsed);
     if (!parsed) {
         if (problemOut != nullptr) {
-            *problemOut = QObject::tr("回滚点的清单读不懂（%1），这一份不敢拿去还原。")
+            *problemOut = QObject::tr("回滚点的清单无法解析（%1），不能用于还原。")
                               .arg(QDir::toNativeSeparators(manifest.fileName()));
         }
         return Snapshot{};
@@ -480,7 +480,7 @@ RestoreResult restore(const Snapshot &snapshot, const QString &instanceDir) {
         QSaveFile out(target);
         if (!in.open(QIODevice::ReadOnly) || !out.open(QIODevice::WriteOnly)) {
             ++result.failed;
-            note(QObject::tr("抄不回来「%1」。").arg(entry.relativePath));
+            note(QObject::tr("无法备份「%1」。").arg(entry.relativePath));
             continue;
         }
         bool copied = true;

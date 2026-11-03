@@ -140,14 +140,14 @@ void runServerSettingsPageTests() {
                   .arg(numberFieldOf(QStringLiteral("server-port"))->value()));
         check(!save->isEnabled() &&
                   saveNote->text() == MainWindowUI::serverSettingsCleanNote(),
-              "★ T42.1 刚开页 = 什么都没改 ⇒ 「保存」点不动、那行小字是「没改过什么」",
+              "★ T42.1 刚开页 = 什么都没改 ⇒ 「保存」点不动、那行小字是「没有改动」",
               saveNote->text());
 
         // ---------- ② 表单改一格 → 保存带亮 → 保存 → 盘上只动了那一行 ----------
         textFieldOf(QStringLiteral("motd"))->setText(QStringLiteral("新的说明"));
         check(save->isEnabled() &&
                   saveNote->text() == MainWindowUI::serverSettingsDirtyFieldsNote(1),
-              "★★ T42.2 改了一格 ⇒ 「保存」亮了、小字说的是「改过 1 项」（那几句话是产品"
+              "★★ T42.2 改了一格 ⇒ 「保存」亮了、小字说的是「已修改 1 项」（那几句话是产品"
               "措辞，只有翻译点那一个出处）",
               saveNote->text());
         save->click();
@@ -166,7 +166,7 @@ void runServerSettingsPageTests() {
               afterSave);
         check(saveNote->text() == MainWindowUI::serverSettingsSavedNote() &&
                   !save->isEnabled(),
-              "★★ T42.2 存完那一行小字换成「已经保存好了」、按钮又灭了（按过就没了）",
+              "★★ T42.2 存完那一行小字换成「已保存」、按钮又灭了（按过就没了）",
               saveNote->text());
 
         // ---------- ③ 切到「原始文本」：表单那笔改动**已经合进文本**了 ----------
@@ -391,9 +391,7 @@ void runServerSettingsPageTests() {
                     [process] { return process->status() == ServerModel::Status::Running; }, 20000);
                 check(running, "T42.11 前提：假服务端起来了（没起来后面那几条没有意义）",
                       ServerModel::statusName(process->status()));
-                check(statusLabel->text()
-                          == ServerModel::statusName(ServerModel::Status::Running)
-                                 + MainWindowUI::serverSettingsRunningStatusSuffix(),
+                check(statusLabel->text() == ServerModel::statusName(ServerModel::Status::Running),
                       "★★★ T42.11 服务端一起来，正开着这一页顶上的状态**当场**翻成「运行中」"
                       "（以前要等重开这一页才看得见）",
                       statusLabel->text());

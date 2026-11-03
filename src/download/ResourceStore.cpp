@@ -239,7 +239,7 @@ void ResourceStore::fetchLatestVersions(const QString &requestKey, const QString
                         // "这一批没问到" —— 一条都不许当成"已是最新"（见 .hpp 里那条 NOTE）。
                         const QJsonDocument document = QJsonDocument::fromJson(answer);
                         if (!document.isObject()) {
-                            it->problem = QStringLiteral("版本列表读不懂（接口回的不是一份版本清单）");
+                            it->problem = QStringLiteral("版本列表无法解析（接口返回的不是一份版本清单）");
                         } else {
                             part = ResourceCatalog::parseVersionFilesUpdate(answer);
                             ok = true;
@@ -579,7 +579,7 @@ void ResourceStore::fetchVersions(const QString &requestKey, const QString &proj
                 : document.isArray();
         if (!looksLikeList) {
             emit versionsFinished(requestKey, QList<ResourceCatalog::VersionEntry>(),
-                                  QStringLiteral("版本列表读不懂（接口回的不是一份版本清单）"));
+                                  QStringLiteral("版本列表无法解析（接口返回的不是一份版本清单）"));
             return;
         }
         emit versionsFinished(requestKey, ResourceCatalog::parseVersions(body), QString());

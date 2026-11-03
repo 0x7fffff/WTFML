@@ -81,7 +81,7 @@ TaskDetailPage::TaskDetailPage(QWidget *parent) : QDialog(parent) {
     }
     m_box->addWidget(m_titleLabel);
 
-    // ---------- 一行小字（"正在下载资源对象 · 2.8 MB/s"）----------
+    // ---------- 一行小字（"已下载 12 / 40  文件名"）----------
     m_detailLabel = makeMutedLabel(this, MainWindowUI::taskDetailDetailName());
     m_detailLabel->setWordWrap(true);
     m_box->addWidget(m_detailLabel);

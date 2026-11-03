@@ -1485,8 +1485,8 @@ void runCopyAndSavePageTests() {
               QStringLiteral("%1 → 笔改的").arg(rowPath));
         check(batchTitle == QStringLiteral("批量编辑"),
               "★ T27.6 顶上「批量编辑」那一颗接上了（弹的是「批量编辑」）", batchTitle);
-        check(batchText.contains(QStringLiteral("还没做")),
-              "★★ T27.6 而且明说「还没做」—— 占位不许装成能用", batchText);
+        check(batchText.contains(QStringLiteral("暂不支持")),
+              "★★ T27.6 而且明说「暂不支持」—— 占位不许装成能用", batchText);
     }
 
     header("T27.8 概览页那颗「删除实例」：接到 MainWindow，删完把页收掉");

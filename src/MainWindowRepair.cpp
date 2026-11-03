@@ -38,16 +38,16 @@ void MainWindow::repairInstanceFiles(const QString &versionId) {
     const bool thisInstanceBusy = m_installOccupancy.modifying(versionId);
     if (thisInstanceBusy) {
         InlineMessage::information(
-            m_ui->overlay(), tr("现在做不了"),
-            tr("「%1」这会儿正在装（或者正在导入 / 正在检查）。等它完了再来。")
+            m_ui->overlay(), tr("暂时无法操作"),
+            tr("「%1」正在安装、导入或检查，请完成后再试。")
                 .arg(instanceDisplayName(versionId)));
         return;
     }
     if (m_downloadInFlight || m_versionManager->isDownloading()
         || (m_serverInstall != nullptr && m_serverInstall->ownsDownloadBatch())) {
         InlineMessage::information(
-            m_ui->overlay(), tr("现在做不了"),
-            tr("已经有一个下载或者安装任务在跑了，等它结束再检查这个实例。"));
+            m_ui->overlay(), tr("暂时无法操作"),
+            tr("已有下载或安装任务正在进行，请结束后再检查这个实例。"));
         return;
     }
 

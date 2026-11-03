@@ -314,7 +314,7 @@ QHash<QString, ModrinthHit> parseModrinthVersionFiles(const QByteArray &json, QS
     if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
         if (problemOut != nullptr) {
             *problemOut =
-                QObject::tr("Modrinth 的接口回了一句读不懂的话（%1）。").arg(parseError.errorString());
+                QObject::tr("Modrinth 的接口返回了无法解析的内容（%1）。").arg(parseError.errorString());
         }
         return hits;
     }
@@ -367,7 +367,7 @@ QHash<quint32, CurseForgeHit> parseCurseForgeFingerprints(const QByteArray &json
     const QJsonDocument doc = QJsonDocument::fromJson(json, &parseError);
     if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
         if (problemOut != nullptr) {
-            *problemOut = QObject::tr("CurseForge 的接口回了一句读不懂的话（%1）。")
+            *problemOut = QObject::tr("CurseForge 的接口返回了无法解析的内容（%1）。")
                               .arg(parseError.errorString());
         }
         return hits;

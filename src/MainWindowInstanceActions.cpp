@@ -52,9 +52,9 @@ void MainWindow::showInstanceSettingsNotice(const InstanceSettingsController::No
                                    .arg(instanceDisplayName(notice.instanceId)));
         break;
     case InstanceSettingsController::Notice::Kind::RenameBlockedScanning:
-        // 说清楚"等它完了"（不是"重开启动器"）：那一趟还在跑，等它自己结束就行。
+        // 说清楚"等它结束"（不是"重开启动器"）：那一趟还在跑，等它自己结束就行。
         InlineMessage::warning(m_ui->overlay(), tr("重命名实例"),
-                               tr("「%1」正在做完整性检查，等它完了再改名。")
+                               tr("「%1」正在做完整性检查，请结束后再改名。")
                                    .arg(instanceDisplayName(notice.instanceId)));
         break;
     case InstanceSettingsController::Notice::Kind::RenameBlockedBusy:
@@ -213,7 +213,7 @@ bool MainWindow::confirmDeleteInstance(const QString &versionId) {
     // 路径，报告里全是假的"缺文件"。
     if (integrityScanningVersion(versionId)) {
         InlineMessage::warning(m_ui->overlay(), tr("删除实例"),
-                              tr("「%1」正在做完整性检查，等它完了再删。").arg(name));
+                              tr("「%1」正在做完整性检查，请结束后再删。").arg(name));
         return false;
     }
 
@@ -260,7 +260,7 @@ bool MainWindow::deleteInstance(const QString &versionId) {
     // 闸口三（同上，理由见 confirmDeleteInstance 那一半）：正在体检的不能删。
     if (integrityScanningVersion(versionId)) {
         InlineMessage::warning(m_ui->overlay(), tr("删除实例"),
-                              tr("「%1」正在做完整性检查，等它完了再删。").arg(name));
+                              tr("「%1」正在做完整性检查，请结束后再删。").arg(name));
         return false;
     }
 

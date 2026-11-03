@@ -286,8 +286,8 @@ ServerModel::Info readMeta(const QString &serverId, QString *problemOut) {
     if (!ok && problemOut != nullptr) {
         // "文件在、但读不懂"这件事**必须说出来**（别当成"这个服务端什么设置都没有"）——
         // 和 `UpdatePolicy::load()` 里那句同源。
-        *problemOut = QStringLiteral("这一份服务端记录读不懂（%1），按「什么都没记」处理"
-                                     "；再装一次或者手动改一下就能好")
+        *problemOut = QStringLiteral("这份服务端记录无法解析（%1），已按没有记录处理"
+                                     "；重新安装一次或手动修正后即可恢复")
                           .arg(ServerModel::formatTag());
     }
     return info;

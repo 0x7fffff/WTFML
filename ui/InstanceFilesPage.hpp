@@ -154,7 +154,7 @@ public:
     /// 行尾要不要那支笔（一次「编辑」）。图标是一支笔，含意就是编辑。
     /// **只有存档那一页给 true**。
     ///
-    /// 给的这一页同时还多做一件事：**目录行的「大小 · 时间」是真正的统计值**（见 .cpp 里
+    /// 给的这一页同时还多做一件事：**目录行的「大小 / 时间」是真正的统计值**（见 .cpp 里
     /// fillDirectoryStats()）。这两件事是一套的 —— 存档页要的就是"一个世界有多大、
     /// 上次什么时候玩的"，而别的几页那些目录（`mods/mcef-libraries/` 之类）算一个字节
     /// 数出来没有任何意义，还不如那个破折号。
@@ -665,7 +665,7 @@ public:
     /// 溢出被裁，也不许它缩到看不见。
     static int nameLabelMinWidth() { return 120; }
 
-    /// 名字底下那一行小字（大小 · 时间，ElidedLabel）。和名字同一列 —— 名字在上、
+    /// 名字底下那一行小字（大小 / 时间，ElidedLabel）。和名字同一列 —— 名字在上、
     /// 它在下（两样和那两颗按钮挤在同一行里时，字号一大名字就没地方了）。
     static QString metaLabelName() { return QStringLiteral("instanceFilesMetaLabel"); }
     /// 行尾那两颗。**一页里有很多颗、名字都一样** —— 认它们要按行取（见上面那个
@@ -701,7 +701,7 @@ public:
     static QString editText() { return QStringLiteral("编辑"); }
     /// 行尾那颗「详情」（同上：字形是画的，文字只活在 `text()` / 悬停提示里）。
     static QString detailText() { return QStringLiteral("详情"); }
-    /// 目录行的「大小 · 时间」还没算出来的那一格写什么（见 fillDirectoryStats()）。
+    /// 目录行的「大小 / 时间」还没算出来的那一格写什么（见 fillDirectoryStats()）。
     static QString statsPendingText() { return QStringLiteral("正在统计…"); }
 
     // ---------- 搜索 / 筛选那两排上的字----------
@@ -973,7 +973,7 @@ private:
         QDateTime modified;
     };
 
-    /// 造一条行：**左边一列两行字**（名字一行、大小 · 时间一行，见 nameLabelName() /
+    /// 造一条行：**左边一列两行字**（名字一行、大小 / 时间一行，见 nameLabelName() /
     /// metaLabelName()）+ 尾巴上那两颗按钮，已经按状态摆好。
     QWidget *makeRow(const QString &shownName, const QString &path, bool isDir, bool isDisabled,
                      qint64 size, const QDateTime &modified);
@@ -1353,7 +1353,7 @@ private:
     /// 那七颗按钮，**下标就是 `static_cast<int>(SelectionAction)`**。
     QList<QPushButton *> m_selectionButtons;
 
-    /// 等着算大小/时间的那些目录行：路径 → 那一行的「大小 · 时间」那一格。
+    /// 等着算大小/时间的那些目录行：路径 → 那一行的「大小 / 时间」那一格。
     ///
     /// 【为什么不能在建行的时候顺手算出来】
     /// 目录的字节数要**递归遍历**整棵树（`saves/<世界>/region/*.mca` 动辄几十万个文件），

@@ -138,7 +138,7 @@ WorldSettingsPage::WorldView worldViewOf(const QString &worldDir,
     notes.append(InstanceEditorController::tr(
         "这份统计只看主世界 region/ 里的 .mca —— 模组生成的地形与维度不在里面，结果可能不完整。"));
     if (map.unreadableRegions > 0) {
-        notes.append(InstanceEditorController::tr("有 %1 个区域文件的头部读不全（可能坏了），"
+        notes.append(InstanceEditorController::tr("有 %1 个区域文件的头部不完整（可能已损坏），"
                                                   "它们没有计入区块数与范围。")
                          .arg(map.unreadableRegions));
     }
@@ -577,9 +577,9 @@ void InstanceEditorController::loadConfigBackup(InstanceSettingsDialog *dialog, 
         // 那一份不是 UTF-8（原件当时就是）。**不摆进去**：框里这一份是 UTF-8，摆进去会变成
         // 一堆 U+FFFD，再一存就把那份备份的内容毁成问号了 —— 而它是用户唯一的退路。
         InlineMessage::warning(
-            m_owner->m_ui->overlay(), m_owner->tr("那一份不是 UTF-8"),
-            m_owner->tr("%1\n\n它里面有几个字节不是 UTF-8，摆进这个编辑框（只认 UTF-8）会把那些字弄坏。"
-               "要它的话，直接拿这个文件替换过去：\n%2")
+            m_owner->m_ui->overlay(), m_owner->tr("备份文件不是 UTF-8"),
+            m_owner->tr("%1\n\n该文件的部分字节不是 UTF-8，放入此编辑框（仅支持 UTF-8）"
+               "会损坏其中的文字。若要使用它，请直接用该文件替换：\n%2")
                 .arg(QDir::toNativeSeparators(latest), QDir::toNativeSeparators(path)));
         return;
     }
@@ -720,7 +720,7 @@ void InstanceEditorController::saveWorldSettings(InstanceSettingsDialog *dialog)
     if (!onDisk.exists()) {
         // 走到这儿说明"刚刚还有、现在没了"（用户自己删了 / 挪走了）。**不许什么都不说**。
         InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("这个存档不见了"),
-                               m_owner->tr("%1\n\n之前还在，现在盘上没有它了 —— 什么都没写。")
+                               m_owner->tr("%1\n\n之前还在，现在磁盘上已没有它，本次未写入任何内容。")
                                    .arg(QDir::toNativeSeparators(worldDir)));
         return;
     }

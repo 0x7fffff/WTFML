@@ -106,7 +106,7 @@ void runGameCrashTests() {
                   "★★ T34.1 第一句说的是谁、怎么退的（退出码写成人话）",
                   crash.errorSummary.left(60));
             check(crash.errorSummary.contains(QStringLiteral("要求 Java 21"))
-                      && crash.errorSummary.contains(QStringLiteral("实际用的是 Java 17")),
+                      && crash.errorSummary.contains(QStringLiteral("实际使用的是 Java 17")),
                   "★★ T34.1 「Java 版本对不上」那一条在（两个数都是现算的：要的来自会话事实、"
                   "用的来自那个假 release 文件）",
                   crash.errorSummary);

@@ -92,7 +92,7 @@ DroppedResource::Result DroppedResource::classify(const QString &path) {
     const ZipUtil::EntryStatus status =
         ZipUtil::listEntries(path, &entries, &error, QStringLiteral("读这个压缩包"));
     if (status == ZipUtil::EntryStatus::NotAnArchive) {
-        result.detail = QStringLiteral("它打不开 —— 不是 zip，也可能文件坏了");
+        result.detail = QStringLiteral("无法打开：不是 zip 压缩包，或文件已损坏");
         return result;
     }
     if (status != ZipUtil::EntryStatus::Ok) {

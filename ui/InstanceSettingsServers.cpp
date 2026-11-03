@@ -390,7 +390,7 @@ void InstanceSettingsDialog::setServerStatuses(const QList<ServerRowStatus> &sta
         // （见 VersionTreeDelegate 里 rowMotdRawRole() 那一段）。两个都写 —— 代理那边
         // 是"有原串就画原串、没有才退回洗过那一行"，而 tooltip 用的永远是洗过那一份。
         item->setData(0, MainWindowUI::rowMotdRawRole(), status.motdRaw);
-        // 状态那一格是**两行**（`在线 · 42 ms` / `7/20 人`）：`\n` 在这里不是排版上的
+        // 状态那一格是**两行**（`42 ms` / `7/20 人`）：`\n` 在这里不是排版上的
         // 小把戏 —— 控件是开了 wordWrap 的，条目代理照 QTextLayout 摆，一个换行就是
         // 真的一行（见建表那段）。悬停提示仍旧给**单行**那份：提示框里没有"两行"这回事，
         // 它要的是一句话。

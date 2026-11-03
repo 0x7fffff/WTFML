@@ -303,7 +303,7 @@ public:
         QString error;     ///< 没算成的原因
     };
     /// @param rows 已算完的那几个（顺序就是选文件的顺序）
-    /// @param summary 顶上那句（"共 3 个文件 · SHA-256 · 1 个没算成"这种，controller 拼）
+    /// @param summary 顶上那句（"共 3 个文件 / SHA-256 / 1 个没算成"这种，controller 拼）
     void setHashBatchView(const QList<HashBatchRow> &rows, const QString &summary);
     /// 批量结果导出/复制的**纯文本**（`<摘要> <文件名>` 一行一个，标准校验和格式）。
     /// 没有批量结果时是空串。

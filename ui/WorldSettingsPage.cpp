@@ -591,8 +591,8 @@ QString WorldSettingsPage::rulesSourceHint(bool hasRules) {
                           "把哪一条写进存档。");
 }
 QString WorldSettingsPage::defaultedHintText() {
-    return QStringLiteral("这个存档里现在没有这一项 —— 屏幕上摆的是游戏的默认值，"
-                          "改过才会写进去。");
+    return QStringLiteral("这个存档里没有这一项：屏幕上显示的是游戏默认值，"
+                          "修改后才会写入。");
 }
 QString WorldSettingsPage::notGzippedText() {
     // 同上：`**不是**` 那两个星号会原样画在屏幕上，改成「不是」。
@@ -1065,7 +1065,7 @@ void WorldSettingsPage::refreshSaveEnabled() {
     }
     m_save->setEnabled(ok);
     m_save->setToolTip(ok ? QString()
-                          : tr("有一条规则的值是空的，或者填的不是整数 —— 改好再存"
+                          : tr("有一条规则的值是空的，或不是整数；请改好后再保存"
                                "（游戏读到坏值会静悄悄按默认值来）。"));
 }
 
@@ -1149,8 +1149,8 @@ WorldSettingsPage::Delta WorldSettingsPage::deltaFromOpened() const {
 
 void WorldSettingsPage::refreshNote() {
     if (m_unreadable) {
-        m_note->setText(tr("%1\n这个世界现在只能看和备份 —— 读不出它的存档内容，"
-                           "所以我们不往上写任何东西。")
+        m_note->setText(tr("%1\n这个世界现在只能看和备份：无法读取存档内容，"
+                           "所以不会写入任何内容。")
                             .arg(m_unreadableReason));
         return;
     }

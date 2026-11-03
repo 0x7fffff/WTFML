@@ -139,7 +139,7 @@ void InstanceFilesPage::fillDirectoryStats() {
     if (!label.isNull()) {
         const qint64 bytes = directoryBytes(path);
         const QDateTime played = worldLastPlayed(path);
-        // 拼接方式**逐字和上面那个文件行一样**（「12.3 MB · 12:00」）：
+        // 拼接方式**逐字和上面那个文件行一样**（「12.3 MB / 12:00」）：
         // 同一张表里两种行的小字长得一样，才不会让人以为这一列有两个意思。
         QString meta = formatSize(bytes);
         if (played.isValid()) {

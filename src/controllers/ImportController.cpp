@@ -161,7 +161,7 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
         // 文件，后者是文件坏了/不是 zip。
         QString text;
         if (status == ZipUtil::EntryStatus::NotAnArchive) {
-            text = m_owner->tr("这个文件打不开 —— 它不是 zip 压缩包（也可能是文件坏了）。\n\n"
+            text = m_owner->tr("无法打开这个文件：它不是 zip 压缩包（也可能已损坏）。\n\n"
                       "整合包得是 zip：Modrinth 的 .mrpack 也是 zip，只是换了个后缀。");
         } else {
             text = m_owner->tr("读这个压缩包的时候出错了：\n%1").arg(error);
@@ -240,7 +240,7 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
         refuse(m_owner->tr("这不是客户端整合包"),
                m_owner->tr("这个压缩包里是一个服务端包（里面没有客户端要的 config、"
                            "资源包这些，只有服务端启动用的文件）。\n\n"
-                           "客户端这边装不了它。要开服的话用「新建服务端」，把这份包解到"
+                           "客户端无法安装它。要开服的话用「新建服务端」，把这份包解到"
                            "服务端目录里。"));
         return;
     }
@@ -275,7 +275,7 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
         if (status != ZipUtil::EntryStatus::Ok) {
             refuse(m_owner->tr("导入整合包"),
                    status == ZipUtil::EntryStatus::NotAnArchive
-                       ? m_owner->tr("这个文件打不开 —— 它不是 zip 压缩包（也可能是文件坏了）。")
+                       ? m_owner->tr("无法打开这个文件：它不是 zip 压缩包（也可能已损坏）。")
                        : m_owner->tr("读这个压缩包里的 mmc-pack.json 时出错了：\n%1").arg(error));
             return;
         }
@@ -349,7 +349,7 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
         if (status != ZipUtil::EntryStatus::Ok) {
             refuse(m_owner->tr("导入整合包"),
                    status == ZipUtil::EntryStatus::NotAnArchive
-                       ? m_owner->tr("这个文件打不开 —— 它不是 zip 压缩包（也可能是文件坏了）。")
+                       ? m_owner->tr("无法打开这个文件：它不是 zip 压缩包（也可能已损坏）。")
                        : m_owner->tr("读这个压缩包里的清单时出错了：\n%1").arg(error));
             return;
         }
@@ -365,7 +365,7 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
     // 解析（纯函数）。清单读不懂、不是 Minecraft 的包、路径不安全、一条文件都没有，
     // 四种情况的原因都不一样，都由它一句话说清 —— 界面不自己编第二句。
     if (!result.ok) {
-        m_owner->appendLog(m_owner->tr("整合包清单读不懂：%1").arg(result.problem));
+        m_owner->appendLog(m_owner->tr("整合包清单无法解析：%1").arg(result.problem));
         InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("导入整合包"), result.problem);
         return;
     }
@@ -400,13 +400,13 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
     const QString manifestFingerprint = InstanceFiles::importManifestFingerprint(manifestJson);
     const ModpackImport::Format format = pack.format;
 
-    // 加载器要不上，在**问名字之前**就拦掉：装不了的包，问完名字再说装不了是白耽误他。
+    // 加载器要不上，在**问名字之前**就拦掉：等问完名字才说装不了，只是白耽误用户。
     const QString loaderProblem =
         ModpackImport::unsupportedLoaderText(pack.loaderKey, pack.loaderVersion);
     if (!loaderProblem.isEmpty()) {
-        m_owner->appendLog(m_owner->tr("没有导入 %1：要 %2，这个启动器装不了。")
+        m_owner->appendLog(m_owner->tr("未导入 %1：需要 %2，当前启动器无法安装。")
                       .arg(QFileInfo(zipPath).fileName(), pack.loaderKey));
-        InlineMessage::information(m_owner->m_ui->overlay(), m_owner->tr("这个整合包装不了"), loaderProblem);
+        InlineMessage::information(m_owner->m_ui->overlay(), m_owner->tr("无法安装这个整合包"), loaderProblem);
         return;
     }
 
@@ -602,7 +602,7 @@ void ImportController::repairFromReport(const QString &reportPath) {
         }
         InlineMessageBox box(MessageKind::Information, tr("补齐：%1").arg(report.packName),
             tr("选择缺项，再选择已下载的本地文件。校验通过后放入对应位置，不覆盖已有文件。"
-               "\n补齐后点击“完成安装”：重新核对核心、加载器及覆盖文件。旧安装没有阶段凭据时仍需原包。"),
+               "\n补齐后点击“完成安装”：重新核对核心、加载器及覆盖文件。旧安装没有安装凭据时仍需原包。"),
             {tr("选择文件"), tr("批量匹配"), tr("文件网页"), tr("重新校验"), tr("完成安装"), tr("关闭")}, 5, -1, m_owner);
         auto *list = box.setList(names, selected);
         auto show = [&](int row) {
@@ -642,7 +642,7 @@ void ImportController::repairFromReport(const QString &reportPath) {
         auto cancelled = std::make_shared<std::atomic_bool>(false);
         InlineMessageBox progress(MessageKind::Information, tr("正在校验并补齐"),
             tr("%1\n核对大小与 SHA-1；最多运行 900 秒，可随时取消。")
-                .arg(finish ? tr("核对阶段凭据并完成安装") : verify ? tr("只读核对报告中的全部 %1 项").arg(report.issues.size())
+                .arg(finish ? tr("核对安装凭据并完成安装") : verify ? tr("只读核对报告中的全部 %1 项").arg(report.issues.size())
                            : batch ? tr("批量匹配 %1 个文件").arg(sources.size()) : issue.fileName),
             {tr("取消")}, -1, -1, m_owner);
         QFutureWatcher<ModpackInstallReport::BatchResult> watcher;
@@ -687,7 +687,7 @@ void ImportController::repairFromReport(const QString &reportPath) {
         if (verify) checked.clear(); // 外部删除/修改后，不沿用旧的已校验状态。
         for (int index = 0; index < report.issues.size(); ++index)
             if (result.suppliedPaths.contains(report.issues.at(index).path)) checked.insert(index);
-        lastResult = tr("本次校验通过 %1 项，未处理/失败 %2 项。%3\n补齐后可点击“完成安装”；无阶段凭据的旧安装仍需原包。")
+        lastResult = tr("本次校验通过 %1 项，未处理/失败 %2 项。%3\n补齐后可点击“完成安装”；没有安装凭据的旧安装仍需原包。")
             .arg(result.suppliedPaths.size()).arg(result.problems.size())
             .arg(result.cancelled ? tr("已取消或超时，未改变安装状态。") : QString());
         if (!result.problems.isEmpty()) lastResult += QLatin1Char('\n') + result.problems.mid(0, 5).join(QLatin1Char('\n'));
@@ -723,7 +723,7 @@ bool ImportController::applyResolvedModpackImport(const QString &zipPath,
     const QString loaderProblem =
         ModpackImport::unsupportedLoaderText(pack.loaderKey, pack.loaderVersion);
     if (!loaderProblem.isEmpty()) {
-        InlineMessage::information(m_owner->m_ui->overlay(), m_owner->tr("这个整合包装不了"), loaderProblem);
+        InlineMessage::information(m_owner->m_ui->overlay(), m_owner->tr("无法安装这个整合包"), loaderProblem);
         return false;
     }
 
@@ -1290,8 +1290,8 @@ void ImportController::handleWindowDrop(const QStringList &paths) {
     }
     if (total > 0) {
         m_owner->appendLog(m_owner->tr("已把 %1 个文件装进「%2」。").arg(total).arg(m_owner->instanceDisplayName(versionId)));
-        InlineMessage::information(m_owner->m_ui->overlay(), m_owner->tr("装好了"),
-                                   m_owner->tr("已经装进「%1」里了。").arg(m_owner->instanceDisplayName(versionId)));
+        InlineMessage::information(m_owner->m_ui->overlay(), m_owner->tr("安装完成"),
+                                   m_owner->tr("已安装到「%1」。").arg(m_owner->instanceDisplayName(versionId)));
     }
 }
 

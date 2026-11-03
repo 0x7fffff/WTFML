@@ -160,7 +160,7 @@ inline Fill fillDownloads(const ServerInstall::Request &request, const ServerIns
         QJsonParseError error;
         const QJsonDocument document = QJsonDocument::fromJson(payload, &error);
         if (error.error != QJsonParseError::NoError || !document.isObject()) {
-            fill.problem = QStringLiteral("拿到的原版版本信息读不懂（不是一份 json）。");
+            fill.problem = QStringLiteral("拿到的原版版本信息无法解析（不是一份 JSON）。");
             return fill;
         }
         const ServerInstall::Download jar = ServerInstall::vanillaServerDownload(document.object());
@@ -179,7 +179,7 @@ inline Fill fillDownloads(const ServerInstall::Request &request, const ServerIns
         QJsonParseError error;
         const QJsonDocument document = QJsonDocument::fromJson(payload, &error);
         if (error.error != QJsonParseError::NoError || !document.isArray()) {
-            fill.problem = QStringLiteral("拿到的 Paper 构建列表读不懂（不是一份 json 数组）。");
+            fill.problem = QStringLiteral("拿到的 Paper 构建列表无法解析（不是一份 JSON 数组）。");
             return fill;
         }
         const QList<ServerInstall::Build> builds =
@@ -267,7 +267,7 @@ inline QStringList stepNames(const ServerInstall::Request &request,
     if (!installerJarName(plan).isEmpty()) {
         steps.append(QStringLiteral("跑安装器"));
     }
-    steps.append(QStringLiteral("核对装好了没有"));
+    steps.append(QStringLiteral("核对安装结果"));
     return steps;
 }
 

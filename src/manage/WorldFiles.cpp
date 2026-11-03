@@ -841,7 +841,7 @@ bool readLevelData(const QString &worldDir, LevelData *out, QString *problemOut)
     const QString path = levelDataPath(source);
     QFile file(path);
     if (!file.exists()) {
-        return fail(QStringLiteral("这个存档里没有 level.dat —— 它不是一个世界（或者已经坏了）。"));
+        return fail(QStringLiteral("这个存档里没有 level.dat，它不是一个世界（或已损坏）。"));
     }
     if (!file.open(QIODevice::ReadOnly)) {
         return fail(QStringLiteral("读不动 level.dat：%1").arg(file.errorString()));
@@ -868,7 +868,7 @@ bool readLevelData(const QString &worldDir, LevelData *out, QString *problemOut)
         QString why;
         if (!ZipUtil::gunzipTo(path, temp, &why)) {
             QFile::remove(temp);
-            return fail(QStringLiteral("level.dat 解不开（它可能坏了）：%1").arg(why));
+            return fail(QStringLiteral("无法解压 level.dat（它可能已损坏）：%1").arg(why));
         }
         QFile bodyFile(temp);
         if (!bodyFile.open(QIODevice::ReadOnly)) {
@@ -885,12 +885,12 @@ bool readLevelData(const QString &worldDir, LevelData *out, QString *problemOut)
     NbtTree::Document document;
     QString why;
     if (!NbtTree::parse(body, &document, &why)) {
-        return fail(QStringLiteral("level.dat 里的内容读不懂（这个存档可能坏了）：%1").arg(why));
+        return fail(QStringLiteral("level.dat 里的内容无法解析（这个存档可能已损坏）：%1").arg(why));
     }
     if (document.root.type != NbtTree::Type::Compound) {
         // `parse()` 已经保证根是一整格，但**没保证它是复合标签**（NBT 规范允许根是任何
         // 类型）—— 而游戏把根当复合读，不是复合的它自己也读不动。这里和游戏站一边。
-        return fail(QStringLiteral("level.dat 的根不是一张表（这个存档可能坏了）。"));
+        return fail(QStringLiteral("level.dat 的根不是一张表（这个存档可能已损坏）。"));
     }
 
     QFile current(path);

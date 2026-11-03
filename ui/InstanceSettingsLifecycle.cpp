@@ -268,9 +268,9 @@ void InstanceSettingsDialog::setupLifecyclePages() {
                 context->setWordWrap(true);
                 context->setTextInteractionFlags(Qt::TextSelectableByMouse);
                 layout->addWidget(context);
-                hint(tr("选择目标版本并检查当前实例，确认后才更新；原地更新会先创建完整快照。"));
+                hint(tr("原地更新会先创建完整快照，确认后才开始。"));
             } else {
-                hint(tr("搬进另一份实例：只增加文件，不删除、不覆盖同名文件。两边的游戏都要先关掉。"));
+                hint(tr("只增加文件，不删除、不覆盖同名文件；两边游戏都要先关掉。"));
             }
             auto *targetLine = new QHBoxLayout();
             auto *targetLabel = new QLabel(upgrade ? tr("目标版本") : tr("目标实例"), page);

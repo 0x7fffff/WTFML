@@ -191,7 +191,7 @@ void InstanceGroupStore::ensureLoaded() const {
         // 用户手改或者文件坏了 —— 两种都不该被我们悄悄抹掉。
         qWarning() << "Instance group file has an unknown version" << version << ":" << path;
         m_unreadableReason =
-            tr("%1 是更新版本的启动器写的（格式版本 %2），这一版读不懂，没有改动它。")
+            tr("%1 是更新版本的启动器写的（格式版本 %2），这一版无法解析，没有改动它。")
                 .arg(path)
                 .arg(version);
         return;

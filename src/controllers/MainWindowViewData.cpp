@@ -948,7 +948,7 @@ QList<MainWindowUI::PanelRow> recentAccountPanelRows(const QList<SavedAccount> &
                                        : MainWindowUI::bottomBarPanelLoginText();
             use.tooltip = account.offline
                               ? QObject::tr("切到这个离线账号（用这个名字离线进游戏）")
-                              : QObject::tr("切到这个正版账号；令牌快到期了会顺手换一张");
+                              : QObject::tr("切到这个正版账号；令牌快到期时会自动更新");
         }
         row.actions.append(use);
         rows.append(row);

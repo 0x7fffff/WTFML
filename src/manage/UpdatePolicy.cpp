@@ -252,7 +252,7 @@ Store load(const QString &path, QString *problemOut) {
     bool ok = false;
     const Store store = fromJson(bytes, &ok);
     if (!ok && problemOut != nullptr) {
-        *problemOut = QObject::tr("「%1」读不懂（不是我们写的那种格式），这一趟当它一个记录都没有。")
+        *problemOut = QObject::tr("无法解析「%1」（不是本程序写入的格式），本次按没有任何记录处理。")
                           .arg(path);
     }
     return store;

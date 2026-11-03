@@ -675,7 +675,7 @@ void VersionManager::downloadVersion(const QString &versionId, const QString &de
     if (!storageProblem.isEmpty()) {
         emit versionDownloadFinished(
             versionId, false,
-            tr("要装到的那块盘现在不可用，这一趟什么都没下：\n%1").arg(storageProblem));
+            tr("目标磁盘当前不可用，本次未下载任何文件：\n%1").arg(storageProblem));
         return;
     }
 
@@ -741,7 +741,7 @@ void VersionManager::repairVersionFiles(const QString &versionId,
     if (!storageProblem.isEmpty()) {
         emit versionDownloadFinished(
             versionId, false,
-            tr("游戏文件夹所在的磁盘现在不可用，这一趟什么都没做：\n%1").arg(storageProblem));
+            tr("游戏文件夹所在的磁盘当前不可用，本次未执行任何操作：\n%1").arg(storageProblem));
         return;
     }
     // 这几道早退都在 beginBatch() 之前，而且都要发终态（理由见 downloadVersion() 顶部那段 NOTE）。
@@ -1005,7 +1005,7 @@ bool VersionManager::downloadResourceFiles(const QString &destinationDir,
     if (!storageProblem.isEmpty()) {
         emit resourceDownloadFinished(
             label, false,
-            tr("要装到的那块盘现在不可用，这一趟什么都没下：\n%1").arg(storageProblem));
+            tr("目标磁盘当前不可用，本次未下载任何文件：\n%1").arg(storageProblem));
         return false;
     }
     QString lockProblem;
@@ -1497,7 +1497,7 @@ bool VersionManager::copyInstanceFrom(const QString &sourceDir, const QString &s
     // 复制出几十 GB，而且不报任何错。`..` 和带分隔符的名字同理（指到实例目录外面去）。
     if (id.isEmpty() || id == QStringLiteral(".") || id == QStringLiteral("..")
         || id.contains(QLatin1Char('/')) || id.contains(QLatin1Char('\\'))) {
-        return fail(tr("「%1」不是一个合法的实例名，什么都没有复制。").arg(sourceId));
+        return fail(tr("「%1」不是合法的实例名，未复制任何文件。").arg(sourceId));
     }
 
     // ---------- 第 1 步：全部前置检查，磁盘一个字节都不动 ----------
@@ -1691,7 +1691,7 @@ bool VersionManager::deleteInstance(const QString &versionId, QString *errorOut)
     if (id.isEmpty() || id == QStringLiteral(".") || id == QStringLiteral("..")
         || id.contains(QLatin1Char('/')) || id.contains(QLatin1Char('\\'))) {
         if (errorOut != nullptr) {
-            *errorOut = tr("「%1」不是一个合法的实例名，什么都没有删。").arg(versionId);
+            *errorOut = tr("「%1」不是合法的实例名，未删除任何文件。").arg(versionId);
         }
         return false;
     }
@@ -2112,13 +2112,13 @@ void VersionManager::onAllDownloadsFinished(bool success) {
             }
             prefetchMessage =
                 stats.failed > 0
-                    ? tr("%1 个文件没下下来；已下好的留在 %2，下次预取会跳过校验通过的部分。"
-                         "游戏首启时 AssetDirector 会自己继续下。\n%3")
+                    ? tr("%1 个文件未能下载；已下载的文件保留在 %2，下次预取会跳过校验通过的部分。"
+                         "游戏首次启动时 AssetDirector 会继续下载。\n%3")
                           .arg(stats.failed)
                           .arg(QDir::toNativeSeparators(
                               AssetDirectorKnownSet::overlayDir(AppPaths::assetsDir())))
                           .arg(list)
-                    : tr("预取已中止；已下好的留在 %1，下次预取会跳过校验通过的部分。")
+                    : tr("预取已中止；已下载的文件保留在 %1，下次预取会跳过校验通过的部分。")
                           .arg(QDir::toNativeSeparators(
                               AssetDirectorKnownSet::overlayDir(AppPaths::assetsDir())));
         }
@@ -2136,29 +2136,29 @@ void VersionManager::onAllDownloadsFinished(bool success) {
             // 一个都没下 = 全都好好的（补全那颗按钮点在一个装好的实例上就是这个形状）。
             // 另有 skipped == 0 的情况：这一批压根没有作业登记上来。
             if (stats.reused > 0 && stats.skipped > 0) {
-                message = tr("一个文件都不用下：%1 个已从本机其它游戏文件夹复用，%2 个本来就在盘上。")
+                message = tr("无需下载：%1 个已从本机其他游戏文件夹复用，%2 个已存在。")
                               .arg(stats.reused)
                               .arg(stats.skipped);
             } else if (stats.reused > 0) {
-                message = tr("一个文件都不用下：%1 个文件已从本机其它游戏文件夹复用。")
+                message = tr("无需下载：%1 个文件已从本机其他游戏文件夹复用。")
                               .arg(stats.reused);
             } else {
                 message = stats.skipped > 0
-                              ? tr("一个文件都不用下：%1 个文件都已在盘上（已跳过）。")
+                              ? tr("无需下载：%1 个文件均已存在（已跳过）。")
                                     .arg(stats.skipped)
-                              : tr("没有要下载的文件。");
+                              : tr("没有需要下载的文件。");
             }
         } else if (stats.reused > 0 && stats.skipped > 0) {
-            message = tr("已下载 %1 个文件，另有 %2 个从本机其它游戏文件夹复用、%3 个本来就存在。全部就绪。")
+            message = tr("已下载 %1 个文件，另有 %2 个从本机其他游戏文件夹复用、%3 个已存在。全部就绪。")
                           .arg(stats.total)
                           .arg(stats.reused)
                           .arg(stats.skipped);
         } else if (stats.reused > 0) {
-            message = tr("已下载 %1 个文件，另有 %2 个从本机其它游戏文件夹复用。全部就绪。")
+            message = tr("已下载 %1 个文件，另有 %2 个从本机其他游戏文件夹复用。全部就绪。")
                           .arg(stats.total)
                           .arg(stats.reused);
         } else if (stats.skipped > 0) {
-            message = tr("%1 个文件已全部就绪（另有 %2 个本来就存在，已跳过）。")
+            message = tr("%1 个文件已全部就绪（另有 %2 个已存在，已跳过）。")
                           .arg(stats.total)
                           .arg(stats.skipped);
         } else {
@@ -2221,7 +2221,7 @@ void VersionManager::onAllDownloadsFinished(bool success) {
                 if (retryInstallerDownloadAlternate()) {
                     return;
                 }
-                failLoaderInstall(tr("%1 的安装器没下下来，%2 没有安装。检查网络后重试。\n%3")
+                failLoaderInstall(tr("%1 的安装器未能下载，%2 未安装。请检查网络后重试。\n%3")
                                       .arg(m_loaderInstall.loaderName,
                                            m_loaderInstall.gameVersion, message));
                 return;
@@ -2314,9 +2314,9 @@ void VersionManager::onAllDownloadsFinished(bool success) {
                 // 所以 `isUnfinishedImport()` 认得出这个目录 ⇒ 同一个包、同一个名字
                 // 再导入一次就走 OkResume，已经下好的按 sha1 跳过。
                 failModpackImport(
-                    tr("整合包里有 %1 个文件没下下来，没有装完。\n%2\n\n已经下好的那些留在 %3 "
-                       "里了 —— 拿同一个整合包、同一个实例名再导入一次就会接着下"
-                       "（已经下好的按 sha1 跳过）。")
+                    tr("整合包中有 %1 个文件未能下载，安装未完成。\n%2\n\n已下载的文件保留在 %3 "
+                       "中；使用同一个整合包、同一个实例名再导入一次即可继续下载"
+                       "（已下载的文件按 sha1 跳过）。")
                         .arg(stats.failed)
                         .arg(message, AppPaths::versionDir(m_modpackInstall.instanceId)));
                 return;

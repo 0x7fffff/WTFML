@@ -1229,7 +1229,7 @@ void PresetManagePage::showPlan(const PlanView &plan) {
 
     if (!plan.ok) {
         auto *item = new QListWidgetItem(
-            plan.problem.isEmpty() ? QStringLiteral("算不出这一趟要做什么。") : plan.problem,
+            plan.problem.isEmpty() ? QStringLiteral("无法计算本次要执行的步骤。") : plan.problem,
             m_planList);
         item->setFlags(Qt::NoItemFlags);
         m_planHint->setText(QString());
@@ -1255,7 +1255,7 @@ void PresetManagePage::showPlan(const PlanView &plan) {
     } else if (plan.needsConfirm) {
         hint = QStringLiteral("有「覆盖」段：点「应用」之后还要再点一次确认。");
     } else if (!plan.canApply) {
-        hint = QStringLiteral("这一趟没有能落下去的东西。");
+        hint = QStringLiteral("本次没有可应用的内容。");
     }
     m_planHint->setText(hint);
     m_applyButton->setText(QStringLiteral("应用"));
@@ -1272,8 +1272,8 @@ void PresetManagePage::showApplyResult(const ApplyView &result) {
 
     if (result.needsConfirm) {
         // 第一趟：计划里有覆盖，应用这一层拒绝动手了。按钮回到可点状态，再点一次就确认。
-        auto *item = new QListWidgetItem(QStringLiteral("有「覆盖」段，还没确认 —— "
-                                                        "再点一次「应用」就按覆盖执行。"),
+        auto *item = new QListWidgetItem(QStringLiteral("有「覆盖」段，尚未确认；"
+                                                        "再点一次「应用」即按覆盖执行。"),
                                          m_planList);
         item->setFlags(Qt::NoItemFlags);
         m_planHint->setText(QStringLiteral("点「应用」确认覆盖（会先备份）。"));

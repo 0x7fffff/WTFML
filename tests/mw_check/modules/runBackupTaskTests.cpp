@@ -137,14 +137,14 @@ void runBackupTaskTests() {
         out.sort();
         return out;
     };
-    // 「这一趟真打完了」那一问才算数：`现在做不了` 是 busy 守卫弹的（下面**故意**在同一
+    // 「这一趟真打完了」那一问才算数：`暂时无法操作` 是忙守卫弹的（下面**故意**在同一
     // 时刻再撞一发），它会先被答掉 —— 拿"答了几问"当"跑完了"，第一问一到手就早退，
     // 后面每一节都跟着红（账本上那一项会读成 "interrupted"）。
     const auto wroteBack = [](const PromptAnswerer &answerer) {
         for (const PromptAnswerer::Answered &one : answerer.answered) {
-            // 开跑之前那两句不算：`创建快照` 是分岔那一问，`现在做不了` 是 busy 守卫弹的
+            // 开跑之前那两句不算：`创建快照` 是分岔那一问，`暂时无法操作` 是忙守卫弹的
             // （下面**故意**在同一时刻再撞一发）。剩下那一问才是"这一趟有结果了"。
-            if (one.title != QStringLiteral("现在做不了") &&
+            if (one.title != QStringLiteral("暂时无法操作") &&
                 one.title != QStringLiteral("创建快照")) {
                 return true;
             }
@@ -219,8 +219,8 @@ void runBackupTaskTests() {
                   "（三颗按钮，默认那颗是排除那一档）",
                   answerer.answered.isEmpty() ? QString() : answerer.answered.at(0).title);
             check(answerer.answered.size() == 3 &&
-                      answerer.answered.at(1).title == QStringLiteral("现在做不了") &&
-                      answerer.answered.at(1).text.contains(QStringLiteral("已经有一份备份")),
+                      answerer.answered.at(1).title == QStringLiteral("暂时无法操作") &&
+                      answerer.answered.at(1).text.contains(QStringLiteral("已有备份或还原任务")),
                   "★★ T35.1 上面那一发被挡下来时**当场说了一句人话**（不是默默吞掉）",
                   answerer.answered.size() > 1 ? answerer.answered.at(1).title : QString());
             check(answerer.answered.size() == 3 &&

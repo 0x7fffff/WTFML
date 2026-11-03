@@ -476,14 +476,14 @@ void runUpdateCenterActionTests() {
             bool reported = false;
             QString reportedText;
             for (const PromptAnswerer::Answered &one : answerer.answered) {
-                if (one.title == QStringLiteral("更新没能全都换上")) {
+                if (one.title == QStringLiteral("部分更新文件未能替换")) {
                     reported = true;
                     reportedText = one.text;
                 }
             }
             check(reported
                       && reportedText.contains(QFileInfo(modJar).fileName()
-                                              + QStringLiteral(" —— 没换成功")),
+                                              + QStringLiteral("：替换失败")),
                   "★★ T38.4 失败那一框里**逐条**列着每个资源的结果（「· 更新中心模组.jar —— "
                   "没换成功：…」），不是只说一句「有 1 个没换掉」",
                   reportedText);

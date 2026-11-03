@@ -173,7 +173,7 @@ void runModpackExportLookupTests(const QString &sandbox) {
               offlineOverrides.join(QLatin1Char(',')));
         check(!ModpackExport::reimportable(offline.spec),
               "V5i 反查没成之后清单是空的 ⇒ 调用点必须拿 reimportable() 拦一下"
-              "（我们自己的解析器拒收空清单：ModpackImport.cpp:379）");
+              "（我们自己的解析器拒收空清单：parseModrinthIndex）");
 
         // ③ 取消：一个文件都还没读就停 —— 反查那一发**不许发出去**，清单一条都没有。
         // 这时候整份 plan 作废（`overrides` 里可能有半截东西，见 .hpp 那句），
@@ -288,7 +288,7 @@ void runModpackExportLookupTests(const QString &sandbox) {
 
     // --- V5s. 导出：名字长到清单写不下的那一条，必须退回 overrides ---------------
     //
-    // 读侧对清单里**每一条**路径都跑 isSafeRelativePath()（ModpackImport.cpp:313），
+    // 读侧对清单里**每一条**路径都跑 isSafeRelativePath()（ModpackImport 里那几条解析路），
     // 不过就是**整包拒绝**（"所以整个包都没有导入"）。所以产出这一侧不许写出那样一条。
     // 实例里有一个嵌套很深、拼起来超过 240 个字符的文件时，导出侧若照样写进清单，这个
     // 包连自己都装不回来，而且**当场看不出来**（清单写得出来、zip 打得出来）。

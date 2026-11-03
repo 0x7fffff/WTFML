@@ -105,7 +105,7 @@ Inspect inspect(const QString &zipPath) {
     const ZipUtil::EntryStatus status =
         ZipUtil::listEntries(zipPath, &entries, &error, QStringLiteral("读这个资源包"));
     if (status == ZipUtil::EntryStatus::NotAnArchive) {
-        result.problem = QStringLiteral("这不是一个 zip 压缩包（或者文件坏了）—— "
+        result.problem = QStringLiteral("这不是一个 zip 压缩包（或文件已损坏）："
                                         "资源包要选 .zip 那一份。");
         return result;
     }

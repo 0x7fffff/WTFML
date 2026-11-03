@@ -279,11 +279,11 @@ inline InstallMethod installMethod(Flavor flavor) {
 inline QString installMethodText(InstallMethod method) {
     switch (method) {
     case InstallMethod::DirectJar:
-        return QStringLiteral("下下来就是服务端，直接能跑");
+        return QStringLiteral("下载后即为服务端，可直接运行");
     case InstallMethod::RunInstaller:
-        return QStringLiteral("下下来的是安装器，要在安装目录里跑一次");
+        return QStringLiteral("下载的是安装器，需在安装目录中运行一次");
     case InstallMethod::BuildRequired:
-        return QStringLiteral("官方不发成品，要用它的构建工具现编一份（要几分钟，编的过程中要联网）");
+        return QStringLiteral("官方不提供成品，需用其构建工具现场编译（需要几分钟并联网）");
     }
     return QString();
 }
@@ -769,8 +769,8 @@ inline Plan planFor(const Request &request) {
                                         QStringLiteral("fabric-server-launch.jar"),
                                         QStringLiteral("nogui")};
         plan.firstLaunchNeedsNetwork = true;
-        plan.note = QStringLiteral("下下来那份是启动器不是服务端：第一次跑会自己去把库拉下来"
-                                   "（那一次要联网），之后才是纯本地");
+        plan.note = QStringLiteral("下载的是启动器而非服务端：首次运行会自动下载依赖库"
+                                   "（需要联网），之后为纯本地运行");
         return plan;
     }
 

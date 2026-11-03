@@ -503,9 +503,9 @@ void ResourcePageController::onDownloadFinished(const QString &label, bool succe
             m_owner.appendLog(TextMarks::failed(tr("%1 已由用户取消下载。").arg(label)));
             return;
         }
-        m_owner.appendLog(TextMarks::failed(tr("%1 没有下下来：%2").arg(label, errorMessage)));
+        m_owner.appendLog(TextMarks::failed(tr("%1 下载失败：%2").arg(label, errorMessage)));
         InlineMessage::warning(m_owner.m_ui->overlay(), tr("下载失败"),
-                             tr("%1 有文件没能下下来。\n\n%2").arg(label, errorMessage));
+                             tr("%1 有文件下载失败。\n\n%2").arg(label, errorMessage));
         return;
     }
 

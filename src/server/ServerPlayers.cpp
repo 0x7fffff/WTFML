@@ -96,7 +96,7 @@ Content parse(List list, const QByteArray &json) {
     const QJsonDocument document = QJsonDocument::fromJson(json, &error);
     if (error.error != QJsonParseError::NoError) {
         content.ok = false;
-        content.problem = QStringLiteral("%1 读不懂（%2）—— 没有改动它。")
+        content.problem = QStringLiteral("%1 无法解析（%2）；没有改动它。")
                               .arg(fileName(list), error.errorString());
         return content;
     }

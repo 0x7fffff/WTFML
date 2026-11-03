@@ -80,7 +80,7 @@ JavaMismatchDialog::JavaMismatchDialog(const QString &instanceName, int expected
     m_cancelButton->setObjectName(cancelButtonName());
     // 两颗「…启动」是确认性（绿），「取消」是一般性（黑）。
     Theme::markButton(m_cancelButton, Theme::ButtonKind::Neutral);
-    m_cancelButton->setToolTip(tr("不启动。想先去把这个 Java 装好、或者改完实例设置再回来。"));
+    m_cancelButton->setToolTip(tr("暂不启动，可先安装该 Java 或修改实例设置。"));
     buttons->addWidget(m_continueButton);
     buttons->addWidget(m_useMatchingButton);
     buttons->addStretch(1);

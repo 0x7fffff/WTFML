@@ -96,7 +96,7 @@ void runGameExitDiagnosisTests() {
     javaMismatch.javaPath = QStringLiteral("D:/Java/jdk17/bin/java.exe");
     const QStringList javaHints = GameExitDiagnosis::hints(javaMismatch);
     check(javaHints.size() == 1 && javaHints.first().contains(QStringLiteral("要求 Java 21"))
-              && javaHints.first().contains(QStringLiteral("实际用的是 Java 17"))
+              && javaHints.first().contains(QStringLiteral("实际使用的是 Java 17"))
               && javaHints.first().contains(QStringLiteral("D:/Java/jdk17/bin/java.exe")),
           "★ ZP5 ①Java 对不上（两个数都有时说得出来）",
           javaHints.join(QStringLiteral(" | ")));

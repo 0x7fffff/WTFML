@@ -602,10 +602,8 @@ QWidget *ToolboxPage::buildAnvilPanel() {
     layout->setSpacing(8);
 
     addPanelHeader(layout, panel, Tool::Anvil,
-                   QStringLiteral("把要合的几件东西列出来（默认按附魔书算）。等级上限 39 —— "
-                                  "哪一步的代价超了就整条做不出来，会单独提示；算的是"
-                                  "每一步都做得到的前提下最省的那条。第五列勾上 = 这一条附魔"
-                                  "并进上一行那一件（一本书能带好几条附魔）。"));
+                   QStringLiteral("列出要合并的物品（默认按附魔书计）。等级上限 39；超出时整条计划"
+                                  "无法执行并会单独提示。勾选第五列 = 把该条附魔并入上一行物品。"));
 
     m_anvilTable = new QTableWidget(0, 5, panel);
     m_anvilTable->setObjectName(QStringLiteral("anvilTable"));
@@ -1405,7 +1403,7 @@ QWidget *ToolboxPage::buildHashPanel() {
     layout->setSpacing(8);
 
     addPanelHeader(layout, panel, Tool::Hash,
-                   QStringLiteral("把文件拖到这一页，或点「选一个…」。已知值可粘进那格，各种写法都认。"));
+                   QStringLiteral("拖入文件，或点「选一个…」；已知哈希可直接粘贴。"));
 
     auto *pathRow = new QHBoxLayout;
     pathRow->setContentsMargins(0, 0, 0, 0);
@@ -1723,8 +1721,8 @@ QWidget *ToolboxPage::buildBeaconPanel() {
     m_beaconCount->setValue(1);
     m_beaconCount->setSuffix(QStringLiteral(" 颗"));
     m_beaconCount->setToolTip(
-        QStringLiteral("多颗信标挨着摆就能共用底座（重叠的方块只算一次，按最省的那几种摆法算；"
-                       "这里最多算 9 颗）。"));
+        QStringLiteral("相邻的信标可共用底座（重叠方块只计一次，按最省材料的摆法计算；"
+                       "最多 9 颗）。"));
     form2->addWidget(m_beaconCount);
     form2->addStretch(1);
     layout->addLayout(form2);

@@ -294,7 +294,7 @@ void DownloadCompletionController::onFinished(const QString &versionId, bool suc
         const QString displayName = m_owner.instanceDisplayName(versionId);
         if (success) {
             if (errorMessage.isEmpty()) {
-                m_owner.appendLog(MainWindow::tr("「%1」的首启资源本来就齐了，这一趟没有下载。").arg(displayName));
+                m_owner.appendLog(MainWindow::tr("「%1」的首启资源已齐全，本次无需下载。").arg(displayName));
             } else {
                 m_owner.appendLog(TextMarks::done(tr("「%1」的首启资源已预取：%2").arg(displayName, errorMessage)));
                 InlineMessage::information(

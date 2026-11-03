@@ -165,8 +165,8 @@ void runOfflineDefaultSkinTests() {
             body = body.trimmed();
             const int colon = body.lastIndexOf(QStringLiteral("："));
             check(colon >= 0 && colon + 1 < body.size() &&
-                      body.contains(QStringLiteral("打不开")),
-                  "ZG5 而且那行日志说得出原因（这一档底层不给话，得自己补：说清是 JAR 打不开）",
+                      body.contains(QStringLiteral("无法打开")),
+                  "ZG5 而且那行日志说得出原因（这一档底层不给话，得自己补：说清是 JAR 无法打开）",
                   body);
 
             // ---- ZG6 算出来那张只落在数据目录的缓存里 ----

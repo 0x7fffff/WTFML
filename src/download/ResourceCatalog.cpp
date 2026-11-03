@@ -75,7 +75,7 @@ QStringList stringList(const QJsonValue &value) {
 /// 读不懂 JSON 时统一的那句话。带上 QJsonParseError 的位置 —— 报"解析失败"等于没报，
 /// 而这句是要显示给用户的，得让他能判断"是网络中间被劫持了"还是"接口变了"。
 QString unreadableText(const QJsonParseError &error) {
-    return QStringLiteral("接口返回的数据读不懂（第 %1 个字节：%2）")
+    return QStringLiteral("接口返回的数据无法解析（第 %1 个字节：%2）")
         .arg(error.offset)
         .arg(error.errorString());
 }

@@ -57,7 +57,7 @@ struct Header {
     QString title;       ///< 资源名（接口给哪个就用哪个，没有第二份中文名可显示）
     QString description; ///< 一句话简介（**画一行**，放不下从尾巴截成省略号；全文挂在
                          /// < 鼠标提示上。空 = 这一行不占地方）
-                         /// 名字底下那行元信息：「Fabric / NeoForge · 2.31 亿 · 5 天前 · Modrinth」。
+                         /// 名字底下那行元信息：「Fabric / NeoForge / 下载 2.31 亿次 / 更新于 5 天前 / Modrinth」。
                          /// 每一截在不在由 MainWindow 拼（这儿只画一行）。空串 = 这一行不画。
     QString metaLine;
     /// 那颗「转到 XXX」按钮上的字（`Modrinth` / `CurseForge`）与它的地址。

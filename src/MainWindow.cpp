@@ -959,7 +959,7 @@ MainWindow::MainWindow(QWidget *parent)
         QString policyProblem;
         m_updateCenter->policy() = UpdatePolicy::load(UpdatePolicy::storePath(), &policyProblem);
         if (!policyProblem.isEmpty()) {
-            appendLog(tr("「更新中心」那份记录读不回来：%1").arg(policyProblem));
+            appendLog(tr("无法读取「更新中心」的记录：%1").arg(policyProblem));
         }
     }
     // 本地已安装的先填上（同步扫盘）；在线清单是异步拉的，回来之后由

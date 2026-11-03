@@ -409,10 +409,10 @@ Tasks::TaskCapabilities ActivityCenterController::defaultCapabilities(Tasks::Tas
         break;
     case Tasks::TaskKind::Export:
         caps.cancelBlockedReason =
-            tr("导出是把已经盘点好的文件打成一个压缩包，中途停下会留下半个包；这一项不支持取消。");
+            tr("导出会把整理好的文件打成一个压缩包，中途停止会留下不完整的包；这一项不支持取消。");
         break;
     case Tasks::TaskKind::Backup:
-        caps.cancelBlockedReason = tr("这一项在收尾时会发布结果，发布那一步不能打断。");
+        caps.cancelBlockedReason = tr("这一项正在发布结果，发布过程中不能取消。");
         break;
     case Tasks::TaskKind::Java:
         caps.cancelBlockedReason = tr("正在准备 Java 运行环境，完成后会自动继续；这一项不支持取消。");

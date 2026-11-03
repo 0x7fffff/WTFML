@@ -367,7 +367,7 @@ void VersionManager::finishModpackImport() {
     const auto cancelled = m_modpackOverridesCancelled;
     struct Result { QList<ModpackImport::FileIssue> issues; QString error; };
     const auto result = std::make_shared<Result>();
-    emit modpackImportMessage(tr("正在后台校验安装文件并保存收尾凭据（可取消，最多 900 秒）..."));
+    emit modpackImportMessage(tr("正在后台校验安装文件并保存安装凭据（可取消，最多 900 秒）..."));
     auto *watcher = new QFutureWatcher<void>(this);
     connect(watcher, &QFutureWatcher<void>::finished, this, [this, watcher, result, id] {
         watcher->deleteLater();
@@ -415,7 +415,7 @@ void VersionManager::commitModpackImport(const QList<ModpackImport::FileIssue> &
         QStringList details;
         for (const auto &issue : issues) details.append(ModpackInstallReport::description(issue));
         failModpackImport(tr("整合包仍不完整，已下载文件和覆盖内容均保留，没有标记为安装成功。\n\n%1"
-            "\n\n逐项清单：%2\n补齐后可在报告中点击“完成安装”；缺少有效阶段凭据的旧安装仍需原包同名继续导入。")
+            "\n\n逐项清单：%2\n补齐后可在报告中点击“完成安装”；缺少有效安装凭据的旧安装仍需原包同名继续导入。")
             .arg(details.join(QStringLiteral("\n\n")),
                  QDir::toNativeSeparators(AppPaths::versionDir(id) + QStringLiteral("/wtfml.import-report.json"))));
         return;
@@ -426,8 +426,8 @@ void VersionManager::commitModpackImport(const QList<ModpackImport::FileIssue> &
     // 撞过两次（见 InstanceFiles.hpp 里 recognized() 那段），所以这里宁可多问一句。
     const InstanceFiles::Resolved resolved = InstanceFiles::resolveInstance(id);
     if (!resolved.recognized()) {
-        failModpackImport(tr("文件都装好了，但 %1 没被认成一个实例（版本 json 没写对？）——"
-                             "列表里看不到它。整个目录在 %2，删掉那个目录再导入一次。")
+        failModpackImport(tr("文件已全部安装，但 %1 未被识别为实例（版本 json 有误？）——"
+                             "列表中将看不到它。整个目录位于 %2；请删除该目录后重新导入。")
                               .arg(id, AppPaths::versionDir(id)));
         return;
     }
@@ -668,7 +668,7 @@ void VersionManager::finishNamedInstance(const QString &parentId, const QString 
     emit versionDownloadFinished(
         id, true,
         id == parentId ? tr("原版 %1 已就绪。%2").arg(parentId, parentMessage)
-                       : tr("实例「%1」装好了（基于 %2）。%3").arg(id, parentId, parentMessage));
+                       : tr("实例「%1」安装完成（基于 %2）。%3").arg(id, parentId, parentMessage));
 }
 
 void VersionManager::failNamedInstance(const QString &reason) {

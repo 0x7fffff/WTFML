@@ -82,7 +82,7 @@ public:
     void setComposites(const QList<Composite> &presets);
     explicit PresetInstallPicker(QWidget *parent = nullptr);
 
-    /// 弹窗顶上那句「游戏版本 1.21.1 · Forge」（`loader` 为空 = 原版）。
+    /// 弹窗顶上那句「游戏版本 1.21.1 / Forge」（`loader` 为空 = 原版）。
     void setContext(const QString &gameVersion, const QString &loader);
 
     /// 把四类摆上去。**全量重建**（打开弹窗时调一次）。

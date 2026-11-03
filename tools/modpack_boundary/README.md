@@ -31,7 +31,7 @@ build/verification-mingw13/tests/wtfml_modpack_boundary.exe --root H:/.../现场
 跳过析构；第三步重新解析同一包、重新进入实际导入状态机。
 
 取消发生在目标目录创建前时，允许目录尚不存在；若目录已建立则必须保留未完成标记，不能有成功meta。
-最终必须终态成功、报告complete、meta与清单绑定阶段凭据存在、importing消失，且真实受限JAR大小/SHA-1匹配。
-使用独立的 `RestrictedBoundaryVerified` 实例；工具将清单SHA-256传入生产导入器，不能省略指纹后宣称阶段凭据通过。
+最终必须终态成功、报告complete、meta与清单绑定安装凭据存在、importing消失，且真实受限JAR大小/SHA-1匹配。
+使用独立的 `RestrictedBoundaryVerified` 实例；工具将清单SHA-256传入生产导入器，不能省略指纹后宣称安装凭据通过。
 540秒预算到期请求取消；系统I/O不返回仍是操作系统边界，外层运行应另设900秒上限。
 不自动删除现场；不读取其它启动器密钥，也不把测试包/模组二进制发布到仓库。

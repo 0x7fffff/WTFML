@@ -754,7 +754,7 @@ Result parseMultiMCInstance(const QByteArray &mmcPackJson, const QByteArray &ins
     QJsonParseError parseError;
     const QJsonDocument doc = QJsonDocument::fromJson(mmcPackJson, &parseError);
     if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
-        result.problem = QObject::tr("这份 mmc-pack.json 读不懂（%1）。这个文件可能坏了。")
+        result.problem = QObject::tr("这份 mmc-pack.json 无法解析（%1）。这个文件可能已损坏。")
                              .arg(parseError.errorString());
         return result;
     }
@@ -839,7 +839,7 @@ Result parseMultiMCInstance(const QByteArray &mmcPackJson, const QByteArray &ins
     if (gameVersion.isEmpty()) {
         result.problem = QObject::tr(
             "这是一个 MultiMC / Prism 的实例导出（有 mmc-pack.json），但里面没写它基于哪个 "
-            "Minecraft 版本（components 里没有 net.minecraft），装不了。");
+            "Minecraft 版本（components 里没有 net.minecraft），无法安装。");
         return result;
     }
     if (!customComponents.isEmpty()) {
@@ -1031,7 +1031,7 @@ Result parseModrinthIndex(const QByteArray &json, bool allowEmptyFiles) {
     QJsonParseError parseError;
     const QJsonDocument doc = QJsonDocument::fromJson(json, &parseError);
     if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
-        result.problem = QObject::tr("整合包清单读不懂（%1）。这个文件可能坏了。")
+        result.problem = QObject::tr("整合包清单无法解析（%1）。这个文件可能已损坏。")
                              .arg(parseError.errorString());
         return result;
     }
@@ -1052,7 +1052,7 @@ Result parseModrinthIndex(const QByteArray &json, bool allowEmptyFiles) {
     if (game != QLatin1String("minecraft")) {
         result.problem =
             game.isEmpty()
-                ? QObject::tr("这份 %1 里没写它是哪个游戏的整合包，装不了。")
+                ? QObject::tr("这份 %1 里没写它是哪个游戏的整合包，无法安装。")
                       .arg(modrinthIndexName())
                 : QObject::tr("这不是 Minecraft 的整合包：清单里写的是「%1」。").arg(game);
         return result;
@@ -1064,7 +1064,7 @@ Result parseModrinthIndex(const QByteArray &json, bool allowEmptyFiles) {
     if (gameVersion.isEmpty()) {
         result.problem = QObject::tr(
             "这份整合包的依赖表里没写它基于哪个 Minecraft 版本（dependencies.minecraft），"
-            "装不了。");
+            "无法安装。");
         return result;
     }
 
@@ -1302,7 +1302,7 @@ Result parseCurseForgeManifest(const QByteArray &json, bool allowEmptyFiles) {
     QJsonParseError parseError;
     const QJsonDocument doc = QJsonDocument::fromJson(json, &parseError);
     if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
-        result.problem = QObject::tr("整合包清单读不懂（%1）。这个文件可能坏了。")
+        result.problem = QObject::tr("整合包清单无法解析（%1）。这个文件可能已损坏。")
                              .arg(parseError.errorString());
         return result;
     }
@@ -1334,7 +1334,7 @@ Result parseCurseForgeManifest(const QByteArray &json, bool allowEmptyFiles) {
     const QString gameVersion = minecraft.value(QStringLiteral("version")).toString().trimmed();
     if (gameVersion.isEmpty()) {
         result.problem = QObject::tr(
-            "这份整合包的清单里没写它基于哪个 Minecraft 版本（minecraft.version），装不了。");
+            "这份整合包的清单里没写它基于哪个 Minecraft 版本（minecraft.version），无法安装。");
         return result;
     }
 
@@ -1466,7 +1466,7 @@ CurseForgeFiles parseCurseForgeFileInfo(const QByteArray &json, const QList<Pack
     const QJsonDocument doc = QJsonDocument::fromJson(json, &parseError);
     if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
         out.problem =
-            QObject::tr("CurseForge 的接口回了一句读不懂的话（%1）。").arg(parseError.errorString());
+            QObject::tr("CurseForge 的接口返回了无法解析的内容（%1）。").arg(parseError.errorString());
         return out;
     }
 
@@ -1665,7 +1665,7 @@ QHash<int, int> parseCurseForgeClassIds(const QByteArray &json, QString *problem
     QJsonParseError parseError;
     const QJsonDocument doc = QJsonDocument::fromJson(json, &parseError);
     if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
-        return fail(QObject::tr("CurseForge 的接口回了一句读不懂的话（%1）。")
+        return fail(QObject::tr("CurseForge 的接口返回了无法解析的内容（%1）。")
                         .arg(parseError.errorString()));
     }
     const QJsonValue data = doc.object().value(QStringLiteral("data"));

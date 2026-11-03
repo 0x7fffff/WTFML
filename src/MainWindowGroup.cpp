@@ -115,7 +115,7 @@ void MainWindow::openGroupDialogNow() {
         // 覆盖层刚被另一页占上了（正常走不到：入口已经先 `runWhenOverlayFree()` 让过位）。
         m_groupDialog = nullptr;
         dialog->deleteLater();
-        appendLog(tr("分组设置那一页没开成：覆盖层刚被另一页占上了。"));
+        appendLog(tr("无法打开分组设置：界面已被另一页占用。"));
     }
 }
 

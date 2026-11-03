@@ -161,7 +161,7 @@ void runErrorReportTests() {
         ErrorReport::text(full, now, QString(), QStringLiteral("[21:03:10] 一切正常\n"));
     check(noErrors.contains(QStringLiteral("错误与致命（共 0 行）")),
           "ZI2 没错误时那一段的标题照旧（写的是 0 行）");
-    check(noErrors.contains(QStringLiteral("这一趟没有 ERROR 以上的输出")),
+    check(noErrors.contains(QStringLiteral("本次没有 ERROR 及以上的输出")),
           "ZI2 而且明说「这一段里一行都没有」（不是空着）");
     check(noErrors.contains(QStringLiteral("[21:03:10] 一切正常")),
           "ZI2 日志那一段照旧在");

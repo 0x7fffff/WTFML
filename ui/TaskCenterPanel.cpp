@@ -256,7 +256,7 @@ public:
         }
         column->addLayout(titleRow);
 
-        // ---------- 第二行：小字（"正在下载资源对象 · 2.8 MB/s"） ----------
+        // ---------- 第二行：小字（"已下载 12 / 40  文件名"） ----------
         if (!item.detail.isEmpty()) {
             ElidedLabel *detail =
                 makeTextLabel(this, MainWindowUI::taskCenterPanelRowDetailName(index));
@@ -1241,11 +1241,6 @@ void TaskCenterPanel::rebuildDetail(const QList<TaskCenter::Item> &items) {
             auto *label = new QLabel(line, m_detailContent);
             layout->addWidget(label);
         }
-        auto *hint = new QLabel(tr("选择一项查看步骤和可用操作。"),
-                                m_detailContent);
-        hint->setWordWrap(true);
-        applyMutedFont(hint, -1);
-        layout->addWidget(hint);
         layout->addStretch(1);
         return;
     }

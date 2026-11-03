@@ -37,7 +37,7 @@
 
 namespace ManualRecovery {
 
-/// 一次「用旧目录换回来」要动的那两只目录。
+/// 一次「用旧目录替换」要动的那两个目录。
 struct Request {
     /// 数据根（游戏文件夹）。两个目录都必须落在它里面。
     QString gameRoot;

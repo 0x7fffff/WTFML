@@ -925,7 +925,7 @@ void InstallPageController::installClicked() {
         box.setNote(MainWindow::tr("应用前会把要改写的文件先备份到预设目录下的 backups/ 里。"));
         m_owner.m_ui->overlay()->execPrompt(&box);
         if (box.clickedIndex() != 0) {
-            m_owner.appendLog(MainWindow::tr("已取消这次安装（带预设的那一趟）。"));
+            m_owner.appendLog(MainWindow::tr("已取消这次带预设的安装。"));
             return;
         }
         m_owner.m_downloadCompletion->begin(name, pending, fingerprints);

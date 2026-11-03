@@ -88,7 +88,7 @@ Info read(const QString &path) {
     QJsonParseError parseError;
     const QJsonDocument document = QJsonDocument::fromJson(bytes, &parseError);
     if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
-        info.problem = QStringLiteral("metaData.json 读不懂（%1）").arg(parseError.errorString());
+        info.problem = QStringLiteral("metaData.json 无法解析（%1）").arg(parseError.errorString());
         return info;
     }
     const QJsonObject object = document.object();

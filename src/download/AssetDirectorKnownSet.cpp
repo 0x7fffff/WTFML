@@ -146,7 +146,7 @@ bool parse(const QByteArray &json, Manifest *out, QString *error) {
             }
             const QRegularExpression expression(pattern);
             if (!expression.isValid()) {
-                return fail(QStringLiteral("%1 的消费者匹配规则写坏了。").arg(set.id));
+                return fail(QStringLiteral("%1 的消费者匹配规则无效。").arg(set.id));
             }
             set.consumerPatterns.append(pattern);
         }

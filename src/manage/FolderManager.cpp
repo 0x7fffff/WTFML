@@ -376,9 +376,9 @@ bool moveToRecycleBin(const QString &path, QString *error) {
     operation->Release();
 
     if (FAILED(hr)) {
-        return fail(FolderManager::tr("没能把「%1」移进回收站：%2\n\n"
-                                      "（回收站不可用、放不下这么大的东西、或者里面的文件正被"
-                                      "别的程序占着 —— 先把游戏关掉再试。）")
+        return fail(FolderManager::tr("无法将「%1」移入回收站：%2\n\n"
+                                      "（原因可能是回收站不可用、空间不足，或其中的文件正被"
+                                      "其他程序占用；请先关闭游戏再试。）")
                         .arg(QDir::toNativeSeparators(target), systemMessage(hr)));
     }
     if (aborted != FALSE) {
@@ -388,7 +388,7 @@ bool moveToRecycleBin(const QString &path, QString *error) {
     }
     if (QFileInfo::exists(target)) {
         // 没报错、也没打断，东西却还在：不能当作删成功（调用方会照实说"还在"）。
-        return fail(FolderManager::tr("「%1」还在盘上 —— 回收站那一趟没有生效。")
+        return fail(FolderManager::tr("「%1」仍在磁盘上，移入回收站未生效。")
                         .arg(QDir::toNativeSeparators(target)));
     }
     return succeed();

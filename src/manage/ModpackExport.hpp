@@ -85,8 +85,7 @@ struct Spec {
 /// 拼出 `modrinth.index.json`（UTF-8，紧凑）。`files` 那一格**总是写出来**（空的也写）。
 ///
 /// NOTE: 空 `files` 在规范里是合法的（一个纯 overrides 的包），但**我们自己的解析器认
-/// 不下来**：`parseModrinthIndex` 在"一条文件都没有"时判整包无效
-/// （`src/manage/ModpackImport.cpp:379`）。所以调用方**不能**导出一个
+/// 不下来**：`parseModrinthIndex` 在"一条文件都没有"时判整包无效。所以调用方**不能**导出一个
 /// `spec.files` 为空的包 —— 那样出来的包我们自己都装不回去。一个都认不出来的
 /// 实例要照实说（"没认出任何资源，整包都会是 overrides"），由用户决定要不要继续。
 QByteArray buildModrinthIndex(const Spec &spec);
@@ -107,8 +106,7 @@ QByteArray buildIndexFile(const Spec &spec);
 ///
 /// 判据三条：路径非空、至少一个地址、`sha1` 与 `sha512` **两个都有**（规范原文是
 /// MUST）。为什么要卡哈希：清单里的 sha1 是安装时**唯一**的完整性判据 ——
-/// `DownloadManager::fileAlreadyValid()` 在 sha1 是空串时直接点头（见
-/// `src/download/DownloadManager.cpp:475`），于是半截文件也算"下好了"。
+/// `DownloadManager::fileBodyValid()` 在 sha1 是空串时直接点头，于是半截文件也算"下好了"。
 bool writableAsIndexFile(const MatchedFile &file);
 
 /// 加载器的键 → Modrinth 依赖表里那一行叫什么。纯原版（空键）返回空串 = 不写这一行。
@@ -347,7 +345,7 @@ using CurseForgeQuery = std::function<bool(const QList<quint32> &fingerprints,
  * @brief 这份清单「我们自己装得回来吗」= 清单里**有没有条目**。
  *
  * 空清单的包在规范里合法（一个纯 overrides 的包），但**我们自己的解析器一律拒收**
- * （Modrinth 那一侧见 `ModpackImport.cpp:379`，CF 那一侧见 `:597`）—— 所以调用点
+ * （Modrinth 那一侧见 `parseModrinthIndex`，CF 那一侧见 `parseCurseForgeManifest`）—— 所以调用点
  * 导出前必须拿它问一句：假的时候要给用户一句人话，而不是给出一个连自己都装不回来的包。
  * 用户手上那个包也可能是这么来的（别人的工具导的），那时候走的是导入方的话术，不归这里管。
  */
