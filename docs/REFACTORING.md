@@ -1868,4 +1868,22 @@ NOTE: `SupportCore.hpp` 里**没有 `Q_OBJECT`**。AUTOMOC 只给显式列进
 
 验证：完整重建通过（`-Werror`）；全套 ctest 39/39；`mw_check` 2766/2766（真屏）。
 
+## 2026-11-03 截止到点不再丢弃已完成、未派发的回复（V1）
+
+`net/ControlGet.hpp` 的截止定时器原先只看 `m_reply && !m_reply->isFinished()`：
+回复已经完成、只是 `finished` 信号还没派送到这一格时，定时器先跑会走 `else` 分支，
+用一句"等待网络请求超时"把一份完整正文丢掉，上层看到的是一次并不存在的网络失败。
+真实触发依赖同一轮事件循环里定时器与排队信号的先后，产品路径上没有确定复现。
+
+现在到点先分开三种状态：
+
+- 回复已完成（`isFinished()`）⇒ 按正常收尾把回复交出去，不改写、不 abort；
+- 回复在飞 ⇒ 照旧打 `kDeadlineExpiredProperty` 再 `abort()`；
+- 还没有回复（还在排额度）⇒ 才是真正的"等待网络请求超时"。
+
+验证：`tests/mw_check/RequestBudgetChecks.cpp` 新增一条确定性夹具 —— 假
+`QNetworkAccessManager` 返回一个到点前就 `setFinished(true)`、但**不发 `finished`** 的回复，
+把"完成但未派发"那一态钉住；判据要求回调拿到这份回复、正文可读、没有错误、没有超时标记，
+且 Control 额度已归还。旧实现在这一条上会把回复换成空指针 + 超时。
+
 
