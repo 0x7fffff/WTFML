@@ -352,6 +352,12 @@ public:
     /// 两参数那个版本 = 拿出厂默认那一档问一遍，留它是为了验证工程能按那个数钉边界。
     static bool mayIssueAnotherDownload(int activeCount, int queuedCount, int cap);
 
+    /// 这条作业**最终会打到哪个地址**上：首选地址那个主机正被降级、而这条作业知道备用
+    /// 地址时，就是备用地址（`startDownload()` 里那条"别等它慢 10 秒再退"的改道）。
+    /// 判断只有这一处 —— "发给谁"和"按哪个主机算并发"都问它，两边不会漂开。
+    static QString effectiveDownloadUrl(const QString &url, const QString &officialUrl,
+                                        bool mirrorDemoted);
+
     /// 一个**还没证明**自己走 HTTP/2 的主机，一次最多放几条在飞。
     ///
     /// 就是 Qt 对 HTTP/1.1 每主机（确切说是每 host:port）的连接上限。超过这个数的请求会被

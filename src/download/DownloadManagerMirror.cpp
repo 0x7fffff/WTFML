@@ -164,6 +164,14 @@ void DownloadManager::noteReroutedReplyOutcome(QNetworkReply *reply, bool succes
     }
 }
 
+QString DownloadManager::effectiveDownloadUrl(const QString &url, const QString &officialUrl,
+                                              bool mirrorDemoted) {
+    if (mirrorDemoted && !officialUrl.isEmpty() && officialUrl != url) {
+        return officialUrl;
+    }
+    return url;
+}
+
 bool DownloadManager::mirrorDemotedAt(qint64 nowMs, qint64 demotedUntilMs) {
     return demotedUntilMs != 0 && nowMs < demotedUntilMs;
 }
