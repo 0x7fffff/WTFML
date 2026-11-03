@@ -641,6 +641,34 @@ void runResourceCatalogTests() {
                   QStringLiteral("%1 条")
                       .arg(ModDependencies::requiredDependenciesOf(lookalikes).size()));
         }
+
+        // ⑦ ★ 同一版的前置清单里**同一个项目出现两次**（R7）：只留一条。
+        // 两发同钥匙的版本请求在 `ResourceStore` 那边第二发会把第一发掐掉、而且不回调；
+        // 调用方按条数等回信的话 `pending` 永远停在 1，这一趟永远收不了尾 ——
+        // 之后所有模组/光影安装都被挡着，直到重启。
+        {
+            ResourceCatalog::VersionEntry duplicated;
+            ResourceCatalog::Dependency repeated;
+            repeated.projectId = QStringLiteral("ccccccc3");
+            repeated.type = QStringLiteral("required");
+            ResourceCatalog::Dependency repeatedAgain = repeated;
+            ResourceCatalog::Dependency other;
+            other.projectId = QStringLiteral("ddddddd4");
+            other.type = QStringLiteral("required");
+            duplicated.dependencies = {repeated, repeatedAgain, other};
+
+            const QList<ModDependencies::Lookup> deduped =
+                ModDependencies::missingRequiredDependencies(duplicated, {}, target);
+            check(deduped.size() == 2 &&
+                      deduped.at(0).dependency.projectId == QStringLiteral("ccccccc3") &&
+                      deduped.at(1).dependency.projectId == QStringLiteral("ddddddd4"),
+                  "★ R7 同一项目出现两次时只留一条（顺序原样，第二发不会多发一把钥匙）",
+                  QStringLiteral("%1 条").arg(deduped.size()));
+            if (deduped.size() == 2) {
+                check(deduped.at(0).requestKey != deduped.at(1).requestKey,
+                      "★ R7 留下的两条钥匙互不相同（同一把钥匙的第二发会掐掉第一发）");
+            }
+        }
     }
 
     // 挑一版：钉了版本必须正好是那条、没钉取最新的一条；挑不出来要**说得出为什么**。
