@@ -27,6 +27,7 @@
  */
 
 #include "net/ControlGet.hpp"
+#include "launcher/ProcessPathLimit.hpp"
 #include "VersionManager.hpp"
 #include "VersionManagerInternals.hpp"
 
@@ -1468,7 +1469,8 @@ void VersionManager::onInstallerError(int processError) {
     }
     abortInstaller(tr("%1 的安装器起不来（那个 Java 进程没能启动）。\n"
                       "到「设置」里换一个 Java 试试。")
-                       .arg(m_loaderInstall.loaderName));
+                       .arg(m_loaderInstall.loaderName) +
+                   ProcessPathLimit::tooLongHint({m_installerProgram, m_installerTargetDir}));
 }
 
 void VersionManager::abortInstaller(const QString &reason) {

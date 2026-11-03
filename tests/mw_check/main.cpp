@@ -880,6 +880,10 @@ int main(int argc, char *argv[]) {
     // 每次跑只清**这一类的子目录**（不清整份）：每类各跑一次，几个目录都留在盘上；
     // 而"文件在不在"那条断言只认这一类的目录，上一跑的同名残留正好被这一清清掉。
     //
+    // 入口：**从实例设置里那颗「下载」进来**（和用户一样），不是直接把左栏拨到那一行。
+    // 理由见下面那一段（不是从实例进来的话，第三步会弹一个原生「下载到哪个文件夹」框，
+    // 这个探针点不掉它）。
+    //
     // 退出码：0 = 全绿；1 = 有断言红；2 = 网络这一关没过（搜索没结果/限流/超时，**不是**
     // 产品的错，别去改代码）；3 = 环境没搭起来（类名不认、控件找不齐、实例没选中）。
     if (argc >= 2 && QString::fromLocal8Bit(argv[1]) == QLatin1String("resource-live")) {
@@ -1097,7 +1101,58 @@ int main(int argc, char *argv[]) {
                       sourceCombo->currentData().toString());
             }
         }
-        categoryList->setCurrentRow(modIndex);
+        //
+        // 【为什么这一下走实例设置那颗「下载」而不是直接 setCurrentRow()】
+        //
+        // 点第三层那一下会走到 `ResourceInstallController::installNow()`，那里有一支：
+        // **这一次不是从实例设置点进来的**（`m_downloadReturn` 空）就弹一个
+        // 「下载到哪个文件夹」的**原生**目录框（见 LauncherSettings 里
+        // downloadAutoIntoInstance 那一节 —— 那是产品本来的行为，不是要绕开的错）。
+        // 原生框一开，这一节后面那套"泵事件循环 + 点掉提示"就再也拿不回控制权：
+        // 第一跑挂在 `QFileDialog::getExistingDirectory()` 里面出不来（gdb 的栈就是它），
+        // 而那个框不是 InlineMessageBox、`currentPrompt()` 根本看不见它。
+        // 所以这里**按用户那条路进来**：实例设置 → 模组页顶上那颗「下载新模组」，
+        // `openDownloadCategory()` 会把来路（`m_downloadReturn`）登记上 —— 于是下面点
+        // 版本时直接落进这个实例的 mods/，不再问存哪儿。这和 T25.2 走的是同一颗键。
+        bool openedSettings = false;
+        bool clickedDownload = false;
+        const auto openDownloadFromInstance = [&] {
+            OverlayHost *host = currentPageOverlay();
+            auto *page =
+                host != nullptr ? host->findChild<InstanceSettingsDialog *>() : nullptr;
+            if (page == nullptr) {
+                return;
+            }
+            openedSettings = true;
+            InstanceFilesPage *files = page->filesPage(key);
+            if (files == nullptr || files->downloadButton() == nullptr) {
+                return;
+            }
+            clickedDownload = true;
+            files->downloadButton()->click();
+        };
+        QMetaObject::invokeMethod(&liveWindow, "openInstanceSettings", Qt::DirectConnection,
+                                  Q_ARG(QString, instanceId));
+        openDownloadFromInstance();
+        // 收起来那一份对话框是 `deleteLater()` 收的：让它先落地，免得后面再开时
+        // `findChild<InstanceSettingsDialog *>()` 摸到这一份已经收起来的。
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        check(openedSettings && clickedDownload,
+              "从实例设置里点开「下载新模组」那颗键（这一路会把「装进哪个实例」记下来）",
+              QString("实例设置=%1 下载键=%2").arg(yesNo(openedSettings), yesNo(clickedDownload)));
+        if (!clickedDownload) {
+            // 没点着那颗键就往下走的话，第三步会弹出「下载到哪个文件夹」那个原生框，
+            // 这一节会**一直挂在那儿**（它收不掉）。宁可当场报环境没搭起来。
+            std::printf("!! 没点着「下载」那颗键（上面那条红了），这一节到此为止\n");
+            return 3;
+        }
+        // 翻页与选栏是排到下一轮事件循环的（见 continueOpenDownloadCategory 那段），
+        // 等它真的落在那一行上再往下敲搜索词。
+        const bool pageReady =
+            pumpUntil([categoryList, modIndex] { return categoryList->currentRow() == modIndex; },
+                      5000, &printed);
+        check(pageReady, "按实例那一页那颗「下载」进来，左栏选中了这一栏",
+              QString("选中行=%1 想要=%2").arg(categoryList->currentRow()).arg(modIndex));
         edit->setText(query);
         QMetaObject::invokeMethod(edit, "returnPressed", Qt::DirectConnection);
 

@@ -771,6 +771,62 @@ core-presets、core-toolbox 四分片全部通过（50.74s）。新增 LongPathT
 首次132350发现 ZIP 准备失败只报退出码；133637新增用例误传参数导致编译失败；134222发现
 扩展路径拼接 ZIP 的正斜杠会导致解压失败，统一物理分隔符后通过。失败报告均保留。
 
+2026-11-03 长路径补「安装 / 外部 Java」：先在本机做 Windows 起进程的探针，结论是
+**这条路上没有可做的修复，只有可做的解释**。本机 `LongPathsEnabled=0`（工程不允许改注册表
+冒充支持），`longPathAware` 清单单独不起作用：`CreateFileW` / `GetFileAttributesW` 带
+`\\?\` 前缀能打开超过 260 字符的路径；`CreateProcessW` 起超过 260 字符的 exe，裸路径、
+加 `\\?\`（161 / 206）、只给命令行三种写法全部失败；`SetCurrentDirectoryW("\\?\…")`
+失败（206），用相对路径起进程也不行；该卷没有 8.3 短名（`GetShortPathNameW` 原样返回长路径），
+「换成短名再起」这条退路也不存在。探针源码与清单资源留在 `build/tmp-probe/`（不入库）。
+因此产品侧只做了一件事：`src/launcher/ProcessPathLimit`（纯判据，`>=260` 个字符）在
+**`QProcess::FailedToStart` 之后**给用户补一句「哪条路径、多少个字符、上限 260、挪到浅目录」，
+覆盖游戏启动（程序 / `--gameDir` 工作目录）、服务端启动、加载器安装器、服务端安装器四处。
+**不做预检拦截**：换一台开了长路径的机器，超长路径也许起得来，预检会误杀本来能启动的实例。
+判据与提示的边界（259 / 260、挑最长那条、完整路径、本机分隔符）由 core-launch 的
+`ProcessPathLimitTests` 钉住（见 ZPL 一节）。
+
+2026-11-03 真屏 UI/DPI 巡检（当前系统 150%）：`build/tmp-desktop-extended-20261103/`
+三主题 × 两尺寸 × 十场景共 60 张截图全部保存成功（DPR=1.5，逻辑 DPI 96，可用区 1707×1019），
+secondary 文字调色板与当前主题 PlaceholderText 的失配数 0；四个主页/管理场景各一组受控 Tab
+遍历（`visitedControls=6`，焦点始终可见且可用）；任务中心选中行 1、可见流程步骤 4；
+工具箱/账号外观弹层截图（宽 322 / 264 px）落盘。背景图与「减少动态效果」仍按夹具强制，
+不是 Windows 设置的真实切换。抽查主页长文本、管理列表、设置窄屏、下载窄屏、活动中心，
+未见主控件遮挡；设置页截图顶部被切掉半行是第一组键盘遍历把内容区滚下去造成的，不是布局截断。
+100% / 125% 的复杂场景仍需人工切换显示缩放后补测（§6 暂缓）。
+
+2026-11-03 静态发布重建与软件渲染：同一份 `-O3` 静态单文件（`build/static-release`，
+`CMAKE_PREFIX_PATH=D:/Qt/static-6.10.1/install`）重建后 74,103,888 字节；
+`tools/prepare-release-copy.ps1` 去符号副本 43,707,356 字节（−30,396,532，−41.0%），
+导入清单 49 条与原件逐条相同（没有 Qt6*.dll / libstdc++ / libgcc / libwinpthread），
+见 `build/tmp-release-copy-20261103/release-copy.json`。原件比 11-01 那份大 572 KB（代码增长），
+去符号比例不变。这份副本**真启动过**：`tools/perf-startup.ps1` 三跑 visible 199–204 ms、
+ready 217–222 ms、无卡顿栈（`build/perf-runtime-20261103-200343/startup.json`）。
+软件渲染：`QT_OPENGL=software` + Windows 平台跑基础采集
+（`build/tmp-desktop-softwaregl-20261103/`），24 张全部保存、DPR=1.5、调色板失配 0，
+画面与硬件渲染一致。低端 GPU / 干净机器上的软件渲染与显卡驱动依赖仍未验，不能外推。
+
+2026-11-03 实网下载（本机当前无系统代理、无代理环境变量）：用产品自己的代码真跑了三条。
+① `mw_check icon-live 20`：搜索 833 ms 回 20 条，20 张图标 1884 ms 全部回来（空手 0），
+盘上落 webp 16 / png 4 共 206,963 字节；同一趟里再要一次 0 ms 同步回 20/20（一个请求不发）；
+带 `If-None-Match` 核对那一发 304、正文 0 字节、767 ms（盘上整图 759 字节）。
+② `mw_check cf-resolve-live`（默认 JEI 238222:8971390）：镜像
+`https://mod.mcimirror.top/curseforge/v1` 728 ms 换回 1 条，给出真实
+`edge.forgecdn.net` 地址与 sha1，没换到的三种计数都是 0。
+③ `mw_check resource-live mod` 22/22：真网络搜 sodium → 选 26.3 → 下载
+`sodium-fabric-0.9.3-beta.1+mc26.3.jar` 1,912,496 字节落进沙盒实例 `mods/`，弹「下载完成」。
+限速 / 代理这两层本机只有 core-downloads 的 `DownloadSpeedLimitTests` / `DownloadProxyTests`
+在本地夹具上通过；没有可用代理可试，**真代理链路与低速服务器矩阵仍未验**，§6 暂缓口径不变。
+另记一笔：同一条 `icon-live` 连跑两次，第一次搜索 15001 ms / 0 条、第二次 833 ms / 20 条，
+未再复现，既不记为通过也不当作回归。
+
+`resource-live` 这一节原来是把左栏直接拨到那一类。现在点第三层会走到
+`ResourceInstallController::installNow()`，**不是从实例设置点进来**时它会弹一个**原生**
+「下载到哪个文件夹」框（产品本来的行为，不是缺陷）。探针点不掉原生框：第一次跑在
+`ctest -j4` 同时进行时以 `std::system_error: Invalid argument` 终止（原因未定位，没有转储），
+第二次挂在 `QFileDialog::getExistingDirectory()` 里出不来（gdb 栈可查）。两跑日志都保留、
+都不算通过。现在这一节改成和用户一样从实例设置 → 模组页顶上那颗「下载新模组」进来
+（`openDownloadCategory()` 由此登记来路，第三步不再问存哪儿），22/22 全绿。
+
 2026-10-26 下载预算/低速比较：`20261026-135445-d6d0145f` 四个 network 集成分片全部通过
 （64.95s，包含完整分段补段/重启恢复回归）。新增 RequestBudgetChecks 独立归 download-retry：
 两个真实执行器在共享2个额度下完成12个文件，保留短请求不受大文件占满影响；测试额度收缩、

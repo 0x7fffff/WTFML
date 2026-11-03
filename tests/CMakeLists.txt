@@ -130,6 +130,10 @@ set(PROJECT_SOURCES
     ${REPO_ROOT}/src/launcher/LauncherManager.cpp
     ${REPO_ROOT}/src/launcher/LauncherManager.hpp
     ${REPO_ROOT}/src/launcher/LibraryRules.hpp
+    # 起进程那条 260 字符的路径墙：四个启动点都要调它，验证工程那一节只喂纯值
+    # （见 core_modules/ProcessPathLimitTests.cpp）。
+    ${REPO_ROOT}/src/launcher/ProcessPathLimit.cpp
+    ${REPO_ROOT}/src/launcher/ProcessPathLimit.hpp
     # DefaultSkin：离线名字 → 官方默认皮肤那张图（Java 那个 UUID.hashCode() 的实现、
     # 18 元表的下标、两套规矩各自的路径、缓存文件名怎么拼）。**这一份跑的是真 JAR** ——
     # 工程自己造一个假的版本目录 + 假 JAR（Compress-Archive），把"判据是 JAR、不是版本号"

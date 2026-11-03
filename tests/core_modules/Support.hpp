@@ -78,6 +78,9 @@
 #include "download/ServerInstall.hpp"
 #include "download/VersionCategory.hpp"
 #include "launcher/AsciiPathAlias.hpp"
+// 起进程那条 260 字符的路径墙（`CreateProcess` 对程序和当前目录都只有 MAX_PATH）。
+// 见 ZPL 那一节：纯判断，只用来给启动失败补一句人话，从不预检拦人。
+#include "launcher/ProcessPathLimit.hpp"
 #include "launcher/LauncherManager.hpp"
 #include "launcher/LibraryRules.hpp"
 #include "launcher/VersionArguments.hpp"
@@ -1129,6 +1132,16 @@ void runImageDecodeTests();
 // =========================================================================
 
 void runLaunchOptionsTests(const QString &sandbox);
+
+// ---------------------------------------------------------------------------
+// ZPL. 起进程那条 260 字符的路径墙（`ProcessPathLimit`）
+//
+// 这一层**只解释、不拦**：判断本身是纯的（长度 ≥ 260），用途只有一个 —— 在
+// `QProcess` 报 `FailedToStart` 之后给用户补一句「路径太长」。所以这里钉的是
+// 边界（259 不提示 / 260 提示）、挑最长的那条、以及"提示里一定是完整路径"。
+// 「这个判断有没有接到那四个启动点上」归 mw_check / 真机，不在这一节。
+// ---------------------------------------------------------------------------
+void runProcessPathLimitTests();
 
 // =========================================================================
 // ZH. 服务器列表：真的连上去问一句（Server List Ping / 状态协议）

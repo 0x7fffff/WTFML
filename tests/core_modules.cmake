@@ -136,8 +136,8 @@ wtfml_add_test(NAME wtfml.core-resources COMMAND verify_resources)
 set_tests_properties(wtfml.core-resources PROPERTIES LABELS "core;core-resources;ci-core" TIMEOUT 900 RUN_SERIAL TRUE)
 add_library(core_cases_launch OBJECT
  core_modules/LaunchOptionsTests.cpp
- core_modules/QuickPlayTests.cpp
- core_modules/ErrorReportTests.cpp
+ core_modules/ProcessPathLimitTests.cpp
+ core_modules/QuickPlayTests.cpp core_modules/ErrorReportTests.cpp
  core_modules/LaunchScriptExportTests.cpp
  core_modules/NativesMarkerTests.cpp
  core_modules/GameExitDiagnosisTests.cpp

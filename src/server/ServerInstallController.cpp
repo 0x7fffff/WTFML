@@ -28,6 +28,7 @@
 #include <QUrl>
 
 #include "../download/DownloadManager.hpp"
+#include "../launcher/ProcessPathLimit.hpp"
 #include "../net/ControlGet.hpp"
 #include "../net/HttpClient.hpp"
 #include "../util/AppPaths.hpp"
@@ -537,7 +538,8 @@ void ServerInstallController::beginInstaller() {
             return;
         }
         if (code == QProcess::FailedToStart) {
-            fail(QStringLiteral("安装器起不来：%1").arg(m_javaPath));
+            fail(QStringLiteral("安装器起不来：%1").arg(m_javaPath) +
+                 ProcessPathLimit::tooLongHint({m_javaPath, m_dir}));
         }
     });
 
