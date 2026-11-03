@@ -1357,6 +1357,10 @@ struct FakeResourceApi {
     /// 按**请求目标**数的次数（不按下标、不依赖回答次序 —— 并发下先后本来就不定）。
     int searchHits = 0;      ///< `/mods/search` 那一发
     int filesHits = 0;       ///< `/mods/{id}/files` 那一发
+    /// `POST /v1/mods`（批量问项目名）那一发。答的是 `{"data":[]}` —— 也就是**查询成功、
+    /// 但一条都没有**：详情页"前置名字"那条路（R3）要的正是这一档，它曾经回来一次就
+    /// 立刻再问一次。
+    int projectBatchHits = 0;
 
     bool start() {
         QObject::connect(&server, &QTcpServer::newConnection, &server, [this]() {
@@ -1391,16 +1395,35 @@ struct FakeResourceApi {
         const QList<QByteArray> headLines = buffer.left(headerEnd).split('\n');
         QString apiKey;
         QString target;
+        QByteArray method = QByteArrayLiteral("GET");
         for (const QByteArray &line : headLines) {
             const QByteArray trimmed = line.trimmed();
             if (trimmed.startsWith(QByteArrayLiteral("GET "))) {
+                target = QString::fromUtf8(trimmed.split(' ').value(1));
+            } else if (trimmed.startsWith(QByteArrayLiteral("POST "))) {
+                // 带正文的那一发（`POST /v1/mods` 批量问项目名）：只认请求行，正文不看。
+                method = QByteArrayLiteral("POST");
                 target = QString::fromUtf8(trimmed.split(' ').value(1));
             } else if (trimmed.toLower().startsWith(QByteArrayLiteral("x-api-key:"))) {
                 apiKey = QString::fromUtf8(trimmed.mid(10)).trimmed();
             }
         }
-        requests << QStringLiteral("GET ") + target + QStringLiteral(" HTTP/1.1");
+        requests << QString::fromUtf8(method) + QLatin1Char(' ') + target +
+                        QStringLiteral(" HTTP/1.1");
         apiKeys << apiKey;
+
+        if (method == QByteArrayLiteral("POST")) {
+            // 查询成功、结果为空（见 `projectBatchHits` 的注释）。
+            ++projectBatchHits;
+            const QByteArray empty = QByteArrayLiteral("{\"data\":[]}");
+            socket->write(QByteArrayLiteral("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                                            "Content-Length: ") +
+                          QByteArray::number(empty.size()) +
+                          QByteArrayLiteral("\r\nConnection: close\r\n\r\n") + empty);
+            socket->flush();
+            socket->disconnectFromHost();
+            return;
+        }
 
         const bool isSearch = target.contains(QStringLiteral("/mods/search"));
         if (isSearch) {
