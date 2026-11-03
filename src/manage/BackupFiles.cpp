@@ -653,12 +653,11 @@ WriteResult writeBackup(const Manifest &manifest, const QString &sourceDir,
     }
 
     QString error;
-    // **同一秒里打两份的时候名字是一样的**（`backupFileName()` 只精确到秒），
-    // 而 .NET 那边是 `ZipFile::Open($target,'Create')` —— 同名文件会被**截断重写**。
-    // 连着点两下「立即备份」，或者"还原前的安全快照"正好和用户点的那一份同秒，前一份就
-    // 这样被静默丢掉了（更糟：打包半路失败时 `ZipUtil::createZip()` 还会把目标删掉 ——
-    // 连"上一次那份好的"一起没）。所以落盘之前先找一个**没人占**的名字，并把实际路径
-    // 写回 `result.zipPath`（调用方弹窗和日志读的都是它，不是原来那个）。
+    // **同一秒里打两份的时候名字是一样的**（`backupFileName()` 只精确到秒），而发布那一步
+    // 是 `QFile::rename(pending, target)` —— 目标已经在了就发不出去。连着点两下「立即备份」，
+    // 或者"还原前的安全快照"正好和用户点的那一份同秒，不先找名字就会撞在这一步上（用户看到
+    // 的是"无法发布"，而前一份其实好好的）。所以落盘之前先找一个**没人占**的名字，并把实际
+    // 路径写回 `result.zipPath`（调用方弹窗和日志读的都是它，不是原来那个）。
     QString target = targetZip;
     if (QFileInfo::exists(target)) {
         const QFileInfo info(target);

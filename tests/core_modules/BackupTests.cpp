@@ -244,6 +244,22 @@ void runBackupTests() {
         QFile old(existingZip);
         check(stopped && old.open(QIODevice::ReadOnly) && old.readAll() == QByteArray("preserved"),
               "ZQ3 取消打包不删除原有文件");
+        // 目标已经存在、而这一趟**本来能打成功**：必须拒绝，而不是把旧文件盖掉。
+        // NOTE: 这一条放在 ZQ3 里面是因为它盯的正是"上一份好的备份"—— PowerShell 那一侧
+        // `ZipFile::Open($target,'Create')` 会把已有目标当场截成 0 字节，失败那一路又会把它
+        // 删掉；等出了事再看盘上就只剩"打包失败"和一份没了。
+        const QString occupiedZip = work + QStringLiteral("/occupied-target.zip");
+        const QString occupiedSource = work + QStringLiteral("/occupied-source.txt");
+        writeFileAt(occupiedZip, "keep-me");
+        writeFileAt(occupiedSource, "new-content");
+        QString occupiedProblem;
+        const bool overwritten = ZipUtil::createZip(
+            occupiedZip, {{QStringLiteral("x.txt"), occupiedSource}}, &occupiedProblem);
+        QFile keptZip(occupiedZip);
+        check(!overwritten && occupiedProblem.contains(QStringLiteral("已经存在")) &&
+                  keptZip.open(QIODevice::ReadOnly) &&
+                  keptZip.readAll() == QByteArray("keep-me"),
+              "ZQ3 目标已存在时拒绝打包，原有文件一个字节都不动", occupiedProblem);
     }
     {
         const QString changedSource = work + QStringLiteral("/changing-source");
