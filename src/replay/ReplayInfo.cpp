@@ -16,6 +16,9 @@
 #include <QJsonParseError>
 #include <QJsonValue>
 
+#include <cmath>
+#include <limits>
+
 namespace ReplayInfo {
 
 namespace {
@@ -33,7 +36,15 @@ QString textOf(const QJsonObject &object, const QString &key) {
 qint64 integerOf(const QJsonObject &object, const QString &key) {
     const QJsonValue value = object.value(key);
     if (!value.isDouble()) return -1;
-    return static_cast<qint64>(value.toDouble());
+    const double number = value.toDouble();
+    // 越界的 double 直接 static_cast<qint64> 是未定义行为（R16）：手改过的
+    // metaData.json 里写一个 `1e30` 就能走到这里。这种值一律当"不知道"（-1），
+    // 别让界面拿一个转出来的怪数去算时长 / 日期。
+    constexpr double kQint64Limit = 9223372036854775808.0;  // 2^63，double 恰好表得出来
+    if (!std::isfinite(number) || number < -kQint64Limit || number >= kQint64Limit) {
+        return -1;
+    }
+    return static_cast<qint64>(number);
 }
 
 }  // namespace
@@ -96,7 +107,11 @@ Info read(const QString &path) {
     info.singleplayer = single.isBool() ? single.toBool() : true;
     info.durationMs = integerOf(object, QStringLiteral("duration"));
     info.dateMs = integerOf(object, QStringLiteral("date"));
-    info.protocol = static_cast<int>(integerOf(object, QStringLiteral("protocol")));
+    // protocol 落在 int 里也要卡一下（qint64 里合法、int 里溢出的值以前是实现定义的）。
+    const qint64 protocolValue = integerOf(object, QStringLiteral("protocol"));
+    info.protocol = (protocolValue >= 0 && protocolValue <= std::numeric_limits<int>::max())
+                        ? static_cast<int>(protocolValue)
+                        : -1;
     const QJsonValue players = object.value(QStringLiteral("players"));
     if (players.isArray()) info.playerCount = players.toArray().size();
 

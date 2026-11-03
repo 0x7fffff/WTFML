@@ -550,7 +550,12 @@ int mainClassJavaMajor(const QString &versionId, const QString &mainClass) {
             tried << jarName;
             const QString jar = AppPaths::versionDir(ownerId) + QLatin1Char('/') + jarName;
             QByteArray bytes;
-            if (ZipUtil::readEntry(jar, entryName, &bytes) != ZipUtil::EntryStatus::Ok) {
+            // 只要头 8 个字节，但 readEntry() 一次给的是整个条目 —— 上限压到 1 MiB
+            // （R11）：class 文件再大也不会到这个数，而一个同名的巨无霸条目不该在每次
+            // 启动扫描时把内存和临时目录一起撑起来。
+            if (ZipUtil::readEntry(jar, entryName, &bytes, nullptr,
+                                   QStringLiteral("读客户端 JAR 里的主类"), 1024 * 1024) !=
+                ZipUtil::EntryStatus::Ok) {
                 continue;  // 这个 jar 里没有这个类（或者读不动）—— 换下一个
             }
             // class 文件的头 8 个字节：魔数(4) + 次版本(2) + 主版本(2)，都是大端。

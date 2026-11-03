@@ -538,6 +538,9 @@ ServerModel::Properties readProperties(const QString &serverId, QString *problem
         }
         return ServerModel::Properties{};
     }
+    // 按 UTF-8 解字节只是"文件本身怎么存"，**值的转义在 parseProperties() 里还原**
+    // （`\uXXXX` / `\\` / `\t` 这些，见 ServerModel.hpp 的 escapePropertyText 那段）——
+    // Minecraft 服务端按 Properties 那套读，值里的非 ASCII 早就被转义成 ASCII 了。
     const QString text = QString::fromUtf8(file.readAll());
     file.close();
     return ServerModel::parseProperties(text);
@@ -564,6 +567,9 @@ bool writeProperties(const QString &serverId, const ServerModel::Properties &pro
         }
         return false;
     }
+    // UTF-8 是**文件容器**的编码（注释行里可能有中文，那部分原样保留）；键和值里的
+    // 非 ASCII 由 `Properties::toString()` 转义成 `\uXXXX`，所以真正被游戏读的那部分全是
+    // ASCII —— `Properties.load(InputStream)` 那层按 ISO-8859-1 解也不会有问题（R9）。
     const auto bytes = properties.toString().toUtf8();
     if (file.write(bytes) != bytes.size()) {
         file.cancelWriting();

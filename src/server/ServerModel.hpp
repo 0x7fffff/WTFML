@@ -165,6 +165,133 @@ inline QString eulaFileText(bool accepted) {
 // ---------------------------------------------------------------------------
 
 /**
+ * @brief Java `Properties` 的转义（**写盘方向**）：`Properties::toString()` 拼 `key=value`
+ * 时对键和值各跑一遍。
+ *
+ * 为什么要转义：Minecraft 服务端用 `Properties.load(InputStream)` 读这份文件 —— 那一层
+ * 按 ISO-8859-1 解字节、再按 `\uXXXX` 还原字符。直接写 UTF-8 的中文在游戏里就是一串
+ * 乱码（中文 MOTD 坏掉正是这样），而 `\uXXXX` 无论读的一方按 ISO-8859-1 还是按 UTF-8
+ * 解字节，解析层都会还原成同一个字符，所以转义是两条路都对的写法。
+ *
+ * 转义范围 = "读回来必须还是同一个值"：`\`、控制字符、非 ASCII。键里另外还要转义
+ * `=` / `:` / `#` / `!`（前两个是分隔符、后两个是注释记号，出现在键里会把那一行劈开）。
+ *
+ * @param forKey 是不是在给键转义（决定要不要管那几个分隔符）。
+ */
+inline QString escapePropertyText(const QString &text, bool forKey) {
+    QString out;
+    out.reserve(text.size() + 8);
+    for (int i = 0; i < text.size(); ++i) {
+        const QChar ch = text.at(i);
+        const ushort code = ch.unicode();
+        switch (code) {
+        case '\\':
+            out += QStringLiteral("\\\\");
+            continue;
+        case '\t':
+            out += QStringLiteral("\\t");
+            continue;
+        case '\n':
+            out += QStringLiteral("\\n");
+            continue;
+        case '\r':
+            out += QStringLiteral("\\r");
+            continue;
+        case '\f':
+            out += QStringLiteral("\\f");
+            continue;
+        case '=':
+            if (forKey) {
+                out += QStringLiteral("\\=");
+                continue;
+            }
+            break;
+        case ':':
+            if (forKey) {
+                out += QStringLiteral("\\:");
+                continue;
+            }
+            break;
+        case '#':
+        case '!':
+            if (forKey && i == 0) {
+                out += QLatin1Char('\\');
+            }
+            break;
+        default:
+            break;
+        }
+        if (code < 0x20 || code > 0x7E) {
+            out += QStringLiteral("\\u");
+            out += QString::number(code, 16).rightJustified(4, QLatin1Char('0')).toUpper();
+        } else {
+            out += ch;
+        }
+    }
+    return out;
+}
+
+/**
+ * @brief Java `Properties` 的还原（**读盘方向**）：`parseProperties()` 对键和值各跑一遍。
+ *
+ * 认这几条：`\\` `\t` `\n` `\r` `\f`、`\uXXXX`，以及"反斜杠 + 任意字符 = 那个字符"
+ * （`\=`、`\:`、`\ ` 都属于这一条 —— 反斜杠的作用就是取消下一个字符的特殊含义）。
+ * 不认续行（见 `Properties` 那段 NOTE）。**不是**合法转义的（比如 `\u` 后面不够四位
+ * 十六进制）原样留着：宁可让它显示成一个反斜杠，也别把用户的字吃掉。
+ */
+inline QString unescapePropertyText(const QString &text) {
+    QString out;
+    out.reserve(text.size());
+    for (int i = 0; i < text.size(); ++i) {
+        const QChar ch = text.at(i);
+        if (ch != QLatin1Char('\\') || i + 1 >= text.size()) {
+            out += ch;
+            continue;
+        }
+        const QChar next = text.at(i + 1);
+        switch (next.unicode()) {
+        case 't':
+            out += QLatin1Char('\t');
+            ++i;
+            break;
+        case 'n':
+            out += QLatin1Char('\n');
+            ++i;
+            break;
+        case 'r':
+            out += QLatin1Char('\r');
+            ++i;
+            break;
+        case 'f':
+            out += QLatin1Char('\f');
+            ++i;
+            break;
+        case 'u': {
+            bool ok = false;
+            uint code = 0;
+            if (i + 6 <= text.size()) {
+                code = text.mid(i + 2, 4).toUInt(&ok, 16);
+            }
+            if (ok) {
+                // 非 BMP 的字符在 Java 里就是两个 `\uXXXX`（代理对），这里一格一格还原，
+                // QString 自己会拼成一对 —— 和 Java 那边逐格的过程一模一样。
+                out += QChar(static_cast<char16_t>(code));
+                i += 5;
+            } else {
+                out += ch;  // 不合法的转义原样留着
+            }
+            break;
+        }
+        default:
+            out += next;  // `\=`、`\:`、`\ `、`\\` …：反斜杠只用来取消下一个字符的特殊含义
+            ++i;
+            break;
+        }
+    }
+    return out;
+}
+
+/**
  * @brief 一份 `server.properties`：**保序**的 key/value，外加原样的注释与空行。
  *
  * 为什么要"保序 + 留注释"：这一页有两种编辑方式（表单 / 原始文本），而两种都要能
@@ -173,7 +300,9 @@ inline QString eulaFileText(bool accepted) {
  * 那些行才带 key/value，其余（注释、空行、看不懂的行）原样留着，`toString()` 时照旧吐出去。
  *
  * NOTE: 判据和 Java 的 Properties 对齐到"够用"为止：`key=value` / `key:value`、`#` 与 `!`
- * 开头是注释、两侧空白裁掉。**不**做转义与续行（Minecraft 自己那份文件里没有）。
+ * 开头是注释、两侧空白裁掉；**转义照 Java 那套还原/写出**（`\uXXXX`、`\\`、`\t` 这些，
+ * 见 escapePropertyText / unescapePropertyText —— 中文 MOTD 能不能在游戏里显示对，
+ * 全靠这一层）。**不**做续行处理（Minecraft 自己那份文件里没有）。
  */
 struct Properties {
     /// 一"行"。`key` 空 = 这一行原样保留（注释 / 空行 / 看不懂的）。
@@ -214,10 +343,17 @@ struct Properties {
         return false;
     }
 
-    /// 改/加一项（改的是**第一个**出现的同名键；没有就追加到末尾）。返回是否真的改动了。
+    /// 改/加一项（没有就追加到末尾）。返回是否真的改动了。
+    ///
+    /// 看的是**最后一个**同名键，而且大小写不敏感 —— 两处都必须和 value()/contains() 一致：
+    /// · 大小写：用户手写的 `Server-Port=` 也是同一个键，否则表单里改完、value() 读回来
+    ///   还是老值；
+    /// · 最后一个：Java Properties 的规矩是后面的盖前面的，value() 读的也是最后那一个。
+    ///   改第一个的话，文件里那一对重复键的**生效值**根本没变（R16）。
     bool setValue(const QString &key, const QString &newValue) {
-        for (Line &line : lines) {
-            if (!line.key.isEmpty() && line.key == key) {
+        for (int index = lines.size() - 1; index >= 0; --index) {
+            Line &line = lines[index];
+            if (!line.key.isEmpty() && line.key.compare(key, Qt::CaseInsensitive) == 0) {
                 if (line.value == newValue) {
                     return false;
                 }
@@ -240,7 +376,11 @@ struct Properties {
             if (line.key.isEmpty()) {
                 out += line.raw;
             } else {
-                out += line.key + QLatin1Char('=') + line.value;
+                // 键和值都按 Java Properties 的规矩转义（非 ASCII 写成 `\uXXXX`，
+                // 见 escapePropertyText 那段）。没动过的纯 ASCII 行转义前后逐字一样，
+                // 所以"解了再写出去逐字不变"那条仍然成立。
+                out += escapePropertyText(line.key, true) + QLatin1Char('=') +
+                       escapePropertyText(line.value, false);
             }
             out += line.cr ? QStringLiteral("\r\n") : QStringLiteral("\n");
         }
@@ -274,20 +414,31 @@ inline Properties parseProperties(const QString &text) {
             props.lines.append(out);
             continue;
         }
-        int sep = trimmed.indexOf(QLatin1Char('='));
-        const int colon = trimmed.indexOf(QLatin1Char(':'));
-        if (sep < 0 || (colon >= 0 && colon < sep)) {
-            sep = colon;
+        // 分隔符是**第一个没有被转义**的 `=` 或 `:`（Java 的规矩）。`\=` 是"键里就有一个
+        // 等号"，不能拿来劈开这一行 —— 写的一边把键里的 `=` / `:` 转义了（见
+        // escapePropertyText），读的一边不认转义的话，那个键写出去就再也读不回来。
+        int sep = -1;
+        for (int i = 0; i < trimmed.size(); ++i) {
+            const QChar ch = trimmed.at(i);
+            if (ch == QLatin1Char('\\')) {
+                ++i;  // 跳过被转义的那一格（`\\` 也在这里一起跳过）
+                continue;
+            }
+            if (ch == QLatin1Char('=') || ch == QLatin1Char(':')) {
+                sep = i;
+                break;
+            }
         }
         if (sep <= 0) {
             out.raw = line;
             props.lines.append(out);
             continue;
         }
-        out.key = trimmed.left(sep).trimmed();
-        out.value = trimmed.mid(sep + 1).trimmed();
+        out.key = unescapePropertyText(trimmed.left(sep).trimmed());
+        out.value = unescapePropertyText(trimmed.mid(sep + 1).trimmed());
         // NOTE: 这里把原值两侧的空白裁掉是刻意的（写回去时由 toString() 重新拼 `key=value`）；
         // 换行那一位**没有**裁掉（走 out.cr），所以"没改过的文件解了再写"仍是逐字一样。
+        // 转义在裁空白**之后**还原：值里的 `\uXXXX` 解开是普通字符，不影响两端的裁法。
         props.lines.append(out);
     }
     return props;

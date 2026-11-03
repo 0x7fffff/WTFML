@@ -1203,10 +1203,13 @@ void VersionManager::writeLegacyProfile(const QJsonObject &parentJson) {
     }
 
     // 它 jar 里那颗 universal jar（真实安装器会把它摆进 libraries/，我们照摆）。
+    // 上限 64 MiB（R11）：老版本 Forge 的 universal jar 有十几 MB，而默认重载的上限
+    // （16 MiB）对它是紧的；64 MiB 既装得下真货，也挡得住"同名条目是个几 GB 的炸弹"。
     QByteArray universal;
     const ZipUtil::EntryStatus universalStatus = ZipUtil::readEntry(
         m_loaderInstall.installerPath, plan.universalEntry, &universal, &error,
-        tr("读 %1 里的 %2").arg(m_loaderInstall.installerFileName, plan.universalEntry));
+        tr("读 %1 里的 %2").arg(m_loaderInstall.installerFileName, plan.universalEntry),
+        64LL * 1024 * 1024);
     if (universalStatus != ZipUtil::EntryStatus::Ok) {
         failWithProblem(universalStatus == ZipUtil::EntryStatus::NotFound
                             ? tr("jar 里没有 %1 这个文件").arg(plan.universalEntry)

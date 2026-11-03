@@ -321,13 +321,17 @@ Snapshot create(const QString &instanceDir, const QString &instanceId,
                 return Snapshot{};
             }
             entry.existed = true;
-            entry.size = info.size();
-            entry.sha1 = sha1OfFile(source);
+            // ★ 大小和 sha1 都量**抄下来的那一份**（target），不是源文件（R16）。清单里记的
+            // 是"回滚点里躺着的那份字节"，还原时对的就是它 —— 记成源文件的摘要，等于让
+            // 一次抄坏的副本也能通过清单，到真要退回来的时候才发现不对。
+            const QFileInfo copyInfo(target);
+            entry.size = copyInfo.size();
+            entry.sha1 = sha1OfFile(target);
             // 抄下来这一份自己读不动 = 这一份回滚点靠不住（"能退回来"这句话要能兑现）。
-            if (entry.sha1.isEmpty()) {
+            if (entry.sha1.isEmpty() || entry.size != info.size()) {
                 if (problemOut != nullptr) {
-                    *problemOut = QObject::tr("抄下来的「%1」读不回来，这一份回滚点不敢用。")
-                                      .arg(QDir::toNativeSeparators(source));
+                    *problemOut = QObject::tr("抄下来的「%1」读不回来或者不完整，这一份回滚点不敢用。")
+                                      .arg(QDir::toNativeSeparators(target));
                 }
                 restorePrevious();
                 return Snapshot{};

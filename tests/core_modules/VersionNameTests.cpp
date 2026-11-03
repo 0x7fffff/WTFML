@@ -143,6 +143,19 @@ int runVersionNameTests(const QString &sandbox) {
               "I3 截断点落在空格上时不留尾随空格",
               QString("[%1] size=%2").arg(cutOnSpace.right(5)).arg(cutOnSpace.size()));
 
+        // 截断点**落在代理对中间**：第 64 格是 emoji 的高位、第 65 格是低位。直接
+        // truncate(64) 会留下一个孤立的代理项（画出来是方块）。R16。
+        p.customName = QString(63, QLatin1Char('x')) + QChar(0xD83D) + QChar(0xDE00)
+                       + QString(10, QLatin1Char('y'));
+        const QString cutSurrogate = formatVersionName(p, customOnly);
+        check(cutSurrogate.size() == 63 &&
+                  !cutSurrogate.at(cutSurrogate.size() - 1).isHighSurrogate(),
+              "★★ R16 截断点落在代理对中间时退回一格（不留孤立的代理项）",
+              QStringLiteral("size=%1 last=U+%2")
+                  .arg(cutSurrogate.size())
+                  .arg(cutSurrogate.isEmpty() ? 0 : cutSurrogate.at(cutSurrogate.size() - 1).unicode(),
+                       4, 16, QLatin1Char('0')));
+
         // 截断后拼上其他段，不能出现 " -" 这种带空格的连接
         p.customName = QString(63, QLatin1Char('x')) + QLatin1Char(' ') + QString(50, QLatin1Char('y'));
         VersionNameOptions twoSegs;

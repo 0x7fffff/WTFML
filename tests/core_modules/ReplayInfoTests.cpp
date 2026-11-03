@@ -138,6 +138,32 @@ void runReplayInfoTests() {
               "RP3 文件不存在", absent.problem);
     }
 
+    // ---------- RP5. 越界的数字当"不知道"（R16） ----------
+    //
+    // metaData.json 是能手改的。1e30 这种值 double→qint64 是未定义行为（转出来的数
+    // 谁也说不准），以前它会直接变成 durationMs / dateMs；protocol 还会再被截进 int。
+    {
+        const QString path = makeReplay(QStringLiteral("huge.mcpr"), QByteArray(R"({
+            "mcversion": "1.20.1",
+            "duration": 1e30,
+            "date": -1e30,
+            "protocol": 1e30
+        })"));
+        if (!path.isEmpty()) {
+            const ReplayInfo::Info info = ReplayInfo::read(path);
+            check(info.ok, "RP5 前提：元数据本身读得出来");
+            check(info.durationMs == -1 && info.dateMs == -1 && info.protocol == -1,
+                  "★★ R16 越界的数字一律当「不知道」（-1），不拿 static_cast 出来的怪数去显示",
+                  QStringLiteral("时长=%1 日期=%2 协议=%3")
+                      .arg(info.durationMs).arg(info.dateMs).arg(info.protocol));
+            // 那一行里不许出现负数转出来的怪时长 / 怪日期。
+            const QString summary = ReplayInfo::summaryText(info);
+            check(!summary.contains(QStringLiteral("小时")) &&
+                      !summary.contains(QStringLiteral("秒")),
+                  "RP5 越界的时长不进那一行摘要", summary);
+        }
+    }
+
     // ---------- RP4. 单纯的格式化那几格 ----------
     {
         check(ReplayInfo::durationText(-1).isEmpty(),
