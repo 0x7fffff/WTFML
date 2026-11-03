@@ -443,6 +443,7 @@ set(SOURCE_FILES
     src/settings/LauncherSettings.cpp
     src/download/DownloadManager.cpp
     src/download/DownloadManagerRecovery.cpp
+    src/download/DownloadManagerLocalReuse.cpp
     src/download/DownloadManagerMirror.cpp
     src/download/DownloadManagerThrottle.cpp
     src/download/DownloadManagerSegmented.cpp

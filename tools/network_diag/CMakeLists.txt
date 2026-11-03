@@ -1,6 +1,7 @@
 add_library(wtfml_network_diag_core STATIC
     ../../src/download/DownloadManager.cpp ../../src/download/DownloadManager.hpp
     ../../src/download/DownloadManagerRecovery.cpp
+    ../../src/download/DownloadManagerLocalReuse.cpp
     ../../src/download/DownloadManagerMirror.cpp
     ../../src/download/DownloadManagerThrottle.cpp
     ../../src/download/DownloadManagerSegmented.cpp

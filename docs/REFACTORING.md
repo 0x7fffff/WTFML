@@ -1787,3 +1787,25 @@ R16 四小项：
 
 验证：完整重建通过（`-Werror`），全套 ctest 39/39；随后只删了一个未使用的 include
 并重建通过；`mw_check` 2758/2758（真屏）。
+
+## 2026-11-03 `DownloadManager` 再拆出「本地复用与预检队列」这一层
+
+下载之前"先问盘"的那两条线（从别的游戏文件夹借文件、整份核对与原件指纹）原先和网络
+调度挤在同一个文件里。它们的状态只被自己那一组函数动，搬走不牵动网络主链：
+
+- 新翻译单元 `src/download/DownloadManagerLocalReuse.cpp`：`continueAfterPrecheck`、
+  `pumpReuseQueue`、`onReuseFinished`、`clearReuseJobs`、`precheckReadsFileBody`、
+  `pumpPrecheckQueue`、`onPrecheckFinished`、`clearPrecheckJobs`；两条队列、取消令牌与
+  代次仍声明在 `DownloadManager.hpp`，跨翻译单元只经由成员函数；
+- `pumpReuseQueue` 里原来是 `m_reuseActive < kMaxReuseWorkers`，搬出去后改成
+  `m_reusePool->maxThreadCount()` —— 池子的上限本来就是构造函数按同一个常量设的，
+  不再把 `4` 抄成两份；
+- `DownloadManager.cpp` 顺手删掉已无人使用的 `QRunnable` include；
+- 源文件表同步登记（顶层 `CMakeLists.txt`、`tests/CMakeLists.txt`、
+  `tools/network_diag/CMakeLists.txt`）；`tools/perf_download` 另外补回了此前四次拆分
+  漏登记的几个翻译单元与 `TokenStore` / `InstanceFiles` / `VersionInheritance` /
+  `ZipUtil`，这个默认 OFF 的工具重新可以链接。
+
+验证：完整重建通过（`-Werror`）；搬走的函数体与原文逐字比对，唯一差异就是上面那处
+`maxThreadCount()`；全套 ctest 39/39；`mw_check` 2758/2758（真屏）；
+`WTFML_PERF_DOWNLOAD=ON` 的独立配置下 `WTFMLPerfDownload` 链接通过。
