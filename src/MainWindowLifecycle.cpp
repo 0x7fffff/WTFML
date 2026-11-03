@@ -218,10 +218,23 @@ void MainWindow::closeEvent(QCloseEvent *event) {
             // gracefulStopMs()` —— 模组越多、存档越大，给的越宽）。这一句是阻塞的：
             // 界面在这几秒里不动。选择让它静态地等，是因为另一种做法（发完 stop 就让
             // 析构去杀）等于是**把这一问白问了** —— 那正是丢存档的那条路。
-            for (const QString &id : serverIds) {
-                m_serverWorkspace->stopAndWait(id);
+            // R14：等完要看结果。`stopAndWait()` 回 false 的意思是**没能按正常那条路停下来**
+            // （stop 那一句写不进去，或者宽限期过了进程还在 —— 两种都走了强杀，强杀也不一定
+            // 成功）。无条件说"已经停下来"等于替用户保管了一句不成立的承诺，而那句话背后
+            // 是"存档写完了没有"。
+            QStringList notStopped;
+            for (int index = 0; index < serverIds.size(); ++index) {
+                if (!m_serverWorkspace->stopAndWait(serverIds.at(index))) {
+                    notStopped.append(names.at(index));
+                }
             }
-            appendLog(tr("已关掉启动器，服务端已经停下来。"));
+            if (notStopped.isEmpty()) {
+                appendLog(tr("已关掉启动器，服务端已经停下来。"));
+            } else {
+                appendLog(tr("已关掉启动器，但服务端没能正常停下来：%1。"
+                             "最后那一小段存档可能没来得及写完。")
+                              .arg(notStopped.join(QStringLiteral("、"))));
+            }
         } else {
             // 交出去：脱离所有权（`ServerProcess::detach()` 里那段说明），启动器退了它们
             // 照样在系统里跑。
