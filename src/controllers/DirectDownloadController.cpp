@@ -283,7 +283,7 @@ bool DirectDownloadController::cancel(Tasks::TaskId id) {
     }
     if (id != m_task || !m_running || m_download == nullptr) return true;
     const auto reportUnstoppable = [this]() {
-        m_status = tr("已经进入收尾（校验 / 写盘），这一步停不下来，等它写完。");
+        m_status = tr("正在校验并写入文件，此步骤无法取消。");
         if (m_dialog) m_dialog->status->setText(m_status);
         if (m_activity != nullptr) m_activity->tasks()->setDetail(m_task, m_status);
     };

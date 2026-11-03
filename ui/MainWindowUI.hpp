@@ -658,7 +658,7 @@ public:
         // 它自己有一句；漏了这一条就会掉到下面「游戏」那一句上，页头说的和这一页
         // 能干的完全不是一回事。
         if (index == downloadCategoryServerIndex()) {
-            return QStringLiteral("新建一个服务端；装好之后在「管理 → 服务端」里启动和看控制台");
+            return QStringLiteral("新建服务端；安装完成后可在「管理 → 服务端」中启动并查看控制台");
         }
         const QString hint = downloadSearchHint(index);
         if (!hint.isEmpty()) {
@@ -730,8 +730,7 @@ public:
     /// 这一页上，找不到刚才那个东西。
     static QString downloadServerHintName() { return QStringLiteral("downloadServerHint"); }
     static QString downloadServerHintText() {
-        return QStringLiteral("服务端装好之后会出现在「管理 → 服务端」那一页：启动、看控制台、"
-                              "改设置都在那儿。");
+        return QStringLiteral("安装完成后会出现在「管理 → 服务端」：启动、控制台和设置都在那里。");
     }
     /// 「新建服务端…」那一颗。**和实例页那颗是同一个动作**（同一串字、同一条路），
     /// 只是换个入口；字直接复用 `newServerText()`，别在这儿再写一遍。
@@ -764,9 +763,9 @@ public:
     // ---- 后面那几页的那几张资源表（整合包 / 模组 / 数据包 / 资源包 / 光影）----
     //
     // 每页两样东西：一个搜索框 + 一棵**三层**树。三层依次展开：
-    // 第一层 资源（图标 + 名字 + 「作者 · 下载量」）→ 点开
+    // 第一层 资源（图标 + 名字 + 「加载器 / 下载量 / 更新时间 / 来源」）→ 点开
     // 第二层 游戏版本 → 点开（这时才去问接口）→
-    // 第三层 版本号（文件名 + 「release · 日期 · 加载器」）→ 点它 = 下它
+    // 第三层 版本号（文件名 + 加载器、下载量、更新时间、发布渠道）→ 点它 = 下它
     // 三层用的是**上一页那两棵树的同一个代理**，所以长得一样。
     //
     // 控件的名字按分类键拼（`modTree` / `shaderSearchEdit` 这种）：这几页的控件一模一样、
@@ -1167,7 +1166,7 @@ public:
     /// 说的是"**盘上真的一条都没有**"）。平时收着，列表空着时才露。
     static QString serverEmptyLabelName() { return QStringLiteral("serverEmpty"); }
     static QString serverEmptyText() {
-        return QStringLiteral("还没有服务端。点下面的「新建服务端…」装一个。");
+        return QStringLiteral("还没有服务端。点下方的「新建服务端…」创建。");
     }
     /// 「新建服务端…」那一颗（正文面底部）。**是造一个新东西出来**，不是改已有的 ——
     /// 所以它是这一页的主操作，摆在列表下面、整栏宽。
@@ -1247,7 +1246,7 @@ public:
         case ServerMenuAction::Settings:
             return QStringLiteral("服务端设置…");
         case ServerMenuAction::Repair:
-            return QStringLiteral("修复（重新装一遍）");
+            return QStringLiteral("修复（重新安装）");
         case ServerMenuAction::ForceKill:
             return QStringLiteral("强制结束");
         case ServerMenuAction::RestartOnCrash:
@@ -1322,7 +1321,7 @@ public:
     }
     /// 简介是空的时候预览盘上摆什么（不摆空白 —— 空白看起来像"预览坏了"）。
     static QString serverSettingsMotdEmptyText() {
-        return QStringLiteral("（空的 —— 服务器列表那一行会是空白）");
+        return QStringLiteral("（为空：服务器列表中的该行显示为空白）");
     }
     /// 「资源包 SHA-1」那一格旁边那颗「选择本地 zip…」。
     static QString serverSettingsPickZipButtonName() {
@@ -1429,32 +1428,24 @@ public:
     /// NOTE: "在跑所以改不了"那一句不在这一组里（`serverSettingsRunningNote()`）—— 那个是
     /// "整页只读"的原因，不是保存带自己的状态。
     static QString serverSettingsDirtyFieldsNote(int count) {
-        return QStringLiteral("改了 %1 项，保存后写进 server.properties。")
-            .arg(count);
+        return QStringLiteral("已修改 %1 项，保存后写入 server.properties。").arg(count);
     }
     static QString serverSettingsDirtyRawNote() {
-        return QStringLiteral("原始文本动过 —— 保存之后整份写回去。");
+        return QStringLiteral("原始文本已修改，保存时整份写回。");
     }
     static QString serverSettingsDirtyBothNote(int count) {
-        return QStringLiteral("改过 %1 项，原始文本也动过 —— 保存时合成一份写回去。").arg(count);
+        return QStringLiteral("已修改 %1 项，原始文本也已修改，保存时合并写入。").arg(count);
     }
-    static QString serverSettingsCleanNote() { return QStringLiteral("没改过什么。"); }
-    static QString serverSettingsSavedNote() { return QStringLiteral("已经保存好了。"); }
+    static QString serverSettingsCleanNote() { return QStringLiteral("没有改动。"); }
+    static QString serverSettingsSavedNote() { return QStringLiteral("已保存。"); }
     /// 服务端在跑时整页只读的那句原因（`setEditable(false, …)` 收的就是它）。
     static QString serverSettingsRunningNote() {
-        return QStringLiteral("服务端正在跑，停下来才改得动 —— 它退出时会把自己内存里那份写回"
-                              "盘上，现在改的会被盖掉。");
-    }
-    /// 顶上状态那行字的尾巴（在跑时挂上去）。
-    static QString serverSettingsRunningStatusSuffix() {
-        return QStringLiteral("（正在跑 —— 先停下来才能改）");
+        return QStringLiteral("服务端正在运行，停止后才能修改。");
     }
 
-    /// 「原始文本」那一页顶上那句（这一页不重排、不整理的说明）。
+    /// 「原始文本」那一页顶上那句（只留布局说明不了的那条：表单改动会先合并进来）。
     static QString serverSettingsRawNoteText() {
-        return QStringLiteral(
-            "server.properties 全文，按盘上那一份原样显示。\n"
-            "「常用设置」里改过的项会先合进来。");
+        return QStringLiteral("「常用设置」里改过的项会先合并进来。");
     }
 
     /// 备份那一列的三格。**唯一出处**（表的列数、每列标题都读它）。
@@ -1513,12 +1504,8 @@ public:
         return disabled ? QStringLiteral("已禁用（不加载）") : QStringLiteral("启用中");
     }
     /// 这一页顶上那句说明（哪个文件夹、禁用是什么意思、在跑时为什么改了也不生效）。
-    static QString serverSettingsContentNoteText(int kind, const QString &folder, bool running) {
-        QString text = kind == 1
-                           ? QStringLiteral("这一页读写世界目录下的 datapacks 文件夹（%1）。")
-                                 .arg(folder)
-                           : QStringLiteral("这一页读写服务端目录下的 mods 文件夹（%1）。")
-                                 .arg(folder);
+    static QString serverSettingsContentNoteText(const QString &folder, bool running) {
+        QString text = QStringLiteral("文件夹：%1").arg(folder);
         text += QStringLiteral("\n禁用只改后缀为 .disabled，文件内容不变；再点「启用」即可恢复。");
         if (running) {
             text += QStringLiteral("\n服务端正在跑：现在改它也不会加载，重启服务端之后才生效。");
@@ -1578,10 +1565,10 @@ public:
             text += QStringLiteral("过期的条目服务端下次启动时会自己清掉。");
         }
         if (running) {
-            text += QStringLiteral("\n服务端正在跑 —— 它退出时会把内存里那份名单写回来，"
-                                   "所以这一页现在改不了。")
-                    + QStringLiteral("\n「踢出…」不一样：它把一条 kick 命令送进正在跑的服务端，"
-                                     "结果会回显在控制台里。");
+            text += QStringLiteral("\n服务端正在运行：它退出时会把内存中的名单写回磁盘，"
+                                   "所以这一页现在无法修改。")
+                    + QStringLiteral("\n「踢出…」不受影响：它向正在运行的服务端发送 kick 命令，"
+                                     "结果显示在控制台里。");
         }
         return text;
     }
@@ -1595,7 +1582,7 @@ public:
      */
     static QString serverCheckActionText(const QString &token) {
         if (token == QStringLiteral("reinstall")) {
-            return QStringLiteral("修复（重新装一遍）");
+            return QStringLiteral("修复（重新安装）");
         }
         if (token == QStringLiteral("accept-eula")) {
             return QStringLiteral("同意 EULA…");
@@ -2235,7 +2222,7 @@ public:
         return QString();
     }
 
-    /// 起止那两个时间怎么写成一行（"19:42 开始 · 19:48 结束"）。两样都没有时回空串
+    /// 起止那两个时间怎么写成一行（"19:42 开始 / 19:48 结束"）。两样都没有时回空串
     /// （这一页那一行就收起来，不留一行空白）。
     ///
     /// NOTE: **同一天只写时分，跨天才会冒出日期那半截** —— 和历史面板那一行用同一个
@@ -2258,7 +2245,7 @@ public:
             return QStringLiteral("%1 结束").arg(finishedText);
         }
         if (finishedText.isEmpty()) {
-            return QStringLiteral("%1 开始，还没结束").arg(startedText);
+            return QStringLiteral("%1 开始，尚未结束").arg(startedText);
         }
         return QStringLiteral("%1 开始 / %2 结束")
             .arg(withDate(started, startedText), withDate(finished, finishedText));
@@ -2352,7 +2339,7 @@ public:
     static QString updateCenterUndoName() { return QStringLiteral("updateCenterUndo"); }
     static QString updateCenterCloseName() { return QStringLiteral("updateCenterClose"); }
     /// 装"没有结论"那句话的那一块（error 非空时露）。
-    static QString updateCenterEmptyTitleText() { return QStringLiteral("还没有结果可以看"); }
+    static QString updateCenterEmptyTitleText() { return QStringLiteral("暂无检测结果"); }
     /// 两组的名字。**顺序就是摆的顺序**：能动手的那一组在上面（点这一下就是来看它的）。
     static QString updateCenterOutdatedGroupTitleText(int count) {
         return QStringLiteral("有新版本（%1 条）").arg(count);
@@ -3030,8 +3017,8 @@ public:
     /// 两颗按钮上的字。
     static QString themeImageChooseText() { return QStringLiteral("选择图片…"); }
     static QString themeImageClearText() { return QStringLiteral("清除"); }
-    /// 那一行状态文字在"还没选图"时说的话。
-    static QString themeImageNoneText() { return QStringLiteral("还没选图。"); }
+    /// 那一行状态文字在"未选择图片"时说的话。
+    static QString themeImageNoneText() { return QStringLiteral("未选择图片。"); }
     /// 滑块右边那个百分号。**只有这一处**：数字是空的、百分号跟着一起空。
     static QString themeImagePercentText(int opacity) {
         return QStringLiteral("%1%").arg(opacity);

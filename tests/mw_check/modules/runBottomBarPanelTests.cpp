@@ -575,7 +575,7 @@ void runBottomBarPanelTests() {
     // ---- AH7 右面板：最近登录的三个账户（缓存里拿）----
     const int refreshFailedBefore = countOccurrences(messagesSnapshot(), QStringLiteral("没能刷新"));
     const int refreshedOnceBefore =
-        countOccurrences(messagesSnapshot(), QStringLiteral("已经顺手换了一张新的"));
+        countOccurrences(messagesSnapshot(), QStringLiteral("已自动更新"));
     {
         QWidget *panel = openPanel(accountsButton);
         check(panel != nullptr && panel->isVisible(), "AH7 点底栏右边那颗按钮弹出了右面板");
@@ -699,7 +699,7 @@ void runBottomBarPanelTests() {
             check(countOccurrences(messagesSnapshot(), QStringLiteral("没能刷新")) ==
                       refreshFailedBefore + 1,
                   "AH8 日志里也留了一行（命令行那一路看得见）");
-            check(countOccurrences(messagesSnapshot(), QStringLiteral("已经顺手换了一张新的")) ==
+            check(countOccurrences(messagesSnapshot(), QStringLiteral("已自动更新")) ==
                       refreshedOnceBefore,
                   "AH8 这一发**没有**刷新成功（Carol 那份微软 payload 里没有 refresh_token，"
                   "第一道判据就拦下了，一个包都没发）");
@@ -750,7 +750,7 @@ void runBottomBarPanelTests() {
 
     // ---- AH10 令牌**够用**那一档：一个包都不发 ----
     // Bob 那张到 2999 年（剩得远远不止 6 小时），所以点他那一行的「登录」不该去换新的。
-    // 判据有三条：不弹窗、"顺手换了一张"那条日志没有增加、而且此刻剩的时间确实 ≥6 小时
+    // 判据有三条：不弹窗、"已自动更新"那条日志没有增加、而且此刻剩的时间确实 ≥6 小时
     // （把"为什么可以不换"这条依据也钉住 —— 少了它，这条断言在"两边都不换"的实现下也绿）。
     {
         QWidget *panel = openPanel(accountsButton);
@@ -767,9 +767,9 @@ void runBottomBarPanelTests() {
                   AccountStore::activeUuid());
             check(g_modalTitle.isEmpty(), "AH10 没有弹任何框（够用就不换，一个包都不发）",
                   g_modalTitle + QStringLiteral(" / ") + g_modalText);
-            check(countOccurrences(messagesSnapshot(), QStringLiteral("已经顺手换了一张新的")) ==
+            check(countOccurrences(messagesSnapshot(), QStringLiteral("已自动更新")) ==
                       refreshedOnceBefore,
-                  "AH10 也没有「顺手换了一张」那一行日志");
+                  "AH10 也没有「已自动更新」那一行日志");
             check(auth->tokenSecondsLeft() >= AuthManager::tokenRefreshWindowSecs,
                   "AH10 依据：此刻这张令牌剩得 ≥6 小时（所以上面那条不是漏做了）",
                   QStringLiteral("剩 %1 秒 / 门槛 %2 秒")
@@ -852,7 +852,7 @@ void runBottomBarPanelTests() {
 
         const int noRefreshBefore = countOccurrences(messagesSnapshot(), QStringLiteral("没能刷新"));
         const int noExtraTokenBefore =
-            countOccurrences(messagesSnapshot(), QStringLiteral("已经顺手换了一张新的"));
+            countOccurrences(messagesSnapshot(), QStringLiteral("已自动更新"));
         QWidget *panel = openPanel(accountsButton);
         check(panel != nullptr, "AH11 右面板弹出来了");
         check(rowTitle(panel, 0) == daveName && rowTitle(panel, 1) == QStringLiteral("Bob"),
@@ -885,7 +885,7 @@ void runBottomBarPanelTests() {
                   QStringLiteral("%1 / %2").arg(AccountStore::activeUuid(), auth->playerName()));
             check(countOccurrences(messagesSnapshot(), QStringLiteral("没能刷新")) == noRefreshBefore,
                   "AH11 也没有拿 Bob 的令牌去换（点的是别人的那一行，这条缺了守卫就会红）");
-            check(countOccurrences(messagesSnapshot(), QStringLiteral("已经顺手换了一张新的")) ==
+            check(countOccurrences(messagesSnapshot(), QStringLiteral("已自动更新")) ==
                       noExtraTokenBefore,
                   "AH11 更没有「顺手换了一张新的」那一行（Bob 的令牌只剩不到 6 小时，"
                   "所以「没发生」不是侥幸）");

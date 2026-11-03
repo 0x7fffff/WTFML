@@ -1104,15 +1104,15 @@ QString GameLogWindow::exportReportButtonTooltip() {
 QString GameLogWindow::emptyPlaceholderText() { return QStringLiteral("还没有输出…"); }
 
 QString GameLogWindow::filteredOutPlaceholderText() {
-    return QStringLiteral("这几档都被筛掉了 —— 上面勾回来就看得见。");
+    return QStringLiteral("当前筛选下没有日志，勾选上方对应的级别即可显示。");
 }
 
 QString GameLogWindow::searchPlaceholderText() {
-    return QStringLiteral("在这里面找…（大小写不分；和上面那几档是同时生效的）");
+    return QStringLiteral("在这里面找…（不区分大小写；与上方的级别筛选同时生效）");
 }
 
 QString GameLogWindow::searchEmptyPlaceholderText() {
-    return QStringLiteral("没有搜到 —— 换个词，或者把搜索框清空。");
+    return QStringLiteral("没有匹配的日志。换个关键词，或清空搜索框。");
 }
 
 QString GameLogWindow::searchTooltip() {

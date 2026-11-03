@@ -326,7 +326,7 @@ Result apply(const QString &sourceDir, const QString &targetDir,
     // 当目标"）。双向各问一次：往源里面搬 = 自己抄自己，往源外面搬进它的祖先也一样危险。
     if (InstanceFiles::pathIsSameOrInside(source, target)
         || InstanceFiles::pathIsSameOrInside(target, source)) {
-        result.problem = QStringLiteral("源实例和目标实例是同一份（或互相嵌套），什么都没有搬。");
+        result.problem = QStringLiteral("源实例和目标实例是同一份（或互相嵌套），本次未移动任何文件。");
         return result;
     }
 

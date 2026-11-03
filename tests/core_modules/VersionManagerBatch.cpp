@@ -248,11 +248,11 @@ int runVersionManagerBatch(QCoreApplication &app, const QString &sandbox) {
     check(readBytes(lib1Path) == lib1Before,
           "G5.4 本来就是好的那个库一个字节都没动（校验通过就跳过，不是全量重写）");
     check(lastMessage.contains(QStringLiteral("跳过")),
-          "G5.5 汇总里说明了有几个是本来就存在的", lastMessage);
+          "G5.5 汇总里说明了有几个是已存在的", lastMessage);
     // 逐字钉住那句话的形状：两个数是**并列**的（另有），不是包含关系 —— "其中 %2 个本来
     // 就存在"叠在分母上会被读成"只下了 1 个"；分母本身也只剩缺的那几个。
     check(lastMessage.contains(
-              QStringLiteral("2 个文件已全部就绪（另有 2 个本来就存在，已跳过）。")),
+              QStringLiteral("2 个文件已全部就绪（另有 2 个已存在，已跳过）。")),
           "★ G5.5 汇总: 下了 2 个，另有 2 个（库和预置资源对象）并列计为跳过", lastMessage);
     check(readBytes(jsonPath) == jsonBefore,
           "★ G5.6 补全**不动** version.json（和 downloadVersion 的区别 ②）");
@@ -272,7 +272,7 @@ int runVersionManagerBatch(QCoreApplication &app, const QString &sandbox) {
     check(emissions == 1 && lastSuccess, "G5.7 重复补全: 仍然是一个成功终态", lastMessage);
     check(lastMessage.contains(QStringLiteral("跳过")),
           "G5.7 重复补全: 汇总里明说这次跳过了", lastMessage);
-    check(lastMessage.contains(QStringLiteral("一个文件都不用下")),
+    check(lastMessage.contains(QStringLiteral("无需下载")),
           "★ G5.7 重复补全: 一个都没缺时不许说「0 个文件已全部就绪」"
           "（用户读到的那个说不通的 n-1 就是它）",
           lastMessage);
@@ -306,7 +306,7 @@ int runVersionManagerBatch(QCoreApplication &app, const QString &sandbox) {
             loop.exec();
         }
         check(emissions == 1 && lastSuccess, "G5.12 点名补全: 一个成功终态", lastMessage);
-        // 和不点名那两趟（G5.7 的「一个文件都不用下」）对照着看：同样三个文件都在盘上、
+        // 和不点名那两趟（G5.7 的「无需下载」）对照着看：同样三个文件都在盘上、
         // 全都完好，只有 jar 被点了名 ⇒ 分母是 1 而不是 0。
         check(lastDone == 1 && lastTotal == 1,
               "★ G5.12 点名的那一条进了分母（同样是「全都好好的」，不点名时这个数是 0）",
@@ -316,7 +316,7 @@ int runVersionManagerBatch(QCoreApplication &app, const QString &sandbox) {
         check(readBytes(lib0Path) == lib0Before && readBytes(lib1Path) == lib1Before,
               "G5.12 没点名的那两个一个字节都没动");
         check(lastMessage.contains(
-                  QStringLiteral("1 个文件已全部就绪（另有 3 个本来就存在，已跳过）。")),
+                  QStringLiteral("1 个文件已全部就绪（另有 3 个已存在，已跳过）。")),
               "G5.12 汇总: 点名的算下了 1 个，两份库与预置资源对象计为跳过 3 个", lastMessage);
     }
 
@@ -334,12 +334,12 @@ int runVersionManagerBatch(QCoreApplication &app, const QString &sandbox) {
         if (!finished) {
             loop.exec();
         }
-        check(lastTotal == 0 && lastMessage.contains(QStringLiteral("一个文件都不用下")),
+        check(lastTotal == 0 && lastMessage.contains(QStringLiteral("无需下载")),
               "★ G5.13 点名表里对不上号的路径: 一条都不多下（点名表是**按路径**认人的）",
               QString("%1/%2 %3").arg(lastDone).arg(lastTotal).arg(lastMessage));
     }
 
-    // 再补一次、**不点名** ⇒ 又回到"一个文件都不用下"：那张点名表是**这一批**的交代，
+    // 再补一次、**不点名** ⇒ 又回到"无需下载"：那张点名表是**这一批**的交代，
     // beginBatch() 会清掉它（不然 G5.9 点过名的那条会一直跟着后面每一批重下）。
     {
         emissions = 0;
@@ -352,7 +352,7 @@ int runVersionManagerBatch(QCoreApplication &app, const QString &sandbox) {
         if (!finished) {
             loop.exec();
         }
-        check(lastTotal == 0 && lastMessage.contains(QStringLiteral("一个文件都不用下")),
+        check(lastTotal == 0 && lastMessage.contains(QStringLiteral("无需下载")),
               "★ G5.14 点名只管这一批: 下一批不点名就又一条都不下（beginBatch 清掉了那张表）",
               QString("%1/%2 %3").arg(lastDone).arg(lastTotal).arg(lastMessage));
         check(readBytes(jarPath) == realJar, "G5.14 jar 还是好的（没有又被重下一遍）");

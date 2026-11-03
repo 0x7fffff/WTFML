@@ -442,8 +442,8 @@ void ResourceInstallController::installNow(ResourceCatalog::Kind kind, const QSt
         || owner.m_versionManager->isNamedInstanceInstalling()
         || (owner.m_serverInstall != nullptr && owner.m_serverInstall->ownsDownloadBatch())) {
         InlineMessage::information(
-            owner.m_ui->overlay(), MainWindow::tr("现在做不了"),
-            MainWindow::tr("已经有一个下载或者安装任务在跑了，等它结束再下这个。"));
+            owner.m_ui->overlay(), MainWindow::tr("暂时无法操作"),
+            MainWindow::tr("已有下载或安装任务正在进行，请结束后再下载这个。"));
         return;
     }
     owner.m_downloadTaskLedger->setResourceLabel(label);

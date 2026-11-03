@@ -79,7 +79,7 @@ OverlayHost::OverlayHost(QWidget *anchor, QWidget *parent) : QWidget(parent), m_
     m_backButton = new QPushButton(backButtonText(), header);
     m_backButton->setObjectName(overlayBackButtonName());
     m_backButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-    m_backButton->setToolTip(tr("返回。这一页上没保存的改动会丢掉。"));
+    m_backButton->setToolTip(tr("未保存的改动会丢失。"));
     // 「← 返回」= 往回走（一般性那一档）—— 全应用每一页顶上那一颗都是它。
     Theme::markButton(m_backButton, Theme::ButtonKind::Neutral);
     headerLayout->addWidget(m_backButton);

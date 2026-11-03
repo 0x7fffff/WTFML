@@ -128,13 +128,13 @@ void BackupController::inspectRecovery() {
                          && (!QFileInfo::exists(item.target) || QFileInfo(item.target).isDir());
     const QString text = item.problem.isEmpty()
         ? tr("当前目录：\n%1\n\n还原前目录：\n%2\n\n标记已检查只归档日志，两份数据均保留，"
-             "不会删除任何一份。\n想用旧目录换回当前目录时，点「用旧目录换回来」—— 换下来的这一份"
-             "会原样留在旁边，也会先登记一条可退回的恢复记录。")
+             "不会删除任何一份。\n点「用旧目录替换」会换成还原前目录，换下来的当前目录留在旁边，"
+             "并登记一条可退回的恢复记录。")
               .arg(QDir::toNativeSeparators(item.target), QDir::toNativeSeparators(item.retained))
         : item.problem + tr("\n\n日志：%1").arg(QDir::toNativeSeparators(item.journal));
     QStringList buttons{tr("打开所在目录")};
     const int swapIndex = canSwap ? int(buttons.size()) : -1;
-    if (canSwap) buttons.append(tr("用旧目录换回来（两份都留着）"));
+    if (canSwap) buttons.append(tr("用旧目录替换（两份都保留）"));
     const int ackIndex = int(buttons.size());
     buttons.append(tr("保留两份，标记已检查"));
     const int closeIndex = int(buttons.size());
@@ -161,19 +161,19 @@ void BackupController::inspectRecovery() {
                        && m_host.isBeingModified(instanceId));
         };
         if (inUse()) {
-            InlineMessage::information(m_overlay, tr("现在做不了"),
+            InlineMessage::information(m_overlay, tr("暂时无法操作"),
                                        tr("这一份正在运行，或者正被复制 / 备份 / 还原 / 安装占用。"
-                                          "等它停下来再来换。"));
+                                          "请等它结束后再替换。"));
             return;
         }
         if (!InlineMessage::question(
-                m_overlay, tr("用旧目录换回来"),
-                tr("会用这一份旧目录换掉当前目录：\n\n旧目录：\n%1\n\n当前目录：\n%2\n\n"
-                   "换下来的「现在这一份」会原样留在旁边，两边都不删；这一步会先登记一条"
+                m_overlay, tr("用旧目录替换"),
+                tr("将用这份旧目录替换当前目录：\n\n旧目录：\n%1\n\n当前目录：\n%2\n\n"
+                   "被替换下来的当前目录会原样保留在旁边，两份都不删除；这一步会先登记一条"
                    "可退回的恢复记录。")
                     .arg(QDir::toNativeSeparators(item.retained),
                          QDir::toNativeSeparators(item.target)),
-                tr("换回来"), tr("取消"), false, true)) {
+                tr("替换"), tr("取消"), false, true)) {
             return;
         }
         if (AppPaths::minecraftDir() != root || inUse()) return;
@@ -184,15 +184,15 @@ void BackupController::inspectRecovery() {
         request.inUse = false;  // 上面两趟已经量过；这一层自己还会守数据目录会话锁。
         const ManualRecovery::Result swapped = ManualRecovery::swapDirectories(request);
         if (!swapped.ok) {
-            log(tr("人工恢复没有做成：%1").arg(swapped.problem));
-            InlineMessage::warning(m_overlay, tr("没能换回来"), swapped.problem);
+            log(tr("人工恢复失败：%1").arg(swapped.problem));
+            InlineMessage::warning(m_overlay, tr("替换失败"), swapped.problem);
             return;
         }
         log(tr("人工恢复：用 %1 换掉了 %2").arg(QDir::toNativeSeparators(item.retained),
                                                 QDir::toNativeSeparators(item.target)));
-        QString done = tr("已经换回来了。");
+        QString done = tr("替换完成。");
         if (!swapped.retainedPath.isEmpty()) {
-            done += tr("\n\n换下来的「现在这一份」原样留在这儿：\n%1")
+            done += tr("\n\n被替换下来的当前目录原样保留在：\n%1")
                         .arg(QDir::toNativeSeparators(swapped.retainedPath));
         }
         if (!swapped.journalPath.isEmpty()) {
@@ -203,7 +203,7 @@ void BackupController::inspectRecovery() {
             done += QStringLiteral("\n\n") + swapped.notes.join(QStringLiteral("\n"));
         }
         if (m_host.refreshInstances) m_host.refreshInstances();
-        InlineMessage::information(m_overlay, tr("换回来了"), done);
+        InlineMessage::information(m_overlay, tr("替换完成"), done);
     } else if (clicked == ackIndex) {
         QString problem;
         if (!RecoveryReview::acknowledge(root, item, &problem))
@@ -313,15 +313,15 @@ void BackupController::pickZip(BackupFiles::Kind kind, const QString &label, con
 void BackupController::backupWorld(const QString &worldDir) {
     if (worldDir.isEmpty()) return;
     if (busy()) {
-        InlineMessage::information(m_overlay, tr("现在做不了"),
-                                   tr("已经有一份备份或者还原在跑了，等它完了再来。"));
+        InlineMessage::information(m_overlay, tr("暂时无法操作"),
+                                   tr("已有备份或还原任务正在进行，请结束后再试。"));
         return;
     }
     const QString instanceId = m_host.instanceIdOfPath ? m_host.instanceIdOfPath(worldDir) : QString();
     if (!instanceId.isEmpty() && m_host.isBeingModified
         && m_host.isBeingModified(instanceId)) {
-        InlineMessage::information(m_overlay, tr("现在做不了"),
-                                   tr("「%1」这会儿正在复制、备份、还原或安装。等它完了再备份这个世界。")
+        InlineMessage::information(m_overlay, tr("暂时无法操作"),
+                                   tr("「%1」正在复制、备份、还原或安装，请完成后再备份这个世界。")
                                        .arg(displayName(instanceId)));
         return;
     }
@@ -360,8 +360,8 @@ void BackupController::backupWorld(const QString &worldDir) {
 void BackupController::restoreWorld(const QString &worldDir, InstanceSettingsDialog *dialog) {
     if (worldDir.isEmpty()) return;
     if (busy()) {
-        InlineMessage::information(m_overlay, tr("现在做不了"),
-                                   tr("已经有一份备份或者还原在跑了，等它完了再来。"));
+        InlineMessage::information(m_overlay, tr("暂时无法操作"),
+                                   tr("已有备份或还原任务正在进行，请结束后再试。"));
         return;
     }
     const QString instanceId = m_host.instanceIdOfPath ? m_host.instanceIdOfPath(worldDir) : QString();
@@ -414,19 +414,19 @@ void BackupController::restoreWorld(const QString &worldDir, InstanceSettingsDia
 void BackupController::snapshotInstance(const QString &versionId) {
     if (versionId.isEmpty()) return;
     if (busy()) {
-        InlineMessage::information(m_overlay, tr("现在做不了"),
-                                   tr("已经有一份备份或者还原在跑了，等它完了再来。"));
+        InlineMessage::information(m_overlay, tr("暂时无法操作"),
+                                   tr("已有备份或还原任务正在进行，请结束后再试。"));
         return;
     }
     if (m_host.isBeingModified && m_host.isBeingModified(versionId)) {
-        InlineMessage::information(m_overlay, tr("现在做不了"),
-                                   tr("「%1」这会儿正在装（或者正在导入 / 正在检查）。等它完了再做快照 —— "
-                                      "要打进去的正是这会儿正在被改的那些文件。")
+        InlineMessage::information(m_overlay, tr("暂时无法操作"),
+                                   tr("「%1」正在安装、导入或检查，请完成后再做快照 —— "
+                                      "要打包的正是正在被修改的文件。")
                                        .arg(displayName(versionId)));
         return;
     }
     if (m_host.isRunning && m_host.isRunning(versionId)) {
-        InlineMessage::information(m_overlay, tr("现在做不了"),
+        InlineMessage::information(m_overlay, tr("暂时无法操作"),
                                    tr("「%1」正在运行。先关掉游戏再做快照 —— 游戏开着的时候"
                                       "存档、日志这些文件一直在变。")
                                        .arg(displayName(versionId)));
@@ -445,7 +445,7 @@ void BackupController::snapshotInstance(const QString &versionId) {
     if (busy()
         || (m_host.isBeingModified && m_host.isBeingModified(versionId))
         || (m_host.isRunning && m_host.isRunning(versionId))) {
-        InlineMessage::information(m_overlay, tr("现在做不了"),
+        InlineMessage::information(m_overlay, tr("暂时无法操作"),
                                    tr("刚才有另一项操作开始了（复制 / 备份 / 还原 / 安装 / 游戏启动）。"
                                       "等它完成后再做快照。"));
         return;
@@ -493,15 +493,14 @@ void BackupController::snapshotInstance(const QString &versionId) {
 void BackupController::restoreInstance(const QString &versionId, InstanceSettingsDialog *dialog) {
     if (versionId.isEmpty()) return;
     if (busy()) {
-        InlineMessage::information(m_overlay, tr("现在做不了"),
-                                   tr("已经有一份备份或者还原在跑了，等它完了再来。"));
+        InlineMessage::information(m_overlay, tr("暂时无法操作"),
+                                   tr("已有备份或还原任务正在进行，请结束后再试。"));
         return;
     }
     if ((m_host.isBeingModified && m_host.isBeingModified(versionId))
         || (m_host.isRunning && m_host.isRunning(versionId))) {
-        InlineMessage::information(m_overlay, tr("现在做不了"),
-                                   tr("「%1」这会儿正在装，或者正在运行。等它停了再还原 —— 这一步会把整个实例目录"
-                                      "换掉。")
+        InlineMessage::information(m_overlay, tr("暂时无法操作"),
+                                   tr("「%1」正在安装或运行，请停止后再还原 —— 这一步会替换整个实例目录。")
                                        .arg(displayName(versionId)));
         return;
     }

@@ -821,7 +821,7 @@ bool AuthManager::requestMicrosoftTokenRefresh(const QString &refreshToken, QStr
         tokenData.insert(QStringLiteral("refresh_token"), refreshToken);
     }
     if (!expectedActiveUuid.isEmpty() && AccountStore::activeUuid() != expectedActiveUuid) {
-        *errorMessage = tr("刷新登录的途中切了账号，这一趟作废（盘上的登录信息没有改动）。");
+        *errorMessage = tr("刷新登录时切换了账号，本次刷新已作废（磁盘上的登录信息未改动）。");
         return false;
     }
     if (!storeMicrosoftTokenData(tokenData)) {
@@ -865,7 +865,7 @@ bool AuthManager::runMinecraftChain(const QString &microsoftAccessToken, QString
     }
 
     if (!expectedActiveUuid.isEmpty() && AccountStore::activeUuid() != expectedActiveUuid) {
-        *errorMessage = tr("刷新登录的途中切了账号，这一趟作废（盘上的登录信息没有改动）。");
+        *errorMessage = tr("刷新登录时切换了账号，本次刷新已作废（磁盘上的登录信息未改动）。");
         return false;
     }
     if (!storeMinecraftTokenData(mcToken, expiresIn, name, uuid)) {

@@ -80,7 +80,7 @@ void MainWindow::onAccountSkinButtonClicked() {
         m_accountSkinDialog->setOfflineSkinState(offlineIdentity(),
                                                  OfflineSkin::hasSkin(AccountStore::activeUuid()));
         if (!overlay->showPage(m_accountSkinDialog, AccountSkinDialog::windowTitle())) {
-            appendLog(tr("账号与外观那一页没开成：覆盖层刚被另一页占上了。"));
+            appendLog(tr("无法打开账号与外观页：界面已被另一页占用。"));
         }
     });
 }
@@ -360,8 +360,8 @@ void MainWindow::logoutCurrentAccount() {
         // 别替失败编一句"现在还是登录着"：可能一个键都没清掉，也可能清掉了一半（见
         // AccountStore::logout() 的 R13）。说"没能清干净"在任何一种情况下都是事实。
         InlineMessage::warning(m_ui->overlay(), tr("退出登录失败"),
-                             tr("盘上的登录状态没能清干净。\n\n再点一次「登出」试试；一直不行的话，"
-                                "可能是这台机器上的启动器配置写不进去。"));
+                             tr("无法清除磁盘上的登录状态。\n\n请再点一次「登出」；如果仍然失败，"
+                                "可能是本机的启动器配置无法写入。"));
         return;
     }
     // 内存里那一份也得跟着清 —— AuthManager 只在构造和换账号那两处读过盘，不重读的话
@@ -369,7 +369,7 @@ void MainWindow::logoutCurrentAccount() {
     // 手里还攥着他的状态"）。清干净之后 loggedIn() 是 false，界面自己退回未登录那一档。
     m_authManager->reloadStoredAccount();
     updateBottomBar();
-    appendLog(tr("已退出账号「%1」（账号还留在列表里，点那一行的「选择」/「登录」就能回来）。")
+    appendLog(tr("已退出账号「%1」（账号仍保留在列表中，点该行的「选择」或「登录」即可重新登录）。")
                   .arg(name));
     // 外观也得跟着回默认：预览、账号列表里那个「当前」标记、披风列表都要重画一遍。
     // 没登录这一档走上半截就返回了（loadSavedToken() 取不到令牌），不会去联网。
@@ -411,7 +411,7 @@ void MainWindow::useAccountFromPanel(const QString &uuid) {
     const bool refreshed = m_authManager->refreshMinecraftToken(&error);
     leaveSyncWait();
     if (refreshed) {
-        appendLog(tr("「%1」的登录令牌剩余不足 6 小时，已经顺手换了一张新的。")
+        appendLog(tr("「%1」的登录令牌剩余不足 6 小时，已自动更新。")
                       .arg(AccountStore::nameOf(uuid)));
         return;
     }

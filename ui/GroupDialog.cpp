@@ -54,7 +54,7 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
     auto *mainLayout = new QVBoxLayout(this);
 
     auto *hint = new QLabel(
-        tr("管理分组的名称与顺序。删掉分组不会删掉里面的实例，它们会回到未分组。\n"
+        tr("删掉分组不会删掉里面的实例，它们会回到未分组。\n"
            "行尾的三角把这一组上下挪一格，按住 Shift 直接放到最上面或最下面。"),
         this);
     hint->setWordWrap(true);

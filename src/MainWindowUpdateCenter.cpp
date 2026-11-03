@@ -164,11 +164,11 @@ void MainWindow::onUpdateBatchFileFinished(const QString &label, const QString &
         if (!path.isEmpty()) {
             m_updateBatch.succeeded.append(path);
         }
-        m_updateBatch.lines.append(tr("• %1 —— 已经换成新版本").arg(fileName));
+        m_updateBatch.lines.append(tr("• %1：已替换为新版本").arg(fileName));
     } else {
         ++m_updateBatch.failedSteps;
         m_updateBatch.lines.append(
-            tr("• %1 —— 没换成功：%2").arg(fileName, errorMessage));
+            tr("• %1：替换失败：%2").arg(fileName, errorMessage));
     }
 }
 
@@ -184,11 +184,11 @@ void MainWindow::finishUpdateBatch(bool success, const QString &errorMessage) {
     if (userCancelled && m_activityCenter->tasks()->has(run.task)) {
         m_activityCenter->tasks()->cancel(run.task);
     } else if (m_activityCenter->tasks()->has(run.task)) {
-        m_activityCenter->tasks()->setDetail(run.task, tr("换好 %1 个，失败 %2 个。")
+        m_activityCenter->tasks()->setDetail(run.task, tr("已替换 %1 个，失败 %2 个。")
                                                .arg(run.succeeded.size())
                                                .arg(run.failedSteps));
         finishTask(run.task, success && run.failedSteps == 0,
-                   run.failedSteps > 0 ? tr("有 %1 个文件没能换掉。").arg(run.failedSteps)
+                   run.failedSteps > 0 ? tr("有 %1 个文件未能替换。").arg(run.failedSteps)
                                        : errorMessage);
     }
     // finishTask() 认领过就会自己清掉；这一段是"那一件已经不在账本里"的兜底，
@@ -229,9 +229,9 @@ void MainWindow::finishUpdateBatch(bool success, const QString &errorMessage) {
 
     const QString text = run.lines.isEmpty() ? errorMessage : run.lines.join(QLatin1Char('\n'));
     if (!success || run.failedSteps > 0) {
-        InlineMessage::warning(m_ui->overlay(), tr("更新没能全都换上"),
-                               tr("有 %1 个文件没能换掉。\n\n%2\n\n"
-                                  "可以在「更新中心」里把上一次更新撤销回去。")
+        InlineMessage::warning(m_ui->overlay(), tr("部分更新文件未能替换"),
+                               tr("有 %1 个文件未能替换。\n\n%2\n\n"
+                                  "可以在「更新中心」里撤销上一次更新。")
                                    .arg(run.failedSteps)
                                    .arg(text));
     }

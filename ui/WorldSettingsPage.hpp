@@ -139,7 +139,7 @@ public:
         bool hasPlayer = false;       ///< `Data/Player/Pos` 在不在（从没进过的世界没有这一格）
         QString playerText;           ///< "x / y / z（维度）"
         bool hasRegions = false;      ///< `region/` 里扫到了至少一个 `.mca`
-        /// "3 个区域文件 · 已生成 1234 个区块 · 范围 x … z …"（或者"头部读不全"那句实话）
+        /// "3 个区域文件 / 已生成 1234 个区块 / 范围 x … z …"（或者"头部读不全"那句实话）
         QString regionsText;
         /// 只读说明，挂在顶上那行事实的 tooltip 上（"模组维度没算进来""有几个区域文件
         /// 读不出来"这一类）。空串 = 没有要额外说的。

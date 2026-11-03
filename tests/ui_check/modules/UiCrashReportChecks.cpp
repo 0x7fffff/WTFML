@@ -37,7 +37,7 @@ int UiCrashReportChecks() {
         // 那一句原因 = 概括 + 空行 + 那几条提示（「复制摘要」复制的就是它）。
         crash.errorSummary =
             QStringLiteral("「1.20.1-我的整合包」崩溃退出（0xC0000005（内存访问冲突））。\n\n"
-                           "「1.20.1-我的整合包」要求 Java 21，这一趟实际用的是 Java 17。");
+                           "「1.20.1-我的整合包」要求 Java 21，本次实际使用的是 Java 17。");
         crash.capabilities.openLog = true;
         crash.capabilities.openTarget = true;
         crash.capabilities.exportReport = true;

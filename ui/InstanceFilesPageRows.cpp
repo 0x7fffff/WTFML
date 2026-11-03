@@ -53,7 +53,7 @@ using namespace InstanceFilesPageInternals;
 
 namespace {
 
-/// 比正文字号小一档 —— **行里那第二行小字**专用的（现在只有「大小 · 时间」在用）。
+/// 比正文字号小一档 —— **行里那第二行小字**专用的（现在只有「大小 / 时间」在用）。
 ///
 /// 档位是 `MainWindowUI::versionDateFontDelta()`，和版本树那两行式的行**同一档**
 /// （VersionTreeDelegate::paint 里给 rowSubTextRole() 那行算字号用的就是它）：
@@ -317,7 +317,7 @@ void InstanceFilesPage::rebuildRows() {
         syncRowHover();
     });
 
-    // 目录行的「大小 · 时间」要递归遍历才拿得到，**排在行都摆出来之后**（见 .cpp 顶部
+    // 目录行的「大小 / 时间」要递归遍历才拿得到，**排在行都摆出来之后**（见 .cpp 顶部
     // 那段和 fillDirectoryStats）—— 所以这一页是先出来、数字后到。
     if (m_statTimer != nullptr && !m_statQueue.isEmpty()) {
         m_statTimer->start();
@@ -356,7 +356,7 @@ QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &pat
         // 而"本来就比这一格小"的那些（16 px 的小图，见 scaleToIconSlot）不居中的话会贴左上角
         // —— QLabel 默认是 AlignLeft｜AlignVCenter，横向就偏了。
         icon->setAlignment(Qt::AlignCenter);
-        // 颜色取**次要那一档**（和「大小 · 时间」那行小字同一档）：这一列是配角，用正文色会让
+        // 颜色取**次要那一档**（和「大小 / 时间」那行小字同一档）：这一列是配角，用正文色会让
         // 整张表看着比名字那一列还重。取的是**这一行自己的调色板**（不是全局那一份）——
         // 一页里每一行都在同一个窗口里，取到的值一样，但"这一行怎么画"跟着这一行走。
         // 真图标要是已经拿到了就**直接摆那一条的**（`m_icons`，见 setIconForPath 的 NOTE）——
@@ -366,9 +366,9 @@ QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &pat
         layout->addWidget(icon);
     }
 
-    // ---------- 左边那半：**名字一行、大小·时间一行** ----------
+    // ---------- 左边那半：**名字一行、大小 / 时间一行** ----------
     //
-    // 名字和「大小 · 时间」分两行排：三样挤在一行时，大小·时间那一截在 150% 缩放的
+    // 名字和「大小 / 时间」分两行排：三样挤在一行时，大小 / 时间那一截在 150% 缩放的
     // 字号下要 300 px，而行宽只有 450 上下 —— 名字那一格会被挤成 **0 宽**，一整列的
     // 名字全看不见（`fabric-api-0.119.3+1.21.4.jar` 这类名字在盘上是常态）。
     // 行高本来就是 46 px（versionTreeRowHeight()），
@@ -407,7 +407,7 @@ QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &pat
     if (isDisabled) {
         // 被禁用的一整行**名字也灰掉**：光靠名字后面那四个字，扫一眼看不出这一条是关着的。
         makeSecondary(name);
-        // NOTE: 只划名字这一格 —— 底下那行「大小 · 时间」不动（它是这一条的规格，
+        // NOTE: 只划名字这一格 —— 底下那行「大小 / 时间」不动（它是这一条的规格，
         // 没有"关着还是开着"可言；跟着划掉会读成"这一行整个作废了"）。
         // NOTE: 走 `setFont()` 而不是样式表 —— 这一页的字体本来就都由代码摆
         // （makeSmallLine 同一条路），`strikeOut` 也没有第二个读者。
@@ -417,7 +417,7 @@ QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &pat
     }
     textLayout->addWidget(name);
 
-    // 「12.3 MB · 12:00」。文件夹没有有意义的大小（Windows 上 info.size() 对
+    // 「12.3 MB / 12:00」。文件夹没有有意义的大小（Windows 上 info.size() 对
     // 目录给的是目录项自己的字节数，不是里面东西的总和），给一个破折号比给一个假数字好。
     // 这一行也会省略（尾巴那头）：字号大 / 窗口窄的时候它比这一格还长，硬裁同样是"看着
     // 像画坏了"。它的 hint 不封顶 —— 它是下面那行小字，让名字那一格先拿够。

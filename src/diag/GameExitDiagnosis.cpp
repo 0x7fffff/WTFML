@@ -134,7 +134,7 @@ QStringList hints(const Facts &facts) {
     // "没测出来"，那时候说"版本不匹配"就是猜。
     if (facts.requiredJavaMajor > 0 && facts.usedJavaMajor > 0
         && facts.requiredJavaMajor != facts.usedJavaMajor) {
-        QString text = QStringLiteral("「%1」要求 Java %2，这一趟实际用的是 Java %3。")
+        QString text = QStringLiteral("「%1」要求 Java %2，本次实际使用的是 Java %3。")
                            .arg(where)
                            .arg(facts.requiredJavaMajor)
                            .arg(facts.usedJavaMajor);
@@ -216,9 +216,9 @@ QStringList hints(const Facts &facts) {
         // 这句**不能**把原因归到「显示游戏日志」那个开关上 ——
         // 进程输出另有一份和窗无关的底账（`GameSessionController::sessionLogTail`），
         // 开关关着也照样收得到。真的一行都没有，那是游戏自己没打到能收的地方。
-        say(QStringLiteral("这一趟没有收到游戏的输出 —— 进程起来之后一行都没打出来。"
-                           "多半是 JVM 还没初始化就退出了：先看「设置 → 启动选项」里的 "
-                           "Java 选得对不对、内存是不是塞得太满。"));
+        say(QStringLiteral("本次没有收到游戏的输出：进程启动后没有任何输出。"
+                           "多半是 JVM 尚未初始化就退出了，请先确认「设置 → 启动选项」中的 "
+                           "Java 是否正确、内存是否设置过高。"));
     }
 
     return out;

@@ -72,7 +72,7 @@ void UpdateCenterController::open(const QString &instanceId) {
     if (!overlay->showPage(m_page, UpdateCenterPage::windowTitle())) {
         // 摆不上（这一层刚被别人占上）：这一页说的实例当场作废，留一句日志。
         m_instanceId.clear();
-        m_owner.appendLog(MainWindow::tr("更新中心那一页没开成：覆盖层刚被另一页占上了。"));
+        m_owner.appendLog(MainWindow::tr("无法打开更新中心：界面已被另一页占用。"));
     }
 }
 
@@ -238,9 +238,9 @@ void UpdateCenterController::onIgnoreToggled(const QString &path, bool ignored) 
         if (targetVersionId.isEmpty()) {
             // 拼不出"要换成哪一版"就**不许记这一条**：记下去的是"忽略某一版"，而那一版是谁
             // 都不知道 —— 那样记出来的记录永远对不上任何一次检测（等于一颗点了没反应的按钮）。
-            InlineMessage::warning(m_owner.m_ui->overlay(), MainWindow::tr("忽略不了这一条"),
-                                   MainWindow::tr("这一条没查出一版可以记的（多半是这一趟检测的结果已经"
-                                                  "过期了）。重新点一次「检查更新」再试。"));
+            InlineMessage::warning(m_owner.m_ui->overlay(), MainWindow::tr("无法忽略这一条"),
+                                   MainWindow::tr("没有查出可记录的版本（多半是本次检测结果已经"
+                                                  "过期）。请重新点「检查更新」再试。"));
             return;
         }
     }
@@ -283,8 +283,8 @@ void UpdateCenterController::onPinToggled(const QString &path, bool pinned) {
         }
         if (sha1.isEmpty()) {
             InlineMessage::warning(m_owner.m_ui->overlay(), MainWindow::tr("固定不了这一条"),
-                                   MainWindow::tr("这一份文件的内容读不出来（或者上一趟检测没算出它的 sha1），"
-                                                  "没法记「固定这一版」。"));
+                                   MainWindow::tr("无法读取这份文件的内容（或上次检测未算出它的 SHA-1），"
+                                                  "因此不能固定这一版。"));
             return;
         }
     }

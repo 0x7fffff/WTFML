@@ -73,7 +73,7 @@ void runThemeImageRowTests() {
         check(wired == 2, "T29.2 两行的六个控件都按 objectName 找得回来，且就是表里那一份",
               QString::number(wired));
 
-        // 出厂那一档（这一节开头：规格里一块覆盖项都没有）：两行都是"还没选图"，后面那三样
+        // 出厂那一档（这一节开头：规格里一块覆盖项都没有）：两行都是"未选择图片"，后面那三样
         // 灰着 —— 摆法/不透明度没有图可管，亮着会让人以为点了有用；「清除」更是没有什么可清。
         const MainWindowUI::ThemeImageRow &row0 = ui->getThemeImageRow(0);
         const MainWindowUI::ThemeImageRow &row1 = ui->getThemeImageRow(1);
@@ -81,7 +81,7 @@ void runThemeImageRowTests() {
                   row1.state->text() == MainWindowUI::themeImageNoneText() &&
                   !row0.clear->isEnabled() && !row0.fit->isEnabled() && !row0.opacity->isEnabled() &&
                   !row1.clear->isEnabled() && !row1.fit->isEnabled() && !row1.opacity->isEnabled(),
-              "T29.3 没设图时两行都写「还没选图。」，清除/摆法/不透明度都灰着",
+              "T29.3 没设图时两行都写「未选择图片。」，清除/摆法/不透明度都灰着",
               row0.state->text());
 
         // ---------- 设上一张图之后 ----------
@@ -201,7 +201,7 @@ void runThemeImageRowTests() {
               "★ T29.8 盘上那一块的覆盖项也清干净了（图、摆法、名字一样不剩）");
         check(row0.state->text() == MainWindowUI::themeImageNoneText() && !row0.clear->isEnabled() &&
                   !row0.fit->isEnabled() && !row0.opacity->isEnabled(),
-              "T29.8 那一行当场变回「还没选图。」+ 三样又灰回去",
+              "T29.8 那一行当场变回「未选择图片。」+ 三样又灰回去",
               row0.state->text());
 
         restore();

@@ -410,7 +410,7 @@ void MainWindowUI::setupSettingsGamePanel(QStackedWidget *stack) {
         gameWindowModeCombo->setObjectName(gameWindowModeComboName());
         WheelGuard::install(gameWindowModeCombo);
         boxLayout->addWidget(gameWindowModeCombo, 0, Qt::AlignLeft);
-        addSettingHelp(box, QStringLiteral("设置启动时的窗口模式；全屏下的尺寸用于退出全屏后。"), form);
+        addSettingHelp(box, QStringLiteral("全屏下的尺寸用于退出全屏后。"), form);
         addSettingsControl(section1, QStringLiteral("窗口模式"), box, form);
     }
     {

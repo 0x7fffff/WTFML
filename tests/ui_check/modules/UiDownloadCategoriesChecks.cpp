@@ -414,7 +414,7 @@ int UiDownloadCategoriesChecks(MainWindowUI &ui, QStackedWidget * &gameStack, QW
                   "服务端版本选择不使用资源搜索页控件");
             // 页头那句说明也得是这一栏自己的（别掉到「游戏」那句上）。
             check(MainWindowUI::downloadHeaderSubtitle(serverIndex) ==
-                      QStringLiteral("新建一个服务端；装好之后在「管理 → 服务端」里启动和看控制台"),
+                      QStringLiteral("新建服务端；安装完成后可在「管理 → 服务端」中启动并查看控制台"),
                   "★ 页头说明在「服务端」那一栏说的是这一页能干什么",
                   MainWindowUI::downloadHeaderSubtitle(serverIndex));
             // 页头那颗「刷新」在服务端那一栏**收起来**（那一页没有"重新问一遍"这回事）。

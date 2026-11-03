@@ -75,7 +75,7 @@ bool capture(const QString &instance, const QString &dataRoot, const ModpackImpo
     if (InstanceFiles::canonicalPath(instance) != InstanceFiles::canonicalPath(QDir(dataRoot).filePath("versions/" + id)) ||
         !QRegularExpression(QStringLiteral("^[0-9a-fA-F]{64}$")).match(fingerprint).hasMatch() ||
         !safe(instance, proofName) || pack.filesNotDistributable + pack.filesMissing > pack.fileIssues.size())
-        return abort(QObject::tr("无法建立绑定当前实例与完整清单的收尾凭据"));
+        return abort(QObject::tr("无法建立与当前实例和完整文件清单绑定的安装凭据"));
     const auto marker = bounded(instance + QStringLiteral("/wtfml.importing"), 65536);
     if (QJsonDocument::fromJson(marker).object().value("manifestSha256").toString() != fingerprint)
         return abort(QObject::tr("导入标记与当前清单不一致"));
@@ -146,14 +146,14 @@ bool capture(const QString &instance, const QString &dataRoot, const ModpackImpo
         {"packName", pack.name}, {"gameVersion", pack.gameVersion}, {"loaderKey", pack.loaderKey},
         {"loaderVersion", pack.loaderVersion}, {"files", files}, {"issues", issues}};
     if (!markerMatches(instance, proof) || !save(instance + '/' + proofName, proof))
-        return abort(QObject::tr("无法保存收尾凭据，未放行安装"));
+        return abort(QObject::tr("无法保存安装凭据，本次没有安装"));
     return true;
 }
 
 bool finish(const QString &instance, QString *error, const Stop &stop) {
     if (error) error->clear();
     const auto failFast = [&](const QString &message) { return fail(error, message); };
-    if (!safe(instance, proofName)) return failFast(QObject::tr("收尾凭据路径不安全"));
+    if (!safe(instance, proofName)) return failFast(QObject::tr("安装凭据的保存路径不安全"));
     const auto proof = QJsonDocument::fromJson(bounded(instance + '/' + proofName)).object();
     const QString dataRoot = proof.value("dataRoot").toString();
     const auto id = QFileInfo(instance).fileName();
@@ -163,7 +163,7 @@ bool finish(const QString &instance, QString *error, const Stop &stop) {
         InstanceFiles::canonicalPath(instance) != InstanceFiles::canonicalPath(QDir(dataRoot).filePath("versions/" + id)) ||
         !markerMatches(instance, proof) || !proof.value("files").isArray() ||
         proof.value("files").toArray().isEmpty() || !proof.value("issues").isArray())
-        return failFast(QObject::tr("缺少有效阶段凭据或实例/清单已改变，请使用原包继续导入"));
+        return failFast(QObject::tr("缺少有效的安装凭据，或实例与文件清单已改变，请使用原包继续导入"));
     QList<ModpackImport::FileIssue> issues;
     for (const auto &value : proof.value("issues").toArray()) {
         const auto entry = value.toObject();
@@ -173,7 +173,7 @@ bool finish(const QString &instance, QString *error, const Stop &stop) {
         issue.sha1 = entry.value("sha1").toString(); issue.reason = entry.value("reason").toString();
         issue.projectWebUrl = entry.value("projectWebUrl").toString();
         bool ok = false; issue.size = entry.value("size").toString().toLongLong(&ok);
-        if (!ok) return failFast(QObject::tr("缺项凭据损坏"));
+        if (!ok) return failFast(QObject::tr("补齐项的安装凭据已损坏"));
         issues.append(issue);
     }
     ModpackImport::Pack pack;

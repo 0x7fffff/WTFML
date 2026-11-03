@@ -1482,7 +1482,7 @@ private:
             WritingVersionJson,  ///< 落实例自己那份薄 json（瞬时，但排在事件循环上）
             DownloadingFiles,    ///< 清单里那批文件正在下
             ExtractingOverrides, ///< 后台解压 overrides；完成前保持实例占用
-            VerifyingCompletion, ///< 后台校验与阶段凭据生成；保持占用，可取消
+            VerifyingCompletion, ///< 后台校验与安装凭据生成；保持占用，可取消
         };
 
         Phase phase = Phase::Idle;

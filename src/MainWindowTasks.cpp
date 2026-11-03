@@ -233,7 +233,7 @@ void MainWindow::cancelTaskFromDetail(const QString &key) {
     // ④ 备份 / 快照 / 还原：和 `cancelWouldWork()` 里那一问同口径 —— 只掐这一趟。
     if (transferParsed && m_backupController != nullptr
         && m_backupController->cancelTask(transferId)) {
-        appendLog(tr("已请求取消备份 / 还原；停下的那一趟不会发布半成品。"));
+        appendLog(tr("已请求取消备份或还原；已取消的任务不会留下不完整的文件。"));
         return;
     }
     bool directKey = false;
@@ -303,8 +303,8 @@ void MainWindow::retryTaskFromDetail(const QString &key) {
     if (m_downloadInFlight || m_versionManager->isDownloading()
         || (m_serverInstall != nullptr && m_serverInstall->ownsDownloadBatch())) {
         InlineMessage::information(
-            m_ui->overlay(), tr("现在做不了"),
-            tr("已经有一个下载或者安装任务在跑了，等它结束再重试这几个文件。"));
+            m_ui->overlay(), tr("暂时无法操作"),
+            tr("已有下载或安装任务正在进行，请结束后再重试这几个文件。"));
         return;
     }
     // 重试也要在任务中心里看得见：账本里原来那一件已经是终态了（终态只落一次），
@@ -328,7 +328,7 @@ void MainWindow::retryTaskFromDetail(const QString &key) {
     // 那一格失败清单**刚被这一按吃掉了**（`retryDownload()` 自己 reset）⇒ 号也跟着
     // 松开，不然同一颗按钮留在页上还能再点一次（再点一次什么都不会发生）。
     m_activityCenter->markRetryConsumed();
-    appendLog(tr("正在重试上一次没下下来的那几个文件…"));
+    appendLog(tr("正在重试上次未下载的文件…"));
 }
 
 Tasks::TaskId MainWindow::beginTask(Tasks::TaskKind kind, const QString &title,

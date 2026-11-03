@@ -40,7 +40,7 @@ QList<Tasks::TaskStep> ModpackExportController::initialSteps() const {
     // 四步就对着这条流程（规划 → 兼容性确认 → 执行 → 验证）。第一步起手就是
     // Running —— 任务记出来的那一刻分析已经在路上了。
     const QStringList names{
-        tr("规划：盘点实例文件并反查资源出处"),
+        tr("规划：扫描实例文件并反查资源出处"),
         tr("兼容性确认：清单不完整时问一句"),
         tr("执行：写入整合包"),
         tr("验证：核对写出来的文件"),
@@ -99,9 +99,9 @@ void ModpackExportController::exportPack(const QString &versionId,
     }
     if (m_host.isBeingModified && m_host.isBeingModified(versionId)) {
         InlineMessage::information(
-            m_overlay, tr("现在做不了"),
-            tr("「%1」这会儿正在装（或者正在导入 / 正在检查）。等它完了再导出 —— "
-               "打包要读的正是这会儿正在被改的那些文件。")
+            m_overlay, tr("暂时无法操作"),
+            tr("「%1」正在安装、导入或检查，请完成后再导出 —— "
+               "打包要读取的正是正在被修改的文件。")
                 .arg(displayName(versionId)));
         return;
     }
@@ -158,7 +158,7 @@ void ModpackExportController::exportPack(const QString &versionId,
                                     tr("导出整合包 %1").arg(displayName(versionId)),
                                     versionId, initialSteps());
         setTaskProgress(0, initialSteps().size());
-        setTaskDetail(tr("正在盘点实例文件…"));
+        setTaskDetail(tr("正在扫描实例文件…"));
     }
     setStatus(tr("正在后台分析整合包…"));
     const QString modrinthBase = m_settings->modrinthApiBaseOverride();
@@ -321,7 +321,7 @@ void ModpackExportController::continueExport(const ModpackExport::ExportPlan &pl
                                     "打进包里会盖掉收包那个人的。")
                                      .arg(plan.collect.skippedDirs.join(QStringLiteral("、")),
                                           QString::number(plan.collect.skippedFileCount)));
-                lines.append(tr("这是 %1 的包：别人在启动器里用「导入整合包…」就能装回来。")
+                lines.append(tr("这是 %1 的包：别人在启动器里用「导入整合包…」即可导入安装。")
                                  .arg(format == ModpackExport::Format::CurseForge
                                           ? tr("CurseForge 规范") : tr("Modrinth 规范")));
                 InlineMessage::information(m_overlay, tr("导出完成"),

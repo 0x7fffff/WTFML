@@ -348,7 +348,7 @@ VersionManager::LoaderVersionParse VersionManager::parseLoaderVersions(
         QJsonParseError parseError;
         const QJsonDocument doc = QJsonDocument::fromJson(body, &parseError);
         if (!doc.isArray()) {
-            result.error = tr("Fabric 的版本列表读不懂（%1）。").arg(parseError.errorString());
+            result.error = tr("Fabric 的版本列表无法解析（%1）。").arg(parseError.errorString());
             return result;
         }
         entries = LoaderMeta::listFabricLoaderVersions(doc.array());
@@ -358,7 +358,7 @@ VersionManager::LoaderVersionParse VersionManager::parseLoaderVersions(
         QJsonParseError parseError;
         const QJsonDocument doc = QJsonDocument::fromJson(body, &parseError);
         if (!doc.isArray()) {
-            result.error = tr("Quilt 的版本列表读不懂（%1）。").arg(parseError.errorString());
+            result.error = tr("Quilt 的版本列表无法解析（%1）。").arg(parseError.errorString());
             return result;
         }
         entries = LoaderMeta::listQuiltLoaderVersions(doc.array());
@@ -378,7 +378,7 @@ VersionManager::LoaderVersionParse VersionManager::parseLoaderVersions(
             const QJsonDocument doc = QJsonDocument::fromJson(body, &parseError);
             if (!doc.isArray()) {
                 result.error =
-                    tr("OptiFine 的版本列表读不懂（%1）。").arg(parseError.errorString());
+                    tr("OptiFine 的版本列表无法解析（%1）。").arg(parseError.errorString());
                 return result;
             }
             entries = LoaderMeta::listOptifineVersionsFromMirror(doc.array(), gameVersion);
@@ -669,7 +669,7 @@ void VersionManager::startParentOrLoaderFiles() {
     if (QFile::exists(InstanceFiles::jsonPath(parent)) &&
         QFile::exists(InstanceFiles::jarPath(parent))) {
         emit loaderInstallMessage(
-            tr("原版 %1 已经装好了，直接装 %2 自己的文件。").arg(parent, m_loaderInstall.loaderName));
+            tr("原版 %1 已安装，直接安装 %2 自己的文件。").arg(parent, m_loaderInstall.loaderName));
         startLoaderFiles();
         return;
     }
@@ -781,7 +781,7 @@ void VersionManager::onInstallerListReply(QNetworkReply *reply, const QString &j
         QJsonParseError parseError;
         const QJsonDocument doc = QJsonDocument::fromJson(body, &parseError);
         if (!doc.isObject()) {
-            failLoaderInstall(tr("Forge 的版本表读不懂（%1）。").arg(parseError.errorString()));
+            failLoaderInstall(tr("Forge 的版本表无法解析（%1）。").arg(parseError.errorString()));
             return;
         }
         pick = LoaderMeta::pickForgeVersion(doc.object(), m_loaderInstall.gameVersion,
@@ -1169,7 +1169,7 @@ void VersionManager::writeLegacyProfile(const QJsonObject &parentJson) {
         QString reason;
         switch (plan.problem) {
         case Problem::NotJson:
-            reason = tr("那个文件不是一份 json（它坏了）");
+            reason = tr("该文件不是一份 JSON（已损坏）");
             break;
         case Problem::ModernProfile:
             reason = tr("里面没有 install / versionInfo 这两节（这是新格式的安装器，"
@@ -1593,7 +1593,7 @@ void VersionManager::onInstallerFinished(int exitCode, bool crashed) {
         return;
     }
 
-    emit loaderInstallMessage(tr("%1 %2 装好了（%3）。").arg(name, version, id));
+    emit loaderInstallMessage(tr("%1 %2 安装完成（%3）。").arg(name, version, id));
     startParentCompletion();
 }
 
@@ -1607,7 +1607,7 @@ void VersionManager::startParentCompletion() {
     // 再把资源下全。NeoForge 那种"已经齐了"的情况下它也只是校验 + 补资源。
     const QString parent = m_loaderInstall.gameVersion;
     m_loaderInstall.phase = LoaderInstall::Phase::WaitingParentJson;
-    emit loaderInstallMessage(tr("%1 装好了，接着把原版 %2 的文件补齐（安装器不下资源文件）...")
+    emit loaderInstallMessage(tr("%1 安装完成，接下来补齐原版 %2 的文件（安装器不下载资源文件）...")
                                   .arg(m_loaderInstall.loaderName, parent));
     fetchVersionDetails(parent);
 }
@@ -1669,7 +1669,7 @@ void VersionManager::onOptifineVersionListReply(QNetworkReply *reply, bool fromM
         QJsonParseError parseError;
         const QJsonDocument doc = QJsonDocument::fromJson(body, &parseError);
         if (!doc.isArray()) {
-            failLoaderInstall(tr("OptiFine 的版本表读不懂（%1）。").arg(parseError.errorString()));
+            failLoaderInstall(tr("OptiFine 的版本表无法解析（%1）。").arg(parseError.errorString()));
             return;
         }
         pick = LoaderMeta::pickOptifineFromMirror(doc.array(), m_loaderInstall.gameVersion,
@@ -1813,7 +1813,7 @@ void VersionManager::ensureParentForOptifine() {
     const QString parent = m_loaderInstall.gameVersion;
     if (QFile::exists(InstanceFiles::jsonPath(parent)) &&
         QFile::exists(InstanceFiles::jarPath(parent))) {
-        emit loaderInstallMessage(tr("原版 %1 已经装好了，直接跑 %2 的安装器。")
+        emit loaderInstallMessage(tr("原版 %1 已安装，直接运行 %2 的安装器。")
                                       .arg(parent, m_loaderInstall.loaderName));
         startInstallerDownload();
         return;
@@ -1935,8 +1935,8 @@ void VersionManager::adoptOptifineProducts() {
     // 2. 名字得能当目录名（它来自安装器，我们拿它拼路径），而且得是 `<原版>-OptiFine_<版本>`
     // 这个形状 —— 那是它自己拼目录名的约定，对不上就说明装的不是我们要的那个原版。
     if (!LoaderMeta::isSafeVersionId(id) || !id.startsWith(prefix)) {
-        failLoaderInstall(tr("%1 %2 的安装器装出来一个「%3」，不是「%4…」那个形状，"
-                             "没有承认它装好了。")
+        failLoaderInstall(tr("%1 %2 的安装器生成了「%3」，不符合「%4…」的命名格式，"
+                             "未将其识别为已安装版本。")
                               .arg(name, version, id, prefix));
         return;
     }
@@ -2007,7 +2007,7 @@ void VersionManager::adoptOptifineProducts() {
     m_loaderInstall.loaderVersion = id.mid(prefix.size());
 
     emit loaderInstallMessage(
-        tr("%1 %2 装好了（%3）。").arg(name, m_loaderInstall.loaderVersion, id));
+        tr("%1 %2 安装完成（%3）。").arg(name, m_loaderInstall.loaderVersion, id));
     startParentCompletion();
 }
 
@@ -2037,11 +2037,11 @@ void VersionManager::finishLoaderInstall(bool success, const QString &message) {
         m_modpackInstall.phase == ModpackInstall::Phase::InstallingLoader) {
         m_loaderInstall.reset();
         if (!success) {
-            failModpackImport(tr("%1 没装成，整合包没有导入。%2").arg(loaderName, message));
+            failModpackImport(tr("%1 安装失败，整合包未导入。%2").arg(loaderName, message));
             return;
         }
         m_modpackInstall.loaderId = loaderId;
-        emit modpackImportMessage(tr("%1 %2 装好了，接着落实例自己的文件...")
+        emit modpackImportMessage(tr("%1 %2 安装完成，接下来落实例文件...")
                                       .arg(loaderName, loaderVersion));
         // 这一步是从"加载器那批文件下完"的信号栈里回来的（allDownloadsFinished 一路同步
         // 到这儿）：排到下一轮，让它从干净栈上开始。
@@ -2086,7 +2086,7 @@ void VersionManager::writeLoaderMeta() {
         // NOTE: 版本本身已经装好了、能启动 —— 写不进 meta 只是"显示名少一段"，
         // 所以这不是失败，不该把它算进失败里。但也不能不说（用户会发现名字不对）。
         qWarning() << "Failed to write wtfml.meta for" << m_loaderInstall.loaderId << ":" << error;
-        emit loaderInstallMessage(tr("装好了，但没能写进 wtfml.meta（%1）——「版本名」里会少一段「%2 %3」。")
+        emit loaderInstallMessage(tr("安装完成，但未能写入 wtfml.meta（%1）——「版本名」中将缺少「%2 %3」。")
                                       .arg(error, m_loaderInstall.loaderName,
                                            m_loaderInstall.loaderVersion));
     }

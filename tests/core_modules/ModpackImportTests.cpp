@@ -425,8 +425,8 @@ void runModpackImportTests(const QString &sandbox) {
             const ModpackImport::Result r = ModpackImport::parseModrinthIndex(json);
             return r.ok ? QString() : r.problem;
         };
-        check(problemOf(QByteArray("这不是 json")).contains(QStringLiteral("读不懂")),
-              "V4 不是 json：说「读不懂」");
+        check(problemOf(QByteArray("这不是 json")).contains(QStringLiteral("无法解析")),
+              "V4 不是 json：说「无法解析」");
         check(problemOf(QByteArray("{}")).contains(QStringLiteral("formatVersion")),
               "V4 缺 formatVersion/files：说它不是整合包清单");
         check(problemOf(R"json({"formatVersion":1,"files":[],"game":"factorio",

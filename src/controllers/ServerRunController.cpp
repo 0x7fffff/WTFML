@@ -48,9 +48,9 @@ void ServerRunController::start(const QString &serverId, bool automatic) {
             m_owner.appendLog(MainWindow::tr("%1 的世界正在备份或者还原，这一次没有自动重启。").arg(serverId));
         } else {
             InlineMessage::information(
-                m_owner.m_ui->overlay(), MainWindow::tr("这个服务端这会儿动不得"),
-                MainWindow::tr("它的世界正在备份或者还原。等那一趟完了再启动 —— 现在起服读写到的是"
-                   "一半新一半旧的存档。"));
+                m_owner.m_ui->overlay(), MainWindow::tr("暂时不能启动"),
+                MainWindow::tr("它的世界正在备份或还原，请完成后再启动 —— 否则会读写到"
+                   "一半新、一半旧的存档。"));
         }
         return;
     }

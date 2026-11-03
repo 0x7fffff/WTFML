@@ -85,7 +85,7 @@ struct Item {
     /// 不当行号 —— 行号会随着"清掉一条已完成"整体挪位）。
     QString key;
     QString title;
-    /// 标题下面那行小字（"正在下载资源对象 · 2.8 MB/s"）。空 = 不画那一行。
+    /// 标题下面那行小字（"已下载 12 / 40  文件名"）。空 = 不画那一行。
     QString detail;
     /// -1 = **不可测**（没有 Content-Length 那一类）：画不确定态，绝不编一个百分比出来
     /// （「无 Content-Length 的 Fabric 下载显示'已下载多少'，

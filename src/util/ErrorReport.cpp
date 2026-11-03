@@ -145,10 +145,10 @@ QString text(const Facts &facts, const QDateTime &now, const QString &errors, co
     if (errors.isEmpty()) {
         // 照样写上那一段（理由见 .hpp）：空着的话看的人分不清"没出错"和"导出漏了"。
         out += facts.errorTruncated
-                   ? QStringLiteral("（这一段里现在一行都没有 —— 早先那几行已经被日志行数上限"
-                                    "挤掉了，原始共 %1 行。）")
+                   ? QStringLiteral("（这一段里现在一行都没有：较早的几行已被日志行数上限"
+                                    "挤掉，原始共 %1 行。）")
                          .arg(facts.errorLines)
-                   : QStringLiteral("（这一段里一行都没有 —— 这一趟没有 ERROR 以上的输出。日志本身"
+                   : QStringLiteral("（这一段里一行都没有：本次没有 ERROR 及以上的输出。日志本身"
                                     "在下面。）");
         out += QLatin1Char('\n');
     } else {

@@ -313,8 +313,8 @@ void MainWindow::installServer(const QString &serverId, const ServerInstall::Req
     // —— 所以忙的时候说清楚，而不是让它排着队（排队还没做）。
     if (m_serverInstall->isRunning()) {
         InlineMessage::warning(m_ui->overlay(), tr("先等这一个装完"),
-                               tr("同一时间只装一个服务端 —— 下载是共用的一条路，两批一起跑"
-                                  "会把彼此的进度算乱。"));
+                               tr("同一时间只能安装一个服务端：下载共用同一条队列，两批同时运行"
+                                  "会打乱彼此的进度。"));
         return;
     }
     // 这一档这一轮接没接。**判据的唯一出处是 `ServerInstallRun::flavorSupported()`** ——
@@ -327,7 +327,7 @@ void MainWindow::installServer(const QString &serverId, const ServerInstall::Req
     const ServerInstall::Plan plan = ServerInstall::planFor(request);
     if (!plan.ok) {
         // `planFor()` 给的 `problem` 就是给用户看的那句话（那一层承诺过），别再另编一句。
-        InlineMessage::critical(m_ui->overlay(), tr("装不了这个服务端"), plan.problem);
+        InlineMessage::critical(m_ui->overlay(), tr("无法安装这个服务端"), plan.problem);
         return;
     }
     // 跑安装器的那三档（Forge / NeoForge / Quilt）才要 java。**在记账之前**问：
@@ -479,9 +479,8 @@ void MainWindow::removeServer(const QString &serverId) {
     // 世界正在备份 / 还原：那一趟还在往这个目录里读 / 写，删掉它等于把正在解压的落点
     // 从底下抽走（备份那一趟则会把"删到一半的目录"打进包里）。
     if (m_serverRun->fileBusy(serverId)) {
-        InlineMessage::warning(m_ui->overlay(), tr("这一份这会儿不能删"),
-                               tr("「%1」的世界正在备份或者还原。等那一趟完了再删。")
-                                   .arg(shown));
+        InlineMessage::warning(m_ui->overlay(), tr("暂时不能删除"),
+                               tr("「%1」的世界正在备份或还原，请完成后再删除。").arg(shown));
         return;
     }
     // 这是**唯一一处会删用户东西的地方**，而且删的是别人几个月的存档 —— 所以：默认那
@@ -713,8 +712,8 @@ void MainWindow::updateServerRow(const QString &serverId) {
                                  : MainWindowUI::serverStopText());
         button->setEnabled(!stopping);
         button->setToolTip(stopping
-                               ? tr("已经让它停了，在等它存盘收尾。")
-                               : tr("让它自己存盘、收尾，然后退出（推荐）。"));
+                               ? tr("已发送停止请求，正在等待保存并退出。")
+                               : tr("保存后自行退出（推荐）。"));
         Theme::markButton(button, Theme::ButtonKind::Danger);
     } else {
         button->setText(MainWindowUI::serverStartText());

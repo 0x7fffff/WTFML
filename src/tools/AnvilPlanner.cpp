@@ -277,7 +277,7 @@ MergeCost mergeCost(const Unit &target, const Unit &sacrifice) {
 Plan plan(const QList<Unit> &units, bool includeRename) {
     Plan plan;
     if (units.isEmpty()) {
-        plan.error = QStringLiteral("手上什么都没有：先加几件。");
+        plan.error = QStringLiteral("尚未添加任何物品，请先添加。");
         return plan;
     }
     if (units.size() > kMaxUnits) {

@@ -432,7 +432,7 @@ void ToolboxController::open(const QString &toolKey) {
         // 非阻塞（见 `OverlayHost::showPage()`）：工具箱这一页后面没有一行代码要等它
         // 收掉，用户换一件工具只是换内容 + 重开。
         if (!m_overlay->showPage(m_page, ToolboxPage::windowTitle())) {
-            m_host.log(tr("工具箱页面没开成：覆盖层刚被另一页占上了。"));
+            m_host.log(tr("无法打开工具箱：界面已被另一页占用。"));
         }
     };
     if (m_overlay->isOpen()) {
@@ -492,11 +492,11 @@ void ToolboxController::runAnvilPlan() {
         const int node = target ? step.targetNode : step.sacrificeNode;
         if (node >= 0 && node - units.size() < plan.steps.size()) {
             const Anvil::Step &produced = plan.steps.at(node - units.size());
-            return QStringLiteral("第 %1 步合出来的那一件（%2）")
+            return QStringLiteral("第 %1 步的合并产物（%2）")
                 .arg(node - units.size() + 1)
                 .arg(unitText(produced.result, produced.resultIsBook));
         }
-        return QStringLiteral("（认不出来的那一件）");
+        return QStringLiteral("（无法识别的一件）");
     };
     int stepNumber = 0;
     for (const Anvil::Step &step : plan.steps) {
@@ -507,7 +507,7 @@ void ToolboxController::runAnvilPlan() {
                                 unitText(step.result, step.resultIsBook))
                            .arg(step.cost.total);
         if (step.cost.penalties > 0) {
-            line.append(QStringLiteral("，其中前科 %1").arg(step.cost.penalties));
+            line.append(QStringLiteral("，其中先前工作惩罚 %1").arg(step.cost.penalties));
         }
         if (step.cost.incompatible > 0) {
             line.append(QStringLiteral("，含不兼容 +%1").arg(step.cost.incompatible));
@@ -517,9 +517,9 @@ void ToolboxController::runAnvilPlan() {
         // 互斥顶掉的那几条**点名说清楚**：不解释的话，用户会以为那一条悄悄丢了
         // （代价里那 +1 是照旧的，所以要说明"合不上来但还是要多花一级"）。
         for (auto it = step.cost.dropped.constBegin(); it != step.cost.dropped.constEnd(); ++it) {
-            view.notes.append(tr("第 %1 步：「%2」和目标上已有的附魔互斥，这一步没合上来 —— "
-                                 "目标保住自己那条（铁砧按每一条互斥照旧 +1 级）。"
-                                 "想留下这一条，就把它那一件放到左边先合。")
+            view.notes.append(tr("第 %1 步：「%2」与目标已有的附魔互斥，这一步无法合入；"
+                                 "目标保留原有附魔（铁砧仍按每条互斥 +1 级）。"
+                                 "若要保留这一条，请把它所在的一件放到左槽先合。")
                                   .arg(stepNumber)
                                   .arg(enchantmentText(it.key(), it.value())));
         }
@@ -529,16 +529,16 @@ void ToolboxController::runAnvilPlan() {
                                   .replace(QStringLiteral(" 的装备"), QString());
     view.summary = plan.steps.isEmpty()
                        ? (plan.renameCost > 0
-                              ? tr("只有一件，不用合；改个名要 %1 级。").arg(plan.renameCost)
-                              : tr("只有一件，不用合。"))
-                       : tr("一共 %1 级%2，合完是 %3。")
+                              ? tr("只有一件，无需合并；改名需要 %1 级。").arg(plan.renameCost)
+                              : tr("只有一件，无需合并。"))
+                       : tr("合计 %1 级%2，合并后为 %3。")
                              .arg(plan.totalCost)
                              .arg(plan.withinSurvival ? tr("（每一步都在 39 级以内）") : QString(),
                                   finalText);
     view.anyTooExpensive = plan.anyTooExpensive;
     if (plan.anyTooExpensive) {
-        view.notes.append(tr("★ 有计划里那一步的代价超过 39 级 —— 生存模式里铁砧会拒绝那一步"
-                             "（创造模式不受这条限制）。换一个次序，或者先减掉几件上的前科。"));
+        view.notes.append(tr("★ 计划中有一步的代价超过 39 级；生存模式下铁砧会拒绝该步骤"
+                             "（创造模式不受限制）。请调整顺序，或先降低部分材料的先前工作惩罚。"));
     }
     if (!plan.unused.isEmpty()) {
         QStringList leftover;
@@ -547,24 +547,24 @@ void ToolboxController::runAnvilPlan() {
                 leftover.append(units.at(index).label);
             }
         }
-        view.notes.append(tr("这几件用不上：%1 —— 加进去也升不了级（材料可以不全用）。")
+        view.notes.append(tr("这些材料用不上：%1（加入后也无法提升，材料不必全部使用）。")
                               .arg(leftover.join(QStringLiteral("、"))));
     }
     if (plan.finalPenalty > 0) {
-        view.notes.append(tr("合完之后那一件的前科是 %1（= 在铁砧上用过 %2 次）。")
+        view.notes.append(tr("合并后该件的先前工作惩罚为 %1（相当于在铁砧上使用过 %2 次）。")
                               .arg(plan.finalPenalty)
                               .arg(Anvil::usesForPenalty(plan.finalPenalty)));
     }
     // 改名那 1 级只花在**一次**操作上：某一步顺手改，或者合完单独改一次。
     if (plan.renameCost > 0) {
         if (plan.renameStep >= 0 && plan.renameStep < plan.steps.size()) {
-            view.notes.append(tr("第 %1 步合的时候顺手把名字改了 —— 总代价里多那 1 级"
-                                 "（这一步本身还算 %2 级；一条计划里只改一次）。")
+            view.notes.append(tr("第 %1 步合并时会同时改名，总代价多 1 级"
+                                 "（这一步本身按 %2 级计；一条计划只改一次名）。")
                                   .arg(plan.renameStep + 1)
                                   .arg(plan.steps.at(plan.renameStep).cost.total));
         } else {
-            view.notes.append(tr("合完之后再单独改一次名：%1 级（单改名 = 这一件的前科 + 1，"
-                                 "封顶 39；单改名不会让前科再涨）。")
+            view.notes.append(tr("合并完成后再单独改名：%1 级（单独改名 = 该件先前工作惩罚 + 1，"
+                                 "上限 39；单独改名不会再提高该惩罚）。")
                                   .arg(plan.renameCost));
         }
     }
@@ -594,7 +594,7 @@ void ToolboxController::refreshText() {
 
 void ToolboxController::loadTextFromJson(const QString &json) {
     if (json.trimmed().isEmpty()) {
-        m_page->setTextNotice(tr("「JSON 组件」那一格是空的 —— 先把一段 JSON 粘进去。"));
+        m_page->setTextNotice(tr("「JSON 组件」为空，请先粘贴一段 JSON。"));
         return;
     }
     const TextFormat::JsonParseResult parsed = TextFormat::parseJson(json);
@@ -602,13 +602,13 @@ void ToolboxController::loadTextFromJson(const QString &json) {
         m_page->setTextSource(TextFormat::toLegacy(parsed.segments));
     }
     if (parsed.unsupported.isEmpty()) {
-        m_page->setTextNotice(tr("读回来了：%1 段。").arg(parsed.segments.size()));
+        m_page->setTextNotice(tr("已读入：%1 段。").arg(parsed.segments.size()));
         return;
     }
     // 认不出来的那几种组件**不猜**（`translate` 要查语言文件、`score` 要游戏在跑、
     // `selector` 要挑实体 —— 都不是这一层能算的）。把名字列出来，用户自己知道少读了什么。
-    m_page->setTextNotice(tr("这几样没读：%1 —— 它们要游戏里那台服务器（或者语言文件）"
-                             "才算得出来，这一层不猜。")
+    m_page->setTextNotice(tr("以下组件未解析：%1。它们需要游戏内的服务器或语言文件才能确定，"
+                             "此处不做推测。")
                               .arg(parsed.unsupported.join(QStringLiteral("、"))));
 }
 

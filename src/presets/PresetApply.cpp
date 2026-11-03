@@ -122,7 +122,7 @@ bool backupOne(const QString &instanceRoot, const QString &backupDir, const QStr
     }
     QString copyProblem;
     if (!copyTreeWithoutFollowingLinks(source, target, {}, &copyProblem)) {
-        *problem = applyText("备份「%1」失败（这一趟什么都没写）：%2").arg(relative, copyProblem);
+        *problem = applyText("备份「%1」失败，本次未写入任何内容：%2").arg(relative, copyProblem);
         return false;
     }
     return true;
@@ -506,8 +506,8 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
                                        : request.instanceId;
         const QString backupDir = makeBackupDir(presetsRoot, instanceId);
         if (backupDir.isEmpty()) {
-            result.problem = applyText("建不了备份目录，这一趟什么都没写（不敢在没有备份的情况下动"
-                                       "这个实例）。");
+            result.problem = applyText("无法建立备份目录，本次未修改这个实例"
+                                       "（没有备份时不改动实例）。");
             return finish();
         }
         QStringList ordered = backupPaths.values();

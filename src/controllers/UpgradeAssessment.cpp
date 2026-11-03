@@ -213,7 +213,7 @@ void addLegacyInfoDeclaration(Mod &mod, const QByteArray &bytes) {
         Declaration failed;
         failed.loader = QStringLiteral("forge");
         failed.basis = QStringLiteral("mcmod.info");
-        failed.problem = QObject::tr("mcmod.info 读不懂（%1）").arg(parse.errorString());
+        failed.problem = QObject::tr("mcmod.info 无法解析（%1）").arg(parse.errorString());
         mod.declarations.append(failed);
         return;
     }

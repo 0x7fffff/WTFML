@@ -312,8 +312,10 @@ JSON 与日志在 `build/acceptance-20261025/`。物理慢盘上的同一矩阵�
   ui-bootstrap 只检查完整驱动能链接、启动和读取图标，保持历史断言的编译门禁；历史 visual 仍按原策略另跑。
 - tests/mw_check/modules/：31 个原命名函数、25 个历史界面接线段和 4 个快速专项各自独立 .cpp。
   已有的下载、预设、更新、Java、模组等专项也各有独立入口，不再链接完整主窗口测试驱动。
-- Support.hpp/Support.cpp 只容纳共用夹具与声明；跨段变量显式传参，统计计数共享，
-  历史测试不因拆文件而改变顺序或丢掉断言。三个原始入口保留编排及手动探针，不再堆放大段专项实现。
+- mw_check 的夹具头分三层：SupportCore.hpp 放断言与不碰界面的小工具，SupportFakes.hpp 放假外网与
+  预置皮肤夹具，Support.hpp 放真窗口那套 UI 夹具与各节入口声明；Support.cpp 放共用的非模板实现。
+  跨段变量显式传参，统计计数共享，历史测试不因拆文件而改变顺序或丢掉断言。
+  三个原始入口保留编排及手动探针，不再堆放大段专项实现。
 - 生产实现依次复用 wtfml_core_runtime、wtfml_ui_runtime、wtfml_mw_runtime，
   测试程序之间相同实现和 Qt 元对象不重复编译；图标资源在 UI 入口显式初始化。
   共享层分别构建，各阶段单独计时；同一专项的断言对象也供完整入口复用。
@@ -522,7 +524,7 @@ GitHub 的 main 提交和 PR 按改动选择分片与测试；标签、定时和
 
 ### 2026-10-22 假外网按请求目标路由
 
-`tests/mw_check/modules/Support.hpp` 的 `FakeNetwork` 现在按请求行路径（去掉查询串）路由，
+`tests/mw_check/modules/SupportFakes.hpp` 的 `FakeNetwork` 现在按请求行路径（去掉查询串）路由，
 `hits`/`paths` 记每一发的次数与原文，`notFound` + `unrouted` 记没演到的请求并回 404。
 构造 `MainWindow` 的两个入口（`wtfml.main-window`、`wtfml.workspace`）都在构造前把五条
 `Launcher/*Base` 写进沙盒 INI，并在收尾断言 `notFound == 0`；断言只看次数，不看响应次序。
@@ -578,7 +580,7 @@ PA3 补充排序/default 字段 null、对象、非字符串数组项及布尔�
 
 `ModpackCompletionTests.cpp` 的 ZG9 在 Windows 上使用允许读写共享、但不允许删除共享的
 原生文件句柄占住 `wtfml.importing`，实际调用生产收尾流程。断言最后删除失败时返回失败、
-报告退回未完成、启动门禁仍生效、安装文件和收尾凭据保留；关闭句柄后，同一凭据在没有
+报告退回未完成、启动门禁仍生效、安装文件和安装凭据保留；关闭句柄后，同一凭据在没有
 原压缩包的情况下重试成功。这不是磁盘写满、断电或强制结束进程的模拟，后三者仍待验收。
 
 ZG9 另外在取消回调中观察完成报告，等完成报告实际落盘后才请求取消，验证发布门禁前

@@ -866,10 +866,10 @@ QString PresetController::captureSummary(const Presets::CaptureReport &report) c
                          .arg(report.dataPackItems)
                          .arg(report.dataPackWorlds));
     }
-    QString text = parts.isEmpty() ? QStringLiteral("什么都没收到。")
-                                   : QStringLiteral("收到了 %1。").arg(parts.join(QStringLiteral("，")));
+    QString text = parts.isEmpty() ? QStringLiteral("没有收到任何内容。")
+                                   : QStringLiteral("已提取：%1。").arg(parts.join(QStringLiteral("，")));
     if (!report.problems.isEmpty()) {
-        text += QStringLiteral("\n没收到：%1")
+        text += QStringLiteral("\n未提取：%1")
                     .arg(report.problems.join(QStringLiteral("；")));
     }
     return text;
@@ -900,8 +900,8 @@ void PresetController::captureInto(const QString &presetId, const QString &insta
         if (m_page != nullptr) {
             m_page->showStatus(
                 skipped.isEmpty()
-                    ? QStringLiteral("什么都没勾。")
-                    : QStringLiteral("这一类预设不收这几样：%1。")
+                    ? QStringLiteral("未选择任何项。")
+                    : QStringLiteral("这类预设不收录：%1。")
                           .arg(skipped.join(QStringLiteral("、"))));
         }
         return;
@@ -911,7 +911,7 @@ void PresetController::captureInto(const QString &presetId, const QString &insta
     if (!report.ok) {
         if (m_page != nullptr) {
             m_page->showStatus(report.problem.isEmpty()
-                                   ? QStringLiteral("什么都没收到。")
+                                   ? QStringLiteral("没有收到任何内容。")
                                    : QStringLiteral("提取失败：%1").arg(report.problem));
         }
         return;
@@ -982,8 +982,8 @@ void PresetController::captureAsNew(const QString &instanceId, const QString &na
         if (m_page != nullptr) {
             m_page->showStatus(
                 skipped.isEmpty()
-                    ? QStringLiteral("什么都没勾，新预设没有建。")
-                    : QStringLiteral("这一类预设不收这几样：%1；新预设没有建。")
+                    ? QStringLiteral("未选择任何项，新预设没有创建。")
+                    : QStringLiteral("这类预设不收录：%1；新预设没有创建。")
                           .arg(skipped.join(QStringLiteral("、"))));
         }
         return;
@@ -995,7 +995,7 @@ void PresetController::captureAsNew(const QString &instanceId, const QString &na
         Presets::remove(root, created.id);
         if (m_page != nullptr) {
             m_page->showStatus(report.problem.isEmpty()
-                                   ? QStringLiteral("什么都没收到，新预设没有建。")
+                                   ? QStringLiteral("没有收到任何内容，新预设没有创建。")
                                    : QStringLiteral("提取失败：%1").arg(report.problem));
         }
         return;
@@ -1049,7 +1049,7 @@ void PresetController::previewPlan(const QString &presetId, const QString &insta
     if (m_host.isInstanceBusy && m_host.isInstanceBusy(instanceId)) {
         invalidatePreview();
         PresetManagePage::PlanView view;
-        view.problem = tr("这个实例正在处理文件，请等它收尾后重新预览。");
+        view.problem = tr("这个实例正在处理文件，请完成后再重新预览。");
         m_page->showPlan(view);
         return;
     }
@@ -1602,8 +1602,8 @@ PresetController::InstallApply PresetController::applyAfterInstall(const QString
         out.message = result.blockedReason;
     } else if (!result.ok) {
         out.message = result.problem.isEmpty()
-                          ? QStringLiteral("这一趟没有走完。")
-                          : QStringLiteral("这一趟没有走完：%1").arg(result.problem);
+                          ? QStringLiteral("本次操作未完成。")
+                          : QStringLiteral("本次操作未完成：%1").arg(result.problem);
     } else {
         out.ok = failed == 0;
         out.message = QStringLiteral("实例预设「%1」已应用：写入 %2 项")
@@ -1748,7 +1748,7 @@ void PresetController::installModsAfterInstallImpl(const QStringList &presetIds,
     // 同一道闸在真正开跑之前再问一次（和 `applyPlan()` 那道是**同一个判断**）：从
     // 「应用」按下去到这儿之间可能进过嵌套提示，期间另一趟搬文件已经起来了。
     if (m_host.isFileOperationBusy && m_host.isFileOperationBusy(instanceId)) {
-        completed(false, tr("这个实例正在后台被其它作业写入（复制、还原或导入），等它收尾之后再应用模组预设。"));
+        completed(false, tr("这个实例正在后台被其它操作写入（复制、还原或导入），完成后再应用模组预设。"));
         return;
     }
     QList<Presets::ModReference> references;

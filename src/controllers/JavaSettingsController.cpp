@@ -120,7 +120,7 @@ void JavaSettingsController::openManagePage() {
     // 非阻塞开页（见 `OverlayHost::showPage()`）：这一页后面没有一行代码要等它收掉；
     // 页上那一发 `rejected` 照旧接在 `cancelAfterCurrent` 上（返回箭头也是 reject）。
     if (!overlay->showPage(m_page, m_page->titleText(), settingsTab)) {
-        log(tr("Java 管理那一页没开成：覆盖层刚被另一页占上了。"));
+        log(tr("无法打开 Java 管理页：界面已被另一页占用。"));
     }
 }
 

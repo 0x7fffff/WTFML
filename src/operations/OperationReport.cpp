@@ -147,7 +147,7 @@ QString Report::summaryText() const {
         text += QStringLiteral("；未完成 %1").arg(unfinishedFiles());
     }
     if (!complete) {
-        text += QStringLiteral("；这一趟没有收尾");
+        text += QStringLiteral("；本次未收尾");
     }
     return text;
 }

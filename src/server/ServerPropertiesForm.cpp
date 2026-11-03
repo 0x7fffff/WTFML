@@ -105,16 +105,16 @@ const QList<Field> &commonFields() {
         // ---------- 日常 ----------
         // `preview = true`：这一格下面挂一条"照游戏里画出来"的样子（`§` 码、两行）。
         Field{QStringLiteral("motd"), QStringLiteral("服务器简介"),
-              QStringLiteral("服务器列表里显示的那一行字"),
+              QStringLiteral("服务器列表中的显示文字"),
               Kind::Text, QStringLiteral("A Minecraft Server"), 0, 0, {}, false, true},
         Field{QStringLiteral("server-port"), QStringLiteral("端口"),
-              QStringLiteral("别人连进来用的端口；路由器上要把它转发出去"),
+              QStringLiteral("玩家连接使用的端口；需在路由器上转发"),
               Kind::Number, QStringLiteral("25565"), 1, 65535, {}, false},
         Field{QStringLiteral("max-players"), QStringLiteral("最多在线人数"),
-              QStringLiteral("同时最多几个人在线，第 21 个人进来会被挡回去"),
+              QStringLiteral("同时在线人数上限，超出者无法加入"),
               Kind::Number, QStringLiteral("20"), 1, 1000, {}, false},
         Field{QStringLiteral("difficulty"), QStringLiteral("难度"),
-              QStringLiteral("怪物的伤害、饥饿掉得多快，就看这一档"),
+              QStringLiteral("影响怪物伤害与饥饿消耗速度"),
               Kind::Choice, QStringLiteral("easy"), 0, 0,
               choicesOf({{QStringLiteral("peaceful"), QStringLiteral("和平")},
                          {QStringLiteral("easy"), QStringLiteral("简单")},
@@ -122,7 +122,7 @@ const QList<Field> &commonFields() {
                          {QStringLiteral("hard"), QStringLiteral("困难")}}),
               false},
         Field{QStringLiteral("gamemode"), QStringLiteral("默认游戏模式"),
-              QStringLiteral("新玩家第一次进来时是哪一档（之后改自己的就行）"),
+              QStringLiteral("新玩家首次加入时的游戏模式"),
               Kind::Choice, QStringLiteral("survival"), 0, 0,
               choicesOf({{QStringLiteral("survival"), QStringLiteral("生存")},
                          {QStringLiteral("creative"), QStringLiteral("创造")},
@@ -130,56 +130,56 @@ const QList<Field> &commonFields() {
                          {QStringLiteral("spectator"), QStringLiteral("旁观")}}),
               false},
         Field{QStringLiteral("hardcore"), QStringLiteral("极限模式"),
-              QStringLiteral("开着的话死一次就进不去这个世界了"),
+              QStringLiteral("开启后死亡一次即无法再进入该世界"),
               Kind::Switch, QStringLiteral("false"), 0, 0, {}, false},
         Field{QStringLiteral("level-name"), QStringLiteral("世界目录名"),
-              QStringLiteral("世界存在这个文件夹里（改它就等于换一个世界）"),
+              QStringLiteral("世界数据所在的文件夹；修改等同于切换世界"),
               Kind::Text, QStringLiteral("world"), 0, 0, {}, true},
         Field{QStringLiteral("level-seed"), QStringLiteral("地图种子"),
-              QStringLiteral("世界第一次生成时用；已经生成好的世界改它没有用"),
+              QStringLiteral("仅在世界首次生成时使用；已有世界修改无效"),
               Kind::Text, QString(), 0, 0, {}, false},
         // ---------- 资源包（选本地 zip、算 SHA-1；地址得用户自己托管） ----------
         Field{QStringLiteral("resource-pack"), QStringLiteral("资源包地址"),
-              QStringLiteral("别人连得到的一个 http(s) 链接；本机文件路径别人打不开"),
+              QStringLiteral("玩家可访问的 http(s) 链接；本机路径对其他玩家无效"),
               Kind::Text, QString(), 0, 0, {}, false},
         // `zipPick = true`：这一格旁边摆一颗「选择本地 zip…」，按 SHA-1 填进来。
         Field{QStringLiteral("resource-pack-sha1"), QStringLiteral("资源包 SHA-1"),
-              QStringLiteral("这个 zip 的 SHA-1；可以用右边那颗按钮从本地 zip 算出来"),
+              QStringLiteral("该 zip 的 SHA-1；可用右侧按钮从本地 zip 计算"),
               Kind::Text, QString(), 0, 0, {}, false, false, true},
         // ---------- 规则 ----------
         Field{QStringLiteral("online-mode"), QStringLiteral("正版验证"),
-              QStringLiteral("开着只让正版账号进来；关掉之后谁都能冒名顶替别人的名字"),
+              QStringLiteral("开启后仅允许正版账号加入；关闭后玩家可冒用他人名称"),
               Kind::Switch, QStringLiteral("true"), 0, 0, {}, false},
         Field{QStringLiteral("white-list"), QStringLiteral("白名单"),
-              QStringLiteral("只有名单上的人能进来（名单要在控制台里用 whitelist add 加）"),
+              QStringLiteral("仅名单中的玩家可加入；名单需在控制台用 whitelist add 添加"),
               Kind::Switch, QStringLiteral("false"), 0, 0, {}, false},
         Field{QStringLiteral("pvp"), QStringLiteral("玩家互相伤害"),
-              QStringLiteral("关掉之后玩家之间打不动（怪物还是照打）"),
+              QStringLiteral("关闭后玩家之间无法互相伤害（怪物不受影响）"),
               Kind::Switch, QStringLiteral("true"), 0, 0, {}, false},
         Field{QStringLiteral("allow-flight"), QStringLiteral("允许飞行"),
-              QStringLiteral("关着的时候，客户端里被认出在飞会被踢出去"),
+              QStringLiteral("关闭时，被判定为飞行的玩家会被踢出"),
               Kind::Switch, QStringLiteral("false"), 0, 0, {}, false},
         Field{QStringLiteral("allow-nether"), QStringLiteral("允许去下界"),
-              QStringLiteral("关掉之后下界传送门不生效"),
+              QStringLiteral("关闭后下界传送门无法使用"),
               Kind::Switch, QStringLiteral("true"), 0, 0, {}, false},
         Field{QStringLiteral("spawn-monsters"), QStringLiteral("刷怪"),
-              QStringLiteral("关了世界里就不生成怪物（和平难度下本来也不刷）"),
+              QStringLiteral("关闭后世界不生成怪物（和平难度下同样不生成）"),
               Kind::Switch, QStringLiteral("true"), 0, 0, {}, false},
         Field{QStringLiteral("enable-command-block"), QStringLiteral("允许命令方块"),
-              QStringLiteral("命令方块和命令方块矿车能不能用"),
+              QStringLiteral("是否允许使用命令方块与命令方块矿车"),
               Kind::Switch, QStringLiteral("false"), 0, 0, {}, false},
         Field{QStringLiteral("spawn-protection"), QStringLiteral("出生点保护半径"),
-              QStringLiteral("出生点周围这么多格，非管理员破坏不了（0 = 关掉）"),
+              QStringLiteral("出生点周围的保护半径；非管理员无法破坏（0 = 关闭）"),
               Kind::Number, QStringLiteral("16"), 0, 1000, {}, false},
         // ---------- 性能 ----------
         Field{QStringLiteral("view-distance"), QStringLiteral("视距"),
-              QStringLiteral("一个人能看多远；调大很吃内存和带宽（默认 10 就够十个玩家）"),
+              QStringLiteral("玩家可视距离；增大将显著增加内存与带宽占用"),
               Kind::Number, QStringLiteral("10"), 3, 32, {}, false},
         Field{QStringLiteral("simulation-distance"), QStringLiteral("模拟距离"),
-              QStringLiteral("多远之内的生物和方块会真的动起来"),
+              QStringLiteral("该距离内的生物与方块会进行模拟"),
               Kind::Number, QStringLiteral("10"), 3, 32, {}, false},
         Field{QStringLiteral("player-idle-timeout"), QStringLiteral("挂机踢出（分钟）"),
-              QStringLiteral("多久不动就把人踢下线；0 = 永远不踢"),
+              QStringLiteral("玩家无操作多久后被踢出；0 = 不踢出"),
               Kind::Number, QStringLiteral("0"), 0, 1440, {}, false},
     };
     return fields;
@@ -238,7 +238,7 @@ bool accepts(const Field &field, const QString &raw, QString *normalized, QStrin
     case Kind::Text:
         if (field.dirName) {
             if (trimmed.isEmpty()) {
-                return fail(QObject::tr("世界目录名不能是空的 —— 世界总得存在某个文件夹里。"));
+                return fail(QObject::tr("世界目录名不能为空。"));
             }
             if (trimmed == QStringLiteral(".") || trimmed == QStringLiteral("..")) {
                 return fail(QObject::tr("「%1」不能当目录名。").arg(trimmed));
@@ -261,7 +261,7 @@ bool accepts(const Field &field, const QString &raw, QString *normalized, QStrin
                             .arg(field.max));
         }
         if (value < field.min || value > field.max) {
-            return fail(QObject::tr("超出范围了：这一项只收 %1 ~ %2（游戏自己的界）。")
+            return fail(QObject::tr("超出范围：该项只接受 %1 ~ %2（游戏自身的范围）。")
                             .arg(field.min)
                             .arg(field.max));
         }
@@ -274,7 +274,7 @@ bool accepts(const Field &field, const QString &raw, QString *normalized, QStrin
     case Kind::Switch: {
         bool on = false;
         if (!switchValue(trimmed, &on)) {
-            return fail(QObject::tr("这一项只有开和关两档。"));
+            return fail(QObject::tr("该项只有开、关两档。"));
         }
         if (normalized != nullptr) {
             *normalized = on ? QStringLiteral("true") : QStringLiteral("false");
@@ -293,10 +293,10 @@ bool accepts(const Field &field, const QString &raw, QString *normalized, QStrin
                 return true;
             }
         }
-        return fail(QObject::tr("只能是这几个之一：%1。").arg(choiceNames(field)));
+        return fail(QObject::tr("只能为以下之一：%1。").arg(choiceNames(field)));
     }
     }
-    return fail(QObject::tr("这一项不知道该怎么收。"));
+    return fail(QObject::tr("无法识别该项的值。"));
 }
 
 Values valuesOf(const ServerModel::Properties &properties, const QList<Field> &fields) {

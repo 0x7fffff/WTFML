@@ -460,9 +460,9 @@ void InstanceSettingsDialog::setupFilePages() {
                 m_serverTree->setUniformRowHeights(true);
                 m_serverTree->setSelectionMode(QAbstractItemView::SingleSelection);
                 m_serverTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
-                // 状态那一格是两行（`在线 · 42 ms` / `7/20 人`，见 setServerStatuses）：
+                // 状态那一格是两行（`42 ms` / `7/20 人`，见 setServerStatuses）：
                 // 这一句是那个换行**真的会换行**的前提 —— 条目代理只在开了 wordWrap 时
-                // 才把正文按 QTextLayout 摆，否则那一格里会是"在线 · 42 ms 7/20 人"一行
+                // 才把正文按 QTextLayout 摆，否则那一格里会是"42 ms / 7/20 人"一行
                 // （`\n` 被当成一个看不见的字符）。第 0 列不受影响：那两行是代理自己画的。
                 m_serverTree->setWordWrap(true);
 

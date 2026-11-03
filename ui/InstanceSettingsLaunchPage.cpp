@@ -103,7 +103,7 @@ void InstanceSettingsDialog::setupLaunchPage(const GlobalValues &global, const Q
     // ---------- Java 路径 ----------
     {
         QWidget *cell = addOverrideRow(grid, row, javaPathField(), tr("Java 路径"),
-                                       tr("仅用于当前实例；留空时跟随全局 Java。"));
+                                       tr("留空时使用全局 Java。"));
         row += 2;
         auto *choiceRow = choiceRowOf(javaPathField());
         m_javaPathEdit = new QLineEdit(cell);

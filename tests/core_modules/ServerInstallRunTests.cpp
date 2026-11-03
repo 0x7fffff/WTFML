@@ -132,8 +132,8 @@ void runServerInstallRunTests() {
 
         const ServerInstallRun::Fill garbage =
             ServerInstallRun::fillDownloads(request, plan, QByteArray("<html>404</html>"));
-        check(!garbage.ok && garbage.problem.contains(QStringLiteral("json")),
-              "★ ZY2 回来的不是 json ⇒ 说「读不懂」（别硬解）", garbage.problem);
+        check(!garbage.ok && garbage.problem.contains(QStringLiteral("JSON"), Qt::CaseInsensitive),
+              "★ ZY2 回来的不是 json ⇒ 说「无法解析」（别硬解）", garbage.problem);
     }
 
     // ---------- ZY3. Paper：构建列表怎么读 ----------
@@ -313,8 +313,8 @@ void runServerInstallRunTests() {
         const QStringList startSteps = ServerInstallRun::stepNames(vanilla, vanillaPlan);
         check(startSteps.size() == 2 && startSteps.first().contains(QStringLiteral("原版")),
               "★★ ZY7 原版起手先摆两步（去要版本信息 + 核对）", startSteps.join(QLatin1Char('|')));
-        check(startSteps.last() == QStringLiteral("核对装好了没有"),
-              "★★ ZY7 最后一步永远是「核对装好了没有」—— 它是「不留半成品」那句话的落点",
+        check(startSteps.last() == QStringLiteral("核对安装结果"),
+              "★★ ZY7 最后一步永远是「核对安装结果」—— 它是「不留半成品」那句话的落点",
               startSteps.last());
 
         // 元数据取回来之后：三步（多出那条下载）。

@@ -295,7 +295,7 @@ DefaultSkin::Result DefaultSkin::resolve(const QString &playerName, const QStrin
             // 空着等于没写。这里补上，并且两种都带上路径（到底哪个版本的 JAR 坏了）。
             if (reasonOut != nullptr) {
                 if (status == ZipUtil::EntryStatus::NotAnArchive) {
-                    *reasonOut = QStringLiteral("这个版本的客户端 JAR 打不开（不是 zip、或者坏了）：%1。")
+                    *reasonOut = QStringLiteral("无法打开这个版本的客户端 JAR（不是 zip 压缩包，或文件已损坏）：%1。")
                                      .arg(jar);
                 } else if (error.isEmpty()) {
                     *reasonOut = QStringLiteral("读 %1 里的贴图失败。").arg(jar);

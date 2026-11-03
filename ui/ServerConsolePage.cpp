@@ -82,8 +82,7 @@ ServerConsolePage::ServerConsolePage(QWidget *parent) : QDialog(parent) {
         m_searchEdit->setPlaceholderText(searchPlaceholderText());
         m_searchEdit->setClearButtonEnabled(true);
         m_searchEdit->setToolTip(
-            QStringLiteral("只看含有这一串的行。它只影响这一页显示什么 —— "
-                           "「导出日志…」拿到的仍然是整份日志。"));
+            QStringLiteral("只筛选当前显示的行；「导出日志…」仍导出完整日志。"));
         connect(m_searchEdit, &QLineEdit::textChanged, this, [this](const QString &text) {
             m_model.setSearchText(text);
             rebuildView();
@@ -199,7 +198,7 @@ ServerConsolePage::ServerConsolePage(QWidget *parent) : QDialog(parent) {
         // 强杀 = 可能丢存档 ⇒ 危险那一档的红（和「删除这个服务端」同一档）。
         Theme::markButton(m_forceKillButton, Theme::ButtonKind::Danger);
         m_forceKillButton->setToolTip(
-            QStringLiteral("不等它存盘了，直接把进程打死 —— 可能会丢存档。"));
+            QStringLiteral("不等待保存就强制结束进程，可能丢失存档。"));
         layout->addWidget(m_forceKillButton, 0);
         m_stopButton = new QPushButton(MainWindowUI::serverConsoleStopText(), row);
         m_stopButton->setObjectName(MainWindowUI::serverConsoleStopButtonName());
@@ -284,12 +283,12 @@ void ServerConsolePage::rebuildView() {
 
     // 空的时候说清**为什么**空（三句话和三件事对应，和游戏日志窗那边同一套）。
     if (m_model.lines().isEmpty()) {
-        m_logView->setPlaceholderText(QStringLiteral("还没有输出…（服务端还没说话）"));
+        m_logView->setPlaceholderText(QStringLiteral("还没有输出（服务端尚未产生日志）"));
     } else if (m_model.matchingLineCount() == 0) {
         m_logView->setPlaceholderText(
             m_model.searchText().isEmpty()
-                ? QStringLiteral("这些行都被筛掉了。")
-                : QStringLiteral("没有搜到 —— 换个词，或者把搜索框清空。"));
+                ? QStringLiteral("当前筛选下没有日志。")
+                : QStringLiteral("没有匹配的日志。换个关键词，或清空搜索框。"));
     } else {
         m_logView->setPlaceholderText(QString());
     }

@@ -267,7 +267,7 @@ void runInstanceStartActionsTests() {
             }
 
             // ---------- ① 补全：只补缺的和坏的 ----------
-            // 这一趟里会弹的**只有**②那一发（"现在做不了"）：补全自己那一趟的收尾句
+            // 这一趟里会弹的**只有**②那一发（"暂时无法操作"）：补全自己那一趟的收尾句
             // 落在它后面，而 InlineMessage 一次只摆一条（第二条会被丢掉，命令行里留一句
             // 「已经有一条提示开着」）—— 收尾句的**形状**留给下面 ④ 那一趟干净的场景验。
             PromptAnswerer answerer({0});
@@ -290,10 +290,10 @@ void runInstanceStartActionsTests() {
                   QString::number(answerer.answered.size()));
             if (!answerer.answered.isEmpty()) {
                 const PromptAnswerer::Answered &refused = answerer.answered.at(0);
-                check(refused.title == QStringLiteral("现在做不了"),
-                      "T19.3 那句话的标题是「现在做不了」", refused.title);
+                check(refused.title == QStringLiteral("暂时无法操作"),
+                      "T19.3 那句话的标题是「暂时无法操作」", refused.title);
                 check(refused.text.contains(
-                          QStringLiteral("已经有一个下载或者安装任务在跑了，等它结束再检查这个实例。")),
+                          QStringLiteral("已有下载或安装任务正在进行，请结束后再检查这个实例。")),
                       "T19.3 正文说清是「另有一批在跑」（不是一句笼统的忙）", refused.text);
             }
             check(readBytesAt(jarPathB) == bogusJarB,

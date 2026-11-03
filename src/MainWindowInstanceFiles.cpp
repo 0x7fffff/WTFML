@@ -89,8 +89,8 @@ void MainWindow::updateInstanceFiles(const QString &instanceId, const QString &p
         || m_versionManager->isNamedInstanceInstalling()
         || (m_serverInstall != nullptr && m_serverInstall->ownsDownloadBatch())) {
         InlineMessage::information(
-            m_ui->overlay(), tr("现在做不了"),
-            tr("已经有一个下载或者安装任务在跑了，等它结束再更新这几个文件。"));
+            m_ui->overlay(), tr("暂时无法操作"),
+            tr("已有下载或安装任务正在进行，请结束后再更新这几个文件。"));
         return;
     }
 

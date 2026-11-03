@@ -243,7 +243,7 @@ inline QString forceKillNote(int seconds) {
 
 /// 服务端目录里没有那个入口文件时，点「启动」看到的那句话。
 inline QString notInstalledMessage() {
-    return QStringLiteral("这个服务端还没装好（要的入口文件不在目录里）。先点「修复」把它装出来。");
+    return QStringLiteral("这个服务端尚未安装完成（缺少入口文件）。先点「修复」完成安装。");
 }
 
 /// EULA 那道闸上那句正文（**不替用户做决定**，见下面 `eulaPromptText()` 那段）。

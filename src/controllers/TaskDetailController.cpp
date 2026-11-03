@@ -95,7 +95,7 @@ void TaskDetailController::open(const QString &key) {
     if (!m_overlay->showPage(m_page, TaskDetailPage::windowTitle())) {
         // 摆在门口那一下被抢了（另一页刚占上这一层）：什么都没发生，留一句日志
         // —— 用户点的这一下不该由他再点第二遍来找原因。
-        log(tr("任务详情页没开成：覆盖层刚被另一页占上了。"));
+        log(tr("无法打开任务详情页：界面已被另一页占用。"));
     }
 }
 

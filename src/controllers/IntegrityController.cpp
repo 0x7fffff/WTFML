@@ -55,25 +55,25 @@ void IntegrityController::shutdown() {
 void IntegrityController::submit(const QString &versionId, const BusyFacts &busy) {
     if (versionId.isEmpty() || scanning(versionId)) return;
     if (!m_scanVersionId.isEmpty()) {
-        InlineMessage::information(m_overlay, tr("现在做不了"),
-            tr("「%1」正在做完整性检查，等它完了再检查这个实例。")
+        InlineMessage::information(m_overlay, tr("暂时无法操作"),
+            tr("「%1」正在做完整性检查，请完成后再检查这个实例。")
                 .arg(displayName(m_scanVersionId)));
         return;
     }
     if (busy.targetBeingModified) {
-        InlineMessage::information(m_overlay, tr("现在做不了"),
-            tr("「%1」这会儿正在装（或者正在导入 / 正在检查）。等它完了再来。")
+        InlineMessage::information(m_overlay, tr("暂时无法操作"),
+            tr("「%1」正在安装、导入或检查，请完成后再试。")
                 .arg(displayName(versionId)));
         return;
     }
     if (busy.anotherDownloadRunning) {
-        InlineMessage::information(m_overlay, tr("现在做不了"),
-                                   tr("已经有一个下载或者安装任务在跑了，等它结束再检查这个实例。"));
+        InlineMessage::information(m_overlay, tr("暂时无法操作"),
+                                   tr("已有下载或安装任务正在进行，请结束后再检查这个实例。"));
         return;
     }
     const QString inheritanceProblem = m_versions->inheritanceProblem(versionId);
     if (!inheritanceProblem.isEmpty()) {
-        log(tr("无法体检 %1 的文件：版本继承链不完整").arg(versionId));
+        log(tr("无法检查 %1 的文件：版本继承链不完整").arg(versionId));
         InlineMessage::warning(m_overlay, tr("版本不完整"), inheritanceProblem);
         return;
     }
@@ -81,7 +81,7 @@ void IntegrityController::submit(const QString &versionId, const BusyFacts &busy
     const QList<VersionIntegrity::ExpectedFile> files =
         m_versions->integrityPlan(versionId, &planError);
     if (!planError.isEmpty()) {
-        log(tr("无法体检 %1 的文件：%2").arg(versionId, planError));
+        log(tr("无法检查 %1 的文件：%2").arg(versionId, planError));
         InlineMessage::warning(m_overlay, tr("版本信息缺失"), planError);
         return;
     }
@@ -92,7 +92,7 @@ void IntegrityController::submit(const QString &versionId, const BusyFacts &busy
                                  tr("检查「%1」的文件").arg(displayName(versionId)),
                                  versionId, steps);
     m_activity->tasks()->setProgress(m_taskId, 0, qint64(files.size()));
-    log(tr("开始体检「%1」的文件（%2 个）...").arg(displayName(versionId)).arg(files.size()));
+    log(tr("开始检查「%1」的文件（%2 个）...").arg(displayName(versionId)).arg(files.size()));
     m_scanVersionId = versionId;
     m_abort.storeRelaxed(0);
     if (m_thread != nullptr) {
@@ -165,8 +165,8 @@ void IntegrityController::finished(const VersionIntegrity::Report &report) {
     m_taskId = Tasks::invalidTaskId();
     if (versionId.isEmpty()) return;
     log(report.error.isEmpty()
-            ? tr("体检「%1」完成：%2").arg(displayName(versionId), report.summary())
-            : tr("体检「%1」没跑起来：%2").arg(displayName(versionId), report.error));
+            ? tr("「%1」完整性检查完成：%2").arg(displayName(versionId), report.summary())
+            : tr("「%1」完整性检查未能完成：%2").arg(displayName(versionId), report.error));
     m_report = report;
     m_reportVersionId = versionId;
     if (m_host.openWhenOverlayFree)
@@ -198,7 +198,7 @@ void IntegrityController::openReport(const QString &versionId) {
     // 以前走 `execPage()` 只是让"体检完自动开报告"这一发把调用栈卡在嵌套循环里。
     if (!m_overlay->showPage(m_page, IntegrityReportPage::windowTitle())) {
         // 摆不上（这一层刚被别人占上）：留一句日志，别让用户以为体检白跑了。
-        log(tr("完整性检查报告页没开成：覆盖层刚被另一页占上了。"));
+        log(tr("无法打开完整性检查报告：界面已被另一页占用。"));
     }
 }
 

@@ -276,8 +276,8 @@ void runCurseForgeTests() {
             const ModpackImport::Result res = ModpackImport::parseCurseForgeManifest(json);
             return res.ok ? QString() : res.problem;
         };
-        check(problemOf(QByteArray("这不是 json")).contains(QStringLiteral("读不懂")),
-              "ZG2 不是 json：说「读不懂」");
+        check(problemOf(QByteArray("这不是 json")).contains(QStringLiteral("无法解析")),
+              "ZG2 不是 json：说「无法解析」");
         check(problemOf(QByteArray("{}")).contains(QStringLiteral("manifestVersion")),
               "ZG2 缺 manifestVersion/files：说它不是整合包清单");
         check(problemOf(R"json({"manifestVersion":1,"files":[],

@@ -1079,7 +1079,7 @@ void ConnectionsController::setup() {
                     // 「错误既进入日志，也在用户当前流程中可见」。日志那一半在
                     // `message` 那条路上（控制器 `fail()` 里已经发过），这里补弹窗那一半 ——
                     // 用户常常是点了「创建」就去干别的了，不弹一下他看不见。
-                    InlineMessage::critical(m_owner->m_ui->overlay(), m_owner->tr("装不了这个服务端"), errorSummary);
+                    InlineMessage::critical(m_owner->m_ui->overlay(), m_owner->tr("无法安装这个服务端"), errorSummary);
                     break;
                 }
             });

@@ -126,7 +126,7 @@ Result swapDirectories(const Request &request) {
             // 变成"目标和旧目录均缺失"。先让人把那条处理掉。
             if (itemRetained == replacement) {
                 return refuse(QObject::tr("这一份旧目录还登记在另一条恢复记录里（目标是 %1）。\n"
-                                          "先处理那一条，再来换这一份。")
+                                          "请先处理那一条，再来替换这份目录。")
                                   .arg(QDir::toNativeSeparators(itemTarget)));
             }
             continue;
@@ -134,7 +134,7 @@ Result swapDirectories(const Request &request) {
         ++recordsForTarget;
         if (itemRetained != replacement) {
             return refuse(QObject::tr("这个目录另有一条还没处理完的恢复记录，它记的旧目录在：\n%1\n\n"
-                                      "先用那一条换回来（或先把它标记已检查），再来换这一份。")
+                                      "请先用那一条替换（或先标记已检查），再来替换这一份。")
                               .arg(QDir::toNativeSeparators(item.retained)));
         }
         journalPath = path;
@@ -175,7 +175,7 @@ Result swapDirectories(const Request &request) {
     auto journal = RestoreJournal::record(target, retained, hadTarget);
     if (!RestoreJournal::valid(root, journal) || !RestoreJournal::write(journalPath, journal)) {
         undoJournal();
-        return refuse(QObject::tr("无法安全地写下达一趟的恢复记录，未换任何目录。"));
+        return refuse(QObject::tr("无法安全地写入下一次的恢复记录，未替换任何目录。"));
     }
     result.journalPath = journalPath;
 
@@ -190,7 +190,7 @@ Result swapDirectories(const Request &request) {
     // 第一段：现在这一份挪到旁边。失败 ⇒ 盘上还是原来那样，把记录撤回。
     if (hadTarget && !QDir().rename(target, retained)) {
         undoJournal();
-        return refuse(QObject::tr("现在这一份挪不开（可能正被某个程序占用），一个文件都没动。"));
+        return refuse(QObject::tr("当前目录无法移动（可能正被其他程序占用），没有改动任何文件。"));
     }
     // 第二段：旧目录换上来。失败 ⇒ 把第一段倒回去；倒不回去就两份都留在原处、
     // 记录留着，让启动恢复和人工检查接手（**不删任何一边**）。
@@ -198,12 +198,12 @@ Result swapDirectories(const Request &request) {
         const bool putBack = !hadTarget || QDir().rename(retained, target);
         if (putBack) {
             undoJournal();
-            return refuse(QObject::tr("挑中的旧目录没能换上来，现在这一份已经放回原位；两份都没有删。"));
+            return refuse(QObject::tr("选中的旧目录替换失败，当前目录已放回原位；两份均未删除。"));
         }
         result.retainedPath = retained;
-        return refuse(QObject::tr("挑中的旧目录没能换上来，现在这一份也没能放回原位。\n\n"
-                                  "两份都完整保留：现在这一份在 %1，挑中的旧目录在 %2。\n"
-                                  "恢复记录留在 %3，请人工检查。")
+        return refuse(QObject::tr("选中的旧目录替换失败，当前目录也未能放回原位。\n\n"
+                                  "两份均完整保留：当前目录在 %1，选中的旧目录在 %2。\n"
+                                  "恢复记录保留在 %3，请人工检查。")
                           .arg(QDir::toNativeSeparators(retained),
                                QDir::toNativeSeparators(replacement),
                                QDir::toNativeSeparators(journalPath)));

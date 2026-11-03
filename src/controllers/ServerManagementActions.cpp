@@ -237,7 +237,7 @@ void ServerManagementActions::pickServerResourcePack(MainWindow *owner) {
     //   填进 `resource-pack`（别人连不到你的硬盘，那会让每个人进来都卡一下）。
     InlineMessage::information(
         owner->m_ui->overlay(), MainWindow::tr("SHA-1 算好了"),
-        MainWindow::tr("本地这一份「%1」的 SHA-1 已经填进「资源包 SHA-1」那一格：\n\n%2\n\n"
+        MainWindow::tr("本地这一份「%1」的 SHA-1 已经填入「资源包 SHA-1」：\n\n%2\n\n"
            "「资源包地址」那一格还得你自己填 —— 要一个别的玩家连得到的 http(s) "
            "链接（自己的网站 / 网盘直链 / 对象存储都行）。本机文件路径别人打不开，"
            "启动器不会把它填进去。\n\n"
@@ -279,7 +279,7 @@ void ServerManagementActions::refreshServerContent(MainWindow *owner) {
         return;
     }
     page->setContentNote(MainWindowUI::serverSettingsContentNoteText(
-        kindIndex, QDir::toNativeSeparators(folder), running));
+        QDir::toNativeSeparators(folder), running));
 
     QDir dir(folder);
     QStringList names = dir.entryList(QDir::Files | QDir::NoDotAndDotDot, QDir::Name);
@@ -572,8 +572,8 @@ void ServerManagementActions::backupServerWorld(MainWindow *owner, const QString
         return;
     }
     if (owner->m_backupController->busy()) {
-        InlineMessage::information(owner->m_ui->overlay(), MainWindow::tr("现在做不了"),
-                                   MainWindow::tr("已经有一份备份或者还原在跑了，等它完了再来。"));
+        InlineMessage::information(owner->m_ui->overlay(), MainWindow::tr("暂时无法操作"),
+                                   MainWindow::tr("已有备份或还原任务正在进行，请结束后再试。"));
         return;
     }
     const ServerRun::ServerProcess *process = owner->m_serverWorkspace->process(serverId);
@@ -635,8 +635,8 @@ void ServerManagementActions::restoreServerWorldBackup(MainWindow *owner, const 
         return;
     }
     if (owner->m_backupController->busy()) {
-        InlineMessage::information(owner->m_ui->overlay(), MainWindow::tr("现在做不了"),
-                                   MainWindow::tr("已经有一份备份或者还原在跑了，等它完了再来。"));
+        InlineMessage::information(owner->m_ui->overlay(), MainWindow::tr("暂时无法操作"),
+                                   MainWindow::tr("已有备份或还原任务正在进行，请结束后再试。"));
         return;
     }
     const ServerRun::ServerProcess *process = owner->m_serverWorkspace->process(serverId);

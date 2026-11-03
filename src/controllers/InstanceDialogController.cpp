@@ -326,7 +326,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
         // 模组迁移和「迁移 / 升级副本」都会往这个实例的目录里写文件（后者连整棵目录
         // 都在拷）。这期间开设置页去改同一个目录，两边都不知道对方在写什么。
         InlineMessage::information(m_owner->m_ui->overlay(), tr("正在搬文件"),
-                                   tr("这个实例正在后台复制/移动文件，请等进度提示收尾后再修改实例。"));
+                                   tr("这个实例正在后台复制或移动文件，操作完成后再修改实例。"));
         return;
     }
     // 主页快捷入口留在主页上，关闭设置后原来的实例选择状态仍在。
@@ -1877,7 +1877,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
         connect(saves, &InstanceFilesPage::batchEditRequested, m_owner,
                 [this]() {
                     InlineMessage::information(m_owner->m_ui->overlay(), tr("批量编辑"),
-                                               tr("批量编辑还没做，这一颗先摆在这儿占位。"));
+                                               tr("暂不支持批量编辑。"));
                 });
     }
 

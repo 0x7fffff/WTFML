@@ -73,8 +73,8 @@ int MwModpackImportChecks(const QDir &versionsDir, MainWindow &window, GlobalJav
         check(g_modalTitle == QStringLiteral("导入整合包"),
               "AA1 弹的是「导入整合包」", g_modalTitle + QStringLiteral(" / ") + g_modalText);
         check(g_modalWasWarning, "AA1 是警告框（这是一条错误）");
-        check(g_modalText.contains(QStringLiteral("读不懂")),
-              "AA1 弹窗说清了是这份清单读不懂", g_modalText);
+        check(g_modalText.contains(QStringLiteral("无法解析")),
+              "AA1 弹窗说清了是这份清单无法解析", g_modalText);
 
         // ---- AA2 是合法 json，但不是整合包清单 ----
         // 真正会遇到的形态：这个文件叫 modrinth.index.json，但里面是别的东西
@@ -380,7 +380,7 @@ int MwModpackImportChecks(const QDir &versionsDir, MainWindow &window, GlobalJav
             check(!tryImport(cfManifest("liteloader-1.12.2"), QStringLiteral("新实例"),
                              ModpackImport::Format::CurseForge),
                   "AA9 liteloader 的 CF 包 → 拒（不许当成纯原版包放行）");
-            check(g_modalTitle == QStringLiteral("这个整合包装不了") &&
+            check(g_modalTitle == QStringLiteral("无法安装这个整合包") &&
                       g_modalText.contains(QStringLiteral("liteloader")),
                   "AA9 拦它的话里带着那个加载器的名字", g_modalTitle + QStringLiteral(" / ") +
                                                           g_modalText);

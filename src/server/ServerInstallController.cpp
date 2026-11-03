@@ -94,7 +94,7 @@ void ServerInstallController::start(const ServerInstall::Request &request,
                                     const QString &serverId, const QString &javaPath,
                                     const ServerInstall::Plan *resolved) {
     if (m_running) {
-        emit finished(Outcome::Failed, QStringLiteral("已经有一个服务端在装了，等它跑完。"));
+        emit finished(Outcome::Failed, QStringLiteral("已有服务端正在安装，请结束后再试。"));
         return;
     }
     m_installerRetries = 0; m_installerRestartPending = false; m_installerTotal.invalidate();
@@ -108,7 +108,7 @@ void ServerInstallController::start(const ServerInstall::Request &request,
         return;
     }
     if (m_downloads == nullptr) {
-        emit finished(Outcome::Failed, QStringLiteral("下载器没接上，装不了（这是程序内部的问题）。"));
+        emit finished(Outcome::Failed, QStringLiteral("下载器未初始化，无法安装（程序内部错误）。"));
         return;
     }
 
@@ -121,7 +121,7 @@ void ServerInstallController::start(const ServerInstall::Request &request,
     // 它身上），同时开两批会让两边的收尾互相算错 —— 所以忙的时候**拒掉**，并说清楚。
     if (m_downloads->isBusy()) {
         emit finished(Outcome::Failed,
-                      QStringLiteral("现在有别的下载在跑（或者刚排上队），等它完了再装这个服务端。"));
+                      QStringLiteral("已有下载任务正在进行（或刚排入队列），请结束后再安装这个服务端。"));
         return;
     }
 
@@ -153,9 +153,9 @@ void ServerInstallController::start(const ServerInstall::Request &request,
     // 完整那几项 —— 分两次发是**故意的**：取元数据那一步在纸面上还不知道要下几个文件。
     const Need need = ServerInstallRun::needFor(m_request, m_plan);
     if (need.ok()) {
-        emit stepsChanged(QStringList{need.label, QStringLiteral("核对装好了没有")}, 0);
+        emit stepsChanged(QStringList{need.label, QStringLiteral("核对安装结果")}, 0);
     } else {
-        emit stepsChanged(QStringList{QStringLiteral("核对装好了没有")}, 0);
+        emit stepsChanged(QStringList{QStringLiteral("核对安装结果")}, 0);
     }
 
     if (resolved) {
@@ -473,7 +473,7 @@ void ServerInstallController::onDownloadFinished(const QString &fileName, bool s
     ++m_downloaded;
     // 步骤表里那几格"下载 X"是挨着排的，起点是 `m_stepIndex`（取元数据那一格之后）。
     emit stepChanged(m_stepIndex + m_downloaded - 1, success,
-                     success ? QString() : QStringLiteral("没下下来"));
+                     success ? QString() : QStringLiteral("未下载"));
     if (m_downloaded < m_plan.downloads.size()) {
         return;
     }
@@ -481,7 +481,7 @@ void ServerInstallController::onDownloadFinished(const QString &fileName, bool s
     m_batchOwned = false;
 
     if (!m_failedDownload.isEmpty()) {
-        fail(QStringLiteral("%1 没下下来：%2")
+        fail(QStringLiteral("%1 未能下载：%2")
                  .arg(m_failedDownload,
                       m_failedDownloadReason.isEmpty() ? QStringLiteral("原因不明")
                                                        : m_failedDownloadReason));
@@ -604,7 +604,7 @@ void ServerInstallController::verifyInstall() {
         return;
     }
     emit stepChanged(m_stepIndex, true, QString());
-    emit message(QStringLiteral("「%1」装好了。").arg(m_serverId));
+    emit message(QStringLiteral("「%1」安装完成。").arg(m_serverId));
     finishWith(Outcome::Succeeded, QString());
 }
 
@@ -654,7 +654,7 @@ void ServerInstallController::cancel() {
         return;
     }
     m_cancelling = true;
-    emit message(QStringLiteral("停下了。已经下下来的那几个文件留在目录里，再点「修复」会接着用。"));
+    emit message(QStringLiteral("已停止。已下载的文件保留在目录中，再点「修复」将继续使用。"));
     // 在飞的回复 / 排着队的作业一起掐掉（`cancelBatch()` 那四个动作见它自己的说明）。
     // 判据是**这一批是不是我们开的**，不是"下载器现在忙不忙"。下载器是共用的：
     // 安装器那一段（可能好几分钟）里就是空闲的，而用户完全可能已经开了一批新的 ——

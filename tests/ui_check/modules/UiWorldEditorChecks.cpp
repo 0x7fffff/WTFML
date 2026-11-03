@@ -51,7 +51,7 @@ int UiWorldEditorChecks() {
         view.hasPlayer = true;
         view.playerText = QStringLiteral("12.5 / 64.0 / -30.2（主世界）");
         view.hasRegions = true;
-        view.regionsText = QStringLiteral("3 个区域文件 · 已生成 1234 个区块 · 范围 x 0 ~ 511、z 0 ~ 511");
+        view.regionsText = QStringLiteral("3 个区域文件 / 已生成 1234 个区块 / 范围 x 0 ~ 511、z 0 ~ 511");
         view.mapNote = QStringLiteral("这份统计只看主世界 region/ 里的 .mca。");
         view.gzipped = true;
         view.hasAllowCommands = true;

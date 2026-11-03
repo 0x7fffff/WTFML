@@ -120,7 +120,7 @@ void runReplayInfoTests() {
             makeReplay(QStringLiteral("badjson.mcpr"), QByteArrayLiteral("{oops"));
         if (!badJson.isEmpty()) {
             const ReplayInfo::Info bad = ReplayInfo::read(badJson);
-            check(!bad.ok && bad.problem.contains(QStringLiteral("读不懂")),
+            check(!bad.ok && bad.problem.contains(QStringLiteral("无法解析")),
                   "RP3 元数据不是 JSON：说「读不懂」", bad.problem);
         }
 

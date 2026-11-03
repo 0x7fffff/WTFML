@@ -85,7 +85,7 @@ void ServerConsoleController::open(const QString &serverId) {
         // 摆不上（这一层刚被别人占上）：这一页说的服务端当场作废，留一句日志。
         m_serverId.clear();
         if (m_host.log) {
-            m_host.log(tr("服务器控制台没开成：覆盖层刚被另一页占上了。"));
+            m_host.log(tr("无法打开服务器控制台：界面已被另一页占用。"));
         }
     }
 }
