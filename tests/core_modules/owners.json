@@ -53,6 +53,7 @@
   "ResourceDetailTests.cpp": "resources",
   "ResourceStoreLatestRunTests.cpp": "resources",
   "LaunchOptionsTests.cpp": "launch",
+  "ProcessPathLimitTests.cpp": "launch",
   "QuickPlayTests.cpp": "launch",
   "ErrorReportTests.cpp": "launch",
   "LaunchScriptExportTests.cpp": "launch",
