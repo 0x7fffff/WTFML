@@ -1597,3 +1597,128 @@ meta** —— 写了下次读出来就是"自定义 + 一个用户没填过的�
 行数：`ui/InstanceFilesPage.cpp` 742 → 682，新文件 63（另加文件头）。
 
 验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
+
+## 2026-11-03 源码审查缺陷 R1–R7：先修崩溃、坏文件与静默失败
+
+`CODING_PLAN_FULL.md` §0 那一轮审查列出的 16 条里，这七条要么能在正常使用里把进程带走，
+要么会写出下一趟读不回来的文件。逐条：
+
+- **R1 更新检查批次表的裸指针**（`src/download/ResourceStore.hpp/.cpp`）：`LatestRun::replies`
+  改存 `QPointer<ControlGet>`。`ControlGet` 自己收场时 `deleteLater()`，而这张表里那一格
+  没人摘；"一发已回、一发还在飞"时再开一批或关窗（`abortAll()`），就会对已析构的对象再
+  `delete` 一次。null 那几格表示已收场，跳过。回归在新文件
+  `ResourceStoreLatestRunTests.cpp`（本机假接口，不碰外网）。
+- **R2 NBT 的项数放大**（`src/util/NbtTree.cpp`）：`kMaxSize`（64 MiB）挡不住按项数放大 ——
+  List 的元素最少一个字节，坏文件能写出几千万项。加了 `kMaxNodes`（1<<20，全树元素总数）
+  与"项数 × 最少字节 ≤ 剩余字节"的前置检查；`reserve` 只按 `kMaxReserve`（4096）一次要，
+  其余交给摊销翻倍；`itemType == End` 却写着 count > 0 直接拒。回归在新文件
+  `NbtLimitsTests.cpp`。
+- **R3 详情页前置名字空回信死循环**（`src/controllers/ResourcePageController.*`）：问过的号
+  记进 `dependencyAskedIds`，收页 / 换资源时清空。原来那条注释说"缺的那几个现在是空的、
+  不会再发"—— 空恰恰是它每回来一次就再发一次的原因。
+- **R4 `servers.dat` 的空表**（`src/manage/ServerListFile.cpp`）：`List(End, count=0)` 是合法
+  NBT，但按 `itemType` 写盘时一 append 就变成 `List(End, count>0)`，下一趟谁都不认。读进来
+  时在原地把空表的 `itemType` 补成 `Compound`（无损）；非空但类型不是 Compound 仍然拒。
+- **R5 续做能点两次、成功后旧按钮还在**（`FileOperationRecoveryController`）：`m_resuming`
+  按报告钥匙挡第二次；成功收尾时经 `Host::clearTaskRecovery` 把原任务上的恢复入口摘掉
+  （`MainWindow.cpp` 里按 `recoveryToken` 找任务、`setRecovery(id, {}, false, {})`）。
+- **R6 光影的前置进了 `shaderpacks/`**（`ResourceInstallController`）：前置的 `dir` 一律按实例
+  的 `mods/` 算（`ResourceFile::dir`），主文件去哪不影响；并因此补上 `busyInstanceId`，避免
+  "正在往 mods/ 写"时用户还能启动这个实例。日志单独说一句"前置按模组装进 …"。
+- **R7 同一前置出现两次 ⇒ 这一趟静默不发生**（`ModDependencies.cpp` +
+  `ResourceInstallController`）：`requiredDependenciesOf()` 按 projectId 去重；"还差几发"由
+  计数改成**钥匙集合** `pendingKeys`（同一把钥匙只等一发、回一发移一格）。`ResourceStore`
+  同一把钥匙第二发会把第一发掐掉且不回调，计数模型一定会停在 1。
+
+回归覆盖：`ResourceStoreLatestRunTests.cpp`（R1）、`NbtLimitsTests.cpp`（R2）、
+`ServerListEditTests.cpp`（R4）、`mw_check` 的 `runResourceDetailPageTests`（R3）与
+`runDependencyAndBatchTests`（R7）。
+
+验证：完整重建通过；`mw_check` 2758/2758（真屏）；全套 ctest 39 项全绿。
+
+## 2026-11-03 账号边界 R8/R13/R15 与服务端关闭 R14
+
+- **R8 切离线 / 登出时把唯一一份 refresh_token 清掉**（`AccountStore.cpp`）：
+  `captureActive()` 失败分两种。活动槽里本来就不完整（没登录 / 缺微软半边）⇒ 照常走；
+  凭据齐着、只是列表读不出或写不进 ⇒ `makeOfflineCurrent()` / `logout()` 直接中止
+  （`activeCredentialWouldBeLost()`），一个字节都不动。
+- **R13 登出 / 删除永远报成功**（`TokenStore.*`、`AccountStore.*`、`MainWindowAccount.cpp`）：
+  `TokenStore::clear()` 改成 `bool` + `errorOut`，三个键（微软 / Minecraft /
+  CurrentAccountUuid）都真清掉才算成功；`AccountStore::remove(uuid, errorOut)` 把"账号删了
+  但活动槽没清干净"作为第二种失败如实说出；界面两句警告改成不替失败编状态。
+- **R15 `activate()` 第二步失败不回滚**（`AccountStore.cpp`、`TokenStore::rawValue/writeRaw`）：
+  动手前把微软那格的**原始字节**留一份，Minecraft 那格写失败就原样放回去；放不回去再单独
+  报"盘上登录状态对不上，请重新登录"。
+- **R14 关窗忽略 `stopAndWait()` 结果**（`MainWindowLifecycle.cpp`）：逐个记下没停下的服务端，
+  日志照实说"没能正常停下来、最后一段存档可能没写完"，不再无条件说"已经停下来"。
+
+回归：`AccountSkinTests.cpp` 新增账号边界用例（持有 / 清不掉 / 回滚）。
+
+验证：完整重建通过；`mw_check` 2758/2758（真屏）；全套 ctest 39 项全绿。
+
+## 2026-11-03 `server.properties` 转义（R9）与四类一致性小项（R16）
+
+R9：`ServerModel.hpp` 新增 `escapePropertyText` / `unescapePropertyText`，键和值都按 Java
+Properties 那套走 —— 读盘认 `\uXXXX`、`\\`、`\t/\n/\r/\f` 与"反斜杠 + 任意字符"，写盘把
+`\`、控制字符、非 ASCII 写成转义；键里另转 `=` / `:` / `#` / `!`。`parseProperties()` 的
+分隔符改成"第一个**没有被转义**的 `=` / `:`"。效果：中文 MOTD 在游戏里不再乱码，写出去的
+行按 ISO-8859-1 解也对；没动过的纯 ASCII 行"解了再写"仍逐字不变。
+`ServerRegistry::readProperties/writeProperties` 各留一段说明：UTF-8 只是文件容器，值本身
+已被转义成 ASCII。
+
+R16 四小项：
+
+- `Properties::setValue()` 改成**大小写不敏感 + 改最后一个**（和 `value()` 同一套判据）；
+- `UpdateRollback::create()` 的清单量的是**抄下来那份**（target）的 size/sha1，并要求与源
+  大小一致 —— 以前记的是源文件，抄坏的副本也能过清单；
+- `VersionDisplay::sanitizeComponent()` 截断点上撞开代理对时退回一格；
+- `ReplayInfo::integerOf()` 越界 / 非有限值回 -1（越界 `static_cast<qint64>` 是 UB），
+  `protocol` 再卡一次 int 范围。
+
+回归：`ServerModelTests`（R9 转义、R16 最后一行 / 大小写）、`FileHashTests`、
+`VersionNameTests`、`ReplayInfoTests`。mw_check 的 T42 两条期望改成写盘后的转义形式
+（`motd=新的说明`）—— 原来那两条钉的是 R9 之前的行为。
+
+其余边界（R10 / R11 / R12）：
+
+- `ZipUtil::extractArchives()` / `extractSubtrees()` 加三条压缩炸弹判据：单条 ≤ 2 GiB、
+  压缩比 ≤ 1000（只判 > 1 MiB 的条目）、一批累计 ≤ 16 GiB；
+- `ZipUtil::readEntry()` 默认重载默认上限 16 MiB（老 Forge universal jar 那处显式传
+  64 MiB，`InstanceFiles` 读 class 头传 1 MiB）；
+- `FileHash::readAlgorithmPrefix()` 不再先 `trimmed()`，`md5 <hex>` 能认；
+  `SHA-256 = xxxx` 的"空格 + 等号"也一并吃。
+
+验证：完整重建通过；`mw_check` 2758/2758（真屏）；全套 ctest 39 项全绿。
+
+## 2026-11-03 审查优化 O1–O4
+
+- **O1 主题不透明度滑块防抖**（`ThemeSettingsController`）：`changeImageOpacity` /
+  `changeTextOpacity` 走 `applySpecThrottled()` —— 头一次立刻落盘 + `Theme::apply()`，
+  之后 60 ms 内只更新内存里的 spec，由单发 `QTimer` 收一次尾；析构时把还没落盘的那一发
+  补上。拖动滑块不再每像素重铺整个应用，而 T39.4 要求的"改完立刻写盘"仍然成立。
+- **O2 批次收尾整份拷贝**（`ResourceStore`）：`LatestRun finished = std::move(*it)`。
+- **O3 资产索引整份读入再写**（`DownloadManager::onAssetIndexDownloaded`）：改成
+  `QSaveFile` + 256 KiB 分块写，边读边写；校验和解析逻辑不变，诊断日志用实际写下的字节数。
+- **O4 `wtfml.meta` 字面量**（`ModpackExport`）：排除表里那条改走
+  `AppPaths::versionMetaFileName()`，`AppPaths.hpp` 的 NOTE 写明这张静态表不许再抄字面量。
+
+验证：完整重建通过；`mw_check` 2758/2758（真屏）；全套 ctest 39 项全绿。
+
+## 2026-11-03 底栏左下角：服务端也算「在跑」
+
+那一格原来只认 `LauncherManager::runningGames()`，服务端页起的进程一个字都不提 —— 起着一个
+服务端，底栏却写「暂无运行实例」，那句话是假的。改成：
+
+- 判据加 `ServerWorkspaceController::runningServerIds()`（`ServerProcess::isRunning()` 覆盖
+  Starting / Running），方块颜色与"绿 = 有东西在跑"同一档；
+- 只有服务端在跑时第一行写「服务端运行中」，多个写「%1 个服务端运行中」，第二行是它们的
+  显示名（`ServerRegistry::describe()`，空名回落到 id，`、` 连接）；
+- 什么都没在跑那句从「暂无运行实例」改成「暂无实例或服务端」（字宽仍卡在
+  `bottomBarRunStateTextWidth()` 那一档）；
+- `MainWindowServer::onServerStatusChanged()` 补一发 `updateBottomBarRunState()` —— 起停
+  服务端本来就只走这里，不补的话要等下一次别的事件才会刷新。
+
+三句文案在 `ui/MainWindowUI.hpp` 里当唯一出处；`tests/ui_check` 跟着断言（含两句服务端文案
+与实例文案不同）。
+
+验证：完整重建通过；`mw_check` 2758/2758（真屏）；全套 ctest 39 项全绿。
