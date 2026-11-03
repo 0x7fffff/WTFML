@@ -126,6 +126,32 @@ void ServerSettingsPageController::refreshIfShowing(const QString &serverId) {
     }
 }
 
+void ServerSettingsPageController::refreshRunStateIfShowing(const QString &serverId) {
+    if (!isShowing(serverId)) {
+        return;
+    }
+    applyRunState(m_page, serverId);
+    // 体检单里"能不能启动 / 端口通不通"这两条随在跑变（`checkFacts()` 会看进程）；
+    // 保存带那句话也得在 `setEditable()` 之后重算（在跑时它归只读那句管）。
+    runCheck();
+    updateSaveState();
+}
+
+void ServerSettingsPageController::applyRunState(ServerSettingsPage *page,
+                                                 const QString &serverId) {
+    const ServerRun::ServerProcess *process = m_owner.m_serverWorkspace->process(serverId);
+    const bool running = process != nullptr && process->isRunning();
+    m_editable = !running;
+    QString statusText = ServerModel::statusName(
+        process != nullptr ? process->status() : ServerModel::Status::Stopped);
+    if (running) {
+        statusText += MainWindowUI::serverSettingsRunningStatusSuffix();
+    }
+    page->setStatusText(statusText);
+    page->setEditable(m_editable,
+                      running ? MainWindowUI::serverSettingsRunningNote() : QString());
+}
+
 void ServerSettingsPageController::refresh() {
     ServerSettingsPage *page = m_page;
     const QString serverId = m_serverId;
@@ -136,17 +162,7 @@ void ServerSettingsPageController::refresh() {
     page->setServerName(entry.name.isEmpty() ? serverId : entry.name);
 
     // 在跑的时候整页只读（见 .hpp 里那段：它退出时会把自己内存里那份写回盘上）。
-    const ServerRun::ServerProcess *process = m_owner.m_serverWorkspace->process(serverId);
-    const bool running = process != nullptr && process->isRunning();
-    m_editable = !running;
-    QString statusText =
-        ServerModel::statusName(process != nullptr ? process->status() : ServerModel::Status::Stopped);
-    if (running) {
-        statusText += MainWindowUI::serverSettingsRunningStatusSuffix();
-    }
-    page->setStatusText(statusText);
-    page->setEditable(m_editable,
-                      running ? MainWindowUI::serverSettingsRunningNote() : QString());
+    applyRunState(page, serverId);
 
     // ---------- ① 常用设置 + ② 原始文本 ----------
     //
