@@ -442,6 +442,7 @@ set(SOURCE_FILES
     src/settings/LauncherSettings.cpp
     src/download/DownloadManager.cpp
     src/download/DownloadManagerRecovery.cpp
+    src/download/DownloadManagerMirror.cpp
     src/download/LocalFileReuse.cpp
     src/download/AssetDirectorKnownSet.cpp
     src/download/AssetDirectorKnownSetData.cpp

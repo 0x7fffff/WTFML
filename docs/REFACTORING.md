@@ -1722,3 +1722,24 @@ R16 四小项：
 与实例文案不同）。
 
 验证：完整重建通过；`mw_check` 2758/2758（真屏）；全套 ctest 39 项全绿。
+
+## 2026-11-03 `DownloadManager` 按所有权拆出「下载源」这一层
+
+`DownloadManager.cpp` 里原来同时装着两件事：一条回复怎么流动（发、追字节、超时、
+落点探测），以及**去哪个源**（镜像地址怎么拼、某只主机什么时候被降级、降级多久）。
+后者是一套只读不写运行状态的纯判据 + 一张地址表，搬出去不牵动任何回调：
+
+- 新翻译单元 `src/download/DownloadManagerMirror.cpp`：常量 `kOfficialVersionManifest`
+  / `kMirrorBase`、`unreachableError()`，以及 `mirrorUrl`、`mirrorMavenRootUrl`、
+  `mirrorVersionJsonUrl`、`mirrorClientJarUrl`、`mirrorAssetIndexUrl`、
+  `officialVersionManifestUrl`、`endpoint`、`versionManifestUrl`、`mirrorPreferred`、
+  `isMirrorDemoted`、`mirrorDemotedFor`、`noteReroutedReplyOutcome`、
+  `mirrorDemotedAt`、`mirrorStalled`、`countsTowardStallStrike`、`demoteDeadline`；
+- 留在 `DownloadManager.cpp`：看门狗（`demoteMirrorForSlowDownload` 要用失速阈值）、
+  落点表与官方探测（`noteDeadRedirectTarget` / `probeOfficialRoute` 用 `authorityKey` 与
+  `configureHttp1`）—— 这两块和"哪条回复在飞"绑在一起，不动；
+- 三处源文件表（`CMakeLists.txt`、`tests/CMakeLists.txt`、`tools/network_diag/CMakeLists.txt`）
+  同步登记。行为零变化，只换编译单元，注释与阈值一个字没改。
+
+验证：完整重建通过（`-Werror`）；全套 ctest 39 项全绿。`mw_check` 属实屏验收，本轮按
+"实机实屏的先不急"未跑，留待下次真屏那一轮补。

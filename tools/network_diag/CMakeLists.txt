@@ -1,6 +1,7 @@
 add_library(wtfml_network_diag_core STATIC
     ../../src/download/DownloadManager.cpp ../../src/download/DownloadManager.hpp
     ../../src/download/DownloadManagerRecovery.cpp
+    ../../src/download/DownloadManagerMirror.cpp
     # Recovery receipts use TokenStore's byte protection. Its storage helpers
     # also require the shared directory/path implementation; keep this target
     # complete when built without the launcher or verification runtimes.
