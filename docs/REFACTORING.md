@@ -1743,3 +1743,19 @@ R16 四小项：
 
 验证：完整重建通过（`-Werror`）；全套 ctest 39 项全绿。`mw_check` 属实屏验收，本轮按
 "实机实屏的先不急"未跑，留待下次真屏那一轮补。
+
+## 2026-11-03 `DownloadManager` 再拆出「下载限速」这一层
+
+限速那套状态（`m_speedBucket` / `m_speedPump` / `m_throttledReplies`）原来和收发字节的
+那条主链挤在同一个文件里。它只被四条函数动，搬走不牵动任何回调：
+
+- 新翻译单元 `src/download/DownloadManagerThrottle.cpp`：`shareSpeedLimitBucketWith`、
+  `setSpeedLimitBytesPerSecond`、`throttledReadBufferBytes`、`onSpeedPumpTick`；
+- `kSpeedPumpMs` 从 `.cpp` 的匿名命名空间提到 `DownloadManager.hpp`（构造里挂定时器与
+  预读高水位都按它算，两个翻译单元都要读；节拍理由一并搬进头文件注释）；
+- 其余主链（`readyRead` 记账、收尾欠账、`pumpDownloadQueue`）原地不动。
+- 三处源文件表同步登记。
+
+验证：完整重建通过（`-Werror`）；全套 ctest 39 项全绿（`LastTestsFailed.log` 仍是
+12:58 那份陈旧记录，与 `verify_servers.exe` 的 13:47 对不上；单独重跑 core-servers 通过）。
+`mw_check` 属实屏验收，本轮按"实机实屏的先不急"未跑。
