@@ -1,8 +1,7 @@
 # WTFML 开发计划
 
-> **最后核对**：2026-11-03（新增 §0 源码审查结论）。上轮计划核对：2026-10-31。
-> **本轮变更**：§1 不再宣称 P0 清零（新增 R1/R2 两条发布阻断候选）；P1/P2/P3 只增待修项
-> （R3–R16）；原已完成与暂缓结论不变。实现历史归 FEATURES 与 docs，不以源码核对代替真机验收。
+> **最后核对**：2026-11-03（源码审查的已确认缺陷与优化项已修复移出，§0 只留未证实风险）。
+> 上轮计划核对：2026-10-31。实现历史归 FEATURES 与 docs，不以源码核对代替真机验收。
 >
 > **维护约定**
 > - 只列未完成、部分完成和待验收项；完成项移入子系统文档。
@@ -13,46 +12,15 @@
 >
 > **优先级**：P0 发布阻断；P1 核心流程与数据/恢复闭环；P2 性能、架构、健壮性与日常体验；P3 低优先级。
 > **状态**：`[ ]` 待做/待修，`[x]` 已完成；未验收不勾。
-> **审查标记**：`R*` 确认缺陷，`V*` 未证实风险，`O*` 优化项。
+> **审查标记**：`V*` 未证实风险（不计入缺陷）。
 >
-> **目录**：§0 审查结论 · §1 P0 · §2 P1 · §3 P1 本机收尾 · §4 P2 · §5 P3 · §6 暂缓 · §7 完成标准
+> **目录**：§0 未证实风险 · §1 P0 · §2 P1 · §3 P1 本机收尾 · §4 P2 · §5 P3 · §6 暂缓 · §7 完成标准
 
-## 0. 2026-11-03 源码审查结论（索引）
+## 0. 2026-11-03 源码审查：未证实风险
 
-> **范围**：`src/` 全模块、`ui/`、关键 `tests/` 与 docs；只读审查，未改源码。
-> **方法**：逐调用链人工核对；所有上报项都在源码里复核。**没有重跑测试**——现有
-> `build/verification-mingw13` 产物早于当前 HEAD（最近提交只是移动编译单元），结果不代表
-> HEAD。下文"确认"指源码静态确认，不等于真机复现。
-> **完成标准**：代码 + 回归用例 + 对应层级验证；修完勾掉并移入子系统文档，未修项保留
-> 文件:行、触发与实际影响。
-
-### 0.1 结论摘要
-
-确认缺陷 16 组（R16 为四项一致性小项的合并条目）：P0 2、P1 5、P2 4、P3 5。最严重的是两条销毁/解析路径——更新检查作业表
-在批次中断时二次删除已析构对象；NBT List 按不可信的 count 直接 reserve，64 MiB 文件可
-放大成十几 GB 内存。详细条目按优先级见 §1、§2.3、§4、§5，下表只做索引。
-建议顺序：先修 R1/R2（崩溃与 OOM），再按 §2.3 的 R3–R7 顺序推进；P2/P3 随后。
-
-| ID | 级别 | 结论 | 主要位置 |
-| --- | --- | --- | --- |
-| R1 | P0 | 更新检查批次表保存已析构作业裸指针，abort/重建时 double free | `ResourceStore.cpp:176-182, 265-277`、`ControlGet.hpp:107-116` |
-| R2 | P0 | NBT List 按不可信 count 直接 reserve，可放大到十几 GB | `NbtTree.cpp:337-351` |
-| R3 | P1 | 详情页名字取不到时无限重发同一请求 | `ResourcePageController.cpp:414-434` |
-| R4 | P1 | `servers.dat` 的 End 空表被接受，追加后写出非法 NBT | `ServerListFile.cpp:351-367, 488-491` |
-| R5 | P1 | "继续未完成操作"可重复触发，成功后旧按钮不清 | `FileOperationRecoveryController.cpp:171-208, 427-467` |
-| R6 | P1 | 光影前置模组被下载进 `shaderpacks/` | `ResourceInstallController.cpp:34-52, 373-383` |
-| R7 | P1 | 同一前置重复时 pending 卡住，安装静默不发生 | `ResourceInstallController.cpp:115-125` |
-| R8 | P2 | 收不进账号列表仍清掉唯一 refresh token | `AccountStore.cpp:102-135` |
-| R9 | P2 | `server.properties` 编码/转义与 Java Properties 不一致 | `ServerRegistry.cpp:541, 567` |
-| R10 | P2 | 解压无解压后大小/压缩比上限 | `ZipUtil.cpp:301-339, 816-874` |
-| R11 | P2 | `readEntry` 默认重载无上限 | `ZipUtil.cpp:435-438` |
-| R12 | P3 | `FileHash` 文档写法 `md5 <hex>` 永远不生效 | `FileHash.cpp:64-74` |
-| R13 | P3 | 登出永远报告成功，清凭据可能静默失败 | `AccountStore.cpp:366-383`、`TokenStore.cpp:190-205` |
-| R14 | P3 | 关窗忽略 `stopAndWait()` 结果 | `MainWindowLifecycle.cpp:221-224` |
-| R15 | P3 | `activate()` 第二次写失败不回滚 | `AccountStore.cpp:312-320` |
-| R16 | P3 | 一致性小项（大小写/哈希/截断/UB） | 见 §5 |
-
-### 0.2 未证实风险（不计入缺陷）
+> **范围**：`src/` 全模块、`ui/`、关键 `tests/` 与 docs；逐调用链人工核对。
+> 下面四条依赖运行时投递顺序或产品路径不可达，未构造确定性复现，不计入缺陷；
+> 有现场时再定级。
 
 - **V1** `src/net/ControlGet.hpp:70-76`：截止定时器与 `finished` 信号竞态，可能用
   "超时"丢弃一次已成功但回调尚未派发的响应；依赖 Qt 内部投递顺序，未构造确定性复现。
@@ -64,45 +32,11 @@
 - **V4** 服务端状态变化（`src/MainWindowServer.cpp:727-731`）不刷新已打开的服务端设置页；
   未找到明确的用户可见后果，暂不列为缺陷。
 
-### 0.3 优化项（已并入 §4，不重复占优先级）
-
-- **O1 主题不透明度滑块防抖**：`ConnectionsController.cpp:819-820` 的
-  `QSlider::valueChanged` → `ThemeSettingsController.cpp:126-149` 每次 tick 都
-  `Theme::save + Theme::apply + refresh`；拖动一次会写很多次设置并重刷整个应用。
-- **O2 批次收尾整份拷贝**：`ResourceStore.cpp:257` 复制整个 `LatestRun`
-  （`merged` 可能几百个 `VersionEntry` 和 `replies`）后才 `erase`，可改 `take()/extract()`。
-- **O3 资产索引整份读入再写**：`DownloadManager.cpp:2438` 可流式落盘；索引不大，优先级低。
-- **O4 `wtfml.meta` 字面量**：`ModpackExport.cpp:465` 应走
-  `AppPaths::versionMetaFileName()`（`AppPaths.hpp:146-148` 已注明），当前值一致。
-- **O5 审查缺陷回归**：优先补 R1/R3/R4/R7 四类用例，见 §4 新增条目。
-
-## 1. P0：发布阻断候选
+## 1. P0：当前无发布阻断待办
 
 错误终态、原件保护、取消/进程中断、满盘与保守恢复已有确认范围内的验收。
 HDD 间歇拒绝仍未复现，按用户决定暂缓（原 P3，见 §6）；首因未确定，不记作根治。
 原始失败及边界见 [P0 验收](docs/P0_ACCEPTANCE_20261025.md)。
-
-**2026-11-03 源码审查新增两条 P0 候选（静态确认，未真机复现）；修复并回归前不宣布 P0 清零。**
-
-- [ ] **R1 更新检查批次表保存已析构作业裸指针，abort/重建时 double free**
-  位置：`src/download/ResourceStore.cpp:176-182`、`252-261`、`265-277`、`152`；
-  `src/net/ControlGet.hpp:107-116`。
-  机制：作业在回调返回后 `deleteLater()` 自杀，回调只减 `pending`，不从
-  `LatestRun::replies` 摘除；`abortAll()`（`~ResourceStore` 无条件调用）或同 key
-  重建批次时对列表里的裸指针再 `delete` / `qDeleteAll`。
-  触发：实例可识别文件 >100 个（`kLatestChunk = 100`，`:34`，至少两发）；一发已回、
-  其余在飞时关窗，或同 key 再开一批。
-  影响：堆损坏 / 退出崩溃（UB）。测试缺：多 chunk 中途 abort/重建；现有
-  `tests/mw_check/main.cpp:1513` 只发一次并等自然结束。
-  修法：`replies` 改 `QPointer`，或完成回调按 generation 先摘除；abort 只删仍存活作业。
-- [ ] **R2 NBT List 按不可信 count 直接 reserve**
-  位置：`src/util/NbtTree.cpp:337-351`（`need(count)` 后 `reserve(count)`）、
-  `:25`（`kMaxSize = 64 MiB`）。
-  触发：解析外部 NBT——原理图（`SchematicInfo.cpp:596-609`）、servers.dat
-  （`ServerListFile.cpp:337`）、level.dat（`WorldFiles.cpp:887`）。List(Byte) 的
-  count 可接近文件字节数；`Node` 约 170 字节，64 MiB 文件可 reserve 10 GB 以上。
-  影响：`std::bad_alloc` / 被系统 OOM 杀掉 / 启动器卡死。测试缺：超大 List count。
-  修法：按元素最小宽度和总节点数设上限，`reserve` 也设 cap。
 
 持续约束：不预先删除原件、不放宽完整校验、不自动清理未知残留。
 硬件断电、真实杀毒组合和所有 I/O 故障位置不变为无限发布门槛。
@@ -121,53 +55,6 @@ HDD 间歇拒绝仍未复现，按用户决定暂缓（原 P3，见 §6）；首
 部分预设应用保留实例、明确警告且允许启动；恢复只重试未完成步骤。
 安装器/提交阶段不暂停，外部目标变化要求重新预览；重启后不自动执行 Java。
 
-### 2.3 2026-11-03 审查新增（P1，未修）
-
-- [ ] **R3 资源详情页名字取不到时无限重发同一请求**
-  位置：`src/controllers/ResourcePageController.cpp:414-434` 无条件
-  `updateDependencies()`；`:386-411` 名字仍缺时用同一 key 再 `fetchProjects`；
-  `src/download/ResourceStore.cpp:583-631`；`src/MainWindow.cpp:1299-1307`
-  只缓存非空标题。
-  触发：任一前置项目名查不到——项目被删（200 + 空数组）、429、网络错误、
-  CurseForge 没 key。返回后缓存不增长，`unknownIds` 不变，立刻再发一发，没有退避/终态。
-  `:431-432` 的注释断言"不会再发一发"，只在每个 unknown 都拿到非空标题时成立。
-  影响：详情页开着期间持续打接口，与限流互相放大，前置行永不收敛。
-  修法：失败/空结果也记终态（已知无名或失败计数 + 退避），不因一次空结果重发。
-  测试缺：`onProjectsFinished` 收到空 hits 后不得再调 `fetchProjects`。
-- [ ] **R4 `servers.dat` 的 End 空表被接受，addEntry/预设追加后写出非法 NBT**
-  位置：`src/manage/ServerListFile.cpp:351-367`（空表不检查 itemType）、`488-491`；
-  `src/presets/ServerListPreset.cpp:415-421`；`src/util/NbtTree.cpp:538-545`
-  （按 itemType 写盘）、`:293-295`（End 元素判错）。
-  触发：目标 `servers` 是 count=0、type=End 的空表（游戏删光服务器后的合法形状），
-  再添加服务器或应用预设。影响：写出 `List(End, count>0)`，游戏与本启动器都读不回。
-  测试缺：`ServerListEditTests.cpp:366-373` 只覆盖 itemType=Compound 的自建空表。
-  修法：校验/修正空表 itemType；`items` 为空时 append 前设 Compound。
-- [ ] **R5 "继续未完成操作"可重复触发，成功后旧任务仍挂恢复按钮**
-  位置：`src/controllers/FileOperationRecoveryController.cpp:171-208`（无在飞标记）、
-  `:427-467`（成功删 job/report，不清原任务 recoveryToken）；
-  `src/MainWindow.cpp:611-618`（`isInstanceBusy` 看不出续做任务）；
-  `src/controllers/ActivityCenterController.cpp:318-329`。
-  触发：同一条失败记录连点两次恢复；或成功后再点。
-  影响：两次续做共享 stagingDir/目标文件，可能把世界导入/批量复制写坏。
-  修法：resume 按 token 加在飞集合；settle 成功清 recoveryToken。
-- [ ] **R6 光影的前置模组被下载进 `shaderpacks/`**
-  位置：`src/controllers/ResourceInstallController.cpp:34-52`（Shader 也查前置）、
-  `:255-259`（落点按主文件 kind）、`:373-383`（extras 混进 files）、`:437-438`；
-  `:371-372` 的注释断言落点是 mods，与事实不符。
-  触发：Modrinth 光影项目声明必装前置（代码注释点名 `iris`），用户选"一起下载"。
-  影响：iris 的 jar 落在 shaderpacks/，游戏不加载，光影仍不可用而界面说装好了。
-  修法：前置按模组落点单独算目录，或让下载层支持每文件目标目录。
-- [ ] **R7 同一 projectId 重复时 pending 归不了零，本次安装静默不发生**
-  位置：`src/controllers/ResourceInstallController.cpp:115-125`（按 missing 逐条
-  `++pending`）、`:34-35`（active 挡住后续前置检查）；
-  `src/download/ModDependencies.cpp:222-241, 254-276`（两处都不去重）；
-  `src/download/ResourceStore.cpp:520-523`（同 key 上一发被删且不回调）。
-  触发：同一版的 required 依赖里同一项目出现两次。影响：只回来一个回调，
-  `pending` 停在 1，`finishDependencyCheck()` 与 `installNow()` 都不执行；之后所有
-  模组/光影安装跳过前置检查，直到重启。
-  修法：missing 按 requestKey/projectId 去重；pending 用 key 集合。
-  测试缺：重复 required 依赖时 pending 归零且安装继续。
-
 ## 3. P1：本机范围已收尾
 
 登录凭据审计、当前 150% 原生界面/键盘/并发日志、测试隔离与保守并行、最终本机回归及部署包，
@@ -179,9 +66,6 @@ HDD 间歇拒绝仍未复现，按用户决定暂缓（原 P3，见 §6）；首
 部署包 `build/p1-final-bundle-20261028/`。源码、工具及计划纳入本次收尾提交，本地产物不等于已发布 Release。
 真实授权、额外系统设置/缩放与线上环境等外部条件统一见 §6 暂缓；
 本机范围收尾不等于全硬件、全网络、读屏软件认证或所有游戏兼容。
-2026-11-03 源码审查又在同一范围内发现三条账号边界缺陷（R8/R13/R15：收不进列表仍清
-token、登出谎报成功、activate 不回滚），不推翻上面的验收结论——"审计已完成"指当时
-范围，不等于这几条路径已覆盖；按 §4/§5 单独修，修完再补凭据验收记录。
 
 长任务仍须有独立截止，单程序不超过 900 秒；历史失败和中断记录保留，不以重跑抹去首因。
 
@@ -251,38 +135,6 @@ token、登出谎报成功、activate 不回滚），不推翻上面的验收结
   2.9–3.3），整窗重画 3.9–4.8 ms（空载 3.3–3.5），心跳最大间隔 37–44 ms、没有卡顿栈；
   对照是同一 store 同步读一趟 2.3 s。见 [多任务负载](docs/P2_CONCURRENT_LOAD_20261101.md)。
   剩余：CI 上的构建缓存效果。
-  **审查发现的拷贝项（O2/O3，2026-11-03）**：`ResourceStore.cpp:257` 在批次收尾把
-  `LatestRun`（`merged` 可能几百个 `VersionEntry` 和 `replies`）整份复制后才 `erase`，
-  可改 `take()/extract()` 移动；`DownloadManager.cpp:2438` 资产索引先 `readAll()` 再
-  整份 `write`，可流式落盘省一份峰值内存。两者都不改变语义，先量再改；O3 优先级低。
-- [ ] **审查确认缺陷（P2，R8–R11，2026-11-03）**：四条都在边界路径上，修完各自补回归。
-
-  **R8 收不进账号列表仍清 refresh token**：`src/auth/AccountStore.cpp:102-135`、
-  `:366-383`。`captureActive()` 失败只 `qWarning`，随后无条件
-  `TokenStore::clear(microsoftKey/minecraftKey)`；账号列表读不出来时，活动槽里那份
-  唯一 `refresh_token` 被删且盘上无第二份，只能重走浏览器登录（与 `:103-109` 的注释
-  相反）。修法：capture 失败时中止清理，或先把活动槽备份到备份键。
-
-  **R9 `server.properties` 编码/转义**：`src/server/ServerRegistry.cpp:541` 按 UTF-8
-  读、`:567` 按 UTF-8 写；`src/server/ServerModel.hpp:175-177, 237-248` 不处理
-  `\uXXXX`、反斜杠和分隔符。Java `Properties.load(InputStream)` 按 ISO-8859-1 + 转义
-  读，中文 motd 在游戏内乱码，`\uXXXX` 在表单里显示成字面量。修法：写盘按 Properties
-  规则转义非 Latin-1，读取时反转义；或明确只支持 ASCII 并在界面说清。
-
-  **R10 解压无大小/压缩比上限**：`src/util/ZipUtil.cpp:301-339`（extractArchives，
-  180 s）、`:816-874`（extractSubtrees，900 s）；对比元数据路径 `:391-394` 有
-  1 MiB/16 MiB 上限。导入来自网络的整合包/override zip、恢复备份时可被 zip bomb 写满
-  磁盘，超时后留下半成品。修法：按 `$e.Length` 做累计上限和压缩比检查，失败清理。
-
-  **R11 `ZipUtil::readEntry` 默认重载无上限**：`src/util/ZipUtil.cpp:435-438`（默认
-  -1）、`:472-481`（无 limit 走 `ExtractToFile`）、`:534-536`（`readAll`）；调用方
-  `src/manage/InstanceFiles.cpp:552-553` 只读 class 头 8 字节。同名条目巨大时临时目录
-  + 内存一起涨，每次启动扫描重演。修法：该调用点传上限，或默认重载也带上限/流式读。
-- [ ] **审查缺陷回归（O5，2026-11-03）**：先补四类用例——多 chunk 更新检查中途
-  abort/重建（R1）、详情页"查询成功但结果为空"不再重发（R3）、加载
-  "count=0/type=End"的 servers 空表后 addEntry/预设仍写出可解文件（R4）、同一版
-  required 依赖重复时 pending 归零且安装继续（R7）。用例钉行为，不钉文案；真机复现另记，
-  不以断言代替。
 - [ ] **大文件按状态所有权拆分**：MainWindow 安装/服务端/资源更新协调和大头文件，
   实例设置概览/启动/脏状态，长寿命 UI 测试夹具、InstanceFilesPage 与下载协调职责。
   每次迁移一套状态和接线，保留行为验证，不按行数机械切文件。见 [拆分记录](docs/REFACTORING.md)。
@@ -312,9 +164,6 @@ token、登出谎报成功、activate 不回滚），不推翻上面的验收结
   （工作线程 / 网络 / 子进程）逐条列了"等什么、用户输入送不送回来、超时、重入守卫"，以及
   `dismiss()`（能结束那个循环）与 `closeOverlay()`（结束不了）的区别，见
   [嵌套事件循环盘点](docs/NESTED_EVENT_LOOPS_AUDIT.md)。
-  剩余（O4，2026-11-03）：`manage/ModpackExport.cpp:465` 的排除表仍写死
-  `"wtfml.meta"`，应改走 `AppPaths::versionMetaFileName()`（`AppPaths.hpp:146-148`
-  已注明）；当前值一致，属维护性残留，不影响行为。
 - [ ] **复杂预设/大列表**：更大清单、实际平台查询去重/限流、复杂详情首绘/滚动及多任务响应性。
   已有目录缓存、模型筛选、后台详情/干跑、旧结果作废，不宣称完整虚拟列表已完成。
   文件页启用/禁用统计已合并；反选从逐行通知改为单次批量选择。
@@ -424,10 +273,6 @@ token、登出谎报成功、activate 不回滚），不推翻上面的验收结
   现在只算露着的，藏着的等 `Show` 时由 `ScrollBarStyler` 按代数标记补。换主题 40–55 →
   25–29 ms（探针构建，n=3 中位），剩下的是 `repolishWidgets()` 那一笔，没动。见
   [性能基线](docs/PERFORMANCE.md)。
-  **审查优化 O1（2026-11-03）**：主题不透明度滑块的 `QSlider::valueChanged`
-  （`ConnectionsController.cpp:819-820`）一路走到 `ThemeSettingsController.cpp:126-149`
-  的 `setSpec + Theme::save + Theme::apply + refresh`；拖动一次会写很多次设置并重刷
-  整个应用。建议拖动时只预览、`sliderReleased` 再落盘，或 150–200 ms 防抖；不做不记完成。
 - [ ] **发布体积与依赖**：动态那份（开发用 `build/release-mingw13`）去符号省 24.45%；
   静态单文件**发布那份**同样处理省 **41.1%**（73,531,415 → 43,288,540 字节，导入清单逐条相同）。
   **发布副本精简已落地**（2026-11-01）：`tools/prepare-release-copy.ps1` 只对副本
@@ -464,19 +309,6 @@ token、登出谎报成功、activate 不回滚），不推翻上面的验收结
 - [ ] **工具箱增强**：独立窗口/尺寸记忆、附魔完整求解、酿造/旗帜/纹饰版本边界、
   多信标共享底座复核；搜索/彩蛋先确认，不将建议稿全部升为发布前必做。
 - [ ] **额外包格式**：FTB/Technic、更多补丁操作符、复杂多实例懒人包按实包适配；单模组 ZIP 不当整合包。
-- [ ] **审查低优先级修复（R12–R16，2026-11-03）**：
-  **R12** `src/tools/FileHash.cpp:64-74` 先 `trimmed()` 导致文档写法 `md5 <hex>` 永不
-  生效（空格/制表符分支是死代码），`:187-210` 把 `md5` 的 `m` 报成非十六进制字符；
-  **R13** `src/auth/AccountStore.cpp:366-383` 无条件返回 true，而
-  `src/auth/TokenStore.cpp:190-205` 拿不到目录锁直接返回、QSettings 写失败只警告，
-  界面可能谎报已退出；**R14** `src/MainWindowLifecycle.cpp:221-224` 忽略
-  `ServerProcess::stopAndWait()` 的返回值（`src/server/ServerProcess.cpp:157-176`，
-  强杀路径返回 false），日志无条件说"已经停下来"；**R15**
-  `src/auth/AccountStore.cpp:312-320` 第二次写失败不回滚，活动槽会停在新 refresh +
-  旧 Minecraft token；**R16** 一致性小项：`src/server/ServerModel.hpp:218-234`
-  setValue 大小写敏感而 `value()`/`contains()` 不敏感、`src/manage/UpdateRollback.cpp:315-325`
-  记的是源文件 sha1 而注释要求校验副本、`src/manage/VersionDisplay.cpp:28-40`
-  truncate 可能切断代理对、`src/replay/ReplayInfo.cpp:33-37` double→qint64 未查范围。
 - [ ] **国际化**：QTranslator/.ts 和完整文案/布局验证，未排期。
 
 ## 6. 暂缓：外部条件与历史现场
@@ -509,7 +341,6 @@ HDD 原失败为 `build/p0-closure-20261025-154237/hdd.json`；既有首因诊�
 - 创建进程不能证明主菜单/有效会话；三种历史时间须另定检测与降级规则。
 - 原游戏、复制来的游戏、原稿和失败证据不随计划整理删除；不用真实账户/存档做破坏性测试。
 - 完成须有行为、错误/取消/恢复语义和模块验证；真机/实网/外部条件分别记录，未验收不勾完。
-- 审查项（R*/O*）与功能项同一把尺子：修复须有行为/错误语义/回归用例；静态确认不等于真机
-  复现，未复现的 P0/P1 先修代码再补现场，不以测试通过冒充复现。
+- 未证实风险（V*）不计入缺陷；有可复现现场后才定级并补条目。
 - 同一意图一套进度，未知兼容不猜，恢复不扩大授权；主菜单通过不等于所有模组或进世界兼容。
 - 完成后从主计划移除，细节归子系统文档；提交、推送、发布和真实运行验收分别说明。
