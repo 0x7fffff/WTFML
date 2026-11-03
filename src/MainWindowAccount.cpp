@@ -357,8 +357,11 @@ void MainWindow::logoutCurrentAccount() {
     }
     const QString name = AccountStore::nameOf(uuid);
     if (!AccountStore::logout()) {
+        // 别替失败编一句"现在还是登录着"：可能一个键都没清掉，也可能清掉了一半（见
+        // AccountStore::logout() 的 R13）。说"没能清干净"在任何一种情况下都是事实。
         InlineMessage::warning(m_ui->overlay(), tr("退出登录失败"),
-                             tr("盘上的登录状态没能清掉，现在还是登录着「%1」。").arg(name));
+                             tr("盘上的登录状态没能清干净。\n\n再点一次「登出」试试；一直不行的话，"
+                                "可能是这台机器上的启动器配置写不进去。"));
         return;
     }
     // 内存里那一份也得跟着清 —— AuthManager 只在构造和换账号那两处读过盘，不重读的话
@@ -470,8 +473,13 @@ void MainWindow::onAccountRemoveRequested(const QString &uuid) {
                                             /*destructive=*/true)) {
         return;
     }
-    if (!AccountStore::remove(uuid)) {
-        InlineMessage::warning(m_ui->overlay(), tr("删除账号失败"), tr("这个账号不在已保存的列表里。"));
+    QString removeError;
+    if (!AccountStore::remove(uuid, &removeError)) {
+        // 两种失败：列表里本来就没有它；或者列表项删了、但活动槽那几个键没清干净
+        // （R13，removeError 里写着原因）。
+        InlineMessage::warning(m_ui->overlay(), tr("删除账号失败"),
+                             removeError.isEmpty() ? tr("这个账号不在已保存的列表里。")
+                                                   : removeError);
         return;
     }
     if (wasCurrent) {

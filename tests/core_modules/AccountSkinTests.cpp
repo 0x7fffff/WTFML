@@ -230,6 +230,108 @@ void runAccountSkinTests(const QString &sandbox) {
               "W10b 收尾：列表和活动槽都回到空（W11 的前提）");
     }
 
+    // ---- R8 登出时列表读不出来：不许把活动槽里唯一那份 refresh_token 删掉 ----
+    //
+    // 现场：活动槽里是一份**完整**的在线凭据（有 refresh_token），而 `SavedAccounts`
+    // 那一格解不开（换 Windows 账户 / 换机器之后就是这样）。旧行为是 qWarning 一句就
+    // 照常清活动槽 —— 盘上再没有第二份，用户只能重走浏览器登录，而界面上还会说
+    // "账号还留在列表里，点一下就能回来"。
+    {
+        putActiveCredentials(QStringLiteral("R8"), uuidA, QStringLiteral("Alice"),
+                             QStringLiteral("rt-A"));
+        {
+            // 直接往那一格写一串解不开的字节（不是 TokenStore::writeJson —— 那会写成
+            // 一份合法列表，这一条要的正好是"读不出来"）。
+            QSettings settings;
+            settings.setValue(TokenStore::accountsKey(), QByteArrayLiteral("@@@@@@ 坏掉了"));
+            settings.sync();
+        }
+        check(!AccountStore::logout(),
+              "★ R8 列表读不出来、而活动槽里是一份完整的凭据 → 这次登出被拒（不清活动槽）");
+        const QJsonObject kept = TokenStore::readJson(TokenStore::microsoftKey());
+        check(kept.value(QStringLiteral("refresh_token")).toString() == QStringLiteral("rt-A"),
+              "★★ R8 活动槽里那份 refresh_token **还在**（盘上唯一的一份，清掉只能重走"
+              "浏览器登录）",
+              kept.value(QStringLiteral("refresh_token")).toString());
+        check(TokenStore::hasValue(TokenStore::minecraftKey()) &&
+                  AccountStore::activeUuid() == uuidA,
+              "★ R8 而且当前账号没变（没有「看着登出了、其实没动」那种半截状态）",
+              AccountStore::activeUuid());
+        // 收尾：把这一节造的坏列表和活动槽一起清掉（W11 的前提就是两处都空）。
+        TokenStore::clear(TokenStore::accountsKey());
+        TokenStore::clear(TokenStore::microsoftKey());
+        TokenStore::clear(TokenStore::minecraftKey());
+        check(AccountStore::accounts().isEmpty() && AccountStore::activeUuid().isEmpty(),
+              "R8 收尾：坏列表和活动槽都清了（W11 的前提）");
+    }
+
+    // ---- R13 清凭据写不进盘：登出不许谎报成功 ----
+    //
+    // 现场：另一份启动器正占着数据目录那把锁（`DirectorySessionLock`），这一份拿不到锁，
+    // `TokenStore::clear()` 一个字节都清不掉。它以前是 void —— 只往日志里扔一句，而
+    // `logout()` 无条件返回 true，界面于是说"已退出登录"，下次启动却还是那个账号。
+    {
+        putActiveCredentials(QStringLiteral("R13"), uuidA, QStringLiteral("Alice"),
+                             QStringLiteral("rt-A"));
+        check(AccountStore::captureActive(), "R13 前提：Alice 收进列表");
+
+        const QString lockPath = QDir::temp().filePath(
+            QStringLiteral("wtfml-directory-%1.lock")
+                .arg(DirectorySessionLock::keyFor(AppPaths::defaultMinecraftDir())));
+        QLockFile rival(lockPath);
+        rival.setStaleLockTime(0);
+        DirectorySessionLock::enabled = true;
+        const bool rivalHolds = rival.tryLock(0);
+        check(rivalHolds, "R13 前提：模拟另一份启动器占着数据目录那把锁");
+        if (rivalHolds) {
+            QString clearError;
+            check(!TokenStore::clear(TokenStore::minecraftKey(), &clearError),
+                  "★★ R13 拿不到目录锁时 clear() 返回 false（不再只是往日志里扔一句）",
+                  clearError);
+            check(TokenStore::hasValue(TokenStore::minecraftKey()),
+                  "★ R13 而且那格字节确实还在（返回值说的是事实）");
+            check(!AccountStore::logout(),
+                  "★★ R13 清不掉时登出返回 false（界面那句「失败」才和盘上一致）");
+            check(AccountStore::activeUuid() == uuidA,
+                  "★ R13 当前账号没变（没有「看着登出了、其实没动」）",
+                  AccountStore::activeUuid());
+            rival.unlock();
+        }
+        DirectorySessionLock::enabled = false;
+        // 收尾（锁已经放开）：清掉这一节造的东西，W11 的前提是两处都空。
+        check(TokenStore::clear(TokenStore::accountsKey()) &&
+                  TokenStore::clear(TokenStore::microsoftKey()) &&
+                  TokenStore::clear(TokenStore::minecraftKey()),
+              "R13 收尾：放开锁之后都清得掉");
+        check(AccountStore::accounts().isEmpty() && AccountStore::activeUuid().isEmpty(),
+              "R13 收尾：列表和活动槽都空了（W11 的前提）");
+    }
+
+    // ---- R15 切换账号第二步失败时的回滚材料：原样字节放得回去 ----
+    //
+    // 真正的失败路径（第一步写入成功、第二步写失败）没法在正常盘上造出来，所以这里钉的是
+    // 回滚那一手本身：读出来的**原样字节**放回去之后，解出来还是原来那一份 —— 不是重新
+    // 保护一遍、更不是写成一个空值。
+    {
+        putActiveCredentials(QStringLiteral("R15"), uuidA, QStringLiteral("Alice"),
+                             QStringLiteral("rt-raw"));
+        const QByteArray raw = TokenStore::rawValue(TokenStore::microsoftKey());
+        check(!raw.isEmpty(), "R15 前提：rawValue() 读得到盘上那份原样字节");
+        check(TokenStore::clear(TokenStore::microsoftKey()), "R15 先真的清掉那一格");
+        check(!TokenStore::hasValue(TokenStore::microsoftKey()), "R15 清掉了");
+        check(TokenStore::writeRaw(TokenStore::microsoftKey(), raw), "R15 原样放回去");
+        check(TokenStore::readJson(TokenStore::microsoftKey())
+                      .value(QStringLiteral("refresh_token"))
+                      .toString() == QStringLiteral("rt-raw"),
+              "★★ R15 放回去的还是解密得开的那一份（回滚真的发生，不是「重写一个空值」）");
+        check(TokenStore::writeRaw(TokenStore::microsoftKey(), QByteArray()),
+              "★ R15 空字节放回去 = 删掉那一格（原来就没有凭据时不凭空造一格空值）");
+        check(!TokenStore::hasValue(TokenStore::microsoftKey()), "R15 那一格确实没了");
+        TokenStore::clear(TokenStore::minecraftKey());
+        check(AccountStore::accounts().isEmpty() && AccountStore::activeUuid().isEmpty(),
+              "R15 收尾：列表和活动槽都空了（W11 的前提）");
+    }
+
     // ---- W11 盘上有坏项 / 残项时的下场 ----
     // 手写一份列表（当"外部写入者"），验产品的读。两种坏法各一条：
     // - 一项连 uuid 都没有 → 列表里**不摆**（摆一个点不动的账号比少一项更难查）；
