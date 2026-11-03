@@ -25,6 +25,7 @@
 
 #include <QList>
 #include <QObject>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 #include <functional>
@@ -106,6 +107,14 @@ public:
         /// 问那几个前置**叫什么**的那一发（`ModDependencies::projectsKeyFor("detail", …)`）。
         /// 空串 = 这一页这会儿没有在问名字。
         QString dependencyRequestKey;
+        /// **这一页已经问过名字、而且没问着的**那几个项目号（R3）。
+        ///
+        /// "名字缓存里没有"不等于"该再问一次"：项目被删了（200 + 空数组）、被限流、网络
+        /// 一时没通，这几种都会让名字永远进不了缓存 —— 而名字没到的那一格如果还是"该问"，
+        /// 每回来一次就会立刻再发一发同一把钥匙的请求（详情页开着的时候一直打接口，和
+        /// 限流互相放大）。所以**问过就算数**：这一页开着的时候同一个号只问一次，
+        /// 收页/换页再清（下次打开重新问一遍）。
+        QSet<QString> dependencyAskedIds;
     };
 
     /// 懒建那一次（建一次留着，关掉之后指针照样有效）。

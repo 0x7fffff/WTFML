@@ -123,7 +123,13 @@ void runDependencyAndBatchTests() {
         modProject,
         versionJson(QStringLiteral("V1"), QStringLiteral("1.0.0"), QStringLiteral("模组丙.jar"),
                     modFileUrl,
+                    // ★ 同一条 required 前置**写了两遍**（R7）。接口允许作者这样写，而按条数
+                    // 等回信的一方会永远差一发：产品必须按项目号去重，只问一发、只等一发。
+                    // 这一整节后面的断言（弹窗正文逐字比、日志里「含 1 个前置」、两份文件
+                    // 都在下）会一起把它钉住 —— 去重丢了的话那一趟根本走不到弹窗。
                     QByteArrayLiteral("[{\"project_id\":\"DEPPROJB\",\"version_id\":null,"
+                                      "\"dependency_type\":\"required\"},"
+                                      "{\"project_id\":\"DEPPROJB\",\"version_id\":null,"
                                       "\"dependency_type\":\"required\"}]")));
     api.modrinthVersionListByProject.insert(
         depProject,

@@ -16,6 +16,7 @@
 
 #include <QHash>
 #include <QObject>
+#include <QSet>
 #include <QString>
 #include <functional>
 
@@ -42,6 +43,11 @@ public:
         std::function<void(Tasks::TaskId, bool, const QString &)> finishTask;
         /// 收尾之后把「继续未完成操作」那一位写到账本上（报告钥匙）。
         std::function<void(Tasks::TaskId, const QString &)> setTaskRecovery;
+        /// 续做**做完**之后，把原来那条任务上挂着的恢复入口按报告钥匙清掉。
+        ///
+        /// 不请的话：成功之后报告和 job 都删了，而当初那条失败任务上那颗「继续未完成操作」
+        /// 还在 —— 再点一下只会得到"这一项的现场已经不在"，而屏幕上看起来像是我们没做完。
+        std::function<void(const QString &)> clearTaskRecovery;
     };
 
     FileOperationRecoveryController(OverlayHost *overlay, Host host, QObject *parent = nullptr);
@@ -77,4 +83,8 @@ private:
     OverlayHost *m_overlay = nullptr;
     Host m_host;
     QHash<QString, Job> m_jobs;
+    /// 正在续做的报告钥匙（R5）：同一份报告连点两次「继续」，两条续做会共用同一个
+    /// stagingDir 和目标文件 —— 世界导入 / 批量复制会被写坏。收尾（成功、失败、取消、
+    /// 连开都开不起来）时移出。
+    QSet<QString> m_resuming;
 };

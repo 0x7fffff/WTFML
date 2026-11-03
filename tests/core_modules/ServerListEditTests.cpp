@@ -432,5 +432,51 @@ void runServerListEditTests() {
         check(readBytesAt(outPath) == nbtServersDat(want),
               "ZK16 解开之后 = 加一条、删一条的样子（其余逐字节不变）");
     }
+
+    section("R4. 空表是「元素类型 End」那一档：加完必须仍是一份读得回来的 servers.dat");
+    {
+        // 游戏里把服务器**删光**之后写出来的那个形状：`servers` 是 count=0、元素类型是
+        // End 的空表。这是合法 NBT，但写盘那一步按 `itemType` 落 —— 不补元素类型的话，
+        // 往里 append 一条之后写出去的是 `List(End, count=1)`，游戏和本启动器都读不回来。
+        QByteArray emptyListPayload;
+        emptyListPayload.append('\0');   // 元素类型 = TAG_End
+        emptyListPayload.append(nbtInt(0));
+        const QByteArray endEmpty =
+            nbtTag(0x0A, QByteArray(),
+                   nbtCompoundBody({nbtTag(0x09, QByteArrayLiteral("servers"), emptyListPayload)}));
+        const QString endPath = dir.filePath(QStringLiteral("empty-end.dat"));
+        check(writeBytesAt(endPath, endEmpty), "R4-1 一份「空表 + 元素类型 End」落盘了");
+
+        QString problem;
+        check(ServerListFile::addEntry(endPath, QStringLiteral("新服"),
+                                       QStringLiteral("new.example.com"), &problem),
+              "★ R4-1 addEntry 接受了这个形状（不是「这一格不是服务器表」）", problem);
+
+        // 两个判据，缺一不可：
+        //   ① 我们自己读得回来（`read()` 走的是同一个解析器）；
+        //   ② 盘上那棵树里 `servers` 的元素类型是 Compound、而且有一条。
+        QList<NbtUtil::ServerEntry> rows;
+        QString readProblem;
+        const NbtUtil::Status status = ServerListFile::read(endPath, &rows, &readProblem);
+        check(status == NbtUtil::Status::Ok && rows.size() == 1 &&
+                  rows.at(0).address == QStringLiteral("new.example.com"),
+              "★ R4-1 写出去的那一份读得回来（List 的元素类型补成了 Compound）",
+              QStringLiteral("status=%1 rows=%2 %3")
+                  .arg(static_cast<int>(status))
+                  .arg(rows.size())
+                  .arg(readProblem));
+
+        NbtTree::Document document;
+        QString parseProblem;
+        const bool parsed = NbtTree::parse(readBytesAt(endPath), &document, &parseProblem);
+        const NbtTree::Node *servers =
+            NbtTree::field(&document.root, QStringLiteral("servers"));
+        check(parsed && servers != nullptr &&
+                  servers->type == NbtTree::Type::List &&
+                  servers->itemType == NbtTree::Type::Compound &&
+                  servers->items.size() == 1,
+              "R4-1 盘上那一格是 List<Compound>、一条（不是 List<End>）",
+              parseProblem);
+    }
 }
 

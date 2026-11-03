@@ -175,6 +175,13 @@ bool FileOperationRecoveryController::resume(const QString &token) {
                                tr("这一项的现场已经不在（启动器重启或报告被清掉了），请重新开始那一次操作。"));
         return false;
     }
+    // 已经在续做的那一份（连点两下那颗按钮）：**不许**再开一条。两条续做会共用同一个
+    // stagingDir 和目标文件，世界导入 / 批量复制都会被写坏（见 `m_resuming`）。
+    if (m_resuming.contains(token)) {
+        InlineMessage::information(m_overlay, tr("继续未完成操作"),
+                                   tr("这一项正在继续，等它做完再看结果。"));
+        return false;
+    }
     OperationReport::Report report = reportFor(token);
     if (!report.hasUnfinished()) {
         InlineMessage::information(m_overlay, tr("继续未完成操作"),
@@ -203,6 +210,7 @@ bool FileOperationRecoveryController::resume(const QString &token) {
     }
     Job job = *it;
     job.report = report;
+    m_resuming.insert(token);
     runResume(job, task);
     return true;
 }
@@ -230,6 +238,7 @@ void FileOperationRecoveryController::runResume(const Job &job, Tasks::TaskId ta
     }
     if (!started) {
         // 连"开始补做"都做不到：照实收失败，并把原因写进报告文件。
+        m_resuming.remove(job.report.id);
         OperationReport::Report report = job.report;
         report.failureReason = problem;
         report.updatedAt = QDateTime::currentDateTime();
@@ -427,6 +436,8 @@ bool FileOperationRecoveryController::resumeFileCopy(const Job &job, Tasks::Task
 void FileOperationRecoveryController::settle(Tasks::TaskId task, OperationReport::Report &report,
                                              const QString &reportPath, bool ok, bool cancelled,
                                              const QString &problem) {
+    // 这一份不在"正在续做"里了 —— 成功 / 失败 / 取消三种收场都走这儿（R5）。
+    m_resuming.remove(report.id);
     report.updatedAt = QDateTime::currentDateTime();
     report.cancelled = cancelled;
     report.complete = ok;
@@ -444,6 +455,9 @@ void FileOperationRecoveryController::settle(Tasks::TaskId task, OperationReport
         if (m_host.finishTask) m_host.finishTask(task, true, report.summaryText());
         OperationReport::removeReport(reportPath);
         m_jobs.remove(token);
+        // 原来那条失败任务上的「继续未完成操作」**要摘掉**：报告和 job 都没了，那颗按钮
+        // 再点只会得到"现场已经不在"，而屏幕上看起来像是这一件没做完。
+        if (m_host.clearTaskRecovery) m_host.clearTaskRecovery(token);
         if (m_host.log) m_host.log(tr("已补完未完成的文件操作：%1").arg(report.title));
         return;
     }

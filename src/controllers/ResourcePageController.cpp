@@ -128,6 +128,10 @@ bool ResourcePageController::open(const QString &iconKey, const QString &kindKey
     m_state.showSnapshots = false;   // 开页一律从"不显示快照版"开始（勾选框的默认值）
     m_state.versions.clear();
     m_state.loaded = false;
+    // 前置名字"这一页问过谁"跟着新页从头算（R3）：上一个资源问不着的那几个号不该让
+    // 这一个资源的前置也问不出来。
+    m_state.dependencyAskedIds.clear();
+    m_state.dependencyRequestKey.clear();
     // 钥匙里游戏版本和加载器都空 = **不筛**（"这个资源一共发过哪些版本"）。
     // 这也正是它和树那条路的钥匙不会撞的原因：树上那把一定带着一个游戏版本号。
     m_state.requestKey = ResourceCatalog::versionsRequestKey(
@@ -249,6 +253,7 @@ bool ResourcePageController::open(const QString &iconKey, const QString &kindKey
                 return;
             }
             m_state.open = false;
+            m_state.dependencyAskedIds.clear();
             if (onClosed) {
                 onClosed(page->result());
             }
@@ -388,7 +393,11 @@ void ResourcePageController::updateDependencies() {
         const QString name =
             m_owner.m_projectTitles.value(m_owner.projectTitleKey(m_state.source, dependency.projectId));
         if (name.isEmpty()) {
-            if (!unknownIds.contains(dependency.projectId)) {
+            // 这一页已经问过、而且没问着的（项目被删 / 限流 / 网络没通）**不再问**：
+            // 再问一次的结果多半还是空的，而"回来一次就再发一发"正是 R3 那个死循环。
+            // 这一页开着的时候只问一次，收页再清（见 `dependencyAskedIds`）。
+            if (!unknownIds.contains(dependency.projectId) &&
+                !m_state.dependencyAskedIds.contains(dependency.projectId)) {
                 unknownIds.append(dependency.projectId);
             }
         }
@@ -407,6 +416,12 @@ void ResourcePageController::updateDependencies() {
         ModDependencies::detailPrerequisiteCountText(dependencies.size()));
     m_state.dependencyRequestKey = ModDependencies::projectsKeyFor(
         QStringLiteral("detail"), unknownIds, m_state.source);
+    // 记下来"这几个号这一页已经问过了"：回来的是空表/报错，名字仍然不在缓存里，下一趟
+    // 走到这里时它们**不会再被凑进 unknownIds**（见 `dependencyAskedIds`）。成功拿到名字
+    // 的那几个本来就会命中缓存，记不记都一样。
+    for (const QString &id : unknownIds) {
+        m_state.dependencyAskedIds.insert(id);
+    }
     m_owner.m_resourceStore->fetchProjects(m_state.dependencyRequestKey, unknownIds,
                                    m_state.source);
 }
@@ -428,8 +443,10 @@ void ResourcePageController::onProjectsFinished(const QString &requestKey,
     if (!problem.isEmpty()) {
         m_owner.appendLog(tr("前置模组的名字没取到：%1").arg(problem));
     }
-    // 名字已经进缓存了：再走一次那一段就会走到"全都有了"那条路上去（**不会**再发一发 ——
-    // 缺的那几个现在是空的，见上面 unknownIds 那段）。
+    // 名字已经进缓存了：再走一次那一段就会走到"全都有了"那条路上去。**问不着也一样**：
+    // 那几个号已经记进 `dependencyAskedIds`，不会再被凑成新的一发（见 `updateDependencies`
+    // 那段 —— 这里曾经写的是"缺的那几个现在是空的、不会再发"，可"空"恰恰是它每回来一次
+    // 就再发一次的原因，R3 就是这条注释与事实相反的地方）。
     updateDependencies();
 }
 

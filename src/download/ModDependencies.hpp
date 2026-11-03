@@ -113,6 +113,10 @@ QString projectsKeyFor(const QString &consumer, const QStringList &projectIds,
 /// 它是依赖解析和安装的真值来源：只过滤 optional / incompatible / embedded
 /// 和没有 projectId 的坏数据。不要在这里为了精简 UI 隐藏真实依赖，否则
 /// `missingRequiredDependencies()` 也会看不见它，用户选「一起下载」时反而不会装。
+///
+/// 同一个项目在清单里出现两次时**只留第一条**（按项目号去重）：两发同钥匙的版本请求
+/// 在 `ResourceStore` 那边第二发会把第一发掐掉、而且不回调，按条数等回信的一方
+/// `pending` 永远归不了零。展示清单也读这一份，所以同一个名字不会列两遍。
 QList<ResourceCatalog::Dependency> requiredDependenciesOf(
     const ResourceCatalog::VersionEntry &version);
 
@@ -147,6 +151,9 @@ struct Lookup {
  * @param target 装进哪儿。
  * @return 还缺的那些，**顺序原样**（接口给的顺序，不排 —— 排一个"哪个更该先下"的比较器，
  * 错了不会有任何东西报警，而下载顺序本来不影响结果）。一条不缺就回空表。
+ *
+ * 同一项目出现两次的去重在 `requiredDependenciesOf()` 里（**唯一一处**），这里不会
+ * 为同一个项目发两把同钥匙的活。
  *
  * NOTE: 回空表 ≠ "这个模组没有前置" —— 也可能是"前置都装着了"。**别拿它当那句话用**：
  * 要那个数得看 `requiredDependenciesOf()`（那边不看已装）。

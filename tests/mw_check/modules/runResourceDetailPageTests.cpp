@@ -40,6 +40,9 @@ void runResourceDetailPageTests() {
         "\"fileName\":\"arizona-0.9.0.jar\",\"releaseType\":1,"
         "\"fileDate\":\"2026-06-01T10:00:00Z\",\"downloadCount\":80,\"fileLength\":1024,"
         "\"gameVersions\":[\"1.20.1\",\"Forge\"],"
+        // 这一版声明了一条**必装前置**（relationType=3）：点「1.20.1」那一颗 chip 之后它
+        // 就成了最上面那一版，中间那一行要去问「那个项目叫什么」（R3 量的是这一条路）。
+        "\"dependencies\":[{\"modId\":999001,\"relationType\":3}],"
         "\"downloadUrl\":\"http://127.0.0.1:1/arizona-0.9.0.jar\"}]}");
 
     // 接口根地址是 MainWindow **构造那一刻**读进去的，所以先写 ini 再造窗口（和 ZI 同一个做法）。
@@ -361,6 +364,25 @@ void runResourceDetailPageTests() {
                       page->groupTitleAt(0) == QStringLiteral("Forge 1.20.1"),
                   "ZJ5 换一档换一份（1.20.1 那一条只落在它自己那一档下）",
                   QStringLiteral("%1 组 %2 条").arg(page->groupCount()).arg(page->versionRowCount()));
+
+            // ---- ZJ5b. 前置名字**问不着**的时候，不许原地重发（R3）----
+            //
+            // 最上面那一版声明了一条必装前置（999001），而假接口对 `POST /v1/mods` 答的是
+            // 「200 + 空数组」= 查询成功、一条都没有（项目被删 / 限流 / 网络没通都是这一档）。
+            // 旧代码回来一次就往缓存里找不到名字、`unknownIds` 还是那几个，于是**立刻再发
+            // 一发**同一把钥匙的请求 —— 详情页开着的时候就一直在打接口。
+            {
+                const bool asked = pumpUntil([&api] { return api.projectBatchHits >= 1; }, 10000);
+                check(asked, "ZJ5b 前置的名字真的去问了（这一发是 `POST /v1/mods`）",
+                      QStringLiteral("%1 发").arg(api.projectBatchHits));
+                const int settled = api.projectBatchHits;
+                // 再转 600 毫秒事件循环（判据永远是假 ⇒ 等满就回）：
+                // 旧代码的"回去一次就再发一发"是在这一个窗口里发生的。
+                pumpUntil([] { return false; }, 600);
+                check(api.projectBatchHits == settled && settled == 1,
+                      "★ ZJ5b 回来的是空表（问不着）——**不许**再发第二发（问一次算数）",
+                      QStringLiteral("%1 发").arg(api.projectBatchHits));
+            }
             chips.at(0)->click();
             QApplication::processEvents();
             check(page->currentChip().isEmpty() && page->groupCount() == 2 &&

@@ -633,6 +633,15 @@ MainWindow::MainWindow(QWidget *parent)
             },
             [this](Tasks::TaskId id, const QString &token) {
                 m_activityCenter->tasks()->setRecovery(id, token, !token.isEmpty(), QString());
+            },
+            // 续做成功之后把原来那条任务上的恢复入口摘掉（按报告钥匙找那一条，R5）。
+            [this](const QString &token) {
+                for (const Tasks::TaskSnapshot &task : m_activityCenter->tasks()->all()) {
+                    if (task.recoveryToken == token) {
+                        m_activityCenter->tasks()->setRecovery(task.id, QString(), false,
+                                                               QString());
+                    }
+                }
             }},
         this);
     // 上一次会话留下的、已经没有报告在用的本模块暂存，启动时收掉（只碰自己的目录名）。
