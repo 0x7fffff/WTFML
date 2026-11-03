@@ -24,8 +24,17 @@
 #include <QSignalBlocker>
 #include <QSlider>
 #include <QStandardPaths>
+#include <QTimer>
 
 namespace {
+
+/// 拖不透明度滑块时，"落盘 + 重铺整个应用"最多隔这么久做一次（毫秒）。
+///
+/// 一次 `Theme::apply()` 是整份应用样式表的重算 + 每个控件的 `PaletteChange`——拖动时
+/// 每挪一个像素来一发，几十毫秒就叠上一次，拖起来是卡顿的；而每一下都 `Theme::save()`
+/// 则是往 `QSettings` 里写几十遍同一个键。60 ms ≈ 16 fps：画面跟得上手，开销只剩零头。
+constexpr int kApplyThrottleMs = 60;
+
 
 QColor semanticColor(const Theme::Spec &spec, int index) {
     const QPalette palette = QApplication::palette();
@@ -54,6 +63,10 @@ void setSemanticColor(Theme::Spec *spec, int index, const QColor &color) {
 ThemeSettingsController::ThemeSettingsController(MainWindowUI *ui, LauncherSettings *settings,
                                                  QWidget *dialogParent, QObject *parent)
     : QObject(parent), m_ui(ui), m_settings(settings), m_dialogParent(dialogParent) {
+    m_applyThrottle = new QTimer(this);
+    m_applyThrottle->setSingleShot(true);
+    m_applyThrottle->setInterval(kApplyThrottleMs);
+    connect(m_applyThrottle, &QTimer::timeout, this, &ThemeSettingsController::flushPendingSpec);
     if (auto *editor = m_ui->getThemeAdvancedEditor()) {
         connect(editor, &ThemeAdvancedEditor::specEdited, this, &ThemeSettingsController::applySpec);
         connect(editor, &ThemeAdvancedEditor::roleColorRequested, this, [this, editor](int role) {
@@ -73,6 +86,15 @@ ThemeSettingsController::ThemeSettingsController(MainWindowUI *ui, LauncherSetti
                 foreground ? tr("调整此区域文字，不改变背景图。") : tr("调整此区域底色，不改变背景图。"), before);
             if (picked.isValid()) editor->setPartColor(part, foreground, picked);
         });
+    }
+}
+
+ThemeSettingsController::~ThemeSettingsController() {
+    // 节流窗口里最后一发还没落盘就关窗口的话，重开启动器会回到老值。
+    // 这里只补「写盘」：界面正在拆，不用再铺一遍。
+    if (m_applyPending) {
+        m_applyPending = false;
+        Theme::save(Theme::current());
     }
 }
 
@@ -119,12 +141,21 @@ void ThemeSettingsController::changeImageOpacity(int index) {
     Theme::Part part;
     if (row.opacity == nullptr || !Theme::partFromKey(row.partKey, &part)) return;
     const Theme::PartImage before = Theme::partImage(part);
+    // 拖滑块走节流那一档：**内存里立刻跟上**，落盘 + 重铺整个应用最多每
+    // `kApplyThrottleMs` 一次（见 `applySpecThrottled()`）。
     if (before.isSet())
-        setPartImage(row.partKey, before.path, before.name, int(before.fit), row.opacity->value());
+        setPartImageImpl(row.partKey, before.path, before.name, int(before.fit),
+                         row.opacity->value(), true);
 }
 
 void ThemeSettingsController::setPartImage(const QString &partKey, const QString &imagePath,
                                            const QString &imageName, int fit, int opacity) {
+    setPartImageImpl(partKey, imagePath, imageName, fit, opacity, false);
+}
+
+void ThemeSettingsController::setPartImageImpl(const QString &partKey, const QString &imagePath,
+                                               const QString &imageName, int fit, int opacity,
+                                               bool throttled) {
     Theme::Part part;
     if (!Theme::partFromKey(partKey, &part)) return;
     Theme::Spec spec = Theme::current();
@@ -138,11 +169,36 @@ void ThemeSettingsController::setPartImage(const QString &partKey, const QString
         spec.parts.remove(int(part));
     else
         spec.parts.insert(int(part), style);
-    applySpec(spec);
+    if (throttled)
+        applySpecThrottled(spec);
+    else
+        applySpec(spec);
 }
 
 void ThemeSettingsController::applySpec(const Theme::Spec &spec) {
+    // 这一发已经是完整的一次「落盘 + 铺开」：节流窗口里攒着的那一发不必再来一遍。
+    m_applyPending = false;
     Theme::setSpec(spec);
+    Theme::save(Theme::current());
+    if (qApp != nullptr) Theme::apply(*qApp);
+    refresh();
+}
+
+void ThemeSettingsController::applySpecThrottled(const Theme::Spec &spec) {
+    // 内存里**立刻**跟上：下一次 tick（以及任何读 `Theme::current()` 的地方）看到的
+    // 必须是刚拖到的那个值 —— `changeImageOpacity()` 的"原来那张图"就是从这儿读的。
+    Theme::setSpec(spec);
+    m_applyPending = true;
+    if (m_applyThrottle->isActive()) return;  // 已经排上了：这一发并进窗口末尾那一次
+    // 头一下**立刻**做（滑块一按下去就看得见效果，测试里 `setValue()` 后也马上落盘），
+    // 之后每 `kApplyThrottleMs` 至多一次，最后一发由窗口末尾那次补上。
+    flushPendingSpec();
+    m_applyThrottle->start();
+}
+
+void ThemeSettingsController::flushPendingSpec() {
+    if (!m_applyPending) return;
+    m_applyPending = false;
     Theme::save(Theme::current());
     if (qApp != nullptr) Theme::apply(*qApp);
     refresh();
@@ -335,7 +391,7 @@ void ThemeSettingsController::importTheme() {
 void ThemeSettingsController::changeTextOpacity(int value) {
     Theme::Spec spec = Theme::current();
     spec.textOpacity = value;
-    applySpec(spec);
+    applySpecThrottled(spec);
 }
 
 void ThemeSettingsController::setAnimationsEnabled(bool enabled) {
