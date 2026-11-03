@@ -453,6 +453,7 @@ set(SOURCE_FILES
     src/download/AssetDirectorKnownSetData.cpp
     src/download/ResumableDownload.cpp
     src/download/ResumableDownload.hpp
+    src/download/ZipMagic.hpp
     src/download/ResourceCatalog.cpp
     src/download/ModDependencies.cpp
     src/download/ResourceStore.cpp

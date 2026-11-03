@@ -142,6 +142,36 @@ int MwHighSpeedDownloadCheck(QApplication &app) {
         { StreamedFile stream(kept); stream.file.write("bad"); stream.bytes = 3; stream.hash.addData(QByteArray("bad"));
           expect(!stream.finish(QString(40, QLatin1Char('0')), 3, false).isEmpty(), "bad hash rejected before atomic commit"); }
         expect(read(kept) == "old", "hash failure leaves original bytes untouched");
+        // 开头那四个字节的判据三处同源（`ZipMagic.hpp`）：`PK\x03\x04` 本地文件头、
+        // `PK\x05\x06` 空档案之外，`PK\x07\x08`（跨卷标记，APPNOTE 4.4.1 —— 单卷归档也可能带）
+        // 也必须放过。这一条以前只有流式落盘认、复用检查不认，带它的加载器包会每次启动都重下。
+        {
+            const QString spanningZip = fixture.filePath(QStringLiteral("spanning.zip"));
+            const QByteArray spanningBody = QByteArrayLiteral("PK\x07\x08") + QByteArray(64, 's');
+            StreamedFile stream(spanningZip);
+            stream.file.write(spanningBody);
+            stream.bytes = spanningBody.size();
+            stream.hash.addData(spanningBody);
+            // 真实下载里 `prefix` 由 `drain()` 在写盘时顺手攒下（见 StreamedFile.hpp 第 41 行）；
+            // 这一条不经过网络，就直接把"开头四个字节"摆成下载器会看见的那个样子。
+            stream.prefix = spanningBody.left(4);
+            expect(stream.finish(QString(), -1, true).isEmpty(),
+                   "spanning-signature prefix is accepted as a zip head (PK0708)");
+            expect(read(spanningZip) == spanningBody, "accepted zip body is committed");
+        }
+        // 反过来：一段 HTML 错误页（没有任何 zip 头）在同样的位置上必须被拦下、不落盘。
+        {
+            const QString htmlZip = fixture.filePath(QStringLiteral("error-page.zip"));
+            const QByteArray htmlBody = QByteArrayLiteral("<!doctype html><title>404</title>");
+            StreamedFile stream(htmlZip);
+            stream.file.write(htmlBody);
+            stream.bytes = htmlBody.size();
+            stream.hash.addData(htmlBody);
+            stream.prefix = htmlBody.left(4);
+            expect(!stream.finish(QString(), -1, true).isEmpty(),
+                   "html error page is rejected as a zip body");
+            expect(!QFileInfo::exists(htmlZip), "rejected zip body is not committed");
+        }
         {
             const auto previousRoot = AppPaths::minecraftDir();
             AppPaths::setMinecraftDir(fixture.filePath("recovery-data"));

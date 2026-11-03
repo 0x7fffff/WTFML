@@ -3,6 +3,7 @@
 #include "DownloadManager.hpp"
 #include "DownloadRetryPolicy.hpp"
 #include "SlowSourcePolicy.hpp"
+#include "ZipMagic.hpp"
 #include "../util/DownloadDiagnostics.hpp"
 #include <QCryptographicHash>
 #include <QJsonDocument>
@@ -718,7 +719,7 @@ void ResumableDownload::assemble() {
         }
         const auto ext = QFileInfo(target).suffix().toLower();
         if ((ext == QStringLiteral("jar") || ext == QStringLiteral("zip")) && expectedHash.isEmpty() &&
-            prefix != QByteArray("PK\x03\x04", 4) && prefix != QByteArray("PK\x05\x06", 4) && prefix != QByteArray("PK\x07\x08", 4)) {
+            !ZipMagic::looksLikeZipHead(prefix)) {
             *result = QStringLiteral("下载内容不是有效的 ZIP/JAR 文件。"); return;
         }
         if (token->loadRelaxed()) return;
