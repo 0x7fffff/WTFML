@@ -523,6 +523,7 @@ set(SOURCE_FILES
     ui/InstanceFilesPageStructures.cpp
     ui/InstanceFilesPageCapabilities.cpp
     ui/InstanceFilesPageDirectoryStats.cpp
+    ui/InstanceFilesPageRefresh.cpp
     ui/ResourcePackPage.cpp
     ui/ConfigFileText.cpp
     ui/ConfigFileEditorPage.cpp
