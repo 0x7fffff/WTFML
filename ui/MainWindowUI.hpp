@@ -3175,17 +3175,23 @@ public:
 
     // ---------- 底栏左下角"实例运行中"那行的正文 ----------
     // 放在这里当唯一出处：MainWindow 拿它填文字，验证工程拿它做断言，两边不会写歪。
+    //
+    // NOTE: 那一格说的**不只是实例** —— 从服务端页起的服务端也在这台机器上跑着，
+    // 用户看底栏时并不区分那是哪一页起的。所以服务端单跑时用下面那两句，
+    // "没什么在跑"那一句也不再写死「实例」。
     static QString runStateRunningText() { return QStringLiteral("实例运行中"); }
-    /// 一个实例都没在跑时那一行写什么。
+    /// 只有**服务端**在跑时第一行写什么（实例一个都没跑）。
+    static QString runStateServerRunningText() { return QStringLiteral("服务端运行中"); }
+    /// 一个实例、一个服务端都没在跑时那一行写什么。
     ///
-    /// NOTE: 没实例在跑时这一格**必须写一句话、不能整格藏起来**（藏起来底下空一块）。
+    /// NOTE: 没东西在跑时这一格**必须写一句话、不能整格藏起来**（藏起来底下空一块）。
     /// 文字**任何时候都非空**，布局上就没有"从无到有"这一步（那一步正是
     /// "中间那根条突然缩短"的来源，见 MainWindowUI.cpp 里 runStateButton 那段）。
     ///
-    /// NOTE: 这一句是「当前没有运行中的实例」。光看字和别的状态分不出"完全没在跑"，
-    /// 一眼看颜色能分出来。**这一档的方块是灰的**（红挪去说"出过事"了），
-    /// 但那句话一个字都不能动：它说的仍然是"没实例在跑"这件事本身。
-    static QString runStateNotRunningText() { return QStringLiteral("暂无运行实例"); }
+    /// NOTE: 这句话**不写死「实例」**：服务端也住在同一台机器上，说「暂无运行实例」会让
+    /// 起了服务端的人以为那句在说"什么也没在跑"。字宽也只到 `bottomBarRunStateTextWidth()`
+    /// 那一档（再长就被截成省略号）。
+    static QString runStateNotRunningText() { return QStringLiteral("暂无实例或服务端"); }
     /// 有实例异常退出、而且账上那一项还没处理掉时那一行写什么。
     static QString runStateErrorText() { return QStringLiteral("有实例异常退出"); }
     /// 正在启动时那一行：`<实例名>启动中...`。
@@ -3203,6 +3209,10 @@ public:
     /// 所以这个函数只接 count >= 2 的输入。
     static QString runStateRunningCountText(int count) {
         return QCoreApplication::translate("MainWindowUI", "%1 个实例运行中").arg(count);
+    }
+    /// 两个以上**服务端**在跑、实例一个都没跑时第一行写什么（同上，count >= 2）。
+    static QString runStateServerRunningCountText(int count) {
+        return QCoreApplication::translate("MainWindowUI", "%1 个服务端运行中").arg(count);
     }
     /// 多开时第二行里每一个实例的写法：名字后面缀上这次启动用的身份。
     /// 分开成"名字 +（账号）"是因为多开最要紧的一件事就是"哪个是哪个账号"。

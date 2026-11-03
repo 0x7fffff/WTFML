@@ -35,7 +35,9 @@
 #include "controllers/GameSessionController.hpp"
 #include "controllers/InstallPageController.hpp"
 #include "controllers/MainWindowViewData.hpp"
+#include "controllers/ServerWorkspaceController.hpp"
 #include "launcher/LauncherManager.hpp"
+#include "server/ServerRegistry.hpp"
 #include "tasks/TaskSnapshot.hpp"
 
 #include <QApplication>
@@ -205,6 +207,11 @@ void MainWindow::updateBottomBarRunState() {
     QLabel *runStateDetailLabel = m_ui->getRunStateDetailLabel();
     QLabel *runStateMarkLabel = m_ui->getRunStateMarkLabel();
     const QList<LauncherManager::GameSession> games = m_launcherManager->runningGames();
+    // 服务端也在这台机器上跑（服务端页起的那些进程，见 `ServerWorkspaceController`）。
+    // 底栏这一格是**全局**的：用户不区分"这是哪一页起的东西"，只有服务端在跑时
+    // 也得说出来（否则起了服务端还写着「暂无…」，那一格就是在说假话）。
+    const QStringList runningServers = m_serverWorkspace->runningServerIds();
+    const bool anyRunning = !games.isEmpty() || !runningServers.isEmpty();
 
     // 四档的顺序是**唯一的判据**（放这里当唯一出处，下面几支只负责画）：
     // · 正在启动优先（黄）—— 那一段里进程已经起来了（所以 runningGames() 里已经有它），
@@ -226,15 +233,15 @@ void MainWindow::updateBottomBarRunState() {
     // 红那一档问的是 `CrashReportController::pendingRecordIds()`（"账上还有没有那一项"），
     // **不是** `runningGames()`：红说的是"发生过的事"，跟此刻有没有进程在跑是两个维度
     // （两份东西可以同时为真）。灰那一档是"一个都没有且没欠着事"。
-    // 三档的判据：黄和绿不变，红色 = 有实例报错，没有实例用灰色。
+    // 三档的判据：黄和绿不变，红色 = 有实例报错，什么都不在跑用灰色。
     const bool launching = m_gameSessionController->hasLaunchingSessions();
     const bool pendingCrash = !m_crashReports->pendingRecordIds().isEmpty();
     const MainWindowUI::RunStateMark mark =
         launching ? MainWindowUI::RunStateMark::Launching
                   : (pendingCrash
                          ? MainWindowUI::RunStateMark::Error
-                         : (games.isEmpty() ? MainWindowUI::RunStateMark::Idle
-                                            : MainWindowUI::RunStateMark::Running));
+                         : (anyRunning ? MainWindowUI::RunStateMark::Running
+                                       : MainWindowUI::RunStateMark::Idle));
     // 那颗方块的图**每次重画都重新要一张**（VersionIcons 里按"边长+颜色"缓存着，
     // 所以这一步不贵）：状态变了颜色就得跟着变，而这里正是"状态唯一定下来"的地方。
     runStateMarkLabel->setPixmap(
@@ -272,7 +279,25 @@ void MainWindow::updateBottomBarRunState() {
     }
 
     if (games.isEmpty()) {
-        // 没有实例在跑：写「当前没有运行中的实例」。**不是藏起来** —— 这一格要的
+        if (!runningServers.isEmpty()) {
+            // 只有服务端在跑（实例一个都没有）：这一格要说的是它，不是"暂无…"。
+            // 第二行写它的显示名（和绿那一支写实例名是同一个意思），多个用「、」连起来。
+            runStateLabel->setText(
+                runningServers.size() == 1
+                    ? MainWindowUI::runStateServerRunningText()
+                    : MainWindowUI::runStateServerRunningCountText(runningServers.size()));
+            runStateLabel->setVisible(true);
+            QStringList names;
+            names.reserve(runningServers.size());
+            for (const QString &serverId : runningServers) {
+                const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
+                names.append(entry.name.isEmpty() ? serverId : entry.name);
+            }
+            runStateDetailLabel->setText(names.join(QStringLiteral("、")));
+            runStateDetailLabel->setVisible(!names.isEmpty());
+            return;
+        }
+        // 什么都没在跑：写「暂无实例或服务端」。**不是藏起来** —— 这一格要的
         // 就是这句话，而且那一格现在还兼着"点开看实例列表"那颗按钮，藏起来连按钮一起没了。
         // NOTE: 连带的好处是那一格的文字**任何时候都非空**，布局上不再有"从无到有"这一步
         // （那一步正是"中间那根条突然缩短一截"的来源）。

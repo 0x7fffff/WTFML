@@ -727,6 +727,10 @@ void MainWindow::updateServerRow(const QString &serverId) {
 void MainWindow::onServerStatusChanged(const QString &serverId, ServerModel::Status status) {
     updateServerRow(serverId);
     updateServerConsole();
+    // 底栏左下角那一格是**全局**的：服务端起/停也要让那里从「暂无实例或服务端」翻成
+    // 「服务端运行中」（见 `updateBottomBarRunState()` 里那段）。这一发很轻（只看会话表 +
+    // 服务端那几张表），按状态变一次来一发没关系。
+    updateBottomBarRunState();
     appendLog(tr("%1：%2").arg(serverId, ServerModel::statusName(status)));
 }
 
