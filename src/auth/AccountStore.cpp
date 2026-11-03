@@ -74,6 +74,23 @@ QJsonObject activeMinecraftPayload() {
     return payload;
 }
 
+/// 活动槽里那份凭据现在**清掉就再也找不回来**了没有（R8）。
+///
+/// `captureActive()` 失败有两种，调用方必须分开对待：
+/// · 活动槽里本来就没有一份完整的凭据（没登录 / 缺了微软那半边）→ 清一遍是空操作；
+/// · 凭据是完整的，只是**收不进列表**（列表那一格解不开，或者写盘失败）→ 这时候清掉
+///   活动槽，就是把这台机器上唯一那份 refresh_token 删了：盘上再没有第二份，用户只能
+///   重走一遍浏览器登录（这是 R8 描述的那个症状）。
+///
+/// 判据就是"两边都齐"：齐了还收不进去，问题在列表 / 盘，不在凭据本身。
+bool activeCredentialWouldBeLost() {
+    if (activeMinecraftPayload().isEmpty()) {
+        return false;
+    }
+    const QJsonObject microsoft = TokenStore::readJson(TokenStore::microsoftKey());
+    return !microsoft.value(QStringLiteral("refresh_token")).toString().isEmpty();
+}
+
 /// 列表里那一项（原始 JSON）。找不到返回空对象。
 ///
 /// NOTE: 单独有这个函数是为了 activeUuid() —— 它需要"只看列表、不问当前是谁"，而
@@ -108,15 +125,40 @@ bool makeOfflineCurrent(const QString &uuid, QString *errorOut) {
     // （只能重走一遍浏览器登录）。文件头那句"当前那个在线账号不会丢：凭据还在列表里"
     // 靠的就是这一句成真。
     //
-    // NOTE: 收不进去**不拦这次切换** —— 离线账号本来就没有凭据，切过去这条路不该被
-    // 盘上的问题挡住；而收不进去的那几种情况都是"列表读不出来"，那时也不该
-    // 拿活动槽里那份去覆盖它（captureActive 自己就是这么设计的，见它的实现）。
+    // R8：收不进去**分两种**。活动槽里本来就没有一份完整的凭据时（没登录 / 缺了微软
+    // 那半边），清一遍是空操作，不拦这次切换；可要是凭据是齐的、只是**列表读不出来 /
+    // 写不进去**，那下面两句就是把这台机器上唯一那份 refresh_token 删掉 —— 这一种
+    // 必须中止，一个字节都不动（判据在 activeCredentialWouldBeLost()）。
     QString captureError;
     if (!AccountStore::captureActive(&captureError)) {
         qWarning().noquote() << "切到离线账号之前，没能把当前账号收进列表：" << captureError;
+        if (activeCredentialWouldBeLost()) {
+            if (errorOut != nullptr) {
+                *errorOut = QStringLiteral("没能先把当前登录的账号保存下来（%1），"
+                                           "所以这次没有切换。\n\n"
+                                           "现在还是登录着原来那个账号；盘上那份登录凭据"
+                                           "一个字节都没动。")
+                                .arg(captureError);
+            }
+            return false;
+        }
     }
-    TokenStore::clear(TokenStore::microsoftKey());
-    TokenStore::clear(TokenStore::minecraftKey());
+    // R13：清不动就别往下走 —— 活动槽里那份凭据还在的话，下面这一格（`CurrentAccountUuid`）
+    // 写进去也改变不了 activeUuid() 的结论（它先看活动槽），界面会显示成"切过去了"、
+    // 实际还是原来那个在线账号。
+    QString clearError;
+    const bool microsoftCleared = TokenStore::clear(TokenStore::microsoftKey(), &clearError);
+    const bool minecraftCleared = TokenStore::clear(TokenStore::minecraftKey(), &clearError);
+    if (!microsoftCleared || !minecraftCleared) {
+        qWarning().noquote() << "切到离线账号失败（清活动槽）：" << clearError;
+        if (errorOut != nullptr) {
+            *errorOut = QStringLiteral("没能把现在登录着的状态从盘上清掉（%1），所以这次没有切过去。\n\n"
+                                       "再点一次它试试；一直不行的话，可能是这台机器上的启动器"
+                                       "配置写不进去。")
+                            .arg(clearError);
+        }
+        return false;
+    }
     QSettings settings;
     settings.setValue(TokenStore::currentUuidKey(), uuid);
     settings.sync();
@@ -312,10 +354,29 @@ bool AccountStore::activate(const QString &uuid, QString *errorOut) {
     // 顺序要紧：**先**写微软那份（刷新令牌的来路），再写 Minecraft 那份。反过来的话，
     // 万一第二步失败，盘上就是"新账号的启动令牌 + 旧账号的刷新令牌"—— 能启动一次，
     // 然后刷新出一个别人的令牌。宁可停在旧账号上。
+    //
+    // R15：光有顺序还不够 —— 第二步（Minecraft 那份）失败时，第一步已经把**新账号的
+    // refresh_token** 写进活动槽了，盘上仍然是"新刷新令牌 + 旧启动令牌"。所以动手之前
+    // 先把微软那一格的原样字节留一份，第二步失败就原样放回去（不是删掉：原来那格可能是
+    // 一位用户的登录态，删掉等于把他登出了）。
+    const QByteArray previousMicrosoft = TokenStore::rawValue(TokenStore::microsoftKey());
     if (!TokenStore::writeJson(TokenStore::microsoftKey(), microsoft, errorOut)) {
         return false;
     }
     if (!TokenStore::writeJson(TokenStore::minecraftKey(), minecraft, errorOut)) {
+        QString restoreError;
+        if (!TokenStore::writeRaw(TokenStore::microsoftKey(), previousMicrosoft, &restoreError)) {
+            // 退不回去 = 盘上的活动槽现在是坏的（两份凭据各属一个人）。必须说出来，
+            // 不能让用户以为"切换失败，什么都没变"。
+            if (errorOut != nullptr) {
+                *errorOut = QStringLiteral("切换账号时没能把新的启动令牌写下去，"
+                                           "而且原来那份刷新令牌也放不回去了（%1）。\n\n"
+                                           "现在盘上的登录状态对不上，请在这台机器上重新登录一次。")
+                                .arg(restoreError);
+            }
+        } else if (errorOut != nullptr) {
+            errorOut->append(QStringLiteral("\n\n已经退回原来的账号，盘上的登录状态没有变。"));
+        }
         return false;
     }
 
@@ -329,7 +390,7 @@ bool AccountStore::activate(const QString &uuid, QString *errorOut) {
     return true;
 }
 
-bool AccountStore::remove(const QString &uuid) {
+bool AccountStore::remove(const QString &uuid, QString *errorOut) {
     // **先**问清"它是不是当前账号"，再动列表。顺序反过来的话，删离线账号那一条会漏掉
     // 收尾：离线账号的"当前"是靠列表里那一项证实的（见 activeUuid() 第二档），列表一改
     // 就问不出来了 —— 于是活动槽（本来就空的）和 `CurrentAccountUuid` 都不会被清，
@@ -355,9 +416,22 @@ bool AccountStore::remove(const QString &uuid) {
 
     // 删的是当前账号 → 连活动槽一起清空（等于退出登录），理由见 .hpp 文件头。
     if (wasCurrent) {
-        TokenStore::clear(TokenStore::microsoftKey());
-        TokenStore::clear(TokenStore::minecraftKey());
-        TokenStore::clear(TokenStore::currentUuidKey());
+        // R13 同一条：清不掉要说出来。列表项已经删了（上面那一步），所以这里返回 false
+        // 的语义是"账号删了，但盘上的登录状态没清干净" —— 调用方照这个说。
+        QString clearError;
+        const bool microsoftCleared = TokenStore::clear(TokenStore::microsoftKey(), &clearError);
+        const bool minecraftCleared = TokenStore::clear(TokenStore::minecraftKey(), &clearError);
+        const bool currentCleared = TokenStore::clear(TokenStore::currentUuidKey(), &clearError);
+        if (!microsoftCleared || !minecraftCleared || !currentCleared) {
+            qWarning().noquote() << "删掉当前账号后，盘上的登录状态没能清干净：" << clearError;
+            if (errorOut != nullptr) {
+                *errorOut = QStringLiteral("账号已经从列表里删掉了，但盘上那份登录状态没能清干净"
+                                           "（%1）。\n\n再删一次不会有了（列表里已经没有它）；"
+                                           "点一次「登出」把它们清掉即可。")
+                                .arg(clearError);
+            }
+            return false;
+        }
         qInfo().noquote() << "删掉了当前账号，已一并清除盘上的登录状态。";
     }
     return true;
@@ -369,15 +443,29 @@ bool AccountStore::logout() {
     if (activeUuid().isEmpty()) {
         return false;
     }
-    // 清活动槽之前先把里面那份收进列表，理由见 .hpp —— 和 makeOfflineCurrent() 的写法一样，
-    // 收不进去只留一行日志，不拦这次登出。
+    // 清活动槽之前先把里面那份收进列表，理由见 .hpp —— 和 makeOfflineCurrent() 的写法一样。
+    // R8：收不进去而活动槽里那份是**完整**的（列表读不出来 / 写盘失败）→ 这次不登出。
+    // 清掉的话，这台机器上唯一那份 refresh_token 就没了，而且用户点的是"登出"、本以为
+    // 账号还留在列表里、点一下就能回来 —— 实际上回不来了，只能重走浏览器登录。
     QString captureError;
     if (!captureActive(&captureError)) {
         qWarning().noquote() << "登出之前，没能把当前账号收进列表：" << captureError;
+        if (activeCredentialWouldBeLost()) {
+            return false;  // 界面那句是"盘上的登录状态没能清干净…"，与事实一致
+        }
     }
-    TokenStore::clear(TokenStore::microsoftKey());
-    TokenStore::clear(TokenStore::minecraftKey());
-    TokenStore::clear(TokenStore::currentUuidKey());
+    // R13：三个键都真的清掉了才返回 true。以前 `TokenStore::clear()` 是 void —— 拿不到
+    // 目录锁、或者 QSettings 写失败时它只是往日志里扔一句，这里照样返回 true，界面于是
+    // 说"已退出登录"，下次启动却还是那个账号。三个都试一遍（清掉一个是一个），
+    // 只要有一个没清掉就如实返回 false。
+    QString clearError;
+    const bool microsoftCleared = TokenStore::clear(TokenStore::microsoftKey(), &clearError);
+    const bool minecraftCleared = TokenStore::clear(TokenStore::minecraftKey(), &clearError);
+    const bool currentCleared = TokenStore::clear(TokenStore::currentUuidKey(), &clearError);
+    if (!microsoftCleared || !minecraftCleared || !currentCleared) {
+        qWarning().noquote() << "退出登录：盘上的登录状态没能清干净：" << clearError;
+        return false;
+    }
     qInfo().noquote() << "已退出登录（账号仍然留在已保存的列表里）。";
     return true;
 }

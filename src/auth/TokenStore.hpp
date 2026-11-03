@@ -71,8 +71,21 @@ public:
     /// 盘上有没有这个键（值是空字节也算没有）。
     static bool hasValue(const QString &key);
 
-    /// 把某个键从盘上删掉（找不到不算错）。
-    /// NOTE: 只有 AccountStore 删当前账号时用得到 —— 那是"退出登录"的意思，所以必须真的
-    /// 把字节删掉，而不是写一个空值进去（留着空值会让"盘上有没有凭据"多出一种状态）。
-    static void clear(const QString &key);
+    /**
+     * @brief 把某个键从盘上删掉（找不到不算错）。
+     * @return 真的删掉了才返回 true —— **拿不到目录锁 / 写盘失败都返回 false**（R13）。
+     * 以前是 void，调用方只能无条件说"已经退出登录"，可盘上那一格可能原封不动。
+     * @param errorOut 可选，失败的原因（拿不到锁那句话，或者 QSettings 的文件名）。
+     *
+     * NOTE: 只有 AccountStore 删当前账号 / 登出时用得到 —— 那是"退出登录"的意思，所以必须
+     * 真的把字节删掉，而不是写一个空值进去（留着空值会让"盘上有没有凭据"多出一种状态）。
+     */
+    static bool clear(const QString &key, QString *errorOut = nullptr);
+
+    /// 盘上那个键的**原始字节**（不解保护、不解析）。给"写坏了要原样放回去"用（R15）。
+    static QByteArray rawValue(const QString &key);
+
+    /// 把原始字节原样放回某个键（@p stored 为空 ⇒ 删掉那个键）。成功返回 true。
+    static bool writeRaw(const QString &key, const QByteArray &stored,
+                         QString *errorOut = nullptr);
 };

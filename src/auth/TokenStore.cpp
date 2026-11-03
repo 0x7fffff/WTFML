@@ -187,11 +187,14 @@ bool TokenStore::hasValue(const QString &key) {
     return !settings.value(key).toByteArray().isEmpty();
 }
 
-void TokenStore::clear(const QString &key) {
+bool TokenStore::clear(const QString &key, QString *errorOut) {
     QString problem;
     if (!DirectorySessionLock::acquire(AppPaths::defaultMinecraftDir(), &problem)) {
         qWarning() << problem;
-        return;
+        if (errorOut != nullptr) {
+            *errorOut = problem;
+        }
+        return false;
     }
     QSettings settings;
     settings.remove(key);
@@ -199,7 +202,44 @@ void TokenStore::clear(const QString &key) {
     // 清不掉**不是静默的**。登出 / 切离线账号那两条路清的就是活动槽，写不
     // 进去的话用户会看到"已退出登录"，下次启动却还是那个账号 —— 而 QSettings 落盘失败
     // 本身一个字都不说。至少留一行日志（和 writeJson() 那条同一个理由）。
+    // R13：调用方要拿"真的清掉了没有"去决定说不说那句"已经退出登录"，所以这里返回结果。
     if (settings.status() != QSettings::NoError) {
         qWarning() << "凭据清不掉（QSettings 状态异常）：" << key << settings.fileName();
+        if (errorOut != nullptr) {
+            *errorOut = QStringLiteral("凭据清不掉（%1）：%2").arg(key, settings.fileName());
+        }
+        return false;
     }
+    return true;
+}
+
+QByteArray TokenStore::rawValue(const QString &key) {
+    QSettings settings;
+    return settings.value(key).toByteArray();
+}
+
+bool TokenStore::writeRaw(const QString &key, const QByteArray &stored, QString *errorOut) {
+    // 原来那一格就不存在 ⇒ 放回去 = 删掉它（别凭空留一个空值，见 clear() 的 NOTE）。
+    if (stored.isEmpty()) {
+        return clear(key, errorOut);
+    }
+    QString problem;
+    if (!DirectorySessionLock::acquire(AppPaths::defaultMinecraftDir(), &problem)) {
+        qWarning() << problem;
+        if (errorOut != nullptr) {
+            *errorOut = problem;
+        }
+        return false;
+    }
+    QSettings settings;
+    settings.setValue(key, stored);
+    settings.sync();
+    if (settings.status() != QSettings::NoError) {
+        qWarning() << "凭据回滚写盘失败：" << key << settings.fileName();
+        if (errorOut != nullptr) {
+            *errorOut = QStringLiteral("凭据回滚写盘失败（%1）：%2").arg(key, settings.fileName());
+        }
+        return false;
+    }
+    return true;
 }
