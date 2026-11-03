@@ -7,6 +7,8 @@
 #include <QNetworkReply>
 #include <functional>
 
+#include "ZipMagic.hpp"
+
 // 一个回复一个临时文件。校验之前不替换原文件；最多读取 64 KiB，不缓存整份下载。
 class StreamedFile {
 public:
@@ -50,8 +52,7 @@ public:
         if (size > 0 && bytes != size) return QStringLiteral("Downloaded size does not match the expected size");
         if (!sha1.isEmpty() && QString::fromLatin1(hash.result().toHex()).compare(sha1, Qt::CaseInsensitive) != 0)
             return QStringLiteral("SHA1 verification failed");
-        if (zip && sha1.isEmpty() && prefix != QByteArray("PK\x03\x04", 4) &&
-            prefix != QByteArray("PK\x05\x06", 4) && prefix != QByteArray("PK\x07\x08", 4))
+        if (zip && sha1.isEmpty() && !ZipMagic::looksLikeZipHead(prefix))
             return QStringLiteral("Not a zip archive (expected a jar/zip body)");
         if (!allowOverwrite && QFileInfo::exists(file.fileName())) return QStringLiteral("目标文件已存在，未覆盖。请更换文件名或确认覆盖。");
         if (commitGuard) { const auto problem = commitGuard(); if (!problem.isEmpty()) return problem; }

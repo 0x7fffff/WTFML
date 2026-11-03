@@ -1037,6 +1037,24 @@ bool ZipUtil::createZip(const QString &targetZip, const QList<ZipSource> &entrie
         }
         return false;
     }
+    // **目标已经存在就当场拒绝，不覆盖。**
+    //
+    // 底下 PowerShell 那一句是 `ZipFile::Open($target,'Create')` —— 那个 `Create` 不是
+    // "建一个新的、没有就建"，而是**打开并清空**：目标要是本来就在，它当场被截成 0 字节。
+    // 而失败那一路又会把目标删掉（"半成品不留"）⇒ 一次没打成的包会把盘上原来那份好的
+    // 顺手毁掉，用户看见的是"打包失败"之后那份旧备份也没了。
+    //
+    // 产品里的调用方（备份、导出）都是先挑一个没人占的名字再进来，所以这一条在它们那儿
+    // 永远是通的；拦在这里是为了让"传了一个已经存在的路径"这种调用**在写盘之前**就停下，
+    // 而不是靠调用方各记各的。NOTE: 拒绝而不是"建个临时文件再原子替换" —— 替换会让
+    // "失败时旧文件一个字节不动"这句保证也跟着变复杂，而这条路上没有谁需要覆盖语义。
+    if (QFileInfo::exists(targetZip)) {
+        if (errorOut != nullptr) {
+            *errorOut = QStringLiteral("目标文件已经存在，没有覆盖它：%1")
+                            .arg(QDir::toNativeSeparators(targetZip));
+        }
+        return false;
+    }
     for (const ZipSource &entry : entries) {
         if (entry.entryName.trimmed().isEmpty() || entry.sourcePath.trimmed().isEmpty()) {
             if (errorOut != nullptr) {
@@ -1146,18 +1164,15 @@ bool ZipUtil::createZip(const QString &targetZip, const QList<ZipSource> &entrie
             .arg(psFilePath(targetZip), psFilePath(tablePath));
 
     QString failure;
-    // **开工之前**就问一眼目标在不在。下面失败那一路会把目标删掉（"半成品
-    // 不留"），可这一句删的是**我们写的那个路径** —— 那份文件要是本来就在，删掉它等于
-    // "一次没打成的包顺手毁掉了上一次那份好的"。正常调用方（备份）现在都会先挑一个
-    // 没人占的名字，所以这一条在它们那儿不会触发；留着是给"目标已经存在"这种调用兜底。
-    const bool targetExisted = QFileInfo::exists(targetZip);
+    // 开工之前已经确认过目标不在（见上面那段），所以走到这儿目标**只可能是我们刚建的**
+    // ⇒ 失败时删掉它删的是我们自己写的半成品，不会碰到谁的文件。
     const bool ok = runPowershell(script, 1800 * 1000, nullptr, &failure, QStringLiteral("打包"), cancelled);
     // 临时表两份出路都要删（成功、失败都一样）—— 它躺在系统临时目录里，里面是用户的
     // 实例里都有哪些文件，没理由留一份。
     QFile::remove(tablePath);
     if (!ok) {
         // 半成品删掉（见 .hpp）。NOTE: 删的是**我们写的那个目标路径**，不碰别的。
-        if (!targetExisted) QFile::remove(targetZip);
+        QFile::remove(targetZip);
         if (errorOut != nullptr) {
             *errorOut = failure.isEmpty() ? QStringLiteral("打包失败") : failure;
         }

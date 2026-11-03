@@ -1,5 +1,6 @@
 #include "Support.hpp"
 #include "controllers/ServerSettingsController.hpp"
+#include "controllers/ServerWorkspaceController.hpp"
 void runServerSettingsPageTests() {
     const QString originalDir = AppPaths::minecraftDir();
     QTemporaryDir root;
@@ -77,7 +78,7 @@ void runServerSettingsPageTests() {
     QApplication::processEvents();
 
     bool pageSeen = false;
-    QTimer::singleShot(0, [&pageSeen, &serverId, &originalProps, &propsTextOnDisk] {
+    QTimer::singleShot(0, [&pageSeen, &serverId, &originalProps, &propsTextOnDisk, &w] {
         OverlayHost *host = currentPageOverlay();
         if (host == nullptr) {
             return;
@@ -369,7 +370,52 @@ void runServerSettingsPageTests() {
             }
         }
 
-        // ---------- ⑨ 收页 ----------
+        // ---------- ⑨ 服务端起 / 停：正开着的这一页跟着翻状态与只读闸 ----------
+        {
+            auto *statusLabel =
+                page->findChild<QLabel *>(MainWindowUI::serverSettingsStatusName());
+            auto *workspace = w.findChild<ServerWorkspaceController *>();
+            check(statusLabel != nullptr && workspace != nullptr,
+                  "T42.11 前提：顶上那行状态和服务端工作区都找得到");
+            if (statusLabel != nullptr && workspace != nullptr) {
+                sections->setCurrentRow(static_cast<int>(ServerSettingsPage::Section::Common));
+                QApplication::processEvents();
+                // 改一格、**不保存**：下面要证明"只翻状态"不会把没保存的改动冲掉。
+                textFieldOf(QStringLiteral("motd"))->setText(QStringLiteral("还没保存的说明"));
+                ServerRun::ServerProcess *process = workspace->ensureProcess(serverId);
+                QTemporaryDir serverRunDir;
+                process->start(serverId, serverRunDir.path(),
+                               QCoreApplication::applicationFilePath(),
+                               {QStringLiteral("--fake-server"), QStringLiteral("normal")}, 4000);
+                const bool running = pumpUntil(
+                    [process] { return process->status() == ServerModel::Status::Running; }, 20000);
+                check(running, "T42.11 前提：假服务端起来了（没起来后面那几条没有意义）",
+                      ServerModel::statusName(process->status()));
+                check(statusLabel->text()
+                          == ServerModel::statusName(ServerModel::Status::Running)
+                                 + MainWindowUI::serverSettingsRunningStatusSuffix(),
+                      "★★★ T42.11 服务端一起来，正开着这一页顶上的状态**当场**翻成「运行中」"
+                      "（以前要等重开这一页才看得见）",
+                      statusLabel->text());
+                check(!textFieldOf(QStringLiteral("motd"))->isEnabled() && !save->isEnabled(),
+                      "★★ T42.11 在跑 ⇒ 整页只读、保存点不动（它退出时会把自己内存里那份"
+                      "`server.properties` 写回盘上）");
+                check(textFieldOf(QStringLiteral("motd"))->text()
+                          == QStringLiteral("还没保存的说明"),
+                      "★★★ T42.11 只翻状态、不重摆表单 ⇒ 用户还没保存的那一格原样还在");
+                process->requestStop();
+                const bool stopped =
+                    pumpUntil([process] { return !process->isRunning(); }, 20000);
+                check(stopped, "T42.11 前提：假服务端停下来了",
+                      ServerModel::statusName(process->status()));
+                check(statusLabel->text() == ServerModel::statusName(process->status()),
+                      "★★ T42.11 停下来之后状态那行也跟着翻回去", statusLabel->text());
+                check(textFieldOf(QStringLiteral("motd"))->isEnabled(),
+                      "★★ T42.11 停了 ⇒ 这一页又能改");
+            }
+        }
+
+        // ---------- ⑩ 收页 ----------
         if (auto *back = host->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
             back->click();  // 返回箭头 = reject（见 OverlayHost::showPage）
         }

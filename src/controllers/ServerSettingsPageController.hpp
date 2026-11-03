@@ -60,6 +60,14 @@ public:
     /// @p serverId 那一份世界备份收尾了：正开着它那一页就重摆一遍，否则什么都不做。
     void refreshIfShowing(const QString &serverId);
 
+    /// 服务端的运行状态变了（起 / 停 / 崩）：正开着它那一页就**只**翻"在不在跑"这一套
+    /// —— 顶上那两句状态、只读闸、体检单、保存带 —— 不重摆表单与原文。
+    ///
+    /// NOTE: 这里**不能**走 `refresh()`：那会把表单基线换到盘上那一份，用户还没来得及
+    /// 保存的改动会当场消失。而在跑的时候整页只读（服务端退出时会把它内存里那份
+    /// `server.properties` 写回盘上），所以这一套必须跟着状态翻。
+    void refreshRunStateIfShowing(const QString &serverId);
+
     /// 用户按了「保存」：原文 + 表单补丁 → `server.properties`。
     void save();
     /// 用户按了「放弃改动」：把这一页按盘上那一份重新摆一遍（**不碰盘**）。
@@ -91,6 +99,10 @@ public:
 private:
     /// 体检的原料：**全是现查出来的事实**（判据那一层一个都不自己查）。
     ServerCheck::Facts checkFacts() const;
+
+    /// 把"这个服务端现在在不在跑"翻到页面上：状态那两句 + 只读闸（唯一出处）。
+    /// `refresh()` 与 `refreshRunStateIfShowing()` 都走这里，免得两边的措辞和判据分叉。
+    void applyRunState(ServerSettingsPage *page, const QString &serverId);
 
     MainWindow &m_owner;
     /// 这一页（懒建一次、之后复用，和控制台那一页同一路数）。

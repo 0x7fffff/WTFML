@@ -12,6 +12,7 @@
 #include "DownloadRetryPolicy.hpp"
 #include "ResumableDownload.hpp"
 #include "StreamedFile.hpp"
+#include "ZipMagic.hpp"
 #include "SlowSourcePolicy.hpp"
 #include "../net/RequestBudget.hpp"
 
@@ -132,7 +133,8 @@ bool shouldBeZipArchive(const QString &path) {
            path.endsWith(QLatin1String(".zip"), Qt::CaseInsensitive);
 }
 
-/// 文件头是不是 zip 的（`PK\x03\x04` 本地文件头；空档案是 `PK\x05\x06`，一样认）。
+/// 文件头是不是 zip 的（判据在 `ZipMagic.hpp`：本地文件头 `PK\x03\x04`、空档案 `PK\x05\x06`、
+/// 跨卷标记 `PK\x07\x08` —— 最后那种在"按跨卷方式写、其实只用了一张盘"的归档开头也会出现）。
 ///
 /// 用来挡住"200 + 一段 HTML 错误页"这一类：那种正文既不是空、字节数也可能对不上任何人
 /// 期望值（没人给过期望值），只有前四个字节能一眼说明它不是我们要的东西。
@@ -141,8 +143,7 @@ bool looksLikeZipArchive(const QString &path) {
     if (!file.open(QIODevice::ReadOnly)) {
         return false;
     }
-    const QByteArray head = file.read(4);
-    return head.startsWith("PK\x03\x04") || head.startsWith("PK\x05\x06");
+    return ZipMagic::looksLikeZipHead(file.read(4));
 }
 
 /// 一个地址的"落点身份"：主机（小写）+ 端口。判"302 之后是不是换了一台落点"用它。
