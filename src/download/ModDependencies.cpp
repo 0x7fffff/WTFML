@@ -222,6 +222,12 @@ static bool isObviousPrerequisite(const QString &projectId) {
 QList<ResourceCatalog::Dependency> requiredDependenciesOf(
     const ResourceCatalog::VersionEntry &version) {
     QList<ResourceCatalog::Dependency> out;
+    // 同一个项目**只留一条**（R7）。接口给的清单里作者把同一条 required 写重了是允许的；
+    // 两份往下走会变成两发**同钥匙**的版本请求 —— `ResourceStore::fetchVersions()` 按钥匙
+    // 去重（第二发把第一发 abort 掉、**而且不回调**），而调用方按条数等回信的话
+    // `pending` 永远归不了零，这一趟安装静默不发生。去重放在这里：展示清单和缺失判定
+    // 读的是同一份，两处都不会再列出同一个名字。
+    QSet<QString> seen;
     for (const ResourceCatalog::Dependency &dependency : version.dependencies) {
         // 这两条都是"不算必装依赖"，但理由不一样：
         // · optional / incompatible / embedded → 用户没要，或压根不该单独下一份；
@@ -235,6 +241,10 @@ QList<ResourceCatalog::Dependency> requiredDependenciesOf(
         if (dependency.projectId.isEmpty()) {
             continue;
         }
+        if (seen.contains(dependency.projectId)) {
+            continue;
+        }
+        seen.insert(dependency.projectId);
         out.append(dependency);
     }
     return out;
@@ -255,8 +265,8 @@ QList<Lookup> missingRequiredDependencies(const ResourceCatalog::VersionEntry &v
                                           const QSet<QString> &installedKeys,
                                           const Target &target) {
     QList<Lookup> out;
-    // 「什么算必装前置」那两条判据在 requiredDependenciesOf() 里（**唯一一处**），
-    // 这里只往下接第三条 —— 已经装着了就不再下一份。
+    // 「什么算必装前置」「同一项目只留一条」那几条判据在 requiredDependenciesOf() 里
+    // （**唯一一处**），这里只往下接第三条 —— 已经装着了就不再下一份。
     for (const ResourceCatalog::Dependency &dependency : requiredDependenciesOf(version)) {
         if (installedKeys.contains(target.installedKey(dependency.projectId))) {
             continue;

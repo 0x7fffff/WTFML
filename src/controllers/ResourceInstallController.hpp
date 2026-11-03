@@ -26,6 +26,8 @@
  *
  * · **落点**：实例里那四类子目录，还是整合包的缓存目录（整合包不能进 `versions/` ——
  *   那底下每一个子目录都会被当成一个实例）；
+ * · **前置的落点按模组算**：前置永远是模组（光影的前置是 iris 之类），不能跟着主文件的
+ *   目录走 —— 跟着进 `shaderpacks/` 的话游戏不加载它，光影仍不可用而界面说装好了；
  * · **问不问「存哪儿」**：设置里没勾 **或** 这一栏不是从实例里点进来的。两条来路读的是
  *   同一份来路（`m_downloadReturn`），和「← 返回实例设置」那颗按钮同一个出处 ——
  *   不另开一个布尔，否则"露着返回键、却弹了保存框"迟早会出现；
@@ -49,6 +51,7 @@
 #include <QHash>
 #include <QList>
 #include <QObject>
+#include <QSet>
 #include <QString>
 
 #include "download/ModDependencies.hpp"
@@ -112,8 +115,14 @@ private:
         // / 钥匙 → 那一发的版本列表。**缺席 ≠ 空表**：前者是"没问到"（网络），后者是
         // / "它就是没有版本"（`ModDependencies::buildPlan` 那两句话分得清清楚楚）。
         QHash<QString, QList<ResourceCatalog::VersionEntry>> answers;
-        /// 还差几发没回来（0 到齐了 → 收尾）。
-        int pending = 0;
+        /// 还差哪几发没回来（空 → 到齐了，见 `finishDependencyCheck()`）。
+        ///
+        /// **存钥匙，不是一个计数**（R7）：同一版的前置清单里同一个项目出现两次时，
+        /// 两把钥匙拼出来是同一个串（`ResourceStore` 那边第二发会把第一发掐掉、而且
+        /// 不回调），而计数会先加两下 —— 只回来一发，计数停在 1，这一趟永远不往下走。
+        /// 之后所有模组/光影安装都被 `active` 挡着，直到重启。钥匙集合天然幂等：
+        /// 同一把只等一发，回一发就移掉一格。
+        QSet<QString> pendingKeys;
         /// 这个实例的 mods **认过没有**（见 `MainWindow::installedModKeys()` 的 `known`
         /// 出参）。只决定弹框那句话："这几个还没装" ↔ "无法确认你装了没有" ——
         /// **空表和"确实一个都没装"是两件事**，混成一句等于替用户认下一件我们不知道的事。

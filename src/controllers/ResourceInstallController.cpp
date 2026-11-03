@@ -112,15 +112,23 @@ void ResourceInstallController::onProjectsFinished(const QString &requestKey,
 
     // 逐条去问"它有哪些版本"。**同一批发出去**（一把钥匙一个项目，互相不撞）——
     // 串起来问的话，N 个前置就是 N 个往返，而它们本来就互不相干。
+    //
+    // NOTE: 同一把钥匙**只问一发、只等一发**（R7）。`missing` 已经按项目去重过
+    // （见 `ModDependencies::missingRequiredDependencies()`），这里再按钥匙收一道：
+    // `ResourceStore` 那边同一把钥匙的第二发会把第一发掐掉、**而且不回调**，发两发就
+    // 少一发回信，这一趟永远收不了尾。
     m_check.answers.clear();
-    m_check.pending = 0;
+    m_check.pendingKeys.clear();
     for (const ModDependencies::Lookup &lookup : m_check.missing) {
-        ++m_check.pending;
+        if (m_check.pendingKeys.contains(lookup.requestKey)) {
+            continue;
+        }
+        m_check.pendingKeys.insert(lookup.requestKey);
         owner.m_resourceStore->fetchVersions(lookup.requestKey, lookup.dependency.projectId,
                                              m_check.target.source, m_check.target.gameVersion,
                                              m_check.target.loader);
     }
-    if (m_check.pending == 0) {
+    if (m_check.pendingKeys.isEmpty()) {
         finishDependencyCheck(); // 一条都不缺（走不到：missing 非空才进这一趟）
     }
 }
@@ -131,25 +139,18 @@ void ResourceInstallController::onVersionsFinished(
     if (!m_check.active) {
         return;
     }
-    bool ours = false;
-    for (const ModDependencies::Lookup &lookup : m_check.missing) {
-        if (lookup.requestKey == requestKey) {
-            ours = true;
-            break;
-        }
-    }
-    if (!ours) {
-        return; // 详情页那一发（或者别的页面）的回复，不关这一趟的事
+    // 认这一发：钥匙还在"待回"集合里才是这一趟等的。同一条钥匙的重复 / 迟到回信在这里
+    // 被挡掉（R7：同一项目在清单里出现两次时，少减一次，这一趟就永远收不了尾）；
+    // 详情页那一发（或者别的页面）的回复钥匙不在集合里，同样挡掉。
+    if (!m_check.pendingKeys.remove(requestKey)) {
+        return;
     }
     // 失败时**不往 answers 里放空表**：`buildPlan` 那边"钥匙缺席"和"回来了但是空的"
     // 是两句不同的话（"没问到"和"它就是没有版本"）—— 放空表等于把前者说成后者。
     if (problem.isEmpty()) {
         m_check.answers.insert(requestKey, versions);
     }
-    if (m_check.pending > 0) {
-        --m_check.pending;
-    }
-    if (m_check.pending == 0) {
+    if (m_check.pendingKeys.isEmpty()) {
         finishDependencyCheck();
     }
 }
@@ -368,8 +369,23 @@ void ResourceInstallController::installNow(ResourceCatalog::Kind kind, const QSt
     resourceFile.size = file->size;
     files.append(resourceFile);
 
-    // NOTE: 前置的落点就是这个实例的 mods（`destinationDir` 是按 kind=模组算出来的）——
-    // 前置本来就是模组，和主文件同一个目录，这一点不用另判。
+    // 前置**永远是模组**（光影那一类的必装前置是 iris 之类）—— 落点必须按模组算，
+    // 不能跟着主文件那个目录走：光影的主文件进 `shaderpacks/`，前置跟着进去的话游戏
+    // 根本不加载它，光影还是不可用，而界面上已经说"装好了"。
+    //
+    // 所以每一条前置自己带 `dir`（`ResourceFile::dir` 那条路本来就是给"一批里跨目录"
+    // 准备的，更新中心那一批在用）。只有实例里才有 mods 这个落点；整合包那一类不查
+    // 前置（见 install()），这里的空串走不到。
+    const QString dependencyDir =
+        instanceId.isEmpty() ? QString()
+                             : AppPaths::versionDir(instanceId) + QLatin1String("/mods");
+    if (!extras.isEmpty() && !dependencyDir.isEmpty()) {
+        // 前置要写进这个实例的 mods/，那么"谁在动盘"就是它 —— 哪怕主文件被用户挑到了
+        // 别的目录（那一路上面把 busyInstanceId 清掉了，因为挑的目录底下没有实例）。
+        // 不补这一句的话：往实例的 mods/ 里写文件的同时用户能启动游戏，JVM 读到的
+        // 可能是半截 jar。
+        busyInstanceId = instanceId;
+    }
     for (const ModDependencies::Resolved &extra : extras) {
         if (extra.file.url.isEmpty() || extra.file.filename.isEmpty()) {
             continue; // 走不到（resolveDependency 已经挡过一道），挡第二道不费什么
@@ -379,6 +395,7 @@ void ResourceInstallController::installNow(ResourceCatalog::Kind kind, const QSt
         extraFile.filename = extra.file.filename;
         extraFile.sha1 = extra.file.sha1;
         extraFile.size = extra.file.size;
+        extraFile.dir = dependencyDir;
         files.append(extraFile);
     }
 
@@ -395,6 +412,13 @@ void ResourceInstallController::installNow(ResourceCatalog::Kind kind, const QSt
         isModpack ? destinationDir + QLatin1Char('/') + file->filename : QString();
     owner.appendLog(
         MainWindow::tr("正在下载 %1（%2）。").arg(label, QDir::toNativeSeparators(destinationDir)));
+    if (!extras.isEmpty() && !dependencyDir.isEmpty()) {
+        // 主文件去的目录和前置去的目录**不是同一个**，日志上要说清 —— 不然用户看到
+        // shaderpacks/ 里多了一个 zip、mods/ 里多了一个 jar，会以为是两回事。
+        owner.appendLog(MainWindow::tr("%1 个前置按模组装进 %2。")
+                            .arg(extras.size())
+                            .arg(QDir::toNativeSeparators(dependencyDir)));
+    }
     // busyInstanceId 传空的有两路：整合包下到缓存里（盘上没有任何实例在被写），以及用户
     // 自己挑了实例之外的目录那一路 —— 两路都不该锁住谁（见上面算落点那一段）。
     //
