@@ -152,12 +152,16 @@ void runServerSettingsPageTests() {
         save->click();
         QApplication::processEvents();
         const QString afterSave = propsTextOnDisk();
-        check(afterSave.contains(QStringLiteral("motd=新的说明")) &&
+        // 写盘那一侧按 Java Properties 的规矩把非 ASCII 转成大写四位的 `\uXXXX`
+        // （R9：服务端按 ISO-8859-1 读这份文件，原样写 UTF-8 在游戏里是乱码），
+        // 所以这里量的是**转义后**的那一行。
+        check(afterSave.contains(QStringLiteral("motd=\\u65B0\\u7684\\u8BF4\\u660E")) &&
                   afterSave.contains(QStringLiteral("#Minecraft server properties")) &&
                   afterSave.contains(QStringLiteral("view-distance=10")) &&
                   !afterSave.contains(QStringLiteral("欢迎来到我的服务端")),
               "★★★ T42.2 保存之后盘上那一份**只动了 motd 那一行**：注释、别的键、键的顺序"
-              "都照旧（「用户那份 + 他改的那几项」，不是我们重新生成的一份）",
+              "都照旧（「用户那份 + 他改的那几项」，不是我们重新生成的一份；非 ASCII 按 "
+              "Java Properties 转义成正体的 `\\uXXXX`）",
               afterSave);
         check(saveNote->text() == MainWindowUI::serverSettingsSavedNote() &&
                   !save->isEnabled(),
@@ -184,8 +188,9 @@ void runServerSettingsPageTests() {
         QApplication::processEvents();
         const QString afterRaw = propsTextOnDisk();
         check(afterRaw.contains(QStringLiteral("pvp=false")) &&
-                  afterRaw.contains(QStringLiteral("motd=新的说明")),
-              "★★★ T42.4 文本框里加的那一行真的写下去了（保存写回去的就是**这一份原文**）",
+                  afterRaw.contains(QStringLiteral("motd=\\u65B0\\u7684\\u8BF4\\u660E")),
+              "★★★ T42.4 文本框里加的那一行真的写下去了（保存写回去的就是**这一份原文**；"
+              "中文以 `\\uXXXX` 的样子放在原文里 —— 游戏按 ISO-8859-1 读）",
               afterRaw);
 
         // ---------- ⑤ 切回表单：按新那份重摆，基线也跟着换 ----------

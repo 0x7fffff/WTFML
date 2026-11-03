@@ -104,6 +104,83 @@ void runServerModelTests() {
               "★ ZW4 读不懂的行与 `!` 注释原样保留");
     }
 
+    // ---------- R9. Java Properties 转义：中文 MOTD 在游戏里必须是那个字 ----------
+    //
+    // Minecraft 服务端按 `Properties.load(InputStream)` 读这份文件：字节按 ISO-8859-1 解，
+    // `\uXXXX` 在解析层还原。我们以前按 UTF-8 写中文，游戏里就是一串乱码；而
+    // `\uXXXX` 在表单里又被显示成字面量。两条都要能往返。
+    {
+        // 读：`\uXXXX` 还原成真字（大小写十六进制都认）。
+        const ServerModel::Properties decoded =
+            ServerModel::parseProperties(
+                QStringLiteral("motd=\\u4E2D\\u6587\\u670D\\u52A1\\u5668\n"));
+        check(decoded.value(QStringLiteral("motd")) == QStringLiteral("中文服务器"),
+              "★ R9 `\\uXXXX` 读回来是真字（表单里不许显示成字面量）",
+              decoded.value(QStringLiteral("motd")));
+        // 写：非 ASCII 一律转义成大写四位的 `\uXXXX`（游戏按 ISO-8859-1 读也认这一种）。
+        check(decoded.toString().contains(
+                  QStringLiteral("motd=\\u4E2D\\u6587\\u670D\\u52A1\\u5668")),
+              "★★ R9 写盘时非 ASCII 转义成 \\uXXXX（Java Properties 那套）",
+              decoded.toString());
+
+        // 反斜杠自己：文件里 `\\` 是一个反斜杠，写回去还是 `\\`（不能越解越少）。
+        const ServerModel::Properties slashed =
+            ServerModel::parseProperties(QStringLiteral("motd=back\\\\slash\n"));
+        check(slashed.value(QStringLiteral("motd")) == QStringLiteral("back\\slash"),
+              "★ R9 `\\\\` 读回来是一个反斜杠",
+              slashed.value(QStringLiteral("motd")));
+        check(slashed.toString().contains(QStringLiteral("motd=back\\\\slash")),
+              "★ R9 写回去还是 `\\\\`（往返稳定）", slashed.toString());
+
+        // 控制字符：`\t` 读成制表符、写回去还是 `\t`（不许原样落进行里）。
+        const ServerModel::Properties tabbed =
+            ServerModel::parseProperties(QStringLiteral("motd=a\\tb\n"));
+        check(tabbed.value(QStringLiteral("motd")) == QStringLiteral("a\tb"),
+              "★ R9 `\\t` 读成制表符");
+        check(tabbed.toString().contains(QStringLiteral("motd=a\\tb")),
+              "★ R9 制表符写回去是 `\\t`，不是裸的制表符（裸的会把那一行拆坏）",
+              tabbed.toString());
+
+        // 键里的分隔符是转义的：`a\=b=1` 的键是 `a=b`，整行仍然读得回来。
+        const ServerModel::Properties keySep =
+            ServerModel::parseProperties(QStringLiteral("a\\=b=1\n"));
+        check(keySep.value(QStringLiteral("a=b")) == QStringLiteral("1"),
+              "★ R9 键里转义过的 `=` 不拿来劈行（Java 的规矩）",
+              keySep.toString());
+        check(keySep.toString().contains(QStringLiteral("a\\=b=1")),
+              "★ R9 那个键写回去仍然转义（否则下一次读就从中间劈开）", keySep.toString());
+    }
+
+    // ---------- R16. setValue 和 value()/contains() 说同一套话 ----------
+    //
+    // 大小写：用户手写的 `Server-Port=` 和表单里的 `server-port` 是同一个键；setValue
+    // 大小写敏感的话，表单里改完、value() 读回来还是老值。多个重复键：Java Properties
+    // 的规矩是后面的盖前面的，改"第一个"等于没改到生效值。
+    {
+        ServerModel::Properties props =
+            ServerModel::parseProperties(QStringLiteral("Server-Port=25565\n"));
+        check(props.setValue(QStringLiteral("server-port"), QStringLiteral("25566")),
+              "★ R16 setValue 大小写不敏感（和 value()/contains() 同一套判据）");
+        check(props.value(QStringLiteral("server-port")) == QStringLiteral("25566"),
+              "★ R16 改完 value() 读得到新值（不是「改了但没生效」）",
+              props.value(QStringLiteral("server-port")));
+
+        ServerModel::Properties duplicated =
+            ServerModel::parseProperties(QStringLiteral("motd=旧\nmotd=新\n"));
+        check(duplicated.value(QStringLiteral("motd")) == QStringLiteral("新"),
+              "R16 前提：value() 读的是最后一个");
+        check(duplicated.setValue(QStringLiteral("motd"), QStringLiteral("改过")),
+              "R16 有重复键时改得动");
+        check(duplicated.value(QStringLiteral("motd")) == QStringLiteral("改过"),
+              "★★ R16 改的是**最后一个**（生效值），不是第一个",
+              duplicated.value(QStringLiteral("motd")));
+        // R9 已经把非 ASCII 写成 `\uXXXX`，这里比的是写回盘上的样子，不是内存里的值。
+        check(duplicated.toString() ==
+                  QStringLiteral("motd=\\u65E7\nmotd=\\u6539\\u8FC7\n"),
+              "★ R16 而且只动了那一行（另一行原样，中文照 R9 转义）",
+              duplicated.toString());
+    }
+
     // ---------- ZW5. 端口 ----------
     check(ServerModel::serverPortOf(ServerModel::parseProperties(QString())) ==
               ServerModel::defaultServerPort(),
