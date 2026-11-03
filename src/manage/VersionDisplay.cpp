@@ -28,7 +28,14 @@ constexpr int kMaxComponentLength = 64;
 QString sanitizeComponent(const QString &raw) {
     QString text = raw.simplified();
     if (text.size() > kMaxComponentLength) {
-        text.truncate(kMaxComponentLength);
+        int cut = kMaxComponentLength;
+        // 截断点正好劈开一个代理对（R16）：第 cut-1 格是高位、第 cut 格是低位。
+        // 直接 truncate(cut) 会留下**半个**字符（一个孤立的代理项），画出来是方块。
+        // 退回一格，宁可少一个字符。
+        if (text.at(cut - 1).isHighSurrogate() && text.at(cut).isLowSurrogate()) {
+            --cut;
+        }
+        text.truncate(cut);
         // 截断点正好落在一个空格上时，会留下一个尾随空格。simplified() 只保证
         // **截断前**没有首尾空白，截断本身可能重新制造一个。而这里的返回值会被
         // 直接拿去用 '-' 拼接，尾随空格会变成 "xxx -1.20.1" 这种看着像 bug 的东西。
