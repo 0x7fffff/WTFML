@@ -9,6 +9,7 @@
 #include <QDir>
 #include <QTimer>
 
+#include "launcher/ProcessPathLimit.hpp"
 #include "server/ServerRun.hpp"
 
 namespace ServerRun {
@@ -89,7 +90,8 @@ void ServerProcess::start(const QString &serverId, const QString &dir, const QSt
             m_forceKillAllowed = false;
             setStatus(ServerModel::Status::Crashed);
             emit message(tr("服务端进程没起来（%1 起不来？看看 Java 那一项配得对不对）。")
-                             .arg(QDir::toNativeSeparators(m_program)));
+                             .arg(QDir::toNativeSeparators(m_program)) +
+                         ProcessPathLimit::tooLongHint({m_program, m_dir}));
             emit exited(m_serverId, -1);
         });
     }

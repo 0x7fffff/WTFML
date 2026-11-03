@@ -54,6 +54,7 @@
 #include "../util/ZipUtil.hpp"
 #include "AsciiPathAlias.hpp"
 #include "LibraryRules.hpp"
+#include "ProcessPathLimit.hpp"
 #include "VersionArguments.hpp"
 
 namespace {
@@ -1162,7 +1163,11 @@ int LauncherManager::startGame(const QStringList &arguments, const EffectiveJava
     const QFileInfo javaInfo(program);
     if (!javaInfo.exists()) {
         qWarning() << "Java executable not found at:" << program;
-        emit processError(sessionId, tr("Java可执行文件未找到：%1").arg(program));
+        // 长路径这一档 `QFileInfo::exists()` 本身就看不穿（没开 LongPathsEnabled 时它
+        // 走的就是 CreateFile 那一套），所以"没找到"可能只是路径太长。补一句，别让用户
+        // 对着一条明明存在的 java.exe 反复核对。
+        emit processError(sessionId, tr("Java可执行文件未找到：%1").arg(program) +
+                                        ProcessPathLimit::tooLongHint({program}));
         discardSession(sessionId, /*abandoned=*/true);
         return 0;
     }
@@ -1242,7 +1247,9 @@ int LauncherManager::startGame(const QStringList &arguments, const EffectiveJava
         if (startReason.startsWith(englishPrefix)) {
             startReason.remove(0, englishPrefix.size());
         }
-        emit processError(sessionId, tr("无法启动游戏进程：%1").arg(startReason));
+        emit processError(sessionId,
+                          tr("无法启动游戏进程：%1").arg(startReason) +
+                              ProcessPathLimit::tooLongHint({program, workingDirectory}));
         discardSession(sessionId, /*abandoned=*/true);
         return 0;
     }

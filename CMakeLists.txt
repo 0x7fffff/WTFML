@@ -355,6 +355,7 @@ set(SOURCE_FILES
     src/controllers/ServerListController.cpp
     src/launcher/LauncherManager.cpp
     src/launcher/AsciiPathAlias.cpp
+    src/launcher/ProcessPathLimit.cpp
     src/launcher/VersionInheritance.cpp
     src/auth/AuthManager.cpp
     src/auth/AccountStore.cpp
