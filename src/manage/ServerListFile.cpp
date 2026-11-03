@@ -353,8 +353,23 @@ bool serversListOf(NbtTree::Document *document, NbtTree::Node **out, QString *pr
         problemOut->clear();
     }
     NbtTree::Node *servers = NbtTree::field(&document->root, QStringLiteral("servers"));
-    if (servers == nullptr || servers->type != NbtTree::Type::List ||
-        (!servers->items.isEmpty() && servers->itemType != NbtTree::Type::Compound)) {
+    if (servers == nullptr || servers->type != NbtTree::Type::List) {
+        if (problemOut != nullptr) {
+            *problemOut = QStringLiteral("servers.dat 里那一格 servers 不是一张服务器表，没有动它。");
+        }
+        return false;
+    }
+    // 空表（游戏里把服务器删光之后写出来的那个形状）**元素类型是 End** —— 这是合法的
+    // NBT，但它只说明"这一格现在一条都没有"，不说明以后塞进去的是什么。而写盘那一步
+    // （`NbtTree::serialize()`）是按 `itemType` 落的：End 的那一张一旦被 `addEntry()` /
+    // 预设往里 append 了一条，写出去的就是 `List(End, count>0)` —— 游戏和本启动器都读不
+    // 回来（下一次打开就是"这份文件坏了"）。
+    //
+    // 所以**在原地补上元素类型**：表是空的，没有任何元素受影响，补这一下是无损的。
+    if (servers->items.isEmpty()) {
+        servers->itemType = NbtTree::Type::Compound;
+    }
+    if (servers->itemType != NbtTree::Type::Compound) {
         if (problemOut != nullptr) {
             *problemOut = QStringLiteral("servers.dat 里那一格 servers 不是一张服务器表，没有动它。");
         }
