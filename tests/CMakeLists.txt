@@ -108,6 +108,7 @@ set(PROJECT_SOURCES
     ${REPO_ROOT}/src/download/DownloadManagerRecovery.cpp
     ${REPO_ROOT}/src/download/DownloadManagerMirror.cpp
     ${REPO_ROOT}/src/download/DownloadManagerThrottle.cpp
+    ${REPO_ROOT}/src/download/DownloadManagerSegmented.cpp
     # 「从别的游戏文件夹里借文件」：DownloadManager 会调它
     # （来源为空 = 一个文件都不看）。纯值进结论出那一层直接编进 verify 逐格念。
     ${REPO_ROOT}/src/download/LocalFileReuse.cpp

@@ -1759,3 +1759,18 @@ R16 四小项：
 验证：完整重建通过（`-Werror`）；全套 ctest 39 项全绿（`LastTestsFailed.log` 仍是
 12:58 那份陈旧记录，与 `verify_servers.exe` 的 13:47 对不上；单独重跑 core-servers 通过）。
 `mw_check` 属实屏验收，本轮按"实机实屏的先不急"未跑。
+
+## 2026-11-03 `DownloadManager` 再拆出「分段下载」这一层
+
+分段作业跑在 `ResumableDownload` 自己那份下载器上，原先是嵌在"一条回复怎么流动"的
+文件里。这一套状态（`m_segmentJobs` / `m_startingSegment`）只被四条函数动：
+
+- 新翻译单元 `src/download/DownloadManagerSegmented.cpp`：`segmentedEligible`、
+  `segmentConnections`、`startSegmentedDownload`、`finishSegmentedJob`；
+- `effectiveDownloadUrl()` 从匿名命名空间提成 `DownloadManager` 的静态成员（声明在头文件，
+  实现落在 `DownloadManagerMirror.cpp`）—— 分段与外层普通下载都要问"最终打到哪个地址"，
+  判据仍然只有一处；
+- 外层主链只留排队那一步的 `job.segmented` 决定；三处源文件表同步登记。
+
+验证：完整重建通过（`-Werror`）；全套 ctest 39 项全绿。`mw_check` 属实屏验收，本轮
+按"实机实屏的先不急"未跑。
