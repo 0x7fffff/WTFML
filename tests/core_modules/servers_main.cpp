@@ -11,6 +11,7 @@ int main(int argc, char **argv) {
  const QString metaDir=QStringLiteral(REPO_ROOT_PATH)+"/tests/meta";
     runServerPingTests();
     runServerListEditTests();
+    runNbtLimitsTests();
     runServerListControllerTests();
     runServerModelTests();
     runServerRegistryTests();

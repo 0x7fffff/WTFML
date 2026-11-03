@@ -24,6 +24,53 @@ namespace {
 /// "不因为一个真存档被拒"和"一份坏文件别把内存吃掉"之间的一个数（**拍的，不是量出来的**）。
 constexpr qint64 kMaxSize = 64LL * 1024 * 1024;
 
+/// 一份 NBT 里最多能装多少个元素（列表项 + 复合项，全加起来）。
+///
+/// 光有 `kMaxSize` 挡不住内存放大：List 的元素**最少一个字节**（空 Compound 就只占
+/// 收尾那一个 `TAG_End`），所以 64 MiB 的坏文件可以写出 6000 万项，而一个 `Node` 是
+/// 几十上百字节 —— 按项数直接 `reserve` 就是十几 GB 的一次分配，线程里抛
+/// `std::bad_alloc` 或者被系统直接杀掉。
+///
+/// 这个数按"真数据用得着多少"拍：结构文件（`blocks` 是 List(Compound)，一格一个）里
+/// 50 万块的巨型建筑也才几十万项；超了就是坏文件/攻击，不猜。
+constexpr qint64 kMaxNodes = 1LL << 20;
+
+/// 列表 `reserve` 的上限次数（超出就按摊销翻倍长）。**不是**接受上限，只是"别信那个
+/// 项数一次要一整片"：真正的上限是 `kMaxNodes`，而 reserve 一个不可信的 count 本来就
+/// 是一次放大器。
+constexpr qint64 kMaxReserve = 4096;
+
+/// 一种元素**至少**占几个字节（拿"项数 × 最少字节"和剩余字节数对一下，不用逐个真读）。
+qint64 minItemBytes(Type type) {
+    switch (type) {
+    case Type::End:
+        // 空表（count=0）走到这儿；带项的 End 表在 List 那一段先被拒掉。
+        // 给 1 而不是 0：下面拿它做除数（`count > remaining / 最少字节`）。
+        return 1;
+    case Type::Byte:
+        return 1;
+    case Type::Short:
+        return 2;
+    case Type::Int:
+    case Type::Float:
+        return 4;
+    case Type::Long:
+    case Type::Double:
+        return 8;
+    case Type::ByteArray:
+    case Type::IntArray:
+    case Type::LongArray:
+        return 4;  // 长度前缀，正文可以是 0
+    case Type::String:
+        return 2;  // 长度前缀，正文可以是 0
+    case Type::List:
+        return 5;  // 元素类型 1 + 项数 4
+    case Type::Compound:
+        return 1;  // 只有收尾那一个字节
+    }
+    return 1;
+}
+
 /// 一个新造的 Node 的默认形状（每个 case 里只改自己那一格，别的保持默认）。
 Node makeNode(Type type) {
     Node node;
@@ -141,9 +188,20 @@ public:
         return out;
     }
 
+    /// 记一个元素，并卡 `kMaxNodes`（见那个常数：这是"别让项数变成一次十几 GB 的分配"
+    /// 的最后一道闸 —— 列表那条"最少一个字节"的检查挡不住 List(Compound)）。
+    bool claimNode() {
+        if (++m_nodes > kMaxNodes) {
+            fail(QStringLiteral("元素太多（超过 %1 个）").arg(kMaxNodes));
+            return false;
+        }
+        return true;
+    }
+
 private:
     const QByteArray &m_raw;
     qint64 m_pos = 0;
+    qint64 m_nodes = 0;
     bool m_ok = true;
     QString m_problem;
 };
@@ -288,6 +346,9 @@ bool readPayload(Reader &reader, Type type, Node *out, int depth) {
         reader.fail(QStringLiteral("嵌套太深（超过 %1 层）").arg(kMaxDepth));
         return false;
     }
+    if (!reader.claimNode()) {
+        return false;
+    }
     Node node = makeNode(type);
     switch (type) {
     case Type::End:
@@ -342,13 +403,21 @@ bool readPayload(Reader &reader, Type type, Node *out, int depth) {
             reader.fail(QStringLiteral("列表的项数是负的"));
             return false;
         }
-        // 每一项至少一个字节 ⇒ 项数大于剩余字节数必然是坏的。先卡这一下，
-        // 免得到下面按 count 一个一个读、把一份坏文件读成一次几百万次的循环。
-        if (!reader.need(count)) {
+        // 空表（`itemType == End`）只能有 0 项 —— 有项就表示"每个元素的类型都读不出来"，
+        // 后面按 End 读第一格就报错；这里先一句话说清楚，也避开下面那个除以 0。
+        if (itemType == Type::End && count != 0) {
+            reader.fail(QStringLiteral("列表的元素类型是空的、却写着 %1 项").arg(count));
+            return false;
+        }
+        // 每一项**最少**占 `minItemBytes` 个字节 ⇒ 项数比"剩余字节数 / 最少字节"还大
+        // 必然是坏的。这一下既挡"按 count 一个个读成几百万次的循环"，也挡"按 count
+        // 直接 reserve 一大片"（List(Byte) 的项数可以接近文件字节数）。
+        if (count > reader.remaining() / minItemBytes(itemType)) {
+            reader.fail(QStringLiteral("列表的项数 %1 比文件剩下的字节还多").arg(count));
             return false;
         }
         node.itemType = itemType;
-        node.items.reserve(count);
+        node.items.reserve(static_cast<int>(qMin<qint64>(count, kMaxReserve)));
         for (qint32 k = 0; k < count; ++k) {
             Node item;
             if (!readPayload(reader, itemType, &item, depth + 1)) {

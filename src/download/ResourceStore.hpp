@@ -49,17 +49,15 @@
 #include <QObject>
 #include <QPair>
 #include <QPixmap>
+#include <QPointer>
 #include <QSet>
 #include <QString>
 
 #include "download/ResourceCatalog.hpp"
+#include "net/ControlGet.hpp"
 
 class QNetworkAccessManager;
 class QNetworkReply;
-
-namespace RequestBudget {
-class ControlGet;
-}
 
 class ResourceStore : public QObject {
     Q_OBJECT
@@ -498,7 +496,12 @@ private:
         /// 整批的毛病（任何一发报错都算整批的）。
         QString problem;
         /// 飞出去的那几发（重来 / 析构时要掐掉）。
-        QList<RequestBudget::ControlGet *> replies;
+        ///
+        /// **存 QPointer，不是裸指针**：作业跑到头会 `deleteLater()` 把自己收掉，而这条
+        /// 列表里留下的那一格没人摘（回调只认 generation 和 pending）。一发已经回、别的
+        /// 还在飞的时候关窗（`abortAll()`）或同一把钥匙上再开一批，就会对已经析构的对象
+        /// 再 `delete` 一次 —— 堆损坏。null 的那几格表示"这一发已经自己收场了"，跳过即可。
+        QList<QPointer<RequestBudget::ControlGet>> replies;
     };
     QHash<QString, LatestRun> m_latestRuns;
     /// 发批次的代号（只增不减，见 LatestRun::generation）。
