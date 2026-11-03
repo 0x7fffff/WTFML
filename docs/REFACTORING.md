@@ -1774,3 +1774,18 @@ R16 四小项：
 
 验证：完整重建通过（`-Werror`）；全套 ctest 39 项全绿。`mw_check` 属实屏验收，本轮
 按"实机实屏的先不急"未跑。
+
+## 2026-11-03 `DownloadManager` 再拆出「元数据 → 作业计划」这一层
+
+版本清单 / version.json / 资源索引读成内存结构、再变成作业清单，这一层**不碰网络**。
+搬出 `DownloadManager.cpp` 之后，"读清单"与"发请求"各归各的翻译单元：
+
+- 新翻译单元 `src/download/DownloadManagerMetadata.cpp`：`parseVersionManifest`、
+  `parseVersionJson`、`extractLibraries`、`extractAssetIndex`、`downloadLibraries`、
+  `parseAndDownloadAssets`、`downloadClientJar`；
+- 资源索引的<b>取</b>（`downloadAssets`）和<b>收</b>（`onAssetIndexDownloaded`）仍在主链 ——
+  它们和回复状态、重试、在飞表绑在一起；
+- `DownloadManager.cpp` 顺手删掉已无人使用的 `LibraryRules.hpp`；三处源文件表同步登记。
+
+验证：完整重建通过（`-Werror`），全套 ctest 39/39；随后只删了一个未使用的 include
+并重建通过。`mw_check` 属实屏验收，本轮按"实机实屏的先不急"未跑。
