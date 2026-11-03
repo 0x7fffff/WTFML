@@ -1506,3 +1506,26 @@ meta** —— 写了下次读出来就是"自定义 + 一个用户没填过的�
 行数：`ui/InstanceFilesPage.cpp` 1173 → 1045，新文件 131（另加文件头）。
 
 验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
+
+## 2026-11-03 `ui/InstanceFilesPage.cpp`：底下那行目录统计分出去
+
+"每个目录多大、世界上次什么时候玩的"这一片搬到 `ui/InstanceFilesPageDirectoryStats.cpp`：
+匿名命名空间里的 `sumFilesUnder()` / `directoryBytes()` / `worldLastPlayed()`（86 行），
+以及 `fillDirectoryStats()`（30 行）。
+
+两条说死的规矩跟着一起搬，都是踩过的坑：
+
+- **不跟链接走**：`isSymLink() || isJunction()` 两条一起判，下潜**之前**判 —— Windows 的
+  junction 不是符号链接，只判前者照样进得去，进去之后每个文件都是一条独立结果，数会莫名
+  其妙翻几倍；
+- **世界看 `level.dat` 的时间**，不是目录自己的：目录时间只在增删条目时变，用户连着玩三
+  个小时它可能一动不动。
+
+`fillDirectoryStats()` 仍**一趟只算一行**、算完自己排下一趟（一次算完的话行已经摆在屏幕
+上，用户看到的是一个点了没反应的界面）。这一层仍只 include Qt，不碰 AppPaths。
+
+- 类接口没改；三份源列表（主 `CMakeLists.txt`、`tests/mw_check`、`tests/ui_check`）登记新文件。
+
+行数：`ui/InstanceFilesPage.cpp` 1045 → 932，新文件 116（另加文件头）。
+
+验证：完整重建通过；`mw_check` 2756/2756（真屏）；全套 ctest 39 项全绿。
