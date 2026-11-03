@@ -108,6 +108,7 @@ bool sameStamp(const Stamp &left, const Stamp &right);
  * 3f-79-bb-7b-… ← 带连字符
  * sha256:3f79bb7b… ← 带算法前缀
  * SHA-256 = 3f79bb7b…
+ * md5 900150983cd24fb0d6963f7d28e17f72 ← 算法名和摘要之间只隔一个空格
  * ```
  */
 struct Expected {

@@ -90,11 +90,15 @@ bool extractArchives(const QStringList &archives, const QString &targetDir,
  * 默认是通用的一句；**调用方要把它写清楚**，因为 Failed 那一路的 errorOut 有一处是
  * **直接弹给用户看的**（整合包那条路），句子里的主语换成别人就说不通了。
  * @return 见 EntryStatus。**没这个条目**和**读失败**是两件事，调用方必须分开处理。
+ *
+ * NOTE: 这个重载**也带上限**（默认 16 MiB，R11）—— 它读的都是元数据 / 贴图 / class 头
+ * 那类小东西。要读更大的条目就自己传 maximumBytes；几十上百 MB 的东西别读进内存，
+ * 走 extractEntryToFile()。
  */
 EntryStatus readEntry(const QString &archive, const QString &entryName, QByteArray *out,
                       QString *errorOut = nullptr,
                       const QString &what = QStringLiteral("读压缩包条目"));
-/// Metadata-only overload: bound both declared and actually decompressed bytes.
+/// 带显式上限的那个：声明大小和实际解出来的字节**两头都卡**（`maximumBytes <= 0` 才是无上限）。
 EntryStatus readEntry(const QString &archive, const QString &entryName, QByteArray *out,
                       QString *errorOut, const QString &what, qint64 maximumBytes);
 

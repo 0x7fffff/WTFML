@@ -43,8 +43,8 @@ QString normalizeHex(const QString &text) {
 ///
 /// 返回 true 表示输入里确实点名了一档；@p rest 是去掉那一段之后的正文。
 bool readAlgorithmPrefix(const QString &text, FileHash::Algorithm *algorithm, QString *rest) {
-    QString head = text.trimmed();
-    // 两种分隔：`sha256:xxxx` 与 `SHA-256 = xxxx`。
+    const QString head = text.trimmed();
+    // 几种分隔：`sha256:xxxx`、`SHA-256 = xxxx`、`md5 <hex>`。
     static const struct {
         const char *key;
         FileHash::Algorithm algorithm;
@@ -61,16 +61,29 @@ bool readAlgorithmPrefix(const QString &text, FileHash::Algorithm *algorithm, QS
             continue;
         }
         // 认了前几个字还得看**后面跟着什么**：`sha256something` 不是一个前缀。
-        const QString tail = head.mid(key.size()).trimmed();
+        //
+        // 这一段**不能先 trimmed()**（R12）：空格本身也可能就是分隔符，先 trim 掉之后
+        // `md5 <hex>` 的正文直接贴着算法名，会落到下面"不是分隔符"那一档里去 ——
+        // 于是 `md5 <hex>` 这种文档写明的写法永远认不出来。
+        QString tail = head.mid(key.size());
         if (tail.isEmpty()) {
             return false;  // 光写了算法、没写摘要
         }
-        if (!(tail.startsWith(QChar(':')) || tail.startsWith(QChar('=')) || tail.startsWith(QChar(' '))
-              || tail.startsWith(QChar('\t')))) {
+        const QChar separator = tail.front();
+        if (!(separator.isSpace() || separator == QChar(':') || separator == QChar('='))) {
             return false;
         }
+        tail = tail.mid(1).trimmed();
+        // `SHA-256 = xxxx`：空格之后还跟着 `=` / `:` 时一并吃掉（只吃一个）。
+        if (!tail.isEmpty()
+            && (tail.startsWith(QChar(':')) || tail.startsWith(QChar('=')))) {
+            tail = tail.mid(1).trimmed();
+        }
+        if (tail.isEmpty()) {
+            return false;  // 光写了算法、没写摘要
+        }
         *algorithm = entry.algorithm;
-        *rest = tail.mid(1).trimmed(); // 去掉分隔符那一个字符
+        *rest = tail;
         return true;
     }
     return false;

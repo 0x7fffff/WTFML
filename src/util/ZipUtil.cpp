@@ -298,11 +298,20 @@ bool ZipUtil::extractArchives(const QStringList &archives, const QString &target
 
     // 用 .NET 的 Path/Directory 而不是 PowerShell 的 Join-Path / New-Item：
     // 前者纯字符串运算，不会被 PowerShell provider 把路径"解析"成别的形状。
+    //
+    // ★ 解压后的大小 / 压缩比上限（R10）：这一条收的是**外部来的** zip（整合包、恢复备份），
+    // 而条目声明的大小是压缩包里写着的、不可信的数。没有上限时一个几百 KB 的 zip bomb
+    // 就能把盘写满（超时之后还留下半成品）。三条判据：
+    // · 单条解压后 ≤ 2 GiB —— 正常模组 / 资源包 / 光影里最大的单个文件也就几百 MB；
+    // · 压缩比 ≤ 1000（只判 > 1 MiB 的条目）—— 已经压缩过的游戏资源通常在 1–20 之间，
+    //   1000 是以文本为主的包都给不到的倍数，而 zip bomb 动辄几万、几十万；
+    // · 一批累计 ≤ 16 GiB —— 几百个模组的整合包也就几个 GB。
     const QString script =
         QStringLiteral("$ErrorActionPreference='Stop'\n"
                        "Add-Type -AssemblyName System.IO.Compression.FileSystem\n"
                        "$out=%1\n"
                        "[void][System.IO.Directory]::CreateDirectory($out)\n"
+                       "$total=[long]0\n"
                        "foreach($z in %2){\n"
                        "  $zip=$null\n"
                        "  try{\n"
@@ -311,10 +320,14 @@ bool ZipUtil::extractArchives(const QStringList &archives, const QString &target
                        "      if([string]::IsNullOrEmpty($e.Name)){continue}\n"
                        "      $full=$e.FullName.Replace('\\','/')\n"
                        "      if(%3){continue}\n"
+                       "      if($e.Length -gt 2147483648){throw ('「' + $full + '」解压后超过 2 GiB 上限，按压缩炸弹拦下了')}\n"
+                       "      if($e.Length -gt 1048576 -and ($e.Length / [Math]::Max($e.CompressedLength,1)) -gt 1000){throw ('「' + $full + '」的压缩比超过 1000，按压缩炸弹拦下了')}\n"
+                       "      if(($total + $e.Length) -gt 17179869184){throw '整包解压后累计超过 16 GiB 上限，按压缩炸弹拦下了'}\n"
                        "      $dest=[System.IO.Path]::Combine($out,$full).Replace('/','\\')\n"
                        "      [void][System.IO.Directory]::CreateDirectory"
                        "([System.IO.Path]::GetDirectoryName($dest))\n"
                        "      [System.IO.Compression.ZipFileExtensions]::ExtractToFile($e,$dest,$true)\n"
+                       "      $total=$total+$e.Length\n"
                        "    }\n"
                        "  } catch {\n"
                        // 这一段 catch 是**必须的**，理由和 gunzipTo / createZip
@@ -434,7 +447,11 @@ try {
 
 ZipUtil::EntryStatus ZipUtil::readEntry(const QString &archive, const QString &entryName,
                                         QByteArray *out, QString *errorOut, const QString &what) {
-    return readEntry(archive, entryName, out, errorOut, what, -1);
+    // 默认重载**也带上限**（R11）：以前是 -1（不设上限），而它的调用方全是"读一份小的
+    // 元数据 / 贴图 / class 头"—— 一个畸形包里放一个几 GB 的同名条目，临时目录和内存
+    // 就会一起涨（每次启动扫描还会重演）。16 MiB 对这些用途绰绰有余；真需要读更大的
+    // 就自己传 maximumBytes，或者用 extractEntryToFile()（那条不读进内存）。
+    return readEntry(archive, entryName, out, errorOut, what, 16LL * 1024 * 1024);
 }
 
 ZipUtil::EntryStatus ZipUtil::readEntry(const QString &archive, const QString &entryName,
@@ -821,6 +838,7 @@ bool ZipUtil::extractSubtrees(const QStringList &archives, const QString &target
                        "$roots=%2\n"
                        "$excludes=%4\n"
                        "$count=0\n"
+                       "$total=[long]0\n"
                        "foreach($z in %3){\n"
                        "  $zip=$null\n"
                        "  try{\n"
@@ -837,6 +855,11 @@ bool ZipUtil::extractSubtrees(const QStringList &archives, const QString &target
                        // 都能折回父目录。剥完前缀之后同样得挡（`BackupFiles` 的还原走这条）。
                        "        if($rel -match '(^|/)([^/]*[. ])?(/|$)'){continue}\n"
                        "        if($rel.StartsWith('/') -or $rel.Contains(':')){continue}\n"
+                       // 解压后的大小 / 压缩比上限（R10）：和 extractArchives() 里那三条同一个
+                       // 口径（那边有完整来路）。恢复备份这一条收的也是外部来的 zip。
+                       "        if($e.Length -gt 2147483648){throw ('「' + $full + '」解压后超过 2 GiB 上限，按压缩炸弹拦下了')}\n"
+                       "        if($e.Length -gt 1048576 -and ($e.Length / [Math]::Max($e.CompressedLength,1)) -gt 1000){throw ('「' + $full + '」的压缩比超过 1000，按压缩炸弹拦下了')}\n"
+                       "        if(($total + $e.Length) -gt 17179869184){throw '整包解压后累计超过 16 GiB 上限，按压缩炸弹拦下了'}\n"
                        // 跳过的前缀（剥完之后的名字，小写、`/` 分隔）。`libraries/` 这种
                        // 是整层目录；`options.txt` 这种是单独一份文件。两边都已经小写。
                        "        if($excludes.Count -gt 0){\n"
@@ -851,6 +874,7 @@ bool ZipUtil::extractSubtrees(const QStringList &archives, const QString &target
                        "([System.IO.Path]::GetDirectoryName($dest))\n"
                        "        [System.IO.Compression.ZipFileExtensions]::ExtractToFile"
                        "($e,$dest,$true)\n"
+                       "        $total=$total+$e.Length\n"
                        "        $count=$count+1\n"
                        "      }\n"
                        "    }\n"

@@ -107,6 +107,27 @@ void runFileHashTests() {
         check(!mismatch.valid && mismatch.error.contains(QStringLiteral("SHA-256")),
               "★ ZAC3 点名的算法和长度对不上 ⇒ 明说是哪一处对不上", mismatch.error);
 
+        // R12：算法名与摘要之间**只隔一个空格**（文档里写明的写法）。以前先 trimmed()
+        // 再把空格当分隔符判，这一支永远进不去 —— `md5 <hex>` 直接被报成
+        // 「`m` 不是十六进制的字符」。
+        const FileHash::Expected spaceSeparated = FileHash::parseExpected(
+            QStringLiteral("md5 900150983cd24fb0d6963f7d28e17f72"));
+        check(spaceSeparated.valid && spaceSeparated.hasAlgorithm
+                  && spaceSeparated.algorithm == FileHash::Algorithm::Md5
+                  && spaceSeparated.hex == QStringLiteral("900150983cd24fb0d6963f7d28e17f72"),
+              "★★ R12 `md5 <hex>` 这种只隔一个空格的写法认得出（不再报 `m` 不是十六进制）",
+              spaceSeparated.error);
+        // 制表符也是空白分隔（同一支）。`sha256something` 仍然不是一个前缀。
+        const FileHash::Expected tabSeparated = FileHash::parseExpected(
+            QStringLiteral("SHA-256\t") + sha256);
+        check(tabSeparated.valid && tabSeparated.hasAlgorithm,
+              "★ R12 制表符分隔也认", tabSeparated.error);
+        const FileHash::Expected glued = FileHash::parseExpected(
+            QStringLiteral("sha256") + sha256);
+        check(!glued.valid && glued.error.contains(QStringLiteral("十六进制")),
+              "★ R12 算法名和摘要**粘在一起**时不算点名（否则 `sha256abc…` 会被当成算法前缀）",
+              glued.error);
+
         const FileHash::Expected blank = FileHash::parseExpected(QStringLiteral("   "));
         check(!blank.valid && blank.error.isEmpty(),
               "★ ZAC3 空着**不算错**（「我只想看摘要」是正常用法），所以不给错误那句话");
