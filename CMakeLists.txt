@@ -524,6 +524,7 @@ set(SOURCE_FILES
     ui/InstanceFilesPageCapabilities.cpp
     ui/InstanceFilesPageDirectoryStats.cpp
     ui/InstanceFilesPageRefresh.cpp
+    ui/InstanceFilesPageState.cpp
     ui/ResourcePackPage.cpp
     ui/ConfigFileText.cpp
     ui/ConfigFileEditorPage.cpp
