@@ -445,6 +445,7 @@ set(SOURCE_FILES
     src/download/DownloadManagerMirror.cpp
     src/download/DownloadManagerThrottle.cpp
     src/download/DownloadManagerSegmented.cpp
+    src/download/DownloadManagerMetadata.cpp
     src/download/LocalFileReuse.cpp
     src/download/AssetDirectorKnownSet.cpp
     src/download/AssetDirectorKnownSetData.cpp
