@@ -373,6 +373,7 @@ set(SOURCE_FILES
     ${REPO_ROOT}/ui/InstanceFilesPageDirectoryStats.cpp
     ${REPO_ROOT}/ui/InstanceFilesPageRefresh.cpp
     ${REPO_ROOT}/ui/InstanceFilesPageState.cpp
+    ${REPO_ROOT}/ui/InstanceFilesPageEventFilter.cpp
     ${REPO_ROOT}/ui/ResourcePackPage.cpp
     # 「配置文件」那一页：编辑器那一格和它那套纯函数（认 BOM / 认行尾 /
     # 认是不是 UTF-8）都是 ui/ 的东西，InstanceSettingsDialog 直接 new 它。少了这两个
