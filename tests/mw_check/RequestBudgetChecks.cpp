@@ -15,6 +15,64 @@
 #include <QTemporaryDir>
 #include <QTimer>
 #include <cstdio>
+#include <cstring>
+
+namespace {
+
+/// 到了那一刻就"内部完成"，但**不发 `finished` 信号**：这正是截止定时器先跑时
+/// 看到的那一态 —— 正文已经齐了，派送还排在队列里。真 Qt 里 `isFinished()` 为真
+/// 就说明数据可读，只是槽还没轮到；这一份夹具把那个瞬间钉住。
+class FinishedAwaitingDispatchReply final : public QNetworkReply {
+public:
+    FinishedAwaitingDispatchReply(const QNetworkRequest &request, QByteArray body,
+                                 int finishAfterMs, QObject *parent)
+        : QNetworkReply(parent), m_body(std::move(body)) {
+        setRequest(request);
+        setUrl(request.url());
+        open(QIODevice::ReadOnly);
+        setAttribute(QNetworkRequest::HttpStatusCodeAttribute, 200);
+        QTimer::singleShot(finishAfterMs, this, [this] {
+            if (isFinished()) return;
+            setFinished(true);
+            emit readyRead();
+        });
+    }
+    void abort() override {
+        if (isFinished()) return;
+        setError(OperationCanceledError, QStringLiteral("cancelled"));
+        setFinished(true);
+        emit finished();
+    }
+    qint64 bytesAvailable() const override {
+        return m_body.size() - m_offset + QNetworkReply::bytesAvailable();
+    }
+protected:
+    qint64 readData(char *data, qint64 maximum) override {
+        const qint64 count = qMin<qint64>(maximum, m_body.size() - m_offset);
+        if (count <= 0) return -1;
+        std::memcpy(data, m_body.constData() + m_offset, size_t(count));
+        m_offset += count;
+        return count;
+    }
+private:
+    QByteArray m_body;
+    qint64 m_offset = 0;
+};
+
+class FinishedAwaitingDispatchNetwork final : public QNetworkAccessManager {
+public:
+    FinishedAwaitingDispatchNetwork(int finishAfterMs, QObject *owner)
+        : QNetworkAccessManager(owner), m_finishAfterMs(finishAfterMs) {}
+protected:
+    QNetworkReply *createRequest(Operation, const QNetworkRequest &request, QIODevice *) override {
+        return new FinishedAwaitingDispatchReply(request, QByteArray("late-ok"),
+                                                m_finishAfterMs, this);
+    }
+private:
+    int m_finishAfterMs;
+};
+
+}  // namespace
 
 int runRequestBudgetChecks() {
     int failures = 0;
@@ -180,6 +238,28 @@ int runRequestBudgetChecks() {
                 && reply->property("wtfmlControlDeadlineExpired").toBool(); });
         expect(wait([&] { return timedOut; },1000) && RequestBudget::snapshot().control==0,
                "metadata transfer deadline aborts a stalled response and releases its shared slot");
+    }
+    {
+        // 截止到点时回复已经"内部完成"、只是 `finished` 还没派送：这一发必须按成功交出去。
+        // 旧写法在这里走 `else` 分支，拿"超时"把一份已经到手的正文丢掉了。
+        QObject owner;
+        FinishedAwaitingDispatchNetwork network(40, &owner);
+        bool called=false, delivered=false;
+        QByteArray body;
+        bool hadError=true;
+        bool markedExpired=true;
+        RequestBudget::ControlGet::start(&owner,&network,QNetworkRequest(QUrl(base+"late")),120,
+            [&](QNetworkReply *reply,const QString &error) {
+                called=true;
+                delivered=reply!=nullptr;
+                hadError=!error.isEmpty();
+                markedExpired=reply && reply->property("wtfmlControlDeadlineExpired").toBool();
+                if (reply) body=reply->readAll();
+            });
+        expect(wait([&] { return called; },1000) && delivered && !hadError &&
+                   !markedExpired && body==QByteArray("late-ok") &&
+                   RequestBudget::snapshot().control==0,
+               "a response already finished when the deadline fires is delivered, not discarded as a timeout");
     }
     {
         QObject owner;

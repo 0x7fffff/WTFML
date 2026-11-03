@@ -68,11 +68,19 @@ private:
         m_deadline.setSingleShot(true);
         connect(&m_poll, &QTimer::timeout, this, [this] { dispatch(); });
         connect(&m_deadline, &QTimer::timeout, this, [this] {
-            if (m_reply && !m_reply->isFinished()) {
+            // 到点时回复可能已经完成，只是 `finished` 还没派送到我们这一格（同一个事件
+            // 循环里定时器先跑）。那一份正文是完整的，按正常收尾交出去；拿"超时"把已经
+            // 到手的响应判死，会让上层看到一次并不存在的网络失败。
+            if (m_reply && m_reply->isFinished()) {
+                finish(m_reply, {});
+                return;
+            }
+            if (m_reply) {
                 m_reply->setProperty(kDeadlineExpiredProperty, true);
                 m_reply->abort();
+                return;
             }
-            else finish(nullptr, tr("等待网络请求超时。"));
+            finish(nullptr, tr("等待网络请求超时。"));
         });
         m_deadline.start(m_timeout);
         QTimer::singleShot(0, this, [this] { dispatch(); });
