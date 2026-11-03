@@ -1741,8 +1741,7 @@ R16 四小项：
 - 三处源文件表（`CMakeLists.txt`、`tests/CMakeLists.txt`、`tools/network_diag/CMakeLists.txt`）
   同步登记。行为零变化，只换编译单元，注释与阈值一个字没改。
 
-验证：完整重建通过（`-Werror`）；全套 ctest 39 项全绿。`mw_check` 属实屏验收，本轮按
-"实机实屏的先不急"未跑，留待下次真屏那一轮补。
+验证：完整重建通过（`-Werror`）；全套 ctest 39 项全绿；`mw_check` 2758/2758（真屏）。
 
 ## 2026-11-03 `DownloadManager` 再拆出「下载限速」这一层
 
@@ -1758,7 +1757,7 @@ R16 四小项：
 
 验证：完整重建通过（`-Werror`）；全套 ctest 39 项全绿（`LastTestsFailed.log` 仍是
 12:58 那份陈旧记录，与 `verify_servers.exe` 的 13:47 对不上；单独重跑 core-servers 通过）。
-`mw_check` 属实屏验收，本轮按"实机实屏的先不急"未跑。
+`mw_check` 2758/2758（真屏）。
 
 ## 2026-11-03 `DownloadManager` 再拆出「分段下载」这一层
 
@@ -1772,8 +1771,7 @@ R16 四小项：
   判据仍然只有一处；
 - 外层主链只留排队那一步的 `job.segmented` 决定；三处源文件表同步登记。
 
-验证：完整重建通过（`-Werror`）；全套 ctest 39 项全绿。`mw_check` 属实屏验收，本轮
-按"实机实屏的先不急"未跑。
+验证：完整重建通过（`-Werror`）；全套 ctest 39 项全绿；`mw_check` 2758/2758（真屏）。
 
 ## 2026-11-03 `DownloadManager` 再拆出「元数据 → 作业计划」这一层
 
@@ -1788,4 +1786,4 @@ R16 四小项：
 - `DownloadManager.cpp` 顺手删掉已无人使用的 `LibraryRules.hpp`；三处源文件表同步登记。
 
 验证：完整重建通过（`-Werror`），全套 ctest 39/39；随后只删了一个未使用的 include
-并重建通过。`mw_check` 属实屏验收，本轮按"实机实屏的先不急"未跑。
+并重建通过；`mw_check` 2758/2758（真屏）。
