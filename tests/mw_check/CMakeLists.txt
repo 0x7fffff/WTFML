@@ -523,7 +523,8 @@ target_link_libraries(wtfml_mw_runtime PRIVATE crypt32 ole32 shlwapi windowscode
 wtfml_exclude_shared_sources(wtfml_mw_runtime wtfml_core_runtime wtfml_ui_runtime)
 target_link_libraries(wtfml_mw_runtime PUBLIC wtfml_ui_runtime Qt6::Widgets)
 target_include_directories(wtfml_mw_runtime PUBLIC ${REPO_ROOT}/src ${REPO_ROOT}/ui ${REPO_ROOT}/tests ${CMAKE_CURRENT_SOURCE_DIR})
-add_library(wtfml_mw_fixture STATIC modules/Support.cpp modules/Support.hpp modules/PromptProbe.cpp)
+add_library(wtfml_mw_fixture STATIC modules/Support.cpp modules/Support.hpp
+    modules/SupportCore.hpp modules/SupportFakes.hpp modules/PromptProbe.cpp)
 target_link_libraries(wtfml_mw_fixture PUBLIC wtfml_mw_runtime)
 file(GLOB _cases CONFIGURE_DEPENDS modules/*.cpp)
 list(REMOVE_ITEM _cases "${CMAKE_CURRENT_SOURCE_DIR}/modules/Support.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/modules/ModuleMain.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/modules/PromptProbe.cpp")

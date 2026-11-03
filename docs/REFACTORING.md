@@ -1809,3 +1809,63 @@ R16 四小项：
 验证：完整重建通过（`-Werror`）；搬走的函数体与原文逐字比对，唯一差异就是上面那处
 `maxThreadCount()`；全套 ctest 39/39；`mw_check` 2758/2758（真屏）；
 `WTFML_PERF_DOWNLOAD=ON` 的独立配置下 `WTFMLPerfDownload` 链接通过。
+
+## 2026-11-03 `createZip` 在写盘之前拒绝已存在的目标（V2）
+
+`.NET` 那一句 `[IO.Compression.ZipFile]::Open($target,'Create')` 里的 `Create` 是
+**打开并清空**，不是"没有才建"。再配上失败那一路"半成品删掉"，一次没打成的包会把盘上
+原来那份好的顺手毁掉。现在 `ZipUtil::createZip()` 在写任何字节之前先看一眼目标：
+
+- 目标存在 ⇒ 立刻失败，错误文案是"目标文件已经存在，没有覆盖它：…"；
+- 失败清理不再分"原本在不在"，走到那里时目标只可能是这次自己建的，`QFile::remove()`
+  无条件执行；
+- `.hpp` 里"目标已存在则整个盖掉"那句是反的，改成"直接失败、不覆盖"，并留下 NOTE。
+
+产品里的调用方（备份的 `archive.pending`、导出的 `.part`、边界工具的 `!exists` 前置检查）
+本来就都传一个没人占的名字，所以这一条对它们永远是通的；拦在这里是让"传了已存在路径"
+这种调用在写盘之前就停住，而不是靠调用方各记各的。
+
+验证：`BackupTests` 的 ZQ3 新增一条"目标已存在 ⇒ 拒绝且原文件一个字节不动"，
+`verify.exe` 直跑通过。
+
+## 2026-11-03 zip 开头四字节的判据收成一处（V3）
+
+流式落盘（`StreamedFile`）、分段合并（`ResumableDownload::assemble`）、本地复用
+（`DownloadManager::looksLikeZipArchive`）三处都在看文件开头四个字节，但前两处认三种、
+复用检查只认两种：`PK\x03\x04` 本地文件头、`PK\x05\x06` 空档案，外加
+`PK\x07\x08`（跨卷标记，APPNOTE 4.4.1）。
+
+- 新头文件 `src/download/ZipMagic.hpp`：`ZipMagic::looksLikeZipHead()` 是唯一实现，
+  文件头把三种签名的来历写清楚 —— `PK\x07\x08` 是"按跨卷方式写、最后只用了一张盘"的
+  归档开头，**单卷归档也可能带**，不是数据描述符跑到了开头；
+- 三处调用改成同一个函数，判据不再有机会分叉；
+- 以前分叉的后果是：带跨卷标记的加载器包**下下来算成功、下次启动复用检查又判坏**，
+  于是每次启动都重下一遍，而且永远修不好。
+
+验证：`wtfml.high-speed-download` 新增两条 —— 带 `PK\x07\x08` 开头的正文被接受并落盘；
+一段 HTML 错误页在同样位置被拒绝、不落盘。
+
+## 2026-11-03 `mw_check` 的夹具头按"状态归谁"拆成三层
+
+`tests/mw_check/modules/Support.hpp` 原先两千四百多行，断言、假外网、真窗口 UI 夹具
+全挤在一起。改一台假服务器要在一整份文件里翻，加一条断言又要把所有假外网都编译一遍。
+现在按"谁拥有那份状态"分成三层，顶层名字和包含方式都不变：
+
+- `SupportCore.hpp`：Qt / 产品头文件 + `check()` / `header()` + 不碰界面、不碰网络的小工具
+  （造版本目录、写文件、`pumpUntil`、按 objectName 找控件……）；
+- `SupportFakes.hpp`：**假外网**（Mojang / Modrinth / CurseForge / 图标 / 反查 / 跨卷延迟 /
+  接了不答话）与预置皮肤那几个固定数据；它们各自拥有一份"收了几发、带了什么头"的状态；
+- `Support.hpp`：真主窗口那套 UI 夹具（点弹窗、翻页、关页）、`UrlSpy` 那几个带 `Q_OBJECT`
+  的类，以及各节的入口声明；只保留 `#include "SupportCore.hpp"` +
+  `#include "SupportFakes.hpp"` 和原来那些被其它节包含的声明。
+
+NOTE: `SupportCore.hpp` 里**没有 `Q_OBJECT`**。AUTOMOC 只给显式列进
+`wtfml_mw_fixture` 的头生成元对象，所以 `UrlSpy` 之类的类留在 `Support.hpp`；新加的两个头
+也已经登记进那份源文件表。各节文件的 `#include "Support.hpp"` 一个字都不用改。
+
+这次只是搬家：原文里非空行逐行比对过（`build/tmp-support-split/` 留了拆分前的副本），
+差异全是新文件自己的文件头注释和 include；没有删掉任何一条原有内容。
+
+验证：完整重建通过（`-Werror`）；全套 ctest 39/39；`mw_check` 2766/2766（真屏）。
+
+
