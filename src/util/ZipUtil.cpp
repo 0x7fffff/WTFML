@@ -497,8 +497,11 @@ ZipUtil::EntryStatus ZipUtil::readEntry(const QString &archive, const QString &e
                        "    } finally { $inputStream.Dispose(); $outputStream.Dispose() }\n"
                        "  } else { [System.IO.Compression.ZipFileExtensions]::ExtractToFile($e,%3,$true) }\n"
                        "} finally { $zip.Dispose() }\n")
+            // 四个占位符**一次给全**。分两次 `.arg()` 的话，第二次会重扫已经插入进去的
+            // 内容：条目名是从压缩包里读来的（第三方可控），名字里带一个 `%4` 就会被替换成
+            // 字节上限，`$target` 悄悄变成别的名字，症状只是"这个条目找不到"。
             .arg(psQuote(entryName), psFilePath(archive),
-                 psFilePath(QFile::decodeName(temp))).arg(maximumBytes);
+                 psFilePath(QFile::decodeName(temp)), QString::number(maximumBytes));
 
     QProcess process;
     process.start(PowerShell::executable(),
@@ -1015,7 +1018,11 @@ bool ZipUtil::gzipFrom(const QString &sourcePath, const QString &targetGz, QStri
             .arg(psFilePath(targetGz), psFilePath(sourcePath));
 
     QString failure;
-    if (!runPowershell(script, 15000, nullptr, &failure, QStringLiteral("压缩 gzip"))) {
+    // 15 秒是"压几十 KB 的 level.dat"的预算，但这一发还要**起 PowerShell**（加载
+    // System.IO.Compression、过安全软件的首扫）—— CI runner 上冷启动偶尔就吃掉十几秒，
+    // 于是夹具超时、整个 core-instances 判死（2026-11-02 连挂两次的 `ZL6`）。
+    // 60 秒和 readEntry() 那一档对齐：真出问题时仍然会失败，只是不再把"机器慢"当"文件坏"。
+    if (!runPowershell(script, 60000, nullptr, &failure, QStringLiteral("压缩 gzip"))) {
         if (errorOut != nullptr) {
             const QString reason = readProcessError(failure);
             *errorOut = reason.isEmpty() ? QStringLiteral("写 gzip 失败") : reason;

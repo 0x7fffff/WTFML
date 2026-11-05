@@ -322,7 +322,7 @@ InstanceDialogController::InstanceDialogController(MainWindow *owner)
     : QObject(owner), m_owner(owner) {}
 
 void InstanceDialogController::open(const QString &versionId, const QString &pageKey) {
-    if (m_owner->m_fileOperationInstanceIds.contains(versionId)) {
+    if (m_owner->m_fileOperationOccupancy.contains(versionId)) {
         // 模组迁移和「迁移 / 升级副本」都会往这个实例的目录里写文件（后者连整棵目录
         // 都在拷）。这期间开设置页去改同一个目录，两边都不知道对方在写什么。
         InlineMessage::information(m_owner->m_ui->overlay(), tr("正在搬文件"),
@@ -2528,4 +2528,5 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
         dialog.deleteLater();
     }
 }
+
 

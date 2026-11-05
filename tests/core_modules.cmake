@@ -57,6 +57,7 @@ add_library(core_cases_instances OBJECT
  core_modules/VersionMetaWriteTests.cpp
  core_modules/InstanceTraitsTests.cpp
  core_modules/InstallOccupancyTests.cpp
+ core_modules/FileOperationOccupancyTests.cpp
  core_modules/RenameInstanceTests.cpp
  core_modules/InstanceGroupTests.cpp
  core_modules/InstalledScanTests.cpp
@@ -226,4 +227,5 @@ add_executable(verify_baseline main.cpp)
 target_compile_definitions(verify_baseline PRIVATE WTFML_CORE_BASELINE)
 wtfml_core_compile(verify_baseline)
 add_custom_target(core_modules DEPENDS verify_baseline ${WTFML_CORE_MODULE_TARGETS})
+
 

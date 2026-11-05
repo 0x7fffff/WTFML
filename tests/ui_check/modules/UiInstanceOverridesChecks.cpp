@@ -1,4 +1,6 @@
 #include "Support.hpp"
+#include "InstanceSettingsSignature.hpp"
+#include "InstanceSettingsPageChoices.hpp"
 int UiInstanceOverridesChecks() {
 
     // ------------------------------------------------------------------
@@ -1882,7 +1884,124 @@ int UiInstanceOverridesChecks() {
             }
         }
     }
+
+    // ------------------------------------------------------------------
+    // U9c. 脏状态的签名（`InstanceSettingsSignature::signatureOf()`）。
+    //
+    // 这条判据以前埋在对话框的私有函数里，验证工程够不着；现在它是纯函数，可以直接钉：
+    // **值一样 ⇒ 签名一样**（否则每开一次这一页就白写一次盘），**任何一格变了 ⇒ 一定不同**
+    // （否则改了不写盘：界面上看着改了，下次开又是老样子）。
+    {
+        namespace Sig = InstanceSettingsSignature;
+        const auto baseInputs = [] {
+            Sig::Inputs in;
+            in.javaPath = QStringLiteral("C:/java/bin/java.exe");
+            in.xmx = 4096;
+            in.xms = 1024;
+            in.autoMemory = false;
+            in.extraJvmArgs = QStringLiteral("-XX:+UseG1GC");
+            in.windowMode = QStringLiteral("windowed");
+            in.windowWidth = 1280;
+            in.windowHeight = 720;
+            in.appendArgs = {QStringLiteral("--add-opens=a"), QStringLiteral("--add-opens=b")};
+            in.warnJavaMismatch = false;
+            in.iconSignature = QStringLiteral("local|C:/img/icon.png");
+            in.pageChecks = {{QStringLiteral("overview"), true}, {QStringLiteral("servers"), false}};
+            in.groupId = QStringLiteral("g-1");
+            in.pinned = true;
+            return in;
+        };
+        const QStringList reference = Sig::signatureOf(baseInputs());
+        check(reference == Sig::signatureOf(baseInputs()),
+              "★ U9c 同样的值两次算出来逐字一样（没改就别说改了）");
+        check(reference.join(QLatin1Char('\n')).contains(QStringLiteral("--add-opens=a")),
+              "★ U9c 追加参数按条进签名（不是拼成一坨）", reference.join(QLatin1Char('|')));
+
+        int differing = 0;
+        const auto expectDiffers = [&](const Sig::Inputs &changed, const char *label) {
+            const bool differs = Sig::signatureOf(changed) != reference;
+            check(differs, label);
+            if (differs) {
+                ++differing;
+            }
+        };
+        {
+            Sig::Inputs changed = baseInputs();
+            changed.xmx = 6144;
+            expectDiffers(changed, "★ U9c 最大内存改了 ⇒ 签名变");
+        }
+        {
+            // "跟随全局"和"自定义成一个值"必须是两份签名 —— `std::optional` 的空/有值那一档。
+            Sig::Inputs changed = baseInputs();
+            changed.xmx.reset();
+            expectDiffers(changed, "★ U9c 从「自定义 4096」切到「跟随全局」⇒ 签名变");
+        }
+        {
+            Sig::Inputs changed = baseInputs();
+            changed.appendArgs = {QStringLiteral("--add-opens=b"), QStringLiteral("--add-opens=a")};
+            expectDiffers(changed, "★ U9c 追加参数只换了顺序 ⇒ 也算变了（本来就是两件事）");
+        }
+        {
+            Sig::Inputs changed = baseInputs();
+            changed.pageChecks = {{QStringLiteral("servers"), false},
+                                  {QStringLiteral("overview"), true}};
+            expectDiffers(changed, "★ U9c 「显示哪几页」的顺序变了 ⇒ 签名跟着变（按界面顺序拼）");
+        }
+        {
+            Sig::Inputs changed = baseInputs();
+            changed.iconSignature = QStringLiteral("local|C:/img/other.png");
+            expectDiffers(changed, "★ U9c 换了一张本地图 ⇒ 签名变（路径也进签名）");
+        }
+        {
+            Sig::Inputs changed = baseInputs();
+            changed.pinned = false;
+            expectDiffers(changed, "★ U9c 取消置顶 ⇒ 签名变");
+        }
+        {
+            Sig::Inputs changed = baseInputs();
+            changed.groupId = QStringLiteral("g-2");
+            expectDiffers(changed, "★ U9c 换分组 ⇒ 签名变（按 id，不按组名）");
+        }
+        check(differing == 7, "★ U9c 七种改法一条都没漏", QString::number(differing));
+    }
+    // ------------------------------------------------------------------
+    // U9d. 左栏"显示哪几页"那两条纯判断（`InstanceSettingsPageChoices`）。
+    //
+    // 以前它们在对话框里，验证工程够不着；现在能直接钉两条规矩：认不出的键丢掉（前向兼容），
+    // 顺序按调用方给的清单（不能按 QHash 遍历顺序，否则每次都可能不一样）。
+    {
+        const QStringList optional = {QStringLiteral("save"), QStringLiteral("server"),
+                                      QStringLiteral("mod")};
+        const QJsonObject stored{{QStringLiteral("save"), false},
+                                 {QStringLiteral("server"), true},
+                                 {QStringLiteral("gone"), false},      // 以后删掉的那一页
+                                 {QStringLiteral("mod"), QStringLiteral("no")}};  // 不是 bool
+        const QJsonObject normalized = InstanceSettingsPageChoices::normalized(stored, optional);
+        const bool saveStaysFalse = !normalized.value(QStringLiteral("save")).toBool(true);
+        const bool serverStaysTrue = normalized.value(QStringLiteral("server")).toBool(false);
+        check(normalized.size() == 2 && saveStaysFalse && serverStaysTrue,
+              "★ U9d 归一化只收认得的、值是 bool 的那几键（未知页与非 bool 值都丢掉）",
+              QString::fromUtf8(QJsonDocument(normalized).toJson(QJsonDocument::Compact)));
+
+        auto order = [](const QStringList &list) { return list.join(QLatin1Char(',')); };
+        const QStringList pinned = {QStringLiteral("overview"), QStringLiteral("launch")};
+        QHash<QString, bool> available;
+        available.insert(QStringLiteral("mod"), false);   // 这一页此刻用不上
+        QJsonObject overrides;
+        overrides.insert(QStringLiteral("save"), false);  // 用户勾掉了
+        const QStringList shown = InstanceSettingsPageChoices::visible(pinned, optional, available,
+                                                                      overrides);
+        check(order(shown) == QStringLiteral("overview,launch,server"),
+              "★★ U9d 钉死的两页永远在前；用不上的与勾掉的都不在，顺序照 optionalKeys",
+              order(shown));
+        check(order(InstanceSettingsPageChoices::visible(pinned, optional, {}, {}))
+                  == QStringLiteral("overview,launch,save,server,mod"),
+              "★ U9d 没有可用性/勾选信息时：钉死的在前、其余按顺序全显示",
+              order(InstanceSettingsPageChoices::visible(pinned, optional, {}, {})));
+    }
  return 0;
 }
+
+
 
 

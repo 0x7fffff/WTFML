@@ -409,14 +409,28 @@ ui/MainWindowPages.cmake 是产品与两个 UI 验证层共用的源码清单，
   服务端起停、下载收尾、安装按钮、这一批下载的账、服务端菜单都已搬出，「实例预设」那一行也搬了）；
   剩下的大头是导航/实例元数据（那份清单见 `docs/INSTANCE_META_INVENTORY.md`）
   与实例设置的编辑控件 / 脏状态边界。
-- 「这一批下载的账」七格已搬进 `DownloadTaskLedgerController`（⑯a），但
+- ~~「这一批下载的账」七格已搬进 `DownloadTaskLedgerController`（⑯a），但
   `m_repairingInstanceId` / `m_installingInstanceId` / `m_importingInstanceId` /
-  `m_assetPrefetchInstanceId` 那四个"这一批是替谁做的"仍留在主窗口上 —— 它们同时是
-  `installingVersionIds()`（「谁不能启动」的唯一出处）的判据，"账本记谁"与"谁能启动"
-  是两件事，要搬得先想清楚这一层怎么不变成第二个判据。
-- InstanceSettingsDialog 的编辑控件与**脏状态**边界仍在外壳那一份（概览/启动/文件那几页已分 TU），
-  下一步要连着"改了哪几项就写哪几项"一起看，不能只搬控件。
-- UiContentPagesChecks 等大测试仍共享长寿命夹具，先明确夹具生命周期再分领域，避免机械搬运改变事件时序。
+  `m_assetPrefetchInstanceId` 那四个"这一批是替谁做的"仍留在主窗口上。~~
+  **已收口（2026-11-04 复核）**：那四格早就不在主窗口上了 —— 它们在
+  `controllers/InstallOccupancy`（`modifying()` / `instanceIds()` / `active()` / `clearFor()`
+  是唯一出处，判据在 `InstallOccupancyTests` 的 OC 段）；`MainWindow::installingVersionIds()`
+  只是把 `m_installOccupancy.instanceIds()` 并进另外两个来源。
+  同一天把**后台搬文件那份引用计数**也搬了出去：`controllers/FileOperationOccupancy`
+  （`mark()` / `release()` / `contains()` / `instanceIds()`），主窗口只转发
+  `markFileOperationBusy()` / `releaseFileOperationBusy()`，判据是 FO 段。
+- InstanceSettingsDialog 的编辑控件与**脏状态**边界：**判据已全部搬完**（2026-11-05）——
+  签名（`ui/InstanceSettingsSignature`，U9c）、写盘短路（`InstanceMetaFile::fieldsAlreadyEqual`，O13）、
+  左栏页选择（`ui/InstanceSettingsPageChoices`，U9d）都在外壳之外，且各有用例。
+  **控件本体不搬**：它们本来就是"这一页长什么样"的一部分，再包一层只会多出一层纯转发；
+  页面已按一页一摊分 TU（概览/启动/文件），值经由 `Override` / `Edit` 适配器交出去。
+  真要动的话动机是"换一种控件实现"，不是夹具或职责。
+- ~~UiContentPagesChecks 等大测试仍共享长寿命夹具，先明确夹具生命周期再分领域。~~
+  **已收口（2026-11-05）**：`UiContentPagesChecks` 十八段全部搬进各自模块（4060 → 294 行），
+  共享工具收进 `UiInstanceFilesTestHelpers.hpp`，`ui_check` 全程 3177/3177。
+  其余大模块按同一张表复核过（见 `docs/TESTING.md`「其余大模块的夹具」）：要么天生要进程级
+  夹具（主题比色 / 实例树），要么本来就自建自弃（实例覆盖、配置编辑、皮肤网格、实例分组、
+  升级事务）—— 按尺寸继续切没有收益。
 - VersionManager 已分为核心、加载器安装、整合包导入、实例识别与导出，本轮没有再按行数切割它。
 
 ## 之前的记录（保留原验收口径）
@@ -899,8 +913,9 @@ ui/MainWindowPages.cmake 是产品与两个 UI 验证层共用的源码清单，
 
 `MainWindow.cpp` 里 1606–2200 这 595 行，主语是"界面上列出来的那些实例和版本"：
 
-- `installingVersionIds()`：**谁现在不能启动**的唯一出处。三个来源（`m_fileOperationInstanceIds`
-  这份后台搬文件的名单、`DownloadBatchController::isRestoring()` 期间全部实例、`VersionManager`
+- `installingVersionIds()`：**谁现在不能启动**的唯一出处。三个来源（`FileOperationOccupancy`
+  那份后台搬文件的名单——2026-11-05 之前是主窗口上的 `m_fileOperationInstanceIds`、
+  `DownloadBatchController::isRestoring()` 期间全部实例、`VersionManager`
   的 `busyVersionId()`）在这里合流；界面别处只问它，不许自己再拼一遍。
 - `refreshInstalledVersions()` / `rebuildInstanceTree()`：已安装版本下拉框与分组树。
 - `updateInstanceTreeRunState()` / `updateStartButtonText()`：运行态，"启动"那颗按钮上那句字。
@@ -1886,4 +1901,72 @@ NOTE: `SupportCore.hpp` 里**没有 `Q_OBJECT`**。AUTOMOC 只给显式列进
 把"完成但未派发"那一态钉住；判据要求回调拿到这份回复、正文可读、没有错误、没有超时标记，
 且 Control 额度已归还。旧实现在这一条上会把回复换成空指针 + 超时。
 
+## 2026-11-04 `ui/InstanceSettingsDialog`：脏状态判据挪成纯函数（`InstanceSettingsSignature`）
 
+这一页的写盘是"哪里变了就立刻写那几项"（`notifyEdited()` 发现值变了就发
+`settingsEdited`）。判"变了没有"以前是对话框里的私有函数 `valueSignature()`：它读十来个
+控件、调用几个归一化函数，再拼成 `QStringList` 逐字比较 —— 于是这条判据**验证工程够不着**，
+只能靠 mw_check 里"改一格、看盘上有没有变"的间接用例。
+
+现在拼签名那一半挪到 `ui/InstanceSettingsSignature.{hpp,cpp}`：`Inputs` 是一份值
+（`std::optional` 的几项 + 追加参数清单 + 图标键 + 分组 id + 置顶 + 每页勾选），
+`signatureOf()` 是纯函数。对话框只剩"从控件读出来填进 `Inputs`"这一层。
+
+两个约定原样保留（注释里都写着为什么）：
+
+- 「有没有值」和「值本身」都要进签名（`v:<值>` / `-`）：否则"跟随全局"和"自定义成 4"
+  会撞成同一份签名，界面切了档、盘上一个字节都不动；
+- 「显示哪几页」按界面顺序摆，不按 `QHash` 遍历顺序 —— 后者每次都未必一样，签名会自己变，
+  等于每读一次就说"改了"。
+
+判据：`tests/ui_check/modules/UiInstanceOverridesChecks.cpp` 的 U9c（10 条）——
+同样输入两次一致、七种改法各变一次、追加参数换顺序也算变、页面顺序参与签名。
+
+**写盘那一半也接上了（同一天）**：`InstanceSettingsController::apply()` 在真正写之前先问
+`InstanceMetaFile::fieldsAlreadyEqual(盘上那份, 要写的字段)` —— **一字不差就整次不写**。
+判据里 null 只在盘上本来没有这个键时算相等（删键的约定），对象逐层比；分组 / 置顶那两条
+另外的路也各自比一遍"用户改了没有"，三样都没动才提前返回。
+这样"打开设置看一眼、按确定"不再推 meta 的 mtime、不再白重扫实例树，也不会把别的进程
+刚写进去的值按旧读数盖回去。判据：`tests/core_modules/VersionMetaWriteTests.cpp` 的 O13（9 条）。
+
+**没动的**：编辑控件本身与主窗口那一层接线仍在原处（`ui/` 那份外壳 + `MainWindow` 的
+`applyInstanceSettings()` 适配器）。
+
+## 2026-11-04 内存档位：旧的"自动档"窗口不再盖掉别人切回手动的现场
+
+这是 mw_check 那条间歇失败的根因（2026-11-04 全量跑里失败过一次、单跑又全绿）：
+
+- 两扇 `MainWindow` 同时开着时各持一份 `GlobalJavaSettings`；
+- A 切回「手动分配」⇒ `restoreManualMemory()` 把用户原来那一对写回盘；
+- B 还停在它启动时读到的「自动分配」上，它的 2 秒定时器下一发会
+  `refreshSuggestedMemory()` 再 `save()` —— 系统可用内存变了的话，这一发就把自动算出来的
+  Xmx 写回盘，用户看到的是"切回手动后内存还是自动值"。
+
+修法是 `GlobalJavaSettings::save()` 加一道判据：**本对象上一次保存时是自动档、而现在盘上是
+手动档** ⇒ 说明档位是别人改的，这次不写 `Java/Xmx`、`Java/Xms` 两格（别的项照写）。
+刚由手动切自动的那一发不受影响（那发 `wasAuto` 还是假，要写的正是现场与档位）。
+
+判据：`tests/core_modules/MemorySuggestionTests.cpp` 的 L5。它把"这一发算出来的数和读盘时
+不一样"摆成确定形状（手动 +256），不依赖机器上可用内存真的变。反向验过：把判据改成恒假，
+L5 立刻红（写回 5632）；恢复后是 5120。
+
+**2026-11-04 一次操作失误与恢复（留档）**：收尾时想一次再拆五段，脚本按"标记行之后第一个 `{`"
+配平，遇到块内有字符串/注释里的花括号就多吃了行，导致主文件被切碎。处理：`git checkout` 回
+HEAD 的整份主文件，再用**已经验证过的 13 个模块文件当真相**（逐行原文匹配）把它们从主文件里
+换回调用，然后重新编译、跑 `ui_check` 确认 3177/3177。教训：这种批量搬运要逐段单独验证、
+每段都跑一次断言，不能一口气五段再编译；下一次做剩下几段（U10a / U10b 开头 / U10e / U10g /
+U10T）时按段做、每段都过一次 `ui_check`。
+
+## 2026-11-05 复核：还剩什么"大文件按状态所有权拆分"
+
+计划里那一条现在的清单（见 `CODING_PLAN_FULL.md` §4）逐项对过：
+
+| 清单里的项 | 现状 | 结论 |
+| --- | --- | --- |
+| 实例设置概览/启动/脏状态 | 概览/启动/文件页已是独立 TU；脏状态签名、写盘短路、左栏页选择都搬到纯函数（U9c/O13/U9d） | 判据搬完；编辑控件按"再包一层只是纯转发"留外壳 |
+| 长寿命 UI 测试夹具 | `UiContentPagesChecks.cpp` 4060 → 294 行，十八个模块 + `UiInstanceFilesTestHelpers.hpp` | 已收口；其余大测试复核无同类问题 |
+| `InstanceFilesPage` 与下载协调职责 | `ui/InstanceFilesPage.cpp` 682 行 / `.hpp` 1392 行；页里 **0** 处下载批次引用（`DownloadBatch*` / `installBatch`），下载协调不在这一页 | 清单里这句描述已过时，没有可搬的东西 |
+| MainWindow 安装/服务端/资源更新协调 | `MainWindow.cpp` 1505 行是**下载/资源页这一个领域**（资源搜索、筛选、详情、下载入口）；服务端在 `MainWindowServer.cpp` 815 行；资源依赖两片 127/132 行 | 余下的是"窗口把这些领域接起来"的那层协调，本身没有第二个领域混进来 —— 再按行数切只会多一层纯转发 |
+
+所以这一条**不再有待办**：要么已经搬完（前两行），要么清单描述已过时（第三行），要么切开没有收益（第四行）。
+继续切 `MainWindow.cpp` 的动机只能是"换一种组织方式"，不是所有权边界 —— 那属于另一件事，需要单独决定。

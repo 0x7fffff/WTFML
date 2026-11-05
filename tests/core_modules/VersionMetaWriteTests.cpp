@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "manage/InstanceMetaFile.hpp"
 
 int runVersionMetaWriteTests(const QString &sandbox) {
     section("O. wtfml.meta 写侧（合并写、坏文件拒写、稳定 id）");
@@ -256,9 +257,45 @@ int runVersionMetaWriteTests(const QString &sandbox) {
         check(vm.instanceId(id).isEmpty(), "O12 删掉之后稳定 id 也回到空");
     }
 
+    // ---------- O13. 「这批字段和盘上那份一样吗」= 要不要写盘的判据 ----------
+    //
+    // 实例设置是"改一格落一格"：打开看一眼、按确定，或者焦点移开触发一次
+    // `editingFinished` 都会走一遍写盘。要写的每个键和盘上那份一字不差时再写一次只有坏处
+    // （推 mtime、重扫树、把别的进程刚写的值按旧读数盖回去）。判据收在
+    // `InstanceMetaFile::fieldsAlreadyEqual()`：null 只在盘上本来没有这个键时算相等。
+    {
+        const QJsonObject current{{QStringLiteral("javaPath"), QStringLiteral("C:/java")},
+                                  {QStringLiteral("xmx"), 4096},
+                                  {QStringLiteral("pages"),
+                                   QJsonObject{{QStringLiteral("save"), false}}}};
+        using InstanceMetaFile::fieldsAlreadyEqual;
+        check(fieldsAlreadyEqual(current, current), "O13 完全一样 ⇒ 不用写");
+        check(fieldsAlreadyEqual(current, QJsonObject{{QStringLiteral("xmx"), 4096}}),
+              "O13 只比列出来的键（盘上多出来的键不算改动）");
+        check(!fieldsAlreadyEqual(current, QJsonObject{{QStringLiteral("xmx"), 8192}}),
+              "★ O13 改了一个数 ⇒ 要写");
+        check(fieldsAlreadyEqual(current, QJsonObject{{QStringLiteral("autoMemory"), QJsonValue::Null}}),
+              "★ O13 Null 且盘上本来没有这个键 ⇒ 不用写");
+        check(!fieldsAlreadyEqual(current, QJsonObject{{QStringLiteral("xmx"), QJsonValue::Null}}),
+              "★ O13 Null 但要删一个盘上真有的键 ⇒ 要写");
+        check(!fieldsAlreadyEqual(current, QJsonObject{{QStringLiteral("xmx"), QStringLiteral("4096")}}),
+              "★ O13 类型不同（数字 vs 字符串）⇒ 要写");
+        check(!fieldsAlreadyEqual(current,
+                                  QJsonObject{{QStringLiteral("pages"),
+                                               QJsonObject{{QStringLiteral("save"), true}}}}),
+              "★ O13 嵌套对象不同 ⇒ 要写");
+        check(fieldsAlreadyEqual(current,
+                                 QJsonObject{{QStringLiteral("pages"),
+                                              QJsonObject{{QStringLiteral("save"), false}}}}),
+              "★ O13 嵌套对象一样 ⇒ 不用写");
+        check(!fieldsAlreadyEqual(current, QJsonObject{{QStringLiteral("missing"), 5}}),
+              "★ O13 盘上没有、草稿有值 ⇒ 要写");
+    }
+
     const bool cleaned = QDir(versionsRoot + "/" + id).removeRecursively();
     check(cleaned && !QDir(versionsRoot + "/" + id).exists(),
           "O8 用完的沙盒目录删干净了（句柄没被自己攥着）");
     return 0;
 }
+
 

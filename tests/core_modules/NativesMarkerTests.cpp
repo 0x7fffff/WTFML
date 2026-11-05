@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "util/PowerShell.hpp"
 
 void runNativesMarkerTests() {
     section("ZNat. natives 解压的完成标记（半套目录不许复用）");
@@ -42,11 +43,11 @@ void runNativesMarkerTests() {
         writeFileAt(src + QLatin1Char('/') + dllName, QByteArray("dll"));
         QFile::remove(libFile);
         const QString script =
-            QStringLiteral("Compress-Archive -Path %1 -DestinationPath %2 -Force")
+            QStringLiteral("$ProgressPreference='SilentlyContinue'; Compress-Archive -Path %1 -DestinationPath %2 -Force")
                 .arg(QStringLiteral("'") + QDir::toNativeSeparators(src) + QStringLiteral("\\*'"),
                      QStringLiteral("'") + QDir::toNativeSeparators(libFile) + QStringLiteral("'"));
         QProcess ps;
-        ps.start(QStringLiteral("powershell"),
+        ps.start(PowerShell::executable(),
                  {QStringLiteral("-NoProfile"), QStringLiteral("-NonInteractive"),
                   QStringLiteral("-ExecutionPolicy"), QStringLiteral("Bypass"),
                   QStringLiteral("-Command"), script});
@@ -110,4 +111,6 @@ void runNativesMarkerTests() {
 
     AppPaths::setMinecraftDir(originalDir);  // 收摊
 }
+
+
 

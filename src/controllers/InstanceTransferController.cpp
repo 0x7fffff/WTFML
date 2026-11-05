@@ -36,7 +36,7 @@ namespace {
 // **不能**只拿 `QDir::cleanPath` 比字面量。用户完全可以把游戏文件夹
 // 用另一条路指过来（junction / 符号链接）—— 那时两串字面量不同、而 `versions/<名字>/`
 // 落的就是同一个目录。漏判的后果分两处：
-// · 后台复制期间目标名字**没被记进 `m_fileOperationInstanceIds`** ⇒ 拷到一半的实例
+// · 后台复制期间目标名字**没被记进 `FileOperationOccupancy`** ⇒ 拷到一半的实例
 // 下一次刷新就能被启动 / 删除（那两条闸只查 `installingVersionIds()`）；
 // · 复制完成那句提示说"在另一个游戏文件夹里"，而它明明就在列表里。
 // `InstanceFiles::pathIsSameOrInside()` 会解 junction / 8.3 短名 / 符号链接
@@ -697,3 +697,4 @@ bool InstanceTransferController::renameWorld(const QString &instanceId,
     log(tr("世界改名：%1 → %2").arg(QDir::toNativeSeparators(worldDir), newName.trimmed()));
     return true;
 }
+

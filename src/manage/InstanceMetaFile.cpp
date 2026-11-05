@@ -123,4 +123,23 @@ bool mergeWrite(const QString &path, const QJsonObject &fields, QString *errorOu
     }
     return true;
 }
+
+bool fieldsAlreadyEqual(const QJsonObject &current, const QJsonObject &fields) {
+    for (auto it = fields.constBegin(); it != fields.constEnd(); ++it) {
+        const QJsonValue have = current.value(it.key());
+        // null / undefined = "删掉这个键"：盘上本来没有才算相等。
+        if (it.value().isNull() || it.value().isUndefined()) {
+            if (!have.isUndefined() && !have.isNull()) {
+                return false;
+            }
+            continue;
+        }
+        // 对象 / 数组也是深层比较（`QJsonValue::operator==`）；数字/字符串/布尔直接比，
+        // 类型不同（`1` 与 `"1"`）一定不等。
+        if (have != it.value()) {
+            return false;
+        }
+    }
+    return true;
+}
 } // namespace InstanceMetaFile

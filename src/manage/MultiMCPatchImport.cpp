@@ -48,6 +48,34 @@ bool jvmArguments(const QJsonArray &input, QJsonArray &output) {
     }
     return true;
 }
+
+/// 已知、但这一层**明确不支持**的补丁字段：回一句"它是什么、为什么不能当没看见"。
+///
+/// 这些字段不是"以后顺手加一个解析就能支持"的东西 —— 每一个都要求启动器侧多一种能力
+/// （把 jar 合并进游戏本体、额外的 natives、行为提示），只解析不实现比拒绝更糟：包会装上、
+/// 启动时才炸，而用户看不出是哪一步被忽略了。所以认得出就点名说清楚。
+QString unsupportedFieldReason(const QString &field) {
+    if (field == QLatin1String("+jarMods")) {
+        return QObject::tr("这个包用了 +jarMods（旧式核心 mod）：它要求把 jar 合并进游戏本体，"
+                           "本启动器不做这一步，装上也起不来。");
+    }
+    if (field == QLatin1String("+files")) {
+        return QObject::tr("这个包用了 +files（旧格式的额外文件表）：它的落点依赖旧启动器的"
+                           "行为，本启动器按 +libraries 那一套走，不猜这几种混着写的顺序。");
+    }
+    if (field == QLatin1String("addnatives")) {
+        return QObject::tr("这个包用了 addnatives（额外 natives）：本启动器只从版本 json 的 "
+                           "libraries 里取 natives。");
+    }
+    if (field == QLatin1String("+traits")) {
+        return QObject::tr("这个包用了 +traits（启动器行为提示，例如 legacyLaunch）：这些提示"
+                           "会改变启动参数的组织方式，本启动器不认它们。");
+    }
+    if (field == QLatin1String("+luac")) {
+        return QObject::tr("这个包用了 +luac（Lua 补丁，LiteLoader 那一类）：本启动器不支持。");
+    }
+    return QString();
+}
 }
 
 Result parsePatchedMultiMCInstance(const QByteArray &manifest, const QByteArray &config,
@@ -81,8 +109,17 @@ Result parsePatchedMultiMCInstance(const QByteArray &manifest, const QByteArray 
             return fail(QStringLiteral("补丁身份或版本与清单不一致：%1").arg(uid));
         if (patch.contains("order") && (!patch.value("order").isDouble() ||
             patch.value("order").toDouble() != patch.value("order").toInt())) return fail(QStringLiteral("补丁顺序无效。"));
-        for (auto it = patch.begin(); it != patch.end(); ++it)
-            if (!allowedFields.contains(it.key())) return fail(QStringLiteral("尚不支持补丁字段 %1，未忽略它。" ).arg(it.key()));
+        for (auto it = patch.begin(); it != patch.end(); ++it) {
+            if (allowedFields.contains(it.key())) {
+                continue;
+            }
+            // 认得出的那几种点名说清楚（为什么不能只解析、以及它要求启动器多做什么）；
+            // 认不出来的保持原话。两种都不静默忽略 —— 包会装上、启动时才炸。
+            const QString reason = unsupportedFieldReason(it.key());
+            return fail(reason.isEmpty()
+                            ? QStringLiteral("尚不支持补丁字段 %1，未忽略它。").arg(it.key())
+                            : QStringLiteral("%1（字段 %2，未忽略它。）").arg(reason, it.key()));
+        }
         versions.insert(uid, patch.value("version").toString());
         ordered.append(patch);
         if (uid == QLatin1String("net.minecraft")) gameVersion = versions.value(uid);

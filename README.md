@@ -102,9 +102,29 @@ ctest --preset verification
 
 三套纳入 CTest 的回归程序在 `tests/`：
 
-- `verify` / `wtfml.core`：数据层纯函数与文件格式；
+- `verify`：数据层纯函数与文件格式。**已按域拆成多个可执行程序**（`verify_<域>`，另有基线
+  那一个），`ctest --preset verification` 一次跑全；
 - `ui_check`：offscreen 控件、布局与像素探针；
 - `mw_check`：真 `MainWindow` 与跨控制器集成。
+
+日常改完代码用 `tools/test.ps1` 按套件跑（它会挑要建的目标，再调 ctest）：
+
+```powershell
+./tools/check-test-modules.ps1                       # 测试入口/模块归属/大小上限
+./tools/check-doc-links.ps1                          # 文档相对链接与源码里的 docs 引用
+./tools/test.ps1 -Suite quick                        # 十几秒的冒烟
+./tools/test.ps1 -Suite full -TestJobs 1             # CI 同款：按标签排除 visual
+```
+
+**受限令牌环境**（Windows 沙箱 / 某些企业策略）下子进程只能写工作区，而测试要建临时目录。
+这时给 `tools/test.ps1` 指一个工作区里的临时根，否则 `QTemporaryDir` 会拿到"拒绝访问"：
+
+```powershell
+$env:WTFML_TEST_TEMP = 'D:\Desktop\the_project\.tmp-test'
+```
+
+> 2026-11-05 核对：预设 `dev-debug` / `release` / `verification` / `ci-verification` 与本节命令
+> 一致；`verification` 的产物在 `build/verification-mingw13`；`WTFML_USE_PCH` 默认 ON。
 
 默认验证与 CI 跑非 visual 的确定性集合；依赖真机桌面或已知受 Qt offscreen 影响的像素探针
 用 `ctest --preset visual` 单独运行。测试基线、已知离屏限制和验证原则见
@@ -118,3 +138,4 @@ ctest --preset verification
 ## 许可
 
 见 [LICENSE](LICENSE)。
+

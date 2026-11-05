@@ -6,6 +6,9 @@
 #include <vector>
 #include <QProcess>
 #include <QThread>
+#include <QDateTime>
+#include <QFile>
+#include <QFileDevice>
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -162,6 +165,36 @@ void runCopyInstanceAndWorldTests() {
         QLockFile contender(QDir::temp().filePath(QStringLiteral("wtfml-directory-%1.lock").arg(key)));
         contender.setStaleLockTime(0);
         check(!contender.tryLock(0), "ZJ3 已持有的目录锁拒绝第二个锁持有者");
+        // 陈旧锁必须能被接管：崩溃 / 强杀 / 断电之后，上一次留下的那个文件不能让这个
+        // 数据目录永久锁死（以前 `setStaleLockTime(0)` 就是这个效果 —— Qt 在 0 时**永不**
+        // 判陈旧，实测一台机器上积了 6 个死 PID 的锁）。
+        // 这里手写一份"PID 早就不在了 + 文件是两小时前的"锁，再取同一个目录。
+        {
+            const QString staleRoot = scratch.path() + QStringLiteral("/陈旧锁");
+            QDir().mkpath(staleRoot);
+            const QString staleKey = keyFor(staleRoot);
+            const QString stalePath =
+                QDir::temp().filePath(QStringLiteral("wtfml-directory-%1.lock").arg(staleKey));
+            QFile stale(stalePath);
+            if (stale.open(QIODevice::ReadWrite | QIODevice::Truncate)) {
+                // QLockFile 的格式：第一行 PID、第二行主机名、第三行应用名。
+                stale.write(QByteArray("999999\n") + qgetenv("COMPUTERNAME") + "\n"
+                            + QByteArray("WTFMinecraftLauncher.exe\n"));
+                stale.flush();
+                // NOTE: `setFileTime()` 要求文件**还开着**（QFile 的约定），关掉再调会静默
+                // 失败 —— 那样 mtime 还是"刚刚"，锁自然不算陈旧，这条断言就会以一个
+                // 假失败的形式冤枉被测代码。
+                stale.setFileTime(QDateTime::currentDateTime().addSecs(-7200),
+                                  QFileDevice::FileModificationTime);
+                stale.close();
+            }
+            QString staleProblem;
+            const bool reclaimed = acquire(staleRoot, &staleProblem);
+            check(reclaimed, "★ ZJ3 死 PID + 两小时前的陈旧锁能被接管（不再永久锁死）",
+                  staleProblem);
+            held.remove(staleKey);
+            QFile::remove(stalePath);
+        }
         check(keyFor(saves + QStringLiteral("/../saves/")) == key,
               "ZJ3 路径别名不能绕过目录锁");
         // 大小写与盘符写法：Windows 上这就是同一个目录，别名不能变成第二把锁。

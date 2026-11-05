@@ -197,6 +197,24 @@ CI 使用 `-BuildDir build/ci -ConfigurePreset ci-verification`。已有构建�
 不静默更换编译器。构建并行默认 2，可用 `-BuildJobs 4` 调整；测试仍串行。
 CI 的配置/单目标构建预算显式放宽到 900 秒；本地默认仍是 600 秒。
 
+### 核心套件不下载 Java 运行时（2026-11-04）
+
+`verify.exe` 的「E. Java 运行时选择」一节以前直接调
+`GlobalJavaSettings::ensureJavaForVersion()`；本机没有对应主版本时，那个函数最后会去
+Mojang/Adoptium 下几百 MB 的运行时。于是"跑单元测试"等于"当场下一次 Java"——CI 上慢网络
+偶尔跑满 900 秒的阶段上限，整个 `ci-core` 判死（2026-11-03 那次就是）。
+
+现在这一节默认**只在本机找**（`ensureJavaForVersion(..., allowDownload=false)`）：找到就核对
+版本，找不到就明确打印"本机没有，按设置未下载"，不碰网络。要验下载那条路时：
+
+```powershell
+$env:WTFML_TEST_JAVA_DOWNLOAD = "1"
+./build/verification-mingw13/tests/verify.exe
+```
+
+同一处 `runProcess()` 的 5 秒超时现在会 `kill()` + 等待收尸：以前超时直接返回，子进程还活着
+（Qt 打 `QProcess: Destroyed while process ... is still running.`，CI 上要另外终止孤儿进程）。
+
 ### CI 加速与分片
 
 GitHub 将同一份非 visual 测试集拆成四个并行作业，各自内部仍串行跑测试：
@@ -238,6 +256,55 @@ full 也尚非严格断网测试：主窗口历史用例会触发后台 Mojang/�
 本机模拟服务器需要允许 `127.0.0.1` 回环连接；受限沙箱里出现 `Permission denied` 时，
 应保留失败日志并换用允许回环连接的测试环境，不能据此判断下载实现失效。
 
+### network-diag 在本机怎么跑
+
+`WTFMLNetworkDiag` 是**诊断工具本身**（带窗口）：不带参数运行会开窗等交互，看起来就是"停住"——
+这不是挂起。本机验证走 ctest 那条同样的命令：
+
+```powershell
+$env:QT_QPA_PLATFORM='offscreen'
+build-audit/tools/network_diag/WTFMLNetworkDiag.exe --self-test
+```
+
+2026-11-05 本机实测：**48 条全过、19.0 / 18.9 秒、退出码 0**，与 CI 的约 19 秒一致。
+
+所以本机跑全量**不需要**再把 `network-diag` 排除掉。注意 ctest 的两种"排除 visual"不是一回事：
+
+| 命令 | 选到几项 | 说明 |
+| --- | --- | --- |
+| `ctest -E visual` | 39 | 按**名字**排除；`wtfml.ui` 名字里没有 visual，所以它在里面 |
+| `tools/test.ps1 -Suite full` / CI | 38 | 按**标签**排除（`-LE visual`）；`wtfml.ui` 带 `visual` 标签，不跑 |
+
+2026-11-05 实测：`-Suite full`（38 项，含 network-diag）**全部通过、394.28 秒**；`ctest -E visual`
+（39 项）也全过、410.98 秒。`wtfml.ui` 那套用 `-Suite visual` 单独跑。
+
+**`-Suite network` 曾经在本机 3/6 失败，根因已查清并修好（2026-11-05）**：`tools/test.ps1` 原来把测试进程的
+`TEMP` 指到仓库里的 `build/test-runs/<id>/temp`。在这种受限令牌环境（Windows 沙箱 / 某些企业策略）下，
+子进程**只能写工作区**，`QTemporaryDir` 取默认路径就拿到"拒绝访问"，凡是这么干的模块直接返回 2
+（症状：ctest 报 `Failed`、0.03 秒、断言只跑了 2 条）。现在 `tools/test.ps1` 改成：
+
+- 默认用系统临时目录；
+- 设了 `WTFML_TEST_TEMP` 就用它（受限环境指到工作区即可）：
+
+```powershell
+$env:WTFML_TEST_TEMP = 'D:\Desktop\the_project\.tmp-test'   # 本机示例
+./tools/test.ps1 -Suite network -BuildDir D:\Desktop\the_project\build-audit -NoBuild
+```
+
+2026-11-05 复测：`-Suite network` 现在选 **6 项**（五个下载用例 + `network-diag`），**6/6 通过、107.94 秒**。
+
+2026-11-05 复测：`-Suite network` **5/5 通过、89.16 秒**；`download-retry` / `preset-install` / `network-diag`
+单独跑 ctest 也都过（3/3、35.08 秒）。
+### 例行检查（改完测试文件跑一遍）
+
+```powershell
+./tools/check-test-modules.ps1                      # 测试入口/模块归属/大小上限
+./tools/check-doc-links.ps1                         # 文档相对链接与源码里的 docs 引用
+$env:WTFML_TEST_TEMP = 'D:\Desktop\the_project\.tmp-test'
+./tools/test.ps1 -Suite quick -BuildDir D:\Desktop\the_project\build-audit -NoBuild
+```
+
+2026-11-05 实测：归属检查 **PASS**；`-Suite quick` **12/12、11.85 秒**；文档引用检查 **PASS**（129 条 markdown 相对链接 + 48 条源码里的 `docs/` 引用，0 缺失）。
 ## 按改动选择模块
 
 `tools/test-impact.ps1` 是唯一的路径到测试模块映射。本地默认比较 `origin/main...HEAD`，同时合并
@@ -307,7 +374,11 @@ JSON 与日志在 `build/acceptance-20261025/`。物理慢盘上的同一矩阵�
 - tests/core_modules/：81 个原命名用例函数，各一个 .cpp；按下载、安装、实例、Java、账号、资源、
   启动、服务端、活动、预设、工具箱组织成 11 个独立可执行程序。verify_baseline 保留原 main 中的基础断言，
   12 个断言入口的并集覆盖旧核心集合；verify 兼容手动模式，CI 只检查它能链接和启动，不重复运行整套断言。
-- tests/ui_check/modules/：导航、主题、任务、配置编辑、内容页、账号、日志等各自一个编译单元。
+- 整份 `verify` 与分片的关系（2026-11-05 复核）：整份 `verify.exe` **6457/6457（122.1 秒）**；
+  分片各自 exit 0（baseline 195、accounts 402、activity 148、launch 346、instances 1715、java 268、
+  presets 867、resources 942、servers 762、toolbox 435、install 378、downloads 244）。
+  **分片相加比整份大**：每个分片程序会各自再跑一遍模块级引导断言，所以"核心总量"以整份 `verify`
+  或 `ctest` 为准，别拿分片求和当总量。- tests/ui_check/modules/：导航、主题、任务、配置编辑、内容页、账号、日志等各自一个编译单元。
   历史顺序测试继续由 ui_check 编排，保留共享窗口和执行顺序；7 个快速 UI 专项独立构建和注册。
   ui-bootstrap 只检查完整驱动能链接、启动和读取图标，保持历史断言的编译门禁；历史 visual 仍按原策略另跑。
 - tests/mw_check/modules/：31 个原命名函数、25 个历史界面接线段和 4 个快速专项各自独立 .cpp。
@@ -332,6 +403,62 @@ JSON 与日志在 `build/acceptance-20261025/`。物理慢盘上的同一矩阵�
 完整入口仍串行；物理拆分不等于历史共享数据已完成隔离，也不代表历史堆损坏已解决。
 原有 vm-batch / vm-fetch-fail / 联网安装等手动模式仍显式运行，不因拆分而偷偷加入常规 CI。
 
+### 夹具生命周期（ui_check 的大模块）
+
+"大测试共享长寿命夹具"这件事先要说清**谁活多久**，否则拆模块只能靠猜。当前事实（2026-11-04 复核）：
+
+| 夹具 | 谁建的 | 活多久 | 模块怎么拿 |
+| --- | --- | --- | --- |
+| `QApplication` / 主题 / 字体 | `tests/ui_check/main.cpp` 开头 | 整个进程 | 按 `QApplication &` 传（只读） |
+| `ui`（`MainWindowUI`）、`window`（`QMainWindow`） | `main.cpp` | 整个进程 | 按引用传 |
+| `tabs` / `bar`（底栏）/ 实例下拉框等控件指针 | `main.cpp` 从 `ui` 取 | 整个进程（控件归 `ui` 所有） | 按 `T &` / `T *` 传；**只有真的会换掉这个指针**时才写 `T *&` |
+| 各模块自己造的数据目录 | 模块内的 `QTemporaryDir`（`scratch` / `scratch2` …） | 到所在那一层大括号为止 | 不出模块 |
+
+两条约定：
+
+- **`*&` 是例外，不是默认。** 全仓只有一个模块真的会给形参重新赋值：`UiInstallFormLayoutChecks`
+  换掉 `loaderCard` / `installFooter`（它把安装页重搭了一遍，后面的断言要看新控件）。
+  其余模块的 `*&` 只是历史上照抄签名，读起来像"会换"，实际没有。
+- **没人用的形参要删。** `UiContentPagesChecks(QFrame * &bar)` 从来没读过那个 `bar`
+  （函数体里那个 `bar` 是 `mods->selectionBar()`，页内自己的控件），2026-11-04 已改成无参 ——
+  留着它只会让下一个人以为这个模块依赖底栏。
+
+已按这张表拆出来的（2026-11-04）：
+
+| 从 | 搬到 | 拿什么当夹具 | 断言 |
+| --- | --- | --- | --- |
+| `UiContentPagesChecks.cpp` U10L（服务器页"现在什么样"，680 行） | `modules/UiServerPageChecks.cpp` | `InstanceSettingsDialog &dialog`（原来就是共用调用方那一个） | 85 条照跑 |
+| 同上 U10Q（批量管理，460 行） | `modules/UiBatchManagementChecks.cpp` | 两个名字 + `InstanceSettingsDialog::GlobalValues &global` | 40 条照跑 |
+| 同上 U10R（行尾次序 / 详情悬停 / 右键 / 开关显隐，320 行） | `modules/UiRowActionsChecks.cpp` | 同上三个显式形参 | 31 条照跑 |
+| 同上 U10N（行尾「详情」进哪一页，225 行） | `modules/UiDetailEntryChecks.cpp` | 同上三个显式形参 | 14 条照跑 |
+| 同上 U10M（「下载新 X」去哪一栏，125 行） | `modules/UiDownloadNewChecks.cpp` | 共用 `dialog` + 两个名字 + `global` | 32 条照跑 |
+| 同上 U10f（空目录 / 用不上那两句，105 行） | `modules/UiEmptyPageChecks.cpp` | 两个名字 + `global` + 临时目录 `root` | 9 条照跑 |
+| 同上 U10S（编辑 / 加入服务器 / 加入选中的世界，240 行） | `modules/UiQuickPlayChecks.cpp` | 共用 `dialog` + 两个名字 + `global`；`mkfile` 用共享的 `uiMkFile()` | 36 条照跑 |
+| 同上 U10P（搜索 / 状态筛选 / 可更新 / 同页筛选动画，460 行） | `modules/UiSearchFilterChecks.cpp` | 共用 `dialog` + `modsDir`；行内容用共享的 `uiItemText()` 一类 | 38 条照跑 |
+| 同上 U10k（长名字省略 / 从中间截，230 行） | `modules/UiElidedNameChecks.cpp` | 两个名字 + `global` + 临时目录 `root` | 8 条照跑 |
+| 同上 U10M-2（拨开关 / 退回详情后不跳回顶，215 行） | `modules/UiScrollAnchorChecks.cpp` | 两个名字 + `global` | 3 条照跑 |
+| 同上 U10O（存档页顶上两颗 / 统计小字 / 不跟 junction 走，175 行） | `modules/UiMediumPagesChecks.cpp` | 共用 `dialog` + `root` + `savesDir` | 31 条照跑 |
+| 同上 U10d（三条开关，83 行） | `modules/UiToggleChecks.cpp` | 共用 `dialog` + `modsDir` | 8 条照跑 |
+| 同上 U10b2（常用目录那一排分两段，87 行） | `modules/UiDirectoryButtonsChecks.cpp` | 共用 `dialog` | 8 条照跑 |
+
+十八段全部拆完（同日）：`ui_check` 仍是 **3177/3177**、断言一条没少；`UiContentPagesChecks.cpp` 从 4060 行降到 294 行，只剩开头的夹具与 18 处调用。最后五段是 U10T / U10g / U10e / U10b / U10a。
+
+**其余大模块的夹具（2026-11-05 复核）**：`UiContentPagesChecks` 拆完之后，把剩下几个大文件按
+同一张表过了一遍 —— 没有第二个"共用长寿命夹具"的同类问题：
+
+| 模块 | 夹具 | 结论 |
+| --- | --- | --- |
+| `UiThemePaletteChecks`（2048 行） | 收进程级的 `tabs` / `bar` | 天生要，比色就比那两个控件 |
+| `UiInstanceGroupingChecks`（1081 行） | 收进程级的 `ui` / `instanceList` | 天生要，量的是主窗口那棵树 |
+| `UiInstanceOverridesChecks`（1969 行） | 自建 25 个对话框，用完即弃 | 没有共享夹具问题 |
+| `UiConfigEditorChecks`（1518 行） | 自建 3 个对话框 | 同上 |
+| `UiSkinMeshChecks`（1091 行） | 自建控件树 | 同上 |
+| mw_check `MwInstanceGroupsChecks`（1835 行） | 按场景自建 15 扇主窗口 | 同上 |
+| mw_check `InstanceUpgradeChecks`（1738 行） | 纯事务/目录夹具 | 同上 |
+
+所以按尺寸继续切它们**没有收益**；要动的话动机得是别的（比如编译时间、领域边界），
+而不是"夹具生命周期"。
+下一步要把模块按领域拆开时，按这张表判断"这个模块需不需要整份 `ui`"，而不是按文件大小切。
 ### 历史 UI 的验证边界
 
 2026-10-22 本机 Qt 6.10.1 / MinGW 13.1、offscreen、未设置任何跳过变量时：
@@ -976,3 +1103,28 @@ Windows/MinGW 新增 `wtfml.token-protection-fault`：仅该测试进程的导�
 仍只开放已验证的三个模块并行，其余独占。`check-test-modules.ps1` 防止入口隔离声明遗漏。
 
 本轮结果、首次失败与范围限制见 [P1 验收](P1_ACCEPTANCE_20261028.md)。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

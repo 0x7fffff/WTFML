@@ -2202,7 +2202,7 @@ int main(int argc, char *argv[]) {
 
     if (const int result = UiInstanceOverridesChecks(); result != 0) return result;
 
-    if (const int result = UiContentPagesChecks(bar); result != 0) return result;
+    if (const int result = UiContentPagesChecks(); result != 0) return result;
 
     if (const int result = UiConfigEditorChecks(); result != 0) return result;
 
@@ -3397,3 +3397,4 @@ int main(int argc, char *argv[]) {
     std::fflush(stdout);
     return g_fail == 0 ? 0 : 1;
 }
+

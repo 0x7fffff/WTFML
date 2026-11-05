@@ -15,10 +15,23 @@
 #include <QJsonParseError>
 #include <QLatin1Char>
 #include <QSet>
+#include <iterator>
 
 #include "../launcher/VersionInheritance.hpp"
 #include "../util/AppPaths.hpp"
 #include "../util/ZipUtil.hpp"
+
+#if defined(Q_OS_WIN)
+// 放在所有 Qt 头之后（windows.h 定义的东西太多，先于 Qt 包含容易撞名 —— 和 FolderManager.cpp
+// 同一个写法）。这里只用 CreateFileW / GetFinalPathNameByHandleW / CloseHandle 三个。
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
 
 namespace InstanceFiles {
 namespace {
@@ -589,6 +602,53 @@ int mainClassJavaMajor(const QString &versionId, const QString &mainClass) {
 // 互相指的环（A 指着 B、B 指着 A）：撞上限就返回当时那串，判据**退化成字面量比较**，
 // 不会死循环（这一层宁可漏判也不能挂住界面）。
 // NOTE: `static` 是有意的 —— 它只是这一条判据的实现细节，不进 .hpp、不给外面用。
+#if defined(Q_OS_WIN)
+/**
+ * @brief Windows 上**唯一**可靠的"这条路径最终指向哪儿"：开一个句柄，让文件系统自己回答。
+ *
+ * 为什么不继续用 `QFileInfo::junctionTarget()`：它解析的是重解析点里存的那串 substitute
+ * name，而那串字面量可以是相对的、也可能带 `\??\Global\` 这类前缀 —— Qt 于是把相对的那一段
+ * 拼到 junction 自己的父目录上。本机实测（2026-11-04）：`cmd /c mklink /J` 造出来的目标是
+ * `\??\Global\D:\...`，`junctionTarget()` 回的是
+ * `.../jt-link2/Global/D:/Desktop/.../源实例`，而 `pathIsSameOrInside()` 拿它去比当然对不上
+ * —— "不能把实例复制到它自己里面"那道闸就被绕过了（ZJ3/ZJ5/T27.3 三条断言在本机红、
+ * 在 CI 绿，正是这个差别）。
+ *
+ * 句柄这一路走的是文件系统自己的解析结果，写坏了也骗不过它；`FILE_FLAG_BACKUP_SEMANTICS`
+ * 是"要打开的是目录而不是文件"必须带的。失败回空串，调用方退回 Qt 那条实现。
+ */
+static QString finalPathByHandle(const QString &path) {
+    QString native = QDir::toNativeSeparators(path);
+    if (!native.startsWith(QStringLiteral("\\\\?\\"))) {
+        native = native.startsWith(QStringLiteral("\\\\"))
+                     ? QStringLiteral("\\\\?\\UNC\\") + native.mid(2)
+                     : QStringLiteral("\\\\?\\") + native;
+    }
+    HANDLE handle = CreateFileW(reinterpret_cast<LPCWSTR>(native.utf16()), 0,
+                                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                                OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+    if (handle == INVALID_HANDLE_VALUE) {
+        return QString();
+    }
+    // 32 KiB 是 Windows 支持的路径上限量级（32767 个字符）；不够就当场判失败，
+    // 不猜一个截断过的路径（截断过的路径指到别处比指不到更危险）。
+    wchar_t buffer[32768];
+    const DWORD length =
+        GetFinalPathNameByHandleW(handle, buffer, DWORD(std::size(buffer)), FILE_NAME_NORMALIZED);
+    CloseHandle(handle);
+    if (length == 0 || length >= DWORD(std::size(buffer))) {
+        return QString();
+    }
+    QString resolved = QString::fromWCharArray(buffer, int(length));
+    if (resolved.startsWith(QStringLiteral("\\\\?\\UNC\\"))) {
+        resolved = QStringLiteral("\\\\") + resolved.mid(8);
+    } else if (resolved.startsWith(QStringLiteral("\\\\?\\"))) {
+        resolved = resolved.mid(4);
+    }
+    return QDir::fromNativeSeparators(resolved);
+}
+#endif
+
 static QString resolveJunctions(const QString &absPath, int guard) {
     if (guard <= 0 || absPath.isEmpty()) {
         return absPath;
@@ -603,7 +663,19 @@ static QString resolveJunctions(const QString &absPath, int guard) {
         const QString prefix = (sep < 0) ? absPath : absPath.left(sep);
         const QFileInfo info(prefix);
         if (info.isJunction()) {
-            QString target = info.junctionTarget();  // Qt 已经补成绝对路径
+            QString target;
+#if defined(Q_OS_WIN)
+            // 先问文件系统（见 finalPathByHandle 的块注释）；拿不到才退回 Qt 那一条。
+            target = finalPathByHandle(prefix);
+#endif
+            if (target.isEmpty()) {
+                target = info.junctionTarget();  // Qt 已经补成绝对路径
+                // 但"补成绝对路径"这个前提是会破的：拿到的若不是绝对路径，就不要拿它去
+                // 拼判据（拼出来的是一个既不是 A 也不是 B 的路径，反而把闸放过去了）。
+                if (!target.isEmpty() && !QDir::isAbsolutePath(target)) {
+                    target.clear();
+                }
+            }
             if (!target.isEmpty()) {
                 target.replace(QLatin1Char('\\'), QLatin1Char('/'));
                 if (sep >= 0) {
@@ -620,8 +692,35 @@ static QString resolveJunctions(const QString &absPath, int guard) {
     return absPath;
 }
 
-QString canonicalPath(const QString &p) {
-    // 规范化：能解成真路径就解（解掉符号链接 / 8.3 短名 / 大小写那些别名），**再加一轮
+QString resolveLinkTarget(const QString &path) {
+    if (path.isEmpty()) {
+        return QString();
+    }
+#if defined(Q_OS_WIN)
+    // 句柄这一路对普通目录也会成功（回它自己的路径），所以先确认"它是个链接"，
+    // 否则调用方拿到"目标 = 自己"会以为链接指着自己（死循环那种判据）。
+    const QFileInfo info(path);
+    if (!info.isJunction() && !info.isSymLink()) {
+        return QString();
+    }
+    QString resolved = finalPathByHandle(path);
+    if (resolved.isEmpty()) {
+        // 退回 Qt：至少符号链接那一档它是准的；junction 那一档可能拿到畸形的字面量，
+        // 所以再校验一次"是不是绝对路径"，不合格就当"读不出来"（宁可让调用方重做别名，
+        // 也不要拿一个既不是 A 也不是 B 的路径去比）。
+        resolved = info.isSymLink() ? info.symLinkTarget() : info.junctionTarget();
+        if (!resolved.isEmpty() && !QDir::isAbsolutePath(resolved)) {
+            resolved.clear();
+        }
+    }
+    return QDir::fromNativeSeparators(resolved);
+#else
+    const QFileInfo info(path);
+    return info.isSymLink() ? info.symLinkTarget() : QString();
+#endif
+}
+
+QString canonicalPath(const QString &p) {    // 规范化：能解成真路径就解（解掉符号链接 / 8.3 短名 / 大小写那些别名），**再加一轮
     // junction**（canonicalFilePath 不管 junction，见上面那段）；解不了就退到 cleanPath +
     // absolutePath —— 见 .hpp 上那段 NOTE（判据不消失）。
         if (p.isEmpty()) {

@@ -15,6 +15,8 @@
  * 拆开之后别的 .cpp 看不见 —— 匿名命名空间是内部链接）。
  */
 #include "InstanceSettingsDialog.hpp"
+#include "InstanceSettingsSignature.hpp"
+#include "InstanceSettingsPageChoices.hpp"
 #include "ResourcePackPage.hpp"
 #include "WheelSafeComboBox.hpp"
 
@@ -605,14 +607,9 @@ QString InstanceSettingsDialog::pageText(const QString &key) {
 
 QStringList InstanceSettingsDialog::shownEntryKeys() const {
     // 左栏那一列的**唯一出处**：钉死的那两条 + 七条里"用得上且没被用户勾掉"的。
-    // 顺序 = pinnedPageKeys() 在前、optionalPageKeys() 的顺序在后（左栏就按这个顺序摆）。
-    QStringList out = pinnedPageKeys();
-    for (const QString &key : optionalPageKeys()) {
-        if (m_pageAvailable.value(key, true) && m_pageOverrides.value(key).toBool(true)) {
-            out.append(key);
-        }
-    }
-    return out;
+    // 判断本身在 `InstanceSettingsPageChoices::visible()`（纯函数，U9d 钉着）。
+    return InstanceSettingsPageChoices::visible(pinnedPageKeys(), optionalPageKeys(),
+                                                m_pageAvailable, m_pageOverrides);
 }
 
 QJsonObject InstanceSettingsDialog::pageChoices() const {
@@ -633,12 +630,8 @@ QJsonObject InstanceSettingsDialog::pageChoices() const {
 
 void InstanceSettingsDialog::setPageChoices(const QJsonObject &stored) {
     // 只收认得出来的键（前向兼容：以后删掉一页之后，盘上那条不该跟着在这儿复活）。
-    m_pageOverrides = QJsonObject();
-    for (const QString &key : optionalPageKeys()) {
-        if (stored.value(key).isBool()) {
-            m_pageOverrides.insert(key, stored.value(key).toBool());
-        }
-    }
+    // 归一化本身在 `InstanceSettingsPageChoices::normalized()`（纯函数，U9d 钉着）。
+    m_pageOverrides = InstanceSettingsPageChoices::normalized(stored, optionalPageKeys());
     rebuildEntryList();
     m_lastSignature = valueSignature();
 }
@@ -2066,53 +2059,34 @@ void InstanceSettingsDialog::watchEditors() {
 QStringList InstanceSettingsDialog::valueSignature() const {
     // 拼的就是**写盘那边会读的那几问**（`override()` / `appendJvmArgs()` /
     // `warnJavaMismatch()` / `iconChoice()` / `pickedIconPath()` / `chosenGroupId()` /
-    // `pinned()` / `pageChoices()`）。改一处要看得见另一处 —— 所以这个函数摆在它们旁边。
+    // `pinned()` / `pageChoices()`）。判据本身在 `src/settings/InstanceSettingsSignature`
+    // 那一层：它是纯函数、能被断言盯上；这一页只负责把值摆过去。
     const Override values = override();
-    // std::optional 的写法：先摆"有没有值"，再摆那个值。摆成一个空串是不够的 ——
-    // javaPath 的"自定义成空串"和"跟随全局"在 override() 里已经是两回事（前者被那一层
-    // 归一成了后者），但 xmx 那一档 4 和"跟随全局"用同一个写法就得靠这一位分开。
-    const auto optionalText = [](const std::optional<QString> &value) {
-        return value.has_value() ? QStringLiteral("v:") + *value : QStringLiteral("-");
-    };
-    const auto optionalNumber = [](const std::optional<int> &value) {
-        return value.has_value() ? QStringLiteral("v:%1").arg(*value) : QStringLiteral("-");
-    };
-    const auto optionalFlag = [](const std::optional<bool> &value) {
-        return value.has_value() ? QStringLiteral("v:%1").arg(*value ? 1 : 0) : QStringLiteral("-");
-    };
-
-    QStringList result;
-    result << optionalText(values.javaPath) << optionalNumber(values.xmx)
-           << optionalNumber(values.xms) << optionalFlag(values.autoMemory)
-           << optionalText(values.extraJvmArgs)
-           // 窗口那三项：模式是**代号字符串**，宽高各一个数。和上面同一个
-           // 写法 —— 有没有值 + 值本身，两者都要摆（"自定义成和全局一样的档"仍然是覆盖，
-           // 不能和"跟随全局"混成同一个签名）。
-           << optionalText(values.windowMode) << optionalNumber(values.windowWidth)
-           << optionalNumber(values.windowHeight)
-           // 追加参数按条摆：`appendJvmArgs()` 已经把空行和首尾空白归一掉了，两条顺序不同
-           // 的清单在这里就是两份签名（那正是两件不同的设置）。
-           << appendJvmArgs()
-           << QStringLiteral("warn:%1").arg(warnJavaMismatch() ? 1 : 0);
+    InstanceSettingsSignature::Inputs inputs;
+    inputs.javaPath = values.javaPath;
+    inputs.xmx = values.xmx;
+    inputs.xms = values.xms;
+    inputs.autoMemory = values.autoMemory;
+    inputs.extraJvmArgs = values.extraJvmArgs;
+    inputs.windowMode = values.windowMode;
+    inputs.windowWidth = values.windowWidth;
+    inputs.windowHeight = values.windowHeight;
+    // 追加参数按条摆：`appendJvmArgs()` 已经把空行和首尾空白归一掉了。
+    inputs.appendArgs = appendJvmArgs();
+    inputs.warnJavaMismatch = warnJavaMismatch();
     // 图标：挑本地那张时**连路径一起算**（换一张图 = 换一次设置），否则只算那一档的键。
-    result << (m_pickedIconPath.isEmpty() ? iconChoice()
-                                          : localIconValue() + QLatin1Char('|') + m_pickedIconPath);
-    // 分组与置顶：分组按 id（组名会变，id 才是身份），置顶只算那一位。
-    result << QStringLiteral("group:") + chosenGroupId()
-           << QStringLiteral("pin:%1").arg(pinned() ? 1 : 0);
-    // 「显示哪些页」那几格：按 optionalPageKeys() 的**顺序**拼（不能按 QHash 的顺序 ——
-    // 每次遍历 QHash 的次序都未必一样，那样拼出来的签名会自己变，等于每读一次就说"改了"）。
-    // 一条一格 `key=0/1`，这样"张三关掉、李四打开"和"两个人的选择都动了但拼起来一样"
-    // 分得开。
-    QStringList pageFlags;
+    inputs.iconSignature = m_pickedIconPath.isEmpty()
+                               ? iconChoice()
+                               : localIconValue() + QLatin1Char('|') + m_pickedIconPath;
+    // 「显示哪些页」按 optionalPageKeys() 的**顺序**摆（不能按 QHash 的遍历顺序）。
     for (const QString &key : optionalPageKeys()) {
         const QCheckBox *check = m_pageChecks.value(key);
-        pageFlags << QStringLiteral("%1=%2").arg(key, check != nullptr && check->isChecked()
-                                                           ? QStringLiteral("1")
-                                                           : QStringLiteral("0"));
+        inputs.pageChecks.append({key, check != nullptr && check->isChecked()});
     }
-    result << pageFlags.join(QLatin1Char(','));
-    return result;
+    // 分组与置顶：分组按 id（组名会变，id 才是身份），置顶只算那一位。
+    inputs.groupId = chosenGroupId();
+    inputs.pinned = pinned();
+    return InstanceSettingsSignature::signatureOf(inputs);
 }
 
 void InstanceSettingsDialog::notifyEdited() {
@@ -2123,3 +2097,4 @@ void InstanceSettingsDialog::notifyEdited() {
     m_lastSignature = now;
     emit settingsEdited();
 }
+

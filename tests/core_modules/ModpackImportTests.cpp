@@ -1,6 +1,7 @@
 #include "Support.hpp"
 #include "ModpackDomainChecks.hpp"
 #include <QUuid>
+#include "util/PowerShell.hpp"
 
 void runMultiMCPatchImportTests(const QString &sandbox);
 
@@ -106,6 +107,20 @@ void runModpackImportTests(const QString &sandbox) {
         const auto bareRootJars =
             detectArchiveLayout({QStringLiteral("a.jar"), QStringLiteral("b.jar")});
         check(bareRootJars.modsBundle, "V0 根上只有 .jar：按模组合集处理", bareRootJars.detail);
+
+        // ⑥b 旧版 Technic / 老式 Forge 包：加载器在 `bin/modpack.jar` 里，不写进版本 json。
+        // 这一条只要求"认得出并说出来"—— 不要求推断 Forge 版本（文件名里没有版本号）。
+        const auto technic = detectArchiveLayout(
+            {QStringLiteral("config/a.cfg"), QStringLiteral("mods/x.jar"),
+             QStringLiteral("bin/modpack.jar")});
+        check(technic.format == Format::GameFolder && technic.legacyLauncherJar
+                  && technic.detail.contains(QStringLiteral("加载器")),
+              "★ V0 旧版 Technic 形状（bin/modpack.jar）认成懒人包并说清加载器要自己补装",
+              technic.detail);
+        const auto plainFolder = detectArchiveLayout(
+            {QStringLiteral("config/a.cfg"), QStringLiteral("mods/x.jar")});
+        check(plainFolder.format == Format::GameFolder && !plainFolder.legacyLauncherJar,
+              "V0 普通懒人包没有 bin/ 启动器 jar 时不多说一句", plainFolder.detail);
 
         // ⑦ 几个实例打在一个压缩包里：**不猜**（随便挑一个装，剩下的那几份用户永远
         // 不知道没装），但要说得清为什么。
@@ -524,11 +539,11 @@ void runModpackImportTests(const QString &sandbox) {
 
         const QString archive = work + "/pack.zip";
         const QString script =
-            QStringLiteral("Compress-Archive -Path %1 -DestinationPath %2 -Force")
+            QStringLiteral("$ProgressPreference='SilentlyContinue'; Compress-Archive -Path %1 -DestinationPath %2 -Force")
                 .arg(QStringLiteral("'") + QDir::toNativeSeparators(src) + QStringLiteral("\\*'"),
                      QStringLiteral("'") + QDir::toNativeSeparators(archive) + QStringLiteral("'"));
         QProcess ps;
-        ps.start(QStringLiteral("powershell"),
+        ps.start(PowerShell::executable(),
                  {QStringLiteral("-NoProfile"), QStringLiteral("-NonInteractive"),
                   QStringLiteral("-ExecutionPolicy"), QStringLiteral("Bypass"),
                   QStringLiteral("-Command"), script});
@@ -647,7 +662,7 @@ void runModpackImportTests(const QString &sandbox) {
             }
             lines << QStringLiteral("} finally { $z.Dispose() }");
             QProcess ps;
-            ps.start(QStringLiteral("powershell"),
+            ps.start(PowerShell::executable(),
                      {QStringLiteral("-NoProfile"), QStringLiteral("-NonInteractive"),
                       QStringLiteral("-ExecutionPolicy"), QStringLiteral("Bypass"),
                       QStringLiteral("-Command"), lines.join(QLatin1Char('\n'))});
@@ -873,7 +888,7 @@ void runModpackImportTests(const QString &sandbox) {
                 .arg(psQuoted(archive),
                      QStringLiteral("'") + escapeTarget + QStringLiteral("'"));
         QProcess ps;
-        ps.start(QStringLiteral("powershell"),
+        ps.start(PowerShell::executable(),
                  {QStringLiteral("-NoProfile"), QStringLiteral("-NonInteractive"),
                   QStringLiteral("-ExecutionPolicy"), QStringLiteral("Bypass"),
                   QStringLiteral("-Command"), script});
@@ -980,4 +995,6 @@ void runModpackImportTests(const QString &sandbox) {
               QStringLiteral("「%1」→「%2」").arg(pack.name, suggested));
     }
 }
+
+
 

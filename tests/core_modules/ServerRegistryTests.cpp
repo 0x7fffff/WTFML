@@ -229,6 +229,48 @@ void runServerRegistryTests() {
         check(reread.restartOnCrash, "★ ZX8.5 写下去之后读回来就是「打开」");
         check(reread.gameVersion == QStringLiteral("1.20.1"),
               "★ ZX8.5 同一份记录里别的格（游戏版本）还在 —— 这一项不是整份重写", reread.gameVersion);
+
+        // ZX8.6：**未知字段**也要活过一次读—改—写。
+        // `ServerModel::toJson()` 只认识自己那几格，照它整份重建会把「更新的启动器写的」
+        // 或「用户手写的」键一起抹掉；writeMeta 现在先读盘上那份当底、再盖已知字段。
+        QJsonObject seeded = QJsonDocument::fromJson(before).object();
+        seeded.insert(QStringLiteral("futureField"), QStringLiteral("keep-me"));
+        QFile reseed(metaPath);
+        check(reseed.open(QIODevice::WriteOnly | QIODevice::Truncate), "ZX8.6 摆一份带未知字段的记录");
+        reseed.write(QJsonDocument(seeded).toJson());
+        reseed.close();
+        QString keepProblem;
+        check(ServerRegistry::setRestartOnCrash(QStringLiteral("Srv1"), true, &keepProblem),
+              "ZX8.6 在它上面改一格", keepProblem);
+        QFile rawAfter(metaPath);
+        check(rawAfter.open(QIODevice::ReadOnly), "ZX8.6 读回原始字节");
+        const QJsonObject afterObject = QJsonDocument::fromJson(rawAfter.readAll()).object();
+        rawAfter.close();
+        check(afterObject.value(QStringLiteral("futureField")).toString() == QStringLiteral("keep-me"),
+              "★★ ZX8.6 未知字段活过一次读—改—写（不是照结构体重建整份）",
+              QString::fromUtf8(QJsonDocument(afterObject).toJson(QJsonDocument::Compact)));
+        check(afterObject.value(QStringLiteral("restartOnCrash")).toBool(false),
+              "ZX8.6 已知字段照常写进去");
+    }
+
+    // ---------- ZX8.7. 大得不像一份记录的：当读不懂，不读进内存也不覆盖 ----------
+    {
+        const QString hugeMetaPath = AppPaths::serverMetaPath(QStringLiteral("Srv1"));
+        QFile big(hugeMetaPath);
+        check(big.open(QIODevice::WriteOnly | QIODevice::Truncate), "ZX8.7 摆一份超大记录");
+        const QByteArray junk(5 * 1024 * 1024, 'x');
+        check(big.write(junk) == junk.size(), "ZX8.7 写进去 5 MiB");
+        big.close();
+        QString readProblem;
+        const ServerModel::Info info = ServerRegistry::readMeta(QStringLiteral("Srv1"), &readProblem);
+        check(info.gameVersion.isEmpty() && readProblem.contains(QStringLiteral("大得不像")),
+              "★★ ZX8.7 超过 4 MiB 的记录按读不懂处理（不先 readAll 再说）", readProblem);
+        QString toggleProblem;
+        check(!ServerRegistry::setRestartOnCrash(QStringLiteral("Srv1"), true, &toggleProblem),
+              "ZX8.7 读不懂就不写（和 ZX8.5 同一条规矩）", toggleProblem);
+        QFile verify(hugeMetaPath);
+        check(verify.open(QIODevice::ReadOnly) && verify.size() == junk.size(),
+              "ZX8.7 那一份原样还在、没被覆盖");
     }
 
     // ---------- ZX9. 真删一个 ----------
@@ -245,4 +287,5 @@ void runServerRegistryTests() {
     AppPaths::setMinecraftDir(originalDir);
     check(AppPaths::minecraftDir() == originalDir, "ZX9 数据根目录换回来了");
 }
+
 

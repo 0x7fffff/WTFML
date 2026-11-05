@@ -288,7 +288,7 @@ void runCopyAndSavePageTests() {
 
     header("T27.3a 后台复制期间源实例算「正在搬文件」（设置页拒绝打开）");
     // `copyInstanceInBackground()` 是界面上那颗「复制实例」真正走的路 ——
-    // 拷树落在后台线程。它开头**同步**把源实例记进 `m_fileOperationInstanceIds`，
+    // 拷树落在后台线程。它开头**同步**把源实例压进 `FileOperationOccupancy`（两趟压同一个实例时引用计数各算各的），
     // 收尾（成功或失败）第一件事就是摘掉。不记的话，拷树跑到一半用户照样能启动这一份
     // （游戏一边写存档、拷树一边读 ⇒ 副本里是半截世界），也能开设置页去改同一个目录。
     // 判据看得见的是 `InstanceDialogController::open()` 那道闸 —— 它会回一句
@@ -1609,4 +1609,5 @@ void runCopyAndSavePageTests() {
     restoreSettings();
     check(AppPaths::minecraftDir() == originalDir, "T27.9 数据根目录换回来了");
 }
+
 

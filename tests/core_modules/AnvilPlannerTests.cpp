@@ -611,6 +611,204 @@ void runAnvilPlannerTests() {
               QStringLiteral("★★ ZAD8 %1 组随机算例（4–5 件）：计划代价 == 穷举所有次序的最小值")
                   .arg(cases),
               QStringLiteral("%1 组对不上；第一组：%2").arg(mismatches).arg(firstMismatch));
+
+    // ---------- ZAD9. 额度真的切过候选时必须说"近似" ----------
+    // 每层只留 12 条（ZAD8 那 560 组 4–5 件已经和穷举对过，说明小算例是精确的）。6 件这一档
+    // 在现实输入里**会**触发：下面这组固定种子的算例实测 `approximate=1`。
+    // 这里不求"近似值等于最优"—— 那要把 6 件事的次序全穷举一遍，单组就超过 40 秒（试过，
+    // 跑不动）。所以只钉契约的两头：触发时必须置位、没触发时不误报。
+    {
+        quint32 seed = 0xC0FFEE11u;
+        const auto next = [&seed]() {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            return seed;
+        };
+        QList<Anvil::Unit> units;
+        for (int index = 0; index < 6; ++index) {
+            Anvil::Unit unit;
+            unit.penalty = int(next() % 2u);
+            unit.isBook = index + 1 != 6 || next() % 4u != 0;
+            const int picks = 1 + int(next() % 2u);
+            for (int pick = 0; pick < picks; ++pick) {
+                const Pick &choice = pool[size_t(next() % kPickCount)];
+                const int level = 1 + int(next() % quint32(choice.maxLevel));
+                const QString id = QString::fromLatin1(choice.id);
+                unit.enchantments[id] = qMax(unit.enchantments.value(id), level);
+            }
+            units.append(unit);
+        }
+        const Anvil::Plan capped = Anvil::plan(units);
+        check(capped.ok && capped.approximate,
+              "★★ ZAD9 6 件算例触发每层 12 条额度 ⇒ Plan::approximate 置真（不假装穷举过）",
+              QStringLiteral("ok=%1 approximate=%2")
+                  .arg(capped.ok ? 1 : 0)
+                  .arg(capped.approximate ? 1 : 0));
+        // 穷举记忆化之后 6 件也能逐组对：**没标近似的必须一致**（标了近似的只要求标出来）。
+        int exactCases = 0;
+        int approximateCases = 0;
+        int mismatches = 0;
+        QString firstMismatch;
+        quint32 seed2 = 0x51ED2701u;
+        const auto next2 = [&seed2]() {
+            seed2 ^= seed2 << 13;
+            seed2 ^= seed2 >> 17;
+            seed2 ^= seed2 << 5;
+            return seed2;
+        };
+        for (int trial = 0; trial < 12; ++trial) {
+            QList<ToolboxBruteUnit> bruteUnits;
+            QList<Anvil::Unit> batch;
+            for (int index = 0; index < 6; ++index) {
+                ToolboxBruteUnit item;
+                item.penalty = int(next2() % 2u);
+                item.isBook = index + 1 != 6 || next2() % 4u != 0;
+                const int picks = 1 + int(next2() % 2u);
+                for (int pick = 0; pick < picks; ++pick) {
+                    const Pick &choice = pool[size_t(next2() % kPickCount)];
+                    const int level = 1 + int(next2() % quint32(choice.maxLevel));
+                    const QString id = QString::fromLatin1(choice.id);
+                    item.enchantments[id] = qMax(item.enchantments.value(id), level);
+                }
+                bruteUnits.append(item);
+                Anvil::Unit unit;
+                unit.enchantments = item.enchantments;
+                unit.penalty = item.penalty;
+                unit.isBook = item.isBook;
+                batch.append(unit);
+            }
+            const Anvil::Plan planned = Anvil::plan(batch);
+            if (!planned.ok) {
+                ++mismatches;
+                continue;
+            }
+            if (planned.approximate) {
+                ++approximateCases;  // 额度切过：只要求标出来，不要求等于最优
+                continue;
+            }
+            ++exactCases;
+            const int brute = toolboxBruteForceMinCostFor(bruteUnits, planned.finalEnchantments);
+            if (brute < 0 || planned.totalCost != brute) {
+                ++mismatches;
+                if (firstMismatch.isEmpty()) {
+                    firstMismatch = QStringLiteral("计划 %1 / 穷举 %2")
+                                        .arg(planned.totalCost)
+                                        .arg(brute);
+                }
+            }
+        }
+        check(mismatches == 0,
+              QStringLiteral("★★ ZAD9b 6 件随机算例：没标「近似」的那些必须等于穷举最优"
+                             "（精确 %1 组 / 近似 %2 组）")
+                  .arg(exactCases)
+                  .arg(approximateCases),
+              QStringLiteral("%1 组对不上；第一组：%2").arg(mismatches).arg(firstMismatch));
+        // 7 件：记忆化之后还能算，但状态数涨得快，只跑 3 组当边界探针。
+        int exact7 = 0;
+        int approximate7 = 0;
+        int bad7 = 0;
+        quint32 seed7 = 0x7E7E7E01u;
+        const auto next7 = [&seed7]() {
+            seed7 ^= seed7 << 13;
+            seed7 ^= seed7 >> 17;
+            seed7 ^= seed7 << 5;
+            return seed7;
+        };
+        for (int trial = 0; trial < 3; ++trial) {
+            QList<ToolboxBruteUnit> bruteUnits;
+            QList<Anvil::Unit> batch;
+            for (int index = 0; index < 7; ++index) {
+                ToolboxBruteUnit item;
+                item.penalty = int(next7() % 2u);
+                item.isBook = index + 1 != 7 || next7() % 4u != 0;
+                const int picks = 1 + int(next7() % 2u);
+                for (int pick = 0; pick < picks; ++pick) {
+                    const Pick &choice = pool[size_t(next7() % kPickCount)];
+                    const int level = 1 + int(next7() % quint32(choice.maxLevel));
+                    const QString id = QString::fromLatin1(choice.id);
+                    item.enchantments[id] = qMax(item.enchantments.value(id), level);
+                }
+                bruteUnits.append(item);
+                Anvil::Unit unit;
+                unit.enchantments = item.enchantments;
+                unit.penalty = item.penalty;
+                unit.isBook = item.isBook;
+                batch.append(unit);
+            }
+            const Anvil::Plan planned = Anvil::plan(batch);
+            if (!planned.ok) {
+                ++bad7;
+                continue;
+            }
+            if (planned.approximate) {
+                ++approximate7;
+                continue;
+            }
+            ++exact7;
+            const int brute = toolboxBruteForceMinCostFor(bruteUnits, planned.finalEnchantments);
+            if (brute < 0 || planned.totalCost != brute) {
+                ++bad7;
+            }
+        }
+        check(bad7 == 0,
+              QStringLiteral("★ ZAD9c 7 件随机算例（3 组）：没标近似的必须等于穷举最优"
+                             "（精确 %1 组 / 近似 %2 组）")
+                  .arg(exact7)
+                  .arg(approximate7));
+        // 8 件：只跑 1 组当"还跑得动"的探针。它不是性能基线，超时就把这一组删掉。
+        {
+            quint32 seed8 = 0x80808001u;
+            const auto next8 = [&seed8]() {
+                seed8 ^= seed8 << 13;
+                seed8 ^= seed8 >> 17;
+                seed8 ^= seed8 << 5;
+                return seed8;
+            };
+            QList<ToolboxBruteUnit> bruteUnits;
+            QList<Anvil::Unit> batch;
+            for (int index = 0; index < 8; ++index) {
+                ToolboxBruteUnit item;
+                item.penalty = int(next8() % 2u);
+                item.isBook = index + 1 != 8 || next8() % 4u != 0;
+                const int picks = 1 + int(next8() % 2u);
+                for (int pick = 0; pick < picks; ++pick) {
+                    const Pick &choice = pool[size_t(next8() % kPickCount)];
+                    const int level = 1 + int(next8() % quint32(choice.maxLevel));
+                    const QString id = QString::fromLatin1(choice.id);
+                    item.enchantments[id] = qMax(item.enchantments.value(id), level);
+                }
+                bruteUnits.append(item);
+                Anvil::Unit unit;
+                unit.enchantments = item.enchantments;
+                unit.penalty = item.penalty;
+                unit.isBook = item.isBook;
+                batch.append(unit);
+            }
+            const Anvil::Plan planned = Anvil::plan(batch);
+            const int brute = planned.ok && !planned.approximate
+                                  ? toolboxBruteForceMinCostFor(bruteUnits, planned.finalEnchantments)
+                                  : -1;
+            check(planned.ok && (planned.approximate || planned.totalCost == brute),
+                  "★ ZAD9d 8 件 1 组：没标近似的必须等于穷举最优（标了近似的只要求标出来）",
+                  QStringLiteral("approximate=%1 计划=%2 穷举=%3")
+                      .arg(planned.approximate ? 1 : 0)
+                      .arg(planned.ok ? planned.totalCost : -1)
+                      .arg(brute));
+        }
+        // 反过来：小算例额度远没到顶，不该报近似。
+        const auto book = [](const char *id, int level) {
+            Anvil::Unit unit;
+            unit.isBook = true;
+            unit.penalty = 0;
+            unit.enchantments[QString::fromLatin1(id)] = level;
+            return unit;
+        };
+        const Anvil::Plan small =
+            Anvil::plan({book("sharpness", 5), book("sharpness", 5), book("looting", 3)});
+        check(small.ok && !small.approximate,
+              "ZAD9 小算例不误报近似（额度没到顶就不置位）",
+              QStringLiteral("approximate=%1").arg(small.approximate ? 1 : 0));
+    }
     }
 }
-

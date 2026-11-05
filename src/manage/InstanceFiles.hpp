@@ -291,6 +291,19 @@ bool pathIsSameOrInside(const QString &parent, const QString &candidate);
 QString canonicalPath(const QString &path);
 
 /**
+ * @brief 这个链接（符号链接 / junction）**最终指着哪儿**；不是链接、或解析不出来时回空串。
+ *
+ * 为什么不直接用 `QFileInfo::junctionTarget()`：它解析的是重解析点里存的那串 substitute
+ * name，而那串字面量可以是相对的、也可能带 `\??\Global\` 这类前缀（本机实测：`cmd /c
+ * mklink /J` 造出来的就是 `\??\Global\D:\...`，Qt 于是把相对的那一段拼到 junction 自己的
+ * 父目录上）。Windows 上唯一可靠的问法是开一个句柄再让文件系统回答 —— 这里就是那一层，
+ * 给"别名还指着原来那份吗"这类判据用（`AsciiPathAlias` 与 `resolveJunctions()`）。
+ *
+ * 非 Windows 上退回 `symLinkTarget()`。
+ */
+QString resolveLinkTarget(const QString &path);
+
+/**
  * @brief @p relativePath 这一条（相对 @p root 的）路径上，**有没有任何一层是链接**
  * （符号链接 / junction）。
  *

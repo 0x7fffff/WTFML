@@ -80,6 +80,51 @@ void runPresetCaptureApplyTests() {
           "★★ PG1 一样都没勾 ⇒ 成功但一段都没有（不是失败，也不该存成一份空预设）",
           emptyReport.notes.join(QStringLiteral("；")));
 
+    section("PG1b. 模组类：从已装模组收平台引用（按文件内容核对身份）");
+    {
+        const QString instanceMods = scratch.filePath(QStringLiteral("instanceMods"));
+        QDir().mkpath(instanceMods + QStringLiteral("/mods"));
+        const QByteArray jarA = QByteArrayLiteral("jar-a-bytes");
+        const QByteArray jarB = QByteArrayLiteral("jar-b-bytes");
+        check(writeBytes(instanceMods + QStringLiteral("/mods/a.jar"), jarA) &&
+                  writeBytes(instanceMods + QStringLiteral("/mods/b.jar"), jarB),
+              "PG1b 夹具：两个模组文件写下去了");
+        const QString shaA = QString::fromLatin1(
+            QCryptographicHash::hash(jarA, QCryptographicHash::Sha1).toHex());
+        // 安装记录只写了 a.jar；b.jar 是用户自己丢进去的（没有平台身份）。
+        const QJsonObject audit{
+            {"format", QStringLiteral("wtfml-preset-mod-result/1")},
+            {"plannedFiles", QJsonArray{QJsonObject{{"project", QStringLiteral("curseforge:12345")},
+                                                    {"versionId", QStringLiteral("v1")},
+                                                    {"filename", QStringLiteral("a.jar")},
+                                                    {"sha1", shaA}}}}};
+        check(writeBytes(instanceMods + QStringLiteral("/wtfml.preset-mod-install.json"),
+                         QJsonDocument(audit).toJson()),
+              "PG1b 夹具：模组安装记录写下去了");
+        int unidentified = 0;
+        QString problem;
+        const QList<Presets::ModReference> refs =
+            Presets::captureInstalledModReferences(instanceMods, &unidentified, &problem);
+        check(problem.isEmpty() && refs.size() == 1
+                  && refs.first().platform == QStringLiteral("curseforge")
+                  && refs.first().projectId == QStringLiteral("12345") && unidentified == 1,
+              "★★ PG1b 认得出记录里那一件（curseforge:12345），没记录的那一件算未识别",
+              QStringLiteral("%1 条 / 未识别 %2 / %3")
+                  .arg(refs.size())
+                  .arg(unidentified)
+                  .arg(problem));
+        // 内容被换过：同一份记录也不再把这件认成那个项目（身份按**实际文件内容**核）。
+        check(writeBytes(instanceMods + QStringLiteral("/mods/a.jar"),
+                         QByteArrayLiteral("tampered-bytes")),
+              "PG1b 夹具：把 a.jar 的内容换掉");
+        int unidentifiedAfter = 0;
+        const QList<Presets::ModReference> refsAfter =
+            Presets::captureInstalledModReferences(instanceMods, &unidentifiedAfter, &problem);
+        check(problem.isEmpty() && refsAfter.isEmpty() && unidentifiedAfter == 2,
+              "★★ PG1b 内容被换过就不认（两条都算未识别，不静默沿用旧身份）",
+              QStringLiteral("%1 条 / 未识别 %2").arg(refsAfter.size()).arg(unidentifiedAfter));
+    }
+
     section("PG2. 合并落下去：目标上没点名的键还在");
     Presets::PresetManifest manifest;
     manifest.id = presetId;

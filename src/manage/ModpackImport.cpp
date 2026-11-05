@@ -686,7 +686,18 @@ ArchiveLayout detectArchiveLayout(const QStringList &entries) {
         layout.format = Format::GameFolder;
         layout.gameDirPrefix = prefix;
         layout.versionJsonEntry = pickVersionJsonEntry(entries, prefix);
-        layout.detail = QObject::tr("里面是一个 .minecraft 游戏目录");
+        // 旧版 Technic / 老式 Forge 包把加载器塞在 `bin/modpack.jar`（有时还有
+        // `bin/minecraft.jar`）。这一层**不猜**它对应哪个 Forge 版本 —— 那串文件名里没有
+        // 版本号，进 jar 里读 MANIFEST 也不可靠 —— 但必须**说出来**：不说的话用户拿到的是
+        // 一个纯原版实例，点启动看到的是一堆 mod 找不到 class，而不是"加载器还没装"。
+        layout.legacyLauncherJar =
+            !findRelativeEntry(entries, prefix, QStringLiteral("bin/modpack.jar")).isEmpty()
+            || !findRelativeEntry(entries, prefix, QStringLiteral("bin/minecraft.jar")).isEmpty();
+        layout.detail = layout.legacyLauncherJar
+            ? QObject::tr("里面是一个 .minecraft 游戏目录；`bin/` 下那份启动器 jar 说明加载器"
+                          "不写在版本清单里（旧版 Technic / 老式 Forge 包），导入后要自己补装"
+                          "一次加载器")
+            : QObject::tr("里面是一个 .minecraft 游戏目录");
         return layout;
     }
 

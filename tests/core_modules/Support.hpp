@@ -582,6 +582,9 @@ int runInstanceTraitsTests(const QString &sandbox);
 // 收尾按哪一档说话。纯值进、结论出，不建界面也不碰盘。
 int runInstallOccupancyTests(const QString &sandbox);
 
+// 后台搬文件那份引用计数（两趟压同一个实例 / 没记过就放开 / 空 id）。
+int runFileOperationOccupancyTests(const QString &sandbox);
+
 // 重命名：名字校验的真值表 + 真改磁盘目录名（含失败路径）。
 int runRenameInstanceTests(const QString &sandbox);
 
@@ -2325,23 +2328,51 @@ static QString toolboxEnchantKey(const QMap<QString, int> &map) {
     return parts.join(QLatin1Char(','));
 }
 
-static void toolboxBruteForceOrders(const QList<ToolboxBruteUnit> &units, int cost, bool wantBook,
-                                    QMap<QString, int> &best) {
+/// 记忆化用的键：**多重集**的规范写法（顺序无关、每件的附魔/前科/是不是书都要在键里）。
+static QString toolboxBruteStateKey(const QList<ToolboxBruteUnit> &units) {
+    QStringList parts;
+    parts.reserve(units.size());
+    for (const ToolboxBruteUnit &unit : units) {
+        parts.append(QStringLiteral("%1|%2|%3")
+                         .arg(toolboxEnchantKey(unit.enchantments))
+                         .arg(unit.penalty)
+                         .arg(unit.isBook ? 1 : 0));
+    }
+    parts.sort();
+    return parts.join(QLatin1Char(';'));
+}
+
+/**
+ * @brief 从 @p units 这套材料出发，**把所有合并次序展开**后能到达的「结果附魔 → 最小总代价」。
+ *
+ * 和 `AnvilPlanner` 那套子集 DP 是**两个独立实现**（那边有支配剪枝和每层 12 条的额度，
+ * 这边是老老实实枚举），两边对上才说明那边没剪掉最优解。
+ *
+ * NOTE: 这里必须记忆化。不记忆化时 6 件的一组就要几十秒（2026-11-04 实测：6 件单组
+ * 超过 40 秒），7、8 件根本跑不动 —— 而"6 件以上到底准不准"正是要验的东西。
+ * 键用**多重集**（`toolboxBruteStateKey()`）：同一套材料不论从哪条路径合到这儿，
+ * 后面能到达的结果与最小代价都一样，所以缓存的是"从这里出发"的最小代价，而不是累计值。
+ */
+static QMap<QString, int> toolboxBruteForceMemo(const QList<ToolboxBruteUnit> &units, bool wantBook,
+                                                QHash<QString, QMap<QString, int>> &memo) {
+    if (units.isEmpty()) {
+        return {};
+    }
+    const QString key = toolboxBruteStateKey(units);
+    const auto cached = memo.constFind(key);
+    if (cached != memo.constEnd()) {
+        return cached.value();
+    }
+    QMap<QString, int> best;
     if (units.size() == 1) {
         if (units.first().isBook == wantBook) {
-            const QString key = toolboxEnchantKey(units.first().enchantments);
-            auto it = best.find(key);
-            if (it == best.end() || cost < it.value()) {
-                best.insert(key, cost);
-            }
+            best.insert(toolboxEnchantKey(units.first().enchantments), 0);
         }
-        return;
+        memo.insert(key, best);
+        return best;
     }
     for (int left = 0; left < units.size(); ++left) {
-        for (int right = 0; right < units.size(); ++right) {
-            if (left == right) {
-                continue;
-            }
+        for (int right = left + 1; right < units.size(); ++right) {
             for (int swapped = 0; swapped < 2; ++swapped) {
                 const ToolboxBruteUnit &targetItem = units.at(swapped == 0 ? left : right);
                 const ToolboxBruteUnit &sacrificeItem = units.at(swapped == 0 ? right : left);
@@ -2354,7 +2385,6 @@ static void toolboxBruteForceOrders(const QList<ToolboxBruteUnit> &units, int co
                 sacrifice.penalty = sacrificeItem.penalty;
                 sacrifice.isBook = sacrificeItem.isBook;
                 const Anvil::MergeCost merge = Anvil::mergeCost(target, sacrifice);
-
                 QList<ToolboxBruteUnit> rest;
                 rest.append(ToolboxBruteUnit{merge.result, merge.resultPenalty, targetItem.isBook});
                 for (int index = 0; index < units.size(); ++index) {
@@ -2362,14 +2392,20 @@ static void toolboxBruteForceOrders(const QList<ToolboxBruteUnit> &units, int co
                         rest.append(units.at(index));
                     }
                 }
-                toolboxBruteForceOrders(rest, cost + merge.total, wantBook, best);
+                const QMap<QString, int> deeper = toolboxBruteForceMemo(rest, wantBook, memo);
+                for (auto it = deeper.constBegin(); it != deeper.constEnd(); ++it) {
+                    const int total = merge.total + it.value();
+                    auto slot = best.find(it.key());
+                    if (slot == best.end() || total < slot.value()) {
+                        best.insert(it.key(), total);
+                    }
+                }
             }
         }
     }
+    memo.insert(key, best);
+    return best;
 }
-
-/// 材料可以不全用 ⇒ 每个非空子集都试一遍；取"合出 @p target 这套附魔"的最小代价。
-/// 找不到回 -1。
 static int toolboxBruteForceMinCostFor(const QList<ToolboxBruteUnit> &units,
                                        const QMap<QString, int> &target) {
     bool wantBook = true;
@@ -2381,6 +2417,8 @@ static int toolboxBruteForceMinCostFor(const QList<ToolboxBruteUnit> &units,
     }
     const QString wanted = toolboxEnchantKey(target);
     int best = -1;
+    // 记忆化跨子集共用：同一个多重集在"材料可不用"的那些子集里会反复出现。
+    QHash<QString, QMap<QString, int>> memo;
     for (int mask = 1; mask < (1 << units.size()); ++mask) {
         QList<ToolboxBruteUnit> subset;
         for (int index = 0; index < units.size(); ++index) {
@@ -2388,8 +2426,7 @@ static int toolboxBruteForceMinCostFor(const QList<ToolboxBruteUnit> &units,
                 subset.append(units.at(index));
             }
         }
-        QMap<QString, int> results;
-        toolboxBruteForceOrders(subset, 0, wantBook, results);
+        const QMap<QString, int> results = toolboxBruteForceMemo(subset, wantBook, memo);
         const auto it = results.constFind(wanted);
         if (it != results.constEnd() && (best < 0 || it.value() < best)) {
             best = it.value();
@@ -2447,5 +2484,6 @@ void runLocalFileReuseTests();
 // 挪到后台。这一节**只量、不拿耗时当断言**（那是这台机器的速度），钉形状的那几条才是断言：
 // 5 万条往返逐格还在、第 50001 条拒收、投毒那份拒读且一个字节都不动。
 void runDownloadReceiptScaleTests(const QString &sandbox);
+
 
 

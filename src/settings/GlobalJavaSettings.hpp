@@ -117,8 +117,12 @@ public:
      * 加了实例覆盖之后它变成 ensureJavaForVersion(EffectiveJavaSettings&, ...)
      * 的一层**转发壳** —— 保留它是为了让 E 段那几条断言、以及所有现存调用点不用改，
      * 而且全局档的行为逐字节不变。
+     *
+     * @param allowDownload 透传给下面那个重载（默认 true = 产品行为不变）；验证工程传 false
+     *   表示"只在本机找，找不到就失败，不下载运行时"。理由见下面那个重载的 NOTE。
      */
-    bool ensureJavaForVersion(int majorVersion, const QString &component = QString());
+    bool ensureJavaForVersion(int majorVersion, const QString &component = QString(),
+                              bool allowDownload = true);
 
     /**
      * @brief 值版：在一份**给定的**有效值上挑 Java，挑中的路径写回 io。
@@ -148,10 +152,17 @@ public:
      * NOTE: 实例覆盖了 javaPath 就等于**手动档**，调用方要把 allowAutoSelect 传 false。
      * 不这么做的话，用户给某个实例钉死的 Java 会被"按版本要求自动挑"覆盖掉，
      * 那一项覆盖也就白设了。
+     *
+     * NOTE: `allowDownload` 是给**测试**留的闸（默认 true = 产品行为不变）：本机没有匹配
+     * 版本时，这个函数最后会去 Mojang 下几百 MB 的运行时（再兜底 Adoptium）。验证工程里
+     * 那一节直接调它，于是"跑单元测试"变成了"当场下一次 Java" —— CI 上慢网络跑满 900 秒
+     * 的阶段上限，整个 ci-core 判死（2026-11-03 的那次）。传 false 时它只在本机找，
+     * 找不到就带着原因返回 false，不碰网络。
      */
     bool ensureJavaForVersion(EffectiveJavaSettings &io, int majorVersion,
                               const QString &component, bool allowAutoSelect,
-                              QString *errorOut = nullptr, bool allowMismatchedPath = false);
+                              QString *errorOut = nullptr, bool allowMismatchedPath = false,
+                              bool allowDownload = true);
 
     /**
      * @brief Scans local installations for Java versions.

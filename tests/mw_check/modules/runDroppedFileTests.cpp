@@ -380,13 +380,37 @@ void runDroppedFileTests() {
               "T30.12 装完之后还报了信（别让用户对着列表发呆）", g_modalTitle);
 
         // ---- (i) 收尾：把这一节拖进去的东西清掉，免得影响后面几节对目录的计数 ----
+        //
+        // 删不干净只可能是"还有句柄没放"：拖进来那一趟装完之后，图标/详情那些后台活可能
+        // 还攥着文件一两拍。所以先重试几轮（每轮之间让事件循环转一下），删不掉才判失败 ——
+        // 否则这条收尾断言会变成"机器快慢的晴雨表"（2026-11-05 全量跑里偶发过一次）。
+        const auto removeDirSoon = [](const QString &path) {
+            for (int attempt = 0; attempt < 40; ++attempt) {
+                if (!QFileInfo::exists(path)) {
+                    return true;
+                }
+                QDir(path).removeRecursively();
+                if (!QFileInfo::exists(path)) {
+                    return true;
+                }
+                QApplication::processEvents(QEventLoop::AllEvents, 50);
+            }
+            return !QFileInfo::exists(path);
+        };
         ++g_modalHandlerGeneration;
-        QDir(instanceDir + QStringLiteral("/mods")).removeRecursively();
-        QDir(instanceDir + QStringLiteral("/resourcepacks")).removeRecursively();
-        QDir(work).removeRecursively();
-        check(!exists(instanceDir + QStringLiteral("/mods")) &&
-                  !exists(instanceDir + QStringLiteral("/resourcepacks")),
-              "T30.13 收尾：这一节拖进去的那几个文件都清掉了");
+        const QString modsPath = instanceDir + QStringLiteral("/mods");
+        const QString packsPath = instanceDir + QStringLiteral("/resourcepacks");
+        const bool modsGone = removeDirSoon(modsPath);
+        const bool packsGone = removeDirSoon(packsPath);
+        removeDirSoon(work);
+        const QStringList modsLeft =
+            QDir(modsPath).entryList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot);
+        const QStringList packsLeft =
+            QDir(packsPath).entryList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot);
+        check(modsGone && packsGone,
+              "T30.13 收尾：这一节拖进去的那几个文件都清掉了",
+              QStringLiteral("mods 剩=[%1] resourcepacks 剩=[%2]")
+                  .arg(modsLeft.join(QLatin1Char('|')), packsLeft.join(QLatin1Char('|'))));
     }
 
     restore();

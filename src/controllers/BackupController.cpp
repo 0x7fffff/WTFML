@@ -575,6 +575,12 @@ Tasks::TaskId BackupController::startWrite(const BackupFiles::Manifest &manifest
         // 整个启动器当场消失（ServerPing 那边 、IntegrityController 那边今天都
         // 踩过同一个坑）。线程对象自己接好了 finished → deleteLater（见下面创建处），
         // 这里只放掉指针。
+        //
+        // **先等它真的退出**：只放指针的话，上一趟可能还在最后几条指令里，而这一趟已经
+        // 开始动同一个实例目录 —— 两条线程撞在一起，症状是"这一趟报成功、文件其实没回来"
+        // （2026-11-04 全量跑里 T35.3 偶发过一次，单跑复跑都绿）。`wait()` 等到的是 run()
+        // 返回，不是 finished 信号，所以那几条收尾指令一定已经做完。
+        m_thread->wait();
         m_thread = nullptr;
     }
     m_thread = QThread::create([this, manifest, sourceDir, targetZip, successTitle, failureTitle] {
@@ -625,7 +631,9 @@ Tasks::TaskId BackupController::startRestore(const QString &zipPath,
     m_abort.storeRelaxed(0);
     m_userCancelled.store(false, std::memory_order_relaxed);
     if (m_thread != nullptr) {
-        // 只放指针，不 deleteLater（理由逐字同 startWrite() 里那一段）。
+        // 先等上一趟真的退出，再开这一趟（理由逐字同 startWrite() 里那一段：
+        // 只放指针会让两条线程同时动同一个实例目录）。
+        m_thread->wait();
         m_thread = nullptr;
     }
     m_thread = QThread::create([this, zipPath, targetParentDir, successTitle, failureTitle] {

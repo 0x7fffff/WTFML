@@ -3,6 +3,7 @@
 #include "manage/InstanceFiles.hpp"
 #include <QCryptographicHash>
 #include <QDir>
+#include <QFileInfo>
 #include <QHash>
 #include <QLockFile>
 #include <QMutex>
@@ -14,6 +15,25 @@ namespace DirectorySessionLock {
 inline bool enabled = false;
 inline QHash<QString, std::shared_ptr<QLockFile>> held;
 inline QMutex mutex;
+
+/// 「不够久就当作还在跑」的窗口。
+///
+/// 为什么**不能**是 0：`QLockFilePrivate::isApparentlyStale()` 只在 `staleLockTime > 0`
+/// **且**文件比它旧时才判陈旧。给 0 的效果是"永不过期" —— 启动器被任务管理器结束 /
+/// 崩溃 / 断电一次之后，这个数据目录会一直报「已被另一份启动器占用」，而真正的文件是
+/// `%TEMP%` 里一串 SHA-256 名字，用户根本找不到（实测：一台开发机上积了 6 个死 PID 的锁）。
+///
+/// 为什么给 60 秒而不是更久：Qt 判陈旧的**第一道**是"那个 PID 还活着、且进程名对得上"
+/// —— 活着的启动器永远不会被抢走，时间这一道只在"读不到对方的进程名"（跨用户/权限不足）
+/// 或"PID 已经没了"时才生效。所以 60 秒只在崩溃之后让用户等一分钟，而不会误伤正在跑的
+/// 那一份；反过来给十分钟，崩一次就要人干等十分钟，比锁死好不了多少。
+inline constexpr int kStaleLockMs = 60 * 1000;
+
+/// 锁文件落在系统临时目录（跨数据目录唯一）。名字是数据根路径的 SHA-256：
+/// 路径里的中文/大小写差异都在 keyFor() 里归过了。
+inline QString lockFilePath(const QString &key) {
+    return QDir::temp().filePath(QStringLiteral("wtfml-directory-%1.lock").arg(key));
+}
 
 inline QString keyFor(const QString &root) {
     QString path = QDir::fromNativeSeparators(InstanceFiles::canonicalPath(root));
@@ -31,18 +51,23 @@ inline bool acquire(const QString &root, QString *problem = nullptr) {
         return false;
     }
     const auto key = keyFor(root);
+    const QString lockPath = lockFilePath(key);
     // Background import/backup/upgrade may enter together. Checking then inserting
     // without a mutex both races the QHash and can reject our own second request.
     QMutexLocker guard(&mutex);
     if (held.contains(key)) return true;
-    auto lock = std::make_shared<QLockFile>(QDir::temp().filePath(
-        QStringLiteral("wtfml-directory-%1.lock").arg(key)));
-    // 不按运行时长认定锁失效；QLockFile 仍核对 PID/进程是否存在。
-    lock->setStaleLockTime(0);
+    auto lock = std::make_shared<QLockFile>(lockPath);
+    lock->setStaleLockTime(kStaleLockMs);
     if (!lock->tryLock(0)) {
-        if (problem) *problem = lock->error() == QLockFile::LockFailedError
-            ? QStringLiteral("这个数据目录已被另一份启动器占用，请先关闭那一份窗口。\n%1").arg(root)
-            : QStringLiteral("无法取得数据目录的安全锁，未继续操作。\n%1").arg(root);
+        if (problem) {
+            *problem = lock->error() == QLockFile::LockFailedError
+                ? QStringLiteral("这个数据目录已被另一份启动器占用，请先关闭那一份窗口。\n%1\n\n"
+                                 "如果确认没有别的启动器在运行（上一次是崩溃或强制结束的），"
+                                 "删掉这个文件再试：\n%2")
+                      .arg(QDir::toNativeSeparators(root), QDir::toNativeSeparators(lockPath))
+                : QStringLiteral("无法取得数据目录的安全锁，未继续操作。\n%1")
+                      .arg(QDir::toNativeSeparators(root));
+        }
         return false;
     }
     held.insert(key, std::move(lock));

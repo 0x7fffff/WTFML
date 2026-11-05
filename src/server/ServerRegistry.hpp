@@ -99,16 +99,22 @@ QList<Entry> scanAll(QString *problemOut = nullptr);
 ServerModel::Info readMeta(const QString &serverId, QString *problemOut = nullptr);
 
 /// 写（**原子**：QSaveFile）。目录不在时会先建。
+///
+/// ★ **合并写**：不是照 @p info 重建整份 —— 盘上那份读得懂就当底，只把已知字段盖上去，
+/// 未知字段（更新的启动器写的、用户手写的）原样保留。盘上那份读不懂 / 超过 4 MiB 时
+/// 没有底可用，这时才是一次整份写；要不要走到这一步由调用方决定（见 `setRestartOnCrash()`）。
 bool writeMeta(const QString &serverId, const ServerModel::Info &info,
                QString *problemOut = nullptr);
 
 /// 只改「异常退出后自动重启」那一格（右键菜单里那一项）。
 ///
-/// ★ **读不懂就不写**：`writeMeta()` 是照着 `Info` 重建整份的，而 `readMeta()` 在
-/// "文件在、但读不懂"时回的是**空** `Info` —— 照那个写回去，等于用一份最小合法记录
-/// 顶掉盘上那份（里面记的游戏版本 / 内存 / 端口全没了）。所以这一格走这条专用路：
-/// 先按 `readMeta()` 的 `problem` 判一下，有问题就原样留着、把那句话回给调用方。
-/// 文件本来就不在（用户从外面拖进来的服务端）不算问题，照写。
+/// ★ **读不懂就不写**：`readMeta()` 在"文件在、但读不懂"时回的是**空** `Info`，照那个
+/// 写回去等于用一份最小合法记录顶掉盘上那份（游戏版本 / 内存 / 端口全没了）。所以这一格
+/// 走这条专用路：先按 `readMeta()` 的 `problem` 判一下，有问题就原样留着、把那句话回给
+/// 调用方。文件本来就不在（用户从外面拖进来的服务端）不算问题，照写。
+///
+/// NOTE: `writeMeta()` 自己也是"读盘上那份当底、再盖已知字段"的合并写（未知字段保得住），
+/// 所以这条路保护的是"读不懂 ⇒ 连一次写都不要发生"，而不是"只有它会保护未知字段"。
 bool setRestartOnCrash(const QString &serverId, bool on, QString *problemOut = nullptr);
 
 // ---------------------------------------------------------------------------

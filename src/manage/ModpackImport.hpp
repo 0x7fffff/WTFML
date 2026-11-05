@@ -170,6 +170,12 @@ struct ArchiveLayout {
     /// 有 `.minecraft` 游戏目录的迹象（`mods/` / `config/` / `options.txt` 这些）。
     /// 用于"这份 manifest.json 读不懂、但里面确实是个游戏目录"的退路。
     bool gameFolderMarkers = false;
+    /// 游戏目录里有 `bin/modpack.jar` 或 `bin/minecraft.jar`：旧版 Technic / 老式 Forge 包
+    /// 的形状 —— **加载器来自那份 jar，不写在版本 json 里**。
+    ///
+    /// 这一位只用来提示，不做推断：那份 jar 的文件名里没有版本号，进 jar 读 MANIFEST 也不
+    /// 可靠。导入照样按懒人包进行，但界面/日志要说清楚"加载器要自己补装一次"。
+    bool legacyLauncherJar = false;
     /// **不是整合包**：里面要么只有一个 `mods/` 目录，要么根上就摆着几份 `.jar`。
     /// 那是"别人打包好的一堆模组"，不是整合包 —— 按整合包导进去只会建一个空实例。
     bool modsBundle = false;

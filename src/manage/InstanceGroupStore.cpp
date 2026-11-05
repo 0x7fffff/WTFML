@@ -171,6 +171,18 @@ void InstanceGroupStore::ensureLoaded() const {
         m_unreadableReason = tr("%1 打不开，这次的改动没有保存。").arg(path);
         return;
     }
+    // 大小上限：这份文件只有组名和成员表，几 MB 已经宽得离谱。超过就当"读不懂"，
+    // 不先 readAll 再判（和 `.wtfml-server` 读取侧、`InstanceMetaFile::kSizeLimit` 同一条规矩）。
+    constexpr qint64 kMaxGroupFileBytes = 8 * 1024 * 1024;
+    if (file.size() > kMaxGroupFileBytes) {
+        qWarning() << "Instance group file is too large:" << path << file.size();
+        file.close();
+        m_unreadableReason =
+            tr("%1 大得不像一份分组表（%2 字节），为避免覆盖掉你的内容，这次没有改动它。")
+                .arg(path)
+                .arg(file.size());
+        return;
+    }
 
     QJsonParseError parseError;
     const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &parseError);
