@@ -618,6 +618,20 @@ inline QString flavorTokenOf(ServerInstall::Flavor flavor) {
     return ServerInstall::flavorToken(flavor);
 }
 
+/// 这份记录**归模型所有**的那些键（别的键不归它：更老的/更新的启动器、用户手写的都算别人的）。
+///
+/// 写盘那边靠这张表做"先清后盖"：模型自己拥有的键必须先删掉、再把要写的写回去 ——
+/// 否则"恢复默认值"永远落不了盘（默认值在 `toJson()` 里是省略的，只盖不删就清不掉旧值）。
+inline QStringList ownedMetaKeys() {
+    return {QStringLiteral("format"),           QStringLiteral("version"),
+            QStringLiteral("serverId"),         QStringLiteral("name"),
+            QStringLiteral("flavor"),           QStringLiteral("gameVersion"),
+            QStringLiteral("loaderVersion"),    QStringLiteral("installerVersion"),
+            QStringLiteral("buildId"),          QStringLiteral("javaPath"),
+            QStringLiteral("memoryMb"),         QStringLiteral("restartOnCrash"),
+            QStringLiteral("restartMaxAttempts")};
+}
+
 inline QByteArray toJson(const Info &info) {
     QJsonObject object;
     object.insert(QStringLiteral("format"), formatTag());
@@ -732,3 +746,4 @@ inline bool hasLaunchableInfo(const Info &info) {
 }
 
 }  // namespace ServerModel
+

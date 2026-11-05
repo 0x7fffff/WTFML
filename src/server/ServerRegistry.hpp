@@ -114,6 +114,8 @@ bool writeMeta(const QString &serverId, const ServerModel::Info &info,
 /// 调用方。文件本来就不在（用户从外面拖进来的服务端）不算问题，照写。
 ///
 /// NOTE: `writeMeta()` 自己也是"读盘上那份当底、再盖已知字段"的合并写（未知字段保得住），
+/// 但**模型自己拥有的键先删后盖**（见 `ServerModel::ownedMetaKeys()`）—— 不先删的话，
+/// 默认值（序列化时省略）就永远清不掉，例如关掉自动重启回读仍是开着的。
 /// 所以这条路保护的是"读不懂 ⇒ 连一次写都不要发生"，而不是"只有它会保护未知字段"。
 bool setRestartOnCrash(const QString &serverId, bool on, QString *problemOut = nullptr);
 
