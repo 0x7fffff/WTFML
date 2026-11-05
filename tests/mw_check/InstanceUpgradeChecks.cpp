@@ -1,5 +1,6 @@
 #include "InstanceUpgradeChecks.hpp"
 #include "operations/InstanceUpgrade.hpp"
+#include "operations/UpgradeHistory.hpp"
 #include "operations/FabricVersionDeclaration.hpp"
 #include "InstanceUpdateWizard.hpp"
 #include <QAbstractButton>
@@ -846,6 +847,184 @@ int runInstanceUpgradeChecks() {
               "startup recovery clears a committed copy transaction and keeps the published copy");
     }
     {
+        // U5：副本模式按类别过滤 —— 只复核选中的那几条，未选的不进新实例。
+        InstanceUpgrade::Request r{scratch.path() + "/copy-roots", "CopyRoots", "copy-roots",
+                                   "Source"};
+        r.copyRoots = {QStringLiteral("saves"), QStringLiteral("config"),
+                       QStringLiteral("defaultconfigs")};
+        r.sourceInstanceId = QStringLiteral("Source");
+        const QString source = r.gameDir + "/versions/Source";
+        check(write(source + "/Source.json", R"({"id":"Source"})")
+                  && write(source + "/Source.jar", "old-core")
+                  && write(source + "/wtfml.meta", R"({"instanceId":"roots-stable"})")
+                  && write(source + "/saves/World/level.dat", "world")
+                  && write(source + "/config/custom.cfg", "user-settings")
+                  && write(source + "/mods/keep-me.jar", "mod")
+                  && write(source + "/screenshots/shot.png", "png")
+                  && write(source + "/options.txt", "options")
+                  && write(r.gameDir + "/versions/Target/Target.jar", "new-core")
+                  && write(r.gameDir + "/versions/Target/Target.json",
+                           R"({"id":"Target","mainClass":"ExampleMain"})"),
+              "prepare copy-roots fixture");
+        InstanceUpgrade::Core core;
+        core.clientJar = r.gameDir + "/versions/Target/Target.jar";
+        core.gameVersion = "1.21.1";
+        core.mergedJson = QJsonObject{{"id", "Target"}, {"mainClass", "ExampleMain"}};
+        const auto result = InstanceUpgrade::prepareCopyAndCommit(r, core, source);
+        const QString copyDir = r.gameDir + "/versions/CopyRoots";
+        check(result.ok, "U5 只复制选中类别的副本也能发布");
+        check(read(copyDir + "/saves/World/level.dat") == "world"
+                  && read(copyDir + "/config/custom.cfg") == "user-settings",
+              "★★ U5 选中的存档与配置确实复制过去了");
+        check(!QFileInfo::exists(copyDir + "/mods/keep-me.jar")
+                  && !QFileInfo::exists(copyDir + "/screenshots/shot.png")
+                  && !QFileInfo::exists(copyDir + "/options.txt"),
+              "★★ U5 没选的类别一个字节都没进新实例");
+        check(read(source + "/mods/keep-me.jar") == "mod"
+                  && read(source + "/screenshots/shot.png") == "png",
+              "U5 源实例里的未选类别原样保留");
+        // U6：提交之后新旧两边各留一条升级历史，同一个事务号。
+        const QList<UpgradeHistory::Entry> targetHistory = UpgradeHistory::read(copyDir);
+        check(targetHistory.size() == 1, "U6 新实例那边有一条历史");
+        check(!targetHistory.isEmpty() && targetHistory.first().transactionId == QStringLiteral("copy-roots"),
+              "U6 历史里是这次的事务号");
+        check(!targetHistory.isEmpty() && targetHistory.first().sourceId == QStringLiteral("Source"),
+              "U6 历史记着来源实例 id");
+        check(!targetHistory.isEmpty() && targetHistory.first().targetId == QStringLiteral("CopyRoots"),
+              "U6 历史记着目标实例 id");
+        check(!targetHistory.isEmpty() && targetHistory.first().categories == r.copyRoots,
+              "U6 历史记着这次实际迁移的类别");
+        check(UpgradeHistory::read(source).size() == 1,
+              "★ U6 源实例也留一条（同一份事务）");
+        {
+            // U4：只搬 options、不搬资源包时，启用列表里不能留着没迁入的包。
+            InstanceUpgrade::Request r2{scratch.path() + "/copy-options", "CopyOptions",
+                                        "copy-options", "Source"};
+            r2.copyRoots = {QStringLiteral("options.txt")};
+            r2.sourceInstanceId = QStringLiteral("Source");
+            const QString source2 = r2.gameDir + "/versions/Source";
+            check(write(source2 + "/Source.json", R"({"id":"Source"})")
+                      && write(source2 + "/Source.jar", "old-core")
+                      && write(source2 + "/options.txt",
+                               "fov:0.5\nresourcePacks:[\"vanilla\",\"file/keep.zip\"]\n")
+                      && write(source2 + "/resourcepacks/keep.zip", "zip")
+                      && write(r2.gameDir + "/versions/Target/Target.jar", "new-core")
+                      && write(r2.gameDir + "/versions/Target/Target.json",
+                               R"({"id":"Target","mainClass":"ExampleMain"})"),
+                  "prepare copy-options fixture");
+            InstanceUpgrade::Core core2;
+            core2.clientJar = r2.gameDir + "/versions/Target/Target.jar";
+            core2.gameVersion = "1.21.1";
+            core2.mergedJson = QJsonObject{{"id", "Target"}, {"mainClass", "ExampleMain"}};
+            const auto result2 = InstanceUpgrade::prepareCopyAndCommit(r2, core2, source2);
+            const QString copiedOptions = r2.gameDir + "/versions/CopyOptions/options.txt";
+            check(result2.ok, "U4 只搬 options 的副本也能发布");
+            check(QString::fromUtf8(read(copiedOptions)).contains(QStringLiteral("fov:0.5")),
+                  "U4 普通键还在");
+            check(QString::fromUtf8(read(copiedOptions)).contains(QStringLiteral("resourcePacks:[\"vanilla\"]")),
+                  "★★ U4 没迁入的资源包不出现在启用列表里");
+            // U8：九类全选 / 只选两类 / 目标重名 / 空间预算不足。
+            const QStringList allRoots{QStringLiteral("saves"), QStringLiteral("mods"),
+                                       QStringLiteral("config"), QStringLiteral("defaultconfigs"),
+                                       QStringLiteral("options.txt"),
+                                       QStringLiteral("resourcepacks"),
+                                       QStringLiteral("shaderpacks"),
+                                       QStringLiteral("screenshots"),
+                                       QStringLiteral("structures"),
+                                       QStringLiteral("servers.dat")};
+            InstanceUpgrade::Request r3{scratch.path() + "/copy-all", "CopyAll", "copy-all",
+                                        "Source"};
+            r3.copyRoots = allRoots;
+            r3.sourceInstanceId = QStringLiteral("Source");
+            const QString source3 = r3.gameDir + "/versions/Source";
+            check(write(source3 + "/Source.json", R"({"id":"Source"})")
+                      && write(source3 + "/Source.jar", "old-core")
+                      && write(source3 + "/wtfml.meta", R"({"instanceId":"all-stable"})")
+                      && write(source3 + "/saves/W/level.dat", "w")
+                      && write(source3 + "/mods/m.jar", "m")
+                      && write(source3 + "/config/c.cfg", "c")
+                      && write(source3 + "/defaultconfigs/d.cfg", "d")
+                      && write(source3 + "/options.txt", "fov:0.5")
+                      && write(source3 + "/resourcepacks/p.zip", "p")
+                      && write(source3 + "/shaderpacks/s.zip", "s")
+                      && write(source3 + "/screenshots/a.png", "a")
+                      && write(source3 + "/structures/x.nbt", "x")
+                      && write(source3 + "/servers.dat", "srv")
+                      && write(r3.gameDir + "/versions/Target/Target.jar", "new-core")
+                      && write(r3.gameDir + "/versions/Target/Target.json",
+                               R"({"id":"Target","mainClass":"ExampleMain"})"),
+                  "prepare copy-all fixture");
+            InstanceUpgrade::Core core3;
+            core3.clientJar = r3.gameDir + "/versions/Target/Target.jar";
+            core3.gameVersion = "1.21.1";
+            core3.mergedJson = QJsonObject{{"id", "Target"}, {"mainClass", "ExampleMain"}};
+            const auto allResult = InstanceUpgrade::prepareCopyAndCommit(r3, core3, source3);
+            const QString allDir = r3.gameDir + "/versions/CopyAll";
+            check(allResult.ok, "U8 九类全选也能发布");
+            check(read(allDir + "/saves/W/level.dat") == "w"
+                      && read(allDir + "/mods/m.jar.disabled") == "m"
+                      && read(allDir + "/config/c.cfg") == "c"
+                      && read(allDir + "/defaultconfigs/d.cfg") == "d"
+                      && read(allDir + "/options.txt").contains("fov")
+                      && read(allDir + "/resourcepacks/p.zip") == "p"
+                      && read(allDir + "/shaderpacks/s.zip") == "s"
+                      && read(allDir + "/screenshots/a.png") == "a"
+                      && read(allDir + "/structures/x.nbt") == "x"
+                      && read(allDir + "/servers.dat") == "srv",
+                  "★★ U8 九类全选时每一类都进了新实例");
+
+            InstanceUpgrade::Request r4{r3.gameDir, "CopyTwo", "copy-two",
+                                        "Source"};
+            r4.copyRoots = {QStringLiteral("saves"), QStringLiteral("servers.dat")};
+            r4.sourceInstanceId = QStringLiteral("Source");
+            const auto twoResult =
+                InstanceUpgrade::prepareCopyAndCommit(r4, core3, source3);
+            const QString twoDir = r4.gameDir + "/versions/CopyTwo";
+            check(twoResult.ok, "U8 只选两类也能发布");
+            check(read(twoDir + "/saves/W/level.dat") == "w"
+                      && read(twoDir + "/servers.dat") == "srv"
+                      && !QFileInfo::exists(twoDir + "/mods/m.jar")
+                      && !QFileInfo::exists(twoDir + "/screenshots/a.png"),
+                  "★★ U8 只选两类时其余七类一个字节都不进");
+
+            // 目标重名：目标目录已经存在 ⇒ 一个字节都不写。
+            write(r3.gameDir + "/versions/Taken/keep.txt", "keep");
+            InstanceUpgrade::Request r5{r3.gameDir, "Taken", "copy-taken",
+                                        "Source"};
+            r5.copyRoots = {QStringLiteral("saves")};
+            r5.sourceInstanceId = QStringLiteral("Source");
+            const auto takenResult = InstanceUpgrade::prepareCopyAndCommit(r5, core3, source3);
+            check(!takenResult.ok && read(r3.gameDir + "/versions/Taken/keep.txt") == "keep",
+                  "★★ U8 目标重名时拒绝且不动那一份");
+
+            // 空间预算不足：预算 0 ⇒ 拒绝、源实例不变。
+            InstanceUpgrade::Request r6{r3.gameDir, "CopyBudget",
+                                        "copy-budget", "Source"};
+            r6.copyRoots = {QStringLiteral("saves")};
+            r6.spaceBudgetBytes = 0;
+            r6.sourceInstanceId = QStringLiteral("Source");
+            const auto budgetResult =
+                InstanceUpgrade::prepareCopyAndCommit(r6, core3, source3);
+            check(!budgetResult.ok && !QFileInfo::exists(r6.gameDir + "/versions/CopyBudget")
+                      && read(source3 + "/saves/W/level.dat") == "w",
+                  "★★ U8 空间预算不足时拒绝、源实例不变");
+
+            // 跨根目录边界：源实例不在这次事务的游戏目录里 ⇒ 拒绝（第一版不支持跨根）。
+            InstanceUpgrade::Request r7{r6.gameDir, "CopyCross", "copy-cross", "Source"};
+            r7.copyRoots = {QStringLiteral("saves")};
+            const QString foreign = scratch.path() + "/foreign/versions/Source";
+            check(write(foreign + "/Source.json", R"({"id":"Source"})")
+                      && write(foreign + "/Source.jar", "old-core")
+                      && write(foreign + "/saves/W/level.dat", "w"),
+                  "prepare cross-root fixture");
+            const auto crossResult = InstanceUpgrade::prepareCopyAndCommit(r7, core3, foreign);
+            check(!crossResult.ok
+                      && !QFileInfo::exists(r6.gameDir + "/versions/CopyCross")
+                      && read(foreign + "/saves/W/level.dat") == "w",
+                  "★★ U8 跨根目录的源实例被拒绝，且源文件一个字节没动");
+        }
+    }
+    {
         // 副本模式失败：源实例不动、目标名不出、暂存自己收掉。
         InstanceUpgrade::Request r{scratch.path() + "/copy-fail", "CopyFail", "copy-fail", "Source"};
         const QString source = r.gameDir + "/versions/Source";
@@ -890,6 +1069,12 @@ int runInstanceUpgradeChecks() {
               "cancelled copy mode publishes nothing and keeps the source intact");
         check(!QFileInfo::exists(InstanceUpgrade::transactionDir(r)),
               "cancelled copy mode removes its staging copy");
+        const QList<UpgradeHistory::Entry> cancelHistory = UpgradeHistory::read(source);
+        check(!cancelHistory.isEmpty() && cancelHistory.first().cancelled,
+              "★ U8 取消也留一条历史（不是只在成功时记）");
+        const auto retry = InstanceUpgrade::prepareCopyAndCommit(r, core, source);
+        check(retry.ok && QFileInfo::exists(r.gameDir + "/versions/CopyCancel"),
+              "★★ U8 取消之后同一事务重入能成功（暂存已收干净）");
     }
     {
         // 副本模式在发布阶段被外部打断（这里用异常模拟"进程没走完"）：
@@ -1736,3 +1921,11 @@ int runInstanceUpgradeChecks() {
     }
     return failures == 0 ? 0 : 1;
 }
+
+
+
+
+
+
+
+

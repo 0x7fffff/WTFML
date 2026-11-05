@@ -399,8 +399,9 @@ int UiDownloadNewChecks(InstanceSettingsDialog &dialog, const QString &instanceD
 int UiEmptyPageChecks(const QString &instanceDisplayName, const QString &instanceDirName,
                       const InstanceSettingsDialog::GlobalValues &global, const QString &root);
 int UiQuickPlayChecks(InstanceSettingsDialog &dialog, const QString &instanceDisplayName,
-                      const QString &instanceDirName,
-                      const InstanceSettingsDialog::GlobalValues &global);
+                        const QString &instanceDirName,
+                        const InstanceSettingsDialog::GlobalValues &global);
+int UiUpgradePageChecks(QApplication &app);
 int UiSearchFilterChecks(InstanceSettingsDialog &dialog, const QString &modsDir);
 int UiScrollAnchorChecks(const QString &instanceDisplayName, const QString &instanceDirName,
                          const InstanceSettingsDialog::GlobalValues &global);
@@ -456,3 +457,8 @@ int UiServerSettingsChecks();
 int UiAccessibilityChecks(QMainWindow &window);
 int UiBeaconBrewingChecks();
 int UiBannerArmorChecks();
+
+int UiUpgradeReportChecks(QApplication &app);
+
+int UiUpgradeHistoryChecks(QApplication &app);
+

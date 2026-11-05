@@ -94,7 +94,8 @@ public:
                        Tasks::TaskId parentTask = Tasks::invalidTaskId(),
                        const QHash<int, int> &stageParentSteps = {},
                        std::function<void(bool ok, bool cancelled)> whenSettled = {},
-                       const QList<InstanceUpgrade::ModReplacement> &replacements = {});
+                       const QList<InstanceUpgrade::ModReplacement> &replacements = {},
+                       const QStringList &copyRoots = {});
     void rollbackUpgrade(QString sourceId,
                          std::function<void(bool, const QString &)> whenDone = {});
 

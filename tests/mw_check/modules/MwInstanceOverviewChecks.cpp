@@ -1,4 +1,6 @@
 #include "Support.hpp"
+
+#include "InstanceUpgradePage.hpp"
 int MwInstanceOverviewChecks(const QDir &root, const QDir &versionsDir) {
     // ------------------------------------------------------------------
     // 要求：「第一行 图标 名称 / 第二行 更改图标 分组… / 第三行 显示在置顶组
@@ -407,6 +409,49 @@ int MwInstanceOverviewChecks(const QDir &root, const QDir &versionsDir) {
         check(readBytesAt(metaPath) == metaBefore && !QFile::exists(iconPath) &&
                   !QFile::exists(groupFile),
               "T18 收拾：1.20.1 的 meta 逐字节还原，icon.png 和这份 wtfml.folders 都删掉了");
+    }
+    // UG6：维护页里的新版升级页 —— 勾选决定副本要复制哪些类别。
+    //
+    // 这是"页面 → 请求"那条线唯一能验的地方：页面上的九类勾选必须实时落到
+    // `upgradeCopyRoots` 上（执行时 `upgradeToCopy(..., copyRoots)` 就取它）。
+    {
+        MainWindow w;
+        w.show();
+        QApplication::processEvents();
+        QMetaObject::invokeMethod(&w, "openInstanceSettings", Qt::DirectConnection,
+                                  Q_ARG(QString, QStringLiteral("1.20.1")));
+        QApplication::processEvents();
+        auto *host = currentOverlay();
+        auto *page = host != nullptr ? host->findChild<InstanceSettingsDialog *>() : nullptr;
+        check(page != nullptr, "UG6 实例设置页开出来了");
+        auto *upgrade = page != nullptr ? page->findChild<InstanceUpgradePage *>() : nullptr;
+        check(upgrade != nullptr, "UG6 维护页里有新版升级页（不是只剩旧向导入口）");
+        QStringList roots =
+            page != nullptr ? page->property("upgradeCopyRoots").toStringList() : QStringList();
+        check(roots.contains(QStringLiteral("saves")) && roots.contains(QStringLiteral("mods"))
+                  && roots.contains(QStringLiteral("config"))
+                  && roots.contains(QStringLiteral("defaultconfigs"))
+                  && roots.contains(QStringLiteral("options.txt"))
+                  && roots.contains(QStringLiteral("servers.dat")),
+              "UG6 默认勾选覆盖运行必需的那几类", roots.join(QLatin1Char(',')));
+        check(!roots.contains(QStringLiteral("screenshots"))
+                  && !roots.contains(QStringLiteral("structures")),
+              "UG6 截图 / 原理图默认不在复制清单里", roots.join(QLatin1Char(',')));
+        auto *savesBox = upgrade != nullptr
+                             ? upgrade->findChild<QCheckBox *>(
+                                   InstanceUpgradePage::categoryCheckName(QStringLiteral("saves")))
+                             : nullptr;
+        check(savesBox != nullptr, "UG6 找得到「存档」那一格");
+        if (savesBox != nullptr) {
+            savesBox->setChecked(false);
+        }
+        QApplication::processEvents();
+        roots = page != nullptr ? page->property("upgradeCopyRoots").toStringList() : QStringList();
+        check(!roots.contains(QStringLiteral("saves")),
+              "UG6 勾掉存档之后复制清单里就没有 saves", roots.join(QLatin1Char(',')));
+        if (host != nullptr) {
+            host->closeOverlay();
+        }
     }
     return 0;
 }

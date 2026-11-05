@@ -2730,6 +2730,9 @@ int main(int argc, char *argv[]) {
     // 前面每一条断言量的都是"出厂那一份"下的几何与像素。收尾处会铺回出厂那一份。
     std::printf("===== W. 主题那一层（背景 / 文字不透明度 / 每一块骨架） =====\n");
     if (const int result = UiThemePaletteChecks(app, tabs, bar); result != 0) return result;
+    if (const int result = UiUpgradePageChecks(app); result != 0) return result;
+    if (const int result = UiUpgradeReportChecks(app); result != 0) return result;
+    if (const int result = UiUpgradeHistoryChecks(app); result != 0) return result;
 
     if (const int result = UiAnimationsChecks(app, bar); result != 0) return result;
 

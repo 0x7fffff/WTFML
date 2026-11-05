@@ -545,6 +545,10 @@ int main(int argc, char **argv) {
     moduleStatus |= runInstanceTraitsTests(sandbox);
     moduleStatus |= runInstallOccupancyTests(sandbox);
     moduleStatus |= runFileOperationOccupancyTests(sandbox);
+    moduleStatus |= runUpgradeSelectionTests(sandbox);
+    moduleStatus |= runUpgradeReportTests(sandbox);
+    moduleStatus |= runUpgradeHistoryTests(sandbox);
+    moduleStatus |= runUpgradeOptionsTests(sandbox);
     moduleStatus |= runRenameInstanceTests(sandbox);
     moduleStatus |= runInstanceGroupTests(sandbox);
     moduleStatus |= runInstalledScanTests(sandbox);
