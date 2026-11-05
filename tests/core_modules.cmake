@@ -58,6 +58,10 @@ add_library(core_cases_instances OBJECT
  core_modules/InstanceTraitsTests.cpp
  core_modules/InstallOccupancyTests.cpp
  core_modules/FileOperationOccupancyTests.cpp
+core_modules/UpgradeSelectionTests.cpp
+core_modules/UpgradeReportTests.cpp
+core_modules/UpgradeHistoryTests.cpp
+core_modules/UpgradeOptionsTests.cpp
  core_modules/RenameInstanceTests.cpp
  core_modules/InstanceGroupTests.cpp
  core_modules/InstalledScanTests.cpp

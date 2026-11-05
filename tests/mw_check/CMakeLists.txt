@@ -362,6 +362,7 @@ set(SOURCE_FILES
     ${REPO_ROOT}/ui/GroupListDelegate.cpp
     ${REPO_ROOT}/ui/InstanceSettingsDialog.cpp
     ${REPO_ROOT}/ui/InstanceUpdateWizard.cpp
+    ${REPO_ROOT}/ui/InstanceUpgradePage.cpp
     ${REPO_ROOT}/ui/InstanceFilesPage.cpp
     ${REPO_ROOT}/ui/InstanceFilesPageRows.cpp
     ${REPO_ROOT}/ui/InstanceFilesSelection.cpp

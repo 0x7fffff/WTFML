@@ -584,6 +584,10 @@ int runInstallOccupancyTests(const QString &sandbox);
 
 // 后台搬文件那份引用计数（两趟压同一个实例 / 没记过就放开 / 空 id）。
 int runFileOperationOccupancyTests(const QString &sandbox);
+int runUpgradeSelectionTests(const QString &sandbox);
+int runUpgradeReportTests(const QString &sandbox);
+int runUpgradeHistoryTests(const QString &sandbox);
+int runUpgradeOptionsTests(const QString &sandbox);
 
 // 重命名：名字校验的真值表 + 真改磁盘目录名（含失败路径）。
 int runRenameInstanceTests(const QString &sandbox);

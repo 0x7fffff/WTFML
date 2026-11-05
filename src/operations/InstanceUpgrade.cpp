@@ -1,4 +1,6 @@
 #include "InstanceUpgrade.hpp"
+#include "UpgradeHistory.hpp"
+#include "UpgradeOptions.hpp"
 
 #include "manage/BackupFiles.hpp"
 #include "manage/InstanceFiles.hpp"
@@ -135,6 +137,14 @@ QString validate(const Request &r) {
         transactionDir(r) + "/replaced", journalPath(r)};
     for (const auto &path : paths)
         if (redirected(path)) return QStringLiteral("升级路径包含链接，无法保证完整快照和安全回滚：%1").arg(path);
+    // 副本模式的"只复制这几条"必须是单层相对名：不能让 `../` 或绝对路径从调用方漏进来。
+    for (const QString &root : r.copyRoots) {
+        if (root.isEmpty() || root.contains(QLatin1Char('/')) || root.contains(QLatin1Char('\\'))
+            || root == QStringLiteral(".") || root == QStringLiteral("..")
+            || QDir::isAbsolutePath(root)) {
+            return QStringLiteral("要复制的类别路径不合法：%1").arg(root);
+        }
+    }
     return {};
 }
 // Full snapshots must not silently omit junctions, symlinks or unreadable trees.
@@ -682,6 +692,62 @@ bool applyCoreToCandidate(const Request &r, const Core &core, const QString &can
     if (!writeUpdateChangeLog(r, core, candidate, result)) return false;
     return true;
 }
+
+/// 提交/回滚收尾时写一条升级历史（目标实例一份；副本模式源实例也留一条，同一个事务号）。
+///
+/// 失败不改变升级结果：历史写不进去只在 `problem` 后面补一句，**不把成功报成失败**。
+static void recordUpgradeHistory(const Request &r, const Core &core, const QString &sourceDir,
+                          const QString &targetDir, const QString &startedAt,
+                          const QString &snapshotZip, bool ok, bool cancelled,
+                          const QString &problem, int copied, int skipped) {
+    UpgradeHistory::Entry entry;
+    entry.transactionId = r.transactionId;
+    entry.sourceId = r.sourceInstanceId;
+    entry.targetId = r.instanceId;
+    entry.targetName = r.label;
+    entry.startedAt = startedAt;
+    entry.finishedAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    entry.toGameVersion = core.gameVersion;
+    entry.toLoader = core.loaderName.isEmpty()
+                         ? QString()
+                         : core.loaderName + QLatin1Char(' ') + core.loaderVersion;
+    entry.categories = r.copyRoots;
+    entry.ok = ok;
+    entry.cancelled = cancelled;
+    entry.problem = problem;
+    entry.copiedFiles = copied;
+    entry.skippedFiles = skipped;
+    // 来源那几格从源实例自己的 wtfml.meta 里读（读不出就留空，不猜）。
+    for (const QString &dir : {sourceDir, targetDir}) {
+        QFile meta(QDir(dir).filePath(QStringLiteral("wtfml.meta")));
+        if (!meta.open(QIODevice::ReadOnly) || meta.size() > 1024 * 1024) {
+            continue;
+        }
+        const QJsonObject object = QJsonDocument::fromJson(meta.readAll()).object();
+        if (object.isEmpty()) {
+            continue;
+        }
+        if (entry.fromGameVersion.isEmpty()) {
+            entry.fromGameVersion = object.value(QStringLiteral("realVersion")).toString();
+        }
+        if (entry.fromLoader.isEmpty()) {
+            entry.fromLoader = object.value(QStringLiteral("loaderName")).toString();
+        }
+        if (!entry.sourceName.isEmpty()) {
+            break;
+        }
+        entry.sourceName = object.value(QStringLiteral("name")).toString();
+    }
+    if (!r.copyRoots.isEmpty()) {
+        entry.categories = r.copyRoots;
+    }
+    QString historyProblem;
+    UpgradeHistory::append(targetDir, entry, &historyProblem);
+    if (!sourceDir.isEmpty() && QDir::cleanPath(sourceDir) != QDir::cleanPath(targetDir)) {
+        UpgradeHistory::append(sourceDir, entry, &historyProblem);
+    }
+}
+
 static Result prepareAndCommitImpl(Request r, const Core &core, const std::function<void(Stage)> &progress,
                                    const std::function<bool()> &cancelled) {
     Result result;
@@ -709,6 +775,7 @@ static Result prepareAndCommitImpl(Request r, const Core &core, const std::funct
         result.problem = problem.isEmpty() ? QStringLiteral("原实例是空的。") : problem; return result;
     }
     r.originalFingerprint = fingerprint(files);
+    result.copiedFiles = files.size();
     qint64 size = 0;
     for (const auto &file : files) {
         if (file.size < 0 || size > std::numeric_limits<qint64>::max() - file.size) {
@@ -767,8 +834,13 @@ Result prepareAndCommit(Request r, const Core &core, const std::function<void(St
     if (!lock.tryLock()) {
         Result result; result.problem = QStringLiteral("升级事务正在使用，未修改实例。"); return result;
     }
+    const QString startedAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
     const auto result = prepareAndCommitImpl(r, core, progress, cancelled);
     if (!result.ok) discardUnpublishedStaging(r);
+    recordUpgradeHistory(r, core, originalDir(r), originalDir(r), startedAt,
+                         result.snapshotZip, result.ok,
+                         result.cancelled, result.problem, result.copiedFiles,
+                         result.skippedFiles);
     return result;
 }
 
@@ -799,6 +871,12 @@ static Result prepareCopyAndCommitImpl(Request r, const Core &core, const QStrin
         result.problem = QStringLiteral("副本的源实例或目标目录不安全，未复制任何文件。");
         return result;
     }
+    // 第一版不允许"跨游戏根"复制：源实例必须在这次事务的游戏目录里。
+    // 跨根要同时处理两个根的锁、空间、路径与历史归属，不能只改一个路径字符串。
+    if (!InstanceFiles::pathIsSameOrInside(r.gameDir, sourceDir)) {
+        result.problem = QStringLiteral("源实例不在这次事务的游戏目录里，未复制任何文件。");
+        return result;
+    }
     if (QFileInfo::exists(original) || QFileInfo::exists(candidate)) {
         result.problem = QStringLiteral("目标实例名已经存在，未覆盖任何文件。");
         return result;
@@ -820,8 +898,22 @@ static Result prepareCopyAndCommitImpl(Request r, const Core &core, const QStrin
         return result;
     }
     r.originalFingerprint = fingerprint(files);
+    // 只复制选中的类别（`copyRoots` 为空 = 整棵树，旧行为）。
+    QList<BackupFiles::FileRecord> selected;
+    if (r.copyRoots.isEmpty()) {
+        selected = files;
+    } else {
+        for (const auto &file : files) {
+            const QString first = file.path.section(QLatin1Char('/'), 0, 0);
+            if (r.copyRoots.contains(first) || r.copyRoots.contains(file.path)) {
+                selected.append(file);
+            }
+        }
+    }
     qint64 size = 0;
-    for (const auto &file : files) {
+    result.copiedFiles = selected.size();
+    result.skippedFiles = files.size() - selected.size();
+    for (const auto &file : selected) {
         if (file.size < 0 || size > std::numeric_limits<qint64>::max() - file.size) {
             result.problem = QStringLiteral("实例大小溢出，未开始复制。");
             return result;
@@ -840,16 +932,60 @@ static Result prepareCopyAndCommitImpl(Request r, const Core &core, const QStrin
     }
     if (stopped()) return cancelResult(QStringLiteral("已取消复制。"));
     if (progress) progress(Stage::Copy);
-    if (!copyTreeWithoutFollowingLinks(sourceDir, candidate, cancelled)) {
+    const auto copySelected = [&]() -> bool {
+        if (r.copyRoots.isEmpty()) {
+            return copyTreeWithoutFollowingLinks(sourceDir, candidate, cancelled);
+        }
+        // 只复制"文件"类（options.txt / servers.dat）时没有目录树来建候选目录，这里先建出来。
+        QDir().mkpath(candidate);
+        for (const QString &root : r.copyRoots) {
+            const QString from = sourceDir + QLatin1Char('/') + root;
+            if (!QFileInfo::exists(from) || QFileInfo(from).isSymLink()) {
+                continue;  // 这一类盘上没有（或是指向别处的链接）→ 不复制
+            }
+            QString copyProblem;
+            if (!copyTreeWithoutFollowingLinks(from, candidate + QLatin1Char('/') + root,
+                                              cancelled, &copyProblem)) {
+                return false;
+            }
+        }
+        return true;
+    };
+    if (!copySelected()) {
         if (stopped()) return cancelResult(QStringLiteral("已取消复制。"));
         result.problem = QStringLiteral("更新副本复制失败，原实例未改变。");
         return result;
     }
-    if (progress) progress(Stage::VerifyCopy);
-    if (!sameFiles(candidate, files, cancelled)) {
+    // 只校验真的复制了的那一份；一条都没选时跳过（候选目录里此刻只有核心文件，稍后写入）。
+    if (!selected.isEmpty() && !sameFiles(candidate, selected, cancelled)) {
         if (stopped()) return cancelResult(QStringLiteral("已取消复制。"));
         result.problem = QStringLiteral("更新副本未通过完整校验，原实例未改变。");
         return result;
+    }
+    // U4：资源包启用列表按"真的迁入了哪些包"重建（只在 options / resourcepacks 参与这次复制时做）。
+    if (r.copyRoots.isEmpty() || r.copyRoots.contains(QStringLiteral("options.txt"))
+        || r.copyRoots.contains(QStringLiteral("resourcepacks"))) {
+        const QString optionsPath = candidate + QStringLiteral("/options.txt");
+        if (QFileInfo::exists(optionsPath)) {
+            QFile optionsFile(optionsPath);
+            if (optionsFile.open(QIODevice::ReadOnly)) {
+                const QString optionsText = QString::fromUtf8(optionsFile.readAll());
+                optionsFile.close();
+                QStringList packs;
+                QDirIterator packIt(candidate + QStringLiteral("/resourcepacks"),
+                                    QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot);
+                while (packIt.hasNext()) {
+                    const QFileInfo packInfo(packIt.next());
+                    packs.append(QStringLiteral("file/") + packInfo.fileName());
+                }
+                const QString rewritten =
+                    UpgradeOptions::rewriteKeepingAll(optionsText, packs);
+                QSaveFile optionsOut(optionsPath);
+                optionsOut.open(QIODevice::WriteOnly);
+                optionsOut.write(rewritten.toUtf8());
+                optionsOut.commit();
+            }
+        }
     }
     if (!applyCoreToCandidate(r, core, candidate, &result)) return result;
     if (stopped()) return cancelResult(QStringLiteral("已取消，更新副本未发布。"));
@@ -925,8 +1061,21 @@ Result prepareCopyAndCommit(Request r, const Core &core, const QString &sourceDi
     if (!lock.tryLock()) {
         Result result; result.problem = QStringLiteral("副本事务正在使用，未修改实例。"); return result;
     }
+    const QString startedAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
     const auto result = prepareCopyAndCommitImpl(r, core, sourceDir, progress, cancelled);
     if (!result.ok) discardUnpublishedStaging(r);
+    if (result.ok) {
+        recordUpgradeHistory(r, core, sourceDir, originalDir(r), startedAt, QString(),
+                             true, false, QString(), result.copiedFiles, result.skippedFiles);
+    } else if (!result.cancelled) {
+        recordUpgradeHistory(r, core, sourceDir, originalDir(r), startedAt, QString(),
+                             false, false, result.problem, result.copiedFiles,
+                             result.skippedFiles);
+    } else {
+        recordUpgradeHistory(r, core, sourceDir, originalDir(r), startedAt, QString(),
+                             false, true, result.problem, result.copiedFiles,
+                             result.skippedFiles);
+    }
     return result;
 }
 
@@ -1349,3 +1498,11 @@ QStringList recoverInterruptedInRoots(const QStringList &gameDirs) {
     return messages;
 }
 } // namespace InstanceUpgrade
+
+
+
+
+
+
+
+

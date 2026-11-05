@@ -40,6 +40,10 @@ add_library(wtfml_ui_runtime STATIC
                                 ${REPO_ROOT}/ui/InstanceSettingsDialog.cpp
 ${REPO_ROOT}/ui/InstanceSettingsSignature.cpp
                                 ${REPO_ROOT}/ui/InstanceUpdateWizard.cpp
+    # 迁移式升级页的骨架：只画状态、只转发动作（判断在 operations/Upgrade*）。
+    ${REPO_ROOT}/ui/InstanceUpgradePage.cpp
+    ${REPO_ROOT}/ui/UpgradeReportDialog.cpp
+    ${REPO_ROOT}/ui/UpgradeHistoryDialog.cpp
     ${REPO_ROOT}/ui/InstanceFilesPage.cpp
     ${REPO_ROOT}/ui/InstanceFilesPageRows.cpp
     ${REPO_ROOT}/ui/InstanceFilesSelection.cpp

@@ -97,6 +97,15 @@ pwsh -File tools/perf-build.ps1 -Jobs 8 -ProductOnly
 180715 检查抓到同秒时间戳导致只重链1/2个输出，拒绝作为有效对照。
 最终脚本在触碰前留出一个 Make 时间刻度，181122 两种模式的零编译/链接数校验均通过。
 
+### 2026-11-05 本机对照（`build-audit`，Release + `WTFML_BUILD_TESTS=ON`，`--parallel 4`）
+
+- **全热**（没有任何改动）：**6.7 秒**（只剩 make 遍历与"已是最新"判断）。
+- **单 TU 增量**（`touch src/controllers/BackupController.cpp`）：**66.7 秒** —— 其中编译一个
+  TU 只占几秒，剩下是产品与测试目标的重新链接。
+- **冷构建**（全新目录 `build-cold-measure`、同一套参数、`--parallel 4`、PCH 与全部测试目标）：
+  configure 5.4 秒 + 构建 **2013 秒 ≈ 33.5 分钟**；产物目录约 2.4 GB（测完即删）。
+  改公共头（如 `ServerModel.hpp`）触发的整棵重编约 **21 分钟**（同日一次真实重编，`-j6`），
+  比冷构建略短，但仍远重于增量 —— 这就是"改公共头要想一下"的直接依据。
 ## 二、启动与就绪（真产品 exe，外部测量）
 
 ```powershell
@@ -1124,4 +1133,6 @@ endif()
 预热只是把卡顿挪走。机器上装着 Kaspersky + Defender，但没关防护去验证。产品代码这一轮
 一个字节都没改。证据与下一步（杀毒排除项 / 干净虚拟机 / ETW）见
 [起一个线程偶尔要 3 秒](P2_THREAD_CREATE_STALL_20261101.md)。
+
+
 

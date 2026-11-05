@@ -295,6 +295,17 @@ set(PROJECT_SOURCES
     # 自己摆一份源实例（存档 / 模组 / 日志），逐条念兼容结论、默认勾选与"只增不删"。
     ${REPO_ROOT}/src/operations/TransferPlanner.cpp
     ${REPO_ROOT}/src/operations/TransferPlanner.hpp
+    # 迁移式升级的九类选择：稳定键 / 默认值 / 指纹 / 依赖提示（纯逻辑，UP 段直接钉）。
+    ${REPO_ROOT}/src/operations/UpgradeSelection.cpp
+    ${REPO_ROOT}/src/operations/UpgradePageState.cpp
+    ${REPO_ROOT}/src/operations/UpgradeReport.cpp
+    ${REPO_ROOT}/src/operations/UpgradeHistory.cpp
+    ${REPO_ROOT}/src/operations/UpgradeOptions.cpp
+    ${REPO_ROOT}/src/operations/UpgradeSelection.hpp
+    ${REPO_ROOT}/src/operations/UpgradePageState.hpp
+    ${REPO_ROOT}/src/operations/UpgradeReport.hpp
+    ${REPO_ROOT}/src/operations/UpgradeHistory.hpp
+    ${REPO_ROOT}/src/operations/UpgradeOptions.hpp
     ${REPO_ROOT}/src/operations/TransferApply.cpp
     ${REPO_ROOT}/src/operations/TransferApply.hpp
     # 原地升级事务：`verify_instances` 里那几条人工大实例探针直接调用

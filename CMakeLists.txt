@@ -162,6 +162,12 @@ set(HEADER_FILES
     # 迁移 / 升级副本：计划只读盘，落盘在
     # TransferApply。目标版本 / 加载器不一致时如实说不一致，不替用户猜。
     src/operations/TransferPlanner.hpp
+    # 迁移式升级的九类选择：稳定键、默认值、指纹与依赖提示（纯逻辑）。
+    src/operations/UpgradeSelection.hpp
+    src/operations/UpgradePageState.hpp
+    src/operations/UpgradeReport.hpp
+    src/operations/UpgradeHistory.hpp
+    src/operations/UpgradeOptions.hpp
     src/operations/TransferApply.hpp
     # 一次文件操作的统一报告（逐项结果 / 冲突策略 / 可续暂存 / 失败原因）。
     src/operations/OperationReport.hpp
@@ -433,6 +439,11 @@ set(SOURCE_FILES
     src/diagnose/StartupDiagnosis.cpp
     # 迁移 / 升级副本。
     src/operations/TransferPlanner.cpp
+    src/operations/UpgradeSelection.cpp
+    src/operations/UpgradePageState.cpp
+    src/operations/UpgradeReport.cpp
+    src/operations/UpgradeHistory.cpp
+    src/operations/UpgradeOptions.cpp
     src/operations/TransferApply.cpp
     src/operations/InstanceUpgrade.cpp
     src/operations/OperationReport.cpp
@@ -514,6 +525,9 @@ set(SOURCE_FILES
     ui/TaskProgressBar.cpp
     ui/IntegrityReportPage.cpp
     ui/UpdateCenterPage.cpp
+    ui/InstanceUpgradePage.cpp
+    ui/UpgradeReportDialog.cpp
+    ui/UpgradeHistoryDialog.cpp
     ui/NewServerPage.cpp
     ui/ServerConsolePage.cpp
     ui/ServerSettingsPage.cpp
@@ -725,6 +739,7 @@ endif()
 if(WTFML_PERF_DOWNLOAD)
     add_subdirectory(tools/perf_download)
 endif()
+
 
 
 

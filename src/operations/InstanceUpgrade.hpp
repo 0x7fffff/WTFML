@@ -28,6 +28,11 @@ struct Request {
     QString label;
     // Optional operation quota, can only reduce the measured free-space budget.
     qint64 spaceBudgetBytes = -1;
+    /// 来源实例的稳定 id（副本模式必有；原地升级为空）。写升级历史时用来记"从哪一份来的"。
+    QString sourceInstanceId;
+    /// 副本模式下**只复制这些顶层路径**（相对源实例目录；空 = 整棵树，兼容旧行为）。
+    /// 每个名字必须是单层相对名（不含分隔符、不是 `..`、不是绝对路径），由 `validate()` 拦。
+    QStringList copyRoots;
     QByteArray originalFingerprint{};
 };
 struct Result {
@@ -43,6 +48,9 @@ struct Result {
     bool requiresReload = false;
     /// 实际写进候选目录的替换/新增（任务详情与变更日志共用一套说法）。
     QStringList changes;
+    /// 这次实际复制了多少文件、跳过了多少（升级历史与任务详情共用）。
+    int copiedFiles = 0;
+    int skippedFiles = 0;
 };
 /// 一份“平台适配版”模组文件：已经在暂存里下好并校验过，等事务把它放进候选目录。
 ///
@@ -116,3 +124,5 @@ QStringList recoverInterrupted(const QString &gameDir);
 /// 不全盘搜索，也不删除任何未知目录。
 QStringList recoverInterruptedInRoots(const QStringList &gameDirs);
 } // namespace InstanceUpgrade
+
+

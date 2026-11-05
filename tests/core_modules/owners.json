@@ -20,6 +20,10 @@
   "InstanceTraitsTests.cpp": "instances",
   "InstallOccupancyTests.cpp": "instances",
   "FileOperationOccupancyTests.cpp": "instances",
+    "UpgradeSelectionTests.cpp": "instances",
+    "UpgradeReportTests.cpp": "instances",
+    "UpgradeHistoryTests.cpp": "instances",
+    "UpgradeOptionsTests.cpp": "instances",
   "ResourceStoreBudgetTests.cpp": "resources",
   "RenameInstanceTests.cpp": "instances",
   "InstanceGroupTests.cpp": "instances",
@@ -103,4 +107,8 @@
   "ModpackExportPipelineTests.cpp": "resources",
   "ThemeImageTests.cpp": "resources"
 }
+
+
+
+
 

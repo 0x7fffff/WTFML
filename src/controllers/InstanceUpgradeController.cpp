@@ -116,7 +116,8 @@ void InstanceTransferController::upgradeToCopy(const QString &sourceId, const QS
     const QStringList &reviewedKeptMods, bool reviewedModPlan,
     Tasks::TaskId parentTask, const QHash<int, int> &stageParentSteps,
     std::function<void(bool, bool)> whenSettled,
-    const QList<InstanceUpgrade::ModReplacement> &replacements) {
+    const QList<InstanceUpgrade::ModReplacement> &replacements,
+    const QStringList &copyRoots) {
     const auto fail = [&](const QString &problem) {
         InlineMessage::warning(m_overlay, tr("创建更新副本"), problem);
         if (whenSettled) whenSettled(false, false);
@@ -178,8 +179,10 @@ void InstanceTransferController::upgradeToCopy(const QString &sourceId, const QS
         fail(tr("实例或游戏目录状态已变化，没有开始创建副本。"));
         return;
     }
-    const InstanceUpgrade::Request request{game, name,
+    InstanceUpgrade::Request request{game, name,
         QUuid::createUuid().toString(QUuid::WithoutBraces), displayName(sourceId)};
+    request.copyRoots = copyRoots;
+    request.sourceInstanceId = sourceId;
     const QString sourceDir = AppPaths::versionDir(sourceId);
     runUpgradeJob(request, core,
                   QStringList{sourceId, targetCoreId, InstanceFiles::jarOwnerId(targetCoreId)},
@@ -399,3 +402,4 @@ void InstanceTransferController::runUpgradeJob(const InstanceUpgrade::Request &r
         }
     }));
 }
+

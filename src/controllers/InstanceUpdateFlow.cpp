@@ -7,6 +7,9 @@
 #include "MainWindow.hpp"
 #include "InstanceSettingsDialog.hpp"
 #include "InstanceUpdateWizard.hpp"
+#include "InstanceUpgradePage.hpp"
+#include "UpgradeReportDialog.hpp"
+#include "UpgradeHistoryDialog.hpp"
 #include "MainWindowUI.hpp"
 #include "InlineMessage.hpp"
 #include "Theme.hpp"
@@ -17,6 +20,10 @@
 #include "controllers/DownloadTaskLedgerController.hpp"
 #include "manage/VersionManager.hpp"
 #include "operations/InstanceUpgrade.hpp"
+#include "operations/UpgradePageState.hpp"
+#include "operations/TransferPlanner.hpp"
+#include "operations/UpgradeReport.hpp"
+#include "operations/UpgradeHistory.hpp"
 #include "operations/OperationReport.hpp"
 #include "presets/PresetModInstaller.hpp"
 #include "manage/FolderManager.hpp"
@@ -256,9 +263,157 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
             });
     });
 
-    const auto refreshEnabled = [owner, dialog, state, wizard, start, game, loaderVersion, copyName, mode, status, summary, steps, stopQuery, retryFlow, tree, changes] {
+    // ---------- 新版紧凑页（过渡期）----------
+    //
+    // 位置：维护页最上面。作用：目标版本 / 加载器 / 副本名这三样在新页面上选，
+    // 选完点「兼容性报告…」走现有检查（同一套向导、同一套判据），检查就绪后新页面
+    // 的指纹被记下、确认按钮才亮起来。执行仍由向导完成 —— 九类"选了就生效"要等
+    // U5 把类别接进复制链路，在那之前**不露**那一块（不给"勾了却不生效"的假象）。
+    auto *upgradePage = new InstanceUpgradePage(page);
+    layout->insertWidget(0, upgradePage);
+    auto pageState = std::make_shared<UpgradePageState::State>();
+    pageState->sourceId = sourceId;
+    pageState->sourceGameVersion = source.realVersion;
+    pageState->sourceLoaderKey = source.loaderName.toLower();
+    pageState->sourceLoaderVersion = source.loaderVersion;
+    pageState->target.instanceName = copyName->text();
+    // 来源实例此刻在跑、或被别的作业压着：页面上提前说，不等点确认才报错。
+    if (owner->m_launcherManager->isVersionRunning(sourceId)
+        || owner->m_versionManager->busyVersionId() == sourceId) {
+        pageState->instanceBusy = true;
+    }
+    // 默认勾选按规范：截图 / 原理图不勾，其余默认勾（盘上没有的那些执行时会自动跳过）。
+    for (const UpgradeSelection::Category &category : UpgradeSelection::categories()) {
+        if (category.defaultSelected) {
+            pageState->selection.state.set(category.key, true);
+        }
+    }
+    upgradePage->setVersionOptions(owner->m_versionManager->availableVersions());
+    upgradePage->setLoaderOptions({{QString(), QObject::tr("纯原版")},
+                                   {QStringLiteral("fabric"), QStringLiteral("Fabric")},
+                                   {QStringLiteral("forge"), QStringLiteral("Forge")},
+                                   {QStringLiteral("neoforge"), QStringLiteral("NeoForge")},
+                                   {QStringLiteral("quilt"), QStringLiteral("Quilt")},
+                                   {QStringLiteral("optifine"), QStringLiteral("OptiFine")}},
+                                  {});
+    upgradePage->setSelectionVisible(true);
+    upgradePage->setHistoryVisible(true);
+    upgradePage->setState(*pageState);
+    dialog->setProperty("upgradeCopyRoots", UpgradeSelection::selectedRoots(pageState->selection));
+    // 只读计划扫一遍来源（只算体积/文件数，不改盘）：九类每一行显示"多少个 / 多大"。
+    {
+        TransferPlanner::Inputs inputs;
+        inputs.sourceDir = AppPaths::versionDir(sourceId);
+        inputs.sourceGameVersion = source.realVersion;
+        inputs.sourceLoaderName = source.loaderName;
+        inputs.sourceLoaderVersion = source.loaderVersion;
+        const TransferPlanner::Plan scanned = TransferPlanner::plan(inputs);
+        if (scanned.ok) {
+            QHash<QString, QPair<int, qint64>> amounts;
+            for (const UpgradeSelection::Category &category : UpgradeSelection::categories()) {
+                const UpgradeSelection::Amounts one =
+                    UpgradeSelection::amounts(scanned.items, {category.key});
+                amounts.insert(category.key, {one.files, one.bytes});
+            }
+            upgradePage->setCategoryAmounts(amounts);
+            // 每一类里有多少链接：复制链路不跟随链接，有就在那一行先说出来。
+            QHash<QString, int> links;
+            for (const UpgradeSelection::Category &category : UpgradeSelection::categories()) {
+                links.insert(category.key,
+                             UpgradeSelection::scanLinks(inputs.sourceDir,
+                                                         UpgradeSelection::rootsFor(category.key))
+                                 .count);
+            }
+            upgradePage->setCategoryLinks(links);
+        }
+    }
+    QObject::connect(upgradePage, &InstanceUpgradePage::targetVersionChanged, dialog,
+                     [upgradePage, pageState, game](const QString &version) {
+                         UpgradePageState::setTargetVersion(*pageState, version);
+                         const int index = game->findData(version);
+                         if (index >= 0) game->setCurrentIndex(index);
+                         upgradePage->setState(*pageState);
+                     });
+    QObject::connect(upgradePage, &InstanceUpgradePage::targetLoaderChanged, dialog,
+                     [upgradePage, pageState, loader, loaderVersion](const QString &key,
+                                                                     const QString &version) {
+                         UpgradePageState::setTargetLoader(*pageState, key, version);
+                         const int index = loader->findData(key);
+                         if (index >= 0) loader->setCurrentIndex(index);
+                         if (!version.isEmpty()) {
+                             const int versionIndex = loaderVersion->findText(version);
+                             if (versionIndex >= 0) loaderVersion->setCurrentIndex(versionIndex);
+                         }
+                         upgradePage->setState(*pageState);
+                     });
+    QObject::connect(upgradePage, &InstanceUpgradePage::instanceNameEdited, dialog,
+                     [upgradePage, pageState, copyName](const QString &name) {
+                         UpgradePageState::setInstanceName(*pageState, name, pageState->sourceId, {});
+                         copyName->setText(name);
+                         upgradePage->setState(*pageState);
+                     });
+    QObject::connect(upgradePage, &InstanceUpgradePage::categoryToggled, dialog,
+                     [upgradePage, pageState, dialog](const QString &key, bool on) {
+                         pageState->selection.state.set(key, on);
+                         dialog->setProperty(
+                             "upgradeCopyRoots",
+                             UpgradeSelection::selectedRoots(pageState->selection));
+                         upgradePage->setState(*pageState);
+                     });
+    QObject::connect(upgradePage, &InstanceUpgradePage::reportRequested, dialog,
+                     [dialog, tree, showWizard] {
+                         // 有评估结果就开报告弹窗（分组/搜索/折叠在 UpgradeReport 里）；
+                         // 一行都没有（还没检查过）就退回旧向导，让用户先去检查。
+                         QList<UpgradeReport::Row> rows;
+                         QTreeWidgetItemIterator it(tree);
+                         while (*it != nullptr) {
+                             QTreeWidgetItem *item = *it;
+                             ++it;
+                             if (item->text(0).isEmpty() || item->text(1).isEmpty()) {
+                                 continue;
+                             }
+                             UpgradeReport::Row row;
+                             row.name = item->text(0);
+                             row.detail = item->text(2).isEmpty() ? item->text(1) : item->text(2);
+                             row.bucket = UpgradeReport::bucketForStateText(item->text(1),
+                                                                             item->text(2));
+                             row.required = true;
+                             rows.append(row);
+                         }
+                         if (rows.isEmpty()) {
+                             showWizard();
+                             return;
+                         }
+                         UpgradeReportDialog report(dialog);
+                         report.setRows(rows);
+                         report.exec();
+                     });
+    QObject::connect(upgradePage, &InstanceUpgradePage::historyRequested, dialog,
+                     [dialog, sourceId, owner] {
+                         UpgradeHistoryDialog history(dialog);
+                         QString problem;
+                         history.setEntries(
+                             UpgradeHistory::read(AppPaths::versionDir(sourceId), &problem));
+                         bool wantsRollback = false;
+                         QObject::connect(&history, &UpgradeHistoryDialog::rollbackRequested,
+                                          &history, [&history, &wantsRollback] {
+                                              wantsRollback = true;
+                                              history.accept();
+                                          });
+                         history.exec();
+                         if (wantsRollback) {
+                             owner->m_instanceTransferController->rollbackUpgrade(sourceId);
+                         }
+                     });
+    QObject::connect(upgradePage, &InstanceUpgradePage::previewRequested, dialog, showWizard);
+
+    const auto refreshEnabled = [owner, dialog, state, wizard, start, game, loaderVersion, copyName, mode, status, summary, steps, stopQuery, retryFlow, tree, changes, upgradePage, pageState] {
         const bool selectedGame = game->currentIndex() > 0 && game->currentText() == game->itemText(game->currentIndex());
-        const bool ready = selectedGame && (state->loader.isEmpty() || !state->loaderVersion.isEmpty());
+        const bool ready = selectedGame && (state->loader.isEmpty() || !state->loaderVersion.isEmpty());    if (ready) {
+        // 检查结果已经就绪：把这一刻的计划指纹记下来（目标或选择再改，新页面会提示重查）。
+        UpgradePageState::markReportChecked(*pageState);
+        upgradePage->setState(*pageState);
+    }
         const bool named = mode->currentData().toBool() || !copyName->text().trimmed().isEmpty();
         const bool checksReady = !dialog->property("upgradeAssessmentReading").toBool()
             && !dialog->property("upgradeAssessmentQuerying").toBool() && dialog->upgradePendingModCount() == 0;
@@ -534,7 +689,7 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
                               {int(InstanceUpgrade::Stage::VerifyCopy), 2},
                               {int(InstanceUpgrade::Stage::Publish), 3},
                               {int(InstanceUpgrade::Stage::Verify), 3}};
-        const auto runUpgrade = [owner, state, completed, settled, parentSteps, inPlace, name](
+        const auto runUpgrade = [owner, state, completed, settled, parentSteps, inPlace, name, dialog](
                                     const QList<InstanceUpgrade::ModReplacement> &replacements,
                                     const QStringList &keep) {
             // 文件事务这一段停不得：把父任务的「取消」关掉并写清原因。
@@ -555,7 +710,8 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
             } else {
                 owner->m_instanceTransferController->upgradeToCopy(
                     state->source, name, state->core, completed, keep, true, state->parent,
-                    parentSteps, settled, replacements);
+                    parentSteps, settled, replacements,
+                    dialog->property("upgradeCopyRoots").toStringList());
             }
         };
         // 没有勾选任何适配替换：直接进文件事务。
@@ -986,3 +1142,12 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
         });
     populate();
 }
+
+
+
+
+
+
+
+
+
