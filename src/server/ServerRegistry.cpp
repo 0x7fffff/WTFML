@@ -345,7 +345,14 @@ bool writeMeta(const QString &serverId, const ServerModel::Info &info, QString *
             existing.close();
         }
     }
+    // **先清后盖**：模型自己拥有的键（`ownedMetaKeys()`）先删掉，再把这次要写的盖上去。
+    // 少了"先清"这一步，"恢复默认值"就永远落不了盘 —— `toJson()` 对默认值是**省略**的，
+    // 只盖不删时盘上那格旧值（例如 `restartOnCrash: true`）会一直活着，回读仍是旧值。
+    // 不认识的那些键不在表里，照样原样留着。
     const QJsonObject known = QJsonDocument::fromJson(ServerModel::toJson(info)).object();
+    for (const QString &key : ServerModel::ownedMetaKeys()) {
+        merged.remove(key);
+    }
     for (auto it = known.begin(); it != known.end(); ++it) {
         merged.insert(it.key(), it.value());
     }
@@ -621,3 +628,4 @@ bool writeProperties(const QString &serverId, const ServerModel::Properties &pro
 }
 
 }  // namespace ServerRegistry
+

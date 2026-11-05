@@ -251,6 +251,82 @@ void runServerRegistryTests() {
               QString::fromUtf8(QJsonDocument(afterObject).toJson(QJsonDocument::Compact)));
         check(afterObject.value(QStringLiteral("restartOnCrash")).toBool(false),
               "ZX8.6 已知字段照常写进去");
+
+        // ZX8.8：**恢复默认值也要落盘** —— 打开过之后关掉，回读必须真的是关。
+        // `toJson()` 对 `restartOnCrash == false` 是省略的，只"盖"不"清"时盘上旧
+        // `true` 会一直活着（这就是本轮复核确认的回归）。
+        {
+            QString problemOn;
+            check(ServerRegistry::setRestartOnCrash(QStringLiteral("Srv1"), true, &problemOn),
+                  "ZX8.8 先打开自动重启", problemOn);
+            QString problemOff;
+            check(ServerRegistry::setRestartOnCrash(QStringLiteral("Srv1"), false, &problemOff),
+                  "★ ZX8.8 再关掉", problemOff);
+            const ServerModel::Info off = ServerRegistry::readMeta(QStringLiteral("Srv1"));
+            check(!off.restartOnCrash,
+                  "★★ ZX8.8 关掉之后读回来就是「关」（默认值省略时也要把旧 true 清掉）");
+            QFile raw(metaPath);
+            check(raw.open(QIODevice::ReadOnly), "ZX8.8 读回原始字节");
+            const QJsonObject object = QJsonDocument::fromJson(raw.readAll()).object();
+            raw.close();
+            check(!object.contains(QStringLiteral("restartOnCrash")),
+                  "★ ZX8.8 盘上那格旧值也不留了（默认值不写成 false，直接把键去掉）",
+                  QString::fromUtf8(QJsonDocument(object).toJson(QJsonDocument::Compact)));
+            check(object.value(QStringLiteral("futureField")).toString() == QStringLiteral("keep-me"),
+                  "ZX8.8 清默认值时未知字段照样在");
+        }
+
+        // ZX8.9：非默认的重试次数回到默认，同样要清掉。
+        {
+            ServerModel::Info info = ServerRegistry::readMeta(QStringLiteral("Srv1"));
+            info.restartMaxAttempts = 7;
+            QString writeProblem;
+            check(ServerRegistry::writeMeta(QStringLiteral("Srv1"), info, &writeProblem),
+                  "ZX8.9 先写一个非默认次数", writeProblem);
+            ServerModel::Info back = ServerRegistry::readMeta(QStringLiteral("Srv1"));
+            check(back.restartMaxAttempts == 7, "ZX8.9 读回非默认次数",
+                  QString::number(back.restartMaxAttempts));
+            back.restartMaxAttempts = ServerRestart::kDefaultMaxAttempts;
+            QString resetProblem;
+            check(ServerRegistry::writeMeta(QStringLiteral("Srv1"), back, &resetProblem),
+                  "ZX8.9 再写回默认", resetProblem);
+            const ServerModel::Info def = ServerRegistry::readMeta(QStringLiteral("Srv1"));
+            check(def.restartMaxAttempts == ServerRestart::kDefaultMaxAttempts,
+                  "★★ ZX8.9 恢复默认后读回默认（旧值清掉）",
+                  QString::number(def.restartMaxAttempts));
+            QFile raw(metaPath);
+            check(raw.open(QIODevice::ReadOnly), "ZX8.9 读回原始字节");
+            const QJsonObject object = QJsonDocument::fromJson(raw.readAll()).object();
+            raw.close();
+            check(!object.contains(QStringLiteral("restartMaxAttempts")),
+                  "★ ZX8.9 默认值不落键");
+        }
+
+        // ZX8.10：可选已知字段（javaPath）清空也是"删键"，未知字段仍然保留。
+        {
+            ServerModel::Info info = ServerRegistry::readMeta(QStringLiteral("Srv1"));
+            info.javaPath = QStringLiteral("C:/Program Files/Java/bin/java.exe");
+            QString writeProblem;
+            check(ServerRegistry::writeMeta(QStringLiteral("Srv1"), info, &writeProblem),
+                  "ZX8.10 先写一个指定 Java", writeProblem);
+            ServerModel::Info cleared = ServerRegistry::readMeta(QStringLiteral("Srv1"));
+            check(cleared.javaPath == info.javaPath, "ZX8.10 读回指定 Java", cleared.javaPath);
+            cleared.javaPath.clear();
+            QString clearProblem;
+            check(ServerRegistry::writeMeta(QStringLiteral("Srv1"), cleared, &clearProblem),
+                  "ZX8.10 再清空这一格", clearProblem);
+            const ServerModel::Info after = ServerRegistry::readMeta(QStringLiteral("Srv1"));
+            check(after.javaPath.isEmpty(), "★★ ZX8.10 清空之后读回来是空（旧路径不残留）",
+                  after.javaPath);
+            QFile raw(metaPath);
+            check(raw.open(QIODevice::ReadOnly), "ZX8.10 读回原始字节");
+            const QJsonObject object = QJsonDocument::fromJson(raw.readAll()).object();
+            raw.close();
+            check(!object.contains(QStringLiteral("javaPath")) && !object.contains(QStringLiteral("memoryMb")),
+                  "★ ZX8.10 空字符串/0 不落键");
+            check(object.value(QStringLiteral("futureField")).toString() == QStringLiteral("keep-me"),
+                  "ZX8.10 未知字段照样保留");
+        }
     }
 
     // ---------- ZX8.7. 大得不像一份记录的：当读不懂，不读进内存也不覆盖 ----------
