@@ -34,6 +34,7 @@
 #include <QTimer>
 #include <QUuid>
 #include <QFutureWatcher>
+#include <QScopeGuard>
 #include <QElapsedTimer>
 #include <QtConcurrent/QtConcurrentRun>
 #include <atomic>
@@ -139,6 +140,18 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
         return;
     }
     const FlowGuard flowGuard(m_importFlow);
+
+    // 从这一刻到本函数返回，**游戏文件夹那一列灰着**。
+    //
+    // 为什么非要单独举这块牌子：下面 CurseForge 清单是在 `runOffUiThread()` 的嵌套事件
+    // 循环里解析的，那几秒里用户输入照常送回来，而 `setDownloadUiBusy(true)` 还要再往后
+    // （真正开始下载时才置）。这中间切一下游戏文件夹，后面所有 `AppPaths::versionDir()` 就
+    // 落到另一份 .minecraft 里 —— 用户明明选了 A，实例却建在 B，屏幕上什么异常都没有。
+    // 已经有忙态的那一段照样灰着，这里管的是"还没有忙态"的那一段。
+    m_owner->beginFolderSwitchHold();
+    // RAII：本函数所有 early return（含下面那些弹框后返回）都必须把牌子摘掉，
+    // 否则这一列会一直灰到关窗口。
+    const auto folderHold = qScopeGuard([this] { m_owner->endFolderSwitchHold(); });
 
     if (QFileInfo(zipPath).fileName() == QStringLiteral("wtfml.import-report.json")) {
         repairFromReport(zipPath);
@@ -343,6 +356,14 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
         }
         result = ModpackImport::parseGameFolderInstance(entries, versionJson, layout.rootPrefix,
                                                         QFileInfo(zipPath).completeBaseName());
+        if (layout.legacyLauncherJar) {
+            // 旧版 Technic / 老式 Forge 包：加载器在 `bin/modpack.jar` 里，不写进版本 json。
+            // 这一层不做推断（见 ArchiveLayout::legacyLauncherJar 的说明），但要在日志里留下
+            // 一句话 —— 否则用户装完点启动，看到的是"找不到类"，而不是"加载器还没装"。
+            m_owner->appendLog(m_owner->tr("这个包把加载器放在 bin/ 下的启动器 jar 里"
+                                           "（旧版 Technic / 老式 Forge 形状）。导入后请在实例上"
+                                           "补装一次加载器，否则游戏起不来。"));
+        }
     } else {
         status = ZipUtil::readEntry(sourceZip, layout.manifestEntry, &manifestJson, &error,
                                     m_owner->tr("读整合包清单"), 16 * 1024 * 1024);

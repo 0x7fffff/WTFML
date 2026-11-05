@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "manage/InstanceFiles.hpp"
 
 void runAsciiAliasTests() {
     section("ZM. Java 8 的 ASCII 别名（非 ASCII 路径 ⇒ 联接 + 硬链接）");
@@ -147,12 +148,17 @@ void runAsciiAliasTests() {
               QStringLiteral("root 在 %1 / game 在 %2")
                   .arg(QFileInfo(liveAlias.root).isDir() ? 1 : 0)
                   .arg(QFileInfo(liveAlias.gameDir).isDir() ? 1 : 0));
-        // junctionTarget() 读得出目标（symLinkTarget() 对目录联接读不出来）—— 这条钉的是
-        // 清理目录联接所依赖的 Qt 行为，Qt 那边分类一变就得回来改。
-        check(QDir::cleanPath(QFileInfo(liveAlias.gameDir).junctionTarget())
-                      .compare(QDir::cleanPath(liveDir), Qt::CaseInsensitive) == 0,
-              "★ ZM6' 目录联接的目标读得出来（`junctionTarget()`），而且是那个实例目录",
-              QFileInfo(liveAlias.gameDir).junctionTarget());
+        // 产品判"这一套别名还指着那一份吗"走的是 InstanceFiles::resolveLinkTarget()（开句柄
+        // 让文件系统回答），**不是** Qt 的 `junctionTarget()`：后者读的是重解析点里那串
+        // substitute name，本机实测 `mklink /J` 写进去的是 `\??\Global\D:\...`，Qt 于是拼出
+        // 一个既不是链接也不是目标的路径（`.../cache/ascii/<hash>/Global/D:/...`），据此判
+        // "指向不对"就会把正在跑的那场游戏的别名当过期删掉。所以这条钉产品那条路。
+        const QString resolvedTarget = InstanceFiles::resolveLinkTarget(liveAlias.gameDir);
+        check(!resolvedTarget.isEmpty()
+                  && QDir::cleanPath(resolvedTarget).compare(QDir::cleanPath(liveDir),
+                                                             Qt::CaseInsensitive) == 0,
+              "★ ZM6' 目录联接的目标读得出来（resolveLinkTarget()），而且是那个实例目录",
+              resolvedTarget);
     }
 
     // --- ZM6''. ★ 普通空目录不许当成"联接已经建好了"（ 修的那条） ---

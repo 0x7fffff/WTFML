@@ -1387,6 +1387,14 @@ return runVersionManagerFetchFail(app);
     out() << "  配置中的 java: " << settings.javaPath() << "\n";
     const QString originalPath = settings.javaPath();
 
+    // **默认不下载**。这一段以前直接调 ensureJavaForVersion()，本机没有匹配版本时它会去
+    // Mojang 下几百 MB 的运行时（再兜底 Adoptium）—— CI 上慢网络偶尔跑满 900 秒的阶段上限，
+    // 整个 ci-core 判死（2026-11-03 那次就是）。现在默认只在本机找：找得到就核对版本，
+    // 找不到就明确"本机没有、未下载"，不把"没联网"变成"构建失败"。
+    // 真要验下载那条路：设 WTFML_TEST_JAVA_DOWNLOAD=1 再跑这个 exe。
+    const bool allowDownload = qEnvironmentVariableIsSet("WTFML_TEST_JAVA_DOWNLOAD");
+    out() << "  允许下载运行时: " << (allowDownload ? "是" : "否（设 WTFML_TEST_JAVA_DOWNLOAD=1 打开）") << "\n";
+
     const QList<QPair<int, QString>> requirements = {
         {25, QStringLiteral("java-runtime-epsilon")},
         {21, QStringLiteral("java-runtime-delta")},
@@ -1396,11 +1404,17 @@ return runVersionManagerFetchFail(app);
     for (const auto &req : requirements) {
         // 每次都从"错误"的配置出发，验证会主动去找匹配的版本
         settings.setJavaPath(originalPath);
-        const bool ok = settings.ensureJavaForVersion(req.first, req.second);
+        const bool ok = settings.ensureJavaForVersion(req.first, req.second, allowDownload);
         const QString got = settings.javaPath();
-        const QString ver = ok ? javaVersionOf(got) : QStringLiteral("<未找到>");
         // Java 8 的 -version 输出是 "1.8.0_51"，其余是 "25.0.1" 这种
         const QString expect = req.first == 8 ? QStringLiteral("1.8") : QString::number(req.first);
+        if (!ok) {
+            // 只有"不允许下载"时，本机缺这一档才是合法结果；此时不能假装成功。
+            check(!allowDownload, QString("需要 Java %1 -> 找到").arg(req.first), got);
+            out() << "  Java " << req.first << " 本机没有，按设置未下载\n";
+            continue;
+        }
+        const QString ver = javaVersionOf(got);
         check(ok, QString("需要 Java %1 -> 找到").arg(req.first), got);
         check(ver.startsWith(expect),
               QString("需要 Java %1 -> 实际版本 %2").arg(req.first).arg(ver));

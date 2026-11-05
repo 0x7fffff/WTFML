@@ -12,7 +12,7 @@
  *
  * 【判据不在这一层】
  *
- * 一个实例能不能启动：`installingVersionIds()` 与那几个 busy 计数（`m_fileOperationBusyCounts`）
+ * 一个实例能不能启动：`installingVersionIds()` 与那几个 busy 计数（`m_fileOperationOccupancy`）
  * 是唯一判据，主窗口别处只问它们；分组与排序的规则在 `manage/InstanceFilter`；显示名在
  * `manage/VersionDisplay` 那一套 `displayParts()` 里。
  */
@@ -45,28 +45,13 @@
 using namespace MainWindowViewData;
 
 void MainWindow::markFileOperationBusy(const QString &versionId) {
-    if (versionId.isEmpty()) {
-        return;
-    }
-    ++m_fileOperationBusyCounts[versionId];
-    m_fileOperationInstanceIds.insert(versionId);
+    // 判据（引用计数、空 id、成对释放、没记过不许变负）都在 `FileOperationOccupancy`
+    // 那一层：见 tests/core_modules/FileOperationOccupancyTests.cpp 的 FO 段。
+    m_fileOperationOccupancy.mark(versionId);
 }
 
 void MainWindow::releaseFileOperationBusy(const QString &versionId) {
-    if (versionId.isEmpty()) {
-        return;
-    }
-    auto it = m_fileOperationBusyCounts.find(versionId);
-    if (it == m_fileOperationBusyCounts.end()) {
-        // 没记过就摘：说明调用方配错了一对，别把它变成负数、也别动集合（可能还有
-        // 别的一趟正压着这个 id）。
-        return;
-    }
-    if (--it.value() > 0) {
-        return;
-    }
-    m_fileOperationBusyCounts.erase(it);
-    m_fileOperationInstanceIds.remove(versionId);
+    m_fileOperationOccupancy.release(versionId);
 }
 
 QSet<QString> MainWindow::installingVersionIds() const {
@@ -74,7 +59,7 @@ QSet<QString> MainWindow::installingVersionIds() const {
     // 不一样：VersionManager 那个只在一批文件真的在写的时候非空，而"点了导入、还在拉
     // 版本表"那几段是界面自己记的（数据层那会儿连批都还没开）。
     // 后台搬文件（模组迁移 / 「迁移」「升级副本」）两个入口共用这一份名单。
-    QSet<QString> ids = m_fileOperationInstanceIds;
+    QSet<QString> ids = m_fileOperationOccupancy.instanceIds();
     if (m_downloadBatches && m_downloadBatches->isRestoring()) {
         const auto all = QDir(AppPaths::versionsDir()).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
         for (const auto &id : all) ids.insert(id);
@@ -146,7 +131,7 @@ void MainWindow::refreshInstalledVersions() {
         // 文件操作只暂时禁止启动，不应让已经安装的实例从管理页消失。
         // 尚在安装、之前没露过面的新实例仍然不出现。
         if (!installing.contains(id)
-            || (m_fileOperationInstanceIds.contains(id) && previouslyVisible.contains(id))) {
+            || (m_fileOperationOccupancy.contains(id) && previouslyVisible.contains(id))) {
             managementParts.append(part);
         }
     }
@@ -356,7 +341,7 @@ void MainWindow::rebuildInstanceTree() {
     fillInstanceTree(tree, buckets, m_settings->versionNameOptions(), runningVersionIds(),
                      m_instancePageMarks, pinnedGroupId, pinnedInstanceIds);
     for (QTreeWidgetItemIterator it(tree); *it != nullptr; ++it) {
-        if (m_fileOperationInstanceIds.contains(instanceIdOf(*it))) {
+        if (m_fileOperationOccupancy.contains(instanceIdOf(*it))) {
             (*it)->setText(0, (*it)->text(0) + tr("（文件操作中）"));
             (*it)->setToolTip(0, tr("正在处理实例文件，完成后可再次启动或修改。"));
         }
@@ -415,7 +400,7 @@ void MainWindow::updateInstanceTreeRunState() {
             // 会整棵重灌，不会走到这里）—— 每回从头拼，两条路的结果就一定一样。
             QString text = instanceTreeItemText(m_versionManager->displayParts(id), options,
                                                 m_launcherManager->isVersionRunning(id));
-            if (m_fileOperationInstanceIds.contains(id)) {
+            if (m_fileOperationOccupancy.contains(id)) {
                 text += tr("（文件操作中）");
             }
             (*it)->setText(0, text);
@@ -639,3 +624,4 @@ void MainWindow::openInstallPage(const QString &gameVersion) {
 void MainWindow::backToVersionTree() {
     m_installPage->backToVersionTree();
 }
+

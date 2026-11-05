@@ -2844,8 +2844,25 @@ void runInstanceFilesPagesTests() {
                         tree->setCurrentItem(first);
                         if (visit == 0) {
                             favorite->click();
-                            check(favorite->isChecked() && first->text(0).startsWith(QStringLiteral("★ ")) &&
-                                  LauncherSettings().isServerFavorite(address), "server favorite is acknowledged and persisted by real window wiring");
+                            // 三个条件**分开钉**。合成一条时 CI 上只知道"这组挂了"，
+                            // 分不清是按钮没翻、行文本没改，还是没落盘 —— 2026-11-03 那两次
+                            // 失败（本地全绿）就卡在这个盲区里。落盘那一条允许排队
+                            // （`pumpUntil`）：写盘本身是同步的，但事件队列里可能有前一批
+                            // 信号还没跑完。
+                            //
+                            // 时间预算 5 秒而不是 500 ms：2026-11-04 全量串行跑时这一条在
+                            // 机器同时有别的长任务的情况下失败过一次，单跑整套 `wtfml.main-window`
+                            // 又全绿 —— 说明是"排队多久"的问题，不是"写没写"的问题。等 5 秒
+                            // 不会把真失败变成通过（真失败永远等不到），只会让重负载下不抖。
+                            check(favorite->isChecked(), "★ T20 favorite button flips after click");
+                            check(first->text(0).startsWith(QStringLiteral("★ ")),
+                                  "★ T20 favorite row shows the star", first->text(0));
+                            const bool persisted = pumpUntil(
+                                [&address] { return LauncherSettings().isServerFavorite(address); },
+                                5000);
+                            check(persisted,
+                                  "server favorite is acknowledged and persisted by real window wiring",
+                                  QStringLiteral("等了 5 秒仍是「没收藏」：%1").arg(address));
                             tree->setCurrentItem(second);
                             only->setChecked(true);
                             check(!first->isHidden() && second->isHidden() && tree->currentItem() == nullptr &&

@@ -279,6 +279,18 @@ ServerModel::Info readMeta(const QString &serverId, QString *problemOut) {
         }
         return ServerModel::Info{};
     }
+    // 大小上限：`wtfml.meta` 那边是 16 MiB（`InstanceMetaFile::kSizeLimit`），这里一份
+    // 服务端记录只有几格，4 MiB 已经宽得离谱。超过就当"读不懂"——**不要**先 readAll 再判：
+    // 那正是"把几百 MB 的东西读进内存才发现太大"的形状。
+    if (file.size() > 4 * 1024 * 1024) {
+        file.close();
+        if (problemOut != nullptr) {
+            *problemOut = QStringLiteral("%1 大得不像一份记录（%2 字节），已按读不懂处理")
+                              .arg(ServerModel::formatTag())
+                              .arg(file.size());
+        }
+        return ServerModel::Info{};
+    }
     const QByteArray bytes = file.readAll();
     file.close();
     bool ok = false;
@@ -314,7 +326,30 @@ bool writeMeta(const QString &serverId, const ServerModel::Info &info, QString *
         }
         return false;
     }
-    const QByteArray bytes = ServerModel::toJson(info);
+    // 已知字段**盖在盘上那份上面**，不是照着结构体重建整份：`ServerModel::toJson()` 只写
+    // 它认识的那几格，直接写回去会把「更新的启动器写的」「用户手写的」键一起抹掉
+    // （`wtfml.meta` 那边早就改成"读—合并—写"了，这里对齐）。
+    // 盘上那份读不懂时不当底：那种情况下写回去本来就是一次覆盖，而调用方（例如
+    // `setRestartOnCrash`）会先拒绝；这里不额外拦，免得"修一份坏记录"也写不了。
+    QJsonObject merged;
+    {
+        const QString path = AppPaths::serverMetaPath(serverId);
+        QFile existing(path);
+        if (!QFileInfo(path).isSymLink() && existing.exists() && existing.open(QIODevice::ReadOnly)) {
+            // 4 MiB 足够一份记录；超了就是别的东西，不拿它当底。
+            const QJsonObject object =
+                QJsonDocument::fromJson(existing.read(4 * 1024 * 1024)).object();
+            if (!object.isEmpty()) {
+                merged = object;
+            }
+            existing.close();
+        }
+    }
+    const QJsonObject known = QJsonDocument::fromJson(ServerModel::toJson(info)).object();
+    for (auto it = known.begin(); it != known.end(); ++it) {
+        merged.insert(it.key(), it.value());
+    }
+    const QByteArray bytes = QJsonDocument(merged).toJson(QJsonDocument::Indented);
     if (file.write(bytes) != bytes.size() || !file.commit()) {
         if (problemOut != nullptr) {
             *problemOut = QStringLiteral("写 %1 没落盘：%2")

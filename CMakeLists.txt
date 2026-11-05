@@ -520,6 +520,7 @@ set(SOURCE_FILES
     ui/GroupDialog.cpp
     ui/GroupListDelegate.cpp
     ui/InstanceSettingsDialog.cpp
+    ui/InstanceSettingsSignature.cpp
     ui/InstanceUpdateWizard.cpp
     ui/InstanceFilesPage.cpp
     ui/InstanceFilesPageRows.cpp
@@ -724,3 +725,6 @@ endif()
 if(WTFML_PERF_DOWNLOAD)
     add_subdirectory(tools/perf_download)
 endif()
+
+
+

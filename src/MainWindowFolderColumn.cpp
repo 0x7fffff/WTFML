@@ -91,13 +91,32 @@ void MainWindow::refreshFolderList() {
 }
 
 void MainWindow::updateFolderButtons() {
-    // 下载期间整列都不给动（见 setDownloadUiBusy）：换文件夹会把后面那些文件写到
-    // 另一份 .minecraft 里去，半批在里面半批在外面，比"这次下不了"难查得多。
-    //
+    // **整列**的可用性只有这一处算（列表本体 + 「添加」那颗），两个来源：
+    // · `m_downloadInFlight`：下载期间换文件夹会把这一批文件写进另一份 .minecraft，
+    //   半批在里面半批在外面，比"这次下不了"难查得多（见 setDownloadUiBusy）。
+    // · `m_folderSwitchHold`：非下载类长流程举的牌子（见 beginFolderSwitchHold()）。
+    // 以前列表本体是在 setDownloadUiBusy() 里单独 setEnabled 的 —— 那样任何"还没进忙态"
+    // 的长流程都留着一个能点的窗口，而且两处各判一次迟早会漏一处。
+    const bool locked = m_downloadInFlight || m_folderSwitchHold > 0;
+    m_ui->getFolderList()->setEnabled(!locked);
     // NOTE: 「移除」不在这儿管：齿轮菜单里那一项的灰/亮由它自己按"这颗齿轮属于哪一行"
     // 算（见 FolderMenu 里那段 protectedFolder）—— 菜单是照着**哪一行那颗齿轮**弹的，
     // 和"列表当前选中哪一行"可以不是同一行，这是它比按"当前选中行"算准的地方。
-    m_ui->getAddFolderButton()->setEnabled(!m_downloadInFlight);
+    m_ui->getAddFolderButton()->setEnabled(!locked);
+}
+
+void MainWindow::beginFolderSwitchHold() {
+    ++m_folderSwitchHold;
+    updateFolderButtons();
+}
+
+void MainWindow::endFolderSwitchHold() {
+    // 多出来的 release 直接忽略：那样说明调用方漏了成对，但别把最后一次真牌子也摘掉。
+    if (m_folderSwitchHold <= 0) {
+        return;
+    }
+    --m_folderSwitchHold;
+    updateFolderButtons();
 }
 
 void MainWindow::applyCurrentFolderToPaths() {

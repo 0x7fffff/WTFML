@@ -536,6 +536,11 @@ void ToolboxController::runAnvilPlan() {
                              .arg(plan.withinSurvival ? tr("（每一步都在 39 级以内）") : QString(),
                                   finalText);
     view.anyTooExpensive = plan.anyTooExpensive;
+    if (plan.approximate) {
+        // 搜索额度到顶：这一条仍然照常给，但不能说它是最省的那条。
+        view.notes.append(tr("★ 材料组合太多，这次没有穷举完所有次序 —— 这一条是**近似**最优；"
+                             "想拿到确定的最优解请减少材料件数。"));
+    }
     if (plan.anyTooExpensive) {
         view.notes.append(tr("★ 计划中有一步的代价超过 39 级；生存模式下铁砧会拒绝该步骤"
                              "（创造模式不受限制）。请调整顺序，或先降低部分材料的先前工作惩罚。"));

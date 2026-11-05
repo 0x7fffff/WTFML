@@ -76,7 +76,15 @@ function Invoke-Stage([string]$Name, [string]$Program, [string[]]$Arguments, [in
 try {
     try { $ownsMutex = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $ownsMutex = $true }
     if (-not $ownsMutex) { throw "Another verification run owns this build directory: $build" }
-    $env:TEMP = Join-Path $run 'temp'
+    # 测试进程的 TEMP：默认放系统临时目录；受限令牌（Windows 沙箱 / 某些企业策略）下
+    # 子进程只能写工作区，那就用 `WTFML_TEST_TEMP` 指到工作区里（见 docs/TESTING.md）。
+    # NOTE: 别放 build/test-runs 里面 —— 那里在受限令牌下同样写不进去，症状是凡是
+    # `QTemporaryDir` 取默认路径的模块直接返回 2（ctest 报 Failed、0.03 秒、只跑 2 条断言）。
+    $tempBase = if ($env:WTFML_TEST_TEMP) { $env:WTFML_TEST_TEMP } else { [IO.Path]::GetTempPath() }
+    $null = New-Item -ItemType Directory -Path $tempBase -Force
+    $testTemp = Join-Path $tempBase ('wtfml-tests-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+    $null = New-Item -ItemType Directory -Path $testTemp -Force
+    $env:TEMP = $testTemp
     $env:TMP = $env:TEMP
     $cmake = (Get-Command cmake -ErrorAction Stop).Source
     $ctest = (Get-Command ctest -ErrorAction Stop).Source
@@ -111,7 +119,7 @@ try {
         'window' { @('-R', '^wtfml\.main-window$') }
         'mods' { @('-R', '^wtfml\.mod-action-panel$') }
         'upgrade' { @('-R', '^wtfml\.instance-upgrade$') }
-        'network' { @('-R', '^wtfml\.(download-retry|high-speed-download|segmented-download|segment-install|preset-install)$') }
+        'network' { @('-R', '^wtfml\.(download-retry|high-speed-download|segmented-download|segment-install|preset-install|network-diag)$') }
         'visual' { @('-L', 'visual') }
         'full' { @('-LE', 'visual') }
     }
@@ -181,6 +189,9 @@ try {
     $summary | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $run 'summary.json') -Encoding utf8
     $env:TEMP = $oldTemp
     $env:TMP = $oldTmp
+    if ($testTemp -and (Test-Path -LiteralPath $testTemp)) {
+        Remove-Item -LiteralPath $testTemp -Recurse -Force -ErrorAction SilentlyContinue
+    }
     if ($ownsMutex) { $mutex.ReleaseMutex() }
     $mutex.Dispose()
     Write-Host "Verification report: $run"

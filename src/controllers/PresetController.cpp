@@ -63,6 +63,50 @@ public:
     void reject() override {}
 };
 
+/**
+ * @brief 「模组」这一类预设的内容：把实例里**认得出平台身份**的模组并进 @p into。
+ *
+ * 这一类没有可复制的文件段（`captureMaskFor(Mods)` 是 0），它的内容就是引用表。
+ * 身份来自盘上已有的安装记录 + 逐件 sha1 核对（见 `captureInstalledModReferences()`），
+ * 所以离线也能收，且换过内容的 jar 不会被当成原来那个项目。
+ *
+ * @param addedOut 这次新并进去几项（已有的按 key 去重，不算新增）。
+ * @param unidentifiedOut 有 jar 但认不出身份的件数。
+ * @return 失败时一句给用户看的话；成功时空串。
+ */
+QString mergeCapturedModReferences(const QString &instanceRoot,
+                                   QList<Presets::ModReference> *into, int *addedOut,
+                                   int *unidentifiedOut) {
+    int unidentified = 0;
+    QString problem;
+    const QList<Presets::ModReference> found =
+        Presets::captureInstalledModReferences(instanceRoot, &unidentified, &problem);
+    if (unidentifiedOut != nullptr) {
+        *unidentifiedOut = unidentified;
+    }
+    if (!problem.isEmpty()) {
+        return problem;
+    }
+    QSet<QString> existing;
+    for (const auto &reference : *into) {
+        existing.insert(reference.key());
+    }
+    int added = 0;
+    for (const auto &reference : found) {
+        const QString key = reference.key();
+        if (key.isEmpty() || existing.contains(key)) {
+            continue;
+        }
+        existing.insert(key);
+        into->append(reference);
+        ++added;
+    }
+    if (addedOut != nullptr) {
+        *addedOut = added;
+    }
+    return QString();
+}
+
 Presets::CaptureSelection toSelection(const PresetManagePage::CaptureChoice &choice) {
     Presets::CaptureSelection selection;
     selection.vanillaOptions = choice.vanillaOptions;
@@ -896,6 +940,58 @@ void PresetController::captureInto(const QString &presetId, const QString &insta
     // 不属于这一类的样，这里静默摘掉并说清楚，绝不让它落进 manifest。
     QStringList skipped;
     request.selection = filterCapture(manifest.category, toSelection(choice), &skipped);
+    // 「模组」这一类**没有文件段**（`captureMaskFor(Mods)` 是 0）：它的内容就是引用表。
+    // 在这里收：认得出平台身份的那几件进 `modReferences`，认不出的报个数让用户手动处理。
+    if (manifest.category == Presets::PresetCategory::Mods) {
+        int added = 0;
+        int unidentified = 0;
+        const QString problem =
+            mergeCapturedModReferences(instanceRoot(instanceId), &manifest.modReferences, &added,
+                                       &unidentified);
+        if (!problem.isEmpty()) {
+            if (m_page != nullptr) {
+                m_page->showStatus(QStringLiteral("提取失败：%1").arg(problem));
+            }
+            return;
+        }
+        if (added == 0 && manifest.modReferences.isEmpty()) {
+            if (m_page != nullptr) {
+                m_page->showStatus(
+                    QStringLiteral("这个实例没有认得出平台身份的模组：安装记录里没有它们，"
+                                   "或者文件已经被换过。模组类预设没有收进任何东西。"));
+            }
+            return;
+        }
+        manifest.sourceInstanceId = instanceId;
+        manifest.updatedAt = QDateTime::currentDateTime();
+        if (!Presets::saveManifest(root, manifest)) {
+            if (m_page != nullptr) {
+                m_page->showStatus(QStringLiteral("提取到了内容，但这一份预设写不进去。"));
+            }
+            return;
+        }
+        log(QStringLiteral("预设「%1」：从 %2 收了 %3 条模组引用（新增 %4）。")
+                .arg(manifest.name, displayName(instanceId))
+                .arg(manifest.modReferences.size())
+                .arg(added));
+        refreshList(presetId);
+        if (m_page != nullptr) {
+            QString status = QStringLiteral("收到 %1 条平台模组引用").arg(manifest.modReferences.size());
+            if (added > 0) {
+                status += QStringLiteral("（这次新增 %1 条）").arg(added);
+            }
+            if (unidentified > 0) {
+                // 认不出的那几件怎么处理**要说出来**：编辑器那条「从本地模组导入」会按
+                // CurseForge 指纹 + Modrinth sha1 再认一遍（这一层只认安装记录，不联网）。
+                status += QStringLiteral("；另有 %1 件认不出身份 —— 在「预设编辑器 → 从本地模组"
+                                         "导入」里会按指纹再认一次，也可以在模组页手动补充。")
+                              .arg(unidentified);
+            }
+            status += QStringLiteral("。");
+            m_page->showStatus(status);
+        }
+        return;
+    }
     if (request.selection.isEmpty()) {
         if (m_page != nullptr) {
             m_page->showStatus(
@@ -976,6 +1072,56 @@ void PresetController::captureAsNew(const QString &instanceId, const QString &na
     request.presetFilesRoot = Presets::filesDir(root, created.id);
     QStringList skipped;
     request.selection = filterCapture(category, toSelection(choice), &skipped);
+    // 「模组」这一类没有文件段：内容 = 从实例收来的平台引用（见 mergeCapturedModReferences）。
+    if (category == Presets::PresetCategory::Mods) {
+        int unidentified = 0;
+        QString problem;
+        created.modReferences = Presets::captureInstalledModReferences(
+            request.instanceRoot, &unidentified, &problem);
+        if (!problem.isEmpty()) {
+            Presets::remove(root, created.id);
+            if (m_page != nullptr) {
+                m_page->showStatus(QStringLiteral("提取失败：%1").arg(problem));
+            }
+            return;
+        }
+        if (created.modReferences.isEmpty()) {
+            // 空壳比"报成功"诚实（和下面那条空选择同一个立场）。
+            Presets::remove(root, created.id);
+            if (m_page != nullptr) {
+                m_page->showStatus(
+                    QStringLiteral("这个实例没有认得出平台身份的模组：安装记录里没有它们，"
+                                   "或者文件已经被换过；新预设没有创建。"));
+            }
+            return;
+        }
+        created.sourceInstanceId = instanceId;
+        created.updatedAt = QDateTime::currentDateTime();
+        if (!Presets::saveManifest(root, created)) {
+            Presets::remove(root, created.id);
+            if (m_page != nullptr) {
+                m_page->showStatus(QStringLiteral("预设目录写不进去，新预设没有建。"));
+            }
+            return;
+        }
+        log(QStringLiteral("预设「%1」：从 %2 收了 %3 条模组引用。")
+                .arg(created.name, displayName(instanceId))
+                .arg(created.modReferences.size()));
+        refreshList(created.id);
+        if (m_page != nullptr) {
+            QString status = QStringLiteral("收到 %1 条平台模组引用").arg(created.modReferences.size());
+            if (unidentified > 0) {
+                // 认不出的那几件怎么处理**要说出来**：编辑器那条「从本地模组导入」会按
+                // CurseForge 指纹 + Modrinth sha1 再认一遍（这一层只认安装记录，不联网）。
+                status += QStringLiteral("；另有 %1 件认不出身份 —— 在「预设编辑器 → 从本地模组"
+                                         "导入」里会按指纹再认一次，也可以在模组页手动补充。")
+                              .arg(unidentified);
+            }
+            status += QStringLiteral("。");
+            m_page->showStatus(status);
+        }
+        return;
+    }
     if (request.selection.isEmpty()) {
         // 这一类什么都收不了（模组 / 数据包首版就是这样）：空壳比"报成功"诚实。
         Presets::remove(root, created.id);

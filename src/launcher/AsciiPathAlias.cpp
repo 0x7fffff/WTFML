@@ -271,7 +271,15 @@ QString targetOfAlias(const QString &link) {
     const QFileInfo info(link);
     QString target = info.symLinkTarget();
     if (target.isEmpty() && info.isJunction()) {
-        target = info.junctionTarget();
+        // 先走"开句柄问文件系统"那条路（InstanceFiles 里那一份，和 pathIsSameOrInside()
+        // 用的是同一个出处）。`junctionTarget()` 读的是 reparse 数据里那串字面量，而本机
+        // 实测 `mklink /J` 写进去的是 `\??\Global\D:\...` —— Qt 会拼出一个既不是链接也
+        // 不是目标的路径，于是这里判"指向不对"，把**正在跑的那场游戏**的别名当过期删掉
+        // （之后它每写一个文件都失败：存档、日志轮转、还没加载的类）。
+        target = InstanceFiles::resolveLinkTarget(link);
+        if (target.isEmpty()) {
+            target = info.junctionTarget();
+        }
     }
     return target;
 }

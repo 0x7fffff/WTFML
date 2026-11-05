@@ -75,7 +75,11 @@ void installFileLog() {
         if (state.file.isOpen()) {
             // 进程结束时由系统收这个句柄 —— 这里没有可挂的析构点，而且最后那几行往往
             // 正是"要退出"那些话，早收反而丢东西。
-            state.stream << line << Qt::endl;
+            // NOTE: 不要写 `<< Qt::endl` 再单独 flush()：`Qt::endl` 本身就会 flush，
+            // 那等于每条日志两次系统调用；而游戏输出是**每来一块就一行**地走这里
+            //（见 LauncherManager 的 [Game Output]），行数可以很密。这里只在行尾留 `\n`、
+            // 由下面这一次 flush 负责落盘。
+            state.stream << line << QLatin1Char('\n');
             state.stream.flush();
         } else if (!state.gaveUp) {
             state.pending.append(line);
@@ -98,7 +102,8 @@ void openFileLog() {
     if (state.file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         state.stream.setDevice(&state.file);
         for (const QString &line : state.pending) {
-            state.stream << line << Qt::endl;
+            // 同上：补写这一批只在启动时发生一次，用 `\n` + 循环末尾一次 flush 就够。
+            state.stream << line << QLatin1Char('\n');
         }
         state.stream.flush();
     } else {

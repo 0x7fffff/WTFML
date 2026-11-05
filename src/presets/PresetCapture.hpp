@@ -143,6 +143,24 @@ struct CaptureReport {
 /// 收一份（**会写盘**：只有通用文件组那几段会往 `presetFilesRoot` 里拷文件）。
 CaptureReport captureFromInstance(const CaptureRequest &request);
 
+/**
+ * @brief 从一个实例**已安装的模组**里认出平台引用（`mods/*.jar` → `platform:projectId`）。
+ *
+ * 「模组」这一类预设没有可复制的文件段 —— 它的内容就是"这个实例装了哪些平台模组"。
+ * 身份不需要联网：`wtfml.preset-mod-install.json`（我们装模组时写的执行记录）里有
+ * `project` / `filename` / `sha1`，`scanInstalledMods()` 会按**实际文件内容**逐件核对 sha1
+ * —— 用户换过文件的那一件不会被认成原来那个项目（那正是"别把改过的 jar 当原版"）。
+ *
+ * 认出来的引用按 `ModReference::key()` 去重、保持扫描次序；`required` 一律 true（这一份
+ * 预设要的就是它们）。
+ *
+ * @param unidentifiedOut 有 jar 但认不出平台身份的件数（界面据此说"这几件要手动处理"）。
+ * @param problemOut 实例或 mods/ 不安全、扫描超时之类；非空时返回值是空的。
+ */
+QList<ModReference> captureInstalledModReferences(const QString &instanceRoot,
+                                                  int *unidentifiedOut = nullptr,
+                                                  QString *problemOut = nullptr);
+
 // ---------------------------------------------------------------------------
 // 并进一份已有的预设
 // ---------------------------------------------------------------------------

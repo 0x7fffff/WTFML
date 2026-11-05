@@ -1270,13 +1270,30 @@ int runInstanceUpgradeChecks() {
             lockedRequest.transactionId = QStringLiteral("replace-locked");
             const auto blocked = InstanceUpgrade::prepareAndCommit(lockedRequest, core);
             CloseHandle(blocker);
-            check(!blocked.ok && !blocked.snapshotZip.isEmpty()
-                      && QFileInfo::exists(blocked.snapshotZip)
-                      && blocked.problem.contains(QStringLiteral("PID %1").arg(GetCurrentProcessId()))
-                      && read(old + "/mods/old-mod.jar") == originalJarBytes
-                      && read(old + "/Instance.jar") == "old-core"
-                      && !QFileInfo::exists(old + "/mods/new-mod.jar"),
-                  "locked upgrade identifies the owner and preserves original files and snapshot");
+            // 两段钉：**拒绝与数据完整性**是硬条件；"占用者是谁"是**尽力而为**的诊断
+            // （`directoryLockOwners()` 走 Windows Restart Manager，代码里自己写着
+            // "Unlisted/deep owners may remain unknown; the original error still stands"）。
+            // 合成一条的话，一台 RM 起不来的机器（实测某台开发机上 `RmStartSession` 直接
+            // 返回 29）会把"拒绝得对不对"也一起判红。
+            const bool refusedKeepsData = !blocked.ok && !blocked.snapshotZip.isEmpty()
+                && QFileInfo::exists(blocked.snapshotZip)
+                && read(old + "/mods/old-mod.jar") == originalJarBytes
+                && read(old + "/Instance.jar") == "old-core"
+                && !QFileInfo::exists(old + "/mods/new-mod.jar");
+            if (!refusedKeepsData) {
+                std::printf("  locked upgrade problem: %s\n", blocked.problem.toUtf8().constData());
+            }
+            check(refusedKeepsData,
+                  "locked upgrade refuses and preserves original files and snapshot");
+            // 有占用者就点名，点错也不行；一个都点不出来时不判（那是诊断能力问题，
+            // 不是"拒绝"这件事没做对）。
+            const bool ownerOk = blocked.problem.contains(
+                                     QStringLiteral("PID %1").arg(GetCurrentProcessId()))
+                || !blocked.problem.contains(QStringLiteral("PID"));
+            if (!ownerOk) {
+                std::printf("  owner mismatch: %s\n", blocked.problem.toUtf8().constData());
+            }
+            check(ownerOk, "locked upgrade identifies the owner when the OS reports it");
         }
 #endif
         const auto result = InstanceUpgrade::prepareAndCommit(r, core);

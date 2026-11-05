@@ -299,6 +299,8 @@ Plan plan(const QList<Unit> &units, bool includeRename) {
     }
 
     const int total = 1 << units.size();
+    /// 这一趟有没有因为每层额度到顶而丢掉候选（见 `Plan::approximate`）。
+    bool approximate = false;
     // 每个子集的候选状态（**帕累托**：代价和前科都不比它差的那个留着，其余丢掉）。
     // NOTE: 这里必须写成 `static_cast<size_t>(…)` 而不是 `size_t(total)` —— 后者会被当成
     // 一个名叫 `total` 的形参声明（最刁钻的解析），`best` 就变成函数声明了。
@@ -387,7 +389,9 @@ Plan plan(const QList<Unit> &units, bool includeRename) {
             return a.penalty < b.penalty;
         });
         QList<State> kept;
-        for (const State &candidate : bucket) {
+        bool cappedHere = false;
+        for (int candidateIndex = 0; candidateIndex < bucket.size(); ++candidateIndex) {
+            const State &candidate = bucket.at(candidateIndex);
             bool dominated = false;
             for (const State &keptState : kept) {
                 // 要算改名时 `minStep` 越小越好（越小越有地方塞改名那 1 级），所以它也得
@@ -406,11 +410,16 @@ Plan plan(const QList<Unit> &units, bool includeRename) {
                 kept.append(candidate);
             }
             if (kept.size() >= kMaxStatesPerMask) {
+                // 额度用完了、后面还有候选没看：这一层**丢过**没被支配的状态 ⇒ 结果只是
+                // 近似最优。额度本身是为了"点一下别等几分钟"（见 Plan::approximate）。
+                cappedHere = candidateIndex + 1 < bucket.size();
                 break;
             }
         }
+        approximate = approximate || cappedHere;
         bucket = kept;
     }
+    plan.approximate = approximate;
 
     const QList<State> &finalStates = best[size_t(total - 1)];
     if (finalStates.isEmpty()) {

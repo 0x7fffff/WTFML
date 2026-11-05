@@ -370,15 +370,27 @@ void runBackupTaskTests() {
             const Tasks::TaskSnapshot finished = newBackup(before);
             check(finished.state == Tasks::TaskState::Succeeded &&
                       finished.title == QStringLiteral("还原「T35」的快照"),
-                  "★ T35.3 还原也记在同一本账上（和「打一份」是同一个 kind）", finished.title);
-            check(readAll(instancePath + QStringLiteral("/mods/示例模组.jar"))
-                          == QByteArrayLiteral("MOD-BODY") &&
-                      readAll(instancePath + QStringLiteral("/config/配置.toml"))
-                          == QByteArrayLiteral("a=1"),
+                  "★ T35.3 还原也记在同一本账上（和「打一份」是同一个 kind）",
+                  QStringLiteral("state=%1 title=%2 id=%3")
+                      .arg(static_cast<int>(finished.state))
+                      .arg(finished.title)
+                      .arg(finished.id));
+            const QByteArray restoredMod =
+                readAll(instancePath + QStringLiteral("/mods/示例模组.jar"));
+            const QByteArray restoredConfig =
+                readAll(instancePath + QStringLiteral("/config/配置.toml"));
+            check(restoredMod == QByteArrayLiteral("MOD-BODY")
+                      && restoredConfig == QByteArrayLiteral("a=1"),
                   "★★ T35.3 改过 / 删掉的那两个都回来了（落点 = versions/<目录名>，"
-                  "不是倒在 versions/ 这一层）");
+                  "不是倒在 versions/ 这一层）",
+                  QStringLiteral("mod=[%1] config=[%2] state=%3")
+                      .arg(QString::fromUtf8(restoredMod), QString::fromUtf8(restoredConfig))
+                      .arg(static_cast<int>(finished.state)));
             check(!QFile::exists(instancePath + QStringLiteral("/只在这儿有.txt")),
-                  "★ T35.3 备份里没有的那个文件跟着旧的整份一起走了");
+                  "★ T35.3 备份里没有的那个文件跟着旧的整份一起走了",
+                  QStringLiteral("旧的那个文件还在吗=%1 state=%2")
+                      .arg(QFile::exists(instancePath + QStringLiteral("/只在这儿有.txt")) ? 1 : 0)
+                      .arg(static_cast<int>(finished.state)));
 
             const QStringList safetyNames = zipsIn(instanceZipDir, QStringLiteral("*恢复前*.zip"));
             check(safetyNames.size() == 1,
@@ -468,4 +480,5 @@ void runBackupTaskTests() {
     AppPaths::setMinecraftDir(originalDir);
     check(AppPaths::minecraftDir() == originalDir, "T35.9 数据根目录换回来了");
 }
+
 

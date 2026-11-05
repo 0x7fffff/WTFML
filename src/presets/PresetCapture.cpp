@@ -20,6 +20,7 @@
 
 #include "DataPackPreset.hpp"
 #include "GenericFiles.hpp"
+#include "InstalledModInventory.hpp"
 #include "MalilibKeys.hpp"
 #include "ResourcePackPreset.hpp"
 #include "util/WriteDirectoryGuard.hpp"
@@ -342,4 +343,53 @@ QList<PresetSection> mergeCapturedSections(const QList<PresetSection> &existing,
     return merged;
 }
 
+QList<ModReference> captureInstalledModReferences(const QString &instanceRoot,
+                                                  int *unidentifiedOut,
+                                                  QString *problemOut) {
+    if (unidentifiedOut != nullptr) {
+        *unidentifiedOut = 0;
+    }
+    if (problemOut != nullptr) {
+        problemOut->clear();
+    }
+    QList<ModReference> references;
+    // 只读盘上**已经记下来的**身份、并且按实际内容核 sha1；这一层不联网、不猜文件名。
+    const InstalledModInventory inventory = scanInstalledMods(instanceRoot, nullptr);
+    if (!inventory.problem.isEmpty()) {
+        if (problemOut != nullptr) {
+            *problemOut = inventory.problem;
+        }
+        return references;
+    }
+    QSet<QString> seen;
+    int unidentified = 0;
+    for (const InstalledModFile &file : inventory.files) {
+        const QString key = file.projectKey;
+        const int colon = key.indexOf(QLatin1Char(':'));
+        if (colon <= 0 || colon + 1 >= key.size()) {
+            ++unidentified;
+            continue;
+        }
+        ModReference reference;
+        reference.platform = normalizeModPlatform(key.left(colon));
+        reference.projectId = key.mid(colon + 1);
+        reference.required = true;
+        const QString dedupe = reference.key();
+        if (dedupe.isEmpty()) {
+            ++unidentified;
+            continue;
+        }
+        if (seen.contains(dedupe)) {
+            continue;
+        }
+        seen.insert(dedupe);
+        references.append(reference);
+    }
+    if (unidentifiedOut != nullptr) {
+        *unidentifiedOut = unidentified;
+    }
+    return references;
+}
+
 }  // namespace Presets
+

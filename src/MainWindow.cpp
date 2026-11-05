@@ -373,7 +373,7 @@ MainWindow::MainWindow(QWidget *parent)
                 //
                 // NOTE: 只认**导入**这一档，不用 `InstallOccupancy::modifying()`：这是窄的
                 // 那道闸（宽的那一道在下面），安装 / 补全期间落预设是允许的。
-                return m_fileOperationInstanceIds.contains(id)
+                return m_fileOperationOccupancy.contains(id)
                        || m_installOccupancy.is(InstallOccupancy::Batch::Import, id);
             },
             // `applyPlan()` 专用、宽的那一份 —— 正被安装 / 补全文件的
@@ -1502,3 +1502,4 @@ void MainWindow::onVersionDetailsFetched(const QString &versionId, const QJsonOb
         m_versionManager->downloadVersion(versionId, versionsPath);
     });
 }
+

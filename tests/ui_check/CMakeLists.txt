@@ -38,6 +38,7 @@ add_library(wtfml_ui_runtime STATIC
                                 ${REPO_ROOT}/ui/OverlayHost.cpp
                                 ${REPO_ROOT}/ui/InlineMessage.cpp
                                 ${REPO_ROOT}/ui/InstanceSettingsDialog.cpp
+${REPO_ROOT}/ui/InstanceSettingsSignature.cpp
                                 ${REPO_ROOT}/ui/InstanceUpdateWizard.cpp
     ${REPO_ROOT}/ui/InstanceFilesPage.cpp
     ${REPO_ROOT}/ui/InstanceFilesPageRows.cpp
@@ -290,4 +291,5 @@ set_tests_properties(wtfml.ui PROPERTIES
 
 get_property(WTFML_UI_TESTS DIRECTORY PROPERTY TESTS)
 set_property(TEST ${WTFML_UI_TESTS} APPEND PROPERTY LABELS ci-ui)
+
 

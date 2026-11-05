@@ -389,7 +389,38 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs);
 int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList);
 int UiGroupEditorChecks();
 int UiInstanceOverridesChecks();
-int UiContentPagesChecks(QFrame * &bar);
+int UiContentPagesChecks();
+int UiServerPageChecks(InstanceSettingsDialog &dialog);
+int UiBatchManagementChecks(const QString &instanceDisplayName, const QString &instanceDirName,
+                            const InstanceSettingsDialog::GlobalValues &global);
+int UiDownloadNewChecks(InstanceSettingsDialog &dialog, const QString &instanceDisplayName,
+                        const QString &instanceDirName,
+                        const InstanceSettingsDialog::GlobalValues &global);
+int UiEmptyPageChecks(const QString &instanceDisplayName, const QString &instanceDirName,
+                      const InstanceSettingsDialog::GlobalValues &global, const QString &root);
+int UiQuickPlayChecks(InstanceSettingsDialog &dialog, const QString &instanceDisplayName,
+                      const QString &instanceDirName,
+                      const InstanceSettingsDialog::GlobalValues &global);
+int UiSearchFilterChecks(InstanceSettingsDialog &dialog, const QString &modsDir);
+int UiScrollAnchorChecks(const QString &instanceDisplayName, const QString &instanceDirName,
+                         const InstanceSettingsDialog::GlobalValues &global);
+int UiElidedNameChecks(const QString &instanceDisplayName, const QString &instanceDirName,
+                       const InstanceSettingsDialog::GlobalValues &global, const QString &root);
+int UiMediumPagesChecks(InstanceSettingsDialog &dialog, const QString &root,
+                             const QString &savesDir);
+int UiToggleChecks(InstanceSettingsDialog &dialog, const QString &modsDir);
+int UiDirectoryButtonsChecks(InstanceSettingsDialog &dialog);
+int UiStructureSourcesChecks(const QString &instanceDisplayName, const QString &instanceDirName,
+                             const InstanceSettingsDialog::GlobalValues &global);
+int UiServerListChecks(InstanceSettingsDialog &dialog);
+int UiRowButtonsChecks(InstanceSettingsDialog &dialog, const QString &modsDir);
+int UiOverviewButtonsChecks(InstanceSettingsDialog &dialog, const QString &root,
+                               const QHash<QString, QString> &dirs);
+int UiPageIdentityChecks(InstanceSettingsDialog &dialog);
+int UiDetailEntryChecks(const QString &instanceDisplayName, const QString &instanceDirName,
+                        const InstanceSettingsDialog::GlobalValues &global);
+int UiRowActionsChecks(const QString &instanceDisplayName, const QString &instanceDirName,
+                      const InstanceSettingsDialog::GlobalValues &global);
 int UiConfigEditorChecks();
 int UiSkinMeshChecks();
 int UiAccountSkinChecks();
@@ -425,4 +456,3 @@ int UiServerSettingsChecks();
 int UiAccessibilityChecks(QMainWindow &window);
 int UiBeaconBrewingChecks();
 int UiBannerArmorChecks();
-

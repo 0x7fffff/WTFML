@@ -192,7 +192,7 @@ void InstanceSettingsDialog::setupLaunchPage(const GlobalValues &global, const Q
             m_memoryMaxSlider->setValueMb(m_memoryMaxSpin->value());
         });
 
-        // 「改了就写」这一页是**每一发都写盘**的（见 .hpp 里 valueSignature() 那段），
+        // 「改了就写」这一页是**每一发都写盘**的（判据在 `ui/InstanceSettingsSignature` 那一层），
         // 所以拖动中那几十发不能每一发都写一次 —— 和设置页同一个拆法：
         // - 拖动中：只跟着走数字（上面那条同步线），落盘等松手；
         // - 不是拖动中（键盘、滚轮、点滑槽跳一格）：一次就是一格，立刻报"值变了"。
@@ -493,3 +493,4 @@ void InstanceSettingsDialog::setupLaunchPage(const GlobalValues &global, const Q
     }
 
 }
+

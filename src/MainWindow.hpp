@@ -43,6 +43,7 @@ namespace BackupFiles { enum class Kind; }
 #include "controllers/InstanceSettingsController.hpp"
 #include "controllers/DownloadFilterController.hpp"
 #include "controllers/InstallOccupancy.hpp"
+#include "controllers/FileOperationOccupancy.hpp"
 #include "controllers/NavigationReturn.hpp"
 #include "controllers/ResourcePageController.hpp"
 #include "controllers/ServerListController.hpp"
@@ -2491,8 +2492,22 @@ private:
     // 行尾一颗齿轮），并把选中项停在 FolderManager 的当前目录上（界面那边挡了信号：
     // 重灌不是用户改选，不该反过来触发一次切换）。
     void refreshFolderList();
-    // 「移除文件夹」能不能点：自带那份移不掉，另外下载期间整列都不给动。
+    // 「移除文件夹」能不能点：自带那份移不掉，另外**正在动盘**的时候整列都不给动
+    // （下载进行中，或者有长流程举着「先别换」的牌子 —— 见下面那对 hold/release）。
     void updateFolderButtons();
+    /// 举牌：从现在起到 `endFolderSwitchHold()` 为止，游戏文件夹那一列灰着。
+    ///
+    /// 为什么需要它：换游戏文件夹 = 换一整份 .minecraft（`AppPaths::setMinecraftDir()` 是
+    /// 全局唯一写点）。下载那条路早就用 `m_downloadInFlight` 挡住了，但**非下载类长流程**
+    /// 也有一段"还没有忙态、却在等"的窗口 —— 最典型的是整合包导入：CurseForge 清单是在
+    /// **嵌套事件循环**里解析的（`ImportController::runOffUiThread()`），那几秒里用户输入
+    /// 照常送回来，此时忙态还没置上，切一下文件夹就会让后面 `AppPaths::versionDir()` 全部
+    /// 落到另一份 .minecraft 里，而界面上没有任何异常。
+    ///
+    /// 计数器而不是布尔：导入流程里可能嵌套（预览 → 应用），先结束的那一层不该把别人的
+    /// 牌子摘掉。用 `FolderSwitchHold` 那个 RAII 壳成对调用。
+    void beginFolderSwitchHold();
+    void endFolderSwitchHold();
     /// 某个游戏文件夹在列表**上面那行**显示什么：用户起的 customname → 自带那份那个
     /// 固定说法（「当前文件夹」）→ 目录名。**唯一出处**：灌列表和重命名对话框正文里
     /// 都读它（两处各算一遍的话，对话框里写着"现在显示的是 A"而列表上写着 B）。
@@ -2672,9 +2687,11 @@ private:
     /// 正在**后台搬文件**的那几个实例（模组预设 / 复制实例 / 迁移 / 升级副本 / 还原）。
     /// 它们全都会进 `installingVersionIds()`，也就是"这期间谁都不许启动、不许删、
     /// 不许再开一份搬文件"。
-    QSet<QString> m_fileOperationInstanceIds;
-    /// 上面那个集合的引用计数：实例 id → 此刻还压着几趟作业。**它才是真相。**
-    QHash<QString, int> m_fileOperationBusyCounts;
+    ///
+    /// 判据（引用计数：两趟作业压同一个实例时，先结束的那趟不许把另一趟的"忙"摘掉；
+    /// 没记过就放开要当没发生）收在 `controllers/FileOperationOccupancy` 那一层，
+    /// 主窗口只转发 `markFileOperationBusy()` / `releaseFileOperationBusy()`。
+    FileOperationOccupancy m_fileOperationOccupancy;
     QHash<Tasks::TaskId, std::function<void()>> m_modTransferCancels;
     /// **会话级**：上一趟检测的**原始结论**（实例 id → 那一趟判出来的每一条 + 反查那一趟
     /// 自己的毛病）。
@@ -2922,6 +2939,9 @@ private:
     // 下载是否在进行中。注意不能只问 m_versionManager：从点击"下载"到版本 JSON
     // 拉回来之前，VersionManager 那边还没有任何批次，这段时间也得算"忙"。
     bool m_downloadInFlight = false;
+    // 「先别换游戏文件夹」的牌子有几个（见 beginFolderSwitchHold()）。和 `m_downloadInFlight`
+    // 分开记：那个是"有一批下载在跑"，这个是"有一段长流程还没有忙态、但不能换目录"。
+    int m_folderSwitchHold = 0;
     // 「这一批下载是谁的」—— 导入整合包 / 带名字的新实例 / 补全文件 / 首启资源预取四档。
     //
     // 为什么界面要自己记这一笔：这四档走的都是公共的 versionDownloadFinished(id, ok, msg)

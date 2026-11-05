@@ -35,4 +35,16 @@ QJsonObject read(const QString &path, Status *statusOut = nullptr);
 /// 读不懂、版本不认识、目录建不出来、写不进去 ⇒ 返回 false，原因写进 `errorOut`，
 /// 盘上原有的字节一个不动。成功时文件里一定带着 `schemaVersion`。
 bool mergeWrite(const QString &path, const QJsonObject &fields, QString *errorOut = nullptr);
+
+/**
+ * @brief 「这一批字段写下去会和盘上那份不一样吗」—— 不一样才值得写。
+ *
+ * 逐键比 @p fields 和 @p current（`read()` 那份）：`fields` 里的 **null 约定是"删掉
+ * 这个键"**（`mergeWrite()` 的规矩），所以 null 只在盘上**本来就没有**这个键（`Undefined`）
+ * 时才算相等。对象/数组逐层比：`{"save": false}` 和 `{}` 是两件不同的事。
+ *
+ * 只比 @p fields 里列出来的键：盘上多出来的键（别的版本写的 / 用户手写的）不算"不一样"
+ * —— 一次没改动的保存不该因为它被触发。
+ */
+bool fieldsAlreadyEqual(const QJsonObject &current, const QJsonObject &fields);
 } // namespace InstanceMetaFile

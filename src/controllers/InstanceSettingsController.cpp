@@ -4,6 +4,7 @@
 #include "util/AppPaths.hpp"
 #include "util/WriteDirectoryGuard.hpp"
 #include "manage/InstanceFiles.hpp"
+#include "manage/InstanceMetaFile.hpp"
 #include "manage/InstanceGroupStore.hpp"
 #include "manage/VersionManager.hpp"
 #include "settings/LauncherSettings.hpp"
@@ -374,6 +375,24 @@ bool InstanceSettingsController::apply(const QString &versionId, const Edit &edi
                   edit.pageChoices.isEmpty() ? QJsonValue(QJsonValue::Null)
                                              : QJsonValue(edit.pageChoices));
 
+    // ---------- 什么都没改就别写盘 ----------
+    //
+    // 这一页是"改一格落一格"：用户打开设置、看一眼、按确定；或者只是把焦点从某一格移开
+    // 触发了一次 `editingFinished` —— 都会走到这里。而"要写的每个键，盘上现在的值已经
+    // 等于它"时再写一次 meta 只有坏处：把文件 mtime 推新、重扫实例树、还可能把别的进程
+    // 刚写进去的东西按我们读到的旧值盖回去。
+    //
+    // 判据不是"这次碰没碰某一格"，而是**这一整份要写的字段和盘上那份比**（包括
+    // `Null` = 删键那一档：盘上本来就没有这个键才算相等）。分组/置顶是另外两条路
+    // （见下面那三档），它们各自也会发 `groupsChanged`，所以也得算进"有没有改"。
+    const bool groupChanged = edit.chosenGroupId != edit.homeGroupAtOpen;
+    const bool wasPinned = m_groups != nullptr && m_groups->isPinned(instanceKey(versionId));
+    const bool pinChanged = edit.pinned != wasPinned;
+    if (!iconWritten && !groupChanged && !pinChanged
+        && InstanceMetaFile::fieldsAlreadyEqual(m_versions->versionMeta(versionId), fields)) {
+        return true;
+    }
+
     QString error;
     if (!m_versions->updateVersionMeta(versionId, fields, &error)) {
         if (iconWritten) {
@@ -448,10 +467,11 @@ bool InstanceSettingsController::apply(const QString &versionId, const Edit &edi
     // NOTE: 顺序是**先改老家、再摆置顶**。这一版两种顺序算出来的答案是同一个（理由写在
     // InstanceGroupStore::setInstanceHomeGroup() 上面那段 NOTE 里），钉死它只是为了让
     // 读代码的人不用先在脑子里把那四种组合各跑一遍。
-    const bool wasPinned = m_groups != nullptr && m_groups->isPinned(instanceKey(versionId));
+    // `wasPinned` 在上面那条"什么都没改就别写盘"的判据里已经取过了（同一份盘上状态，
+    // 拿两次只会多一次 `wtfml.folders` 的读缓存命中）。
 
     // ① 老家被改过。
-    if (edit.chosenGroupId != edit.homeGroupAtOpen) {
+    if (groupChanged) {
         if (m_host.setHomeGroup) {
             m_host.setHomeGroup(versionId, edit.chosenGroupId);
         }
@@ -471,3 +491,4 @@ bool InstanceSettingsController::apply(const QString &versionId, const Edit &edi
     }
     return true;
 }
+

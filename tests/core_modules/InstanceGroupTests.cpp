@@ -885,6 +885,24 @@ int runInstanceGroupTests(const QString &sandbox) {
               "Q15b ★ pinnedGroupId() 就是 pinnedGroupIdOf(groups()) —— 两条路一个答案");
     }
 
+    // ---------- Q16 超大分组表：当读不懂，不读进内存也不覆盖 ----------
+    {
+        const QByteArray huge(9 * 1024 * 1024, 'x');
+        writeRaw(huge);
+        InstanceGroupStore store;
+        const QList<InstanceGroupStore::Group> groups = store.groups();
+        check(groups.isEmpty(), "Q16 ★ 超过 8 MiB 的分组表按读不懂处理（不先 readAll 再说）");
+        check(store.groupIdOf(QStringLiteral("随便什么实例")).isEmpty(),
+              "Q16 ★ 读不懂时归属也是空的");
+        QString writeError;
+        check(!store.replaceGroups(QList<InstanceGroupStore::Group>{}, &writeError) &&
+                  !writeError.isEmpty(),
+              "Q16 ★ 读不懂时改动被拒绝，并且说得出原因", writeError);
+        check(readBytes().size() == huge.size(), "Q16 ★ 盘上那一份原样还在、没被覆盖",
+              QString::number(readBytes().size()));
+        QDir().remove(groupFile);
+    }
+
     // ---------- Q12 沙盒收拾干净 ----------
     QDir().remove(groupFile);
     check(!QFile::exists(groupFile), "Q12 Q 段造出来的 wtfml.folders 删掉了");

@@ -47,6 +47,21 @@ void runMultiMCPatchImportTests(const QString &sandbox) {
         auto changed = patches; changed["special.runtime"] = modified;
         check(!convert(changed, files).ok, "Unsafe arguments, unknown patch operators and incompatible requirements rejected");
     }
+    // 认得出的那几个"不支持字段"要**点名说清楚**（不是一句"尚不支持补丁字段"就完了）：
+    // 它们各自要求启动器多一种能力（合并 jar / 额外 natives / 行为提示），只解析不实现
+    // 会让包装上、启动时才炸。
+    for (const QByteArray &field : {QByteArray("+jarMods"), QByteArray("+traits"),
+                                    QByteArray("+files"), QByteArray("addnatives"),
+                                    QByteArray("+luac")}) {
+        auto withField = patches;
+        withField["special.runtime"] = QByteArray(special).replace(
+            QByteArray("\"order\":3"),
+            QByteArray("\"order\":3,\"") + field + QByteArray("\":[]"));
+        const auto rejected = convert(withField, files);
+        check(!rejected.ok && rejected.problem.contains(QString::fromLatin1(field))
+                  && rejected.problem.contains(QStringLiteral("未忽略")),
+              "已知但不支持的补丁字段：拒绝时点名那一格（而不是静默忽略）", rejected.problem);
+    }
     check(!convert(patches).ok, "Missing archive-local JAR is not silently skipped");
     auto changed = patches; changed.remove("special.runtime");
     check(!convert(changed, files).ok, "Missing component patch blocks installation");

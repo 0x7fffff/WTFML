@@ -102,12 +102,14 @@ void MainWindow::setDownloadUiBusy(bool busy) {
         downloadImport->setEnabled(!busy);
     }
     // 实例页左边那列也一起灰：换游戏文件夹 = 换一整套 .minecraft，下载中途换过去
-    // 会让这一批文件一半写进 A、一半写进 B。两个按钮的可用性由 updateFolderButtons()
-    // 一处说了算（「移除文件夹」还要看选中的是不是自带那份）。
-    m_ui->getFolderList()->setEnabled(!busy);
-    // 「模组加载器」那棵树一起灰，理由同上。忙完解禁走 m_installPage->updateLoaderRows() 一处重算
-    // （那棵树的样子全由它一处决定）；「安装」那个按钮还要看名称合法不合法，走
-    // m_installPage->updateInstallNameState() 一处。
+    // 会让这一批文件一半写进 A、一半写进 B。列表本体与「添加」的可用性一律由
+    // updateFolderButtons() 一处说了算（它同时看这一位和长流程举的牌子），这里不再
+    // 单独 setEnabled —— 两处各判一次，漏掉的那一处就是上面那种"半批在里面半批在外面"。
+    // 「移除」的灰/亮仍由齿轮菜单自己按行算（见 FolderMenu 的 protectedFolder）。
+    //
+    // 「模组加载器」那棵树一起灰，理由同上。忙完解禁走 m_installPage->updateLoaderRows()
+    // 一处重算（那棵树的样子全由它一处决定）；「安装」那个按钮还要看名称合法不合法，
+    // 走 m_installPage->updateInstallNameState() 一处。
     m_ui->getLoaderTree()->setEnabled(!busy);
     m_installPage->updateLoaderRows();
     m_installPage->updateInstallNameState();

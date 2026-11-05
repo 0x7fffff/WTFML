@@ -544,6 +544,7 @@ int main(int argc, char **argv) {
     moduleStatus |= runVersionMetaWriteTests(sandbox);
     moduleStatus |= runInstanceTraitsTests(sandbox);
     moduleStatus |= runInstallOccupancyTests(sandbox);
+    moduleStatus |= runFileOperationOccupancyTests(sandbox);
     moduleStatus |= runRenameInstanceTests(sandbox);
     moduleStatus |= runInstanceGroupTests(sandbox);
     moduleStatus |= runInstalledScanTests(sandbox);
@@ -562,4 +563,5 @@ int main(int argc, char **argv) {
     runLongPathTests();
  out()<<"instances: "<<g_checks-g_failures<<"/"<<g_checks<<"\n"; return g_failures==0 && moduleStatus==0 ? 0 : 1;
 }
+
 

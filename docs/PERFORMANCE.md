@@ -509,6 +509,36 @@ TU 总数 1412（产品 218 / 验证 1194），仓库内头 297 份。
 
 原始数据：`build/tmp-wtfml-fanout.json`（临时文件，不入库）。
 
+
+## 共享头扇出复核（2026-11-05）
+
+口径同 10-28：`build-audit` 里每份 `.d` 算一个 TU，数"哪些 TU 依赖这份头"。本轮 **1089 个 TU
+（产品 271 / 验证 818）**、仓库内头 272 份；产品那一栏只数 `WTFMinecraftLauncher.dir` 的 `.d`。
+
+| 头 | 依赖 TU | 其中产品 |
+| --- | ---: | ---: |
+| `src/util/AppPaths.hpp` | 470 | 91 |
+| `src/download/DownloadSpeedLimit.hpp` | 457 | 79 |
+| `src/download/DownloadConcurrency.hpp` | 457 | 79 |
+| `src/manage/InstanceFiles.hpp` | 433 | 76 |
+| `src/download/NetworkManagerFactory.hpp` | 368 | 77 |
+| `src/download/LocalFileReuse.hpp` | 358 | 74 |
+| `src/download/DownloadManager.hpp` | 358 | 74 |
+| `src/settings/GameWindowSettings.hpp` | 415 | 62 |
+| `src/util/ZipUtil.hpp` | 338 | 68 |
+| `ui/TaskCenterPanel.hpp` | 310 | 68 |
+| `src/settings/EffectiveJavaSettings.hpp` | 331 | 63 |
+| `ui/Theme.hpp` | 299 | 60 |
+| `src/server/ServerRestart.hpp` | 403 | 59 |
+| `ui/MemorySlider.hpp` | 284 | 59 |
+
+读法与 10-28 那次一致：排前面的十几份差不了几十个 TU，它们共享同一个传递底座；
+真正值得盯的是**产品那一栏**。和 10-28 相比：榜首没变（`AppPaths.hpp`），但产品栏从 71 涨到 91，
+原因是产品 TU 从 218 涨到 271（`build-audit` 这份目录里 `Q_OBJECT` 类更多、moc 出的 `moc_*.cpp` 也算 TU，和 10-28 那份目录不完全同源）；`ui/Theme.hpp` 的**总**依赖从 436
+降到 299，主要是验证 TU 的组成变了（验证夹具不再整份引它），不是谁把 include 删了。
+
+这一轮同样**没有据此改任何 include** —— 记账，不是优化凭证。
+
 ## 2026-10-29 实例文件批量选择
 
 真实 Qt 列表的 1000 条目对照：逐行选择参考路径 1279.164ms、1000 次通知；
@@ -1094,3 +1124,4 @@ endif()
 预热只是把卡顿挪走。机器上装着 Kaspersky + Defender，但没关防护去验证。产品代码这一轮
 一个字节都没改。证据与下一步（杀毒排除项 / 干净虚拟机 / ETW）见
 [起一个线程偶尔要 3 秒](P2_THREAD_CREATE_STALL_20261101.md)。
+

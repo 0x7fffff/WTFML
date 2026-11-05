@@ -93,6 +93,13 @@ bool runProcess(const QString &program, const QStringList &arguments, QString *s
     QProcess process;
     process.start(program, arguments);
     if (!process.waitForFinished(timeoutMs)) {
+        // **超时必须收尸**。这里以前直接 `return false`，于是那个 QProcess（栈对象）析构时
+        // 子进程还活着 —— Qt 会打 `QProcess: Destroyed while process (...) is still running.`
+        // 并把进程留在系统里：CI 上探到两个 JDK，卡住的 `java.exe` 越积越多（作业末尾还得
+        // `Terminate orphan process`），下一轮 `java -version` 更慢，恶性循环。
+        // 本函数只用来问"这一份 Java 是什么版本"，超时就说明它答不上来 —— 杀掉是正确语义。
+        process.kill();
+        process.waitForFinished(2000);
         return false;
     }
 
@@ -720,11 +727,27 @@ QVariantMap GlobalJavaSettings::persistedValues() const {
 void GlobalJavaSettings::save() const {
     const QVariantMap now = persistedValues();
     QSettings settings;
+
+    // 自动档算出来的 Xmx/Xms 是"会自己变的"：另一扇窗可能在我们算完之后把档位切回手动，
+    // 并把用户要的那一对写回盘。这时再把自动值写下去，就是拿自动值盖掉手动现场
+    // （症状：切回手动后内存显示成自动算的那个数 —— 2026-11-04 mw_check 那条间歇失败）。
+    //
+    // 判据：**本对象上一次保存时是自动档**（`m_persisted`）而**现在盘上是手动档** ——
+    // 说明档位是别人改的，这两格不归我们写。刚由手动切自动的那一发 `wasAuto` 还是假，
+    // 不受影响（那一发要写的正是 ManualXmx / ManualXms 与 MemoryAuto）。
+    const bool staleAutoWriter =
+        m_persisted.value(QString::fromLatin1(kMemoryAuto)).toBool()
+        && !settings.value(QString::fromLatin1(kMemoryAuto), false).toBool();
+
     bool wroteAnything = false;
     for (auto it = now.cbegin(); it != now.cend(); ++it) {
         // 只写本进程真改过的那几项；没动过的一项都不碰盘（那一项可能是另一份启动器
         // 刚改过的，见 .hpp 里那条 NOTE）。
         if (m_persisted.value(it.key()) == it.value()) {
+            continue;
+        }
+        if (staleAutoWriter
+            && (it.key() == QLatin1String(kXmx) || it.key() == QLatin1String(kXms))) {
             continue;
         }
         settings.setValue(it.key(), it.value());
@@ -1091,12 +1114,14 @@ bool GlobalJavaSettings::downloadJavaFromMojang(int majorVersion, QString *javaP
  * e.g. "java-runtime-epsilon"
  * @return true if appropriate Java is available and configured, false otherwise
  */
-bool GlobalJavaSettings::ensureJavaForVersion(int majorVersion, const QString &component) {
+bool GlobalJavaSettings::ensureJavaForVersion(int majorVersion, const QString &component,
+                                              bool allowDownload) {
     // 这个重载 = **全局档**：挑中的路径写回本对象并落盘。除了"值从成员换成一份副本"，
     // 这一步的行为与无实例覆盖时逐字节一致。
     EffectiveJavaSettings io = effective();
     QString error;
-    if (!ensureJavaForVersion(io, majorVersion, component, m_autoSelectJava, &error)) {
+    if (!ensureJavaForVersion(io, majorVersion, component, m_autoSelectJava, &error,
+                              /*allowMismatchedPath=*/false, allowDownload)) {
         return false;
     }
     adoptJavaPath(io.javaPath);
@@ -1113,7 +1138,8 @@ void GlobalJavaSettings::adoptJavaPath(const QString &path) {
 
 bool GlobalJavaSettings::ensureJavaForVersion(EffectiveJavaSettings &io, int majorVersion,
                                               const QString &component, bool allowAutoSelect,
-                                              QString *errorOut, bool allowMismatchedPath) {
+                                              QString *errorOut, bool allowMismatchedPath,
+                                              bool allowDownload) {
     const auto fail = [errorOut](const QString &reason) {
         if (errorOut != nullptr) {
             *errorOut = reason;
@@ -1185,6 +1211,14 @@ bool GlobalJavaSettings::ensureJavaForVersion(EffectiveJavaSettings &io, int maj
         return true;
     }
 
+    // 下载之前先看闸：测试（以及将来的"离线模式"）只允许在本机找，找不到就如实失败。
+    // 这一道放在两个下载分支**共同的前面**，所以不存在"跳过 Mojang 又落到 Adoptium"的缺口。
+    if (!allowDownload) {
+        qDebug() << "Download disabled for Java" << majorVersion << "- local scan only";
+        return fail(QStringLiteral("这台机器上没有 Java %1，且当前不允许下载运行时。")
+                        .arg(majorVersion));
+    }
+
     // 按 version.json 声明的 component 下载对应运行时
     if (!component.isEmpty()) {
         qDebug() << "Downloading runtime component" << component << "for Java" << majorVersion;
@@ -1214,3 +1248,5 @@ bool GlobalJavaSettings::ensureJavaForVersion(EffectiveJavaSettings &io, int maj
     qDebug() << "Failed to obtain Java version" << majorVersion;
     return fail(QStringLiteral("找不到也下载不到 Java %1。").arg(majorVersion));
 }
+
+

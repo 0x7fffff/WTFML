@@ -306,6 +306,53 @@ int runMemorySuggestionTests(const QString &sandbox) {
             raw.sync();
         }
 
+        // ---- L5: 切回手动之后，另一扇窗里"旧的自动档"不许把手动现场盖回自动值 ----
+        // 症状（2026-11-04 mw_check 那条间歇失败）：两扇窗同时开着；A 切回手动、把现场
+        // 5120 写回盘，B 还停在它启动时读到的"自动档"上。B 下一次自动刷新（那 2 秒定时器）
+        // 若 save()，就把自动算出来的数写回盘 —— 用户看到的是"切回手动后内存还是自动值"。
+        section("L5 切回手动之后，旧的自动档实例不许盖掉手动现场");
+        {
+            QSettings raw;
+            raw.clear();
+            raw.sync();
+
+            GlobalJavaSettings a;
+            a.setXmx(5120);
+            a.setXms(512);
+            a.save();
+            a.setAutoMemory(true);          // 记下现场 5120/512
+            a.refreshSuggestedMemory();     // 自动值进内存
+            a.save();
+
+            GlobalJavaSettings stale;       // 另一扇窗：这时读盘，记下"自动档"
+            check(stale.autoMemory(), "L5 前提：第二份读到的是自动档");
+
+            a.restoreManualMemory();        // 用户切回手动 ⇒ 盘上回到 5120
+            GlobalJavaSettings afterRestore;
+            check(!afterRestore.autoMemory() && afterRestore.xmx() == 5120,
+                  "L5 切回手动之后盘上就是现场",
+                  QStringLiteral("%1 auto=%2")
+                      .arg(afterRestore.xmx())
+                      .arg(afterRestore.autoMemory()));
+
+            // 第二份按自动档又算了一遍，而且**这一趟算出来的数和它读盘时不一样**
+            // （系统可用内存变了就会这样）—— 这正是 mw_check 那次失败的条件；
+            // 手动 +256 把它摆成确定会写盘的形状，不用等机器上真的变。
+            stale.refreshSuggestedMemory();
+            stale.setXmx(stale.xmx() + 256);
+            stale.save();
+
+            GlobalJavaSettings probe;
+            check(!probe.autoMemory() && probe.xmx() == 5120 && probe.xms() == 512,
+                  "★★ L5 旧的自动档实例不许把手动现场盖成自动值",
+                  QStringLiteral("%1/%2 auto=%3")
+                      .arg(probe.xmx())
+                      .arg(probe.xms())
+                      .arg(probe.autoMemory()));
+            raw.clear();
+            raw.sync();
+        }
+
         QSettings::setDefaultFormat(QSettings::NativeFormat);
         QDir(settingsDir).removeRecursively();
     }

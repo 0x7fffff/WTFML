@@ -371,15 +371,19 @@
 
 | 工程 | 作用 | 运行环境 |
 | --- | --- | --- |
-| 核心模块 / `verify` | 数据层纯函数、文件格式、下载/安装判据 | 控制台，可无界面 |
+| 核心模块 / `verify` | 数据层纯函数、文件格式、下载/安装判据。已按域拆成 `verify_<域>` 多个可执行程序，另有 `verify_baseline` | 控制台，可无界面 |
 | `ui_check` | 控件、布局、像素探针、主窗口 UI 行为 | 大部分 offscreen |
 | `mw_check` | 真 `MainWindow`、跨控制器集成、任务/下载/实例 | offscreen |
 
 补充工具：
 
 - `ui_shot`：真 Windows 桌面截图与像素基线，必须在本机图形环境运行。
-- `network_diag`：独立网络诊断。
+- `network_diag`：独立网络诊断，**是带窗口的工具**；跑自测要用 `--self-test`（不带参数会开窗
+  等交互，在无交互环境里看起来像"挂起"）。
 - `tools/test-runner-check.ps1`：验证测试入口本身。
+
+受限令牌环境（Windows 沙箱 / 某些企业策略）下子进程只能写工作区：跑 `tools/test.ps1` 前把
+`WTFML_TEST_TEMP` 指到工作区，否则测试建临时目录会拿到"拒绝访问"（细节见 `docs/TESTING.md`）。
 
 验证原则：
 

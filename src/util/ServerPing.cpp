@@ -783,7 +783,11 @@ Status ping(const QString &address) {
         return status;
     }
     int jsonLength = 0;
-    if (!readVarInt(buffer, &pos, &jsonLength) || jsonLength < 0 || pos + jsonLength > buffer.size()) {
+    // 先做减法：`pos + jsonLength` 在 jsonLength 接近 INT_MAX 时会**有符号溢出**（UB），
+    // 于是这道"长度不对"的闸被绕过。`buffer.size() - pos` 一定非负（pos 由上面的
+    // readVarInt 保证不超过 size），拿它去比既不会溢出，也不会放宽判据。
+    if (!readVarInt(buffer, &pos, &jsonLength) || jsonLength < 0
+        || jsonLength > buffer.size() - pos) {
         status.kind = Kind::Protocol;
         status.error = QStringLiteral("服务器答的包看不懂（正文长度不对）");
         return status;
