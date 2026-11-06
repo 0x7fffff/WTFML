@@ -440,10 +440,13 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     // 这一位在会话里（不是栈上）：收页之后那些接线还得读它，见 InstanceSettingsSession。
     QString &targetId = session->targetId;
     session->refreshInstanceDirs = [this, &dialog, &targetId](const QString &id) {
+        QElapsedTimer dirClock;
+        dirClock.start();
         // 这一段"算"的活全在 `InstancePagesController` 里（哪几页用得上、
         // 那几页指向哪个目录、有结构的存档是哪几个）。这一层剩下的**只有摆**：
         // 把那一份事实挨个 `set` 到对话框上。
         const QHash<QString, QString> fileDirs = InstancePagesController::fileDirs(id);
+        const qint64 fileDirsMs = dirClock.restart();
         dialog.setInstanceDir(AppPaths::versionDir(id));
         QHash<QString, QString> shortcutDirs = fileDirs;
         shortcutDirs.insert(QStringLiteral("game"), AppPaths::minecraftDir());
@@ -455,6 +458,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
         // 这一份路径算。
         dialog.setFolderPresentKeys(InstancePagesController::commonFolderKeys(
             id, shortcutDirs, InstanceSettingsDialog::shortcutPathKeys()));
+        const qint64 presentKeysMs = dirClock.restart();
         // 左栏那一列是**按实例现算**的：这几页要"用得上"才列出来。四个判据
         // 全在业务层 —— loadername / mods 目录 / 装没装那个 mod / 游戏版本够不够新，ui/
         // 一样都够不着。
@@ -471,6 +475,9 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
         // 判据与理由见那个函数那段说明。
         const InstancePagesController::Usability usable =
             InstancePagesController::usability(m_owner->m_versionManager, id);
+        const qint64 usabilityMs = dirClock.restart();
+        qInfo() << "[UI timing] refreshInstanceDirs" << id << "fileDirs" << fileDirsMs
+                << "keys" << presentKeysMs << "usability" << usabilityMs;
         dialog.setModUsable(usable.mods);
         dialog.setShaderUsable(usable.shader);
         dialog.setSchematicUsable(usable.schematic);
@@ -2525,11 +2532,18 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 dialog.deleteLater();
             },
             Qt::SingleShotConnection);
+    QElapsedTimer showClock;
+    showClock.start();
     if (!overlay->showPage(&dialog, dialog.titleText(), settingsTab)) {
         // 摆不上去（覆盖层刚被另一页占上了；正常走不到：入口已经先
         // `runWhenOverlayFree()` 让过位）。这一趟就当没开过 —— 会话挂在对话框上，
         // 一起收掉。
         dialog.deleteLater();
+    } else {
+        qInfo() << "[UI timing] overlay show settings" << showClock.elapsed() << "ms";
+        QTimer::singleShot(0, &dialog, [showClock]() mutable {
+            qInfo() << "[UI timing] settings first idle" << showClock.elapsed() << "ms";
+        });
     }
 }
 
