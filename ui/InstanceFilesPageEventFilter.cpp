@@ -101,28 +101,48 @@ bool InstanceFilesPage::eventFilter(QObject *watched, QEvent *event) {
     }
     // ---------- 拖出 / Ctrl 框选取反 ----------
     {
+        // 认"这一发属于哪一行"：可能是行本身（透明/空白处），也可能是行里的某个孩子
+        // （名字、大小那几格）。孩子身上没有那个动态属性，所以要沿 parent 往上找 ——
+        // 否则整行只有"行控件自己没有孩子"的那一小块能拖，看着就是"拽不动"。
+        QWidget *rowWidget = nullptr;
+        for (QWidget *w = qobject_cast<QWidget *>(watched); w != nullptr; w = w->parentWidget()) {
+            if (w->property(rowPathProperty()).isValid()) {
+                rowWidget = w;
+                break;
+            }
+        }
         const bool fromViewport = m_list != nullptr && watched == m_list->viewport();
-        const bool fromRow = watched != nullptr && watched->property(rowPathProperty()).isValid();
-        if ((fromViewport || fromRow) && m_list != nullptr) {
+        if ((fromViewport || rowWidget != nullptr) && m_list != nullptr) {
             switch (event->type()) {
             case QEvent::MouseButtonPress: {
                 const auto *mouse = static_cast<QMouseEvent *>(event);
                 if (mouse->button() != Qt::LeftButton) break;
-                const bool onButton = fromRow && qobject_cast<QAbstractButton *>(watched) != nullptr;
-                m_pressViewportPos = m_list->viewport()->mapFromGlobal(mouse->globalPosition().toPoint());
-                m_pressPath = (fromRow && !onButton) ? watched->property(rowPathProperty()).toString() : QString();
-                m_pressOnRow = fromRow && !onButton;
+                const QPoint pos =
+                    m_list->viewport()->mapFromGlobal(mouse->globalPosition().toPoint());
+                // 按在行尾按钮上不算拖动（那是点击）。
+                const bool onButton = qobject_cast<QAbstractButton *>(watched) != nullptr;
+                QString path;
+                if (rowWidget != nullptr) {
+                    path = rowWidget->property(rowPathProperty()).toString();
+                } else if (const QModelIndex index = m_list->indexAt(pos); index.isValid()) {
+                    if (const QListWidgetItem *item = m_list->item(index.row())) {
+                        path = item->data(pathRole()).toString();
+                    }
+                }
+                m_pressViewportPos = pos;
+                m_pressPath = onButton ? QString() : path;
+                m_pressOnRow = !onButton && !path.isEmpty();
                 m_dragStarted = false;
                 m_ctrlDragActive = mouse->modifiers().testFlag(Qt::ControlModifier);
                 m_bandToggledIdentities.clear();
-                // 按下那一行 MultiSelection 已经切换过了，框选别再翻它一次。
                 if (!m_pressPath.isEmpty()) m_bandToggledIdentities.insert(identityPath(m_pressPath));
                 break;
             }
             case QEvent::MouseMove: {
                 const auto *mouse = static_cast<QMouseEvent *>(event);
                 if (!(mouse->buttons() & Qt::LeftButton)) break;
-                const QPoint pos = m_list->viewport()->mapFromGlobal(mouse->globalPosition().toPoint());
+                const QPoint pos =
+                    m_list->viewport()->mapFromGlobal(mouse->globalPosition().toPoint());
                 const DragIntent intent = dragIntent(
                     (pos - m_pressViewportPos).manhattanLength(),
                     QApplication::startDragDistance(), m_pressOnRow, m_ctrlDragActive);

@@ -545,6 +545,11 @@ QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &pat
         layout->addWidget(remove);
     }
 
+    // 名字/大小这些格子是行里的孩子，鼠标按下与拖动先落到它们身上；不装过滤器的话，
+    // 只有"行自己的空白"能拖，用户看到的就是"整行拽不动"。按钮除外（那是点击）。
+    for (QWidget *child : row->findChildren<QWidget *>()) {
+        if (qobject_cast<QAbstractButton *>(child) == nullptr) child->installEventFilter(this);
+    }
     return row;
 }
 
