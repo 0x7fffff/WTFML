@@ -152,6 +152,7 @@ set(PROJECT_SOURCES
     ${REPO_ROOT}/src/manage/InstanceGroupStore.cpp
     ${REPO_ROOT}/src/manage/InstanceGroupStore.hpp
     ${REPO_ROOT}/src/manage/DroppedResource.cpp
+    ${REPO_ROOT}/src/util/SevenZip.cpp
     ${REPO_ROOT}/src/manage/ModpackImport.cpp
     ${REPO_ROOT}/src/manage/ModpackInstallReport.cpp
     ${REPO_ROOT}/src/manage/ModpackCompletion.cpp

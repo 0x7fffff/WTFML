@@ -138,7 +138,8 @@ bool addOpenWith(const QString &extension, QString *error) {
 }  // namespace
 
 QStringList mcOnlyExtensions() {
-    return {QStringLiteral(".nbt"), QStringLiteral(".litematic"), QStringLiteral(".mrpack")};
+    return {QStringLiteral(".nbt"), QStringLiteral(".litematic"), QStringLiteral(".schematic"), QStringLiteral(".schem"),
+            QStringLiteral(".mrpack")};
 }
 
 QStringList openableExtensions() {
@@ -210,5 +211,7 @@ QString runSelfTest() {
 }
 
 }  // namespace FileAssociations
+
+
 
 

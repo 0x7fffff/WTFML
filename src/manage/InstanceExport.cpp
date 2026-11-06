@@ -114,7 +114,7 @@ Result exportInstance(const QString &instanceId, const QString &gameVersion,
     result.ok = true;
     result.files = sources.size();
     result.bytes = bytes;
-    if (customLaunch) {
+    if (customLaunch && !preservesSource) {
         result.warning = QStringLiteral(
             "这个实例带自定义启动配置（改过主类或 JVM 参数，例如 lwjgl3ify 一类）："
             "导出的包在 Prism/MultiMC 里能识别，但对方启动器不会带上这些配置，"
@@ -128,3 +128,4 @@ Result exportInstance(const QString &instanceId, const QString &gameVersion,
 }
 
 }  // namespace InstanceExport
+

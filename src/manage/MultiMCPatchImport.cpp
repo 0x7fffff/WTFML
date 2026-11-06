@@ -1,6 +1,7 @@
 #include "ModpackImport.hpp"
 #include "InstanceFiles.hpp"
 #include "launcher/LibraryRules.hpp"
+#include "util/ZipUtil.hpp"
 #include "util/DirectorySessionLock.hpp"
 #include <QCryptographicHash>
 #include <QDir>
@@ -82,6 +83,7 @@ Result parsePatchedMultiMCInstance(const QByteArray &manifest, const QByteArray 
     const QHash<QString, QByteArray> &patches, const QHash<QString, QByteArray> &bundledFiles,
     const QString &gameDirPrefix, const QString &fallbackName) {
     Result result;
+    result.pack.format = Format::MultiMC;
     const auto fail = [&](const QString &why) { result.problem = why; return result; };
     const QJsonDocument doc = QJsonDocument::fromJson(manifest);
     if (!doc.isObject() || doc.object().value("formatVersion").toInt(-1) != 1 ||
@@ -299,4 +301,38 @@ bool publishBundledLibraries(const Pack &pack, const QString &minecraftRoot, QSt
     }
     return true;
 }
-} // namespace ModpackImport
+
+bool preserveMultiMCSource(const QString &zipPath, const QString &instanceDir) {
+    QStringList entries;
+    QString error;
+    if (ZipUtil::listEntries(zipPath, &entries, &error) != ZipUtil::EntryStatus::Ok) return false;
+    QString root;
+    for (const QString &entry : entries) {
+        if (entry.endsWith(QStringLiteral("mmc-pack.json"))) {
+            root = entry.left(entry.size() - int(QStringLiteral("mmc-pack.json").size()));
+            break;
+        }
+    }
+    if (root.isEmpty()) return false;
+    const QString target = instanceDir + QStringLiteral("/.wtfml/pack-source");
+    bool wrote = false;
+    for (const QString &entry : entries) {
+        const bool wanted = entry.startsWith(root + QStringLiteral("patches/"))
+            || entry == root + QStringLiteral("mmc-pack.json")
+            || entry == root + QStringLiteral("instance.cfg");
+        if (!wanted) continue;
+        QByteArray bytes;
+        if (ZipUtil::readEntry(zipPath, entry, &bytes, &error, QStringLiteral("保存包身份"),
+                               8 * 1024 * 1024) != ZipUtil::EntryStatus::Ok) {
+            continue;
+        }
+        const QString relative = entry.mid(root.size());
+        const QString out = target + QLatin1Char('/') + relative;
+        if (!QDir().mkpath(QFileInfo(out).absolutePath())) continue;
+        QFile file(out);
+        if (file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size()) wrote = true;
+    }
+    return wrote;
+}
+
+}  // namespace ModpackImport

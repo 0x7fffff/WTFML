@@ -2,6 +2,7 @@
 
 #include "InstanceFilesPage.hpp"
 #include "../../../src/util/FileAssociations.hpp"
+#include "../../../src/util/SevenZip.hpp"
 
 void runFileDragIntentTests() {
     using Intent = InstanceFilesPage::DragIntent;
@@ -20,14 +21,23 @@ void runFileDragIntentTests() {
     namespace FA = FileAssociations;
     const QStringList mcOnly = FA::mcOnlyExtensions();
     check(mcOnly.contains(QStringLiteral(".nbt")) && mcOnly.contains(QStringLiteral(".litematic"))
+              && mcOnly.contains(QStringLiteral(".schematic"))
+              && mcOnly.contains(QStringLiteral(".schem"))
               && mcOnly.contains(QStringLiteral(".mrpack")) && !mcOnly.contains(QStringLiteral(".zip")),
           "FA1 只有 MC 独有的三个后缀允许设默认");
     check(FA::isOpenable(QStringLiteral(".jar")) && FA::isOpenable(QStringLiteral(".zip"))
               && !FA::isOpenable(QStringLiteral(".txt")),
           "FA2 .jar/.zip 能出现在打开方式里，其它后缀不接");
+    check(SevenZip::isArchive(QStringLiteral("a.rar")) && SevenZip::isArchive(QStringLiteral("a.7z"))
+              && !SevenZip::isArchive(QStringLiteral("a.zip")) && !SevenZip::isArchive(QStringLiteral("a.mrpack")),
+          "FA4 只有 .rar/.7z 需要 7-Zip（zip/mrpack 走内建）");
     check(!FA::registerDefault(QStringLiteral(".zip"), nullptr)
               && !FA::registerDefault(QStringLiteral(".jar"), nullptr),
           "FA3 .zip/.jar 被硬拦，不会抢默认打开方式");
 }
+
+
+
+
 
 

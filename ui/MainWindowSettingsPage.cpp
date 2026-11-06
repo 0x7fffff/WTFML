@@ -334,6 +334,18 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
                 form);
         addSettingsControl(section3, QStringLiteral("启动器行为"), box, form);
     }
+    {
+        auto [box, boxLayout] = makeHintedControlWithLayout(form);
+        fileAssociationsButton = new QPushButton(QStringLiteral("文件关联…"), box);
+        fileAssociationsButton->setObjectName(fileAssociationsButtonName());
+        fileAssociationsButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        boxLayout->addWidget(fileAssociationsButton, 0, Qt::AlignLeft);
+        addSettingHelp(box,
+                       QStringLiteral("把 .nbt / .litematic / .schematic / .mrpack 的默认打开方式设成本启动器；"
+                                      ".jar / .zip 只进“打开方式”列表，不改默认。"),
+                       form);
+        addSettingsControl(section3, QStringLiteral("文件关联"), box, form);
+    }
 
     // ---------- JVM 参数 ----------
     // ---- 第 4 节：标题 + 一张小节卡片（见 addSettingsSection()）----

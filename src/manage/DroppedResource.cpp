@@ -9,6 +9,7 @@
 
 #include "../util/ZipUtil.hpp"
 #include "ModpackImport.hpp"
+#include "util/SevenZip.hpp"
 
 namespace {
 
@@ -77,6 +78,17 @@ DroppedResource::Result DroppedResource::classify(const QString &path) {
         result.known = true;
         result.kind = ResourceCatalog::Kind::Mod;
         result.detail = QStringLiteral("后缀是 .jar");
+        return result;
+    }
+    // rar/7z：本机装了 7-Zip 就按整合包接（导入时先解压再走 zip 那条路）。
+    if (SevenZip::isArchive(path)) {
+        if (SevenZip::available()) {
+            result.known = true;
+            result.kind = ResourceCatalog::Kind::Modpack;
+            result.detail = QStringLiteral("需要 7-Zip 解压后导入");
+        } else {
+            result.detail = QStringLiteral("需要 7-Zip 才能解压，本机没找到 7z.exe");
+        }
         return result;
     }
     if (suffix != QLatin1String("zip") && suffix != QLatin1String("mrpack")) {
@@ -162,3 +174,4 @@ DroppedResource::Result DroppedResource::classify(const QString &path) {
                                          "认不出是哪一类");
     return result;
 }
+

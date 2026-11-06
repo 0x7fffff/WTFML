@@ -21,6 +21,7 @@
  */
 
 #include "controllers/UpdateCenterController.hpp"
+#include "manage/InstanceFiles.hpp"
 
 #include "MainWindow.hpp"
 #include "MainWindowUI.hpp"
@@ -201,6 +202,29 @@ void UpdateCenterController::onUpdateRequested(const QStringList &paths) {
     const QString instanceId = m_instanceId;
     if (instanceId.isEmpty() || paths.isEmpty()) {
         return;
+        // 改过主类/JVM 参数的整合包（lwjgl3ify 一类）：换模组可能让启动配置对不上，先确认。
+        {
+            bool customLaunch = false;
+            QFile versionJson(InstanceFiles::jsonPath(instanceId));
+            if (versionJson.open(QIODevice::ReadOnly)) {
+                const QString mainClass = QJsonDocument::fromJson(versionJson.readAll())
+                    .object().value(QStringLiteral("mainClass")).toString();
+                static const QSet<QString> standard{
+                    QStringLiteral("net.minecraft.client.main.Main"),
+                    QStringLiteral("net.minecraft.launchwrapper.Launch"),
+                    QStringLiteral("cpw.mods.bootstraplauncher.BootstrapLauncher"),
+                    QStringLiteral("net.fabricmc.loader.impl.launch.knot.KnotClient")};
+                customLaunch = !mainClass.isEmpty() && !standard.contains(mainClass);
+            }
+            if (customLaunch
+                && !InlineMessage::question(
+                    m_owner.m_ui->overlay(), tr("这个整合包带自定义启动配置"),
+                    tr("更新选中的模组可能让它的启动配置（主类 / JVM 参数 / 专用库）对不上，"
+                       "更新后可能起不来。建议先备份实例。仍然继续吗？"),
+                    tr("仍要继续"), tr("取消"), false)) {
+                return;
+            }
+        }
     }
     // 先把这一页收掉（收页本身是同步的，但这一发正站在页面自己的槽里），**排到下一轮**
     // 再动手 —— 更新那一批失败了会往同一条覆盖层上弹提示，当场弹会压在还没退栈的页面上。
@@ -377,3 +401,5 @@ void UpdateCenterController::onUndoRequested() {
     // NOTE: 这一页现在没开着（撤销是从更新中心按的，而更新中心占着覆盖层），所以这里
     // 只需要把**会话缓存**写对 —— 下一次开那一页时由开页那条路补上。
 }
+
+

@@ -209,6 +209,7 @@ set(SOURCE_FILES
     ${REPO_ROOT}/src/manage/FolderManager.cpp
     ${REPO_ROOT}/src/manage/InstanceFiles.cpp
     ${REPO_ROOT}/src/manage/DroppedResource.cpp
+    ${REPO_ROOT}/src/util/SevenZip.cpp
     ${REPO_ROOT}/src/manage/ModpackImport.cpp
     # 导出整合包那一条路（VersionManager 里五个方法直接调它）：少了这一个文件，
     # mw_check 会在链接那一步报一串 `ModpackExport::…` 的 undefined reference。

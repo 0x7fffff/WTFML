@@ -87,7 +87,7 @@ void MainWindow::dropEvent(QDropEvent *event) {
 void MainWindow::openExternalFile(const QString &path) {
     const QString extension = QLatin1Char('.') + QFileInfo(path).suffix().toLower();
     if (extension == QLatin1String(".nbt") || extension == QLatin1String(".litematic")
-        || extension == QLatin1String(".schematic")) {
+        || extension == QLatin1String(".schematic") || extension == QLatin1String(".schem")) {
         SchematicInfoDialog dialog(path, this);
         dialog.exec();
         return;
@@ -95,14 +95,14 @@ void MainWindow::openExternalFile(const QString &path) {
     handleWindowDrop({path});
 }
 
-void MainWindow::offerFileAssociations() {
+void MainWindow::offerFileAssociations(bool force) {
     QSettings settings;
-    if (settings.value(QStringLiteral("Associations/Asked"), false).toBool()) return;
+    if (!force && settings.value(QStringLiteral("Associations/Asked"), false).toBool()) return;
     settings.setValue(QStringLiteral("Associations/Asked"), true);
     if (!InlineMessage::question(
             m_ui->overlay(), tr("文件关联"),
             tr("要把 MC 独有的文件交给本启动器打开吗？\n\n"
-               "· .nbt / .litematic / .mrpack：设为默认（双击就打开）\n"
+               "· .nbt / .litematic / .schematic / .schem / .mrpack：设为默认（双击就打开）\n"
                "· .jar / .zip：只加进「打开方式」列表，不改默认\n\n"
                "以后可以在系统设置里改回来。"),
             tr("设为默认"), tr("跳过"), false)) {
@@ -113,5 +113,8 @@ void MainWindow::offerFileAssociations() {
     appendLog(tr("文件关联：已设置 %1 个默认打开方式。").arg(done));
     for (const QString &error : errors) appendLog(tr("文件关联失败：%1").arg(error));
 }
+
+
+
 
 

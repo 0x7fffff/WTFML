@@ -13,6 +13,7 @@
 #include "manage/FolderManager.hpp"
 #include "manage/InstanceFiles.hpp"
 #include "manage/ModpackImport.hpp"
+#include "util/SevenZip.hpp"
 #include "manage/ModpackInstallReport.hpp"
 #include "manage/ModpackCompletion.hpp"
 #include "manage/VersionManager.hpp"
@@ -111,7 +112,7 @@ void ImportController::onImportModpackClicked() {
     // onAddFolderClicked() 上面那一段。
     const QString zipPath = QFileDialog::getOpenFileName(
         m_owner, m_owner->tr("选一个整合包"), QString(),
-        m_owner->tr("整合包 (*.zip *.mrpack);;继续补齐报告 (wtfml.import-report.json);;所有文件 (*)"));
+        m_owner->tr("整合包 (*.zip *.mrpack *.rar *.7z);;继续补齐报告 (wtfml.import-report.json);;所有文件 (*)"));
     if (zipPath.isEmpty()) {
         return;  // 用户取消：什么都不做，也**不弹**任何提示
     }
@@ -119,6 +120,23 @@ void ImportController::onImportModpackClicked() {
 }
 
 void ImportController::importModpackFromFile(const QString &zipPath, const QString &namePrefill) {
+    // rar/7z：先让 7-Zip 解到临时目录并压成 zip，再走下面同一条路。
+    QString effectiveZip = zipPath;
+    QString tempZip;
+    if (SevenZip::isArchive(zipPath)) {
+        m_owner->appendLog(m_owner->tr("正在用 7-Zip 解压 %1…").arg(QFileInfo(zipPath).fileName()));
+        QString error;
+        tempZip = SevenZip::toZip(zipPath, &error);
+        if (tempZip.isEmpty()) {
+            InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("解压失败"),
+                                   error.isEmpty() ? m_owner->tr("无法解压这个包。") : error);
+            return;
+        }
+        effectiveZip = tempZip;
+    }
+    const auto cleanupTemp = qScopeGuard([&tempZip] {
+        if (!tempZip.isEmpty()) QFile::remove(tempZip);
+    });
     // 拖进来的这一路也得过忙态这道闸。上面那颗「导入整合包…」按钮在忙的
     // 时候是灰的（`setDownloadUiBusy()`），但主窗口的拖放照收不误（`dropEvent()` 不看
     // 忙态）。不拦的话：导入 A 的过程中再拖进来一个 B，B 会从问名字那一步一路走到下面
@@ -128,7 +146,7 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
     // 不另立一个。
     if (m_owner->m_downloadInFlight) {
         m_owner->appendLog(m_owner->tr("已有下载或导入任务正在进行，%1 没有导入。")
-                               .arg(QFileInfo(zipPath).fileName()));
+                               .arg(QFileInfo(effectiveZip).fileName()));
         InlineMessage::information(m_owner->m_ui->overlay(), m_owner->tr("现在正忙"),
                                    m_owner->tr("已有下载或导入任务正在进行，等它结束之后再试。"));
         return;
@@ -138,7 +156,7 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
     // 同时写「导入」那一档占用的后果见头文件里 `m_importFlow` 那段。
     if (m_importFlow) {
         m_owner->appendLog(m_owner->tr("已有导入流程正在进行，%1 没有导入。")
-                               .arg(QFileInfo(zipPath).fileName()));
+                               .arg(QFileInfo(effectiveZip).fileName()));
         InlineMessage::information(m_owner->m_ui->overlay(), m_owner->tr("现在正忙"),
                                    m_owner->tr("另一个整合包还在导入流程里，等它结束之后再试。"));
         return;
@@ -157,8 +175,8 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
     // 否则这一列会一直灰到关窗口。
     const auto folderHold = qScopeGuard([this] { m_owner->endFolderSwitchHold(); });
 
-    if (QFileInfo(zipPath).fileName() == QStringLiteral("wtfml.import-report.json")) {
-        repairFromReport(zipPath);
+    if (QFileInfo(effectiveZip).fileName() == QStringLiteral("wtfml.import-report.json")) {
+        repairFromReport(effectiveZip);
         return;
     }
 
@@ -172,7 +190,7 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
     QString error;
     QStringList entries;
     ZipUtil::EntryStatus status = ZipUtil::listEntries(
-        zipPath, &entries, &error, m_owner->tr("读压缩包的条目表"));
+        effectiveZip, &entries, &error, m_owner->tr("读压缩包的条目表"));
     if (status != ZipUtil::EntryStatus::Ok) {
         // "里面没有清单"和"这个文件根本打不开"是**两句完全不同的话**：前者多半是选错了
         // 文件，后者是文件坏了/不是 zip。
@@ -183,14 +201,14 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
         } else {
             text = m_owner->tr("读这个压缩包的时候出错了：\n%1").arg(error);
         }
-        m_owner->appendLog(m_owner->tr("没有导入 %1。").arg(QFileInfo(zipPath).fileName()));
+        m_owner->appendLog(m_owner->tr("没有导入 %1。").arg(QFileInfo(effectiveZip).fileName()));
         InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("这不是整合包"), text);
         return;
     }
 
     ModpackImport::ArchiveLayout layout = ModpackImport::detectArchiveLayout(entries);
     // 真正拿去解压的那一份。PCL 那种壳要先把里面那份 .mrpack 解出来，之后一律用它。
-    QString sourceZip = zipPath;
+    QString sourceZip = effectiveZip;
     // 壳里那一份解出来的临时文件：**只有这一趟提前退出时**才由这个守卫删掉；
     // 导入真的开始了就交给 m_tempArchives，等 versionDownloadFinished 再删。
     QString tempArchive;
@@ -211,7 +229,7 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
                                              m_owner->tr("解出压缩包里的整合包"));
         if (status != ZipUtil::EntryStatus::Ok) {
             m_owner->appendLog(m_owner->tr("没有导入 %1：解不出里面的 %2。")
-                                   .arg(QFileInfo(zipPath).fileName(), layout.innerPackEntry));
+                                   .arg(QFileInfo(effectiveZip).fileName(), layout.innerPackEntry));
             InlineMessage::warning(
                 m_owner->m_ui->overlay(), m_owner->tr("导入整合包"),
                 m_owner->tr("这个压缩包里那份 %1 没能解出来：\n%2")
@@ -219,7 +237,7 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
             return;
         }
         m_owner->appendLog(m_owner->tr("「%1」是一个 PCL 打包的整合包，先解出里面的 %2。")
-                               .arg(QFileInfo(zipPath).fileName(), layout.innerPackEntry));
+                               .arg(QFileInfo(effectiveZip).fileName(), layout.innerPackEntry));
 
         QStringList innerEntries;
         status = ZipUtil::listEntries(tempArchive, &innerEntries, &error,
@@ -232,7 +250,7 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
             inner.format == ModpackImport::Format::Unknown ||
             inner.format == ModpackImport::Format::Wrapper) {
             m_owner->appendLog(m_owner->tr("没有导入 %1：里面的 %2 认不出是什么格式。")
-                                   .arg(QFileInfo(zipPath).fileName(), layout.innerPackEntry));
+                                   .arg(QFileInfo(effectiveZip).fileName(), layout.innerPackEntry));
             InlineMessage::warning(
                 m_owner->m_ui->overlay(), m_owner->tr("这不是整合包"),
                 status != ZipUtil::EntryStatus::Ok
@@ -246,8 +264,8 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
         sourceZip = tempArchive;
     }
 
-    const auto refuse = [this, &zipPath](const QString &title, const QString &text) {
-        m_owner->appendLog(m_owner->tr("没有导入 %1。").arg(QFileInfo(zipPath).fileName()));
+    const auto refuse = [this, &effectiveZip](const QString &title, const QString &text) {
+        m_owner->appendLog(m_owner->tr("没有导入 %1。").arg(QFileInfo(effectiveZip).fileName()));
         InlineMessage::warning(m_owner->m_ui->overlay(), title, text);
     };
 
@@ -331,7 +349,7 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
                 } else libraries.insert(entry, bytes);
             }
             result = ModpackImport::parsePatchedMultiMCInstance(mmcJson, instanceCfg, patches, libraries,
-                layout.gameDirPrefix, QFileInfo(zipPath).completeBaseName());
+                layout.gameDirPrefix, QFileInfo(effectiveZip).completeBaseName());
             // Resume identity includes executable dependencies, not just mmc-pack.json.
             QCryptographicHash hash(QCryptographicHash::Sha256);
             hash.addData(mmcJson);
@@ -345,7 +363,7 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
             manifestJson += hash.result();
         } else {
             result = ModpackImport::parseMultiMCInstance(
-                mmcJson, instanceCfg, layout.gameDirPrefix, QFileInfo(zipPath).completeBaseName());
+                mmcJson, instanceCfg, layout.gameDirPrefix, QFileInfo(effectiveZip).completeBaseName());
         }
     } else if (layout.format == ModpackImport::Format::GameFolder) {
         QByteArray versionJson;
@@ -359,7 +377,7 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
             }
         }
         result = ModpackImport::parseGameFolderInstance(entries, versionJson, layout.rootPrefix,
-                                                        QFileInfo(zipPath).completeBaseName());
+                                                        QFileInfo(effectiveZip).completeBaseName());
         if (layout.legacyLauncherJar) {
             // 旧版 Technic / 老式 Forge 包：加载器在 `bin/modpack.jar` 里，不写进版本 json。
             // 这一层不做推断（见 ArchiveLayout::legacyLauncherJar 的说明），但要在日志里留下
@@ -430,7 +448,7 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
         ModpackImport::unsupportedLoaderText(pack.loaderKey, pack.loaderVersion);
     if (!loaderProblem.isEmpty()) {
         m_owner->appendLog(m_owner->tr("未导入 %1：需要 %2，当前启动器无法安装。")
-                      .arg(QFileInfo(zipPath).fileName(), pack.loaderKey));
+                      .arg(QFileInfo(effectiveZip).fileName(), pack.loaderKey));
         InlineMessage::information(m_owner->m_ui->overlay(), m_owner->tr("无法安装这个整合包"), loaderProblem);
         return;
     }
@@ -502,7 +520,7 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
         runOffUiThread([&] { problem = versions->resolveCurseForgeFiles(&pack, settings); });
         m_owner->leaveSyncWait();
         if (!problem.isEmpty()) {
-            m_owner->appendLog(m_owner->tr("没有导入 %1：%2").arg(QFileInfo(zipPath).fileName(), problem));
+            m_owner->appendLog(m_owner->tr("没有导入 %1：%2").arg(QFileInfo(effectiveZip).fileName(), problem));
             InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("拿不到文件清单"), problem);
             return;
         }
@@ -831,7 +849,7 @@ bool ImportController::applyResolvedModpackImport(const QString &zipPath,
         m_owner->appendLog(m_owner->tr("接着「%1」上次没下完的那一份往下下（已经下好的按 sha1 跳过）。")
                       .arg(instanceName));
     }
-    if (pack.format == ModpackImport::Format::MultiMC && !pack.patchedRuntime.isEmpty()) {
+    if (!pack.patchedRuntime.isEmpty()) {
         m_specialPackSources.insert(instanceName, zipPath);
     }
     m_owner->m_versionManager->importModpack(zipPath, instanceName, pack, installerJava,
@@ -1356,3 +1374,5 @@ void ImportController::preservePackSource(const QString &instanceId, const QStri
     }
     m_owner->appendLog(m_owner->tr("已把原包的启动补丁保存在实例目录（导出时可以原样带回）。"));
 }
+
+

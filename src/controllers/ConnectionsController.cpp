@@ -719,6 +719,8 @@ void ConnectionsController::setup() {
     // ---------- 设置页 ----------
     // 「Java 版本」那一格现在是一颗按钮：点开「Java 管理」那一页去看/去装。
     // 那一页自己只发信号（它不认识 Java），点哪一行、点哪颗按钮都在下面这几个槽里落地。
+    connect(m_owner->m_ui->getFileAssociationsButton(), &QPushButton::clicked, m_owner,
+            [owner = m_owner] { owner->offerFileAssociations(true); });
     connect(m_owner->m_ui->getJavaManageButton(), &QPushButton::clicked, m_owner,
             &MainWindow::openJavaManage);
     // 「实例预设」那一页 搬进了实例页的模式行（第三档），设置页里那颗门跟着撤了 ——
@@ -1084,4 +1086,5 @@ void ConnectionsController::setup() {
                 }
             });
 }
+
 

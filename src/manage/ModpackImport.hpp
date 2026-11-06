@@ -224,6 +224,9 @@ Result parsePatchedMultiMCInstance(const QByteArray &manifest, const QByteArray 
 /// Publish archive-local libraries without replacing a different existing file.
 bool publishBundledLibraries(const Pack &pack, const QString &minecraftRoot, QString *problem);
 
+/// 把 MultiMC 包的 mmc-pack / patches / instance.cfg 留在实例目录（导出时原样带回）。
+bool preserveMultiMCSource(const QString &zipPath, const QString &instanceDir);
+
 /**
  * @brief 解析一个普通 `.minecraft` 懒人包。
  * @param entries 整份条目表（用来找 `versions/` 下的版本 json）。
@@ -492,3 +495,4 @@ QStringList preferredUrlOrder(const QStringList &urls);
 // 而 invokeMethod 只是**静默返回 false**，看着像"那条路没被拦住"）。
 // 同款先例见 LoaderMeta.hpp 末尾那两行。
 Q_DECLARE_METATYPE(ModpackImport::Format)
+

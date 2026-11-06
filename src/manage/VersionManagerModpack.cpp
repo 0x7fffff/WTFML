@@ -403,6 +403,7 @@ void VersionManager::commitModpackImport(const QList<ModpackImport::FileIssue> &
     const int notDistributable = pack.filesNotDistributable;
     const int missing = pack.filesMissing;
     const int extracted = m_modpackInstall.extractedEntries;
+    const QString archivePath = m_modpackInstall.zipPath;
 
     const bool complete = issues.isEmpty() && notDistributable + missing <= pack.fileIssues.size();
     QString reportProblem;
@@ -453,6 +454,12 @@ void VersionManager::commitModpackImport(const QList<ModpackImport::FileIssue> &
         return;
     }
 
+    // MultiMC/Prism 包：把原包身份留在实例里（导出时原样带回 patches）。
+    if (!pack.patchedRuntime.isEmpty()) {
+        if (ModpackImport::preserveMultiMCSource(archivePath, AppPaths::versionDir(id))) {
+            emit modpackImportMessage(tr("已把原包的启动补丁保存在实例目录（导出时可以原样带回）。"));
+        }
+    }
     // 少装了什么必须说出来（跳过的文件、解开的覆盖文件）—— 用户看不到的那部分最容易
     // 变成"进了游戏才发现少个 mod"。
     QString extra;
@@ -748,3 +755,4 @@ void VersionManager::adoptInstallerVersion(const QString &version) {
     deferLoaderStep(LoaderInstall::Phase::FetchingInstallerList,
                     [this] { startInstallerDownload(); });
 }
+

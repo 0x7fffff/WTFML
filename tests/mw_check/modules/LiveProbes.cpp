@@ -10,6 +10,7 @@
 #include "manage/InstanceFiles.hpp"
 #include "manage/ModpackImport.hpp"
 #include "util/FileAssociations.hpp"
+#include "util/SevenZip.hpp"
 #include <QSettings>
 #include "manage/InstanceExport.hpp"
 #include "util/ZipUtil.hpp"
@@ -40,6 +41,29 @@
 #endif
 
 int runLiveProbeMode(int argc, char *argv[]) {
+// ---------- sevenzip-live：7-Zip 解压 + 压回 zip 的自检 ----------
+// mw_check.exe sevenzip-live <archive.7z|rar>
+    if (argc >= 3 && QString::fromLocal8Bit(argv[1]) == QLatin1String("sevenzip-live")) {
+        const QString archive = QString::fromLocal8Bit(argv[2]);
+        std::printf("%s 7z.exe=%s\n", SevenZip::available() ? "PASS" : "FAIL",
+                    qPrintable(SevenZip::executable()));
+        QString error;
+        const QString zip = SevenZip::toZip(archive, &error);
+        if (zip.isEmpty()) {
+            std::printf("FAIL 转换失败：%s\n", qPrintable(error));
+            return 1;
+        }
+        QStringList entries;
+        const bool listed = ZipUtil::listEntries(zip, &entries, &error) == ZipUtil::EntryStatus::Ok;
+        std::printf("%s 转换出 zip：%s（%d 个条目）\n", listed && !entries.isEmpty() ? "PASS" : "FAIL",
+                    qPrintable(zip), entries.size());
+        bool hasConfig = false;
+        for (const QString &entry : entries) if (entry.contains(QStringLiteral("config/"))) hasConfig = true;
+        std::printf("%s 内容认得出（含 config/）\n", hasConfig ? "PASS" : "FAIL");
+        QFile::remove(zip);
+        return (listed && hasConfig) ? 0 : 1;
+    }
+
 // ---------- assoc-live：注册表写入自检（只写测试子键） ----------
 // mw_check.exe assoc-live
     if (argc >= 2 && QString::fromLocal8Bit(argv[1]) == QLatin1String("assoc-live")) {
@@ -601,6 +625,7 @@ if (argc >= 3 && QString::fromLocal8Bit(argv[1]) == QLatin1String("java-runtime-
 
     return -1;
 }
+
 
 
 

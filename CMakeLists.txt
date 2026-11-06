@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(WTFMinecraftLauncher VERSION 0.5.0 LANGUAGES CXX)
+project(WTFMinecraftLauncher VERSION 0.5.1 LANGUAGES CXX)
 include(${CMAKE_CURRENT_SOURCE_DIR}/ui/MainWindowPages.cmake)
 
 set(CMAKE_CXX_STANDARD 23)
@@ -226,6 +226,7 @@ set(HEADER_FILES
     src/util/StorageAvailability.hpp
     src/util/MemoryBudget.hpp
     src/util/FileAssociations.hpp
+    src/util/SevenZip.hpp
     src/util/ZipUtil.hpp
     src/util/PowerShell.hpp
     src/util/NbtUtil.hpp
@@ -500,6 +501,7 @@ set(SOURCE_FILES
     src/util/SystemMemory.cpp
     src/util/StorageAvailability.cpp
     src/util/FileAssociations.cpp
+    src/util/SevenZip.cpp
     src/util/ZipUtil.cpp
     src/util/NbtUtil.cpp
     src/util/NbtTree.cpp

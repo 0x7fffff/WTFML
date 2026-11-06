@@ -170,6 +170,15 @@ void InstanceFilesPage::beginFileDrag() {
     if (urls.isEmpty()) return;
     auto *mime = new QMimeData;
     mime->setUrls(urls);
+    // 单张 PNG：同时给一份 image/png —— 微信/QQ 这类会按「图片」收，而不是当成一个文件。
+    if (urls.size() == 1
+        && urls.first().toLocalFile().endsWith(QStringLiteral(".png"), Qt::CaseInsensitive)) {
+        QFile image(urls.first().toLocalFile());
+        if (image.open(QIODevice::ReadOnly) && image.size() > 0
+            && image.size() <= 16 * 1024 * 1024) {
+            mime->setData(QStringLiteral("image/png"), image.readAll());
+        }
+    }
     auto *drag = new QDrag(this);
     drag->setMimeData(mime);
     drag->exec(Qt::CopyAction);
