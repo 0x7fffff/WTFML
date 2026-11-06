@@ -5,7 +5,8 @@
  */
 
 #include "OverlayHost.hpp"
-#include "Animations.hpp"  // 整块覆盖这一层的淡入
+#include "Animations.hpp"
+#include <QElapsedTimer>  // 整块覆盖这一层的淡入
 #include "Theme.hpp"   // 顶上那颗「← 返回」的身份（一般性 = 黑字黑边）
 
 #include <QApplication>
@@ -656,9 +657,14 @@ bool OverlayHost::showPage(QDialog *dialog, const QString &title, int ownerTab) 
     if (area == nullptr || area->layout() == nullptr) {
         return false;
     }
+    QElapsedTimer showSeg;
+    showSeg.start();
     area->layout()->addWidget(dialog);
     dialog->setVisible(true);
+    const qint64 addMs = showSeg.restart();
     relayout();
+    qInfo() << "[UI timing] overlay segments add" << addMs << "show" << showSeg.restart()
+            << "relayout" << showSeg.elapsed();
 
     // ③ 收页：返回箭头接成 `reject()`（和 `execPage()` 里那条一模一样），Esc / 这一页
     // 自己 accept/reject 也落到 `finished` —— 两条都在同一处收掉这一层。**没有**卡在
@@ -894,3 +900,4 @@ void OverlayHost::keyPressEvent(QKeyEvent *event) {
     }
     QWidget::keyPressEvent(event);
 }
+
