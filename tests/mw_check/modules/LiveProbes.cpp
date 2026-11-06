@@ -426,9 +426,10 @@ if (argc >= 4 && QString::fromLocal8Bit(argv[1]) == QLatin1String("launch-live")
 
     QString accountError;
     AccountStore::addOffline(QStringLiteral("Steve"), &accountError);
+    const bool autoJava = launchJava.compare(QLatin1String("auto"), Qt::CaseInsensitive) == 0;
     GlobalJavaSettings java;
-    java.setAutoSelectJava(false);
-    java.setJavaPath(launchJava);
+    java.setAutoSelectJava(autoJava);
+    if (!autoJava) java.setJavaPath(launchJava);
     java.setXmx(launchXmx);
     java.setXms(512);
     java.save();

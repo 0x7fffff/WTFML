@@ -439,6 +439,11 @@ bool flattenSingleRootDir(const QString &dir) {
     return QDir().rmdir(onlyChild.absolutePath());
 }
 
+QString userAgent() {
+    const QString version = QCoreApplication::applicationVersion();
+    return QStringLiteral("WTFML/") + (version.isEmpty() ? QStringLiteral("dev") : version);
+}
+
 bool downloadFileToLocal(const QUrl &url, const QString &destinationPath) {
     QString lockProblem;
     if (!WriteDirectoryGuard::acquire(QFileInfo(destinationPath).absolutePath(), &lockProblem))
@@ -450,7 +455,7 @@ bool downloadFileToLocal(const QUrl &url, const QString &destinationPath) {
 
     QNetworkAccessManager manager;
     QNetworkRequest request(url);
-    request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("WTFML/" WTFML_VERSION));
+    request.setHeader(QNetworkRequest::UserAgentHeader, userAgent());
     // NOTE: 这个超时**不能省**。这一路在事件循环里等待写盘；没有超时的话，
     // 对端连上了却不发数据时 loop.exec() 没有任何退出条件。
     // 它是"不活动超时"，一直匀速在下的不会因此被切断。
@@ -537,7 +542,7 @@ bool installZipRuntime(const QUrl &url, const QString &dir, int expectMajor, QSt
 QByteArray fetchSmallText(const QUrl &url) {
     QNetworkAccessManager manager;
     QNetworkRequest request(url);
-    request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("WTFML/" WTFML_VERSION));
+    request.setHeader(QNetworkRequest::UserAgentHeader, userAgent());
     request.setTransferTimeout(20000);
     QNetworkReply *reply = manager.get(request);
     QEventLoop loop;
@@ -1366,6 +1371,8 @@ bool GlobalJavaSettings::ensureJavaForVersion(EffectiveJavaSettings &io, int maj
     qDebug() << "Failed to obtain Java version" << majorVersion;
     return fail(QStringLiteral("找不到也下载不到 Java %1。").arg(majorVersion));
 }
+
+
 
 
 
