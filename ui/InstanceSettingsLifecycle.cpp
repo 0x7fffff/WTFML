@@ -28,6 +28,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QElapsedTimer>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPixmap>
@@ -83,11 +84,26 @@ protected:
         data->setUrls(urls);
         return data;
     }
+
+    void startDrag(Qt::DropActions supportedActions) override {
+        QListWidget::startDrag(supportedActions);
+        // 外部程序收下之后，Qt 有时不重排这一页（行高/图标缓存），表现为列表空白，
+        // 直到点「刷新」才回来。收尾强制重排 + 重绘一次。
+        doItemsLayout();
+        viewport()->update();
+    }
 };
 }  // namespace
 
 
 void InstanceSettingsDialog::setupLifecyclePages() {
+    if (m_lifecycleThumbTimer == nullptr) {
+        m_lifecycleThumbTimer = new QTimer(this);
+        m_lifecycleThumbTimer->setSingleShot(true);
+        m_lifecycleThumbTimer->setInterval(0);
+        connect(m_lifecycleThumbTimer, &QTimer::timeout, this,
+                [this] { loadNextLifecycleThumb(); });
+    }
     for (const QString &key : lifecyclePageKeys()) {
         QWidget *page = addPage(key);
         auto *layout = qobject_cast<QVBoxLayout *>(page->layout());
@@ -425,6 +441,10 @@ void InstanceSettingsDialog::setupLifecyclePages() {
 }
 
 void InstanceSettingsDialog::refreshLifecycleFiles(const QString &key) {
+    QElapsedTimer refreshClock;
+    refreshClock.start();
+    m_lifecycleThumbQueue.clear();
+    if (m_lifecycleThumbTimer != nullptr) m_lifecycleThumbTimer->stop();
     auto *list = m_lifecycleLists.value(key);
     if (list == nullptr) return;
     list->clear();
@@ -475,14 +495,14 @@ void InstanceSettingsDialog::refreshLifecycleFiles(const QString &key) {
             }
             // 尺寸读不出来也照样试着解一张缩略图（有些 PNG 的头信息坏了，数据还能读）。
             // NOTE: 但"头里写得荒唐"的那一份不在此列 —— 那种读一次就是几个 G。
-            const QImage thumb = oversized ? QImage() : reader.read();
+            // 缩略图排到事件循环之后解（见 m_lifecycleThumbQueue）。
             details << InstanceFilesPage::formatSize(file.size());
             auto *item = new QListWidgetItem(
                 file.fileName() + QLatin1Char('\n') + details.join(QStringLiteral(" / ")),
                 list);
             item->setData(Qt::UserRole, file.absoluteFilePath());
             item->setToolTip(file.absoluteFilePath());
-            if (!thumb.isNull()) item->setIcon(QPixmap::fromImage(thumb));
+            m_lifecycleThumbQueue.append(file.absoluteFilePath());
             continue;
         }
         details << InstanceFilesPage::formatSize(file.size());
@@ -499,6 +519,11 @@ void InstanceSettingsDialog::refreshLifecycleFiles(const QString &key) {
     // 重列之后选中项可能已经没了（`clear()` 不一定发 currentItemChanged）——
     // 和 InstanceFilesPage::rebuildRows() 一样，收尾再对一次，别让旧的一句留在底下。
     updateLifecycleInfo(key);
+    if (!m_lifecycleThumbQueue.isEmpty() && m_lifecycleThumbTimer != nullptr)
+    if (refreshClock.elapsed() > 60)
+        qInfo() << "[UI timing] lifecycle page refresh" << key << files.size() << "files,"
+                << refreshClock.elapsed() << "ms";
+        m_lifecycleThumbTimer->start();
 }
 
 void InstanceSettingsDialog::filterLifecycleFiles(const QString &key) {
@@ -792,6 +817,26 @@ void InstanceSettingsDialog::updateTransferApplyState(const QString &key) {
             inPlace->setEnabled(hasTarget);
     }
 }
-
-
+void InstanceSettingsDialog::loadNextLifecycleThumb() {
+    if (m_lifecycleThumbQueue.isEmpty()) return;
+    const QString path = m_lifecycleThumbQueue.takeFirst();
+    QListWidget *list = m_lifecycleLists.value(QStringLiteral("screenshots"));
+    if (list != nullptr) {
+        for (int row = 0; row < list->count(); ++row) {
+            QListWidgetItem *item = list->item(row);
+            if (item == nullptr || item->data(Qt::UserRole).toString() != path) continue;
+            QImageReader reader(path);
+            const QSize pixels = reader.size();
+            if (pixels.isValid() && pixels.width() > 0 && pixels.height() > 0
+                && pixels.width() <= 16384 && pixels.height() <= 16384) {
+                reader.setScaledSize(pixels.scaled(QSize(96, 64), Qt::KeepAspectRatio));
+            }
+            const QImage thumb = reader.read();
+            if (!thumb.isNull()) item->setIcon(QPixmap::fromImage(thumb));
+            break;
+        }
+    }
+    if (!m_lifecycleThumbQueue.isEmpty() && m_lifecycleThumbTimer != nullptr)
+        m_lifecycleThumbTimer->start();
+}
 

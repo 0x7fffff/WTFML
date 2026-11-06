@@ -2133,6 +2133,10 @@ private:
     QHash<QString, QLabel *> m_lifecycleInfo;
     QHash<QString, QString> m_lifecycleInfoPath;
     QHash<QString, QTimer *> m_lifecycleInfoTimers;
+    /// 截图页的缩略图**排到事件循环之后再解**：一页 73 张 PNG 同步读会把点页面的那一下卡住。
+    QStringList m_lifecycleThumbQueue;
+    QTimer *m_lifecycleThumbTimer = nullptr;
+    void loadNextLifecycleThumb();
     QPlainTextEdit *m_diagnosisReport = nullptr;
     /// 「迁移」/「升级」那两页（键 → 控件；键就是 `migration` / `upgrade`）。
     QHash<QString, QComboBox *> m_transferTargets;
@@ -2333,3 +2337,4 @@ private:
     /// 两种形态都由 refreshHints() 写进同一个 QLabel）。
     QHash<QString, QString> m_customHints;
 };
+
