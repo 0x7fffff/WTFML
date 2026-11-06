@@ -450,6 +450,7 @@ bool downloadFileToLocal(const QUrl &url, const QString &destinationPath) {
 
     QNetworkAccessManager manager;
     QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("WTFML/0.5.1"));
     // NOTE: 这个超时**不能省**。这一路在事件循环里等待写盘；没有超时的话，
     // 对端连上了却不发数据时 loop.exec() 没有任何退出条件。
     // 它是"不活动超时"，一直匀速在下的不会因此被切断。
@@ -532,6 +533,48 @@ bool installZipRuntime(const QUrl &url, const QString &dir, int expectMajor, QSt
     return true;
 }
 
+/// 拉一小段文本（目录列表那种几十 KB 的 HTML）。失败返回空。
+QByteArray fetchSmallText(const QUrl &url) {
+    QNetworkAccessManager manager;
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("WTFML/0.5.1"));
+    request.setTransferTimeout(20000);
+    QNetworkReply *reply = manager.get(request);
+    QEventLoop loop;
+    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+    const QByteArray body = reply->error() == QNetworkReply::NoError ? reply->readAll() : QByteArray();
+    reply->deleteLater();
+    return body.size() <= 4 * 1024 * 1024 ? body : QByteArray();
+}
+
+/// 清华 TUNA 的 Adoptium 镜像：列目录挑最新那个 `OpenJDK<major>U-jdk_x64_windows_hotspot_*.zip`。
+/// 国内网络通常只有镜像能通（Adoptium API 和 GitHub release 都可能被掐）。
+QUrl tunaJdkUrl(int major) {
+    const QString base = QStringLiteral("https://mirrors.tuna.tsinghua.edu.cn/Adoptium/%1/jdk/x64/windows/").arg(major);
+    const QByteArray html = fetchSmallText(QUrl(base));
+    if (html.isEmpty()) return {};
+    const QString pattern = QStringLiteral("OpenJDK%1U-jdk_x64_windows_hotspot_[0-9._]+\\.zip").arg(major);
+    QRegularExpression re(pattern);
+    auto matches = re.globalMatch(QString::fromUtf8(html));
+    QString best;
+    QList<int> bestParts;
+    while (matches.hasNext()) {
+        const QString name = matches.next().captured(0);
+        QList<int> parts;
+        for (const QString &piece : name.split(QRegularExpression(QStringLiteral("[^0-9]+")))) {
+            if (!piece.isEmpty()) parts.append(piece.toInt());
+        }
+        if (parts.size() > bestParts.size()
+            || (parts.size() == bestParts.size() && parts > bestParts)) {
+            best = name;
+            bestParts = parts;
+        }
+    }
+    if (best.isEmpty()) return {};
+    return QUrl(base + best);
+}
+
 QUrl microsoftJdkUrl(int major) {
     if (major == 25) return QUrl(QStringLiteral("https://aka.ms/download-jdk/microsoft-jdk-25-windows-x64.zip"));
     if (major == 21) return QUrl(QStringLiteral("https://aka.ms/download-jdk/microsoft-jdk-21-windows-x64.zip"));
@@ -543,6 +586,10 @@ QUrl microsoftJdkUrl(int major) {
 bool downloadMicrosoftRuntime(int major, QString *javaPathOut) {
     const QUrl url = microsoftJdkUrl(major);
     if (!url.isValid()) return false;
+    if (const QUrl mirror = tunaJdkUrl(major); mirror.isValid()) {
+        qInfo() << "改从清华 TUNA 镜像安装 Java" << major;
+        if (installZipRuntime(mirror, AppPaths::javaVersionDir(major), major, javaPathOut)) return true;
+    }
     qInfo() << "Adoptium 不可用，改从 Microsoft OpenJDK 安装 Java" << major;
     return installZipRuntime(url, AppPaths::javaVersionDir(major), major, javaPathOut);
 }
@@ -594,6 +641,19 @@ bool downloadJavaRuntime(const QString &destinationDir, const QString &component
             QUrl("https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.4+7/"
                  "OpenJDK21U-jre_x64_windows_hotspot_21.0.4_7.zip"),
             QUrl("https://download.bell-sw.com/java/21.0.4+7/bellsoft-jre21.0.4+7-win-amd64.zip")};
+    }
+
+    // 国内网络下 Adoptium API / GitHub release 常常连不上：先试清华 TUNA 镜像，
+    // 它能通就直接用（镜像里是同一批 Temurin 资产）。
+    {
+        int major = 21;
+        if (component == "java-runtime-epsilon") major = 25;
+        else if (component == "java-runtime-delta") major = 21;
+        else if (component == "java-runtime-beta" || component == "java-runtime-gamma") major = 17;
+        else if (component == "java-runtime-alpha") major = 16;
+        else if (component == "jre-legacy") major = 8;
+        const QUrl mirror = tunaJdkUrl(major);
+        if (mirror.isValid()) urls.prepend(mirror);
     }
 
     // 以 component 名为子文件夹，下载和解压内容都放进去
@@ -1016,6 +1076,15 @@ bool GlobalJavaSettings::installerJavaFor(int requiredMajor, const QString &conf
 }
 
 bool GlobalJavaSettings::downloadJavaFromMojang(int majorVersion, QString *javaPathOut) {
+    // 先试清华 TUNA 镜像：国内网络里 Adoptium API 也许能通，但 GitHub release 的下载
+    // 十有八九被掐（`Connection closed`）；镜像里是同一批 Temurin 资产。
+    if (const QUrl mirror = tunaJdkUrl(majorVersion); mirror.isValid()) {
+        qInfo() << "改从清华 TUNA 镜像安装 Java" << majorVersion;
+        if (installZipRuntime(mirror, AppPaths::javaVersionDir(majorVersion), majorVersion,
+                              javaPathOut)) {
+            return true;
+        }
+    }
     qDebug() << "Starting Java download from Adoptium for version:" << majorVersion;
 
     // Use Adoptium API to download Java
@@ -1297,6 +1366,7 @@ bool GlobalJavaSettings::ensureJavaForVersion(EffectiveJavaSettings &io, int maj
     qDebug() << "Failed to obtain Java version" << majorVersion;
     return fail(QStringLiteral("找不到也下载不到 Java %1。").arg(majorVersion));
 }
+
 
 
 

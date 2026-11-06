@@ -1,0 +1,10 @@
+Java 运行时：Adoptium 下载失败时优先走清华 TUNA 镜像
+
+- 国内网络里 Adoptium API 可能通、但 GitHub release 下载被掐（Connection closed），aka.ms 也常超时
+- 新增 mirror 解析：列 TUNA 的 Adoptium/<major>/jdk/x64/windows 目录，按版本号挑最新 zip
+- downloadJavaFromMojang / downloadJavaRuntime / Microsoft 回退三条路都先试镜像
+- downloadFileToLocal 与镜像列表请求补 User-Agent（TUNA 对无 UA 的 Qt 请求回 403）
+
+验证：probe 真下载 Java 17（492 文件/303 MB）与 Java 25 均成功并找到 java.exe；全套 38/38。
+
+Co-Authored-By: Claude Code <noreply@anthropic.com>
