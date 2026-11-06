@@ -65,6 +65,12 @@ void MainWindow::handleWindowDrop(const QStringList &paths) {
 }
 
 void MainWindow::dragEnterEvent(QDragEnterEvent *event) {
+    // 自己拖出来的（源就在本进程里）一律不接：拖回启动器窗口会被当成"拖入文件"，
+    // 触发导入/安装 —— 看起来就是"没拖出窗口就执行导入"。
+    if (event->source() != nullptr) {
+        event->ignore();
+        return;
+    }
     // 准入判据**就是**实例设置那一页用的那一个（同一个函数，见 .hpp 里那段 NOTE）：
     // 拖的是一串本地文件才接。
     if (InstanceSettingsDialog::droppedFilePaths(event->mimeData()).isEmpty()) {
@@ -75,6 +81,10 @@ void MainWindow::dragEnterEvent(QDragEnterEvent *event) {
 }
 
 void MainWindow::dropEvent(QDropEvent *event) {
+    if (event->source() != nullptr) {
+        event->ignore();
+        return;
+    }
     const QStringList paths = InstanceSettingsDialog::droppedFilePaths(event->mimeData());
     if (paths.isEmpty()) {
         event->ignore();
@@ -113,6 +123,7 @@ void MainWindow::offerFileAssociations(bool force) {
     appendLog(tr("文件关联：已设置 %1 个默认打开方式。").arg(done));
     for (const QString &error : errors) appendLog(tr("文件关联失败：%1").arg(error));
 }
+
 
 
 

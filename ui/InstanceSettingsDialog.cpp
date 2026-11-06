@@ -417,6 +417,11 @@ QStringList InstanceSettingsDialog::droppedFilePaths(const QMimeData *mime) {
 }
 
 void InstanceSettingsDialog::dragEnterEvent(QDragEnterEvent *event) {
+    // 本进程里拖出来的文件不接（见 MainWindow::dragEnterEvent 同一条理由）。
+    if (event->source() != nullptr) {
+        event->ignore();
+        return;
+    }
     // 准入判据就一条：拖的是不是**本地文件**（见 droppedFilePaths()）。
     // 不认的话**什么都不做**（不 accept）—— 于是光标是"禁止"那个形状，用户一眼知道
     // 这一页不收它，而不是拖上去松手之后什么都没有发生。
@@ -428,6 +433,10 @@ void InstanceSettingsDialog::dragEnterEvent(QDragEnterEvent *event) {
 }
 
 void InstanceSettingsDialog::dropEvent(QDropEvent *event) {
+    if (event->source() != nullptr) {
+        event->ignore();
+        return;
+    }
     const QStringList paths = droppedFilePaths(event->mimeData());
     if (paths.isEmpty()) {
         event->ignore();
@@ -2096,4 +2105,5 @@ void InstanceSettingsDialog::notifyEdited() {
     m_lastSignature = now;
     emit settingsEdited();
 }
+
 

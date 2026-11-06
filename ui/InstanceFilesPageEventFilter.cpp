@@ -119,31 +119,41 @@ bool InstanceFilesPage::eventFilter(QObject *watched, QEvent *event) {
                 if (mouse->button() != Qt::LeftButton) break;
                 const QPoint pos =
                     m_list->viewport()->mapFromGlobal(mouse->globalPosition().toPoint());
-                // 按在行尾按钮上不算拖动（那是点击）。
                 const bool onButton = qobject_cast<QAbstractButton *>(watched) != nullptr;
                 QString path;
                 if (rowWidget != nullptr) {
                     path = rowWidget->property(rowPathProperty()).toString();
                 } else if (const QModelIndex index = m_list->indexAt(pos); index.isValid()) {
-                    if (const QListWidgetItem *item = m_list->item(index.row())) {
+                    if (const QListWidgetItem *item = m_list->item(index.row()))
                         path = item->data(pathRole()).toString();
-                    }
                 }
                 m_pressViewportPos = pos;
                 m_pressPath = onButton ? QString() : path;
                 m_pressOnRow = !onButton && !path.isEmpty();
-                if (qEnvironmentVariableIsSet("WTFML_DRAG_DEBUG")) {
-                    qInfo() << "[drag] press watched=" << (watched != nullptr ? watched->metaObject()->className() : "null")
-                            << "row=" << (rowWidget != nullptr) << "onButton=" << onButton
-                            << "path=" << path;
-                }
                 m_dragStarted = false;
                 m_ctrlDragActive = mouse->modifiers().testFlag(Qt::ControlModifier);
                 m_bandToggledIdentities.clear();
-                    m_pressSelection.clear();
-                    for (const QListWidgetItem *selectedItem : m_list->selectedItems())
-                        m_pressSelection.append(selectedItem->data(pathRole()).toString());
+                m_pressSelection.clear();
+                for (const QListWidgetItem *selectedItem : m_list->selectedItems())
+                    m_pressSelection.append(selectedItem->data(pathRole()).toString());
                 if (!m_pressPath.isEmpty()) m_bandToggledIdentities.insert(identityPath(m_pressPath));
+                // 按在"已经选中的多选行"上：这一发要吃掉，否则视图会先收缩成单条、
+                // 拖动时再画回来 —— 用户看到的就是"选中状态闪一下"。
+                bool pathSelected = false;
+                for (const QString &selectedPath : m_pressSelection)
+                    if (selectedPath == path) pathSelected = true;
+                m_swallowPress = !onButton && pathSelected && m_pressSelection.size() > 1
+                    && !(mouse->modifiers() & (Qt::ControlModifier | Qt::ShiftModifier));
+                if (m_swallowPress) {
+                    if (QListWidgetItem *pressedItem = m_list->itemAt(pos))
+                        m_list->setCurrentItem(pressedItem, QItemSelectionModel::NoUpdate);
+                }
+                if (qEnvironmentVariableIsSet("WTFML_DRAG_DEBUG")) {
+                    qInfo() << "[drag] press watched="
+                            << (watched != nullptr ? watched->metaObject()->className() : "null")
+                            << "row=" << (rowWidget != nullptr) << "onButton=" << onButton
+                            << "path=" << path << "swallow=" << m_swallowPress;
+                }
                 break;
             }
             case QEvent::MouseMove: {
@@ -163,23 +173,40 @@ bool InstanceFilesPage::eventFilter(QObject *watched, QEvent *event) {
                 }
                 break;
             }
-            case QEvent::MouseButtonRelease:
+            case QEvent::MouseButtonRelease: {
                 if (m_toggleBand != nullptr) {
                     m_toggleBand->hide();
                     m_toggleBand->deleteLater();
                     m_toggleBand = nullptr;
                 }
+                const bool dragged = m_dragStarted;
+                // 没拖出去 = 一次普通点击：这时才把多选收缩成按下的那一条。
+                if (m_swallowPress && !dragged && !m_pressPath.isEmpty()) {
+                    const QSignalBlocker blocker(m_list);
+                    m_list->clearSelection();
+                    for (int row = 0; row < m_list->count(); ++row) {
+                        QListWidgetItem *item = m_list->item(row);
+                        if (item != nullptr && item->data(pathRole()).toString() == m_pressPath)
+                            item->setSelected(true);
+                    }
+                }
                 m_dragStarted = false;
                 m_ctrlDragActive = false;
                 m_pressOnRow = false;
                 m_bandToggledIdentities.clear();
+                m_swallowPress = false;
                 break;
+            }
             default:
                 break;
             }
+            if (m_swallowPress) {
+                event->accept();
+                return true;
+            }
+
         }
     }
-
     return QWidget::eventFilter(watched, event);
 }
 void InstanceFilesPage::beginFileDrag() {
@@ -199,17 +226,6 @@ void InstanceFilesPage::beginFileDrag() {
     QList<QUrl> urls;
     for (const QString &path : paths) {
         if (QFileInfo::exists(path)) urls.append(QUrl::fromLocalFile(path));
-    }
-    // Qt 在按下时已经把多选收缩成单条；拖动期间把这份多选**画回去**，
-    // 否则用户看到的是"拖着一个、实际飞出去多个"，和手上的感觉对不上。
-    {
-        QSignalBlocker blocker(m_list);
-        m_list->clearSelection();
-        for (int row = 0; row < m_list->count(); ++row) {
-            QListWidgetItem *item = m_list->item(row);
-            if (item != nullptr && paths.contains(item->data(pathRole()).toString()))
-                item->setSelected(true);
-        }
     }
     if (qEnvironmentVariableIsSet("WTFML_DRAG_DEBUG")) {
         qInfo() << "[drag] start urls=" << urls.size() << "press=" << m_pressPath;
@@ -241,3 +257,4 @@ void InstanceFilesPage::updateToggleBand(const QPoint &viewportPos, bool firstUp
         item->setSelected(!item->isSelected());
     }
 }
+
