@@ -65,6 +65,28 @@
 #include "VersionTreeDelegate.hpp"
 
 
+namespace {
+/// 「截图 / Replay / 日志 / 崩溃 / 结构」这几页的列表：普通 QListWidget，但要能把条目
+/// 作为**文件**拖出去（Windows 原生 CF_HDROP）。QListWidget 默认给的内部 mime 外部程序不认。
+class LifecycleFileList : public QListWidget {
+public:
+    using QListWidget::QListWidget;
+
+protected:
+    QMimeData *mimeData(const QList<QListWidgetItem *> &items) const override {
+        auto *data = new QMimeData;
+        QList<QUrl> urls;
+        for (const QListWidgetItem *item : items) {
+            const QString path = item->data(Qt::UserRole).toString();
+            if (!path.isEmpty() && QFileInfo::exists(path)) urls.append(QUrl::fromLocalFile(path));
+        }
+        data->setUrls(urls);
+        return data;
+    }
+};
+}  // namespace
+
+
 void InstanceSettingsDialog::setupLifecyclePages() {
     for (const QString &key : lifecyclePageKeys()) {
         QWidget *page = addPage(key);
@@ -177,7 +199,11 @@ void InstanceSettingsDialog::setupLifecyclePages() {
             auto *result = new QLabel(page);
             result->setObjectName(QStringLiteral("instanceLifecycleResult_%1").arg(key));
             layout->addWidget(result);
-            auto *list = new QListWidget(page);
+            auto *list = new LifecycleFileList(page);
+            list->setSelectionMode(QAbstractItemView::ExtendedSelection);
+            list->setDragEnabled(true);
+            list->setDragDropMode(QAbstractItemView::DragOnly);
+            list->setDefaultDropAction(Qt::CopyAction);
             list->setObjectName(QStringLiteral("instanceLifecycleFiles_%1").arg(key));
             list->setIconSize(QSize(96, 64));
             list->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -766,4 +792,6 @@ void InstanceSettingsDialog::updateTransferApplyState(const QString &key) {
             inPlace->setEnabled(hasTarget);
     }
 }
+
+
 

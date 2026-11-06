@@ -28,12 +28,15 @@
 #include "InstanceFilesPageInternals.hpp"
 
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFileInfo>
 #include <QLabel>
 #include <QListWidget>
 #include <QSignalBlocker>
 
 void InstanceFilesPage::refresh() {
+    QElapsedTimer refreshClock;
+    refreshClock.start();
     // 这一趟真的列了 ⇒ `setDirectory()` 那一笔欠账清了（**摆在最前**：下面任何一条早退
     // 路都不该把这一位留在"还欠着"上 —— 那会让判据以为这一页没列过）。
     m_refreshPending = false;
@@ -152,4 +155,11 @@ void InstanceFilesPage::refresh() {
 
     // 建行 + 过筛选 + 摆可见性 + 起统计定时器，全在那一处（见 .hpp 里 rebuildRows 那段）。
     rebuildRows();
+    if (refreshClock.elapsed() > 40) {
+        qInfo() << "[UI timing] files page refresh" << m_directory << m_entries.size()
+                << "entries," << refreshClock.elapsed() << "ms";
+    }
 }
+
+
+

@@ -1,4 +1,5 @@
 #include "controllers/PresetController.hpp"
+#include <QElapsedTimer>
 #include "InstanceDialogController.hpp"
 #include "UpgradeAssessment.hpp"
 #include "InstanceUpdateFlow.hpp"
@@ -363,12 +364,15 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     // 收掉时它跟着一起没，一个字节都不用另找时机释放。
     auto *session = new InstanceSettingsSession;
     session->targetId = versionId;
+    QElapsedTimer settingsClock;
+    settingsClock.start();
     auto *dialogPtr = new InstanceSettingsDialog(
         m_owner->instanceDisplayName(versionId), versionId,
         toDialogOverride(current, gameWindowOverrideFromJson(instanceMeta)),
         global, m_owner->m_versionManager->versionJvmArgs(versionId),
         !m_owner->m_versionManager->skipJavaVersionWarning(versionId),
         windowModeChoices(), m_owner);
+    qInfo() << "[UI timing] settings dialog ctor" << settingsClock.elapsed() << "ms";
     session->setParent(dialogPtr);
     InstanceSettingsDialog &dialog = *dialogPtr;
     dialog.setLastLaunch(LaunchHistory::lastStartedAt(m_owner->m_launchHistory->records(), versionId));
@@ -2528,5 +2532,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
         dialog.deleteLater();
     }
 }
+
+
 
 
