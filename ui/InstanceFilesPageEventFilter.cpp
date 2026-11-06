@@ -148,12 +148,10 @@ bool InstanceFilesPage::eventFilter(QObject *watched, QEvent *event) {
                     if (QListWidgetItem *pressedItem = m_list->itemAt(pos))
                         m_list->setCurrentItem(pressedItem, QItemSelectionModel::NoUpdate);
                 }
-                if (qEnvironmentVariableIsSet("WTFML_DRAG_DEBUG")) {
                     qInfo() << "[drag] press watched="
                             << (watched != nullptr ? watched->metaObject()->className() : "null")
                             << "row=" << (rowWidget != nullptr) << "onButton=" << onButton
                             << "path=" << path << "swallow=" << m_swallowPress;
-                }
                 break;
             }
             case QEvent::MouseMove: {
@@ -227,9 +225,7 @@ void InstanceFilesPage::beginFileDrag() {
     for (const QString &path : paths) {
         if (QFileInfo::exists(path)) urls.append(QUrl::fromLocalFile(path));
     }
-    if (qEnvironmentVariableIsSet("WTFML_DRAG_DEBUG")) {
-        qInfo() << "[drag] start urls=" << urls.size() << "press=" << m_pressPath;
-    }
+    qInfo() << "[drag] start urls=" << urls.size() << "press=" << m_pressPath;
 
     if (urls.isEmpty()) return;
     auto *mime = new QMimeData;
@@ -257,4 +253,5 @@ void InstanceFilesPage::updateToggleBand(const QPoint &viewportPos, bool firstUp
         item->setSelected(!item->isSelected());
     }
 }
+
 

@@ -221,6 +221,7 @@ int main(int argc, char *argv[]) {
     // 日志文件到这一刻才开：窗口立起来 = FolderManager 已经把「当前游戏文件夹」从
     // QSettings 里恢复好了，落点才是对的（见 installFileLog 的 NOTE）。
     openFileLog();
+    qInfo() << "[WTFML] version" << app.applicationVersion();
     StartupAcceptance::attach(acceptance, window);
 
     // 关联/命令行带进来的文件：第一个"存在且能打开"的普通参数就是它。
@@ -255,6 +256,7 @@ int main(int argc, char *argv[]) {
 
     return app.exec();
 }
+
 
 
 
