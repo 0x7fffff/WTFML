@@ -3,6 +3,10 @@
  * @brief InstanceFilesPage 的实现（见 .hpp 里那段"六页共用一个形状"）。
  */
 #include "InstanceFilesPage.hpp"
+#include "../ui/ShellOpenWith.hpp"
+#include <QFileInfo>
+#include <QMenu>
+#include <QProcess>
 
 #include "ElidedLabel.hpp"
 #include "InstanceFilesPageInternals.hpp"
@@ -293,6 +297,33 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
     // （见 eventFilter）。
     if (m_list->viewport() != nullptr) {
         m_list->viewport()->installEventFilter(this);
+
+    // 右键（空白处；行上右键是"开详情页"，见 eventFilter）：对选中的单个文件给出
+    // 「打开方式…」和「在资源管理器中显示」。打开方式只调系统对话框，不自己执行。
+    m_list->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_list, &QListWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
+        QString path;
+        if (const QListWidgetItem *item = m_list->itemAt(pos)) {
+            path = item->data(pathRole()).toString();
+        }
+        if (path.isEmpty()) {
+            const auto selected = m_list->selectedItems();
+            if (selected.size() == 1) path = selected.first()->data(pathRole()).toString();
+        }
+        QMenu menu(this);
+        QAction *openWith = menu.addAction(tr("打开方式…"));
+        openWith->setEnabled(!path.isEmpty() && QFileInfo::exists(path));
+        QAction *reveal = menu.addAction(tr("在资源管理器中显示"));
+        reveal->setEnabled(!path.isEmpty() && QFileInfo::exists(path));
+        QAction *chosen = menu.exec(m_list->viewport()->mapToGlobal(pos));
+        if (chosen == nullptr || path.isEmpty()) return;
+        if (chosen == openWith) {
+            ShellOpenWith::openWithDialog(this, path);
+        } else if (chosen == reveal) {
+            QProcess::startDetached(QStringLiteral("explorer.exe"),
+                                    {QStringLiteral("/select,") + QDir::toNativeSeparators(path)});
+        }
+    });
     }
     // **滚动也要重摆一遍「详情」那一格**（见文件头【行尾三格的次序】②）。
     // 滚轮一动，光标底下那一行往往就换人了 —— 而 Qt **不会**因为滚动补发 Enter/Leave
@@ -679,4 +710,6 @@ QPushButton *InstanceFilesPage::stateButtonAt(StateFilter filter) const {
 
 // ---------- 行控件上的事件路由（浮条重定位 / 悬停露详情 / 右键进详情页）----------
 // 在 `ui/InstanceFilesPageEventFilter.cpp`（同一个类，另一个翻译单元）。
+
+
 

@@ -477,6 +477,10 @@ bool downloadFileToLocal(const QUrl &url, const QString &destinationPath) {
     }
 
     if (reply->error() != QNetworkReply::NoError || writeFailed) {
+        // 下载失败要留下**为什么**：这条链路以前只报 "Failed to download ZIP file"，
+        // 分不清是超时、代理、TLS 还是 404。
+        qWarning().noquote() << "Java runtime download failed:" << reply->errorString()
+                             << url.toString();
         file.cancelWriting();
         reply->deleteLater();
         return false;
@@ -498,6 +502,51 @@ bool downloadFileToLocal(const QUrl &url, const QString &destinationPath) {
  * @return 若下载、解压**并且**在解压结果里找到一个能跑的 java.exe 才返回 true。
  * 解压成功但没找到 java.exe 的会继续试下一个 URL，全都如此就返回 false。
  */
+namespace {
+/// 从一份"整包 zip"的 JDK 装到 dir 里，解压后必须能跑且主版本对得上。
+///
+/// 存在的理由：Adoptium API 在很多国内网络下连不上（`Connection closed`），而同一台机器上
+/// Microsoft OpenJDK 的下载链接（aka.ms）通常可用。安装布局保持和 Adoptium 那条一致：
+/// `java/<major>/bin/java.exe`，扫描本地 Java 时不用为来源分叉。
+bool installZipRuntime(const QUrl &url, const QString &dir, int expectMajor, QString *javaPathOut) {
+    if (!url.isValid() || dir.isEmpty()) return false;
+    {
+        QString lockProblem;
+        if (!WriteDirectoryGuard::acquire(dir, &lockProblem)) return false;
+    }
+    if (!QDir().mkpath(dir)) return false;
+    const QString tempZip = QDir(dir).absoluteFilePath(QStringLiteral("java_runtime.zip"));
+    if (!downloadFileToLocal(url, tempZip)) return false;
+    const bool extracted = extractZipWithPowerShell(tempZip, dir);
+    QFile::remove(tempZip);
+    if (!extracted) return false;
+    flattenSingleRootDir(dir);
+    const QString javaPath = findExtractedJava(dir);
+    if (javaPath.isEmpty()) return false;
+    const int found = GlobalJavaSettings::probeJavaMajorVersion(javaPath, nullptr);
+    if (found != expectMajor) {
+        qWarning() << "Microsoft runtime major mismatch: expected" << expectMajor << "got" << found;
+        return false;
+    }
+    if (javaPathOut != nullptr) *javaPathOut = javaPath;
+    return true;
+}
+
+QUrl microsoftJdkUrl(int major) {
+    if (major == 25) return QUrl(QStringLiteral("https://aka.ms/download-jdk/microsoft-jdk-25-windows-x64.zip"));
+    if (major == 21) return QUrl(QStringLiteral("https://aka.ms/download-jdk/microsoft-jdk-21-windows-x64.zip"));
+    if (major == 17) return QUrl(QStringLiteral("https://aka.ms/download-jdk/microsoft-jdk-17-windows-x64.zip"));
+    if (major == 8) return QUrl(QStringLiteral("https://aka.ms/download-jdk/microsoft-jdk-8-windows-x64.zip"));
+    return {};
+}
+
+bool downloadMicrosoftRuntime(int major, QString *javaPathOut) {
+    const QUrl url = microsoftJdkUrl(major);
+    if (!url.isValid()) return false;
+    qInfo() << "Adoptium 不可用，改从 Microsoft OpenJDK 安装 Java" << major;
+    return installZipRuntime(url, AppPaths::javaVersionDir(major), major, javaPathOut);
+}
+}  // namespace
 bool downloadJavaRuntime(const QString &destinationDir, const QString &component,
                          QString *javaPathOut) {
     QList<QUrl> urls;
@@ -1004,7 +1053,7 @@ bool GlobalJavaSettings::downloadJavaFromMojang(int majorVersion, QString *javaP
 
     if (!problem.isEmpty()) {
         qDebug() << "Network error fetching from Adoptium API:" << problem;
-        return false;
+        return downloadMicrosoftRuntime(majorVersion, javaPathOut);
     }
 
     qDebug() << "Adoptium API response received successfully";
@@ -1013,7 +1062,7 @@ bool GlobalJavaSettings::downloadJavaFromMojang(int majorVersion, QString *javaP
     QJsonArray assets = doc.array();
     if (assets.isEmpty()) {
         qDebug() << "No assets found in Adoptium API response";
-        return false;
+        return downloadMicrosoftRuntime(majorVersion, javaPathOut);
     }
 
     // 在 Windows x64 的包里挑一个：优先 JRE，没有 JRE 才退到 JDK（见下面的 downloadUrl 选取）
@@ -1047,7 +1096,7 @@ bool GlobalJavaSettings::downloadJavaFromMojang(int majorVersion, QString *javaP
     downloadUrl = jreUrl.isEmpty() ? jdkUrl : jreUrl;
     if (downloadUrl.isEmpty()) {
         qDebug() << "No suitable Windows x64 JRE/JDK found in Adoptium API response";
-        return false;
+        return downloadMicrosoftRuntime(majorVersion, javaPathOut);
     }
     qDebug() << "Chosen download URL:" << downloadUrl;
 
@@ -1069,7 +1118,7 @@ bool GlobalJavaSettings::downloadJavaFromMojang(int majorVersion, QString *javaP
     qDebug() << "Downloading ZIP from:" << downloadUrl;
     if (!downloadFileToLocal(QUrl(downloadUrl), tempZip)) {
         qDebug() << "Failed to download ZIP file";
-        return false;
+        return downloadMicrosoftRuntime(majorVersion, javaPathOut);
     }
     qDebug() << "ZIP downloaded successfully";
 
@@ -1248,5 +1297,6 @@ bool GlobalJavaSettings::ensureJavaForVersion(EffectiveJavaSettings &io, int maj
     qDebug() << "Failed to obtain Java version" << majorVersion;
     return fail(QStringLiteral("找不到也下载不到 Java %1。").arg(majorVersion));
 }
+
 
 

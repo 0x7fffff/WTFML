@@ -408,7 +408,11 @@ void runAccountSkinTests(const QString &sandbox) {
                                  QStringLiteral("   "),
                                  QStringLiteral("有 空格"),
                                  QStringLiteral("带\t制表符"),
-                                 QString(17, QLatin1Char('x'))};
+                                 QString(17, QLatin1Char('x')),
+                                 // 破坏性：中文超长 / 控制字符 / emoji（每个算 2 个 UTF-16 单元）
+                                 QString(17, QChar(0x5F20)),   // 17 个「张」
+                                 QStringLiteral("带\u0001控制"),
+                                 QStringLiteral("😀😀😀😀😀😀😀😀😀")};   // 9 个 emoji = 18 单元
         for (const QString &name : bad) {
             QString error;
             check(!AccountStore::addOffline(name, &error),
@@ -417,13 +421,30 @@ void runAccountSkinTests(const QString &sandbox) {
             check(!error.isEmpty(), "W13 而且给了原因，不是闷着失败", error);
         }
         check(AccountStore::accounts().size() == before,
-              "W13 那五条失败一条都没进列表",
+              "W13 那些失败一条都没进列表",
               QString::number(AccountStore::accounts().size()));
         check(AccountStore::activeUuid() == uuidA,
               "W13 失败之后当前账号还是 Alice（加离线账号失败不许把人踢下线）",
               AccountStore::activeUuid());
         check(TokenStore::hasValue(TokenStore::minecraftKey()),
               "W13 活动槽里那份凭据也还在");
+    }
+
+    // ---- W13b 破坏性名字的纯函数面：中文/emoji 的离线 UUID 稳定且不与 ASCII 撞 ----
+    {
+        const QString chinese = QStringLiteral("史蒂夫");
+        const QString chinese2 = QStringLiteral("史蒂芬");
+        const QString ascii = QStringLiteral("Steve");
+        check(!AccountStore::offlineUuidFor(chinese).isEmpty(),
+              "W13b 中文名算得出离线 UUID");
+        check(AccountStore::offlineUuidFor(chinese) == AccountStore::offlineUuidFor(chinese),
+              "W13b 同一个中文名两次算出同一个 UUID");
+        check(AccountStore::offlineUuidFor(chinese) != AccountStore::offlineUuidFor(chinese2),
+              "W13b 不同中文名不会撞 UUID");
+        check(AccountStore::offlineUuidFor(chinese) != AccountStore::offlineUuidFor(ascii),
+              "W13b 中文名和 ASCII 名不会撞");
+        check(AccountStore::offlineUuidFor(QStringLiteral("😀😀")).size() == 32,
+              "W13b emoji 名也给 32 位十六进制 UUID");
     }
 
     // ---- W14 加一条离线账号：进列表、成当前账号、活动槽清空 ----

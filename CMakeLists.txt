@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(WTFMinecraftLauncher VERSION 0.4.2 LANGUAGES CXX)
+project(WTFMinecraftLauncher VERSION 0.5.0 LANGUAGES CXX)
 include(${CMAKE_CURRENT_SOURCE_DIR}/ui/MainWindowPages.cmake)
 
 set(CMAKE_CXX_STANDARD 23)
@@ -98,6 +98,7 @@ set(HEADER_FILES
     src/manage/InstanceIconLookup.hpp
     src/manage/ModpackImport.hpp
     src/manage/ModpackExport.hpp
+    src/manage/InstanceExport.hpp
     src/manage/ServerListFile.hpp
     src/manage/ServerStatusCache.hpp
     src/manage/VersionManager.hpp
@@ -223,6 +224,8 @@ set(HEADER_FILES
     src/util/SystemMemory.hpp
     # 掉盘时那句话：卷认得出来且已就绪才算可用（见头文件）。
     src/util/StorageAvailability.hpp
+    src/util/MemoryBudget.hpp
+    src/util/FileAssociations.hpp
     src/util/ZipUtil.hpp
     src/util/PowerShell.hpp
     src/util/NbtUtil.hpp
@@ -378,6 +381,7 @@ set(SOURCE_FILES
     src/manage/ModpackCompletion.cpp
     src/manage/MultiMCPatchImport.cpp
     src/manage/ModpackExport.cpp
+    src/manage/InstanceExport.cpp
     src/manage/ServerStatusCache.cpp
     src/manage/ServerListFile.cpp
     src/manage/DefaultSkin.cpp
@@ -495,6 +499,7 @@ set(SOURCE_FILES
     src/util/ThemeImage.cpp
     src/util/SystemMemory.cpp
     src/util/StorageAvailability.cpp
+    src/util/FileAssociations.cpp
     src/util/ZipUtil.cpp
     src/util/NbtUtil.cpp
     src/util/NbtTree.cpp
@@ -528,6 +533,10 @@ set(SOURCE_FILES
     ui/InstanceUpgradePage.cpp
     ui/UpgradeReportDialog.cpp
     ui/UpgradeHistoryDialog.cpp
+    ui/ShellOpenWith.hpp
+    ui/ShellOpenWith.cpp
+    ui/SchematicInfoDialog.hpp
+    ui/SchematicInfoDialog.cpp
     ui/NewServerPage.cpp
     ui/ServerConsolePage.cpp
     ui/ServerSettingsPage.cpp

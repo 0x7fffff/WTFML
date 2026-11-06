@@ -218,6 +218,9 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
     entry->setWordWrap(true); layout->addWidget(entry);
     auto *open = new QPushButton(QObject::tr("打开实例更新向导…"), page); open->setObjectName("instanceUpdateOpenWizard");
     Theme::markButton(open, Theme::ButtonKind::Primary); layout->addWidget(open, 0, Qt::AlignLeft);
+    // 新页面已经是入口：旧的"打开实例更新向导…"不再露出来（向导只在兜底分支里出现）。
+    entry->hide();
+    open->hide();
     rollback->show(); layout->addWidget(rollback, 0, Qt::AlignLeft); layout->addStretch();
     const auto showWizard = [wizard, dialog, state] {
         if (state->requiresReload) return;
@@ -327,6 +330,18 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
             upgradePage->setCategoryLinks(links);
         }
     }
+    // 检查没结束之前，报告/确认先不能点（每 300ms 跟一次状态，检查一结束就恢复）。
+    {
+        auto *gate = new QTimer(dialog);
+        gate->setInterval(300);
+        QObject::connect(gate, &QTimer::timeout, dialog, [dialog, upgradePage, tree] {
+            const bool reading = dialog->property("upgradeAssessmentReading").toBool();
+            const bool querying = dialog->property("upgradeAssessmentQuerying").toBool();
+            const bool noRows = tree->property("upgradeModCount").toInt() == 0;
+            upgradePage->setCheckPending(reading || querying || noRows);
+        });
+        gate->start();
+    }
     QObject::connect(upgradePage, &InstanceUpgradePage::targetVersionChanged, dialog,
                      [upgradePage, pageState, game](const QString &version) {
                          UpgradePageState::setTargetVersion(*pageState, version);
@@ -361,28 +376,18 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
                          upgradePage->setState(*pageState);
                      });
     QObject::connect(upgradePage, &InstanceUpgradePage::reportRequested, dialog,
-                     [dialog, tree, showWizard] {
-                         // 有评估结果就开报告弹窗（分组/搜索/折叠在 UpgradeReport 里）；
-                         // 一行都没有（还没检查过）就退回旧向导，让用户先去检查。
-                         QList<UpgradeReport::Row> rows;
-                         QTreeWidgetItemIterator it(tree);
-                         while (*it != nullptr) {
-                             QTreeWidgetItem *item = *it;
-                             ++it;
-                             if (item->text(0).isEmpty() || item->text(1).isEmpty()) {
-                                 continue;
-                             }
-                             UpgradeReport::Row row;
-                             row.name = item->text(0);
-                             row.detail = item->text(2).isEmpty() ? item->text(1) : item->text(2);
-                             row.bucket = UpgradeReport::bucketForStateText(item->text(1),
-                                                                             item->text(2));
-                             row.required = true;
-                             rows.append(row);
-                         }
+                     [dialog] {
+                         // 报告一律读评估层的原始行（含分类）；还没检查完就在这里说明，
+                         // 不再从界面上那几列文字反推，也不把人扔回旧向导。
+                         const auto raw = dialog->property("upgradeModRows").value<QList<QStringList>>();
+                         QList<UpgradeReport::Row> rows = UpgradeReport::fromAssessmentRows(raw);
                          if (rows.isEmpty()) {
-                             showWizard();
-                             return;
+                             UpgradeReport::Row pending;
+                             pending.name = QObject::tr("还没有检查结果");
+                             pending.detail = QObject::tr("选好目标版本后会自动检查；这一页只显示检查过的项。");
+                             pending.bucket = UpgradeReport::Bucket::Unknown;
+                             pending.required = false;
+                             rows.append(pending);
                          }
                          UpgradeReportDialog report(dialog);
                          report.setRows(rows);
@@ -405,7 +410,56 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
                              owner->m_instanceTransferController->rollbackUpgrade(sourceId);
                          }
                      });
-    QObject::connect(upgradePage, &InstanceUpgradePage::previewRequested, dialog, showWizard);
+    QObject::connect(upgradePage, &InstanceUpgradePage::previewRequested, dialog,
+                     [wizard, start, pageState, upgradePage, showWizard, dialog, tree, owner, sourceId] {
+                         // 特殊整合包（改成自定义主类/JVM 参数，例如 lwjgl3ify）：升级后启动配置
+                         // 可能对不上，先提醒一次。
+                         bool customLaunch = false;
+                         {
+                             QFile versionJson(InstanceFiles::jsonPath(sourceId));
+                             if (versionJson.open(QIODevice::ReadOnly)) {
+                                 const QString mainClass = QJsonDocument::fromJson(versionJson.readAll())
+                                     .object().value(QStringLiteral("mainClass")).toString();
+                                 static const QSet<QString> standard{
+                                     QStringLiteral("net.minecraft.client.main.Main"),
+                                     QStringLiteral("net.minecraft.launchwrapper.Launch"),
+                                     QStringLiteral("cpw.mods.bootstraplauncher.BootstrapLauncher"),
+                                     QStringLiteral("net.fabricmc.loader.impl.launch.knot.KnotClient")};
+                                 customLaunch = !mainClass.isEmpty() && !standard.contains(mainClass);
+                             }
+                         }
+                         if (customLaunch
+                             && !InlineMessage::question(
+                                 owner->m_ui->overlay(),
+                                 QObject::tr("这个整合包带自定义启动配置"),
+                                 QObject::tr("升级可能让它的启动配置（主类 / JVM 参数 / 专用库）对不上，"
+                                             "升级后可能起不来。建议先备份实例。仍然继续吗？"),
+                                 QObject::tr("仍要继续"), QObject::tr("取消"), false)) {
+                             return;
+                         }
+                         // 页面自己就是入口：先按页面的闸门校验，再直接走"准备 + 执行"；
+                         // 只有那条路当前确实不可点时才退回旧向导。
+                         if (UpgradePageState::firstBlocker(*pageState)
+                             != UpgradePageState::Blocker::None) {
+                             upgradePage->setState(*pageState);
+                             return;
+                         }
+                         wizard->restart();
+                         // 有"必须逐项选择"的模组：按最保守的"禁用、保留文件"先填上，
+                         // 不把人扔回向导；确认框仍会列出这些项。
+                         for (QTreeWidgetItemIterator it(tree); *it != nullptr; ++it) {
+                             auto *choice = qobject_cast<QComboBox *>(tree->itemWidget(*it, 3));
+                             if (choice != nullptr && !choice->currentData().isValid()
+                                 && choice->count() > 1) {
+                                 choice->setCurrentIndex(1);
+                             }
+                         }
+                         if (!start->isEnabled()) {
+                             showWizard();
+                             return;
+                         }
+                         start->click();
+                     });
 
     const auto refreshEnabled = [owner, dialog, state, wizard, start, game, loaderVersion, copyName, mode, status, summary, steps, stopQuery, retryFlow, tree, changes, upgradePage, pageState] {
         const bool selectedGame = game->currentIndex() > 0 && game->currentText() == game->itemText(game->currentIndex());
@@ -1142,6 +1196,9 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
         });
     populate();
 }
+
+
+
 
 
 

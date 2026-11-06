@@ -15,6 +15,7 @@
 #include "tasks/TaskManager.hpp"
 #include "util/AppPaths.hpp"
 #include "util/StorageAvailability.hpp"
+#include "util/MemoryBudget.hpp"
 #include <QComboBox>
 #include <QDateTime>
 #include <QEventLoop>
@@ -564,6 +565,30 @@ void LaunchController::onStartButtonClicked() {
     if (answer == MainWindow::JavaMismatchAnswer::AbortLaunch) {
         return;
     }
+    // 低内存提醒：这次要的堆已经超过当前可用物理内存的 80% 时先问一句。
+    // 排在 Java 那一问之后、下载/启动之前：太早用户还没确定 Java，太晚就只剩卡死。
+    {
+        const qint64 availableMb = MemoryBudget::availablePhysicalMb();
+        int alreadyRunningMb = 0;
+        for (const LauncherManager::GameSession &session :
+             m_owner->m_launcherManager->runningGames()) {
+            alreadyRunningMb += qMax(0, session.xmxMb);
+        }
+        if (MemoryBudget::lowMemoryFor(javaSettings.xmx, alreadyRunningMb, availableMb)) {
+            if (!InlineMessage::question(
+                    m_owner->m_ui->overlay(), m_owner->tr("内存可能不够"),
+                    m_owner->tr("这个实例要 %1 MB 堆内存（已开着的实例合计 %3 MB），"
+                                "而系统当前可用物理内存约 %2 MB。\n\n"
+                                "继续启动可能卡顿、加载很久，甚至把系统拖死；建议先关掉别的程序，"
+                                "或到设置里把内存调小。仍然继续吗？")
+                        .arg(javaSettings.xmx)
+                        .arg(availableMb)
+                        .arg(alreadyRunningMb),
+                    m_owner->tr("仍要启动"), m_owner->tr("取消"), false)) {
+                return;
+            }
+        }
+    }
     // 那一问本身也是内嵌提示（`execPrompt` 转嵌套事件循环）。
     if (shouldStop()) {
         m_owner->appendLog(m_owner->tr("启动已取消：启动器正在关闭。"));
@@ -802,4 +827,5 @@ void LaunchController::appendLaunchRecord(const QString &versionId, const QuickP
     m_owner->m_launchHistory->recordStart(versionId, m_owner->instanceDisplayName(versionId), identity,
                                  quickPlay, startedAtMs);
 }
+
 

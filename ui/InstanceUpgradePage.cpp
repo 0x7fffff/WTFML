@@ -288,6 +288,15 @@ void InstanceUpgradePage::setState(const UpgradePageState::State &state) {
     rebuildSummary();
 }
 
+void InstanceUpgradePage::setCheckPending(bool pending) {
+    m_checkPending = pending;
+    if (m_report != nullptr) {
+        m_report->setEnabled(!pending);
+        m_report->setToolTip(pending ? tr("正在检查兼容性，请稍候…") : QString());
+    }
+    rebuildSummary();
+}
+
 void InstanceUpgradePage::setSelectionVisible(bool visible) {
     for (QCheckBox *check : m_checks) {
         check->setVisible(visible);
@@ -376,7 +385,13 @@ void InstanceUpgradePage::rebuildSummary() {
                        .arg(m_amountFiles)
                        .arg(humanBytes(m_amountBytes));
     }
+    if (m_checkPending) {
+        summary += QStringLiteral(" · 正在检查兼容性…");
+    }
     m_summary->setText(summary);
+    if (m_preview != nullptr) {
+        m_preview->setEnabled(!m_checkPending);
+    }
 
     const UpgradePageState::Blocker blocker = UpgradePageState::firstBlocker(m_state);
     m_blocker->setText(blocker == UpgradePageState::Blocker::InstanceBusy
@@ -385,6 +400,8 @@ void InstanceUpgradePage::rebuildSummary() {
                        : UpgradePageState::blockerText(blocker));
     m_preview->setEnabled(blocker == UpgradePageState::Blocker::None);
 }
+
+
 
 
 

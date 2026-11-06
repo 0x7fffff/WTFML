@@ -66,6 +66,8 @@ public:
         qint64 processId = 0;
         /// 进程起来那一刻的 QDateTime::currentMSecsSinceEpoch()。
         qint64 startedAtMs = 0;
+        /// 这次启动用的堆上限（MB）。低内存提醒要把"已开着的"也合计进去。
+        int xmxMb = 0;
     };
 
     /**
@@ -317,3 +319,4 @@ private:
     /// 下一个会话号。从 1 开始，0 留给"没有会话"。
     int m_nextSessionId = 1;
 };
+

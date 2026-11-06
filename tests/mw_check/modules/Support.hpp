@@ -860,6 +860,7 @@ template <typename T> T *newestByObjectName(QObject *parent, const QString &name
 void runUpdateCenterActionTests();
 
 void runThemeImageRowTests();
+void runFileDragIntentTests();
 
 /// T39. 设置页「主题」那一节：控件 → 主题规格 → 盘。
 ///
@@ -1095,4 +1096,5 @@ int MwTaskSummaryChecks(MainWindow &window);
 int MwTaskStressChecks(MainWindow &window);
 int MwGameLogLifecycleChecks(const bool settingsWired, MainWindow &window, QCheckBox * &showLogCheck, QComboBox * &priorityCombo, QSpinBox * &windowWidthSpin, QSpinBox * &windowHeightSpin, QComboBox * &windowModeCombo, QLabel * &windowSizeTimes);
 int MwRandomSkinChecks();
+
 

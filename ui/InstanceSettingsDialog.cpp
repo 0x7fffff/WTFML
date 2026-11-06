@@ -698,7 +698,6 @@ void InstanceSettingsDialog::applyPageKey(const QString &requestedKey) {
     if (key == serverPageKey() && !alreadyHere) {
         emit serverPageEntered();
     }
-    if (key == QStringLiteral("upgrade") && property("modernUpgradeWizard").toBool()) emit updateWizardRequested();
 }
 
 void InstanceSettingsDialog::rebuildEntryList() {

@@ -5,6 +5,8 @@
 #include "Support.hpp"
 
 #include "operations/UpgradeReport.hpp"
+#include "operations/FabricVersionDeclaration.hpp"
+#include <QJsonValue>
 
 int runUpgradeReportTests(const QString &) {
     using UpgradeReport::Bucket;
@@ -75,7 +77,74 @@ int runUpgradeReportTests(const QString &) {
               == Bucket::Unknown,
           "UR7 认不出来的说法落在「无法确认」，不冒充兼容");
 
+    // UR8：评估层分类直接映射，别再靠界面文字猜。
+    check(UpgradeReport::bucketForAssessmentClass(QStringLiteral("compatible"))
+              == UpgradeReport::Bucket::Compatible,
+          "UR8 compatible → 正常");
+    check(UpgradeReport::bucketForAssessmentClass(QStringLiteral("incompatible"))
+              == UpgradeReport::Bucket::Incompatible,
+          "UR8 incompatible → 不兼容");
+    check(UpgradeReport::bucketForAssessmentClass(QStringLiteral("unknown"))
+              == UpgradeReport::Bucket::Unknown,
+          "UR8 unknown → 无法确认");
+    check(UpgradeReport::bucketForAssessmentClass(QStringLiteral("missing"))
+              == UpgradeReport::Bucket::MissingDependency,
+          "UR8 missing → 缺前置");
+    check(UpgradeReport::bucketForAssessmentClass(QStringLiteral("failed"))
+              == UpgradeReport::Bucket::Failed,
+          "UR8 failed → 失败");
+    check(UpgradeReport::bucketForAssessmentClass(QStringLiteral("whatever"))
+              == UpgradeReport::Bucket::Unknown,
+          "UR8 不认识的分类按无法确认");
+
+    // UR9：真实 26.2 整合包里常见的声明写法，目标 26.2 时必须全部判"可以"。
+    // 这些写法来自 `海波篮子`（Fabric 26.2）49 个模组的 fabric.mod.json 实际取值。
+    for (const QString &rule : {QStringLiteral("26.2"), QStringLiteral("~26.2"),
+                                QStringLiteral(">=26.2"), QStringLiteral(">=26.2 <26.3"),
+                                QStringLiteral("~26.2-"), QStringLiteral(">=26.2-pre.3"),
+                                QStringLiteral(">=26.1 <27"), QStringLiteral("*")}) {
+        check(FabricVersionDeclaration::matches(QJsonValue(rule), QStringLiteral("26.2"))
+                  == FabricVersionDeclaration::Match::Yes,
+              QStringLiteral("UR9 目标 26.2 时「%1」判兼容").arg(rule), rule);
+    }
+    check(FabricVersionDeclaration::matches(QJsonValue(QStringLiteral("~26.2")),
+                                            QStringLiteral("26.3"))
+              == FabricVersionDeclaration::Match::No,
+          "UR9 目标 26.3 时「~26.2」判不兼容（跨小版本本来就不该放行）");
+
+    // UR10：评估原始行 → 报告行。嵌套 JAR 枚举不完整必须是"无法确认"，不是不兼容。
+    {
+        const QList<QStringList> raw = {
+            {QStringLiteral("Sodium"), QStringLiteral("平台未找到目标发行版\n嵌套 JAR 声明无法确认"),
+             QStringLiteral("fabric.mod.json / depends.minecraft: [\"~26.2\"]\n嵌套 JAR 未完整枚举"),
+             QStringLiteral("sodium.jar"), QStringLiteral("review"), QString(), QString(),
+             QStringLiteral("unknown")},
+            {QStringLiteral("Old Mod"), QStringLiteral("平台未找到目标发行版\n本地声明不支持"),
+             QStringLiteral("fabric.mod.json / depends.minecraft: [\"1.20.x\"]"),
+             QStringLiteral("old.jar"), QStringLiteral("disable"), QString(), QString(),
+             QStringLiteral("incompatible")},
+            {QStringLiteral("Fine Mod"), QStringLiteral("平台有目标发行版\n本地 Minecraft 声明符合"),
+             QStringLiteral("fabric.mod.json / depends.minecraft: [\">=26.2\"]"),
+             QStringLiteral("fine.jar"), QStringLiteral("keep"), QStringLiteral("compatible"),
+             QStringLiteral("2.0"), QStringLiteral("compatible")},
+        };
+        const QList<UpgradeReport::Row> rows = UpgradeReport::fromAssessmentRows(raw);
+        check(rows.size() == 3, "UR10 三行都转出来了", QString::number(rows.size()));
+        check(rows.at(0).bucket == UpgradeReport::Bucket::Unknown,
+              "UR10 嵌套不完整 → 无法确认（不是不兼容）");
+        check(rows.at(1).bucket == UpgradeReport::Bucket::Incompatible,
+              "UR10 明确不支持 → 不兼容");
+        check(rows.at(2).bucket == UpgradeReport::Bucket::Compatible,
+              "UR10 有目标发行版 → 正常");
+        check(rows.at(0).detail.contains(QStringLiteral("嵌套 JAR 未完整枚举")),
+              "UR10 依据原样带过去");
+    }
+
     return g_failures == 0 ? 0 : 1;
 }
+
+
+
+
 
 

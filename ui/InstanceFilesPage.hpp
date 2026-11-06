@@ -26,14 +26,8 @@
  *
  * 四件事，全由 `setBatchMode(true)` 这一只开关说了算：
  * - 行尾**详情按钮在开关前面**（见下面【行尾三格的次序】①）；
- * - **多选**（`MultiSelection`，于是 Ctrl+A 自然就通）+ 列表下缘**悬浮**一条操作条
- * （不是表尾那一行）；
- * - 顶上那排筛选是**四颗横向按钮**（`全部(352) 启用(351) 禁用(1) 可更新(126)`）。
- *
- * **多选是"点一下就切换"那种，不是"按住 Ctrl 那种"**：点一下选中，再点一下取消，
- * 点别的就是加进去。所以是 `MultiSelection`（每一发左键 = `Toggle`）而**不是**
- * `ExtendedSelection`（不按修饰键的第二发会把上一条抹掉）。两者的分别与代价见
- * `setBatchMode()` 里那段。
+ * - **多选**（`ExtendedSelection`：单击单选、Ctrl+单击切换、Shift+单击选一段、
+ *   Ctrl+A 全选）+ 列表下缘**悬浮**一条操作条（不是表尾那一行）；
  *
  * 开关的判据不在这儿：哪几页该开这套东西由 `InstanceSettingsDialog` 说
  * （`filesNameOpensResource(key)`），这一层不自己猜"哪几页算模组页"。那四页之外
@@ -105,6 +99,7 @@ class QLabel;
 class QScrollArea;
 class QLineEdit;
 class QListWidget;
+class QRubberBand;
 class QListWidgetItem;
 class QPushButton;
 class QToolButton;
@@ -1389,4 +1384,31 @@ private:
     /// 一个**（别的七页走的路）；有那两排时是它们**现在选中的那几个**（去重、按排的次序）。
     /// 唯一出处 —— refresh() 只读它。
     QStringList scanDirectories() const;
+
+    // ---------- 拖出 / Ctrl 框选取反 ----------
+    //
+    // 项上直接拖动 = 把选中的文件拖出去（Windows 原生 `CF_HDROP`）；Ctrl+拖动 = 框选，
+    // 扫过的每一条「选中↔未选中」翻转；空白处直接拖动交给 Qt 的框选。
+    /// 拖动手势的判据（纯函数，验证工程直接调）：不到阈值 → None；按住 Ctrl → 框选取反；
+    /// 否则只有"按在行上"才算拖出（空白处留给 Qt 的框选）。
+public:
+    enum class DragIntent { None, DragOut, ToggleSelection };
+    static DragIntent dragIntent(int distancePx, int thresholdPx, bool onRow, bool ctrlPressed) {
+        if (distancePx < thresholdPx) return DragIntent::None;
+        if (ctrlPressed) return DragIntent::ToggleSelection;
+        return onRow ? DragIntent::DragOut : DragIntent::None;
+    }
+    void beginFileDrag();
+private:
+    void updateToggleBand(const QPoint &viewportPos, bool firstUpdate);
+    QPoint m_pressViewportPos;
+    QString m_pressPath;
+    bool m_pressOnRow = false;
+    bool m_dragStarted = false;
+    bool m_ctrlDragActive = false;
+    QRubberBand *m_toggleBand = nullptr;
+    QSet<QString> m_bandToggledIdentities;
+
 };
+
+

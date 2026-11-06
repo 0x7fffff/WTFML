@@ -1,7 +1,32 @@
 #include "modules/Support.hpp"
+#include "modules/LiveProbes.hpp"
+#include "controllers/JavaRuntimeController.hpp"
+#include "manage/VersionManager.hpp"
+#include "presets/InstalledModInventory.hpp"
+#include <QFile>
+#include <atomic>
+#include "MainWindow.hpp"
+#include "MainWindowUI.hpp"
+#include "auth/AccountStore.hpp"
+#include "settings/GlobalJavaSettings.hpp"
+#include <QComboBox>
+#include <QElapsedTimer>
+#include <QThread>
+#include <windows.h>
+#include <tlhelp32.h>
+#include <psapi.h>
+#include <QSet>
+#include <QEventLoop>
+#include <QNetworkProxy>
+#include <QNetworkProxyFactory>
 #include <QScopeGuard>
 
 int main(int argc, char *argv[]) {
+    // 验证工程跑在哪台机器上都该给出同样的结果：低内存提醒按"充足内存"这一档算，
+    // 免得宿主机刚好紧张时多弹一个确认框，把别的断言带偏。
+    if (qEnvironmentVariableIsEmpty("WTFML_AVAILABLE_MB")) {
+        qputenv("WTFML_AVAILABLE_MB", "65536");
+    }
     if (argc >= 4 && std::strcmp(argv[1], "token-echo") == 0) {
         const std::string secret(argv[3]);
         const auto half = secret.size() / 2;
@@ -272,6 +297,9 @@ int main(int argc, char *argv[]) {
                                     QStringLiteral("wtfml.folders")}) {
             QFile::remove(dataDir + QLatin1Char('/') + name);
         }
+    }
+    if (const int live = runLiveProbeMode(argc, argv); live >= 0) {
+        return live;
     }
 
     if (app.arguments().contains(QStringLiteral("update-center-check"))) { runUpdateCenterActionTests(); return g_fail == 0 ? 0 : 1; }
@@ -3600,6 +3628,7 @@ int main(int argc, char *argv[]) {
     // 是照产品那两步在沙盒里搭出来的（见那一节里那段）。
     header("T29. 设置页「背景图」那两行：控件 → 主题规格 → 盘（离线）");
     runThemeImageRowTests();
+    runFileDragIntentTests();
 
     // 紧跟 T29 的三处理由完全一样：要造 MainWindow、要换数据根目录（节尾逐字还原）、要往
     // 主题规格和 `Theme/…` / `Look/Animations` 那几个键里写东西（节尾一样还原）。它也是
@@ -3661,4 +3690,12 @@ int main(int argc, char *argv[]) {
 // UrlSpy 的元对象（见文件上面那个类）。AUTOMOC 就是靠这一句认出"main.cpp 里有 Q_OBJECT
 // 要处理"，生成的那份叫 main.moc —— 放在**整个文件最后**：它引用的类得先声明过。
 // UrlSpy meta-object is generated from modules/Support.hpp.
+
+
+
+
+
+
+
+
 

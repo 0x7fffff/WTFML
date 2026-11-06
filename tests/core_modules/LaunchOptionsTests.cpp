@@ -1,8 +1,22 @@
 #include "Support.hpp"
+#include "util/MemoryBudget.hpp"
 
 void runLaunchOptionsTests(const QString &sandbox) {
     const QString metaDir = QStringLiteral(REPO_ROOT_PATH) + "/tests/meta";
     const QString settingsDir = sandbox + "/wtfml-launch-options-settings";
+    // ---- 低内存判断（启动前那一问） ----
+    check(!MemoryBudget::lowMemory(4096, 32768), "MB1 32 GB 可用时 4 GB 堆不提醒");
+    check(MemoryBudget::lowMemory(8192, 10000), "MB1 8 GB 堆、10 GB 可用时提醒（留 20% 余量）");
+    check(!MemoryBudget::lowMemory(0, 100), "MB1 没设堆（0）时不提醒");
+    check(!MemoryBudget::lowMemory(4096, -1), "MB1 问不到可用内存时不提醒（不拿猜的数拦人）");
+    check(MemoryBudget::lowMemory(1024, 1024), "MB1 恰好等于可用时也提醒（堆之外还要占）");
+    check(!MemoryBudget::lowMemoryFor(4096, 0, 32768), "MB2 没开别的实例时按单份算（32 GB 不提醒）");
+    check(MemoryBudget::lowMemoryFor(4096, 5 * 4096, 20000),
+          "MB2 五份实例合计 24 GB，对 20 GB 可用时提醒");
+    check(!MemoryBudget::lowMemoryFor(4096, 5 * 4096, 65536),
+          "MB2 合计 24 GB、可用 64 GB 时不提醒");
+    check(MemoryBudget::lowMemoryFor(4096, -100, 32768) == false,
+          "MB2 已开合计为负时按 0 处理，不误报");
     QDir(settingsDir).removeRecursively();
     QDir().mkpath(settingsDir);
 
@@ -640,4 +654,5 @@ void runLaunchOptionsTests(const QString &sandbox) {
     QSettings::setDefaultFormat(QSettings::NativeFormat);
     QDir(settingsDir).removeRecursively();
 }
+
 

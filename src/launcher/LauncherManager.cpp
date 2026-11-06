@@ -1112,7 +1112,7 @@ int LauncherManager::startGame(const QStringList &arguments, const EffectiveJava
     Entry entry;
     entry.info = GameSession{sessionId, versionId,
                              displayName.isEmpty() ? versionId : displayName,
-                             accountName, accountUuid, 0, 0};
+                             accountName, accountUuid, 0, 0, settings.xmx};
     m_sessions.insert(sessionId, entry);
 
     // 游戏进程的输出怎么解码，从**最终命令行**上反推（见下面那个静态函数的说明），
@@ -1497,3 +1497,4 @@ void LauncherManager::handleProcessFinished(int sessionId, int exitCode,
     discardSession(sessionId);
     emit gameFinished(sessionId, exitCode, exitStatus);
 }
+

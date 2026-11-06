@@ -589,6 +589,8 @@ void InstanceSettingsDialog::setUpgradeModChecks(const QList<QStringList> &rows,
         tree->setUpdatesEnabled(false);
         tree->clear();
         tree->setProperty("upgradeModCount", rows.size());
+        // 报告直接读这份原始行（含评估分类），不再从界面文字反推。
+        setProperty("upgradeModRows", QVariant::fromValue(rows));
         QTreeWidgetItem *compatible = nullptr;
         QList<QStringList> ordered;
         if (property("modernUpgradeWizard").toBool()) {
@@ -605,6 +607,9 @@ void InstanceSettingsDialog::setUpgradeModChecks(const QList<QStringList> &rows,
                 }
                 item = new QTreeWidgetItem(compatible, row.mid(0, 3));
             } else item = new QTreeWidgetItem(tree, row.mid(0, 3));
+            if (!row.value(7).isEmpty()) {
+                item->setData(0, Qt::UserRole + 2, row.value(7));
+            }
             if (property("modernUpgradeFlow").toBool() && !row.value(3).isEmpty()) {
                 item->setData(0, Qt::UserRole, row.value(3));
                 auto *choice = new WheelSafeComboBox(tree);
@@ -761,3 +766,4 @@ void InstanceSettingsDialog::updateTransferApplyState(const QString &key) {
             inPlace->setEnabled(hasTarget);
     }
 }
+

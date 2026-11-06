@@ -53,6 +53,9 @@ public:
     /// 过渡期开关：九类选择 / 更新记录入口在执行侧（U5/U6）落地之前先不露出来，
     /// 免得"勾了却不生效"。默认显示。
     void setSelectionVisible(bool visible);
+
+    /// 检查还没结束时，报告/确认先不能点（避免看到半份结果或提前开跑）。
+    void setCheckPending(bool pending);
     void setHistoryVisible(bool visible);
 
     // --- 给验证工程按名字找控件用（生产代码不靠这些字符串） ---
@@ -96,11 +99,13 @@ private:
     QLabel *m_blocker = nullptr;
     QPushButton *m_report = nullptr;
     QPushButton *m_history = nullptr;
+    bool m_checkPending = false;
     QPushButton *m_preview = nullptr;
     QList<QCheckBox *> m_checks;
     QHash<QString, QPair<int, qint64>> m_categoryAmounts;
     QHash<QString, int> m_categoryLinks;
 };
+
 
 
 

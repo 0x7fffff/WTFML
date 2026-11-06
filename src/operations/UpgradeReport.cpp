@@ -90,6 +90,33 @@ Bucket bucketForStateText(const QString &state, const QString &basis) {
     return Bucket::Unknown;
 }
 
+Bucket bucketForAssessmentClass(const QString &key) {
+    if (key == QStringLiteral("compatible")) return Bucket::Compatible;
+    if (key == QStringLiteral("incompatible")) return Bucket::Incompatible;
+    if (key == QStringLiteral("missing")) return Bucket::MissingDependency;
+    if (key == QStringLiteral("failed")) return Bucket::Failed;
+    return Bucket::Unknown;
+}
+
+QList<Row> fromAssessmentRows(const QList<QStringList> &rows) {
+    QList<Row> out;
+    out.reserve(rows.size());
+    for (const QStringList &raw : rows) {
+        if (raw.size() < 3 || raw.value(0).isEmpty()) {
+            continue;
+        }
+        Row row;
+        row.name = raw.value(0);
+        row.detail = raw.value(2).isEmpty() ? raw.value(1) : raw.value(2);
+        const QString assessed = raw.value(7);
+        row.bucket = assessed.isEmpty() ? bucketForStateText(raw.value(1), raw.value(2))
+                                        : bucketForAssessmentClass(assessed);
+        row.required = true;
+        out.append(row);
+    }
+    return out;
+}
+
 int unresolvedRequired(const QList<Row> &rows) {
     int count = 0;
     for (const Row &row : rows) {
@@ -101,5 +128,7 @@ int unresolvedRequired(const QList<Row> &rows) {
 }
 
 }  // namespace UpgradeReport
+
+
 
 

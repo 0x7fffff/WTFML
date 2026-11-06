@@ -60,17 +60,10 @@ void InstanceFilesPage::setBatchMode(bool batchMode) {
     // "`SingleSelection` 什么都不做" —— 单选的视图上那一发就是**什么都不发生**，这正是
     // 不开批量的那几页该有的样子。
     //
-    // **用 `MultiSelection`，不用 `ExtendedSelection`**。
-    // 这两种模式的分别**不是"能不能多选"，而是"要不要按住 Ctrl"**：
-    // · `ExtendedSelection` —— 不按修饰键点第二行是 `ClearAndSelect`，**把上一条抹掉**；
-    // 要加选得按住 Ctrl（或者 Shift 拉一段）。这里要的不是这个。
-    // · `MultiSelection` —— 每一发左键都是 `Toggle`（见 Qt 的
-    // `QAbstractItemViewPrivate::multiSelectionCommand()`：按下时给
-    // `Toggle|selectionBehaviorFlags()`，已在选中的那一条等到**松开**才翻），
-    // 也就是**点一下选中、再点一下取消、点别的是加进去**，一个修饰键都不用。
-    // 代价：Shift 拉一段不再有用；点在**空白处**也不清选择
-    // （`multiSelectionCommand` 对无效行回 `NoUpdate`）—— 清空交给操作条上那颗「取消」。
-    m_list->setSelectionMode(batchMode ? QAbstractItemView::MultiSelection
+    // **用 `ExtendedSelection`（资源管理器那一套）**：单击单选、Ctrl+单击切换、
+    // Shift+单击选一段、Ctrl+A 全选 —— 拖动那半边见 `InstanceFilesPageEventFilter.cpp`：
+    // 项上直接拖动 = 拖出文件，Ctrl+拖动 = 框选扫过即取反。
+    m_list->setSelectionMode(batchMode ? QAbstractItemView::ExtendedSelection
                                        : QAbstractItemView::SingleSelection);
     if (!batchMode) {
         // 关掉的时候把选择清干净：不清的话 `m_selectedPaths` 里压着一份"用户根本看不见的

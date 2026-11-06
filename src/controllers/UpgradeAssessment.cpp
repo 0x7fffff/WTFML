@@ -687,6 +687,7 @@ struct State {
     QHash<QString, QString> platform; QList<int> pending;
     QHash<QString, int> active; QHash<int, int> attempts;
     QHash<int, QString> fallbackProjects; QSet<int> fallbackTried;
+    QString batchKey;
     int index = 0; quint64 generation = 0;
 };
 QString localState(const Mod &mod, const QString &game, const QString &loader,
@@ -915,11 +916,18 @@ void UpgradeAssessment::attach(InstanceSettingsDialog *dialog, VersionManager *v
                 : (!replacementDefault.isEmpty() ? replacementDefault
                                                  : (knownCompatible ? QStringLiteral("keep")
                                                                     : QStringLiteral("disable")));
+            // 「版本升级」的语义：本地声明只覆盖旧版本、但平台上有目标发行版的，
+            // 属于"可替换"，不是不兼容；只有明确排除且没有替换时才算不兼容。
+            const QString bucketKey = !replacementLabel.isEmpty()
+                ? QStringLiteral("compatible")
+                : (knownUnsupported ? QStringLiteral("incompatible")
+                                   : (knownCompatible ? QStringLiteral("compatible")
+                                                      : QStringLiteral("unknown")));
             rows.append({title, platform + QLatin1Char('\n') + local, basis + nestedNote, filename,
                 defaultChoice,
                 knownCompatible && platform.startsWith(QObject::tr("平台有目标发行版"))
                     ? QStringLiteral("compatible") : QString(),
-                replacementLabel});
+                replacementLabel, bucketKey});
         }
         dialog->setProperty("upgradeModReplacements", replacements);
         dialog->setProperty("upgradeUnknownMods", unknownMods);
@@ -944,7 +952,10 @@ void UpgradeAssessment::attach(InstanceSettingsDialog *dialog, VersionManager *v
     const auto advance = std::make_shared<std::function<void()>>();
     *advance = [dialog, store, state, render] {
         // Qt network I/O is asynchronous: four simultaneous requests, not four GUI-blocking threads.
-        while (state->active.size() < 4 && state->index < state->pending.size()) {
+        // Qt 网络是异步的：这里发的是**并发请求**，不是阻塞线程。原来 4 条，遇到国内
+        // 直连 Modrinth/CurseForge 抖动时，几十个模组要排很久；提到 10 条并保持渲染合并，
+        // 单个平台慢不再拖住整批（失败仍按原逻辑记录/重试）。
+        while (state->active.size() < 10 && state->index < state->pending.size()) {
             const int index = state->pending.at(state->index++);
             const auto &mod = state->scan.mods.at(index);
             const int attempt = ++state->attempts[index];
@@ -1034,11 +1045,51 @@ void UpgradeAssessment::attach(InstanceSettingsDialog *dialog, VersionManager *v
             }
             render(); (*advance)();
         });
-    const auto select = [dialog, store, state, versions, sourceId, render, advance](const QString &key, const QString &target) {
+    auto byShaBatch = std::make_shared<QHash<QString, int>>();
+    QObject::connect(store, &ResourceStore::latestVersionsFinished, dialog,
+        [state, render, advance, byShaBatch, dialog](const QString &key,
+            const QHash<QString, ResourceCatalog::VersionEntry> &latest, const QString &problem) {
+            if (key != state->batchKey) return;
+            state->batchKey.clear();
+            for (auto it = byShaBatch->cbegin(); it != byShaBatch->cend(); ++it) {
+                const int index = it.value();
+                const ResourceCatalog::VersionEntry entry = latest.value(it.key());
+                auto &mod = state->scan.mods[index];
+                if (!problem.isEmpty() || entry.id.isEmpty()) {
+                    state->pending.append(index);
+                    state->platform[mod.path] = problem.isEmpty()
+                        ? QObject::tr("正在查询平台")
+                        : QObject::tr("平台查询失败：%1").arg(problem);
+                    continue;
+                }
+                const ResourceCatalog::FileEntry *file = entry.primaryFile();
+                const QUrl url(file != nullptr ? file->url : QString());
+                const bool usable = file != nullptr && url.isValid()
+                    && (url.scheme() == QStringLiteral("https") || url.scheme() == QStringLiteral("http"))
+                    && url.userInfo().isEmpty() && file->filename == QFileInfo(file->filename).fileName()
+                    && !file->filename.contains(QLatin1Char('\\'))
+                    && !file->filename.contains(QLatin1Char(':'))
+                    && file->filename.endsWith(QStringLiteral(".jar"), Qt::CaseInsensitive)
+                    && file->size >= 0
+                    && QRegularExpression(QStringLiteral("^[0-9a-fA-F]{40}$")).match(file->sha1).hasMatch();
+                if (!usable) {
+                    state->platform[mod.path] = QObject::tr("平台发行元数据不完整，无法确定");
+                    continue;
+                }
+                mod.replacementAvailable = true;
+                mod.replacement = entry;
+                state->platform[mod.path] = QObject::tr("平台有目标发行版 %1")
+                    .arg(entry.versionNumber.isEmpty() ? entry.id : entry.versionNumber);
+            }
+            dialog->setProperty("upgradeAssessmentQuerying", !state->pending.isEmpty());
+            render(); (*advance)();
+        });
+
+    const auto select = [dialog, store, state, versions, sourceId, render, advance, byShaBatch](const QString &key, const QString &target) {
         const QString selectedLoader = dialog->property("upgradeTargetLoader").toString();
         if (key != QStringLiteral("upgrade") || (target == state->target && state->ready
             && (!dialog->property("modernUpgradeFlow").toBool() || selectedLoader == state->loader))) return;
-        state->target = target; state->platform.clear(); state->pending.clear(); state->attempts.clear(); state->index = 0; state->active.clear(); ++state->generation;
+        state->target = target; state->platform.clear(); state->pending.clear(); state->attempts.clear(); state->index = 0; state->active.clear(); state->batchKey.clear(); ++state->generation;
         state->fallbackProjects.clear(); state->fallbackTried.clear();
         dialog->setProperty("upgradeAssessmentQuerying", false);
         store->abortAll();
@@ -1057,15 +1108,37 @@ void UpgradeAssessment::attach(InstanceSettingsDialog *dialog, VersionManager *v
             if (state->loaderVersion.isEmpty()) state->loaderVersion = parts.loaderVersion;
         }
         render();
-        if (!state->ready || state->game.isEmpty() || state->loader.isEmpty()) return;
-        for (int i = 0; i < state->scan.mods.size(); ++i) if (state->scan.mods.at(i).identified) state->pending.append(i);
+        // 先用**一发批量接口**把 Modrinth 身份、哈希可用的模组问一遍（100 个哈希一发），
+        // 只有它没返回的那些才退回逐个查询。50 个模组从 50 发请求降到 1 发。
+        // 少于 8 个时不值得多这一发往返，直接走原来的逐项查询。
+        QStringList sha1s;
+        byShaBatch->clear();
+        for (int i = 0; i < state->scan.mods.size(); ++i) {
+            const Mod &mod = state->scan.mods.at(i);
+            if (!mod.identified) continue;
+            if (!mod.sha1.isEmpty() && mod.identity.source == ResourceCatalog::Source::Modrinth) {
+                sha1s.append(mod.sha1.toLower());
+                byShaBatch->insert(mod.sha1.toLower(), i);
+            } else state->pending.append(i);
+        }
+        if (sha1s.size() >= 8) {
+            state->batchKey = QStringLiteral("upgrade-assess-batch:%1:%2")
+                                  .arg(quintptr(dialog)).arg(state->generation);
+            store->fetchLatestVersions(state->batchKey, sha1s, state->game, state->loader);
+            dialog->setProperty("upgradeAssessmentQuerying", true);
+        } else {
+            for (int i = 0; i < state->scan.mods.size(); ++i) {
+                if (byShaBatch->contains(state->scan.mods.at(i).sha1.toLower()))
+                    state->pending.append(i);
+            }
+        }
         dialog->setProperty("upgradeAssessmentQuerying", !state->pending.isEmpty());
         const auto generation = state->generation;
         QTimer::singleShot(300, dialog, [state, advance, generation] { if (generation == state->generation) (*advance)(); });
         QTimer::singleShot(180000, dialog, [dialog, store, state, render, generation] {
             if (generation != state->generation || !dialog->property("upgradeAssessmentQuerying").toBool()) return;
             for (const int i : state->active) state->platform[state->scan.mods.at(i).path] = QObject::tr("平台查询超时，不能视为无适配版");
-            state->active.clear();
+            state->active.clear(); state->batchKey.clear();
             for (int i = state->index; i < state->pending.size(); ++i) state->platform[state->scan.mods.at(state->pending.at(i)).path] = QObject::tr("平台查询超时，不能视为无适配版");
             state->pending.clear(); store->abortAll(); render();
             dialog->setProperty("upgradeAssessmentQuerying", false);
@@ -1073,7 +1146,7 @@ void UpgradeAssessment::attach(InstanceSettingsDialog *dialog, VersionManager *v
     };
     QObject::connect(dialog, &InstanceSettingsDialog::stopUpgradeQueryRequested, dialog, [dialog, store, state, render] {
         for (const int i : state->active) state->platform[state->scan.mods.at(i).path] = QObject::tr("平台查询已停止，结果未确认");
-        state->active.clear(); ++state->generation;
+        state->active.clear(); state->batchKey.clear(); ++state->generation;
         for (int i = state->index; i < state->pending.size(); ++i)
             state->platform[state->scan.mods.at(state->pending.at(i)).path] = QObject::tr("平台查询已停止，结果未确认");
         state->pending.clear(); store->abortAll(); dialog->setProperty("upgradeAssessmentQuerying", false); render();
@@ -1102,3 +1175,6 @@ void UpgradeAssessment::attach(InstanceSettingsDialog *dialog, VersionManager *v
             startScan();
         });
 }
+
+
+

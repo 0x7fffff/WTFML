@@ -29,6 +29,13 @@
 #include <QEvent>
 #include <QListWidget>
 #include <QMouseEvent>
+#include <QAbstractButton>
+#include <QApplication>
+#include <QDrag>
+#include <QFileInfo>
+#include <QMimeData>
+#include <QRubberBand>
+#include <QUrl>
 #include <QWidget>
 
 bool InstanceFilesPage::eventFilter(QObject *watched, QEvent *event) {
@@ -92,5 +99,97 @@ bool InstanceFilesPage::eventFilter(QObject *watched, QEvent *event) {
             break;
         }
     }
+    // ---------- 拖出 / Ctrl 框选取反 ----------
+    {
+        const bool fromViewport = m_list != nullptr && watched == m_list->viewport();
+        const bool fromRow = watched != nullptr && watched->property(rowPathProperty()).isValid();
+        if ((fromViewport || fromRow) && m_list != nullptr) {
+            switch (event->type()) {
+            case QEvent::MouseButtonPress: {
+                const auto *mouse = static_cast<QMouseEvent *>(event);
+                if (mouse->button() != Qt::LeftButton) break;
+                const bool onButton = fromRow && qobject_cast<QAbstractButton *>(watched) != nullptr;
+                m_pressViewportPos = m_list->viewport()->mapFromGlobal(mouse->globalPosition().toPoint());
+                m_pressPath = (fromRow && !onButton) ? watched->property(rowPathProperty()).toString() : QString();
+                m_pressOnRow = fromRow && !onButton;
+                m_dragStarted = false;
+                m_ctrlDragActive = mouse->modifiers().testFlag(Qt::ControlModifier);
+                m_bandToggledIdentities.clear();
+                // 按下那一行 MultiSelection 已经切换过了，框选别再翻它一次。
+                if (!m_pressPath.isEmpty()) m_bandToggledIdentities.insert(identityPath(m_pressPath));
+                break;
+            }
+            case QEvent::MouseMove: {
+                const auto *mouse = static_cast<QMouseEvent *>(event);
+                if (!(mouse->buttons() & Qt::LeftButton)) break;
+                const QPoint pos = m_list->viewport()->mapFromGlobal(mouse->globalPosition().toPoint());
+                const DragIntent intent = dragIntent(
+                    (pos - m_pressViewportPos).manhattanLength(),
+                    QApplication::startDragDistance(), m_pressOnRow, m_ctrlDragActive);
+                if (!m_dragStarted && intent != DragIntent::None) {
+                    m_dragStarted = true;
+                    if (intent == DragIntent::ToggleSelection) updateToggleBand(pos, true);
+                    else beginFileDrag();
+                } else if (m_dragStarted && m_ctrlDragActive) {
+                    updateToggleBand(pos, false);
+                }
+                break;
+            }
+            case QEvent::MouseButtonRelease:
+                if (m_toggleBand != nullptr) {
+                    m_toggleBand->hide();
+                    m_toggleBand->deleteLater();
+                    m_toggleBand = nullptr;
+                }
+                m_dragStarted = false;
+                m_ctrlDragActive = false;
+                m_pressOnRow = false;
+                m_bandToggledIdentities.clear();
+                break;
+            default:
+                break;
+            }
+        }
+    }
+
     return QWidget::eventFilter(watched, event);
+}
+void InstanceFilesPage::beginFileDrag() {
+    QStringList paths;
+    const auto selected = m_list->selectedItems();
+    for (const QListWidgetItem *item : selected) {
+        const QString path = item->data(pathRole()).toString();
+        if (!path.isEmpty()) paths.append(path);
+    }
+    // 抓哪一条就拖哪一条：MultiSelection 的「按下即切换」可能刚把它取消掉，仍然按它算。
+    if (!m_pressPath.isEmpty() && !paths.contains(m_pressPath)) paths.prepend(m_pressPath);
+    QList<QUrl> urls;
+    for (const QString &path : paths) {
+        if (QFileInfo::exists(path)) urls.append(QUrl::fromLocalFile(path));
+    }
+    if (urls.isEmpty()) return;
+    auto *mime = new QMimeData;
+    mime->setUrls(urls);
+    auto *drag = new QDrag(this);
+    drag->setMimeData(mime);
+    drag->exec(Qt::CopyAction);
+}
+
+void InstanceFilesPage::updateToggleBand(const QPoint &viewportPos, bool firstUpdate) {
+    Q_UNUSED(firstUpdate);
+    if (m_toggleBand == nullptr) {
+        m_toggleBand = new QRubberBand(QRubberBand::Rectangle, m_list->viewport());
+        m_toggleBand->setGeometry(QRect(m_pressViewportPos, QSize()));
+        m_toggleBand->show();
+    }
+    const QRect rect = QRect(m_pressViewportPos, viewportPos).normalized();
+    m_toggleBand->setGeometry(rect);
+    for (int row = 0; row < m_list->count(); ++row) {
+        QListWidgetItem *item = m_list->item(row);
+        if (item == nullptr || !m_list->visualItemRect(item).intersects(rect)) continue;
+        const QString identity = identityPath(item->data(pathRole()).toString());
+        if (m_bandToggledIdentities.contains(identity)) continue;
+        m_bandToggledIdentities.insert(identity);
+        item->setSelected(!item->isSelected());
+    }
 }

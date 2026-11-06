@@ -1790,7 +1790,9 @@ void runInstanceFilesPagesTests() {
                     auto *mode = page->findChild<QComboBox *>(QStringLiteral("instanceUpdateMode"));
                     auto *start = page->findChild<QPushButton *>(QStringLiteral("instanceUpdateStart"));
                     auto *wizard = page->findChild<QWizard *>(QStringLiteral("instanceUpdateWizard"));
-                    upgradeFilled = game && loader && mode && start && wizard && wizard->isWindow() && wizard->isVisible()
+                    // 新页面接管之后，进「版本升级」**不再自动弹旧向导**：向导对象还在（兜底用），
+                    // 但默认必须是隐藏的；开始按钮仍然因为没选版本而灰着。
+                    upgradeFilled = game && loader && mode && start && wizard && !wizard->isVisible()
                         && game->currentIndex() == 0 && !start->isEnabled()
                         && !mode->currentData().toBool();
                     const QString preview = qEnvironmentVariable("WTFML_UPDATE_PREVIEW");

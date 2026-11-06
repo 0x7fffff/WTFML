@@ -46,10 +46,14 @@ ImportController::ImportController(MainWindow *owner) : QObject(owner), m_owner(
     // 里那个守卫），不会登记到这里。
     if (owner != nullptr && owner->m_versionManager != nullptr) {
         connect(owner->m_versionManager, &VersionManager::versionDownloadFinished, this,
-                [this](const QString &versionId, bool, const QString &) {
+                [this](const QString &versionId, bool ok, const QString &) {
                     const QString temp = m_tempArchives.take(versionId);
                     if (!temp.isEmpty()) {
                         QFile::remove(temp);
+                    }
+                    const QString special = m_specialPackSources.take(versionId);
+                    if (ok && !special.isEmpty()) {
+                        preservePackSource(versionId, special);
                     }
                 });
     }
@@ -827,6 +831,9 @@ bool ImportController::applyResolvedModpackImport(const QString &zipPath,
         m_owner->appendLog(m_owner->tr("接着「%1」上次没下完的那一份往下下（已经下好的按 sha1 跳过）。")
                       .arg(instanceName));
     }
+    if (pack.format == ModpackImport::Format::MultiMC && !pack.patchedRuntime.isEmpty()) {
+        m_specialPackSources.insert(instanceName, zipPath);
+    }
     m_owner->m_versionManager->importModpack(zipPath, instanceName, pack, installerJava,
                                              manifestFingerprint);
     return true;
@@ -1316,3 +1323,36 @@ void ImportController::handleWindowDrop(const QStringList &paths) {
     }
 }
 
+void ImportController::preservePackSource(const QString &instanceId, const QString &zipPath) {
+    const QString target = AppPaths::versionDir(instanceId) + QStringLiteral("/.wtfml/pack-source");
+    if (!QDir().mkpath(target)) return;
+    const QString prefix = QFileInfo(zipPath).completeBaseName().isEmpty() ? QString() : QString();
+    Q_UNUSED(prefix);
+    QStringList entries;
+    QString error;
+    if (ZipUtil::listEntries(zipPath, &entries, &error) != ZipUtil::EntryStatus::Ok) return;
+    // 找 MultiMC 包的那一层根目录（`<名字>/mmc-pack.json` 或根上的 mmc-pack.json）。
+    QString root;
+    for (const QString &entry : entries) {
+        if (entry.endsWith(QStringLiteral("mmc-pack.json"))) {
+            root = entry.left(entry.size() - int(QStringLiteral("mmc-pack.json").size()));
+            break;
+        }
+    }
+    if (root.isEmpty()) return;
+    for (const QString &entry : entries) {
+        const bool wanted = entry.startsWith(root + QStringLiteral("patches/"))
+            || entry == root + QStringLiteral("mmc-pack.json")
+            || entry == root + QStringLiteral("instance.cfg");
+        if (!wanted) continue;
+        QByteArray bytes;
+        if (ZipUtil::readEntry(zipPath, entry, &bytes, &error, QStringLiteral("保存包身份"), 8 * 1024 * 1024)
+            != ZipUtil::EntryStatus::Ok) continue;
+        const QString relative = entry.mid(root.size());
+        const QString out = target + QLatin1Char('/') + relative;
+        if (!QDir().mkpath(QFileInfo(out).absolutePath())) continue;
+        QFile file(out);
+        if (file.open(QIODevice::WriteOnly)) file.write(bytes);
+    }
+    m_owner->appendLog(m_owner->tr("已把原包的启动补丁保存在实例目录（导出时可以原样带回）。"));
+}

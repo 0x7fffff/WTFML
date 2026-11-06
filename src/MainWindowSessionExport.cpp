@@ -31,6 +31,9 @@
 #include "controllers/CrashReportController.hpp"
 #include "controllers/GameSessionController.hpp"
 #include "controllers/ModpackExportController.hpp"
+#include "manage/InstanceExport.hpp"
+#include "manage/InstanceFiles.hpp"
+#include "manage/ModpackExport.hpp"
 #include "launcher/LaunchScriptExport.hpp"
 #include "manage/VersionManager.hpp"
 #include "settings/GlobalJavaSettings.hpp"
@@ -43,6 +46,7 @@
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
+#include <QJsonDocument>
 #include <QFileDialog>
 #include <QIODevice>
 #include <QSaveFile>
@@ -363,5 +367,49 @@ void MainWindow::exportLaunchScript(const QString &versionId, const QString &pat
 }
 
 void MainWindow::exportModpack(const QString &versionId, const QString &targetPath) {
-    m_modpackExportController->exportPack(versionId, targetPath);
+    // 默认还是原来的行为：`.mrpack` → Modrinth 清单，`.zip` → CurseForge 清单（需要联网反查）。
+    // 只有"这个实例改过主类/JVM 参数"（lwjgl3ify 那类）才多问一句 —— 那种包写成 CurseForge
+    // 清单会把自定义启动配置丢掉，导出的包对方装回去起不来。
+    bool customLaunch = false;
+    QFile json(InstanceFiles::jsonPath(versionId));
+    if (json.open(QIODevice::ReadOnly)) {
+        const QString mainClass = QJsonDocument::fromJson(json.readAll())
+                                      .object().value(QStringLiteral("mainClass")).toString();
+        static const QSet<QString> standard{
+            QStringLiteral("net.minecraft.client.main.Main"),
+            QStringLiteral("net.minecraft.launchwrapper.Launch"),
+            QStringLiteral("cpw.mods.bootstraplauncher.BootstrapLauncher"),
+            QStringLiteral("net.fabricmc.loader.impl.launch.knot.KnotClient")};
+        customLaunch = !mainClass.isEmpty() && !standard.contains(mainClass);
+    }
+    bool instanceExport = false;
+    if (customLaunch) {
+        instanceExport = InlineMessage::question(
+            m_ui->overlay(), tr("这个实例带自定义启动配置"),
+            tr("它改过主类或 JVM 参数（lwjgl3ify 一类）：写成 CurseForge 清单会把这段丢掉，"
+               "别人装回去起不来。\n\n按「普通实例」导出（Prism / MultiMC 能直接拖进去），"
+               "还是仍然按 CurseForge 清单导出（会丢启动配置）？"),
+            tr("普通实例（Prism）"), tr("仍然导出 CurseForge 清单"), true);
+    }
+    if (!instanceExport) {
+        m_modpackExportController->exportPack(versionId, targetPath);
+        return;
+    }
+    const QString gameVersion = m_versionManager->instanceGameVersion(versionId);
+    QString loaderKey, loaderVersion;
+    m_versionManager->instanceLoaderInfo(versionId, &loaderKey, &loaderVersion);
+    const auto result = InstanceExport::exportInstance(versionId, gameVersion, loaderKey, loaderVersion,
+                                                       versionId, customLaunch, targetPath);
+    if (!result.ok) {
+        InlineMessage::warning(m_ui->overlay(), tr("导出实例"), result.problem);
+        return;
+    }
+    QString details = tr("已写入：\n%1\n\n%2 个文件，约 %3 MB。")
+                          .arg(QDir::toNativeSeparators(targetPath))
+                          .arg(result.files)
+                          .arg(result.bytes / (1024 * 1024));
+    if (!result.warning.isEmpty()) details += QStringLiteral("\n\n") + result.warning;
+    InlineMessage::information(m_ui->overlay(), tr("导出完成"), details);
 }
+
+

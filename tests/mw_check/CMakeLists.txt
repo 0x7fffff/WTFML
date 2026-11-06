@@ -121,6 +121,7 @@ set(SOURCE_FILES
     ${REPO_ROOT}/src/MainWindowOverlayGate.cpp
     ${REPO_ROOT}/src/MainWindowSessionEvents.cpp
     ${REPO_ROOT}/src/MainWindowDropImport.cpp
+    ${REPO_ROOT}/src/util/FileAssociations.cpp
     ${REPO_ROOT}/src/MainWindowUpdateCenter.cpp
     ${REPO_ROOT}/src/MainWindowBottomBar.cpp
     ${REPO_ROOT}/src/MainWindowEventFilter.cpp
@@ -212,6 +213,7 @@ set(SOURCE_FILES
     # 导出整合包那一条路（VersionManager 里五个方法直接调它）：少了这一个文件，
     # mw_check 会在链接那一步报一串 `ModpackExport::…` 的 undefined reference。
     ${REPO_ROOT}/src/manage/ModpackExport.cpp
+    ${REPO_ROOT}/src/manage/InstanceExport.cpp
     # 实例预设那一层：PresetController 直接调它。判据本身的断言在
     # `verify` 的 PA–PG 那几节，这儿只是为了让 mw_check 链接得过。
     ${REPO_ROOT}/src/presets/PresetWorkspace.cpp
@@ -363,7 +365,13 @@ set(SOURCE_FILES
     ${REPO_ROOT}/ui/InstanceSettingsDialog.cpp
     ${REPO_ROOT}/ui/InstanceUpdateWizard.cpp
     ${REPO_ROOT}/ui/InstanceUpgradePage.cpp
+    ${REPO_ROOT}/ui/ShellOpenWith.hpp
+    ${REPO_ROOT}/ui/ShellOpenWith.cpp
+    ${REPO_ROOT}/ui/SchematicInfoDialog.hpp
+    ${REPO_ROOT}/ui/SchematicInfoDialog.cpp
     ${REPO_ROOT}/ui/InstanceFilesPage.cpp
+    ${REPO_ROOT}/ui/ShellOpenWith.hpp
+    ${REPO_ROOT}/ui/ShellOpenWith.cpp
     ${REPO_ROOT}/ui/InstanceFilesPageRows.cpp
     ${REPO_ROOT}/ui/InstanceFilesSelection.cpp
     ${REPO_ROOT}/ui/InstanceFilesPageFilter.cpp
@@ -532,7 +540,7 @@ list(REMOVE_ITEM _cases "${CMAKE_CURRENT_SOURCE_DIR}/modules/Support.cpp" "${CMA
 list(FILTER _cases EXCLUDE REGEX "/Mw[^/]*Check\\.cpp$")
 add_library(mw_legacy_cases STATIC ${_cases})
 target_link_libraries(mw_legacy_cases PUBLIC wtfml_mw_fixture)
-add_executable(mw_check main.cpp)
+add_executable(mw_check main.cpp modules/LiveProbes.cpp)
 target_link_libraries(mw_check PRIVATE mw_legacy_cases)
 if(WTFML_COMPACT_TEST_RUNNERS)
  add_executable(mw_check_modules modules/ModuleMain.cpp)

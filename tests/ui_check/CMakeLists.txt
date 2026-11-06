@@ -45,6 +45,8 @@ ${REPO_ROOT}/ui/InstanceSettingsSignature.cpp
     ${REPO_ROOT}/ui/UpgradeReportDialog.cpp
     ${REPO_ROOT}/ui/UpgradeHistoryDialog.cpp
     ${REPO_ROOT}/ui/InstanceFilesPage.cpp
+    ${REPO_ROOT}/ui/ShellOpenWith.hpp
+    ${REPO_ROOT}/ui/ShellOpenWith.cpp
     ${REPO_ROOT}/ui/InstanceFilesPageRows.cpp
     ${REPO_ROOT}/ui/InstanceFilesSelection.cpp
     ${REPO_ROOT}/ui/InstanceFilesPageFilter.cpp

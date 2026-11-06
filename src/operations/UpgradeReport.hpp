@@ -68,6 +68,16 @@ int unresolvedRequired(const QList<Row> &rows);
 /// 同一句话里同时出现两种关键词时，"不支持"比"声明"更该赢。
 Bucket bucketForStateText(const QString &state, const QString &basis);
 
+/// 评估层给出的分类（`compatible` / `incompatible` / `unknown` / `missing` / `failed`）。
+/// 报告优先用它，**不要**再从界面文字里猜：同一句"符合"配不同平台文字会被猜错。
+Bucket bucketForAssessmentClass(const QString &key);
+
+/// 把评估层原始行（`[名称, 状态, 依据, 文件, 默认处理, 分组标记, 替换版本, 分类]`）
+/// 转成报告行。报告一律走这里，不再从界面文字反推。
+QList<Row> fromAssessmentRows(const QList<QStringList> &rows);
+
 }  // namespace UpgradeReport
+
+
 
 

@@ -24,6 +24,7 @@ public:
     void handleWindowDrop(const QStringList &paths);
 private:
     void repairFromReport(const QString &reportPath);
+    /// 把 MultiMC 包的原启动补丁留在实例目录（导出时原样带回）。失败只写日志，不影响导入。
     /// 单文件复制也走统一的 `OperationReport`：逐项结果 + 不可覆盖时的原因报告。
     void recordFileCopyReport(const QString &versionId, const QString &sourcePath,
                               const QString &targetPath,
@@ -46,7 +47,14 @@ private:
     /// 导入真的开始了才登记（提前退出那些路当场就删），结束（`versionDownloadFinished`，
     /// 成功失败都算）时删掉 —— 数据层在整段导入里还要读它。
     QHash<QString, QString> m_tempArchives;
+    /// 带自定义启动补丁的 MultiMC 包：实例名 → 原包路径。导入成功后把原包的
+    /// `mmc-pack.json` / `patches/` / `instance.cfg` 留在实例的 `.wtfml/pack-source/`，
+    /// 导出时才能把"特殊格式"原样带回去。
+    QHash<QString, QString> m_specialPackSources;
+    void preservePackSource(const QString &instanceId, const QString &zipPath);
     bool m_batchCancelled = false;
     QString m_lastFileCopyFailureReport;
 };
+
+
 

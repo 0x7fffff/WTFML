@@ -159,6 +159,7 @@ set(PROJECT_SOURCES
     ${REPO_ROOT}/src/manage/DroppedResource.hpp
     ${REPO_ROOT}/src/manage/ModpackImport.hpp
     ${REPO_ROOT}/src/manage/ModpackExport.cpp
+    ${REPO_ROOT}/src/manage/InstanceExport.cpp
     ${REPO_ROOT}/src/manage/ModpackExport.hpp
     ${REPO_ROOT}/src/manage/PlayerSkinStore.cpp
     ${REPO_ROOT}/src/manage/PlayerSkinStore.hpp

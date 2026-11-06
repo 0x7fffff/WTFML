@@ -16,6 +16,7 @@
 #include "util/StartupAcceptance.hpp"
 
 #include "MainWindow.hpp"
+#include "util/FileAssociations.hpp"
 #include "perf/PerfProbe.hpp"  // 测量构建专用；普通构建里 attach() 是内联空函数
 #include "../ui/Animations.hpp"  // 按下按钮那一份动效（见下面那段 NOTE）
 #include "../ui/Theme.hpp"   // 主题从盘上读回来、铺开（见下面那段 NOTE）
@@ -126,6 +127,20 @@ int main(int argc, char *argv[]) {
     installFileLog();
 
     QApplication app(argc, argv);
+    // 自检钩子：验证工程用不到注册表写权限（受限令牌），所以由产品进程自己跑一遍，
+    // 只写 WTFML_ASSOC_CLASSES_ROOT 指的那个测试子键。
+    if (app.arguments().contains(QStringLiteral("--assoc-self-test"))) {
+        const QString report = FileAssociations::runSelfTest();
+        QString output = qEnvironmentVariable("WTFML_ASSOC_TEST_OUT");
+        if (output.isEmpty()) output = QDir::tempPath() + QStringLiteral("/wtfml-assoc-selftest.txt");
+        if (!output.isEmpty()) {
+            QFile file(output);
+            if (file.open(QIODevice::WriteOnly)) {
+                file.write(report.isEmpty() ? QByteArrayLiteral("PASS\n") : report.toUtf8());
+            }
+        }
+        return report.isEmpty() ? 0 : 1;
+    }
 
     // 刻意不跟随系统原生样式，固定用 Fusion。
     //
@@ -199,6 +214,7 @@ int main(int argc, char *argv[]) {
     // 出现的」）。同样是往上挂一个事件过滤器，全仓每一处滚动区都不用改。
     Anim::installScrollBarAnimation(app);
 
+
     MainWindow window;
     window.show();
 
@@ -206,6 +222,27 @@ int main(int argc, char *argv[]) {
     // QSettings 里恢复好了，落点才是对的（见 installFileLog 的 NOTE）。
     openFileLog();
     StartupAcceptance::attach(acceptance, window);
+
+    // 关联/命令行带进来的文件：第一个"存在且能打开"的普通参数就是它。
+    {
+        QString externalFile;
+        for (int i = 1; i < argc; ++i) {
+            const QString argument = QString::fromLocal8Bit(argv[i]);
+            if (argument.startsWith(QStringLiteral("--")) || !QFileInfo::exists(argument)) continue;
+            if (FileAssociations::isOpenable(QLatin1Char('.') + QFileInfo(argument).suffix())) {
+                externalFile = argument;
+                break;
+            }
+        }
+        if (!externalFile.isEmpty()) {
+            const QString file = externalFile;
+            QTimer::singleShot(0, &window, [&window, file] { window.openExternalFile(file); });
+        } else if (app.arguments().contains(QStringLiteral("--acceptance-profile"))) {
+            // 验收档会自己关窗，别在这里挂一个要人点的问句。
+        } else {
+            QTimer::singleShot(0, &window, [&window] { window.offerFileAssociations(); });
+        }
+    }
 
     // 特供版（-DWTFML_DIAG_DOWNLOAD=ON）的下载明细：和 wtfml.log 同一个目录、同一份
     // "这一次启动"。普通构建里 enabled() 是编译期常量 false，这两句什么都不做。
@@ -218,3 +255,8 @@ int main(int argc, char *argv[]) {
 
     return app.exec();
 }
+
+
+
+
+
