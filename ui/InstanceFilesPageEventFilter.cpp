@@ -132,6 +132,11 @@ bool InstanceFilesPage::eventFilter(QObject *watched, QEvent *event) {
                 m_pressViewportPos = pos;
                 m_pressPath = onButton ? QString() : path;
                 m_pressOnRow = !onButton && !path.isEmpty();
+                if (qEnvironmentVariableIsSet("WTFML_DRAG_DEBUG")) {
+                    qInfo() << "[drag] press watched=" << (watched != nullptr ? watched->metaObject()->className() : "null")
+                            << "row=" << (rowWidget != nullptr) << "onButton=" << onButton
+                            << "path=" << path;
+                }
                 m_dragStarted = false;
                 m_ctrlDragActive = mouse->modifiers().testFlag(Qt::ControlModifier);
                 m_bandToggledIdentities.clear();
@@ -195,6 +200,21 @@ void InstanceFilesPage::beginFileDrag() {
     for (const QString &path : paths) {
         if (QFileInfo::exists(path)) urls.append(QUrl::fromLocalFile(path));
     }
+    // Qt 在按下时已经把多选收缩成单条；拖动期间把这份多选**画回去**，
+    // 否则用户看到的是"拖着一个、实际飞出去多个"，和手上的感觉对不上。
+    {
+        QSignalBlocker blocker(m_list);
+        m_list->clearSelection();
+        for (int row = 0; row < m_list->count(); ++row) {
+            QListWidgetItem *item = m_list->item(row);
+            if (item != nullptr && paths.contains(item->data(pathRole()).toString()))
+                item->setSelected(true);
+        }
+    }
+    if (qEnvironmentVariableIsSet("WTFML_DRAG_DEBUG")) {
+        qInfo() << "[drag] start urls=" << urls.size() << "press=" << m_pressPath;
+    }
+
     if (urls.isEmpty()) return;
     auto *mime = new QMimeData;
     mime->setUrls(urls);
