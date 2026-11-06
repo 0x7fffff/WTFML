@@ -135,6 +135,9 @@ bool InstanceFilesPage::eventFilter(QObject *watched, QEvent *event) {
                 m_dragStarted = false;
                 m_ctrlDragActive = mouse->modifiers().testFlag(Qt::ControlModifier);
                 m_bandToggledIdentities.clear();
+                    m_pressSelection.clear();
+                    for (const QListWidgetItem *selectedItem : m_list->selectedItems())
+                        m_pressSelection.append(selectedItem->data(pathRole()).toString());
                 if (!m_pressPath.isEmpty()) m_bandToggledIdentities.insert(identityPath(m_pressPath));
                 break;
             }
@@ -175,14 +178,19 @@ bool InstanceFilesPage::eventFilter(QObject *watched, QEvent *event) {
     return QWidget::eventFilter(watched, event);
 }
 void InstanceFilesPage::beginFileDrag() {
+    // 拖哪些：按在"已经选中的那一条"上 ⇒ 拖整份多选；按在别的条上 ⇒ 只拖这一条。
+    // Qt 处理 press 时会把多选收缩成单条，所以要用按下那一刻的快照（m_pressSelection）。
     QStringList paths;
-    const auto selected = m_list->selectedItems();
-    for (const QListWidgetItem *item : selected) {
-        const QString path = item->data(pathRole()).toString();
-        if (!path.isEmpty()) paths.append(path);
+    if (!m_pressPath.isEmpty() && m_pressSelection.contains(m_pressPath)) {
+        paths = m_pressSelection;
+    } else if (!m_pressPath.isEmpty()) {
+        paths = {m_pressPath};
+    } else {
+        for (const QListWidgetItem *item : m_list->selectedItems())
+            paths.append(item->data(pathRole()).toString());
     }
-    // 抓哪一条就拖哪一条：MultiSelection 的「按下即切换」可能刚把它取消掉，仍然按它算。
-    if (!m_pressPath.isEmpty() && !paths.contains(m_pressPath)) paths.prepend(m_pressPath);
+    paths.removeAll(QString());
+    paths.removeDuplicates();
     QList<QUrl> urls;
     for (const QString &path : paths) {
         if (QFileInfo::exists(path)) urls.append(QUrl::fromLocalFile(path));
@@ -190,15 +198,6 @@ void InstanceFilesPage::beginFileDrag() {
     if (urls.isEmpty()) return;
     auto *mime = new QMimeData;
     mime->setUrls(urls);
-    // 单张 PNG：同时给一份 image/png —— 微信/QQ 这类会按「图片」收，而不是当成一个文件。
-    if (urls.size() == 1
-        && urls.first().toLocalFile().endsWith(QStringLiteral(".png"), Qt::CaseInsensitive)) {
-        QFile image(urls.first().toLocalFile());
-        if (image.open(QIODevice::ReadOnly) && image.size() > 0
-            && image.size() <= 16 * 1024 * 1024) {
-            mime->setData(QStringLiteral("image/png"), image.readAll());
-        }
-    }
     auto *drag = new QDrag(this);
     drag->setMimeData(mime);
     drag->exec(Qt::CopyAction);

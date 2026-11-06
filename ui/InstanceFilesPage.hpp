@@ -1402,6 +1402,8 @@ public:
 private:
     void updateToggleBand(const QPoint &viewportPos, bool firstUpdate);
     QPoint m_pressViewportPos;
+    /// 按下那一刻的选择快照：Qt 会先按"单击"把多选收缩成一条，拖出要的是按下前的那些。
+    QStringList m_pressSelection;
     QString m_pressPath;
     bool m_pressOnRow = false;
     bool m_dragStarted = false;
@@ -1410,5 +1412,6 @@ private:
     QSet<QString> m_bandToggledIdentities;
 
 };
+
 
 
