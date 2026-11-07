@@ -313,6 +313,10 @@ void InstanceSettingsDialog::setupFilePages() {
             // 而这三发只属于存档那一页、也不用翻任何东西 —— 由 MainWindow 直接连到
             // `filesPage("save")` 上（那一页就是它）。多一层纯转发的信号，只是多一份
             // 要跟着改的声明。
+            // 页可能是 setPageUsable() 之后才建出来的：把当前的"用不上"状态补上，
+            // 否则这一页会显示成普通空目录。
+            if (m_pageAvailable.contains(key) && !m_pageAvailable.value(key))
+                files->setUnavailable(pageUnavailableText(key));
             m_filesPages.insert(key, files);
             target->addWidget(files, 1);
             if (!batch && !isSave && key != QStringLiteral("schematic") && key != QStringLiteral("structure")) {

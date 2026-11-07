@@ -884,6 +884,17 @@ void layoutTransition(QWidget *surface, const std::function<void()> &change,
             return;
         }
         if (guard->layout()) guard->layout()->activate();
+        // 终点快照必须等 change() 之后排队的布局/润色都跑完再照。只 activate 顶层布局不够：
+        // 新露出来的列表控件（滚动条、行高、按钮换字后的宽度）会再排一两轮，
+        // 照早了动画结束时真实布局还会跳一下（"最后瞬移"）。
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::LayoutRequest);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::PolishRequest);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::UpdateRequest);
+        if (guard->layout()) guard->layout()->activate();
+        for (auto *child : guard->findChildren<QWidget *>()) {
+            if (child->isVisible() && child->layout() != nullptr) child->layout()->activate();
+        }
+        guard->update();
         curtain->raise();
         curtain->captureDestination(capture);
         runProgress(curtain, curtain, 0, 1, panelMs(), 0,

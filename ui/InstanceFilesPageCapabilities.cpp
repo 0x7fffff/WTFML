@@ -60,10 +60,10 @@ void InstanceFilesPage::setBatchMode(bool batchMode) {
     // "`SingleSelection` 什么都不做" —— 单选的视图上那一发就是**什么都不发生**，这正是
     // 不开批量的那几页该有的样子。
     //
-    // **用 `ExtendedSelection`（资源管理器那一套）**：单击单选、Ctrl+单击切换、
-    // Shift+单击选一段、Ctrl+A 全选 —— 拖动那半边见 `InstanceFilesPageEventFilter.cpp`：
+    // **用 `MultiSelection`（点一下就切换）**：单击切换选中、Ctrl+A 全选、
+    // 拖动那半边见 `InstanceFilesPageEventFilter.cpp`：
     // 项上直接拖动 = 拖出文件，Ctrl+拖动 = 框选扫过即取反。
-    m_list->setSelectionMode(batchMode ? QAbstractItemView::ExtendedSelection
+    m_list->setSelectionMode(batchMode ? QAbstractItemView::MultiSelection
                                        : QAbstractItemView::SingleSelection);
     if (!batchMode) {
         // 关掉的时候把选择清干净：不清的话 `m_selectedPaths` 里压着一份"用户根本看不见的
@@ -148,3 +148,5 @@ void InstanceFilesPage::setDirectory(const QString &dir) {
     }
     refresh();
 }
+
+
