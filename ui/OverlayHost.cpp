@@ -321,7 +321,6 @@ void OverlayHost::setPromptBlockedWidget(QWidget *widget) {
 }
 
 void OverlayHost::retargetCoveredPage() {
-    releaseCoveredPage();
     // **提示**那一档还要额外按住一块（底栏）—— 它不在这一层底下，见
     // setPromptBlockedWidget() 那段说明（不按住的症状是"点了没反应、也没有一个字解释"）。
     // 这一句必须在下面那个 `if (!isVisible()) return;` **之前**：提示收掉的那一刻这一层
@@ -331,10 +330,10 @@ void OverlayHost::retargetCoveredPage() {
     }
     // 判据是"**现在真摆在眼前**"（不是"开着"）：整页那一档收在别的选项卡上的时候，
     // 它没盖住任何东西 —— 用户正要用下面那一页，这时候按住它就是"界面活着但点不动"。
-    if (!isVisible()) {
-        return;
-    }
-    QWidget *page = coveredPage();
+    QWidget *page = isVisible() ? coveredPage() : nullptr;
+    // 同一页仍被覆盖时不要先启用再禁用整棵控件树；这会触发重复的样式和布局更新。
+    if (page == m_disabledPage) return;
+    releaseCoveredPage();
     if (page != nullptr) {
         // 被盖住的那一页要**按住**。覆盖层浮在上面能吃掉鼠标，但**键盘吃不下** ——
         // 按 Tab 照样能把焦点挪到下面那些控件上，接着按空格就等于在用户看不见的地方
@@ -646,25 +645,20 @@ bool OverlayHost::showPage(QDialog *dialog, const QString &title, int ownerTab) 
         return false;
     }
 
-    // ① 先摘掉"窗口"身份 —— 和 `execEmbedded()` 里同一段理由：QDialog 只要带着
-    // Qt::Dialog 就是顶层窗口，塞进布局之前必须降级成普通子控件。
-    dialog->hide();
-    dialog->setParent(m_parking, Qt::Widget);
-
-    // ② 摆上去。`openPage()` 那一份判据刚看过一次，这里再挡一道是为了"布局还没搭好"
-    // 那一档：两种情况对调用方都是"没开成"。
     QWidget *area = openPage(title, ownerTab);
     if (area == nullptr || area->layout() == nullptr) {
         return false;
     }
+    // 直接挂到最终容器；先寄存再交给布局会连续更换两次父对象，
+    // 每次都让整页控件重算继承的样式、调色板和布局。
+    dialog->hide();
+    if (dialog->parentWidget() != area || dialog->isWindow())
+        dialog->setParent(area, Qt::Widget);
+
     QElapsedTimer showSeg;
-    showSeg.start();
     area->layout()->addWidget(dialog);
     dialog->setVisible(true);
-    const qint64 addMs = showSeg.restart();
     relayout();
-    qInfo() << "[UI timing] overlay segments add" << addMs << "show" << showSeg.restart()
-            << "relayout" << showSeg.elapsed();
 
     // ③ 收页：返回箭头接成 `reject()`（和 `execPage()` 里那条一模一样），Esc / 这一页
     // 自己 accept/reject 也落到 `finished` —— 两条都在同一处收掉这一层。**没有**卡在
@@ -789,6 +783,27 @@ int OverlayHost::execEmbedded(QDialog *dialog, const QString &title, bool asPage
 }
 
 bool OverlayHost::eventFilter(QObject *watched, QEvent *event) {
+    // 被盖住的那一页不再 setEnabled(false)：应用级过滤器替它吞掉键盘与焦点。
+    if (m_disabledPage != nullptr) {
+        QWidget *widget = qobject_cast<QWidget *>(watched);
+        bool inside = false;
+        for (QWidget *p = widget; p != nullptr; p = p->parentWidget()) {
+            if (p == m_disabledPage) { inside = true; break; }
+        }
+        if (inside) {
+            switch (event->type()) {
+            case QEvent::KeyPress:
+            case QEvent::KeyRelease:
+            case QEvent::ShortcutOverride:
+                return true;
+            case QEvent::FocusIn:
+                if (m_backButton != nullptr) m_backButton->setFocus();
+                return true;
+            default:
+                break;
+            }
+        }
+    }
     if (watched == m_anchor) {
         switch (event->type()) {
         case QEvent::Resize:
@@ -900,4 +915,5 @@ void OverlayHost::keyPressEvent(QKeyEvent *event) {
     }
     QWidget::keyPressEvent(event);
 }
+
 

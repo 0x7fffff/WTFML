@@ -486,7 +486,12 @@ int runInstanceUpgradeChecks() {
         InstanceSettingsDialog page(QStringLiteral("DeclSource"), QStringLiteral("DeclSource"),
                                     {}, {}, {}, true);
         page.setProperty("modernUpgradeFlow", true);
-        page.setProperty("upgradeRuntimeJavaMajor", 21);
+        const QString runtime = scratch.filePath("decl-runtime");
+        check(write(runtime + QStringLiteral("/bin/java.exe"), "fixture")
+                  && write(runtime + QStringLiteral("/release"), "JAVA_VERSION=\"21.0.1\"\n"),
+              "create runtime release metadata for asynchronous Java assessment");
+        page.setProperty("upgradeRuntimeJavaMajor", 0);
+        page.setProperty("upgradeRuntimeJavaPath", runtime + QStringLiteral("/bin/java.exe"));
         page.setTransferTargets(QStringLiteral("upgrade"),
                                 {{QStringLiteral("FabricTarget"), QStringLiteral("DeclFabric")},
                                  {QStringLiteral("QuiltTarget"), QStringLiteral("DeclQuilt")},
@@ -527,7 +532,11 @@ int runInstanceUpgradeChecks() {
             return choice == nullptr ? -1 : choice->currentIndex();
         };
         combo->setCurrentIndex(1);
+        check(page.property("upgradeRuntimeJavaMajor").toInt() == 0,
+              "target selection returns before Java metadata probing completes");
         settle();
+        check(page.property("upgradeRuntimeJavaMajor").toInt() == 21,
+              "background assessment publishes the detected runtime Java version");
         check(localText(QStringLiteral("quilt.jar")).contains(QStringLiteral("缺少目标加载器声明")),
               "Quilt 模组在 Fabric 目标下不冒充兼容");
         check(localText(QStringLiteral("nested-bad.jar"))

@@ -6,6 +6,7 @@
 #include "settings/LauncherSettings.hpp"
 #include "util/AppPaths.hpp"
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFileInfo>
 #include <QThread>
 #include <QTimer>
@@ -185,6 +186,7 @@ void InstanceIconController::onInstanceIconLookupFinished(const InstanceIconLook
     // ResourceStore（它有一套现成的两级缓存 + 条件请求 + 挑 webp/PNG 那套判断），
     // 这一层只是把身份递给它。
     QSet<QString> foundPaths;
+    QList<ResourceCatalog::Hit> iconRequests;
     for (const InstanceIconLookup::Found &found : result.found) {
         const ResourceCatalog::Hit hit = found.hit;
         // 这一条文件属于哪一格（`<来源>-<项目号>`）—— 图标回来时按它找回**行**（见
@@ -205,7 +207,7 @@ void InstanceIconController::onInstanceIconLookupFinished(const InstanceIconLook
         m_host.rememberHit(iconKey, hit);
         // 已经在问 / 已经在缓存里的话 requestIcon() 自己会处理（可能**同步**就把 iconReady
         // 发出来了 —— 那时候上面那一行必须先写完，见它那条 NOTE）。
-        m_resourceStore->requestIcon(hit);
+        iconRequests.append(hit);
     }
 
     // ---------- ② 没认出来的那一批 ----------
@@ -214,6 +216,30 @@ void InstanceIconController::onInstanceIconLookupFinished(const InstanceIconLook
     // 要是也记，用户这一整个会话都再也看不到图标了 —— 而那本来是"网好了就会有"
     // （见 m_instanceIconMissing 那段）。problem 非空时还有一个后果：①里那些**认出来了
     // 的**照旧记账（那是真的），只是不再问第二遍。
+    // 即使命中磁盘缓存，取图也包含解码与同步回调；按小批次让出事件循环，
+    // 不让整包模组的图标在页面刚打开时占满一个长事件。
+    if (!iconRequests.isEmpty()) {
+        auto *batch = new QTimer(this);
+        batch->setInterval(4);
+        connect(batch, &QTimer::timeout, this,
+                [batch = QPointer<QTimer>(batch), store = QPointer<ResourceStore>(m_resourceStore),
+                 requests = std::move(iconRequests), next = qsizetype(0)]() mutable {
+            if (!batch) return;
+            QElapsedTimer budget;
+            budget.start();
+            while (store && next < requests.size()) {
+                store->requestIcon(requests.at(next++));
+                if (!batch) return;
+                if (budget.elapsed() >= 6) break;
+            }
+            if (!store || next == requests.size()) {
+                batch->stop();
+                batch->deleteLater();
+            }
+        });
+        batch->start();
+    }
+
     const bool complete = result.problem.isEmpty();
     if (!complete) {
         // 只记一句日志、**不弹窗**：图标取不到是常态（自己改过的 jar、作者没传过的、
@@ -255,12 +281,31 @@ void InstanceIconController::onInstanceIconLookupFinished(const InstanceIconLook
     }
 }
 
-void InstanceIconController::pushInstanceFileIcons() {
-    InstanceSettingsDialog *dialog = m_instanceIcons.dialog;
+void InstanceIconController::pushInstanceFileIcons(const QStringList &paths) {
+    // 磁盘/内存缓存会同步连发 iconReady；每张图都重推整张列表会退化为平方级刷新。
+    // 同一轮事件只合并刷新一次，并在执行时读取当前页面，避免旧页面结果回填。
+    for (const auto &path : paths.isEmpty() ? m_instanceIcons.paths : paths)
+        m_pendingFileIconPaths.insert(path);
+    if (m_fileIconPushPending) return;
+    m_fileIconPushPending = true;
+    QTimer::singleShot(0, this, [this] {
+        flushInstanceFileIcons();
+    });
+}
+
+void InstanceIconController::flushInstanceFileIcons() {
+    QPointer<InstanceSettingsDialog> dialog = m_instanceIcons.dialog;
     if (dialog == nullptr) {
+        m_pendingFileIconPaths.clear();
+        m_fileIconPushPending = false;
         return;
     }
-    for (const QString &path : m_instanceIcons.paths) {
+    QElapsedTimer budget;
+    budget.start();
+    while (!m_pendingFileIconPaths.isEmpty()) {
+        const QString path = *m_pendingFileIconPaths.constBegin();
+        m_pendingFileIconPaths.remove(path);
+        if (!m_instanceIcons.paths.contains(path)) continue;
         const QString key = instanceIconCacheKey(path);
         const auto cached = m_instanceFileIcons.constFind(key);
         if (cached != m_instanceFileIcons.constEnd()) {
@@ -280,6 +325,12 @@ void InstanceIconController::pushInstanceFileIcons() {
         dialog->setFileResource(path, identity == m_fileResources.constEnd()
                                           ? QString()
                                           : identity.value().title);
+        if (budget.elapsed() >= 6) break;
+    }
+    if (m_pendingFileIconPaths.isEmpty()) {
+        m_fileIconPushPending = false;
+    } else {
+        QTimer::singleShot(4, this, [this] { flushInstanceFileIcons(); });
     }
 }
 
@@ -294,7 +345,7 @@ void InstanceIconController::rememberResourceIcon(const QString &iconKey, const 
         // 空的也存 —— 它记的是"这一条问过了、没有"（见 m_instanceIconMissing 那段）。
         m_instanceFileIcons.insert(instanceIconCacheKey(path), icon);
     }
-    pushInstanceFileIcons();
+    pushInstanceFileIcons(filePaths);
 }
 
 QSet<QString> InstanceIconController::recognizedResourceKeysUnder(const QString &dir) const {

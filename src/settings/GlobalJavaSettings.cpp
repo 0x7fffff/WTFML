@@ -5,6 +5,8 @@
  */
 #include "GlobalJavaSettings.hpp"
 
+#include <QMutex>
+#include <QMutexLocker>
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
@@ -708,28 +710,54 @@ int GlobalJavaSettings::probeJavaMajorVersion(const QString &javaExe, QString *v
     if (!QFileInfo::exists(javaExe)) {
         return -1;
     }
-
-    // release 文件在 java.exe 的上一层：<运行时根>/bin/java.exe → <运行时根>/release
-    QDir runtimeRoot = QFileInfo(javaExe).absoluteDir();
-    runtimeRoot.cdUp();
-    QFile releaseFile(runtimeRoot.absoluteFilePath(QStringLiteral("release")));
-    if (releaseFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        const int majorVersion = GlobalJavaSettings::majorVersionFromReleaseFile(
-            QString::fromUtf8(releaseFile.readAll()));
-        if (majorVersion > 0) {
-            return majorVersion;
+    // 没有 release 的运行时只能起一次 java.exe 去问（冷启动几百毫秒）。按
+    // “路径 + java.exe 的修改时间”缓存一次，避免每次打开设置/做升级评估都重付。
+    struct CachedProbe {
+        qint64 stamp = 0;
+        int major = -1;
+        QString version;
+    };
+    static QMutex cacheMutex;
+    static QHash<QString, CachedProbe> cache;
+    const QFileInfo exeInfo(javaExe);
+    const QString cacheKey = exeInfo.absoluteFilePath();
+    const qint64 stamp = exeInfo.lastModified().toMSecsSinceEpoch();
+    {
+        const QMutexLocker locker(&cacheMutex);
+        const auto it = cache.constFind(cacheKey);
+        if (it != cache.constEnd() && it->stamp == stamp) {
+            if (versionOutput != nullptr) *versionOutput = it->version;
+            return it->major;
         }
     }
 
-    // 没有 release 文件（或者里面没有能认的 JAVA_VERSION）：只能真的问它一次。
-    QString probed;
-    if (!verifyJavaExecutable(javaExe, &probed)) {
-        return -1;
+    int major = -1;
+    QString version;
+    // release 文件在 java.exe 的上一层：<运行时根>/bin/java.exe → <运行时根>/release
+    QDir runtimeRoot = exeInfo.absoluteDir();
+    runtimeRoot.cdUp();
+    QFile releaseFile(runtimeRoot.absoluteFilePath(QStringLiteral("release")));
+    if (releaseFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        version = QString::fromUtf8(releaseFile.readAll());
+        major = GlobalJavaSettings::majorVersionFromReleaseFile(version);
     }
-    if (versionOutput) {
-        *versionOutput = probed;
+    if (major <= 0) {
+        // 没有 release 文件（或者里面没有能认的 JAVA_VERSION）：只能真的问它一次。
+        QString probed;
+        if (!verifyJavaExecutable(javaExe, &probed)) {
+            const QMutexLocker locker(&cacheMutex);
+            cache.insert(cacheKey, CachedProbe{stamp, -1, QString()});
+            return -1;
+        }
+        version = probed;
+        major = parseJavaMajorVersion(probed);
     }
-    return parseJavaMajorVersion(probed);
+    {
+        const QMutexLocker locker(&cacheMutex);
+        cache.insert(cacheKey, CachedProbe{stamp, major, version});
+    }
+    if (versionOutput != nullptr) *versionOutput = version;
+    return major;
 }
 
 GlobalJavaSettings::GlobalJavaSettings(QObject *parent)
@@ -1371,6 +1399,7 @@ bool GlobalJavaSettings::ensureJavaForVersion(EffectiveJavaSettings &io, int maj
     qDebug() << "Failed to obtain Java version" << majorVersion;
     return fail(QStringLiteral("找不到也下载不到 Java %1。").arg(majorVersion));
 }
+
 
 
 

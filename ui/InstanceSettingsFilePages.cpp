@@ -345,7 +345,7 @@ void InstanceSettingsDialog::setupFilePages() {
                 files->setIconForPath(it.key(), it.value());
             for (auto it = m_pendingFileResources.constBegin(); it != m_pendingFileResources.constEnd(); ++it)
                 files->setResourceForPath(it.key(), it.value());
-            if (m_hasPendingUpdates && key == QStringLiteral("mod"))
+            if (m_hasPendingUpdates)
                 files->setUpdateResult(m_pendingOutdatedPaths, m_pendingUpdatesChecked);
             });
         }
@@ -557,3 +557,4 @@ void InstanceSettingsDialog::setupFilePages() {
     }
 
 }
+

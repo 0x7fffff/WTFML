@@ -150,7 +150,14 @@ QString motdHtml(const QString &raw, const QColor &background) {
 ToolboxController::ToolboxController(OverlayHost *overlay, QWidget *pageParent, Host host,
                                     QObject *parent)
     : QObject(parent), m_overlay(overlay), m_pageParent(pageParent), m_host(std::move(host)) {
-    m_page = new ToolboxPage(pageParent);
+    // 下载恢复和任务操作不依赖工具页，必须在用户打开工具箱之前可用。
+    m_directDownload = new DirectDownloadController(m_host.activity, pageParent, this);
+}
+
+void ToolboxController::ensurePage() {
+    if (m_page != nullptr) return;
+    m_page = new ToolboxPage(m_pageParent);
+    m_page->hide();
     m_trimPreview = new ArmorTrimPreviewController(m_page, m_overlay, this);
     // 「显示披风」勾选只改预览那一张图，不碰资源、不写盘 —— 直接重绘即可。
     connect(m_page, &ToolboxPage::trimCapeVisibilityChanged, this,
@@ -164,7 +171,6 @@ ToolboxController::ToolboxController(OverlayHost *overlay, QWidget *pageParent, 
     m_hashWatcher = new QFileSystemWatcher(this);
     connect(m_hashWatcher, &QFileSystemWatcher::fileChanged, this,
             [this](const QString &path) { onHashFileChanged(path); });
-    m_directDownload = new DirectDownloadController(m_host.activity, pageParent, this);
     connect(m_page, &ToolboxPage::downloadToolRequested, this, [this] { m_directDownload->open(); });
     QStringList beamNames;
     for (int i = 0; i < Banner::colorCount(); ++i) beamNames.append(Banner::colorName(i));
@@ -358,11 +364,17 @@ ToolboxController::ToolboxController(OverlayHost *overlay, QWidget *pageParent, 
                    m_page->brewingLevel2(), m_page->brewingFormIndex(), m_page->brewingBottles());
     refreshBanner(m_page->bannerBaseColor(), m_page->bannerLayers());
     refreshTrim();
+    if (m_hasPlayerSkin)
+        m_trimPreview->setPlayerSkin(m_playerSkin, m_playerCape, m_playerSlim);
 }
 
 ToolboxController::~ToolboxController() { shutdown(); }
 void ToolboxController::setPlayerSkin(const QImage &skin, const QImage &cape, bool slim) {
-    m_trimPreview->setPlayerSkin(skin, cape, slim);
+    m_playerSkin = skin;
+    m_playerCape = cape;
+    m_playerSlim = slim;
+    m_hasPlayerSkin = true;
+    if (m_trimPreview != nullptr) m_trimPreview->setPlayerSkin(skin, cape, slim);
 }
 bool ToolboxController::ownsDownloadTask(quint64 id) const { return m_directDownload->owns(id); }
 bool ToolboxController::canCancelDownloadTask(quint64 id) const { return m_directDownload->canCancel(id); }
@@ -371,7 +383,7 @@ bool ToolboxController::pauseDownloadTask(quint64 id) { return m_directDownload-
 bool ToolboxController::resumeDownloadTask(quint64 id) { return m_directDownload->resume(id); }
 
 void ToolboxController::shutdown() {
-    m_trimPreview->shutdown();
+    if (m_trimPreview != nullptr) m_trimPreview->shutdown();
     m_directDownload->shutdown();
     m_hashAbort.storeRelaxed(1);
     if (m_hashThread != nullptr) {
@@ -415,7 +427,7 @@ int ToolboxController::dimensionAt(int index) const {
 
 void ToolboxController::open(const QString &toolKey) {
     if (toolKey == QStringLiteral("download")) { m_directDownload->open(); return; }
-    if (m_page == nullptr || m_overlay == nullptr) {
+    if (m_overlay == nullptr) {
         return;
     }
     bool known = false;
@@ -423,6 +435,7 @@ void ToolboxController::open(const QString &toolKey) {
     if (!known) {
         return;  // 认不出来的键：不该发生（面板那六颗按钮的键就是这张表）
     }
+    ensurePage();
     // 换一件工具**先换再开**：这一页是复用的对象，开出来那一刻已经是用户点的那一件。
     m_page->showTool(tool);
     // 「再开一页」不再问：覆盖层上压着东西时**静默收掉再继续**（`runWhenOverlayFree()`

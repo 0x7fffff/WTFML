@@ -168,8 +168,10 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                                                const QStringList &appendJvmArgs,
                                                bool warnJavaMismatch,
                                                const QList<WindowModeChoice> &windowModes,
-                                               QWidget *parent)
+                                               QWidget *parent, bool embedded)
     : QDialog(parent), m_global(global), m_instanceId(instanceId) {
+    // 在创建子控件前确定最终父容器与类型，避免挂载时整棵控件树重新继承样式。
+    if (embedded) setWindowFlags(Qt::Widget);
     setWindowTitle(tr("实例设置"));
     setAcceptDrops(true);
     // 比分组对话框宽得多：从左到右是**两栏**（左栏一列页 + 右栏一块内容），600 放不下。
@@ -258,6 +260,8 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     QWidget::setTabOrder(m_navigationTree, launchInstance);
 
     m_stack = new QStackedWidget(this);
+    // 由外层分配可用空间，避免隐藏页面的尺寸提示撑大整页。
+    m_stack->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
     m_stack->setObjectName(stackName());
     columns->addWidget(m_stack, 1);
     // 换页那一下也要加动画：这一页的左栏是**每个实例各一张的页表**（不是顶上那四颗选项卡），而它
@@ -1139,7 +1143,7 @@ void InstanceSettingsDialog::setFileDirs(const QHash<QString, QString> &dirs) {
     // 抓到的永远是空串，"不许越过 config/"那道墙就形同虚设了（见 .hpp 里 m_configRoot
     // 那一 NOTE）。
     m_configRoot = m_fileDirs.value(QStringLiteral("config"));
-    // 六页在构造函数里就搭好了，那会儿还不知道目录在哪儿（这一份是构造之后才灌的）——
+    // 文件页是按需建的：已经建出来的各列一遍；还没建的由构建时的那一发补上。
     // 所以灌完必须让它们各列一遍，否则每一页都停在"这个文件夹还是空的"上。
     const QList<QString> keys = m_filesPages.keys();
     for (const QString &key : keys) {
@@ -1150,9 +1154,6 @@ void InstanceSettingsDialog::setFileDirs(const QHash<QString, QString> &dirs) {
         }
     }
     updateConfigUpButton();
-    if (prepareClock.elapsed() > 32)
-        qInfo() << "[UI timing] instance file pages initialization" << keys.size()
-                << "pages," << prepareClock.elapsed() << "ms";
 }
 
 void InstanceSettingsDialog::openConfigEditor(const QString &path,
@@ -1344,7 +1345,11 @@ void InstanceSettingsDialog::setFileUpdates(const QStringList &outdatedPaths, bo
     // 只有**开得了「可更新」那一格**的那几页接（判据逐字同构造里那一条：下载页里真有
     // 对应一栏的那四页）。别的页上那一格根本不在，喂给它只是让它白白记着一份用不上的
     // 名单（而有名单就会有"下一次刷新之后它还在"这类问题）。
-    ensureFilePage(QStringLiteral("mod"));
+    if (!m_filePageBuilders.isEmpty()) {
+        m_pendingOutdatedPaths = outdatedPaths;
+        m_pendingUpdatesChecked = checked;
+        m_hasPendingUpdates = true;
+    }
     for (auto it = m_filesPages.constBegin(); it != m_filesPages.constEnd(); ++it) {
         if (it.value() == nullptr || filesDownloadText(it.key()).isEmpty()) {
             continue;

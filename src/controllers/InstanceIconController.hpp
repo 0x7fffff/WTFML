@@ -111,7 +111,10 @@ private:
 
     /// 把**现在知道的**那些图标摆到正开着的那一页上（没开着就什么都不做）。
     /// 「图标到手」和「新开了一页」两条路都走它 —— 两处各摆一遍的话，两边的判据迟早漂开。
-    void pushInstanceFileIcons();
+    void pushInstanceFileIcons(const QStringList &paths = {});
+    void flushInstanceFileIcons();
+    bool m_fileIconPushPending = false;
+    QSet<QString> m_pendingFileIconPaths;
 
     Host m_host;
     /// 三个口子和 `ResourceStore` / `VersionManager` 那两处**同一份设置**（CurseForge 的

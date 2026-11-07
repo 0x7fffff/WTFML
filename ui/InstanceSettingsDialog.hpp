@@ -165,12 +165,13 @@ public:
      * 上面那一段。空表 = 不建「窗口模式」这一行（验证工程里那些只验别的结构的构造点
      * 就传空表）—— 那时「窗口大小」那一行照样建，它不依赖这份表。
      * @param parent 父窗口。
+     * @param embedded 作为内嵌页预构造时启用，parent 应为最终内容容器。
      */
     InstanceSettingsDialog(const QString &instanceName, const QString &instanceId,
                            const Override &current, const GlobalValues &global,
                            const QStringList &appendJvmArgs, bool warnJavaMismatch,
                            const QList<WindowModeChoice> &windowModes = QList<WindowModeChoice>(),
-                           QWidget *parent = nullptr);
+                           QWidget *parent = nullptr, bool embedded = false);
 
     /// 用户摆好的覆盖。每一项各自：那行选了「自定义」就有值，选了「跟随全局」就没有值。
     ///

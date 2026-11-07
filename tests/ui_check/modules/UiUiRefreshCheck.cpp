@@ -2,6 +2,7 @@
 #include <QVariantAnimation>
 #include "TaskCenterPanel.hpp"
 #include <QMouseEvent>
+#include <QThread>
 int UiUiRefreshCheck(QApplication &app) {
 
         const int fontId = QFontDatabase::addApplicationFont(QDir(qEnvironmentVariable("WINDIR")).filePath(QStringLiteral("Fonts/msyh.ttc")));
@@ -147,6 +148,47 @@ int UiUiRefreshCheck(QApplication &app) {
             accountHost->closeOverlay();
             expect(header && header->parentWidget() == &account,
                    "closing account page returns header ownership safely");
+        }
+        {
+            class MountProbe final : public QDialog {
+            public:
+                int parentChanges = 0;
+                bool event(QEvent *event) override {
+                    if (event->type() == QEvent::ParentChange) ++parentChanges;
+                    return QDialog::event(event);
+                }
+            } page;
+            class EnabledProbe final : public QObject {
+            public:
+                int changes = 0;
+                bool eventFilter(QObject *, QEvent *event) override {
+                    if (event->type() == QEvent::EnabledChange) ++changes;
+                    return false;
+                }
+            } enabledProbe;
+            QWidget *covered = ui.getTabWidget()->currentWidget();
+            covered->installEventFilter(&enabledProbe);
+            expect(accountHost->showPage(&page, QStringLiteral("Mount probe")),
+                   "nonmodal page mounts successfully");
+            expect(page.parentChanges == 1 && !page.isWindow()
+                       && page.parentWidget()->layout()->indexOf(&page) >= 0,
+                   "mounting reparents the dialog once directly into its final layout");
+            const int changesAfterOpen = enabledProbe.changes;
+            accountHost->setPromptBlockedWidget(nullptr);
+            accountHost->setPromptBlockedWidget(button->parentWidget());
+            expect(!covered->isEnabled() && enabledProbe.changes == changesAfterOpen,
+                   "retargeting the same covered page does not enable and disable its subtree again");
+            accountHost->closeOverlay();
+            expect(covered->isEnabled(), "closing the page restores underlying keyboard access");
+            covered->removeEventFilter(&enabledProbe);
+            InstanceSettingsDialog embedded(QStringLiteral("Embedded"), QStringLiteral("Embedded"),
+                                            {}, {}, {}, true, {}, accountHost->pageContainer(), true);
+            expect(!embedded.isWindow() && embedded.parentWidget() == accountHost->pageContainer(),
+                   "instance settings are constructed as a child of the final page container");
+            expect(accountHost->showPage(&embedded, QStringLiteral("Embedded instance")),
+                   "preconstructed instance settings mount without changing parents");
+            embedded.reject();
+            expect(!accountHost->isOpen(), "embedded instance settings retain normal close semantics");
         }
         QList<TaskCenter::RunningItem> runningItems;
         TaskCenterPanel running(nullptr, {}, {}, [&runningItems]() { return runningItems; }, {}, {}, nullptr, true);
@@ -414,6 +456,36 @@ int UiUiRefreshCheck(QApplication &app) {
             }
         }
         Anim::setEnabled(true);
+        {
+            QWidget canvas;
+            canvas.resize(240, 160);
+            canvas.show();
+            app.processEvents();
+            Anim::pageAppear(&canvas, QColor(Qt::white));
+            auto *cover = canvas.findChild<QWidget *>(QStringLiteral("wtfmlPageCurtain"));
+            expect(cover && cover->testAttribute(Qt::WA_OpaquePaintEvent),
+                   "solid page curtain avoids repainting the covered page each frame");
+            Anim::pageAppear(&canvas, QColor(255, 255, 255, 80));
+            expect(cover && !cover->testAttribute(Qt::WA_OpaquePaintEvent),
+                   "translucent page curtain retains background composition");
+            QScrollBar bar(Qt::Vertical, &canvas);
+            bar.resize(16, 120);
+            bar.show();
+            app.processEvents();
+            Anim::scrollBarAppear(&bar);
+            expect(bar.graphicsEffect() != nullptr, "scrollbar fade starts normally");
+            // 模拟主线程错过整段动画，不应在恢复后重新补播全部帧。
+            QThread::msleep(Anim::scrollBarMs() + 40);
+            QElapsedTimer deadline;
+            deadline.start();
+            while (bar.graphicsEffect() && deadline.elapsed() < 100) {
+                app.processEvents(QEventLoop::AllEvents, 5);
+                QThread::msleep(1);
+            }
+            expect(bar.graphicsEffect() == nullptr,
+                   "delayed animation catches up to elapsed time instead of replaying missed frames");
+        }
+
         {
             QWidget canvas;
             canvas.resize(360,220);

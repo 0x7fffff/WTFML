@@ -5,6 +5,9 @@
  */
 
 #include <QApplication>
+#include <QElapsedTimer>
+#include <QPointer>
+#include <QThread>
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -28,6 +31,24 @@
 #include "settings/LauncherSettings.hpp"
 
 namespace {
+
+class TimingApplication final : public QApplication {
+public:
+    using QApplication::QApplication;
+    bool notify(QObject *receiver, QEvent *event) override {
+        if (QThread::currentThread() != thread()) return QApplication::notify(receiver, event);
+        const QPointer<QObject> guard(receiver);
+        const int kind = int(event->type());
+        QElapsedTimer elapsed;
+        elapsed.start();
+        const bool result = QApplication::notify(receiver, event);
+        const qint64 ms = elapsed.elapsed();
+        if (ms > 8) qInfo() << "[UI event]" << kind << ms << "ms"
+                           << (guard ? guard->metaObject()->className() : "deleted")
+                           << (guard ? guard->objectName() : QString());
+        return result;
+    }
+};
 
 /// 这一次启动的日志文件。**它开没开就是唯一那份状态**：没开 = 还早，先攒着（见下面那段
 /// NOTE）；开了 = 直接写进去。不另立一个 bool —— 两份状态迟早会不一致。
@@ -126,7 +147,7 @@ int main(int argc, char *argv[]) {
     // 都是纯 QtCore 的东西），所以提前是安全的。
     installFileLog();
 
-    QApplication app(argc, argv);
+    TimingApplication app(argc, argv);
     // 自检钩子：验证工程用不到注册表写权限（受限令牌），所以由产品进程自己跑一遍，
     // 只写 WTFML_ASSOC_CLASSES_ROOT 指的那个测试子键。
     if (app.arguments().contains(QStringLiteral("--assoc-self-test"))) {

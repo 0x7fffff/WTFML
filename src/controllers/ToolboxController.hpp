@@ -86,6 +86,8 @@ public:
     bool resumeDownloadTask(quint64 id);
 
 private:
+    /// 工具页只在首次打开时创建，避免未使用的控件参与主窗口首次布局。
+    void ensurePage();
     QHash<QString, QImage> m_bannerTextures;
     bool m_bannerTextureLoading = false;
     // ---------- 附魔顺序助手 ----------
@@ -127,6 +129,10 @@ private:
     QWidget *m_pageParent = nullptr;
     Host m_host;
     ToolboxPage *m_page = nullptr;
+    QImage m_playerSkin;
+    QImage m_playerCape;
+    bool m_playerSlim = false;
+    bool m_hasPlayerSkin = false;
     DirectDownloadController *m_directDownload = nullptr;
     ArmorTrimPreviewController *m_trimPreview = nullptr;
     ServerPing::Pinger *m_pinger = nullptr;

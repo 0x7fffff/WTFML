@@ -151,6 +151,9 @@ public:
      * 调用方把 nullptr 当"没开成"处理）。
      */
     QWidget *openPage(const QString &title, int ownerTab = -1);
+    /// 预构造内嵌控件时使用最终父容器；展示与收页仍须走 showPage()。
+    QWidget *pageContainer() const { return m_pageContent; }
+
 
     /**
      * @brief 打开一个"提示"：返回**内容容器**（摆在中间那张卡片里），四周变暗。
@@ -498,6 +501,7 @@ private:
 
     /// 被盖住、暂时按住的页（QPointer：页面被换掉时别留下悬空的）。
     QPointer<QWidget> m_disabledPage;
+    bool m_appFilterInstalled = false;
 
     QPointer<QWidget> m_promptBlockedWidget;
 
@@ -520,3 +524,4 @@ private:
     /// 也在"这一下会不会闪一下"这种事上赌运气。寄存到这儿就永远不会冒出来。
     QWidget *m_parking = nullptr;
 };
+

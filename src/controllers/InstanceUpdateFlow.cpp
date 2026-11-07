@@ -35,6 +35,9 @@
 #include <QComboBox>
 #include <QCompleter>
 #include <QDir>
+#include <QDirIterator>
+#include <QFutureWatcher>
+#include <QtConcurrent/QtConcurrentRun>
 #include <QFileInfo>
 #include <QHeaderView>
 #include <QLabel>
@@ -116,8 +119,10 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
     state->root = AppPaths::minecraftDir(); state->source = sourceId;
     // 目标 Java 主版本只问一次：模组的 Java 要求要和**真正会跑游戏的这份 Java** 比，
     // 而不是和"这个版本最低要哪一版"比。拿不到时记 0，评估层会把它写成"未确认"。
-    dialog->setProperty("upgradeRuntimeJavaMajor",
-                        GlobalJavaSettings::probeJavaMajorVersion(owner->m_javaSettings->javaPath()));
+    // 探 Java 要起 java.exe（没有 release 的运行时尤其慢）；打开设置时只记路径，
+    // 等真的做升级评估时再探（UpgradeAssessment 里）。
+    dialog->setProperty("upgradeRuntimeJavaPath", owner->m_javaSettings->javaPath());
+    dialog->setProperty("upgradeRuntimeJavaMajor", 0);
     const auto source = owner->m_versionManager->displayParts(sourceId);
     for (const auto &task : owner->m_activityCenter->tasks()->all()) state->firstTask = qMax(state->firstTask, task.id);
     auto *selectors = new QWidget(page);
@@ -310,26 +315,57 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
         inputs.sourceGameVersion = source.realVersion;
         inputs.sourceLoaderName = source.loaderName;
         inputs.sourceLoaderVersion = source.loaderVersion;
-        const TransferPlanner::Plan scanned = TransferPlanner::plan(inputs);
-        if (scanned.ok) {
+        struct CategoryStats {
+            bool ok = false;
             QHash<QString, QPair<int, qint64>> amounts;
-            for (const UpgradeSelection::Category &category : UpgradeSelection::categories()) {
-                const UpgradeSelection::Amounts one =
-                    UpgradeSelection::amounts(scanned.items, {category.key});
-                amounts.insert(category.key, {one.files, one.bytes});
-            }
-            upgradePage->setCategoryAmounts(amounts);
-            // 每一类里有多少链接：复制链路不跟随链接，有就在那一行先说出来。
             QHash<QString, int> links;
-            for (const UpgradeSelection::Category &category : UpgradeSelection::categories()) {
-                links.insert(category.key,
-                             UpgradeSelection::scanLinks(inputs.sourceDir,
-                                                         UpgradeSelection::rootsFor(category.key))
-                                 .count);
+        };
+        // 打开设置只挂接控件；磁盘遍历放到后台，且不捕获页面或控制器。
+        auto *watcher = new QFutureWatcher<CategoryStats>(dialog);
+        QObject::connect(watcher, &QFutureWatcher<CategoryStats>::finished, dialog,
+                         [watcher, upgradePage] {
+            const auto stats = watcher->result();
+            if (stats.ok) {
+                upgradePage->setCategoryAmounts(stats.amounts);
+                upgradePage->setCategoryLinks(stats.links);
             }
-            upgradePage->setCategoryLinks(links);
-        }
+            watcher->deleteLater();
+        });
+        watcher->setFuture(QtConcurrent::run([inputs] {
+            CategoryStats stats;
+            const auto scanned = TransferPlanner::plan(inputs);
+            stats.ok = scanned.ok;
+            if (!stats.ok) return stats;
+            for (const auto &category : UpgradeSelection::categories()) {
+                const auto one = UpgradeSelection::amounts(scanned.items, {category.key});
+                stats.amounts.insert(category.key, {one.files, one.bytes});
+            }
+            // 链接统计：一次走完整棵目录，按分类根前缀计数（原来九类各扫一遍=走九趟）。
+            QHash<QString, QStringList> rootsByCategory;
+            for (const auto &category : UpgradeSelection::categories())
+                rootsByCategory.insert(category.key, UpgradeSelection::rootsFor(category.key));
+            QDirIterator linkIt(inputs.sourceDir,
+                                QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System,
+                                QDirIterator::Subdirectories);
+            while (linkIt.hasNext()) {
+                linkIt.next();
+                const QFileInfo info = linkIt.fileInfo();
+                if (!info.isSymLink() && info.junctionTarget().isEmpty()) continue;
+                const QString relative = QDir(inputs.sourceDir).relativeFilePath(info.absoluteFilePath());
+                for (auto it = rootsByCategory.constBegin(); it != rootsByCategory.constEnd(); ++it) {
+                    for (const QString &root : it.value()) {
+                        const QString prefix = root.endsWith(QLatin1Char('/')) ? root : root + QLatin1Char('/');
+                        if (relative == root || relative.startsWith(prefix)) {
+                            ++stats.links[it.key()];
+                            break;
+                        }
+                    }
+                }
+            }
+            return stats;
+        }));
     }
+
     // 检查没结束之前，报告/确认先不能点（每 300ms 跟一次状态，检查一结束就恢复）。
     {
         auto *gate = new QTimer(dialog);
@@ -1196,6 +1232,7 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
         });
     populate();
 }
+
 
 
 

@@ -1,4 +1,6 @@
 #include "Support.hpp"
+#include <QElapsedTimer>
+#include <QThread>
 #include "controllers/InstanceFileController.hpp"
 void runInstanceFilesPagesTests() {
     const QString originalDir = AppPaths::minecraftDir();
@@ -1743,6 +1745,14 @@ void runInstanceFilesPagesTests() {
                     targetPicked = combo->count() > 0
                                    && !combo->currentData().toString().isEmpty()
                                    && combo->currentData().toString() != idV;
+                    // 计划在后台读取目录；保留结果断言，但不要求打开页面同步扫完整棵目录。
+                    QElapsedTimer previewWait;
+                    previewWait.start();
+                    while (!plan->toPlainText().contains(QStringLiteral("迁移计划："))
+                           && previewWait.elapsed() < 5000) {
+                        QApplication::processEvents(QEventLoop::AllEvents, 10);
+                        QThread::msleep(1);
+                    }
                     migrationPlanText = plan->toPlainText();
                     planFilled = migrationPlanText.contains(QStringLiteral("迁移计划："))
                                  && !migrationPlanText.contains(QStringLiteral("找不到源实例目录"));
@@ -1820,7 +1830,7 @@ void runInstanceFilesPagesTests() {
                   "★★ T20.14 目标列表里是别的版本（不含自己）"
                   "（空 = 控制器没把 installedVersions 喂给下拉框）");
             check(planFilled,
-                  "★★ T20.14 一进页计划正文就算好了（停在「正在准备计划…」= 那条线没接上）",
+                  "★★ T20.14 后台迁移计划在截止前生成完整正文",
                   migrationPlanText.left(160));
             check(checkboxDefaults,
                   "★★ T20.14 默认勾选落进了框里：存档勾着、日志不勾");

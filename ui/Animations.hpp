@@ -92,7 +92,7 @@ constexpr int rowAppearMs() { return 150; }
 /// 变了）原地落到真值上，见 `Anim::smoothProgress()`。
 constexpr int progressMs() { return 240; }
 
-/// 「一拍」是多少毫秒 —— **按帧走**的那几发（换页 / 覆盖层 / 滚动条）用它。
+/// 定时采样动画的间隔；进度按真实经过时间计算，不按采样次数累计。
 constexpr int stepMs() { return 16; }
 
 /// Page content begins faintly visible, then fades in over the upward transition.
@@ -199,10 +199,10 @@ bool installScrollBarAnimation(QApplication &app);
  * 列表」那一页（进页就自动测速，结果一个一个回来：行从一行字长成两行、favicon 补上、
  * 树跟着长高、滚动条冒出来）。现照现淡的话，**这一发淡的每一帧都不是同一张画面**，
  * 看着就是"动画卡卡的"。定住之后这一发只剩 blit，中途进来的
- * 数据照样落到控件上、只是要等它跑完才看得见（当前 `appearMs()` 是 180 ms）。
+ * 数据照样落到控件上、只是要等它跑完才看得见（时长由 `appearMs()` 决定）。
  *
- * NOTE: 照的时机是"第一帧真的画出来"那一刻 —— 换页那一刻先发的布局请求排在绘制请求
- * 前面（`UpdateRequest` 是低优先级），所以照到的是**已经摆好版**的那一页。
+ * NOTE: 快照在启动转场时同步生成；目标尺寸改变才重新采集。
+ * 实底幕布声明为不透明，动画每帧只重绘幕布，避免重复绘制已被完全遮住的页面。
  */
 void pageAppear(QWidget *widget);
 

@@ -13,7 +13,7 @@
 #include <QColor>
 #include <QDebug>
 #include <QEasingCurve>
-#include <QElapsedTimer>   // 步进器里那一位"上一拍是第几毫秒推的"（见 `runProgress()`）
+#include <QElapsedTimer>
 #include <QEvent>
 #include <QGraphicsEffect>
 #include <QKeyEvent>
@@ -62,8 +62,7 @@ constexpr const char kCurtainName[] = "wtfmlPageCurtain";
 constexpr const char kFilterMark[] = "wtfmlAnimPressFilter";
 /// 滚动条那一份过滤器装没装过的那一位（同上）。
 constexpr const char kScrollFilterMark[] = "wtfmlAnimScrollFilter";
-/// 「按帧走」那一发底下那个步进定时器的名字。认它就是"我们自己那个"（一个控件上可能
-/// 前后叠着好几发，重启一发时要能把上一发那个停掉）。
+/// 动画采样定时器的名字；同一控件重启动画时据此停止上一发。
 constexpr const char kStepperName[] = "wtfmlAnimStepper";
 /// 进度条上那一位"上一趟见到的 `maximum()`"（见 `Anim::smoothProgress()`）。
 /// 记在**进度条自己身上**：这一层没有实例、也不该为进度条另立一张表（那张表还得管生灭）。
@@ -242,6 +241,9 @@ public:
     void start(QWidget *target, const QColor &backdrop) {
         m_target = target;
         m_backdrop = backdrop;
+        // 实底由幕布整幅填满，不必每帧重新绘制下面被遮住的整页。
+        // 半透明底色仍需 Qt 合成下层，不能声明不透明。
+        setAttribute(Qt::WA_OpaquePaintEvent, backdrop.isValid() && backdrop.alpha() == 255);
         m_snapshot = QPixmap();   // 这一发重新照一张
         m_snapshotSize = QSize();
         if (target != nullptr && parentWidget() != nullptr) {
@@ -337,6 +339,9 @@ private:
                                : QRect(m_target->mapTo(grabSource, QPoint(0, 0)),
                                        m_target->size()));
         m_grabbing = true;
+        // 抓图时幕布不画自己，也不能遮挡下层的绘制，否则快照会留下空洞。
+        const bool opaque = testAttribute(Qt::WA_OpaquePaintEvent);
+        setAttribute(Qt::WA_OpaquePaintEvent, false);
         QElapsedTimer captureClock;
         captureClock.start();
         m_snapshot = grabSource->grab(inGrab);
@@ -344,6 +349,7 @@ private:
             qInfo() << "[UI timing] slow page snapshot" << m_target->metaObject()->className()
                     << inGrab.size() << captureClock.elapsed() << "ms";
         m_snapshotSize = m_target->size();
+        setAttribute(Qt::WA_OpaquePaintEvent, opaque);
         m_grabbing = false;
     }
 
@@ -356,17 +362,10 @@ private:
     bool m_grabbing = false;      ///< 正在照那一张（照的时候自己别画）。
 };
 
-/// 「按帧走」那一发的记账本（怎么走见 `runProgress()` 里那一大段）。定时器那个 lambda
-/// 攥着它（`QSharedPointer`），效果被摘掉时定时器跟着走、这本账也跟着走。
+/// 定时器只决定采样频率，动画进度始终按真实经过的时间推进。
 struct StepRun {
     QPointer<QVariantAnimation> animation;
-    int index = 0;   ///< 已经推了几档。
-    int steps = 1;   ///< 一共几档。
-    /// 跑完要干什么（摘效果 / 把幕布收起来）。空 = 什么都不做（比如"按下"那一发，手指还按着）。
-    std::function<void()> finish;
-    /// 这一发起跑那一刻 + 上一拍是第几毫秒推的（**只为了丢掉积压的那一拍**，见 `runProgress()`）。
     QElapsedTimer clock;
-    qint64 lastStepMs = -1;
 };
 
 /**
@@ -380,11 +379,8 @@ struct StepRun {
  * 控件；换页那几发是幕布自己）。
  * `finish`：跑完做的那一下（可能为空 = 不收尾）。
  *
- * `stepMs`：
- * * `> 0` —— **按帧走**：定时器每一拍推一档（"为什么"整段写在这个函数下半截）。
- * 换页 / 覆盖层 / 滚动条这三发走这条。
- * * `0` —— 按 Qt 自己的墙上时钟走。**按下 / 松手那两发走这条**：手指按着的时候那一档
- * 要立刻见、要一直挂着（按住不放可以是任意长），跟"一段固定时长的转场"不是一回事。
+ * `stepMs`：大于 0 时按指定周期采样真实经过时间；0 时使用 Qt 的动画时钟。
+ * 两条路径都以 `ms` 为时长，界面繁忙时跳过过期帧，不延长整段动画。
  *
  * **没有 `delayMs` 这种"起手先干等一段"的参数**：换页那一发也无需干等，
  * 起手直接淡，理由见 `Animations.hpp` 里 `appearMs()` 上面那段。
@@ -442,70 +438,32 @@ void runProgress(QObject *owner, QWidget *repaintTarget, qreal from, qreal to, i
         return;
     }
 
-    // ---------------------------------------------------------------------
-    // 按帧走
-    // ---------------------------------------------------------------------
-    //
-    // **不按墙上时钟算，每一拍推一档**。定时器摆在 `stepMs` 上，每响一次
-    // `index += 1`，再把动画时间戳摆到 `index / steps` 那一档去。迟到的第一拍于是只推
-    // 一档，而不是一口气跳到半路 —— **"第一拍什么时候来"不影响这一发走到哪儿**，
-    // 最多是起手多定住一两帧（那一段的观感由 `pageStartOpacity()` 与
-    // `pageRiseDistance()` 管着）。
-    //
-    // 补发那一拍会**和上一拍挤在一起**（离得太近）：那一拍原地丢掉，曲线用 `OutCubic`
-    // 保证每一拍之间的浓淡与位移都平滑。
-    //
-    // 【不走"单发链"（推完一档再 start 下一发），太拖】两拍之间确实至少隔一个
-    // `stepMs()` 了，可节拍也跟着变成"16 ms + 这一拍之后主线程还要干的活儿"，
-    // 总时长会翻倍。周期定时器那边节拍是稳的 16 ms 网格，**只有补发那一下会挤**。
-    //
-    // 所以：**周期 16 ms 不动**，只在"离上一拍太近"的那一拍上原地返回。
-    // 判据取 `stepMs() * 3 / 4`（12 ms）：正常那一拍是 16 ms 的网格（抖动 0~1 ms），
-    // 一定过得去；补发那一拍更近，一定被丢掉。丢掉的只是"多推一档"，
-    // 定时器还在跑 ⇒ 下一拍（16 ms 后）照常接上，这一发最多晚一个 `stepMs()` 结束。
-    //
-    // NOTE: 走这条路时 `finished` **不会**发（从来没 start 过），所以收尾那一下得由
-    // 步进器自己叫。
+    // 不能按 timeout 次数计步：主线程忙时 Qt 会合并定时器事件，
+    // 等够固定拍数会把短动画拖成长时间停顿。迟到的采样直接追到当前时间。
     auto state = QSharedPointer<StepRun>::create();
     state->animation = animation;
-    state->steps = qMax(1, qRound(qreal(animation->duration()) / stepMs));
-    state->finish = finish;
-
     auto *stepper = new QTimer(owner);
     stepper->setObjectName(QLatin1String(kStepperName));
     stepper->setTimerType(Qt::PreciseTimer);
     stepper->setInterval(stepMs);
-    //
-    // 补发那一拍落在 2~8 ms 上是常态，丢掉的正是"多推一档"。
-    QObject::connect(stepper, &QTimer::timeout, owner, [state, stepper, finishLater, stepMs]() {
-        const qint64 nowMs = state->clock.elapsed();
-        if (state->lastStepMs >= 0 && nowMs - state->lastStepMs < stepMs * 3 / 4) {
-            return;
-        }
-        state->lastStepMs = nowMs;
-        ++state->index;
+    QObject::connect(stepper, &QTimer::timeout, owner, [state, stepper, finishLater]() {
         QVariantAnimation *animation = state->animation.data();
-        if (animation == nullptr) {   // 拥有者已经被销毁了（定时器也快跟着走了）
+        if (animation == nullptr) {
             stepper->stop();
+            stepper->deleteLater();
             return;
         }
-        const bool last = state->index >= state->steps;
-        if (last) {
-            // 最后一拍**直接落到终点**：`steps * stepMs` 和时长不一定正好相等
-            // （例如 180 / 16 = 11 拍），余数不能让这一发停在 0.999 上。
-            animation->setCurrentTime(animation->duration());
-        } else {
-            animation->setCurrentTime(
-                qRound(qreal(state->index) * animation->duration() / state->steps));
-        }
-        if (!last) {
-            return;
-        }
+        const qint64 elapsed = state->clock.elapsed();
+        const int duration = animation->duration();
+        const int current = int(qMin(elapsed, qint64(duration)));
+        animation->setCurrentTime(current);
+        // valueChanged 可重入；应用这一帧时若页面已销毁，不再访问其定时器。
+        if (state->animation.isNull()) return;
+        if (current < duration) return;
         stepper->stop();
-        if (nowMs > animation->duration() * 3 / 2)
-            qInfo() << "[UI timing] stretched frame animation: expected" << animation->duration()
-                    << "ms, actual" << nowMs << "ms";
+        stepper->deleteLater();
         finishLater();
+        animation->deleteLater();
     });
     state->clock.start();
     stepper->start();
@@ -809,8 +767,7 @@ void scrollBarAppear(QWidget *bar) {
     // 和 `overlayAppear()` 是同一条路（**只淡、不抬**）：滚动条就贴在它自己那一格里，
     // "往下挪着画"没有任何意义，只会让它看着离开自己那条边线。
     effect->setOpacity(0.0);
-    // 按帧走（`stepMs()`）：它跟换页是**同一时刻**起来的（滚动条是那一页进页之后才露的
-    // 头），主线程忙的是同一件事 —— 按墙上时钟走的话它一样会"定住再跳"。
+    // 与页面转场共用真实时钟，迟到的绘制不会延长滚动条的淡入。
     runProgress(effect, bar, 0.0, 1.0, scrollBarMs(), stepMs(),
                 [w = QPointer<QWidget>(bar)]() { dropEffect(w); },
                 [effect](qreal progress) { effect->setOpacity(progress); });
@@ -944,9 +901,7 @@ void overlayAppear(QWidget *widget) {
         return;
     }
     effect->setOpacity(0.0);
-    // 按帧走（`stepMs()`）：它开页那一刻主线程也在忙（建页、第一遍画）。
-    // NOTE: 它起手仍是**全透明**（不是 `pageStartOpacity()`）—— 它是"从无到有"，
-    // 底下那层的观感问题跟换页不一样（见 `pageStartOpacity()` 那一节）。
+    // 覆盖层从全透明淡入；按真实经过时间收尾，避免建页的忙碌拖长转场。
     runProgress(effect, widget, 0.0, 1.0, overlayMs(), stepMs(),
                 [w = QPointer<QWidget>(widget)]() { dropEffect(w); },
                 [effect](qreal progress) { effect->setOpacity(progress); });
@@ -1026,8 +981,7 @@ void rowAppear(QWidget *row) {
     if (effect == nullptr) {
         return;
     }
-    // 起手全透明，一路淡到 1 —— 和滚动条那一发同一条路（`stepMs()`：这一趟往往正赶上
-    // 主线程在忙，按墙上时钟算进度的话第一拍会直接跳到半路）。
+    // 起手全透明，与滚动条共用按真实时间推进的淡入。
     effect->setOpacity(0.0);
     runProgress(effect, row, 0.0, 1.0, rowAppearMs(), stepMs(),
                 [w = QPointer<QWidget>(row)]() { dropEffect(w); },

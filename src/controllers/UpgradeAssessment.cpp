@@ -7,6 +7,7 @@
 #include "operations/ModVersionDeclaration.hpp"
 #include "operations/FabricVersionDeclaration.hpp"
 #include "util/ZipUtil.hpp"
+#include "settings/GlobalJavaSettings.hpp"
 #include <QCryptographicHash>
 #include <QDir>
 #include <QElapsedTimer>
@@ -1159,14 +1160,23 @@ void UpgradeAssessment::attach(InstanceSettingsDialog *dialog, VersionManager *v
         dialog->setProperty("upgradeAssessmentReading", true); render();
         dialog->setProperty("upgradeAssessmentQuerying", false);
         if (refresh) refresh->setEnabled(false);
-        auto *watcher = new QFutureWatcher<Scan>(dialog);
-        QObject::connect(watcher, &QFutureWatcher<Scan>::finished, dialog, [watcher, dialog, state, select, refresh] {
-            state->scan = watcher->result(); state->ready = true; state->target = QStringLiteral("@invalid");
+        auto *watcher = new QFutureWatcher<QPair<Scan, int>>(dialog);
+        QObject::connect(watcher, &QFutureWatcher<QPair<Scan, int>>::finished, dialog, [watcher, dialog, state, select, refresh] {
+            const auto result = watcher->result();
+            state->scan = result.first;
+            dialog->setProperty("upgradeRuntimeJavaMajor", result.second);
+            state->ready = true; state->target = QStringLiteral("@invalid");
             dialog->setProperty("upgradeAssessmentReading", false);
             if (refresh) refresh->setEnabled(true);
             select(QStringLiteral("upgrade"), dialog->transferTarget(QStringLiteral("upgrade"))); watcher->deleteLater();
         });
-        watcher->setFuture(QtConcurrent::run([root, sourceId, identityCache, stop] { return scan(root, sourceId, identityCache, stop); }));
+        const QString javaPath = dialog->property("upgradeRuntimeJavaPath").toString();
+        const int knownJavaMajor = dialog->property("upgradeRuntimeJavaMajor").toInt();
+        watcher->setFuture(QtConcurrent::run([root, sourceId, identityCache, stop, javaPath, knownJavaMajor] {
+            const int major = knownJavaMajor > 0 || javaPath.isEmpty()
+                ? knownJavaMajor : GlobalJavaSettings::probeJavaMajorVersion(javaPath);
+            return qMakePair(scan(root, sourceId, identityCache, stop), major);
+        }));
     };
     if (refresh) QObject::connect(refresh, &QPushButton::clicked, dialog, startScan);
     QObject::connect(dialog, &InstanceSettingsDialog::transferTargetChosen, dialog,
