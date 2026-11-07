@@ -1344,6 +1344,7 @@ void InstanceSettingsDialog::setFileUpdates(const QStringList &outdatedPaths, bo
     // 只有**开得了「可更新」那一格**的那几页接（判据逐字同构造里那一条：下载页里真有
     // 对应一栏的那四页）。别的页上那一格根本不在，喂给它只是让它白白记着一份用不上的
     // 名单（而有名单就会有"下一次刷新之后它还在"这类问题）。
+    ensureFilePage(QStringLiteral("mod"));
     for (auto it = m_filesPages.constBegin(); it != m_filesPages.constEnd(); ++it) {
         if (it.value() == nullptr || filesDownloadText(it.key()).isEmpty()) {
             continue;
@@ -1361,10 +1362,27 @@ void InstanceSettingsDialog::setFileIcon(const QString &path, const QPixmap &ico
             // "图标是异步回来的、这一条可能已经被删了"解释掉了 —— 什么都没有要做的。
             page->setIconForPath(path, icon);
         }
+    if (!m_filePageBuilders.isEmpty()) m_pendingFileIcons.insert(path, icon);
     }
 }
 
-InstanceFilesPage *InstanceSettingsDialog::filesPage(const QString &key) const {
+void InstanceSettingsDialog::ensureFilePage(const QString &key) {
+    if (m_filesPages.contains(key)) return;
+    const auto it = m_filePageBuilders.find(key);
+    if (it == m_filePageBuilders.end()) return;
+    const auto build = it.value();
+    m_filePageBuilders.erase(it);
+    build();
+    if (m_filePageBuilders.isEmpty()) {
+        m_pendingFileIcons.clear();
+        m_pendingFileResources.clear();
+        m_hasPendingUpdates = false;
+        m_pendingOutdatedPaths.clear();
+    }
+}
+
+InstanceFilesPage *InstanceSettingsDialog::filesPage(const QString &key) {
+    ensureFilePage(key);
     return m_filesPages.value(key);
 }
 
@@ -1384,6 +1402,7 @@ void InstanceSettingsDialog::setFileResource(const QString &path, const QString 
         // 认不出来了；这一趟的负结果得覆盖上一趟的正结果）。
         it.value()->setResourceForPath(path, tip);
     }
+    if (!m_filePageBuilders.isEmpty()) m_pendingFileResources.insert(path, tip);
 }
 
 // ---------- 概览栏那三行（见 .hpp 里 setIcon() 上面那一段）----------
@@ -1632,6 +1651,7 @@ void InstanceSettingsDialog::refreshIconRow() {
 
 void InstanceSettingsDialog::showPage(const QString &requestedKey) {
     const QString key = maintenancePageKey(requestedKey);
+    ensureFilePage(key);
     const int index = stackPageIndexOf(key);
     if (index < 0) {
         return;

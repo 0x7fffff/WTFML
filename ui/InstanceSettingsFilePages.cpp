@@ -160,6 +160,8 @@ void InstanceSettingsDialog::setupFilePages() {
                 target = listLayout;
             }
 
+            m_filePageBuilders.insert(key, [this, key, page, layout, listHost, target, resourceStack,
+                                            resourceMode, isConfig, isSave, isResourcePack]() {
             auto *files = new InstanceFilesPage(listHost);
             files->setObjectName(filesPageName(key));
             if (resourceMode) {
@@ -338,6 +340,14 @@ void InstanceSettingsDialog::setupFilePages() {
                 connect(m_resourcePackPage, &ResourcePackPage::refreshRequested,
                         this, &InstanceSettingsDialog::resourcePackPageEntered);
             }
+            if (!m_fileDirs.value(key).isEmpty()) files->setDirectory(m_fileDirs.value(key));
+            for (auto it = m_pendingFileIcons.constBegin(); it != m_pendingFileIcons.constEnd(); ++it)
+                files->setIconForPath(it.key(), it.value());
+            for (auto it = m_pendingFileResources.constBegin(); it != m_pendingFileResources.constEnd(); ++it)
+                files->setResourceForPath(it.key(), it.value());
+            if (m_hasPendingUpdates && key == QStringLiteral("mod"))
+                files->setUpdateResult(m_pendingOutdatedPaths, m_pendingUpdatesChecked);
+            });
         }
 
         // ③ 服务器列表：读 servers.dat 的结果由调用方递进来（这一层不 include src/）。

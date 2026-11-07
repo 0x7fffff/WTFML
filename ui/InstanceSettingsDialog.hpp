@@ -84,7 +84,10 @@ class InstanceSettingsDialog : public QDialog {
     Q_OBJECT
 
 public:
-    ResourcePackPage *resourcePackPage() const { return m_resourcePackPage; }
+    ResourcePackPage *resourcePackPage() const {
+        const_cast<InstanceSettingsDialog *>(this)->ensureFilePage(QStringLiteral("resourcepack"));
+        return m_resourcePackPage;
+    }
     /// 这个实例覆盖的那几项。没有值 = 跟随全局（空串也算有值，见 EffectiveJavaSettings.hpp）。
     ///
     /// NOTE: 「窗口模式」这一项存的是**代号字符串**（`windowMode` 那一格），不是枚举 ——
@@ -621,7 +624,7 @@ public:
     void setFileResource(const QString &path, const QString &title);
 
     /// 给验证工程用的访问器：某一页那个文件列表控件（键见 filePageKeys()）。
-    InstanceFilesPage *filesPage(const QString &key) const;
+    InstanceFilesPage *filesPage(const QString &key);
     QList<QWidget *> shortcutButtons() const { return m_shortcutButtons; }
     QTreeWidget *serverTree() const { return m_serverTree; }
     QLabel *serverNotice() const { return m_serverNotice; }
@@ -761,7 +764,10 @@ public:
     ///
     /// NOTE: 读它之前先确认这一页开着没有 —— 没开的话它一样在（构造时就建了），只是
     /// 没露脸。这和"资源详情页那一个对象建一次留着"是同一条规矩。
-    ConfigFileEditorPage *configFilePage() const { return m_configEditor; }
+    ConfigFileEditorPage *configFilePage() const {
+        const_cast<InstanceSettingsDialog *>(this)->ensureFilePage(QStringLiteral("config"));
+        return m_configEditor;
+    }
 
     /// 把编辑器切出来，并摆上这一份文件。
     /// @param path 绝对路径。
@@ -2133,6 +2139,13 @@ private:
     QHash<QString, QLabel *> m_lifecycleInfo;
     QHash<QString, QString> m_lifecycleInfoPath;
     QHash<QString, QTimer *> m_lifecycleInfoTimers;
+    QHash<QString, std::function<void()>> m_filePageBuilders;
+    QHash<QString, QPixmap> m_pendingFileIcons;
+    QHash<QString, QString> m_pendingFileResources;
+    QStringList m_pendingOutdatedPaths;
+    bool m_hasPendingUpdates = false;
+    bool m_pendingUpdatesChecked = false;
+    void ensureFilePage(const QString &key);
     /// 截图页的缩略图**排到事件循环之后再解**：一页 73 张 PNG 同步读会把点页面的那一下卡住。
     QStringList m_lifecycleThumbQueue;
     QTimer *m_lifecycleThumbTimer = nullptr;
@@ -2337,4 +2350,5 @@ private:
     /// 两种形态都由 refreshHints() 写进同一个 QLabel）。
     QHash<QString, QString> m_customHints;
 };
+
 
