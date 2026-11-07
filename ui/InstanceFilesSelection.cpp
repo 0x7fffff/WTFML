@@ -300,13 +300,19 @@ void InstanceFilesPage::updateSelectionBar() {
             .arg(disableCount).arg(enableCount));
         setEnabled(SelectionAction::ClearAll, count > 0);
         const bool targetVisible = show && !m_actionPanelDismissed;
+        // 先把右侧要让出的宽度摆好，再显示操作条：反过来的话列表会在显示之后
+        // 再变一次宽（横滚条跟着出现/消失），那条和里面的字看着就是被拽下去再弹回来。
         if (targetVisible != !m_selectionBar->isHidden()) {
-            Anim::layoutTransition(m_contentHost, [this, targetVisible] {
-                m_selectionBar->setVisible(targetVisible);
-                m_actionScroll->setVisible(targetVisible);
-                repositionSelectionBar();
-            }, targetVisible);
-        } else repositionSelectionBar();
+            if (m_contentHost->layout() != nullptr) {
+                const int panelWidth = qMin(240, m_contentHost->width());
+                m_contentHost->layout()->setContentsMargins(
+                    0, 0, targetVisible && m_contentHost->width() >= 740 ? panelWidth + 12 : 0, 0);
+                m_contentHost->layout()->activate();
+            }
+            m_selectionBar->setVisible(targetVisible);
+            m_actionScroll->setVisible(targetVisible);
+        }
+        repositionSelectionBar();
         return;
     }
     m_selectionBar->setVisible(show);
@@ -356,6 +362,9 @@ void InstanceFilesPage::repositionSelectionBar() {
     // kSelectionBarMargin**：PCL 那一条就在这个位置。
     // NOTE: 用 `sizeHint()` 而不是 `width()/height()`：它这会儿可能还没被 show 过
     // （geometry 是 0×0），而 sizeHint 是布局现算的，布局一算出来就是对的。
+    // 文本刚改过时 sizeHint 可能还没按新内容算 —— 先激活内部布局再量，
+    // 否则第一条那一下会先按旧高度摆一次、再被下一次重算拉回来。
+    if (m_selectionBar->layout() != nullptr) m_selectionBar->layout()->activate();
     const QSize hint = m_selectionBar->sizeHint();
     const int roomiest = qMax(0, viewport->width() - 2 * kSelectionBarMargin);
     const int width = roomiest > 0 ? qMin(hint.width(), roomiest) : hint.width();
