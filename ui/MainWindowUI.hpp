@@ -3168,7 +3168,7 @@ public:
     // NOTE: 那一格说的**不只是实例** —— 从服务端页起的服务端也在这台机器上跑着，
     // 用户看底栏时并不区分那是哪一页起的。所以服务端单跑时用下面那两句，
     // "没什么在跑"那一句也不再写死「实例」。
-    static QString runStateRunningText() { return QStringLiteral("实例运行中"); }
+    static QString runStateRunningText() { return QStringLiteral("运行中"); }
     /// 只有**服务端**在跑时第一行写什么（实例一个都没跑）。
     static QString runStateServerRunningText() { return QStringLiteral("服务端运行中"); }
     /// 一个实例、一个服务端都没在跑时那一行写什么。
@@ -3180,9 +3180,9 @@ public:
     /// NOTE: 这句话**不写死「实例」**：服务端也住在同一台机器上，说「暂无运行实例」会让
     /// 起了服务端的人以为那句在说"什么也没在跑"。字宽也只到 `bottomBarRunStateTextWidth()`
     /// 那一档（再长就被截成省略号）。
-    static QString runStateNotRunningText() { return QStringLiteral("暂无实例或服务端"); }
+    static QString runStateNotRunningText() { return QStringLiteral("未运行"); }
     /// 有实例异常退出、而且账上那一项还没处理掉时那一行写什么。
-    static QString runStateErrorText() { return QStringLiteral("有实例异常退出"); }
+    static QString runStateErrorText() { return QStringLiteral("异常退出"); }
     /// 正在启动时那一行：`<实例名>启动中...`。
     /// @param name 实例名。**不受「版本名格式」那四个开关影响**，由
     /// MainWindow::launchingStatusName() 走 VersionDisplay::launchStatusName() 算出来
@@ -3192,7 +3192,7 @@ public:
     /// 两句各有一个出处是刻意的：中间那格说的是"正在做的事"（跟下载/等待挤同一格），
     /// 这一句是左下角那格的**状态**（和红/绿两个状态同一处说话）。
     static QString runStateLaunchingText(const QString &name) {
-        return QCoreApplication::translate("MainWindowUI", "%1启动中...").arg(name);
+        return QCoreApplication::translate("MainWindowUI", "%1 启动中…").arg(name);
     }
     /// 两份以上在跑时第一行写什么。**一份时不用这一句**（那时是上面那句），
     /// 所以这个函数只接 count >= 2 的输入。
@@ -4029,4 +4029,7 @@ private:
     GroupActionHandler m_groupActionHandler;
     GroupPickHandler m_groupPickHandler;
 };
+
+
+
 

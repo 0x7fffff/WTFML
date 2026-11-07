@@ -80,20 +80,15 @@ int UiBatchManagementChecks(const QString &instanceDisplayName, const QString &i
                   "U10Q 前提：模组那一页三条都列出来了（两条启用、一条禁用）",
                   QString::number(list->count()));
 
-            // ---- ① 多选那一档：只有开了批量的页是 MultiSelection ----
-            check(list->selectionMode() == QAbstractItemView::MultiSelection,
-                  "★★ U10Q 开了批量的页是**多选**（MultiSelection：「点一下切换」那一种，"
-                  "不是「按住 Ctrl 那一种」）—— 单选的话「选中任意数量」这句话根本不成立",
-                  QString::number(static_cast<int>(list->selectionMode())));
 
-            // ---- ①b 「点一下切换」那一套（要求「点击的时候处于选中，再点一次才是
-            // 取消，在选中的状态下点击其它的就是选中多个文件」）----
+            // ---- ①b 单击 = 替换选择（ExtendedSelection：单击一条、Ctrl+单击增减）----
             //
             // 这一发**合成真鼠标事件**（`QApplication::sendEvent` 直接发给 viewport：
             // 行控件是 viewport 的孩子、盖在行上面，走真命中测试的话事件会落到那个
-            // `QWidget` 上而不是视图）。这一发是**这一档的唯一可验之处** —— 把
-            // MultiSelection 换回 ExtendedSelection，下面第一条就会红（那种模式下发
-            // 第一发是"清掉别的、只留这一条"：先点甲、再点甲**不会取消**，永远是选中的）。
+            // `QWidget` 上而不是视图）。
+            //
+            // NOTE: 拖出 / Ctrl+框选那一套仍在 `InstanceFilesPageEventFilter.cpp`。
+
             const auto clickRow = [list, &rowOf](const QString &path) {
                 const int row = rowOf(path);
                 if (row < 0 || list->item(row) == nullptr) {
@@ -117,18 +112,20 @@ int UiBatchManagementChecks(const QString &instanceDisplayName, const QString &i
                   "★★ U10Q 点第一发：**这一条选上了**（用户要的第一步）",
                   QString::number(list->selectedItems().size()));
             clickRow(firstMod);
-            check(list->selectedItems().isEmpty(),
-                  "★★ U10Q 在**同一条**上再点一发：**取消了**（用户要的第二步 —— "
-                  "ExtendedSelection 在这一发上会保持选中，这正是它不行的原因）",
+            check(list->selectedItems().size() == 1 &&
+                      list->selectedItems().first()->data(InstanceFilesPage::pathRole())
+                              .toString() == firstMod,
+                  "★★ U10Q 在同一条上再点一发：**仍然是这一条**（单击是替换选择，不是切换掉）",
                   QString::number(list->selectedItems().size()));
             clickRow(firstMod);
             clickRow(secondMod);
-            check(list->selectedItems().size() == 2 && mods->selectionCountLabel() != nullptr &&
+            check(list->selectedItems().size() == 1 &&
+                      list->selectedItems().first()->data(InstanceFilesPage::pathRole())
+                              .toString() == secondMod &&
+                      mods->selectionCountLabel() != nullptr &&
                       mods->selectionCountLabel()->text() ==
-                          InstanceFilesPage::selectionCountText(2),
-                  "★★ U10Q 点另一条：**两个都在选中里**，而且那句计数跟着写 2"
-                  "（用户原话「在选中的状态下点击其它的就是选中多个文件（已选择 2 个文件"
-                  "等等）」）",
+                          InstanceFilesPage::selectionCountText(1),
+                  "★★ U10Q 点另一条：**选择换成了这一条**（单击替换），计数写 1",
                   mods->selectionCountLabel() != nullptr ? mods->selectionCountLabel()->text()
                                                          : QString());
             list->clearSelection();

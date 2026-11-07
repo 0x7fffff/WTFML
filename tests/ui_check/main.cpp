@@ -1852,8 +1852,8 @@ int main(int argc, char *argv[]) {
         // 四句话**两两不同**是这一节的要点 —— 那句话本来就是为了让人一眼看出是哪个状态。
         // NOTE: 这一格**不只是实例** —— 服务端页起的服务端也在这台机器上跑着，所以
         // 「什么都没有」那句不写死「实例」，服务端单跑时另有自己的一句。
-        check(MainWindowUI::runStateNotRunningText() == QStringLiteral("暂无实例或服务端"),
-              "一个都没在跑时那句是「暂无实例或服务端」（服务端也算）："
+        check(MainWindowUI::runStateNotRunningText() == QStringLiteral("未运行"),
+              "一个都没在跑时那句是「未运行」（服务端也算）："
               "字宽还要落在 bottomBarRunStateTextWidth() 那一档里，再长就被截成省略号",
               MainWindowUI::runStateNotRunningText());
         check(MainWindowUI::runStateServerRunningText() == QStringLiteral("服务端运行中") &&
@@ -1878,17 +1878,17 @@ int main(int argc, char *argv[]) {
         // 第四句：「有实例异常退出」。要求就是这五个字。
         // NOTE: 这一句和「暂无实例或服务端」**必须**是两句 —— 红那一档说的是"出过事"，
         // 灰那一档说的是"没在跑"，两句混成一句的话用户根本分不出"要不要去看一眼"。
-        check(MainWindowUI::runStateErrorText() == QStringLiteral("有实例异常退出"),
-              "有实例异常退出时那句是「有实例异常退出」", MainWindowUI::runStateErrorText());
+        check(MainWindowUI::runStateErrorText() == QStringLiteral("异常退出"),
+              "异常退出时那句是「异常退出」", MainWindowUI::runStateErrorText());
         check(MainWindowUI::runStateErrorText() != MainWindowUI::runStateNotRunningText() &&
                   MainWindowUI::runStateErrorText() != MainWindowUI::runStateRunningText() &&
                   MainWindowUI::runStateErrorText() !=
                       MainWindowUI::runStateLaunchingText(QStringLiteral("X")),
-              "「有实例异常退出」和另外三句都不是同一句话");
+              "「异常退出」和另外三句都不是同一句话");
         // 启动中那句 = 名字 + 「启动中...」。名字**不由这里拼**（走 launchingStatusName()），
         // 这里只钉"名字被原样放进去了、后面缀的是那三个点"。
         check(MainWindowUI::runStateLaunchingText(QStringLiteral("我的整合包")) ==
-                  QStringLiteral("我的整合包启动中..."),
+                  QStringLiteral("我的整合包 启动中…"),
               "启动中那句 = 实例名 + 「启动中...」",
               MainWindowUI::runStateLaunchingText(QStringLiteral("我的整合包")));
         check(MainWindowUI::runStateLaunchingText(QStringLiteral("26.2-Fabric")) !=
@@ -3400,4 +3400,7 @@ int main(int argc, char *argv[]) {
     std::fflush(stdout);
     return g_fail == 0 ? 0 : 1;
 }
+
+
+
 

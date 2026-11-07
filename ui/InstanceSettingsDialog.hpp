@@ -1553,6 +1553,8 @@ public:
     }
 
 protected:
+    void showEvent(QShowEvent *event) override;
+
     /// 只为一件事装在这儿：**左栏那一列不许因为"拿到焦点"就自己挑一条**（见 .cpp 里
     /// 实现上面那一整段 —— 那是 Qt `focusInEvent()` 的一个兜底行为，会让用户按一下
     /// Tab、或者窗口重新激活就凭空翻一页）。
@@ -2145,6 +2147,9 @@ private:
     QHash<QString, QString> m_pendingFileResources;
     QStringList m_pendingOutdatedPaths;
     bool m_hasPendingUpdates = false;
+    /// 首次露面时播一次换页动画（同一个对话框只播一次）。
+    bool m_firstShowAnimated = false;
+    bool m_closing = false;
     bool m_pendingUpdatesChecked = false;
     void ensureFilePage(const QString &key);
     /// 截图页的缩略图**排到事件循环之后再解**：一页 73 张 PNG 同步读会把点页面的那一下卡住。
@@ -2351,5 +2356,8 @@ private:
     /// 两种形态都由 refreshHints() 写进同一个 QLabel）。
     QHash<QString, QString> m_customHints;
 };
+
+
+
 
 

@@ -833,6 +833,7 @@ void pageAppear(QWidget *widget, const QColor &backdrop) {
                 });
 }
 
+
 void cancelLayoutTransition(QWidget *surface) {
     if (surface == nullptr) return;
     for (auto *old : surface->findChildren<QWidget *>(QStringLiteral("wtfmlLayoutCurtain"), Qt::FindDirectChildrenOnly))

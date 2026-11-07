@@ -222,6 +222,7 @@ void pageAppear(QWidget *widget, const QColor &backdrop);
 /// 抬起来会在边上露出一条没盖住的缝。
 void overlayAppear(QWidget *widget);
 
+
 /// 原子地更新布局，再用前后合成快照过渡；不推迟真实状态、不拉伸控件。
 /// surface 内的 region 为空时使用整块区域。隐藏、缩放及连续切换会中止旧动画。
 void layoutTransition(QWidget *surface, const std::function<void()> &change,
@@ -289,3 +290,5 @@ constexpr int rowAppearLimit() { return 20; }
 void smoothProgress(QProgressBar *bar, int value);
 
 }  // namespace Anim
+
+

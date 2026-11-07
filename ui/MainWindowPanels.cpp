@@ -1391,12 +1391,22 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     // 但不放进可见布局。右下角是跨页面的轻量工具箱入口。
     accountButton->hide();
 
-    toolboxButton = new QPushButton(QStringLiteral("︿  工具箱"), bottomBar);
+    toolboxButton = new QPushButton(QStringLiteral("工具箱"), bottomBar);
     toolboxButton->setObjectName(toolboxButtonName());
     toolboxButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     toolboxButton->setCursor(Qt::PointingHandCursor);
     toolboxButton->setToolTip(QStringLiteral("展开或收起工具箱"));
     applyBottomBarButtonStyle(toolboxButton, bottomBar->palette());
+    // 箭头和任务摘要那一颗**同一个出处**（`VersionIcons::chevronUp`），不再用文字里的「︿」
+    // —— 那个字形和自绘箭头粗细对不上，两颗按钮并排时一眼能看出不是一套。
+    const auto applyToolboxChevron = [this]() {
+        const int size = MainWindowUI::bottomBarChevronSize();
+        toolboxButton->setIcon(QIcon(VersionIcons::chevronUp(
+            size, toolboxButton->palette().color(QPalette::WindowText))));
+        toolboxButton->setIconSize(QSize(size, size));
+    };
+    applyToolboxChevron();
+    Theme::follow(toolboxButton, applyToolboxChevron);
 
     // 那两颗按钮点开都是**向上**弹一块面板（像官启那样）。面板里画什么由 MainWindow 灌
     // （每次点开现问一遍，见 setBottomBarPanelContent()），这里只留"怎么弹、弹在哪、
@@ -2282,3 +2292,4 @@ void MainWindowUI::setRunPanelAvailable(bool available) {
     // 点不动的格子不该再挂着"点一下向上展开实例列表"（鼠标都到不了它身上，也弹不出来）。
     runStateButton->setToolTip(available ? MainWindowUI::bottomBarRunPanelTip() : QString());
 }
+

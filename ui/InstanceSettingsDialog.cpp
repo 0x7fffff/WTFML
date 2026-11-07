@@ -60,6 +60,7 @@
 #include <QStackedWidget>
 #include <QStandardPaths>
 #include <QTimer>
+#include <QShowEvent>
 #include <QToolButton>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
@@ -1654,6 +1655,20 @@ void InstanceSettingsDialog::refreshIconRow() {
     }
 }
 
+void InstanceSettingsDialog::showEvent(QShowEvent *event) {
+    QDialog::showEvent(event);
+    if (m_firstShowAnimated) return;
+    m_firstShowAnimated = true;
+    QWidget *page = m_stack != nullptr ? m_stack->currentWidget() : nullptr;
+    if (page == nullptr) return;
+    // 第一次露面（从「管理」列表点某个实例进来）也播一次换页动画：
+    // 之前只有「已经开着再换页」才有，第一次进来是硬切。
+    QTimer::singleShot(0, this, [this, page] {
+        if (!isVisible() || m_stack == nullptr || m_stack->currentWidget() != page) return;
+        Anim::pageAppear(page, page->palette().color(QPalette::Base));
+    });
+}
+
 void InstanceSettingsDialog::showPage(const QString &requestedKey) {
     const QString key = maintenancePageKey(requestedKey);
     ensureFilePage(key);
@@ -2130,5 +2145,7 @@ void InstanceSettingsDialog::notifyEdited() {
     m_lastSignature = now;
     emit settingsEdited();
 }
+
+
 
 

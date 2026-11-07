@@ -488,6 +488,11 @@ void OverlayHost::closeOverlay() {
         m_pageOwnerTab = -1;
         m_pageFocus = nullptr;
         applyVisibility();
+        // 收页也是“换页”：底下那一页按点选项卡那一套淡入 + 抬起，
+        // 不做“倒放”式的整页下落。
+        if (m_anchor != nullptr && m_anchor->isVisible()) {
+            Anim::pageAppear(m_anchor, m_anchor->palette().color(QPalette::Base));
+        }
         // 所有收页路都汇到这里，所以收页钩子只发这一处（见头文件那段）。
         emit pageClosed(closedPage);
         schedulePageDrain();
@@ -915,5 +920,6 @@ void OverlayHost::keyPressEvent(QKeyEvent *event) {
     }
     QWidget::keyPressEvent(event);
 }
+
 
 
