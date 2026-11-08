@@ -1657,6 +1657,12 @@ void InstanceSettingsDialog::refreshIconRow() {
 
 void InstanceSettingsDialog::showEvent(QShowEvent *event) {
     QDialog::showEvent(event);
+    // 任务中心关掉后重开这一页：背景不应该再播一次换页动画。
+    if (window() != nullptr && window()->property("wtfmlSuppressSettingsAppear").toBool()) {
+        window()->setProperty("wtfmlSuppressSettingsAppear", false);
+        m_firstShowAnimated = true;
+        return;
+    }
     if (m_firstShowAnimated) return;
     m_firstShowAnimated = true;
     QWidget *page = m_stack != nullptr ? m_stack->currentWidget() : nullptr;
@@ -2145,7 +2151,3 @@ void InstanceSettingsDialog::notifyEdited() {
     m_lastSignature = now;
     emit settingsEdited();
 }
-
-
-
-

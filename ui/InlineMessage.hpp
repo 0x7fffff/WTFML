@@ -161,12 +161,12 @@ public:
      *
      * 宽度**钉成 `OverlayHost::promptContentWidth()`**（和那几条同一条规矩）：卡片的高矮
      * 才算得准，而且"所有提示一样宽"这件事不会因为谁塞了一块宽东西就破掉 —— 塞宽了是
-     * **被卡片裁掉**，不是把卡片撑开。
+     * **被卡片裁掉**，不是把卡片撑开。选择器可显式指定 preferredWidth，窄窗口仍按可用宽度收缩。
      * NOTE: 只能插一块（再调一次就是换内容）。和 `setLineEdit()` 一样**不进 ctor**。
      * NOTE: 摆上去之后，这一块里**第一个 `QLineEdit`** 会拿到焦点（和 `setLineEdit()`
      * 那一条同一个理由、同一个时机，见 `showEvent()`）。
      */
-    QWidget *setContent(QWidget *content);
+    QWidget *setContent(QWidget *content, int preferredWidth = 0);
 
     /// 插进来的那一块（没插过就是 nullptr）。给验证工程用。
     QWidget *content() const { return m_content; }

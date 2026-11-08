@@ -35,6 +35,8 @@
 #include <QFileInfo>
 #include <QMimeData>
 #include <QRubberBand>
+#include <QSignalBlocker>
+#include <QTimer>
 #include <QUrl>
 #include <QWidget>
 
@@ -132,17 +134,17 @@ bool InstanceFilesPage::eventFilter(QObject *watched, QEvent *event) {
                 m_pressOnRow = !onButton && !path.isEmpty();
                 m_dragStarted = false;
                 m_ctrlDragActive = mouse->modifiers().testFlag(Qt::ControlModifier);
+                if (m_ctrlDragActive && m_list != nullptr) m_list->setAutoScroll(false);
                 m_bandToggledIdentities.clear();
                 m_pressSelection.clear();
                 for (const QListWidgetItem *selectedItem : m_list->selectedItems())
                     m_pressSelection.append(selectedItem->data(pathRole()).toString());
                 if (!m_pressPath.isEmpty()) m_bandToggledIdentities.insert(identityPath(m_pressPath));
-                // 按在"已经选中的多选行"上：这一发要吃掉，否则视图会先收缩成单条、
-                // 拖动时再画回来 —— 用户看到的就是"选中状态闪一下"。
+                // 已选行的普通点击延迟到 release：单选可取消，多选可收缩，拖拽则保留原选择。
                 bool pathSelected = false;
                 for (const QString &selectedPath : m_pressSelection)
                     if (selectedPath == path) pathSelected = true;
-                m_swallowPress = !onButton && pathSelected && m_pressSelection.size() > 1
+                m_swallowPress = !onButton && pathSelected && (m_batchMode || m_pressSelection.size() > 1)
                     && !(mouse->modifiers() & (Qt::ControlModifier | Qt::ShiftModifier));
                 if (m_swallowPress) {
                     if (QListWidgetItem *pressedItem = m_list->itemAt(pos))
@@ -165,9 +167,19 @@ bool InstanceFilesPage::eventFilter(QObject *watched, QEvent *event) {
                 if (!m_dragStarted && intent != DragIntent::None) {
                     m_dragStarted = true;
                     if (intent == DragIntent::ToggleSelection) updateToggleBand(pos, true);
-                    else beginFileDrag();
+                    else {
+                        beginFileDrag();
+                        // 原生拖放返回后，这一发 move 已经过期，不能再让视图据此重新拖选。
+                        event->accept();
+                        return true;
+                    }
                 } else if (m_dragStarted && m_ctrlDragActive) {
                     updateToggleBand(pos, false);
+                }
+                // 自定义取反框选已处理这一帧，不能再交给 Qt 的默认拖选改变选择与滚动。
+                if (m_dragStarted && m_ctrlDragActive) {
+                    event->accept();
+                    return true;
                 }
                 break;
             }
@@ -177,22 +189,43 @@ bool InstanceFilesPage::eventFilter(QObject *watched, QEvent *event) {
                     m_toggleBand->deleteLater();
                     m_toggleBand = nullptr;
                 }
+                const bool wasBandDrag = m_ctrlDragActive;
+                if (m_list != nullptr) m_list->setAutoScroll(true);
                 const bool dragged = m_dragStarted;
-                // 没拖出去 = 一次普通点击：这时才把多选收缩成按下的那一条。
-                if (m_swallowPress && !dragged && !m_pressPath.isEmpty()) {
-                    const QSignalBlocker blocker(m_list);
-                    m_list->clearSelection();
-                    for (int row = 0; row < m_list->count(); ++row) {
-                        QListWidgetItem *item = m_list->item(row);
-                        if (item != nullptr && item->data(pathRole()).toString() == m_pressPath)
-                            item->setSelected(true);
+                const bool handledClick = m_swallowPress && !dragged && !m_pressPath.isEmpty();
+                if (handledClick) {
+                    {
+                        const QSignalBlocker blocker(m_list);
+                        m_list->clearSelection();
+                        if (m_pressSelection.size() > 1) {
+                            for (int row = 0; row < m_list->count(); ++row) {
+                                QListWidgetItem *item = m_list->item(row);
+                                if (item != nullptr && item->data(pathRole()).toString() == m_pressPath)
+                                    item->setSelected(true);
+                            }
+                        }
                     }
+                    syncSelectedPaths();
+                    updateSelectionBar();
+                    updateInfoPanel();
+                    updateJoinEnabled();
                 }
                 m_dragStarted = false;
                 m_ctrlDragActive = false;
                 m_pressOnRow = false;
                 m_bandToggledIdentities.clear();
+                if (wasBandDrag && m_list != nullptr) {
+                    QTimer::singleShot(0, this, [this] {
+                        if (m_list == nullptr) return;
+                        rebuildRows();
+                        m_list->viewport()->update();
+                    });
+                }
                 m_swallowPress = false;
+                if (handledClick) {
+                    event->accept();
+                    return true;
+                }
                 break;
             }
             default:
@@ -228,11 +261,57 @@ void InstanceFilesPage::beginFileDrag() {
     qInfo() << "[drag] start urls=" << urls.size() << "press=" << m_pressPath;
 
     if (urls.isEmpty()) return;
+    const QStringList selectionBeforeDrag = m_pressSelection;
     auto *mime = new QMimeData;
     mime->setUrls(urls);
     auto *drag = new QDrag(this);
+    // 原生拖放有自己的事件循环；保留列表重绘，避免鼠标未释放时露出空白行。
+    const bool autoScroll = m_list->hasAutoScroll();
+    m_list->setAutoScroll(false);
     drag->setMimeData(mime);
     drag->exec(Qt::CopyAction);
+    m_list->setAutoScroll(autoScroll);
+    {
+        const QSignalBlocker blocker(m_list);
+        const QSet<QString> selectedPaths(selectionBeforeDrag.cbegin(), selectionBeforeDrag.cend());
+        for (int i = 0; i < m_list->count(); ++i) {
+            QListWidgetItem *item = m_list->item(i);
+            item->setSelected(selectedPaths.contains(item->data(pathRole()).toString()));
+        }
+    }
+    syncSelectedPaths();
+    updateSelectionBar();
+    updateInfoPanel();
+    updateJoinEnabled();
+    // 原生拖放可能吞掉 release；在这里清理按下状态，避免下一次点击沿用旧选择。
+    m_swallowPress = false;
+    m_dragStarted = false;
+    m_ctrlDragActive = false;
+    m_pressOnRow = false;
+    m_pressSelection.clear();
+    m_pressPath.clear();
+    if (m_toggleBand != nullptr) {
+        m_toggleBand->hide();
+        m_toggleBand->deleteLater();
+        m_toggleBand = nullptr;
+    }
+    qInfo() << "[drag] end count=" << m_list->count()
+            << "current=" << m_list->currentRow() << "selected=" << m_list->selectedItems().size()
+            << "listVis=" << m_list->isVisible() << "vpVis=" << m_list->viewport()->isVisible()
+            << "vp=" << m_list->viewport()->size()
+            << "item0=" << (m_list->item(0) != nullptr
+                                ? m_list->visualItemRect(m_list->item(0))
+                                : QRect())
+            << "row0=" << (m_list->itemWidget(m_list->item(0)) != nullptr
+                               ? m_list->itemWidget(m_list->item(0))->geometry()
+                               : QRect())
+            << "row0Vis=" << (m_list->itemWidget(m_list->item(0)) != nullptr
+                                  && m_list->itemWidget(m_list->item(0))->isVisible());
+    if (m_list != nullptr) {
+        // 不要 doItemsLayout()：它会按滚动位置 0 重排，把行控件和当前滚动位置错开，
+        // 屏幕上就是“有些行在、有些行空着”。让 Qt 自己按当前滚动位置收敛即可。
+        m_list->viewport()->update();
+    }
 }
 
 void InstanceFilesPage::updateToggleBand(const QPoint &viewportPos, bool firstUpdate) {
@@ -242,16 +321,29 @@ void InstanceFilesPage::updateToggleBand(const QPoint &viewportPos, bool firstUp
         m_toggleBand->setGeometry(QRect(m_pressViewportPos, QSize()));
         m_toggleBand->show();
     }
+    // 一行只切换一次：滑回来**不恢复**（用户要的是“碰到过就算改过”）。
     const QRect rect = QRect(m_pressViewportPos, viewportPos).normalized();
     m_toggleBand->setGeometry(rect);
+    // 但每帧都把已经切换过的行强制摆回切换后的状态 —— 否则滚动/自动滚动之类的
+    // 视图动作会把最远那一条又选回去。
+    const QSignalBlocker selectionSignals(m_list);
     for (int row = 0; row < m_list->count(); ++row) {
         QListWidgetItem *item = m_list->item(row);
-        if (item == nullptr || !m_list->visualItemRect(item).intersects(rect)) continue;
-        const QString identity = identityPath(item->data(pathRole()).toString());
-        if (m_bandToggledIdentities.contains(identity)) continue;
-        m_bandToggledIdentities.insert(identity);
-        item->setSelected(!item->isSelected());
+        if (item == nullptr) continue;
+        const QString path = item->data(pathRole()).toString();
+        const QString identity = identityPath(path);
+        if (m_list->visualItemRect(item).intersects(rect) &&
+            !m_bandToggledIdentities.contains(identity)) {
+            m_bandToggledIdentities.insert(identity);
+        }
+        if (m_bandToggledIdentities.contains(identity)) {
+            const bool originallySelected = m_pressSelection.contains(path);
+            item->setSelected(!originallySelected);
+        }
     }
+    m_actionPanelDismissed = false;
+    syncSelectedPaths();
+    updateSelectionBar();
+    updateInfoPanel();
+    updateJoinEnabled();
 }
-
-

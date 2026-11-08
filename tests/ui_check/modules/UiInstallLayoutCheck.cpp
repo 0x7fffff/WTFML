@@ -147,13 +147,97 @@ int UiInstallLayoutCheck(QApplication &app) {
             const auto metadata=metadataEditor.document().value("sections").toArray().first().toObject();
             expect(metadata.value("mode")=="replace"&&metadata.value("items").toArray().first().toObject().value("extra")=="retained","editing preserves existing section policy and item metadata");
             PresetInstallPicker picker;
-            PresetInstallPicker::Category game;game.key="gameSettings";game.title="Game";game.options.append({"game-child","Composite",true,true});
-            PresetInstallPicker::Category mods;mods.key="mods";mods.title="Mods";mods.options.append({"mod-child","Composite",true,true});
-            picker.setCategories({game,mods});picker.setComposites({{"parent","Composite",{{"gameSettings","game-child"},{"mods","mod-child"}}}});
-            picker.findChild<QComboBox *>("presetCompositeCombo")->setCurrentIndex(1);
+            picker.setContext("1.21.1", "Fabric");
+            PresetInstallPicker::Category game;game.key="gameSettings";game.title="游戏设置";game.options.append({"game-child","日常配置",true,true});
+            PresetInstallPicker::Category mods;mods.key="mods";mods.title="模组";mods.options.append({"mod-child","日常配置",true,true}); mods.options.append({"mod-other","建筑辅助",true,false});
+            PresetInstallPicker::Category packCategory; packCategory.key="resourcePacks"; packCategory.title="资源包";
+            PresetInstallPicker::Category dataCategory; dataCategory.key="dataPacks"; dataCategory.title="数据包";
+            PresetInstallPicker::Category shaderCategory; shaderCategory.key="shaderPacks"; shaderCategory.title="光影包";
+            picker.setCategories({game,mods,packCategory,dataCategory,shaderCategory});picker.setComposites({{"parent","日常配置",{{"gameSettings","game-child"},{"mods","mod-child"}}}});
+            picker.findChild<QListWidget *>("presetCompositeList")->setCurrentRow(0);
             expect(picker.selectedId("gameSettings")=="game-child"&&picker.selectedId("mods")=="mod-child","composite selection maps to independent category parts");
             picker.findChild<QCheckBox *>("presetCompositePart_mods")->setChecked(false);
             expect(picker.selectedId("mods").isEmpty()&&picker.selectedId("gameSettings")=="game-child","unchecking a composite part leaves other parts selected");
+            auto *modChoices = picker.findChild<QListWidget *>(PresetInstallPicker::listName(1));
+            expect(modChoices && modChoices->count() == 3 &&
+                   modChoices->selectionMode() == QAbstractItemView::SingleSelection,
+                   "preset categories use a visible single-choice list including none");
+            if (modChoices) {
+                modChoices->setCurrentRow(1);
+                expect(picker.selectedId("mods") == "mod-child", "list choice updates the applied category part");
+                picker.setStatus("mods", "缺失 2 项", {"Required mod is missing"}, true, 8);
+                expect(modChoices->currentItem()->toolTip().contains("Required mod"),
+                       "preset compatibility reasons stay attached to the selected row");
+                modChoices->setCurrentRow(0);
+                expect(picker.selectedId("mods").isEmpty(), "none row explicitly clears the category selection");
+            }
+            picker.setComposites({{"parent","日常配置",{{"gameSettings","game-child"},{"mods","mod-child"}}}});
+            expect(picker.findChildren<QWidget *>("presetCompositePicker").size() == 1,
+                   "refreshing composite choices replaces the previous panel");
+            picker.setCurrentTab(1);
+            if (modChoices) {
+                modChoices->setCurrentRow(1);
+                picker.setStatus("mods", "缺失 2 项", {"一个必要模组没有适配版本", "一个可选模组没有适配版本"}, true, 8);
+                picker.resize(740, 440);
+                picker.show();
+                app.processEvents();
+                picker.findChild<QPushButton *>(PresetInstallPicker::reasonsButtonName(1))->click();
+                app.processEvents();
+                auto *details = picker.findChild<QDialog *>("presetCompatibilityDetails");
+                expect(details && details->isVisible() && details->isWindow(),
+                       "preset compatibility details open in an independent window");
+                if (details) details->close();
+                auto *navigation = picker.findChild<QListWidget *>(PresetInstallPicker::tabBarName());
+                expect(navigation && navigation->count() == 6 && picker.findChild<QWidget *>("presetInstallSummary"),
+                       "preset picker has six sidebar categories and a fixed source summary");
+                const QString capture = qEnvironmentVariable("WTFML_PRESET_PICKER_PREVIEW");
+                if (!capture.isEmpty()) {
+                    picker.findChild<QListWidget *>("presetCompositeList")->setCurrentRow(0);
+                    app.processEvents();
+                    expect(picker.grab().save(capture), "preset picker preview saved");
+                }
+                modChoices->setCurrentRow(2);
+                expect(picker.selectedId("mods") == "mod-child" &&
+                       picker.findChild<QWidget *>("presetReplacementPrompt")->isVisible(),
+                       "replacing a category waits for explicit confirmation");
+                picker.findChild<QPushButton *>("presetReplaceCancel")->click();
+                expect(picker.selectedId("mods") == "mod-child", "cancelled replacement preserves original source");
+                modChoices->setCurrentRow(2);
+                picker.findChild<QPushButton *>("presetReplaceConfirm")->click();
+                expect(picker.selectedId("mods") == "mod-other" && picker.selectedId("gameSettings") == "game-child",
+                       "confirmed mod replacement preserves other category sources");
+                auto *source = picker.findChild<QLabel *>("presetSource_mods");
+                expect(source && source->text().contains("建筑辅助"), "summary reflects the final per-category source");
+                picker.findChild<QCheckBox *>("presetCompositePart_gameSettings")->setChecked(false);
+                expect(picker.selectedId("mods") == "mod-other", "unchecking another composite part preserves independently replaced mods");
+                picker.setContext("1.21.1", QString());
+                expect(picker.selectedId("mods").isEmpty() &&
+                       !(modChoices->item(1)->flags() & Qt::ItemIsEnabled),
+                       "vanilla context clears and disables mod presets");
+                picker.findChild<QListWidget *>("presetCompositeList")->setCurrentRow(0);
+                expect(picker.selectedId("mods").isEmpty() &&
+                       !picker.findChild<QCheckBox *>("presetCompositePart_mods")->isEnabled(),
+                       "composite preset cannot bypass the mod loader requirement");
+
+            }
+        }
+        {
+            QJsonObject shader{{"id", "legacy-shader"}, {"kind", "genericFiles"},
+                {"items", QJsonArray{QJsonObject{{"path", "shaderpacks/example.zip"}}}}};
+            QJsonObject pack{{"id", "legacy-pack"}, {"kind", "genericFiles"},
+                {"items", QJsonArray{QJsonObject{{"path", "resourcepacks/example.zip"}}}}};
+            PresetEditorPage legacy(QJsonObject{{"name", "Legacy"},
+                {"sections", QJsonArray{pack, shader}},
+                {"enabledParts", QJsonObject{{"resourcePacks", false}}}});
+            auto *shaders = legacy.findChild<QTableWidget *>("presetEditorFiles_shaderPacks");
+            auto *packs = legacy.findChild<QTableWidget *>("presetEditorFiles_resourcePacks");
+            auto *enabled = legacy.findChild<QCheckBox *>("presetEditorEnabled_shaderPacks");
+            expect(shaders && packs && shaders->rowCount() == 1 && packs->rowCount() == 1,
+                   "editor separates legacy shader files from resource pack rows");
+            expect(enabled && !enabled->isChecked(), "legacy disabled resource content does not silently enable shaders");
+            if (enabled) enabled->setChecked(true);
+            expect(legacy.document().value("enabledParts").toObject().value("shaderPacks").toBool(),
+                   "shader preset section can be enabled independently");
         }
         {
             PresetOptionsEditor detailed({}, nullptr, PresetOptionsEditor::Mode::Options);

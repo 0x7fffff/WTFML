@@ -308,26 +308,18 @@ int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStac
                         return;
                     }
                     pickerSeen = true;
-                    const auto *context =
-                        picker->findChild<QLabel *>(PresetInstallPicker::contextLabelName());
-                    contextOk = context != nullptr &&
-                                context->text().contains(kPickedId);
-                    auto *tabs = picker->findChild<QTabBar *>(PresetInstallPicker::tabBarName());
-                    const QList<PresetController::InstallCategory> categories =
-                        PresetController::installCategories();
-                    tabsSeen = tabs != nullptr ? tabs->count() : -1;
-                    tabsOk = tabs != nullptr && tabs->count() == categories.size() &&
-                             categories.size() == 4;
-                    if (tabsOk) {
-                        for (int i = 0; i < categories.size(); ++i) {
-                            tabsOk = tabsOk && tabs->tabText(i) == categories.at(i).title;
-                        }
-                    }
+                    contextOk = picker->accessibleDescription().contains(kPickedId);
+                    auto *tabs = picker->findChild<QListWidget *>(PresetInstallPicker::tabBarName());
+                    const auto categories = PresetController::installCategories();
+                    tabsSeen = tabs ? tabs->count() : -1;
+                    tabsOk = tabs && tabsSeen == categories.size() + 1 && categories.size() == 5;
+                    if (tabsOk) for (int i = 0; i < categories.size(); ++i)
+                        tabsOk &= tabs->item(i)->text().startsWith(categories[i].title);
                     auto *stack = picker->findChild<QStackedWidget *>();
                     firstPageOk = stack != nullptr && stack->currentIndex() == 0;
                     // 「四类切换」：点第 2 页签，正文那一层得跟着翻。
                     if (tabs != nullptr && stack != nullptr && tabs->count() > 2) {
-                        tabs->setCurrentIndex(2);
+                        tabs->setCurrentRow(2);
                         QApplication::processEvents();
                         switchOk = stack->currentIndex() == 2;
                     }
@@ -347,9 +339,9 @@ int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStac
                       "★★ 点「预设」那一行开的是中间那块紧凑弹窗（不是另开一页）",
                       pickerNote);
                 check(contextOk,
-                      "★ 弹窗顶上写清了这一份基于哪个版本（安装上下文没丢）");
-                check(tabsOk && tabsSeen == 4,
-                      "★★ 弹窗里四类各一页：游戏设置 / 模组 / 资源包 / 数据包（四类切换）",
+                      "★ 预设弹窗保留安装检查上下文");
+                check(tabsOk && tabsSeen == 6,
+                      "★★ 预设弹窗包含五类内容和综合预设导航",
                       QStringLiteral("页签 %1").arg(tabsSeen));
                 check(firstPageOk, "★ 弹窗默认停在第一类（游戏设置）");
                 check(switchOk, "★ 点第二个页签，正文跟着翻到第二类");

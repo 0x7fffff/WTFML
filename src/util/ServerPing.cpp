@@ -648,18 +648,18 @@ QByteArray decodeFavicon(const QString &dataUrl) {
 QString connectionErrorText(int socketError) {
     switch (static_cast<QAbstractSocket::SocketError>(socketError)) {
     case QAbstractSocket::ConnectionRefusedError:
-        return QStringLiteral("没有回应（对面没开，或者端口不对）");
+        return QStringLiteral("连接被拒绝");
     case QAbstractSocket::HostNotFoundError:
-        return QStringLiteral("找不到这台主机（域名是不是拼错了）");
+        return QStringLiteral("找不到主机");
     case QAbstractSocket::SocketTimeoutError:
     case QAbstractSocket::NetworkError:
-        return QStringLiteral("超时（网络不通）");
+        return QStringLiteral("连接超时");
     case QAbstractSocket::RemoteHostClosedError:
-        return QStringLiteral("对面把连接断了");
+        return QStringLiteral("连接已断开");
     case QAbstractSocket::SocketAccessError:
-        return QStringLiteral("本机不让连（防火墙或者权限）");
+        return QStringLiteral("连接受限");
     default:
-        return QStringLiteral("连不上");
+        return QStringLiteral("连接失败");
     }
 }
 

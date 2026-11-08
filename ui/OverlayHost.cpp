@@ -488,11 +488,6 @@ void OverlayHost::closeOverlay() {
         m_pageOwnerTab = -1;
         m_pageFocus = nullptr;
         applyVisibility();
-        // 收页也是“换页”：底下那一页按点选项卡那一套淡入 + 抬起，
-        // 不做“倒放”式的整页下落。
-        if (m_anchor != nullptr && m_anchor->isVisible()) {
-            Anim::pageAppear(m_anchor, m_anchor->palette().color(QPalette::Base));
-        }
         // 所有收页路都汇到这里，所以收页钩子只发这一处（见头文件那段）。
         emit pageClosed(closedPage);
         schedulePageDrain();
@@ -626,7 +621,12 @@ void OverlayHost::relayout() {
     }
     // 宽度**恒定**、只夹高度：所有提示一样宽，不允许出现尺寸不一样的弹窗。
     // 窄一点就成了另一种弹窗，矮一点只是内容滚。
-    const int width = qMin(promptWidth(), qMax(0, this->width() - 2 * promptMargin()));
+    int preferredWidth = promptWidth();
+    if (m_promptContentLayout && m_promptContentLayout->count() > 0) {
+        if (QWidget *content = m_promptContentLayout->itemAt(0)->widget())
+            preferredWidth = qBound(promptWidth(), content->property("wtfmlPromptWidth").toInt(), 1000);
+    }
+    const int width = qMin(preferredWidth, qMax(0, this->width() - 2 * promptMargin()));
     const int available = qMax(0, height() - 2 * promptMargin());
     const int wanted = qMin(m_promptCard->sizeHint().height(), available);
     // 一样就不动：这一条是**防循环**的 —— 改尺寸会让卡片里那套布局重算，而重算又会

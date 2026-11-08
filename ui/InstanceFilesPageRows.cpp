@@ -42,6 +42,8 @@
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QPalette>
+#include <QPainter>
+#include <QPersistentModelIndex>
 #include <QPixmap>
 #include <QSignalBlocker>
 #include <QSizePolicy>
@@ -52,6 +54,27 @@
 using namespace InstanceFilesPageInternals;
 
 namespace {
+
+/// setItemWidget 的行自己铺底，避免拖选时视图重画选中底覆盖透明子控件。
+class FileRowSurface final : public QWidget {
+public:
+    FileRowSurface(QListWidget *list, const QModelIndex &index)
+        : QWidget(list), m_list(list), m_index(index) {
+        setAutoFillBackground(true);
+        setBackgroundRole(QPalette::Base);
+    }
+protected:
+    void paintEvent(QPaintEvent *) override {
+        QPainter painter(this);
+        const QColor base = m_list->palette().color(QPalette::Base);
+        const bool selected = m_index.isValid() && m_list->selectionModel()->isSelected(m_index);
+        painter.fillRect(rect(), selected ? Theme::selectionFill(base) : base);
+        if (selected) Theme::paintSelectionRail(&painter, rect());
+    }
+private:
+    QListWidget *m_list;
+    QPersistentModelIndex m_index;
+};
 
 /// 比正文字号小一档 —— **行里那第二行小字**专用的（现在只有「大小 / 时间」在用）。
 ///
@@ -326,7 +349,7 @@ void InstanceFilesPage::rebuildRows() {
 
 QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &path, bool isDir,
                                     bool isDisabled, qint64 size, const QDateTime &modified) {
-    auto *row = new QWidget(m_list);
+    auto *row = new FileRowSurface(m_list, m_list->model()->index(m_list->count() - 1, 0));
     row->setProperty(rowPathProperty(), path);
     row->installEventFilter(this);
     auto *layout = new QHBoxLayout(row);

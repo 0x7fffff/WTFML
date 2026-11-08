@@ -295,12 +295,12 @@ void runServerPingTests() {
 
     {
         check(ServerPing::connectionErrorText(QAbstractSocket::ConnectionRefusedError)
-                  .contains(QStringLiteral("没有回应")),
-              "ZH5 连接被拒 = 「没有回应（对面没开，或者端口不对）」",
+                  .contains(QStringLiteral("连接被拒绝")),
+              "ZH5 连接被拒 = 「连接被拒绝」",
               ServerPing::connectionErrorText(QAbstractSocket::ConnectionRefusedError));
         check(ServerPing::connectionErrorText(QAbstractSocket::HostNotFoundError)
                   .contains(QStringLiteral("找不到")),
-              "ZH5 域名解析不了 = 「找不到这台主机」",
+              "ZH5 域名解析不了 = 「找不到主机」",
               ServerPing::connectionErrorText(QAbstractSocket::HostNotFoundError));
         check(ServerPing::connectionErrorText(QAbstractSocket::SocketTimeoutError)
                   .contains(QStringLiteral("超时")) &&
@@ -308,14 +308,14 @@ void runServerPingTests() {
                       .contains(QStringLiteral("超时")),
               "ZH5 超时和网络错误合一句");
         check(ServerPing::connectionErrorText(QAbstractSocket::RemoteHostClosedError)
-                  .contains(QStringLiteral("断了")),
-              "ZH5 对面挂了 = 「对面把连接断了」");
+                  .contains(QStringLiteral("断开")),
+              "ZH5 对面挂了 = 「连接已断开」");
         check(ServerPing::connectionErrorText(QAbstractSocket::SocketAccessError)
-                  .contains(QStringLiteral("防火墙")),
-              "ZH5 本机不让连 = 「本机不让连（防火墙或者权限）」");
+                  .contains(QStringLiteral("受限")),
+              "ZH5 本机不让连 = 「连接受限」");
         check(ServerPing::connectionErrorText(QAbstractSocket::UnknownSocketError) ==
-                  QStringLiteral("连不上"),
-              "ZH5 认不出来的错兜到一句「连不上」");
+                  QStringLiteral("连接失败"),
+              "ZH5 认不出来的错兜到一句「连接失败」");
 
         // 这一条钉的是"我们没有走到 Qt 的 errorString() 上"：那是 Qt 翻译文件里的英文
         // 句子，而我们的部署**不带**那些 .qm 文件（--no-translations），真机上会是一句
@@ -530,14 +530,14 @@ void runServerPingTests() {
         check(!refused.ok, "ZH7 对面没开 = 没通",
               QStringLiteral("「%1」，用了 %2 ms").arg(refused.error).arg(refusedMs));
         // 这一条**只**钉"报的是一句人话"：这台机器上连一个没人听的端口回来的是「超时」而
-        // 不是「没有回应」（连接请求像是被本机的某个过滤器吃掉而不是被回了一个 RST，所以
+        // 不是「连接被拒绝」（连接请求像是被本机的某个过滤器吃掉而不是被回了一个 RST，所以
         // 等满了那 4 秒）。两句都是人话，产品这一侧要保证的是"不是 ok、也不是一句英文"；
-        // 具体哪个 socket 错误翻哪句话，由 ZH5 那张表逐条钉。写成非「没有回应」不可的话，
+        // 具体哪个 socket 错误翻哪句话，由 ZH5 那张表逐条钉。写成非「连接被拒绝」不可的话，
         // 换一台机器跑就是红的，而那不是回归。
-        check(refused.error.contains(QStringLiteral("没有回应")) ||
+        check(refused.error.contains(QStringLiteral("连接被拒绝")) ||
                   refused.error.contains(QStringLiteral("超时")) ||
-                  refused.error.contains(QStringLiteral("断了")),
-              "ZH7 报出来的是一句人话（没有回应 / 超时 / 对面把连接断了）",
+                  refused.error.contains(QStringLiteral("断开")),
+              "ZH7 报出来的是一句人话（连接被拒绝 / 超时 / 连接已断开）",
               QStringLiteral("「%1」").arg(refused.error));
         // `timedOut` 那一位和那句话**说的是同一件事**（界面上就是照这一位把那一格缩成
         // 「超时」两个字的，见 ServerRowStatus::timedOut）。这一台机器上"连一个刚放开的

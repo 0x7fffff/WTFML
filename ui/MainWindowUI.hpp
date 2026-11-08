@@ -1883,6 +1883,11 @@ public:
     /// 任务中心那块面板开着的话，把里面的内容重画一遍（**没开着就什么都不做** ——
     /// 下一次 `popUp()` 自己会重建）。`MainWindow` 在"任务变了"之后喊一声。
     void refreshTaskCenterPanel();
+
+    /// 任务中心要挤掉当前覆盖页之前叫一声（让外部记住原来那一页是谁）。
+    void setPageEvictedForTaskCenterHandler(std::function<void()> handler) {
+        m_pageEvictedForTaskCenter = std::move(handler);
+    }
     /// 那两颗按钮点开之后**向上**弹出来的那块面板。名字挂在这里是为了让验证工程
     /// 能按 objectName 把它找回来量几何（它是个 Qt::Popup 窗口，父子关系照旧）。
     static QString bottomBarPanelName() { return QStringLiteral("bottomBarPanel"); }
@@ -4010,6 +4015,9 @@ private:
     /// 「点开面板时去哪要那几行」和「行尾的按钮被点了」。由 MainWindow 在构造时装进来
     /// （见 setBottomBarPanelContent()）—— 界面这一头**不查数据**，只画。
     PanelRowsProvider m_panelRowsProvider;
+    std::function<void()> m_pageEvictedForTaskCenter;
+    bool m_taskCenterSkipTransition = false;
+    bool m_taskCenterOpenWithoutTransition = false;
     PanelActionHandler m_panelActionHandler;
     /// 任务中心那两块：**去哪要那几行**（见 setTaskCenterContent()）。
     TaskCenter::ItemProvider m_taskCenterProvider;
@@ -4029,7 +4037,3 @@ private:
     GroupActionHandler m_groupActionHandler;
     GroupPickHandler m_groupPickHandler;
 };
-
-
-
-

@@ -28,6 +28,7 @@
 #include <QFile>
 #include <QJsonObject>
 #include <QLabel>
+#include <QPushButton>
 #include <QLineEdit>
 #include <QMap>
 #include <QSignalBlocker>
@@ -530,6 +531,10 @@ QList<QPair<QString, QString>> InstallPageController::currentPresetSelections() 
         if (m_presetChoices.contains(category.key)) {
             id = m_presetChoices.value(category.key);
         } else if (m_owner.m_presetController != nullptr) {
+            VersionManager::LoaderKind defaultLoader;
+            if (category.key == QStringLiteral("mods") &&
+                (!VersionManager::loaderKindFromIndex(selectedLoader(), &defaultLoader) ||
+                 defaultLoader == VersionManager::LoaderKind::OptiFine)) continue;
             if (!defaultsLoaded) {
                 defaults = m_owner.m_presetController->categoryDefaultsInEffect();
                 defaultsLoaded = true;
@@ -589,15 +594,15 @@ void InstallPageController::openPresetPicker() {
             out.problem = true;
             return out;
         }
-        QString text = MainWindow::tr("会动 %1 项").arg(preview.itemCount);
+        QString text = MainWindow::tr("应用 %1 项").arg(preview.itemCount);
         if (preview.skippedCount > 0) {
             text += MainWindow::tr("，跳过 %1 项").arg(preview.skippedCount);
         }
         if (preview.blockedCount > 0) {
-            text += MainWindow::tr("，%1 段做不了").arg(preview.blockedCount);
+            text += MainWindow::tr("，%1 部分不可用").arg(preview.blockedCount);
         }
         if (preview.needsConfirm) {
-            text += MainWindow::tr("，有一段「覆盖」要先确认");
+            text += MainWindow::tr("，需确认覆盖");
         }
         out.status = text;
         out.reasons = preview.reasons;
@@ -623,7 +628,8 @@ void InstallPageController::openPresetPicker() {
         category.key = one.key;
         category.title = one.title;
         for (const Presets::PresetSummary &preset : pickerData.optionsFor(one.key)) {
-            category.options.append({preset.id, preset.name, true, !preset.componentCategories.isEmpty()});
+            category.options.append({preset.id, preset.name, true, !preset.componentCategories.isEmpty(),
+                                     preset.itemCount, QIcon(preset.iconPath)});
         }
         const bool userChose = draft.contains(one.key);
         category.selectedId = userChose ? draft.value(one.key) : defaults.value(one.key);
@@ -683,6 +689,9 @@ void InstallPageController::openPresetPicker() {
         if (choice.summary.componentCategories.isEmpty() || !choice.componentsLoaded) continue;
         PresetInstallPicker::Composite option; option.id=choice.summary.id; option.name=choice.summary.name;
         option.parts = choice.components;
+        option.icon = QIcon(choice.summary.iconPath);
+        option.itemCount = choice.summary.itemCount;
+        option.counts = choice.summary.componentItemCounts;
         composites.append(option);
     }
     picker->setComposites(composites);
@@ -692,8 +701,12 @@ void InstallPageController::openPresetPicker() {
                          {MainWindowUI::installPresetConfirmText(),
                           MainWindowUI::installPresetCancelText()},
                          0, -1, &m_owner);
-    box.setContent(picker);  // box 接管它（弹窗析构时一起 delete）
-    box.setNote(MainWindow::tr("取消不会改动这里已经选好的预设；装好之后按这里选的那几类应用。"));
+    box.setContent(picker, 800);  // box 接管它（弹窗析构时一起 delete）
+
+    QObject::connect(picker, &PresetInstallPicker::pendingChanged, &box, [&box](bool pending) {
+        if (auto *confirm = box.findChild<QPushButton *>(InlineMessageBox::buttonName(0)))
+            confirm->setEnabled(!pending);
+    });
 
     // 兼容检查那几行：一条引用一行（匹配的不列，只说有问题的 + 暂无法确认的）。
     const auto modCompatReasons = [](const QList<Presets::CompatibilityResult> &results) {
@@ -743,7 +756,8 @@ void InstallPageController::openPresetPicker() {
                          const bool problem = update.summary.requiredMissing > 0 ||
                                               update.summary.invalid > 0;
                          picker->setStatus(modsCategoryKey, update.summary.text(),
-                                           modCompatReasons(update.results), problem);
+                                           modCompatReasons(update.results), problem, update.summary.total,
+                                           update.summary.missing, update.summary.unknown + update.summary.invalid);
                      });
     // 弹窗一关就作废这一代（在途请求的回调按 generation 丢掉，不再擦已经关掉的那几行）。
     QObject::connect(&box, &QObject::destroyed, m_owner.m_presetController,
@@ -776,13 +790,7 @@ void InstallPageController::openPresetPicker() {
 
     // 打开时已经选着的那一份（用户选的或这一类的默认）：立刻开查
     // （本地能判的那几条同步就出来，其余排队）。
-    QString initialModsPreset;
-    for (const PresetInstallPicker::Category &category : categories) {
-        if (category.key == modsCategoryKey) {
-            initialModsPreset = category.selectedId;
-            break;
-        }
-    }
+    const QString initialModsPreset = picker->selectedId(modsCategoryKey);
     if (!initialModsPreset.isEmpty()) {
         m_owner.m_presetController->startModCheck(initialModsPreset, gameVersion(),
                                           pickerLoaderName, true);
@@ -866,6 +874,19 @@ void InstallPageController::installClicked() {
             return;
         }
         m_owner.appendLog(MainWindow::tr("开始校验 %1 的文件（已存在的会跳过）...").arg(name));
+    }
+
+    const bool supportsMods = withLoader && (kind == VersionManager::LoaderKind::Fabric ||
+        kind == VersionManager::LoaderKind::Forge || kind == VersionManager::LoaderKind::NeoForge ||
+        kind == VersionManager::LoaderKind::Quilt);
+    if (!supportsMods) {
+        for (const auto &choice : currentPresetSelections()) {
+            if (choice.first == QStringLiteral("mods")) {
+                InlineMessage::warning(m_owner.m_ui->overlay(), MainWindow::tr("需要模组加载器"),
+                    MainWindow::tr("请先选择模组加载器，或取消模组预设。"));
+                return;
+            }
+        }
     }
 
     // ---- 实例预设：带着走的那几份先把计划摊开 ----

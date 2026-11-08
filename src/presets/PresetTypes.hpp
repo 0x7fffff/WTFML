@@ -36,6 +36,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QList>
+#include <QMap>
 #include <QString>
 #include <QStringList>
 #include <QUuid>
@@ -90,9 +91,8 @@ enum class ApplyMode {
 
 /// 一份预设**属于哪一类**。
 ///
-/// 四类独立创建、展示和管理；**不保存"跨类总预设"**。旧版本写的那些混合 manifest
-/// 读回来落进 `Unset`（界面上叫「旧版（混合）」）—— 它们照样能看、能用、能提取，只是
-/// 新建的那一档必须从四类里挑一个。
+/// 单类别预设独立管理；综合预设通过内部投影引用各类别。旧版混合 manifest
+/// 保持 `Unset`，不会因新增类别而自动拆分或改写。
 ///
 /// 这一位是**加在 v1 上的可选字段**，没有动 `schemaVersion`：旧启动器读到新的 manifest
 /// 只会无视 `category`（照旧当混合预设处理），不会因为"版本比认识的新"整份拒绝。
@@ -102,8 +102,9 @@ enum class PresetCategory {
     Unset,         ///< 没写类别（旧版混合预设 / 从旧预设复制出来的）
     GameSettings,  ///< 游戏设置：选项、按键、热键，以及 config 一类高级内容
     Mods,          ///< 模组
-    ResourcePacks, ///< 资源包（含光影包）
+    ResourcePacks, ///< 资源包；兼容旧格式中一并保存的光影包
     DataPacks,     ///< 数据包（世界级）
+    ShaderPacks,   ///< 独立光影包
 };
 
 inline QString presetCategoryKey(PresetCategory category) {
@@ -118,6 +119,8 @@ inline QString presetCategoryKey(PresetCategory category) {
         return QStringLiteral("resourcePacks");
     case PresetCategory::DataPacks:
         return QStringLiteral("dataPacks");
+    case PresetCategory::ShaderPacks:
+        return QStringLiteral("shaderPacks");
     }
     return QString();
 }
@@ -142,6 +145,9 @@ inline PresetCategory presetCategoryFromKey(const QString &key, bool *ok = nullp
     }
     if (key == QLatin1String("dataPacks")) {
         return PresetCategory::DataPacks;
+    }
+    if (key == QLatin1String("shaderPacks")) {
+        return PresetCategory::ShaderPacks;
     }
     if (ok != nullptr) {
         *ok = false;
@@ -452,6 +458,9 @@ struct PresetSummary {
     QString description;
     QDateTime updatedAt;
     int sectionCount = 0;
+    /// 仅计运行时有效内容：各段 items 与模组引用总数，不统计已停用的编辑内容。
+    int itemCount = 0;
+    QMap<QString, int> componentItemCounts;
     /// 这一份属于哪一类（`Unset` = 旧版混合预设，界面另作标注）。
     PresetCategory category = PresetCategory::Unset;
     /// 是不是那个唯一的默认项。

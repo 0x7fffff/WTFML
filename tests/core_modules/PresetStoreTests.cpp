@@ -3,6 +3,96 @@
 
 void runPresetStoreTests() {
     {
+        QTemporaryDir shaderScratch;
+        const QString packSource = shaderScratch.filePath(QStringLiteral("source.zip"));
+        QFile file(packSource);
+        const bool sourceReady = file.open(QIODevice::WriteOnly) && file.write("pack-fixture") == 12;
+        file.close();
+        check(sourceReady, "Shader preset source fixture created");
+        if (sourceReady) {
+            const QString shaderRoot = shaderScratch.filePath(QStringLiteral("presets"));
+            const auto fileSection = [&](const QString &folder) {
+                return QJsonObject{{"id", Presets::sectionIdFor(Presets::SectionKind::GenericFiles, folder)},
+                    {"kind", "genericFiles"}, {"mode", "copyIfMissing"},
+                    {"items", QJsonArray{QJsonObject{{"path", folder + "/source.zip"}, {"_source", packSource}}}}};
+            };
+            QJsonObject document{{"id", Presets::newPresetId()}, {"name", "Resource and shader"},
+                {"sections", QJsonArray{fileSection("resourcepacks"), fileSection("shaderpacks")}}};
+            const auto saved = Presets::saveEditorDocument(shaderRoot, document, false);
+            const auto components = saved.manifest.editorState.value("components").toObject();
+            check(saved.ok && components.contains("resourcePacks") && components.contains("shaderPacks")
+                      && components.size() == 2,
+                  "Publishing resources and shaders creates two independent private components", saved.problem);
+            if (saved.ok) {
+                const auto firstListing = Presets::list(shaderRoot);
+                const auto secondListing = Presets::list(shaderRoot);
+                check(firstListing.size() == 1 && secondListing.size() == 1 &&
+                          firstListing.first().itemCount == 2 && secondListing.first().itemCount == 2 &&
+                          firstListing.first().componentItemCounts.value("resourcePacks") == 1 &&
+                          firstListing.first().componentItemCounts.value("shaderPacks") == 1,
+                      "Preset summaries count runtime items and each resource category without rescanning files");
+                bool shaderOk = false, resourceOk = false;
+                const auto shader = Presets::loadManifest(shaderRoot, components.value("shaderPacks").toString(), &shaderOk);
+                const auto resource = Presets::loadManifest(shaderRoot, components.value("resourcePacks").toString(), &resourceOk);
+                check(shaderOk && shader.category == Presets::PresetCategory::ShaderPacks && shader.sections.size() == 1
+                          && resourceOk && resource.category == Presets::PresetCategory::ResourcePacks && resource.sections.size() == 1,
+                      "Shader and resource component payloads never include the other category");
+                auto legacy = saved.manifest;
+                legacy.id = Presets::newPresetId();
+                legacy.category = Presets::PresetCategory::ResourcePacks;
+                legacy.editorState = {};
+                const bool legacySaved = Presets::saveManifest(shaderRoot, legacy);
+                QFile legacyFile(Presets::manifestPath(shaderRoot, legacy.id));
+                const bool legacyOpened = legacyFile.open(QIODevice::ReadOnly);
+                const QByteArray before = legacyOpened ? legacyFile.readAll() : QByteArray();
+                legacyFile.close();
+                bool legacyLoaded = false;
+                const auto loaded = Presets::loadManifest(shaderRoot, legacy.id, &legacyLoaded);
+                const bool legacyReopened = legacyFile.open(QIODevice::ReadOnly);
+                const QByteArray after = legacyReopened ? legacyFile.readAll() : QByteArray();
+                legacyFile.close();
+                check(legacySaved && legacyOpened && legacyReopened && legacyLoaded && loaded.sections.size() == 2 && before == after,
+                      "Legacy resource presets containing shaders remain readable and unchanged on disk");
+                auto legacyComposite = saved.manifest;
+                legacyComposite.id = Presets::newPresetId();
+                legacyComposite.editorState["components"] = QJsonObject{{"resourcePacks", legacy.id}};
+                const bool legacyCompositeSaved = Presets::saveManifest(shaderRoot, legacyComposite);
+                bool legacyCountMatches = false;
+                for (const auto &summary : Presets::list(shaderRoot)) {
+                    if (summary.id == legacyComposite.id)
+                        legacyCountMatches = summary.itemCount == 2 &&
+                            summary.componentItemCounts.value("resourcePacks") == 2 &&
+                            !summary.componentItemCounts.contains("shaderPacks");
+                }
+                check(legacyCompositeSaved && legacyCountMatches,
+                      "Legacy combined resource projection keeps both resource and shader items in its summary");
+                auto oldEditor = document;
+                oldEditor["id"] = Presets::newPresetId();
+                oldEditor["sections"] = QJsonArray{fileSection("shaderpacks"),
+                    QJsonObject{{"id", "vanillaOptions"}, {"kind", "vanillaOptions"},
+                        {"items", QJsonArray{QJsonObject{{"key", "guiScale"}, {"value", "2"}}}}}};
+                oldEditor["enabledParts"] = QJsonObject{{"resourcePacks", false}};
+                const auto disabled = Presets::saveEditorDocument(shaderRoot, oldEditor, false);
+                check(disabled.ok && disabled.manifest.category == Presets::PresetCategory::GameSettings
+                          && disabled.manifest.sections.size() == 1,
+                      "Old resource toggle does not reactivate previously disabled shaders", disabled.problem);
+                Presets::PresetManifest disabledLegacy;
+                disabledLegacy.id = Presets::newPresetId();
+                disabledLegacy.name = "Disabled legacy shader";
+                disabledLegacy.editorState = oldEditor;
+                const auto migratedEditor = Presets::editorDocument(disabledLegacy);
+                check(migratedEditor.value("enabledParts").toObject().value("shaderPacks") == QJsonValue(false),
+                      "Opening a legacy editor document preserves the disabled shader state");
+                oldEditor["id"] = Presets::newPresetId();
+                oldEditor["enabledParts"] = QJsonObject{{"resourcePacks", false}, {"shaderPacks", true}, {"gameSettings", false}};
+                const auto independent = Presets::saveEditorDocument(shaderRoot, oldEditor, false);
+                check(independent.ok && independent.manifest.category == Presets::PresetCategory::ShaderPacks
+                          && independent.manifest.sections.size() == 1,
+                      "Explicit shader toggle is independent from resources and saves a shader preset", independent.problem);
+            }
+        }
+    }
+    {
         QTemporaryDir dir;
         QJsonObject doc{{"id",Presets::newPresetId()},{"name",QStringLiteral("常用")}};
         auto empty=Presets::saveEditorDocument(dir.path(),doc,false);
@@ -406,7 +496,8 @@ void runPresetStoreTests() {
     bool categoryRoundTrip = true;
     for (Presets::PresetCategory category :
          {Presets::PresetCategory::GameSettings, Presets::PresetCategory::Mods,
-          Presets::PresetCategory::ResourcePacks, Presets::PresetCategory::DataPacks}) {
+          Presets::PresetCategory::ResourcePacks, Presets::PresetCategory::DataPacks,
+          Presets::PresetCategory::ShaderPacks}) {
         categoryRoundTrip =
             categoryRoundTrip
             && Presets::presetCategoryFromKey(Presets::presetCategoryKey(category)) == category;
@@ -416,7 +507,7 @@ void runPresetStoreTests() {
         Presets::presetCategoryFromKey(QStringLiteral("futureCategory"), &unknownCategoryOk);
     check(categoryRoundTrip
               && Presets::presetCategoryKey(Presets::PresetCategory::Unset).isEmpty(),
-          "★ PA4b 四类：枚举 → 词 → 枚举一格不差；`Unset`（旧数据）**不写下去**（空串）");
+          "★ PA4b 五类：枚举 → 词 → 枚举一格不差；`Unset`（旧数据）**不写下去**（空串）");
     check(!unknownCategoryOk && unknownCategory == Presets::PresetCategory::Unset,
           "★★ PA4b 以后版本写的类别词 ⇒ ok=false（读不懂那一类的载荷，不能猜着当成混合预设）");
 
@@ -498,6 +589,13 @@ void runPresetStoreTests() {
               && !Presets::sectionFitsCategory(Cat::ResourcePacks, configSection),
           "★★ PA4b 「资源包」= resourcepacks/ + shaderpacks/（光影跟资源包同一摊文件），"
           "别的一概不收");
+    check(Presets::sectionFitsCategory(Cat::ShaderPacks, shaderPacksSection)
+              && !Presets::sectionFitsCategory(Cat::ShaderPacks, resourcePacksSection)
+              && !Presets::sectionFitsCategory(Cat::ShaderPacks, optionsSection),
+          "Independent shader presets accept only shader file sections");
+    check(Presets::editorSectionPart(shaderPacksSection) == QStringLiteral("shaderPacks")
+              && Presets::editorSectionPart(resourcePacksSection) == QStringLiteral("resourcePacks"),
+          "Editor classifies resource and shader sections separately even when empty");
     check(Presets::sectionFitsCategory(Cat::Mods, customSection)
               && Presets::sectionFitsCategory(Cat::DataPacks, customSection)
               && !Presets::sectionFitsCategory(Cat::Mods, optionsSection)
@@ -1096,18 +1194,21 @@ void runPresetStoreTests() {
         entry.insert(QStringLiteral("description"), QString());
         entry.insert(QStringLiteral("updatedAt"), QString());
         entry.insert(QStringLiteral("sections"), 0);
+        entry.insert(QStringLiteral("items"), 9);
+        entry.insert(QStringLiteral("componentItems"), QJsonObject{{"mods", 9}});
         entry.insert(QStringLiteral("category"), QString());
         entry.insert(QStringLiteral("components"), QJsonArray());
         entry.insert(QStringLiteral("icon"), QString());
         const QJsonObject cacheDoc{
             {QStringLiteral("format"), QStringLiteral("wtfml.preset-summaries")},
-            {QStringLiteral("version"), 1},
+            {QStringLiteral("version"), 2},
             {QStringLiteral("entries"), QJsonArray{entry}}};
         writeFileAt(cachePath, QJsonDocument(cacheDoc).toJson(QJsonDocument::Compact));
         QList<Presets::BrokenPreset> brokenCached;
         const QList<Presets::PresetSummary> fromDisk = Presets::list(cachedRoot, &brokenCached);
         check(fromDisk.size() == 1 && brokenCached.isEmpty()
-                  && fromDisk.at(0).name == QStringLiteral("盘上摘要"),
+                  && fromDisk.at(0).name == QStringLiteral("盘上摘要")
+                  && fromDisk.at(0).itemCount == 9 && fromDisk.at(0).componentItemCounts.value("mods") == 9,
               "★★ PA15 下一次启动第一趟直接吃盘上那份摘要（manifest 坏着也没去读 —— "
               "字节数/时刻对得上就当没变）",
               fromDisk.isEmpty() ? QStringLiteral("（一份都没列出来）") : fromDisk.at(0).name);
@@ -1139,12 +1240,14 @@ void runPresetStoreTests() {
         stale.insert(QStringLiteral("description"), QString());
         stale.insert(QStringLiteral("updatedAt"), QString());
         stale.insert(QStringLiteral("sections"), 0);
+        stale.insert(QStringLiteral("items"), 0);
+        stale.insert(QStringLiteral("componentItems"), QJsonObject());
         stale.insert(QStringLiteral("category"), QString());
         stale.insert(QStringLiteral("components"), QJsonArray());
         stale.insert(QStringLiteral("icon"), QString());
         writeFileAt(cachePath, QJsonDocument(QJsonObject{
                                      {QStringLiteral("format"), QStringLiteral("wtfml.preset-summaries")},
-                                     {QStringLiteral("version"), 1},
+                                     {QStringLiteral("version"), 2},
                                      {QStringLiteral("entries"), QJsonArray{stale}}})
                                  .toJson(QJsonDocument::Compact));
         bool sawRenamed = false;
@@ -1156,11 +1259,22 @@ void runPresetStoreTests() {
         check(sawRenamed,
               "★★ PA15 本进程写过的那一份不被盘上摘要顶掉（大小/时刻撞上也只认新读的）");
 
+        Presets::forgetSummaryCache(cachedRoot);
+        writeFileAt(cachePath, QJsonDocument(QJsonObject{
+            {QStringLiteral("format"), QStringLiteral("wtfml.preset-summaries")},
+            {QStringLiteral("version"), 1},
+            {QStringLiteral("entries"), QJsonArray{stale}}}).toJson(QJsonDocument::Compact));
+        bool oldCountCacheIgnored = false;
+        for (const auto &one : Presets::list(cachedRoot)) {
+            if (one.id == fresh.id) oldCountCacheIgnored = one.name == renamed.name && one.itemCount == 0;
+        }
+        check(oldCountCacheIgnored, "Older summary cache is rebuilt rather than inventing missing item counts");
+
         // 15e. 格式标记不认识 / 版本比我们新 ⇒ 当没有缓存，照旧读 manifest。
         Presets::forgetSummaryCache(cachedRoot);
         writeFileAt(cachePath, QJsonDocument(QJsonObject{
                                      {QStringLiteral("format"), QStringLiteral("别的东西")},
-                                     {QStringLiteral("version"), 1},
+                                     {QStringLiteral("version"), 2},
                                      {QStringLiteral("entries"), QJsonArray{stale}}})
                                  .toJson(QJsonDocument::Compact));
         bool cacheIgnored = false;

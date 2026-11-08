@@ -19,10 +19,11 @@ QString editorSectionPart(const PresetSection &section) {
         return "dataPacks";
     if (section.kind == SectionKind::GenericFiles) {
         FileGroup group;
-        if (!section.items.isEmpty() &&
-            fileGroupOfPath(section.items.first().toObject().value("path").toString(), &group) &&
-            (group == FileGroup::ResourcePacks || group == FileGroup::ShaderPacks))
-            return "resourcePacks";
+        const bool knownGroup = fileGroupFromSectionId(section.id, &group) ||
+            (!section.items.isEmpty() &&
+             fileGroupOfPath(section.items.first().toObject().value("path").toString(), &group));
+        if (knownGroup && group == FileGroup::ResourcePacks) return "resourcePacks";
+        if (knownGroup && group == FileGroup::ShaderPacks) return "shaderPacks";
     }
     return {};
 }
@@ -36,6 +37,12 @@ QJsonObject editorDocument(const PresetManifest &manifest) {
             mods.append(modReferenceToJson(m));
         state["sections"] = sections;
         state["modReferences"] = mods;
+    }
+    auto enabled = state.value("enabledParts").toObject();
+    // 旧编辑文档共用资源包开关；拆出光影分类时不能把作者停用的内容重新启用。
+    if (!enabled.contains("shaderPacks") && enabled.contains("resourcePacks")) {
+        enabled["shaderPacks"] = enabled.value("resourcePacks");
+        state["enabledParts"] = enabled;
     }
     state["id"] = manifest.id;
     state["name"] = manifest.name;
@@ -124,6 +131,8 @@ EditorSaveResult saveEditorDocument(const QString &root, const QJsonObject &inpu
         manifest.createdAt = old.createdAt;
     const auto enabled = state.value("enabledParts").toObject();
     auto on = [&](const QString &part) {
+        if (part == "shaderPacks" && !enabled.contains(part) && enabled.contains("resourcePacks"))
+            return enabled.value("resourcePacks").toBool();
         return !enabled.contains(part) || enabled.value(part).toBool();
     };
     QJsonArray fullSections;

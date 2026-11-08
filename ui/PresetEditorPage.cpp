@@ -24,9 +24,9 @@
 #include <algorithm>
 
 namespace {
-const QStringList parts{"gameSettings", "mods", "resourcePacks", "dataPacks"};
+const QStringList parts{"gameSettings", "mods", "resourcePacks", "dataPacks", "shaderPacks"};
 const QStringList titles{QStringLiteral("游戏设置"), QStringLiteral("模组"),
-                         QStringLiteral("资源包"), QStringLiteral("数据包")};
+                         QStringLiteral("资源包"), QStringLiteral("数据包"), QStringLiteral("光影包")};
 QPushButton *button(const QString &text, QWidget *parent, QVBoxLayout *layout,
                     Theme::ButtonKind kind = Theme::ButtonKind::Neutral) {
     auto *b = new QPushButton(text, parent);
@@ -42,8 +42,8 @@ QString partFor(const QJsonObject &section) {
     const auto items = section.value("items").toArray();
     if (!items.isEmpty()) {
         const auto path = items.first().toObject().value("path").toString();
-        if (path.startsWith("resourcepacks/") || path.startsWith("shaderpacks/"))
-            return "resourcePacks";
+        if (path.startsWith("resourcepacks/")) return "resourcePacks";
+        if (path.startsWith("shaderpacks/")) return "shaderPacks";
         if (path.contains("/datapacks/"))
             return "dataPacks";
     }
@@ -172,7 +172,10 @@ void PresetEditorPage::rebuildPages(const QJsonObject &state) {
     for (int i = 0; i < parts.size(); ++i) {
         auto *check = new QCheckBox(titles[i], overview);
         check->setObjectName("presetEditorEnabled_" + parts[i]);
-        check->setChecked(!enabled.contains(parts[i]) || enabled.value(parts[i]).toBool());
+        const bool legacyShaderDisabled = parts[i] == QStringLiteral("shaderPacks") &&
+            !enabled.contains(parts[i]) && enabled.contains(QStringLiteral("resourcePacks")) &&
+            !enabled.value(QStringLiteral("resourcePacks")).toBool();
+        check->setChecked(!legacyShaderDisabled && (!enabled.contains(parts[i]) || enabled.value(parts[i]).toBool()));
         m_enabled[parts[i]] = check;
         layout->addWidget(check);
     }
@@ -206,7 +209,7 @@ void PresetEditorPage::rebuildPages(const QJsonObject &state) {
     m_mods = new PresetModEditor(refs, m_pages);
     embed(m_mods);
     m_pages->addWidget(m_mods);
-    for (const auto &part : QStringList{"resourcePacks", "dataPacks"}) {
+    for (const auto &part : QStringList{"resourcePacks", "dataPacks", "shaderPacks"}) {
         auto *page = new QWidget(m_pages);
         auto *layout = new QVBoxLayout(page);
         auto *table = new QTableWidget(0, 2, page);
@@ -229,8 +232,7 @@ void PresetEditorPage::rebuildPages(const QJsonObject &state) {
                              [](const QJsonObject &a, const QJsonObject &b) {
                                  return a.value("priority").toInt() > b.value("priority").toInt();
                              });
-        if (part == "dataPacks")
-            table->hideColumn(1);
+        if (part != "resourcePacks") table->hideColumn(1);
         table->horizontalHeaderItem(0)->setToolTip(tr("资源包列表上方优先。"));
         for (const auto &item : fileItems) {
             const int row = table->rowCount();
@@ -295,6 +297,7 @@ void PresetEditorPage::addPack(const QString &part) {
         const int row = table->rowCount();
         table->insertRow(row);
         QJsonObject item{{"path", (part == "resourcePacks" ? QStringLiteral("resourcepacks/")
+                                   : part == "shaderPacks" ? QStringLiteral("shaderpacks/")
                                                            : QStringLiteral("saves/") + world +
                                                                  QStringLiteral("/datapacks/")) +
                                       QFileInfo(path).fileName()},
@@ -328,7 +331,7 @@ QJsonObject PresetEditorPage::document() const {
         auto s = v.toObject();
         const auto kind = s.value("kind").toString();
         if (kind != "vanillaOptions" && kind != "vanillaKeys" && partFor(s) != "resourcePacks" &&
-            partFor(s) != "dataPacks")
+            partFor(s) != "dataPacks" && partFor(s) != "shaderPacks")
             sections.append(s);
     }
     auto options = [&](PresetOptionsEditor *editor, const QString &kind) {
@@ -360,7 +363,7 @@ QJsonObject PresetEditorPage::document() const {
     };
     options(m_options, "vanillaOptions");
     options(m_keys, "vanillaKeys");
-    for (const auto &part : QStringList{"resourcePacks", "dataPacks"}) {
+    for (const auto &part : QStringList{"resourcePacks", "dataPacks", "shaderPacks"}) {
         QMap<QString, QJsonArray> groups;
         auto *table = m_packs[part];
         for (int i = 0; i < table->rowCount(); ++i) {

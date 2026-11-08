@@ -396,7 +396,7 @@ QString InlineMessageBox::linkUrl() const {
     return m_linkLabel != nullptr ? m_linkUrl : QString();
 }
 
-QWidget *InlineMessageBox::setContent(QWidget *content) {
+QWidget *InlineMessageBox::setContent(QWidget *content, int preferredWidth) {
     if (content == nullptr) {
         return nullptr;
     }
@@ -412,7 +412,25 @@ QWidget *InlineMessageBox::setContent(QWidget *content) {
     m_content->setParent(this);
     // 和另外那几条一样**钉住宽度**（见头文件里那段）：卡片的高矮才算得准，而且塞宽了是
     // 被卡片裁掉，不会把卡片撑开。
-    m_content->setFixedWidth(OverlayHost::promptContentWidth());
+    if (preferredWidth > OverlayHost::promptWidth()) {
+        setProperty("wtfmlPromptWidth", qBound(OverlayHost::promptWidth(), preferredWidth, 1000));
+        m_content->setMinimumWidth(0);
+        m_content->setMaximumWidth(QWIDGETSIZE_MAX);
+        m_content->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        if (m_textLabel->text().isEmpty()) m_textLabel->hide();
+        if (!findChild<QPushButton *>(QStringLiteral("inlineMessageClose"))) {
+        auto *header = new QHBoxLayout;
+        layout->removeWidget(m_titleLabel);
+        header->addWidget(m_titleLabel, 1);
+        auto *close = new QPushButton(QStringLiteral("×"), this);
+        close->setObjectName(QStringLiteral("inlineMessageClose"));
+        close->setAccessibleName(tr("关闭")); close->setFixedSize(32, 32);
+        Theme::markButton(close, Theme::ButtonKind::Ghost);
+        header->addWidget(close);
+        layout->insertLayout(0, header);
+        connect(close, &QPushButton::clicked, this, &QDialog::reject);
+        }
+    } else m_content->setFixedWidth(OverlayHost::promptContentWidth());
     // 插在**按钮行前面**（写成 count()-1 不写死下标，同 setLineEdit 那一句）。
     layout->insertWidget(layout->count() - 1, m_content);
     relinkTabOrder();  // 调用方那块里可能有好几格能 Tab 到，一起按看得见的顺序排。

@@ -112,10 +112,8 @@ int UiBatchManagementChecks(const QString &instanceDisplayName, const QString &i
                   "★★ U10Q 点第一发：**这一条选上了**（用户要的第一步）",
                   QString::number(list->selectedItems().size()));
             clickRow(firstMod);
-            check(list->selectedItems().size() == 1 &&
-                      list->selectedItems().first()->data(InstanceFilesPage::pathRole())
-                              .toString() == firstMod,
-                  "★★ U10Q 在同一条上再点一发：**仍然是这一条**（单击是替换选择，不是切换掉）",
+            check(list->selectedItems().isEmpty() && !mods->selectionBar()->isVisible(),
+                  "U10Q 再点唯一选中行：取消选择并收起操作面板",
                   QString::number(list->selectedItems().size()));
             clickRow(firstMod);
             clickRow(secondMod);

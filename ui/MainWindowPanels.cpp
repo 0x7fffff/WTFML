@@ -1858,6 +1858,8 @@ void MainWindowUI::openTaskCenterPanel() {
         panel->deleteLater();
     }
     if (overlayHost->isOpen()) {
+        if (m_pageEvictedForTaskCenter) m_pageEvictedForTaskCenter();
+        m_taskCenterSkipTransition = true;
         if (overlayHost->evict()) {
             QTimer::singleShot(0, taskSummaryButton, [this]() { openTaskCenterPanel(); });
         }
@@ -1909,7 +1911,7 @@ void MainWindowUI::openTaskCenterPanel() {
                 m_panelActionHandler(false, key, action);
             }
         };
-    Anim::layoutTransition(overlayHost->parentWidget(), [this, runningProvider, runningAction, onOutsidePress]() {
+    const auto openNow = [this, runningProvider, runningAction, onOutsidePress]() {
     QWidget *page = overlayHost->openPage(QStringLiteral("活动中心"));
     if (page == nullptr) {
         return;
@@ -1930,14 +1932,23 @@ void MainWindowUI::openTaskCenterPanel() {
     panel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     pageLayout->addWidget(panel);
     QObject::connect(overlayHost, &OverlayHost::backPressed, panel, [this, panel]() {
-        Anim::layoutTransition(overlayHost->parentWidget(), [this, panel]() {
+        const auto closeNow = [this, panel]() {
             overlayHost->closeOverlay();
             panel->deleteLater();
-        }, false, tabWidget->geometry());
+        };
+        Anim::layoutTransition(overlayHost->parentWidget(), closeNow, false, tabWidget->geometry());
     });
     overlayHost->setPageHeaderWidget(panel->headerActions());
     panel->showEmbedded();
-    }, true, tabWidget->geometry());
+    };
+    if (m_taskCenterSkipTransition) {
+        m_taskCenterSkipTransition = false;
+        m_taskCenterOpenWithoutTransition = true;
+        openNow();
+    } else {
+        m_taskCenterOpenWithoutTransition = false;
+        Anim::layoutTransition(overlayHost->parentWidget(), openNow, true, tabWidget->geometry());
+    }
 }
 
 void MainWindowUI::openBottomBarPanel(const BottomBarAnchor &anchor) {

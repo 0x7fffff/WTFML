@@ -19,6 +19,7 @@
 #include <QLineEdit>
 #include <QMenu>
 #include <QPushButton>
+#include <QToolButton>
 #include <QUrl>
 #include <QVBoxLayout>
 
@@ -415,6 +416,29 @@ void InstanceFilesPage::syncSelectedPaths() {
     m_selectedPaths.clear();
     if (m_list == nullptr || !m_batchMode) {
         return;
+    }
+    // 选中背景由行表面绘制；视图的 selectionChanged 不会替 indexWidget 刷新背景。
+    for (int i = 0; i < m_list->count(); ++i) {
+        QListWidgetItem *item = m_list->item(i);
+        if (QWidget *row = m_list->itemWidget(item)) {
+            QPalette palette = Theme::selectionPalette(m_list->palette(), item->isSelected());
+            const QColor background = item->isSelected()
+                ? Theme::selectionFill(m_list->palette().color(QPalette::Base))
+                : m_list->palette().color(QPalette::Base);
+            // 透明子控件擦背景时会读父级调色板，不能只在父级 paintEvent 中画选中底。
+            palette.setColor(QPalette::Base, background);
+            palette.setColor(QPalette::Window, background);
+            palette.setColor(QPalette::Button, background);
+            row->setPalette(palette);
+            for (QToolButton *button : row->findChildren<QToolButton *>()) {
+                QPalette buttonPalette = button->palette();
+                buttonPalette.setColor(QPalette::Base, background);
+                buttonPalette.setColor(QPalette::Window, background);
+                buttonPalette.setColor(QPalette::Button, background);
+                button->setPalette(buttonPalette);
+            }
+            row->update();
+        }
     }
     const QList<QListWidgetItem *> selected = m_list->selectedItems();
     for (QListWidgetItem *item : selected) {

@@ -375,6 +375,8 @@ QString PresetController::categoryText(Presets::PresetCategory category) {
         return QStringLiteral("资源包");
     case Presets::PresetCategory::DataPacks:
         return QStringLiteral("数据包");
+    case Presets::PresetCategory::ShaderPacks:
+        return QStringLiteral("光影包");
     }
     return QStringLiteral("旧版（未分类）");
 }
@@ -395,6 +397,7 @@ void PresetController::pushCategories() {
         Presets::PresetCategory::Mods,
         Presets::PresetCategory::ResourcePacks,
         Presets::PresetCategory::DataPacks,
+        Presets::PresetCategory::ShaderPacks,
     };
     for (const Presets::PresetCategory category : creatable) {
         PresetManagePage::CategoryOption option;
@@ -425,7 +428,9 @@ quint32 PresetController::captureMaskFor(Presets::PresetCategory category) {
                Bits::CaptureConfig | Bits::CaptureDefaultConfigs | Bits::CaptureMalilib |
                Bits::CaptureMalilibValues;
     case Presets::PresetCategory::ResourcePacks:
-        return Bits::CaptureResourcePacks | Bits::CaptureShaderPacks;
+        return Bits::CaptureResourcePacks;
+    case Presets::PresetCategory::ShaderPacks:
+        return Bits::CaptureShaderPacks;
     case Presets::PresetCategory::DataPacks:
         // 数据包只收世界里的那一坨；模组类仍然没有可提取的段。
         return Bits::CaptureDataPacks;
@@ -442,7 +447,9 @@ QString PresetController::captureNoteFor(Presets::PresetCategory category) {
     case Presets::PresetCategory::GameSettings:
         return QStringLiteral("「游戏设置」预设不收资源包 / 光影包。");
     case Presets::PresetCategory::ResourcePacks:
-        return QStringLiteral("「资源包」预设只收资源包 / 光影包这一类文件。");
+        return QStringLiteral("仅提取资源包。");
+    case Presets::PresetCategory::ShaderPacks:
+        return QStringLiteral("仅提取光影包。");
     case Presets::PresetCategory::Mods:
         return QStringLiteral("模组预设请使用“编辑模组清单”添加平台项目，当前不从实例提取本地 JAR。");
     case Presets::PresetCategory::DataPacks:
@@ -1546,6 +1553,7 @@ QList<PresetController::InstallCategory> PresetController::installCategories() {
         Presets::PresetCategory::Mods,
         Presets::PresetCategory::ResourcePacks,
         Presets::PresetCategory::DataPacks,
+        Presets::PresetCategory::ShaderPacks,
     };
     QList<InstallCategory> out;
     for (const Presets::PresetCategory category : order) {
@@ -1603,6 +1611,7 @@ QList<Presets::PresetSummary> PresetController::InstallPickerData::optionsFor(
                 auto part = one;
                 part.id = child;
                 part.category = category;
+                part.itemCount = one.componentItemCounts.value(categoryKey, -1);
                 out.append(part);
             }
         }
@@ -1921,6 +1930,11 @@ void PresetController::installModsAfterInstallImpl(const QStringList &presetIds,
     if (references.isEmpty()) { completed(true, {}); return; }
     QString loader, loaderVersion;
     m_versions->instanceLoaderInfo(instanceId, &loader, &loaderVersion);
+    const QString normalizedLoader = Presets::normalizeCompatibilityLoader(loader);
+    if (normalizedLoader != QStringLiteral("fabric") && normalizedLoader != QStringLiteral("forge") &&
+        normalizedLoader != QStringLiteral("neoforge") && normalizedLoader != QStringLiteral("quilt")) {
+        completed(false, tr("应用模组预设需要先安装模组加载器。")); return;
+    }
     auto *task = new Presets::PresetModInstaller(this);
     task->setSelectionSnapshot(snapshot);
     task->setInstanceIdentityKey(instanceId);

@@ -1408,7 +1408,7 @@ private:
     bool m_pressOnRow = false;
     bool m_dragStarted = false;
     bool m_ctrlDragActive = false;
-    /// 按在"已选中的多选行"上：把这一发 press 吃掉，别让视图收缩成单条（否则会闪）。
+    /// 已选行的普通点击在 release 时决定取消单选或收缩多选；拖拽保持原选择。
     bool m_swallowPress = false;
     QRubberBand *m_toggleBand = nullptr;
     QSet<QString> m_bandToggledIdentities;

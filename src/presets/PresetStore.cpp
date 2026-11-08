@@ -10,6 +10,7 @@
  */
 
 #include "PresetStore.hpp"
+#include "PresetWorkspace.hpp"
 
 #include <QDebug>
 #include <QDir>
@@ -38,7 +39,7 @@ const char *kFilesDirName = "files";
 /// `list()` 的摘要缓存（见 `summaryCachePath()` 与下面那张表的注释）。
 const char *kSummaryCacheFileName = ".preset-summaries.json";
 const char *kSummaryCacheFormat = "wtfml.preset-summaries";
-constexpr int kSummaryCacheVersion = 1;
+constexpr int kSummaryCacheVersion = 2;
 constexpr qint64 kSummaryCacheBytesLimit = 8 * 1024 * 1024;
 
 constexpr int kDisplayNameLimit = 80;
@@ -127,6 +128,11 @@ QJsonObject summaryEntryToJson(const QString &id, const SummaryCacheEntry &entry
     object.insert(QStringLiteral("description"), summary.description);
     object.insert(QStringLiteral("updatedAt"), summary.updatedAt.toString(Qt::ISODateWithMs));
     object.insert(QStringLiteral("sections"), summary.sectionCount);
+    object.insert(QStringLiteral("items"), summary.itemCount);
+    QJsonObject itemCounts;
+    for (auto it = summary.componentItemCounts.cbegin(); it != summary.componentItemCounts.cend(); ++it)
+        itemCounts.insert(it.key(), it.value());
+    object.insert(QStringLiteral("componentItems"), itemCounts);
     object.insert(QStringLiteral("category"), presetCategoryKey(summary.category));
     object.insert(QStringLiteral("components"), QJsonArray::fromStringList(summary.componentCategories));
     object.insert(QStringLiteral("icon"), summary.iconPath);
@@ -164,10 +170,29 @@ bool summaryEntryFromJson(const QJsonObject &object, QString *id, SummaryCacheEn
         const QJsonValue sections = object.value(QStringLiteral("sections"));
         const QJsonValue components = object.value(QStringLiteral("components"));
         const int sectionCount = sections.isDouble() ? sections.toInt(-1) : -1;
-        if (!categoryOk || sectionCount < 0 || !components.isArray()) {
+        const QJsonValue items = object.value(QStringLiteral("items"));
+        const int itemCount = items.isDouble() ? items.toInt(-1) : -1;
+        const QJsonValue componentItems = object.value(QStringLiteral("componentItems"));
+        if (!categoryOk || sectionCount < 0 || !components.isArray() || itemCount < 0 ||
+            items.toDouble() != itemCount || !componentItems.isObject()) {
             return false;
         }
+        QMap<QString, int> counts;
+        qint64 counted = 0;
+        const auto componentObject = componentItems.toObject();
+        for (auto it = componentObject.begin(); it != componentObject.end(); ++it) {
+            bool keyOk = false;
+            const auto part = presetCategoryFromKey(it.key(), &keyOk);
+            const int count = it.value().isDouble() ? it.value().toInt(-1) : -1;
+            if (!keyOk || part == PresetCategory::Unset || count < 0 || it.value().toDouble() != count)
+                return false;
+            counts.insert(it.key(), count);
+            counted += count;
+        }
+        if (counted > itemCount) return false;
         PresetSummary summary;
+        summary.itemCount = itemCount;
+        summary.componentItemCounts = counts;
         summary.id = entryId;
         summary.name = name;
         summary.description = object.value(QStringLiteral("description")).toString();
@@ -641,7 +666,10 @@ bool sectionFitsCategory(PresetCategory category, const PresetSection &section) 
         }
         return false;
     case PresetCategory::ResourcePacks:
+        // 旧预设曾把光影并入资源包；读取时保持其原范围，不自动重写用户文件。
         return isGeneric && (group == FileGroup::ResourcePacks || group == FileGroup::ShaderPacks);
+    case PresetCategory::ShaderPacks:
+        return isGeneric && group == FileGroup::ShaderPacks;
     case PresetCategory::Mods:
     case PresetCategory::DataPacks:
         // 模组引用不走段表（`PresetManifest::modReferences`），模组类允许空预设；
@@ -918,9 +946,23 @@ QList<PresetSummary> list(const QString &root, QList<BrokenPreset> *broken) {
                 summary.description = result.manifest.description;
                 summary.updatedAt = result.manifest.updatedAt;
                 summary.sectionCount = result.manifest.sections.size();
+                summary.itemCount = result.manifest.modReferences.size();
+                if (!result.manifest.modReferences.isEmpty())
+                    summary.componentItemCounts.insert(QStringLiteral("mods"), result.manifest.modReferences.size());
+                for (const auto &section : result.manifest.sections) {
+                    summary.itemCount += section.items.size();
+                    const QString part = editorSectionPart(section);
+                    if (!part.isEmpty()) summary.componentItemCounts[part] += section.items.size();
+                }
                 summary.category = result.manifest.category;
                 summary.componentCategories =
                     result.manifest.editorState.value("components").toObject().keys();
+                // 旧综合投影的资源包部分曾同时包含光影；摘要应反映该投影真正会应用的数量。
+                if (summary.componentCategories.contains(QStringLiteral("resourcePacks")) &&
+                    !summary.componentCategories.contains(QStringLiteral("shaderPacks"))) {
+                    summary.componentItemCounts[QStringLiteral("resourcePacks")] +=
+                        summary.componentItemCounts.take(QStringLiteral("shaderPacks"));
+                }
                 summary.iconPath = result.manifest.editorState.value("icon").toString();
             }
             cell.resolved = true;

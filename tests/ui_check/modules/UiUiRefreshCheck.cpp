@@ -717,8 +717,66 @@ int UiUiRefreshCheck(QApplication &app) {
             panel.refresh();
             expect(stable.isNull(), "removed task releases cached row");
         }
+        {
+            QTemporaryDir files;
+            QFile fixture(files.filePath(QStringLiteral("visible-row.jar")));
+            expect(fixture.open(QIODevice::WriteOnly), "file row painting fixture opens");
+            fixture.write("fixture");
+            fixture.close();
+            InstanceFilesPage page;
+            page.setBatchMode(true);
+            page.setMode(InstanceFilesPage::Mode::FilesOnly);
+            page.resize(700, 350);
+            page.setDirectory(files.path());
+            page.refresh();
+            page.show();
+            app.processEvents();
+            QListWidget *list = page.list();
+            expect(list && list->count() == 1, "file row painting fixture displayed");
+            if (list && list->count() == 1) {
+                QWidget *row = list->itemWidget(list->item(0));
+                expect(row && row->autoFillBackground(), "embedded file row owns its background");
+                if (row) {
+                    const auto sample = [row]() {
+                        const QImage image = row->grab().toImage();
+                        const qreal scale = image.devicePixelRatio();
+                        return image.pixelColor(qRound(5 * scale), qRound(2 * scale));
+                    };
+                    list->item(0)->setSelected(true);
+                    app.processEvents();
+                    expect(sample() == Theme::selectionFill(list->palette().color(QPalette::Base)),
+                           "embedded row paints selected background independently of viewport");
+                    const auto buttons = row->findChildren<QToolButton *>();
+                    bool matchingBackground = !buttons.isEmpty();
+                    for (QToolButton *button : buttons) {
+                        matchingBackground &= button->palette().color(QPalette::Window) ==
+                            Theme::selectionFill(list->palette().color(QPalette::Base));
+                        matchingBackground &= button->palette().color(QPalette::Button) ==
+                            Theme::selectionFill(list->palette().color(QPalette::Base));
+                    }
+                    expect(matchingBackground, "row buttons inherit selected background instead of white patches");
+                    list->clearSelection();
+                    app.processEvents();
+                    expect(sample() == list->palette().color(QPalette::Base),
+                           "embedded row restores background after selection clears");
+                    list->item(0)->setSelected(true);
+                    const QPoint point = list->visualItemRect(list->item(0)).center();
+                    const QPoint global = list->viewport()->mapToGlobal(point);
+                    QMouseEvent press(QEvent::MouseButtonPress, QPointF(point), QPointF(global),
+                                      Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                    QApplication::sendEvent(list->viewport(), &press);
+                    expect(list->selectedItems().size() == 1,
+                           "selected row stays selected until release so dragging remains possible");
+                    QMouseEvent release(QEvent::MouseButtonRelease, QPointF(point), QPointF(global),
+                                        Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+                    QApplication::sendEvent(list->viewport(), &release);
+                    expect(list->selectedItems().isEmpty() && page.selectionBar()->isHidden(),
+                           "clicking the only selected row clears selection and closes action panel");
+                }
+            }
+        }
         printf("UI refresh check: %d failure(s)\n", failures);
-        return failures == 0 ? 0 : 1;
+    return failures == 0 ? 0 : 1;
     
  return 0;
 }
