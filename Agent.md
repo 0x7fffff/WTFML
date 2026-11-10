@@ -1710,7 +1710,8 @@ Collect → Analyze → Plan → AwaitPlanApproval → ExecuteStep* → Verify �
 - [ ] 句柄级校验：最终路径/文件 ID/reparse 检查；写入前后对象身份比对；不宣称彻底解决 TOCTOU；
 - [x] 写文件有期望哈希/fileIdentityToken、备份、原子提交、回读校验；拒绝审批时一个字节不变；
       （2026-11-10 人工：W1–W3 通过；备份元数据可由工具卡/备份目录核对）
-- [ ] 会话锁定后工具不接受模型传入的实例 id；切换实例/游戏文件夹有显式确认/阻断；
+- [x] 会话锁定后工具不接受模型传入的实例 id；切换实例/游戏文件夹有显式确认/阻断；
+      （2026-11-10 人工复核通过）
 - [x] 敏感 artifacts 默认加密；模型可读 artifact 只存脱敏内容；本地原始存档模型不可枚举/不可读；
       `artifact.read` 每次重扫，不能绕过 D11；
       （2026-11-10 人工：A2/A3 无问题，`artifact.read` 可运行；脱敏变体缺口另记）
@@ -1723,7 +1724,8 @@ Collect → Analyze → Plan → AwaitPlanApproval → ExecuteStep* → Verify �
 - [ ] 备份创建也审批；删除 Session 不删除维护备份；`owner=agent` 由 Agent 清理，
       `owner=launcher/user/shared` 只删引用；来源 Session 删除后可恢复；
 - [ ] 模型不能修改工具白名单/审批策略/API 配置；工具结果里的指令不改变权限；
-- [ ] 测试中用 grep/断言搜索 key 和敏感头，结果为空。
+- [x] 测试中用 grep/断言搜索 key 和敏感头，结果为空。
+      （2026-11-10 人工 grep 结果为空）
 - [x] 真实模型 tool_calls 流程（DeepSeek/兼容服务）与文件读写审批在真机上走一遍；
 - [x] 没有 MCP 进程/设置页。
 
