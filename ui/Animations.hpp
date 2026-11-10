@@ -70,6 +70,8 @@ constexpr int appearMs() { return 250; }
 constexpr int overlayMs() { return 250; }
 /// 底栏上拉面板滑上来那一下。
 constexpr int panelMs() { return 250; }
+/// 收起 / 退出那一类转场：比展开短一点，避免"关个东西还要等 250 ms"。
+constexpr int exitMs() { return 200; }
 /// 滚动条**冒出来**那一下。
 /// 和换页同一个量级 —— 它得跟页面那一下一起收住，单独更快或更慢都会看成"两件事"。
 constexpr int scrollBarMs() { return 180; }
@@ -221,7 +223,11 @@ void pageAppear(QWidget *widget, const QColor &backdrop);
 /// 整块覆盖的那一层（`OverlayHost`）淡进来。**只淡、不抬** —— 它是"整块盖住内容区"的，
 /// 抬起来会在边上露出一条没盖住的缝。
 void overlayAppear(QWidget *widget);
+/// 切换到整页快照动画前，移除本模块遗留的不透明度效果。
+void clearOpacityEffect(QWidget *widget);
 
+/// 把一块**浮层**（提示卡片）淡出并往下落，跑完调 done。动效关着时立即 done。
+void vanishWidget(QWidget *widget, const std::function<void()> &done = {});
 
 /// 原子地更新布局，再用前后合成快照过渡；不推迟真实状态、不拉伸控件。
 /// surface 内的 region 为空时使用整块区域。隐藏、缩放及连续切换会中止旧动画。
@@ -290,5 +296,6 @@ constexpr int rowAppearLimit() { return 20; }
 void smoothProgress(QProgressBar *bar, int value);
 
 }  // namespace Anim
+
 
 

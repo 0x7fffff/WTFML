@@ -170,6 +170,9 @@ void InstanceFilesPage::rebuildRows() {
         return;
     }
     // 把"现在最上面那一行是谁"记下来（见 .hpp 里那两个函数那段）。这一句
+    // 整表重建期间别让每次 addItem/setItemWidget 都触发一次重绘：1000 行时那是一串白工。
+    const bool updatesEnabled = m_list->updatesEnabled();
+    m_list->setUpdatesEnabled(false);
     // 排在最前面 —— 下面 `clear()` 一过就什么都不剩了。`refresh()` 那条路（点一下开关
     // 走的就是它）**已经先记过一遍**，它那一趟到这里时表是空的，所以这个函数看见空表
     // 就不动手（否则会把刚记下的那一份覆盖掉）。
@@ -224,6 +227,7 @@ void InstanceFilesPage::rebuildRows() {
         m_list->clear();
         m_statQueue.clear();
         m_statLabels.clear();
+        m_statCache.clear();
 
         // 「先把 item 全排好，再逐条挂行控件」—— 两件事**不能夹在一起做**。
         //
@@ -232,7 +236,11 @@ void InstanceFilesPage::rebuildRows() {
         // 一遍，整表就是平方级。实测 1000 行：夹着写 1.39 s，先排完再挂 0.29 s（同一版
         // 二进制 A/B；前面那三档对照在 docs/P2_LARGE_LIST_PAINT_20261031.md）。所以这个
         // 循环只管"item 和行控件都建出来、配好对"，挂的事等整表排完一趟做完。
+        // 大列表：先只建**头部 80 行的控件**，其余行的控件分帧建；item 仍然一次排完（几何一次算）。
+        constexpr int kImmediateRows = 80;
+        const int generation = ++m_rowsGeneration;
         QList<QPair<QListWidgetItem *, QWidget *>> pendingRows;
+        QList<QPair<QListWidgetItem *, Entry>> deferredRows;
         for (const Entry &entry : m_entries) {
             if (!entryMatchesFilter(entry)) {
                 continue;
@@ -240,25 +248,10 @@ void InstanceFilesPage::rebuildRows() {
             auto *item = new QListWidgetItem(QString(), m_list);
             item->setData(pathRole(), entry.path);
             item->setData(disabledRole(), entry.disabled);
-            // 行高和实例树 / 版本树同一档：一页里换行高不会错，但"我们自己的列表"看着该是一个东西。
             item->setSizeHint(QSize(0, MainWindowUI::versionTreeRowHeight()));
             m_list->addItem(item);
-            QWidget *row = makeRow(entry.displayName, entry.path, entry.isDir,
-                                   entry.disabled, entry.size, entry.modified);
             const QString identity = identityPath(entry.path);
-            if (!m_shownIdentities.contains(identity)) {
-                freshRows.append(row);
-            }
             shownIdentities.insert(identity);
-            // 选择按**身份**还回去，不是按盘上那个名字（`identityPath`，
-            // 见 .hpp 里 m_selectedPaths 那段）—— 用户点一下行尾那个开关，MainWindow 就把
-            // `X.jar` 改成了 `X.jar.disabled` 再回头重列，按名字比的话这一行**当场掉出
-            // 选择**。盘上还是同一个文件、用户手里选的就是"这一条"，身份一比就还上了。
-            // 身份只在**这一条是刚才那一条改过名**时才替用户选 ——
-            // ① 路径逐字对得上（没改名的那一趟，最常见）；
-            // ② 或者旧名字已经不在盘上了（= 真的改了名），并且这一页里同身份只有
-            // 它一条（`X.jar` 和 `X.jar.disabled` 同时在场时身份分不出是谁，
-            // 那就一条都不替用户选，见上面那两份准账）。
             const bool keptSelected =
                 m_selectedPaths.contains(entry.path)
                 || (renamedIdentities.contains(identity)
@@ -266,10 +259,43 @@ void InstanceFilesPage::rebuildRows() {
             if (m_batchMode && keptSelected) {
                 item->setSelected(true);
             }
-            pendingRows.append(qMakePair(item, row));
+            if (pendingRows.size() < kImmediateRows) {
+                QWidget *row = makeRow(entry.displayName, entry.path, entry.isDir,
+                                       entry.disabled, entry.size, entry.modified);
+                if (!m_shownIdentities.contains(identity)) {
+                    freshRows.append(row);
+                }
+                pendingRows.append(qMakePair(item, row));
+            } else {
+                deferredRows.append(qMakePair(item, entry));
+            }
         }
         for (const auto &pair : pendingRows) {
             m_list->setItemWidget(pair.first, pair.second);
+        }
+        if (!deferredRows.isEmpty()) {
+            auto remaining = std::make_shared<QList<QPair<QListWidgetItem *, Entry>>>(std::move(deferredRows));
+            auto tick = std::make_shared<std::function<void()>>();
+            *tick = [this, generation, remaining, tick]() {
+                if (generation != m_rowsGeneration || m_list == nullptr) return;
+                int made = 0;
+                while (!remaining->isEmpty() && made < 120) {
+                    const auto pair = remaining->takeFirst();
+                    if (m_list->row(pair.first) < 0) continue;
+                    const Entry &entry = pair.second;
+                    QWidget *row = makeRow(entry.displayName, entry.path, entry.isDir,
+                                           entry.disabled, entry.size, entry.modified);
+                    m_list->setItemWidget(pair.first, row);
+                    ++made;
+                }
+                if (!remaining->isEmpty()) {
+                    QTimer::singleShot(0, this, *tick);
+                } else if (m_statTimer != nullptr && !m_statQueue.isEmpty()) {
+                    m_statTimer->start();
+                }
+                ensureRowWidgetWindow();
+            };
+            QTimer::singleShot(0, this, *tick);
         }
     }
     // 「同页筛选/列表变化：只动画**新增**、删除和状态，
@@ -345,6 +371,46 @@ void InstanceFilesPage::rebuildRows() {
     if (m_statTimer != nullptr && !m_statQueue.isEmpty()) {
         m_statTimer->start();
     }
+    m_list->setUpdatesEnabled(updatesEnabled);
+    QTimer::singleShot(0, this, [this] { ensureRowWidgetWindow(); });
+    m_list->viewport()->update();
+
+}
+
+void InstanceFilesPage::ensureRowWidgetWindow() {
+    if (m_list->count() <= 400) return;
+    if (m_list->updatesEnabled() == false) return;
+    const QModelIndex firstIndex = m_list->indexAt(QPoint(2, 2));
+    if (!firstIndex.isValid()) return;
+    int last = firstIndex.row();
+    for (int row = last; row < m_list->count(); ++row) {
+        QListWidgetItem *candidate = m_list->item(row);
+        if (candidate == nullptr) break;
+        if (m_list->visualItemRect(candidate).top() >= m_list->viewport()->height()) break;
+        last = row;
+    }
+    const int first = firstIndex.row();
+    const int count = m_list->count();
+    const int ensureFirst = qMax(0, first - 25);
+    const int ensureLast = qMin(count - 1, last + 25);
+    const int keepFirst = qMax(0, first - 120);
+    const int keepLast = qMin(count - 1, last + 120);
+    for (int row = 0; row < count; ++row) {
+        QListWidgetItem *item = m_list->item(row);
+        if (item == nullptr) continue;
+        QWidget *widget = m_list->itemWidget(item);
+        if (row >= ensureFirst && row <= ensureLast) {
+            if (widget != nullptr) continue;
+            const Entry *entry = entryForPath(item->data(pathRole()).toString());
+            if (entry == nullptr) continue;
+            m_list->setItemWidget(item, makeRow(entry->displayName, entry->path, entry->isDir,
+                                                entry->disabled, entry->size, entry->modified));
+        } else if ((row < keepFirst || row > keepLast) && widget != nullptr) {
+            m_list->removeItemWidget(item);
+            m_statLabels.remove(item->data(pathRole()).toString());
+        }
+    }
+    if (m_statTimer != nullptr && !m_statQueue.isEmpty()) m_statTimer->start();
 }
 
 QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &path, bool isDir,
@@ -465,8 +531,12 @@ QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &pat
         // 登记的是**这一格**，不是行号：统计是一格一格异步补上来的，这中间用户完全可能
         // 点过「刷新」（行整个重建过）—— 存行号的话，补上去的是**别人**那一格。
         // （· 每行只有这一格，所以它同时也是这一行。）
+        if (const auto cached = m_statCache.constFind(path); cached != m_statCache.constEnd()) {
+            metaLabel->setText(cached.value());
+        } else {
         m_statLabels.insert(path, metaLabel);
-        m_statQueue.append(path);
+            m_statQueue.append(path);
+        }
     }
 
     layout->addWidget(textColumn, 1);
@@ -820,3 +890,4 @@ void InstanceFilesPage::syncRowHover() {
         return;
     }
 }
+

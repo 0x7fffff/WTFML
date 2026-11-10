@@ -325,6 +325,28 @@ void writeSummaryCacheFile(const QString &root, const QStringList &ordered) {
 }
 
 /// 写盘：临时文件 + 原子改名（和任务账本 / 启动历史同一套）。
+/// 新建文件的快速原子写：目标**必须是新路径**（不存在），写临时文件再改名。
+/// 用在"每次发布新建一份不可变子清单"上：省掉 QSaveFile 每份的落盘刷写。
+bool writeBytesAtomicNew(const QString &path, const QByteArray &bytes) {
+    const qint64 limit = QFileInfo(path).fileName() == QLatin1String(kIndexFileName)
+        ? kIndexLimit : kManifestLimit;
+    if (bytes.size() > limit) return false;
+    if (QFileInfo::exists(path)) return false;
+    const QString dir = QFileInfo(path).absolutePath();
+    if (!QDir().mkpath(dir)) return false;
+    if (!WriteDirectoryGuard::acquire(path)) return false;
+    const QString temporary = path + QStringLiteral(".new-") +
+                              QString::number(QCoreApplication::applicationPid()) + QLatin1Char('-') +
+                              QString::number(QDateTime::currentMSecsSinceEpoch());
+    QFile file(temporary);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
+    if (file.write(bytes) != bytes.size()) { file.close(); QFile::remove(temporary); return false; }
+    file.flush();
+    file.close();
+    if (!QFile::rename(temporary, path)) { QFile::remove(temporary); return false; }
+    return true;
+}
+
 bool writeBytesAtomic(const QString &path, const QByteArray &bytes) {
     const qint64 limit = QFileInfo(path).fileName() == QLatin1String(kIndexFileName)
         ? kIndexLimit : kManifestLimit;
@@ -791,6 +813,18 @@ bool saveManifest(const QString &root, const PresetManifest &manifest) {
     PresetManifest normalized = manifest;
     normalized.schemaVersion = kSchemaVersion;
     return writeBytesAtomic(manifestPath(root, manifest.id), manifestToBytes(normalized));
+}
+
+/// 新建一份**不可变子清单**（多份综合预设发布时用）：目标 id 是新生成的，文件不存在，
+/// 用快速原子写代替 QSaveFile 的逐份刷盘；父清单仍然等所有子项就位后才写。
+bool saveNewManifest(const QString &root, const PresetManifest &manifest) {
+    if (!isValidPresetId(manifest.id) || cleanDisplayName(manifest.name).isEmpty()) return false;
+    if (!categoryMismatch(manifest).isEmpty()) return false;
+    const QString dir = presetDir(root, manifest.id);
+    if (!pathIsInsideRoot(root, dir) || !QDir().mkpath(dir)) return false;
+    PresetManifest normalized = manifest;
+    normalized.schemaVersion = kSchemaVersion;
+    return writeBytesAtomicNew(manifestPath(root, manifest.id), manifestToBytes(normalized));
 }
 
 // ---------------------------------------------------------------------------

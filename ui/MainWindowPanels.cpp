@@ -1820,10 +1820,14 @@ TaskCenterPanel *MainWindowUI::taskCenterPanel() const {
     // close() 之后要等 deleteLater 才真删，所以"现在开着哪一块"不用自己记指针 —— 记了
     // 反而要操心它在哪一行被删掉。
     if (overlayHost != nullptr) {
-        if (auto *page = dynamic_cast<TaskCenterPanel *>(
-                overlayHost->findChild<QWidget *>(taskCenterPanelName()))) {
-            return page;
+        TaskCenterPanel *parked = nullptr;
+        for (QWidget *widget : overlayHost->findChildren<QWidget *>(taskCenterPanelName())) {
+            if (auto *page = dynamic_cast<TaskCenterPanel *>(widget)) {
+                if (page->isVisible()) return page;
+                parked = page;
+            }
         }
+        if (parked != nullptr) return parked;
     }
     return dynamic_cast<TaskCenterPanel *>(
         bottomBar != nullptr ? bottomBar->findChild<QWidget *>(taskCenterPanelName()) : nullptr);
@@ -1856,14 +1860,6 @@ void MainWindowUI::openTaskCenterPanel() {
         // 什么都没发生。残影不能再挡路：直接排进删除队列，下面照常开一页新的。
         // NOTE: 只 `deleteLater()` 不 `delete` —— 它可能正处在自己的信号处理里。
         panel->deleteLater();
-    }
-    if (overlayHost->isOpen()) {
-        if (m_pageEvictedForTaskCenter) m_pageEvictedForTaskCenter();
-        m_taskCenterSkipTransition = true;
-        if (overlayHost->evict()) {
-            QTimer::singleShot(0, taskSummaryButton, [this]() { openTaskCenterPanel(); });
-        }
-        return;
     }
     // 点在面板外面的那一下：和那两块面板同一套（理由全文见 BottomBarPanel 里
     // handleOutsidePress() 那两段 NOTE —— 包括"为什么必须在 close() 之前钉
@@ -1911,6 +1907,66 @@ void MainWindowUI::openTaskCenterPanel() {
                 m_panelActionHandler(false, key, action);
             }
         };
+    if (overlayHost->isOpen()) {
+        // 覆盖页开着（实例设置等）时**不挤掉它**：任务中心作为提示层叠在上面，
+        // 关掉就回原页，背景不重开、不播换页动画。
+        const auto openOverPage = [this, runningProvider, runningAction, onOutsidePress] {
+        QWidget *content = overlayHost->openPrompt(true, /*fullSize=*/true);
+        if (content == nullptr) return;
+        auto *promptLayout = qobject_cast<QVBoxLayout *>(content->layout());
+        if (promptLayout == nullptr) { overlayHost->closeOverlay(); return; }
+        auto *workspace = new QWidget(content);
+        workspace->setObjectName(QStringLiteral("taskCenterPromptWorkspace"));
+        auto *workspaceLayout = new QVBoxLayout(workspace);
+        workspaceLayout->setContentsMargins(0, 0, 0, 0);
+        workspaceLayout->setSpacing(8);
+        promptLayout->addWidget(workspace, 1);
+        auto *panel = new TaskCenterPanel(taskSummaryButton, m_taskCenterProvider,
+                                          m_taskCenterClearHandler, runningProvider,
+                                          runningAction, onOutsidePress, workspace, /*embedded=*/true);
+        panel->setRowActivatedHandler(m_taskCenterRowActivated);
+        panel->setRowActionHandler(m_taskCenterRowAction);
+        panel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        // 提示卡片里的任务中心要自带卡片内边距、标题和关闭按钮：
+        // 直接塞进 promptContent 会贴着边、没有标题，看着像一块裸控件。
+        promptLayout->setContentsMargins(0, 0, 0, 0);
+        promptLayout->setSpacing(8);
+        auto *header = new QWidget(workspace);
+        auto *headerLayout = new QHBoxLayout(header);
+        headerLayout->setContentsMargins(0, 0, 0, 0);
+        headerLayout->setSpacing(8);
+        auto *title = new QLabel(QStringLiteral("活动中心"), header);
+        QFont titleFont = title->font();
+        titleFont.setBold(true);
+        title->setFont(titleFont);
+        headerLayout->addWidget(title);
+        headerLayout->addStretch(1);
+        if (QWidget *actions = panel->headerActions()) headerLayout->addWidget(actions);
+        auto *closeButton = new QPushButton(QStringLiteral("关闭"), header);
+        closeButton->setObjectName(QStringLiteral("taskCenterPromptClose"));
+        Theme::markButton(closeButton, Theme::ButtonKind::Neutral);
+        closeButton->setCursor(Qt::PointingHandCursor);
+        QObject::connect(closeButton, &QPushButton::clicked, overlayHost, [this] { overlayHost->dismiss(); });
+        headerLayout->addWidget(closeButton);
+        workspaceLayout->addWidget(header);
+        workspaceLayout->addWidget(panel, 1);
+        // 底栏别被当成“提示期禁用”：任务中心要能靠任务按钮再点一次收掉。
+        overlayHost->setPromptBlockedWidget(nullptr);
+        // 再点一次任务按钮 / 点外面 / Esc 都会走到 promptDismissed：把它收掉并还回原页。
+        QObject::connect(overlayHost, &OverlayHost::promptDismissed, workspace, [this, workspace] {
+            if (!workspace->isVisible()) return;
+            // 先恢复原页面，再采集收起终点；不在快照结束后重建设置页。
+            Anim::layoutTransition(overlayHost->parentWidget(), [this, workspace] {
+                overlayHost->closeOverlay();
+                overlayHost->setPromptBlockedWidget(bottomBar);
+                workspace->deleteLater();
+            }, false, tabWidget->geometry());
+        }, Qt::SingleShotConnection);
+        panel->showEmbedded();
+        };
+        Anim::layoutTransition(overlayHost->parentWidget(), openOverPage, true, tabWidget->geometry());
+        return;
+    }
     const auto openNow = [this, runningProvider, runningAction, onOutsidePress]() {
     QWidget *page = overlayHost->openPage(QStringLiteral("活动中心"));
     if (page == nullptr) {
@@ -1941,14 +1997,7 @@ void MainWindowUI::openTaskCenterPanel() {
     overlayHost->setPageHeaderWidget(panel->headerActions());
     panel->showEmbedded();
     };
-    if (m_taskCenterSkipTransition) {
-        m_taskCenterSkipTransition = false;
-        m_taskCenterOpenWithoutTransition = true;
-        openNow();
-    } else {
-        m_taskCenterOpenWithoutTransition = false;
         Anim::layoutTransition(overlayHost->parentWidget(), openNow, true, tabWidget->geometry());
-    }
 }
 
 void MainWindowUI::openBottomBarPanel(const BottomBarAnchor &anchor) {
@@ -1995,6 +2044,12 @@ void MainWindowUI::toggleBottomBarPanel(const BottomBarAnchor &anchor) {
     if (bottomBar == nullptr || anchor.button == nullptr) {
         return;
     }
+    // 任务中心正以提示层叠在页上：再点一次任务按钮就收掉它（不依赖 findChild 的可见性判断）。
+    if (anchor.kind == BottomBarAnchorKind::Tasks && overlayHost != nullptr &&
+        overlayHost->promptOpen() && overlayHost->promptFullSize() && taskCenterPanel() != nullptr) {
+        overlayHost->dismiss();
+        return;
+    }
     // 左下那一格**没有实例可列时点不开**（箭头也收起来了，见 setRunPanelAvailable()）：
     // 这一下只当"收"用。
     //
@@ -2032,6 +2087,12 @@ void MainWindowUI::toggleBottomBarPanel(const BottomBarAnchor &anchor) {
             const bool same = panel->anchor() == anchor.button;
             sameAnchor = sameAnchor || same;
             anyOpen = true;
+            // 任务中心叠成提示层时，它的「可见」在卡片布局落定前可能是 false；
+            // 以 promptOpen() 为准直接收掉，别再走 reopen 那一套。
+            if (same && overlayHost->promptOpen()) {
+                overlayHost->dismiss();
+                return;
+            }
             if (same && !panel->isVisible()) {
                 reopenTaskCenter = true;
             } else {
@@ -2303,4 +2364,3 @@ void MainWindowUI::setRunPanelAvailable(bool available) {
     // 点不动的格子不该再挂着"点一下向上展开实例列表"（鼠标都到不了它身上，也弹不出来）。
     runStateButton->setToolTip(available ? MainWindowUI::bottomBarRunPanelTip() : QString());
 }
-

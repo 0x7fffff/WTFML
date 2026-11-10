@@ -1,4 +1,7 @@
 #include "Support.hpp"
+#include <QScrollBar>
+#include <QScrollArea>
+#include "InlineMessage.hpp"
 int UiAnimationsChecks(QApplication &app, QFrame * &bar) {
     // ---------- ⑬ 动效那一层 ----------
     // 要求：「接下来是制作动画，按下按钮，切换页面，展开/折叠的时候的动画，可以不那么
@@ -444,10 +447,40 @@ int UiAnimationsChecks(QApplication &app, QFrame * &bar) {
                       .arg(after.blue()));
         }
 
+        // 长错误提示：正文进滚动区、高度受限，按钮不会被挤出卡片。
+        {
+            QString longText;
+            for (int line = 0; line < 200; ++line) {
+                longText += QStringLiteral("第 %1 行：复制失败，路径很长很长很长…\n").arg(line);
+            }
+            InlineMessageBox box(MessageKind::Critical, QStringLiteral("错误"), longText,
+                                 {QStringLiteral("确定")}, 0, -1, nullptr);
+            box.adjustSize();
+            QApplication::processEvents();
+            auto *scroll = box.findChild<QScrollArea *>(InlineMessageBox::textScrollName());
+            check(scroll != nullptr && scroll->height() <= 260 && scroll->height() >= 48,
+                  "长错误正文放进滚动区且高度受限（不会再顶出卡片）",
+                  scroll != nullptr ? QString::number(scroll->height()) : QStringLiteral("无滚动区"));
+            check(scroll != nullptr && scroll->verticalScrollBar() != nullptr &&
+                      scroll->verticalScrollBar()->maximum() > 0,
+                  "长错误真的能滚动（滚动条有范围）");
+            InlineMessageBox brief(MessageKind::Information, QStringLiteral("提示"),
+                                   QStringLiteral("短提示"), {QStringLiteral("确定")}, 0, -1, nullptr);
+            brief.adjustSize();
+            QApplication::processEvents();
+            auto *briefScroll = brief.findChild<QScrollArea *>(InlineMessageBox::textScrollName());
+            check(briefScroll != nullptr && briefScroll->verticalScrollBar() != nullptr &&
+                      briefScroll->verticalScrollBar()->maximum() == 0,
+                  "短提示不需要滚动（不会无端多一条滚动条）");
+        }
+
         // 收尾：把开关摆回这个工程原来的样子（关着），别让后面留下一个半路的状态。
         Anim::setEnabled(atStart);
     }
     return 0;
 }
+
+
+
 
 

@@ -834,6 +834,25 @@ void pageAppear(QWidget *widget, const QColor &backdrop) {
 }
 
 
+void vanishWidget(QWidget *widget, const std::function<void()> &done) {
+    const auto finish = [done] { if (done) done(); };
+    if (widget == nullptr || !enabled() || !widget->isVisible()) { finish(); return; }
+    QWidget *host = widget->parentWidget();
+    if (host == nullptr) { finish(); return; }
+    auto *curtain = new PageCurtain(host);
+    curtain->start(widget, QColor());
+    curtain->setFrame(0.0, 1.0);
+    widget->hide();
+    const qreal rise = pageRiseDistance();
+    runProgress(curtain, curtain, 0.0, 1.0, exitMs(), 0,
+                [curtain, finish]() {
+                    curtain->hide();
+                    curtain->deleteLater();
+                    finish();
+                },
+                [curtain, rise](qreal t) { curtain->setFrame(rise * t, 1.0 - t); });
+}
+
 void cancelLayoutTransition(QWidget *surface) {
     if (surface == nullptr) return;
     for (auto *old : surface->findChildren<QWidget *>(QStringLiteral("wtfmlLayoutCurtain"), Qt::FindDirectChildrenOnly))
@@ -876,7 +895,8 @@ void layoutTransition(QWidget *surface, const std::function<void()> &change,
     for (auto *child : surface->findChildren<QWidget *>())
         if (child->isVisible() && child->layout()) child->layout()->activate();
     if (!curtain) return;
-    QTimer::singleShot(0, curtain, [guard, curtain, area, capture]() {
+    const int durationMs = expanding ? panelMs() : exitMs();
+    QTimer::singleShot(0, curtain, [guard, curtain, area, capture, durationMs]() {
         if (!guard || !curtain) return;
         if (!enabled() || !guard->isVisible() || curtain->isHidden() ||
             !guard->rect().contains(area)) {
@@ -898,11 +918,13 @@ void layoutTransition(QWidget *surface, const std::function<void()> &change,
         guard->update();
         curtain->raise();
         curtain->captureDestination(capture);
-        runProgress(curtain, curtain, 0, 1, panelMs(), 0,
+        runProgress(curtain, curtain, 0, 1, durationMs, 0,
                     [curtain]() { if (curtain) { curtain->hide(); curtain->deleteLater(); } },
                     [curtain](qreal progress) { if (curtain) curtain->frame(progress); });
     });
 }
+
+void clearOpacityEffect(QWidget *widget) { dropEffect(widget); }
 
 void overlayAppear(QWidget *widget) {
     if (widget == nullptr || !enabled()) {

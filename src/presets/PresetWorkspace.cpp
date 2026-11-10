@@ -359,7 +359,7 @@ EditorSaveResult saveEditorDocument(const QString &root, const QJsonObject &inpu
                         return result;
                     }
                 }
-            if (!saveManifest(root, child)) {
+            if (!saveNewManifest(root, child)) {
                 result.problem = QStringLiteral("综合预设保存失败，原预设保留。");
                 discardCreated();
                 return result;
@@ -393,3 +393,4 @@ EditorSaveResult saveEditorDocument(const QString &root, const QJsonObject &inpu
     return result;
 }
 } // namespace Presets
+

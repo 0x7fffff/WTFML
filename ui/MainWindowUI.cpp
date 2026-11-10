@@ -7,6 +7,7 @@
 #include "MainWindowUI.hpp"
 #include "MainWindowPageLayout.hpp"
 
+#include "TaskCenterPanel.hpp"
 #include "Animations.hpp"  // 换页 / 展开折叠 / 上拉面板那几段动效
 #include "ElidedLabel.hpp"
 #include "InstanceGroupDelegate.hpp"
@@ -319,7 +320,10 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         // dismiss。只认任务中心：别的覆盖页（资源详情之类）仍按同一条规矩停放、切回来还在。
         // NOTE: `pageOpen()` 那一条是"**最上面**那一层是页"的意思 —— 页上面压着一句提示
         // 的时候不在这儿收（那句话是要人回答的，不能因为切个页就替他答"取消"）。
-        if (taskCenterPanel() != nullptr && overlayHost != nullptr && overlayHost->pageOpen()) {
+        if (taskCenterPanel() != nullptr && overlayHost != nullptr && overlayHost->promptOpen() &&
+            overlayHost->promptFullSize()) {
+            overlayHost->dismiss();
+        } else if (taskCenterPanel() != nullptr && overlayHost != nullptr && overlayHost->pageOpen()) {
             overlayHost->evict();
         }
         // 顶端四个按钮点下去要**自动到达对应选项卡的首页**（比如正开着 sodium 的下载页，
@@ -383,6 +387,14 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // （`tabWidget` 是 `centralWidget` 里生出来的，这条判据在它身上同样说得通）。
     QObject::connect(tabWidget, &QTabWidget::currentChanged, tabWidget, [this](int) {
         Anim::cancelLayoutTransition(tabWidget->parentWidget());
+        if (overlayHost && overlayHost->promptOpen() && overlayHost->promptFullSize()) {
+            if (TaskCenterPanel *panel = taskCenterPanel()) {
+                QWidget *workspace = panel->parentWidget();
+                overlayHost->closeOverlay();
+                overlayHost->setPromptBlockedWidget(bottomBar);
+                workspace->deleteLater();
+            }
+        }
         // 覆盖层页面在别的主选项卡上“停放”时，切回所属页会由 OverlayHost 立即恢复。
         // 此时若再给底下的 QTabWidget 盖一层换页幕布，幕布的 Base 色会短暂从页面周围
         // 露出来，形成用户看到的灰屏和一拍延迟。普通根页面仍有换页动画。

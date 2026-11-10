@@ -217,6 +217,7 @@ public:
     static QString checkBoxName() { return QStringLiteral("inlineMessageCheck"); }
     /// 插进来的那一行可点链接。**只有走过 `setLink()` 的才有。**
     static QString linkName() { return QStringLiteral("inlineMessageLink"); }
+    static QString textScrollName() { return QStringLiteral("inlineMessageTextScroll"); }
     static QString textLabelName() { return QStringLiteral("inlineMessageText"); }
     static QString buttonRowName() { return QStringLiteral("inlineMessageButtons"); }
     /// 第 index 颗按钮的名字。**位置是能变的**（按钮表由调用方给），所以认按钮要按下标，
@@ -377,3 +378,4 @@ int ask(OverlayHost *host, MessageKind kind, const QString &title, const QString
         bool dismissOnOutsideClick = false, const QString &note = QString());
 
 }  // namespace InlineMessage
+

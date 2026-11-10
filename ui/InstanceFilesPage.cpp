@@ -282,6 +282,9 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
     // NOTE: 它**不看是哪一路来的**：所以这一处是唯一出处，不必在每条路上各记一遍。
     // 记账那一趟本身收进了 syncSelectedPaths() —— 重列末尾要办的正是同一件事
     // （那一段把信号挡着，只能自己喊），两处各写一遍就是第二份真相。
+    // 大列表滚动时按可见范围补/收行控件。
+    connect(m_list->verticalScrollBar(), &QScrollBar::valueChanged, this,
+            [this](int) { ensureRowWidgetWindow(); });
     connect(m_list, &QListWidget::itemSelectionChanged, this, [this] {
         m_actionPanelDismissed = false;
         syncSelectedPaths();

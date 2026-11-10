@@ -256,13 +256,13 @@ void OverlayHost::applyVisibility() {
         // 提示那一档：整块**本来就露着头**（比如连着开第二个提示）时，只让新那一块自己
         // 淡进来。整块还没露头的情况归下面那一条（整块一起淡，不然一里一外淡两次、
         // 快的那个看着像"闪"）。
-        if (promptShown && !wasShown && isVisible()) {
+        if (promptShown && !wasShown && isVisible() && !m_promptFullSize) {
             Anim::overlayAppear(m_promptCard);
         }
     }
     const bool wasVisible = isVisible();
     setVisible(promptShown || pageShown);
-    if (isVisible() && !wasVisible && promptShown) {
+    if (isVisible() && !wasVisible && promptShown && !m_promptFullSize) {
         // 只有提示卡片需要整层淡入。页面必须立即出现：页面从别的主选项卡返回时若再从
         // 透明度 0 淡入，会先露出底下已禁用页面的灰色外观，看起来既像卡顿又像闪灰。
         // 页面本身已经是导航结果，不需要再用一层 0→1 的覆盖层动画重复确认。
@@ -404,7 +404,7 @@ QWidget *OverlayHost::openPage(const QString &title, int ownerTab) {
     return m_pageContent;
 }
 
-QWidget *OverlayHost::openPrompt(bool dismissOnOutsideClick) {
+QWidget *OverlayHost::openPrompt(bool dismissOnOutsideClick, bool fullSize) {
     if (m_mode == Mode::Prompt) {
         // 提示叠提示：不做（外面那一层正卡在自己的事件循环里，把它顶掉就是死等）。
         // 这一条在外面会被 InlineMessage::ask() 当成"没问成"（返回 -1）。
@@ -413,6 +413,14 @@ QWidget *OverlayHost::openPrompt(bool dismissOnOutsideClick) {
     const bool overPage = (m_mode == Mode::Page);
     m_overPage = overPage;
     m_dismissOnOutsideClick = dismissOnOutsideClick;
+    m_promptFullSize = fullSize;
+    if (fullSize) {
+        Anim::clearOpacityEffect(this);
+        Anim::clearOpacityEffect(m_promptCard);
+    }
+    const int padding = fullSize ? kOverlayPageMargin : promptPadding();
+    m_promptLayout->setContentsMargins(padding, padding, padding, padding);
+    static_cast<QFrame *>(m_promptCard)->setFrameShape(fullSize ? QFrame::NoFrame : QFrame::StyledPanel);
 
     // "四周变暗"要能**看见**下面那一层 —— 而覆盖层和下面那一页是**兄弟**：在这上面
     // 半透明地画一层，合的是 `centralWidget` 的底，不是页面的像素（Qt 重绘一个子控件
@@ -443,6 +451,7 @@ void OverlayHost::closeOverlay() {
         // 收最上面那一层：提示。底下压着一页的话，那页**还在**。
         releaseContent(m_promptContentLayout);
         m_dismissOnOutsideClick = false;
+        m_promptFullSize = false;
         m_backdrop = QPixmap();
         if (m_overPage) {
             m_overPage = false;
@@ -617,6 +626,16 @@ void OverlayHost::relayout() {
         m_pageFrame->setGeometry(rect());
     }
     if (m_promptCard == nullptr) {
+        return;
+    }
+    if (m_promptFullSize) {
+        // 任务中心这类"整页叠在页上"的提示：卡片铺满内容区，看起来就是一层整页，
+        // 而不是一张小弹窗；底下的设置页仍然原样保留着。
+        if (m_promptCard->width() != this->width() || m_promptCard->height() != this->height()) {
+            m_promptCard->setFixedWidth(this->width());
+            m_promptCard->setFixedHeight(this->height());
+        }
+        m_promptCard->move(0, 0);
         return;
     }
     // 宽度**恒定**、只夹高度：所有提示一样宽，不允许出现尺寸不一样的弹窗。
@@ -920,6 +939,3 @@ void OverlayHost::keyPressEvent(QKeyEvent *event) {
     }
     QWidget::keyPressEvent(event);
 }
-
-
-

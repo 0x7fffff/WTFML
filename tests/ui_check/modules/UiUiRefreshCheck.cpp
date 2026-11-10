@@ -639,6 +639,67 @@ int UiUiRefreshCheck(QApplication &app) {
         preview.resize(1020, 670);
         settle();
         expect(curtainCount() == 0, "window resizing leaves no stale transition snapshot");
+        // 页开着时点任务中心：必须是**提示层叠在页上**，不能挤掉页。
+        {
+            QDialog page;
+            page.setObjectName(QStringLiteral("taskCenterOverlayProbePage"));
+            auto *pageLayout = new QVBoxLayout(&page);
+            auto *edit = new QLineEdit(QStringLiteral("unsaved-instance-state"), &page);
+            pageLayout->addWidget(edit);
+            auto *host = ui.overlay();
+            expect(host->showPage(&page, QStringLiteral("测试页")),
+                   "probe page opens on the overlay");
+            QApplication::processEvents();
+            ui.getTaskSummaryButton()->click();
+            QApplication::processEvents();
+            expect(host->promptOpen(),
+                   "task center stacks as a prompt layer over the page");
+            expect(curtainCount() == 1, "task center over instance page uses the full content opening transition");
+            auto *workspace = host->findChild<QWidget *>(QStringLiteral("taskCenterPromptWorkspace"));
+            auto *toolbar = workspace ? workspace->findChild<QWidget *>(QStringLiteral("taskCenterToolbar")) : nullptr;
+            expect(toolbar && toolbar->isVisible() && workspace->findChild<QComboBox *>(QStringLiteral("taskCenterFilter")),
+                   "over-page task center retains filtering and header actions");
+            expect(!host->graphicsEffect() && !host->promptCardWidget()->graphicsEffect(),
+                   "full-size task center avoids a second prompt opacity effect");
+            if (auto *close = host->findChild<QPushButton *>(QStringLiteral("taskCenterPromptClose"))) {
+                close->click();
+                QElapsedTimer closeWait2;
+                closeWait2.start();
+                while (!host->pageOpen() && closeWait2.elapsed() < 1000) QApplication::processEvents();
+                expect(host->pageOpen() && page.isVisible(),
+                       "the close button returns to the same page");
+            } else {
+                expect(false, "task center prompt has a close button");
+            }
+            ui.getTaskSummaryButton()->click();
+            QApplication::processEvents();
+            expect(host->promptOpen(), "task center reopens as a prompt layer");
+            ui.getTaskSummaryButton()->click();
+            {
+                QElapsedTimer closeWait;
+                closeWait.start();
+                while (!host->pageOpen() && closeWait.elapsed() < 1000) QApplication::processEvents();
+            }
+            QApplication::processEvents();
+            expect(host->pageOpen(), "prompt dismissed returns to page mode");
+            expect(page.isVisible(), "prompt dismissed makes the page visible again");
+            expect(edit->text() == QStringLiteral("unsaved-instance-state"), "task center closing preserves the original page edits");
+            settle();
+            expect(!host->findChild<QWidget *>(QStringLiteral("taskCenterPromptWorkspace")),
+                   "closed task workspace and toolbar are released together");
+            ui.getTaskSummaryButton()->click();
+            ui.getTabWidget()->setCurrentIndex(MainWindowUI::settingsTabIndex());
+            QApplication::processEvents();
+            expect(!host->promptOpen() && curtainCount() == 0,
+                   "switching tabs clears an over-page task center without a stale transition");
+            ui.getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
+            QApplication::processEvents();
+            expect(host->pageOpen() && edit->text() == QStringLiteral("unsaved-instance-state"),
+                   "returning to the owner tab restores the same underlying page");
+            page.reject();
+            QApplication::processEvents();
+        }
+
         Anim::setEnabled(false);
         {
             QWidget host;
@@ -780,4 +841,3 @@ int UiUiRefreshCheck(QApplication &app) {
     
  return 0;
 }
-

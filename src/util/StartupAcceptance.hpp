@@ -20,6 +20,7 @@ namespace StartupAcceptance {
 struct Context {
     QString root, sentinel;
     int closeAfterMs = 30000, stressRows = 0;
+    int windowWidth = 0, windowHeight = 0;
     bool enabled() const { return !root.isEmpty(); }
 };
 inline bool safe(const QString &path) {
@@ -55,9 +56,13 @@ inline bool configure(Context *out, QString *error) {
     const auto object = QJsonDocument::fromJson(marker.readAll()).object();
     const int closeMs = object.value("closeAfterMs").toInt(-1);
     const int rows = object.value("stressRows").toInt(0);
+    const int windowWidth = object.value("windowWidth").toInt(0);
+    const int windowHeight = object.value("windowHeight").toInt(0);
     const auto sentinel = object.value("sentinel").toString();
     if (object.value("format") != "wtfml-startup-acceptance/1" || closeMs < 2000 || closeMs > 120000 ||
-        rows < 0 || rows > 200 || (rows && (sentinel.size() < 16 || sentinel.size() > 128))) {
+        rows < 0 || rows > 200 || (rows && (sentinel.size() < 16 || sentinel.size() > 128)) ||
+        (windowWidth != 0 &&
+         (windowWidth < 640 || windowWidth > 3840 || windowHeight < 480 || windowHeight > 2160))) {
         *error = "Invalid acceptance limits"; return false;
     }
     if (!safe(root + "/settings") || !safe(root + "/game") ||
@@ -69,7 +74,7 @@ inline bool configure(Context *out, QString *error) {
     QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, root + "/settings-system");
     qApp->setProperty("wtfml.testDefaultMinecraftDir", root + "/game");
     AppPaths::setMinecraftDir(root + "/game");
-    *out = {root, sentinel, closeMs, rows};
+    *out = {root, sentinel, closeMs, rows, windowWidth, windowHeight};
     SecretRedactor::remember(sentinel);
     return true;
 }
@@ -104,6 +109,7 @@ inline void attach(const Context &context, QWidget &window) {
     if (!context.enabled()) return;
     QTimer::singleShot(500, &window, [context, &window] {
         record(context, {{"mainWindowShown", window.isVisible()},
+            {"windowWidth", window.width()}, {"windowHeight", window.height()},
             {"screenshot", window.grab().save(context.root + "/window-" + QString::number(QCoreApplication::applicationPid()) + ".png")}});
     });
     QTimer::singleShot(context.closeAfterMs, &window, &QWidget::close);
@@ -122,3 +128,4 @@ inline void attach(const Context &context, QWidget &window) {
     }
 }
 } // namespace StartupAcceptance
+

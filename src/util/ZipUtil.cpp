@@ -321,7 +321,7 @@ bool ZipUtil::extractArchives(const QStringList &archives, const QString &target
                        "      $full=$e.FullName.Replace('\\','/')\n"
                        "      if(%3){continue}\n"
                        "      if($e.Length -gt 2147483648){throw ('「' + $full + '」解压后超过 2 GiB 上限，按压缩炸弹拦下了')}\n"
-                       "      if($e.Length -gt 1048576 -and ($e.Length / [Math]::Max($e.CompressedLength,1)) -gt 1000){throw ('「' + $full + '」的压缩比超过 1000，按压缩炸弹拦下了')}\n"
+                       "      if($e.Length -gt 1048576 -and ($e.Length / [Math]::Max($e.CompressedLength,1)) -gt 10000){throw ('「' + $full + '」的压缩比超过 10000，按压缩炸弹拦下了')}\n"
                        "      if(($total + $e.Length) -gt 17179869184){throw '整包解压后累计超过 16 GiB 上限，按压缩炸弹拦下了'}\n"
                        "      $dest=[System.IO.Path]::Combine($out,$full).Replace('/','\\')\n"
                        "      [void][System.IO.Directory]::CreateDirectory"
@@ -861,7 +861,7 @@ bool ZipUtil::extractSubtrees(const QStringList &archives, const QString &target
                        // 解压后的大小 / 压缩比上限（R10）：和 extractArchives() 里那三条同一个
                        // 口径（那边有完整来路）。恢复备份这一条收的也是外部来的 zip。
                        "        if($e.Length -gt 2147483648){throw ('「' + $full + '」解压后超过 2 GiB 上限，按压缩炸弹拦下了')}\n"
-                       "        if($e.Length -gt 1048576 -and ($e.Length / [Math]::Max($e.CompressedLength,1)) -gt 1000){throw ('「' + $full + '」的压缩比超过 1000，按压缩炸弹拦下了')}\n"
+                       "        if($e.Length -gt 1048576 -and ($e.Length / [Math]::Max($e.CompressedLength,1)) -gt 10000){throw ('「' + $full + '」的压缩比超过 10000，按压缩炸弹拦下了')}\n"
                        "        if(($total + $e.Length) -gt 17179869184){throw '整包解压后累计超过 16 GiB 上限，按压缩炸弹拦下了'}\n"
                        // 跳过的前缀（剥完之后的名字，小写、`/` 分隔）。`libraries/` 这种
                        // 是整层目录；`options.txt` 这种是单独一份文件。两边都已经小写。
@@ -1187,3 +1187,4 @@ bool ZipUtil::createZip(const QString &targetZip, const QList<ZipSource> &entrie
     }
     return true;
 }
+

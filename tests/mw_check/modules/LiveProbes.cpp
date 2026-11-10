@@ -4,6 +4,11 @@
 
 #include "MainWindow.hpp"
 #include "MainWindowUI.hpp"
+#include <QPushButton>
+#include "OverlayHost.hpp"
+#include "InstanceSettingsDialog.hpp"
+#include <QListWidget>
+#include "InstanceFilesPage.hpp"
 #include "auth/AccountStore.hpp"
 #include "controllers/JavaRuntimeController.hpp"
 #include "manage/VersionManager.hpp"
@@ -42,6 +47,97 @@
 
 int runLiveProbeMode(int argc, char *argv[]) {
 // ---------- sevenzip-live：7-Zip 解压 + 压回 zip 的自检 ----------
+    // ---------- overlay-live：设置页开着时任务中心必须是**提示层**，关掉回原页 ----------
+    // mw_check.exe overlay-live <root> <instanceId>
+    if (argc >= 4 && QString::fromLocal8Bit(argv[1]) == QLatin1String("overlay-live")) {
+        QCoreApplication::setOrganizationName(QStringLiteral("WTFML"));
+        QCoreApplication::setApplicationName(QStringLiteral("WTFML"));
+        const QString root = QDir::cleanPath(QFileInfo(QString::fromLocal8Bit(argv[2])).absoluteFilePath());
+        const QString instanceId = QString::fromLocal8Bit(argv[3]);
+        if (!QDir(root + QStringLiteral("/game/versions/") + instanceId).exists()) {
+            std::printf("FAIL 实例目录不存在：%s\n", qPrintable(root + "/game/versions/" + instanceId));
+            return 1;
+        }
+        QDir().mkpath(root + QStringLiteral("/settings"));
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, root + QStringLiteral("/settings"));
+        qApp->setProperty("wtfml.testDefaultMinecraftDir", root + QStringLiteral("/game"));
+        AppPaths::setMinecraftDir(root + QStringLiteral("/game"));
+        MainWindow window;
+        window.show();
+        QApplication::processEvents();
+        QMetaObject::invokeMethod(&window, "openInstanceSettings", Qt::DirectConnection,
+                                  Q_ARG(QString, instanceId));
+        auto *overlay = window.findChild<OverlayHost *>();
+        InstanceSettingsDialog *settings = nullptr;
+        QElapsedTimer openWait;
+        openWait.start();
+        while (openWait.elapsed() < 15000) {
+            QApplication::processEvents();
+            settings = window.findChild<InstanceSettingsDialog *>();
+            if (settings != nullptr) break;
+            QThread::msleep(20);
+        }
+        if (overlay == nullptr || settings == nullptr) {
+            std::printf("FAIL 实例设置没有打开（overlay=%d settings=%d）\n",
+                        overlay != nullptr, settings != nullptr);
+            return 1;
+        }
+        // 可选：开某一页并按行数计时（真机验证大列表分帧建行）。
+        if (argc >= 5) {
+            const QString pageKey = QString::fromLocal8Bit(argv[4]);
+            QElapsedTimer pageClock;
+            pageClock.start();
+            settings->showPage(pageKey);
+            QApplication::processEvents();
+            QListWidget *list = nullptr;
+            qint64 rowsMs = -1;
+            while (pageClock.elapsed() < 20000) {
+                QApplication::processEvents();
+                if (InstanceFilesPage *files = settings->filesPage(pageKey)) {
+                    list = files->list();
+                    if (list != nullptr && list->count() > 0 && rowsMs < 0) rowsMs = pageClock.elapsed();
+                }
+                QThread::msleep(10);
+                if (rowsMs >= 0 && pageClock.elapsed() > rowsMs + 800) break;
+            }
+            bool bottomRowReady = false;
+            bool topRecycled = false;
+            if (list != nullptr && list->count() != 0) {
+                list->scrollToBottom();
+                QApplication::processEvents();
+                QElapsedTimer settle;
+                settle.start();
+                while (settle.elapsed() < 3000 &&
+                       list->itemWidget(list->item(list->count() - 1)) == nullptr) {
+                    QApplication::processEvents();
+                    QThread::msleep(10);
+                }
+                bottomRowReady = list->itemWidget(list->item(list->count() - 1)) != nullptr;
+                topRecycled = list->itemWidget(list->item(0)) == nullptr;
+            }
+            std::printf("PASS 页面 %s 行=%d 首行出现=%lld ms 滚到底=%.0f ms 末行控件=%d 顶行回收=%d\n",
+                        qPrintable(pageKey), list != nullptr ? list->count() : -1,
+                        static_cast<long long>(rowsMs),
+                        static_cast<double>(pageClock.elapsed()), bottomRowReady, topRecycled);
+        }
+        auto *taskButton = window.findChild<QPushButton *>(MainWindowUI::taskSummaryButtonName());
+        if (taskButton == nullptr) { std::printf("FAIL 找不到任务按钮\n"); return 1; }
+        taskButton->click();
+        QApplication::processEvents();
+        const bool stacked = overlay->promptOpen() &&
+                             window.findChild<InstanceSettingsDialog *>() != nullptr;
+        std::printf("%s 设置页开着时任务中心叠成提示层（原页还在）\n", stacked ? "PASS" : "FAIL");
+        taskButton->click();
+        QApplication::processEvents();
+        settings = window.findChild<InstanceSettingsDialog *>();
+        QElapsedTimer closeWait;
+        closeWait.start();
+        while (!overlay->pageOpen() && closeWait.elapsed() < 1000) QApplication::processEvents();
+        const bool returned = overlay->pageOpen() && settings != nullptr && settings->isVisible();
+        std::printf("%s 再点一次任务按钮回到原设置页\n", returned ? "PASS" : "FAIL");
+        return (stacked && returned) ? 0 : 1;
+    }
 // mw_check.exe sevenzip-live <archive.7z|rar>
     if (argc >= 3 && QString::fromLocal8Bit(argv[1]) == QLatin1String("sevenzip-live")) {
         const QString archive = QString::fromLocal8Bit(argv[2]);
@@ -626,6 +722,12 @@ if (argc >= 3 && QString::fromLocal8Bit(argv[1]) == QLatin1String("java-runtime-
 
     return -1;
 }
+
+
+
+
+
+
 
 
 

@@ -101,9 +101,6 @@ void MainWindow::startQuickPlayNow(const QString &versionId, const QuickPlay::Ta
 }
 
 void MainWindow::openInstanceSettingsNow(const QString &versionId, const QString &pageKey) {
-    m_lastSettingsVersionId = versionId;
-    m_lastSettingsPageKey = pageKey;
-    m_reopenSettingsAfterTaskCenter = false;
     m_instanceDialogController->open(versionId, pageKey);
 }
 

@@ -12,6 +12,7 @@
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QScrollArea>
 #include <QLayout>
 #include <QLineEdit>
 #include <QListWidget>
@@ -136,8 +137,26 @@ InlineMessageBox::InlineMessageBox(MessageKind kind, const QString &title, const
     // 宽度**钉死**。它同时管两件事：所有提示一样宽，以及"这段字换几行"
     // 是个确定的数 —— 卡片的高矮才算得准（指望 heightForWidth 一路穿过两层布局传上来，
     // 是会失手的那种）。
-    m_textLabel->setFixedWidth(OverlayHost::promptContentWidth());
-    layout->addWidget(m_textLabel);
+    // 正文超过卡片高度时**滚动**，别把按钮挤出卡片：长错误（复制整棵目录失败、
+    // 多个文件占用）会很长，wordWrap 的 QLabel 没有上限，卡片会被顶出屏幕。
+    const int textWidth = OverlayHost::promptContentWidth();
+    m_textLabel->setFixedWidth(textWidth - 14);  // 给竖直滚动条留一格
+    // QLabel::heightForWidth() 在没上屏前不稳定；这里直接用字体度量算出换行后的高度。
+    const QFontMetrics metrics(m_textLabel->font());
+    const int neededHeight = metrics
+        .boundingRect(QRect(0, 0, textWidth - 14, 100000), Qt::TextWordWrap, m_textLabel->text())
+        .height();
+    // QScrollArea 不认 heightForWidth：把量出来的高度钉成最小高度，滚动条才有范围。
+    m_textLabel->setMinimumHeight(neededHeight + 4);
+    auto *textScroll = new QScrollArea(this);
+    textScroll->setObjectName(textScrollName());
+    textScroll->setFrameShape(QFrame::NoFrame);
+    textScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    textScroll->setWidgetResizable(true);
+    textScroll->setWidget(m_textLabel);
+    textScroll->setFixedWidth(textWidth);
+    textScroll->setFixedHeight(qBound(48, neededHeight + 2, 260));
+    layout->addWidget(textScroll);
 
     QWidget *row = new QWidget(this);
     row->setObjectName(buttonRowName());
@@ -710,3 +729,6 @@ QColor pickColor(OverlayHost *host, const QString &title, const QString &text,
 }
 
 }  // namespace InlineMessage
+
+
+

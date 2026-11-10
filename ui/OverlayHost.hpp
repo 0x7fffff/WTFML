@@ -163,7 +163,11 @@ public:
      * 纯报信的那些传 true。（按 Esc 一律算关掉，不看这一格 —— 见 keyPressEvent。）
      * @return 内容容器；**提示叠提示的时候返回 nullptr**（见 `ask()`）。
      */
-    QWidget *openPrompt(bool dismissOnOutsideClick = false);
+    QWidget *openPrompt(bool dismissOnOutsideClick = false, bool fullSize = false);
+
+/// 当前提示卡片那一块（没有提示时为 nullptr）。任务中心关闭动画要用它。
+QWidget *promptCardWidget() const { return m_promptCard; }
+    bool promptFullSize() const { return m_promptFullSize; }
 
     /**
      * @brief ★ **提示开着的时候要按住的那一块**（现在的调用方是底栏）。
@@ -461,6 +465,7 @@ private:
 
     /// 提示那一档：底下是不是还压着一页（`closeOverlay()` 靠它决定收完回到哪儿）。
     bool m_overPage = false;
+    bool m_promptFullSize = false;
 
     // 页眉那一套是**常驻**的（建一次，开关只切可见性）：每开一次建一套控件，
     // 验证工程就得重新 findChild 一次，而"页眉长得一样"这件事也没人保证了。
@@ -524,4 +529,6 @@ private:
     /// 也在"这一下会不会闪一下"这种事上赌运气。寄存到这儿就永远不会冒出来。
     QWidget *m_parking = nullptr;
 };
+
+
 

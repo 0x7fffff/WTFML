@@ -106,3 +106,9 @@ Remove-Item Env:WTFML_FILES_PAINT_PROBE_ROWS
 `setItemWidget()`。**这一页没有单独测量**：没有为它加探针（不想为一次改动在产品代码
 里留一行分档开关），所以这里只记"写法同一条"，不拿文件页的数字替它下结论。行为由
 `ui_check` 的 Z16 一段和 `mw_check` 的存档页用例覆盖，两套全绿。
+
+## 2026-11-08 回归门槛
+
+- 	ests/ui_check/modules/UiBatchManagementChecks.cpp 末尾新增大列表测量：临时目录建 1000 个 .jar，构造实例设置页并等待列表建满；首绘门槛 10 s、scrollToBottom() 门槛 3 s。
+- 这是**回归护栏**（防平方级退化），不是虚拟化本身；虚拟化仍需单独一轮。
+

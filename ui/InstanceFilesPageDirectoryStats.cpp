@@ -146,9 +146,11 @@ void InstanceFilesPage::fillDirectoryStats() {
             meta += QStringLiteral(" / ") + played.toString(QStringLiteral("yyyy-MM-dd HH:mm"));
         }
         label->setText(meta);
+        m_statCache.insert(path, meta);
     }
 
     if (!m_statQueue.isEmpty()) {
         m_statTimer->start();
     }
 }
+

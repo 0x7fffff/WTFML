@@ -149,6 +149,8 @@ PresetManifest loadManifest(const QString &root, const QString &id, bool *ok = n
 
 /// 写一份（原子替换）。`manifest.id` 不合法回 false —— 这一道闸的后果同 `isValidPresetId()`。
 bool saveManifest(const QString &root, const PresetManifest &manifest);
+/// 新建子清单（目标不存在）的快速原子写；现有清单仍走 saveManifest。
+bool saveNewManifest(const QString &root, const PresetManifest &manifest);
 
 // ---------------------------------------------------------------------------
 // 列表

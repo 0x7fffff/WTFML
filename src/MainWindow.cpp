@@ -894,43 +894,14 @@ MainWindow::MainWindow(QWidget *parent)
         });
     connect(m_ui->getHomeInstanceSelectButton(), &QPushButton::clicked, this,
             &MainWindow::openHomeInstancePicker);
-    m_ui->setPageEvictedForTaskCenterHandler([this] {
-        qInfo() << "[UI timing] task center evicting page, saved=" << m_lastSettingsVersionId;
-        if (!m_lastSettingsVersionId.isEmpty()) m_reopenSettingsAfterTaskCenter = true;
-    });
     if (OverlayHost *overlay = m_ui->overlay()) {
-        connect(overlay, &OverlayHost::pageClosed, this, [this, overlay](QWidget *closedPage) {
-            const bool wasSettings =
-                closedPage != nullptr && qobject_cast<InstanceSettingsDialog *>(closedPage) != nullptr;
-            qInfo() << "[UI timing] pageClosed"
-                    << (closedPage != nullptr ? closedPage->metaObject()->className() : "null")
-                    << "wasSettings=" << wasSettings
-                    << "reopen=" << m_reopenSettingsAfterTaskCenter
-                    << "overlayOpen=" << overlay->isOpen();
-            if (wasSettings) {
-                if (auto *settings = qobject_cast<InstanceSettingsDialog *>(closedPage)) {
-                    m_lastSettingsPageKey = settings->currentPageKey();
-                }
-            }
-            if (wasSettings && !m_reopenSettingsAfterTaskCenter) {
+        connect(overlay, &OverlayHost::pageClosed, this, [this](QWidget *closedPage) {
+            if (closedPage != nullptr &&
+                qobject_cast<InstanceSettingsDialog *>(closedPage) != nullptr) {
                 if (QWidget *tabs = m_ui->getTabWidget()) {
                     Anim::pageAppear(tabs, tabs->palette().color(QPalette::Base));
                 }
-                m_lastSettingsVersionId.clear();
-                m_lastSettingsPageKey.clear();
-                return;
             }
-            if (!m_reopenSettingsAfterTaskCenter || overlay->isOpen() || wasSettings) return;
-            m_reopenSettingsAfterTaskCenter = false;
-            const QString versionId = m_lastSettingsVersionId;
-            const QString pageKey = m_lastSettingsPageKey;
-            if (versionId.isEmpty()) return;
-            qInfo() << "[UI timing] reopen settings after task center" << versionId << pageKey;
-            // layoutTransition 在 closeOverlay 返回后采集终点；此处必须同步恢复，
-            // 否则终点会拍成管理首页，动画结束后才跳回原来的实例页。
-            setProperty("wtfmlSuppressSettingsAppear", true);
-            openInstanceSettingsNow(versionId, pageKey);
-            setProperty("wtfmlSuppressSettingsAppear", false);
         });
     }
     setupConnections();

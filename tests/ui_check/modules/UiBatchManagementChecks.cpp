@@ -486,5 +486,57 @@ int UiBatchManagementChecks(const QString &instanceDisplayName, const QString &i
             }
         }
     }
+    // ---------- 大列表：1000 条首绘 / 滚到底 ----------
+    {
+        QTemporaryDir bigScratch;
+        const QString bigRoot = bigScratch.path();
+        QDir().mkpath(bigRoot + QStringLiteral("/mods"));
+        for (int i = 0; i < 1000; ++i) {
+            QFile file(bigRoot + QStringLiteral("/mods/模组%1.jar").arg(i, 4, 10, QLatin1Char('0')));
+            if (file.open(QIODevice::WriteOnly)) file.write(QByteArray(32, 'a'));
+        }
+        QHash<QString, QString> bigDirs;
+        bigDirs.insert(QStringLiteral("mod"), bigRoot + QStringLiteral("/mods"));
+        Dlg big(instanceDisplayName, instanceDirName, Dlg::Override(), global, QStringList(), true);
+        big.setFileDirs(bigDirs);
+        QElapsedTimer clock;
+        clock.start();
+        big.showPage(QStringLiteral("mod"));
+        big.show();
+        InstanceFilesPage *page = big.filesPage(QStringLiteral("mod"));
+        QListWidget *list = page != nullptr ? page->list() : nullptr;
+        while (list != nullptr && list->count() < 1000 && clock.elapsed() < 10000)
+            QApplication::processEvents();
+        const qint64 firstPaint = clock.elapsed();
+        check(list != nullptr && list->count() == 1000,
+              "大列表首绘：1000 条都建出来了",
+              list != nullptr ? QString::number(list->count()) : QStringLiteral("无列表"));
+        check(firstPaint < 10000, "1000 条文件首绘在 10 秒内", QString::number(firstPaint));
+        clock.restart();
+        if (list != nullptr) {
+            list->scrollToBottom();
+            QApplication::processEvents();
+        }
+        // 滚到底：按可见范围补行控件，同时回收远处的行控件。
+        while (list != nullptr && list->count() > 0 &&
+               list->itemWidget(list->item(list->count() - 1)) == nullptr &&
+               clock.elapsed() < 15000) {
+            QApplication::processEvents();
+        }
+        const qint64 scrollMs = clock.elapsed();
+        check(list != nullptr && list->itemWidget(list->item(list->count() - 1)) != nullptr,
+              "滚到底后最后一行有控件（可见范围按需重建）");
+        if (list != nullptr && list->verticalScrollBar() != nullptr) {
+            list->verticalScrollBar()->setValue(list->verticalScrollBar()->maximum());
+            QApplication::processEvents();
+        }
+        check(list != nullptr && list->count() == 1000 && list->itemWidget(list->item(0)) == nullptr,
+              "滚到底后远处顶部的行控件已被回收");
+        check(scrollMs < 3000, "1000 条文件滚到底在 3 秒内", QString::number(scrollMs));
+        qInfo() << "[perf] large file list: first paint" << firstPaint << "ms, scroll-to-bottom" << scrollMs << "ms";
+
+    }
+
     return 0;
 }
+

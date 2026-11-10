@@ -237,6 +237,9 @@ int main(int argc, char *argv[]) {
 
 
     MainWindow window;
+    if (acceptance.enabled() && acceptance.windowWidth > 0) {
+        window.resize(acceptance.windowWidth, acceptance.windowHeight);
+    }
     window.show();
 
     // 日志文件到这一刻才开：窗口立起来 = FolderManager 已经把「当前游戏文件夹」从

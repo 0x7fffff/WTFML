@@ -994,6 +994,8 @@ private:
     /// NOTE: 只重列**不读盘**（读盘那一步在 refresh() 里，存进 m_entries）—— 敲字时
     /// "盘上有没有变"不是这一趟要回答的问题，用户按「刷新」才是。
     void rebuildRows();
+    /// 大列表：只为可见范围附近保留行控件（滚远了的销毁、滚回来的重建）。
+    void ensureRowWidgetWindow();
 
     /// 这一条过不过现在这两条筛选条件（搜索词 + 状态栏）。
     bool entryMatchesFilter(const Entry &entry) const;
@@ -1330,6 +1332,8 @@ private:
     QSet<QString> m_shownIdentities;
 
     bool m_rowsBuilt = false;
+    /// 每次整表重建 +1：延迟挂行控件的批次据此判断"这一趟还在不在"。
+    int m_rowsGeneration = 0;
 
     /// 底下那条**悬浮操作条**。★ 父控件是 **`m_list`**（为什么不能用 viewport 见
     /// setBatchMode 上面那一段 —— viewport 的孩子会被滚轮一起搬走），
@@ -1360,6 +1364,8 @@ private:
     /// 标签会被一起删掉，而定时器可能正好排在下一趟。悬空的话是段错误（不是"数字
     /// 没显示出来"）。
     QHash<QString, QPointer<QLabel>> m_statLabels;
+    /// 已经算出来的目录大小/时间：行控件被回收后再滚回来，直接显示，不重算。
+    QHash<QString, QString> m_statCache;
     /// 还没算的那些（按轮到的先后）。**和上面那张表分开**：表是"哪些行要算"，这个是
     /// "还剩哪些没算"——算完的那些在表里留着（它们那一格已经写好了，不用再动），
     /// 从队里去掉就行。队列空 = 这一趟统计做完了。

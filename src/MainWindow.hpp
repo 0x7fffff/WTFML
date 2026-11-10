@@ -2762,10 +2762,6 @@ private:
     QJsonObject snapshotDownloadContinuation() const;
     bool continueDownloadInstallation(Tasks::TaskId id, const QJsonObject &intent, bool targetsVerified = false);
     InstanceDialogController *m_instanceDialogController = nullptr;
-    /// 最近一次打开的实例设置（任务中心挤掉它之后要能回到原来那一页）。
-    QString m_lastSettingsVersionId;
-    QString m_lastSettingsPageKey;
-    bool m_reopenSettingsAfterTaskCenter = false;
     InstanceEditorController *m_instanceEditorController = nullptr;
     ImportController *m_importController = nullptr;
     GameSessionController *m_gameSessionController = nullptr;
