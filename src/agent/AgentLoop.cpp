@@ -9,6 +9,7 @@
 #include "AgentProviderAdapters.hpp"
 
 #include <QDateTime>
+#include <QJsonDocument>
 #include <QTimer>
 #include <QUuid>
 
@@ -68,6 +69,8 @@ void AgentLoop::setClient(AgentModelClient *client) {
 
 void AgentLoop::setConfig(const Config &config) { m_config = config; }
 
+void AgentLoop::setToolEngine(AgentToolEngine *engine) { m_toolEngine = engine; }
+
 void AgentLoop::setHistory(const QList<Agent::Message> &history) { m_history = history; }
 
 void AgentLoop::setRetryDelaysForTest(const QList<int> &delays) {
@@ -75,7 +78,8 @@ void AgentLoop::setRetryDelaysForTest(const QList<int> &delays) {
 }
 
 bool AgentLoop::busy() const {
-    return m_state == State::Preparing || m_state == State::Requesting;
+    return m_state == State::Preparing || m_state == State::Requesting ||
+           m_state == State::AwaitingApproval || m_state == State::ExecutingTool;
 }
 
 QString AgentLoop::stateName(State state) {
@@ -83,6 +87,8 @@ QString AgentLoop::stateName(State state) {
     case State::Idle: return QStringLiteral("idle");
     case State::Preparing: return QStringLiteral("preparing");
     case State::Requesting: return QStringLiteral("requesting");
+    case State::AwaitingApproval: return QStringLiteral("awaiting-approval");
+    case State::ExecutingTool: return QStringLiteral("executing-tool");
     case State::Completed: return QStringLiteral("completed");
     case State::Failed: return QStringLiteral("failed");
     case State::Cancelled: return QStringLiteral("cancelled");
@@ -126,6 +132,10 @@ void AgentLoop::start() {
     }
     m_generation += 1;
     m_retryAttempt = 0;
+    m_toolSteps = 0;
+    m_nextToolCall = 0;
+    m_toolQueue.clear();
+    m_approvalId.clear();
     m_cancelled = false;
     m_lastError = {};
     m_usage = {};
@@ -146,6 +156,10 @@ void AgentLoop::retry() {
     }
     m_generation += 1;
     m_retryAttempt = 0;
+    m_toolSteps = 0;
+    m_nextToolCall = 0;
+    m_toolQueue.clear();
+    m_approvalId.clear();
     m_cancelled = false;
     m_lastError = {};
     beginRequest(false);
@@ -176,6 +190,7 @@ void AgentLoop::beginRequest(bool isRetry) {
         m_assistant.role = Agent::Role::Assistant;
         m_assistant.status = Agent::MessageStatus::Streaming;
         m_assistant.createdAt = QDateTime::currentDateTimeUtc();
+        m_assistantAppended = false;
     }
     Agent::ModelRequest request;
     request.requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -196,6 +211,7 @@ void AgentLoop::beginRequest(bool isRetry) {
     request.sendTemperature = m_config.profile.sendTemperature;
     request.sendToolChoice = m_config.profile.sendToolChoice;
     request.localHttpAllowed = m_config.profile.localHttpAllowed;
+    if (m_toolEngine != nullptr) request.tools = m_toolEngine->schemas();
     m_requestId = request.requestId;
     setState(State::Requesting);
     emit assistantUpdated(m_assistant);
@@ -214,8 +230,15 @@ void AgentLoop::handleFinished(const QString &requestId, const Agent::ModelReply
     m_usage = reply.usage;
     emit usageUpdated(m_usage);
     appendAssistantToHistory();
-    setState(State::Completed);
     emit assistantUpdated(m_assistant);
+    emit messageAdded(m_assistant);
+    if (!m_assistant.toolCalls.isEmpty()) {
+        m_toolQueue = m_assistant.toolCalls;
+        m_nextToolCall = 0;
+        processToolCalls();
+        return;
+    }
+    setState(State::Completed);
     emit turnFinished(m_assistant);
 }
 
@@ -264,6 +287,7 @@ void AgentLoop::handleFailed(const QString &requestId, const Agent::Error &error
 
 void AgentLoop::deliverFailure(const Agent::Error &error) {
     m_lastError = error;
+    m_assistantAppended = false;
     m_assistant.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
     m_assistant.role = Agent::Role::Assistant;
     m_assistant.status = Agent::MessageStatus::Error;
@@ -278,8 +302,83 @@ void AgentLoop::deliverFailure(const Agent::Error &error) {
 }
 
 void AgentLoop::appendAssistantToHistory() {
-    if (m_assistant.id.isEmpty()) return;
+    if (m_assistant.id.isEmpty() || m_assistantAppended) return;
     m_history.append(m_assistant);
+    m_assistantAppended = true;
+}
+
+void AgentLoop::processToolCalls() {
+    while (m_nextToolCall < m_toolQueue.size()) {
+        const Agent::ToolCall call = m_toolQueue.at(m_nextToolCall);
+        emit toolCallStarted(call);
+        if (m_toolEngine == nullptr) {
+            AgentToolResult result;
+            result.status = AgentToolResult::Status::Error;
+            result.summary = QStringLiteral("工具未注册。");
+            result.error.kind = Agent::ErrorKind::ToolError;
+            result.error.message = result.summary;
+            handleToolOutcome(call, result);
+            ++m_nextToolCall;
+            continue;
+        }
+        setState(State::ExecutingTool);
+        const AgentToolResult result = m_toolEngine->invoke(call);
+        if (result.status == AgentToolResult::Status::ApprovalRequired) {
+            m_pendingCall = call;
+            m_approvalId = result.approval.value(QStringLiteral("approvalId")).toString();
+            setState(State::AwaitingApproval);
+            emit approvalRequested(m_approvalId, call, result.approval);
+            return;
+        }
+        handleToolOutcome(call, result);
+        ++m_nextToolCall;
+    }
+    m_toolQueue.clear();
+    m_nextToolCall = 0;
+    m_toolSteps += 1;
+    if (m_toolSteps > m_config.maxToolSteps) {
+        Agent::Error error;
+        error.kind = Agent::ErrorKind::ToolError;
+        error.message = QStringLiteral("超过最大工具步数，已停止。");
+        deliverFailure(error);
+        return;
+    }
+    setState(State::Preparing);
+    beginRequest(false);
+}
+
+void AgentLoop::handleToolOutcome(const Agent::ToolCall &call, const AgentToolResult &result) {
+    Agent::Message toolMessage;
+    toolMessage.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    toolMessage.role = Agent::Role::Tool;
+    toolMessage.toolCallId = call.id;
+    toolMessage.toolName = call.name;
+    toolMessage.status = result.status == AgentToolResult::Status::Ok
+                             ? Agent::MessageStatus::Complete
+                             : Agent::MessageStatus::Error;
+    toolMessage.errorText = result.error.message;
+    toolMessage.errorKind = result.error.kind;
+    toolMessage.createdAt = QDateTime::currentDateTimeUtc();
+    QJsonObject body{{QStringLiteral("ok"), result.status == AgentToolResult::Status::Ok},
+                     {QStringLiteral("summary"), result.summary},
+                     {QStringLiteral("data"), result.data}};
+    if (!result.error.isEmpty()) body.insert(QStringLiteral("error"), result.error.toJson());
+    toolMessage.content = QString::fromUtf8(QJsonDocument(body).toJson(QJsonDocument::Compact));
+    m_history.append(toolMessage);
+    emit messageAdded(toolMessage);
+    emit toolCallFinished(call, result);
+}
+
+void AgentLoop::resolveApproval(bool approved) {
+    if (m_state != State::AwaitingApproval || m_toolEngine == nullptr) return;
+    const QString approvalId = m_approvalId;
+    m_approvalId.clear();
+    setState(State::ExecutingTool);
+    const AgentToolResult result = m_toolEngine->resolveApproval(approvalId, approved);
+    handleToolOutcome(m_pendingCall, result);
+    m_pendingCall = {};
+    ++m_nextToolCall;
+    processToolCalls();
 }
 
 void AgentLoop::invalidateRequest() {
@@ -293,6 +392,11 @@ void AgentLoop::invalidateRequest() {
 void AgentLoop::cancel() {
     if (!busy() || m_cancelled) return;
     m_cancelled = true;
+    if (m_toolEngine != nullptr) m_toolEngine->cancelPending();
+    m_approvalId.clear();
+    m_pendingCall = {};
+    m_toolQueue.clear();
+    m_nextToolCall = 0;
     invalidateRequest();
     m_assistant.status = Agent::MessageStatus::Interrupted;
     appendAssistantToHistory();

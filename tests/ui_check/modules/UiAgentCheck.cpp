@@ -11,7 +11,9 @@
 #include "AgentMessageView.hpp"
 #include "AgentPage.hpp"
 #include "AgentSecretEdit.hpp"
+#include "AgentApprovalCard.hpp"
 #include "AgentSettingsPage.hpp"
+#include "AgentToolCard.hpp"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -19,6 +21,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSettings>
@@ -155,6 +158,61 @@ int UiAgentCheck() {
                .contains(QStringLiteral("<img")),
           "智能体 UI：不生成远程 img");
 
+    AgentView::ToolCard toolCard;
+    toolCard.id = QStringLiteral("call-1");
+    toolCard.title = QStringLiteral("查看目录概况");
+    toolCard.summary = QStringLiteral("目录：2 个文件");
+    toolCard.detail = QStringLiteral("{}");
+    toolCard.status = AgentView::ToolCardStatus::Done;
+    page->upsertToolCard(toolCard);
+    QApplication::processEvents();
+    auto *toolView = page->findChild<AgentToolCard *>();
+    check(toolView != nullptr && toolView->cardId() == QStringLiteral("call-1"),
+          "智能体 UI：工具卡可按 id 更新",
+          QStringLiteral("count=%1 id=%2").arg(page->findChildren<AgentToolCard *>().size())
+              .arg(toolView != nullptr ? toolView->cardId() : QStringLiteral("<null>")));
+    check(toolView != nullptr &&
+              toolView->findChild<QLabel *>(QStringLiteral("agentToolTitle")) != nullptr,
+          "智能体 UI：工具卡有标题");
+
+    QJsonObject approval{{QStringLiteral("approvalId"), QStringLiteral("a1")},
+                         {QStringLiteral("tool"), QStringLiteral("fs.write")},
+                         {QStringLiteral("displayName"), QStringLiteral("写入文本配置")},
+                         {QStringLiteral("target"), QStringLiteral("config/a.toml")},
+                         {QStringLiteral("summary"), QStringLiteral("写入 1 个文件")},
+                         {QStringLiteral("preview"), QStringLiteral("配置预览")},
+                         {QStringLiteral("diff"), QStringLiteral("- old") + QChar(10) + QStringLiteral("+ new")},
+                         {QStringLiteral("backupHint"), QStringLiteral("写前备份")},
+                         {QStringLiteral("sessionAllowAvailable"), false},
+                         {QStringLiteral("egress"),
+                          QJsonObject{{QStringLiteral("kind"), QStringLiteral("config-file")},
+                                      {QStringLiteral("reason"), QStringLiteral("逐次确认")}}}};
+    page->showApproval(approval);
+    QApplication::processEvents();
+    auto *approvalCard = page->findChild<AgentApprovalCard *>();
+    check(approvalCard != nullptr && approvalCard->approvalId() == QStringLiteral("a1"),
+          "智能体 UI：审批卡显示当前请求");
+    check(approvalCard != nullptr &&
+              approvalCard->findChild<QPushButton *>(QStringLiteral("agentApprovalAllow")) != nullptr &&
+              approvalCard->findChild<QPushButton *>(QStringLiteral("agentApprovalDeny")) != nullptr,
+          "智能体 UI：审批卡有允许/拒绝");
+    auto *sessionAllow =
+        approvalCard != nullptr
+            ? approvalCard->findChild<QPushButton *>(QStringLiteral("agentApprovalSessionAllow"))
+            : nullptr;
+    check(sessionAllow != nullptr && !sessionAllow->isVisible(),
+          "智能体 UI：Stage 1B 不提供本会话目录放行");
+    auto *approvalPreview = approvalCard != nullptr
+                                ? approvalCard->findChild<QPlainTextEdit *>(
+                                      QStringLiteral("agentEgressPreviewCard"))
+                                : nullptr;
+    check(approvalPreview != nullptr &&
+              approvalPreview->toPlainText().contains(QStringLiteral("new")),
+          "智能体 UI：审批卡显示 diff/预览");
+    page->hideApproval();
+    QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    check(page->findChild<AgentApprovalCard *>() == nullptr, "智能体 UI：审批卡可收起");
+
     page->setEncryptionChecked(true);
     auto *encrypt = qobject_cast<QCheckBox *>(find("agentEncryptSessionCheck"));
     check(encrypt != nullptr && encrypt->isChecked(), "智能体 UI：加密开关可显示当前状态");
@@ -188,6 +246,10 @@ int UiAgentCheck() {
     auto *authMode = settings.findChild<QComboBox *>(QStringLiteral("agentAuthModeCombo"));
     check(advanced != nullptr && !advanced->isChecked() && authMode != nullptr,
           "设置页：协议适配默认折叠");
+    auto *strict = settings.findChild<QCheckBox *>(QStringLiteral("agentEgressStrictCheck"));
+    check(strict != nullptr, "设置页：严格模式勾选框存在");
+    settings.setStrictEgress(true);
+    check(settings.strictEgress(), "设置页：严格模式可切换");
     auto *privacy = settings.findChild<QLabel *>(QStringLiteral("agentPrivacyText"));
     check(privacy != nullptr && privacy->text().contains(QStringLiteral("不读取文件")) &&
               privacy->text().contains(QStringLiteral("不做遥测")),

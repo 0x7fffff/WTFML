@@ -87,6 +87,8 @@ ${REPO_ROOT}/ui/InstanceSettingsSignature.cpp
                                 ${REPO_ROOT}/ui/AgentPage.cpp
                                 ${REPO_ROOT}/ui/AgentSecretEdit.cpp
                                 ${REPO_ROOT}/ui/AgentSettingsPage.cpp
+                                ${REPO_ROOT}/ui/AgentToolCard.cpp
+                                ${REPO_ROOT}/ui/AgentApprovalCard.cpp
                                 ${REPO_ROOT}/ui/AgentViewTypes.hpp
                                 ${REPO_ROOT}/assets/icons.qrc
                                 # 「启用 / 禁用」那颗开关和 MOTD 那套配色

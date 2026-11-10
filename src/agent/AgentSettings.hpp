@@ -54,9 +54,12 @@ public:
     static bool saveProfile(const AgentProviderProfile &profile, QString *problem = nullptr);
     static bool removeProfile(const QString &profileId, QString *problem = nullptr);
     static AgentProviderProfile profile(const QString &profileId);
+    static bool strictEgress();
+    static void setStrictEgress(bool strict);
     static QString activeProfileId();
     static void setActiveProfileId(const QString &profileId);
 
     static QString profilesKey() { return QStringLiteral("Agent/Profiles"); }
     static QString activeKey() { return QStringLiteral("Agent/ActiveProfile"); }
+    static QString strictEgressKey() { return QStringLiteral("Agent/StrictEgress"); }
 };

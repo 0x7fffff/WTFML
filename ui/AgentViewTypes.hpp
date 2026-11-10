@@ -57,4 +57,14 @@ struct ProviderDraft {
     bool localHttpAllowed = false;
 };
 
+enum class ToolCardStatus { Pending, Running, Done, Error };
+
+struct ToolCard {
+    QString id;
+    QString title;
+    QString summary;
+    QString detail;
+    ToolCardStatus status = ToolCardStatus::Pending;
+};
+
 }  // namespace AgentView

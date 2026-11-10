@@ -1,6 +1,8 @@
 #include "controllers/ServerVersionPicker.hpp"
 #include "controllers/AgentController.hpp"
 #include "AgentPage.hpp"
+#include "agent/AgentInstanceLock.hpp"
+#include "util/AppPaths.hpp"
 /**
  * @file MainWindow.cpp
  * @brief 实现主应用程序窗口及用户交互逻辑。
@@ -315,6 +317,17 @@ MainWindow::MainWindow(QWidget *parent)
     // 没有页面时控制器不建 —— 但产品里 MainWindowUI 总是会建第五页。
     if (m_ui->getAgentPage() != nullptr) {
         m_agentController = new AgentController(m_ui->getAgentPage(), m_ui->overlay(), this);
+        m_agentController->setInstanceContextProvider([this] {
+            AgentInstanceInfo info;
+            QComboBox *combo = m_ui->getInstalledVersionCombo();
+            if (combo == nullptr || combo->currentIndex() < 0) return info;
+            info.id = combo->currentData().toString();
+            if (info.id.isEmpty()) return info;
+            info.name = instanceDisplayName(info.id);
+            info.gameRootId = AgentInstanceLocks::gameRootId(AppPaths::minecraftDir());
+            info.exists = QFileInfo(AppPaths::versionDir(info.id)).isDir();
+            return info;
+        });
         connect(m_ui->getTabWidget(), &QTabWidget::currentChanged, m_agentController,
                 [this](int index) {
                     if (index != MainWindowUI::agentTabIndex()) {

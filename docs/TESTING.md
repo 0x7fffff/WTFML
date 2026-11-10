@@ -1154,3 +1154,20 @@ QSettings 也重定向到同一沙盒。凭据测试强制走 DPAPI 后备，不
 `wtfml.ui`、`wtfml.main-window`、`wtfml.token-protection-fault`、核心基线、
 `test-modules/test-runner/ci-partitions` 全部通过。细节与未跑项见
 [Stage 1A 实现与验收](AGENT_STAGE1A.md)。
+
+## 2026-11-10：智能体 Stage 1B 测试入口
+
+沿用 `verify_agent` / `ui_check_agent` / `mw_check_agent`，不新增网络或真实用户目录依赖。
+Stage 1B 用例覆盖：路径攻击矩阵与句柄级校验、外发边界表、审批矩阵、artifact 分离、
+实例锁、维护备份生命周期、文件工具引擎、Loop 工具调用/审批/拒绝回灌、UI 工具卡/审批卡。
+
+```powershell
+./build/verification-mingw13/tests/verify_agent.exe
+./build/verification-mingw13/tests/ui_check/ui_check_agent.exe
+./build/verification-mingw13/tests/mw_check/mw_check_agent.exe
+```
+
+本机结果：`verify_agent 295/295`、`ui_check_agent 37/37`、`mw_check_agent 31/31`；
+既有 `wtfml.ui`、`wtfml.main-window`、`wtfml.core`、`wtfml.token-protection-fault` 与
+工具链检查通过。junction 夹具无法创建时输出 `SKIP`，不计入通过。真机 G1B 清单见
+[Stage 1B 实现与验收](AGENT_STAGE1B.md)。

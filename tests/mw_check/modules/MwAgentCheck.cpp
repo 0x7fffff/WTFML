@@ -5,7 +5,9 @@
 
 #include "Support.hpp"
 
+#include "AgentApprovalCard.hpp"
 #include "AgentPage.hpp"
+#include "AgentToolCard.hpp"
 #include "agent/AgentSessionStore.hpp"
 #include "controllers/AgentController.hpp"
 #include "agent/AgentModelClient.hpp"
@@ -13,10 +15,13 @@
 #include <QCoreApplication>
 #include <QDirIterator>
 #include <QElapsedTimer>
+#include <QDir>
 #include <QFile>
+#include <QJsonDocument>
 #include <QTabWidget>
 #include <QThread>
 #include <QTimer>
+#include <QUuid>
 
 namespace {
 
@@ -29,6 +34,22 @@ public:
         lastRequest = request;
         const bool hold = holdNext;
         holdNext = false;
+        if (toolCallNext && toolRounds == 0) {
+            ++toolRounds;
+            QTimer::singleShot(0, this, [this, request] {
+                Agent::ModelReply reply;
+                reply.message.role = Agent::Role::Assistant;
+                reply.message.status = Agent::MessageStatus::Complete;
+                Agent::ToolCall call;
+                call.id = QStringLiteral("mw-call-1");
+                call.name = QStringLiteral("fs.read");
+                call.arguments = QJsonObject{{QStringLiteral("path"),
+                                              QStringLiteral("config/a.toml")}};
+                reply.message.toolCalls.append(call);
+                emit finished(request.requestId, reply);
+            });
+            return;
+        }
         QTimer::singleShot(0, this, [this, request, hold] {
             emit textDelta(request.requestId, QStringLiteral("收到："));
             emit textDelta(request.requestId, QStringLiteral("启动日志结论"));
@@ -49,7 +70,9 @@ public:
     }
 
     int starts = 0;
+    int toolRounds = 0;
     bool holdNext = false;
+    bool toolCallNext = false;
     QStringList cancelled;
     Agent::ModelRequest lastRequest;
 };
@@ -159,6 +182,70 @@ int MwAgentChecks(QApplication &app) {
           "真窗口：停止后的会话仍可读回");
     check(loaded.messages.constLast().status == Agent::MessageStatus::Interrupted,
           "真窗口：停止后最后一条标为中断");
+
+    // Stage 1B：实例锁定 + 文件读审批 + 工具卡 + 活动会话删除。
+    {
+        const QString root = QDir::tempPath() + QStringLiteral("/wtfml-agent-mw-instance-") +
+                             QUuid::createUuid().toString(QUuid::WithoutBraces);
+        QDir().mkpath(root + QStringLiteral("/config"));
+        QFile config(root + QStringLiteral("/config/a.toml"));
+        config.open(QIODevice::WriteOnly);
+        config.write("maxMemory = 4096\n");
+        config.close();
+        AgentInstanceInfo info;
+        info.id = QStringLiteral("mw-inst-1");
+        info.name = QStringLiteral("MW 实例");
+        info.gameRootId = AgentInstanceLocks::gameRootId(root);
+        controller->setInstanceContextForTest(root, info);
+        fake.toolCallNext = true;
+        fake.toolRounds = 0;
+        controller->sendForTest(QStringLiteral("看看配置"));
+        check(waitFor([&] {
+                  return controller->loop()->state() == AgentLoop::State::AwaitingApproval;
+              }),
+              "真窗口：文件读需要审批，Loop 暂停");
+        check(page->findChild<AgentApprovalCard *>() != nullptr,
+              "真窗口：审批卡显示在智能体页");
+        AgentSession lockedSession;
+        QString lockProblem;
+        check(controller->sessionStore()->load(controller->currentSessionId(), &lockedSession,
+                                               &lockProblem) &&
+                  lockedSession.meta.instanceLock.id == info.id,
+              "真窗口：首次文件工具前锁定实例并落盘", lockProblem);
+        check(page->findChild<QPushButton *>(QStringLiteral("agentApprovalSessionAllow")) == nullptr ||
+                  !page->findChild<QPushButton *>(QStringLiteral("agentApprovalSessionAllow"))->isVisible(),
+              "真窗口：没有会话级目录放行");
+        controller->approveToolForTest(true);
+        check(waitFor([&] {
+                  return controller->loop()->state() == AgentLoop::State::Completed;
+              }),
+              "真窗口：审批通过后模型继续并完成");
+        check(page->findChild<AgentToolCard *>() != nullptr,
+              "真窗口：工具结果卡片存在");
+        AgentSession readSession;
+        controller->sessionStore()->load(controller->currentSessionId(), &readSession, nullptr);
+        bool hasToolMessage = false;
+        for (const Agent::Message &message : readSession.messages) {
+            if (message.role == Agent::Role::Tool &&
+                message.content.contains(QStringLiteral("4096"))) {
+                hasToolMessage = true;
+            }
+        }
+        check(hasToolMessage, "真窗口：工具结果进了会话正文");
+
+        // 待审批时取消并删除：不执行工具，删除先取消。
+        fake.toolCallNext = true;
+        fake.toolRounds = 0;
+        controller->sendForTest(QStringLiteral("再读一次"));
+        waitFor([&] { return controller->loop()->state() == AgentLoop::State::AwaitingApproval; });
+        const QString toDelete = controller->currentSessionId();
+        controller->cancelForTest();
+        check(controller->deleteSessionForTest(toDelete), "真窗口：取消后可删除活动会话");
+        AgentSession gone;
+        check(!controller->sessionStore()->load(toDelete, &gone, nullptr),
+              "真窗口：删除后会话不可读回");
+        QDir(root).removeRecursively();
+    }
 
     controller->shutdown();
     check(controller->loop()->state() == AgentLoop::State::Cancelled ||

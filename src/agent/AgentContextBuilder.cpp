@@ -65,7 +65,14 @@ QList<Agent::Message> AgentContextBuilder::build(const QList<Agent::Message> &hi
         used += cost;
         firstKept = i;
     }
-    // 同一条 assistant/tool 配对不能被拆开：本阶段没有 tool，保留原样即可。
+    // assistant/tool 配对不能拆开：截断点落在 tool 消息上时，把产生它的 assistant
+    // 调用一起带上；中间不允许只剩孤立 tool 结果。
+    while (firstKept > 0 && history.at(firstKept).role == Agent::Role::Tool) {
+        --firstKept;
+        while (firstKept > 0 && history.at(firstKept).role != Agent::Role::Assistant) {
+            --firstKept;
+        }
+    }
     if (firstKept > 0) {
         Agent::Message marker;
         marker.role = Agent::Role::System;

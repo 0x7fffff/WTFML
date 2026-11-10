@@ -107,6 +107,15 @@ set(HEADER_FILES
     src/agent/AgentContextBuilder.hpp
     src/agent/AgentLoop.hpp
     src/agent/AgentSkill.hpp
+    src/agent/AgentWinPath.hpp
+    src/agent/AgentEgressPolicy.hpp
+    src/agent/AgentArtifactStore.hpp
+    src/agent/AgentBackupIndex.hpp
+    src/agent/AgentInstanceLock.hpp
+    src/agent/AgentFileTools.hpp
+    src/agent/AgentTool.hpp
+    src/agent/AgentApprovalPolicy.hpp
+    src/agent/AgentFileToolEngine.hpp
     src/controllers/AgentController.hpp
     ui/AgentMarkdown.hpp
     ui/AgentViewTypes.hpp
@@ -115,6 +124,8 @@ set(HEADER_FILES
     ui/AgentPage.hpp
     ui/AgentSecretEdit.hpp
     ui/AgentSettingsPage.hpp
+    ui/AgentToolCard.hpp
+    ui/AgentApprovalCard.hpp
     src/net/HttpClient.hpp
     src/manage/DroppedResource.hpp
     src/manage/FolderManager.hpp
@@ -410,6 +421,15 @@ set(SOURCE_FILES
     src/agent/AgentContextBuilder.cpp
     src/agent/AgentLoop.cpp
     src/agent/AgentSkill.cpp
+    src/agent/AgentWinPath.cpp
+    src/agent/AgentEgressPolicy.cpp
+    src/agent/AgentArtifactStore.cpp
+    src/agent/AgentBackupIndex.cpp
+    src/agent/AgentInstanceLock.cpp
+    src/agent/AgentFileTools.cpp
+    src/agent/AgentToolRegistry.cpp
+    src/agent/AgentApprovalPolicy.cpp
+    src/agent/AgentFileToolEngine.cpp
     src/controllers/AgentController.cpp
     src/net/HttpClient.cpp
     src/manage/DroppedResource.cpp
@@ -568,6 +588,8 @@ set(SOURCE_FILES
     ui/AgentPage.cpp
     ui/AgentSecretEdit.cpp
     ui/AgentSettingsPage.cpp
+    ui/AgentToolCard.cpp
+    ui/AgentApprovalCard.cpp
     ${WTFML_UI_PAGE_SOURCES}
     ui/MemorySlider.cpp
     ui/MotdText.cpp

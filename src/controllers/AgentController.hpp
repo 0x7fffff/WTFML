@@ -8,14 +8,23 @@
 
 #pragma once
 
+#include "agent/AgentArtifactStore.hpp"
+#include "agent/AgentBackupIndex.hpp"
+#include "agent/AgentFileToolEngine.hpp"
+#include "agent/AgentFileTools.hpp"
+#include "agent/AgentInstanceLock.hpp"
 #include "agent/AgentLoop.hpp"
 #include "agent/AgentSessionStore.hpp"
 #include "agent/AgentSettings.hpp"
 #include "agent/AgentTypes.hpp"
 
+#include "AgentViewTypes.hpp"
+
 #include <QObject>
 #include <QPointer>
 #include <QString>
+
+#include <functional>
 
 class AgentPage;
 class AgentSettingsPage;
@@ -36,6 +45,18 @@ public:
     AgentPage *page() const { return m_page; }
     AgentSessionStore *sessionStore() { return &m_store; }
     AgentLoop *loop() { return m_loop; }
+    AgentFileToolEngine *toolEngine() { return m_toolEngine; }
+
+    /// 主窗口提供“当前主页选中的实例 + 游戏根身份”；首次实例工具调用时锁定。
+    using InstanceProvider = std::function<AgentInstanceInfo()>;
+    void setInstanceContextProvider(InstanceProvider provider);
+
+    /// 测试专用：固定实例根目录与实例信息，不经过主页。
+    void setInstanceContextForTest(const QString &rootPath, const AgentInstanceInfo &info);
+    /// 测试专用：走审批卡
+    void approveToolForTest(bool approved);
+    /// 测试专用：取消在飞请求后直接删除当前会话（跳过确认弹层）。
+    bool deleteSessionForTest(const QString &sessionId);
 
     /// 测试专用：换掉真实网络客户端（不转移所有权；调用方负责活得比控制器久）。
     void setModelClientForTest(AgentModelClient *client);
@@ -75,11 +96,25 @@ private:
     void onPin(const QString &sessionId, bool pinned);
     void onDelete(const QString &sessionId);
     void onEncryptToggled(bool encrypted);
+    void onInstanceSwitchRequested();
+    void onApproval(bool approved);
+    AgentToolContext toolContext(QString *problem);
+    void updateInstanceChip();
+    void showToolCardsFromHistory();
+    QList<AgentView::ToolCard> toolCardsFromHistory() const;
 
     AgentPage *m_page = nullptr;
     OverlayHost *m_overlay = nullptr;
     AgentSessionStore m_store;
+    AgentArtifactStore m_artifacts;
+    AgentBackupIndex m_backups;
+    AgentFileTools m_files;
+    AgentFileToolEngine *m_toolEngine = nullptr;
     AgentSession m_session;
+    InstanceProvider m_instanceProvider;
+    AgentInstanceInfo m_testInstance;
+    QString m_testRootPath;
+    bool m_useTestInstance = false;
     AgentProviderProfile m_profile;
     QString m_testApiKey;
     AgentModelClient *m_client = nullptr;
@@ -90,4 +125,5 @@ private:
     bool m_configured = false;
     bool m_savePending = false;
     bool m_shuttingDown = false;
+    QString m_autoNoticeShownFor;
 };

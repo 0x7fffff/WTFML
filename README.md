@@ -83,7 +83,7 @@ GUI 子系统下面**没人看得见 stdout / stderr**，那份日志文件就�
 | `src/controllers/` | 连接 UI 与业务层的控制器，避免继续扩大 `MainWindow` |
 | `src/server/` | 服务端属性、控制台、进程管理 |
 | `src/tools/` | 工具箱的纯函数/后台任务 |
-| `src/agent/` | 智能体核心：provider/SSE、会话存储/加密、上下文、无工具 Loop、脱敏、凭据存储 |
+| `src/agent/` | 智能体核心：provider/SSE、会话存储/加密、上下文、Loop、受控文件工具/审批、D11 外发、路径校验、脱敏、凭据存储 |
 | `src/diag/` | 启动诊断、游戏退出诊断、错误报告 |
 | `src/util/` | 与业务无关的小工具（`AppPaths` / `ZipUtil` / `NbtUtil` / `ServerPing` / …） |
 | `ui/` | 全部界面。**没有 .ui 文件**，界面一律手写；`ui/` 不许 include `src/` |

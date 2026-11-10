@@ -191,6 +191,17 @@ AgentProviderProfile AgentSettings::profile(const QString &profileId) {
     return {};
 }
 
+bool AgentSettings::strictEgress() {
+    QSettings settings;
+    return settings.value(strictEgressKey(), false).toBool();
+}
+
+void AgentSettings::setStrictEgress(bool strict) {
+    QSettings settings;
+    settings.setValue(strictEgressKey(), strict);
+    settings.sync();
+}
+
 QString AgentSettings::activeProfileId() {
     QSettings settings;
     return settings.value(activeKey()).toString();

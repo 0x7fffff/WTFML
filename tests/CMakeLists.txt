@@ -133,6 +133,24 @@ set(PROJECT_SOURCES
     ${REPO_ROOT}/src/agent/AgentLoop.hpp
     ${REPO_ROOT}/src/agent/AgentSkill.cpp
     ${REPO_ROOT}/src/agent/AgentSkill.hpp
+    ${REPO_ROOT}/src/agent/AgentWinPath.cpp
+    ${REPO_ROOT}/src/agent/AgentWinPath.hpp
+    ${REPO_ROOT}/src/agent/AgentEgressPolicy.cpp
+    ${REPO_ROOT}/src/agent/AgentEgressPolicy.hpp
+    ${REPO_ROOT}/src/agent/AgentArtifactStore.cpp
+    ${REPO_ROOT}/src/agent/AgentArtifactStore.hpp
+    ${REPO_ROOT}/src/agent/AgentBackupIndex.cpp
+    ${REPO_ROOT}/src/agent/AgentBackupIndex.hpp
+    ${REPO_ROOT}/src/agent/AgentInstanceLock.cpp
+    ${REPO_ROOT}/src/agent/AgentInstanceLock.hpp
+    ${REPO_ROOT}/src/agent/AgentFileTools.cpp
+    ${REPO_ROOT}/src/agent/AgentFileTools.hpp
+    ${REPO_ROOT}/src/agent/AgentTool.hpp
+    ${REPO_ROOT}/src/agent/AgentToolRegistry.cpp
+    ${REPO_ROOT}/src/agent/AgentApprovalPolicy.cpp
+    ${REPO_ROOT}/src/agent/AgentApprovalPolicy.hpp
+    ${REPO_ROOT}/src/agent/AgentFileToolEngine.cpp
+    ${REPO_ROOT}/src/agent/AgentFileToolEngine.hpp
     ${REPO_ROOT}/ui/AgentMarkdown.cpp
     ${REPO_ROOT}/ui/AgentMarkdown.hpp
     ${REPO_ROOT}/src/net/HttpClient.cpp

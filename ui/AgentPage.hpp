@@ -11,6 +11,7 @@
 #include "ThemeBackground.hpp"
 
 #include <QHash>
+#include <QJsonObject>
 #include <QList>
 
 class QListWidgetItem;
@@ -26,8 +27,10 @@ class QScrollArea;
 class QStackedWidget;
 class QToolButton;
 class QVBoxLayout;
+class AgentApprovalCard;
 class AgentComposer;
 class AgentMessageView;
+class AgentToolCard;
 
 class AgentPage : public ThemeBackground {
     Q_OBJECT
@@ -48,6 +51,11 @@ public:
     void upsertMessage(const AgentView::Message &message);
     void removeMessage(const QString &messageId);
     void clearMessages();
+    void setToolCards(const QList<AgentView::ToolCard> &cards);
+    void upsertToolCard(const AgentView::ToolCard &card);
+    void clearToolCards();
+    void showApproval(const QJsonObject &request);
+    void hideApproval();
 
     void setStreaming(bool streaming);
     void setConfigured(bool configured, const QString &statusText = QString());
@@ -60,6 +68,7 @@ public:
 
     AgentComposer *composer() const { return m_composer; }
     QListWidget *sessionList() const { return m_sessionList; }
+    AgentApprovalCard *approvalCard() const { return m_approvalCard; }
 
 protected:
     void resizeEvent(QResizeEvent *event) override;
@@ -77,6 +86,9 @@ signals:
     void retryRequested(const QString &messageId);
     void encryptToggled(bool encrypted);
     void textChanged();
+    void instanceChipRequested();
+    void approvalAllowed(const QString &approvalId);
+    void approvalDenied(const QString &approvalId);
 
 private:
     void rebuildSessionRow(QListWidgetItem *item, const AgentView::SessionMeta &meta);
@@ -105,6 +117,8 @@ private:
     QPushButton *m_send = nullptr;
     QPushButton *m_stop = nullptr;
     QHash<QString, AgentMessageView *> m_views;
+    QHash<QString, AgentToolCard *> m_toolCards;
+    AgentApprovalCard *m_approvalCard = nullptr;
     QHash<QString, AgentView::SessionMeta> m_metaById;
     QString m_currentSessionId;
     bool m_streaming = false;

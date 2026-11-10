@@ -36,6 +36,8 @@ public:
     void setStatus(const QString &text, bool error = false);
     void setTestResult(const QString &text, bool ok);
     void setPrivacyText(const QString &text);
+    void setStrictEgress(bool strict);
+    bool strictEgress() const;
 
 signals:
     void saveRequested();
@@ -70,6 +72,7 @@ private:
     QLabel *m_status = nullptr;
     QLabel *m_testResult = nullptr;
     QLabel *m_privacy = nullptr;
+    QCheckBox *m_strict = nullptr;
     QPushButton *m_test = nullptr;
     QPushButton *m_save = nullptr;
     QPushButton *m_clearKeyButton = nullptr;

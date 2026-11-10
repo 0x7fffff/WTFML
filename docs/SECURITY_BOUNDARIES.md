@@ -118,3 +118,22 @@ Java 下载那条 `Expand-Archive` 顺手从 `-Path` 换成 `-LiteralPath`：`-P
 - Stage 1A 不读文件/日志/实例元数据、不调用工具、不启动 MCP；模型不能修改系统提示、
   API 配置、工具白名单或审批策略。
 - 关闭窗口/切换会话/切换选项卡会取消在飞请求；流中断保留已收到内容并标“已中断”。
+
+## 8. 智能体 Stage 1B：文件工具与审批（2026-11-10）
+
+- 路径：字符串快速拒绝（绝对路径、`..`、盘符、UNC、ADS、保留名、尾点/空格、控制字符）
+  之后，已存在路径再用 `CreateFileW` + `GetFinalPathNameByHandleW` + `FileIdInfo` +
+  `FileAttributeTagInfo` 核最终路径、卷序列/文件 ID、reparse。**不宣称彻底解决 TOCTOU**。
+- 工具根是会话锁定实例；模型不能传实例 id；换游戏文件夹/实例删除返回
+  `InstanceUnavailable`，不自动换同名实例。
+- `fs.list` 只发目录元数据；完整文件名清单/配置/其他文本逐次确认，**没有会话级目录放行**。
+- 凭据文件/凭据存储/二进制硬阻断；普通文本里的凭据字段只发送脱敏片段。
+- `fs.write` 只允许 `config/**`、`defaultconfigs/**`、`options.txt`，每次审批；
+  必须带旧内容哈希与身份 token；写前 DPAPI 备份、原子替换、写后回读；对象/内容变化拒绝。
+- `versions/libraries/assets/java/Servers` 原始写拒绝；这些目录的高层操作留给现有事务。
+- 模型可读 artifact 只存脱敏内容并 DPAPI 加密；本地原始存档 id 不在模型可见空间；
+  `artifact.read` 每次重新脱敏，先前审批不豁免。
+- 审批请求持久化但不存“已批准”布尔；重启后作废、只能重新请求。
+- 维护备份 `owner=agent`，元数据保留 `sourceSessionId`；删除会话不删备份；
+  `owner=launcher/user/shared` 不允许 Agent 清理。
+- 自动读取也要告知“可能发送给当前模型服务”；严格模式关闭所有自动读取。

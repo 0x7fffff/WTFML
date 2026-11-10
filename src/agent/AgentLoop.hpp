@@ -14,6 +14,7 @@
 
 #include "AgentModelClient.hpp"
 #include "AgentSettings.hpp"
+#include "AgentTool.hpp"
 #include "AgentTypes.hpp"
 
 #include <QList>
@@ -26,7 +27,7 @@ class AgentLoop : public QObject {
     Q_OBJECT
 
 public:
-    enum class State { Idle, Preparing, Requesting, Completed, Failed, Cancelled };
+    enum class State { Idle, Preparing, Requesting, AwaitingApproval, ExecutingTool, Completed, Failed, Cancelled };
     Q_ENUM(State)
 
     struct Config {
@@ -34,12 +35,15 @@ public:
         QString apiKey;
         QString systemPrompt;
         int maxRetry = 2;
+        int maxToolSteps = 8;
         QList<int> retryDelaysMs{1000, 4000};
     };
 
     explicit AgentLoop(AgentModelClient *client, QObject *parent = nullptr);
 
     void setClient(AgentModelClient *client);
+    void setToolEngine(AgentToolEngine *engine);
+    AgentToolEngine *toolEngine() const { return m_toolEngine; }
     AgentModelClient *client() const { return m_client; }
 
     void setConfig(const Config &config);
@@ -53,6 +57,8 @@ public:
     /// 用户点“重试”：丢掉最后一条失败/中断的 assistant，再发一次。
     void retry();
     void cancel();
+    /// 用户对当前待审批请求作出决定；只有 AwaitingApproval 状态才生效。
+    void resolveApproval(bool approved);
 
     bool busy() const;
     State state() const { return m_state; }
@@ -69,6 +75,11 @@ signals:
     void turnFinished(const Agent::Message &message);
     void turnFailed(const Agent::Error &error);
     void usageUpdated(const Agent::Usage &usage);
+    void messageAdded(const Agent::Message &message);
+    void toolCallStarted(const Agent::ToolCall &call);
+    void toolCallFinished(const Agent::ToolCall &call, const AgentToolResult &result);
+    void approvalRequested(const QString &approvalId, const Agent::ToolCall &call,
+                           const QJsonObject &request);
 
 private:
     void setState(State state);
@@ -77,10 +88,13 @@ private:
     void handleFailed(const QString &requestId, const Agent::Error &error);
     void deliverFailure(const Agent::Error &error);
     void appendAssistantToHistory();
+    void processToolCalls();
+    void handleToolOutcome(const Agent::ToolCall &call, const AgentToolResult &result);
     void invalidateRequest();
     Agent::Error configurationError() const;
 
     AgentModelClient *m_client = nullptr;
+    AgentToolEngine *m_toolEngine = nullptr;
     Config m_config;
     QList<Agent::Message> m_history;
     Agent::Message m_assistant;
@@ -90,5 +104,11 @@ private:
     State m_state = State::Idle;
     int m_retryAttempt = 0;
     int m_generation = 0;
+    int m_toolSteps = 0;
+    int m_nextToolCall = 0;
+    QList<Agent::ToolCall> m_toolQueue;
+    QString m_approvalId;
+    Agent::ToolCall m_pendingCall;
     bool m_cancelled = false;
+    bool m_assistantAppended = false;
 };

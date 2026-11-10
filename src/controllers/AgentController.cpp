@@ -6,6 +6,7 @@
 #include "AgentController.hpp"
 
 #include "agent/AgentPaths.hpp"
+#include "util/AppPaths.hpp"
 #include "agent/AgentProviderAdapters.hpp"
 #include "agent/AgentRedaction.hpp"
 #include "agent/AgentSecretStore.hpp"
@@ -14,14 +15,18 @@
 #include "AgentMessageView.hpp"
 #include "AgentPage.hpp"
 #include "AgentSettingsPage.hpp"
+#include "AgentToolCard.hpp"
 #include "InlineMessage.hpp"
 #include "agent/OpenAiCompatibleClient.hpp"
 #include "OverlayHost.hpp"
 
 #include <QDateTime>
+#include <QFileInfo>
 #include <QInputDialog>
+#include <QJsonDocument>
 #include <QSettings>
 #include <QTimer>
+#include <QUrl>
 #include <QUuid>
 
 
@@ -53,7 +58,10 @@ AgentView::Message viewMessage(const Agent::Message &message) {
 QList<AgentView::Message> viewMessages(const QList<Agent::Message> &messages) {
     QList<AgentView::Message> views;
     views.reserve(messages.size());
-    for (const Agent::Message &message : messages) views.append(viewMessage(message));
+    for (const Agent::Message &message : messages) {
+        if (message.role == Agent::Role::Tool) continue;  // 工具结果用 tool card 呈现
+        views.append(viewMessage(message));
+    }
     return views;
 }
 
@@ -122,7 +130,13 @@ AgentProviderProfile coreProfile(const AgentView::ProviderDraft &draft) {
 }  // namespace
 
 AgentController::AgentController(AgentPage *page, OverlayHost *overlay, QObject *parent)
-    : QObject(parent), m_page(page), m_overlay(overlay), m_store() {
+    : QObject(parent),
+      m_page(page),
+      m_overlay(overlay),
+      m_store(),
+      m_artifacts(),
+      m_backups(),
+      m_files(&m_backups) {
     QString problem;
     if (!AgentPaths::ensureDataDir(&problem) && m_page != nullptr) {
         m_page->showNotice(problem);
@@ -130,6 +144,10 @@ AgentController::AgentController(AgentPage *page, OverlayHost *overlay, QObject 
     m_ownedClient = new OpenAiCompatibleClient(this);
     m_client = m_ownedClient;
     m_loop = new AgentLoop(m_client, this);
+    m_toolEngine = new AgentFileToolEngine(
+        &m_files, &m_artifacts, [this](QString *problem) { return toolContext(problem); });
+    m_toolEngine->setStrictEgress(AgentSettings::strictEgress());
+    m_loop->setToolEngine(m_toolEngine);
     m_saveTimer = new QTimer(this);
     m_saveTimer->setSingleShot(true);
     m_saveTimer->setInterval(2000);
@@ -166,23 +184,76 @@ AgentController::AgentController(AgentPage *page, OverlayHost *overlay, QObject 
             [this](const Agent::Message &message) { upsertAssistant(message); });
     connect(m_loop, &AgentLoop::turnFinished, this, [this](const Agent::Message &message) {
         upsertAssistant(message);
+        m_session.pendingApproval = {};
         m_saveTimer->stop();
         flushSave(true);
         if (m_page != nullptr) {
             m_page->setStreaming(false);
+            m_page->hideApproval();
             if (!message.errorText.isEmpty()) m_page->showNotice(message.errorText);
         }
         refreshSessions();
     });
     connect(m_loop, &AgentLoop::turnFailed, this, [this](const Agent::Error &error) {
+        m_session.pendingApproval = {};
         if (m_page != nullptr) {
             m_page->setStreaming(false);
+            m_page->hideApproval();
             m_page->showNotice(error.message);
         }
     });
     connect(m_loop, &AgentLoop::usageUpdated, this, [this](const Agent::Usage &usage) {
         m_session.usage = usage;
     });
+    connect(m_loop, &AgentLoop::messageAdded, this, [this](const Agent::Message &message) {
+        if (message.role == Agent::Role::Tool) {
+            m_session.messages.append(message);
+            scheduleSave();
+        }
+    });
+    connect(m_loop, &AgentLoop::toolCallStarted, this, [this](const Agent::ToolCall &call) {
+        if (m_page == nullptr) return;
+        AgentView::ToolCard card;
+        card.id = call.id;
+        card.title = call.name;
+        card.summary = QStringLiteral("参数已接收");
+        card.detail = QString::fromUtf8(
+            QJsonDocument(call.arguments).toJson(QJsonDocument::Indented));
+        card.status = AgentView::ToolCardStatus::Running;
+        m_page->upsertToolCard(card);
+    });
+    connect(m_loop, &AgentLoop::toolCallFinished, this,
+            [this](const Agent::ToolCall &call, const AgentToolResult &result) {
+                if (m_page == nullptr) return;
+                if (result.data.value(QStringLiteral("autoReadNotice")).toBool(false)) {
+                    const QString host = QUrl(m_profile.baseUrl).host();
+                    if (m_autoNoticeShownFor != host) {
+                        m_autoNoticeShownFor = host;
+                        m_page->showNotice(
+                            QStringLiteral("本次自动读取的日志/元数据可能发送给当前模型服务：%1")
+                                .arg(host));
+                    }
+                }
+                AgentView::ToolCard card;
+                card.id = call.id;
+                card.title = call.name;
+                card.summary = result.summary;
+                card.detail = QString::fromUtf8(
+                    QJsonDocument(result.data).toJson(QJsonDocument::Indented));
+                card.status = result.status == AgentToolResult::Status::Ok
+                                  ? AgentView::ToolCardStatus::Done
+                                  : AgentView::ToolCardStatus::Error;
+                m_page->upsertToolCard(card);
+            });
+    connect(m_loop, &AgentLoop::approvalRequested, this,
+            [this](const QString &approvalId, const Agent::ToolCall &call,
+                   const QJsonObject &request) {
+                Q_UNUSED(call);
+                m_session.pendingApproval = request;
+                m_session.pendingApproval.insert(QStringLiteral("approvalId"), approvalId);
+                flushSave(true);
+                if (m_page != nullptr) m_page->showApproval(m_session.pendingApproval);
+            });
 
     loadInitialSession();
     refreshApiState();
@@ -202,6 +273,14 @@ void AgentController::wirePage() {
     connect(m_page, &AgentPage::sessionPinRequested, this, &AgentController::onPin);
     connect(m_page, &AgentPage::sessionDeleteRequested, this, &AgentController::onDelete);
     connect(m_page, &AgentPage::encryptToggled, this, &AgentController::onEncryptToggled);
+    connect(m_page, &AgentPage::approvalAllowed, this, [this](const QString &) { onApproval(true); });
+    connect(m_page, &AgentPage::approvalDenied, this, [this](const QString &) { onApproval(false); });
+    connect(m_page, &AgentPage::instanceChipRequested, this,
+            &AgentController::onInstanceSwitchRequested);
+    connect(m_page, &AgentPage::approvalAllowed, this, [this](const QString &) { onApproval(true); });
+    connect(m_page, &AgentPage::approvalDenied, this, [this](const QString &) { onApproval(false); });
+    connect(m_page, &AgentPage::instanceChipRequested, this,
+            &AgentController::onInstanceSwitchRequested);
 }
 
 void AgentController::shutdown() {
@@ -216,6 +295,12 @@ void AgentController::shutdown() {
     }
     if (m_settingsPage != nullptr) {
         m_settingsPage->close();
+    }
+    if (m_toolEngine != nullptr) {
+        m_toolEngine->cancelPending();
+        if (m_loop != nullptr) m_loop->setToolEngine(nullptr);
+        delete m_toolEngine;
+        m_toolEngine = nullptr;
     }
 }
 
@@ -315,6 +400,14 @@ void AgentController::selectSession(const QString &sessionId) {
         return;
     }
     m_session = loaded;
+    if (!m_session.pendingApproval.isEmpty()) {
+        // 重启/切回后旧审批不能自动执行，只能作废并重新请求。
+        m_session.pendingApproval = {};
+        m_store.save(m_session, false, nullptr);
+        if (m_page != nullptr) {
+            m_page->showNotice(QStringLiteral("上次未完成的审批已作废；需要重新请求并确认。"));
+        }
+    }
     m_savePending = false;
     m_saveTimer->stop();
     updateHeader();
@@ -325,8 +418,15 @@ void AgentController::updateHeader() {
     m_page->setCurrentSession(m_session.meta.id);
     m_page->setTitle(m_session.meta.title);
     m_page->setMessages(viewMessages(m_session.messages));
+    m_page->setToolCards(toolCardsFromHistory());
+    if (!m_session.pendingApproval.isEmpty()) {
+        m_page->showApproval(m_session.pendingApproval);
+    } else {
+        m_page->hideApproval();
+    }
     m_page->setEncryptionChecked(m_session.meta.encrypted);
     m_page->setStreaming(m_loop->busy());
+    updateInstanceChip();
 }
 
 void AgentController::updateConfiguredState() {
@@ -537,6 +637,12 @@ void AgentController::onDelete(const QString &sessionId) {
 
     if (m_session.meta.id == sessionId && m_loop->busy()) {
         m_loop->cancel();
+        if (m_toolEngine != nullptr && m_toolEngine->committing()) {
+            if (m_page != nullptr) {
+                m_page->showNotice(QStringLiteral("文件正在提交，无法安全停止，暂不删除会话。"));
+            }
+            return;
+        }
     }
     QString problem;
     if (!m_store.requestDeletion(sessionId, &problem) ||
@@ -586,6 +692,187 @@ void AgentController::onEncryptToggled(bool encrypted) {
     refreshSessions();
 }
 
+bool AgentController::deleteSessionForTest(const QString &sessionId) {
+    if (sessionId.isEmpty()) return false;
+    if (m_loop->busy()) m_loop->cancel();
+    if (m_toolEngine != nullptr && m_toolEngine->committing()) return false;
+    QString problem;
+    if (!m_store.requestDeletion(sessionId, &problem) ||
+        !m_store.completeDeletion(sessionId, &problem, nullptr)) {
+        return false;
+    }
+    if (m_session.meta.id == sessionId) {
+        m_session = {};
+        m_savePending = false;
+        m_saveTimer->stop();
+    }
+    QList<AgentSessionMeta> metas;
+    m_store.list(&metas, nullptr);
+    if (metas.isEmpty()) {
+        if (m_page != nullptr) {
+            m_page->setSessions({});
+            m_page->setCurrentSession(QString());
+            m_page->clearMessages();
+        }
+    } else {
+        selectSession(metas.constFirst().id);
+    }
+    refreshSessions();
+    return true;
+}
+
+void AgentController::setInstanceContextProvider(InstanceProvider provider) {
+    m_instanceProvider = std::move(provider);
+    m_useTestInstance = false;
+    updateInstanceChip();
+}
+
+void AgentController::setInstanceContextForTest(const QString &rootPath,
+                                                const AgentInstanceInfo &info) {
+    m_testRootPath = rootPath;
+    m_testInstance = info;
+    m_useTestInstance = true;
+    updateInstanceChip();
+}
+
+void AgentController::approveToolForTest(bool approved) { onApproval(approved); }
+
+AgentToolContext AgentController::toolContext(QString *problem) {
+    AgentToolContext context;
+    context.sessionId = m_session.meta.id;
+    context.providerHost = QUrl(m_profile.baseUrl).host();
+    context.strictEgress = AgentSettings::strictEgress();
+    if (context.sessionId.isEmpty()) {
+        if (problem != nullptr) *problem = QStringLiteral("先新建会话再使用文件工具。");
+        return context;
+    }
+    AgentInstanceInfo current = m_useTestInstance
+                                    ? m_testInstance
+                                    : (m_instanceProvider ? m_instanceProvider()
+                                                          : AgentInstanceInfo{});
+    if (!m_session.meta.instanceLock.isValid()) {
+        if (!current.isValid() || !current.exists) {
+            if (problem != nullptr) {
+                *problem = QStringLiteral("NeedsInstanceLock：先在主页选择一个实例；不会自动挑一个。");
+            }
+            return context;
+        }
+        QString lockProblem;
+        if (!AgentInstanceLocks::lock(&m_session, current, &lockProblem)) {
+            if (problem != nullptr) *problem = lockProblem;
+            return context;
+        }
+        QString saveProblem;
+        if (!m_store.save(m_session, true, &saveProblem)) {
+            m_session.meta.instanceLock = {};
+            if (problem != nullptr) *problem = QStringLiteral("实例锁定写盘失败：%1").arg(saveProblem);
+            return context;
+        }
+        if (m_page != nullptr) {
+            m_page->showNotice(QStringLiteral("本会话已锁定实例：%1").arg(current.name));
+        }
+        refreshSessions();
+        updateInstanceChip();
+    }
+    if (!AgentInstanceLocks::isUsable(m_session.meta.instanceLock, current)) {
+        if (problem != nullptr) {
+            *problem = QStringLiteral("InstanceUnavailable：锁定实例不在当前游戏文件夹或已被删除。");
+        }
+        return context;
+    }
+    context.instanceId = m_session.meta.instanceLock.id;
+    context.instanceName = m_session.meta.instanceLock.name;
+    context.gameRootId = m_session.meta.instanceLock.gameRootId;
+    context.rootPath = m_useTestInstance ? m_testRootPath : AppPaths::versionDir(context.instanceId);
+    if (!QFileInfo::exists(context.rootPath)) {
+        if (problem != nullptr) *problem = QStringLiteral("InstanceUnavailable：锁定实例目录不存在。");
+    }
+    return context;
+}
+
+void AgentController::updateInstanceChip() {
+    if (m_page == nullptr) return;
+    const AgentInstanceInfo current = m_useTestInstance
+                                          ? m_testInstance
+                                          : (m_instanceProvider ? m_instanceProvider()
+                                                                : AgentInstanceInfo{});
+    m_page->setInstanceChip(AgentInstanceLocks::chipText(m_session.meta.instanceLock, current),
+                            m_session.meta.instanceLock.isValid());
+}
+
+void AgentController::onInstanceSwitchRequested() {
+    if (m_page == nullptr) return;
+    if (m_loop->busy() || !m_session.pendingApproval.isEmpty()) {
+        m_page->showNotice(QStringLiteral("有待审批/执行中的操作，不能切换实例。"));
+        return;
+    }
+    const AgentInstanceInfo current = m_useTestInstance
+                                          ? m_testInstance
+                                          : (m_instanceProvider ? m_instanceProvider()
+                                                                : AgentInstanceInfo{});
+    if (!current.isValid() || !current.exists) {
+        m_page->showNotice(QStringLiteral("主页没有选中可用实例。"));
+        return;
+    }
+    if (AgentInstanceLocks::isUsable(m_session.meta.instanceLock, current)) return;
+    if (m_session.meta.instanceLock.isValid() && m_overlay != nullptr) {
+        const int choice = InlineMessage::ask(
+            m_overlay, MessageKind::Question, QStringLiteral("切换实例"),
+            QStringLiteral("已有证据/操作属于“%1”；切换后旧计划作废，建议新建会话。")
+                .arg(m_session.meta.instanceLock.name),
+            QStringList{QStringLiteral("新建会话"), QStringLiteral("在本会话切换"),
+                        QStringLiteral("取消")},
+            2, 0);
+        if (choice == 0) {
+            onNewSession();
+            return;
+        }
+        if (choice != 1) return;
+    }
+    QString problem;
+    if (!AgentInstanceLocks::switchTo(&m_session, current, &problem)) {
+        m_page->showNotice(problem);
+        return;
+    }
+    m_session.pendingApproval = {};
+    flushSave(true);
+    refreshSessions();
+    updateInstanceChip();
+    m_page->showNotice(QStringLiteral("已切换到实例：%1").arg(current.name));
+}
+
+void AgentController::onApproval(bool approved) {
+    if (m_session.meta.id.isEmpty() || m_session.pendingApproval.isEmpty()) return;
+    const QString approvalId =
+        m_session.pendingApproval.value(QStringLiteral("approvalId")).toString();
+    m_session.pendingApproval = {};
+    flushSave(true);
+    if (m_page != nullptr) m_page->hideApproval();
+    m_loop->resolveApproval(approved);
+}
+
+QList<AgentView::ToolCard> AgentController::toolCardsFromHistory() const {
+    QList<AgentView::ToolCard> cards;
+    for (const Agent::Message &message : m_session.messages) {
+        if (message.role != Agent::Role::Tool) continue;
+        AgentView::ToolCard card;
+        card.id = message.toolCallId.isEmpty() ? message.id : message.toolCallId;
+        card.title = message.toolName;
+        QJsonObject body = QJsonDocument::fromJson(message.content.toUtf8()).object();
+        card.summary = body.value(QStringLiteral("summary")).toString();
+        const QJsonObject data = body.value(QStringLiteral("data")).toObject();
+        card.detail = QString::fromUtf8(QJsonDocument(data).toJson(QJsonDocument::Indented));
+        const bool ok = body.value(QStringLiteral("ok")).toBool(false);
+        card.status = ok ? AgentView::ToolCardStatus::Done : AgentView::ToolCardStatus::Error;
+        cards.append(card);
+    }
+    return cards;
+}
+
+void AgentController::showToolCardsFromHistory() {
+    if (m_page != nullptr) m_page->setToolCards(toolCardsFromHistory());
+}
+
 void AgentController::onPageHidden() {
     if (m_loop->busy()) onStop();
 }
@@ -599,6 +886,7 @@ void AgentController::openSettings() {
                                            AgentSecretStore::Backend::DpapiFallback
                                        ? QStringLiteral("dpapi-fallback")
                                        : QStringLiteral("credential-manager"));
+        m_settingsPage->setStrictEgress(AgentSettings::strictEgress());
         m_overlay->showPage(m_settingsPage, QStringLiteral("API 与模型设置"));
         return;
     }
@@ -609,6 +897,7 @@ void AgentController::openSettings() {
                      secret.backend == AgentSecretStore::Backend::DpapiFallback
                          ? QStringLiteral("dpapi-fallback")
                          : QStringLiteral("credential-manager"));
+    page->setStrictEgress(AgentSettings::strictEgress());
     connect(page, &AgentSettingsPage::saveRequested, this, &AgentController::onSettingsSave);
     connect(page, &AgentSettingsPage::testRequested, this, &AgentController::onSettingsTest);
     connect(page, &AgentSettingsPage::deleteProfileRequested, this,
@@ -659,6 +948,8 @@ void AgentController::onSettingsSave() {
         return;
     }
     AgentSettings::setActiveProfileId(profile.id);
+    AgentSettings::setStrictEgress(page->strictEgress());
+    if (m_toolEngine != nullptr) m_toolEngine->setStrictEgress(page->strictEgress());
     m_profile = profile;
     refreshApiState();
     refreshSessions();

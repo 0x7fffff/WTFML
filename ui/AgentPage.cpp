@@ -5,8 +5,10 @@
 
 #include "AgentPage.hpp"
 
+#include "AgentApprovalCard.hpp"
 #include "AgentComposer.hpp"
 #include "AgentMessageView.hpp"
+#include "AgentToolCard.hpp"
 #include "Theme.hpp"
 
 #include <QCheckBox>
@@ -209,6 +211,7 @@ AgentPage::AgentPage(QWidget *parent)
     // ---------- 接线 ----------
     connect(m_newSession, &QPushButton::clicked, this, &AgentPage::newSessionRequested);
     connect(m_settingsButton, &QPushButton::clicked, this, &AgentPage::settingsRequested);
+    connect(m_instanceChip, &QPushButton::clicked, this, &AgentPage::instanceChipRequested);
     connect(m_send, &QPushButton::clicked, this, [this] {
         if (m_configured) emit sendRequested(m_composer->toPlainText());
     });
@@ -351,7 +354,57 @@ void AgentPage::clearMessages() {
         m_messageLayout->removeWidget(view);
         view->deleteLater();
     }
+    clearToolCards();
+    hideApproval();
     m_emptyState->setVisible(true);
+}
+
+void AgentPage::setToolCards(const QList<AgentView::ToolCard> &cards) {
+    clearToolCards();
+    for (const AgentView::ToolCard &card : cards) upsertToolCard(card);
+}
+
+void AgentPage::upsertToolCard(const AgentView::ToolCard &card) {
+    AgentToolCard *view = m_toolCards.value(card.id, nullptr);
+    if (view == nullptr) {
+        view = new AgentToolCard(card, m_messageHost);
+        m_toolCards.insert(card.id, view);
+        m_messageLayout->insertWidget(qMax(0, m_messageLayout->count() - 1), view);
+    } else {
+        view->setCard(card);
+    }
+    m_emptyState->setVisible(false);
+    scrollToLatest();
+}
+
+void AgentPage::clearToolCards() {
+    const auto cards = m_toolCards;
+    m_toolCards.clear();
+    for (AgentToolCard *card : cards) {
+        m_messageLayout->removeWidget(card);
+        card->deleteLater();
+    }
+}
+
+void AgentPage::showApproval(const QJsonObject &request) {
+    if (m_approvalCard == nullptr) {
+        m_approvalCard = new AgentApprovalCard(m_messageHost);
+        connect(m_approvalCard, &AgentApprovalCard::allowed, this,
+                &AgentPage::approvalAllowed);
+        connect(m_approvalCard, &AgentApprovalCard::denied, this,
+                &AgentPage::approvalDenied);
+        m_messageLayout->insertWidget(qMax(0, m_messageLayout->count() - 1), m_approvalCard);
+    }
+    m_approvalCard->setRequest(request);
+    m_approvalCard->show();
+    scrollToLatest();
+}
+
+void AgentPage::hideApproval() {
+    if (m_approvalCard == nullptr) return;
+    m_messageLayout->removeWidget(m_approvalCard);
+    m_approvalCard->deleteLater();
+    m_approvalCard = nullptr;
 }
 
 void AgentPage::setStreaming(bool streaming) {

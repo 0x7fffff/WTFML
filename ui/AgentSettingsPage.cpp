@@ -155,6 +155,10 @@ AgentSettingsPage::AgentSettingsPage(QWidget *parent) : QDialog(parent) {
     advancedForm->addRow(QString(), m_sendToolChoice);
     form->addRow(m_advanced);
 
+    m_strict = new QCheckBox(QStringLiteral("严格模式：关闭所有自动读取，每次发送前都预览"), content);
+    m_strict->setObjectName(QStringLiteral("agentEgressStrictCheck"));
+    form->addRow(QString(), m_strict);
+
     m_privacy = new QLabel(content);
     m_privacy->setObjectName(QStringLiteral("agentPrivacyText"));
     m_privacy->setWordWrap(true);
@@ -302,3 +306,6 @@ void AgentSettingsPage::setTestResult(const QString &text, bool ok) {
 }
 
 void AgentSettingsPage::setPrivacyText(const QString &text) { m_privacy->setText(text); }
+
+void AgentSettingsPage::setStrictEgress(bool strict) { m_strict->setChecked(strict); }
+bool AgentSettingsPage::strictEgress() const { return m_strict->isChecked(); }

@@ -7,6 +7,7 @@
 
 #include "agent/AgentLoop.hpp"
 #include "agent/AgentModelClient.hpp"
+#include "agent/AgentTool.hpp"
 
 #include <QCoreApplication>
 #include <QElapsedTimer>
@@ -23,6 +24,22 @@ public:
         starts += 1;
         requests.append(request);
         const int mode = behaviours.isEmpty() ? 0 : behaviours.takeFirst();
+        if (useTools && toolRounds == 0) {
+            ++toolRounds;
+            QTimer::singleShot(0, this, [this, request] {
+                Agent::ModelReply reply;
+                reply.message.role = Agent::Role::Assistant;
+                reply.message.content.clear();
+                reply.message.status = Agent::MessageStatus::Complete;
+                Agent::ToolCall call;
+                call.id = QStringLiteral("call-1");
+                call.name = QStringLiteral("fs.list");
+                call.arguments = QJsonObject{{QStringLiteral("path"), QStringLiteral(".")}};
+                reply.message.toolCalls.append(call);
+                emit finished(request.requestId, reply);
+            });
+            return;
+        }
         QTimer::singleShot(0, this, [this, request, mode] {
             if (mode == 1) {
                 emit failed(request.requestId,
@@ -51,9 +68,49 @@ public:
     void testConnection(const Agent::ModelRequest &) override {}
 
     int starts = 0;
+    int toolRounds = 0;
+    bool useTools = false;
     QList<int> behaviours;
     QList<Agent::ModelRequest> requests;
     QStringList cancelled;
+};
+
+class FakeToolEngine : public AgentToolEngine {
+public:
+    QJsonArray schemas() const override {
+        return QJsonArray{QJsonObject{
+            {QStringLiteral("type"), QStringLiteral("function")},
+            {QStringLiteral("function"),
+             QJsonObject{{QStringLiteral("name"), QStringLiteral("fs.list")}}}}};
+    }
+    AgentToolResult invoke(const Agent::ToolCall &) override {
+        invokeCount += 1;
+        AgentToolResult result;
+        result.status = AgentToolResult::Status::ApprovalRequired;
+        result.summary = QStringLiteral("需要审批");
+        result.approval = QJsonObject{{QStringLiteral("approvalId"), QStringLiteral("a1")},
+                                      {QStringLiteral("tool"), QStringLiteral("fs.list")}};
+        return result;
+    }
+    AgentToolResult resolveApproval(const QString &, bool approved) override {
+        resolvedCount += 1;
+        AgentToolResult result;
+        if (approved) {
+            result.status = AgentToolResult::Status::Ok;
+            result.summary = QStringLiteral("目录元数据");
+            result.data = QJsonObject{{QStringLiteral("entries"), 2}};
+        } else {
+            result.status = AgentToolResult::Status::Error;
+            result.summary = QStringLiteral("用户拒绝");
+            result.error.kind = Agent::ErrorKind::ApprovalDenied;
+            result.error.message = result.summary;
+        }
+        return result;
+    }
+    void cancelPending() override { cancelled = true; }
+    int invokeCount = 0;
+    int resolvedCount = 0;
+    bool cancelled = false;
 };
 
 bool waitFor(const std::function<bool()> &predicate, int timeoutMs = 2000) {
@@ -191,5 +248,81 @@ void runAgentLoopTests() {
         check(client.requests.size() == 2 &&
                   client.requests.at(1).messages.constLast().role == Agent::Role::User,
               "Loop：重试请求仍以同一条 user 结尾（不重复追加）");
+    }
+    {
+        FakeModelClient client;
+        client.useTools = true;
+        FakeToolEngine engine;
+        AgentLoop loop(&client);
+        loop.setToolEngine(&engine);
+        AgentLoop::Config config;
+        config.profile.baseUrl = QStringLiteral("https://api.example.com/v1");
+        config.profile.model = QStringLiteral("m");
+        config.apiKey = QStringLiteral("k");
+        loop.setConfig(config);
+        loop.setHistory({user(QStringLiteral("查一下目录"))});
+        QString approvalId;
+        QObject::connect(&loop, &AgentLoop::approvalRequested, &loop,
+                         [&approvalId](const QString &id, const Agent::ToolCall &,
+                                       const QJsonObject &) { approvalId = id; });
+        loop.start();
+        check(waitFor([&] { return loop.state() == AgentLoop::State::AwaitingApproval; }),
+              "Loop 工具：有工具调用时暂停等待审批");
+        check(engine.invokeCount == 1 && !approvalId.isEmpty(),
+              "Loop 工具：审批请求带 id");
+        check(!client.requests.constFirst().tools.isEmpty(),
+              "Loop 工具：请求里带工具 schema");
+        loop.resolveApproval(true);
+        check(waitFor([&] { return loop.state() == AgentLoop::State::Completed; }),
+              "Loop 工具：审批通过后继续请求并完成");
+        check(engine.resolvedCount == 1, "Loop 工具：引擎收到审批结果");
+        const QList<Agent::Message> history = loop.history();
+        check(history.size() == 4, "Loop 工具：user + assistant(tool_calls) + tool + assistant",
+              QString::number(history.size()));
+        check(history.at(1).toolCalls.size() == 1 && history.at(2).role == Agent::Role::Tool &&
+                  history.at(3).content == QStringLiteral("你好"),
+              "Loop 工具：历史顺序正确");
+        check(history.at(2).content.contains(QStringLiteral("目录元数据")),
+              "Loop 工具：tool 结果回灌给模型");
+    }
+    {
+        FakeModelClient client;
+        client.useTools = true;
+        FakeToolEngine engine;
+        AgentLoop loop(&client);
+        loop.setToolEngine(&engine);
+        AgentLoop::Config config;
+        config.profile.baseUrl = QStringLiteral("https://api.example.com/v1");
+        config.profile.model = QStringLiteral("m");
+        config.apiKey = QStringLiteral("k");
+        loop.setConfig(config);
+        loop.setHistory({user(QStringLiteral("查一下目录"))});
+        loop.start();
+        waitFor([&] { return loop.state() == AgentLoop::State::AwaitingApproval; });
+        loop.resolveApproval(false);
+        check(waitFor([&] { return loop.state() == AgentLoop::State::Completed; }),
+              "Loop 工具：拒绝后仍把拒绝事实回灌并完成");
+        const QList<Agent::Message> history = loop.history();
+        check(history.size() == 4 && history.at(2).status == Agent::MessageStatus::Error &&
+                  history.at(2).content.contains(QStringLiteral("用户拒绝")),
+              "Loop 工具：拒绝以 tool 错误结果回灌，不假装成功");
+    }
+    {
+        FakeModelClient client;
+        client.useTools = true;
+        FakeToolEngine engine;
+        AgentLoop loop(&client);
+        loop.setToolEngine(&engine);
+        AgentLoop::Config config;
+        config.profile.baseUrl = QStringLiteral("https://api.example.com/v1");
+        config.profile.model = QStringLiteral("m");
+        config.apiKey = QStringLiteral("k");
+        loop.setConfig(config);
+        loop.setHistory({user(QStringLiteral("查一下目录"))});
+        loop.start();
+        waitFor([&] { return loop.state() == AgentLoop::State::AwaitingApproval; });
+        loop.cancel();
+        check(loop.state() == AgentLoop::State::Cancelled && engine.cancelled,
+              "Loop 工具：待审批时取消会清空 pending，不执行");
     }
 }
