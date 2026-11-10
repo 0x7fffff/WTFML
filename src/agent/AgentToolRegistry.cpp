@@ -168,9 +168,26 @@ QList<AgentToolSpec> AgentToolRegistry::builtins() {
     return list;
 }
 
-AgentToolSpec AgentToolRegistry::find(const QString &name) {
+QString AgentToolRegistry::wireName(const QString &internal) {
+    QString wire = internal;
+    wire.replace(QLatin1Char('.'), QLatin1Char('_'));
+    return wire;
+}
+
+QString AgentToolRegistry::internalName(const QString &wire) {
     for (const AgentToolSpec &spec : builtins()) {
-        if (spec.name == name) return spec;
+        if (spec.name == wire) return spec.name;
+    }
+    for (const AgentToolSpec &spec : builtins()) {
+        if (wireName(spec.name) == wire) return spec.name;
+    }
+    return wire;
+}
+
+AgentToolSpec AgentToolRegistry::find(const QString &name) {
+    const QString internal = internalName(name);
+    for (const AgentToolSpec &spec : builtins()) {
+        if (spec.name == internal) return spec;
     }
     return {};
 }

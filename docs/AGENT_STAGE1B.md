@@ -28,6 +28,10 @@
   换游戏文件夹/实例删除 → `InstanceUnavailable`；显式切换需确认（可新建会话）。
 - **审批**：只读自动；文件读确认/写/命令/外部 MCP 逐次；**没有会话级目录放行**；
   审批请求持久化但不存“已批准”布尔，重启后作废、必须重新请求。
+- **工具线上名**：内部名（`fs.read`）在发给 provider 前映射成 OpenAI/DeepSeek 允许的
+  `fs_read`（`^[A-Za-z0-9_-]+$`）；模型回调时再映射回内部名。
+- **错误体保留**：流式请求遇到非 2xx 时也保留供应商 JSON 错误体，界面不再只剩
+  “HTTP 400”。
 - **工具循环**：模型返回 `tool_calls` 后逐次校验/执行/回灌；需要审批时 Loop 进入
   `AwaitingApproval`；通过后继续请求，拒绝以 `ApprovalDenied` 工具结果回灌。
 - **维护备份**：`backups/maintenance/<id>/`，内容 DPAPI 加密，元数据带
@@ -86,7 +90,7 @@ agent/
 
 | 套件 | 结果 |
 | --- | --- |
-| `wtfml.core-agent` | **295/295** |
+| `wtfml.core-agent` | **306/306** |
 | `wtfml.ui-agent` | **37/37** |
 | `wtfml.main-window-agent` | **31/31** |
 | 既有 `wtfml.ui` / `wtfml.main-window` / `wtfml.core` / `wtfml.token-protection-fault` | 通过 |

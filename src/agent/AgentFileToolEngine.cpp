@@ -35,7 +35,7 @@ QJsonArray AgentFileToolEngine::schemas() const {
     for (const AgentToolSpec &spec : AgentToolRegistry::builtins()) {
         result.append(QJsonObject{{QStringLiteral("type"), QStringLiteral("function")},
                                   {QStringLiteral("function"),
-                                   QJsonObject{{QStringLiteral("name"), spec.name},
+                                   QJsonObject{{QStringLiteral("name"), AgentToolRegistry::wireName(spec.name)},
                                                {QStringLiteral("description"), spec.description},
                                                {QStringLiteral("parameters"), spec.schema}}}});
     }
@@ -43,22 +43,25 @@ QJsonArray AgentFileToolEngine::schemas() const {
 }
 
 AgentToolResult AgentFileToolEngine::invoke(const Agent::ToolCall &call) {
-    const AgentToolSpec spec = AgentToolRegistry::find(call.name);
+    const QString internalName = AgentToolRegistry::internalName(call.name);
+    const AgentToolSpec spec = AgentToolRegistry::find(internalName);
     if (spec.name.isEmpty()) return errorResult(Agent::ErrorKind::ToolError, QStringLiteral("未知工具。"));
     QString problem;
     if (!AgentToolRegistry::validateArguments(spec.schema, call.arguments, &problem)) {
         return errorResult(Agent::ErrorKind::ToolError, problem);
     }
+    Agent::ToolCall routed = call;
+    routed.name = internalName;
     QString contextProblem;
     const AgentToolContext context = m_provider(&contextProblem);
     if (!contextProblem.isEmpty()) {
         return errorResult(Agent::ErrorKind::ToolError, contextProblem);
     }
-    if (call.name == QStringLiteral("fs.list")) return handleList(call, context);
-    if (call.name == QStringLiteral("fs.listNames")) return handleListNames(call, context);
-    if (call.name == QStringLiteral("fs.read")) return handleRead(call, context);
-    if (call.name == QStringLiteral("fs.write")) return handleWrite(call, context);
-    if (call.name == QStringLiteral("artifact.read")) return handleArtifactRead(call, context);
+    if (internalName == QStringLiteral("fs.list")) return handleList(routed, context);
+    if (internalName == QStringLiteral("fs.listNames")) return handleListNames(routed, context);
+    if (internalName == QStringLiteral("fs.read")) return handleRead(routed, context);
+    if (internalName == QStringLiteral("fs.write")) return handleWrite(routed, context);
+    if (internalName == QStringLiteral("artifact.read")) return handleArtifactRead(routed, context);
     return errorResult(Agent::ErrorKind::ToolError, QStringLiteral("工具未实现。"));
 }
 

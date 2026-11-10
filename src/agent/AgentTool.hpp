@@ -51,6 +51,9 @@ class AgentToolRegistry {
 public:
     static QList<AgentToolSpec> builtins();
     static AgentToolSpec find(const QString &name);
+    /// 线上 function name 只允许 `[A-Za-z0-9_-]`：内部名里的点在这里换成下划线。
+    static QString wireName(const QString &internal);
+    static QString internalName(const QString &wire);
     static QString riskKey(AgentRisk risk);
 
     /// JSON Schema 子集：type/required/properties/enum/maxLength/maximum/additionalProperties。

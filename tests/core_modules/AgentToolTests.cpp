@@ -15,6 +15,7 @@
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
+#include <QRegularExpression>
 #include <QTemporaryDir>
 
 namespace {
@@ -50,6 +51,22 @@ void runAgentToolTests() {
     AgentFileToolEngine engine(&files, &artifacts, [context](QString *) { return context; });
 
     check(AgentToolRegistry::builtins().size() >= 5, "工具：Stage 1B 注册了文件工具");
+    check(AgentToolRegistry::wireName(QStringLiteral("fs.read")) == QStringLiteral("fs_read") &&
+              AgentToolRegistry::internalName(QStringLiteral("fs_read")) ==
+                  QStringLiteral("fs.read"),
+          "工具：内部点号名映射成 OpenAI 允许的线上名");
+    for (const AgentToolSpec &spec : AgentToolRegistry::builtins()) {
+        const QString wire = AgentToolRegistry::wireName(spec.name);
+        check(!wire.contains(QLatin1Char('.')) &&
+                  QRegularExpression(QStringLiteral("^[A-Za-z0-9_-]+$")).match(wire).hasMatch(),
+              QStringLiteral("工具：线上 function name 合规 %1").arg(wire));
+    }
+    const AgentToolResult wireRead = engine.invoke(callFor(
+        QStringLiteral("fs_read"),
+        QJsonObject{{QStringLiteral("path"), QStringLiteral("config/a.toml")}}));
+    check(wireRead.status == AgentToolResult::Status::ApprovalRequired,
+          "工具：模型用线上名 fs_read 也能路由到 fs.read");
+    engine.cancelPending();
     QString problem;
     const AgentToolSpec writeSpec = AgentToolRegistry::find(QStringLiteral("fs.write"));
     check(!writeSpec.name.isEmpty(), "工具：fs.write schema 存在");

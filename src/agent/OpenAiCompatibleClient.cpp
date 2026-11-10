@@ -174,6 +174,9 @@ void OpenAiCompatibleClient::feedReply(const QString &requestId, QNetworkReply *
         failRequest(requestId, error);
         return;
     }
+    // 即使请求是流式，也保留原始字节：非 2xx 时供应商返回的是普通 JSON 错误体，
+    // SSE 解析器会把它当“没有 data:”丢掉，导致界面只剩“HTTP 400”而看不到原因。
+    request->buffer.append(chunk);
     if (request->streaming) {
         const QList<AgentSseParser::Event> events = request->parser->feed(chunk);
         for (const AgentSseParser::Event &event : events) {
@@ -191,8 +194,6 @@ void OpenAiCompatibleClient::feedReply(const QString &requestId, QNetworkReply *
                 return;
             }
         }
-    } else {
-        request->buffer.append(chunk);
     }
     if (request->totalBytes > 0) request->receivedAny = true;
 }

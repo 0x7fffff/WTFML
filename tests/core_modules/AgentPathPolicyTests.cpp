@@ -71,7 +71,7 @@ void runAgentPathPolicyTests() {
     // 改内容/大小/mtime 后旧 token 失效。
     QFile modified(root + QStringLiteral("/config/a.toml"));
     modified.open(QIODevice::WriteOnly | QIODevice::Truncate);
-    modified.write("maxMemory = 8192\n");
+    modified.write("maxMemory = 16384\n");
     modified.close();
     AgentWinPath::Info after;
     check(AgentWinPath::resolveExisting(root, QStringLiteral("config/a.toml"), false, &after,
