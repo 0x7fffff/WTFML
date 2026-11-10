@@ -137,3 +137,11 @@ Java 下载那条 `Expand-Archive` 顺手从 `-Path` 换成 `-LiteralPath`：`-P
 - 维护备份 `owner=agent`，元数据保留 `sourceSessionId`；删除会话不删备份；
   `owner=launcher/user/shared` 不允许 Agent 清理。
 - 自动读取也要告知“可能发送给当前模型服务”；严格模式关闭所有自动读取。
+
+## 9. G1A 人工审查补充（2026-11-10）
+
+- G1A 除网络错误外全部通过；API Key 未出现在日志/会话/界面，Windows 凭据管理器主路径可用。
+- 网络错误（401/403、429、断网、流中断、重定向、证书、代理、400 错误体）延后到
+  [网络错误验收](NETWORK_ERROR_ACCEPTANCE.md)，未完成前不写成已通过。
+- 会话加密是可选功能：开关现在单独一行显示“加密本会话（DPAPI）”，并标明当前会话是
+  明文 JSON 还是已加密；加密只保护落盘，不改变发送给模型的内容。

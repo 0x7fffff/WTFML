@@ -123,18 +123,31 @@ AgentPage::AgentPage(QWidget *parent)
     m_modelCombo->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
     headerLayout->addWidget(m_modelCombo);
 
-    m_encryptCheck = new QCheckBox(QStringLiteral("加密本会话"), header);
-    m_encryptCheck->setObjectName(QStringLiteral("agentEncryptSessionCheck"));
-    m_encryptCheck->setToolTip(QStringLiteral("使用 DPAPI 加密本会话正文；元数据仍为明文。"));
-    m_encryptCheck->setMinimumWidth(0);
-    m_encryptCheck->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
-    headerLayout->addWidget(m_encryptCheck);
-
     m_settingsButton = new QPushButton(QStringLiteral("API 设置"), header);
     m_settingsButton->setObjectName(QStringLiteral("agentApiSettingsButton"));
     m_settingsButton->setMinimumWidth(0);
     headerLayout->addWidget(m_settingsButton);
     chatLayout->addWidget(header);
+
+    // 会话加密是用户最容易找不到的功能之一：单独占一行，写清“当前是明文还是已加密”，
+    // 不要挤在右上角那排下拉框里。
+    m_sessionOptions = new QWidget(chat);
+    m_sessionOptions->setObjectName(QStringLiteral("agentSessionOptions"));
+    auto *optionsLayout = new QHBoxLayout(m_sessionOptions);
+    optionsLayout->setContentsMargins(0, 0, 0, 0);
+    optionsLayout->setSpacing(8);
+    m_encryptCheck = new QCheckBox(QStringLiteral("加密本会话（DPAPI）"), m_sessionOptions);
+    m_encryptCheck->setObjectName(QStringLiteral("agentEncryptSessionCheck"));
+    m_encryptCheck->setToolTip(
+        QStringLiteral("用当前 Windows 用户的 DPAPI 加密本会话正文；元数据仍为明文。"));
+    m_encryptCheck->setAccessibleName(QStringLiteral("加密本会话"));
+    optionsLayout->addWidget(m_encryptCheck);
+    m_encryptionStatus = new QLabel(m_sessionOptions);
+    m_encryptionStatus->setObjectName(QStringLiteral("agentEncryptionStatus"));
+    m_encryptionStatus->setForegroundRole(QPalette::PlaceholderText);
+    optionsLayout->addWidget(m_encryptionStatus);
+    optionsLayout->addStretch(1);
+    chatLayout->addWidget(m_sessionOptions);
 
     // ---------- 消息区 ----------
     m_scroll = new QScrollArea(chat);
@@ -236,7 +249,11 @@ AgentPage::AgentPage(QWidget *parent)
         }
     });
     connect(m_modelCombo, &QComboBox::currentTextChanged, this, &AgentPage::modelChanged);
-    connect(m_encryptCheck, &QCheckBox::toggled, this, &AgentPage::encryptToggled);
+    connect(m_encryptCheck, &QCheckBox::toggled, this, [this](bool checked) {
+        m_encryptionStatus->setText(checked ? QStringLiteral("当前会话：已加密（DPAPI）")
+                                           : QStringLiteral("当前会话：明文 JSON"));
+        emit encryptToggled(checked);
+    });
     setConfigured(false, QStringLiteral("API 未配置"));
 }
 
@@ -285,6 +302,9 @@ void AgentPage::setSessions(const QList<AgentView::SessionMeta> &sessions) {
         const AgentView::SessionMeta meta = m_metaById.value(m_currentSessionId);
         if (meta.isValid()) {
             m_encryptCheck->setChecked(meta.encrypted);
+            m_encryptionStatus->setText(meta.encrypted
+                                            ? QStringLiteral("当前会话：已加密（DPAPI）")
+                                            : QStringLiteral("当前会话：明文 JSON"));
             m_title->setText(meta.title);
         }
     }
@@ -304,10 +324,14 @@ void AgentPage::setCurrentSession(const QString &sessionId) {
         m_title->setText(meta.title);
         QSignalBlocker blocker(m_encryptCheck);
         m_encryptCheck->setChecked(meta.encrypted);
+        m_encryptionStatus->setText(meta.encrypted
+                                        ? QStringLiteral("当前会话：已加密（DPAPI）")
+                                        : QStringLiteral("当前会话：明文 JSON"));
     } else {
         m_title->setText(QStringLiteral("新对话"));
         QSignalBlocker blocker(m_encryptCheck);
         m_encryptCheck->setChecked(false);
+        m_encryptionStatus->setText(QStringLiteral("当前会话：明文 JSON"));
     }
     m_emptyState->setVisible(sessionId.isEmpty() || m_views.isEmpty());
 }
@@ -438,11 +462,15 @@ void AgentPage::setInstanceChip(const QString &text, bool locked) {
     m_instanceChip->setProperty("locked", locked);
 }
 
-void AgentPage::setEncryptionVisible(bool visible) { m_encryptCheck->setVisible(visible); }
+void AgentPage::setEncryptionVisible(bool visible) {
+    if (m_sessionOptions != nullptr) m_sessionOptions->setVisible(visible);
+}
 
 void AgentPage::setEncryptionChecked(bool checked) {
     QSignalBlocker blocker(m_encryptCheck);
     m_encryptCheck->setChecked(checked);
+    m_encryptionStatus->setText(checked ? QStringLiteral("当前会话：已加密（DPAPI）")
+                                       : QStringLiteral("当前会话：明文 JSON"));
 }
 
 void AgentPage::showNotice(const QString &text) {

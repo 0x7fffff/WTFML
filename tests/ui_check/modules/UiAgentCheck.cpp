@@ -213,9 +213,16 @@ int UiAgentCheck() {
     QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     check(page->findChild<AgentApprovalCard *>() == nullptr, "智能体 UI：审批卡可收起");
 
+    auto *optionsRow = page->findChild<QWidget *>(QStringLiteral("agentSessionOptions"));
+    check(optionsRow != nullptr && optionsRow->isVisible(),
+          "智能体 UI：会话加密单独一行且可见，不挤在右上角");
     page->setEncryptionChecked(true);
     auto *encrypt = qobject_cast<QCheckBox *>(find("agentEncryptSessionCheck"));
+    auto *encryptStatus = page->findChild<QLabel *>(QStringLiteral("agentEncryptionStatus"));
     check(encrypt != nullptr && encrypt->isChecked(), "智能体 UI：加密开关可显示当前状态");
+    check(encryptStatus != nullptr &&
+              encryptStatus->text().contains(QStringLiteral("已加密")),
+          "智能体 UI：加密状态文字可见", encryptStatus != nullptr ? encryptStatus->text() : QString());
 
     AgentSettingsPage settings;
     auto *keyEdit = settings.findChild<QLineEdit *>(QStringLiteral("agentApiKeyEdit"));

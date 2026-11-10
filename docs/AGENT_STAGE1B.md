@@ -91,7 +91,7 @@ agent/
 | 套件 | 结果 |
 | --- | --- |
 | `wtfml.core-agent` | **306/306** |
-| `wtfml.ui-agent` | **37/37** |
+| `wtfml.ui-agent` | **39/39** |
 | `wtfml.main-window-agent` | **31/31** |
 | 既有 `wtfml.ui` / `wtfml.main-window` / `wtfml.core` / `wtfml.token-protection-fault` | 通过 |
 | `test-modules` / `test-runner` / `ci-partitions` | 通过 |

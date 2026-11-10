@@ -1168,7 +1168,18 @@ Stage 1B 用例覆盖：路径攻击矩阵与句柄级校验、外发边界表�
 ./build/verification-mingw13/tests/mw_check/mw_check_agent.exe
 ```
 
-本机结果：`verify_agent 306/306`、`ui_check_agent 37/37`、`mw_check_agent 31/31`；
+本机结果：`verify_agent 306/306`、`ui_check_agent 39/39`、`mw_check_agent 31/31`；
 既有 `wtfml.ui`、`wtfml.main-window`、`wtfml.core`、`wtfml.token-protection-fault` 与
 工具链检查通过。junction 夹具无法创建时输出 `SKIP`，不计入通过。真机 G1B 清单见
 [Stage 1B 实现与验收](AGENT_STAGE1B.md)。
+
+## 2026-11-10：G1A 人工审查结果
+
+G1A 除网络错误外全部通过：导航/聊天 UI、API/URL 校验、Windows 凭据管理器主路径、
+Key 遮挡与不回显、流式/停止/重试/切换取消、会话恢复、严格无工具/无 MCP、API Key 未出现在
+日志/会话/界面。网络错误本轮没有条件执行，单独延后到
+[网络错误验收](NETWORK_ERROR_ACCEPTANCE.md)，不写成已通过。
+
+会话加密可见性已补：开关从右上角移到聊天头部下方单独一行，并显示当前明文/加密状态。
+Stage 1B 构建可用 `build/stage1b-review/WTFMinecraftLauncher.exe` 审查；完整流程见
+[G1A 验收流程](G1A_ACCEPTANCE.md)。

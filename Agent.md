@@ -1,6 +1,6 @@
 # WTFML 智能体（Agent）设计与开发计划
 
-> 状态：**Stage 1A / Stage 1B 已实现并通过离屏自动验收；G1A / G1B 真机人工审查仍待打勾**。
+> 状态：**Stage 1A / Stage 1B 已实现并通过离屏自动验收；G1A 人工审查已通过（网络错误延后），G1B 真机审查待打勾**。
 > MCP、维护工作流、网络/命令工具仍按“未实现”处理。
 > 未实现部分仍以 [FEATURES.md](FEATURES.md) 为当前产品行为；本文不把计划中的入口、
 > 界面或工具写成“已经有了”。已实现事实见 [Stage 1A 实现与验收](docs/AGENT_STAGE1A.md)。
@@ -1690,15 +1690,16 @@ Collect → Analyze → Plan → AwaitPlanApproval → ExecuteStep* → Verify �
 
 **G1A（1A：无工具聊天）**
 
-- [ ] 明文 key 不出现在任何日志、会话 JSON、错误卡片、导出文件、测试输出里；
-- [ ] Windows Credential Manager 主路径可用；DPAPI 后备只在主路径失败时写入；两者都失败
-      拒绝保存；清除失败可见；
-- [ ] 密码输入默认遮挡；眼睛按钮只在用户操作期间显示明文；失焦/保存后恢复遮挡；
-- [ ] 非 https 的远程 Base URL 被拒绝；loopback HTTP 需要显式确认并持续提示；
-- [ ] 不跟随重定向；证书错误不忽略；key 不进 URL；
-- [ ] 会话默认明文，整会话加密可选且失败不半加密；
-- [ ] 没有文件工具/MCP 进程；模型不能修改系统提示/API 配置；
-- [ ] 测试中用 grep/断言搜索 key 和敏感头，结果为空。
+- [x] 明文 key 不出现在任何日志、会话 JSON、错误卡片、导出文件、测试输出里；
+- [x] Windows Credential Manager 主路径可用；DPAPI 后备只在主路径失败时写入；两者都失败
+     拒绝保存；清除失败可见（主路径人工确认；后备/双失败自动测试覆盖）；
+- [x] 密码输入默认遮挡；眼睛按钮只在用户操作期间显示明文；失焦/保存后恢复遮挡；
+- [x] 非 https 的远程 Base URL 被拒绝；loopback HTTP 需要显式确认并持续提示；
+- [x] key 不进 URL；重定向/证书错误检查**延后**，见
+     [网络错误验收](docs/NETWORK_ERROR_ACCEPTANCE.md)；
+- [x] 会话默认明文，整会话加密可选且失败不半加密；加密开关已移到聊天头部下方单独一行；
+- [x] 没有文件工具/MCP 进程；模型不能修改系统提示/API 配置；
+- [x] 测试中用 grep/断言搜索 key 和敏感头，结果为空。
 
 **G1B（1B：文件工具/审批/外发）**
 
@@ -1927,20 +1928,22 @@ Collect → Analyze → Plan → AwaitPlanApproval → ExecuteStep* → Verify �
 ### Stage 1A：Provider + Loop + 会话 + 基础聊天（已完成，2026-11-10）
 
 状态：**已实现**。实现范围、文件清单、数据格式、安全边界和自动验收记录见
-[智能体 Stage 1A 实现与验收](docs/AGENT_STAGE1A.md)。
+[智能体 Stage 1A 实现与验收](docs/AGENT_STAGE1A.md)；人工审批流程见
+[G1A 验收流程](docs/G1A_ACCEPTANCE.md)。
 
 自动验收已覆盖：SSE 分块、协议适配与 URL 边界、会话存储/快照/损坏隔离/整会话加密、
 凭据 DPAPI 后备与失败拒绝、上下文裁剪、无工具 Loop（完成/重试/取消/部分流）、
 受控 Markdown、五页导航、聊天页/设置页离屏检查，以及真 `MainWindow` + 假模型客户端的
 发送→流式→完成→落盘/停止闭环。
 
-尚未通过（不得写成已通过）：**G1A 真机人工审查**（Windows 凭据管理器主路径、
-真实第三方模型服务、TLS/代理失败、可访问性/高 DPI）。清单仍在 §12.6。
+G1A 人工审查（2026-11-10）：除网络错误外全部通过；网络错误检查延后，记录在
+[网络错误验收](docs/NETWORK_ERROR_ACCEPTANCE.md)。G1A 清单仍在 §12.6。
 
 ### Stage 1B：文件工具 + 审批 + 外发策略 + 安全测试（已完成，2026-11-10）
 
 状态：**已实现**。实现范围、安全边界、自动验收记录和 G1B 真机清单见
-[智能体 Stage 1B 实现与验收](docs/AGENT_STAGE1B.md)。
+[智能体 Stage 1B 实现与验收](docs/AGENT_STAGE1B.md)；人工审查步骤见
+[G1B 验收流程](docs/G1B_ACCEPTANCE.md)。
 
 已实现：`AgentWinPath` 句柄级路径/最终路径/文件 ID/reparse 校验；`fs.list` 只回目录元数据；
 `fs.listNames` / `fs.read` / `fs.write` / `artifact.read`；D11 标准/严格模式；实例锁定；
@@ -2243,7 +2246,9 @@ D1–D11 已按本轮讨论写进计划：
 
 后续仍需人工验收：
 
-- [ ] **G1A** Stage 1A 审查：Provider/Credential Manager/DPAPI/会话/聊天 UI；无工具。
+- [x] **G1A** Stage 1A 审查：Provider/Credential Manager/DPAPI/会话/聊天 UI；无工具。
+      2026-11-10 人工通过；网络错误项延后，记录在
+      [网络错误验收](docs/NETWORK_ERROR_ACCEPTANCE.md)。
 - [ ] **G1B** Stage 1B 审查：路径句柄校验/审批/外发/写入/活动会话删除/模型可读与
       本地不可读 artifact 分离。
 - [ ] **G2A** Stage 2 MCP 单独验收：首次启动/配置修改/重连确认、可执行文件身份变化复核、

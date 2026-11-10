@@ -43,8 +43,8 @@
 
 - [x] **Stage 1A 实现**：Provider + 无工具 Loop + 会话存储/加密 + 基础聊天 UI；
   自动验收记录见 [Stage 1A 实现与验收](docs/AGENT_STAGE1A.md)。
-- [ ] **G1A 真机人工审查**：Windows 凭据管理器主路径、真实第三方模型服务、TLS/代理/429、
-  高 DPI/读屏、双击产品走完聊天闭环。未通过不进入 Stage 1B。
+- [x] **G1A 真机人工审查**：除网络错误外全部通过；网络错误延后到
+  [网络错误验收](docs/NETWORK_ERROR_ACCEPTANCE.md)，不写成已通过。
 - [x] **Stage 1B 实现**：受控文件工具、审批、D11 外发策略、路径/写入安全测试；
   自动验收记录见 [Stage 1B 实现与验收](docs/AGENT_STAGE1B.md)。
 - [ ] **G1B 真机人工审查**：真实路径/junction/长路径、真实模型 tool_calls、文件竞争/占用、

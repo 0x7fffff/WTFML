@@ -107,6 +107,8 @@ private:
     QPushButton *m_instanceChip = nullptr;
     QComboBox *m_modelCombo = nullptr;
     QCheckBox *m_encryptCheck = nullptr;
+    QLabel *m_encryptionStatus = nullptr;
+    QWidget *m_sessionOptions = nullptr;
     QScrollArea *m_scroll = nullptr;
     QWidget *m_messageHost = nullptr;
     QVBoxLayout *m_messageLayout = nullptr;

@@ -1,5 +1,7 @@
 # G1A 人工验收流程（Stage 1A）
 
+> 状态：**2026-11-10 人工审查：除网络错误外全部通过；网络错误单独延后**。  
+> 网络错误延后记录：[NETWORK_ERROR_ACCEPTANCE.md](NETWORK_ERROR_ACCEPTANCE.md)。  
 > 适用设计：[Agent.md](../Agent.md) §12.6 / §14 Stage 1A  
 > 实现记录：[AGENT_STAGE1A.md](AGENT_STAGE1A.md)  
 > 后续阶段：[AGENT_STAGE1B.md](AGENT_STAGE1B.md)
@@ -152,17 +154,11 @@ Get-FileHash .\build\g1a-stage1a\WTFMinecraftLauncher.exe -Algorithm SHA256
 | E5 | 手工破坏 `.enc`（仅测试会话） | 显示“无法解密”，绝不回退明文 |
 | E6 | 加密失败 | 保留原明文并报错，不半加密 |
 
-## 9. F：网络错误与安全
+## 9. F：网络错误与安全（延后，不纳入本轮 G1A）
 
-| ID | 操作 | 期望 |
-| --- | --- | --- |
-| F1 | 错误 key | 401/403，不重试，提示检查 key |
-| F2 | 断网后发送 | 首字节前可重试；最终可见网络错误 |
-| F3 | 流开始后断网 | 保留已收到内容并标中断，不自动重发 |
-| F4 | 抓包看一条请求 | URL 无 key；key 只在认证头 |
-| F5 | 走系统代理 | 遵循 Qt/系统代理；不另建绕过路径 |
-| F6 | 429（可控时） | 尊重 Retry-After，最多 2 次，显示等待 |
-| F7 | 400 等协议错误 | **必须显示供应商安全摘要**，不能只剩 “HTTP 400” |
+网络错误本轮未执行：401/403、429、断网、流中失败、重定向、证书错误、代理、400 错误体显示。
+这些检查单独移到 [NETWORK_ERROR_ACCEPTANCE.md](NETWORK_ERROR_ACCEPTANCE.md)，以后用本机可控服务
+或真实 provider 补充；未完成前不计入 G1A 通过项。
 
 ## 10. G：无工具 / 无 MCP（严格 G1A 才可打勾）
 
@@ -195,7 +191,7 @@ Get-FileHash .\build\g1a-stage1a\WTFMinecraftLauncher.exe -Algorithm SHA256
 
 判定：
 
-- PASS：P0/P1 为 0，清单全部完成，自动门禁全绿。
+- PASS：P0/P1 为 0，清单全部完成，自动门禁全绿；网络错误如果延后，必须单独列明。
 - CONDITIONAL：仅 P2/P3，且有明确修复计划与负责人。
 - FAIL：存在 P0/P1 或关键项未测。
 
@@ -236,9 +232,13 @@ G1A 审批记录
 
 ## 15. 当前状态与下一步
 
+- **G1A 人工结果（2026-11-10）**：除网络错误外全部通过；审查期间确认没有文件工具/MCP，
+  且 API Key 未出现在日志/会话/界面。网络错误延后到
+  [NETWORK_ERROR_ACCEPTANCE.md](NETWORK_ERROR_ACCEPTANCE.md)。
+- **会话加密可见性修复**：加密开关从右上角挤在一起的位置移到聊天头部下方单独一行，
+  显示“加密本会话（DPAPI）”和“当前会话：明文 JSON / 已加密（DPAPI）”。
 - Stage 1A 自动验收已过；Stage 1B 自动验收已过。
 - 当前 HEAD `9c1a0bb` 已修复：
   - DeepSeek/OpenAI 工具 function name 不允许点号的问题（线上名改为 `fs_read` 等）；
   - 流式请求收到非 2xx 时错误 JSON 被丢弃、界面只剩 HTTP 400 的问题。
-- 严格 G1A 仍应使用 `27070e5` 无工具构建；
-- 当前 HEAD 可做 **G1A 回归 + G1B** 联合审查，但不能把“无工具”一项写成已通过。
+- Stage 1B 构建用于 G1B 审查，不再作为严格 G1A 构建。
