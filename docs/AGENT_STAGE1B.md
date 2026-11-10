@@ -1,8 +1,9 @@
 # 智能体 Stage 1B 实现与验收
 
-> 日期：2026-11-10  
-> 范围：受控文件工具 + 审批 + D11 外发策略 + 实例锁定 + 维护备份（**不接 MCP**）。  
-> 状态：**离屏自动验收通过；G1B 真机人工审查尚未打勾**。  
+> 日期：2026-11-10
+> 范围：受控文件工具 + 审批 + D11 外发策略 + 实例锁定 + 维护备份（**不接 MCP**）。
+> 状态：**离屏自动验收通过；G1B 首轮人工未通过（脱敏/凭据边界 P0）**。
+> 首轮记录：[G1B_MANUAL_RESULTS_20261110.md](G1B_MANUAL_RESULTS_20261110.md)。
 > 上一阶段：[Stage 1A](AGENT_STAGE1A.md)；设计原文：[Agent.md](../Agent.md)。
 
 ## 1. 这一阶段做了什么
@@ -82,6 +83,13 @@ agent/
 - Stage 1B 仍没有 `logs.tail` / `diagnostics.*` / `instance.context` / `backup.restore`
   （按 Agent.md 属于 Stage 2 工具面）。
 - 大文本转 artifact 的上限是 16 KB 内联；超出部分只给模型可读 artifact id。
+  注意：artifact 只保存**本次读取到的内容**（默认 256 KB、最大 1 MB），不是整个原文件；
+  但目前工具文案“完整内容见 artifact”不准确，且脱敏未命中时 artifact 仍可被分段取回。
+- **首轮人工发现的边界缺口（未修复前 G1B 不通过）**：
+  - 脱敏只认精确字段名，`hypixel_api_key`、`DB_PASSWORD`、`REDIS_PASSWORD`、
+    `API_SECRET`、`JWT_SECRET` 等变体未命中；
+  - 凭据文件识别只覆盖精确 `.env` 等少数文件名，`env`/`test.env` 等变体不会硬阻断；
+  - 日志里的用户名、启动参数回显、绝对路径、硬件指纹仍需 Stage 2 字段投影。
 - 活动会话删除：有待审批/执行中先取消；文件提交阶段检测到 `committing()` 时拒绝删除并提示。
 
 ## 5. 自动验收记录（2026-11-10 本机）

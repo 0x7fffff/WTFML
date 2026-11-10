@@ -145,3 +145,18 @@ Java 下载那条 `Expand-Archive` 顺手从 `-Path` 换成 `-LiteralPath`：`-P
   [网络错误验收](NETWORK_ERROR_ACCEPTANCE.md)，未完成前不写成已通过。
 - 会话加密是可选功能：开关现在单独一行显示“加密本会话（DPAPI）”，并标明当前会话是
   明文 JSON 还是已加密；加密只保护落盘，不改变发送给模型的内容。
+
+
+## 10. G1B 首轮人工发现的边界缺口（未修复前不通过）
+
+- `AgentRedaction` 目前只覆盖精确常见字段名和固定令牌形态；`hypixel_api_key`、
+  `DB_PASSWORD`、`REDIS_PASSWORD`、`API_SECRET`、`JWT_SECRET` 等变体未命中。
+  **不能把它当成通用凭据兜底**。
+- 凭据文件识别只覆盖精确 `.env`、`credentials*`、`token*`、`secret*`、`auth.*` 和
+  少数证书后缀；`env`、`test.env` 等变体会进入普通文本审批。
+- 大文本 `truncated=true` 时仍会生成模型可读 artifact；artifact 只存本次读取窗口
+  （默认 256 KB、最大 1 MB），但脱敏未命中时仍可被 `artifact.read` 分段取回。
+  “截断”不等于安全；当前“完整内容见 artifact”文案不准确。
+- 日志自动读取仍可能包含 Windows 用户名、启动参数回显、绝对路径、显卡/驱动/音频设备等
+  硬件指纹；这些要在 Stage 2 的日志/诊断字段投影里处理。
+- 详细记录：[G1B_MANUAL_RESULTS_20261110.md](G1B_MANUAL_RESULTS_20261110.md)。

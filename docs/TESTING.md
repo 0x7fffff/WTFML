@@ -1183,3 +1183,18 @@ Key 遮挡与不回显、流式/停止/重试/切换取消、会话恢复、严�
 会话加密可见性已补：开关从右上角移到聊天头部下方单独一行，并显示当前明文/加密状态。
 Stage 1B 构建可用 `build/stage1b-review/WTFMinecraftLauncher.exe` 审查；完整流程见
 [G1A 验收流程](G1A_ACCEPTANCE.md)。
+
+## 2026-11-10：G1B 首轮人工结果
+
+首轮人工（`build/stage1b-review`）确认实例锁定、`fs.list/listNames`、审批拒绝/允许、
+二进制拦截、自动读取告知、写入/拒绝/备份、切会话/删除/关窗、加密开关等路径基本正常。
+但发现 P0 隐私问题，G1B **未通过**：
+
+- 脱敏只命中精确常见字段名；`hypixel_api_key`、`DB_PASSWORD`、`REDIS_PASSWORD`、
+  `API_SECRET`、`JWT_SECRET` 等变体未命中（`redactionHits=0` 或只命中 1 个）。
+- 凭据文件识别过窄：测试 env 文件未触发 `EgressBlocked`。
+- 1 GiB 文本 `truncated=true` + modelArtifact id；artifact 只保存本次读取窗口，但脱敏未命中时
+  仍可被 `artifact.read` 取回；工具文案“完整内容见 artifact”不准确。
+
+未测/延后：W4/W5（sha256 查看方式）、A1（artifact 分段）、P4（重启）、P5（提交阶段）、
+网络错误。完整记录与补测方法见 [G1B 首轮人工测试记录](G1B_MANUAL_RESULTS_20261110.md)。

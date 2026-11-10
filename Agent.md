@@ -1,6 +1,6 @@
 # WTFML 智能体（Agent）设计与开发计划
 
-> 状态：**Stage 1A / Stage 1B 已实现并通过离屏自动验收；G1A 人工审查已通过（网络错误延后），G1B 真机审查待打勾**。
+> 状态：**Stage 1A / Stage 1B 已实现并通过离屏自动验收；G1A 人工通过（网络错误延后）；G1B 首轮人工未通过（脱敏/凭据边界 P0）**。
 > MCP、维护工作流、网络/命令工具仍按“未实现”处理。
 > 未实现部分仍以 [FEATURES.md](FEATURES.md) 为当前产品行为；本文不把计划中的入口、
 > 界面或工具写成“已经有了”。已实现事实见 [Stage 1A 实现与验收](docs/AGENT_STAGE1A.md)。
@@ -1703,6 +1703,9 @@ Collect → Analyze → Plan → AwaitPlanApproval → ExecuteStep* → Verify �
 
 **G1B（1B：文件工具/审批/外发）**
 
+> 2026-11-10 首轮人工已执行但未通过：脱敏只认精确字段名、凭据文件识别过窄、artifact
+> 文案/取回边界需修。记录见 [G1B 首轮记录](docs/G1B_MANUAL_RESULTS_20261110.md)。
+
 - [ ] 路径攻击矩阵（绝对路径、`..`、盘符、UNC、ADS、保留名、尾点、junction）全拒绝；
 - [ ] 句柄级校验：最终路径/文件 ID/reparse 检查；写入前后对象身份比对；不宣称彻底解决 TOCTOU；
 - [ ] 写文件有期望哈希/fileIdentityToken、备份、原子提交、回读校验；拒绝审批时一个字节不变；
@@ -1941,9 +1944,15 @@ G1A 人工审查（2026-11-10）：除网络错误外全部通过；网络错误
 
 ### Stage 1B：文件工具 + 审批 + 外发策略 + 安全测试（已完成，2026-11-10）
 
-状态：**已实现**。实现范围、安全边界、自动验收记录和 G1B 真机清单见
-[智能体 Stage 1B 实现与验收](docs/AGENT_STAGE1B.md)；人工审查步骤见
-[G1B 验收流程](docs/G1B_ACCEPTANCE.md)。
+状态：**已实现；G1B 首轮人工未通过**。实现范围、安全边界和自动验收记录见
+[智能体 Stage 1B 实现与验收](docs/AGENT_STAGE1B.md)；人工步骤见
+[G1B 验收流程](docs/G1B_ACCEPTANCE.md)；首轮结果见
+[G1B 首轮人工测试记录](docs/G1B_MANUAL_RESULTS_20261110.md)。
+
+首轮人工发现（P0，未修复前不算 G1B 通过）：脱敏只认精确字段名，
+`hypixel_api_key` / `DB_PASSWORD` / `REDIS_PASSWORD` / `API_SECRET` / `JWT_SECRET`
+等变体未命中；凭据文件识别只覆盖精确 `.env` 等少数名字；artifact 文案把“本次读取内容”
+写成“完整内容”。
 
 已实现：`AgentWinPath` 句柄级路径/最终路径/文件 ID/reparse 校验；`fs.list` 只回目录元数据；
 `fs.listNames` / `fs.read` / `fs.write` / `artifact.read`；D11 标准/严格模式；实例锁定；
