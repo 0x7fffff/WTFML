@@ -22,7 +22,26 @@ int UiServerSettingsChecks() {
 
         auto *title = page.findChild<QLabel *>(MainWindowUI::serverSettingsTitleName());
         auto *status = page.findChild<QLabel *>(MainWindowUI::serverSettingsStatusName());
-        auto *sections = page.findChild<QListWidget *>(MainWindowUI::serverSettingsSectionListName());
+        auto *sections = page.findChild<QTreeWidget *>(MainWindowUI::serverSettingsSectionListName());
+        auto *start = page.findChild<QPushButton *>(QStringLiteral("serverSettingsStart"));
+        auto *saveAction = page.findChild<QPushButton *>(MainWindowUI::serverSettingsSaveButtonName());
+        check(start && saveAction && sections && start->parentWidget() == sections->parentWidget() &&
+                  saveAction->parentWidget() == sections->parentWidget(),
+              "save and start actions are anchored below server navigation");
+        if (start) {
+            int requests = 0;
+            const auto startConnection = QObject::connect(&page, &ServerSettingsPage::startRequested,
+                                                          &page, [&requests] { ++requests; });
+            start->click();
+            check(requests == 1, "server start action emits one request");
+            page.markRawEdited();
+            check(!start->isEnabled(), "unsaved edits require saving before server launch");
+            page.setRawText(QString());
+            page.setEditable(false, QStringLiteral("running"));
+            check(!start->isEnabled(), "running server cannot be launched again from settings");
+            page.setEditable(true, QString());
+            QObject::disconnect(startConnection);
+        }
         auto *stack = page.findChild<QStackedWidget *>(MainWindowUI::serverSettingsStackName());
         auto *form = page.findChild<QWidget *>(MainWindowUI::serverSettingsFormName());
         auto *rawEdit = page.findChild<QPlainTextEdit *>(MainWindowUI::serverSettingsRawEditName());
@@ -80,22 +99,41 @@ int UiServerSettingsChecks() {
                   "★ U37.1 这一页认得出自己（页眉上那行字是 `windowTitle()` 那一个出处）",
                   page.objectName());
             QStringList sectionTexts;
-            for (int i = 0; i < sections->count(); ++i) {
-                sectionTexts.append(sections->item(i)->text());
+            for (int i = 0; i < sections->topLevelItemCount(); ++i) {
+                sectionTexts.append(sections->topLevelItem(i)->text(0));
             }
-            bool titlesOk = sections->count() == MainWindowUI::serverSettingsSectionCount();
-            for (int i = 0; titlesOk && i < sections->count(); ++i) {
-                titlesOk = sections->item(i)->text() == MainWindowUI::serverSettingsSectionTitle(i);
+            bool titlesOk = sections->topLevelItemCount() == MainWindowUI::serverSettingsSectionCount();
+            for (int i = 0; titlesOk && i < sections->topLevelItemCount(); ++i) {
+                titlesOk = sections->topLevelItem(i)->text(0) == MainWindowUI::serverSettingsSectionTitle(i);
             }
             check(titlesOk && stack->count() == MainWindowUI::serverSettingsSectionCount(),
                   "★★ U37.1 左栏的页数、次序就是唯一出处里的次序，右栏一页对一页"
                   "（`serverSettingsSectionCount()`）",
                   sectionTexts.join(QStringLiteral(" / ")));
             check(sections->hasMouseTracking() &&
-                      qobject_cast<VersionTreeDelegate *>(sections->itemDelegate()) != nullptr,
+                      qobject_cast<VersionTreeDelegate *>(sections->itemDelegate()) == nullptr,
                   "★ U37.1 那一列是**同一套列表模样**：挂着 `VersionTreeDelegate`（悬停底色那"
                   "一套由代理画），`setMouseTracking(true)` 也开着（少了它代理里那一段一个字"
                   "都不生效 —— 同实例设置那一列）");
+            check(sections->width() == InstanceSettingsDialog::navigationTreeWidth(),
+                  "server navigation uses the instance settings width");
+            check(sections->topLevelItem(0)->sizeHint(0).height() == 36,
+                  "server navigation preserves the instance settings row height");
+            auto *players = sections->topLevelItem(static_cast<int>(ServerSettingsPage::Section::Players));
+            int selectedList = -1;
+            QObject::connect(&page, &ServerSettingsPage::playerListChanged, &page,
+                             [&selectedList](int index) { selectedList = index; });
+            check(players && players->childCount() == MainWindowUI::serverSettingsPlayerListCount(),
+                  "player lists are nested navigation items");
+            if (players && players->childCount() > 2) {
+                sections->setCurrentItem(players->child(2));
+                check(page.playerList() == 2 && selectedList == 2 &&
+                          page.section() == ServerSettingsPage::Section::Players,
+                      "player child selection updates both the list and page");
+                page.setPlayerList(0);
+                check(sections->currentItem() == players->child(0),
+                      "programmatic player list changes keep navigation in sync");
+            }
 
             // ---------- ② 换页：用户点 vs 程序摆 ----------
             int sectionSignals = 0;
@@ -111,7 +149,7 @@ int UiServerSettingsChecks() {
                       && sectionSignals == 0,
                   "★★ U37.2 `setSection()` 是**程序摆的**：页翻过去了，但**不发 "
                   "`sectionChanged`**（发出去的话 `MainWindow` 会再合一次两边的编辑）");
-            sections->setCurrentRow(1);  // 用户点了「原始文本」
+            sections->setCurrentItem(sections->topLevelItem(1));  // 用户点了「原始文本」
             check(sectionSignals == 1 && lastSection == 1 &&
                       stack->currentIndex() == 1 &&
                       page.section() == ServerSettingsPage::Section::RawText,
@@ -593,8 +631,7 @@ int UiServerSettingsChecks() {
             {
                 auto *contentNote = page.findChild<QLabel *>(
                     MainWindowUI::serverSettingsContentNoteName());
-                auto *contentCombo = page.findChild<QComboBox *>(
-                    MainWindowUI::serverSettingsContentComboName());
+                auto *contentCombo = sections->topLevelItem(static_cast<int>(ServerSettingsPage::Section::Content));
                 auto *contentTree = page.findChild<QTreeWidget *>(
                     MainWindowUI::serverSettingsContentTreeName());
                 auto *contentAdd = page.findChild<QPushButton *>(
@@ -615,16 +652,16 @@ int UiServerSettingsChecks() {
                     contentTree != nullptr && contentAdd != nullptr &&
                     contentToggle != nullptr && contentOpenFolder != nullptr &&
                     contentRefresh != nullptr) {
-                    check(contentCombo->count() ==
+                    check(contentCombo->childCount() ==
                                   MainWindowUI::serverSettingsContentKindCount() &&
-                              contentCombo->itemText(0) ==
+                              contentCombo->child(0)->text(0) ==
                                   MainWindowUI::serverSettingsContentKindTitle(0) &&
-                              contentCombo->itemText(1) ==
+                              contentCombo->child(1)->text(0) ==
                                   MainWindowUI::serverSettingsContentKindTitle(1),
                           "★★ U37.16 类型下拉框的两项逐字就是唯一出处那两句（模组 / 数据包）；"
                           "**这里的下标同时就是 `ServerContent::Kind`**",
                           QStringLiteral("%1 / %2")
-                              .arg(contentCombo->itemText(0), contentCombo->itemText(1)));
+                              .arg(contentCombo->child(0)->text(0), contentCombo->child(1)->text(0)));
                     check(contentTree->columnCount() ==
                               MainWindowUI::serverSettingsContentColumns().size(),
                           "★ U37.16 表是三列（名字 / 大小 / 状态）",
@@ -643,7 +680,7 @@ int UiServerSettingsChecks() {
                           "★★ U37.16 `setContentKind()` 只摆下拉框、**不发信号**（程序摆的"
                           "不算用户改了；发了那边会白重列一次）",
                           QString::number(kindSignals));
-                    contentCombo->setCurrentIndex(0);
+                    sections->setCurrentItem(contentCombo->child(0));
                     check(kindSignals == 1 && lastKind == 0 && page.contentKind() == 0,
                           "★★ U37.16 用户自己切下拉框才发一发，带的正是新下标",
                           QStringLiteral("发了 %1 发，最后一发=%2").arg(kindSignals).arg(lastKind));

@@ -146,6 +146,14 @@ int MwIntegrityActionsChecks(const QDir &root) {
         auto *serverTree = byObjectName<QTreeWidget>(&w, MainWindowUI::serverListName());
         check(newServerBtn != nullptr && serverTree != nullptr,
               "T40.0 前提：「新建服务端…」那颗按钮 + 服务端那棵树都找得到");
+        // 管理入口先到版本列表；安装专项接着选择夹具对应的版本。
+        const auto openServerForm = [&w, newServerBtn] {
+            newServerBtn->click();
+            if (auto *download = byObjectName<QPushButton>(&w, MainWindowUI::downloadNewServerButtonName())) {
+                download->setProperty("selectedVersion", QStringLiteral("1.20.1"));
+                download->click();
+            }
+        };
         // 按 serverId 找列表里那一行（这一节前前后后会摆下不止一个）。
         const auto rowForId = [serverTree](const QString &id) -> QTreeWidgetItem * {
             if (serverTree == nullptr) {
@@ -167,7 +175,7 @@ int MwIntegrityActionsChecks(const QDir &root) {
         {
             // 表单是嵌在「下载 → 服务端」那一栏第二层里的（不是覆盖层里那一页）：
             // 点开当场就在，填完再按「创建」—— 没有嵌套事件循环要排。
-            newServerBtn->click();
+            openServerForm();
             QApplication::processEvents();
             auto *page = w.findChild<NewServerPage *>(MainWindowUI::newServerPageName());
             const bool pageSeen = page != nullptr && !page->isWindow();
@@ -266,7 +274,7 @@ int MwIntegrityActionsChecks(const QDir &root) {
         const QString spigotId =
             ServerRegistry::uniqueServerId(ServerRegistry::sanitizeId(spigotName));
         {
-            newServerBtn->click();
+            openServerForm();
             QApplication::processEvents();
             auto *page = w.findChild<NewServerPage *>(MainWindowUI::newServerPageName());
             const bool pageSeen = page != nullptr && !page->isWindow();
@@ -322,7 +330,7 @@ int MwIntegrityActionsChecks(const QDir &root) {
             // 账本的"起点"必须在**按下创建之前**取：这一节这一趟本身就是新加的那一项，
             // 取晚了它就进了 `known`，`newInstallSince()` 从那儿往后什么新东西都找不到。
             const QSet<quint64> beforeCancel = installIds();
-            newServerBtn->click();
+            openServerForm();
             QApplication::processEvents();
             auto *page = w.findChild<NewServerPage *>(MainWindowUI::newServerPageName());
             const bool pageSeen = page != nullptr && !page->isWindow();

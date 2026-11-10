@@ -815,7 +815,7 @@ QString ConfigFileEditorPage::openFolderText() { return QStringLiteral("打开�
 QString ConfigFileEditorPage::indexToggleText() { return QStringLiteral("条目"); }
 QString ConfigFileEditorPage::indexFilterPlaceholder() { return QStringLiteral("在条目里找…"); }
 QString ConfigFileEditorPage::restoreText() { return QStringLiteral("还原上一次"); }
-QString ConfigFileEditorPage::restoredPrefix() { return QStringLiteral("已取回上一次保存前的那一份（"); }
+QString ConfigFileEditorPage::restoredPrefix() { return QStringLiteral("已恢复上次保存前的内容（"); }
 QString ConfigFileEditorPage::indexEmptyHint() { return QStringLiteral("这份文件里没认出设置项"); }
 QString ConfigFileEditorPage::readOnlyPrefix() { return QStringLiteral("只读："); }
 QString ConfigFileEditorPage::hintText() {

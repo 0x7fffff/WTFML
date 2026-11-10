@@ -233,7 +233,7 @@ Entry describe(const QString &serverId, QString *problemOut) {
     entry.installed =
         installedFor(entry.flavor, rootFiles, forgeArgs, &missing);
     if (!entry.installed) {
-        notes.append(QStringLiteral("还没装好：缺 %1").arg(missing));
+        notes.append(QStringLiteral("安装不完整：缺少 %1").arg(missing));
     }
 
     // 4) 那两个配置文件（都是可选的，缺了不算毛病）。
@@ -501,7 +501,7 @@ bool removeServer(const QString &serverId, QString *problemOut) {
     QString recycleProblem;
     if (!moveToRecycleBin(dir, &recycleProblem)) {
         if (problemOut != nullptr) {
-            *problemOut = QStringLiteral("删不掉：%1\n%2")
+            *problemOut = QStringLiteral("无法删除：%1\n%2")
                               .arg(QDir::toNativeSeparators(dir), recycleProblem);
         }
         return false;

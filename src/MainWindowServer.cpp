@@ -152,6 +152,17 @@ void MainWindow::openNewServerPage() {
     if (formHost == nullptr || stack == nullptr || formHost->layout() == nullptr) {
         return;
     }
+    const bool fromDownload = sender() == m_ui->getDownloadNewServerButton();
+    const QString selected = fromDownload
+        ? m_ui->getDownloadNewServerButton()->property("selectedVersion").toString().trimmed()
+        : QString();
+    // 管理入口没有选过游戏版本，先回列表；不能借用主页实例的版本跳过这一步。
+    if (selected.isEmpty()) {
+        m_ui->getTabWidget()->setCurrentIndex(MainWindowUI::downloadTabIndex());
+        m_ui->getDownloadCategoryList()->setCurrentRow(MainWindowUI::downloadCategoryServerIndex());
+        stack->setCurrentIndex(MainWindowUI::downloadServerListIndex());
+        return;
+    }
     if (m_newServerPage == nullptr) {
         // 它**不是**单独开的一页：和「下载 → 游戏」那张安装页一样，就住在服务端那一栏的
         // 第二层里（产品要求"服务端下载和游戏下载一个样，不要搞独立的新界面"）。
@@ -200,12 +211,8 @@ void MainWindow::openNewServerPage() {
         options.append(option);
     }
     m_newServerPage->setFlavors(options, ServerInstall::flavorToken(ServerInstall::Flavor::Vanilla));
-    // 默认名是 `Server<版本>`。用当前主页选中的那一个版本当缺省
-    // （`selectedVersionId()` 是"下拉框里那个 id 是什么"的唯一出处，见本文件上面那个
-    // 自由函数 —— 它已经处理了"空着 = 没选"）
-    const bool fromDownload = sender() == m_ui->getDownloadNewServerButton();
-    const QString selected = fromDownload ? m_ui->getDownloadNewServerButton()->property("selectedVersion").toString() : QString();
-    const QString currentVersion = selected.isEmpty() ? selectedVersionId(m_ui->getInstalledVersionCombo()) : selected;
+    // 默认名与安装版本都来自刚选中的服务端版本。
+    const QString currentVersion = selected;
     m_newServerPage->setDefaults(
         ServerRegistry::defaultServerName(ServerInstall::Flavor::Vanilla, currentVersion),
         currentVersion);
@@ -621,7 +628,7 @@ bool MainWindow::ensureServerEula(const QString &serverId) {
     // 这件事不能被一次误按回车办了。
     InlineMessageBox box(MessageKind::Question, ServerRun::eulaPromptTitle(),
                          ServerRun::eulaPromptText(),
-                         QStringList{tr("同意并启动"), tr("先不启动")}, -1, -1);
+                         QStringList{tr("同意并启动"), tr("取消")}, -1, -1);
     // 勾选框和「同意并启动」绑在一起：没勾之前那一颗是灰的（见 setCheckBox() 那段）。
     box.setCheckBox(ServerRun::eulaCheckBoxText(), 0);
     box.setLink(ServerRun::eulaLinkText(), ServerRun::eulaUrl());

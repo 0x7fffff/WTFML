@@ -263,6 +263,7 @@ signals:
      */
     void edited();
     void saveRequested();
+    void startRequested();
     void revertRequested();
     void backupNowRequested();
     void restoreBackupRequested(const QString &zipPath);
@@ -315,7 +316,7 @@ private:
     // ---------- 控件 ----------
     QLabel *m_titleLabel = nullptr;
     QLabel *m_statusLabel = nullptr;
-    QListWidget *m_sectionList = nullptr;
+    QTreeWidget *m_sectionList = nullptr;
     QStackedWidget *m_stack = nullptr;
 
     QScrollArea *m_formScroll = nullptr;
@@ -336,7 +337,7 @@ private:
 
     // ---------- ③ 内容 ----------
     QLabel *m_contentNote = nullptr;
-    QComboBox *m_contentKindCombo = nullptr;
+    int m_contentKindIndex = 0;
     QTreeWidget *m_contentTree = nullptr;
     QPushButton *m_contentAddButton = nullptr;
     QPushButton *m_contentToggleButton = nullptr;
@@ -357,7 +358,7 @@ private:
     QPushButton *m_recheckButton = nullptr;
 
     QLabel *m_playerNote = nullptr;
-    QComboBox *m_playerListCombo = nullptr;
+    int m_playerListIndex = 0;
     QTreeWidget *m_playerTree = nullptr;
     QPushButton *m_playerAddButton = nullptr;
     QPushButton *m_playerRemoveButton = nullptr;
@@ -365,6 +366,7 @@ private:
 
     QPushButton *m_revertButton = nullptr;
     QPushButton *m_saveButton = nullptr;
+    QPushButton *m_startButton = nullptr;
     QLabel *m_saveNote = nullptr;
 
     // ---------- 状态 ----------

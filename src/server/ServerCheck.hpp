@@ -207,16 +207,15 @@ inline QList<Finding> inspect(const Facts &facts) {
         // 装好了才有"记的那一份说不说得清"这一说（没装好那一条已经把话说了）。
         if (!facts.metaKnown) {
             findings.append(Finding{
-                Severity::Warning, QStringLiteral("这不是启动器装的"),
-                QStringLiteral("目录里没有我们记的那一份，所以我们不知道它原来按哪一档装、"
-                               "该按哪一档重装。\n让它自己把入口文件备齐就能启动；"
-                               "要按我们的方式管它，只能删了重新建一个。"),
+                Severity::Warning, QStringLiteral("服务端安装记录缺失"),
+                QStringLiteral("无法确定安装类型与重装参数。请检查启动文件，"
+                               "或通过启动器重新创建服务端。"),
                 Action::None});
         } else if (!facts.launchable) {
             findings.append(Finding{
-                Severity::Problem, QStringLiteral("记的那一份拼不出启动命令"),
+                Severity::Problem, QStringLiteral("无法根据安装记录生成启动命令"),
                 (facts.launchProblem.isEmpty()
-                     ? QStringLiteral("我们记的那一份里缺了启动要用的版本信息。")
+                     ? QStringLiteral("安装记录缺少启动所需的版本信息。")
                      : facts.launchProblem)
                     + QStringLiteral("\n点「修复（重新安装）」按记录的来源完整重装。"),
                 Action::Reinstall});
@@ -225,18 +224,18 @@ inline QList<Finding> inspect(const Facts &facts) {
 
     if (facts.installed && !facts.eulaAccepted) {
         findings.append(Finding{
-            Severity::Problem, QStringLiteral("还没同意 Minecraft 的最终用户许可协议"),
-            QStringLiteral("服务端第一次启动前必须写下 eula=true —— 它自己不会替你同意，"
-                           "点了「同意并启动」之后才会写进 eula.txt。"),
+            Severity::Problem, QStringLiteral("尚未接受 Minecraft 最终用户许可协议"),
+            QStringLiteral("首次启动前需阅读并接受协议，"
+                           "确认后将更新 eula.txt。"),
             Action::AcceptEula});
     }
 
     for (const ServerPropertiesForm::ValueProblem &problem : facts.valueProblems) {
         findings.append(Finding{
             Severity::Problem,
-            QStringLiteral("「%1」这一项的值不对").arg(problem.label),
-            QStringLiteral("文件里现在写的是 %1。%2\n点「改回缺省值」把它收回来，"
-                           "或者去「常用设置」自己改。")
+            QStringLiteral("「%1」的值无效").arg(problem.label),
+            QStringLiteral("当前值：%1。%2\n可恢复默认值，"
+                           "或在「常用设置」中修改。")
                 .arg(problem.value.isEmpty() ? QStringLiteral("（空的）") : problem.value,
                      problem.problem),
             Action::FixValues});
@@ -247,9 +246,9 @@ inline QList<Finding> inspect(const Facts &facts) {
     if (facts.installed && !facts.running && facts.port > 0
         && facts.portState == ServerPortCheck::State::InUse) {
         findings.append(Finding{
-            Severity::Problem, QStringLiteral("端口 %1 现在有别的程序在用").arg(facts.port),
-            QStringLiteral("服务端起手时会因为抢不到这个端口直接退出。\n"
-                           "把那个程序关掉，或者到「常用设置」里换一个端口。"),
+            Severity::Problem, QStringLiteral("端口 %1 已被占用").arg(facts.port),
+            QStringLiteral("端口冲突将导致服务端启动失败。\n"
+                           "请关闭占用端口的程序，或在「常用设置」中更换端口。"),
             Action::OpenSettings});
     }
 
@@ -257,17 +256,17 @@ inline QList<Finding> inspect(const Facts &facts) {
     if (!facts.duplicateKeys.isEmpty()) {
         findings.append(Finding{
             Severity::Warning,
-            QStringLiteral("文件里有同一个键写了两遍：%1")
+            QStringLiteral("配置包含重复键：%1")
                 .arg(facts.duplicateKeys.join(QStringLiteral("、"))),
-            QStringLiteral("服务端按最后那一行算，前面那几行等于没写。"
-                           "要去掉的话在「原始文本」里删一行就行 —— 我们这一页不会动它。"),
+            QStringLiteral("重复键以最后一项为准。"
+                           "可在「原始文本」中移除重复项。"),
             Action::None});
     }
     if (facts.installed && facts.worldBackupCount <= 0 && facts.worldExists) {
         findings.append(Finding{
-            Severity::Warning, QStringLiteral("这个世界还没有备份"),
-            QStringLiteral("世界是这一整个目录里唯一重新下不回来的东西 —— 模组能再下、"
-                           "服务端能再装，存档坏了就是坏了。\n去「世界备份」那一页点一下"
+            Severity::Warning, QStringLiteral("世界尚无备份"),
+            QStringLiteral("世界数据无法通过重新下载恢复。"
+                           "建议在「世界备份」中选择"
                            "「立即备份」。"),
             Action::OpenBackups});
     }
@@ -277,16 +276,16 @@ inline QList<Finding> inspect(const Facts &facts) {
         // 新装的、还没跑过的服务端就是这样：世界要等它第一次起来才生成。
         findings.append(Finding{
             Severity::Info,
-            QStringLiteral("世界「%1」还没生成").arg(facts.worldName),
-            QStringLiteral("第一次启动之后它才会在服务端目录里建这个文件夹。"),
+            QStringLiteral("世界「%1」尚未生成").arg(facts.worldName),
+            QStringLiteral("世界目录将在首次启动时生成。"),
             Action::None});
     } else if (facts.installed && facts.worldExists) {
         findings.append(Finding{
-            Severity::Info, QStringLiteral("世界「%1」在盘上").arg(facts.worldName),
-            QStringLiteral("它在服务端目录里的 %1/ 底下%2。")
+            Severity::Info, QStringLiteral("世界「%1」已存在").arg(facts.worldName),
+            QStringLiteral("目录：%1/%2。")
                 .arg(facts.worldName,
                      facts.worldBytes > 0
-                         ? QStringLiteral("，现在有 %1 MB")
+                         ? QStringLiteral("，大小 %1 MB")
                                .arg(QString::number(double(facts.worldBytes) / (1024.0 * 1024.0),
                                                     'f', 1))
                          : QString()),
@@ -295,17 +294,17 @@ inline QList<Finding> inspect(const Facts &facts) {
     if (facts.modCount > 0) {
         findings.append(Finding{
             Severity::Info,
-            QStringLiteral("装了 %1 个模组 / 插件").arg(facts.modCount),
-            QStringLiteral("它们会跟着服务端一起起来；装完新模组记得重启服务端。"),
+            QStringLiteral("已安装 %1 个模组或插件").arg(facts.modCount),
+            QStringLiteral("新增或更改模组后需重启服务端。"),
             Action::None});
     }
     if (!facts.unknownKeys.isEmpty()) {
         findings.append(Finding{
             Severity::Info,
-            QStringLiteral("配置文件里还有 %1 项是我们不认识的")
+            QStringLiteral("配置包含 %1 项未提供表单编辑的设置")
                 .arg(facts.unknownKeys.size()),
-            QStringLiteral("这些键（%1）在「常用设置」里没有对应的格子，但我们一个都不动"
-                           "—— 保存的时候它们原样留着。")
+            QStringLiteral("以下设置（%1）可在「原始文本」中编辑。"
+                           "保存表单时将保留其原值。")
                 .arg(facts.unknownKeys.mid(0, 6).join(QStringLiteral("、"))),
             Action::None});
     }

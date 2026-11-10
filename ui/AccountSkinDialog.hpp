@@ -193,7 +193,7 @@ public:
     static QString noAccountsText() { return QStringLiteral("还没有保存的账号。"); }
     static QString notLoggedInNote() { return QStringLiteral("还没登录。点「登录新账号…」开始。"); }
     static QString loginHintNote() {
-        return QStringLiteral("正版账号走微软登录（会打开浏览器）；离线账号在下面填个名字就行。");
+        return QStringLiteral("正版账号通过浏览器登录；离线账号使用下方输入的名称。");
     }
     /// 当前身份那一句。**只在这一种情况下用**：当前账号是个正版（微软）账号。
     /// 另外两种（当前是离线账号 / 没登录）各自有专门那句，见 offlineIdentityText() /

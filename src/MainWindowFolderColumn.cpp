@@ -70,8 +70,15 @@ QString MainWindow::folderTitle(const QString &path) const {
 
 void MainWindow::refreshFolderList() {
     const QString current = m_folderManager->currentFolder();
+    const QStringList folders = m_folderManager->folders();
     QList<MainWindowUI::FolderRow> rows;
-    for (const QString &path : m_folderManager->folders()) {
+    for (const QString &path : folders) {
+        // 隐藏不可用的默认入口；唯一入口与当前使用的目录保留，避免丢失选择上下文。
+        const QFileInfo info(path);
+        if (FolderManager::isDefaultFolder(path) && path != current && folders.size() > 1 &&
+            (!info.isDir() || !info.isReadable())) {
+            continue;
+        }
         MainWindowUI::FolderRow row;
         row.path = path;
         row.assistant = FolderManager::isDefaultFolder(path);

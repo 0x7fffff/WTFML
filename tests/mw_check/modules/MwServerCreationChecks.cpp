@@ -146,6 +146,15 @@ int MwServerCreationChecks(const QDir &root) {
                 // 点开当场就到位（没有嵌套循环），填完再按「创建」。
                 newServerBtn->click();
                 QApplication::processEvents();
+                auto *serverStack = w.findChild<QStackedWidget *>(MainWindowUI::downloadServerStackName());
+                check(serverStack && serverStack->currentIndex() == MainWindowUI::downloadServerListIndex(),
+                      "management new server starts at version selection even after a previous form");
+                auto *download = byObjectName<QPushButton>(&w, MainWindowUI::downloadNewServerButtonName());
+                if (download) {
+                    download->setProperty("selectedVersion", QStringLiteral("1.20.1"));
+                    download->click();
+                }
+                QApplication::processEvents();
                 auto *page = byObjectName<NewServerPage>(&w, MainWindowUI::newServerPageName());
                 check(page != nullptr && !page->isWindow(),
                       "★ T39.5 点「新建服务端…」开的就是那张表单（按 objectName 找得到，"
@@ -199,6 +208,7 @@ int MwServerCreationChecks(const QDir &root) {
                         w.findChild<QStackedWidget *>(MainWindowUI::downloadServerStackName());
                     categories->setCurrentRow(MainWindowUI::downloadCategoryServerIndex());
                     QApplication::processEvents();
+                    downloadNewServer->setProperty("selectedVersion", QStringLiteral("1.20.1"));
                     downloadNewServer->click();
                     QApplication::processEvents();
                     auto *page = byObjectName<NewServerPage>(&w, MainWindowUI::newServerPageName());

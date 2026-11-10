@@ -151,7 +151,7 @@ const QList<Field> &commonFields() {
               QStringLiteral("开启后仅允许正版账号加入；关闭后玩家可冒用他人名称"),
               Kind::Switch, QStringLiteral("true"), 0, 0, {}, false},
         Field{QStringLiteral("white-list"), QStringLiteral("白名单"),
-              QStringLiteral("仅名单中的玩家可加入；名单需在控制台用 whitelist add 添加"),
+              QStringLiteral("仅允许白名单中的玩家加入，可在「玩家 → 白名单」中管理"),
               Kind::Switch, QStringLiteral("false"), 0, 0, {}, false},
         Field{QStringLiteral("pvp"), QStringLiteral("玩家互相伤害"),
               QStringLiteral("关闭后玩家之间无法互相伤害（怪物不受影响）"),

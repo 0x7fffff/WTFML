@@ -78,8 +78,8 @@ ServerInstall::Plan ServerWorkspaceController::launchPlan(const QString &serverI
     const ServerModel::Info info = ServerRegistry::readMeta(serverId);
     if (info.isEmpty()) {
         if (problem != nullptr) {
-            *problem = QStringLiteral("这一个不是启动器装的（目录里没有我们记的那一份），不知道它该按"
-                                      "哪一档起。\n让它自己把入口文件备齐，或者删了重新建一个。");
+            *problem = QStringLiteral("服务端安装记录缺失，无法确定启动参数。"
+                                      "请检查启动文件，或通过启动器重新创建服务端。");
         }
         return {};
     }

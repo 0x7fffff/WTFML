@@ -580,7 +580,7 @@ void runServerSettingsTests() {
         virgin.worldBackupCount = 0;
         const QList<ServerCheck::Finding> first = ServerCheck::inspect(virgin);
         check(first.size() == 1 && first.first().severity == ServerCheck::Severity::Info
-                  && first.first().title.contains(QStringLiteral("还没生成")),
+                  && first.first().title.contains(QStringLiteral("尚未生成")),
               "★★ ZV5 第一次开服之前：只说一声「世界还没生成」（而且**不**报「还没备份」—— 没东西可备）",
               QString::number(first.size()));
 

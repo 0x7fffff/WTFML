@@ -269,7 +269,7 @@ public:
     /// 可能就有了，所以那条底下仍然留着那两档）；这是"**问到了、就是没有**"
     /// （真结论 —— 比如 Forge 还没支持某个刚发的快照）—— 这种情况下底下**连那两档都不留**：
     /// 留着它等于让用户挑一条必然装不出来的路（装的时候会以"还没有支持 X 的版本"收场），
-    /// 而"这一条我装不了"本来就该在这一眼说完。
+    /// 而"项目我装不了"本来就该在这一眼说完。
     ///
     /// NOTE: "**有预览版、没有正式版**"的那种版本**不算**"一个能装的都没有"
     /// —— 列表非空就摆那两档和实有的版本号，只有稳定档那一行是灰的
@@ -293,7 +293,7 @@ public:
     static int downloadGameInstallIndex() { return 1; }
     /// 四条分类 + 版本号那份树。**条目没有 objectName**（QTreeWidgetItem 不是 QObject）——
     /// 身份读它的 `Qt::UserRole`：顶层是分类键（见 VersionCategory::channelKey()），
-    /// 子条目是版本号。空 = "这一条不是版本号"（顶层那四条就是这个情况）。
+    /// 子条目是版本号。空 = "项目不是版本号"（顶层那四条就是这个情况）。
     static QString versionTreeName() { return QStringLiteral("versionChannelTree"); }
     /// 每一条身份存在第几列。只有一列，写 0 是给"将来加一列（比如发布日期）"留个说明：
     /// 那一列要是插在前面，认条目的代码就全得改。
@@ -332,7 +332,7 @@ public:
     /// 「这一行尾那个小叉要画」挂在哪个角色上（真 = 画）。只有安装页那棵树上"**选中的那条
     /// 加载器**"会写真（见 InstallPageController::updateLoaderRows()），点了它 = 取消装这个加载器、
     /// 退回「不装（纯原版）」（选中以后在那个 > 左侧加一个 x 来取消安装）。
-    /// NOTE: 版本树从来不写这个角色 —— 那棵树上没有"取消掉这一条"这种事。
+    /// NOTE: 版本树从来不写这个角色 —— 那棵树上没有"取消掉项目"这种事。
     /// NOTE: 号码是 `UserRole + 9`：它属于行装饰那一档（+8/+9/+10），不能和条目身份那批
     /// （+0…+7）撞，见 rowSubTextRole() 上面那段。
     static int rowClearRole() { return Qt::UserRole + 9; }
@@ -1110,7 +1110,7 @@ public:
     // 两边复用"左侧根目录 + 右侧条目"的页面骨架，但使用不同模型和操作。
     //
     // 摆位：这一排**在正文面里、最上面**（筛选行/树那一切的上方），不在页头右上角那排
-    // 页面级操作里 —— 切换的是"下面这一页说的是什么"，和「分组设置…」不是一类东西。
+    // 页面级操作里 —— 切换的是"下面这一页详情"，和「分组设置…」不是一类东西。
     // 左边那一栏（游戏文件夹）**两种模式共用**：服务端的根挂在 `<数据目录>/Servers` 底下，
     // "选哪一份 .minecraft"这件事两边都要（换了数据目录 = 换了一整套实例，也换了一整套服务端）。
     enum class InstanceMode {
@@ -1258,8 +1258,8 @@ public:
     }
     /// 「异常退出后自动重启」那一项的悬停说明（勾没勾都摆同一句）。
     static QString serverRestartMenuNote() {
-        return QStringLiteral("连着崩几次就收手（默认 3 次，每次之间等一会儿）。\n"
-                              "你自己按「停止」或者它正常退出都不会被拉起来。");
+        return QStringLiteral("连续异常退出达到上限后停止重启，默认最多 3 次。\n"
+                              "手动停止或正常退出时不会自动重启。");
     }
 
     // ---------- 服务端控制台那一页 ----------
@@ -1317,7 +1317,7 @@ public:
     }
     /// 预览底下那行小字说的话：**只画两行**，别让用户以为第三行也会出现。
     static QString serverSettingsMotdNote() {
-        return QStringLiteral("游戏里大概长这样：服务器列表只画前两行，颜色和粗斜体都照 § 码来。");
+        return QStringLiteral("服务器列表显示前两行，支持 § 格式代码。");
     }
     /// 简介是空的时候预览盘上摆什么（不摆空白 —— 空白看起来像"预览坏了"）。
     static QString serverSettingsMotdEmptyText() {
@@ -1415,8 +1415,8 @@ public:
     static QString serverSettingsSaveText() { return QStringLiteral("保存"); }
     static QString serverSettingsRevertText() { return QStringLiteral("放弃改动"); }
     static QString serverSettingsBackupNowText() { return QStringLiteral("立即备份"); }
-    static QString serverSettingsRestoreText() { return QStringLiteral("从这一份恢复…"); }
-    static QString serverSettingsDeleteBackupText() { return QStringLiteral("删掉这一份…"); }
+    static QString serverSettingsRestoreText() { return QStringLiteral("恢复备份…"); }
+    static QString serverSettingsDeleteBackupText() { return QStringLiteral("删除备份…"); }
     static QString serverSettingsOpenBackupFolderText() {
         return QStringLiteral("打开备份文件夹");
     }
@@ -1431,12 +1431,12 @@ public:
         return QStringLiteral("已修改 %1 项，保存后写入 server.properties。").arg(count);
     }
     static QString serverSettingsDirtyRawNote() {
-        return QStringLiteral("原始文本已修改，保存时整份写回。");
+        return QStringLiteral("原始文本已修改，保存时将写入文件。");
     }
     static QString serverSettingsDirtyBothNote(int count) {
         return QStringLiteral("已修改 %1 项，原始文本也已修改，保存时合并写入。").arg(count);
     }
-    static QString serverSettingsCleanNote() { return QStringLiteral("没有改动。"); }
+    static QString serverSettingsCleanNote() { return QStringLiteral("无未保存的修改。"); }
     static QString serverSettingsSavedNote() { return QStringLiteral("已保存。"); }
     /// 服务端在跑时整页只读的那句原因（`setEditable(false, …)` 收的就是它）。
     static QString serverSettingsRunningNote() {
@@ -1445,17 +1445,17 @@ public:
 
     /// 「原始文本」那一页顶上那句（只留布局说明不了的那条：表单改动会先合并进来）。
     static QString serverSettingsRawNoteText() {
-        return QStringLiteral("「常用设置」里改过的项会先合并进来。");
+        return QStringLiteral("将合并「常用设置」中的修改。");
     }
 
     /// 备份那一列的三格。**唯一出处**（表的列数、每列标题都读它）。
     static QStringList serverSettingsBackupColumns() {
         return QStringList{QStringLiteral("时间"), QStringLiteral("大小"),
-                           QStringLiteral("这一份是什么")};
+                           QStringLiteral("说明")};
     }
     /// 体检那一列的两格：左边那个词（`ServerCheck::severityName()`）右边那一句。
     static QStringList serverSettingsCheckColumns() {
-        return QStringList{QStringLiteral("这一条"), QStringLiteral("说的是什么")};
+        return QStringList{QStringLiteral("项目"), QStringLiteral("详情")};
     }
 
     // ---------- 内容（模组 / 数据包）----------
@@ -1542,7 +1542,7 @@ public:
     }
     /// 「加一个…」那颗按钮上的字（封禁 IP 那一档问的是地址，不是名字）。
     static QString serverSettingsPlayerAddText(int index) {
-        return index == 3 ? QStringLiteral("封禁一个地址…") : QStringLiteral("加一个人…");
+        return index == 3 ? QStringLiteral("封禁 IP…") : QStringLiteral("添加玩家…");
     }
     static QString serverSettingsPlayerRemoveText() { return QStringLiteral("移除…"); }
     static QString serverSettingsPlayerKickButtonName() {
@@ -1556,19 +1556,19 @@ public:
                             : index == 1 ? QStringLiteral("ops.json")
                             : index == 2 ? QStringLiteral("banned-players.json")
                                          : QStringLiteral("banned-ips.json");
-        QString text = QStringLiteral("这一页读写服务端目录里的 %1。").arg(file);
+        QString text = QStringLiteral("文件：%1。").arg(file);
         if (index == 0) {
-            text += QStringLiteral("白名单开不开在「常用设置」里的「启用白名单」那一格。");
+            text += QStringLiteral("可在「常用设置」中启用或关闭白名单。");
         } else if (index == 1) {
-            text += QStringLiteral("这一份里的人是管理员；等级 4 = 全部权限。");
+            text += QStringLiteral("管理员权限等级 4 为最高权限。");
         } else if (index == 2 || index == 3) {
-            text += QStringLiteral("过期的条目服务端下次启动时会自己清掉。");
+            text += QStringLiteral("过期记录将在服务端下次启动时移除。");
         }
         if (running) {
-            text += QStringLiteral("\n服务端正在运行：它退出时会把内存中的名单写回磁盘，"
-                                   "所以这一页现在无法修改。")
-                    + QStringLiteral("\n「踢出…」不受影响：它向正在运行的服务端发送 kick 命令，"
-                                     "结果显示在控制台里。");
+            text += QStringLiteral("\n服务端运行期间名单为只读，"
+                                   "以避免退出时覆盖修改。")
+                    + QStringLiteral("\n仍可通过「踢出」移除在线玩家，"
+                                     "执行结果显示在控制台。");
         }
         return text;
     }
@@ -1588,13 +1588,13 @@ public:
             return QStringLiteral("同意 EULA…");
         }
         if (token == QStringLiteral("fix-values")) {
-            return QStringLiteral("改回缺省值");
+            return QStringLiteral("恢复默认值");
         }
         if (token == QStringLiteral("open-settings")) {
-            return QStringLiteral("去「常用设置」");
+            return QStringLiteral("打开常用设置");
         }
         if (token == QStringLiteral("open-backups")) {
-            return QStringLiteral("去「世界备份」");
+            return QStringLiteral("打开世界备份");
         }
         return QString();
     }
@@ -2195,7 +2195,7 @@ public:
     static QString taskDetailCloseText() { return QStringLiteral("关闭"); }
 
     /// 状态那一句（"已完成" / "失败" / "已取消" / "已中断" / "正在进行" / "等待中" /
-    /// "已暂停" / "等你决定"）。**不走 `taskSummaryText()`**：那一个拼的是底栏那一格
+    /// "已暂停" / "等待确认"）。**不走 `taskSummaryText()`**：那一个拼的是底栏那一格
     /// （"下载 1.20.1（已完成）"），这一页要的是**单独一个词** —— 标题和记号都已经在
     /// 它旁边了，再拼一遍就是同一句话说两遍。
     static QString taskDetailStateText(TaskCenter::State state) {
@@ -2207,7 +2207,7 @@ public:
         case TaskCenter::State::Running:
             return QStringLiteral("正在进行");
         case TaskCenter::State::WaitingUser:
-            return QStringLiteral("等你决定");
+            return QStringLiteral("等待确认");
         case TaskCenter::State::Paused:
             return QStringLiteral("已暂停");
         case TaskCenter::State::Succeeded:
@@ -2381,13 +2381,13 @@ public:
     static QString updateCenterRowPinUndoText() { return QStringLiteral("不再固定"); }
     /// 行尾那三颗 chip 各自的鼠标提示（说清按下去会发生什么）。
     static QString updateCenterRowUpdateTipText() {
-        return QStringLiteral("就更新这一条（换掉这个文件，换之前先留一份回滚点）");
+        return QStringLiteral("更新此项，替换前创建回滚点");
     }
     static QString updateCenterRowIgnoreTipText() {
-        return QStringLiteral("这一版以后别再提示我；作者再发新版本时它会回来");
+        return QStringLiteral("忽略此版本；有新版本时恢复提示");
     }
     static QString updateCenterRowPinTipText() {
-        return QStringLiteral("我就停在这一版上，以后不提示更新；哪天文件换了它会自己失效");
+        return QStringLiteral("固定当前版本；本地文件更改后取消固定");
     }
     /// 底下那颗主按钮：选了几条就写几条。**0 条时不写"更新选中的 0 项"**（那句话没有意义）。
     static QString updateCenterUpdateSelectedText(int count) {
@@ -2405,7 +2405,7 @@ public:
     static QString updateCenterCloseText() { return QStringLiteral("关闭"); }
     /// 没查过（或者这个实例一条能查的都没有）时那一整块：一句大话 + 一句下一步。
     static QString updateCenterEmptyHintText() {
-        return QStringLiteral("先在「实例设置 → 概览」里点「检查更新」。");
+        return QStringLiteral("请在「实例设置 → 概览」中检查更新。");
     }
 
     // ------------------------------------------------------------------
@@ -2878,7 +2878,7 @@ public:
     }
     /// 勾选框自己的文字。
     static QString warnMissingDependenciesCheckText() {
-        return QStringLiteral("下载模组 / 光影包时，先检查该实例缺不缺前置");
+        return QStringLiteral("下载模组或光影包时检查前置依赖");
     }
     static QString showGameLogCheckName() { return QStringLiteral("showGameLogCheck"); }
     static QString processPriorityComboName() { return QStringLiteral("processPriorityCombo"); }
@@ -2912,7 +2912,7 @@ public:
     static QString warnDuplicateLaunchRowText() { return QStringLiteral("重复启动"); }
     /// 勾选框自己的文字。
     static QString warnDuplicateLaunchCheckText() {
-        return QStringLiteral("十秒内重复启动同一实例时先问一句");
+        return QStringLiteral("十秒内重复启动同一实例时确认");
     }
 
     /// 第二条：这个实例已经有进程在跑。

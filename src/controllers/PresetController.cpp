@@ -453,7 +453,7 @@ QString PresetController::captureNoteFor(Presets::PresetCategory category) {
     case Presets::PresetCategory::Mods:
         return QStringLiteral("模组预设请使用“编辑模组清单”添加平台项目，当前不从实例提取本地 JAR。");
     case Presets::PresetCategory::DataPacks:
-        return QStringLiteral("这一类只收各个存档的 datapacks/；目标上没有同名存档时先记成「待应用」。");
+        return QStringLiteral("数据包按存档应用；目标中没有同名存档时标记为「待应用」。");
     }
     return QString();
 }
@@ -732,7 +732,7 @@ void PresetController::createPreset(const QString &categoryKey) {
     }
     if (!categoryOk || category == Presets::PresetCategory::Unset) {
         if (m_page != nullptr) {
-            m_page->showStatus(QStringLiteral("新建时得先选四类里的一类（跨类的总预设不做）。"));
+            m_page->showStatus(QStringLiteral("请选择预设类别。"));
         }
         return;
     }
@@ -795,7 +795,7 @@ void PresetController::saveDetails(const QString &id, const QString &name,
     manifest.updatedAt = QDateTime::currentDateTime();
     if (!Presets::saveManifest(root, manifest)) {
         if (m_page != nullptr) {
-            m_page->showStatus(QStringLiteral("保存失败：那一份写不进去。"));
+            m_page->showStatus(QStringLiteral("保存失败：无法写入预设文件。"));
         }
         return;
     }
@@ -817,7 +817,7 @@ void PresetController::removePreset(const QString &id) {
     const QString name = ok ? manifest.name : displayName(id);
     if (!Presets::remove(presetsRoot(), id)) {
         if (m_page != nullptr) {
-            m_page->showStatus(QStringLiteral("删除失败：那一份的目录删不掉。"));
+            m_page->showStatus(QStringLiteral("删除失败：无法删除预设目录。"));
         }
         return;
     }
@@ -862,7 +862,7 @@ void PresetController::setDefaultPreset(const QString &id, bool makeDefault) {
         if (m_page != nullptr) {
             m_page->showStatus(makeDefault && ok
                                    ? QStringLiteral("综合预设和旧版混合预设不设默认：默认只对四类预设生效。")
-                                   : QStringLiteral("默认项没能改：那一份已经不在列表里了。"));
+                                   : QStringLiteral("设置默认预设失败：该预设已不存在。"));
         }
         return;
     }
@@ -1055,7 +1055,7 @@ void PresetController::captureAsNew(const QString &instanceId, const QString &na
     }
     if (!categoryOk || category == Presets::PresetCategory::Unset) {
         if (m_page != nullptr) {
-            m_page->showStatus(QStringLiteral("新建时得先选四类里的一类（跨类的总预设不做）。"));
+            m_page->showStatus(QStringLiteral("请选择预设类别。"));
         }
         return;
     }

@@ -26,6 +26,8 @@
 
 #include "Animations.hpp"  // 换页那一发（Anim::pageAppear）
 #include "MainWindowUI.hpp"
+#include "InstanceSettingsDialog.hpp"
+#include "RowActivation.hpp"
 // MOTD 那块预览：`§` 码那套解析在 `MotdText` 里（ui 层自己的东西，反过来 include src
 // 才是犯规）。这里只做"段 → 富文本"的最后一步。
 #include "MotdText.hpp"
@@ -41,8 +43,6 @@ constexpr int kFieldLabelWidth = 132;
 /// 表单那一行的**控件**占多宽（开关那档除外，它按 `ToggleSwitch::sizeHint()`）。
 /// 钉死是为了让右边那列小字**对成一竖** —— 每行控件的宽度不一样的话，小字的起点会一行一个样。
 constexpr int kFieldEditorWidth = 200;
-/// 左栏那一列在表自己量出来的宽度之外多留一点（同 `InstanceSettingsDialog::kNavListExtraWidth`）。
-constexpr int kNavListExtraWidth = 28;
 
 /// 一行小字（说明 / 状态）。全仓"比正文浅一档"的取法只有这一种（从自己的调色板算，
 /// 不写死颜色）—— 和 `NewServerPage.cpp` / `ServerConsolePage.cpp` 那两个是同一套做法。
@@ -182,28 +182,41 @@ ServerSettingsPage::ServerSettingsPage(QWidget *parent) : QDialog(parent) {
     auto *columns = new QHBoxLayout;
     columns->setSpacing(12);
 
-    m_sectionList = new QListWidget(this);
+    m_sectionList = new QTreeWidget(this);
     m_sectionList->setObjectName(MainWindowUI::serverSettingsSectionListName());
-    m_sectionList->setUniformItemSizes(true);
+    m_sectionList->setHeaderHidden(true);
+    m_sectionList->setUniformRowHeights(false);
+    m_sectionList->setIndentation(16);
+    m_sectionList->setExpandsOnDoubleClick(false);
+    m_sectionList->setFrameShape(QFrame::NoFrame);
+    m_sectionList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_sectionList->setFixedWidth(InstanceSettingsDialog::navigationTreeWidth());
     // 悬停底色那一套由代理画（`Theme::rowHoverFill()`），但它要的 `State_MouseOver` 是
     // **视图**填的 —— 少了下一句，代理里那一段一个字都不会生效（同实例设置那一列）。
     m_sectionList->setMouseTracking(true);
-    m_sectionList->setItemDelegate(new VersionTreeDelegate(m_sectionList));
+    // 与实例设置的树导航共用标准行样式，避免下载列表代理再绘制一枚右侧箭头。
     QFont navFont = m_sectionList->font();
     navFont = Theme::textFont(navFont, Theme::TextRole::Body);
     m_sectionList->setFont(navFont);
     for (int i = 0; i < MainWindowUI::serverSettingsSectionCount(); ++i) {
-        new QListWidgetItem(MainWindowUI::serverSettingsSectionTitle(i), m_sectionList);
-    }
-    {
-        // 宽度 + 高度一次性按内容量出来（这一列的内容是**定死**的四条，量一遍就够）：
-        // 行高交给样式算（`sizeHintForRow`），别写死数字 —— 换字体/换样式就错。
-        int rowsHeight = 0;
-        for (int i = 0; i < m_sectionList->count(); ++i) {
-            rowsHeight += m_sectionList->sizeHintForRow(i);
+        auto *item = new QTreeWidgetItem(m_sectionList, {MainWindowUI::serverSettingsSectionTitle(i)});
+        item->setData(0, Qt::UserRole, i);
+        if (i == static_cast<int>(Section::Players)) {
+            for (int j = 0; j < MainWindowUI::serverSettingsPlayerListCount(); ++j) {
+                auto *child = new QTreeWidgetItem(item, {MainWindowUI::serverSettingsPlayerListTitle(j)});
+                child->setData(0, Qt::UserRole, i);
+                child->setData(0, Qt::UserRole + 1, j);
+            }
+        } else if (i == static_cast<int>(Section::Content)) {
+            for (int j = 0; j < MainWindowUI::serverSettingsContentKindCount(); ++j) {
+                auto *child = new QTreeWidgetItem(item, {MainWindowUI::serverSettingsContentKindTitle(j)});
+                child->setData(0, Qt::UserRole, i);
+                child->setData(0, Qt::UserRole + 1, j);
+            }
         }
-        m_sectionList->setFixedHeight(rowsHeight + 2 * m_sectionList->frameWidth() + 2);
-        m_sectionList->setFixedWidth(m_sectionList->sizeHintForColumn(0) + kNavListExtraWidth);
+        item->setSizeHint(0, QSize(0, item->childCount() > 0 ? 32 : 36));
+        for (int j = 0; j < item->childCount(); ++j)
+            item->child(j)->setSizeHint(0, QSize(0, 36));
     }
     {
         auto *column = new QWidget(this);
@@ -211,7 +224,7 @@ ServerSettingsPage::ServerSettingsPage(QWidget *parent) : QDialog(parent) {
         layout->setContentsMargins(0, 0, 0, 0);
         layout->setSpacing(0);
         layout->addWidget(m_sectionList);
-        layout->addStretch(1);
+        column->setFixedWidth(InstanceSettingsDialog::navigationTreeWidth());
         columns->addWidget(column);
     }
 
@@ -269,7 +282,7 @@ ServerSettingsPage::ServerSettingsPage(QWidget *parent) : QDialog(parent) {
 
     // ---------- ③ 内容（模组 / 数据包）----------
     //
-    // 两类内容一个文件夹一个下拉框：上面选哪一类，中间一张表（名字 / 大小 / 状态），底下
+    // 两类内容通过左栏子项选择，中间显示文件列表（名字 / 大小 / 状态），底下
     // 四颗按钮（加 / 启用禁用 / 打开文件夹 / 刷新）。**这一页不碰盘**：列目录、改名、拷
     // 文件全在 `MainWindow`（`ui/` 不许 include `src/`，判据在 `ServerContent` 那一层）。
     {
@@ -277,26 +290,6 @@ ServerSettingsPage::ServerSettingsPage(QWidget *parent) : QDialog(parent) {
         m_contentNote = makeNoteLabel(nullptr, QString());
         m_contentNote->setObjectName(MainWindowUI::serverSettingsContentNoteName());
         layout->addWidget(m_contentNote);
-
-        {
-            auto *row = new QWidget();
-            auto *rowLayout = new QHBoxLayout(row);
-            rowLayout->setContentsMargins(0, 0, 0, 0);
-            rowLayout->setSpacing(8);
-            m_contentKindCombo = new QComboBox(row);
-            m_contentKindCombo->setObjectName(MainWindowUI::serverSettingsContentComboName());
-            for (int i = 0; i < MainWindowUI::serverSettingsContentKindCount(); ++i) {
-                m_contentKindCombo->addItem(MainWindowUI::serverSettingsContentKindTitle(i));
-            }
-            // 接在**摆完项之后**（同玩家那个下拉框：`addItem` 也会发 `currentIndexChanged`）。
-            connect(m_contentKindCombo, &QComboBox::currentIndexChanged, this, [this](int index) {
-                refreshContentActions();
-                emit contentKindChanged(index);
-            });
-            rowLayout->addWidget(m_contentKindCombo, 0);
-            rowLayout->addStretch(1);
-            layout->addWidget(row);
-        }
 
         m_contentTree = new QTreeWidget();
         m_contentTree->setObjectName(MainWindowUI::serverSettingsContentTreeName());
@@ -450,7 +443,7 @@ ServerSettingsPage::ServerSettingsPage(QWidget *parent) : QDialog(parent) {
     // ---------- ⑤ 玩家名单 ----------
     //
     // 四份文件（`whitelist.json` / `ops.json` / 两份封禁）在盘上的形状都是 JSON 数组，
-    // 一页摆下它们：上面一个下拉框选哪一份，中间一张表，底下两颗动作按钮。**这一页不认
+    // 左栏子项选择名单，右侧显示记录与操作。**这一页不认
     // JSON**（`ui/` 不许 include `src/`）—— 解析、UUID、写盘全在 `MainWindow` 那一边，
     // 这里只把 `PlayerRow` 摆出来、把"用户点了加/移除"报出去。
     {
@@ -458,31 +451,6 @@ ServerSettingsPage::ServerSettingsPage(QWidget *parent) : QDialog(parent) {
         m_playerNote = makeNoteLabel(nullptr, QString());
         m_playerNote->setObjectName(MainWindowUI::serverSettingsPlayerNoteName());
         layout->addWidget(m_playerNote);
-
-        {
-            auto *row = new QWidget();
-            auto *rowLayout = new QHBoxLayout(row);
-            rowLayout->setContentsMargins(0, 0, 0, 0);
-            rowLayout->setSpacing(8);
-            m_playerListCombo = new QComboBox(row);
-            m_playerListCombo->setObjectName(MainWindowUI::serverSettingsPlayerComboName());
-            for (int i = 0; i < MainWindowUI::serverSettingsPlayerListCount(); ++i) {
-                m_playerListCombo->addItem(MainWindowUI::serverSettingsPlayerListTitle(i));
-            }
-            // 接在**摆完项之后**：`addItem` 也会发 `currentIndexChanged`，接早了会在
-            // 构造期把"换了一份名单"报给 `MainWindow`（那一头还没摆好这一页）。
-            connect(m_playerListCombo, &QComboBox::currentIndexChanged, this, [this](int index) {
-                if (m_playerAddButton != nullptr) {
-                    m_playerAddButton->setText(
-                        MainWindowUI::serverSettingsPlayerAddText(index));
-                }
-                refreshPlayerActions();
-                emit playerListChanged(index);
-            });
-            rowLayout->addWidget(m_playerListCombo, 0);
-            rowLayout->addStretch(1);
-            layout->addWidget(row);
-        }
 
         m_playerTree = new QTreeWidget();
         m_playerTree->setObjectName(MainWindowUI::serverSettingsPlayerTreeName());
@@ -506,7 +474,7 @@ ServerSettingsPage::ServerSettingsPage(QWidget *parent) : QDialog(parent) {
             rowLayout->setContentsMargins(0, 0, 0, 0);
             rowLayout->setSpacing(8);
             m_playerAddButton = new QPushButton(
-                MainWindowUI::serverSettingsPlayerAddText(m_playerListCombo->currentIndex()), row);
+                MainWindowUI::serverSettingsPlayerAddText(m_playerListIndex), row);
             m_playerAddButton->setObjectName(MainWindowUI::serverSettingsPlayerAddButtonName());
             Theme::markButton(m_playerAddButton, Theme::ButtonKind::Accent);
             m_playerAddButton->setCursor(Qt::PointingHandCursor);
@@ -602,13 +570,21 @@ ServerSettingsPage::ServerSettingsPage(QWidget *parent) : QDialog(parent) {
         Theme::markButton(m_revertButton, Theme::ButtonKind::Neutral);
         m_revertButton->setCursor(Qt::PointingHandCursor);
         connect(m_revertButton, &QPushButton::clicked, this, &ServerSettingsPage::revertRequested);
-        layout->addWidget(m_revertButton, 0);
         m_saveButton = new QPushButton(MainWindowUI::serverSettingsSaveText(), row);
         m_saveButton->setObjectName(MainWindowUI::serverSettingsSaveButtonName());
-        Theme::markButton(m_saveButton, Theme::ButtonKind::Accent);
+        Theme::markButton(m_saveButton, Theme::ButtonKind::Neutral);
         m_saveButton->setCursor(Qt::PointingHandCursor);
         connect(m_saveButton, &QPushButton::clicked, this, &ServerSettingsPage::saveRequested);
-        layout->addWidget(m_saveButton, 0);
+        auto *navigation = qobject_cast<QVBoxLayout *>(m_sectionList->parentWidget()->layout());
+        navigation->setSpacing(8);
+        navigation->addWidget(m_revertButton);
+        navigation->addWidget(m_saveButton);
+        m_startButton = new QPushButton(tr("启动服务端"), m_sectionList->parentWidget());
+        m_startButton->setObjectName(QStringLiteral("serverSettingsStart"));
+        Theme::markButton(m_startButton, Theme::ButtonKind::Primary);
+        m_startButton->setCursor(Qt::PointingHandCursor);
+        connect(m_startButton, &QPushButton::clicked, this, &ServerSettingsPage::startRequested);
+        navigation->addWidget(m_startButton);
         box->addWidget(row);
     }
 
@@ -620,16 +596,30 @@ ServerSettingsPage::ServerSettingsPage(QWidget *parent) : QDialog(parent) {
     refreshContentActions();
     refreshPlayerActions();
 
-    connect(m_sectionList, &QListWidget::currentRowChanged, this, [this](int row) {
-        if (m_settingSection || row < 0) {
+    connect(m_sectionList, &QTreeWidget::currentItemChanged, this, [this](QTreeWidgetItem *item) {
+        if (m_settingSection || item == nullptr) {
             return;
+        }
+        const int row = item->data(0, Qt::UserRole).toInt();
+        if (item->parent() != nullptr) {
+            const int index = item->data(0, Qt::UserRole + 1).toInt();
+            if (row == static_cast<int>(Section::Players)) {
+                setPlayerList(index);
+                emit playerListChanged(index);
+            } else if (row == static_cast<int>(Section::Content)) {
+                setContentKind(index);
+                emit contentKindChanged(index);
+            }
         }
         // **切页之前**发：`MainWindow` 要借这一下把"表单补丁"和"原始文本"合起来
         // （见 .hpp 文件头那段），合完再让右栏翻过去。
         emit sectionChanged(row);
         m_stack->setCurrentIndex(row);
     });
-    m_sectionList->setCurrentRow(static_cast<int>(Section::Common));
+    connectRowActivation(m_sectionList, [](QTreeWidgetItem *item) {
+        if (item->childCount() > 0) item->setExpanded(!item->isExpanded());
+    }, [](const QTreeWidgetItem *item) { return item && item->childCount() > 0; });
+    m_sectionList->setCurrentItem(m_sectionList->topLevelItem(static_cast<int>(Section::Common)));
 }
 
 // ---------------------------------------------------------------------------
@@ -808,15 +798,19 @@ void ServerSettingsPage::markRawEdited() {
 // ---------------------------------------------------------------------------
 
 int ServerSettingsPage::contentKind() const {
-    return m_contentKindCombo == nullptr ? 0 : m_contentKindCombo->currentIndex();
+    return m_contentKindIndex;
 }
 
 void ServerSettingsPage::setContentKind(int kindIndex) {
-    if (m_contentKindCombo == nullptr) return;
-    if (kindIndex < 0 || kindIndex >= m_contentKindCombo->count()) return;
+    if (kindIndex < 0 || kindIndex >= MainWindowUI::serverSettingsContentKindCount()) return;
     // 程序摆的那一下**不算用户换类**（`MainWindow` 会紧接着自己刷一遍行）。
-    const QSignalBlocker blocker(m_contentKindCombo);
-    m_contentKindCombo->setCurrentIndex(kindIndex);
+    m_contentKindIndex = kindIndex;
+    if (m_stack && m_stack->currentIndex() == static_cast<int>(Section::Content)) {
+        const QSignalBlocker blocker(m_sectionList);
+        auto *group = m_sectionList->topLevelItem(static_cast<int>(Section::Content));
+        group->setExpanded(true);
+        m_sectionList->setCurrentItem(group->child(kindIndex));
+    }
     refreshContentActions();
 }
 
@@ -925,15 +919,19 @@ void ServerSettingsPage::setBackupNote(const QString &text) {
 // ---------------------------------------------------------------------------
 
 int ServerSettingsPage::playerList() const {
-    return m_playerListCombo == nullptr ? 0 : m_playerListCombo->currentIndex();
+    return m_playerListIndex;
 }
 
 void ServerSettingsPage::setPlayerList(int listIndex) {
-    if (m_playerListCombo == nullptr) return;
-    if (listIndex < 0 || listIndex >= m_playerListCombo->count()) return;
+    if (listIndex < 0 || listIndex >= MainWindowUI::serverSettingsPlayerListCount()) return;
     // 程序摆的那一下**不算用户换页**（`MainWindow` 会紧接着自己刷一遍行）。
-    const QSignalBlocker blocker(m_playerListCombo);
-    m_playerListCombo->setCurrentIndex(listIndex);
+    m_playerListIndex = listIndex;
+    if (m_stack && m_stack->currentIndex() == static_cast<int>(Section::Players)) {
+        const QSignalBlocker blocker(m_sectionList);
+        auto *group = m_sectionList->topLevelItem(static_cast<int>(Section::Players));
+        group->setExpanded(true);
+        m_sectionList->setCurrentItem(group->child(listIndex));
+    }
     if (m_playerAddButton != nullptr) {
         m_playerAddButton->setText(MainWindowUI::serverSettingsPlayerAddText(listIndex));
     }
@@ -1061,7 +1059,15 @@ void ServerSettingsPage::setSection(Section section) {
     // **不发 `sectionChanged`**：这是程序摆的（"开页时摆到某一页"/"从体检的出路按钮跳
     // 过去"），不是用户点的那一发 —— 发出去的话 `MainWindow` 会再合一次两边的编辑。
     m_settingSection = true;
-    m_sectionList->setCurrentRow(index);
+    auto *item = m_sectionList->topLevelItem(index);
+    if (section == Section::Players) {
+        item->setExpanded(true);
+        item = item->child(m_playerListIndex);
+    } else if (section == Section::Content) {
+        item->setExpanded(true);
+        item = item->child(m_contentKindIndex);
+    }
+    m_sectionList->setCurrentItem(item);
     m_settingSection = false;
     m_stack->setCurrentIndex(index);
 }
@@ -1331,6 +1337,11 @@ void ServerSettingsPage::refreshSaveBar() {
     const bool dirty = !dirtyValues().isEmpty() || m_rawEdited;
     if (m_saveButton != nullptr) {
         m_saveButton->setEnabled(m_editable && m_saveAllowed && dirty);
+    }
+    if (m_startButton != nullptr) {
+        m_startButton->setEnabled(m_editable && !dirty);
+        m_startButton->setToolTip(!m_editable ? tr("服务端正在运行")
+                                            : dirty ? tr("请先保存或放弃修改") : QString());
     }
     if (m_revertButton != nullptr) {
         m_revertButton->setEnabled(m_editable && dirty);

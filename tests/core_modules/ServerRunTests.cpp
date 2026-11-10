@@ -306,14 +306,14 @@ void runServerRunTests() {
               "不是一个光秃秃的网址",
               ServerRun::eulaLinkText());
 
-        check(ServerRun::eulaCheckBoxText().contains(QStringLiteral("我已经读过并同意")),
+        check(ServerRun::eulaCheckBoxText().contains(QStringLiteral("我已阅读并同意")),
               "★★ ZZ4 勾选框那句是**第一人称的声明**（「我读过并同意」），不是「本协议没问题」",
               ServerRun::eulaCheckBoxText());
 
         const QString text = ServerRun::eulaPromptText();
         check(text.contains(QStringLiteral("eula=true")),
               "★★ ZZ4 EULA 那道闸说清楚它到底会写什么", text);
-        check(text.contains(QStringLiteral("不会替你同意")),
+        check(text.contains(QStringLiteral("仅在勾选协议并选择「同意并启动」后")),
               "★★ ZZ4 而且说清楚**不自动接受**", text);
         check(!ServerRun::eulaPromptTitle().isEmpty(), "★ ZZ4 那道闸有标题");
 

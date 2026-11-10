@@ -599,7 +599,7 @@ void ServerInstallController::verifyInstall() {
     // 另判一遍，就会出现"任务中心说装好了、列表那一行还写着未安装"，而两边都没报错。
     const ServerRegistry::Entry entry = ServerRegistry::describe(m_serverId, nullptr);
     if (!entry.installed) {
-        fail(QStringLiteral("文件都放好了，可是核对下来还没装好：%1")
+        fail(QStringLiteral("安装校验失败：%1")
                  .arg(entry.note.isEmpty() ? QStringLiteral("缺的东西说不清") : entry.note));
         return;
     }

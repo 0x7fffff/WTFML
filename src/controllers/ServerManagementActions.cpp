@@ -51,7 +51,7 @@ void ServerManagementActions::refreshServerPlayers(MainWindow *owner) {
         return;
     }
     if (content.entries.isEmpty()) {
-        note += MainWindow::tr("\n现在一条都没有。");
+        note += MainWindow::tr("\n暂无记录。");
     }
     const QDateTime now = QDateTime::currentDateTime();
     QList<ServerSettingsPage::PlayerRow> rows;
@@ -134,7 +134,7 @@ void ServerManagementActions::addServerPlayer(MainWindow *owner) {
                               : entry.name.compare(typed, Qt::CaseInsensitive) == 0;
         if (same) {
             InlineMessage::information(owner->m_ui->overlay(), MainWindow::tr("加进%1").arg(listTitle),
-                                       MainWindow::tr("「%1」已经在这一份名单上了。").arg(typed));
+                                       MainWindow::tr("「%1」已在名单中。").arg(typed));
             return;
         }
     }
@@ -274,8 +274,8 @@ void ServerManagementActions::refreshServerContent(MainWindow *owner) {
         // 数据包那一类：世界在哪儿都还不知道 —— 别摆一个假路径，说清楚该去哪儿改。
         page->setContentRows({});
         page->setContentNote(
-            MainWindow::tr("这个服务端的 level-name 现在这个值我们认不出来，不知道世界在哪儿 —— "
-               "先去「常用设置」把它改成一个正常的目录名，数据包才知道往哪个文件夹里放。"));
+            MainWindow::tr("level-name 无效，无法确定世界目录。"
+               "请在「常用设置」中填写有效的世界目录名。"));
         return;
     }
     page->setContentNote(MainWindowUI::serverSettingsContentNoteText(
@@ -405,7 +405,7 @@ void ServerManagementActions::toggleServerContent(MainWindow *owner, const QStri
     if (QFileInfo::exists(targetPath)) {
         InlineMessage::warning(
             owner->m_ui->overlay(), MainWindow::tr("改不了"),
-            MainWindow::tr("文件夹里已经有一份「%1」了 —— 先把那一份挪走，再改这一份的名字。").arg(target));
+            MainWindow::tr("目标名称「%1」已存在，请选择其他名称。").arg(target));
         return;
     }
     QString lockProblem;
@@ -581,22 +581,22 @@ void ServerManagementActions::backupServerWorld(MainWindow *owner, const QString
         // 和"游戏在跑不给备份世界"同一条理由：它每隔几秒就在往存档里写，这时候抄出来的
         // 那一份可能正好截在半截写入上。
         InlineMessage::warning(owner->m_ui->overlay(), MainWindow::tr("备份世界"),
-                               MainWindow::tr("这个服务端正在跑。先让它停下来再备份 —— 它每隔几秒就在往"
-                                  "存档里写，这时候抄出来的那一份可能是不完整的。"));
+                               MainWindow::tr("请先停止服务端再备份，以避免读取正在写入的"
+                                  "存档数据。"));
         return;
     }
     const QString worldName = owner->serverWorldName(serverId);
     const QString worldDir = owner->serverWorldDir(serverId);
     if (worldName.isEmpty()) {
         InlineMessage::warning(
-            owner->m_ui->overlay(), MainWindow::tr("备份不了"),
-            MainWindow::tr("这个服务端的 level-name 现在这个值我们认不出来，不知道世界在哪儿。\n"
-               "先去「常用设置」把它改成一个正常的目录名。"));
+            owner->m_ui->overlay(), MainWindow::tr("无法备份"),
+            MainWindow::tr("level-name 无效，无法确定世界目录。哪儿。\n"
+               "请在「常用设置」中填写有效的世界目录名。"));
         return;
     }
     if (!QFileInfo(worldDir).isDir()) {
         InlineMessage::information(
-            owner->m_ui->overlay(), MainWindow::tr("还没有世界"),
+            owner->m_ui->overlay(), MainWindow::tr("世界尚未生成"),
             MainWindow::tr("「%1」这个目录还不存在 —— 服务端第一次启动之后才会生成它，"
                "现在没有能备份的东西。")
                 .arg(worldName));
@@ -659,12 +659,12 @@ void ServerManagementActions::restoreServerWorldBackup(MainWindow *owner, const 
     if (!readable || manifest.kind != BackupFiles::Kind::World
         || manifest.root.compare(worldName, Qt::CaseInsensitive) != 0) {
         InlineMessage::warning(
-            owner->m_ui->overlay(), MainWindow::tr("这份包不是这个世界的备份"),
-            readable ? MainWindow::tr("这一份里记的是「%1」的备份，跟这个世界（%2）对不上 —— "
-                         "名字看着像不算数，为了不动到别的东西，它没有解开。")
+            owner->m_ui->overlay(), MainWindow::tr("备份与当前世界不匹配"),
+            readable ? MainWindow::tr("备份世界为「%1」，当前世界为「%2」。"
+                         "为避免覆盖其他世界，已取消恢复。")
                            .arg(manifest.root.isEmpty() ? MainWindow::tr("（没写）") : manifest.root,
                                 worldName.isEmpty() ? serverId : worldName)
-                     : MainWindow::tr("这一份读不出清单，认不出它是什么备份，没有解开。\n\n%1")
+                     : MainWindow::tr("无法读取备份清单，已取消恢复。\n\n%1")
                            .arg(problem));
         owner->m_serverSettings->refresh();
         return;
@@ -672,9 +672,9 @@ void ServerManagementActions::restoreServerWorldBackup(MainWindow *owner, const 
     // 默认**不**落在「还原」上：这一步会把这个世界现在的文件整个换掉（和删世界同一档）。
     if (!InlineMessage::question(
             owner->m_ui->overlay(), MainWindow::tr("恢复备份"),
-            MainWindow::tr("「%1」现在的文件会被备份里那一份整个换掉。\n\n"
-               "还原之前会自动给现在这一份留一份安全快照，所以这一步是能退回来的。\n\n"
-               "要还原的是这一份：\n%2")
+            MainWindow::tr("将使用备份替换世界「%1」的当前文件。\n\n"
+               "恢复前将自动创建安全快照，以便回滚。\n\n"
+               "备份文件：\n%2")
                 .arg(worldName.isEmpty() ? serverId : worldName,
                      QDir::toNativeSeparators(zipPath)),
             MainWindow::tr("还原"), MainWindow::tr("取消"), /*defaultYes=*/false, /*destructive=*/true)) {
@@ -693,7 +693,7 @@ void ServerManagementActions::deleteServerBackup(MainWindow *owner, const QStrin
     const QFileInfo info(zipPath);
     if (!info.exists()) {
         InlineMessage::warning(owner->m_ui->overlay(), MainWindow::tr("删不掉"),
-                               MainWindow::tr("这一份已经不在了：\n%1")
+                               MainWindow::tr("备份文件已不存在：\n%1")
                                    .arg(QDir::toNativeSeparators(zipPath)));
         owner->m_serverSettings->refresh();
         return;
@@ -701,10 +701,10 @@ void ServerManagementActions::deleteServerBackup(MainWindow *owner, const QStrin
     // 这一份进**回收站**（不是永久删除）：备份就是留着以防万一的，手滑删掉更该有退路。
     // 默认那一边仍然是「取消」（和删服务端 / 删世界同一档）。
     if (!InlineMessage::question(
-            owner->m_ui->overlay(), MainWindow::tr("删掉这一份备份"),
-            MainWindow::tr("这一份会被删掉（会进回收站，可以还原）：\n%1\n\n要删吗？")
+            owner->m_ui->overlay(), MainWindow::tr("删除备份"),
+            MainWindow::tr("将以下备份移至回收站：\n%1\n\n确认删除？")
                 .arg(QDir::toNativeSeparators(zipPath)),
-            MainWindow::tr("删掉它"), MainWindow::tr("取消"), /*defaultYes=*/false, /*destructive=*/true)) {
+            MainWindow::tr("删除"), MainWindow::tr("取消"), /*defaultYes=*/false, /*destructive=*/true)) {
         return;
     }
     QString lockProblem;
@@ -715,7 +715,7 @@ void ServerManagementActions::deleteServerBackup(MainWindow *owner, const QStrin
     QString recycleProblem;
     if (!moveToRecycleBin(zipPath, &recycleProblem)) {
         InlineMessage::critical(owner->m_ui->overlay(), MainWindow::tr("删不掉"),
-                                MainWindow::tr("这一份没能移进回收站：%1\n%2")
+                                MainWindow::tr("无法将备份移至回收站：%1\n%2")
                                     .arg(QDir::toNativeSeparators(zipPath), recycleProblem));
         return;
     }

@@ -91,7 +91,7 @@ void runServerSettingsPageTests() {
 
         auto *title = page->findChild<QLabel *>(MainWindowUI::serverSettingsTitleName());
         auto *sections =
-            page->findChild<QListWidget *>(MainWindowUI::serverSettingsSectionListName());
+            page->findChild<QTreeWidget *>(MainWindowUI::serverSettingsSectionListName());
         auto *stack = page->findChild<QStackedWidget *>(MainWindowUI::serverSettingsStackName());
         auto *save = page->findChild<QPushButton *>(MainWindowUI::serverSettingsSaveButtonName());
         auto *saveNote = page->findChild<QLabel *>(MainWindowUI::serverSettingsSaveNoteName());
@@ -128,7 +128,7 @@ void runServerSettingsPageTests() {
 
         // ---------- ① 顶上说的是谁 + 表单起手摆的是盘上那一份 ----------
         check(title->text() == serverId &&
-                  sections->count() == MainWindowUI::serverSettingsSectionCount() &&
+                  sections->topLevelItemCount() == MainWindowUI::serverSettingsSectionCount() &&
                   stack->count() == MainWindowUI::serverSettingsSectionCount(),
               "★ T42.1 顶上那行字是**用户认得的那一个名字**，左栏四页摆齐了",
               title->text());
@@ -171,7 +171,7 @@ void runServerSettingsPageTests() {
 
         // ---------- ③ 切到「原始文本」：表单那笔改动**已经合进文本**了 ----------
         // 这一步量的是"两页看到的不是两份东西"（见 `mergeServerSettingsEdits`）。
-        sections->setCurrentRow(static_cast<int>(ServerSettingsPage::Section::RawText));
+        sections->setCurrentItem(sections->topLevelItem(static_cast<int>(ServerSettingsPage::Section::RawText)));
         QApplication::processEvents();
         check(stack->currentIndex() == static_cast<int>(ServerSettingsPage::Section::RawText) &&
                   rawEdit->toPlainText() == afterSave,
@@ -195,7 +195,7 @@ void runServerSettingsPageTests() {
               afterRaw);
 
         // ---------- ⑤ 切回表单：按新那份重摆，基线也跟着换 ----------
-        sections->setCurrentRow(static_cast<int>(ServerSettingsPage::Section::Common));
+        sections->setCurrentItem(sections->topLevelItem(static_cast<int>(ServerSettingsPage::Section::Common)));
         QApplication::processEvents();
         check(stack->currentIndex() == static_cast<int>(ServerSettingsPage::Section::Common) &&
                   textFieldOf(QStringLiteral("motd"))->text() == QStringLiteral("新的说明") &&
@@ -258,7 +258,7 @@ void runServerSettingsPageTests() {
             auto *playerNote =
                 page->findChild<QLabel *>(MainWindowUI::serverSettingsPlayerNoteName());
             auto *playerCombo =
-                page->findChild<QComboBox *>(MainWindowUI::serverSettingsPlayerComboName());
+                sections->topLevelItem(static_cast<int>(ServerSettingsPage::Section::Players));
             auto *playerTree =
                 page->findChild<QTreeWidget *>(MainWindowUI::serverSettingsPlayerTreeName());
             auto *playerAdd = page->findChild<QPushButton *>(
@@ -271,21 +271,20 @@ void runServerSettingsPageTests() {
             check(playersWired,
                   "★ T42.10 玩家名单那一块整块找得到（下拉框 / 名单 / 两颗按钮 / 那行小字）");
             if (playersWired) {
-                sections->setCurrentRow(
-                    static_cast<int>(ServerSettingsPage::Section::Players));
+                sections->setCurrentItem(sections->topLevelItem(static_cast<int>(ServerSettingsPage::Section::Players)));
                 QApplication::processEvents();
                 check(stack->currentIndex()
                               == static_cast<int>(ServerSettingsPage::Section::Players)
-                          && playerCombo->count()
+                          && playerCombo->childCount()
                                  == MainWindowUI::serverSettingsPlayerListCount(),
                       "★ T42.10 切到玩家那一页：四份名单都在那个下拉框里"
                       "（`serverSettingsPlayerListCount()` 是上限）",
-                      QString::number(playerCombo->count()));
+                      QString::number(playerCombo->childCount()));
                 bool comboOk = true;
                 QStringList comboTitles;
-                for (int i = 0; i < playerCombo->count(); ++i) {
-                    comboTitles << playerCombo->itemText(i);
-                    if (playerCombo->itemText(i)
+                for (int i = 0; i < playerCombo->childCount(); ++i) {
+                    comboTitles << playerCombo->child(i)->text(0);
+                    if (playerCombo->child(i)->text(0)
                         != MainWindowUI::serverSettingsPlayerListTitle(i)) {
                         comboOk = false;
                     }
@@ -378,7 +377,7 @@ void runServerSettingsPageTests() {
             check(statusLabel != nullptr && workspace != nullptr,
                   "T42.11 前提：顶上那行状态和服务端工作区都找得到");
             if (statusLabel != nullptr && workspace != nullptr) {
-                sections->setCurrentRow(static_cast<int>(ServerSettingsPage::Section::Common));
+                sections->setCurrentItem(sections->topLevelItem(static_cast<int>(ServerSettingsPage::Section::Common)));
                 QApplication::processEvents();
                 // 改一格、**不保存**：下面要证明"只翻状态"不会把没保存的改动冲掉。
                 textFieldOf(QStringLiteral("motd"))->setText(QStringLiteral("还没保存的说明"));

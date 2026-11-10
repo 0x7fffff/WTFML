@@ -21,6 +21,7 @@
 #include "ServerSettingsPage.hpp"
 #include "controllers/ServerSettingsController.hpp"
 #include "controllers/ServerWorkspaceController.hpp"
+#include "controllers/ServerRunController.hpp"
 #include "manage/BackupFiles.hpp"
 #include "server/ServerModel.hpp"
 #include "server/ServerPropertiesForm.hpp"
@@ -51,6 +52,11 @@ void ServerSettingsPageController::open(const QString &serverId) {
                 [this](int section) { mergeEdits(-1, section); });
         connect(m_page, &ServerSettingsPage::edited, this, [this] { updateSaveState(); });
         connect(m_page, &ServerSettingsPage::saveRequested, this, [this] { save(); });
+        connect(m_page, &ServerSettingsPage::startRequested, this, [this] {
+            if (!m_page || !m_editable || m_serverId.isEmpty() || m_page->rawEdited() ||
+                !m_page->changedOnly().isEmpty()) return;
+            m_owner.m_serverRun->start(m_serverId);
+        });
         connect(m_page, &ServerSettingsPage::revertRequested, this, [this] { revert(); });
         connect(m_page, &ServerSettingsPage::backupNowRequested, this,
                 [this] { m_owner.backupServerWorld(m_serverId); });
@@ -240,9 +246,9 @@ void ServerSettingsPageController::refresh() {
     page->setBackupRows(rows);
     page->setBackupNote(
         worldDir.isEmpty()
-            ? MainWindow::tr("这个服务端的 level-name 现在这个值我们认不出来，不知道世界在"
-                             "哪儿 —— 先去「常用设置」把它改成一个正常的目录名。")
-            : MainWindow::tr("世界在：%1\n备份放在：%2（「立即备份」就打一份新的到这里）")
+            ? MainWindow::tr("level-name 无效，无法确定世界目录。"
+                             "请在「常用设置」中填写有效的世界目录名。")
+            : MainWindow::tr("世界目录：%1\n备份目录：%2")
                   .arg(QDir::toNativeSeparators(worldDir),
                        QDir::toNativeSeparators(backupDir)));
 
