@@ -4,8 +4,9 @@
 > [G1B 首轮人工测试记录](G1B_MANUAL_RESULTS_20261110.md)**。
 > 实现记录：[AGENT_STAGE1B.md](AGENT_STAGE1B.md)
 > 前置：G1A 已通过（网络错误延后到 [NETWORK_ERROR_ACCEPTANCE.md](NETWORK_ERROR_ACCEPTANCE.md)）。
-> 首轮实测：L5–L9、R5、R8/R9、W1–W3、P1–P3、E1–E5 基本通过；R1–R4/R7 脱敏失败，
-> W4/W5/A1/P4/P5 未完成。结论见上面的记录。
+> 首轮实测：L5–L9、R5、R8/R9、W1–W3、P1–P3、E1–E5 基本通过；R1–R4/R7 脱敏失败。
+> 用户复核后，写入/备份、artifact、D11 流程、活动删除、真实 tool_calls、无 MCP 六项已勾选；
+> 但脱敏覆盖不足仍是 P0，G1B 继续“未通过”。W4/W5/A1/P4/P5 的独立手工复核另记。
 
 ## 0. 构建与运行
 
@@ -113,11 +114,11 @@ $env:PATH = "D:\Qt\6.10.1\mingw_64\bin;D:\Qt\Tools\mingw1310_64\bin;$env:PATH"
 
 ## 8. 安全与边界
 
-- [ ] 没有 MCP 进程/设置页。
+- [x] 没有 MCP 进程/设置页。
 - [ ] 模型不能修改工具白名单/审批策略/API 配置。
 - [ ] 审查结束 grep API Key、文件内容、Authorization：日志/会话/错误/导出为空。
-- [ ] 拒绝审批后文件字节不变；备份仍可读。
-- [ ] 所有审批都逐次，没有“本会话允许此目录”。
+- [x] 拒绝审批后文件字节不变；备份仍可读。
+- [x] 所有审批都逐次，没有“本会话允许此目录”。
 
 ## 9. 判定
 
