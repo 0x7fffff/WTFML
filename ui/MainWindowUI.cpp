@@ -8,6 +8,7 @@
 #include "MainWindowPageLayout.hpp"
 
 #include "TaskCenterPanel.hpp"
+#include "AgentPage.hpp"
 #include "Animations.hpp"  // 换页 / 展开折叠 / 上拉面板那几段动效
 #include "ElidedLabel.hpp"
 #include "InstanceGroupDelegate.hpp"
@@ -244,7 +245,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // 系统那条白色标题栏由 WindowChrome 去掉（客户区铺满整窗，见它的文件头），
     // 顶上这一行就是替它的：左边草方块 + 启动器名字（默认是 `TitleBar::defaultBrandText()`
     // 那五个字母，设置页「个性化」栏的「外观」里可以改），
-    // 然后是**四个功能的导航按钮**（下面 addTab 完之后 setNavItems() 灌进去），
+    // 然后是**五个功能的导航按钮**（下面 addTab 完之后 setNavItems() 灌进去），
     // 右边最小化与关闭。第一行就是它、第二行才是标签页 —— 顺序由 addWidget 的先后决定。
     //
     // NOTE: 覆盖层（OverlayHost）挂在 tabWidget 上、条在 tabWidget 上面那一行，所以开设置页
@@ -257,7 +258,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     QObject::connect(bar, &TitleBar::minimizeRequested, parent, &QMainWindow::showMinimized);
     QObject::connect(bar, &TitleBar::closeRequested, parent, &QMainWindow::close);
 
-    // ================= 选项卡：主页 / 实例 / 下载 / 设置 =================
+    // ================= 选项卡：主页 / 管理 / 下载 / 设置 / 智能体 =================
     // 四页各自只放自己那摊控件，都排成左右两栏：左栏是要操作的那点东西
     // （选版本、按钮），右栏是列表或一整摊设置项。份数按页不同，见 leftColumnIsWider()。
     // 注意"选版本"这件事现在分在两个地方：「已安装版本」那个**下拉框**在主页、只管启动；
@@ -280,12 +281,16 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     QWidget *instanceTab = setupInstancePage();
     QWidget *downloadTab = setupDownloadPage();
     QWidget *settingsTab = setupSettingsTab();
+    agentPage = new AgentPage(tabWidget);
 
     // NOTE: 顺序就是契约：homeTabIndex() == 0 靠的就是"主页第一个 addTab"。
     tabWidget->addTab(homeTab, QStringLiteral("主页"));
     tabWidget->addTab(instanceTab, QStringLiteral("管理"));
     tabWidget->addTab(downloadTab, QStringLiteral("下载"));
     tabWidget->addTab(settingsTab, QStringLiteral("设置"));
+    // D1：智能体**放最后**；启动默认仍停在主页（下面 setCurrentIndex(homeTabIndex())）。
+    tabWidget->addTab(agentPage, QStringLiteral("智能体"));
+    tabWidget->setCurrentIndex(homeTabIndex());
     mainLayout->addWidget(tabWidget, 1);
 
     // ================= 那四个选项卡放在顶上那一条上 =================

@@ -227,6 +227,24 @@ wtfml_core_compile(verify_toolbox)
 list(APPEND WTFML_CORE_MODULE_TARGETS verify_toolbox)
 wtfml_add_test(NAME wtfml.core-toolbox COMMAND verify_toolbox)
 set_tests_properties(wtfml.core-toolbox PROPERTIES LABELS "core;core-toolbox;ci-core" TIMEOUT 900 RUN_SERIAL TRUE)
+add_library(core_cases_agent OBJECT
+ core_modules/AgentSseParserTests.cpp
+ core_modules/AgentProviderAdapterTests.cpp
+ core_modules/AgentSessionStoreTests.cpp
+ core_modules/AgentSessionCryptoTests.cpp
+ core_modules/AgentCredentialStoreTests.cpp
+ core_modules/AgentContextTests.cpp
+ core_modules/AgentLoopTests.cpp
+ core_modules/AgentSkillsTests.cpp
+ core_modules/AgentMarkdownTests.cpp
+)
+wtfml_core_compile(core_cases_agent)
+list(APPEND WTFML_CORE_CASE_OBJECTS $<TARGET_OBJECTS:core_cases_agent>)
+add_executable(verify_agent core_modules/agent_main.cpp $<TARGET_OBJECTS:core_cases_agent>)
+wtfml_core_compile(verify_agent)
+list(APPEND WTFML_CORE_MODULE_TARGETS verify_agent)
+wtfml_add_test(NAME wtfml.core-agent COMMAND verify_agent)
+set_tests_properties(wtfml.core-agent PROPERTIES LABELS "core;core-agent;ci-core" TIMEOUT 300 RUN_SERIAL TRUE)
 add_executable(verify_baseline main.cpp)
 target_compile_definitions(verify_baseline PRIVATE WTFML_CORE_BASELINE)
 wtfml_core_compile(verify_baseline)

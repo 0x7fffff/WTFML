@@ -4,12 +4,13 @@ int UiNavigationChecks(QMainWindow &window, MainWindowUI &ui, QComboBox * &insta
     if (tabs != nullptr) {
         check(tabs->objectName() == MainWindowUI::tabWidgetName(), "选项卡的 objectName 是约定的那个",
               tabs->objectName());
-        check(tabs->count() == 4, "正好四个选项卡", QString::number(tabs->count()));
+        check(tabs->count() == 5, "正好五个选项卡", QString::number(tabs->count()));
         const QStringList titles = {tabs->tabText(0), tabs->tabText(1), tabs->tabText(2),
-                                    tabs->tabText(3)};
+                                    tabs->tabText(3), tabs->tabText(4)};
         check(titles == QStringList({QStringLiteral("主页"), QStringLiteral("管理"),
-                                     QStringLiteral("下载"), QStringLiteral("设置")}),
-              "四个选项卡依次是 主页/管理/下载/设置", titles.join(QLatin1Char('/')));
+                                     QStringLiteral("下载"), QStringLiteral("设置"),
+                                     QStringLiteral("智能体")}),
+              "五个选项卡依次是 主页/管理/下载/设置/智能体", titles.join(QLatin1Char('/')));
         check(tabs->currentIndex() == MainWindowUI::homeTabIndex(),
               "打开就停在主页（即『启动界面』）", QString::number(tabs->currentIndex()));
         check(ui.isHomeTabCurrent(), "isHomeTabCurrent() 与停在主页一致");
@@ -30,17 +31,20 @@ int UiNavigationChecks(QMainWindow &window, MainWindowUI &ui, QComboBox * &insta
         check(MainWindowUI::homeTabIndex() == tabIndexNamed(QStringLiteral("主页")) &&
                   MainWindowUI::instancesTabIndex() == tabIndexNamed(QStringLiteral("管理")) &&
                   MainWindowUI::downloadTabIndex() == tabIndexNamed(QStringLiteral("下载")) &&
-                  MainWindowUI::settingsTabIndex() == tabIndexNamed(QStringLiteral("设置")),
-              "四个「第几页」的常量都对着标签文字核过了（首页/管理/下载/设置）",
-              QStringLiteral("常量 %1/%2/%3/%4 ｜ 实际 %5/%6/%7/%8")
+                  MainWindowUI::settingsTabIndex() == tabIndexNamed(QStringLiteral("设置")) &&
+                  MainWindowUI::agentTabIndex() == tabIndexNamed(QStringLiteral("智能体")),
+              "五个「第几页」的常量都对着标签文字核过了（首页/管理/下载/设置/智能体）",
+              QStringLiteral("常量 %1/%2/%3/%4/%5 ｜ 实际 %6/%7/%8/%9/%10")
                   .arg(MainWindowUI::homeTabIndex())
                   .arg(MainWindowUI::instancesTabIndex())
                   .arg(MainWindowUI::downloadTabIndex())
                   .arg(MainWindowUI::settingsTabIndex())
+                  .arg(MainWindowUI::agentTabIndex())
                   .arg(tabIndexNamed(QStringLiteral("主页")))
                   .arg(tabIndexNamed(QStringLiteral("管理")))
                   .arg(tabIndexNamed(QStringLiteral("下载")))
-                  .arg(tabIndexNamed(QStringLiteral("设置"))));
+                  .arg(tabIndexNamed(QStringLiteral("设置")))
+                  .arg(tabIndexNamed(QStringLiteral("智能体"))));
 
         // 每一页都按 objectName 找得到：底栏那条"当前在不在启动界面"的规则、
         // 以及 mw_check 定位控件，都只认名字不认下标以外的显示内容。
@@ -56,9 +60,10 @@ int UiNavigationChecks(QMainWindow &window, MainWindowUI &ui, QComboBox * &insta
         QWidget *instancePage = pageByName(MainWindowUI::instanceTabName());
         QWidget *downloadPage = pageByName(MainWindowUI::downloadTabName());
         QWidget *settingsPage = pageByName(MainWindowUI::settingsTabName());
+        QWidget *agentPage = pageByName(MainWindowUI::agentTabName());
         check(homePage != nullptr && instancePage != nullptr && downloadPage != nullptr &&
-                  settingsPage != nullptr,
-              "四页都能按 objectName 找回来");
+                  settingsPage != nullptr && agentPage != nullptr,
+              "五页都能按 objectName 找回来");
 
         // 两个下拉框分家：一个在主页（启动用），一个在下载页（下载用）。
         // 它们本来就是两个互不相干的数据源，只是都叫"版本"，不能混成一个。

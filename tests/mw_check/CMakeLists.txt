@@ -47,6 +47,7 @@ set(HEADER_FILES
     ${REPO_ROOT}/src/controllers/ServerConsoleController.hpp
     ${REPO_ROOT}/src/controllers/ServerSettingsController.hpp
     ${REPO_ROOT}/src/controllers/ThemeSettingsController.hpp
+    ${REPO_ROOT}/src/controllers/AgentController.hpp
     ${REPO_ROOT}/src/controllers/PlayerSkinController.hpp
     # 「上一次启动」那本账的驱动层：MainWindow.hpp 里
     # 那三个给验证工程摆现场的 inline 入口直接调它的静态函数和成员函数，少了这个头就编不过。
@@ -173,6 +174,7 @@ set(SOURCE_FILES
     ${REPO_ROOT}/src/controllers/ServerMenuController.cpp
     ${REPO_ROOT}/src/controllers/ServerManagementActions.cpp
     ${REPO_ROOT}/src/controllers/ThemeSettingsController.cpp
+    ${REPO_ROOT}/src/controllers/AgentController.cpp
     ${REPO_ROOT}/src/controllers/PlayerSkinController.cpp
     # 「上一次启动」那本账的驱动层（同上）：少了这一个文件会在链接那一步报一串
     # `LaunchHistoryController::…` 的 undefined reference（它调的 ServerListFile / NbtUtil
@@ -571,6 +573,7 @@ function(add_mw_module target source)
  endif()
  add_dependencies(wtfml_specialist_modules ${target})
 endfunction()
+add_mw_module(mw_check_agent modules/MwAgentChecks.cpp MwAgentChecks)
 add_mw_module(mw_check_high_speed_download modules/MwHighSpeedDownloadCheck.cpp MwHighSpeedDownloadCheck)
 target_sources(mw_check_high_speed_download_case PRIVATE DownloadBatchChecks.cpp)
 add_mw_module(mw_check_download_retry modules/MwDownloadRetryCheck.cpp MwDownloadRetryCheck)
@@ -597,6 +600,12 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
  endforeach()
 endif()
 
+wtfml_add_test(NAME wtfml.main-window-agent COMMAND mw_check_agent)
+set_tests_properties(wtfml.main-window-agent PROPERTIES
+    LABELS "ui;agent;integration"
+    TIMEOUT 90
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
 wtfml_add_test(NAME wtfml.main-window COMMAND mw_check)
 wtfml_add_test(NAME wtfml.workspace COMMAND mw_check_workspace)
 wtfml_add_test(NAME wtfml.activity-selection COMMAND mw_check_activity_selection)

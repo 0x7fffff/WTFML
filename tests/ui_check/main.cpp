@@ -13,6 +13,7 @@ int main(int argc, char *argv[]) {
     QTemporaryDir processSandbox;
     if (!processSandbox.isValid()) return 2;
     app.setProperty("wtfml.testDefaultMinecraftDir", processSandbox.filePath(".minecraft"));
+    app.setProperty("wtfml.testAgentDataDir", processSandbox.filePath("agent"));
 
     // ---------- 设置沙盒：必须在**第一个 QSettings 对象出现之前**重定向 ----------
     // 这个工程量的是"出厂那套外观"（主题色 #3d8068、跟着系统、一项覆盖都没有），

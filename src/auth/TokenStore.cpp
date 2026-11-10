@@ -6,6 +6,7 @@
 
 #include "TokenStore.hpp"
 #include "util/AppPaths.hpp"
+#include "util/SecretProtector.hpp"
 #include "util/DirectorySessionLock.hpp"
 
 #include <QCryptographicHash>
@@ -13,17 +14,6 @@
 #include <QJsonDocument>
 #include <QJsonParseError>
 #include <QSettings>
-
-#if defined(Q_OS_WIN)
-// NOTE: 放在所有 Qt 头之后 —— windows.h 定义的东西太多，先于 Qt 包含容易撞名。
-// NOMINMAX 是给 std::min/std::max 让路（windows.h 会定义 min/max 宏）。
-// 先判一下：libstdc++ 的 os_defines.h 已经定义过它了，直接再来一次会有重定义告警。
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-#include <dpapi.h>
-#endif
 
 namespace {
 // 旧格式（XOR 混淆）的密钥。只为了还能把老值读出来 —— 新写的一律走 DPAPI。
@@ -64,47 +54,17 @@ QByteArray legacyXor(const QByteArray &data) {
     return result;
 }
 
-#if defined(Q_OS_WIN)
-/// 调 DPAPI 的公共部分：出参 blob 用 LocalFree 还回去是微软的约定，忘了就是内存泄漏。
-/// @return 成功时是密文/明文；失败返回空 QByteArray（调用方自己决定怎么退）。
-QByteArray dpapiCall(const QByteArray &input, bool protect) {
-    if (input.isEmpty()) {
-        return QByteArray();
-    }
-
-    DATA_BLOB in{};
-    in.pbData = reinterpret_cast<BYTE *>(const_cast<char *>(input.constData()));
-    in.cbData = static_cast<DWORD>(input.size());
-
-    DATA_BLOB out{};
-    // 描述串只有 Windows 自己看得到（凭据管理器里），随手写一个方便辨认。
-    const BOOL ok = protect ? CryptProtectData(&in, L"WTFML 登录令牌", nullptr, nullptr, nullptr,
-                                               CRYPTPROTECT_UI_FORBIDDEN, &out)
-                            : CryptUnprotectData(&in, nullptr, nullptr, nullptr, nullptr,
-                                                 CRYPTPROTECT_UI_FORBIDDEN, &out);
-    if (ok == FALSE) {
-        // 解不开的常见原因不是"坏了"，是"不是这个用户/这台机器加的密"（或者值被改过）。
-        qWarning() << "DPAPI" << (protect ? "加密" : "解密") << "失败，错误码"
-                   << int(GetLastError());
-        return QByteArray();
-    }
-
-    const QByteArray result(reinterpret_cast<const char *>(out.pbData), int(out.cbData));
-    LocalFree(out.pbData);
-    return result;
-}
-#endif
 }  // namespace
 
 QByteArray TokenStore::protect(const QByteArray &plain) {
 #if defined(Q_OS_WIN)
-    const QByteArray blob = dpapiCall(plain, true);
-    if (!blob.isEmpty()) {
-        return QByteArray(kTokenMagic, kTokenMagicLen) + blob;
+    const QByteArray stored =
+        SecretProtector::protect(plain, QByteArray(kTokenMagic, kTokenMagicLen));
+    if (stored.isEmpty()) {
+        // Encryption failure must never downgrade saved credentials to legacy obfuscation.
+        qWarning() << "DPAPI 加密失败，拒绝写入凭据，原数据保留。";
     }
-    // Encryption failure must never downgrade saved credentials to legacy obfuscation.
-    qWarning() << "DPAPI 加密失败，拒绝写入凭据，原数据保留。";
-    return {};
+    return stored;
 #else
     // Windows is the supported distribution; preserve existing compatibility elsewhere.
     return legacyXor(plain);
@@ -116,8 +76,8 @@ QByteArray TokenStore::unprotect(const QByteArray &stored) {
         return QByteArray();
     }
 #if defined(Q_OS_WIN)
-    if (stored.startsWith(QByteArray(kTokenMagic, kTokenMagicLen))) {
-        return dpapiCall(stored.mid(kTokenMagicLen), false);
+    if (SecretProtector::hasMagic(stored, QByteArray(kTokenMagic, kTokenMagicLen))) {
+        return SecretProtector::unprotect(stored, QByteArray(kTokenMagic, kTokenMagicLen));
     }
 #endif
     return legacyXor(stored);

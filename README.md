@@ -61,6 +61,7 @@ cmake --build build/static-release -j
 | 日志 | `<数据目录>/logs/wtfml.log`，**每次启动截断重写** |
 | 启动器状态、账户表 | `HKCU\Software\WTFML`（令牌是 DPAPI 加密后落盘的） |
 | 图标 / 主题图 / 备份等缓存 | `<数据目录>/cache/` |
+| 智能体会话（全局，不跟游戏文件夹） | `%LOCALAPPDATA%\WTFML\agent\sessions`；API Key 在 Windows 凭据管理器/DPAPI |
 
 同一个数据目录同时只允许一个启动器窗口。第二个进程在写日志、开主窗口之前就会被拒绝并退出；
 边界细节见 [docs/DIRECTORY_SESSION_LOCK.md](docs/DIRECTORY_SESSION_LOCK.md)。
@@ -82,6 +83,7 @@ GUI 子系统下面**没人看得见 stdout / stderr**，那份日志文件就�
 | `src/controllers/` | 连接 UI 与业务层的控制器，避免继续扩大 `MainWindow` |
 | `src/server/` | 服务端属性、控制台、进程管理 |
 | `src/tools/` | 工具箱的纯函数/后台任务 |
+| `src/agent/` | 智能体核心：provider/SSE、会话存储/加密、上下文、无工具 Loop、脱敏、凭据存储 |
 | `src/diag/` | 启动诊断、游戏退出诊断、错误报告 |
 | `src/util/` | 与业务无关的小工具（`AppPaths` / `ZipUtil` / `NbtUtil` / `ServerPing` / …） |
 | `ui/` | 全部界面。**没有 .ui 文件**，界面一律手写；`ui/` 不许 include `src/` |

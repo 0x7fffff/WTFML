@@ -81,6 +81,13 @@ ${REPO_ROOT}/ui/InstanceSettingsSignature.cpp
                                 # 四个加载器的标志那几张真图：qrc 不列在这儿，
                                 # `:/assets/loader/*.png` 就是空图，loaderMark() 一路退回草方块
                                 # （ui_check 那条「四张标志互不相同」会红，产品自己看着一切正常）。
+                                ${REPO_ROOT}/ui/AgentMarkdown.cpp
+                                ${REPO_ROOT}/ui/AgentMessageView.cpp
+                                ${REPO_ROOT}/ui/AgentComposer.cpp
+                                ${REPO_ROOT}/ui/AgentPage.cpp
+                                ${REPO_ROOT}/ui/AgentSecretEdit.cpp
+                                ${REPO_ROOT}/ui/AgentSettingsPage.cpp
+                                ${REPO_ROOT}/ui/AgentViewTypes.hpp
                                 ${REPO_ROOT}/assets/icons.qrc
                                 # 「启用 / 禁用」那颗开关和 MOTD 那套配色
                                 # （MotdText 被 VersionTreeDelegate 引到）。
@@ -230,6 +237,7 @@ function(add_ui_module target source)
  add_dependencies(wtfml_specialist_modules ${target})
 endfunction()
 add_ui_module(ui_check_install_layout modules/UiInstallLayoutCheck.cpp UiInstallLayoutCheck)
+add_ui_module(ui_check_agent modules/UiAgentCheck.cpp UiAgentCheck)
 add_ui_module(ui_check_toolbox_polish modules/UiToolboxPolishCheck.cpp UiToolboxPolishCheck)
 add_ui_module(ui_check_resource_packs modules/UiResourcePacksCheck.cpp UiResourcePacksCheck)
 add_ui_module(ui_check_lifecycle modules/UiLifecycleCheck.cpp UiLifecycleCheck)
@@ -243,6 +251,12 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
  endforeach()
 endif()
 
+wtfml_add_test(NAME wtfml.ui-agent COMMAND ui_check_agent)
+set_tests_properties(wtfml.ui-agent PROPERTIES
+    LABELS "ui;agent"
+    TIMEOUT 60
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
 wtfml_add_test(NAME wtfml.ui COMMAND ui_check)
 wtfml_add_test(NAME wtfml.ui-bootstrap COMMAND ui_check --bootstrap-check)
 set_tests_properties(wtfml.ui-bootstrap PROPERTIES LABELS "ui;compile" TIMEOUT 30

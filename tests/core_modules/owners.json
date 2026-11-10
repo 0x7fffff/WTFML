@@ -20,10 +20,10 @@
   "InstanceTraitsTests.cpp": "instances",
   "InstallOccupancyTests.cpp": "instances",
   "FileOperationOccupancyTests.cpp": "instances",
-    "UpgradeSelectionTests.cpp": "instances",
-    "UpgradeReportTests.cpp": "instances",
-    "UpgradeHistoryTests.cpp": "instances",
-    "UpgradeOptionsTests.cpp": "instances",
+  "UpgradeSelectionTests.cpp": "instances",
+  "UpgradeReportTests.cpp": "instances",
+  "UpgradeHistoryTests.cpp": "instances",
+  "UpgradeOptionsTests.cpp": "instances",
   "ResourceStoreBudgetTests.cpp": "resources",
   "RenameInstanceTests.cpp": "instances",
   "InstanceGroupTests.cpp": "instances",
@@ -100,15 +100,18 @@
   "AnvilPlannerTests.cpp": "toolbox",
   "SchematicInfoTests.cpp": "toolbox",
   "ReplayInfoTests.cpp": "toolbox",
-  "OperationReportTests.cpp": "instances",
   "LongPathTests.cpp": "instances",
   "ModpackExportFormatTests.cpp": "resources",
   "ModpackExportLookupTests.cpp": "resources",
   "ModpackExportPipelineTests.cpp": "resources",
-  "ThemeImageTests.cpp": "resources"
+  "ThemeImageTests.cpp": "resources",
+  "AgentSseParserTests.cpp": "agent",
+  "AgentProviderAdapterTests.cpp": "agent",
+  "AgentSessionStoreTests.cpp": "agent",
+  "AgentSessionCryptoTests.cpp": "agent",
+  "AgentCredentialStoreTests.cpp": "agent",
+  "AgentContextTests.cpp": "agent",
+  "AgentLoopTests.cpp": "agent",
+  "AgentSkillsTests.cpp": "agent",
+  "AgentMarkdownTests.cpp": "agent"
 }
-
-
-
-
-

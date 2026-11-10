@@ -102,6 +102,39 @@ set(PROJECT_SOURCES
     ${REPO_ROOT}/src/auth/SkinApi.hpp
     ${REPO_ROOT}/src/auth/TokenStore.cpp
     ${REPO_ROOT}/src/auth/TokenStore.hpp
+    ${REPO_ROOT}/src/util/SecretProtector.cpp
+    ${REPO_ROOT}/src/util/SecretProtector.hpp
+    ${REPO_ROOT}/src/agent/AgentTypes.cpp
+    ${REPO_ROOT}/src/agent/AgentTypes.hpp
+    ${REPO_ROOT}/src/agent/AgentSettings.cpp
+    ${REPO_ROOT}/src/agent/AgentSettings.hpp
+    ${REPO_ROOT}/src/agent/AgentPaths.cpp
+    ${REPO_ROOT}/src/agent/AgentPaths.hpp
+    ${REPO_ROOT}/src/agent/AgentRedaction.cpp
+    ${REPO_ROOT}/src/agent/AgentRedaction.hpp
+    ${REPO_ROOT}/src/agent/AgentSecretStore.cpp
+    ${REPO_ROOT}/src/agent/AgentSecretStore.hpp
+    ${REPO_ROOT}/src/agent/AgentSessionCrypto.cpp
+    ${REPO_ROOT}/src/agent/AgentSessionCrypto.hpp
+    ${REPO_ROOT}/src/agent/AgentSession.cpp
+    ${REPO_ROOT}/src/agent/AgentSession.hpp
+    ${REPO_ROOT}/src/agent/AgentSessionStore.cpp
+    ${REPO_ROOT}/src/agent/AgentSessionStore.hpp
+    ${REPO_ROOT}/src/agent/AgentSseParser.cpp
+    ${REPO_ROOT}/src/agent/AgentSseParser.hpp
+    ${REPO_ROOT}/src/agent/AgentProviderAdapters.cpp
+    ${REPO_ROOT}/src/agent/AgentProviderAdapters.hpp
+    ${REPO_ROOT}/src/agent/AgentModelClient.hpp
+    ${REPO_ROOT}/src/agent/OpenAiCompatibleClient.cpp
+    ${REPO_ROOT}/src/agent/OpenAiCompatibleClient.hpp
+    ${REPO_ROOT}/src/agent/AgentContextBuilder.cpp
+    ${REPO_ROOT}/src/agent/AgentContextBuilder.hpp
+    ${REPO_ROOT}/src/agent/AgentLoop.cpp
+    ${REPO_ROOT}/src/agent/AgentLoop.hpp
+    ${REPO_ROOT}/src/agent/AgentSkill.cpp
+    ${REPO_ROOT}/src/agent/AgentSkill.hpp
+    ${REPO_ROOT}/ui/AgentMarkdown.cpp
+    ${REPO_ROOT}/ui/AgentMarkdown.hpp
     ${REPO_ROOT}/src/net/HttpClient.cpp
     ${REPO_ROOT}/src/net/HttpClient.hpp
     ${REPO_ROOT}/src/download/DownloadManager.cpp
@@ -584,7 +617,7 @@ endif()
 
 # TokenStore 的 DPAPI（CryptProtectData）在这个库里；Gui 是 AuthManager.cpp 里的
 # QDesktopServices（verify 自己不构造 AuthManager，只是把它的一个静态函数链进来）。
-target_link_libraries(verify PRIVATE crypt32)
+target_link_libraries(verify PRIVATE crypt32 advapi32)
 
 # ImageDecode.cpp 那三个（见主工程 CMakeLists.txt 里同一段）：ole32 起 COM、shlwapi 要
 # SHCreateMemStream、windowscodecs 是 WIC 本体。MinGW 上这一句不加的话，链接期报的是一串
@@ -636,7 +669,7 @@ set_property(TEST wtfml.core wtfml.core-bootstrap APPEND PROPERTY
     ENVIRONMENT "PATH=${WTFML_TEST_PATH}"
 )
 set(WTFML_TEST_RUNTIME_ENVIRONMENT "PATH=${WTFML_TEST_PATH}")
-foreach(domain downloads install instances java accounts resources launch servers activity presets toolbox)
+foreach(domain downloads install instances java accounts resources launch servers activity presets toolbox agent)
     set_property(TEST wtfml.core-${domain} APPEND PROPERTY ENVIRONMENT "PATH=${WTFML_TEST_PATH}")
 endforeach()
 

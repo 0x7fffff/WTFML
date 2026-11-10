@@ -1128,3 +1128,29 @@ Windows/MinGW 新增 `wtfml.token-protection-fault`：仅该测试进程的导�
 
 
 
+
+## 2026-11-10：智能体 Stage 1A 测试入口
+
+新增独立核心域与两个专项 UI/集成模块；不联网、不写真实用户目录。
+
+```powershell
+# 核心 A 组：SSE/适配/会话/加密/凭据/上下文/Loop/技能/Markdown
+./build/verification-mingw13/tests/verify_agent.exe
+
+# 智能体页 + 设置页（offscreen）
+./build/verification-mingw13/tests/ui_check/ui_check_agent.exe
+
+# 真 MainWindow + 假模型客户端（不联网）
+./build/verification-mingw13/tests/mw_check/mw_check_agent.exe
+```
+
+CTest 名称：`wtfml.core-agent`、`wtfml.ui-agent`、`wtfml.main-window-agent`。
+每个测试用独立 `QTemporaryDir`；`AgentPaths` 通过
+`QCoreApplication::setProperty("wtfml.testAgentDataDir", <临时目录>)` 隔离，
+QSettings 也重定向到同一沙盒。凭据测试强制走 DPAPI 后备，不创建真实凭据管理器 target；
+主路径由 G1A 真机人工验收。
+
+本机结果：`verify_agent 145/145`、`ui_check_agent 28/28`、`mw_check_agent 22/22`；
+`wtfml.ui`、`wtfml.main-window`、`wtfml.token-protection-fault`、核心基线、
+`test-modules/test-runner/ci-partitions` 全部通过。细节与未跑项见
+[Stage 1A 实现与验收](AGENT_STAGE1A.md)。

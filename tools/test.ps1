@@ -113,10 +113,10 @@ try {
     $selection = switch ($Suite) {
         'affected' { @('-LE', 'visual') }
         { $_ -in @('ci-app', 'ci-core', 'ci-ui', 'ci-integration') } { @('-L', "^$Suite$", '-LE', 'visual') }
-        'quick' { @('-R', '^wtfml\.(test-runner|test-modules|java-manage|mod-action-panel|workspace|activity-selection|theme|ui-refresh|install-layout|lifecycle|toolbox-polish|armor-trim)$') }
+        'quick' { @('-R', '^wtfml\.(test-runner|test-modules|java-manage|mod-action-panel|workspace|activity-selection|theme|ui-refresh|install-layout|lifecycle|toolbox-polish|armor-trim|core-agent|ui-agent|main-window-agent)$') }
         'core' { @('-L', '^core$') }
         'java' { @('-R', '^wtfml\.java-manage$') }
-        'window' { @('-R', '^wtfml\.main-window$') }
+        'window' { @('-R', '^wtfml\.(main-window|main-window-agent)$') }
         'mods' { @('-R', '^wtfml\.mod-action-panel$') }
         'upgrade' { @('-R', '^wtfml\.instance-upgrade$') }
         'network' { @('-R', '^wtfml\.(download-retry|high-speed-download|segmented-download|segment-install|preset-install|network-diag)$') }

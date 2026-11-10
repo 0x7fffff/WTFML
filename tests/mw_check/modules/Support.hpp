@@ -1098,3 +1098,6 @@ int MwGameLogLifecycleChecks(const bool settingsWired, MainWindow &window, QChec
 int MwRandomSkinChecks();
 
 
+
+/// 智能体页 + 假模型客户端的真主窗口检查（专门模块 mw_check_agent）。
+int MwAgentChecks(QApplication &app);
