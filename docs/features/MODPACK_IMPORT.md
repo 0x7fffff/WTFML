@@ -20,7 +20,7 @@
 - **GTNH 2.8.4 Java 17–25 包**：RFB 主类、专用 ClassLoader、forgePatches 本地库和模块参数已接通；LWJGL3 原生库翻译为标准 Maven classifier 及明确 CPU 架构，防止 x86 DLL 混入 x64。包内库校验后原子写入 libraries，同名内容不同则拒绝覆盖；断点身份包含补丁与本地库内容摘要。原版客户端与运行库沿用生产下载器；自定义运行配置单独保存，不继承会重新带入 LWJGL2 的原版库数组。
 - **不执行**：不启动来源启动器，不执行 `instance.cfg` 的前后置命令、脚本、javaagent 或任意 JVM 参数；不继承来源启动器的账号和任意 Java 路径。压缩包路径检查、覆盖文件排除及目录锁仍生效。
 - **启动目录**：隔离实例的进程工作目录与 `--gameDir` 一致（含 Java 8 的 ASCII 别名），共享库和资源仍用绝对路径。旧共享根目录下由模组生成的 config 等文件不会被删，也不自动覆盖实例内配置。现代 Forge/NeoForge 的 BootstrapLauncher `ignoreList` 补上继承链中实际客户端 JAR 文件名，避免实例名与原版 JAR 名不同导致重复 Minecraft 模块；不改实例身份、不从 classpath 删客户端资源。分段探测返回 404 时尝试一次完整 GET，仍检查 HTTP 状态、大小与 SHA-1。
-- **CurseForge 下载候选**：文件 API 的 `downloadUrl` 为空时，用文件 ID 和安全的单个文件名构造官方 CDN 候选，整合包导入与普通资源页共用规则；文件名独立百分号编码。`isAvailable` 明确为 false 时不构造候选；空链接不单独标成"作者禁止第三方分发"。限制：实际下载仍由生产下载器严格检查 HTTP 状态、大小和已知 SHA-1；分发策略遵守作者配置（如项目 1121856 的 `allowModDistribution=false` 示例）。
+- **CurseForge 下载候选**：文件 API 的 `downloadUrl` 为空时，用文件 ID 和安全的单个文件名构造官方 CDN 候选，整合包导入与普通资源页共用规则；文件名独立百分号编码。`isAvailable` 明确为 false 时不构造候选；空链接不单独标成"作者禁止第三方分发"。限制：构造候选不等于下载成功，实际仍由生产下载器检查 HTTP 状态、大小和已知 SHA-1；技术可下载不等于取得再分发许可（如项目 1121856 的 `allowModDistribution=false` 示例）。
 - **分发**：适配器自行解析格式，不嵌入第三方启动器或复制其实现。用户提供包，启动器只在本机转换并安装；发布包/仓库不含 GTNH、Minecraft 客户端及模组二进制。不要重新打包分发 Mojang 文件或修改版客户端；第三方模组/库遵守各自许可。若将来捆绑、修改或再分发 LGPL 等组件，需另行审核署名、许可和源码义务。格式依据：[Modrinth 规范](https://support.modrinth.com/en/articles/8802351-modrinth-modpack-format-mrpack)、[GTNH LWJGL3ify 启动说明](https://github.com/GTNewHorizons/lwjgl3ify#client)。
 
 ## 3. MCLib AssetDirector 首启资源预取（GTNH）

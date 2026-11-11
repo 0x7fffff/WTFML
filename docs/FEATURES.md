@@ -383,12 +383,12 @@
 
 ### 2026-11-10：智能体（Agent）Stage 1A 与 1B
 
-导航第五项是「智能体」，启动仍停在主页。当前提供**自由对话（Stage 1A）与锁定实例内的受控文件工具（Stage 1B）**。设计与阶段计划见 [AGENT.md](features/AGENT.md)，实现与自动验收见 [Stage 1A](features/AGENT_STAGE1A.md)、[Stage 1B](features/AGENT_STAGE1B.md)，安全边界见 [SECURITY_BOUNDARIES.md](features/SECURITY_BOUNDARIES.md) §6–§8。
+导航第五项是「智能体」，启动仍停在主页。当前能力是**自由对话 + 锁定实例内的受控文件工具**：当前阶段不含 MCP、维护工作流、联网工具和命令执行。设计与阶段计划见 [AGENT.md](features/AGENT.md)，实现与自动验收见 [Stage 1A](features/AGENT_STAGE1A.md)、[Stage 1B](features/AGENT_STAGE1B.md)，安全边界见 [SECURITY_BOUNDARIES.md](features/SECURITY_BOUNDARIES.md) §6–§8。
 
 | 阶段 | 状态 | 人工验收 |
 | --- | --- | --- |
-| Stage 1A：无工具对话 | 已实现，自动验收通过 | 基础交互已通过；网络错误测试排入验收计划 [ACCEPTANCE_LOG](archive/ACCEPTANCE_LOG.md) |
-| Stage 1B：受控文件工具 | 已实现，自动验收通过 | 待修复项：脱敏支持变体字段名（`DB_PASSWORD`、`hypixel_api_key` 等）、扩展凭据文件匹配规则、校正 artifact 文案 |
+| Stage 1A：无工具对话 | 已实现，自动验收通过 | G1A 除网络错误外通过；网络错误延后到 [ACCEPTANCE_LOG](archive/ACCEPTANCE_LOG.md) |
+| Stage 1B：受控文件工具 | 已实现，自动验收通过 | **G1B 首轮未通过**：脱敏只认精确字段名（`DB_PASSWORD`、`hypixel_api_key` 等变体未命中）、凭据文件识别只覆盖精确 `.env` 等少数名字、artifact 文案"完整内容"不准确；修复前不算通过 |
 
 **聊天（1A）**
 
@@ -414,7 +414,7 @@
 **硬约束**
 
 - 没有会话级目录放行；配置文件每次确认，确认后也只发送脱敏片段；`versions/libraries/assets/java/Servers` 原始写一律拒绝。
-- 模型不能修改系统提示、API 配置、工具白名单或审批策略；会话正文默认明文存储，可选启用 DPAPI 加密；API 密钥独立保存在系统凭据存储中，不随会话写入磁盘文件。
+- 模型不能修改系统提示、API 配置、工具白名单或审批策略；会话默认明文存储但不含密钥，加密只保护本地落盘，发送给模型的内容不变。
 - 活动会话删除先取消/等待；文件提交阶段拒绝删除并提示。
-- 路径校验采用句柄级属性比对与 reparse 检查，检测到 junction/symlink 越界或文件竞争时阻断并报错。
+- 句柄级路径校验用于降低 TOCTOU 竞争风险；检测到 junction/symlink 越界或文件竞争时阻断并报错。
 - 未覆盖真机测试项：长路径、真实文件竞争占用与高 DPI 读屏。
