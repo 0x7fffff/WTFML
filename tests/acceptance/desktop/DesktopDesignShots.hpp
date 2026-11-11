@@ -5,6 +5,7 @@
 #include "ListRowDelegate.hpp"
 #include "MainWindow.hpp"
 #include "MainWindowUI.hpp"
+#include "OverlayHost.hpp"
 #include "TaskProgressBar.hpp"
 #include "Theme.hpp"
 #include "TitleBar.hpp"
@@ -429,7 +430,7 @@ inline QImage grabGallery(Gallery &gallery) {
 
 /// 依次截：三主题主页 1280×800、暗色 900×620 / 1600×1000、折叠轨、组件总表。
 inline void run(QApplication &app, MainWindow &window, const QString &root) {
-    struct Shot { QString file; QString theme; QSize size; bool collapsed; int tab = MainWindowUI::homeTabIndex(); };
+    struct Shot { QString file; QString theme; QSize size; bool collapsed; int tab = MainWindowUI::homeTabIndex(); QString page = {}; };
     const int manage = MainWindowUI::instancesTabIndex();
     const int download = MainWindowUI::downloadTabIndex();
     static const QList<Shot> shots{
@@ -445,6 +446,12 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         {QStringLiteral("download-dark.png"), QStringLiteral("dark"), {1280, 800}, false, download},
         {QStringLiteral("download-emerald.png"), QStringLiteral("emerald"), {1280, 800}, false, download},
         {QStringLiteral("download-ocean.png"), QStringLiteral("ocean"), {1280, 800}, false, download},
+        // 实例二级页（设计稿 instance-*）：「机械动力 Create」那一份夹具，按页开。
+        {QStringLiteral("instance-overview-dark.png"), QStringLiteral("dark"), {1280, 800}, false, manage, QStringLiteral("overview")},
+        {QStringLiteral("instance-overview-emerald.png"), QStringLiteral("emerald"), {1280, 800}, false, manage, QStringLiteral("overview")},
+        {QStringLiteral("instance-overview-ocean.png"), QStringLiteral("ocean"), {1280, 800}, false, manage, QStringLiteral("overview")},
+        {QStringLiteral("instance-launch-dark.png"), QStringLiteral("dark"), {1280, 800}, false, manage, QStringLiteral("launch")},
+        {QStringLiteral("instance-mods-dark.png"), QStringLiteral("dark"), {1280, 800}, false, manage, QStringLiteral("mods")},
     };
     static int index = 0;
     static QJsonArray report;
@@ -495,15 +502,17 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         // 抓图前再灌一次夹具，再让布局走一拍。
         QTimer::singleShot(700, &window, [&window]() { seedHome(window); });
         QTimer::singleShot(850, &window, [&window, shot]() {
-            if (shot.tab == MainWindowUI::instancesTabIndex()) hoverInstanceRow(window);
+            if (!shot.page.isEmpty()) QMetaObject::invokeMethod(&window, "openInstanceSettings", Q_ARG(QString, QStringLiteral("create")), Q_ARG(QString, shot.page));
+            else if (shot.tab == MainWindowUI::instancesTabIndex()) hoverInstanceRow(window);
         });
-        QTimer::singleShot(900, &window, [&window, root, shot]() {
+        QTimer::singleShot(shot.page.isEmpty() ? 900 : 1600, &window, [&window, root, shot]() {
             const bool saved = window.grab().save(root + QLatin1Char('/') + shot.file);
             report.append(QJsonObject{{"file", shot.file}, {"saved", saved}, {"width", window.width()},
                                       {"height", window.height()}, {"dpr", window.devicePixelRatioF()},
                                       {"maxWidth", window.maximumWidth()}, {"screenWidth", window.screen()->availableGeometry().width()},
                                       {"state", int(window.windowState())}});
-            QTimer::singleShot(0, &window, step);
+            if (!shot.page.isEmpty()) window.ui()->overlay()->closeOverlay();
+            QTimer::singleShot(shot.page.isEmpty() ? 0 : 300, &window, step);
         });
     };
     QTimer::singleShot(1200, &window, step);
