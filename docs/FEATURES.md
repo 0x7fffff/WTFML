@@ -212,7 +212,7 @@
   文件补齐后的安装接续校验在后台执行，可取消、拦截重复继续，关闭窗口保留记录；
   校验通过后重新确认恢复条件，才执行安装接续。
   模组预设暂停后恢复时的目录核对也在后台进行，检查期间不重复恢复；外部修改仍要求重新预览。
-  安装器/提交不可暂停，重启不自动运行 Java。范围与真机记录见 [恢复验收](archive/DOWNLOAD_RECOVERY_ACCEPTANCE_20261027.md)。
+  安装器/提交不可暂停，重启不自动运行 Java。范围与真机记录见 [恢复验收](archive/ACCEPTANCE_LOG.md)。
   具体范围与验证见 [下载恢复](features/HIGH_SPEED_DOWNLOAD.md)。
 
 服务端安装支持原版、Paper、Purpur、Fabric、Quilt、Forge、NeoForge、Spigot(BuildTools)。
@@ -434,7 +434,7 @@
 - 无子控件焦点时按 Tab/Shift-Tab 可进入可操作控件；保留已有编辑器和弹层的焦点处理。
 - 真实正版授权因项目 App ID/审核未就绪暂缓；专项通过不等于真实授权、全硬件或全网络验收。
 
-验证范围与保留证据见 [P1 验收](archive/P1_ACCEPTANCE_20261028.md)。
+验证范围与保留证据见 [P1 验收](archive/ACCEPTANCE_LOG.md)。
 
 
 ## 2026-10-31：外部输入的名字与图片
@@ -519,7 +519,7 @@
   Key 默认遮挡与不回显、流式对话/停止/重试/切换取消、会话恢复、无工具/无 MCP、
   API Key 未出现在日志/会话/界面。
 - 网络错误（401/403、429、断网、流中断、重定向、证书错误、代理、400 错误体显示）本轮未执行，
-  单独延后到 [网络错误验收](archive/NETWORK_ERROR_ACCEPTANCE.md)，不计入 G1A 通过项。
+  单独延后到 [网络错误验收](archive/ACCEPTANCE_LOG.md)，不计入 G1A 通过项。
 - 会话加密开关原先挤在右上角、用户不容易发现；现已移到聊天头部下方**单独一行**：
   「加密本会话（DPAPI）」+「当前会话：明文 JSON / 已加密（DPAPI）」。
   Stage 1B 构建中可直接看到。
@@ -541,4 +541,4 @@
 - 工具文案“完整内容见模型可读 artifact”不准确，应为“本次读取内容见 artifact”。
 
 G1B 结论：**未通过**，先修脱敏/凭据文件识别和 artifact 文案，再复测 R1–R4/R6/R7 与
-W4/W5。完整记录见 `docs/archive/G1B_MANUAL_RESULTS_20261110.md`。
+W4/W5。完整记录见 `docs/archive/ACCEPTANCE_LOG.md`。

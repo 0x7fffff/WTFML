@@ -72,22 +72,8 @@
 
 | 文档 | 内容 |
 | --- | --- |
-| [CODING_PLAN_ARCHIVE_20261105.md](archive/CODING_PLAN_ARCHIVE_20261105.md) | `d937e22` 时代主计划全文快照，保留旧编号与完成流水 |
-| [PLAN_REVIEW_20261027.md](archive/PLAN_REVIEW_20261027.md) | 主计划重排依据：九份补充原稿逐份校正、已完成项移出 |
-| [PLAN_REVIEW_20261105.md](archive/PLAN_REVIEW_20261105.md) | 11-05 复核：确认“服务端默认值清不掉”回归、其它更新边界与清理规则 |
-| [PLAN_STATUS_20261109.md](archive/PLAN_STATUS_20261109.md) | 11-09 状态：已完成项、剩余/边界项与下一步 |
-| [PROJECT_REVIEW_20261029.md](archive/PROJECT_REVIEW_20261029.md) | 项目检查：exe 去符号省 24.45%、UI 令牌统一、中点清理、预设与设置页精简 |
-| [INSTANCE_UI_COPY_REVIEW_20261029.md](archive/INSTANCE_UI_COPY_REVIEW_20261029.md) | 实例管理八页两轮文案复核：清 `**` 残留与中点分隔 |
-| [ACCEPTANCE_20261025.md](archive/ACCEPTANCE_20261025.md) | 10-25 深度验收：USB HDD 大复制/占用/取消、三档 DPR 真窗口、官方服务端四场景 |
-| [P0_ACCEPTANCE_20261025.md](archive/P0_ACCEPTANCE_20261025.md) | P0 深化验收：权限与事务、USB HDD 全链、VHD 满盘与写入中途 ENOSPC |
-| [P1_ACCEPTANCE_20261028.md](archive/P1_ACCEPTANCE_20261028.md) | P1 收尾：正版登录配置、三档 DPI、凭据审计、键盘焦点、实网下载与部署包 |
-| [DOWNLOAD_RECOVERY_ACCEPTANCE_20261027.md](archive/DOWNLOAD_RECOVERY_ACCEPTANCE_20261027.md) | 下载恢复接续验收：服务端批次绑定、预设暂存复用、暂停继续预算、真实 Forge 冷装 |
-| [SERVER_ACCEPTANCE_20261027.md](archive/SERVER_ACCEPTANCE_20261027.md) | 2.2.6 真实服务端：三种 1.20.1 安装/启动/强杀/端口占用/错误 Java |
-| [ACCEPTANCE_20261109.md](archive/ACCEPTANCE_20261109.md) | 11-09/11-10 真机：双进程目录边界、1000×750+150%、1 GiB 升级 kill/recover/retry、核心 6508/6508 |
-| [PLAYER_SIMULATION_PLAN.md](archive/PLAYER_SIMULATION_PLAN.md) | 玩家路径模拟：隔离与预算、场景矩阵、执行方式，附 11-06 八轮真实跑记录 |
-| [NESTED_EVENT_LOOPS_AUDIT.md](archive/NESTED_EVENT_LOOPS_AUDIT.md) | 嵌套事件循环盘点：`execPage()` 调用点收口与 `OverlayHost::showPage()` 收页规则 |
-| [INSTANCE_META_INVENTORY.md](archive/INSTANCE_META_INVENTORY.md) | `wtfml.meta` 的读写者与判据清单 |
-| [G1A_ACCEPTANCE.md](archive/G1A_ACCEPTANCE.md) | G1A 人工验收流程（智能体 Stage 1A）：除网络错误外全部通过 |
-| [G1B_ACCEPTANCE.md](archive/G1B_ACCEPTANCE.md) | G1B 人工验收流程（智能体 Stage 1B）：首轮未通过，存在脱敏/凭据边界 P0 |
-| [G1B_MANUAL_RESULTS_20261110.md](archive/G1B_MANUAL_RESULTS_20261110.md) | G1B 首轮人工测试记录（2026-11-10） |
-| [NETWORK_ERROR_ACCEPTANCE.md](archive/NETWORK_ERROR_ACCEPTANCE.md) | 智能体网络错误验收（延后项，未执行） |
+| [ACCEPTANCE_LOG.md](archive/ACCEPTANCE_LOG.md) | 验收流水 2026-10-25 ～ 11-10：大实例/USB HDD/VHD 满盘/权限与事务、服务端与下载恢复、P1 收尾、11-09 真机（6508/6508、1 GiB 升级）、Agent G1A/G1B 与待复核的网络错误项 |
+| [REVIEW_LOG.md](archive/REVIEW_LOG.md) | 审查与计划复核流水：补充设计稿校正、项目检查与 UI 统一、实例文案复核、11-05 复核（服务端默认值回归已修）、11-09 状态 |
+| [NAV_AND_META_AUDIT.md](archive/NAV_AND_META_AUDIT.md) | 导航与元数据收口：`execPage()` 迁到 `OverlayHost::showPage()`、后台同步等待盘点、`wtfml.meta` / `.wtfml-server` 读写者与判据 |
+| [ROADMAP_ARCHIVE_20261105.md](archive/ROADMAP_ARCHIVE_20261105.md) | 11-05 清理前主计划的压缩快照：保留旧编号、P2/P3 完成流水与实测数字 |
+| [PLAYER_SIMULATION_PLAN.md](archive/PLAYER_SIMULATION_PLAN.md) | 玩家路径模拟：隔离与预算、场景与覆盖、11-06 真实跑结果与未覆盖项 |

@@ -22,7 +22,7 @@
   以及真实新 OS 进程恢复多文件与“补齐后第二次明确继续才调用安装接续”。
   文件响应来自本机 HTTP 服务，不将其写成公网下载或真实 Java 安装器验收。
 - tools/check-test-modules.ps1 通过；主计划依据按域源码抽查和补充文档核对重排，
-  并非全仓逐行安全审计。采纳/过时/待定项见 PLAN_REVIEW_20261027.md。
+  并非全仓逐行安全审计。采纳/过时/待定项见 REVIEW_LOG.md。
 
 保留首次失败与中间结果：165214-935a60d2 误选为全量，已手动终止自身测试树，未算通过；
 165616-fe60cfee 因受限执行出现 Permission denied，临时夹具也失败；允许必要访问后，
@@ -42,7 +42,7 @@
 - 下载执行器`095547-23e80b42`四分片通过；`100156-9a40510f`、`102636-fdb1e99e`
   补真实新OS进程恢复、失效源换链接后四分片继续通过。
   `103824-02ec8dd0`进一步核对稳定账本目录与恢复记录互斥，四分片通过。
-- 服务端真实安装和运行、界面导出、MainWindow向导见docs/archive/SERVER_ACCEPTANCE_20261027.md，
+- 服务端真实安装和运行、界面导出、MainWindow向导见docs/archive/ACCEPTANCE_LOG.md，
   包括原始失败、修正和不同证据层次，不以假进程代替实网/真实Java。
 - `104125-fc7b861f`：正式启动器、网络诊断构建与诊断回归通过；此后直链取消/收尾重入保护
   仍须按最终构建记录复核，不能把前一份产物冒充最新代码。
@@ -94,7 +94,7 @@
 这不是关闭杀毒或修改系统安全设置，也不把工具失败记作产品通过。
 
 2026-10-25 P0 深化：真实 NTFS 权限矩阵、还原/整合包跨进程中断恢复、USB HDD 新版阶段矩阵及
-未覆盖条件，见 [P0 验收记录](../archive/P0_ACCEPTANCE_20261025.md)。该记录明确保留首次失败，不能用复测覆盖。
+未覆盖条件，见 [P0 验收记录](../archive/ACCEPTANCE_LOG.md)。该记录明确保留首次失败，不能用复测覆盖。
 
 2026-10-25 非 P1 增量：高级配色入口见 [使用说明](../features/THEME_ADVANCED.md)。
 `20261025-142308-afc83d2a` 的 `wtfml.theme` 通过；
@@ -727,7 +727,7 @@ ZG9 另外在取消回调中观察完成报告，等完成报告实际落盘后�
 `acceptance_large_instance.py` 要求空工作目录，失败/异常保留现场；载荷以 SHA-256 校验。
 恢复探针使用生产 Publish 回调 `_Exit(86)`，要求 marker 和恢复 count>0，不再按固定时间杀进程。
 16 MiB＋100 文件隔离复测通过，恢复 1 条事务，夹具保留在 `build/acceptance-p0-20261025-publish`。
-这是流程回归，不是慢盘或断电验收；USB HDD 的独立记录见 `ACCEPTANCE_20261025.md`。
+这是流程回归，不是慢盘或断电验收；USB HDD 的独立记录见 `ACCEPTANCE_LOG.md`。
 
 完整 UI 重建后 3119/3119（`build/test-runs/20261025-113931-d670e02a`）；再用 CTest
 `--repeat until-fail:5 --timeout 60` 连续运行 5 次，48.28 秒全部通过，未启用 U10O/junction 跳过。
@@ -1037,7 +1037,7 @@ UI构建器的53个、实例设置的129个原有成员函数体/签名逐项核
   分别 8.44/11.63 秒。`tools/acceptance_download_recovery.ps1` 拒绝覆盖已有目录，每程序 180 秒截止；
   使用前与本地构建一样加载 Qt/MinGW 运行库路径。
 - Windows 真实主窗口、实际公网原版服务端及 Forge 1.20.1/47.2.0/Java17＋FOV 预设，
-  记录和截图见 [恢复验收](../archive/DOWNLOAD_RECOVERY_ACCEPTANCE_20261027.md)，不启动游戏、不碰真实账号/存档。
+  记录和截图见 [恢复验收](../archive/ACCEPTANCE_LOG.md)，不启动游戏、不碰真实账号/存档。
 - 原 Forge 服务端失败现场真实重新安装成功；缩短时钟的实际子进程另验静默重试/耗尽/总截止与再次安装。
 - 正式启动器构建通过；`tools/check-test-modules.ps1` 与 `git diff --check` 通过。
 
@@ -1102,7 +1102,7 @@ Windows/MinGW 新增 `wtfml.token-protection-fault`：仅该测试进程的导�
 核心 11 个入口、兼容入口及主窗口/UI 入口均隔离用户/系统配置与默认根；
 仍只开放已验证的三个模块并行，其余独占。`check-test-modules.ps1` 防止入口隔离声明遗漏。
 
-本轮结果、首次失败与范围限制见 [P1 验收](../archive/P1_ACCEPTANCE_20261028.md)。
+本轮结果、首次失败与范围限制见 [P1 验收](../archive/ACCEPTANCE_LOG.md)。
 
 
 
@@ -1178,11 +1178,11 @@ Stage 1B 用例覆盖：路径攻击矩阵与句柄级校验、外发边界表�
 G1A 除网络错误外全部通过：导航/聊天 UI、API/URL 校验、Windows 凭据管理器主路径、
 Key 遮挡与不回显、流式/停止/重试/切换取消、会话恢复、严格无工具/无 MCP、API Key 未出现在
 日志/会话/界面。网络错误本轮没有条件执行，单独延后到
-[网络错误验收](../archive/NETWORK_ERROR_ACCEPTANCE.md)，不写成已通过。
+[网络错误验收](../archive/ACCEPTANCE_LOG.md)，不写成已通过。
 
 会话加密可见性已补：开关从右上角移到聊天头部下方单独一行，并显示当前明文/加密状态。
 Stage 1B 构建可用 `build/stage1b-review/WTFMinecraftLauncher.exe` 审查；完整流程见
-[G1A 验收流程](../archive/G1A_ACCEPTANCE.md)。
+[G1A 验收流程](../archive/ACCEPTANCE_LOG.md)。
 
 ## 2026-11-10：G1B 首轮人工结果
 
@@ -1197,4 +1197,4 @@ Stage 1B 构建可用 `build/stage1b-review/WTFMinecraftLauncher.exe` 审查；�
   仍可被 `artifact.read` 取回；工具文案“完整内容见 artifact”不准确。
 
 未测/延后：W4/W5（sha256 查看方式）、A1（artifact 分段）、P4（重启）、P5（提交阶段）、
-网络错误。完整记录与补测方法见 [G1B 首轮人工测试记录](../archive/G1B_MANUAL_RESULTS_20261110.md)。
+网络错误。完整记录与补测方法见 [G1B 首轮人工测试记录](../archive/ACCEPTANCE_LOG.md)。

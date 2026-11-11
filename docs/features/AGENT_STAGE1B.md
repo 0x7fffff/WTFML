@@ -3,7 +3,7 @@
 > 日期：2026-11-10
 > 范围：受控文件工具 + 审批 + D11 外发策略 + 实例锁定 + 维护备份（**不接 MCP**）。
 > 状态：**离屏自动验收通过；G1B 首轮人工未通过（脱敏/凭据边界 P0）**。
-> 首轮记录：[G1B_MANUAL_RESULTS_20261110.md](../archive/G1B_MANUAL_RESULTS_20261110.md)。
+> 首轮记录：[ACCEPTANCE_LOG.md](../archive/ACCEPTANCE_LOG.md)。
 > 上一阶段：[Stage 1A](AGENT_STAGE1A.md)；设计原文：[AGENT.md](AGENT.md)。
 
 ## 1. 这一阶段做了什么

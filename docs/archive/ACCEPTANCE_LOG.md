@@ -2,8 +2,7 @@
 
 给要查"某项真机/实盘验收跑过没有、数字是多少、遇到过什么坑"的人看。按日期分节，每条写 日期｜跑了什么｜结论｜首轮失败/意外发现；
 证据路径都在本地 `build/` 下（已被 git 忽略，不随仓库分发）。需要重跑时见文末「复现命令」。
-由 ACCEPTANCE_20261025、P0_ACCEPTANCE_20261025、P1_ACCEPTANCE_20261028、DOWNLOAD_RECOVERY_ACCEPTANCE_20261027、SERVER_ACCEPTANCE_20261027、
-ACCEPTANCE_20261109、G1A_ACCEPTANCE、G1B_ACCEPTANCE、G1B_MANUAL_RESULTS_20261110、NETWORK_ERROR_ACCEPTANCE 合并压缩而成，原文在 git 历史里。
+由 10 篇原验收记录（10-25 深度验收与 P0 深化、P1 收尾、下载恢复、服务端、11-09 真机、G1A/G1B 人工验收与首轮结果、网络错误延后项）合并压缩而成，原文在 git 历史里。
 
 ## 2026-10-25　大实例、USB HDD、服务端、窗口与全量回归
 

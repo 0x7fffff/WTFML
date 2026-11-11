@@ -219,7 +219,7 @@ int UiOverlayNavigationChecks() {
 
         // ---------- 非阻塞开页（showPage）：摆上去就返回，收页这一层自己收 ----------
         // `execPage()` 卡住调用方等用户点返回；任务详情页那种"不收任何结果"的页用不着
-        // 那个循环（见 docs/archive/NESTED_EVENT_LOOPS_AUDIT.md）。这里量的是新那条路的收尾。
+        // 那个循环（见 docs/archive/NAV_AND_META_AUDIT.md）。这里量的是新那条路的收尾。
         {
             QDialog dialog;
             dialog.setObjectName(QStringLiteral("nonBlockingPageProbe"));
