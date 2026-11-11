@@ -324,26 +324,75 @@ SettingsSection addSettingsSection(QGridLayout *grid, int &row, const QString &t
     return section;
 }
 
-/// 往一节里加一项：**行名独占一行、内容在下一行** —— 实例设置那边也是这个上下结构
-/// （见 InstanceSettingsDialog.cpp 里的 addTitledRow()）。
+namespace {
+/// 设置行（设计稿 .set）：底下一条 1px 分隔线，最后一行由 section 那一格的留白收住。
+class SettingRow : public QWidget {
+public:
+    using QWidget::QWidget;
+
+protected:
+    void paintEvent(QPaintEvent *) override {
+        QPainter painter(this);
+        painter.fillRect(QRect(0, height() - 1, width(), 1), Theme::tokens().divider);
+    }
+};
+}  // namespace
+
+/// 往一节里加一项（设计稿 .set）：左边「名字 14 + 说明 12.5」，右边控件靠右；行底一条分隔线。
+/// 控件容器里挂了 `settingsHelp` 的静态说明搬到左边名字下面；会变的那几句（内存、报错）
+/// 留在控件底下。复选框自己带名字（@p labelText 等于小节名）⇒ 整个控件摆在左边。
 void addSettingItem(const SettingsSection &section, const QString &labelText, QWidget *control,
                     QWidget *parent) {
-    // 标签在左（固定一列宽）、控件在右；说明（控件容器里最后那行小字）跟在控件下一行。
-    // 复选框自己带名字，左边那格留空，控件仍对齐到右列。
-    auto *row = new QWidget(parent);
+    auto *row = new SettingRow(parent);
     row->setProperty("settingsItemRow", true);
+    row->setMinimumHeight(60);
     auto *rowLayout = new QHBoxLayout(row);
-    rowLayout->setContentsMargins(0, 0, 0, 0);
-    rowLayout->setSpacing(16);
-    QLabel *label = new QLabel(labelText != section.title ? labelText : QString(), row);
-    label->setProperty("settingsItemLabel", true);
-    label->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-    label->setFixedWidth(kSettingsLabelWidth);
-    label->setWordWrap(true);
-    label->setContentsMargins(0, 4, 0, 0);
-    rowLayout->addWidget(label, 0, Qt::AlignTop);
+    rowLayout->setContentsMargins(0, 10, 0, 10);
+    rowLayout->setSpacing(24);
     control->setParent(row);
-    rowLayout->addWidget(control, 1);
+    const QString name = labelText != section.title ? labelText : QString();
+    if (name.isEmpty()) {
+        rowLayout->addWidget(control, 1);
+        section.layout->addWidget(row);
+        return;
+    }
+    auto *left = new QWidget(row);
+    auto *leftLayout = new QVBoxLayout(left);
+    leftLayout->setContentsMargins(0, 0, 0, 0);
+    leftLayout->setSpacing(3);
+    QLabel *label = new QLabel(name, left);
+    label->setProperty("settingsItemLabel", true);
+    label->setWordWrap(true);
+    {
+        QFont font = label->font();
+        font.setPixelSize(14);
+        font.setWeight(QFont::Medium);
+        label->setFont(font);
+    }
+    leftLayout->addWidget(label);
+    if (QLayout *box = control->layout()) {
+        for (int i = 0; i < box->count();) {
+            auto *help = qobject_cast<QLabel *>(box->itemAt(i)->widget());
+            if (help != nullptr && help->property("settingsHelp").toBool()) {
+                box->removeWidget(help);
+                help->setParent(left);
+                QFont font = help->font();
+                font.setPixelSize(12);
+                help->setFont(font);
+                leftLayout->addWidget(help);
+                continue;
+            }
+            if (QWidget *widget = box->itemAt(i)->widget()) {
+                box->setAlignment(widget, Qt::AlignRight | Qt::AlignVCenter);
+                if (qobject_cast<QLineEdit *>(widget) != nullptr) widget->setMinimumWidth(260);
+                if (auto *hint = qobject_cast<QLabel *>(widget)) hint->setAlignment(Qt::AlignRight);
+            }
+            ++i;
+        }
+    }
+    left->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    rowLayout->addWidget(left, 1, Qt::AlignVCenter);
+    rowLayout->addWidget(control, 0, Qt::AlignRight | Qt::AlignVCenter);
     section.layout->addWidget(row);
 }
 

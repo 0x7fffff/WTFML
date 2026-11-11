@@ -326,8 +326,11 @@ static_assert(sizeof(kImageFitInfos) / sizeof(kImageFitInfos[0]) ==
 
 /// 四周变暗那一层的出厂色。**与 `OverlayHost::scrimColor()` 的字面量一字不差**：
 /// 半透明黑，盖在什么底色上都成立。
-const QColor &scrimLiteral() {
-    static const QColor color(0, 0, 0, 96);
+/// 四周变暗那一层：跟预设的 `scrim` 走（深色压暗、浅色带一点蓝灰），不透明度只取它的 0.6。
+/// 用户反馈弹窗一出整块发黑：这一层只该"轻轻压一档"，磨砂风景还得透得出来。
+QColor scrimLiteral() {
+    QColor color = tokens().scrim;
+    color.setAlphaF(color.alphaF() * 0.6);
     return color;
 }
 
@@ -1434,10 +1437,10 @@ void markBadge(QLabel *label, BadgeTone tone) {
         QColor bg = t.subtle, ink = t.secondary;
         switch (tone) {
         case BadgeTone::Neutral: break;
-        case BadgeTone::Accent: bg = t.selected; ink = t.accentInk; break;
-        case BadgeTone::Ok: bg = t.okSoft; ink = t.okInk; break;
-        case BadgeTone::Warn: bg = t.warnSoft; ink = t.warnInk; break;
-        case BadgeTone::Danger: bg = t.dangerSoft; ink = t.dangerInk; break;
+        case BadgeTone::Accent: bg = t.selected; ink = textTone(t.accentInk, t.deep); break;
+        case BadgeTone::Ok: bg = t.okSoft; ink = textTone(t.okInk, t.ok); break;
+        case BadgeTone::Warn: bg = t.warnSoft; ink = textTone(t.warnInk, t.warn); break;
+        case BadgeTone::Danger: bg = t.dangerSoft; ink = textTone(t.dangerInk, t.danger); break;
         }
         label->setStyleSheet(QStringLiteral("QLabel { background-color: %1; color: %2; border-radius: 11px; padding: 0 9px; }")
                                  .arg(bg.name(QColor::HexArgb), ink.name(QColor::HexArgb)));
@@ -1676,6 +1679,13 @@ QString widgetStyleSheet() {
                           "QPushButton[%1=\"ghost\"][wtfmlTextAction=\"true\"][checkable=\"false\"]:pressed:enabled"
                           " { background-color: %5; }")
                .arg(QString::fromLatin1(kButtonKindProperty), neutralFill, black, hover, pressed);
+
+    // 整页覆盖层顶上的面包屑「‹ 返回」：次要字色、贴字的小内边距（设计稿 .crumb）。
+    qss += QStringLiteral("QPushButton[wtfmlCrumb=\"true\"] { color: %1; padding: 0px 8px; min-height: 0px; }")
+               .arg(paletteRef("placeholder-text"));
+    // 对话框底下那排按钮一样高：主动作那颗是 36，其余跟它齐（设计稿 .dlg .acts）。
+    qss += QStringLiteral("QWidget[wtfmlDialogActions=\"true\"] QPushButton { min-height: %1px; }")
+               .arg(primaryActionHeight() - kButtonChrome);
 
     // 「灰掉」这一条**必须摆在上面那两块之后**。
     // Qt 的样式表按**优先级**排：`QPushButton[wtfmlButtonKind="neutral"]` 和
@@ -2183,7 +2193,7 @@ QPalette buildPalette(const Spec &spec, const QPalette &base) {
     palette.setColor(QPalette::Dark, t.stroke);
     palette.setColor(QPalette::ToolTipBase, t.card);
     palette.setColor(QPalette::ToolTipText, t.text);
-    palette.setColor(QPalette::Link, t.accentInk);  // 强调色写的字（chip / 分段选中、文字按钮）
+    palette.setColor(QPalette::Link, textTone(t.accentInk, t.deep));  // 强调色写的字（chip / 分段选中、文字按钮）
     for (const auto role : kInkRoles) palette.setColor(QPalette::Disabled, role, t.disabled);
 
     for (auto it = spec.roles.constBegin(); it != spec.roles.constEnd(); ++it) {

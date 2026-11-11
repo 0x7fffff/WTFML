@@ -93,7 +93,10 @@ int UiLogColorsChecks() {
                   QStringLiteral("%1 | 最远的一档差 %2").arg(gotText.join(QStringLiteral(" "))).arg(worst));
             // DEBUG 与 INFO 两档**不染**（用正文区自己的底色）：日志里绝大多数是 INFO，
             // 全染上就成了一张色纸；"没染色的那些"本身就是最自然的一档。
-            const QColor unstained = view->palette().color(QPalette::Base);
+            // 正文区是半透明的（透出窗底那层磨砂），"它自己那一支"按最后一行下面那块空白量。
+            const QRect blank(0, rects[5].bottom() + 1, viewportWidth, viewportHeight - rects[5].bottom() - 1);
+            const QColor unstained = blank.height() > 4 ? dominantColor(shot, blank)
+                                                        : view->palette().color(QPalette::Base);
             check(colorDistance(got[int(L::Debug)], unstained) <= 6 &&
                       colorDistance(got[int(L::Info)], unstained) <= 6,
                   "Z6 DEBUG / INFO 两档不染底（跟正文区自己那一支一个色）",

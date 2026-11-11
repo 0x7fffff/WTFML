@@ -254,6 +254,10 @@ private slots:
 private:
     /// 往列表里塞一行（文字 + uuid + 当前标记）。
     void addAccountRow(const AccountRow &row);
+    /// 「切换 / 删除」两颗跟着选中那一行摆在行尾（设计稿 .acct-row 悬停操作）。
+    void placeRowActions();
+    void updateCapeCaption();
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
     /// 现在是不是有一件请求在走。**它必须参与** refreshButtonStates() 的判断：
     /// 那个函数是按「有没有选中」定可用性的，而 setBusy() 的末尾会调它一次 —— 于是
@@ -287,4 +291,8 @@ private:
     QPushButton *m_applyCapeButton = nullptr;
     QPushButton *m_hideCapeButton = nullptr;
     QPushButton *m_closeButton = nullptr;
+    QWidget *m_rowActions = nullptr;
+    QLabel *m_capeCaption = nullptr;
+    /// 当前账号那一行的头像取自这张（setLooks() 喂进来的皮肤）。
+    QImage m_currentSkin;
 };

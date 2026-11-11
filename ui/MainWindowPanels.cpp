@@ -515,14 +515,23 @@ void applyBottomBarButtonStyle(QPushButton *button, const QPalette &barPalette) 
     // 工具箱那颗是一个独立的小按钮：两边留 14 px，焦点框和悬停底都不压字；圆角和别的按钮一套。
     // 任务摘要那颗是铺满中间那一格的区域按钮，照旧不留边。
     const bool compact = button->objectName() == MainWindowUI::toolboxButtonName();
+    // 运行状态那格里是两行字（状态 + 实例名），按钮 sizeHint 只算一行 ⇒ 和任务摘要同时出现时
+    // 被压扁叠字。最小高只能写在这里：全局 QSS 的 min-height 会盖掉 C++ 的 setMinimumHeight。
+    // 只钉高度 —— 宽度归导航轨管。
+    const int minHeight =
+        button->objectName() == MainWindowUI::runStateButtonName()
+            ? QFontMetrics(button->font()).height() +
+                  QFontMetrics(Theme::textFont(button->font(), Theme::TextRole::Caption)).height() + 8
+            : 0;
     button->setStyleSheet(
         QStringLiteral("QPushButton { border: none; background: transparent; text-align: left; "
-                       "padding: %3; border-radius: %4px; }"
+                       "padding: %3; border-radius: %4px; min-height: %5px; }"
                        "QPushButton:hover { background-color: %1; }"
                        "QPushButton:pressed { background-color: %2; }")
             .arg(hover.name(QColor::HexArgb), pressed.name(QColor::HexArgb),
                  compact ? QStringLiteral("0 12px") : QStringLiteral("0"))
-            .arg(Theme::controlRadius()));
+            .arg(Theme::controlRadius())
+            .arg(minHeight));
     // 登记**只能登记一次**，所以这里用属性当闸门 —— 这个函数本身就在"主题变了"的回调
     // 那一支上（下面那条 lambda），里面那句 `setStyleSheet()` 又发一次 `StyleChange`。
     // 把 `Theme::follow()` 直接摆在这个函数里 ⇒ 每一趟都**再生一个**跟随者，新跟随者

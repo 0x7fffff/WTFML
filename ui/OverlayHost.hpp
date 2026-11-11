@@ -351,14 +351,14 @@ QWidget *promptCardWidget() const { return m_promptCard; }
 
     /// 返回箭头的字。**带箭头的**（左上角有返回箭头），后面缀一个「返回」
     /// 是为了不作猜谜 —— 光一个 ← 在桌面软件里并不通用。
-    static QString backButtonText() { return QStringLiteral("← 返回"); }
+    static QString backButtonText() { return QStringLiteral("返回"); }
 
     /// 提示卡片的宽度。**唯一出处** —— 所有提示一样宽，只有高矮随字数走，
     /// 不允许出现尺寸不一样的弹窗。
     static int promptWidth() { return 480; }
 
     /// 卡片里面那圈留白。
-    static int promptPadding() { return 18; }
+    static int promptPadding() { return 26; }
 
     /// 卡片自己那圈边（`QFrame::StyledPanel` 画一个像素）。内容宽必须把这两圈边扣掉：
     /// 漏掉的话，每一张提示里那几格（正文 / 输入框 / 列表 / 链接行，它们都拿
@@ -528,6 +528,10 @@ private:
     /// 那会让它变回顶层窗口（Qt 里"没有父控件的 QWidget 就是窗口"），哪怕它一直是 hide 的，
     /// 也在"这一下会不会闪一下"这种事上赌运气。寄存到这儿就永远不会冒出来。
     QWidget *m_parking = nullptr;
+    /// 提示开着时盖住导航轨和顶栏的那层薄纱（内容区那块由这一层自己压暗）：整窗一起暗一档，
+    /// 不再是"内容区黑了、轨和顶栏还亮着"三块拼起来。不吃鼠标。
+    QWidget *m_veil = nullptr;
+    void placeVeil();
 };
 
 

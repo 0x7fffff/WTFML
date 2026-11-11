@@ -27,6 +27,7 @@
 #include <QStringList>
 
 class QCheckBox;
+class QHBoxLayout;
 class QLabel;
 class QLineEdit;
 class QListWidget;
@@ -200,6 +201,10 @@ public:
 
     // ---------- objectName（验证工程靠它们认控件） ----------
     static QString titleLabelName() { return QStringLiteral("inlineMessageTitle"); }
+    /// 设计稿对话框头（tokens-extra §对话框）：32px 语义色图标块 + 手写体 22 标题。
+    /// @p icon 空 = 按 @p kind 取（信息/提问 info、警告 warn、出错 xc）。JavaMismatchDialog 也用它。
+    static QHBoxLayout *makeHeader(QWidget *owner, QLabel *title, MessageKind kind,
+                                   const QString &icon = QString());
     /// 插进来的那一行输入框。**只有"问名字"那一档有。**
     static QString lineEditName() { return QStringLiteral("inlineMessageEdit"); }
     /// 插进来的那张列表。**只有走过 `setList()` 的才有。**
@@ -260,6 +265,7 @@ private:
     int m_clicked = -1;
     MessageKind m_kind = MessageKind::Information;
     QLabel *m_titleLabel = nullptr;
+    QHBoxLayout *m_header = nullptr;
     QLabel *m_textLabel = nullptr;
     QLineEdit *m_lineEdit = nullptr;
     QListWidget *m_list = nullptr;

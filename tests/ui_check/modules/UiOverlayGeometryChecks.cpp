@@ -48,8 +48,10 @@ int UiOverlayGeometryChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * 
         auto *backButton = overlay->findChild<QPushButton *>(OverlayHost::overlayBackButtonName());
         check(backButton != nullptr && backButton->isVisible(), "左上角那颗返回箭头在",
               backButton != nullptr ? backButton->objectName() : QStringLiteral("<null>"));
-        check(backButton != nullptr && backButton->text().contains(QChar(0x2190)),
-              "它带一个向左的箭头（←）",
+        // 7c 起是设计稿面包屑：箭头是 chevL 线条图标，字是「返回」。
+        check(backButton != nullptr && !backButton->icon().isNull() &&
+                  backButton->text() == OverlayHost::backButtonText(),
+              "它带一个向左的箭头图标 + 「返回」",
               backButton != nullptr ? backButton->text() : QString());
         if (backButton != nullptr) {
             const QPoint at = backButton->mapTo(overlay, QPoint(0, 0));

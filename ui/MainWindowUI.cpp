@@ -670,9 +670,14 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     });
     backdrop->setHeroWidget(homeTab);
     // 主页上轨和窗口按钮压在清晰风景上：品牌、窗口按钮换主页字色。
+    // 跟着「主页场景此刻露没露」走，而不是只看选项卡：主页上开了整页覆盖层时场景收起，
+    // 轨也得换回普通字色（不然深底上一圈主页字色，和内容区是两种样子）。
     bar->setHeroMode(tabWidget->currentIndex() == homeTabIndex());
     QObject::connect(tabWidget, &QTabWidget::currentChanged, bar,
                      [this](int index) { bar->setHeroMode(index == homeTabIndex()); });
+    QObject::connect(backdrop, &Glass::Backdrop::heroShownChanged, bar, [this](bool shown) {
+        bar->setHeroMode(shown && tabWidget->currentIndex() == homeTabIndex());
+    });
 
     // ---------- 内容区上面那一层 ----------
     // 设置界面和各种提示都开在这儿，不另开窗口（见 OverlayHost.hpp 开头那段）。

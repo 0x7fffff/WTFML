@@ -14,7 +14,8 @@
 
 // 正文那个宽度常量（`promptContentWidth()`）是那一层给的 —— 这个框现在开在它里面。
 #include "OverlayHost.hpp"
-#include "Theme.hpp"   // 「取消」那一颗的身份（一般性 = 黑字黑边）
+#include "InlineMessage.hpp"  // 和别的提示卡同一个头（图标块 + 手写体标题）
+#include "Theme.hpp"   // 三颗按钮的身份
 
 namespace {
 
@@ -50,6 +51,11 @@ JavaMismatchDialog::JavaMismatchDialog(const QString &instanceName, int expected
     auto *layout = new QVBoxLayout(this);
     // 留白由卡片自己给（`promptPadding()`），这里再给一层就成了双层留白。
     layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(12);
+
+    // 设计稿 dialogs.html：Java 图标块（警示浅黄底）+ 手写体标题，和别的提示卡同一个头。
+    layout->addLayout(InlineMessageBox::makeHeader(this, new QLabel(windowTitle(), this),
+                                                   MessageKind::Warning, QStringLiteral("java")));
 
     m_textLabel = new QLabel(
         messageText(instanceName, expectedMajor, actualMajor, actualVersionText, javaPath), this);
@@ -59,6 +65,12 @@ JavaMismatchDialog::JavaMismatchDialog(const QString &instanceName, int expected
     // 用户要按正文里那句话去改配置时，手抄一条路径是不现实的。
     m_textLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     m_textLabel->setFixedWidth(OverlayHost::promptContentWidth());
+    QFont bodyFont = m_textLabel->font();
+    bodyFont.setPixelSize(14);
+    m_textLabel->setFont(bodyFont);
+    QPalette bodyPalette = m_textLabel->palette();
+    bodyPalette.setColor(QPalette::WindowText, bodyPalette.color(QPalette::PlaceholderText));
+    m_textLabel->setPalette(bodyPalette);
     layout->addWidget(m_textLabel);
 
     m_dontRemindCheck = new QCheckBox(tr("以后不再提醒这个实例"), this);
@@ -66,6 +78,14 @@ JavaMismatchDialog::JavaMismatchDialog(const QString &instanceName, int expected
     m_dontRemindCheck->setToolTip(
         tr("记在这个实例的设置里，可随时在「高级选项 → 版本提醒」改回来。"));
     layout->addWidget(m_dontRemindCheck);
+    // 勾选框下那行说明直接摆出来（设计稿），缩进对齐勾选框的字。
+    auto *remindHelp = new QLabel(m_dontRemindCheck->toolTip(), this);
+    remindHelp->setWordWrap(true);
+    remindHelp->setFont(Theme::textFont(remindHelp->font(), Theme::TextRole::Caption));
+    remindHelp->setForegroundRole(QPalette::PlaceholderText);
+    remindHelp->setContentsMargins(26, 0, 0, 0);
+    remindHelp->setFixedWidth(OverlayHost::promptContentWidth());
+    layout->addWidget(remindHelp);
 
     layout->addStretch(1);
 
@@ -78,13 +98,18 @@ JavaMismatchDialog::JavaMismatchDialog(const QString &instanceName, int expected
     m_useMatchingButton->setObjectName(useMatchingButtonName());
     m_cancelButton = new QPushButton(tr("取消"), this);
     m_cancelButton->setObjectName(cancelButtonName());
-    // 两颗「…启动」是确认性（绿），「取消」是一般性（黑）。
-    Theme::markButton(m_cancelButton, Theme::ButtonKind::Neutral);
+    // 设计稿：取消（文字）在最左；「仍然用这个」中性；「改用匹配的」是推荐那条路，实心摆最右。
+    // 回车照旧落在「仍然用这个」上（上面 setDefault 那句的理由不变）。
+    Theme::markButton(m_cancelButton, Theme::ButtonKind::Ghost);
+    Theme::markButton(m_continueButton, Theme::ButtonKind::Neutral);
+    Theme::markButton(m_useMatchingButton, Theme::ButtonKind::Primary);
     m_cancelButton->setToolTip(tr("暂不启动，可先安装该 Java 或修改实例设置。"));
+    buttons->setSpacing(10);
+    buttons->addWidget(m_cancelButton);
+    buttons->addStretch(1);
     buttons->addWidget(m_continueButton);
     buttons->addWidget(m_useMatchingButton);
-    buttons->addStretch(1);
-    buttons->addWidget(m_cancelButton);
+    setProperty("wtfmlDialogActions", true);  // 三颗一样高（Theme 里那条规则）
     layout->addLayout(buttons);
 
     connect(m_continueButton, &QPushButton::clicked, this, [this] {

@@ -136,6 +136,11 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
     // 页头：标题「设置」。**没有说明那一行**（`fillPageHeader()` 收到空串就把它整行收起来
     // 连位置都不占）—— 这一页"是什么"不需要解释，左栏那五条分类已经说完了。
     fillPageHeader(columns.right, settingsPageTitle(), QString());
+    if (columns.right.title != nullptr) {  // 设计稿：页名手写体 30
+        QFont font = Theme::handFont(columns.right.title->font(), Theme::HandFont::Kai);
+        font.setPixelSize(30);
+        columns.right.title->setFont(font);
+    }
 
     const QStringList categoryKeys = settingsCategoryKeys();
     const QStringList categoryTexts = settingsCategoryTexts();
@@ -155,8 +160,9 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
                                 /*navRow=*/true));
     // 悬停底色要它，理由见版本树那第一处：视图不填 State_MouseOver 就不出底色，也不报错。
     settingsCategoryList->setMouseTracking(true);
-    QFont categoryFont = settingsCategoryList->font();
-    categoryFont = Theme::textFont(categoryFont, Theme::TextRole::Body);
+    // 设计稿 .set-index：纯文字索引，手写体 15。
+    QFont categoryFont = Theme::handFont(settingsCategoryList->font(), Theme::HandFont::Kai);
+    categoryFont.setPixelSize(15);
     settingsCategoryList->setFont(categoryFont);
     for (int i = 0; i < categoryKeys.size(); ++i) {
         auto *item = new QListWidgetItem(categoryTexts.value(i), settingsCategoryList);

@@ -24,6 +24,7 @@
 #include <QWidget>
 
 class QApplication;
+class QPainter;
 class QTimer;
 
 namespace Glass {
@@ -92,6 +93,16 @@ public:
 
     /// 主页场景铺在哪一块：这个控件可见时，它占的那一块画清晰风景（左沿 32 px 渐隐进导航轨）。
     void setHeroWidget(QWidget *widget);
+    /// 主页场景被整页盖住（覆盖层整页 / 铺满的提示开在主页上）：整窗改回磨砂底，
+    /// 否则轨和顶栏还是清晰风景、内容区却是磨砂，看着是三块拼起来的。
+    void setHeroCovered(bool covered);
+    bool heroShown() const { return !heroRect().isEmpty(); }
+
+signals:
+    /// 主页场景露没露（主页进出、被整页盖住 / 揭开）：导航轨据此换主页字色。
+    void heroShownChanged(bool shown);
+
+public:
 
     /// 当前这一刻整窗底铺的着色层（带 alpha）。
     QColor tint() const;
@@ -101,6 +112,12 @@ public:
 
     /// 立刻按当前尺寸与主题重算（验证工程截图前用；产品里走防抖）。
     void rebuildNow();
+
+    /// 往 `target`（本控件的子孙）上画它那一块整窗底，不画主页场景。覆盖层整页、独立小窗借它透出同一层磨砂。
+    /// `toPixmap`：这一趟画进位图（grab），系统背板拍不进去，按风景底画。
+    void paintBase(QPainter &painter, const QWidget *target, bool toPixmap);
+    /// 独立顶层窗（游戏日志）铺底：整张磨砂风景缩进 `rect`，再盖同一层着色。
+    void paintScene(QPainter &painter, const QRect &rect);
 
     /// 主页场景在 `widget` 那一块上最亮的颜色 —— 直接压在风景上的标题拿它验对比度。
     QColor brightestUnder(const QWidget *widget) const;
@@ -126,6 +143,9 @@ private:
     QPixmap m_heroPixmap;  // 主页场景：清晰图 + 暗角 + 左沿渐隐
     QImage m_heroSmall;    // 主页场景缩小版（量标题底下的明暗）
     QRect m_heroCacheRect;
+    bool m_heroCovered = false;
+    bool m_heroWasShown = false;
+    void noteHeroShown();
     QString m_heroKey;
     QColor m_darkest = QColor(Qt::black);
     QColor m_brightest = QColor(Qt::white);

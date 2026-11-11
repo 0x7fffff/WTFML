@@ -381,6 +381,7 @@ bool Backdrop::eventFilter(QObject *watched, QEvent *event) {
         case QEvent::Resize:
             scheduleRebuild();
             update();
+            noteHeroShown();
             break;
         default:
             break;
@@ -389,8 +390,22 @@ bool Backdrop::eventFilter(QObject *watched, QEvent *event) {
     return QWidget::eventFilter(watched, event);
 }
 
+void Backdrop::setHeroCovered(bool covered) {
+    if (m_heroCovered == covered) return;
+    m_heroCovered = covered;
+    update();
+    noteHeroShown();
+}
+
+void Backdrop::noteHeroShown() {
+    const bool shown = heroShown();
+    if (shown == m_heroWasShown) return;
+    m_heroWasShown = shown;
+    emit heroShownChanged(shown);
+}
+
 QRect Backdrop::heroRect() const {
-    if (m_hero == nullptr || !m_hero->isVisible() || m_hero->window() != window()) return QRect();
+    if (m_hero == nullptr || m_heroCovered || !m_hero->isVisible() || m_hero->window() != window()) return QRect();
     // 全出血：铺满整窗，导航轨和右上那条窗口按钮条下面也是清晰风景（设计稿 .window.hero）。
     return rect();
 }
@@ -542,6 +557,47 @@ void Backdrop::resizeEvent(QResizeEvent *event) {
     QWidget::resizeEvent(event);
     activeBackdrop() = this;
     scheduleRebuild();
+}
+
+void Backdrop::paintBase(QPainter &painter, const QWidget *target, bool toPixmap) {
+    const QRect area(target->mapTo(this, QPoint(0, 0)), target->size());
+    const QRect local(QPoint(0, 0), target->size());
+    const Mode m = effectiveMode();
+    if (m == Mode::Solid) {
+        painter.fillRect(local, Theme::tokens().page);
+    } else if ((m == Mode::Acrylic || m == Mode::Mica) && !toPixmap) {
+        painter.save();
+        painter.setCompositionMode(QPainter::CompositionMode_Source);
+        painter.fillRect(local, tint());
+        painter.restore();
+    } else {
+        if (m_frost.isNull()) rebuildNow();
+        const qreal sx = qreal(m_frost.width()) / qMax(1, width());
+        const qreal sy = qreal(m_frost.height()) / qMax(1, height());
+        const QRectF source(area.x() * sx, area.y() * sy, area.width() * sx, area.height() * sy);
+        painter.save();
+        painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+        painter.drawPixmap(QRectF(local), m_frost, source);
+        QColor layer = Theme::tokens().page;
+        layer.setAlphaF(minimumTintAlpha(layer, bodyInks(), {m_darkest, m_brightest}, tintStrength() / 100.0));
+        painter.fillRect(local, layer);
+        painter.restore();
+    }
+}
+
+void Backdrop::paintScene(QPainter &painter, const QRect &rect) {
+    if (effectiveMode() == Mode::Solid) {
+        painter.fillRect(rect, Theme::tokens().page);
+        return;
+    }
+    if (m_frost.isNull()) rebuildNow();
+    painter.save();
+    painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+    painter.drawPixmap(rect, m_frost, m_frost.rect());
+    QColor layer = Theme::tokens().page;
+    layer.setAlphaF(minimumTintAlpha(layer, bodyInks(), {m_darkest, m_brightest}, tintStrength() / 100.0));
+    painter.fillRect(rect, layer);
+    painter.restore();
 }
 
 void Backdrop::paintEvent(QPaintEvent *) {

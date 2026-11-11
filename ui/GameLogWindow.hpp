@@ -198,6 +198,8 @@ public:
      * 是这类窗最招人烦的地方。
      */
     void appendText(const QString &text);
+    /// 标题旁那颗徽标开窗时是「运行中」；游戏结束（窗口没自动关）：徽标改成退出码，非 0 / 崩溃按危险色。
+    void setExited(int exitCode, bool crashed);
 
     // ---------- 当场读控件 ----------
 
@@ -430,6 +432,7 @@ protected:
      * 这两个事件会因为各种原因连着来几次，每次都重建一遍视图（两万行）是白跑。
      */
     void changeEvent(QEvent *event) override;
+    void paintEvent(QPaintEvent *event) override;
 
 private:
     /// 攒够一整行：认级别、进模型、记账、超上限就丢最老的。回它的级别。
@@ -466,6 +469,8 @@ private:
     void refreshPlaceholder();
 
     QLabel *m_hintLabel = nullptr;
+    QLabel *m_stateBadge = nullptr;
+    void setStateBadge(const QString &text, bool bad);
     QPlainTextEdit *m_view = nullptr;
     /// 正文区上面那一行搜索框。
     QLineEdit *m_searchEdit = nullptr;

@@ -983,6 +983,28 @@ const QHash<QString, QString> &linePaths() {
         {QStringLiteral("folder"), QStringLiteral("M3.5 6.5c0-.8.7-1.5 1.5-1.5h4.3l2 2.2H19c.8 0 1.5.7 1.5 1.5v9.3c0 .8-.7 1.5-1.5 1.5H5c-.8 0-1.5-.7-1.5-1.5z")},
         {QStringLiteral("more"), QStringLiteral("M6 12h.01M12 12h.01M18 12h.01")},
         {QStringLiteral("list"), QStringLiteral("M9 7h11M9 12h11M9 17h11M4.5 7h.01M4.5 12h.01M4.5 17h.01")},
+        // 7c：任务详情 / 对话框 / 日志窗 / 账号页用的几枚（照抄设计稿 shell.js、shell-extra.js）。
+        {QStringLiteral("chevL"), QStringLiteral("m14 7-5 5 5 5")},
+        {QStringLiteral("check"), QStringLiteral("m5.5 12.5 4 4 9-9")},
+        {QStringLiteral("clock"), QStringLiteral("M12 4a8 8 0 1 1 0 16 8 8 0 0 1 0-16zM12 8v4.5l3 2")},
+        {QStringLiteral("copy"), QStringLiteral("M9 9h10.5v10.5H9zM15 9V4.5H4.5V15H9")},
+        {QStringLiteral("refresh"), QStringLiteral("M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4h-4")},
+        {QStringLiteral("info"), QStringLiteral("M12 4a8 8 0 1 1 0 16 8 8 0 0 1 0-16zM12 11v5M12 8h.01")},
+        {QStringLiteral("warn"), QStringLiteral("M12 4.5 20.5 19h-17zM12 10v4M12 16.8h.01")},
+        {QStringLiteral("open"), QStringLiteral("M14 4.5h5.5V10M19.5 4.5 11 13M18 14v5.5H4.5V6H10")},
+        {QStringLiteral("log"), QStringLiteral("M5 4.5h14v15H5zM8.5 9h7M8.5 12.5h7M8.5 16h4")},
+        {QStringLiteral("java"), QStringLiteral("M9 4.5c2 1.6-2 3 0 4.8M13 4c2.5 2-2.5 3.6 0 5.8M6 13h11v1.5a4 4 0 0 1-4 4H10a4 4 0 0 1-4-4zM17 14h1.5a2 2 0 0 1 0 4H16.5M5 21h13")},
+        {QStringLiteral("pause"), QStringLiteral("M9 6v12M15 6v12")},
+        {QStringLiteral("okc"), QStringLiteral("M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM8 12.2l2.7 2.7L16 9.6")},
+        {QStringLiteral("xc"), QStringLiteral("M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM9 9l6 6M15 9l-6 6")},
+        {QStringLiteral("dots"), QStringLiteral("M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM8 12h.01M12 12h.01M16 12h.01")},
+        {QStringLiteral("grip"), QStringLiteral("M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01")},
+        {QStringLiteral("upload"), QStringLiteral("M12 15.5V4.5M7.5 8.5 12 4l4.5 4.5M4 15.5V20h16v-4.5")},
+        {QStringLiteral("export"), QStringLiteral("M12 4v11M7.5 8.5 12 4l4.5 4.5M5 13v6.5h14V13")},
+        {QStringLiteral("eraser"), QStringLiteral("M8 20h12M5.5 14.5l8-8a2 2 0 0 1 2.8 0l2.2 2.2a2 2 0 0 1 0 2.8L11 19H8z")},
+        {QStringLiteral("search"), QStringLiteral("M10.5 4a6.5 6.5 0 1 1 0 13 6.5 6.5 0 0 1 0-13zM15.5 15.5 20 20")},
+        {QStringLiteral("edit"), QStringLiteral("M4.5 19.5h4l10-10-4-4-10 10zM13 7l4 4")},
+        {QStringLiteral("ms"), QStringLiteral("M4 4h7.5v7.5H4zM12.5 4H20v7.5h-7.5zM4 12.5h7.5V20H4zM12.5 12.5H20V20h-7.5z")},
     };
     return paths;
 }

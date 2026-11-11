@@ -6,8 +6,10 @@
 
 #include "InlineMessage.hpp"
 
+#include <QApplication>
 #include <QCheckBox>
 #include <QDebug>
+#include <QPainter>
 #include <QFont>
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -23,6 +25,7 @@
 #include "MainWindowUI.hpp"
 #include "OverlayHost.hpp"
 #include "Theme.hpp"
+#include "VersionIcons.hpp"
 
 namespace {
 /// `setList()` 那张列表最多露几行（再多就在列表内部滚）。见 setList() 里那段 ★。
@@ -113,25 +116,22 @@ InlineMessageBox::InlineMessageBox(MessageKind kind, const QString &title, const
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(12);
 
+    // 标题正文色；是哪一类由左边那块语义色图标说（出错 = 浅红底的叉），红不再压在字上。
     m_titleLabel = new QLabel(title, this);
     m_titleLabel->setObjectName(titleLabelName());
-    QFont titleFont = m_titleLabel->font();
-    titleFont.setBold(true);
-    m_titleLabel->setFont(titleFont);
-    if (kind == MessageKind::Critical) {
-        // 只有真出错了（"删除游戏文件夹失败"这种）染红，其余三档一律正文色 ——
-        // 红是稀缺资源，随手一句"没有选中实例"也是红的，红就不管用了。
-        // 红**借用设置页那句"名字不能用"的红**（同一个出处），免得界面上有两种红。
-        QPalette titlePalette = m_titleLabel->palette();
-        titlePalette.setColor(QPalette::WindowText,
-                              MainWindowUI::installNameErrorColor(titlePalette));
-        m_titleLabel->setPalette(titlePalette);
-    }
-    layout->addWidget(m_titleLabel);
+    m_header = makeHeader(this, m_titleLabel, kind);
+    layout->addLayout(m_header);
 
     m_textLabel = new QLabel(text, this);
     m_textLabel->setObjectName(textLabelName());
     m_textLabel->setWordWrap(true);
+    // 正文 14px、次要字色（设计稿 .dlg p：14/22 ink-2）。字号要在下面量高度之前定。
+    QFont bodyFont = m_textLabel->font();
+    bodyFont.setPixelSize(14);
+    m_textLabel->setFont(bodyFont);
+    QPalette bodyPalette = m_textLabel->palette();
+    bodyPalette.setColor(QPalette::WindowText, bodyPalette.color(QPalette::PlaceholderText));
+    m_textLabel->setPalette(bodyPalette);
     // 正文允许选中复制：正文里常带路径 / 版本号 / 报错原文，手抄一条路径是不现实的。
     m_textLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     // 宽度**钉死**。它同时管两件事：所有提示一样宽，以及"这段字换几行"
@@ -155,44 +155,101 @@ InlineMessageBox::InlineMessageBox(MessageKind kind, const QString &title, const
     textScroll->setWidgetResizable(true);
     textScroll->setWidget(m_textLabel);
     textScroll->setFixedWidth(textWidth);
-    textScroll->setFixedHeight(qBound(48, neededHeight + 2, 260));
+    // 和上面最小高度同一个数：差那 2px 就会白白冒出一根滚动条。
+    textScroll->setFixedHeight(qBound(24, neededHeight + 4, 260));
     layout->addWidget(textScroll);
 
     QWidget *row = new QWidget(this);
     row->setObjectName(buttonRowName());
+    row->setProperty("wtfmlDialogActions", true);  // 一排一样高（Theme 里那条规则）
     auto *rowLayout = new QHBoxLayout(row);
     rowLayout->setContentsMargins(0, 0, 0, 0);
-    rowLayout->setSpacing(8);
+    rowLayout->setSpacing(10);
     rowLayout->addStretch(1);
     // 一颗都没给 = "就说一句"，补一颗「确定」。**默认按钮也是它**（回车 = 知道了我走了）。
     const QStringList labels = buttons.isEmpty() ? QStringList{tr("确定")} : buttons;
+    QPushButton *defaultButton = nullptr;
     for (int i = 0; i < labels.size(); ++i) {
         auto *button = new QPushButton(labels.at(i), row);
         button->setObjectName(buttonName(i));
-        if (i == defaultIndex) {
-            button->setDefault(true);
-        }
         // 三档颜色按**位置**分，不按文字（"取消"这三个字认不得 —— 按钮表是调用方给的，
         // 上面那张世界编辑菜单里就有四颗都叫"做什么"的）：
         // - `destructiveIndex` 那一颗 = 危险红（"不可撤销"那一档）；
-        // - 默认那一颗 = 确认性（**不挂属性**就是主题色，见 Theme::ButtonKind）；
-        // - 其余 = 一般性（黑）。
+        // - 默认那一颗 = 主动作（实心主题色，设计稿 .dlg .acts 最右那颗）；
+        // - 其余 = 一般性。
         //
         // 这条规矩的前提是"调用方标对了 `destructiveIndex`"。真正的闸是 `defaultIndex`
         // （危险那两颗一律不给默认：误按回车不该把事办了），颜色只是第二道。
         if (i == destructiveIndex) {
             Theme::markButton(button, Theme::ButtonKind::Danger);
-        } else if (i != defaultIndex) {
+        } else if (i == defaultIndex) {
+            Theme::markButton(button, Theme::ButtonKind::Primary);
+        } else {
             Theme::markButton(button, Theme::ButtonKind::Neutral);
         }
         connect(button, &QPushButton::clicked, this, [this, i] {
             m_clicked = i;
             accept();
         });
-        rowLayout->addWidget(button);
+        if (i == defaultIndex) {
+            button->setDefault(true);
+            defaultButton = button;  // 默认那颗摆到最右（设计稿：主动作在最右，带焦点环）
+        } else {
+            rowLayout->addWidget(button);
+        }
+    }
+    if (defaultButton != nullptr) {
+        rowLayout->addWidget(defaultButton);
     }
     layout->addWidget(row);
     relinkTabOrder();
+}
+
+QHBoxLayout *InlineMessageBox::makeHeader(QWidget *owner, QLabel *title, MessageKind kind,
+                                          const QString &icon) {
+    const Theme::Tokens t = Theme::tokens();
+    QColor fill = t.accentSoft2;
+    QColor ink = Theme::textTone(t.accentInk, t.primary);
+    QString name = icon.isEmpty() ? QStringLiteral("info") : icon;
+    if (kind == MessageKind::Warning) {
+        fill = t.warnSoft;
+        ink = Theme::textTone(t.warnInk, t.warn);
+        if (icon.isEmpty()) name = QStringLiteral("warn");
+    } else if (kind == MessageKind::Critical) {
+        fill = t.dangerSoft;
+        ink = Theme::textTone(t.dangerInk, t.danger);
+        if (icon.isEmpty()) name = QStringLiteral("xc");
+    }
+    const qreal dpr = qApp ? qApp->devicePixelRatio() : 1.0;
+    QPixmap chip(QSize(32, 32) * dpr);
+    chip.setDevicePixelRatio(dpr);
+    chip.fill(Qt::transparent);
+    {
+        QPainter painter(&chip);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(fill);
+        painter.drawRoundedRect(QRectF(0, 0, 32, 32), 10, 10);
+        VersionIcons::paintLine(painter, name, QRectF(7, 7, 18, 18), ink, 1.8);
+    }
+    auto *chipLabel = new QLabel(owner);
+    chipLabel->setObjectName(QStringLiteral("inlineMessageIcon"));
+    chipLabel->setFixedSize(32, 32);
+    chipLabel->setPixmap(chip);
+
+    title->setFont(Theme::handFont([&] {
+        QFont f = title->font();
+        f.setPixelSize(22);
+        return f;
+    }(), Theme::HandFont::Kai));
+    title->setWordWrap(true);
+
+    auto *header = new QHBoxLayout;
+    header->setContentsMargins(0, 0, 0, 2);
+    header->setSpacing(12);
+    header->addWidget(chipLabel, 0, Qt::AlignTop);
+    header->addWidget(title, 1, Qt::AlignVCenter);
+    return header;
 }
 
 void InlineMessageBox::relinkTabOrder() {
@@ -438,15 +495,11 @@ QWidget *InlineMessageBox::setContent(QWidget *content, int preferredWidth) {
         m_content->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
         if (m_textLabel->text().isEmpty()) m_textLabel->hide();
         if (!findChild<QPushButton *>(QStringLiteral("inlineMessageClose"))) {
-        auto *header = new QHBoxLayout;
-        layout->removeWidget(m_titleLabel);
-        header->addWidget(m_titleLabel, 1);
         auto *close = new QPushButton(QStringLiteral("×"), this);
         close->setObjectName(QStringLiteral("inlineMessageClose"));
         close->setAccessibleName(tr("关闭")); close->setFixedSize(32, 32);
         Theme::markButton(close, Theme::ButtonKind::Ghost);
-        header->addWidget(close);
-        layout->insertLayout(0, header);
+        m_header->addWidget(close);
         connect(close, &QPushButton::clicked, this, &QDialog::reject);
         }
     } else m_content->setFixedWidth(OverlayHost::promptContentWidth());
