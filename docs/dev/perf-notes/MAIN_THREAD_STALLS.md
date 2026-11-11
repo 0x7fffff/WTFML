@@ -1,44 +1,26 @@
-# P2：主线程卡住时停在哪一行（2026-11-01）
+# 主线程卡顿：采栈、符号化与已记录的现象
 
-计划里那条「运行/构建剩余测量：主线程精确调用栈」。以前只知道"这一步花了 N 毫秒"
-（`PerfProbe` 的 `actionMs`），不知道那 N 毫秒里主线程在做什么；这次把**卡住那一刻的
-调用栈**采下来，并且把本程序的帧解析到函数名和行号。
+给要查"界面为什么停了一下"的人看：怎么在探针构建里采到卡住那一刻的调用栈、怎么翻译成函数名和行号、已经量到过哪些卡顿，以及一条没查清的"起线程要 3 秒"。耗时基线见 [PERFORMANCE.md](../PERFORMANCE.md)。
 
-数字归 [性能记录](../PERFORMANCE.md)，这份文档只讲方法、怎么复核、量到了什么、以及坑。
+数据来自 2026-11-01 同一台机器、同一份探针 exe、`-Instances 200`（200 个实例）。预设 store 的同步读那一条已被 [PRESET_LIST_IO.md](PRESET_LIST_IO.md) 改成并行 + 缓存，下面的栈和耗时是改之前的样子。
 
-## 结论
+## 采栈
 
-- 机制可用：探针构建里采栈，事后用 `addr2line` 补符号。八份栈里七份的本程序帧
-  全部指到函数 + 行号。
-- 卡顿是真的，不是采样器加出来的：每份栈的 `gapMs` 与同一步骤自己的
-  `actionMs` 相差 2–87 ms（含 10 ms 轮询粒度），没有出现"采完变慢一截"。
-- 量到的三类真卡顿：
-  1. **预设 store 同步读**：`Presets::list()` 在主线程一份一份读 manifest，
-     1000 份 ≈ 2.3 s（`PresetStore.cpp:410` 的 `QFile::read`）。
-  2. **预设 store 同步写**：1000 次 `saveManifest()` ≈ 1.7 s，其中一份正好停在
-     `QSaveFile::commit()` → `FlushFileBuffers`（`PresetStore.cpp:64`）。
-  3. **第一次把中文画到屏上**：`nav:instances` 停在 DirectWrite 的字形回退查询，
-     约 280 ms，这是首帧点字体的成本，和 [界面正文里的回退字形](../PERFORMANCE.md)那节同源。
-- 另有一次 `nav:settings` 2.9 s，栈停在 `QThread::start` → `CreateThread` 里；
-  后来 9 次带栈的测量里出现过 2 次（同一份 exe 再跑 8 次没有），未定位，只记现象。
+`src/perf/StallSampler.cpp`，只在 `-DWTFML_PERF_PROBE=ON` 的构建里编进程序（并链 `dbghelp`），产品构建里没有。
 
-## 怎么采的
+1. 主线程每个探针步骤打一次心跳（`PerfProbe` 的看门狗调 `StallSampler::beat()`）。
+2. 另一个线程每 10 ms 看一眼心跳，超过 50 ms 没动就算卡住。
+3. 卡住时 `SuspendThread` → `GetThreadContext` → `StackWalk64` → `ResumeThread`。暂停期间只走栈、不查符号：查符号要分配内存，而主线程卡住的常见原因正是卡在分配器里，暂停它再去要内存可能互等。
+4. 放行之后才 `SymFromAddr` 补名字；本程序自己的帧补不出来，只记 `WTFMinecraftLauncher.exe+0xRVA`。
+5. 一次卡顿采一份，一次测量最多 32 份；栈深上限 `kMaxFrames = 24`，很深的事件循环里看不到 `main`。
 
-`src/perf/StallSampler.cpp`（只在 `-DWTFML_PERF_PROBE=ON` 的构建里编进程序）：
+`gapMs` 是放行后等下一次心跳算出来的，可能比卡顿本身多一个轮询周期。三跑 22 份栈里 `gapMs` 比同一步骤的 `actionMs` 大 1.9–86.6 ms（中位 25.6 ms），没有数量级的放大。
 
-1. 主线程每个探针步骤打一次心跳（`PerfProbe` 的看门狗里调 `StallSampler::beat()`）。
-2. 另一个线程每 10 ms 看一眼心跳。超过 50 ms 没动 = 卡住了。
-3. 卡住了就 `SuspendThread` → `GetThreadContext` → `StackWalk64` → `ResumeThread`。
-   暂停期间**只走栈、不查符号**：查符号要分配内存，而主线程卡住的常见原因正是
-   卡在分配器里，暂停它再去要内存可能互等。
-4. 放行之后才 `SymFromAddr` 补名字；本程序自己的帧补不出来（见下面"坑"），
-   只记 `WTFMinecraftLauncher.exe+0xRVA`。
-5. 一次卡顿只采一份，一次测量最多 32 份。
+只停采栈、保留看门狗（心跳和最大间隔）：设 `WTFML_PERF_NO_STALL_SAMPLER=1`，用来分清"某一步慢"是产品的还是测量工具的。开关各 4 跑，`nav:settings` 都在 10–12.5 ms，没有证据说采栈拖慢了被测步骤。
 
-一份卡顿有多长，是**放行之后等下一次心跳**算出来的，所以 `gapMs` 可能比卡顿本身
-略长（最多一个轮询周期的量级）。
+## 符号化
 
-本程序的 RVA 事后用 `tools/symbolize-stalls.ps1` 交给 `addr2line`：
+本程序的 RVA 事后用 `tools/symbolize-stalls.ps1` 交给 `addr2line`（`-Exe`、`-ProbeJson`，`-Addr2Line` 默认 `D:/Qt/Qt/Tools/mingw1310_64/bin/addr2line.exe`）：
 
 ```powershell
 # 1) 编一份带探针、带 -g 的程序（CMakeLists 在 WTFML_PERF_PROBE 下自动加 -g）
@@ -47,7 +29,7 @@ cmake -S . -B build/tmp-wtfml-probe -G "MinGW Makefiles" `
   -DCMAKE_BUILD_TYPE=Release -DWTFML_PERF_PROBE=ON -DWTFML_BUILD_TESTS=OFF
 cmake --build build/tmp-wtfml-probe --target WTFMinecraftLauncher -j 8
 
-# 2) 跑探针（这个脚本会把 HKCU\Software\WTFML 换成沙盒、跑完还原）
+# 2) 跑探针（脚本会把 HKCU\Software\WTFML 换成沙盒，跑完还原）
 pwsh -File tools/perf-startup.ps1 -Probe `
   -Exe build/tmp-wtfml-probe/WTFMinecraftLauncher.exe `
   -Runs 1 -Warmup 0 -Instances 200 -InstanceMeta -StallSeconds 2 `
@@ -59,9 +41,18 @@ pwsh -File tools/symbolize-stalls.ps1 `
   -Exe build/tmp-wtfml-probe/WTFMinecraftLauncher.exe
 ```
 
-## 这次量到的（2026-11-01，同一台机器，`-Instances 200`，200 个实例）
+## 坑
 
-一次测量的步骤耗时（`actionMs`）与采到的卡顿（`gapMs`）：
+1. `SYMBOL_INFO::Name` 声明成 `CHAR Name[1]`，直接 `QString::fromLatin1(symbol->Name)` 会被 Qt 6 挑成"按数组长度取"的重载，长度恒为 1，量到的是一串首字母。先退化成 `const char *` 并带上 `NameLen`。
+2. 栈里除第一帧外都是返回地址，指向调用指令的下一条。不 `-1` 就查会落到下一行甚至下一个函数头，满屏 `~QString()` 噪声。
+3. `addr2line` 要 `-i`，取内联链的**最后**一行才是真正写这段代码的函数；配合 `-a` 才能按地址分组解析一批。
+4. dbghelp 对系统 DLL 只有导出表，给的是"最近的导出 + 位移"。报告里系统帧写成 `符号+0x偏移`，偏移大的别当成精确的当前函数。
+5. GCC 13.1 不支持 `-gcodeview`，拿不到 dbghelp 能吃的 PDB，本程序的帧只能事后用 `addr2line`（认 DWARF）解析，所以采样器只记 RVA，符号化离线做。
+6. PowerShell 里 `[uint64]` 变量做 `--` 会变成 `Decimal`，`'{0:x}' -f` 报 "Format specifier was invalid"。改成 `[uint64]($x - 1)`。
+
+## 量到的卡顿（2026-11-01）
+
+三跑的步骤耗时（`actionMs`）与卡顿（`gapMs`）：
 
 | 步骤 | 第 1 跑 | 第 2 跑 | 第 3 跑 | 卡顿 |
 | --- | --- | --- | --- | --- |
@@ -74,146 +65,143 @@ pwsh -File tools/symbolize-stalls.ps1 `
 | `presets:read-store-3` | 2292.4 ms | 2308.4 ms | 2306.3 ms | 2301–2334 ms |
 | `nav:settings` | 2897.2 ms | 12.3 ms | 10.9 ms | 2909 ms（只有第 1 跑） |
 
-第 1 跑同时是**修完符号之后**的第一跑；第 2、3 跑是同一份 exe 又跑的两趟
-（`-Runs 2`），用来分清"每次都这样"和"就那一次"。
+八份栈里七份的本程序帧都指到了函数 + 行号。
 
-## 逐条读栈
-
-### `presets:read-store-1/2/3`：约 2.3 s，主线程一份一份读 manifest
+### 预设 store 同步读：约 2.3 s
 
 ```
-ntdll!NtReadFile
-KERNELBASE!ReadFile
-Qt6Core!QFileDevice::readData
-Qt6Core!QIODevice::read
-Presets::loadManifest(QString const&, QString const&, bool*, QString*)  PresetStore.cpp:410
-Presets::list(QString const&, QList<Presets::BrokenPreset>*)              PresetStore.cpp:502
+ntdll!NtReadFile → KERNELBASE!ReadFile → Qt6Core!QFileDevice::readData → QIODevice::read
+Presets::loadManifest   PresetStore.cpp
+Presets::list
 ```
 
-`Presets::list()` 的写法是：先读下标，再按下标里的 id **逐个** `loadManifest()`，
-每份都 `QFile::open` + `read` + JSON 解析。1000 份 ≈ 2.3 s，摊下来 ≈ 2.3 ms/份，
-和三趟完全一致（唯一有波动的是内存回收那一类栈：`RtlFreeHeap` / `NtFreeVirtualMemory`）。
+当时 `Presets::list()` 先读下标，再按 id 逐个 `loadManifest()`（`QFile::open` + `read` + JSON 解析），1000 份约 2.3 s，每份约 2.3 ms，三趟一致。预设页走异步的 `Presets::CatalogLoader`，同步入口 `PresetController::availablePresets()` / `installPickerData()` 直接调 `list()`。现状见 [PRESET_LIST_IO.md](PRESET_LIST_IO.md)。
 
-这不是"用户点一下就冻结 2.3 s"：预设页走的是异步的 `Presets::CatalogLoader`
-（同一个步骤 `presets:start-background-store` 在 0 ms 内返回，回调另算）。
-但同步入口还在——`PresetController::availablePresets()` /
-`installPickerData()` / `PresetController.cpp:1327` 都是直接调 `list()`
-（`PresetController.hpp:194` 已经写了这事的代价）。所以这一条栈的用处是：
-**卡多少、卡在哪个函数**现在有实测背书，不是靠估。
-
-### `presets:prepare-store-1000`：约 1.7 s，一次卡在 `FlushFileBuffers`
+### 预设 store 同步写：约 1.7 s
 
 ```
-ntdll!NtFlushBuffersFile
-KERNELBASE!FlushFileBuffers
-Qt6Core!QSaveFile::commit
-writeBytesAtomic                                                        PresetStore.cpp:64
-Presets::saveManifest(QString const&, Presets::PresetManifest const&)    PresetStore.cpp:462
+ntdll!NtFlushBuffersFile → KERNELBASE!FlushFileBuffers → Qt6Core!QSaveFile::commit
+writeBytesAtomic → Presets::saveManifest
 ```
 
-另两跑里同一处栈顶换成 `ZwQueryFullAttributesFile` → `QFileInfo::isSymLink`
-（`QSaveFile` 提交前问一下目标是不是符号链接）。两者都是"1000 次落盘"里的**某一次**：
-`QSaveFile::commit()` 会 `FlushFileBuffers`，也就是每次写都要等一次同步刷盘。
-1000 份 ≈ 1.7 s，摊下来 ≈ 1.7 ms/份。
+另两跑栈顶换成 `ZwQueryFullAttributesFile` → `QFileInfo::isSymLink`（`QSaveFile` 提交前问目标是不是符号链接）。1000 份约 1.7 s，每份约 1.7 ms，每次写都等一次同步刷盘。store 的形状是"一份预设一个文件 + 每次写都刷盘"：单份成本不高，份数多又在主线程上就是秒级。
 
-这一条和上面那条合起来说明：store 的形状是"一份预设一个文件 + 每次写都刷盘"，
-单份成本不高，**份数一多、又在主线程上，就是秒级**。
-
-### `nav:instances`：约 280 ms，第一次画中文时查字形回退
+### `nav:instances`：约 280 ms，首次画中文时查字形回退
 
 ```
 DWrite.dll（十几帧，没有导出符号）
 Qt6Gui!QWindowsDirectWriteFontDatabase::populateFamily
 Qt6Gui!QPlatformFontDatabase::fallbacksForFamily
-Qt6Gui!QFontEngineMulti::ensureFallbackFamiliesQueried
-Qt6Gui!QFontEngineMulti::stringToCMap
+Qt6Gui!QFontEngineMulti::ensureFallbackFamiliesQueried → stringToCMap
 ```
 
-代价在字体引擎那一侧，不在我们的代码里；三趟都在 272–284 ms，很稳定。
-和 [主页那颗箭头](../PERFORMANCE.md) / [界面正文里的回退字形](../PERFORMANCE.md)那两节是同一类成本。
+成本在字体引擎一侧，三趟都在 272–284 ms。与 [PERFORMANCE.md](../PERFORMANCE.md) 的"主页那颗箭头""界面正文里的回退字形"同类。
 
 ### `scan:java`：约 100 ms，主线程等子进程
 
-```
-ntdll!ZwCreateUserProcess / ZwWaitForMultipleObjects
-KERNELBASE!CreateProcessW / WaitForMultipleObjectsEx
-Qt6Core!QProcess::waitForFinished
-runProcess                          GlobalJavaSettings.cpp:95
-verifyJavaExecutable                GlobalJavaSettings.cpp:132
-GlobalJavaSettings::probeJavaMajorVersion                            GlobalJavaSettings.cpp:605
-GlobalJavaSettings::scanLocalJavaVersions                            GlobalJavaSettings.cpp:843/865
-```
-
-同一步骤三跑分别 108 / 81 / 97 ms，卡进去的那一帧有时是建进程、有时是等进程退出。
-也就是说这一步**天然是同步的**：它在主线程上把 java 拉起来问版本再等它退出。
+栈：`QProcess::waitForFinished` ← `runProcess` ← `verifyJavaExecutable` ← `GlobalJavaSettings::probeJavaMajorVersion` ← `scanLocalJavaVersions`（`GlobalJavaSettings.cpp`）。三跑 108 / 81 / 97 ms，卡进去的一帧有时是建进程、有时是等进程退出。这一步在主线程同步拉起 java 问版本再等它退出。
 
 ### `tasks:open-200`：约 80 ms，造 200 行任务控件
 
-```
-Qt6Widgets!QLabel / QFrame 构造
-Qt6Widgets!QWidget::ensurePolished → QLayout::totalSizeHint → QWidgetItem::geometry
-ElidedLabel::ElidedLabel(QWidget*)   ui/ElidedLabel.hpp:27
-TaskCenterPanel::showEmbedded()      ui/TaskCenterPanel.cpp:649
-```
+栈：`QLabel` / `QFrame` 构造、`QWidget::ensurePolished` → `QLayout::totalSizeHint`、`ElidedLabel::ElidedLabel`、`TaskCenterPanel::showEmbedded()`。都在"造 200 行控件、逐层问 sizeHint"这条路上。
 
-栈里还夹着 `QScrollBar` 的样式动画帧和内联进来的析构——都在"造 200 行控件、
-逐层问 sizeHint"这条路上。
+## 起线程偶尔要 3 秒（未解决，只记现象）
 
-### `nav:settings` 那一次 2.9 s（没复现）
+`nav:settings`（第一次点设置页；`refreshList()` 有 `m_scanned` 闸，第二次起不再扫）有时 10 ms、有时 2.9 s，栈停在 `QThread::start` → `CreateThread`。
+
+两处不同的调用者撞上过：
 
 ```
-ntdll!ZwCreateThreadEx → KERNELBASE!CreateRemoteThreadEx → KERNEL32!CreateThread
+ntdll!ZwCreateThreadEx → CreateRemoteThreadEx → KERNEL32!CreateThread
 Qt6Core!QThread::start → QThreadPoolPrivate::startThread → QThreadPool::start
-JavaSettingsController::queueDiscovery(...)   src/controllers/JavaSettingsController.cpp:172
-JavaSettingsController::refreshList()         src/controllers/JavaSettingsController.cpp:131
-MainWindow::onMainTabChanged()                src/MainWindow.cpp:4462
+JavaSettingsController::queueDiscovery       (src/controllers/JavaSettingsController.cpp)
 ```
 
-`refreshList()` 只是把发现作业丢进线程池，本身不该慢；这一次却卡在"建线程"里
-2.9 s。同一份 exe 后来 8 跑 `nav:settings` 都在 10.1–12.5 ms（相差两个数量级），
-也没有证据把它归到采样器头上（开关两组同量级），经过见
-[多任务负载](P2_CONCURRENT_LOAD_20261101.md)。没复现，也没有证据指向我们
-的代码，所以只记现象：**下一次再撞见，先看是不是同一处栈，再考虑是不是扫描软件
-在拦线程创建**。栈被 `kMaxFrames = 24` 截断，最底下几帧看不到。
+```
+……同样的 CreateThread → QThread::start → QThreadPool::start
+Qt6Gui!…（QImage / PaintEngine 一带，Qt 自己在绘制路径起线程）
+Animations::paintEvent                        (ui/Animations.cpp)
+```
 
-## 采样器本身的代价
+第二份来自主线程画动画换页时，Qt 内部往全局线程池丢作业，卡 3.0 s。
 
-- `gapMs` 比 `actionMs` 大 1.9–86.6 ms（三跑 22 份栈，中位 25.6 ms）。差值里含 10 ms 轮询粒度、
-  暂停/走栈/放行的开销，以及"心跳是看门狗打"带来的相位差。没有哪一份出现
-  数量级的放大。
-- 暂停期间不查符号（只 `StackWalk64`），放行之后才 `SymFromAddr`——这是刻意的，
-  见文件头的注释。
-- 只在探针构建里存在：`WTFML_PERF_PROBE` 打开才会编 `StallSampler.cpp`
-  并链 `dbghelp`，产品构建里一行都没有。
+20 跑 `nav:settings`：
 
-## 踩过的坑（写下来省下一次）
+| 组 | `nav:settings` | 其中 > 1 s |
+| --- | --- | --- |
+| 不加任何东西 | 6 跑 2.91–3.41 s，其余 10–11 ms | **6/20** |
+| 第一步先起一颗线程池线程（临时探针步骤） | 全部 9.0–10.7 ms | **0/20** |
+| 同上，看任何一步 | —— | **2/20**（都在 `nav:instances`，2.4 s / 3.0 s） |
 
-1. **`SYMBOL_INFO::Name` 声明成 `CHAR Name[1]`**。直接
-   `QString::fromLatin1(symbol->Name)` 会被 Qt 6 挑成"按数组长度取"的那个重载，
-   长度恒为 1——量到的是一串首字母（`C`、`S`、`N`）。先退化成
-   `const char *` 并带上 `NameLen` 才对。这个坑的样子很迷惑：同一个地址用
-   `printf("%s")` 打出来是完整的 `CreateProcessInternalW`，一进 QString 就剩 `C`。
-2. **栈里除第一帧外都是返回地址**，指向调用指令的下一条。不 `-1` 就查，会落到下一行
-   甚至下一个函数头上，表现为满屏 `~QString()`、`~QList()` 这种噪声。第一次跑出来的
-   栈有一半是这种垃圾。
-3. **`addr2line` 要 `-i`**：取内联链的**最后**一行才是真正写这段代码的函数
-   （前面几行是它内联进去的小函数）。配合 `-a` 才能按地址分组解析一批。
-4. **dbghelp 对系统 DLL 只有导出表**：地址落在某个导出函数中间时，它给的是
-   "最近的导出 + 位移"。所以报告里的系统帧写成 `符号+0x偏移`，别把偏移大的那些
-   当成精确的当前函数（`QScrollbarStyleAnimation::qt_metacall+0x178f1` 显然是别的函数）。
-5. **GCC 13.1 不支持 `-gcodeview`**（`unrecognized debug output level 'codeview'`），
-   所以拿不到 dbghelp 能直接吃的 PDB，本程序的帧只能事后用 `addr2line` 解析
-   （它认 DWARF）。这决定了工具形状：采样器只记 RVA，符号化离线做。
-6. **PowerShell 里 `[uint64]` 变量 `--` 会变成 `Decimal`**，然后 `'{0:x}' -f` 报
-   "Format specifier was invalid"。改成 `[uint64]($x - 1)`。
+- 双峰：要么约 10 ms，要么 2.9–3.4 s，没有过渡带。
+- 一个最小 Qt 控制台程序，每 200 ms 建一个线程、连建 80 个、跑 3 趟共 240 次，没有一次超过 100 ms；第一发 `QtConcurrent::run` 0–1 ms。所以建线程本身在这台机器上是快的，慢的是这个 GUI 进程在那一刻建线程。
+- 预热线程池把卡顿从 `nav:settings` 挪到了 `nav:instances`，没有净改善，所以产品里没加预热。
+- 线索：机器上 `root/SecurityCenter2` 报了 Kaspersky（productState 266240）与 Windows Defender。杀毒软件 hook 线程创建时，`CreateThread` 会在内核里等它扫完，值聚集在 3 s 附近像带超时的外部介入。没有关防护验证（硬约束）。
 
-## 没验到 / 边界
+下一步：
 
-- 只在**探针步骤**里采过栈，没有在真机上手点界面时采样（探针步骤覆盖的是同一批
-  入口，但不是用户鼠标操作的那一条时序）。
-- 阈值写死 50 ms、一次卡顿一份、最多 32 份；更细的分布（同一段卡顿里各帧的概率）
-  没有统计。
-- `kMaxFrames = 24`：`nav:settings` 那次栈底被截断；主线程在很深的事件循环里的栈
-  可能看不到 `main`。
-- Windows 系统 DLL 的帧没有可靠符号，只有导出名 + 位移；`DWrite.dll` 这类完全没符号。
-- 没有做"按栈聚合"的统计报表（同一个栈出现几次是脚本里按帧串去重数出来的）。
+1. 把构建目录加进 Kaspersky 排除项再跑 20 次（要用户点头，改的是别人的防护）。
+2. 在没有第三方防护的干净虚拟机上跑 20 次。
+3. ETW：`Microsoft-Windows-Kernel-Process` / minifilter 事件，看 `CreateThread` 那 3 s 里谁在占着（需管理员权限）。
+4. 确认是外部介入后，产品侧只能"少在点击路径上建线程"，但预热实验已显示代价会挪到别处。
+
+复现（20 跑，看 `nav:settings` 是否双峰）：
+
+```powershell
+pwsh -File tools/perf-startup.ps1 -Probe `
+  -Exe build/tmp-wtfml-probe/WTFMinecraftLauncher.exe `
+  -Runs 20 -Warmup 0 -Instances 200 -InstanceMeta -StallSeconds 2 `
+  -ReportDir build/tmp-wtfml-controlprobe2
+```
+
+## 后台目录加载时界面还点得动吗
+
+以前探针是串行的，后台目录加载那一步会把后面的步骤全挡住（`runNext()` 里等异步目录回来），所以"预设页转圈时点翻页"从没量过。
+
+`src/perf/PerfProbe.cpp` 的改动：
+
+1. `runNext()` 不再在 `m_asyncCatalogPending` 时原地等，只有"步骤全走完、后台还没回来"才等（有上限）。
+2. 同一串翻页动作（home → instances → download → settings 转两圈）跑两趟：`concurrent:calm-01..08`（空载）→ `presets:start-background-store`（起真正的 `Presets::CatalogLoader`）→ `concurrent:busy-01..08`（加载中）。
+3. 每步记 `loadActive`，报告里 `concurrentWorkload.busyDuringLoad` 说明"加载中"那趟有几发真的在加载中。
+
+报告字段：
+
+```json
+"concurrentWorkload": {
+  "source": "nav-cycle",
+  "calm": {"count": 8, "avgMs": 3.0, "maxMs": 4.4},
+  "busy": {"count": 8, "avgMs": 3.6, "maxMs": 4.2},
+  "busyDuringLoad": 8,
+  "catalogElapsedMs": 2349
+}
+```
+
+10 跑（`-Instances 200`，当时每次读盘 2.3 s、1000 份 manifest，`busyDuringLoad` 全是 8/8）：
+
+| 组 | 空载 avg / max | 加载中 avg / max | 空载重画 | 加载中重画 | 加载中主线程最大间隔 |
+| --- | --- | --- | --- | --- | --- |
+| 多任务 | 3.2 / 4.9 ms | 3.7 / 4.3 ms | 3.4 ms | 3.9 ms | 42 ms |
+| 多任务 | 3.2 / 5.6 ms | 3.9 / 4.8 ms | 3.3 ms | 4.1 ms | 40 ms |
+| 采样开 | 3.0 / 4.4 ms | 3.6 / 4.2 ms | 3.4 ms | 3.9 ms | 40 ms |
+| 采样开 | 3.0 / 4.8 ms | 3.6 / 4.5 ms | 3.4 ms | 3.9 ms | 38 ms |
+| 采样开 | 3.0 / 4.5 ms | 3.6 / 4.1 ms | 3.4 ms | 4.1 ms | 42 ms |
+| 采样开 | 3.0 / 4.2 ms | 3.8 / 4.4 ms | 4.9 ms | 4.0 ms | 44 ms |
+| 采样关 | 3.3 / 4.6 ms | 3.7 / 4.5 ms | 3.4 ms | 3.9 ms | 40 ms |
+| 采样关 | 3.2 / 4.3 ms | 3.8 / 4.2 ms | 3.4 ms | 4.5 ms | 37 ms |
+| 采样关 | 3.1 / 5.1 ms | 3.8 / 4.2 ms | 3.5 ms | 4.8 ms | 41 ms |
+| 采样关 | 2.9 / 4.4 ms | 3.6 / 4.0 ms | 3.5 ms | 4.1 ms | 38 ms |
+
+- 加载中翻页每次 3.6–3.9 ms，空载 2.9–3.3 ms，多 0.5–0.8 ms，10 跑方向一致，绝对值 4 ms 以内。
+- 整窗重画多 0.5–0.9 ms（3.3–3.5 → 3.9–4.8 ms）；空载重画那格 4.9 ms 是单发噪声，趋势只说均值。
+- 加载期间主线程心跳最大间隔 37–44 ms（采栈阈值 50 ms），没采到卡顿栈。
+- 同一个 store 同步读一趟是 2.3 s，后台化的收益差三个数量级。
+
+## 未覆盖
+
+| 项 | 状态 |
+| --- | --- |
+| 真机手点界面时采样 | 只在探针步骤里采过，不是用户鼠标操作的时序 |
+| 后台作业的种类 | 只有预设目录读盘一种；下载、实例扫描、启动游戏、多路并发没测 |
+| 加载中的动画掉帧 | 没量，只量了"点下去这一下"和整窗重画 |
+| 更细的卡顿分布 | 阈值写死 50 ms、一次一份、最多 32 份；没有按栈聚合的统计报表 |
+| 系统 DLL 帧 | 只有导出名 + 位移，`DWrite.dll` 完全没符号 |
