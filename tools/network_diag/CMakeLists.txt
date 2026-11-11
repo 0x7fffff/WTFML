@@ -10,6 +10,7 @@ add_library(wtfml_network_diag_core STATIC
     # also require the shared directory/path implementation; keep this target
     # complete when built without the launcher or verification runtimes.
     ../../src/auth/TokenStore.cpp
+    ../../src/util/SecretProtector.cpp ../../src/util/SecretProtector.hpp
     ../../src/manage/InstanceFiles.cpp
     ../../src/launcher/VersionInheritance.cpp
     ../../src/util/ZipUtil.cpp
