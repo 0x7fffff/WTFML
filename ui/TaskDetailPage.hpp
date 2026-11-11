@@ -105,6 +105,7 @@ private:
     QLabel *m_bytesLabel = nullptr;
     QLabel *m_timeLabel = nullptr;
     QLabel *m_errorLabel = nullptr;
+    QLabel *m_errorTitle = nullptr;  ///< 「出了什么问题」小标题（和下面那块一起露）
     TaskProgressBar *m_bar = nullptr;
     QPushButton *m_cancelButton = nullptr;
     QPushButton *m_retryButton = nullptr;
