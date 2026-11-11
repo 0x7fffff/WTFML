@@ -3,6 +3,7 @@
 
 #include "Animations.hpp"  // 换页 / 展开折叠 / 上拉面板那几段动效
 #include "ElidedLabel.hpp"
+#include "Glass.hpp"
 #include "InstanceGroupDelegate.hpp"
 #include "MemorySlider.hpp"
 #include "OverlayHost.hpp"
@@ -479,12 +480,17 @@ void applyBottomBarButtonStyle(QPushButton *button, const QPalette &barPalette) 
     hover.setAlpha(48);
     QColor pressed = barPalette.color(QPalette::Highlight);
     pressed.setAlpha(96);
+    // 工具箱那颗是一个独立的小按钮：两边留 14 px，焦点框和悬停底都不压字；圆角和别的按钮一套。
+    // 任务摘要那颗是铺满中间那一格的区域按钮，照旧不留边。
+    const bool compact = button->objectName() == MainWindowUI::toolboxButtonName();
     button->setStyleSheet(
         QStringLiteral("QPushButton { border: none; background: transparent; text-align: left; "
-                       "padding: 0; }"
+                       "padding: %3; border-radius: %4px; }"
                        "QPushButton:hover { background-color: %1; }"
                        "QPushButton:pressed { background-color: %2; }")
-            .arg(hover.name(QColor::HexArgb), pressed.name(QColor::HexArgb)));
+            .arg(hover.name(QColor::HexArgb), pressed.name(QColor::HexArgb),
+                 compact ? QStringLiteral("0 14px") : QStringLiteral("0"))
+            .arg(compact ? Theme::controlRadius() : 0));
     // 登记**只能登记一次**，所以这里用属性当闸门 —— 这个函数本身就在"主题变了"的回调
     // 那一支上（下面那条 lambda），里面那句 `setStyleSheet()` 又发一次 `StyleChange`。
     // 把 `Theme::follow()` 直接摆在这个函数里 ⇒ 每一趟都**再生一个**跟随者，新跟随者
@@ -1097,10 +1103,15 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     // 浅色主题和深色主题下都成立（darker() 在两种主题上的效果都是"更沉一点"）。
     // 那一档由 `Theme::partBackground(Part::BottomBar)` 说了算（用户可以把这一条
     // 单独换成别的色）。
-    bottomBar->setAutoFillBackground(true);
+    // 磨砂开着：一条玻璃（Glass 画底）；关着：照旧铺 Part::BottomBar 那一档。
+    Glass::mark(bottomBar, Glass::Kind::Bar);
+    bottomBar->setAutoFillBackground(!Glass::enabled());
     bottomBar->setPalette(bottomBarChromePalette());
     // 底栏是**常驻**的（不像浮层那样每次现建）⇒ 主题一换它得自己重算一遍。
-    Theme::follow(bottomBar, [this]() { bottomBar->setPalette(bottomBarChromePalette()); });
+    Theme::follow(bottomBar, [this]() {
+        bottomBar->setAutoFillBackground(!Glass::enabled());
+        bottomBar->setPalette(bottomBarChromePalette());
+    });
 
     QHBoxLayout *barLayout = new QHBoxLayout(bottomBar);
     barLayout->setContentsMargins(12, 6, 12, 6);
@@ -1269,7 +1280,8 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
         taskExtraLabel->setPalette(extraPalette);
     }
     taskTextRow->addWidget(taskExtraLabel, 0, Qt::AlignVCenter);
-    taskTextRow->addWidget(makeChevronLabel(taskSummaryButton), 0, Qt::AlignVCenter);
+    // 这一格不再挂朝上的小箭头：它离那句状态隔了大半条底栏，看上去是一个不知所指的「^」。
+    // 整格本身就是按钮（悬停有底色、有提示），点开任务中心不靠那颗箭头提示。
     taskLayout->addLayout(taskTextRow);
 
     // 下面那一行：自绘的细轨道 + 右边一格百分比（底栏 / 面板 / 详情页三处统一到
