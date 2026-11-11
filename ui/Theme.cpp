@@ -1435,9 +1435,9 @@ void markBadge(QLabel *label, BadgeTone tone) {
         switch (tone) {
         case BadgeTone::Neutral: break;
         case BadgeTone::Accent: bg = t.selected; ink = t.deep; break;
-        case BadgeTone::Ok: bg = t.okSoft; ink = t.ok; break;
-        case BadgeTone::Warn: bg = t.warnSoft; ink = t.warn; break;
-        case BadgeTone::Danger: bg = t.dangerSoft; ink = t.danger; break;
+        case BadgeTone::Ok: bg = t.okSoft; ink = textTone(t.okInk, t.ok); break;
+        case BadgeTone::Warn: bg = t.warnSoft; ink = textTone(t.warnInk, t.warn); break;
+        case BadgeTone::Danger: bg = t.dangerSoft; ink = textTone(t.dangerInk, t.danger); break;
         }
         label->setStyleSheet(QStringLiteral("QLabel { background-color: %1; color: %2; border-radius: 11px; padding: 0 9px; }")
                                  .arg(bg.name(QColor::HexArgb), ink.name(QColor::HexArgb)));
