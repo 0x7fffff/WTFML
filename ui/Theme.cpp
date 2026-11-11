@@ -46,40 +46,77 @@ Tokens tokens(const QString &id) {
         return tokens(platformColorSchemeDark() ? QStringLiteral("dark")
                                                 : QStringLiteral("emerald"));
     }
+    // 三主题色值照抄设计稿第二批 tokens.md（窗口底 = 模糊风景 + page 着色，控件层叠在上面）。
+    const auto rgba = [](int r, int g, int b, qreal a) { QColor c(r, g, b); c.setAlphaF(a); return c; };
     if (id == QLatin1String("dark")) {
-        // 暮紫：低饱和，白字压在主色上 ≥ 4.6:1；浅一档 #AFB2E0 给强调字与焦点环。
-        static const Tokens dark = {QColor("#6A6C9E"), QColor("#3A3D58"), QColor("#7577AB"), QColor("#5D5F8E"),
-                QColor("#1B1F27"), QColor("#1F232C"), QColor("#262B35"), QColor("#2B303B"),
-                QColor("#313744"), QColor("#3A3E57"), QColor("#232832"), QColor("#DCDFE8"),
-                QColor("#A3A8B8"), QColor("#7C8191"), QColor("#4A4F60"), QColor("#343947"),
-                QColor("#AFB2E0"), QColor("#535868"), QColor("#262B34"), QColor("#242C32"),
-                QColor("#303D46"), QColor("#171E23"), QColor("#99A9B3"), QColor("#4C6573"), QColor("#34434B")};
+        // 暮紫：浅薰衣草主按钮配深字（8.6:1），强调字同色。
+        static const Tokens dark = {
+            .primary = QColor("#B7B3EE"), .deep = QColor("#B7B3EE"), .primaryHover = QColor("#C6C3F4"),
+            .primaryPressed = QColor("#A5A1E2"),
+            .page = QColor("#10121A"), .main = QColor("#10121A"), .card = QColor("#1F212F"),
+            .subtle = rgba(255, 255, 255, .07), .hover = rgba(255, 255, 255, .055), .selected = rgba(183, 179, 238, .22),
+            .input = rgba(255, 255, 255, .07),
+            .text = QColor("#E8E9F1"), .secondary = QColor("#A9ADBF"), .disabled = QColor("#7B8095"),
+            .stroke = rgba(255, 255, 255, .13), .divider = rgba(255, 255, 255, .07), .focus = rgba(183, 179, 238, .60),
+            .thumb = rgba(255, 255, 255, .20), .track = QColor(Qt::transparent),
+            .logWindow = QColor("#242C32"), .logToolbar = QColor("#303D46"), .logBase = QColor("#171E23"),
+            .logHint = QColor("#99A9B3"), .logBorder = QColor("#4C6573"), .logDivider = QColor("#34434B"),
+            .onPrimary = QColor("#1C1B30"), .accentSoft2 = rgba(183, 179, 238, .09), .fillPress = rgba(255, 255, 255, .09),
+            .fillSoftHover = rgba(255, 255, 255, .11),
+            .ok = QColor("#86CFA6"), .warn = QColor("#E6BE73"), .danger = QColor("#F09393"),
+            .okSoft = rgba(134, 207, 166, .14), .warnSoft = rgba(230, 190, 115, .14), .dangerSoft = rgba(240, 147, 147, .14),
+            .dangerSolid = QColor("#A8585E"), .dangerSolidHover = QColor("#B4646A"), .dangerSolidPressed = QColor("#984F55"),
+            .onDanger = QColor("#FFF4F4"),
+            .glass = rgba(36, 38, 54, .74), .glassEdge = rgba(255, 255, 255, .10), .scrim = rgba(8, 9, 14, .55),
+            .heroInk = QColor("#F4F3FA"), .heroInk2 = rgba(236, 235, 248, .78), .heroVeil = QColor(10, 11, 18),
+            .heroScrim = .30, .heroTop = .42, .railFog = 0.0, .groundShade = QColor(6, 6, 14), .groundGlint = .10};
         return dark;
     }
     if (id == QLatin1String("ocean")) {
         // 雾蓝。
-        static const Tokens ocean = {QColor("#4A7396"), QColor("#3F6383"), QColor("#43698A"), QColor("#395A77"),
-                QColor("#F3F6F9"), QColor("#F7F9FB"), QColor("#FFFFFF"), QColor("#E2EAF2"),
-                QColor("#EAF0F6"), QColor("#D5E1EC"), QColor("#FFFFFF"), QColor("#263443"),
-                // 海洋蓝这一支：`#9AABBB` 压在 `subtle` #E1EDF9 上只有 **1.98:1**，
-                // 低于 3:1 底线（ui_check 按**当前这一档**现算）⇒ 这一位用 `#6E7E90`（**3.50:1**）。
-                // 翡翠那一支同理（`#6B7D76`，见下面 emerald 那段★）。
-                QColor("#55687A"), QColor("#6E7E90"), QColor("#B3C6D8"), QColor("#DBE4EE"),
-                QColor("#4A7396"), QColor("#B0C2D3"), QColor("#EEF2F6"), QColor("#F3F8FD"),
-                QColor("#E1EDF9"), QColor("#FDFEFF"), QColor("#6B7B8B"), QColor("#91B8E0"), QColor("#BCD2EC")};
+        static const Tokens ocean = {
+            .primary = QColor("#4A7396"), .deep = QColor("#436C8F"), .primaryHover = QColor("#43698A"),
+            .primaryPressed = QColor("#395A77"),
+            .page = QColor("#F1F5F9"), .main = QColor("#F1F5F9"), .card = QColor("#F9FBFD"),
+            .subtle = rgba(255, 255, 255, .58), .hover = rgba(26, 52, 80, .05), .selected = rgba(56, 124, 190, .17),
+            .input = rgba(255, 255, 255, .58),
+            .text = QColor("#1F2C3A"), .secondary = QColor("#465769"), .disabled = QColor("#8D9AA8"),
+            .stroke = rgba(26, 50, 78, .16), .divider = rgba(26, 50, 78, .09), .focus = rgba(74, 115, 150, .55),
+            .thumb = rgba(26, 50, 78, .22), .track = QColor(Qt::transparent),
+            .logWindow = QColor("#EEF2F6"), .logToolbar = QColor("#F3F8FD"), .logBase = QColor("#FDFEFF"),
+            .logHint = QColor("#6B7B8B"), .logBorder = QColor("#91B8E0"), .logDivider = QColor("#BCD2EC"),
+            .onPrimary = QColor("#FFFFFF"), .accentSoft2 = rgba(74, 115, 150, .08), .fillPress = rgba(26, 52, 80, .09),
+            .fillSoftHover = rgba(255, 255, 255, .80),
+            .ok = QColor("#2E875A"), .warn = QColor("#A16D1A"), .danger = QColor("#BC5246"),
+            .okSoft = rgba(46, 135, 90, .12), .warnSoft = rgba(161, 109, 26, .12), .dangerSoft = rgba(188, 82, 70, .12),
+            .dangerSolid = QColor("#A4524A"), .dangerSolidHover = QColor("#964A43"), .dangerSolidPressed = QColor("#86413B"),
+            .onDanger = QColor("#FFFFFF"),
+            .glass = rgba(249, 251, 253, .80), .glassEdge = rgba(255, 255, 255, .75), .scrim = rgba(30, 44, 60, .22),
+            .heroInk = QColor("#172433"), .heroInk2 = rgba(23, 36, 51, .82), .heroVeil = QColor(240, 245, 250),
+            .heroScrim = .78, .heroTop = .80, .railFog = .45, .groundShade = QColor(20, 40, 34), .groundGlint = .35};
         return ocean;
     }
     // 青瓷。
-    static const Tokens emerald = {QColor("#457F70"), QColor("#3A6B5F"), QColor("#3E7466"), QColor("#34625A"),
-            QColor("#F3F7F5"), QColor("#F7FAF8"), QColor("#FFFFFF"), QColor("#E3EDE9"),
-            QColor("#EAF2EE"), QColor("#D6E6DF"), QColor("#FFFFFF"), QColor("#22332D"),
-            // `disabled`（第 14 位）用 `#6B7D76`：
-            // 灰掉那一档的字必须对**它自己的底**（`subtle` #D8F1E9）读得出来 ——
-            // `#94A9A0` 只有 **2.09:1**，破了这个工程钉着的那条 3:1 底线
-            // （ui_check「灰掉那一档的字对底 ≥ 3:1」）；`#6B7D76` 是 **3.67:1**。
-            QColor("#50665D"), QColor("#6B7D76"), QColor("#B7CEC5"), QColor("#DCE7E2"),
-            QColor("#457F70"), QColor("#B4C9C0"), QColor("#EEF3F0"), QColor("#F6FAF8"),
-            QColor("#E4F2EC"), QColor("#FCFEFD"), QColor("#64776D"), QColor("#9CCDBB"), QColor("#B2D6C5")};
+    static const Tokens emerald = {
+        .primary = QColor("#457F70"), .deep = QColor("#3D7A69"), .primaryHover = QColor("#3E7466"),
+        .primaryPressed = QColor("#34625A"),
+        .page = QColor("#F2F7F5"), .main = QColor("#F2F7F5"), .card = QColor("#FAFCFB"),
+        .subtle = rgba(255, 255, 255, .58), .hover = rgba(24, 60, 48, .05), .selected = rgba(46, 150, 116, .19),
+        .input = rgba(255, 255, 255, .58),
+        .text = QColor("#1D2A26"), .secondary = QColor("#44554E"), .disabled = QColor("#8C9993"),
+        .stroke = rgba(24, 56, 46, .16), .divider = rgba(24, 56, 46, .09), .focus = rgba(69, 127, 112, .55),
+        .thumb = rgba(24, 56, 46, .22), .track = QColor(Qt::transparent),
+        .logWindow = QColor("#EEF3F0"), .logToolbar = QColor("#F6FAF8"), .logBase = QColor("#FCFEFD"),
+        .logHint = QColor("#64776D"), .logBorder = QColor("#9CCDBB"), .logDivider = QColor("#B2D6C5"),
+        .onPrimary = QColor("#FFFFFF"), .accentSoft2 = rgba(69, 127, 112, .08), .fillPress = rgba(24, 60, 48, .09),
+        .fillSoftHover = rgba(255, 255, 255, .80),
+        .ok = QColor("#2E875A"), .warn = QColor("#A16D1A"), .danger = QColor("#BC5246"),
+        .okSoft = rgba(46, 135, 90, .12), .warnSoft = rgba(161, 109, 26, .12), .dangerSoft = rgba(188, 82, 70, .12),
+        .dangerSolid = QColor("#A4524A"), .dangerSolidHover = QColor("#964A43"), .dangerSolidPressed = QColor("#86413B"),
+        .onDanger = QColor("#FFFFFF"),
+        .glass = rgba(250, 252, 251, .80), .glassEdge = rgba(255, 255, 255, .75), .scrim = rgba(30, 50, 44, .22),
+        .heroInk = QColor("#16241F"), .heroInk2 = rgba(22, 36, 31, .82), .heroVeil = QColor(240, 246, 243),
+        .heroScrim = .78, .heroTop = .80, .railFog = .45, .groundShade = QColor(20, 40, 34), .groundGlint = .35};
     return emerald;
 }
 
@@ -481,6 +518,18 @@ class WtfmlProxyStyle : public QProxyStyle
 public:
     using QProxyStyle::QProxyStyle;
 
+    /// 设计稿：按钮、胶囊、分段用霞鹜文楷 15 px。代码里自己 setFont 过的（启动大按钮之类）不动。
+    void polish(QWidget *w) override
+    {
+        QProxyStyle::polish(w);
+        auto *button = qobject_cast<QPushButton *>(w);
+        if (button == nullptr || button->testAttribute(Qt::WA_SetFont)) return;
+        QFont font = handFont(button->font(), HandFont::Kai);
+        font.setPixelSize(15);
+        button->setFont(font);
+    }
+    using QProxyStyle::polish;
+
     /// "这一条原语该不该由我们画成那块浅灰"—— 是的话给出那一份 option，不是给 nullptr。
     ///
     /// 判据和基样式里那两条逐字一样（`if (showDecorationSelected && State_Selected)`），
@@ -520,25 +569,33 @@ public:
                        const QWidget *w) const override
     {
         if ((pe == PE_IndicatorCheckBox || pe == PE_IndicatorItemViewItemCheck) && opt && p) {
+            // 设计稿：18 px、圆角 5；空心 1.5 px ink-3 描边，悬停垫中性灰、描边转 ink-2；
+            // 勾上 = 强调色实心 + on-accent 勾；禁用整体 .45。
+            const Tokens t = tokens();
             const bool enabled = opt->state & State_Enabled;
-            const bool checked = opt->state & State_On;
-            const bool mixed = opt->state & State_NoChange;
-            const QColor ink = opt->palette.color(!enabled ? QPalette::PlaceholderText
-                                                 : checked || mixed ? QPalette::Link : QPalette::Text);
-            const QRectF box = QRectF(opt->rect).adjusted(0.8, 0.8, -0.8, -0.8);
+            const bool on = opt->state & (State_On | State_NoChange);
+            const bool hover = enabled && (opt->state & State_MouseOver);
+            const bool down = enabled && (opt->state & State_Sunken);
+            const QRectF box = QRectF(opt->rect).adjusted(0.75, 0.75, -0.75, -0.75);
             p->save();
             p->setRenderHint(QPainter::Antialiasing, true);
-            p->setPen(QPen(ink, 1.2));
-            p->setBrush(opt->palette.color(enabled ? QPalette::Base : QPalette::Button));
-            p->drawRoundedRect(box, 2.5, 2.5);
-            p->setPen(QPen(ink, 1.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+            if (!enabled) p->setOpacity(0.45);
+            if (on) {
+                p->setPen(Qt::NoPen);
+                p->setBrush(accentShade(AccentShade::Pure));
+            } else {
+                p->setPen(QPen(hover ? t.secondary : t.disabled, 1.5));
+                p->setBrush(down ? t.fillPress : hover ? t.hover : QColor(Qt::transparent));
+            }
+            p->drawRoundedRect(box, 5, 5);
+            p->setPen(QPen(t.onPrimary, 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
             const auto point = [&box](qreal x, qreal y) {
                 return QPointF(box.left() + box.width() * x, box.top() + box.height() * y);
             };
-            if (mixed) p->drawLine(point(0.25, 0.5), point(0.75, 0.5));
-            else if (checked) {
-                QPainterPath tick; tick.moveTo(point(0.22, 0.51));
-                tick.lineTo(point(0.43, 0.72)); tick.lineTo(point(0.79, 0.28));
+            if (opt->state & State_NoChange) p->drawLine(point(0.28, 0.5), point(0.72, 0.5));
+            else if (on) {
+                QPainterPath tick; tick.moveTo(point(0.25, 0.52));
+                tick.lineTo(point(0.43, 0.70)); tick.lineTo(point(0.76, 0.32));
                 p->drawPath(tick);
             }
             p->restore();
@@ -871,8 +928,15 @@ void paintSelectionRail(QPainter *painter, const QRect &rowRect) {
     if (painter == nullptr || rowRect.height() <= 0 || selectionBarThickness() <= 0) {
         return;
     }
-    painter->fillRect(QRect(0, rowRect.top(), selectionBarThickness(), rowRect.height()),
-                      selectionBar());
+    // 设计稿：离左缘 3 px、上下各缩三成的圆头短条（导航项、列表行同一语言）。
+    const int inset = qRound(rowRect.height() * 0.3);
+    const QRectF bar(3, rowRect.top() + inset, selectionBarThickness(), qMax(8, rowRect.height() - 2 * inset));
+    painter->save();
+    painter->setRenderHint(QPainter::Antialiasing, true);
+    painter->setPen(Qt::NoPen);
+    painter->setBrush(selectionBar());
+    painter->drawRoundedRect(bar, selectionBarThickness() / 2.0, selectionBarThickness() / 2.0);
+    painter->restore();
 }
 
 QPalette selectionPalette(const QPalette &palette, bool selected) {
@@ -998,6 +1062,8 @@ QString buttonKindKey(ButtonKind kind) {
         return QStringLiteral("ghost");
     case ButtonKind::Danger:
         return QStringLiteral("danger");
+    case ButtonKind::DangerSolid:
+        return QStringLiteral("dangerSolid");
     case ButtonKind::Accent:
         break;
     }
@@ -1163,39 +1229,34 @@ constexpr const char kButtonKindFollowProperty[] = "wtfmlKindFollow";
 /// 只备得起"本色 / 亮一档 / 深一档"那几个通用档位。这两档的按钮一共几十颗，
 /// 所以走**控件级样式表**：只影响它们自己，不动整份应用样式表（那才是卡顿的来源）。
 QString kindButtonStyleSheet(const QString &kind) {
+    // 设计稿：主按钮实心强调色 + on-accent 字；危险默认柔和淡红（悬停 α.22 / 按下 α.28）；
+    // 实心暗哑红只给对话框里不可逆确认。按下一律固定色，不靠亮度滤镜。
+    const Tokens t = tokens();
+    const QString block = QStringLiteral(
+        "QPushButton { background-color: %1; color: %2; border-color: transparent; }"
+        "QPushButton:hover:enabled { background-color: %3; }"
+        "QPushButton:pressed:enabled { background-color: %4; }"
+        "QPushButton[wtfmlKeyboardFocus=\"true\"]:focus { border-color: %5; }"
+        "QPushButton:disabled { background-color: %6; color: %7; border-color: transparent; }");
+    const auto css = [](const QColor &c) { return c.name(QColor::HexArgb); };
+    const auto alpha = [](QColor c, qreal a) { c.setAlphaF(a); return c; };
     if (kind == QLatin1String("primary")) {
         const QColor pure = accentShade(AccentShade::Pure);
-        const Tokens t = tokens();
-        const QColor hover = pure == t.primary ? t.primaryHover : pure.darker(108);
-        const QColor pressed = pure == t.primary ? t.primaryPressed : pure.darker(118);
-        return QStringLiteral(
-                   "QPushButton { background-color: %1; color: #ffffff; border-color: %1; }"
-                   "QPushButton:hover:enabled { background-color: %2; border-color: %2; }"
-                   "QPushButton:pressed:enabled { background-color: %3; border-color: %3; }"
-                   "QPushButton[wtfmlKeyboardFocus=\"true\"]:focus { border-color: %4; }"
-                   "QPushButton:disabled { background-color: %5; color: %6;"
-                   " border-color: transparent; }")
-            .arg(pure.name(), hover.name(), pressed.name(), t.focus.name(),
-                 disabledFillColor().name(), disabledInkColor().name());
+        const bool preset = pure == t.primary;
+        const QColor hover = preset ? t.primaryHover : (isDark() ? pure.lighter(108) : pure.darker(108));
+        const QColor pressed = preset ? t.primaryPressed : (isDark() ? pure.darker(108) : pure.darker(118));
+        return block.arg(css(pure), css(t.onPrimary), css(hover), css(pressed), css(t.focus), css(t.subtle),
+                         css(t.disabled));
     }
-    if (kind == QLatin1String("danger")) {
-        const QColor red = isDark() ? QColor("#FFB8BD") : QColor("#c02828");
-        const QColor fill = isDark() ? QColor("#493239") : QColor("#fdf1f1");
-        return QStringLiteral(
-                   "QPushButton { color: %1; background-color: %2; border-color: transparent; }"
-                   "QPushButton:hover:enabled { background-color: %3; }"
-                   "QPushButton:pressed:enabled { background-color: %4; }"
-                   "QPushButton[wtfmlKeyboardFocus=\"true\"]:focus { border-color: %1; }"
-                   "QPushButton:disabled { background-color: %5; color: %6;"
-                   " border-color: transparent; }")
-            .arg(red.name(), fill.name(), fill.darker(108).name(),
-                 fill.darker(118).name(), disabledFillColor().name(),
-                 disabledInkColor().name());
-    }
+    if (kind == QLatin1String("danger"))
+        return block.arg(css(t.dangerSoft), css(t.danger), css(alpha(t.danger, .22)), css(alpha(t.danger, .28)),
+                         css(t.danger), css(t.hover), css(t.disabled));
+    if (kind == QLatin1String("dangerSolid"))
+        return block.arg(css(t.dangerSolid), css(t.onDanger), css(t.dangerSolidHover), css(t.dangerSolidPressed),
+                         css(t.focus), css(t.subtle), css(t.disabled));
     return QString();
 }
 
-/// 把按钮当前那一档的控件级配色重算一遍（非主动作 / 危险那几档 = 清掉本地的色）。
 void syncKindButtonStyle(QWidget *button) {
     if (button == nullptr) {
         return;
@@ -1235,7 +1296,7 @@ void markButton(QWidget *button, ButtonKind kind) {
     syncKindButtonStyle(button);
     // 主动作 / 危险这两档挂过一次 `follow()` 就够了：它读按钮自己身上那个属性，
     // 以后换主题 / 换档都在同一条回调里重算（不受这一趟是哪一档影响）。
-    if ((kind == ButtonKind::Primary || kind == ButtonKind::Danger) &&
+    if ((kind == ButtonKind::Primary || kind == ButtonKind::Danger || kind == ButtonKind::DangerSolid) &&
         !button->property(kButtonKindFollowProperty).toBool()) {
         button->setProperty(kButtonKindFollowProperty, true);
         follow(button, [button]() { syncKindButtonStyle(button); });
@@ -1316,21 +1377,17 @@ void markIconButton(QWidget *button) {
 }
 
 QString chipStyleSheet(const QPalette &palette) {
-    // 那一圈边取 `Mid`（调色板里"看得见的细线"那一档）。
-    const QColor border = palette.color(QPalette::Mid);
-    QColor hover = palette.color(QPalette::Highlight);
-    hover.setAlpha(48);
-    return QStringLiteral("QPushButton { border: 1px solid %1; border-radius: %2px;"
-                          " padding: 2px 10px; background: transparent; }"
-                          // 悬停这一条要 `:!checked`：不加的话，鼠标划过**按着的**那颗
-                          // 会把实底盖成半透明的一层 —— "哪一颗是按着的"当场看不出来。
-                          "QPushButton:hover:!checked { background-color: %3; }"
-                          "QPushButton:checked { background-color: %4; color: %5;"
-                          " border-color: %4; }")
-        .arg(border.name(QColor::HexArgb))
-        .arg(chipHeight() / 2)
-        .arg(hover.name(QColor::HexArgb), palette.color(QPalette::Highlight).name(QColor::HexArgb),
-             palette.color(QPalette::HighlightedText).name(QColor::HexArgb));
+    // 设计稿胶囊：1px line-2 描边 + ink-2 字；悬停中性灰 + ink；按下 fill-press；
+    // 选中 = 强调色淡底 + 强调字、无描边。
+    const auto c = [&palette](QPalette::ColorRole role) { return palette.color(role).name(QColor::HexArgb); };
+    return QStringLiteral("QPushButton { border: 1px solid %1; border-radius: %2px; padding: 2px 14px;"
+                          " background: transparent; color: %3; }"
+                          "QPushButton:hover:!checked { background-color: %4; color: %5; }"
+                          "QPushButton:pressed:!checked { background-color: %6; color: %5; }"
+                          "QPushButton:checked { background-color: %7; color: %8; border-color: transparent; }")
+        .arg(c(QPalette::Dark)).arg(chipHeight() / 2)
+        .arg(c(QPalette::PlaceholderText), c(QPalette::Light), c(QPalette::WindowText), c(QPalette::Midlight),
+             c(QPalette::Highlight), c(QPalette::Link));
 }
 
 void markChipButton(QPushButton *button) {
@@ -1444,7 +1501,7 @@ QString widgetStyleSheet() {
     const QString red = paletteRef("bright-text");
     const QString black = paletteRef("text");
     const QString disabledInk = paletteRef("link-visited");
-    const QString disabledBorder = paletteRef("shadow");
+    const QString disabledBorder = paletteRef("mid");
     const QString disabledFill = paletteRef("button");
     const QString accentFill = paletteRef("button");
     const QString neutralFill = paletteRef("button");
@@ -1813,22 +1870,69 @@ QString widgetStyleSheet() {
         "QScrollArea, QScrollArea > QWidget#qt_scrollarea_viewport,"
         " QScrollArea > QWidget#qt_scrollarea_viewport > QWidget { background: transparent; }")
                .arg(QString::fromLatin1(kSurfaceProperty));
-    // 主页上那几格次动作（账号胶囊、实例卡）和「添加实例」空槽：淡底（正文墨色的一点点
-    // alpha），不是不透明色块。深浅按**这一份规格的令牌**判（样式表先于调色板拼好）。
-    {
-        const QColor ink = tokens().text;
-        const auto layer = [ink](int alpha) {
-            QColor c = ink;
-            c.setAlpha(alpha);
-            return c.name(QColor::HexArgb);
-        };
-        qss += QStringLiteral(
-                   "QPushButton[wtfmlHomeAction=\"true\"] { background-color: %1; border: none; }"
-                   "QPushButton[wtfmlHomeAction=\"true\"]:hover:enabled { background-color: %2; }"
-                   "QPushButton[wtfmlQuickEmpty=\"true\"] { background-color: %3; border: none; }"
-                   "QPushButton[wtfmlQuickEmpty=\"true\"]:hover:enabled { background-color: %1; }")
-                   .arg(layer(18), layer(30), layer(10));
-    }
+    // 主页上那几格次动作（账号胶囊、实例卡）和「添加实例」空槽：淡底，不是不透明色块。
+    qss += QStringLiteral(
+        "QPushButton[wtfmlHomeAction=\"true\"] { background-color: palette(button); border: none; }"
+        "QPushButton[wtfmlHomeAction=\"true\"]:hover:enabled { background-color: palette(shadow); }"
+        "QPushButton[wtfmlQuickEmpty=\"true\"] { background-color: palette(light); border: none; }"
+        "QPushButton[wtfmlQuickEmpty=\"true\"]:hover:enabled { background-color: palette(button); }");
+    // ---- 设计稿控件层（14 种控件 × 6 态）：放在最后，同优先级时盖住上面的旧规则 ----
+    // 悬停一律中性灰（light = fill-hover，shadow = fill-soft-hover），按下固定色（midlight =
+    // fill-press），选中 = 强调色淡底（highlight）+ 强调字（link）。颜色仍全走 palette(...)。
+    const QString kind = QString::fromLatin1(kButtonKindProperty);
+    qss += QStringLiteral(
+               "QPushButton, QPushButton[%1=\"neutral\"] { background-color: palette(button); color: palette(button-text); }"
+               "QPushButton:hover:enabled, QPushButton[%1=\"neutral\"]:hover:enabled { background-color: palette(shadow); }"
+               "QPushButton:pressed:enabled, QPushButton[%1=\"neutral\"]:pressed:enabled { background-color: palette(midlight); }"
+               "QPushButton:checked, QPushButton[%1=\"neutral\"]:checked { background-color: palette(highlight); color: palette(link); }"
+               "QPushButton:disabled, QPushButton[%1=\"neutral\"]:disabled { background-color: palette(light);"
+               " color: palette(link-visited); }"
+               // 文字按钮：无底强调字；可勾的（页签）平时 ink-2，勾上强调色淡底。
+               "QPushButton[%1=\"ghost\"], QPushButton[%1=\"ghost\"][wtfmlTextAction=\"true\"][checkable=\"false\"]:enabled"
+               " { background-color: transparent; color: palette(link); }"
+               "QPushButton[%1=\"ghost\"][checkable=\"true\"] { color: palette(placeholder-text); }"
+               "QPushButton[%1=\"ghost\"]:hover:enabled,"
+               " QPushButton[%1=\"ghost\"][wtfmlTextAction=\"true\"][checkable=\"false\"]:hover:enabled"
+               " { background-color: palette(light); }"
+               "QPushButton[%1=\"ghost\"]:pressed:enabled,"
+               " QPushButton[%1=\"ghost\"][wtfmlTextAction=\"true\"][checkable=\"false\"]:pressed:enabled"
+               " { background-color: palette(midlight); }"
+               "QPushButton[%1=\"ghost\"]:checked { background-color: palette(highlight); color: palette(link); }"
+               "QPushButton[%1=\"ghost\"]:disabled { background-color: transparent; color: palette(link-visited); }"
+               // 图标按钮：无底；悬停 / 按下中性，选中强调色淡底。
+               "QPushButton[%2=\"%3\"] { background-color: transparent; }"
+               "QPushButton[%2=\"%3\"]:hover:enabled { background-color: palette(light); }"
+               "QPushButton[%2=\"%3\"]:pressed:enabled { background-color: palette(midlight); }"
+               "QPushButton[%2=\"%3\"]:checked { background-color: palette(highlight); }")
+               .arg(kind, QString::fromLatin1(kButtonSizeProperty), QString::fromLatin1(kIconButtonValue));
+    // 输入框 / 下拉：fill-soft 底 + 底部 1px line-2；悬停 fill-soft-hover；焦点底线 2px 强调色；
+    // 错误底线 2px 危险色；禁用无底线。
+    qss += QStringLiteral(
+        "QLineEdit, QComboBox { background-color: palette(base); color: palette(text); border: none;"
+        " border-bottom: 1px solid palette(dark); border-radius: %1px; padding: 1px 10px; }"
+        "QLineEdit:hover:enabled, QComboBox:hover:enabled { background-color: palette(shadow); }"
+        "QLineEdit:focus, QComboBox:focus, QComboBox:on { border-bottom: 2px solid palette(link); }"
+        "QComboBox:on { background-color: palette(midlight); }"
+        "QLineEdit[wtfmlError=\"true\"], QLineEdit[inputError=\"true\"] { border-bottom: 2px solid palette(bright-text); }"
+        "QLineEdit:disabled, QComboBox:disabled { background-color: palette(light); color: palette(link-visited);"
+        " border-bottom-color: transparent; }"
+        "QComboBox::drop-down { border: none; width: 28px; }"
+        "QComboBox QAbstractItemView { background-color: palette(tool-tip-base); color: palette(text);"
+        " border: 1px solid palette(dark); selection-background-color: palette(midlight); selection-color: palette(text); }"
+        "QCheckBox, QCheckBox:checked { color: palette(window-text); }"
+        "QCheckBox:disabled { color: palette(link-visited); }"
+        "QCheckBox::indicator { width: 18px; height: 18px; }"
+        "QToolTip { background-color: palette(tool-tip-base); color: palette(tool-tip-text);"
+        " border: 1px solid palette(dark); padding: 5px 9px; }"
+        "QProgressBar { background-color: palette(dark); border: none; border-radius: 2px; color: palette(text); }"
+        "QProgressBar::chunk { background-color: palette(accent); border-radius: 2px; }"
+        "QSlider::groove:horizontal { height: 3px; background: palette(dark); border-radius: 1px; }"
+        "QSlider::sub-page:horizontal { height: 3px; background: palette(accent); border-radius: 1px; }"
+        "QSlider::handle:horizontal { width: 16px; height: 16px; margin: -7px 0; border-radius: 8px;"
+        " background: palette(accent); }"
+        "QSlider::handle:horizontal:hover { background: palette(link); }"
+        "QSlider::handle:horizontal:disabled, QSlider::sub-page:horizontal:disabled { background: palette(link-visited); }")
+        .arg(controlRadius());
     return qss;
 }
 
@@ -1981,7 +2085,7 @@ QPalette buildPalette(const Spec &spec, const QPalette &base) {
     palette.setColor(QPalette::Dark, t.stroke);
     palette.setColor(QPalette::ToolTipBase, t.card);
     palette.setColor(QPalette::ToolTipText, t.text);
-    palette.setColor(QPalette::Link, t.focus);
+    palette.setColor(QPalette::Link, t.deep);
     for (const auto role : kInkRoles) palette.setColor(QPalette::Disabled, role, t.disabled);
 
     for (auto it = spec.roles.constBegin(); it != spec.roles.constEnd(); ++it) {
@@ -1999,15 +2103,15 @@ QPalette buildPalette(const Spec &spec, const QPalette &base) {
     // 控件重新 polish 一遍 —— 6800 个控件量到 1.9 秒，界面就卡在那儿。调色板当变量
     // 之后样式表字符串一个字节都不变，换配色只铺调色板 + 重 polish（~100 ms）。
     const QColor accent = spec.accent.isValid() ? spec.accent : t.primary;
-    const bool dark = isDarkPalette(palette);
     palette.setColor(QPalette::Accent, accent);
     palette.setColor(QPalette::Light, t.hover);
-    palette.setColor(QPalette::BrightText, dark ? QColor("#FFB8BD") : QColor("#c02828"));
+    palette.setColor(QPalette::Midlight, t.fillPress);
+    palette.setColor(QPalette::BrightText, t.danger);
     // 灰掉那一档的字和边借 `LinkVisited` / `Shadow` 两格（Fusion 不拿它们画控件）：
     // 它们必须是真的 `t.disabled` / `t.divider`，不能拿 `PlaceholderText` 顶 ——
     // 那一档是"次要文字"，比灰掉的字深，混用会让两档在屏幕上分不出来。
     palette.setColor(QPalette::LinkVisited, t.disabled);
-    palette.setColor(QPalette::Shadow, t.divider);
+    palette.setColor(QPalette::Shadow, t.fillSoftHover);  // 次按钮 / 输入框悬停（样式表念它）
 
     if (spec.textOpacity != 100) {
         for (QPalette::ColorRole role : kInkRoles) {

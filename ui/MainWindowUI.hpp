@@ -474,10 +474,10 @@ public:
     static int instanceFileIconSize() { return resourceTreeIconSize(); }
 
     /// 「启用 / 禁用」那枚**拨动开关**的尺寸（宽 × 高）。高度是行高（46）装得下的一档。
-    static int toggleSwitchWidth() { return 34; }
-    static int toggleSwitchHeight() { return 18; }
+    static int toggleSwitchWidth() { return 40; }
+    static int toggleSwitchHeight() { return 22; }
     /// 开关里那个圆钮四周留的白。
-    static int toggleSwitchKnobMargin() { return 2; }
+    static int toggleSwitchKnobMargin() { return 4; }
     /// 行尾那三颗按钮各自弹的那句话（和 rowRefreshTipText() 一个规矩：**只在这一格上**才
     /// 说话，整条行不弹；谁弹的、按哪一格判，见 InstanceGroupDelegate::rowActionTip()）。
     /// 齿轮那句和那一页自己的页眉（`InstanceSettingsDialog::titleText()`）是**两回事**：

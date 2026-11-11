@@ -24,8 +24,8 @@
     },
     "modern_soft": {
       "accent": "#457f70",
-      "action_height": 34,
-      "primary_action_height": 38,
+      "action_height": 36,
+      "primary_action_height": 36,
       "control_radius": 10,
       "button_radius": 10,
       "surface_radius": 0,

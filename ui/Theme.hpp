@@ -100,11 +100,21 @@ inline QFont textFont(QFont font, TextRole role) {
 }
 
 // 色号来自《WTFML_三主题配色规范》，组件共用，用户覆盖仍在 Spec 中保存。
+// 带 alpha 的几档（subtle / hover / selected / input / stroke / divider / focus）是叠在磨砂
+// 窗口底上的半透明层；page / card 不透明（独立弹出窗口拿它们打底）。
 struct Tokens {
-    QColor primary, deep, primaryHover, primaryPressed;
-    QColor page, main, card, subtle, hover, selected, input;
+    QColor primary, deep, primaryHover, primaryPressed;   // 主按钮底 / 强调字 / 悬停 / 按下
+    QColor page, main, card, subtle, hover, selected, input;  // 着色底 / - / 浮层 / 次按钮底 / 悬停 / 选中 / 输入框
     QColor text, secondary, disabled, stroke, divider, focus, thumb, track;
     QColor logWindow, logToolbar, logBase, logHint, logBorder, logDivider;
+    QColor onPrimary, accentSoft2, fillPress, fillSoftHover;  // 主按钮字 / 弱强调底 / 中性按下 / 次按钮悬停
+    QColor ok, warn, danger, okSoft, warnSoft, dangerSoft;
+    QColor dangerSolid, dangerSolidHover, dangerSolidPressed, onDanger;  // 只给对话框里不可逆确认
+    QColor glass, glassEdge, scrim;                         // 窗口内浮层面（半透明）/ 1px 亮边 / 遮罩
+    QColor heroInk, heroInk2, heroVeil;                     // 主页压在风景上的字；暗角色（不透明 rgb）
+    qreal heroScrim, heroTop, railFog;                      // 启动区 / 标题区暗角浓度；亮主题导航轨雾
+    QColor groundShade;                                     // 皮肤立绘落地影色
+    qreal groundGlint;                                      // 落地影下沿反光（白）浓度
 };
 Tokens tokens(const QString &presetId);
 Tokens tokens();
@@ -396,6 +406,7 @@ enum class ButtonKind {
     Neutral,  ///< 一般性：浅中性色底 + 深色文字，默认不画边
     Ghost,    ///< 低频辅助：没有底、没有边，只有字（边留成透明的 1px，**几何不变**）
     Danger,   ///< 不可撤销：淡红底 + 红字，默认不画边
+    DangerSolid,  ///< 对话框里不可逆的最终确认：实心暗哑红 + 浅字（其余危险动作一律用 Danger）
 };
 
 /// 属性名 + 属性值（`markButton()` 挂的就是这一对）；`QSS` 里那几条选择器也照着它写。
@@ -513,9 +524,9 @@ QString secondaryTextRoleValue();
 // 别处大 2pt（`installButtonFontStep()`），32 会显得挤。
 
 /// 普通动作按钮（确定 / 取消 / 应用 / 全部那些）的最小高度。
-constexpr int actionHeight() { return 34; }
+constexpr int actionHeight() { return 36; }
 /// "页面上唯一最重要的动作"那一档（`ButtonKind::Primary`），比普通动作略高一档。
-constexpr int primaryActionHeight() { return 38; }
+constexpr int primaryActionHeight() { return 36; }
 
 /// 这一位是**图标按钮**（齿轮 / 底栏面板上那几颗 / 详情页顶上的 chip）：它按自己钉死的
 /// 边长来，不跟 `actionHeight()` 那一档。
