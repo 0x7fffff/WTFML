@@ -173,6 +173,11 @@ private:
     QString m_brand;
     /// `applyColors()` 正在跑（防自咬：它自己会 `setPalette()`，而我们就挂在那个事件上）。
     bool m_applyingColors = false;
+    /// 当前页那颗胶囊从哪一颗滑过来（-1 = 不滑，直接落在当前那颗）、滑到哪了（0~1）。
+    /// 位置按两颗按钮**画的那一刻**的几何插值，布局后来再动也跟得上。
+    int m_pillFrom = -1;
+    qreal m_pillProgress = 1.0;
+    QVariantAnimation *m_pillAnimation = nullptr;
 };
 
 /**

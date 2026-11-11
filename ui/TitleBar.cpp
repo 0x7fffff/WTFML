@@ -6,6 +6,7 @@
 #include "TitleBar.hpp"
 
 #include "Animations.hpp"
+#include "Glass.hpp"
 #include "Theme.hpp"   // 条底色（Theme::Part::TitleBar）、危险操作的红（Theme::dangerColor()）
 #include "VersionIcons.hpp"
 
@@ -50,7 +51,9 @@ constexpr qreal kNavPointDelta = 2.0;
 /// 退回像素那一档时的增量（同上）。
 constexpr int kNavPixelDelta = 3;
 
-constexpr int kNavItemWidth = 68;
+/// 84：最长的「智能体」加粗后两边仍各留 ~12 px，五颗之间的空当看上去一样宽（68 时「设置」和
+/// 「智能体」几乎贴在一起）。
+constexpr int kNavItemWidth = 84;
 /// 草方块那颗图标的边长。16 的倍数最清楚（见 `VersionIcons::grassBlock()` 的说明）。
 constexpr int kLogoSize = 16;
 /// 草方块离窗口左边缘多远。
@@ -93,7 +96,7 @@ constexpr int kNavGroupLeftMargin = 2 * kButtonSize + kWindowButtonsRightMargin;
 /// 当前那一颗底下那条横线的高。
 constexpr int kCurrentMarkHeight = 2;
 /// 那条横线左右各缩进多少（贴着字的宽度不好看，缩一点像"这一格被标住了"）。
-constexpr int kCurrentMarkInset = 10;
+constexpr int kCurrentMarkInset = 30;
 /// 顶栏的状态反馈要比整页转场更短：鼠标已经到按钮上时，120 ms 足够看见渐变又不会拖手。
 constexpr int kHoverAnimationMs = 120;
 /// 当前页下划线略慢一拍，让它和 180 ms 的页面转场在同一时刻收住。
@@ -267,7 +270,14 @@ void TitleBarButton::paintEvent(QPaintEvent *) {
     // 底：不悬停时一般是全透（条自己的底色透上来），悬停时铺那一格色。
     const QColor base = blendedColor(m_baseColor, m_hoverColor, m_hoverProgress);
     if (base.alpha() > 0) {
-        p.fillRect(rect(), base);
+        if (m_glyph == Glyph::Text && Glass::enabled()) {
+            // 玻璃上：悬停和当前页那颗胶囊同一个形状。
+            p.setPen(Qt::NoPen);
+            p.setBrush(base);
+            p.drawRoundedRect(QRectF(rect()).adjusted(4, 0, -4, 0), height() / 2.0, height() / 2.0);
+        } else {
+            p.fillRect(rect(), base);
+        }
     }
     const QColor ink = blendedColor(m_ink, m_hoverInk, m_hoverProgress);
     if (m_glyph == Glyph::Text) {
@@ -303,7 +313,15 @@ void TitleBarButton::paintEvent(QPaintEvent *) {
 TitleBar::TitleBar(QWidget *parent) : QWidget(parent) {
     setObjectName(QStringLiteral("titleBar"));
     setFixedHeight(kTitleBarHeight);
-    setAutoFillBackground(true);
+    // 底色：磨砂开着是一条主题色玻璃（Glass 画），关着照旧铺条底色（见 `applyColors()`）。
+    Glass::mark(this, Glass::Kind::Chrome);
+    m_pillAnimation = new QVariantAnimation(this);
+    m_pillAnimation->setDuration(kCurrentAnimationMs);
+    m_pillAnimation->setEasingCurve(QEasingCurve::OutCubic);
+    connect(m_pillAnimation, &QVariantAnimation::valueChanged, this, [this](const QVariant &value) {
+        m_pillProgress = value.toReal();
+        update();
+    });
 
     // 悬停底色：最小化那颗是条底色再压暗一档（"有个东西在里头"就够了），
     // 关闭那颗是**红底白叉** —— 那个红取自 Theme::dangerColor()，全仓只有这一个出处。
@@ -371,6 +389,7 @@ void TitleBar::applyColors() {
                                                barPalette.color(QPalette::WindowText));
     barPalette.setColor(QPalette::WindowText, strong);
     setPalette(barPalette);
+    setAutoFillBackground(!Glass::enabled());
 
     // 次要墨色（不是当前那一颗导航写的那个色）：
     // - 条是主题色那一支（白墨）时 = **白墨压到 68%**。这一档不能取调色板里那个次要灰：
@@ -383,7 +402,10 @@ void TitleBar::applyColors() {
             ? QColor(0xff, 0xff, 0xff, 0xad)
             : barPalette.color(QPalette::PlaceholderText);
     const QColor muted = Theme::partForeground(Theme::Part::TitleBar, strongFallback);
-    const QColor hover = chrome.darker(115);
+    // 玻璃上的悬停是一层淡墨（不透明的压暗色块贴在半透明的条上像一块补丁）。
+    QColor glassHover = strong;
+    glassHover.setAlpha(28);
+    const QColor hover = Glass::enabled() ? glassHover : chrome.darker(115);
     if (auto *button = qobject_cast<TitleBarButton *>(m_minimize)) {
         button->setHoverColors(hover, strong);
         button->setInkColor(strong);
@@ -460,7 +482,21 @@ void TitleBar::setNavItems(const QStringList &labels) {
 }
 
 void TitleBar::setCurrentNav(int index) {
+    const int previous = m_currentNav;
     m_currentNav = (index >= 0 && index < m_navButtons.size()) ? index : -1;
+    // 胶囊从上一颗滑到这一颗；没有上一颗、动效关着、条还没显示出来时直接落位。
+    m_pillAnimation->stop();
+    if (previous >= 0 && previous != m_currentNav && Anim::enabled() && isVisible()) {
+        m_pillFrom = previous;
+        m_pillAnimation->setStartValue(0.0);
+        m_pillAnimation->setEndValue(1.0);
+        m_pillProgress = 0.0;
+        m_pillAnimation->start();
+    } else {
+        m_pillFrom = -1;
+        m_pillProgress = 1.0;
+        update();
+    }
     for (int i = 0; i < m_navButtons.size(); ++i) {
         if (auto *button = qobject_cast<TitleBarButton *>(m_navButtons.at(i))) {
             button->setCurrent(i == m_currentNav);
@@ -494,6 +530,20 @@ void TitleBar::paintEvent(QPaintEvent *) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, true);
 
+    // 当前页那颗胶囊（垫在导航按钮底下，按钮自己透明）：白墨压到一成多，滑动见 setCurrentNav()。
+    if (QAbstractButton *to = navButton(m_currentNav)) {
+        QRectF rect = to->geometry();
+        if (QAbstractButton *from = navButton(m_pillFrom); from != nullptr && m_pillProgress < 1.0) {
+            const QRectF a = from->geometry();
+            rect.moveLeft(a.left() + (rect.left() - a.left()) * m_pillProgress);
+        }
+        QColor pill = palette().color(QPalette::WindowText);
+        pill.setAlpha(Theme::isDark() ? 30 : 46);
+        p.setPen(Qt::NoPen);
+        p.setBrush(pill);
+        p.drawRoundedRect(rect.adjusted(4, 0, -4, 0), rect.height() / 2, rect.height() / 2);
+    }
+
     p.drawPixmap(QPoint(kLeftPadding, (height() - kLogoSize) / 2), VersionIcons::grassBlock(kLogoSize));
 
     const QString brand = titleText();
@@ -519,6 +569,9 @@ void TitleBar::paintEvent(QPaintEvent *) {
     // `kBrandPixelDelta` 加下面那个 `enlargedFont()`（两档各自的理由都在它头上）。
     QFont titleFont = enlargedFont(font(), kBrandPointDelta, kBrandPixelDelta);
     titleFont.setBold(true);
+    // 名字走标题衬线体（Cormorant）：比导航大两号、字距放开一点，像一个落款。
+    titleFont.setPixelSize(titleFont.pixelSize() + 4);
+    titleFont.setLetterSpacing(QFont::AbsoluteSpacing, 1.2);
     p.setFont(titleFont);
     p.setPen(palette().color(QPalette::WindowText));
     const QFontMetrics metrics(titleFont);
