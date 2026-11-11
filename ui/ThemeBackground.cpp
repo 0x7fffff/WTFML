@@ -5,6 +5,8 @@
 
 #include "ThemeBackground.hpp"
 
+#include "Glass.hpp"
+
 #include <QFileInfo>
 #include <QPainter>
 
@@ -40,7 +42,9 @@ QPixmap ThemeBackground::sourceImage() {
 
 void ThemeBackground::paintEvent(QPaintEvent *) {
     const QRect area = rect();
-    const Theme::PartImage image = Theme::partImage(m_part);
+    Theme::PartImage image = Theme::partImage(m_part);
+    // 磨砂效果开着时页面背景那张图由场景底（Glass::Backdrop）铺在整窗最底下，这里不再叠一遍。
+    if (m_part == Theme::Part::PageBackground && Glass::enabled()) image = Theme::PartImage();
     const bool hasBase = Theme::partHasBackground(m_part);
 
     // 0) **一笔都不画**那一条路。

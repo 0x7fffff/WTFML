@@ -85,8 +85,16 @@ constexpr int textSize(TextRole role) {
     }
     return 14;
 }
+/// 标题两档（Heading / Display）的字体族：Cormorant Garamond（西文衬线）+ 霞鹜文楷（中文），
+/// 第一次问到时从 qrc 注册（见 assets/fonts/README.md）。注册不上就是空，标题退回系统字体。
+/// 正文、表单、列表**不用**它们。
+QStringList titleFontFamilies();
 inline QFont textFont(QFont font, TextRole role) {
     font.setPixelSize(textSize(role));
+    if (role == TextRole::Heading || role == TextRole::Display) {
+        const QStringList families = titleFontFamilies();
+        if (!families.isEmpty()) font.setFamilies(families);
+    }
     return font;
 }
 

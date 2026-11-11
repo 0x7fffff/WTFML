@@ -434,6 +434,7 @@ set(SOURCE_FILES
     # new 的那个容器，`src/util/ThemeImage.cpp` 是 MainWindow 收图那一步调的（挑回来的图
     # 拷进数据目录、顺手缩到 2560 以内）。少哪一个都会在链接那一步报一串 undefined reference。
     ${REPO_ROOT}/ui/ThemeBackground.cpp
+    ${REPO_ROOT}/ui/Glass.cpp
     ${REPO_ROOT}/src/util/ThemeImage.cpp
     # 任务中心那一套：面板本身（MainWindowUI.cpp 直接 new 它）和账本
     # （MainWindow 直接 new 它 + 读它）。少哪一个都会在链接那一步报一串 undefined reference。

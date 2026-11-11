@@ -291,6 +291,7 @@ set(HEADER_FILES
     ui/RuntimeOutputModel.hpp
     ui/Theme.hpp
     ui/ThemeBackground.hpp
+    ui/Glass.hpp
     ui/ConfigEntries.hpp
     ui/MotdText.hpp
     ui/ToggleSwitch.hpp
@@ -658,6 +659,7 @@ set(SOURCE_FILES
     # 动效那一层：按下按钮 / 换页 / 展开折叠。
     ui/Animations.cpp
     ui/ThemeBackground.cpp
+    ui/Glass.cpp
     ui/WindowChrome.cpp
     ${HEADER_FILES}
 )

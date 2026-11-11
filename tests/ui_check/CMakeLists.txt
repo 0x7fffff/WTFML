@@ -140,6 +140,8 @@ ${REPO_ROOT}/ui/InstanceSettingsSignature.cpp
                                 # 左栏现在直接 new 它，少了这一个文件会在链接那一步报
                                 # `undefined reference to ThemeBackground::ThemeBackground(…)`。
                                 ${REPO_ROOT}/ui/ThemeBackground.cpp
+                                # 磨砂玻璃：场景底与绘制过滤器（Theme::apply() 装它）。
+                                ${REPO_ROOT}/ui/Glass.cpp
                                 # 任务中心那块面板：`MainWindowUI.cpp` 直接
                                 # new 它（底栏中间那格点开那一下），少了这一个文件会在链接
                                 # 那一步报 `undefined reference to TaskCenterPanel::…`。

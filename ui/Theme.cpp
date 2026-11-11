@@ -5,12 +5,15 @@
 
 #include "Theme.hpp"
 
+#include "Glass.hpp"
+
 #include <QAbstractItemView>
 #include <QAbstractButton>
 #include <QApplication>
 #include <QComboBox>
 #include <QDir>
 #include <QEvent>
+#include <QFontDatabase>
 #include <QFocusEvent>
 #include <QKeyEvent>
 #include <QGuiApplication>
@@ -31,6 +34,9 @@
 #include <QTimer>
 #include <QToolButton>
 #include <QWidget>
+
+/// 标题字体在 icons.qrc 里（静态库里的 qrc 没人引用会被链接器丢掉，见 ui/Glass.cpp 同一段）。
+static void initTitleFontResources() { Q_INIT_RESOURCE(icons); }
 
 namespace Theme {
 bool platformColorSchemeDark();
@@ -96,8 +102,26 @@ bool platformColorSchemeDark() {
            app->style()->standardPalette().color(QPalette::Window).lightness() < 128;
 }
 
-Tokens tokens() {
-    const QString preset = current().presetId;
+QStringList titleFontFamilies() {
+    static bool loaded = false;
+    static QStringList families;
+    if (loaded || QGuiApplication::instance() == nullptr) return families;
+    loaded = true;
+    initTitleFontResources();
+    // 顺序就是回退顺序：西文字形先找 Cormorant，汉字落到文楷，两边都没有的再回系统字体。
+    for (const char *path : {":/assets/fonts/CormorantGaramond-SemiBold.ttf",
+                             ":/assets/fonts/CormorantGaramond-SemiBoldItalic.ttf",
+                             ":/assets/fonts/LXGWWenKai-Medium.ttf"}) {
+        const int id = QFontDatabase::addApplicationFont(QString::fromLatin1(path));
+        if (id < 0) continue;
+        for (const QString &family : QFontDatabase::applicationFontFamilies(id)) {
+            if (!families.contains(family)) families.append(family);
+        }
+    }
+    return families;
+}
+
+Tokens tokens() {    const QString preset = current().presetId;
     Tokens t = tokens(preset == QLatin1String("system")
                           ? (platformColorSchemeDark() ? QStringLiteral("dark")
                                                        : QStringLiteral("emerald"))
@@ -1779,6 +1803,32 @@ QString widgetStyleSheet() {
         .arg(paletteRef("base"), paletteRef("text"), paletteRef("dark"), paletteRef("link"),
              paletteRef("placeholder-text"), paletteRef("button"),
              QString::number(controlRadius()), paletteRef("highlight"), paletteRef("window"));
+    // 磨砂效果开着：正文面 / 小节 / 选项卡底 / 滚动区都不铺底，由 Glass 的绘制过滤器在它们
+    // 自己画之前铺一块玻璃（见 ui/Glass.hpp）。关掉时这一段整个不出现，和改版前逐字节一致。
+    if (Glass::enabled()) {
+        qss += QStringLiteral(
+            "QFrame[%1=\"sidebar\"], QFrame[%1=\"workspace\"], QFrame[%1=\"section\"],"
+            " QFrame[wtfmlSidebarRail=\"true\"] { background-color: transparent; }"
+            "QTabWidget::pane { background-color: transparent; border: none; }"
+            "QScrollArea, QScrollArea > QWidget#qt_scrollarea_viewport,"
+            " QScrollArea > QWidget#qt_scrollarea_viewport > QWidget { background: transparent; }")
+                   .arg(QString::fromLatin1(kSurfaceProperty));
+        // 卡片里的次动作（账号那一格、实例卡）和「添加实例」空槽：玻璃上再叠一层淡的，
+        // 不再是一块不透明的色块。浅色叠白、深色叠一点点白；对比度由底下那块卡片保证
+        // （浅色叠白只会让深字更清楚，深色那 6% 对浅字的影响 < 0.3:1）。
+        // 深浅按**这一份规格的令牌**判：样式表在 apply() 铺调色板之前就拼好了，那一刻问
+        // isDark() 拿到的是上一套主题的调色板。
+        const bool darkSheet = tokens().page.lightness() < 128;
+        const auto glassLayer = [darkSheet](int lightAlpha, int darkAlpha) {
+            return QColor(255, 255, 255, darkSheet ? darkAlpha : lightAlpha).name(QColor::HexArgb);
+        };
+        qss += QStringLiteral(
+                   "QPushButton[wtfmlHomeAction=\"true\"] { background-color: %1; }"
+                   "QPushButton[wtfmlHomeAction=\"true\"]:hover:enabled { background-color: %2; }"
+                   "QPushButton[wtfmlQuickEmpty=\"true\"] { background-color: %3; }"
+                   "QPushButton[wtfmlQuickEmpty=\"true\"]:hover:enabled { background-color: %1; }")
+                   .arg(glassLayer(140, 16), glassLayer(200, 28), glassLayer(70, 8));
+    }
     return qss;
 }
 
@@ -2117,6 +2167,7 @@ void apply(QApplication &app) {
         new ScrollBarStyler(app);
     if (app.findChild<QObject *>(QStringLiteral("wtfmlColorSchemeWatcher")) == nullptr)
         new ColorSchemeWatcher(app);
+    Glass::install(app);
 
     const Spec &spec = current();
     const bool followSystem = spec.presetId == QLatin1String("system");
