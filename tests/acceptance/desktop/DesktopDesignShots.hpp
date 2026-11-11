@@ -31,6 +31,9 @@
 #include <QSlider>
 #include <QTabWidget>
 #include <QTimer>
+#include <QTreeWidget>
+#include <QTreeWidgetItemIterator>
+#include <QDir>
 #include <QVBoxLayout>
 #include <functional>
 
@@ -42,18 +45,45 @@ inline void mute(QWidget *w) {
     w->setPalette(p);
 }
 
-/// 列表行封面：圆角淡底 + 居中等距方块（和主页实例卡同一画法）。
-inline QPixmap coverTile(int block, int side) {
-    QPixmap cover(side, side);
-    cover.fill(Qt::transparent);
-    QPainter p(&cover);
-    p.setRenderHint(QPainter::Antialiasing, true);
-    p.setPen(QPen(Theme::tokens().stroke, 1.0));
-    p.setBrush(Theme::tokens().subtle);
-    p.drawRoundedRect(QRectF(0.5, 0.5, side - 1, side - 1), 10, 10);
-    const int inner = side * 7 / 12;
-    p.drawPixmap((side - inner) / 2, (side - inner) / 2, VersionIcons::isoBlock(block, inner));
-    return cover;
+/// 管理页夹具：隔离目录里摆几份"看起来已安装"的实例（<id>/<id>.jar + wtfml.meta），不含真文件。
+inline void seedInstances(const QString &versionsDir) {
+    const struct { const char *id, *name, *mc, *loader, *loaderVersion; } rows[] = {
+        {"spring", "春日生存", "1.21.4", "Fabric", "0.16.9"},
+        {"create", "机械动力 Create", "1.20.1", "Forge", "47.3.0"},
+        {"sakura", "樱花小屋", "1.21.1", "Fabric", "0.16.9"},
+        {"shader", "光影测试", "1.21.1", "OptiFine", "HD U J1"},
+        {"skyblock", "空岛生存", "1.21.1", "NeoForge", "21.1.77"},
+        {"redstone", "红石实验室", "1.20.1", "", ""},
+        {"desert", "沙漠神殿", "1.21.4", "", ""},
+    };
+    for (const auto &row : rows) {
+        const QString dir = versionsDir + QLatin1Char('/') + QString::fromLatin1(row.id);
+        QDir().mkpath(dir);
+        QFile jar(dir + QLatin1Char('/') + QString::fromLatin1(row.id) + QStringLiteral(".jar"));
+        if (jar.open(QIODevice::WriteOnly)) jar.write("stub");
+        QJsonObject meta{{"name", QString::fromUtf8(row.name)}, {"realVersion", QString::fromLatin1(row.mc)}};
+        if (*row.loader) {
+            meta.insert("loaderName", QString::fromLatin1(row.loader));
+            meta.insert("loaderVersion", QString::fromLatin1(row.loaderVersion));
+        }
+        QFile file(dir + QStringLiteral("/wtfml.meta"));
+        if (file.open(QIODevice::WriteOnly)) file.write(QJsonDocument(meta).toJson());
+    }
+}
+
+/// 管理页那棵树：悬停第二个实例行（快捷操作只在悬停时出现）。
+inline void hoverInstanceRow(MainWindow &window) {
+    QTreeWidget *tree = window.ui()->getInstanceList();
+    if (tree == nullptr) return;
+    int seen = 0;
+    for (QTreeWidgetItemIterator it(tree); *it != nullptr; ++it) {
+        if ((*it)->data(0, MainWindowUI::instanceIdRole()).toString().isEmpty() || ++seen < 2) continue;
+        const QPoint at = tree->visualItemRect(*it).center();
+        QHoverEvent hover(QEvent::HoverMove, at, tree->viewport()->mapToGlobal(at), QPoint(-1, -1));
+        QApplication::sendEvent(tree->viewport(), &hover);
+        tree->viewport()->repaint();
+        return;
+    }
 }
 
 inline QList<MainWindowUI::HomeQuickItem> fixtureItems() {
@@ -299,7 +329,7 @@ private:
         };
         for (const auto &row : rows) {
             auto *item = new QListWidgetItem(QString::fromUtf8(row.title), list);
-            item->setData(Qt::DecorationRole, coverTile(row.block, ListRowDelegate::coverSize()));
+            item->setData(Qt::DecorationRole, VersionIcons::isoBlock(row.block, 48));
             item->setData(ListRowDelegate::SubtitleRole, QString::fromUtf8(row.sub));
             item->setData(ListRowDelegate::MetaRole, QString::fromUtf8(row.meta));
         }
@@ -399,7 +429,9 @@ inline QImage grabGallery(Gallery &gallery) {
 
 /// 依次截：三主题主页 1280×800、暗色 900×620 / 1600×1000、折叠轨、组件总表。
 inline void run(QApplication &app, MainWindow &window, const QString &root) {
-    struct Shot { QString file; QString theme; QSize size; bool collapsed; };
+    struct Shot { QString file; QString theme; QSize size; bool collapsed; int tab = MainWindowUI::homeTabIndex(); };
+    const int manage = MainWindowUI::instancesTabIndex();
+    const int download = MainWindowUI::downloadTabIndex();
     static const QList<Shot> shots{
         {QStringLiteral("home-dark.png"), QStringLiteral("dark"), {1280, 800}, false},
         {QStringLiteral("home-emerald.png"), QStringLiteral("emerald"), {1280, 800}, false},
@@ -407,6 +439,12 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         {QStringLiteral("home-dark-900x620.png"), QStringLiteral("dark"), {900, 620}, false},
         {QStringLiteral("home-dark-1600x1000.png"), QStringLiteral("dark"), {1600, 1000}, false},
         {QStringLiteral("rail-collapsed-dark.png"), QStringLiteral("dark"), {1280, 800}, true},
+        {QStringLiteral("manage-dark.png"), QStringLiteral("dark"), {1280, 800}, false, manage},
+        {QStringLiteral("manage-emerald.png"), QStringLiteral("emerald"), {1280, 800}, false, manage},
+        {QStringLiteral("manage-ocean.png"), QStringLiteral("ocean"), {1280, 800}, false, manage},
+        {QStringLiteral("download-dark.png"), QStringLiteral("dark"), {1280, 800}, false, download},
+        {QStringLiteral("download-emerald.png"), QStringLiteral("emerald"), {1280, 800}, false, download},
+        {QStringLiteral("download-ocean.png"), QStringLiteral("ocean"), {1280, 800}, false, download},
     };
     static int index = 0;
     static QJsonArray report;
@@ -448,7 +486,7 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         Theme::apply(app);
         window.showNormal();
         window.resize(shot.size);
-        window.ui()->getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
+        window.ui()->getTabWidget()->setCurrentIndex(shot.tab);
         if (auto *bar = window.findChild<TitleBar *>()) bar->setCollapsed(shot.collapsed);
         seedHome(window);
         // 竖屏 / 小屏上 Windows 首次会把超出屏宽的窗口夹回屏宽，排完版再要一次尺寸。
@@ -456,6 +494,9 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         // 启动后头一张时主窗口自己还会刷一次主页（在线版本列表回来后按隔离目录里的空实例重排），
         // 抓图前再灌一次夹具，再让布局走一拍。
         QTimer::singleShot(700, &window, [&window]() { seedHome(window); });
+        QTimer::singleShot(850, &window, [&window, shot]() {
+            if (shot.tab == MainWindowUI::instancesTabIndex()) hoverInstanceRow(window);
+        });
         QTimer::singleShot(900, &window, [&window, root, shot]() {
             const bool saved = window.grab().save(root + QLatin1Char('/') + shot.file);
             report.append(QJsonObject{{"file", shot.file}, {"saved", saved}, {"width", window.width()},

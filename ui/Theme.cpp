@@ -1466,10 +1466,11 @@ void markChipButton(QPushButton *button) {
     button->setFixedHeight(chipHeight());
     button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     markIconButton(button);
-    button->setStyleSheet(chipStyleSheet(button->palette()));
+    button->setStyleSheet(chipStyleSheet(QApplication::palette()));
+    // 取应用 palette 而不是 button->palette()：换主题时 follow 回调早于调色板下发到子控件，读按钮自己的会拿到旧主题的字色。
     // QSS 里嵌的是色名 ⇒ 主题一换得重算。chip 是**常驻**控件（不像资源详情页那一排是整排
     // 重建的），没人会替它重挂，所以这一条必须自己接。
-    follow(button, [button]() { button->setStyleSheet(chipStyleSheet(button->palette())); });
+    follow(button, [button]() { button->setStyleSheet(chipStyleSheet(QApplication::palette())); });
 }
 
 QColor swatchBorder(const QColor &color) {

@@ -6,17 +6,17 @@
  * 的 `...Rect()` / `...GlyphRect()` 统一给出，paint、eventFilter 和 helpEvent 共用同一份，
  * 避免点击区域与画出来的位置错位。
  *
- * 实例行右侧从右到左：齿轮（常显）→ 置顶/取消置顶（悬停，同一格两态）→ 删除（悬停）。
- * 行高为 `instanceTreeRowHeight()`；`cardRect()` 只在绘制时上下收 gap，命中格仍按整行算。
+ * 实例行（实例页）按 ListRowDelegate 画：40 封面 + 两行字 + 行尾元信息，悬停换成文件夹 / 更多 / 启动，
+ * 点中由 MainWindow::eventFilter 认下后发 actionTriggered。预设页那棵树关掉行内操作，仍走旧的单行画法。
  */
 #pragma once
 
-#include <QStyledItemDelegate>
+#include "ListRowDelegate.hpp"
 
 class QPainter;
 
 /// 实例页那张树上挂的代理：只接管分组头那几行，实例行原样走基类。
-class InstanceGroupDelegate : public QStyledItemDelegate {
+class InstanceGroupDelegate : public ListRowDelegate {
     Q_OBJECT
 
 public:
@@ -38,6 +38,8 @@ public:
     /// 选中这一整套画法只该有一份。
     void setRowHeight(int height) { m_rowHeight = height; }
     int rowHeight() const;
+    /// 实例页组头行高（设计稿 .group-label：小字标签，比实例行矮）。
+    static constexpr int groupRowHeight() { return 36; }
 
     /// 这一行**画出来**的那一圈：整条行上下各收掉半个 `instanceTreeRowGap()`。
     ///
@@ -84,47 +86,9 @@ public:
     /// 竖着恒在行内，理由见 .cpp）。
     static QRect chevronRect(const QRect &row);
 
-    // ---------- 实例行行尾那一排三颗按钮（见文件头） ----------
-    //
-    // 布局是**定死**的（要求的次序，别改）：一行三颗，**右起**：齿轮 / 上箭头 /
-    // 垃圾桶。三个 `...Rect()` 是**命中格**（比画出来的字形四周各大 `instanceRowActionMargin()`），
-    // 三个 `...GlyphRect()` 才是真正 drawPixmap 的那一圈。和组行那两颗同一个规矩：
-    // **几何的唯一出处就是这儿** —— 代理按它们画、`MainWindow::eventFilter` 按它们认下
-    // 那一下、`helpEvent()` 按它们决定弹不弹话，三处不许各算一份（差一像素的症状就是
-    // "看着点中了垃圾桶、其实点的是那一行"，而那一行点一下是进实例设置）。
-    //
-    // NOTE: 那一整排的几何是**一次算完**的（收在 .cpp 里那个私有的
-    // `instanceActionGlyphRects()`，三个格子一次返回）—— 三处各写一遍的写法只要
-    // 改一处间距就会错位一格，而错位在屏幕上完全看不出来是哪一段写错了。
-    // NOTE: 三个**命中格之间不许互相重叠**：间隔 6、四周 margin 3 ⇒ 正好相接（邻格共享
-    // 一条边界、不叠 1 px）。写成 7 的话中间会漏一条点不到的空隙。
-
-    /// 行尾那颗**齿轮**的命中格（最右边那一颗 = 这一行的锚，**常显**）。
-    static QRect instanceGearRect(const QRect &row);
-    /// 中间那一格的命中格 —— ↑「置顶」和 ↓「取消置顶」**共用的一格**（见文件头那段）。
-    /// 只有 `rowPinRole()` 或 `rowUnpinRole()` 为真的实例行才画得出来；两个都为假
-    /// （这份 .minecraft 里没有置顶组）时它是空的、也不该弹话。位置和边长只有一份，
-    /// 换方向不换格子。
-    static QRect instancePinRect(const QRect &row);
-    /// 最里面那颗**垃圾桶**的命中格（离手最远 —— 它点下去不可逆，见 MainWindowUI 那段
-    /// "为什么垃圾桶摆在最里面"）。
-    static QRect instanceTrashRect(const QRect &row);
-
-    /// 上面那三格**画出来**的那一圈（比命中格四周各小 `instanceRowActionMargin()`）。
-    /// 边长还会照 `gearGlyphRect()` 那样按行高收一收（`min(边长, 行高)`）—— 兜底，实例
-    /// 行的行高是 `instanceTreeRowHeight()`（58），这一缩不生效。
-    static QRect instanceGearGlyphRect(const QRect &row);
-    static QRect instancePinGlyphRect(const QRect &row);
-    static QRect instanceTrashGlyphRect(const QRect &row);
-
-    /// 光标落在**行里某一个按钮**上就说那一句，没落在任何一个上就是空串。
-    ///
-    /// 组行那一半：只有那颗齿轮（`rowGroupGearTipText()`）。
-    /// 实例行那一半：齿轮 → `rowInstanceSettingsTipText()`、中间那一格 →
-    /// `rowPinTipText()` 或 `rowUnpinTipText()`（**只在 `rowPinRole()`/`rowUnpinRole()`
-    /// 有一个为真时** —— 没画出来的那一格不该说话）、垃圾桶 → `rowDeleteInstanceTipText()`。
-    /// 和 VersionTreeDelegate::rowActionTip() 一个路数（那儿是上一族的第二处几何读者）：
-    /// 一条一条往下判，文案常量全从 MainWindowUI 取，这儿不出现字面量。
+    /// 光标落在行里某颗按钮上就说那一句，没落在任何一个上就是空串。
+    /// 组行：那颗齿轮（`rowGroupGearTipText()`）；实例行：悬停快捷操作文件夹 / 更多 / 启动
+    /// （几何是 `ListRowDelegate::actionRect()`，文案从 MainWindowUI 取）。
     static QString rowActionTip(const QModelIndex &index, const QRect &row, const QPoint &pos);
 
     void paint(QPainter *painter, const QStyleOptionViewItem &option,
@@ -135,6 +99,11 @@ public:
     /// 问不到才交给基类。
     bool helpEvent(QHelpEvent *event, QAbstractItemView *view, const QStyleOptionViewItem &option,
                    const QModelIndex &index) override;
+
+protected:
+    /// 只有实例页的实例行交给 ListRowDelegate（悬停快捷操作）；组行和预设树走基类。
+    bool editorEvent(QEvent *event, QAbstractItemModel *model, const QStyleOptionViewItem &option,
+                     const QModelIndex &index) override;
 
 private:
     bool m_inlineRowActions = true;

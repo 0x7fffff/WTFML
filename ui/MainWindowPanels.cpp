@@ -1719,6 +1719,9 @@ void MainWindowUI::setFolderRows(const QList<FolderRow> &rows) {
         list->setItemWidget(item, widget);
         if (row.current) {
             list->setCurrentItem(item);
+            // 页头文件夹胶囊显示当前那一份的名字（设计稿 .folder-pill）。
+            if (tabWidget != nullptr)
+                if (auto *pill = tabWidget->findChild<QPushButton *>(instanceFolderPillName())) pill->setText(row.title);
         }
     }
     // 焦点链：列表本身 → 各行那颗齿轮 → 左栏底下那两颗按钮。

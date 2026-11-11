@@ -151,6 +151,13 @@ int UiFolderDisplayChecks(MainWindowUI &ui, QListWidget * &folderList, QTabWidge
                 rows.append(row);
             }
             ui.setFolderRows(rows);
+            // UI 7b：列表在页头胶囊点开的浮层里，平时收着 ⇒ 量行几何前先把浮层打开。
+            QWidget *folderPopup = folderList->window();
+            const bool popupWasHidden = folderPopup != nullptr && !folderPopup->isVisible();
+            if (popupWasHidden) {
+                folderPopup->resize(360, 320);
+                folderPopup->show();
+            }
             QApplication::processEvents();
             const auto rowWidgetOf = [&folderList](int index) {
                 return folderList->viewport()->findChild<QWidget *>(
@@ -248,6 +255,7 @@ int UiFolderDisplayChecks(MainWindowUI &ui, QListWidget * &folderList, QTabWidge
                       QString("%1 / 行宽 %2").arg(gear->geometry().right()).arg(rowWidget->width()));
             }
             check(rowsOk, "V 前提：两行都摆齐了（上面每一条都真的跑过）");
+            if (popupWasHidden) folderPopup->hide();
 
             // ---- 齿轮弹出来的那块：五项、自带那份灰两项、"点了把谁告诉外面" ----
             QList<QPair<QString, int>> calls;

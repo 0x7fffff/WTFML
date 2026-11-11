@@ -5,6 +5,8 @@
  *
  * 数据：DisplayRole = 标题，DecorationRole = 封面（QIcon / QPixmap），SubtitleRole = 第二行，
  * MetaRole = 行尾那句（如「2 小时前」）。行高 60（设计稿令牌），用 install() 挂到视图上。
+ * 可选：CoverRole 给了就用它当封面（DecorationRole 留给别处用）；MetaIconRole 给了，元信息改成
+ * 行中部一列「小图标 + 字」（设计稿 manage 的加载器那一列），悬停时也不让位。
  */
 #pragma once
 
@@ -15,7 +17,7 @@ class QAbstractItemView;
 class ListRowDelegate : public QStyledItemDelegate {
     Q_OBJECT
 public:
-    enum Role { SubtitleRole = Qt::UserRole + 0x4C52, MetaRole };
+    enum Role { SubtitleRole = Qt::UserRole + 0x4C52, MetaRole, CoverRole, MetaIconRole };
     enum class Action { Folder, More, Launch };
 
     using QStyledItemDelegate::QStyledItemDelegate;

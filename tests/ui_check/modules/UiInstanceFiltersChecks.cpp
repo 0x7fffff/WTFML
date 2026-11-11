@@ -111,7 +111,7 @@ int UiInstanceFiltersChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * 
                 if (button->height() == Theme::chipHeight()) {
                     ++chipHeightOk;
                 }
-                if (button->styleSheet() == Theme::chipStyleSheet(button->palette()) &&
+                if (button->styleSheet() == Theme::chipStyleSheet(QApplication::palette()) &&
                     button->styleSheet().contains(QStringLiteral(":checked"))) {
                     ++chipStyleOk;
                 }
@@ -136,19 +136,11 @@ int UiInstanceFiltersChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * 
 
             // ---------- ⑤ 谁占宽度：搜索框吃掉剩下的，四颗一颗都不跟着长 ----------
             auto *rowLayout = qobject_cast<QBoxLayout *>(filterRow->layout());
-            check(rowLayout != nullptr && rowLayout->stretch(0) == 1 &&
-                      rowLayout->stretch(1) == 0 && rowLayout->stretch(2) == 0 &&
-                      rowLayout->stretch(3) == 0 && rowLayout->stretch(4) == 0,
-                  "★ U32.5 那一行里**只有搜索框占伸缩**（第 0 位），四颗 chip 各占一格固定宽"
-                  "（窗口拉宽时长的只有搜索框）",
-                  rowLayout != nullptr
-                      ? QStringLiteral("伸展位 %1/%2/%3/%4/%5")
-                            .arg(rowLayout->stretch(0))
-                            .arg(rowLayout->stretch(1))
-                            .arg(rowLayout->stretch(2))
-                            .arg(rowLayout->stretch(3))
-                            .arg(rowLayout->stretch(4))
-                      : QStringLiteral("<没有布局>"));
+            // 设计稿 manage：四颗 chip 在左、一段伸缩、定宽搜索框靠右。
+            check(rowLayout != nullptr && rowLayout->count() == 6 && rowLayout->stretch(4) == 1 &&
+                      rowLayout->itemAt(5)->widget() == search && search->minimumWidth() == search->maximumWidth(),
+                  "★ U32.5 那一行 = 四颗 chip + 一段伸缩 + 定宽搜索框（窗口拉宽时长的只有中间那段空）",
+                  rowLayout != nullptr ? QStringLiteral("%1 项 / 伸缩 %2 / 搜索宽 %3..%4").arg(rowLayout->count()).arg(rowLayout->stretch(4)).arg(search->minimumWidth()).arg(search->maximumWidth()) : QStringLiteral("<没有布局>"));
             int fixedChips = 0;
             for (QPushButton *button : chips) {
                 if (button->sizePolicy().horizontalPolicy() == QSizePolicy::Fixed) {

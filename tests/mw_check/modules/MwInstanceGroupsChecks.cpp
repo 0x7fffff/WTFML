@@ -1,4 +1,6 @@
 #include "Support.hpp"
+#include <QMenu>
+#include <QPointer>
 int MwInstanceGroupsChecks(const QDir &root, const QDir &versionsDir) {
     // 直接往沙盒里写 wtfml.folders。产品里写它的是对话框的「确定」；那一步 2026-11-02
     // 起可以驱动了（开页改成非阻塞，见 TGD 那一段），前面这些节仍然直接写文件 ——
@@ -966,16 +968,16 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             // 每一个之间留一点空的距离，每一行高一点，图标大一点」），版本树那个 46 一个字没动。
             check(rowA != nullptr && rowA->childCount() > 0 &&
                       tree->visualItemRect(rowA).height() ==
-                          MainWindowUI::instanceTreeRowHeight() &&
+                          InstanceGroupDelegate::groupRowHeight() &&
                       tree->visualItemRect(rowA->child(0)).height() ==
-                          MainWindowUI::instanceTreeRowHeight(),
-                  "T16 组行和实例行在真树里都是 instanceTreeRowHeight() 那么高",
+                          ListRowDelegate::rowHeight(),
+                  "T16 真树里组头 36、实例行 60（UI 7b 设计稿 manage 的两档）",
                   QStringLiteral("组 %1 / 实例 %2 / 常数 %3")
                       .arg(rowA != nullptr ? tree->visualItemRect(rowA).height() : -1)
                       .arg(rowA != nullptr && rowA->childCount() > 0
                                ? tree->visualItemRect(rowA->child(0)).height()
                                : -1)
-                      .arg(MainWindowUI::instanceTreeRowHeight()));
+                      .arg(ListRowDelegate::rowHeight()));
 
             check(groupOrderInFile() == QStringList({kSortA, kSortEmpty, kSortB, kSortC}) &&
                       expandedInFile(kSortA) == 1,
@@ -1199,6 +1201,23 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                 send(QEvent::MouseButtonRelease);
                 QApplication::processEvents();
             };
+            // UI 7b：实例设置 / 收藏 / 删除收进行尾「⋯」菜单。点 ⋯ 那一格（真发鼠标），在弹出的
+            // 菜单里按文字挑一项触发；找不到那一项 = 那一格本来就没有这个动作。
+            const auto pickRowMenu = [&clickRowAt](QTreeWidget *tree, const QRect &row, const QStringList &texts) {
+                clickRowAt(tree, ListRowDelegate::actionRect(row, ListRowDelegate::Action::More).center());
+                QPointer<QMenu> menu = tree->findChild<QMenu *>(MainWindowUI::instanceRowMenuName());
+                if (menu.isNull()) return false;
+                menu->setObjectName(QString());
+                QAction *hit = nullptr;
+                for (QAction *action : menu->actions()) {
+                    if (texts.contains(action->text())) hit = action;
+                }
+                if (hit != nullptr) hit->trigger();
+                if (!menu.isNull()) menu->close();
+                QApplication::processEvents();
+                return hit != nullptr;
+            };
+            const QStringList pinTexts{MainWindowUI::rowPinTipText(), MainWindowUI::rowUnpinTipText()};
             // 盘上那份成员表（读的是**文件**：这一节验的正是"落盘了没有"，问 store 等于自己
             // 验自己）。**按值数、不按键找**：键是 instanceKey() 给的 —— 有稳定 id 的实例
             // 按 id 存、没有的按目录名存，而"哪个实例已经有稳定 id 了"取决于它之前有没有被
@@ -1331,20 +1350,9 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             {
                 QTreeWidgetItem *target = rowOfInstanceId(tree, QStringLiteral("1.20.1"));
                 const QRect row = target != nullptr ? tree->visualItemRect(target) : QRect();
-                const QPoint gearPos = InstanceGroupDelegate::instanceGearRect(row).center();
-                check(row.width() > 0 && row.contains(gearPos) &&
-                          !InstanceGroupDelegate::instancePinRect(row).contains(gearPos) &&
-                          !InstanceGroupDelegate::instanceTrashRect(row).contains(gearPos),
-                      "T17 前提：齿轮那一格落在这一行里、而且和另外两颗不重叠",
-                      QStringLiteral("点 (%1,%2) / 行 %3,%4 %5x%6")
-                          .arg(gearPos.x())
-                          .arg(gearPos.y())
-                          .arg(row.left())
-                          .arg(row.top())
-                          .arg(row.width())
-                          .arg(row.height()));
+                check(row.width() > 0, "T17 前提：这一行在树上");
                 QString pageTitle;
-                clickRowAt(tree, gearPos);
+                pickRowMenu(tree, row, {MainWindowUI::rowInstanceSettingsTipText()});
                 closeInstanceSettingsPage(&pageTitle);
                 check(pageTitle.contains(QStringLiteral("我的整合包")),
                       "★ 点行尾那颗齿轮：开的是**这一行**那个实例的设置页（页眉上写着它）",
@@ -1358,9 +1366,9 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                 // 行里靠左那一截（版本名/图标那一片）—— 和行尾三颗按钮离得远远的。
                 const QPoint bodyPos(row.left() + row.width() / 3, row.center().y());
                 check(row.width() > 0 && row.contains(bodyPos) &&
-                          !InstanceGroupDelegate::instanceGearRect(row).contains(bodyPos) &&
-                          !InstanceGroupDelegate::instancePinRect(row).contains(bodyPos) &&
-                          !InstanceGroupDelegate::instanceTrashRect(row).contains(bodyPos),
+                          !ListRowDelegate::actionRect(row, ListRowDelegate::Action::Folder).contains(bodyPos) &&
+                          !ListRowDelegate::actionRect(row, ListRowDelegate::Action::More).contains(bodyPos) &&
+                          !ListRowDelegate::actionRect(row, ListRowDelegate::Action::Launch).contains(bodyPos),
                       "T17 前提：要点的那个点在行里，而且不在行尾那三颗按钮的任何一格上",
                       QStringLiteral("点 (%1,%2) / 行 %3,%4 %5x%6")
                           .arg(bodyPos.x())
@@ -1400,10 +1408,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                       QStringLiteral("成员 %1 条、指到置顶组的 %2 条")
                           .arg(membersInFile().size())
                           .arg(membersPointingAt(kPinGroup)));
-                const QPoint pinPos = InstanceGroupDelegate::instancePinRect(row).center();
-                check(row.width() > 0 && row.contains(pinPos), "T17 前提：上箭头那一格在行里",
-                      QStringLiteral("点 (%1,%2)").arg(pinPos.x()).arg(pinPos.y()));
-                clickRowAt(tree, pinPos);
+                check(pickRowMenu(tree, row, pinTexts), "T17 ⋯ 菜单里有「收藏」那一项");
                 check(membersPointingAt(kPinGroup) == 1 && membersInFile().size() == 3,
                       "★ 点一下上箭头：这一条**落盘进了置顶组**（用户原话「置顶以后进选了这个"
                       "的组」），而且只多出这一条",
@@ -1483,8 +1488,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                           !moved->data(0, MainWindowUI::rowPinRole()).toBool(),
                       "★ 已经在置顶组里的那一条：那一格挂的是**取消置顶**（悬停画下箭头），"
                       "两个角色互斥（上面那条老断言守的就是它的另一半）");
-                const QPoint downPos = InstanceGroupDelegate::instancePinRect(movedRow).center();
-                clickRowAt(tree, downPos);
+                pickRowMenu(tree, movedRow, pinTexts);
                 check(membersPointingAt(kPinGroup) == 0 && membersInFile().size() == 2,
                       "★ 点一下下箭头：这一条**挪出了置顶组**（落盘）—— 而它是「置顶前没表过"
                       "态」那一种，所以文件里那一条归属被**删掉**了（不是写成「明确选了未"
@@ -1516,7 +1520,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                 // 再点一次（这回它又是上箭头了）：来回一趟回到原处 —— 这两颗**必须落在
                 // 同一格上**，不然上一节的取舍（"一行里塞不下第四颗"）就白讲了。
                 const QRect backRow = back != nullptr ? tree->visualItemRect(back) : QRect();
-                clickRowAt(tree, InstanceGroupDelegate::instancePinRect(backRow).center());
+                pickRowMenu(tree, backRow, pinTexts);
                 check(membersPointingAt(kPinGroup) == 1 && membersInFile().size() == 3,
                       "★ 再点一次那颗刚换回上箭头的：又回到置顶组里（同一格上的一对反义词）",
                       QStringLiteral("指到置顶组的 %1 条").arg(membersPointingAt(kPinGroup)));
@@ -1540,7 +1544,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                           .arg(membersInFile().size())
                           .arg(membersPointingAt(kPlainGroup))
                           .arg(originCount(kPlainGroup)));
-                clickRowAt(tree, InstanceGroupDelegate::instancePinRect(plainRow).center());
+                pickRowMenu(tree, plainRow, pinTexts);
                 check(membersPointingAt(kPinGroup) == 2 && membersPointingAt(kPlainGroup) == 1 &&
                           originCount(kPlainGroup) == 1,
                       "★ 置顶「普通组」里的那一条：它进了置顶组，而且**记下了「置顶之前它属于"
@@ -1553,7 +1557,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                 const QRect inPinRow = inPin != nullptr ? tree->visualItemRect(inPin) : QRect();
                 check(inPin != nullptr && inPin->data(0, MainWindowUI::rowUnpinRole()).toBool(),
                       "T17 前提：它现在在置顶组里（那一格挂的是下箭头）");
-                clickRowAt(tree, InstanceGroupDelegate::instancePinRect(inPinRow).center());
+                pickRowMenu(tree, inPinRow, pinTexts);
                 check(membersPointingAt(kPlainGroup) == 2 && membersPointingAt(kPinGroup) == 1 &&
                           membersInFile().size() == 3 && originCount(kPlainGroup) == 0,
                       "★ 点一下下箭头：它**回到了置顶之前待的那一组**"
@@ -1649,7 +1653,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                 check(stuffed != nullptr &&
                           stuffed->data(0, MainWindowUI::rowUnpinRole()).toBool(),
                       "T17 前提：它在置顶组里（那一格挂的是下箭头）");
-                clickRowAt(tree, InstanceGroupDelegate::instancePinRect(stuffedRow).center());
+                pickRowMenu(tree, stuffedRow, pinTexts);
                 check(membersPointingAt(kPinGroup) == 1 && membersInFile().size() == 4,
                       "★ 点一下下箭头：没有记录 ⇒ 落**未分类**，而且写的是「明确选了未分组」"
                       "那条**保留值**（不是把这一条删掉）—— 于是它下一次刷新不会被自动归类"
@@ -1675,21 +1679,10 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
             {
                 QTreeWidgetItem *target = rowOfInstanceId(tree, kSnapTemp);
                 const QRect row = target != nullptr ? tree->visualItemRect(target) : QRect();
-                const QPoint trashPos = InstanceGroupDelegate::instanceTrashRect(row).center();
-                check(row.width() > 0 && row.contains(trashPos) &&
-                          !InstanceGroupDelegate::instanceGearRect(row).contains(trashPos) &&
-                          !InstanceGroupDelegate::instancePinRect(row).contains(trashPos),
-                      "T17 前提：垃圾桶那一格在行里、和另外两颗不重叠",
-                      QStringLiteral("点 (%1,%2) / 行 %3,%4 %5x%6")
-                          .arg(trashPos.x())
-                          .arg(trashPos.y())
-                          .arg(row.left())
-                          .arg(row.top())
-                          .arg(row.width())
-                          .arg(row.height()));
+                check(row.width() > 0, "T17 前提：这一行在树上");
 
                 dismissNextPrompt();  // 最后一颗 = 「取消」
-                clickRowAt(tree, trashPos);
+                pickRowMenu(tree, row, {MainWindowUI::rowDeleteInstanceTipText()});
                 check(g_modalTitle == QStringLiteral("删除实例"),
                       "★ 点垃圾桶：先弹一句才动手（用户原话「删除前需要弹窗提示」）", g_modalTitle);
                 check(g_modalText.contains(kSnapTemp) &&
@@ -1703,7 +1696,7 @@ pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)
                       "★ 答「取消」：盘上那个目录、树上那一条，都一个字节没动");
 
                 answerNextPrompt(0);  // 第一颗 = 「删除」
-                clickRowAt(tree, trashPos);
+                pickRowMenu(tree, row, {MainWindowUI::rowDeleteInstanceTipText()});
                 check(!QDir(versionsDir.filePath(kSnapTemp)).exists(),
                       "★ 答「删除」：整个目录真的没了（jar / json / 它自己的设置一起）");
                 check(rowOfInstanceId(tree, kSnapTemp) == nullptr,

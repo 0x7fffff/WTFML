@@ -489,6 +489,11 @@ public:
     /// 只说「取消收藏」这一个意思。
     static QString rowUnpinTipText() { return QStringLiteral("取消收藏"); }
     static QString rowDeleteInstanceTipText() { return QStringLiteral("删除这个实例"); }
+    /// 实例行悬停快捷操作（ListRowDelegate 那三格）的提示与「更多」菜单的出处。
+    static QString rowOpenFolderTipText() { return QStringLiteral("打开实例文件夹"); }
+    static QString rowMoreTipText() { return QStringLiteral("更多操作"); }
+    static QString rowLaunchTipText() { return QStringLiteral("启动这个实例"); }
+    static QString instanceRowMenuName() { return QStringLiteral("instanceRowMenu"); }
     /// 悬停在那两个**行里的按钮**上时弹的那句话（刷新 / 取消）。谁把它弹出来的、
     /// 按哪一格判，见 VersionTreeDelegate::rowActionTip()（那儿是**几何的唯一出处**，
     /// 这儿只是文案）。
@@ -941,6 +946,9 @@ public:
     static QString folderSectionTitleText() { return QStringLiteral("游戏文件夹"); }
     static QString folderSectionTitleName() { return QStringLiteral("folderSectionTitle"); }
     static QString instanceFolderLabelName() { return QStringLiteral("instanceFolderLabel"); }
+    /// 管理页页头的「游戏文件夹」胶囊与点开的文件夹浮层（folderList / 添加文件夹… 在里面）。
+    static QString instanceFolderPillName() { return QStringLiteral("instanceFolderPill"); }
+    static QString instanceFolderPopupName() { return QStringLiteral("instanceFolderPopup"); }
     // 「游戏文件夹」那一列上的按钮。这里**必须**有 objectName —— 按文案找控件的写法
     // 会在改文案的第一次跑就变成"找不到控件、后面全不跑"。文案另有 *Text()，
     // 只用来核对显示内容。
@@ -1063,8 +1071,12 @@ public:
     static QString instanceNoMatchLabelName() { return QStringLiteral("instanceNoMatch"); }
     /// 文件夹里一个实例都没有（也没在筛）时列表上方那句话：说清下一步去哪，不用防御腔。
     static QString instanceEmptyText() {
-        return QStringLiteral("这里还没有实例。可以从左栏导入一个整合包，或者去「下载」页装一个新版本。");
+        return QStringLiteral("可以导入一个整合包，或者去「下载」页装一个新版本。");
     }
+    /// 空态大标题、容器与两颗按钮（设计稿 manage-empty）。
+    static QString instanceEmptyTitleText() { return QStringLiteral("这里还没有实例"); }
+    static QString instanceEmptyStateName() { return QStringLiteral("instanceEmptyState"); }
+    static QString instanceEmptyDownloadText() { return QStringLiteral("去下载页装新版本"); }
     static QString instanceEmptyLabelName() { return QStringLiteral("instanceEmpty"); }
 
     /// 某颗筛选 chip 的 objectName。**按这一档点名找**（不解析文字）：文字会改。

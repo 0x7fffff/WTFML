@@ -13,7 +13,7 @@
 #include "Theme.hpp"
 #include "VersionIcons.hpp"
 
-InstanceGroupDelegate::InstanceGroupDelegate(QObject *parent) : QStyledItemDelegate(parent) {
+InstanceGroupDelegate::InstanceGroupDelegate(QObject *parent) : ListRowDelegate(parent) {
     // 选中带只有卡片那一圈：告诉样式别涂左边那截分支区（见 Theme.cpp 里 PE_PanelItemViewRow 那段）。
     if (auto *view = qobject_cast<QWidget *>(parent)) view->setProperty("wtfmlCardSelection", true);
 }
@@ -72,100 +72,17 @@ QRect InstanceGroupDelegate::gearGlyphRect(const QRect &row) {
     return box.adjusted(inset, inset, -inset, -inset);
 }
 
-void InstanceGroupDelegate::instanceActionGlyphRects(const QRect &row, QRect &gear, QRect &pin,
-                                                     QRect &trash) {
-    // 一整排的算法就这一份（三个 `instanceXxxGlyphRect()` 和三个 `instanceXxxRect()` 都是
-    // 它的薄壳，见 .hpp）：**从行的右边缘往里排**，一颗一颗往左摆。不这么收的话，改一次
-    // 间距要同步改六处，而漏改一处只会让某一格错位——屏幕上完全看不出是哪一段写错了。
-    const int pad = MainWindowUI::versionTreeRowPadding();
-    const int gap = MainWindowUI::instanceRowActionGap();
-    // 边长照 `gearGlyphRect()` 那个兜底收一收：行矮的时候 16 px 的字形会上下各冒出去一半。
-    // 行高平时是 instanceTreeRowHeight()（58），这一缩不生效，留着是兜底。
-    const int size = qMin(MainWindowUI::instanceRowActionSize(), row.height());
-    // 竖直居中：和 chevronRect()/gearRect() 同一个式子（`top + (行高 - 边长) / 2`，**不用
-    // `row.center().y()`**，理由见 chevronRect() —— 行高是偶数时分母那一半少一像素）。
-    const int top = row.top() + (row.height() - size) / 2;
-    // 右边缘用 `row.x() + row.width()`，**不是 `row.right()`**：后者是"最后一个像素的 x"
-    // （= left + width - 1），拿它当锚整排会往左挪一个像素 —— 而这一像素正是调用方
-    // （`MainWindow::eventFilter`）和代理对不齐的那种错。
-    const int right = row.x() + row.width() - pad;
-    // 右起：齿轮 → 上箭头 → 垃圾桶。每一颗都是"前一颗的左边再退一个间隔"。
-    gear = QRect(right - size, top, size, size);
-    pin = QRect(gear.left() - gap - size, top, size, size);
-    trash = QRect(pin.left() - gap - size, top, size, size);
-}
-
-QRect InstanceGroupDelegate::instanceGearRect(const QRect &row) {
-    QRect gear, pin, trash;
-    instanceActionGlyphRects(row, gear, pin, trash);
-    // 命中格比画出来的那个字形大一圈（四周各留 instanceRowActionMargin() = 3，和 gearRect()/
-    // clearRect() 一个做法）—— 16 px 的点击目标太小了，手一抖就点到那一行上。
-    const int m = MainWindowUI::instanceRowActionMargin();
-    return gear.adjusted(-m, -m, m, m);
-}
-
-QRect InstanceGroupDelegate::instancePinRect(const QRect &row) {
-    QRect gear, pin, trash;
-    instanceActionGlyphRects(row, gear, pin, trash);
-    const int m = MainWindowUI::instanceRowActionMargin();
-    return pin.adjusted(-m, -m, m, m);
-}
-
-QRect InstanceGroupDelegate::instanceTrashRect(const QRect &row) {
-    QRect gear, pin, trash;
-    instanceActionGlyphRects(row, gear, pin, trash);
-    const int m = MainWindowUI::instanceRowActionMargin();
-    return trash.adjusted(-m, -m, m, m);
-}
-
-QRect InstanceGroupDelegate::instanceGearGlyphRect(const QRect &row) {
-    QRect gear, pin, trash;
-    instanceActionGlyphRects(row, gear, pin, trash);
-    return gear;
-}
-
-QRect InstanceGroupDelegate::instancePinGlyphRect(const QRect &row) {
-    QRect gear, pin, trash;
-    instanceActionGlyphRects(row, gear, pin, trash);
-    return pin;
-}
-
-QRect InstanceGroupDelegate::instanceTrashGlyphRect(const QRect &row) {
-    QRect gear, pin, trash;
-    instanceActionGlyphRects(row, gear, pin, trash);
-    return trash;
-}
-
 QString InstanceGroupDelegate::rowActionTip(const QModelIndex &index, const QRect &row,
                                             const QPoint &pos) {
     // 组行那一半：这一行**只剩齿轮**一格（上下移那两颗在分组设置窗里，见 .hpp）。
     if (index.data(MainWindowUI::rowGroupGearRole()).toBool() && gearRect(row).contains(pos)) {
         return MainWindowUI::rowGroupGearTipText();
     }
-    // 实例行那一半：三格各说各的话（右起：齿轮 / 上箭头 / 垃圾桶，见 .hpp）。
-    // 判据是"**没有** groupIdRole()"，和 paint()/sizeHint() 里"这是不是实例行"是同一条。
-    // 三个命中格互不重叠（见 .hpp），所以这就是三条互斥的分支、顺序无所谓 —— 真叠上了的话
-    // 先判的那个赢（和 VersionTreeDelegate::rowActionTip() 那段同一个约定）。
+    // 实例行那一半：悬停快捷操作三格（几何同 ListRowDelegate::actionRect）。
     if (!index.data(MainWindowUI::groupIdRole()).isValid()) {
-        if (instanceGearRect(row).contains(pos)) {
-            return MainWindowUI::rowInstanceSettingsTipText();
-        }
-        // 那一格（上箭头 / 下箭头**共用的一格**，见 MainWindowUI::rowUnpinRole()）
-        // **只在画得出来的行上**才算数 —— 两个角色都为假 = 这一格根本没画（这份
-        // .minecraft 里没有置顶组），不然会出现"指着一块空白弹出了「置顶」"。
-        // 两个角色互斥（同一个 pinnedGroupId 一个判 `!=`、一个判 `==`），先判哪个都行；
-        // 真两个都真了的话先判的那个赢（和上面那条"三条互斥分支"同一个约定）。
-        if (instancePinRect(row).contains(pos)) {
-            if (index.data(MainWindowUI::rowUnpinRole()).toBool()) {
-                return MainWindowUI::rowUnpinTipText();
-            }
-            if (index.data(MainWindowUI::rowPinRole()).toBool()) {
-                return MainWindowUI::rowPinTipText();
-            }
-        }
-        if (instanceTrashRect(row).contains(pos)) {
-            return MainWindowUI::rowDeleteInstanceTipText();
-        }
+        if (actionRect(row, Action::Folder).contains(pos)) return MainWindowUI::rowOpenFolderTipText();
+        if (actionRect(row, Action::More).contains(pos)) return MainWindowUI::rowMoreTipText();
+        if (actionRect(row, Action::Launch).contains(pos)) return MainWindowUI::rowLaunchTipText();
     }
     return QString();
 }
@@ -192,6 +109,10 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
                                   const QModelIndex &index) const {
     // 实例那几行（没有组 id 那个 role 的）：背景/选中/文字/图标**仍然交给基类画**，
     // 这一层只在它画完之后，在行尾补上那三颗按钮（右起：齿轮 / 上箭头 / 垃圾桶，见文件头）。
+    if (!index.data(MainWindowUI::groupIdRole()).isValid() && m_inlineRowActions) {
+        ListRowDelegate::paint(painter, option, index);  // 实例页：设计稿列表行
+        return;
+    }
     if (!index.data(MainWindowUI::groupIdRole()).isValid()) {
         QStyleOptionViewItem opt(option);
         // 悬停那一位**先读走、再抹掉**：它是给"下面我们自己画的那两颗悬停按钮"用的，
@@ -251,8 +172,6 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
         // NOTE: **只换墨、不换那一块的形状** —— 实例行选中时的带子只有卡片那一圈，
         // 左边那一截分支区要保持底色（见上面那条 ★★ ），
         // 所以这儿不去补涂它（版本树那一支反过来，它是整条行）。
-        const bool selectedRow = (option.state & QStyle::State_Selected) != 0;
-        const QPalette rowPalette = Theme::selectionPalette(option.palette, selectedRow);
         // 行与行之间那道空（见 cardRect()）：这一行**画**的那一圈比整条行上下各小半个缺口。
         // 摆在这儿（initStyleOption 之后、量文字之前）是因为下面那句 SE_ItemViewItemText
         // 是从 opt.rect 上算的 —— 少了这一句，量出来的宽度还是整条行的，虽然宽度只跟左右有关、
@@ -275,10 +194,7 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
             // 三颗无论此刻画不画都算进去 —— 和 sizeHint() 那条规矩一样（跟着悬停变的话，
             // 鼠标一扫过去正文就左右跳一下）。
             // 不画那一排的那种树（`setInlineRowActions(false)`，见 .hpp）停在行尾留白之前。
-            const int stopAt = m_inlineRowActions
-                                   ? instanceTrashRect(option.rect).left()
-                                   : option.rect.x() + option.rect.width() -
-                                         MainWindowUI::versionTreeRowPadding();
+            const int stopAt = option.rect.x() + option.rect.width() - MainWindowUI::versionTreeRowPadding();
             const QRect textArea =
                 style->subElementRect(QStyle::SE_ItemViewItemText, &opt, opt.widget);
             const int avail = qMin(textArea.width(), stopAt - textArea.left());
@@ -305,49 +221,6 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
         //
         // 不画那一排的树（`setInlineRowActions(false)`，见 .hpp 的预设页）到这儿就结束了：
         // 底色、选中、正文、图标已经全部画完，行尾干干净净。
-        if (!m_inlineRowActions) {
-            return;
-        }
-        //
-        // NOTE: 每颗都不自己缓存 pixmap —— `VersionIcons::` 内部已经按"尺寸 + 颜色"缓存
-        // （见那边 cached()），这一层再存一份只会多一处要同步的地方。
-        //
-        // 取色走的是上面那份**换了墨的** `palette`（选中那一行的底是我们自己画的那块浅灰
-        // ⇒ 墨必须和它配套，理由见那段）。别改回 `option.palette` —— 那样深色主题下选中
-        // 一行时三颗按钮会变成一对白疙瘩压在浅灰上（正文那一半倒是归样式管、照样是暗的，
-        // 于是同一行上一暗一白）。
-        const QColor ink = rowPalette.color(QPalette::WindowText);
-        painter->save();
-        // 齿轮**常显**：它和"点这一行任何别的地方"
-        // 做的是同一件事（进实例设置），常显是给那件事一个看得见的入口。
-        const QRect gearGlyph = instanceGearGlyphRect(option.rect);
-        painter->drawPixmap(gearGlyph.topLeft(),
-                            VersionIcons::gear(gearGlyph.width(), Theme::tokens().primary));
-        // 中间那一格：悬停才画，而且是**一对反义词共用的一格**（见 MainWindowUI::
-        // rowUnpinRole() 那段）—— 还没在置顶组里 ⇒ ↑「置顶」；已经在里面 ⇒ ↓「取消置顶」。
-        // 两个角色都为假 = 这一格空着，那就不画（这份 .minecraft 里没有置顶组：
-        // 那一格点下去没有去处）。
-        //
-        // NOTE: 只有 `rowPinRole()` 或 `rowUnpinRole()` 为真的行才画 ——
-        // 已经在置顶组里的那一条挪不动 ⇒ 不画，因为"挪不动的那侧不画"这条先例在
-        // ui/GroupListDelegate 里；**不是**画一颗灰的。
-        // 两个都为假时这一格空着，那种情形只有"根本没有置顶组"。
-        const bool canPin = index.data(MainWindowUI::rowPinRole()).toBool();
-        const bool canUnpin = index.data(MainWindowUI::rowUnpinRole()).toBool();
-        if (hovered && (canPin || canUnpin)) {
-            const QRect pinGlyph = instancePinGlyphRect(option.rect);
-            painter->drawPixmap(pinGlyph.topLeft(),
-                                canUnpin ? VersionIcons::arrowDown(pinGlyph.width(), ink)
-                                         : VersionIcons::arrowUp(pinGlyph.width(), ink));
-        }
-        // 垃圾桶：悬停才画。它点下去还要过一次确认框（那一下由 MainWindow::eventFilter 接），
-        // 但它一趟操作是**不可逆**的，所以"鼠标没指到这一行时就不摆出来"。
-        if (hovered) {
-            const QRect trashGlyph = instanceTrashGlyphRect(option.rect);
-            painter->drawPixmap(trashGlyph.topLeft(),
-                                VersionIcons::trash(trashGlyph.width(), Theme::dangerColor(rowPalette)));
-        }
-        painter->restore();
         return;
     }
 
@@ -374,7 +247,7 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
     // 这一位下面还要用两次（悬停底色 + 行尾那颗齿轮，见下面那两段），所以在这儿
     // 读成一个名字 —— 读的仍然是**传进来**那一份，时序和上面那句一模一样。
     const bool rowHovered = (option.state & QStyle::State_MouseOver) != 0;
-    if (rowHovered && (index.flags() & Qt::ItemIsEnabled) != 0) {
+    if (!m_inlineRowActions && rowHovered && (index.flags() & Qt::ItemIsEnabled) != 0) {
         painter->fillRect(opt.rect, Theme::rowHoverFill(option.palette.color(QPalette::Base)));
     }
     opt.state &= ~QStyle::State_MouseOver;
@@ -404,10 +277,17 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
     // 也是这么画的）。
     QFont mainFont = option.font;
     mainFont.setBold(true);
+    QColor groupInk = palette.color(QPalette::WindowText);
+    if (m_inlineRowActions) {  // 实例页组头 = 设计稿 .group-label：手写小字、字距 2、次要色
+        mainFont = Theme::handFont(option.font, Theme::HandFont::Kai);
+        mainFont.setPixelSize(13);
+        mainFont.setLetterSpacing(QFont::AbsoluteSpacing, 2);
+        groupInk = Theme::tokens().secondary;
+    }
     const QFontMetrics mainFontMetrics(mainFont);
     painter->save();
     painter->setFont(mainFont);
-    painter->setPen(palette.color(QPalette::WindowText));
+    painter->setPen(groupInk);
     // 组名太长时截成省略号（和 VersionTreeDelegate 里那两行同一个理由 ——
     // `drawText(rect, 文字)` 装不下是硬裁，最后一个字被切掉半个）。组名是用户自己起的名字，
     // 比版本号更容易长过这一格。
@@ -434,8 +314,7 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
     // 最右边那个箭头：分组头**一定**画（"点一下打开/关闭"就是它）。用正文色 ——
     // 这一行真的能展开，和版本树那几条分类同一条规矩。
     painter->drawPixmap(chevronRect(row).topLeft(),
-                        VersionIcons::chevron(expanded, arrowSize,
-                                              palette.color(QPalette::WindowText)));
+                        VersionIcons::chevron(expanded, arrowSize, groupInk));
     painter->restore();
 }
 
@@ -444,42 +323,27 @@ QSize InstanceGroupDelegate::sizeHint(const QStyleOptionViewItem &option,
     const bool isGroup = index.data(MainWindowUI::groupIdRole()).isValid();
     QStyleOptionViewItem opt(option);
     if (isGroup) {
-        // 正文是粗体画的，宽度也得按粗体量（不然"组名 + 右边那两格"会差几个像素）。
         QFont bold = option.font;
         bold.setBold(true);
         opt.font = bold;
     }
     const QSize size = QStyledItemDelegate::sizeHint(opt, index);
-    // 行高**每一行都钉成同一个常数**（组行和实例行都算）。
-    // 树上开着 uniformRowHeights（第一行多高所有
-    // 行就多高），而平铺那一档的第一行是**实例**、有分组时第一行是**组头** —— 两边都给
-    // 同一个数，"一张树多高"才不随"有没有分组"翻个面。
-    const int height = rowHeight();
     if (!isGroup && m_inlineRowActions) {
-        // 实例行：行尾那三颗按钮占的宽度**无条件**加上 —— 三颗 + 两个间隔 + 左右各一份
-        // 命中格的 margin + 右留白。判据里**故意不放悬停**（和 VersionTreeDelegate::
-        // sizeHint() 里那一段同一个规矩）：跟着悬停变的话，鼠标一扫过去整行的宽度就跟着
-        // 变、正文左右横跳一下 —— 那比"少一个图标"显眼得多。行高照旧是那个常数。
-        //
-        // NOTE：**这一份宽度只是"想要多少"，管不住真正的布局** —— 实例页
-        // 只有一列而且它是拉伸的（表头藏着），columnWidth 永远是视口宽，给条目塞一个更
-        // 宽的 sizeHint 也没用。所以"正文不许压到齿轮底下"这件事的真正执行处是
-        // paint() 里那一段（它自己按 SE_ItemViewItemText 把正文截断）。这里留着不改：
-        // 换了不拉伸的列宽策略时它就是对的，而且两处的"三颗按钮占多宽"必须一致。
-        const int actions = 3 * MainWindowUI::instanceRowActionSize() +
-                            2 * MainWindowUI::instanceRowActionGap() +
-                            2 * MainWindowUI::instanceRowActionMargin() +
-                            MainWindowUI::versionTreeRowPadding();
-        return QSize(size.width() + actions, height);
+        return QSize(size.width(), ListRowDelegate::rowHeight());
     }
     if (!isGroup) {
-        // 组里那些行、但不画行尾那一排（预设页）：只剩右边一份留白。
-        return QSize(size.width() + MainWindowUI::versionTreeRowPadding(), height);
+        return QSize(size.width() + MainWindowUI::versionTreeRowPadding(), rowHeight());
     }
-    // 宽度按内容加：右边那几格也占地方 —— 展开箭头一律有，齿轮看角色。
     int extra = MainWindowUI::versionTreeArrowSize() + 6;
     if (index.data(MainWindowUI::rowGroupGearRole()).toBool()) {
         extra += MainWindowUI::instanceGroupGearSize() + 6 + 6;
     }
-    return QSize(size.width() + extra, height);
+    return QSize(size.width() + extra, m_inlineRowActions ? groupRowHeight() : rowHeight());
+}
+
+bool InstanceGroupDelegate::editorEvent(QEvent *event, QAbstractItemModel *model,
+                                        const QStyleOptionViewItem &option, const QModelIndex &index) {
+    if (m_inlineRowActions && !index.data(MainWindowUI::groupIdRole()).isValid())
+        return ListRowDelegate::editorEvent(event, model, option, index);
+    return QStyledItemDelegate::editorEvent(event, model, option, index);
 }

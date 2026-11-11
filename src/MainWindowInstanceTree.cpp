@@ -20,6 +20,7 @@
 #include "MainWindow.hpp"
 
 #include "..\ui\VersionIcons.hpp"
+#include "..\ui\ListRowDelegate.hpp"
 #include "controllers/DownloadBatchController.hpp"
 #include "controllers/InstallPageController.hpp"
 #include "controllers/MainWindowViewData.hpp"
@@ -340,7 +341,32 @@ void MainWindow::rebuildInstanceTree() {
     }
     fillInstanceTree(tree, buckets, m_settings->versionNameOptions(), runningVersionIds(),
                      m_instancePageMarks, pinnedGroupId, pinnedInstanceIds);
+    QHash<QString, VersionDisplayParts> partOf;
+    for (const VersionDisplayParts &part : shown) partOf.insert(part.id, part);
     for (QTreeWidgetItemIterator it(tree); *it != nullptr; ++it) {
+        // 列表行第二行与行尾（ListRowDelegate）：游戏版本 / 加载器。
+        const auto found = partOf.constFind(instanceIdOf(*it));
+        if (found != partOf.constEnd()) {
+            QString loaderVersion;
+            const QString loader = instanceLoaderName(*found, m_versionManager, &loaderVersion);
+            (*it)->setData(0, ListRowDelegate::SubtitleRole,
+                           QStringLiteral("Minecraft %1").arg(found->realVersion.isEmpty() ? found->id : found->realVersion));
+            (*it)->setData(0, ListRowDelegate::MetaRole,
+                           loader.isEmpty() ? tr("原版") : (loader + QLatin1Char(' ') + loaderVersion).trimmed());
+            // 封面：用户挑过图标用挑的那张，没挑按实例名稳定配色的等距方块（和主页一致）；
+            // 加载器那一列的小图标用不带自选图标的那张行标（铁砧 / 草方块 / 快照…）。
+            const QIcon mark = m_instancePageMarks.value(found->id);
+            VersionDisplayParts plain = *found;
+            plain.icon.clear();
+            (*it)->setData(0, ListRowDelegate::CoverRole,
+                           found->icon.isEmpty()
+                               ? QIcon(VersionIcons::isoBlock(VersionIcons::isoBlockKindFor((*it)->text(0)), 48))
+                               : mark);
+            (*it)->setData(0, ListRowDelegate::MetaIconRole,
+                           found->icon.isEmpty() ? mark
+                                                 : QIcon(instanceRowMark(plain, m_versionManager,
+                                                                         MainWindowUI::instanceTreeIconSize())));
+        }
         if (m_fileOperationOccupancy.contains(instanceIdOf(*it))) {
             (*it)->setText(0, (*it)->text(0) + tr("（文件操作中）"));
             (*it)->setToolTip(0, tr("正在处理实例文件，完成后可再次启动或修改。"));
@@ -376,7 +402,12 @@ void MainWindow::rebuildInstanceTree() {
     }
     // 没在筛、盘上那个文件夹也在、就是一个实例都没有：给一句下一步去哪。
     if (QLabel *empty = m_ui->getInstanceEmptyLabel()) {
-        empty->setVisible(!filtering && parts.isEmpty() && QDir(root).exists());
+        // 空态是整块（插画 + 标题 + 引导 + 按钮）：标签跟着容器开关，列表与筛选行让位。
+        const bool showEmpty = !filtering && parts.isEmpty() && QDir(root).exists();
+        empty->setVisible(showEmpty);
+        empty->parentWidget()->setVisible(showEmpty);
+        tree->setVisible(!showEmpty);
+        if (QWidget *filters = m_ui->getInstanceFilterRow()) filters->setVisible(!showEmpty);
     }
 }
 

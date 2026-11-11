@@ -96,27 +96,8 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
             return true;
         }
     }
-    // 同一个实例树上**实例行**行尾那一排
-    // （实例设置放在每一条右侧；悬停时右侧显示上箭头和垃圾桶，分别对应置顶和删除
-    // 实例，删除前弹窗提示）。
-    // 行内三颗：**常显的齿轮**（= 实例设置）+ 悬停才出现的**上箭头**（= 置顶）和**垃圾桶**
-    // （= 删除这个实例）。谁画的、画在哪一格，见 InstanceGroupDelegate::instanceGearRect()
-    // 那几个函数 —— 这里读的是**同一个函数**，差一个像素就是"看着点中了垃圾桶、其实点的是
-    // 那一行"（那一行现在也有一件事要做：进实例设置，见 onInstanceTreeActivated）。
-    //
-    // 判据"这是不是实例行"用**没有** groupIdRole()：和代理那边 paint()/sizeHint() 是同一条
-    // （组行有那个角色、实例行没有）。
-    //
-    // NOTE: 三格的命中判定顺序无所谓（探针量过：三格之间零重叠、零空隙），但中间那一格
-    // 要先问**这一行到底摆没摆它**（rowPinRole() / rowUnpinRole()）—— 这份
-    // .minecraft 里没有置顶组时那一格是空的：指着一块空白弹出「置顶」、点下去还
-    // 真的挪了一次，是最难解释的一种。
-    // NOTE: 中间那一格是**两个动作共用的一格**（不在置顶组 ⇒ ↑ 置顶 / 已经在了 ⇒ ↓
-    // 取消置顶，见 MainWindowUI::rowUnpinRole()）—— 所以这里比的是"在里面不在里面"，
-    // 不是"角色号是哪一个"。
-    // NOTE: 也接双击，理由和上面组行齿轮那一段逐字相同（点得快时第二发及以后到的是
-    // 双击事件，不接的话会漏给"点中了这一行"那条路，于是连点垃圾桶的第二下变成
-    // 进实例设置）。
+    // 同一个实例树上**实例行**悬停那三格（ListRowDelegate：文件夹 / 更多 / 启动）。也接双击：
+    // 点得快时第二发是双击事件，不吃掉会漏给"点中这一行"那条路（进实例设置）。
     if (instanceTree != nullptr && watched == instanceTree->viewport()
         && (event->type() == QEvent::MouseButtonPress
             || event->type() == QEvent::MouseButtonRelease
@@ -125,41 +106,17 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
         QTreeWidgetItem *item =
             mouse->button() == Qt::LeftButton ? instanceTree->itemAt(mouse->position().toPoint())
                                               : nullptr;
-        // 三格的顺序照代理**画它们的顺序**（齿轮 / 上箭头 / 垃圾桶），一粒一粒判。
-        if (item != nullptr && !item->data(0, MainWindowUI::groupIdRole()).isValid()) {
+        // 悬停快捷操作三格（文件夹 / 更多 / 启动，几何同 ListRowDelegate::actionRect）：
+        // 按下就发 actionTriggered，松开和双击只负责被吃掉，免得漏给"点中这一行 = 进实例设置"。
+        auto *rowDelegate = qobject_cast<ListRowDelegate *>(instanceTree->itemDelegate());
+        if (item != nullptr && rowDelegate != nullptr && !item->data(0, MainWindowUI::groupIdRole()).isValid()) {
             const QRect row = instanceTree->visualItemRect(item);
             const QPoint pos = mouse->position().toPoint();
-            const QString instanceId = item->data(0, MainWindowUI::instanceIdRole()).toString();
-            const bool pressed = event->type() == QEvent::MouseButtonPress;
-            if (InstanceGroupDelegate::instanceGearRect(row).contains(pos)) {
-                // 按下就动手（松开、以及那几发双击只负责被吃掉）：跟普通按钮一样，按下去
-                // 就该有反应。齿轮 = 进这个实例的设置（点空白区域、或者左边的图标 /
-                // 版本名，都进实例设置 —— 那一行别的地方也是同一件事）。
-                if (pressed) {
-                    openInstanceSettings(instanceId);
-                }
-                return true;
-            }
-            // 中间那一格：↑「置顶」和 ↓「取消置顶」**共用的一格**（见 MainWindowUI::
-            // rowUnpinRole()）。判据是"这一行摆没摆它"那两个角色里**有一个为真**，
-            // 按下去调谁看的是**在里面还是不在**（canUnpin 优先，两个都真时不可能，
-            // 代理那边同一个约定）。
-            const bool canPin = item->data(0, MainWindowUI::rowPinRole()).toBool();
-            const bool canUnpin = item->data(0, MainWindowUI::rowUnpinRole()).toBool();
-            if ((canPin || canUnpin) && InstanceGroupDelegate::instancePinRect(row).contains(pos)) {
-                if (pressed) {
-                    if (canUnpin) {
-                        unpinInstance(instanceId);
-                    } else {
-                        pinInstance(instanceId);
-                    }
-                }
-                return true;
-            }
-            if (InstanceGroupDelegate::instanceTrashRect(row).contains(pos)) {
-                if (pressed) {
-                    confirmDeleteInstance(instanceId);
-                }
+            for (const auto action : {ListRowDelegate::Action::Folder, ListRowDelegate::Action::More,
+                                      ListRowDelegate::Action::Launch}) {
+                if (!ListRowDelegate::actionRect(row, action).contains(pos)) continue;
+                if (event->type() == QEvent::MouseButtonPress)
+                    emit rowDelegate->actionTriggered(instanceTree->indexAt(pos), action);
                 return true;
             }
         }
