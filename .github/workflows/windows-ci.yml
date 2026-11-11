@@ -49,6 +49,19 @@ jobs:
           $global:LASTEXITCODE = 0
           ./tools/test-impact.ps1 -BaseRef $env:BASE_SHA -Full:$full -GitHubOutput
 
+  repo-rules:
+    name: repo-rules
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check doc links and repo layout
+        shell: pwsh
+        run: |
+          ./tools/check-doc-links.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./tools/check-repo-layout.ps1
+
   verify:
     needs: plan
     if: ${{ needs.plan.outputs.run_tests == 'true' }}
@@ -137,7 +150,7 @@ jobs:
   # Keep the existing aggregate check name for branch-protection rules.
   build-and-test:
     if: ${{ always() }}
-    needs: [plan, verify]
+    needs: [plan, verify, repo-rules]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -146,7 +159,12 @@ jobs:
           RESULT: ${{ needs.verify.result }}
           PLAN_RESULT: ${{ needs.plan.result }}
           RUN_TESTS: ${{ needs.plan.outputs.run_tests }}
+          RULES_RESULT: ${{ needs.repo-rules.result }}
         run: |
+          if [ "$RULES_RESULT" != "success" ]; then
+            echo "Repo rules check failed: $RULES_RESULT"
+            exit 1
+          fi
           if [ "$PLAN_RESULT" != "success" ]; then
             echo "Test planning failed: $PLAN_RESULT"
             exit 1
