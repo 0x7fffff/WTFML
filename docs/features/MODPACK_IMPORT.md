@@ -136,7 +136,7 @@ verify_instances.exe --launch-main-menu <数据根> <实例名> <数据根>/java
 tools/test.ps1 -Suite ci-core -Modules core-resources
 tools/test.ps1 -Suite ci-integration -Modules window    # MwModpackImportChecks 段：主窗口导入接线
 ```
-环境变量：`WTFML_TEST_PACK_ARCHIVES`（分号分隔的本地 ZIP 列表，附加只读样本检查；CI 不依赖本机下载目录）；`WTFML_TEST_GTNH_ARCHIVE`（真实 GTNH ZIP，验证补丁转换、主类/Java 声明、架构筛选和测试目录本地库发布）。原始归档与现有游戏目录不用于测试写入。现场验收工具见 `tools/modpack_boundary/README.md`。
+环境变量：`WTFML_TEST_PACK_ARCHIVES`（分号分隔的本地 ZIP 列表，附加只读样本检查；CI 不依赖本机下载目录）；`WTFML_TEST_GTNH_ARCHIVE`（真实 GTNH ZIP，验证补丁转换、主类/Java 声明、架构筛选和测试目录本地库发布）。原始归档与现有游戏目录不用于测试写入。现场验收工具见 `tests/acceptance/modpack_boundary/README.md`。
 
 ### 已验样本
 

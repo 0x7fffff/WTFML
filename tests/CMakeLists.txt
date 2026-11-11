@@ -695,7 +695,7 @@ get_property(WTFML_CORE_TESTS DIRECTORY PROPERTY TESTS)
 set_property(TEST ${WTFML_CORE_TESTS} APPEND PROPERTY LABELS ci-core)
 
 add_subdirectory(ui_check)
-add_executable(wtfml_modpack_boundary EXCLUDE_FROM_ALL ${REPO_ROOT}/tools/modpack_boundary/main.cpp)
+add_executable(wtfml_modpack_boundary EXCLUDE_FROM_ALL ${REPO_ROOT}/tests/acceptance/modpack_boundary/main.cpp)
 target_link_libraries(wtfml_modpack_boundary PRIVATE wtfml_core_runtime Qt6::Network)
 add_subdirectory(mw_check)
 

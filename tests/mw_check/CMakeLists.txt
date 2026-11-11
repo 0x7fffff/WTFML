@@ -509,10 +509,10 @@ endif()
 
 
 add_library(wtfml_mw_runtime STATIC ${SOURCE_FILES})
-add_executable(wtfml_desktop_acceptance EXCLUDE_FROM_ALL ${REPO_ROOT}/tools/desktop_acceptance.cpp)
+add_executable(wtfml_desktop_acceptance EXCLUDE_FROM_ALL ${REPO_ROOT}/tests/acceptance/desktop/desktop_acceptance.cpp)
 target_link_libraries(wtfml_desktop_acceptance PRIVATE wtfml_mw_runtime wtfml_core_runtime Qt6::Network)
-add_executable(wtfml_server_boundary EXCLUDE_FROM_ALL ${REPO_ROOT}/tools/server_boundary/main.cpp)
-target_sources(wtfml_server_boundary PRIVATE ${REPO_ROOT}/tools/server_boundary/ui.cpp)
+add_executable(wtfml_server_boundary EXCLUDE_FROM_ALL ${REPO_ROOT}/tests/acceptance/server_boundary/main.cpp)
+target_sources(wtfml_server_boundary PRIVATE ${REPO_ROOT}/tests/acceptance/server_boundary/ui.cpp)
 target_link_libraries(wtfml_server_boundary PRIVATE wtfml_mw_runtime wtfml_core_runtime Qt6::Network)
 
 if(MINGW)
