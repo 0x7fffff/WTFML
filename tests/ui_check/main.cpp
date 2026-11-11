@@ -447,8 +447,12 @@ int main(int argc, char *argv[]) {
         QListWidget *categories = ui.getDownloadCategoryList();
         QFrame *leftSurface =
             downloadPage == nullptr ? nullptr : surfaceOf(downloadPage, Theme::sidebarSurfaceValue());
-        check(leftColumn != nullptr && back != nullptr && leftColumn->isAncestorOf(back),
-              "它长在**左栏**里（用户原话「就是左边栏的顶上」）");
+        // UI 7b（设计稿 download-*）：左栏收起，分类成了页头下面一排 chip，这颗键跟着搬到那一排最前面。
+        QWidget *chipRow = downloadPage == nullptr ? nullptr
+                                                   : downloadPage->findChild<QWidget *>(MainWindowUI::downloadCategoryChipsName());
+        Q_UNUSED(leftColumn);
+        check(chipRow != nullptr && back != nullptr && chipRow->isAncestorOf(back),
+              "它长在分类 chip 那一排里（左栏收起之后，那一排就是原来「左边栏的顶上」）");
         check(leftSurface != nullptr && categories != nullptr &&
                   inSurface(categories, Theme::sidebarSurfaceValue()),
               "分类那一列也在左栏那个**侧栏面**上（不再画自己那圈边）",
@@ -463,10 +467,12 @@ int main(int argc, char *argv[]) {
         // `columns.left.layout` 指过去的就是它），不是栏控件那条 —— 栏控件那条
         // 里此刻只有侧栏面一个东西。
         QLayout *leftLayout = leftSurface == nullptr ? nullptr : leftSurface->layout();
-        check(leftLayout != nullptr && back != nullptr && categories != nullptr &&
-                  leftLayout->indexOf(back) >= 0 && leftLayout->indexOf(categories) >= 0 &&
-                  leftLayout->indexOf(back) < leftLayout->indexOf(categories),
-              "它在分类那一列的**上头**");
+        Q_UNUSED(leftLayout);
+        QLayout *chipLayout = chipRow == nullptr ? nullptr : chipRow->layout();
+        QWidget *firstChip = chipRow == nullptr ? nullptr : chipRow->findChild<QWidget *>(MainWindowUI::downloadCategoryChipName(0));
+        check(chipLayout != nullptr && back != nullptr && firstChip != nullptr &&
+                  chipLayout->indexOf(back) >= 0 && chipLayout->indexOf(back) < chipLayout->indexOf(firstChip),
+              "它在那一排分类 chip 的**最前面**");
         // 它**不在**右栏那几页里：那几页跟着分类翻，摆进去就是"翻一栏这颗键也跟着滚没了"。
         QStringList inside;
         QStackedWidget *stack = ui.getDownloadStack();

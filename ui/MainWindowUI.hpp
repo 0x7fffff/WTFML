@@ -651,6 +651,9 @@ public:
     // 「数据包」插在「模组」和「资源包」之间，其余几条的位置不动
     // （「模组」还是第 2 条，写死下标的地方不受影响）。
     static QString downloadCategoryListName() { return QStringLiteral("downloadCategoryList"); }
+    /// UI 7b：页头下面那一排分类 chip（设计稿 download-*），和隐藏的 downloadCategoryList 双向同步。
+    static QString downloadCategoryChipsName() { return QStringLiteral("downloadCategoryChips"); }
+    static QString downloadCategoryChipName(int index) { return QStringLiteral("downloadCategoryChip%1").arg(index); }
     static QString downloadStackName() { return QStringLiteral("downloadStack"); }
     /// 「游戏」那一页（唯一有内容的那页）的 objectName。
     static QString downloadGamePageName() { return QStringLiteral("downloadGamePage"); }

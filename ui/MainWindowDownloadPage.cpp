@@ -21,6 +21,7 @@
 #include <QPointer>
 #include <QScrollBar>
 
+#include <QButtonGroup>
 #include <QColor>
 #include <QEvent>
 #include <QFont>
@@ -139,6 +140,40 @@ QWidget *MainWindowUI::setupDownloadPage() {
         download.left.layout->addWidget(downloadCategoryList);
         download.left.layout->addStretch(1);
 
+        // ---- UI 7b（设计稿 download-*）：分类改成页头下面一排 chip ----
+        // 左栏那列分类**保留但收起**（身份、刷新角色、MainWindow 那边按列表行翻页的数据流都不动），
+        // chip 只是它的另一张脸：点 chip = 设列表当前行；列表当前行变了 = 亮对应那颗 chip。
+        // 「← 返回实例设置」跟着搬到这一排最前面（左栏收起后它得有地方露面）。
+        download.left.widget->setVisible(false);
+        download.right.title->setFont(Theme::textFont(download.right.title->font(), Theme::TextRole::Display));
+        auto *chipRow = new QWidget(download.right.widget);
+        chipRow->setObjectName(downloadCategoryChipsName());
+        {
+            auto *row = new QHBoxLayout(chipRow);
+            row->setContentsMargins(0, 0, 0, 0);
+            row->setSpacing(8);
+            downloadBackButton->setParent(chipRow);
+            downloadBackButton->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+            row->addWidget(downloadBackButton);
+            auto *group = new QButtonGroup(chipRow);
+            group->setExclusive(true);
+            for (int i = 0; i < categoryTexts.size(); ++i) {
+                auto *chip = new QPushButton(categoryTexts.value(i), chipRow);
+                chip->setObjectName(downloadCategoryChipName(i));
+                chip->setCheckable(true);
+                Theme::markChipButton(chip);
+                group->addButton(chip, i);
+                row->addWidget(chip);
+            }
+            row->addStretch(1);
+            QObject::connect(group, &QButtonGroup::idClicked, downloadCategoryList,
+                             [list = downloadCategoryList](int id) { list->setCurrentRow(id); });
+            QObject::connect(downloadCategoryList, &QListWidget::currentRowChanged, group, [group](int row) {
+                if (QAbstractButton *chip = group->button(row)) chip->setChecked(true);
+            });
+        }
+        download.right.layout->addWidget(chipRow);
+
         downloadStack = new QStackedWidget(download.right.widget);
         downloadStack->setObjectName(downloadStackName());
         download.right.layout->addWidget(downloadStack, 1);
@@ -231,6 +266,9 @@ void MainWindowUI::setupDownloadGamePage() {
     // 输入框的宽度不跟着跳。
     versionFilterHint->setMinimumWidth(120);
     versionFilterLayout->addWidget(versionFilterHint);
+    // 设计稿 download：搜索框定宽靠左，不再横贯整行。
+    versionFilterEdit->setMaximumWidth(360);
+    versionFilterLayout->addStretch(1);
     treeLayout->addWidget(versionFilterBar);
     // 打在框里就筛（不另要一颗「筛选」键）：这一层只是藏/露条目，便宜到可以每敲一个字
     // 跑一遍；资源页要按回车是因为那边真去发网络请求，两件事别混。

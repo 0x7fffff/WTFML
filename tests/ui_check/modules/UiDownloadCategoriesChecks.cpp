@@ -482,14 +482,26 @@ int UiDownloadCategoriesChecks(MainWindowUI &ui, QStackedWidget * &gameStack, QW
               stack != nullptr ? QString::number(stack->currentIndex()) : QString());
 
         // 几何：分类列表**整个在堆叠页左边**（左栏是"选哪个分类"，右栏是"那个分类的内容"）。
+        // UI 7b（设计稿 download-*）：分类改成堆叠页上方一排 chip（左栏那列收起、身份照旧由它管）。
         const QRect catRect = rectInPage(categoryList);
         const QRect stackRect = rectInPage(stack);
-        check(!catRect.isNull() && !stackRect.isNull() &&
-                  catRect.x() + catRect.width() <= stackRect.x(),
-              "分类列表整个在右栏那份堆叠页左边",
-              QString("list.right=%1 stack.x=%2")
-                  .arg(catRect.x() + catRect.width())
-                  .arg(stackRect.x()));
+        QWidget *chipRow = downloadPage->findChild<QWidget *>(MainWindowUI::downloadCategoryChipsName());
+        const QRect chipRect = chipRow != nullptr ? rectInPage(chipRow) : QRect();
+        check(!chipRect.isNull() && !stackRect.isNull() && chipRect.bottom() < stackRect.top() &&
+                  categoryList != nullptr && !categoryList->isVisibleTo(downloadPage),
+              "分类 chip 那一排整个在堆叠页上方，左栏那列收着",
+              QString("chips.bottom=%1 stack.top=%2").arg(chipRect.bottom()).arg(stackRect.top()));
+        // chip 和列表双向同步：点第 2 颗 = 列表当前行变 2；列表设回游戏 = 第 0 颗亮。
+        if (chipRow != nullptr && categoryList != nullptr) {
+            auto *chip2 = chipRow->findChild<QPushButton *>(MainWindowUI::downloadCategoryChipName(2));
+            auto *chip0 = chipRow->findChild<QPushButton *>(MainWindowUI::downloadCategoryChipName(0));
+            if (chip2 != nullptr) chip2->click();
+            const int afterClick = categoryList->currentRow();
+            categoryList->setCurrentRow(MainWindowUI::downloadCategoryGameIndex());
+            check(afterClick == 2 && chip0 != nullptr && chip0->isChecked() && chip2 != nullptr && !chip2->isChecked(),
+                  "点 chip 翻分类、列表翻回「游戏」那颗 chip 跟着亮（两边是同一份状态）",
+                  QString::number(afterClick));
+        }
         // 高度贴着那几条，不是被拉满整条左栏 —— 五个两三个字的条目撑成一整列空白，
         // 看着像坏了（还容易让人以为底下有东西没显示出来）。
         check(!catRect.isNull() && catRect.height() < downloadPage->height() - 40,
