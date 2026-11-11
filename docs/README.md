@@ -49,24 +49,16 @@
 
 ### dev/perf-notes/ 性能专项记录
 
-按日期的一次性性能记录，数字是当时的快照；量法与现行基线看 [PERFORMANCE.md](dev/PERFORMANCE.md)。
+性能专项记录，数字是写成当日的快照；量法与现行基线看 [PERFORMANCE.md](dev/PERFORMANCE.md)。
 
 | 文档 | 内容 |
 | --- | --- |
-| [P2_COMPAT_BUDGET_20261031.md](dev/perf-notes/P2_COMPAT_BUDGET_20261031.md) | 预设兼容检查的两条平台查询接入 `RequestBudget::ControlGet`（请求名额，不是耗时预算） |
-| [P2_INSTALL_BUDGET_20261031.md](dev/perf-notes/P2_INSTALL_BUDGET_20261031.md) | 安装与 Java 管理的元数据查询接入请求名额 |
-| [P2_METADATA_BUDGET_20261031.md](dev/perf-notes/P2_METADATA_BUDGET_20261031.md) | 控制通道 GET 母篇：4 名额、30/15 秒尝试、2 MiB 正文上限、诊断属性 |
-| [P2_RESOURCE_BUDGET_20261031.md](dev/perf-notes/P2_RESOURCE_BUDGET_20261031.md) | 资源商店查询（搜索/详情/版本）接入请求名额 |
-| [P2_SKIN_BUDGET_20261031.md](dev/perf-notes/P2_SKIN_BUDGET_20261031.md) | 皮肤/披风查询接入请求名额 |
-| [P2_STALL_STACKS_20261101.md](dev/perf-notes/P2_STALL_STACKS_20261101.md) | 主线程卡住时停在哪一行：探针采栈 + `symbolize-stalls.ps1` 翻译 |
-| [P2_CONCURRENT_LOAD_20261101.md](dev/perf-notes/P2_CONCURRENT_LOAD_20261101.md) | 后台干活时界面还点得动吗：200 实例 10 跑的采样门限与 JSON 报告 |
-| [P2_THREAD_CREATE_STALL_20261101.md](dev/perf-notes/P2_THREAD_CREATE_STALL_20261101.md) | 起一个线程偶尔要 3 秒：两次不同调用者的栈、已知线索与没试的方向 |
-| [P2_PRESET_LIST_CACHE_20261101.md](dev/perf-notes/P2_PRESET_LIST_CACHE_20261101.md) | 预设列表摘要缓存：改动、3 跑数据、热缓存让 A/B 空转的坑 |
-| [P2_PRESET_READ_PARALLEL_20261101.md](dev/perf-notes/P2_PRESET_READ_PARALLEL_20261101.md) | 预设列表冷读改并行 + 摘要缓存落盘；验收与偶发红 |
-| [P2_LARGE_LIST_PAINT_20261031.md](dev/perf-notes/P2_LARGE_LIST_PAINT_20261031.md) | 大列表首绘/重列/滚动实测：定位 `addItem`×`setItemWidget` 交错，修法是先排完 item 再一趟挂控件 |
-| [P2_SELECTION_PERFORMANCE_20261029.md](dev/perf-notes/P2_SELECTION_PERFORMANCE_20261029.md) | 实例文件选择与操作栏：全选/反选的开销与改动 |
-| [P2_RECOVERY_PERFORMANCE_20261028.md](dev/perf-notes/P2_RECOVERY_PERFORMANCE_20261028.md) | 恢复响应性九步：模组预设暂停、目录核对、快照、跨重启接续、任务中心恢复 |
-| [P2_RELEASE_SIZE_20261101.md](dev/perf-notes/P2_RELEASE_SIZE_20261101.md) | 去符号/体积/LTO 实测：静态单文件大小与启动对照、`prepare-release-copy.ps1` |
+| [REQUEST_BUDGETS.md](dev/perf-notes/REQUEST_BUDGETS.md) | 元数据请求的并发名额（`RequestBudget::ControlGet`，4 个）与截止：渠道 × 名额 × 截止表（不是耗时预算） |
+| [MAIN_THREAD_STALLS.md](dev/perf-notes/MAIN_THREAD_STALLS.md) | 主线程卡顿：探针采栈、`symbolize-stalls.ps1`、已量到的卡顿、起线程偶尔要 3 秒、后台加载时界面响应 |
+| [PRESET_LIST_IO.md](dev/perf-notes/PRESET_LIST_IO.md) | 预设列表读盘：摘要缓存、并行冷读、盘上摘要、热缓存让 A/B 空转的坑 |
+| [LIST_PAINT.md](dev/perf-notes/LIST_PAINT.md) | 大列表首绘/重列/滚动、先排 item 后挂控件、现行分帧建行、反选批量选择 |
+| [RECOVERY_PERFORMANCE.md](dev/perf-notes/RECOVERY_PERFORMANCE.md) | 恢复与续装的响应性：九步后台化（校验、快照、接续、恢复记录） |
+| [RELEASE_SIZE.md](dev/perf-notes/RELEASE_SIZE.md) | 发布体积：去符号 / `-Os` / LTO 实测、`prepare-release-copy.ps1` |
 
 ## archive/ 一次性记录（归档）
 

@@ -172,7 +172,7 @@ Temurin 21.0.12.1（`mw_check.exe java-self-managed`，走
 
 P2 Java 扫描后台化：`20261025-195745-67ed6c08` 主窗口 2696/2696 和 Java 管理专项通过。
 测试使用受控扫描提供方检查事件响应、去重、作废及销毁；性能另用 Release 产品探针，
-前后数据和配置恢复证据见 [性能基线](PERFORMANCE.md)第六节，不用离屏测试耗时宣称变快。
+前后数据和配置恢复证据见 [性能基线](PERFORMANCE.md)「设置页 Java 扫描移出 GUI」一节，不用离屏测试耗时宣称变快。
 
 在仓库根目录运行，先确保 CMake、所用 MinGW 和 Qt 的 bin 目录在 PATH 中：
 
@@ -823,7 +823,7 @@ core-launch **300/300**；`20261025-203357-93148414` 的 main-window **2701/2701
 P2 任务行局部复用：`20261025-205703-6211941e` 的 ui-refresh/install-layout/lifecycle/theme
 四模块通过；`20261025-205805-3251de49` 的 workspace/activity-selection 通过。
 ui-refresh 新增持续进度下的未变行保留、滚动位置、选中详情、替换回调、调色板失效与移除释放检查。
-性能用独立 Release 合成负载测量，数字及首失败记录见 `docs/dev/PERFORMANCE.md` 第七节。
+性能用独立 Release 合成负载测量，数字及首失败记录见 `docs/dev/PERFORMANCE.md`「任务列表局部复用」一节。
 `20261025-210149-6ce322e2` 普通启动器构建与 network-diag 通过（18.97s）。
 
 P2 大量预设：`20261025-213510-15e5e224` preset-install通过（1.15s），新增模型过滤、
