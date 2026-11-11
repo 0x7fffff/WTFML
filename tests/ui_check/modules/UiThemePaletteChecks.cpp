@@ -156,8 +156,10 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
         check(sameColor(Theme::partBackground(Theme::Part::Card), Theme::tokens().card),
               "★ W5 卡片 = `card`（压在内容区上那张卡片和列表底同一档）",
               Theme::partBackground(Theme::Part::Card).name());
-        check(sameColor(Theme::partBackground(Theme::Part::Scrim), QColor(0, 0, 0, 96)),
-              "★★ W5 四周变暗那一层 = rgba(0, 0, 0, 96)（和覆盖层那一层一字不差）",
+        check(Theme::partBackground(Theme::Part::Scrim).rgb() == Theme::tokens().scrim.rgb() &&
+                  qAbs(Theme::partBackground(Theme::Part::Scrim).alphaF() -
+                       Theme::tokens().scrim.alphaF() * 0.6) < 0.01,
+              "★★ W5 四周变暗那一层 = 预设 scrim 色、不透明度 ×0.6（轻压一档，不是黑块）",
               Theme::partBackground(Theme::Part::Scrim).name(QColor::HexArgb));
         check(sameColor(OverlayHost::scrimColor(), Theme::partBackground(Theme::Part::Scrim)),
               "★★ W5 覆盖层问到的「四周变暗」和这一层是**同一个**色（不是两份各写一遍）");

@@ -39,9 +39,31 @@ QPixmap snapshot(QWidget *widget) {
     QPixmap pixmap(widget->size());
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
-    widget->render(&painter);
+    // 只画控件自己和子控件，**不铺窗口底色**（默认的 DrawWindowBackground 会先刷一整块
+    // Window 色 —— 弹窗一开内容区就成了一块不透明的黑/灰，把磨砂风景整个盖掉）。
+    widget->render(&painter, QPoint(), QRegion(), QWidget::DrawChildren);
     return pixmap;
 }
+
+/// 提示开着时盖在整个窗口上的那层薄纱，只画「宿主那块以外」（宿主自己会压暗）。
+class ScrimVeil : public QWidget {
+public:
+    ScrimVeil(QWidget *parent, QWidget *hole) : QWidget(parent), m_hole(hole) {
+        setObjectName(QStringLiteral("overlayScrimVeil"));
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+        hide();
+    }
+
+protected:
+    void paintEvent(QPaintEvent *) override {
+        QPainter painter(this);
+        painter.setClipRegion(QRegion(rect()).subtracted(m_hole->geometry()));
+        painter.fillRect(rect(), OverlayHost::scrimColor());
+    }
+
+private:
+    QWidget *m_hole;
+};
 
 /// 页眉那一行的左右留白、以及内容四周留的那一圈。
 /// NOTE: 和 `MainWindowUI` 里页面用的那圈边距是**同一个数**（kPageMargin = 9）——
@@ -69,6 +91,9 @@ OverlayHost::OverlayHost(QWidget *anchor, QWidget *parent) : QWidget(parent), m_
     m_parking = new QWidget(this);
     m_parking->setObjectName(QStringLiteral("overlayParking"));
     m_parking->setVisible(false);
+    if (parent != nullptr) {
+        m_veil = new ScrimVeil(parent, this);
+    }
 
     // ---------- 页眉（常驻：返回箭头 + 标题） ----------
     m_pageFrame = new QWidget(this);
@@ -297,6 +322,28 @@ void OverlayHost::applyVisibility() {
     }
     retargetCoveredPage();
     relayout();
+    placeVeil();
+    // 整页 / 铺满的提示盖住主页时，整窗一起换成磨砂底（轨、顶栏和这一层同一张底）。
+    if (auto *backdrop = Glass::Backdrop::of(this)) {
+        backdrop->setHeroCovered(isVisible() && (pageShown || (promptShown && m_promptFullSize)));
+    }
+}
+
+void OverlayHost::placeVeil() {
+    if (m_veil == nullptr) {
+        return;
+    }
+    // 整页那一档和铺满的提示（任务中心）本身就站在整窗磨砂上，不压暗；只有小提示卡才要。
+    const bool on = isVisible() && m_mode == Mode::Prompt && !m_promptFullSize;
+    if (!on) {
+        m_veil->hide();
+        return;
+    }
+    m_veil->setGeometry(parentWidget()->rect());
+    m_veil->show();
+    m_veil->raise();
+    raise();
+    m_veil->update();
 }
 
 QPixmap OverlayHost::captureBackdrop() const {
@@ -643,6 +690,9 @@ bool OverlayHost::closeTopLayer(bool evenWhenParked) {
 
 void OverlayHost::relayout() {
     setGeometry(contentRect());
+    if (m_veil != nullptr && m_veil->isVisible()) {
+        m_veil->setGeometry(parentWidget()->rect());
+    }
     if (m_pageFrame != nullptr) {
         m_pageFrame->setGeometry(rect());
     }
@@ -937,10 +987,9 @@ void OverlayHost::paintEvent(QPaintEvent *event) {
     }
     // 提示：先铺底图（开之前拍下来的那一层），再压一层半透明黑。用户要的是"四周变暗"，
     // 不是"四周消失"。
+    // 没拍到底图时什么都不铺：父控件那张整窗磨砂本来就画在下面。
     if (!m_backdrop.isNull()) {
         painter.drawPixmap(rect(), m_backdrop);
-    } else {
-        painter.fillRect(rect(), palette().color(QPalette::Window));
     }
     painter.fillRect(rect(), scrimColor());
     if (m_promptCard == nullptr || !m_promptCard->isVisible()) {

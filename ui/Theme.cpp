@@ -325,8 +325,11 @@ static_assert(sizeof(kImageFitInfos) / sizeof(kImageFitInfos[0]) ==
 
 /// 四周变暗那一层的出厂色。**与 `OverlayHost::scrimColor()` 的字面量一字不差**：
 /// 半透明黑，盖在什么底色上都成立。
-const QColor &scrimLiteral() {
-    static const QColor color(0, 0, 0, 96);
+/// 四周变暗那一层：跟预设的 `scrim` 走（深色压暗、浅色带一点蓝灰），不透明度只取它的 0.6。
+/// 用户反馈弹窗一出整块发黑：这一层只该"轻轻压一档"，磨砂风景还得透得出来。
+QColor scrimLiteral() {
+    QColor color = tokens().scrim;
+    color.setAlphaF(color.alphaF() * 0.6);
     return color;
 }
 
