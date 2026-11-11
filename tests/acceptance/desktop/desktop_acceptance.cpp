@@ -21,10 +21,15 @@
 #include "DesktopAcceptanceScenarios.hpp"
 #include "DesktopLogAcceptance.hpp"
 #include "DesktopInputAcceptance.hpp"
+#include "DesktopDesignShots.hpp"
+#include <QProcess>
 #include "auth/AccountStore.hpp"
 #include "launcher/LauncherManager.hpp"
 
 int main(int argc, char **argv) {
+    bool designShots = false;
+    for (int i = 1; i < argc; ++i) designShots |= qstrcmp(argv[i], "--design-shots") == 0;
+    if (designShots) qputenv("WTFML_BACKDROP", "scene");  // grab() 也要截到毛玻璃底下的风景
     QApplication app(argc, argv);
     app.setOrganizationName("WTFML-desktop-acceptance");
     app.setApplicationName("isolated");
@@ -36,14 +41,29 @@ int main(int argc, char **argv) {
     parser.addOption({"game-root", "Explicitly marked isolated game fixture for manual native smoke", "path"});
     parser.addOption({"java-path", "Java for the isolated game fixture", "path"});
     parser.addOption({"manual-input", "90-second native keyboard observation without synthesizing keys"});
+    parser.addOption({"design-shots", "Design comparison screenshots at device pixel ratio 1"});
     parser.process(app);
     const bool extended = parser.isSet("extended");
     const int sceneCount = extended ? 10 : 4;
     const QString root = QDir::cleanPath(parser.value("root"));
     if (!QDir::isAbsolutePath(root) || QFileInfo::exists(root)) return 2;
     // Qt environment overrides would simulate scaling rather than test Windows DPI.
+    // 设计稿对照截图要 1:1 像素：系统缩放不是 100% 时，带抵消用的 QT_SCALE_FACTOR 重开自己一次。
+    if (designShots && qEnvironmentVariableIsEmpty("QT_SCALE_FACTOR")) {
+        const qreal dpr = QGuiApplication::primaryScreen()->devicePixelRatio();
+        if (!qFuzzyCompare(dpr, 1.0)) {
+            auto env = QProcessEnvironment::systemEnvironment();
+            env.insert("QT_SCALE_FACTOR", QString::number(1.0 / dpr, 'g', 10));
+            QProcess child;
+            child.setProcessEnvironment(env);
+            child.setProcessChannelMode(QProcess::ForwardedChannels);
+            child.start(QCoreApplication::applicationFilePath(), QCoreApplication::arguments().mid(1));
+            if (!child.waitForFinished(180000)) return 124;
+            return child.exitStatus() == QProcess::NormalExit ? child.exitCode() : 1;
+        }
+    }
     for (const char *key : {"QT_SCALE_FACTOR", "QT_SCREEN_SCALE_FACTORS", "QT_FONT_DPI"})
-        if (!qEnvironmentVariableIsEmpty(key)) return 2;
+        if (!designShots && !qEnvironmentVariableIsEmpty(key)) return 2;
     if (QGuiApplication::platformName() != "windows") return 2;
     if (!QDir().mkpath(root + "/settings") || !QDir().mkpath(root + "/game")) return 2;
     app.setProperty("wtfml.testDefaultMinecraftDir", root + "/game");
@@ -68,6 +88,10 @@ int main(int argc, char **argv) {
         QString error;
         if (!AccountStore::addOffline("DesktopTest", &error)) return 2;
     }
+    if (designShots) {
+        QString error;
+        if (!AccountStore::addOffline("Wanderer", &error)) return 2;
+    }
     settings.sync();
     if (settings.status() != QSettings::NoError) return 2;
     QApplication::setStyle(Theme::createStyle());
@@ -81,6 +105,13 @@ int main(int argc, char **argv) {
     window.setWindowTitle("WTFML Desktop Acceptance");
     window.resize(1040, 700);
     window.show();
+    if (designShots) {
+        Anim::setEnabled(false);  // 截图要确定的终态
+        DesktopAcceptance::seedTasks(window);
+        DesignShots::run(app, window, root);
+        QTimer::singleShot(150000, &app, [&] { app.exit(124); });
+        return app.exec();
+    }
     if (parser.isSet("manual-input")) {
         window.setWindowTitle("WTFML Keyboard Acceptance");
         new DesktopInputAcceptance(window, root);
