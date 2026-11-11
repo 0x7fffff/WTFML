@@ -664,7 +664,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         if (auto *card = taskSummaryButton->layout()) {
             card->setContentsMargins(collapsed ? QMargins(8, 8, 8, 8) : QMargins(10, 8, 10, 8));
         }
-        runStateButton->setVisible(!collapsed);
+        runStateButton->setVisible(m_runStateActive && !collapsed);
     });
     backdrop->setHeroWidget(homeTab);
     // 主页上轨和窗口按钮压在清晰风景上：品牌、窗口按钮换主页字色。

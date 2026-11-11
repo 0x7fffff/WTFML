@@ -2804,12 +2804,13 @@ int main(int argc, char *argv[]) {
 
         QLabel *runMark = window.findChild<QLabel *>(MainWindowUI::runStateMarkName());
         if (runState != nullptr && runDetail != nullptr && runMark != nullptr) {
-            // 这个进程里没起过游戏：左下角写「当前没有运行中的实例」。
-            // NOTE: 之前这里是"整格藏着"，用户要的就是把那句话写出来 ——
-            // 那一格现在还兼着"点开看实例列表"那颗按钮，藏起来连按钮一起没了。
-            check(runState->isVisible() &&
+            // 这个进程里没起过游戏：轨底那一格**整格收起**（设计稿轨底只有任务环和工具箱），
+            // 文字仍按「未运行」那一档写好，等有事可说时一露出来就是对的。
+            QPushButton *runButton =
+                window.findChild<QPushButton *>(MainWindowUI::runStateButtonName());
+            check(runButton != nullptr && !runButton->isVisible() &&
                       runState->text() == MainWindowUI::runStateNotRunningText(),
-                  "没有实例在跑时左下角写「当前没有运行中的实例」", runState->text());
+                  "没有实例在跑时轨底运行状态那一格收起（文字备着「未运行」）", runState->text());
             check(runState->text() != MainWindowUI::runStateRunningText() &&
                       runState->text() !=
                           MainWindowUI::runStateLaunchingText(QStringLiteral("X")) &&
@@ -2820,8 +2821,8 @@ int main(int argc, char *argv[]) {
             // 报错，没有实例用灰色」），而且不是藏着的（四档都有一颗亮的方块）。
             // 判据是"量到的那张图的像素" —— 不是再调一次 runStateMarkColor()：那个函数
             // 是取色的规则，这里要验的是"MainWindow 真的按那个规则摆了图"。
-            check(runMark->isVisible() && !runMark->pixmap().isNull(),
-                  "左下角那颗状态方块亮着、有图", QStringLiteral("%1x%2")
+            check(!runMark->pixmap().isNull(),
+                  "那颗状态点备好了图（格子收着，图照样按状态换）", QStringLiteral("%1x%2")
                                                        .arg(runMark->pixmap().width())
                                                        .arg(runMark->pixmap().height()));
             const QPalette markPalette = runStateMarkPalette(&window);
@@ -3391,8 +3392,7 @@ int main(int argc, char *argv[]) {
             // ---- ③ 那时候左边写的是「实例未运行」那个**终态**，不是上一句的残影 ----
             // 这一支正是这条：摆出来的现场（「1.20.1」+ 两行字）被真跑一遍的
             // updateBottomBar() 冲掉，换成"没有实例在跑"该有的那句话。
-            check(adRun->isVisible() &&
-                      adRun->text() == MainWindowUI::runStateNotRunningText(),
+            check(adRun->text() == MainWindowUI::runStateNotRunningText(),
                   "AD3 真跑一次之后左边写的是「实例未运行」（不是挂着上一句）",
                   QStringLiteral("可见=%1 文字=%2")
                       .arg(adRun->isVisible() ? QStringLiteral("是") : QStringLiteral("否"))

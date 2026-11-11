@@ -1852,6 +1852,9 @@ public:
     /// 灰，装在它里面的那几行字会跟着进 Disabled 调色板一起变暗 —— 这里只要
     /// 那一下点不动，不能把那句话弄糊。连带的：鼠标指针也不会变手型，划过不再高亮。
     void setRunPanelAvailable(bool available);
+    /// 轨底那一格**露不露**：设计稿里轨底只有任务环和工具箱，运行状态平时不占地方，
+    /// 有事可说（启动中 / 运行中 / 异常退出 / 服务端在跑）时才露出那一小格。轨折成图标轨时一律收起。
+    void setRunStateActive(bool active);
 
     /// 把**任务中心**要画的东西装进来。**由 MainWindow 在构造时调一次**（任务账本在
     /// 它手里，见 src/tasks/TaskManager.hpp）；没装的话面板里只有一句"现在没有任务"。
@@ -4024,6 +4027,7 @@ private:
     /// 不该是"点不动"的（独立构造 MainWindowUI 的验证工程就吃这个初值，见
     /// setRunPanelAvailable()）。
     bool m_runPanelAvailable = true;
+    bool m_runStateActive = false;
     /// 「点开面板时去哪要那几行」和「行尾的按钮被点了」。由 MainWindow 在构造时装进来
     /// （见 setBottomBarPanelContent()）—— 界面这一头**不查数据**，只画。
     PanelRowsProvider m_panelRowsProvider;

@@ -2397,6 +2397,13 @@ void MainWindowUI::refreshTaskCenterPanel() {
     }
 }
 
+void MainWindowUI::setRunStateActive(bool active) {
+    m_runStateActive = active;
+    if (runStateButton != nullptr) {
+        runStateButton->setVisible(active && (bar == nullptr || !bar->isCollapsed()));
+    }
+}
+
 void MainWindowUI::setRunPanelAvailable(bool available) {
     if (runStateButton == nullptr || m_runPanelAvailable == available) {
         return;

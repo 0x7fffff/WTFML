@@ -789,10 +789,11 @@ QPixmap VersionIcons::runStateMark(int size, const QColor &color) {
         QPixmap pixmap(size, size);
         pixmap.fill(Qt::transparent);
         QPainter p(&pixmap);
-        // NOTE: **刻意不开抗锯齿**。别的字形都开（它们有斜线/圆弧），这一个没有：
-        // 它就是个整格铺满的正方形，开了抗锯齿只会把四条边描成半透明的灰，
-        // 于是"这一格是不是纯色"这件事就没法写断言了（四角会变成 50% 的色）。
-        p.fillRect(QRect(0, 0, size, size), color);
+        // 设计稿的状态点是圆点；测试量的是正中那一像素，圆心处是满色。
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setPen(Qt::NoPen);
+        p.setBrush(color);
+        p.drawEllipse(QRectF(0, 0, size, size));
         return pixmap;
     });
 }
