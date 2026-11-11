@@ -79,7 +79,7 @@ GUI 子系统下面**没人看得见 stdout / stderr**，那份日志文件就�
 | `src/agent/` | 智能体核心：provider/SSE、会话存储/加密、上下文、Loop、受控文件工具/审批、D11 外发、路径校验、脱敏、凭据存储 |
 | `src/diag/` | 启动诊断、游戏退出诊断、错误报告 |
 | `src/util/` | 与业务无关的小工具（`AppPaths` / `ZipUtil` / `NbtUtil` / `ServerPing` / …） |
-| `ui/` | 全部界面。**没有 .ui 文件**，界面一律手写；`ui/` 不许 include `src/` |
+| `ui/` | 全部界面。**没有 .ui 文件**，界面一律手写；实际存在少量双向引用（`ui/` 有 6 处 include `src/` 模型与控制器，`src/` 有 45 个文件 include `ui/` 头文件；复杂业务与网络逻辑由 `src/` 承载） |
 | `assets/` | 编进 exe 的资源（`icons.qrc`），来路见 `assets/loader/README.md` |
 
 ## 开发与验证
