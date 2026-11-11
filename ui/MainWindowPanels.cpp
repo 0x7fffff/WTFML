@@ -1255,6 +1255,9 @@ void MainWindowUI::setupBottomBar(QWidget *parent) {
     // 设计稿：左边 28 的进度环，右边两行（任务名 13 / 「还有 N 项」+ 百分比 12）。
     auto *taskCard = new QHBoxLayout(taskSummaryButton);
     taskCard->setContentsMargins(10, 8, 10, 8);
+    // QPushButton 的 sizeHint 只算自己那行字（22 高），里面这套布局不算进去 ⇒ 导航轨底部
+    // 只给它 22，环和两行字被裁成半截。让按钮的最小尺寸跟着这套布局走。
+    taskCard->setSizeConstraint(QLayout::SetMinimumSize);
     taskCard->setSpacing(10);
     // 两行字装在一个透明格子里：导航轨折成图标轨时整格收起，只剩那枚环。
     auto *taskTextBox = new QWidget(taskSummaryButton);
@@ -1347,6 +1350,7 @@ void MainWindowUI::setupBottomBar(QWidget *parent) {
     progressBar->hide();
     taskPercentLabel->hide();
     setBottomBarTaskSummary(BottomBarTaskSummary());
+    Theme::follow(statusLabel, [this]() { setBottomBarTaskSummary(m_lastTaskSummary); });
 
     // ---------- 右：头像 + 用户名 ----------
     // 真正的手绘皮肤头像要等 Minecraft profile API（登录流程现在只存了令牌，没取
@@ -2295,6 +2299,7 @@ void MainWindowUI::setBottomBarTaskSummary(const BottomBarTaskSummary &summary) 
     if (statusLabel == nullptr || progressBar == nullptr) {
         return;  // setupUi() 还没跑完（和那几个访问器拿空指针当判据是同一个意思）
     }
+    m_lastTaskSummary = summary;
     // ---------- 那一行字 ----------
     // 占位那一档（一项任务都没有）用调色板里的 PlaceholderText：要的是**低强调度**
     // 的一句"暂无后台任务"，和"真有一件事在跑"的标题不能长成一个样子。

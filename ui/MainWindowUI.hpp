@@ -4012,6 +4012,8 @@ private:
     /// 那根条右边那一格里的百分比（「42%」）—— 条自己不画数（见 `TaskProgressBar.hpp`）。
     QLabel *taskPercentLabel = nullptr;
     QLabel *statusLabel = nullptr;
+    /// 最近一次摆进底栏的任务摘要：换主题时按它重染一遍（那几样字色取的是当时的调色板）。
+    BottomBarTaskSummary m_lastTaskSummary;
     QLabel *runStateLabel = nullptr;
     QLabel *runStateDetailLabel = nullptr;
     QLabel *runStateMarkLabel = nullptr;
