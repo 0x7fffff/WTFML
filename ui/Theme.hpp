@@ -116,6 +116,13 @@ struct Tokens {
     qreal heroScrim, heroTop, railFog;                      // 启动区 / 标题区暗角浓度；亮主题导航轨雾
     QColor groundShade;                                     // 皮肤立绘落地影色
     qreal groundGlint;                                      // 落地影下沿反光（白）浓度
+    // 文字专用的强调 / 语义色（设计稿 tokens-extra §21 `--*-ink`）：浅色主题按填充调的 accent/ok/warn/danger
+    // 当小字放在浅色磨砂上不到 4.5:1，这一组色相不变只压暗；深色主题的强调字提亮一档（选中 chip / 分段 / 徽章 ≥ 4.5）。
+    // 调色板 `Link` 就取 accentInk（样式表里所有「强调色写的字」都念 palette(link)）。
+    QColor accentInk;
+    QColor okInk;
+    QColor warnInk;
+    QColor dangerInk;
 };
 Tokens tokens(const QString &presetId);
 Tokens tokens();

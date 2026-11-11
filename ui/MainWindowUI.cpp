@@ -1616,7 +1616,30 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
                 meta->setFont(metaFont);
                 meta->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
                 followHeroInk(meta, true);
-                column->addWidget(meta);
+                // 设计稿 .meta：行首一枚加载器小图标（没装加载器 = 草方块，和 loaderMark() 越界一条规矩）。
+                auto *metaRow = new QHBoxLayout;
+                metaRow->setContentsMargins(0, 0, 0, 0);
+                metaRow->setSpacing(6);
+                if (!item.empty) {
+                    const QString versionLine = item.detail.section(QLatin1Char('\n'), 0, 0);
+                    const QString loader = versionLine.section(QStringLiteral(" / "), 1).trimmed();
+                    const QStringList loaderNames = modLoaderOptionTexts();
+                    int loaderIndex = loaderNames.size();
+                    for (int i = 0; i < loaderNames.size(); ++i) {
+                        if (!loader.isEmpty() && loader.startsWith(loaderNames.at(i), Qt::CaseInsensitive)) {
+                            loaderIndex = i;
+                            break;
+                        }
+                    }
+                    auto *loaderIcon = new QLabel(card);
+                    loaderIcon->setObjectName(QStringLiteral("homeCurrentLoaderIcon"));
+                    loaderIcon->setFixedSize(14, 14);
+                    loaderIcon->setScaledContents(true);
+                    loaderIcon->setPixmap(VersionIcons::loaderMark(loaderIndex, 28));
+                    metaRow->addWidget(loaderIcon, 0, Qt::AlignVCenter);
+                }
+                metaRow->addWidget(meta, 1);
+                column->addLayout(metaRow);
                 auto *gap = new QWidget(card);
                 gap->setObjectName(QStringLiteral("homeCurrentGap"));
                 gap->setFixedHeight(22);
