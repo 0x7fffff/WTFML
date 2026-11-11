@@ -6,6 +6,7 @@
 - [features/](features/)：各功能的约定、设计与现行边界。
 - [dev/](dev/)：开发者手册（测试、性能、重构、工具用法、注释规范）。
 - [archive/](archive/)：一次性的验收、审查、计划记录。数字和结论是当时的快照，当前行为以 `features/` 与 [FEATURES.md](FEATURES.md) 为准。
+- 贡献与 agent 规则：根目录 [AGENTS.md](../AGENTS.md)（目录布局、文档规则、写作口吻、提交与验证），`CLAUDE.md`、`GEMINI.md` 只指向它；布局由 `tools/check-repo-layout.ps1` 检查，CI 里与 `check-doc-links.ps1` 一起跑。
 
 ## 顶层
 
