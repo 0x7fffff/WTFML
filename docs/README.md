@@ -35,9 +35,9 @@
 | 文档 | 内容 |
 | --- | --- |
 | [COMMENT_STYLE.md](dev/COMMENT_STYLE.md) | 注释规范：写“为什么/约束”、不写“做了什么”；文件头、行内、类注释、TODO/FIXME/NOTE、正反例 |
-| [TESTING.md](dev/TESTING.md) | 测试怎么跑：`tools/test.ps1` 各套件、CI 分片、超时与环境变量、模块与夹具边界、新增用例约定 |
+| [TESTING.md](dev/TESTING.md) | 测试怎么跑：`tools/test.ps1` 14 个套件、`ctest --preset`、CI 分片、超时与环境变量、模块与夹具边界、新增用例约定、Agent 套件、未覆盖项 |
 | [PERFORMANCE.md](dev/PERFORMANCE.md) | 性能基线：构建耗时、启动/就绪、CI 分片缓存、界面交互与并发下载的量法与数字 |
-| [REFACTORING.md](dev/REFACTORING.md) | 大文件按状态所有权拆分的决策日志：去向、缝合线理由、当轮测试证据 |
+| [REFACTORING.md](dev/REFACTORING.md) | 当前代码布局速览（主窗口/页面/控制器/下载与版本管理怎么拆的）、按状态所有权拆分的依据与新增文件规则、拆分历史附录 |
 | [UI_MODERNIZE.md](dev/UI_MODERNIZE.md) | `tools/ui_modernize.py` 用法：audit/apply/verify、`ui-modernize.json` 配置档、截图迭代法 |
 | [NETWORK_DIAGNOSTICS.md](dev/NETWORK_DIAGNOSTICS.md) | `WTFMLNetworkDiag.exe` 的测试员用法（`package.ps1` 会把它复制成压缩包里的“使用说明.md”，文件名不能改） |
 
@@ -59,6 +59,7 @@
 | 文档 | 内容 |
 | --- | --- |
 | [ACCEPTANCE_LOG.md](archive/ACCEPTANCE_LOG.md) | 验收流水 2026-10-25 ～ 11-10：大实例/USB HDD/VHD 满盘/权限与事务、服务端与下载恢复、P1 收尾、11-09 真机（6508/6508、1 GiB 升级）、Agent G1A/G1B 与待复核的网络错误项 |
+| [TEST_RUN_HISTORY.md](archive/TEST_RUN_HISTORY.md) | 测试运行流水 10-24 ～ 11-10：日期｜套件｜结果｜备注，真机/实网验收表与保留的失败记录 |
 | [REVIEW_LOG.md](archive/REVIEW_LOG.md) | 审查与计划复核流水：补充设计稿校正、项目检查与 UI 统一、实例文案复核、11-05 复核（服务端默认值回归已修）、11-09 状态 |
 | [NAV_AND_META_AUDIT.md](archive/NAV_AND_META_AUDIT.md) | 导航与元数据收口：`execPage()` 迁到 `OverlayHost::showPage()`、后台同步等待盘点、`wtfml.meta` / `.wtfml-server` 读写者与判据 |
 | [ROADMAP_ARCHIVE_20261105.md](archive/ROADMAP_ARCHIVE_20261105.md) | 11-05 清理前主计划的压缩快照：保留旧编号、P2/P3 完成流水与实测数字 |
