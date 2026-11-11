@@ -6,9 +6,12 @@
 #include "SkinViewer.hpp"
 
 #include "SkinModel.hpp"
+#include "Glass.hpp"
+#include "Theme.hpp"
 
 #include <QMouseEvent>
 #include <QPainter>
+#include <QRadialGradient>
 #include <QShowEvent>
 #include <QWheelEvent>
 #include <QtMath>
@@ -186,9 +189,27 @@ void SkinViewer::paintEvent(QPaintEvent *event) {
     // （底栏那条通栏的配色也是这么来的，见 MainWindowUI 里 bottomBar 那一段）。
     // 画一块不一样的底色是**故意的**：这个控件是个"取景框"，读起来要能和周围
     // 那层页面背景分开。
-    painter.fillRect(rect(), palette().color(QPalette::Base));
-    painter.setPen(palette().color(QPalette::Mid));
-    painter.drawRect(rect().adjusted(0, 0, -1, -1));
+    if (Glass::enabled()) {
+        // 磨砂开着：取景框就是卡片那块玻璃本身，不再贴一块不透明底；脚下垫一圈柔和的
+        // 落地阴影，人站在玻璃上而不是飘着。
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        const QRectF floor(width() * 0.18, height() - kPadding - 14.0, width() * 0.64, 18.0);
+        QRadialGradient glow(floor.center(), floor.width() / 2);
+        glow.setColorAt(0.0, QColor(0, 0, 0, Theme::isDark() ? 110 : 60));
+        glow.setColorAt(1.0, QColor(0, 0, 0, 0));
+        painter.save();
+        painter.translate(floor.center());
+        painter.scale(1.0, floor.height() / floor.width());
+        painter.translate(-floor.center());
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(glow);
+        painter.drawEllipse(floor.center(), floor.width() / 2, floor.width() / 2);
+        painter.restore();
+    } else {
+        painter.fillRect(rect(), palette().color(QPalette::Base));
+        painter.setPen(palette().color(QPalette::Mid));
+        painter.drawRect(rect().adjusted(0, 0, -1, -1));
+    }
 
     const QRectF target = QRectF(rect()).adjusted(kPadding, kPadding, -kPadding, -kPadding);
     if (target.width() <= 1.0 || target.height() <= 1.0) {

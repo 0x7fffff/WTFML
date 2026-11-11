@@ -11,6 +11,7 @@
 #include "AgentPage.hpp"
 #include "Animations.hpp"  // 换页 / 展开折叠 / 上拉面板那几段动效
 #include "ElidedLabel.hpp"
+#include "Glass.hpp"
 #include "InstanceGroupDelegate.hpp"
 #include "MemorySlider.hpp"
 #include "OverlayHost.hpp"
@@ -29,6 +30,7 @@
 #include <QColor>
 #include <QEvent>
 #include <QFont>
+#include <QGraphicsDropShadowEffect>
 #include <QGridLayout>
 #include <QGuiApplication>
 #include <QHeaderView>
@@ -126,8 +128,10 @@ QFrame *makeHomeCard(QWidget *parent) {
     auto *card = new QFrame(parent);
     // 卡片靠底色和留白分层，不叠一圈 Fusion 的深色 StyledPanel 边线。
     card->setFrameShape(QFrame::NoFrame);
-    card->setAutoFillBackground(true);
+    // 磨砂开着：一块悬浮玻璃卡片（底色由 Glass 画）；关着：照旧铺 Part::Card 那一档不透明底。
+    Glass::mark(card, Glass::Kind::Card);
     const auto applyPalette = [card]() {
+        card->setAutoFillBackground(!Glass::enabled());
         QPalette palette = QApplication::palette();
         palette.setColor(QPalette::Window, Theme::partBackground(Theme::Part::Card));
         card->setPalette(palette);
@@ -232,7 +236,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
 
     parent->setWindowFlags(parent->windowFlags() & ~Qt::WindowMaximizeButtonHint);  // 禁用最大化按钮
 
-    QWidget *centralWidget = new QWidget(parent);
+    // 中央控件就是磨砂玻璃的场景底：整窗最底下那张风景（关掉磨砂时它只铺窗口底色）。
+    QWidget *centralWidget = new Glass::Backdrop(parent);
     parent->setCentralWidget(centralWidget);
 
     // NOTE: 边距和间距都是 0 —— 选项卡栏和底部状态条要**通栏**贴到窗口边缘
@@ -481,11 +486,51 @@ QWidget *MainWindowUI::setupHomePage() {
     {
         home.left.layout->addSpacing(20);
         auto *welcome = makeHomeTitle(QStringLiteral("下一个世界，等你开启。"), home.left.widget);
-        QFont font = welcome->font();
-        font = Theme::textFont(font, Theme::TextRole::Display);
-        welcome->setFont(font);
+        welcome->setObjectName(QStringLiteral("homeHeroTitle"));
         welcome->setWordWrap(true);
         home.left.layout->addWidget(welcome);
+        // 副题：西文衬线斜体，和大标题一中一西、一正一斜。
+        auto *subtitle = new QLabel(QStringLiteral("Your next world awaits."), home.left.widget);
+        subtitle->setObjectName(QStringLiteral("homeHeroSubtitle"));
+        home.left.layout->addWidget(subtitle);
+        // 磨砂开着时这两行直接压在风景上：白墨 + 一圈柔阴影（场景底在标题那一带还压了一层
+        // 暗角，见 Glass::Backdrop::rebuildNow）；关着回到正文色、Display 那一档字号。
+        const auto applyHero = [welcome, subtitle]() {
+            const bool glass = Glass::enabled();
+            QFont font = Theme::textFont(welcome->font(), Theme::TextRole::Display);
+            font.setBold(true);
+            if (glass) font.setPixelSize(kHomeHeroTitlePixelSize);
+            welcome->setFont(font);
+            QFont sub = Theme::textFont(subtitle->font(), Theme::TextRole::Heading);
+            sub.setItalic(true);
+            sub.setBold(false);
+            sub.setPixelSize(glass ? 22 : Theme::textSize(Theme::TextRole::Heading));
+            subtitle->setFont(sub);
+            QPalette ink = QApplication::palette();
+            if (glass) {
+                ink.setColor(QPalette::WindowText, QColor(Qt::white));
+            } else {
+                ink.setColor(QPalette::WindowText, ink.color(QPalette::PlaceholderText));
+            }
+            subtitle->setPalette(ink);
+            welcome->setPalette(glass ? ink : QApplication::palette());
+            for (QLabel *label : {welcome, subtitle}) {
+                if (!glass) {
+                    label->setGraphicsEffect(nullptr);
+                    continue;
+                }
+                auto *shadow = qobject_cast<QGraphicsDropShadowEffect *>(label->graphicsEffect());
+                if (shadow == nullptr) {
+                    shadow = new QGraphicsDropShadowEffect(label);
+                    label->setGraphicsEffect(shadow);
+                }
+                shadow->setBlurRadius(label == welcome ? 28 : 18);
+                shadow->setOffset(0, 2);
+                shadow->setColor(QColor(0, 0, 0, 150));
+            }
+        };
+        applyHero();
+        Theme::follow(welcome, applyHero);
     }
     {
         // 下拉框继续作为启动逻辑的内部选择模型，但主页上不出现。用户从底部的
@@ -629,8 +674,9 @@ QWidget *MainWindowUI::setupHomePage() {
         homeProfileCard = profileCard;
         homeRightColumn = home.right.widget;
         profileCard->setFrameShape(QFrame::NoFrame);
-        profileCard->setAutoFillBackground(true);
+        Glass::mark(profileCard, Glass::Kind::Card);
         const auto applyProfilePalette = [profileCard]() {
+            profileCard->setAutoFillBackground(!Glass::enabled());
             QPalette palette = QApplication::palette();
             palette.setColor(QPalette::Window, Theme::partBackground(Theme::Part::Card));
             profileCard->setPalette(palette);

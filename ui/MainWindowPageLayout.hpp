@@ -66,6 +66,8 @@ inline constexpr int kHomeSkinViewerWidth =
 /// 主页快速区是一组连续操作，不应像两张互不相干的大卡片那样隔开。
 /// 外层布局本身已有 spacing，不额外塞空白，让「收藏 / 上次游玩」视觉上连成一组。
 inline constexpr int kHomeCardGap = 0;
+/// 磨砂开着时主页大标题的字号（压在风景上的那一行，比 Display 那一档大一截）。
+inline constexpr int kHomeHeroTitlePixelSize = 42;
 
 /// 「额外 JVM 参数」多行输入框的高度，约三四行的样子；再高会把下面那几项挤出可视区。
 inline constexpr int kJvmArgsEditHeight = 72;
