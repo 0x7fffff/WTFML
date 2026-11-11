@@ -1,69 +1,95 @@
-# UI 批量调优工具
+# UI 批量调优工具指南
 
-`tools/ui_modernize.py` 用来统一调整 WTFML 的公共 UI 令牌。它不会批量重写页面业务代码，也不会自动改动画：这些高风险项只进入审计报告，等截图确认后再处理。
+本文档介绍 `tools/ui_modernize.py` 的用法与参数配置，供负责界面视觉与样式令牌调整的开发者使用。该工具用于集中管理与批量调整 WTFML 的共享 UI 令牌，不修改页面业务逻辑。
 
-## 当前页面结构约定（2026-10-31）
+---
 
-后续页面沿用当前共用页面框架 `MainWindowPageLayout`：列表、详情与编辑采用一致的页头、左导航、内容区和操作区。预设编辑与实例设置一样进入应用内独立页面，保留统一返回与未保存检查，不另开窗口或嵌套整张管理页。预设继续跟随当前游戏文件夹。改进动画或控件时保留现有分组、导航和布局，不恢复旧版页面结构。
+## 1. 快速开始
 
-## 快速开始
-
-在仓库根目录执行：
+在仓库根目录下运行：
 
 ```powershell
+# 1. 扫描散落的硬编码颜色、几何与非标控件（输出到 build/ui-modernize-report.md）
 python tools/ui_modernize.py audit
+
+# 2. 预览当前默认 profile（modern_soft）带来的代码差异
 python tools/ui_modernize.py apply
+
+# 3. 将所选 profile 写入源码文件
 python tools/ui_modernize.py apply --write
+
+# 4. 校验配置匹配、源码格式并执行构建
 python tools/ui_modernize.py verify --build
-```
 
-第一条会生成 `build/ui-modernize-report.md`。第二条只显示 diff，不写文件；第三条才会把默认的 `modern_soft` 配置写入源码；第四条检查 diff、配置定位、源码是否已应用所选 profile，并构建工程。
-
-如果还要跑测试：
-
-```powershell
+# 5. 可选：构建完成后运行完整测试
 python tools/ui_modernize.py verify --build --tests
 ```
 
-## 调整参数
-
-编辑 `tools/ui-modernize.json` 中的 `modern_soft`。常用参数：
-
-- `accent`：主题色，格式为 `#RRGGBB`。
-- `*_radius`：控件、按钮、卡片和分区圆角。
-- `action_height` / `primary_action_height`：普通和主要按钮高度。
-- `surface_padding` / `page_margin`：卡片内边距和页面外边距。
-- `task_*`：任务中心的间距、进度条高度和阶段间距。
-- `bottom_bar_height`：主页底部任务摘要栏高度。
-
-每次改配置后先运行不带 `--write` 的 `apply` 看 diff。脚本要求每个令牌在预期文件中恰好匹配一次；源码结构改变时会停止，不会猜测替换。
-
-`verify --profile NAME` 还会确认当前源码确实符合该 profile。如果只改了 JSON 却忘记执行
-`apply --write`，验证会失败并列出尚未更新的文件。
-
-## 看截图后的迭代方法
-
-1. 启动程序，建议截主页、实例管理、下载页、设置页和任务中心各一张。
-2. 优先比较信息密度、卡片层级、按钮高度、圆角和任务栏是否抢视线。
-3. 只改 JSON 中对应令牌，再执行 `apply --write` 和 `verify --build`。
-4. 结构、动画或单页例外不要塞进批量脚本；确认截图后单独改组件。
-
-`baseline` 保存了引入脚本时的令牌值。如需仅恢复这些公共令牌，可执行：
+如需切换配置档或恢复基线：
 
 ```powershell
-python tools/ui_modernize.py apply --profile baseline
+# 应用并写入 baseline 基线配置
 python tools/ui_modernize.py apply --profile baseline --write
 ```
 
-它只恢复脚本管理的令牌，不会覆盖其他未提交工作。
+---
 
-## 审计报告怎么看
+## 2. 配置文件说明
 
-报告里的项目是线索，不等于错误：
+令牌配置文件位于 `tools/ui-modernize.json`，默认使用 `modern_soft` 配置档。主要参数包括：
 
-- `hard-coded color`：应判断是否应改用 `Theme` 颜色。
-- `literal geometry` / `literal spacing`：重复出现时适合提取为令牌。
-- `local style sheet`：可能绕开全局主题，需人工确认。
-- `native progress bar` / `progress text enabled`：适合逐步替换为统一的任务进度组件。
+- **色彩**：
+  - `accent`：全局默认主题色，格式为 `#RRGGBB`（对应 `ui/Theme.cpp` 的 `defaultAccentColor`）。
+- **控件与卡片圆角**：
+  - `control_radius`：基础输入框与选项控件圆角。
+  - `button_radius`：普通按钮与动作按钮圆角。
+  - `surface_radius`：主要卡片与表面圆角。
+  - `section_radius`：独立内容区块圆角。
+- **操作按钮尺寸**：
+  - `action_height`：普通操作按钮高度。
+  - `primary_action_height`：主要强调按钮高度（需 ≥ `action_height`）。
+- **间距与边距**：
+  - `page_margin`：页面全局外边距。
+  - `surface_padding`：主卡片内边距。
+  - `bottom_bar_height`：主界面底部任务摘要栏高度。
+- **滚动条**：
+  - `scrollbar_thickness`：滚动条宽度。
+  - `scrollbar_handle_margin`：滑块外边距（需 < `scrollbar_thickness` / 2）。
+  - `scrollbar_min_handle_length`：滑块最小长度。
+- **任务中心面板**：
+  - `task_panel_padding`：面板内边距。
+  - `task_row_spacing`：任务项外间距。
+  - `task_row_inner_spacing`：任务项内部元素间距。
+  - `task_section_spacing`：面板分区垂直间距。
+  - `task_progress_height`：任务进度条高度。
+  - `task_step_spacing`：任务步骤文本间距。
 
-脚本只自动处理 `TOKEN_RULES` 白名单中的共享令牌，因此可以在已有未提交改动的工作区中使用，但仍建议先阅读预览 diff。写入时会先在原文件旁完整暂存所有结果；后续替换失败时会尝试恢复已经替换的文件。
+---
+
+## 3. 页面布局规范
+
+- 新增与重构页面统一采用 `MainWindowPageLayout` 框架：列表、详情与编辑具有一致的页头、左导航、内容区和底部操作栏。
+- 实例设置与预设管理采用应用内覆盖层展示，提供统一的返回导航与未保存变更检测。
+- 页面间距与尺寸调整优先通过修改 `ui-modernize.json` 中的共享令牌完成。
+
+---
+
+## 4. 视觉迭代流程
+
+1. 启动程序并捕获关键页面截图（主页、实例管理、下载页、设置页、任务中心）。
+2. 对比视觉信息密度、卡片层级、按键比例与底栏视觉焦点。
+3. 在 `tools/ui-modernize.json` 中调整对应令牌数值。
+4. 运行 `python tools/ui_modernize.py apply` 查看 diff，确认无误后追加 `--write` 写入。
+5. 执行 `python tools/ui_modernize.py verify --build` 确认编译通过且代码与配置一致。
+6. 特殊动效或单页自定义控件在单独组件文件中针对性调整。
+
+---
+
+## 5. 审计报告排查项
+
+运行 `python tools/ui_modernize.py audit` 会在 `build/ui-modernize-report.md` 生成静态审计清单：
+
+- `hard-coded color`：直接书写的颜色字面量，应评估是否接入 `Theme` 调色板。
+- `local style sheet`：局部覆盖的 QSS 样式表，需确认是否影响全局主题适配。
+- `literal geometry` / `literal spacing`：重复出现的硬编码尺寸，适合提取为共享令牌。
+- `native progress bar` / `progress text enabled`：未统一的原生进度条，建议替换为规范任务进度组件。
