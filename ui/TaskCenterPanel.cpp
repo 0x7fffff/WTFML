@@ -493,7 +493,9 @@ TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider
     setObjectName(MainWindowUI::taskCenterPanelName());
     // 底色和底栏那两块面板**同一档**（`Theme::Part::Panel`）：三块都是从底栏弹出来的，
     // 颜色不一样就成了"三块不同的东西"。理由全文见 MainWindowUI.cpp 里 BottomBarPanel 那段。
-    setAutoFillBackground(true);
+    // 整页那一档（嵌在覆盖层里）不铺底、不描边：直接站在整窗磨砂上，否则内容区中间
+    // 是一整块不透明深色矩形，和轨、顶栏拼成三块。
+    setAutoFillBackground(!m_embedded);
     QPalette panelPalette = QApplication::palette();
     panelPalette.setColor(QPalette::Window, Theme::partBackground(Theme::Part::Panel));
     setPalette(panelPalette);
@@ -1494,6 +1496,9 @@ void TaskCenterPanel::mouseDoubleClickEvent(QMouseEvent *event) {
 }
 
 void TaskCenterPanel::paintEvent(QPaintEvent *) {
+    if (m_embedded) {
+        return;
+    }
     QPainter painter(this);
     painter.setPen(palette().color(QPalette::Mid));
     painter.drawRect(rect().adjusted(0, 0, -1, -1));
