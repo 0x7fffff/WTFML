@@ -422,6 +422,9 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         seedHome(window);
         // 竖屏 / 小屏上 Windows 首次会把超出屏宽的窗口夹回屏宽，排完版再要一次尺寸。
         QTimer::singleShot(300, &window, [&window, shot]() { window.resize(shot.size); });
+        // 启动后头一张时主窗口自己还会刷一次主页（在线版本列表回来后按隔离目录里的空实例重排），
+        // 抓图前再灌一次夹具，再让布局走一拍。
+        QTimer::singleShot(700, &window, [&window]() { seedHome(window); });
         QTimer::singleShot(900, &window, [&window, root, shot]() {
             const bool saved = window.grab().save(root + QLatin1Char('/') + shot.file);
             report.append(QJsonObject{{"file", shot.file}, {"saved", saved}, {"width", window.width()},
