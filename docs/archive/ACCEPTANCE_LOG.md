@@ -131,6 +131,10 @@
 
 现有实现：错误分类 `Unauthorized`/`RateLimited`/`Quota`/`Network`/`Protocol`/`Cancelled`；401/403/配额不重试，首字节前网络/429/5xx 最多 2 次。
 
+## 2026-11-11　UI 7a 外壳与主页（设计稿对照）
+
+`tools/acceptance_desktop.ps1 -DesignShots` 按设计稿尺寸截主页三主题、900×620、1600×1000、折叠轨与组件总表（1:1 像素，隔离夹具），与设计稿 PNG 并排目视。ui_check 3202/3202、ui-refresh 0 失败；ctest theme/ui/ui-agent/ui-bootstrap/ui-refresh/main-window/main-window-agent/workspace/install-layout 串行通过。首轮发现：首张截图被启动后的主页刷新清空（夹具抓图前重灌）；轨底任务卡被压成 22 高（按钮最小尺寸改跟随内部布局）；换主题后任务标题字色停在旧主题。
+
 ## 未覆盖
 
 | 项 | 状态 |
