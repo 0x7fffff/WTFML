@@ -54,7 +54,7 @@
 
 ## 2026-11-05　主计划复核（基线 `main @ b8efc1a`）
 
-重点复核 `4cbccb6`、截止竞态修复 `33ad845` 及对应源码测试、升级链路；期间 `906dfb4` 经 `d937e22` 合入 main，归档与清单重排以其 385 行版本为基线。用户的新升级规范已按 SHA-256 核对复制到仓库外 `WTFML_实例升级功能规范.md`，落地拆解见 [升级改版准备](../features/INSTANCE_UPGRADE_REDESIGN.md)。
+重点复核 `4cbccb6`、截止竞态修复 `33ad845` 及对应源码测试、升级链路；期间 `906dfb4` 经 `d937e22` 合入 main，归档与清单重排以其 385 行版本为基线。用户的新升级规范已按 SHA-256 核对复制到仓库外 `WTFML_实例升级功能规范.md`，落地拆解见 [升级改版准备](../features/INSTANCE_UPGRADE.md)。
 
 - **已确认回归：服务端默认值清不掉。** `ServerRegistry::writeMeta` 把 `ServerModel::toJson` 输出盖到旧 JSON 上以保留未知字段，而 `toJson` 对 `restartOnCrash=false`、默认重试次数省略不输出，`setRestartOnCrash(id, false)` 返回成功但回读仍为 true。修复思路：先清模型拥有的键再合并，未知字段继续保留，不能回退整份重建。**现状：已修**——`writeMeta` 先删 `ServerModel::ownedMetaKeys()` 再合并（`src/server/ServerRegistry.cpp`），`ServerRegistryTests`（ZX8 系列）覆盖 true→false 回读与未知键保留。`javaPath` 等可省略字段同类风险应在新增清空入口时逐项核对。
 - 其它边界：最新提交已补旧 Technic 形状提示、模组引用提取、不支持补丁字段说明、记录大小上限、内存档位保护、文件任务占用值类型、备份线程握手、测试拆分；旧 `captureInto/captureAsNew` 的同步提取已被后台的 `captureForEditor` 取代；升级已有独立向导、模组评估与替换、副本事务、原地完整快照/回滚，新的九类过滤和双向历史是开发缺口；"剩余十项全部依赖外部条件"不成立（批量预设写盘、摘要预算、列表虚拟化可在代码侧推进）。
