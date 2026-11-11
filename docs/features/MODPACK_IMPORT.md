@@ -1,434 +1,168 @@
-# 整合包导入：支持范围与安全边界
+# 整合包导入
 
-## 2.1.7 实网与指定样本复核（2026-10-27）
+给改整合包导入、MCLib AssetDirector 预取、缺项补齐的人看：支持哪些包、安全边界、GTNH 首启资源怎么预取、缺项报告与安装凭据的规则，以及已验过的样本。
 
-验收工具见 `tools/modpack_boundary/README.md`。实际现场位于
-`H:/WTFML-Acceptance-20261025/modpack-boundary-20261027-0050`，不随仓库分发游戏文件。
-CurseForge 项目1121856、文件5813216的实网元数据明确 `allowModDistribution=false`、
-`downloadUrl=null`；官方无key请求返回403。生产解析器和下载器实际取得5637字节JAR，
-SHA-1为 `64a0a20074c17998442dcb52eae13794a07f8bd3`，不是合成文件。
-`report.json` 记录真实文件下载校验、USB HDD目标上慢速回放取消、强制结束及新进程恢复通过。
-回放只保证命中中断点，不代表公网或物理盘吞吐基准；没有借用其它启动器密钥。
+入口为管理/下载页的「导入整合包」，或拖放 ZIP / MRPACK。导入创建或恢复自己的未完成实例，不覆盖现有正常实例。
 
-完整生产导入另有 `import-*.json`：先取消、再活跃下载中直接终止进程、再以新进程导入。
-最初工具漏传清单指纹，虽安装成功但没有安装凭据，因此未作为完整通过；修正后使用
-`RestrictedBoundaryVerified` 独立实例补验，不覆盖前一次实例。修正后取消2747ms通过，
-强制终止时 importing=true/meta=false；新进程80541ms完成，`import-complete.json` 中
-ok/success/realFileVerified/stageProof/completeReport/meta均为true、marker=false。
-首次漏传指纹结果保存在 `import-complete-first-missing-fingerprint.json`；取消早于目标建立的
-首次错误判据保存在 `import-cancel-first-oracle.json`。它们是工具问题，未删除或改写为产品通过。
+## 1. 支持范围
 
-用户确认本轮样本为GTNH 2.8.4和Fabulously Optimized。现有隔离GTNH实例使用Microsoft Java17，
-FO使用Java21；两者均由生产启动链启动，等待声音初始化后确认真实主菜单并保存截图：
-`build/acceptance-2.1.7-20261027/gtnh-java17-main-menu.jpg`、`fo-java21-main-menu.jpg`。
-最终启动日志分别为 `gtnh-java17-final.log`、`fo-java21-final.log`，未打开存档。
-本轮是已有隔离实例的补充组合验收，不重写为所有来源或全冷缓存验收。
+- **Modrinth**：`modrinth.index.json`、下载文件和 `overrides` / `client-overrides`，客户端覆盖层后应用。
+- **CurseForge**：`manifest.json`、项目/文件 ID 解析与指定覆盖目录；平台明确不可用及未返回的文件单独说明。FTB 的 `manifest.json`（`manifestVersion` / `files[]` 的 projectID+fileID / `overrides` / `minecraft.modLoaders`）与 CurseForge 同一套骨架，走同一入口；Technic 等专用清单没有独立适配器。
+- **简单 MultiMC / Prism**：`mmc-pack.json`、`instance.cfg` 与游戏目录；明确 Minecraft 和受支持加载器版本后重新安装核心。组件白名单为 `net.minecraft`、`org.lwjgl` 和 Forge/Fabric/NeoForge/Quilt（Quilt 自 2.1.4 起与 Fabric 同一条 profile + 库安装路径，可导入、可导出清单）。有完整本地声明式 patches 的包可转换额外组件（§2），缺补丁时不猜专用启动配置。
+- **PCL 等包装 ZIP**：内含一份 MRPACK 时解出后按同一流程导入，不运行随包附带的启动器或脚本。
+- **简单懒人包**：直接游戏目录、单层包装目录，或启动器旁的 `.minecraft`；必须有可确认的版本及加载器版本。游戏目录导入跳过 versions、libraries、assets、日志及已知启动器账号文件；核心及加载器走现有安装器。
 
-首次电脑控制无法激活窗口、只有加载画面，后经用户要求重新启动才取得主菜单截图；
-旧失败不删除，也不以日志的声音标记冒充当时已有画面证据。
+**不导入**：归档扩展名不证明包类型；单个模组、只有 JAR 的模组合集、世界存档和服务端包不作为客户端整合包。多个候选实例不按条目顺序猜选；缺版本信息不装"最新版"。RAR / 7z 暂不支持，可自行解压后规范打 ZIP。压缩包里有两个以上顶层目录各带 `.minecraft/` 时明确不导入，提示"像是把多个实例打在一起、解压后逐个拖入"，不挑一个装也不拼成一个实例。多实例、依赖启动脚本或复杂隔离布局的非标准懒人包暂不转换。
 
-入口为管理/下载页的“导入整合包”，或拖放 ZIP / MRPACK；导入创建或恢复自己的未完成实例，不覆盖现有正常实例。
+## 2. 安全边界
 
-## 当前支持
+- **声明式启动补丁（GTNH 等）**：支持清单组件对应的本地 patches：按 order 排序，检查身份、版本、依赖/冲突及 Java 版本交集，转换主类、官方 mainJar、资源索引、库、`+tweakers` 与受限 `+jvmArgs`；未知字段/操作符明确拒绝。补丁客户端须与刚获取的官方原版 SHA-1 一致，不安装重新打包的 Minecraft 客户端。缺失本地组件补丁、未实现操作符及不支持的 JVM 参数仍拒绝，不是所有 MultiMC 插件的完整兼容。
+- **GTNH 2.8.4 Java 17–25 包**：RFB 主类、专用 ClassLoader、forgePatches 本地库和模块参数已接通；LWJGL3 原生库翻译为标准 Maven classifier 及明确 CPU 架构，防止 x86 DLL 混入 x64。包内库校验后原子写入 libraries，同名内容不同则拒绝覆盖；断点身份包含补丁与本地库内容摘要。原版客户端与运行库沿用生产下载器；自定义运行配置单独保存，不继承会重新带入 LWJGL2 的原版库数组。
+- **不执行**：不启动来源启动器，不执行 `instance.cfg` 的前后置命令、脚本、javaagent 或任意 JVM 参数；不继承来源启动器的账号和任意 Java 路径。压缩包路径检查、覆盖文件排除及目录锁仍生效。
+- **启动目录**：隔离实例的进程工作目录与 `--gameDir` 一致（含 Java 8 的 ASCII 别名），共享库和资源仍用绝对路径。旧共享根目录下由模组生成的 config 等文件不会被删，也不自动覆盖实例内配置。现代 Forge/NeoForge 的 BootstrapLauncher `ignoreList` 补上继承链中实际客户端 JAR 文件名，避免实例名与原版 JAR 名不同导致重复 Minecraft 模块；不改实例身份、不从 classpath 删客户端资源。分段探测返回 404 时尝试一次完整 GET，仍检查 HTTP 状态、大小与 SHA-1。
+- **CurseForge 下载候选**：文件 API 的 `downloadUrl` 为空时，用文件 ID 和安全的单个文件名构造官方 CDN 候选，整合包导入与普通资源页共用规则；文件名独立百分号编码。`isAvailable` 明确为 false 时不构造候选；空链接不单独标成"作者禁止第三方分发"。限制：构造候选不等于下载成功，实际仍由生产下载器检查 HTTP 状态、大小和已知 SHA-1；技术可下载不等于取得再分发许可（项目 1121856 的 `allowModDistribution=false` 即是例子）。
+- **分发**：适配器自行解析格式，不嵌入第三方启动器或复制其实现。用户提供包，启动器只在本机转换并安装；发布包/仓库不含 GTNH、Minecraft 客户端及模组二进制。不要重新打包分发 Mojang 文件或修改版客户端；第三方模组/库遵守各自许可。若将来捆绑、修改或再分发 LGPL 等组件，需另行审核署名、许可和源码义务。格式依据：[Modrinth 规范](https://support.modrinth.com/en/articles/8802351-modrinth-modpack-format-mrpack)、[GTNH LWJGL3ify 启动说明](https://github.com/GTNewHorizons/lwjgl3ify#client)。
 
-- Modrinth：modrinth.index.json、下载文件和 overrides/client-overrides，客户端覆盖层后应用。
-- CurseForge：manifest.json、项目/文件 ID 解析与指定覆盖目录；平台明确不可用及未返回的文件单独说明。
-- 简单 MultiMC / Prism：mmc-pack.json、instance.cfg 与游戏目录；明确 Minecraft 和受支持加载器版本后重新安装核心。
-  当前组件白名单为 net.minecraft、org.lwjgl 和 Forge/Fabric/NeoForge/Quilt；Quilt 自 2.1.4 起
-  和 Fabric 同一条 profile + 库安装路径，可导入、可导出清单。
-  有完整本地声明式 patches 的包可转换额外组件，见下节；缺少补丁时仍不猜测专用启动配置。
-- PCL 等包装 ZIP：内含一份 MRPACK 时解出后按同一套流程导入，不运行随包附带的启动器或脚本。
-- 简单懒人包：直接游戏目录、单层包装目录，或启动器旁的 .minecraft；必须有可确认的版本及加载器版本。
+## 3. MCLib AssetDirector 首启资源预取（GTNH）
 
-归档扩展名不证明包类型。单个模组、只有 JAR 的模组合集、世界存档和服务端包不作为客户端整合包。
-多个候选实例不按条目顺序猜选；缺少版本信息也不装“最新版”凑数。RAR / 7z 暂不支持，可自行解压后规范打 ZIP。
+GTNH 2.8.4 首次启动会停在 MCLib 的 AssetDirector（AD）资源下载（包内 Et Futurum Requiem 2.6.2.25-GTNH 把 MCLib 0.3.7.7 打进 jar）。启动器在导入成功后按"已知集合"预取这些资源。
 
-## 声明式启动补丁（GTNH 等）
+### 3.1 AD 要什么、怎么下、写在哪
 
-支持清单组件对应的本地 patches：按 order 排序，检查身份、版本、依赖/冲突及 Java 版本交集，
-转换主类、官方 mainJar、资源索引、库、+tweakers 与受限 +jvmArgs。未知字段/操作符明确拒绝。
-补丁客户端须与刚获取的官方原版 SHA-1 一致，不安装重新打包的 Minecraft 客户端。
+依据 MCLib 0.3.7.7 的 `AssetDirector.java` / `AssetFetcher.java` / `ADConfig.java`（与包内版本一致；0.3.7.8、0.4 另有增补）。
 
-GTNH 2.8.4 Java 17-25 包的 RFB 主类、专用 ClassLoader、forgePatches 本地库和模块参数已接通；
-LWJGL3 原生库翻译为标准 Maven classifier 及明确 CPU 架构，防止 x86 DLL 混入 x64。
-包内库校验后原子写入 libraries；同名内容不同则拒绝覆盖。断点身份包含补丁与本地库内容摘要。
-不启动来源启动器，不执行 instance.cfg 的前后置命令、脚本、javaagent 或任意 JVM 参数。
-原版客户端与运行库沿用生产下载器；自定义运行配置单独保存，不继承会重新带入 LWJGL2 的原版库数组。
+- 请求集合**来自模组代码**：模组在 FMLConstructionEvent 里注册 `ADConfig`（`addObject` / `addSoundEvent` / `addJar`），资产名与声音事件名是 Java 字面量，MCLib 只按 modid 存内存（`AssetDirectorAPI.jsons`），**不落盘，也不在包清单里**。
+- 解析：对每个声明的 MC 版本下载版本 JSON（launchermeta）→ 取 `assetIndex.url` → 用索引 name→hash 表。`addObject` 的名字原样查表；`addSoundEvent` 先取索引里的 `minecraft/sounds.json`，把事件展开成 `minecraft/sounds/<name>.ogg`。查不到的名字、sounds.json 里没有的事件只记 warn，不算失败。
+- 下载：对象走 `https://resources.download.minecraft.net/<hash[0:2]>/<hash>`，每次尝试后校验 SHA-1（3 次尝试、连接/读取各 10 秒超时、`.part` 临时文件后改名）；版本 JSON 与资源索引 JSON 各存自己一份，**不走 overlay 复用**，缺了自己下。0.3.7.7 是**单线程**逐个下，大清单会长时间停在进度条上；并发与 `-DassetDirector.downloadThreads` 是 0.4 才有。
+- 目录：`-Dminecraft.sharedDataDir/asset_director` → `$MINECRAFT_SHARED_DATA_DIR/asset_director` → 否则 `<--assetsDir>/asset_director`（只有老官方启动器才退回 `<assets>/../asset_director`）。本启动器传 `--assetsDir <数据目录>/assets`，不传 `minecraft.sharedDataDir`（补丁 `+jvmArgs` 白名单：两个固定 `-D`、`--enable-native-access` 和受限的 `--add-opens` / `--add-exports`），数据根的 `launcher_profiles.json` 也没有 `launcherVersion` 段，所以落点是 `<数据目录>/assets/asset_director`，**所有实例共用一份**（按实例隔离只能用 `MINECRAFT_SHARED_DATA_DIR` 环境变量，那是另一条产品改动）。
+- 信任边界：读对象时先找 `<ad>/assets/objects`，再找启动器的 `<assets>/objects`，只写 `<ad>`。**AD 只判"文件存在"，不重算哈希**；索引/版本 JSON 在 0.3.7.7 里损坏后没有重取路径（0.3.7.8 才加）。所以预取方必须自己按官方大小/SHA-1 校验后再发布，否则一个坏对象会被长期当成好的用。
 
-这不是所有 MultiMC 插件的完整兼容；缺失本地组件补丁、未实现操作符及不支持的 JVM 参数仍拒绝。
-FTB 那种 `manifest.json`（`manifestVersion` / `files[]` 的 projectID+fileID / `overrides` /
-`minecraft.modLoaders`）与 CurseForge 是同一套骨架，直接走同一入口，不另写解析器；
-Technic 等专用清单仍没有独立适配器。仅在实际包含上述标准格式时走对应入口。
-多实例、依赖启动脚本或复杂隔离布局的非标准懒人包暂不猜测转换：压缩包里有两个以上顶层目录
-各带 `.minecraft/` 时明确不导入，并说明"像是把多个实例打在一起、解压后逐个拖入"，
-不随便挑一个装、也不拼成一个实例。
+### 3.2 请求集合怎么得到
 
-游戏目录导入跳过 versions、libraries、assets、日志及已知启动器账号文件；核心及加载器走现有安装器。
-不继承来源启动器的账号、任意 Java 路径和执行命令。压缩包路径检查、覆盖文件排除及目录锁仍生效。
-
-## MCLib AssetDirector 首启资源（GTNH，2.1.6a/2.1.6b）
-
-GTNH 2.8.4 首次启动会停在 MCLib 的 AssetDirector 资源下载（包内 Et Futurum Requiem
-2.6.2.25-GTNH 把 MCLib 0.3.7.7 打进 jar）。本节分两半：先说 2026-10-26 spike 核对的
-“请求集合从哪来、能不能稳定拿到、体积多大”，再说 2.1.6b 落地的预取行为。
-真机无缓存首启验收（2.1.6c）已完成，证据及边界见下文对应实测节。
-
-### 它要什么、怎么下、写在哪
-
-依据 MCLib 0.3.7.7 的 `AssetDirector.java` / `AssetFetcher.java` / `ADConfig.java`
-（与包内版本一致；0.3.7.8、0.4 的增补另注）。
-
-- 请求集合**来自模组代码**：模组在 FMLConstructionEvent 里注册 `ADConfig`
-  （`addObject` / `addSoundEvent` / `addJar`），资产名与声音事件名都是 Java 字面量，MCLib 只把它
-  按 modid 存在内存（`AssetDirectorAPI.jsons`）。**不落盘，也不在包的清单里。**
-- 解析：对每个声明的 MC 版本下载版本 JSON（launchermeta）→ 取 `assetIndex.url` → 用索引的
-  name→hash 表。`addObject` 的名字原样查表；`addSoundEvent` 先取索引里的 `minecraft/sounds.json`
-  （它本身也是一个资源对象），把事件展开成 `minecraft/sounds/<name>.ogg`。索引里查不到的名字、
-  sounds.json 里没有的事件只记一条 warn，不算失败。
-- 下载：对象走 `https://resources.download.minecraft.net/<hash[0:2]>/<hash>`，每次尝试后校验 SHA-1
-  （3 次尝试、连接/读取各 10 秒超时、`.part` 临时文件后改名）；版本 JSON 与资源索引 JSON 各存
-  自己一份，这两样**不走 overlay 复用**，缺了就自己下。0.3.7.7 是**单线程**逐个下，卡在大清单时
-  会长时间停在进度条上；并发与 `-DassetDirector.downloadThreads` 是 0.4 才有的。
-- 目录：`-Dminecraft.sharedDataDir/asset_director` → `$MINECRAFT_SHARED_DATA_DIR/asset_director`
-  → 否则 `<--assetsDir>/asset_director`（只有老官方启动器才退回 `<assets>/../asset_director`）。
-  本启动器传 `--assetsDir <数据目录>/assets`，不传 `minecraft.sharedDataDir`（补丁 `+jvmArgs` 是
-  白名单：两个固定 `-D`、`--enable-native-access` 和受限的 `--add-opens` / `--add-exports`），
-  数据根里的 `launcher_profiles.json` 也没有 `launcherVersion` 段，所以落点是
-  `<数据目录>/assets/asset_director`，**所有实例共用一份**。
-  （要按实例隔离只能用 `MINECRAFT_SHARED_DATA_DIR` 环境变量，那是另一条产品改动，本次不涉及。）
-- 复用与信任边界：读对象时先找 `<ad>/assets/objects`，再找启动器的 `<assets>/objects`；写只写 `<ad>`。
-  **它只判“文件存在”，不重算哈希**；索引/版本 JSON 在 0.3.7.7 里损坏后也没有重取路径
-  （0.3.7.8 才加）。所以预取方必须自己按官方大小/SHA-1 校验后再发布，否则一个坏对象会被长期
-  当成好的用。
-
-### 请求集合能不能稳定得到
-
-| 来源 | 结论 | 依据 |
+| 来源 | 能否得到 | 依据 |
 | --- | --- | --- |
-| 包内声明 | 不行 | MultiMC patches 只声明 `net.minecraft` 的 `assetIndex`（1.7.10）；ADConfig 在模组 jar 里，运行时才注册，包里没有可读清单。 |
-| 资源索引 | 得不到子集 | 索引只给“某个 MC 版本的全集”（1.21 索引 3911 个对象/787.8 MiB，只取 sounds/ 也有 3727 个/686.5 MiB）；而且“取哪个版本的索引”同样来自模组代码。 |
-| 已校验缓存 | 可以 | 一次成功启动后 `<ad>` 里就是实际集合；再逐项按官方索引的 size/SHA-1 复核即可固定成“已知集合”。 |
-| 模组源码 | 只得到**下界** | EFR 的 `addObject` / `addSoundEvent` 字面量能离线算一遍，但 `getSounds()` 末尾还有一段按方块注册表循环注册的事件（见下文实测），静态正则看不见。 |
+| 包内声明 | 不能 | MultiMC patches 只声明 `net.minecraft` 的 `assetIndex`（1.7.10）；ADConfig 在模组 jar 里运行时才注册 |
+| 资源索引 | 只有"某 MC 版本的全集" | 1.21 索引 3911 个对象/787.8 MiB，只取 sounds/ 也有 3727 个/686.5 MiB；取哪个版本的索引同样来自模组代码 |
+| 已校验缓存 | 能 | 一次成功启动后 `<ad>` 里就是实际集合，逐项按官方索引 size/SHA-1 复核即可固定成"已知集合" |
+| 模组源码 | 只有**下界** | EFR 的 `addObject` / `addSoundEvent` 字面量可离线算，但 `getSounds()` 末尾按方块注册表循环动态注册 step/place/break 声音事件，静态正则看不见 |
 
-结论：没有“只靠包清单、离线、通用”的推导路径；可行的是**按整合包＋模组版本固定一份已知集合
-清单**，每项用官方 HTTPS 索引的大小/SHA-1 校验，再由启动器预取。清单的权威来源是
-**跑过一次的 AD 目录（已校验缓存）** —— 静态解析只当交叉核对，2026-10-26 的实测证明它比真实集合
-少 612 个对象。
+结论：没有"只靠包清单、离线、通用"的推导路径；做法是**按整合包＋模组版本固定一份已知集合清单**，每项用官方 HTTPS 索引的大小/SHA-1 校验，再由启动器预取。清单权威来源是**跑过一次的 AD 目录**，静态解析只作交叉核对（2026-10-26 实测静态集合比真实集合少 612 个对象）。
 
-### 实测体积（2026-10-26）
+### 3.3 体积（2026-10-26）
 
-先看**静态解析的下界**：只数 `EtFuturum.getSounds()` 里的字面量。
-
-| 项目 | GTNH 2.8.4（EFR 2.6.2.25-GTNH，资产版本 1.21，索引 id 17） | 2.9.0-RC-2 侧（EFR 2.6.60-GTNH，资产版本 1.21.10，索引 id 27） |
+| 项目 | GTNH 2.8.4（EFR 2.6.2.25-GTNH，资产 1.21，索引 id 17） | 2.9.0-RC-2 侧（EFR 2.6.60-GTNH，资产 1.21.10，索引 id 27） |
 | --- | --- | --- |
-| 声明 sound event / 对象 | 243 / 6 | 250 / 6 |
-| 解析出的对象（去重） | 755 个，115,427,181 B（110.08 MiB） | 763 个，59,315,112 B（56.57 MiB） |
-| 索引里查不到的 | 0 | 0（2 个事件在 sounds.json 里不存在，只 warn） |
+| 静态解析：声明 sound event / 对象 | 243 / 6 | 250 / 6 |
+| 静态解析：去重对象 | 755 个，115,427,181 B（110.08 MiB） | 763 个，59,315,112 B（56.57 MiB） |
+| 索引里查不到的 | 0 | 0（2 个事件在 sounds.json 不存在，只 warn） |
 | 已在 1.7.10 索引里的 | 12 个 / 10.3 MiB | 0 |
-| 加 AD 自己要的 sounds.json | 110.57 MiB | 57.11 MiB |
-| 加版本 JSON＋索引 JSON（冷启动总量） | **111.04 MiB**（116,429,155 B） | 57.63 MiB（60,432,550 B） |
+| 加 sounds.json / 再加版本 JSON＋索引 JSON（冷启动总量） | 110.57 MiB / **111.04 MiB**（116,429,155 B） | 57.11 MiB / 57.63 MiB（60,432,550 B） |
 
-**这个 755 是被真机打回来的**：2026-10-26 的 2.1.6c 实跑里，AD 在启动时又下了 **612 个对象**
-（EFR 的 `getSounds()` 末尾有一段 `for (ModSounds.CustomSound sound : ModSounds.getSounds())`，
-按方块注册表动态注册 step/place/break 声音事件 —— 静态正则只数 `config.addSoundEvent(ver, "…")`
-那一族字面量，看不见循环里的）。所以**清单以“跑过一次的 AD 目录”为准**，静态解析只当交叉核对：
-GTNH 2.8.4 的真实集合是 **1368 个对象 / 128,399,283 B（122.45 MiB）**，也全部能在索引 17 里
-按名字、大小、SHA-1 核对上。加两份 JSON 后冷启动总量 122.92 MiB；减掉 1.7.10 资产里能复用的
-12 个（10.3 MiB）后，实际要下 112.6 MiB。
+真机实际集合：GTNH 2.8.4 是 **1368 个对象 / 128,399,283 B（122.45 MiB）**，全部能在索引 17 里按名字、大小、SHA-1 核对；加两份 JSON 后冷启动总量 122.92 MiB；减去能从 1.7.10 资产复用的 12 个（10.3 MiB），实际下载 112.6 MiB。1.21 索引共 3911 个对象 826,115,023 B（787.8 MiB），1.21.10 共 4403 个 449,113,996 B；整索引是已知集合的 6–7 倍，故不采用。本包 1.7.10 资产索引（686 个对象 112,396,854 B，sha1 `1863782e…`）与已知集合只有 12 个哈希相同，同名 ogg 哈希全不同（重编码过），所以复用已有 `assets/objects` 在这套包上只省 10.3 MiB。（一次"本机有就铺一遍"的 3213 个对象夹具补法与这份清单无关。）
 
-1.21 索引共 3911 个对象 826,115,023 B（787.8 MiB），1.21.10 共 4403 个 449,113,996 B；
-整索引（或其中的整 sounds 子集）是已知集合的 6–7 倍，因此不采用整索引。
-本包自己的 1.7.10 资产索引（686 个对象 112,396,854 B，sha1 `1863782e…`）与已知集合只有 12 个
-哈希相同，同名 ogg 的哈希全不同（重编码过），所以“复用已有 assets/objects”在这套包上只省 10.3 MiB。
-前文 3213 个对象那次是“本机有就铺一遍”的夹具补法，不等于这份清单，两者不能互相代替。
+### 3.4 预取行为（2.1.6b）
 
-## 2.1.6b 落地：导入成功后预取（已实现）
+边界：接受"已知集合"方案、允许自动下载、只写启动器管理的 overlay。
 
-人工确认过的三条就是下面这些行为的边界：接受“已知集合”方案、允许自动下载、只写启动器
-管理的 overlay。
+- **何时跑**：整合包导入成功之后（`MainWindow::maybePrefetchAssetDirector()`；"导入完成"提示关掉后才开始）。不挂在启动前路径上：启动是同步的且含嵌套事件循环，塞入几十 MB 下载会把取消/关窗/重复点击的闸全部重排。
+- **认不认实例**：只看 `versions/<实例>/mods/` 里的**文件名**，按清单里的正则（目前只有 `Et-Futurum-Requiem-2.6.2.25-GTNH.jar` 及其小写/下划线别名）。认不出就什么都不做（不建任务、不置忙、不建目录），不读 jar 的 `mcmod.info`，不"看起来像就猜"。其它 GTNH 版本、其它 MCLib 消费者要各自新增一套。
+- **下什么、跳什么**：对象先看 `<数据目录>/assets/asset_director/assets/objects/<xx>/<hash>`（AD 自己的目录），再看共享的 `<数据目录>/assets/objects/<xx>/<hash>`；命中都要过"字节数 + SHA-1"，只判存在不算数。两份 JSON 也落在 AD 读的两条路径上并同样校验。
+- **写在哪**：只写 `<数据目录>/assets/asset_director/` 下：
+  ```
+  asset_director/versions/1.21/1.21.json
+  asset_director/assets/indexes/17.json
+  asset_director/assets/objects/<hash 前两位>/<hash>
+  ```
+  不写共享 `assets/objects`，不写游戏目录，不改模组文件。写入走 `DownloadManager`：字节数 + SHA-1 校验、失败重试与看门狗、`QSaveFile` 原子提交；批次前后取数据根生命周期锁，拿不到就一个字节不写。
+- **体积上限**：单套已知集合 256 MiB（`AssetDirectorKnownSet::kMaxKnownSetBytes`），超了不下，界面直说是哪套、多大。GTNH 2.8.4 实际 122.45 MiB（冷启动下 112.6 MiB）。
+- **进度/取消/重试**：公共下载批次，任务中心一条「预取 <实例> 的首启资源」（可取消），底栏进度报真要下的那几个（`stats.skipped` 不算进分母）。取消不删文件，已校验的留原处，下次按 SHA-1 跳过。失败给「再试一次」（重新发起预取，不重下整份清单），并说明"不影响启动：AssetDirector 会自己继续下"。
+- **结果话术**：成功且有下载 →「首启资源已预取：下载 N 个文件（X MiB），复用 M 个（其中共享 `assets/objects` K 个）」；全已就绪 → 只写日志；取消 → 只写日志；失败 → 警告框 + 重试入口，附失败清单（前 10 条）。
 
-**什么时候跑。** 整合包**导入成功之后**（`MainWindow::maybePrefetchAssetDirector()`；
-提示“导入完成”关掉之后才开始）。不挂在启动前那一条路上：启动是同步的、里面还有嵌套事件
-循环，往里塞一个几十 MB 的下载会把取消/关窗/重复点击那几道闸全部重排。
+### 3.5 清单维护
 
-**认不认这个实例。** 只看 `versions/<实例>/mods/` 里的**文件名**，按清单里的正则对
-（今天只有 `Et-Futurum-Requiem-2.6.2.25-GTNH.jar` 及其小写/下划线别名）。认不出来就
-**什么都不做**（不建任务、不置忙、不建目录）—— 不读 jar 的 `mcmod.info`，不为一次检查解
-几百个包，也不做“看起来像就猜”的推断。其它 GTNH 版本、其它 MCLib 消费者要各自新增一套。
+- 人读的一份：`assets/assetdirector/known-sets.json`（一套 = 消费者文件名正则 + MC 版本 + 版本 JSON/资源索引的 URL/sha1/size + 每对象 name/hash/size + 总量）。编进产品的一份：`src/download/AssetDirectorKnownSetData.cpp`（同样字节，chunk 拼接）。两份**必须逐字节一致**，`AssetDirectorKnownSetTests.cpp` 断言。
+- **重新生成（首选）**：跑一次真包，用那次的 AD 目录反推：
+  ```
+  python tools/assetdirector-knownset.py --from-cache --ad-dir <数据根>/assets/asset_director --assets-root <数据根>/assets --tag <EFR tag> --mc-version <MC asset version>
+  ```
+  再 `--embed`。它枚举 AD 目录里的对象（逐个按官方索引字节数＋SHA-1 核过），加上"上一份清单里被 AD 从共享 `assets/objects` 复用因而没进它自己目录"的那几个；两份 JSON 的地址/哈希取自 launchermeta，并核对盘上两份与官方逐字节一致。
+- **静态解析（交叉核对）**：`--efr-java <EtFuturum.java> --tag <EFR tag> --mc-version <MC>`，从 `EtFuturum.getSounds()` 字面量算一遍，结果必须是缓存反推集合的**子集**。参数读自 EFR 的 `build.gradle`（`injectedTags` 的 `MC_ASSET_VER`）和 `dependencies.gradle`（MCLib 版本）。
+- 清单按整合包＋模组版本钉死：换 GTNH 版本、EFR 版本、资产版本都要重新生成。一次真机跑可看出清单够不够：启动日志里的 `Downloading resources` 和 AD 目录文件数就是判据。
+- 校验（`AssetDirectorKnownSet::parse()`）：只认 `formatVersion: 1`；地址必须是 Mojang 官方 HTTPS 主机（`piston-meta` / `launchermeta` / `resources.download`）；哈希 40 位十六进制；对象名不许 `..`、不许绝对路径；同一套里哈希不许重复；声明的 `totalBytes` 必须等于逐项之和。任何一条不对整份拒用，不"尽量读"。
 
-**下什么、跳什么。** 对象先看 `<数据目录>/assets/asset_director/assets/objects/<xx>/<hash>`
-（AD 自己的目录），再看启动器共享的 `<数据目录>/assets/objects/<xx>/<hash>`（AD 只读复用
-那一份）；命中都要过“字节数 + SHA-1”，**只判存在不算数**（AD 自己不校验，一份坏缓存会被
-它一直用）。两份 JSON（版本 JSON、资源索引）也落在 AD 读的那两条路径上，同样校验。
+### 3.6 无缓存首启实测（2.1.6c，2026-10-26）
 
-**写在哪。** 只写 `<数据目录>/assets/asset_director/` 下：
-
-```
-asset_director/versions/1.21/1.21.json
-asset_director/assets/indexes/17.json
-asset_director/assets/objects/<hash 前两位>/<hash>
-```
-
-不写共享 `assets/objects`（AD 自己也不往里写），不写游戏目录，不改模组文件。写入走
-`DownloadManager` 那一套：字节数 + SHA-1 校验、失败重试与看门狗、`QSaveFile` 原子提交，
-半成品不会出现在目标路径上；批次前后取数据根的生命周期锁，拿不到就一个字节都不写。
-
-**体积上限。** 单套已知集合上限 256 MiB（`AssetDirectorKnownSet::kMaxKnownSetBytes`）。
-超了就**不下**，界面直说是哪套、多大。GTNH 2.8.4 的实际集合是 122.45 MiB（冷启动要下
-112.6 MiB，其余从 1.7.10 资产里复用），离上限还有余量。
-
-**进度 / 取消 / 重试。** 走公共的下载批次：任务中心一条“预取 <实例> 的首启资源”（可取消），
-底栏进度条报的是**真要下的那几个**；`stats.skipped` 那种“盘上本来就有”的不算进分母。
-取消不删文件，已校验的留在原处，下一次预取按 SHA-1 跳过。失败时界面给一颗「再试一次」
-（重新发起一次预取，不是重下整份清单），并直说“不影响启动：AssetDirector 会自己继续下”。
-
-**结果话术。** 成功且有下载 → 「首启资源已预取：下载 N 个文件（X MiB），复用 M 个（其中共享
-`assets/objects` K 个）」；全都已就绪 → 只写日志、不弹框；取消 → 只写日志；失败 → 警告框 +
-重试入口，附失败清单（前 10 条）。
-
-### 清单从哪来、怎么重新生成
-
-- 人读的那一份：`assets/assetdirector/known-sets.json`（一套 = 消费者文件名正则 + MC 版本 +
-  版本 JSON/资源索引的 URL/sha1/size + 每个对象的 name/hash/size + 总量）。
-- 编进产品的那一份：`src/download/AssetDirectorKnownSetData.cpp`（同样字节，chunk 拼接）。
-  两份**必须逐字节一致**，`AssetDirectorKnownSetTests.cpp` 会断言。
-- 重新生成（**首选**）：跑一次真包，然后拿那次跑出来的 AD 目录反推：
-  `python tools/assetdirector-knownset.py --from-cache --ad-dir <数据根>/assets/asset_director
-  --assets-root <数据根>/assets --tag <EFR tag> --mc-version <MC asset version>` 再 `--embed`。
-  它枚举 AD 目录里的对象（逐个按官方索引的字节数＋SHA-1 核过），加上"上一份清单里、被 AD
-  从共享 `assets/objects` 复用因而没进它自己目录"的那几个；两份 JSON 的地址/哈希取自
-  launchermeta，并核对盘上那两份与官方逐字节一致。这条路**看到的就是 AD 真正要的东西** ——
-  静态解析只是下界（见上文 `ModSounds` 循环那段）。
-- 静态解析（交叉核对用）：`--efr-java <EtFuturum.java> --tag <EFR tag> --mc-version <MC>`
-  从 `EtFuturum.getSounds()` 的字面量算一遍，结果必须是缓存反推集合的**子集**。
-  参数从 EFR 的 `build.gradle`（`injectedTags` 的 `MC_ASSET_VER`）和 `dependencies.gradle`
-  （MCLib 版本）里读。
-- 清单是**按整合包＋模组版本钉死**的：换 GTNH 版本、换 EFR 版本、换资产版本都要重新生成一套，
-  不能沿用旧的那份"凑合用"。一次真机跑就能看出清单够不够（AD 又下东西了）：启动日志里的
-  `Downloading resources` 和 AD 目录的文件数就是判据。
-- 校验规则（`AssetDirectorKnownSet::parse()`）：只认 `formatVersion: 1`；地址必须是 Mojang
-  官方的 HTTPS 主机（`piston-meta` / `launchermeta` / `resources.download`）；哈希 40 位十六进制；
-  对象名不许 `..`、不许绝对路径；同一套里哈希不许重复；声明的 `totalBytes` 必须等于逐项之和。
-  任何一条不对就整份拒用，不“尽量读”。
-
-### 2.1.6c 实测（2026-10-26，本机）
-
-环境：一个**空的**数据根（本轮的现场在 `D:\WTFtest\wtfml-216c-clean`，只有产品自己下的
-`java/21` = Temurin 21.0.12.1，由 `GlobalJavaSettings::downloadJavaFromMojang` 下载）+
-`GT_New_Horizons_2.8.4_Java_17-25.zip`（595,584,698 B，sha1 `fa8a5a93…`，官方 MultiMC
-导出包）。
-导入用产品自己的 `MainWindow::importModpackFromFile()`（`mw_check.exe multimc-import-live`，
-两问按产品默认值答掉），启动用产品 `LauncherManager`（`verify_instances --launch-main-menu`）。
+环境：空数据根（`D:\WTFtest\wtfml-216c-clean`，只有产品自己下的 `java/21` = Temurin 21.0.12.1，由 `GlobalJavaSettings::downloadJavaFromMojang` 下载）+ `GT_New_Horizons_2.8.4_Java_17-25.zip`（595,584,698 B，sha1 `fa8a5a93…`，官方 MultiMC 导出包）。导入用 `MainWindow::importModpackFromFile()`（`mw_check.exe multimc-import-live`，两问按产品默认答），启动用产品 `LauncherManager`（`verify_instances --launch-main-menu`）。
 
 | 步骤 | 结果 |
 | --- | --- |
 | 导入（1.7.10 原版＋库＋资产＋解开 11972 个覆盖文件） | 42.7 s |
-| 预取（1.7.10 资产已在盘上） | 1358 个文件（1356 对象 + 两份 JSON）/ **112.6 MiB 下载**、复用 12 个；42.9 s → 63.4 s（**20.5 s**） |
-| 首启到主菜单 | `LAUNCH_MAIN_MENU ok=1 reason=sound-marker elapsedMs=36566`（**36.6 s**） |
-| 启动期间 AD 的写入 | **0**：`assets/asset_director` 1358 个文件 / 118,056,787 B，最新 mtime 17:03:47 与启动前一致 |
-| 启动日志里的 AD 行 | **0** 行（对照：未预取那一次有 `Downloading resources, this may take a while...`） |
+| 预取（1.7.10 资产已在盘上） | 1358 个文件（1356 对象 + 两份 JSON）/ **112.6 MiB 下载**、复用 12 个；20.5 s |
+| 首启到主菜单 | `LAUNCH_MAIN_MENU ok=1 reason=sound-marker elapsedMs=36566`（36.6 s） |
+| 启动期间 AD 写入 | 0：`assets/asset_director` 1358 个文件 / 118,056,787 B，最新 mtime 17:03:47 与启动前一致 |
+| 启动日志里的 AD 行 | 0 行 |
 
-对照（同一天、同一台机器、**只预取了静态集合**的那一趟）：启动时 AD 又下了 612 个对象
-（+12.5 MB，AD 目录 746 → 1358 个文件），到主菜单 **152.1 s**。两趟的差别就是"预取是否覆盖
-真实集合"，这也是本次把清单改成"以已校验缓存为准"的直接原因。
+对照（同日同机、**只预取静态集合**）：启动时 AD 又下了 612 个对象（+12.5 MB，AD 目录 746 → 1358 个文件），到主菜单 152.1 s。两趟差别就是"预取是否覆盖真实集合"，也是清单改为"以已校验缓存为准"的原因。
 
-总结：**产品自己下完 122.45 MiB 的首启资源、启动到主菜单，而且启动期间 AD 一个对象都没再取。**
-这不代表所有 GTNH/Java 组合通过（只跑了 Java 21、8 GiB 堆、一次冷缓存），也没进世界、
-没做多 DPI/慢盘；失败与取消的现场只在离线夹具里验过。
+复现：
+```
+mw_check.exe multimc-import-live <包.zip> <实例名> <空数据根>
+verify_instances.exe --launch-main-menu <数据根> <实例名> <数据根>/java/21/bin/java.exe 8192 780 <日志>
+```
+判据看 AD 目录文件数/mtime 有没有变、日志里有没有 `Downloading resources`。两趟启动日志与探针输出留在 `build/gtnh-216c-evidence/`（不随仓库发布）；原包与测试根是临时现场，可清掉，包与 Java 都能重下。2026-10-26 修过 `--launch-main-menu` 的顺序：必须先 `prepareNatives()` 再 `checkPreLaunch()`，与产品启动路一致，否则 1.7.10 首次启动还没有 natives 目录的实例会被探针自己拦下。
 
-复现方法：`mw_check.exe multimc-import-live <包.zip> <实例名> <空数据根>` →
-`verify_instances.exe --launch-main-menu <数据根> <实例名> <数据根>/java/21/bin/java.exe 8192 780 <日志>`，
-判据看 AD 目录的文件数/mtime 有没有变、日志里有没有 `Downloading resources`。
-两趟的启动日志与导入/探针输出留在 `build/gtnh-216c-evidence/`（不随仓库发布）；原包与两套
-测试根只是临时现场（可以清掉），重跑时按上面的命令重新准备——包与 Java 都能重下。
-（`--launch-main-menu` 的顺序在 2026-10-26 修过：必须先 `prepareNatives()` 再 `checkPreLaunch()`，
-和产品的启动路一致；否则 1.7.10 那种第一次启动还没有 natives 目录的实例会被探针自己拦下。）
+## 4. 缺项报告、补齐与安装凭据
 
-## 验证
+**缺项报告**：CurseForge 预览保留每个缺项的项目/文件 ID、文件名、原因和可确认的目标路径，可在列表中选中条目打开官方文件网页。允许先安装其余内容，但缺项未消除时不写成功 meta、不移除 `wtfml.importing`、不向任务中心发安装成功；已下载、已解压的内容保留以便继续。实例内 `wtfml.import-report.json` 原子记录 complete、issues、failureReason；每项含编号、网页、路径、大小和 SHA-1。网络下载失败也记录可重新核对的清单，不把 HTTP/鉴权错误推断成作者意图；报告保存失败明确报错。
 
-常规回归：tools/test.ps1 -Suite ci-core -Modules core-resources；主窗口导入接线在
-tools/test.ps1 -Suite ci-integration -Modules window 的 MwModpackImportChecks 段验证。
-可选设置 WTFML_TEST_PACK_ARCHIVES 为分号分隔的本地 ZIP 列表，附加只读样本检查；CI 不依赖本机下载目录。
-WTFML_TEST_GTNH_ARCHIVE 可指定真实 GTNH ZIP，验证补丁转换、主类/Java 声明、架构筛选和测试目录本地库发布。
-样本识别/清单解析通过不等于真实联网安装和游戏启动通过。原始归档与现有游戏目录不用于测试写入。
+**手动补齐**：把文件放到清单所示位置，再用同一原包和同一实例名重新导入，可继续并重新校验。只对路径安全、非链接、大小和 40 位 SHA-1 均匹配的文件消除缺项；同名同大小但哈希不符不算补齐。接口未提供强校验或目标位置无法确认时不猜，需重查元数据。真正补齐后才写成功 meta、清除未完成标记、更新持久报告。
 
-GTNH 2.8.4 已在独立工作区走通生产 VersionManager 的真实安装流程，解开 11972 个覆盖文件；
-2026-10-23 使用生产 LauncherManager、Java 21.0.7、8 GiB 堆上限，实机确认 313 个模组的主菜单、
-新建世界生成和进入；正常关闭后游戏退出码为 0，日志保存玩家/世界，level.dat 更新时间一致。
-这只是单一 Java 版本的冒烟验证，不代表长期玩法、全部 Java 版本和无缓存首次启动均已通过。
+**补齐窗口**：在「导入整合包」文件选择框切换「继续补齐报告」，选当前数据目录下实例内的 `wtfml.import-report.json`。可选缺项、打开固定官方网页、选本地文件；核对大小和 SHA-1 后原子放入清单路径，已有目标不静默覆盖（选目标文件本身可重新校验），源文件只读，无可信路径或哈希拒绝自动部署。报告读取限制：已知 schema、4 MiB、一万条，不接受越界路径或错误类型，不信任报告里的任意网页地址。
+- 「批量匹配」：选多个本地文件，按大小筛选、SHA-1 匹配后分别部署，不靠文件名猜，不覆盖已有目标；匹配阶段每源文件读一次，发布时再读校验以防源变化；共用 900 秒截止和取消标记，已完成保留，未匹配和失败项逐个写日志，界面只展示前五条原因。「已校验」标记只表示本次会话，重启后重新核对。
+- 「重新校验」：不重选包或本地源文件，只读核对报告内全部条目的路径、大小和 SHA-1，刷新本次会话标记；取消/超时不把未完成哈希算通过，不复制或删除文件，也不清除 importing。
+- 单文件校验/复制在后台、可取消，900 秒截止在每个 1 MiB 块之间检查；取消或哈希失败清理临时文件、不发布半文件。实例运行或安装繁忙时拒绝补入；沿用数据目录写锁，拒绝目标路径任一层的链接。
+- 任务中心入口：失败/中断的导入任务在当前数据目录仍有 importing 标记及报告时显示「补齐文件」（面板右栏和详情页共用动作）；点击时重检能力及导入忙态；报告缺失/损坏明确报错，不当作下载重试。
 
-本次首次启动仍停留于 MCLib AssetDirector 下载阶段，但观察到缓存对象从 274 增至 294，
-线程栈在 HTTPS 文件读取，不能仅凭加载画面不变判定死锁。只读核对本机已有官方资源，
-按资源索引的大小和 SHA-1 复制 3213 个音频/声音索引对象到隔离测试根的 assets/objects 后，
-重启即可越过下载并进入世界。共复用 614557694 字节，未改写原游戏目录或替换模组。
-此操作是测试夹具补齐缓存。产品侧的预取已在 2.1.6b 落地（导入成功后按已知集合下到
-`assets/asset_director`，带进度、取消与重试，见上文“2.1.6b 落地”）。后续无缓存真机首启
-（2.1.6c）的结果见上文实测节；本段保留的是早期手动补缓存的历史记录。
-旧版游戏在本次电脑控制中出现点击位置不一致，未把鼠标操作全流程计为通过；最终经退出确认框
-正常关闭，未强杀已进入世界的进程，也未开启局域网或连接服务器。
+**无原包收尾（2026-10-24）**：生产安装在核心、加载器、清单下载、覆盖解压结束后，后台生成版本化 `wtfml.import-ready.json`：绑定数据根、实例、清单 SHA-256 与每次导入独立标记，记录客户端、库、资源、继承链 JSON 和覆盖内容的大小/SHA-1，单独保存缺项强校验条件。再次导入产生不同的 attempt，不能用上一趟的凭据；历史安装仍需原包，旧报告的空缺项列表本身不是安装完成凭证。补齐窗口的「完成安装」后台重验凭据内全部文件及补齐项，合并写元数据、保存完成报告，最后移除 importing 才放行启动；失败保留内容和门禁。补齐项要求符合清单的大小和 SHA-1（不冻结原来的错误文件字节）；目录链接、越界、标记改变、覆盖文件改变、取消均拒绝收尾。凭据保留作本地审计，没有匹配的 importing 标记就不能重复提交；它不是来源认证或数字签名。自动最终校验和手动收尾均在后台按 1 MiB 分块检查取消与 900 秒截止，任务中心可取消后台解压/最终校验，工人结束前不释放安装占用。
 
-## 启动兼容性
+**提交边界**：`importing` 标记优先于 meta 和顶层 jar，直到最终移除标记才视为完成。meta 写入失败或最后移除标记失败，都保留内容、返回失败并尽力保存未完成报告，不降级成仅影响显示名的警告。`ModpackCompletion::finish()` 的任何一次提前退出（文件校验取消、缺项未补齐、元数据写入失败、最后移除标记失败）都会把盘上报告退回未完成并写明原因，即使取消发生在完成报告发布之后，也不留下 `complete=true` 却仍被启动门禁挡住的现场（2026-10-25）。
 
-隔离实例的进程工作目录与 `--gameDir` 一致，包括 Java 8 的 ASCII 别名；共享库和资源仍用绝对路径。
-旧共享根目录下由模组生成的 config 等文件不会被删除，也不会自动覆盖实例内的配置；必要时比对后迁移。
-现代 Forge/NeoForge 的 BootstrapLauncher `ignoreList` 会补上继承链中实际客户端 JAR 文件名，
-避免实例名与原版 JAR 名不同导致重复 Minecraft 模块；不更改实例身份，也不从 classpath 删除客户端资源。
-分段探测返回 404 时会尝试一次完整 GET；仍检查 HTTP 状态、大小与 SHA1，真实缺失不会被接受。
+**CurseForge 网页入口**（2026-10-24 实网发现）：官方网页可下载的 Fabulously Optimized 文件 8769267（项目 396246），规范路径 `/minecraft/modpacks/fabulously-optimized/files/8769267` 有效，但启动器曾用的 `/projects/396246/files/8769267` 返回 404；FO 6.5.0 清单引用的 Translations for Sodium 文件 8203766（项目 867964）接口明确不可用，其规范路径 `/minecraft/texture-packs/translations-for-sodium/files/8203766` 也 404。两种 404 要分开处理，不能据此断言文件下架。现保留平台 `links.websiteUrl`，严格限制 HTTPS、官方域名、Minecraft 已知类目与项目 slug 后构造文件页；即时缺项提示与持久报告共用该入口。旧报告没有规范地址或元数据查询失败时明确提示手动查找，不再猜数字路由。
 
-CurseForge 文件 API 的 downloadUrl 为空时，使用文件 ID 和安全的单个文件名构造官方 CDN 候选，
-整合包导入与普通资源页共用规则。文件名独立百分号编码，不通过路径遍历或非法 Windows 文件名。
-文件 isAvailable 明确为 false 时不构造候选；空链接不单独标成“作者禁止第三方分发”。
-构造候选不等于下载成功，实际下载仍由生产下载器检查 HTTP 状态、大小和已知 SHA-1；
-不可访问、鉴权失败和网络失败不能算文件已补齐。技术可下载性也不等于取得再分发许可。
+## 5. 验证
 
-2026-10-23/24 实机对照：CurseForge 项目 1121856、文件 5813216
-（MinersMoon-fabric-1.20-1.0.1.jar）。社区 API 镜像返回 downloadUrl=null、isAvailable=true；
-项目数据另有 allowModDistribution=false，不能把“可下载”和“可再分发”混为一谈。
-本项目通过当前生产 VersionManager 解析、DownloadManager 联网下载，PCL 和 HMCL 3.16.4
-通过各自界面的本地下载入口，三者均在独立测试目录取得 5637 字节文件，SHA-1 均为
-64a0a20074c17998442dcb52eae13794a07f8bd3，与 API 元数据一致。
-测试时用户开启代理，不比较速度；第三方启动器未清缓存，不能断言全部字节都重新经过公网。
-没有读取/借用第三方启动器 API Key，也没有向已有实例安装模组；本次不代表所有受限文件可下载。
-回归为资源模块 723/723，通过报告在 build/test-runs/20261023-235813-e3b74413；
-完整启动器构建通过。详细测试副本留在 build/gtnh-install-probe/curseforge-compare，不随仓库发布。
+命令：
+```
+tools/test.ps1 -Suite ci-core -Modules core-resources
+tools/test.ps1 -Suite ci-integration -Modules window    # MwModpackImportChecks 段：主窗口导入接线
+```
+环境变量：`WTFML_TEST_PACK_ARCHIVES`（分号分隔的本地 ZIP 列表，附加只读样本检查；CI 不依赖本机下载目录）；`WTFML_TEST_GTNH_ARCHIVE`（真实 GTNH ZIP，验证补丁转换、主类/Java 声明、架构筛选和测试目录本地库发布）。原始归档与现有游戏目录不用于测试写入。现场验收工具见 `tools/modpack_boundary/README.md`。
 
-## 缺项报告与手动补齐
+### 已验样本
 
-CurseForge 预览保留每个缺项的项目/文件 ID、文件名、原因和可确认的目标路径；可在列表中
-选中条目打开官方文件网页。允许先安装其余内容，但缺项未消除时不会写成功 meta 或移除
-wtfml.importing，也不会向任务中心发送安装成功。已下载、已解压的内容保留以便继续。
+| 日期 | 样本 / 场景 | 做了什么 | 结果 | 意外发现 |
+| --- | --- | --- | --- | --- |
+| 10-23 | GTNH 2.8.4，生产 VersionManager 独立工作区 | 真实安装（解开 11972 个覆盖文件）；生产 LauncherManager、Java 21.0.7、8 GiB 堆，实机确认 313 个模组的主菜单、新建世界生成和进入；正常关闭 | 退出码 0，日志保存玩家/世界，level.dat 时间一致 | 首启停在 AD 下载阶段，缓存对象 274→294、线程栈在 HTTPS 读取，不是死锁；测试夹具从本机官方资源按索引大小/SHA-1 复制 3213 个对象（614,557,694 B）到隔离根 `assets/objects` 后越过。产品侧预取已在 2.1.6b 落地。旧版游戏点击位置不一致，鼠标全流程不计通过；经退出确认框正常关闭 |
+| 10-23/24 | CurseForge 项目 1121856 / 文件 5813216（MinersMoon-fabric-1.20-1.0.1.jar） | 生产 VersionManager 解析 + DownloadManager 联网；PCL、HMCL 3.16.4 通过各自本地下载入口；资源模块回归 723/723（`build/test-runs/20261023-235813-e3b74413`） | 三者均在独立目录得 5637 字节、SHA-1 `64a0a20074c17998442dcb52eae13794a07f8bd3`，与 API 一致 | 社区 API 镜像 `downloadUrl=null`、`isAvailable=true`，项目 `allowModDistribution=false`。测试时开了代理，未比速度；第三方启动器未清缓存；未借用其它启动器 API Key。详细副本 `build/gtnh-install-probe/curseforge-compare` |
+| 10-24 | 缺项补齐状态机（离线） | 缺文件、同名同大小错误文件、正确补齐三次导入 | 失败保留内容及继续资格，最后一次成功；资源 754/754（`20261024-012159-420ae340`），主窗口 2661/2661（`20261024-013057-60799b26`） | |
+| 10-24 | 补齐入口与批量匹配 | 报告读取、未知版本/越界拒绝、不覆盖、原位重验、错误哈希拒绝、发布前取消；活动中心打开/关闭报告、按钮分派 | 资源 766/766（`20261024-014756-d0873289`）、769/769（`20261024-015251-de166f3d`）；主窗口 2661/2661（`20261024-014505-f89bd327`）；工作区 24/24、活动中心 34/34（`20261024-020109-fdbfff22`） | |
+| 10-24 | 重新校验与门禁 | 真实主窗口夹具点「重新校验」；模拟 meta 路径被目录占用 | 资源 776/776、实例 1447/1447（`20261024-095549-20992363`）；工作区 27/27、活动中心 34/34（`20261024-095925-e2503abc`）；complete/meta/importing 未被放行，失败终态与已安装内容保留 | |
+| 10-24 | CurseForge 网页入口修正 | 规范链接、外部域名/查询参数拒绝、报告持久化、旧报告兼容 | 资源 785/785、实例 1447/1447（`20261024-103050-ab449690`） | 沙箱内本地网络/junction 拒绝的原始失败日志已保留，通过数来自允许这些夹具操作的复测 |
+| 10-24 | Fabulously Optimized 12.3.0（文件 8769267）实网安装 | 生产 VersionManager/DownloadManager 下载 50/50 个清单文件，解压 70 个覆盖文件；隔离实例 FO-1.21.11-CF-Test，MC 1.21.11 / Fabric 0.19.3 / Java 21，离线 InstallTest 身份 | complete=true、issues 为空、meta 存在、importing 已移除；主菜单显示 FO 12.3.0、43 个模组；「退出游戏」后 GAME_EXIT 0、Normal | 证据 `build/gtnh-install-probe/runs/cf-current-20261024-101444/`。同轮 FO 6.5.0 的 49 个可用条目下完后因不可用资源包返回未完成：marker=1、unfinished=1、meta=0，未误报成功，也未启动该实例。日志中 401 / Realms 鉴权错误来自离线身份，Steam Deck 检测跳过与可选兼容类警告仍在 |
+| 10-24 | 无原包收尾 UI 验收 | 管理页选包、确认缺项、安装其余、活动中心「补齐文件」；重启后入口与凭据仍可用；原生选择框补入本地缺项后「完成安装」 | 界面显示安装完成，complete=true、importing 消失（`build/gtnh-install-probe/ui-completion/complete-after-restart.jpg`）；提交中断回归资源 807/807（`20261024-183628-a3e6be4a`）；ZG10 路径占位拒绝与恢复，资源 818/818（`20261024-183833-b05b1f51`） | 缺项由可控本机 API 构造，核心与 Fabric 用隔离缓存。发现并修复真实导入任务缺 targetId 导致补齐按钮不出现，已加回归。ZG10：元数据已发布而报告失败时仍保留 importing，缺失凭据也不信任完成报告 |
+| 10-25 | 收尾报告一致性 | `ModpackCompletion::finish()` 各提前退出路径 | 资源 824/824 | |
+| 10-26 | GTNH 2.8.4 + 空数据根（2.1.6c） | 导入 + 预取 + 首启到主菜单 | 见 §3.6：36.6 s，AD 写入 0 | 静态集合少 612 个对象 |
+| 10-27 | CurseForge 项目 1121856 / 文件 5813216 实网，现场 `H:/WTFML-Acceptance-20261025/modpack-boundary-20261027-0050`（2.1.7） | 官方无 key 请求返回 403；元数据 `allowModDistribution=false`、`downloadUrl=null`；生产解析器与下载器取得 5637 字节 JAR，SHA-1 `64a0a20074c17998442dcb52eae13794a07f8bd3`；`report.json`：USB HDD 目标上慢速回放取消、强制结束及新进程恢复通过 | 通过；回放只保证命中中断点 | 完整生产导入 `import-*.json`：取消 2747 ms 通过，强制终止时 importing=true/meta=false，新进程 80541 ms 完成，`import-complete.json` 中 ok/success/realFileVerified/stageProof/completeReport/meta 均为 true、marker=false。首次工具漏传清单指纹，安装成功但无安装凭据，未算通过，保存为 `import-complete-first-missing-fingerprint.json`；取消早于目标建立的首次错误判据保存为 `import-cancel-first-oracle.json`；二者是工具问题，改用 `RestrictedBoundaryVerified` 独立实例补验 |
+| 10-27 | GTNH 2.8.4（Microsoft Java 17）与 Fabulously Optimized（Java 21）已有隔离实例 | 生产启动链启动，等声音初始化后确认真实主菜单并截图，未打开存档 | `build/acceptance-2.1.7-20261027/gtnh-java17-main-menu.jpg`、`fo-java21-main-menu.jpg`；日志 `gtnh-java17-final.log`、`fo-java21-final.log` | 首次电脑控制无法激活窗口，只有加载画面，经重新启动才取得主菜单截图；旧失败不删除 |
 
-实例内的 wtfml.import-report.json 原子记录 complete、issues、failureReason；每项包含
-编号、网页、路径、大小和 SHA-1。网络下载失败也记录可重新核对的清单，不把 HTTP/鉴权错误
-推断成作者意图。报告保存失败会明确报错，不将其视为成功。
+### 未覆盖
 
-手动将文件放到清单所示位置，再导入同一个原包并使用同一实例名，可继续并重新校验。
-只对路径安全、非链接、大小和 40 位 SHA-1 均匹配的文件消除缺项；同名、同大小但哈希不符
-仍不算补齐。接口未提供强校验或目标位置无法确认时不猜测，需要重查元数据。
-真正补齐后才写成功 meta、清除未完成标记，并更新持久报告。
-
-2026-10-24 本地离线状态机回归连续覆盖缺文件、同名同大小错误文件、正确补齐三次导入；
-确认失败保留内容及继续导入资格，最后一次才成功。资源模块 754/754，通过报告见
-build/test-runs/20261024-012159-420ae340。
-最终源码的主窗口模块回归 2661/2661，见 build/test-runs/20261024-013057-60799b26；
-完整启动器已重建。新缺项弹层尚未做真机与多 DPI 视觉验收，不将接线回归替代视觉验收。
-
-继续补齐：在“导入整合包”的文件选择框切换“继续补齐报告”，选择当前数据目录下实例内的
-wtfml.import-report.json。报告浏览器允许选择缺项、打开固定官方网页、选择本地文件；核对大小
-和 SHA-1 后原子放入清单路径。已有目标不静默覆盖；选择目标文件本身可重新校验。
-源文件只读；无可信路径或哈希时拒绝自动部署。报告读取限制为已知 schema、4 MiB 和一万条，
-不接受越界路径或错误类型，不信任报告里提供的任意网页地址。
-
-单文件校验/复制在后台运行，可取消，900 秒截止时间在每个 1 MiB 文件块之间检查；操作系统
-卡在单次文件 I/O 时无法保证立即返回，仍需真实慢盘验收。取消或哈希失败清理临时文件，
-不发布半文件。实例运行或安装繁忙时拒绝补入；沿用数据目录写锁，拒绝目标路径任一层的链接。
-此入口不改报告的安装成功标记，也不移除 wtfml.importing：旧报告不能证明核心、加载器和
-覆盖解压全部完成，因此补齐后仍需用原包同名继续导入。任务中心直接入口、批量匹配和无需原包
-的完整收尾当时尚未实现，后续补齐进展见下。
-
-本地补齐回归：资源模块 766/766（build/test-runs/20261024-014756-d0873289），覆盖报告读取、
-未知版本/越界拒绝、目标不覆盖、原位重验、错误哈希拒绝及发布前取消。主窗口接线回归
-2661/2661（build/test-runs/20261024-014505-f89bd327）；随后列表的“已校验”标记与取消等待
-输入保护一并纳入完整启动器构建，未将这两处微调声称为真机视觉验收。
-
-任务中心补齐入口：失败/中断的导入任务在当前数据目录仍有 importing 标记及报告时显示
-“补齐文件”，面板右栏和详情页共用同一动作。点击时重检能力及导入忙态，不改变“打开目标位置”
-的原有语义；报告缺失/损坏走明确报错，不把缺项当作下载重试。
-
-报告界面增加“批量匹配”：用户选择多个本地文件，按大小筛选、SHA-1 匹配后分别部署到清单路径；
-不靠文件名猜测，不覆盖已有目标。匹配阶段每个源文件读一次，发布时再次读取校验以防源文件变化。
-批量使用同一个 900 秒截止时间及取消标记；已完成文件保留，未匹配和失败项逐个写入日志，
-界面只展示前五条原因避免撑爆弹层。“已校验”标记仅表示本次会话的文件校验，重启后仍重新核对。
-无原包收尾现已接入，见下文；旧报告没有阶段完成凭证时仍不能直接放行。
-报告全部条目只读重验现已接入，具体行为及验收见下。
-
-入口与批量匹配验收：资源模块 769/769（build/test-runs/20261024-015251-de166f3d）；最终源码
-工作区 24/24、活动中心 34/34（build/test-runs/20261024-020109-fdbfff22），覆盖真实主窗口在
-活动中心页面上打开/关闭报告、面板和详情按钮分派、报告/标记缺失时隐藏入口；完整启动器构建通过。
-这些是离线接线与文件夹具测试，不代替真机、多 DPI、真实受限文件及慢盘验收。
-
-报告现在提供“重新校验”：不重新选压缩包或本地源文件，只读核对当前报告内全部条目的路径、大小和
-SHA-1，结果刷新本次会话的校验标记；取消/超时不将未完成哈希算作通过，也不复制或删除文件。
-“重新校验”仍不是对整个游戏的完整性验收，也不会自动清除 importing；“完成安装”是独立的写入操作。
-
-收尾提交边界补强：importing 标记优先于 meta 和顶层 jar，直到最终移除标记才允许视为完成。
-meta 写入失败、或最后移除标记失败，都保留内容、返回失败并尽力保存未完成报告；不再将这些错误降级为
-仅影响显示名的警告。无原包收尾新增版本化安装凭据，旧报告的空缺项列表本身仍不能作为安装完成凭证。
-
-收尾报告一致性（2026-10-25）：`ModpackCompletion::finish()` 的任何一次提前退出（文件校验取消、
-缺项未补齐、元数据写入失败、最后移除标记失败）都会把盘上那份报告退回未完成并写明原因；
-即使在完成报告已发布之后才收到取消，也不会留下 `complete=true` 却仍被启动门禁挡住的现场。
-资源 824/824（本次复跑）。
-
-重验与门禁回归：资源 776/776、实例 1447/1447（build/test-runs/20261024-095549-20992363）；
-工作区 27/27、活动中心 34/34（build/test-runs/20261024-095925-e2503abc）。真实主窗口夹具点击
-“重新校验”，不选择原包/源文件即可完成后台核对，且报告 complete、meta 和 importing 未被放行；
-另有真实导入流程模拟 meta 路径被目录占用，确认失败终态、未完成报告及已安装内容全部保留。
-取消测试覆盖文件块检查，不等于已证明慢盘单次 I/O 卡住时可立即退出；标记移除失败与断电恢复仍需专项验收。
-
-2026-10-24 CurseForge 实网检查发现网页入口缺陷：官方网页可下载的 Fabulously Optimized 文件
-8769267（项目 396246），其规范路径 `/minecraft/modpacks/fabulously-optimized/files/8769267` 有效，
-但启动器当前使用的 `/projects/396246/files/8769267` 返回 404。不能据此断言该文件下架。
-FO 6.5.0 清单引用的 Translations for Sodium 文件 8203766（项目 867964），接口明确不可用，且其规范
-路径 `/minecraft/texture-packs/translations-for-sodium/files/8203766` 也返回 404；没有用其它版本冒充该哈希。
-两种 404 必须分开处理。现已保留平台 links.websiteUrl，严格限制 HTTPS、官方域名、Minecraft
-已知类目与项目 slug，再构造文件页；即时缺项提示与持久报告共用该入口。旧报告没有规范地址或
-元数据查询失败时明确提示手动查找，不再猜数字路由，也不将缺少网页信息解释为文件下架。
-该修正回归：资源 785/785、实例 1447/1447
-（build/test-runs/20261024-103050-ab449690）。覆盖项目元数据到缺项的接线、规范链接、
-外部域名/查询参数拒绝、报告持久化和无网页信息的旧报告兼容；沙箱内的本地网络/junction
-拒绝已保留原始失败日志，以上通过数来自允许这些夹具操作的复测，不是跳过相关判据。
-
-2026-10-24 实网安装及主菜单验收：从 CurseForge 官方网页下载 FO 12.3.0（文件 8769267），
-生产 VersionManager/DownloadManager 路径解析并成功下载 50/50 个清单文件，解压 70 个覆盖文件；
-报告 complete=true、issues 为空，meta 存在、importing 已移除。隔离实例 FO-1.21.11-CF-Test
-使用 Minecraft 1.21.11 / Fabric 0.19.3 / Java 21 和离线 InstallTest 身份，真机可见主菜单显示
-FO 12.3.0、43 个模组；点击“退出游戏”后 GAME_EXIT 0、Normal。未进入世界、未读取真实账号或原有存档。
-安装由调用生产后端的测试程序驱动，不代表已验收主窗口导入向导；下载复用了本轮另一隔离测试的已校验缓存，
-不是冷缓存速度基准。日志中的 401 / Realms 鉴权错误对应离线测试身份，不作为安装失败；Steam Deck
-检测跳过及可选兼容类警告仍在日志中，主菜单通过不等于所有模组功能均已验收。
-证据位于 build/gtnh-install-probe/runs/cf-current-20261024-101444/（安装/启动日志、main-menu.jpg）。
-同轮 FO 6.5.0 的 49 个可用条目全部下载、覆盖文件解压后，因上述不可用资源包返回未完成：
-marker=1、unfinished=1、meta=0，没有误报成功，也没有启动该不完整实例。
-
-### 无原包收尾与后台校验（2026-10-24）
-
-生产安装在核心、加载器、清单下载、覆盖解压结束后，后台生成版本化的
-`wtfml.import-ready.json`：绑定数据根、实例、清单 SHA-256 与每次导入独立标记，
-记录客户端、库、资源、继承链 JSON 和覆盖内容的大小/SHA-1，单独保存缺项强校验条件。
-再次导入产生不同的 attempt，不能使用上一趟的凭据；历史安装仍需原包，
-不会从一张“没有缺项”的旧报告推断各阶段已完成。
-
-补齐窗口增加“完成安装”，后台重验凭据内全部文件及补齐项，合并写入元数据、保存完成报告，
-最后移除 importing 才放行启动；失败保留内容和门禁。补齐项不冻结原来的错误文件字节，
-而是要求符合清单的大小和 SHA-1。目录链接、越界、标记改变、覆盖文件改变、取消均拒绝收尾。
-凭据保留作本地审计，没有匹配的 importing 标记就不能重复提交；它不是来源认证或数字签名。
-
-自动最终校验和手动收尾均在后台按 1 MiB 分块检查取消与 900 秒截止，任务中心可取消后台
-解压/最终校验；工人结束前不释放安装占用。失败报告保存候选而不在 UI 线程重新全量哈希，
-候选可能包含已下载文件，通过后台“重新校验”确认。
-慢盘单次系统 I/O、突然断电、磁盘满与重命名失败仍需专项验收，不宣称能强制中断任意磁盘调用。
-
-真机界面验收补充：隔离窗口通过管理页选择包、确认缺项、安装其余内容，再从活动中心
-打开“补齐文件”；退出并重新打开隔离窗口后，该入口和安装凭据仍可使用。移开原包，
-经原生文件选择框补入本地缺项后点击“完成安装”，界面显示安装完成，报告 complete=true、
-importing 消失。证据：build/gtnh-install-probe/ui-completion/complete-after-restart.jpg。
-此包使用可控本机 API 构造缺项，核心与 Fabric 使用本轮隔离缓存；不是新的 CurseForge 公网验收。
-验收还发现并修正了真实导入任务缺 targetId、导致补齐按钮不出现的问题；手动创建带 targetId
-的任务夹具不能代替真实导入入口，工作区已增加对应回归。
-提交中断回归另覆盖“meta/完成报告已写入而 importing 尚在”的可控现场：不能启动，
-恢复收尾后保留既有 jvmArgs；资源 807/807（build/test-runs/20261024-183628-a3e6be4a）。
-ZG10 增加元数据、报告、安装凭据路径被空目录占用的拒绝与恢复：即使元数据已发布而报告失败，
-仍保留 importing，缺失凭据也不信任完成报告；解除占用后原缺项报告/凭据可继续使用。
-资源 818/818（build/test-runs/20261024-183833-b05b1f51）。这是路径占位夹具，
-不等于真实磁盘满、最后移除标记失败或操作系统断电验收。
-
-## 分发边界
-
-本适配器自行解析格式，不嵌入第三方启动器或复制其实现。用户提供包，启动器只在本机转换并安装，
-发布包/仓库不包含 GTNH、Minecraft 客户端及模组二进制。此设计不构成对来源包许可的保证。
-不要重新打包分发 Mojang 文件或修改版客户端；第三方模组/库分别遵守其许可和分发渠道限制。
-若未来随启动器捆绑、修改或再分发 LGPL 等组件，应另行审核署名、许可、源码及其它适用义务。
-
-格式依据：[Modrinth 规范](https://support.modrinth.com/en/articles/8802351-modrinth-modpack-format-mrpack)、
-[GTNH LWJGL3ify 启动说明](https://github.com/GTNewHorizons/lwjgl3ify#client)。
+| 项 | 说明 |
+| --- | --- |
+| 其它 GTNH 版本 / Java 组合 / 长期玩法 | 只跑了 Java 21（及 17 主菜单）、8 GiB 堆、一次冷缓存；未进世界做长期游玩 |
+| 多 DPI、慢盘、真实磁盘满/断电/最后移除标记失败 | 取消只在 1 MiB 块边界检查，单次系统 I/O 卡住时无法保证立即返回；路径占位夹具不等于真实磁盘故障 |
+| 失败与取消的 AD 预取现场 | 只在离线夹具里验过 |
+| 新缺项弹层、补齐入口的真机多 DPI 视觉验收 | 仅离线接线与文件夹具（报告界面的"已校验"标记与取消等待输入保护同） |
+| 主窗口导入向导的整条 CurseForge 实网安装 | 10-24 的 FO 安装由调用生产后端的测试程序驱动；下载复用另一隔离测试的已校验缓存，不是冷缓存速度基准 |
+| 其它受限 CurseForge 文件 | 只验了项目 1121856 / 文件 5813216 |
+| 样本识别/清单解析 | 通过不等于真实联网安装和游戏启动通过 |
