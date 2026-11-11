@@ -1,0 +1,168 @@
+# 验收流水（2026-10-25 ～ 2026-11-10）
+
+给要查"某项真机/实盘验收跑过没有、数字是多少、遇到过什么坑"的人看。按日期分节，每条写 日期｜跑了什么｜结论｜首轮失败/意外发现；
+证据路径都在本地 `build/` 下（已被 git 忽略，不随仓库分发）。需要重跑时见文末「复现命令」。
+由 ACCEPTANCE_20261025、P0_ACCEPTANCE_20261025、P1_ACCEPTANCE_20261028、DOWNLOAD_RECOVERY_ACCEPTANCE_20261027、SERVER_ACCEPTANCE_20261027、
+ACCEPTANCE_20261109、G1A_ACCEPTANCE、G1B_ACCEPTANCE、G1B_MANUAL_RESULTS_20261110、NETWORK_ERROR_ACCEPTANCE 合并压缩而成，原文在 git 历史里。
+
+## 2026-10-25　大实例、USB HDD、服务端、窗口与全量回归
+
+环境：Qt 6.10.1 / MinGW 13；只用新建夹具和离线文件，不读真实账号和存档。
+
+| 项 | 结果 | 首轮失败 / 意外发现 |
+| --- | --- | --- |
+| USB HDD（H:）512 MiB＋3000 文件复制 | 通过，22.62 秒；占用失败不发布、暂存清理、源保留；取消约 0.23 秒 | 初版"定时异常结束"判据太弱（`recover count=0`，没走到日志建立），已补强脚本 |
+| HDD 提交边界无析构退出（`_Exit` 探针） | 通过，准备 201.13 秒；退出 86，新进程恢复 1 条事务；原 512 MiB SHA-256、核心和用户标记一致 | 原 180 秒预算超时，改用 600 秒的新事务 `publish-boundary-long`，旧现场保留 |
+| 本机 D:（NVMe，Defender 实时保护开）1 GiB＋6000 文件，`--kill-stage publish` 外部终止 | 大复制 3.70 秒；独占失败不发布 3.88 秒；取消 0.23 秒；publish 推进 50.74 秒后外部终止；恢复 `count=1`、0.04 秒，原 jar/用户标记/1 GiB 载荷完整；恢复后重试 52.61 秒完成 | 本机大复制首次发布失败一次、未定位；ASCII/中文路径复测成功。保留，不据重试抹掉 |
+| 真实入口同目录拒绝 | 第二进程显示"启动器已在运行或目录不可用"，退出 1；第一进程存活，日志 SHA-256 未变 | — |
+| Windows 真实窗口 DPR 1.0 / 1.25 / 1.5（原生 150%，其余用 Qt 缩放） | 主页、列表、账号、实例设置、任务中心、下载页等通过；隔离 Fabric 客户端启动到 1.21.11 主菜单，退出 0/Normal | — |
+| 官方 1.21.11 服务端（127.0.0.1:25567，用户授权接受 EULA） | EULA 首启、Java21 正常运行/控制台/stop、Java17 不匹配（UnsupportedClassVersionError，退出 1）、强杀（wasForceKilled=true）通过 | 端口冲突时进程退出 0 被显示成 Stopped，已修：未就绪退出 0 判 Crashed，保留原始退出码；四场景修复后复测全过 |
+| 全量自动化 | 核心 16/16 入口（137.47 秒）；主窗口/升级/预设 3/3；其余集成 10/10；非 visual UI 8/8；visual 3119/3119；网络诊断 1/1；合计 38 个不同入口 0 失败 | — |
+| 主题逐项保存（从主分支移入） | 主窗口 2684/2684（91.61 秒）；覆盖外部删除、不同键互不覆盖、未知键保留、清除覆盖冲突 | 初轮 2682/2682 不含后补代码，以 2684 为准 |
+| PR #8 合并前复核 | 实例回归 1483/1483；publish/verify 各用 16 MiB＋100 文件通过 | 两套探针均失败 1 项：独占源文件后暂存目录未清净（源完整、无半成品）。修复：Windows 删空目录失败后最多 4 次 25ms 重试，出现新内容/链接即停；复测两套 passed=true，实例回归 1487/1487，合并后 **1499/1499** |
+
+### P0 深化（同日，含独立 256 MiB VHD）
+
+- **权限矩阵**：世界保存/导入、实例复制、快照、还原、迁移、预设文件部署、删除，用当前 SID 的真实 NTFS deny/release，共 35 条通过；失败有原因、原件保留、不发布半成品，解除后重试成功。
+- **进程中断矩阵**：还原（原目录保留后/新目录发布后/发布与归位同时失败）、整合包完成报告写入时结束进程，共 33 条通过（后加日志占用探针后事务组 41 条）。
+- **USB HDD**：128 MiB＋1000 文件，publish 与 verify 两条路径复制/占用失败清理/取消/外部终止/恢复 `count=1`/重试/SHA-256 全过；最长阶段等待 76.029 秒（首份 JSON 记 48.44 秒，是统计口径漏算推进时间，已修，原记录不覆盖），复查最长 20.363 秒。
+- **VHD 满盘**：操作开始前卷已满时，世界保存/导入、实例复制、快照、预设文件部署、模组迁移、还原七类均报告失败，原件 SHA-256 不变、无半成品，释放占位后重试成功（73 条检查）。写入中途耗尽：备份暂存副本（错误码 112，12 条检查）、ZIP 压缩（`archive.pending` 写到 4866520 字节时占满，外部压缩器报 "not enough space"，12 条）通过；还原日志提交占用（独占日志阻断 Published 状态的原子替换）保留新旧目录并报告 `retainedPath`，新进程恢复不覆盖任一份。
+  - 首轮失败：几字节的小夹具遇 ENOSPC 仍保存成功（NTFS 驻留数据，不算结论），改用 2 MiB 随机内容；中途满盘探针先后因"freeBytes 必须为 0"（实际剩 4096）和 Qt `ResourceError` 判据（Qt 实际归 `WriteError`）失败，改成按原始错误码＋剩余空间小于下一块判定，没有放宽产品断言。
+- **范围收口**：用户确认以启动器软件责任为发布 P0 范围（失败不误报成功、原件/半成品保护、取消与中断后的保守恢复）；断电、设备物理损坏、杀毒组合不再作发布 P0，仍未验收。
+- **终批 `p0-closure-20261025-154237`（passed=false，原件保留）**：资源模块首次 823/824（取消夹具继承上一段 `complete=true`，改为先重置，补跑 825/825）；窗口阶段重编译接近 300 秒被外层预算截断（工具失败，上限改 450 秒，NoBuild 补验通过，93.96 秒）；**HDD 恢复后重试升级报"用户文件副本未通过完整校验"一次**（恢复后快照 1007 个文件大小与 SHA-1 全匹配，无损坏；首因不明）。
+- **诊断补强**：`copyTreeWithoutFollowingLinks()` 的 `problemOut` 接到全部 5 个复制入口（原地升级、复制实例、世界导入、预设备份、数据包替换），失败话术点名文件、阶段和系统错误；升级区分"复制失败"与"副本校验失败"。回归 `verify` 5911/5911、`verify_instances` 1509/1509。
+- **掉盘提示**：新增 `StorageAvailability`（卷认得出且就绪才算在；落点未建时往上找最近祖先），接入启动按钮/启动前检查（说"游戏文件夹所在的磁盘现在不可用"）、下载入口（开批次前探卷，盘不在发终态、不写字节）、批次失败话术；判据 ZK1，`verify_launch` 290/290。设备卡死、系统调用不返回时仍无应用层超时。
+- **HDD 间歇失败复现**：同参数新夹具连续 10 轮 10/10 通过（重试升级 15.7–26.2 秒）；2026-10-27 再跑一次整轮约 46 秒全过。未复现，按用户决定从 P0 降为 P3，根因未确认，也不据此宣称已修。
+
+## 2026-10-27 ～ 28　服务端与下载恢复
+
+| 项 | 结果 | 首轮失败 / 意外发现 |
+| --- | --- | --- |
+| 真实 1.20.1 服务端：原版 / Fabric 0.16.14 / Forge 47.2.0（Microsoft Java 17，127.0.0.1） | 三种均安装成功；EULA 拒绝、就绪后 stop 保存退出、再次启动强杀、端口占用、Java 8 不匹配全部验证，`report.json` 均 ok=true | 端口占用时原版/Fabric 可能退出 0，生产状态须为 Crashed；Fabric 遇 `UnsupportedClassVersionError` 可能留下错误界面/线程不退出（120 秒超时判失败）→ 产品现在启动中识别该致命 Java 错误，结束自己启动的失败进程，按异常启动报告，不当用户强杀 |
+| 安装向导真实主窗口链 + 控制台日志导出（脱敏） | 三种现场 `ui-report.json` ok=true；属性编辑用读取时 SHA-256 基线，外部改动后拒绝保存 | Fabric 向导关闭后 getter 用 `isVisible` 丢加载器参数 → 改按栏位自身 `isHidden` 判断 |
+| 并发重装的 Forge 现场 | 原现场 `DOWNLOAD_MOJMAPS` 静默到 300 秒工具截止，未装成功；补有界静默重试后，同现场 run-only 重试 installed/ok=true | 不据后续通过宣称网络根因消失；高速下载默认 3 分钟静默 / 10 分钟总截止 |
+| 下载恢复模块（网络/预设）| 5/5（74.08 秒；最终 72.48 秒）；USB HDD 文件批次 8.08 秒、预设 12.50 秒；最终复核 2/2（8.44 / 11.63 秒） | 4 次首轮失败：缺头文件、字段写成调用、受限环境 Permission denied（5 组失败＋预设夹具段错，根因未定）、安装器夹具漏生成 `user_jvm_args.txt`＋持久暂存使旧"空目录删除"夹具失效（顺带补了生产代码不得重建已消失目标的漏洞） |
+| 主窗口回归 | 2716/2716（93.18 秒）；正式构建退出 0 | 新暂停断言先暴露：启动版本列表未返回时错误禁用暂停（独立版本列表请求被一并阻挡），已修；版本 JSON/资源索引阶段仍不能暂停 |
+| 真实 Windows 窗口：服务端恢复（单一任务、暂停、重开主窗口、补齐后等待、第二次明确继续） | `wizard-install.json` 全过，不启动服务端 | — |
+| 客户端真实 1.20.1 / Forge 47.2.0 / Java 17 恢复链 | 冷安装执行实际安装器，暂停退出、新 OS 进程补齐、再明确继续并应用 FOV 预设，"安装完成"提示由电脑控制确认（不含主菜单/世界） | 冷下载超出工具 300 秒观察窗口，产品已补齐等待继续而工具空等；发现并修复实发布缺陷：命名实例薄 JSON 与老的未完成导入形状相同，被列表/启动守卫误拦 → 改为父版本文件完整后才原子保存实例身份 |
+
+要点：预设暂存改为实例内 `.wtfml-preset-downloads/<sha1>.jar`，旧文件每次完整校验；服务端文件批次绑定任务并保存原服务端/Java/版本/加载器/下载清单，Paper 等动态构建不静默换版本；批次回执不序列化 Java 执行栈，安装器运行和文件发布期间不能暂停，跨重启须重新明确继续；大原件/模组目录的同步指纹成本归 P2。
+
+## 2026-10-28　P1 收尾
+
+| 项 | 结果 | 首轮失败 / 意外发现 |
+| --- | --- | --- |
+| 正版登录配置 | 移除源码中的历史 App ID 兜底；构建时 `WTFML_CLIENT_ID` 注入，`WTFML_REDIRECT_URI` 默认 `http://localhost:38226/`；未配置时登录/刷新在发请求前失败并给中文说明；账号模块 367/367 | 项目尚无自己的 Azure App ID，真实授权/刷新/启动/退出全链暂缓 |
+| 系统 DPI 实机采集（`wtfml_desktop_acceptance`） | 100% / 125% / 150% 各 24 张（三主题×四页面×两档尺寸），共 72 张；无基础窄屏控件遮挡 | 发现主题缺陷：设置说明文字（`addDynamicHint()`）固化创建时的 PlaceholderText，翡翠切炭灰后仍暗绿 → 改共享 secondary 文字角色，150% 重采 24 张失配 0；100%/125% 采于修复前，未重测。900×600 请求实际最小为 900×620。受限环境 DNS 失败，下载列表只有空状态 |
+| 预设测试空列表保护 | PA4/PA7/PA9 补非空判断；受限运行 713/717（3 项目录链接被拒、1 项本地 HTTP 重试取消失败），放开后 736/736 | — |
+| 保守并行 | 账号/账本/工具箱 3 个模块并行，其余 35 项独占；串行/并行均 3/3 | 更激进并行属性能工作，未开放 |
+| 本机回归 | 非 visual **38/38**（395.53 秒）；visual **3121/3121**（9.91 秒）；主窗口 2716/2716 | 首次构建发现网络诊断工具缺恢复/凭据存储依赖，补目标依赖后通过；一次完整回归因会话中断无报告，不算通过 |
+| 凭据 | 认证响应与凭据存储已知字段（含嵌套账号）统一脱敏，覆盖 Microsoft access/refresh、Xbox、Minecraft token、授权码、PKCE verifier；DPAPI 保护失败改为拒绝写入、不再降级保存（旧文件字节不变且可解密）；输出扫描 16–21 个文本样本疑似令牌 0 | 仅文本抽样 |
+| 原生交互（当前主屏 150%） | 扩展界面 60 张（三主题×两尺寸×十场景）、24 组受控 Tab；双原生日志窗口各 25000 行 10 项通过（上限 20000，心跳最大间隔 86ms）；电脑控制点击启动隔离 Fabric 1.21.11 到主菜单再退出（0/Normal） | 真实 Tab 首次未分配焦点（三次探针失败保留）→ 修窗口空焦点时从可见后代进入焦点链，复测 focusFailures=0 |
+| Release 与实网 | Release 入口：同目录拒绝、不同目录并发、四线程 800 行日志脱敏通过；去掉 Qt 搜索路径的部署包冒烟通过；Modrinth Fabric API 2426039 字节、CurseForge Oritech 9006088 字节均校验大小/SHA-1（21.27 秒）；版本列表 921 项，镜像失速后官方回退成功 | 部署器提示可选 dxcompiler/dxil 缺失；包内诊断自检首次误指定 offscreen（部署包只含 Windows 插件），45 秒截止，改用 windows 插件后通过；版本唯一出处仍为根 CMake 0.4.2 |
+| 产物审计 | 824 个源码/配置与 24 个部署文件摘要失配 0；验证程序残留 0 | — |
+
+暂缓（不算通过，已登记在 [ROADMAP](../ROADMAP.md)）：正版真实全链、100%/125% 复杂场景补测、Windows"减少动态效果"真实设置、历史探针首因、Actions 线上测量。
+
+## 2026-11-09 ～ 10　真机验收
+
+| 项 | 结果 | 首轮失败 / 意外发现 |
+| --- | --- | --- |
+| 双进程目录边界（`acceptance_directory_boundary.py`，static-release 产物） | **16/16 PASS**；第二进程显示并截图拒绝对话框、不建主窗口、退出 1；私有 INI、并发日志、凭据脱敏、marker 校验通过 | — |
+| 窄窗口 1000×750 + 150% 缩放（acceptance profile 新增 `windowWidth`/`windowHeight`） | PASS；截图 1500×1125，导航/hero/账号卡/底栏无裁切 | — |
+| 大实例升级 1 GiB＋6000 文件，kill 在 publish（`--kill-stage publish`） | **PASS 0 failure**：large-copy 4.62 s、locked-copy 5.01 s、cancelled-upgrade 1.56 s；恢复 0.05 s（原实例/用户文件/1 GiB 载荷/原 jar 完整）；retry-upgrade 57.44 s（checking 10.5 → verify-snapshot 34.9 → retain-original 54.2 → publish 54.2 → done 57.4） | 首次 64 MB 验收失败：`ZipUtil` 的压缩炸弹闸（压缩比 1000）误杀全零 region（真实世界大量空区块合法），升级快照自校验失败 → 两处阈值 1000→10000，条目 2 GiB / 整包 16 GiB 硬上限不变，`BackupTests` 加 8 MB 全零回归 |
+| 完整核心 `verify.exe`（真实 Windows，非 offscreen） | **6508/6508**（11-09 与 11-10 窗口化/统计缓存/预设快速写之后各一次） | — |
+| 设置页 + 任务中心上层覆层（`mw_check overlay-live`） | PASS：设置页开着点任务按钮叠成提示层、再点回到原页；打开设置 9 ms | — |
+| 大列表分帧建行与窗口化（1000 个 jar） | 首帧只建 80 行，1000 行 362 ms 建完；窗口化后首行 141 ms、滚到底 961 ms、末行控件 1、顶行回收 1 | 滚动条 `valueChanged` 连接曾被并进注释行（实际没接上）；分帧完成后补一次 `ensureRowWidgetWindow()`，否则滚到底后新建的顶部行盖过回收结果 |
+| 目录页窗口化（500 个存档） | PASS：首行 96 ms、滚到底 912 ms；已算目录大小/时间进 `m_statCache`，滚回不重复递归 | — |
+
+**待复核（环境限制）**：
+- `assoc-live`：当前会话写 `HKCU\Software\Classes\WTFMLSelfTest` 被拒（错误 5），需正常桌面会话复跑；
+- `sevenzip-live`：本机无 `7z.exe`，未跑；
+- `java-runtime-live`：Java 17 运行时下载探针约 20 MB 后超 25 分钟无进展，已终止，不算通过；
+- 真机 GUI 的拖拽白块、任务中心关闭动画等需人工目视。
+
+## 2026-11-10　Agent 功能人工验收（Stage 1A / 1B）
+
+设计与实现见 [AGENT.md](../features/AGENT.md)、[AGENT_STAGE1A.md](../features/AGENT_STAGE1A.md)、[AGENT_STAGE1B.md](../features/AGENT_STAGE1B.md)。测试 provider 为 DeepSeek `deepseek-flash`，用专用可撤销 key；分支 `agent-development`。
+
+**G1A（无工具聊天）：除网络错误外通过。**
+- 范围：启动与导航（五颗顶部导航、900×620）、API/URL 校验（拒绝远程明文 HTTP、userinfo/查询串/片段，本地 HTTP 需显式勾选）、凭据遮挡与 Windows 凭据管理器存储（`WTFML/Agent/<profileId>`）、聊天生命周期（停止保留部分内容标"已中断"、切会话/切页取消在飞请求、关窗有界退出、删除会话先取消）、会话存储与 DPAPI 加密（`%LOCALAPPDATA%\WTFML\agent\sessions\`，加密失败保留明文、解密失败绝不回退明文）、无文件工具/无 MCP。日志、会话、错误卡片、导出里没有明文 key。
+- 提交区分：严格 G1A 只能在 Stage 1A 提交 `27070e5` 单独构建上打勾；当前 HEAD 含 1B 文件工具，"无工具/无 MCP"一组须在 `27070e5` 构建上验或并入 G1B。
+- 审查期间的修复：加密开关从右上角挤占位置移到聊天头部下方单独一行，显示"加密本会话（DPAPI）"与"当前会话：明文 JSON / 已加密（DPAPI）"；工具 function name 不允许点号（线上名改 `fs_read` 等）；流式请求非 2xx 时错误 JSON 不再被丢弃。
+- 判定口径：P0（明文 key 落盘/进日志、凭据降级明文、URL 校验被绕过、加密失败回退明文、崩溃/数据丢失）与 P1（停止/取消无效、会话恢复失败、错误不可见、无配置仍可发送、切页串会话）为 FAIL；仅 P2/P3 可 CONDITIONAL。
+
+**G1B（文件工具）：首轮人工未通过，P0 未清。**
+
+| 组 | 结果 |
+| --- | --- |
+| L1–L3、L5–L9（实例锁定、`fs.list` 不含文件名、`fs.listNames` 审批且无会话放行、严格模式） | PASS；L4（实例芯片切换确认）用户复核通过 |
+| R1–R3 配置读取 | 流程 PASS，**脱敏 FAIL** |
+| R4 凭据文件 | **FAIL/需复测** |
+| R5 jar | PASS（`egress_blocked`） |
+| R6 大文本 | PASS（1 GiB 文件 `truncated=true`，返回 modelArtifact id，artifact 只存本次读取的 256 KB～1 MB） |
+| R7 变体字段名脱敏 | **FAIL** |
+| R8/R9、W1–W3、P1–P3、E1–E5 | PASS |
+| W4/W5、A1、P4、P5 | 未测/延后（见下） |
+
+- **B1（P0）脱敏只认精确键名**：`hypixel_api_key` `redactionHits=0`；`DB_PASSWORD`/`REDIS_PASSWORD`/`API_SECRET`/`JWT_SECRET` 未命中；精确 `password`、`API_KEY` 命中。修复方向：键名 token 化后含 password/secret/token/api-key/credential 即脱敏，保留格式检测，补变体测试，不能只把实测名字加白名单。
+- **B2（P0）凭据文件识别过窄**：硬阻断仅限文件名恰为 `.env`、`credentials*`、`token*`、`secret*`、`auth.*`、`*.pem/key/p12/pfx/jks`；本次 R4 用的文件名可能是 `env`/`test.env`，进了普通审批。需把文件名改为精确 `.env` 复测，并把 `*.env`、`*.env.*`、`*credential*`、`*secret*`、`*token*`、`*apikey*` 一并按凭据文件处理。
+- **B3（P1）"截断"不等于安全**：脱敏未命中时 artifact 仍保存本次读到的内容并可被 `artifact.read` 分段取回；工具文案"完整内容见 artifact"应改为"本次读取内容见 artifact"并说明同样经过 D11/脱敏。
+- **B4（P2，Stage 2 前处理）**：自动读取的日志含 Windows 用户名、启动参数回显、本机绝对路径、硬件指纹（显卡＋驱动、音频设备名、SDL 版本）；Stage 2 日志/诊断工具须按字段白名单投影，不整段送模型。
+- 用户复核勾选（边界、流程、UI 行为，不含脱敏覆盖）：写入 diff/备份/原子性/哈希与拒绝后字节不变、artifact 只含脱敏内容且本地原始存档不可读、D11 边界与严格模式、活动会话删除、真实 tool_calls 流程、无 MCP、会话锁定后工具不接受模型传入实例 id、grep key/敏感头为空。
+- 敏感值处理：测试 `config.toml` 含真实 `hypixel_api_key`，不要分享/上报；若曾离开本机，去 Hypixel 重置。
+
+**G1B 修复后须复测**：R1–R4、R6、R7（脱敏/凭据边界）。未测项怎么补：
+- W4/W5：`sha256` 不在 `.toml` 里，看写/读工具卡展开 JSON 的 `sha256`、`fileIdentityToken`、`bytesBefore/bytesAfter`，以及 `%LOCALAPPDATA%\WTFML\agent\backups\maintenance\<backupId>\meta.json`（`owner=agent`、`source=agent-session`、`sourceSessionId`、`sha256`、`originalPaths`），与 `Get-FileHash` 对比。
+- A1：先读 `big.txt` 拿 `modelArtifact` id，再让模型 `artifact.read` 带 `offset/length`，确认仍是脱敏内容。
+- P4：重启后打开有未完成审批的会话，旧审批不自动执行，提示"已作废，需重新请求"。
+- P5：提交阶段指"重新核对旧身份/哈希 → 写前备份 → 原子替换 → 写后回读"；小文件瞬间完成，主要靠自动化测试，人工可标 N/A。
+- 实例芯片：智能体页右上、模型下拉左边，文字"跟随主页：A / 已锁定：A / 已锁定：A（主页当前：B）"。
+
+**待网络环境复核（延后，未执行，不算通过）**：用本机 loopback 兼容服务（设置页勾"允许本地明文 HTTP"）返回 400/429/500/重定向/超时/断流，本地自签名 HTTPS 验证证书错误，真实 provider 只测 401/403 和断网（不为 429 刷额度），抓包确认 URL 不含 key、key 只在认证头（抓包文件不提交）。检查项：
+- [ ] 401/403：不自动重试，提示检查 key/权限，能跳设置；
+- [ ] 429：尊重 `Retry-After`（上限 60 秒），最多 2 次，显示等待；
+- [ ] 首字节前断网：重试 2 次后显示网络错误；
+- [ ] 流开始后断网：保留已收内容，标"已中断"，不自动重发；
+- [ ] 3xx 不跟随，key 不发到新 host；
+- [ ] TLS 证书错误直接失败，无"继续"；
+- [ ] 模型 API 遵循 Qt/系统代理；
+- [ ] 400 等显示供应商 JSON 的安全摘要，不只"HTTP 400"；
+- [ ] 错误卡片/日志/抓包无 API Key、Authorization 头、请求 body 原文。
+
+现有实现：错误分类 `Unauthorized`/`RateLimited`/`Quota`/`Network`/`Protocol`/`Cancelled`；401/403/配额不重试，首字节前网络/429/5xx 最多 2 次。
+
+## 未覆盖
+
+| 项 | 状态 |
+| --- | --- |
+| 真实微软账号/Azure 审核、正版全链 | 暂缓，需用户配合 |
+| 断电、设备物理损坏/断连、杀毒组合、所有 I/O 位置的故障笛卡尔积 | 不作发布 P0，未验 |
+| 物理慢盘上的大实例脚本（含阶段计时和外部终止） | 仅 128 MiB 规模在 USB HDD 跑过；1 GiB 在 NVMe |
+| 多显示器、读屏、减少动态效果、100%/125% 复杂场景、干净 Windows/GPU 矩阵 | 未验 |
+| 公网玩家加入服务端、所有整合包/加载器/模组组合 | 未验 |
+| `assoc-live`、`sevenzip-live`、`java-runtime-live`、网络错误矩阵 | 见上，待环境 |
+
+## 复现命令
+
+```powershell
+# 大实例升级（外部终止/恢复/重试；--payload-mb 1024 --files 6000 为 1 GiB 规模）
+python tools/acceptance_large_instance.py --verify-exe build/<dir>/tests/verify_instances.exe --qt-bin D:/Qt/Qt/6.10.1/mingw_64/bin `
+  --work-dir build/<新目录> --payload-mb 1024 --files 6000 --kill-stage publish --json-out build/<新目录>/large.json
+
+# P0：事务与权限（测试目录须全新；权限脚本只对自己新建目录加/移当前 SID 的 deny，不重置整张 ACL）
+python tools/acceptance_p0_transactions.py --exe <verify_instances.exe> --qt-bin <Qt bin> --work-dir build/<新目录>
+python tools/acceptance_p0_permissions.py  --exe <verify_instances.exe> --qt-bin <Qt bin> --work-dir build/<新目录>
+python tools/acceptance_p0_final.py        # 一次跑完整批，总预算默认 840 秒、上限 900 秒
+
+# 满盘：专用 256 MiB VHD 由用户手动在管理员 PowerShell 创建/卸载；脚本只在该卷（卷标 WTFML_P0_ONLY）制造满盘
+pwsh -NoProfile -File tools/prepare-p0-vhd.ps1 -Action Create   # 或 -Action Detach
+python tools/acceptance_p0_full_volume.py --exe <verify_instances.exe> --qt-bin <Qt bin> --timeout 240 [--mid-write-only | --zip-write-only]
+
+# 下载恢复、桌面 DPI、目录边界
+pwsh tools/acceptance_download_recovery.ps1 -Root <全新绝对目录>
+pwsh -NoProfile -File tools/acceptance_desktop.ps1 -Root build/<新目录>
+python tools/acceptance_directory_boundary.py --exe <WTFMinecraftLauncher.exe> --root build/<新目录> --qt-bin <Qt bin>
+```
+
+注意：不要对真实游戏目录执行权限重置；失败现场保留，不自动清理。VHD 卸载后只能用 `Mount-DiskImage -ImagePath <既有镜像>` 重新挂载，不能再次 Create。服务端验收工具与安全边界见 [tools/server_boundary/README.md](../../tools/server_boundary/README.md)。
