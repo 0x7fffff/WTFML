@@ -837,7 +837,7 @@ public:
     /// 「模组加载器」写全称而不是「加载器」：它只在模组那一页上出现（别的页没有这一栏），
     /// 说得全一点不占别处的地方。
     static QString downloadFilterVersionLabel() { return QStringLiteral("版本"); }
-    static QString downloadFilterLoaderLabel() { return QStringLiteral("模组加载器"); }
+    static QString downloadFilterLoaderLabel() { return QStringLiteral("加载器"); }
     static QString downloadFilterSourceLabel() { return QStringLiteral("来源"); }
     static QString downloadFilterTypeLabel() { return QStringLiteral("类型"); }
     /// 「搜索」那颗键上的字。
@@ -868,10 +868,10 @@ public:
     /// （模组页 644，别的页 454）—— 也就是说到了默认那个 900 px 宽的窗口上，这一行会被
     /// 右边界切掉一块（四个框各自的
     /// minimumSizeHint 就是它的 sizeHint，挤不下去）。
-    /// 96 是照着"四个框 + 四个标签 + 七道 8 px 间隙 ≤ 610（900 px 窗口下右栏的宽度）"
-    /// 反算的，留了三十来 px 余量。代价：框里那串字会被省略（「CurseForge」显示成
+    /// 88 是照着"900 px 窗口、轨折成 64 后下载页 ≤ 836"反算的（四组标签 + 框 + 间隙落在
+    /// 右栏里，整页最小宽约 826）。代价：框里那串字会被省略（「CurseForge」显示成
     /// 「CurseFor…」）—— 展开下拉框看得见全的，而这些框本来就是"点开挑一个"的东西。
-    static int downloadFilterComboMaxWidth() { return 96; }
+    static int downloadFilterComboMaxWidth() { return 88; }
     /// 整合包那一页那颗「导入整合包…」的 objectName。
     ///
     /// NOTE: 字和实例页那颗是**同一句**（`importModpackText()`，一个"导入整合包…"不该有
