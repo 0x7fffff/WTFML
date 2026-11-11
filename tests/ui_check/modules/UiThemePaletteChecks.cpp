@@ -704,8 +704,8 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             const QColor pressed = Theme::accentShade(Theme::AccentShade::Pressed);
 
             check(sameColor(pure, Theme::defaultAccentColor()) &&
-                      pure.name() == QLatin1String("#087a68"),
-                  "★★ W12 出厂主题色是沉稳的翡翠绿（#087a68，全仓只有一处写它）",
+                      pure.name() == QLatin1String("#457f70"),
+                  "★★ W12 出厂主题色是低饱和的青瓷（#457f70，全仓只有一处写它）",
                   pure.name());
             check(sameColor(Theme::partBackground(Theme::Part::TitleBar), Theme::tokens().deep),
                   "★★ W12 顶栏铺的是 `deep` 那一档（比主题色深一点，压着白墨）",

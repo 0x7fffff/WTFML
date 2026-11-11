@@ -1767,7 +1767,7 @@ public:
     ///
     /// 取值按"900 px 的窗口里中间那格大致能有多少"：左右两格（170 + 头像那格）和两头的
     /// 边距扣掉之后剩下的就是它，取 320 让长文件名一定截得住，同时短句不会被截。
-    static int bottomBarStatusTextWidth() { return 320; }
+    static int bottomBarStatusTextWidth() { return 140; }
 
     /// 底栏两颗按钮里**头像和文字之间的间距**（8）。
     static int bottomBarAccountRowSpacing() { return 8; }
@@ -2772,7 +2772,7 @@ public:
     ///
     /// NOTE: 每一栏**各自**限一次（三栏三张表单），因为它挂在 `form` 上而不是滚动区上 ——
     /// 滚动条仍然贴着正文面最右边那条线，只有表单收窄。
-    static int settingsFormMaxWidth() { return 960; }
+    static int settingsFormMaxWidth() { return 680; }
     /// 某一栏那一整页的 objectName（堆叠页里的一页 = 一层滚动区，见 cpp 里的
     /// addSettingsPanel()）。
     static QString settingsPanelName(const QString &key) {
@@ -3736,7 +3736,7 @@ private:
     void setupSettingsLookPanel(QStackedWidget *stack);
     void setupSettingsDownloadPanel(QStackedWidget *stack);
     /// 搭底部那条通栏状态条（左：实例运行状态，中：进度，右：头像/用户名）。
-    void setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout);
+    void setupBottomBar(QWidget *parent);
     /// 行尾那颗齿轮被点了：把菜单贴在那颗按钮上弹出来（或者**收回去** —— 已经弹着、
     /// 而且就是这一颗弹的时候，再点一下是收回，和底栏那两块面板一个路数）。
     void openFolderMenu(const FolderRow &row, QWidget *gear);

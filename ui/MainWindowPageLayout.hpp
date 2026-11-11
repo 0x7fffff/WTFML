@@ -37,7 +37,9 @@ inline constexpr int kBottomBarHeight = 62;
 /// 进度文字那格（"已下载 1234 / 3580 xxx.jar"）的宽度下限，免得**文件名一换整条就左右跳**。
 /// 它管的是底栏**中间那一格自己**的宽度，不是左右两格的 —— 左右那两格用的是
 /// MainWindowUI::bottomBarRunStateColumnWidth() / bottomBarAccountColumnWidth()。
-inline constexpr int kStatusLabelMinWidth = 260;
+inline constexpr int kStatusLabelMinWidth = 96;
+/// 设置页「标签 | 控件」那一行左边标签那一列的宽。
+inline constexpr int kSettingsLabelWidth = 148;
 
 /// 左下角头像的边长（正方形）。**值本身不在这里** —— 它和"主窗口拿什么尺寸去裁头像"
 /// 必须是同一个数，所以唯一的出处是 MainWindowUI::avatarSize()（见头文件）。

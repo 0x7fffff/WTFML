@@ -1,120 +1,44 @@
 /**
  * @file TitleBar.cpp
- * @brief TitleBar 的实现（条上那几样东西的摆法与画法）。
+ * @brief 左导航轨与窗口按钮条的摆法与画法。
  */
 
 #include "TitleBar.hpp"
 
 #include "Animations.hpp"
-#include "Glass.hpp"
-#include "Theme.hpp"   // 条底色（Theme::Part::TitleBar）、危险操作的红（Theme::dangerColor()）
+#include "Theme.hpp"
 #include "VersionIcons.hpp"
 
+#include <QApplication>
 #include <QEasingCurve>
 #include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QPaintEvent>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPalette>
+#include <QVBoxLayout>
 #include <QVariantAnimation>
 
 namespace {
 
-/// 条高（逻辑像素）。52 = 12 + 28 + 12，也就是"缩放边 + 按钮 + 缩放边"，
-/// 见 `TitleBar::buttonInset()` 那段 —— 条再矮就得把按钮压进缩放边里了。
-/// 上下两截留白各 12，按钮那一档 `kButtonSize` 是 28。
-/// 条高与按钮高之间那条恒等式 `H == 2 * inset() + buttonSize()` 照旧成立，而
-/// `inset()` 反过来又必须 ≥ `WindowChrome::resizeBorder()`（全仓那条缩放边不变式）。
-/// NOTE: `H - kButtonSize` **必须是偶数**（`inset()` 是整数除法，见那条恒等式）。
-constexpr int kTitleBarHeight = 52;
-/// 那几颗按钮的高（逻辑像素）。
+constexpr int kRailWidth = 196;
+constexpr int kRailPadding = 12;
+constexpr int kNavItemWidth = kRailWidth - 2 * kRailPadding;
+constexpr int kNavItemHeight = 40;
+constexpr int kNavSpacing = 4;
+constexpr int kNavFontPixels = 16;
+/// 品牌那一格的高：草方块 + 名字，也是一段拖窗区。
+constexpr int kHeaderHeight = 72;
+constexpr int kLogoSize = 18;
+/// 右上那条窗口按钮条：高 44 = 8 + 28 + 8，上下各留的 8 不小于上沿那圈缩放边。
+constexpr int kCaptionHeight = 44;
 constexpr int kButtonSize = 28;
-
-/// 条上那行名字比正文大多少（pt）。
-///
-/// 名字是 `paintEvent` 画的（不是 QLabel），字号取的就是面板默认字体，这里只加粗。
-/// 所以名字的放大只落在这个增量上，不在 Theme / QSS 里。
-constexpr qreal kBrandPointDelta = 2.0;
-/// 退回像素那一档时的增量（同上）。
-constexpr int kBrandPixelDelta = 3;
-
-/// 那四颗**导航**按钮上的字号比正文大多少（pt）。
-///
-/// 和名字那两个常量**分开两个旋钮**（值一样只是碰巧）：两者可以分开调，而且
-/// 名字那一颗是**加粗**的、同一号字看着本来就大一点。两个数的用法跟上面那两个一样
-/// （增量、不写死 pt、点数与像素各一条路），走同一个 `enlargedFont()`。
-///
-/// NOTE: 落在 `setNavItems()` 里 `setFont()` 到按钮上（**不是**画的时候临时算）——
-/// 于是"这一颗用的什么字"能直接问 `QAbstractButton::font()` 读回来，验证工程量的
-/// 就是它（画的时候临时改的话，字体没落在控件上，谁都读不到）。
-constexpr qreal kNavPointDelta = 2.0;
-/// 退回像素那一档时的增量（同上）。
-constexpr int kNavPixelDelta = 3;
-
-/// 84：最长的「智能体」加粗后两边仍各留 ~12 px，五颗之间的空当看上去一样宽（68 时「设置」和
-/// 「智能体」几乎贴在一起）。
-constexpr int kNavItemWidth = 84;
-/// 草方块那颗图标的边长。16 的倍数最清楚（见 `VersionIcons::grassBlock()` 的说明）。
-constexpr int kLogoSize = 16;
-/// 草方块离窗口左边缘多远。
-constexpr int kLeftPadding = 12;
-/// 草方块和名字之间空多少。
-constexpr int kLogoGap = 8;
-/// 名字和导航那一组之间**至少**空多少（画名字时的右边留白，见 `paintEvent`）。
-/// NOTE: 这一格**是量出来的**：名字那几个字母一长、"主页"就贴到它脸上（中间连一口气都
-/// 没有），所以这儿的留白比 kLogoGap 大一倍。
-constexpr int kBrandGap = 16;
-
-/// 最小化/关闭那两颗离窗口右边缘多远（逻辑像素）。
-/// 两颗**不顶到条的最右边**，留出这一格余量 —— 10 是"稍稍"：还不够一条
-/// 导航按钮的一半宽（`kNavItemWidth` 是 68），但肉眼一眼看得出来。
-/// NOTE: 这个数**不能自己单独改**，它和下面那个左边距是同一个方程的两头，见 kNavGroupLeftMargin。
-constexpr int kWindowButtonsRightMargin = 10;
-
-/// 导航那一组的**左边距**。
-///
-/// 这个数不是审美，是「四个按钮的正中 == 整条的正中」
-/// 的解法，也是**唯一**的调法。布局是
-///
-/// [这一格留白][stretchA][导航那一组][stretchB][最小化][关闭][右边距]
-///
-/// 两段 stretch 的因子都是 1 ⇒ 导航那一组的正中
-///
-/// = L + (W - L - R - B) / 2
-///
-/// （W = 条宽、L/R = 布局左右边距、B = 右边那两颗窗口按钮占的宽）。要它等于 W/2，
-/// 等价于
-///
-/// L - R = B
-///
-/// 而 B = 2 * buttonSize()、R = kWindowButtonsRightMargin
-/// ⇒ 左边距就**必须是** `2 * buttonSize() + kWindowButtonsRightMargin`。
-///
-/// **★ 左边距和右边距必须"两头一起动"**：单独加大 R 会让导航那一组整体往右偏
-/// R/2（10 就是 5 px），而屏幕上看着只是"四个字好像没居中"，没人查得出来。
-constexpr int kNavGroupLeftMargin = 2 * kButtonSize + kWindowButtonsRightMargin;
-/// 当前那一颗底下那条横线的高。
-constexpr int kCurrentMarkHeight = 2;
-/// 那条横线左右各缩进多少（贴着字的宽度不好看，缩一点像"这一格被标住了"）。
-constexpr int kCurrentMarkInset = 30;
-/// 顶栏的状态反馈要比整页转场更短：鼠标已经到按钮上时，120 ms 足够看见渐变又不会拖手。
+constexpr int kWindowButtonsRightMargin = 8;
+constexpr int kRadius = 10;
+constexpr int kIndicatorWidth = 3;
 constexpr int kHoverAnimationMs = 120;
-/// 当前页下划线略慢一拍，让它和 180 ms 的页面转场在同一时刻收住。
-constexpr int kCurrentAnimationMs = 180;
-/// 那两颗窗口按钮的字形边长。18 ⇒ `VersionIcons` 那套 22%~78% 的边距正好给出 10 px 的笔画跨度，
-/// 和系统那两颗按钮上的字形差不多大。
-constexpr int kGlyphSize = 18;
-
-/// 「比正文大一点」的**唯一**算法（名字那一行与四颗导航共用）。
-///
-/// 两档各走各的：点数是正常情况；`pointSizeF()` 为 −1 说明这份字体是按**像素**定义的，
-/// 那时候 `setPointSizeF()` 会被 Qt 静默忽略（字号一点不变、也不报错），得改 `setPixelSize()`。
-/// 用**增量**不写死 pt：面板字号跟着系统走，写死会把"比正文大一点"变成"在某些机器上比正文小"。
-QFont enlargedFont(const QFont &base, qreal pointDelta, int pixelDelta) {
-    Q_UNUSED(pointDelta);
-    Q_UNUSED(pixelDelta);
-    return Theme::textFont(base, Theme::TextRole::Heading);
-}
+constexpr int kSlideAnimationMs = 180;
 
 QColor blendedColor(const QColor &from, const QColor &to, qreal progress) {
     const qreal t = qBound(0.0, progress, 1.0);
@@ -124,79 +48,120 @@ QColor blendedColor(const QColor &from, const QColor &to, qreal progress) {
                             from.alphaF() + (to.alphaF() - from.alphaF()) * t);
 }
 
-// 条的颜色统一问 `Theme::Part::TitleBar`（窗口底色压暗一档，`darker(105)`，和底栏
-// 同一档）—— 只有那一层才知道"用户把标题栏单独改过了没有"，算两遍的话覆盖项只会
-// 在一半地方生效。条上每一处颜色都问
-// `Theme::partBackground(Part::TitleBar)`，**别在这儿再写一遍那个 darker(105)**。
+QColor withAlpha(QColor c, int alpha) {
+    c.setAlpha(alpha);
+    return c;
+}
+
+TitleBarButton::NavIcon iconForLabel(const QString &label) {
+    if (label == QStringLiteral("主页")) return TitleBarButton::NavIcon::Home;
+    if (label == QStringLiteral("管理")) return TitleBarButton::NavIcon::Instances;
+    if (label == QStringLiteral("下载")) return TitleBarButton::NavIcon::Download;
+    if (label == QStringLiteral("设置")) return TitleBarButton::NavIcon::Settings;
+    if (label == QStringLiteral("智能体")) return TitleBarButton::NavIcon::Agent;
+    return TitleBarButton::NavIcon::None;
+}
+
+/// 18 × 18 的细线条图标，`box` 是它占的那一格。
+void drawNavIcon(QPainter &p, TitleBarButton::NavIcon icon, const QRectF &box, const QColor &ink) {
+    p.save();
+    p.translate(box.topLeft());
+    p.scale(box.width() / 18.0, box.height() / 18.0);
+    p.setPen(QPen(ink, 1.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.setBrush(Qt::NoBrush);
+    QPainterPath path;
+    switch (icon) {
+    case TitleBarButton::NavIcon::Home:
+        path.moveTo(2.5, 8.5);
+        path.lineTo(9, 3);
+        path.lineTo(15.5, 8.5);
+        path.moveTo(4.5, 7.2);
+        path.lineTo(4.5, 15);
+        path.lineTo(13.5, 15);
+        path.lineTo(13.5, 7.2);
+        path.moveTo(7.6, 15);
+        path.lineTo(7.6, 11);
+        path.lineTo(10.4, 11);
+        path.lineTo(10.4, 15);
+        break;
+    case TitleBarButton::NavIcon::Instances:
+        path.addRoundedRect(QRectF(3, 3, 5, 5), 1.4, 1.4);
+        path.addRoundedRect(QRectF(10, 3, 5, 5), 1.4, 1.4);
+        path.addRoundedRect(QRectF(3, 10, 5, 5), 1.4, 1.4);
+        path.addRoundedRect(QRectF(10, 10, 5, 5), 1.4, 1.4);
+        break;
+    case TitleBarButton::NavIcon::Download:
+        path.moveTo(9, 2.8);
+        path.lineTo(9, 11);
+        path.moveTo(5.6, 7.8);
+        path.lineTo(9, 11.2);
+        path.lineTo(12.4, 7.8);
+        path.moveTo(3, 12.2);
+        path.lineTo(3, 15);
+        path.lineTo(15, 15);
+        path.lineTo(15, 12.2);
+        break;
+    case TitleBarButton::NavIcon::Settings:
+        for (const auto &[y, knob] : {std::pair{4.5, 11.5}, std::pair{9.0, 6.0}, std::pair{13.5, 12.5}}) {
+            path.moveTo(3, y);
+            path.lineTo(knob - 1.8, y);
+            path.moveTo(knob + 1.8, y);
+            path.lineTo(15, y);
+            path.addEllipse(QPointF(knob, y), 1.8, 1.8);
+        }
+        break;
+    case TitleBarButton::NavIcon::Agent:
+        path.moveTo(8, 2.5);
+        path.quadTo(8.6, 7.4, 13.5, 8);
+        path.quadTo(8.6, 8.6, 8, 13.5);
+        path.quadTo(7.4, 8.6, 2.5, 8);
+        path.quadTo(7.4, 7.4, 8, 2.5);
+        path.moveTo(13.5, 12);
+        path.lineTo(13.5, 15.5);
+        path.moveTo(11.75, 13.75);
+        path.lineTo(15.25, 13.75);
+        break;
+    case TitleBarButton::NavIcon::None:
+        path.addEllipse(QPointF(9, 9), 2, 2);
+        break;
+    }
+    p.drawPath(path);
+    p.restore();
+}
 
 }  // namespace
 
-QString TitleBar::defaultBrandText() {
-    // 顶上那行名字默认就是这五个字母，**写死**（要改成别的走设置页「个性化」栏的
-    // 「外观」，见 `setBrandText()`）。
-    return QStringLiteral("WTFML");
-}
-
-int TitleBar::barHeight() {
-    return kTitleBarHeight;
-}
-
-int TitleBar::buttonSize() {
-    return kButtonSize;
-}
-
-int TitleBar::buttonInset() {
-    return (kTitleBarHeight - kButtonSize) / 2;
-}
-
-int TitleBar::navItemWidth() {
-    return kNavItemWidth;
-}
-
-qreal TitleBar::navFontPointDelta() {
-    return kNavPointDelta;
-}
-
-int TitleBar::navFontPixelDelta() {
-    return kNavPixelDelta;
-}
-
-int TitleBar::windowButtonsRightMargin() {
-    return kWindowButtonsRightMargin;
-}
+QString TitleBar::defaultBrandText() { return QStringLiteral("WTFML"); }
+int TitleBar::railWidth() { return kRailWidth; }
+int TitleBar::barHeight() { return kCaptionHeight; }
+int TitleBar::buttonSize() { return kButtonSize; }
+int TitleBar::buttonInset() { return (kCaptionHeight - kButtonSize) / 2; }
+int TitleBar::navItemWidth() { return kNavItemWidth; }
+int TitleBar::navItemHeight() { return kNavItemHeight; }
+int TitleBar::navFontPixelSize() { return kNavFontPixels; }
+int TitleBar::windowButtonsRightMargin() { return kWindowButtonsRightMargin; }
 
 TitleBarButton::TitleBarButton(Glyph glyph, const QColor &hoverColor, const QColor &hoverInk, QWidget *parent)
-    : QAbstractButton(parent),
-      m_glyph(glyph),
-      m_hoverColor(hoverColor),
-      m_hoverInk(hoverInk) {
+    : QAbstractButton(parent), m_glyph(glyph), m_hoverColor(hoverColor), m_hoverInk(hoverInk) {
     m_ink = palette().color(QPalette::WindowText);
     setFixedSize(kButtonSize, kButtonSize);
-    // 悬停那一位**默认没人填**：Qt 不会自己产生 HoverEnter/HoverLeave，得自己开。
-    // WA_Hover 让它产生那两个事件，mouseTracking 让"没按着鼠标在动"也算数 ——
-    // #### 两条缺一不可（少哪条都是"悬停色再也不出现"，而这件事从代码上看不出来）。
+    // Qt 不会自己产生 HoverEnter/HoverLeave：WA_Hover + mouseTracking 两条缺一不可。
     setAttribute(Qt::WA_Hover, true);
     setMouseTracking(true);
-    // 进了条上的按钮不该把键盘焦点从内容区抢走（条上没有可以用键盘操作的东西）。
     setFocusPolicy(Qt::NoFocus);
-
+    setCursor(Qt::PointingHandCursor);
     m_hoverAnimation = new QVariantAnimation(this);
     m_hoverAnimation->setDuration(kHoverAnimationMs);
     m_hoverAnimation->setEasingCurve(QEasingCurve::OutCubic);
-    connect(m_hoverAnimation, &QVariantAnimation::valueChanged, this,
-            [this](const QVariant &value) {
-                m_hoverProgress = value.toReal();
-                update();
-            });
+    connect(m_hoverAnimation, &QVariantAnimation::valueChanged, this, [this](const QVariant &value) {
+        m_hoverProgress = value.toReal();
+        update();
+    });
+}
 
-    m_currentAnimation = new QVariantAnimation(this);
-    m_currentAnimation->setDuration(kCurrentAnimationMs);
-    m_currentAnimation->setEasingCurve(QEasingCurve::OutCubic);
-    connect(m_currentAnimation, &QVariantAnimation::valueChanged, this,
-            [this](const QVariant &value) {
-                m_currentProgress = value.toReal();
-                update();
-            });
+void TitleBarButton::setNavIcon(NavIcon icon) {
+    m_icon = icon;
+    update();
 }
 
 void TitleBarButton::setBaseColor(const QColor &color) {
@@ -216,50 +181,24 @@ void TitleBarButton::setInkColor(const QColor &color) {
 }
 
 void TitleBarButton::setCurrent(bool current) {
-    if (m_current == current) {
-        return;
-    }
+    if (m_current == current) return;
     m_current = current;
-    const qreal target = current ? 1.0 : 0.0;
-    m_currentAnimation->stop();
-    if (!Anim::enabled() || !isVisible()) {
-        m_currentProgress = target;
-        update();
-        return;
-    }
-    m_currentAnimation->setStartValue(m_currentProgress);
-    m_currentAnimation->setEndValue(target);
-    m_currentAnimation->start();
+    update();
 }
 
 bool TitleBarButton::event(QEvent *event) {
-    switch (event->type()) {
-    case QEvent::HoverEnter:
-        m_hovered = true;
+    const bool enter = event->type() == QEvent::HoverEnter;
+    if (enter || event->type() == QEvent::HoverLeave) {
+        m_hovered = enter;
         m_hoverAnimation->stop();
         if (!Anim::enabled()) {
-            m_hoverProgress = 1.0;
+            m_hoverProgress = enter ? 1.0 : 0.0;
             update();
         } else {
             m_hoverAnimation->setStartValue(m_hoverProgress);
-            m_hoverAnimation->setEndValue(1.0);
+            m_hoverAnimation->setEndValue(enter ? 1.0 : 0.0);
             m_hoverAnimation->start();
         }
-        break;
-    case QEvent::HoverLeave:
-        m_hovered = false;
-        m_hoverAnimation->stop();
-        if (!Anim::enabled()) {
-            m_hoverProgress = 0.0;
-            update();
-        } else {
-            m_hoverAnimation->setStartValue(m_hoverProgress);
-            m_hoverAnimation->setEndValue(0.0);
-            m_hoverAnimation->start();
-        }
-        break;
-    default:
-        break;
     }
     return QAbstractButton::event(event);
 }
@@ -267,41 +206,27 @@ bool TitleBarButton::event(QEvent *event) {
 void TitleBarButton::paintEvent(QPaintEvent *) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, true);
-    // 底：不悬停时一般是全透（条自己的底色透上来），悬停时铺那一格色。
-    const QColor base = blendedColor(m_baseColor, m_hoverColor, m_hoverProgress);
+    // 当前那颗的底由轨自己画（会滑），这里只画悬停那层更淡的底。
+    const QColor base = blendedColor(m_baseColor, m_current ? QColor(Qt::transparent) : m_hoverColor, m_hoverProgress);
     if (base.alpha() > 0) {
-        if (m_glyph == Glyph::Text && Glass::enabled()) {
-            // 玻璃上：悬停和当前页那颗胶囊同一个形状。
-            p.setPen(Qt::NoPen);
-            p.setBrush(base);
-            p.drawRoundedRect(QRectF(rect()).adjusted(4, 0, -4, 0), height() / 2.0, height() / 2.0);
-        } else {
-            p.fillRect(rect(), base);
-        }
+        p.setPen(Qt::NoPen);
+        p.setBrush(base);
+        p.drawRoundedRect(QRectF(rect()), kRadius, kRadius);
     }
-    const QColor ink = blendedColor(m_ink, m_hoverInk, m_hoverProgress);
+    const QColor ink = m_current ? m_ink : blendedColor(m_ink, m_hoverInk, m_hoverProgress);
     if (m_glyph == Glyph::Text) {
-        // 导航按钮：一行字 + （当前那一颗）底下一条横线。
-        QFont labelFont = font();
-        labelFont.setBold(m_current);
-        p.setFont(labelFont);
+        const qreal iconSize = 18;
+        const QRectF iconBox(14, (height() - iconSize) / 2.0, iconSize, iconSize);
+        drawNavIcon(p, m_icon, iconBox, ink);
+        p.setFont(font());
         p.setPen(ink);
-        p.drawText(rect(), Qt::AlignCenter, text());
-        const int fullMarkWidth = qMax(0, width() - 2 * kCurrentMarkInset);
-        const int markWidth = qRound(fullMarkWidth * m_currentProgress);
-        if (markWidth > 0) {
-            QColor markInk = ink;
-            markInk.setAlphaF(markInk.alphaF() * m_currentProgress);
-            p.fillRect(QRect((width() - markWidth) / 2, height() - kCurrentMarkHeight,
-                             markWidth, kCurrentMarkHeight), markInk);
-        }
+        p.drawText(QRect(int(iconBox.right()) + 12, 0, width() - int(iconBox.right()) - 16, height()),
+                   Qt::AlignVCenter | Qt::AlignLeft, text());
         return;
     }
     const QPointF center(width() / 2.0, height() / 2.0);
-    p.setPen(QPen(ink, 2.0, Qt::SolidLine, Qt::RoundCap));
+    p.setPen(QPen(ink, 1.3, Qt::SolidLine, Qt::RoundCap));
     if (m_glyph == Glyph::Close) {
-        // Paint at the widget's actual device scale instead of enlarging an
-        // 18 px raster icon at 125%/150% display scaling.
         constexpr qreal halfSpan = 4.5;
         p.drawLine(center + QPointF(-halfSpan, -halfSpan), center + QPointF(halfSpan, halfSpan));
         p.drawLine(center + QPointF(halfSpan, -halfSpan), center + QPointF(-halfSpan, halfSpan));
@@ -312,128 +237,78 @@ void TitleBarButton::paintEvent(QPaintEvent *) {
 
 TitleBar::TitleBar(QWidget *parent) : QWidget(parent) {
     setObjectName(QStringLiteral("titleBar"));
-    setFixedHeight(kTitleBarHeight);
-    // 底色：磨砂开着是一条主题色玻璃（Glass 画），关着照旧铺条底色（见 `applyColors()`）。
-    Glass::mark(this, Glass::Kind::Chrome);
+    setFixedWidth(kRailWidth);
+    setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     m_pillAnimation = new QVariantAnimation(this);
-    m_pillAnimation->setDuration(kCurrentAnimationMs);
+    m_pillAnimation->setDuration(kSlideAnimationMs);
     m_pillAnimation->setEasingCurve(QEasingCurve::OutCubic);
     connect(m_pillAnimation, &QVariantAnimation::valueChanged, this, [this](const QVariant &value) {
         m_pillProgress = value.toReal();
         update();
     });
 
-    // 悬停底色：最小化那颗是条底色再压暗一档（"有个东西在里头"就够了），
-    // 关闭那颗是**红底白叉** —— 那个红取自 Theme::dangerColor()，全仓只有这一个出处。
-    // NOTE: 这一带**只负责把按钮建出来**，颜色一律由下面的 `applyColors()` 给（含这四个
-    // 色，它们都是"条底色/调色板算出来的"）—— 在这儿现算现传的话，主题一换
-    // 它们就停在旧色上，见 `applyColors()` 那段。
-    m_minimize = new TitleBarButton(TitleBarButton::Glyph::Minimize, QColor(), QColor(), this);
+    // 右上那条：透明，只有两颗窗口按钮（调用方把它摆进右栏顶上）。
+    m_caption = new QWidget(this);
+    m_caption->setObjectName(QStringLiteral("titleBarCaption"));
+    m_caption->setFixedHeight(kCaptionHeight);
+    auto *captionLayout = new QHBoxLayout(m_caption);
+    captionLayout->setContentsMargins(0, 0, kWindowButtonsRightMargin, 0);
+    captionLayout->setSpacing(4);
+    captionLayout->addStretch(1);
+    m_minimize = new TitleBarButton(TitleBarButton::Glyph::Minimize, QColor(), QColor(), m_caption);
     m_minimize->setObjectName(QStringLiteral("titleBarMinimize"));
-    m_close = new TitleBarButton(TitleBarButton::Glyph::Close, QColor(), QColor(), this);
+    m_close = new TitleBarButton(TitleBarButton::Glyph::Close, QColor(), QColor(), m_caption);
     m_close->setObjectName(QStringLiteral("titleBarClose"));
-
-    // 条上的子控件**只有按钮**（四颗导航 + 最小化 + 关闭）。**这不是随手摆的**：
-    // `WindowChrome::handleNativeEvent()` 判"这一手是不是落在控件上"用的就是
-    // `strip->childAt()`，多一个子控件（哪怕是个铺满的空白 label）就会把拖窗区从它底下
-    // 抢走。草方块、名字、以及导航组左右那两片空白都是 paintEvent 画的。
-    m_layout = new QHBoxLayout(this);
-    // 左边那一段留白就是"居中"的全部秘密（推导见 kNavGroupLeftMargin）—— 它和名字有多宽
-    // **没关系**：名字画在条的左头（paintEvent），导航那一组自己居中，两边互不干扰。
-    // 右边那一格是那两颗窗口按钮的右边距；它和左边距是一对、必须
-    // 一起动，理由写在 kNavGroupLeftMargin 那段。
-    m_layout->setContentsMargins(kNavGroupLeftMargin, 0, kWindowButtonsRightMargin, 0);
-    m_layout->setSpacing(0);
-    // 导航那一组**自己一层布局**，夹在两段等长 stretch 中间 ⇒ 它就是条的中正。
-    // NOTE: 为什么不是把四颗按钮直接 addWidget 到主布局里：主布局上还挂着右边那两颗窗口
-    // 按钮，往中间插控件要按下标算，而"一共几颗导航"是 setupUi 灌进来的
-    // （0 到 4 颗都合法，见 setNavItems）。独立一层之后 setNavItems() 只管这一层。
-    m_navLayout = new QHBoxLayout;
-    m_navLayout->setContentsMargins(0, 0, 0, 0);
-    m_navLayout->setSpacing(0);
-    m_layout->addStretch(1);
-    m_layout->addLayout(m_navLayout);
-    // 这一段 stretch 顶在"最后一颗导航按钮"和"最小化"之间 —— 拖窗区就是它和左边那一段。
-    m_layout->addStretch(1);
-    // 显式 AlignVCenter：靠尺寸策略去居中是在赌 QBoxLayout 对 Fixed 那一档的摆法。
-    m_layout->addWidget(m_minimize, 0, Qt::AlignVCenter);
-    m_layout->addWidget(m_close, 0, Qt::AlignVCenter);
-
+    captionLayout->addWidget(m_minimize, 0, Qt::AlignVCenter);
+    captionLayout->addWidget(m_close, 0, Qt::AlignVCenter);
     connect(m_minimize, &QAbstractButton::clicked, this, &TitleBar::minimizeRequested);
     connect(m_close, &QAbstractButton::clicked, this, &TitleBar::closeRequested);
 
-    // 条上所有颜色现在算一遍（构造这一刻四颗导航还没有，`setNavItems()` 会再来一遍）。
+    m_layout = new QVBoxLayout(this);
+    m_layout->setContentsMargins(kRailPadding, kHeaderHeight, kRailPadding, kRailPadding);
+    m_layout->setSpacing(0);
+    m_navLayout = new QVBoxLayout;
+    m_navLayout->setContentsMargins(0, 0, 0, 0);
+    m_navLayout->setSpacing(kNavSpacing);
+    m_layout->addLayout(m_navLayout);
+    m_layout->addStretch(1);
     applyColors();
 }
 
-void TitleBar::applyColors() {
-    // 防自咬：下面那句 `setPalette()` 会发一次 `PaletteChange`，而我们就挂在那个事件上
-    // （`changeEvent()`）—— 不拦的话就是"改 → 收到 → 再改"。见 `Theme::follow()` 的 NOTE。
-    if (m_applyingColors) {
-        return;
+void TitleBar::setFooter(QWidget *footer) {
+    if (m_footer != nullptr) {
+        m_layout->removeWidget(m_footer);
+        m_footer->deleteLater();
     }
+    m_footer = footer;
+    if (footer != nullptr) m_layout->addWidget(footer);
+}
+
+void TitleBar::applyColors() {
+    if (m_applyingColors) return;
     m_applyingColors = true;
-
-    // 条底色：用户单独改过就是那个，没改过 = 窗口底色压暗一档。
-    const QColor chrome = Theme::partBackground(Theme::Part::TitleBar);
-    // 基色调色板一律取**应用那一份**，不能取 `palette()`：条自己持有一份（下面就把 Window
-    // 改成了 chrome），第二次进来 `palette().color(Window)` 已经是压暗过一档的那个，
-    // 再算就是**第二次压暗** —— 最小化那颗的悬停色会比它该有的深两档。
-    QPalette barPalette = QApplication::palette();
-    barPalette.setColor(QPalette::Window, chrome);
-    // 条上那一份"正文色"也一起定下来：条上的字（`paintEvent` 那行品牌名）是拿
-    // `palette().color(WindowText)` 画的，而条自己的底现在是**主题色那一支绿** ——
-    // 不给它一个绿底上读得出来的墨色，那五个字母就还是调色板里的深灰、糊在绿里。
-    // 子控件（那六颗按钮）的颜色不走这儿（它们各自 `setInkColor()`，见下）。
-    const QColor strong = Theme::partForeground(Theme::Part::TitleBar,
-                                               barPalette.color(QPalette::WindowText));
-    barPalette.setColor(QPalette::WindowText, strong);
-    setPalette(barPalette);
-    setAutoFillBackground(!Glass::enabled());
-
-    // 次要墨色（不是当前那一颗导航写的那个色）：
-    // - 条是主题色那一支（白墨）时 = **白墨压到 68%**。这一档不能取调色板里那个次要灰：
-    // 灰的压在白绿条上就是"两个字糊在一起"（界面上看着像没渲染完）。
-    // - 其余情形（用户把条单独改成深色底）照旧用调色板那个次要色。
-    // NOTE: 判据取的是"这一块的出厂字色是不是白墨"（`partLightInk()`），不是"底色深不深"
-    // —— 这一档要的就是白墨，而这一支绿的明度并不低（拿明度判会给回深色）。
-    const QColor strongFallback =
-        Theme::partLightInk(Theme::Part::TitleBar)
-            ? QColor(0xff, 0xff, 0xff, 0xad)
-            : barPalette.color(QPalette::PlaceholderText);
-    const QColor muted = Theme::partForeground(Theme::Part::TitleBar, strongFallback);
-    // 玻璃上的悬停是一层淡墨（不透明的压暗色块贴在半透明的条上像一块补丁）。
-    QColor glassHover = strong;
-    glassHover.setAlpha(28);
-    const QColor hover = Glass::enabled() ? glassHover : chrome.darker(115);
+    const Theme::Tokens t = Theme::tokens();
+    QPalette railPalette = QApplication::palette();
+    railPalette.setColor(QPalette::WindowText, t.text);
+    setPalette(railPalette);
+    setAutoFillBackground(false);
+    const QColor hover = withAlpha(t.text, t.page.lightness() < 128 ? 14 : 12);
     if (auto *button = qobject_cast<TitleBarButton *>(m_minimize)) {
-        button->setHoverColors(hover, strong);
-        button->setInkColor(strong);
+        button->setHoverColors(hover, t.text);
+        button->setInkColor(t.secondary);
     }
     if (auto *button = qobject_cast<TitleBarButton *>(m_close)) {
-        // 两态两套色，别把悬停那一套当成常驻的：
-        // 不悬停 = **条上那几笔正文色**（和旁边那颗最小化同一个墨色，所以它平时就是条上
-        // 一个普通记号）；
-        // 悬停 = 红底 + 白叉，那个红是全仓唯一一处"危险操作的红"，白叉**只在红底上**成立
-        // （底色上除了白没有别的能读的颜色）。
-        // `setHoverColors()` 给的是悬停那一套、`setInkColor()` 给的是平时那一套 —— 两样
-        // 不能都写成白的，否则不悬停时那颗叉也是白的。
-        // **故意不走 `partForeground()` 的是红底那一半**：那是"这一块的字色"，而红底上的
-        // 墨色不是"条上的字"。平时那一半照走。
-        button->setHoverColors(Theme::dangerColor(barPalette), QColor(Qt::white));
-        button->setInkColor(strong);
+        button->setHoverColors(Theme::dangerColor(railPalette), QColor(Qt::white));
+        button->setInkColor(t.secondary);
     }
     for (int i = 0; i < m_navButtons.size(); ++i) {
         if (auto *button = qobject_cast<TitleBarButton *>(m_navButtons.at(i))) {
-            button->setHoverColors(hover, strong);
-            // 当前那一颗是正文色、其余几颗是次要色；**当前那一颗还加粗、底下还有一条横线**
-            // （见 `TitleBarButton::paintEvent`）—— 所以哪怕用户把这一块的前景覆盖成一个色，
-            // "现在是第几页"照样读得出来。
-            button->setInkColor(i == m_currentNav ? strong : muted);
+            button->setHoverColors(hover, t.text);
+            button->setInkColor(i == m_currentNav ? t.focus : t.secondary);
         }
     }
-
     m_applyingColors = false;
+    update();
 }
 
 void TitleBar::changeEvent(QEvent *event) {
@@ -441,7 +316,6 @@ void TitleBar::changeEvent(QEvent *event) {
     case QEvent::PaletteChange:
     case QEvent::ApplicationPaletteChange:
     case QEvent::StyleChange:
-        // 调色板换了（换主题、系统换深浅、父窗口换样式）⇒ 条上存的那些颜色重算一遍。
         applyColors();
         break;
     default:
@@ -452,57 +326,46 @@ void TitleBar::changeEvent(QEvent *event) {
 
 void TitleBar::setNavItems(const QStringList &labels) {
     for (QAbstractButton *button : m_navButtons) {
-        // 先摘出布局再删：留在布局里的控件被 deleteLater 之后，那一格会空到下一次
-        // 布局重算，中间那一下量出来的几何是没有这几颗按钮的。
         m_navLayout->removeWidget(button);
         button->setParent(nullptr);
         button->deleteLater();
     }
     m_navButtons.clear();
     m_currentNav = -1;
-
+    QFont navFont = Theme::handFont(font(), Theme::HandFont::Kai);
+    navFont.setPixelSize(kNavFontPixels);
     for (int i = 0; i < labels.size(); ++i) {
-        // 颜色同样交给 `applyColors()`（含悬停色）—— 在这儿现算现传的话，主题换了
-        // 它们就停在旧色上。
         auto *button = new TitleBarButton(TitleBarButton::Glyph::Text, QColor(), QColor(), this);
         button->setObjectName(QStringLiteral("titleBarNav%1").arg(i));
         button->setLabel(labels.at(i));
-        button->setFont(enlargedFont(font(), kNavPointDelta, kNavPixelDelta));
-        button->setFixedSize(kNavItemWidth, kButtonSize);
+        button->setNavIcon(iconForLabel(labels.at(i)));
+        button->setFont(navFont);
+        button->setFixedSize(kNavItemWidth, kNavItemHeight);
+        button->setAccessibleName(labels.at(i));
         m_navButtons.append(button);
-        // 从左到右挨着摆在那一层自己的布局里（那一层被两段等长 stretch 夹在条的中正）。
-        // 显式 AlignVCenter：这一层的**高**是整条（52），按钮只有 28 —— 不写对齐就是
-        // 赌 QBoxLayout 对 Fixed 那一档的摆法（constructor 里那颗窗口按钮同一个道理）。
-        m_navLayout->addWidget(button, 0, Qt::AlignVCenter);
+        m_navLayout->addWidget(button);
         connect(button, &QAbstractButton::clicked, this, [this, i]() { emit navRequested(i); });
     }
-    // 这一批新按钮的颜色（`m_currentNav` 刚被清成 -1 ⇒ 四颗一律次要色；要留下来的是
-    // `setCurrentNav()` 那一次重设）。
     applyColors();
 }
 
 void TitleBar::setCurrentNav(int index) {
     const int previous = m_currentNav;
     m_currentNav = (index >= 0 && index < m_navButtons.size()) ? index : -1;
-    // 胶囊从上一颗滑到这一颗；没有上一颗、动效关着、条还没显示出来时直接落位。
     m_pillAnimation->stop();
     if (previous >= 0 && previous != m_currentNav && Anim::enabled() && isVisible()) {
         m_pillFrom = previous;
+        m_pillProgress = 0.0;
         m_pillAnimation->setStartValue(0.0);
         m_pillAnimation->setEndValue(1.0);
-        m_pillProgress = 0.0;
         m_pillAnimation->start();
     } else {
         m_pillFrom = -1;
         m_pillProgress = 1.0;
-        update();
     }
     for (int i = 0; i < m_navButtons.size(); ++i) {
-        if (auto *button = qobject_cast<TitleBarButton *>(m_navButtons.at(i))) {
-            button->setCurrent(i == m_currentNav);
-        }
+        if (auto *button = qobject_cast<TitleBarButton *>(m_navButtons.at(i))) button->setCurrent(i == m_currentNav);
     }
-    // 墨色（正文 / 次要）跟 `m_currentNav` 一起重算。
     applyColors();
 }
 
@@ -512,69 +375,46 @@ QAbstractButton *TitleBar::navButton(int index) const {
 
 void TitleBar::setBrandText(const QString &text) {
     const QString trimmed = text.trimmed();
-    if (m_brand == trimmed) {
-        return;
-    }
+    if (m_brand == trimmed) return;
     m_brand = trimmed;
-    // 位置不用重算：名字那一段地方是**画出来**的（左留白不跟着它变，见 constructor），
-    // 所以这里只有"重画一次"。
     update();
 }
 
-QString TitleBar::titleText() const {
-    // 空 = 没换过（也含"用户把框清空了"）⇒ 回默认那五个字母。
-    return m_brand.isEmpty() ? defaultBrandText() : m_brand;
-}
+QString TitleBar::titleText() const { return m_brand.isEmpty() ? defaultBrandText() : m_brand; }
 
 void TitleBar::paintEvent(QPaintEvent *) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, true);
+    const Theme::Tokens t = Theme::tokens();
 
-    // 当前页那颗胶囊（垫在导航按钮底下，按钮自己透明）：白墨压到一成多，滑动见 setCurrentNav()。
+    // 选中那一格：淡主题色底 + 左边一根指示条，从上一颗滑过来。
     if (QAbstractButton *to = navButton(m_currentNav)) {
         QRectF rect = to->geometry();
         if (QAbstractButton *from = navButton(m_pillFrom); from != nullptr && m_pillProgress < 1.0) {
             const QRectF a = from->geometry();
-            rect.moveLeft(a.left() + (rect.left() - a.left()) * m_pillProgress);
+            rect.moveTop(a.top() + (rect.top() - a.top()) * m_pillProgress);
         }
-        QColor pill = palette().color(QPalette::WindowText);
-        pill.setAlpha(Theme::isDark() ? 30 : 46);
         p.setPen(Qt::NoPen);
-        p.setBrush(pill);
-        p.drawRoundedRect(rect.adjusted(4, 0, -4, 0), rect.height() / 2, rect.height() / 2);
+        p.setBrush(withAlpha(t.focus, t.page.lightness() < 128 ? 34 : 30));
+        p.drawRoundedRect(rect, kRadius, kRadius);
+        p.setBrush(t.focus);
+        const qreal barHeight = rect.height() * 0.44;
+        p.drawRoundedRect(QRectF(rect.left() + 2, rect.center().y() - barHeight / 2, kIndicatorWidth, barHeight),
+                          kIndicatorWidth / 2.0, kIndicatorWidth / 2.0);
     }
 
-    p.drawPixmap(QPoint(kLeftPadding, (height() - kLogoSize) / 2), VersionIcons::grassBlock(kLogoSize));
-
+    // 品牌：草方块 + 名字（西文手写体）。
+    const int brandY = 22;
+    const int logoX = kRailPadding + 10;
+    p.drawPixmap(QPoint(logoX, brandY + 4), VersionIcons::grassBlock(kLogoSize));
     const QString brand = titleText();
-    if (brand.isEmpty()) {
-        return;
-    }
-    // 右边到哪儿为止：**第一颗导航按钮**的左边缘（不是最小化那颗 —— 那一段是拖窗区）。
-    // 导航那一组居中之后名字能用的地方长了，但一样要有个头：名字是用户自己填的
-    // （最长 MainWindowUI::titleTextMaxLength()），撞上导航组就省略号截掉。
-    // 布局摆完之后 x() 才是准的；一颗导航都没有时退到最小化那颗，再退到整条。
-    int right = width();
-    if (m_navButtons.isEmpty()) {
-        right = m_minimize != nullptr && m_minimize->x() > 0 ? m_minimize->x() : width();
-    } else if (m_navButtons.first()->x() > 0) {
-        right = m_navButtons.first()->x();
-    }
-    const int left = kLeftPadding + kLogoSize + kLogoGap;
-    const QRect textRect(left, 0, qMax(0, right - kBrandGap - left), height());
-    if (textRect.width() <= 0) {
-        return;
-    }
-    // 放大这一档的唯一出处是 `kBrandPointDelta` /
-    // `kBrandPixelDelta` 加下面那个 `enlargedFont()`（两档各自的理由都在它头上）。
-    QFont titleFont = enlargedFont(font(), kBrandPointDelta, kBrandPixelDelta);
-    titleFont.setBold(true);
-    // 名字走标题衬线体（Cormorant）：比导航大两号、字距放开一点，像一个落款。
-    titleFont.setPixelSize(titleFont.pixelSize() + 4);
-    titleFont.setLetterSpacing(QFont::AbsoluteSpacing, 1.2);
-    p.setFont(titleFont);
-    p.setPen(palette().color(QPalette::WindowText));
-    const QFontMetrics metrics(titleFont);
+    if (brand.isEmpty()) return;
+    QFont brandFont = Theme::handFont(font(), Theme::HandFont::Script);
+    brandFont.setPixelSize(28);
+    p.setFont(brandFont);
+    p.setPen(t.text);
+    const int left = logoX + kLogoSize + 10;
+    const QRect textRect(left, brandY - 6, width() - left - kRailPadding, 38);
     p.drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft,
-               metrics.elidedText(brand, Qt::ElideRight, textRect.width()));
+               QFontMetrics(brandFont).elidedText(brand, Qt::ElideRight, textRect.width()));
 }

@@ -47,35 +47,38 @@ Tokens tokens(const QString &id) {
                                                 : QStringLiteral("emerald"));
     }
     if (id == QLatin1String("dark")) {
-        static const Tokens dark = {QColor("#536F80"), QColor("#303D46"), QColor("#648397"), QColor("#405A6A"),
-                QColor("#242C32"), QColor("#222A30"), QColor("#2C363D"), QColor("#303D46"),
-                QColor("#35444D"), QColor("#385461"), QColor("#20292F"), QColor("#D5DEE3"),
-                QColor("#A3B3BE"), QColor("#778792"), QColor("#4C6573"), QColor("#34434B"),
-                QColor("#80B5CA"), QColor("#526773"), QColor("#27333A"), QColor("#242C32"),
+        // 暮紫：低饱和，白字压在主色上 ≥ 4.6:1；浅一档 #AFB2E0 给强调字与焦点环。
+        static const Tokens dark = {QColor("#6A6C9E"), QColor("#3A3D58"), QColor("#7577AB"), QColor("#5D5F8E"),
+                QColor("#1B1F27"), QColor("#1F232C"), QColor("#262B35"), QColor("#2B303B"),
+                QColor("#313744"), QColor("#3A3E57"), QColor("#232832"), QColor("#DCDFE8"),
+                QColor("#A3A8B8"), QColor("#7C8191"), QColor("#4A4F60"), QColor("#343947"),
+                QColor("#AFB2E0"), QColor("#535868"), QColor("#262B34"), QColor("#242C32"),
                 QColor("#303D46"), QColor("#171E23"), QColor("#99A9B3"), QColor("#4C6573"), QColor("#34434B")};
         return dark;
     }
     if (id == QLatin1String("ocean")) {
-        static const Tokens ocean = {QColor("#196DAA"), QColor("#195F9D"), QColor("#135F98"), QColor("#104F7F"),
-                QColor("#F3F8FD"), QColor("#F8FBFF"), QColor("#FFFFFF"), QColor("#E1EDF9"),
-                QColor("#EAF4FE"), QColor("#D2E7F8"), QColor("#FFFFFF"), QColor("#263647"),
+        // 雾蓝。
+        static const Tokens ocean = {QColor("#4A7396"), QColor("#3F6383"), QColor("#43698A"), QColor("#395A77"),
+                QColor("#F3F6F9"), QColor("#F7F9FB"), QColor("#FFFFFF"), QColor("#E2EAF2"),
+                QColor("#EAF0F6"), QColor("#D5E1EC"), QColor("#FFFFFF"), QColor("#263443"),
                 // 海洋蓝这一支：`#9AABBB` 压在 `subtle` #E1EDF9 上只有 **1.98:1**，
                 // 低于 3:1 底线（ui_check 按**当前这一档**现算）⇒ 这一位用 `#6E7E90`（**3.50:1**）。
                 // 翡翠那一支同理（`#6B7D76`，见下面 emerald 那段★）。
-                QColor("#687D90"), QColor("#6E7E90"), QColor("#A9C7E4"), QColor("#D3E3F4"),
-                QColor("#196DAA"), QColor("#A9C4DC"), QColor("#EBF3FA"), QColor("#F3F8FD"),
+                QColor("#55687A"), QColor("#6E7E90"), QColor("#B3C6D8"), QColor("#DBE4EE"),
+                QColor("#4A7396"), QColor("#B0C2D3"), QColor("#EEF2F6"), QColor("#F3F8FD"),
                 QColor("#E1EDF9"), QColor("#FDFEFF"), QColor("#6B7B8B"), QColor("#91B8E0"), QColor("#BCD2EC")};
         return ocean;
     }
-    static const Tokens emerald = {QColor("#087A68"), QColor("#075E51"), QColor("#096D5E"), QColor("#055548"),
-            QColor("#F2FAF7"), QColor("#F8FCFA"), QColor("#FFFFFF"), QColor("#D8F1E9"),
-            QColor("#E5F5EF"), QColor("#C7E9DB"), QColor("#FFFFFF"), QColor("#20352E"),
+    // 青瓷。
+    static const Tokens emerald = {QColor("#457F70"), QColor("#3A6B5F"), QColor("#3E7466"), QColor("#34625A"),
+            QColor("#F3F7F5"), QColor("#F7FAF8"), QColor("#FFFFFF"), QColor("#E3EDE9"),
+            QColor("#EAF2EE"), QColor("#D6E6DF"), QColor("#FFFFFF"), QColor("#22332D"),
             // `disabled`（第 14 位）用 `#6B7D76`：
             // 灰掉那一档的字必须对**它自己的底**（`subtle` #D8F1E9）读得出来 ——
             // `#94A9A0` 只有 **2.09:1**，破了这个工程钉着的那条 3:1 底线
             // （ui_check「灰掉那一档的字对底 ≥ 3:1」）；`#6B7D76` 是 **3.67:1**。
-            QColor("#607C70"), QColor("#6B7D76"), QColor("#A8CFC0"), QColor("#D5E7DD"),
-            QColor("#087A68"), QColor("#AAC8BA"), QColor("#EDF5F0"), QColor("#F6FAF8"),
+            QColor("#50665D"), QColor("#6B7D76"), QColor("#B7CEC5"), QColor("#DCE7E2"),
+            QColor("#457F70"), QColor("#B4C9C0"), QColor("#EEF3F0"), QColor("#F6FAF8"),
             QColor("#E4F2EC"), QColor("#FCFEFD"), QColor("#64776D"), QColor("#9CCDBB"), QColor("#B2D6C5")};
     return emerald;
 }
@@ -788,7 +791,7 @@ QColor defaultAccentColor() {
     // 同时白字对它仍有 4.5:1 以上的对比度，实心主按钮也能复用。
     // 全仓只有这一处写这六个十六进制位 —— 顶栏、按钮的字与边、当前那一颗导航底下那条
     // 线，量的都是它算出来的某一档（见 `accentShade()`），**不许在别处再写一遍**。
-    return QColor(QStringLiteral("#087A68"));
+    return QColor(QStringLiteral("#457F70"));
 }
 
 QColor rowHoverFill(const QColor &base) {
@@ -1757,29 +1760,19 @@ QString widgetStyleSheet() {
     // **全仓的列表选中态都是这一套**（和侧栏导航同款）。
     // 行高和圆角同理：那份列表的行高一直是 `versionTreeRowHeight()`（46，比 42 那条下限还高），
     // 而代理画的是一整行**不带圆角**的方块 —— 多出来的圆角只能由代理画（今天没画）。
+    // 去套娃（7a）：sidebar / workspace / section 三层面**一律不铺底、不画边**，内容直接
+    // 落在窗口那一层底上（`Glass::Backdrop`）。分组靠留白、小节标题和 1px 细线，属性照旧挂着
+    // 只是为了让别处（滚动区、列表）能按"在哪一块里"认出来。
     {
-        const QString sheetBase = paletteRef("alternate-base");
-        const QString sidebarFill = paletteRef("button");
-        // 小节卡片要能和正文面分得开，但仍然只是正文内部的一层。6% 在默认绿色下
-        // 足以建立层级，又不会像旧式 GroupBox 那样每节都变成一个沉重的框。
-        const QString sectionFill = paletteRef("tooltip-base");
         const QString sheetSecondary = paletteRef("placeholder-text");
         qss += QStringLiteral(
-                   "QFrame[%1=\"sidebar\"] { background-color: %2; border: none;"
-                   " border-radius: %7px; }"
-                   "QFrame[%1=\"workspace\"] { background-color: %3; border: none;"
-                   " border-radius: %7px; }"
-                   "QFrame[%1=\"section\"] { background-color: %4; border: none;"
-                   " border-radius: %8px; }"
-                   "QFrame[%1=\"footer\"] { background-color: transparent; border: none; }"
-                   "QFrame[wtfmlSidebarRail=\"true\"] { background-color: %3; border: none; }"
+                   "QFrame[%1=\"sidebar\"], QFrame[%1=\"workspace\"], QFrame[%1=\"section\"],"
+                   " QFrame[%1=\"footer\"], QFrame[wtfmlSidebarRail=\"true\"]"
+                   " { background-color: transparent; border: none; }"
                    "QListWidget[wtfmlSidebarRail=\"true\"] { background: transparent; border: none; }"
-                   "QLabel[%5=\"secondary\"] { color: %6; }")
-                   .arg(QString::fromLatin1(kSurfaceProperty), sidebarFill,
-                        sheetBase, sectionFill,
-                        QString::fromLatin1(kTextRoleProperty), sheetSecondary)
-                   .arg(surfaceRadius())
-                   .arg(sectionRadius());
+                   "QLabel[%2=\"secondary\"] { color: %3; }")
+                   .arg(QString::fromLatin1(kSurfaceProperty), QString::fromLatin1(kTextRoleProperty),
+                        sheetSecondary);
     }
     // -----------------------------------------------------------------------
     // 三套预设给输入类控件 / 正文面那些"贴上去的颜色"
@@ -1808,37 +1801,33 @@ QString widgetStyleSheet() {
         "QLineEdit:disabled, QComboBox:disabled { color: %5; background-color: %6; }"
         "QComboBox QAbstractItemView { selection-background-color: %8; selection-color: %2; }"
         "QTabWidget::pane { background-color: %9; border: none; }")
-        .arg(paletteRef("base"), paletteRef("text"), paletteRef("dark"), paletteRef("link"),
+        .arg(paletteRef("base"), paletteRef("text"), paletteRef("base"), paletteRef("link"),
              paletteRef("placeholder-text"), paletteRef("button"),
              QString::number(controlRadius()), paletteRef("highlight"), paletteRef("window"));
-    // 磨砂效果开着：正文面 / 小节 / 选项卡底 / 滚动区都不铺底，由 Glass 的绘制过滤器在它们
-    // 自己画之前铺一块玻璃（见 ui/Glass.hpp）。关掉时这一段整个不出现，和改版前逐字节一致。
-    if (Glass::enabled()) {
-        qss += QStringLiteral(
-            "QFrame[%1=\"sidebar\"], QFrame[%1=\"workspace\"], QFrame[%1=\"section\"],"
-            " QFrame[wtfmlSidebarRail=\"true\"] { background-color: transparent; }"
-            "QTabWidget::pane { background-color: transparent; border: none; }"
-            // 面板里的列表 / 树：行直接排在玻璃上（弹出框里的列表不是这几块面的子孙，不受影响）。
-            "QFrame[%1=\"workspace\"] QAbstractItemView, QFrame[%1=\"sidebar\"] QAbstractItemView"
-            " { background-color: transparent; }"
-            "QScrollArea, QScrollArea > QWidget#qt_scrollarea_viewport,"
-            " QScrollArea > QWidget#qt_scrollarea_viewport > QWidget { background: transparent; }")
-                   .arg(QString::fromLatin1(kSurfaceProperty));
-        // 卡片里的次动作（账号那一格、实例卡）和「添加实例」空槽：玻璃上再叠一层淡的，
-        // 不再是一块不透明的色块。浅色叠白、深色叠一点点白；对比度由底下那块卡片保证
-        // （浅色叠白只会让深字更清楚，深色那 6% 对浅字的影响 < 0.3:1）。
-        // 深浅按**这一份规格的令牌**判：样式表在 apply() 铺调色板之前就拼好了，那一刻问
-        // isDark() 拿到的是上一套主题的调色板。
-        const bool darkSheet = tokens().page.lightness() < 128;
-        const auto glassLayer = [darkSheet](int lightAlpha, int darkAlpha) {
-            return QColor(255, 255, 255, darkSheet ? darkAlpha : lightAlpha).name(QColor::HexArgb);
+    // 页面底、滚动区、页面里的列表 / 树：一律透明，直接排在窗口那一层底上
+    // （弹出框里的列表不是这几块面的子孙，不受影响）。
+    qss += QStringLiteral(
+        "QTabWidget::pane { background-color: transparent; border: none; }"
+        "QFrame[%1=\"workspace\"] QAbstractItemView, QFrame[%1=\"sidebar\"] QAbstractItemView"
+        " { background-color: transparent; }"
+        "QScrollArea, QScrollArea > QWidget#qt_scrollarea_viewport,"
+        " QScrollArea > QWidget#qt_scrollarea_viewport > QWidget { background: transparent; }")
+               .arg(QString::fromLatin1(kSurfaceProperty));
+    // 主页上那几格次动作（账号胶囊、实例卡）和「添加实例」空槽：淡底（正文墨色的一点点
+    // alpha），不是不透明色块。深浅按**这一份规格的令牌**判（样式表先于调色板拼好）。
+    {
+        const QColor ink = tokens().text;
+        const auto layer = [ink](int alpha) {
+            QColor c = ink;
+            c.setAlpha(alpha);
+            return c.name(QColor::HexArgb);
         };
         qss += QStringLiteral(
-                   "QPushButton[wtfmlHomeAction=\"true\"] { background-color: %1; }"
+                   "QPushButton[wtfmlHomeAction=\"true\"] { background-color: %1; border: none; }"
                    "QPushButton[wtfmlHomeAction=\"true\"]:hover:enabled { background-color: %2; }"
-                   "QPushButton[wtfmlQuickEmpty=\"true\"] { background-color: %3; }"
+                   "QPushButton[wtfmlQuickEmpty=\"true\"] { background-color: %3; border: none; }"
                    "QPushButton[wtfmlQuickEmpty=\"true\"]:hover:enabled { background-color: %1; }")
-                   .arg(glassLayer(140, 16), glassLayer(200, 28), glassLayer(70, 8));
+                   .arg(layer(18), layer(30), layer(10));
     }
     return qss;
 }

@@ -128,10 +128,9 @@ QFrame *makeHomeCard(QWidget *parent) {
     auto *card = new QFrame(parent);
     // 卡片靠底色和留白分层，不叠一圈 Fusion 的深色 StyledPanel 边线。
     card->setFrameShape(QFrame::NoFrame);
-    // 磨砂开着：一块悬浮玻璃卡片（底色由 Glass 画）；关着：照旧铺 Part::Card 那一档不透明底。
-    Glass::mark(card, Glass::Kind::Card);
+    // 扁平：卡片不铺底，直接落在窗口那一层底上（分组靠留白）。
+    card->setAutoFillBackground(false);
     const auto applyPalette = [card]() {
-        card->setAutoFillBackground(!Glass::enabled());
         QPalette palette = QApplication::palette();
         palette.setColor(QPalette::Window, Theme::partBackground(Theme::Part::Card));
         card->setPalette(palette);
@@ -236,13 +235,17 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
 
     parent->setWindowFlags(parent->windowFlags() & ~Qt::WindowMaximizeButtonHint);  // 禁用最大化按钮
 
-    // 中央控件就是磨砂玻璃的场景底：整窗最底下那张风景（关掉磨砂时它只铺窗口底色）。
-    QWidget *centralWidget = new Glass::Backdrop(parent);
+    // 中央控件就是整窗那一层底（系统背板 / 风景预模糊底 / 纯色，见 ui/Glass.hpp）。
+    // 去套娃：底只有这一层，导航轨和页面都直接铺在它上面，不再各自垫面板。
+    auto *backdrop = new Glass::Backdrop(parent);
+    QWidget *centralWidget = backdrop;
     parent->setCentralWidget(centralWidget);
 
-    // NOTE: 边距和间距都是 0 —— 选项卡栏和底部状态条要**通栏**贴到窗口边缘
-    // （Steam 那条底栏就是通栏的）。页面内部自己留边距，见 kPageMargin。
-    QVBoxLayout *mainLayout = new QVBoxLayout(centralWidget);
+    // 左 = 导航轨；右 = 顶上一条透明的窗口按钮条 + 页面。
+    auto *shellLayout = new QHBoxLayout(centralWidget);
+    shellLayout->setContentsMargins(0, 0, 0, 0);
+    shellLayout->setSpacing(0);
+    QVBoxLayout *mainLayout = new QVBoxLayout;
     mainLayout->setContentsMargins(0, 0, 0, 0);
     mainLayout->setSpacing(0);
 
@@ -257,7 +260,10 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // 时这条**不会被盖住** —— 和"底下那一条不用覆盖"是同一条规矩；
     // "顶上四个选项卡也不覆盖"由"四个功能在条上、条不被覆盖"接手。
     bar = new TitleBar(centralWidget);
-    mainLayout->addWidget(bar);
+    shellLayout->addWidget(bar);
+    shellLayout->addLayout(mainLayout, 1);
+    bar->captionStrip()->setParent(centralWidget);
+    mainLayout->addWidget(bar->captionStrip());
     // 条只发信号、不自己动手（见 TitleBar.hpp）：谁接这两下是这一层的事。
     // NOTE: 这个类**不是 QObject**（没有 tr()、没有自己的信号槽），所以得写全 `QObject::connect`。
     QObject::connect(bar, &TitleBar::minimizeRequested, parent, &QMainWindow::showMinimized);
@@ -442,7 +448,9 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // 实例页那一层"客户端实例 / 服务端"也走同一条换页动画。
     appearOnSwitch(instanceModeStack);
 
-    setupBottomBar(centralWidget, mainLayout);
+    setupBottomBar(bar);
+    bar->setFooter(bottomBar);
+    backdrop->setHeroWidget(homeTab);
 
     // ---------- 内容区上面那一层 ----------
     // 设置界面和各种提示都开在这儿，不另开窗口（见 OverlayHost.hpp 开头那段）。
@@ -457,10 +465,10 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     overlayHost->setPromptBlockedWidget(bottomBar);
 
     // ---------- 外框 ----------
-    // 客户区铺满整窗 + 条上哪一片能拖（见 WindowChrome.hpp 开头那两段）。**建在最后**：
-    // 它的构造会把窗口标志加上 FramelessWindowHint（外框归谁管、标志就谁设），
-    // 等上面那些控件都挂完了再动标志，少一层"改到一半"的心。
-    windowChrome = new WindowChrome(parent, bar, parent);
+    // 标题栏收进客户区 + 系统背板（见 WindowChrome.hpp 开头那两段）。拖窗区两条：
+    // 右上那条窗口按钮条、导航轨的空白处。
+    windowChrome = new WindowChrome(parent, bar->captionStrip(), parent);
+    windowChrome->addDragStrip(bar);
 
 }
 
@@ -489,22 +497,20 @@ QWidget *MainWindowUI::setupHomePage() {
         welcome->setObjectName(QStringLiteral("homeHeroTitle"));
         welcome->setWordWrap(true);
         home.left.layout->addWidget(welcome);
-        // 副题：西文衬线斜体，和大标题一中一西、一正一斜。
+        // 副题：西文手写体，和大标题一中一西。
         auto *subtitle = new QLabel(QStringLiteral("Your next world awaits."), home.left.widget);
         subtitle->setObjectName(QStringLiteral("homeHeroSubtitle"));
         home.left.layout->addWidget(subtitle);
-        // 磨砂开着时这两行直接压在风景上：白墨 + 一圈柔阴影（场景底在标题那一带还压了一层
-        // 暗角，见 Glass::Backdrop::rebuildNow）；关着回到正文色、Display 那一档字号。
+        // 场景图画着时这两行直接压在风景上：白墨 + 一圈柔阴影（标题那一带还压了一层暗角，
+        // 见 Glass::Backdrop::rebuildHero）；高对比度下没有场景，回到正文色。标题大而轻。
         const auto applyHero = [welcome, subtitle]() {
-            const bool glass = Glass::enabled();
+            const bool glass = Glass::sceneShown();
             QFont font = Theme::textFont(welcome->font(), Theme::TextRole::Display);
-            font.setBold(true);
-            if (glass) font.setPixelSize(kHomeHeroTitlePixelSize);
+            font.setBold(false);
+            font.setPixelSize(kHomeHeroTitlePixelSize);
             welcome->setFont(font);
-            QFont sub = Theme::textFont(subtitle->font(), Theme::TextRole::Heading);
-            sub.setItalic(true);
-            sub.setBold(false);
-            sub.setPixelSize(glass ? 22 : Theme::textSize(Theme::TextRole::Heading));
+            QFont sub = Theme::handFont(subtitle->font(), Theme::HandFont::Script);
+            sub.setPixelSize(28);
             subtitle->setFont(sub);
             QPalette ink = QApplication::palette();
             if (glass) {
@@ -674,9 +680,8 @@ QWidget *MainWindowUI::setupHomePage() {
         homeProfileCard = profileCard;
         homeRightColumn = home.right.widget;
         profileCard->setFrameShape(QFrame::NoFrame);
-        Glass::mark(profileCard, Glass::Kind::Card);
+        profileCard->setAutoFillBackground(false);
         const auto applyProfilePalette = [profileCard]() {
-            profileCard->setAutoFillBackground(!Glass::enabled());
             QPalette palette = QApplication::palette();
             palette.setColor(QPalette::Window, Theme::partBackground(Theme::Part::Card));
             profileCard->setPalette(palette);

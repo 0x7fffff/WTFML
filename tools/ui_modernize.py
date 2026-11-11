@@ -103,10 +103,10 @@ def prepare_changes(profile: dict) -> dict[Path, tuple[str, str]]:
     accent_path = ROOT / "ui/Theme.cpp"
     originals[accent_path] = accent_path.read_text(encoding="utf-8")
     accent = profile["accent"].lstrip("#")
-    replacement = f"return QColor(0x{accent[0:2]}, 0x{accent[2:4]}, 0x{accent[4:6]});"
+    replacement = f'return QColor(QStringLiteral("#{accent.upper()}"));'
     pattern = (
         r"(?s)(QColor\s+defaultAccentColor\(\)\s*\{.*?)"
-        r"return QColor\(0x[0-9a-fA-F]{2}, 0x[0-9a-fA-F]{2}, 0x[0-9a-fA-F]{2}\);"
+        r'return QColor\(QStringLiteral\("#[0-9a-fA-F]{6}"\)\);'
         r"(.*?\n\})"
     )
     updated[accent_path], count = re.subn(

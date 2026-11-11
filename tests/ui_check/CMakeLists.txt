@@ -8,7 +8,7 @@ set(CMAKE_AUTOMOC ON)
 # 编译链接全都过，只是 `:/assets/loader/*.png` 全是空图（症状见下面那行的注释）。
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Widgets GuiPrivate)
 
 set(REPO_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 get_filename_component(REPO_ROOT ${REPO_ROOT} REALPATH)
@@ -196,7 +196,7 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
 endif()
 # dwmapi 是 ui/WindowChrome.cpp 要的（DwmSetWindowAttribute，把圆角明说一遍），
 # 见主工程 CMakeLists.txt 里同一段。少了它会在链接那一步报 undefined reference。
-target_link_libraries(wtfml_ui_runtime PRIVATE dwmapi)
+target_link_libraries(wtfml_ui_runtime PRIVATE dwmapi Qt6::GuiPrivate)
 
 
 # Production code is shared by independently buildable test executables.

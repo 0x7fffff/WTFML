@@ -136,9 +136,12 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
         if (m_navRow) {
             const QRectF hoverRect = QRectF(option.rect.adjusted(3, 2, -3, -2));
             painter->save();
+            painter->setRenderHint(QPainter::Antialiasing, true);
             painter->setPen(Qt::NoPen);
-            painter->setBrush(hoverFill);
-            painter->drawRect(hoverRect);
+            QColor navHover = Theme::tokens().text;
+            navHover.setAlpha(14);
+            painter->setBrush(navHover);
+            painter->drawRoundedRect(hoverRect, Theme::controlRadius(), Theme::controlRadius());
             painter->restore();
         } else {
             painter->fillRect(option.rect, hoverFill);
@@ -189,15 +192,17 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
         painter->save();
         painter->setRenderHint(QPainter::Antialiasing, true);
         painter->setPen(Qt::NoPen);
-        painter->setBrush(Theme::selectionFill(option.palette.color(QPalette::Base)));
-        painter->drawRect(selectedRect);
-
-        // 指示条收在选中区域内部，与其它侧栏保持直角。
-        const QRectF barRect(selectedRect.left(), selectedRect.top(),
-                             Theme::selectionBarThickness(),
-                             selectedRect.height());
-        painter->setBrush(Theme::selectionBar());
-        painter->drawRect(barRect);
+        // 和左导航轨同一套：半径 10 的低透明主题色底 + 左边一根短的圆头指示条。
+        const Theme::Tokens t = Theme::tokens();
+        QColor fill = t.focus;
+        fill.setAlpha(t.page.lightness() < 128 ? 34 : 30);
+        painter->setBrush(fill);
+        painter->drawRoundedRect(selectedRect, Theme::controlRadius(), Theme::controlRadius());
+        const qreal barHeight = selectedRect.height() * 0.44;
+        const qreal bar = Theme::selectionBarThickness();
+        painter->setBrush(t.focus);
+        painter->drawRoundedRect(QRectF(selectedRect.left() + 2, selectedRect.center().y() - barHeight / 2, bar, barHeight),
+                                 bar / 2, bar / 2);
         painter->restore();
     }
 

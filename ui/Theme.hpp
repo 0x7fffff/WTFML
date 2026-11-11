@@ -598,9 +598,9 @@ void markColorSwatch(QPushButton *button, const QColor &color);
 
 
 /// 输入类控件（`QLineEdit` / `QComboBox` / `QAbstractSpinBox` / 勾选框那个框）的圆角。
-constexpr int controlRadius() { return 6; }
+constexpr int controlRadius() { return 10; }
 /// `QPushButton` 的圆角（比输入类大一档：它比输入框矮胖，同一个圆角看着更方）。
-constexpr int buttonRadius() { return 8; }
+constexpr int buttonRadius() { return 10; }
 /// 主表面（`wtfmlSurface="workspace"` / `"sidebar"`）的圆角。
 constexpr int surfaceRadius() { return 0; }
 /// 小节卡片与主表面统一使用直角。

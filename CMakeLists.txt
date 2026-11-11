@@ -10,7 +10,7 @@ if(MSVC)
     add_compile_options(/Zc:__cplusplus)
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Network Core Gui Concurrent)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Network Core Gui Concurrent GuiPrivate)
 
 # The launcher used to keep its verification programs under build/, which meant
 # they were invisible to source control and to CTest.  Keep normal developer
@@ -772,6 +772,8 @@ target_link_libraries(WTFMinecraftLauncher PRIVATE
     Qt6::Core
     Qt6::Gui
     Qt6::Concurrent
+    # ui/WindowChrome.cpp：QNativeInterface::Private::QWindowsWindow::setCustomMargins（去掉系统标题栏）。
+    Qt6::GuiPrivate
 )
 
 if(WTFML_STRICT_WARNINGS)

@@ -1,6 +1,6 @@
 /**
  * @file Glass.cpp
- * @brief 磨砂玻璃的实现：场景底的两份缓存、绘制过滤器、着色层 alpha 现算。
+ * @brief 整窗磨砂的实现：四档与回退、着色 alpha 现算、风景底与主页场景的缓存。
  */
 
 #include "Glass.hpp"
@@ -8,10 +8,9 @@
 #include "Theme.hpp"
 
 #include <QApplication>
-#include <QHash>
+#include <QEvent>
+#include <QOperatingSystemVersion>
 #include <QPainter>
-#include <QPainterPath>
-#include <QPointer>
 #include <QResizeEvent>
 #include <QSettings>
 #include <QThread>
@@ -19,59 +18,77 @@
 
 #include <cmath>
 
-/// 场景图和标题字体在 icons.qrc 里；它编在静态库里时，没人引用那个初始化函数就会被链接器
-/// 丢掉（验收程序就是这样）。在这里引用一次：所有铺主题的进程都有。Q_INIT_RESOURCE 不能在命名空间里。
+#ifdef Q_OS_WIN
+#  include <windows.h>
+#endif
+
+/// 场景图在 icons.qrc 里；它编在静态库里时没人引用那个初始化函数就会被链接器丢掉。
+/// Q_INIT_RESOURCE 不能写在命名空间里。
 static void initGlassResources() { Q_INIT_RESOURCE(icons); }
 
 namespace Glass {
 namespace {
 
-constexpr char kKindProperty[] = "wtfmlGlass";
 /// 拖窗口改尺寸时，停手 120 ms 再按新尺寸重算（中间那几帧把旧缓存拉伸着贴）。
 constexpr int kDebounceMs = 120;
-/// 模糊在 1/8 尺寸上做：3 遍半径 3 的盒式模糊 ≈ σ 3.5 px，放大回来约等于 26 px 高斯。
+/// 模糊在 1/8 尺寸上做，放大回来约等于 26 px 高斯（半径 3 时）。
 constexpr int kDownscale = 8;
-constexpr int kBlurRadius = 3;
-/// 卡片柔阴影伸出去多远、往下错多少（逻辑像素）。
-constexpr int kShadowSpread = 22;
-constexpr int kShadowOffsetY = 8;
-
-int &enabledCache() {
-    static int value = -1;
-    return value;
-}
+/// 主页场景左沿渐隐进导航轨的宽度（逻辑像素）。
+constexpr int kHeroFade = 32;
 
 QPointer<Backdrop> &activeBackdrop() {
     static QPointer<Backdrop> backdrop;
     return backdrop;
 }
 
-/// 挂了 Card 的那几块（场景底替它们画柔阴影）。
-QList<QPointer<QWidget>> &shadowed() {
-    static QList<QPointer<QWidget>> list;
-    return list;
+int &modeCache() {
+    static int value = -1;
+    return value;
 }
 
-const char *kindKey(Kind kind) {
-    switch (kind) {
-    case Kind::Chrome: return "chrome";
-    case Kind::Bar: return "bar";
-    case Kind::Panel: return "panel";
-    case Kind::Card: return "card";
-    case Kind::Inset: return "inset";
+Mode parseMode(const QString &key, Mode fallback) {
+    for (Mode m : {Mode::Acrylic, Mode::Mica, Mode::Scene, Mode::Solid}) {
+        if (key.compare(modeKey(m), Qt::CaseInsensitive) == 0) return m;
     }
-    return "panel";
+    return fallback;
+}
+
+bool highContrast() {
+#ifdef Q_OS_WIN
+    HIGHCONTRASTW hc{};
+    hc.cbSize = sizeof(hc);
+    if (SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(hc), &hc, 0) != FALSE)
+        return (hc.dwFlags & HCF_HIGHCONTRASTON) != 0;
+#endif
+    return false;
+}
+
+/// 系统「透明效果」开关（设置 → 个性化 → 颜色）。
+bool transparencyOff() {
+#ifdef Q_OS_WIN
+    const QSettings personalize(
+        QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"),
+        QSettings::NativeFormat);
+    return personalize.value(QStringLiteral("EnableTransparency"), 1).toInt() == 0;
+#else
+    return false;
+#endif
+}
+
+bool systemBackdropSupported() {
+    return QGuiApplication::platformName() == QLatin1String("windows") &&
+           QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows11_22H2;
 }
 
 /// 当前主题用哪一张风景（「跟着系统」按这一刻的深浅挑）。
 QString sceneId() {
     const QString id = Theme::current().presetId;
-    if (id == QLatin1String("dark") || id == QLatin1String("emerald") ||
-        id == QLatin1String("ocean")) {
+    if (id == QLatin1String("dark") || id == QLatin1String("emerald") || id == QLatin1String("ocean"))
         return id;
-    }
     return Theme::isDark() ? QStringLiteral("dark") : QStringLiteral("emerald");
 }
+
+bool darkTokens() { return Theme::tokens().page.lightness() < 128; }
 
 double linearChannel(int value) {
     const double c = value / 255.0;
@@ -98,8 +115,7 @@ void processFrost(QImage &image, const QColor &target, qreal amount, qreal satur
             r += (tr - r) * amount;
             g += (tg - g) * amount;
             b += (tb - b) * amount;
-            line[x] = qRgb(qBound(0, qRound(r), 255), qBound(0, qRound(g), 255),
-                           qBound(0, qRound(b), 255));
+            line[x] = qRgb(qBound(0, qRound(r), 255), qBound(0, qRound(g), 255), qBound(0, qRound(b), 255));
         }
     }
 }
@@ -125,213 +141,114 @@ void extremes(const QImage &image, const QRect &area, QColor *darkest, QColor *b
     }
 }
 
-/// 这块玻璃和场景底之间隔着别的玻璃或不透明底 ⇒ 只铺一层半透明，不再取模糊。
-bool coveredBelow(const QWidget *widget, const Backdrop *backdrop) {
-    for (const QWidget *w = widget->parentWidget(); w != nullptr && w != backdrop;
-         w = w->parentWidget()) {
-        Kind ignored;
-        if (w->autoFillBackground() || kindOf(w, &ignored)) return true;
-    }
-    return false;
+/// `source` 按 Cover 铺满 `size`。
+QImage coverScaled(const QImage &source, const QSize &size, const QColor &fill) {
+    QImage out(size, QImage::Format_RGB32);
+    out.fill(fill);
+    if (source.isNull()) return out;
+    QPainter p(&out);
+    p.setRenderHint(QPainter::SmoothPixmapTransform, true);
+    const QSize scaled = source.size().scaled(size, Qt::KeepAspectRatioByExpanding);
+    p.drawImage(QRect(QPoint((size.width() - scaled.width()) / 2, (size.height() - scaled.height()) / 2), scaled),
+                source);
+    return out;
 }
 
-class PaintFilter final : public QObject {
-public:
-    using QObject::QObject;
-
-protected:
-    bool eventFilter(QObject *object, QEvent *event) override {
-        const QEvent::Type type = event->type();
-        if (type != QEvent::Paint && type != QEvent::Move && type != QEvent::Resize &&
-            type != QEvent::Show && type != QEvent::Hide) {
-            return false;
-        }
-        if (!object->isWidgetType() || !enabled()) return false;
-        auto *widget = static_cast<QWidget *>(object);
-        Kind kind;
-        if (!kindOf(widget, &kind)) return false;
-        if (type == QEvent::Paint) {
-            QPainter painter(widget);
-            paint(painter, widget, QRectF(widget->rect()), kind);
-        } else if (kind == Kind::Card) {
-            // 柔阴影画在场景底上、伸出卡片外面：卡片一动，场景底那一块得跟着重画。
-            if (Backdrop *backdrop = Backdrop::of(widget)) backdrop->update();
-        }
-        return false;
-    }
-};
 
 }  // namespace
 
 // ---------------------------------------------------------------------------
-// 开关与标记
+// 四档与回退
 // ---------------------------------------------------------------------------
 
-QString settingsKey() { return QStringLiteral("Theme/Glass"); }
+QString settingsKey() { return QStringLiteral("Theme/Backdrop"); }
 
-bool enabled() {
-    int &cache = enabledCache();
-    if (cache < 0) {
-        // 出厂：开。核数太少的机器（≤ 2 线程）默认关，回到不透明令牌。
-        const bool fallback = QThread::idealThreadCount() > 2;
-        cache = QSettings().value(settingsKey(), fallback).toBool() ? 1 : 0;
+QString modeKey(Mode mode) {
+    switch (mode) {
+    case Mode::Acrylic: return QStringLiteral("acrylic");
+    case Mode::Mica: return QStringLiteral("mica");
+    case Mode::Scene: return QStringLiteral("scene");
+    case Mode::Solid: return QStringLiteral("solid");
     }
-    return cache == 1;
+    return QStringLiteral("acrylic");
 }
 
-void setEnabled(bool on) {
-    QSettings().setValue(settingsKey(), on);
-    enabledCache() = on ? 1 : 0;
+QString modeName(Mode mode) {
+    switch (mode) {
+    case Mode::Acrylic: return QStringLiteral("亚克力");
+    case Mode::Mica: return QStringLiteral("云母");
+    case Mode::Scene: return QStringLiteral("风景底");
+    case Mode::Solid: return QStringLiteral("纯色");
+    }
+    return QString();
+}
+
+Mode mode() {
+    const QByteArray env = qgetenv("WTFML_BACKDROP");
+    if (!env.isEmpty()) return parseMode(QString::fromLatin1(env), Mode::Acrylic);
+    int &cache = modeCache();
+    if (cache < 0) {
+        QSettings settings;
+        // 出厂：亚克力；核数太少的机器（≤ 2 线程）出厂纯色。旧版「磨砂效果」关着 ⇒ 纯色。
+        Mode fallback = QThread::idealThreadCount() > 2 ? Mode::Acrylic : Mode::Solid;
+        if (settings.contains(QStringLiteral("Theme/Glass")) && !settings.value(QStringLiteral("Theme/Glass")).toBool())
+            fallback = Mode::Solid;
+        cache = int(parseMode(settings.value(settingsKey()).toString(), fallback));
+    }
+    return Mode(cache);
+}
+
+Mode effectiveMode() {
+    const Mode chosen = mode();
+    if (chosen == Mode::Solid || highContrast() || transparencyOff()) return Mode::Solid;
+    if ((chosen == Mode::Acrylic || chosen == Mode::Mica) && !systemBackdropSupported()) return Mode::Scene;
+    return chosen;
+}
+
+QString fallbackReason() {
+    const Mode chosen = mode();
+    if (chosen == Mode::Solid) return QString();
+    if (highContrast()) return QStringLiteral("系统开着高对比度，用纯色。");
+    if (transparencyOff()) return QStringLiteral("系统关了透明效果，用纯色。");
+    if ((chosen == Mode::Acrylic || chosen == Mode::Mica) && !systemBackdropSupported())
+        return QStringLiteral("系统背板要 Windows 11 22H2 或更新，这里用风景底。");
+    return QString();
+}
+
+void setMode(Mode m) {
+    QSettings().setValue(settingsKey(), modeKey(m));
+    modeCache() = int(m);
     if (auto *app = qobject_cast<QApplication *>(QCoreApplication::instance())) {
         Theme::apply(*app);
         for (QWidget *top : QApplication::topLevelWidgets()) top->update();
     }
 }
 
-QString kindPropertyName() { return QString::fromLatin1(kKindProperty); }
+bool enabled() { return effectiveMode() != Mode::Solid; }
+bool sceneShown() { return !highContrast(); }
 
-void mark(QWidget *widget, Kind kind) {
-    if (widget == nullptr) return;
-    widget->setProperty(kKindProperty, QString::fromLatin1(kindKey(kind)));
-    if (kind == Kind::Card) shadowed().append(widget);
+bool systemBackdrop() {
+    const Mode m = effectiveMode();
+    return m == Mode::Acrylic || m == Mode::Mica;
 }
 
-bool kindOf(const QWidget *widget, Kind *out) {
-    const QVariant marked = widget->property(kKindProperty);
-    if (marked.isValid()) {
-        const QString key = marked.toString();
-        for (Kind kind : {Kind::Chrome, Kind::Bar, Kind::Panel, Kind::Card, Kind::Inset}) {
-            if (key == QLatin1String(kindKey(kind))) {
-                *out = kind;
-                return true;
-            }
-        }
-        return false;
-    }
-    const QVariant surface = widget->property(Theme::surfacePropertyName().toLatin1().constData());
-    if (!surface.isValid()) return false;
-    const QString value = surface.toString();
-    if (value == Theme::sidebarSurfaceValue() || value == Theme::workspaceSurfaceValue()) {
-        *out = Kind::Panel;
-        return true;
-    }
-    if (value == Theme::sectionSurfaceValue()) {
-        *out = Kind::Inset;
-        return true;
-    }
-    return false;
+int tintStrength() { return qBound(0, QSettings().value(QStringLiteral("Theme/BackdropTint"), 30).toInt(), 100); }
+int blurStrength() { return qBound(0, QSettings().value(QStringLiteral("Theme/BackdropBlur"), 50).toInt(), 100); }
+
+void setTintStrength(int value) {
+    QSettings().setValue(QStringLiteral("Theme/BackdropTint"), qBound(0, value, 100));
+    if (Backdrop *b = Backdrop::active()) b->update();
 }
 
-void install(QApplication &app) {
-    initGlassResources();
-    if (app.findChild<QObject *>(QStringLiteral("wtfmlGlassFilter")) != nullptr) return;
-    auto *filter = new PaintFilter(&app);
-    filter->setObjectName(QStringLiteral("wtfmlGlassFilter"));
-    app.installEventFilter(filter);
+void setBlurStrength(int value) {
+    QSettings().setValue(QStringLiteral("Theme/BackdropBlur"), qBound(0, value, 100));
+    if (Backdrop *b = Backdrop::active()) {
+        b->rebuildNow();
+        b->update();
+    }
 }
 
-// ---------------------------------------------------------------------------
-// 一块玻璃怎么画
-// ---------------------------------------------------------------------------
-
-int radius(Kind kind) {
-    switch (kind) {
-    case Kind::Chrome:
-    case Kind::Bar: return 0;
-    case Kind::Panel: return 16;
-    case Kind::Card: return 14;
-    case Kind::Inset: return 10;
-    }
-    return 0;
-}
-
-QColor tint(Kind kind) {
-    const Theme::Tokens t = Theme::tokens();
-    const bool dark = Theme::isDark();
-    const QPalette palette = QApplication::palette();
-    QList<QPair<QColor, double>> inks = {{palette.color(QPalette::WindowText), 4.5},
-                                         {palette.color(QPalette::PlaceholderText), 3.0}};
-    QColor base;
-    qreal floor = 0.6;
-    switch (kind) {
-    case Kind::Chrome:
-        base = Theme::partBackground(Theme::Part::TitleBar);
-        inks = {{Theme::partForeground(Theme::Part::TitleBar, QColor(Qt::white)), 4.5}};
-        floor = dark ? 0.5 : 0.62;
-        break;
-    case Kind::Bar:
-        base = Theme::partBackground(Theme::Part::BottomBar);
-        floor = dark ? 0.55 : 0.6;
-        break;
-    case Kind::Panel:
-        base = dark ? t.page : t.main;
-        floor = dark ? 0.5 : 0.55;
-        break;
-    case Kind::Card:
-        base = t.card;
-        floor = dark ? 0.55 : 0.62;
-        break;
-    case Kind::Inset:
-        // 叠在玻璃上的一层：明度往正文色那头再推一点点就够分层，对比度由下面那块保证。
-        base = dark ? QColor(255, 255, 255) : t.card;
-        base.setAlphaF(dark ? 0.05 : 0.45);
-        return base;
-    }
-    Backdrop *backdrop = Backdrop::active();
-    if (!enabled() || backdrop == nullptr) {
-        base.setAlpha(255);
-        return base;
-    }
-    base.setAlphaF(minimumTintAlpha(base, inks, {backdrop->darkest(), backdrop->brightest()}, floor));
-    return base;
-}
-
-void paint(QPainter &painter, const QWidget *widget, const QRectF &rect, Kind kind) {
-    painter.save();
-    painter.setRenderHint(QPainter::Antialiasing, true);
-    const qreal r = radius(kind);
-    QPainterPath path;
-    if (r > 0) {
-        path.addRoundedRect(rect, r, r);
-    } else {
-        path.addRect(rect);
-    }
-    const bool dark = Theme::isDark();
-    Backdrop *backdrop = Backdrop::of(widget);
-    QColor fill = tint(kind);
-    if (backdrop == nullptr || backdrop->blurred().isNull()) {
-        if (kind != Kind::Inset) fill.setAlpha(255);
-        painter.fillPath(path, fill);
-    } else {
-        if (kind != Kind::Inset && !coveredBelow(widget, backdrop)) {
-            painter.setClipPath(path, Qt::IntersectClip);
-            const QPoint offset = widget->mapTo(backdrop, QPoint());
-            const QRectF target(QPointF(-offset), QSizeF(backdrop->size()));
-            painter.setRenderHint(QPainter::SmoothPixmapTransform,
-                                  backdrop->cacheSize() != backdrop->size());
-            painter.drawPixmap(target, backdrop->blurred(), QRectF(backdrop->blurred().rect()));
-        }
-        painter.fillPath(path, fill);
-    }
-    // 亮边：上沿亮、下沿淡，像一块玻璃的切边。顶栏只在下沿、底栏只在上沿留一根发丝线。
-    const QColor rim = dark ? QColor(255, 255, 255, 34) : QColor(255, 255, 255, 150);
-    painter.setClipping(false);
-    if (kind == Kind::Chrome || kind == Kind::Bar) {
-        const qreal y = kind == Kind::Chrome ? rect.bottom() - 0.5 : rect.top() + 0.5;
-        painter.setPen(QPen(dark ? QColor(255, 255, 255, 22) : QColor(255, 255, 255, 90), 1.0));
-        painter.drawLine(QPointF(rect.left(), y), QPointF(rect.right(), y));
-    } else {
-        QLinearGradient edge(rect.topLeft(), rect.bottomLeft());
-        edge.setColorAt(0.0, rim);
-        QColor low = rim;
-        low.setAlpha(rim.alpha() / 4);
-        edge.setColorAt(1.0, low);
-        painter.setPen(QPen(QBrush(edge), 1.0));
-        painter.setBrush(Qt::NoBrush);
-        painter.drawRoundedRect(rect.adjusted(0.5, 0.5, -0.5, -0.5), r, r);
-    }
-    painter.restore();
-}
+void install(QApplication &) { initGlassResources(); }
 
 // ---------------------------------------------------------------------------
 // 对比度
@@ -345,8 +262,7 @@ double contrast(const QColor &a, const QColor &b) {
 QColor over(const QColor &top, const QColor &bottom) {
     const qreal a = top.alphaF();
     const auto mix = [a](int t, int b) { return qBound(0, qRound(t * a + b * (1.0 - a)), 255); };
-    return QColor(mix(top.red(), bottom.red()), mix(top.green(), bottom.green()),
-                  mix(top.blue(), bottom.blue()));
+    return QColor(mix(top.red(), bottom.red()), mix(top.green(), bottom.green()), mix(top.blue(), bottom.blue()));
 }
 
 qreal minimumTintAlpha(const QColor &tint, const QList<QPair<QColor, double>> &inks,
@@ -359,13 +275,24 @@ qreal minimumTintAlpha(const QColor &tint, const QList<QPair<QColor, double>> &i
         for (const QColor &bg : backgrounds) {
             const QColor result = over(layer, bg);
             for (const auto &ink : inks) {
-                // 墨色自己也可能带 alpha（次要字常这样）：先把它落到这一层上再量。
                 if (contrast(over(ink.first, result), result) < ink.second) ok = false;
             }
         }
         if (ok) return step / 100.0;
     }
     return 1.0;
+}
+
+QList<QColor> systemBackdropRange() {
+    // 深色亚克力 / 云母自带一层深灰着色，背后是纯白窗口时也到不了 #8c8c8c；浅色那一支背后
+    // 是纯黑时也在 #b4b4b4 以上（拿本机截图量过再放宽一档）。
+    if (darkTokens()) return {QColor(0x0a, 0x0a, 0x0a), QColor(0x8c, 0x8c, 0x8c)};
+    return {QColor(0xb4, 0xb4, 0xb4), QColor(0xff, 0xff, 0xff)};
+}
+
+QList<QPair<QColor, double>> bodyInks() {
+    const Theme::Tokens t = Theme::tokens();
+    return {{t.text, 4.5}, {t.secondary, 4.5}};
 }
 
 QImage boxBlur(const QImage &source, int radius) {
@@ -408,7 +335,7 @@ QImage boxBlur(const QImage &source, int radius) {
 }
 
 // ---------------------------------------------------------------------------
-// 场景底
+// 整窗那一层底
 // ---------------------------------------------------------------------------
 
 Backdrop::Backdrop(QWidget *parent) : QWidget(parent) {
@@ -439,17 +366,58 @@ Backdrop *Backdrop::of(const QWidget *widget) {
 
 Backdrop *Backdrop::active() { return activeBackdrop().data(); }
 
+void Backdrop::setHeroWidget(QWidget *widget) {
+    if (m_hero != nullptr) m_hero->removeEventFilter(this);
+    m_hero = widget;
+    if (widget != nullptr) widget->installEventFilter(this);
+    update();
+}
+
+bool Backdrop::eventFilter(QObject *watched, QEvent *event) {
+    if (watched == m_hero) {
+        switch (event->type()) {
+        case QEvent::Show:
+        case QEvent::Hide:
+        case QEvent::Move:
+        case QEvent::Resize:
+            scheduleRebuild();
+            update();
+            break;
+        default:
+            break;
+        }
+    }
+    return QWidget::eventFilter(watched, event);
+}
+
+QRect Backdrop::heroRect() const {
+    if (m_hero == nullptr || !m_hero->isVisible() || m_hero->window() != window()) return QRect();
+    // 全出血：往上一直铺到窗口顶（盖住右上那条透明的窗口按钮条）。
+    QRect r(m_hero->mapTo(this, QPoint()), m_hero->size());
+    r.setTop(0);
+    return r.intersected(rect());
+}
+
+QColor Backdrop::tint() const {
+    const Theme::Tokens t = Theme::tokens();
+    QColor base = t.page;
+    const Mode m = effectiveMode();
+    if (m == Mode::Solid) return base;
+    const qreal floor = tintStrength() / 100.0;
+    const QList<QColor> range = m == Mode::Scene ? QList<QColor>{m_darkest, m_brightest} : systemBackdropRange();
+    base.setAlphaF(minimumTintAlpha(base, bodyInks(), range, floor));
+    return base;
+}
+
 QImage Backdrop::sourceImage() {
     const Theme::PartImage custom = Theme::partImage(Theme::Part::PageBackground);
-    const QString path = custom.isSet() ? custom.path
-                                        : QStringLiteral(":/assets/scenes/%1.jpg").arg(sceneId());
+    const QString builtIn = QStringLiteral(":/assets/scenes/%1.jpg").arg(sceneId());
+    const QString path = custom.isSet() ? custom.path : builtIn;
     if (path != m_sourceKey || m_source.isNull()) {
         m_sourceKey = path;
         m_source = QImage(path);
-        if (m_source.isNull() && custom.isSet()) {
-            // 用户那张读不出来（拔了 U 盘之类）：退回主题自带的风景，不报错。
-            m_source = QImage(QStringLiteral(":/assets/scenes/%1.jpg").arg(sceneId()));
-        }
+        // 用户那张读不出来（拔了 U 盘之类）：退回主题自带的风景，不报错。
+        if (m_source.isNull() && custom.isSet()) m_source = QImage(builtIn);
     }
     return m_source;
 }
@@ -457,76 +425,86 @@ QImage Backdrop::sourceImage() {
 void Backdrop::rebuildNow() {
     m_debounce->stop();
     const qreal dpr = devicePixelRatioF();
-    const QSize logical = size();
-    const QSize device = (QSizeF(logical) * dpr).toSize();
+    const QSize device = (QSizeF(size()) * dpr).toSize();
     if (device.isEmpty()) return;
     const QImage source = sourceImage();
-    const bool dark = Theme::isDark();
-    const QString key = m_sourceKey + QLatin1Char('|') + QString::number(device.width()) +
-                        QLatin1Char('x') + QString::number(device.height()) +
-                        (dark ? QStringLiteral("|d") : QStringLiteral("|l"));
-    if (key == m_cacheKey && !m_blurred.isNull()) return;
-    m_cacheKey = key;
+    const Theme::Tokens t = Theme::tokens();
+    const bool dark = darkTokens();
 
-    // 清晰图：按窗口铺满（Cover），再压一层顶部暗角，让顶栏和大标题站得住。
-    QImage sharp(device, QImage::Format_RGB32);
-    sharp.fill(dark ? QColor(0x12, 0x18, 0x1c) : QColor(0xdd, 0xe8, 0xe4));
+    // 风景底：在 1/8 尺寸上铺满、模糊、往令牌色混，贴的时候放大（平滑缩放本身再糊一层）。
+    const int blurRadius = 1 + blurStrength() * 5 / 100;
+    const QString frostKey = m_sourceKey + QLatin1Char('|') + QString::number(device.width()) + QLatin1Char('x') +
+                             QString::number(device.height()) + QLatin1Char('|') + t.page.name() +
+                             QLatin1Char('|') + QString::number(blurRadius);
+    if (frostKey != m_frostKey || m_frost.isNull()) {
+        m_frostKey = frostKey;
+        const QSize small(qMax(1, device.width() / kDownscale), qMax(1, device.height() / kDownscale));
+        QImage frost = boxBlur(coverScaled(source, small, t.page), blurRadius);
+        processFrost(frost, t.page, dark ? 0.35 : 0.3, dark ? 1.05 : 1.15);
+        extremes(frost, frost.rect(), &m_darkest, &m_brightest);
+        m_frost = QPixmap::fromImage(frost.scaled(device, Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
+        m_frost.setDevicePixelRatio(dpr);
+        m_frostSize = size();
+    }
+    rebuildHero();
+}
+
+void Backdrop::rebuildHero() {
+    const QRect hero = heroRect();
+    if (hero.isEmpty()) return;
+    const qreal dpr = devicePixelRatioF();
+    const QSize device = (QSizeF(hero.size()) * dpr).toSize();
+    const bool dark = darkTokens();
+    const QString key = m_sourceKey + QLatin1Char('|') + QString::number(device.width()) + QLatin1Char('x') +
+                        QString::number(device.height()) + (dark ? QStringLiteral("|d") : QStringLiteral("|l"));
+    if (key == m_heroKey && !m_heroPixmap.isNull()) {
+        m_heroCacheRect = hero;
+        return;
+    }
+    m_heroKey = key;
+    QImage sharp = coverScaled(sourceImage(), device, Theme::tokens().page)
+                       .convertToFormat(QImage::Format_ARGB32_Premultiplied);
     {
         QPainter p(&sharp);
-        p.setRenderHint(QPainter::SmoothPixmapTransform, true);
-        if (!source.isNull()) {
-            const QSize scaled = source.size().scaled(device, Qt::KeepAspectRatioByExpanding);
-            const QRect target(QPoint((device.width() - scaled.width()) / 2,
-                                      (device.height() - scaled.height()) / 2),
-                               scaled);
-            p.drawImage(target, source);
-        }
-        QLinearGradient veil(0, 0, 0, device.height());
-        veil.setColorAt(0.0, QColor(0, 0, 0, dark ? 120 : 84));
-        veil.setColorAt(0.45, QColor(0, 0, 0, dark ? 40 : 0));
-        veil.setColorAt(1.0, QColor(0, 0, 0, dark ? 70 : 24));
-        p.fillRect(sharp.rect(), veil);
-        // 左上那一团暗角：主页大标题压在这一带，白墨要站得住（对比度在 ui_check 里量）。
-        QRadialGradient hero(QPointF(device.width() * 0.12, device.height() * 0.16),
-                             device.width() * 0.55);
-        hero.setColorAt(0.0, QColor(0, 0, 0, dark ? 90 : 120));
-        hero.setColorAt(1.0, QColor(0, 0, 0, 0));
-        p.fillRect(sharp.rect(), hero);
+        // 左上一团暗角压大标题，底下一条渐暗压启动区；白墨对它们的对比度在 ui_check 里量。
+        QRadialGradient title(QPointF(device.width() * 0.08, device.height() * 0.12), device.width() * 0.6);
+        title.setColorAt(0.0, QColor(0, 0, 0, dark ? 110 : 96));
+        title.setColorAt(1.0, QColor(0, 0, 0, 0));
+        p.fillRect(sharp.rect(), title);
+        QLinearGradient foot(0, 0, 0, device.height());
+        foot.setColorAt(0.0, QColor(0, 0, 0, dark ? 40 : 10));
+        foot.setColorAt(0.5, QColor(0, 0, 0, 0));
+        foot.setColorAt(1.0, QColor(0, 0, 0, dark ? 150 : 120));
+        p.fillRect(sharp.rect(), foot);
+        m_heroSmall = sharp.scaled(qMax(1, device.width() / kDownscale), qMax(1, device.height() / kDownscale),
+                                   Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+        // 左沿渐隐进导航轨：只改 alpha。
+        p.setCompositionMode(QPainter::CompositionMode_DestinationIn);
+        QLinearGradient fade(0, 0, kHeroFade * dpr, 0);
+        fade.setColorAt(0.0, QColor(0, 0, 0, 0));
+        fade.setColorAt(1.0, QColor(0, 0, 0, 255));
+        p.fillRect(QRect(0, 0, qCeil(kHeroFade * dpr), device.height()), fade);
     }
-
-    // 模糊副本：缩小 → 三遍盒式模糊 → 提亮（浅色）/ 压暗（深色）→ 放大回去。
-    const QSize smallSize(qMax(1, device.width() / kDownscale), qMax(1, device.height() / kDownscale));
-    m_sharpSmall = sharp.scaled(smallSize, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
-    QImage blurred = boxBlur(m_sharpSmall, kBlurRadius);
-    if (dark) {
-        processFrost(blurred, QColor(0x0e, 0x13, 0x17), 0.28, 1.1);
-    } else {
-        processFrost(blurred, QColor(Qt::white), 0.28, 1.25);
-    }
-    extremes(blurred, blurred.rect(), &m_darkest, &m_brightest);
-
-    m_sharp = QPixmap::fromImage(sharp);
-    m_sharp.setDevicePixelRatio(dpr);
-    m_blurred = QPixmap::fromImage(
-        blurred.scaled(device, Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
-    m_blurred.setDevicePixelRatio(dpr);
-    m_cacheSize = logical;
+    m_heroPixmap = QPixmap::fromImage(sharp);
+    m_heroPixmap.setDevicePixelRatio(dpr);
+    m_heroCacheRect = hero;
 }
 
 QColor Backdrop::brightestUnder(const QWidget *widget) const {
-    if (m_sharpSmall.isNull() || widget == nullptr || m_cacheSize.isEmpty()) return QColor(Qt::white);
-    const QRect area(widget->mapTo(this, QPoint()), widget->size());
-    const qreal sx = qreal(m_sharpSmall.width()) / m_cacheSize.width();
-    const qreal sy = qreal(m_sharpSmall.height()) / m_cacheSize.height();
-    const QRect small(qFloor(area.left() * sx), qFloor(area.top() * sy),
-                      qCeil(area.width() * sx) + 1, qCeil(area.height() * sy) + 1);
+    const QRect hero = heroRect();
+    if (m_heroSmall.isNull() || widget == nullptr || hero.isEmpty()) return QColor(Qt::white);
+    const QRect area = QRect(widget->mapTo(this, QPoint()), widget->size()).translated(-hero.topLeft());
+    const qreal sx = qreal(m_heroSmall.width()) / hero.width();
+    const qreal sy = qreal(m_heroSmall.height()) / hero.height();
+    const QRect small(qFloor(area.left() * sx), qFloor(area.top() * sy), qCeil(area.width() * sx) + 1,
+                      qCeil(area.height() * sy) + 1);
     QColor brightest(Qt::black);
-    extremes(m_sharpSmall, small, nullptr, &brightest);
+    extremes(m_heroSmall, small, nullptr, &brightest);
     return brightest;
 }
 
 void Backdrop::scheduleRebuild() {
-    if (m_blurred.isNull()) {
+    if (m_frost.isNull()) {
         rebuildNow();
     } else {
         m_debounce->start();
@@ -541,67 +519,31 @@ void Backdrop::resizeEvent(QResizeEvent *event) {
 
 void Backdrop::paintEvent(QPaintEvent *) {
     QPainter painter(this);
-    if (!enabled()) {
-        painter.fillRect(rect(), palette().color(QPalette::Window));
-        return;
+    const Mode m = effectiveMode();
+    // `grab()` 往 QPixmap 里画（屏上那一趟重定向到的是 backing store 的 QImage）——
+    // DWM 那一层拍不进位图，这一趟按风景底画。
+    const QPaintDevice *redirect = redirected(nullptr);
+    const bool toPixmap = redirect != nullptr && redirect->devType() == QInternal::Pixmap;
+    if (m == Mode::Solid) {
+        painter.fillRect(rect(), Theme::tokens().page);
+    } else if ((m == Mode::Acrylic || m == Mode::Mica) && !toPixmap) {
+        // 系统背板在 DWM 那一层；这里只换掉窗口里的像素（Source：连 alpha 一起写）。
+        painter.setCompositionMode(QPainter::CompositionMode_Source);
+        painter.fillRect(rect(), tint());
+        painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
+    } else {
+        if (m_frost.isNull()) rebuildNow();
+        painter.setRenderHint(QPainter::SmoothPixmapTransform, m_frostSize != size());
+        painter.drawPixmap(rect(), m_frost, m_frost.rect());
+        QColor layer = Theme::tokens().page;
+        layer.setAlphaF(minimumTintAlpha(layer, bodyInks(), {m_darkest, m_brightest}, tintStrength() / 100.0));
+        painter.fillRect(rect(), layer);
     }
-    if (m_sharp.isNull()) rebuildNow();
-    painter.setRenderHint(QPainter::SmoothPixmapTransform, m_cacheSize != size());
-    painter.drawPixmap(rect(), m_sharp, m_sharp.rect());
-    paintShadows(painter);
-}
-
-void Backdrop::paintShadows(QPainter &painter) {
-    // 每张卡片一张阴影图，按尺寸缓存（1/4 尺寸上画圆角块 + 模糊，贴的时候放大）。
-    static QHash<quint64, QImage> cache;
-    const bool dark = Theme::isDark();
-    QList<QPointer<QWidget>> &list = shadowed();
-    list.removeAll(nullptr);
-    for (const QPointer<QWidget> &card : std::as_const(list)) {
-        if (card->window() != window() || !card->isVisible()) continue;
-        if (Backdrop::of(card) != this) continue;
-        const QSize s = card->size();
-        if (s.isEmpty()) continue;
-        const quint64 key = (quint64(s.width()) << 32) | quint64(s.height()) | (dark ? 1ull << 63 : 0);
-        QImage shadow = cache.value(key);
-        if (shadow.isNull()) {
-            constexpr int q = 4;
-            const QSize outer((s.width() + 2 * kShadowSpread) / q, (s.height() + 2 * kShadowSpread) / q);
-            QImage block(outer, QImage::Format_ARGB32_Premultiplied);
-            block.fill(Qt::transparent);
-            QPainter p(&block);
-            p.setRenderHint(QPainter::Antialiasing, true);
-            p.setPen(Qt::NoPen);
-            p.setBrush(QColor(0, 0, 0));
-            p.drawRoundedRect(QRectF(kShadowSpread / q, kShadowSpread / q, s.width() / q,
-                                     s.height() / q),
-                              radius(Kind::Card) / q, radius(Kind::Card) / q);
-            p.end();
-            // 盒式模糊只认不透明像素：把 alpha 当灰度模糊，再塞回 alpha。
-            QImage alpha(outer, QImage::Format_RGB32);
-            for (int y = 0; y < outer.height(); ++y) {
-                for (int x = 0; x < outer.width(); ++x) {
-                    const int a = qAlpha(block.pixel(x, y));
-                    alpha.setPixel(x, y, qRgb(a, a, a));
-                }
-            }
-            alpha = boxBlur(alpha, 3);
-            const int strength = dark ? 150 : 70;
-            shadow = QImage(outer, QImage::Format_ARGB32_Premultiplied);
-            for (int y = 0; y < outer.height(); ++y) {
-                for (int x = 0; x < outer.width(); ++x) {
-                    const int a = qRed(alpha.pixel(x, y)) * strength / 255;
-                    shadow.setPixel(x, y, qPremultiply(qRgba(0, 0, 0, a)));
-                }
-            }
-            if (cache.size() > 32) cache.clear();
-            cache.insert(key, shadow);
-        }
-        const QPoint at = card->mapTo(this, QPoint());
-        const QRect target(at.x() - kShadowSpread, at.y() - kShadowSpread + kShadowOffsetY,
-                           s.width() + 2 * kShadowSpread, s.height() + 2 * kShadowSpread);
-        painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
-        painter.drawImage(target, shadow);
+    const QRect hero = heroRect();
+    if (!hero.isEmpty() && sceneShown()) {
+        if (m_heroPixmap.isNull() || m_heroCacheRect.size() != hero.size()) rebuildHero();
+        painter.setRenderHint(QPainter::SmoothPixmapTransform, m_heroCacheRect.size() != hero.size());
+        painter.drawPixmap(hero, m_heroPixmap, m_heroPixmap.rect());
     }
 }
 
