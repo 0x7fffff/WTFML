@@ -1,110 +1,87 @@
-# 外部输入 → 盘上路径 / 解码：边界盘点（2026-10-31）
+# 外部输入路径与数据安全边界
 
-用户要求「不要留会被恶意利用的漏洞」。这一轮把**会变成盘上路径的名字**和**会按声明尺寸
-分配内存的图片**从头盘了一遍，给缺口补上了判据，并把判据本身用断言钉住。
+本文档汇总 WTFML 对外部输入名称、文件路径、图片解码及脚本执行的安全防护边界与校验规范，供核心与功能模块开发者查阅。
 
-只做"外部输入当数据看"这一件事；不改任何产品行为（合法输入走的路、界面上的每一句话
-都没有变），也不宣称做了完整的渗透测试或安全认证。
+---
 
-## 1. 已经变成路径的那几个名字
+## 1. 外部输入名称到盘上路径的转换
 
-| 输入（来源） | 拼成什么 | 判据 | 钉住它的断言 |
+对于所有从外部清单、网络接口或归档中读取并拼装为本地路径的字符串，统一实施前置安全校验：
+
+| 输入来源 | 目标本地路径 | 校验判据 | 关键断言 |
 | --- | --- | --- | --- |
 | `version.json` 的 `assetIndex.id` | `<assets>/indexes/<id>.json` | `AssetNames::isSafeIndexId()` | `verify_downloads` ZAO2 |
-| 资源索引里每个对象的 `hash` | `<assets>/objects/<前两位>/<整个哈希>` | `AssetNames::isSha1Hex()` | `verify_downloads` ZAO1 |
-| Modrinth / CurseForge 版本的 `filename` | `<实例>/mods/<filename>` 等 | `InstanceFiles::validateFileName()` | `verify_instances` N0 |
-| 升级审计表 `wtfml.preset-mod-install.json` 的 `filename` | `<暂存>/mods/<filename>` | 同上（这份表是**从盘上读回来的**） | N0 + 代码里同一处判据 |
+| 资源索引内对象的 `hash` | `<assets>/objects/<前两位>/<完整哈希>` | `AssetNames::isSha1Hex()` | `verify_downloads` ZAO1 |
+| 平台模组版本的 `filename` | `<实例>/mods/<filename>` 等 | `InstanceFiles::validateFileName()` | `verify_instances` N0 |
+| 升级审计表 `wtfml.preset-mod-install.json` 的 `filename` | `<暂存>/mods/<filename>` | `InstanceFiles::validateFileName()` | `verify_instances` N0 |
 
-要点：
+### 核心约束
 
-- **判据只有一份**。索引号 / 文件名都是"一段路径"：`InstanceFiles::validatePathSegment()`
-  收 `..`、分隔符、`:`（NTFS 备用数据流）、`< > " | ? *` 和控制字符、结尾的点和空格、
-  `CON` 这类保留设备名。文件名在它上面只多一条长度上限（`kMaxFileNameLength = 200`）。
-  哈希另起一条（40 位十六进制），顺带保证 `objects/<前两位>/` 那一段永远是两位十六进制。
-- 拒掉的地方都有**终态**：`downloadAssets()` 把不安全的索引号记成一条失败任务
-  （进分母、发 `downloadFinished(false)`），整批不会被当成成功；资源文件名那一路向用户
-  说一句"这一版的文件名没法用（…）：<原因>\n没有装/没有下载"，并在下载开始**之前**
-  就拦住（`ResourceInstallController::installNow()`），而不是下完一批才逐个失败。
-- `AssetNames` 是纯头（`src/download/AssetNames.hpp`），不碰盘，测试直接钉真值表。
+- **统一判据**：路径段校验统一由 `InstanceFiles::validatePathSegment()` 处理，拦截 `..`、目录分隔符、NTFS 备用数据流（`:`）、保留字符（`< > " | ? *`）、控制字符、尾部点/空格及 Windows 保留设备名称（如 `CON`、`PRN`、`AUX`、`NUL`、`COM1` 等）。文件名在此基础上增加长度上限（`kMaxFileNameLength = 200`）。
+- **对象哈希严格匹配**：对象哈希限定为恰好 40 位十六进制字符，保证 `<前两位>/` 目录结构恒为有效双字符十六进制。
+- **前置拦截与终态保证**：不合规的索引号直接记为失败任务，下载停止；非法文件名在发起下载前（`ResourceInstallController::installNow()`）即时阻断并提示错误原因，不执行无效文件写入。
 
-## 2. 会按声明尺寸分配内存的图片
+---
 
-PNG / BMP / WebP 的头部可以声明几万乘几万，而压缩后的字节只有几十个 —— 解码器照那个
-数字分配，一次就是几个 GB。这一轮把「先问尺寸、超了不解」做成 `ImageDecode::decode()`
-的默认行为（`src/util/ImageDecode.hpp` 的 `Limits`）：
+## 2. 外部图片解码尺寸保护
 
-- 默认一档 `4096 / 16 MP`，给**网上来的**图标 / 服务器图标用；
-- `ThemeImage` 那一档放宽到 `8192 / 64 MP`，因为那是用户自己挑的本机背景图；
-- 尺寸检查发生在两个位置：`QImageReader::size()`（只读头，读像素之前）和
-  WIC 的 `GetSize()`（`QImage` 分配之前）；解完之后再核一次，兜住"头里没写尺寸"的格式。
+PNG、BMP、WebP 等格式的头部信息可能声明超大分辨率，引发解码内存暴增。系统通过 `ImageDecode::decode()`（`src/util/ImageDecode.hpp` 的 `Limits`）实施先测后解的尺寸保护：
 
-调用点和各自的上限：
+- 尺寸检查分别在 `QImageReader::size()`（读取像素前）与 Windows Imaging Component (WIC) 的 `GetSize()` 阶段执行，解码后再行复核。
+- 各场景尺寸限制：
 
-| 位置 | 图片从哪儿来 | 上限 |
+| 场景位置 | 图片来源 | 防护上限 |
 | --- | --- | --- |
-| `ResourceStore`（资源图标） | Modrinth / CurseForge | 默认 4096 / 16 MP |
-| `ServerPingController` / `ToolboxController`（服务器图标） | 服务器答复里的 data URL、盘上缓存 | 默认 |
-| `ThemeImage`（背景图） | 用户挑的本机文件 | 8192 / 64 MP（源文件 32 MB 封顶） |
-| `MainWindow::onSkinUploadRequested` / `onOfflineSkinPickRequested` | 用户挑的本机文件（"皮肤包"） | 256×256，源文件 16 MB 封顶 |
-| `VersionIcons::fileMark`（实例图标） | 实例目录的 `icon.png` | 8192 / 64 MP |
-| `InstanceFilesPage::directoryThumbnail`（存档格） | 存档目录的 `icon.png` | 1024 / 1 MP |
-| `InstanceSettingsLifecycle`（截图缩略图） | `screenshots/` 里的文件 | 16384 / 64 MP |
+| `ResourceStore`（资源图标） | Modrinth / CurseForge | 4096 / 16 MP |
+| `ServerPingController` / `ToolboxController`（服务器图标） | 服务器回复的 data URL、本地缓存 | 4096 / 16 MP |
+| `ThemeImage`（用户背景图） | 用户指定的本地文件 | 8192 / 64 MP（源文件 ≤ 32 MB） |
+| 皮肤导入入口 | 用户指定的皮肤文件 | 256×256（源文件 ≤ 16 MB；最终规格仍按 `SkinApi::isAcceptableSkinSize` 判定 64×64 / 64×32） |
+| `VersionIcons::fileMark`（实例图标） | 实例目录内的 `icon.png` | 8192 / 64 MP |
+| `InstanceFilesPage::directoryThumbnail`（存档卡片） | 存档目录内的 `icon.png` | 1024 / 1 MP |
+| `InstanceSettingsLifecycle`（截图缩略图） | `screenshots/` 目录内的截图 | 16384 / 64 MP |
 
-皮肤图真正的尺寸判据仍然是 `SkinApi::isAcceptableSkinSize()`（64×64 / 64×32）——
-上面那些只是"别按一个荒唐的声明去分配"，不是替代它。
+---
 
-## 3. 原本就在、这一轮没有改的边界
+## 3. 基础执行与归档安全
 
-- 解压：`ZipUtil` 逐条挡 `..`、开头的 `/`、盘符冒号；整合包清单另过
-  `ModpackImport::isSafeRelativePath()`（逐段走同一套规矩）。
-- 库文件：`LibraryRules::libraryRelativePathIsSafe()` 同时管 artifact 和 natives 的路径。
-- 子进程：PowerShell 一律 `-EncodedCommand` + `psQuote()`；递给它的脚本正文有长度上限
-  （条目表落临时文件，见仓库外《WTFML-测试笔记》里那一条）。
-- 界面：富文本一律 `toHtmlEscaped()`，外部链接 `setOpenExternalLinks(false)`；
-  导出的 `.bat` 不许带已知凭据（`SecretRedactor::remember()` 那一层）。
+- **归档解压防护**：`ZipUtil` 逐项拦截 `..`、前导斜杠及盘符冒号；整合包清单由 `ModpackImport::isSafeRelativePath()` 逐段校验。
+- **动态库与 Native 路径**：由 `LibraryRules::libraryRelativePathIsSafe()` 统一管控 artifact 与 natives 的相对路径。
+- **PowerShell 执行安全**：
+  - 启动参数一律采用 `-EncodedCommand` 与 `psQuote()` 拼接；
+  - 程序路径强制使用绝对系统路径 `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe`（由 `PowerShell::executable()` 提供解析并缓存），防止当前工作目录或 PATH 劫持；
+  - 解压命令统一使用 `-LiteralPath`，防止方括号等特殊字符被识别为通配符展开。
+- **界面文本渲染**：外部展示的富文本一律执行 `toHtmlEscaped()` 转义，外部超链接统一禁用 `openExternalLinks`。
 
-## 4. 刻意没有动的
+---
 
-- **本机用户自己的配置文件**（`options.txt`、`server.properties` 等）按"用户自己的东西"
-  处理：读坏了如实报错，不额外加路径判据。
-- **列表虚拟化**不在这一轮：它会动选择按身份还回、悬停露详情和滚动锚点，和"大列表性能"
-  那一项一起评估。
-- 导出的 `.bat` 里参数自带 `"` 的转义：cmd 没有"引号里再次包引号"的写法，`quote()` 的
-  注释已说明"不假装能转义"；这是本地操作，不是外部输入。
+## 4. 智能体（Agent）安全边界
 
-## 5. 这一轮的验证
+- **网络边界**：仅允许访问配置的模型 API 端点；仅接受 `https://`（环回 `http://` 需显式确认）；不跟随 HTTP 重定向，严格校验 TLS 证书。
+- **凭据隔离**：API Key 仅存储于 Windows 凭据管理器或 DPAPI，不写入日志、会话文件或错误报告；界面默认遮挡并不提供回显与直接复制。
+- **数据脱敏**：出站文本统一过 `AgentRedaction`，对已知令牌、密钥块与凭据字段进行本地遮盖。
+- **受控文件工具（Stage 1B）**：
+  - 工具操作仅限锁定实例根目录；
+  - 路径校验结合字符串拒绝与 Windows 句柄级最终路径核对（`GetFinalPathNameByHandleW`、`FileIdInfo`、`FileAttributeTagInfo`），防范 junction 绕过；
+  - 写入范围限定在 `config/**`、`defaultconfigs/**` 及 `options.txt`，写前强制执行 DPAPI 自动备份与用户逐次审批。
 
-`build/verification-mingw13`（MinGW 13.1 / Qt 6.10.1，`-Werror`）全绿：
+---
 
-| 套件 | 结果 |
-| --- | --- |
-| `verify` | 6173/6173（原 6148，新增 ZC3 的 10 条、N0 的 15 条） |
-| `verify_launch` | 329/329 |
-| `verify_resources` | 913/913 |
-| `ui_check` | 3133/3133 |
-| `mw_check` | 2722/2722 |
-| `verify_downloads` | 244/244（含 ZAO 新增的 34 条） |
-| `verify_instances` | 1622/1622 |
+## 5. 验证基线
 
-`tools/check-test-modules.ps1` 与 `tools/check-ci-partitions.ps1` 均通过。
+核心数据层与安全边界断言的现行自动化验证基线如下：
 
-## 6. 2026-10-31 补：`powershell.exe` 按系统路径解析
+| 验证工程 | 现行断言数 | 重点安全覆盖断言 |
+| --- | --- | --- |
+| `verify`（核心全套） | 6508/6508 | 含 `LongPathTests`（PowerShell 系统绝对路径解析） |
+| `verify_downloads` | 244/244 | 含 ZAO1（40 位 SHA-1 严格校验）与 ZAO2（资源索引号安全段校验）共 34 条 |
+| `verify_instances` | 1622/1622 | 含 N0（文件名安全校验 15 条）与 ZC3（路径穿越防御 10 条） |
+| `verify_agent` | 306/306 | 智能体出站脱敏、路径校验、会话加密与受控工具权限 |
+| `mw_check` | 2766/2766 | 真实主窗口、跨控制器集成与网络异常隔离 |
+| `ui_check` | 3177/3177 | 界面控件与样式边界 |
 
-以前五处起 PowerShell 都拿裸名 `powershell`。Qt 在 Windows 上走 `CreateProcess`，
-`applicationName` 是空 —— 只有名字的程序按「应用目录 → **当前目录** → 系统目录 → PATH」
-找。便携版从下载目录 / 游戏文件夹里跑起来时，同目录扔一个 `powershell.exe` 就会被我们
-这一发执行，拿到的是用户自己的权限。
+自动化架构检查脚本 `tools/check-test-modules.ps1` 与 `tools/check-ci-partitions.ps1` 保持全部通过。
 
-现在统一走 `util/PowerShell.hpp` 的 `PowerShell::executable()`：
-`%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe`（32 位进程由 WOW64
-重定向到 SysWOW64 那份），解析一次、缓存；连 SystemRoot 都读不到才回退裸名。
-Java 下载那条 `Expand-Archive` 顺手从 `-Path` 换成 `-LiteralPath`：`-Path` 认通配符，
-数据目录带 `[` / `*` 时会被当成模式去展开。
-
-验证：`verify` 6183/6183（`LongPathTests` 新增一条，钉住解析出来的是系统那份、不是
-裸名）；`verify_presets` 762/762（走同一套 `ZipUtil` 解压）。
-
-## 7. 智能体 Stage 1A（2026-11-10）
+## 6. 智能体 Stage 1A（2026-11-10）
 
 - 网络只有模型 API 一处；只接受 `https://`，loopback `http://` 需显式勾选并持续提示；
   拒绝 userinfo/片段/查询串；不跟随重定向；不忽略 TLS 错误；key 只进认证头。
@@ -119,7 +96,7 @@ Java 下载那条 `Expand-Archive` 顺手从 `-Path` 换成 `-LiteralPath`：`-P
   API 配置、工具白名单或审批策略。
 - 关闭窗口/切换会话/切换选项卡会取消在飞请求；流中断保留已收到内容并标“已中断”。
 
-## 8. 智能体 Stage 1B：文件工具与审批（2026-11-10）
+## 7. 智能体 Stage 1B：文件工具与审批（2026-11-10）
 
 - 路径：字符串快速拒绝（绝对路径、`..`、盘符、UNC、ADS、保留名、尾点/空格、控制字符）
   之后，已存在路径再用 `CreateFileW` + `GetFinalPathNameByHandleW` + `FileIdInfo` +
@@ -138,7 +115,7 @@ Java 下载那条 `Expand-Archive` 顺手从 `-Path` 换成 `-LiteralPath`：`-P
   `owner=launcher/user/shared` 不允许 Agent 清理。
 - 自动读取也要告知“可能发送给当前模型服务”；严格模式关闭所有自动读取。
 
-## 9. G1A 人工审查补充（2026-11-10）
+## 8. G1A 人工审查补充（2026-11-10）
 
 - G1A 除网络错误外全部通过；API Key 未出现在日志/会话/界面，Windows 凭据管理器主路径可用。
 - 网络错误（401/403、429、断网、流中断、重定向、证书、代理、400 错误体）延后到
@@ -147,7 +124,7 @@ Java 下载那条 `Expand-Archive` 顺手从 `-Path` 换成 `-LiteralPath`：`-P
   明文 JSON 还是已加密；加密只保护落盘，不改变发送给模型的内容。
 
 
-## 10. G1B 首轮人工发现的边界缺口（未修复前不通过）
+## 9. G1B 首轮人工发现的边界缺口（未修复前不通过）
 
 - `AgentRedaction` 目前只覆盖精确常见字段名和固定令牌形态；`hypixel_api_key`、
   `DB_PASSWORD`、`REDIS_PASSWORD`、`API_SECRET`、`JWT_SECRET` 等变体未命中。

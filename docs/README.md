@@ -33,8 +33,6 @@
 | [UPGRADE_ACCEPTANCE.md](features/UPGRADE_ACCEPTANCE.md) | U8 真机验收清单：1000×750 布局、兼容性弹窗、ACL/占用/空间、取消重入中断、历史回滚 |
 | [MANUAL_RECOVERY.md](features/MANUAL_RECOVERY.md) | 人工恢复目录：用旧目录替换当前目录的入口、事务登记、运行状态检查 |
 | [SECURITY_BOUNDARIES.md](features/SECURITY_BOUNDARIES.md) | 外部输入变成盘上路径/解码的边界盘点：会变成路径的名字、按声明尺寸分配的图片、`powershell.exe` 解析 |
-| [THEME_ADVANCED.md](features/THEME_ADVANCED.md) | 设置→外观→高级配色：控件角色与界面区域的覆盖规则、重置只清颜色不删背景图 |
-| [PREVIEW_RESOURCES.md](features/PREVIEW_RESOURCES.md) | 纹饰预览资源：按客户端版本发布时间挑原版 JAR、缓存位置与校验、超时与限额 |
 
 ## dev/ 开发者手册
 
