@@ -27,7 +27,7 @@ cmake --build build/static-release --parallel 12
 pwsh -File tools/prepare-release-copy.ps1 -BuildDir build/static-release
 ```
 
-启动量的是产品 exe 本身（外部测量，口径同 `docs/PERFORMANCE.md` 第二节：visible / ready /
+启动量的是产品 exe 本身（外部测量，口径同 `docs/dev/PERFORMANCE.md` 第二节：visible / ready /
 `WM_NULL` 最长阻塞），每次 3 跑、0 个预置实例、`StallSeconds 2`：
 
 ```powershell

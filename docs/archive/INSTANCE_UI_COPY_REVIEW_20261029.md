@@ -33,7 +33,7 @@
 
 原生复查发现首次运行的 Release 仍含最后一处旧导入说明。关闭预览后受限重链报 Permission denied，失败记录保留在 `build/instance-copy-verified-release*.log`；相同构建在授权环境最终链接通过，记录 `build/instance-copy-final-link.log`。没有将旧产物当作最终版交付。
 
-随后真机核对管理首页、实例概览、启动设置，已确认导入说明和重复段落消失、操作格顶部对齐。隔离目录 `build/instance-copy-native-final-20261029/`，测试实例只有人工构造的 UI 数据，未启动游戏、未使用真实账号或存档。修正真机发现的窗口模式长标签后，最终 Release 构建为 `build/instance-copy-window-label-final.log`；模式标签为“窗口/最大化/全屏”，枚举值不变。主窗口专项最终为 2725/2725，最新工作区检查见 `docs/REVIEW_20261030.md`。
+随后真机核对管理首页、实例概览、启动设置，已确认导入说明和重复段落消失、操作格顶部对齐。隔离目录 `build/instance-copy-native-final-20261029/`，测试实例只有人工构造的 UI 数据，未启动游戏、未使用真实账号或存档。修正真机发现的窗口模式长标签后，最终 Release 构建为 `build/instance-copy-window-label-final.log`；模式标签为“窗口/最大化/全屏”，枚举值不变。主窗口专项最终为 2725/2725，最新工作区检查见 `docs/features/PRESET_WORKSPACE_20261030.md`。
 
 历史失败保留：`20261029-203734-d39f8962` 包含旧断言/受限 junction，`20261029-204220-4e311071` 定位到更新中心的旧状态文案和备份提示断言。没有隐藏失败或跳过 junction 判据。
 

@@ -407,7 +407,7 @@ ui/MainWindowPages.cmake 是产品与两个 UI 验证层共用的源码清单，
 
 - MainWindow 中剩余的协调职责及过大的 API/状态头（更新中心、服务端设置、安装页、
   服务端起停、下载收尾、安装按钮、这一批下载的账、服务端菜单都已搬出，「实例预设」那一行也搬了）；
-  剩下的大头是导航/实例元数据（那份清单见 `docs/INSTANCE_META_INVENTORY.md`）
+  剩下的大头是导航/实例元数据（那份清单见 `docs/archive/INSTANCE_META_INVENTORY.md`）
   与实例设置的编辑控件 / 脏状态边界。
 - ~~「这一批下载的账」七格已搬进 `DownloadTaskLedgerController`（⑯a），但
   `m_repairingInstanceId` / `m_installingInstanceId` / `m_importingInstanceId` /
@@ -428,7 +428,7 @@ ui/MainWindowPages.cmake 是产品与两个 UI 验证层共用的源码清单，
 - ~~UiContentPagesChecks 等大测试仍共享长寿命夹具，先明确夹具生命周期再分领域。~~
   **已收口（2026-11-05）**：`UiContentPagesChecks` 十八段全部搬进各自模块（4060 → 294 行），
   共享工具收进 `UiInstanceFilesTestHelpers.hpp`，`ui_check` 全程 3177/3177。
-  其余大模块按同一张表复核过（见 `docs/TESTING.md`「其余大模块的夹具」）：要么天生要进程级
+  其余大模块按同一张表复核过（见 `docs/dev/TESTING.md`「其余大模块的夹具」）：要么天生要进程级
   夹具（主题比色 / 实例树），要么本来就自建自弃（实例覆盖、配置编辑、皮肤网格、实例分组、
   升级事务）—— 按尺寸继续切没有收益。
 - VersionManager 已分为核心、加载器安装、整合包导入、实例识别与导出，本轮没有再按行数切割它。
@@ -505,7 +505,7 @@ ui/MainWindowPages.cmake 是产品与两个 UI 验证层共用的源码清单，
 原文件 2803 → 2407 行，选择模块 415 行。三套构建源列表均已登记，扫描/行构建尚未拆完。
 同时合并启用/禁用统计，并将逐行反选改为选择模型的一次事务，避免每行重算整套状态。
 模组专项、1000 条目测量、完整 UI 3123/3123 和 Release 构建通过；
-测量范围、证据及尚未完成项见 [选择性能](P2_SELECTION_PERFORMANCE_20261029.md)。
+测量范围、证据及尚未完成项见 [选择性能](perf-notes/P2_SELECTION_PERFORMANCE_20261029.md)。
 
 ## 2026-10-31 后台完成不再驱逐用户正看着的那一页
 
@@ -645,7 +645,7 @@ ui/MainWindowPages.cmake 是产品与两个 UI 验证层共用的源码清单，
 （扫完自己开页、页眉是「完整性检查」、顶上那句总述说的是这个实例）；Java 管理页那条
 `runJavaManageTests` 的 T26 与账号与外观那页 `MwAccountAppearanceChecks` 的 Z2 / Z2b
 改成"点完按钮再转事件等探针"，不再假设 `click()` 会阻塞。
-`A` 类调用点 12 → 4，见 [嵌套事件循环盘点](NESTED_EVENT_LOOPS_AUDIT.md)。
+`A` 类调用点 12 → 4，见 [嵌套事件循环盘点](../archive/NESTED_EVENT_LOOPS_AUDIT.md)。
 
 ### 2026-11-02 「分组设置…」也改了（第一张"要结果"的非阻塞页）
 
@@ -1615,7 +1615,7 @@ meta** —— 写了下次读出来就是"自定义 + 一个用户没填过的�
 
 ## 2026-11-03 源码审查缺陷 R1–R7：先修崩溃、坏文件与静默失败
 
-`CODING_PLAN_FULL.md` §0 那一轮审查列出的 16 条里，这七条要么能在正常使用里把进程带走，
+`ROADMAP.md` §0 那一轮审查列出的 16 条里，这七条要么能在正常使用里把进程带走，
 要么会写出下一趟读不回来的文件。逐条：
 
 - **R1 更新检查批次表的裸指针**（`src/download/ResourceStore.hpp/.cpp`）：`LatestRun::replies`
@@ -1959,7 +1959,7 @@ U10T）时按段做、每段都过一次 `ui_check`。
 
 ## 2026-11-05 复核：还剩什么"大文件按状态所有权拆分"
 
-计划里那一条现在的清单（见 `CODING_PLAN_FULL.md` §4）逐项对过：
+计划里那一条现在的清单（见 `ROADMAP.md` §4）逐项对过：
 
 | 清单里的项 | 现状 | 结论 |
 | --- | --- | --- |

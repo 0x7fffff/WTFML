@@ -6,19 +6,19 @@
 重点复核最新行为提交 `4cbccb6`、截止竞态修复 `33ad845`、对应源码/测试和已有升级链路，不是全仓逐行审计。
 
 用户的新升级规范已原样复制到仓库外同级 `WTFML_实例升级功能规范.md`，按 SHA-256 与下载目录原件核对一致。
-功能落地拆解见 [升级改版准备](INSTANCE_UPGRADE_REDESIGN.md)。本轮不修改业务代码，不操作用户实例或注册表，不提交/推送。
+功能落地拆解见 [升级改版准备](../features/INSTANCE_UPGRADE_REDESIGN.md)。本轮不修改业务代码，不操作用户实例或注册表，不提交/推送。
 
 ## 已确认回归：服务端默认值清不掉
 
 证据链：
 
-1. [ServerRegistry::writeMeta](../src/server/ServerRegistry.cpp) 约 345–350 行将 `ServerModel::toJson(info)` 的输出逐项盖到旧 JSON 上，以保留未知字段。
-2. [ServerModel::toJson](../src/server/ServerModel.hpp) 约 653–657 行在 `restartOnCrash=false` 和默认重试次数时不输出对应键。
+1. [ServerRegistry::writeMeta](../../src/server/ServerRegistry.cpp) 约 345–350 行将 `ServerModel::toJson(info)` 的输出逐项盖到旧 JSON 上，以保留未知字段。
+2. [ServerModel::toJson](../../src/server/ServerModel.hpp) 约 653–657 行在 `restartOnCrash=false` 和默认重试次数时不输出对应键。
 3. `setRestartOnCrash(id, false)` 约 363–378 行读到旧记录后设为 false，再调用合并写；没有任何步骤清除旧 `restartOnCrash:true`。
 
 因此关闭自动重启会返回写入成功，但再次读取仍为 true。这是源码语义可直接确认的回归，本轮未运行游戏或服务端复现。
 
-[ServerRegistryTests](../tests/core_modules/ServerRegistryTests.cpp) 当前只覆盖写 true 和保留未知字段，缺 true→false 回读；模型测试还明确约定默认值可以省略，不能只为修该回归而随意改变序列化格式。
+[ServerRegistryTests](../../tests/core_modules/ServerRegistryTests.cpp) 当前只覆盖写 true 和保留未知字段，缺 true→false 回读；模型测试还明确约定默认值可以省略，不能只为修该回归而随意改变序列化格式。
 
 建议修复：列出当前模型拥有的键，先清除旧的这些键，再合并新序列化内容；未知字段继续保留。不能回退到整份重建，否则重新丢失未知字段。
 

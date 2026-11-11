@@ -210,7 +210,7 @@ Forge/NeoForge安装器内部HTTP不属于DownloadManager；客户端既有静�
 异步 Control 额度，与 HttpClient 共用四个短请求名额。等待计入原有每次尝试截止，
 换版本/关闭页面同时取消排队和活动请求；NeoForge 既有一次镜像回退保留。
 其它独立 QNAM 与分段持续低速比较仍待逐步接入，不宣称进程所有 HTTP 都已收口。
-实现、首次销毁失败与修复验证见 [元数据预算](P2_METADATA_BUDGET_20261031.md)。
+实现、首次销毁失败与修复验证见 [元数据预算](../dev/perf-notes/P2_METADATA_BUDGET_20261031.md)。
 
 2026-10-31 分段协调器接入低速比较：分段阶段的「持续低速」看**窗口内的合计**速率
 （`SlowSourcePolicy::kSustainedWindowMs` = 30 秒，窗口内收到的分段正文字节 / 窗口时长），

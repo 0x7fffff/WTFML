@@ -4,7 +4,7 @@
 （`PerfProbe` 的 `actionMs`），不知道那 N 毫秒里主线程在做什么；这次把**卡住那一刻的
 调用栈**采下来，并且把本程序的帧解析到函数名和行号。
 
-数字归 [性能记录](PERFORMANCE.md)，这份文档只讲方法、怎么复核、量到了什么、以及坑。
+数字归 [性能记录](../PERFORMANCE.md)，这份文档只讲方法、怎么复核、量到了什么、以及坑。
 
 ## 结论
 
@@ -18,7 +18,7 @@
   2. **预设 store 同步写**：1000 次 `saveManifest()` ≈ 1.7 s，其中一份正好停在
      `QSaveFile::commit()` → `FlushFileBuffers`（`PresetStore.cpp:64`）。
   3. **第一次把中文画到屏上**：`nav:instances` 停在 DirectWrite 的字形回退查询，
-     约 280 ms，这是首帧点字体的成本，和 [界面正文里的回退字形](PERFORMANCE.md)那节同源。
+     约 280 ms，这是首帧点字体的成本，和 [界面正文里的回退字形](../PERFORMANCE.md)那节同源。
 - 另有一次 `nav:settings` 2.9 s，栈停在 `QThread::start` → `CreateThread` 里；
   后来 9 次带栈的测量里出现过 2 次（同一份 exe 再跑 8 次没有），未定位，只记现象。
 
@@ -130,7 +130,7 @@ Qt6Gui!QFontEngineMulti::stringToCMap
 ```
 
 代价在字体引擎那一侧，不在我们的代码里；三趟都在 272–284 ms，很稳定。
-和 [主页那颗箭头](PERFORMANCE.md) / [界面正文里的回退字形](PERFORMANCE.md)那两节是同一类成本。
+和 [主页那颗箭头](../PERFORMANCE.md) / [界面正文里的回退字形](../PERFORMANCE.md)那两节是同一类成本。
 
 ### `scan:java`：约 100 ms，主线程等子进程
 

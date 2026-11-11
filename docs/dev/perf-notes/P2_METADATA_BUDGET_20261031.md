@@ -30,5 +30,5 @@ Modrinth / CurseForge 版本表也已迁到同一档（见 [兼容查询预算](
 [安装与 Java](P2_INSTALL_BUDGET_20261031.md)。至此元数据层不再有自己管超时的请求。
 没有增加每来源 FIFO 或速率限制，也不把并发名额当作 429 的完整解法。
 签名 URL 过期/表示变化的额外实网样本、多网络对照仍留在主计划（分段协调器的持续低速
-比较已接入，见 [高速下载](HIGH_SPEED_DOWNLOAD.md)）；不同网络的速度不从本机 HTTP
+比较已接入，见 [高速下载](../../features/HIGH_SPEED_DOWNLOAD.md)）；不同网络的速度不从本机 HTTP
 夹具推导。

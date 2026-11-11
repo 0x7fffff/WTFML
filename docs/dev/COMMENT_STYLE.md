@@ -119,7 +119,7 @@ static int suggestXmxMb(qint64 totalMb, qint64 availableMb, int modCount = 0);
 ```
 
 - 不重复写同一个 TODO；先搜全仓，合并到最近的责任点。
-- `TODO` 不应长期停留在核心路径上；要么排进 `CODING_PLAN_FULL.md`，要么删除。
+- `TODO` 不应长期停留在核心路径上；要么排进 `ROADMAP.md`，要么删除。
 - 不新增无主 TODO（没有条件、没有验收标准）。
 
 ---

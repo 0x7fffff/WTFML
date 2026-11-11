@@ -66,7 +66,7 @@ pwsh -NoProfile -File tools/acceptance_desktop.ps1 -Root build/desktop-dpi-100-u
 
 已补三模块保守并行与独立默认根；38 项注册测试中只开放账号/账本/工具箱，另 35 项独占。
 串行/并行均 3/3；策略检查 `build/p1-parallel-policy-20261028.json`，运行器自检通过。
-本体 Release 已编译，完整主窗口 2716/2716；详见 [P2 恢复响应性](P2_RECOVERY_PERFORMANCE_20261028.md)。
+本体 Release 已编译，完整主窗口 2716/2716；详见 [P2 恢复响应性](../dev/perf-notes/P2_RECOVERY_PERFORMANCE_20261028.md)。
 这些专项结果仍不代替全量非 visual/visual、未覆盖的实机复杂交互或正版全链。
 
 

@@ -1,10 +1,10 @@
 # 性能基线（构建与运行）
 
 这份文档只放**数字和量法**。产品行为的约定在 `FEATURES.md`，验证工程的约定在
-`docs/TESTING.md`。一条规则贯穿全部：
+`docs/dev/TESTING.md`。一条规则贯穿全部：
 
 > 功能断言和性能基线分离；不能用 offscreen、调试器或未优化构建的速度代表产品性能。
-> —— `docs/TESTING.md`「新增测试约定」
+> —— `docs/dev/TESTING.md`「新增测试约定」
 
 所以这里的每一条都注明构建档位（`Release`）和测量方式；验证工程（`verify*` /
 `mw_check` / `ui_check`）按设计是 `-O0`，它们的耗时一律**不进**这份基线。
@@ -553,7 +553,7 @@ TU 总数 1412（产品 218 / 验证 1194），仓库内头 297 份。
 真实 Qt 列表的 1000 条目对照：逐行选择参考路径 1279.164ms、1000 次通知；
 生产反选按钮的批量路径 1.430ms、1 次通知，最终选择集合相同。
 仅统计同步调用，未含首绘、后续绘制、冷盘和真实模组解析；不外推整页加速比例。
-详细改动、复测命令及专项/UI 验证见 [选择性能](P2_SELECTION_PERFORMANCE_20261029.md)。
+详细改动、复测命令及专项/UI 验证见 [选择性能](perf-notes/P2_SELECTION_PERFORMANCE_20261029.md)。
 
 ## 2026-10-31 实例列表：`wtfml.meta` 读侧缓存
 
@@ -896,7 +896,7 @@ U+FF01 ！    metrics=4ms      0x1F3xx 那一片（emoji） 未测，按回退�
 189 → 238 ms，不采用；`-flto=auto` 在这条工具链上链接不过（16 个自家符号被判未定义），
 不引入。工具是 `tools/prepare-release-copy.ps1`（只动副本、留 `.debug`、写
 `release-copy.json`），完整口径、证据目录和"没验到的"见
-[发布体积实测](P2_RELEASE_SIZE_20261101.md)。
+[发布体积实测](perf-notes/P2_RELEASE_SIZE_20261101.md)。
 
 ## 2026-11-01 共享头扇出的时间成本与预编译头
 
@@ -1000,7 +1000,7 @@ endif()
 `GetThreadContext` → `StackWalk64` → `ResumeThread`，放行之后才 `SymFromAddr`；
 本程序的帧只记 `exe+0xRVA`，事后交给 `tools/symbolize-stalls.ps1`（addr2line）解析。
 方法、踩过的坑（`SYMBOL_INFO::Name` 数组重载、返回地址要 `-1`、dbghelp 只有导出表）
-和边界见 [主线程卡住时的调用栈](P2_STALL_STACKS_20261101.md)。
+和边界见 [主线程卡住时的调用栈](perf-notes/P2_STALL_STACKS_20261101.md)。
 
 三跑同一份 exe（`-Instances 200`，200 个实例），栈顶与步骤耗时对得上：
 
@@ -1047,8 +1047,8 @@ endif()
 （不是我们哪段代码慢）；普通 Qt 控制台程序连建 240 个线程一次也没慢过；第一步先预建
 一颗池线程能把设置页那一下压到 0/20，但卡顿挪到了 `nav:instances`（2/20）——
 **转移，不是修好**，产品代码没动。见
-[起一个线程偶尔要 3 秒](P2_THREAD_CREATE_STALL_20261101.md) 与
-[后台干活时界面还点得动吗](P2_CONCURRENT_LOAD_20261101.md)。
+[起一个线程偶尔要 3 秒](perf-notes/P2_THREAD_CREATE_STALL_20261101.md) 与
+[后台干活时界面还点得动吗](perf-notes/P2_CONCURRENT_LOAD_20261101.md)。
 
 ## 2026-11-01 预设列表的摘要缓存
 
@@ -1071,7 +1071,7 @@ endif()
 改完发现热缓存会让探针的"后台目录加载"那一步 11 ms 就回来、多任务 A/B 的加载中那半组
 空转（`busyDuringLoad` 8/8 → 0/8）；探针改了先调 `Presets::forgetSummaryCache()` 再起
 后台加载，三跑回到 2.31–2.36 s。形状、五条失效路径的验收（PA12）与边界见
-[预设列表的摘要缓存](P2_PRESET_LIST_CACHE_20261101.md)。
+[预设列表的摘要缓存](perf-notes/P2_PRESET_LIST_CACHE_20261101.md)。
 
 ## 2026-11-01 预设列表的冷读改成并行
 
@@ -1094,7 +1094,7 @@ endif()
 顺带修了探针的一处测量口径：加载窗口从 2.3 s 缩到 0.4 s 之后，`concurrent:busy-*` 的
 8 发里只有 2 发真的压在窗口上，剩下的空载样本会把 `busy` 平均数拉回 `calm`。现在
 `busy` 只统计 `loadActive` 的那几发（样本数 8 → 2）。形状、踩到的坑（`slots` 是 Qt 的
-空宏）与验收（PA13）见 [预设列表的冷读改成并行](P2_PRESET_READ_PARALLEL_20261101.md)。
+空宏）与验收（PA13）见 [预设列表的冷读改成并行](perf-notes/P2_PRESET_READ_PARALLEL_20261101.md)。
 
 ## 2026-11-02 预设摘要缓存落盘
 
@@ -1115,7 +1115,7 @@ endif()
 冷读 0.44 s → 18 ms（约 24×，单跑）。这一步是探针里新加的一档：先
 `forgetSummaryCache(root, true)` 只清进程里那张，再 `list()`。写那 1.7 s 没动（产品没有
 一次写 1000 份的路径，合并 fsync 等于拿掉耐久性）。形状与验收（PA15 的 11 条）见
-[预设列表的冷读改成并行](P2_PRESET_READ_PARALLEL_20261101.md)。
+[预设列表的冷读改成并行](perf-notes/P2_PRESET_READ_PARALLEL_20261101.md)。
 
 ## 2026-11-01 起一个线程偶尔要 3 秒（只测，没改）
 
@@ -1132,7 +1132,7 @@ endif()
 绘制路径上的 `QThreadPool::start`）⇒ **不是某段产品代码慢**，是"这个进程在那一刻建线程慢"；
 预热只是把卡顿挪走。机器上装着 Kaspersky + Defender，但没关防护去验证。产品代码这一轮
 一个字节都没改。证据与下一步（杀毒排除项 / 干净虚拟机 / ETW）见
-[起一个线程偶尔要 3 秒](P2_THREAD_CREATE_STALL_20261101.md)。
+[起一个线程偶尔要 3 秒](perf-notes/P2_THREAD_CREATE_STALL_20261101.md)。
 
 
 

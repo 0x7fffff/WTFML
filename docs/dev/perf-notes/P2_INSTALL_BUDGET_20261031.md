@@ -46,4 +46,4 @@ QNAM 没有换：服务端安装、加载器那几条继续用各自原来的那
 普通下载、Java 运行时压缩包，以及 `resourceRequest()` / `iconRequest()` 那两句会被作业
 覆盖的自洽写法。仍未做的：每来源 FIFO / 速率限制、按来源分别计的名额、429 的完整解法；
 签名 URL 过期/表示变化、多网络对照仍在主计划（分段协调器的持续低速比较已接入，
-见 [高速下载](HIGH_SPEED_DOWNLOAD.md)）。
+见 [高速下载](../../features/HIGH_SPEED_DOWNLOAD.md)）。

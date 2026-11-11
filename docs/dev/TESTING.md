@@ -36,13 +36,13 @@
 - `100704-f337ffaf`：core-presets736/736、core-activity148/148、core-servers718/718通过。
   早期预设733/733与后续三条语法位置/原件保护分开，不把可选规模分支算成默认核心断言。
 - 实际规模：NVMe、USB HDD各150预设、1000真实文件×5实例，逐文件比对和无关文件保护通过；
-  现场、时间与首次受限执行失败见docs/PRESETS.md。
+  现场、时间与首次受限执行失败见docs/features/PRESETS.md。
 - `103030-860cef89`：完整MainWindow2715/2715，包含属性外部修改和Java错误子进程保护。
   前一轮`101031-32c579aa`2714/2714发生在致命Java处理新增之前，不代替后一轮。
 - 下载执行器`095547-23e80b42`四分片通过；`100156-9a40510f`、`102636-fdb1e99e`
   补真实新OS进程恢复、失效源换链接后四分片继续通过。
   `103824-02ec8dd0`进一步核对稳定账本目录与恢复记录互斥，四分片通过。
-- 服务端真实安装和运行、界面导出、MainWindow向导见docs/SERVER_ACCEPTANCE_20261027.md，
+- 服务端真实安装和运行、界面导出、MainWindow向导见docs/archive/SERVER_ACCEPTANCE_20261027.md，
   包括原始失败、修正和不同证据层次，不以假进程代替实网/真实Java。
 - `104125-fc7b861f`：正式启动器、网络诊断构建与诊断回归通过；此后直链取消/收尾重入保护
   仍须按最终构建记录复核，不能把前一份产物冒充最新代码。
@@ -65,7 +65,7 @@
 ## 2026-10-27：2.1.7–2.2.3
 
 本轮按用户确认的必要项门禁、单次替代、部分预设允许启动及只恢复未完成段执行。
-实网受限文件与USB HDD/GTNH/FO记录见 `docs/MODPACK_IMPORT.md`；未用夹具替代真实受限文件。
+实网受限文件与USB HDD/GTNH/FO记录见 `docs/features/MODPACK_IMPORT.md`；未用夹具替代真实受限文件。
 
 - `20261027-092103-82f9606e`：core-presets 695/695、core-resources 900/900，全部通过。
 - `20261027-091858-73070624`：preset-install通过，包含真实执行器的替代二次确认、拒绝、
@@ -94,9 +94,9 @@
 这不是关闭杀毒或修改系统安全设置，也不把工具失败记作产品通过。
 
 2026-10-25 P0 深化：真实 NTFS 权限矩阵、还原/整合包跨进程中断恢复、USB HDD 新版阶段矩阵及
-未覆盖条件，见 [P0 验收记录](P0_ACCEPTANCE_20261025.md)。该记录明确保留首次失败，不能用复测覆盖。
+未覆盖条件，见 [P0 验收记录](../archive/P0_ACCEPTANCE_20261025.md)。该记录明确保留首次失败，不能用复测覆盖。
 
-2026-10-25 非 P1 增量：高级配色入口见 [使用说明](THEME_ADVANCED.md)。
+2026-10-25 非 P1 增量：高级配色入口见 [使用说明](../features/THEME_ADVANCED.md)。
 `20261025-142308-afc83d2a` 的 `wtfml.theme` 通过；
 `20261025-143826-e67ea5d7` 的主窗口回归 2687/2687，通过真实控制器核对编辑/保存/恢复。
 首次沙箱运行 `20261025-143017-33091a97` 在本机下载中出现 `Permission denied` 并于 CTest 240 秒超时；
@@ -107,7 +107,7 @@
 这是依赖范围缩减，不是冷/增量速度对比，也不是运行性能结论。主计划保留相应测量余项。
 
 2026-10-26 2.1.6a/2.1.6b/2.1.6c（GTNH 首启 MCLib AssetDirector 资源）：spike 结论 + 预取实现 +
-真机冷缓存首启。行为、写入位置、上限与实测细节见[整合包导入](MODPACK_IMPORT.md)的
+真机冷缓存首启。行为、写入位置、上限与实测细节见[整合包导入](../features/MODPACK_IMPORT.md)的
 “MCLib AssetDirector 首启资源”与“2.1.6c 实测”两节。
 
 新增/改动的代码：`src/download/AssetDirectorKnownSet.{hpp,cpp}`（清单校验、消费者识别、复用判据与
@@ -473,7 +473,7 @@ CTest 的 `wtfml.ui`（offscreen）同样通过（9.78 秒）。
 
 offscreen 全绿仍不等于真机验收：多 DPI（100% / 125% / 150%）、透明背景、动效逐帧和真实
 滚轮/光标位置相关的判据不在这一跑里；它们要么直跑 `mw_check.exe`（真屏），要么仍是未完成的
-验收项（见 `CODING_PLAN_FULL.md` §2.1）。
+验收项（见 `ROADMAP.md` §2.1）。
 
 `wtfml.test-modules` 检查入口不超过 4000 行、职责模块不超过 5000 行，禁止入口 include `.cpp`，
 并检查核心用例的归属表。新增用例应放进相应模块，不通过抬高阈值继续堆积入口。
@@ -623,7 +623,7 @@ GitHub 的 main 提交和 PR 按改动选择分片与测试；标签、定时和
   使用 `wtfml_add_test(NAME ... COMMAND <独立目标>)` 同步登记构建归属；漏归属或重复归属明确失败。
 - 每项使用独立临时目录、临时端口；夹具失败明确报错，不能让依赖该夹具的断言“假绿”。
 - 功能断言和性能基线分离；不能用 offscreen、调试器或未优化构建的速度代表产品性能。
-  构建/启动/CI 的既有基线与量法见 `docs/PERFORMANCE.md`。
+  构建/启动/CI 的既有基线与量法见 `docs/dev/PERFORMANCE.md`。
 - 已知崩溃保留首次证据、独立复现，不以“重跑直到绿”为验收规则。
 
 ## 测试入口自身的回归
@@ -823,7 +823,7 @@ core-launch **300/300**；`20261025-203357-93148414` 的 main-window **2701/2701
 P2 任务行局部复用：`20261025-205703-6211941e` 的 ui-refresh/install-layout/lifecycle/theme
 四模块通过；`20261025-205805-3251de49` 的 workspace/activity-selection 通过。
 ui-refresh 新增持续进度下的未变行保留、滚动位置、选中详情、替换回调、调色板失效与移除释放检查。
-性能用独立 Release 合成负载测量，数字及首失败记录见 `docs/PERFORMANCE.md` 第七节。
+性能用独立 Release 合成负载测量，数字及首失败记录见 `docs/dev/PERFORMANCE.md` 第七节。
 `20261025-210149-6ce322e2` 普通启动器构建与 network-diag 通过（18.97s）。
 
 P2 大量预设：`20261025-213510-15e5e224` preset-install通过（1.15s），新增模型过滤、
@@ -1037,7 +1037,7 @@ UI构建器的53个、实例设置的129个原有成员函数体/签名逐项核
   分别 8.44/11.63 秒。`tools/acceptance_download_recovery.ps1` 拒绝覆盖已有目录，每程序 180 秒截止；
   使用前与本地构建一样加载 Qt/MinGW 运行库路径。
 - Windows 真实主窗口、实际公网原版服务端及 Forge 1.20.1/47.2.0/Java17＋FOV 预设，
-  记录和截图见 [恢复验收](DOWNLOAD_RECOVERY_ACCEPTANCE_20261027.md)，不启动游戏、不碰真实账号/存档。
+  记录和截图见 [恢复验收](../archive/DOWNLOAD_RECOVERY_ACCEPTANCE_20261027.md)，不启动游戏、不碰真实账号/存档。
 - 原 Forge 服务端失败现场真实重新安装成功；缩短时钟的实际子进程另验静默重试/耗尽/总截止与再次安装。
 - 正式启动器构建通过；`tools/check-test-modules.ps1` 与 `git diff --check` 通过。
 
@@ -1102,7 +1102,7 @@ Windows/MinGW 新增 `wtfml.token-protection-fault`：仅该测试进程的导�
 核心 11 个入口、兼容入口及主窗口/UI 入口均隔离用户/系统配置与默认根；
 仍只开放已验证的三个模块并行，其余独占。`check-test-modules.ps1` 防止入口隔离声明遗漏。
 
-本轮结果、首次失败与范围限制见 [P1 验收](P1_ACCEPTANCE_20261028.md)。
+本轮结果、首次失败与范围限制见 [P1 验收](../archive/P1_ACCEPTANCE_20261028.md)。
 
 
 

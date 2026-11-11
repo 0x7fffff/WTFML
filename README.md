@@ -5,9 +5,9 @@ C++23 + Qt 6 Widgets 写的 Minecraft 启动器，只支持 Windows。
 > **文档分工**
 >
 > - 安装、构建、运行、目录结构：本文件。
-> - 当前功能行为、产品硬约束、数据约定、验证边界：**[FEATURES.md](FEATURES.md)**。
-> - 还没完成的工作：**[CODING_PLAN_FULL.md](CODING_PLAN_FULL.md)**。
-> - 注释规范：**[CONTRIBUTING_COMMENT.md](CONTRIBUTING_COMMENT.md)**。
+> - 当前功能行为、产品硬约束、数据约定、验证边界：**[FEATURES.md](docs/FEATURES.md)**。
+> - 还没完成的工作：**[ROADMAP.md](docs/ROADMAP.md)**。
+> - 注释规范：**[COMMENT_STYLE.md](docs/dev/COMMENT_STYLE.md)**。
 >
 > `FEATURES.md` 记录“现在仍然成立的约定”，不是开发日志；已完成事项不再按日期追加。
 
@@ -28,7 +28,7 @@ Qt 的 dll 在 `PATH` 上。
 
 默认会预编译一份 Qt 控件头（`WTFML_USE_PCH`），主程序的全量构建 95 → 75 秒；代价是构建
 目录里多一份 177 MB 的 `.gch`。不想用就 `-DWTFML_USE_PCH=OFF`，量法与取舍见
-[docs/PERFORMANCE.md](docs/PERFORMANCE.md) 最后一节。要**真·单文件**（一个自包含的 exe，不带任何 dll）就换静态 Qt，
+[docs/dev/PERFORMANCE.md](docs/dev/PERFORMANCE.md) 最后一节。要**真·单文件**（一个自包含的 exe，不带任何 dll）就换静态 Qt，
 CMakeLists 一个字都不用改：
 
 ```bash
@@ -64,7 +64,7 @@ cmake --build build/static-release -j
 | 智能体会话（全局，不跟游戏文件夹） | `%LOCALAPPDATA%\WTFML\agent\sessions`；API Key 在 Windows 凭据管理器/DPAPI |
 
 同一个数据目录同时只允许一个启动器窗口。第二个进程在写日志、开主窗口之前就会被拒绝并退出；
-边界细节见 [docs/DIRECTORY_SESSION_LOCK.md](docs/DIRECTORY_SESSION_LOCK.md)。
+边界细节见 [docs/features/DIRECTORY_SESSION_LOCK.md](docs/features/DIRECTORY_SESSION_LOCK.md)。
 
 GUI 子系统下面**没人看得见 stdout / stderr**，那份日志文件就是“当时到底发生了什么”的
 第一现场；想让日志同时进终端就设 `QT_FORCE_STDERR_LOGGING=1`。
@@ -130,10 +130,10 @@ $env:WTFML_TEST_TEMP = 'D:\Desktop\the_project\.tmp-test'
 
 默认验证与 CI 跑非 visual 的确定性集合；依赖真机桌面或已知受 Qt offscreen 影响的像素探针
 用 `ctest --preset visual` 单独运行。测试基线、已知离屏限制和验证原则见
-[FEATURES.md](FEATURES.md) 的「验证工程」，命令细节见 [docs/TESTING.md](docs/TESTING.md)。
+[FEATURES.md](docs/FEATURES.md) 的「验证工程」，命令细节见 [docs/dev/TESTING.md](docs/dev/TESTING.md)。
 
 - **改代码前先读它周围的注释** —— 例外、坑点和“为什么不能换一种写法”写在代码边上。
-- 新功能/行为变化同步更新 `FEATURES.md`；未完成事项只进 `CODING_PLAN_FULL.md`。
+- 新功能/行为变化同步更新 `FEATURES.md`；未完成事项只进 `ROADMAP.md`。
 - 本地凭据 / 私有文件（`LOCAL_FILES.md`、`dev-login.json`、`credential.json`）**不入库**，
   也不要贴出来或同步到别处。
 
