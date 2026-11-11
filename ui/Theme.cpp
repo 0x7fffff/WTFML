@@ -1676,6 +1676,9 @@ QString widgetStyleSheet() {
     // 整页覆盖层顶上的面包屑「‹ 返回」：次要字色、贴字的小内边距（设计稿 .crumb）。
     qss += QStringLiteral("QPushButton[wtfmlCrumb=\"true\"] { color: %1; padding: 0px 8px; min-height: 0px; }")
                .arg(paletteRef("placeholder-text"));
+    // 对话框底下那排按钮一样高：主动作那颗是 36，其余跟它齐（设计稿 .dlg .acts）。
+    qss += QStringLiteral("QWidget[wtfmlDialogActions=\"true\"] QPushButton { min-height: %1px; }")
+               .arg(primaryActionHeight() - kButtonChrome);
 
     // 「灰掉」这一条**必须摆在上面那两块之后**。
     // Qt 的样式表按**优先级**排：`QPushButton[wtfmlButtonKind="neutral"]` 和

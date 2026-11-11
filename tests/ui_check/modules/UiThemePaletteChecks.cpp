@@ -1629,7 +1629,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
 
             // ---------- 「问一句」那三颗按钮按位置分档（不是按文字） ----------
             // 这一段钉的是 `InlineMessageBox` 的 ctor：`destructiveIndex` 那颗按红、默认那颗
-            // 是主题色（**不挂属性**）、剩下的按黑。`InlineMessage::question(destructive:true)`
+            // 是主动作（实心主题色，设计稿 7c）、剩下的按中性。`InlineMessage::question(destructive:true)`
             // 走的就是同一条路（它只是把客户给的那一位转手递给 ctor）。
             // NOTE: 为什么按位置不按文字 —— 按钮表是调用方给的，同一张表里可能出现四颗都叫
             // "做什么"的（世界编辑菜单那张就是），认文字是认不住的。
@@ -1645,9 +1645,9 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                                          : button->property("wtfmlButtonKind").toString();
             };
             check(kindOf(0) == Theme::buttonKindKey(Theme::ButtonKind::Danger) &&
-                      kindOf(1).isEmpty() &&
+                      kindOf(1) == Theme::buttonKindKey(Theme::ButtonKind::Primary) &&
                       kindOf(2) == Theme::buttonKindKey(Theme::ButtonKind::Neutral),
-                  "★★ W13 三颗按钮的分档：危险那一颗按红、**默认那一颗照旧是主题色**（不挂属性）、"
+                  "★★ W13 三颗按钮的分档：危险那一颗按红、**默认那一颗是主动作**（Primary）、"
                   "剩下那颗（既不是默认也不是危险）才是黑的",
                   QStringLiteral("0=%1 / 1=%2 / 2=%3").arg(kindOf(0), kindOf(1), kindOf(2)));
 
@@ -1661,9 +1661,9 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                 return button == nullptr ? QStringLiteral("<没有这颗按钮>")
                                          : button->property("wtfmlButtonKind").toString();
             };
-            check(plainKindOf(1).isEmpty() &&
+            check(plainKindOf(1) == Theme::buttonKindKey(Theme::ButtonKind::Primary) &&
                       plainKindOf(0) == Theme::buttonKindKey(Theme::ButtonKind::Neutral),
-                  "★★ W13 没有危险动作时（`destructiveIndex = -1`）：默认那颗照旧是主题色，"
+                  "★★ W13 没有危险动作时（`destructiveIndex = -1`）：默认那颗是主动作，"
                   "另一颗是黑的",
                   QStringLiteral("0=%1 / 1=%2").arg(plainKindOf(0), plainKindOf(1)));
         }
