@@ -1224,6 +1224,8 @@ void MainWindowUI::setupBottomBar(QWidget *parent) {
     applyBottomBarButtonStyle(runStateButton, bottomBar->palette());
     QHBoxLayout *runStateRow = new QHBoxLayout(runStateButton);
     runStateRow->setContentsMargins(12, 4, 8, 4);
+    // 同任务摘要那颗：按钮 sizeHint 只算一行字，两行（状态 + 实例名）时会被压扁叠在一起。
+    runStateRow->setSizeConstraint(QLayout::SetMinimumSize);
     runStateRow->setSpacing(MainWindowUI::bottomBarChevronSpacing());
     runStateRow->addLayout(runStateLayout, 1);
     // 这个箭头**另存一份指针**（右边那颗按钮上那个不用）：没有实例在跑时它要收起来，
