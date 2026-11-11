@@ -11,7 +11,7 @@
 // 这一节**只量、不拿耗时当断言**（那是这台机器的磁盘速度，不是产品的性质）。
 // 钉形状的只有那几条：快照里有那几格、取消之后立刻回空、第二次拍同一棵树结果不变。
 //
-// 量出来的数决定"要不要挪到后台"（见 `docs/dev/perf-notes/P2_RECOVERY_PERFORMANCE_20261028.md`）。
+// 量出来的数决定"要不要挪到后台"（见 `docs/dev/perf-notes/RECOVERY_PERFORMANCE.md`）。
 
 #include "Support.hpp"
 #include "presets/PresetTargetSnapshot.hpp"
