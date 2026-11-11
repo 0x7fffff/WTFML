@@ -6,8 +6,8 @@
 
 #include <QFile>
 
-// `SkinModel::defaultSteveSkin()` —— 载不进那张贴图时的**兜底外观**（程序画的经典配色，
-// 不是把官方那张 Steve 贴图打进仓库）。`ui/` 在这一层的上面两级（src/controllers/ →
+// `SkinModel::defaultSteveSkin()` —— 载不进那张贴图时的**兜底外观**（内置的自绘默认皮肤，
+// 见 assets/skins/README.md；不打包官方那张 Steve 贴图）。`ui/` 在这一层的上面两级（src/controllers/ →
 // src/ → 仓库根），和 MainWindow.cpp 那边写 `..\ui\...` 是同一个意思。
 #include "../../ui/SkinModel.hpp"
 #include "auth/AccountStore.hpp"
@@ -93,7 +93,7 @@ void PlayerSkinController::reload(const QString &versionId) {
     m_versionId = versionId;
 
     // 先摆默认外观。**这一步之后，右栏那个小人任何时候都不是空白的** —— 未登录、
-    // 还没取到、取不到，看到的都是它。默认外观是程序画的经典配色（见
+    // 还没取到、取不到，看到的都是它。默认外观是内置的自绘默认皮肤（见
     // SkinModel::defaultSteveSkin()），不是把官方那张 Steve 贴图打进仓库。
     applyPlayerSkin(QString(), QString(), false);
     // 上一次那个账号的档案要清掉：换账号登录时它已经没用了，留着会让"贴图回来时

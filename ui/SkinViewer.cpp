@@ -181,6 +181,43 @@ void SkinViewer::resetView() {
     setView(defaultYaw(), defaultPitch(), defaultZoom());
 }
 
+namespace {
+
+/// 一层椭圆径向渐变：stops 是 (位置, 不透明度)，颜色取 @p color。
+void fillEllipseGradient(QPainter &painter, const QRectF &box, const QColor &color,
+                         std::initializer_list<std::pair<qreal, qreal>> stops) {
+    if (box.width() <= 0.0 || box.height() <= 0.0) return;
+    QRadialGradient gradient(box.center(), box.width() / 2.0);
+    for (const auto &[at, alpha] : stops) {
+        QColor c = color;
+        c.setAlphaF(alpha);
+        gradient.setColorAt(at, c);
+    }
+    painter.save();
+    painter.translate(box.center());
+    painter.scale(1.0, box.height() / box.width());
+    painter.translate(-box.center());
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(gradient);
+    painter.drawEllipse(box.center(), box.width() / 2.0, box.width() / 2.0);
+    painter.restore();
+}
+
+/// 设计稿 tokens.md「皮肤立绘落地影」三层：整体软影、脚底接触影、下沿一点反光。
+void paintGround(QPainter &painter, const QRectF &box) {
+    const Theme::Tokens t = Theme::tokens();
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    fillEllipseGradient(painter, box, t.groundShade, {{0.0, 0.38}, {0.55, 0.14}, {1.0, 0.0}});
+    const QRectF contact(box.left() + box.width() * 0.30, box.top() + box.height() * 0.38,
+                         box.width() * 0.40, box.height() * 0.24);
+    fillEllipseGradient(painter, contact, t.groundShade, {{0.0, 0.55}, {1.0, 0.0}});
+    const QRectF glint(box.left() + box.width() * 0.14, box.top() + box.height() * 0.72,
+                       box.width() * 0.72, box.height() * 0.26);
+    fillEllipseGradient(painter, glint, QColor(Qt::white), {{0.0, t.groundGlint}, {1.0, 0.0}});
+}
+
+}  // namespace
+
 void SkinViewer::paintEvent(QPaintEvent *event) {
     Q_UNUSED(event);
 
@@ -189,29 +226,25 @@ void SkinViewer::paintEvent(QPaintEvent *event) {
     // （底栏那条通栏的配色也是这么来的，见 MainWindowUI 里 bottomBar 那一段）。
     // 画一块不一样的底色是**故意的**：这个控件是个"取景框"，读起来要能和周围
     // 那层页面背景分开。
-    if (Glass::enabled()) {
-        // 磨砂开着：取景框就是卡片那块玻璃本身，不再贴一块不透明底；脚下垫一圈柔和的
-        // 落地阴影，人站在玻璃上而不是飘着。
-        painter.setRenderHint(QPainter::Antialiasing, true);
-        const QRectF floor(width() * 0.18, height() - kPadding - 14.0, width() * 0.64, 18.0);
-        QRadialGradient glow(floor.center(), floor.width() / 2);
-        glow.setColorAt(0.0, QColor(0, 0, 0, Theme::isDark() ? 110 : 60));
-        glow.setColorAt(1.0, QColor(0, 0, 0, 0));
-        painter.save();
-        painter.translate(floor.center());
-        painter.scale(1.0, floor.height() / floor.width());
-        painter.translate(-floor.center());
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(glow);
-        painter.drawEllipse(floor.center(), floor.width() / 2, floor.width() / 2);
-        painter.restore();
-    } else {
+    // 磨砂开着：取景框就是卡片那块玻璃本身，不贴不透明底；脚下垫一块落地影（设计稿 .ground，
+    // 240×40，脚踩在它 55% 高处），所以人往上让出影子露在脚下的那一截。
+    const bool glass = Glass::enabled();
+    const qreal groundW = qMin<qreal>(240.0, width());
+    const qreal groundH = groundW / 6.0;
+    const qreal below = glass ? groundH * 0.45 : 0.0;
+    if (!glass) {
         painter.fillRect(rect(), palette().color(QPalette::Base));
         painter.setPen(palette().color(QPalette::Mid));
         painter.drawRect(rect().adjusted(0, 0, -1, -1));
     }
-
-    const QRectF target = QRectF(rect()).adjusted(kPadding, kPadding, -kPadding, -kPadding);
+    const QRectF target = QRectF(rect()).adjusted(kPadding, kPadding, -kPadding, -kPadding - below);
+    if (glass) {
+        // 脚底取立正那一帧的投影下沿：走动时人不跟着影子上下跳。
+        const QRectF rest = SkinModel::projectedBounds(target, m_yaw, m_pitch, m_zoom, m_slim, false,
+                                                       SkinModel::restWalkPhase());
+        const qreal feetY = rest.isValid() ? qMin(rest.bottom(), target.bottom()) : target.bottom();
+        paintGround(painter, QRectF(width() / 2.0 - groundW / 2.0, feetY - groundH * 0.55, groundW, groundH));
+    }
     if (target.width() <= 1.0 || target.height() <= 1.0) {
         return;  // 控件被压没了，投影出来只会是 NaN
     }
