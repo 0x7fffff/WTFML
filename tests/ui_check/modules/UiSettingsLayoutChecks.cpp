@@ -182,11 +182,15 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
                             continue;
                         }
                         ++pairsChecked;
-                        auto *label = qobject_cast<QLabel *>(w->layout()->itemAt(0)->widget());
+                        // 7c 设计稿 .set：左格是「名字 + 说明」一列，名字是其中挂 settingsItemLabel 的那个。
+                        QWidget *leftCell = w->layout()->itemAt(0)->widget();
+                        auto *label = leftCell != nullptr
+                                          ? leftCell->findChild<QLabel *>(Qt::FindDirectChildrenOnly)
+                                          : nullptr;
                         QWidget *control = w->layout()->itemAt(1)->widget();
                         if (label == nullptr || control == nullptr ||
-                            !(label->geometry().right() < control->geometry().left() &&
-                              label->geometry().top() == control->geometry().top())) {
+                            !label->property("settingsItemLabel").toBool() ||
+                            !(leftCell->geometry().right() < control->geometry().left())) {
                             ++pairsBad;
                             badPairs << QStringLiteral("「%1」标签 %2,%3 控件 %4,%5")
                                             .arg(label != nullptr ? label->text() : QStringLiteral("<无标签>"))
@@ -207,7 +211,7 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
                       .arg(cardsChecked)
                       .arg(cardShapeBad));
             check(pairsChecked > 0 && pairsBad == 0,
-                  "每一行都是「标签在左 | 控件在右」，两者顶边对齐",
+                  "每一行都是「名字在左 | 控件在右」",
                   QStringLiteral("量了 %1 张卡片、%2 对里错了 %3 对 %4")
                       .arg(cardsChecked)
                       .arg(pairsChecked)
@@ -473,7 +477,9 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
             if (item == nullptr || item->layout() == nullptr || item->layout()->count() < 1) {
                 return nullptr;
             }
-            return qobject_cast<QLabel *>(item->layout()->itemAt(0)->widget());
+            QWidget *leftCell = item->layout()->itemAt(0)->widget();
+            return leftCell != nullptr ? leftCell->findChild<QLabel *>(Qt::FindDirectChildrenOnly)
+                                       : nullptr;
         };
         /// 那一行右边那格（控件自己多半还套着"控件 + 说明"的容器）。
         const auto rowControlOf = [&cardItemOf](QWidget *w) -> QWidget * {
@@ -576,8 +582,8 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
                   "「最大内存」那一行左边是选项名称、右边才是控件",
                   maxLabel != nullptr ? maxLabel->text() : QStringLiteral("<null>"));
             check(maxLabel != nullptr && maxItem != nullptr &&
-                      maxLabel->x() + maxLabel->width() <= maxItem->x() && maxLabel->y() == maxItem->y(),
-                  "选项名称量出来的几何在控件**左边**，且顶边对齐",
+                      maxLabel->parentWidget()->geometry().right() < maxItem->x(),
+                  "选项名称那一格量出来的几何在控件**左边**",
                   maxLabel != nullptr
                       ? QString("label=(%1,%2 %3x%4) control=(%5,%6)")
                             .arg(maxLabel->x())
