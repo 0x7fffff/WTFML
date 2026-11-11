@@ -59,9 +59,9 @@
   见 [高速下载](features/HIGH_SPEED_DOWNLOAD.md)、[网络诊断](dev/NETWORK_DIAGNOSTICS.md)。
 - [ ] **复杂预设的剩余 I/O**：优化批量保存逐份同步刷盘的主线程开销，补按预算读取列表摘要；
   保留原子写、错误可见、取消及预览/执行指纹门禁。已有摘要缓存与并行冷读不重复立项。
-  见 [预设并行读取](dev/perf-notes/P2_PRESET_READ_PARALLEL_20261101.md)、[卡顿采样](dev/perf-notes/P2_STALL_STACKS_20261101.md)。
+  见 [预设并行读取](dev/perf-notes/PRESET_LIST_IO.md)、[卡顿采样](dev/perf-notes/MAIN_THREAD_STALLS.md)。
 - [ ] **更大列表与多任务**：实例文件页可见范围虚拟化，保留身份选择、滚动锚点、过滤、拖放及异步补格；
-  补其它未测列表和复杂预设详情在多任务下的首绘/滚动测量。见 [大列表](dev/perf-notes/P2_LARGE_LIST_PAINT_20261031.md)。
+  补其它未测列表和复杂预设详情在多任务下的首绘/滚动测量。见 [大列表](dev/perf-notes/LIST_PAINT.md)。
 - [ ] **错误反馈与外部工具边界**：补批量/详情/迁移长错误、非常用服务器属性与 MOTD、
   外部 Java/安装器长路径及占用组合验收。已有权限/共享删除区分和记录文件合并写不重复列为未实现。
 - [ ] **复杂页面与动效收口**：新布局的窄屏、焦点/禁用对比、背景叠加、退出 200ms、完整 hover 过渡、

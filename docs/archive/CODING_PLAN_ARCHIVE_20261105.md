@@ -65,7 +65,7 @@ HDD 间歇拒绝仍未复现，按用户决定暂缓（原 P3，见 §6）；首
 按以下顺序推进，先明确测量/交付范围，再实施：
 
 - [x] **恢复大批量响应性**：安装接续校验、模组预设首次/暂停/跨重启快照已后台化，
-  保留单作业、取消/销毁、忙态/写锁与提交前复核；历史验收归 [恢复响应性](../dev/perf-notes/P2_RECOVERY_PERFORMANCE_20261028.md)。
+  保留单作业、取消/销毁、忙态/写锁与提交前复核；历史验收归 [恢复响应性](../dev/perf-notes/RECOVERY_PERFORMANCE.md)。
   任务中心首次文件恢复和当前暂停批次的目标核对也已后台化，排队复用已核对的指纹；
   最终下载/预设联动 5/5、USB HDD 2/2，包含取消后忙态释放与校验后的外部改动保护。
   下面几项均已落地（「其它预设应用配置读取」归到「复杂预设/大列表」那一项）：
@@ -83,7 +83,7 @@ HDD 间歇拒绝仍未复现，按用户决定暂缓（原 P3，见 §6）；首
      现在盘上写 `WTFML-PROTECTED-2`（zlib 压完再加密），存 0.34 秒、读 0.40 秒、
      文件 1.35 MB，读侧仍认旧的那一档（暂停中的批次不受影响）。错误可见、原件保留、
      退出前同步落盘不变；存/读仍同步跑在界面线程上（这次是压短它，不是挪走）。
-     见 [恢复响应性](../dev/perf-notes/P2_RECOVERY_PERFORMANCE_20261028.md) 第八步。
+     见 [恢复响应性](../dev/perf-notes/RECOVERY_PERFORMANCE.md) 第八步。
   4. 首次建立初始化快照（目标实例配置目录整棵树，每份整文件 SHA-256）已挪到后台：
      常见的树同步 493 ms / 单份 64 MB 资源包 285 ms，改后批次开门 3.7 ms；算不出来就
      整条接续意图置空（fail-closed，按普通下载收尾）。见第九步。
@@ -96,10 +96,10 @@ HDD 间歇拒绝仍未复现，按用户决定暂缓（原 P3，见 §6）；首
   见 [高速下载](../features/HIGH_SPEED_DOWNLOAD.md)、[网络诊断](../dev/NETWORK_DIAGNOSTICS.md)。
   2026-10-31 元数据请求已全部统一到 `RequestBudget::ControlGet`：加载器版本表、服务端
   安装、加载器安装、平台兼容、皮肤三发、资源商店九处、Java 管理；GET 与带小段正文的
-  POST 共用排队/截止/删除即取消。见 [元数据](../dev/perf-notes/P2_METADATA_BUDGET_20261031.md)、
-  [兼容](../dev/perf-notes/P2_COMPAT_BUDGET_20261031.md)、[皮肤](../dev/perf-notes/P2_SKIN_BUDGET_20261031.md)、
-  [资源商店](../dev/perf-notes/P2_RESOURCE_BUDGET_20261031.md)、
-  [安装与 Java](../dev/perf-notes/P2_INSTALL_BUDGET_20261031.md)。
+  POST 共用排队/截止/删除即取消。见 [元数据](../dev/perf-notes/REQUEST_BUDGETS.md)、
+  [兼容](../dev/perf-notes/REQUEST_BUDGETS.md)、[皮肤](../dev/perf-notes/REQUEST_BUDGETS.md)、
+  [资源商店](../dev/perf-notes/REQUEST_BUDGETS.md)、
+  [安装与 Java](../dev/perf-notes/REQUEST_BUDGETS.md)。
   仍自己管超时的只剩正文：普通下载、Java 运行时压缩包。
 - [ ] **运行/构建剩余测量**：其它共享头扇出、主线程精确调用栈、
   实际多任务负载。已有冷/增量/热重链、共享运行器、下载基准、后台扫描与局部更新，复用
@@ -120,11 +120,11 @@ HDD 间歇拒绝仍未复现，按用户决定暂缓（原 P3，见 §6）；首
   同步读 1000 份 2.3 s（`PresetStore.cpp:410`）、同步写每份一次 `FlushFileBuffers`
   共 1.7 s、首次画中文查字形回退 280 ms、`scan:java` 主线程等子进程 100 ms、造 200 行
   控件 80 ms。采样差值 1.9–86.6 ms（中位 25.6 ms），没有把测量本身拖慢。见
-  [卡住时的调用栈](../dev/perf-notes/P2_STALL_STACKS_20261101.md)。
+  [卡住时的调用栈](../dev/perf-notes/MAIN_THREAD_STALLS.md)。
   **多任务负载已量**（2026-11-01）：探针不再被后台目录挡住，同一份 exe 里空载 8 发 /
   加载中 8 发做 A/B——后台读 1000 份 manifest（2.3 s）时点翻页 3.6–3.9 ms（空载
   2.9–3.3），整窗重画 3.9–4.8 ms（空载 3.3–3.5），心跳最大间隔 37–44 ms、没有卡顿栈；
-  对照是同一 store 同步读一趟 2.3 s。见 [多任务负载](../dev/perf-notes/P2_CONCURRENT_LOAD_20261101.md)。
+  对照是同一 store 同步读一趟 2.3 s。见 [多任务负载](../dev/perf-notes/MAIN_THREAD_STALLS.md)。
   剩余：CI 上的构建缓存效果（本机没装 sccache，`Get-Command sccache` 为空，这项只能在 CI 上量）。
 - [x] **大文件按状态所有权拆分**：MainWindow 安装/服务端/资源更新协调和大头文件，
   实例设置概览/启动/脏状态，长寿命 UI 测试夹具、InstanceFilesPage 与下载协调职责。
@@ -161,7 +161,7 @@ HDD 间歇拒绝仍未复现，按用户决定暂缓（原 P3，见 §6）；首
   已有目录缓存、模型筛选、后台详情/干跑、旧结果作废，不宣称完整虚拟列表已完成。
   文件页启用/禁用统计已合并；反选从逐行通知改为单次批量选择。
   1000 条实际列表参考路径 1279.164ms/1000 次通知，批量路径 1.430ms/1 次，
-  仅为同步调用测量，非首绘/滚动或全硬件结论。见 [选择性能](../dev/perf-notes/P2_SELECTION_PERFORMANCE_20261029.md)。
+  仅为同步调用测量，非首绘/滚动或全硬件结论。见 [选择性能](../dev/perf-notes/LIST_PAINT.md)。
   **首绘/重列/滚动已量并修掉主因**（2026-10-31，实例文件页，
   `WTFML_FILES_PAINT_PROBE_ROWS` 开关的只打印探针）：修复前 200/500/1000 行建表
   110/361/1537 ms、重列 89/364/1323 ms，滚到底始终 1–3 ms。超线性定位在
@@ -170,7 +170,7 @@ HDD 间歇拒绝仍未复现，按用户决定暂缓（原 P3，见 §6）；首
   `rebuildRows()` 先排完 item、再一趟挂控件，1000 行 1.39 s → 0.29 s（同版二进制 A/B），
   修后 200/500/1000 行建表 46/126/286 ms。剩下的 `makeRow()` 与挂控件那一段仍平方级，
   只有模型委托 / 可见范围虚拟化能再压，但那会动选择按身份还回、悬停露详情、异步补格和
-  滚动锚点；其余列表未测。见 [大列表实测](../dev/perf-notes/P2_LARGE_LIST_PAINT_20261031.md)。
+  滚动锚点；其余列表未测。见 [大列表实测](../dev/perf-notes/LIST_PAINT.md)。
   **游戏规则表**（`WorldSettingsPage::rebuildRuleRows()`）原是同一个平方级写法，已按同一
   规矩改成"先排 item 再挂行控件"；这一页没加探针、不报数字，行为由 UI 两套覆盖。
   **实例树不再反复开 `wtfml.meta`**（2026-10-31）：每重灌一次树，同一个实例被问三四遍
@@ -218,12 +218,12 @@ HDD 间歇拒绝仍未复现，按用户决定暂缓（原 P3，见 §6）；首
   `isDefault`、读不回来的那份不进缓存、本进程写盘当场作废那一格、上限 4096 份、
   `QMutex` 守住后台 worker 与界面线程）。冷的那趟仍是 2.27–2.32 s，热的两趟
   2.3 s → 11–15 ms（探针三跑，约 200×）。失效路径由 PA12 的 12 条判据钉住，
-  见 [摘要缓存](../dev/perf-notes/P2_PRESET_LIST_CACHE_20261101.md)。
+  见 [摘要缓存](../dev/perf-notes/PRESET_LIST_IO.md)。
   **冷读那一半也收了**（2026-11-01 同日）：`list()` 先 stat 一通问缓存，没命中的攒起来
   由 `loadManifests()` 并行读（份数 >= 8 且线程池不止一个线程时才并行），冷读
   2.3 s → **0.40 s**（394.9–407.1 ms，三跑；`CatalogLoader` 那趟 402–424 ms）。次序仍按
   下标、`broken` 同序，PA13 的 17 条判据钉住；见
-  [冷读改成并行](../dev/perf-notes/P2_PRESET_READ_PARALLEL_20261101.md)。写那 1.7 s（每份一次
+  [冷读改成并行](../dev/perf-notes/PRESET_LIST_IO.md)。写那 1.7 s（每份一次
   `FlushFileBuffers`）与"冷读只读一份预算好的摘要文件"仍没做。
 - [ ] **文件/服务器列表及外部工具**：批量/详情/迁移的长错误反馈、真实 ACL、共享占用、
   大列表、MOTD/未知状态与非常用属性。长路径清单和 ZIP/GZip 后端已落地，补安装/外部 Java；
@@ -280,7 +280,7 @@ HDD 间歇拒绝仍未复现，按用户决定暂缓（原 P3，见 §6）；首
   再省约 4.9 MB 但启动慢约 50 ms，**不采用**；`-flto=auto` 在本工具链上链接不过（16 个
   自家符号被判未定义），**不引入**。本机用 `QT_OPENGL=software` 起过窗口，低端 GPU / 干净
   机器的软件渲染与驱动依赖仍未验；安装程序暂不实施，不未经兼容验收直接删 DLL。
-  见 [发布体积实测](../dev/perf-notes/P2_RELEASE_SIZE_20261101.md)、[项目检查](PROJECT_REVIEW_20261029.md)。
+  见 [发布体积实测](../dev/perf-notes/RELEASE_SIZE.md)、[项目检查](PROJECT_REVIEW_20261029.md)。
 - [x] **外部输入的名字与图片（2026-10-31）**：版本 json 的资源索引号 / 对象哈希、
   资源和升级审计里的文件名、以及网上下来的图标 / 服务器图标 / 皮肤，全部按外部输入
   处理：名字先过「一段路径」那套规矩再拼盘上路径，图片先问声明尺寸再解码（图标
