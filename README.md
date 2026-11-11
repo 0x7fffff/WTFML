@@ -2,14 +2,7 @@
 
 C++23 + Qt 6 Widgets 写的 Minecraft 启动器，只支持 Windows。
 
-> **文档分工**
->
-> - 安装、构建、运行、目录结构：本文件。
-> - 当前功能行为、产品硬约束、数据约定、验证边界：**[FEATURES.md](docs/FEATURES.md)**。
-> - 还没完成的工作：**[ROADMAP.md](docs/ROADMAP.md)**。
-> - 注释规范：**[COMMENT_STYLE.md](docs/dev/COMMENT_STYLE.md)**。
->
-> `FEATURES.md` 记录“现在仍然成立的约定”，不是开发日志；已完成事项不再按日期追加。
+> **文档**：功能约定、开发手册、归档记录的索引见 [docs/README.md](docs/README.md)。本文件只管安装、构建、运行、目录结构。
 
 ## 构建
 
