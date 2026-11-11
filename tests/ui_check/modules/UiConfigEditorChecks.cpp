@@ -154,7 +154,8 @@ int UiConfigEditorChecks() {
             // 在两套字体上都成立。
             const int widthAtTwo = editor.gutterWidth();
             QString manyLines;
-            for (int i = 0; i < 2000; ++i) {
+            // 文楷注册进来以后 offscreen 下数字更窄，四位数也可能没越过下限 ⇒ 五位数。
+            for (int i = 0; i < 20000; ++i) {
                 manyLines += QStringLiteral("line\n");
             }
             editor.editor()->setPlainText(manyLines);
