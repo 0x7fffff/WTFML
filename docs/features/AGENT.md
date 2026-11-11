@@ -2,12 +2,12 @@
 
 > 状态：**Stage 1A / Stage 1B 已实现并通过离屏自动验收；G1A 人工通过（网络错误延后）；G1B 首轮人工未通过（脱敏/凭据边界 P0）**。
 > MCP、维护工作流、网络/命令工具仍按“未实现”处理。
-> 未实现部分仍以 [FEATURES.md](FEATURES.md) 为当前产品行为；本文不把计划中的入口、
-> 界面或工具写成“已经有了”。已实现事实见 [Stage 1A 实现与验收](docs/AGENT_STAGE1A.md)。
+> 未实现部分仍以 [FEATURES.md](../FEATURES.md) 为当前产品行为；本文不把计划中的入口、
+> 界面或工具写成“已经有了”。已实现事实见 [Stage 1A 实现与验收](AGENT_STAGE1A.md)。
 >
-> 关联文档：[产品边界与现有约定](FEATURES.md)、[安全边界](docs/SECURITY_BOUNDARIES.md)、
-> [测试与验证](docs/TESTING.md)、[性能基线与测量](docs/PERFORMANCE.md)、
-> [注释规范](CONTRIBUTING_COMMENT.md)、[未完成工作总表](CODING_PLAN_FULL.md)。
+> 关联文档：[产品边界与现有约定](../FEATURES.md)、[安全边界](SECURITY_BOUNDARIES.md)、
+> [测试与验证](../dev/TESTING.md)、[性能基线与测量](../dev/PERFORMANCE.md)、
+> [注释规范](../dev/COMMENT_STYLE.md)、[未完成工作总表](../ROADMAP.md)。
 
 ---
 
@@ -226,7 +226,7 @@ pi 式分层**。纯 ReAct、外部 CLI、纯向导三种整体路线的取舍�
   Stage 3 再评估只读并行）。
 - 每个异步回调都带**会话代次/请求代次**；取消、切换会话、删除会话后旧回调只丢弃，
   不再碰 UI 或会话。
-- 不用嵌套事件循环（与 [嵌套事件循环盘点](docs/NESTED_EVENT_LOOPS_AUDIT.md) 的边界一致）；
+- 不用嵌套事件循环（与 [嵌套事件循环盘点](../archive/NESTED_EVENT_LOOPS_AUDIT.md) 的边界一致）；
   需要“等用户回答”时用状态机 + 信号，不 `exec()`。
 - 关闭窗口：取消模型请求、取消进行中的工具、停止 MCP 进程树、把会话刷到盘上；
   有界等待（例如 2 秒）后强制收尾，不能卡住退出。
@@ -540,7 +540,7 @@ signals:
   不随游戏文件夹/启动器目录拷贝迁移。
 - **范围说明**：本节的 Access Token 指智能体 provider 的 API key/access token。
   **Minecraft 登录令牌本次不迁移**，仍走现有 `TokenStore`（DPAPI）；迁移到
-  Credential Manager 作为**独立项目**，已记入 [CODING_PLAN_FULL.md](CODING_PLAN_FULL.md)
+  Credential Manager 作为**独立项目**，已记入 [ROADMAP.md](../ROADMAP.md)
   的暂缓/独立项，不与 Agent 第一版混做。
 
 “测试连接”的语义：
@@ -1696,7 +1696,7 @@ Collect → Analyze → Plan → AwaitPlanApproval → ExecuteStep* → Verify �
 - [x] 密码输入默认遮挡；眼睛按钮只在用户操作期间显示明文；失焦/保存后恢复遮挡；
 - [x] 非 https 的远程 Base URL 被拒绝；loopback HTTP 需要显式确认并持续提示；
 - [x] key 不进 URL；重定向/证书错误检查**延后**，见
-     [网络错误验收](docs/NETWORK_ERROR_ACCEPTANCE.md)；
+     [网络错误验收](../archive/NETWORK_ERROR_ACCEPTANCE.md)；
 - [x] 会话默认明文，整会话加密可选且失败不半加密；加密开关已移到聊天头部下方单独一行；
 - [x] 没有文件工具/MCP 进程；模型不能修改系统提示/API 配置；
 - [x] 测试中用 grep/断言搜索 key 和敏感头，结果为空。
@@ -1704,7 +1704,7 @@ Collect → Analyze → Plan → AwaitPlanApproval → ExecuteStep* → Verify �
 **G1B（1B：文件工具/审批/外发）**
 
 > 2026-11-10 首轮人工已执行但未通过：脱敏只认精确字段名、凭据文件识别过窄、artifact
-> 文案/取回边界需修。记录见 [G1B 首轮记录](docs/G1B_MANUAL_RESULTS_20261110.md)。
+> 文案/取回边界需修。记录见 [G1B 首轮记录](../archive/G1B_MANUAL_RESULTS_20261110.md)。
 
 - [ ] 路径攻击矩阵（绝对路径、`..`、盘符、UNC、ADS、保留名、尾点、junction）全拒绝；
 - [ ] 句柄级校验：最终路径/文件 ID/reparse 检查；写入前后对象身份比对；不宣称彻底解决 TOCTOU；
@@ -1754,7 +1754,7 @@ Collect → Analyze → Plan → AwaitPlanApproval → ExecuteStep* → Verify �
   `src/agent/` 默认进 `core-agent`，`ui/Agent*` 进 `ui`，`AgentController` 进 `window`；
   不要让 `src/agent/` 落入“未分类 ⇒ full”。
 - `tools/check-test-modules.ps1`：新测试文件必须有 owner；入口/模块大小限制照旧。
-- 文档：实现后更新 `FEATURES.md`、`docs/TESTING.md`、`CODING_PLAN_FULL.md` 的入口。
+- 文档：实现后更新 `FEATURES.md`、`docs/dev/TESTING.md`、`ROADMAP.md` 的入口。
 
 ### 13.2 纯函数/核心测试
 
@@ -1938,8 +1938,8 @@ Collect → Analyze → Plan → AwaitPlanApproval → ExecuteStep* → Verify �
 ### Stage 1A：Provider + Loop + 会话 + 基础聊天（已完成，2026-11-10）
 
 状态：**已实现**。实现范围、文件清单、数据格式、安全边界和自动验收记录见
-[智能体 Stage 1A 实现与验收](docs/AGENT_STAGE1A.md)；人工审批流程见
-[G1A 验收流程](docs/G1A_ACCEPTANCE.md)。
+[智能体 Stage 1A 实现与验收](AGENT_STAGE1A.md)；人工审批流程见
+[G1A 验收流程](../archive/G1A_ACCEPTANCE.md)。
 
 自动验收已覆盖：SSE 分块、协议适配与 URL 边界、会话存储/快照/损坏隔离/整会话加密、
 凭据 DPAPI 后备与失败拒绝、上下文裁剪、无工具 Loop（完成/重试/取消/部分流）、
@@ -1947,14 +1947,14 @@ Collect → Analyze → Plan → AwaitPlanApproval → ExecuteStep* → Verify �
 发送→流式→完成→落盘/停止闭环。
 
 G1A 人工审查（2026-11-10）：除网络错误外全部通过；网络错误检查延后，记录在
-[网络错误验收](docs/NETWORK_ERROR_ACCEPTANCE.md)。G1A 清单仍在 §12.6。
+[网络错误验收](../archive/NETWORK_ERROR_ACCEPTANCE.md)。G1A 清单仍在 §12.6。
 
 ### Stage 1B：文件工具 + 审批 + 外发策略 + 安全测试（已完成，2026-11-10）
 
 状态：**已实现；G1B 首轮人工未通过**。实现范围、安全边界和自动验收记录见
-[智能体 Stage 1B 实现与验收](docs/AGENT_STAGE1B.md)；人工步骤见
-[G1B 验收流程](docs/G1B_ACCEPTANCE.md)；首轮结果见
-[G1B 首轮人工测试记录](docs/G1B_MANUAL_RESULTS_20261110.md)。
+[智能体 Stage 1B 实现与验收](AGENT_STAGE1B.md)；人工步骤见
+[G1B 验收流程](../archive/G1B_ACCEPTANCE.md)；首轮结果见
+[G1B 首轮人工测试记录](../archive/G1B_MANUAL_RESULTS_20261110.md)。
 
 首轮人工发现（P0，未修复前不算 G1B 通过）：脱敏只认精确字段名，
 `hypixel_api_key` / `DB_PASSWORD` / `REDIS_PASSWORD` / `API_SECRET` / `JWT_SECRET`
@@ -2067,8 +2067,8 @@ Stage 3 完成判据：
 - [ ] Credential Manager 主路径、DPAPI 后备、整会话加密/换用户失败、备份生命周期验收。
 - [ ] D11 外发范围验收：自动白名单、确认预览、凭据硬阻断、本地/云差异。
 - [ ] 性能测量：首开智能体页、流式刷新、长会话滚动、加密会话读写、工具大输出。
-- [ ] 文档：`FEATURES.md`、`docs/TESTING.md`、`CODING_PLAN_FULL.md`、
-      `docs/SECURITY_BOUNDARIES.md` 增补；Agent.md 状态改为已实现/验收记录。
+- [ ] 文档：`FEATURES.md`、`docs/dev/TESTING.md`、`ROADMAP.md`、
+      `docs/features/SECURITY_BOUNDARIES.md` 增补；docs/features/AGENT.md 状态改为已实现/验收记录。
 - [ ] 发布检查：无明文 key、无测试假端点、无调试后门、无未使用的危险开关；
       任意命令高风险授权默认关闭；MCP 确认闸可用。
 - [ ] 验收门 G4：发布负责人确认；未通过不上发布物。
@@ -2201,14 +2201,14 @@ tests/mw_check/modules/
 
 - 本文是设计与开发计划；实现完成后：
   - `FEATURES.md` 增加“智能体”一节（只写已实现行为、硬约束、验证边界）；
-  - `docs/TESTING.md` 增加智能体测试入口、假服务器、真机验收记录；
-  - `CODING_PLAN_FULL.md` 把未完成阶段/验收项挂进去，完成后移出；
-  - `docs/SECURITY_BOUNDARIES.md` 增加 API key/Credential Manager、会话加密、
+  - `docs/dev/TESTING.md` 增加智能体测试入口、假服务器、真机验收记录；
+  - `ROADMAP.md` 把未完成阶段/验收项挂进去，完成后移出；
+  - `docs/features/SECURITY_BOUNDARIES.md` 增加 API key/Credential Manager、会话加密、
     维护备份、D11 外发范围、MCP、web fetch、command 的边界；
   - `README.md` 的项目结构表增加 `src/agent/` 与入口（实现后）。
-- 文档链接用相对路径；`tools/check-doc-links.ps1` 的 `mdFiles` 列表要把 `Agent.md`
+- 文档链接用相对路径；`tools/check-doc-links.ps1` 的 `mdFiles` 列表要把 `docs/features/AGENT.md`
   加进去（目前只检查 README/FEATURES/CODING_PLAN/CONTRIBUTING/LOCAL_FILES 和 docs/）。
-- 新增源码注释按 [CONTRIBUTING_COMMENT.md](CONTRIBUTING_COMMENT.md) 解释“为什么/约束”，
+- 新增源码注释按 [COMMENT_STYLE.md](../dev/COMMENT_STYLE.md) 解释“为什么/约束”，
   不写开发流水账。
 
 ---
@@ -2264,7 +2264,7 @@ D1–D11 已按本轮讨论写进计划：
 
 - [x] **G1A** Stage 1A 审查：Provider/Credential Manager/DPAPI/会话/聊天 UI；无工具。
       2026-11-10 人工通过；网络错误项延后，记录在
-      [网络错误验收](docs/NETWORK_ERROR_ACCEPTANCE.md)。
+      [网络错误验收](../archive/NETWORK_ERROR_ACCEPTANCE.md)。
 - [ ] **G1B** Stage 1B 审查：路径句柄校验/审批/外发/写入/活动会话删除/模型可读与
       本地不可读 artifact 分离。
 - [ ] **G2A** Stage 2 MCP 单独验收：首次启动/配置修改/重连确认、可执行文件身份变化复核、

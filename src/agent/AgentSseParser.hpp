@@ -2,7 +2,7 @@
  * @file AgentSseParser.hpp
  * @brief OpenAI-compatible SSE 分块解析：只做“字节进、事件出”。
  *
- * 约束（Agent.md §5.1 / §13.2）：
+ * 约束（docs/features/AGENT.md §5.1 / §13.2）：
  * - 任意网络分块边界都可能落在 CRLF、UTF-8 多字节、JSON 中间；
  * - `data:` 行在空行时派发，多行 data 用 `\n` 连接；
  * - 注释行（`:` 开头）忽略；`[DONE]` 单独成事件；

@@ -2,7 +2,7 @@
  * @file AgentPaths.hpp
  * @brief 智能体数据目录的**唯一**出处。
  *
- * 正式运行：`%LOCALAPPDATA%/WTFML/agent`（与游戏目录解耦，见 Agent.md §6.1）。
+ * 正式运行：`%LOCALAPPDATA%/WTFML/agent`（与游戏目录解耦，见 docs/features/AGENT.md §6.1）。
  * 测试：在创建任何控制器之前用
  * `QCoreApplication::setProperty("wtfml.testAgentDataDir", <临时目录>)` 隔离；
  * 其它层不许自己拼 `%LOCALAPPDATA%` 或 `sessions/`。

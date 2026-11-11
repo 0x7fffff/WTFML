@@ -476,7 +476,7 @@
 - 模型不能修改系统提示、API 配置、工具白名单或审批策略。
 - 会话默认明文但**不含密钥**；加密只保护落盘，不改变发送给模型的内容。
 - 自动验收已过；G1A 真机人工审查（凭据管理器主路径、真实模型服务、TLS/代理、高 DPI/读屏）
-  仍未打勾，见 [Stage 1A 实现与验收](docs/AGENT_STAGE1A.md)。
+  仍未打勾，见 [Stage 1A 实现与验收](features/AGENT_STAGE1A.md)。
 
 ## 2026-11-10：智能体 Stage 1B（受控文件工具）
 
@@ -511,7 +511,7 @@
 - `versions/libraries/assets/java/Servers` 原始写一律拒绝。
 - 活动会话删除先取消/等待；文件提交阶段检测到提交中时拒绝删除并提示。
 - G1B 真机人工审查（真实路径/junction/长路径、真实模型 tool_calls、文件竞争/占用、
-  高 DPI/读屏）仍未打勾，见 [Stage 1B 实现与验收](docs/AGENT_STAGE1B.md)。
+  高 DPI/读屏）仍未打勾，见 [Stage 1B 实现与验收](features/AGENT_STAGE1B.md)。
 
 ## 2026-11-10：G1A 人工审查结果
 
@@ -519,7 +519,7 @@
   Key 默认遮挡与不回显、流式对话/停止/重试/切换取消、会话恢复、无工具/无 MCP、
   API Key 未出现在日志/会话/界面。
 - 网络错误（401/403、429、断网、流中断、重定向、证书错误、代理、400 错误体显示）本轮未执行，
-  单独延后到 [网络错误验收](docs/NETWORK_ERROR_ACCEPTANCE.md)，不计入 G1A 通过项。
+  单独延后到 [网络错误验收](archive/NETWORK_ERROR_ACCEPTANCE.md)，不计入 G1A 通过项。
 - 会话加密开关原先挤在右上角、用户不容易发现；现已移到聊天头部下方**单独一行**：
   「加密本会话（DPAPI）」+「当前会话：明文 JSON / 已加密（DPAPI）」。
   Stage 1B 构建中可直接看到。
@@ -541,4 +541,4 @@
 - 工具文案“完整内容见模型可读 artifact”不准确，应为“本次读取内容见 artifact”。
 
 G1B 结论：**未通过**，先修脱敏/凭据文件识别和 artifact 文案，再复测 R1–R4/R6/R7 与
-W4/W5。完整记录见 `docs/G1B_MANUAL_RESULTS_20261110.md`。
+W4/W5。完整记录见 `docs/archive/G1B_MANUAL_RESULTS_20261110.md`。

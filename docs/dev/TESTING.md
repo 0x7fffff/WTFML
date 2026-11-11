@@ -1153,7 +1153,7 @@ QSettings 也重定向到同一沙盒。凭据测试强制走 DPAPI 后备，不
 本机结果：`verify_agent 145/145`、`ui_check_agent 28/28`、`mw_check_agent 22/22`；
 `wtfml.ui`、`wtfml.main-window`、`wtfml.token-protection-fault`、核心基线、
 `test-modules/test-runner/ci-partitions` 全部通过。细节与未跑项见
-[Stage 1A 实现与验收](AGENT_STAGE1A.md)。
+[Stage 1A 实现与验收](../features/AGENT_STAGE1A.md)。
 
 ## 2026-11-10：智能体 Stage 1B 测试入口
 
@@ -1171,18 +1171,18 @@ Stage 1B 用例覆盖：路径攻击矩阵与句柄级校验、外发边界表�
 本机结果：`verify_agent 306/306`、`ui_check_agent 39/39`、`mw_check_agent 31/31`；
 既有 `wtfml.ui`、`wtfml.main-window`、`wtfml.core`、`wtfml.token-protection-fault` 与
 工具链检查通过。junction 夹具无法创建时输出 `SKIP`，不计入通过。真机 G1B 清单见
-[Stage 1B 实现与验收](AGENT_STAGE1B.md)。
+[Stage 1B 实现与验收](../features/AGENT_STAGE1B.md)。
 
 ## 2026-11-10：G1A 人工审查结果
 
 G1A 除网络错误外全部通过：导航/聊天 UI、API/URL 校验、Windows 凭据管理器主路径、
 Key 遮挡与不回显、流式/停止/重试/切换取消、会话恢复、严格无工具/无 MCP、API Key 未出现在
 日志/会话/界面。网络错误本轮没有条件执行，单独延后到
-[网络错误验收](NETWORK_ERROR_ACCEPTANCE.md)，不写成已通过。
+[网络错误验收](../archive/NETWORK_ERROR_ACCEPTANCE.md)，不写成已通过。
 
 会话加密可见性已补：开关从右上角移到聊天头部下方单独一行，并显示当前明文/加密状态。
 Stage 1B 构建可用 `build/stage1b-review/WTFMinecraftLauncher.exe` 审查；完整流程见
-[G1A 验收流程](G1A_ACCEPTANCE.md)。
+[G1A 验收流程](../archive/G1A_ACCEPTANCE.md)。
 
 ## 2026-11-10：G1B 首轮人工结果
 
@@ -1197,4 +1197,4 @@ Stage 1B 构建可用 `build/stage1b-review/WTFMinecraftLauncher.exe` 审查；�
   仍可被 `artifact.read` 取回；工具文案“完整内容见 artifact”不准确。
 
 未测/延后：W4/W5（sha256 查看方式）、A1（artifact 分段）、P4（重启）、P5（提交阶段）、
-网络错误。完整记录与补测方法见 [G1B 首轮人工测试记录](G1B_MANUAL_RESULTS_20261110.md)。
+网络错误。完整记录与补测方法见 [G1B 首轮人工测试记录](../archive/G1B_MANUAL_RESULTS_20261110.md)。

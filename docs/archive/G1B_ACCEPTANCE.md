@@ -2,7 +2,7 @@
 
 > 状态：**首轮人工已执行；未通过，存在脱敏/凭据边界 P0；详见
 > [G1B 首轮人工测试记录](G1B_MANUAL_RESULTS_20261110.md)**。
-> 实现记录：[AGENT_STAGE1B.md](AGENT_STAGE1B.md)
+> 实现记录：[AGENT_STAGE1B.md](../features/AGENT_STAGE1B.md)
 > 前置：G1A 已通过（网络错误延后到 [NETWORK_ERROR_ACCEPTANCE.md](NETWORK_ERROR_ACCEPTANCE.md)）。
 > 首轮实测：L5–L9、R5、R8/R9、W1–W3、P1–P3、E1–E5 基本通过；R1–R4/R7 脱敏失败。
 > 用户复核后，写入/备份、artifact、D11 流程、活动删除、真实 tool_calls、无 MCP 六项已勾选；

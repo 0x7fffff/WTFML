@@ -42,14 +42,14 @@
 ## 3.5 智能体阶段门（Stage 1A 自动验收已过）
 
 - [x] **Stage 1A 实现**：Provider + 无工具 Loop + 会话存储/加密 + 基础聊天 UI；
-  自动验收记录见 [Stage 1A 实现与验收](docs/AGENT_STAGE1A.md)。
+  自动验收记录见 [Stage 1A 实现与验收](features/AGENT_STAGE1A.md)。
 - [x] **G1A 真机人工审查**：除网络错误外全部通过；网络错误延后到
-  [网络错误验收](docs/NETWORK_ERROR_ACCEPTANCE.md)，不写成已通过。
+  [网络错误验收](archive/NETWORK_ERROR_ACCEPTANCE.md)，不写成已通过。
 - [x] **Stage 1B 实现**：受控文件工具、审批、D11 外发策略、路径/写入安全测试；
-  自动验收记录见 [Stage 1B 实现与验收](docs/AGENT_STAGE1B.md)。
+  自动验收记录见 [Stage 1B 实现与验收](features/AGENT_STAGE1B.md)。
 - [ ] **G1B 真机人工审查**：首轮已执行但**未通过**——脱敏只认精确字段名、凭据文件识别过窄、
   artifact 文案/取回边界需修；W4/W5/A1/P4/P5 未完成。见
-  [G1B 首轮记录](docs/G1B_MANUAL_RESULTS_20261110.md)。未通过不进入 Stage 2。
+  [G1B 首轮记录](archive/G1B_MANUAL_RESULTS_20261110.md)。未通过不进入 Stage 2。
 - [ ] **Stage 2**：维护工作流 + stdio MCP，单独验收。
 
 ## 4. P2：继续推进的性能与体验

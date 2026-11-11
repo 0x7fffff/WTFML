@@ -2,7 +2,7 @@
  * @file AgentWinPath.hpp
  * @brief Windows 路径/对象身份校验：字符串归一化 + 句柄级最终路径/文件 ID/reparse。
  *
- * 边界（Agent.md §9.3）：字符串检查只做快速拒绝，**不能单独当安全结论**。已存在的路径
+ * 边界（docs/features/AGENT.md §9.3）：字符串检查只做快速拒绝，**不能单独当安全结论**。已存在的路径
  * 必须再用 `CreateFileW`（目录加 `FILE_FLAG_BACKUP_SEMANTICS`，最终组件加
  * `FILE_FLAG_OPEN_REPARSE_POINT`）打开，核对最终路径、卷序列 + 文件 ID、reparse 属性。
  *

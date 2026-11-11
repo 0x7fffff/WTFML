@@ -4,7 +4,7 @@
 > 这两项属于隐私/凭据边界问题，必须先修复再复验。
 >
 > 审查步骤：[G1B_ACCEPTANCE.md](G1B_ACCEPTANCE.md)
-> 实现记录：[AGENT_STAGE1B.md](AGENT_STAGE1B.md)
+> 实现记录：[AGENT_STAGE1B.md](../features/AGENT_STAGE1B.md)
 
 ## 1. 环境与隐私说明
 
@@ -189,7 +189,7 @@ W5：再让模型读一次 `config/a.toml`，允许审批，展开工具卡看 `
 ## 7. 2026-11-10 复核勾选
 
 用户确认：以下 G1B 检查项除“脱敏覆盖不足”外，可以按首轮人工结果打勾。已在
-`docs/AGENT_STAGE1B.md`、`Agent.md` §12.6、`docs/G1B_ACCEPTANCE.md` 同步：
+`docs/features/AGENT_STAGE1B.md`、`docs/features/AGENT.md` §12.6、`docs/archive/G1B_ACCEPTANCE.md` 同步：
 
 - [x] 审批通过写入有 diff/备份/原子性/哈希；拒绝则一个字节不变。
 - [x] 模型可读 artifact 只含脱敏内容；本地原始存档不可枚举/读取；`artifact.read` 每次重扫。

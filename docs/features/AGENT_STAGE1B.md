@@ -3,8 +3,8 @@
 > 日期：2026-11-10
 > 范围：受控文件工具 + 审批 + D11 外发策略 + 实例锁定 + 维护备份（**不接 MCP**）。
 > 状态：**离屏自动验收通过；G1B 首轮人工未通过（脱敏/凭据边界 P0）**。
-> 首轮记录：[G1B_MANUAL_RESULTS_20261110.md](G1B_MANUAL_RESULTS_20261110.md)。
-> 上一阶段：[Stage 1A](AGENT_STAGE1A.md)；设计原文：[Agent.md](../Agent.md)。
+> 首轮记录：[G1B_MANUAL_RESULTS_20261110.md](../archive/G1B_MANUAL_RESULTS_20261110.md)。
+> 上一阶段：[Stage 1A](AGENT_STAGE1A.md)；设计原文：[AGENT.md](AGENT.md)。
 
 ## 1. 这一阶段做了什么
 
@@ -81,7 +81,7 @@ agent/
 - `fs.write` 只开放文本配置白名单；`versions/libraries/assets/java/Servers` 原始写拒绝。
 - 二进制/jar/zip 不读内容；不提供任意命令、不接 MCP。
 - Stage 1B 仍没有 `logs.tail` / `diagnostics.*` / `instance.context` / `backup.restore`
-  （按 Agent.md 属于 Stage 2 工具面）。
+  （按 docs/features/AGENT.md 属于 Stage 2 工具面）。
 - 大文本转 artifact 的上限是 16 KB 内联；超出部分只给模型可读 artifact id。
   注意：artifact 只保存**本次读取到的内容**（默认 256 KB、最大 1 MB），不是整个原文件；
   但目前工具文案“完整内容见 artifact”不准确，且脱敏未命中时 artifact 仍可被分段取回。

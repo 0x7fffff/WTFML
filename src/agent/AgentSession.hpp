@@ -3,7 +3,7 @@
  * @brief 一个会话的内存形状：元数据 + 消息正文 + 摘要/用量。
  *
  * 元数据与正文**分开落盘**（列表只读元数据；整会话加密时元数据仍可列）。字段名与
- * Agent.md §6.2 的 schema v1 对齐。
+ * docs/features/AGENT.md §6.2 的 schema v1 对齐。
  */
 
 #pragma once

@@ -142,7 +142,7 @@ Java 下载那条 `Expand-Archive` 顺手从 `-Path` 换成 `-LiteralPath`：`-P
 
 - G1A 除网络错误外全部通过；API Key 未出现在日志/会话/界面，Windows 凭据管理器主路径可用。
 - 网络错误（401/403、429、断网、流中断、重定向、证书、代理、400 错误体）延后到
-  [网络错误验收](NETWORK_ERROR_ACCEPTANCE.md)，未完成前不写成已通过。
+  [网络错误验收](../archive/NETWORK_ERROR_ACCEPTANCE.md)，未完成前不写成已通过。
 - 会话加密是可选功能：开关现在单独一行显示“加密本会话（DPAPI）”，并标明当前会话是
   明文 JSON 还是已加密；加密只保护落盘，不改变发送给模型的内容。
 
@@ -159,4 +159,4 @@ Java 下载那条 `Expand-Archive` 顺手从 `-Path` 换成 `-LiteralPath`：`-P
   “截断”不等于安全；当前“完整内容见 artifact”文案不准确。
 - 日志自动读取仍可能包含 Windows 用户名、启动参数回显、绝对路径、显卡/驱动/音频设备等
   硬件指纹；这些要在 Stage 2 的日志/诊断字段投影里处理。
-- 详细记录：[G1B_MANUAL_RESULTS_20261110.md](G1B_MANUAL_RESULTS_20261110.md)。
+- 详细记录：[G1B_MANUAL_RESULTS_20261110.md](../archive/G1B_MANUAL_RESULTS_20261110.md)。

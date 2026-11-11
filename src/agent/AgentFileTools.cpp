@@ -1,6 +1,6 @@
 /**
  * @file AgentFileTools.cpp
- * @brief 受控文件读写实现（见 .hpp 与 Agent.md §9.3）。
+ * @brief 受控文件读写实现（见 .hpp 与 docs/features/AGENT.md §9.3）。
  */
 
 #include "AgentFileTools.hpp"

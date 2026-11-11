@@ -2,7 +2,7 @@
  * @file AgentLoop.hpp
  * @brief Stage 1A 的**无工具**对话循环：校验 → 构建上下文 → 流式请求 → 完成/失败/取消。
  *
- * 状态机按 Agent.md §8.1 收紧到本阶段实际会走的那几档：
+ * 状态机按 docs/features/AGENT.md §8.1 收紧到本阶段实际会走的那几档：
  *   Idle → Preparing → Requesting → Completed / Failed / Cancelled
  * 不执行任何工具；`m_history` 里只会出现 user / assistant。
  *

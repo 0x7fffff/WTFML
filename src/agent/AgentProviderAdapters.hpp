@@ -3,7 +3,7 @@
  * @brief OpenAI-compatible 基础兼容子集的**枚举化适配**：URL 校验、认证头、请求字段。
  *
  * 这里不联网、不读配置；给 profile + 消息，产出请求 JSON。所有适配项只允许枚举值，
- * 不接受任意 header/URL 模板/脚本（Agent.md §5.1、D6）。
+ * 不接受任意 header/URL 模板/脚本（docs/features/AGENT.md §5.1、D6）。
  */
 
 #pragma once

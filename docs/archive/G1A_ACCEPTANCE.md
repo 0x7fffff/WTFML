@@ -2,9 +2,9 @@
 
 > 状态：**2026-11-10 人工审查：除网络错误外全部通过；网络错误单独延后**。
 > 网络错误延后记录：[NETWORK_ERROR_ACCEPTANCE.md](NETWORK_ERROR_ACCEPTANCE.md)。
-> 适用设计：[Agent.md](../Agent.md) §12.6 / §14 Stage 1A
-> 实现记录：[AGENT_STAGE1A.md](AGENT_STAGE1A.md)
-> 后续阶段：[AGENT_STAGE1B.md](AGENT_STAGE1B.md)
+> 适用设计：[AGENT.md](../features/AGENT.md) §12.6 / §14 Stage 1A
+> 实现记录：[AGENT_STAGE1A.md](../features/AGENT_STAGE1A.md)
+> 后续阶段：[AGENT_STAGE1B.md](../features/AGENT_STAGE1B.md)
 
 ## 0. 先分清两个版本
 

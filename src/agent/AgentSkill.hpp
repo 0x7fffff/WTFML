@@ -2,7 +2,7 @@
  * @file AgentSkill.hpp
  * @brief Stage 1A/1B 的技能**结构与注册表骨架**：只有“自由对话”一档。
  *
- * NOTE: 这里**没有**工作流状态机 / 步骤执行 / 计划校验。Agent.md D3/D4 明确把
+ * NOTE: 这里**没有**工作流状态机 / 步骤执行 / 计划校验。docs/features/AGENT.md D3/D4 明确把
  * workflow engine 放到 Stage 2；现在先留类型和注册表，避免以后大改调用方。
  */
 

@@ -3,8 +3,8 @@
 > 日期：2026-11-10
 > 范围：Provider + Loop + 会话 + 基础聊天 UI（**无工具对话**）。
 > 状态：**自动验收通过；2026-11-10 人工 G1A 除网络错误外全部通过。**
-> 网络错误延后：[NETWORK_ERROR_ACCEPTANCE.md](NETWORK_ERROR_ACCEPTANCE.md)。
-> 设计原文：[Agent.md](../Agent.md)；当前功能边界以 [FEATURES.md](../FEATURES.md) 为准。
+> 网络错误延后：[NETWORK_ERROR_ACCEPTANCE.md](../archive/NETWORK_ERROR_ACCEPTANCE.md)。
+> 设计原文：[AGENT.md](AGENT.md)；当前功能边界以 [FEATURES.md](../FEATURES.md) 为准。
 
 ## 1. 这一阶段做了什么
 

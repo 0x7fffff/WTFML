@@ -1,6 +1,6 @@
 /**
  * @file AgentContextBuilder.cpp
- * @brief 确定性裁剪（没有 LLM 摘要，见 Agent.md §7.3）。
+ * @brief 确定性裁剪（没有 LLM 摘要，见 docs/features/AGENT.md §7.3）。
  */
 
 #include "AgentContextBuilder.hpp"

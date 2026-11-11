@@ -2,7 +2,7 @@
  * @file OpenAiCompatibleClient.hpp
  * @brief OpenAI-compatible `/chat/completions` 的真实网络实现（流式 / 非流式）。
  *
- * 网络边界（Agent.md §5.3）：
+ * 网络边界（docs/features/AGENT.md §5.3）：
  * - URL 先在 ProviderAdapters 里校验；这里不跟随重定向；
  * - 不忽略 TLS 错误；key 只进认证头，不进 URL/日志/错误正文；
  * - 响应总额 16 MB、SSE 单行 1 MB；
