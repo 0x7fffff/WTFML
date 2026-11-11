@@ -93,6 +93,16 @@ public:
 
     /// 主页场景铺在哪一块：这个控件可见时，它占的那一块画清晰风景（左沿 32 px 渐隐进导航轨）。
     void setHeroWidget(QWidget *widget);
+    /// 主页场景被整页盖住（覆盖层整页 / 铺满的提示开在主页上）：整窗改回磨砂底，
+    /// 否则轨和顶栏还是清晰风景、内容区却是磨砂，看着是三块拼起来的。
+    void setHeroCovered(bool covered);
+    bool heroShown() const { return !heroRect().isEmpty(); }
+
+signals:
+    /// 主页场景露没露（主页进出、被整页盖住 / 揭开）：导航轨据此换主页字色。
+    void heroShownChanged(bool shown);
+
+public:
 
     /// 当前这一刻整窗底铺的着色层（带 alpha）。
     QColor tint() const;
@@ -131,6 +141,9 @@ private:
     QPixmap m_heroPixmap;  // 主页场景：清晰图 + 暗角 + 左沿渐隐
     QImage m_heroSmall;    // 主页场景缩小版（量标题底下的明暗）
     QRect m_heroCacheRect;
+    bool m_heroCovered = false;
+    bool m_heroWasShown = false;
+    void noteHeroShown();
     QString m_heroKey;
     QColor m_darkest = QColor(Qt::black);
     QColor m_brightest = QColor(Qt::white);
