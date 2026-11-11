@@ -43,3 +43,4 @@ wtfml-token-tool/
 *.rej
 __pycache__/
 *.pyc
+/.tongxi/
