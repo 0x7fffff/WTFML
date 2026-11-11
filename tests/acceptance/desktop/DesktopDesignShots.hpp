@@ -2,6 +2,7 @@
 // 设计稿对照截图（--design-shots）：主页三主题、窄窗、宽窗、折叠轨、组件总表。
 // 只截图，不登录、不联网、不启动游戏；实例和账号是写在隔离目录里的夹具。
 #include "Glass.hpp"
+#include "ListRowDelegate.hpp"
 #include "MainWindow.hpp"
 #include "MainWindowUI.hpp"
 #include "TaskProgressBar.hpp"
@@ -41,6 +42,20 @@ inline void mute(QWidget *w) {
     w->setPalette(p);
 }
 
+/// 列表行封面：圆角淡底 + 居中等距方块（和主页实例卡同一画法）。
+inline QPixmap coverTile(int block, int side) {
+    QPixmap cover(side, side);
+    cover.fill(Qt::transparent);
+    QPainter p(&cover);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setPen(QPen(Theme::tokens().stroke, 1.0));
+    p.setBrush(Theme::tokens().subtle);
+    p.drawRoundedRect(QRectF(0.5, 0.5, side - 1, side - 1), 10, 10);
+    const int inner = side * 7 / 12;
+    p.drawPixmap((side - inner) / 2, (side - inner) / 2, VersionIcons::isoBlock(block, inner));
+    return cover;
+}
+
 inline QList<MainWindowUI::HomeQuickItem> fixtureItems() {
     const struct { const char *key, *name, *detail; } rows[] = {
         {"spring", "春日生存", "Minecraft 1.21.4 / Fabric 0.16.9\n上次启动：2 小时前"},
@@ -76,6 +91,7 @@ inline void seedHome(MainWindow &window) {
 class Gallery : public QMainWindow {
 public:
     QList<QWidget *> focusCells;
+    QListWidget *hoverList = nullptr;
 
     Gallery() {
         setWindowTitle(QStringLiteral("WTFML 组件总表"));
@@ -273,14 +289,23 @@ private:
         listCol->addWidget(head(QStringLiteral("列表行"), page, 20));
         auto *list = new QListWidget(page);
         list->setFrameShape(QFrame::NoFrame);
-        for (const QString &text : {QStringLiteral("春日生存    Fabric 0.16.9 · 1.21.4"),
-                                    QStringLiteral("机械动力 Create    Forge 47.3 · 1.20.1"),
-                                    QStringLiteral("樱花小屋    Fabric 0.16.9 · 1.21.1")}) {
-            auto *item = new QListWidgetItem(text, list);
-            item->setSizeHint(QSize(0, 60));
+        ListRowDelegate::install(list);
+        list->setStyleSheet(QStringLiteral("QListWidget { background: transparent; }"));  // 页面里的列表是透明底
+        // 设计稿 BLOCKS 下标：0 草 / 7 铜 / 5 樱花。
+        const struct { int block; const char *title, *sub, *meta; } rows[] = {
+            {0, "春日生存", "Fabric 0.16.9 · 1.21.4", "2 小时前"},
+            {7, "机械动力 Create", "Forge 47.3 · 1.20.1", ""},
+            {5, "樱花小屋", "Fabric 0.16.9 · 1.21.1", "昨天"},
+        };
+        for (const auto &row : rows) {
+            auto *item = new QListWidgetItem(QString::fromUtf8(row.title), list);
+            item->setData(Qt::DecorationRole, coverTile(row.block, ListRowDelegate::coverSize()));
+            item->setData(ListRowDelegate::SubtitleRole, QString::fromUtf8(row.sub));
+            item->setData(ListRowDelegate::MetaRole, QString::fromUtf8(row.meta));
         }
         list->setCurrentRow(2);
-        list->setFixedHeight(190);
+        list->setFixedHeight(3 * ListRowDelegate::rowHeight() + 4);
+        hoverList = list;
         listCol->addWidget(list);
         lower->addLayout(listCol, 1);
 
@@ -345,6 +370,12 @@ private:
 
 /// 焦点那一列：逐格取真焦点（键盘那一档）后从整窗截那一小块，拼回总图。
 inline QImage grabGallery(Gallery &gallery) {
+    if (QListWidget *list = gallery.hoverList) {  // 第二行走一遍真的悬停（快捷操作只在悬停时出现）
+        const QPoint at = list->visualItemRect(list->item(1)).center();
+        QHoverEvent hover(QEvent::HoverMove, at, list->viewport()->mapToGlobal(at), QPoint(-1, -1));
+        QApplication::sendEvent(list->viewport(), &hover);
+        list->viewport()->repaint();
+    }
     QImage image = gallery.grab().toImage();
     QPainter painter(&image);
     const qreal dpr = image.devicePixelRatio();

@@ -1,0 +1,165 @@
+#include "ListRowDelegate.hpp"
+
+#include "Theme.hpp"
+#include "VersionIcons.hpp"
+
+#include <QAbstractItemView>
+#include <QItemSelectionModel>
+#include <QMouseEvent>
+#include <QPainter>
+#include <QPainterPath>
+
+namespace {
+// 设计稿 tokens.css .row：左右内边距 12、间距 14、圆角 r-ctl(10)；快捷操作 sm 键 30 高、间距 4。
+constexpr int kPad = 12;
+constexpr int kGap = 14;
+constexpr int kRadius = 10;
+constexpr int kActionHeight = 30;
+constexpr int kActionGap = 4;
+constexpr int kLaunchWidth = 72;
+
+bool rowHovered(const QStyleOptionViewItem &option) {
+    return option.state.testFlag(QStyle::State_MouseOver) && option.state.testFlag(QStyle::State_Enabled);
+}
+}  // namespace
+
+ListRowDelegate *ListRowDelegate::install(QAbstractItemView *view) {
+    auto *delegate = new ListRowDelegate(view);
+    view->setItemDelegate(delegate);
+    view->setMouseTracking(true);
+    view->viewport()->setAttribute(Qt::WA_Hover, true);
+    return delegate;
+}
+
+QRect ListRowDelegate::actionRect(const QRect &row, Action action) {
+    const int top = row.center().y() - kActionHeight / 2 + 1;
+    const int launchLeft = row.right() - kPad - kLaunchWidth + 1;
+    switch (action) {
+    case Action::Launch: return QRect(launchLeft, top, kLaunchWidth, kActionHeight);
+    case Action::More: return QRect(launchLeft - kActionGap - kActionHeight, top, kActionHeight, kActionHeight);
+    case Action::Folder:
+        return QRect(launchLeft - 2 * (kActionGap + kActionHeight), top, kActionHeight, kActionHeight);
+    }
+    return {};
+}
+
+QSize ListRowDelegate::sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const {
+    return QSize(QStyledItemDelegate::sizeHint(option, index).width(), rowHeight());
+}
+
+void ListRowDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const {
+    const Theme::Tokens t = Theme::tokens();
+    const QRect r = option.rect;
+    const bool hovered = rowHovered(option);
+    const bool selected = option.state.testFlag(QStyle::State_Selected);
+    painter->save();
+    painter->setRenderHint(QPainter::Antialiasing, true);
+
+    // 行间 1px 分隔线（左右各缩 12）；本行或上一行有底色时不画，免得线压在色块边上。
+    bool prevSelected = false;
+    if (index.row() > 0) {
+        const auto *view = qobject_cast<const QAbstractItemView *>(option.widget);
+        prevSelected = view != nullptr && view->selectionModel() != nullptr &&
+                       view->selectionModel()->isSelected(index.siblingAtRow(index.row() - 1));
+    }
+    if (index.row() > 0 && !hovered && !selected && !prevSelected) {
+        painter->fillRect(QRect(r.left() + kPad, r.top(), r.width() - 2 * kPad, 1), t.divider);
+    }
+    if (hovered || selected) {
+        QPainterPath bg;
+        bg.addRoundedRect(QRectF(r), kRadius, kRadius);
+        painter->fillPath(bg, selected ? t.selected : t.hover);
+    }
+    if (selected) {  // 左侧 3px 指示条：距左 3，上下各缩 18
+        QPainterPath bar;
+        bar.addRoundedRect(QRectF(r.left() + 3, r.top() + 18, 3, r.height() - 36), 1.5, 1.5);
+        painter->fillPath(bar, t.deep);
+    }
+
+    // 封面
+    const QRect cover(r.left() + kPad, r.center().y() - coverSize() / 2 + 1, coverSize(), coverSize());
+    const QVariant decoration = index.data(Qt::DecorationRole);
+    QPixmap pix = decoration.canConvert<QIcon>() ? decoration.value<QIcon>().pixmap(coverSize(), coverSize())
+                                                 : decoration.value<QPixmap>();
+    if (!pix.isNull()) painter->drawPixmap(cover, pix);
+
+    // 右侧：悬停时快捷操作，否则元信息
+    int textRight = r.right() - kPad;
+    if (hovered) {
+        for (const Action a : {Action::Folder, Action::More}) {
+            const QRect box = actionRect(r, a);
+            VersionIcons::paintLine(*painter, a == Action::Folder ? QStringLiteral("folder") : QStringLiteral("more"),
+                                    QRectF(box).adjusted(6, 6, -6, -6), t.secondary, a == Action::More ? 2.6 : 1.6);
+        }
+        const QRect launch = actionRect(r, Action::Launch);
+        QPainterPath pill;
+        pill.addRoundedRect(QRectF(launch), launch.height() / 2.0, launch.height() / 2.0);
+        painter->fillPath(pill, t.primary);
+        QFont f = option.font;
+        f.setWeight(QFont::Medium);
+        painter->setFont(f);
+        const QString text = QStringLiteral("启动");
+        const int textW = painter->fontMetrics().horizontalAdvance(text);
+        const int iconW = 14;
+        const int startX = launch.center().x() - (iconW + 6 + textW) / 2;
+        VersionIcons::paintLine(*painter, QStringLiteral("play"),
+                                QRectF(startX, launch.center().y() - iconW / 2.0 + 1, iconW, iconW), t.onPrimary);
+        painter->setPen(t.onPrimary);
+        painter->drawText(QRect(startX + iconW + 6, launch.top(), textW + 2, launch.height()),
+                          Qt::AlignVCenter | Qt::AlignLeft, text);
+        textRight = actionRect(r, Action::Folder).left() - kGap;
+    } else {
+        const QString meta = index.data(MetaRole).toString();
+        if (!meta.isEmpty()) {
+            QFont f = option.font;
+            f.setPointSizeF(f.pointSizeF() * 12.5 / 14.0);
+            painter->setFont(f);
+            painter->setPen(t.disabled);
+            const int w = painter->fontMetrics().horizontalAdvance(meta);
+            painter->drawText(QRect(r.right() - kPad - w, r.top(), w + 1, r.height()),
+                              Qt::AlignVCenter | Qt::AlignRight, meta);
+            textRight = r.right() - kPad - w - kGap;
+        }
+    }
+
+    // 两行字：标题 14.5/500，副行 12.5 次要色
+    const int textLeft = cover.right() + 1 + kGap;
+    const QRect textBox(textLeft, r.top(), qMax(0, textRight - textLeft), r.height());
+    QFont titleFont = option.font;
+    titleFont.setPointSizeF(titleFont.pointSizeF() * 14.5 / 14.0);
+    titleFont.setWeight(QFont::Medium);
+    QFont subFont = option.font;
+    subFont.setPointSizeF(subFont.pointSizeF() * 12.5 / 14.0);
+    const QString title = index.data(Qt::DisplayRole).toString();
+    const QString sub = index.data(SubtitleRole).toString();
+    const int titleH = 20;
+    const int subH = sub.isEmpty() ? 0 : 18;
+    const int top = r.top() + (r.height() - titleH - subH) / 2;
+    painter->setFont(titleFont);
+    painter->setPen(t.text);
+    painter->drawText(QRect(textBox.left(), top, textBox.width(), titleH), Qt::AlignVCenter | Qt::AlignLeft,
+                      painter->fontMetrics().elidedText(title, Qt::ElideRight, textBox.width()));
+    if (!sub.isEmpty()) {
+        painter->setFont(subFont);
+        painter->setPen(t.secondary);
+        painter->drawText(QRect(textBox.left(), top + titleH, textBox.width(), subH), Qt::AlignVCenter | Qt::AlignLeft,
+                          painter->fontMetrics().elidedText(sub, Qt::ElideRight, textBox.width()));
+    }
+    painter->restore();
+}
+
+bool ListRowDelegate::editorEvent(QEvent *event, QAbstractItemModel *model, const QStyleOptionViewItem &option,
+                                  const QModelIndex &index) {
+    if (event->type() == QEvent::MouseButtonRelease) {
+        const auto *mouse = static_cast<QMouseEvent *>(event);
+        if (mouse->button() == Qt::LeftButton) {
+            for (const Action a : {Action::Folder, Action::More, Action::Launch}) {
+                if (actionRect(option.rect, a).contains(mouse->position().toPoint())) {
+                    emit actionTriggered(index, a);
+                    return true;
+                }
+            }
+        }
+    }
+    return QStyledItemDelegate::editorEvent(event, model, option, index);
+}

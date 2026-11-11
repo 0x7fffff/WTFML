@@ -403,6 +403,7 @@ int UiTaskCenterChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs
 int UiTaskActionsChecks(QMainWindow &window, MainWindowUI &ui);
 int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs);
 int UiRunStateColorsChecks();
+int UiListRowDelegateChecks();
 int UiColumnProportionsChecks(QComboBox * &installed, QPushButton * &startBtn, QListWidget * &folderList, QTreeWidget * &instanceList, QTabWidget * &tabs, const std::function<QString(QWidget *)> &surfaceValueOf, const std::function<bool(QWidget *, const QString &)> &inSurface, const std::function<QFrame *(QWidget *, const QString &)> &surfaceOf);
 int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs);
 int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList);

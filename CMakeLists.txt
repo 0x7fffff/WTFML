@@ -613,6 +613,7 @@ set(SOURCE_FILES
     ui/ServerSettingsPage.cpp
     ui/GroupDialog.cpp
     ui/GroupListDelegate.cpp
+    ui/ListRowDelegate.cpp
     ui/InstanceSettingsDialog.cpp
     ui/InstanceSettingsSignature.cpp
     ui/InstanceUpdateWizard.cpp

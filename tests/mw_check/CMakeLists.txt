@@ -365,6 +365,7 @@ set(SOURCE_FILES
 
     ${REPO_ROOT}/ui/GroupDialog.cpp
     ${REPO_ROOT}/ui/GroupListDelegate.cpp
+    ${REPO_ROOT}/ui/ListRowDelegate.cpp
     ${REPO_ROOT}/ui/InstanceSettingsDialog.cpp
     ${REPO_ROOT}/ui/InstanceUpdateWizard.cpp
     ${REPO_ROOT}/ui/InstanceUpgradePage.cpp

@@ -32,6 +32,7 @@ add_library(wtfml_ui_runtime STATIC
                                 ${REPO_ROOT}/ui/MemorySlider.cpp
                                 ${REPO_ROOT}/ui/GroupDialog.cpp
                                 ${REPO_ROOT}/ui/GroupListDelegate.cpp
+                                ${REPO_ROOT}/ui/ListRowDelegate.cpp
                                 # 内容区覆盖层 + 内嵌提示面板：设置界面和所有提示
                                 # 都开在这一层里，不再另开独立窗口。它们是纯界面（不认识业务），
                                 # 所以归这一层验。

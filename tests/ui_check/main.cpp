@@ -2029,6 +2029,9 @@ int main(int argc, char *argv[]) {
 
     if (const int result = UiRunStateColorsChecks(); result != 0) return result;
 
+    std::printf("===== J3. 列表行（设计稿 .row） =====\n");
+    if (const int result = UiListRowDelegateChecks(); result != 0) return result;
+
     std::printf("===== K. 每页的左右两栏（主页右栏定宽、左栏吃剩下的；另三页是固定宽度的"
                 "侧栏） =====\n");
 
