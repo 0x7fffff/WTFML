@@ -345,6 +345,7 @@ void GameSessionController::onGameFinished(int sessionId, int exitCode, QProcess
             GameLogWindow::autoCloseOnExit(exitCode, exitStatus == QProcess::CrashExit)) {
             logWindow->close();
         } else {
+            logWindow->setExited(exitCode, exitStatus == QProcess::CrashExit);
             logWindow->appendText(exitStatus == QProcess::CrashExit
                                       ? tr("\n[游戏已崩溃退出，退出码：%1]\n").arg(exitCode)
                                       : tr("\n[游戏已退出，退出码：%1]\n").arg(exitCode));

@@ -165,6 +165,12 @@ inline QList<Shot> shots() {
         list.append({"gamelog-running-" + theme + ".png", theme, [](MainWindow &, const Fixture &) { return gameLog(logFixture(), false); }});
         if (dark) {
             list.append({"gamelog-empty-dark.png", theme, [](MainWindow &, const Fixture &) { return gameLog(logFixture(), true); }});
+            list.append({"gamelog-exited-dark.png", theme, [](MainWindow &, const Fixture &) {
+                auto *log = static_cast<GameLogWindow *>(gameLog(logFixture(), false));
+                log->setExited(-1, false);
+                log->appendText(QStringLiteral("\n[游戏已退出，退出码：-1]\n"));
+                return log;
+            }});
         }
         list.append({"dialogs-java-" + theme + ".png", theme, [](MainWindow &w, const Fixture &) {
             return prompt(w, [](OverlayHost *host) {

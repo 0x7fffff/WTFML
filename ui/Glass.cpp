@@ -585,6 +585,21 @@ void Backdrop::paintBase(QPainter &painter, const QWidget *target, bool toPixmap
     }
 }
 
+void Backdrop::paintScene(QPainter &painter, const QRect &rect) {
+    if (effectiveMode() == Mode::Solid) {
+        painter.fillRect(rect, Theme::tokens().page);
+        return;
+    }
+    if (m_frost.isNull()) rebuildNow();
+    painter.save();
+    painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+    painter.drawPixmap(rect, m_frost, m_frost.rect());
+    QColor layer = Theme::tokens().page;
+    layer.setAlphaF(minimumTintAlpha(layer, bodyInks(), {m_darkest, m_brightest}, tintStrength() / 100.0));
+    painter.fillRect(rect, layer);
+    painter.restore();
+}
+
 void Backdrop::paintEvent(QPaintEvent *) {
     QPainter painter(this);
     const Mode m = effectiveMode();

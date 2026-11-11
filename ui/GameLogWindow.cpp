@@ -9,6 +9,7 @@
 // WheelGuard 住在 MainWindowUI.hpp 里（和 AccountSkinDialog.cpp / InstanceSettingsDialog.cpp
 // 一样，直接引那一份，不为一个三十行的小类再开一个头文件）。
 #include "MainWindowUI.hpp"
+#include "Glass.hpp"
 #include "Theme.hpp"   // 按钮身份、`neutralFill()`（那几档中性灰）、`isDarkPalette()`
 
 #include <QApplication>
@@ -133,7 +134,7 @@ QString filterButtonStyle(const QColor &onBg, const QColor &onInk, const QColor 
     const QColor hoverBg = offBg.darker(100 + Theme::rowHoverAccentPercent());
 
     return QStringLiteral("QToolButton { background-color: %1; color: %2; border: 1px solid %3;"
-                          " border-radius: 3px; padding: 1px 5px; }"
+                          " border-radius: 12px; padding: 3px 11px; }"
                           "QToolButton:hover:enabled:!checked { background-color: %4; }"
                           "QToolButton:checked { background-color: %5; color: %6; }")
         .arg(offBg.name(), offInk.name(), edge.name(), hoverBg.name(), onBg.name(),
@@ -266,6 +267,26 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
     resize(820, 520);
 
     auto *layout = new QVBoxLayout(this);
+    layout->setContentsMargins(28, 20, 28, 16);
+    layout->setSpacing(10);
+
+    // ---------- 标题行：手写体标题 + 运行状态徽标 ----------
+    auto *titleRow = new QHBoxLayout;
+    titleRow->setSpacing(12);
+    auto *title = new QLabel(tr("游戏日志"), this);
+    title->setFont(Theme::handFont(title->font(), Theme::HandFont::Kai));
+    {
+        QFont f = title->font();
+        f.setPixelSize(30);
+        title->setFont(f);
+    }
+    titleRow->addWidget(title);
+    m_stateBadge = new QLabel(this);
+    m_stateBadge->setObjectName(QStringLiteral("gameLogStateBadge"));
+    titleRow->addWidget(m_stateBadge, 0, Qt::AlignVCenter);
+    titleRow->addStretch(1);
+    layout->addLayout(titleRow);
+    setStateBadge(MainWindowUI::runStateRunningText(), false);
 
     m_filterButtons = QVector<QToolButton *>(levelCount(), nullptr);
     // 模型那几张表（计数 / 可见）在 `RuntimeOutputModel` 的构造函数里已经摆好了；这一窗
@@ -274,7 +295,7 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
     // ---------- 顶上那排：五档开关 + 「显示全部」 ----------
     // 摆在**最顶上**（说明文字之上）：它是"我现在想看哪几档"，先决定这个再看内容。
     auto *filters = new QHBoxLayout;
-    filters->setSpacing(4);
+    filters->setSpacing(6);
     for (int i = 0; i < levelCount(); ++i) {
         const LogLevel level = levelAt(i);
         auto *button = new QToolButton(this);
@@ -314,6 +335,23 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
     //
     // 这一颗是 从「显示全部」按钮换过来的：那一颗的位置给行数上限，清空从底下
     // 那一排挪上来。换掉的代价（五档全关之后没有一键全勾回来）写在 .hpp 里。
+    // ---------- 搜索那一行 ----------
+    //
+    // 和档位筛选**同时**生效（`RuntimeOutputModel::matches()` 里是交集）：用户既可能
+    // "只看 ERROR"，也可能"在全部里找某一串"。搜索只影响**视图**，模型留着全部（导出的
+    // 那两份仍然走 `allLogText()` / `logTextFrom()`，不会被搜索框吃掉）。
+    m_searchEdit = new QLineEdit(this);
+    m_searchEdit->setObjectName(searchEditName());
+    m_searchEdit->setPlaceholderText(searchPlaceholderText());
+    m_searchEdit->setToolTip(searchTooltip());
+    m_searchEdit->setClearButtonEnabled(true);
+    connect(m_searchEdit, &QLineEdit::textChanged, this, [this](const QString &text) {
+        m_model.setSearchText(text);
+        rebuildView();
+    });
+    m_searchEdit->setMinimumWidth(240);
+    m_searchEdit->setMaximumWidth(300);
+
     m_lineLimitCombo = new QComboBox(this);
     m_lineLimitCombo->setObjectName(lineLimitComboName());
     for (int limit : lineLimitChoices()) {
@@ -341,6 +379,7 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
         // 换一档 = 换视图那一层的闸，然后重画（模型一行不动，见 .hpp 里那段）。
         setDisplayLineLimit(lineLimitOfIndex(index));
     });
+    filters->addWidget(m_searchEdit);
     filters->addWidget(m_lineLimitCombo);
 
     m_clearButton = new QPushButton(clearButtonText(), this);
@@ -351,22 +390,6 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
     filters->addWidget(m_clearButton);
 
     layout->addLayout(filters);
-
-    // ---------- 搜索那一行 ----------
-    //
-    // 和档位筛选**同时**生效（`RuntimeOutputModel::matches()` 里是交集）：用户既可能
-    // "只看 ERROR"，也可能"在全部里找某一串"。搜索只影响**视图**，模型留着全部（导出的
-    // 那两份仍然走 `allLogText()` / `logTextFrom()`，不会被搜索框吃掉）。
-    m_searchEdit = new QLineEdit(this);
-    m_searchEdit->setObjectName(searchEditName());
-    m_searchEdit->setPlaceholderText(searchPlaceholderText());
-    m_searchEdit->setToolTip(searchTooltip());
-    m_searchEdit->setClearButtonEnabled(true);
-    connect(m_searchEdit, &QLineEdit::textChanged, this, [this](const QString &text) {
-        m_model.setSearchText(text);
-        rebuildView();
-    });
-    layout->addWidget(m_searchEdit);
 
     m_hintLabel = new QLabel(hintText(), this);
     m_hintLabel->setObjectName(hintLabelName());
@@ -386,15 +409,23 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
         hintPalette.setColor(QPalette::WindowText, hintInk);
         m_hintLabel->setPalette(hintPalette);
     }
-    layout->addWidget(m_hintLabel);
+    // 说明那一行挂在标题下面（第 1 格），筛选那一排在它下面。
+    layout->insertWidget(1, m_hintLabel);
 
     m_view = new LogView(this);
     // 视口有自己的调色板；只设置外层对话框会在 QSS 抛光后留下输入框底色。
     m_view->setPalette(logPalette);
     m_view->viewport()->setPalette(logPalette);
-    m_view->setStyleSheet(QStringLiteral("QPlainTextEdit { background-color: %1; color: %2; border: 1px solid %3; }")
-                             .arg(logTokens.logBase.name(), logPalette.color(QPalette::Text).name(),
-                                  logTokens.logBorder.name()));
+    // 正文半透明、不描边：底下那层磨砂（paintEvent）从字缝里透上来，和主窗同一张底。
+    {
+        const QColor base = logTokens.logBase;
+        m_view->setStyleSheet(
+            QStringLiteral("QPlainTextEdit { background-color: rgba(%1, %2, %3, %4); color: %5;"
+                           " border: none; border-radius: 10px; }")
+                .arg(base.red()).arg(base.green()).arg(base.blue())
+                .arg(Theme::isDark() ? 115 : 140)  // QSS 的 alpha 是 0–255 整数，写小数会被读成 0
+                .arg(logPalette.color(QPalette::Text).name()));
+    }
     m_view->setObjectName(logViewName());
     // 只读：这是"看输出"的窗，不是输入框。只读之后光标不闪、也打不进字，但它**仍然可以
     // 选中复制**（那正是用户拿报错去搜的时候要干的）。
@@ -774,6 +805,29 @@ void GameLogWindow::refreshFilterButtonStyles() {
     // 记下这一趟用的是哪一档中性灰：`changeEvent()` 拿它当"真的换了主题没有"的判据
     // （这两个事件来得比主题变化勤得多）。
     m_lastSwitchOff = switchOffColor(palette);
+}
+
+void GameLogWindow::setExited(int exitCode, bool crashed) {
+    setStateBadge(crashed ? tr("游戏已崩溃退出，退出码：%1").arg(exitCode)
+                          : tr("游戏已退出，退出码：%1").arg(exitCode),
+                  crashed || exitCode != 0);
+}
+
+void GameLogWindow::setStateBadge(const QString &text, bool bad) {
+    m_stateBadge->setText(text);
+    Theme::markBadge(m_stateBadge, bad ? Theme::BadgeTone::Danger
+                                   : text == MainWindowUI::runStateRunningText() ? Theme::BadgeTone::Ok
+                                                                                 : Theme::BadgeTone::Neutral);
+}
+
+void GameLogWindow::paintEvent(QPaintEvent *event) {
+    // 独立顶层窗：借主窗那一张磨砂风景铺满（没有主窗时退回调色板的窗口色）。
+    if (auto *backdrop = Glass::Backdrop::active()) {
+        QPainter painter(this);
+        backdrop->paintScene(painter, rect());
+        return;
+    }
+    QDialog::paintEvent(event);
 }
 
 void GameLogWindow::changeEvent(QEvent *event) {
