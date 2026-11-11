@@ -187,7 +187,7 @@ public:
     /**
      * @brief 预取 GTNH 首启 MCLib / AssetDirector 要的资源（2.1.6b）。
      *
-     * 请求集合不在整合包里（见 docs/features/MODPACK_IMPORT.md 的 2.1.6a 结论），所以这里用的是
+     * 请求集合不在整合包里（见 docs/features/MODPACK_IMPORT.md「请求集合怎么得到」的结论），所以这里用的是
      * **随产品发布的一份已知集合清单**（`AssetDirectorKnownSet`）：按实例 `mods/` 里的
      * 文件名认出消费者模组（今天只有 Et-Futurum-Requiem 2.6.2.25-GTNH），再按官方索引的
      * 字节数 + SHA-1 补齐对象。

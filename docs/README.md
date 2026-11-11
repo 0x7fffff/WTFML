@@ -25,11 +25,7 @@
 | [HIGH_SPEED_DOWNLOAD.md](features/HIGH_SPEED_DOWNLOAD.md) | 高速下载：暂停/显式继续/跨进程恢复、分段与限速、本机文件复用、速度与剩余时间 |
 | [MODPACK_IMPORT.md](features/MODPACK_IMPORT.md) | 整合包导入的支持范围与安全边界：声明式启动补丁（GTNH）、MCLib AssetDirector 首启资源预取、缺项报告 |
 | [PRESETS.md](features/PRESETS.md) | 实例预设的使用方式与边界：清单校验、综合预设投影、模组执行保护、查询/确认/恢复 |
-| [PRESET_PICKER_DESIGN.md](features/PRESET_PICKER_DESIGN.md) | 新建实例的预设选择弹窗规范：布局、分类导航、综合预设显示规则、单类别冲突规则 |
-| [PRESET_WORKSPACE_20261030.md](features/PRESET_WORKSPACE_20261030.md) | 预设工作区实现记录：空白编辑器、六类编辑、草稿与发布、另存为预设、Modrinth 身份查询 |
-| [MOD_ACTION_PANEL.md](features/MOD_ACTION_PANEL.md) | 模组管理操作栏最终约定：右侧 260px、选择才展开、全选/反选只对筛选结果、逐项结果 |
 | [INSTANCE_UPGRADE.md](features/INSTANCE_UPGRADE.md) | 实例版本更新：向导、模组适配替换/声明覆盖、两种模组判断分开显示、原地升级与回滚的数据保护 |
-| [INSTANCE_UPGRADE_REDESIGN.md](features/INSTANCE_UPGRADE_REDESIGN.md) | 升级改版开发准备：设计来源、已有能力与缺口、类别与路径、页面与检查状态、实现落点 |
 | [UPGRADE_ACCEPTANCE.md](features/UPGRADE_ACCEPTANCE.md) | U8 真机验收清单：1000×750 布局、兼容性弹窗、ACL/占用/空间、取消重入中断、历史回滚 |
 | [MANUAL_RECOVERY.md](features/MANUAL_RECOVERY.md) | 人工恢复目录：用旧目录替换当前目录的入口、事务登记、运行状态检查 |
 | [SECURITY_BOUNDARIES.md](features/SECURITY_BOUNDARIES.md) | 外部输入变成盘上路径/解码的边界盘点：会变成路径的名字、按声明尺寸分配的图片、`powershell.exe` 解析 |

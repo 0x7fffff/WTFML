@@ -4,7 +4,7 @@
 > 实现事实归 [FEATURES](FEATURES.md) 与各专题文档，本文不追加完成流水。
 > 历史：验收流水见 [ACCEPTANCE_LOG](archive/ACCEPTANCE_LOG.md)，计划/审查流水见 [REVIEW_LOG](archive/REVIEW_LOG.md)，
 > 2026-11-05 清理前的主计划全文见 [ROADMAP_ARCHIVE_20261105](archive/ROADMAP_ARCHIVE_20261105.md)。
-> 新升级规范原件在仓库外同级 `WTFML_实例升级功能规范.md`；开发拆解见 [升级改版准备](features/INSTANCE_UPGRADE_REDESIGN.md)。
+> 新升级规范原件在仓库外同级 `WTFML_实例升级功能规范.md`；开发拆解见 [升级改版准备](features/INSTANCE_UPGRADE.md)。
 
 ## 1. 剩余项与边界（2026-11-10）
 

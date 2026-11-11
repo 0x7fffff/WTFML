@@ -93,7 +93,7 @@ int runRangeChecks() {
                 if (begin < 0) ++full;
                 QByteArray data = version2 || (!probing && endpoint == "/changing") ? second : body;
                 QByteArray etag = version2 || (!probing && endpoint == "/changing") ? QByteArray("\"v2\"") : QByteArray("\"v1\"");
-                // 「来源规则」那几行（见 docs/features/HIGH_SPEED_DOWNLOAD.md 的验收矩阵）：
+                // 「来源规则」那几行（见 docs/features/HIGH_SPEED_DOWNLOAD.md 的「验证」表）：
                 // · /small     ：正文小于分段下限（4 MiB）⇒ 不该拆段。
                 // · /no-etag   ：一个校验凭据都不给 ⇒ 不该跨请求拼接。
                 // · /weak-etag ：只有弱 ETag（W/"…"）⇒ 等于没有强校验。
@@ -149,7 +149,7 @@ int runRangeChecks() {
         expect(success && read(target) == expected, "assembled or fallback output matches complete source bytes");
     };
     // 分段请求本身出问题时（Content-Range 对不上 / 416 / ETag 变了）的现行口径
-    // （docs/features/HIGH_SPEED_DOWNLOAD.md「 现场日志修正」）：先只补缺的段，
+    // （docs/features/HIGH_SPEED_DOWNLOAD.md「分段下载」）：先只补缺的段，
     // 补投仍失败就保留缓存并报错，**不自动整包重下**；目标文件绝不落半截错内容。
     const auto runRejected = [&](const QString &endpoint, const QString &target) {
         ResumableDownload download;
