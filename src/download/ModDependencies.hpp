@@ -254,7 +254,7 @@ struct InstalledItem {
     /// **不会报错、只是一个都不匹配**，于是那一类的每一条都判成"说不清"。真机实测
     /// （用户那个整合包）：14 个资源包 + 光影包一条都判不出来，报告里全是
     /// "没问到版本列表（网络或接口没成）"—— 而同一个 sha1 把 `loaders` 去掉再问，
-    /// 接口**当场就答**（同一条 `curl` 实测，见 FEATURES.md）。
+    /// 接口**当场就答**（同一条 `curl` 实测，见 docs/FEATURES.md）。
     bool loaderApplies = true;
     ResourceCatalog::VersionEntry currentVersion;
     QString projectId;

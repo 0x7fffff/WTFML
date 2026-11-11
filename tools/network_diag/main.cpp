@@ -503,7 +503,7 @@ static int selfTest(QApplication &app) {
         check(!result.isEmpty() && result.value("success").toBool() == (scenario != 1 && scenario != 4 && scenario != 6 && scenario != 8), "production worker handles direct/proxy/redirect/deadline/budget/checksum");
         if (scenario == 7) check(dispatcherRequests == 1 && result.value("request_count").toInt() >= 3,
                                  "range parts reuse the probed node instead of repeating dispatch");
-        // 断言仍然是**严格的两次**（docs/TESTING.md 2026-10-20 那轮明确决定：次数不符但
+        // 断言仍然是**严格的两次**（docs/dev/TESTING.md 2026-10-20 那轮明确决定：次数不符但
         // 下载成功时也要暴露出来）。2026-11-03 在 CI 上数到 3 次而下载成功，说明这一档在
         // 8 路并发下是**次数取决于调度**的 —— 那属于产品侧"重探有没有被合并"的问题，
         // 不该靠放宽断言解决（2026-11-05 复核纠正：这个工具**不带参数就是 GUI 窗口**，

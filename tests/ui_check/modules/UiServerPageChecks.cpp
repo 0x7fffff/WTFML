@@ -8,7 +8,7 @@
 // 写什么、那几颗按钮按下去发不发信。
 //
 // 这一段原来住在 `UiContentPagesChecks.cpp` 那一大段里、跟着同一个 `dialog` 活几页。
-// 分出来以后夹具是**显式形参**（`dialog` 由调用方持有，生命周期见 docs/TESTING.md
+// 分出来以后夹具是**显式形参**（`dialog` 由调用方持有，生命周期见 docs/dev/TESTING.md
 // 「夹具生命周期（ui_check 的大模块）」），这个模块不再假装自己有一份。
 int UiServerPageChecks(InstanceSettingsDialog &dialog) {
     using Dlg = InstanceSettingsDialog;

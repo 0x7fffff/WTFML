@@ -209,7 +209,7 @@ void DownloadCompletionController::onFinished(const QString &versionId, bool suc
             m_owner.updateStartButtonText();
             InlineMessage::information(m_owner.m_ui->overlay(), MainWindow::tr("导入完成"), errorMessage);
             // 这次导入的东西要是 GTNH 那种会在首启里跑 MCLib AssetDirector 的包，
-            // 趁热把那几十 MB 资源预取掉（体积、写入位置见 docs/MODPACK_IMPORT.md）。
+            // 趁热把那几十 MB 资源预取掉（体积、写入位置见 docs/features/MODPACK_IMPORT.md）。
             // 放在提示之后：那几个提示是"导入成了"的收尾，先让用户看见它。
             m_owner.maybePrefetchAssetDirector(versionId);
         } else if (userCancelled) {

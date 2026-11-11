@@ -6,7 +6,7 @@
 .DESCRIPTION
     P2「测量＋优化｜构建与运行」的第二半。测的是 **Release（-O3）** 编出来的
     WTFMinecraftLauncher.exe —— 验证工程（mw_check/verify）按设计是 -O0，量出来的
-    速度不能代表产品（docs/TESTING.md 的性能规则）。
+    速度不能代表产品（docs/dev/TESTING.md 的性能规则）。
 
     为什么要换注册表：产品的"数据目录"是 QSettings 里的 Launcher/CurrentFolder
     （HKCU\Software\WTFML\WTFML）。不换就会写到用户真正在用的游戏文件夹里。这里把
@@ -56,7 +56,7 @@ param(
     [int]$Warmup = 1,
     # 界面探针模式：给 exe 传 `--wtfml-perf-probe=<沙盒>/perf-probe.json`，由它自己
     # 按真实入口发动作（翻页 / 换主题）、自己退出。要求 exe 是
-    # `-DWTFML_PERF_PROBE=ON` 的 Release 构建（见 docs/PERFORMANCE.md）。
+    # `-DWTFML_PERF_PROBE=ON` 的 Release 构建（见 docs/dev/PERFORMANCE.md）。
     # 这一档不做外部 WM_NULL 探测（会干扰探针自己量的节拍）。
     [switch]$Probe,
     [string]$Sandbox,

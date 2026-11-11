@@ -3,7 +3,7 @@
 # 为什么不链产品主目标：主目标把整个界面、控制器、Widgets 都带进来了，而这里只需要
 # QCoreApplication + 网络栈；少一层依赖，就能在随便一台机器上用 Release 重跑。
 #
-# 这个目录**不进 ctest**：它是量耗时的，不是断言。跑法与结论见 docs/PERFORMANCE.md。
+# 这个目录**不进 ctest**：它是量耗时的，不是断言。跑法与结论见 docs/dev/PERFORMANCE.md。
 add_library(wtfml_perf_download_core STATIC
     ../../src/download/DownloadManager.cpp ../../src/download/DownloadManager.hpp
     # 下载引擎按状态所有权拆出去的那几个翻译单元：DownloadManager.cpp 会直接调它们，

@@ -13,7 +13,7 @@
  * 「Java可执行文件未找到」（`QFileInfo::exists()` 在没开长路径的机器上也看不穿它），
  * 要么是一句与本机毫不相干的系统话术 —— 两种都把「路径太长」这个真因藏起来了。
  *
- * 【实测（2026-11，见 docs/TESTING.md「长路径」那一节）】
+ * 【实测（2026-11，见 docs/dev/TESTING.md「长路径」那一节）】
  *
  * 本机 `HKLM\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled=0`，
  * 工程自己也**不许**改注册表去冒充支持，所以下面这些是这台机器上的事实：

@@ -77,7 +77,7 @@ try {
     try { $ownsMutex = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $ownsMutex = $true }
     if (-not $ownsMutex) { throw "Another verification run owns this build directory: $build" }
     # 测试进程的 TEMP：默认放系统临时目录；受限令牌（Windows 沙箱 / 某些企业策略）下
-    # 子进程只能写工作区，那就用 `WTFML_TEST_TEMP` 指到工作区里（见 docs/TESTING.md）。
+    # 子进程只能写工作区，那就用 `WTFML_TEST_TEMP` 指到工作区里（见 docs/dev/TESTING.md）。
     # NOTE: 别放 build/test-runs 里面 —— 那里在受限令牌下同样写不进去，症状是凡是
     # `QTemporaryDir` 取默认路径的模块直接返回 2（ctest 报 Failed、0.03 秒、只跑 2 条断言）。
     $tempBase = if ($env:WTFML_TEST_TEMP) { $env:WTFML_TEST_TEMP } else { [IO.Path]::GetTempPath() }

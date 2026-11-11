@@ -6,7 +6,7 @@
  * 【为什么要有这个工具】
  *
  * 产品 exe 里没有假网络注入点，验证工程又是按设计 `-O0` 编的 —— 拿它们报"并发下载变快了"
- * 都不算证据（见 docs/TESTING.md 的性能规则）。这个工具只做一件事：在 Release 下把
+ * 都不算证据（见 docs/dev/TESTING.md 的性能规则）。这个工具只做一件事：在 Release 下把
  * `DownloadManager` 摆到一条已知的、本机的链路上，把同一批作业跑 N 遍，输出可比的数字。
  *
  * 【它能说明什么、不能说明什么】
@@ -286,7 +286,7 @@ double median(QList<double> values) {
 }
 
 void printRow(const QString &label, const RoundStats &stats) {
-    // "stall" 是扣掉 20 ms 节拍之后的那一格，和界面探针同一口径（见 docs/PERFORMANCE.md）。
+    // "stall" 是扣掉 20 ms 节拍之后的那一格，和界面探针同一口径（见 docs/dev/PERFORMANCE.md）。
     std::fprintf(stdout, "%-28s %8.0f ms  %7.1f MiB/s  stall %4lld ms (>50ms x%2d)  fail %d%s%s\n",
                  qUtf8Printable(label), stats.wallMs, megabytesPerSecond(effectiveBytes(stats), stats.wallMs),
                  static_cast<long long>(stats.maxGapMs > 20 ? stats.maxGapMs - 20 : 0), stats.over50ms,

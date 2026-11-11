@@ -6,7 +6,7 @@
 // 另有一句，而且装了之后要能回来（这一档是可逆的）。
 //
 // 这一段原来住在 `UiContentPagesChecks.cpp` 里、跟着那一大段的对话框夹具与临时目录。
-// 分出来以后要的四样都走显式形参，生命周期见 docs/TESTING.md
+// 分出来以后要的四样都走显式形参，生命周期见 docs/dev/TESTING.md
 // 「夹具生命周期（ui_check 的大模块）」。
 int UiEmptyPageChecks(const QString &instanceDisplayName, const QString &instanceDirName,
                       const InstanceSettingsDialog::GlobalValues &global, const QString &root) {

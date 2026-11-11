@@ -37,7 +37,7 @@ try {
     Check ((Get-CompactTestRunnerMode Standalone full $false) -eq 'OFF') 'explicit standalone fallback is available'
     $compactOwners = @([pscustomobject]@{test='one';target='mw_check_modules'}, [pscustomobject]@{test='two';target='mw_check_modules'})
     Check (@(Get-TestBuildTargets @([pscustomobject]@{name='one'}, [pscustomobject]@{name='two'}) $compactOwners).Count -eq 1) 'compact owner registry links selected runner only once'
-    $docs = Get-TestImpact @('docs/INSTANCE_UPGRADE.md', 'README.md')
+    $docs = Get-TestImpact @('docs/features/INSTANCE_UPGRADE.md', 'README.md')
     Check ($docs.suites.Count -eq 0) 'documentation-only changes skip compiled CI partitions'
     $javaCase = Get-TestImpact @('tests/core_modules/AsciiAliasTests.cpp')
     Check (-not $javaCase.full -and $javaCase.modules.Count -eq 1 -and $javaCase.modules[0] -eq 'core-java') 'one core case selects only its owning executable'

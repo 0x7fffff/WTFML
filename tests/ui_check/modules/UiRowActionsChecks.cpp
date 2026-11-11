@@ -7,7 +7,7 @@
 // （全是禁用）的时候保持显示禁用，此外修复点击开关的时候会取消选中的问题」。
 //
 // 这一段原来住在 `UiContentPagesChecks.cpp` 里、跟着那一大段的对话框夹具。分出来以后
-// 要的三样（两个名字 + 全局那份值）都是**显式形参**，生命周期见 docs/TESTING.md
+// 要的三样（两个名字 + 全局那份值）都是**显式形参**，生命周期见 docs/dev/TESTING.md
 // 「夹具生命周期（ui_check 的大模块）」。
 int UiRowActionsChecks(const QString &instanceDisplayName, const QString &instanceDirName,
                        const InstanceSettingsDialog::GlobalValues &global) {

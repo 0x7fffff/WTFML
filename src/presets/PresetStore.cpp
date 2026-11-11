@@ -50,7 +50,7 @@ constexpr qint64 kIndexLimit = 4 * 1024 * 1024;
 constexpr qint64 kManifestLimit = 16 * 1024 * 1024;
 
 /// `list()` 每一趟都要把每一份 manifest 读回来、解析一遍。1000 份实测 2.3 秒
-/// （见 `docs/P2_STALL_STACKS_20261101.md`），而同一个进程里它会被问很多次（预设页、
+/// （见 `docs/dev/perf-notes/P2_STALL_STACKS_20261101.md`），而同一个进程里它会被问很多次（预设页、
 /// 安装选择弹窗、`availablePresets()`…）。这里按"这份文件的字节数 + 修改时刻"记住
 /// 上一次读出来的、**列表要的那几格**；任何一个变了就重读。
 ///
@@ -96,7 +96,7 @@ void forgetSummaryCacheEntry(const QString &path) {
 // 【为什么盘上还要有一份】
 //
 // 进程里那张缓存只帮第二趟：冷启动后第一次 `list()` 仍要把每份 manifest 读一遍
-// （并行之后 1000 份 0.40 s，见 `docs/P2_PRESET_READ_PARALLEL_20261101.md`）。而预设页
+// （并行之后 1000 份 0.40 s，见 `docs/dev/perf-notes/P2_PRESET_READ_PARALLEL_20261101.md`）。而预设页
 // 和安装选择弹窗的第一趟就压在这一下上。把"上一次读出来的摘要 + 那一份文件的
 // 字节数/修改时刻"写在盘上，下一次启动只要 stat 一遍就能跳过 manifest 正文。
 //
@@ -848,7 +848,7 @@ ManifestLoadResult loadForList(const QString &root, const QString &id) {
 /// 读一批 manifest，**次序与 `ids` 一致**。
 ///
 /// 1000 份串行 2.4 s、并行 0.4 s（探针实测，见
-/// `docs/P2_PRESET_READ_PARALLEL_20261101.md`），所以够多就并行。少的时候不折腾：
+/// `docs/dev/perf-notes/P2_PRESET_READ_PARALLEL_20261101.md`），所以够多就并行。少的时候不折腾：
 /// 起线程的价钱比几份文件还贵。调用方自己就是线程池线程时也不用怕互等 ——
 /// 全局池只剩一个线程时退回串行。
 QList<ManifestLoadResult> loadManifests(const QString &root, const QStringList &ids) {

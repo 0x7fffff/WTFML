@@ -27,7 +27,7 @@
  *   （U10b 那一段，`&dialog` 做上下文、lambda 按引用捕获那一节栈上的 `lastPath`）；
  *   悬空回调把「游戏目录」那份 `QString` 提前放掉，崩点却报在析构里。现在上下文换成
  *   同作用域的 `QObject scopeGuard`。规则：这类连接/定时器的上下文不许活得比捕获的
- *   栈变量久；证据与复验过程见 `docs/TESTING.md`「历史崩溃复核」。
+ *   栈变量久；证据与复验过程见 `docs/dev/TESTING.md`「历史崩溃复核」。
  * * `WTFML_SKIP_JUNCTION=1` 保留给 junction 相关的局部逃生口，但**不是**这条崩溃的
  *   解药；默认仍然要跑那一段。
  */

@@ -2308,7 +2308,7 @@ namespace {
 /// 有了它，`save()` 才能只写**这一次真改过的项**：两个安装目录各自改不同的项时，
 /// 后写的那个不会把对方刚改的那一项抹回自己启动时看到的样子（和
 /// `LauncherSettings` / `GlobalJavaSettings` 同一个路数，见
-/// docs/DIRECTORY_SESSION_LOCK.md）。
+/// docs/features/DIRECTORY_SESSION_LOCK.md）。
 struct PersistedThemeValues {
     QString scope;
     QHash<QString, QVariant> values;

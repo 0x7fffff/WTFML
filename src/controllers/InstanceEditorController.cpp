@@ -351,7 +351,7 @@ void InstanceEditorController::saveConfigFile(InstanceSettingsDialog *dialog, co
     //
     // 写的是实例里的配置文件，备份落在数据目录的 cache/ 下 —— 和目录里其它写入口是同一把
     // 生命周期锁。另一份启动器持着这个根时一个字节都不写（理由见
-    // docs/DIRECTORY_SESSION_LOCK.md：两个进程交错写配置和缓存，谁最后一次写进去就是谁的，
+    // docs/features/DIRECTORY_SESSION_LOCK.md：两个进程交错写配置和缓存，谁最后一次写进去就是谁的，
     // 而用户看到的是"我改的那份没了"）。放在两道问话之后：问完用户已经决定要写了，
     // 这时才去拿锁，不把弹窗期间的时间算成持锁。
     {

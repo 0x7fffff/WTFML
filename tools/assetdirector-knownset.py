@@ -23,7 +23,7 @@ Modes:
       `AssetDirectorKnownSetTests.cpp` asserts it.
 
 This is a manual probe, not part of CTest: it needs the network and an EFR checkout.
-See "MCLib AssetDirector 首启资源" in docs/MODPACK_IMPORT.md for why the set has to be
+See "MCLib AssetDirector 首启资源" in docs/features/MODPACK_IMPORT.md for why the set has to be
 pinned per pack + mod version instead of being derived from the pack manifest.
 """
 import argparse

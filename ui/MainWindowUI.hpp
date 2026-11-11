@@ -1616,7 +1616,7 @@ public:
     ///
     /// 箭头是 `VersionIcons::chevron()` 画的位图，**不是字体里的字形**：原先写的是
     /// U+2304「⌄」，默认界面字体里没有这一格，Qt 第一次量它的时候要做一遍字体回退
-    /// 查找（本机实测 268 ms，见 docs/PERFORMANCE.md「主页那颗箭头」）。
+    /// 查找（本机实测 268 ms，见 docs/dev/PERFORMANCE.md「主页那颗箭头」）。
     static QString homeAccountArrowName() { return QStringLiteral("homeAccountArrow"); }
     static int homeAccountArrowSize() { return 12; }
 

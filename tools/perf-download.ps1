@@ -1,7 +1,7 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    并发下载基准：把 docs/PERFORMANCE.md 第九节那张表原样跑一遍。
+    并发下载基准：把 docs/dev/PERFORMANCE.md 第九节那张表原样跑一遍。
 
 .DESCRIPTION
     每个用例起一次 WTFMLPerfDownload.exe：本机 127.0.0.1 起 HTTP/1.1 服务器，
@@ -13,7 +13,7 @@
 
 .PARAMETER Exe
     基准 exe。默认 build/perf-download/tools/perf_download/WTFMLPerfDownload.exe
-    （编法见 docs/PERFORMANCE.md 第九节：-DWTFML_PERF_DOWNLOAD=ON、Release）。
+    （编法见 docs/dev/PERFORMANCE.md 第九节：-DWTFML_PERF_DOWNLOAD=ON、Release）。
 
 .PARAMETER ReportDir
     结果落点，默认 build/perf-download-<时间戳>/。每个用例一份 JSON，外加 summary.json。
@@ -41,7 +41,7 @@ $repo = Split-Path -Parent $PSScriptRoot
 Push-Location $repo
 try {
     if (-not (Test-Path -LiteralPath $Exe)) {
-        throw "找不到 $Exe —— 先按 docs/PERFORMANCE.md 第九节编一次（-DWTFML_PERF_DOWNLOAD=ON）"
+        throw "找不到 $Exe —— 先按 docs/dev/PERFORMANCE.md 第九节编一次（-DWTFML_PERF_DOWNLOAD=ON）"
     }
     if (-not $ReportDir) {
         $ReportDir = Join-Path 'build' ('perf-download-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))

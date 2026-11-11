@@ -685,7 +685,7 @@ QWidget *MainWindowUI::setupHomePage() {
         accountHeader->addLayout(accountIdentity, 1);
         // 那颗小箭头**是画的**，不是字体里的字形。原来这里写的是 U+2304「⌄」：
         // 默认界面字体里没有这一格，Qt 于是第一次排这段文字时要去字体库里做一遍回退查找
-        // ——本机实测 268 ms，整个启动里最大的一块（见 docs/PERFORMANCE.md「主页那颗箭头」）。
+        // ——本机实测 268 ms，整个启动里最大的一块（见 docs/dev/PERFORMANCE.md「主页那颗箭头」）。
         // `VersionIcons::chevron()` 和底栏、版本树里那些箭头是同一份笔画，也不吃字体。
         auto *accountArrow = new QLabel(accountSkinButton);
         accountArrow->setObjectName(MainWindowUI::homeAccountArrowName());

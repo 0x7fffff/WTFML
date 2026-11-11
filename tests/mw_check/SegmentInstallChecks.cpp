@@ -335,7 +335,7 @@ int runSegmentInstallChecks() {
     }
 
     // 4. 入口 302 到带令牌落点（BMCLAPI 形态）：**探测一次拿到落点，四条分段复用这一条**
-    // （docs/HIGH_SPEED_DOWNLOAD.md「 现场日志修正」：避免每段重复入口、
+    // （docs/features/HIGH_SPEED_DOWNLOAD.md「 现场日志修正」：避免每段重复入口、
     // 反复调度和 429）。令牌真过期的那一批会在补投前重新探测刷新。
     {
         resetCounters();

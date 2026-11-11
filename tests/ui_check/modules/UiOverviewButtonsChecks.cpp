@@ -5,7 +5,7 @@
 // U10b 常用目录那一排按钮（住在概览页里）
 //
 // 这一段原来住在 `UiContentPagesChecks.cpp` 里、跟着那一大段共用的 `dialog`。分出来以后
-// `dialog` 按引用传，其余夹具按显式形参传；生命周期见 docs/TESTING.md
+// `dialog` 按引用传，其余夹具按显式形参传；生命周期见 docs/dev/TESTING.md
 // 「夹具生命周期（ui_check 的大模块）」。
 int UiOverviewButtonsChecks(InstanceSettingsDialog &dialog, const QString &root,
                                 const QHash<QString, QString> &dirs) {
@@ -68,7 +68,7 @@ int UiOverviewButtonsChecks(InstanceSettingsDialog &dialog, const QString &root,
         // 写指令上，可那一块数据是「游戏目录」那条路径，于是崩点被报成
         // `InstanceSettingsDialog::~InstanceSettingsDialog()` 释放 `m_fileDirs` 那条
         // （和真正的写入点隔着一整节）。正常入口下它只是悄悄把那一块提前放掉，什么
-        // 都不报 —— 这就是当年那条“偶发 `c0000374`”的另一半（见 docs/TESTING.md
+        // 都不报 —— 这就是当年那条“偶发 `c0000374`”的另一半（见 docs/dev/TESTING.md
         // 「历史崩溃复核」）。
         QObject scopeGuard;
         QObject::connect(&dialog, &Dlg::openInstanceFolderRequested, &scopeGuard,

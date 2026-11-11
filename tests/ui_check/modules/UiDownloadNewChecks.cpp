@@ -8,7 +8,7 @@
 //
 // 这一段原来住在 `UiContentPagesChecks.cpp` 里、跟着那一大段的对话框夹具（`dialog` 的当前页
 // 状态要沿用它），所以那一个按引用传进来；另外两样按显式形参传，生命周期见
-// docs/TESTING.md「夹具生命周期（ui_check 的大模块）」。
+// docs/dev/TESTING.md「夹具生命周期（ui_check 的大模块）」。
 int UiDownloadNewChecks(InstanceSettingsDialog &dialog, const QString &instanceDisplayName,
                         const QString &instanceDirName,
                         const InstanceSettingsDialog::GlobalValues &global) {

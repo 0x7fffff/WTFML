@@ -55,7 +55,7 @@ int runMemorySuggestionTests(const QString &sandbox) {
               QString::number(got));
     }
 
-    // ---- L1b: 「这个实例装了多少模组」那一档（见 FEATURES.md 待办"自动档不认整合包规模"）----
+    // ---- L1b: 「这个实例装了多少模组」那一档（见 docs/FEATURES.md 待办"自动档不认整合包规模"）----
     // 规则加在**第 1 步**上：total/4 + 每 64 模组 512 MB（最多 +4096），之后照旧走
     // min(可用/2) → 夹 [1024, 8192] → min(总量/2) → 向下取整 256。数字同样是手算的。
     struct ModCase {

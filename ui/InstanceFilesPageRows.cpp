@@ -234,7 +234,7 @@ void InstanceFilesPage::rebuildRows() {
         // `setItemWidget()` 挂上一条之后，视图后面每一次 `addItem()` 都要替**已经挂着的
         // 那一摞**重算一遍几何；夹在一起写的话第 k 条 item 的插入要给前面 k-1 个行控件各算
         // 一遍，整表就是平方级。实测 1000 行：夹着写 1.39 s，先排完再挂 0.29 s（同一版
-        // 二进制 A/B；前面那三档对照在 docs/P2_LARGE_LIST_PAINT_20261031.md）。所以这个
+        // 二进制 A/B；前面那三档对照在 docs/dev/perf-notes/P2_LARGE_LIST_PAINT_20261031.md）。所以这个
         // 循环只管"item 和行控件都建出来、配好对"，挂的事等整表排完一趟做完。
         // 大列表：先只建**头部 80 行的控件**，其余行的控件分帧建；item 仍然一次排完（几何一次算）。
         constexpr int kImmediateRows = 80;

@@ -11,7 +11,7 @@
 // mw_check 的 T28 一带。
 //
 // 这一段原来住在 `UiContentPagesChecks.cpp` 里、跟着那一大段的对话框夹具。分出来以后
-// 要的三样（两个名字 + 全局那份值）都是**显式形参**，生命周期见 docs/TESTING.md
+// 要的三样（两个名字 + 全局那份值）都是**显式形参**，生命周期见 docs/dev/TESTING.md
 // 「夹具生命周期（ui_check 的大模块）」。
 int UiBatchManagementChecks(const QString &instanceDisplayName, const QString &instanceDirName,
                             const InstanceSettingsDialog::GlobalValues &global) {

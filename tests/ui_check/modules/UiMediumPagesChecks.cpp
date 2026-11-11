@@ -6,7 +6,7 @@
 //
 // 这一段原来住在 `UiContentPagesChecks.cpp` 里、跟着那一大段共用的 `dialog`（当前页状态
 // 要沿用）。分出来以后 `dialog` 按引用传，其余夹具按显式形参传；生命周期见
-// docs/TESTING.md「夹具生命周期（ui_check 的大模块）」。
+// docs/dev/TESTING.md「夹具生命周期（ui_check 的大模块）」。
 int UiMediumPagesChecks(InstanceSettingsDialog &dialog, const QString &root,
                               const QString &savesDir) {
     using Dlg = InstanceSettingsDialog;

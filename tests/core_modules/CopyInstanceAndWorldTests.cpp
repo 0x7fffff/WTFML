@@ -360,7 +360,7 @@ void runCopyInstanceAndWorldTests() {
 
     section("ZJ6. 文件被别的进程占着（共享冲突）：照实失败，不留半截、不动旧的那一份");
     {
-        // ★ 「文件被占用」那条话术（见 docs/DIRECTORY_SESSION_LOCK.md）背后得有这一条：
+        // ★ 「文件被占用」那条话术（见 docs/features/DIRECTORY_SESSION_LOCK.md）背后得有这一条：
         // 别的程序拿着 `level.dat` 且**不共享删改**时，改名 / 拷贝必须失败且旧的那一份原样在，
         // 而不是让 Windows 抛在一半、留下一个名字已经改掉、内容却只挪了一半的目录。
         //

@@ -25,14 +25,14 @@ option(WTFML_DIAG_DOWNLOAD "Always-on verbose download diagnostics (special diag
 # 测量构建：只用来量界面的真实耗时（真 Release）。默认 OFF —— 普通构建里
 # `PerfProbe::attach()` 是内联空函数，`src/perf/PerfProbe.cpp` 不参与编译。
 # 为什么不能拿验证工程量：那几个工程按设计是 -O0（见 tests/mw_check/CMakeLists.txt），
-# 数字不能代表产品。量法与既有基线见 docs/PERFORMANCE.md。
+# 数字不能代表产品。量法与既有基线见 docs/dev/PERFORMANCE.md。
 option(WTFML_PERF_PROBE "Build the UI perf probe (measurement-only Release build)" OFF)
 # 并发下载基准：本机起 HTTP 服务器，用真的 DownloadManager 下一批文件，量调度/写盘/
 # 主线程空档。和上面那条一样**只做测量**：默认 OFF、不进 ctest、不进发布物。
 # （产品 exe 没有假网络注入点，验证工程又是 -O0 —— 所以另开一个只含下载引擎的 Release 工具。）
 option(WTFML_PERF_DOWNLOAD "Build the concurrent-download benchmark tool (measurement-only)" OFF)
 # 预编译头：把每个 TU 都要重新解析的那一截 Qt 头只解析一次（量法与取舍见
-# docs/PERFORMANCE.md「共享头扇出的时间成本与预编译头」那一节）。默认 ON —— 它只影响
+# docs/dev/PERFORMANCE.md「共享头扇出的时间成本与预编译头」那一节）。默认 ON —— 它只影响
 # 构建耗时，不影响产物：PCH 只是"提前把这份头的解析结果存盘"，编出来的代码和不用它时相同。
 # 关掉它：`-DWTFML_USE_PCH=OFF`。什么时候要关：换编译器/工具链排查奇怪的警告，
 # 或者盘太紧（这份 .gch 本机 177 MB，在构建目录里、不进仓库）。
