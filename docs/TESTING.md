@@ -1128,3 +1128,73 @@ Windows/MinGW 新增 `wtfml.token-protection-fault`：仅该测试进程的导�
 
 
 
+
+## 2026-11-10：智能体 Stage 1A 测试入口
+
+新增独立核心域与两个专项 UI/集成模块；不联网、不写真实用户目录。
+
+```powershell
+# 核心 A 组：SSE/适配/会话/加密/凭据/上下文/Loop/技能/Markdown
+./build/verification-mingw13/tests/verify_agent.exe
+
+# 智能体页 + 设置页（offscreen）
+./build/verification-mingw13/tests/ui_check/ui_check_agent.exe
+
+# 真 MainWindow + 假模型客户端（不联网）
+./build/verification-mingw13/tests/mw_check/mw_check_agent.exe
+```
+
+CTest 名称：`wtfml.core-agent`、`wtfml.ui-agent`、`wtfml.main-window-agent`。
+每个测试用独立 `QTemporaryDir`；`AgentPaths` 通过
+`QCoreApplication::setProperty("wtfml.testAgentDataDir", <临时目录>)` 隔离，
+QSettings 也重定向到同一沙盒。凭据测试强制走 DPAPI 后备，不创建真实凭据管理器 target；
+主路径由 G1A 真机人工验收。
+
+本机结果：`verify_agent 145/145`、`ui_check_agent 28/28`、`mw_check_agent 22/22`；
+`wtfml.ui`、`wtfml.main-window`、`wtfml.token-protection-fault`、核心基线、
+`test-modules/test-runner/ci-partitions` 全部通过。细节与未跑项见
+[Stage 1A 实现与验收](AGENT_STAGE1A.md)。
+
+## 2026-11-10：智能体 Stage 1B 测试入口
+
+沿用 `verify_agent` / `ui_check_agent` / `mw_check_agent`，不新增网络或真实用户目录依赖。
+Stage 1B 用例覆盖：路径攻击矩阵与句柄级校验、外发边界表、审批矩阵、artifact 分离、
+实例锁、维护备份生命周期、文件工具引擎、Loop 工具调用/审批/拒绝回灌、UI 工具卡/审批卡；
+另有本地假服务器验证 400 错误体保留和工具线上名不含点号。
+
+```powershell
+./build/verification-mingw13/tests/verify_agent.exe
+./build/verification-mingw13/tests/ui_check/ui_check_agent.exe
+./build/verification-mingw13/tests/mw_check/mw_check_agent.exe
+```
+
+本机结果：`verify_agent 306/306`、`ui_check_agent 39/39`、`mw_check_agent 31/31`；
+既有 `wtfml.ui`、`wtfml.main-window`、`wtfml.core`、`wtfml.token-protection-fault` 与
+工具链检查通过。junction 夹具无法创建时输出 `SKIP`，不计入通过。真机 G1B 清单见
+[Stage 1B 实现与验收](AGENT_STAGE1B.md)。
+
+## 2026-11-10：G1A 人工审查结果
+
+G1A 除网络错误外全部通过：导航/聊天 UI、API/URL 校验、Windows 凭据管理器主路径、
+Key 遮挡与不回显、流式/停止/重试/切换取消、会话恢复、严格无工具/无 MCP、API Key 未出现在
+日志/会话/界面。网络错误本轮没有条件执行，单独延后到
+[网络错误验收](NETWORK_ERROR_ACCEPTANCE.md)，不写成已通过。
+
+会话加密可见性已补：开关从右上角移到聊天头部下方单独一行，并显示当前明文/加密状态。
+Stage 1B 构建可用 `build/stage1b-review/WTFMinecraftLauncher.exe` 审查；完整流程见
+[G1A 验收流程](G1A_ACCEPTANCE.md)。
+
+## 2026-11-10：G1B 首轮人工结果
+
+首轮人工（`build/stage1b-review`）确认实例锁定、`fs.list/listNames`、审批拒绝/允许、
+二进制拦截、自动读取告知、写入/拒绝/备份、切会话/删除/关窗、加密开关等路径基本正常。
+但发现 P0 隐私问题，G1B **未通过**：
+
+- 脱敏只命中精确常见字段名；`hypixel_api_key`、`DB_PASSWORD`、`REDIS_PASSWORD`、
+  `API_SECRET`、`JWT_SECRET` 等变体未命中（`redactionHits=0` 或只命中 1 个）。
+- 凭据文件识别过窄：测试 env 文件未触发 `EgressBlocked`。
+- 1 GiB 文本 `truncated=true` + modelArtifact id；artifact 只保存本次读取窗口，但脱敏未命中时
+  仍可被 `artifact.read` 取回；工具文案“完整内容见 artifact”不准确。
+
+未测/延后：W4/W5（sha256 查看方式）、A1（artifact 分段）、P4（重启）、P5（提交阶段）、
+网络错误。完整记录与补测方法见 [G1B 首轮人工测试记录](G1B_MANUAL_RESULTS_20261110.md)。

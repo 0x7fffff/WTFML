@@ -67,6 +67,7 @@ class DownloadCompletionController;
 class DownloadTaskLedgerController;
 class ServerMenuController;
 class ResourceInstallController;
+class AgentController;
 class ServerSettingsController;
 class ServerManagementActions;
 class InstanceUpdateFlow;
@@ -177,6 +178,8 @@ public:
     /// 产品代码里**不要拿它抄近路** —— 那个类的方法本来就是给 MainWindow 调的，但绕开
     /// 这里去直接摆状态，等于把"谁说了算"挪到一个不该有决定权的地方。
     MainWindowUI *ui() const { return m_ui; }
+    /// 智能体控制器（Stage 1A：无工具对话）。验证工程用它注入假模型客户端。
+    AgentController *agentController() const { return m_agentController; }
 
     /**
      * @brief **给验证工程摆现场用**：把"上一次点启动是什么时刻"直接摆成某个值。
@@ -2997,6 +3000,7 @@ private:
     /// 都在控制器里（`src/controllers/TaskDetailController`）：页是**建一次留着**、每次开页
     /// `setTask()` 重摆的那一条规矩也归它管。
     TaskDetailController *m_taskDetail = nullptr;
+    AgentController *m_agentController = nullptr;
 
     // 现在正卡在哪一段同步等待上（空串 = 没在等）。内容就是底栏那格要写的那句话，
     // 由 enterSyncWait() 写进来、leaveSyncWait() 清掉 —— 做成字符串而不是布尔量，

@@ -47,6 +47,7 @@ int main(int argc, char **argv) {
  QTemporaryDir processSandbox(sandboxParent + QStringLiteral("/mw-module-XXXXXX"));
  if (!processSandbox.isValid()) return 2;
  app.setProperty("wtfml.testDefaultMinecraftDir", processSandbox.filePath(QStringLiteral("minecraft")));
+ app.setProperty("wtfml.testAgentDataDir", processSandbox.filePath(QStringLiteral("agent")));
  AppPaths::setMinecraftDir(QString());
  app.setOrganizationName(QStringLiteral("WTFML-check"));
  app.setApplicationName(QStringLiteral("mw-module"));

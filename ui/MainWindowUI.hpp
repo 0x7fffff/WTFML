@@ -136,6 +136,7 @@ protected:
 #include "SkinViewer.hpp"
 
 class ThemeAdvancedEditor;
+class AgentPage;
 class MainWindowUI {
 public:
     std::function<bool()> navigationGuard;
@@ -1604,6 +1605,7 @@ public:
     static QString instanceTabName() { return QStringLiteral("instanceTab"); }
     static QString downloadTabName() { return QStringLiteral("downloadTab"); }
     static QString settingsTabName() { return QStringLiteral("settingsTab"); }
+    static QString agentTabName() { return QStringLiteral("agentPage"); }
     static QString skinViewerName() { return SkinViewer::viewerName(); }
     static QString skinHintLabelName() { return QStringLiteral("skinHintLabel"); }
     static QString accountSkinButtonName() { return QStringLiteral("accountSkinButton"); }
@@ -3275,6 +3277,8 @@ public:
     static int downloadTabIndex() { return 2; }
     /// 「设置」页的下标。用来做"第一次切到设置页才扫 Java"这条懒加载。
     static int settingsTabIndex() { return 3; }
+    /// 「智能体」页的下标（第五颗，放最后；启动仍默认主页）。
+    static int agentTabIndex() { return 4; }
     /// 当前显示的选项卡是不是主页（即"启动界面"）。
     bool isHomeTabCurrent() const;
 
@@ -3647,6 +3651,8 @@ public:
     }
 
     QTabWidget *getTabWidget() const { return tabWidget; }
+    /// 智能体页（第五个选项卡）；没有就是 nullptr。
+    AgentPage *getAgentPage() const { return agentPage; }
 
     /// 内容区上面那一层。**设置界面和各种提示的唯一去处** —— 业务层要开一个"整页"或者
     /// 问一句，一律走它，别再 `new` 一个对话框出来（见 OverlayHost.hpp 开头那段）。
@@ -3971,6 +3977,7 @@ private:
     QLabel *skinHintLabel = nullptr;
     QPushButton *accountSkinButton = nullptr;
     QTabWidget *tabWidget = nullptr;
+    AgentPage *agentPage = nullptr;
     OverlayHost *overlayHost = nullptr;
     // 顶上那条自己画的标题栏 + 外框那一份（见各自的文件头）。两个都是 setupUi 里建的。
     TitleBar *bar = nullptr;

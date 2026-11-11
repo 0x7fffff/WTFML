@@ -91,6 +91,41 @@ set(HEADER_FILES
     src/auth/OAuthEndpoints.hpp
     src/auth/SkinApi.hpp
     src/auth/TokenStore.hpp
+    src/util/SecretProtector.hpp
+    src/agent/AgentTypes.hpp
+    src/agent/AgentSettings.hpp
+    src/agent/AgentPaths.hpp
+    src/agent/AgentRedaction.hpp
+    src/agent/AgentSecretStore.hpp
+    src/agent/AgentSessionCrypto.hpp
+    src/agent/AgentSession.hpp
+    src/agent/AgentSessionStore.hpp
+    src/agent/AgentSseParser.hpp
+    src/agent/AgentProviderAdapters.hpp
+    src/agent/AgentModelClient.hpp
+    src/agent/OpenAiCompatibleClient.hpp
+    src/agent/AgentContextBuilder.hpp
+    src/agent/AgentLoop.hpp
+    src/agent/AgentSkill.hpp
+    src/agent/AgentWinPath.hpp
+    src/agent/AgentEgressPolicy.hpp
+    src/agent/AgentArtifactStore.hpp
+    src/agent/AgentBackupIndex.hpp
+    src/agent/AgentInstanceLock.hpp
+    src/agent/AgentFileTools.hpp
+    src/agent/AgentTool.hpp
+    src/agent/AgentApprovalPolicy.hpp
+    src/agent/AgentFileToolEngine.hpp
+    src/controllers/AgentController.hpp
+    ui/AgentMarkdown.hpp
+    ui/AgentViewTypes.hpp
+    ui/AgentMessageView.hpp
+    ui/AgentComposer.hpp
+    ui/AgentPage.hpp
+    ui/AgentSecretEdit.hpp
+    ui/AgentSettingsPage.hpp
+    ui/AgentToolCard.hpp
+    ui/AgentApprovalCard.hpp
     src/net/HttpClient.hpp
     src/manage/DroppedResource.hpp
     src/manage/FolderManager.hpp
@@ -371,6 +406,31 @@ set(SOURCE_FILES
     src/auth/AccountStore.cpp
     src/auth/SkinApi.cpp
     src/auth/TokenStore.cpp
+    src/util/SecretProtector.cpp
+    src/agent/AgentTypes.cpp
+    src/agent/AgentSettings.cpp
+    src/agent/AgentPaths.cpp
+    src/agent/AgentRedaction.cpp
+    src/agent/AgentSecretStore.cpp
+    src/agent/AgentSessionCrypto.cpp
+    src/agent/AgentSession.cpp
+    src/agent/AgentSessionStore.cpp
+    src/agent/AgentSseParser.cpp
+    src/agent/AgentProviderAdapters.cpp
+    src/agent/OpenAiCompatibleClient.cpp
+    src/agent/AgentContextBuilder.cpp
+    src/agent/AgentLoop.cpp
+    src/agent/AgentSkill.cpp
+    src/agent/AgentWinPath.cpp
+    src/agent/AgentEgressPolicy.cpp
+    src/agent/AgentArtifactStore.cpp
+    src/agent/AgentBackupIndex.cpp
+    src/agent/AgentInstanceLock.cpp
+    src/agent/AgentFileTools.cpp
+    src/agent/AgentToolRegistry.cpp
+    src/agent/AgentApprovalPolicy.cpp
+    src/agent/AgentFileToolEngine.cpp
+    src/controllers/AgentController.cpp
     src/net/HttpClient.cpp
     src/manage/DroppedResource.cpp
     src/manage/FolderManager.cpp
@@ -522,6 +582,14 @@ set(SOURCE_FILES
     # 运行输出共用模型：上面那一窗和 ServerConsolePage 都直接用它。
     ui/RuntimeOutputModel.cpp
     ui/MainWindowUI.cpp
+    ui/AgentMarkdown.cpp
+    ui/AgentMessageView.cpp
+    ui/AgentComposer.cpp
+    ui/AgentPage.cpp
+    ui/AgentSecretEdit.cpp
+    ui/AgentSettingsPage.cpp
+    ui/AgentToolCard.cpp
+    ui/AgentApprovalCard.cpp
     ${WTFML_UI_PAGE_SOURCES}
     ui/MemorySlider.cpp
     ui/MotdText.cpp
@@ -734,7 +802,7 @@ endif()
 # IFileOperation / SHCreateItemFromParsingName / IID_IFileOperation 这些符号）。
 # 两个都是系统库，**不发任何东西**。
 if(WIN32)
-    target_link_libraries(WTFMinecraftLauncher PRIVATE crypt32 ole32 shlwapi windowscodecs dwmapi shell32 uuid)
+    target_link_libraries(WTFMinecraftLauncher PRIVATE crypt32 advapi32 ole32 shlwapi windowscodecs dwmapi shell32 uuid)
 endif()
 
 if(WTFML_BUILD_TESTS)

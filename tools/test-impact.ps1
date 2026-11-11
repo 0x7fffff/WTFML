@@ -7,7 +7,7 @@ param([Alias('ChangedPath')][string[]]$ImpactChangedPath,
 function Get-TestImpact([string[]]$Paths, [bool]$ForceFull = $false) {
     $catalog = [ordered]@{
         core = @('core', 'core-bootstrap', 'core-downloads', 'core-install', 'core-instances', 'core-java', 'core-accounts', 'token-protection-fault',
-                 'core-resources', 'core-launch', 'core-servers', 'core-activity', 'core-presets', 'core-toolbox')
+                 'core-resources', 'core-launch', 'core-servers', 'core-activity', 'core-presets', 'core-toolbox', 'core-agent')
         'core-downloads' = @('core-downloads')
         'core-bootstrap' = @('core-bootstrap')
         'core-install' = @('core-install')
@@ -21,6 +21,9 @@ function Get-TestImpact([string[]]$Paths, [bool]$ForceFull = $false) {
         'core-activity' = @('core-activity')
         'core-presets' = @('core-presets')
         'core-toolbox' = @('core-toolbox')
+        'core-agent' = @('core-agent')
+        'ui-agent' = @('ui-agent')
+        'agent-window' = @('main-window-agent')
         runner = @('test-runner', 'test-modules', 'ci-partitions')
         ui = @('ui-refresh', 'install-layout', 'lifecycle'); theme = @('theme')
         'ui-history' = @('ui-bootstrap')
@@ -34,6 +37,8 @@ function Get-TestImpact([string[]]$Paths, [bool]$ForceFull = $false) {
         'tests/ui_check/modules/UiInstallLayoutCheck.cpp' = 'ui'
         'tests/ui_check/modules/UiToolboxPolishCheck.cpp' = 'toolbox'
         'tests/ui_check/modules/UiResourcePacksCheck.cpp' = 'resources'
+        'tests/ui_check/modules/UiAgentCheck.cpp' = 'ui-agent'
+        'tests/mw_check/modules/MwAgentCheck.cpp' = 'agent-window'
         'tests/ui_check/modules/UiLifecycleCheck.cpp' = 'ui'
         'tests/ui_check/modules/UiUiRefreshCheck.cpp' = 'ui'
         'tests/ui_check/modules/UiThemeCheck.cpp' = 'theme'
@@ -84,12 +89,15 @@ function Get-TestImpact([string[]]$Paths, [bool]$ForceFull = $false) {
             '(?i)(Theme|ToggleSwitch|MemorySlider|JavaSettings|JavaManage|GlobalJava|EffectiveJava)' { @('core','java','theme','ui','window'); break }
             '(?i)(ArmorTrim|Toolbox|ToolFeature|Banner|Beacon|Enchantment)' { @('core','toolbox','ui'); break }
             '(?i)(TaskCenter|TaskDetail|Activity|Workspace|HomeQuick)' { @('workspace','ui','window'); break }
+            '^src/agent/|^src/util/SecretProtector\.' { @('core-agent'); break }
             '(?i)(ModAction|ModDepend|ResourceStore|ResourceCatalog|InstanceFile|ResourcePack)' { @('core','mods','resources','upgrade','presets','ui'); break }
             # 首启资源的已知集合清单与它的生成脚本：改的是 core-resources 那一套断言
             # （清单校验/嵌入字节一致）。不加这一条会落进 default ⇒ 整个 full。
             '^assets/assetdirector/|^tools/assetdirector-knownset\.py$' { @('core-resources'); break }
             '^(src/download/|tools/network_diag/)|(?i:Download|RangeChecks|SegmentInstall)' { @('core','network','presets'); break }
             '^(tools/.*\.ps1|tests/test_runner/)' { @('runner'); break }
+            '^ui/Agent' { @('ui-agent'); break }
+            '^src/controllers/AgentController' { @('agent-window','window'); break }
             '^ui/' { @('ui','theme','window'); break }
             default { @() }
         }
@@ -103,8 +111,8 @@ function Get-TestImpact([string[]]$Paths, [bool]$ForceFull = $false) {
     $suites = [Collections.Generic.List[string]]::new()
     if ($modules.Contains('app')) { $suites.Add('ci-app') }
     if (@($modules | Where-Object { $_ -eq 'core' -or $_ -like 'core-*' -or $_ -eq 'runner' }).Count) { $suites.Add('ci-core') }
-    if (@($modules | Where-Object { $_ -in @('ui','ui-history','theme','resources','toolbox') }).Count) { $suites.Add('ci-ui') }
-    if (@($modules | Where-Object { $_ -in @('window','workspace','java','mods','upgrade','network','presets','toolbox') }).Count) { $suites.Add('ci-integration') }
+    if (@($modules | Where-Object { $_ -in @('ui','ui-history','theme','resources','toolbox','ui-agent') }).Count) { $suites.Add('ci-ui') }
+    if (@($modules | Where-Object { $_ -in @('window','agent-window','workspace','java','mods','upgrade','network','presets','toolbox') }).Count) { $suites.Add('ci-integration') }
     [pscustomobject]@{ full = $all; modules = @($modules | Sort-Object); tests = $tests; suites = @($suites.ToArray());
         reasons = @($reasons.ToArray()); paths = @($Paths); testMap = $catalog }
 }

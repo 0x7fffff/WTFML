@@ -24,6 +24,7 @@
 #include "server/ServerProcess.hpp"
 #include "server/ServerRegistry.hpp"
 #include "..\ui\WindowChrome.hpp"
+#include "controllers/AgentController.hpp"
 #include "controllers/BackupController.hpp"
 #include "controllers/DownloadBatchController.hpp"
 #include "controllers/GameSessionController.hpp"
@@ -39,6 +40,7 @@
 #include <QCloseEvent>
 
 MainWindow::~MainWindow() {
+    if (m_agentController) m_agentController->shutdown();
     if (m_downloadBatches) m_downloadBatches->shutdown();
     // 日志窗**没有父窗口**（理由见 GameSessionController::ensureGameLogWindow() 那段），
     // 所以 Qt 不会顺手把它们带走 —— 这里自己收，否则关掉启动器之后屏幕上会留着几扇无主的

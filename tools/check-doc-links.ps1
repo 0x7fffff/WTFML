@@ -28,7 +28,7 @@ $checkedLinks = 0
 $checkedDocRefs = 0
 
 # ---- 1. markdown 里的相对链接 -------------------------------------------------
-$mdFiles = @('README.md', 'FEATURES.md', 'CODING_PLAN_FULL.md', 'CONTRIBUTING_COMMENT.md', 'LOCAL_FILES.md')
+$mdFiles = @('README.md', 'FEATURES.md', 'CODING_PLAN_FULL.md', 'CONTRIBUTING_COMMENT.md', 'LOCAL_FILES.md', 'Agent.md')
 $mdFiles += Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'docs') -Filter '*.md' -File |
     ForEach-Object { 'docs/' + $_.Name }
 

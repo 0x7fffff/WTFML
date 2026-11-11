@@ -1,4 +1,8 @@
 #include "controllers/ServerVersionPicker.hpp"
+#include "controllers/AgentController.hpp"
+#include "AgentPage.hpp"
+#include "agent/AgentInstanceLock.hpp"
+#include "util/AppPaths.hpp"
 /**
  * @file MainWindow.cpp
  * @brief 实现主应用程序窗口及用户交互逻辑。
@@ -309,6 +313,28 @@ MainWindow::MainWindow(QWidget *parent)
     // 安装页那一层（要装哪个原版、选中哪条加载器、名称框里那份"用户改过没有"）。
     // NOTE: 它的构造里**特意不碰那棵树的界面** —— 第一次重画是进安装页的 `openPage()`；
     // 构造只把「选中」这一位初始化成 `MainWindowUI::modLoaderNoneIndex()`。
+    // 智能体（Stage 1A）：页面已经由 MainWindowUI 建好，这里只接控制器。
+    // 没有页面时控制器不建 —— 但产品里 MainWindowUI 总是会建第五页。
+    if (m_ui->getAgentPage() != nullptr) {
+        m_agentController = new AgentController(m_ui->getAgentPage(), m_ui->overlay(), this);
+        m_agentController->setInstanceContextProvider([this] {
+            AgentInstanceInfo info;
+            QComboBox *combo = m_ui->getInstalledVersionCombo();
+            if (combo == nullptr || combo->currentIndex() < 0) return info;
+            info.id = combo->currentData().toString();
+            if (info.id.isEmpty()) return info;
+            info.name = instanceDisplayName(info.id);
+            info.gameRootId = AgentInstanceLocks::gameRootId(AppPaths::minecraftDir());
+            info.exists = QFileInfo(AppPaths::versionDir(info.id)).isDir();
+            return info;
+        });
+        connect(m_ui->getTabWidget(), &QTabWidget::currentChanged, m_agentController,
+                [this](int index) {
+                    if (index != MainWindowUI::agentTabIndex()) {
+                        m_agentController->onPageHidden();
+                    }
+                });
+    }
     m_installPage = new InstallPageController(this);
     // 服务端**起 / 停 / 退出之后怎么办**那一套（见 `controllers/ServerRunController.hpp`）。
     // 它不拥有进程 —— 进程的账在 `m_serverWorkspace` 里，这一层只按 id 去问。

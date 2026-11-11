@@ -263,6 +263,7 @@ int main(int argc, char *argv[]) {
     QTemporaryDir processSandbox(QCoreApplication::applicationDirPath() + QStringLiteral("/mw-check-XXXXXX"));
     if (!processSandbox.isValid()) return 2;
     app.setProperty("wtfml.testDefaultMinecraftDir", processSandbox.filePath(QStringLiteral(".minecraft")));
+    app.setProperty("wtfml.testAgentDataDir", processSandbox.filePath(QStringLiteral("agent")));
     AppPaths::setMinecraftDir(QString());
     const QDir root(processSandbox.path());
     const QString settingsDir = root.filePath(QStringLiteral("check-settings"));
@@ -2755,7 +2756,7 @@ int main(int argc, char *argv[]) {
         check(bar != nullptr && avatar != nullptr && account != nullptr && status != nullptr &&
                   runState != nullptr && runDetail != nullptr && progress != nullptr,
               "底栏那几块都能按 objectName 找回来");
-        check(tabs != nullptr && tabs->count() == 4, "真窗口里也是四个选项卡");
+        check(tabs != nullptr && tabs->count() == 5, "真窗口里也是五个选项卡");
 
         if (account != nullptr && avatar != nullptr) {
             // 左下角显示的名字来自 MainWindow 自己那个 AuthManager。测试这边新起一个

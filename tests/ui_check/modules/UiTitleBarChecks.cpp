@@ -58,8 +58,8 @@ int UiTitleBarChecks(QMainWindow &window, MainWindowUI &ui) {
                   "Z11 没改过时条上那行字就是默认那五个字母（不跟窗口标题走）",
                   strip->titleText());
             const int tabCount = tabsIn != nullptr ? tabsIn->count() : -1;
-            check(tabCount == 4 && strip->navCount() == tabCount,
-                  "★ Z11 四个功能 = 四颗导航按钮（颗数跟标签页数走）",
+            check(tabCount == 5 && strip->navCount() == tabCount,
+                  "★ Z11 五个功能 = 五颗导航按钮（颗数跟标签页数走）",
                   QStringLiteral("标签页 %1 ／ 按钮 %2").arg(tabCount).arg(strip->navCount()));
             if (tabsIn != nullptr && strip->navCount() == tabCount && tabCount > 0) {
                 // 标签只有一个出处：`QTabWidget::tabText()`。按钮上写的就是它。
@@ -286,10 +286,10 @@ int UiTitleBarChecks(QMainWindow &window, MainWindowUI &ui) {
                 // 把"正中归按钮"也钉住（居中的命中测试后果）。
                 const QList<QWidget *> direct =
                     strip->findChildren<QWidget *>(QString(), Qt::FindDirectChildrenOnly);
-                // 条上是 **6 颗**（2 窗口 + 4 导航），一颗都不许多。这里刻意写死这个数、
+                // 条上是 **7 颗**（2 窗口 + 5 导航），一颗都不许多。这里刻意写死这个数、
                 // 不用 `2 + navCount()`：写死的意思是"加子控件这件事必须有人来改这一行"。
-                check(direct.size() == 6,
-                      "★ Z11 条上只有六颗按钮（2 窗口 + 4 导航），没有别的子控件",
+                check(direct.size() == 7,
+                      "★ Z11 条上只有七颗按钮（2 窗口 + 5 导航），没有别的子控件",
                       QStringLiteral("%1 个：%2").arg(direct.size()).arg(
                           [&direct] {
                               QStringList names;
