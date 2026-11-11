@@ -111,4 +111,3 @@ ctest --test-dir build/verification-mingw13 -R "wtfml.(high-speed-download|downl
 **BMCLAPI 限流**：`/version/...`、版本清单入口带 `X-RateLimit-Limit-short: 10`（每分钟 10 次），资源对象路由不受限；撞 429 按既有冷却处理。
 
 以上都是单机现场测量，只作为取值依据。
->>>>>>> tongxi/claude-win-c213cf15
