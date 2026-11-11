@@ -698,7 +698,7 @@ bool applyCoreToCandidate(const Request &r, const Core &core, const QString &can
 /// 失败不改变升级结果：历史写不进去只在 `problem` 后面补一句，**不把成功报成失败**。
 static void recordUpgradeHistory(const Request &r, const Core &core, const QString &sourceDir,
                           const QString &targetDir, const QString &startedAt,
-                          const QString &snapshotZip, bool ok, bool cancelled,
+                          [[maybe_unused]] const QString &snapshotZip, bool ok, bool cancelled,
                           const QString &problem, int copied, int skipped) {
     UpgradeHistory::Entry entry;
     entry.transactionId = r.transactionId;
@@ -981,9 +981,10 @@ static Result prepareCopyAndCommitImpl(Request r, const Core &core, const QStrin
                 const QString rewritten =
                     UpgradeOptions::rewriteKeepingAll(optionsText, packs);
                 QSaveFile optionsOut(optionsPath);
-                optionsOut.open(QIODevice::WriteOnly);
-                optionsOut.write(rewritten.toUtf8());
-                optionsOut.commit();
+                if (optionsOut.open(QIODevice::WriteOnly)) {
+                    optionsOut.write(rewritten.toUtf8());
+                    optionsOut.commit();
+                }
             }
         }
     }
@@ -1380,7 +1381,7 @@ QStringList recoverableTransactions(const QString &gameDir, const QString &insta
     QStringList ids;
     const QDir root(QDir(gameDir).filePath("cache/instance-upgrades"));
     for (const auto &id : root.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Time)) {
-        const Request r{gameDir, instanceId, id, {}};
+        const Request r{gameDir, instanceId, id, {}, -1, {}, {}};
         if (validate(r).isEmpty() && !readJournal(r).isEmpty()
             && QFileInfo(transactionDir(r) + "/original").isDir()) ids.append(id);
     }
@@ -1415,7 +1416,7 @@ QStringList recoverInterrupted(const QString &gameDir) {
         if (!f.open(QIODevice::ReadOnly) || f.size() > 64 * 1024) continue;
         const auto json = QJsonDocument::fromJson(f.readAll()).object();
         f.close();
-        const Request r{gameDir, json.value("instanceId").toString(), id, {}};
+        const Request r{gameDir, json.value("instanceId").toString(), id, {}, -1, {}, {}};
         if (!validate(r).isEmpty()) continue;
         if (readJournal(r).isEmpty()) {
             // 记录在、但这一个游戏根不是它当初写下的那一个（或被改坏）：不自动动盘，
