@@ -62,7 +62,7 @@ agent/
 
 - `fs.write` 只开放文本配置白名单；`versions/libraries/assets/java/Servers` 原始写拒绝；二进制/jar/zip 不读内容。
 - 本阶段没有 `logs.tail` / `diagnostics.*` / `instance.context` / `backup.restore`（属 Stage 2 工具面），也没有任意命令和 MCP。
-- 大文本转 artifact 的内联上限是 16 KB，超出部分只给模型可读 artifact id。artifact 只保存**本次读取到的内容**（默认 256 KB、最大 1 MB），不是整个原文件。
+- 大文本转 artifact 的内联上限为 16 KB，超出部分只提供模型可读 artifact id。artifact 仅保存本次读取到的分片内容（默认 256 KB、最大 1 MB），不是整个原文件。
 - 活动会话删除：有待审批/执行中先取消；文件提交阶段（`committing()`）拒绝删除并提示。
 - **首轮人工发现的缺口（修复前 G1B 不通过）**，详见 [SECURITY_BOUNDARIES.md](SECURITY_BOUNDARIES.md) §8：
   - 脱敏只认精确字段名，`hypixel_api_key`、`DB_PASSWORD`、`REDIS_PASSWORD`、`API_SECRET`、`JWT_SECRET` 等变体未命中；

@@ -144,7 +144,7 @@ struct CaptureReport {
 CaptureReport captureFromInstance(const CaptureRequest &request);
 
 /**
- * @brief 从一个实例**已安装的模组**里认出平台引用（`mods/*.jar` → `platform:projectId`）。
+ * @brief 从一个实例**已安装的模组**里认出平台引用（`mods/` 下的 jar → `platform:projectId`）。
  *
  * 「模组」这一类预设没有可复制的文件段 —— 它的内容就是"这个实例装了哪些平台模组"。
  * 身份不需要联网：`wtfml.preset-mod-install.json`（我们装模组时写的执行记录）里有

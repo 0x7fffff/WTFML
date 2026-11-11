@@ -103,7 +103,7 @@ void InstanceTransferController::upgradeInPlace(QString sourceId, QString target
     // Questions run nested event loops; recheck every lock immediately before starting.
     if (unavailable() || AppPaths::minecraftDir() != game) { fail(tr("实例或游戏目录状态已变化，没有开始升级。")); return; }
     const InstanceUpgrade::Request request{game, sourceId,
-        QUuid::createUuid().toString(QUuid::WithoutBraces), displayName(sourceId)};
+        QUuid::createUuid().toString(QUuid::WithoutBraces), displayName(sourceId), -1, {}, {}};
     // 引擎阶段（`Stage` 的枚举值）⇒ 子任务第几步。原地升级那七步与枚举前七个
     // 一一对应，所以不传也能用；父任务那一份由调用方给（它自己的步骤更粗）。
     runUpgradeJob(request, core, locked, false, std::move(whenDone), parentTask,
@@ -180,7 +180,7 @@ void InstanceTransferController::upgradeToCopy(const QString &sourceId, const QS
         return;
     }
     InstanceUpgrade::Request request{game, name,
-        QUuid::createUuid().toString(QUuid::WithoutBraces), displayName(sourceId)};
+        QUuid::createUuid().toString(QUuid::WithoutBraces), displayName(sourceId), -1, {}, {}};
     request.copyRoots = copyRoots;
     request.sourceInstanceId = sourceId;
     const QString sourceDir = AppPaths::versionDir(sourceId);
@@ -205,7 +205,7 @@ void InstanceTransferController::rollbackUpgrade(QString sourceId,
     const auto ids = InstanceUpgrade::recoverableTransactions(game, sourceId);
     if (ids.isEmpty()) { abort(tr("没有可回滚的原地升级记录。普通快照请使用快照恢复。")); return; }
     // Most recent retained transaction; after rolling it back the preceding one remains available.
-    const InstanceUpgrade::Request request{game, sourceId, ids.first(), displayName(sourceId)};
+    const InstanceUpgrade::Request request{game, sourceId, ids.first(), displayName(sourceId), -1, {}, {}};
     if (!InlineMessage::question(m_overlay, tr("回滚原地升级"),
         tr("恢复「%1」最近一次原地升级前的完整目录。\n\n当前版本也会另行保留，不删除文件。"
            "升级之后的新存档进度不会合并到旧目录；如需保留，可从事务目录中的 replaced 取回。")

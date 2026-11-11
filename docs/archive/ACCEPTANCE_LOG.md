@@ -164,4 +164,4 @@ pwsh -NoProfile -File tools/acceptance_desktop.ps1 -Root build/<新目录>
 python tools/acceptance_directory_boundary.py --exe <WTFMinecraftLauncher.exe> --root build/<新目录> --qt-bin <Qt bin>
 ```
 
-注意：不要对真实游戏目录执行权限重置；失败现场保留，不自动清理。VHD 卸载后只能用 `Mount-DiskImage -ImagePath <既有镜像>` 重新挂载，不能再次 Create。服务端验收工具与安全边界见 [tools/server_boundary/README.md](../../tools/server_boundary/README.md)。
+注意：不要对真实游戏目录执行权限重置；失败现场保留，不自动清理。VHD 卸载后只能用 `Mount-DiskImage -ImagePath <既有镜像>` 重新挂载，不能再次 Create。服务端验收工具与安全边界见 [tests/acceptance/server_boundary/README.md](../../tests/acceptance/server_boundary/README.md)。

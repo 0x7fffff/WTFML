@@ -32,6 +32,7 @@
 #include "InlineMessage.hpp"
 #include "TaskCenterPanel.hpp"
 #include <QComboBox>
+#include <QListWidget>
 #include <QTreeWidget>
 #include <QTabWidget>
 #include <QUuid>
@@ -61,11 +62,12 @@ bool prepareClientInstall(MainWindow &window, const QString &root, const QString
     promptGuard.start(10000);
     QTimer::singleShot(100, &window, [&] {
         for (auto *picker : window.findChildren<PresetInstallPicker *>()) {
-            auto *combo = picker->findChild<QComboBox *>(PresetInstallPicker::comboName(0));
-            if (!combo) continue;
-            const int index = combo->findData(presetId);
+            auto *list = picker->findChild<QListWidget *>(PresetInstallPicker::listName(0));
+            if (!list) continue;
+            int index = -1;
+            for (int n = 0; n < list->count(); ++n) if (list->item(n)->data(Qt::UserRole).toString() == presetId) { index = n; break; }
             if (index < 0) continue;
-            combo->setCurrentIndex(index); selected = picker->selectedCount() == 1;
+            list->setCurrentRow(index); selected = picker->selectedCount() == 1;
             if (auto *box = qobject_cast<InlineMessageBox *>(picker->parentWidget())) {
                 if (auto *button = box->findChild<QPushButton *>(InlineMessageBox::buttonName(0))) button->click();
             } else for (auto *box : window.findChildren<InlineMessageBox *>())

@@ -520,10 +520,10 @@ void InstanceSettingsDialog::refreshLifecycleFiles(const QString &key) {
     // 和 InstanceFilesPage::rebuildRows() 一样，收尾再对一次，别让旧的一句留在底下。
     updateLifecycleInfo(key);
     if (!m_lifecycleThumbQueue.isEmpty() && m_lifecycleThumbTimer != nullptr)
+        m_lifecycleThumbTimer->start();
     if (refreshClock.elapsed() > 60)
         qInfo() << "[UI timing] lifecycle page refresh" << key << files.size() << "files,"
                 << refreshClock.elapsed() << "ms";
-        m_lifecycleThumbTimer->start();
 }
 
 void InstanceSettingsDialog::filterLifecycleFiles(const QString &key) {
