@@ -3,6 +3,7 @@
 
 #include "Animations.hpp"  // 换页 / 展开折叠 / 上拉面板那几段动效
 #include "ElidedLabel.hpp"
+#include "Glass.hpp"
 #include "InstanceGroupDelegate.hpp"
 #include "MemorySlider.hpp"
 #include "OverlayHost.hpp"
@@ -577,6 +578,17 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
             addSettingsControl(section2, themePresetRowText(), box, form);
         }
         {
+            // 磨砂效果：窗口底下铺主题自带的风景（或上面「页面背景」那张图），面板是半透明玻璃。
+            // 关掉回到不透明底色。存盘与重新铺主题都在 Glass::setEnabled() 里。
+            auto *glass = new QCheckBox(QStringLiteral("磨砂效果"), form);
+            glass->setObjectName(glassEffectCheckName());
+            glass->setChecked(Glass::enabled());
+            QObject::connect(glass, &QCheckBox::toggled, glass, [](bool on) { Glass::setEnabled(on); });
+            QWidget *box = makeHintedControl(form);
+            qobject_cast<QVBoxLayout *>(box->layout())->addWidget(glass);
+            addSettingHelp(box, QStringLiteral("面板换成半透明玻璃，透出底下的风景。电脑较慢时可以关掉。"), form);
+            addSettingsControl(section2, QStringLiteral("界面质感"), box, form);
+        }        {
             auto *colors = new QCheckBox(QStringLiteral("日志颜色显示"), form);
             colors->setObjectName(QStringLiteral("logColorsCheck"));
             colors->setChecked(QSettings().value(QStringLiteral("Look/LogColors"), true).toBool());

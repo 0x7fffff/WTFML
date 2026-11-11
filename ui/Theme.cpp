@@ -1810,6 +1810,9 @@ QString widgetStyleSheet() {
             "QFrame[%1=\"sidebar\"], QFrame[%1=\"workspace\"], QFrame[%1=\"section\"],"
             " QFrame[wtfmlSidebarRail=\"true\"] { background-color: transparent; }"
             "QTabWidget::pane { background-color: transparent; border: none; }"
+            // 面板里的列表 / 树：行直接排在玻璃上（弹出框里的列表不是这几块面的子孙，不受影响）。
+            "QFrame[%1=\"workspace\"] QAbstractItemView, QFrame[%1=\"sidebar\"] QAbstractItemView"
+            " { background-color: transparent; }"
             "QScrollArea, QScrollArea > QWidget#qt_scrollarea_viewport,"
             " QScrollArea > QWidget#qt_scrollarea_viewport > QWidget { background: transparent; }")
                    .arg(QString::fromLatin1(kSurfaceProperty));
