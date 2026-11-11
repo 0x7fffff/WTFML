@@ -85,16 +85,17 @@ constexpr int textSize(TextRole role) {
     }
     return 14;
 }
-/// 标题两档（Heading / Display）的字体族：Cormorant Garamond（西文衬线）+ 霞鹜文楷（中文），
-/// 第一次问到时从 qrc 注册（见 assets/fonts/README.md）。注册不上就是空，标题退回系统字体。
-/// 正文、表单、列表**不用**它们。
-QStringList titleFontFamilies();
+/// 手写体三支（见 assets/fonts/README.md）：文楷 Regular 给导航、小节标题、按钮短标签；
+/// 文楷 Light 给大标题（大而轻）；Dancing Script 只给纯西文的品牌与题词。第一次问到时从 qrc
+/// 注册，注册不上返回空串（调用方退回系统字体）。正文、表单、列表、日志**不用**它们。
+enum class HandFont { Kai, KaiLight, Script };
+QString handFamily(HandFont which);
+/// 把 `font` 换成那一支手写体（注册不上就原样返回）。
+QFont handFont(QFont font, HandFont which);
 inline QFont textFont(QFont font, TextRole role) {
     font.setPixelSize(textSize(role));
-    if (role == TextRole::Heading || role == TextRole::Display) {
-        const QStringList families = titleFontFamilies();
-        if (!families.isEmpty()) font.setFamilies(families);
-    }
+    if (role == TextRole::Heading) font = handFont(font, HandFont::Kai);
+    if (role == TextRole::Display) font = handFont(font, HandFont::KaiLight);
     return font;
 }
 

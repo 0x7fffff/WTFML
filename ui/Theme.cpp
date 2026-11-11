@@ -102,23 +102,31 @@ bool platformColorSchemeDark() {
            app->style()->standardPalette().color(QPalette::Window).lightness() < 128;
 }
 
-QStringList titleFontFamilies() {
+QString handFamily(HandFont which) {
     static bool loaded = false;
-    static QStringList families;
-    if (loaded || QGuiApplication::instance() == nullptr) return families;
-    loaded = true;
-    initTitleFontResources();
-    // 顺序就是回退顺序：西文字形先找 Cormorant，汉字落到文楷，两边都没有的再回系统字体。
-    for (const char *path : {":/assets/fonts/CormorantGaramond-SemiBold.ttf",
-                             ":/assets/fonts/CormorantGaramond-SemiBoldItalic.ttf",
-                             ":/assets/fonts/LXGWWenKai-Medium.ttf"}) {
-        const int id = QFontDatabase::addApplicationFont(QString::fromLatin1(path));
-        if (id < 0) continue;
-        for (const QString &family : QFontDatabase::applicationFontFamilies(id)) {
-            if (!families.contains(family)) families.append(family);
+    static QString families[3];
+    if (!loaded && QGuiApplication::instance() != nullptr) {
+        loaded = true;
+        initTitleFontResources();
+        const char *paths[3] = {":/assets/fonts/LXGWWenKai-Regular.ttf",
+                                ":/assets/fonts/LXGWWenKai-Light.ttf",
+                                ":/assets/fonts/DancingScript-Regular.ttf"};
+        for (int i = 0; i < 3; ++i) {
+            const int id = QFontDatabase::addApplicationFont(QString::fromLatin1(paths[i]));
+            const QStringList names = id < 0 ? QStringList() : QFontDatabase::applicationFontFamilies(id);
+            if (!names.isEmpty()) families[i] = names.first();
         }
     }
-    return families;
+    return families[int(which)];
+}
+
+QFont handFont(QFont font, HandFont which) {
+    const QString family = handFamily(which);
+    if (family.isEmpty()) return font;
+    // 西文也走这一支（文楷自带手写感的拉丁字形）；它缺的字落回系统字体。
+    font.setFamilies({family, QApplication::font().family()});
+    font.setBold(false);
+    return font;
 }
 
 Tokens tokens() {    const QString preset = current().presetId;

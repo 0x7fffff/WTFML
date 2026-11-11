@@ -20,8 +20,8 @@
         <file alias="scenes/dark.jpg">scenes/dark.jpg</file>
         <file alias="scenes/emerald.jpg">scenes/emerald.jpg</file>
         <file alias="scenes/ocean.jpg">scenes/ocean.jpg</file>
-        <file alias="fonts/LXGWWenKai-Medium.ttf">fonts/LXGWWenKai-Medium.ttf</file>
-        <file alias="fonts/CormorantGaramond-SemiBold.ttf">fonts/CormorantGaramond-SemiBold.ttf</file>
-        <file alias="fonts/CormorantGaramond-SemiBoldItalic.ttf">fonts/CormorantGaramond-SemiBoldItalic.ttf</file>
+        <file alias="fonts/LXGWWenKai-Regular.ttf">fonts/LXGWWenKai-Regular.ttf</file>
+        <file alias="fonts/LXGWWenKai-Light.ttf">fonts/LXGWWenKai-Light.ttf</file>
+        <file alias="fonts/DancingScript-Regular.ttf">fonts/DancingScript-Regular.ttf</file>
     </qresource>
 </RCC>
