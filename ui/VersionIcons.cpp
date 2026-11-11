@@ -798,6 +798,47 @@ QPixmap VersionIcons::runStateMark(int size, const QColor &color) {
     });
 }
 
+QPixmap VersionIcons::isoBlock(int kind, int size) {
+    if (size <= 0) {
+        return QPixmap();
+    }
+    // 顶 / 左 / 右三面，照抄设计稿 shell.js BLOCKS。
+    static const QRgb kFaces[kIsoBlockKinds][3] = {
+        {0x7cb862, 0x8a5a3b, 0x6b4129}, {0x7fe3dc, 0x45b3ad, 0x2f8a86}, {0xe25b4f, 0xb23a32, 0x86281f},
+        {0xb79be8, 0x8d6fc8, 0x6a4fa3}, {0xe8d9a4, 0xcdbb82, 0xad9c63}, {0xf1b8c9, 0xd891a8, 0xb56f86},
+        {0xa9adb5, 0x8a8f98, 0x6c7079}, {0xe39a6e, 0xc27a52, 0x9a5d3e},
+    };
+    kind = ((kind % kIsoBlockKinds) + kIsoBlockKinds) % kIsoBlockKinds;
+    return cached(QStringLiteral("isoBlock/%1/%2").arg(kind).arg(size), [kind, size]() {
+        QPixmap pixmap(size, size);
+        pixmap.fill(Qt::transparent);
+        QPainter p(&pixmap);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setPen(Qt::NoPen);
+        // 设计稿 viewBox 28×32，按高缩放、水平居中。
+        const qreal k = size / 32.0;
+        p.translate((size - 28 * k) / 2, 0);
+        p.scale(k, k);
+        const QPolygonF top{{14, 1}, {27, 8.5}, {14, 16}, {1, 8.5}};
+        p.setBrush(QColor(kFaces[kind][0]));
+        p.drawPolygon(top);
+        p.setBrush(QColor(kFaces[kind][1]));
+        p.drawPolygon(QPolygonF{{1, 8.5}, {14, 16}, {14, 31}, {1, 23.5}});
+        p.setBrush(QColor(kFaces[kind][2]));
+        p.drawPolygon(QPolygonF{{27, 8.5}, {14, 16}, {14, 31}, {27, 23.5}});
+        p.setBrush(QColor(255, 255, 255, 31));  // 顶面 .12 白
+        p.drawPolygon(top);
+        return pixmap;
+    });
+}
+
+int VersionIcons::isoBlockKindFor(const QString &name) {
+    quint32 hash = 2166136261u;  // FNV-1a
+    for (const QChar c : name) {
+        hash = (hash ^ c.unicode()) * 16777619u;
+    }
+    return int(hash % kIsoBlockKinds);
+}
 
 namespace {
 

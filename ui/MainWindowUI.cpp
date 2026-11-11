@@ -350,7 +350,8 @@ QString homeLaunchMeta(const MainWindowUI::HomeQuickItem &item) {
 }
 
 /// 实例带卡片左边那块 48×48 封面：圆角暗底 + 居中的实例图标。
-QPixmap homeTileCover(const QIcon &icon, int side) {
+/// 没挑图标的实例：按名字稳定配色的等距方块（设计稿 cover）。
+QPixmap homeTileCover(const QIcon &icon, const QString &name, int side) {
     const qreal dpr = qApp != nullptr ? qApp->devicePixelRatio() : 1.0;
     QPixmap cover(QSize(side, side) * dpr);
     cover.setDevicePixelRatio(dpr);
@@ -364,7 +365,8 @@ QPixmap homeTileCover(const QIcon &icon, int side) {
     p.setBrush(fill);
     p.drawRoundedRect(QRectF(0.5, 0.5, side - 1, side - 1), 12, 12);
     const int inner = side * 7 / 12;
-    const QPixmap mark = icon.isNull() ? VersionIcons::grassBlock(inner) : icon.pixmap(inner, inner);
+    const QPixmap mark = icon.isNull() ? VersionIcons::isoBlock(VersionIcons::isoBlockKindFor(name), inner)
+                                      : icon.pixmap(inner, inner);
     p.drawPixmap(QRect((side - inner) / 2, (side - inner) / 2, inner, inner), mark);
     return cover;
 }
@@ -1614,8 +1616,8 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             auto *icon = new QLabel(card);
             icon->setFixedSize(48, 48);
             icon->setAttribute(Qt::WA_TransparentForMouseEvents);
-            const auto applyCover = [icon, itemIcon = item.icon]() {
-                icon->setPixmap(homeTileCover(itemIcon, 48));
+            const auto applyCover = [icon, itemIcon = item.icon, name = item.name]() {
+                icon->setPixmap(homeTileCover(itemIcon, name, 48));
             };
             applyCover();
             Theme::follow(icon, applyCover);
@@ -1707,7 +1709,8 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
                 identity->setSpacing(12);
                 auto *icon = new QLabel(body);
                 icon->setFixedSize(48, 48);
-                icon->setPixmap(item.icon.isNull() ? VersionIcons::grassBlock(48) : item.icon.pixmap(48, 48));
+                icon->setPixmap(item.icon.isNull() ? VersionIcons::isoBlock(VersionIcons::isoBlockKindFor(item.name), 48)
+                                                  : item.icon.pixmap(48, 48));
                 identity->addWidget(icon, 0, Qt::AlignTop);
                 auto *information = new QVBoxLayout;
                 information->setSpacing(4);

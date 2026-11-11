@@ -238,14 +238,16 @@ QPixmap infoMark(int size, const QColor &color);
 /// @param color 拼图的颜色（用次要那一档：这一列是配角，别和名字抢眼睛）。
 QPixmap puzzleMark(int size, const QColor &color);
 
-/// 一个**实心小方块**（■）：底栏左下角"实例运行状态"那一格最左边那颗状态点
-/// （红 = 没有实例在跑 / 黄 = 正在启动 / 绿 = 有实例在跑，颜色由调用方按状态给）。
-///
-/// **画图**而不是摆一个 ■ 字：这个字得看字体给不给（有的字体的方块带一圈描边、
-/// 有的字宽不对），画出来的则像素确定、能直接对着像素断言"这一格是纯红"。
-/// @param size 边长（像素）。整块铺满，不留边距 —— ■ 这个符号本来就是"占满自己那一格"。
-/// @param color 填充色。
+/// 一颗**实心圆点**：轨底"实例运行状态"那一格的状态点（颜色由调用方按状态给）。
+/// 画图而不是摆一个 ● 字，像素确定、能对着圆心断言颜色。
 QPixmap runStateMark(int size, const QColor &color);
+
+/// 设计稿实例封面那颗等距方块的配色数（shell.js 的 BLOCKS：草、钻石、红石、紫晶、沙、樱花、石、铜）。
+inline constexpr int kIsoBlockKinds = 8;
+/// 第 @p kind 种配色的等距方块（设计稿 cube()，透明底）。kind 取模。
+QPixmap isoBlock(int kind, int size);
+/// 实例没挑图标时的默认封面：按实例名**稳定**挑一种配色（跨进程不变，不用 qHash 的随机种子）。
+int isoBlockKindFor(const QString &name);
 
 /// 设计稿那套线性图标（24 网格、圆头圆角）：home / manage / download / settings / agent /
 /// toolbox / fold / unfold / min / max / restore / close / play / swap / gear / chevR / chevD /

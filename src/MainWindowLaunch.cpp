@@ -130,11 +130,12 @@ void MainWindow::updateHomeRecent() {
                          loader.isEmpty() ? QStringLiteral("原版")
                                           : (loader + QLatin1Char(' ') + loaderVersion).trimmed());
             }
-            instance.icon = combo->itemIcon(row);
-            if (instance.icon.isNull() && m_versionManager != nullptr) {
-                instance.icon = QIcon(instanceRowMark(
-                    m_versionManager->displayParts(instance.id), m_versionManager, 32));
-            }
+            // 主页封面：用户挑过图标就用挑的那张，没挑就按实例名稳定配色的等距方块（设计稿 cover）。
+            const VersionDisplayParts iconParts =
+                m_versionManager != nullptr ? m_versionManager->displayParts(instance.id) : VersionDisplayParts{};
+            instance.icon = !iconParts.icon.isEmpty()
+                ? QIcon(instanceRowMark(iconParts, m_versionManager, 32))
+                : QIcon(VersionIcons::isoBlock(VersionIcons::isoBlockKindFor(instance.name), 64));
             instance.favorite = m_groupStore != nullptr && m_groupStore->isPinned(instanceKey(instance.id));
             // 主页启动区那行元信息写「N 个模组」：只数当前那一个（mods 下的 *.jar，停用的不算）。
             if (instance.id == currentId) {
