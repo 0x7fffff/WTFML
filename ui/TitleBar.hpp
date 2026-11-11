@@ -1,14 +1,17 @@
 /**
  * @file TitleBar.hpp
- * @brief 左导航轨：顶上品牌，中间五颗导航（线性图标 + 手写体标签），底下挂后台任务与工具箱。
+ * @brief 左导航轨：顶上品牌 + 折叠钮，中间五颗导航（线性图标 + 手写体标签），底下挂后台任务与工具箱。
  *
  * 和窗口同一层底（不铺色块），靠选中那一格的淡主题色底 + 左边一根指示条分层；指示条在
- * 两颗之间滑动。最小化 / 关闭不在轨上，在 `captionStrip()` 那条透明的条上（摆在右栏最上面）。
+ * 两颗之间滑动（≤180 ms，`Anim::enabled()` 关掉就直接跳）。最小化 / 最大化 / 关闭不在轨上，
+ * 在 `captionStrip()` 那条透明的条上（摆在右栏最上面，高 40）。
+ *
+ * 轨宽 208，可折成 64 的图标轨：用户点品牌旁的折叠钮，或窗口宽 < 1024 时自动折。
  *
  * 轨上除了按钮和底部挂件没有别的子控件：品牌、导航之间的空白都是画的，`ui/WindowChrome`
  * 把这些空白判成拖窗区（`childAt()` 认不到子控件就是）。
  *
- * 按钮只发信号（`navRequested`、`minimizeRequested`、`closeRequested`），翻页、收窗是调用方的事。
+ * 按钮只发信号（`navRequested`、`minimizeRequested`…），翻页、收窗是调用方的事。
  */
 
 #pragma once
@@ -30,27 +33,34 @@ class TitleBar : public QWidget {
 public:
     explicit TitleBar(QWidget *parent = nullptr);
 
-    /// 轨宽（逻辑像素）。
+    /// 展开时的轨宽（逻辑像素）。
     static int railWidth();
-    /// 右上那条窗口按钮条的高。
+    /// 折叠后的图标轨宽。
+    static int collapsedRailWidth();
+    /// 窗口宽低于这个数时轨自动折叠。
+    static int narrowBreakpoint();
+    /// 右上那条窗口按钮条的高（顶部拖动区高）。
     static int barHeight();
-    /// 窗口按钮的边长。
+    /// 窗口按钮的高（= 条高；宽是 `windowButtonWidth()`）。
     static int buttonSize();
-    /// 窗口按钮上面留的空白，必须 ≥ `WindowChrome::resizeBorder()`（上沿那圈缩放边）。
+    static int windowButtonWidth();
+    /// 窗口按钮上面留的空白（按钮贴顶，0）。
     static int buttonInset();
-    /// 每一颗导航的宽 / 高。
+    /// 每一颗导航的宽 / 高（展开时）。
     static int navItemWidth();
     static int navItemHeight();
     /// 导航标签的像素字号（手写体）。
     static int navFontPixelSize();
-    /// 两颗窗口按钮离窗口右边缘多远。
+    /// 窗口按钮离窗口右边缘多远。
     static int windowButtonsRightMargin();
     /// 默认品牌名（设置页「个性化」里可以改）。
     static QString defaultBrandText();
 
     QAbstractButton *minimizeButton() const { return m_minimize; }
+    QAbstractButton *maximizeButton() const { return m_maximize; }
     QAbstractButton *closeButton() const { return m_close; }
-    /// 装着最小化 / 关闭的那条透明条（调用方把它摆进右栏最上面；它也是一条拖窗区）。
+    QAbstractButton *foldButton() const { return m_fold; }
+    /// 装着窗口按钮的那条透明条（调用方把它摆进右栏最上面；它也是一条拖窗区）。
     QWidget *captionStrip() const { return m_caption; }
 
     /// 摆上（或换掉）那一排导航。标签由调用方给（`QTabWidget::tabText()`）。
@@ -67,46 +77,66 @@ public:
     void setBrandText(const QString &text);
     QString titleText() const;
 
+    /// 用户手动折叠（窄窗自动折叠另算，见 `isCollapsed()`）。
+    void setCollapsed(bool collapsed);
+    /// 现在是不是图标轨（用户折了，或窗口窄）。
+    bool isCollapsed() const { return m_userCollapsed || m_narrow; }
+    /// 窗口最大化时把「最大化」那颗换成「还原」的样子。
+    void setMaximized(bool maximized);
+    /// 主页上（轨压在清晰风景上）窗口按钮用主页字色。
+    void setHeroMode(bool hero);
+
 signals:
     void minimizeRequested();
+    void maximizeRequested();
     void closeRequested();
     void navRequested(int index);
     /// 根导航已经应用完成（从哪儿来 / 去哪儿 / 是否重点当前页）。
     void navigationApplied(int sourceIndex, int targetIndex, bool reselected);
+    /// 轨在展开 / 图标轨之间切换了（底部挂件据此收起文字）。
+    void collapsedChanged(bool collapsed);
 
 protected:
     void paintEvent(QPaintEvent *event) override;
     void changeEvent(QEvent *event) override;
+    void showEvent(QShowEvent *event) override;
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     void applyColors();
+    void applyWidth(bool animate);
+    void layoutForWidth(int width);
 
     QVBoxLayout *m_layout = nullptr;
     QVBoxLayout *m_navLayout = nullptr;
     QWidget *m_caption = nullptr;
     QWidget *m_footer = nullptr;
     QAbstractButton *m_minimize = nullptr;
+    QAbstractButton *m_maximize = nullptr;
     QAbstractButton *m_close = nullptr;
+    QAbstractButton *m_fold = nullptr;
+    QAbstractButton *m_logo = nullptr;
     QList<QAbstractButton *> m_navButtons;
     int m_currentNav = -1;
     QString m_brand;
     bool m_applyingColors = false;
-    /// 选中指示从哪一颗滑过来（-1 = 不滑）、滑到哪了（0~1）。
+    bool m_userCollapsed = false;
+    bool m_narrow = false;
+    bool m_hero = false;
+    bool m_watchingWindow = false;
     int m_pillFrom = -1;
     qreal m_pillProgress = 1.0;
     QVariantAnimation *m_pillAnimation = nullptr;
+    QVariantAnimation *m_widthAnimation = nullptr;
 };
 
-/**
- * @brief 轨上 / 窗口按钮条上的一颗按钮：底与字形都是自己画的（颜色在代码里，能对着像素断言）。
- */
+/// 轨上和窗口按钮条上的那几颗按钮：自己画（线性图标 + 可选文字），悬停 / 按下走中性灰。
 class TitleBarButton : public QAbstractButton {
     Q_OBJECT
 
 public:
-    enum class Glyph { Minimize, Close, Text };
-    /// 导航图标（细线条）。
-    enum class NavIcon { None, Home, Instances, Download, Settings, Agent };
+    enum class Glyph { Minimize, Maximize, Close, Text, Fold, Logo };
+    enum class NavIcon { None, Home, Instances, Download, Settings, Agent, Toolbox };
 
     TitleBarButton(Glyph glyph, const QColor &hoverColor, const QColor &hoverInk, QWidget *parent = nullptr);
 
@@ -114,14 +144,16 @@ public:
     QString label() const { return text(); }
     void setNavIcon(NavIcon icon);
     NavIcon navIcon() const { return m_icon; }
-
+    /// 当前页那一颗：底由轨画（会滑），自己只换字色。
     void setCurrent(bool current);
     bool isCurrent() const { return m_current; }
     bool isHovered() const { return m_hovered; }
-
     void setBaseColor(const QColor &color);
     void setInkColor(const QColor &color);
     void setHoverColors(const QColor &hoverColor, const QColor &hoverInk);
+    void setPressColor(const QColor &color);
+    /// 「最大化」那颗显示成「还原」。
+    void setRestoreGlyph(bool restore);
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -132,10 +164,12 @@ private:
     NavIcon m_icon = NavIcon::None;
     QColor m_hoverColor;
     QColor m_hoverInk;
+    QColor m_pressColor;
     QColor m_baseColor = Qt::transparent;
     QColor m_ink;
     QVariantAnimation *m_hoverAnimation = nullptr;
     qreal m_hoverProgress = 0.0;
     bool m_hovered = false;
     bool m_current = false;
+    bool m_restore = false;
 };

@@ -87,8 +87,28 @@ void TaskProgressBar::paintEvent(QPaintEvent *) {
     // 见 `MainWindowUI` 里给底栏选色那几处）。取应用那一份就不必操心谁先收到事件。
     const QPalette palette = QApplication::palette();
     const QColor track = Theme::progressTrackColor(palette);
-    const QColor fill = Theme::progressFillColor(palette);
+    // 走满的那一根是「完成」：设计稿用成功绿。
+    const QColor fill = maximum() > minimum() && value() >= maximum() ? Theme::tokens().ok
+                                                                       : Theme::progressFillColor(palette);
 
+    if (m_ring) {
+        const qreal side = qMin(w, h);
+        const qreal r = side * 11.0 / 28.0;
+        const QRectF circle(w / 2.0 - r, h / 2.0 - r, 2 * r, 2 * r);
+        painter.setBrush(Qt::NoBrush);
+        painter.setPen(QPen(Theme::tokens().stroke, side * 3.0 / 28.0));
+        painter.drawEllipse(circle);
+        painter.setPen(QPen(fill, side * 2.5 / 28.0, Qt::SolidLine, Qt::RoundCap));
+        if (minimum() == maximum()) {
+            // 测不出总量：一段三成长的弧绕圈转。
+            painter.drawArc(circle, int((90 - 360 * m_phase) * 16), int(-0.3 * 360 * 16));
+            return;
+        }
+        const int span = maximum() - minimum();
+        const qreal ratio = span > 0 ? qBound(0.0, qreal(value() - minimum()) / qreal(span), 1.0) : 0.0;
+        if (ratio > 0) painter.drawArc(circle, 90 * 16, int(-ratio * 360 * 16));
+        return;
+    }
     const qreal radius = h / 2.0;
     const QRectF rail(0, 0, w, h);
     painter.setPen(Qt::NoPen);

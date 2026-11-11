@@ -37,6 +37,10 @@ class TaskProgressBar : public QProgressBar {
 public:
     explicit TaskProgressBar(QWidget *parent = nullptr);
 
+    /// 画成导航轨底部那枚 28 的进度环（设计稿：line-2 底圈 3 + accent 弧 2.5，从 12 点顺时针）。
+    void setRing(bool ring) { m_ring = ring; update(); }
+    bool isRing() const { return m_ring; }
+
 protected:
     void paintEvent(QPaintEvent *event) override;
     void showEvent(QShowEvent *event) override;
@@ -49,5 +53,6 @@ private:
 
     /// 不确定态那一截现在滚到哪儿（0..1）。关掉动效时恒 0（定住的那一格）。
     qreal m_phase = 0.0;
+    bool m_ring = false;
     QTimer *m_busyTimer = nullptr;
 };

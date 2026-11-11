@@ -177,7 +177,8 @@ int UiInstallFormLayoutChecks(MainWindowUI &ui, QLineEdit * &installNameEdit, QL
                                QStringLiteral("47.%1.0").arg(i));
             }
             row->setExpanded(true);  // 展开 → 那棵树自己重算高度（挂在 expanded 上）
-            QApplication::processEvents();
+            // 树变高 → 内容布局 → 视口 → 滚动区，每一级 LayoutRequest 都是 post 的，要转几圈才传到头。
+            for (int spin = 0; spin < 4; ++spin) QApplication::processEvents();
             const QRect rTreeFull = rectInPage(loaderTree);
             const QRect rInstallFull = rectInPage(installBtn);
             check(!rTreeFull.isNull() &&
@@ -197,15 +198,26 @@ int UiInstallFormLayoutChecks(MainWindowUI &ui, QLineEdit * &installNameEdit, QL
             const int scrollRange =
                 installScrollNow != nullptr ? installScrollNow->verticalScrollBar()->maximum()
                                             : -1;
-            check(installScrollNow != nullptr && scrollRange > 0,
+            // 壳换成左导航轨后 900x620 下内容区高了 ~100 px，树长到顶也未必溢出：只钉「溢出 ⇒ 有行程」。
+            const int installContentMin = installScrollNow != nullptr && installScrollNow->widget() != nullptr
+                                              ? installScrollNow->widget()->minimumSizeHint().height()
+                                              : 0;
+            const int installViewport = installScrollNow != nullptr && installScrollNow->viewport() != nullptr
+                                            ? installScrollNow->viewport()->height()
+                                            : 0;
+            check(installScrollNow != nullptr && (scrollRange > 0 || installContentMin <= installViewport),
                   "★ 展开到头之后内容比滚动区高 ⇒ 竖向滚动条有行程（底下几行够得着）",
-                  QString("行程=%1 视口=%2 内容=%3")
+                  QString("行程=%1 视口=%2 内容=%3 内容最小=%4 最小尺寸=%5")
                       .arg(scrollRange)
                       .arg(installScrollNow != nullptr && installScrollNow->viewport() != nullptr
                                ? installScrollNow->viewport()->height()
                                : -1)
                       .arg(installScrollNow != nullptr && installScrollNow->widget() != nullptr
                                ? installScrollNow->widget()->height()
+                               : -1)
+                      .arg(installContentMin)
+                      .arg(installScrollNow != nullptr && installScrollNow->widget() != nullptr
+                               ? installScrollNow->widget()->minimumHeight()
                                : -1));
             check(!rInstallFull.isNull() && !rPage.isNull() &&
                       rInstallFull.bottom() <= rPage.bottom() &&

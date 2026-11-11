@@ -1100,49 +1100,29 @@ int main(int argc, char *argv[]) {
     if (const int result = UiDownloadTypographyChecks(window, ui); result != 0) return result;
 
     std::printf("===== D. 主布局与底栏位置 =====\n");
+    // 壳：左导航轨 + 右栏（顶上 40 高的窗口按钮条 + 选项卡）。原来通栏的底栏（后台任务 /
+    // 工具箱）收进了导航轨底部（设计稿 tokens.md 第 7 节）。
     QLayout *mainLayout = window.centralWidget() != nullptr ? window.centralWidget()->layout()
                                                             : nullptr;
-    auto *vbox = qobject_cast<QVBoxLayout *>(mainLayout);
-    check(vbox != nullptr, "主布局是 QVBoxLayout");
-    if (vbox != nullptr) {
-        // 通栏：选项卡和底栏都要贴到窗口边缘（Steam 那条底栏就是通栏的），
-        // 边距和间距全是 0，页面内部的边距由各页自己的布局给。
-        check(vbox->contentsMargins().isNull(), "主布局四边不留边距");
-        check(vbox->spacing() == 0, "主布局控件间距为 0", QString::number(vbox->spacing()));
-        // 三块：顶上那条自己画的标题栏（ 加的自定义外框）+ 选项卡 + 底栏。
-        check(vbox->count() == 3, "主布局三块：顶上那条 + 选项卡 + 底栏",
-              QString::number(vbox->count()));
-        // NOTE: 行号**不写死**（和面板那几行同一条规矩）：以后谁再往主布局里加一行，
-        // 这几条断言按控件本身认位置，不该被"第 0 块是啥"这种改动带偏。
-        TitleBar *layoutStrip = ui.titleBar();
-        const int stripRow = layoutStrip != nullptr ? vbox->indexOf(layoutStrip) : -1;
-        const int tabsRow = vbox->indexOf(tabs);
-        const int barRow = vbox->indexOf(bar);
-        check(stripRow == 0 && tabsRow == 1 && barRow == 2,
-              "三块的顺序：条在最上、选项卡居中、底栏在最下（条也算在「顶上那一条」里）",
-              QStringLiteral("条=%1 选项卡=%2 底栏=%3").arg(stripRow).arg(tabsRow).arg(barRow));
-        check(tabsRow >= 0 && vbox->stretch(tabsRow) == 1 && barRow >= 0 &&
-                  vbox->stretch(barRow) == 0 && stripRow >= 0 && vbox->stretch(stripRow) == 0,
-              "选项卡吃掉全部富余高度、条与底栏都不参与拉伸",
-              QStringLiteral("条 %1 / 选项卡 %2 / 底栏 %3")
-                  .arg(stripRow >= 0 ? vbox->stretch(stripRow) : -1)
-                  .arg(tabsRow >= 0 ? vbox->stretch(tabsRow) : -1)
-                  .arg(barRow >= 0 ? vbox->stretch(barRow) : -1));
+    auto *shell = qobject_cast<QHBoxLayout *>(mainLayout);
+    check(shell != nullptr, "主布局是 QHBoxLayout（左轨 + 右栏）");
+    TitleBar *layoutRail = ui.titleBar();
+    if (shell != nullptr && layoutRail != nullptr) {
+        check(shell->contentsMargins().isNull() && shell->spacing() == 0, "主布局四边不留边距、间距 0");
+        check(shell->indexOf(layoutRail) == 0 && shell->stretch(0) == 0, "导航轨在最左、不参与拉伸");
+        const QPoint tabsAt = tabs->mapTo(&window, QPoint(0, 0));
+        check(tabsAt.x() == layoutRail->width() && tabsAt.y() == TitleBar::barHeight(),
+              "选项卡紧挨在轨右边、窗口按钮条下面", QStringLiteral("%1,%2").arg(tabsAt.x()).arg(tabsAt.y()));
     }
     check(bar != nullptr, "底栏是个独立控件");
-    if (bar != nullptr && vbox != nullptr) {
+    if (bar != nullptr && layoutRail != nullptr) {
         check(bar->objectName() == MainWindowUI::bottomBarName(), "底栏的 objectName 是约定的那个",
               bar->objectName());
-        check(vbox->count() > 0 && vbox->itemAt(vbox->count() - 1) != nullptr &&
-                  vbox->itemAt(vbox->count() - 1)->widget() == bar,
-              "底栏是主布局最后一块（贴在窗口最底下）");
-        check(bar->height() == 62, "底栏是固定高度 62", QString::number(bar->height()));
-        const QRect br = bar->geometry();
-        const QRect cr = window.centralWidget()->rect();
-        check(br.x() == 0 && br.width() == cr.width(), "底栏通栏（左右都贴着窗口边）",
-              QString("bar=[%1,%2] central=%3").arg(br.x()).arg(br.width()).arg(cr.width()));
-        check(br.y() + br.height() == cr.height(), "底栏下沿就是窗口下沿",
-              QString("%1 vs %2").arg(br.y() + br.height()).arg(cr.height()));
+        check(layoutRail->isAncestorOf(bar), "底栏挂在导航轨底部");
+        const QRect br(bar->mapTo(layoutRail, QPoint(0, 0)), bar->size());
+        check(br.bottom() < layoutRail->height() && layoutRail->height() - br.bottom() <= 24,
+              "底栏贴在轨的最下面",
+              QStringLiteral("底栏下沿 %1 / 轨高 %2").arg(br.bottom()).arg(layoutRail->height()));
     }
     tabs->setCurrentIndex(MainWindowUI::homeTabIndex());
     QApplication::processEvents();
@@ -1532,6 +1512,7 @@ int main(int argc, char *argv[]) {
         QWidget *bar = ui.getBottomBar();
         const QString shortText = status->text();
         const int shortWindowHint = window.sizeHint().width();
+        const int shortWindowMinHint = window.minimumSizeHint().width();
 
         status->setText(QStringLiteral("已下载 1234 / 5678 ")
                         + QString(300, QLatin1Char('x')) + QStringLiteral("-超长文件名.jar"));
@@ -1558,8 +1539,10 @@ int main(int argc, char *argv[]) {
         // 先去看实例页有没有新加的折行文字，别去查下载那条路。
         // （为什么 900 这个上限仍然成立：窗口宽度是 setupUi() 里写死的
         // resize(900, 620)，sizeHint 只在"有人 adjustSize()"时才生效。）
-        check(window.sizeHint().width() <= 900,
-              "★ E5 长文件名不会把主窗口的 sizeHint 顶过 900（默认窗口就这么宽）",
+        // 壳换成「左轨 + 右栏」之后整窗 sizeHint 本身就比 900 宽（轨 64/208 + 各页），这一条
+        // 只钉「长文件名不让它变宽」。900 宽下下载页被压的事记在 7a 交回的遗留里（7b/7c 重排）。
+        check(window.sizeHint().width() <= shortWindowHint,
+              "★ E5 长文件名不会把主窗口的 sizeHint 顶宽",
               QStringLiteral("窗口 sizeHint %1 → %2")
                   .arg(shortWindowHint)
                   .arg(window.sizeHint().width()));
@@ -1573,7 +1556,7 @@ int main(int argc, char *argv[]) {
         // 这一条钉的是上面 ② 那半句事实：最小宽度**没有**跟着长。哪天有人把
         // setMinimumWidth(kStatusLabelMinWidth) 拿掉，这一条会红 —— 那时候"文字顶宽最小
         // 宽度"才真的会成立，也才轮到这个上限去挡。
-        check(window.minimumSizeHint().width() <= 900,
+        check(window.minimumSizeHint().width() <= shortWindowMinHint,
               "E5 主窗口的最小宽度也不受影响（它是被那格的 setMinimumWidth 钉住的）",
               QStringLiteral("%1").arg(window.minimumSizeHint().width()));
 
@@ -1946,6 +1929,10 @@ int main(int argc, char *argv[]) {
         QLabel *mark = ui.getRunStateMarkLabel();
         QProgressBar *progress = ui.getProgressBar();
         QLabel *status = ui.getStatusLabel();
+        // 轨底的文字只在展开的轨（窗宽 ≥ 1024）里显示，这一节量展开那一档。
+        const QSize i5Size = window.size();
+        window.resize(1280, 800);
+        QApplication::processEvents();
         if (runBtn != nullptr && accBtn != nullptr && runState != nullptr &&
             runDetail != nullptr && progress != nullptr && status != nullptr) {
             // 布景摆成"正在下载 + 有两个实例在跑"（两行字都在、进度条也在）
@@ -1978,39 +1965,16 @@ int main(int argc, char *argv[]) {
                   QStringLiteral("%1 px / 字高 %2 px")
                       .arg(runState->height()).arg(runState->fontMetrics().height()));
 
-            // ② 两颗按钮竖直方向**铺满底栏**（底栏高度减掉它自己的上下边距）。
-            const QMargins barMargins = bar->layout() != nullptr
-                                            ? bar->layout()->contentsMargins()
-                                            : QMargins();
-            const int innerHeight = bar->height() - barMargins.top() - barMargins.bottom();
-            check(runBtn->height() == innerHeight && accBtn->height() == innerHeight,
-                  "两颗按钮竖直方向铺满底栏（高度 = 底栏高 - 上下边距）",
-                  QStringLiteral("按钮 %1/%2，该占 %3（底栏 %4，边距 %5+%6）")
-                      .arg(runBtn->height()).arg(accBtn->height()).arg(innerHeight)
-                      .arg(bar->height()).arg(barMargins.top()).arg(barMargins.bottom()));
+            // ② 轨底两颗按钮（运行状态 / 工具箱）横向铺满轨底、竖直方向装得下两行字。
             check(runBtn->height() >= runState->sizeHint().height() + runDetail->sizeHint().height(),
-                  "两颗按钮有两行字那么高（不是一行）",
+                  "运行状态那颗有两行字那么高（不是一行）",
                   QStringLiteral("按钮高 %1 / 两行字 %2+%3")
                       .arg(runBtn->height()).arg(runState->sizeHint().height())
                       .arg(runDetail->sizeHint().height()));
-
-            // ③ 中间那根条**不许太小**：至少占底栏的三分之一，且比两头那两颗都宽。
-            // （用户报「奇小无比」那会儿是 262/900 = 29%，还没左边那颗宽多少。）
-            const int share = bar->width() > 0 ? progress->width() * 100 / bar->width() : 0;
-            check(share >= 35, "中间那根条至少占底栏三分之一",
-                  QStringLiteral("条 %1 px / 底栏 %2 px = %3%")
-                      .arg(progress->width()).arg(bar->width()).arg(share));
-            check(progress->width() > runBtn->width() && progress->width() > accBtn->width(),
-                  "而且它比两头那两颗按钮都宽",
-                  QStringLiteral("条 %1 / 左 %2 / 右 %3")
-                      .arg(progress->width()).arg(runBtn->width()).arg(accBtn->width()));
-            // 左右空档**一样宽**：条还是居中的（份数改了，居中这件事不能跟着改掉）
-            const int gapLeft = progress->mapTo(bar, QPoint(0, 0)).x() -
-                                runBtn->mapTo(bar, QPoint(runBtn->width(), 0)).x();
-            const int gapRight = accBtn->mapTo(bar, QPoint(0, 0)).x() -
-                                 progress->mapTo(bar, QPoint(progress->width(), 0)).x();
-            check(qAbs(gapLeft - gapRight) <= 1, "进度那格仍然居中（左右空档一样宽）",
-                  QStringLiteral("左 %1 px / 右 %2 px").arg(gapLeft).arg(gapRight));
+            check(qAbs(runBtn->width() - accBtn->width()) <= 1 && runBtn->width() * 10 >= bar->width() * 8,
+                  "两颗按钮同宽、基本铺满轨底",
+                  QStringLiteral("运行 %1 / 工具箱 %2 / 轨底 %3")
+                      .arg(runBtn->width()).arg(accBtn->width()).arg(bar->width()));
 
             progress->hide();
             // 那一格（和那句占位话）开局就是亮的 ⇒ 还成开局那一份，不能 hide。
@@ -2023,9 +1987,11 @@ int main(int argc, char *argv[]) {
             }
             QApplication::processEvents();
         }
+        window.resize(i5Size);
+        QApplication::processEvents();
     }
 
-    std::printf("===== J. 「第二行要不要显示实例名」的真值表 =====\n");
+    std::printf("===== J.「第二行要不要显示实例名」的真值表 =====\n");
     {
         // 规则：**只有**"停在主页、且下拉框选中的就是正在跑的那个实例"这一种情况
         // 不显示第二行（眼前这个界面说的就是它）；其余情况都要靠名字说清楚跑的是谁。
@@ -2120,7 +2086,7 @@ int main(int argc, char *argv[]) {
                       .arg(sidebar != nullptr ? 1 : 0));
             // 标题就是这一页的名字，而且挂的是「页面标题」那一档文字角色 —— 样式表按这个
             // 属性排字号/颜色（产品那边 `markTextRole()` 写的就是同一对字符串）。
-            check(title != nullptr && title->text() == kase.title && title->font().bold() &&
+            check(title != nullptr && title->text() == kase.title &&
                       title->property(textRoleKey.constData()).toString() ==
                           Theme::pageTitleTextRoleValue(),
                   QStringLiteral("%1 页：标题写的就是这一页的名字，且挂着「页面标题」那一档角色")

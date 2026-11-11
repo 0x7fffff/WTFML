@@ -1,5 +1,10 @@
 #include "Support.hpp"
 int UiBottomBarGeometryChecks(MainWindowUI &ui, QFrame * &bar) {
+    // 底栏现在挂在导航轨底部；窗口窄于 1024 时轨折成图标轨、文字收起。这一节量的是展开那一档。
+    QWidget *const host = bar->window();
+    const QSize hostSize = host->size();
+    host->resize(1280, 800);
+    QApplication::processEvents();
 
     {
         QLabel *avatar = ui.getAvatarLabel();
@@ -54,15 +59,16 @@ int UiBottomBarGeometryChecks(MainWindowUI &ui, QFrame * &bar) {
                                      : QString());
             check(toolsCell != nullptr && toolsCell->isVisible(),
                   "右下角换成了跨页面的「工具箱」入口");
-            const auto centerX = [bar](QWidget *w) {
-                return w->mapTo(bar, w->rect().center()).x();
+            // 轨底部从上到下：任务卡（进度环 + 摘要）/ 运行状态 / 工具箱。
+            const auto centerY = [bar](QWidget *w) {
+                return w->mapTo(bar, w->rect().center()).y();
             };
-            check(centerX(runState) < centerX(progress), "运行状态那格在进度那格左边",
-                  QString("%1 / %2").arg(centerX(runState)).arg(centerX(progress)));
+            check(centerY(progress) < centerY(runState), "任务卡在运行状态那格上面",
+                  QString("%1 / %2").arg(centerY(progress)).arg(centerY(runState)));
             if (toolsCell != nullptr) {
-                check(centerX(progress) < centerX(toolsCell),
-                      "进度那格在工具箱那格左边（从左到右：运行状态 / 任务摘要 / 工具箱）",
-                      QString("%1 / %2").arg(centerX(progress)).arg(centerX(toolsCell)));
+                check(centerY(runState) < centerY(toolsCell),
+                      "运行状态那格在工具箱上面（从上到下：任务卡 / 运行状态 / 工具箱）",
+                      QString("%1 / %2").arg(centerY(runState)).arg(centerY(toolsCell)));
             }
             check(avatar->mapTo(bar, QPoint(0, 0)).x() < account->mapTo(bar, QPoint(0, 0)).x(),
                   "用户名在头像右边（账户那一组内部）");
@@ -70,17 +76,6 @@ int UiBottomBarGeometryChecks(MainWindowUI &ui, QFrame * &bar) {
             // 中间那格**不吃掉全部富余宽度**：左右各留空档，两头都留白所以它还居中。
             // 右边那头拿**工具箱**那格的左边缘当参照 —— 隐藏的账号格里那颗头像不在
             // 布局里，拿它量出来的空档是负的，等于没量。
-            const int runStateRight = runState->mapTo(bar, QPoint(runState->width(), 0)).x();
-            const int progressLeft = progress->mapTo(bar, QPoint(0, 0)).x();
-            const int progressRight = progress->mapTo(bar, QPoint(progress->width(), 0)).x();
-            const int toolsLeft =
-                toolsCell != nullptr ? toolsCell->mapTo(bar, QPoint(0, 0)).x() : 0;
-            check(progressLeft > runStateRight && toolsLeft > progressRight,
-                  "进度那格左右都留了空档（不再把富余宽度吃干净）",
-                  QString("中间 %1 px，左空档 %2 px、右空档 %3 px")
-                      .arg(progressRight - progressLeft)
-                      .arg(progressLeft - runStateRight)
-                      .arg(toolsLeft - progressRight));
             // 头像是个正方形方块（不加 border-radius，这里只量尺寸）
             check(avatar->width() == avatar->height() && avatar->width() == 32,
                   "头像是 32x32 的方块",
@@ -112,10 +107,11 @@ int UiBottomBarGeometryChecks(MainWindowUI &ui, QFrame * &bar) {
             const int runLeft = runState->mapTo(bar, QPoint(0, 0)).x();
             check(markLeft < runLeft, "方块在第一行文字左边",
                   QStringLiteral("方块 %1 / 文字 %2").arg(markLeft).arg(runLeft));
-            // 它左边不许再有别的空档：那一格（按钮）自己的内边距是显式清成 0 的，
-            // 方块就是这一格里的第一个东西。
-            const int runBtnLeft = ui.getRunStateButton()->mapTo(bar, QPoint(0, 0)).x();
-            check(markLeft == runBtnLeft, "方块贴着这一格的最左边（它左边没有别的空档）",
+            // 它左边只有这一格自己的左内边距（和导航项的图标对齐），没有别的空档。
+            QPushButton *const runBtn = ui.getRunStateButton();
+            const int runBtnLeft = runBtn->mapTo(bar, QPoint(0, 0)).x() +
+                                   (runBtn->layout() != nullptr ? runBtn->layout()->contentsMargins().left() : 0);
+            check(markLeft == runBtnLeft, "方块是这一格里的第一个东西（左边只有那一格的内边距）",
                   QStringLiteral("方块 x=%1 / 那一格的左边 x=%2").arg(markLeft).arg(runBtnLeft));
             // 和第一行**同一行**：竖直方向的两条中线对得上（方块比字矮一号，居中对齐）。
             const int markMid = mark->mapTo(bar, mark->rect().center()).y();
@@ -174,6 +170,8 @@ int UiBottomBarGeometryChecks(MainWindowUI &ui, QFrame * &bar) {
             QApplication::processEvents();
         }
     }
+    host->resize(hostSize);
+    QApplication::processEvents();
  return 0;
 }
 

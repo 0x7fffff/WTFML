@@ -50,6 +50,7 @@ inline constexpr int kStartButtonMinHeight = 76;
 
 /// 主窗口竖直方向的明确下限。540px 能容纳主页约 368px 的比例角色卡，以及标题栏、
 /// 页面边距和底栏；也不会缩到人物预览被压坏。
+inline constexpr int kMainWindowMinWidth = 900;
 inline constexpr int kMainWindowMinHeight = 620;
 
 /// 主页角色预览使用稳定的展示规格。窗口变宽时人物不应跟着无限放大；220px 是默认

@@ -34,7 +34,6 @@ constexpr int kDebounceMs = 120;
 /// 模糊在 1/8 尺寸上做，放大回来约等于 26 px 高斯（半径 3 时）。
 constexpr int kDownscale = 8;
 /// 主页场景左沿渐隐进导航轨的宽度（逻辑像素）。
-constexpr int kHeroFade = 32;
 
 QPointer<Backdrop> &activeBackdrop() {
     static QPointer<Backdrop> backdrop;
@@ -392,10 +391,8 @@ bool Backdrop::eventFilter(QObject *watched, QEvent *event) {
 
 QRect Backdrop::heroRect() const {
     if (m_hero == nullptr || !m_hero->isVisible() || m_hero->window() != window()) return QRect();
-    // 全出血：往上一直铺到窗口顶（盖住右上那条透明的窗口按钮条）。
-    QRect r(m_hero->mapTo(this, QPoint()), m_hero->size());
-    r.setTop(0);
-    return r.intersected(rect());
+    // 全出血：铺满整窗，导航轨和右上那条窗口按钮条下面也是清晰风景（设计稿 .window.hero）。
+    return rect();
 }
 
 QColor Backdrop::tint() const {
@@ -454,36 +451,66 @@ void Backdrop::rebuildHero() {
     if (hero.isEmpty()) return;
     const qreal dpr = devicePixelRatioF();
     const QSize device = (QSizeF(hero.size()) * dpr).toSize();
-    const bool dark = darkTokens();
+    const Theme::Tokens t = Theme::tokens();
+    const QWidget *rail = findChild<QWidget *>(QStringLiteral("titleBar"));
+    // 雾只在亮主题有；深色主题不把轨宽放进键里，折叠动画时不必每帧重画整张图。
+    const int railWidth = t.railFog > 0 && rail != nullptr && rail->isVisible() ? rail->width() : 0;
     const QString key = m_sourceKey + QLatin1Char('|') + QString::number(device.width()) + QLatin1Char('x') +
-                        QString::number(device.height()) + (dark ? QStringLiteral("|d") : QStringLiteral("|l"));
+                        QString::number(device.height()) + QLatin1Char('|') + t.heroVeil.name() +
+                        QLatin1Char('|') + QString::number(t.heroTop) + QLatin1Char('|') +
+                        QString::number(t.heroScrim) + QLatin1Char('|') + QString::number(t.railFog) +
+                        QLatin1Char('|') + QString::number(railWidth);
     if (key == m_heroKey && !m_heroPixmap.isNull()) {
         m_heroCacheRect = hero;
         return;
     }
     m_heroKey = key;
-    QImage sharp = coverScaled(sourceImage(), device, Theme::tokens().page)
-                       .convertToFormat(QImage::Format_ARGB32_Premultiplied);
+    QImage sharp = coverScaled(sourceImage(), device, t.page).convertToFormat(QImage::Format_ARGB32_Premultiplied);
     {
+        // 设计稿 tokens.md 第 4 节：四层 hero-veil 色渐变压暗角（左侧线性、底部线性、左上径向
+        // 压标题、启动区径向），亮主题再在导航轨下加一层雾。逻辑像素按 dpr 换算。
         QPainter p(&sharp);
-        // 左上一团暗角压大标题，底下一条渐暗压启动区；白墨对它们的对比度在 ui_check 里量。
-        QRadialGradient title(QPointF(device.width() * 0.08, device.height() * 0.12), device.width() * 0.6);
-        title.setColorAt(0.0, QColor(0, 0, 0, dark ? 110 : 96));
-        title.setColorAt(1.0, QColor(0, 0, 0, 0));
-        p.fillRect(sharp.rect(), title);
-        QLinearGradient foot(0, 0, 0, device.height());
-        foot.setColorAt(0.0, QColor(0, 0, 0, dark ? 40 : 10));
-        foot.setColorAt(0.5, QColor(0, 0, 0, 0));
-        foot.setColorAt(1.0, QColor(0, 0, 0, dark ? 150 : 120));
-        p.fillRect(sharp.rect(), foot);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        const qreal w = device.width();
+        const qreal h = device.height();
+        const auto veil = [&t](qreal alpha) {
+            QColor c = t.heroVeil;
+            c.setAlphaF(qBound(0.0, alpha, 1.0));
+            return c;
+        };
+        QLinearGradient left(0, 0, 520 * dpr, 0);
+        left.setColorAt(0.0, veil(0.82));
+        left.setColorAt(200.0 / 520.0, veil(0.55));
+        left.setColorAt(1.0, veil(0));
+        p.fillRect(QRectF(0, 0, qMin(w, 520 * dpr), h), left);
+        QLinearGradient bottom(0, h, 0, h - 420 * dpr);
+        bottom.setColorAt(0.0, veil(0.86));
+        bottom.setColorAt(190.0 / 420.0, veil(0.55));
+        bottom.setColorAt(1.0, veil(0));
+        p.fillRect(QRectF(0, qMax(0.0, h - 420 * dpr), w, qMin(h, 420 * dpr)), bottom);
+        // CSS radial-gradient(rx ry at cx cy)：在单位圆上画，再按 rx / ry 拉成椭圆。
+        const auto ellipse = [&](qreal cx, qreal cy, qreal rx, qreal ry, qreal alpha, qreal end) {
+            p.save();
+            p.translate(cx, cy);
+            p.scale(rx, ry);
+            QRadialGradient g(QPointF(0, 0), 1.0);
+            g.setColorAt(0.0, veil(alpha));
+            g.setColorAt(end, veil(0));
+            g.setColorAt(1.0, veil(0));
+            p.fillRect(QRectF(-cx / rx, -cy / ry, w / rx, h / ry), g);
+            p.restore();
+        };
+        ellipse(w * 0.25, h * 0.12, w * 0.70, h * 0.55, t.heroTop, 0.70);
+        ellipse(w * 0.30, h * 0.66, w * 0.42, h * 0.30, t.heroScrim, 1.0);
+        if (t.railFog > 0 && railWidth > 0) {
+            QLinearGradient fog(0, 0, railWidth * dpr, 0);
+            fog.setColorAt(0.0, veil(t.railFog));
+            fog.setColorAt(0.55, veil(t.railFog));
+            fog.setColorAt(1.0, veil(0));
+            p.fillRect(QRectF(0, 0, railWidth * dpr, h), fog);
+        }
         m_heroSmall = sharp.scaled(qMax(1, device.width() / kDownscale), qMax(1, device.height() / kDownscale),
                                    Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
-        // 左沿渐隐进导航轨：只改 alpha。
-        p.setCompositionMode(QPainter::CompositionMode_DestinationIn);
-        QLinearGradient fade(0, 0, kHeroFade * dpr, 0);
-        fade.setColorAt(0.0, QColor(0, 0, 0, 0));
-        fade.setColorAt(1.0, QColor(0, 0, 0, 255));
-        p.fillRect(QRect(0, 0, qCeil(kHeroFade * dpr), device.height()), fade);
     }
     m_heroPixmap = QPixmap::fromImage(sharp);
     m_heroPixmap.setDevicePixelRatio(dpr);
@@ -541,7 +568,7 @@ void Backdrop::paintEvent(QPaintEvent *) {
     }
     const QRect hero = heroRect();
     if (!hero.isEmpty() && sceneShown()) {
-        if (m_heroPixmap.isNull() || m_heroCacheRect.size() != hero.size()) rebuildHero();
+        rebuildHero();  // 键没变时立刻返回（尺寸、主题、导航轨宽都在键里）
         painter.setRenderHint(QPainter::SmoothPixmapTransform, m_heroCacheRect.size() != hero.size());
         painter.drawPixmap(hero, m_heroPixmap, m_heroPixmap.rect());
     }

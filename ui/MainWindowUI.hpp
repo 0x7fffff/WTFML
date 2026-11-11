@@ -1063,7 +1063,7 @@ public:
     static QString instanceNoMatchLabelName() { return QStringLiteral("instanceNoMatch"); }
     /// 文件夹里一个实例都没有（也没在筛）时列表上方那句话：说清下一步去哪，不用防御腔。
     static QString instanceEmptyText() {
-        return QStringLiteral("这里还没有实例。可以从左下角导入整合包，或者去「下载」页装一个新版本。");
+        return QStringLiteral("这里还没有实例。可以从左栏导入一个整合包，或者去「下载」页装一个新版本。");
     }
     static QString instanceEmptyLabelName() { return QStringLiteral("instanceEmpty"); }
 
@@ -1644,6 +1644,8 @@ public:
         bool current = false;
         bool recent = false;
         bool favorite = false;
+        /// 实例 mods 目录里的 *.jar 个数；-1 = 没数（主页元信息行就不写模组数）。
+        int modCount = -1;
     };
     using HomeQuickActionHandler =
         std::function<void(const QString &key, HomeQuickAction action)>;
@@ -1720,10 +1722,8 @@ public:
     /// （没有实例在跑时），而布局里藏起来的控件宽度是 0 —— 钉在字上等于没钉。
     /// 详见 MainWindowUI.cpp 里 runStateButton 那段。
     ///
-    /// 宽度 170：两头那两格加起来 458 px 时，900 px 的窗口里中间那根条只剩 262 px
-    /// （条还没那两格宽）。
-    /// 那一格装的是「3 个实例运行中」+ 一行实例名 + 箭头，170 够（文字能占 152）。
-    static int bottomBarRunStateColumnWidth() { return 170; }
+    /// 宽度 184：这一格挂在导航轨底部，和导航项同宽（轨 208 - 两边各 12）。
+    static int bottomBarRunStateColumnWidth() { return 184; }  // = TitleBar::navItemWidth()：铺满导航轨底
     /// 左边那两行字**各自留给字**的宽度上限 = 那一格的宽度减掉**最左边那颗状态方块占掉的
     /// 一段**，再减掉右边那个箭头和它左边的间距。封这个顶，布局就永远不会被长名字撑开。
     ///

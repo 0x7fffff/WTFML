@@ -93,8 +93,8 @@ int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget 
             // 中间"任务摘要"、右边"账号"，三块都是往上弹的面板，所以箭头长得一样、名字也
             // 共用（`makeChevronLabel()` 是唯一出处）。数的时候按**整窗**数 —— 这也就顺手
             // 钉住了"三颗都得挂上"。
-            check(window.findChildren<QLabel *>(MainWindowUI::bottomBarChevronName()).size() == 3,
-                  "I4 三格（左「在跑的实例」/ 中「任务摘要」/ 右「账号」）各带一个箭头",
+            check(window.findChildren<QLabel *>(MainWindowUI::bottomBarChevronName()).size() == 2,
+                  "I4 「在跑的实例」和「账号」各带一个箭头（任务卡换成进度环，不再挂箭头）",
                   QStringLiteral("找到 %1 个")
                       .arg(window.findChildren<QLabel *>(MainWindowUI::bottomBarChevronName()).size()));
 
@@ -772,8 +772,8 @@ int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget 
                       describe());
                 // 箭头只是藏起来、**没有删**：「底栏三格各带一个箭头」那条断言（上面
                 // I4 ②）拿的是 findChildren，删了就当场红 —— 这里顺手把它钉住。
-                check(window.findChildren<QLabel *>(MainWindowUI::bottomBarChevronName()).size() == 3,
-                      "I4 收起来的箭头还在（findChildren 照旧数得到三个）",
+                check(window.findChildren<QLabel *>(MainWindowUI::bottomBarChevronName()).size() == 2,
+                      "I4 收起来的箭头还在（findChildren 照旧数得到两个）",
                       QStringLiteral("找到 %1 个")
                           .arg(window.findChildren<QLabel *>(
                                    MainWindowUI::bottomBarChevronName()).size()));

@@ -230,10 +230,18 @@ bool MainWindowUI::isHomeTabCurrent() const {
 
 void MainWindowUI::setupUi(QMainWindow *parent) {
     parent->setWindowTitle(QStringLiteral("WTF Minecraft Launcher"));
-    parent->resize(900, 620);
-    parent->setMinimumHeight(kMainWindowMinHeight);
+    // 设计稿主尺寸 1280×800；屏幕放不下就按可用区缩（最小 900×620，窄于 1024 时导航轨自动折）。
+    {
+        QSize size(1280, 800);
+        if (const QScreen *screen = QGuiApplication::primaryScreen()) {
+            const QSize room = screen->availableGeometry().size() * 0.9;
+            size = size.boundedTo(room).expandedTo(QSize(kMainWindowMinWidth, kMainWindowMinHeight));
+        }
+        parent->resize(size);
+    }
+    parent->setMinimumSize(kMainWindowMinWidth, kMainWindowMinHeight);
 
-    parent->setWindowFlags(parent->windowFlags() & ~Qt::WindowMaximizeButtonHint);  // 禁用最大化按钮
+    parent->setWindowFlags(parent->windowFlags() | Qt::WindowMaximizeButtonHint);
 
     // 中央控件就是整窗那一层底（系统背板 / 风景预模糊底 / 纯色，见 ui/Glass.hpp）。
     // 去套娃：底只有这一层，导航轨和页面都直接铺在它上面，不再各自垫面板。
@@ -268,6 +276,9 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // NOTE: 这个类**不是 QObject**（没有 tr()、没有自己的信号槽），所以得写全 `QObject::connect`。
     QObject::connect(bar, &TitleBar::minimizeRequested, parent, &QMainWindow::showMinimized);
     QObject::connect(bar, &TitleBar::closeRequested, parent, &QMainWindow::close);
+    QObject::connect(bar, &TitleBar::maximizeRequested, parent, [parent]() {
+        parent->isMaximized() ? parent->showNormal() : parent->showMaximized();
+    });
 
     // ================= 选项卡：主页 / 管理 / 下载 / 设置 / 智能体 =================
     // 四页各自只放自己那摊控件，都排成左右两栏：左栏是要操作的那点东西
@@ -450,7 +461,21 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
 
     setupBottomBar(bar);
     bar->setFooter(bottomBar);
+    // 图标轨：任务卡只剩进度环、实例状态那格收起、工具箱只剩图标（tokens.md 第 7 节）。
+    QObject::connect(bar, &TitleBar::collapsedChanged, bottomBar, [this](bool collapsed) {
+        if (auto *text = taskSummaryButton->findChild<QWidget *>(QStringLiteral("taskSummaryText"))) {
+            text->setVisible(!collapsed);
+        }
+        if (auto *card = taskSummaryButton->layout()) {
+            card->setContentsMargins(collapsed ? QMargins(8, 8, 8, 8) : QMargins(10, 8, 10, 8));
+        }
+        runStateButton->setVisible(!collapsed);
+    });
     backdrop->setHeroWidget(homeTab);
+    // 主页上轨和窗口按钮压在清晰风景上：品牌、窗口按钮换主页字色。
+    bar->setHeroMode(tabWidget->currentIndex() == homeTabIndex());
+    QObject::connect(tabWidget, &QTabWidget::currentChanged, bar,
+                     [this](int index) { bar->setHeroMode(index == homeTabIndex()); });
 
     // ---------- 内容区上面那一层 ----------
     // 设置界面和各种提示都开在这儿，不另开窗口（见 OverlayHost.hpp 开头那段）。
