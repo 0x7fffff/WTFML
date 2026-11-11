@@ -2,6 +2,7 @@
 // 页面对照截图（--page-shots）：设置、活动中心、任务详情三态、账号与外观、游戏日志、对话框。
 // 和 DesktopDesignShots 一样只截图：任务是写进活动中心的夹具，日志是灌进窗口的假文本，不启动游戏。
 #include "DesktopDesignShots.hpp"
+#include "AccountSkinDialog.hpp"
 #include "GameLogWindow.hpp"
 #include "InlineMessage.hpp"
 #include "JavaMismatchDialog.hpp"
@@ -11,6 +12,7 @@
 #include "controllers/TaskDetailController.hpp"
 #include <QListWidget>
 #include <QPointer>
+#include <QTimer>
 
 namespace PageShots {
 
@@ -134,6 +136,22 @@ inline QList<Shot> shots() {
             QMetaObject::invokeMethod(&w, "onAccountSkinButtonClicked", Qt::QueuedConnection);
             return &w;
         }});
+        if (dark) {  // 设计稿那一态：三个账号、三件披风（夹具数据，只喂这个窗，不写盘）
+            list.append({"account-list-dark.png", theme, [](MainWindow &w, const Fixture &) {
+                w.ui()->getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
+                QMetaObject::invokeMethod(&w, "onAccountSkinButtonClicked", Qt::QueuedConnection);
+                QTimer::singleShot(600, &w, [&w] {
+                    auto *dialog = w.findChild<AccountSkinDialog *>();
+                    if (!dialog) return;
+                    dialog->setAccounts({{"a", "Wanderer", "2026-11-09T10:00:00Z", true, false},
+                                         {"b", "Steve_test", {}, false, true},
+                                         {"c", "Builder", {}, false, true}});
+                    dialog->setCapes({{"migrator", "Migrator", true}, {"vanilla", "Vanilla", false},
+                                      {"cherry", "Cherry Blossom", false}});
+                });
+                return &w;
+            }});
+        }
         list.append({"gamelog-running-" + theme + ".png", theme, [](MainWindow &, const Fixture &) { return gameLog(logFixture(), false); }});
         if (dark) {
             list.append({"gamelog-empty-dark.png", theme, [](MainWindow &, const Fixture &) { return gameLog(logFixture(), true); }});
