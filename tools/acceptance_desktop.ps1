@@ -7,6 +7,8 @@ param(
     [switch]$LogStress,
     # 设计稿对照截图（主页三主题 / 窄宽窗 / 折叠轨 / 组件总表），程序内抵消系统缩放到 1:1 像素
     [switch]$DesignShots,
+    # 设置 / 活动中心 / 任务详情 / 账号 / 游戏日志 / 对话框对照截图
+    [switch]$PageShots,
     [ValidateRange(30, 300)][int]$TimeoutSeconds = 120
 )
 $ErrorActionPreference = 'Stop'
@@ -26,6 +28,7 @@ $arguments = @('--root', ('"' + $evidence + '"'))
 if ($Extended) { $arguments += '--extended' }
 if ($LogStress) { $arguments += '--log-stress' }
 if ($DesignShots) { $arguments += '--design-shots' }
+if ($PageShots) { $arguments += '--page-shots'; $DesignShots = $true }
 $p = Start-Process -FilePath $program -ArgumentList $arguments -PassThru -RedirectStandardOutput $log -RedirectStandardError $err
 if (-not $p.WaitForExit($TimeoutSeconds * 1000)) {
     $p.Kill($true)
