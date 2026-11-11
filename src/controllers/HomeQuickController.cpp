@@ -36,6 +36,7 @@ HomeQuickController::Rows HomeQuickController::build(
         item.favorite = instance.favorite;
         item.recent = latestByInstance.contains(instance.id);
         item.detail = instance.version;
+        item.modCount = instance.modCount;
         if (item.recent) {
             const LaunchHistory::Record record = latestByInstance.value(instance.id);
             item.detail += QStringLiteral("\n上次启动：") + LaunchHistory::whenText(record.startedAt);

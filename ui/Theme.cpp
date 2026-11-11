@@ -1704,11 +1704,18 @@ QString widgetStyleSheet() {
     // 那 2px（旧壳有 1px 边时这里得写 50 才出 52）。写错一档，每次 polish 都会差 2px ——
     // 就是"点一下还是会长 / 缩一点点"。
     qss += QStringLiteral(
-        "QPushButton[wtfmlQuickCard=\"true\"] { padding: 0px; }"
-        "QPushButton[wtfmlQuickCardSize=\"normal\"] { min-height: 84px; max-height: 84px; }"
+        "QPushButton[wtfmlQuickCard=\"true\"] { padding: 0px; border: none; }"
+        "QPushButton[wtfmlQuickCardSize=\"normal\"] { min-height: 64px; max-height: 64px; }"
         "QPushButton[wtfmlQuickCardSize=\"compact\"] { min-height: 52px; max-height: 52px; }"
         "QPushButton[wtfmlQuickCardSize=\"icon\"] { min-height: 56px; max-height: 56px; }");
-    qss += QStringLiteral("QPushButton[wtfmlAccountHeader=\"true\"] { padding: 0px; min-height: 62px; }");
+    // 主页压在风景上的几颗（设计稿 home.html）：账号胶囊 44、启动区「启动游戏」52（.btn.lg）、
+    // 卡片上那颗 30 的播放钮。底色由 HeroButton 自己画，这里只钉尺寸。
+    qss += QStringLiteral(
+        "QPushButton[wtfmlAccountHeader=\"true\"] { padding: 0px; border: none; min-height: 44px; max-height: 44px; }"
+        "QPushButton[wtfmlHeroStart=\"true\"] { min-height: 52px; max-height: 52px; padding: 0px 28px; border: none;"
+        " border-radius: 14px; }"
+        "QPushButton[wtfmlHeroSquare=\"true\"] { padding: 0px; border: none; min-height: 52px; max-height: 52px; }"
+        "QPushButton[wtfmlHeroPlay=\"true\"] { padding: 0px; border: none; min-height: 30px; max-height: 30px; }");
 
     // 主页快速启动的空槽：它是布局占位和“去实例页添加”的入口，不应长得像已经能启动的
     // 实例。半透明感在 QWidget 上用一层极浅主题色表达；虚线边只用于空槽，不把普通卡片

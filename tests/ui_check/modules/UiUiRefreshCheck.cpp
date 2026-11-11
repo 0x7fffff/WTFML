@@ -30,11 +30,14 @@ int UiUiRefreshCheck(QApplication &app) {
                "game logs and process priority belong to launch settings");
         expect(warningSettings && warningSettings->isAncestorOf(preview.findChild<QWidget *>(MainWindowUI::warnMissingDependenciesCheckName())),
                "dependency warning belongs to safety settings");
-        for (const QString &name : {QStringLiteral("homeQuickCurrentTab"), QStringLiteral("homeQuickRecentTab"),
-                                    QStringLiteral("homeQuickFavoriteTab")}) {
+        // 7a：实例带只剩「最近 / 收藏」两颗下划线页签（设计稿 .tab），「当前」是上面那块启动区。
+        for (const QString &name : {QStringLiteral("homeQuickRecentTab"), QStringLiteral("homeQuickFavoriteTab")}) {
             auto *tab = preview.findChild<QPushButton *>(name);
-            expect(tab && tab->minimumWidth() >= 64, "home quick tabs have wider click targets");
+            expect(tab && tab->minimumWidth() >= 48 && tab->sizeHint().height() >= 32,
+                   "home strip tabs keep a usable click target");
         }
+        auto *currentTab = preview.findChild<QPushButton *>(QStringLiteral("homeQuickCurrentTab"));
+        expect(currentTab && currentTab->isHidden(), "the current instance is the launch block, not a strip tab");
         expect(preview.findChild<QPushButton *>(MainWindowUI::homeInstanceSelectButtonName())->minimumWidth() >= 80,
                "home list button is wider than quick tabs");
         MainWindowUI::HomePickerInstance instance;

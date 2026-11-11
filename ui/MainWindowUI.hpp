@@ -2682,13 +2682,12 @@ public:
 
     /// 主页**右栏**（「我的角色」那一栏）的宽度（**唯一出处**）。
     ///
-    /// 主页右栏**不按份数分宽**：这一栏的宽度由「我的角色」那张卡片
-    /// 自己钉死（卡片里那 160 px 的人物画布 + 左右各 8 px 内边距），左栏吃剩下的全部。
-    /// `homeLeftColumnStretch()` 那份比例管不了这一栏，验证工程按它量
-    /// 会量出 664:176 这种数。
+    /// 主页右栏**不按份数分宽**：这一栏是账号胶囊 + 立绘，宽度钉死在立绘画布那一个数上
+    /// （设计稿那个立绘约 270 高 ⇒ 画布 228 宽），左栏吃剩下的全部。
+    /// `homeLeftColumnStretch()` 那份比例管不了这一栏。
     /// NOTE: 右栏列本身在 `buildTwoColumnPage()` 里就 `setFixedWidth()` 到这一个数，
     /// 所以它是**跟窗口宽度无关**的常量 —— 这正是验证工程能拿它当期望值的原因。
-    static constexpr int homeRightColumnWidth() { return 176; }
+    static constexpr int homeRightColumnWidth() { return 228; }
 
     /// 正文那一栏顶上那个页头（页面标题那一行 + 说明那一行）的名字。
     /// @param tab "instance" / "download" / "settings"（主页没有页头）。

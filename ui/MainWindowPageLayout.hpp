@@ -53,14 +53,20 @@ inline constexpr int kStartButtonMinHeight = 76;
 inline constexpr int kMainWindowMinWidth = 900;
 inline constexpr int kMainWindowMinHeight = 620;
 
-/// 主页角色预览使用稳定的展示规格。窗口变宽时人物不应跟着无限放大；220px 是默认
-/// 900px 窗口下实际量到的画布宽度，按 SkinViewer 的比例对应约 311px 高。
-inline constexpr int kHomeProfileHorizontalPadding = 8 * 2;
-
-/// 人物预览画布宽度（160）= 右栏宽度（唯一出处 `MainWindowUI::homeRightColumnWidth()`）
-/// 减掉卡片左右内边距 —— 两者必须是同一个数推出来的，不然卡片会跟右栏错开。
-inline constexpr int kHomeSkinViewerWidth =
-    MainWindowUI::homeRightColumnWidth() - kHomeProfileHorizontalPadding;
+/// 主页立绘画布：宽 = 右栏宽（唯一出处 `MainWindowUI::homeRightColumnWidth()`），高按 SkinViewer
+/// 的人物比例算出来约 322 —— 人高约 270，和设计稿 home.html 那个立绘一样大。窄窗封顶到七成二。
+inline constexpr int kHomeSkinViewerWidth = MainWindowUI::homeRightColumnWidth();
+inline constexpr int kHomeSkinViewerHeight = 322;
+/// 主页两栏的左右页边距（相等），和左栏里再往里缩的那一截：合起来是设计稿标题 / 启动区离页左 44。
+inline constexpr int kHomeHeroMargin = 36;
+inline constexpr int kHomeHeroInset = 8;
+/// 右上账号胶囊的宽（设计稿按内容约 180；名字长了在里面省略）。
+inline constexpr int kHomeAccountPillWidth = 184;
+/// 实例带卡片的宽 / 高（设计稿 .card：196 宽，封面 48 + 上下 8）。
+inline constexpr int kHomeTileWidth = 196;
+inline constexpr int kHomeTileHeight = 64;
+/// 主页启动区卡片底下给「启动游戏」柔光留的余量（光晕向下偏 10、模糊 30）。
+inline constexpr int kHomeLaunchGlowRoom = 24;
 
 /// 主页左栏两张卡之间的竖直留白（「开始游戏」和「上次游玩」）。
 ///
@@ -69,8 +75,8 @@ inline constexpr int kHomeSkinViewerWidth =
 /// 主页快速区是一组连续操作，不应像两张互不相干的大卡片那样隔开。
 /// 外层布局本身已有 spacing，不额外塞空白，让「收藏 / 上次游玩」视觉上连成一组。
 inline constexpr int kHomeCardGap = 0;
-/// 磨砂开着时主页大标题的字号（压在风景上的那一行，比 Display 那一档大一截）。
-inline constexpr int kHomeHeroTitlePixelSize = 42;
+/// 主页大标题的字号（设计稿 home.html：细楷 50，窄窗 40）。
+inline constexpr int kHomeHeroTitlePixelSize = 50;
 
 /// 「额外 JVM 参数」多行输入框的高度，约三四行的样子；再高会把下面那几项挤出可视区。
 inline constexpr int kJvmArgsEditHeight = 72;

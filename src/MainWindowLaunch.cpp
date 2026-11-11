@@ -24,6 +24,7 @@
 #include "controllers/GameSessionController.hpp"
 #include "controllers/HomeQuickController.hpp"
 #include "controllers/LaunchController.hpp"
+#include "controllers/ServerWorkspaceController.hpp"
 #include "controllers/MainWindowViewData.hpp"
 #include "launcher/QuickPlay.hpp"
 #include "manage/FolderManager.hpp"
@@ -31,6 +32,7 @@
 #include "manage/LaunchHistory.hpp"
 #include "manage/VersionManager.hpp"
 #include "settings/LauncherSettings.hpp"
+#include "util/AppPaths.hpp"
 
 #include <QDir>
 #include <QFileInfo>
@@ -134,6 +136,10 @@ void MainWindow::updateHomeRecent() {
                     m_versionManager->displayParts(instance.id), m_versionManager, 32));
             }
             instance.favorite = m_groupStore != nullptr && m_groupStore->isPinned(instanceKey(instance.id));
+            // 主页启动区那行元信息写「N 个模组」：只数当前那一个（mods 下的 *.jar，停用的不算）。
+            if (instance.id == currentId) {
+                instance.modCount = ServerWorkspaceController::countEnabledMods(AppPaths::versionDir(instance.id));
+            }
             installed.append(instance);
         }
     }
