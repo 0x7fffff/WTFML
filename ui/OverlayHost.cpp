@@ -7,7 +7,9 @@
 #include "OverlayHost.hpp"
 #include "Animations.hpp"
 #include <QElapsedTimer>  // 整块覆盖这一层的淡入
-#include "Theme.hpp"   // 顶上那颗「← 返回」的身份（一般性 = 黑字黑边）
+#include "Theme.hpp"   // 顶上那颗「‹ 返回」的身份（文字按钮）
+#include "Glass.hpp"   // 整页那一档透出整窗磨砂
+#include "VersionIcons.hpp"
 
 #include <QApplication>
 #include <QDebug>
@@ -45,6 +47,8 @@ QPixmap snapshot(QWidget *widget) {
 /// NOTE: 和 `MainWindowUI` 里页面用的那圈边距是**同一个数**（kPageMargin = 9）——
 /// 覆盖层是一整个"页面"，留白和别的页面不一样的话，进设置再退出来会看着跳一下。
 constexpr int kOverlayPageMargin = 9;
+/// 整页那一档的左右留白：和主页、设置页正文左缘对齐（设计稿内容区左右 40）。
+constexpr int kOverlayPageSide = 40;
 
 /// 卡片（整页里那张 / 小提示那张）那一块布的调色板：底出厂是 `Base`（用户单独改过就是那个）。
 QPalette cardChromePalette() {
@@ -75,20 +79,38 @@ OverlayHost::OverlayHost(QWidget *anchor, QWidget *parent) : QWidget(parent), m_
     QWidget *header = new QWidget(m_pageFrame);
     header->setFixedHeight(pageHeaderHeight());
     QHBoxLayout *headerLayout = new QHBoxLayout(header);
-    headerLayout->setContentsMargins(kOverlayPageMargin, 0, kOverlayPageMargin, 0);
-    headerLayout->setSpacing(10);
+    // 面包屑（tokens-extra §1）：「‹ 返回」文字按钮 + 「/」+ 当前页，左缘比正文多出按钮内边距。
+    headerLayout->setContentsMargins(kOverlayPageSide - 10, 6, kOverlayPageSide, 0);
+    headerLayout->setSpacing(4);
     m_backButton = new QPushButton(backButtonText(), header);
     m_backButton->setObjectName(overlayBackButtonName());
     m_backButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     m_backButton->setToolTip(tr("未保存的改动会丢失。"));
     // 「← 返回」= 往回走（一般性那一档）—— 全应用每一页顶上那一颗都是它。
-    Theme::markButton(m_backButton, Theme::ButtonKind::Neutral);
+    Theme::markButton(m_backButton, Theme::ButtonKind::Ghost);
+    m_backButton->setProperty("wtfmlCrumb", true);
+    m_backButton->setFixedHeight(28);
+    const auto crumbFont = [](QWidget *w) {
+        QFont f = w->font();
+        f.setPixelSize(13);
+        f.setBold(false);
+        w->setFont(f);
+    };
+    crumbFont(m_backButton);
+    const auto backIcon = [this]() {
+        m_backButton->setIcon(QIcon(VersionIcons::line(QStringLiteral("chevL"), 14, Theme::tokens().secondary, 2.0)));
+    };
+    m_backButton->setIconSize(QSize(14, 14));
+    backIcon();
+    Theme::follow(m_backButton, backIcon);
     headerLayout->addWidget(m_backButton);
+    auto *slash = new QLabel(QStringLiteral("/"), header);
+    crumbFont(slash);
+    slash->setForegroundRole(QPalette::PlaceholderText);
+    headerLayout->addWidget(slash);
     m_titleLabel = new QLabel(header);
     m_titleLabel->setObjectName(overlayTitleLabelName());
-    QFont titleFont = m_titleLabel->font();
-    titleFont.setBold(true);
-    m_titleLabel->setFont(titleFont);
+    crumbFont(m_titleLabel);
     headerLayout->addWidget(m_titleLabel);
     headerLayout->addStretch(1);
     m_pageLayout->addWidget(header);
@@ -97,8 +119,7 @@ OverlayHost::OverlayHost(QWidget *anchor, QWidget *parent) : QWidget(parent), m_
     m_pageContent->setObjectName(overlayPageContentName());
     m_pageContentLayout = new QVBoxLayout(m_pageContent);
     // 留白和别的页面一样是那一圈 9 px（见 kOverlayPageMargin）。
-    m_pageContentLayout->setContentsMargins(kOverlayPageMargin, kOverlayPageMargin,
-                                            kOverlayPageMargin, kOverlayPageMargin);
+    m_pageContentLayout->setContentsMargins(kOverlayPageSide, 4, kOverlayPageSide, 0);
     m_pageContentLayout->setSpacing(0);
 
     // 整页那一档外面套一层滚动区。**不是"以防万一"**：设置页是按它自己的尺寸设计的
@@ -132,8 +153,9 @@ OverlayHost::OverlayHost(QWidget *anchor, QWidget *parent) : QWidget(parent), m_
     // 不会一个有线一个没线。
     QFrame *card = new QFrame(this);
     card->setObjectName(overlayPromptHostName());
-    card->setFrameShape(QFrame::StyledPanel);
-    card->setAutoFillBackground(true);
+    // 卡片自己不画：底（玻璃面 + 1px 亮边）由覆盖层在 paintEvent 里画，圆角才干净。
+    card->setFrameShape(QFrame::NoFrame);
+    card->setAutoFillBackground(false);
     // 卡片底色出厂是 `Base`（和输入框/列表里那层一样），归
     // `Theme::Part::Card` 管（用户能把卡片单独换一个色）。
     // NOTE: 基色取**应用调色板**而不是卡片自己的：卡片身上就写着算好的那一份，
@@ -420,7 +442,6 @@ QWidget *OverlayHost::openPrompt(bool dismissOnOutsideClick, bool fullSize) {
     }
     const int padding = fullSize ? kOverlayPageMargin : promptPadding();
     m_promptLayout->setContentsMargins(padding, padding, padding, padding);
-    static_cast<QFrame *>(m_promptCard)->setFrameShape(fullSize ? QFrame::NoFrame : QFrame::StyledPanel);
 
     // "四周变暗"要能**看见**下面那一层 —— 而覆盖层和下面那一页是**兄弟**：在这上面
     // 半透明地画一层，合的是 `centralWidget` 的底，不是页面的像素（Qt 重绘一个子控件
@@ -900,10 +921,15 @@ bool OverlayHost::eventFilter(QObject *watched, QEvent *event) {
 void OverlayHost::paintEvent(QPaintEvent *event) {
     Q_UNUSED(event)
     QPainter painter(this);
+    const QPaintDevice *redirect = redirected(nullptr);
+    const bool toPixmap = redirect != nullptr && redirect->devType() == QInternal::Pixmap;
+    const auto paintBase = [&]() {
+        // 整页要"盖住"下面那一页，同时和别的页一样直接站在整窗磨砂上：铺那一块整窗底。
+        if (auto *backdrop = Glass::Backdrop::of(this)) backdrop->paintBase(painter, this, toPixmap);
+        else painter.fillRect(rect(), palette().color(QPalette::Window));
+    };
     if (m_mode == Mode::Page) {
-        // 整页：铺一层**不透明**的底。不是为了好看 —— 是"盖住"这件事得由像素兑现：
-        // 下面那一页还在（只是被按住了），不铺的话它的字会从页框没盖到的地方露出来。
-        painter.fillRect(rect(), palette().color(QPalette::Window));
+        paintBase();
         return;
     }
     if (m_mode != Mode::Prompt) {
@@ -917,6 +943,21 @@ void OverlayHost::paintEvent(QPaintEvent *event) {
         painter.fillRect(rect(), palette().color(QPalette::Window));
     }
     painter.fillRect(rect(), scrimColor());
+    if (m_promptCard == nullptr || !m_promptCard->isVisible()) {
+        return;
+    }
+    if (m_promptFullSize) {
+        paintBase();
+        return;
+    }
+    // 对话框（tokens-extra §6）：玻璃面、圆角 16、1px 亮边。
+    const QRectF card = QRectF(m_promptCard->geometry()).adjusted(0.5, 0.5, -0.5, -0.5);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setPen(QPen(Theme::tokens().glassEdge, 1.0));
+    QColor face = Theme::tokens().card;
+    face.setAlphaF(0.96);
+    painter.setBrush(face);
+    painter.drawRoundedRect(card, 16, 16);
 }
 
 void OverlayHost::mousePressEvent(QMouseEvent *event) {

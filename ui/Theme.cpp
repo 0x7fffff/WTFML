@@ -95,7 +95,8 @@ Tokens tokens(const QString &id) {
             .onDanger = QColor("#FFFFFF"),
             .glass = rgba(249, 251, 253, .80), .glassEdge = rgba(255, 255, 255, .75), .scrim = rgba(30, 44, 60, .22),
             .heroInk = QColor("#172433"), .heroInk2 = rgba(23, 36, 51, .82), .heroVeil = QColor(240, 245, 250),
-            .heroScrim = .78, .heroTop = .80, .railFog = .45, .groundShade = QColor(20, 40, 34), .groundGlint = .35};
+            .heroScrim = .78, .heroTop = .80, .railFog = .45, .groundShade = QColor(20, 40, 34), .groundGlint = .35,
+            .accentInk = QColor("#2D4961"), .okInk = QColor("#1B4F34"), .warnInk = QColor("#5E3F0E"), .dangerInk = QColor("#74312A")};
         return ocean;
     }
     // 青瓷。
@@ -118,7 +119,8 @@ Tokens tokens(const QString &id) {
         .onDanger = QColor("#FFFFFF"),
         .glass = rgba(250, 252, 251, .80), .glassEdge = rgba(255, 255, 255, .75), .scrim = rgba(30, 50, 44, .22),
         .heroInk = QColor("#16241F"), .heroInk2 = rgba(22, 36, 31, .82), .heroVeil = QColor(240, 246, 243),
-        .heroScrim = .78, .heroTop = .80, .railFog = .45, .groundShade = QColor(20, 40, 34), .groundGlint = .35};
+        .heroScrim = .78, .heroTop = .80, .railFog = .45, .groundShade = QColor(20, 40, 34), .groundGlint = .35,
+        .accentInk = QColor("#234A3F"), .okInk = QColor("#1B4F34"), .warnInk = QColor("#5E3F0E"), .dangerInk = QColor("#74312A")};
     return emerald;
 }
 
@@ -1670,6 +1672,10 @@ QString widgetStyleSheet() {
                           "QPushButton[%1=\"ghost\"][wtfmlTextAction=\"true\"][checkable=\"false\"]:pressed:enabled"
                           " { background-color: %5; }")
                .arg(QString::fromLatin1(kButtonKindProperty), neutralFill, black, hover, pressed);
+
+    // 整页覆盖层顶上的面包屑「‹ 返回」：次要字色、贴字的小内边距（设计稿 .crumb）。
+    qss += QStringLiteral("QPushButton[wtfmlCrumb=\"true\"] { color: %1; padding: 0px 8px; min-height: 0px; }")
+               .arg(paletteRef("placeholder-text"));
 
     // 「灰掉」这一条**必须摆在上面那两块之后**。
     // Qt 的样式表按**优先级**排：`QPushButton[wtfmlButtonKind="neutral"]` 和

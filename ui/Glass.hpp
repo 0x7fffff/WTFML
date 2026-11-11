@@ -24,6 +24,7 @@
 #include <QWidget>
 
 class QApplication;
+class QPainter;
 class QTimer;
 
 namespace Glass {
@@ -101,6 +102,10 @@ public:
 
     /// 立刻按当前尺寸与主题重算（验证工程截图前用；产品里走防抖）。
     void rebuildNow();
+
+    /// 往 `target`（本控件的子孙）上画它那一块整窗底，不画主页场景。覆盖层整页、独立小窗借它透出同一层磨砂。
+    /// `toPixmap`：这一趟画进位图（grab），系统背板拍不进去，按风景底画。
+    void paintBase(QPainter &painter, const QWidget *target, bool toPixmap);
 
     /// 主页场景在 `widget` 那一块上最亮的颜色 —— 直接压在风景上的标题拿它验对比度。
     QColor brightestUnder(const QWidget *widget) const;

@@ -544,6 +544,32 @@ void Backdrop::resizeEvent(QResizeEvent *event) {
     scheduleRebuild();
 }
 
+void Backdrop::paintBase(QPainter &painter, const QWidget *target, bool toPixmap) {
+    const QRect area(target->mapTo(this, QPoint(0, 0)), target->size());
+    const QRect local(QPoint(0, 0), target->size());
+    const Mode m = effectiveMode();
+    if (m == Mode::Solid) {
+        painter.fillRect(local, Theme::tokens().page);
+    } else if ((m == Mode::Acrylic || m == Mode::Mica) && !toPixmap) {
+        painter.save();
+        painter.setCompositionMode(QPainter::CompositionMode_Source);
+        painter.fillRect(local, tint());
+        painter.restore();
+    } else {
+        if (m_frost.isNull()) rebuildNow();
+        const qreal sx = qreal(m_frost.width()) / qMax(1, width());
+        const qreal sy = qreal(m_frost.height()) / qMax(1, height());
+        const QRectF source(area.x() * sx, area.y() * sy, area.width() * sx, area.height() * sy);
+        painter.save();
+        painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+        painter.drawPixmap(QRectF(local), m_frost, source);
+        QColor layer = Theme::tokens().page;
+        layer.setAlphaF(minimumTintAlpha(layer, bodyInks(), {m_darkest, m_brightest}, tintStrength() / 100.0));
+        painter.fillRect(local, layer);
+        painter.restore();
+    }
+}
+
 void Backdrop::paintEvent(QPaintEvent *) {
     QPainter painter(this);
     const Mode m = effectiveMode();
