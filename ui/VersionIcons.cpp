@@ -796,3 +796,184 @@ QPixmap VersionIcons::runStateMark(int size, const QColor &color) {
         return pixmap;
     });
 }
+
+
+namespace {
+
+/// SVG path 数据的一个小解析器：只认设计稿图标里出现的 M L H V C S A Z（大小写都认）。
+QPainterPath parseSvgPath(const QString &data) {
+    QPainterPath path;
+    int i = 0;
+    QChar command;
+    QPointF current;
+    QPointF start;
+    QPointF lastControl;
+    const auto skip = [&]() {
+        while (i < data.size() && (data.at(i).isSpace() || data.at(i) == QLatin1Char(','))) ++i;
+    };
+    const auto number = [&]() {
+        skip();
+        int j = i;
+        if (j < data.size() && (data.at(j) == QLatin1Char('-') || data.at(j) == QLatin1Char('+'))) ++j;
+        bool dot = false;
+        while (j < data.size() && (data.at(j).isDigit() || (data.at(j) == QLatin1Char('.') && !dot))) {
+            if (data.at(j) == QLatin1Char('.')) dot = true;
+            ++j;
+        }
+        const qreal v = QStringView(data).mid(i, j - i).toDouble();
+        i = j;
+        return v;
+    };
+    // 圆弧标志位可以紧挨着写，一次只吃一位。
+    const auto flag = [&]() {
+        skip();
+        const bool v = i < data.size() && data.at(i) == QLatin1Char('1');
+        ++i;
+        return v;
+    };
+    const auto arcTo = [&path](QPointF p0, qreal rx, qreal ry, bool large, bool sweep, QPointF p1) {
+        // SVG 规范 F.6.5（设计稿的弧都不旋转）：端点式换成中心式，再交给 arcTo。
+        if (rx == 0 || ry == 0) { path.lineTo(p1); return; }
+        const qreal x1 = (p0.x() - p1.x()) / 2, y1 = (p0.y() - p1.y()) / 2;
+        rx = qAbs(rx); ry = qAbs(ry);
+        const qreal lambda = (x1 * x1) / (rx * rx) + (y1 * y1) / (ry * ry);
+        if (lambda > 1) { rx *= qSqrt(lambda); ry *= qSqrt(lambda); }
+        const qreal num = rx * rx * ry * ry - rx * rx * y1 * y1 - ry * ry * x1 * x1;
+        const qreal den = rx * rx * y1 * y1 + ry * ry * x1 * x1;
+        qreal k = den == 0 ? 0 : qSqrt(qMax<qreal>(0, num / den));
+        if (large == sweep) k = -k;
+        const qreal cx1 = k * rx * y1 / ry, cy1 = -k * ry * x1 / rx;
+        const QPointF center(cx1 + (p0.x() + p1.x()) / 2, cy1 + (p0.y() + p1.y()) / 2);
+        const auto ang = [](qreal ux, qreal uy, qreal vx, qreal vy) {
+            return qAtan2(ux * vy - uy * vx, ux * vx + uy * vy);
+        };
+        const qreal theta = ang(1, 0, (x1 - cx1) / rx, (y1 - cy1) / ry);
+        qreal delta = ang((x1 - cx1) / rx, (y1 - cy1) / ry, (-x1 - cx1) / rx, (-y1 - cy1) / ry);
+        if (!sweep && delta > 0) delta -= 2 * M_PI;
+        if (sweep && delta < 0) delta += 2 * M_PI;
+        // Qt 的角度向上为正，SVG 的 y 轴向下，所以取负号。
+        path.arcTo(QRectF(center.x() - rx, center.y() - ry, 2 * rx, 2 * ry),
+                   -qRadiansToDegrees(theta), -qRadiansToDegrees(delta));
+    };
+    while (true) {
+        skip();
+        if (i >= data.size()) break;
+        if (data.at(i).isLetter()) command = data.at(i++);
+        const bool rel = command.isLower();
+        const QPointF base = rel ? current : QPointF();
+        const char upper = char(command.toUpper().unicode());
+        if (upper != 'C' && upper != 'S') lastControl = QPointF();
+        switch (upper) {
+        case 'M': {
+            const qreal x = number(), y = number();
+            current = base + QPointF(x, y);
+            path.moveTo(current);
+            start = current;
+            command = rel ? QLatin1Char('l') : QLatin1Char('L');  // M 后面跟的坐标按 L 处理
+            break;
+        }
+        case 'L': { const qreal x = number(), y = number(); current = base + QPointF(x, y); path.lineTo(current); break; }
+        case 'H': { const qreal x = number(); current.setX(rel ? current.x() + x : x); path.lineTo(current); break; }
+        case 'V': { const qreal y = number(); current.setY(rel ? current.y() + y : y); path.lineTo(current); break; }
+        case 'C': {
+            const qreal a = number(), b = number(), c = number(), d = number(), e = number(), f = number();
+            const QPointF c1 = base + QPointF(a, b), c2 = base + QPointF(c, d), end = base + QPointF(e, f);
+            path.cubicTo(c1, c2, end);
+            lastControl = c2;
+            current = end;
+            break;
+        }
+        case 'S': {
+            const qreal c = number(), d = number(), e = number(), f = number();
+            const QPointF c1 = lastControl.isNull() ? current : 2 * current - lastControl;
+            const QPointF c2 = base + QPointF(c, d), end = base + QPointF(e, f);
+            path.cubicTo(c1, c2, end);
+            lastControl = c2;
+            current = end;
+            break;
+        }
+        case 'A': {
+            const qreal rx = number(), ry = number();
+            number();  // x-axis-rotation：设计稿全是 0
+            const bool large = flag(), sweep = flag();
+            const qreal x = number(), y = number();
+            const QPointF end = base + QPointF(x, y);
+            arcTo(current, rx, ry, large, sweep, end);
+            current = end;
+            break;
+        }
+        case 'Z':
+            path.closeSubpath();
+            current = start;
+            break;
+        default:
+            ++i;  // 不认识的命令：跳过，别死循环
+            break;
+        }
+    }
+    return path;
+}
+
+const QHash<QString, QString> &linePaths() {
+    static const QHash<QString, QString> paths{
+        {QStringLiteral("home"), QStringLiteral("M3.5 10.5 12 3.8l8.5 6.7M5.8 8.8V20h12.4V8.8M10 20v-5.2h4V20")},
+        {QStringLiteral("manage"), QStringLiteral("M4 4h6.5v6.5H4zM13.5 4H20v6.5h-6.5zM4 13.5h6.5V20H4zM13.5 13.5H20V20h-6.5z")},
+        {QStringLiteral("download"), QStringLiteral("M12 3.5v11M7.5 10.5 12 15l4.5-4.5M4 15.5V20h16v-4.5")},
+        {QStringLiteral("settings"), QStringLiteral("M4 7h9M17 7h3M4 17h3M11 17h9M15 4.8v4.4M9 14.8v4.4M4 12h5M13 12h7")},
+        {QStringLiteral("agent"), QStringLiteral("M11 3.5c.6 4.4 2.6 6.4 7 7-4.4.6-6.4 2.6-7 7-.6-4.4-2.6-6.4-7-7 4.4-.6 6.4-2.6 7-7zM18.5 15.5v5M16 18h5")},
+        {QStringLiteral("toolbox"), QStringLiteral("M3.5 9h17v10.5h-17zM8.5 9V6.2c0-.9.7-1.7 1.7-1.7h3.6c.9 0 1.7.8 1.7 1.7V9M3.5 13.5h17M10.5 12v3M13.5 12v3")},
+        {QStringLiteral("fold"), QStringLiteral("M4 5h16v14H4zM9.5 5v14M15.5 10l-2 2 2 2")},
+        {QStringLiteral("unfold"), QStringLiteral("M4 5h16v14H4zM9.5 5v14M13.5 10l2 2-2 2")},
+        {QStringLiteral("min"), QStringLiteral("M6.5 12h11")},
+        {QStringLiteral("max"), QStringLiteral("M7 7h10v10H7z")},
+        {QStringLiteral("restore"), QStringLiteral("M7 9h8v8H7zM9 9V7h8v8h-2")},
+        {QStringLiteral("close"), QStringLiteral("M7 7l10 10M17 7 7 17")},
+        {QStringLiteral("play"), QStringLiteral("M8 5.5v13l10.5-6.5z")},
+        {QStringLiteral("swap"), QStringLiteral("M5 8.5h13l-3.5-3.5M19 15.5H6l3.5 3.5")},
+        {QStringLiteral("gear"), QStringLiteral("M12 9a3 3 0 1 1 0 6 3 3 0 0 1 0-6zM12 3.5l1.6 2.2 2.7-.5.6 2.7 2.4 1.3-1.1 2.5 1.1 2.5-2.4 1.3-.6 2.7-2.7-.5L12 20.5l-1.6-2.2-2.7.5-.6-2.7-2.4-1.3L5.8 12 4.7 9.5l2.4-1.3.6-2.7 2.7.5z")},
+        {QStringLiteral("chevR"), QStringLiteral("m10 7 5 5-5 5")},
+        {QStringLiteral("chevD"), QStringLiteral("m7 10 5 5 5-5")},
+        {QStringLiteral("chevU"), QStringLiteral("m7 14 5-5 5 5")},
+        {QStringLiteral("plus"), QStringLiteral("M12 5v14M5 12h14")},
+        {QStringLiteral("user"), QStringLiteral("M12 4.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7zM5 19.5c.8-3.5 3.6-5.5 7-5.5s6.2 2 7 5.5")},
+        {QStringLiteral("star"), QStringLiteral("M12 4.2l2.3 4.8 5.2.7-3.8 3.6.9 5.2-4.6-2.5-4.6 2.5.9-5.2-3.8-3.6 5.2-.7z")},
+        {QStringLiteral("trash"), QStringLiteral("M4.5 7h15M9.5 7V4.5h5V7M6.5 7l.9 12.5h9.2l.9-12.5M10 11v5M14 11v5")},
+        {QStringLiteral("folder"), QStringLiteral("M3.5 6.5c0-.8.7-1.5 1.5-1.5h4.3l2 2.2H19c.8 0 1.5.7 1.5 1.5v9.3c0 .8-.7 1.5-1.5 1.5H5c-.8 0-1.5-.7-1.5-1.5z")},
+        {QStringLiteral("more"), QStringLiteral("M6 12h.01M12 12h.01M18 12h.01")},
+        {QStringLiteral("list"), QStringLiteral("M9 7h11M9 12h11M9 17h11M4.5 7h.01M4.5 12h.01M4.5 17h.01")},
+    };
+    return paths;
+}
+
+}  // namespace
+
+namespace VersionIcons {
+
+void paintLine(QPainter &painter, const QString &name, const QRectF &box, const QColor &color, qreal stroke) {
+    const auto it = linePaths().constFind(name);
+    if (it == linePaths().constEnd()) return;
+    static QHash<QString, QPainterPath> cache;
+    auto cached = cache.find(name);
+    if (cached == cache.end()) cached = cache.insert(name, parseSvgPath(*it));
+    painter.save();
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.translate(box.topLeft());
+    painter.scale(box.width() / 24.0, box.height() / 24.0);
+    // 线宽按 24 网格给（设计稿 1.6），和 SVG 一样随图标大小缩放。
+    painter.setPen(QPen(color, stroke, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    painter.setBrush(name == QLatin1String("play") ? QBrush(color) : QBrush(Qt::NoBrush));
+    painter.drawPath(*cached);
+    painter.restore();
+}
+
+QPixmap line(const QString &name, int size, const QColor &color, qreal stroke) {
+    const qreal dpr = qApp ? qApp->devicePixelRatio() : 1.0;
+    QPixmap pixmap(QSize(size, size) * dpr);
+    pixmap.setDevicePixelRatio(dpr);
+    pixmap.fill(Qt::transparent);
+    QPainter p(&pixmap);
+    paintLine(p, name, QRectF(0, 0, size, size), color, stroke);
+    return pixmap;
+}
+
+}  // namespace VersionIcons

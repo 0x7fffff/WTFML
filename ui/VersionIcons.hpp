@@ -16,10 +16,13 @@
 #pragma once
 
 #include <QColor>
+#include <QRectF>
 #include <QIcon>
 #include <QPixmap>
 #include <QString>
 #include <QStringList>
+
+class QPainter;
 
 /// 版本树 / 加载器那几行前面的小图标。
 namespace VersionIcons {
@@ -243,5 +246,12 @@ QPixmap puzzleMark(int size, const QColor &color);
 /// @param size 边长（像素）。整块铺满，不留边距 —— ■ 这个符号本来就是"占满自己那一格"。
 /// @param color 填充色。
 QPixmap runStateMark(int size, const QColor &color);
+
+/// 设计稿那套线性图标（24 网格、圆头圆角）：home / manage / download / settings / agent /
+/// toolbox / fold / unfold / min / max / restore / close / play / swap / gear / chevR / chevD /
+/// chevU / plus / user / list。路径照抄设计稿 shell.js 的 SVG 数据；名字不认识时什么都不画。
+void paintLine(QPainter &painter, const QString &name, const QRectF &box, const QColor &color, qreal stroke = 1.6);
+/// 同上，画成一张 `size` 见方的透明图（按钮 setIcon 用）。
+QPixmap line(const QString &name, int size, const QColor &color, qreal stroke = 1.6);
 
 }  // namespace VersionIcons
