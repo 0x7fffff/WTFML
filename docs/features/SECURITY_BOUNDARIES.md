@@ -87,7 +87,7 @@ PNG、BMP、WebP 等格式的头部信息可能声明超大分辨率，引发解
 
 - **网络**：只有模型 API 一处。只接受 `https://`；loopback `http://` 需显式勾选并持续提示；拒绝 userinfo、片段、查询串；不跟随重定向；不忽略 TLS 错误；key 只进认证头。
 - **凭据**：API Key 只落 Windows 凭据管理器（主）或 DPAPI 后备；两条路都失败则拒绝保存并保留旧值，不降级为明文或 QSettings 明文。界面默认星号遮挡，不回显、不复制，不写日志/会话/错误。
-- **会话**：默认明文 JSON，不含密钥；可选整会话 DPAPI 加密（`.enc`），失败保留明文并报错，解密失败不回退明文。加密只保护落盘，发送给模型的内容不变。
+- **会话**：默认明文 JSON，不含密钥；可选整会话 DPAPI 加密（`.enc`），失败保留明文并报错，解密失败不回退明文。加密只保护本地落盘，发送给模型的内容不变。
 - **脱敏**：发送前过 `AgentRedaction`，Bearer / JWT / 私钥块 / 云 key / 凭据字段值在本机遮挡；用户消息命中时提示"已遮挡后再发送"。
 - **上限**：响应 16 MB、SSE 单行 1 MB；流式分块边界、坏 JSON、超限都中止并可见。
 - **能力边界**：不读文件/日志/实例元数据，不调用工具，不启动 MCP；模型不能修改系统提示、API 配置、工具白名单或审批策略。
@@ -98,7 +98,7 @@ PNG、BMP、WebP 等格式的头部信息可能声明超大分辨率，引发解
 
 实现见 [AGENT_STAGE1B.md](AGENT_STAGE1B.md)。
 
-- **路径**：字符串快速拒绝（绝对路径、`..`、盘符、UNC、ADS、保留名、尾点/空格、控制字符）之后，已存在路径再用 `CreateFileW` + `GetFinalPathNameByHandleW` + `FileIdInfo` + `FileAttributeTagInfo` 核最终路径、卷序列/文件 ID、reparse。句柄校验只缩小 TOCTOU 窗口，不宣称彻底解决。
+- **路径**：字符串快速拒绝（绝对路径、`..`、盘符、UNC、ADS、保留名、尾点/空格、控制字符）之后，已存在路径再用 `CreateFileW` + `GetFinalPathNameByHandleW` + `FileIdInfo` + `FileAttributeTagInfo` 核最终路径、卷序列/文件 ID、reparse。句柄校验用于降低 TOCTOU 竞争风险。
 - **工具根**：会话锁定实例；模型不能传实例 id；换游戏文件夹或实例删除返回 `InstanceUnavailable`，不自动换同名实例。
 - **外发**：`fs.list` 只发目录元数据；完整文件名清单/配置/其他文本逐次确认，没有会话级目录放行；凭据文件/凭据存储/二进制硬阻断；普通文本里的凭据字段只发脱敏片段；自动读取也告知"可能发送给当前模型服务"；严格模式关闭所有自动读取。
 - **写入**：`fs.write` 只允许 `config/**`、`defaultconfigs/**`、`options.txt`，每次审批；必须带旧内容哈希与身份 token；写前 DPAPI 备份、原子替换、写后回读，对象/内容变化则拒绝。`versions/libraries/assets/java/Servers` 原始写拒绝，这些目录的高层操作走现有事务。
@@ -110,7 +110,7 @@ PNG、BMP、WebP 等格式的头部信息可能声明超大分辨率，引发解
 
 详细记录见 [ACCEPTANCE_LOG](../archive/ACCEPTANCE_LOG.md)。
 
-- `AgentRedaction` 是精确字段名 + 固定令牌形态匹配，不是通用凭据兜底：`hypixel_api_key`、`DB_PASSWORD`、`REDIS_PASSWORD`、`API_SECRET`、`JWT_SECRET` 等变体未命中。
+- `AgentRedaction` 是精确字段名 + 固定令牌形态匹配，不能作为通用凭据兜底：`hypixel_api_key`、`DB_PASSWORD`、`REDIS_PASSWORD`、`API_SECRET`、`JWT_SECRET` 等变体未命中。
 - 凭据文件识别只覆盖精确 `.env`、`credentials*`、`token*`、`secret*`、`auth.*` 和少数证书后缀；`env`、`test.env` 等变体进入普通文本审批。
 - 大文本 `truncated=true` 时仍生成模型可读 artifact。artifact 只存本次读取窗口（默认 256 KB、最大 1 MB），脱敏未命中时仍可被 `artifact.read` 分段取回；工具文案"完整内容见 artifact"应改为"本次读取内容见 artifact"。
 - 日志自动读取仍可能带出 Windows 用户名、启动参数回显、绝对路径、显卡/驱动/音频设备等硬件指纹，留给 Stage 2 的日志/诊断字段投影处理。

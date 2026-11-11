@@ -383,7 +383,7 @@
 
 ### 2026-11-10：智能体（Agent）Stage 1A 与 1B
 
-导航第五项是「智能体」，启动仍停在主页。当前能力是**自由对话 + 锁定实例内的受控文件工具**：没有 MCP、维护工作流、联网工具和命令执行。设计与阶段计划见 [AGENT.md](features/AGENT.md)，实现与自动验收见 [Stage 1A](features/AGENT_STAGE1A.md)、[Stage 1B](features/AGENT_STAGE1B.md)，安全边界见 [SECURITY_BOUNDARIES.md](features/SECURITY_BOUNDARIES.md) §6–§8。
+导航第五项是「智能体」，启动仍停在主页。当前能力是**自由对话 + 锁定实例内的受控文件工具**：当前阶段不含 MCP、维护工作流、联网工具和命令执行。设计与阶段计划见 [AGENT.md](features/AGENT.md)，实现与自动验收见 [Stage 1A](features/AGENT_STAGE1A.md)、[Stage 1B](features/AGENT_STAGE1B.md)，安全边界见 [SECURITY_BOUNDARIES.md](features/SECURITY_BOUNDARIES.md) §6–§8。
 
 | 阶段 | 状态 | 人工验收 |
 | --- | --- | --- |
@@ -414,7 +414,7 @@
 **硬约束**
 
 - 没有会话级目录放行；配置文件每次确认，确认后也只发送脱敏片段；`versions/libraries/assets/java/Servers` 原始写一律拒绝。
-- 模型不能修改系统提示、API 配置、工具白名单或审批策略；会话默认明文但不含密钥，加密只保护落盘。
+- 模型不能修改系统提示、API 配置、工具白名单或审批策略；会话默认明文存储但不含密钥，加密只保护本地落盘，发送给模型的内容不变。
 - 活动会话删除先取消/等待；文件提交阶段拒绝删除并提示。
-- 句柄级路径校验只缩小 TOCTOU 窗口；junction/symlink/替换竞争失败明确报错。
-- 未完成的真机项：真实路径/junction/长路径、真实文件竞争/占用、高 DPI/读屏。
+- 句柄级路径校验用于降低 TOCTOU 竞争风险；检测到 junction/symlink 越界或文件竞争时阻断并报错。
+- 未覆盖真机测试项：长路径、真实文件竞争占用与高 DPI 读屏。
