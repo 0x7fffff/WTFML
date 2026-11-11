@@ -120,6 +120,16 @@ inline QList<Shot> shots() {
     for (const QString theme : {QStringLiteral("dark"), QStringLiteral("emerald"), QStringLiteral("ocean")}) {
         const bool dark = theme == QLatin1String("dark");
         list.append({"settings-" + theme + ".png", theme, [](MainWindow &w, const Fixture &) { return settings(w, 3); }});
+        // 整窗衔接自检（轨、顶栏、内容区是不是同一张底）：管理、下载、智能体三页原样截一张。
+        for (const auto &[name, index] : {std::pair{"manage", MainWindowUI::instancesTabIndex()},
+                                          std::pair{"download", MainWindowUI::downloadTabIndex()},
+                                          std::pair{"agent", MainWindowUI::agentTabIndex()}}) {
+            list.append({QStringLiteral("seam-%1-").arg(QLatin1String(name)) + theme + ".png", theme,
+                         [index](MainWindow &w, const Fixture &) {
+                             w.ui()->getTabWidget()->setCurrentIndex(index);
+                             return &w;
+                         }});
+        }
         list.append({"task-crash-" + theme + ".png", theme, [](MainWindow &w, const Fixture &f) { return task(w, f.crash); }});
         if (dark) {
             list.append({"settings-launch-dark.png", theme, [](MainWindow &w, const Fixture &) { return settings(w, 0); }});
