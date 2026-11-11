@@ -1771,7 +1771,8 @@ QString widgetStyleSheet() {
                .arg(controlRadius());
     // 只钉最小高度，不钉最大高度：正常字号下三者仍是 24px；系统使用大字号时允许控件
     // 跟着长高，不能为了像素对齐把字裁掉。
-    qss += QStringLiteral("QAbstractSpinBox { min-height: 18px; }");
+    // 设计稿层把输入框 / 下拉框钉到 inputHeight()；数字框那 6px 框是基样式画的，内容盒补齐。
+    qss += QStringLiteral("QAbstractSpinBox { min-height: %1px; }").arg(inputHeight() - 6);
     // **数字框 / 下拉框里面那一格也是 `QLineEdit`** —— 上面那条会连它一起框上，画出来
     // 就是"框里还套着一个框"（自旋框自己已经有一圈边了）。这一条把它按回去。
     // 用**后代**选择器（Qt 的 `>` 子选择器不可靠，后代选择器一定生效）。
@@ -1986,7 +1987,8 @@ QString widgetStyleSheet() {
     qss += QStringLiteral(
         "QLineEdit, QComboBox { background-color: palette(base); color: palette(text);"
         // 四边留 1px 透明边、只把底那条上色：和数字框（四边 1px）一样高，看着仍是只有一条底线。
-        " border: 1px solid transparent; border-bottom-color: palette(dark); border-radius: %1px; padding: 1px 10px; }"
+        " border: 1px solid transparent; border-bottom-color: palette(dark); border-radius: %1px; padding: 1px 10px;"
+        " min-height: %3px; }"
         "QLineEdit:hover:enabled, QComboBox:hover:enabled { background-color: palette(shadow); }"
         // 和 chip 并排的搜索框（`wtfmlChipHeight`）：QSS 的 min-height 会冲掉 setFixedHeight，高度也写在这儿。
         "QLineEdit[wtfmlChipHeight=\"true\"] { min-height: %2px; max-height: %2px; }"
@@ -2012,7 +2014,8 @@ QString widgetStyleSheet() {
         "QSlider::handle:horizontal:hover { background: palette(link); }"
         "QSlider::handle:horizontal:disabled, QSlider::sub-page:horizontal:disabled { background: palette(link-visited); }")
         .arg(controlRadius())
-        .arg(chipHeight() - 4);  // 内容盒 = chipHeight − 上下 1px 边 − 上下 1px padding
+        .arg(chipHeight() - 4)   // 内容盒 = chipHeight − 上下 1px 边 − 上下 1px padding
+        .arg(inputHeight() - 4); // 同上，默认 36
     // 分段（设计稿 .seg）：容器 fill-hover；段 ink-2，悬停 fill-hover + ink，按下 fill-press，勾上 accent-soft + accent。
     qss += QStringLiteral(
         "QWidget[wtfmlSegmented=\"true\"] { background-color: palette(light); border-radius: 12px; }"

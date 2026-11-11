@@ -544,12 +544,14 @@ void markIconButton(QWidget *button);
  * @brief 一排 chip 的高度（px）—— **唯一出处**。
  *
  * 24 而不是 `actionHeight()`（32）：chip 是**筛选条件**，不是"按下去会发生一件事"的主
- * 行动按钮。它和一排里的输入框（`QLineEdit` 24px）同高，两者并排摆着才是"一行控件"；
- * 用它那一档高度的话，筛选行会比搜索框高出一截、看着像两件不搭界的东西。
+ * 行动按钮。和它并排的搜索框带 `wtfmlChipHeight`，压到同高，两者并排摆着才是"一行控件"。
  *
  * NOTE: 它同时是**资源详情页那排游戏版本 chip** 的高度，两处必须是同一个数。
  */
 constexpr int chipHeight() { return 30; }
+
+/// 输入框 / 下拉框的默认外高（设计稿令牌「控件高 常规」36）。下拉箭头那格跟着整高走。
+constexpr int inputHeight() { return 36; }
 
 /**
  * @brief chip 那颗按钮长什么样（QSS 字符串）。

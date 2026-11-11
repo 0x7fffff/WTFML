@@ -1486,7 +1486,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             // 一样东西），得在这儿拦住。
             const QString dropDownRule = QStringLiteral("QComboBox::drop-down { width: 20px; }");
             const QString spinHeightRule =
-                QStringLiteral("QAbstractSpinBox { min-height: 18px; }");
+                QStringLiteral("QAbstractSpinBox { min-height: %1px; }").arg(Theme::inputHeight() - 6);
             check(sheet.contains(dropDownRule) &&
                       !sheet.contains(QLatin1String("QComboBox::drop-down { border: none")) &&
                       sheet.contains(spinHeightRule),
@@ -1524,9 +1524,9 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             const int editHeight = sizeEdit->height();
             const int comboHeight = sizeCombo->height();
             const int spinHeight = sizeSpin->height();
-            check(editHeight == comboHeight && comboHeight == spinHeight && editHeight == 24,
-                  "★★ W13 输入框 / 下拉框 / 数字框**三个一样高**，而且比改之前高（改之前 "
-                  "20 / 20 / 19，现在 24）",
+            check(editHeight == comboHeight && comboHeight == spinHeight &&
+                      editHeight == Theme::inputHeight(),
+                  "★★ W13 输入框 / 下拉框 / 数字框**三个一样高**，都是设计稿令牌的常规控件高 36",
                   QStringLiteral("输入框 %1 / 下拉框 %2 / 数字框 %3（`sizeHint()` 分别是 %4 / %5 / %6）")
                       .arg(editHeight).arg(comboHeight).arg(spinHeight)
                       .arg(sizeEdit->sizeHint().height()).arg(sizeCombo->sizeHint().height())
