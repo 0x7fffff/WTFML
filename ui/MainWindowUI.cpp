@@ -979,6 +979,16 @@ QWidget *MainWindowUI::setupInstancePage() {
         instanceNoMatchLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
         instanceNoMatchLabel->setVisible(false);
         clientLayout->addWidget(instanceNoMatchLabel);
+        // 空文件夹那一句：同一个位置、同一档次要色，只是说的是另一件事（见 instanceEmptyText()）。
+        instanceEmptyLabel = new QLabel(instanceEmptyText(), clientPage);
+        instanceEmptyLabel->setObjectName(instanceEmptyLabelName());
+        markTextRole(instanceEmptyLabel, Theme::secondaryTextRoleValue());
+        instanceEmptyLabel->setAlignment(Qt::AlignCenter);
+        instanceEmptyLabel->setWordWrap(true);
+        instanceEmptyLabel->setContentsMargins(0, 24, 0, 0);
+        instanceEmptyLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+        instanceEmptyLabel->setVisible(false);
+        clientLayout->addWidget(instanceEmptyLabel);
 
         instanceList = new QTreeWidget(clientPage);
         instanceList->setObjectName(instanceListName());

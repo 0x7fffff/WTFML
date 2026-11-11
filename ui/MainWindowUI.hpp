@@ -1061,6 +1061,11 @@ public:
     /// 两件事混成一句的症状是"用户明明有 60 个实例，却看见'没有符合条件的实例'"。
     static QString instanceNoMatchText() { return QStringLiteral("没有符合筛选条件的实例"); }
     static QString instanceNoMatchLabelName() { return QStringLiteral("instanceNoMatch"); }
+    /// 文件夹里一个实例都没有（也没在筛）时列表上方那句话：说清下一步去哪，不用防御腔。
+    static QString instanceEmptyText() {
+        return QStringLiteral("这里还没有实例。可以从左下角导入整合包，或者去「下载」页装一个新版本。");
+    }
+    static QString instanceEmptyLabelName() { return QStringLiteral("instanceEmpty"); }
 
     /// 某颗筛选 chip 的 objectName。**按这一档点名找**（不解析文字）：文字会改。
     static QString instanceFilterButtonName(InstanceFilterButton button) {
@@ -3054,6 +3059,7 @@ public:
     /// 配色那个下拉框（跟随系统 / 浅色 / 深色）。**项在这一层灌**（`Theme::presetIds()` ——
     /// 预设这个枚举本来就在 ui/），itemData 存的是预设 id 那个串。
     static QString themePresetComboName() { return QStringLiteral("themePresetCombo"); }
+    static QString glassEffectCheckName() { return QStringLiteral("glassEffectCheck"); }
     /// 主题色那块色（点一下弹调色板）和它右边那颗「恢复默认」。
     static QString themeAccentButtonName() { return QStringLiteral("themeAccentButton"); }
     static QString themeAccentResetName() { return QStringLiteral("themeAccentResetButton"); }
@@ -3350,6 +3356,8 @@ public:
     QWidget *getInstanceFilterRow() const { return instanceFilterRow; }
     /// "没有符合筛选条件的实例"那一行字（平时收着，见 `instanceNoMatchText()` 那段）。
     QLabel *getInstanceNoMatchLabel() const { return instanceNoMatchLabel; }
+    /// 空文件夹那一句（平时收着，见 `instanceEmptyText()`）。
+    QLabel *getInstanceEmptyLabel() const { return instanceEmptyLabel; }
 
     // ---------- 实例页的模式切换 + 服务端那一页 ----------
     // / 某一颗模式按钮（越界/认不出回 nullptr）。点它换页这件事由 `MainWindow` 接 ——
@@ -3830,6 +3838,7 @@ private:
     QList<QPushButton *> instanceFilterButtons;
     /// "没有符合筛选条件的实例"那一行（默认收着）。
     QLabel *instanceNoMatchLabel = nullptr;
+    QLabel *instanceEmptyLabel = nullptr;
     /// 实例页正文那一层（第 0 页 = 客户端实例，第 1 页 = 服务端，第 2 页 = 预设）。
     QStackedWidget *instanceModeStack = nullptr;
     /// 「预设」那一页的宿主（`PresetController` 把管理页塞进这一格）。

@@ -374,6 +374,10 @@ void MainWindow::rebuildInstanceTree() {
     if (QLabel *noMatch = m_ui->getInstanceNoMatchLabel()) {
         noMatch->setVisible(filtering && shown.isEmpty());
     }
+    // 没在筛、盘上那个文件夹也在、就是一个实例都没有：给一句下一步去哪。
+    if (QLabel *empty = m_ui->getInstanceEmptyLabel()) {
+        empty->setVisible(!filtering && parts.isEmpty() && QDir(root).exists());
+    }
 }
 
 QSet<QString> MainWindow::runningVersionIds() const {
