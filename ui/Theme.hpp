@@ -69,6 +69,7 @@
 
 class QPainter;
 class QPushButton;
+class QLabel;
 class QStyle;
 class QWidget;
 
@@ -548,7 +549,7 @@ void markIconButton(QWidget *button);
  *
  * NOTE: 它同时是**资源详情页那排游戏版本 chip** 的高度，两处必须是同一个数。
  */
-constexpr int chipHeight() { return 24; }
+constexpr int chipHeight() { return 30; }
 
 /**
  * @brief chip 那颗按钮长什么样（QSS 字符串）。
@@ -576,6 +577,15 @@ QString chipStyleSheet(const QPalette &palette);
  * （常驻的那些 chip 不会有人替它们重建）。
  */
 void markChipButton(QPushButton *button);
+
+/// 徽标（设计稿 .badge）：22 高胶囊、12 px 字；中性 fill-soft + ink-2，其余是各自的淡底 + 本色。
+enum class BadgeTone { Neutral, Accent, Ok, Warn, Danger };
+void markBadge(QLabel *label, BadgeTone tone);
+
+/// 分段（设计稿 .seg）：容器 fill-hover 底、圆角 12、内边距 3；段是可勾选的 QPushButton，
+/// 30 高、圆角 9、霞鹜文楷 14；勾上 = accent-soft 底 + accent 字。样式在 `widgetStyleSheet()`
+/// 里按属性挂（`wtfmlSegmented` / `wtfmlSegment`），这里只打属性、定高、互斥。
+void markSegmented(QWidget *container, const QList<QPushButton *> &segments);
 
 // ---------------------------------------------------------------------------
 // 色块（一颗按钮，面上就是它代表的那块色）

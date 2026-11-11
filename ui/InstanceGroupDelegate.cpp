@@ -13,7 +13,10 @@
 #include "Theme.hpp"
 #include "VersionIcons.hpp"
 
-InstanceGroupDelegate::InstanceGroupDelegate(QObject *parent) : QStyledItemDelegate(parent) {}
+InstanceGroupDelegate::InstanceGroupDelegate(QObject *parent) : QStyledItemDelegate(parent) {
+    // 选中带只有卡片那一圈：告诉样式别涂左边那截分支区（见 Theme.cpp 里 PE_PanelItemViewRow 那段）。
+    if (auto *view = qobject_cast<QWidget *>(parent)) view->setProperty("wtfmlCardSelection", true);
+}
 
 int InstanceGroupDelegate::rowHeight() const {
     return m_rowHeight > 0 ? m_rowHeight : MainWindowUI::instanceTreeRowHeight();
@@ -237,10 +240,8 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
         // 这一句自己什么都不画。写死 14 的话，往右滚一下就会在左边留下一根擦不掉的条。
         // 竖直方向用 `option.rect`（**整条行**）而不是卡片：要擦掉的那两条恰恰长在
         // 卡片上下**外面**。
-        if (option.rect.left() > 0) {
-            const QRect branch(0, option.rect.top(), option.rect.left(), option.rect.height());
-            painter->fillRect(branch, option.palette.brush(QPalette::Base));
-        }
+        // 7a：这一截改由样式那边**不涂**（视图挂着 `wtfmlCardSelection`，构造时设的），
+        // 这里不再拿底色擦 —— 半透明的底擦不掉半透明的选中色，只会再叠一层。
         // 选中那一行的**墨**：底已经由样式画成那块浅灰（`#cccccc`，覆写在
         // `Theme::createStyle()` 那一份代理样式里），而这一行上手画的那三颗（齿轮 / 置顶箭头 /
         // 垃圾桶）取的是正文色 —— 不换的话深色主题下它们就是一对白疙瘩压在浅灰上。正文那一半
@@ -297,11 +298,7 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
         // 上面那句 `fillRect` 擦的是 `drawRow()` 涂的分支区，它排在这一行**之前**；
         // 指示条是紧接着 `drawControl` 画的 ⇒ 只能排在这一句**之后**擦，擦的是
         // "指示条那一档宽"（不是整截分支区）—— 分支区本来就已经是底色了。
-        if (selectedRow) {
-            painter->fillRect(QRect(0, option.rect.top(), Theme::selectionBarThickness(),
-                                    option.rect.height()),
-                              option.palette.brush(QPalette::Base));
-        }
+        // 7a：这根条改由样式那边不画（`wtfmlCardSelection`），这里不再擦。
 
         // 三颗都用**正文色**（和实例页文件夹行那颗齿轮一个取色口径）：它们是行里的动作，
         // 但这一行的正文就是实例名，动作和正文同色才不显得"行尾挂了三个别的东西"。

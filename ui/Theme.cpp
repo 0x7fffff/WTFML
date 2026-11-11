@@ -9,6 +9,8 @@
 
 #include <QAbstractItemView>
 #include <QAbstractButton>
+#include <QButtonGroup>
+#include <QLabel>
 #include <QApplication>
 #include <QComboBox>
 #include <QDir>
@@ -80,7 +82,7 @@ Tokens tokens(const QString &id) {
             .page = QColor("#F1F5F9"), .main = QColor("#F1F5F9"), .card = QColor("#F9FBFD"),
             .subtle = rgba(255, 255, 255, .58), .hover = rgba(26, 52, 80, .05), .selected = rgba(56, 124, 190, .17),
             .input = rgba(255, 255, 255, .58),
-            .text = QColor("#1F2C3A"), .secondary = QColor("#465769"), .disabled = QColor("#8D9AA8"),
+            .text = QColor("#1F2C3A"), .secondary = QColor("#465769"), .disabled = QColor("#85929F"),
             .stroke = rgba(26, 50, 78, .16), .divider = rgba(26, 50, 78, .09), .focus = rgba(74, 115, 150, .55),
             .thumb = rgba(26, 50, 78, .22), .track = QColor(Qt::transparent),
             .logWindow = QColor("#EEF2F6"), .logToolbar = QColor("#F3F8FD"), .logBase = QColor("#FDFEFF"),
@@ -103,7 +105,7 @@ Tokens tokens(const QString &id) {
         .page = QColor("#F2F7F5"), .main = QColor("#F2F7F5"), .card = QColor("#FAFCFB"),
         .subtle = rgba(255, 255, 255, .58), .hover = rgba(24, 60, 48, .05), .selected = rgba(46, 150, 116, .19),
         .input = rgba(255, 255, 255, .58),
-        .text = QColor("#1D2A26"), .secondary = QColor("#44554E"), .disabled = QColor("#8C9993"),
+        .text = QColor("#1D2A26"), .secondary = QColor("#44554E"), .disabled = QColor("#879490"),
         .stroke = rgba(24, 56, 46, .16), .divider = rgba(24, 56, 46, .09), .focus = rgba(69, 127, 112, .55),
         .thumb = rgba(24, 56, 46, .22), .track = QColor(Qt::transparent),
         .logWindow = QColor("#EEF3F0"), .logToolbar = QColor("#F6FAF8"), .logBase = QColor("#FCFEFD"),
@@ -621,8 +623,14 @@ public:
         // 和分组对话框那份表（一行一块内缩的卡片）。见那两个代理里的 NOTE。
         if (pe == PE_PanelItemViewItem || pe == PE_PanelItemViewRow) {
             if (const QStyleOptionViewItem *vopt = selectedItemOption(opt)) {
+                // 实例树（选中带只有卡片那一圈）：分支区那一截不涂、也不要指示条。7a 令牌里
+                // 选中底是半透明的，先涂再让代理拿底色「擦」已经擦不掉了，只能从源头不画。
+                const bool cardOnly = w != nullptr && w->property("wtfmlCardSelection").toBool();
+                if (pe == PE_PanelItemViewRow && cardOnly)
+                    return;
                 p->fillRect(vopt->rect, selectionFill(vopt->palette.color(QPalette::Base)));
-                paintSelectionRail(p, vopt->rect);
+                if (!cardOnly)
+                    paintSelectionRail(p, vopt->rect);
                 return;
             }
         }
@@ -895,6 +903,21 @@ QColor selectionFill(const QColor &base) {
     return mixToward(base, accent, selectionAccentPercent());
 }
 
+namespace {
+// 选中那块底**在屏幕上**亮不亮：7a 令牌里它是半透明的，要先叠到页面底上再量明度
+// （半透明的绿本身明度不到 128，直接量会把浅底误判成深底、配上亮墨）。
+bool selectionLooksLight(const QColor &base) {
+    const QColor top = selectionFill(base);
+    if (top.alpha() == 255) return top.lightness() > 128;
+    const QColor under = tokens().page;
+    const qreal a = top.alphaF();
+    const QColor shown(qRound(top.red() * a + under.red() * (1 - a)),
+                       qRound(top.green() * a + under.green() * (1 - a)),
+                       qRound(top.blue() * a + under.blue() * (1 - a)));
+    return shown.lightness() > 128;
+}
+} // namespace
+
 QColor selectionInk(const QColor &base) {
     // 墨**跟着那一块底的明暗翻**（规矩：底改浅了墨必须跟着翻过去 ——
     // 反方向上"亮墨压浅底 = 等于没字"照样成立）。浮上来的一直是**主题色那一支**里
@@ -904,7 +927,7 @@ QColor selectionInk(const QColor &base) {
     // **不能**用 `AccentShade::Pure` —— 本色压在自己 20% 的浅底上只有 2.4:1，那行字就糊了。
     // 深底（深色预设：约 `#31433a`）：`Ink` 那一档压上去只剩 1.2:1（等于没字）⇒ 换成
     // 那一支里"深底上写字"的那一档（主题色罩 25% 白 —— 罩白比例**越小越亮**），约 7.5:1。
-    if (selectionFill(base).lightness() > 128) {
+    if (selectionLooksLight(base)) {
         return accentShade(AccentShade::Ink);
     }
     return mixWithWhite(accentShade(AccentShade::Pure), 25);
@@ -914,7 +937,7 @@ QColor selectionSubInk(const QColor &base) {
     // 次要那一档（版本树第二行那行小字、占位文字、行里那些小图标）：浅底上约 5:1、
     // 深底上约 5.7:1 —— 比正文那一档低一档（罩白的比例大一档，于是更靠主题色、
     // 也就更暗），但一样读得清。
-    if (selectionFill(base).lightness() > 128) {
+    if (selectionLooksLight(base)) {
         return QColor(0x55, 0x55, 0x55);
     }
     return mixWithWhite(accentShade(AccentShade::Pure), 45);
@@ -1041,15 +1064,14 @@ QColor focusRingColor(const QPalette &palette) {
 }
 
 QColor progressTrackColor(const QPalette &palette) {
-    // 底色往墨色那头混一档 —— 混法和 `neutralFill()` 里那三处逐字同式（含那一位 `+50`）。
-    // 14 是照着"浅底上要淡到像一条槽、又不能淡到看不见"挑的（浅色下大概 `#e3e3e3`）。
-    return neutralFill(palette.color(QPalette::Base), palette.color(QPalette::WindowText), 14);
+    Q_UNUSED(palette);
+    // 设计稿 .bar：底 line-2、前景 accent-fill（三个主题都一样取令牌）。
+    return tokens().stroke;
 }
 
 QColor progressFillColor(const QPalette &palette) {
-    // 深浅两档和焦点环、以及"深色下用亮的那一档"是**同一个判断**（`isDarkPalette()`）。
-    return isDarkPalette(palette) ? accentShade(AccentShade::Hover)
-                                  : accentShade(AccentShade::Pure);
+    Q_UNUSED(palette);
+    return tokens().primary;
 }
 
 QString buttonKindKey(ButtonKind kind) {
@@ -1380,14 +1402,61 @@ QString chipStyleSheet(const QPalette &palette) {
     // 设计稿胶囊：1px line-2 描边 + ink-2 字；悬停中性灰 + ink；按下 fill-press；
     // 选中 = 强调色淡底 + 强调字、无描边。
     const auto c = [&palette](QPalette::ColorRole role) { return palette.color(role).name(QColor::HexArgb); };
+    // 高度写进 QSS：图标按钮那条 `min-height: 0` 复位会把 C++ 的 setFixedHeight 下限冲掉。
+    // 内容盒 = chipHeight − 上下 1px 边 − 上下 2px padding。
     return QStringLiteral("QPushButton { border: 1px solid %1; border-radius: %2px; padding: 2px 14px;"
-                          " background: transparent; color: %3; }"
+                          " background: transparent; color: %3; min-height: %11px; max-height: %11px; }"
                           "QPushButton:hover:!checked { background-color: %4; color: %5; }"
                           "QPushButton:pressed:!checked { background-color: %6; color: %5; }"
-                          "QPushButton:checked { background-color: %7; color: %8; border-color: transparent; }")
+                          "QPushButton:checked { background-color: %7; color: %8; border-color: transparent; }"
+                          "QPushButton:disabled { border-color: %9; color: %10; background: transparent; }")
         .arg(c(QPalette::Dark)).arg(chipHeight() / 2)
         .arg(c(QPalette::PlaceholderText), c(QPalette::Light), c(QPalette::WindowText), c(QPalette::Midlight),
-             c(QPalette::Highlight), c(QPalette::Link));
+             c(QPalette::Highlight), c(QPalette::Link), tokens().divider.name(QColor::HexArgb),
+             tokens().disabled.name(QColor::HexArgb))
+        .arg(chipHeight() - 6);
+}
+
+void markBadge(QLabel *label, BadgeTone tone) {
+    if (label == nullptr) return;
+    label->setFixedHeight(22);
+    label->setAlignment(Qt::AlignCenter);
+    QFont f = label->font();
+    f.setPixelSize(12);
+    label->setFont(f);
+    const auto apply = [label, tone]() {
+        const Tokens t = tokens();
+        QColor bg = t.subtle, ink = t.secondary;
+        switch (tone) {
+        case BadgeTone::Neutral: break;
+        case BadgeTone::Accent: bg = t.selected; ink = t.deep; break;
+        case BadgeTone::Ok: bg = t.okSoft; ink = t.ok; break;
+        case BadgeTone::Warn: bg = t.warnSoft; ink = t.warn; break;
+        case BadgeTone::Danger: bg = t.dangerSoft; ink = t.danger; break;
+        }
+        label->setStyleSheet(QStringLiteral("QLabel { background-color: %1; color: %2; border-radius: 11px; padding: 0 9px; }")
+                                 .arg(bg.name(QColor::HexArgb), ink.name(QColor::HexArgb)));
+    };
+    apply();
+    follow(label, apply);
+}
+
+void markSegmented(QWidget *container, const QList<QPushButton *> &segments) {
+    if (container == nullptr) return;
+    container->setAttribute(Qt::WA_StyledBackground, true);
+    container->setProperty("wtfmlSegmented", true);
+    auto *group = new QButtonGroup(container);
+    group->setExclusive(true);
+    QFont f = handFont(container->font(), HandFont::Kai);
+    f.setPixelSize(14);
+    f.setLetterSpacing(QFont::AbsoluteSpacing, 1);
+    for (QPushButton *segment : segments) {
+        segment->setProperty("wtfmlSegment", true);
+        segment->setCheckable(true);
+        segment->setFont(f);
+        segment->setCursor(Qt::PointingHandCursor);
+        group->addButton(segment);
+    }
 }
 
 void markChipButton(QPushButton *button) {
@@ -1631,14 +1700,14 @@ QString widgetStyleSheet() {
     // 是在**每一次 polish** 时 `setMinimumHeight()` 下去的（`QStyleSheetStyle::setGeometry()`），
     // 而悬停 / 按下 / 换主题都会来一发 polish，于是"点一下卡片，压小的那一截又长回 82"。
     //
-    // ★★ 这里写 50 不是 52：QSS 的 min/max-height 走 `boxSize()`，把上下各 1px 的边框也
-    // 算进尺寸里，写 50 出来的卡片才是代码里那个 52。（`normal` 写 82 出 84 是同一个道理。）
-    // 写成 52 的话每次 polish 都会比 C++ 的固定高度多 2px —— 就是"点一下还是会长一点点"。
+    // ★★ 这里的数就是 C++ 里那个固定高度：7a 的按钮没有边框，`boxSize()` 不再额外加上下
+    // 那 2px（旧壳有 1px 边时这里得写 50 才出 52）。写错一档，每次 polish 都会差 2px ——
+    // 就是"点一下还是会长 / 缩一点点"。
     qss += QStringLiteral(
         "QPushButton[wtfmlQuickCard=\"true\"] { padding: 0px; }"
-        "QPushButton[wtfmlQuickCardSize=\"normal\"] { min-height: 82px; max-height: 82px; }"
-        "QPushButton[wtfmlQuickCardSize=\"compact\"] { min-height: 50px; max-height: 50px; }"
-        "QPushButton[wtfmlQuickCardSize=\"icon\"] { min-height: 54px; max-height: 54px; }");
+        "QPushButton[wtfmlQuickCardSize=\"normal\"] { min-height: 84px; max-height: 84px; }"
+        "QPushButton[wtfmlQuickCardSize=\"compact\"] { min-height: 52px; max-height: 52px; }"
+        "QPushButton[wtfmlQuickCardSize=\"icon\"] { min-height: 56px; max-height: 56px; }");
     qss += QStringLiteral("QPushButton[wtfmlAccountHeader=\"true\"] { padding: 0px; min-height: 62px; }");
 
     // 主页快速启动的空槽：它是布局占位和“去实例页添加”的入口，不应长得像已经能启动的
@@ -1908,15 +1977,18 @@ QString widgetStyleSheet() {
     // 输入框 / 下拉：fill-soft 底 + 底部 1px line-2；悬停 fill-soft-hover；焦点底线 2px 强调色；
     // 错误底线 2px 危险色；禁用无底线。
     qss += QStringLiteral(
-        "QLineEdit, QComboBox { background-color: palette(base); color: palette(text); border: none;"
-        " border-bottom: 1px solid palette(dark); border-radius: %1px; padding: 1px 10px; }"
+        "QLineEdit, QComboBox { background-color: palette(base); color: palette(text);"
+        // 四边留 1px 透明边、只把底那条上色：和数字框（四边 1px）一样高，看着仍是只有一条底线。
+        " border: 1px solid transparent; border-bottom-color: palette(dark); border-radius: %1px; padding: 1px 10px; }"
         "QLineEdit:hover:enabled, QComboBox:hover:enabled { background-color: palette(shadow); }"
+        // 和 chip 并排的搜索框（`wtfmlChipHeight`）：QSS 的 min-height 会冲掉 setFixedHeight，高度也写在这儿。
+        "QLineEdit[wtfmlChipHeight=\"true\"] { min-height: %2px; max-height: %2px; }"
         "QLineEdit:focus, QComboBox:focus, QComboBox:on { border-bottom: 2px solid palette(link); }"
         "QComboBox:on { background-color: palette(midlight); }"
         "QLineEdit[wtfmlError=\"true\"], QLineEdit[inputError=\"true\"] { border-bottom: 2px solid palette(bright-text); }"
         "QLineEdit:disabled, QComboBox:disabled { background-color: palette(light); color: palette(link-visited);"
         " border-bottom-color: transparent; }"
-        "QComboBox::drop-down { border: none; width: 28px; }"
+        "QComboBox::drop-down { width: 28px; }"  // 不写 border: none，否则箭头不画（见 WtfmlProxyStyle 那段）
         "QComboBox QAbstractItemView { background-color: palette(tool-tip-base); color: palette(text);"
         " border: 1px solid palette(dark); selection-background-color: palette(midlight); selection-color: palette(text); }"
         "QCheckBox, QCheckBox:checked { color: palette(window-text); }"
@@ -1932,7 +2004,17 @@ QString widgetStyleSheet() {
         " background: palette(accent); }"
         "QSlider::handle:horizontal:hover { background: palette(link); }"
         "QSlider::handle:horizontal:disabled, QSlider::sub-page:horizontal:disabled { background: palette(link-visited); }")
-        .arg(controlRadius());
+        .arg(controlRadius())
+        .arg(chipHeight() - 4);  // 内容盒 = chipHeight − 上下 1px 边 − 上下 1px padding
+    // 分段（设计稿 .seg）：容器 fill-hover；段 ink-2，悬停 fill-hover + ink，按下 fill-press，勾上 accent-soft + accent。
+    qss += QStringLiteral(
+        "QWidget[wtfmlSegmented=\"true\"] { background-color: palette(light); border-radius: 12px; }"
+        "QPushButton[wtfmlSegment=\"true\"] { min-height: 30px; max-height: 30px; padding: 0 14px; border: none;"
+        " border-radius: 9px; background-color: transparent; color: palette(placeholder-text); }"
+        "QPushButton[wtfmlSegment=\"true\"]:hover:enabled { background-color: palette(light); color: palette(window-text); }"
+        "QPushButton[wtfmlSegment=\"true\"]:pressed:enabled { background-color: palette(midlight); color: palette(window-text); }"
+        "QPushButton[wtfmlSegment=\"true\"]:checked { background-color: palette(highlight); color: palette(link); }"
+        "QPushButton[wtfmlSegment=\"true\"]:disabled { background-color: transparent; color: palette(link-visited); }");
     return qss;
 }
 

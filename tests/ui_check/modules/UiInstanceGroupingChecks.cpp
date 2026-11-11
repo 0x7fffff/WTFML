@@ -482,6 +482,15 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
                 return qAbs(a.red() - b.red()) + qAbs(a.green() - b.green())
                        + qAbs(a.blue() - b.blue());
             };
+            // 7a 令牌里悬停 / 选中底是**半透明**的：屏幕上看到的是它叠在下面那一层上的结果。
+            // 期望值 = 这一档按 source-over 叠在「同一点没悬停 / 没选中时」那个像素上。
+            const auto over = [](const QColor &top, const QColor &under) {
+                const qreal a = top.alphaF();
+                return QColor(qRound(top.red() * a + under.red() * (1 - a)),
+                              qRound(top.green() * a + under.green() * (1 - a)),
+                              qRound(top.blue() * a + under.blue() * (1 - a)));
+            };
+            const auto near = [&rgbDist](const QColor &a, const QColor &b) { return rgbDist(a, b) <= 4; };
             // 认得出的预设（默认就是翡翠）**一档只有一个色**：不管这一行自己的底是什么，
             // 悬停都铺 `tokens().hover` ——「悬停全应用只有一种深浅」就是靠这一条。
             const QColor darkBase(0x32, 0x32, 0x32);
@@ -551,6 +560,7 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
             QApplication::processEvents();
             instanceProbe.setCurrentItem(nullptr);
             QApplication::processEvents();
+            const QImage plainInstance = captureWidget(instanceProbe.viewport());
 
             const QColor hoverFill =
                 Theme::rowHoverFill(instanceProbe.palette().color(QPalette::Base));
@@ -574,18 +584,20 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
                   "★ 探针自己开着 mouseTracking（真鼠标那一档只有它会填 State_MouseOver）");
 
             const QImage shotOnChild = hoverShotAt(childRowRect.center());
-            check(shotOnChild.pixelColor(childSpot) == hoverFill,
+            const QColor childHover = over(hoverFill, plainInstance.pixelColor(childSpot));
+            const QColor groupHover = over(hoverFill, plainInstance.pixelColor(groupSpot));
+            check(near(shotOnChild.pixelColor(childSpot), childHover),
                   "★ 光标停在实例那一行：卡片上的底色正是 `Theme::rowHoverFill()` 那一档 ——"
                   " 这一条同时证明它**真的上了屏**（被样式盖掉的话这儿就不是这个色）",
                   QStringLiteral("量到 %1 / 该是 %2")
-                      .arg(shotOnChild.pixelColor(childSpot).name(), hoverFill.name()));
-            check(shotOnChild.pixelColor(groupSpot) != hoverFill,
+                      .arg(shotOnChild.pixelColor(childSpot).name(), childHover.name()));
+            check(shotOnChild.pixelColor(groupSpot) == plainInstance.pixelColor(groupSpot),
                   "★ 而**没**悬停的组行没被染（对照组 —— 少了它，「整棵树都染上」也能过）",
                   shotOnChild.pixelColor(groupSpot).name());
             int branchStained = 0;
             for (int y = childRowRect.top(); y <= childRowRect.bottom(); ++y) {
                 for (int x = 0; x < childCardRect.left(); ++x) {
-                    if (shotOnChild.pixelColor(x, y) == hoverFill) {
+                    if (shotOnChild.pixelColor(x, y) != plainInstance.pixelColor(x, y)) {
                         ++branchStained;
                     }
                 }
@@ -596,10 +608,10 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
                   QStringLiteral("分支区里被染的像素 = %1").arg(branchStained));
 
             const QImage shotOnGroup = hoverShotAt(groupRowRect.center());
-            check(shotOnGroup.pixelColor(groupSpot) == hoverFill,
+            check(near(shotOnGroup.pixelColor(groupSpot), groupHover),
                   "★ 光标停在组行上：组行也染同一个色（两条分支从此是同一件事）",
                   shotOnGroup.pixelColor(groupSpot).name());
-            check(shotOnGroup.pixelColor(childSpot) != hoverFill,
+            check(shotOnGroup.pixelColor(childSpot) == plainInstance.pixelColor(childSpot),
                   "★ 而组行悬停时实例那一行没被染（对照组）",
                   shotOnGroup.pixelColor(childSpot).name());
 
@@ -616,9 +628,10 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
             // `== highlight` —— 仍然判"离选中色近得多、且绝不是悬停色"。
             const QColor selectionGray = Theme::selectionFill();
             const QColor highlight = instanceProbe.palette().color(QPalette::Highlight);
-            const int distToSelection = rgbDist(selectedPixel, selectionGray);
-            const int distToHover = rgbDist(selectedPixel, hoverFill);
-            check(selectedPixel != hoverFill && distToSelection < distToHover,
+            const int distToSelection =
+                rgbDist(selectedPixel, over(selectionGray, plainInstance.pixelColor(childSpot)));
+            const int distToHover = rgbDist(selectedPixel, childHover);
+            check(selectedPixel != childHover && distToSelection < distToHover,
                   "★ 又选中又悬停的那一行：屏幕上仍然是**选中色**那一档（悬停压不过选中）"
                   " —— 代理把那层悬停画在 `CE_ItemViewItem` **之前**就是为了这个",
                   QStringLiteral("量到 %1 / 离选中色 %2 / 离悬停色 %3（选中色 %4，悬停色 %5）")
@@ -635,7 +648,7 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
             // 卡片那一圈，不跟着那根竖条走 —— 顺手把它涂灰就不再是"卡片"了。
             // 这一条钉在**又选中又悬停**那一刻：两种底色都铺上的时候才量得出"谁没被涂"。
             const QPoint instanceStripSpot(2, childRowRect.top() + childRowRect.height() / 2);
-            const QColor instanceBase = instanceProbe.palette().color(QPalette::Base);
+            const QColor instanceBase = plainInstance.pixelColor(instanceStripSpot);
             check(childRowRect.left() > 2 &&
                       shotOnSelected.pixelColor(instanceStripSpot) == instanceBase,
                   "★ 而实例行左边那一截分支区**没跟着变**（还是底色，不是深灰）—— "
@@ -679,6 +692,7 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
             QApplication::processEvents();
             versionProbe.setCurrentItem(nullptr);
             QApplication::processEvents();
+            const QImage plainVersion = captureWidget(versionProbe.viewport());
 
             const QColor versionHoverFill =
                 Theme::rowHoverFill(versionProbe.palette().color(QPalette::Base));
@@ -702,26 +716,28 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
                       .arg(channelRowRect.left()));
             const QImage shotOnVersion = versionShotAt(versionRowRect.center());
             const QPoint versionSpot(versionRowRect.left() + 2, versionRowRect.top() + 1);
-            check(shotOnVersion.pixelColor(versionSpot) == versionHoverFill,
+            const QColor versionHover = over(versionHoverFill, plainVersion.pixelColor(versionSpot));
+            check(near(shotOnVersion.pixelColor(versionSpot), versionHover),
                   "★ 版本树这一类：光标停在版本号那一行，那一行的底色就是悬停色",
                   QStringLiteral("量到 %1 / 该是 %2")
                       .arg(shotOnVersion.pixelColor(versionSpot).name(),
-                           versionHoverFill.name()));
+                           versionHover.name()));
             // 左边那一截**也要染**：选中时它是连着一块涂的，悬停不补这一截的话
             // "悬停带"和"选中带"的左边就差一个缩进。
             const QPoint versionStripSpot(2, versionRowRect.top() + 1);
-            check(shotOnVersion.pixelColor(versionStripSpot) == versionHoverFill,
+            check(near(shotOnVersion.pixelColor(versionStripSpot),
+                       over(versionHoverFill, plainVersion.pixelColor(versionStripSpot))),
                   "★ 而且左边那一截分支区**也**染上了 —— 版本树这一支要和它自己的选中带同形状",
                   QStringLiteral("x=2 那一列量到 %1")
                       .arg(shotOnVersion.pixelColor(versionStripSpot).name()));
             const QPoint channelSpot(channelRowRect.left() + 2, channelRowRect.top() + 1);
-            check(shotOnVersion.pixelColor(channelSpot) != versionHoverFill,
+            check(shotOnVersion.pixelColor(channelSpot) == plainVersion.pixelColor(channelSpot),
                   "★ 而**没**悬停的分类行没被染（对照组）",
                   shotOnVersion.pixelColor(channelSpot).name());
 
             const QImage shotOnDisabled = versionShotAt(disabledRowRect.center());
             const QPoint disabledSpot(disabledRowRect.left() + 2, disabledRowRect.top() + 1);
-            check(shotOnDisabled.pixelColor(disabledSpot) != versionHoverFill,
+            check(shotOnDisabled.pixelColor(disabledSpot) == plainVersion.pixelColor(disabledSpot),
                   "★ 不可用的那一行不染 —— 整行已经淡到 0.5 了，再铺一层底色像是「点得动」",
                   shotOnDisabled.pixelColor(disabledSpot).name());
             versionProbe.hide();
@@ -804,14 +820,15 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
                       selectionFill == Theme::tokens().selected,
                   "★ 预设自带的选中档：底换了一种，铺的还是 `tokens().selected`（一档一个色）",
                   selectionFill.name());
-            check(selectionFill.lightness() > 200 && selectionFill.hsvSaturation() < 40 &&
-                      selectionFill.green() > selectionFill.red(),
+            const QColor selectionOnCard = over(selectionFill, Theme::tokens().card);
+            check(selectionOnCard.lightness() > 200 && selectionOnCard.hsvSaturation() < 40 &&
+                      selectionOnCard.green() > selectionOnCard.red(),
                   "★ 那一档底是**低饱和的浅主题色**：够浅（明度 > 200）、够淡（饱和度 < 40）、"
                   "方向对（这一支主题色是绿的）—— 既不是灰、也不是主题色本色",
-                  QStringLiteral("底 %1（明度 %2 / 饱和 %3）")
-                      .arg(selectionFill.name())
-                      .arg(selectionFill.lightness())
-                      .arg(selectionFill.hsvSaturation()));
+                  QStringLiteral("叠在卡片上 %1（明度 %2 / 饱和 %3）")
+                      .arg(selectionOnCard.name())
+                      .arg(selectionOnCard.lightness())
+                      .arg(selectionOnCard.hsvSaturation()));
             const QColor selectionDarkBase(0x32, 0x32, 0x32);
             // 自定义主题色那一支（主题色不再等于预设的 `primary`）：底由**这一行自己的
             // 底色**混一档主题色，不是写死的色号 —— 深色主题的底混出来仍然是「底色上浮
@@ -850,22 +867,22 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
             // **跟着这一行自己的底色走**的那一支上，方向**还得会翻回来**（深底换亮墨）。
             const QColor selectionInk = Theme::selectionInk();
             const QColor selectionSubInk = Theme::selectionSubInk();
-            check(Theme::selectionFill().lightness() > 128 && selectionInk.lightness() < 128,
+            check(selectionOnCard.lightness() > 128 && selectionInk.lightness() < 128,
                   "★ 底是**浅**的、墨是**暗**的（方向反了 = 白字压浅底 = 等于没字）",
                   QStringLiteral("底明度 %1 / 墨明度 %2")
-                      .arg(Theme::selectionFill().lightness())
+                      .arg(selectionOnCard.lightness())
                       .arg(selectionInk.lightness()));
-            check(rgbDist(selectionInk, Theme::selectionFill()) > 300,
-                  "★ 选中那一档的墨和底拉开得够远",
+            check(rgbDist(selectionInk, selectionOnCard) > 300,
+                  "★ 选中那一档的墨和底（叠在卡片上、屏幕上那个色）拉开得够远",
                   QStringLiteral("墨 %1 / 底 %2 / 差 %3")
-                      .arg(selectionInk.name(), Theme::selectionFill().name())
-                      .arg(rgbDist(selectionInk, Theme::selectionFill())));
-            check(rgbDist(selectionSubInk, Theme::selectionFill()) > 240,
+                      .arg(selectionInk.name(), selectionOnCard.name())
+                      .arg(rgbDist(selectionInk, selectionOnCard)));
+            check(rgbDist(selectionSubInk, selectionOnCard) > 240,
                   "★ 次要那一档墨（次要正文 / 行里那些小图标）也压得住这一块底 —— 不够的话"
                   "图标看着就是「没了」",
                   QStringLiteral("次要墨 %1 / 差 %2")
                       .arg(selectionSubInk.name())
-                      .arg(rgbDist(selectionSubInk, Theme::selectionFill())));
+                      .arg(rgbDist(selectionSubInk, selectionOnCard)));
             // 「底一暗、墨翻亮」这一条只在底**跟着这一行走**的那一支上成立（自定义主题色 /
             // 跟着系统）。预设自带一档的时候深浅由预设定，换底不换墨 —— 也就不用翻。
             {
@@ -922,13 +939,18 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
             selectProbe.resize(420, versionRowH * 4);
             selectProbe.show();
             QApplication::processEvents();
+            selectProbe.setCurrentItem(nullptr);
+            QApplication::processEvents();
+            const QImage plainSelect = captureWidget(selectProbe.viewport());
             selectProbe.setCurrentItem(selectRow);
             QApplication::processEvents();
             const QRect selectRowRect = selectProbe.visualItemRect(selectRow);
             const QImage selectShot = captureWidget(selectProbe.viewport());
             const QColor probeBase = selectProbe.palette().color(QPalette::Base);
-            const QColor probeSelection = Theme::selectionFill();
             const QColor probeHighlight = selectProbe.palette().color(QPalette::Highlight);
+            const QColor probeSelection = over(Theme::selectionFill(),
+                                               plainSelect.pixelColor(selectRowRect.left() + 2,
+                                                                      selectRowRect.center().y()));
             // **判据扫一片取多数，别拿单点逐字节比**：这一行是"当前项"，样式会在条目边界上
             // 描焦点框、边上还有几个抗锯齿的像素 —— 贴着边界取样量到的是混色。
             // 取 `top()+1` 会量到 `#4c4c4c`（该有 `#4a4a4a`）、取竖直正中
@@ -979,7 +1001,7 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
                                      bodyPixels > 0 ? sumB / bodyPixels : 0);
             check(bodyPixels > 0 && bodyTint == 0 &&
                       rgbDist(bodyAverage, probeSelection) <= 12 && bodyWorst <= 120 &&
-                      probeHighlight.rgb() == probeSelection.rgb(),
+                      probeHighlight.rgb() == Theme::selectionFill().rgb(),
                   "★ 选中一行：屏幕上铺的就是我们这一档（这一列**平均**下来正落在它上面、"
                   "**每一个**像素都还带着这一支主题色的方向、最偏的那个也还在同一族里，"
                   "调色板里的 `Highlight` 也是这一档）",
@@ -996,15 +1018,16 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
             // 那一根）：样式早在画选中底的时候就把它铺上了，而代理紧接着又把左边那一截
             // 分支区**整段**补了一遍底色（上面那段代码）—— 补的时候正好把它盖掉，所以
             // 代理在那之后还得**再补一次指示条**。这条判据量到的是后者。
-            const QPoint railSpot(2, selectRowRect.top() + 1);
+            // 设计稿：离左缘 3 px 的圆头短条，竖直居中（见 `paintSelectionRail()`）。
+            const QPoint railSpot(3 + Theme::selectionBarThickness() / 2, selectRowRect.center().y());
             const QColor railPixel = selectShot.pixelColor(railSpot);
             check(railPixel.rgb() == Theme::selectionBar().rgb(),
                   "★ 选中那一行最左边是那根 3 px 的主题色指示条（和侧栏导航同款）",
-                  QStringLiteral("x=2 那一列量到 %1（该是主题色 %2）")
+                  QStringLiteral("条中间量到 %1（该是主题色 %2）")
                       .arg(railPixel.name(), Theme::selectionBar().name()));
             const QPoint selectStripSpot(selectRowRect.left() - 2, selectRowRect.top() + 1);
             const QColor selectStrip = selectShot.pixelColor(selectStripSpot);
-            check(selectStrip.rgb() == probeSelection.rgb(),
+            check(near(selectStrip, probeSelection),
                   "★ 指示条右边那一截（还是分支区）铺的**也是**这一档底 —— 版本树这一支的选中带"
                   "是「整条行」，左边那一截是 `QTreeView::drawRow()` 先涂的，代理排在它后面、"
                   "得自己再补一遍",
@@ -1018,6 +1041,7 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
             plainProbe.resize(240, 40);
             plainProbe.show();
             QApplication::processEvents();
+            const QImage plainUnselected = captureWidget(plainProbe.viewport());
             plainProbe.setCurrentRow(0);
             QApplication::processEvents();
             const QRect plainRect = plainProbe.visualItemRect(plainProbe.item(0));
@@ -1025,13 +1049,17 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
             // 裸表（没挂我们那三个代理）铺的是 Fusion 自己画的竖渐变 —— 取正中那一格，
             // 它应当正落在**调色板里的选中色**上（那一份已经是我们这一档，Fusion 那个蓝
             // 在应用上不存在了）。
-            const QColor plainInkPixel = plainShot.pixelColor(plainRect.center());
-            check(rgbDist(plainInkPixel, probeHighlight) <= 60,
+            // 取这一行右端（字是左对齐的，右端是干净的底）。
+            const QPoint plainSpot(plainRect.right() - 4, plainRect.center().y());
+            const QColor plainInkPixel = plainShot.pixelColor(plainSpot);
+            const QColor plainExpected =
+                over(probeHighlight, plainUnselected.pixelColor(plainSpot));
+            check(rgbDist(plainInkPixel, plainExpected) <= 60,
                   "★ 裸列表里选中一行铺的就是调色板里那一档（它已经是我们这一档，"
                   "Fusion 那个蓝在应用上不存在了）",
-                  QStringLiteral("量到 %1（调色板选中色 = %2，差 %3）")
-                      .arg(plainInkPixel.name(), probeHighlight.name())
-                      .arg(rgbDist(plainInkPixel, probeHighlight)));
+                  QStringLiteral("量到 %1（调色板选中色叠上底 = %2，差 %3）")
+                      .arg(plainInkPixel.name(), plainExpected.name())
+                      .arg(rgbDist(plainInkPixel, plainExpected)));
             plainProbe.hide();
 
             // ---- ⑫e 那条闸：`Highlight` 被换过的表**不许**被接管 ----
@@ -1056,7 +1084,8 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
                                                  takeoverCanvas.height() / 2);
             };
             const QColor controlledPixel = renderItemPanel(unselectedPalette);
-            check(controlledPixel.rgb() == Theme::selectionFill().rgb(),
+            // 画布是透明的，半透明那一档存成预乘再取回来会差一两个数位。
+            check(rgbDist(controlledPixel, Theme::selectionFill()) <= 8,
                   "★ 对照组：`Highlight` 就是应用调色板那一份 ⇒ **上面那条路我们接管**，"
                   "画出来的是我们那一档底",
                   QStringLiteral("量到 %1 / 该是 %2")

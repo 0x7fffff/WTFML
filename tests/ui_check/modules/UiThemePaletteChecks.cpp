@@ -166,15 +166,17 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
         // 这一条才是这一层真正的难点：条自己持有一份算好的色（`setPalette()`），"应用调色板
         // 变了"这件事不会自动改它 —— 得靠 `changeEvent()` 里那一挂。不挂就是"换了主题之后
         // 顶上那一条还停在旧色上"，而那正是这个功能最容易被骂的地方。
+        // 7a：标题栏换成左导航轨，轨本身是磨砂玻璃（不铺自己的底，`autoFillBackground` 关着），
+        // 用户在个性化里给「标题栏」单独设过底色时才铺那一层（见 TitleBar::paintEvent）。
+        // 这里量的是"字色跟着预设重算"。
         TitleBar bar;
-        bar.setFixedSize(600, TitleBar::buttonSize() + 2 * TitleBar::buttonInset());
+        bar.setFixedSize(TitleBar::railWidth(), 400);
         bar.show();
         QApplication::processEvents();
-        check(sameColor(bar.palette().color(QPalette::Window),
-                        Theme::partBackground(Theme::Part::TitleBar)),
-              "★ W5b 标题栏立起来时底色就是 `partBackground(TitleBar)` 那一支"
-              "（默认预设下是主题色压深一档）",
-              bar.palette().color(QPalette::Window).name());
+        check(!bar.autoFillBackground() &&
+                  sameColor(bar.palette().color(QPalette::WindowText), Theme::tokens().text),
+              "★ W5b 导航轨立起来时不铺自己的底（磨砂），字色就是当前预设的正文色",
+              bar.palette().color(QPalette::WindowText).name());
         // 这一条才是这一节的重点：换一个**主题色**（不是换预设）之后，已经立着的那条
         // 得自己把底色重算一遍。它是新加的一位，正好拿来把"重算"这件事
         // 从"换个预设试试"升级成"换一个色也管用"。
@@ -183,23 +185,20 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
         Theme::setSpec(recolor);
         Theme::apply(app);
         QApplication::processEvents();
-        check(sameColor(bar.palette().color(QPalette::Window), QColor(0x33, 0x66, 0x99)) &&
-                  sameColor(bar.palette().color(QPalette::WindowText), QColor(Qt::white)),
-              "★★ W5b 换一个**主题色**之后，已经立着的标题栏连底带字一起重算了"
-              "（底下绿、字上白，两样都得跟着走）",
-              QStringLiteral("条 %1 / 字 %2")
-                  .arg(bar.palette().color(QPalette::Window).name(),
-                       bar.palette().color(QPalette::WindowText).name()));
+        check(!bar.autoFillBackground() &&
+                  sameColor(bar.palette().color(QPalette::WindowText), Theme::tokens().text),
+              "★★ W5b 换一个**主题色**之后，已经立着的导航轨照旧不铺底、字色跟着重算",
+              QStringLiteral("字 %1 / 正文色 %2")
+                  .arg(bar.palette().color(QPalette::WindowText).name(), Theme::tokens().text.name()));
         Theme::setSpec(Theme::presetSpec(QStringLiteral("dark")));
         Theme::apply(app);
         QApplication::processEvents();
-        check(sameColor(bar.palette().color(QPalette::Window),
-                        Theme::partBackground(Theme::Part::TitleBar)),
-              "★★ W5b 换主题（预设）之后**已经立着的**标题栏自己把底色重算了一遍"
+        check(sameColor(bar.palette().color(QPalette::WindowText), Theme::tokens().text),
+              "★★ W5b 换主题（预设）之后**已经立着的**导航轨自己把字色重算了一遍"
               "（它持有一份算好的色，不重算就停在旧色上）",
-              QStringLiteral("条 %1，该是 %2")
-                  .arg(bar.palette().color(QPalette::Window).name(),
-                       Theme::partBackground(Theme::Part::TitleBar).name()));
+              QStringLiteral("字 %1，该是 %2")
+                  .arg(bar.palette().color(QPalette::WindowText).name(),
+                       Theme::tokens().text.name()));
         bar.hide();
         // 回出厂那一份：上面那一段是**改过主题色**的，不还回去的话后面每一条量的都是
         // 那个 #336699（这一节的收尾处也会铺回出厂那一份，但中间那些断言量的是"当前这一份"）。
@@ -476,7 +475,8 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                   .arg(Theme::partHasBackground(Theme::Part::HomeLeft) ? 1 : 0)
                   .arg(Theme::partHasBackground(Theme::Part::PageBackground) ? 1 : 0));
 
-        // ⑤ 一像素一像素地量"画不画"。父控件刷成一个一眼认得出的色，子控件那一块就靠它判。
+        // ⑤ 一像素一像素地量"画不画"。量的是主页左栏那一块：磨砂开着时「页面背景」那张图改由
+        // 场景底（Glass::Backdrop）铺在整窗最底下，ThemeBackground 那一层不再画它（同一套画法）。父控件刷成一个一眼认得出的色，子控件那一块就靠它判。
         {
             QTemporaryDir scratch;
             const QString picturePath = scratch.filePath(QStringLiteral("pic.png"));
@@ -491,7 +491,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             hostPalette.setColor(QPalette::Window, hostColor);
             host.setPalette(hostPalette);
             host.setAutoFillBackground(true);  // 父控件那一层得真的刷上去，不然量的是别的
-            auto *background = new ThemeBackground(Theme::Part::PageBackground, &host);
+            auto *background = new ThemeBackground(Theme::Part::HomeLeft, &host);
             background->setGeometry(0, 0, 40, 40);
 
             const QImage untouched = host.grab().toImage();
@@ -507,7 +507,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             stretchStyle.imagePath = picturePath;
             stretchStyle.fit = Theme::ImageFit::Stretch;
             stretchStyle.imageOpacity = 100;
-            withPicture.parts.insert(int(Theme::Part::PageBackground), stretchStyle);
+            withPicture.parts.insert(int(Theme::Part::HomeLeft), stretchStyle);
             Theme::setSpec(withPicture);
             const QImage stretched = host.grab().toImage();
             check(stretched.pixelColor(20, 20) == QColor(0xff, 0x00, 0xff) &&
@@ -519,7 +519,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             Theme::PartStyle containStyle = stretchStyle;
             containStyle.fit = Theme::ImageFit::Contain;
             Theme::Spec withContain = Theme::defaultSpec();
-            withContain.parts.insert(int(Theme::Part::PageBackground), containStyle);
+            withContain.parts.insert(int(Theme::Part::HomeLeft), containStyle);
             Theme::setSpec(withContain);
             const QImage contained = host.grab().toImage();
             check(contained.pixelColor(20, 20) == QColor(0xff, 0x00, 0xff) &&
@@ -533,7 +533,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             Theme::PartStyle invisible = stretchStyle;
             invisible.imageOpacity = 0;
             Theme::Spec withInvisible = Theme::defaultSpec();
-            withInvisible.parts.insert(int(Theme::Part::PageBackground), invisible);
+            withInvisible.parts.insert(int(Theme::Part::HomeLeft), invisible);
             Theme::setSpec(withInvisible);
             check(host.grab().toImage().pixelColor(20, 20) == hostColor,
                   "★ W11 不透明度调到 0 ⇒ 图上不来，底下那一层原样透出来");
@@ -563,7 +563,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
 
             Theme::PartStyle counterStyle = stretchStyle;
             Theme::Spec emeraldPicture = Theme::presetSpec(QStringLiteral("emerald"));
-            emeraldPicture.parts.insert(int(Theme::Part::PageBackground), counterStyle);
+            emeraldPicture.parts.insert(int(Theme::Part::HomeLeft), counterStyle);
             Theme::setSpec(emeraldPicture);
             Theme::apply(*qApp);
             QApplication::processEvents();
@@ -572,7 +572,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             // 第二趟：只把摆法从「拉伸」换成「完整放下」。调色板一个字节都不变。
             counterStyle.fit = Theme::ImageFit::Contain;
             Theme::Spec emeraldContain = emeraldPicture;
-            emeraldContain.parts.insert(int(Theme::Part::PageBackground), counterStyle);
+            emeraldContain.parts.insert(int(Theme::Part::HomeLeft), counterStyle);
             Theme::setSpec(emeraldContain);
             Theme::apply(*qApp);
             QApplication::processEvents();
@@ -823,9 +823,11 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             realButton->setFocusPolicy(Qt::NoFocus);
             buttonHost.show();
             QApplication::processEvents();
-            const QImage buttonShot = captureWidget(realButton);
+            // 按钮底是半透明的：垫一层页面底再抓，期望值 = `Button` 叠在这层底上。
+            const QColor buttonBase = Theme::tokens().page;
+            const QImage buttonShot = captureWidgetOn(realButton, buttonBase);
             const QColor buttonFill = dominantColor(buttonShot, realButton->rect());
-            const QColor plainFill = app.palette().color(QPalette::Button);
+            const QColor plainFill = overOpaque(app.palette().color(QPalette::Button), buttonBase);
             const QColor plainInk = app.palette().color(QPalette::ButtonText);
             int borderHits = 0;
             int inkHits = 0;
@@ -858,8 +860,8 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             realButton->style()->unpolish(realButton);
             realButton->style()->polish(realButton);
             QApplication::processEvents();
-            const QImage dangerShot = captureWidget(realButton);
-            const QColor dangerInk(0xc0, 0x28, 0x28);
+            const QImage dangerShot = captureWidgetOn(realButton, buttonBase);
+            const QColor dangerInk = Theme::tokens().danger;
             int dangerHits = 0;
             int dangerInkHits = 0;
             for (int y = 0; y < dangerShot.height(); ++y) {
@@ -873,7 +875,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                     }
                 }
             }
-            const QColor dangerFill(0xfd, 0xf1, 0xf1);
+            const QColor dangerFill = overOpaque(Theme::tokens().dangerSoft, buttonBase);
             check(sameColor(dominantColor(dangerShot, realButton->rect()), dangerFill) &&
                       dangerHits > 0 && dangerInkHits == 0,
                   "★★ W12 挂上「危险」后：浅红底、红字红边（绿的一个像素都不剩）",
@@ -952,10 +954,12 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                 const QColor solidArea = dominantColor(paintShot, paintSolid->geometry());
                 // 普通那一档铺的是调色板的 `Button`（这一套界面里"白纸"就是这一支，
                 // 不是纯白 —— 见 W12 那一条，两处同一个判据）。
-                const QColor solidFill = paintSolid->palette().color(QPalette::Button);
-                check(sameColor(ghostArea, solidFill) &&
+                // 7a 设计稿「文字按钮」：无底、强调色字；普通那一档是 `Button` 叠在板上。
+                const QColor solidFill =
+                    overOpaque(paintSolid->palette().color(QPalette::Button), boardColor);
+                check(sameColor(ghostArea, boardColor) &&
                           !sameColor(boardColor, solidFill) && sameColor(solidArea, solidFill),
-                      "文字辅助操作与普通按钮使用主题底色，避免看起来像不可点击文字",
+                      "文字按钮（Ghost）无底、透出底下那块板；普通按钮铺 `Button` 那一档",
                       QStringLiteral("板 %1 / Ghost %2 / 普通 %3（要 %4）")
                           .arg(boardColor.name(), ghostArea.name(), solidArea.name(),
                                solidFill.name()));
@@ -963,7 +967,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                 // 墨色问**这一颗按钮自己的调色板**（`QPalette::Text`，Ghost 那一档 QSS 里
                 // `color: palette(text)` 就是它）；不写死 `#202020` —— 换主题之后墨色
                 // 是跟着变的，写死的那一支会把"字画上去了"读成"一个深像素都没有"。
-                const QColor ghostInk = paintGhost->palette().color(QPalette::Text);
+                const QColor ghostInk = paintGhost->palette().color(QPalette::Link);
                 int ghostInkHits = 0;
                 const QRect ghostBox = paintGhost->geometry();
                 for (int y = ghostBox.top(); y <= ghostBox.bottom(); ++y) {
@@ -1130,7 +1134,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                 button->style()->unpolish(button);
                 button->style()->polish(button);
                 QApplication::processEvents();
-                const QImage shot = captureWidget(button);
+                const QImage shot = captureWidgetOn(button, Theme::tokens().page);
                 button->setEnabled(true);
                 button->style()->unpolish(button);
                 button->style()->polish(button);
@@ -1226,7 +1230,11 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             // 所以分别量。
             const QColor checkInk = app.palette().color(QPalette::Link);
             // 输入框 / 下拉框那一圈边走调色板 `Dark`（tokens 的 stroke）。
-            const QColor inputBorder = app.palette().color(QPalette::Dark);
+            const QColor inputBorderToken = app.palette().color(QPalette::Dark);
+            // 7a：输入框 / 下拉框的底和那条底线都是半透明的，垫在页面底上抓、按叠出来的色量。
+            const QColor formBase = Theme::tokens().page;
+            const QColor inputFill = overOpaque(app.palette().color(QPalette::Base), formBase);
+            const QColor inputBorder = overOpaque(inputBorderToken, inputFill);
 
             // 「一般性」那一档的黑**不是纯黑**：纯黑压在白底上是 21:1，比正文还重 ——
             // 一颗"取消"不该比它旁边那颗"确定"更抢眼。所以取一档近黑（今天的 tokens 里
@@ -1286,24 +1294,26 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                 return hits;
             };
 
-            const QImage editShot = captureWidget(searchEdit);
+            const QImage editShot = captureWidgetOn(searchEdit, formBase);
             const QColor editText = app.palette().color(QPalette::Text);
-            check(sameColor(dominantColor(editShot, searchEdit->rect()), QColor(Qt::white)) &&
-                      countColorIn(editShot, searchEdit->rect(), editText, 0) > 0,
-                  "★★ W13 输入框：框里面是白的、字是调色板 `Text` 那一支（不是纯黑）",
-                  QStringLiteral("底色 %1 / 字 %2")
-                      .arg(dominantColor(editShot, searchEdit->rect()).name(),
+            check(colorDistance(dominantColor(editShot, searchEdit->rect()), inputFill) <= 3 &&
+                      // 文楷笔画细，抗锯齿后没有一个像素正好是字色 ⇒ 放一点容差（三通道差之和 12）。
+                      countColorIn(editShot, searchEdit->rect(), editText, 12) > 0,
+                  "★★ W13 输入框：框里面是 `Base` 那一档（叠在页面底上）、字是调色板 `Text` 那一支（不是纯黑）",
+                  QStringLiteral("底色 %1 该是 %2 / 字 %3")
+                      .arg(dominantColor(editShot, searchEdit->rect()).name(), inputFill.name(),
                            editText.name()));
             const int editBorderHits =
-                countColorIn(editShot, searchEdit->rect(), inputBorder, 6);
-            check(editBorderHits >= searchEdit->width(),
-                  "★★ W13 输入框那一圈框跟着调色板 `Dark`（tokens 的 stroke；上下两条加起来"
-                  "至少一整个宽度那么多个像素）",
+                countColorIn(editShot, searchEdit->rect(), inputBorder, 12);
+            // 设计稿：只有一条底线（另外三边是透明的 1px，只为和数字框一样高）。
+            check(editBorderHits >= searchEdit->width() * 8 / 10,
+                  "★★ W13 输入框那条底线跟着调色板 `Dark`（tokens 的 stroke；"
+                  "至少八成宽度那么多个像素）",
                   QStringLiteral("边那一档 %1 个像素").arg(editBorderHits));
 
             // 勾选框没勾：框和字**都是**那一档黑；勾上：**两样都**变成主题色。
             // 「两样都」是这一条的重点 —— 只写 `QCheckBox::indicator` 的话字还是黑的。
-            const QImage uncheckedShot = captureWidget(uncheckedBox);
+            const QImage uncheckedShot = captureWidgetOn(uncheckedBox, formBase);
             const int uncheckedBlack = countColorIn(uncheckedShot, uncheckedBox->rect(),
                                                      neutralInk, 30);
             const int uncheckedGreen = countColorIn(uncheckedShot, uncheckedBox->rect(),
@@ -1313,29 +1323,33 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                   "没有）",
                   QStringLiteral("黑 %1 个 / 绿 %2 个").arg(uncheckedBlack).arg(uncheckedGreen));
 
-            const QImage checkedShot = captureWidget(checkedBox);
+            const QImage checkedShot = captureWidgetOn(checkedBox, formBase);
             const int checkedBlack = countColorIn(checkedShot, checkedBox->rect(), neutralInk, 30);
             const int checkedGreen = countColorIn(checkedShot, checkedBox->rect(), checkInk, 30);
             const int checkedPure = countColorIn(checkedShot, checkedBox->rect(), accentPure2, 6);
-            check(checkedGreen > 0 && checkedBlack == 0,
-                  "W13 勾选框勾上使用主题色边框、勾号和文字，不再显示实心圆块",
-                  QStringLiteral("字 %1 个 / 方框 %2 个 / 黑 %3 个")
-                      .arg(checkedGreen).arg(checkedPure).arg(checkedBlack));
+            // 7a 组件样张：勾上 = 主题色实心方框 + 白勾，**字仍是正文色**（不再跟着变绿）。
+            const int checkedTextInk =
+                countColorIn(checkedShot, checkedBox->rect(), Theme::tokens().text, 30);
+            check(checkedPure > 0 && checkedTextInk > 0,
+                  "W13 勾选框勾上：方框是主题色（白勾），字仍是正文色（7a 样张）",
+                  QStringLiteral("主题色方框 %1 个 / 正文色字 %2 个 / 近主题色 %3 个")
+                      .arg(checkedPure).arg(checkedTextInk).arg(checkedGreen));
+            Q_UNUSED(checkedBlack);
 
             // 下拉框：**照抄上面那颗输入框的断言形态**，同一把尺子（同样的容差、同样的
             // 阈值）—— 用户那句要求是"下拉框和输入框那一套同一组颜色"，两种控件各量一套
             // 数字的话，"一样"这个词就说不清了。
-            const QImage comboShot = captureWidget(plainCombo);
-            check(sameColor(dominantColor(comboShot, plainCombo->rect()), QColor(Qt::white)) &&
-                      countColorIn(comboShot, plainCombo->rect(), editText, 0) > 0,
-                  "★★ W13 下拉框：框里面是白的、字是调色板 `Text` 那一支（和输入框同一组颜色）",
+            const QImage comboShot = captureWidgetOn(plainCombo, formBase);
+            check(colorDistance(dominantColor(comboShot, plainCombo->rect()), inputFill) <= 3 &&
+                      countColorIn(comboShot, plainCombo->rect(), editText, 12) > 0,
+                  "★★ W13 下拉框：框里面是 `Base` 那一档、字是调色板 `Text` 那一支（和输入框同一组颜色）",
                   QStringLiteral("底色 %1")
                       .arg(dominantColor(comboShot, plainCombo->rect()).name()));
             const int comboBorderHits =
-                countColorIn(comboShot, plainCombo->rect(), inputBorder, 6);
-            check(comboBorderHits >= plainCombo->width(),
-                  "★★ W13 下拉框那一圈框也是调色板 `Dark`（判据和阈值跟输入框一模一样："
-                  "上下两条加起来至少一整个宽度那么多个像素）",
+                countColorIn(comboShot, plainCombo->rect(), inputBorder, 12);
+            check(comboBorderHits >= plainCombo->width() * 8 / 10,
+                  "★★ W13 下拉框那条底线也是调色板 `Dark`（判据和阈值跟输入框一模一样："
+                  "至少八成宽度那么多个像素）",
                   QStringLiteral("边那一档 %1 个像素（输入框 %2 个 / 宽度 %3）")
                       .arg(comboBorderHits)
                       .arg(editBorderHits)
@@ -1524,13 +1538,13 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             const auto hasInk = [](const QImage &image, int x, int y) {
                 return colorDistance(QColor(image.pixel(x, y)), Qt::white) > 200;
             };
-            const QImage comboSizeShot = captureWidget(sizeCombo);
+            const QImage comboSizeShot = captureWidgetOn(sizeCombo, formBase);
             int borderTop = -1;
             int borderBottom = -1;
             for (int y = 0; y < comboSizeShot.height(); ++y) {
                 int hits = 0;
                 for (int x = 0; x < comboSizeShot.width(); ++x) {
-                    if (colorDistance(QColor(comboSizeShot.pixel(x, y)), inputBorder) <= 6) {
+                    if (colorDistance(QColor(comboSizeShot.pixel(x, y)), inputBorder) <= 12) {
                         ++hits;
                     }
                 }
@@ -1541,9 +1555,11 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                     borderBottom = y;
                 }
             }
-            check(borderTop >= 0 && borderBottom - borderTop + 1 == comboHeight,
-                  "★★ W13 那个高度**真的画出来了**（量的是图上那一圈 `Dark` 的边，上下两条之间"
-                  "就是控件的高度）",
+            // 只有底线：它画在最后一行上 ⇒ 那一行的行号 + 1 就是画出来的高度。
+            borderTop = 0;
+            check(borderBottom >= 0 && borderBottom - borderTop + 1 == comboHeight,
+                  "★★ W13 那个高度**真的画出来了**（量的是图上那条 `Dark` 的底线，它落在控件的"
+                  "最后一行）",
                   QStringLiteral("边在第 %1 行到第 %2 行（%3 高，`sizeHint()` 说 %4）")
                       .arg(borderTop).arg(borderBottom).arg(borderBottom - borderTop + 1)
                       .arg(comboHeight));

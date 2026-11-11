@@ -949,6 +949,7 @@ QWidget *MainWindowUI::setupInstancePage() {
             // 说两遍。
             instanceSearchEdit->setClearButtonEnabled(true);
             instanceSearchEdit->setFixedHeight(Theme::chipHeight());
+            instanceSearchEdit->setProperty("wtfmlChipHeight", true);
             row->addWidget(instanceSearchEdit, 1);
 
             // 四颗 chip **全都建着**（和下载页左栏那六个分类、文件页那四颗筛子同一套做法）：
@@ -1548,7 +1549,7 @@ void MainWindowUI::setHomeQuickMode(HomeQuickMode mode) {
                 widget->setFixedHeight(compact ? 52 : 84);
                 // ★ 只 `setFixedHeight()` 不够：高度上下限的**真出处是 QSS**。
                 // `QStyleSheetStyle::setGeometry()` 在每一次 polish（悬停、按下、换主题都会来）
-                // 拿 `wtfmlQuickCardSize="normal"` 的 `min-height: 82px` 去 `setMinimumHeight()`，
+                // 拿 `wtfmlQuickCardSize="normal"` 的 `min-height: 84px` 去 `setMinimumHeight()`，
                 // 把 52 顶回 82 —— 用户看到的就是"点一下卡片，压小的那截又长回去"。
                 // 所以档位要跟着切，切完按 QSS 的规矩重新 polish 一次。
                 if (widget->property("wtfmlQuickCard").toBool()) {
