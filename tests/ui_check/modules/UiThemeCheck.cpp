@@ -106,8 +106,8 @@ int UiThemeCheck(QApplication &app) {
             QApplication::sendEvent(&toggle, &leave);
             const QPoint trackPoint(3, toggle.height() / 2);
             expect(toggle.grab().toImage().pixelColor(trackPoint) ==
-                       (id == QLatin1String("emerald") ? t.primary : toggle.palette().color(QPalette::Highlight)),
-                   "emerald switch uses stronger brand, other themes retain their switch colors");
+                       t.primary,
+                   "switch on state uses the solid accent fill in every theme");
             if (id == QLatin1String("emerald")) {
                 QEnterEvent enter(QPointF(3, 3), QPointF(3, 3), QPointF(3, 3));
                 QApplication::sendEvent(&toggle, &enter);

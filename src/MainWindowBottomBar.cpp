@@ -256,6 +256,7 @@ void MainWindow::updateBottomBarRunState() {
     // NOTE: 黄灯那一档（"正在启动"）在这里也是**点得开**的：那一段里会话已经在
     // runningGames() 里了（见上面三态那段注释），面板里列得出它。
     m_ui->setRunPanelAvailable(!games.isEmpty());
+    m_ui->setRunStateActive(mark != MainWindowUI::RunStateMark::Idle);
 
     if (mark == MainWindowUI::RunStateMark::Launching) {
         // 黄：正在启动。名字的写法**不看「版本名格式」那四个开关**（见 launchingStatusName()）。

@@ -474,10 +474,10 @@ public:
     static int instanceFileIconSize() { return resourceTreeIconSize(); }
 
     /// 「启用 / 禁用」那枚**拨动开关**的尺寸（宽 × 高）。高度是行高（46）装得下的一档。
-    static int toggleSwitchWidth() { return 34; }
-    static int toggleSwitchHeight() { return 18; }
+    static int toggleSwitchWidth() { return 40; }
+    static int toggleSwitchHeight() { return 22; }
     /// 开关里那个圆钮四周留的白。
-    static int toggleSwitchKnobMargin() { return 2; }
+    static int toggleSwitchKnobMargin() { return 4; }
     /// 行尾那三颗按钮各自弹的那句话（和 rowRefreshTipText() 一个规矩：**只在这一格上**才
     /// 说话，整条行不弹；谁弹的、按哪一格判，见 InstanceGroupDelegate::rowActionTip()）。
     /// 齿轮那句和那一页自己的页眉（`InstanceSettingsDialog::titleText()`）是**两回事**：
@@ -837,7 +837,7 @@ public:
     /// 「模组加载器」写全称而不是「加载器」：它只在模组那一页上出现（别的页没有这一栏），
     /// 说得全一点不占别处的地方。
     static QString downloadFilterVersionLabel() { return QStringLiteral("版本"); }
-    static QString downloadFilterLoaderLabel() { return QStringLiteral("模组加载器"); }
+    static QString downloadFilterLoaderLabel() { return QStringLiteral("加载器"); }
     static QString downloadFilterSourceLabel() { return QStringLiteral("来源"); }
     static QString downloadFilterTypeLabel() { return QStringLiteral("类型"); }
     /// 「搜索」那颗键上的字。
@@ -868,10 +868,10 @@ public:
     /// （模组页 644，别的页 454）—— 也就是说到了默认那个 900 px 宽的窗口上，这一行会被
     /// 右边界切掉一块（四个框各自的
     /// minimumSizeHint 就是它的 sizeHint，挤不下去）。
-    /// 96 是照着"四个框 + 四个标签 + 七道 8 px 间隙 ≤ 610（900 px 窗口下右栏的宽度）"
-    /// 反算的，留了三十来 px 余量。代价：框里那串字会被省略（「CurseForge」显示成
+    /// 88 是照着"900 px 窗口、轨折成 64 后下载页 ≤ 836"反算的（四组标签 + 框 + 间隙落在
+    /// 右栏里，整页最小宽约 826）。代价：框里那串字会被省略（「CurseForge」显示成
     /// 「CurseFor…」）—— 展开下拉框看得见全的，而这些框本来就是"点开挑一个"的东西。
-    static int downloadFilterComboMaxWidth() { return 96; }
+    static int downloadFilterComboMaxWidth() { return 88; }
     /// 整合包那一页那颗「导入整合包…」的 objectName。
     ///
     /// NOTE: 字和实例页那颗是**同一句**（`importModpackText()`，一个"导入整合包…"不该有
@@ -1061,6 +1061,11 @@ public:
     /// 两件事混成一句的症状是"用户明明有 60 个实例，却看见'没有符合条件的实例'"。
     static QString instanceNoMatchText() { return QStringLiteral("没有符合筛选条件的实例"); }
     static QString instanceNoMatchLabelName() { return QStringLiteral("instanceNoMatch"); }
+    /// 文件夹里一个实例都没有（也没在筛）时列表上方那句话：说清下一步去哪，不用防御腔。
+    static QString instanceEmptyText() {
+        return QStringLiteral("这里还没有实例。可以从左栏导入一个整合包，或者去「下载」页装一个新版本。");
+    }
+    static QString instanceEmptyLabelName() { return QStringLiteral("instanceEmpty"); }
 
     /// 某颗筛选 chip 的 objectName。**按这一档点名找**（不解析文字）：文字会改。
     static QString instanceFilterButtonName(InstanceFilterButton button) {
@@ -1639,6 +1644,8 @@ public:
         bool current = false;
         bool recent = false;
         bool favorite = false;
+        /// 实例 mods 目录里的 *.jar 个数；-1 = 没数（主页元信息行就不写模组数）。
+        int modCount = -1;
     };
     using HomeQuickActionHandler =
         std::function<void(const QString &key, HomeQuickAction action)>;
@@ -1715,10 +1722,8 @@ public:
     /// （没有实例在跑时），而布局里藏起来的控件宽度是 0 —— 钉在字上等于没钉。
     /// 详见 MainWindowUI.cpp 里 runStateButton 那段。
     ///
-    /// 宽度 170：两头那两格加起来 458 px 时，900 px 的窗口里中间那根条只剩 262 px
-    /// （条还没那两格宽）。
-    /// 那一格装的是「3 个实例运行中」+ 一行实例名 + 箭头，170 够（文字能占 152）。
-    static int bottomBarRunStateColumnWidth() { return 170; }
+    /// 宽度 184：这一格挂在导航轨底部，和导航项同宽（轨 208 - 两边各 12）。
+    static int bottomBarRunStateColumnWidth() { return 184; }  // = TitleBar::navItemWidth()：铺满导航轨底
     /// 左边那两行字**各自留给字**的宽度上限 = 那一格的宽度减掉**最左边那颗状态方块占掉的
     /// 一段**，再减掉右边那个箭头和它左边的间距。封这个顶，布局就永远不会被长名字撑开。
     ///
@@ -1762,7 +1767,7 @@ public:
     ///
     /// 取值按"900 px 的窗口里中间那格大致能有多少"：左右两格（170 + 头像那格）和两头的
     /// 边距扣掉之后剩下的就是它，取 320 让长文件名一定截得住，同时短句不会被截。
-    static int bottomBarStatusTextWidth() { return 320; }
+    static int bottomBarStatusTextWidth() { return 140; }
 
     /// 底栏两颗按钮里**头像和文字之间的间距**（8）。
     static int bottomBarAccountRowSpacing() { return 8; }
@@ -1847,6 +1852,9 @@ public:
     /// 灰，装在它里面的那几行字会跟着进 Disabled 调色板一起变暗 —— 这里只要
     /// 那一下点不动，不能把那句话弄糊。连带的：鼠标指针也不会变手型，划过不再高亮。
     void setRunPanelAvailable(bool available);
+    /// 轨底那一格**露不露**：设计稿里轨底只有任务环和工具箱，运行状态平时不占地方，
+    /// 有事可说（启动中 / 运行中 / 异常退出 / 服务端在跑）时才露出那一小格。轨折成图标轨时一律收起。
+    void setRunStateActive(bool active);
 
     /// 把**任务中心**要画的东西装进来。**由 MainWindow 在构造时调一次**（任务账本在
     /// 它手里，见 src/tasks/TaskManager.hpp）；没装的话面板里只有一句"现在没有任务"。
@@ -2677,13 +2685,12 @@ public:
 
     /// 主页**右栏**（「我的角色」那一栏）的宽度（**唯一出处**）。
     ///
-    /// 主页右栏**不按份数分宽**：这一栏的宽度由「我的角色」那张卡片
-    /// 自己钉死（卡片里那 160 px 的人物画布 + 左右各 8 px 内边距），左栏吃剩下的全部。
-    /// `homeLeftColumnStretch()` 那份比例管不了这一栏，验证工程按它量
-    /// 会量出 664:176 这种数。
+    /// 主页右栏**不按份数分宽**：这一栏是账号胶囊 + 立绘，宽度钉死在立绘画布那一个数上
+    /// （设计稿那个立绘约 270 高 ⇒ 画布 228 宽），左栏吃剩下的全部。
+    /// `homeLeftColumnStretch()` 那份比例管不了这一栏。
     /// NOTE: 右栏列本身在 `buildTwoColumnPage()` 里就 `setFixedWidth()` 到这一个数，
     /// 所以它是**跟窗口宽度无关**的常量 —— 这正是验证工程能拿它当期望值的原因。
-    static constexpr int homeRightColumnWidth() { return 176; }
+    static constexpr int homeRightColumnWidth() { return 228; }
 
     /// 正文那一栏顶上那个页头（页面标题那一行 + 说明那一行）的名字。
     /// @param tab "instance" / "download" / "settings"（主页没有页头）。
@@ -2767,7 +2774,7 @@ public:
     ///
     /// NOTE: 每一栏**各自**限一次（三栏三张表单），因为它挂在 `form` 上而不是滚动区上 ——
     /// 滚动条仍然贴着正文面最右边那条线，只有表单收窄。
-    static int settingsFormMaxWidth() { return 960; }
+    static int settingsFormMaxWidth() { return 680; }
     /// 某一栏那一整页的 objectName（堆叠页里的一页 = 一层滚动区，见 cpp 里的
     /// addSettingsPanel()）。
     static QString settingsPanelName(const QString &key) {
@@ -3054,6 +3061,7 @@ public:
     /// 配色那个下拉框（跟随系统 / 浅色 / 深色）。**项在这一层灌**（`Theme::presetIds()` ——
     /// 预设这个枚举本来就在 ui/），itemData 存的是预设 id 那个串。
     static QString themePresetComboName() { return QStringLiteral("themePresetCombo"); }
+    static QString glassEffectCheckName() { return QStringLiteral("glassEffectCheck"); }
     /// 主题色那块色（点一下弹调色板）和它右边那颗「恢复默认」。
     static QString themeAccentButtonName() { return QStringLiteral("themeAccentButton"); }
     static QString themeAccentResetName() { return QStringLiteral("themeAccentResetButton"); }
@@ -3350,6 +3358,8 @@ public:
     QWidget *getInstanceFilterRow() const { return instanceFilterRow; }
     /// "没有符合筛选条件的实例"那一行字（平时收着，见 `instanceNoMatchText()` 那段）。
     QLabel *getInstanceNoMatchLabel() const { return instanceNoMatchLabel; }
+    /// 空文件夹那一句（平时收着，见 `instanceEmptyText()`）。
+    QLabel *getInstanceEmptyLabel() const { return instanceEmptyLabel; }
 
     // ---------- 实例页的模式切换 + 服务端那一页 ----------
     // / 某一颗模式按钮（越界/认不出回 nullptr）。点它换页这件事由 `MainWindow` 接 ——
@@ -3728,7 +3738,7 @@ private:
     void setupSettingsLookPanel(QStackedWidget *stack);
     void setupSettingsDownloadPanel(QStackedWidget *stack);
     /// 搭底部那条通栏状态条（左：实例运行状态，中：进度，右：头像/用户名）。
-    void setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout);
+    void setupBottomBar(QWidget *parent);
     /// 行尾那颗齿轮被点了：把菜单贴在那颗按钮上弹出来（或者**收回去** —— 已经弹着、
     /// 而且就是这一颗弹的时候，再点一下是收回，和底栏那两块面板一个路数）。
     void openFolderMenu(const FolderRow &row, QWidget *gear);
@@ -3830,6 +3840,7 @@ private:
     QList<QPushButton *> instanceFilterButtons;
     /// "没有符合筛选条件的实例"那一行（默认收着）。
     QLabel *instanceNoMatchLabel = nullptr;
+    QLabel *instanceEmptyLabel = nullptr;
     /// 实例页正文那一层（第 0 页 = 客户端实例，第 1 页 = 服务端，第 2 页 = 预设）。
     QStackedWidget *instanceModeStack = nullptr;
     /// 「预设」那一页的宿主（`PresetController` 把管理页塞进这一格）。
@@ -4004,6 +4015,8 @@ private:
     /// 那根条右边那一格里的百分比（「42%」）—— 条自己不画数（见 `TaskProgressBar.hpp`）。
     QLabel *taskPercentLabel = nullptr;
     QLabel *statusLabel = nullptr;
+    /// 最近一次摆进底栏的任务摘要：换主题时按它重染一遍（那几样字色取的是当时的调色板）。
+    BottomBarTaskSummary m_lastTaskSummary;
     QLabel *runStateLabel = nullptr;
     QLabel *runStateDetailLabel = nullptr;
     QLabel *runStateMarkLabel = nullptr;
@@ -4014,6 +4027,7 @@ private:
     /// 不该是"点不动"的（独立构造 MainWindowUI 的验证工程就吃这个初值，见
     /// setRunPanelAvailable()）。
     bool m_runPanelAvailable = true;
+    bool m_runStateActive = false;
     /// 「点开面板时去哪要那几行」和「行尾的按钮被点了」。由 MainWindow 在构造时装进来
     /// （见 setBottomBarPanelContent()）—— 界面这一头**不查数据**，只画。
     PanelRowsProvider m_panelRowsProvider;

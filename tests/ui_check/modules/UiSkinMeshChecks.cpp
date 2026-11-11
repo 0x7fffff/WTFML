@@ -272,100 +272,25 @@ int UiSkinMeshChecks() {
                   SkinModel::headAvatar(QImage(8, 8, QImage::Format_ARGB32), 16).isNull(),
               "W4 贴图不合法（空 / 太小）时返回空图，不去越界取像素");
 
-        // ---- W4b 兜底那张占位皮肤：整身 #000000 + 脸上一枚 #ffffff 的问号 ----
+        // ---- W4b 兜底那张默认皮肤：内置的自绘皮肤（assets/skins/default.png），不再是黑底问号 ----
         //
-        // 用户 的原话就是这两个色号（「整个人都是 #000000，脸部一个 #ffffff 的
-        // 问号」），所以这儿量的是**逐格等于**，不是"深色/浅色"那种模糊判据 —— 配色一动
-        // 就该红。定位那一格用的是 `SkinModel::faceRect()`（和渲染那边**同一个出处**），
-        // 所以我写的是"脸上那一格长什么样"，不是"贴图 (8,8) 起那 8×8 长什么样"。
+        // 用户嫌黑色问号剪影丑，兜底改成一张真正的人物皮肤。这儿钉三件事：是 64×64 新格式、
+        // 里层六块每一面都画满（少一块小人就缺一块）、第二层全透明；外加"不是那枚问号"——
+        // 脸上要有不止黑白两种颜色。
         {
             const QImage defSkin = SkinModel::defaultSteveSkin();
             check(defSkin.size() == QSize(64, 64), "W4b 兜底皮肤是 64×64 的新格式贴图",
                   QString("%1x%2").arg(defSkin.width()).arg(defSkin.height()));
-
-            const QColor black(0x00, 0x00, 0x00);
-            const QColor white(0xFF, 0xFF, 0xFF);
             const QRect face = SkinModel::faceRect(QPoint(0, 0), 8, 8, 8, Face::Front);
+            QSet<QRgb> faceColors;
+            for (int row = 0; row < 8; ++row)
+                for (int col = 0; col < 8; ++col)
+                    faceColors.insert(defSkin.pixel(face.x() + col, face.y() + row));
+            check(faceColors.size() >= 4 && !faceColors.contains(qRgb(0, 0, 0)),
+                  "W4b 脸是一张人脸（多种颜色、没有纯黑），不是黑底白问号",
+                  QString("%1 种颜色").arg(faceColors.size()));
 
-            // 全图只许有这三种像素：透明的、不透明的纯黑、不透明的纯白。多出第四种就说明
-            // 有人往里加了别的东西 —— 这条管的是"颜色由我们自己决定"那一格。
-            int foreign = 0;
-            for (int y = 0; y < defSkin.height(); ++y) {
-                for (int x = 0; x < defSkin.width(); ++x) {
-                    const QColor c = defSkin.pixelColor(x, y);
-                    if (c.alpha() == 0) {
-                        continue;
-                    }
-                    if (c.alpha() != 255 || (c != black && c != white)) {
-                        ++foreign;
-                    }
-                }
-            }
-            check(foreign == 0,
-                  "W4b 全图只有三种像素：透明 / 不透明的 #000000 / 不透明的 #ffffff",
-                  QString("%1 格是第四种").arg(foreign));
-
-            // 脸上那一格**逐格**对一遍：写死的期望值，`.` 是黑的底、`#` 是白的问号，
-            // `?` 是"既不是黑也不是白"（拿到它就说明那一格是透的或者混色了）。
-            // 一行 8 个字符、共 8 行 —— 那一格就是 8×8。4×6 的字形摆在 (2,1)：
-            // 左右各留 2 格、上下各留 1 格（摆位见 defaultSteveSkin()）。
-            const char *const kExpectedFace[8] = {
-                "........",
-                "...##...",
-                "..#..#..",
-                ".....#..",
-                "....#...",
-                "........",
-                "....#...",
-                "........",
-            };
-            QString faceGot;
-            QString faceWant;
-            int faceBad = 0;
-            for (int row = 0; row < 8; ++row) {
-                for (int col = 0; col < 8; ++col) {
-                    const QColor c = defSkin.pixelColor(face.x() + col, face.y() + row);
-                    const char got = (c == white) ? '#' : (c == black ? '.' : '?');
-                    faceGot += QLatin1Char(got);
-                    faceWant += QLatin1Char(kExpectedFace[row][col]);
-                    if (got != kExpectedFace[row][col]) {
-                        ++faceBad;
-                    }
-                }
-            }
-            check(faceBad == 0, "W4b 脸上那一格就是黑底 + 一枚白问号（逐格比）",
-                  QString("%1 格不对 —— 拿到 %2 / 应该是 %3").arg(faceBad).arg(faceGot, faceWant));
-
-            // 用户 又提了一句「那个问号能不能再居中一点点，就算小一点也没关系」——
-            // 于是**居中也得钉住**，不然下次谁把字形挪回去（或者挪过头半个格）就没人拦。
-            // 判据不是"我记得偏移是 (2,1)"，而是**拿那一格上的白格子算出来的包围盒**：
-            // 左右余量相等、上下余量相等。这比写死偏移硬 —— 换一个字形尺寸（只要是偶数宽）
-            // 这条断言照样成立。
-            int minX = 8, maxX = -1, minY = 8, maxY = -1;
-            for (int row = 0; row < 8; ++row) {
-                for (int col = 0; col < 8; ++col) {
-                    if (defSkin.pixelColor(face.x() + col, face.y() + row) != white) {
-                        continue;
-                    }
-                    minX = qMin(minX, col);
-                    maxX = qMax(maxX, col);
-                    minY = qMin(minY, row);
-                    maxY = qMax(maxY, row);
-                }
-            }
-            check(minX >= 0 && maxX >= 0,
-                  "W4b 现状：脸上确实有白的（不然下面那条居中断言在空脸上也绿）",
-                  QString("x %1..%2 / y %3..%4").arg(minX).arg(maxX).arg(minY).arg(maxY));
-            check(minX == 8 - 1 - maxX && minY == 8 - 1 - maxY,
-                  "W4b 那枚问号是**正中**的（左右余量相等、上下余量相等）",
-                  QString("左 %1 右 %2 / 上 %3 下 %4")
-                      .arg(minX)
-                      .arg(8 - 1 - maxX)
-                      .arg(minY)
-                      .arg(8 - 1 - maxY));
-
-            // 里层那六块（脑袋 / 身体 / 两臂 / 两腿）**除了脸上那一格**：每一格都必须是不
-            // 透明的纯黑。少刷一块的症状是那一面**整块不画**（贴图透明 = 没有像素），
+            // 里层那六块（脑袋 / 身体 / 两臂 / 两腿）：每一格都必须不透明。少刷一块的症状是那一面**整块不画**（贴图透明 = 没有像素），
             // 小人身上就缺一块 —— 而缺一块在屏幕上不会报任何错。
             struct SkinPart {
                 QPoint base;
@@ -385,14 +310,10 @@ int UiSkinMeshChecks() {
                 for (Face f : SkinModel::allFaces()) {
                     const QRect r =
                         SkinModel::faceRect(part.base, part.w, part.h, part.d, f);
-                    if (r == face) {
-                        continue;  // 脸上有那枚问号，上面单独量过
-                    }
                     for (int y = r.top(); y <= r.bottom(); ++y) {
                         for (int x = r.left(); x <= r.right(); ++x) {
                             ++bodyCells;
-                            const QColor c = defSkin.pixelColor(x, y);
-                            if (c.alpha() != 255 || c != black) {
+                            if (defSkin.pixelColor(x, y).alpha() != 255) {
                                 ++bodyBad;
                             }
                         }
@@ -400,12 +321,10 @@ int UiSkinMeshChecks() {
                 }
             }
             check(bodyCells > 0 && bodyBad == 0,
-                  "W4b 除脸以外那二十五面每一格都是不透明的 #000000",
+                  "W4b 里层六块三十六面每一格都不透明",
                   QString("%1 格不对（共 %2 格）").arg(bodyBad).arg(bodyCells));
 
-            // 第二层（帽子 / 外套 / 两只袖子 / 两条裤脚）**一个格子都不许画**。这不是洁癖：
-            // 那一层盖在里层外面（render() 里第二层那段），涂上颜色就会把脸上那枚问号整个
-            // 挡住 —— 而"挡住了"在屏幕上看起来就是"问号没了"，同样不报错。
+            // 第二层（帽子 / 外套 / 两只袖子 / 两条裤脚）**一个格子都不许画**：这张图只画里层。
             const SkinPart kOverlays[6] = {
                 {QPoint(32, 0), 8, 8, 8},    // 帽子
                 {QPoint(16, 32), 8, 12, 4},  // 外套
@@ -431,7 +350,7 @@ int UiSkinMeshChecks() {
                 }
             }
             check(overlayCells > 0 && overlayPainted == 0,
-                  "W4b 第二层（帽子/外套/袖子/裤脚）全程透明 —— 涂了就把脸上的问号挡住了",
+                  "W4b 第二层（帽子/外套/袖子/裤脚）全程透明",
                   QString("%1 格被画上了（共 %2 格）").arg(overlayPainted).arg(overlayCells));
         }
 
@@ -644,9 +563,8 @@ int UiSkinMeshChecks() {
               QString("%1 px").arg(painted));
         // "不是糊成一团"这一条**照着源图算**，不写死"至少四块"。
         //
-        // NOTE: 兜底图是整身 #000000、脸上一枚 #ffffff 问号（见 W4b），源图**只有两种
-        // 颜色** —— 按"至少四块"量就是在量一个不存在的东西。拿源图里那几种不透明色
-        // 当期望值，判据更硬，而且以后换配色不用动这儿。
+        // NOTE: 拿源图（兜底皮肤，见 W4b）里那几种不透明色当期望值，判据更硬，
+        // 以后换图不用动这儿。
         //
         // ① 画面上不许出现源图里没有的颜色 —— **这一条才是"没糊"的真判据**：插值、抗锯齿、
         // 逐面照明里任意一点半调子混色都会凭空造出第三种颜色，跑不掉。
@@ -674,15 +592,13 @@ int UiSkinMeshChecks() {
                   .arg(invented));
 
         // ② 画面上至少得有**两种**颜色，而且最大那块占一成以上 —— 一种就是"整个小人死色
-        // 一块"，也就等于脸上那枚问号**根本没画出来**（源图是黑体 + 白问号两色，所以
-        // "看得见第二种颜色"和"问号露脸了"是同一件事，这儿不用去认那个色号）。
+        // 一块"。
         int widest = 0;
         for (auto it = colorCounts.constBegin(); it != colorCounts.constEnd(); ++it) {
             widest = qMax(widest, it.value());
         }
         check(colorCounts.size() >= 2 && widest >= painted / 10,
-              "W7 是分块的像素画（不是一整块死色）：至少两种颜色、最大那块占一成以上"
-              "（第二种颜色看不见 = 脸上那枚问号没画出来）",
+              "W7 是分块的像素画（不是一整块死色）：至少两种颜色、最大那块占一成以上",
               QString("%1 种 / 最大 %2 px（共 %3）")
                   .arg(colorCounts.size())
                   .arg(widest)

@@ -408,8 +408,13 @@ int UiFolderDisplayChecks(MainWindowUI &ui, QListWidget * &folderList, QTabWidge
                     const int glyphTop = inkEdge(glyph, false);
                     const int inkLeft = inkEdge(shot, true);
                     const int inkTop = inkEdge(shot, false);
+                    // 按钮字换成文楷 15 px（7a）后行高比图标高，图标在竖直方向居中会再往下 1~2 px：
+                    // 横向钉死 6，纵向只钉「至少 6、不超过 6 + 行高与图标高之差的一半」。
+                    const int slack = qMax(0, (entry->fontMetrics().height() -
+                                               MainWindowUI::folderMenuIconSize()) / 2 + 1);
                     check(glyphLeft >= 0 && inkLeft - glyphLeft == kExpectedItemPadding &&
-                              inkTop - glyphTop == kExpectedItemPadding,
+                              inkTop - glyphTop >= kExpectedItemPadding &&
+                              inkTop - glyphTop <= kExpectedItemPadding + slack,
                           "一项自己的内边距左右与上下相等（量字形落点都往里 6 px）—— 加上框那 8，"
                           "文本到框边就是 14 x 14",
                           QStringLiteral("字形 %1,%2 落点 %3,%4（图标内空白 %5,%6）")

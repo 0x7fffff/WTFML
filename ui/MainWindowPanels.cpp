@@ -3,6 +3,7 @@
 
 #include "Animations.hpp"  // 换页 / 展开折叠 / 上拉面板那几段动效
 #include "ElidedLabel.hpp"
+#include "Glass.hpp"
 #include "InstanceGroupDelegate.hpp"
 #include "MemorySlider.hpp"
 #include "OverlayHost.hpp"
@@ -468,6 +469,38 @@ QPalette bottomBarChromePalette() {
     return palette;
 }
 
+/// 导航轨底部「工具箱」那颗：和轨上导航项一个画法（20 的线性图标 + 霞鹜文楷 16，图文间距 14），
+/// 窄到图标轨时只剩图标居中。悬停中性灰、按下 fill-press。
+class RailNavButton : public QPushButton {
+public:
+    using QPushButton::QPushButton;
+
+protected:
+    void paintEvent(QPaintEvent *) override {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        const Theme::Tokens t = Theme::tokens();
+        const bool hot = underMouse() && isEnabled();
+        const QColor base = isDown() ? t.fillPress : (hot || isChecked()) ? t.hover : QColor(Qt::transparent);
+        if (base.alpha() > 0) {
+            p.setPen(Qt::NoPen);
+            p.setBrush(base);
+            p.drawRoundedRect(QRectF(rect()), 10, 10);
+        }
+        const QColor ink = hot || isDown() ? t.text : t.secondary;
+        const bool compact = width() < 80;
+        const QRectF iconBox(compact ? (width() - 20) / 2.0 : 14, (height() - 20) / 2.0, 20, 20);
+        VersionIcons::paintLine(p, QStringLiteral("toolbox"), iconBox, ink);
+        if (compact) return;
+        QFont f = font();
+        f.setLetterSpacing(QFont::AbsoluteSpacing, 1);
+        p.setFont(f);
+        p.setPen(ink);
+        p.drawText(QRect(int(iconBox.right()) + 14, 0, width() - int(iconBox.right()) - 14, height()),
+                   Qt::AlignVCenter | Qt::AlignLeft, text());
+    }
+};
+
 /// 底栏按钮身上那个"跟随登记只做过一次"的印记（见 `applyBottomBarButtonStyle()` 里的闸门）。
 constexpr const char kBottomBarButtonFollowedProperty[] = "wtfmlThemeFollowed";
 
@@ -475,16 +508,21 @@ constexpr const char kBottomBarButtonFollowedProperty[] = "wtfmlThemeFollowed";
 /// 只在鼠标划过/按下时淡淡蒙一层 —— 不然用户根本看不出那一格能点。
 /// 蒙的那层取自调色板的 Highlight（**不写死颜色**），浅色/深色主题下都成立。
 void applyBottomBarButtonStyle(QPushButton *button, const QPalette &barPalette) {
-    QColor hover = barPalette.color(QPalette::Highlight);
-    hover.setAlpha(48);
-    QColor pressed = barPalette.color(QPalette::Highlight);
-    pressed.setAlpha(96);
+    Q_UNUSED(barPalette);
+    // 和导航轨同一套悬停：正文墨色的一点点 alpha（扁平，不压主题色块）。
+    const QColor hover = Theme::tokens().hover;
+    const QColor pressed = Theme::tokens().fillPress;
+    // 工具箱那颗是一个独立的小按钮：两边留 14 px，焦点框和悬停底都不压字；圆角和别的按钮一套。
+    // 任务摘要那颗是铺满中间那一格的区域按钮，照旧不留边。
+    const bool compact = button->objectName() == MainWindowUI::toolboxButtonName();
     button->setStyleSheet(
         QStringLiteral("QPushButton { border: none; background: transparent; text-align: left; "
-                       "padding: 0; }"
+                       "padding: %3; border-radius: %4px; }"
                        "QPushButton:hover { background-color: %1; }"
                        "QPushButton:pressed { background-color: %2; }")
-            .arg(hover.name(QColor::HexArgb), pressed.name(QColor::HexArgb)));
+            .arg(hover.name(QColor::HexArgb), pressed.name(QColor::HexArgb),
+                 compact ? QStringLiteral("0 12px") : QStringLiteral("0"))
+            .arg(Theme::controlRadius()));
     // 登记**只能登记一次**，所以这里用属性当闸门 —— 这个函数本身就在"主题变了"的回调
     // 那一支上（下面那条 lambda），里面那句 `setStyleSheet()` 又发一次 `StyleChange`。
     // 把 `Theme::follow()` 直接摆在这个函数里 ⇒ 每一趟都**再生一个**跟随者，新跟随者
@@ -1081,7 +1119,7 @@ private:
 
 }  // namespace
 
-void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
+void MainWindowUI::setupBottomBar(QWidget *parent) {
     // ---------- 底部通栏状态条（Steam 风格） ----------
     // 三个格子：左 = 实例运行状态，中 = 启动/下载进度，右 = 头像与用户名。
     // 这里只**搭**它：显示什么由 MainWindow::updateBottomBar() 决定，
@@ -1092,19 +1130,15 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     bottomBar = new QFrame(parent);
     bottomBar->setObjectName(bottomBarName());
     bottomBar->setFrameShape(QFrame::NoFrame);
-    bottomBar->setFixedHeight(kBottomBarHeight);
-    // 底色比窗口底色深一档把它从内容区里分出来。**不写死颜色**：从当前调色板推出来，
-    // 浅色主题和深色主题下都成立（darker() 在两种主题上的效果都是"更沉一点"）。
-    // 那一档由 `Theme::partBackground(Part::BottomBar)` 说了算（用户可以把这一条
-    // 单独换成别的色）。
-    bottomBar->setAutoFillBackground(true);
+    // 现在它是左导航轨底部那一块（竖排三格），和轨同一层底：不铺色块。
+    bottomBar->setAutoFillBackground(false);
     bottomBar->setPalette(bottomBarChromePalette());
     // 底栏是**常驻**的（不像浮层那样每次现建）⇒ 主题一换它得自己重算一遍。
     Theme::follow(bottomBar, [this]() { bottomBar->setPalette(bottomBarChromePalette()); });
 
-    QHBoxLayout *barLayout = new QHBoxLayout(bottomBar);
-    barLayout->setContentsMargins(12, 6, 12, 6);
-    barLayout->setSpacing(12);
+    QVBoxLayout *barLayout = new QVBoxLayout(bottomBar);
+    barLayout->setContentsMargins(0, 8, 0, 0);
+    barLayout->setSpacing(4);
 
     // ---------- 左：当前实例运行状态 ----------
     // 第一行是状态正文，第二行是实例名。**在主页且选中的就是正在跑的那个实例**时
@@ -1189,7 +1223,7 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     runStateButton->setToolTip(MainWindowUI::bottomBarRunPanelTip());
     applyBottomBarButtonStyle(runStateButton, bottomBar->palette());
     QHBoxLayout *runStateRow = new QHBoxLayout(runStateButton);
-    runStateRow->setContentsMargins(0, 0, 0, 0);
+    runStateRow->setContentsMargins(12, 4, 8, 4);
     runStateRow->setSpacing(MainWindowUI::bottomBarChevronSpacing());
     runStateRow->addLayout(runStateLayout, 1);
     // 这个箭头**另存一份指针**（右边那颗按钮上那个不用）：没有实例在跑时它要收起来，
@@ -1218,9 +1252,20 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     applyBottomBarButtonStyle(taskSummaryButton, bottomBar->palette());
 
     // 里面一列两样：上面"标题 + 右边那句小字 + 箭头"，下面那根进度条。
-    QVBoxLayout *taskLayout = new QVBoxLayout(taskSummaryButton);
+    // 设计稿：左边 28 的进度环，右边两行（任务名 13 / 「还有 N 项」+ 百分比 12）。
+    auto *taskCard = new QHBoxLayout(taskSummaryButton);
+    taskCard->setContentsMargins(10, 8, 10, 8);
+    // QPushButton 的 sizeHint 只算自己那行字（22 高），里面这套布局不算进去 ⇒ 导航轨底部
+    // 只给它 22，环和两行字被裁成半截。让按钮的最小尺寸跟着这套布局走。
+    taskCard->setSizeConstraint(QLayout::SetMinimumSize);
+    taskCard->setSpacing(10);
+    // 两行字装在一个透明格子里：导航轨折成图标轨时整格收起，只剩那枚环。
+    auto *taskTextBox = new QWidget(taskSummaryButton);
+    taskTextBox->setObjectName(QStringLiteral("taskSummaryText"));
+    taskTextBox->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    QVBoxLayout *taskLayout = new QVBoxLayout(taskTextBox);
     taskLayout->setContentsMargins(0, 0, 0, 0);
-    taskLayout->setSpacing(2);
+    taskLayout->setSpacing(0);
     QHBoxLayout *taskTextRow = new QHBoxLayout();
     taskTextRow->setContentsMargins(0, 0, 0, 0);
     taskTextRow->setSpacing(MainWindowUI::bottomBarChevronSpacing());
@@ -1238,7 +1283,7 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     statusLabel = new ElidedLabel(taskSummaryButton);
     statusLabel->setObjectName(statusLabelName());
     // 固定一个最小宽度：这一格的字长长短短时，右边那几样不会再跳来跳去
-    statusLabel->setMinimumWidth(kStatusLabelMinWidth);
+    statusLabel->setMinimumWidth(1);  // 1 不是 0：0 = 交回 minimumSizeHint（整串字宽），会把轨的最小宽顶上去
     // **上限也得有**。ElidedLabel 的 sizeHint() 是把宽度封在上限上，
     // 而上限的来源就是 maximumWidth() —— 不设上限时，一句长文件名会把这一格的 sizeHint
     // 顶到 3912、把底栏顶到 4338、把**主窗口**顶到 4338（默认窗口只有 900 宽，见
@@ -1268,8 +1313,8 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
                               extraPalette.color(QPalette::PlaceholderText));
         taskExtraLabel->setPalette(extraPalette);
     }
-    taskTextRow->addWidget(taskExtraLabel, 0, Qt::AlignVCenter);
-    taskTextRow->addWidget(makeChevronLabel(taskSummaryButton), 0, Qt::AlignVCenter);
+    // 这一格不再挂朝上的小箭头：它离那句状态隔了大半条底栏，看上去是一个不知所指的「^」。
+    // 整格本身就是按钮（悬停有底色、有提示），点开任务中心不靠那颗箭头提示。
     taskLayout->addLayout(taskTextRow);
 
     // 下面那一行：自绘的细轨道 + 右边一格百分比（底栏 / 面板 / 详情页三处统一到
@@ -1278,12 +1323,16 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     auto *taskProgressRow = new QHBoxLayout();
     taskProgressRow->setContentsMargins(0, 0, 0, 0);
     taskProgressRow->setSpacing(8);
+    taskProgressRow->addWidget(taskExtraLabel, 0, Qt::AlignVCenter);
+    taskProgressRow->addStretch(1);
     progressBar = new TaskProgressBar(taskSummaryButton);
     progressBar->setObjectName(progressBarName());
     progressBar->setRange(0, 100);
     progressBar->setValue(0);
-    progressBar->setFixedHeight(MainWindowUI::taskCenterPanelBarHeight());
-    taskProgressRow->addWidget(progressBar, 1);
+    progressBar->setRing(true);
+    progressBar->setFixedSize(28, 28);
+    taskCard->addWidget(progressBar, 0, Qt::AlignVCenter);
+    taskCard->addWidget(taskTextBox, 1);
     taskPercentLabel = new QLabel(taskSummaryButton);
     taskPercentLabel->setObjectName(taskPercentLabelName());
     {
@@ -1301,6 +1350,7 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     progressBar->hide();
     taskPercentLabel->hide();
     setBottomBarTaskSummary(BottomBarTaskSummary());
+    Theme::follow(statusLabel, [this]() { setBottomBarTaskSummary(m_lastTaskSummary); });
 
     // ---------- 右：头像 + 用户名 ----------
     // 真正的手绘皮肤头像要等 Minecraft profile API（登录流程现在只存了令牌，没取
@@ -1391,22 +1441,17 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     // 但不放进可见布局。右下角是跨页面的轻量工具箱入口。
     accountButton->hide();
 
-    toolboxButton = new QPushButton(QStringLiteral("工具箱"), bottomBar);
+    toolboxButton = new RailNavButton(QStringLiteral("工具箱"), bottomBar);
     toolboxButton->setObjectName(toolboxButtonName());
     toolboxButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     toolboxButton->setCursor(Qt::PointingHandCursor);
     toolboxButton->setToolTip(QStringLiteral("展开或收起工具箱"));
-    applyBottomBarButtonStyle(toolboxButton, bottomBar->palette());
-    // 箭头和任务摘要那一颗**同一个出处**（`VersionIcons::chevronUp`），不再用文字里的「︿」
-    // —— 那个字形和自绘箭头粗细对不上，两颗按钮并排时一眼能看出不是一套。
-    const auto applyToolboxChevron = [this]() {
-        const int size = MainWindowUI::bottomBarChevronSize();
-        toolboxButton->setIcon(QIcon(VersionIcons::chevronUp(
-            size, toolboxButton->palette().color(QPalette::WindowText))));
-        toolboxButton->setIconSize(QSize(size, size));
-    };
-    applyToolboxChevron();
-    Theme::follow(toolboxButton, applyToolboxChevron);
+    toolboxButton->setAttribute(Qt::WA_Hover, true);
+    {
+        QFont navFont = Theme::handFont(toolboxButton->font(), Theme::HandFont::Kai);
+        navFont.setPixelSize(TitleBar::navFontPixelSize());
+        toolboxButton->setFont(navFont);
+    }
 
     // 那两颗按钮点开都是**向上**弹一块面板（像官启那样）。面板里画什么由 MainWindow 灌
     // （每次点开现问一遍，见 setBottomBarPanelContent()），这里只留"怎么弹、弹在哪、
@@ -1443,13 +1488,14 @@ void MainWindowUI::setupBottomBar(QWidget *parent, QVBoxLayout *mainLayout) {
     // 一份空档所以还居中。
     // NOTE: 中间那一份是一颗按钮（任务摘要），份数照旧是 6 —— 按钮里面那个 layout 的
     // 边距显式清成了 0，所以宽度还是 356 px。
-    barLayout->addWidget(runStateButton, 0);
-    barLayout->addStretch(1);
-    barLayout->addWidget(taskSummaryButton, 6);
-    barLayout->addStretch(1);
-    barLayout->addWidget(toolboxButton, 0);
-
-    mainLayout->addWidget(bottomBar);
+    // 竖排：任务摘要 · 实例状态 · 工具箱。每格一个最小高，轨窄所以都是单列。
+    taskSummaryButton->setMinimumHeight(44);
+    runStateButton->setMinimumHeight(TitleBar::navItemHeight());  // 4+4 边距 + 两行字
+    toolboxButton->setFixedHeight(TitleBar::navItemHeight());
+    toolboxButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    barLayout->addWidget(taskSummaryButton);
+    barLayout->addWidget(runStateButton);
+    barLayout->addWidget(toolboxButton);
 }
 
 QString MainWindowUI::folderActionText(int action) {
@@ -2231,8 +2277,9 @@ void MainWindowUI::toggleToolboxPanel() {
     }
     layout->addLayout(grid);
     panel->adjustSize();
-    const QPoint anchor = toolboxButton->mapToGlobal(QPoint(toolboxButton->width(), 0));
-    panel->move(anchor.x() - panel->width(), anchor.y() - panel->height() - 6);
+    // 工具箱入口在左导航轨底部：面板左沿贴按钮左沿、往上弹，整块落在窗口里。
+    const QPoint anchor = toolboxButton->mapToGlobal(QPoint(0, 0));
+    panel->move(anchor.x(), anchor.y() - panel->height() - 6);
     panel->show();
 }
 
@@ -2252,6 +2299,7 @@ void MainWindowUI::setBottomBarTaskSummary(const BottomBarTaskSummary &summary) 
     if (statusLabel == nullptr || progressBar == nullptr) {
         return;  // setupUi() 还没跑完（和那几个访问器拿空指针当判据是同一个意思）
     }
+    m_lastTaskSummary = summary;
     // ---------- 那一行字 ----------
     // 占位那一档（一项任务都没有）用调色板里的 PlaceholderText：要的是**低强调度**
     // 的一句"暂无后台任务"，和"真有一件事在跑"的标题不能长成一个样子。
@@ -2346,6 +2394,13 @@ void MainWindowUI::setBottomBarTaskSummary(const BottomBarTaskSummary &summary) 
 void MainWindowUI::refreshTaskCenterPanel() {
     if (TaskCenterPanel *panel = taskCenterPanel()) {
         panel->requestRefresh();
+    }
+}
+
+void MainWindowUI::setRunStateActive(bool active) {
+    m_runStateActive = active;
+    if (runStateButton != nullptr) {
+        runStateButton->setVisible(active && (bar == nullptr || !bar->isCollapsed()));
     }
 }
 

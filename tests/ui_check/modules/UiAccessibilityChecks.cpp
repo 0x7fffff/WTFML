@@ -160,7 +160,17 @@ int UiAccessibilityChecks(QMainWindow &window) {
             std::fflush(stdout);
         } else {
             const QVector<QWidget *> chain = tabChain(&window, &window);
-            const QString jump = backwardJump(&window, chain);
+            // 7a：底栏挪进了左导航轨的底部（左下角），在 Tab 链上仍排在当前页之后。从页面右边
+            // 跳回左下角是「换一栏」，不算往回跳 ⇒ 页面那一段和轨底那一段各自量。
+            QWidget *footer = window.findChild<QWidget *>(MainWindowUI::bottomBarName());
+            QVector<QWidget *> pagePart;
+            QVector<QWidget *> footerPart;
+            for (QWidget *w : chain)
+                (footer != nullptr && footer->isAncestorOf(w) ? footerPart : pagePart).append(w);
+            QString jump = backwardJump(&window, pagePart);
+            const QString footerJump = backwardJump(&window, footerPart);
+            if (!footerJump.isEmpty())
+                jump += (jump.isEmpty() ? QString() : QStringLiteral("；")) + footerJump;
             check(chain.size() >= 10,
                   "U38. 主窗口当前这一页有十几格能 Tab 到（量得到东西，不是空链）",
                   QStringLiteral("只走到 %1 格").arg(chain.size()));

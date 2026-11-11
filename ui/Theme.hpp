@@ -69,6 +69,7 @@
 
 class QPainter;
 class QPushButton;
+class QLabel;
 class QStyle;
 class QWidget;
 
@@ -85,17 +86,36 @@ constexpr int textSize(TextRole role) {
     }
     return 14;
 }
+/// 手写体三支（见 assets/fonts/README.md）：文楷 Regular 给导航、小节标题、按钮短标签；
+/// 文楷 Light 给大标题（大而轻）；Dancing Script 只给纯西文的品牌与题词。第一次问到时从 qrc
+/// 注册，注册不上返回空串（调用方退回系统字体）。正文、表单、列表、日志**不用**它们。
+enum class HandFont { Kai, KaiLight, Script };
+QString handFamily(HandFont which);
+/// 把 `font` 换成那一支手写体（注册不上就原样返回）。
+QFont handFont(QFont font, HandFont which);
 inline QFont textFont(QFont font, TextRole role) {
     font.setPixelSize(textSize(role));
+    if (role == TextRole::Heading) font = handFont(font, HandFont::Kai);
+    if (role == TextRole::Display) font = handFont(font, HandFont::KaiLight);
     return font;
 }
 
 // 色号来自《WTFML_三主题配色规范》，组件共用，用户覆盖仍在 Spec 中保存。
+// 带 alpha 的几档（subtle / hover / selected / input / stroke / divider / focus）是叠在磨砂
+// 窗口底上的半透明层；page / card 不透明（独立弹出窗口拿它们打底）。
 struct Tokens {
-    QColor primary, deep, primaryHover, primaryPressed;
-    QColor page, main, card, subtle, hover, selected, input;
+    QColor primary, deep, primaryHover, primaryPressed;   // 主按钮底 / 强调字 / 悬停 / 按下
+    QColor page, main, card, subtle, hover, selected, input;  // 着色底 / - / 浮层 / 次按钮底 / 悬停 / 选中 / 输入框
     QColor text, secondary, disabled, stroke, divider, focus, thumb, track;
     QColor logWindow, logToolbar, logBase, logHint, logBorder, logDivider;
+    QColor onPrimary, accentSoft2, fillPress, fillSoftHover;  // 主按钮字 / 弱强调底 / 中性按下 / 次按钮悬停
+    QColor ok, warn, danger, okSoft, warnSoft, dangerSoft;
+    QColor dangerSolid, dangerSolidHover, dangerSolidPressed, onDanger;  // 只给对话框里不可逆确认
+    QColor glass, glassEdge, scrim;                         // 窗口内浮层面（半透明）/ 1px 亮边 / 遮罩
+    QColor heroInk, heroInk2, heroVeil;                     // 主页压在风景上的字；暗角色（不透明 rgb）
+    qreal heroScrim, heroTop, railFog;                      // 启动区 / 标题区暗角浓度；亮主题导航轨雾
+    QColor groundShade;                                     // 皮肤立绘落地影色
+    qreal groundGlint;                                      // 落地影下沿反光（白）浓度
 };
 Tokens tokens(const QString &presetId);
 Tokens tokens();
@@ -387,6 +407,7 @@ enum class ButtonKind {
     Neutral,  ///< 一般性：浅中性色底 + 深色文字，默认不画边
     Ghost,    ///< 低频辅助：没有底、没有边，只有字（边留成透明的 1px，**几何不变**）
     Danger,   ///< 不可撤销：淡红底 + 红字，默认不画边
+    DangerSolid,  ///< 对话框里不可逆的最终确认：实心暗哑红 + 浅字（其余危险动作一律用 Danger）
 };
 
 /// 属性名 + 属性值（`markButton()` 挂的就是这一对）；`QSS` 里那几条选择器也照着它写。
@@ -504,9 +525,9 @@ QString secondaryTextRoleValue();
 // 别处大 2pt（`installButtonFontStep()`），32 会显得挤。
 
 /// 普通动作按钮（确定 / 取消 / 应用 / 全部那些）的最小高度。
-constexpr int actionHeight() { return 34; }
+constexpr int actionHeight() { return 36; }
 /// "页面上唯一最重要的动作"那一档（`ButtonKind::Primary`），比普通动作略高一档。
-constexpr int primaryActionHeight() { return 38; }
+constexpr int primaryActionHeight() { return 36; }
 
 /// 这一位是**图标按钮**（齿轮 / 底栏面板上那几颗 / 详情页顶上的 chip）：它按自己钉死的
 /// 边长来，不跟 `actionHeight()` 那一档。
@@ -523,12 +544,14 @@ void markIconButton(QWidget *button);
  * @brief 一排 chip 的高度（px）—— **唯一出处**。
  *
  * 24 而不是 `actionHeight()`（32）：chip 是**筛选条件**，不是"按下去会发生一件事"的主
- * 行动按钮。它和一排里的输入框（`QLineEdit` 24px）同高，两者并排摆着才是"一行控件"；
- * 用它那一档高度的话，筛选行会比搜索框高出一截、看着像两件不搭界的东西。
+ * 行动按钮。和它并排的搜索框带 `wtfmlChipHeight`，压到同高，两者并排摆着才是"一行控件"。
  *
  * NOTE: 它同时是**资源详情页那排游戏版本 chip** 的高度，两处必须是同一个数。
  */
-constexpr int chipHeight() { return 24; }
+constexpr int chipHeight() { return 30; }
+
+/// 输入框 / 下拉框的默认外高（设计稿令牌「控件高 常规」36）。下拉箭头那格跟着整高走。
+constexpr int inputHeight() { return 36; }
 
 /**
  * @brief chip 那颗按钮长什么样（QSS 字符串）。
@@ -556,6 +579,15 @@ QString chipStyleSheet(const QPalette &palette);
  * （常驻的那些 chip 不会有人替它们重建）。
  */
 void markChipButton(QPushButton *button);
+
+/// 徽标（设计稿 .badge）：22 高胶囊、12 px 字；中性 fill-soft + ink-2，其余是各自的淡底 + 本色。
+enum class BadgeTone { Neutral, Accent, Ok, Warn, Danger };
+void markBadge(QLabel *label, BadgeTone tone);
+
+/// 分段（设计稿 .seg）：容器 fill-hover 底、圆角 12、内边距 3；段是可勾选的 QPushButton，
+/// 30 高、圆角 9、霞鹜文楷 14；勾上 = accent-soft 底 + accent 字。样式在 `widgetStyleSheet()`
+/// 里按属性挂（`wtfmlSegmented` / `wtfmlSegment`），这里只打属性、定高、互斥。
+void markSegmented(QWidget *container, const QList<QPushButton *> &segments);
 
 // ---------------------------------------------------------------------------
 // 色块（一颗按钮，面上就是它代表的那块色）
@@ -589,9 +621,9 @@ void markColorSwatch(QPushButton *button, const QColor &color);
 
 
 /// 输入类控件（`QLineEdit` / `QComboBox` / `QAbstractSpinBox` / 勾选框那个框）的圆角。
-constexpr int controlRadius() { return 6; }
+constexpr int controlRadius() { return 10; }
 /// `QPushButton` 的圆角（比输入类大一档：它比输入框矮胖，同一个圆角看着更方）。
-constexpr int buttonRadius() { return 8; }
+constexpr int buttonRadius() { return 10; }
 /// 主表面（`wtfmlSurface="workspace"` / `"sidebar"`）的圆角。
 constexpr int surfaceRadius() { return 0; }
 /// 小节卡片与主表面统一使用直角。

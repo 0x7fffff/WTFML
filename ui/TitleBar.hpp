@@ -1,46 +1,17 @@
 /**
  * @file TitleBar.hpp
- * @brief 顶上那条**自己画的**标题栏：左边一个草方块 + 启动器名字，右边最小化与关闭。
+ * @brief 左导航轨：顶上品牌 + 折叠钮，中间五颗导航（线性图标 + 手写体标签），底下挂后台任务与工具箱。
  *
- * 外框整个是自定义的：不用系统顶上那条白色的标题栏，顶上这一条自己设计、自己画。
+ * 和窗口同一层底（不铺色块），靠选中那一格的淡主题色底 + 左边一根指示条分层；指示条在
+ * 两颗之间滑动（≤180 ms，`Anim::enabled()` 关掉就直接跳）。最小化 / 最大化 / 关闭不在轨上，
+ * 在 `captionStrip()` 那条透明的条上（摆在右栏最上面，高 40）。
  *
- * 【它和 WindowChrome 是两件事】
- * · `ui/WindowChrome`：把系统那条标题栏**去掉**（Win32 那一层，见它的文件头）；
- * · 本文件：去掉之后顶上留出来的那块地方**摆什么**。
- * 所以这里一个 Win32 调用都没有 —— 搬不走的东西在 WindowChrome 里，这一份是纯控件。
+ * 轨宽 208，可折成 64 的图标轨：用户点品牌旁的折叠钮，或窗口宽 < 1024 时自动折。
  *
- * 【条上有几样东西】
- * 1. 左边一颗草方块（`VersionIcons::grassBlock`，和版本树那几行同一张图）+ 启动器名字
- * （默认是 `defaultBrandText()` 那五个字母，**可以在设置页「个性化」栏的「外观」里改成别的**，
- * 见 `setBrandText()`）；
- * 2. **正中间是那四颗导航按钮**（主页 / 实例 / 下载 / 设置）—— 内容区那条选项卡栏被隐藏，
- * 翻页由这四颗按钮打开，且**居中**（那个"正中"怎么算出来的，
- * 只有 `TitleBar.cpp` 里 `kNavGroupLeftMargin` 一处）。按钮只发 `navRequested(下标)`，
- * 谁去翻页是调用方的事；
- * 3. 右边两颗按钮：最小化（—）与关闭（×），字形同样出自 `VersionIcons`（自己画的，
- * 仓库里没有图片文件）；
- * 4. 条上除了那六颗按钮**没有别的子控件**：名字与导航之间、导航与窗口按钮之间那两片
- * 空白都是 `paintEvent` 画出来的底（草方块和名字也是画的）—— 拖窗靠的是
- * `WindowChrome::handleNativeEvent()` 把这两片判成 HTCAPTION（系统拖窗 + 贴边吸附
- * 白拿），这里不需要任何代码。
+ * 轨上除了按钮和底部挂件没有别的子控件：品牌、导航之间的空白都是画的，`ui/WindowChrome`
+ * 把这些空白判成拖窗区（`childAt()` 认不到子控件就是）。
  *
- * NOTE: 名字可以在设置里改，**窗口标题不跟着动**：窗口标题还得在 Alt-Tab / 任务栏里读得
- * 出来（`MainWindowUI::setupUi` 里那句 `setWindowTitle`），那是**另一件事**。
- *
- * 【为什么导航按钮摆在这儿而不是把 QTabBar 搬出来】
- * `QTabWidget::setTabBar()` 换得掉那一份，但标签栏的**几何**仍然归 QTabWidget 管
- * （位置、圆角、和内容区那条接缝都是它画的），搬出来只会得到一个"画风不对、位置还会被
- * 拽回去"的条。所以这边走的是"按钮 + 隐藏标签栏"：`MainWindowUI::setupUi()` 里
- * `tabWidget->tabBar()->hide()`，Qt 的 `initStyleOption()` 里那句 `isVisibleTo()` 一判，
- * `tabBarSize` 就归零、内容页于是铺满整个 QTabWidget —— 见那一处的 NOTE。
- *
- * NOTE: 不做最大化。主窗口本来就不许最大化（`MainWindowUI::setupUi` 里摘了
- * `Qt::WindowMaximizeButtonHint`，`WindowChrome` 加回外框样式时也没给 WS_MAXIMIZEBOX），
- * 所以这里没有第三颗按钮 —— 有按钮有、点下去没反应是最差的一种。
- *
- * NOTE: 那两颗按钮**上面**留的空白（buttonInset()）不能小于系统那圈缩放边：条的上沿压着
- * 缩放边，按钮压进去就成了"按按钮最上面几个像素 = 缩放窗口"。这个数由
- * `WindowChrome::resizeBorder()` 在验证工程里对着核。
+ * 按钮只发信号（`navRequested`、`minimizeRequested`…），翻页、收窗是调用方的事。
  */
 
 #pragma once
@@ -53,180 +24,136 @@
 #include <QWidget>
 
 class QHBoxLayout;
-class TitleBarButton;
+class QVBoxLayout;
 class QVariantAnimation;
 
-/**
- * @brief 顶上那条自己画的标题栏。
- *
- * 点最小化/关闭**不自己动手**（不去 call `window()->showMinimized()`），只发信号 ——
- * 这样它在验证工程里能单独摆出来、单独点，不用真开窗。
- */
 class TitleBar : public QWidget {
     Q_OBJECT
 
 public:
     explicit TitleBar(QWidget *parent = nullptr);
 
-    /// 条高（逻辑像素）。**唯一出处**：`MainWindowUI` 摆它、验证工程量它、写断言都引这里。
+    /// 展开时的轨宽（逻辑像素）。
+    static int railWidth();
+    /// 折叠后的图标轨宽。
+    static int collapsedRailWidth();
+    /// 窗口宽低于这个数时轨自动折叠。
+    static int narrowBreakpoint();
+    /// 右上那条窗口按钮条的高（顶部拖动区高）。
     static int barHeight();
-    /// 三处按钮（两颗窗口按钮 + 每一颗导航）的**高**（逻辑像素）。
+    /// 窗口按钮的高（= 条高；宽是 `windowButtonWidth()`）。
     static int buttonSize();
-    /// 按钮**上面**留的空白（见文件头那条 NOTE）。它必须 ≥ `WindowChrome::resizeBorder()`
-    /// —— 两颗窗口按钮和四颗导航按钮**都**压在这条规矩上（它们的高都是 buttonSize()）。
+    static int windowButtonWidth();
+    /// 窗口按钮上面留的空白（按钮贴顶，0）。
     static int buttonInset();
-    /// 每一颗导航按钮的宽（逻辑像素）。
+    /// 每一颗导航的宽 / 高（展开时）。
     static int navItemWidth();
-    /**
-     * @brief 四颗导航按钮上的字比正文大多少（pt）。
-     *
-     * 和名字那一档（`TitleBar.cpp` 里的 `kBrandPointDelta`）是**两个独立的旋钮**，值一样只是
-     * 碰巧（名字那一颗是加粗的，同一号字看着本来就大一点）。用法见 `navFontPixelDelta()`。
-     * NOTE: 验证工程读这个数、**别在测试里写死 2** —— 和 `windowButtonsRightMargin()` 一个规矩。
-     */
-    static qreal navFontPointDelta();
-    /// 上面那个数的**像素档**（面板字体是按像素定义的时候用这一档，见 `enlargedFont()`）。
-    static int navFontPixelDelta();
-
-    /**
-     * @brief 右边那两颗窗口按钮**离窗口右边缘**多远（逻辑像素）。
-     *
-     * 两颗按钮**不顶到条的最右边**：这一格是留出来的余量。
-     * NOTE: 它和"导航那一组居中"是同一个方程的两头 —— 改了这里，左边距
-     * `kNavGroupLeftMargin` 必须跟着改同样的量（`L - R = B`）。验证工程拿这个
-     * accessor 量"按钮没有顶到最右边"，**别在测试里写死 10**。
-     */
+    static int navItemHeight();
+    /// 导航标签的像素字号（手写体）。
+    static int navFontPixelSize();
+    /// 窗口按钮离窗口右边缘多远。
     static int windowButtonsRightMargin();
-    /// **默认**那五个字母。**唯一出处** —— 条上画的是它（除非 `setBrandText()` 换过）、
-    /// 设置页那一格的占位文字也是它、断言比的还是它。
+    /// 默认品牌名（设置页「个性化」里可以改）。
     static QString defaultBrandText();
 
-    /// 右边那两颗按钮。验证工程靠它们点那两下。
     QAbstractButton *minimizeButton() const { return m_minimize; }
+    QAbstractButton *maximizeButton() const { return m_maximize; }
     QAbstractButton *closeButton() const { return m_close; }
+    QAbstractButton *foldButton() const { return m_fold; }
+    /// 装着窗口按钮的那条透明条（调用方把它摆进右栏最上面；它也是一条拖窗区）。
+    QWidget *captionStrip() const { return m_caption; }
 
-    /// 摆上（或换掉）那一排导航按钮。标签一律由调用方给 —— 现在给的是
-    /// `QTabWidget::tabText()`，于是"四个选项卡"的名字只有一处出处。
-    /// @param labels 从左到右的标签；空表 = 这一排按钮整个没有。
+    /// 摆上（或换掉）那一排导航。标签由调用方给（`QTabWidget::tabText()`）。
     void setNavItems(const QStringList &labels);
-
-    /// 把第 @p index 颗标成"当前这一页"（其余几颗退回次要色）。越界 = 一颗都不标。
     void setCurrentNav(int index);
-
-    /// 现在标着的是第几颗（一颗都没标 = −1）。给断言用。
     int currentNav() const { return m_currentNav; }
-    /// 导航按钮的颗数。
     int navCount() const { return static_cast<int>(m_navButtons.size()); }
-    /// 第 @p index 颗导航按钮（越界给 nullptr）。
     QAbstractButton *navButton(int index) const;
 
-    /**
-     * @brief 换掉条上那行字（设置页「个性化」栏的「外观」那一项接的就是它）。
-     * @param text 新名字；**两头的空白会去掉**，去掉之后为空 = **回到默认那五个字母**
-     * （所以"把输入框清空"是"恢复默认"，不是"条上什么都不写"）。
-     *
-     * 只影响条自己。窗口标题（Alt-Tab / 任务栏里那一份）不跟着动 —— 那是两件事，
-     * 见文件头那条 NOTE。
-     */
-    void setBrandText(const QString &text);
+    /// 轨底部那一块（后台任务、工具箱）。交进来的控件归轨管。
+    void setFooter(QWidget *footer);
 
-    /// 条上现在写着的那行字（**已经把默认值算进去了**：换过就是换的那个，
-    /// 没换过/清空过就是 `defaultBrandText()`）。
+    /// 换品牌名；两头空白去掉后为空 = 回默认。
+    void setBrandText(const QString &text);
     QString titleText() const;
 
+    /// 用户手动折叠（窄窗自动折叠另算，见 `isCollapsed()`）。
+    void setCollapsed(bool collapsed);
+    /// 现在是不是图标轨（用户折了，或窗口窄）。
+    bool isCollapsed() const { return m_userCollapsed || m_narrow; }
+    /// 窗口最大化时把「最大化」那颗换成「还原」的样子。
+    void setMaximized(bool maximized);
+    /// 主页上（轨压在清晰风景上）窗口按钮用主页字色。
+    void setHeroMode(bool hero);
+
 signals:
-    /// 那颗「—」被点了。
     void minimizeRequested();
-    /// 那颗「×」被点了。
+    void maximizeRequested();
     void closeRequested();
-    /// 第 @p index 颗导航按钮被点了（**只报"点的是哪一颗"**，翻不翻页由调用方决定）。
     void navRequested(int index);
-    /// 根导航已经应用完成。这一发把“从哪儿来 / 去哪儿 / 是否重点当前页”
-    /// 一次说清，业务层不再依赖两个 `navRequested` 槽的连接先后顺序猜来路。
+    /// 根导航已经应用完成（从哪儿来 / 去哪儿 / 是否重点当前页）。
     void navigationApplied(int sourceIndex, int targetIndex, bool reselected);
+    /// 轨在展开 / 图标轨之间切换了（底部挂件据此收起文字）。
+    void collapsedChanged(bool collapsed);
 
 protected:
     void paintEvent(QPaintEvent *event) override;
-    /// 调色板一变（换主题 / 系统换深浅）就把条上存下来的那几份颜色重算一遍。
     void changeEvent(QEvent *event) override;
+    void showEvent(QShowEvent *event) override;
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
-    /// 条上所有颜色**现算一遍**：条底色、两颗窗口按钮的悬停色与墨色、四颗导航的悬停色与
-    /// 墨色（当前那一颗加粗 + 底下一条横线，见 `TitleBarButton::paintEvent`）。
-    ///
-    /// 这是条上颜色的**唯一**出处。颜色跟着调色板和主题覆盖项走；若分散在各处各算各的，
-    /// 用户单独改过标题栏底色之后，只有被改造到的那一处会跟着变。
-    /// NOTE: 基色调色板一律取 `QApplication::palette()`，**不能**取 `palette()`（条自己持有
-    /// 一份，里面那个 Window 已经是压暗过一档的了 —— 见 .cpp 里那段"第二次压暗"）。
     void applyColors();
+    void applyWidth(bool animate);
+    void layoutForWidth(int width);
 
-    QHBoxLayout *m_layout = nullptr;
-    /// 导航那几颗**自己一层**（夹在主布局的两段等长 stretch 中间）：这一层就是"居中"的
-    /// 实现，也是 `setNavItems()` 唯一动的东西（主布局从头到尾不变）。
-    QHBoxLayout *m_navLayout = nullptr;
+    QVBoxLayout *m_layout = nullptr;
+    QVBoxLayout *m_navLayout = nullptr;
+    QWidget *m_caption = nullptr;
+    QWidget *m_footer = nullptr;
     QAbstractButton *m_minimize = nullptr;
+    QAbstractButton *m_maximize = nullptr;
     QAbstractButton *m_close = nullptr;
+    QAbstractButton *m_fold = nullptr;
+    QAbstractButton *m_logo = nullptr;
     QList<QAbstractButton *> m_navButtons;
     int m_currentNav = -1;
-    /// 用户换过的名字。**空 = 没换过**（`titleText()` 于是回默认那五个字母）——
-    /// 所以这里存的不是"条上会画的那串"，别拿它当显示值。
     QString m_brand;
-    /// `applyColors()` 正在跑（防自咬：它自己会 `setPalette()`，而我们就挂在那个事件上）。
     bool m_applyingColors = false;
+    bool m_userCollapsed = false;
+    bool m_narrow = false;
+    bool m_hero = false;
+    bool m_watchingWindow = false;
+    int m_pillFrom = -1;
+    qreal m_pillProgress = 1.0;
+    QVariantAnimation *m_pillAnimation = nullptr;
+    QVariantAnimation *m_widthAnimation = nullptr;
 };
 
-/**
- * @brief 条上的一颗按钮（窗口那两颗方块按钮 + 那四颗导航按钮都是它）：底和字形都是自己画的。
- *
- * 为什么不用 QToolButton + QSS：这一条上按钮的颜色只有"普通 / 悬停 / 当前"三档、
- * 形状只有"图标"和"一行字"两种，画出来十几行、颜色全在代码里 ⇒ 能直接对着像素断言
- * （和 `VersionIcons` 那一路的理由一样）。
- * 继承 `QAbstractButton` 是为了白拿 hover 跟踪、按下高亮、`clicked()` 与 `click()`（验证工程要用）。
- */
+/// 轨上和窗口按钮条上的那几颗按钮：自己画（线性图标 + 可选文字），悬停 / 按下走中性灰。
 class TitleBarButton : public QAbstractButton {
     Q_OBJECT
 
 public:
-    /// 画哪种字形。其余一切（底色、悬停色、墨色）由构造参数给。
-    /// `Text` 那一档画的是**标签文字**（导航按钮用），前两档画的是 `VersionIcons` 里的字形。
-    enum class Glyph { Minimize, Close, Text };
+    enum class Glyph { Minimize, Maximize, Close, Text, Fold, Logo };
+    enum class NavIcon { None, Home, Instances, Download, Settings, Agent, Toolbox };
 
-    /**
-     * @param glyph 画哪种字形。
-     * @param hoverColor 悬停时铺的底色（关闭那颗是红 —— 那个红来自
-     * `Theme::dangerColor()`，全仓只有一个出处）。
-     * @param hoverInk 悬停时字形的颜色（关闭那颗悬停时字形要转白，不然红底上看不清）。
-     * @param parent 父控件。
-     *
-     * NOTE: 这两个色**构造时给的一般是空色**：真正的值由 `TitleBar::applyColors()` 统一
-     * 设（含主题换了以后那一次），见那里的 NOTE。
-     */
     TitleBarButton(Glyph glyph, const QColor &hoverColor, const QColor &hoverInk, QWidget *parent = nullptr);
 
-    /// `Glyph::Text` 那一档的标签。走 `QAbstractButton::text()` 那一份（画的就是它），
-    /// 这里只是给个同名同义的入口，免得调用方还要知道"标签存在基类里"。
     void setLabel(const QString &text) { setText(text); }
     QString label() const { return text(); }
-
-    /// 这一颗是不是"当前这一页"。**只影响画法**（加粗 + 底下一条横线），
-    /// 选中态本身（当前是第几页）不归这里管 —— 那一份在 `TitleBar::m_currentNav`。
+    void setNavIcon(NavIcon icon);
+    NavIcon navIcon() const { return m_icon; }
+    /// 当前页那一颗：底由轨画（会滑），自己只换字色。
     void setCurrent(bool current);
     bool isCurrent() const { return m_current; }
-
-    /// 现在是不是悬停态（验证工程要能问，不然"悬停变红"这件事没法验）。
     bool isHovered() const { return m_hovered; }
-
-    /// 不铺底色时那格的底（默认是全透 —— 条自己的底色透上来）。
     void setBaseColor(const QColor &color);
-    /// 不悬停时字形的颜色（默认取条上的正文色）。
-    /// NOTE: 导航按钮那几颗**每次改当前页都重设一次**：当前那颗用正文色、其余几颗用
-    /// `QPalette::PlaceholderText`（全仓"比正文浅一档的次要操作"就是它，
-    /// `VersionTreeDelegate` 里那个取消小叉用的也是它）。所以这里存的是**静态**墨色，
-    /// 悬停时另外走 `m_hoverInk`。
     void setInkColor(const QColor &color);
-    /// 悬停时铺的底色 / 字形的颜色。**主题换了之后要重设**（这两个色是算出来的，
-    /// 一存下来就不跟着调色板走了）——`TitleBar::applyColors()` 每次都调它。
     void setHoverColors(const QColor &hoverColor, const QColor &hoverInk);
+    void setPressColor(const QColor &color);
+    /// 「最大化」那颗显示成「还原」。
+    void setRestoreGlyph(bool restore);
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -234,15 +161,15 @@ protected:
 
 private:
     Glyph m_glyph;
+    NavIcon m_icon = NavIcon::None;
     QColor m_hoverColor;
     QColor m_hoverInk;
+    QColor m_pressColor;
     QColor m_baseColor = Qt::transparent;
     QColor m_ink;
     QVariantAnimation *m_hoverAnimation = nullptr;
-    QVariantAnimation *m_currentAnimation = nullptr;
     qreal m_hoverProgress = 0.0;
-    qreal m_currentProgress = 0.0;
     bool m_hovered = false;
-    /// 当前这一页（只有导航按钮会置位）。
     bool m_current = false;
+    bool m_restore = false;
 };

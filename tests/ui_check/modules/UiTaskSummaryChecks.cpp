@@ -1,5 +1,10 @@
 #include "Support.hpp"
 int UiTaskSummaryChecks(MainWindowUI &ui) {
+    // 任务卡在导航轨底部；窄于 1024 的窗口里轨折成图标轨、摘要文字收起。量展开那一档。
+    QWidget *const host = ui.getTaskSummaryButton() != nullptr ? ui.getTaskSummaryButton()->window() : nullptr;
+    const QSize hostSize = host != nullptr ? host->size() : QSize();
+    if (host != nullptr) host->resize(1280, 800);
+    QApplication::processEvents();
 
     {
         // 这一节量的是中间那一格：它只说**一句话**，说哪一句由账本那边的
@@ -25,12 +30,11 @@ int UiTaskSummaryChecks(MainWindowUI &ui) {
         check(progressSelfDrawn != nullptr,
               "★★ E4 底栏那一格用的是**自绘的进度条**（TaskProgressBar），不是原生 QProgressBar");
         if (progressSelfDrawn != nullptr) {
-            check(progressSelfDrawn->height() == MainWindowUI::taskCenterPanelBarHeight(),
-                  "★ E4 那根条的高度就是**三处共用**的那一位"
-                  "（`taskCenterPanelBarHeight()`，底栏 / 面板行 / 详情页同一个出处）",
-                  QStringLiteral("高 %1 期望 %2")
-                      .arg(progressSelfDrawn->height())
-                      .arg(MainWindowUI::taskCenterPanelBarHeight()));
+            // 设计稿轨底任务卡：28 见方的进度环（面板行 / 详情页仍是细条）。
+            check(progressSelfDrawn->isRing() && progressSelfDrawn->size() == QSize(28, 28),
+                  "★ E4 任务卡上那一格是 28×28 的进度环",
+                  QStringLiteral("%1x%2 环=%3").arg(progressSelfDrawn->width())
+                      .arg(progressSelfDrawn->height()).arg(progressSelfDrawn->isRing()));
         }
         if (status != nullptr && extra != nullptr && progress != nullptr && cell != nullptr) {
             // ---- ① 那句话怎么拼 ----
@@ -132,6 +136,8 @@ int UiTaskSummaryChecks(MainWindowUI &ui) {
             QApplication::processEvents();
         }
     }
+    if (host != nullptr) host->resize(hostSize);
+    QApplication::processEvents();
  return 0;
 }
 

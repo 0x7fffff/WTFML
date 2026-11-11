@@ -10,7 +10,7 @@ if(MSVC)
     add_compile_options(/Zc:__cplusplus)
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Network Core Gui Concurrent)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Network Core Gui Concurrent GuiPrivate)
 
 # The launcher used to keep its verification programs under build/, which meant
 # they were invisible to source control and to CTest.  Keep normal developer
@@ -291,6 +291,7 @@ set(HEADER_FILES
     ui/RuntimeOutputModel.hpp
     ui/Theme.hpp
     ui/ThemeBackground.hpp
+    ui/Glass.hpp
     ui/ConfigEntries.hpp
     ui/MotdText.hpp
     ui/ToggleSwitch.hpp
@@ -612,6 +613,7 @@ set(SOURCE_FILES
     ui/ServerSettingsPage.cpp
     ui/GroupDialog.cpp
     ui/GroupListDelegate.cpp
+    ui/ListRowDelegate.cpp
     ui/InstanceSettingsDialog.cpp
     ui/InstanceSettingsSignature.cpp
     ui/InstanceUpdateWizard.cpp
@@ -658,6 +660,7 @@ set(SOURCE_FILES
     # 动效那一层：按下按钮 / 换页 / 展开折叠。
     ui/Animations.cpp
     ui/ThemeBackground.cpp
+    ui/Glass.cpp
     ui/WindowChrome.cpp
     ${HEADER_FILES}
 )
@@ -770,6 +773,8 @@ target_link_libraries(WTFMinecraftLauncher PRIVATE
     Qt6::Core
     Qt6::Gui
     Qt6::Concurrent
+    # ui/WindowChrome.cpp：QNativeInterface::Private::QWindowsWindow::setCustomMargins（去掉系统标题栏）。
+    Qt6::GuiPrivate
 )
 
 if(WTFML_STRICT_WARNINGS)

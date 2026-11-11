@@ -35,15 +35,14 @@ int UiOverlayGeometryChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * 
                   .arg(pageSize.height()));
         // 顶上那一条和底栏必须露着（要求「底下那一条不用覆盖，**顶上四个选项卡也不覆盖**」
         // —— 那四个选项卡 起就在这条上，所以"露着"这一条现在由条来满足）。
-        check(stripInWindow.isValid() && stripInWindow.bottom() < overlayTopLeft.y(),
-              "没盖住顶上那一条（四个功能在那上面）",
-              QStringLiteral("条底 %1 ／ 覆盖层顶 %2")
-                  .arg(stripInWindow.bottom())
-                  .arg(overlayTopLeft.y()));
-        check(overlayTopLeft.y() + overlay->height() <= barInWindow.top(), "没盖住底下那一条",
-              QStringLiteral("覆盖层底 %1 ／ 底栏顶 %2")
-                  .arg(overlayTopLeft.y() + overlay->height())
-                  .arg(barInWindow.top()));
+        // 壳换成左导航轨后：功能入口和原底栏都在轨上，覆盖层得整个落在轨右边、窗口按钮条下面。
+        check(stripInWindow.isValid() && stripInWindow.right() < overlayTopLeft.x() &&
+                  barInWindow.right() < overlayTopLeft.x(),
+              "没盖住左边的导航轨（功能入口和轨底任务卡都在那上面）",
+              QStringLiteral("轨右 %1 ／ 轨底卡右 %2 ／ 覆盖层左 %3")
+                  .arg(stripInWindow.right()).arg(barInWindow.right()).arg(overlayTopLeft.x()));
+        check(overlayTopLeft.y() >= TitleBar::barHeight(), "没盖住顶上的窗口按钮条",
+              QStringLiteral("覆盖层顶 %1").arg(overlayTopLeft.y()));
 
         // 返回箭头：用户点名的「左上角有返回箭头」。
         auto *backButton = overlay->findChild<QPushButton *>(OverlayHost::overlayBackButtonName());

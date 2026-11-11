@@ -42,38 +42,33 @@ void ToggleSwitch::leaveEvent(QEvent *event) {
 
 void ToggleSwitch::paintEvent(QPaintEvent *event) {
     Q_UNUSED(event);
-    const QRect box(0, 0, width(), height());
-    const int margin = MainWindowUI::toggleSwitchKnobMargin();
-    // 圆钮是个**整圆**，直径就是控件的内高 —— 外高减掉上下各一道留白。
-    const int knob = qMax(4, box.height() - 2 * margin);
-
-    const QPalette &palette = this->palette();
-    // 翡翠开启态使用主题主强调，避免与列表的浅色选中底混用；其他主题保持原调色板映射。
-    QColor track = isChecked() ? palette.color(QPalette::Highlight)
-                               : palette.color(QPalette::Mid);
-    const bool emerald = Theme::current().presetId == QLatin1String("emerald");
-    if (isChecked() && emerald) track = Theme::tokens().primary;
-    if (m_hovered && isEnabled()) {
-        // 悬停亮一档（`lighter` 比手写一个色号稳：它按当前这一档算）。
-        track = isChecked() && emerald ? Theme::tokens().primaryHover : track.lighter(115);
-    }
+    // 设计稿：关 = 空心 1.5px ink-3 描边 + ink-2 圆点 12；开 = 强调色实心 + on-accent 圆点 14；
+    // 悬停圆点放大 1.12（关着时底垫中性灰）；按下圆点拉长到 17 宽；禁用整枚 .45。
+    const QRectF box(0.75, 0.75, width() - 1.5, height() - 1.5);
+    const Theme::Tokens t = Theme::tokens();
+    const QColor accent = palette().color(QPalette::Accent);
+    const bool hovered = m_hovered && isEnabled();
+    const bool on = isChecked();
 
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing, true);
-    if (!isEnabled()) {
-        // 禁用：整枚淡下去（和 VersionTreeDelegate 里"整行淡下去"同一个做法 —— 一眼看得出
-        // "这一格现在点不得"，而形状还在、还认得出是个开关）。
-        painter.setOpacity(0.5);
+    if (!isEnabled()) painter.setOpacity(0.45);
+    const qreal radius = box.height() / 2.0;
+    if (on) {
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(hovered ? (accent == t.primary ? t.primaryHover : accent.lighter(110)) : accent);
+    } else {
+        painter.setPen(QPen(t.disabled, 1.5));
+        painter.setBrush(hovered ? t.hover : QColor(Qt::transparent));
     }
-    painter.setPen(Qt::NoPen);
-    painter.setBrush(track);
-    // 药丸形：圆角半径取外高的一半，两头就是半圆。
-    painter.drawRoundedRect(box, box.height() / 2.0, box.height() / 2.0);
+    painter.drawRoundedRect(box, radius, radius);
 
-    // 圆钮：开着贴右边、关着贴左边，中间那一段就是"拨过去"的距离。
-    const int knobX = isChecked() ? box.width() - margin - knob : margin;
-    const QRect knobRect(knobX, margin, knob, knob);
-    painter.setBrush(isEnabled() ? palette.color(QPalette::Base)
-                                 : palette.color(QPalette::Window));
-    painter.drawEllipse(knobRect);
+    qreal knob = on ? 14.0 : 12.0;
+    if (hovered) knob *= 1.12;
+    const qreal knobWidth = isDown() ? qMax(knob, 17.0) : knob;
+    const qreal inset = (height() - knob) / 2.0;
+    const qreal x = on ? width() - inset - knobWidth : inset;
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(on ? t.onPrimary : t.secondary);
+    painter.drawRoundedRect(QRectF(x, inset, knobWidth, knob), knob / 2.0, knob / 2.0);
 }

@@ -363,43 +363,6 @@ void rasterizeFace(const DrawFace &face, Canvas &canvas, bool blendOnly) {
     }
 }
 
-// ---------- 默认外观 ----------
-//
-// 两格十六进制：整个人是 #000000，脸上一枚 #ffffff 的问号。
-// 这里只有这两个色号，**不许调色** —— 改一个数字就是另一张图，
-// ui_check 里那几条是按这两个值逐像素量的。
-const QColor kPlaceholderBody(0x00, 0x00, 0x00);
-const QColor kPlaceholderInk(0xFF, 0xFF, 0xFF);
-
-/// 脸上那枚问号：4 格宽 × 6 格高，`#` 是要画成白色的格子（最后那一行是底下那一点，
-/// 中间空的那一行是它和上面那钩子之间的距离）。**写死**，不画字体 —— 字号一缩放就不是
-/// 这个形状了，而且这一格要能对着像素断言。
-///
-/// NOTE: 和 `VersionIcons.cpp` 里幸运方块上那枚**不一样** —— 那边是 5×7（方块是
-/// 16×16、四周还有一圈描边，半格的偏差看不出来），这边是 4×6 为了正中（见
-/// kQuestionOffset 那段）。两处各写一份：一个是版本树的方块图标、一个是皮肤贴图，
-/// 为了这几行字让两个模块互相 include 不值当。改了哪边，哪边那条按像素量的断言会红。
-constexpr int kQuestionWidth = 4;
-constexpr int kQuestionHeight = 6;
-const char *const kQuestionRows[kQuestionHeight] = {
-    ".##.",
-    "#..#",
-    "...#",
-    "..#.",
-    "....",
-    "..#.",
-};
-
-/// 这枚问号在**脸上那一格里的偏移**（不是贴图上的绝对位置——那一格在哪由 faceRect() 说了算，
-/// 见 defaultSteveSkin()）。
-///
-/// 字形是 4×6、脸是 8×8，于是上下左右余量正好各是整数：(8−4)/2 = 2、(8−6)/2 = 1 ——
-/// **这就是它居中的全部理由**。
-///
-/// NOTE: 字形必须是偶数宽才可能正中：脸是 8×8，4×6 摆出来的上下左右余量正好各是整数
-/// —— (8−4)/2 = 2、(8−6)/2 = 1。5×7 那种奇数尺寸**怎么摆都差半格**。想改大的话，
-/// 宽度必须是 2 / 4 / 6。
-const QPoint kQuestionOffset(2, 1);
 
 }  // namespace
 
@@ -795,58 +758,10 @@ void render(QPainter &painter, const QRectF &target, const Scene &scene) {
 }
 
 QImage defaultSteveSkin() {
-    QImage skin(64, 64, QImage::Format_ARGB32_Premultiplied);
-    skin.fill(Qt::transparent);
-
-    QPainter painter(&skin);
-    painter.setPen(Qt::NoPen);
-
-    /// 给某个部件的某一面刷一种颜色。
-    const auto fillFace = [&painter](const QPoint &base, int w, int h, int d, Face face,
-                                     const QColor &color) {
-        painter.fillRect(faceRect(base, w, h, d, face), color);
-    };
-    /// 整个部件六面同色。
-    const auto fillBox = [&fillFace](const QPoint &base, int w, int h, int d,
-                                     const QColor &color) {
-        for (Face face : allFaces()) {
-            fillFace(base, w, h, d, face, color);
-        }
-    };
-
-    // ---- 整个人：六个部件、每个六面，全刷成同一个黑 ----
-    //
-    // 这六块是 64×64 贴图上"里层"那六块。另外六块（帽子 / 外套 / 两只袖子 / 两条裤脚）
-    // **一个格子都不碰**、全程透明：它们盖在里层外面，涂黑了就会把脸上那枚问号挡住
-    // —— 而且"透明"本来就是那一层的常态（见 render() 里第二层那段）。
-    fillBox(QPoint(0, 0), 8, 8, 8, kPlaceholderBody);     // 脑袋
-    fillBox(QPoint(16, 16), 8, 12, 4, kPlaceholderBody);  // 身体
-    fillBox(QPoint(40, 16), 4, 12, 4, kPlaceholderBody);  // 右臂
-    fillBox(QPoint(32, 48), 4, 12, 4, kPlaceholderBody);  // 左臂
-    fillBox(QPoint(0, 16), 4, 12, 4, kPlaceholderBody);   // 右腿
-    fillBox(QPoint(16, 48), 4, 12, 4, kPlaceholderBody);  // 左腿
-
-    // ---- 脸上那枚问号 ----
-    //
-    // 画在脑袋**正面**那一格贴图上（那一面就是渲染时正对着镜头的）。那一格在贴图上的位置
-    // 由 faceRect() 给，和渲染那边**同一个出处** —— 所以"问号落在脸上"不靠"我知道那是 (8,8)"
-    // 这种记忆，面挪了这儿跟着挪。
-    const QRect headFront = faceRect(QPoint(0, 0), 8, 8, 8, Face::Front);
-    // 这两个循环的边界从**表本身**取：表是 `kQuestionRows[kQuestionHeight]`、一行
-    // `kQuestionWidth` 个字符，加宽加高只用改那两行 —— 中间那几行空的是**黑的**（底色
-    // 已经刷过），不是"不画"，所以循环要照样走满。
-    for (int row = 0; row < kQuestionHeight; ++row) {
-        const char *const cols = kQuestionRows[row];
-        for (int col = 0; col < kQuestionWidth; ++col) {
-            if (cols[col] != '#') {
-                continue;  // 空的那几格是**黑的**（底色已经刷过），不是"不画"
-            }
-            painter.fillRect(QRect(headFront.x() + kQuestionOffset.x() + col,
-                                   headFront.y() + kQuestionOffset.y() + row, 1, 1),
-                             kPlaceholderInk);
-        }
-    }
-
+    // 内置默认皮肤（项目自绘，来路见 assets/skins/README.md）。读一次就留着：
+    // 调用方拿它和 viewer->skin() 比相等，每次都得是同一张、同一个格式。
+    static const QImage skin =
+        QImage(QStringLiteral(":/assets/skins/default.png")).convertToFormat(QImage::Format_ARGB32_Premultiplied);
     return skin;
 }
 

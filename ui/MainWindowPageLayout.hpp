@@ -37,7 +37,9 @@ inline constexpr int kBottomBarHeight = 62;
 /// 进度文字那格（"已下载 1234 / 3580 xxx.jar"）的宽度下限，免得**文件名一换整条就左右跳**。
 /// 它管的是底栏**中间那一格自己**的宽度，不是左右两格的 —— 左右那两格用的是
 /// MainWindowUI::bottomBarRunStateColumnWidth() / bottomBarAccountColumnWidth()。
-inline constexpr int kStatusLabelMinWidth = 260;
+inline constexpr int kStatusLabelMinWidth = 96;
+/// 设置页「标签 | 控件」那一行左边标签那一列的宽。
+inline constexpr int kSettingsLabelWidth = 148;
 
 /// 左下角头像的边长（正方形）。**值本身不在这里** —— 它和"主窗口拿什么尺寸去裁头像"
 /// 必须是同一个数，所以唯一的出处是 MainWindowUI::avatarSize()（见头文件）。
@@ -48,16 +50,23 @@ inline constexpr int kStartButtonMinHeight = 76;
 
 /// 主窗口竖直方向的明确下限。540px 能容纳主页约 368px 的比例角色卡，以及标题栏、
 /// 页面边距和底栏；也不会缩到人物预览被压坏。
+inline constexpr int kMainWindowMinWidth = 900;
 inline constexpr int kMainWindowMinHeight = 620;
 
-/// 主页角色预览使用稳定的展示规格。窗口变宽时人物不应跟着无限放大；220px 是默认
-/// 900px 窗口下实际量到的画布宽度，按 SkinViewer 的比例对应约 311px 高。
-inline constexpr int kHomeProfileHorizontalPadding = 8 * 2;
-
-/// 人物预览画布宽度（160）= 右栏宽度（唯一出处 `MainWindowUI::homeRightColumnWidth()`）
-/// 减掉卡片左右内边距 —— 两者必须是同一个数推出来的，不然卡片会跟右栏错开。
-inline constexpr int kHomeSkinViewerWidth =
-    MainWindowUI::homeRightColumnWidth() - kHomeProfileHorizontalPadding;
+/// 主页立绘画布：宽 = 右栏宽（唯一出处 `MainWindowUI::homeRightColumnWidth()`），高按 SkinViewer
+/// 的人物比例算出来约 322 —— 人高约 270，和设计稿 home.html 那个立绘一样大。窄窗封顶到七成二。
+inline constexpr int kHomeSkinViewerWidth = MainWindowUI::homeRightColumnWidth();
+inline constexpr int kHomeSkinViewerHeight = 322;
+/// 主页两栏的左右页边距（相等），和左栏里再往里缩的那一截：合起来是设计稿标题 / 启动区离页左 44。
+inline constexpr int kHomeHeroMargin = 36;
+inline constexpr int kHomeHeroInset = 8;
+/// 右上账号胶囊的宽（设计稿按内容约 180；名字长了在里面省略）。
+inline constexpr int kHomeAccountPillWidth = 184;
+/// 实例带卡片的宽 / 高（设计稿 .card：196 宽，封面 48 + 上下 8）。
+inline constexpr int kHomeTileWidth = 196;
+inline constexpr int kHomeTileHeight = 64;
+/// 主页启动区卡片底下给「启动游戏」柔光留的余量（光晕向下偏 10、模糊 30）。
+inline constexpr int kHomeLaunchGlowRoom = 24;
 
 /// 主页左栏两张卡之间的竖直留白（「开始游戏」和「上次游玩」）。
 ///
@@ -66,6 +75,8 @@ inline constexpr int kHomeSkinViewerWidth =
 /// 主页快速区是一组连续操作，不应像两张互不相干的大卡片那样隔开。
 /// 外层布局本身已有 spacing，不额外塞空白，让「收藏 / 上次游玩」视觉上连成一组。
 inline constexpr int kHomeCardGap = 0;
+/// 主页大标题的字号（设计稿 home.html：细楷 50，窄窗 40）。
+inline constexpr int kHomeHeroTitlePixelSize = 50;
 
 /// 「额外 JVM 参数」多行输入框的高度，约三四行的样子；再高会把下面那几项挤出可视区。
 inline constexpr int kJvmArgsEditHeight = 72;

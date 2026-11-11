@@ -106,7 +106,9 @@ int UiLaunchPromptsChecks(MainWindowUI &ui) {
             const auto hasWhitePixel = [](const QImage &image) {
                 for (int y = 0; y < image.height(); ++y) {
                     for (int x = 0; x < image.width(); ++x) {
-                        if (image.pixelColor(x, y) == QColor(Qt::white)) {
+                        // 「近白」：问号这种细笔画在文楷字体下全是抗锯齿过渡色，没有一个纯白像素。
+                        const QColor c = image.pixelColor(x, y);
+                        if (qMin(c.red(), qMin(c.green(), c.blue())) >= 225) {
                             return true;
                         }
                     }

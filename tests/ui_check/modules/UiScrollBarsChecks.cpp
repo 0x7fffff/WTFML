@@ -60,7 +60,7 @@ int UiScrollBarsChecks(QApplication &app, QFrame * &bar) {
 
         QScrollBar *bar = scroll->verticalScrollBar();
         const QRect barRect(bar->mapTo(scroll, QPoint(0, 0)), bar->size());
-        const QImage shot = captureWidget(scroll);
+        const QImage shot = captureWidgetOn(scroll, hostFill);  // 磨砂下视口不铺底，垫上页面那一层再量
 
         // 量：一条线的左边（页面那一层）和滚动条那一条里的底色、把手的左右边界。
         const auto at = [&shot](int x, int y) {

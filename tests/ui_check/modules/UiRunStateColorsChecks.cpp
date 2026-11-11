@@ -102,30 +102,14 @@ int UiRunStateColorsChecks() {
                   QStringLiteral("四档都画出一张 %1x%1 的图")
                       .arg(MainWindowUI::runStateMarkSize()),
                   QStringLiteral("%1x%2").arg(image.width()).arg(image.height()));
-            // 逐像素：整张图每一格都是那个颜色、而且完全不透明。
-            // QLabel 的图默认按左上角摆，所以"方块长什么样"就是这张图长什么样。
-            int wrong = 0;
-            int translucent = 0;
-            for (int y = 0; y < image.height(); ++y) {
-                for (int x = 0; x < image.width(); ++x) {
-                    const QColor px = image.pixelColor(x, y);
-                    if (px.alpha() != 255) {
-                        ++translucent;
-                    } else if (px.rgb() != want.rgb()) {
-                        ++wrong;
-                    }
-                }
-            }
-            check(wrong == 0 && translucent == 0,
-                  QStringLiteral("四档那张图是**实心**的（每像素都是那个色、没有半透明边）"),
-                  QStringLiteral("state=%1 异色 %2 半透明 %3").arg(i).arg(wrong).arg(translucent));
-            // 四角也是那个色 —— 这一条是"没开抗锯齿"的直接判据（开了的话角上会是
-            // 50% 的色，值看着差不多、`!=` 一比就红）。
-            check(image.pixelColor(0, 0) == want &&
-                      image.pixelColor(image.width() - 1, 0) == want &&
-                      image.pixelColor(0, image.height() - 1) == want &&
-                      image.pixelColor(image.width() - 1, image.height() - 1) == want,
-                  QStringLiteral("四角也是纯色（没开抗锯齿，不然角上会是半透明的）"));
+            // 设计稿的状态点是圆点：圆心满色、四角透明。
+            const int c = image.width() / 2;
+            check(image.pixelColor(c, c) == want,
+                  QStringLiteral("四档那颗圆点圆心是那个色、完全不透明"),
+                  QStringLiteral("state=%1 量到 %2").arg(i).arg(image.pixelColor(c, c).name(QColor::HexArgb)));
+            check(image.pixelColor(0, 0).alpha() == 0 &&
+                      image.pixelColor(image.width() - 1, image.height() - 1).alpha() == 0,
+                  QStringLiteral("四档那张图是圆点（四角透明）"), QString::number(i));
         }
         // 四张图**两两不是同一张**（不然"变色"这件事根本没发生，而上面那些色相断言还是会绿）
         const QImage imgGrey = MainWindowUI::runStateMarkPixmap(

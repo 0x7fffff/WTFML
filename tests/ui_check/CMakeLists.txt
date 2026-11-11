@@ -8,7 +8,7 @@ set(CMAKE_AUTOMOC ON)
 # 编译链接全都过，只是 `:/assets/loader/*.png` 全是空图（症状见下面那行的注释）。
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Widgets GuiPrivate)
 
 set(REPO_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 get_filename_component(REPO_ROOT ${REPO_ROOT} REALPATH)
@@ -32,6 +32,7 @@ add_library(wtfml_ui_runtime STATIC
                                 ${REPO_ROOT}/ui/MemorySlider.cpp
                                 ${REPO_ROOT}/ui/GroupDialog.cpp
                                 ${REPO_ROOT}/ui/GroupListDelegate.cpp
+                                ${REPO_ROOT}/ui/ListRowDelegate.cpp
                                 # 内容区覆盖层 + 内嵌提示面板：设置界面和所有提示
                                 # 都开在这一层里，不再另开独立窗口。它们是纯界面（不认识业务），
                                 # 所以归这一层验。
@@ -140,6 +141,8 @@ ${REPO_ROOT}/ui/InstanceSettingsSignature.cpp
                                 # 左栏现在直接 new 它，少了这一个文件会在链接那一步报
                                 # `undefined reference to ThemeBackground::ThemeBackground(…)`。
                                 ${REPO_ROOT}/ui/ThemeBackground.cpp
+                                # 磨砂玻璃：场景底与绘制过滤器（Theme::apply() 装它）。
+                                ${REPO_ROOT}/ui/Glass.cpp
                                 # 任务中心那块面板：`MainWindowUI.cpp` 直接
                                 # new 它（底栏中间那格点开那一下），少了这一个文件会在链接
                                 # 那一步报 `undefined reference to TaskCenterPanel::…`。
@@ -194,7 +197,7 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
 endif()
 # dwmapi 是 ui/WindowChrome.cpp 要的（DwmSetWindowAttribute，把圆角明说一遍），
 # 见主工程 CMakeLists.txt 里同一段。少了它会在链接那一步报 undefined reference。
-target_link_libraries(wtfml_ui_runtime PRIVATE dwmapi)
+target_link_libraries(wtfml_ui_runtime PRIVATE dwmapi Qt6::GuiPrivate)
 
 
 # Production code is shared by independently buildable test executables.

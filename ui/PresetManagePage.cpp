@@ -172,6 +172,7 @@ void PresetManagePage::buildListLayer() {
     m_searchEdit->setClearButtonEnabled(true);
     // 和实例页那个框一样高（chip 那一档）：同一栏里两页最上面那一行不该差着高度。
     m_searchEdit->setFixedHeight(Theme::chipHeight());
+    m_searchEdit->setProperty("wtfmlChipHeight", true);
     searchLayout->addWidget(m_searchEdit, 1);
     filterLayout->addWidget(searchRow);
 

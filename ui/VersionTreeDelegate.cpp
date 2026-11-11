@@ -136,9 +136,12 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
         if (m_navRow) {
             const QRectF hoverRect = QRectF(option.rect.adjusted(3, 2, -3, -2));
             painter->save();
+            painter->setRenderHint(QPainter::Antialiasing, true);
             painter->setPen(Qt::NoPen);
-            painter->setBrush(hoverFill);
-            painter->drawRect(hoverRect);
+            QColor navHover = Theme::tokens().text;
+            navHover.setAlpha(14);
+            painter->setBrush(navHover);
+            painter->drawRoundedRect(hoverRect, Theme::controlRadius(), Theme::controlRadius());
             painter->restore();
         } else {
             painter->fillRect(option.rect, hoverFill);
@@ -167,8 +170,8 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     // 选中那一行的**分支区那一截**：`QTreeView::drawRow()` 在把画笔交给代理之前自己先用
     // **平台的选中色（蓝）**把 `QRect(0, y, 缩进, 行高)` 铺一遍（长注释在
     // ui/InstanceGroupDelegate.cpp 里那段 ★★ ）。样式那一层已经把
-    // `PE_PanelItemViewRow` 也接过去画成我们这一档了，但"drawRow 到底走不走那条原语"是
-    // **视图**说了算的事 —— 这一句是保底，两边同一个色，重复涂一遍看不出区别。
+    // `PE_PanelItemViewRow` 也接过去画成我们这一档了，所以这里**不再补涂**：7a 令牌里
+    // 选中底是半透明的，再涂一遍那一截就比整行深一档。
     // NOTE: 实例树那一边**故意不补**（它选中时的带子只有卡片那一圈，左边没有竖条，
     // 见那条 ★★）。两张表的选中带形状本来就不一样。
     //
@@ -176,9 +179,6 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     // 就把 0..3 那一列画成主题色了，而这一句正好从 0 铺过来、会把它整根盖掉。
     // （`option.rect.left() == 0` 的行不补 —— 那时候这一句根本不画，样式画的那根还在。）
     if (selected && !m_navRow && index.column() == 0 && option.rect.left() > 0) {
-        const QColor base = option.palette.color(QPalette::Base);
-        painter->fillRect(QRect(0, option.rect.top(), option.rect.left(), option.rect.height()),
-                          Theme::selectionFill(base));
         Theme::paintSelectionRail(painter, option.rect);
     }
 
@@ -189,15 +189,17 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
         painter->save();
         painter->setRenderHint(QPainter::Antialiasing, true);
         painter->setPen(Qt::NoPen);
-        painter->setBrush(Theme::selectionFill(option.palette.color(QPalette::Base)));
-        painter->drawRect(selectedRect);
-
-        // 指示条收在选中区域内部，与其它侧栏保持直角。
-        const QRectF barRect(selectedRect.left(), selectedRect.top(),
-                             Theme::selectionBarThickness(),
-                             selectedRect.height());
-        painter->setBrush(Theme::selectionBar());
-        painter->drawRect(barRect);
+        // 和左导航轨同一套：半径 10 的低透明主题色底 + 左边一根短的圆头指示条。
+        const Theme::Tokens t = Theme::tokens();
+        QColor fill = t.focus;
+        fill.setAlpha(t.page.lightness() < 128 ? 34 : 30);
+        painter->setBrush(fill);
+        painter->drawRoundedRect(selectedRect, Theme::controlRadius(), Theme::controlRadius());
+        const qreal barHeight = selectedRect.height() * 0.44;
+        const qreal bar = Theme::selectionBarThickness();
+        painter->setBrush(t.focus);
+        painter->drawRoundedRect(QRectF(selectedRect.left() + 2, selectedRect.center().y() - barHeight / 2, bar, barHeight),
+                                 bar / 2, bar / 2);
         painter->restore();
     }
 

@@ -1031,7 +1031,7 @@ void runBottomBarPanelTests() {
         check(AccountStore::activeUuid() == lenaUuid,
               "AH12b 前提：加出来的离线账号成了当前账号", AccountStore::activeUuid());
         // 这一条现在就该绿 —— 它同时也是"加账号那一路的换脸"（和下面切账号那一路是同一
-        // 句 return 挡的）。**兜底那张占位图是黑底白问号**，和 Lena 那张纯色差得远。
+        // 句 return 挡的）。**兜底那张是内置默认皮肤**，和 Lena 那张纯色差得远。
         check(viewer != nullptr && viewer->skin().pixelColor(0, 0) == lenaTint,
               "AH12b 加完它就画上了那张预置的随机皮肤（不是兜底占位图）",
               viewer != nullptr ? viewer->skin().pixelColor(0, 0).name()

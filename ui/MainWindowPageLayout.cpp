@@ -223,7 +223,7 @@ TwoColumns buildTwoColumnPage(QWidget *page, const QString &tab) {
         markTextRole(columns.right.title, Theme::pageTitleTextRoleValue());
         {   // 标题的字：比正文大两档、加粗（和主页那几张卡片的标题同一档）。
             QFont titleFont = columns.right.title->font();
-            titleFont.setBold(true);
+            titleFont.setBold(false);  // 手写体（Heading = 霞鹜文楷）大而轻
             // 页面标题要比卡片标题再高一档：只高 +2 时在默认 900px 窗口里只比正文
             // 大一点点，右边有「刷新 / 分组设置」时尤其容易被按钮抢走视觉重心。
             titleFont = Theme::textFont(titleFont, Theme::TextRole::Heading);
@@ -305,14 +305,16 @@ SettingsSection addSettingsSection(QGridLayout *grid, int &row, const QString &t
     // 两个数都落进令牌那三档（区块间距 16 / 控件间距 10）：卡片自己那一圈属于"区块"，
     // 卡里"行名 → 控件"那种成对的间距属于"控件"。这一档统一走令牌的三档节奏
     // （两边都是"松紧"，只有断言能钉住 —— ui_check 的 K2 量的是这两个数）。
-    layout->setContentsMargins(16, 16, 16, 16);
-    layout->setSpacing(10);
+    // 扁平（7a）：小节不再是一张卡片，只是一个手写体小标题 + 下面一列「标签 | 控件」，
+    // 节与节之间靠留白（grid 的行距）分开。
+    layout->setContentsMargins(0, 4, 0, 12);
+    layout->setSpacing(12);
     auto *titleLabel = new QLabel(title, section.card);
     markTextRole(titleLabel, Theme::sectionTitleTextRoleValue());
     {
-        QFont titleFont = titleLabel->font();
-        titleFont.setBold(true);
-        titleFont = Theme::textFont(titleFont, Theme::TextRole::Heading);
+        QFont titleFont = Theme::handFont(titleLabel->font(), Theme::HandFont::Kai);
+        titleFont.setBold(false);
+        titleFont.setPixelSize(20);
         titleLabel->setFont(titleFont);
     }
     layout->addWidget(titleLabel);
@@ -326,13 +328,23 @@ SettingsSection addSettingsSection(QGridLayout *grid, int &row, const QString &t
 /// （见 InstanceSettingsDialog.cpp 里的 addTitledRow()）。
 void addSettingItem(const SettingsSection &section, const QString &labelText, QWidget *control,
                     QWidget *parent) {
-    if (labelText != section.title) {
-        QLabel *label = new QLabel(labelText, parent);
-        label->setProperty("settingsItemLabel", true);
-        label->setAlignment(Qt::AlignLeft);
-        section.layout->addWidget(label);
-    }
-    section.layout->addWidget(control);
+    // 标签在左（固定一列宽）、控件在右；说明（控件容器里最后那行小字）跟在控件下一行。
+    // 复选框自己带名字，左边那格留空，控件仍对齐到右列。
+    auto *row = new QWidget(parent);
+    row->setProperty("settingsItemRow", true);
+    auto *rowLayout = new QHBoxLayout(row);
+    rowLayout->setContentsMargins(0, 0, 0, 0);
+    rowLayout->setSpacing(16);
+    QLabel *label = new QLabel(labelText != section.title ? labelText : QString(), row);
+    label->setProperty("settingsItemLabel", true);
+    label->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+    label->setFixedWidth(kSettingsLabelWidth);
+    label->setWordWrap(true);
+    label->setContentsMargins(0, 4, 0, 0);
+    rowLayout->addWidget(label, 0, Qt::AlignTop);
+    control->setParent(row);
+    rowLayout->addWidget(control, 1);
+    section.layout->addWidget(row);
 }
 
 /// 给设置页里的一行控件套一层"控件 + 说明文字"的容器（说明统一小一号、灰色）。

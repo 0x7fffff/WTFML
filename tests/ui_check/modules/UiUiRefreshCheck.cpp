@@ -30,11 +30,14 @@ int UiUiRefreshCheck(QApplication &app) {
                "game logs and process priority belong to launch settings");
         expect(warningSettings && warningSettings->isAncestorOf(preview.findChild<QWidget *>(MainWindowUI::warnMissingDependenciesCheckName())),
                "dependency warning belongs to safety settings");
-        for (const QString &name : {QStringLiteral("homeQuickCurrentTab"), QStringLiteral("homeQuickRecentTab"),
-                                    QStringLiteral("homeQuickFavoriteTab")}) {
+        // 7a：实例带只剩「最近 / 收藏」两颗下划线页签（设计稿 .tab），「当前」是上面那块启动区。
+        for (const QString &name : {QStringLiteral("homeQuickRecentTab"), QStringLiteral("homeQuickFavoriteTab")}) {
             auto *tab = preview.findChild<QPushButton *>(name);
-            expect(tab && tab->minimumWidth() >= 64, "home quick tabs have wider click targets");
+            expect(tab && tab->minimumWidth() >= 48 && tab->sizeHint().height() >= 32,
+                   "home strip tabs keep a usable click target");
         }
+        auto *currentTab = preview.findChild<QPushButton *>(QStringLiteral("homeQuickCurrentTab"));
+        expect(currentTab && currentTab->isHidden(), "the current instance is the launch block, not a strip tab");
         expect(preview.findChild<QPushButton *>(MainWindowUI::homeInstanceSelectButtonName())->minimumWidth() >= 80,
                "home list button is wider than quick tabs");
         MainWindowUI::HomePickerInstance instance;
@@ -72,11 +75,11 @@ int UiUiRefreshCheck(QApplication &app) {
         expect(!ui.homeInstancePickerOpen(), "escape closes home picker");
         ui.closeHomeInstancePicker();
         auto *button = ui.getToolboxButton();
-        // 已改为内容自适应，不能再要求旧的固定 112 px。
-        expect(button->sizePolicy().horizontalPolicy() == QSizePolicy::Fixed &&
-                   button->minimumWidth() != button->maximumWidth() &&
-                   button->width() == button->sizeHint().width(),
-               "toolbox trigger follows its content width without horizontal stretching");
+        // 7a：工具箱是左导航轨底部的一项，和导航项一样铺满轨宽（不再按字宽收缩）。
+        expect(button->sizePolicy().horizontalPolicy() == QSizePolicy::Expanding &&
+                   button->parentWidget() != nullptr &&
+                   button->width() * 10 >= button->parentWidget()->width() * 8,
+               "toolbox trigger fills the rail footer width like a nav item");
         button->click();
         auto *panel = preview.findChild<QFrame *>(MainWindowUI::toolboxPanelName());
         expect(panel && panel->isVisible(), "toolbox opens on first click");
@@ -796,17 +799,27 @@ int UiUiRefreshCheck(QApplication &app) {
             expect(list && list->count() == 1, "file row painting fixture displayed");
             if (list && list->count() == 1) {
                 QWidget *row = list->itemWidget(list->item(0));
-                expect(row && row->autoFillBackground(), "embedded file row owns its background");
+                // 7a：行本身透明（不 autoFill、只在选中时铺选中那一层），底由视口铺 —— 半透明的
+                // Base 叠两层，行就比列表空白处白一截。量法：整张列表垫在页面底上抓，行上那点
+                // 对比列表空白处那点。
+                expect(row && !row->autoFillBackground(), "embedded file row does not stack a second base layer");
                 if (row) {
-                    const auto sample = [row]() {
-                        const QImage image = row->grab().toImage();
-                        const qreal scale = image.devicePixelRatio();
-                        return image.pixelColor(qRound(5 * scale), qRound(2 * scale));
+                    const QPoint rowSpot = row->mapTo(list, QPoint(5, 2));
+                    const QPoint emptySpot(rowSpot.x(), row->mapTo(list, QPoint(0, row->height())).y() + 20);
+                    const auto shot = [list]() { return captureWidgetOn(list, Theme::tokens().page); };
+                    const auto near = [](const QColor &a, const QColor &b) {
+                        return qAbs(a.red() - b.red()) + qAbs(a.green() - b.green()) +
+                                   qAbs(a.blue() - b.blue()) <= 4;
                     };
                     list->item(0)->setSelected(true);
                     app.processEvents();
-                    expect(sample() == Theme::selectionFill(list->palette().color(QPalette::Base)),
-                           "embedded row paints selected background independently of viewport");
+                    {
+                        const QImage image = shot();
+                        const QColor got = image.pixelColor(rowSpot);
+                        const QColor want = overOpaque(Theme::selectionFill(list->palette().color(QPalette::Base)),
+                                                       image.pixelColor(emptySpot));
+                        expect(near(got, want), "embedded row shows exactly one selected layer over the list base");
+                    }
                     const auto buttons = row->findChildren<QToolButton *>();
                     bool matchingBackground = !buttons.isEmpty();
                     for (QToolButton *button : buttons) {
@@ -818,8 +831,11 @@ int UiUiRefreshCheck(QApplication &app) {
                     expect(matchingBackground, "row buttons inherit selected background instead of white patches");
                     list->clearSelection();
                     app.processEvents();
-                    expect(sample() == list->palette().color(QPalette::Base),
-                           "embedded row restores background after selection clears");
+                    {
+                        const QImage image = shot();
+                        expect(near(image.pixelColor(rowSpot), image.pixelColor(emptySpot)),
+                               "embedded row restores background after selection clears");
+                    }
                     list->item(0)->setSelected(true);
                     const QPoint point = list->visualItemRect(list->item(0)).center();
                     const QPoint global = list->viewport()->mapToGlobal(point);

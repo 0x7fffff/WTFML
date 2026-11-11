@@ -3,6 +3,7 @@
 
 #include "Animations.hpp"  // 换页 / 展开折叠 / 上拉面板那几段动效
 #include "ElidedLabel.hpp"
+#include "Glass.hpp"
 #include "InstanceGroupDelegate.hpp"
 #include "MemorySlider.hpp"
 #include "OverlayHost.hpp"
@@ -29,6 +30,7 @@
 #include <QScreen>
 #include <QShortcut>
 #include <QSignalBlocker>
+#include <QSlider>
 #include <QSettings>
 #include <QStyle>
 #include <QMouseEvent>
@@ -58,11 +60,12 @@ namespace {
 /// 设置页里一栏那一页的两样东西：表单控件（说明文字的父窗）与它那张 grid。
 // Static help stays available on demand; dynamic state/error labels remain inline.
 void addSettingHelp(QWidget *box, const QString &text, QWidget *) {
-    box->setToolTip(text);
     box->setAccessibleDescription(text);
     for (auto *child : box->findChildren<QWidget *>(QString(), Qt::FindDirectChildrenOnly)) {
         if (child->accessibleDescription().isEmpty()) child->setAccessibleDescription(text);
     }
+    // 说明放在控件下一行，次要色、小一号（7a 设置页样张）。
+    addDynamicHint(box, text, box)->setProperty("settingsHelp", true);
 }
 
 void addSettingsControl(const SettingsSection &section, const QString &label,
@@ -108,7 +111,7 @@ SettingsPanel addSettingsPanel(QStackedWidget *stack, const QString &key) {
     panel.grid = new QGridLayout(panel.form);
     panel.grid->setContentsMargins(0, 0, 0, 0);
     panel.grid->setHorizontalSpacing(12);
-    panel.grid->setVerticalSpacing(10);
+    panel.grid->setVerticalSpacing(24);
     // 这一对 3:7 只摆表格的形状：每一节都是一张跨两列的卡片（见
     // addSettingsSection()），不分隔任何一行。
     panel.grid->setColumnStretch(0, MainWindowUI::leftColumnStretch());
@@ -189,6 +192,10 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
         for (auto *card : settingsCategoryStack->findChildren<QFrame *>())
             if (card->property("settingsSectionTitle").toString() == sectionTitle) { target = card; break; }
         QWidget *box = control->parentWidget();
+        // 「标签 | 控件」那一行整行搬（标签在行里）。
+        while (box && box->parentWidget() && !box->property("settingsItemRow").toBool()
+               && box->parentWidget()->property("settingsSectionTitle").isNull())
+            box = box->parentWidget();
         auto *source = box && box->parentWidget() ? qobject_cast<QVBoxLayout *>(box->parentWidget()->layout()) : nullptr;
         if (!target || !source) return;
         const int index = source->indexOf(box);
@@ -575,6 +582,80 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
                     QStringLiteral("可选择固定主题或跟随系统。"),
                     form);
             addSettingsControl(section2, themePresetRowText(), box, form);
+        }
+        {
+            // 磨砂：总开关 + 材质（亚克力 / 云母 / 风景底）+ 两条强度。关掉 = 纯色令牌。
+            // 存盘与重新铺主题都在 Glass::setMode() / setTintStrength() 里。
+            auto *glass = new QCheckBox(QStringLiteral("磨砂效果"), form);
+            glass->setObjectName(glassEffectCheckName());
+            glass->setChecked(Glass::mode() != Glass::Mode::Solid);
+            auto *material = new QComboBox(form);
+            material->setObjectName(QStringLiteral("backdropModeCombo"));
+            for (Glass::Mode m : {Glass::Mode::Acrylic, Glass::Mode::Mica, Glass::Mode::Scene}) {
+                material->addItem(Glass::modeName(m), int(m));
+            }
+            const int current = material->findData(int(Glass::mode()));
+            material->setCurrentIndex(current < 0 ? 0 : current);
+            material->setEnabled(glass->isChecked());
+            WheelGuard::install(material);
+            auto *reason = new QLabel(form);
+            reason->setObjectName(QStringLiteral("backdropFallbackLabel"));
+            reason->setWordWrap(true);
+            const auto refreshReason = [reason]() {
+                QPalette p = reason->palette();
+                p.setColor(QPalette::WindowText, p.color(QPalette::PlaceholderText));
+                reason->setPalette(p);
+                reason->setText(Glass::fallbackReason());
+                reason->setVisible(!reason->text().isEmpty());
+            };
+            const auto apply = [glass, material, refreshReason]() {
+                material->setEnabled(glass->isChecked());
+                Glass::setMode(glass->isChecked() ? Glass::Mode(material->currentData().toInt()) : Glass::Mode::Solid);
+                refreshReason();
+            };
+            QObject::connect(glass, &QCheckBox::toggled, glass, apply);
+            QObject::connect(material, &QComboBox::activated, material, apply);
+            refreshReason();
+            Theme::follow(reason, refreshReason);
+            QWidget *box = makeHintedControl(form);
+            auto *row = new QHBoxLayout;
+            row->setContentsMargins(0, 0, 0, 0);
+            row->setSpacing(12);
+            row->addWidget(glass);
+            row->addWidget(material);
+            row->addStretch(1);
+            qobject_cast<QVBoxLayout *>(box->layout())->addLayout(row);
+            qobject_cast<QVBoxLayout *>(box->layout())->addWidget(reason);
+            addSettingHelp(box, QStringLiteral("整窗透出桌面（亚克力 / 云母，需 Windows 11）或主题风景。电脑较慢时可以关掉。"), form);
+            addSettingsControl(section2, QStringLiteral("界面质感"), box, form);
+        }
+        {
+            // 着色 / 模糊强度：两条滑块，拖完才存（拖的过程中不重建）。
+            const auto makeStrength = [form](const QString &name, int value, auto setter) {
+                auto *slider = new QSlider(Qt::Horizontal, form);
+                slider->setObjectName(name);
+                slider->setRange(0, 100);
+                slider->setValue(value);
+                slider->setMinimumWidth(200);
+                WheelGuard::install(slider);
+                QObject::connect(slider, &QSlider::sliderReleased, slider, [slider, setter]() { setter(slider->value()); });
+                QObject::connect(slider, &QSlider::valueChanged, slider, [slider, setter](int v) {
+                    if (!slider->isSliderDown()) setter(v);
+                });
+                return slider;
+            };
+            QWidget *tintBox = makeHintedControl(form);
+            qobject_cast<QVBoxLayout *>(tintBox->layout())->addWidget(
+                makeStrength(QStringLiteral("backdropTintSlider"), Glass::tintStrength(), [](int v) { Glass::setTintStrength(v); }),
+                0, Qt::AlignLeft);
+            addSettingHelp(tintBox, QStringLiteral("盖在背景上的主题色有多浓。为了正文看得清，太淡时会自动加深。"), form);
+            addSettingsControl(section2, QStringLiteral("着色强度"), tintBox, form);
+            QWidget *blurBox = makeHintedControl(form);
+            qobject_cast<QVBoxLayout *>(blurBox->layout())->addWidget(
+                makeStrength(QStringLiteral("backdropBlurSlider"), Glass::blurStrength(), [](int v) { Glass::setBlurStrength(v); }),
+                0, Qt::AlignLeft);
+            addSettingHelp(blurBox, QStringLiteral("风景底模糊得多厉害（亚克力 / 云母由系统模糊）。"), form);
+            addSettingsControl(section2, QStringLiteral("模糊强度"), blurBox, form);
         }
         {
             auto *colors = new QCheckBox(QStringLiteral("日志颜色显示"), form);

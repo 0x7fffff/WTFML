@@ -17,6 +17,7 @@ public:
         QIcon icon;
         bool favorite = false;
         QString version;
+        int modCount = -1;  ///< mods 下的 *.jar 个数；-1 = 没数
     };
 
     struct Rows {

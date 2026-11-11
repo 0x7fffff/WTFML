@@ -111,24 +111,18 @@ int UiContentRowsChecks() {
             const QColor onKnob = sample(onImage, onKnobX, midY);
             const QColor onTrack = sample(onImage, onTrackX, midY);
 
-            check(paintRgb(offKnob) == paintRgb(toggle.palette().color(QPalette::Base)) &&
-                      paintRgb(onKnob) == paintRgb(toggle.palette().color(QPalette::Base)),
-                  "★ Z15a 圆钮在**关**的时候贴左边、在**开**的时候贴右边（同一枚圆钮、"
-                  "两头各量一次都是圆钮那个色）",
+            const Theme::Tokens tokens = Theme::tokens();
+            check(paintRgb(offKnob) == paintRgb(tokens.secondary) &&
+                      paintRgb(onKnob) == paintRgb(tokens.onPrimary),
+                  "★ Z15a 圆钮在**关**的时候贴左边（ink-2）、在**开**的时候贴右边（on-accent）",
                   QStringLiteral("关 %1 / 开 %2")
                       .arg(offKnob.name(), onKnob.name()));
-            // 两头的轨道都是从**调色板**取的（不是写死的色号）：用户换主题或者哪天把
-            // Fusion 换掉，这一格跟着走。写死色号的话，深色主题下这枚开关会是一块浅色药丸。
-            const QColor expectedOn = Theme::current().presetId == QLatin1String("emerald")
-                                          ? Theme::tokens().primary : toggle.palette().color(QPalette::Highlight);
-            check(paintRgb(offTrack) == paintRgb(toggle.palette().color(QPalette::Mid)) &&
-                      paintRgb(onTrack) == paintRgb(expectedOn),
-                  "★ Z15a 轨道：关着是中灰那一档、开着是高亮那一档 —— 两档都取自调色板"
-                  "（写死色号的话，换个主题这枚开关就和整个界面不是一个调子）",
-                  QStringLiteral("关 %1（中灰 %2）/ 开 %3（高亮 %4）")
-                      .arg(offTrack.name(), toggle.palette().color(QPalette::Mid).name(),
-                           onTrack.name(),
-                           toggle.palette().color(QPalette::Highlight).name()));
+            // 设计稿：关着是空心描边（轨道里透出底下），开着是强调色实心。
+            const QColor expectedOn = toggle.palette().color(QPalette::Accent);
+            check(paintRgb(onTrack) == paintRgb(expectedOn) && paintRgb(offTrack) != paintRgb(expectedOn),
+                  "★ Z15a 轨道：关着空心、开着是调色板里的强调色实心",
+                  QStringLiteral("关 %1 / 开 %2（强调 %3）")
+                      .arg(offTrack.name(), onTrack.name(), expectedOn.name()));
             toggle.hide();
         }
 

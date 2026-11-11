@@ -5,6 +5,8 @@ param(
     [Parameter(Mandatory)][string]$Root,
     [switch]$Extended,
     [switch]$LogStress,
+    # 设计稿对照截图（主页三主题 / 窄宽窗 / 折叠轨 / 组件总表），程序内抵消系统缩放到 1:1 像素
+    [switch]$DesignShots,
     [ValidateRange(30, 300)][int]$TimeoutSeconds = 120
 )
 $ErrorActionPreference = 'Stop'
@@ -23,12 +25,19 @@ $null = New-Item -ItemType Directory -Force -Path (Split-Path $evidence -Parent)
 $arguments = @('--root', ('"' + $evidence + '"'))
 if ($Extended) { $arguments += '--extended' }
 if ($LogStress) { $arguments += '--log-stress' }
+if ($DesignShots) { $arguments += '--design-shots' }
 $p = Start-Process -FilePath $program -ArgumentList $arguments -PassThru -RedirectStandardOutput $log -RedirectStandardError $err
 if (-not $p.WaitForExit($TimeoutSeconds * 1000)) {
     $p.Kill($true)
     throw "Desktop acceptance exceeded ${TimeoutSeconds}s; owned process stopped; logs retained."
 }
 if ($p.ExitCode -ne 0) { throw "Desktop acceptance failed ($($p.ExitCode)); see $err" }
+if ($DesignShots) {
+    $shots = Get-Content -LiteralPath (Join-Path $evidence 'design-shots.json') -Raw | ConvertFrom-Json
+    Write-Host "Design shots: $($shots.shots.Count) at device pixel ratio $($shots.devicePixelRatio)"
+    Write-Host "Evidence: $evidence"
+    return
+}
 $report = Join-Path $evidence 'report.json'
 $result = Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
 if ($LogStress) {

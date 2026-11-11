@@ -296,6 +296,25 @@ inline QImage captureWidget(QWidget *widget) {
     return image;
 }
 
+/// 先铺一层**不透明**的底再抓：7a 令牌里按钮 / 输入框的底是半透明的，不垫底的话抓出来是
+/// 半透明像素（透明那一格读成 #000000，数"深像素"时整块都算进去）。
+inline QImage captureWidgetOn(QWidget *widget, const QColor &under) {
+    QImage image(widget->size(), QImage::Format_ARGB32);
+    image.fill(under);
+    QPainter painter(&image);
+    // 不带 DrawWindowBackground：那一档会先拿 backgroundRole 再铺一遍，半透明底就叠成两层（屏幕上没有这一层）。
+    widget->render(&painter, QPoint(), QRegion(), QWidget::DrawChildren);
+    return image;
+}
+
+/// source-over：半透明的 @p top 叠在不透明的 @p under 上，屏幕上看到的那个色。
+inline QColor overOpaque(const QColor &top, const QColor &under) {
+    const qreal a = top.alphaF();
+    return QColor(qRound(top.red() * a + under.red() * (1 - a)),
+                  qRound(top.green() * a + under.green() * (1 - a)),
+                  qRound(top.blue() * a + under.blue() * (1 - a)));
+}
+
 /// 一块图里**出现次数最多的那个颜色**（按整块数票）。
 ///
 /// 为什么这么量（日志窗那几条底色断言）：一行里既有底色又有字，而字是另一种
@@ -384,6 +403,7 @@ int UiTaskCenterChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs
 int UiTaskActionsChecks(QMainWindow &window, MainWindowUI &ui);
 int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs);
 int UiRunStateColorsChecks();
+int UiListRowDelegateChecks();
 int UiColumnProportionsChecks(QComboBox * &installed, QPushButton * &startBtn, QListWidget * &folderList, QTreeWidget * &instanceList, QTabWidget * &tabs, const std::function<QString(QWidget *)> &surfaceValueOf, const std::function<bool(QWidget *, const QString &)> &inSurface, const std::function<QFrame *(QWidget *, const QString &)> &surfaceOf);
 int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs);
 int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList);

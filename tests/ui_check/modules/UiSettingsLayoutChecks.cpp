@@ -112,6 +112,7 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
             int cardShapeBad = 0;
             int pairsChecked = 0;
             int pairsBad = 0;
+            QStringList badPairs;
             for (int i = 0; i < categoryStack->count() && i < categoryKeys.size(); ++i) {
                 QWidget *panel = categoryStack->widget(i);
                 auto *pageScroll = qobject_cast<QScrollArea *>(panel);
@@ -147,19 +148,17 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
                         card->property(Theme::surfacePropertyName().toUtf8().constData())
                             .toString() == Theme::sectionSurfaceValue();
                     auto *cardLayout = qobject_cast<QVBoxLayout *>(card->layout());
-                    // 卡片自己那一圈内边距 / 行距是视觉规格（16,16,16,16 / 10）——
-                    // 它决定"这一节里的项离卡片边多远"，改了看起来只是松紧，只有断言能钉。
-                    // 规格是（16,16,16,16 / 10），
-                    // 随"页面外边距 20、区块间距 16"那一档一起。
-                    const QMargins want(16, 16, 16, 16);
+                    // 扁平（7a 设置页样张）：小节不再画一张卡片，只是手写体小标题 + 一列
+                    // 「标签 | 控件」；那一圈边距 / 行距是（0,4,0,12 / 12），节与节靠留白分开。
+                    const QMargins want(0, 4, 0, 12);
                     if (!isSection || cardLayout == nullptr ||
-                        cardLayout->contentsMargins() != want || cardLayout->spacing() != 10) {
+                        cardLayout->contentsMargins() != want || cardLayout->spacing() != 12) {
                         ++cardShapeBad;
                     }
                     if (cardLayout == nullptr) {
                         continue;
                     }
-                    // 第一行是小节标题（粗体 + sectionTitle 角色），后面才是项。
+                    // 第一行是小节标题（sectionTitle 角色；手写体，不加粗），后面才是项。
                     bool titleOk = false;
                     QWidget *first = cardLayout->count() > 0
                                          ? cardLayout->itemAt(0)->widget()
@@ -168,34 +167,33 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
                         const bool roleOk =
                             titleLabel->property(Theme::textRolePropertyName().toUtf8().constData())
                                 .toString() == Theme::sectionTitleTextRoleValue();
-                        titleOk = titleLabel->font().bold() && roleOk;
+                        titleOk = roleOk;
                     }
                     if (!titleOk) {
                         ++cardShapeBad;
                     }
-                    // 之后是成对的「行名标签 → 控件」：名字在上面、控件在下面、左边缘对齐。
-                    QLabel *pendingLabel = nullptr;
+                    // 之后每一项是一行「标签 | 控件」：标签在左（定宽一列）、控件在右，两者顶边对齐。
                     for (int k = 1; k < cardLayout->count(); ++k) {
                         QWidget *w = cardLayout->itemAt(k)->widget();
-                        if (w == nullptr) {
+                        // 藏起来的小节（如「账户」，入口已挪到主页）从不排版，几何是空的，不量。
+                        if (w == nullptr || !w->property("settingsItemRow").toBool() ||
+                            !w->isVisibleTo(panel) ||
+                            w->layout() == nullptr || w->layout()->count() < 2) {
                             continue;
                         }
-                        if (auto *label = qobject_cast<QLabel *>(w)) {
-                            // 一句说明（"说明文字"那种）也是 QLabel：它跟在上一个控件后面，
-                            // 不是下一项的名字 —— 判据还是"名字的下边缘不越过控件的上边缘"，
-                            // 所以这里一律把它当成"下一个可能的名字"，逐对去量。
-                            pendingLabel = label;
-                            continue;
-                        }
-                        if (pendingLabel != nullptr) {
-                            ++pairsChecked;
-                            const QRect labelRect = pendingLabel->geometry();
-                            const QRect controlRect = w->geometry();
-                            if (!(labelRect.bottom() <= controlRect.top() &&
-                                  labelRect.left() == controlRect.left())) {
-                                ++pairsBad;
-                            }
-                            pendingLabel = nullptr;
+                        ++pairsChecked;
+                        auto *label = qobject_cast<QLabel *>(w->layout()->itemAt(0)->widget());
+                        QWidget *control = w->layout()->itemAt(1)->widget();
+                        if (label == nullptr || control == nullptr ||
+                            !(label->geometry().right() < control->geometry().left() &&
+                              label->geometry().top() == control->geometry().top())) {
+                            ++pairsBad;
+                            badPairs << QStringLiteral("「%1」标签 %2,%3 控件 %4,%5")
+                                            .arg(label != nullptr ? label->text() : QStringLiteral("<无标签>"))
+                                            .arg(label != nullptr ? label->geometry().right() : -1)
+                                            .arg(label != nullptr ? label->geometry().top() : -1)
+                                            .arg(control != nullptr ? control->geometry().left() : -1)
+                                            .arg(control != nullptr ? control->geometry().top() : -1);
                         }
                     }
                 }
@@ -204,17 +202,17 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
                   "每一栏里的行都是上下结构（没有一格只占一列 ⇒ 没有「名字在左、内容在右」的行）",
                   QStringLiteral("有 %1 格只占一列").arg(singleColumnItems));
             check(cardsChecked > 0 && cardShapeBad == 0,
-                  "每一栏里那一格格都是「标题 + 内容卡片」（section 面 + 18/17/18/18 + 13 行距 "
-                  "+ 粗体标题）",
+                  "每一栏里那一格格都是「小标题 + 一列行」（section 面 + 0/4/0/12 + 12 行距 + 小节标题角色）",
                   QStringLiteral("量了 %1 张卡片，形状不对的 %2 张")
                       .arg(cardsChecked)
                       .arg(cardShapeBad));
             check(pairsChecked > 0 && pairsBad == 0,
-                  "卡片里行名那一行的下面就是内容，且两者左边缘对齐（真的「上下」）",
-                  QStringLiteral("量了 %1 张卡片、%2 对里错了 %3 对")
+                  "每一行都是「标签在左 | 控件在右」，两者顶边对齐",
+                  QStringLiteral("量了 %1 张卡片、%2 对里错了 %3 对 %4")
                       .arg(cardsChecked)
                       .arg(pairsChecked)
-                      .arg(pairsBad));
+                      .arg(pairsBad)
+                      .arg(badPairs.join(QStringLiteral("；"))));
 
             // 点第 N 条 = 翻到第 N 页。挑一条**不是当前那条**的来点才量得出"真的换了"。
             const int probe = categoryList->count() > 1 ? categoryList->count() - 1 : 0;
@@ -312,7 +310,7 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
             check(autoCheck->text() == MainWindowUI::downloadAutoIntoInstanceCheckText() &&
                       !autoCheck->text().isEmpty(),
                   "那一格的字（勾上管的是哪一件事）", autoCheck->text());
-            const QString hint = autoCheck->parentWidget()->toolTip();
+            const QString hint = autoCheck->parentWidget()->accessibleDescription();
             check(hint.contains(QStringLiteral("下载页")) && hint.contains(QStringLiteral("实例")),
                   "按需帮助区分实例下载和下载页的保存位置", hint);
             check(hint.contains(QStringLiteral("关闭后每次选择位置")),
@@ -469,21 +467,23 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
             }
             return item;
         };
-        /// 卡片里**紧挨在控件上面**的那一项，是标签就还回去 —— "行名在内容上面"的那一发。
-        const auto labelAbove = [&cardOf, &cardLayoutOf, &cardItemOf](QWidget *w) -> QLabel * {
-            QFrame *card = cardOf(w);
-            QVBoxLayout *layout = cardLayoutOf(card);
+        /// 控件所在那一行（`settingsItemRow`）左边那格标签。
+        const auto rowLabelOf = [&cardItemOf](QWidget *w) -> QLabel * {
             QWidget *item = cardItemOf(w);
-            if (layout == nullptr || item == nullptr) {
+            if (item == nullptr || item->layout() == nullptr || item->layout()->count() < 1) {
                 return nullptr;
             }
-            const int index = layout->indexOf(item);
-            if (index < 1) {
-                return nullptr;
-            }
-            QLayoutItem *above = layout->itemAt(index - 1);
-            return above != nullptr ? qobject_cast<QLabel *>(above->widget()) : nullptr;
+            return qobject_cast<QLabel *>(item->layout()->itemAt(0)->widget());
         };
+        /// 那一行右边那格（控件自己多半还套着"控件 + 说明"的容器）。
+        const auto rowControlOf = [&cardItemOf](QWidget *w) -> QWidget * {
+            QWidget *item = cardItemOf(w);
+            if (item == nullptr || item->layout() == nullptr || item->layout()->count() < 2) {
+                return nullptr;
+            }
+            return item->layout()->itemAt(1)->widget();
+        };
+        Q_UNUSED(cardLayoutOf);
 
         {
             const QList<QWidget *> controls = {
@@ -543,15 +543,15 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
             // 这里 —— 它现在说的就是这根条（系统内存 + 当前给到多少）。
             check(ui.getMemoryHint() != nullptr && ui.getMemoryMaxSlider() != nullptr &&
                       ui.getMemoryHint()->parentWidget() ==
-                          cardItemOf(ui.getMemoryMaxSlider()),
+                          rowControlOf(ui.getMemoryMaxSlider()),
                   "「最大内存」下面的说明和那根条装在同一个容器里（说明跟着条走）",
                   ui.getMemoryHint() != nullptr
                       ? QString("hint.parent=%1 item=%2")
                             .arg(ui.getMemoryHint()->parentWidget() != nullptr
                                      ? ui.getMemoryHint()->parentWidget()->objectName()
                                      : QStringLiteral("<null>"))
-                            .arg(cardItemOf(ui.getMemoryMaxSlider()) != nullptr
-                                     ? cardItemOf(ui.getMemoryMaxSlider())->objectName()
+                            .arg(rowControlOf(ui.getMemoryMaxSlider()) != nullptr
+                                     ? rowControlOf(ui.getMemoryMaxSlider())->objectName()
                                      : QStringLiteral("<null>"))
                       : QStringLiteral("<null>"));
             if (ui.getMemoryHint() != nullptr && ui.getMemoryMaxSlider() != nullptr &&
@@ -568,17 +568,16 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
                           .arg(ui.getMemoryHint()->y()));
             }
 
-            // 拿「最大内存」那一行验几何：**行名在卡片里紧挨着控件上面那一项**，
-            // 两者左边缘对齐 —— 这才是"上下结构"，并排的两列长得不是这样。
-            QWidget *maxItem = cardItemOf(ui.getMemoryMaxSpin());
-            auto *maxLabel = labelAbove(ui.getMemoryMaxSpin());
+            // 拿「最大内存」那一行验几何：行名在左、控件在右、顶边对齐（7a 设置页样张）。
+            QWidget *maxItem = rowControlOf(ui.getMemoryMaxSpin());
+            auto *maxLabel = rowLabelOf(ui.getMemoryMaxSpin());
             check(cardOf(ui.getMemoryMaxSpin()) != nullptr && maxLabel != nullptr &&
                       maxLabel->text() == QStringLiteral("最大内存"),
-                  "「最大内存」那一行的上面一项是选项名称、下面一项才是控件",
+                  "「最大内存」那一行左边是选项名称、右边才是控件",
                   maxLabel != nullptr ? maxLabel->text() : QStringLiteral("<null>"));
-            check(maxLabel != nullptr && maxItem != nullptr && maxLabel->x() == maxItem->x() &&
-                      maxLabel->y() + maxLabel->height() <= maxItem->y(),
-                  "选项名称量出来的几何在控件**上面**，且左边缘对齐",
+            check(maxLabel != nullptr && maxItem != nullptr &&
+                      maxLabel->x() + maxLabel->width() <= maxItem->x() && maxLabel->y() == maxItem->y(),
+                  "选项名称量出来的几何在控件**左边**，且顶边对齐",
                   maxLabel != nullptr
                       ? QString("label=(%1,%2 %3x%4) control=(%5,%6)")
                             .arg(maxLabel->x())
