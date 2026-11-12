@@ -469,7 +469,7 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         // 精修轮逐页自检：启动设置三主题、工具箱其余九页三主题。
         for (const QString &theme : {QStringLiteral("emerald"), QStringLiteral("ocean")})
             list.append({QStringLiteral("instance-launch-%1.png").arg(theme), theme, {1280, 800}, false, manage, QStringLiteral("launch")});
-        for (const char *key : {"download", "text", "coord", "server", "hash", "beacon", "brewing", "banner", "trim"})
+        for (const char *key : {"text", "coord", "server", "hash", "beacon", "brewing", "banner", "trim"})
             for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("emerald"), QStringLiteral("ocean")})
                 list.append({QStringLiteral("tool-%1-%2.png").arg(QLatin1String(key), theme), theme, {1280, 800}, false, home,
                              QStringLiteral("toolbox:") + QLatin1String(key)});

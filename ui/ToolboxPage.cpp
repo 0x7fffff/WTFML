@@ -64,17 +64,17 @@ const ToolInfo kToolInfos[] = {
     {ToolboxPage::Tool::Coord, "coord", "坐标换算", "坐标换算",
      "主世界与下界互转，也认 F3+C 的 tp 命令。"},
     {ToolboxPage::Tool::Server, "server", "服务器在线检测", "延迟测试",
-     "连上去问一句，看 MOTD、版本、在线人数，并量一个来回的延迟。"},
+     "看 MOTD、版本、在线人数和延迟。"},
     {ToolboxPage::Tool::Hash, "hash", "文件哈希校验", "SHA校验",
      "算文件的 SHA-256 / SHA-1 / MD5，可对照已知值。"},
     {ToolboxPage::Tool::Beacon, "beacon", "信标计算", "信标计算",
-     "信标几级要多少块、效果范围多大、这一级能给出哪些效果。"},
+     "信标几级要多少块、范围多大、有哪些效果。"},
     {ToolboxPage::Tool::Brewing, "brewing", "酿造助手", "酿造助手",
-     "选一种药水，摆出从水瓶开始每一步该加什么材料。"},
+     "选一种药水，列出从水瓶起每一步加什么。"},
     {ToolboxPage::Tool::Banner, "banner", "旗帜设计", "旗帜设计",
-     "选底色、一层一层叠图案，算织布机步骤和一共要多少染料。"},
+     "一层层叠图案，算织布机步骤和染料用量。"},
     {ToolboxPage::Tool::Trim, "trim", "纹饰搭配", "纹饰搭配",
-     "盔甲材质 + 纹饰图案 + 纹饰材料，算锻造台怎么摆、材料要多少。"},
+     "选材质、图案和材料，算锻造台怎么摆。"},
 };
 
 const ToolInfo *infoOf(ToolboxPage::Tool tool) {
@@ -2394,8 +2394,9 @@ void ToolboxPage::setBannerLayers(const QStringList &layers) {
 QWidget *ToolboxPage::buildTrimPanel() {
     auto *panel = new QWidget(this);
     auto *layout = new QVBoxLayout(panel);
-    layout->setContentsMargins(0, 2, 0, 0); layout->setSpacing(6);
-    // 标题与那一句总述已经在覆盖页顶上（`toolName()` / `toolSummary()`），这里不重复。
+    layout->setContentsMargins(0, 0, 0, 0); layout->setSpacing(6);
+    // 精修：和其余八页同一个表头（标题 + 一句说明）。
+    addPanelHeader(layout, panel, Tool::Trim);
     // 表格下面只留结果那几行：每件选了什么都写在上面三排下拉框里，不再复述一遍。
     auto *body = new QHBoxLayout; body->setSpacing(12);
     auto *left = new QVBoxLayout; left->setSpacing(8);
