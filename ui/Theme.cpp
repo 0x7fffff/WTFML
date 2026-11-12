@@ -11,12 +11,14 @@
 #include <QAbstractButton>
 #include <QButtonGroup>
 #include <QLabel>
+#include <QAbstractSpinBox>
 #include <QApplication>
 #include <QComboBox>
 #include <QDir>
 #include <QEvent>
 #include <QFontDatabase>
 #include <QFocusEvent>
+#include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QGuiApplication>
 #include <QHash>
@@ -24,17 +26,21 @@
 #include <QJsonValue>
 #include <QCheckBox>
 #include <QMenu>
+#include <QLineEdit>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPlainTextEdit>
 #include <QPointer>
 #include <QProxyStyle>
 #include <QPushButton>
 #include <QScrollBar>
 #include <QSettings>
+#include <QSizePolicy>
 #include <QStyle>
 #include <QStyleFactory>
 #include <QStyleHints>
 #include <QStyleOptionComboBox>
+#include <QTextEdit>
 #include <QTimer>
 #include <QToolButton>
 #include <QWidget>
@@ -199,12 +205,17 @@ Tokens tokens() {    const QString preset = current().presetId;
 
 namespace {
 
-// Qt 的 :focus 同时包含鼠标和键盘焦点；按钮只对键盘操作显示焦点环。
+// Qt 的 :focus 同时包含鼠标和键盘焦点，而这一套界面只对**键盘到达**画焦点环（F1）：
+// 按钮、输入框、下拉框、数字框都一样 —— 鼠标点进来只把底提亮一档，不画线。
+//
+// 落法：应用级一个过滤器，在 `FocusIn` 时看 `QFocusEvent::reason()`，只有
+// `TabFocusReason` / `BacktabFocusReason` 才挂 `wtfmlKeyboardFocus`（样式表按它选那个 3px 淡环），
+// 别的理由（鼠标、程序 setFocus、窗口激活）一律摘掉；`FocusOut` 也摘掉。
 // 不清除真实焦点、不改 Tab 顺序，也不影响输入框和列表的焦点行为。
-class ButtonFocusVisibility : public QObject {
+class ControlFocusVisibility : public QObject {
 public:
-    explicit ButtonFocusVisibility(QApplication &app) : QObject(&app) {
-        setObjectName(QStringLiteral("wtfmlButtonFocusVisibility"));
+    explicit ControlFocusVisibility(QApplication &app) : QObject(&app) {
+        setObjectName(QStringLiteral("wtfmlControlFocusVisibility"));
         app.installEventFilter(this);
     }
 protected:
@@ -214,6 +225,7 @@ protected:
             m_keyboard = false;
             setVisible(qobject_cast<QAbstractButton *>(QApplication::focusWidget()), false);
             setVisible(button, false);
+            setKeyboard(watched, false);
         } else if (event->type() == QEvent::KeyPress) {
             const int key = static_cast<QKeyEvent *>(event)->key();
             if (key != Qt::Key_Shift && key != Qt::Key_Control && key != Qt::Key_Alt && key != Qt::Key_Meta) {
@@ -257,16 +269,52 @@ protected:
                 menu->setAttribute(Qt::WA_TranslucentBackground);
                 menu->setWindowFlag(Qt::FramelessWindowHint);
             }
-        } else if (event->type() == QEvent::FocusIn && button != nullptr) {
+        } else if (event->type() == QEvent::FocusIn) {
             const auto reason = static_cast<QFocusEvent *>(event)->reason();
             if (reason == Qt::MouseFocusReason) {
                 m_keyboard = false;
             }
             setVisible(button, m_keyboard);
+            setKeyboard(watched, reason == Qt::TabFocusReason || reason == Qt::BacktabFocusReason);
+        } else if (event->type() == QEvent::FocusOut) {
+            setKeyboard(watched, false);
         }
         return false;
     }
 private:
+    /// 输入类控件：`widgetStyleSheet()` 里那条 `[wtfmlKeyboardFocus="true"]:focus` 就按这几种写。
+    static bool isInput(QWidget *widget) {
+        return qobject_cast<QLineEdit *>(widget) != nullptr ||
+               qobject_cast<QComboBox *>(widget) != nullptr ||
+               qobject_cast<QAbstractSpinBox *>(widget) != nullptr ||
+               qobject_cast<QTextEdit *>(widget) != nullptr ||
+               qobject_cast<QPlainTextEdit *>(widget) != nullptr;
+    }
+    static void mark(QWidget *widget, bool on) {
+        if (widget == nullptr || (widget->property("wtfmlKeyboardFocus").isValid() &&
+                                  widget->property("wtfmlKeyboardFocus").toBool() == on)) return;
+        widget->setProperty("wtfmlKeyboardFocus", on);
+        widget->style()->unpolish(widget);
+        widget->style()->polish(widget);
+        widget->update();
+    }
+    /// 焦点落在哪一格：数字框 / 可编辑下拉框的 `focusProxy` 是**里面**那一格 `QLineEdit`，
+    /// 而 3px 淡环要画在外面那一圈上 —— 所以里头那一格和外面那一层一起标。
+    /// 里面那一格身上虽然也挂着属性，但它的边框被 `QAbstractSpinBox QLineEdit` 那条复位成
+    /// `none`，画不出第二条环。
+    static void setKeyboard(QObject *watched, bool on) {
+        auto *widget = qobject_cast<QWidget *>(watched);
+        if (!isInput(widget)) return;
+        mark(widget, on);
+        if (auto *parent = widget->parentWidget();
+            qobject_cast<QAbstractSpinBox *>(parent) != nullptr || qobject_cast<QComboBox *>(parent) != nullptr) {
+            mark(parent, on);
+        }
+        if (qobject_cast<QAbstractSpinBox *>(widget) != nullptr || qobject_cast<QComboBox *>(widget) != nullptr) {
+            const auto edits = widget->findChildren<QLineEdit *>(QString(), Qt::FindDirectChildrenOnly);
+            for (auto *edit : edits) mark(edit, on);
+        }
+    }
     static void setVisible(QAbstractButton *button, bool visible) {
         if (button == nullptr || (button->property("wtfmlKeyboardFocus").isValid() &&
                                   button->property("wtfmlKeyboardFocus").toBool() == visible)) return;
@@ -496,14 +544,13 @@ QString accentSettingKey(const char *field) {
 }
 
 // ---------------------------------------------------------------------------
-// 我们那一份代理样式（`wtfml-fusion`）—— 今天它有两件事
+// 我们那一份代理样式（`wtfml-fusion`）
 // ---------------------------------------------------------------------------
 
 /**
- * @brief 产品+三个验证工程共用的那一份代理样式。**它接手两件事**：
+ * @brief 产品+三个验证工程共用的那一份代理样式。**它接手一件事**：
  *
- * 1. 下拉框右边那个 `∨`（下面这一大段）；
- * 2. **选中那一块**（`PE_PanelItemViewItem` / `PE_PanelItemViewRow` 两条原语 +
+ * **选中那一块**（`PE_PanelItemViewItem` / `PE_PanelItemViewRow` 两条原语 +
  * `CE_ItemViewItem` 里换墨）—— 选中那一块不用平台那档蓝色，而是画成
  * "这一行自己的底色混一档主题色 + 左边一根 3 px 主题色指示条"
  * （和侧栏导航同款）。
@@ -511,67 +558,11 @@ QString accentSettingKey(const char *field) {
  * 不能破（破=把"跟着系统深浅"钉死，见 `apply()` 那段）。样式这一层一份代码就管住
  * 全仓每一张表，连不用我们那两个代理的表、以及下拉框弹出来那张表也一起管住了。
  *
- *  * 【下拉框右边那个 `∨`】不归这个类管了（7b）：`::drop-down` 不写 `border: none` 时 QStyleSheetStyle
- * 走 QWindowsStyle 那份，先用下拉框自己的半透明底再压一块立体按钮 —— 箭头底下那块方框；写了
- * `border: none` 那一格就什么都不画。现在样式表写 `border: none`，V 由上面那个
- * `ComboChevronPainter` 在下拉框画完之后补（**这一条和 `widgetStyleSheet()` 里那个 `::drop-down`
- * 是一对，改一边必须看另一边**）。
+ * 【下拉框那颗 `∨` 已经不画了】原来这里挂了个 `ComboChevronPainter` 在 `::drop-down`
+ * 那一格里补一个 V（7b 的规格）。8 号反馈之后那条规格撤了：`::drop-down` 宽度写 0，
+ * 整块可点，右上角不再有任何箭头，那个过滤器连同它画的 V 一起删掉。
  */
 namespace {
-
-/// 下拉框右边那个 V（设计稿只要一个 V，不要底下那块方框）。
-void paintComboChevron(QPainter *p, const QRect &box, const QColor &ink)
-{
-    const QPoint center = box.center();
-    const int half = 4;  // 半宽
-    const int rise = 2;  // 两端比中间高多少
-    QPainterPath path;
-    path.moveTo(center.x() - half, center.y() - rise);
-    path.lineTo(center.x(), center.y() + rise);
-    path.lineTo(center.x() + half, center.y() - rise);
-    QPen pen(ink);
-    pen.setWidthF(1.6);
-    pen.setCapStyle(Qt::RoundCap);
-    pen.setJoinStyle(Qt::RoundJoin);
-    p->save();
-    p->setRenderHint(QPainter::Antialiasing, true);
-    p->setPen(pen);
-    p->setBrush(Qt::NoBrush);
-    p->drawPath(path);
-    p->restore();
-}
-
-/// 样式表下拉框那一格：`::drop-down` 没有可画的规则时 QStyleSheetStyle 直接调 QWindowsStyle 那份，
-/// 用下拉框自己的（7a 起半透明的）底色再压一块立体按钮 —— 叠出来就是箭头底下那块方框，代理样式拦不到。
-/// 所以 `::drop-down` 写成 `border: none`（Qt 那格什么都不画），V 由这个过滤器在下拉框画完之后补上。
-class ComboChevronPainter : public QObject
-{
-public:
-    using QObject::QObject;
-
-    bool eventFilter(QObject *obj, QEvent *event) override
-    {
-        auto *combo = qobject_cast<QComboBox *>(obj);
-        if (combo == nullptr || event->type() != QEvent::Paint) return false;
-        static_cast<QObject *>(combo)->event(event);  // 先让它照常画完（QObject::event 是公开的）
-        QStyleOptionComboBox opt;
-        opt.initFrom(combo);
-        opt.editable = combo->isEditable();
-        opt.subControls = QStyle::SC_All;
-        const QRect cell = combo->style()->subControlRect(QStyle::CC_ComboBox, &opt, QStyle::SC_ComboBoxArrow, combo);
-        QPainter painter(combo);
-        // 墨色跟着 `ButtonText`（样式表的 `color:` 已灌进调色板；initFrom 按可用 / 禁用选好了那一组）。
-        paintComboChevron(&painter, cell.isValid() ? cell : QRect(combo->width() - 28, 0, 28, combo->height()),
-                          opt.palette.color(QPalette::ButtonText));
-        return true;
-    }
-};
-
-ComboChevronPainter *comboChevronPainter()
-{
-    static auto *painter = new ComboChevronPainter(qApp);
-    return painter;
-}
 
 }  // namespace
 
@@ -584,11 +575,6 @@ public:
     void polish(QWidget *w) override
     {
         QProxyStyle::polish(w);
-        if (qobject_cast<QComboBox *>(w) != nullptr) {
-            w->removeEventFilter(comboChevronPainter());  // polish 会反复来，别装两份
-            w->installEventFilter(comboChevronPainter());
-            return;
-        }
         auto *button = qobject_cast<QPushButton *>(w);
         if (button == nullptr || button->testAttribute(Qt::WA_SetFont)) return;
         QFont font = handFont(button->font(), HandFont::Kai);
@@ -1626,6 +1612,68 @@ void markColorSwatch(QPushButton *button, const QColor &color) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// 两个控件工厂
+// ---------------------------------------------------------------------------
+
+QPushButton *makeFoldRow(QWidget *parent, const QString &title) {
+    auto *button = new QPushButton(title, parent);
+    button->setCheckable(true);
+    button->setCursor(Qt::PointingHandCursor);
+    button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    // 属性选择器把这一颗从通用 QPushButton 那几档里摘出来（那几档的圆角淡底 / 勾上铺色不合折叠行）。
+    button->setProperty("wtfmlFoldRow", true);
+    // 标题仍走按钮自己的 `text()`（QSS 里 `text-align: left` 靠左画；无障碍名、验证工程照旧读它）；
+    // 右侧那两个字是一颗子 `QLabel` —— 整行任何位置按下都是按这颗按钮。
+    auto *state = new QLabel(button);
+    state->setAttribute(Qt::WA_TransparentForMouseEvents);
+    state->setForegroundRole(QPalette::PlaceholderText);
+    auto *row = new QHBoxLayout(button);
+    row->setContentsMargins(0, 0, 14, 0);
+    row->addStretch(1);
+    row->addWidget(state);
+    const auto sync = [state](bool open) { state->setText(open ? QObject::tr("收起") : QObject::tr("展开")); };
+    sync(false);
+    QObject::connect(button, &QPushButton::toggled, button, sync);
+    return button;
+}
+
+QWidget *makeNumberStepper(QWidget *parent, QAbstractSpinBox *spin, int spinWidth) {
+    auto *field = new QWidget(parent);
+    auto *row = new QHBoxLayout(field);
+    row->setContentsMargins(0, 0, 0, 0);
+    row->setSpacing(2);
+    spin->setParent(field);
+    spin->setAlignment(Qt::AlignCenter);
+    // 没有上下钮之后 sizeHint 不再留那一格；显式 NoButtons 让宽度也按这个来算。
+    spin->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    if (spinWidth > 0) {
+        spin->setFixedWidth(spinWidth);
+    }
+    const auto step = [field](const QString &text, const QString &tip) {
+        auto *button = new QPushButton(text, field);
+        button->setFocusPolicy(Qt::NoFocus);  // Tab 只停在数字框上，−/+ 是它的附件
+        button->setCursor(Qt::PointingHandCursor);
+        button->setToolTip(tip);
+        button->setAccessibleName(tip);
+        button->setFixedWidth(30);
+        markButton(button, ButtonKind::Ghost);
+        QFont font = button->font();
+        font.setPixelSize(16);
+        button->setFont(font);
+        return button;
+    };
+    auto *minus = step(QStringLiteral("−"), QObject::tr("减一"));
+    auto *plus = step(QStringLiteral("+"), QObject::tr("加一"));
+    row->addWidget(minus);
+    row->addWidget(spin);
+    row->addWidget(plus);
+    QObject::connect(minus, &QPushButton::clicked, spin, &QAbstractSpinBox::stepDown);
+    QObject::connect(plus, &QPushButton::clicked, spin, &QAbstractSpinBox::stepUp);
+    field->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    return field;
+}
+
 QString paletteRef(const char *role) {
     return QStringLiteral("palette(%1)").arg(QLatin1String(role));
 }
@@ -1865,10 +1913,11 @@ QString widgetStyleSheet() {
                "QLineEdit:disabled { background-color: %3; color: %4; border-color: %5; }")
                .arg(border, ink, disabledFill, disabledInk, disabledBorder)
                .arg(controlRadius());
-    // 只钉最小高度，不钉最大高度：正常字号下三者仍是 24px；系统使用大字号时允许控件
-    // 跟着长高，不能为了像素对齐把字裁掉。
-    // 设计稿层把输入框 / 下拉框钉到 inputHeight()；数字框那 6px 框是基样式画的，内容盒补齐。
-    qss += QStringLiteral("QAbstractSpinBox { min-height: %1px; }").arg(inputHeight() - 6);
+    // 数字框的高度**不在这儿钉**：文件末尾那一族（`QLineEdit, QComboBox, QAbstractSpinBox`）
+    // 给它和输入框、下拉框同一个盒模型（3px 透明边 + 1px padding + 同一个 min-height）。
+    // 早先这里单独补过一条 `min-height: inputHeight() - 6`（数字框那 6px 框是基样式画的），
+    // 现在框归样式表自己画，那条要是不删就会把数字框的**下限**顶高 2px —— 三样等高的钉子在
+    // 它上面破掉。
     // 表头：不画白底、不描边，字用次要色（工具箱那几张表）。
     qss += QStringLiteral("QHeaderView { background: transparent; border: none; }"
                           "QHeaderView::section { background: transparent; border: none;"
@@ -1899,20 +1948,17 @@ QString widgetStyleSheet() {
     // 选中那一格也一起写成白底黑字（选中那一格用主题色打底、**黑墨**：黑压 `Pure`
     // 是 13.5:1，白压 `Pure` 只有 1.56:1）。
     //
-    // NOTE: 箭头那一格按「下拉框最右边放一个 V 箭头」来：
-    //
-    // - 宽度 20；
-    // - **不要 `border: none`**。留着它这一格就算"有东西要画"，Qt 于是走另一条分支、
-    // 把箭头整个吃掉（见 `WtfmlProxyStyle` 那段）。不写它则由
-    // `WtfmlProxyStyle` 接手画那个 `∨` —— 墨色跟着 `color:` 走，换深浅主题照样跟着变。
-    // ⇒ **改这一条之前先把 `WtfmlProxyStyle` 那段读了**，两处是一对。
+    // NOTE: 8 号反馈之后下拉框**不再画任何箭头**：`::drop-down` 宽度 0、`border: none`，
+    // 那一格什么都不画（整块仍可点 —— 非可编辑的 QComboBox 点框内任何位置都会弹）。
+    // 原来那个补 `∨` 的 `ComboChevronPainter` 已经删了；这两处（这里和文件末尾那一族）
+    // 写的是同一个规格，别只改一边。
     qss += QStringLiteral(
                "QComboBox { background-color: #ffffff; color: #000000; border: 1px solid %1;"
                " border-radius: %7px; padding: 1px 3px;"
                " min-height: 20px; }"
                "QComboBox:focus { border-color: %2; }"
                "QComboBox:disabled { background-color: %3; color: %4; border-color: %5; }"
-               "QComboBox::drop-down { width: 20px; border: none; }"
+               "QComboBox::drop-down { width: 0px; border: none; }"
                "QComboBox QAbstractItemView { background-color: #ffffff; color: #000000;"
                " border: 1px solid %1;"
                " selection-background-color: %6; selection-color: #000000; outline: none; }")
@@ -2082,23 +2128,59 @@ QString widgetStyleSheet() {
                "QPushButton[%2=\"%3\"]:pressed:enabled { background-color: palette(midlight); }"
                "QPushButton[%2=\"%3\"]:checked { background-color: palette(highlight); }")
                .arg(kind, QString::fromLatin1(kButtonSizeProperty), QString::fromLatin1(kIconButtonValue));
-    // 输入框 / 下拉：fill-soft 底、默认不描线（「去硬描边」）；悬停 fill-soft-hover；焦点底线 2px 强调色；
-    // 错误底线 2px 危险色；禁用无底线。
+    // 输入框 / 下拉 / 数字框：**同一族**（fill-soft 底、不描线、圆角 10、等高）。
+    // 焦点按 F1：鼠标点进来只把底提亮一档，不画线；键盘 Tab / Backtab 到达才加 3px 淡环
+    // （`wtfmlKeyboardFocus` 由 `ControlFocusVisibility` 挂，见那个过滤器）。
+    //
+    // ★ 四边**常驻 3px 透明边**：环出现时只换 `border-color`，盒子不长大、字不挪一格。
+    // 内容盒 = inputHeight − 上下 3px 边 − 上下 1px padding，默认仍是 36；三种控件同一个盒模型，
+    // 所以并排摆着一样高（那是 W13 的钉子）。
     qss += QStringLiteral(
-        "QLineEdit, QComboBox { background-color: palette(base); color: palette(text);"
-        // 四边留 1px 透明边、不上色：和数字框（四边 1px）一样高；底线只在焦点 / 报错时出现。
-        " border: 1px solid transparent; border-radius: %1px; padding: 1px 10px;"
+        "QLineEdit, QComboBox, QAbstractSpinBox { background-color: palette(base);"
+        " color: palette(text);"
+        " border: 3px solid transparent; border-radius: %1px; padding: 1px 8px;"
         " min-height: %3px; }"
-        "QLineEdit:hover:enabled, QComboBox:hover:enabled { background-color: palette(shadow); }"
+        "QLineEdit:hover:enabled, QComboBox:hover:enabled, QAbstractSpinBox:hover:enabled"
+        " { background-color: palette(shadow); }"
         // 和 chip 并排的搜索框（`wtfmlChipHeight`）：QSS 的 min-height 会冲掉 setFixedHeight，高度也写在这儿。
         "QLineEdit[wtfmlChipHeight=\"true\"] { min-height: %2px; max-height: %2px; }"
-        // 先把四边清回透明：前面那份 `:focus { border-color }` 伪类更具体，不清会漏成整圈强调色框。
-        "QLineEdit:focus, QComboBox:focus, QComboBox:on { border-color: transparent; border-bottom: 2px solid palette(link); }"
+        // 鼠标焦点：底提亮一档，四边仍是透明（**不画线**）。
+        "QLineEdit:focus, QComboBox:focus, QAbstractSpinBox:focus, QComboBox:on"
+        " { background-color: palette(shadow); border-color: transparent; }"
         "QComboBox:on { background-color: palette(midlight); }"
-        "QLineEdit[wtfmlError=\"true\"], QLineEdit[inputError=\"true\"] { border-color: transparent; border-bottom: 2px solid palette(bright-text); }"
-        "QLineEdit:disabled, QComboBox:disabled { background-color: palette(light); color: palette(link-visited);"
-        " border-bottom-color: transparent; }"
-        "QComboBox::drop-down { width: 28px; border: none; }"  // V 由 ComboChevronPainter 补（见那段）
+        // 键盘焦点（只有 Tab / Backtab 到达才算）：3px 淡环。`highlight` = 选中淡底，
+        // 就是「强调色压在本程序底上」那一档，三套预设加换主题色都跟着走。
+        "QLineEdit[wtfmlKeyboardFocus=\"true\"]:focus,"
+        " QComboBox[wtfmlKeyboardFocus=\"true\"]:focus,"
+        " QAbstractSpinBox[wtfmlKeyboardFocus=\"true\"]:focus"
+        " { border-color: palette(highlight); }"
+        // 报错：淡环换危险色（下方那行小字仍由各页自己的报错展示给，这里只管这一圈）。
+        "QLineEdit[wtfmlError=\"true\"], QLineEdit[inputError=\"true\"]"
+        " { border-color: palette(bright-text); }"
+        "QLineEdit:disabled, QComboBox:disabled, QAbstractSpinBox:disabled"
+        " { background-color: palette(light); color: palette(link-visited); }"
+        // 下拉不再有「文字 + ∨」那颗箭头：整块可点（点框内任何位置都会弹），那一格宽度归零。
+        "QComboBox::drop-down { width: 0px; border: none; }"
+        // ★ 数字框的内容盒再低 3px：`QStyleSheetStyle` 给 `CT_SpinBox` 算尺寸时会在
+        // 我们这套盒模型之外**再加一圈基样式的框**（实测 36 → 39）。减掉这 3px 才是
+        // 「三样一样高 36」，W13 那条钉子量的是摆进布局之后的 `height()`。
+        "QAbstractSpinBox { min-height: %4px; }"
+        // 上下箭头不画，但滚轮 / ↑↓ / PgUp / PgDn 照旧 —— 那是 QAbstractSpinBox 自己的键盘处理。
+        "QAbstractSpinBox::up-button, QAbstractSpinBox::down-button"
+        " { width: 0px; height: 0px; border: none; background: transparent; }"
+        // QToolButton 上的菜单小三角一律不画（本仓没有哪颗钮挂 menu）。
+        "QToolButton::menu-indicator { width: 0px; height: 0px; image: none; }"
+        // 下拉触发器（本仓那种「文字 + ∨」的钮改成的那颗）：胶囊 999 + fill-soft，整块可点。
+        "QPushButton[wtfmlComboTrigger=\"true\"] { background-color: palette(button);"
+        " border-radius: 999px; padding: 0px 14px; min-height: 28px; max-height: 28px; }"
+        "QPushButton[wtfmlComboTrigger=\"true\"]:hover:enabled { background-color: palette(shadow); }"
+        "QPushButton[wtfmlComboTrigger=\"true\"]:pressed:enabled { background-color: palette(midlight); }"
+        // 折叠行：整行一颗按钮，不带箭头；勾上（展开着）不再铺强调色淡底，只靠右边那两个字说明。
+        "QPushButton[wtfmlFoldRow=\"true\"] { background-color: transparent; border: none; padding: 0px;"
+        " min-height: 34px; max-height: 34px; color: palette(window-text); }"
+        "QPushButton[wtfmlFoldRow=\"true\"]:checked { background-color: transparent; color: palette(window-text); }"
+        "QPushButton[wtfmlFoldRow=\"true\"]:hover:enabled { background-color: palette(light); }"
+        "QPushButton[wtfmlFoldRow=\"true\"]:pressed:enabled { background-color: palette(midlight); }"
         "QComboBox QAbstractItemView { background-color: palette(tool-tip-base); color: palette(text);"
         " border: none; selection-background-color: palette(midlight); selection-color: palette(text); }"
         "QCheckBox, QCheckBox:checked { color: palette(window-text); }"
@@ -2113,10 +2195,12 @@ QString widgetStyleSheet() {
         "QSlider::handle:horizontal { width: 16px; height: 16px; margin: -7px 0; border-radius: 8px;"
         " background: palette(accent); }"
         "QSlider::handle:horizontal:hover { background: palette(link); }"
-        "QSlider::handle:horizontal:disabled, QSlider::sub-page:horizontal:disabled { background: palette(link-visited); }")
+        "QSlider::handle:horizontal:disabled, QSlider::sub-page:horizontal:disabled"
+        " { background: palette(link-visited); }")
         .arg(controlRadius())
-        .arg(chipHeight() - 4)   // 内容盒 = chipHeight − 上下 1px 边 − 上下 1px padding
-        .arg(inputHeight() - 4); // 同上，默认 36
+        .arg(chipHeight() - 8)    // 内容盒 = chipHeight − 上下 3px 边 − 上下 1px padding
+        .arg(inputHeight() - 8)   // 同上，默认 36
+        .arg(inputHeight() - 11); // 数字框：再让 3px 给基样式多算的那一圈框
     // 分段（设计稿 .seg）：容器 fill-hover；段 ink-2，悬停 fill-hover + ink，按下 fill-press，勾上 accent-soft + accent。
     qss += QStringLiteral(
         "QWidget[wtfmlSegmented=\"true\"] { background-color: palette(light); border-radius: 12px; }"
@@ -2126,7 +2210,7 @@ QString widgetStyleSheet() {
         "QPushButton[wtfmlSegment=\"true\"]:pressed:enabled { background-color: palette(midlight); color: palette(window-text); }"
         "QPushButton[wtfmlSegment=\"true\"]:checked { background-color: palette(highlight); color: palette(link); }"
         "QPushButton[wtfmlSegment=\"true\"]:disabled { background-color: transparent; color: palette(link-visited); }");
-    // 右键 / 「…」菜单：玻璃面、不描硬边、圆角，项悬停淡底（窗口透明由 ButtonFocusVisibility 在 Polish 时打开）。
+    // 右键 / 「…」菜单：玻璃面、不描硬边、圆角，项悬停淡底（窗口透明由 ControlFocusVisibility 在 Polish 时打开）。
     // 菜单（右键 / 「…」）：一律走 palette(...)，**不写死颜色** —— 这一份应用级样式表换主题时
     // 字符串必须不变（见 installButtonSheet()），写死 token 会让每次换主题都在换调色板**之前**
     // 重挂一遍，跟着主题算色的控件拿到的还是旧色（U32.4 那排 chip 就是这么停在深色上的）。
@@ -2470,8 +2554,8 @@ void apply(QApplication &app) {
     applyingTheme() = true;
     if (app.font().pixelSize() != textSize(TextRole::Body))
         app.setFont(textFont(app.font(), TextRole::Body));
-    if (app.findChild<QObject *>(QStringLiteral("wtfmlButtonFocusVisibility")) == nullptr)
-        new ButtonFocusVisibility(app);
+    if (app.findChild<QObject *>(QStringLiteral("wtfmlControlFocusVisibility")) == nullptr)
+        new ControlFocusVisibility(app);
     if (app.findChild<QObject *>(QStringLiteral("wtfmlScrollBarStyler")) == nullptr)
         new ScrollBarStyler(app);
     if (app.findChild<QObject *>(QStringLiteral("wtfmlColorSchemeWatcher")) == nullptr)

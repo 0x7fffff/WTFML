@@ -1453,7 +1453,8 @@ int UiInstanceOverridesChecks() {
             Dlg dialog(instanceDisplayName, instanceDirName, Dlg::Override(), global,
                        QStringList(), true);
             dialog.showPage(Dlg::launchCategoryKey());
-            auto *toggle = dialog.findChild<QToolButton *>(Dlg::advancedToggleName());
+            // 折叠行现在是**一颗 QPushButton**（整行可点、右边写「展开 / 收起」，不带箭头）。
+            auto *toggle = dialog.findChild<QAbstractButton *>(Dlg::advancedToggleName());
             auto *box = dialog.findChild<QWidget *>(Dlg::advancedBoxName());
             check(toggle != nullptr && box != nullptr, "U7 高级选项那个折叠按钮和内容块都在");
             check(toggle != nullptr && toggle->text() == Dlg::advancedToggleText(),
@@ -1489,7 +1490,7 @@ int UiInstanceOverridesChecks() {
             QApplication::processEvents();
             dialog.resize(dialog.width(), dialog.minimumSizeHint().height());
             QApplication::processEvents();
-            auto *toggle = dialog.findChild<QToolButton *>(Dlg::advancedToggleName());
+            auto *toggle = dialog.findChild<QAbstractButton *>(Dlg::advancedToggleName());
             // 当前那一页外面那层滚动区（剥壳的办法和上面 U0a 那条同一条）。
             auto *scroll = qobject_cast<QScrollArea *>(dialog.stack()->currentWidget());
             check(scroll != nullptr && scroll->verticalScrollBar() != nullptr,

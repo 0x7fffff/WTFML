@@ -6,28 +6,21 @@
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QSpinBox>
-#include <QToolButton>
 #include <QVBoxLayout>
 
 ThemeAdvancedEditor::ThemeAdvancedEditor(QWidget *parent) : QWidget(parent), m_spec(Theme::current()) {
     setObjectName(QStringLiteral("themeAdvancedEditor"));
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
-    auto *toggle = new QToolButton(this);
+    // 折叠行：整行一颗按钮，右边「展开 / 收起」，不放 ▸ 方框钮（8 号反馈）。
+    auto *toggle = Theme::makeFoldRow(this, tr("细分区域与控件颜色"));
     toggle->setObjectName("themeAdvancedToggle");
-    toggle->setText(tr("细分区域与控件颜色"));
-    toggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    toggle->setCheckable(true);
-    toggle->setArrowType(Qt::RightArrow);
-    layout->addWidget(toggle, 0, Qt::AlignLeft);
+    layout->addWidget(toggle);
     auto *body = new QWidget(this);
     body->setObjectName("themeAdvancedBody");
     body->hide();
     layout->addWidget(body);
-    connect(toggle, &QToolButton::toggled, this, [toggle, body](bool open) {
-        toggle->setArrowType(open ? Qt::DownArrow : Qt::RightArrow);
-        body->setVisible(open);
-    });
+    connect(toggle, &QAbstractButton::toggled, this, [body](bool open) { body->setVisible(open); });
     auto *form = new QFormLayout(body);
     form->setContentsMargins(0, 4, 0, 0);
     form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);

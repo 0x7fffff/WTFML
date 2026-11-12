@@ -285,15 +285,12 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     // `level.dat` 的 `Data/GameRules` 里，见 .hpp 顶上那段文件结构），所以风险、备份那一句
     // 警告、"要不要动文件"这个决定**全都是同一件事**。切法按"动的是哪份文件"，而不是按
     // "游戏里 `/gamerule` 能不能改"：动 `level.dat` 的一律收进来。
-    m_fileToggle = new QToolButton(m_body);
+    // 折叠行：整行一颗按钮，右边「展开 / 收起」，不放 ▸ 方框钮（8 号反馈）。
+    m_fileToggle = Theme::makeFoldRow(m_body, fileToggleText());
     m_fileToggle->setObjectName(fileToggleName());
-    m_fileToggle->setText(fileToggleText());
-    m_fileToggle->setCheckable(true);
     m_fileToggle->setChecked(false);
-    m_fileToggle->setArrowType(Qt::RightArrow);
-    m_fileToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     m_fileToggle->setToolTip(tr("世界名、难度、游戏规则等写在存档文件里，修改前会先确认。"));
-    body->addWidget(m_fileToggle, 0, Qt::AlignLeft);
+    body->addWidget(m_fileToggle, 0);
 
     m_fileBody = new QWidget(m_body);
     m_fileBody->setObjectName(fileBodyName());
@@ -347,7 +344,6 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
         // MainWindow 那一头有两种回话：答应 ⇒ `setFileEditingOpen(true)`（和现在一样）、
         // 反悔 ⇒ `setFileEditingOpen(false)`（把框收回去，那一下会把这个钮也拨回来）。
         m_fileBody->setVisible(open);
-        m_fileToggle->setArrowType(open ? Qt::DownArrow : Qt::RightArrow);
         // 正文收尾那根弹簧也要跟着翻（见 `m_bodyTail` 那一段：收着的时候不管它，上面两样
         // 会被均分到整块正文里）。
         updateBodyTail(open);
@@ -772,7 +768,6 @@ void WorldSettingsPage::setFileEditingOpen(bool open) {
     // 第二次是在他**刚答应完之后**弹的（屏幕上看着像"这按钮点不完"）。
     const QSignalBlocker blocker(m_fileToggle);
     m_fileToggle->setChecked(open);
-    m_fileToggle->setArrowType(open ? Qt::DownArrow : Qt::RightArrow);
     m_fileBody->setVisible(open);
     // 正文收尾那根弹簧（见 `m_bodyTail` 那段 —— 这一条路和用户点那颗钮那一条路都要叫它）。
     updateBodyTail(open);

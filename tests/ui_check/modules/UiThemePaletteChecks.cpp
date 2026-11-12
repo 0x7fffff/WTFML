@@ -1,4 +1,7 @@
 #include "Support.hpp"
+#include <QDirIterator>
+#include <QFileInfo>
+#include <QRegularExpression>
 int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
     {
         // 比色一律拿 `name(HexArgb)` 比字符串，不用 `QColor::operator==` —— 后者在 Qt 6 里
@@ -1329,7 +1332,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                       .arg(editBorderHits)
                       .arg(QColor(editShot.pixel(searchEdit->rect().center().x(), searchEdit->rect().bottom())).name(),
                            inputFill.name()));
-            {   // 报错时才露底线：2px 危险色（`wtfmlError`）。
+            {   // 报错：那**一圈**换成危险色（12 号反馈之后没有底部那条线了，报错也走整圈）。
                 const auto repolish = [searchEdit] {
                     searchEdit->style()->unpolish(searchEdit);
                     searchEdit->style()->polish(searchEdit);
@@ -1338,18 +1341,64 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                 repolish();
                 const QImage errorShot = captureWidgetOn(searchEdit, formBase);
                 const QColor danger = app.palette().color(QPalette::BrightText);
-                const QRect lastTwo(0, searchEdit->height() - 2, searchEdit->width(), 2);
-                const int errorHits = countColorIn(errorShot, lastTwo, danger, 12);
-                check(errorHits >= searchEdit->width() * 2 * 8 / 10,
-                      "★★ W13 输入框报错时有底线：最后两行是危险色（至少八成宽度）",
-                      QStringLiteral("危险色 %1 个像素 / 宽 %2").arg(errorHits).arg(searchEdit->width()));
+                const QRect topBand(searchEdit->width() / 5, 0, searchEdit->width() * 3 / 5, 3);
+                const QColor errorRing = overOpaque(danger, inputFill);
+                const int errorHits = countColorIn(errorShot, topBand, errorRing, 24);
+                check(errorHits >= topBand.width() * 3 * 6 / 10,
+                      "★★ W13 输入框报错时**顶边那 3px 换成危险色**（整圈淡环，不是底部一条线）",
+                      QStringLiteral("危险色 %1 个像素 / 那一带 %2 个（该是 %3）")
+                          .arg(errorHits).arg(topBand.width() * 3).arg(errorRing.name()));
                 searchEdit->setProperty("wtfmlError", QVariant());
                 repolish();
             }
-            check(Theme::widgetStyleSheet().contains(
-                      QLatin1String("QLineEdit:focus, QComboBox:focus, QComboBox:on { border-color: transparent;"
-                                    " border-bottom: 2px solid palette(link); }")),
-                  "★★ W13 输入框 / 下拉框拿到焦点（下拉展开）时只有 2px 强调色底线（另三边清回透明，不成整圈框）");
+            // 焦点（F1）：鼠标点进来只把底提亮一档、**不画线**；键盘 Tab / Backtab 到达才加 3px 淡环。
+            // 这一条量两件：样式表里旧底线规则一条都不许留；环真的画出来了（而且只在键盘那一档）。
+            {
+                const QString sheetNow = Theme::widgetStyleSheet();
+                check(!sheetNow.contains(QLatin1String("border-bottom")),
+                      "★★ W13 焦点态 QSS 里**不再出现底部边线规则**（`border-bottom` 一条都没有）",
+                      QStringLiteral("样式表里 %1 处 `border-bottom`")
+                          .arg(sheetNow.count(QLatin1String("border-bottom"))));
+                check(sheetNow.contains(QLatin1String("QLineEdit[wtfmlKeyboardFocus=\"true\"]:focus")) &&
+                          sheetNow.contains(QLatin1String("border-color: palette(highlight);")),
+                      "★★ W13 键盘焦点那条 3px 淡环规则在：带 `wtfmlKeyboardFocus` 的输入框聚焦时换成 "
+                      "`palette(highlight)`（强调色淡底那一档，三套预设都跟着走）");
+
+                QWidget ringHost;
+                auto *ringEdit = new QLineEdit(QStringLiteral("1280"), &ringHost);
+                auto *ringRow = new QHBoxLayout(&ringHost);
+                ringRow->setContentsMargins(8, 8, 8, 8);
+                ringRow->addWidget(ringEdit);
+                ringHost.show();
+                ringHost.activateWindow();
+                ringEdit->setFocus();
+                QApplication::processEvents();
+                const auto repolish = [ringEdit] {
+                    ringEdit->style()->unpolish(ringEdit);
+                    ringEdit->style()->polish(ringEdit);
+                };
+                const QRect ringBand(ringEdit->width() / 5, 0, ringEdit->width() * 3 / 5, 3);
+                const QColor ring = overOpaque(app.palette().color(QPalette::Highlight), inputFill);
+                // ① 鼠标焦点：只有底提亮一档，顶边那一带还是 `Base` 底（一个环像素都不许有）。
+                ringEdit->setProperty("wtfmlKeyboardFocus", false);
+                repolish();
+                const QImage mouseShot = captureWidgetOn(ringEdit, formBase);
+                const int mouseRing = countColorIn(mouseShot, ringBand, ring, 24);
+                check(mouseRing == 0,
+                      "★★ W13 鼠标焦点**不画线**：顶边那一带还是 `Base` 底（一个环像素都没有）",
+                      QStringLiteral("环像素 %1 个").arg(mouseRing));
+                // ② 键盘焦点：同一格挂上属性就是 3px 淡环。
+                ringEdit->setProperty("wtfmlKeyboardFocus", true);
+                repolish();
+                const QImage keyboardShot = captureWidgetOn(ringEdit, formBase);
+                const int keyboardRing = countColorIn(keyboardShot, ringBand, ring, 24);
+                check(keyboardRing >= ringBand.width() * 3 * 6 / 10,
+                      "★★ W13 键盘焦点加那一圈 3px 淡环（顶边那一带是强调淡色，不是页底色）",
+                      QStringLiteral("环像素 %1 个 / 那一带 %2 个（该是 %3）")
+                          .arg(keyboardRing).arg(ringBand.width() * 3).arg(ring.name()));
+                ringEdit->setProperty("wtfmlKeyboardFocus", QVariant());
+                ringHost.hide();
+            }
 
             // 勾选框没勾：框和字**都是**那一档黑；勾上：**两样都**变成主题色。
             // 「两样都」是这一条的重点 —— 只写 `QCheckBox::indicator` 的话字还是黑的。
@@ -1512,22 +1561,28 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                       .arg(sheet.contains(QLatin1String("QComboBox::drop-down")) ? 1 : 0)
                       .arg(sheet.contains(QLatin1String("QComboBox QAbstractItemView")) ? 1 : 0));
 
-            // ---------- 「下拉框右边那个 V 箭头」那一对是不是原样对上的 ----------
+            // ---------- 「小箭头一个都不许有」 ----------
             //
-            // 要求：「下拉框和所有输入框的高度略微改高点，下拉框最右边放一个 V 箭头」。
-            //
-            // 7b：箭头底下不许再有那块方框（设计稿只要一个 V）。`::drop-down` 写 `border: none`
-            // ⇒ Qt 那一格什么都不画，V 由 `Theme.cpp` 的 `ComboChevronPainter` 在下拉框画完之后补。
-            // 两样必须一起在：只有 `border: none` 箭头就整个没了，没有它就叠出那块方框。
-            const QString dropDownRule = QStringLiteral("QComboBox::drop-down { width: 20px; border: none; }");
-            const QString spinHeightRule =
-                QStringLiteral("QAbstractSpinBox { min-height: %1px; }").arg(Theme::inputHeight() - 6);
-            check(sheet.contains(dropDownRule) && sheet.contains(spinHeightRule),
-                  "★★ W13 下拉框那一格：`::drop-down` 写 `border: none`（Qt 不画那块底，V 由过滤器补），"
-                  "数字框那一档高度（min + max）也钉着",
-                  QStringLiteral("规则 %1 / 数字框那条 %2")
+            // 8 号反馈：「这种右边的小箭头不要再出现」。旧规格（`::drop-down` 宽 20 +
+            // `ComboChevronPainter` 在下拉框画完之后补一个 ∨）整条撤掉：那一格宽度 0、
+            // 什么都不画（整块仍可点）；数字框的上下钮、QToolButton 的菜单三角同样归零。
+            const QString dropDownRule =
+                QStringLiteral("QComboBox::drop-down { width: 0px; border: none; }");
+            const QString spinArrowRule = QStringLiteral(
+                "QAbstractSpinBox::up-button, QAbstractSpinBox::down-button"
+                " { width: 0px; height: 0px; border: none; background: transparent; }");
+            const QString menuArrowRule =
+                QStringLiteral("QToolButton::menu-indicator { width: 0px; height: 0px; image: none; }");
+            check(sheet.contains(dropDownRule) && sheet.contains(spinArrowRule) &&
+                      sheet.contains(menuArrowRule) &&
+                      !sheet.contains(QLatin1String("width: 20px; border: none; }")) &&
+                      !sheet.contains(QLatin1String("width: 28px; border: none; }")),
+                  "★★ W13 三处小箭头全部归零：下拉框 `::drop-down`、数字框 `::up-button/::down-button`、"
+                  "`QToolButton::menu-indicator`（旧的 20 / 28px 那一档一个字都不留）",
+                  QStringLiteral("下拉 %1 / 数字 %2 / 菜单 %3")
                       .arg(sheet.contains(dropDownRule) ? 1 : 0)
-                      .arg(sheet.contains(spinHeightRule) ? 1 : 0));
+                      .arg(sheet.contains(spinArrowRule) ? 1 : 0)
+                      .arg(sheet.contains(menuArrowRule) ? 1 : 0));
 
             // 高度：三样**一样高**（并排摆着差 1px 就看得出来）。
             //
@@ -1535,6 +1590,11 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             // 只量 `sizeHint()` 的话三个数都报 24 —— 可数字框实际占的是 27：
             // 竖向 `Fixed` 的控件过布局时还要取一次"最小高度"（`min-height` 那位设的就是
             // 它），而数字框偏偏只有这一个数能动。**屏幕上那个高度才是判据。**
+            const auto spinEditorHeight = [](QSpinBox *spin) {
+                auto *edit = spin->findChild<QLineEdit *>(QString(), Qt::FindDirectChildrenOnly);
+                if (edit == nullptr) return -1;
+                return edit->height() * 1000 + edit->minimumHeight() * 10 + edit->sizeHint().height();
+            };
             QWidget sizeHost;
             sizeHost.resize(320, 60);
             auto *sizeEdit = new QLineEdit(QStringLiteral("1280"), &sizeHost);
@@ -1559,10 +1619,13 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             check(editHeight == comboHeight && comboHeight == spinHeight &&
                       editHeight == Theme::inputHeight(),
                   "★★ W13 输入框 / 下拉框 / 数字框**三个一样高**，都是设计稿令牌的常规控件高 36",
-                  QStringLiteral("输入框 %1 / 下拉框 %2 / 数字框 %3（`sizeHint()` 分别是 %4 / %5 / %6）")
+                  QStringLiteral("输入框 %1 / 下拉框 %2 / 数字框 %3（`sizeHint()` 分别是 %4 / %5 / %6；"
+                                 "数字框 minH %7 / minSizeHint %8 / 内层编辑框 %9）")
                       .arg(editHeight).arg(comboHeight).arg(spinHeight)
                       .arg(sizeEdit->sizeHint().height()).arg(sizeCombo->sizeHint().height())
-                      .arg(sizeSpin->sizeHint().height()));
+                      .arg(sizeSpin->sizeHint().height())
+                      .arg(sizeSpin->minimumHeight()).arg(sizeSpin->minimumSizeHint().height())
+                      .arg(spinEditorHeight(sizeSpin)));
             QApplication::processEvents();
             // 落成图上也得是这么高（`sizeHint()` 是"算出来的"，这一条是"画出来的"）：没有描线了，
             // 数每一行上 `Base` 底那一档有多少个像素，过半的第一行到最后一行就是控件的高度。
@@ -1587,44 +1650,60 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                 }
             }
             // 首末两行是圆角抗锯齿的半格，量到的整格底从第 1 行到倒数第 2 行。
-            check(comboSizeShot.height() == comboHeight && borderTop >= 0 && borderTop <= 1 &&
-                      borderBottom >= comboHeight - 2,
+            // 3px 透明边（那条预留的焦点环槽）不铺底：整格底从第 3 行起，到倒数第 4 行止。
+            check(comboSizeShot.height() == comboHeight && borderTop >= 0 && borderTop <= 3 &&
+                      borderBottom >= comboHeight - 4,
                   "★★ W13 那个高度**真的画出来了**（量的是图上 `Base` 底那一块，从控件第一行铺到"
                   "最后一行，首末行是抗锯齿）",
                   QStringLiteral("边在第 %1 行到第 %2 行（%3 高，`sizeHint()` 说 %4）")
                       .arg(borderTop).arg(borderBottom).arg(borderBottom - borderTop + 1)
                       .arg(comboHeight));
 
-            // 箭头那一格里的形状：用户要的是一个 `∨`（两笔），不是实心三角。判据落在
-            // "最上面那一行的**正中间**是不是空的"上 —— 实心 `▼` 那一行是**连着**的，
-            // `∧` 又是反过来的（中间有、两头没有），两头 + 中间这两条一起看才认得出 `∨`。
-            const QRect comboInner = sizeCombo->rect().adjusted(1, 1, -1, -1);
-            const QRect arrowCell(comboInner.right() - 19, comboInner.top(), 20,
-                                  comboInner.height());
-            QRect inkBox;
-            for (int y = arrowCell.top(); y <= arrowCell.bottom(); ++y) {
-                for (int x = arrowCell.left(); x <= arrowCell.right(); ++x) {
-                    if (!hasInk(comboSizeShot, x, y)) {
-                        continue;
+            // 右边那一格**没有箭头**：整块可点，8 号反馈之后不再画任何指示记号。
+            // 判据：右侧 18px 宽的一条里，除了 `Base` 底什么都不许有（字在左边，够不到这里）。
+            const auto inkIn = [&inputFill](const QImage &image, const QRect &cell) {
+                int hits = 0;
+                for (int y = cell.top(); y <= cell.bottom(); ++y) {
+                    for (int x = cell.left(); x <= cell.right(); ++x) {
+                        if (colorDistance(QColor(image.pixel(x, y)), inputFill) > 40) {
+                            ++hits;
+                        }
                     }
-                    inkBox = inkBox.isNull() ? QRect(x, y, 1, 1) : inkBox.united(QRect(x, y, 1, 1));
                 }
-            }
-            const int inkCentre = inkBox.isNull() ? 0 : inkBox.center().x();
-            check(!inkBox.isNull() && inkBox.width() >= 6 && inkBox.height() >= 3 &&
-                      !hasInk(comboSizeShot, inkCentre, inkBox.top()) &&
-                      hasInk(comboSizeShot, inkCentre, inkBox.bottom()),
-                  "★★ W13 下拉框最右边那个箭头是个 **V**（两笔，不是实心三角）：最上面那一行的"
-                  "**正中间是空的**、最下面那一行的中间有墨",
-                  QStringLiteral("墨迹 %1×%2（那一格里 %3 个像素有墨），中间那列上端 %4 / 下端 %5")
-                      .arg(inkBox.width()).arg(inkBox.height())
-                      .arg(countColorIn(comboSizeShot, arrowCell, QColor(Qt::black), 200))
-                      .arg(hasInk(comboSizeShot, inkCentre, inkBox.top()) ? 1 : 0)
-                      .arg(hasInk(comboSizeShot, inkCentre, inkBox.bottom()) ? 1 : 0));
+                return hits;
+            };
+            // NOTE: 用一个**空条目**的下拉框量这一条：`sizeCombo` 上有「跟随全局」四个字，
+            // 框只有 79px 宽，字会伸进右边那一带（那不是箭头，量出来是假红）。
+            QWidget arrowHost;
+            auto *arrowCombo = new QComboBox(&arrowHost);
+            arrowCombo->addItem(QString());
+            arrowCombo->setFocusPolicy(Qt::NoFocus);
+            arrowCombo->setMinimumWidth(140);
+            auto *arrowRow = new QHBoxLayout(&arrowHost);
+            arrowRow->addWidget(arrowCombo);
+            arrowHost.show();
+            QApplication::processEvents();
+            const QImage arrowShot = captureWidgetOn(arrowCombo, formBase);
+            const QRect arrowBand(arrowCombo->width() - 26, 6, 18, arrowCombo->height() - 12);
+            const int comboArrowInk = inkIn(arrowShot, arrowBand);
+            check(comboArrowInk == 0,
+                  "★★ W13 下拉框右边**一个箭头都没有**（那一格里除了 `Base` 底什么都不画）",
+                  QStringLiteral("那一格 %1×%2 里有 %3 个不是底色的像素（框宽 %4）")
+                      .arg(arrowBand.width()).arg(arrowBand.height()).arg(comboArrowInk)
+                      .arg(arrowCombo->width()));
+            arrowHost.hide();
 
-            // 基样式那圈 95 风格的立体边（`qDrawWinButton`）有没有漏出来：我们靠"先擦一格
-            // 再画 V"把它盖掉，擦歪一点点就是右边缘里头躺着一条 `#555555` 的竖线 —— 那一条
-            // 在屏幕上是"白框里一根灰线"，不特意找根本不会注意。
+            // 数字框同理：上下箭头不画（滚轮 / ↑↓ / PgUp / PgDn 照旧，那是控件自己的键盘处理）。
+            const QImage spinSizeShot = captureWidgetOn(sizeSpin, formBase);
+            const QRect spinArrowCell(sizeSpin->width() - 26, 6, 18, sizeSpin->height() - 12);
+            const int spinArrowInk = inkIn(spinSizeShot, spinArrowCell);
+            check(spinArrowInk == 0,
+                  "★★ W13 数字框没有上下箭头（右边那一格里除了 `Base` 底什么都不画）",
+                  QStringLiteral("那一格 %1×%2 里有 %3 个不是底色的像素")
+                      .arg(spinArrowCell.width()).arg(spinArrowCell.height()).arg(spinArrowInk));
+
+            // 基样式那圈 95 风格的立体边（`qDrawWinButton`）也不许漏在右边缘里。
+            const QRect comboInner = sizeCombo->rect().adjusted(1, 1, -1, -1);
             const auto bevelHits = [&comboSizeShot, sizeCombo, &comboInner]() {
                 int hits = 0;
                 for (int y = comboInner.top(); y <= comboInner.bottom(); ++y) {
@@ -1636,26 +1715,43 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                 return hits;
             }();
             check(bevelHits == 0,
-                  "★★ W13 箭头那一格**擦干净了**（基样式那圈立体边一个像素都没漏在右边缘里）",
+                  "★★ W13 右边缘里没有基样式那圈立体边（一个 #555555 都没有）",
                   QStringLiteral("那一列上 %1 个 #555555").arg(bevelHits));
 
-            // 禁用那一档：V 的墨色跟着 `color:` 走（禁用 = `Theme::disabledInkColor()`），
-            // **不许还是黑的**。这一条钉的是"箭头跟着调色板走"（换深浅主题 / 换禁用态都
-            // 跟着变），而不是一张贴死的图 —— 贴图那种做法在这条断言下会红。
-            // NOTE: 起那个色**不问字面量、问 `disabledInkColor()`**：这一轮
-            // 它从 `#9a9a9a` 提到了 `#8a8a8a`（对比度那条判据要 ≥ 3:1），写死字面量
-            // 的话这种"改一档色"的收口会连着红两个文件，而红的那一处什么也没错。
-            sizeCombo->setEnabled(false);
-            QApplication::processEvents();
-            const QImage comboDisabledShot = captureWidget(sizeCombo);
-            const int disabledInkHits =
-                countColorIn(comboDisabledShot, arrowCell, Theme::disabledInkColor(), 100);
-            const int disabledBlackHits =
-                countColorIn(comboDisabledShot, arrowCell, QColor(Qt::black), 30);
-            check(disabledInkHits > 0 && disabledBlackHits == 0,
-                  "★★ W13 下拉框禁用时那个 V 跟着变灰（墨色跟着 `color:` 走，不是写死的黑）",
-                  QStringLiteral("灰 %1 个 / 黑 %2 个").arg(disabledInkHits).arg(disabledBlackHits));
-            sizeCombo->setEnabled(true);
+            // ---------- 源码扫描：箭头不许再回来 ----------
+            // 像素断言盯的是"今天画出来的样子"；这一条盯的是**别处又写一遍**：
+            // 折叠钮再挂 `setArrowType()`、下拉框再搞一个自绘 ∨ 的过滤器，都在这儿红。
+            {
+                const QDir root(QFileInfo(QStringLiteral(__FILE__))
+                                    .absoluteDir()
+                                    .absoluteFilePath(QStringLiteral("../../..")));
+                const QRegularExpression comments(QStringLiteral(R"(/\*.*?\*/|//[^\n]*)"),
+                                                  QRegularExpression::DotMatchesEverythingOption);
+                QStringList offenders;
+                for (const QString &dir : {QStringLiteral("ui"), QStringLiteral("src")}) {
+                    QDirIterator it(root.absoluteFilePath(dir),
+                                    {QStringLiteral("*.hpp"), QStringLiteral("*.cpp")},
+                                    QDir::Files, QDirIterator::Subdirectories);
+                    while (it.hasNext()) {
+                        const QString path = it.next();
+                        QFile file(path);
+                        if (!file.open(QIODevice::ReadOnly)) continue;
+                        const QString text = QString::fromUtf8(file.readAll()).remove(comments);
+                        for (const QString &needle : {QStringLiteral("setArrowType(Qt::RightArrow"),
+                                                      QStringLiteral("setArrowType(Qt::DownArrow"),
+                                                      QStringLiteral("paintComboChevron"),
+                                                      QStringLiteral("ComboChevronPainter")}) {
+                            if (text.contains(needle)) {
+                                offenders << root.relativeFilePath(path) + QStringLiteral(" → ") + needle;
+                            }
+                        }
+                    }
+                }
+                check(offenders.isEmpty(),
+                      "★★ W13 全仓不再有折叠箭头 / 自绘 ∨（扫 ui/ 与 src/，去掉注释之后一处都不许留）",
+                      offenders.isEmpty() ? QStringLiteral("干净") : offenders.join(QStringLiteral("、")));
+            }
+
             sizeHost.hide();
 
             // ---------- 「问一句」那三颗按钮按位置分档（不是按文字） ----------

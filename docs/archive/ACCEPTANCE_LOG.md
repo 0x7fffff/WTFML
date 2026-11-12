@@ -185,3 +185,12 @@ python tools/acceptance_directory_boundary.py --exe <WTFMinecraftLauncher.exe> -
 ```
 
 注意：不要对真实游戏目录执行权限重置；失败现场保留，不自动清理。VHD 卸载后只能用 `Mount-DiskImage -ImagePath <既有镜像>` 重新挂载，不能再次 Create。服务端验收工具与安全边界见 [tests/acceptance/server_boundary/README.md](../../tests/acceptance/server_boundary/README.md)。
+
+## 2026-11-12　控件层第一批（数字框 / 焦点 F1 / 去小箭头）
+
+| 项 | 结果 | 首轮失败 / 意外发现 |
+| --- | --- | --- |
+| 数字框统一（全仓 25 处构造点）+ 无上下箭头 + 单位在框内 | 应用级 QSS 一处接管：`QLineEdit, QComboBox, QAbstractSpinBox` 同一盒模型（3px 透明边 + 1px padding），`::up-button/::down-button` 宽度 0；滚轮 / ↑↓ / PgUp / PgDn 照旧 | 数字框比输入框高 3px：`QStyleSheetStyle` 给 `CT_SpinBox` 在盒模型之外多算一圈框，内容盒再减 3px 才落成 36 |
+| 焦点态 F1 + 去小箭头 | 底部 2px 强调线整条删掉；键盘 Tab / Backtab 到达由 `ControlFocusVisibility` 挂 `wtfmlKeyboardFocus`，QSS 加 3px 淡环（`palette(highlight)`）；下拉 `::drop-down` 与 `QToolButton::menu-indicator` 宽度 0，`ComboChevronPainter` 删除；折叠行改整行按钮 + 右侧「展开 / 收起」 | `QComboBox::drop-down` 宽度归零后，自绘 ∨ 的过滤器若留着会继续画 —— 类与安装点一起删 |
+| ui_check（offscreen） | 3228 条通过 / 0 失败 | W13 三组旧断言（∨ 形状、底部边线、箭头禁用色）按新规格重写；下拉框那格用空条目量，否则「跟随全局」四个字伸进右带造成假红 |
+| mw_check（offscreen） | 2784 条通过 / 0 失败 | — |

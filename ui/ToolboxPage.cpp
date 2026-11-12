@@ -469,17 +469,13 @@ QPushButton *makeGlyphButton(QWidget *parent, const QString &objectName, Glyph g
     return button;
 }
 
-/// 圆角数字框：和全局输入框同高同风格（淡底、圆角、聚焦换主题色边），去掉原生白底上下钮；
-/// steppers = 两边配一对「−」「+」小钮（小范围的个数 / 等级用）。返回装着它的那一小块（定宽）。
+/// 数字框的补充设置：外观（淡底、圆角、没有上下钮、焦点淡环）**全在应用级样式表里**
+/// （`Theme.cpp` 那一族 `QLineEdit, QComboBox, QAbstractSpinBox`），这里只钉两件样式表
+/// 说不清的事：没有上下钮之后的宽度按内容算、数字居中。
+/// NOTE: 别再给数字框挂 `setStyleSheet()` —— 控件级样式表会盖掉全局那条 3px 焦点环。
 void styleNumberSpin(QAbstractSpinBox *spin) {
     spin->setButtonSymbols(QAbstractSpinBox::NoButtons);
     spin->setAlignment(Qt::AlignCenter);
-    spin->setStyleSheet(QStringLiteral(
-        "QAbstractSpinBox { background-color: palette(base); color: palette(text); border: 1px solid palette(base);"
-        " border-radius: %1px; padding: 1px 6px; min-height: %2px; max-height: %2px; }"
-        "QAbstractSpinBox:focus { border-color: palette(link); }")
-                            .arg(Theme::controlRadius())
-                            .arg(Theme::inputHeight() - 4));
 }
 
 QWidget *makeNumberField(QWidget *parent, QAbstractSpinBox *spin, bool steppers, int width = 88) {
