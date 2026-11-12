@@ -69,23 +69,28 @@ inline constexpr int kMenuGap = 2;
 inline constexpr int kMenuPadding = 8;
 inline constexpr int kMenuRowSpacing = 4;
 
-/// 往表格里加一行：**行名独占一行、内容在下一行**。跨度都是两列 —— 「启动」这一栏
-/// **没有**"名字在左、控件在右"那一套。
+/// 「启动」这一栏行名那一列的定宽（精修：名字在左、控件在右，名字列等宽对齐）。
+inline constexpr int kTitledLabelWidth = 96;
+
+/// 往表格里加一行：**行名在左（定宽一列）、内容在右**。
 ///
-/// @param row 行名那一行的下标。**内容占的是 `row + 1`** —— 调用方要 `row += 2`，不是
-/// `row++`（少加的那一行会被下一项盖掉，界面上少一整行而没有任何报错）。
+/// @param row 这一行的下标。调用方照旧 `row += 2`（老的上下两行结构留下来的步长；
+/// 空着的那一行在 QGridLayout 里不占高、不算行距）。表格要把第 0 列的伸缩设成 0。
 /// @param layoutOut 内容那一格的竖排布局（外面那层格子已经建好了，直接拿去加东西）。
 /// @return 内容那一格（控件的父控件）。
 inline QWidget *addTitledRow(QGridLayout *grid, int row, const QString &title, QWidget *parent,
                              QVBoxLayout **layoutOut = nullptr) {
     auto *label = new QLabel(title, parent);
-    grid->addWidget(label, row, 0, 1, 2, Qt::AlignLeft);
+    label->setFixedWidth(kTitledLabelWidth);
+    // 和右边控件那一行同高，字竖直居中；内容多行时（追加参数）名字停在第一行的高度上。
+    label->setMinimumHeight(Theme::actionHeight());
+    grid->addWidget(label, row, 0, Qt::AlignLeft | Qt::AlignTop);
 
     auto *cell = new QWidget(parent);
     auto *column = new QVBoxLayout(cell);
     column->setContentsMargins(0, 0, 0, 0);
     column->setSpacing(4);
-    grid->addWidget(cell, row + 1, 0, 1, 2);
+    grid->addWidget(cell, row, 1);
     if (layoutOut != nullptr) {
         *layoutOut = column;
     }

@@ -94,6 +94,9 @@ void InstanceSettingsDialog::setupLaunchPage(const GlobalValues &global, const Q
                                              const QList<WindowModeChoice> &windowModes) {
     // ---------- 启动（Java 选项 / 内存 / 高级选项）----------
     QGridLayout *grid = addForm(launchCategoryKey(), addPage(launchCategoryKey()));
+    // 名字在左（定宽一列，见 addTitledRow()）、控件在右吃满。
+    grid->setColumnStretch(0, 0);
+    grid->setColumnStretch(1, 1);
     int row = 0;
 
     // 这一句解释的是**这几项**的属性（「跟随全局 / 自定义」），所以它摆在「启动」栏里、
@@ -338,8 +341,8 @@ void InstanceSettingsDialog::setupLaunchPage(const GlobalValues &global, const Q
         advancedGrid->setContentsMargins(16, 0, 0, 0);
         advancedGrid->setHorizontalSpacing(12);
         advancedGrid->setVerticalSpacing(10);
-        advancedGrid->setColumnStretch(0, MainWindowUI::leftColumnStretch());
-        advancedGrid->setColumnStretch(1, MainWindowUI::rightColumnStretch());
+        advancedGrid->setColumnStretch(0, 0);
+        advancedGrid->setColumnStretch(1, 1);
         m_advancedBox->setHidden(true);
         grid->addWidget(m_advancedBox, row++, 0, 1, 2);
 
