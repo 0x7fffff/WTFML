@@ -3,6 +3,8 @@
  * @brief 四步原生窗口；收起的下拉框不响应滚轮，列表不向父级传递滚动。
  */
 #include "InstanceUpdateWizard.hpp"
+#include "ChromeDialog.hpp"
+#include "WindowChrome.hpp"
 #include "OverlayHost.hpp"
 #include "Theme.hpp"
 #include <QAbstractItemView>
@@ -10,6 +12,7 @@
 #include <QComboBox>
 #include <QEvent>
 #include <QCoreApplication>
+#include <QResizeEvent>
 #include <QVBoxLayout>
 
 namespace {
@@ -49,8 +52,30 @@ InstanceUpdateWizard::InstanceUpdateWizard(QWidget *target, QWidget *mods, QWidg
     for (auto *combo : findChildren<QComboBox *>()) combo->installEventFilter(this);
     for (auto *view : findChildren<QAbstractItemView *>()) view->viewport()->installEventFilter(this);
     // The native modal window owns its prompts; never hide questions behind it.
-    m_promptHost = new OverlayHost(this, this);
+    // QWizard 把页面装在它自己那块内容里（铺满整窗）；顺着第一页往上找到那一块，resizeEvent 里挪。
+    for (m_content = page(0); m_content && m_content->parentWidget() != this; m_content = m_content->parentWidget()) {}
+    // 提示卡盖那块内容、不盖标题条（条上的 × 和拖动照常能用）。
+    QWidget *promptArea = m_content != nullptr ? m_content : this;
+    m_promptHost = new OverlayHost(promptArea, promptArea);
     m_promptHost->setObjectName(QStringLiteral("instanceUpdatePromptHost"));
+    m_strip = new ChromeStrip(this, true);
+    m_chrome = new WindowChrome(this, m_strip, this);
+}
+bool InstanceUpdateWizard::nativeEvent(const QByteArray &eventType, void *message, qintptr *result) {
+    if (m_chrome != nullptr && m_chrome->handleNativeEvent(message, result)) return true;
+    return QWizard::nativeEvent(eventType, message, result);
+}
+void InstanceUpdateWizard::resizeEvent(QResizeEvent *event) {
+    QWizard::resizeEvent(event);  // 它把内容那块重新铺满整窗 ⇒ 每次之后再往下挪一条
+    if (m_strip == nullptr) return;  // setWizardStyle() 在构造中途就同步发一次 resize，那时条还没建
+    const int top = ChromeDialog::stripHeight();
+    m_strip->setGeometry(0, 0, width(), top);
+    if (m_content) m_content->setGeometry(0, top, width(), height() - top);
+    m_strip->raise();
+}
+void InstanceUpdateWizard::paintEvent(QPaintEvent *event) {
+    ChromeDialog::paintBackdrop(this);
+    QWizard::paintEvent(event);
 }
 void InstanceUpdateWizard::setStepReady(int step, bool ready) {
     if (auto *target = static_cast<Step *>(page(step))) target->refresh(ready);

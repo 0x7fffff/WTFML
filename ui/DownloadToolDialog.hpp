@@ -1,5 +1,5 @@
 #pragma once
-#include <QDialog>
+#include "ChromeDialog.hpp"
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QLabel>
@@ -13,13 +13,13 @@
 #include "Theme.hpp"
 
 // 只收集输入和显示状态；下载与任务生命周期由 controller 持有，关闭窗口不取消任务。
-class DownloadToolDialog final : public QDialog {
+class DownloadToolDialog final : public ChromeDialog {
 public:
-    explicit DownloadToolDialog(QWidget *parent = nullptr) : QDialog(parent) {
+    explicit DownloadToolDialog(QWidget *parent = nullptr) : ChromeDialog(parent) {
         setObjectName(QStringLiteral("downloadToolDialog"));
         setWindowTitle(QStringLiteral("高速下载"));
         resize(600, 330);
-        auto *layout = new QVBoxLayout(this);
+        auto *layout = new QVBoxLayout(body());
         layout->setContentsMargins(20, 18, 20, 18);
         layout->setSpacing(12);
         auto *hint = new QLabel(QStringLiteral("下载 HTTP/HTTPS 直链，进度显示在任务中心。关闭窗口后任务继续。"), this);

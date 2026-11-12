@@ -41,7 +41,7 @@ DirectDownloadController::~DirectDownloadController() { shutdown(); delete m_dia
 
 OverlayHost *DirectDownloadController::promptHost() {
     // 独立窗口没有主窗那层覆盖层：在它自己身上挂一层，提示卡就和主窗里的长一个样。
-    if (m_prompt == nullptr && m_dialog) m_prompt = new OverlayHost(m_dialog, m_dialog);
+    if (m_prompt == nullptr && m_dialog) m_prompt = new OverlayHost(m_dialog->body(), m_dialog->body());  // 盖内容区，不盖标题条
     return m_prompt;
 }
 

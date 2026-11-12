@@ -10,13 +10,13 @@
 #include <QVBoxLayout>
 
 PresetModReview::PresetModReview(const Presets::ModInstallPlan &plan, QWidget *parent)
-    : QDialog(parent), m_plan(plan) {
+    : ChromeDialog(parent), m_plan(plan) {
     setObjectName("presetModReview");
     setWindowTitle(tr("确认模组预设"));
     setWindowModality(Qt::WindowModal);
     setAttribute(Qt::WA_DeleteOnClose);
     resize(900, 540);
-    auto *layout = new QVBoxLayout(this);
+    auto *layout = new QVBoxLayout(body());
     auto *summary = new QLabel(Presets::modInstallSummaryText(plan), this);
     summary->setWordWrap(true); layout->addWidget(summary);
     auto *hint = new QLabel(tr("替代项目仅本次有效，需重新检查必要前置。"), this);

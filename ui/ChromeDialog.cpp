@@ -18,21 +18,15 @@ constexpr int kButtonWidth = 42;
 
 int ChromeDialog::stripHeight() { return kStripHeight; }
 
-ChromeDialog::ChromeDialog(QWidget *parent, bool minMax) : QDialog(parent) {
-    if (minMax) setWindowFlags(windowFlags() | Qt::WindowMinimizeButtonHint | Qt::WindowMaximizeButtonHint);
-
-    auto *root = new QVBoxLayout(this);
-    root->setContentsMargins(0, 0, 0, 0);
-    root->setSpacing(0);
-
-    m_strip = new QWidget(this);
-    m_strip->setObjectName(titleStripName());
-    m_strip->setFixedHeight(kStripHeight);
-    auto *strip = new QHBoxLayout(m_strip);
+ChromeStrip::ChromeStrip(QWidget *window, bool minMax) : QWidget(window), m_window(window) {
+    if (minMax) window->setWindowFlags(window->windowFlags() | Qt::WindowMinimizeButtonHint | Qt::WindowMaximizeButtonHint);
+    setObjectName(ChromeDialog::titleStripName());
+    setFixedHeight(kStripHeight);
+    auto *strip = new QHBoxLayout(this);
     strip->setContentsMargins(16, 0, 0, 0);
     strip->setSpacing(0);
-    m_title = new QLabel(m_strip);
-    m_title->setObjectName(titleLabelName());
+    m_title = new QLabel(window->windowTitle(), this);
+    m_title->setObjectName(ChromeDialog::titleLabelName());
     m_title->setFont(Theme::textFont(m_title->font(), Theme::TextRole::Body));
     // 标题字不接鼠标：WindowChrome 把条上"没有子控件"的地方认成拖窗区（childAt 跳过它）。
     m_title->setAttribute(Qt::WA_TransparentForMouseEvents);
@@ -41,34 +35,57 @@ ChromeDialog::ChromeDialog(QWidget *parent, bool minMax) : QDialog(parent) {
 
     QAbstractButton *minimize = nullptr;
     const auto addButton = [this, strip](TitleBarButton::Glyph glyph, const QString &tip) {
-        auto *button = new TitleBarButton(glyph, QColor(), QColor(), m_strip);
+        auto *button = new TitleBarButton(glyph, QColor(), QColor(), this);
         button->setFixedSize(kButtonWidth, kStripHeight);
         button->setToolTip(tip);
         strip->addWidget(button);
         return button;
     };
     if (minMax) {
-        minimize = addButton(TitleBarButton::Glyph::Minimize, tr("最小化"));
-        m_maximize = addButton(TitleBarButton::Glyph::Maximize, tr("最大化"));
-        connect(minimize, &QAbstractButton::clicked, this, &QWidget::showMinimized);
-        connect(m_maximize, &QAbstractButton::clicked, this,
-                [this] { isMaximized() ? showNormal() : showMaximized(); });
+        minimize = addButton(TitleBarButton::Glyph::Minimize, ChromeDialog::tr("最小化"));
+        m_maximize = addButton(TitleBarButton::Glyph::Maximize, ChromeDialog::tr("最大化"));
+        connect(minimize, &QAbstractButton::clicked, window, &QWidget::showMinimized);
+        connect(m_maximize, &QAbstractButton::clicked, window,
+                [window] { window->isMaximized() ? window->showNormal() : window->showMaximized(); });
     }
-    QAbstractButton *close = addButton(TitleBarButton::Glyph::Close, tr("关闭"));
-    close->setObjectName(closeButtonName());
-    // 右上角的 × 和按 Esc 一个意思：reject()（exec() 的调用方据此分辨"取消"）。
-    connect(close, &QAbstractButton::clicked, this, &QDialog::reject);
+    QAbstractButton *close = addButton(TitleBarButton::Glyph::Close, ChromeDialog::tr("关闭"));
+    close->setObjectName(ChromeDialog::closeButtonName());
+    // 右上角的 × 和按 Esc 一个意思：reject()（exec() 的调用方据此分辨"取消"；子类改写的 reject 照走）。
+    connect(close, &QAbstractButton::clicked, window, [window] {
+        if (auto *dialog = qobject_cast<QDialog *>(window)) dialog->reject();
+        else window->close();
+    });
     const auto style = [minimize, maximize = m_maximize, close] {
         TitleBar::styleCaptionButtons(minimize, maximize, close);
     };
     style();
-    Theme::follow(m_strip, style);
-    root->addWidget(m_strip);
+    Theme::follow(this, style);
+    window->installEventFilter(this);
+}
 
+bool ChromeStrip::eventFilter(QObject *watched, QEvent *event) {
+    if (watched == m_window) {
+        if (event->type() == QEvent::WindowTitleChange) {
+            m_title->setText(m_window->windowTitle());
+        } else if (event->type() == QEvent::WindowStateChange) {
+            if (auto *button = qobject_cast<TitleBarButton *>(m_maximize)) {
+                button->setRestoreGlyph(m_window->isMaximized());
+                button->setToolTip(m_window->isMaximized() ? ChromeDialog::tr("还原") : ChromeDialog::tr("最大化"));
+            }
+        }
+    }
+    return QWidget::eventFilter(watched, event);
+}
+
+ChromeDialog::ChromeDialog(QWidget *parent, bool minMax) : QDialog(parent) {
+    auto *root = new QVBoxLayout(this);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(0);
+    m_strip = new ChromeStrip(this, minMax);
+    root->addWidget(m_strip);
     m_body = new QWidget(this);
     m_body->setObjectName(QStringLiteral("chromeDialogBody"));
     root->addWidget(m_body, 1);
-
     m_chrome = new WindowChrome(this, m_strip, this);
 }
 
@@ -77,26 +94,17 @@ bool ChromeDialog::nativeEvent(const QByteArray &eventType, void *message, qintp
     return QDialog::nativeEvent(eventType, message, result);
 }
 
-void ChromeDialog::paintEvent(QPaintEvent *event) {
-    // 和游戏日志窗一样借主窗那张磨砂风景；没有主窗时铺窗口色（WindowChrome 开了半透明，别透成空的）。
-    QPainter painter(this);
+void ChromeDialog::paintBackdrop(QWidget *window) {
+    QPainter painter(window);
     if (auto *backdrop = Glass::Backdrop::active()) {
-        backdrop->paintScene(painter, rect());
+        backdrop->paintScene(painter, window->rect());
         return;
     }
-    painter.fillRect(rect(), palette().color(QPalette::Window));
-    painter.end();
-    QDialog::paintEvent(event);
+    painter.fillRect(window->rect(), window->palette().color(QPalette::Window));
 }
 
-void ChromeDialog::changeEvent(QEvent *event) {
-    QDialog::changeEvent(event);
-    if (event->type() == QEvent::WindowTitleChange) {
-        m_title->setText(windowTitle());
-    } else if (event->type() == QEvent::WindowStateChange) {
-        if (auto *button = qobject_cast<TitleBarButton *>(m_maximize)) {
-            button->setRestoreGlyph(isMaximized());
-            button->setToolTip(isMaximized() ? tr("还原") : tr("最大化"));
-        }
-    }
+void ChromeDialog::paintEvent(QPaintEvent *event) {
+    // 和游戏日志窗一样借主窗那张磨砂风景。
+    paintBackdrop(this);
+    QDialog::paintEvent(event);
 }

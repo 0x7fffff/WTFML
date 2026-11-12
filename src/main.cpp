@@ -20,6 +20,7 @@
 #include "MainWindow.hpp"
 #include "util/FileAssociations.hpp"
 #include "perf/PerfProbe.hpp"  // 测量构建专用；普通构建里 attach() 是内联空函数
+#include "../ui/ChromeDialog.hpp"
 #include "../ui/Animations.hpp"  // 按下按钮那一份动效（见下面那段 NOTE）
 #include "../ui/InlineMessage.hpp"
 #include "../ui/OverlayHost.hpp"
@@ -203,11 +204,12 @@ int main(int argc, char *argv[]) {
         Theme::setSpec(Theme::load());
         Theme::apply(app);
         StartupAcceptance::dismissRefusal(acceptance);
-        // 主窗还没建：开一扇小窗当提示卡的底，和主窗里的提示长一个样。
-        QWidget host;
+        // 主窗还没建：开一扇小窗当提示卡的底，和主窗里的提示长一个样（自绘窄条，不带系统标题栏；
+        // 提示卡摆在条下面那块，条上的 × 和拖动照常能用）。
+        ChromeDialog host;
         host.setWindowTitle(QStringLiteral("启动器已在运行或目录不可用"));
-        host.resize(OverlayHost::promptWidth() + 80, 320);
-        auto *overlay = new OverlayHost(&host, &host);
+        host.resize(OverlayHost::promptWidth() + 80, 320 + ChromeDialog::stripHeight());
+        auto *overlay = new OverlayHost(host.body(), host.body());
         host.show();
         InlineMessage::information(overlay, QStringLiteral("启动器已在运行或目录不可用"), lockProblem);
         return 1;

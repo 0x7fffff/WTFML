@@ -1,11 +1,11 @@
 #pragma once
-#include <QDialog>
+#include "ChromeDialog.hpp"
 #include "presets/PresetModInstaller.hpp"
 
 class QTreeWidget;
 class QLabel;
 
-class PresetModReview final : public QDialog {
+class PresetModReview final : public ChromeDialog {
 public:
     explicit PresetModReview(const Presets::ModInstallPlan &plan, QWidget *parent = nullptr);
     Presets::PresetModInstaller::ReviewDecision decision() const { return m_decision; }

@@ -10,6 +10,8 @@
 #include "AgentMessageView.hpp"
 #include "AgentPanelPaint.hpp"
 #include "AgentToolCard.hpp"
+#include "InlineMessage.hpp"
+#include "OverlayHost.hpp"
 #include "Theme.hpp"
 #include "VersionIcons.hpp"
 
@@ -20,7 +22,6 @@
 #include <QFont>
 #include <QFrame>
 #include <QHBoxLayout>
-#include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -649,10 +650,14 @@ void AgentPage::showSessionMenu(const QPoint &position) {
     QAction *remove = menu.addAction(QStringLiteral("删除"));
     QAction *chosen = menu.exec(m_sessionList->viewport()->mapToGlobal(position));
     if (chosen == rename) {
+        // 问名字用内容区里那张提示卡，不另开带系统标题栏的 QInputDialog。本页挂在主窗的页签里，
+        // 覆盖层是页签旁边那一个（centralWidget 的直接子控件），所以往上逐层找直接子控件。
+        OverlayHost *host = OverlayHost::forWidget(this);
+        for (QWidget *w = parentWidget(); host == nullptr && w != nullptr; w = w->parentWidget())
+            host = w->findChild<OverlayHost *>(QString(), Qt::FindDirectChildrenOnly);
         bool accepted = false;
-        const QString title = QInputDialog::getText(this, QStringLiteral("重命名会话"),
-                                                    QStringLiteral("标题"),
-                                                    QLineEdit::Normal, meta.title, &accepted);
+        const QString title = InlineMessage::getText(host, QStringLiteral("重命名会话"),
+                                                     QStringLiteral("标题"), meta.title, &accepted);
         if (accepted) emit sessionRenameRequested(id, title);
     } else if (chosen == pin) {
         emit sessionPinRequested(id, !meta.pinned);

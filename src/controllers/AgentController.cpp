@@ -22,7 +22,6 @@
 
 #include <QDateTime>
 #include <QFileInfo>
-#include <QInputDialog>
 #include <QJsonDocument>
 #include <QSettings>
 #include <QTimer>

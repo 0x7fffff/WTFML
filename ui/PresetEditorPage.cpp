@@ -1,4 +1,6 @@
 #include "PresetEditorPage.hpp"
+#include "InlineMessage.hpp"
+#include "OverlayHost.hpp"
 #include "PresetModEditor.hpp"
 #include "PresetOptionsEditor.hpp"
 #include "Theme.hpp"
@@ -9,7 +11,6 @@
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QHeaderView>
-#include <QInputDialog>
 #include <QJsonArray>
 #include <QLabel>
 #include <QLineEdit>
@@ -282,8 +283,9 @@ void PresetEditorPage::addPack(const QString &part) {
     QString world;
     if (part == "dataPacks") {
         bool ok = false;
-        world = QInputDialog::getText(this, tr("目标存档"), tr("存档文件夹名称"), QLineEdit::Normal,
-                                      {}, &ok)
+        // 本页是覆盖页：问名字用同一层里的提示卡，不另开带系统标题栏的 QInputDialog。
+        world = InlineMessage::getText(OverlayHost::forWidget(this), tr("目标存档"), tr("存档文件夹名称"),
+                                       QString(), &ok)
                     .trimmed();
         if (!ok || world.isEmpty() || world.contains('/') || world.contains('\\') ||
             world == ".." || world == ".")
