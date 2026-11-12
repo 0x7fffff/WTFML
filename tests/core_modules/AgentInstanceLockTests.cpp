@@ -27,8 +27,10 @@ void runAgentInstanceLockTests() {
     AgentSession session;
     session.meta.id = QStringLiteral("s1");
     check(!session.meta.instanceLock.isValid(), "实例锁：新会话未锁定");
-    check(AgentInstanceLocks::chipText(session.meta.instanceLock, a).contains(QStringLiteral("跟随主页")),
-          "实例锁：未锁定时芯片跟随主页");
+    check(AgentInstanceLocks::chipText(session.meta.instanceLock, a) == a.name,
+          "实例锁：未锁定时胶囊显示主页当前实例");
+    check(AgentInstanceLocks::chipText(session.meta.instanceLock, AgentInstanceInfo{}) == QStringLiteral("无"),
+          "实例锁：未锁定且主页没选实例时显示「无」");
     check(AgentInstanceLocks::lock(&session, a), "实例锁：首次锁定成功");
     check(session.meta.instanceLock.isValid() && session.meta.instanceLock.id == a.id,
           "实例锁：锁定 id 写入会话");
@@ -40,10 +42,10 @@ void runAgentInstanceLockTests() {
     sameNameOtherId.id = QStringLiteral("1.20.1-forge-copy");
     check(!AgentInstanceLocks::isUsable(session.meta.instanceLock, sameNameOtherId),
           "实例锁：同名不同 id 不当作同一个");
-    check(AgentInstanceLocks::chipText(session.meta.instanceLock, a).contains(QStringLiteral("已锁定")),
-          "实例锁：锁定后芯片显示已锁定");
-    check(AgentInstanceLocks::chipText(session.meta.instanceLock, b).contains(QStringLiteral("主页当前")),
-          "实例锁：主页切到别处时芯片说明当前实例");
+    check(AgentInstanceLocks::chipText(session.meta.instanceLock, a) == session.meta.instanceLock.name,
+          "实例锁：锁定后胶囊显示锁定的实例名");
+    check(AgentInstanceLocks::chipText(session.meta.instanceLock, b).contains(QStringLiteral("不可用")),
+          "实例锁：锁定的实例不在当前游戏目录时胶囊标「不可用」");
 
     check(AgentInstanceLocks::switchTo(&session, b), "实例锁：显式切换覆盖旧锁");
     check(session.meta.instanceLock.gameRootId == rootIdB &&

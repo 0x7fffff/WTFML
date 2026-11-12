@@ -44,17 +44,8 @@ bool isUsable(const AgentInstanceLock &lock, const AgentInstanceInfo &current) {
 }
 
 QString chipText(const AgentInstanceLock &lock, const AgentInstanceInfo &current) {
-    if (!lock.isValid()) {
-        return current.isValid() ? QStringLiteral("跟随主页：%1").arg(current.name)
-                                 : QStringLiteral("跟随主页：未选择实例");
-    }
-    if (isUsable(lock, current)) {
-        return QStringLiteral("已锁定：%1").arg(lock.name);
-    }
-    if (!current.isValid()) {
-        return QStringLiteral("已锁定：%1（实例不可用）").arg(lock.name);
-    }
-    return QStringLiteral("已锁定：%1（主页当前：%2）").arg(lock.name, current.name);
+    if (!lock.isValid()) return current.isValid() ? current.name : QStringLiteral("无");
+    return isUsable(lock, current) ? lock.name : QStringLiteral("%1（不可用）").arg(lock.name);
 }
 
 }  // namespace AgentInstanceLocks

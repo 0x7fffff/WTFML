@@ -1,6 +1,9 @@
 /**
  * @file AgentMessageView.hpp
- * @brief 一条消息的显示：角色/状态、受控 Markdown 正文、折叠思考、错误与重试。
+ * @brief 一条消息的显示：受控 Markdown 正文、折叠思考、状态、错误与重试。
+ *
+ * 自己说的话是靠右的一块淡底气泡（最宽 520，圆角 16 / 右下 4），助手的话直接铺在玻璃上
+ * （样张 r2 agent .msg.me / .msg.ai）。角色不再单写一行，读屏靠无障碍名。
  *
  * 纯界面：只认 `AgentView::Message` 值，不读盘、不联网。
  */
@@ -28,10 +31,14 @@ public:
 signals:
     void retryRequested(const QString &messageId);
 
+protected:
+    void paintEvent(QPaintEvent *event) override;
+
 private:
     void refresh();
 
     AgentView::Message m_message;
+    QWidget *m_bubble = nullptr;  ///< 内容那一块；自己的话时它靠右、定宽，底色画在它下面
     QLabel *m_role = nullptr;
     QLabel *m_body = nullptr;
     QLabel *m_reasoning = nullptr;

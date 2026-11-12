@@ -328,6 +328,22 @@ MainWindow::MainWindow(QWidget *parent)
             info.exists = QFileInfo(AppPaths::versionDir(info.id)).isDir();
             return info;
         });
+        // 「实例」下拉的选项：主页实例下拉里那一份清单（当前游戏目录下的全部实例）。
+        m_agentController->setInstanceListProvider([this] {
+            QList<AgentInstanceInfo> list;
+            QComboBox *combo = m_ui->getInstalledVersionCombo();
+            const QString root = AgentInstanceLocks::gameRootId(AppPaths::minecraftDir());
+            for (int i = 0; combo != nullptr && i < combo->count(); ++i) {
+                AgentInstanceInfo info;
+                info.id = combo->itemData(i).toString();
+                if (info.id.isEmpty()) continue;
+                info.name = instanceDisplayName(info.id);
+                info.gameRootId = root;
+                info.exists = QFileInfo(AppPaths::versionDir(info.id)).isDir();
+                list.append(info);
+            }
+            return list;
+        });
         connect(m_ui->getTabWidget(), &QTabWidget::currentChanged, m_agentController,
                 [this](int index) {
                     if (index != MainWindowUI::agentTabIndex()) {

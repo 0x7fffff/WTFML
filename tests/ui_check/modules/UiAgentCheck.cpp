@@ -68,10 +68,12 @@ int UiAgentCheck() {
           "智能体 UI：按 objectName 找得到页面");
     QWidget *sidebar = page != nullptr ? page->findChild<QWidget *>(QStringLiteral("agentSidebar"))
                                        : nullptr;
-    check(sidebar != nullptr && sidebar->width() == AgentPage::sidebarWidth(),
-          "智能体 UI：900 宽时侧栏 248", QString::number(sidebar != nullptr ? sidebar->width() : -1));
-    // 主窗口的最小宽度由四页共同顶住（890 左右），所以"窄页面"这一档用一个不在布局里的
-    // AgentPage 单独量：判据是宽度 < 760 时侧栏降到 216（见 AgentPage::resizeEvent）。
+    const int windowWidth = page != nullptr ? page->window()->width() : 0;
+    check(sidebar != nullptr &&
+              sidebar->width() == (windowWidth < 1024 ? AgentPage::sidebarNarrowWidth() : AgentPage::sidebarWidth()),
+          "智能体 UI：侧栏宽按窗口宽取 236 / 216（1024 为界）",
+          QStringLiteral("窗口 %1 / 侧栏 %2").arg(windowWidth).arg(sidebar != nullptr ? sidebar->width() : -1));
+    // "窄"这一档用一个不在布局里的 AgentPage 单独量：自己就是窗口，宽 700 < 1024 → 216。
     {
         AgentPage narrowPage;
         narrowPage.show();
@@ -93,11 +95,11 @@ int UiAgentCheck() {
     };
     check(find("agentSessionList") != nullptr && find("agentNewSessionButton") != nullptr &&
               find("agentSessionSearch") != nullptr && find("agentChatHeader") != nullptr &&
-              find("agentModelCombo") != nullptr && find("agentInstanceLockChip") != nullptr &&
+              find("agentMoreButton") != nullptr && find("agentInstanceLockChip") != nullptr &&
               find("agentApiSettingsButton") != nullptr &&
               find("agentMessageScroll") != nullptr && find("agentComposer") != nullptr &&
               find("agentSendButton") != nullptr && find("agentStopButton") != nullptr &&
-              find("agentModeChip") != nullptr && find("agentEmptyState") != nullptr &&
+              find("agentApiWarnChip") != nullptr && find("agentEmptyState") != nullptr &&
               find("agentEncryptSessionCheck") != nullptr,
           "智能体 UI：关键 objectName 全在");
     auto *empty = find("agentEmptyState");
@@ -131,8 +133,8 @@ int UiAgentCheck() {
     auto *list = qobject_cast<QListWidget *>(find("agentSessionList"));
     // 固定的那条单独一组排最前，今天的另一组；组名是不可点的小标题行。
     QStringList rows;
-    for (int i = 0; list != nullptr && i < list->count(); ++i) rows << list->item(i)->text().section(QLatin1Char(10), 0, 0);
-    check(rows == QStringList{QStringLiteral("固定"), QStringLiteral("★ 会话 1"), QStringLiteral("今天"), QStringLiteral("会话 0")},
+    for (int i = 0; list != nullptr && i < list->count(); ++i) rows << list->item(i)->text();
+    check(rows == QStringList{QStringLiteral("固定"), QStringLiteral("会话 1"), QStringLiteral("今天"), QStringLiteral("会话 0")},
           "智能体 UI：会话按 固定 / 今天 分组", rows.join(QStringLiteral(" | ")));
     check(list != nullptr && list->count() == 4 && list->item(0)->flags() == Qt::NoItemFlags,
           "智能体 UI：分组小标题不可选");
@@ -219,16 +221,23 @@ int UiAgentCheck() {
     QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     check(page->findChild<AgentApprovalCard *>() == nullptr, "智能体 UI：审批卡可收起");
 
-    auto *optionsRow = page->findChild<QWidget *>(QStringLiteral("agentSessionOptions"));
-    check(optionsRow != nullptr && optionsRow->isVisible(),
-          "智能体 UI：会话加密单独一行且可见，不挤在右上角");
+    // 加密存储收进 ⋯ 菜单：开关 + 一句「标题和时间仍为明文。」，右上角不再挂状态字。
+    QWidget *more = page->moreMenu();
     page->setEncryptionChecked(true);
-    auto *encrypt = qobject_cast<QCheckBox *>(find("agentEncryptSessionCheck"));
-    auto *encryptStatus = page->findChild<QLabel *>(QStringLiteral("agentEncryptionStatus"));
-    check(encrypt != nullptr && encrypt->isChecked(), "智能体 UI：加密开关可显示当前状态");
-    check(encryptStatus != nullptr &&
-              encryptStatus->text().contains(QStringLiteral("已加密")),
-          "智能体 UI：加密状态文字可见", encryptStatus != nullptr ? encryptStatus->text() : QString());
+    auto *encrypt = more != nullptr ? more->findChild<QCheckBox *>(QStringLiteral("agentEncryptSessionCheck")) : nullptr;
+    auto *encryptNote = more != nullptr ? more->findChild<QLabel *>(QStringLiteral("agentEncryptNote")) : nullptr;
+    check(encrypt != nullptr && encrypt->isChecked(), "智能体 UI：⋯ 菜单里的加密开关显示当前状态");
+    check(encryptNote != nullptr && encryptNote->text().contains(QStringLiteral("明文")),
+          "智能体 UI：加密开关下注明标题和时间仍为明文");
+    check(page->findChild<QWidget *>(QStringLiteral("agentEncryptionStatus")) == nullptr &&
+              page->findChild<QWidget *>(QStringLiteral("agentModeChip")) == nullptr &&
+              page->findChild<QWidget *>(QStringLiteral("agentModelCombo")) == nullptr,
+          "智能体 UI：不再有加密状态字、「自由对话」假胶囊和单选项模型下拉");
+    page->openMoreMenu();
+    check(more != nullptr && more->isVisible() && more->findChild<QWidget *>(QStringLiteral("agentExportAction")) != nullptr &&
+              more->findChild<QWidget *>(QStringLiteral("agentDeleteAction")) != nullptr,
+          "智能体 UI：⋯ 菜单可弹出，含导出与删除会话");
+    if (more != nullptr) more->hide();
 
     AgentSettingsPage settings;
     auto *keyEdit = settings.findChild<QLineEdit *>(QStringLiteral("agentApiKeyEdit"));

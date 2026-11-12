@@ -82,3 +82,9 @@ namespace AgentSessionTitle {
 /// 第一条用户消息前 24 个字符；去掉换行/多余空白；空输入回退“新对话”。
 QString fromMessage(const QString &message);
 }  // namespace AgentSessionTitle
+
+namespace AgentSessionExport {
+/// 「导出…」写出的 Markdown：一级标题是会话标题，用户与助手的话按先后各一节；
+/// 系统提示与工具结果不导出（工具结果可能含实例文件原文，导出只留对话本身）。
+QString toMarkdown(const AgentSession &session);
+}  // namespace AgentSessionExport
