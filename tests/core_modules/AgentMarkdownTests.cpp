@@ -9,6 +9,11 @@
 
 void runAgentMarkdownTests() {
     {
+        const QString html = AgentMarkdown::toHtml(QStringLiteral("先查：\n1. 看日志\n2. 换版本\n- 备注"));
+        check(html.contains(QStringLiteral("<ol><li>看日志</li><li>换版本</li></ol><ul><li>备注</li></ul>")),
+              "Markdown：有序列表成 <ol>，和无序列表交替时各自闭合", html);
+    }
+    {
         const QString html = AgentMarkdown::toHtml(QStringLiteral("<script>alert(1)</script>"));
         check(!html.contains(QStringLiteral("<script")), "Markdown：原始 script 被转义");
         check(html.contains(QStringLiteral("&lt;script&gt;")), "Markdown：script 以文本显示");

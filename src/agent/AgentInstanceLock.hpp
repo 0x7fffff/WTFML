@@ -34,6 +34,8 @@ bool switchTo(AgentSession *session, const AgentInstanceInfo &info, QString *pro
 /// 锁定实例是否仍在当前游戏文件夹、且 id 仍存在。
 bool isUsable(const AgentInstanceLock &lock, const AgentInstanceInfo &current);
 
+/// 「实例」胶囊右半边的值。@p current：未锁定时传主页当前实例（没有就是「无」）；
+/// 已锁定时传锁定的那个实例在当前游戏目录里的信息（找不到传空，显示「（不可用）」）。
 QString chipText(const AgentInstanceLock &lock, const AgentInstanceInfo &current);
 
 }  // namespace AgentInstanceLocks

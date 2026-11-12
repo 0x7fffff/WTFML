@@ -1,6 +1,7 @@
 #pragma once
 // 设计稿对照截图（--design-shots）：主页三主题、窄窗、宽窗、折叠轨、组件总表。
 // 只截图，不登录、不联网、不启动游戏；实例和账号是写在隔离目录里的夹具。
+#include "AgentPage.hpp"
 #include "Glass.hpp"
 #include "GlassPopover.hpp"
 #include "ListRowDelegate.hpp"
@@ -479,6 +480,64 @@ inline void fillToolboxSample(ToolboxPage &page, const QString &key) {
     }
 }
 
+/// r2 智能体页对照（设计稿 r2/png/agent-A-*）：直接往页上灌会话 / 消息 / 状态，不经控制器、不发请求。
+/// @p state：chat / empty / noapi / sys / menu / inst。
+inline void seedAgent(AgentPage &page, const QString &state) {
+    const QDateTime now = QDateTime::currentDateTime();
+    QList<AgentView::SessionMeta> sessions;
+    const auto add = [&sessions](const char *id, const QString &title, const QDateTime &at, bool pinned) {
+        AgentView::SessionMeta meta;
+        meta.id = QString::fromLatin1(id);
+        meta.title = title;
+        meta.updatedAt = at;
+        meta.pinned = pinned;
+        sessions.append(meta);
+    };
+    add("s1", QStringLiteral("光影包开了就闪退"), now.addSecs(-18 * 60), false);
+    add("s2", QStringLiteral("1.20.1 Forge 换 Java 21"), now.addDays(-2), true);
+    add("s3", QStringLiteral("整合包启动卡在加载界面"), now.addSecs(-2 * 3600), false);
+    add("s4", QStringLiteral("服务器连不上：Connection reset by peer"), now.addSecs(-5 * 3600), false);
+    add("s5", QStringLiteral("存档备份放哪里比较好"), now.addDays(-3), false);
+    add("s6", QStringLiteral("模组冲突排查"), now.addDays(-6), false);
+    page.setSessions(sessions);
+    const bool noApi = state == QStringLiteral("noapi");
+    page.setConfigured(!noApi, noApi ? QStringLiteral("API 未配置") : QString());
+    page.setModelLabel(QStringLiteral("deepseek-chat"));
+    if (noApi || state == QStringLiteral("empty")) {
+        page.setCurrentSession(QString());
+        page.setInstanceChip(QStringLiteral("机械动力 Create"), false);
+        page.showEmptyState(true);
+        return;
+    }
+    page.setCurrentSession(QStringLiteral("s1"));
+    page.setInstanceChip(QStringLiteral("机械动力 Create"), true);
+    AgentView::Message ask;
+    ask.id = QStringLiteral("m1");
+    ask.user = true;
+    ask.content = QStringLiteral("装了 Iris 和 Complementary 光影，一开光影游戏就闪退，怎么查？");
+    AgentView::Message answer;
+    answer.id = QStringLiteral("m2");
+    answer.content = QStringLiteral(
+        "先看最近一次的崩溃报告，它在实例目录的 `crash-reports` 里。常见原因有三个：\n\n"
+        "1. **Iris 与 Sodium 版本不配套**：两者要对应同一个 Minecraft 版本；\n"
+        "2. **显卡驱动过旧**：光影需要 OpenGL 4.x；\n"
+        "3. **内存不足**：光影包至少给 4 GB。\n\n"
+        "要我读一下最新的崩溃报告吗？");
+    AgentView::Message follow;
+    follow.id = QStringLiteral("m3");
+    follow.user = true;
+    follow.content = QStringLiteral("好，读一下。");
+    page.setMessages({ask, answer, follow});
+    page.showEmptyState(false);
+    if (state == QStringLiteral("sys")) page.showNotice(QStringLiteral("本会话已关联实例：机械动力 Create"));
+    else if (state == QStringLiteral("menu")) page.openMoreMenu();
+    else if (state == QStringLiteral("inst"))
+        page.showInstanceMenu({{QStringLiteral("create"), QStringLiteral("机械动力 Create")},
+                               {QStringLiteral("spring"), QStringLiteral("春日生存")},
+                               {QStringLiteral("vanilla"), QStringLiteral("原版 1.21.4")}},
+                              QStringLiteral("create"));
+}
+
 inline QImage grabGallery(Gallery &gallery) {
     if (QListWidget *list = gallery.hoverList) {  // 第二行走一遍真的悬停（快捷操作只在悬停时出现）
         const QPoint at = list->visualItemRect(list->item(1)).center();
@@ -588,6 +647,12 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
                 for (const QSize size : {QSize(900, 620), QSize(1280, 800)})
                     list.append({QStringLiteral("r2-%1-%2-%3x%4.png").arg(QLatin1String(state), theme).arg(size.width()).arg(size.height()),
                                  theme, size, false, home, QStringLiteral("r2:") + QLatin1String(state)});
+        // r2 智能体页方案 A 对照（设计稿 r2/png/agent-A-*）：对话、空、未配置 API、系统提示、⋯ 菜单、实例下拉。
+        for (const char *state : {"chat", "empty", "noapi", "sys", "menu", "inst"})
+            for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("emerald")})
+                for (const QSize size : {QSize(900, 620), QSize(1280, 800)})
+                    list.append({QStringLiteral("r2-agent-%1-%2-%3x%4.png").arg(QLatin1String(state), theme).arg(size.width()).arg(size.height()),
+                                 theme, size, false, agent, QStringLiteral("r2:agent-") + QLatin1String(state)});
         // 设置页三主题（去硬描边那轮逐页自检用）。
         for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("emerald"), QStringLiteral("ocean")})
             list.append({QStringLiteral("settings-%1.png").arg(theme), theme, {1280, 800}, false, MainWindowUI::settingsTabIndex()});
@@ -750,6 +815,8 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
                 if (auto *picker = window.findChild<QAbstractButton *>(MainWindowUI::homeCurrentPickerName())) picker->click();
             } else if (shot.page == QStringLiteral("r2:home-acct-rail")) {
                 window.ui()->getAccountSkinButton()->click();
+            } else if (shot.page.startsWith(QStringLiteral("r2:agent-"))) {
+                if (auto *page = window.findChild<AgentPage *>()) seedAgent(*page, shot.page.section(QLatin1Char('-'), 1));
             } else if (shot.page.startsWith(QStringLiteral("r2:"))) {
             } else if (shot.page == QStringLiteral("account")) {
                 // 面板按屏幕可用区夹位置：窗口伸出屏外时它会被夹回来、不再贴着胶囊右沿。
@@ -799,6 +866,14 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
                 QPainter painter(&shotImage);
                 painter.drawPixmap(window.mapFromGlobal(panel->mapToGlobal(QPoint(0, 0))), panel->grab());
                 panel->close();
+            }
+            // 智能体页的 ⋯ 菜单 / 实例下拉同理（Qt::Popup）。
+            for (const char *name : {"agentMoreMenu", "agentInstanceMenu"}) {
+                if (auto *menu = window.findChild<QWidget *>(QLatin1String(name)); menu != nullptr && menu->isVisible()) {
+                    QPainter painter(&shotImage);
+                    painter.drawPixmap(window.mapFromGlobal(menu->mapToGlobal(QPoint(0, 0))), menu->grab());
+                    menu->close();
+                }
             }
             const bool saved = shotImage.save(root + QLatin1Char('/') + shot.file);
             report.append(QJsonObject{{"file", shot.file}, {"saved", saved}, {"width", window.width()},

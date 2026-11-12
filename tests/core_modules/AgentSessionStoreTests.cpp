@@ -27,6 +27,19 @@ Agent::Message userMessage(const QString &text, const QString &id = QString()) {
 }  // namespace
 
 void runAgentSessionStoreTests() {
+    {
+        AgentSession session;
+        session.meta.title = QStringLiteral("闪退排查");
+        session.messages = {userMessage(QStringLiteral("启动就崩")), userMessage(QStringLiteral("  "))};
+        Agent::Message reply = userMessage(QStringLiteral("先看日志"), QStringLiteral("a1"));
+        reply.role = Agent::Role::Assistant;
+        Agent::Message tool = userMessage(QStringLiteral("{\"content\":\"secret\"}"), QStringLiteral("t1"));
+        tool.role = Agent::Role::Tool;
+        session.messages << reply << tool;
+        const QString md = AgentSessionExport::toMarkdown(session);
+        check(md == QStringLiteral("# 闪退排查\n\n## 我\n\n启动就崩\n\n## 助手\n\n先看日志\n"),
+              "会话导出：标题 + 我 / 助手各一节，空消息与工具结果不写", md);
+    }
     QTemporaryDir fixture;
     check(fixture.isValid(), "会话存储：临时目录可用");
     AgentSessionStore store(fixture.path());

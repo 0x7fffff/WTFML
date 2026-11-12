@@ -36,6 +36,12 @@ struct SessionMeta {
     bool isValid() const { return !id.isEmpty(); }
 };
 
+/// 实例下拉里的一行。
+struct InstanceOption {
+    QString id;
+    QString name;
+};
+
 /// 设置页收集的 provider 字段（非密）。密钥永远单独走 AgentSecretEdit。
 struct ProviderDraft {
     QString id;
