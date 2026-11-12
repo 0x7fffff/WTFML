@@ -560,7 +560,8 @@ void Backdrop::resizeEvent(QResizeEvent *event) {
 }
 
 void Backdrop::paintBase(QPainter &painter, const QWidget *target, bool toPixmap) {
-    const QRect area(target->mapTo(this, QPoint(0, 0)), target->size());
+    // 按同一扇窗里的位置算：浮层（GlassPopover）是窗口的直接孩子，不在本控件底下。
+    const QRect area(target->mapTo(target->window(), QPoint(0, 0)) - mapTo(window(), QPoint(0, 0)), target->size());
     const QRect local(QPoint(0, 0), target->size());
     const Mode m = effectiveMode();
     if (m == Mode::Solid) {

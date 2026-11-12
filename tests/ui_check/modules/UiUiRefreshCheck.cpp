@@ -31,16 +31,25 @@ int UiUiRefreshCheck(QApplication &app) {
                "game logs and process priority belong to launch settings");
         expect(warningSettings && warningSettings->isAncestorOf(preview.findChild<QWidget *>(MainWindowUI::warnMissingDependenciesCheckName())),
                "dependency warning belongs to safety settings");
-        // 7a：实例带只剩「最近 / 收藏」两颗下划线页签（设计稿 .tab），「当前」是上面那块启动区。
+        // 7a：实例带只剩「最近 / 收藏」两颗胶囊页签（设计稿 r2 .seg：28 高），「当前」是上面那块启动区。
         for (const QString &name : {QStringLiteral("homeQuickRecentTab"), QStringLiteral("homeQuickFavoriteTab")}) {
             auto *tab = preview.findChild<QPushButton *>(name);
-            expect(tab && tab->minimumWidth() >= 48 && tab->sizeHint().height() >= 32,
+            expect(tab && tab->minimumSizeHint().width() >= 48 && tab->sizeHint().height() >= 28,
                    "home strip tabs keep a usable click target");
         }
         auto *currentTab = preview.findChild<QPushButton *>(QStringLiteral("homeQuickCurrentTab"));
         expect(currentTab && currentTab->isHidden(), "the current instance is the launch block, not a strip tab");
-        expect(preview.findChild<QPushButton *>(MainWindowUI::homeInstanceSelectButtonName())->minimumWidth() >= 80,
-               "home list button is wider than quick tabs");
+        // 「全部实例 ›」改成「管理」：纯导航，点了去管理页（不在主页里展开列表）。
+        if (auto *manage = preview.findChild<QPushButton *>(MainWindowUI::homeInstanceSelectButtonName())) {
+            expect(manage->text() == QStringLiteral("管理") && manage->toolTip().isEmpty(),
+                   "strip header link reads 管理 with no tooltip");
+            manage->click();
+            app.processEvents();
+            expect(ui.getTabWidget()->currentIndex() == MainWindowUI::instancesTabIndex(),
+                   "管理 navigates to the instances page");
+            ui.getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
+            app.processEvents();
+        } else expect(false, "strip header link exists");
         MainWindowUI::HomePickerInstance instance;
         instance.id = QStringLiteral("custom-instance");
         instance.title = QStringLiteral("Adventure");
@@ -48,11 +57,26 @@ int UiUiRefreshCheck(QApplication &app) {
         instance.loaderKey = QStringLiteral("fabric");
         instance.favorite = true;
         instance.recent = true;
+        instance.recentRank = 0;
+        instance.current = true;
         instance.searchKeywords = QStringLiteral("1.21.1 0.16.9 我的整合包");
+        {
+            // 弹层锚在启动区那块「名字 + 版本」上：先摆一张当前实例卡。
+            MainWindowUI::HomeQuickItem current;
+            current.key = instance.id;
+            current.name = instance.title;
+            ui.setHomeQuickRows({current}, {}, {});
+            app.processEvents();
+        }
         ui.openHomeInstancePicker({}, {instance}, {}, {});
+        app.processEvents();
         auto *search = preview.findChild<QLineEdit *>(QStringLiteral("homePickerSearch"));
         auto *list = preview.findChild<QListWidget *>(QStringLiteral("homePickerInstanceList"));
         if (search && list) {
+            // 不搜的时候分两段：「最近」+「全部 · N」（两行段头 + 两行实例）。
+            expect(list->count() == 4 && list->item(0)->text() == QStringLiteral("最近") &&
+                       list->item(2)->text() == QStringLiteral("全部 · 1"),
+                   "picker lists 最近 then 全部 · N");
             for (const QString &query : {QStringLiteral("1.21 fabric 收藏"), QStringLiteral("0.16.9"),
                                         QStringLiteral("games recent"), QStringLiteral("我的整合包")}) {
                 search->setText(query);
@@ -61,17 +85,19 @@ int UiUiRefreshCheck(QApplication &app) {
             search->setText(QStringLiteral("1.21 forge"));
             expect(list->count() == 0, "all search terms must match");
         } else expect(false, "home search controls exist");
+        expect(preview.findChild<QPushButton *>(QStringLiteral("homePickerNew")) &&
+                   preview.findChild<QPushButton *>(QStringLiteral("homePickerManage")),
+               "picker footer has 新建实例 and 管理全部实例");
         ui.getTabWidget()->setCurrentIndex(MainWindowUI::instancesTabIndex());
         expect(!ui.homeInstancePickerOpen(), "switching away resets hidden home picker");
         ui.getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
         expect(!ui.homeInstancePickerOpen(), "returning home does not restore stale picker");
         ui.openHomeInstancePicker({}, {instance}, {}, {});
-        auto *escape = preview.findChild<QShortcut *>(QStringLiteral("homePickerCloseShortcut"));
-        expect(escape && escape->key() == QKeySequence(Qt::Key_Escape)
-                   && escape->context() == Qt::WidgetWithChildrenShortcut,
-               "home picker escape is scoped to home controls");
-        if (escape) {
-            QMetaObject::invokeMethod(escape, "activated", Qt::DirectConnection);
+        app.processEvents();
+        if (auto *picker = preview.findChild<QWidget *>(MainWindowUI::homeInstancePickerName())) {
+            QKeyEvent esc(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+            QApplication::sendEvent(picker, &esc);
+            app.processEvents();
         }
         expect(!ui.homeInstancePickerOpen(), "escape closes home picker");
         ui.closeHomeInstancePicker();
@@ -542,89 +568,44 @@ int UiUiRefreshCheck(QApplication &app) {
         quick.key = QStringLiteral("preview"); quick.name = QStringLiteral("Preview");
         quick.detail = QStringLiteral("Minecraft 1.21.1\nLast played today");
         ui.setHomeQuickRows({quick}, {quick}, {quick});
+        settle();
         auto *launchCard = home->findChild<QWidget *>(QStringLiteral("homeCurrentInstanceCard"));
         const int normalHeight = launchCard ? launchCard->height() : 0;
+        // 实例切换是浮在页上的毛玻璃弹层：开着时启动区一像素都不动，也不起换页那层幕布。
         ui.openHomeInstancePicker({}, {instance}, {}, {});
-        expect(launchCard && launchCard->height() <= 56 && launchCard->height() < normalHeight,
-               "expanded home list shrinks the launch card to leave space for instances");
-        expect(ui.homeInstancePickerOpen() && curtainCount() == 1, "home picker changes state immediately and starts transition");
-        ui.closeHomeInstancePicker();
-        expect(!ui.homeInstancePickerOpen() && curtainCount() == 1, "rapid reversal replaces the previous transition");
-        expect(launchCard && launchCard->height() == normalHeight, "closing home list restores the normal launch card height");
-        // 列表展开着的时候，上方被压小的那一截不许因为换「最近 / 收藏」、点开快捷卡片又长回去。
-        //
-        // ★ 最后那两条盯的是同一个真因：点面板外面收掉它的那一下会被 Qt **重放**
-        // （`QApplicationPrivate::closePopup()` → `replayMousePress` → `QWidgetWindow` 尾巴），
-        // 重放落到「列表 / 返回」上，实例列表就跟着收了 —— 压缩失效、整块长回 84。
-        // 面板那头是 `HomeQuickPopup`（`ui/MainWindowUI.cpp`），它在外面那一下先钉
-        // `WA_NoMouseReplay` 再收自己。
+        settle();
+        expect(ui.homeInstancePickerOpen(), "the name block opens the instance popover");
+        expect(launchCard && launchCard->height() == normalHeight && curtainCount() == 0,
+               "the popover floats over the page; the launch card keeps its height");
+        if (auto *anchor = home->findChild<QWidget *>(MainWindowUI::homeCurrentPickerName())) {
+            expect(anchor->property("wtfmlOpen").toBool(), "the name block keeps its pressed look while the popover is open");
+        }
         {
-            const MainWindowUI::HomeQuickItem item = quick;
-            ui.setHomeQuickRows({item}, {item, item, item}, {item, item, item});
-            ui.openHomeInstancePicker({}, {instance}, {}, {});
+            // 点弹层外面（同一个窗里）= 收。
+            QWidget *target = ui.getTabWidget();
+            const QPointF local(2, 2);
+            QMouseEvent press(QEvent::MouseButtonPress, local, target->mapToGlobal(local.toPoint()),
+                              Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(target, &press);
             settle();
-            const auto launchHeight = [home] {
-                auto *c = home->findChild<QWidget *>(QStringLiteral("homeCurrentInstanceCard"));
-                return c ? c->height() : -1;
-            };
-            expect(launchHeight() > 0 && launchHeight() <= 56, "expanded list compacts the launch card before tab switching");
-            for (const QString &name : {QStringLiteral("homeQuickRecentTab"), QStringLiteral("homeQuickFavoriteTab")}) {
-                if (auto *tab = preview.findChild<QPushButton *>(name)) tab->click();
-                settle();
-                expect(launchHeight() > 0 && launchHeight() <= 56,
-                       name == QStringLiteral("homeQuickRecentTab")
-                           ? "switching to the recent page keeps the launch card compact"
-                           : "switching to the favorite page keeps the launch card compact");
-            }
+            expect(!ui.homeInstancePickerOpen(), "an outside press closes the instance popover");
+        }
+        // 实例带：点卡片 = 设为当前（不展开别的面板）。
+        {
             auto *favSection = home->findChild<QWidget *>(QStringLiteral("homeFavoriteSection"));
             auto *card = favSection ? favSection->findChild<QPushButton *>(QStringLiteral("homeQuickCard_preview"))
                                     : nullptr;
             expect(card != nullptr, "favorite page exposes the preview quick card");
-            if (card) {
-                // ★ 高度上下限的真出处是 QSS（`wtfmlQuickCardSize` 那一档的 min-height）。
-                // 悬停 / 按下 / 换主题都会来一发 polish，把 C++ 里写下的 52 顶回 82 ——
-                // 用户看到的就是"点一下卡片，压小的那截又长回去"。这里手动来一发 polish。
-                // 比的是**前后一样高**：只写 `<= 56` 的话，差 2px（QSS 把边框算进尺寸）
-                // 也能混过去，而那正是"还会长一点点"。
-                const int beforePolish = card->height();
-                card->style()->unpolish(card);
-                card->style()->polish(card);
-                settle();
-                expect(beforePolish > 0 && beforePolish <= 56 && card->height() == beforePolish,
-                       "repolishing a compacted quick card keeps it at the compact height");
-                card->click();
-                settle();
-                auto *popup = preview.findChild<QWidget *>(QStringLiteral("homeQuickPopup"));
-                expect(popup && popup->isVisible(), "clicking the quick card opens its panel");
-                expect(launchHeight() > 0 && launchHeight() <= 56,
-                       "the quick card panel does not grow the launch card back");
-                if (popup) {
-                    // 面板外面那一下：照真窗口的形状发一个 press（局部坐标落在 rect 外）。
-                    const QPointF outside(-5, -5);
-                    QMouseEvent press(QEvent::MouseButtonPress, outside, popup->mapToGlobal(outside.toPoint()),
-                                      Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
-                    QCoreApplication::sendEvent(popup, &press);
-                    // 属性是被重放前那一刻读的，而且 Qt 下一次投鼠标事件就会清掉 ⇒ 就地断言。
-                    expect(popup->testAttribute(Qt::WA_NoMouseReplay),
-                           "closing the panel from an outside press suppresses the replayed press");
-                    expect(!popup->isVisible(), "an outside press closes the quick card panel");
-                    settle();
-                }
-                expect(ui.homeInstancePickerOpen() && launchHeight() > 0 && launchHeight() <= 56,
-                       "dismissing the quick card panel leaves the expanded list and its compact height alone");
-            }
-            ui.closeHomeInstancePicker();
-            settle();
-            expect(launchHeight() > 56, "closing the list after the panel dance restores the launch card height");
+            expect(preview.findChild<QWidget *>(QStringLiteral("homeQuickPopup")) == nullptr,
+                   "the strip has no per-card popup any more");
         }
         settle();
-        expect(curtainCount() == 0, "home picker transition removes its snapshot on completion");
         ui.openHomeInstancePicker({}, {instance}, {}, {});
         ui.getTabWidget()->setCurrentIndex(MainWindowUI::instancesTabIndex());
         settle();
         ui.getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
         expect(!ui.homeInstancePickerOpen() && !home->findChild<QWidget *>(QStringLiteral("wtfmlLayoutCurtain")),
-               "switching tabs cancels picker animation without restoring stale content");
+               "switching tabs closes the picker without restoring stale content");
         ui.getTaskSummaryButton()->click();
         ActivityPopover::openAllIn(ui.getTaskSummaryButton()->window());
         expect(preview.findChild<QWidget *>(MainWindowUI::taskCenterPanelName()) && curtainCount() == 1,

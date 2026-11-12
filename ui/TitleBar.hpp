@@ -53,7 +53,7 @@ public:
     /// 每一颗导航的宽 / 高（展开时）。
     static int navItemWidth();
     static int navItemHeight();
-    /// 导航标签的像素字号（手写体）。
+    /// 导航标签的像素字号（系统字，Medium）。
     static int navFontPixelSize();
     /// 窗口按钮离窗口右边缘多远。
     static int windowButtonsRightMargin();

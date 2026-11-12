@@ -34,7 +34,7 @@ constexpr int kNarrowBreakpoint = 1024;
 constexpr int kNavItemWidth = kRailWidth - 2 * kRailPadding;
 constexpr int kNavItemHeight = 42;
 constexpr int kNavSpacing = 4;
-constexpr int kNavFontPixels = 16;
+constexpr int kNavFontPixels = 14;  // 样张 r2：导航用系统字 14 / 500，手写体只留给品牌与主页大标题
 constexpr int kNavIconSize = 20;
 constexpr int kNavIconGap = 14;
 constexpr int kNavPaddingX = 14;
@@ -244,13 +244,11 @@ void TitleBarButton::paintEvent(QPaintEvent *) {
         const QRectF iconBox(iconX, (height() - kNavIconSize) / 2.0, kNavIconSize, kNavIconSize);
         VersionIcons::paintLine(p, iconName(m_icon), iconBox, ink);
         if (compact) return;
-        QFont f = font();
-        f.setLetterSpacing(QFont::AbsoluteSpacing, 1);
-        p.setFont(f);
+        p.setFont(font());
         p.setPen(ink);
         const int textLeft = int(iconBox.right()) + kNavIconGap;
         p.drawText(QRect(textLeft, 0, width() - textLeft - 8, height()), Qt::AlignVCenter | Qt::AlignLeft,
-                   QFontMetrics(f).elidedText(text(), Qt::ElideRight, width() - textLeft - 8));
+                   QFontMetrics(font()).elidedText(text(), Qt::ElideRight, width() - textLeft - 8));
         return;
     }
     case Glyph::Fold:
@@ -484,8 +482,9 @@ void TitleBar::setNavItems(const QStringList &labels) {
     }
     m_navButtons.clear();
     m_currentNav = -1;
-    QFont navFont = Theme::handFont(font(), Theme::HandFont::Kai);
+    QFont navFont = font();
     navFont.setPixelSize(kNavFontPixels);
+    navFont.setWeight(QFont::Medium);
     const int pad = railPaddingFor(width());
     for (int i = 0; i < labels.size(); ++i) {
         auto *button = new TitleBarButton(TitleBarButton::Glyph::Text, QColor(), QColor(), this);

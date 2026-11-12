@@ -2,6 +2,7 @@
 // 设计稿对照截图（--design-shots）：主页三主题、窄窗、宽窗、折叠轨、组件总表。
 // 只截图，不登录、不联网、不启动游戏；实例和账号是写在隔离目录里的夹具。
 #include "Glass.hpp"
+#include "GlassPopover.hpp"
 #include "ListRowDelegate.hpp"
 #include "MainWindow.hpp"
 #include "MainWindowUI.hpp"
@@ -151,7 +152,6 @@ inline QList<MainWindowUI::HomeQuickItem> fixtureItems() {
         item.name = QString::fromUtf8(row.name);
         item.detail = QString::fromUtf8(row.detail);
         item.recent = true;
-        item.modCount = item.key == QLatin1String("spring") ? 42 : 12;
         items.append(item);
     }
     items.first().current = true;
@@ -159,7 +159,15 @@ inline QList<MainWindowUI::HomeQuickItem> fixtureItems() {
     return items;
 }
 
-inline void seedHome(MainWindow &window) {
+inline void seedHome(MainWindow &window, bool empty = false) {
+    if (empty) {
+        // 一个实例都没有时那一张（和 HomeQuickController 灌的空槽同形）：「还没有实例」+「下载游戏」。
+        MainWindowUI::HomeQuickItem slot;
+        slot.empty = true;
+        slot.name = QStringLiteral("还没有实例");
+        window.ui()->setHomeQuickRows({slot}, {}, {});
+        return;
+    }
     const auto items = fixtureItems();
     QList<MainWindowUI::HomeQuickItem> favorites;
     for (const auto &item : items)
@@ -570,9 +578,16 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         // 最大化 → 还原 → 拖到屏幕另一处再抓（几何账目在还原后最容易差几像素）。
         list.append({QStringLiteral("edge-restore-dark.png"), QStringLiteral("dark"), {860, 640}, false, home, QStringLiteral("edge:restore")});
         list.append({QStringLiteral("edge-restore-emerald.png"), QStringLiteral("emerald"), {860, 640}, false, home, QStringLiteral("edge:restore")});
-        // 主页右上账号切换条：下拉打开的样子（收起的样子看 home-*.png 右上角）。
+        // 导航轨底部账号那一格：账号弹层打开的样子（收起的样子看 home-*.png 左下角）。
         for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("emerald"), QStringLiteral("ocean")})
             list.append({QStringLiteral("account-menu-%1.png").arg(theme), theme, {1000, 700}, false, home, QStringLiteral("account")});
+        // r2 主页方案 A 对照（设计稿 r2/png/home-A-* / home-A-switch-* / home-empty-* / home-acct-rail-*）：
+        // 有实例、实例切换弹层打开、没有实例、导航轨账号弹层打开 × 暗 / 翡翠 × 两档尺寸。
+        for (const char *state : {"home-A", "home-A-switch", "home-empty", "home-acct-rail"})
+            for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("emerald")})
+                for (const QSize size : {QSize(900, 620), QSize(1280, 800)})
+                    list.append({QStringLiteral("r2-%1-%2-%3x%4.png").arg(QLatin1String(state), theme).arg(size.width()).arg(size.height()),
+                                 theme, size, false, home, QStringLiteral("r2:") + QLatin1String(state)});
         // 设置页三主题（去硬描边那轮逐页自检用）。
         for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("emerald"), QStringLiteral("ocean")})
             list.append({QStringLiteral("settings-%1.png").arg(theme), theme, {1280, 800}, false, MainWindowUI::settingsTabIndex()});
@@ -618,18 +633,20 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
             return;
         }
         const Shot shot = shots.at(index++);
+        GlassPopover::closeAllIn(&window);  // 上一张开着的弹层（再点一次锚点就成了"收起"）
         Theme::setSpec(Theme::presetSpec(shot.theme));
         Theme::apply(app);
         window.showNormal();
         window.resize(shot.size);
         window.ui()->getTabWidget()->setCurrentIndex(shot.tab);
         if (auto *bar = window.findChild<TitleBar *>()) bar->setCollapsed(shot.collapsed);
-        seedHome(window);
+        const bool emptyHome = shot.page == QStringLiteral("r2:home-empty");
+        seedHome(window, emptyHome);
         // 竖屏 / 小屏上 Windows 首次会把超出屏宽的窗口夹回屏宽，排完版再要一次尺寸。
         QTimer::singleShot(300, &window, [&window, shot]() { window.resize(shot.size); });
         // 启动后头一张时主窗口自己还会刷一次主页（在线版本列表回来后按隔离目录里的空实例重排），
         // 抓图前再灌一次夹具，再让布局走一拍。
-        QTimer::singleShot(700, &window, [&window]() { seedHome(window); });
+        QTimer::singleShot(700, &window, [&window, emptyHome]() { seedHome(window, emptyHome); });
         QTimer::singleShot(850, &window, [&window, shot]() {
             if (shot.page.startsWith(QStringLiteral("edge"))) {
                 // 整窗（连窗外一圈）都得在屏上：竖屏 / 小屏上 1280 宽会伸出屏外。
@@ -729,6 +746,11 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
                     if (auto *button = window.findChild<QPushButton *>(ToolboxPage::toolButtonName(tool))) button->click();
                     if (auto *page = window.findChild<ToolboxPage *>()) fillToolboxSample(*page, key);
                 }
+            } else if (shot.page == QStringLiteral("r2:home-A-switch")) {
+                if (auto *picker = window.findChild<QAbstractButton *>(MainWindowUI::homeCurrentPickerName())) picker->click();
+            } else if (shot.page == QStringLiteral("r2:home-acct-rail")) {
+                window.ui()->getAccountSkinButton()->click();
+            } else if (shot.page.startsWith(QStringLiteral("r2:"))) {
             } else if (shot.page == QStringLiteral("account")) {
                 // 面板按屏幕可用区夹位置：窗口伸出屏外时它会被夹回来、不再贴着胶囊右沿。
                 window.move(window.screen()->availableGeometry().topLeft() + QPoint(60, 60));

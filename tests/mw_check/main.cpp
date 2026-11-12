@@ -2451,13 +2451,16 @@ int main(int argc, char *argv[]) {
               installed->itemText(decorated));
     }
 
-    check(installed->currentIndex() < 0, "什么都没选（占位文案生效）");
+    // 有实例必有当前实例：从没启动过、也没手选过 ⇒ 第一个（resolveCurrentInstance()）。
+    check(installed->currentIndex() == 0, "有实例必有当前实例：冷启动挑的是第一个",
+          QString::number(installed->currentIndex()));
     check(buttonFirstLine(startBtn) == QStringLiteral("启动游戏"),
           "按钮第一行是「启动游戏」", buttonFirstLine(startBtn));
-    check(buttonVersionLine(startBtn) == QStringLiteral("未选择版本"),
-          "没选版本时第二行是「未选择版本」", buttonVersionLine(startBtn));
+    check(buttonVersionLine(startBtn) == installed->itemText(0),
+          "按钮第二行就是自动挑的那一个", buttonVersionLine(startBtn));
     check(startBtn->text().count(QLatin1Char('\n')) == 1, "按钮文字正好两行", startBtn->text());
-    check(installed->toolTip().isEmpty(), "没选版本时下拉框没有 tooltip", installed->toolTip());
+    check(installed->toolTip().contains(installed->itemData(0).toString()),
+          "下拉框 tooltip 跟着自动挑的那一个", installed->toolTip());
 
     header("B. id 和显示文本分家（这次重构最容易倒退的一条）");
     {
@@ -2529,9 +2532,11 @@ int main(int argc, char *argv[]) {
 
         check(installed->findData(QStringLiteral("1.18.2")) < 0, "1.18.2 从下拉框里消失了");
         check(installed->count() == 2, "剩下两个版本", QString::number(installed->count()));
-        check(installed->currentIndex() < 0, "选中项退回「未选中」（不替用户乱选一个）");
-        check(buttonVersionLine(startBtn) == QStringLiteral("未选择版本"),
-              "按钮第二行退回「未选择版本」，没留着已经启动不了的 1.18.2",
+        // 当前实例被删 ⇒ 顺延到同一位置上的那一个（1.18.2 原来在第 0 位，现在第 0 位是 1.20.1）。
+        check(selectedId(installed) == QStringLiteral("1.20.1"),
+              "当前实例没了 ⇒ 顺延到同一位置上的 1.20.1（有实例必有当前实例）", selectedId(installed));
+        check(buttonVersionLine(startBtn) == kDecorated,
+              "按钮第二行换成顺延到的那一个，没留着已经启动不了的 1.18.2",
               buttonVersionLine(startBtn));
         check(installed->placeholderText() == MainWindowUI::chooseVersionPlaceholder(),
               "还有可选版本，所以占位文案仍是『请选择一个版本』",
@@ -2541,9 +2546,26 @@ int main(int argc, char *argv[]) {
         QMetaObject::invokeMethod(&window, "onVersionsFetched", Qt::DirectConnection,
                                   Q_ARG(QStringList, QStringList({QStringLiteral("1.20.1")})));
         QApplication::processEvents();
-        check(installed->count() == 3 && installed->currentIndex() < 0,
-              "1.18.2 回来后仍是未选中状态",
+        check(installed->count() == 3 && selectedId(installed) == QStringLiteral("1.18.2"),
+              "1.18.2 回来了、这期间没手选别的 ⇒ 当前实例换回它（顺延只是替身）",
               QString("count=%1 idx=%2").arg(installed->count()).arg(installed->currentIndex()));
+
+        // 再挤掉一次，但这回用户在它不在的时候手选了 26.3 ⇒ 它回来也不抢回去。
+        check(QFile::remove(versionsDir.filePath(QStringLiteral("1.18.2/1.18.2.jar"))), "再抽走一次 1.18.2.jar");
+        QMetaObject::invokeMethod(&window, "onVersionsFetched", Qt::DirectConnection,
+                                  Q_ARG(QStringList, QStringList({QStringLiteral("1.20.1")})));
+        QApplication::processEvents();
+        installed->setCurrentIndex(installed->findData(QStringLiteral("26.3")));
+        QApplication::processEvents();
+        makeInstalledVersion(versionsDir, QStringLiteral("1.18.2"));
+        QMetaObject::invokeMethod(&window, "onVersionsFetched", Qt::DirectConnection,
+                                  Q_ARG(QStringList, QStringList({QStringLiteral("1.20.1")})));
+        QApplication::processEvents();
+        check(selectedId(installed) == QStringLiteral("26.3"),
+              "被挤掉期间用户手选了 26.3 ⇒ 1.18.2 回来也不抢回去", selectedId(installed));
+        // 收尾：后面几段按 1.18.2 是当前实例写的，手选回去（和用户点一下同一条路）。
+        installed->setCurrentIndex(installed->findData(QStringLiteral("1.18.2")));
+        QApplication::processEvents();
     }
 
     header("F. 真的一个版本都没装 → 占位文案退回「暂无已安装版本」");
@@ -2605,7 +2627,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    header("H. 记着的版本已经不在了 → 留空 + 占位，不替用户改选一个");
+    header("H. 记着的版本已经不在了 → 按规则挑一个（上次启动 → 上次选中 → 第一个）");
     {
         rememberLastVersion(QStringLiteral("26.3"));
         QFile jar(versionsDir.filePath(QStringLiteral("26.3/26.3.jar")));
@@ -2619,15 +2641,15 @@ int main(int argc, char *argv[]) {
             QPushButton *btn4 = startButton(&w4);
             check(combo4 != nullptr && btn4 != nullptr, "四个窗口的控件找得到");
             if (combo4 != nullptr && btn4 != nullptr) {
-                check(combo4->currentIndex() < 0, "没有自动选中任何版本",
+                check(combo4->currentIndex() == 0, "记着的 26.3 不在了 ⇒ 挑第一个（有实例必有当前实例）",
                       QString::number(combo4->currentIndex()));
                 check(combo4->placeholderText() == MainWindowUI::chooseVersionPlaceholder(),
                       "占位文案是『请选择一个版本』（还有别的版本可选），不是『暂无已安装版本』",
                       combo4->placeholderText());
-                check(buttonVersionLine(btn4) == QStringLiteral("未选择版本"),
-                      "按钮第二行是「未选择版本」", buttonVersionLine(btn4));
-                check(combo4->toolTip().isEmpty(), "没有选中项时 tooltip 是空的",
-                      combo4->toolTip());
+                check(buttonVersionLine(btn4) == combo4->itemText(0),
+                      "按钮第二行是挑中的那一个", buttonVersionLine(btn4));
+                check(combo4->toolTip().contains(combo4->itemData(0).toString()),
+                      "tooltip 跟着挑中的那一个", combo4->toolTip());
             }
         }
         makeInstalledVersion(versionsDir, QStringLiteral("26.3"));

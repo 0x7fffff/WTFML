@@ -9,6 +9,7 @@
 #include <QElapsedTimer>  // 整块覆盖这一层的淡入
 #include "Theme.hpp"   // 顶上那颗「‹ 返回」的身份（文字按钮）
 #include "Glass.hpp"   // 整页那一档透出整窗磨砂
+#include "GlassPopover.hpp"
 #include "VersionIcons.hpp"
 
 #include <QApplication>
@@ -458,6 +459,8 @@ QWidget *OverlayHost::openPage(const QString &title, int ownerTab) {
         return nullptr;
     }
     m_mode = Mode::Page;
+    // 整页要摆上来了：浮在页上的弹层（实例切换、账号、活动）先让位收掉，不然会盖在新页上。
+    GlassPopover::closeAllIn(window());
     // 这一页是**哪一颗选项卡**的：它决定这一页在哪儿露面（见头文件那段）。
     //
     // 调用方说得出口（`ownerTab != -1`）时**以它为准**，不再看当前选项卡是谁 ——

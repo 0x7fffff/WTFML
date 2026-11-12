@@ -102,8 +102,14 @@ inline constexpr int kRunningPanelLogAction = 2;
 
 /// 右面板里那一行右边的那颗按钮的下标（onBottomBarPanelAction() 认的就是它）。
 inline constexpr int kAccountPanelUseAction = 0;
-/// 「管理账号…」那一格的身份键（不是任何账号的 uuid，面板回调靠它分叉）。
+/// 「管理账号与皮肤」「添加账号」「登录」那三行菜单项的身份键（不是任何账号的 uuid，面板回调靠它分叉）。
 inline const QString kAccountPanelManageKey = QStringLiteral("__wtfml_manage_accounts__");
+inline const QString kAccountPanelAddKey = QStringLiteral("__wtfml_add_account__");
+inline const QString kAccountPanelLoginKey = QStringLiteral("__wtfml_login__");
+/// 「退出登录」那一行（只在当前有登录身份时摆）：清掉盘上的登录状态，账号留在列表里。
+inline const QString kAccountPanelLogoutKey = QStringLiteral("__wtfml_logout__");
+/// 账号弹层最多列几个账号（最后登录的三个，用户原话；再多的去「管理账号与皮肤」里找）。
+inline constexpr int kAccountPanelLimit = 3;
 
 QString selectedVersionId(const QComboBox *combo);
 QList<Tasks::TaskStep> taskStepsFromNames(const QStringList &names, int runningIndex);

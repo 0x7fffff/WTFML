@@ -25,6 +25,7 @@
 #include <QEvent>
 #include <QFont>
 #include <QGridLayout>
+#include <QPainterPath>
 #include <QGuiApplication>
 #include <QHeaderView>
 #include <QHBoxLayout>
@@ -590,13 +591,90 @@ protected:
         const QRectF iconBox(compact ? (width() - 20) / 2.0 : 14, (height() - 20) / 2.0, 20, 20);
         VersionIcons::paintLine(p, QStringLiteral("toolbox"), iconBox, ink);
         if (compact) return;
-        QFont f = font();
-        f.setLetterSpacing(QFont::AbsoluteSpacing, 1);
-        p.setFont(f);
+        p.setFont(font());
         p.setPen(ink);
         p.drawText(QRect(int(iconBox.right()) + 14, 0, width() - int(iconBox.right()) - 14, height()),
                    Qt::AlignVCenter | Qt::AlignLeft, text());
     }
+};
+
+/// 导航轨底部账号那一格里的头像（设计稿 r2 .nav-item.acct：24 见方、圆角 7）。
+/// 没登录（pixmap 为空）画一块淡底 + 人形线条图标。
+class RailAvatar final : public QLabel {
+public:
+    using QLabel::QLabel;
+
+protected:
+    void paintEvent(QPaintEvent *) override {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        const QRectF box(rect());
+        QPainterPath clip;
+        clip.addRoundedRect(box, 7, 7);
+        const QPixmap face = pixmap();
+        if (face.isNull()) {
+            const Theme::Tokens t = Theme::tokens();
+            p.fillPath(clip, t.subtle);
+            const qreal side = box.width() * 0.56;
+            VersionIcons::paintLine(p, QStringLiteral("user"),
+                                    QRectF(box.center() - QPointF(side / 2, side / 2), QSizeF(side, side)),
+                                    t.secondary);
+            return;
+        }
+        p.setClipPath(clip);
+        p.setRenderHint(QPainter::SmoothPixmapTransform, false);  // 像素脸放大不糊
+        p.drawPixmap(rect(), face);
+    }
+};
+
+/// 导航轨底部账号那一格（设计稿 r2 .nav-item.acct）：头像 + 名字，图标轨时只剩头像。
+/// 底色和导航项一套（悬停 / 按下 / 弹层开着）；弹层开着由 wtfmlOpen 属性说。
+class RailAccountButton final : public QPushButton {
+public:
+    explicit RailAccountButton(QWidget *parent) : QPushButton(parent) {
+        setAttribute(Qt::WA_Hover, true);
+        setCursor(Qt::PointingHandCursor);
+    }
+    void setParts(QWidget *avatar, QWidget *name) {
+        m_avatar = avatar;
+        m_name = name;
+        relayout();
+    }
+
+protected:
+    void resizeEvent(QResizeEvent *event) override {
+        QPushButton::resizeEvent(event);
+        relayout();
+    }
+    void paintEvent(QPaintEvent *) override {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        const Theme::Tokens t = Theme::tokens();
+        const bool open = property("wtfmlOpen").toBool();
+        const QColor base = isDown() || open ? t.fillPress : underMouse() ? t.hover : QColor(Qt::transparent);
+        if (base.alpha() > 0) {
+            p.setPen(Qt::NoPen);
+            p.setBrush(base);
+            p.drawRoundedRect(QRectF(rect()), 10, 10);
+        }
+    }
+
+private:
+    /// 手摆两件子控件（不走布局）：图标轨窄到 80 以下时名字藏起来、头像居中。
+    void relayout() {
+        if (m_avatar == nullptr) return;
+        const bool compact = width() < 80;
+        const int side = m_avatar->width();
+        const int y = (height() - side) / 2;
+        m_avatar->move(compact ? (width() - side) / 2 : 12, y);
+        if (m_name != nullptr) {
+            m_name->setVisible(!compact);
+            const int left = 12 + side + 12;
+            m_name->setGeometry(left, 0, qMax(0, width() - left - 8), height());
+        }
+    }
+    QWidget *m_avatar = nullptr;
+    QWidget *m_name = nullptr;
 };
 
 /// 底栏按钮身上那个"跟随登记只做过一次"的印记（见 `applyBottomBarButtonStyle()` 里的闸门）。
@@ -1555,8 +1633,9 @@ void MainWindowUI::setupBottomBar(QWidget *parent) {
     toolboxButton->setToolTip(QStringLiteral("展开或收起工具箱"));
     toolboxButton->setAttribute(Qt::WA_Hover, true);
     {
-        QFont navFont = Theme::handFont(toolboxButton->font(), Theme::HandFont::Kai);
+        QFont navFont = toolboxButton->font();
         navFont.setPixelSize(TitleBar::navFontPixelSize());
+        navFont.setWeight(QFont::Medium);
         toolboxButton->setFont(navFont);
     }
 
@@ -1583,9 +1662,8 @@ void MainWindowUI::setupBottomBar(QWidget *parent) {
     QObject::connect(taskSummaryButton, &QPushButton::clicked, taskSummaryButton, [this]() {
         toggleBottomBarPanel({taskSummaryButton, BottomBarAnchorKind::Tasks});
     });
-    // 右头那一格（头像 + 用户名）**没有接线**：它 `hide()` 之后那一格点不到，
-    // 而它的对应功能在主页右上那张账号卡片上
-    // （见 setupUi() 里 `accountSkinButton` 那一条 connect、以及 toggleAccountsPanel()）。
+    // 老的那一格账号（accountButton）**没有接线**、一直 `hide()`：账号入口是导航轨底部那颗
+    // `accountSkinButton`（见下面「账号」那一段、以及 toggleAccountsPanel()）。
 
     // 三格从左到右摆：实例状态（0）· 空档（1）· 任务摘要（6）· 空档（1）· 账户（0）。
     // 两头那两颗按钮的宽度都是钉死的，份数写 0；富余宽度全在中间三份里分。
@@ -1600,9 +1678,56 @@ void MainWindowUI::setupBottomBar(QWidget *parent) {
     runStateButton->setMinimumHeight(TitleBar::navItemHeight());  // 4+4 边距 + 两行字
     toolboxButton->setFixedHeight(TitleBar::navItemHeight());
     toolboxButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+
+    // ---------- 账号：导航轨底部第一格（设计稿 r2 home-acct-rail）----------
+    // 头像 + 名字，点开账号弹层（toggleAccountsPanel()）。名字 / 头像由 MainWindow::updateBottomBar() 灌。
+    auto *account = new RailAccountButton(bottomBar);
+    accountSkinButton = account;
+    accountSkinButton->setObjectName(accountSkinButtonName());
+    accountSkinButton->setAccessibleName(QStringLiteral("账号"));
+    accountSkinButton->setFixedHeight(TitleBar::navItemHeight());
+    accountSkinButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    // 高度也写进 QSS：全局 QSS 的 min-height 会盖掉上面那句 setFixedHeight（实测压成 22）。
+    accountSkinButton->setStyleSheet(
+        QStringLiteral("QPushButton { border: none; background: transparent; padding: 0; min-height: %1px; max-height: %1px; }")
+            .arg(TitleBar::navItemHeight()));
+    homeAvatarLabel = new RailAvatar(accountSkinButton);
+    homeAvatarLabel->setObjectName(QStringLiteral("homeAvatarLabel"));
+    homeAvatarLabel->setFixedSize(24, 24);
+    homeAvatarLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+    auto *accountName = new ElidedLabel(accountSkinButton);
+    homeAccountLabel = accountName;
+    homeAccountLabel->setObjectName(QStringLiteral("homeAccountLabel"));
+    {
+        QFont nameFont = homeAccountLabel->font();
+        nameFont.setPixelSize(TitleBar::navFontPixelSize());
+        nameFont.setWeight(QFont::Medium);
+        homeAccountLabel->setFont(nameFont);
+    }
+    homeAccountLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    homeAccountLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+    {
+        const auto paintName = [label = homeAccountLabel]() {
+            QPalette p = label->palette();
+            p.setColor(QPalette::WindowText, Theme::tokens().secondary);
+            label->setPalette(p);
+        };
+        paintName();
+        Theme::follow(homeAccountLabel, paintName);
+    }
+    // 账号类型那一句（正版 / 离线）只留作数据（无障碍 / 验证工程读），轨上不摆。
+    homeAccountTypeLabel = new QLabel(accountSkinButton);
+    homeAccountTypeLabel->setObjectName(QStringLiteral("homeAccountTypeLabel"));
+    homeAccountTypeLabel->hide();
+    account->setParts(homeAvatarLabel, homeAccountLabel);
+    QObject::connect(accountSkinButton, &QPushButton::clicked, accountSkinButton, [this]() { toggleAccountsPanel(); });
+
+    barLayout->addWidget(accountSkinButton);
     barLayout->addWidget(taskSummaryButton);
     barLayout->addWidget(runStateButton);
     barLayout->addWidget(toolboxButton);
+    // 账号按钮最后才建，焦点链里排在工具箱后面；按摆放顺序（从上到下）重排一遍。
+    QWidget::setTabOrder({accountSkinButton, taskSummaryButton, runStateButton, toolboxButton});
 }
 
 QString MainWindowUI::folderActionText(int action) {
@@ -1950,15 +2075,6 @@ MainWindowUI::BottomBarAnchor MainWindowUI::bottomBarAnchorAt(const QPoint &glob
         return button != nullptr && button->isVisible()
                && button->rect().contains(button->mapFromGlobal(globalPos));
     };
-    // 主页右上那张账号卡片也在这一串里 —— 账号面板现在挂在它身上
-    // （对应功能继承到右上角那个按钮），所以"点在面板外面那一下
-    // 是不是点了同一颗/另一颗开关"也得认得出它。漏了这一句的症状：面板开着的时候点
-    // 卡片本身收不回去（那一下既没落在底栏任何一颗上，也就没人接着办事）。
-    // NOTE: `isVisible()` 那道闸是必须的 —— 底栏那颗账号按钮是 `hide()` 着的，
-    // 它按 rect() 仍然"命中"（隐藏控件的位置是上一个布局留下的），会抢在别人前面。
-    if (hits(accountSkinButton)) {
-        return {accountSkinButton, BottomBarAnchorKind::Accounts, /*dropDown=*/true};
-    }
     if (hits(runStateButton)) {
         return {runStateButton, BottomBarAnchorKind::Instances};
     }
@@ -2162,14 +2278,17 @@ void MainWindowUI::openBottomBarPanel(const BottomBarAnchor &anchor) {
     }
     // 现问一遍要弹什么（不缓存：实例随时会结束、账号随时会多一个，"上次那几行"
     // 一旦留着就会弹出早就不是那样的一面板）。
+    // 账号弹层开着就先收（同一时间只挂一块弹层）。
+    if (QWidget *account = bottomBar->window()->findChild<QWidget *>(accountPopoverName()); account != nullptr && account->isVisible()) {
+        account->close();
+    }
     const QList<PanelRow> rows =
-        m_panelRowsProvider ? m_panelRowsProvider(anchor.account()) : QList<PanelRow>();
+        m_panelRowsProvider ? m_panelRowsProvider(false) : QList<PanelRow>();
     // 面板只知道"第几行第几颗"，"是哪一块面板"由这里补上再转给 MainWindow ——
     // 一块面板只可能属于一边，所以这个得在**建面板的时候**就绑死。
-    const BottomBarPanel::ActionCallback onAction = [this, account = anchor.account()](
-                                                        const QString &key, int action) {
+    const BottomBarPanel::ActionCallback onAction = [this](const QString &key, int action) {
         if (m_panelActionHandler) {
-            m_panelActionHandler(account, key, action);
+            m_panelActionHandler(false, key, action);
         }
     };
     // 点在面板外面的那一下：面板自己认不出"外面是哪儿"，所以这里按全局坐标认那一颗按钮。
@@ -2189,7 +2308,7 @@ void MainWindowUI::openBottomBarPanel(const BottomBarAnchor &anchor) {
             toggleBottomBarPanel(hit);
         }
     };
-    auto *panel = new BottomBarPanel(anchor.button, anchor.account(), anchor.dropDown, rows, onAction,
+    auto *panel = new BottomBarPanel(anchor.button, /*alignRight=*/false, /*dropDown=*/false, rows, onAction,
                                      onOutsidePress, bottomBar);
     // 这次弹出来的面板归它自己管：关掉就删（不然点一次攒一个）。
     panel->setAttribute(Qt::WA_DeleteOnClose);
@@ -2381,6 +2500,7 @@ void MainWindowUI::setBottomBarTaskSummary(const BottomBarTaskSummary &summary) 
         return;  // setupUi() 还没跑完（和那几个访问器拿空指针当判据是同一个意思）
     }
     m_lastTaskSummary = summary;
+    syncHomeLaunchButton();  // 没实例时主按钮写「安装中 N%」
     // ---------- 那一行字 ----------
     // 占位那一档（一项任务都没有）用调色板里的 PlaceholderText：要的是**低强调度**
     // 的一句"暂无后台任务"，和"真有一件事在跑"的标题不能长成一个样子。
@@ -2500,9 +2620,8 @@ void MainWindowUI::toggleActivityPopover() {
     handlers.rowActivated = m_taskCenterRowActivated;
     handlers.openAll = [this] { openTaskCenterPanel(); };
     auto *popover = new ActivityPopover(taskSummaryButton, handlers);
-    popover->show();
+    popover->popUp();
     popover->refresh();
-    popover->setFocus(Qt::PopupFocusReason);
 }
 
 void MainWindowUI::setRunStateActive(bool active) {

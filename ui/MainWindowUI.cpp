@@ -60,39 +60,52 @@ using namespace MainWindowPageLayout;
 
 namespace {
 
-/// 主页快捷卡片点开的那一块小面板（`homeQuickPopup`）。
-///
-/// 为什么不是裸的 `QFrame(..., Qt::Popup)`：**点面板外面收掉它的那一下会被重放一遍**。
-/// Qt 关一块 `Qt::Popup` 时，如果光标不在它的几何里，会把这同一个 press 重放给光标底下
-/// 那个控件（`QApplicationPrivate::closePopup()` → `replayMousePress` →
-/// `QWidgetWindow::handleMouseEvent` 尾巴上那段；Windows 上那个 style hint 是 true）。
-/// 底下正好是「列表 / 返回」时，重放那一下就把实例列表收了 —— 用户看到的症状是"点详情
-/// 之后上方压缩失效、整块长回去"（列表收起后本来就该是那个高度）。同一份日志里连开两块
-/// 面板、隔着面板换「最近 / 收藏」，也都是这发重放打到卡片和标签上。
-///
-/// 底栏两块面板 / 文件夹齿轮菜单 / 实例设置里那些框是**同一道闸**，注释放的那几处见
-/// `MainWindowPanels.cpp`（`ToolboxPopup`、`FolderMenu::handleAnchorPress`）。
-///
-/// NOTE: 属性**必须在 close() 之前钉** —— Qt 是关窗那一刻读它（`hide_helper`）；而且它
-/// 会被 Qt 在下一次把鼠标事件投给这个控件时清掉（`qapplication.cpp` 里
-/// `setAttribute(WA_NoMouseReplay, false)`），所以挂在构造里没用，只能在外面那一下按需要钉。
-class HomeQuickPopup final : public QFrame {
+/// 启动区里「当前实例 · 名字 · 元信息」那一块（设计稿 .inst）：平时无底，悬停 / 弹层开着时铺一层
+/// 场景暗角的雾底（圆角 14），点开实例切换弹层。是 QAbstractButton 不是 QPushButton：后者的
+/// sizeHint 只算自己的字，不看里面那套布局，名字一长就被压窄。
+class HomeInstBlock final : public QAbstractButton {
 public:
-    using QFrame::QFrame;
+    explicit HomeInstBlock(QWidget *parent) : QAbstractButton(parent) {
+        setAttribute(Qt::WA_Hover, true);
+        setCursor(Qt::PointingHandCursor);
+        setFocusPolicy(Qt::StrongFocus);
+    }
+    QSize sizeHint() const override { return layout() != nullptr ? layout()->sizeHint() : QSize(); }
+    QSize minimumSizeHint() const override { return layout() != nullptr ? layout()->minimumSize() : QSize(); }
 
 protected:
-    void mousePressEvent(QMouseEvent *event) override {
-        if (rect().contains(event->position().toPoint())) {
-            QFrame::mousePressEvent(event);  // 落在面板自己身上：照旧往下走
-            return;
+    void paintEvent(QPaintEvent *) override {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        const Theme::Tokens t = Theme::tokens();
+        // 弹层开着时保持那层底（设计稿 .inst.is-open），弹层那边写 wtfmlOpen 属性。
+        const bool hot = property("wtfmlOpen").toBool() || isDown() || underMouse();
+        const QRectF box = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
+        if (hot) {
+            QColor fill = Glass::sceneShown() ? t.heroVeil : t.hover;
+            if (Glass::sceneShown()) fill.setAlphaF(isDown() ? 0.56 : 0.46);
+            p.setPen(Qt::NoPen);
+            p.setBrush(fill);
+            p.drawRoundedRect(box, 14, 14);
         }
-        // 外面那一下 = "面板该收了"。钉上再收：既收了面板，也不让底下的控件跟着挨一下。
-        setAttribute(Qt::WA_NoMouseReplay, true);
-        close();
-        event->accept();
+        if (hasFocus() && property("wtfmlKeyboardFocus").toBool()) {
+            QPen ring(Theme::focusRingColor(palette()));
+            ring.setWidthF(2.0);
+            p.setPen(ring);
+            p.setBrush(Qt::NoBrush);
+            p.drawRoundedRect(QRectF(rect()).adjusted(1, 1, -1, -1), 13, 13);
+        }
     }
-    void mouseDoubleClickEvent(QMouseEvent *event) override { mousePressEvent(event); }
+    void enterEvent(QEnterEvent *event) override {
+        QAbstractButton::enterEvent(event);
+        update();
+    }
+    void leaveEvent(QEvent *event) override {
+        QAbstractButton::leaveEvent(event);
+        update();
+    }
 };
+
 /// 主页压在风景上的字色：场景画着时是 heroInk / heroInk2（设计稿 --hero-ink / --hero-ink-2），
 /// 高对比度（没有场景）回到正文 / 次级色。
 QColor heroInk(bool secondary) {
@@ -217,14 +230,14 @@ private:
     bool m_dashed = false;
 };
 
-/// 实例带上的「最近 / 收藏」页签（设计稿 .tab）：手写楷体 15，平时 heroInk2，选中 heroInk +
-/// 字下方 16×2 的强调色短线。自绘：QSS 的下边框只能铺满整颗按钮宽。
+/// 实例带上的「最近 / 收藏」页签（设计稿 r2 .htabs span）：系统字 14，28 高的小胶囊；
+/// 平时 heroInk2，选中铺弱强调底、字用强调色。
 class HomeStripTab final : public QPushButton {
 public:
     using QPushButton::QPushButton;
     QSize sizeHint() const override {
         const QFontMetrics fm(font());
-        return QSize(fm.horizontalAdvance(text()) + 16, fm.height() + 12 + 4);
+        return QSize(fm.horizontalAdvance(text()) + 24, 28);
     }
     QSize minimumSizeHint() const override { return sizeHint(); }
 
@@ -232,17 +245,15 @@ protected:
     void paintEvent(QPaintEvent *) override {
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing, true);
-        const QRect textRect = rect().adjusted(0, 0, 0, -4);
-        p.setPen(heroInk(!isChecked() && !underMouse()));
-        p.setFont(font());
-        p.drawText(textRect, Qt::AlignCenter, text());
+        const Theme::Tokens t = Theme::tokens();
         if (isChecked()) {
             p.setPen(Qt::NoPen);
-            p.setBrush(Theme::tokens().deep);
-            const QFontMetrics fm(font());
-            const int baseline = textRect.center().y() + fm.height() / 2;
-            p.drawRoundedRect(QRectF(width() / 2.0 - 8, baseline + 4, 16, 2), 1, 1);
+            p.setBrush(t.selected);
+            p.drawRoundedRect(QRectF(rect()), 9, 9);
         }
+        p.setPen(isChecked() ? Theme::textTone(t.accentInk, t.deep) : heroInk(!underMouse()));
+        p.setFont(font());
+        p.drawText(rect(), Qt::AlignCenter, text());
         if (hasFocus() && property("wtfmlKeyboardFocus").toBool()) {
             QPen ring(Theme::focusRingColor(palette()));
             ring.setWidthF(2.0);
@@ -336,7 +347,7 @@ QString homeTileSubtitle(const QString &detail) {
     return loader.isEmpty() ? game : loader + QLatin1Char(' ') + game;
 }
 
-/// 启动区那一行元信息（设计稿 .meta）：加载器 · Minecraft 版本 · 上次游玩 · 模组数。
+/// 启动区那一行元信息（设计稿 .meta）：加载器 · Minecraft 版本 · 上次游玩。
 QString homeLaunchMeta(const MainWindowUI::HomeQuickItem &item) {
     const QString versionLine = item.detail.section(QLatin1Char('\n'), 0, 0);
     const QString activityLine = item.detail.section(QLatin1Char('\n'), 1, 1);
@@ -348,7 +359,6 @@ QString homeLaunchMeta(const MainWindowUI::HomeQuickItem &item) {
     QString when = activityLine.section(QStringLiteral(" / "), 0, 0).trimmed();
     when.replace(QStringLiteral("上次启动："), QStringLiteral("上次游玩 "));
     if (!when.isEmpty()) parts << when;
-    if (item.modCount > 0) parts << QStringLiteral("%1 个模组").arg(item.modCount);
     return parts.join(QStringLiteral("  ·  "));
 }
 
@@ -724,7 +734,8 @@ QWidget *MainWindowUI::setupHomePage() {
     if (QLayout *row = homeHeroArea->layout()) {
         row->setContentsMargins(kHomeHeroMargin, 12, kHomeHeroMargin, 78 - kHomeLaunchGlowRoom);
     }
-    home.left.layout->setContentsMargins(kHomeHeroInset, 0, 0, 0);
+    // 左栏不缩：启动区那块可点的面要往左多出 kHomeHeroInset 的悬停底，标题自己缩进这一截。
+    home.left.layout->setContentsMargins(0, 0, 0, 0);
     home.left.layout->setSpacing(0);
     home.right.layout->setSpacing(0);
     homePageLayout->addWidget(homeHeroArea, 1);
@@ -739,11 +750,12 @@ QWidget *MainWindowUI::setupHomePage() {
         auto *welcome = new QLabel(QStringLiteral("下一个世界，等你开启。"), home.left.widget);
         welcome->setObjectName(QStringLiteral("homeHeroTitle"));
         welcome->setWordWrap(true);
+        welcome->setContentsMargins(kHomeHeroInset, 0, 0, 0);
         home.left.layout->addWidget(welcome);
         // 副题：西文手写体，和大标题一中一西。
         auto *subtitle = new QLabel(QStringLiteral("Your next world awaits."), home.left.widget);
         subtitle->setObjectName(QStringLiteral("homeHeroSubtitle"));
-        subtitle->setContentsMargins(4, 6, 0, 0);
+        subtitle->setContentsMargins(kHomeHeroInset + 4, 6, 0, 0);
         home.left.layout->addWidget(subtitle);
         followHeroInk(welcome, false);
         followHeroInk(subtitle, true);
@@ -769,9 +781,8 @@ QWidget *MainWindowUI::setupHomePage() {
         // 不往列表里塞 "自定义版本" 那种假条目：控件自己会把占位文案画成灰字。
         // NOTE: 只要占位文案非空，往空下拉框里 addItems() 就不会自动选中第 0 项
         // （QComboBoxPrivate::rowsInserted 里那条 setCurrentIndex(0) 带了
-        // !placeholderText.isEmpty() 的条件）。所以"空着"能一直保持到用户真的挑一项，
-        // 代价是刷新之后必须自己把选中项捡回来，见 MainWindow.cpp 里的 fillVersionCombo()
-        // （它是那个文件匿名命名空间里的自由函数，不是 MainWindow 的成员）。
+        // !placeholderText.isEmpty() 的条件）。所以选中项全由 MainWindow 定：fillVersionCombo()
+        // 保住原来那个，保不住就按 resolveCurrentInstance() 挑一个（有实例必有当前实例）。
         // 这里只是初始值；灌完数据后由 MainWindow 在两个串之间切换。
         installedVersionCombo->setPlaceholderText(noInstalledVersionPlaceholder());
 
@@ -811,9 +822,8 @@ QWidget *MainWindowUI::setupHomePage() {
         // 启动用哪种身份**只由当前账号是什么**决定 —— 离线就去账号窗里加一个
         // 离线账号、切过去，没有第二个开关。判据的唯一出处是 MainWindow::offlineIdentity()。
 
-        // 左下启动区（设计稿 .launch）：当前实例的名字、元信息、「启动游戏」+ 切换 + 设置。
-        // 正常态压在风景左下（左栏底部，上面那段弹簧把它推下去）；展开实例列表时整块挪到
-        // 页面下半区顶上、压成一行（见 openHomeInstancePicker()），同一组控件，不复制第二套。
+        // 左下启动区（设计稿 r2 .launch）：当前实例的名字 + 元信息（整块可点，开实例切换弹层，
+        // 见 openHomeInstancePicker()）、「启动游戏」+ 设置。压在风景左下（上面那段弹簧把它推下去）。
         homeLaunchSpacer = new QSpacerItem(0, 0, QSizePolicy::Minimum, QSizePolicy::Expanding);
         home.left.layout->addItem(homeLaunchSpacer);
         homeQuickCurrentSection = new QWidget(home.left.widget);
@@ -848,8 +858,9 @@ QWidget *MainWindowUI::setupHomePage() {
             button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
             button->setProperty("wtfmlHomeQuickTab", true);
             button->setCursor(Qt::PointingHandCursor);
-            button->setFont(handPx(button->font(), Theme::HandFont::Kai, 15, 1.5));
-            button->setMinimumWidth(48);
+            QFont tabFont = button->font();
+            tabFont.setPixelSize(14);
+            button->setFont(tabFont);
             QObject::connect(button, &QPushButton::clicked, button,
                              [this, mode]() { setHomeQuickMode(mode); });
             quickTabs->addWidget(button);
@@ -868,14 +879,19 @@ QWidget *MainWindowUI::setupHomePage() {
                                              QStringLiteral("homeQuickFavoriteTab"),
                                              HomeQuickMode::Favorite);
         quickTabs->addStretch(1);
-        homeInstanceSelectButton = new QPushButton(QStringLiteral("全部实例"), homeQuickSection);
+        // 「管理 ›」：去实例页（导航，不在主页里展开列表）。
+        homeInstanceSelectButton = new QPushButton(QStringLiteral("管理"), homeQuickSection);
         homeInstanceSelectButton->setObjectName(homeInstanceSelectButtonName());
         homeInstanceSelectButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-        homeInstanceSelectButton->setMinimumWidth(80);
-        homeInstanceSelectButton->setToolTip(QStringLiteral("展开或收起实例列表"));
         homeInstanceSelectButton->setLayoutDirection(Qt::RightToLeft);  // 箭头在字右边
         Theme::markButton(homeInstanceSelectButton, Theme::ButtonKind::Ghost);
-        homeInstanceSelectButton->setFont(handPx(homeInstanceSelectButton->font(), Theme::HandFont::Kai, 14, 1));
+        {
+            QFont manageFont = homeInstanceSelectButton->font();
+            manageFont.setPixelSize(14);
+            homeInstanceSelectButton->setFont(manageFont);
+        }
+        QObject::connect(homeInstanceSelectButton, &QPushButton::clicked, homeInstanceSelectButton,
+                         [this]() { tabWidget->setCurrentIndex(instancesTabIndex()); });
         {
             const auto applyAllInk = [button = homeInstanceSelectButton]() {
                 button->setIcon(QIcon(VersionIcons::chevron(false, 14, heroInk(true))));
@@ -900,87 +916,16 @@ QWidget *MainWindowUI::setupHomePage() {
                       &homeQuickRecentRow);
         homeLaunchLayout->addWidget(homeQuickSection);
         homeBottomLayout->addWidget(homeLaunchArea);
-        homePickerHost = new QWidget(home.left.widget);
-        homePickerHost->setObjectName(homeInstancePickerName());
-        homePickerHost->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-        homePickerHost->hide();
-        homeBottomLayout->addWidget(homePickerHost, 1);
     }
-    // ---------- 主页右栏：账号胶囊 + 站在风景里的立绘 ----------
-    // 设计稿：账号胶囊贴右上；立绘不进任何盒子，脚踩一圈落地影站在右下，脚底和启动按钮底边齐。
+    // ---------- 主页右栏：站在风景里的立绘 ----------
+    // 设计稿：立绘不进任何盒子，脚踩一圈落地影站在右下，脚底和启动按钮底边齐。账号入口在导航轨底部。
     {
         auto *profileCard = new QWidget(home.right.widget);
-        homeProfileCard = profileCard;
-        homeRightColumn = home.right.widget;
         profileCard->setObjectName(QStringLiteral("homeProfileCard"));
         profileCard->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
         auto *profileLayout = new QVBoxLayout(profileCard);
         profileLayout->setContentsMargins(0, 0, 0, 0);
         profileLayout->setSpacing(0);
-
-        auto *pill = new HeroButton(HeroButton::Shape::Pill, profileCard);
-        accountSkinButton = pill;
-        accountSkinButton->setObjectName(MainWindowUI::accountSkinButtonName());
-        accountSkinButton->setToolTip(MainWindowUI::accountSkinButtonText());
-        accountSkinButton->setProperty("wtfmlAccountHeader", true);
-        accountSkinButton->setAccessibleName(MainWindowUI::accountSkinButtonText());
-        accountSkinButton->setFixedSize(kHomeAccountPillWidth, 44);
-        auto *accountHeader = new QHBoxLayout(accountSkinButton);
-        accountHeader->setContentsMargins(6, 0, 10, 0);
-        accountHeader->setSpacing(10);
-        homeAvatarLabel = new RoundAvatar::Label(accountSkinButton);  // 圆头像，和胶囊两头的半圆同心
-        homeAvatarLabel->setObjectName(QStringLiteral("homeAvatarLabel"));
-        homeAvatarLabel->setFixedSize(32, 32);
-        homeAvatarLabel->setAlignment(Qt::AlignCenter);
-        homeAvatarLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
-        accountHeader->addWidget(homeAvatarLabel);
-        auto *accountIdentity = new QVBoxLayout;
-        accountIdentity->setSpacing(0);
-        accountIdentity->setContentsMargins(0, 0, 0, 0);
-        accountIdentity->addStretch(1);
-
-        // 账号身份跟玩家模型放在一起：这里是主页的唯一账号入口，避免别处再出现一份同样的
-        // 头像、名字和登录状态。文字由 MainWindow::updateBottomBar() 同步灌入。
-        homeAccountLabel = new ElidedLabel(accountSkinButton);
-        homeAccountLabel->setObjectName(QStringLiteral("homeAccountLabel"));
-        QFont accountFont = homeAccountLabel->font();
-        accountFont.setPixelSize(14);
-        accountFont.setWeight(QFont::DemiBold);
-        homeAccountLabel->setFont(accountFont);
-        homeAccountLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-        homeAccountLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
-        followHeroInk(homeAccountLabel, false);
-        accountIdentity->addWidget(homeAccountLabel);
-        homeAccountTypeLabel = new ElidedLabel(accountSkinButton);
-        homeAccountTypeLabel->setObjectName(QStringLiteral("homeAccountTypeLabel"));
-        QFont typeFont = homeAccountTypeLabel->font();
-        typeFont.setPixelSize(12);
-        homeAccountTypeLabel->setFont(typeFont);
-        homeAccountTypeLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-        homeAccountTypeLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
-        followHeroInk(homeAccountTypeLabel, true);
-        accountIdentity->addWidget(homeAccountTypeLabel);
-        accountIdentity->addStretch(1);
-        accountHeader->addLayout(accountIdentity, 1);
-        // 那颗小箭头**是画的**，不是字体里的字形。原来这里写的是 U+2304「⌄」：
-        // 默认界面字体里没有这一格，Qt 于是第一次排这段文字时要去字体库里做一遍回退查找
-        // ——本机实测 268 ms，整个启动里最大的一块（见 docs/dev/PERFORMANCE.md「主页那颗箭头」）。
-        // `VersionIcons::chevron()` 和底栏、版本树里那些箭头是同一份笔画，也不吃字体。
-        auto *accountArrow = new QLabel(accountSkinButton);
-        accountArrow->setObjectName(MainWindowUI::homeAccountArrowName());
-        accountArrow->setAttribute(Qt::WA_TransparentForMouseEvents);
-        const auto applyAccountArrow = [accountArrow]() {
-            accountArrow->setPixmap(VersionIcons::chevron(true, homeAccountArrowSize(), heroInk(true)));
-        };
-        applyAccountArrow();
-        // 位图的颜色已经落在像素里了 ⇒ 换主题要重画一张（`VersionIcons` 按边长城里缓存）。
-        Theme::follow(accountArrow, applyAccountArrow);
-        accountArrow->setFixedSize(homeAccountArrowSize(), homeAccountArrowSize());
-        accountHeader->addWidget(accountArrow);
-        profileLayout->addWidget(accountSkinButton, 0, Qt::AlignRight | Qt::AlignTop);
-        QObject::connect(accountSkinButton, &QPushButton::clicked, accountSkinButton, [this]() {
-            toggleAccountsPanel();
-        });
 
         skinViewer = new SkinViewer(profileCard);
         skinViewer->setObjectName(skinViewerName());
@@ -1577,208 +1522,189 @@ void MainWindowUI::setInstanceMode(InstanceMode mode) {
 void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
                                     const QList<HomeQuickItem> &favorites,
                                     const QList<HomeQuickItem> &recent) {
-    const auto rebuildRow = [this](QWidget *section, QHBoxLayout *row,
-                                   const QList<HomeQuickItem> &items, bool favoriteRow) {
-        if (section == nullptr || row == nullptr) {
-            return;
-        }
+    const auto clearRow = [](QHBoxLayout *row) {
         while (QLayoutItem *child = row->takeAt(0)) {
             delete child->widget();
             delete child;
         }
-        if (items.isEmpty()) {
-            return;
-        }
-        const int cardHeight = kHomeTileHeight;
-        for (int itemIndex = 0; itemIndex < items.size(); ++itemIndex) {
-            const HomeQuickItem &item = items.at(itemIndex);
-            if (section == homeQuickCurrentSection) {
-                // 左下启动区（设计稿 .launch）：小眉题、实例名（手写 40）、元信息一行、
-                // 「启动游戏」+ 切换实例 + 实例设置。没有当前实例时同一块说"先挑一个"。
-                auto *card = new QWidget(section);
-                card->setObjectName(QStringLiteral("homeCurrentInstanceCard"));
-                card->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-                auto *column = new QVBoxLayout(card);
-                // 底下留 kHomeLaunchGlowRoom：主按钮那圈柔光画在按钮外面，卡片边就是裁切边。
-                column->setContentsMargins(0, 0, 0, kHomeLaunchGlowRoom);
-                column->setSpacing(0);
-                auto *eyebrow = new QLabel(QStringLiteral("当前实例"), card);
+    };
+    // ---------- 左下启动区（设计稿 r2 home.html .launch）----------
+    // 「当前实例」眉题 + 实例名（手写 40）+ 元信息一行，三样合成一块可点的面（点开实例切换弹层）；
+    // 下面「启动游戏」+ 实例设置。一个实例都没有时：「还没有实例」+「下载游戏」。
+    if (homeQuickCurrentSection != nullptr && homeQuickCurrentRow != nullptr) {
+        closeHomeInstancePicker();  // 它贴着的那一块马上要重建
+        clearRow(homeQuickCurrentRow);
+        if (!current.isEmpty()) {
+            const HomeQuickItem &item = current.first();
+            auto *card = new QWidget(homeQuickCurrentSection);
+            card->setObjectName(QStringLiteral("homeCurrentInstanceCard"));
+            card->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+            auto *column = new QVBoxLayout(card);
+            // 底下留 kHomeLaunchGlowRoom：主按钮那圈柔光画在按钮外面，卡片边就是裁切边。
+            column->setContentsMargins(0, 0, 0, kHomeLaunchGlowRoom);
+            column->setSpacing(0);
+            QWidget *block = nullptr;
+            if (item.empty) {
+                block = new QWidget(card);
+            } else {
+                auto *picker = new HomeInstBlock(card);
+                picker->setObjectName(homeCurrentPickerName());
+                picker->setAccessibleName(QStringLiteral("切换实例：%1").arg(item.name));
+                QObject::connect(picker, &QAbstractButton::clicked, picker, [this, key = item.key]() {
+                    if (m_homeQuickActionHandler) m_homeQuickActionHandler(key, HomeQuickAction::SwitchInstance);
+                });
+                block = picker;
+            }
+            block->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+            auto *blockColumn = new QVBoxLayout(block);
+            // 左边只留 kHomeHeroInset：文字和上面的大标题对齐，悬停底往左多出这一截（样张是 14）。
+            blockColumn->setContentsMargins(kHomeHeroInset, 6, 14, 10);
+            blockColumn->setSpacing(0);
+            if (!item.empty) {
+                auto *eyebrow = new QLabel(QStringLiteral("当前实例"), block);
                 eyebrow->setObjectName(QStringLiteral("homeCurrentEyebrow"));
-                eyebrow->setFont(handPx(eyebrow->font(), Theme::HandFont::Kai, 13, 2));
+                QFont eyebrowFont = eyebrow->font();
+                eyebrowFont.setPixelSize(13);
+                eyebrowFont.setWeight(QFont::Medium);
+                eyebrow->setFont(eyebrowFont);
+                eyebrow->setAttribute(Qt::WA_TransparentForMouseEvents);
                 followHeroInk(eyebrow, true);
-                column->addWidget(eyebrow);
-                auto *name = new ElidedLabel(card);
-                name->setObjectName(QStringLiteral("homeCurrentName"));
-                name->setText(item.empty ? QStringLiteral("还没有选实例") : item.name);
-                name->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-                name->setFont(handPx(name->font(), Theme::HandFont::Kai, 40, 3));
-                // 上 4 下 8 的留白放进名字自己的边距：压成一行时它整个藏起来，留白跟着走。
-                name->setContentsMargins(0, 4, 0, 8);
-                name->setMinimumHeight(52 + 12);
-                followHeroInk(name, false);
-                column->addWidget(name);
-                auto *meta = new QLabel(item.empty ? QStringLiteral("从全部实例里挑一个，下次打开就从它开始。")
-                                                   : homeLaunchMeta(item),
-                                        card);
+                blockColumn->addWidget(eyebrow);
+            }
+            auto *name = new ElidedLabel(block);
+            name->setObjectName(QStringLiteral("homeCurrentName"));
+            name->setText(item.empty ? QStringLiteral("还没有实例") : item.name);
+            name->setMinimumWidth(1);
+            name->setFont(item.empty ? handPx(name->font(), Theme::HandFont::KaiLight, 34, 3)
+                                     : handPx(name->font(), Theme::HandFont::Kai, 40, 3));
+            name->setMinimumHeight(52);
+            name->setAttribute(Qt::WA_TransparentForMouseEvents);
+            followHeroInk(name, item.empty);
+            blockColumn->addWidget(name);
+            if (!item.empty) {
+                // 设计稿 .meta：行首一枚加载器小图标（没装加载器 = 草方块，和 loaderMark() 越界一条规矩）。
+                auto *metaRow = new QHBoxLayout;
+                metaRow->setContentsMargins(0, 4, 0, 0);
+                metaRow->setSpacing(6);
+                const QString versionLine = item.detail.section(QLatin1Char('\n'), 0, 0);
+                const QString loader = versionLine.section(QStringLiteral(" / "), 1).trimmed();
+                const QStringList loaderNames = modLoaderOptionTexts();
+                int loaderIndex = loaderNames.size();
+                for (int i = 0; i < loaderNames.size(); ++i) {
+                    if (!loader.isEmpty() && loader.startsWith(loaderNames.at(i), Qt::CaseInsensitive)) {
+                        loaderIndex = i;
+                        break;
+                    }
+                }
+                auto *loaderIcon = new QLabel(block);
+                loaderIcon->setObjectName(QStringLiteral("homeCurrentLoaderIcon"));
+                loaderIcon->setFixedSize(14, 14);
+                loaderIcon->setScaledContents(true);
+                loaderIcon->setPixmap(VersionIcons::loaderMark(loaderIndex, 28));
+                loaderIcon->setAttribute(Qt::WA_TransparentForMouseEvents);
+                metaRow->addWidget(loaderIcon, 0, Qt::AlignVCenter);
+                auto *meta = new ElidedLabel(block);
                 meta->setObjectName(QStringLiteral("homeCurrentVersion"));
-                meta->setToolTip(item.detail);
+                meta->setText(homeLaunchMeta(item));
+                meta->setMinimumWidth(1);
                 QFont metaFont = meta->font();
                 metaFont.setPixelSize(13);
                 meta->setFont(metaFont);
-                meta->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+                meta->setAttribute(Qt::WA_TransparentForMouseEvents);
                 followHeroInk(meta, true);
-                // 设计稿 .meta：行首一枚加载器小图标（没装加载器 = 草方块，和 loaderMark() 越界一条规矩）。
-                auto *metaRow = new QHBoxLayout;
-                metaRow->setContentsMargins(0, 0, 0, 0);
-                metaRow->setSpacing(6);
-                if (!item.empty) {
-                    const QString versionLine = item.detail.section(QLatin1Char('\n'), 0, 0);
-                    const QString loader = versionLine.section(QStringLiteral(" / "), 1).trimmed();
-                    const QStringList loaderNames = modLoaderOptionTexts();
-                    int loaderIndex = loaderNames.size();
-                    for (int i = 0; i < loaderNames.size(); ++i) {
-                        if (!loader.isEmpty() && loader.startsWith(loaderNames.at(i), Qt::CaseInsensitive)) {
-                            loaderIndex = i;
-                            break;
-                        }
-                    }
-                    auto *loaderIcon = new QLabel(card);
-                    loaderIcon->setObjectName(QStringLiteral("homeCurrentLoaderIcon"));
-                    loaderIcon->setFixedSize(14, 14);
-                    loaderIcon->setScaledContents(true);
-                    loaderIcon->setPixmap(VersionIcons::loaderMark(loaderIndex, 28));
-                    metaRow->addWidget(loaderIcon, 0, Qt::AlignVCenter);
-                }
                 metaRow->addWidget(meta, 1);
-                column->addLayout(metaRow);
-                auto *gap = new QWidget(card);
-                gap->setObjectName(QStringLiteral("homeCurrentGap"));
-                gap->setFixedHeight(22);
-                column->addWidget(gap);
-                auto *actions = new QHBoxLayout;
-                actions->setContentsMargins(0, 0, 0, 0);
-                actions->setSpacing(10);
-                auto *launch = new QPushButton(item.empty ? QStringLiteral("选择实例")
-                                                          : QStringLiteral("启动游戏"),
-                                               card);
-                launch->setObjectName(QStringLiteral("homeCurrentLaunch"));
-                launch->setProperty("wtfmlHeroStart", true);
-                launch->setMinimumWidth(220);
-                // 按自己的宽度来（设计稿 min-width 220），不吃掉这一行剩下的空。
-                launch->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-                launch->setFont(handPx(launch->font(), Theme::HandFont::Kai, 20, 3));
-                Theme::markButton(launch, Theme::ButtonKind::Primary);
-                const auto applyLaunchLook = [launch]() {
-                    const Theme::Tokens t = Theme::tokens();
-                    launch->setIcon(QIcon(VersionIcons::line(QStringLiteral("play"), 18, t.onPrimary, 2.0)));
-                    launch->setIconSize(QSize(18, 18));
-                    // 设计稿：主按钮下面一圈强调色的柔光（box-shadow 0 10 30 -8 accent-fill）。
-                    auto *glow = qobject_cast<QGraphicsDropShadowEffect *>(launch->graphicsEffect());
-                    if (glow == nullptr) {
-                        glow = new QGraphicsDropShadowEffect(launch);
-                        launch->setGraphicsEffect(glow);
-                    }
-                    QColor color = t.primary;
-                    color.setAlphaF(0.55);
-                    glow->setColor(color);
-                    glow->setBlurRadius(30);
-                    glow->setOffset(0, 10);
-                };
-                applyLaunchLook();
-                Theme::follow(launch, applyLaunchLook);
-                const HomeQuickAction launchAction =
-                    item.empty ? HomeQuickAction::ChooseInstance : HomeQuickAction::Launch;
-                QObject::connect(launch, &QPushButton::clicked, launch,
-                                 [this, key = item.key, launchAction]() {
-                    if (m_homeQuickActionHandler) {
-                        m_homeQuickActionHandler(key, launchAction);
-                    }
-                });
-                actions->addWidget(launch);
-                const auto makeSquare = [card, actions](const QString &objectName, const QString &icon,
-                                                        const QString &tip) {
-                    auto *button = new HeroButton(HeroButton::Shape::Square, card);
-                    button->setObjectName(objectName);
-                    button->setProperty("wtfmlHeroSquare", true);
-                    button->setFixedSize(52, 52);
-                    button->setToolTip(tip);
-                    button->setAccessibleName(tip);
-                    button->setIconSize(QSize(18, 18));
-                    const auto applyIcon = [button, icon]() {
-                        button->setIcon(QIcon(VersionIcons::line(icon, 18, heroInk(false), 1.8)));
-                    };
-                    applyIcon();
-                    Theme::follow(button, applyIcon);
-                    actions->addWidget(button);
-                    return button;
-                };
-                auto *swap = makeSquare(QStringLiteral("homeCurrentSwap"), QStringLiteral("swap"),
-                                        QStringLiteral("切换实例"));
-                QObject::connect(swap, &QPushButton::clicked, swap, [this]() {
-                    if (homeInstanceSelectButton != nullptr) homeInstanceSelectButton->click();
-                });
-                if (!item.empty) {
-                    auto *edit = makeSquare(QStringLiteral("homeCurrentEdit"), QStringLiteral("gear"),
-                                            QStringLiteral("实例设置"));
-                    QObject::connect(edit, &QPushButton::clicked, edit, [this, key = item.key]() {
-                        if (m_homeQuickActionHandler) {
-                            m_homeQuickActionHandler(key, HomeQuickAction::Edit);
-                        }
-                    });
-                }
-                // 列表展开时整块压成这一行：名字挪到按钮右边（见 setHomeQuickMode）。
-                auto *compactName = new ElidedLabel(card);
-                compactName->setObjectName(QStringLiteral("homeCurrentCompactName"));
-                compactName->setText(name->text());
-                compactName->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-                compactName->setFont(handPx(compactName->font(), Theme::HandFont::Kai, 20, 2));
-                compactName->hide();
-                followHeroInk(compactName, false);
-                actions->addSpacing(8);
-                actions->addWidget(compactName, 1);
-                actions->addStretch(0);
-                column->addLayout(actions);
-                row->addWidget(card, 1);
-                continue;
+                blockColumn->addLayout(metaRow);
             }
-            // 实例带上的一张卡（设计稿 .card）：196 宽，封面 48 + 名字 / 版本两行；平时无底，
-            // 悬停（或键盘焦点）铺一层玻璃底并在右边出一颗播放钮。点卡片本身照旧开详情面板。
-            auto *card = new HeroButton(HeroButton::Shape::Tile, section);
-            card->setObjectName(item.empty
-                                    ? QStringLiteral("homeQuickEmpty_%1_%2")
-                                          .arg(favoriteRow ? QStringLiteral("favorite")
-                                                           : QStringLiteral("recent"))
-                                          .arg(itemIndex)
-                                    : QStringLiteral("homeQuickCard_%1").arg(item.key));
-            card->setToolTip(item.name);
+            column->addWidget(block, 0, Qt::AlignLeft);
+            column->addSpacing(item.empty ? 12 : 18);
+            auto *actions = new QHBoxLayout;
+            actions->setContentsMargins(kHomeHeroInset, 0, 0, 0);
+            actions->setSpacing(10);
+            auto *launch = new QPushButton(card);
+            launch->setObjectName(QStringLiteral("homeCurrentLaunch"));
+            launch->setProperty("wtfmlHeroStart", true);
+            launch->setProperty("wtfmlHomeEmpty", item.empty);
+            launch->setMinimumWidth(220);
+            // 按自己的宽度来（设计稿 min-width 220），不吃掉这一行剩下的空。
+            launch->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+            QFont launchFont = launch->font();
+            launchFont.setPixelSize(16);
+            launchFont.setWeight(QFont::DemiBold);
+            launch->setFont(launchFont);
+            Theme::markButton(launch, Theme::ButtonKind::Primary);
+            const auto applyGlow = [launch]() {
+                // 设计稿：主按钮下面一圈强调色的柔光（box-shadow 0 10 30 -8 accent-fill）。
+                auto *glow = qobject_cast<QGraphicsDropShadowEffect *>(launch->graphicsEffect());
+                if (glow == nullptr) {
+                    glow = new QGraphicsDropShadowEffect(launch);
+                    launch->setGraphicsEffect(glow);
+                }
+                QColor color = Theme::tokens().primary;
+                color.setAlphaF(0.55);
+                glow->setColor(color);
+                glow->setBlurRadius(30);
+                glow->setOffset(0, 10);
+            };
+            applyGlow();
+            Theme::follow(launch, applyGlow);
+            Theme::follow(launch, [this]() { syncHomeLaunchButton(); });
+            QObject::connect(launch, &QPushButton::clicked, launch, [this, launch, key = item.key]() {
+                // 动作看按钮此刻是哪一档（syncHomeLaunchButton 写在属性里）：启动 / 停止 / 下载 / 看进度。
+                const QString mode = launch->property("wtfmlLaunchMode").toString();
+                if (mode == QStringLiteral("download")) {
+                    if (tabWidget != nullptr) tabWidget->setCurrentIndex(downloadTabIndex());
+                } else if (mode == QStringLiteral("installing")) {
+                    toggleActivityPopover();
+                } else if (m_homeQuickActionHandler) {
+                    m_homeQuickActionHandler(key, mode == QStringLiteral("stop") ? HomeQuickAction::Stop
+                                                                               : HomeQuickAction::Launch);
+                }
+            });
+            actions->addWidget(launch);
+            if (!item.empty) {
+                auto *edit = new HeroButton(HeroButton::Shape::Square, card);
+                edit->setObjectName(QStringLiteral("homeCurrentEdit"));
+                edit->setProperty("wtfmlHeroSquare", true);
+                edit->setFixedSize(52, 52);
+                edit->setToolTip(QStringLiteral("实例设置"));
+                edit->setAccessibleName(edit->toolTip());
+                edit->setIconSize(QSize(18, 18));
+                const auto applyIcon = [edit]() {
+                    edit->setIcon(QIcon(VersionIcons::line(QStringLiteral("gear"), 18, heroInk(false), 1.8)));
+                };
+                applyIcon();
+                Theme::follow(edit, applyIcon);
+                QObject::connect(edit, &QPushButton::clicked, edit, [this, key = item.key]() {
+                    if (m_homeQuickActionHandler) m_homeQuickActionHandler(key, HomeQuickAction::Edit);
+                });
+                actions->addWidget(edit);
+            }
+            actions->addStretch(1);
+            column->addLayout(actions);
+            homeQuickCurrentRow->addWidget(card, 1);
+            syncHomeLaunchButton();
+            card->layout()->activate();
+            card->setFixedHeight(card->layout()->sizeHint().height());
+        }
+    }
+
+    // ---------- 实例带（设计稿 .strip .card）----------
+    // 196 宽，封面 48 + 名字 / 版本两行；平时无底，悬停（或键盘焦点）铺一层玻璃底并在右边出一颗
+    // 播放钮。点卡片 = 设为当前实例；点播放钮 = 直接启动它。实例带不摆空卡。
+    const auto rebuildRow = [this, &clearRow](QHBoxLayout *row, const QList<HomeQuickItem> &items) {
+        if (row == nullptr) return;
+        clearRow(row);
+        for (const HomeQuickItem &item : items) {
+            if (item.empty) continue;
+            auto *card = new HeroButton(HeroButton::Shape::Tile, row->parentWidget());
+            card->setObjectName(QStringLiteral("homeQuickCard_%1").arg(item.key));
             card->setAccessibleName(item.name);
             // QPushButton 的全局 QSS 也声明了 min-height；只写 setMinimumHeight() 会在 polish
             // 后被它压回普通按钮高度。属性选择器负责复位 QSS，这里再用固定尺寸表达卡片的布局尺寸。
             card->setProperty("wtfmlQuickCard", true);
             card->setProperty("wtfmlQuickCardSize", QStringLiteral("normal"));
-            card->setFixedSize(kHomeTileWidth, cardHeight);
-            Theme::markButton(card, item.empty ? Theme::ButtonKind::Ghost
-                                               : Theme::ButtonKind::Neutral);
-
-            if (item.empty) {
-                card->setProperty("wtfmlQuickEmpty", true);
-                card->setDashed(true);
-                auto *emptyLayout = new QHBoxLayout(card);
-                emptyLayout->setContentsMargins(8, 0, 8, 0);
-                auto *hint = new QLabel(QStringLiteral("＋  添加实例"), card);
-                hint->setObjectName(QStringLiteral("homeQuickEmptyHint"));
-                hint->setAlignment(Qt::AlignCenter);
-                hint->setAttribute(Qt::WA_TransparentForMouseEvents);
-                followHeroInk(hint, true);
-                emptyLayout->addWidget(hint, 1);
-                QObject::connect(card, &QPushButton::clicked, card, [this]() {
-                    if (m_homeQuickActionHandler) {
-                        m_homeQuickActionHandler(QString(), HomeQuickAction::ChooseInstance);
-                    }
-                });
-                row->addWidget(card);
-                continue;
-            }
+            card->setFixedSize(kHomeTileWidth, kHomeTileHeight);
+            Theme::markButton(card, Theme::ButtonKind::Neutral);
 
             auto *content = new QHBoxLayout(card);
             content->setContentsMargins(8, 0, 8, 0);
@@ -1813,7 +1739,10 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             if (item.current) {
                 auto *badge = new QLabel(QStringLiteral("当前"), card);
                 badge->setObjectName(QStringLiteral("homeQuickCurrentBadge"));
-                badge->setFont(handPx(badge->font(), Theme::HandFont::Kai, 11, 1));
+                QFont badgeFont = badge->font();
+                badgeFont.setPixelSize(11);
+                badgeFont.setWeight(QFont::Medium);
+                badge->setFont(badgeFont);
                 badge->setAttribute(Qt::WA_TransparentForMouseEvents);
                 const auto applyBadge = [badge]() {
                     QPalette p = badge->palette();
@@ -1841,9 +1770,8 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             play->setObjectName(QStringLiteral("homeQuickPlay"));
             play->setProperty("wtfmlHeroPlay", true);
             play->setFixedSize(30, 30);
-            play->setToolTip(QStringLiteral("启动 %1").arg(item.name));
-            play->setAccessibleName(play->toolTip());
-            play->setFocusPolicy(Qt::NoFocus);  // 键盘：焦点在卡片上时它就露出来，回车开详情
+            play->setAccessibleName(QStringLiteral("启动 %1").arg(item.name));
+            play->setFocusPolicy(Qt::NoFocus);  // 键盘：焦点在卡片上时它就露出来
             play->setIconSize(QSize(13, 13));
             const auto applyPlay = [play]() {
                 play->setIcon(QIcon(VersionIcons::line(QStringLiteral("play"), 13, Theme::tokens().onPrimary, 2.0)));
@@ -1851,114 +1779,25 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             applyPlay();
             Theme::follow(play, applyPlay);
             QObject::connect(play, &QPushButton::clicked, play, [this, key = item.key]() {
-                if (m_homeQuickActionHandler) {
-                    m_homeQuickActionHandler(key, HomeQuickAction::Launch);
-                }
+                if (m_homeQuickActionHandler) m_homeQuickActionHandler(key, HomeQuickAction::Launch);
             });
             content->addWidget(play, 0, Qt::AlignVCenter);
             card->setRevealOnHover(play);
-
-            QObject::connect(card, &QPushButton::clicked, card, [this, card, item]() {
-                auto *popup = new HomeQuickPopup(card->window(), Qt::Popup | Qt::FramelessWindowHint);
-                popup->setAttribute(Qt::WA_DeleteOnClose);
-                popup->setObjectName(QStringLiteral("homeQuickPopup"));
-                markSurface(popup, Theme::workspaceSurfaceValue());
-                popup->setAutoFillBackground(true);
-                auto *scroll = new QScrollArea(popup);
-                scroll->setFrameShape(QFrame::NoFrame);
-                scroll->setWidgetResizable(true);
-                scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-                auto *body = new QWidget(scroll);
-                scroll->setWidget(body);
-                auto *outer = new QVBoxLayout(popup);
-                outer->setContentsMargins(0, 0, 0, 0); outer->addWidget(scroll);
-                auto *layout = new QVBoxLayout(body);
-                layout->setContentsMargins(16, 14, 16, 14);
-                layout->setSpacing(8);
-                auto *identity = new QHBoxLayout;
-                identity->setSpacing(12);
-                auto *icon = new QLabel(body);
-                icon->setFixedSize(48, 48);
-                icon->setPixmap(item.icon.isNull() ? VersionIcons::isoBlock(VersionIcons::isoBlockKindFor(item.name), 48)
-                                                  : item.icon.pixmap(48, 48));
-                identity->addWidget(icon, 0, Qt::AlignTop);
-                auto *information = new QVBoxLayout;
-                information->setSpacing(4);
-                auto *title = new QLabel(item.name, body);
-                title->setTextFormat(Qt::PlainText);
-                QFont titleFont = Theme::textFont(title->font(), Theme::TextRole::Heading);
-                titleFont.setBold(true); title->setFont(titleFont); title->setWordWrap(true);
-                information->addWidget(title);
-                if (!item.detail.isEmpty()) {
-                    auto *detail = makeHomeHint(item.detail, body);
-                    detail->setWordWrap(true);
-                    information->addWidget(detail);
-                }
-                identity->addLayout(information, 1);
-                layout->addLayout(identity);
-                auto *actions = new QHBoxLayout;
-                auto *edit = new QPushButton(QStringLiteral("实例设置"), popup);
-                Theme::markButton(edit, Theme::ButtonKind::Ghost);
-                auto *launch = new QPushButton(QStringLiteral("启动实例"), popup);
-                auto *folder = new QPushButton(QStringLiteral("打开目录"), popup);
-                folder->setObjectName(QStringLiteral("homeQuickOpenFolder"));
-                Theme::markButton(folder, Theme::ButtonKind::Ghost);
-                Theme::markButton(launch, Theme::ButtonKind::Primary);
-                const QString key = item.key;
-                QObject::connect(edit, &QPushButton::clicked, popup, [this, popup, key]() {
-                    popup->close();
-                    if (m_homeQuickActionHandler) {
-                        m_homeQuickActionHandler(key, HomeQuickAction::Edit);
-                    }
-                });
-                QObject::connect(launch, &QPushButton::clicked, popup, [this, popup, key]() {
-                    popup->close();
-                    if (m_homeQuickActionHandler) {
-                        m_homeQuickActionHandler(key, HomeQuickAction::Launch);
-                    }
-                });
-                actions->addWidget(edit);
-                actions->addWidget(folder);
-                QObject::connect(folder, &QPushButton::clicked, popup, [this, popup, key]() {
-                    popup->close();
-                    if (m_homeQuickActionHandler) m_homeQuickActionHandler(key, HomeQuickAction::OpenFolder);
-                });
-                actions->addStretch(1);
-                actions->addWidget(launch);
-                layout->addLayout(actions);
-                const QRect cardRect(card->mapToGlobal(QPoint()), card->size());
-                QScreen *screen = QGuiApplication::screenAt(cardRect.center());
-                if (!screen) screen = card->screen();
-                const QRect available = screen ? screen->availableGeometry() : QRect(card->window()->mapToGlobal(QPoint()), card->window()->size());
-                popup->setFixedWidth(qMin(440, qMax(1, available.width() - 16)));
-                const int contentWidth = qMax(1, popup->width() - 32);
-                const int contentHeight = qMax(layout->sizeHint().height(), layout->totalHeightForWidth(contentWidth));
-                popup->setGeometry(PopupPlacement::around(cardRect, QSize(popup->width(), contentHeight + 2), available));
-                popup->show();
+            QObject::connect(card, &QPushButton::clicked, card, [this, key = item.key]() {
+                if (m_homeQuickActionHandler) m_homeQuickActionHandler(key, HomeQuickAction::Select);
             });
             row->addWidget(card);
         }
     };
-    rebuildRow(homeQuickCurrentSection, homeQuickCurrentRow, current, false);
-    rebuildRow(homeFavoriteSection, homeFavoriteRow, favorites, true);
-    rebuildRow(homeQuickRecentSection, homeQuickRecentRow, recent, false);
-    // 收藏/最近数量设为 0 时，不留一颗点了只会看空白的标签。当前页总有一张当前实例或
-    // 「选择实例」空槽，因而始终可达。
-    if (homeQuickFavoriteTab != nullptr) {
-        homeQuickFavoriteTab->setVisible(!favorites.isEmpty());
-    }
-    if (homeQuickRecentTab != nullptr) {
-        homeQuickRecentTab->setVisible(!recent.isEmpty());
-    }
-    if (current.isEmpty()) {
-        // 仅旧适配入口会给空 current；让它仍然展示传进来的第一块内容，保住既有验证与
-        // 外部嵌入调用的可见语义。正式主页永远传入一张当前实例/空槽，不走这里。
-        m_homeQuickMode = !favorites.isEmpty() ? HomeQuickMode::Favorite
-                                                : HomeQuickMode::Recent;
-    } else if ((m_homeQuickMode == HomeQuickMode::Favorite && favorites.isEmpty())
-               || (m_homeQuickMode == HomeQuickMode::Recent && recent.isEmpty())) {
-        m_homeQuickMode = HomeQuickMode::Current;
-    }
+    rebuildRow(homeFavoriteRow, favorites);
+    rebuildRow(homeQuickRecentRow, recent);
+    // 收藏/最近一张都没有时不留一颗点了只会看空白的标签；两样都没有时整条实例带收起来。
+    const auto hasCards = [](const QList<HomeQuickItem> &items) {
+        return std::any_of(items.cbegin(), items.cend(), [](const HomeQuickItem &i) { return !i.empty; });
+    };
+    if (homeQuickFavoriteTab != nullptr) homeQuickFavoriteTab->setVisible(hasCards(favorites));
+    if (homeQuickRecentTab != nullptr) homeQuickRecentTab->setVisible(hasCards(recent));
+    if (homeQuickSection != nullptr) homeQuickSection->setVisible(hasCards(favorites) || hasCards(recent));
     setHomeQuickMode(m_homeQuickMode);
 }
 
@@ -1994,286 +1833,42 @@ void MainWindowUI::setHomeQuickMode(HomeQuickMode mode) {
     apply(homeQuickCurrentTab, nullptr, HomeQuickMode::Current);
     apply(homeQuickRecentTab, homeQuickRecentSection, HomeQuickMode::Recent);
     apply(homeQuickFavoriteTab, homeFavoriteSection, HomeQuickMode::Favorite);
-    const bool compact = homeInstancePickerOpen();
-    // 列表展开：启动区压成一行（眉题 / 大名字 / 元信息收起，名字挪到按钮右边），实例带的卡片
-    // 压到 52 高。
-    for (QWidget *root : {homeQuickCurrentSection, homeQuickSection}) {
-        if (root == nullptr) continue;
-        for (auto *widget : root->findChildren<QWidget *>()) {
-            const QString name = widget->objectName();
-            if (name.startsWith(QStringLiteral("homeQuickCard_")) || name.startsWith(QStringLiteral("homeQuickEmpty_"))) {
-                widget->setFixedHeight(compact ? 52 : kHomeTileHeight);
-                // ★ 只 `setFixedHeight()` 不够：高度上下限的**真出处是 QSS**。
-                // `QStyleSheetStyle::setGeometry()` 在每一次 polish（悬停、按下、换主题都会来）
-                // 拿 `wtfmlQuickCardSize="normal"` 那一档的 min-height 去 `setMinimumHeight()`，
-                // 把 52 顶回去 —— 用户看到的就是"点一下卡片，压小的那截又长回去"。
-                // 所以档位要跟着切，切完按 QSS 的规矩重新 polish 一次。
-                const QString size = compact ? QStringLiteral("compact") : QStringLiteral("normal");
-                if (widget->property("wtfmlQuickCardSize").toString() != size) {
-                    widget->setProperty("wtfmlQuickCardSize", size);
-                    widget->style()->unpolish(widget);
-                    widget->style()->polish(widget);
-                }
-            }
-            if (name == QStringLiteral("homeCurrentEyebrow") || name == QStringLiteral("homeCurrentName") ||
-                name == QStringLiteral("homeCurrentVersion") || name == QStringLiteral("homeCurrentLoaderIcon") ||
-                name == QStringLiteral("homeCurrentGap")) {  // 行首加载器图标跟元信息一起收，不然压不成一行
-                widget->setVisible(!compact);
-            }
-            if (name == QStringLiteral("homeCurrentCompactName")) widget->setVisible(compact);
-        }
-    }
-    // 启动区的高度当场定下来（不等下一轮布局）：展开 / 收起列表那一下就要让出 / 收回空间。
-    if (homeQuickCurrentSection != nullptr) {
-        if (auto *card = homeQuickCurrentSection->findChild<QWidget *>(QStringLiteral("homeCurrentInstanceCard"))) {
-            // 压成一行时紧贴下面的实例带，不再给柔光留底。
-            card->layout()->setContentsMargins(0, 0, 0, compact ? 0 : kHomeLaunchGlowRoom);
-            // invalidate() 不往下清子布局的缓存（元信息那一行是嵌套布局，会带着旧的 17px）；
-            // activate() 会把子布局一并作废再量。
-            card->layout()->invalidate();
-            card->layout()->activate();
-            card->setFixedHeight(card->layout()->sizeHint().height());
-        }
-    }
 }
 
-void MainWindowUI::openHomeInstancePicker(
-    const QList<HomePickerFolder> &folders, const QList<HomePickerInstance> &instances,
-    const HomePickerFolderHandler &folderHandler,
-    const HomePickerInstanceHandler &instanceHandler) {
-    if (homePickerHost == nullptr || homeLaunchSpacer == nullptr) {
-        return;
-    }
-    if (homeInstancePickerOpen()) {
-        closeHomeInstancePicker();
-        return;
-    }
-    while (QLayoutItem *child = homePickerHost->layout() == nullptr
-                                      ? nullptr
-                                      : homePickerHost->layout()->takeAt(0)) {
-        delete child->widget();
-        delete child;
-    }
-    delete homePickerHost->layout();
-    QWidget *page = homePickerHost;
-    auto *root = new QVBoxLayout(page);
-    root->setContentsMargins(0, 0, 0, 0);
-    root->setSpacing(16);
-
-    auto *instancePane = new QWidget(page);
-    instancePane->setObjectName(QStringLiteral("homePickerInstancePane"));
-    markSurface(instancePane, Theme::workspaceSurfaceValue());
-    auto *instanceLayout = new QVBoxLayout(instancePane);
-    instanceLayout->setContentsMargins(16, 14, 16, 14);
-    instanceLayout->setSpacing(10);
-    auto *heading = new QHBoxLayout;
-    heading->addWidget(makeHomeTitle(QStringLiteral("实例"), instancePane));
-    heading->addStretch(1);
-    auto *folderFilter = new QComboBox(instancePane);
-    folderFilter->setObjectName(QStringLiteral("homePickerFolderFilter"));
-    folderFilter->setToolTip(QStringLiteral("按游戏文件夹筛选"));
-    folderFilter->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-    folderFilter->setMinimumContentsLength(10);
-    folderFilter->addItem(QStringLiteral("全部文件夹"), QString());
-    WheelGuard::install(folderFilter);
-    heading->addWidget(folderFilter);
-    auto *search = new QLineEdit(instancePane);
-    search->setObjectName(QStringLiteral("homePickerSearch"));
-    search->setPlaceholderText(QStringLiteral("搜索名称、版本、加载器、文件夹或标签"));
-    addSearchIcon(search);
-    search->setToolTip(QStringLiteral("支持空格组合关键词，例如 1.21 fabric。"));
-    search->setClearButtonEnabled(true);
-    search->setMinimumWidth(140);
-    heading->addWidget(search);
-    auto *filter = new QComboBox(instancePane);
-    filter->setObjectName(QStringLiteral("homePickerLoaderFilter"));
-    filter->addItem(QStringLiteral("全部"), QStringLiteral("all"));
-    filter->addItem(QStringLiteral("收藏"), QStringLiteral("favorite"));
-    filter->addItem(QStringLiteral("最近"), QStringLiteral("recent"));
-    filter->addItem(QStringLiteral("原版"), QStringLiteral("vanilla"));
-    filter->addItem(QStringLiteral("含模组加载器"), QStringLiteral("modded"));
-    for (const QString &loader : {QStringLiteral("Fabric"), QStringLiteral("Forge"),
-                                  QStringLiteral("NeoForge"), QStringLiteral("Quilt"), QStringLiteral("OptiFine")}) {
-        filter->addItem(loader, loader.toLower());
-    }
-    WheelGuard::install(filter);
-    heading->addWidget(filter);
-    instanceLayout->addLayout(heading);
-    auto *instanceList = new QListWidget(instancePane);
-    instanceList->setObjectName(QStringLiteral("homePickerInstanceList"));
-    instanceList->setFrameShape(QFrame::NoFrame);
-    instanceList->setIconSize(QSize(36, 36));
-    instanceList->setSpacing(4);
-    instanceLayout->addWidget(instanceList, 1);
-    auto *empty = makeHomeHint(QStringLiteral("这个文件夹里没有符合条件的实例。"), instancePane);
-    empty->setObjectName(QStringLiteral("homePickerEmpty"));
-    empty->setAlignment(Qt::AlignCenter);
-    empty->hide();
-    instanceLayout->addWidget(empty);
-    root->addWidget(instancePane, 1);
-
-    for (const HomePickerFolder &folder : folders) {
-        folderFilter->addItem(folder.title, folder.path);
-        folderFilter->setItemData(folderFilter->count() - 1, folder.subtitle, Qt::ToolTipRole);
-    }
-
-    const auto rebuild = [folderFilter, instanceList, empty, search, filter, instances]() {
-        const QString folderPath = folderFilter->currentData().toString();
-        const QString needle = search->text().trimmed();
-        const QStringList terms = needle.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
-        const QString mode = filter->currentData().toString();
-        instanceList->clear();
-        for (const HomePickerInstance &instance : instances) {
-            if (!folderPath.isEmpty() && instance.folderPath != folderPath) {
-                continue;
-            }
-            QString haystack = instance.title + QLatin1Char(' ') + instance.subtitle
-                                     + QLatin1Char(' ') + instance.id + QLatin1Char(' ')
-                                     + instance.loaderKey + QLatin1Char(' ') + instance.folderPath
-                                     + QLatin1Char(' ') + instance.searchKeywords;
-            if (instance.loaderKey.isEmpty()) haystack += QStringLiteral(" 原版 纯净 vanilla 无加载器");
-            else haystack += QStringLiteral(" 模组 modded");
-            if (instance.favorite) haystack += QStringLiteral(" 收藏 置顶 favorite starred");
-            if (instance.recent) haystack += QStringLiteral(" 最近 上次游玩 recent played");
-            if (!std::all_of(terms.cbegin(), terms.cend(), [&haystack](const QString &term) {
-                    return haystack.contains(term, Qt::CaseInsensitive);
-                })) {
-                continue;
-            }
-            if (mode == QStringLiteral("favorite") && !instance.favorite) {
-                continue;
-            }
-            if (mode == QStringLiteral("recent") && !instance.recent) {
-                continue;
-            }
-            if (mode == QStringLiteral("vanilla") && !instance.loaderKey.isEmpty()) {
-                continue;
-            }
-            if (mode == QStringLiteral("modded") && instance.loaderKey.isEmpty()) continue;
-            if (mode != QStringLiteral("all") && mode != QStringLiteral("favorite")
-                && mode != QStringLiteral("recent") && mode != QStringLiteral("vanilla")
-                && mode != QStringLiteral("modded")
-                && instance.loaderKey.compare(mode, Qt::CaseInsensitive) != 0) {
-                continue;
-            }
-            QString text = instance.title;
-            if (!instance.subtitle.isEmpty()) {
-                text += QLatin1Char('\n') + instance.subtitle;
-            }
-            auto *item = new QListWidgetItem(instance.icon, text, instanceList);
-            item->setData(Qt::UserRole, instance.id);
-            item->setData(Qt::UserRole + 1, instance.folderPath);
-            item->setSizeHint(QSize(0, 56));
-        }
-        empty->setVisible(instanceList->count() == 0);
-    };
-    // 文件夹只作为局部筛选；真正切换活动文件夹由选中实例的回调完成。
-    Q_UNUSED(folderHandler);
-    QObject::connect(folderFilter, &QComboBox::currentIndexChanged, page,
-                     [rebuild](int) { rebuild(); });
-    QObject::connect(search, &QLineEdit::textChanged, page,
-                     [rebuild](const QString &) { rebuild(); });
-    QObject::connect(filter, &QComboBox::currentIndexChanged, page,
-                     [rebuild](int) { rebuild(); });
-    QObject::connect(instanceList, &QListWidget::itemClicked, page,
-                     [this, instanceHandler](QListWidgetItem *item) {
-                         if (item == nullptr || !instanceHandler) {
-                             return;
-                         }
-                         instanceHandler(item->data(Qt::UserRole + 1).toString(),
-                                         item->data(Qt::UserRole).toString());
-                         closeHomeInstancePicker();
-                     });
-    rebuild();
-    Anim::layoutTransition(tabWidget->widget(0), [this, page]() {
-    homeLaunchSpacer->changeSize(0, 0, QSizePolicy::Minimum, QSizePolicy::Fixed);
-    homeLaunchSpacer->invalidate();
-    if (homeHeroArea != nullptr) {
-        homeHeroArea->hide();
-    }
-    if (auto *layout = qobject_cast<QVBoxLayout *>(homePickerHost->parentWidget()->parentWidget()->layout())) {
-        layout->setStretch(0, 0);
-        layout->setStretch(1, 1);
-    }
-    if (homeProfileCard != nullptr) {
-        homeProfileCard->hide();
-    }
-    if (homeRightColumn != nullptr) {
-        homeRightColumn->hide();
-    }
-    if (homeInstanceSelectButton != nullptr) {
-        homeInstanceSelectButton->setText(QStringLiteral("返回"));
-    }
-    // 启动区从风景左下挪到下半区顶上（风景那一块收起来了），列表接管剩下的高度。
-    if (homeLaunchArea != nullptr && homeQuickCurrentSection != nullptr) {
-        if (auto *launchLayout = qobject_cast<QBoxLayout *>(homeLaunchArea->layout())) {
-            launchLayout->insertWidget(0, homeQuickCurrentSection);
-        }
-    }
-    if (QLayout *bottom = homePickerHost->parentWidget()->layout()) {
-        bottom->setContentsMargins(32, 12, kHomeHeroMargin, 22);
-    }
-    homePickerHost->show();
-    setHomeQuickMode(m_homeQuickMode);
-    if (homeLaunchArea != nullptr) {
-        homeLaunchArea->show();
-    }
-    // QSpacerItem::changeSize() 只标记自身失效。这里的父布局同时有一个隐藏/显示的
-    // 列表区，必须立即激活布局，才会真正收回顶部空白、让列表接管全部余高。
-    if (QWidget *column = page->parentWidget(); column != nullptr && column->layout() != nullptr) {
-        column->layout()->invalidate();
-        column->layout()->activate();
-        column->updateGeometry();
-    }
-    });
+void MainWindowUI::setHomeLaunchRunning(bool running) {
+    if (m_homeLaunchRunning == running) return;
+    m_homeLaunchRunning = running;
+    syncHomeLaunchButton();
 }
 
-bool MainWindowUI::homeInstancePickerOpen() const {
-    // 页面切走后祖先已隐藏，但仍须复位选择器自身的展开状态。
-    return homePickerHost != nullptr && !homePickerHost->isHidden();
-}
-
-void MainWindowUI::closeHomeInstancePicker() {
-    if (!homeInstancePickerOpen()) {
-        return;
+void MainWindowUI::syncHomeLaunchButton() {
+    QPushButton *launch = homeQuickCurrentSection == nullptr
+                              ? nullptr
+                              : homeQuickCurrentSection->findChild<QPushButton *>(QStringLiteral("homeCurrentLaunch"));
+    if (launch == nullptr) return;
+    // 主按钮只做动作：有实例 = 启动 / 停止；没实例 = 下载游戏，正在装 = 安装中（点开看进度）。
+    const bool empty = launch->property("wtfmlHomeEmpty").toBool();
+    const BottomBarTaskSummary &task = m_lastTaskSummary;
+    const bool installing = empty && task.hasTask
+                            && (task.state == TaskCenter::State::Running || task.state == TaskCenter::State::Queued);
+    QString mode, text, icon;
+    if (!empty) {
+        mode = m_homeLaunchRunning ? QStringLiteral("stop") : QStringLiteral("launch");
+        text = m_homeLaunchRunning ? QStringLiteral("停止游戏") : QStringLiteral("启动游戏");
+        icon = m_homeLaunchRunning ? QStringLiteral("stop") : QStringLiteral("play");
+    } else if (installing) {
+        mode = QStringLiteral("installing");
+        text = task.percent >= 0 ? QStringLiteral("安装中 %1%").arg(task.percent) : QStringLiteral("安装中");
+        icon = QStringLiteral("download");
+    } else {
+        mode = QStringLiteral("download");
+        text = QStringLiteral("下载游戏");
+        icon = QStringLiteral("download");
     }
-    Anim::layoutTransition(tabWidget->widget(0), [this]() {
-    homePickerHost->hide();
-    setHomeQuickMode(m_homeQuickMode);
-    if (homeHeroArea != nullptr) {
-        homeHeroArea->show();
-    }
-    if (auto *layout = qobject_cast<QVBoxLayout *>(homePickerHost->parentWidget()->parentWidget()->layout())) {
-        layout->setStretch(0, 1);
-        layout->setStretch(1, 0);
-    }
-    if (homeLaunchSpacer != nullptr) {
-        homeLaunchSpacer->changeSize(0, 0, QSizePolicy::Minimum, QSizePolicy::Expanding);
-        homeLaunchSpacer->invalidate();
-    }
-    if (homeRightColumn != nullptr) {
-        homeRightColumn->show();
-    }
-    if (homeProfileCard != nullptr) {
-        homeProfileCard->show();
-    }
-    if (homeInstanceSelectButton != nullptr) {
-        homeInstanceSelectButton->setText(QStringLiteral("全部实例"));
-    }
-    if (homeHeroArea != nullptr && homeQuickCurrentSection != nullptr) {
-        auto *left = homeHeroArea->findChild<QWidget *>(leftColumnName(QStringLiteral("home")));
-        if (auto *leftLayout = left != nullptr ? qobject_cast<QBoxLayout *>(left->layout()) : nullptr) {
-            leftLayout->addWidget(homeQuickCurrentSection);
-        }
-    }
-    if (QLayout *bottom = homePickerHost->parentWidget()->layout()) {
-        bottom->setContentsMargins(32, 0, 0, 22);
-    }
-    if (homePickerHost->parentWidget() != nullptr && homePickerHost->parentWidget()->layout() != nullptr) {
-        QLayout *layout = homePickerHost->parentWidget()->layout();
-        layout->invalidate();
-        layout->activate();
-        homePickerHost->parentWidget()->updateGeometry();
-    }
-    }, false);
+    launch->setProperty("wtfmlLaunchMode", mode);
+    launch->setText(text);
+    launch->setAccessibleName(text);
+    const int side = icon == QStringLiteral("play") ? 18 : 20;
+    launch->setIcon(QIcon(VersionIcons::line(icon, side, Theme::tokens().onPrimary, 2.0)));
+    launch->setIconSize(QSize(side, side));
 }
