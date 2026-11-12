@@ -120,7 +120,13 @@ QWidget *overviewRow(QWidget *parent, QWidget *title, const QString &desc, QWidg
         QPalette pal = hint->palette();
         pal.setColor(QPalette::WindowText, Theme::tokens().secondary);
         hint->setPalette(pal);
-        text->addWidget(hint, 0, Qt::AlignLeft);
+        // 带 AlignLeft 的换行标签只拿 sizeHint 那点宽、高度不跟折行长，会被压成一条缝；直接放进竖排又会
+        // 把整列的最大宽压成 560、被摆到中间。⇒ 横排里 + 一截弹簧：限宽、靠左、按宽折行算高。
+        auto *hintRow = new QHBoxLayout;
+        hintRow->setContentsMargins(0, 0, 0, 0);
+        hintRow->addWidget(hint, 1);  // 先把字长到 560，余下的给弹簧
+        hintRow->addStretch(0);
+        text->addLayout(hintRow);
     }
     line->addLayout(text, 1);
     if (control != nullptr && below) {
