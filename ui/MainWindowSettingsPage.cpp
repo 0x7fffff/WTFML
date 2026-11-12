@@ -59,6 +59,25 @@ QWidget *MainWindowUI::setupSettingsTab() {
 
 namespace {
 
+/// 设置左栏分类表：当前那一条行高多出一截，小节索引就摆在这一截里（设计稿 .set-index 子项
+/// 紧跟在当前分类下面）；代理只在上面那一行里画字和底色。
+class SettingsCategoryDelegate : public VersionTreeDelegate {
+public:
+    using VersionTreeDelegate::VersionTreeDelegate;
+    int extraRow = -1;
+    int extraHeight = 0;
+    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override {
+        QStyleOptionViewItem top(option);
+        if (index.row() == extraRow) top.rect.setHeight(top.rect.height() - extraHeight);
+        VersionTreeDelegate::paint(painter, top, index);
+    }
+    QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override {
+        QSize size = VersionTreeDelegate::sizeHint(option, index);
+        if (index.row() == extraRow) size.rheight() += extraHeight;
+        return size;
+    }
+};
+
 /// 设置页里一栏那一页的两样东西：表单控件（说明文字的父窗）与它那张 grid。
 // Static help stays available on demand; dynamic state/error labels remain inline.
 void addSettingHelp(QWidget *box, const QString &text, QWidget *) {
@@ -151,15 +170,15 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
     settingsCategoryList = new QListWidget(columns.left.surface);
     settingsCategoryList->setObjectName(settingsCategoryListName());
     styleSidebarList(settingsCategoryList);
-    settingsCategoryList->setUniformItemSizes(true);
+    settingsCategoryList->setUniformItemSizes(false);  // 当前那条要多出小节索引那一截
     // 同一个代理 = 一样高的行、大一号的字、"分类"那种粗体 —— 两栏里是同一种东西。
     // NOTE: **不设** rowRefreshRole()。那一格里画的刷新圈是下载页专有的（这一列没有
     // "重新拉一遍"这回事），代理见到没设就不画。
     // 末一个参数 true = 和下载页左栏那一列**同一档**（侧栏导航）。两处的形状一样，
     // 判据也一样（见 VersionTreeDelegate 构造函数那段）。
-    settingsCategoryList->setItemDelegate(
-        new VersionTreeDelegate(settingsCategoryList, /*leafArrow=*/true, /*iconSize=*/0,
-                                /*navRow=*/true));
+    auto *categoryDelegate = new SettingsCategoryDelegate(settingsCategoryList, /*leafArrow=*/true,
+                                                          /*iconSize=*/0, /*navRow=*/true);
+    settingsCategoryList->setItemDelegate(categoryDelegate);
     // 悬停底色要它，理由见版本树那第一处：视图不填 State_MouseOver 就不出底色，也不报错。
     settingsCategoryList->setMouseTracking(true);
     // 设计稿 .set-index：纯文字索引，手写体 15。
@@ -223,13 +242,12 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
     // 对不上，宁可停在原来那页，也不要 setCurrentIndex(-1) 把右栏整片清空 —— 那种
     // "点一下界面就空了"的毛病，用户只会当成崩了。
     // ---- 左栏分类下面：当前这一栏的小节索引（设计稿 .set-index 子项），点一下滚到那一节 ----
-    auto *subIndex = new QWidget(columns.left.surface);
+    // 小节索引贴在分类表视口里、当前那条的下半截（那一截由 SettingsCategoryDelegate 让出来）。
+    auto *subIndex = new QWidget(settingsCategoryList->viewport());
     subIndex->setObjectName(QStringLiteral("settingsSubIndex"));
     auto *subLayout = new QVBoxLayout(subIndex);
-    subLayout->setContentsMargins(14, 0, 0, 0);
+    subLayout->setContentsMargins(14, 0, 0, 4);
     subLayout->setSpacing(0);
-    const int listIndex = columns.left.layout->indexOf(settingsCategoryList);
-    columns.left.layout->insertWidget(listIndex + 1, subIndex);
     const auto sectionsOf = [this](int index) {
         QList<QFrame *> cards;
         if (QWidget *panel = settingsCategoryStack->widget(index)) {
@@ -244,13 +262,13 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
         const int y = target->mapTo(scroll->widget(), QPoint(0, 0)).y();
         scroll->verticalScrollBar()->setValue(qMax(0, y - 8));
     };
-    const auto rebuildSubIndex = [this, subIndex, subLayout, sectionsOf, scrollTo](int index) {
+    const auto rebuildSubIndex = [this, subIndex, subLayout, sectionsOf, scrollTo, categoryDelegate](int index) {
         while (QLayoutItem *item = subLayout->takeAt(0)) {
             delete item->widget();
             delete item;
         }
-        const QList<QFrame *> cards = sectionsOf(index);
-        subIndex->setVisible(cards.size() > 1);
+        QList<QFrame *> cards = sectionsOf(index);
+        if (cards.size() < 2) cards.clear();  // 只有一节就不摆索引
         for (QFrame *card : cards) {
             auto *link = new QPushButton(card->property("settingsSectionTitle").toString(), subIndex);
             Theme::markButton(link, Theme::ButtonKind::Ghost);
@@ -261,6 +279,22 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
             link->setFont(f);
             QObject::connect(link, &QPushButton::clicked, link, [scrollTo, index, card] { scrollTo(index, card); });
             subLayout->addWidget(link);
+            link->show();  // 不然要等下一拍才算进 sizeHint
+        }
+        // 让出那一截、表跟着长高，再把索引摆进去。
+        categoryDelegate->extraRow = cards.isEmpty() ? -1 : index;
+        categoryDelegate->extraHeight = cards.isEmpty() ? 0 : subIndex->sizeHint().height();
+        settingsCategoryList->doItemsLayout();
+        int rowsHeight = 0;
+        for (int i = 0; i < settingsCategoryList->count(); ++i) rowsHeight += settingsCategoryList->sizeHintForRow(i);
+        settingsCategoryList->setFixedHeight(rowsHeight + 2 * settingsCategoryList->frameWidth() + 2);
+        subIndex->setVisible(!cards.isEmpty());
+        if (!cards.isEmpty()) {
+            const QRect row = settingsCategoryList->visualRect(settingsCategoryList->model()->index(index, 0));
+            subIndex->setGeometry(0, row.bottom() + 1 - categoryDelegate->extraHeight,
+                                  qMax(settingsCategoryList->viewport()->width(), subIndex->sizeHint().width()),
+                                  categoryDelegate->extraHeight);
+            subIndex->raise();
         }
     };
     QObject::connect(settingsCategoryList, &QListWidget::currentRowChanged, settingsCategoryList,
