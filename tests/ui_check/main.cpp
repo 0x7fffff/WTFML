@@ -3091,56 +3091,63 @@ int main(int argc, char *argv[]) {
         page.setEnchantmentChoices(
             {{QStringLiteral("sharpness"), QStringLiteral("锋利")},
              {QStringLiteral("unbreaking"), QStringLiteral("耐久")}});
-        auto *table = page.findChild<QTableWidget *>(QStringLiteral("anvilTable"));
+        page.resize(900, 560);
+        page.show();
+        page.showTool(ToolboxPage::Tool::Anvil);
+        QApplication::processEvents();
+        auto *rowsHost = page.findChild<QWidget *>(QStringLiteral("anvilRows"));
         auto *addRow = page.findChild<QPushButton *>(QStringLiteral("anvilAddRow"));
-        auto *removeRow = page.findChild<QPushButton *>(QStringLiteral("anvilRemoveRow"));
         auto *rename = page.findChild<QCheckBox *>(QStringLiteral("anvilRename"));
-        check(table != nullptr && addRow != nullptr && removeRow != nullptr && rename != nullptr
-                  && table->columnCount() == 5,
-              "★★ U40c 附魔那张表现在是五列（第五列 = 和上一行同一件），改名那一格也在",
-              table != nullptr ? QString::number(table->columnCount()) : QString());
+        check(rowsHost != nullptr && addRow != nullptr && rename != nullptr,
+              "★★ U40c 附魔那一页：一行行输入区、「加一行」、改名开关都在");
         if (rename != nullptr) {
             check(!rename->isChecked() && !page.anvilRename(),
-                  "★ U40c 「顺带改个名」默认不勾（改名那 1 级默认不算）");
+                  "★ U40c 「顺带改名」默认不勾（改名那 1 级默认不算）");
             rename->setChecked(true);
             check(page.anvilRename(),
                   "★★ U40c 勾上 ⇒ `anvilRename()` 读得回来（controller 拿它决定算不算那 1 级）");
         }
-        if (table != nullptr && addRow != nullptr && removeRow != nullptr) {
-            const auto sameAt = [table](int row) -> QCheckBox * {
-                QWidget *wrap = table->cellWidget(row, 4);
-                return wrap != nullptr ? wrap->findChild<QCheckBox *>() : nullptr;
+        if (rowsHost != nullptr && addRow != nullptr) {
+            // 「同上一件」= 并进上一行那一件：它是「物品」下拉的一项，第一行没有上一行，所以第一行的下拉里没有这一项。
+            const auto kindsAt = [&page](int row) -> QComboBox * {
+                const auto combos = page.findChildren<QComboBox *>();
+                int seen = -1;
+                for (QComboBox *combo : combos) {
+                    if (!combo->isVisibleTo(&page) || combo->findData(QStringLiteral("book")) < 0) continue;
+                    if (++seen == row) return combo;
+                }
+                return nullptr;
             };
-            QCheckBox *first = sameAt(0);
-            check(table->rowCount() == 1 && first != nullptr && !first->isEnabled()
-                      && !first->isChecked(),
-                  "★★ U40c 一进来那一行：第五格在，但第一行没有上一行 ⇒ 灰着、不勾");
+            QComboBox *first = kindsAt(0);
+            check(first != nullptr && first->findData(QStringLiteral("same")) < 0 && first->count() == 2,
+                  "★★ U40c 一进来那一行：物品下拉只有「附魔书 / 装备」，第一行没有「同上一件」");
 
             addRow->click();
-            QCheckBox *second = sameAt(1);
-            check(table->rowCount() == 2 && second != nullptr && second->isEnabled(),
-                  "★ U40c 加一行 ⇒ 新那一行的第五格能勾（上面有东西可并）");
+            QApplication::processEvents();
+            QComboBox *second = kindsAt(1);
+            check(second != nullptr && second->findData(QStringLiteral("same")) >= 0,
+                  "★ U40c 加一行 ⇒ 新那一行的物品下拉里多出「同上一件」");
             if (second != nullptr) {
-                second->setChecked(true);
+                second->setCurrentIndex(second->findData(QStringLiteral("same")));
                 const QList<ToolboxPage::AnvilRow> rows = page.anvilRows();
-                check(rows.size() == 2 && rows.at(1).sameAsPrevious
-                          && !rows.at(0).sameAsPrevious,
-                      "★★ U40c 勾上 ⇒ `anvilRows()` 读得回来（第一行恒 false）",
+                check(rows.size() == 2 && rows.at(1).sameAsPrevious && !rows.at(0).sameAsPrevious,
+                      "★★ U40c 选「同上一件」⇒ `anvilRows()` 读得回来（第一行恒 false）",
                       QStringLiteral("%1 行").arg(rows.size()));
-                // 「这一件」「用过几次」描述的是那一件东西 ⇒ 并进上一行时这两格归上一行管。
-                auto *kindCell = qobject_cast<QComboBox *>(table->cellWidget(1, 2));
-                auto *usesCell = qobject_cast<QSpinBox *>(table->cellWidget(1, 3));
-                check(kindCell != nullptr && usesCell != nullptr && !kindCell->isEnabled()
-                          && !usesCell->isEnabled(),
-                      "★★ U40c 并进上一行 ⇒ 这一行自己的「这一件 / 用过几次」两格灰掉");
+                // 「已用次数」描述的是那一件东西 ⇒ 并进上一行时这一格归上一行管、灰掉。
+                const auto spins = page.findChildren<QSpinBox *>();
+                QList<QSpinBox *> uses;
+                for (QSpinBox *spin : spins)
+                    if (spin->isVisibleTo(&page) && spin->suffix() == QStringLiteral(" 次")) uses << spin;
+                check(uses.size() == 2 && uses.at(0)->isEnabled() && !uses.at(1)->isEnabled(),
+                      "★★ U40c 并进上一行 ⇒ 这一行自己的「已用次数」灰掉");
             }
-
-            table->setCurrentCell(0, 0);
-            removeRow->click();
-            QCheckBox *newFirst = sameAt(0);
-            check(table->rowCount() == 1 && newFirst != nullptr && !newFirst->isEnabled()
-                      && !newFirst->isChecked(),
-                  "★★ U40c 删掉原来第一行 ⇒ 新的第一行跟着灰回去（不把上一条的勾带下来）");
+            // 往回设置：第一行传 sameAsPrevious=true 也不能生效（第一行没有上一行）。
+            page.setAnvilRows({{QStringLiteral("sharpness"), 3, true, 0, true},
+                               {QStringLiteral("unbreaking"), 2, false, 1, true}});
+            const QList<ToolboxPage::AnvilRow> restored = page.anvilRows();
+            check(restored.size() == 2 && !restored.at(0).sameAsPrevious && restored.at(1).sameAsPrevious &&
+                      !restored.at(1).isBook == false,
+                  "★ U40c 程序设置整表：第一行的「同上一件」被忽略，后面的行保留");
         }
         page.close();
         QApplication::processEvents();

@@ -14,7 +14,7 @@
 #include "GameLogWindow.hpp"
 #include "SchematicInfoDialog.hpp"
 #include "ChromeDialog.hpp"
-#include "DownloadToolDialog.hpp"
+#include "DownloadToolPanel.hpp"
 #include "InlineMessage.hpp"
 #include <QWizard>
 #include "PresetModReview.hpp"
@@ -533,7 +533,7 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         {QStringLiteral("instance-overview-ocean.png"), QStringLiteral("ocean"), {1280, 800}, false, manage, QStringLiteral("overview")},
         {QStringLiteral("instance-launch-dark.png"), QStringLiteral("dark"), {1280, 800}, false, manage, QStringLiteral("launch")},
         {QStringLiteral("instance-mods-dark.png"), QStringLiteral("dark"), {1280, 800}, false, manage, QStringLiteral("mod")},
-        // 智能体页、工具箱（设计稿 agent / panels-toolbox）：页键 toolbox = 底栏面板，toolbox:<键> = 展开那一页。
+        // 智能体页、工具箱（设计稿 agent / toolbox）：页键 toolbox = 目录页，toolbox:<键> = 进那一件工具。
         {QStringLiteral("agent-dark.png"), QStringLiteral("dark"), {1280, 800}, false, agent},
         {QStringLiteral("agent-emerald.png"), QStringLiteral("emerald"), {1280, 800}, false, agent},
         {QStringLiteral("agent-ocean.png"), QStringLiteral("ocean"), {1280, 800}, false, agent},
@@ -551,8 +551,7 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         {QStringLiteral("dialog-history-emerald.png"), QStringLiteral("emerald"), {1280, 800}, false, home, QStringLiteral("dialog:history")},
         {QStringLiteral("dialog-schematic-dark.png"), QStringLiteral("dark"), {1280, 800}, false, home, QStringLiteral("dialog:schematic")},
         {QStringLiteral("dialog-schematic-emerald.png"), QStringLiteral("emerald"), {1280, 800}, false, home, QStringLiteral("dialog:schematic")},
-        {QStringLiteral("dialog-download-dark.png"), QStringLiteral("dark"), {1280, 800}, false, home, QStringLiteral("dialog:download")},
-        {QStringLiteral("dialog-download-busy-dark.png"), QStringLiteral("dark"), {1280, 800}, false, home, QStringLiteral("dialog:download-busy")},
+        {QStringLiteral("toolbox-download-dark.png"), QStringLiteral("dark"), {1280, 800}, false, home, QStringLiteral("toolbox:download")},
         {QStringLiteral("wizard-step1-dark.png"), QStringLiteral("dark"), {1280, 800}, false, manage, QStringLiteral("wizard:0")},
         {QStringLiteral("wizard-step2-dark.png"), QStringLiteral("dark"), {1280, 800}, false, manage, QStringLiteral("wizard:1")},
         {QStringLiteral("wizard-step3-dark.png"), QStringLiteral("dark"), {1280, 800}, false, manage, QStringLiteral("wizard:2")},
@@ -565,7 +564,7 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         // 精修轮逐页自检：启动设置三主题、工具箱其余九页三主题。
         for (const QString &theme : {QStringLiteral("emerald"), QStringLiteral("ocean")})
             list.append({QStringLiteral("instance-launch-%1.png").arg(theme), theme, {1280, 800}, false, manage, QStringLiteral("launch")});
-        for (const char *key : {"anvil", "text", "coord", "server", "hash", "beacon", "brewing", "banner", "trim"})
+        for (const char *key : {"anvil", "text", "coord", "server", "hash", "beacon", "brewing", "banner", "trim", "download"})
             for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("emerald"), QStringLiteral("ocean")})
                 list.append({QStringLiteral("tool-%1-%2.png").arg(QLatin1String(key), theme), theme, {1280, 800}, false, home,
                              QStringLiteral("toolbox:") + QLatin1String(key)});
@@ -685,15 +684,6 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
                     dialog = report;
                 } else if (kind == QStringLiteral("history")) {
                     dialog = new UpgradeHistoryDialog(nullptr);
-                } else if (kind.startsWith(QStringLiteral("download"))) {
-                    auto *download = new DownloadToolDialog(nullptr);
-                    download->url->setText(QStringLiteral("https://example.com/modpack.zip"));
-                    if (kind.endsWith(QStringLiteral("busy"))) {
-                        download->setBusy(true);
-                        download->showProgress(42, 100, QStringLiteral("分 8 段下载中 · 12.4 MB/s · 剩余约 9 秒"));
-                        download->cacheStatus->setText(QStringLiteral("续传缓存：186 MiB / 本次释放 0 / 跳过占用 1 / 失败 0"));
-                    }
-                    dialog = download;
                 } else if (kind == QStringLiteral("modreview")) {
                     Presets::ModInstallPlan plan;
                     Presets::ModInstallRow sodium;
@@ -743,7 +733,7 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
                 bool ok = false;
                 const ToolboxPage::Tool tool = ToolboxPage::toolFromKey(key, &ok);
                 if (ok) {
-                    if (auto *button = window.findChild<QPushButton *>(ToolboxPage::toolButtonName(tool))) button->click();
+                    if (auto *button = window.findChild<QPushButton *>(ToolboxPage::toolCellName(tool))) button->click();
                     if (auto *page = window.findChild<ToolboxPage *>()) fillToolboxSample(*page, key);
                 }
             } else if (shot.page == QStringLiteral("r2:home-A-switch")) {
@@ -789,11 +779,6 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
                 std::fflush(stdout);
             }
             if (log != nullptr) { log->close(); log->deleteLater(); }
-            // 工具箱面板是 Qt::Popup（另一个顶层窗），window.grab() 抓不到它：按它在窗口里的位置贴上去。
-            if (auto *panel = window.findChild<QFrame *>(MainWindowUI::toolboxPanelName()); panel != nullptr && panel->isVisible()) {
-                QPainter painter(&shotImage);
-                painter.drawPixmap(window.mapFromGlobal(panel->mapToGlobal(QPoint(0, 0))), panel->grab());
-            }
             // 账号下拉面板同理（也是 Qt::Popup）。
             if (auto *panel = window.findChild<QWidget *>(MainWindowUI::bottomBarPanelName()); panel != nullptr && panel->isVisible()) {
                 QPainter painter(&shotImage);
@@ -806,7 +791,7 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
                                       {"maxWidth", window.maximumWidth()}, {"screenWidth", window.screen()->availableGeometry().width()},
                                       {"state", int(window.windowState())}});
             if (!shot.page.isEmpty()) window.ui()->overlay()->closeOverlay();
-            if (auto *panel = window.findChild<QFrame *>(MainWindowUI::toolboxPanelName())) panel->close();
+            if (shot.page.startsWith(QStringLiteral("toolbox"))) window.ui()->getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
             QTimer::singleShot(shot.page.isEmpty() ? 0 : 300, &window, step);
         });
     };

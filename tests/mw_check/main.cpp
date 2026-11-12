@@ -2782,7 +2782,7 @@ int main(int argc, char *argv[]) {
         check(bar != nullptr && avatar != nullptr && account != nullptr && status != nullptr &&
                   runState != nullptr && runDetail != nullptr && progress != nullptr,
               "底栏那几块都能按 objectName 找回来");
-        check(tabs != nullptr && tabs->count() == 5, "真窗口里也是五个选项卡");
+        check(tabs != nullptr && tabs->count() == 6, "真窗口里是六个选项卡（含工具箱）");
 
         if (account != nullptr && avatar != nullptr) {
             // 左下角显示的名字来自 MainWindow 自己那个 AuthManager。测试这边新起一个

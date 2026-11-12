@@ -4,13 +4,14 @@ int UiNavigationChecks(QMainWindow &window, MainWindowUI &ui, QComboBox * &insta
     if (tabs != nullptr) {
         check(tabs->objectName() == MainWindowUI::tabWidgetName(), "选项卡的 objectName 是约定的那个",
               tabs->objectName());
-        check(tabs->count() == 5, "正好五个选项卡", QString::number(tabs->count()));
+        check(tabs->count() == 6, "六个选项卡（五个上导航 + 导航轨底部的工具箱）", QString::number(tabs->count()));
         const QStringList titles = {tabs->tabText(0), tabs->tabText(1), tabs->tabText(2),
                                     tabs->tabText(3), tabs->tabText(4)};
         check(titles == QStringList({QStringLiteral("主页"), QStringLiteral("管理"),
                                      QStringLiteral("下载"), QStringLiteral("设置"),
-                                     QStringLiteral("智能体")}),
-              "五个选项卡依次是 主页/管理/下载/设置/智能体", titles.join(QLatin1Char('/')));
+                                     QStringLiteral("智能体")}) &&
+                  tabs->tabText(MainWindowUI::toolboxTabIndex()) == QStringLiteral("工具箱"),
+              "选项卡依次是 主页/管理/下载/设置/智能体，第六个是工具箱", titles.join(QLatin1Char('/')));
         check(tabs->currentIndex() == MainWindowUI::homeTabIndex(),
               "打开就停在主页（即『启动界面』）", QString::number(tabs->currentIndex()));
         check(ui.isHomeTabCurrent(), "isHomeTabCurrent() 与停在主页一致");

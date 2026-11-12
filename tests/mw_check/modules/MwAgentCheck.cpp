@@ -107,7 +107,7 @@ int MwAgentChecks(QApplication &app) {
     QCoreApplication::processEvents();
 
     QTabWidget *tabs = window.findChild<QTabWidget *>(MainWindowUI::tabWidgetName());
-    check(tabs != nullptr && tabs->count() == 5, "真窗口：五个选项卡");
+    check(tabs != nullptr && tabs->count() == 6, "真窗口：六个选项卡（含工具箱）");
     AgentPage *page = window.findChild<AgentPage *>(QStringLiteral("agentPage"));
     check(page != nullptr && window.ui()->getAgentPage() == page,
           "真窗口：智能体页由 MainWindowUI 持有");

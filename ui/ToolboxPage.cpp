@@ -445,6 +445,79 @@ QWidget *makeNumberField(QWidget *parent, QAbstractSpinBox *spin, bool steppers,
     return field;
 }
 
+/// 一行控件放不下就折到下一行（标准的流式布局）；每个子项按自己的 sizeHint 摆，不拉伸。
+class FlowLayout final : public QLayout {
+public:
+    explicit FlowLayout(int hSpacing = 8, int vSpacing = 8) : m_h(hSpacing), m_v(vSpacing) {
+        setContentsMargins(0, 0, 0, 0);
+    }
+    ~FlowLayout() override { qDeleteAll(m_items); }
+    void addItem(QLayoutItem *item) override { m_items.append(item); }
+    int count() const override { return int(m_items.size()); }
+    QLayoutItem *itemAt(int index) const override { return m_items.value(index); }
+    QLayoutItem *takeAt(int index) override {
+        return index >= 0 && index < m_items.size() ? m_items.takeAt(index) : nullptr;
+    }
+    Qt::Orientations expandingDirections() const override { return {}; }
+    bool hasHeightForWidth() const override { return true; }
+    int heightForWidth(int width) const override { return arrange(QRect(0, 0, width, 0), true); }
+    void setGeometry(const QRect &rect) override {
+        QLayout::setGeometry(rect);
+        arrange(rect, false);
+    }
+    QSize sizeHint() const override { return minimumSize(); }
+    QSize minimumSize() const override {
+        QSize size;
+        for (QLayoutItem *item : m_items) size = size.expandedTo(item->minimumSize());
+        const QMargins m = contentsMargins();
+        return size + QSize(m.left() + m.right(), m.top() + m.bottom());
+    }
+
+private:
+    int arrange(const QRect &rect, bool testOnly) const {
+        const QMargins m = contentsMargins();
+        const QRect area = rect.adjusted(m.left(), m.top(), -m.right(), -m.bottom());
+        int x = area.x(), y = area.y(), lineHeight = 0;
+        for (QLayoutItem *item : m_items) {
+            if (item->isEmpty()) continue;
+            const QSize hint = item->sizeHint();
+            if (x > area.x() && x + hint.width() > area.right() + 1) {
+                x = area.x();
+                y += lineHeight + m_v;
+                lineHeight = 0;
+            }
+            if (!testOnly) item->setGeometry(QRect(QPoint(x, y), hint));
+            x += hint.width() + m_h;
+            lineHeight = qMax(lineHeight, hint.height());
+        }
+        return y + lineHeight - rect.y() + m.top() + m.bottom();
+    }
+    QList<QLayoutItem *> m_items;
+    int m_h, m_v;
+};
+
+/// 容器查询：@p watched 的宽度 < @p threshold 时，把 @p box 的方向翻成上下叠放，否则左右并排。
+class NarrowFlip final : public QObject {
+public:
+    NarrowFlip(QWidget *watched, QBoxLayout *box, int threshold)
+        : QObject(watched), m_box(box), m_threshold(threshold) {
+        watched->installEventFilter(this);
+    }
+
+protected:
+    bool eventFilter(QObject *object, QEvent *event) override {
+        if (event->type() == QEvent::Resize && m_box != nullptr) {
+            const int width = static_cast<QWidget *>(object)->width();
+            m_box->setDirection(width < m_threshold ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight);
+        }
+        return false;
+    }
+
+private:
+    QPointer<QBoxLayout> m_box;
+    int m_threshold;
+};
+
 /// 输入区：左边一列标签定宽，后面是控件；一行放一对或两对（标签, 控件）。
 struct FormGrid {
     QGridLayout *grid = new QGridLayout;
@@ -489,6 +562,15 @@ struct FormGrid {
             place(field2, 3);
         }
         ++row;
+    }
+    /// 一行标签 + 一串控件（放不下就折行，不出横向滚动）。
+    QLayout *addFlowRow(const QString &text, const QList<QWidget *> &fields) {
+        grid->addWidget(label(text), row, 0, Qt::AlignTop);
+        auto *line = new FlowLayout(10, 8);
+        for (QWidget *field : fields) line->addWidget(field);
+        grid->addLayout(line, row, 1, 1, 4);
+        ++row;
+        return line;
     }
     /// 一行标签 + 一串控件（横着排，富余的宽度留在右边）。
     QHBoxLayout *addRow(const QString &text, const QList<QWidget *> &fields) {
@@ -1698,6 +1780,7 @@ QWidget *ToolboxPage::buildTextPanel() {
     m_textPaletteLayout->setHorizontalSpacing(12);
     m_textPaletteLayout->setVerticalSpacing(6);
     m_textPaletteLayout->setColumnMinimumWidth(0, 40);
+    m_textPaletteLayout->setColumnStretch(1, 1);
     inputBox->addWidget(m_textPaletteRow);
 
     // 1.16 起那份自定颜色：十六色表里没有的颜色。这一格只收 `#RRGGBB` 六位 ——
@@ -1727,7 +1810,9 @@ QWidget *ToolboxPage::buildTextPanel() {
     Theme::markButton(clear, Theme::ButtonKind::Ghost);
     for (QPushButton *b : {fromJson, toJson, clear}) b->setAutoDefault(false);
     // 左：自定颜色；右：次要的三颗转换动作成一组。
-    inputBox->addLayout(makeButtonRow({m_textHex, hexInsert}, {fromJson, toJson, clear}));
+    auto *textActions = new FlowLayout(8, 6);
+    for (QWidget *w : QList<QWidget *>{m_textHex, hexInsert, fromJson, toJson, clear}) textActions->addWidget(w);
+    inputBox->addLayout(textActions);
 
     m_textNotice = makeMutedLabel(inputCard, QStringLiteral("textNotice"));
     m_textNotice->hide();
@@ -1829,12 +1914,8 @@ void ToolboxPage::setTextPalette(const QList<PaletteEntry> &entries) {
         old->deleteLater();
     }
     // 两排：「颜色」一排十六颗圆色点，「格式」一排文字 chip（粗体 / 斜体 …… / 复位）。
-    auto *colorRow = new QHBoxLayout;
-    colorRow->setContentsMargins(0, 0, 0, 0);
-    colorRow->setSpacing(2);
-    auto *styleRow = new QHBoxLayout;
-    styleRow->setContentsMargins(0, 0, 0, 0);
-    styleRow->setSpacing(6);
+    auto *colorRow = new FlowLayout(2, 2);
+    auto *styleRow = new FlowLayout(6, 6);
     for (const PaletteEntry &entry : entries) {
         auto *button = new QPushButton(m_textPaletteRow);
         button->setObjectName(QStringLiteral("textCode_%1").arg(entry.code));
@@ -1883,17 +1964,15 @@ void ToolboxPage::setTextPalette(const QList<PaletteEntry> &entries) {
             }
         });
     }
-    colorRow->addStretch(1);
-    styleRow->addStretch(1);
     const auto caption = [this](const QString &text) {
         auto *label = makeMutedLabel(m_textPaletteRow);
         label->setText(text);
         label->setWordWrap(false);
         return label;
     };
-    m_textPaletteLayout->addWidget(caption(QStringLiteral("颜色")), 0, 0);
+    m_textPaletteLayout->addWidget(caption(QStringLiteral("颜色")), 0, 0, Qt::AlignTop);
     m_textPaletteLayout->addLayout(colorRow, 0, 1);
-    m_textPaletteLayout->addWidget(caption(QStringLiteral("格式")), 1, 0);
+    m_textPaletteLayout->addWidget(caption(QStringLiteral("格式")), 1, 0, Qt::AlignTop);
     m_textPaletteLayout->addLayout(styleRow, 1, 1);
 }
 
@@ -1977,11 +2056,20 @@ QWidget *ToolboxPage::buildCoordPanel() {
     convert->setAutoDefault(false);
     Theme::markButton(convert, Theme::ButtonKind::Primary);
     // 「换算」是这一块唯一的主钮，紧跟在三格坐标后面（同一行、靠右）。
-    auto *coordLine = form.addRow(QStringLiteral("坐标"),
-                {axis(QStringLiteral("X")), makeNumberField(panel, m_coordX, false, 120),
-                 axis(QStringLiteral("Y")), makeNumberField(panel, m_coordY, false, 120),
-                 axis(QStringLiteral("Z")), makeNumberField(panel, m_coordZ, false, 120)});
-    coordLine->addWidget(convert);
+    // 每个轴「字母 + 数字框」成一组，窄时整组折行，不把字母和框拆开。
+    const auto axisGroup = [&](const QString &text, QDoubleSpinBox *spin) {
+        auto *group = new QWidget(panel);
+        auto *row = new QHBoxLayout(group);
+        row->setContentsMargins(0, 0, 0, 0);
+        row->setSpacing(8);
+        row->addWidget(axis(text));
+        row->addWidget(makeNumberField(group, spin, false, 120));
+        return group;
+    };
+    // 「换算」是这一块唯一的主钮，紧跟在三格坐标后面。
+    form.addFlowRow(QStringLiteral("坐标"),
+                    {axisGroup(QStringLiteral("X"), m_coordX), axisGroup(QStringLiteral("Y"), m_coordY),
+                     axisGroup(QStringLiteral("Z"), m_coordZ), convert});
 
     m_tpInput = new QLineEdit(panel);
     m_tpInput->setObjectName(QStringLiteral("coordTpInput"));
@@ -3290,7 +3378,7 @@ QWidget *ToolboxPage::buildTrimPanel() {
         for (int row=0; row<3; ++row) {
             auto *combo=new QComboBox(panel);
             combo->setObjectName(keys[row]+QString::number(slot));
-            combo->setMinimumWidth(0); combo->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);
+            combo->setMinimumWidth(72); combo->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);
             groups[row]->append(combo); form->addWidget(combo,row+1,slot+1);
             connect(combo,&QComboBox::currentIndexChanged,this,[this](int) {
                 if (!m_trimSyncing) restoreTrimEquipment(true);
@@ -3315,7 +3403,7 @@ QWidget *ToolboxPage::buildTrimPanel() {
     body->addLayout(left,3);
 
     auto *previewCard = new SoftPanel(panel);
-    previewCard->setMinimumWidth(260);
+    previewCard->setMinimumWidth(240);
     auto *right = previewCard->box(); right->setSpacing(8);
     auto *previewHead = new QHBoxLayout;
     previewHead->setContentsMargins(0, 0, 0, 0);
@@ -3353,6 +3441,8 @@ QWidget *ToolboxPage::buildTrimPanel() {
     m_trimResourceButtons.last()->setEnabled(false); m_trimResourceButtons.last()->hide();
     right->addLayout(actions);
     body->addWidget(previewCard,2,Qt::AlignTop); layout->addLayout(body,1);
+    // 内容宽 < 640：预览挪到下面（左右并排放不下）。
+    new NarrowFlip(panel, body, 640);
 
     // Legacy controls are migration adapters only, never part of the visible editor.
     m_trimArmor=new QComboBox(panel); m_trimArmor->setObjectName(trimArmorComboName());

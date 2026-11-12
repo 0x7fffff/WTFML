@@ -56,8 +56,10 @@ int UiTitleBarChecks(QMainWindow &window, MainWindowUI &ui) {
     check(tabs != nullptr && !tabs->tabBar()->isVisible(), "★ Z11 标签页自己那条标签栏藏起来了（导航在轨上）");
     check(TitleBar::defaultBrandText() == QStringLiteral("WTFML") && rail->titleText() == TitleBar::defaultBrandText(),
           "★ Z11 品牌默认写那五个字母", rail->titleText());
-    const int tabCount = tabs != nullptr ? tabs->count() : -1;
-    check(tabCount == 5 && rail->navCount() == tabCount, "★ Z11 五个功能 = 五颗导航",
+    // 五个功能 = 五颗导航；第六个选项卡「工具箱」不上导航（入口是导航轨底部那颗）。
+    const int tabCount = tabs != nullptr ? tabs->count() - 1 : -1;
+    check(tabCount == 5 && tabs->count() == MainWindowUI::toolboxTabIndex() + 1 && rail->navCount() == tabCount,
+          "★ Z11 五个功能 = 五颗导航，工具箱是第六个选项卡不上导航",
           QStringLiteral("%1 / %2").arg(tabCount).arg(rail->navCount()));
     if (tabs != nullptr && tabCount == rail->navCount() && tabCount > 0) {
         bool labelsOk = true, fontOk = true, sizeOk = true, orderOk = true;

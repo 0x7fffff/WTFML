@@ -14,8 +14,8 @@
 #include "Support.hpp"
 
 #include "ChromeDialog.hpp"
-#include "DownloadToolDialog.hpp"
-#include "GameLogWindow.hpp"
+#include "GameLogWindow.hpp"
+
 #include "InstanceUpdateWizard.hpp"
 #include "ShellOpenWith.hpp"
 #include "UpgradeHistoryDialog.hpp"
@@ -175,10 +175,6 @@ int UiWindowChromeCheck(QApplication &) {
         }
         check(stolen.isEmpty() && railCaption > 0, QStringLiteral("WC 主窗口 导航轨：空白回 HTCAPTION、导航钮不回"),
               QStringLiteral("空白 %1 / 误吞 %2").arg(railCaption).arg(stolen.join(QLatin1Char(','))));
-    }
-    {
-        DownloadToolDialog dialog(&window);
-        checkWindow(QStringLiteral("高速下载窗"), &dialog);
     }
     {
         UpgradeHistoryDialog dialog(&window);

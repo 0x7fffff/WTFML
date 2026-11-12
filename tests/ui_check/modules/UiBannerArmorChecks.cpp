@@ -12,17 +12,14 @@ int UiBannerArmorChecks() {
               "★★ U40 工具箱那张表现在是十件（加上旗帜设计 / 纹饰搭配）",
               QString::number(ToolboxPage::tools().size()));
 
-        int chips = 0;
+        int cells = 0;
         for (ToolboxPage::Tool tool : ToolboxPage::tools()) {
-            if (tool == ToolboxPage::Tool::Download) {
-                continue;
-            }
-            if (page.findChild<QPushButton *>(ToolboxPage::toolChipName(tool)) != nullptr) {
-                ++chips;
+            if (page.findChild<QPushButton *>(ToolboxPage::toolCellName(tool)) != nullptr) {
+                ++cells;
             }
         }
-        check(chips == 9, "★ U40 顶上那排 chip 是九颗（高速下载仍然不在 chip 里）",
-              QString::number(chips));
+        check(cells == 10, "★ U40 目录页有十格（每件工具一格，高速下载也在里面）",
+              QString::number(cells));
 
         auto *base = page.findChild<QComboBox *>(ToolboxPage::bannerBaseComboName());
         auto *pattern = page.findChild<QComboBox *>(ToolboxPage::bannerPatternComboName());
