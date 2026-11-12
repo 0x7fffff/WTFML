@@ -164,6 +164,7 @@ ${REPO_ROOT}/ui/InstanceSettingsSignature.cpp
                                 # 「服务端设置」那一页。
                                 ${REPO_ROOT}/ui/ServerSettingsPage.cpp
                                 ${REPO_ROOT}/ui/WindowChrome.cpp
+                                ${REPO_ROOT}/ui/WindowEdge.cpp
                                 ${REPO_ROOT}/ui/ChromeDialog.cpp)
 
 # InstanceFiles 那一层要的（`VersionInheritance::parentIdOf` / `maxDepth`）——

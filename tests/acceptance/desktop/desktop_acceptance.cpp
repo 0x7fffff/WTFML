@@ -95,7 +95,9 @@ int main(int argc, char **argv) {
     }
     if (designShots) {
         QString error;
-        if (!AccountStore::addOffline("Wanderer", &error)) return 2;
+        // 账号下拉样张要几行：另两个先加，Wanderer 最后加、仍是当前账号。
+        for (const char *name : {"Builder", "Steve_test", "Wanderer"})
+            if (!AccountStore::addOffline(name, &error)) return 2;
         // 离线账号算不出游戏默认皮肤时会去 MineSkin 随机挑一张：那一张异步到、每轮不同，
         // 截图里就会一会儿默认皮肤一会儿陌生人。设计稿对照只要内置默认皮肤，把那条路指向
         // 一个连不上的本地端口。

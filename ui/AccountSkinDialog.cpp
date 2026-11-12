@@ -8,6 +8,7 @@
 // WheelGuard 住在 MainWindowUI.hpp 里（和 InstanceSettingsDialog.cpp 一样，直接引那一份，
 // 不另外抄一个防护类）。它护的是下面那个「模型」下拉框。
 #include "MainWindowUI.hpp"
+#include "RoundAvatar.hpp"
 #include "SkinModel.hpp"
 #include "Theme.hpp"   // 这一窗里「删除所选」那一颗是危险按钮（红字红边，见构造函数）
 #include "SkinViewer.hpp"
@@ -29,7 +30,6 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QPainter>
-#include <QPainterPath>
 #include <QPalette>
 #include <QPushButton>
 #include <QScrollBar>
@@ -101,12 +101,8 @@ public:
         const QImage face = current && !m_currentSkin->isNull()
                                 ? SkinModel::headAvatar(*m_currentSkin, 64)
                                 : SkinModel::letterAvatar(name, 64);
-        QPainterPath clip;
-        clip.addRoundedRect(QRectF(avatar), 8, 8);
-        painter->save();
-        painter->setClipPath(clip);
-        painter->drawImage(avatar, face);
-        painter->restore();
+        // 圆头像：和主页右上那颗、账号下拉面板里那几行同一种形状。
+        RoundAvatar::paint(*painter, QRectF(avatar), face);
 
         const int textLeft = avatar.right() + 13;
         // 选中那一行行尾压着「切换 / 删除」两颗（placeRowActions()），字给它们让位。

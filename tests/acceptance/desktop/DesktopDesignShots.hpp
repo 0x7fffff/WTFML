@@ -501,6 +501,14 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
             for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("emerald"), QStringLiteral("ocean")})
                 list.append({QStringLiteral("tool-%1-%2.png").arg(QLatin1String(key), theme), theme, {1280, 800}, false, home,
                              QStringLiteral("toolbox:") + QLatin1String(key)});
+        // 窗口最外沿渐变样张：真屏抓（带 DWM 圆角与窗外一圈桌面）；WTFML_WINDOW_EDGE=0 再跑一遍出无渐变对照。
+        list.append({QStringLiteral("edge-home-dark.png"), QStringLiteral("dark"), {1000, 700}, false, home, QStringLiteral("edge")});
+        list.append({QStringLiteral("edge-home-light.png"), QStringLiteral("emerald"), {1000, 700}, false, home, QStringLiteral("edge")});
+        list.append({QStringLiteral("edge-manage-dark.png"), QStringLiteral("dark"), {1000, 700}, false, manage, QStringLiteral("edge")});
+        list.append({QStringLiteral("edge-max-dark.png"), QStringLiteral("dark"), {1000, 700}, false, home, QStringLiteral("edge:max")});
+        // 主页右上账号切换条：下拉打开的样子（收起的样子看 home-*.png 右上角）。
+        for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("emerald"), QStringLiteral("ocean")})
+            list.append({QStringLiteral("account-menu-%1.png").arg(theme), theme, {1000, 700}, false, home, QStringLiteral("account")});
         // 只出名字含这段字的几张（逐页精修时不必每次跑满 56 张）。
         const QString only = qEnvironmentVariable("WTFML_DESIGN_SHOT_FILTER");
         if (!only.isEmpty())
@@ -556,7 +564,13 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         // 抓图前再灌一次夹具，再让布局走一拍。
         QTimer::singleShot(700, &window, [&window]() { seedHome(window); });
         QTimer::singleShot(850, &window, [&window, shot]() {
-            if (shot.page == QStringLiteral("gamelog")) {
+            if (shot.page.startsWith(QStringLiteral("edge"))) {
+                // 整窗（连窗外一圈）都得在屏上：竖屏 / 小屏上 1280 宽会伸出屏外。
+                if (shot.page == QStringLiteral("edge:max")) window.showMaximized();
+                else window.move(window.screen()->availableGeometry().topLeft() + QPoint(60, 60));
+                window.raise();
+                window.activateWindow();
+            } else if (shot.page == QStringLiteral("gamelog")) {
                 auto *log = new GameLogWindow(QStringLiteral("春日生存"), nullptr);
                 log->setObjectName(QStringLiteral("designShotGameLog"));
                 log->appendText(QStringLiteral(
@@ -641,6 +655,10 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
                 if (ok) {
                     if (auto *button = window.findChild<QPushButton *>(ToolboxPage::toolButtonName(tool))) button->click();
                 }
+            } else if (shot.page == QStringLiteral("account")) {
+                // 面板按屏幕可用区夹位置：窗口伸出屏外时它会被夹回来、不再贴着胶囊右沿。
+                window.move(window.screen()->availableGeometry().topLeft() + QPoint(60, 60));
+                window.ui()->getAccountSkinButton()->click();
             } else if (!shot.page.isEmpty()) QMetaObject::invokeMethod(&window, "openInstanceSettings", Q_ARG(QString, QStringLiteral("create")), Q_ARG(QString, shot.page));
             else if (shot.tab == MainWindowUI::instancesTabIndex()) hoverInstanceRow(window);
         });
@@ -657,16 +675,29 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
                     wizard->show();
                     for (int i = 0; i < 5; ++i) QApplication::processEvents();
                 }
-                qInfo().noquote() << "design shot" << shot.page << "wizard" << (wizard != nullptr)
-                                  << (wizard != nullptr ? wizard->currentId() : -1);
             }
             QPixmap shotImage = wizard != nullptr ? wizard->grab() : log != nullptr ? log->grab() : window.grab();
             if (wizard != nullptr) wizard->hide();
+            if (shot.page.startsWith(QStringLiteral("edge"))) {
+                // 真屏抓：widget.grab() 只有客户区的方角，看不到 DWM 圆角、系统边和窗外的衔接。
+                QScreen *screen = window.screen();
+                // 最大化只留上面 800 行：要看的是贴屏幕边那一圈有没有线。
+                const QRect area = window.isMaximized() ? QRect(screen->geometry().topLeft(), QSize(screen->geometry().width(), 800))
+                                                        : window.frameGeometry().adjusted(-24, -24, 24, 24);
+                shotImage = screen->grabWindow(0, area.x() - screen->geometry().x(), area.y() - screen->geometry().y(),
+                                               area.width(), area.height());
+            }
             if (log != nullptr) { log->close(); log->deleteLater(); }
             // 工具箱面板是 Qt::Popup（另一个顶层窗），window.grab() 抓不到它：按它在窗口里的位置贴上去。
             if (auto *panel = window.findChild<QFrame *>(MainWindowUI::toolboxPanelName()); panel != nullptr && panel->isVisible()) {
                 QPainter painter(&shotImage);
                 painter.drawPixmap(window.mapFromGlobal(panel->mapToGlobal(QPoint(0, 0))), panel->grab());
+            }
+            // 账号下拉面板同理（也是 Qt::Popup）。
+            if (auto *panel = window.findChild<QWidget *>(MainWindowUI::bottomBarPanelName()); panel != nullptr && panel->isVisible()) {
+                QPainter painter(&shotImage);
+                painter.drawPixmap(window.mapFromGlobal(panel->mapToGlobal(QPoint(0, 0))), panel->grab());
+                panel->close();
             }
             const bool saved = shotImage.save(root + QLatin1Char('/') + shot.file);
             report.append(QJsonObject{{"file", shot.file}, {"saved", saved}, {"width", window.width()},

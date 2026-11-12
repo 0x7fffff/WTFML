@@ -7,6 +7,7 @@
 
 #include "Glass.hpp"
 #include "Theme.hpp"
+#include "WindowEdge.hpp"
 
 #include <QEvent>
 #include <QGuiApplication>
@@ -30,6 +31,7 @@
 #    define DWMWCP_ROUND 2
 #  endif
 #  define WTFML_DWMWA_USE_IMMERSIVE_DARK_MODE 20
+#  define WTFML_DWMWA_BORDER_COLOR 34
 #  define WTFML_DWMWA_CAPTION_COLOR 35
 #  define WTFML_DWMWA_SYSTEMBACKDROP_TYPE 38
 #  define WTFML_DWMWA_COLOR_NONE 0xFFFFFFFEu
@@ -66,6 +68,8 @@ WindowChrome::WindowChrome(QWidget *window, QWidget *strip, QObject *parent)
     if (realWindowsPlatform()) m_window->setAttribute(Qt::WA_TranslucentBackground, true);
 #endif
     m_window->installEventFilter(this);
+    // 最外沿那一圈（样张）：主窗口、游戏日志窗、ChromeDialog 都从这里装上。
+    WindowEdge::install(m_window);
     // 换档、换深浅：重贴背板类型和深色标题区。
     Theme::follow(m_window, [this] { applyFrame(); });
 }
@@ -113,6 +117,12 @@ void WindowChrome::applyFrame() {
     DwmSetWindowAttribute(hwnd, WTFML_DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
     const COLORREF none = WTFML_DWMWA_COLOR_NONE;
     DwmSetWindowAttribute(hwnd, WTFML_DWMWA_CAPTION_COLOR, &none, sizeof(none));
+    // 自己画了最外沿那一圈，就把系统那条 1px 硬边去掉（Win11 才认这一项，旧系统返回错误、忽略）；
+    // 关掉渐变时还给系统默认色；Win10 及以下不画、也不动系统边。
+    if (WindowEdge::supported()) {
+        const COLORREF border = WindowEdge::enabled() ? WTFML_DWMWA_COLOR_NONE : 0xFFFFFFFFu;  // DWMWA_COLOR_DEFAULT
+        DwmSetWindowAttribute(hwnd, WTFML_DWMWA_BORDER_COLOR, &border, sizeof(border));
+    }
 
     // 3) 系统背板（文件头"为什么只从底边往上扩"）。用不了的系统上这两句返回错误，忽略。
     const Glass::Mode mode = Glass::effectiveMode();
