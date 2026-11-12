@@ -36,6 +36,8 @@ AgentMessageView::AgentMessageView(const AgentView::Message &message, QWidget *p
     m_reasoningToggle->setCheckable(true);
     m_reasoningToggle->setChecked(false);
     m_reasoningToggle->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    // 扁平：不留系统 QToolButton 那圈方框（悬停 / 勾上才出底）。
+    m_reasoningToggle->setAutoRaise(true);
     layout->addWidget(m_reasoningToggle);
     m_reasoning = new QLabel(this);
     m_reasoning->setObjectName(QStringLiteral("agentReasoningLabel"));
