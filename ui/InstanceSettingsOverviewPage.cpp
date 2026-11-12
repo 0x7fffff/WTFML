@@ -92,7 +92,14 @@ namespace {
 QWidget *overviewRow(QWidget *parent, QWidget *title, const QString &desc, QWidget *control, bool below = false) {
     auto *row = new QFrame(parent);
     row->setObjectName(QStringLiteral("instanceOverviewRow"));
-    row->setStyleSheet(QStringLiteral("QFrame#instanceOverviewRow { border: none; border-bottom: 1px solid palette(midlight); }"));
+    const auto paintRow = [row] {  // 行底分隔压到 fill-press 的四成：只提示换行，不画成格子
+        QColor line = Theme::tokens().fillPress;
+        line.setAlphaF(line.alphaF() * 0.4);
+        row->setStyleSheet(QStringLiteral("QFrame#instanceOverviewRow { border: none; border-bottom: 1px solid %1; }")
+                               .arg(line.name(QColor::HexArgb)));
+    };
+    paintRow();
+    Theme::follow(row, paintRow);
     auto *line = new QHBoxLayout(row);
     line->setContentsMargins(0, 12, 0, 12);
     line->setSpacing(16);
@@ -113,7 +120,13 @@ QWidget *overviewRow(QWidget *parent, QWidget *title, const QString &desc, QWidg
         QPalette pal = hint->palette();
         pal.setColor(QPalette::WindowText, Theme::tokens().secondary);
         hint->setPalette(pal);
-        text->addWidget(hint, 0, Qt::AlignLeft);
+        // 带 AlignLeft 的换行标签只拿 sizeHint 那点宽、高度不跟折行长，会被压成一条缝；直接放进竖排又会
+        // 把整列的最大宽压成 560、被摆到中间。⇒ 横排里 + 一截弹簧：限宽、靠左、按宽折行算高。
+        auto *hintRow = new QHBoxLayout;
+        hintRow->setContentsMargins(0, 0, 0, 0);
+        hintRow->addWidget(hint, 1);  // 先把字长到 560，余下的给弹簧
+        hintRow->addStretch(0);
+        text->addLayout(hintRow);
     }
     line->addLayout(text, 1);
     if (control != nullptr && below) {

@@ -85,19 +85,15 @@ QColor parseColorText(const QString &text) {
     return color.isValid() ? color : QColor();
 }
 
-/// 把一块预览摆成 @p color（无效色 = 一块空心的灰框 —— "这里还不是一个色"）。
+/// 把一块预览摆成 @p color（无效色 = 一块极淡的空底 —— "这里还不是一个色"）。
 void paintPreview(QLabel *preview, const QColor &color) {
-    // 那一圈边**跟着调色板走**：`disabledBorderColor()` 就是这一层里
-    // "轮廓还在、但不抢眼"那一档的出处（和灰掉的控件那一圈是同一个色）。写死一个灰
-    // 在浅色下正好、深色下那块空心框会比周围的底亮一大截，看着像"这里有个东西"而不是
-    // "这里还没有色"。
-    const QColor edge = color.isValid() ? Theme::swatchBorder(color)
-                                        : Theme::disabledBorderColor();
+    // 有色：色块边保留（`swatchBorder()`，浅色块压在浅底上要它才分得开）。
+    // 无色：不画空心框（「去硬描边」），只垫一层 fill-press 淡底，1px 透明边保住几何。
+    const QColor fill = color.isValid() ? color : Theme::tokens().fillPress;
+    const QColor edge = color.isValid() ? Theme::swatchBorder(color) : QColor(Qt::transparent);
     preview->setStyleSheet(QStringLiteral("background-color: %1; border: 1px solid %2;"
                                           " border-radius: %3px;")
-                               .arg(color.isValid() ? color.name(QColor::HexArgb)
-                                                    : QStringLiteral("transparent"))
-                               .arg(edge.name(QColor::HexArgb))
+                               .arg(fill.name(QColor::HexArgb), edge.name(QColor::HexArgb))
                                .arg(Theme::controlRadius()));
 }
 }  // namespace

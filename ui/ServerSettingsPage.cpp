@@ -1202,7 +1202,7 @@ void ServerSettingsPage::addFieldRow(const FieldView &field) {
         // 这一块画的是**游戏那一边**的样子（深底 + 游戏那 16 色），不跟我们的主题走 ——
         // 一行固定的深色就够了，别去动调色板（`setStyleSheet()` 只作用在它自己身上）。
         plate->setStyleSheet(QStringLiteral("QLabel { background-color: #202020;"
-                                            " border: 1px solid #3a3a3a; border-radius: 4px;"
+                                            " border: none; border-radius: 4px;"
                                             " padding: 6px 10px; }"));
         plate->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
         holderLayout->addWidget(plate);

@@ -367,13 +367,12 @@ public:
     static QColor filterButtonForeground(LogLevel level, const QPalette &palette);
 
     /**
-     * @brief 那排开关**关着**时的底色 / 那一圈边。
+     * @brief 那排开关**关着**时的底色（不描边：1px 透明边只为保住几何，形状靠底色）。
      *
      * 它们**从这一块地方的底色往它的墨色混一档**（`Theme::neutralFill()`，29% / 34%）。
-     * 浅色下是 `#aa` / `#d9`，屏幕上和 `#ababab` / `#9f9f9f` 分不出来；深色下自动是深灰。
+     * 浅色下是 `#aa`，屏幕上和 `#ababab` 分不出来；深色下自动是深灰。
      */
     static QColor switchOffColor(const QPalette &palette);
-    static QColor switchEdgeColor(const QPalette &palette);
 
     // ---------- 正文那块文本的长相 ----------
 

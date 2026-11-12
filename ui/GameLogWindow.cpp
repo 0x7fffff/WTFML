@@ -86,9 +86,8 @@ constexpr int kSwitchOnPercent = 9;
 /// 它也是算出来的（`separatorColor()`，从**正文区**的 `Base` 往它的墨混 15%）
 /// —— 浅色下是 `#d9d9d9`。
 
-/// 中性档的那三个百分比（关态底 / 边 / 那个兜底的开态灰）—— **和上一段说的同一件事**。
+/// 中性档的百分比（关态底 / 那个兜底的开态灰）—— **和上一段说的同一件事**。
 constexpr int kSwitchOffPercent = 29;
-constexpr int kSwitchEdgePercent = 34;
 
 /// 三通道字面量 → 色（`k*Bg` 那一堆都是这么用的）。
 QColor fromRgb(const int rgb[3]) {
@@ -114,7 +113,7 @@ constexpr qreal kLogFontPointDelta = 1.0;
 /// 所以两种状态都写全（背景 + 边 + 圆角 + 内边距），由我们自己画。**两边的边和内边距必须
 /// 一模一样**：差一点就是"点一下按钮自己变大变小"、整排跟着跳（验证工程里有一条盯着它）。
 QString filterButtonStyle(const QColor &onBg, const QColor &onInk, const QColor &offBg,
-                          const QColor &offInk, const QColor &edge) {
+                          const QColor &offInk) {
     // 内边距取 `1px 5px`：两边加起来正好把按钮撑到 **19 px**，
     // 这一排不因为换了个画法就长高一点。
 
@@ -140,12 +139,11 @@ QString filterButtonStyle(const QColor &onBg, const QColor &onInk, const QColor 
     // 变的只是"从哪一档出发、往哪边压"，那是底色自己决定的，别处也一样。
     const QColor hoverBg = offBg.darker(100 + Theme::rowHoverAccentPercent());
 
-    return QStringLiteral("QToolButton { background-color: %1; color: %2; border: 1px solid %3;"
+    return QStringLiteral("QToolButton { background-color: %1; color: %2; border: 1px solid transparent;"
                           " border-radius: 12px; padding: 3px 11px; }"
-                          "QToolButton:hover:enabled:!checked { background-color: %4; }"
-                          "QToolButton:checked { background-color: %5; color: %6; }")
-        .arg(offBg.name(), offInk.name(), edge.name(), hoverBg.name(), onBg.name(),
-             onInk.name());
+                          "QToolButton:hover:enabled:!checked { background-color: %3; }"
+                          "QToolButton:checked { background-color: %4; color: %5; }")
+        .arg(offBg.name(), offInk.name(), hoverBg.name(), onBg.name(), onInk.name());
 }
 
 /// 这一档的**块**格式：底色（铺满整行）在里面。
@@ -838,8 +836,7 @@ void GameLogWindow::refreshFilterButtonStyles() {
                               // 关着那一颗的字用的是**中性墨**，不是"这一档的墨"：
                               // Fatal 那一档开着时是白字，而关着时它那颗底是中灰，
                               // 白字压上去就成了"看不见的按钮"。
-                              palette.color(QPalette::WindowText),
-                              switchEdgeColor(palette)));
+                              palette.color(QPalette::WindowText)));
     }
     // 记下这一趟用的是哪一档中性灰：`changeEvent()` 拿它当"真的换了主题没有"的判据
     // （这两个事件来得比主题变化勤得多）。
@@ -1036,11 +1033,6 @@ QColor GameLogWindow::filterButtonForeground(LogLevel level, const QPalette &pal
 QColor GameLogWindow::switchOffColor(const QPalette &palette) {
     return Theme::neutralFill(palette.color(QPalette::Window),
                               palette.color(QPalette::WindowText), kSwitchOffPercent);
-}
-
-QColor GameLogWindow::switchEdgeColor(const QPalette &palette) {
-    return Theme::neutralFill(palette.color(QPalette::Window),
-                              palette.color(QPalette::WindowText), kSwitchEdgePercent);
 }
 
 // ---------------------------------------------------------------------------

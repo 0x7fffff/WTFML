@@ -60,6 +60,7 @@ UpgradeReportDialog::UpgradeReportDialog(QWidget *parent) : ChromeDialog(parent,
     m_tree->setObjectName(treeName());
     m_tree->setHeaderLabels({QStringLiteral("项目"), QStringLiteral("依据")});
     m_tree->setRootIsDecorated(true);
+    m_tree->setFrameShape(QFrame::NoFrame);  // 不描框：列表那块淡底自己就是边界
     m_tree->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     m_tree->header()->setStretchLastSection(true);
     root->addWidget(m_tree, 1);

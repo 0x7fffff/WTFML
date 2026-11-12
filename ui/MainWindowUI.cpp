@@ -123,8 +123,8 @@ QFont handPx(QFont font, Theme::HandFont which, int px, qreal spacing) {
 }
 
 /// 主页压在风景上的那几颗"玻璃"按钮：账号胶囊、启动区的切换 / 设置、实例带上的卡片和那颗
-/// 悬停才出来的播放钮。底色是场景暗角色（heroVeil）按设计稿的浓度叠上去 + 1px glass-edge
-/// 内描边（CSS `backdrop-filter` 那层模糊 Qt 里没有，见差异清单）；没有场景时退回中性淡底。
+/// 悬停才出来的播放钮。底色是场景暗角色（heroVeil）按设计稿的浓度叠上去，不描边（只有快速启动
+/// 空槽描虚线）；没有场景时退回中性淡底。
 /// 颜色在绘制时现取，换主题不必重挂样式表；尺寸仍归 QSS（min-height / max-height）。
 class HeroButton final : public QPushButton {
 public:
@@ -170,8 +170,8 @@ protected:
                     edge.setStyle(Qt::DashLine);
                 }
                 edge.setWidthF(1.0);
-                // 账号胶囊只留一层极淡的底、不描边：圆头像 + 两行字已经够分出"一颗"了。
-                const bool stroked = m_dashed || (alpha > 0 && m_shape != Shape::Pill);
+                // 只有快速启动空槽描虚线；其余只留底色（「去硬描边」：底色差就分得出"一颗"）。
+                const bool stroked = m_dashed;
                 p.setPen(stroked ? edge : QPen(Qt::NoPen));
                 p.drawRoundedRect(box, radius, radius);
             }
@@ -364,7 +364,7 @@ QPixmap homeTileCover(const QIcon &icon, const QString &name, int side) {
     const Theme::Tokens t = Theme::tokens();
     QColor fill = Glass::sceneShown() ? t.heroVeil : t.subtle;
     if (Glass::sceneShown()) fill.setAlphaF(0.40);
-    p.setPen(QPen(Glass::sceneShown() ? t.glassEdge : t.stroke, 1.0));
+    p.setPen(Qt::NoPen);  // 不描边（「去硬描边」）：淡底块就是形状
     p.setBrush(fill);
     p.drawRoundedRect(QRectF(0.5, 0.5, side - 1, side - 1), 12, 12);
     const int inner = side * 7 / 12;
@@ -1051,10 +1051,10 @@ QWidget *MainWindowUI::setupInstancePage() {
         const Theme::Tokens t = Theme::tokens();
         folderPill->setIcon(QIcon(VersionIcons::line(QStringLiteral("folder"), 16, t.secondary)));
         folderPill->setStyleSheet(QStringLiteral(
-            "QPushButton { background: transparent; color: %1; border: 1px solid %2; border-radius: 10px;"
+            "QPushButton { background: %2; color: %1; border: 1px solid transparent; border-radius: 10px;"
             " padding: 0 30px 0 10px; min-height: 34px; max-height: 34px; text-align: left; font-weight: 600; }"
             "QPushButton:hover { background: %3; }")
-            .arg(t.text.name(QColor::HexArgb), t.stroke.name(QColor::HexArgb), t.hover.name(QColor::HexArgb)));
+            .arg(t.text.name(QColor::HexArgb), t.subtle.name(QColor::HexArgb), t.fillSoftHover.name(QColor::HexArgb)));
     };
     paintPill();
     Theme::follow(folderPill, paintPill);
@@ -1082,9 +1082,8 @@ QWidget *MainWindowUI::setupInstancePage() {
     folderPopup->setAttribute(Qt::WA_StyledBackground);
     const auto paintPopup = [folderPopup]() {
         const Theme::Tokens t = Theme::tokens();
-        folderPopup->setStyleSheet(QStringLiteral("QFrame#%1 { background: %2; border: 1px solid %3; border-radius: 16px; }")
-                                       .arg(instanceFolderPopupName(), t.card.name(QColor::HexArgb),
-                                            t.glassEdge.name(QColor::HexArgb)));
+        folderPopup->setStyleSheet(QStringLiteral("QFrame#%1 { background: %2; border: none; border-radius: 16px; }")
+                                       .arg(instanceFolderPopupName(), t.card.name(QColor::HexArgb)));
     };
     paintPopup();
     Theme::follow(folderPopup, paintPopup);

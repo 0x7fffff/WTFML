@@ -42,8 +42,8 @@ void ToggleSwitch::leaveEvent(QEvent *event) {
 
 void ToggleSwitch::paintEvent(QPaintEvent *event) {
     Q_UNUSED(event);
-    // 设计稿：关 = 空心 1.5px ink-3 描边 + ink-2 圆点 12；开 = 强调色实心 + on-accent 圆点 14；
-    // 悬停圆点放大 1.12（关着时底垫中性灰）；按下圆点拉长到 17 宽；禁用整枚 .45。
+    // 关 = fill-press 实心轨道（不描边）+ ink-2 圆点 12；开 = 强调色实心 + on-accent 圆点 14；
+    // 悬停圆点放大 1.12（关着时轨道压深一点）；按下圆点拉长到 17 宽；禁用整枚 .45。
     const QRectF box(0.75, 0.75, width() - 1.5, height() - 1.5);
     const Theme::Tokens t = Theme::tokens();
     const QColor accent = palette().color(QPalette::Accent);
@@ -58,8 +58,10 @@ void ToggleSwitch::paintEvent(QPaintEvent *event) {
         painter.setPen(Qt::NoPen);
         painter.setBrush(hovered ? (accent == t.primary ? t.primaryHover : accent.lighter(110)) : accent);
     } else {
-        painter.setPen(QPen(t.disabled, 1.5));
-        painter.setBrush(hovered ? t.hover : QColor(Qt::transparent));
+        QColor track = t.fillPress;  // 悬停把同一档压深一点（浅深主题都是加 alpha）
+        if (hovered) track.setAlphaF(qMin(1.0, track.alphaF() * 1.6));
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(track);
     }
     painter.drawRoundedRect(box, radius, radius);
 

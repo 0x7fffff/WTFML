@@ -55,7 +55,7 @@ void ListRowDelegate::paint(QPainter *painter, const QStyleOptionViewItem &optio
     painter->save();
     painter->setRenderHint(QPainter::Antialiasing, true);
 
-    // 行间 1px 分隔线（左右各缩 12）；本行或上一行有底色时不画，免得线压在色块边上。
+    // 行间 1px 极淡分隔线（左右各缩 12）；本行或上一行有底色时不画，免得线压在色块边上。
     bool prevSelected = false;
     if (index.row() > 0) {
         const auto *view = qobject_cast<const QAbstractItemView *>(option.widget);
@@ -63,7 +63,9 @@ void ListRowDelegate::paint(QPainter *painter, const QStyleOptionViewItem &optio
                        view->selectionModel()->isSelected(index.siblingAtRow(index.row() - 1));
     }
     if (index.row() > 0 && !hovered && !selected && !prevSelected) {
-        painter->fillRect(QRect(r.left() + kPad, r.top(), r.width() - 2 * kPad, 1), t.divider);
+        QColor line = t.divider;  // 压到四成：只提示「换行了」，不画成格子
+        line.setAlphaF(line.alphaF() * 0.4);
+        painter->fillRect(QRect(r.left() + kPad, r.top(), r.width() - 2 * kPad, 1), line);
     }
     if (hovered || selected) {
         QPainterPath bg;
@@ -78,7 +80,7 @@ void ListRowDelegate::paint(QPainter *painter, const QStyleOptionViewItem &optio
 
     // 封面：圆角淡底块（设计稿 .cover），里面居中摆图标（7/12 边长）
     const QRect cover(r.left() + kPad, r.center().y() - coverSize() / 2 + 1, coverSize(), coverSize());
-    painter->setPen(QPen(t.stroke, 1.0));
+    painter->setPen(Qt::NoPen);  // 不描边：淡底块自己就是形状
     painter->setBrush(t.subtle);
     painter->drawRoundedRect(QRectF(cover).adjusted(0.5, 0.5, -0.5, -0.5), kRadius, kRadius);
     const int inner = coverSize() * 7 / 12;

@@ -1238,7 +1238,8 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             // 7b：调色板 `Link` 改成 accentInk（浅色预设下压到近黑、专给小字用），拿它当「绿」
             // 会和那一档黑撞在 30 的容差里 —— 「有没有主题色」改用 tokens().deep 量。
             const QColor checkInk = Theme::tokens().deep;
-            // 输入框 / 下拉框那一圈边走调色板 `Dark`（tokens 的 stroke）。
+            // 输入框 / 下拉框**默认不描线**（「去硬描边」）；拿调色板 `Dark`（tokens 的 stroke）
+            // 那一档当「旧底线」的色，量它**不在**最后一行上。
             const QColor inputBorderToken = app.palette().color(QPalette::Dark);
             // 7a：输入框 / 下拉框的底和那条底线都是半透明的，垫在页面底上抓、按叠出来的色量。
             const QColor formBase = Theme::tokens().page;
@@ -1312,13 +1313,43 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                   QStringLiteral("底色 %1 该是 %2 / 字 %3")
                       .arg(dominantColor(editShot, searchEdit->rect()).name(), inputFill.name(),
                            editText.name()));
-            const int editBorderHits =
-                countColorIn(editShot, searchEdit->rect(), inputBorder, 12);
-            // 设计稿：只有一条底线（另外三边是透明的 1px，只为和数字框一样高）。
-            check(editBorderHits >= searchEdit->width() * 8 / 10,
-                  "★★ W13 输入框那条底线跟着调色板 `Dark`（tokens 的 stroke；"
-                  "至少八成宽度那么多个像素）",
-                  QStringLiteral("边那一档 %1 个像素").arg(editBorderHits));
+            // 最后一行上「旧底线」那一档的像素数（四边 1px 都是透明边，只为和数字框一样高）。
+            const auto bottomLineHits = [&countColorIn, &inputBorder](const QImage &image, const QRect &area) {
+                return countColorIn(image, QRect(area.left(), area.bottom(), area.width(), 1), inputBorder, 12);
+            };
+            // 最后一行是圆角那圈的抗锯齿半格（底和页面之间），不该比页面离底更远。
+            const auto bottomIsFill = [&inputFill, &formBase](const QImage &image, const QRect &area) {
+                return colorDistance(QColor(image.pixel(area.center().x(), area.bottom())), inputFill) <=
+                       colorDistance(formBase, inputFill) + 3;
+            };
+            const int editBorderHits = bottomLineHits(editShot, searchEdit->rect());
+            check(editBorderHits <= searchEdit->width() / 10 && bottomIsFill(editShot, searchEdit->rect()),
+                  "★★ W13 输入框默认**没有底线**：最后一行和框里一样是 `Base` 底（「去硬描边」）",
+                  QStringLiteral("最后一行有 %1 个 `Dark` 像素 / 正中 %2 该是 %3")
+                      .arg(editBorderHits)
+                      .arg(QColor(editShot.pixel(searchEdit->rect().center().x(), searchEdit->rect().bottom())).name(),
+                           inputFill.name()));
+            {   // 报错时才露底线：2px 危险色（`wtfmlError`）。
+                const auto repolish = [searchEdit] {
+                    searchEdit->style()->unpolish(searchEdit);
+                    searchEdit->style()->polish(searchEdit);
+                };
+                searchEdit->setProperty("wtfmlError", true);
+                repolish();
+                const QImage errorShot = captureWidgetOn(searchEdit, formBase);
+                const QColor danger = app.palette().color(QPalette::BrightText);
+                const QRect lastTwo(0, searchEdit->height() - 2, searchEdit->width(), 2);
+                const int errorHits = countColorIn(errorShot, lastTwo, danger, 12);
+                check(errorHits >= searchEdit->width() * 2 * 8 / 10,
+                      "★★ W13 输入框报错时有底线：最后两行是危险色（至少八成宽度）",
+                      QStringLiteral("危险色 %1 个像素 / 宽 %2").arg(errorHits).arg(searchEdit->width()));
+                searchEdit->setProperty("wtfmlError", QVariant());
+                repolish();
+            }
+            check(Theme::widgetStyleSheet().contains(
+                      QLatin1String("QLineEdit:focus, QComboBox:focus, QComboBox:on { border-color: transparent;"
+                                    " border-bottom: 2px solid palette(link); }")),
+                  "★★ W13 输入框 / 下拉框拿到焦点（下拉展开）时只有 2px 强调色底线（另三边清回透明，不成整圈框）");
 
             // 勾选框没勾：框和字**都是**那一档黑；勾上：**两样都**变成主题色。
             // 「两样都」是这一条的重点 —— 只写 `QCheckBox::indicator` 的话字还是黑的。
@@ -1354,12 +1385,10 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                   "★★ W13 下拉框：框里面是 `Base` 那一档、字是调色板 `Text` 那一支（和输入框同一组颜色）",
                   QStringLiteral("底色 %1")
                       .arg(dominantColor(comboShot, plainCombo->rect()).name()));
-            const int comboBorderHits =
-                countColorIn(comboShot, plainCombo->rect(), inputBorder, 12);
-            check(comboBorderHits >= plainCombo->width() * 8 / 10,
-                  "★★ W13 下拉框那条底线也是调色板 `Dark`（判据和阈值跟输入框一模一样："
-                  "至少八成宽度那么多个像素）",
-                  QStringLiteral("边那一档 %1 个像素（输入框 %2 个 / 宽度 %3）")
+            const int comboBorderHits = bottomLineHits(comboShot, plainCombo->rect());
+            check(comboBorderHits <= plainCombo->width() / 10 && bottomIsFill(comboShot, plainCombo->rect()),
+                  "★★ W13 下拉框默认也没有底线（判据和阈值跟输入框一模一样）",
+                  QStringLiteral("最后一行 %1 个 `Dark` 像素（输入框 %2 个 / 宽度 %3）")
                       .arg(comboBorderHits)
                       .arg(editBorderHits)
                       .arg(plainCombo->width()));
@@ -1535,9 +1564,8 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                       .arg(sizeEdit->sizeHint().height()).arg(sizeCombo->sizeHint().height())
                       .arg(sizeSpin->sizeHint().height()));
             QApplication::processEvents();
-            // 落成图上也得是这么高（`sizeHint()` 是"算出来的"，这一条是"画出来的"）：数每一行
-            // 上那一圈 `Dark`（tokens 的 stroke）的边有多少个像素，取上下各一条最长的 ——
-            // 中间隔着的就是控件的高度。
+            // 落成图上也得是这么高（`sizeHint()` 是"算出来的"，这一条是"画出来的"）：没有描线了，
+            // 数每一行上 `Base` 底那一档有多少个像素，过半的第一行到最后一行就是控件的高度。
             const auto hasInk = [](const QImage &image, int x, int y) {
                 return colorDistance(QColor(image.pixel(x, y)), Qt::white) > 200;
             };
@@ -1547,7 +1575,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             for (int y = 0; y < comboSizeShot.height(); ++y) {
                 int hits = 0;
                 for (int x = 0; x < comboSizeShot.width(); ++x) {
-                    if (colorDistance(QColor(comboSizeShot.pixel(x, y)), inputBorder) <= 12) {
+                    if (colorDistance(QColor(comboSizeShot.pixel(x, y)), inputFill) <= 3) {
                         ++hits;
                     }
                 }
@@ -1558,11 +1586,11 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                     borderBottom = y;
                 }
             }
-            // 只有底线：它画在最后一行上 ⇒ 那一行的行号 + 1 就是画出来的高度。
-            borderTop = 0;
-            check(borderBottom >= 0 && borderBottom - borderTop + 1 == comboHeight,
-                  "★★ W13 那个高度**真的画出来了**（量的是图上那条 `Dark` 的底线，它落在控件的"
-                  "最后一行）",
+            // 首末两行是圆角抗锯齿的半格，量到的整格底从第 1 行到倒数第 2 行。
+            check(comboSizeShot.height() == comboHeight && borderTop >= 0 && borderTop <= 1 &&
+                      borderBottom >= comboHeight - 2,
+                  "★★ W13 那个高度**真的画出来了**（量的是图上 `Base` 底那一块，从控件第一行铺到"
+                  "最后一行，首末行是抗锯齿）",
                   QStringLiteral("边在第 %1 行到第 %2 行（%3 高，`sizeHint()` 说 %4）")
                       .arg(borderTop).arg(borderBottom).arg(borderBottom - borderTop + 1)
                       .arg(comboHeight));
