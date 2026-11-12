@@ -382,6 +382,8 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     offlineRow->setContentsMargins(0, 0, 0, 0);
     offlineRow->setSpacing(8);
     left->addWidget(m_offlineRow);
+    // 离线行默认收起后左列比立绘矮：余高落在列底，别分进标题和列表之间的缝里。
+    left->addStretch(1);
     m_offlineNameEdit = new QLineEdit(m_offlineRow);
     m_offlineNameEdit->setObjectName(offlineNameEditName());
     m_offlineNameEdit->setPlaceholderText(offlineNamePlaceholder());
