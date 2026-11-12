@@ -31,7 +31,7 @@ int UiColumnProportionsChecks(QComboBox * &installed, QPushButton * &startBtn, Q
               "实例/下载/设置三页都没跟着反过来（左栏是那条窄侧栏）");
 
         const QStringList tabKeys = {QStringLiteral("home"), QStringLiteral("instance"),
-                                     QStringLiteral("download"), QStringLiteral("settings")};
+                                     QStringLiteral("download")};  // 设置页是单栏，没有左右两栏
         for (int i = 0; i < tabKeys.size(); ++i) {
             const QString key = tabKeys.at(i);
             const bool home = MainWindowUI::leftColumnIsWider(key);

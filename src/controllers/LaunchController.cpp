@@ -151,7 +151,7 @@ bool LaunchController::confirmLaunchWhileRunning(const QString &versionId) {
                    "两份游戏开着同一份存档。")
                     .arg(displayName),
                 QStringList{m_owner->tr("取消"), m_owner->tr("仍要启动")}, -1, 1, false,
-                m_owner->tr("可以在设置中关闭此提示（设置页「提示」→「重复启动」）。"));
+                m_owner->tr("可以在设置中关闭此提示（设置 → 提示 →「重复启动时确认」）。"));
             if (choice != 1) {
                 return false;
             }
@@ -170,7 +170,7 @@ bool LaunchController::confirmLaunchWhileRunning(const QString &versionId) {
                "进度 —— 存档可能回退，也可能坏掉。")
                 .arg(displayName),
             QStringList{m_owner->tr("取消"), m_owner->tr("仍要启动")}, -1, 1, false,
-            m_owner->tr("可以在设置中关闭此提示（设置页「提示」→「进度提醒」）。"));
+            m_owner->tr("可以在设置中关闭此提示（设置 → 提示 →「同一实例已运行时提醒」）。"));
         if (choice != 1) {
             return false;
         }

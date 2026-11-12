@@ -1147,7 +1147,7 @@ int LauncherManager::startGame(const QStringList &arguments, const EffectiveJava
             qWarning() << "Java executable not found on PATH and no path is configured.";
             emit processError(sessionId,
                               tr("没有找到 Java：设置里没有指定 Java 路径，系统 PATH 上也没"
-                                 "有 java。请在「设置 → Java」里指定一份。"));
+                                 "有 java。请在「设置 → 启动 → Java 管理」里指定一份。"));
             discardSession(sessionId, /*abandoned=*/true);
             return 0;
         }

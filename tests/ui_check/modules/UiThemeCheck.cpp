@@ -178,12 +178,10 @@ int UiThemeCheck(QApplication &app) {
                 app.processEvents();
                 expect(preview.grab().save(directory + QLatin1Char('/') + id + QStringLiteral("-settings.png")),
                        "save settings preview");
-                auto *settingsList = preview.findChild<QListWidget *>(MainWindowUI::settingsCategoryListName());
-                auto *settingsRail = preview.findChild<QFrame *>(QStringLiteral("settingsSidebarSurface"));
-                expect(settingsList && settingsList->frameShape() == QFrame::NoFrame &&
-                           settingsList->palette().color(QPalette::Base) == t.main &&
-                           settingsRail && settingsRail->property("wtfmlSidebarRail").toBool(),
-                       "settings sidebar uses the same seamless surface as management and downloads");
+                expect(preview.findChild<QListWidget *>(QStringLiteral("settingsCategoryList")) == nullptr &&
+                           preview.findChild<QFrame *>(QStringLiteral("settingsSidebarSurface")) == nullptr &&
+                           preview.findChild<SettingsParts::SlidingTabs *>(MainWindowUI::settingsTabsName()) != nullptr,
+                       "settings has top tabs and no left index sidebar");
                 for (const auto &entry : {qMakePair(MainWindowUI::instancesTabIndex(), QStringLiteral("-management.png")),
                                           qMakePair(MainWindowUI::downloadTabIndex(), QStringLiteral("-download.png"))}) {
                     previewUi.getTabWidget()->setCurrentIndex(entry.first);

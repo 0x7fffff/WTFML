@@ -114,6 +114,7 @@
 // U10a / U11 那一段：「配置文件」那一页里嵌着的那个编辑器。
 // ConfigEntries 是左边那一格「条目」的取数（一条 `键 = 值` 是怎么认出来的）——
 // 它是纯函数，这一层正是它该被量的地方。
+#include "SettingsPageParts.hpp"
 #include "ConfigEntries.hpp"
 #include "ConfigFileEditorPage.hpp"
 #include "ConfigFileText.hpp"

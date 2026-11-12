@@ -368,12 +368,16 @@ int UiNavigationChecks(QMainWindow &window, MainWindowUI &ui, QComboBox * &insta
         // 账号那一整块（正版登录 / 加离线账号 / 切换 / 删除 / 皮肤披风）只在
         // 「账号与外观」那个窗里做，设置页这格是它的入口 —— 和主页右栏那个同一个窗、
         // 同一句文案（accountSkinButtonText()）。
-        check(settingsPage != nullptr &&
-                  isAncestor(settingsPage, ui.getAccountSkinSettingsButton()),
-              "「账号与外观…」那个入口也在设置页里",
-              settingsPage != nullptr && ui.getAccountSkinSettingsButton() != nullptr
-                  ? ui.getAccountSkinSettingsButton()->text()
-                  : QStringLiteral("<找不到>"));
+        // 设置页不再有「账户」一节：这颗按钮只是隐藏的兼容入口，画不出来，也没有「账户」小节标题。
+        {
+            bool accountGroup = false;
+            if (settingsPage != nullptr)
+                for (QWidget *w : settingsPage->findChildren<QWidget *>())
+                    if (w->property("settingsSectionTitle").toString() == QStringLiteral("账户")) accountGroup = true;
+            check(ui.getAccountSkinSettingsButton() != nullptr &&
+                      !ui.getAccountSkinSettingsButton()->isVisibleTo(settingsPage) && !accountGroup,
+                  "设置页里没有「账户」一节，账号入口只在主页 / 导航轨浮层（设置里只剩隐藏的兼容入口）");
+        }
         // 反面：那格**不再**摆「微软登录」按钮（登录过叫「重新登录」那种）—— 它只会登录
         // 一件事，加离线账号/切换/删除一件都做不到，这些并进那个窗里了。
         check(window.findChild<QWidget *>(QStringLiteral("loginButton")) == nullptr,
