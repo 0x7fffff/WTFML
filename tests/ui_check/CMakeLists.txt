@@ -253,6 +253,7 @@ add_ui_module(ui_check_ui_refresh modules/UiUiRefreshCheck.cpp UiUiRefreshCheck)
 add_ui_module(ui_check_theme modules/UiThemeCheck.cpp UiThemeCheck)
 add_ui_module(ui_check_window_chrome modules/UiWindowChromeCheck.cpp UiWindowChromeCheck)
 add_ui_module(ui_check_armor_trim ArmorTrimChecks.cpp runArmorTrimChecks)
+add_ui_module(ui_check_settings_shots modules/UiSettingsShotsCheck.cpp UiSettingsShotsCheck)  # 设置页验收截图，不进 ctest
 wtfml_write_compact_entries()
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
  foreach(_target wtfml_ui_fixture ui_legacy_cases ui_check)

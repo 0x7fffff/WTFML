@@ -166,8 +166,8 @@ void SettingsRow::place() {
     auto *cellLayout = qobject_cast<QHBoxLayout *>(m_cell->layout());
     if (below) {
         m_grid->addWidget(m_left, 0, 0, 1, 2);
-        const bool wide = m_spec.placement == Placement::Wide;
-        m_grid->addWidget(m_cell, 1, 0, 1, 2, wide ? Qt::Alignment() : Qt::AlignLeft);
+        // Column / Wide 行不设对齐：铺满行宽，Column 由 m_cell 的最大宽 320 封顶（对齐为空时靠左）。
+        m_grid->addWidget(m_cell, 1, 0, 1, 2, m_spec.placement == Placement::Natural ? Qt::AlignLeft : Qt::Alignment());
         if (m_spec.placement == Placement::Column) {
             m_cell->setMinimumWidth(kControlColumn);
             m_cell->setMaximumWidth(kStackedControlMax);
@@ -175,7 +175,8 @@ void SettingsRow::place() {
             m_cell->setMinimumWidth(0);
             m_cell->setMaximumWidth(QWIDGETSIZE_MAX);
         }
-        if (!wide && cellLayout) cellLayout->setAlignment(m_control, Qt::AlignLeft);
+        // Column 行的控件铺满那一列；Natural 行靠左。
+        if (cellLayout) cellLayout->setAlignment(m_control, m_spec.placement == Placement::Natural ? Qt::AlignLeft : Qt::Alignment());
     } else {
         m_grid->addWidget(m_left, 0, 0, Qt::AlignVCenter);
         m_grid->addWidget(m_cell, 0, 1, Qt::AlignRight | Qt::AlignVCenter);
@@ -185,7 +186,7 @@ void SettingsRow::place() {
             m_cell->setMinimumWidth(0);
             m_cell->setMaximumWidth(QWIDGETSIZE_MAX);
         }
-        if (cellLayout) cellLayout->setAlignment(m_control, Qt::AlignRight);
+        if (cellLayout) cellLayout->setAlignment(m_control, m_spec.placement == Placement::Natural ? Qt::AlignRight : Qt::Alignment());
     }
     m_grid->invalidate();
 }

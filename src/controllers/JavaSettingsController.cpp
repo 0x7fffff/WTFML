@@ -214,11 +214,11 @@ void JavaSettingsController::updatePathLabel() {
     QLabel *label = m_ui->getJavaPathLabel();
     const QString path = m_settings->javaPath();
     if (!m_settings->autoSelectJava())
-        label->setText(path.isEmpty() ? tr("手动指定：还没有路径，启动会直接失败。")
+        label->setText(path.isEmpty() ? tr("手动指定：未选择路径，启动将失败。")
                                       : tr("手动指定：%1").arg(path));
     else
-        label->setText(path.isEmpty() ? tr("自动选择")
-                                      : tr("自动：上次用的是 %1").arg(path));
+        label->setText(path.isEmpty() ? tr("自动选择　按游戏版本")
+                                      : tr("自动选择　上次使用 %1").arg(path));
 }
 
 void JavaSettingsController::useAuto() {

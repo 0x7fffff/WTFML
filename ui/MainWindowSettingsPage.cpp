@@ -14,6 +14,7 @@
 #include "ThemeBackground.hpp"
 #include "TitleBar.hpp"
 
+#include <QApplication>
 #include <QColor>
 #include <QEvent>
 #include <QFont>
@@ -154,6 +155,10 @@ QPushButton *textButton(const QString &text, QWidget *parent) {
     auto *button = new QPushButton(text, parent);
     Theme::markButton(button, Theme::ButtonKind::Ghost);
     button->setCursor(Qt::PointingHandCursor);
+    QFont font = QApplication::font();  // 按钮用系统字（手写体只留品牌 / 主页大标题 / 页标题 / 空状态）
+    font.setPixelSize(13);
+    font.setWeight(QFont::Medium);
+    button->setFont(font);
     return button;
 }
 
@@ -223,6 +228,25 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
                          if (index >= 0 && index < settingsCategoryStack->count())
                              settingsCategoryStack->setCurrentIndex(index);
                      });
+
+    // 按钮、分段统一用系统字（手写体只留品牌 / 主页大标题 / 页标题 / 空状态）。
+    for (QPushButton *button : settingsCategoryStack->findChildren<QPushButton *>()) {
+        const bool text = button->property("wtfmlTextAction").toBool() || button->property("wtfmlSegment").toBool();
+        if (!text || button->property("wtfmlFoldRow").toBool()) continue;
+        QFont font = QApplication::font();
+        font.setPixelSize(button->property("wtfmlSegment").toBool() ? 14 : 13);
+        font.setWeight(QFont::Medium);
+        button->setFont(font);
+    }
+
+    // 设置页里的折叠行（「高级」和高级配色那一行）：标题靠左、整行 44 高。
+    // 应用级样式表没写 text-align，这里用实例级样式只作用于折叠行按钮。
+    for (QPushButton *fold : settingsCategoryStack->findChildren<QPushButton *>()) {
+        if (!fold->property("wtfmlFoldRow").toBool()) continue;
+        fold->setStyleSheet(QStringLiteral(
+            "QPushButton[wtfmlFoldRow=\"true\"] { text-align: left; padding-left: 14px; min-height: 44px; max-height: 44px; }"));
+        fold->setFixedHeight(44);
+    }
 
     // 「账号与外观」窗的入口只在主页身份区和导航轨底部浮层；设置里不再有账户一节。
     // 这颗按钮留作隐藏的兼容入口（MainWindow / 验证工程按名字取它，直通同一个窗）。

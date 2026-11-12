@@ -2879,7 +2879,7 @@ public:
     /// 这一行的行标题（左列那一格）。
     static QString curseForgeApiKeyRowText() { return QStringLiteral("CurseForge API key"); }
     /// 输入框里的占位文字（空着的时候显示那一句）。
-    static QString curseForgeApiKeyPlaceholder() { return QStringLiteral("留空则用公共接口"); }
+    static QString curseForgeApiKeyPlaceholder() { return QStringLiteral("留空使用社区镜像"); }
 
     // ---------- 「下载新模组时直接放进当前实例」（在「下载」栏里） ----------
     // 语义的**唯一出处**是 LauncherSettings 里那一节。这里只有形状：

@@ -158,7 +158,7 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
                   QString::number(static_cast<int>(cfKey->echoMode())));
             check(cfKey->placeholderText() == MainWindowUI::curseForgeApiKeyPlaceholder() &&
                       !cfKey->placeholderText().isEmpty(),
-                  "空着的时候写着「留空则用公共接口」（这一格不是必填项）",
+                  "空着的时候写着「留空使用社区镜像」（这一格不是必填项）",
                   cfKey->placeholderText());
             check(cfKey->text().isEmpty(),
                   "刚搭好时框里是空的（值由 MainWindow 从盘上灌，界面层不自己猜）",

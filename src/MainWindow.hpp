@@ -1773,7 +1773,7 @@ private:
     void refreshJavaList();
     /// 把「Java 版本」那一行下面的说明文字刷成**当前设定**：手动/自动两档 × 路径有值/
     /// 无值，四种说法。它说的是"设定了什么"，不是"这次启动一定会用哪个" —— 自动档下真正
-    /// 挑中的 Java 要到启动那一刻才知道（所以文案写的是"上次用的是…"）。
+    /// 挑中的 Java 要到启动那一刻才知道（所以文案写的是"上次使用…"）。
     void updateJavaPathLabel();
     /// 把归一化之后的「版本名格式」开关回灌到四个勾选框上（内部挡信号）。
     void pushVersionNameOptionsToUi(const VersionNameOptions &options);
