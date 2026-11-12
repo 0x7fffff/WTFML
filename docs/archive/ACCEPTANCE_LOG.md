@@ -208,3 +208,4 @@ python tools/acceptance_directory_boundary.py --exe <WTFMinecraftLauncher.exe> -
 | ui_check（offscreen） | 3229 条通过 / 0 失败 | W13 三组旧断言（∨ 形状、底部边线、箭头禁用色）按新规格重写；下拉框那格用空条目量，否则「跟随全局」四个字伸进右带造成假红 |
 | 数字框越界键入钳到边界 | 0–5 的框里打 99、焦点一走就落到 5（Qt 出厂只会退回旧值） | **焦点转移里直接 `setValue()` 会把页面在别人的 FocusOut 事件里拆掉**：mw_check 当场段错误（服务端设置页那几颗表内编辑框）。改成只读文本算值、`QTimer::singleShot` 带控件当上下文再落值，复跑 2784/2784 全过 |
 | mw_check（offscreen） | 2784 条通过 / 0 失败 | ui_check 首跑有一条 `I2b Esc 收起浮动面板` 偶发失败（offscreen 时序），同一二进制复跑 3229/3229 全过 |
+| 设置页重排（顶部 4 页签、单栏 720、分组淡底、行 < 600 叠放、失焦即存） | ui_check 3246 条通过 / 0 失败（含 900×620 与 1280×800 每个页签无横向溢出、叠放、失焦即存、「已保存」淡出）；mw_check 2783/2783；`ui_check_window_chrome` 23、`ui_check_ui_refresh` 129、`ui_check_theme` 94；`wtfml.core*` 等 18 项与其余 ctest 套件全过 | `mw_check` 首跑 `T20` 服务器收藏失败后 `tree->setCurrentItem` 崩：测试取了 overlay 里最早那扇 `InstanceSettingsDialog`（上一扇还在等 deleteLater），改取最后一扇；另修两处拆窗时的悬空指针（标题栏 hero 联动 lambda 捕获 `this`、服务端版本树 `invalidate` 读已析构的 `QStackedLayout`） |

@@ -790,11 +790,11 @@ void MainWindowUI::setupDownloadServerPage() {
         filter();
         versions->setUpdatesEnabled(true);
     });
-    const auto invalidate = [versions, sync, stack = QPointer<QStackedWidget>(serverStack), listPage,
-                             outer = QPointer<QStackedWidget>(downloadStack), serverPage] {
+    // 不在这里读 stack / outer：树析构时（QTreeWidget::clear → modelReset）它们的布局可能已先析构。
+    // 露没露着由 sync 的超时回调判（那一发随 versions 一起析构，不会在拆窗时跑）。
+    const auto invalidate = [versions, sync] {
         versions->setProperty("sourceDirty", true);
-        if (stack && outer && stack->currentWidget() == listPage && outer->currentWidget() == serverPage)
-            sync->start(0);
+        sync->start(0);
     };
     QObject::connect(serverStack, &QStackedWidget::currentChanged, sync,
                      [sync, versions, stack = QPointer<QStackedWidget>(serverStack), listPage,
