@@ -29,57 +29,32 @@ int UiGameLogActionsChecks(QFrame * &bar) {
                   log->getHintLabel()->text() == GameLogWindow::hintText() &&
                   !GameLogWindow::hintText().isEmpty(),
               "Z3 顶上那句说明在，而且有话说");
-        check(log->getHintLabel() != nullptr && log->getClearButton() != nullptr &&
-                  log->getCloseButton() != nullptr &&
-                  log->getClearButton()->objectName() == GameLogWindow::clearButtonName() &&
-                  log->getCloseButton()->objectName() == GameLogWindow::closeButtonName(),
-              "Z3 清空/关闭两颗钮都在");
+        check(log->getMoreButton() != nullptr &&
+                  log->getMoreButton()->objectName() == GameLogWindow::moreButtonName() &&
+                  log->clearAction() != nullptr && log->copyAction() != nullptr,
+              "Z3 标题行「…」在，菜单里有清空与复制全部");
 
         // ---- 底下右角那两颗「导出…」 ----
         {
-            QPushButton *exportLog = log->getExportLogButton();
-            QPushButton *exportReport = log->getExportReportButton();
+            QAction *exportLog = log->exportLogAction();
+            QAction *exportReport = log->exportReportAction();
             check(exportLog != nullptr && exportReport != nullptr,
-                  "Z3c 底下那两颗「导出…」都在");
+                  "Z3c 「…」菜单里那两项「导出…」都在");
             if (exportLog != nullptr && exportReport != nullptr) {
-                check(exportLog->objectName() == GameLogWindow::exportLogButtonName() &&
-                          exportReport->objectName() == GameLogWindow::exportReportButtonName(),
-                      "Z3c 两颗都按各自的名字找得回来");
                 check(exportLog->text() == GameLogWindow::exportLogButtonText() &&
                           exportReport->text() == GameLogWindow::exportReportButtonText(),
-                      "Z3c 两颗钮上的字就是那两句",
+                      "Z3c 两项上的字就是那两句",
                       exportLog->text() + QStringLiteral(" / ") + exportReport->text());
-                // 两颗钮干的是两件事（一份是全量日志、一份是"头部 + 错误摘录 + 日志"），
-                // 提示文字一模一样的话用户点哪个都心虚。
                 check(!exportLog->toolTip().isEmpty() && !exportReport->toolTip().isEmpty() &&
                           exportLog->toolTip() != exportReport->toolTip(),
-                      "Z3c 两颗的提示文字是**两句话**（说的不是同一件事）",
+                      "Z3c 两项的提示文字是**两句话**（说的不是同一件事）",
                       exportLog->toolTip() + QStringLiteral(" | ") + exportReport->toolTip());
-                // 它们得有父容器 —— 摆在一个真的布局里才会跟着窗一起缩放（漏了 addWidget
-                // 的话控件是"悬"在那儿的，测试里也找得到，但屏幕上位置是错的）。
-                check(exportLog->parentWidget() != nullptr &&
-                          exportLog->parentWidget() == exportReport->parentWidget(),
-                      "Z3c 两颗在同一行里");
-                // 「右下角」= 它们右边缘在那颗「关闭」的左边、且整个按钮组靠右。
-                QPushButton *close = log->getCloseButton();
-                if (close != nullptr) {
-                    check(exportLog->x() < close->x() && exportReport->x() < close->x(),
-                          "Z3c 两颗排在「关闭」左边（「关闭」是最右下那颗）",
-                          QStringLiteral("导出日志 x=%1 / 报告 x=%2 / 关闭 x=%3")
-                              .arg(exportLog->x())
-                              .arg(exportReport->x())
-                              .arg(close->x()));
-                    check(exportLog->parentWidget() != nullptr &&
-                              exportLog->parentWidget()->width() > 0 &&
-                              exportReport->x() + exportReport->width() >
-                                  exportLog->parentWidget()->width() / 2,
-                          "Z3c 它们靠右半截（是右下角那一组，不是摊在最左边）",
-                          QStringLiteral("报告右边缘 %1 / 父容器宽 %2")
-                              .arg(exportReport->x() + exportReport->width())
-                              .arg(exportLog->parentWidget() == nullptr
-                                       ? 0
-                                       : exportLog->parentWidget()->width()));
-                }
+                int logFired = 0, reportFired = 0;
+                QObject::connect(log, &GameLogWindow::exportLogRequested, log, [&logFired] { ++logFired; });
+                QObject::connect(log, &GameLogWindow::exportReportRequested, log, [&reportFired] { ++reportFired; });
+                exportLog->trigger();
+                exportReport->trigger();
+                check(logFired == 1 && reportFired == 1, "Z3c 两项各发自己那一个信号（一次）");
             }
         }
 
@@ -194,7 +169,7 @@ int UiGameLogActionsChecks(QFrame * &bar) {
                   "Z3 那行字照样写进去了，只是没把视图带下去");
 
             // ---- (e) 两颗钮 ----
-            log->getClearButton()->click();
+            log->clearAction()->trigger();
             check(log->logText().isEmpty(), "Z3 「清空」把这一块文本清空了",
                   QString::number(log->logText().size()));
             check(bar->value() == 0, "Z3 清空之后回到顶部（不至于停在一个空范围中间）",
@@ -204,10 +179,10 @@ int UiGameLogActionsChecks(QFrame * &bar) {
             bool finishedFired = false;
             QObject::connect(log, &QDialog::finished, log,
                              [&finishedFired]() { finishedFired = true; });
-            log->getCloseButton()->click();
+            log->close();
             QApplication::processEvents();
             check(finishedFired,
-                  "Z3 「关闭」发 finished（调用方正是靠它记住「这一份用户不想再看日志了」）");
+                  "Z3 关窗发 finished（调用方正是靠它记住「这一份用户不想再看日志了」）");
             // WA_DeleteOnClose 的销毁走 deleteLater，所以得把 DeferredDelete 那批事件放出去。
             QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
             check(guard.isNull(),

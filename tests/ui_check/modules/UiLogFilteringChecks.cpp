@@ -129,7 +129,7 @@ int UiLogFilteringChecks() {
                       .arg(log->lineCountFor(L::Error)));
 
             // ---- (e) 半行：进程输出是按块来的，一个块可能断在行中间 ----
-            log->getClearButton()->click();
+            log->clearAction()->trigger();
             check(log->lineCount() == 0 && log->lineCountFor(L::Info) == 0 &&
                       log->logText().isEmpty(),
                   "Z5 清空把模型、账、正文一起清了（只清正文的话按钮上会留着数字）",
@@ -171,7 +171,7 @@ int UiLogFilteringChecks() {
                   "Z5 CRLF 的那个回车不算内容（不然复制出来每行末尾都躲一个 \\r）");
 
             // ---- (f) 一直不给换行的那种输出，不许把内存养大 ----
-            log->getClearButton()->click();
+            log->clearAction()->trigger();
             log->appendText(QString(5000, QLatin1Char('x')));
             check(log->lineCount() == 0 && log->logText().size() == 5000,
                   "Z5 前提：没到闸（5000 < 8192）之前那半行照样看得见",
@@ -190,7 +190,7 @@ int UiLogFilteringChecks() {
                       .arg(log->logText().size()));
 
             // ---- (g) 行数上限：满了两万行之后丢的是**最老的**那条 ----
-            log->getClearButton()->click();
+            log->clearAction()->trigger();
             {
                 QString bulk;
                 // 前六条是 ERROR，后面全是 INFO：于是"丢的是最老的"和"丢的是最新的"
