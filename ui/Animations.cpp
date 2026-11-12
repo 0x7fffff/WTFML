@@ -6,7 +6,6 @@
 #include "Animations.hpp"
 
 #include <QAbstractAnimation>
-#include <QAbstractNativeEventFilter>
 #include <QAbstractButton>
 #include <QAbstractScrollArea>
 #include <QApplication>
@@ -38,19 +37,6 @@
 
 #include <functional>
 
-#if defined(Q_OS_WIN)
-// NOTE: 放在所有 Qt 头之后 —— windows.h 定义的东西太多（min/max 宏、`interface`……），
-// 先于 Qt 包含容易撞名。写法和 `src/launcher/LauncherManager.cpp` 里那一套一致。
-// 用途只有一个：下面的 `refreshPlatformReducedMotion()`（SystemParametersInfo）。
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <windows.h>
-#endif
-
 namespace {
 
 /// 我们自己装的那个效果叫什么。别人（将来）在同一个控件上装过别的效果时，靠这个名字认出来
@@ -68,12 +54,8 @@ constexpr const char kStepperName[] = "wtfmlAnimStepper";
 /// 记在**进度条自己身上**：这一层没有实例、也不该为进度条另立一张表（那张表还得管生灭）。
 constexpr const char kProgressMaxMark[] = "wtfmlAnimProgressMax";
 
-/// 动效总开关。默认开。
+/// 动效总开关。默认开。**只看这一位**：不跟随系统「动画效果」（理由见 `enabled()`）。
 bool g_enabled = true;
-
-/// 系统那一档「减少动态效果」。**默认"没关"**（= 界面默认有动效）。
-/// 只有 `refreshPlatformReducedMotion()` 去问系统，`setPlatformReducedMotion()` 直接摆。
-bool g_platformReducedMotion = false;
 
 /// 用户那把开关存哪儿。**不在 `Theme/` 底下**（`Theme::save()` 会整组抹掉那个前缀）。
 const char *const kEnabledKey = "Look/Animations";
@@ -671,12 +653,11 @@ private:
 namespace Anim {
 
 bool enabled() {
-    // 两把闸串起来：用户那把（设置页那个勾）**和**系统那一档。任一条说"不要"，就一个
-    // 效果都不装（下面那些函数全是"不 enabled 就原地返回"）。
-    return g_enabled && !g_platformReducedMotion;
-}
-
-bool userEnabled() {
+    // **只认本程序自己的开关**（设置页「界面动效」那个勾，默认开）。下面那些函数全是
+    // "不 enabled 就原地返回"。
+    //
+    // 不读 Windows 的「动画效果」（`SPI_GETCLIENTAREAANIMATION`）：用户关掉系统动画时，
+    // 整套动效会被静默关掉，界面上就是"动效一个都没有"。要减少动效在本程序设置里关。
     return g_enabled;
 }
 
@@ -695,54 +676,11 @@ void save() {
     settings.sync();
 }
 
-bool platformReducedMotion() {
-    return g_platformReducedMotion;
-}
-
-void setPlatformReducedMotion(bool on) {
-    g_platformReducedMotion = on;
-}
-
-void refreshPlatformReducedMotion() {
-#if defined(Q_OS_WIN)
-    // Windows：设置 → 辅助功能 → 视觉效果 → 「动画效果」。
-    // `SPI_GETCLIENTAREAANIMATION` 写进一个 `BOOL`；调不通（老系统/被挡）就当"没关"。
-    BOOL animationsOn = TRUE;
-    if (::SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animationsOn, 0)) {
-        g_platformReducedMotion = (animationsOn == FALSE);
-    } else {
-        g_platformReducedMotion = false;
-    }
-#else
-    // 别的平台**故意不猜**：这一层要的是"系统说不要动"这个确定的事实，猜错了就是替用户
-    // 做了决定。Linux/macOS 上 Qt 没有一条跨平台的等价 API（要碰各自的桌面环境设置）。
-    g_platformReducedMotion = false;
-#endif
-}
-
 bool installPressAnimation(QApplication &app) {
     if (app.property(kFilterMark).toBool()) {
         return true;
     }
     app.setProperty(kFilterMark, true);
-#if defined(Q_OS_WIN)
-    // Follow Windows accessibility changes while the launcher remains open.
-    class MotionPreferenceWatcher final : public QObject, public QAbstractNativeEventFilter {
-    public:
-        explicit MotionPreferenceWatcher(QApplication &owner) : QObject(&owner), m_app(owner) {
-            owner.installNativeEventFilter(this);
-        }
-        ~MotionPreferenceWatcher() override { m_app.removeNativeEventFilter(this); }
-        bool nativeEventFilter(const QByteArray &, void *message, qintptr *) override {
-            const auto *event = static_cast<MSG *>(message);
-            if (event && event->message == WM_SETTINGCHANGE) refreshPlatformReducedMotion();
-            return false;
-        }
-    private:
-        QApplication &m_app;
-    };
-    new MotionPreferenceWatcher(app);
-#endif
     app.installEventFilter(new PressFilter(&app));
     return true;
 }

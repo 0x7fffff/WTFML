@@ -167,7 +167,7 @@ void MainWindow::applySettingsToUi() {
     refreshThemeImageRows();
 
     // 「主题」那一节（配色 / 主题色 / 文字不透明度 / 语义色 / 动效开关）。和上面那一句一样，
-    // 画的是 `Theme::current()` 和 `Anim::userEnabled()` 里的东西 —— 主题和动效都不归
+    // 画的是 `Theme::current()` 和 `Anim::enabled()` 里的东西 —— 主题和动效都不归
     // LauncherSettings 管，各自另有一组键（见 Theme.hpp / Animations.hpp）。
     // NOTE: 这一句**必须**排在 `Theme::setSpec(Theme::load())` 之后（那一步在 src/main.cpp
     // 里、比 MainWindow 构造还早），不然画出来的是出厂那一份。

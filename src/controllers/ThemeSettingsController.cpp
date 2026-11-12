@@ -251,7 +251,7 @@ void ThemeSettingsController::refresh() {
             Theme::markColorSwatch(swatch, semanticColor(spec, i));
     if (QCheckBox *check = m_ui->getAnimationsCheck()) {
         const QSignalBlocker block(check);
-        check->setChecked(Anim::userEnabled());
+        check->setChecked(Anim::enabled());
     }
     refreshImages();
 }

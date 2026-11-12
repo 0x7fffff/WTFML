@@ -1,6 +1,10 @@
 #include "Support.hpp"
 #include <QScrollBar>
 #include <QScrollArea>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QRegularExpression>
 #include "InlineMessage.hpp"
 int UiAnimationsChecks(QApplication &app, QFrame * &bar) {
     // ---------- ⑬ 动效那一层 ----------
@@ -38,6 +42,41 @@ int UiAnimationsChecks(QApplication &app, QFrame * &bar) {
         Anim::setEnabled(false);
         const bool off = Anim::enabled();
         check(on && !off, "⑬ 总开关能开能关（关掉之后几个函数全是空操作，一个效果都不装）");
+
+        // —— ★ 不许跟随 Windows 的「动画效果」 ——
+        //
+        // 用户 11-12 反馈：他关掉了 Windows 动画，整套动效被静默关掉，界面上"一个都没有"。
+        // 那一档已经整条拔掉（连读它、听 `WM_SETTINGCHANGE` 一起）。"没调用某个系统 API"
+        // 这件事编译器断言不了，就扫源码 —— 去掉注释再找，注释里提到这几个名字不算。
+        {
+            const QDir root(QFileInfo(QStringLiteral(__FILE__))
+                                .absoluteDir()
+                                .absoluteFilePath(QStringLiteral("../../..")));
+            const QRegularExpression comments(QStringLiteral(R"(/\*.*?\*/|//[^\n]*)"),
+                                              QRegularExpression::DotMatchesEverythingOption);
+            QStringList offenders;
+            for (const QString &relative : {QStringLiteral("ui/Animations.hpp"),
+                                            QStringLiteral("ui/Animations.cpp"),
+                                            QStringLiteral("src/main.cpp")}) {
+                QFile file(root.absoluteFilePath(relative));
+                if (!file.open(QIODevice::ReadOnly)) {
+                    offenders << relative + QStringLiteral("（打不开）");
+                    continue;
+                }
+                QString text = QString::fromUtf8(file.readAll());
+                text.remove(comments);
+                for (const QString &needle : {QStringLiteral("SPI_GET"),
+                                              QStringLiteral("SystemParametersInfo"),
+                                              QStringLiteral("platformReducedMotion")})
+                    if (text.contains(needle))
+                        offenders << relative + QStringLiteral(" → ") + needle;
+            }
+            check(offenders.isEmpty(),
+                  "★★ ⑬ 动效不读 Windows 的「动画效果」（`SPI_GETCLIENTAREAANIMATION` 那一档"
+                  "已整条拔掉，源码里一处都不许留）",
+                  offenders.isEmpty() ? QStringLiteral("干净")
+                                      : offenders.join(QStringLiteral("、")));
+        }
 
         // —— ★ 那几个数落在要求给的区间里 ——
         //

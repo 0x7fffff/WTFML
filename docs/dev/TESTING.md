@@ -330,7 +330,7 @@ python tools/audit_login_outputs.py --self-test --root build/new-native-log-run 
 pwsh -NoProfile -File tools/acceptance_download_recovery.ps1 ...
 ```
 
-- `-Extended` 是三主题 / 两尺寸 / 十场景的受控几何与 Tab 事件测试，"减少动态效果"用内部标志模拟。
+- `-Extended` 是三主题 / 两尺寸 / 十场景的受控几何与 Tab 事件测试，动效用 `Anim::setEnabled()` 拨，不碰系统设置。
 - `-LogStress` 用真实会话控制器与原生日志窗口，两路各 25000 行，检查上限、分离、过滤、导出脱敏及心跳，输入是受控输出。
 - `--manual-input` 不生成键盘事件，记录收到的原生事件、焦点和截图；没有 Tab 或焦点失败返回非零。
 - 游戏主菜单专项沿用隔离 Fabric 1.21.11 夹具：`--game-root` 的测试目录要含 `p1-game-acceptance.json`（格式 `wtfml-isolated-game/1`）并提供 `--java-path`；只创建私有 DesktopTest 离线配置，正常退出记录 `game-exit.json`，300 秒截止。进程退出 0 不单独证明主菜单，要另行观察。不要给真实游戏目录添加测试标记。

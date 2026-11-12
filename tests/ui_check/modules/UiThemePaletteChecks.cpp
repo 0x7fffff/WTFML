@@ -1835,13 +1835,13 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                       .arg(InlineMessage::colorSwatchCount())
                       .arg(swatchNames.size()));
 
-            // ⑥ 系统那一档「减少动态效果」：系统说不要动的时候**一个效果都不装**，而用户
-            // 自己那把开关**不许被悄悄改掉**（他换个系统设置回来会发现自己那一格被动过）。
+            // ⑥ 动效总开关：**只认本程序自己的开关**，不跟随 Windows 的「动画效果」。
             //
-            // NOTE: 这一条**只**在验证工程里摆这一位（`setPlatformReducedMotion()`），产品
-            // 那边只有 `src/main.cpp` 去问真系统 —— 把"这台机器的辅助功能怎么设的"
-            // 变成判据的一部分，会让同一份代码在两台机器上跑出两种结果。
-            const bool userWas = Anim::userEnabled();
+            // 背景（用户 11-12 反馈）：他关掉了 Windows 动画，于是整套动效被静默关掉，
+            // 界面上就是"动效一个都没有"。所以这里量的是反过来的那一面 —— 开就是开，
+            // 除了这一位没有第二把闸（源码里也不许再出现 SystemParametersInfo，见
+            // `UiAnimationsChecks` ⑬ 那一条扫描）。
+            const bool userWas = Anim::enabled();
             // 存盘那一趟要**换一个窝**（和 W7 落盘往返同一招）：这个进程平时那对
             // 组织/应用名是空的，`QSettings` 写下去会静默失败 —— 那样量到的"读回来"
             // 其实是"出厂那一份"，看着像 `load()` 坏了。绝不能碰产品那一份
@@ -1853,29 +1853,26 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             QSettings().clear();
 
             Anim::setEnabled(true);
-            Anim::setPlatformReducedMotion(true);
-            const bool systemWins = !Anim::enabled() && Anim::userEnabled();
-            Anim::setPlatformReducedMotion(false);
-            const bool recovers = Anim::enabled();
-            // 用户那把存盘那一趟（键 `Look/Animations`，**不在 `Theme/` 底下** —— 那下面
-            // 会被 `Theme::save()` 整组抹掉）。
+            const bool onWhenSwitchedOn = Anim::enabled();
             Anim::setEnabled(false);
+            const bool offWhenSwitchedOff = !Anim::enabled();
+            // 用户那一档存盘（键 `Look/Animations`，**不在 `Theme/` 底下** —— 那下面
+            // 会被 `Theme::save()` 整组抹掉）。
             Anim::save();
             Anim::setEnabled(true);
             Anim::load();
-            const bool loadedBack = !Anim::userEnabled();
+            const bool loadedBack = !Anim::enabled();
 
             QSettings().clear();
             QCoreApplication::setOrganizationName(animOrg);
             QCoreApplication::setApplicationName(animAppName);
-            Anim::setPlatformReducedMotion(false);
             Anim::setEnabled(userWas);
-            check(systemWins && recovers && loadedBack,
-                  "★★ W14 系统那一档说了算（`enabled()` 假、而 `userEnabled()` 照旧是用户自己"
-                  "那份）；把这一位摆回去又恢复；用户那把开关**存得下也读得回来**",
-                  QStringLiteral("系统拦下 %1 / 摆回去恢复 %2 / 存读往返 %3")
-                      .arg(systemWins ? QStringLiteral("对") : QStringLiteral("**不对**"))
-                      .arg(recovers ? QStringLiteral("对") : QStringLiteral("**不对**"))
+            check(onWhenSwitchedOn && offWhenSwitchedOff && loadedBack,
+                  "★★ W14 动效只看本程序那一个开关（开着就是开、关掉就是关，没有第二把闸）；"
+                  "这一档**存得下也读得回来**",
+                  QStringLiteral("开着 %1 / 关掉 %2 / 存读往返 %3")
+                      .arg(onWhenSwitchedOn ? QStringLiteral("对") : QStringLiteral("**不对**"))
+                      .arg(offWhenSwitchedOff ? QStringLiteral("对") : QStringLiteral("**不对**"))
                       .arg(loadedBack ? QStringLiteral("对") : QStringLiteral("**不对**")));
 
             // ⑦ 设置页「个性化」那一栏里，这一节该有的控件**都在、都挂对了名字**。

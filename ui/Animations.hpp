@@ -111,35 +111,18 @@ constexpr qreal pageStartOpacity() { return 0.12; }
 // NOTE: 起手那一位钉在 `pageStartOpacity()`（不是 0）。
 constexpr int pressDepthPercent() { return 12; }
 
-/// **这是"用户那把开关"**（`setEnabled()` 写的、盘上记着的那一位）。真正"这一趟要不要
-/// 动"问的仍然是 `enabled()` —— 它多盖了一层系统那一档（见 `platformReducedMotion()`）。
+/// 这一趟要不要动：**只认本程序自己的开关**（设置页「界面动效」那个勾，默认开）。
+///
+/// 不读 Windows 的「动画效果」（`SPI_GETCLIENTAREAANIMATION`）：那一档关掉时整套动效会被
+/// 静默关掉，用户看到的是"动效一个都没有"，而且他多半不知道是这个开关在起作用。
+/// 要减少动效就在本程序设置里关。
 bool enabled();
 void setEnabled(bool on);
-
-/// 用户那把开关自己现在是什么状态（和 `enabled()` 的差别：**不看系统那一档**）。
-/// 设置页那个勾选框读的是它 —— 系统开了"减少动态效果"的时候，用户自己的勾**不该**被
-/// 悄悄勾掉（他换个系统设置就发现自己的开关被动过了）。
-bool userEnabled();
 /// 把用户那把开关存到 `QSettings`（键 `Look/Animations`）并从那儿读回来。
 /// 键**不在** `Theme/` 底下：`Theme::save()` 会整组 `remove("Theme")` 再重写，
 /// 挂在那个前缀下会被"改一次主题色"顺手抹掉。`src/main.cpp` 启动时调一次 `load()`。
 void load();
 void save();
-
-/// 系统那一档「减少动态效果」。
-///
-/// Windows 上读的是 `SPI_GETCLIENTAREAANIMATION`（设置 → 辅助功能 → 视觉效果 →
-/// 「动画效果」那个开关；它是**这一条**而不是 `SPI_GETANIMATION`，后者管的是窗口最小化/
-/// 最大化那类动画）。读不到、不是 Windows、或者系统说"没关"—— 一律当**没开**（`false`）：
-/// 用户的界面**默认有动效**，这是这一层的默认姿态，不能因为读不到一个系统
-/// 设置就把它变成另一副样子。
-bool platformReducedMotion();
-/// 去问一次系统（上面那个函数的实现体）。**只有 `src/main.cpp` 在产品里调它**：
-/// 验证工程永远别调 —— 那会把"这台机器上系统设置是什么"变成判据的一部分（同一份代码在
-/// 两台机器上跑出两种结果）。
-void refreshPlatformReducedMotion();
-/// 直接摆这一位（给验证工程模拟"系统要求减少动态效果"，不去碰真系统设置）。
-void setPlatformReducedMotion(bool on);
 
 /// 给整个应用装上"按下按钮"那个事件过滤器。**幂等**（`Theme::apply()` 会被调好几次，
 /// 这里也一样可能被调好几次）。`src/main.cpp` 调它一次，验证工程不调（它们不要动效）。

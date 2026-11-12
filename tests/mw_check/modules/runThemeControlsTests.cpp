@@ -14,7 +14,7 @@ void runThemeControlsTests() {
     const QVariant foldersBefore = sandbox.value(QStringLiteral("Launcher/Folders"));
     const QVariant currentBefore = sandbox.value(QStringLiteral("Launcher/CurrentFolder"));
     const QVariant animationsBefore = sandbox.value(QStringLiteral("Look/Animations"));
-    const bool animationsEnabledBefore = Anim::userEnabled();
+    const bool animationsEnabledBefore = Anim::enabled();
     const auto restore = [&] {
         sandbox.setValue(QStringLiteral("Launcher/Folders"), foldersBefore);
         sandbox.setValue(QStringLiteral("Launcher/CurrentFolder"), currentBefore);
@@ -31,7 +31,6 @@ void runThemeControlsTests() {
         // 来的（深色那一份还挂在应用上，后面每一节量的都会是深底）。
         Theme::setSpec(themeBefore);
         Theme::apply(*qApp);
-        Anim::setPlatformReducedMotion(false);
         Anim::setEnabled(animationsEnabledBefore);
         AppPaths::setMinecraftDir(originalDir);
     };
@@ -246,9 +245,9 @@ void runThemeControlsTests() {
 
         // ---------- ⑤ 动效那个总开关（明说要继续保留） ----------
         const bool wasChecked = animationsCheck->isChecked();
-        const bool wasUserEnabled = Anim::userEnabled();
+        const bool wasUserEnabled = Anim::enabled();
         check(wasChecked == wasUserEnabled,
-              "T39.7 那个勾建出来的时候就是照着 `Anim::userEnabled()` 勾的",
+              "T39.7 那个勾建出来的时候就是照着 `Anim::enabled()` 勾的",
               QStringLiteral("勾着 %1 / 那一位 %2")
                   .arg(wasChecked ? 1 : 0)
                   .arg(wasUserEnabled ? 1 : 0));
@@ -257,12 +256,12 @@ void runThemeControlsTests() {
         {
             QSettings written;
             const bool flipped =
-                Anim::userEnabled() == !wasChecked &&
+                Anim::enabled() == !wasChecked &&
                 written.value(QStringLiteral("Look/Animations"), wasChecked).toBool() ==
                     !wasChecked;
             animationsCheck->setChecked(wasChecked);
             QApplication::processEvents();
-            const bool backOk = Anim::userEnabled() == wasUserEnabled;
+            const bool backOk = Anim::enabled() == wasUserEnabled;
             check(flipped && backOk,
                   "★★ T39.7 动效那个勾：拨到另一档就落到那一位上、也落了盘（下次启动还是"
                   "用户选的那一档）；拨回来照样",

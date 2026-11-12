@@ -1143,9 +1143,8 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
     // 「动画总开关继续保留，并尊重系统"减少动态效果"」。
     // 这一节就是动效那一层（`ui/Animations`）总开关的界面入口。
     //
-    // 另外还有一档"系统说别动"（`Animations::platformReducedMotion()`）：Windows 的
-    // 「辅助功能 → 视觉效果 → 动画效果」关掉时，这一档为真，**这个勾勾着也不动**。
-    // 所以下面那行说明必须说清"它可能被系统按住" —— 否则用户勾了没反应，只会以为坏了。
+    // 这一档**只看这个勾**：不跟随 Windows 的「辅助功能 → 视觉效果 → 动画效果」——
+    // 那一档关掉时整套动效会被静默关掉，用户看到的是"动效一个都没有"。
     // ---- 第 6 节：标题 + 一张小节卡片（见 addSettingsSection()）----
     const SettingsSection section6 = addSettingsSection(grid, row, QStringLiteral("动效"), form);
     {
@@ -1154,7 +1153,7 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         animationsCheck->setObjectName(animationsCheckName());
         boxLayout->addWidget(animationsCheck, 0, Qt::AlignLeft);
         addSettingHelp(box,
-                QStringLiteral("控制按压、换页和展开动画；同时遵循系统的减少动态效果设置。"),
+                QStringLiteral("控制按压、换页、展开和滚动条动画。"),
                 form);
         addSettingsControl(section6, QStringLiteral("切换"), box, form);
     }

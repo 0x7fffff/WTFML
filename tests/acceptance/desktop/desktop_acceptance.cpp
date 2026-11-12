@@ -111,7 +111,6 @@ int main(int argc, char **argv) {
     Theme::setSpec(Theme::defaultSpec());
     Theme::apply(app);
     Anim::load();
-    Anim::refreshPlatformReducedMotion();
     Anim::installPressAnimation(app);
     Anim::installScrollBarAnimation(app);
     MainWindow window;
@@ -158,7 +157,6 @@ int main(int argc, char **argv) {
     }
     const auto activeTask = extended ? DesktopAcceptance::seedTasks(window) : Tasks::invalidTaskId();
     const auto picture = extended ? DesktopAcceptance::background(root) : QString();
-    const bool nativeReducedMotion = Anim::platformReducedMotion();
     QHash<int, QJsonObject> keyboardReports;
     QHash<int, bool> opened;
     QJsonArray samples;
@@ -179,7 +177,7 @@ int main(int argc, char **argv) {
                 {"availableWidth", screen->availableGeometry().width()},
                 {"availableHeight", screen->availableGeometry().height()},
                 {"settingsFile", settings.fileName()}, {"samples", samples},
-                {"nativeReducedMotion", nativeReducedMotion}, {"extended", extended}, {"scope", extended ? "controlled geometry and Tab fixtures; real content and full accessibility require separate review" : "native basic page screenshots"}};
+                {"extended", extended}, {"scope", extended ? "controlled geometry and Tab fixtures; real content and full accessibility require separate review" : "native basic page screenshots"}};
             QFile output(root + "/report.json");
             const QByteArray bytes = QJsonDocument(report).toJson();
             const bool saved = output.open(QIODevice::WriteOnly) && output.write(bytes) == bytes.size();
@@ -209,7 +207,6 @@ int main(int argc, char **argv) {
             }
             Theme::setSpec(spec);
             Theme::apply(app);
-            Anim::setPlatformReducedMotion(extended && size == 1 ? true : nativeReducedMotion);
             Anim::setEnabled(extended ? true : size == 0);
             window.resize(size == 0 ? QSize(1040, 700) : QSize(900, 600));
         }
@@ -230,7 +227,6 @@ int main(int argc, char **argv) {
             if (extended) {
                 extra.insert("background", size == 1);
                 extra.insert("effectiveAnimations", Anim::enabled());
-                extra.insert("forcedReducedMotion", size == 1);
                 extra.insert("actionAccepted", opened.value(current, false));
                 extra.insert("overlayShown", window.ui()->overlay()->isOpen());
                 if (page < 4) extra.insert("keyboard", keyboard);
