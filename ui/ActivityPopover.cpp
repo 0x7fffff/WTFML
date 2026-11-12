@@ -238,7 +238,7 @@ void ActivityPopover::rebuild() {
     };
 
     if (items.isEmpty()) {
-        auto *empty = textLabel(QStringLiteral("现在没有任务"), m_body, Theme::TextRole::Body, t.secondary);
+        auto *empty = textLabel(QStringLiteral("暂无进行中的任务"), m_body, Theme::TextRole::Body, t.secondary);
         empty->setAlignment(Qt::AlignCenter);
         empty->setMinimumHeight(64);
         m_bodyLayout->addWidget(empty);

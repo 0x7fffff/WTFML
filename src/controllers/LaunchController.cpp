@@ -287,10 +287,10 @@ void LaunchController::onStartButtonClicked() {
     const QString storageProblem =
         StorageAvailability::unavailableReason(AppPaths::minecraftDir());
     if (!storageProblem.isEmpty()) {
-        InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("游戏文件夹不可用"),
-                             m_owner->tr("游戏文件夹所在的磁盘现在读不到：\n%1\n\n"
+        InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("游戏目录不可用"),
+                             m_owner->tr("游戏目录所在的磁盘当前不可用：\n%1\n\n"
                                 "如果是移动硬盘或网络盘，接好之后再点启动；"
-                                "也可以先在「设置」里换一个游戏文件夹。")
+                                "也可以在「设置」中更换游戏目录。")
                                  .arg(storageProblem));
         return;
     }
@@ -383,10 +383,10 @@ void LaunchController::onStartButtonClicked() {
             // 「账号与外观…」那个窗里填个名字、点「添加离线账号」。
             InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("登录缺失"),
                                  tokenError.isEmpty()
-                                     ? m_owner->tr("请先登录 Microsoft 账户，或者在「账号与外观…」"
-                                          "里添加一个离线账号。")
-                                     : m_owner->tr("%1\n\n请重新登录 Microsoft 账户，或者在"
-                                          "「账号与外观…」里添加一个离线账号。")
+                                     ? m_owner->tr("请先登录微软账号，或在「账号与外观…」"
+                                          "中添加离线账号。")
+                                     : m_owner->tr("%1\n\n请重新登录微软账号，或在"
+                                          "「账号与外观…」中添加离线账号。")
                                            .arg(tokenError));
             return;
         }
@@ -579,7 +579,7 @@ void LaunchController::onStartButtonClicked() {
                     m_owner->m_ui->overlay(), m_owner->tr("内存可能不够"),
                     m_owner->tr("这个实例要 %1 MB 堆内存（已开着的实例合计 %3 MB），"
                                 "而系统当前可用物理内存约 %2 MB。\n\n"
-                                "继续启动可能卡顿、加载很久，甚至把系统拖死；建议先关掉别的程序，"
+                                "可用物理内存不足，启动可能导致卡顿。建议关闭不必要的应用程序，"
                                 "或到设置里把内存调小。仍然继续吗？")
                         .arg(javaSettings.xmx)
                         .arg(availableMb)

@@ -138,7 +138,7 @@ void MainWindow::applyCurrentFolderToPaths() {
     // 切到一个“之后才被搬过来”的游戏根时也补一次；启动时已经扫过全部根，这里是幂等的。
     for (const QString &message : InstanceUpgrade::recoverInterruptedInRoots({root}))
         appendLog(message);
-    appendLog(tr("当前游戏文件夹：%1").arg(QDir::toNativeSeparators(root)));
+    appendLog(tr("当前游戏目录：%1").arg(QDir::toNativeSeparators(root)));
     // 借文件的来源跟着当前文件夹一起变（当前那一份由下载器自己跳过）。
     syncDownloadReuseSources();
 }

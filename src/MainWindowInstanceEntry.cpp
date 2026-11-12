@@ -32,7 +32,7 @@ using namespace MainWindowViewData;
 
 void MainWindow::openInstanceSettings(const QString &versionId, const QString &pageKey) {
     if (versionId.isEmpty()) {
-        InlineMessage::information(m_ui->overlay(), tr("实例设置"), tr("先选中一个实例。"));
+        InlineMessage::information(m_ui->overlay(), tr("实例设置"), tr("请先选择一个实例。"));
         return;
     }
     // 这一层被别的页面/提示占着时：**静默把它收掉**，然后把"开"排到下一轮（见
@@ -56,7 +56,7 @@ void MainWindow::startQuickPlay(const QString &versionId, QuickPlay::Kind kind,
     // 版本上才露，这是兜底）。发一条游戏不认识的选项不是"被忽略"，是 jopt-simple 抛
     // UnrecognizedOptionException、游戏当场退出 —— 所以宁可在这儿说一句。
     if (!instanceSupportsQuickPlay(versionId, kind)) {
-        InlineMessage::warning(m_ui->overlay(), tr("这个版本用不了"),
+        InlineMessage::warning(m_ui->overlay(), tr("当前版本不可用"),
                                QuickPlay::unsupportedText(kind));
         return;
     }
@@ -76,8 +76,7 @@ void MainWindow::startQuickPlayNow(const QString &versionId, const QuickPlay::Ta
     // 「启动」时才被消费：游戏莫名其妙地进了一个他早就忘了的世界。直接丢掉并说一句。
     if (m_launchController->isStarting()) {
         InlineMessage::warning(m_ui->overlay(), tr("正在启动"),
-                               tr("上一次启动还没走完（正在校验登录 / 准备 Java 运行时），"
-                                  "等它结束之后再试。"));
+                               tr("启动流程正在进行中（校验凭据与运行时），请稍候。"));
         return;
     }
     QComboBox *combo = m_ui->getInstalledVersionCombo();
@@ -85,8 +84,8 @@ void MainWindow::startQuickPlayNow(const QString &versionId, const QuickPlay::Ta
     if (row < 0) {
         // 这一页开着的时候那个实例被删了 / 改名了（下拉框按 id 找不到了）。**不启动**：
         // 启动走的是"下拉框里选中的那一个"，硬塞一个找不到的值只会开起别的实例来。
-        InlineMessage::warning(m_ui->overlay(), tr("找不到这个实例"),
-                               tr("「%1」现在不在已安装列表里，没有启动。")
+        InlineMessage::warning(m_ui->overlay(), tr("实例未找到"),
+                               tr("未找到已安装实例「%1」，启动已取消。")
                                    .arg(instanceDisplayName(versionId)));
         return;
     }

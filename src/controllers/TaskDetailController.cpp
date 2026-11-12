@@ -187,10 +187,8 @@ void TaskDetailController::openLog(const QString &key) {
             return;
         }
         InlineMessage::warning(
-            m_overlay, tr("那扇日志窗已经关掉了"),
-            tr("这一场游戏的日志窗刚才被关掉了。当时留下的那两段日志还在 —— "
-               "按「导出错误报告」可以把它们导出来（错误那一段最多末尾 %1 行，"
-               "整份最多末尾 %2 行）。")
+            m_overlay, tr("日志窗口已关闭"),
+            tr("游戏日志窗口已关闭。可点击「导出错误报告」保存末尾错误日志（错误最多 %1 行，完整日志最多 %2 行）。")
                 .arg(GameExitDiagnosis::kExcerptLineLimit)
                 .arg(GameExitDiagnosis::kLogTailLineLimit));
         return;

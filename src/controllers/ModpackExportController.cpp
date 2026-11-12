@@ -125,7 +125,7 @@ void ModpackExportController::exportPack(const QString &versionId,
                "没有一处写着它（wtfml.meta 里没有 realVersion，版本 json 里没有 clientVersion、"
                "也顺不出指得到原版的 inheritsFrom 链），要么写着的那个不是一个真能装出来的"
                "版本号（自己改过的名字就属于这种：清单里记着它，别人那边却没有这个版本可装）。\n\n"
-               "这个实例多半是很早以前装的、或者被手动改过。在「实例设置…」里看不出版本号"
+               "未检测到有效版本标识，可能被手动修改或格式已过时"
                "的话，建议重装一份再导出。"));
         return;
     }

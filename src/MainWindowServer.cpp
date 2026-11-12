@@ -477,8 +477,8 @@ void MainWindow::removeServer(const QString &serverId) {
     const ServerRun::ServerProcess *process = m_serverWorkspace->process(serverId);
     if (process != nullptr && process->isRunning()) {
         // 跑着的进程还开着这个目录里的文件（世界那几份是它自己在写），先让它停下。
-        InlineMessage::warning(m_ui->overlay(), tr("它还在跑"),
-                               tr("先把这一个服务端停下来再删 —— 它现在正开着目录里的文件。"));
+        InlineMessage::warning(m_ui->overlay(), tr("服务端正在运行"),
+                               tr("服务端正在运行，请停止运行后再删除。"));
         return;
     }
     const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
@@ -493,17 +493,16 @@ void MainWindow::removeServer(const QString &serverId) {
     // 这是**唯一一处会删用户东西的地方**，而且删的是别人几个月的存档 —— 所以：默认那
     // 一边是「取消」（`defaultYes = false`，回车不会把它删掉）、那颗按钮按危险档染红。
     const bool go = InlineMessage::question(
-        m_ui->overlay(), tr("删掉这个服务端"),
-        tr("「%1」这一整个目录会被删掉 —— 里面的世界（world/）、模组、配置一起没。\n\n"
-           "删掉的东西会进回收站，要恢复可以从那里找回来。\n\n确定要删吗？")
+        m_ui->overlay(), tr("删除服务端"),
+        tr("将删除服务端「%1」（含存档、模组与配置）。文件将移至回收站。\n\n确定删除？")
             .arg(shown),
-        tr("删掉它"), tr("取消"), false, true);
+        tr("删除"), tr("取消"), false, true);
     if (!go) {
         return;
     }
     QString problem;
     if (!ServerRegistry::removeServer(serverId, &problem)) {
-        InlineMessage::critical(m_ui->overlay(), tr("删不掉"), problem);
+        InlineMessage::critical(m_ui->overlay(), tr("删除失败"), problem);
         return;
     }
     // 进程对象一起收掉：它现在没在跑，但表里留着的话，下次 `describe()` 同名的那个会

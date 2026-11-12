@@ -2284,7 +2284,7 @@ void runInstanceFilesPagesTests() {
                       .arg(stampPromptCount)
                       .arg(stampPromptTitle)
                       .arg(stampPromptButtons.size()));
-            check(stampPromptNote.contains(QStringLiteral("丢掉")),
+            check(stampPromptNote.contains(QStringLiteral("放弃当前修改")),
                   "★ T20.10 那一问的小字把「读盘上那一份会丢什么」说在前头（两颗按钮里那颗是"
                   "不可逆的，点之前得知道）",
                   stampPromptNote);

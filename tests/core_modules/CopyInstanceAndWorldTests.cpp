@@ -690,7 +690,7 @@ void runCopyInstanceAndWorldTests() {
         delete racer;
         check(sawStaging, "ZJ5 夹具：拷树期间真看到了暂存层");
         check(madeDest, "ZJ5 夹具：另一份确实在拷树期间创建了同名目录");
-        check(!copied && error.contains(QStringLiteral("已经有一个叫")),
+        check(!copied && error.contains(QStringLiteral("已存在名为")),
               "★★★ ZJ5 拷树期间目标名字被占用 ⇒ 发布失败、不报成功", error);
         QFile userFile(raceDest + QStringLiteral("/用户刚写的.txt"));
         check(userFile.open(QIODevice::ReadOnly) && userFile.readAll() == QByteArrayLiteral("USER"),
@@ -734,10 +734,10 @@ void runCopyInstanceAndWorldTests() {
         QString error;
         check(!vm.copyInstance(srcId, destRootPath, QStringLiteral("副本"), &error),
               "ZJ5 目标重名拒绝");
-        check(error.contains(QStringLiteral("已经有一个叫")), "ZJ5 原因说清了重名", error);
+        check(error.contains(QStringLiteral("已存在名为")), "ZJ5 原因说清了重名", error);
 
         // 挑的就是自己那一份所在的那个游戏文件夹 + 同一个名字：真正的原因是"那就是它自己"，
-        // 不能报成"已经有一个叫 X 的实例了"（用户会以为盘上真有两份）。
+        // 不能报成"已存在同名实例"（用户会以为盘上真有两份）。
         check(!vm.copyInstance(srcId, sourceRoot.path(), srcId, &error),
               "ZJ5 目标是源自己那一份拒绝");
         check(error.contains(QStringLiteral("就是这一份自己")), "ZJ5 而且原因说的是这话", error);
@@ -1449,7 +1449,7 @@ void runCopyInstanceAndWorldTests() {
         for (Flavor flavor : allFlavors()) {
             const Plan plan =
                 planWith(flavor, QString(), QStringLiteral("1.0"), QStringLiteral("1.0"));
-            if (plan.ok || plan.problem != QStringLiteral("要先挑一个游戏版本")) {
+            if (plan.ok || plan.problem != QStringLiteral("请选择游戏版本")) {
                 missingGame.append(flavorToken(flavor));
             }
         }
@@ -1458,7 +1458,7 @@ void runCopyInstanceAndWorldTests() {
 
         {
             const Plan plan = planWith(Flavor::Forge, QStringLiteral("1.21.4"), QString(), QString());
-            check(!plan.ok && plan.problem == QStringLiteral("要先挑一个 Forge 版本"),
+            check(!plan.ok && plan.problem == QStringLiteral("请选择 Forge 版本"),
                   "ZK9 Forge 缺加载器版本", plan.problem);
             check(plan.downloads.isEmpty() && plan.toolArguments.isEmpty() &&
                       plan.installedMarkers.isEmpty() && plan.launchTokens.isEmpty(),

@@ -455,7 +455,7 @@ void runBackupTaskTests() {
             check(done, "T35.4 那一趟也收尾了");
             const Tasks::TaskSnapshot finished = newBackup(before);
             check(finished.state == Tasks::TaskState::Failed &&
-                      finished.errorSummary.contains(QStringLiteral("没有备份清单")),
+                      finished.errorSummary.contains(QStringLiteral("未找到备份元数据")),
                   "★★ T35.4 别人的包 ⇒ 账本上是**失败**，那句原因说的是「不是本启动器做出来"
                   "的备份」（不是「文件坏了」—— 合成一句会让人去怀疑一个其实好好的文件）",
                   finished.errorSummary);

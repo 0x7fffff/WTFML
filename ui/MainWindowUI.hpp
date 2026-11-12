@@ -952,7 +952,7 @@ public:
     /// 侧栏那个小节标题：一行普通的粗体字（`wtfmlTextRole="sectionTitle"`），
     /// 不是传统 QGroupBox 的缺口式标题（按"标题 + 内容卡片"的骨架）。
     /// 文案说的是"这一列管的是哪一份 .minecraft 目录"。
-    static QString folderSectionTitleText() { return QStringLiteral("游戏文件夹"); }
+    static QString folderSectionTitleText() { return QStringLiteral("游戏目录"); }
     static QString folderSectionTitleName() { return QStringLiteral("folderSectionTitle"); }
     static QString instanceFolderLabelName() { return QStringLiteral("instanceFolderLabel"); }
     /// 管理页页头的「游戏文件夹」胶囊与点开的文件夹浮层（folderList / 添加文件夹… 在里面）。
@@ -1121,13 +1121,13 @@ public:
     static QString instanceFilterTipText(InstanceFilterButton button) {
         switch (button) {
         case InstanceFilterButton::Vanilla:
-            return QStringLiteral("只看没装模组加载器的实例（原版）。");
+            return QStringLiteral("仅显示原版实例。");
         case InstanceFilterButton::Modded:
-            return QStringLiteral("只看带模组加载器的实例。");
+            return QStringLiteral("仅显示包含模组加载器的实例。");
         case InstanceFilterButton::Updatable:
             return QStringLiteral("只看检查过更新、且有可更新版本的实例。");
         case InstanceFilterButton::Recent:
-            return QStringLiteral("只看启动过、账本上还留着记录的实例（最近 20 次以内）。");
+            return QStringLiteral("仅显示最近启动过的实例（最多 20 个）。");
         }
         return QString();
     }
@@ -1173,12 +1173,11 @@ public:
     static QString instanceModeTipText(InstanceMode mode) {
         switch (mode) {
         case InstanceMode::Client:
-            return QStringLiteral("管理装在 versions/ 下的客户端实例。");
+            return QStringLiteral("管理客户端实例。");
         case InstanceMode::Server:
             return QStringLiteral("管理装在数据目录 Servers/ 下的服务端。");
         case InstanceMode::Preset:
-            return QStringLiteral("这一页管的是实例预设：把一份实例的按键、游戏设置、服务器"
-                                  "列表这些收成一份，再落到别的实例上。");
+            return QStringLiteral("将当前实例的按键、选项与服务器配置打包为预设，供其他实例复用。");
         }
         return QString();
     }
@@ -1193,7 +1192,7 @@ public:
     /// 说的是"**盘上真的一条都没有**"）。平时收着，列表空着时才露。
     static QString serverEmptyLabelName() { return QStringLiteral("serverEmpty"); }
     static QString serverEmptyText() {
-        return QStringLiteral("还没有服务端。点下方的「新建服务端…」创建。");
+        return QStringLiteral("暂无服务端实例。点击「新建服务端」开始创建。");
     }
     /// 「新建服务端…」那一颗（正文面底部）。**是造一个新东西出来**，不是改已有的 ——
     /// 所以它是这一页的主操作，摆在列表下面、整栏宽。
@@ -1535,11 +1534,11 @@ public:
         QString text = QStringLiteral("文件夹：%1").arg(folder);
         text += QStringLiteral("\n禁用只改后缀为 .disabled，文件内容不变；再点「启用」即可恢复。");
         if (running) {
-            text += QStringLiteral("\n服务端正在跑：现在改它也不会加载，重启服务端之后才生效。");
+            text += QStringLiteral("\n服务端运行中，修改将在重启后生效。");
         }
         return text;
     }
-    static QString serverSettingsContentEmptyText() { return QStringLiteral("这个文件夹还是空的。"); }
+    static QString serverSettingsContentEmptyText() { return QStringLiteral("暂无文件"); }
     static QString serverSettingsContentAddText() { return QStringLiteral("添加…"); }
     static QString serverSettingsContentEnableText() { return QStringLiteral("启用"); }
     static QString serverSettingsContentDisableText() { return QStringLiteral("禁用"); }
@@ -2142,7 +2141,7 @@ public:
     static QString taskCenterPanelActiveSectionText() { return QStringLiteral("当前工作"); }
     static QString taskCenterPanelDoneSectionText() { return QStringLiteral("已完成"); }
     static QString taskCenterPanelClearText() { return QStringLiteral("清除已结束记录"); }
-    static QString taskCenterPanelEmptyText() { return QStringLiteral("现在没有任务"); }
+    static QString taskCenterPanelEmptyText() { return QStringLiteral("暂无进行中的任务"); }
     /// 一行是**谁**。值就是 `TaskCenter::Item::key`（任务号的十进制字符串）。
     ///
     /// NOTE: 认一行要靠它、**不能靠行号** —— 「清除已完成」一按，下面那一栏整段没了，
@@ -2217,9 +2216,9 @@ public:
     static QString taskDetailCloseName() { return QStringLiteral("taskDetailClose"); }
 
     /// 这一页上那几个词。**唯一出处**：页面里画它、验证工程比对它，都读这几个函数。
-    static QString taskDetailStepsTitleText() { return QStringLiteral("到了哪一步"); }
-    static QString taskDetailErrorTitleText() { return QStringLiteral("出了什么问题"); }
-    static QString taskDetailNoStepsText() { return QStringLiteral("这一项没有分步。"); }
+    static QString taskDetailStepsTitleText() { return QStringLiteral("执行步骤"); }
+    static QString taskDetailErrorTitleText() { return QStringLiteral("错误详情"); }
+    static QString taskDetailNoStepsText() { return QStringLiteral("无分步记录"); }
     static QString taskDetailNoTitleText() { return QStringLiteral("（没有名字的任务）"); }
     static QString taskDetailCancelText() { return QStringLiteral("取消"); }
     static QString taskDetailRetryText() { return QStringLiteral("重试"); }
@@ -2312,23 +2311,23 @@ public:
 
     /// 一组标题怎么写：`客户端（2 个要修）`。
     static QString integrityReportGroupTitleText(const QString &name, int problems) {
-        return QStringLiteral("%1（%2 个要修）").arg(name).arg(problems);
+        return QStringLiteral("%1（%2 项待修复）").arg(name).arg(problems);
     }
     /// 一组里"缺几个、坏几个"那一句。**和总述用的是同一个分法**（见 VersionIntegrity）。
     static QString integrityReportGroupDetailText(int missing, int corrupt) {
-        return QStringLiteral("缺 %1 个、坏 %2 个").arg(missing).arg(corrupt);
+        return QStringLiteral("缺失 %1 个，损坏 %2 个").arg(missing).arg(corrupt);
     }
     /// 一条问题那一行：`名字：那句话`，路径缩进换一行。路径单独一行是因为它可能很长。
     static QString integrityReportRowText(const QString &label, const QString &detail,
                                           const QString &path) {
         return QStringLiteral("%1：%2\n    %3").arg(label, detail, path);
     }
-    static QString integrityReportErrorTitleText() { return QStringLiteral("体检没跑起来"); }
+    static QString integrityReportErrorTitleText() { return QStringLiteral("完整性校验未完成"); }
     /// 四组一条问题都没有时写的那句（比留一块空白强，也让验证工程分得清）。
-    static QString integrityReportAllGoodText() { return QStringLiteral("这一组没有要修的文件。"); }
+    static QString integrityReportAllGoodText() { return QStringLiteral("未发现需要修复的文件。"); }
     static QString integrityReportCopyText() { return QStringLiteral("复制报告"); }
     static QString integrityReportRepairText() { return QStringLiteral("补齐缺失或损坏文件"); }
-    static QString integrityReportCloseText() { return QStringLiteral("只查看"); }
+    static QString integrityReportCloseText() { return QStringLiteral("仅查看"); }
 
     static QString updateCenterPageName() { return QStringLiteral("updateCenterPage"); }
     static QString updateCenterSummaryName() { return QStringLiteral("updateCenterSummary"); }
@@ -2436,7 +2435,7 @@ public:
     }
     /// 那颗按钮的鼠标提示：说清它会把实例改回什么样子。
     static QString updateCenterUndoTipText() {
-        return QStringLiteral("把上一次更新换掉的文件退回原样（那次更新新添的文件会删掉）");
+        return QStringLiteral("还原上一次更新修改的文件（新增文件将被删除）。");
     }
     static QString updateCenterCloseText() { return QStringLiteral("关闭"); }
     /// 没查过（或者这个实例一条能查的都没有）时那一整块：一句大话 + 一句下一步。
@@ -3254,7 +3253,7 @@ public:
     // 两边共用一个出处，改文案时不会只有一边跟着变。
     // / 没登录（或者登录过但一直没取到过外观）时显示的是程序画的那套默认外观。
     static QString skinHintNotLoggedInText() {
-        return QStringLiteral("未登录，显示的是默认外观（经典 Steve）");
+        return QStringLiteral("未登录（默认外观）");
     }
     /// 离线账号要到了一张随机外观。
     ///
@@ -3295,7 +3294,7 @@ public:
     /// 要不到。**不弹窗**（这是可选的外观功能，见 MainWindow.cpp 里的说明），
     /// 但也不能一声不吭 —— 用户会觉得是画错了。
     static QString skinHintFailedText(const QString &name) {
-        return QStringLiteral("取不到 %1 的皮肤，显示的是默认外观").arg(name);
+        return QStringLiteral("获取皮肤失败，已显示默认外观。").arg(name);
     }
 
     // ---------- 选项卡下标 ----------

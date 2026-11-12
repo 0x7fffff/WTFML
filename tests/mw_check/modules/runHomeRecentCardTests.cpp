@@ -404,7 +404,7 @@ void runHomeRecentCardTests() {
         const int before = onDisk().size();
         {
             const QList<PromptAnswerer::Answered> answered = clickAndAnswer(continueButton, {0});
-            check(answered.size() == 1 && answered.first().title == QStringLiteral("找不到这个实例"),
+            check(answered.size() == 1 && answered.first().title == QStringLiteral("实例未找到"),
                   "★★ T36.10 点「启动实例」⇒ **说一句、不启动**（措辞和 startQuickPlayNow() "
                   "里那一处逐字相同：同一件事说两种话，用户会以为是两件事）",
                   answered.isEmpty() ? QString() : answered.first().title);
@@ -415,7 +415,7 @@ void runHomeRecentCardTests() {
         }
         {
             const QList<PromptAnswerer::Answered> answered = clickAndAnswer(settingsButton, {0});
-            check(answered.size() == 1 && answered.first().title == QStringLiteral("找不到这个实例"),
+            check(answered.size() == 1 && answered.first().title == QStringLiteral("实例未找到"),
                   "★★ T36.10 「实例设置」那一颗也一样（开它的设置页只会给出一个空壳）",
                   answered.isEmpty() ? QString() : answered.first().title);
         }

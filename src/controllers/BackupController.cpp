@@ -270,7 +270,7 @@ void BackupController::pickZip(BackupFiles::Kind kind, const QString &label, con
             InlineMessage::information(
                 m_overlay, tr("没有能还原的备份"),
                 tr("备份目录里有 %1 个名字对得上的压缩包，但包里那份清单说的不是%2"
-                   "（要么不是这个启动器做的备份，要么是从别处拷来的、改过名的）。\n\n"
+                   "备份元数据无效或非本启动器生成。\n\n"
                    "为了不把不相干的东西解到你的目录里，它们一个都没有列出来：\n%3\n\n"
                    "备份放在这儿：%4")
                     .arg(QString::number(rejected.size()), what,
@@ -296,7 +296,7 @@ void BackupController::pickZip(BackupFiles::Kind kind, const QString &label, con
     }
     int row = -1;
     const QPointer<BackupController> alive(this);
-    if (!InlineMessage::pickFromList(m_overlay, tr("挑一份备份"),
+    if (!InlineMessage::pickFromList(m_overlay, tr("选择备份"),
                                      tr("要还原哪一份？（越上面越新）"), items, 0, &row)
         || row < 0 || row >= zips.size()) {
         return;
@@ -327,8 +327,7 @@ void BackupController::backupWorld(const QString &worldDir) {
     }
     if (!instanceId.isEmpty() && m_host.isRunning && m_host.isRunning(instanceId)) {
         InlineMessage::warning(m_overlay, tr("备份世界"),
-                               tr("游戏正在运行。先关掉游戏再备份 —— 游戏开着的时候每隔几秒就在往存档里写，"
-                                  "这时候抄出来的那一份可能是不完整的。"));
+                               tr("游戏正在运行。为防止存档损坏，请退出游戏后再备份。"));
         return;
     }
     const QString worldName = QFileInfo(worldDir).fileName();
@@ -367,8 +366,7 @@ void BackupController::restoreWorld(const QString &worldDir, InstanceSettingsDia
     const QString instanceId = m_host.instanceIdOfPath ? m_host.instanceIdOfPath(worldDir) : QString();
     if (!instanceId.isEmpty() && m_host.isRunning && m_host.isRunning(instanceId)) {
         InlineMessage::warning(m_overlay, tr("恢复备份"),
-                               tr("游戏正在运行。先关掉游戏再还原 —— 不然它退出的时候会把"
-                                  "内存里那份旧存档重新写一遍，把刚还原出来的东西盖掉。"));
+                               tr("游戏正在运行，请退出游戏后再还原存档，避免数据覆盖。"));
         return;
     }
     const QString worldName = QFileInfo(worldDir).fileName();

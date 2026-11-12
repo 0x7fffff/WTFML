@@ -558,12 +558,12 @@ MainWindow::MainWindow(QWidget *parent)
                 const QString id = instanceIdOfPath(path);
                 if (id.isEmpty()) return QString();
                 if (m_launcherManager != nullptr && m_launcherManager->isVersionRunning(id)) {
-                    return tr("「%1」正在运行。先关掉游戏，再动这里的文件。")
+                    return tr("「%1」正在运行。请退出游戏后再修改此文件。")
                         .arg(instanceDisplayName(id));
                 }
                 if (installingVersionIds().contains(id)) {
                     return tr("「%1」正在被另一项文件操作占用（复制 / 备份 / 还原 / 安装），"
-                              "等它完成后再动这里的文件。")
+                              "请等待任务完成后再修改此文件。")
                         .arg(instanceDisplayName(id));
                 }
                 return QString();

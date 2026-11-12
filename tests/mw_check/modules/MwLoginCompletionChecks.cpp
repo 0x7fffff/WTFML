@@ -14,7 +14,7 @@ int MwLoginCompletionChecks() {
         // 这些码比 INT_MAX 还大（2148916233），收成 int 就是负数、一律走兜底 —— 这一条
         // 就是钉这个（写成 int 的话，下面第一条会以"兜底那句里带着码"的方式挂掉）。
         check(AuthManager::xstsErrorMessage(2148916233LL)
-                  .contains(QStringLiteral("没有注册过 Xbox 账户")),
+                  .contains(QStringLiteral("尚未注册 Xbox")),
               "2148916233（没注册过 Xbox 账户）给的是那条该怎么办，不是兜底",
               AuthManager::xstsErrorMessage(2148916233LL));
         check(AuthManager::xstsErrorMessage(2148916238LL).contains(QStringLiteral("家庭组")),

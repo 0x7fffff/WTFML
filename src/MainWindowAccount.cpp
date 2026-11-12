@@ -370,8 +370,7 @@ void MainWindow::logoutCurrentAccount() {
         // 别替失败编一句"现在还是登录着"：可能一个键都没清掉，也可能清掉了一半（见
         // AccountStore::logout() 的 R13）。说"没能清干净"在任何一种情况下都是事实。
         InlineMessage::warning(m_ui->overlay(), tr("退出登录失败"),
-                             tr("无法清除磁盘上的登录状态。\n\n请再点一次「登出」；如果仍然失败，"
-                                "可能是本机的启动器配置无法写入。"));
+                             tr("无法清除本地登录状态。请重试；若持续失败请检查启动器目录写权限。"));
         return;
     }
     // 内存里那一份也得跟着清 —— AuthManager 只在构造和换账号那两处读过盘，不重读的话
@@ -433,8 +432,7 @@ void MainWindow::useAccountFromPanel(const QString &uuid) {
     // "刷新失败"。
     appendLog(tr("「%1」的登录令牌没能刷新：%2").arg(AccountStore::nameOf(uuid), error));
     InlineMessage::warning(m_ui->overlay(), tr("登录令牌没能刷新"),
-                         tr("已经切到账号「%1」，但它保存的登录凭据换不出新令牌：\n\n%2\n\n"
-                            "这个账号在「账号与外观…」里重新登录一次就好了。")
+                         tr("已切换至「%1」，但登录凭据已失效：%2。请在账号管理中重新登录。")
                              .arg(AccountStore::nameOf(uuid), error));
 }
 
@@ -475,11 +473,10 @@ void MainWindow::onAccountRemoveRequested(const QString &uuid) {
     // 里说清楚，用户点下去才知道自己会退出登录（见 AccountStore.hpp 文件头）。
     const bool wasCurrent = AccountStore::activeUuid() == uuid;
     const QString question =
-        wasCurrent ? tr("删掉当前账号「%1」？\n\n它保存的登录凭据会一并删除，删完之后就是"
-                        "未登录状态（可以重新登录）。")
+        wasCurrent ? tr("确定删除当前账号「%1」？本地登录凭证将一并清除。")
                          .arg(name)
-                   : tr("删掉账号「%1」？\n\n它保存的登录凭据会一并删除。").arg(name);
-    if (!InlineMessage::question(m_ui->overlay(), tr("删除账号"), question, tr("是"), tr("否"), true,
+                   : tr("确定删除账号「%1」？本地登录凭证将一并清除。").arg(name);
+    if (!InlineMessage::question(m_ui->overlay(), tr("删除账号"), question, tr("删除"), tr("取消"), true,
                                             /*destructive=*/true)) {
         return;
     }
@@ -522,7 +519,7 @@ void MainWindow::onSkinUploadRequested(const QString &path, const QString &varia
     if (!file.open(QIODevice::ReadOnly) || file.size() <= 0
         || file.size() > kMaxPickedSkinBytes) {
         InlineMessage::warning(m_ui->overlay(), tr("上传皮肤失败"),
-                             tr("读不到「%1」这个文件（或者它大得不像一张皮肤图）。")
+                             tr("无法读取文件「%1」，或图片尺寸超出限制。")
                                  .arg(fileName));
         return;
     }
@@ -612,7 +609,7 @@ void MainWindow::onOfflineSkinResetRequested() {
     }
     if (!OfflineSkin::clear(uuid)) {
         InlineMessage::warning(m_ui->overlay(), tr("恢复默认外观失败"),
-                               tr("删不掉之前挑的那张皮肤，检查一下 data 目录的权限。"));
+                               tr("删除皮肤缓存失败，请检查数据目录写权限。"));
         return;
     }
     appendLog(tr("已恢复默认外观。"));

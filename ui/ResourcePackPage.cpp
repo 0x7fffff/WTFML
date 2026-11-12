@@ -131,7 +131,7 @@ void ResourcePackPage::setPacks(const QList<Pack> &packs, const QStringList &sel
     m_selected->setDragEnabled(m_editable);
     m_selected->setAcceptDrops(m_editable);
     m_note->setText(problem.isEmpty()
-        ? tr("调整后自动保存，不改动资源包文件。内置项不能移除；兼容性请在游戏中确认。")
+        ? tr("自动保存生效，不修改源文件。内置项不可移除。")
         : tr("只读：%1").arg(problem));
     m_loading = false;
     filter();

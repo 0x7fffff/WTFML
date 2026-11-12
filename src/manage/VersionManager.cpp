@@ -741,7 +741,7 @@ void VersionManager::repairVersionFiles(const QString &versionId,
     if (!storageProblem.isEmpty()) {
         emit versionDownloadFinished(
             versionId, false,
-            tr("游戏文件夹所在的磁盘当前不可用，本次未执行任何操作：\n%1").arg(storageProblem));
+            tr("游戏目录所在的磁盘当前不可用，本次未执行任何操作：\n%1").arg(storageProblem));
         return;
     }
     // 这几道早退都在 beginBatch() 之前，而且都要发终态（理由见 downloadVersion() 顶部那段 NOTE）。
@@ -1486,7 +1486,7 @@ bool VersionManager::copyInstanceFrom(const QString &sourceDir, const QString &s
     // 当前工作目录下算，而启动器的工作目录不一定是 exe 旁边那一份 —— 那就会往一个谁也
     // 说不清的地方拷一份实例出来。这一条不是形式。
     if (target.isEmpty()) {
-        return fail(tr("没有指定要复制到哪个游戏文件夹。"));
+        return fail(tr("没有指定要复制到哪个游戏目录。"));
     }
     if (!WriteDirectoryGuard::acquire(sourceDir, errorOut)
         || !DirectorySessionLock::acquire(target, errorOut)) return false;
@@ -1548,7 +1548,7 @@ bool VersionManager::copyInstanceFrom(const QString &sourceDir, const QString &s
         return fail(tr("「%1」就是这一份自己，没有复制。").arg(name));
     }
     if (QFileInfo::exists(destDir)) {
-        return fail(tr("那个游戏文件夹里已经有一个叫「%1」的实例了，换个名字再试。").arg(name));
+        return fail(tr("目标游戏目录中已存在名为「%1」的实例，请更换名称后重试。").arg(name));
     }
     if (!QDir().mkpath(versionsDir)) {
         return fail(tr("建不出目录 %1。").arg(QDir::toNativeSeparators(versionsDir)));
@@ -1578,7 +1578,7 @@ bool VersionManager::copyInstanceFrom(const QString &sourceDir, const QString &s
     // 那是一句"你得自己去删掉它"，不能算复制成功。
     const auto removePartial = [&]() -> QString {
         if (!removeTreeWithoutFollowingLinks(stagingDir)) {
-            return tr("\n（另外，那份没拷完的暂存 %1 也没能删掉，你需要自己删掉它。）")
+            return tr("\n（未能删除未完成复制的暂存 %1，请手动删除。）")
                 .arg(QDir::toNativeSeparators(stagingDir));
         }
         QDir().rmdir(stagingParent);  // 空了就一起收掉；还有别的拷贝在用时失败也无妨
@@ -1666,8 +1666,8 @@ bool VersionManager::copyInstanceFrom(const QString &sourceDir, const QString &s
     // 发布前再问一次盘：慢盘上拷了几分钟，这个名字可能已经被用户或另一份启动器占用了。
     // 那时只清暂存，绝不碰对方那个目录。
     if (QFileInfo::exists(destDir)) {
-        return fail(tr("复制完成时，那个游戏文件夹里已经有一个叫「%1」的实例了；"
-                       "这一份没有发布。%2")
+        return fail(tr("复制完成时，游戏目录中已存在名为「%1」的实例；"
+                       "本次未发布。%2")
                         .arg(name, removePartial()));
     }
     if (!QDir().rename(stagingDir, destDir)) {
@@ -2136,11 +2136,11 @@ void VersionManager::onAllDownloadsFinished(bool success) {
             // 一个都没下 = 全都好好的（补全那颗按钮点在一个装好的实例上就是这个形状）。
             // 另有 skipped == 0 的情况：这一批压根没有作业登记上来。
             if (stats.reused > 0 && stats.skipped > 0) {
-                message = tr("无需下载：%1 个已从本机其他游戏文件夹复用，%2 个已存在。")
+                message = tr("无需下载：%1 个已从本机其他游戏目录复用，%2 个已存在。")
                               .arg(stats.reused)
                               .arg(stats.skipped);
             } else if (stats.reused > 0) {
-                message = tr("无需下载：%1 个文件已从本机其他游戏文件夹复用。")
+                message = tr("无需下载：%1 个文件已从本机其他游戏目录复用。")
                               .arg(stats.reused);
             } else {
                 message = stats.skipped > 0
@@ -2149,12 +2149,12 @@ void VersionManager::onAllDownloadsFinished(bool success) {
                               : tr("没有需要下载的文件。");
             }
         } else if (stats.reused > 0 && stats.skipped > 0) {
-            message = tr("已下载 %1 个文件，另有 %2 个从本机其他游戏文件夹复用、%3 个已存在。全部就绪。")
+            message = tr("已下载 %1 个文件，另有 %2 个从本机其他游戏目录复用、%3 个已存在。全部就绪。")
                           .arg(stats.total)
                           .arg(stats.reused)
                           .arg(stats.skipped);
         } else if (stats.reused > 0) {
-            message = tr("已下载 %1 个文件，另有 %2 个从本机其他游戏文件夹复用。全部就绪。")
+            message = tr("已下载 %1 个文件，另有 %2 个从本机其他游戏目录复用。全部就绪。")
                           .arg(stats.total)
                           .arg(stats.reused);
         } else if (stats.skipped > 0) {

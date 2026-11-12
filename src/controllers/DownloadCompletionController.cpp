@@ -313,9 +313,9 @@ void DownloadCompletionController::onFinished(const QString &versionId, bool suc
             const bool retry = InlineMessage::question(
                 m_owner.m_ui->overlay(), MainWindow::tr("首启资源没预取完"),
                 MainWindow::tr("「%1」的 GTNH 首启资源没能全部拿到。\n\n%2\n\n"
-                   "这不影响启动：游戏第一次启动时 AssetDirector 会自己继续下。要现在再试一次吗？")
+                   "不影响启动。游戏首次运行时将自动下载所需资源。是否重试？")
                     .arg(displayName, errorMessage),
-                MainWindow::tr("再试一次"), MainWindow::tr("知道了"), true);
+                MainWindow::tr("重试"), MainWindow::tr("完成"), true);
             if (retry) {
                 m_owner.maybePrefetchAssetDirector(versionId);
             }

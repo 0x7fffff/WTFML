@@ -942,7 +942,7 @@ public:
             button->setEnabled(!protectedFolder);
             button->setToolTip(protectedFolder
                                    ? QCoreApplication::translate(
-                                         "MainWindowUI", "启动器自带的游戏文件夹，这一项做不了")
+                                         "MainWindowUI", "默认游戏目录，此项操作不可用")
                                    : MainWindowUI::folderActionTooltip(a));
             button->setCursor(Qt::PointingHandCursor);
             QObject::connect(button, &QPushButton::clicked, button,
@@ -1595,7 +1595,7 @@ void MainWindowUI::setupBottomBar(QWidget *parent) {
     // 竖直方向铺满，理由同左边那颗（默认 Fixed 会让这一格只有一行字那么高）。
     accountButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     accountButton->setCursor(Qt::PointingHandCursor);
-    accountButton->setToolTip(QCoreApplication::translate("MainWindowUI", "点一下向上展开账号信息"));
+    accountButton->setToolTip(QCoreApplication::translate("MainWindowUI", "查看账号信息"));
     applyBottomBarButtonStyle(accountButton, bottomBar->palette());
     QHBoxLayout *accountRow = new QHBoxLayout(accountButton);
     accountRow->setContentsMargins(0, 0, 0, 0);
@@ -1755,10 +1755,10 @@ QString MainWindowUI::folderActionTooltip(int action) {
                                            "用文件资源管理器打开这个文件夹");
     case FolderActionRemove:
         return QCoreApplication::translate("MainWindowUI",
-                                           "只从列表里移除：文件夹本身和里面的文件都不会被删掉");
+                                           "仅从列表中移除，保留本地文件。");
     case FolderActionDelete:
         return QCoreApplication::translate("MainWindowUI",
-                                           "把这个文件夹和里面的文件从磁盘上删掉（不可恢复）");
+                                           "从磁盘永久删除文件夹及所有内容。");
     }
     return QString();
 }
@@ -1819,7 +1819,7 @@ QString MainWindowUI::groupActionText(int action, const GroupRow &row) {
         return row.expanded ? QCoreApplication::translate("MainWindowUI", "默认展开：开")
                             : QCoreApplication::translate("MainWindowUI", "默认展开：关");
     case GroupActionDelete:
-        return QCoreApplication::translate("MainWindowUI", "删除这一组…");
+        return QCoreApplication::translate("MainWindowUI", "删除分组…");
     }
     // 越界（理论上到不了：菜单是照 groupActionCount() 循环摆的）。给空串而不是随便
     // 返回一项 —— 空串在画面上是个空白按钮，一眼看得出不对。
@@ -1851,13 +1851,13 @@ QString MainWindowUI::groupActionTooltip(int action, const GroupRow &row) {
     case GroupActionMoveInto:
         if (!row.hasSelection) {
             return QCoreApplication::translate("MainWindowUI",
-                                               "先在列表里选中一个实例，再回这儿挑一组");
+                                               "请先在列表中选中实例，再选择分组。");
         }
         return QCoreApplication::translate(
             "MainWindowUI", "把选中的实例放进一个组（会离开原来的组）");
     case GroupActionClearMembers:
         if (row.memberCount <= 0) {
-            return QCoreApplication::translate("MainWindowUI", "这一组里一个实例都没有");
+            return QCoreApplication::translate("MainWindowUI", "分组内暂无实例");
         }
         return QCoreApplication::translate("MainWindowUI",
                                            "这一组里的 %1 个实例会回到未分组"
@@ -1877,8 +1877,7 @@ QString MainWindowUI::groupActionTooltip(int action, const GroupRow &row) {
                                                           "点一下改成默认展开");
     case GroupActionDelete:
         return QCoreApplication::translate("MainWindowUI",
-                                           "删掉这一组：里面的 %1 个实例会回到未分组，"
-                                           "一个实例都不会被删掉")
+                                           "删除分组后，其中 %1 个实例将移至未分组，实例本身不会被删除。")
             .arg(row.memberCount);
     }
     return QString();

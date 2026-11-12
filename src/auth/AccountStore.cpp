@@ -54,7 +54,7 @@ QJsonArray readAccounts(bool *readableOut = nullptr) {
 /// 免得一处改了另一处还是旧话术。（remove() 用不上它，见上面 readAccounts() 那段。）
 QString unreadableListMessage() {
     return QStringLiteral(
-        "已保存的账号列表读不出来：盘上那一格在，但解不开（换了 Windows 账户或者换了机器"
+        "已保存的账号列表读不出来：盘上那一格在，但解不开（Windows 账户环境变更或迁移设备"
         "之后会这样）。现在写回去会把列表里其它账号一起抹掉，所以这次没有保存。"
         "想重新开始的话，先删掉那个键再试。");
 }

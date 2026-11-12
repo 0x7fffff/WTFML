@@ -383,7 +383,7 @@ void runInstanceStartActionsTests() {
                                                    : answerer3.answered.at(0).title);
                 check(!answerer3.answered.isEmpty() &&
                           answerer3.answered.at(0).text.contains(
-                              QStringLiteral("找不到版本 %1 的 version.json").arg(emptyId)),
+                              QStringLiteral("未找到 version.json")),
                       "★ T19.7 正文点的是「读不出 version.json」，不是一句笼统的失败",
                       answerer3.answered.isEmpty() ? QString() : answerer3.answered.at(0).text);
                 check(!vm->isDownloading(),

@@ -1034,7 +1034,7 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
                                      if (versionId != info.value(QStringLiteral("versionId")).toString()) {
                                          failReplacement(
                                              QObject::tr("平台发行版在确认后发生变化（预览 %1，实际 %2）；"
-                                                         "整趟更新已回滚，请重新检查后再试。")
+                                                         "更新已完整回滚，请重新检查配置后重试。")
                                                  .arg(info.value(QStringLiteral("versionId")).toString(),
                                                       versionId),
                                              {QObject::tr("项目 %1：预览与下载结果不一致").arg(project)});

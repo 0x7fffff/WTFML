@@ -32,15 +32,14 @@ bool isLinkEntry(const QFileInfo &info) {
 QString removalQuestionFor(const QFileInfo &info) {
     const QString name = info.fileName();
     if (isLinkEntry(info)) {
-        return QObject::tr("把「%1」这个链接删掉？只删链接本身，它指向的东西一个都不会动。")
+        return QObject::tr("确定删除符号链接「%1」？仅移除链接，目标文件不受影响。")
             .arg(name);
     }
     if (info.isDir()) {
-        return QObject::tr("把文件夹「%1」连同里面的东西一起删掉？它们会进回收站，"
-                           "要恢复可以从那里找回来。")
+        return QObject::tr("确定删除文件夹「%1」及其所有内容？文件将移至回收站。")
             .arg(name);
     }
-    return QObject::tr("把「%1」删掉？它会进回收站，要恢复可以从那里找回来。").arg(name);
+    return QObject::tr("确定删除「%1」？文件将移至回收站。").arg(name);
 }
 
 }  // namespace
@@ -106,10 +105,10 @@ bool InstanceFileController::toggleUnchecked(const QString &path, QString *probl
     const QString target = info.fileName().endsWith(suffix, Qt::CaseInsensitive)
                                ? path.left(path.size() - suffix.size()) : path + suffix;
     if (QFileInfo::exists(target))
-        return fail(tr("「%1」已经有一个了 —— 先把那一份删掉或者改个名，再动这一份。")
+        return fail(tr("目标「%1」已存在。请先重命名或删除现有项目。")
                         .arg(QDir::toNativeSeparators(target)));
     if (!QFile::rename(path, target))
-        return fail(tr("没能改「%1」的名字：多半是它正被游戏占着。先把游戏关掉再试。")
+        return fail(tr("重命名「%1」失败。文件可能被占用，请退出游戏后重试。")
                         .arg(QDir::toNativeSeparators(path)));
     log(target.endsWith(suffix, Qt::CaseInsensitive)
             ? tr("禁用文件：%1").arg(QDir::toNativeSeparators(path))
@@ -275,18 +274,17 @@ void InstanceFileController::removeMany(const QStringList &paths) {
     const QString question = paths.size() == 1
         ? removalQuestionFor(QFileInfo(paths.first()))
         : (linkCount == paths.size()
-               ? tr("把这 %1 个链接删掉？只删链接本身，它们指向的东西一个都不会动。")
+               ? tr("确定删除选中的 %1 个链接？目标文件不受影响。")
                      .arg(paths.size())
                : (dirCount == 0 && linkCount == 0
-                      ? tr("把这 %1 个文件删掉？它们会进回收站，要恢复可以从那里找回来。")
+                      ? tr("确定删除选中的 %1 个文件？文件将移至回收站。")
                             .arg(paths.size())
                       : (linkCount == 0 && dirCount == paths.size()
-                             ? tr("把这 %1 个文件夹连同里面的东西一起删掉？"
-                                  "它们会进回收站，要恢复可以从那里找回来。")
+                             ? tr("确定删除选中的 %1 个文件夹及其内容？文件将移至回收站。")
                                    .arg(paths.size())
                              : [&] {
                                    QString text =
-                                       tr("把这 %1 项删掉？").arg(paths.size());
+                                       tr("确定删除选中的 %1 项？").arg(paths.size());
                                    if (dirCount > 0)
                                        text += tr("其中 %1 个是文件夹（连同里面的东西一起删）")
                                                    .arg(dirCount);
@@ -331,6 +329,6 @@ void InstanceFileController::removeMany(const QStringList &paths) {
     log(tr("批量删除：删掉了 %1 项。").arg(removed));
     if (failed > 0)
         InlineMessage::warning(m_overlay, tr("删除失败"),
-                               tr("有 %1 项没能删掉。\n\n%2")
+                               tr("%1 项删除失败：\n\n%2")
                                    .arg(failed).arg(problems.join(QStringLiteral("\n"))));
 }

@@ -733,7 +733,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
         if (targetIdNow.isEmpty()) {
             dialog.setTransferPlan(key, key == QStringLiteral("upgrade")
                 ? tr("请先选择目标版本。当前实例始终作为更新来源；尚未准备的版本可先准备核心与加载器。")
-                : tr("此游戏文件夹里没有其它可迁移的实例。"));
+                : tr("此游戏目录里没有其它可迁移的实例。"));
             dialog.setTransferItems(key, {}, {});
             return;
         }
@@ -1199,7 +1199,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                             QString text =
                                 outcome.apply.text() + QStringLiteral("\n\n") + checks.text();
                             if (upgrade) {
-                                text += tr("\n\n新实例「%1」已经在这个游戏文件夹里了。")
+                                text += tr("\n\n新实例「%1」已在此游戏目录中。")
                                             .arg(newName);
                             } else {
                                 text += tr("\n\n目标实例：「%1」。")
@@ -1760,7 +1760,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 const QString sourceId = targetId;  // 按值收：下面那两条对话框会让出事件循环
                 const QString defaultDir = AppPaths::minecraftDir();
                 const QString folder = QFileDialog::getExistingDirectory(
-                    m_owner, tr("复制到哪个游戏文件夹"), defaultDir,
+                    m_owner, tr("复制到哪个游戏目录"), defaultDir,
                     QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
                 if (folder.isEmpty()) {
                     return;  // 用户取消了
@@ -2335,10 +2335,9 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
             // 用户点的是哪一台，问的就是哪一台。
             return InlineMessage::question(
                 m_owner->m_ui->overlay(), tr("删除服务器"),
-                tr("要把 %1（%2）从服务器列表里删掉吗？\n\n游戏里那份 servers.dat 里"
-                   "就少这一台了。")
+                tr("确定从列表中移除服务器「%1」（%2）？\n\n游戏 servers.dat 中的对应记录将一并移除。")
                     .arg(who, address),
-                tr("是"), tr("否"), /*defaultYes=*/false, /*destructive=*/true);
+                tr("移除"), tr("取消"), /*defaultYes=*/false, /*destructive=*/true);
         },
         [this](const ServerListController::Notice &notice) { m_owner->showServerListNotice(notice); },
         [this](const QString &text) { m_owner->appendLog(text); },

@@ -554,7 +554,7 @@ QString unresolvedNoteText(const QStringList &lines) {
         return QString();
     }
     return QStringLiteral("有几个前置没找到能装的版本：\n\n%1\n\n"
-                          "它们下不下来，其余的都照下。可以去项目页自己挑一版。")
+                          "部分依赖下载失败，其余文件已完成。可在项目主页手动下载。")
         .arg(lines.join(QLatin1Char('\n')));
 }
 

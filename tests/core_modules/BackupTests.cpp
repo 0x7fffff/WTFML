@@ -351,7 +351,7 @@ void runBackupTests() {
     bool foreignOk = true;
     QString foreignProblem;
     BackupFiles::readManifest(foreignZip, &foreignOk, &foreignProblem);
-    check(!foreignOk && foreignProblem.contains(QStringLiteral("没有备份清单")),
+    check(!foreignOk && foreignProblem.contains(QStringLiteral("未找到备份元数据")),
           "★★ ZQ3 「不是本启动器做的包」和「读不动」是**两句不同的话**（这里说的是前者，"
           "不然用户会去怀疑一个其实好好的文件）",
           foreignProblem);

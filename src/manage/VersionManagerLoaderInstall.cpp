@@ -192,7 +192,7 @@ void VersionManager::requestLoaderVersions(const QString &gameVersion, LoaderKin
 
     if (wanted.isEmpty()) {
         emit loaderVersionsFetched(wanted, kind, false, LoaderMeta::LoaderVersionList(),
-                                   tr("还没选要装哪个版本，先在上面挑一个。"));
+                                   tr("请选择要安装的版本。"));
         return;
     }
     if (!loaderInstallSupported(kind)) {
@@ -735,7 +735,7 @@ bool VersionManager::retryInstallerListFromOfficial() {
     m_loaderInstall.listRetriedOfficial = true;
     m_loaderInstall.listRequestWasMirror = false;
     emit loaderInstallMessage(
-        tr("镜像上的 %1 版本表里没有 %2（镜像那份是旧的），改用官方那份再挑一次...")
+        tr("镜像源版本列表未找到 %2，已切换至官方源重新获取。")
             .arg(m_loaderInstall.loaderName, m_loaderInstall.gameVersion));
     requestInstallerList(m_loaderInstall.listOfficialUrl);
     return true;
@@ -764,7 +764,7 @@ void VersionManager::onInstallerListReply(QNetworkReply *reply, const QString &j
                 // 官方这条**已经**试过了（就是刚失败的这一发），镜像那条别再往回弹。
                 m_loaderInstall.listRetriedOfficial = true;
                 emit loaderInstallMessage(
-                    tr("%1 版本表的官方地址连不上（%2），改用镜像再问一次...")
+                    tr("官方源连接失败（%2），已切换至镜像源重试。")
                         .arg(m_loaderInstall.loaderName, replyReason(reply, jobError)));
                 requestInstallerList(fallback);
                 return;
@@ -1423,7 +1423,7 @@ void VersionManager::onInstallerTick() {
     if (elapsed >= kInstallerTimeoutMs) {
         abortInstaller(tr("%1 的安装器跑了 %2 分钟还没结束，已经把它停掉了。\n"
                           "它最后打出来的是：%3\n"
-                          "多半是网络卡住了，过一会儿重试一次；一直这样就把日志发来。")
+                          "网络连接超时，请稍后重试；若持续失败请导出日志排查。")
                            .arg(m_loaderInstall.loaderName)
                            .arg(elapsed / 60000)
                            .arg(installerLastOutputLine()));
@@ -1571,7 +1571,7 @@ void VersionManager::onInstallerFinished(int exitCode, bool crashed) {
     const QJsonObject produced = readVersionJsonAt(InstanceFiles::jsonPath(id));
     if (produced.isEmpty()) {
         failLoaderInstall(tr("%1 %2 的安装器跑完了（退出码 0），但 %3 里没有出现 %4，"
-                             "认不出它装到哪去了。\n"
+                             "无法定位安装目录。\n"
                              "它最后打出来的是：\n%5")
                               .arg(name, version, AppPaths::versionDir(id),
                                    id + QStringLiteral(".json"),
@@ -1796,7 +1796,7 @@ void VersionManager::onOptifineDownloadTokenReply(QNetworkReply *reply, const QS
     if (url.isEmpty()) {
         // 抠不出来就**不猜**：宁可报"拿不到下载地址"，也不给用户下一个不知道是什么的文件。
         failLoaderInstall(tr("%1 的广告页上没认出 %2 那条下载地址，没有安装。过一会儿重试；"
-                             "一直这样就把下载源换成镜像源。")
+                             "若持续失败，请尝试在设置中切换下载源。")
                               .arg(m_loaderInstall.loaderName, m_loaderInstall.installerFileName));
         return;
     }
@@ -1925,9 +1925,8 @@ void VersionManager::adoptOptifineProducts() {
         id = entry.fileName();
     }
     if (id.isEmpty()) {
-        failLoaderInstall(tr("%1 %2 的安装器跑完了（退出码 0），但临时目录里没有多出任何"
-                             "版本目录，认不出它装到哪去了。\n"
-                             "它最后打出来的是：\n%3")
+        failLoaderInstall(tr("%1 %2 的安装器已结束（退出码 0），但临时目录中未新增版本目录，无法定位安装目录。\n"
+                             "安装器输出：\n%3")
                               .arg(name, version, installerOutputTail(m_installerOutput)));
         return;
     }

@@ -85,7 +85,7 @@ QString JavaManageDialog::usedMarkText() {
 
 QString JavaManageDialog::hintText() {
     return QStringLiteral(
-        "下载 Adoptium 构建，装在游戏文件夹的 java/<主版本> 下，不影响系统里已装的 Java。");
+        "下载 Adoptium 运行时至 java/<版本> 目录，不影响系统环境。");
 }
 
 QString JavaManageDialog::titleText() const {
@@ -186,7 +186,7 @@ JavaManageDialog::JavaManageDialog(QWidget *parent) : QDialog(parent) {
     m_manual->setObjectName(manualButtonName());
     Theme::markButton(m_manual, Theme::ButtonKind::Neutral);
     m_manual->setAutoDefault(false);
-    m_manual->setToolTip(QStringLiteral("挑一份本机已有的 java.exe（不必在扫描出来的那几个目录里）。"));
+    m_manual->setToolTip(QStringLiteral("手动选择本地 java.exe 文件。"));
     actions->addWidget(m_downloadAll);
     actions->addWidget(m_detect);
     actions->addWidget(m_manual);

@@ -724,7 +724,7 @@ void runBottomBarPanelTests() {
             check(g_modalTitle == QStringLiteral("登录令牌没能刷新") && g_modalWasWarning,
                   "AH8 令牌换不出来**要弹窗**（产品级约束：错误要弹窗，不能只写日志）",
                   g_modalTitle + QStringLiteral(" / ") + g_modalText);
-            check(g_modalText.contains(QStringLiteral("已经切到账号「Carol」")) &&
+            check(g_modalText.contains(QStringLiteral("已切换至「Carol」")) &&
                       g_modalText.contains(QStringLiteral("重新登录一次")),
                   "AH8 弹窗把「切过去了」和「令牌没换到」分开说，并指出下一步", g_modalText);
             check(countOccurrences(messagesSnapshot(), QStringLiteral("没能刷新")) ==
@@ -892,8 +892,8 @@ void runBottomBarPanelTests() {
                   "AH11 点它弹的是「切换账号失败」（那一项没有副本，切不过去）", g_modalTitle);
             check(g_modalText.contains(QStringLiteral("凭据不完整")),
                   "AH11 框里说清是那份凭据不完整", g_modalText);
-            check(!g_modalText.contains(QStringLiteral("已经切到账号")),
-                  "AH11 框里**没有**「已经切到账号…」那半句（那是另一个框的话，写在这儿就是假的）",
+            check(!g_modalText.contains(QStringLiteral("已切换至")),
+                  "AH11 框里**没有**「已切换至…」那半句（那是另一个框的话，写在这儿就是假的）",
                   g_modalText);
             check(AccountStore::activeUuid() == bobUuid &&
                       auth->playerName() == QStringLiteral("Bob"),

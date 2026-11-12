@@ -746,10 +746,10 @@ int MwFolderSwitchingChecks(const QDir &root, MainWindow &window) {
 
                 // ---- 「刷新」：重扫一遍这个文件夹 ----
                 const int refreshedBefore =
-                    countOccurrences(messagesSnapshot(), QStringLiteral("已刷新游戏文件夹"));
+                    countOccurrences(messagesSnapshot(), QStringLiteral("已刷新游戏目录"));
                 QWidget *refreshMenu = openMenuOf(gearOf(otherTitle));
                 clickAction(refreshMenu, MainWindowUI::FolderActionRefresh);
-                check(countOccurrences(messagesSnapshot(), QStringLiteral("已刷新游戏文件夹")) ==
+                check(countOccurrences(messagesSnapshot(), QStringLiteral("已刷新游戏目录")) ==
                           refreshedBefore + 1,
                       "P2 「刷新」写的是「已刷新游戏文件夹」");
                 check(folderListView->count() == 4,
@@ -803,10 +803,10 @@ int MwFolderSwitchingChecks(const QDir &root, MainWindow &window) {
                       "P2 把那一份从盘上挪走（列表里那一条还在 —— U 盘没插就是这个样子）");
                 const QString vanishedTitle = QDir(vanished).dirName();
                 const int missingBefore =
-                    countOccurrences(messagesSnapshot(), QStringLiteral("游戏文件夹不在盘上"));
+                    countOccurrences(messagesSnapshot(), QStringLiteral("游戏目录不存在"));
                 QWidget *goneMenu = openMenuOf(gearOf(vanishedTitle));
                 clickAction(goneMenu, MainWindowUI::FolderActionRefresh);
-                check(countOccurrences(messagesSnapshot(), QStringLiteral("游戏文件夹不在盘上")) ==
+                check(countOccurrences(messagesSnapshot(), QStringLiteral("游戏目录不存在")) ==
                           missingBefore + 1,
                       "P2 目录不在盘上时「刷新」说的是另一句");
                 const int vanishedRow = folderRowIndexOf(&w9, vanishedTitle);
@@ -822,7 +822,7 @@ int MwFolderSwitchingChecks(const QDir &root, MainWindow &window) {
                 answerNextPrompt(0);
                 QWidget *openGoneMenu = openMenuOf(gearOf(vanishedTitle));
                 clickAction(openGoneMenu, MainWindowUI::FolderActionOpen);
-                check(g_modalTitle == QStringLiteral("打开游戏文件夹") &&
+                check(g_modalTitle == QStringLiteral("打开游戏目录") &&
                           g_modalText.contains(QStringLiteral("不在盘上")),
                       "P2 对着一个不在盘上的目录按「打开」：弹一句照实的，不静默什么都不做",
                       g_modalTitle + QStringLiteral(" / ") + g_modalText);
@@ -831,7 +831,7 @@ int MwFolderSwitchingChecks(const QDir &root, MainWindow &window) {
                 answerNextPrompt(0);
                 QWidget *deleteMenu = openMenuOf(gearOf(vanishedTitle));
                 clickAction(deleteMenu, MainWindowUI::FolderActionDelete);
-                check(g_modalTitle == QStringLiteral("删除游戏文件夹") &&
+                check(g_modalTitle == QStringLiteral("删除游戏目录") &&
                           g_modalText.contains(QStringLiteral("回收站")) &&
                           g_modalText.contains(QStringLiteral("用「移除」")),
                       "P2 确认框把「会进回收站」和「想留着就用移除」都写死了",
@@ -843,13 +843,13 @@ int MwFolderSwitchingChecks(const QDir &root, MainWindow &window) {
 
                 // 盘上真在的那一份：按下去之后**目录得真没**。
                 const int deletedBefore =
-                    countOccurrences(messagesSnapshot(), QStringLiteral("已删除游戏文件夹"));
+                    countOccurrences(messagesSnapshot(), QStringLiteral("已删除游戏目录"));
                 const QString doomedTitle = QDir(doomedRoot).dirName();
                 answerNextPrompt(0);
                 QWidget *doomedMenu = openMenuOf(gearOf(doomedTitle));
                 check(doomedMenu != nullptr, "P2 第三份的齿轮也弹得出菜单");
                 clickAction(doomedMenu, MainWindowUI::FolderActionDelete);
-                check(countOccurrences(messagesSnapshot(), QStringLiteral("已删除游戏文件夹")) ==
+                check(countOccurrences(messagesSnapshot(), QStringLiteral("已删除游戏目录")) ==
                           deletedBefore + 1,
                       "P2 日志说的是「已删除游戏文件夹」（和「已从列表里移除文件夹」是两句）");
                 check(!QFileInfo(doomedRoot).exists() && !QFile::exists(doomedFile),

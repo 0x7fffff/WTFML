@@ -530,7 +530,7 @@ bool readBytes(const QString &path, QByteArray *out, QString *problem) {
     const QFileInfo plainInfo(plainPath);
     if (!plainInfo.exists() || plainInfo.size() <= 0) {
         if (problem != nullptr) {
-            *problem = QStringLiteral("解压出来是空的（这份文件多半是坏的或者没下完）。");
+            *problem = QStringLiteral("解压内容为空，文件可能损坏或下载未完成。");
         }
         return false;
     }

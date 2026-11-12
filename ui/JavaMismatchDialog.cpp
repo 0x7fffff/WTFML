@@ -36,7 +36,7 @@ QString JavaMismatchDialog::messageText(const QString &instanceName, int expecte
                                         const QString &javaPath) {
     return QStringLiteral(
                "实例「%1」在「实例设置…」里指定了 %2，而这个版本要求 Java %3。\n\n"
-               "用它启动多半会失败。改用匹配的 Java 会把实例设置里那一项换成自动挑中的版本。\n\n"
+               "Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本。\n\n"
                "%4")
         .arg(instanceName, describeActual(actualMajor, actualVersionText),
              QString::number(expectedMajor), javaPath);

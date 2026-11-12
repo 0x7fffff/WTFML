@@ -93,8 +93,8 @@ void MainWindow::warnOverlayBusy() {
     // 这时候唯一能做的是把话说清楚。
     const QString title = overlay->pageTitle();
     if (title.isEmpty()) {
-        InlineMessage::warning(overlay, tr("先关掉现在这一条提示"),
-                               tr("现在有一条提示开着，先说清它或者按 Esc 关掉它，再开这个。"));
+        InlineMessage::warning(overlay, tr("请先关闭当前提示"),
+                               tr("请确认或关闭当前对话框后再继续。"));
         return;
     }
     InlineMessage::warning(overlay, tr("先关掉现在这一页"),

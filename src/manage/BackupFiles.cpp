@@ -714,8 +714,7 @@ Manifest readManifest(const QString &zipPath, bool *ok, QString *problemOut) {
     switch (status) {
     case ZipUtil::EntryStatus::NotFound:
         if (problemOut != nullptr) {
-            *problemOut = QObject::tr("这个压缩包里没有备份清单（%1）—— 它多半不是本启动器"
-                                      "做出来的备份。")
+            *problemOut = QObject::tr("未找到备份元数据（%1），可能非本启动器生成；请手动解压到实例目录。")
                               .arg(manifestEntryName());
         }
         return Manifest();

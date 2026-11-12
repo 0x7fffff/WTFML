@@ -69,18 +69,18 @@ int UiIntegrityReportChecks() {
         check(errorLabel != nullptr && !errorLabel->isVisible(),
               "U28.3 没出错的时候那一块**收着**（不是摆一句空的出来）");
 
-        const QStringList expectedTitles{QStringLiteral("客户端（1 个要修）"),
-                                         QStringLiteral("库（1 个要修）"),
-                                         QStringLiteral("资源索引（0 个要修）"),
-                                         QStringLiteral("资源对象（0 个要修）")};
+        const QStringList expectedTitles{
+            MainWindowUI::integrityReportGroupTitleText(QStringLiteral("客户端"), 1),
+            MainWindowUI::integrityReportGroupTitleText(QStringLiteral("库"), 1),
+            MainWindowUI::integrityReportGroupTitleText(QStringLiteral("资源索引"), 0),
+            MainWindowUI::integrityReportGroupTitleText(QStringLiteral("资源对象"), 0)};
         QStringList actualTitles;
         for (int g = 0; g < 4; ++g) {
             QLabel *title = labelBy(MainWindowUI::integrityReportGroupName(g));
             actualTitles.append(title != nullptr ? title->text() : QStringLiteral("(没画)"));
         }
         check(actualTitles == expectedTitles,
-              "★★ U28.4 四组**一个不少**、顺序是客户端 → 库 → 资源索引 → 资源对象，"
-              "标题带「N 个要修」（0 个那两组也留着 —— 省掉就分不清「没问题」和「没查」）",
+              "标题带「N 项待修复」（0 个那两组也留着 —— 省掉就分不清「没问题」和「没查」）",
               actualTitles.join(QStringLiteral(" / ")));
 
         // 逐条那两行：`名字：那句话` + 换行缩进的路径（走唯一出处拼，不在这儿另写格式）。

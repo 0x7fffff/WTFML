@@ -153,7 +153,7 @@ void runCopyAndSavePageTests() {
         check(g_modalTitle == QStringLiteral("复制实例"),
               "T27.2 收尾报了一句「复制实例」", g_modalTitle);
         // 那一份落在**别的**游戏文件夹里 ⇒ 它不在当前列表上，话里必须说清落在哪儿。
-        check(g_modalText.contains(QStringLiteral("另一个游戏文件夹")),
+        check(g_modalText.contains(QStringLiteral("游戏目录")),
               "★★ T27.2 而且话里说明了它在另一个游戏文件夹里、不在当前列表上", g_modalText);
         check(!g_modalWasWarning, "T27.2 这是报信不是报错（标题不该是警告色）");
     }

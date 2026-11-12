@@ -548,7 +548,7 @@ bool renameWorld(const QString &worldDir, const QString &newName, QString *probl
     // QDir::rename() 的第二个参数是**目标全路径**（不是"新名字"），写成新名字的话会在
     // 当前工作目录下改出一个同名目录来 —— 这是那个重载最容易看错的一处。
     if (!QDir().rename(source, destDir)) {
-        return fail(QStringLiteral("改名失败了（是不是有别的程序正开着这个世界？）"));
+        return fail(QStringLiteral("重命名失败，存档文件可能正被其他程序占用。"));
     }
     return true;
 }

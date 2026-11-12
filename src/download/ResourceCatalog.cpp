@@ -1847,8 +1847,8 @@ static QList<VersionEntry> parseCurseForgeDocument(const QJsonDocument &document
             fileId, fileName, object.value(QStringLiteral("downloadUrl")).toString());
         if (file.url.isEmpty()) {
             file.unavailableNote = explicitlyUnavailable
-                ? QStringLiteral("CurseForge 将此文件标记为不可用，请在项目文件页确认其状态。")
-                : QStringLiteral("无法确定这个文件的下载地址，请在项目文件页确认或手动补齐。");
+                ? QStringLiteral("文件不可用，请前往项目主页查看。")
+                : QStringLiteral("下载地址未公开，请在项目主页确认或手动补齐。");
         }
         entry.files.append(file);
 

@@ -48,7 +48,7 @@ void MainWindow::showInstanceSettingsNotice(const InstanceSettingsController::No
         // 「先关掉游戏再改名」这句不能省：用户很可能以为"改个名字而已"，看到"拒绝访问"
         // 会去查杀毒软件。
         InlineMessage::warning(m_ui->overlay(), tr("重命名实例"),
-                               tr("「%1」正在运行，先关掉游戏再改名。")
+                               tr("「%1」正在运行，请退出游戏后再重命名。")
                                    .arg(instanceDisplayName(notice.instanceId)));
         break;
     case InstanceSettingsController::Notice::Kind::RenameBlockedScanning:
@@ -77,7 +77,7 @@ void MainWindow::showInstanceSettingsNotice(const InstanceSettingsController::No
         // 说清楚"名字改成了、归属没搬"：不能只弹"改名失败"，那会让人再点一次。
         InlineMessage::warning(m_ui->overlay(), tr("分组归属没跟着搬"),
                                tr("实例已经改名为「%1」，但它原来的分组归属没能搬过去：\n%2\n\n"
-                                  "可以在「分组…」里重新归一次。")
+                                  "可在「分组」中重新调整。")
                                    .arg(notice.instanceId, notice.detail));
         break;
     case InstanceSettingsController::Notice::Kind::SettingsIdFailed:
@@ -93,7 +93,7 @@ void MainWindow::showInstanceSettingsNotice(const InstanceSettingsController::No
         // "没能保存"（那会让用户重来一次）。
         InlineMessage::warning(m_ui->overlay(), tr("分组归属没跟着搬"),
                                tr("「%1」的分组归属没能搬过去：\n%2\n\n"
-                                  "可以在「分组…」里重新归一次。")
+                                  "可在「分组」中重新调整。")
                                    .arg(instanceDisplayName(notice.instanceId), notice.detail));
         break;
     case InstanceSettingsController::Notice::Kind::IconNotSaved:
@@ -192,7 +192,7 @@ bool MainWindow::confirmDeleteInstance(const QString &versionId) {
     // 该说的是这一句（和「重命名」那一条逐字同款）。
     if (m_launcherManager->isVersionRunning(versionId)) {
         InlineMessage::warning(m_ui->overlay(), tr("删除实例"),
-                              tr("「%1」正在运行，先关掉游戏再删。").arg(name));
+                              tr("「%1」正在运行，请退出游戏后再删除。").arg(name));
         return false;
     }
     // 闸口二：**正在装 / 正在导入的也不能删**。判据用的是 `installingVersionIds()` ——
@@ -224,7 +224,7 @@ bool MainWindow::confirmDeleteInstance(const QString &versionId) {
         tr("要删除实例「%1」吗？\n\n"
            "会把 %2 这整个目录删掉（jar、json、以及这个实例自己的设置都在里面）。\n\n"
            "删掉的东西会进回收站，要恢复可以从那里找回来。\n\n"
-           "它所在的游戏文件夹、以及别的实例都不受影响。")
+           "所属游戏目录及其他实例不受影响。")
             .arg(name, QDir::toNativeSeparators(AppPaths::versionDir(versionId))),
         tr("删除"), tr("取消"), false, /*destructive=*/true);
     if (!answer) {
@@ -243,7 +243,7 @@ bool MainWindow::deleteInstance(const QString &versionId) {
     const QString name = instanceDisplayName(versionId);
     if (m_launcherManager->isVersionRunning(versionId)) {
         InlineMessage::warning(m_ui->overlay(), tr("删除实例"),
-                              tr("「%1」正在运行，先关掉游戏再删。").arg(name));
+                              tr("「%1」正在运行，请退出游戏后再删除。").arg(name));
         return false;
     }
     // 闸口二（和上面那一半逐字同款，理由也逐字相同）：守卫和动作留在同一个函数里，

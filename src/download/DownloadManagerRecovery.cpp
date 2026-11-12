@@ -65,7 +65,7 @@ bool DownloadManager::resumeBatch(QString *problem) {
         return reject(tr("下载仍在收尾，请稍后继续。"));
     const auto receipt = m_checkpoint;
     for (const auto &file : receipt->files) if (!DownloadCheckpoint::unchanged(file))
-        return reject(tr("目标已被外部改动，请重新预览；未覆盖：%1").arg(file.path));
+        return reject(tr("目标文件已被外部修改，未覆盖：%1。请重新预览。").arg(file.path));
     if (problem) problem->clear();
     return resumeValidatedBatch(receipt, {});
 }

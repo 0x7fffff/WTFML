@@ -751,7 +751,7 @@ bool FolderManager::deleteFolder(const QString &path, QString *error) {
     // 而且它多半正是启动器此刻在用的那一份 —— 日志、设置、缓存都写在里面。
     if (target.isEmpty() || target == defaultFolder()) {
         if (error != nullptr) {
-            *error = tr("启动器自带的游戏文件夹删不掉。");
+            *error = tr("默认游戏目录不可删除。");
         }
         return false;
     }

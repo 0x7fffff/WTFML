@@ -274,7 +274,7 @@ bool LauncherManager::checkPreLaunch(const QString &versionId, QStringList *erro
             const QString storageProblem = StorageAvailability::unavailableReason(basePath);
             errors->append(storageProblem.isEmpty()
                                ? tr("无法创建 Minecraft 目录：%1").arg(basePath)
-                               : tr("游戏文件夹所在的磁盘现在不可用：%1\n%2")
+                               : tr("游戏目录所在的磁盘现在不可用：%1\n%2")
                                      .arg(QDir::toNativeSeparators(basePath), storageProblem));
         }
         return false;
@@ -287,7 +287,7 @@ bool LauncherManager::checkPreLaunch(const QString &versionId, QStringList *erro
     const QString storageProblem = StorageAvailability::unavailableReason(basePath);
     if (!storageProblem.isEmpty()) {
         if (errors) {
-            errors->append(tr("游戏文件夹所在的磁盘现在不可用：%1\n%2")
+            errors->append(tr("游戏目录所在的磁盘现在不可用：%1\n%2")
                                .arg(QDir::toNativeSeparators(basePath), storageProblem));
         }
         return false;

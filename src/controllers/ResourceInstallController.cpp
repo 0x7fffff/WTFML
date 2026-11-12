@@ -246,7 +246,7 @@ void ResourceInstallController::installNow(ResourceCatalog::Kind kind, const QSt
     const bool cameFromInstance = !forcedInstanceId.isEmpty() || owner.downloadCameFromInstance();
     if (!isModpack && instanceId.isEmpty()) {
         InlineMessage::warning(owner.m_ui->overlay(), MainWindow::tr("没有选中实例"),
-                             MainWindow::tr("先在「已安装版本」里选一个实例，再挑要装进它的版本。"));
+                             MainWindow::tr("请先选择目标实例，再选择安装版本。"));
         return;
     }
 
@@ -353,7 +353,7 @@ void ResourceInstallController::installNow(ResourceCatalog::Kind kind, const QSt
         const auto answer = InlineMessage::question(owner.m_ui->overlay(),
             MainWindow::tr("加载器对不上"),
             MainWindow::tr("这个实例是 %1 %2，而这一版是给 %3 用的。\n\n"
-                           "装进去多半不会生效（游戏进去可能直接崩）。还要装吗？")
+                           "版本不兼容，安装后游戏可能无法启动。是否继续安装？")
                 .arg(instanceLoader, instanceLoaderVersion, version.loaders.first()),
             MainWindow::tr("是"), MainWindow::tr("否"), false);
         if (!answer) {

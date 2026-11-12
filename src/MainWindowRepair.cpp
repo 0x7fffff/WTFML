@@ -64,7 +64,7 @@ void MainWindow::repairInstanceFiles(const QString &versionId) {
         appendLog(tr("无法校验 %1 的文件：找不到 version.json").arg(versionId));
         InlineMessage::warning(
             m_ui->overlay(), tr("版本信息缺失"),
-            tr("找不到版本 %1 的 version.json，没法知道它要哪些文件。").arg(versionId));
+            tr("未找到 version.json，无法解析文件依赖。").arg(versionId));
         return;
     }
 
@@ -96,12 +96,12 @@ void MainWindow::maybePrefetchAssetDirector(const QString &versionId) {
                       .arg(instanceDisplayName(versionId), plan.refusal));
         InlineMessage::warning(m_ui->overlay(), tr("首启资源没有预取"),
                                tr("「%1」的首启资源没有预取：\n\n%2\n\n"
-                                  "不影响启动：游戏第一次启动时 AssetDirector 会自己下。")
+                                  "不影响启动。游戏首次运行时将自动补全资源。")
                                    .arg(instanceDisplayName(versionId), plan.refusal));
         return;
     }
     if (plan.upToDate) {
-        appendLog(tr("「%1」的首启资源本来就齐了（%2 个对象），没有下载。")
+        appendLog(tr("「%1」首启资源已完整（%2 个对象），跳过下载。")
                       .arg(instanceDisplayName(versionId))
                       .arg(plan.objects));
         return;

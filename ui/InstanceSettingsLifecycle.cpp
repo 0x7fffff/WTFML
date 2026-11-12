@@ -312,7 +312,7 @@ void InstanceSettingsDialog::setupLifecyclePages() {
                 layout->addWidget(context);
                 hint(tr("原地更新会先创建完整快照，确认后才开始。"));
             } else {
-                hint(tr("只增加文件，不删除、不覆盖同名文件；两边游戏都要先关掉。"));
+                hint(tr("仅增量复制文件，不覆盖同名项；请确保双方游戏均已退出。"));
             }
             auto *targetLine = new QHBoxLayout();
             auto *targetLabel = new QLabel(upgrade ? tr("目标版本") : tr("目标实例"), page);

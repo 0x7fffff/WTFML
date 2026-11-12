@@ -45,14 +45,14 @@ Result swapDirectories(const Request &request) {
     // ---------- ① 判路径：都在这个游戏文件夹里、同一个父目录、路径上没有链接 ----------
     const QString root = InstanceFiles::canonicalPath(request.gameRoot);
     if (root.isEmpty() || !QFileInfo(root).isDir()) {
-        return refuse(QObject::tr("认不出这个游戏文件夹，一个目录都没动。"));
+        return refuse(QObject::tr("认不出这个游戏目录，一个目录都没动。"));
     }
     const QString target = InstanceFiles::canonicalPath(request.targetDir);
     const QString replacement = InstanceFiles::canonicalPath(request.replacementDir);
     if (target.isEmpty() || replacement.isEmpty()
         || !InstanceFiles::pathIsSameOrInside(root, target)
         || !InstanceFiles::pathIsSameOrInside(root, replacement)) {
-        return refuse(QObject::tr("两个目录必须都在这一个游戏文件夹里面，一个目录都没动。"));
+        return refuse(QObject::tr("两个目录必须都在这一个游戏目录里面，一个目录都没动。"));
     }
     if (target == root || replacement == root || target == replacement) {
         return refuse(QObject::tr("这一对目录没法互相换，一个目录都没动。"));

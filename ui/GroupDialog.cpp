@@ -54,8 +54,7 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
     auto *mainLayout = new QVBoxLayout(this);
 
     auto *hint = new QLabel(
-        tr("删掉分组不会删掉里面的实例，它们会回到未分组。\n"
-           "行尾的三角把这一组上下挪一格，按住 Shift 直接放到最上面或最下面。"),
+        tr("删除分组不会删除实例，所有实例将归入未分组。\n新建同名分组时将保留原分组内容。"),
         this);
     hint->setWordWrap(true);
     mainLayout->addWidget(hint);
@@ -153,10 +152,9 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
             // 先问再删，而且说清**实例不会被删**：用户看到"删除"两个字时的第一反应
             // 就是怕连里面的东西一起没了，而这里确实不会。
             const bool answer = InlineMessage::question(OverlayHost::forWidget(this), tr("删除分组"),
-                tr("「%1」会被删除，组里的 %2 个实例不会被删掉，它们只是变成未分组。\n\n"
-                   "确定要删除吗？")
+                tr("将删除分组「%1」，其中 %2 个实例将归入未分组。\n\n确定删除？")
                     .arg(groupName(groupId))
-                    .arg(m_memberCounts.value(groupId)), tr("是"), tr("否"), false,
+                    .arg(m_memberCounts.value(groupId)), tr("删除"), tr("取消"), false,
                     /*destructive=*/true);
             if (answer) {
                 deleteGroup(groupId);

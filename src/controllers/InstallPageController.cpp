@@ -845,7 +845,7 @@ void InstallPageController::installClicked() {
         // 正常走不到（安装页只能从树里一个具体版本进来）。真走到了就是界面状态错了，
         // 宁可不做 —— 猜一个版本装下去会装到用户没点过的东西上。
         InlineMessage::warning(m_owner.m_ui->overlay(), MainWindow::tr("没有选中版本"),
-                             MainWindow::tr("不知道要基于哪个原版安装，请回到版本列表重新挑一个。"));
+                             MainWindow::tr("未指定原版依赖，请返回版本列表重新选择。"));
         return;
     }
 
@@ -883,7 +883,7 @@ void InstallPageController::installClicked() {
         for (const auto &choice : currentPresetSelections()) {
             if (choice.first == QStringLiteral("mods")) {
                 InlineMessage::warning(m_owner.m_ui->overlay(), MainWindow::tr("需要模组加载器"),
-                    MainWindow::tr("请先选择模组加载器，或取消模组预设。"));
+                    MainWindow::tr("请选择模组加载器，或取消预设。"));
                 return;
             }
         }

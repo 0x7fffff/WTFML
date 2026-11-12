@@ -699,7 +699,7 @@ inline Plan planFor(const Request &request) {
     plan.method = installMethod(request.flavor);
 
     if (request.gameVersion.isEmpty()) {
-        plan.problem = QStringLiteral("要先挑一个游戏版本");
+        plan.problem = QStringLiteral("请选择游戏版本");
         return plan;
     }
 
@@ -748,7 +748,7 @@ inline Plan planFor(const Request &request) {
 
     case Flavor::Fabric: {
         if (request.loaderVersion.isEmpty()) {
-            plan.problem = QStringLiteral("要先挑一个 Fabric 加载器版本");
+            plan.problem = QStringLiteral("请选择 Fabric 加载器版本");
             return plan;
         }
         if (request.installerVersion.isEmpty()) {
@@ -778,8 +778,8 @@ inline Plan planFor(const Request &request) {
     case Flavor::NeoForge: {
         const bool neo = request.flavor == Flavor::NeoForge;
         if (request.loaderVersion.isEmpty()) {
-            plan.problem = neo ? QStringLiteral("要先挑一个 NeoForge 版本")
-                               : QStringLiteral("要先挑一个 Forge 版本");
+            plan.problem = neo ? QStringLiteral("请选择 NeoForge 版本")
+                               : QStringLiteral("请选择 Forge 版本");
             return plan;
         }
         // 两张参数文件的路径都是**安装器自己定的**，我们只是照着算出来（LoaderMeta 里
@@ -822,7 +822,7 @@ inline Plan planFor(const Request &request) {
 
     case Flavor::Quilt: {
         if (request.installerVersion.isEmpty()) {
-            plan.problem = QStringLiteral("要先挑一个 Quilt 安装器版本");
+            plan.problem = QStringLiteral("请选择 Quilt 安装器版本");
             return plan;
         }
         Download installer;

@@ -184,7 +184,7 @@ public:
     static QString addOfflineButtonText() { return QStringLiteral("添加离线账号"); }
     /// 离线账号那一行的 tooltip —— 它没有"什么时候登录取自"这回事，得说清它是哪一种。
     static QString offlineRowTooltip() {
-        return QStringLiteral("离线账号：盘上没有它的登录凭据，启动时用这个名字离线进游戏。");
+        return QStringLiteral("离线账号不校验在线凭据，直接以此名称启动游戏。");
     }
     /// 当前身份那一句，离线那一档。和 identityText() 是**两句不同的话** —— 离线账号
     /// 不是"正版登录"，这两个词在用户那里是完全不同的两件事，不能混用一句。
@@ -193,10 +193,11 @@ public:
         return QStringLiteral("已登录为「%1」（离线登录）").arg(name);
     }
     /// 这一列只在有账号时才有内容，空的时候给一句说明而不是一片空白。
-    static QString noAccountsText() { return QStringLiteral("还没有保存的账号。"); }
-    static QString notLoggedInNote() { return QStringLiteral("还没登录。点「登录新账号…」开始。"); }
+    static QString noAccountsText() { return QStringLiteral("未登录"); }
+    /// 未登录时头部状态列为空：状态由账号列表那一行占位承载，不再重复一遍。
+    static QString notLoggedInNote() { return QString(); }
     static QString loginHintNote() {
-        return QStringLiteral("正版账号通过浏览器登录；离线账号使用下方输入的名称。");
+        return QStringLiteral("微软账号通过浏览器登录；离线账号直接输入玩家名称。");
     }
     /// 当前身份那一句。**只在这一种情况下用**：当前账号是个正版（微软）账号。
     /// 另外两种（当前是离线账号 / 没登录）各自有专门那句，见 offlineIdentityText() /

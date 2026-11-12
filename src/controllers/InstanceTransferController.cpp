@@ -87,8 +87,7 @@ bool InstanceTransferController::copyInstance(const QString &sourceId,
     }
     if (m_launcher->isVersionRunning(sourceId)) {
         InlineMessage::warning(m_overlay, tr("复制实例"),
-                               tr("「%1」正在运行。先关掉游戏再复制 —— 游戏开着的时候拷出来的"
-                                  "是一份写到一半的存档。")
+                               tr("「%1」正在运行。请退出游戏后再复制实例。")
                                    .arg(displayName(sourceId)));
         return false;
     }
@@ -102,9 +101,7 @@ bool InstanceTransferController::copyInstance(const QString &sourceId,
     if (InstanceFiles::pathIsSameOrInside(sourceDir, destGameFolder)) {
         InlineMessage::warning(
             m_overlay, tr("复制实例"),
-            tr("「%1」不能复制到它自己里面去。\n\n你挑的是：\n%2\n\n那是这一份实例自己的目录"
-               "（或者它底下的一个子目录）。请挑一个游戏文件夹 —— 也就是实例目录上面"
-               "那一层，里面直接看得到 versions 文件夹的那一个。")
+            tr("「%1」不能复制到其自身或子目录。\n\n选择路径：\n%2\n\n请选择有效的游戏目录。")
                 .arg(displayName(sourceId), QDir::toNativeSeparators(destGameFolder)));
         return false;
     }
@@ -135,8 +132,7 @@ void InstanceTransferController::announceCopySuccess(const QString &sourceId,
     } else {
         InlineMessage::information(
             m_overlay, tr("复制实例"),
-            tr("「%1」已经复制到另一个游戏文件夹里了：\n%2\n\n它不在当前这个游戏文件夹的实例"
-               "列表里 —— 想用它就先把游戏文件夹切过去。")
+            tr("实例「%1」已复制至游戏目录：\n%2\n\n切换至该游戏目录后即可在列表中查看。")
                 .arg(name, landed));
     }
 }
@@ -170,8 +166,7 @@ void InstanceTransferController::copyInstanceInBackground(
     }
     if (m_launcher->isVersionRunning(sourceId)) {
         failNow(tr("复制实例"),
-                tr("「%1」正在运行。先关掉游戏再复制 —— 游戏开着的时候拷出来的是一份写到"
-                   "一半的存档。")
+                tr("「%1」正在运行。请退出游戏后再复制实例。")
                     .arg(displayName(sourceId)));
         return;
     }
@@ -183,9 +178,7 @@ void InstanceTransferController::copyInstanceInBackground(
     const QString sourceDir = AppPaths::versionDir(sourceId);
     if (InstanceFiles::pathIsSameOrInside(sourceDir, destGameFolder)) {
         failNow(tr("复制实例"),
-                tr("「%1」不能复制到它自己里面去。\n\n你挑的是：\n%2\n\n那是这一份实例自己的"
-                   "目录（或者它底下的一个子目录）。请挑一个游戏文件夹 —— 也就是实例目录上面"
-                   "那一层，里面直接看得到 versions 文件夹的那一个。")
+                tr("「%1」不能复制到其自身或子目录。\n\n选择路径：\n%2\n\n请选择有效的游戏目录。")
                     .arg(displayName(sourceId), QDir::toNativeSeparators(destGameFolder)));
         return;
     }
@@ -591,7 +584,7 @@ void InstanceTransferController::deleteWorldInBackground(
     // 游戏退出（或者在游戏里存一次）的时候会把整个世界重新写一遍，而那时目录已经
     // 没了 —— 所以和 `InstanceDialogController` 里那道闸同一条理由，这里**再查一次**。
     if (!instanceId.isEmpty() && m_launcher && m_launcher->isVersionRunning(instanceId)) {
-        reject(tr("游戏正在运行，先关掉游戏再删这个世界。"));
+        reject(tr("游戏正在运行，请退出游戏后再删除此存档。"));
         return;
     }
     if (m_host.isBeingModified && m_host.isBeingModified(instanceId)) {
@@ -675,7 +668,7 @@ bool InstanceTransferController::renameWorld(const QString &instanceId,
                                              const QString &newName) {
     if (m_launcher->isVersionRunning(instanceId)) {
         InlineMessage::warning(m_overlay, tr("重命名世界"),
-                               tr("游戏正在运行，先关掉游戏再改存档的名字。"));
+                               tr("游戏正在运行，请退出游戏后再重命名存档。"));
         return false;
     }
     // 这一份实例正在被别的作业占着（快照 / 世界备份 / 还原 / 复制 / 安装）

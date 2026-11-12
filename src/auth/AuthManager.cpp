@@ -406,18 +406,18 @@ QString AuthManager::xstsErrorMessage(qint64 xerr) {
     // NOTE: 参数是 qint64：这些码超过 int 的范围（2148916233 > 2^31-1）。
     switch (xerr) {
         case 2148916227LL:
-            return tr("这个微软账户被 Xbox Live 封禁了，换一个账户登录。");
+            return tr("该微软账号已被 Xbox Live 封禁，请更换账号登录。");
         case 2148916233LL:
-            return tr("这个微软账户还没有注册过 Xbox 账户，所以换不出 Minecraft 令牌。\n"
-                      "用同一个账户到 xbox.com 登录一次（会提示你创建档案），再回来重试。");
+            return tr("该微软账号尚未注册 Xbox 档案，无法获取 Minecraft 令牌。\n"
+                      "请用同一账号在 xbox.com 登录一次（会提示创建档案），然后重试。");
         case 2148916235LL:
-            return tr("这个微软账户所在的国家/地区不支持 Xbox Live。\n"
-                      "换一个账户，或者改一下账户的国家/地区设置。");
+            return tr("该微软账号所在国家或地区不支持 Xbox Live。\n"
+                      "请更换账号，或修改账号的国家或地区设置。");
         case 2148916236LL:
         case 2148916237LL:
-            return tr("这个微软账户需要先在 Xbox 官网完成成人验证才能登录。");
+            return tr("该微软账号需先在 Xbox 官网完成成人验证后才能登录。");
         case 2148916238LL:
-            return tr("这是未成年账户，得先由家长把它加进 Microsoft 家庭组，之后才能登录。");
+            return tr("该账号为未成年账号，需由家长将其加入 Microsoft 家庭组后才能登录。");
         default:
             return tr("XSTS 授权失败（错误码 %1）。").arg(xerr);
     }
@@ -986,8 +986,8 @@ bool AuthManager::fetchPlayerProfile(const QString &mcToken, QString *name, QStr
     // 404 在这一步的意思很具体：令牌是好的，但这个账户没买过 Minecraft（或者买游戏的是
     // 另一个账户）。这条要单独说 —— 否则用户看到的是"登录失败"，会以为是密码或者网络问题。
     if (result.status == 404) {
-        *errorMessage = tr("这个微软账户没有购买 Minecraft，拿不到游戏档案。\n"
-                           "换成买了游戏的那个账户登录。");
+        *errorMessage = tr("该微软账号未购买 Minecraft，无法获取游戏档案。\n"
+                           "请更换已购买游戏的账号登录。");
         return false;
     }
     if (!result.ok()) {

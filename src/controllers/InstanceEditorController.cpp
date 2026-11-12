@@ -332,7 +332,7 @@ void InstanceEditorController::saveConfigFile(InstanceSettingsDialog *dialog, co
                    "是另一个编辑器）。现在存下去，改它的那一次就没有了。")
                     .arg(QDir::toNativeSeparators(path)),
                 {m_owner->tr("盖掉它"), m_owner->tr("读盘上那一份")}, -1, 0, false,
-                m_owner->tr("「读盘上那一份」= 你在这儿改的那些丢掉，框里换成盘上现在的内容。"));
+                m_owner->tr("点击「重新载入」将放弃当前修改并读取磁盘最新内容。"));
             if (picked == 1) {
                 // 用户要的是盘上那一份：重读一遍（**不写盘**）。走的是和点开一个文件同一条路
                 // —— 它顺手把 stamp 和"留过备份没有"都重新认一遍。
@@ -415,7 +415,7 @@ void InstanceEditorController::saveConfigFile(InstanceSettingsDialog *dialog, co
             InlineMessage::warning(
                 m_owner->m_ui->overlay(), m_owner->tr("保存之前没能留下原来那一份"),
                 m_owner->tr("%1\n\n没能往这里写一份备份（%2）：\n%3\n\n所以这一次没有存 —— 这一页改错了"
-                   "没有撤销，留着能回去的那一份比存下去要紧。")
+                   "此操作不可撤销，请确认是否覆盖。")
                     .arg(QDir::toNativeSeparators(path), backup.errorString(),
                          QDir::toNativeSeparators(target)));
             return;
@@ -734,7 +734,7 @@ void InstanceEditorController::saveWorldSettings(InstanceSettingsDialog *dialog)
             m_owner->m_ui->overlay(), MessageKind::Question, m_owner->tr("盘上那份被人改过了"),
             m_owner->tr("「%1」的 level.dat 在你打开这一页之后被改过（游戏在跑？别的工具？）。"
                "\n\n现在存下去，改它的那一次就没有了。\n\n"
-               "（不管是哪一档，我们只改你在页面上动过的那几格，别的原样留着。）")
+               "（仅应用已修改的配置项。）")
                 .arg(worldName),
             {m_owner->tr("照样存下去"), m_owner->tr("读盘上那一份")}, /*defaultIndex=*/-1, /*destructiveIndex=*/0,
             false);

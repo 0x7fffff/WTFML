@@ -111,7 +111,7 @@ void ImportController::onImportModpackClicked() {
     // NOTE: 这一处也是独立窗（Windows 自己的文件选择框）—— 理由和取舍见
     // onAddFolderClicked() 上面那一段。
     const QString zipPath = QFileDialog::getOpenFileName(
-        m_owner, m_owner->tr("选一个整合包"), QString(),
+        m_owner, m_owner->tr("选择整合包"), QString(),
         m_owner->tr("整合包 (*.zip *.mrpack *.rar *.7z);;继续补齐报告 (wtfml.import-report.json);;所有文件 (*)"));
     if (zipPath.isEmpty()) {
         return;  // 用户取消：什么都不做，也**不弹**任何提示
@@ -382,9 +382,8 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
             // 旧版 Technic / 老式 Forge 包：加载器在 `bin/modpack.jar` 里，不写进版本 json。
             // 这一层不做推断（见 ArchiveLayout::legacyLauncherJar 的说明），但要在日志里留下
             // 一句话 —— 否则用户装完点启动，看到的是"找不到类"，而不是"加载器还没装"。
-            m_owner->appendLog(m_owner->tr("这个包把加载器放在 bin/ 下的启动器 jar 里"
-                                           "（旧版 Technic / 老式 Forge 形状）。导入后请在实例上"
-                                           "补装一次加载器，否则游戏起不来。"));
+            m_owner->appendLog(m_owner->tr("此整合包包含内置加载器。导入后请在实例中"
+                                           "补装加载器，否则游戏无法启动。"));
         }
     } else {
         status = ZipUtil::readEntry(sourceZip, layout.manifestEntry, &manifestJson, &error,
@@ -624,7 +623,7 @@ void ImportController::repairFromReport(const QString &reportPath) {
     auto *overlay = m_owner->m_ui->overlay();
     // 不把报告中声明的路径当作写入授权：只允许当前数据目录下的直接实例目录。
     if (InstanceFiles::canonicalPath(root) != InstanceFiles::canonicalPath(AppPaths::versionDir(id))) {
-        InlineMessage::warning(overlay, tr("不能补齐"), tr("请先切换到这份报告所在的数据目录，再选择报告。"));
+        InlineMessage::warning(overlay, tr("不能补齐"), tr("请先切换至报告对应的数据目录。"));
         return;
     }
     ModpackInstallReport::Report report;
@@ -1197,7 +1196,7 @@ void ImportController::importDroppedModpack(const QString &zipPath, const QStrin
     // 相同**（原生目录选择框 —— `ui/` 不碰 AppPaths，"该默认到哪儿"只有这一层知道；
     // 那一处那段 NOTE 就是这条的出处）。
     const QString folder = QFileDialog::getExistingDirectory(
-        m_owner, m_owner->tr("装到哪个游戏文件夹"), AppPaths::minecraftDir(),
+        m_owner, m_owner->tr("选择目标游戏目录"), AppPaths::minecraftDir(),
         QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
     if (folder.isEmpty()) {
         m_owner->appendLog(m_owner->tr("没有导入 %1：用户取消了。").arg(QFileInfo(zipPath).fileName()));
@@ -1214,7 +1213,7 @@ void ImportController::importDroppedModpack(const QString &zipPath, const QStrin
         // 加不进去 = 那个路径不是个目录（也不该发生：刚从这个框里选出来的）。
         if (!m_owner->m_folderManager->addFolder(folder) || !m_owner->m_folderManager->setCurrentFolder(folder)) {
             InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("换不到那个文件夹"),
-                                   m_owner->tr("没能把「%1」设成当前游戏文件夹，整合包没有导入。")
+                                   m_owner->tr("设置游戏目录「%1」失败，整合包导入取消。")
                                        .arg(QDir::toNativeSeparators(folder)));
             return;
         }

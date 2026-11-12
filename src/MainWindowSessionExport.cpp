@@ -294,7 +294,7 @@ void MainWindow::exportLaunchScript(const QString &versionId, const QString &pat
             InlineMessage::warning(
                 m_ui->overlay(), tr("导出失败"),
                 tokenError.isEmpty()
-                    ? tr("导出启动脚本要先能拿到登录令牌。请先登录 Microsoft 账户，"
+                    ? tr("导出启动脚本要先能拿到登录令牌。请先登录微软账号，"
                          "或者在「账号与外观…」里添加一个离线账号。")
                     : tr("%1\n\n导出启动脚本要先能拿到登录令牌，请重新登录后再试。")
                           .arg(tokenError));
