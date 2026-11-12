@@ -493,6 +493,9 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         list.append({QStringLiteral("edge-home-light.png"), QStringLiteral("emerald"), {1000, 700}, false, home, QStringLiteral("edge")});
         list.append({QStringLiteral("edge-manage-dark.png"), QStringLiteral("dark"), {1000, 700}, false, manage, QStringLiteral("edge")});
         list.append({QStringLiteral("edge-max-dark.png"), QStringLiteral("dark"), {1000, 700}, false, home, QStringLiteral("edge:max")});
+        // 主页右上账号切换条：下拉打开的样子（收起的样子看 home-*.png 右上角）。
+        for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("emerald"), QStringLiteral("ocean")})
+            list.append({QStringLiteral("account-menu-%1.png").arg(theme), theme, {1000, 700}, false, home, QStringLiteral("account")});
         // 只出名字含这段字的几张（逐页精修时不必每次跑满 56 张）。
         const QString only = qEnvironmentVariable("WTFML_DESIGN_SHOT_FILTER");
         if (!only.isEmpty())
@@ -592,6 +595,10 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
                 if (ok) {
                     if (auto *button = window.findChild<QPushButton *>(ToolboxPage::toolButtonName(tool))) button->click();
                 }
+            } else if (shot.page == QStringLiteral("account")) {
+                // 面板按屏幕可用区夹位置：窗口伸出屏外时它会被夹回来、不再贴着胶囊右沿。
+                window.move(window.screen()->availableGeometry().topLeft() + QPoint(60, 60));
+                window.ui()->getAccountSkinButton()->click();
             } else if (!shot.page.isEmpty()) QMetaObject::invokeMethod(&window, "openInstanceSettings", Q_ARG(QString, QStringLiteral("create")), Q_ARG(QString, shot.page));
             else if (shot.tab == MainWindowUI::instancesTabIndex()) hoverInstanceRow(window);
         });
@@ -614,6 +621,12 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
             if (auto *panel = window.findChild<QFrame *>(MainWindowUI::toolboxPanelName()); panel != nullptr && panel->isVisible()) {
                 QPainter painter(&shotImage);
                 painter.drawPixmap(window.mapFromGlobal(panel->mapToGlobal(QPoint(0, 0))), panel->grab());
+            }
+            // 账号下拉面板同理（也是 Qt::Popup）。
+            if (auto *panel = window.findChild<QWidget *>(MainWindowUI::bottomBarPanelName()); panel != nullptr && panel->isVisible()) {
+                QPainter painter(&shotImage);
+                painter.drawPixmap(window.mapFromGlobal(panel->mapToGlobal(QPoint(0, 0))), panel->grab());
+                panel->close();
             }
             const bool saved = shotImage.save(root + QLatin1Char('/') + shot.file);
             report.append(QJsonObject{{"file", shot.file}, {"saved", saved}, {"width", window.width()},
