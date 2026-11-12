@@ -55,8 +55,12 @@ PresetModReview::PresetModReview(const Presets::ModInstallPlan &plan, QWidget *p
     m_rows->setColumnWidth(0, 160); m_rows->setColumnWidth(2, 200); m_rows->setColumnWidth(3, 160);
     layout->addWidget(m_rows, 1);
     m_problem = new QLabel(this); m_problem->setWordWrap(true); layout->addWidget(m_problem);
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
-    auto *confirmButton = buttons->button(QDialogButtonBox::Ok);
+    // 不用标准钮（QDialogButtonBox::Save/Cancel/…）：它的字在 LanguageChange 时会被 Qt 刷回自带的英文，
+    // 装没装 Qt 中文翻译都一样不稳。自己 addButton(字, 角色)，accepted/rejected 照常发。
+    auto *buttons = new QDialogButtonBox(this);
+    QPushButton *confirmButton = buttons->addButton(tr("确认安装"), QDialogButtonBox::AcceptRole);
+    confirmButton->setObjectName(confirmButtonName());
+    QPushButton *cancelButton = buttons->addButton(tr("取消"), QDialogButtonBox::RejectRole);
     const auto updateConfirmText = [this, confirmButton] {
         bool hasReplacement = false;
         for (int i = 0; i < m_rows->topLevelItemCount(); ++i) {
@@ -70,9 +74,8 @@ PresetModReview::PresetModReview(const Presets::ModInstallPlan &plan, QWidget *p
             connect(edit, &QLineEdit::textChanged, this, updateConfirmText);
     }
     updateConfirmText();
-    buttons->button(QDialogButtonBox::Cancel)->setText(tr("取消"));
-    Theme::markButton(buttons->button(QDialogButtonBox::Ok), Theme::ButtonKind::Primary);
-    Theme::markButton(buttons->button(QDialogButtonBox::Cancel), Theme::ButtonKind::Neutral);
+    Theme::markButton(confirmButton, Theme::ButtonKind::Primary);
+    Theme::markButton(cancelButton, Theme::ButtonKind::Neutral);
     connect(buttons, &QDialogButtonBox::accepted, this, &PresetModReview::confirm);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     layout->addWidget(buttons);

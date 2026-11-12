@@ -136,10 +136,10 @@ int runPresetDependencyChecks() {
     PresetModReview dialog(plan); dialog.setAttribute(Qt::WA_DeleteOnClose, false);
     auto *tree = dialog.findChild<QTreeWidget *>("presetModReviewRows");
     auto *edit = qobject_cast<QLineEdit *>(tree->itemWidget(tree->topLevelItem(0), 5));
-    dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+    dialog.findChild<QPushButton *>(PresetModReview::confirmButtonName())->click();
     check(dialog.result() != QDialog::Accepted, "review refuses unresolved required items without an alternative");
     edit->setText("modrinth:alt");
-    dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+    dialog.findChild<QPushButton *>(PresetModReview::confirmButtonName())->click();
     check(dialog.result() == QDialog::Accepted && dialog.decision().alternatives.value("modrinth:missing").projectId == "alt",
         "review returns only the explicitly entered per-run alternative");
     return failed;

@@ -214,13 +214,15 @@ PresetOptionsEditor::PresetOptionsEditor(const QList<Entry> &entries, QWidget *p
         if (auto *editor=m_table->cellWidget(item->row(),1)) editor->setEnabled(item->checkState()==Qt::Checked);
     });
     auto *problem = new QLabel(this); problem->setWordWrap(true); layout->addWidget(problem);
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, this);
-    buttons->button(QDialogButtonBox::Save)->setText(tr("保存"));
-    buttons->button(QDialogButtonBox::Cancel)->setText(tr("取消"));
-    buttons->button(QDialogButtonBox::Save)->setAutoDefault(false);
-    buttons->button(QDialogButtonBox::Cancel)->setAutoDefault(false);
-    Theme::markButton(buttons->button(QDialogButtonBox::Save), Theme::ButtonKind::Primary);
-    Theme::markButton(buttons->button(QDialogButtonBox::Cancel), Theme::ButtonKind::Neutral);
+    // 不用标准钮（QDialogButtonBox::Save/Cancel/…）：它的字在 LanguageChange 时会被 Qt 刷回自带的英文，
+    // 装没装 Qt 中文翻译都一样不稳。自己 addButton(字, 角色)，accepted/rejected 照常发。
+    auto *buttons = new QDialogButtonBox(this);
+    QPushButton *saveButton = buttons->addButton(tr("保存"), QDialogButtonBox::AcceptRole);
+    QPushButton *cancelButton = buttons->addButton(tr("取消"), QDialogButtonBox::RejectRole);
+    saveButton->setAutoDefault(false);
+    cancelButton->setAutoDefault(false);
+    Theme::markButton(saveButton, Theme::ButtonKind::Primary);
+    Theme::markButton(cancelButton, Theme::ButtonKind::Neutral);
     layout->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     connect(buttons, &QDialogButtonBox::accepted, this, [this, problem] {

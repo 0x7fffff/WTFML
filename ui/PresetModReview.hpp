@@ -9,6 +9,8 @@ class PresetModReview final : public QDialog {
 public:
     explicit PresetModReview(const Presets::ModInstallPlan &plan, QWidget *parent = nullptr);
     Presets::PresetModInstaller::ReviewDecision decision() const { return m_decision; }
+    /// 底部「确认安装 / 检查替代」那颗钮（不是标准 Ok 钮，测试按这个名字找它）。
+    static QString confirmButtonName() { return QStringLiteral("presetModReviewConfirm"); }
 private:
     void confirm();
     Presets::ModInstallPlan m_plan;

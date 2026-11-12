@@ -31,11 +31,11 @@ SchematicInfoDialog::SchematicInfoDialog(const QString &path, QWidget *parent)
     summary->setTextInteractionFlags(Qt::TextSelectableByMouse);
     layout->addWidget(summary, 1);
 
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, this);
-    if (QPushButton *button = buttons->button(QDialogButtonBox::Close)) {
-        button->setText(QStringLiteral("关闭"));  // 没装 Qt 中文翻译时标准钮是英文 "Close"
-        Theme::markButton(button, Theme::ButtonKind::Neutral);
-    }
+    // 不用标准钮（QDialogButtonBox::Save/Cancel/…）：它的字在 LanguageChange 时会被 Qt 刷回自带的英文，
+    // 装没装 Qt 中文翻译都一样不稳。自己 addButton(字, 角色)，accepted/rejected 照常发。
+    auto *buttons = new QDialogButtonBox(this);
+    Theme::markButton(buttons->addButton(QStringLiteral("关闭"), QDialogButtonBox::RejectRole),
+                      Theme::ButtonKind::Neutral);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     layout->addWidget(buttons);
 }

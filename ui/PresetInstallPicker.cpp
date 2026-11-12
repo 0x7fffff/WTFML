@@ -384,8 +384,8 @@ void PresetInstallPicker::openDetails(int index) {
     auto *layout = new QVBoxLayout(dialog->body());
     auto *text = new QPlainTextEdit(dialog); text->setReadOnly(true);
     layout->addWidget(text);
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, dialog);
-    buttons->button(QDialogButtonBox::Close)->setText(tr("关闭"));
+    auto *buttons = new QDialogButtonBox(dialog);
+    buttons->addButton(tr("关闭"), QDialogButtonBox::RejectRole);  // 不用标准 Close：理由见 SchematicInfoDialog
     layout->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::close);
     m_details = dialog; m_detailsText = text; m_detailsIndex = index; updateDetails(); dialog->show();

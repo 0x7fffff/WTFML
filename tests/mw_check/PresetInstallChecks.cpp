@@ -561,7 +561,7 @@ int runPresetInstallChecks() {
                     for (auto *dialog : host.findChildren<QDialog *>()) {
                         auto *review = dynamic_cast<PresetModReview *>(dialog);
                         if (review && review->isVisible())
-                            review->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+                            review->findChild<QPushButton *>(PresetModReview::confirmButtonName())->click();
                     }
                 }
                 return !controller->isInstallingMods();
