@@ -98,6 +98,8 @@ class QLineEdit;
 class QPlainTextEdit;
 class QPushButton;
 class QToolButton;
+class QAbstractButton;
+class WindowChrome;
 
 class GameLogWindow : public QDialog {
     Q_OBJECT
@@ -433,6 +435,8 @@ protected:
      */
     void changeEvent(QEvent *event) override;
     void paintEvent(QPaintEvent *event) override;
+    /// 外框消息（WM_NCHITTEST 等）转给 `WindowChrome`：系统标题栏收进客户区，顶上那条自绘。
+    bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
 
 private:
     /// 攒够一整行：认级别、进模型、记账、超上限就丢最老的。回它的级别。
@@ -498,4 +502,8 @@ private:
     QColor m_lastSwitchOff;
     /// 末尾那一格现在装的是"半行"吗（是的话下一次写正文之前要先把它撤掉）。
     bool m_viewLastBlockIsPending = false;
+    /// 自绘标题条（替系统那条白色标题栏）：标题 + 实例名 + 运行徽标 + 三颗窗口按钮；空白处可拖。
+    QWidget *m_titleStrip = nullptr;
+    QAbstractButton *m_maximizeButton = nullptr;
+    WindowChrome *m_chrome = nullptr;
 };

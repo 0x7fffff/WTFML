@@ -10,6 +10,8 @@
 // 一样，直接引那一份，不为一个三十行的小类再开一个头文件）。
 #include "MainWindowUI.hpp"
 #include "Glass.hpp"
+#include "TitleBar.hpp"
+#include "WindowChrome.hpp"
 #include "Theme.hpp"   // 按钮身份、`neutralFill()`（那几档中性灰）、`isDarkPalette()`
 
 #include <QApplication>
@@ -266,27 +268,72 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
     // 顶上多了一排开关（那一排不从正文里抢，正文那一行拿的是 stretch 1）。
     resize(820, 520);
 
-    auto *layout = new QVBoxLayout(this);
-    layout->setContentsMargins(28, 20, 28, 16);
-    layout->setSpacing(10);
+    auto *root = new QVBoxLayout(this);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(0);
 
-    // ---------- 标题行：手写体标题 + 运行状态徽标 ----------
-    auto *titleRow = new QHBoxLayout;
-    titleRow->setSpacing(12);
-    auto *title = new QLabel(tr("游戏日志"), this);
-    title->setFont(Theme::handFont(title->font(), Theme::HandFont::Kai));
+    // ---------- 标题条（替系统标题栏，和主窗口同一套：WindowChrome 收标题栏 + 自绘条）----------
+    // 原来窗里那行「手写体标题 + 运行徽标」并进这一条：同一个标题不出两遍。
+    // 条上的字和徽标不接鼠标（WindowChrome 认空白处 = 拖窗，`childAt()` 跳过它们），
+    // 于是除了三颗窗口按钮，整条都能拖、双击能最大化。
+    m_titleStrip = new QWidget(this);
+    m_titleStrip->setObjectName(QStringLiteral("gameLogTitleStrip"));
+    m_titleStrip->setFixedHeight(TitleBar::barHeight());
     {
-        QFont f = title->font();
-        f.setPixelSize(30);
+        auto *strip = new QHBoxLayout(m_titleStrip);
+        strip->setContentsMargins(20, 0, 0, 0);
+        strip->setSpacing(10);
+        auto *title = new QLabel(tr("游戏日志"), m_titleStrip);
+        title->setObjectName(QStringLiteral("gameLogTitle"));
+        QFont f = Theme::handFont(title->font(), Theme::HandFont::Kai);
+        f.setPixelSize(20);
         title->setFont(f);
+        title->setAttribute(Qt::WA_TransparentForMouseEvents);
+        strip->addWidget(title, 0, Qt::AlignVCenter);
+        if (!instanceName.isEmpty()) {
+            auto *instance = new QLabel(instanceName, m_titleStrip);
+            instance->setObjectName(QStringLiteral("gameLogTitleInstance"));
+            instance->setForegroundRole(QPalette::PlaceholderText);
+            instance->setAttribute(Qt::WA_TransparentForMouseEvents);
+            strip->addWidget(instance, 0, Qt::AlignVCenter);
+        }
+        m_stateBadge = new QLabel(m_titleStrip);
+        m_stateBadge->setObjectName(QStringLiteral("gameLogStateBadge"));
+        m_stateBadge->setAttribute(Qt::WA_TransparentForMouseEvents);
+        strip->addWidget(m_stateBadge, 0, Qt::AlignVCenter);
+        strip->addStretch(1);
+        auto *minimize = new TitleBarButton(TitleBarButton::Glyph::Minimize, QColor(), QColor(), m_titleStrip);
+        minimize->setObjectName(QStringLiteral("gameLogMinimize"));
+        minimize->setToolTip(tr("最小化"));
+        auto *maximize = new TitleBarButton(TitleBarButton::Glyph::Maximize, QColor(), QColor(), m_titleStrip);
+        maximize->setObjectName(QStringLiteral("gameLogMaximize"));
+        maximize->setToolTip(tr("最大化"));
+        auto *close = new TitleBarButton(TitleBarButton::Glyph::Close, QColor(), QColor(), m_titleStrip);
+        close->setObjectName(QStringLiteral("gameLogClose"));
+        close->setToolTip(tr("关闭"));
+        for (QAbstractButton *button : {static_cast<QAbstractButton *>(minimize),
+                                        static_cast<QAbstractButton *>(maximize),
+                                        static_cast<QAbstractButton *>(close)})
+            strip->addWidget(button, 0, Qt::AlignTop);
+        m_maximizeButton = maximize;
+        connect(minimize, &QAbstractButton::clicked, this, &QWidget::showMinimized);
+        connect(maximize, &QAbstractButton::clicked, this, [this] {
+            isMaximized() ? showNormal() : showMaximized();
+        });
+        connect(close, &QAbstractButton::clicked, this, &QWidget::close);
+        TitleBar::styleCaptionButtons(minimize, maximize, close);
+        Theme::follow(m_titleStrip, [minimize, maximize, close] {
+            TitleBar::styleCaptionButtons(minimize, maximize, close);
+        });
     }
-    titleRow->addWidget(title);
-    m_stateBadge = new QLabel(this);
-    m_stateBadge->setObjectName(QStringLiteral("gameLogStateBadge"));
-    titleRow->addWidget(m_stateBadge, 0, Qt::AlignVCenter);
-    titleRow->addStretch(1);
-    layout->addLayout(titleRow);
+    root->addWidget(m_titleStrip);
+    m_chrome = new WindowChrome(this, m_titleStrip, this);
     setStateBadge(MainWindowUI::runStateRunningText(), false);
+
+    auto *layout = new QVBoxLayout;
+    layout->setContentsMargins(28, 6, 28, 16);
+    layout->setSpacing(10);
+    root->addLayout(layout, 1);
 
     m_filterButtons = QVector<QToolButton *>(levelCount(), nullptr);
     // 模型那几张表（计数 / 可见）在 `RuntimeOutputModel` 的构造函数里已经摆好了；这一窗
@@ -827,11 +874,25 @@ void GameLogWindow::paintEvent(QPaintEvent *event) {
         backdrop->paintScene(painter, rect());
         return;
     }
+    // WindowChrome 在真 Windows 上开了半透明（为了系统背板）：没有磨砂底时自己铺窗口色，别透成空的。
+    QPainter(this).fillRect(rect(), palette().color(QPalette::Window));
     QDialog::paintEvent(event);
+}
+
+bool GameLogWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr *result) {
+    if (m_chrome != nullptr && m_chrome->handleNativeEvent(message, result)) return true;
+    return QDialog::nativeEvent(eventType, message, result);
 }
 
 void GameLogWindow::changeEvent(QEvent *event) {
     QDialog::changeEvent(event);
+    if (event->type() == QEvent::WindowStateChange) {
+        if (auto *button = qobject_cast<TitleBarButton *>(m_maximizeButton)) {
+            button->setRestoreGlyph(isMaximized());
+            button->setToolTip(isMaximized() ? tr("还原") : tr("最大化"));
+        }
+        return;
+    }
     if (event->type() != QEvent::PaletteChange && event->type() != QEvent::StyleChange) {
         return;
     }

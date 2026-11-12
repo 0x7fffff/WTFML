@@ -41,6 +41,10 @@ public:
     static int narrowBreakpoint();
     /// 右上那条窗口按钮条的高（顶部拖动区高）。
     static int barHeight();
+    /// 三颗窗口按钮（最小化 / 最大化 / 关闭）的配色：主窗口这条和独立窗口自绘的标题条共用一份。
+    /// 传进来的应是 `TitleBarButton`（别的按钮原样跳过）；hero = 主页压在风景上那一档字色。
+    static void styleCaptionButtons(QAbstractButton *minimize, QAbstractButton *maximize,
+                                    QAbstractButton *close, bool hero = false);
     /// 窗口按钮的高（= 条高；宽是 `windowButtonWidth()`）。
     static int buttonSize();
     static int windowButtonWidth();

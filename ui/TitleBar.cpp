@@ -96,6 +96,25 @@ int TitleBar::railWidth() { return kRailWidth; }
 int TitleBar::collapsedRailWidth() { return kRailMiniWidth; }
 int TitleBar::narrowBreakpoint() { return kNarrowBreakpoint; }
 int TitleBar::barHeight() { return kCaptionHeight; }
+
+void TitleBar::styleCaptionButtons(QAbstractButton *minimize, QAbstractButton *maximize,
+                                   QAbstractButton *close, bool hero) {
+    const Theme::Tokens t = Theme::tokens();
+    const QColor captionInk = hero ? t.heroInk2 : t.secondary;
+    const QColor captionHoverInk = hero ? t.heroInk : t.text;
+    for (QAbstractButton *b : {minimize, maximize}) {
+        if (auto *button = qobject_cast<TitleBarButton *>(b)) {
+            button->setHoverColors(t.hover, captionHoverInk);
+            button->setPressColor(t.fillPress);
+            button->setInkColor(captionInk);
+        }
+    }
+    if (auto *button = qobject_cast<TitleBarButton *>(close)) {
+        button->setHoverColors(kCloseHover, QColor(Qt::white));
+        button->setPressColor(kClosePressed);
+        button->setInkColor(captionInk);
+    }
+}
 int TitleBar::buttonSize() { return kCaptionHeight; }
 int TitleBar::windowButtonWidth() { return kWindowButtonWidth; }
 int TitleBar::buttonInset() { return 0; }
@@ -342,20 +361,7 @@ void TitleBar::applyColors() {
     railPalette.setColor(QPalette::Inactive, QPalette::WindowText, t.text);
     setPalette(railPalette);
     setAutoFillBackground(false);
-    const QColor captionInk = m_hero ? t.heroInk2 : t.secondary;
-    const QColor captionHoverInk = m_hero ? t.heroInk : t.text;
-    for (QAbstractButton *b : {m_minimize, m_maximize}) {
-        if (auto *button = qobject_cast<TitleBarButton *>(b)) {
-            button->setHoverColors(t.hover, captionHoverInk);
-            button->setPressColor(t.fillPress);
-            button->setInkColor(captionInk);
-        }
-    }
-    if (auto *button = qobject_cast<TitleBarButton *>(m_close)) {
-        button->setHoverColors(kCloseHover, QColor(Qt::white));
-        button->setPressColor(kClosePressed);
-        button->setInkColor(captionInk);
-    }
+    styleCaptionButtons(m_minimize, m_maximize, m_close, m_hero);
     if (auto *button = qobject_cast<TitleBarButton *>(m_fold)) {
         button->setHoverColors(t.hover, t.secondary);
         button->setPressColor(t.fillPress);
