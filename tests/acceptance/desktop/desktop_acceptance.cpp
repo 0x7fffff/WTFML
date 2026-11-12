@@ -70,7 +70,9 @@ int main(int argc, char **argv) {
     }
     for (const char *key : {"QT_SCALE_FACTOR", "QT_SCREEN_SCALE_FACTORS", "QT_FONT_DPI"})
         if (!designShots && !qEnvironmentVariableIsEmpty(key)) return 2;
-    if (QGuiApplication::platformName() != "windows") return 2;
+    // 设计稿对照也可以离屏出（QT_QPA_PLATFORM=offscreen：不弹窗、不占桌面；只出 grab() 那几张，真屏抓的 edge-* 除外）。
+    const bool offscreenShots = designShots && QGuiApplication::platformName() == "offscreen";
+    if (QGuiApplication::platformName() != "windows" && !offscreenShots) return 2;
     if (!QDir().mkpath(root + "/settings") || !QDir().mkpath(root + "/game")) return 2;
     app.setProperty("wtfml.testDefaultMinecraftDir", root + "/game");
     AppPaths::setMinecraftDir(root + "/game");
