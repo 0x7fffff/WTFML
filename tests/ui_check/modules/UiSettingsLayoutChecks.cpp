@@ -10,254 +10,97 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
               "最后一页就是设置页", settingsPage != nullptr ? settingsPage->objectName()
                                                              : QString());
 
-        // 下面这一段钉的就是那条对应关系，以及"每一栏**各自**套一层滚动区"这件事 ——
-        // 滚动归栏管（整页一层的话，左栏那五条分类会跟着右栏的内容一起滚走，
-        // 而那五条是导航）。
-        //
-        // NOTE: 每栏各有一张 3:7 的表（管的是栏内那一层）。
-        auto *categoryList =
-            settingsPage->findChild<QListWidget *>(MainWindowUI::settingsCategoryListName());
+        // 设置页 = 页头（标题 + 4 个分段页签 + 搜索）+ 四页堆叠，每页一层滚动区、一块最宽 720 居中的表单。
+        // 第 N 个页签 = 堆叠页第 N 页；没有左侧索引栏，也没有二级目录。
+        auto *settingsTabs =
+            settingsPage->findChild<SettingsParts::SlidingTabs *>(MainWindowUI::settingsTabsName());
         auto *categoryStack =
             settingsPage->findChild<QStackedWidget *>(MainWindowUI::settingsCategoryStackName());
-        check(categoryList != nullptr && categoryStack != nullptr,
-              "设置页左栏是那列分类、右栏是堆叠页");
+        check(settingsTabs != nullptr && categoryStack != nullptr, "设置页有顶部页签和堆叠页");
+        check(settingsPage->findChild<QListWidget *>(QStringLiteral("settingsCategoryList")) == nullptr &&
+                  settingsPage->findChild<QWidget *>(QStringLiteral("settingsSubIndex")) == nullptr,
+              "没有左侧索引栏，也没有二级目录");
         const QStringList categoryKeys = MainWindowUI::settingsCategoryKeys();
         const QStringList categoryTexts = MainWindowUI::settingsCategoryTexts();
-        check(categoryKeys.size() == categoryTexts.size() && !categoryKeys.isEmpty(),
-              "分类的键与显示文字一条一条对齐",
-              QStringLiteral("%1 / %2").arg(categoryKeys.size()).arg(categoryTexts.size()));
-        if (categoryList != nullptr && categoryStack != nullptr) {
-            check(categoryList->count() == categoryKeys.size() &&
+        check(categoryKeys == QStringList({QStringLiteral("launch"), QStringLiteral("warn"),
+                                           QStringLiteral("look"), QStringLiteral("download")}) &&
+                  categoryTexts == QStringList({QStringLiteral("启动"), QStringLiteral("提示"),
+                                                QStringLiteral("个性化"), QStringLiteral("下载")}),
+              "一级分类只有 启动 / 提示 / 个性化 / 下载（游戏并入启动，账户撤出）");
+        if (settingsTabs != nullptr && categoryStack != nullptr) {
+            check(settingsTabs->count() == categoryKeys.size() &&
                       categoryStack->count() == categoryKeys.size(),
-                  "左栏条数 == 右栏页数 == 分类表的条数（三边对得上）",
+                  "页签数 == 堆叠页数 == 分类表条数",
                   QStringLiteral("%1 / %2 / %3")
-                      .arg(categoryList->count())
+                      .arg(settingsTabs->count())
                       .arg(categoryStack->count())
                       .arg(categoryKeys.size()));
-            // 身份在 Qt::UserRole（条目文字是显示内容、会随文案改），文字也得和那张表一样。
-            bool itemsOk = categoryList->count() == categoryKeys.size();
-            for (int i = 0; itemsOk && i < categoryList->count(); ++i) {
-                itemsOk =
-                    categoryList->item(i)->data(Qt::UserRole).toString() == categoryKeys.at(i) &&
-                    categoryList->item(i)->text() == categoryTexts.at(i);
-            }
-            check(itemsOk, "每条分类的键（userData）与文字都和那张表一一对应");
-
-            // 小节索引紧跟在当前分类下面（设计稿 .set-index），不是摆在整列分类的末尾。
-            {
-                const int was = categoryList->currentRow();
-                const int look = categoryKeys.indexOf(QStringLiteral("look"));
-                categoryList->setCurrentRow(look >= 0 ? look : 0);
-                QApplication::processEvents();
-                const int cur = categoryList->currentRow();
-                auto *sub = categoryList->findChild<QWidget *>(QStringLiteral("settingsSubIndex"));
-                const QRect curRect = categoryList->visualRect(categoryList->model()->index(cur, 0));
-                const QRect nextRect = cur + 1 < categoryList->count()
-                                           ? categoryList->visualRect(categoryList->model()->index(cur + 1, 0))
-                                           : QRect();
-                check(sub != nullptr && sub->isVisible() && sub->y() > curRect.top() &&
-                          sub->geometry().bottom() <= curRect.bottom() &&
-                          (nextRect.isNull() || sub->geometry().bottom() < nextRect.top()) &&
-                          categoryList->viewport()->rect().contains(sub->geometry().bottomLeft()),
-                      "★ 小节索引摆在当前分类和下一条之间",
-                      sub ? QStringLiteral("sub %1..%2 cur %3..%4 next %5")
-                                .arg(sub->y()).arg(sub->geometry().bottom())
-                                .arg(curRect.top()).arg(curRect.bottom()).arg(nextRect.top())
-                          : QStringLiteral("没有索引"));
-                categoryList->setCurrentRow(was);
-                QApplication::processEvents();
-            }
-
-            // 每一页：objectName == settingsPanelName(key)，它自己就是一层滚动区（跟着宽度变），
-            // 里面那块 form 的 objectName == settingsFormName(key)、表格是 3:7 两列。
             int pagesOk = 0;
             int emptyPages = 0;
             int formWidthOk = 0;
-            int scrollAlignOk = 0;
             for (int i = 0; i < categoryStack->count() && i < categoryKeys.size(); ++i) {
                 const QString key = categoryKeys.at(i);
-                QWidget *panel = categoryStack->widget(i);
-                auto *pageScroll = qobject_cast<QScrollArea *>(panel);
-                QWidget *pageForm = pageScroll != nullptr ? pageScroll->widget() : nullptr;
-                auto *pageGrid = pageForm != nullptr
-                                     ? qobject_cast<QGridLayout *>(pageForm->layout())
+                auto *pageScroll = qobject_cast<QScrollArea *>(categoryStack->widget(i));
+                auto *pageForm = pageScroll != nullptr
+                                     ? pageScroll->findChild<QWidget *>(MainWindowUI::settingsFormName(key))
                                      : nullptr;
-                const bool ok = pageScroll != nullptr &&
-                                panel->objectName() == MainWindowUI::settingsPanelName(key) &&
-                                pageScroll->widgetResizable() && pageForm != nullptr &&
-                                pageForm->objectName() == MainWindowUI::settingsFormName(key) &&
-                                pageGrid != nullptr &&
-                                pageGrid->columnStretch(0) == MainWindowUI::leftColumnStretch() &&
-                                pageGrid->columnStretch(1) == MainWindowUI::rightColumnStretch();
-                pagesOk += ok ? 1 : 0;
-                // 每栏都得真有东西：那一栏里至少摆着一个选项名（addSettingRow 落下的 QLabel）。
-                emptyPages += (pageForm != nullptr && !pageForm->findChildren<QLabel *>().isEmpty())
-                                  ? 0
-                                  : 1;
+                pagesOk += (pageScroll != nullptr &&
+                            pageScroll->objectName() == MainWindowUI::settingsPanelName(key) &&
+                            pageScroll->widgetResizable() && pageForm != nullptr)
+                               ? 1
+                               : 0;
+                emptyPages += (pageForm != nullptr && !pageForm->findChildren<QLabel *>().isEmpty()) ? 0 : 1;
                 formWidthOk += (pageForm != nullptr &&
                                 pageForm->maximumWidth() == MainWindowUI::settingsFormMaxWidth())
                                    ? 1
                                    : 0;
-                scrollAlignOk += (pageScroll != nullptr &&
-                                  pageScroll->alignment() == (Qt::AlignHCenter | Qt::AlignTop))
-                                     ? 1
-                                     : 0;
             }
-            check(pagesOk == categoryKeys.size(),
-                  "每一栏都是「一层滚动区 + 一张 3:7 的表格」，objectName 按键拼出来",
+            check(pagesOk == categoryKeys.size(), "每一页都是「一层滚动区 + 一块表单」，objectName 按键拼出来",
                   QStringLiteral("%1/%2").arg(pagesOk).arg(categoryKeys.size()));
-            check(emptyPages == 0, "没有空栏（每一栏里都摆着东西）",
-                  QStringLiteral("空的 %1 栏").arg(emptyPages));
-            check(formWidthOk == categoryKeys.size(),
-                  "★ 每一栏那张表单都限了宽（`settingsFormMaxWidth()`）—— 窗口再宽它也不跟着长，"
-                  "「说明文字一行跨得太长」那条就是靠这个收住的",
-                  QStringLiteral("%1/%2（上限 %3 px）")
-                      .arg(formWidthOk)
-                      .arg(categoryKeys.size())
-                      .arg(MainWindowUI::settingsFormMaxWidth()));
-            check(scrollAlignOk == categoryKeys.size(),
-                  "★ 滚动区把表单**居上居中**（`AlignHCenter | AlignTop`）—— 限了宽之后它得"
-                  "自己站中间，不然宽窗口下表格整块贴着左边、右边空一大片",
-                  QStringLiteral("%1/%2").arg(scrollAlignOk).arg(categoryKeys.size()));
+            check(emptyPages == 0, "没有空页", QStringLiteral("空的 %1 页").arg(emptyPages));
+            check(formWidthOk == categoryKeys.size() && MainWindowUI::settingsFormMaxWidth() == 720,
+                  "★ 每页表单限宽 720（窗口再宽也不跟着长，居中摆）");
 
-            // 每一栏里的排法（★ 起）：一栏 = 一串**小节卡片** ——
-            // 用户那份改版文档原话：「小节使用"标题 + 内容卡片"，避免传统 `QGroupBox` 的
-            // 缺口式标题」。于是"上下结构"这件事从"表格里相邻两行"变成了**卡片内部**的形状：
-            // · 表格那一层：每一格都从列 0 起、跨两列（卡片整幅宽），没有一格只占一列；
-            // · 卡片那一层：顶上第一行是**小节标题**（粗体 + sectionTitle 那一档角色），
-            // 之后每一项是「行名标签 → 控件」上下相邻、左边缘对齐的一对。
-            //
-            // 判据一（形状）：**没有任何一格只占一列**（`getItemPosition` 拿到的是布局真正的
-            // 位置与跨度，不是"谁挨着谁"推出来的）。一条这样的格都不许有 —— 有一格在列 1 上，
-            // 就说明还有一行是老样子。
-            // 判据二（几何）：卡片里每一对「名字 / 控件」的，名字的**下边缘不越过控件的上边缘**、
-            // 且两者的左边缘对齐（光看列号看不出来"名字在上面那一行"）。
-            int singleColumnItems = 0;
-            int cardsChecked = 0;
-            int cardShapeBad = 0;
-            int pairsChecked = 0;
-            int pairsBad = 0;
-            QStringList badPairs;
-            for (int i = 0; i < categoryStack->count() && i < categoryKeys.size(); ++i) {
-                QWidget *panel = categoryStack->widget(i);
-                auto *pageScroll = qobject_cast<QScrollArea *>(panel);
-                QWidget *pageForm = pageScroll != nullptr ? pageScroll->widget() : nullptr;
-                auto *pageGrid = pageForm != nullptr
-                                     ? qobject_cast<QGridLayout *>(pageForm->layout())
-                                     : nullptr;
-                if (pageGrid == nullptr) {
-                    continue;
-                }
-                for (int idx = 0; idx < pageGrid->count(); ++idx) {
-                    int r = 0;
-                    int c = 0;
-                    int rowSpan = 0;
-                    int colSpan = 0;
-                    pageGrid->getItemPosition(idx, &r, &c, &rowSpan, &colSpan);
-                    if (c != 0 || colSpan != 2) {
-                        ++singleColumnItems;
-                    }
-                }
-                // 表格里每一格都得是**一张小节卡片**（`wtfmlSurface="section"`），而且那一格
-                // 里除了这张卡片没有别的东西 —— 「正文只有一个面、小节才用卡片」那条就落在
-                // 这儿：卡片是正文面里唯一那种"再画一层底"的东西。
-                for (int r = 0; r < pageGrid->rowCount(); ++r) {
-                    QLayoutItem *cardItem = pageGrid->itemAtPosition(r, 0);
-                    auto *card = cardItem != nullptr ? qobject_cast<QFrame *>(cardItem->widget())
-                                                     : nullptr;
-                    if (card == nullptr) {
-                        continue;
-                    }
-                    ++cardsChecked;
-                    const bool isSection =
-                        card->property(Theme::surfacePropertyName().toUtf8().constData())
-                            .toString() == Theme::sectionSurfaceValue();
-                    auto *cardLayout = qobject_cast<QVBoxLayout *>(card->layout());
-                    // 扁平（7a 设置页样张）：小节不再画一张卡片，只是手写体小标题 + 一列
-                    // 「标签 | 控件」；那一圈边距 / 行距是（0,4,0,12 / 12），节与节靠留白分开。
-                    const QMargins want(0, 4, 0, 12);
-                    if (!isSection || cardLayout == nullptr ||
-                        cardLayout->contentsMargins() != want || cardLayout->spacing() != 12) {
-                        ++cardShapeBad;
-                    }
-                    if (cardLayout == nullptr) {
-                        continue;
-                    }
-                    // 第一行是小节标题（sectionTitle 角色；手写体，不加粗），后面才是项。
+            // 点第 N 个页签 = 翻到第 N 页。
+            for (int i = categoryKeys.size() - 1; i >= 0; --i) {
+                settingsTabs->setCurrentIndex(i);
+                QApplication::processEvents();
+                check(categoryStack->currentIndex() == i, "点第 N 个页签，堆叠页翻到第 N 页",
+                      QStringLiteral("%1 → %2").arg(i).arg(categoryStack->currentIndex()));
+            }
+            settingsTabs->setCurrentIndex(0);
+            QApplication::processEvents();
+
+            // 行结构：每个分组 = 小标题（sectionTitle 角色）+ 一列 SettingsRow；
+            // 行 = 左标签（settingsItemLabel）+ 右控件列。
+            int groups = 0;
+            int groupsBad = 0;
+            int rows = 0;
+            int rowsBad = 0;
+            QStringList bad;
+            for (int i = 0; i < categoryStack->count(); ++i) {
+                for (auto *group : categoryStack->widget(i)->findChildren<SettingsParts::SettingsGroup *>()) {
+                    ++groups;
                     bool titleOk = false;
-                    QWidget *first = cardLayout->count() > 0
-                                         ? cardLayout->itemAt(0)->widget()
-                                         : nullptr;
-                    if (auto *titleLabel = qobject_cast<QLabel *>(first)) {
-                        const bool roleOk =
-                            titleLabel->property(Theme::textRolePropertyName().toUtf8().constData())
-                                .toString() == Theme::sectionTitleTextRoleValue();
-                        titleOk = roleOk;
-                    }
-                    if (!titleOk) {
-                        ++cardShapeBad;
-                    }
-                    // 之后每一项是一行「标签 | 控件」：标签在左（定宽一列）、控件在右，两者顶边对齐。
-                    for (int k = 1; k < cardLayout->count(); ++k) {
-                        QWidget *w = cardLayout->itemAt(k)->widget();
-                        // 藏起来的小节（如「账户」，入口已挪到主页）从不排版，几何是空的，不量。
-                        if (w == nullptr || !w->property("settingsItemRow").toBool() ||
-                            !w->isVisibleTo(panel) ||
-                            w->layout() == nullptr || w->layout()->count() < 2) {
-                            continue;
-                        }
-                        ++pairsChecked;
-                        // 7c 设计稿 .set：左格是「名字 + 说明」一列，名字是其中挂 settingsItemLabel 的那个。
-                        QWidget *leftCell = w->layout()->itemAt(0)->widget();
-                        auto *label = leftCell != nullptr
-                                          ? leftCell->findChild<QLabel *>(Qt::FindDirectChildrenOnly)
-                                          : nullptr;
-                        QWidget *control = w->layout()->itemAt(1)->widget();
-                        if (label == nullptr || control == nullptr ||
-                            !label->property("settingsItemLabel").toBool() ||
-                            !(leftCell->geometry().right() < control->geometry().left())) {
-                            ++pairsBad;
-                            badPairs << QStringLiteral("「%1」标签 %2,%3 控件 %4,%5")
-                                            .arg(label != nullptr ? label->text() : QStringLiteral("<无标签>"))
-                                            .arg(label != nullptr ? label->geometry().right() : -1)
-                                            .arg(label != nullptr ? label->geometry().top() : -1)
-                                            .arg(control != nullptr ? control->geometry().left() : -1)
-                                            .arg(control != nullptr ? control->geometry().top() : -1);
+                    for (QLabel *label : group->findChildren<QLabel *>(Qt::FindDirectChildrenOnly))
+                        titleOk |= label->property(Theme::textRolePropertyName().toUtf8().constData()).toString() ==
+                                   Theme::sectionTitleTextRoleValue();
+                    groupsBad += titleOk ? 0 : 1;
+                    for (auto *row : group->rowsHost()->findChildren<SettingsParts::SettingsRow *>(
+                             QString(), Qt::FindDirectChildrenOnly)) {
+                        ++rows;
+                        if (row->label() == nullptr || !row->label()->property("settingsItemLabel").toBool() ||
+                            row->control() == nullptr) {
+                            ++rowsBad;
+                            bad << (row->label() != nullptr ? row->label()->text() : QStringLiteral("<无标签>"));
                         }
                     }
                 }
             }
-            check(singleColumnItems == 0,
-                  "每一栏里的行都是上下结构（没有一格只占一列 ⇒ 没有「名字在左、内容在右」的行）",
-                  QStringLiteral("有 %1 格只占一列").arg(singleColumnItems));
-            check(cardsChecked > 0 && cardShapeBad == 0,
-                  "每一栏里那一格格都是「小标题 + 一列行」（section 面 + 0/4/0/12 + 12 行距 + 小节标题角色）",
-                  QStringLiteral("量了 %1 张卡片，形状不对的 %2 张")
-                      .arg(cardsChecked)
-                      .arg(cardShapeBad));
-            check(pairsChecked > 0 && pairsBad == 0,
-                  "每一行都是「名字在左 | 控件在右」",
-                  QStringLiteral("量了 %1 张卡片、%2 对里错了 %3 对 %4")
-                      .arg(cardsChecked)
-                      .arg(pairsChecked)
-                      .arg(pairsBad)
-                      .arg(badPairs.join(QStringLiteral("；"))));
-
-            // 点第 N 条 = 翻到第 N 页。挑一条**不是当前那条**的来点才量得出"真的换了"。
-            const int probe = categoryList->count() > 1 ? categoryList->count() - 1 : 0;
-            categoryList->setCurrentRow(probe);
-            QApplication::processEvents();
-            check(categoryStack->currentIndex() == probe, "点左栏第 N 条，右栏就翻到第 N 页",
-                  QStringLiteral("点了第 %1 条 → 停在第 %2 页")
-                      .arg(probe)
-                      .arg(categoryStack->currentIndex()));
-            // 量完还回去：后面的断言和镜头看的是第一栏。
-            categoryList->setCurrentRow(0);
-            QApplication::processEvents();
-
-            check(categoryList->mapTo(settingsPage, QPoint(0, 0)).x() <
-                      categoryStack->mapTo(settingsPage, QPoint(0, 0)).x(),
-                  "分类列表在堆叠页左边");
+            check(groups >= 12 && groupsBad == 0, "每个分组都有小标题（分组标题角色）",
+                  QStringLiteral("分组 %1，缺标题 %2").arg(groups).arg(groupsBad));
+            check(rows >= 30 && rowsBad == 0, "每一行都是「标签 + 控件」",
+                  QStringLiteral("行 %1，坏 %2：%3").arg(rows).arg(rowsBad).arg(bad.join(QLatin1Char('、'))));
         }
 
         // 二十四个设置控件都得能按 objectName 找回来（MainWindow 靠名字取它们，
@@ -275,7 +118,6 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
             MainWindowUI::memoryMaxSpinName(),         MainWindowUI::memoryMaxSliderName(),
             MainWindowUI::memoryModeComboName(),
             MainWindowUI::launcherBehaviourComboName(), MainWindowUI::extraJvmArgsEditName(),
-            MainWindowUI::applyExtraJvmArgsButtonName(),
             MainWindowUI::downloadSourceComboName(),
             // 「同时最多下几个」：和「下载源」同一组（这一批文件怎么走）。
             MainWindowUI::downloadConcurrencyComboName(),
@@ -316,7 +158,7 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
                   QString::number(static_cast<int>(cfKey->echoMode())));
             check(cfKey->placeholderText() == MainWindowUI::curseForgeApiKeyPlaceholder() &&
                       !cfKey->placeholderText().isEmpty(),
-                  "空着的时候写着「留空则用公共接口」（这一格不是必填项）",
+                  "空着的时候写着「留空使用社区镜像」（这一格不是必填项）",
                   cfKey->placeholderText());
             check(cfKey->text().isEmpty(),
                   "刚搭好时框里是空的（值由 MainWindow 从盘上灌，界面层不自己猜）",
@@ -339,11 +181,8 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
             check(autoCheck->text() == MainWindowUI::downloadAutoIntoInstanceCheckText() &&
                       !autoCheck->text().isEmpty(),
                   "那一格的字（勾上管的是哪一件事）", autoCheck->text());
-            const QString hint = autoCheck->parentWidget()->accessibleDescription();
-            check(hint.contains(QStringLiteral("下载页")) && hint.contains(QStringLiteral("实例")),
-                  "按需帮助区分实例下载和下载页的保存位置", hint);
-            check(hint.contains(QStringLiteral("关闭后每次选择位置")),
-                  "按需帮助保留关闭自动保存后的行为", hint);
+            const QString hint = autoCheck->accessibleDescription();
+            check(hint.contains(QStringLiteral("实例")), "按需帮助写明仅限从实例设置发起的下载", hint);
         } else {
             check(false, "找得到「下载新模组」那颗勾选框");
         }
@@ -444,180 +283,41 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
                       warnForm->findChild<QCheckBox *>(MainWindowUI::warnDuplicateLaunchCheckName()) &&
                       warnForm->findChild<QCheckBox *>(MainWindowUI::warnWorldLossCheckName()),
                   "安全提醒的三个开关直接显示，不重复添加行标题");
-            check(hasLabelText(QStringLiteral("安全提醒")),
-                  "这一栏的组标题「安全提醒」也画出来了");
-            check(!hasLabelText(QStringLiteral("启动提醒")),
-                  "老名字「启动提醒」不再画（改名之后不许两处都在）");
+            check(hasLabelText(QStringLiteral("启动前")) && hasLabelText(QStringLiteral("下载时")),
+                  "这一页的分组标题「启动前」「下载时」画出来了");
+            check(!hasLabelText(QStringLiteral("启动提醒")) && !hasLabelText(QStringLiteral("安全提醒")),
+                  "老分组名不再画");
         }
 
-        // 设置项外面套了两层（"控件 + 说明文字"的容器、再外面一层小节卡片），所以要把控件
-        // 往上提到**它所在那一栏**直接挂在表单上的那一层，才问得到它在第几列。
-        // NOTE: 分栏之后"表单"不止一张（每栏一张，objectName = settingsForm-<键>），所以
-        // 这几个 helper 都改成"先认出控件落在哪一栏，再问那一栏的表格"。
-        const auto formOf = [](QWidget *w) -> QWidget * {
-            const QString prefix = QStringLiteral("settingsForm-");
-            for (QWidget *p = w; p != nullptr; p = p->parentWidget()) {
-                if (p->objectName().startsWith(prefix)) {
-                    return p;
-                }
-            }
-            return nullptr;
-        };
-        const auto gridOf = [](QWidget *form) -> QGridLayout * {
-            return form != nullptr ? qobject_cast<QGridLayout *>(form->layout()) : nullptr;
-        };
-        /// 设置项现在住在**小节卡片**里（`addSettingsSection()` 造的那张 `QFrame`，
-        /// 面挂在属性 `wtfmlSurface="section"` 上）——「行名 + 内容」那一对是它那条竖排
-        /// 布局里的相邻两项。所以"名字在控件上面"这句话，去卡片里数顺序才对得上。
-        const auto cardOf = [](QWidget *w) -> QFrame * {
-            const QByteArray key = Theme::surfacePropertyName().toUtf8();
-            for (QWidget *p = w; p != nullptr; p = p->parentWidget()) {
-                auto *frame = qobject_cast<QFrame *>(p);
-                if (frame != nullptr &&
-                    frame->property(key.constData()).toString() ==
-                        Theme::sectionSurfaceValue()) {
-                    return frame;
-                }
-            }
-            return nullptr;
-        };
-        const auto cardLayoutOf = [](QFrame *card) -> QVBoxLayout * {
-            return card != nullptr ? qobject_cast<QVBoxLayout *>(card->layout()) : nullptr;
-        };
-        /// 控件在卡片里那一条竖排布局上占的那一格（控件自己多半还套着"控件 + 说明"的容器）。
-        const auto cardItemOf = [&cardOf](QWidget *w) -> QWidget * {
-            QFrame *card = cardOf(w);
-            if (card == nullptr) {
-                return nullptr;
-            }
-            QWidget *item = w;
-            while (item != nullptr && item->parentWidget() != card) {
-                item = item->parentWidget();
-            }
-            return item;
-        };
-        /// 控件所在那一行（`settingsItemRow`）左边那格标签。
-        const auto rowLabelOf = [&cardItemOf](QWidget *w) -> QLabel * {
-            QWidget *item = cardItemOf(w);
-            if (item == nullptr || item->layout() == nullptr || item->layout()->count() < 1) {
-                return nullptr;
-            }
-            QWidget *leftCell = item->layout()->itemAt(0)->widget();
-            return leftCell != nullptr ? leftCell->findChild<QLabel *>(Qt::FindDirectChildrenOnly)
-                                       : nullptr;
-        };
-        /// 那一行右边那格（控件自己多半还套着"控件 + 说明"的容器）。
-        const auto rowControlOf = [&cardItemOf](QWidget *w) -> QWidget * {
-            QWidget *item = cardItemOf(w);
-            if (item == nullptr || item->layout() == nullptr || item->layout()->count() < 2) {
-                return nullptr;
-            }
-            return item->layout()->itemAt(1)->widget();
-        };
-        Q_UNUSED(cardLayoutOf);
-
         {
+            // 每个设置控件都长在某一行（SettingsRow）里；「最大内存」下面的说明和那根条同在一个容器里。
             const QList<QWidget *> controls = {
-                ui.getJavaManageButton(),          ui.getMemoryHint(),
-                ui.getMemoryMaxSpin(),             ui.getMemoryMaxSlider(),
-                ui.getLauncherBehaviourCombo(),    ui.getExtraJvmArgsEdit(),
-                ui.getDownloadSourceCombo(),       ui.getVersionNameCustomCheck(),
-                ui.getShowGameLogCheck(),          ui.getProcessPriorityCombo(),
-                ui.getGameWindowWidthSpin(),       ui.getGameWindowHeightSpin(),
-                ui.getWarnDuplicateLaunchCheck(),  ui.getWarnWorldLossCheck(),
-                ui.getTitleTextEdit()};
-            int inCard = 0;
-            int orphaned = 0;
-            QSet<QWidget *> seenCards;
-            int cardSpanBad = 0;
+                ui.getMemoryHint(),                ui.getMemoryMaxSpin(),
+                ui.getMemoryMaxSlider(),           ui.getLauncherBehaviourCombo(),
+                ui.getExtraJvmArgsEdit(),          ui.getDownloadSourceCombo(),
+                ui.getVersionNameCustomCheck(),    ui.getShowGameLogCheck(),
+                ui.getProcessPriorityCombo(),      ui.getGameWindowWidthSpin(),
+                ui.getGameWindowHeightSpin(),      ui.getWarnDuplicateLaunchCheck(),
+                ui.getWarnWorldLossCheck(),        ui.getTitleTextEdit()};
+            int inRow = 0;
             for (QWidget *control : controls) {
-                if (control == nullptr) {
-                    continue;
-                }
-                if (formOf(control) == nullptr) {
-                    ++orphaned;
-                }
-                QFrame *card = cardOf(control);
-                if (card != nullptr) {
-                    ++inCard;
-                }
-                if (card == nullptr || seenCards.contains(card)) {
-                    continue;
-                }
-                seenCards.insert(card);
-                // 卡片自己按 `grid->addWidget(card, row, 0, 1, 2)` 摆：从列 0 起、跨两列。
-                QGridLayout *grid = gridOf(formOf(card));
-                const int index = grid != nullptr ? grid->indexOf(card) : -1;
-                int row = -1;
-                int col = -1;
-                int rowSpan = 1;
-                int colSpan = 1;
-                if (index >= 0) {
-                    grid->getItemPosition(index, &row, &col, &rowSpan, &colSpan);
-                }
-                if (!(col == 0 && colSpan == 2)) {
-                    ++cardSpanBad;
-                }
+                for (QWidget *p = control; p != nullptr; p = p->parentWidget())
+                    if (qobject_cast<SettingsParts::SettingsRow *>(p) != nullptr) {
+                        ++inRow;
+                        break;
+                    }
             }
-            check(orphaned == 0,
-                  "每个设置控件都落在某一栏那张按名字取的表格里（没有谁挂在没名字的格子里）",
-                  QString("%1/%2").arg(orphaned).arg(controls.size()));
-            check(inCard == controls.size(),
-                  "每个设置控件都长在某一张小节卡片里（wtfmlSurface=\"section\"）",
-                  QString("%1/%2").arg(inCard).arg(controls.size()));
-            check(seenCards.size() >= 4 && cardSpanBad == 0,
-                  "小节卡片都从列 0 起、跨两列（一页里的卡片各占整行一张）",
-                  QString("cards=%1 bad=%2").arg(seenCards.size()).arg(cardSpanBad));
-
-            // 「最大内存」那一行：条 / 数字框和它们下面那句说明装在**同一个容器**里
-            // （说明在容器最后）。★ ：「分配方式」那一行撤掉之后，这句说明并到了
-            // 这里 —— 它现在说的就是这根条（系统内存 + 当前给到多少）。
+            check(inRow == controls.size(), "每个设置控件都长在某一行里",
+                  QString("%1/%2").arg(inRow).arg(controls.size()));
             check(ui.getMemoryHint() != nullptr && ui.getMemoryMaxSlider() != nullptr &&
-                      ui.getMemoryHint()->parentWidget() ==
-                          rowControlOf(ui.getMemoryMaxSlider()),
-                  "「最大内存」下面的说明和那根条装在同一个容器里（说明跟着条走）",
-                  ui.getMemoryHint() != nullptr
-                      ? QString("hint.parent=%1 item=%2")
-                            .arg(ui.getMemoryHint()->parentWidget() != nullptr
-                                     ? ui.getMemoryHint()->parentWidget()->objectName()
-                                     : QStringLiteral("<null>"))
-                            .arg(rowControlOf(ui.getMemoryMaxSlider()) != nullptr
-                                     ? rowControlOf(ui.getMemoryMaxSlider())->objectName()
-                                     : QStringLiteral("<null>"))
-                      : QStringLiteral("<null>"));
-            if (ui.getMemoryHint() != nullptr && ui.getMemoryMaxSlider() != nullptr &&
-                ui.getMemoryHint()->parentWidget() != nullptr) {
-                // 条和说明的父控件不同（条在那一行的 line 里），所以先把条的下边沿换算到
-                // 说明的父容器里再比 y —— 直接减两边的 y 是两套坐标。
-                QWidget *hintParent = ui.getMemoryHint()->parentWidget();
+                      ui.getMemoryHint()->parentWidget() == ui.getMemoryMaxSlider()->parentWidget()->parentWidget(),
+                  "「最大内存」下面的说明和那根条装在同一个容器里（说明跟着条走）");
+            if (ui.getMemoryHint() != nullptr && ui.getMemoryMaxSlider() != nullptr) {
                 const QPoint sliderBottom = ui.getMemoryMaxSlider()->mapTo(
-                    hintParent, QPoint(0, ui.getMemoryMaxSlider()->height()));
-                check(ui.getMemoryHint()->y() >= sliderBottom.y(),
-                      "那句说明量出来的几何在条**下面**（不是并排）",
-                      QString("bar.bottom=%1 hint.y=%2")
-                          .arg(sliderBottom.y())
-                          .arg(ui.getMemoryHint()->y()));
+                    ui.getMemoryHint()->parentWidget(), QPoint(0, ui.getMemoryMaxSlider()->height()));
+                check(ui.getMemoryHint()->y() >= sliderBottom.y(), "那句说明在条下面（不是并排）",
+                      QString("bar.bottom=%1 hint.y=%2").arg(sliderBottom.y()).arg(ui.getMemoryHint()->y()));
             }
-
-            // 拿「最大内存」那一行验几何：行名在左、控件在右、顶边对齐（7a 设置页样张）。
-            QWidget *maxItem = rowControlOf(ui.getMemoryMaxSpin());
-            auto *maxLabel = rowLabelOf(ui.getMemoryMaxSpin());
-            check(cardOf(ui.getMemoryMaxSpin()) != nullptr && maxLabel != nullptr &&
-                      maxLabel->text() == QStringLiteral("最大内存"),
-                  "「最大内存」那一行左边是选项名称、右边才是控件",
-                  maxLabel != nullptr ? maxLabel->text() : QStringLiteral("<null>"));
-            check(maxLabel != nullptr && maxItem != nullptr &&
-                      maxLabel->parentWidget()->geometry().right() < maxItem->x(),
-                  "选项名称那一格量出来的几何在控件**左边**",
-                  maxLabel != nullptr
-                      ? QString("label=(%1,%2 %3x%4) control=(%5,%6)")
-                            .arg(maxLabel->x())
-                            .arg(maxLabel->y())
-                            .arg(maxLabel->width())
-                            .arg(maxLabel->height())
-                            .arg(maxItem != nullptr ? maxItem->x() : -1)
-                            .arg(maxItem != nullptr ? maxItem->y() : -1)
-                      : QString());
         }
 
         // 「最大内存」那一行现在是**一根条 + 一个数字框**：两件东西说的是
@@ -791,6 +491,193 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
         categories->setCurrentIndex(oldCategory);
         QApplication::processEvents();
     }
+    {
+        // ---- 重排验收：任何页签、两个尺寸下都没有横向溢出；窄表单行上下叠放；失焦即存 ----
+        QWidget *page = tabs->widget(MainWindowUI::settingsTabIndex());
+        tabs->setCurrentIndex(MainWindowUI::settingsTabIndex());
+        QWidget *window = tabs->window();
+        const QSize oldSize = window->size();
+        auto *settingsTabs =
+            page->findChild<SettingsParts::SlidingTabs *>(MainWindowUI::settingsTabsName());
+        auto *stack = page->findChild<QStackedWidget *>(MainWindowUI::settingsCategoryStackName());
+        const QStringList keys = MainWindowUI::settingsCategoryKeys();
+        const auto pump = [] {
+            QApplication::processEvents();
+            QApplication::processEvents();
+        };
+        // 「高级」展开行里的东西也要量：全部展开，量完收回。
+        const QList<SettingsParts::ExpandSection *> sections = page->findChildren<SettingsParts::ExpandSection *>();
+        for (auto *section : sections) section->setExpanded(true, false);
+
+        for (const QSize size : {QSize(900, 620), QSize(1280, 800)}) {
+            window->resize(size);
+            pump();
+            QWidget *header = page->findChild<QWidget *>(MainWindowUI::pageHeaderName(QStringLiteral("settings")));
+            auto *search = page->findChild<QLineEdit *>(MainWindowUI::settingsSearchEditName());
+            check(header != nullptr && header->width() <= page->width() && search != nullptr &&
+                      search->mapTo(page, QPoint(search->width(), 0)).x() <= page->width() &&
+                      settingsTabs != nullptr &&
+                      settingsTabs->mapTo(page, QPoint(settingsTabs->width(), 0)).x() <= search->mapTo(page, QPoint(0, 0)).x(),
+                  QStringLiteral("%1×%2：页头（标题 / 页签 / 搜索）在页宽内，页签不压到搜索").arg(size.width()).arg(size.height()));
+            for (int i = 0; settingsTabs != nullptr && stack != nullptr && i < keys.size(); ++i) {
+                settingsTabs->setCurrentIndex(i);
+                pump();
+                auto *scroll = qobject_cast<QScrollArea *>(stack->widget(i));
+                if (scroll == nullptr) continue;
+                const int viewportWidth = scroll->viewport()->width();
+                int overflow = 0;
+                QStringList detail;
+                for (auto *row : scroll->findChildren<SettingsParts::SettingsRow *>()) {
+                    if (!row->isVisibleTo(scroll)) continue;
+                    const QPoint topLeft = row->mapTo(scroll->viewport(), QPoint(0, 0));
+                    if (topLeft.x() < 0 || topLeft.x() + row->width() > viewportWidth) {
+                        ++overflow;
+                        detail << QStringLiteral("行「%1」%2..%3 > %4").arg(row->label()->text()).arg(topLeft.x()).arg(topLeft.x() + row->width()).arg(viewportWidth);
+                    }
+                    for (QWidget *child : {static_cast<QWidget *>(row->label()), row->control()}) {
+                        if (child == nullptr) continue;
+                        const QPoint right = child->mapTo(row, QPoint(child->width(), 0));
+                        if (right.x() > row->width()) {
+                            ++overflow;
+                            detail << QStringLiteral("行「%1」里 %2 超出行宽 %3 > %4").arg(row->label()->text(), child->metaObject()->className()).arg(right.x()).arg(row->width());
+                        }
+                    }
+                }
+                // 非空判据：表单真的铺开了（宽窗 = 720 上限；窄窗 = 可视宽减两侧留白），不是缩成内容那么窄。
+                auto *formWidget = scroll->findChild<QWidget *>(MainWindowUI::settingsFormName(keys.at(i)));
+                const int expectForm = qMin(MainWindowUI::settingsFormMaxWidth(), viewportWidth - 56);
+                check(formWidget != nullptr && qAbs(formWidget->width() - expectForm) <= 2,
+                      QStringLiteral("%1×%2「%3」页：表单宽 = min(720, 可视宽 − 56)")
+                          .arg(size.width()).arg(size.height()).arg(keys.at(i)),
+                      QStringLiteral("表单 %1，期望 %2，可视 %3")
+                          .arg(formWidget != nullptr ? formWidget->width() : -1).arg(expectForm).arg(viewportWidth));
+                check(scroll->horizontalScrollBar()->maximum() == 0 && scroll->widget()->width() <= viewportWidth && overflow == 0,
+                      QStringLiteral("%1×%2「%3」页：内容宽 ≤ 可视宽，没有横向溢出")
+                          .arg(size.width()).arg(size.height()).arg(keys.at(i)),
+                      QStringLiteral("横向滚动 %1，内容 %2 / 可视 %3，溢出 %4 处 %5")
+                          .arg(scroll->horizontalScrollBar()->maximum()).arg(scroll->widget()->width()).arg(viewportWidth)
+                          .arg(overflow).arg(detail.join(QStringLiteral("；"))));
+            }
+        }
+
+        // 行叠放：内容宽 < 600 时，标签在上、控件在下；回到 720 后恢复左右。
+        if (settingsTabs != nullptr && stack != nullptr) {
+            window->resize(1280, 800);
+            settingsTabs->setCurrentIndex(0);
+            pump();
+            auto *scroll = qobject_cast<QScrollArea *>(stack->widget(0));
+            QWidget *form = scroll != nullptr ? scroll->findChild<QWidget *>(MainWindowUI::settingsFormName(QStringLiteral("launch"))) : nullptr;
+            if (form != nullptr) {
+                const auto countRows = [form](bool *allStacked, bool *noneStacked, int *bad) {
+                    *allStacked = true;
+                    *noneStacked = true;
+                    *bad = 0;
+                    int total = 0;
+                    for (auto *row : form->findChildren<SettingsParts::SettingsRow *>()) {
+                        if (!row->isVisibleTo(form)) continue;
+                        ++total;
+                        *allStacked &= row->stacked();
+                        *noneStacked &= !row->stacked();
+                        const QPoint labelPos = row->label()->mapTo(row, QPoint(0, row->label()->height()));
+                        const QPoint controlPos = row->control()->mapTo(row, QPoint(0, 0));
+                        const bool below = controlPos.y() >= labelPos.y();
+                        const bool beside = controlPos.x() > row->label()->mapTo(row, QPoint(row->label()->width(), 0)).x() - 1;
+                        if (row->stacked() ? !below : (!beside && !below)) ++*bad;
+                    }
+                    return total;
+                };
+                bool allStacked = false;
+                bool noneStacked = false;
+                int bad = 0;
+                QStringList stackedRows;
+                for (auto *row : form->findChildren<SettingsParts::SettingsRow *>())
+                    if (row->isVisibleTo(form) && row->stacked())
+                        stackedRows << QStringLiteral("%1(w=%2)").arg(row->label()->text()).arg(row->width());
+                check(countRows(&allStacked, &noneStacked, &bad) >= 5 && noneStacked && bad == 0,
+                      "表单 720 宽：行是左标签右控件（没有叠放）",
+                      QStringLiteral("form=%1 叠放：%2 错位 %3").arg(form->width()).arg(stackedRows.join(QLatin1Char(','))).arg(bad));
+                form->setMaximumWidth(560);
+                pump();
+                const int total = countRows(&allStacked, &noneStacked, &bad);
+                check(total >= 5 && allStacked && bad == 0,
+                      "内容宽 560 < 600：每一行都上下叠放，控件在标签下面",
+                      QStringLiteral("行 %1，全叠放 %2，错位 %3").arg(total).arg(allStacked).arg(bad));
+                int widest = 0;
+                for (auto *row : form->findChildren<SettingsParts::SettingsRow *>())
+                    if (row->isVisibleTo(form) && row->control() != nullptr &&
+                        qobject_cast<QComboBox *>(row->control()) != nullptr)
+                        widest = qMax(widest, row->control()->width());
+                check(widest > 0 && widest <= SettingsParts::kStackedControlMax,
+                      "叠放时下拉框最宽 320", QString::number(widest));
+                form->setMaximumWidth(MainWindowUI::settingsFormMaxWidth());
+                pump();
+                countRows(&allStacked, &noneStacked, &bad);
+                check(noneStacked, "表单回到 720 宽，行恢复左右并排");
+            }
+        }
+
+        // 失焦即存：改过的单行输入 / 多行文本在失焦或回车后出现「已保存」，1.2s 后淡出；没改过不出现。
+        {
+            window->resize(1280, 800);
+            pump();
+            auto *toast = ui.getSettingsSavedToast();
+            auto *titleEdit = ui.getTitleTextEdit();
+            auto *jvm = ui.getExtraJvmArgsEdit();
+            auto *commit = ui.getExtraJvmArgsCommit();
+            check(toast != nullptr && titleEdit != nullptr && jvm != nullptr && commit != nullptr &&
+                      !toast->isVisible(),
+                  "「已保存」平时不显示");
+            if (toast != nullptr && titleEdit != nullptr && jvm != nullptr && commit != nullptr) {
+                const auto waitMs = [](int ms) {
+                    QEventLoop loop;
+                    QTimer::singleShot(ms, &loop, &QEventLoop::quit);
+                    loop.exec();
+                };
+                const auto showTab = [&](QWidget *w) {
+                    for (int i = 0; i < keys.size(); ++i)
+                        if (stack != nullptr && stack->widget(i)->isAncestorOf(w)) settingsTabs->setCurrentIndex(i);
+                    pump();
+                };
+                showTab(titleEdit);
+                // 没改过就失焦：不提示。
+                emit titleEdit->editingFinished();
+                check(!toast->isVisible(), "没改过的输入框失焦不提示「已保存」");
+                emit titleEdit->textEdited(QStringLiteral("x"));
+                emit titleEdit->editingFinished();
+                check(toast->isVisible() && toast->opacity() > 0.99, "改过的输入框失焦后出现「已保存」");
+                waitMs(1500);
+                check(!toast->isVisible(), "「已保存」1.2 秒后淡出");
+
+                // JVM 参数：失焦即存（信号来自失焦过滤器）。
+                showTab(jvm);
+                int committedCount = 0;
+                QObject::connect(commit, &SettingsParts::CommitOnFocusOut::committed, commit, [&committedCount] { ++committedCount; });
+                jvm->insertPlainText(QStringLiteral("-Xss1M"));
+                QFocusEvent out(QEvent::FocusOut);
+                QApplication::sendEvent(jvm, &out);
+                check(committedCount == 1 && toast->isVisible(), "JVM 参数框失焦即存，并提示「已保存」",
+                      QString::number(committedCount));
+                waitMs(1500);
+                // 开关：用户点一下就提示。
+                auto *switchCheck = ui.getShowGameLogCheck();
+                if (switchCheck != nullptr) {
+                    showTab(switchCheck);
+                    switchCheck->click();
+                    check(toast->isVisible(), "点开关后出现「已保存」");
+                    switchCheck->click();
+                    waitMs(1500);
+                }
+                jvm->clear();
+                jvm->document()->setModified(false);
+            }
+        }
+
+        for (auto *section : sections) section->setExpanded(false, false);
+        if (settingsTabs != nullptr) settingsTabs->setCurrentIndex(0);
+        window->resize(oldSize);
+        pump();
+    }
+
  return 0;
 }
 

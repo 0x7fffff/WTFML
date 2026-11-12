@@ -5,41 +5,29 @@ int UiWindowPreferencesChecks(QTabWidget * &tabs) {
         // （两个数字框）。控件的存在性和"落在右列"已经在 L / E2b 两节验过了，这里验的是
         // **这一组特有的东西**：文案、取值范围、以及那两个数字框的几何。
         //
-        // NOTE: 「游戏日志」那一勾与「进程优先级」那颗下拉框在搭完页后会被
-        // `moveSetting(…, "运行与日志")` 按职责搬进**「启动」栏**（启动器行为/进程/日志
-        // 归启动，见 MainWindowUI::setupSettingsPage 里那段），只有窗口尺寸那两格留在
-        // 「游戏」栏。所以下面勾选框与行标题在「启动」栏那张表里找，尺寸/窗口模式才在
-        // 「游戏」栏找 —— 找错栏的症状就是"控件明明在、这里却报 nullptr"。
+        // NOTE: 游戏窗口、运行与日志、文件关联都在「启动」页（游戏页已并入启动），
+        // 控件在不在、几何对不对都按那一页的表单量。
         QWidget *settingsPage = tabs->widget(MainWindowUI::settingsTabIndex());
         tabs->setCurrentIndex(MainWindowUI::settingsTabIndex());
         QApplication::processEvents();
-        // 先把左栏切到「游戏」栏
-        // （几何断言要的是"这一页真的摆出来了"，切过去之前量到的是藏起来那一页的旧值），
-        // 再按那一栏的键取表单。整页唯一的那张 settingsForm 已经没有了。
-        if (auto *categoryList = settingsPage != nullptr
-                                     ? settingsPage->findChild<QListWidget *>(
-                                           MainWindowUI::settingsCategoryListName())
-                                     : nullptr) {
-            const int gameRow =
-                MainWindowUI::settingsCategoryKeys().indexOf(QStringLiteral("game"));
-            if (gameRow >= 0) {
-                categoryList->setCurrentRow(gameRow);
+        const auto switchSettingsTab = [settingsPage](const QString &key) {
+            if (auto *settingsTabs = settingsPage != nullptr
+                                         ? settingsPage->findChild<SettingsParts::SlidingTabs *>(
+                                               MainWindowUI::settingsTabsName())
+                                         : nullptr) {
+                const int index = MainWindowUI::settingsCategoryKeys().indexOf(key);
+                if (index >= 0) settingsTabs->setCurrentIndex(index);
             }
-        }
-        QApplication::processEvents();
+            QApplication::processEvents();
+        };
+        switchSettingsTab(QStringLiteral("launch"));
         auto *panelScroll = settingsPage != nullptr
                                 ? settingsPage->findChild<QScrollArea *>(
-                                      MainWindowUI::settingsPanelName(QStringLiteral("game")))
+                                      MainWindowUI::settingsPanelName(QStringLiteral("launch")))
                                 : nullptr;
         QWidget *form = panelScroll != nullptr ? panelScroll->widget() : nullptr;
-        check(form != nullptr, "Z2 前提：找得到「游戏」栏那张设置表单");
-        // 日志那两格搬去了「启动」栏，按那一栏的键另取一张表（见本节开头的 NOTE）。
-        auto *launchScroll =
-            settingsPage != nullptr
-                ? settingsPage->findChild<QScrollArea *>(
-                      MainWindowUI::settingsPanelName(QStringLiteral("launch")))
-                : nullptr;
-        QWidget *launchForm = launchScroll != nullptr ? launchScroll->widget() : nullptr;
+        check(form != nullptr, "Z2 前提：找得到「启动」页那张设置表单");
+        QWidget *launchForm = form;
 
         // ---- (a) 「显示游戏日志」：这句话是要求，别被改写 ----
         {
@@ -55,21 +43,14 @@ int UiWindowPreferencesChecks(QTabWidget * &tabs) {
                 check(!checkBox->isChecked(),
                       "Z2 刚搭好时未勾选（值由 MainWindow 灌，界面不自己猜）");
                 if (launchForm != nullptr) {
-                    bool hasRowTitle = false;
-                    const QList<QLabel *> labelsInForm = launchForm->findChildren<QLabel *>();
-                    for (const QLabel *label : labelsInForm) {
-                        if (label->text() == MainWindowUI::showGameLogRowText()) {
-                            hasRowTitle = true;
-                        }
-                    }
-                    check(!hasRowTitle,
-                          "Z2 游戏日志开关自带名称，不重复添加行标题",
-                          MainWindowUI::showGameLogRowText());
-                    check(MainWindowUI::showGameLogRowText() !=
-                              MainWindowUI::showGameLogCheckText(),
-                          "Z2 行标题与勾选框文字是两句不同的话（同屏出现两遍那个已经改掉）",
-                          MainWindowUI::showGameLogRowText() + QStringLiteral(" / ") +
-                              MainWindowUI::showGameLogCheckText());
+                    // 开关行：行标题就是勾选框那句话（合并成一句），且整页只画一次。
+                    int rowTitles = 0;
+                    for (const QLabel *label : launchForm->findChildren<QLabel *>())
+                        if (label->text() == MainWindowUI::showGameLogRowText()) ++rowTitles;
+                    check(rowTitles == 1 &&
+                              MainWindowUI::showGameLogRowText() == MainWindowUI::showGameLogCheckText(),
+                          "Z2 游戏日志开关：行标题与勾选框是同一句，行标题只画一次",
+                          QString::number(rowTitles));
                 }
             }
         }
@@ -199,16 +180,9 @@ int UiWindowPreferencesChecks(QTabWidget * &tabs) {
         // 里面控件的宽度还是旧的）。量完切回「游戏」栏 —— 这一段后面的节假设
         // 设置页停在 Z2 开头那一栏上。
         if (settingsPage != nullptr) {
-            // 切到某栏并取回那张表单（量完由最后那一次切回「游戏」栏）。
-            const auto formOfCategory = [settingsPage](const QString &key) -> QWidget * {
-                if (auto *list = settingsPage->findChild<QListWidget *>(
-                        MainWindowUI::settingsCategoryListName())) {
-                    const int row = MainWindowUI::settingsCategoryKeys().indexOf(key);
-                    if (row >= 0) {
-                        list->setCurrentRow(row);
-                    }
-                }
-                QApplication::processEvents();
+            // 切到某页并取回那张表单（量完由最后那一次切回「启动」页）。
+            const auto formOfCategory = [settingsPage, switchSettingsTab](const QString &key) -> QWidget * {
+                switchSettingsTab(key);
                 auto *scroll =
                     settingsPage->findChild<QScrollArea *>(MainWindowUI::settingsPanelName(key));
                 return scroll != nullptr ? scroll->widget() : nullptr;
@@ -216,7 +190,7 @@ int UiWindowPreferencesChecks(QTabWidget * &tabs) {
             // 一条 = 哪一栏 + 那个下拉框的 objectName。
             const QList<QPair<QString, QString>> combos = {
                 {QStringLiteral("launch"), MainWindowUI::processPriorityComboName()},
-                {QStringLiteral("game"), MainWindowUI::gameWindowModeComboName()},
+                {QStringLiteral("launch"), MainWindowUI::gameWindowModeComboName()},
                 {QStringLiteral("launch"), MainWindowUI::launcherBehaviourComboName()},
                 {QStringLiteral("download"), MainWindowUI::downloadSourceComboName()},
                 {QStringLiteral("download"), MainWindowUI::downloadConcurrencyComboName()},
@@ -229,16 +203,15 @@ int UiWindowPreferencesChecks(QTabWidget * &tabs) {
                 check(combo != nullptr,
                       QStringLiteral("Z2 「%1」那一颗下拉框找得到").arg(comboWhere.second));
                 if (combo != nullptr) {
-                    check(combo->width() <= combo->sizeHint().width() + 2,
-                          QStringLiteral("Z2 「%1」按 sizeHint 靠左摆（没被拉去顶满这一栏）")
+                    // 行 = 左标签 + 右侧固定 220 的控件列：下拉铺满这一列，不多不少。
+                    check(combo->width() > 0 && combo->width() <= SettingsParts::kControlColumn + 1,
+                          QStringLiteral("Z2 「%1」落在右侧 220 控件列里（没被拉去顶满这一栏）")
                               .arg(comboWhere.second),
-                          QStringLiteral("w=%1 sizeHint=%2")
-                              .arg(combo->width())
-                              .arg(combo->sizeHint().width()));
+                          QStringLiteral("w=%1").arg(combo->width()));
                 }
             }
-            // 切回「游戏」栏：这一段后面的节假设设置页停在 Z2 开头那一栏上。
-            formOfCategory(QStringLiteral("game"));
+            // 切回「启动」页：这一段后面的节假设设置页停在 Z2 开头那一页上。
+            formOfCategory(QStringLiteral("launch"));
         }
     }
     return 0;

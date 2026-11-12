@@ -21,7 +21,12 @@
 #include "OverlayHost.hpp"
 
 #include <QDateTime>
+#include <QDir>
+#include <QFileDialog>
 #include <QFileInfo>
+#include <QRegularExpression>
+#include <QSaveFile>
+#include <QStandardPaths>
 #include <QJsonDocument>
 #include <QSettings>
 #include <QTimer>
@@ -274,12 +279,9 @@ void AgentController::wirePage() {
     connect(m_page, &AgentPage::encryptToggled, this, &AgentController::onEncryptToggled);
     connect(m_page, &AgentPage::approvalAllowed, this, [this](const QString &) { onApproval(true); });
     connect(m_page, &AgentPage::approvalDenied, this, [this](const QString &) { onApproval(false); });
-    connect(m_page, &AgentPage::instanceChipRequested, this,
-            &AgentController::onInstanceSwitchRequested);
-    connect(m_page, &AgentPage::approvalAllowed, this, [this](const QString &) { onApproval(true); });
-    connect(m_page, &AgentPage::approvalDenied, this, [this](const QString &) { onApproval(false); });
-    connect(m_page, &AgentPage::instanceChipRequested, this,
-            &AgentController::onInstanceSwitchRequested);
+    connect(m_page, &AgentPage::instanceChipRequested, this, &AgentController::onInstanceMenuRequested);
+    connect(m_page, &AgentPage::instanceChosen, this, &AgentController::onInstanceChosen);
+    connect(m_page, &AgentPage::sessionExportRequested, this, &AgentController::onExport);
 }
 
 void AgentController::shutdown() {
@@ -353,8 +355,7 @@ void AgentController::refreshApiState() {
         const QString modelLabel =
             m_profile.isValid() ? QStringLiteral("%1 · %2").arg(m_profile.name, m_profile.model)
                                 : QStringLiteral("未配置模型");
-        m_page->setModelOptions({modelLabel}, modelLabel);
-        m_page->setInstanceChip(QStringLiteral("跟随主页：未选择实例"), false);
+        m_page->setModelLabel(modelLabel);
     }
 }
 
@@ -685,8 +686,8 @@ void AgentController::onEncryptToggled(bool encrypted) {
     }
     if (m_page != nullptr) {
         m_page->setEncryptionChecked(encrypted);
-        m_page->showNotice(encrypted ? QStringLiteral("本会话正文已用 DPAPI 加密（绑定当前 Windows 用户）。")
-                                     : QStringLiteral("本会话已改回明文 JSON。"));
+        m_page->showNotice(encrypted ? QStringLiteral("本会话已加密存储（绑定当前 Windows 用户）")
+                                     : QStringLiteral("本会话已改回明文存储"));
     }
     refreshSessions();
 }
@@ -726,6 +727,10 @@ void AgentController::setInstanceContextProvider(InstanceProvider provider) {
     updateInstanceChip();
 }
 
+void AgentController::setInstanceListProvider(InstanceListProvider provider) {
+    m_instanceListProvider = std::move(provider);
+}
+
 void AgentController::setInstanceContextForTest(const QString &rootPath,
                                                 const AgentInstanceInfo &info) {
     m_testRootPath = rootPath;
@@ -745,10 +750,7 @@ AgentToolContext AgentController::toolContext(QString *problem) {
         if (problem != nullptr) *problem = QStringLiteral("先新建会话再使用文件工具。");
         return context;
     }
-    AgentInstanceInfo current = m_useTestInstance
-                                    ? m_testInstance
-                                    : (m_instanceProvider ? m_instanceProvider()
-                                                          : AgentInstanceInfo{});
+    const AgentInstanceInfo current = homeInstance();
     if (!m_session.meta.instanceLock.isValid()) {
         if (!current.isValid() || !current.exists) {
             if (problem != nullptr) {
@@ -773,9 +775,9 @@ AgentToolContext AgentController::toolContext(QString *problem) {
         refreshSessions();
         updateInstanceChip();
     }
-    if (!AgentInstanceLocks::isUsable(m_session.meta.instanceLock, current)) {
+    if (!AgentInstanceLocks::isUsable(m_session.meta.instanceLock, lockedInstance())) {
         if (problem != nullptr) {
-            *problem = QStringLiteral("InstanceUnavailable：锁定实例不在当前游戏文件夹或已被删除。");
+            *problem = QStringLiteral("InstanceUnavailable：锁定实例不在当前游戏目录或已被删除。");
         }
         return context;
     }
@@ -789,55 +791,116 @@ AgentToolContext AgentController::toolContext(QString *problem) {
     return context;
 }
 
-void AgentController::updateInstanceChip() {
-    if (m_page == nullptr) return;
-    const AgentInstanceInfo current = m_useTestInstance
-                                          ? m_testInstance
-                                          : (m_instanceProvider ? m_instanceProvider()
-                                                                : AgentInstanceInfo{});
-    m_page->setInstanceChip(AgentInstanceLocks::chipText(m_session.meta.instanceLock, current),
-                            m_session.meta.instanceLock.isValid());
+AgentInstanceInfo AgentController::homeInstance() const {
+    if (m_useTestInstance) return m_testInstance;
+    return m_instanceProvider ? m_instanceProvider() : AgentInstanceInfo{};
 }
 
-void AgentController::onInstanceSwitchRequested() {
+QList<AgentInstanceInfo> AgentController::instances() const {
+    if (!m_useTestInstance && m_instanceListProvider) return m_instanceListProvider();
+    // 没接实例清单（测试 / 早期构造）时，可选的只有主页当前那一个。
+    const AgentInstanceInfo home = homeInstance();
+    return home.isValid() ? QList<AgentInstanceInfo>{home} : QList<AgentInstanceInfo>{};
+}
+
+AgentInstanceInfo AgentController::lockedInstance() const {
+    const AgentInstanceLock &lock = m_session.meta.instanceLock;
+    for (const AgentInstanceInfo &info : instances())
+        if (info.id == lock.id) return info;
+    return {};
+}
+
+void AgentController::updateInstanceChip() {
+    if (m_page == nullptr) return;
+    const AgentInstanceLock &lock = m_session.meta.instanceLock;
+    m_page->setInstanceChip(AgentInstanceLocks::chipText(lock, lock.isValid() ? lockedInstance() : homeInstance()),
+                            lock.isValid());
+}
+
+void AgentController::onInstanceMenuRequested() {
+    if (m_page == nullptr) return;
+    QList<AgentView::InstanceOption> options;
+    for (const AgentInstanceInfo &info : instances())
+        if (info.isValid() && info.exists) options.append({info.id, info.name.isEmpty() ? info.id : info.name});
+    m_page->showInstanceMenu(options, m_session.meta.instanceLock.id);
+}
+
+void AgentController::onInstanceChosen(const QString &instanceId) {
     if (m_page == nullptr) return;
     if (m_loop->busy() || !m_session.pendingApproval.isEmpty()) {
-        m_page->showNotice(QStringLiteral("有待审批/执行中的操作，不能切换实例。"));
+        m_page->showNotice(QStringLiteral("有待确认或执行中的操作，暂不能切换实例。"));
         return;
     }
-    const AgentInstanceInfo current = m_useTestInstance
-                                          ? m_testInstance
-                                          : (m_instanceProvider ? m_instanceProvider()
-                                                                : AgentInstanceInfo{});
-    if (!current.isValid() || !current.exists) {
-        m_page->showNotice(QStringLiteral("主页没有选中可用实例。"));
-        return;
-    }
-    if (AgentInstanceLocks::isUsable(m_session.meta.instanceLock, current)) return;
-    if (m_session.meta.instanceLock.isValid() && m_overlay != nullptr) {
-        const int choice = InlineMessage::ask(
-            m_overlay, MessageKind::Question, QStringLiteral("切换实例"),
-            QStringLiteral("已有证据/操作属于“%1”；切换后旧计划作废，建议新建会话。")
-                .arg(m_session.meta.instanceLock.name),
-            QStringList{QStringLiteral("新建会话"), QStringLiteral("在本会话切换"),
-                        QStringLiteral("取消")},
-            2, 0);
-        if (choice == 0) {
-            onNewSession();
+    const AgentInstanceLock old = m_session.meta.instanceLock;
+    if (instanceId == old.id) return;
+    AgentInstanceInfo target;
+    if (!instanceId.isEmpty()) {
+        for (const AgentInstanceInfo &info : instances())
+            if (info.id == instanceId) target = info;
+        if (!target.isValid() || !target.exists) {
+            m_page->showNotice(QStringLiteral("实例「%1」已不在当前游戏目录。").arg(instanceId));
             return;
         }
-        if (choice != 1) return;
+    }
+    // 已关联过实例、对话里也有了内容：旧实例上的证据和计划不再适用，建议另开会话（D8：切换须显式确认）。
+    if (old.isValid() && !m_session.messages.isEmpty() && m_overlay != nullptr) {
+        const int choice = InlineMessage::ask(
+            m_overlay, MessageKind::Question, QStringLiteral("切换实例"),
+            QStringLiteral("本会话的记录属于「%1」，切换后旧计划作废，建议新建会话。").arg(old.name),
+            QStringList{QStringLiteral("新建会话"), QStringLiteral("在本会话切换"), QStringLiteral("取消")}, 2, 0);
+        if (choice == 0) onNewSession();
+        else if (choice != 1) return;
+    }
+    if (m_session.meta.id.isEmpty()) {
+        AgentSession created;
+        QString createProblem;
+        if (!m_store.create(&created, &createProblem)) {
+            m_page->showNotice(createProblem);
+            return;
+        }
+        m_session = created;
     }
     QString problem;
-    if (!AgentInstanceLocks::switchTo(&m_session, current, &problem)) {
-        m_page->showNotice(problem);
-        return;
+    if (target.isValid()) {
+        if (!AgentInstanceLocks::switchTo(&m_session, target, &problem)) {
+            m_page->showNotice(problem);
+            return;
+        }
+    } else {
+        m_session.meta.instanceLock = {};  // 跟随主页：下一次实例操作时再锁定主页当前实例
     }
     m_session.pendingApproval = {};
     flushSave(true);
     refreshSessions();
-    updateInstanceChip();
-    m_page->showNotice(QStringLiteral("已切换到实例：%1").arg(current.name));
+    updateHeader();
+    m_page->showNotice(target.isValid() ? QStringLiteral("本会话已关联实例：%1").arg(target.name)
+                                        : QStringLiteral("本会话改为跟随主页实例"));
+}
+
+void AgentController::onExport(const QString &sessionId) {
+    if (m_page == nullptr || sessionId.isEmpty()) return;
+    AgentSession session = m_session;
+    QString problem;
+    if (session.meta.id != sessionId && !m_store.load(sessionId, &session, &problem)) {
+        InlineMessage::warning(m_overlay, QStringLiteral("导出失败"), problem);
+        return;
+    }
+    QString name = session.meta.title.isEmpty() ? QStringLiteral("新对话") : session.meta.title;
+    name.replace(QRegularExpression(QStringLiteral(R"([\\/:*?"<>|])")), QStringLiteral("_"));
+    const QString path = QFileDialog::getSaveFileName(
+        m_page->window(), QStringLiteral("导出会话"),
+        QDir(QStandardPaths::writableLocation(QStandardPaths::DesktopLocation)).filePath(name + QStringLiteral(".md")),
+        QStringLiteral("Markdown (*.md);;所有文件 (*)"));
+    if (path.isEmpty()) return;
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly) ||
+        file.write(AgentSessionExport::toMarkdown(session).toUtf8()) < 0 || !file.commit()) {
+        InlineMessage::warning(m_overlay, QStringLiteral("导出失败"),
+                               QStringLiteral("无法写入 %1：%2。请换一个位置再试。")
+                                   .arg(QDir::toNativeSeparators(path), file.errorString()));
+        return;
+    }
+    m_page->showNotice(QStringLiteral("会话已导出：%1").arg(QDir::toNativeSeparators(path)));
 }
 
 void AgentController::onApproval(bool approved) {

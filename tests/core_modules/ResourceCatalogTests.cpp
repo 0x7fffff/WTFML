@@ -879,7 +879,7 @@ void runResourceCatalogTests() {
         // ---- 弹窗里那行灰字（用户：「弹窗里灰字写可以在设置里面关掉弹窗」）----
         const QString note = ModDependencies::dependencyPromptNoteText();
         check(!note.isEmpty() && note.contains(QStringLiteral("设置")) &&
-                  note.contains(QStringLiteral("缺失前置提醒")),
+                  note.contains(QStringLiteral("检查前置模组")),
               "★ Z6d 灰字说清了「能在设置里关掉」，而且**点名了那一项**（不然用户在设置里找不着）",
               note);
 

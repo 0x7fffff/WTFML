@@ -390,7 +390,7 @@ QString dependencyPromptText(ResourceCatalog::Kind kind, const QStringList &name
  */
 QString dependencyPromptUnknownText(ResourceCatalog::Kind kind, const QStringList &names);
 
-/// 弹窗里那行**灰字**（「可以在设置中关闭此提示（设置页「下载」→「缺失前置提醒」）。」）。
+/// 弹窗里那行**灰字**（「可以在设置中关闭此提示（设置 → 提示 →「检查前置模组」）。」）。
 /// 用户 ：「弹窗里灰字写可以在设置里面关掉弹窗」。界面拿它喂
 /// `InlineMessage::ask(...)` 的 note，验证工程拿它断言 —— 别在别处再写一遍。
 QString dependencyPromptNoteText();

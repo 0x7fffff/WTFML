@@ -756,8 +756,6 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
                   "★ 产品·版本树开着 mouseTracking");
             check(viewTracksMouse(ui.getLoaderTree()),
                   "★ 产品·加载器那棵树开着 mouseTracking");
-            check(viewTracksMouse(ui.getSettingsCategoryList()),
-                  "★ 产品·设置页左栏那份分类列表开着 mouseTracking");
             // 第 0 个「游戏」那一页**没有资源表**（`getDownloadResourceTree("game")`
             // 回 nullptr —— 它有它自己那棵树），所以这里按"四个资源页"来数，跳过它。
             const QStringList allCategoryKeys = MainWindowUI::downloadCategoryKeys();

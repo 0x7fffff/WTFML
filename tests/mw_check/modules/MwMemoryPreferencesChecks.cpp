@@ -1,5 +1,5 @@
 #include "Support.hpp"
-int MwMemoryPreferencesChecks(const bool settingsWired, const QString &kDecorated, MainWindow &window, QComboBox * &installed, QComboBox * &memoryMode, QLabel * &memoryHint, QSpinBox * &maxSpin, QComboBox * &behaviourCombo, QComboBox * &sourceCombo, QPlainTextEdit * &jvmEdit, QPushButton * &applyJvm, QCheckBox * &loaderCheck, QCheckBox * &loaderVersionCheck, MemorySlider * &maxSlider) {
+int MwMemoryPreferencesChecks(const bool settingsWired, const QString &kDecorated, MainWindow &window, QComboBox * &installed, QComboBox * &memoryMode, QLabel * &memoryHint, QSpinBox * &maxSpin, QComboBox * &behaviourCombo, QComboBox * &sourceCombo, QPlainTextEdit * &jvmEdit, SettingsParts::CommitOnFocusOut * &applyJvm, QCheckBox * &loaderCheck, QCheckBox * &loaderVersionCheck, MemorySlider * &maxSlider) {
     if (settingsWired) {
         // ---- 内存：改一个数就落盘 ----
         // 默认是手动档：条和数字框开窗就能改。这里量的第一件事是"它开窗时确实已经能改"，
@@ -320,19 +320,19 @@ int MwMemoryPreferencesChecks(const bool settingsWired, const QString &kDecorate
             check(!loaderVersionCheck->isChecked(), "但「加载器版本」没有跟着被勾上");
         }
 
-        // ---- JVM 参数：点「应用」才落盘，且去首尾空白 ----
+        // ---- JVM 参数：失焦（committed）才落盘，且去首尾空白 ----
         jvmEdit->setPlainText(QStringLiteral("  -Xss1M  "));
         {
             GlobalJavaSettings probe;
             check(probe.extraJvmArgs() == QStringLiteral("-XX:+UseG1GC"),
-                  "只改文本框不点「应用」时盘上的值不动（半条参数不能进命令行）",
+                  "只改文本框、还没失焦时盘上的值不动（半条参数不能进命令行）",
                   probe.extraJvmArgs());
         }
-        applyJvm->click();
+        emit applyJvm->committed();
         {
             GlobalJavaSettings probe;
             check(probe.extraJvmArgs() == QStringLiteral("-Xss1M"),
-                  "点「应用」后落盘，且首尾空白被去掉", probe.extraJvmArgs());
+                  "失焦提交后落盘，且首尾空白被去掉", probe.extraJvmArgs());
         }
     }
     return 0;

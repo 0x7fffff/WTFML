@@ -268,6 +268,16 @@ build-audit/tools/network_diag/WTFMLNetworkDiag.exe --self-test
 
 2026-11-05 本机实测 48 条全过、约 19 秒、退出码 0，与 CI 一致，所以本机跑全量不需要排除 `network-diag`。
 
+## 设置页验收截图（offscreen，不弹窗）
+
+`ui_check_settings_shots` 在 offscreen 下用 `QWidget::grab()` 出设置页截图：深色 / 青瓷 × 900×620 / 1280×800 × 4 个页签，另有「个性化」页展开「高级」和表单收窄到 560 的 stack 态。
+
+```powershell
+cmake --build build/verification-mingw13 --target ui_check_settings_shots
+$env:QT_QPA_PLATFORM = 'offscreen'
+./build/verification-mingw13/tests/ui_check/ui_check_settings_shots.exe <输出目录>
+```
+
 ## 人工验收探针（不进 CTest）
 
 需要真机环境，故意不登记到 CTest；常规回归以临时目录夹具为主。

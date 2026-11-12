@@ -5,6 +5,7 @@ set(WTFML_UI_PAGE_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/MainWindowPageLayout.cpp
     ${CMAKE_CURRENT_LIST_DIR}/MainWindowDownloadPage.cpp
     ${CMAKE_CURRENT_LIST_DIR}/MainWindowSettingsPage.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/SettingsPageParts.cpp
     ${CMAKE_CURRENT_LIST_DIR}/MainWindowPanels.cpp
     # 主页那两块玻璃弹层（实例切换、轨底账号）和它们共用的底座（活动中心浮层也用）。
     ${CMAKE_CURRENT_LIST_DIR}/GlassPopover.cpp

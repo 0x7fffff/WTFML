@@ -2843,7 +2843,9 @@ void runInstanceFilesPagesTests() {
                 QMetaObject::invokeMethod(&w, "openInstanceSettings", Qt::DirectConnection, Q_ARG(QString, idV));
                 {
                     auto *host = w.ui()->overlay();
-                    auto *page = host->findChild<InstanceSettingsDialog *>();
+                    // 取最后一个：上一扇页可能还在等 deleteLater，刚开的这扇是最后加进来的子控件。
+                    const auto pages = host->findChildren<InstanceSettingsDialog *>();
+                    auto *page = pages.isEmpty() ? nullptr : pages.last();
                     if (page && page->serverTree()->topLevelItemCount() == 2 &&
                         page->findChild<QPushButton *>(QStringLiteral("serverFavorite")) &&
                         page->findChild<QCheckBox *>(QStringLiteral("serverFavoritesOnly"))) {

@@ -75,3 +75,17 @@ QString fromMessage(const QString &message) {
     return simplified.left(24);
 }
 }  // namespace AgentSessionTitle
+
+namespace AgentSessionExport {
+QString toMarkdown(const AgentSession &session) {
+    QString out = QStringLiteral("# %1\n").arg(session.meta.title.isEmpty() ? QStringLiteral("新对话")
+                                                                             : session.meta.title);
+    for (const Agent::Message &message : session.messages) {
+        if (message.role != Agent::Role::User && message.role != Agent::Role::Assistant) continue;
+        if (message.content.trimmed().isEmpty()) continue;
+        out += message.role == Agent::Role::User ? QStringLiteral("\n## 我\n\n") : QStringLiteral("\n## 助手\n\n");
+        out += message.content.trimmed() + QLatin1Char('\n');
+    }
+    return out;
+}
+}  // namespace AgentSessionExport

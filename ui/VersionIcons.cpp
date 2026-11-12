@@ -1008,6 +1008,7 @@ const QHash<QString, QString> &linePaths() {
         {QStringLiteral("eraser"), QStringLiteral("M8 20h12M5.5 14.5l8-8a2 2 0 0 1 2.8 0l2.2 2.2a2 2 0 0 1 0 2.8L11 19H8z")},
         {QStringLiteral("search"), QStringLiteral("M10.5 4a6.5 6.5 0 1 1 0 13 6.5 6.5 0 0 1 0-13zM15.5 15.5 20 20")},
         {QStringLiteral("edit"), QStringLiteral("M4.5 19.5h4l10-10-4-4-10 10zM13 7l4 4")},
+        {QStringLiteral("lock"), QStringLiteral("M5.5 11h13v9h-13zM8.5 11V8l1.5-2.5h4L15.5 8v3")},
         {QStringLiteral("send"), QStringLiteral("M12 19V5.5M6.5 11 12 5.5l5.5 5.5")},
         {QStringLiteral("stop"), QStringLiteral("M7.5 7.5h9v9h-9z")},
         {QStringLiteral("ms"), QStringLiteral("M4 4h7.5v7.5H4zM12.5 4H20v7.5h-7.5zM4 12.5h7.5V20H4zM12.5 12.5H20V20h-7.5z")},

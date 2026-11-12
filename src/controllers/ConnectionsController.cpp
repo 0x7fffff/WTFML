@@ -4,6 +4,7 @@
 #include "Animations.hpp"
 #include "InlineMessage.hpp"
 #include "MainWindowUI.hpp"
+#include "SettingsPageParts.hpp"
 #include "OverlayHost.hpp"
 #include "InstanceSettingsDialog.hpp"
 #include "InstanceFilesPage.hpp"
@@ -847,8 +848,8 @@ void ConnectionsController::setup() {
     connect(m_owner->m_ui->getWarnWorldLossCheck(), &QCheckBox::toggled, m_owner,
             &MainWindow::onWarnWorldLossChanged);
     // JVM 参数刻意**不**接 textChanged：边打字边存会把打到一半的半条参数写进配置，
-    // 而它是直接塞进命令行的东西，半条参数会让游戏起不来。改完点「应用」。
-    connect(m_owner->m_ui->getApplyExtraJvmArgsButton(), &QPushButton::clicked, m_owner,
+    // 而它是直接塞进命令行的东西，半条参数会让游戏起不来。改为失焦（或 Ctrl+Enter）即存。
+    connect(m_owner->m_ui->getExtraJvmArgsCommit(), &SettingsParts::CommitOnFocusOut::committed, m_owner,
             &MainWindow::onApplyExtraJvmArgsClicked);
     // 「外观」那一格（条上那行字）：**反着来** —— 边打字边生效、也边落盘。
     // NOTE: 为什么不跟上面那条 JVM 参数走"点应用才存"：那边怕的是"半条参数进命令行"，

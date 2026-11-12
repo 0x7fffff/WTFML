@@ -2907,8 +2907,8 @@ int main(int argc, char *argv[]) {
         byObjectName<QComboBox>(&window, MainWindowUI::downloadSourceComboName());
     QPlainTextEdit *jvmEdit =
         byObjectName<QPlainTextEdit>(&window, MainWindowUI::extraJvmArgsEditName());
-    QPushButton *applyJvm = window.findChild<QPushButton *>(
-        MainWindowUI::applyExtraJvmArgsButtonName());
+    // 「全局额外参数」失焦即存：信号源就是失焦那个过滤器。
+    SettingsParts::CommitOnFocusOut *applyJvm = window.ui()->getExtraJvmArgsCommit();
     QCheckBox *customCheck =
         byObjectName<QCheckBox>(&window, MainWindowUI::versionNameCustomCheckName());
     QCheckBox *realCheck =

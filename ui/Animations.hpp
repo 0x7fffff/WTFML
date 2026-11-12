@@ -111,7 +111,7 @@ constexpr qreal pageStartOpacity() { return 0.12; }
 // NOTE: 起手那一位钉在 `pageStartOpacity()`（不是 0）。
 constexpr int pressDepthPercent() { return 12; }
 
-/// 这一趟要不要动：**只认本程序自己的开关**（设置页「界面动效」那个勾，默认开）。
+/// 这一趟要不要动：**只认本程序自己的开关**（设置页「界面动画」那个勾，默认开）。
 ///
 /// 不读 Windows 的「动画效果」（`SPI_GETCLIENTAREAANIMATION`）：那一档关掉时整套动效会被
 /// 静默关掉，用户看到的是"动效一个都没有"，而且他多半不知道是这个开关在起作用。

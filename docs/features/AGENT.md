@@ -233,23 +233,24 @@ D1–D11 是已确认的设计结论；要推翻某一条，先改本文和测�
 ┌────────────────────────────────────────────────────────────────────┐
 │ 主页  管理  下载  设置  智能体                         —   ×      │  ← 自绘标题栏
 ├──────────────────┬─────────────────────────────────────────────────┤
-│ ＋ 新建对话       │  会话标题   [实例:未锁定/已锁定 A] [模型 ▾] [设置]│
+│ 会话          ＋  │  会话标题 [API 未配置] [实例 A ▾]   [⋯] [⚙]   │
 │ 搜索              │                                                 │
-│ ───────────────  │  消息区（可滚动）                               │
-│ 会话 A        ⋯   │   ┌ 用户气泡 ─────────────────────────────┐    │
-│ 会话 B        ⋯   │   └───────────────────────────────────────┘    │
-│ 会话 C(实例A) ⋯   │   ┌ 助手正文 / 思考折叠 / 工具卡片 ───────┐    │
-│ ...              │   └───────────────────────────────────────┘    │
-│                  │                                                 │
-│ API 状态/配置     │  [模式 ▾]  输入框（1~8 行）        [发送/停止] │
+│ 固定              │  消息区（可滚动，最宽 760 居中）                │
+│  会话 A     10:42 │                       ┌ 自己的话（淡底气泡）┐   │
+│ 今天              │                       └─────────────────────┘   │
+│  会话 B     09:10 │  助手正文 / 思考折叠 / 工具卡片（直接铺开）     │
+│ 更早              │  ──── 系统提示（居中细字，两侧细线）────        │
+│  会话 C      昨天 │  ┌ 输入框（毛玻璃，圆角 20，最宽 760）  (➤) ┐  │
 └──────────────────┴─────────────────────────────────────────────────┘
 ```
 
-- 左侧会话栏固定约 248 px（窄窗口 216 px），右侧聊天区吃掉剩余宽度。
-- 右上角布局：实例上下文芯片（D8：未锁定显示"跟随主页：<实例名>"，首次实例操作后改为"已锁定：<实例名>"，锁定后不随主页变化，切换需显式确认）、模型下拉框（provider/model，会话级）、"API 设置"齿轮（Stage 2 扩展为"API 与 MCP 设置"）。
-- 左栏底部显示"API 已配置 / 未配置 / 配置已失效"，不显示假在线状态。
-- 空态：Stage 1A/1B 只有"自由对话"和一段隐私/外发说明；Stage 2 增加体检、崩溃急救、升级、模组维护等模式卡片。没配置 API 时先显示配置引导，"发送"不可用。
-- 新会话默认选中"自由对话"；Stage 2 的模式卡片点击会创建新会话并预填目标，不悄悄带上旧会话上下文。
+- 左侧会话栏 236 px（窗口宽 < 1024 时 216 px），右侧聊天区吃掉剩余宽度。行高 40：标题省略 + 右侧相对时间；选中行 accent-soft 底、圆角 10，没有竖条。
+- 右侧顶行（拖拽区下 12px）：会话标题（双击改名）· 「API 未配置」警示胶囊（只在没配置/配置无效时出现，点击打开 API 设置）· 「实例」下拉胶囊（D8，见 §6.5）· `⋯` 菜单（重命名、固定、加密存储开关 + 「标题和时间仍为明文。」、导出、删除会话）· ⚙ API 设置（提示里带当前模型）。
+- 当前 provider 只有一个模型，不放单选项的模型下拉；模型名在 ⚙ 的提示里。
+- 空态：一行手写大字 + 一行小字（「有什么想问的？」）；没配置 API 时是「先配置 API」+ 主按钮「配置 API」，输入框只读。
+- 不再显示「自由对话」模式胶囊：后端只有一个内置技能，没有切换路径（Stage 2 有多个模式时再加选择器，新会话不悄悄带上旧上下文）。
+- 系统提示（加密切换、实例关联、导出结果等）是消息流里居中的一行 12.5px 淡字，两侧细线。
+- 输入框为空时右侧显示「Enter 发送 · Shift+Enter 换行」，发送/停止是圆形图标钮。
 - 会话列表的实例徽标：未锁定不显示；锁定后显示实例名；实例已删除/不在当前游戏文件夹时显示"实例不可用"；可筛选/分组，避免多个实例的聊天混在一起。
 
 ### 4.3 会话列表与"三个点"
@@ -258,7 +259,7 @@ D1–D11 是已确认的设计结论；要推翻某一条，先改本文和测�
 
 - 重命名（行内编辑；Enter 提交、Esc 取消、空标题回退到自动标题）；
 - 固定 / 取消固定；
-- 复制为新会话（Stage 2）；导出 Markdown / JSON（Stage 2，默认不含 artifacts 全文，只含引用）；归档（Stage 2）；
+- 导出 Markdown（已实现：标题 + 「我 / 助手」各一节，不含工具结果、系统提示和 artifacts）；复制为新会话、导出 JSON、归档（Stage 2）；
 - 删除（二次确认；只删会话/artifacts/恢复快照，**保留文件维护备份**，见 D10）。会话正在请求/执行工具/等待审批时先停止并等待安全终止；进入文件提交阶段时等待提交完成，不强行中断。
 
 列表规则：默认固定优先，其次 `updatedAt` 倒序，同时间按 id 稳定排序；提供"按实例分组/筛选"，未锁定和实例不可用各自一组；删除当前会话后选中下一个，没有会话回到空态；只在标题右侧显示小状态点，不把"正在流式输出"画成假进度。
@@ -309,8 +310,8 @@ API Key 输入：`AgentSecretEdit` 用密码模式，在控件级 `QProxyStyle` 
 
 结论（D4）：用户看到的"模式"，内部是编译进程序的 Skill。
 
-- 输入框上方一个紧凑模式选择器，空态显示卡片。
-- Stage 1A/1B 只有"自由对话"（1A 无工具；1B 才读写文件，写操作仍逐次批准）。Stage 2 增加实例体检（只读）、崩溃急救、版本升级 / 移植、模组维护；Stage 3 增加服务端维护、资源安装。
+- Stage 1A/1B 只有一个内置技能（1A 无工具；1B 起每轮都带文件工具，写操作仍逐次批准），界面上不显示模式选择器。Stage 2 有多个模式后再在输入框上方放紧凑选择器、空态放卡片。
+- 后续阶段：Stage 2 增加实例体检（只读）、崩溃急救、版本升级 / 移植、模组维护；Stage 3 增加服务端维护、资源安装。
 - 切换模式：保留对话历史并插入系统提示"已切换到 X 模式"；工具白名单随之切换，进行中的工具不被打断、后续步骤按新白名单校验；危险模式不能从"自由对话"的模型输出里自动切换，必须用户点选。
 - 斜杠命令（Stage 2）：`/diagnose`、`/crash`、`/upgrade`、`/mods`、`/help`，只做"创建会话 + 选模式 + 预填提示"，不绕过审批。
 
@@ -320,14 +321,14 @@ API Key 输入：`AgentSecretEdit` 用密码模式，在控件级 `QProxyStyle` 
 - 间距 20 / 16 / 8 三档，圆角 4 / 6 / 8 / 10 四档；代码等宽字体取系统 fixed font。
 - 动效：页面切换复用 `Anim::pageAppear()`；消息流不逐 token 动画；`Anim::enabled()` 为假时直接跳（不淡不滑）。
 - 键盘：Enter 发送、Shift+Enter 换行、输入法组合期间 Enter 不发送；Esc 停止生成/关闭菜单；Ctrl+N 新会话（Stage 2）；Tab 顺序 侧栏 → 头部 → 消息 → 输入框 → 发送；审批卡按钮可键盘聚焦，焦点环不改变几何。
-- 无障碍：会话行、`⋯`、模型下拉、发送/停止、工具卡、审批按钮都有 objectName 和 accessible name/description；密码输入不被读屏读出明文。
-- 尺寸：默认 900×620 下侧栏 248 + 聊天区约 620；窄窗口侧栏 216、标题省略、不出现横向滚动；高 DPI 用逻辑像素断言，不用 `grab()` 物理像素。
+- 无障碍：会话行、`⋯`、实例下拉、发送/停止、工具卡、审批按钮都有 objectName 和 accessible name/description；消息气泡不写「你 / 助手」角色行，读屏靠无障碍名；密码输入不被读屏读出明文。
+- 尺寸：窗口宽 < 1024（含默认 900×620）侧栏 216，≥ 1024 时 236；标题省略、不出现横向滚动；高 DPI 用逻辑像素断言，不用 `grab()` 物理像素。
 
 ### 4.9 objectName 与测试入口
 
 测试按 objectName 找控件，不按显示文案找身份。已实现的关键项（以 `ui/Agent*.cpp` 为准）：
 
-- `AgentPage`：`agentPage`、`agentSidebar`、`agentNewSessionButton`、`agentSessionSearch`、`agentSessionList`、`agentApiStatus`、`agentChatHeader`、`agentSessionTitle`、`agentInstanceLockChip`、`agentModelCombo`、`agentApiSettingsButton`、`agentSessionOptions`、`agentEncryptSessionCheck`、`agentEncryptionStatus`、`agentMessageScroll`、`agentEmptyState`、`agentComposer`、`agentModeCombo`、`agentSendButton`、`agentStopButton`。
+- `AgentPage`：`agentPage`、`agentSidebar`、`agentNewSessionButton`（会话标题旁的 ＋）、`agentSessionSearch`、`agentSessionList`、`agentChatHeader`、`agentSessionTitle`、`agentApiWarnChip`、`agentInstanceLockChip` / `agentInstanceValue` / `agentInstanceMenu`、`agentMoreButton` / `agentMoreMenu`（`agentRenameAction`、`agentPinAction`、`agentEncryptRow`、`agentEncryptSessionCheck`、`agentEncryptNote`、`agentExportAction`、`agentDeleteAction`）、`agentApiSettingsButton`、`agentMessageScroll`、`agentMessageHost`、`agentEmptyState` / `agentEmptyTitle` / `agentEmptyText` / `agentEmptyConfigureButton`、`agentNotice` / `agentNoticeText`、`agentComposerRow`、`agentComposer`、`agentComposerHint`、`agentSendButton`、`agentStopButton`。
 - 设置页：`agentSettingsPage`、`agentProviderCombo`、`agentBaseUrlEdit`、`agentFinalUrlPreview`、`agentModelEdit`、`agentDeploymentCombo`、`agentLocalHttpCheck`、`agentApiKeyEdit`、`agentApiKeyRevealButton`、`agentStorageStatus`、`agentAdvancedGroup`、`agentEgressStrictCheck`、`agentTestConnectionButton`、`agentClearKeyButton`、`agentDeleteProfileButton`、`agentSaveButton`。
 - 消息/工具/审批：`agentMessageView`、`agentToolCard`、`agentApprovalCard`、`agentApprovalAllow`、`agentApprovalDeny`、`agentApprovalSessionAllow`（只对 web.search/fetch 出现）、`agentEgressPreviewCard`。
 - Stage 2 计划新增：`agentExportButton`、`agentMcpList`、`agentMcpAddButton`、`agentMcpConfirmDialog`、`agentBackupList`。
@@ -635,9 +636,10 @@ provider profile 标注部署类型，默认按 URL 自动判断，可手动改�
 
 ### 6.5 多实例隔离与会话锁定（D8）
 
-- 新会话 `instanceLock` 为空，芯片显示"跟随主页：<实例名>"，此时切换主页实例不影响任何工具（还没发生实例操作）。主页也没选中实例时，第一次需要实例的工具返回 `NeedsInstanceLock`，UI 提示用户选择/确认，**不自动挑一个**。
+- 新会话 `instanceLock` 为空，「实例」胶囊显示主页当前实例名（没有就是「无」），此时切换主页实例不影响任何工具（还没发生实例操作）。主页也没选中实例时，第一次需要实例的工具返回 `NeedsInstanceLock`，UI 提示用户选择/确认，**不自动挑一个**。
 - **第一次**需要实例的工具调用（读文件、日志、诊断、写配置等）时：锁定芯片指向的实例；先持久化 `instanceLock`（id/name/gameRootId/lockedAt），写入失败则拒绝本次工具（不能"先用后记"）；在消息流里插入系统提示"本会话已锁定实例 A"；之后工具上下文只认 `instanceLock`，**不接受模型传入的实例 id**。
-- 锁定后主页切换实例不改变会话上下文，芯片显示"已锁定：A（主页当前：B）"。
+- 锁定后主页切换实例不改变会话上下文，胶囊仍显示 A（带锁图标）；A 不在当前游戏目录时显示「A（不可用）」。
+- 「实例」胶囊是真下拉：第一项「跟随主页」（清掉锁，下次实例操作再锁定主页当前实例），下面是当前游戏目录里的全部实例；选一项即显式切换（下一条的确认规则照旧）。
 - 切换实例必须显式确认：有待审批/执行中的工具时不允许；确认框说明"已有证据/操作属于 A；切换后旧计划作废，建议新建会话"；确认后清除待审批/旧计划、插入系统提示、重新锁定 B；推荐"新建会话"，但允许"在本会话切换"。
 - 游戏文件夹切换后锁定实例不在当前数据根：实例工具返回 `InstanceUnavailable`，不自动改 lock；UI 显示"锁定实例不在当前游戏文件夹"，用户可切回或显式切换；不把新文件夹里的同名实例当成同一个。
 - 会话列表按 `instanceLock` 显示徽标（未锁定/实例 A/实例 B/实例不可用），可"按实例分组/筛选"。
@@ -1131,7 +1133,7 @@ Collect → Analyze → Plan → AwaitPlanApproval → ExecuteStep* → Verify �
 - [x] 密码输入默认遮挡；眼睛按钮只在用户操作期间显示明文；失焦/保存后恢复遮挡；
 - [x] 非 https 的远程 Base URL 被拒绝；loopback HTTP 需显式确认并持续提示；
 - [x] key 不进 URL；重定向/证书错误检查**延后**，见 [网络错误验收](../archive/ACCEPTANCE_LOG.md)；
-- [x] 会话默认明文，整会话加密可选且失败不半加密；加密开关已移到聊天头部下方单独一行；
+- [x] 会话默认明文，整会话加密可选且失败不半加密；加密开关在聊天头部 `⋯` 菜单里，下注「标题和时间仍为明文。」；
 - [x] 没有文件工具/MCP 进程；模型不能修改系统提示/API 配置；
 - [x] 测试中用 grep/断言搜索 key 和敏感头，结果为空。
 
@@ -1213,7 +1215,7 @@ Collect → Analyze → Plan → AwaitPlanApproval → ExecuteStep* → Verify �
 - 隐私/外发：标准/严格模式、自动读取告知、`fs.list` 只显示目录元数据、`fs.listNames`/配置逐次确认且无会话放行、确认预览卡、凭据文件不可读、工具卡"已发送 N KB 到 host"。
 - 导出/备份/删除：导出范围/脱敏/加密选项；备份列表显示来源 Session；删除会话提示备份保留；活动会话删除先停止；删除全部 Agent 数据列出数量。
 - 消息：流式增量、代码块、折叠思考、错误卡片、工具卡、审批卡、停止、自动滚动/上滚不跟随/回到最新、选中不丢。
-- 主题（浅/深、背景图、禁用态、焦点环、界面动效开关两端）、无障碍（objectName、accessible name、Tab 顺序、密码不泄露）、尺寸（900×620、更窄、高 DPI 逻辑像素，无横向滚动或重叠）。
+- 主题（浅/深、背景图、禁用态、焦点环、界面动画开关两端）、无障碍（objectName、accessible name、Tab 顺序、密码不泄露）、尺寸（900×620、更窄、高 DPI 逻辑像素，无横向滚动或重叠）。
 - MCP 确认（Stage 2）：首次启动/配置修改/重连确认、本机权限警告、配置变化后旧确认失效。
 
 ### 13.5 主窗口集成（`main-window-agent`）

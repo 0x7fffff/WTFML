@@ -84,6 +84,7 @@ QString toHtml(const QString &markdown) {
     QString html;
     bool inCode = false;
     bool inList = false;
+    bool ordered = false;  // 当前列表是 <ol> 还是 <ul>
     bool inTable = false;
     QString paragraph;
 
@@ -95,7 +96,7 @@ QString toHtml(const QString &markdown) {
     };
     const auto closeList = [&] {
         if (inList) {
-            html += QStringLiteral("</ul>");
+            html += ordered ? QStringLiteral("</ol>") : QStringLiteral("</ul>");
             inList = false;
         }
     };
@@ -185,13 +186,19 @@ QString toHtml(const QString &markdown) {
         }
         const bool bullet = trimmed.startsWith(QLatin1String("- ")) ||
                             trimmed.startsWith(QLatin1String("* "));
-        if (bullet) {
+        // 有序列表「1. 」「2) 」：模型最常给的分步写法，不认就会挤成一段。
+        static const QRegularExpression numbered(QStringLiteral(R"(^\d{1,3}[.)] )"));
+        const QRegularExpressionMatch number = numbered.match(trimmed);
+        if (bullet || number.hasMatch()) {
             flushParagraph();
+            if (inList && ordered != !bullet) closeList();
             if (!inList) {
-                html += QStringLiteral("<ul>");
+                ordered = !bullet;
+                html += ordered ? QStringLiteral("<ol>") : QStringLiteral("<ul>");
                 inList = true;
             }
-            html += QStringLiteral("<li>") + inlineMarkdown(trimmed.mid(2)) + QStringLiteral("</li>");
+            const QString item = bullet ? trimmed.mid(2) : trimmed.mid(number.capturedLength());
+            html += QStringLiteral("<li>") + inlineMarkdown(item) + QStringLiteral("</li>");
             continue;
         }
         closeList();
