@@ -1347,8 +1347,9 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                 repolish();
             }
             check(Theme::widgetStyleSheet().contains(
-                      QLatin1String("QLineEdit:focus, QComboBox:focus, QComboBox:on { border-bottom: 2px solid palette(link); }")),
-                  "★★ W13 输入框 / 下拉框拿到焦点（下拉展开）时有 2px 强调色底线");
+                      QLatin1String("QLineEdit:focus, QComboBox:focus, QComboBox:on { border-color: transparent;"
+                                    " border-bottom: 2px solid palette(link); }")),
+                  "★★ W13 输入框 / 下拉框拿到焦点（下拉展开）时只有 2px 强调色底线（另三边清回透明，不成整圈框）");
 
             // 勾选框没勾：框和字**都是**那一档黑；勾上：**两样都**变成主题色。
             // 「两样都」是这一条的重点 —— 只写 `QCheckBox::indicator` 的话字还是黑的。

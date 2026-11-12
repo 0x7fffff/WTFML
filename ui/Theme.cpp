@@ -2092,9 +2092,10 @@ QString widgetStyleSheet() {
         "QLineEdit:hover:enabled, QComboBox:hover:enabled { background-color: palette(shadow); }"
         // 和 chip 并排的搜索框（`wtfmlChipHeight`）：QSS 的 min-height 会冲掉 setFixedHeight，高度也写在这儿。
         "QLineEdit[wtfmlChipHeight=\"true\"] { min-height: %2px; max-height: %2px; }"
-        "QLineEdit:focus, QComboBox:focus, QComboBox:on { border-bottom: 2px solid palette(link); }"
+        // 先把四边清回透明：前面那份 `:focus { border-color }` 伪类更具体，不清会漏成整圈强调色框。
+        "QLineEdit:focus, QComboBox:focus, QComboBox:on { border-color: transparent; border-bottom: 2px solid palette(link); }"
         "QComboBox:on { background-color: palette(midlight); }"
-        "QLineEdit[wtfmlError=\"true\"], QLineEdit[inputError=\"true\"] { border-bottom: 2px solid palette(bright-text); }"
+        "QLineEdit[wtfmlError=\"true\"], QLineEdit[inputError=\"true\"] { border-color: transparent; border-bottom: 2px solid palette(bright-text); }"
         "QLineEdit:disabled, QComboBox:disabled { background-color: palette(light); color: palette(link-visited);"
         " border-bottom-color: transparent; }"
         "QComboBox::drop-down { width: 28px; border: none; }"  // V 由 ComboChevronPainter 补（见那段）
