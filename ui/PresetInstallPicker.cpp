@@ -4,6 +4,7 @@
  */
 
 #include "PresetInstallPicker.hpp"
+#include "ChromeDialog.hpp"
 
 #include "MainWindowUI.hpp"
 #include "Theme.hpp"
@@ -376,11 +377,11 @@ void PresetInstallPicker::setCurrentTab(int index) { m_navigation->setCurrentRow
 void PresetInstallPicker::openDetails(int index) {
     if (index < 0 || index >= m_categories.size() || m_categories[index].selectedId.isEmpty()) return;
     if (m_details) m_details->close();
-    auto *dialog = new QDialog(window());
+    auto *dialog = new ChromeDialog(window());
     dialog->setObjectName(QStringLiteral("presetCompatibilityDetails"));
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->setWindowTitle(reasonsText()); dialog->resize(600, 400);
-    auto *layout = new QVBoxLayout(dialog);
+    auto *layout = new QVBoxLayout(dialog->body());
     auto *text = new QPlainTextEdit(dialog); text->setReadOnly(true);
     layout->addWidget(text);
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, dialog);

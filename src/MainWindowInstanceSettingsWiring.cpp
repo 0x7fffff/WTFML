@@ -34,7 +34,6 @@
 
 #include <QDir>
 #include <QFileInfo>
-#include <QMessageBox>
 #include <QTimer>
 
 using namespace MainWindowViewData;

@@ -10,6 +10,7 @@
 #include "ConfigFileEditorPage.hpp"
 #include "ResourcePackPage.hpp"
 #include "InlineMessage.hpp"
+#include "ChromeDialog.hpp"
 #include "InstanceSettingsDialog.hpp"
 #include "InstanceFilesPage.hpp"
 #include "MainWindowUI.hpp"
@@ -60,10 +61,11 @@
 
 namespace {
 void showSchematicDetails(OverlayHost *overlay, QWidget *parent, const QString &path) {
-    QDialog detail(parent);
+    ChromeDialog detail(parent, true);
     detail.setObjectName(QStringLiteral("schematicDetailsDialog"));
+    detail.setWindowTitle(QObject::tr("方块统计"));
     detail.resize(720, 500);
-    auto *layout = new QVBoxLayout(&detail);
+    auto *layout = new QVBoxLayout(detail.body());
     auto *summary = new QLabel(QObject::tr("正在读取原理图方块统计…"), &detail);
     summary->setWordWrap(true);
     layout->addWidget(summary);

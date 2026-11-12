@@ -29,11 +29,11 @@ QString UpgradeReportDialog::showCompatibleName() {
 QString UpgradeReportDialog::treeName() { return QStringLiteral("upgradeReportTree"); }
 QString UpgradeReportDialog::summaryName() { return QStringLiteral("upgradeReportSummary"); }
 
-UpgradeReportDialog::UpgradeReportDialog(QWidget *parent) : QDialog(parent) {
+UpgradeReportDialog::UpgradeReportDialog(QWidget *parent) : ChromeDialog(parent, true) {
     setObjectName(QStringLiteral("upgradeReportDialog"));
     setWindowTitle(QStringLiteral("兼容性报告"));
     resize(720, 520);
-    auto *root = new QVBoxLayout(this);
+    auto *root = new QVBoxLayout(body());
     root->setContentsMargins(16, 14, 16, 14);
     root->setSpacing(10);
 

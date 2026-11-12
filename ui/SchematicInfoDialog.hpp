@@ -4,10 +4,10 @@
  */
 #pragma once
 
-#include <QDialog>
+#include "ChromeDialog.hpp"
 #include <QString>
 
-class SchematicInfoDialog final : public QDialog {
+class SchematicInfoDialog final : public ChromeDialog {
     Q_OBJECT
 
 public:

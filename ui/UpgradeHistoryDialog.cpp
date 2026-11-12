@@ -19,11 +19,11 @@ QString UpgradeHistoryDialog::rollbackName() { return QStringLiteral("upgradeHis
 QString UpgradeHistoryDialog::detailName() { return QStringLiteral("upgradeHistoryDetail"); }
 QString UpgradeHistoryDialog::emptyName() { return QStringLiteral("upgradeHistoryEmpty"); }
 
-UpgradeHistoryDialog::UpgradeHistoryDialog(QWidget *parent) : QDialog(parent) {
+UpgradeHistoryDialog::UpgradeHistoryDialog(QWidget *parent) : ChromeDialog(parent, true) {
     setObjectName(QStringLiteral("upgradeHistoryDialog"));
     setWindowTitle(QStringLiteral("更新记录"));
     resize(760, 520);
-    auto *root = new QVBoxLayout(this);
+    auto *root = new QVBoxLayout(body());
     root->setContentsMargins(16, 14, 16, 14);
     root->setSpacing(10);
 

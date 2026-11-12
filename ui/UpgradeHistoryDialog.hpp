@@ -8,7 +8,7 @@
  */
 #pragma once
 
-#include <QDialog>
+#include "ChromeDialog.hpp"
 #include <QList>
 
 #include "operations/UpgradeHistory.hpp"
@@ -17,7 +17,7 @@ class QLabel;
 class QPushButton;
 class QTreeWidget;
 
-class UpgradeHistoryDialog final : public QDialog {
+class UpgradeHistoryDialog final : public ChromeDialog {
     Q_OBJECT
 
 public:

@@ -664,6 +664,8 @@ set(SOURCE_FILES
     ui/ThemeBackground.cpp
     ui/Glass.cpp
     ui/WindowChrome.cpp
+    ui/ChromeDialog.hpp
+    ui/ChromeDialog.cpp
     ${HEADER_FILES}
 )
 

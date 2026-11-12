@@ -163,7 +163,8 @@ ${REPO_ROOT}/ui/InstanceSettingsSignature.cpp
                                 ${REPO_ROOT}/ui/ServerConsolePage.cpp
                                 # 「服务端设置」那一页。
                                 ${REPO_ROOT}/ui/ServerSettingsPage.cpp
-                                ${REPO_ROOT}/ui/WindowChrome.cpp)
+                                ${REPO_ROOT}/ui/WindowChrome.cpp
+                                ${REPO_ROOT}/ui/ChromeDialog.cpp)
 
 # InstanceFiles 那一层要的（`VersionInheritance::parentIdOf` / `maxDepth`）——
 # 少了它，链接期报的是 `undefined reference to VersionInheritance::…`。和 mw_check /

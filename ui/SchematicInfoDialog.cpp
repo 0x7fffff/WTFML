@@ -10,11 +10,11 @@
 #include <QVBoxLayout>
 
 SchematicInfoDialog::SchematicInfoDialog(const QString &path, QWidget *parent)
-    : QDialog(parent) {
+    : ChromeDialog(parent) {
     setObjectName(QStringLiteral("schematicInfoDialog"));
     setWindowTitle(QStringLiteral("原理图信息"));
     resize(620, 420);
-    auto *layout = new QVBoxLayout(this);
+    auto *layout = new QVBoxLayout(body());
     layout->setContentsMargins(16, 14, 16, 14);
     layout->setSpacing(10);
 
@@ -32,7 +32,10 @@ SchematicInfoDialog::SchematicInfoDialog(const QString &path, QWidget *parent)
     layout->addWidget(summary, 1);
 
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, this);
-    if (QPushButton *button = buttons->button(QDialogButtonBox::Close)) Theme::markButton(button, Theme::ButtonKind::Neutral);
+    if (QPushButton *button = buttons->button(QDialogButtonBox::Close)) {
+        button->setText(QStringLiteral("关闭"));  // 没装 Qt 中文翻译时标准钮是英文 "Close"
+        Theme::markButton(button, Theme::ButtonKind::Neutral);
+    }
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     layout->addWidget(buttons);
 }

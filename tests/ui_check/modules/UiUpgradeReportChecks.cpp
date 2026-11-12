@@ -55,5 +55,24 @@ int UiUpgradeReportChecks(QApplication &app) {
     }
     check(rowsShown == 1, "UG7 搜索之后只剩 Sodium 那一条", QString::number(rowsShown));
 
+    // ---- UG7b 自绘窄标题条（ChromeDialog）：系统标题栏收掉之后，标题 / 关闭得自己管 ----
+    auto *strip = dialog.findChild<QWidget *>(ChromeDialog::titleStripName());
+    auto *title = dialog.findChild<QLabel *>(ChromeDialog::titleLabelName());
+    check(strip != nullptr && strip->height() == ChromeDialog::stripHeight() && strip->y() == 0,
+          "UG7b 标题条贴在最上面、是窄的那一档",
+          strip != nullptr ? QStringLiteral("y=%1 h=%2").arg(strip->y()).arg(strip->height()) : QString());
+    check(title != nullptr && title->text() == dialog.windowTitle(), "UG7b 条上的字就是 windowTitle()",
+          title != nullptr ? title->text() : QString());
+    dialog.setWindowTitle(QStringLiteral("兼容性报告 · 测试"));
+    check(title != nullptr && title->text() == QStringLiteral("兼容性报告 · 测试"), "UG7b 改了 windowTitle 条上跟着改");
+    check(tree != nullptr && dialog.body()->isAncestorOf(tree), "UG7b 内容排在 body() 里（标题条下面）");
+    auto *closeButton = dialog.findChild<QAbstractButton *>(ChromeDialog::closeButtonName());
+    check(closeButton != nullptr, "UG7b 条上有关闭钮");
+    if (closeButton != nullptr) {
+        dialog.show();
+        closeButton->click();
+        check(!dialog.isVisible() && dialog.result() == QDialog::Rejected, "UG7b 点 × = reject()（和 Esc 一个意思）");
+    }
+
     return g_fail == 0 ? 0 : 1;
 }
