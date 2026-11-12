@@ -9,9 +9,23 @@
 #include "Theme.hpp"
 #include "WindowEdge.hpp"
 
+#include <QAbstractButton>
+#include <QAbstractItemView>
+#include <QAbstractSlider>
+#include <QAbstractSpinBox>
+#include <QApplication>
+#include <QComboBox>
+#include <QDialog>
 #include <QEvent>
 #include <QGuiApplication>
+#include <QLabel>
+#include <QLineEdit>
+#include <QMouseEvent>
+#include <QPlainTextEdit>
+#include <QSet>
 #include <QString>
+#include <QTabBar>
+#include <QTextEdit>
 #include <QTimer>
 #include <QWidget>
 #include <QWindow>
@@ -92,7 +106,21 @@ void WindowChrome::applyFrame() {
 #ifdef Q_OS_WIN
     // offscreen 平台给的 winId() 是个非空假句柄，整层只在真 windows 平台上做。
     if (m_window == nullptr || !realWindowsPlatform() || m_window->windowHandle() == nullptr) return;
-    const HWND hwnd = reinterpret_cast<HWND>(m_window->winId());
+    // 关掉再打开：Qt 销毁了平台窗口，Show 事件到这儿时新的还没建出来（handle() 为空，winId() 也给不出 HWND）。
+    // 这一拍什么都不做的话，新 HWND 带着系统标题栏就这么上屏了（customMargins 没人再贴）。下一拍平台窗口在了再贴。
+    if (m_window->windowHandle()->handle() == nullptr) {
+        if (m_window->isVisible() && !m_retryPending) {
+            m_retryPending = true;
+            QTimer::singleShot(0, this, [this] {
+                m_retryPending = false;
+                applyFrame();
+            });
+        }
+        return;
+    }
+    // 句柄从 QWindow 取：QWidget::winId() 缓存着上一个（已销毁的）HWND，新平台窗口建出来之后它还没更新
+    // （实测：旧 HWND 的 GetWindowLong 全是 0，AdjustWindowRect 算出 customMargins = 0，重贴等于没贴）。
+    const HWND hwnd = reinterpret_cast<HWND>(m_window->windowHandle()->winId());
     if (hwnd == nullptr) return;
 
     // 1) 标题栏收进客户区：顶上那一段非客户区（标题 + 上边框）给负的 customMargins。
@@ -109,6 +137,21 @@ void WindowChrome::applyFrame() {
             native->setCustomMargins(margins);
             m_appliedMargins = margins;
             m_marginsApplied = true;
+        }
+    }
+
+    // 1b) 同一个平台窗口对象换了新 HWND：Qt 记着 customMargins 没变，不会再触发 SWP_FRAMECHANGED，
+    // 新 HWND 的系统标题栏就留着。客户区顶比窗口顶低一截 = 标题栏还在：窗口矮一截、重算非客户区
+    // （Qt 的 WM_NCCALCSIZE 按记着的 customMargins 把客户区顶上去，客户区尺寸不变）。
+    if (margins.top() < 0 && !IsZoomed(hwnd) && !IsIconic(hwnd)) {
+        POINT origin{0, 0};
+        RECT wr{};
+        ClientToScreen(hwnd, &origin);
+        GetWindowRect(hwnd, &wr);
+        const int caption = origin.y - wr.top;
+        if (caption > 0) {
+            SetWindowPos(hwnd, nullptr, wr.left, wr.top, wr.right - wr.left, wr.bottom - wr.top - caption,
+                         SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
         }
     }
 
@@ -199,9 +242,59 @@ bool WindowChrome::handleNativeEvent(void *message, qintptr *result) {
     return false;
 }
 
+bool WindowChrome::isDragBlank(const QWidget *under, const QWidget *window) {
+    if (under == nullptr || window == nullptr) return false;
+    for (const QWidget *w = under; w != nullptr && w != window; w = w->parentWidget()) {
+        if (w->testAttribute(Qt::WA_SetCursor) && w->cursor().shape() != Qt::ArrowCursor) return false;
+        // 控件自己的内部子件（表头视口、编辑框的内部控件…）也算控件，不管它们的类是什么。
+        if (qobject_cast<const QAbstractButton *>(w) || qobject_cast<const QLineEdit *>(w) ||
+            qobject_cast<const QAbstractSpinBox *>(w) || qobject_cast<const QComboBox *>(w) ||
+            qobject_cast<const QAbstractItemView *>(w) || qobject_cast<const QAbstractSlider *>(w) ||
+            qobject_cast<const QTextEdit *>(w) || qobject_cast<const QPlainTextEdit *>(w) ||
+            qobject_cast<const QTabBar *>(w)) {
+            return false;
+        }
+    }
+    if (under == window) return true;
+    if (const auto *label = qobject_cast<const QLabel *>(under)) {
+        return !(label->textInteractionFlags() & (Qt::TextSelectableByMouse | Qt::LinksAccessibleByMouse));
+    }
+    // shortcut: 只认这几种纯容器；自绘的可点卡片是自己的类，一律不算空白，新增纯容器类要加进这里。
+    static const QSet<QByteArray> plain{"QWidget",    "QFrame",         "QStackedWidget", "QTabWidget",
+                                        "QGroupBox",  "ThemeBackground", "Glass::Backdrop"};
+    return plain.contains(under->metaObject()->className()) || qobject_cast<const QDialog *>(under) != nullptr;
+}
+
+bool WindowChrome::handleBlankPress(QEvent *event) {
+    const auto *me = static_cast<QMouseEvent *>(event);
+    if (me->button() != Qt::LeftButton || m_window->isFullScreen() || m_window->windowHandle() == nullptr) return false;
+    const QPoint global = me->globalPosition().toPoint();
+    const QWidget *under = QApplication::widgetAt(global);
+    if (under == nullptr || under->window() != m_window || !isDragBlank(under, m_window)) return false;
+    const bool second = event->type() == QEvent::MouseButtonDblClick ||
+                        (m_blankClock.isValid() && !m_blankClock.hasExpired(QApplication::doubleClickInterval()) &&
+                         (global - m_blankPos).manhattanLength() <= QApplication::startDragDistance());
+    if (second) {
+        m_blankClock.invalidate();
+        if (m_window->windowFlags() & Qt::WindowMaximizeButtonHint) {
+            m_window->isMaximized() ? m_window->showNormal() : m_window->showMaximized();
+        }
+        return true;
+    }
+    m_blankClock.restart();
+    m_blankPos = global;
+    m_window->windowHandle()->startSystemMove();
+    return true;
+}
+
 bool WindowChrome::eventFilter(QObject *watched, QEvent *event) {
     if (watched == m_window) {
         switch (event->type()) {
+        case QEvent::MouseButtonPress:
+        case QEvent::MouseButtonDblClick:
+            // 走到窗口这一层的按下 = 路上没有控件接（接了的不会冒泡上来）。
+            if (handleBlankPress(event)) return true;
+            break;
         // 第一次 show 之后 HWND 才在；改窗口标志会重建 HWND。都幂等。
         case QEvent::Show:
         case QEvent::WinIdChange:

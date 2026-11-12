@@ -13,6 +13,11 @@ class QWidget;
 
 namespace ShellOpenWith {
 
+/// 系统对话框要挂在哪个 HWND 上：永远是 `owner` 的顶层窗。别对子控件调 `winId()`：Qt 会把它和
+/// 它所有的祖先都变成原生子窗口，一块子 HWND 盖住整个客户区，顶部拖动条的 HTCAPTION 到不了顶层窗，
+/// 窗口就拖不动（见 `WindowChrome.hpp`）。
+QWidget *ownerWindow(QWidget *owner);
+
 /// @return 用户选了一个程序并确认了没有（取消也返回 false）。
 bool openWithDialog(QWidget *owner, const QString &path);
 
