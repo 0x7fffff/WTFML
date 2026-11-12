@@ -278,10 +278,9 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
     QFont mainFont = option.font;
     mainFont.setBold(true);
     QColor groupInk = palette.color(QPalette::WindowText);
-    if (m_inlineRowActions) {  // 实例页组头 = 设计稿 .group-label：手写小字、字距 2、次要色
-        mainFont = Theme::handFont(option.font, Theme::HandFont::Kai);
-        mainFont.setPixelSize(13);
-        mainFont.setLetterSpacing(QFont::AbsoluteSpacing, 2);
+    if (m_inlineRowActions) {  // 实例页组头 = 设计稿 .group-label：辅助档 13 半粗、次要色（tokens-r2 分组头）
+        mainFont = Theme::textFont(option.font, Theme::TextRole::Caption);
+        mainFont.setWeight(QFont::DemiBold);
         groupInk = Theme::tokens().secondary;
     }
     const QFontMetrics mainFontMetrics(mainFont);

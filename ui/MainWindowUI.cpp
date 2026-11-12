@@ -795,9 +795,9 @@ QWidget *MainWindowUI::setupHomePage() {
         // 窄于 1024 的窗口：标题收一号（50 → 40、副题 32 → 26），立绘缩到七成二（设计稿 @media）。
         const auto applyScale = [this, homeTab, welcome, subtitle]() {
             const bool narrow = homeTab->window()->width() < 1024;
-            welcome->setFont(handPx(welcome->font(), Theme::HandFont::KaiLight,
-                                    narrow ? 40 : kHomeHeroTitlePixelSize, narrow ? 3 : 4));
-            subtitle->setFont(handPx(subtitle->font(), Theme::HandFont::Script, narrow ? 26 : 32, 0));
+            Theme::markDisplay(welcome, handPx(welcome->font(), Theme::HandFont::KaiLight,
+                                               narrow ? 40 : kHomeHeroTitlePixelSize, narrow ? 3 : 4));
+            Theme::markDisplay(subtitle, handPx(subtitle->font(), Theme::HandFont::Script, narrow ? 26 : 32, 0));
             if (skinViewer != nullptr) {
                 skinViewer->setMaximumHeight(narrow ? kHomeSkinViewerHeight * 72 / 100 : kHomeSkinViewerHeight);
             }
@@ -1005,8 +1005,8 @@ QWidget *MainWindowUI::setupInstancePage() {
     // `instanceFolderLabel`）—— 文案、灌数据那条路（MainWindow::refreshInstanceList）、
     // 验证工程找它用的名字都落在这一处（标题下面那行说明）。
     fillPageHeader(instance.right, instancePageTitle(), QString());
-    // 设计稿 page-title：一级页标题用 Display 档（28px），比卡片小标题大一级。
-    instance.right.title->setFont(Theme::textFont(instance.right.title->font(), Theme::TextRole::Display));
+    // 设计稿 page-title：一级页标题用 Display 档（26px 手写体 Light）。
+    Theme::markDisplay(instance.right.title, Theme::textFont(instance.right.title->font(), Theme::TextRole::Display));
     instanceFolderLabel = instance.right.subtitle;
     instanceFolderLabel->setObjectName(MainWindowUI::instanceFolderLabelName());
     // 它就是这一页的状态栏那一行，**不跟着"文字空不空"收起来**（文字由 MainWindow 灌，
@@ -1277,9 +1277,7 @@ QWidget *MainWindowUI::setupInstancePage() {
         auto *emptyTitle = new QLabel(instanceEmptyTitleText(), emptyState);
         emptyTitle->setAlignment(Qt::AlignCenter);
         {
-            QFont f = Theme::textFont(emptyTitle->font(), Theme::TextRole::Display);
-            f.setLetterSpacing(QFont::AbsoluteSpacing, 3);
-            emptyTitle->setFont(f);
+            Theme::markDisplay(emptyTitle, Theme::textFont(emptyTitle->font(), Theme::TextRole::Empty));
         }
         emptyLayout->addWidget(emptyTitle);
         instanceEmptyLabel = new QLabel(instanceEmptyText(), emptyState);
@@ -1608,8 +1606,8 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             name->setObjectName(QStringLiteral("homeCurrentName"));
             name->setText(item.empty ? QStringLiteral("还没有实例") : item.name);
             name->setMinimumWidth(1);
-            name->setFont(item.empty ? handPx(name->font(), Theme::HandFont::KaiLight, 34, 3)
-                                     : handPx(name->font(), Theme::HandFont::Kai, 40, 3));
+            Theme::markDisplay(name, item.empty ? handPx(name->font(), Theme::HandFont::KaiLight, 34, 3)
+                                                : handPx(name->font(), Theme::HandFont::Kai, 40, 3));
             name->setMinimumHeight(52);
             name->setAttribute(Qt::WA_TransparentForMouseEvents);
             followHeroInk(name, item.empty);
@@ -1773,7 +1771,7 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
                 auto *badge = new QLabel(QStringLiteral("当前"), card);
                 badge->setObjectName(QStringLiteral("homeQuickCurrentBadge"));
                 QFont badgeFont = badge->font();
-                badgeFont.setPixelSize(11);
+                badgeFont.setPixelSize(Theme::textSize(Theme::TextRole::Caption));
                 badgeFont.setWeight(QFont::Medium);
                 badge->setFont(badgeFont);
                 badge->setAttribute(Qt::WA_TransparentForMouseEvents);
@@ -1791,7 +1789,7 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             auto *sub = new QLabel(homeTileSubtitle(item.detail), card);
             sub->setObjectName(QStringLiteral("homeQuickTileVersion"));
             QFont subFont = sub->font();
-            subFont.setPixelSize(12);
+            subFont.setPixelSize(Theme::textSize(Theme::TextRole::Caption));
             sub->setFont(subFont);
             sub->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
             sub->setAttribute(Qt::WA_TransparentForMouseEvents);

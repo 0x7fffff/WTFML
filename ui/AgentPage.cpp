@@ -77,7 +77,7 @@ public:
         p->save();
         p->setRenderHint(QPainter::Antialiasing);
         if (index.data(kGroupHeaderRole).toBool()) {
-            p->setFont(pxFont(option.font, 12, QFont::DemiBold));
+            p->setFont(pxFont(option.font, Theme::textSize(Theme::TextRole::Caption), QFont::DemiBold));
             p->setPen(t.secondary);
             p->drawText(r.adjusted(10, 0, -10, -6), Qt::AlignLeft | Qt::AlignBottom, index.data().toString());
             p->restore();
@@ -180,7 +180,7 @@ public:
     }
     void addHead(const QString &text) {
         auto *l = new QLabel(text, this);
-        l->setFont(pxFont(font(), 12, QFont::DemiBold));
+        l->setFont(pxFont(font(), Theme::textSize(Theme::TextRole::Caption), QFont::DemiBold));
         l->setContentsMargins(12, 10, 12, 6);
         setInk(l, Theme::tokens().secondary);
         layout()->addWidget(l);
@@ -510,7 +510,7 @@ AgentPage::AgentPage(QWidget *parent)
         m_emptyTitle = new QLabel(m_emptyState);
         m_emptyTitle->setObjectName(QStringLiteral("agentEmptyTitle"));
         m_emptyTitle->setAlignment(Qt::AlignCenter);
-        m_emptyTitle->setFont(Theme::handFont(pxFont(m_emptyTitle->font(), 24), Theme::HandFont::KaiLight));
+        Theme::markDisplay(m_emptyTitle, Theme::textFont(m_emptyTitle->font(), Theme::TextRole::Empty));
         v->addWidget(m_emptyTitle);
         v->addSpacing(8);
         m_emptyText = new QLabel(m_emptyState);

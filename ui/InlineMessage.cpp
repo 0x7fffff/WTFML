@@ -233,11 +233,7 @@ QHBoxLayout *InlineMessageBox::makeHeader(QWidget *owner, QLabel *title, Message
     chipLabel->setFixedSize(32, 32);
     chipLabel->setPixmap(chip);
 
-    title->setFont(Theme::handFont([&] {
-        QFont f = title->font();
-        f.setPixelSize(22);
-        return f;
-    }(), Theme::HandFont::Kai));
+    title->setFont(Theme::textFont(title->font(), Theme::TextRole::Heading));
     title->setWordWrap(true);
 
     auto *header = new QHBoxLayout;

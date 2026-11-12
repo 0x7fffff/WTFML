@@ -230,13 +230,10 @@ TwoColumns buildTwoColumnPage(QWidget *page, const QString &tab) {
         columns.right.title = new QLabel(header);
         columns.right.title->setObjectName(MainWindowUI::pageTitleName(tab));
         markTextRole(columns.right.title, Theme::pageTitleTextRoleValue());
-        {   // 标题的字：比正文大两档、加粗（和主页那几张卡片的标题同一档）。
+        {   // 页标题：手写体 Light 26（tokens-r2 --fs-title），四处手写体之一。
             QFont titleFont = columns.right.title->font();
-            titleFont.setBold(false);  // 手写体（Heading = 霞鹜文楷）大而轻
-            // 页面标题要比卡片标题再高一档：只高 +2 时在默认 900px 窗口里只比正文
-            // 大一点点，右边有「刷新 / 分组设置」时尤其容易被按钮抢走视觉重心。
-            titleFont = Theme::textFont(titleFont, Theme::TextRole::Heading);
-            columns.right.title->setFont(titleFont);
+            titleFont.setBold(false);
+            Theme::markDisplay(columns.right.title, Theme::textFont(titleFont, Theme::TextRole::Display));
         }
         titleRow->addWidget(columns.right.title);
         titleRow->addStretch(1);
@@ -320,12 +317,7 @@ SettingsSection addSettingsSection(QGridLayout *grid, int &row, const QString &t
     layout->setSpacing(12);
     auto *titleLabel = new QLabel(title, section.card);
     markTextRole(titleLabel, Theme::sectionTitleTextRoleValue());
-    {
-        QFont titleFont = Theme::handFont(titleLabel->font(), Theme::HandFont::Kai);
-        titleFont.setBold(false);
-        titleFont.setPixelSize(20);
-        titleLabel->setFont(titleFont);
-    }
+    titleLabel->setFont(Theme::textFont(titleLabel->font(), Theme::TextRole::Heading));
     layout->addWidget(titleLabel);
     grid->addWidget(section.card, row, 0, 1, 2);
     ++row;
@@ -396,7 +388,7 @@ void addSettingItem(const SettingsSection &section, const QString &labelText, QW
                 box->removeWidget(help);
                 help->setParent(left);
                 QFont font = help->font();
-                font.setPixelSize(12);
+                font.setPixelSize(Theme::textSize(Theme::TextRole::Caption));
                 help->setFont(font);
                 leftLayout->addWidget(help);
                 continue;

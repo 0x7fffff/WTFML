@@ -2339,11 +2339,12 @@ int main(int argc, char *argv[]) {
                       accountName->mapTo(bar, QPoint(0, 0)).y(),
                   "它在名字**下面**");
             // 做法照抄左上角那一格：小一号 + PlaceholderText 颜色。
-            check(accountType->font().pixelSize() == 12 && accountName->font().pixelSize() == 14,
+            check(accountType->font().pixelSize() == Theme::textSize(Theme::TextRole::Caption) &&
+                      accountName->font().pixelSize() == Theme::textSize(Theme::TextRole::Body),
                   "字号比名字小一档（它是注释，不是内容）",
                   QString("%1 vs %2")
-                      .arg(accountType->font().pointSize())
-                      .arg(accountName->font().pointSize()));
+                      .arg(accountType->font().pixelSize())
+                      .arg(accountName->font().pixelSize()));
             check(accountType->palette().color(QPalette::WindowText) ==
                       accountType->palette().color(QPalette::PlaceholderText),
                   "颜色是 PlaceholderText（和登录页那几句、说明行一个口径）",

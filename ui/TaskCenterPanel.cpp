@@ -1283,9 +1283,7 @@ void TaskCenterPanel::rebuildDetail(const QList<TaskCenter::Item> &items) {
             }
         }
         auto *title = new QLabel(tr("任务概览"), column);
-        QFont titleFont = Theme::handFont(title->font(), Theme::HandFont::Kai);
-        titleFont.setPixelSize(22);
-        title->setFont(titleFont);
+        Theme::markDisplay(title, Theme::textFont(title->font(), Theme::TextRole::Display));
         box->addWidget(title);
         box->addSpacing(6);
         // 三行「图标 + 名字 + 右侧数」；text() 仍是「需要处理：n」那一句（读屏 / 验证工程认它）。
@@ -1366,9 +1364,7 @@ void TaskCenterPanel::rebuildDetail(const QList<TaskCenter::Item> &items) {
     auto *title = new QLabel(item.title, column);
     title->setObjectName(MainWindowUI::taskDetailTitleName());
     title->setWordWrap(true);
-    QFont titleFont = Theme::handFont(title->font(), Theme::HandFont::Kai);
-    titleFont.setPixelSize(m_compact ? 26 : 22);
-    title->setFont(titleFont);
+    Theme::markDisplay(title, Theme::textFont(title->font(), Theme::TextRole::Display));
     box->addWidget(title);
     if (!item.detail.isEmpty()) {
         auto *detail = new QLabel(item.detail, column);

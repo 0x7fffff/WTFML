@@ -238,9 +238,9 @@ private:
 
     static QLabel *head(const QString &text, QWidget *parent, int px = 13) {
         auto *label = new QLabel(text, parent);
-        QFont f = Theme::handFont(label->font(), Theme::HandFont::Kai);
+        QFont f = label->font();  // 分组头：系统字（手写体只留四处）
         f.setPixelSize(px);
-        f.setLetterSpacing(QFont::AbsoluteSpacing, px >= 20 ? 1.5 : 2);
+        f.setWeight(QFont::DemiBold);
         label->setFont(f);
         QPalette p = label->palette();
         p.setColor(QPalette::WindowText, px >= 20 ? Theme::tokens().text : Theme::tokens().secondary);
@@ -254,10 +254,7 @@ private:
         outer->setSpacing(14);
         auto *titleRow = new QHBoxLayout;
         auto *title = head(QStringLiteral("组件总表"), page, 30);
-        QFont tf = Theme::handFont(title->font(), Theme::HandFont::KaiLight);
-        tf.setPixelSize(30);
-        tf.setLetterSpacing(QFont::AbsoluteSpacing, 2);
-        title->setFont(tf);
+        Theme::markDisplay(title, Theme::textFont(title->font(), Theme::TextRole::Display));
         titleRow->addWidget(title);
         titleRow->addStretch(1);
         auto *note = new QLabel(QStringLiteral("左侧为折叠后的导航轨（只剩图标） · Qt 实拍，焦点列逐格取焦后拼合"), page);
@@ -360,8 +357,9 @@ private:
             auto *b = new TitleBarButton(TitleBarButton::Glyph::Text, Theme::tokens().hover, Theme::tokens().text, page);
             b->setNavIcon(TitleBarButton::NavIcon::Download);
             b->setLabel(QStringLiteral("下载"));
-            QFont f = Theme::handFont(b->font(), Theme::HandFont::Kai);
-            f.setPixelSize(16);
+            QFont f = b->font();
+            f.setPixelSize(TitleBar::navFontPixelSize());
+            f.setWeight(QFont::Medium);
             b->setFont(f);
             b->setFixedSize(150, 42);
             b->setPressColor(Theme::tokens().fillPress);
@@ -655,6 +653,11 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         // 设置页三主题（去硬描边那轮逐页自检用）。
         for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("emerald"), QStringLiteral("ocean")})
             list.append({QStringLiteral("settings-%1.png").arg(theme), theme, {1280, 800}, false, MainWindowUI::settingsTabIndex()});
+        // r2 字阶 / 手写体收窄对照：五页 × 暗 / 青瓷 × 1280×800（WTFML_DESIGN_SHOT_FILTER=type- 只出这一组）。
+        for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("emerald")})
+            for (const auto &[page, tab] : {std::pair{"home", home}, std::pair{"settings", MainWindowUI::settingsTabIndex()},
+                                            std::pair{"agent", agent}, std::pair{"manage", manage}, std::pair{"download", download}})
+                list.append({QStringLiteral("type-%1-%2-1280x800.png").arg(QLatin1String(page), theme), theme, {1280, 800}, false, tab});
         // 只出名字含这段字的几张（逐页精修时不必每次跑满 56 张）。
         const QString only = qEnvironmentVariable("WTFML_DESIGN_SHOT_FILTER");
         if (!only.isEmpty())

@@ -77,30 +77,41 @@ class QWidget;
 
 namespace Theme {
 
-// Logical pixels; Windows display scaling remains handled by Qt.
-enum class TextRole { Caption, Body, Heading, Display };
+// 字阶四档（tokens-r2 §1，逻辑像素，系统缩放交给 Qt）：辅助 13（设计稿 12.5，Qt 取整成 13，
+// 和 qRound(12.5) 一致）· 正文 14 · 小节标题 16 半粗 · 页标题 26 手写体 Light。
+// Empty 是空状态大字（22 手写体），不进刻度；品牌 30、主页英雄区 50/40 各自定号。
+enum class TextRole { Caption, Body, Heading, Display, Empty };
 constexpr int textSize(TextRole role) {
     switch (role) {
-    case TextRole::Caption: return 12;
+    case TextRole::Caption: return 13;
     case TextRole::Body: return 14;
-    case TextRole::Heading: return 18;
-    case TextRole::Display: return 28;
+    case TextRole::Heading: return 16;
+    case TextRole::Display: return 26;
+    case TextRole::Empty: return 22;
     }
     return 14;
 }
-/// 手写体三支（见 assets/fonts/README.md）：文楷 Regular 给导航、小节标题、按钮短标签；
-/// 文楷 Light 给大标题（大而轻）；Dancing Script 只给纯西文的品牌与题词。第一次问到时从 qrc
-/// 注册，注册不上返回空串（调用方退回系统字体）。正文、表单、列表、日志**不用**它们。
+/// 手写体三支（见 assets/fonts/README.md）：文楷 Regular 给主页实例名；文楷 Light 给页标题、
+/// 空状态大字和主页大标题；Dancing Script 只给纯西文的品牌与题词。第一次问到时从 qrc 注册，
+/// 注册不上返回空串（调用方退回系统字体）。手写体只用在这四处（品牌 / 主页英雄区 / 页标题 /
+/// 空状态大字），由 markDisplay() 落到控件上；导航、按钮、胶囊、小节标题、表单、列表、对话框正文
+/// 一律系统字（app 字体）。
 enum class HandFont { Kai, KaiLight, Script };
 QString handFamily(HandFont which);
 /// 把 `font` 换成那一支手写体（注册不上就原样返回）。
 QFont handFont(QFont font, HandFont which);
 inline QFont textFont(QFont font, TextRole role) {
     font.setPixelSize(textSize(role));
-    if (role == TextRole::Heading) font = handFont(font, HandFont::Kai);
-    if (role == TextRole::Display) font = handFont(font, HandFont::KaiLight);
+    if (role == TextRole::Heading) font.setWeight(QFont::DemiBold);
+    if (role == TextRole::Display || role == TextRole::Empty) {
+        font = handFont(font, HandFont::KaiLight);
+        font.setLetterSpacing(QFont::AbsoluteSpacing, 2);
+    }
     return font;
 }
+/// 手写体控件的唯一入口：设字体并挂 `wtfmlDisplay=true`（ui_check 按它查手写体没有漏到别处）。
+void markDisplay(QWidget *widget, const QFont &font);
+QString displayPropertyName();
 
 // 色号来自《WTFML_三主题配色规范》，组件共用，用户覆盖仍在 Spec 中保存。
 // 带 alpha 的几档（subtle / hover / selected / input / stroke / divider / focus）是叠在磨砂

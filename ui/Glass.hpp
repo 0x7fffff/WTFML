@@ -54,6 +54,7 @@ bool systemBackdrop();
 
 /// 着色浓度、风景模糊程度（0~100），存在 `Theme/BackdropTint`、`Theme/BackdropBlur`。
 /// 浓度只往上加：对比度要的下限由现算保证，用户调到 0 也不会低于它。
+inline constexpr int kDefaultTintStrength = 20;
 int tintStrength();
 int blurStrength();
 void setTintStrength(int value);

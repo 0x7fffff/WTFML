@@ -288,9 +288,7 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
         strip->setSpacing(10);
         auto *title = new QLabel(tr("游戏日志"), m_titleStrip);
         title->setObjectName(QStringLiteral("gameLogTitle"));
-        QFont f = Theme::handFont(title->font(), Theme::HandFont::Kai);
-        f.setPixelSize(20);
-        title->setFont(f);
+        title->setFont(Theme::textFont(title->font(), Theme::TextRole::Heading));
         title->setAttribute(Qt::WA_TransparentForMouseEvents);
         strip->addWidget(title, 0, Qt::AlignVCenter);
         if (!instanceName.isEmpty()) {
