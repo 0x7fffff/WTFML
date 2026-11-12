@@ -1499,6 +1499,8 @@ public:
     /// `m_instanceId`（拿的是目录名），这个换的是那行标题（拿的是显示名）——
     /// 带自定义名的实例这两个值本来就不是一回事。
     void setInstanceDisplayName(const QString &displayName);
+    /// 页眉名字下那一行（加载器 · 游戏版本）；空 = 不显示。
+    void setHeaderMeta(const QString &meta);
 
     /// 关页之前先看一眼「配置文件」那一格里有没有没保存的改动。
     ///
@@ -2131,6 +2133,9 @@ private:
     /// 这一页自己那行标题。页面型覆盖层用的是**它的字**（页眉 = 这个页面的标题栏），
     /// 所以它得留着给人问（见 titleText / setTitleVisible）。
     QLabel *m_titleLabel = nullptr;
+    QLabel *m_headerIcon = nullptr;   // 页眉（UI 7b）：图标、名字、元信息
+    QLabel *m_headerTitle = nullptr;
+    QLabel *m_headerMeta = nullptr;
 
     // ---------- 左栏那一列 + 右栏堆叠页（见 pinnedPageKeys() 上面那一段）----------
     // / 左栏**唯一**那一列。当前行 = 界面上当前摆着的那一页。

@@ -117,7 +117,8 @@ struct Tokens {
     qreal heroScrim, heroTop, railFog;                      // 启动区 / 标题区暗角浓度；亮主题导航轨雾
     QColor groundShade;                                     // 皮肤立绘落地影色
     qreal groundGlint;                                      // 落地影下沿反光（白）浓度
-    // 浅色主题当小字用的加深版语义色（tokens-extra §21）；深色不设，用 textTone() 回落到填充色。
+    // 当小字用的强调 / 语义色（tokens-extra §21）：浅色主题是加深版；深色预设把强调字提亮一档
+    // （选中 chip / 分段 / 徽章 ≥ 4.5:1）；没设的预设用 textTone() 回落到填充色。调色板 `Link` 取 accentInk。
     QColor accentInk, okInk, warnInk, dangerInk;
 };
 /// 小字该用的语义色：有加深版用加深版，没有（深色主题）用填充色本身。

@@ -306,6 +306,12 @@ public:
     static QString versionFilterEditName() { return QStringLiteral("versionFilterEdit"); }
     /// 筛选框右边那句结果（`找到 N 个版本` / `没有版本号匹配「…」`）。空筛选时藏着。
     static QString versionFilterHintName() { return QStringLiteral("versionFilterHint"); }
+    /// 版本树上方那排分段（设计稿 download）：全部 / 正式版 / 快照 / 远古版。键 = 分类键，「全部」= 空串。
+    static QString versionChannelButtonName(const QString &key) {
+        return QStringLiteral("versionChannel_") + (key.isEmpty() ? QStringLiteral("all") : key);
+    }
+    /// 下载页右上角「下载源 …」：点开是设置页那只下拉框的同一份选项，选了就改那只下拉框。
+    static QString downloadSourceButtonName() { return QStringLiteral("downloadSourceButton"); }
     static QString versionFilterPlaceholderText() {
         return QCoreApplication::translate("MainWindowUI", "按版本号筛选（空格分词，全部匹配）");
     }
@@ -489,6 +495,11 @@ public:
     /// 只说「取消收藏」这一个意思。
     static QString rowUnpinTipText() { return QStringLiteral("取消收藏"); }
     static QString rowDeleteInstanceTipText() { return QStringLiteral("删除这个实例"); }
+    /// 实例行悬停快捷操作（ListRowDelegate 那三格）的提示与「更多」菜单的出处。
+    static QString rowOpenFolderTipText() { return QStringLiteral("打开实例文件夹"); }
+    static QString rowMoreTipText() { return QStringLiteral("更多操作"); }
+    static QString rowLaunchTipText() { return QStringLiteral("启动这个实例"); }
+    static QString instanceRowMenuName() { return QStringLiteral("instanceRowMenu"); }
     /// 悬停在那两个**行里的按钮**上时弹的那句话（刷新 / 取消）。谁把它弹出来的、
     /// 按哪一格判，见 VersionTreeDelegate::rowActionTip()（那儿是**几何的唯一出处**，
     /// 这儿只是文案）。
@@ -646,6 +657,9 @@ public:
     // 「数据包」插在「模组」和「资源包」之间，其余几条的位置不动
     // （「模组」还是第 2 条，写死下标的地方不受影响）。
     static QString downloadCategoryListName() { return QStringLiteral("downloadCategoryList"); }
+    /// UI 7b：页头下面那一排分类 chip（设计稿 download-*），和隐藏的 downloadCategoryList 双向同步。
+    static QString downloadCategoryChipsName() { return QStringLiteral("downloadCategoryChips"); }
+    static QString downloadCategoryChipName(int index) { return QStringLiteral("downloadCategoryChip%1").arg(index); }
     static QString downloadStackName() { return QStringLiteral("downloadStack"); }
     /// 「游戏」那一页（唯一有内容的那页）的 objectName。
     static QString downloadGamePageName() { return QStringLiteral("downloadGamePage"); }
@@ -941,6 +955,9 @@ public:
     static QString folderSectionTitleText() { return QStringLiteral("游戏文件夹"); }
     static QString folderSectionTitleName() { return QStringLiteral("folderSectionTitle"); }
     static QString instanceFolderLabelName() { return QStringLiteral("instanceFolderLabel"); }
+    /// 管理页页头的「游戏文件夹」胶囊与点开的文件夹浮层（folderList / 添加文件夹… 在里面）。
+    static QString instanceFolderPillName() { return QStringLiteral("instanceFolderPill"); }
+    static QString instanceFolderPopupName() { return QStringLiteral("instanceFolderPopup"); }
     // 「游戏文件夹」那一列上的按钮。这里**必须**有 objectName —— 按文案找控件的写法
     // 会在改文案的第一次跑就变成"找不到控件、后面全不跑"。文案另有 *Text()，
     // 只用来核对显示内容。
@@ -1063,8 +1080,12 @@ public:
     static QString instanceNoMatchLabelName() { return QStringLiteral("instanceNoMatch"); }
     /// 文件夹里一个实例都没有（也没在筛）时列表上方那句话：说清下一步去哪，不用防御腔。
     static QString instanceEmptyText() {
-        return QStringLiteral("这里还没有实例。可以从左栏导入一个整合包，或者去「下载」页装一个新版本。");
+        return QStringLiteral("可以导入一个整合包，或者去「下载」页装一个新版本。");
     }
+    /// 空态大标题、容器与两颗按钮（设计稿 manage-empty）。
+    static QString instanceEmptyTitleText() { return QStringLiteral("这里还没有实例"); }
+    static QString instanceEmptyStateName() { return QStringLiteral("instanceEmptyState"); }
+    static QString instanceEmptyDownloadText() { return QStringLiteral("去下载页装新版本"); }
     static QString instanceEmptyLabelName() { return QStringLiteral("instanceEmpty"); }
 
     /// 某颗筛选 chip 的 objectName。**按这一档点名找**（不解析文字）：文字会改。
@@ -3902,6 +3923,9 @@ private:
     /// 上一趟过滤是不是"真的在筛"（空串 / 纯空白 = 没在筛）。
     /// 用来判"要不要先把展开状态记下来"，以及"这一趟是不是第一次生效"。
     bool versionFilterActive = false;
+    /// 分段选中的分类键（空串 = 全部）。
+    QString versionChannelFilter;
+    QList<QPushButton *> versionChannelButtons;
     QLabel *installTargetLabel = nullptr;
     QLineEdit *installNameEdit = nullptr;
     QLabel *installNameError = nullptr;

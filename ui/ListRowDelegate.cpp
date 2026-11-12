@@ -76,15 +76,35 @@ void ListRowDelegate::paint(QPainter *painter, const QStyleOptionViewItem &optio
         painter->fillPath(bar, t.deep);
     }
 
-    // 封面
+    // 封面：圆角淡底块（设计稿 .cover），里面居中摆图标（7/12 边长）
     const QRect cover(r.left() + kPad, r.center().y() - coverSize() / 2 + 1, coverSize(), coverSize());
-    const QVariant decoration = index.data(Qt::DecorationRole);
-    QPixmap pix = decoration.canConvert<QIcon>() ? decoration.value<QIcon>().pixmap(coverSize(), coverSize())
+    painter->setPen(QPen(t.stroke, 1.0));
+    painter->setBrush(t.subtle);
+    painter->drawRoundedRect(QRectF(cover).adjusted(0.5, 0.5, -0.5, -0.5), kRadius, kRadius);
+    const int inner = coverSize() * 7 / 12;
+    const QVariant cover_ = index.data(CoverRole);
+    const QVariant decoration = cover_.isValid() ? cover_ : index.data(Qt::DecorationRole);
+    QPixmap pix = decoration.canConvert<QIcon>() ? decoration.value<QIcon>().pixmap(inner * 2, inner * 2)
                                                  : decoration.value<QPixmap>();
-    if (!pix.isNull()) painter->drawPixmap(cover, pix);
+    if (!pix.isNull())
+        painter->drawPixmap(QRect(cover.center().x() - inner / 2 + 1, cover.center().y() - inner / 2 + 1, inner, inner), pix);
 
     // 右侧：悬停时快捷操作，否则元信息
     int textRight = r.right() - kPad;
+    const QVariant metaIcon = index.data(MetaIconRole);
+    if (metaIcon.isValid()) {
+        // 设计稿 manage：加载器那一列钉在行宽 46% 处，图标 16 + 字，悬停时照常显示。
+        const int x = r.left() + r.width() * 46 / 100;
+        const QPixmap icon = metaIcon.value<QIcon>().pixmap(32, 32);
+        if (!icon.isNull()) painter->drawPixmap(QRect(x, r.center().y() - 8, 16, 16), icon);
+        QFont f = option.font;
+        f.setPointSizeF(f.pointSizeF() * 13.0 / 14.0);
+        painter->setFont(f);
+        painter->setPen(t.secondary);
+        painter->drawText(QRect(x + 22, r.top(), qMax(0, r.right() - x - 22), r.height()), Qt::AlignVCenter | Qt::AlignLeft,
+                          painter->fontMetrics().elidedText(index.data(MetaRole).toString(), Qt::ElideRight, r.width() / 4));
+        textRight = x - kGap;
+    }
     if (hovered) {
         for (const Action a : {Action::Folder, Action::More}) {
             const QRect box = actionRect(r, a);
@@ -107,8 +127,8 @@ void ListRowDelegate::paint(QPainter *painter, const QStyleOptionViewItem &optio
         painter->setPen(t.onPrimary);
         painter->drawText(QRect(startX + iconW + 6, launch.top(), textW + 2, launch.height()),
                           Qt::AlignVCenter | Qt::AlignLeft, text);
-        textRight = actionRect(r, Action::Folder).left() - kGap;
-    } else {
+        if (!metaIcon.isValid()) textRight = actionRect(r, Action::Folder).left() - kGap;
+    } else if (!metaIcon.isValid()) {
         const QString meta = index.data(MetaRole).toString();
         if (!meta.isEmpty()) {
             QFont f = option.font;
@@ -122,12 +142,12 @@ void ListRowDelegate::paint(QPainter *painter, const QStyleOptionViewItem &optio
         }
     }
 
-    // 两行字：标题 14.5/500，副行 12.5 次要色
+    // 两行字：标题 14.5/600（设计稿 500，Qt 下同字号显轻，加一档），副行 12.5 次要色
     const int textLeft = cover.right() + 1 + kGap;
     const QRect textBox(textLeft, r.top(), qMax(0, textRight - textLeft), r.height());
     QFont titleFont = option.font;
     titleFont.setPointSizeF(titleFont.pointSizeF() * 14.5 / 14.0);
-    titleFont.setWeight(QFont::Medium);
+    titleFont.setWeight(QFont::DemiBold);
     QFont subFont = option.font;
     subFont.setPointSizeF(subFont.pointSizeF() * 12.5 / 14.0);
     const QString title = index.data(Qt::DisplayRole).toString();

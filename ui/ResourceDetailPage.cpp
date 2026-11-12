@@ -36,7 +36,6 @@ namespace {
 // 里那个 resize() 只是给验证工程一个像样的初始大小。
 constexpr int kPageWidth = 820;
 constexpr int kPageHeight = 560;
-constexpr int kCardPadding = 14;
 /// 头卡上那个图标多大（正方形）。PCL 那一页也是这么大一圈。
 constexpr int kIconSize = 64;
 /// chip 那一行的高。**比 chip 本体高**：横向滚动条出现时要占掉十几像素，
@@ -88,22 +87,11 @@ QString elidedFor(const QLabel *label) {
                                           qMax(0, label->contentsRect().width()));
 }
 
-/// 一处卡的调色板：底出厂是 `Base`，由 `Theme::Part::Card` 管。
-/// NOTE: 基色取**应用调色板**，不能取卡自己的（它身上已经写着算好的那一份）。
-QPalette cardChromePalette() {
-    QPalette palette = QApplication::palette();
-    palette.setColor(QPalette::Window, Theme::partBackground(Theme::Part::Card));
-    return palette;
-}
-
 /// 底色是 Base 的卡（头卡用它）。层级靠底色和留白，不画额外框线。
 QFrame *makeCard(QWidget *parent) {
     auto *card = new QFrame(parent);
+    // UI 7b：页头不画卡片底，直接落在整窗磨砂底上（设计稿 resource.html）。
     card->setFrameShape(QFrame::NoFrame);
-    card->setAutoFillBackground(true);
-    card->setPalette(cardChromePalette());
-    // 卡是**常驻**的（这一页建一次留着）⇒ 主题一换得自己重算一遍。
-    Theme::follow(card, [card]() { card->setPalette(cardChromePalette()); });
     return card;
 }
 
@@ -214,8 +202,8 @@ ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
     QFrame *card = makeCard(this);
     card->setObjectName(headerCardName());
     auto *cardLayout = new QHBoxLayout(card);
-    cardLayout->setContentsMargins(kCardPadding, kCardPadding, kCardPadding, kCardPadding);
-    cardLayout->setSpacing(kCardPadding);
+    cardLayout->setContentsMargins(0, 4, 0, 8);
+    cardLayout->setSpacing(18);
 
     m_icon = new QLabel(card);
     m_icon->setObjectName(iconLabelName());
@@ -239,6 +227,8 @@ ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
 
     m_description = new ElidedLabel(card);
     m_description->setObjectName(descriptionLabelName());
+    // 按钮挪到右上之后，窄窗下别把简介挤成 0 宽（至少留得下几个字 + 省略号）。
+    m_description->setMinimumWidth(120);
     // 简介只画一行、放不下就截（全文挂在鼠标提示上，见 setHeader）。让它换行的话，
     // CurseForge 那种整段的简介会把这张卡撑成半屏高 —— 而这一页的主角是下面那份版本列表。
     textColumn->addWidget(m_description);
@@ -290,11 +280,11 @@ ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
     connect(m_copyName, &QPushButton::clicked, this,
             [this] { emit copyNameRequested(m_header.nameToCopy); });
     buttonRow->addWidget(m_copyName);
-    buttonRow->addStretch(1);
-    textColumn->addLayout(buttonRow);
     textColumn->addStretch(1);
 
     cardLayout->addLayout(textColumn, 1);
+    cardLayout->addLayout(buttonRow);
+    buttonRow->setAlignment(Qt::AlignTop);
     outer->addWidget(card);
 
     // ---------- 那一排游戏版本 chip ----------
@@ -316,6 +306,8 @@ ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
     chipLayout->setSpacing(6);
     chipLayout->addStretch(1);
     chipScroll->setWidget(m_chipRow);
+    chipScroll->viewport()->setAutoFillBackground(false);
+    m_chipRow->setAutoFillBackground(false);
     // 那一排 chip 的**右边**挂着「显示快照版」，而且它和那一排是同一件事（见
     // ResourceDetailPage.hpp 里那段）：放在滚动区**外面**，
     // 版本多的资源横向滚起来时这颗勾选框不会跟着滚走。

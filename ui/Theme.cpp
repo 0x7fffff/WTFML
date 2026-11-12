@@ -73,7 +73,8 @@ Tokens tokens(const QString &id) {
             .onDanger = QColor("#FFF4F4"),
             .glass = rgba(36, 38, 54, .74), .glassEdge = rgba(255, 255, 255, .10), .scrim = rgba(8, 9, 14, .55),
             .heroInk = QColor("#F4F3FA"), .heroInk2 = rgba(236, 235, 248, .78), .heroVeil = QColor(10, 11, 18),
-            .heroScrim = .30, .heroTop = .42, .railFog = 0.0, .groundShade = QColor(6, 6, 14), .groundGlint = .10};
+            .heroScrim = .30, .heroTop = .42, .railFog = 0.0, .groundShade = QColor(6, 6, 14), .groundGlint = .10,
+            .accentInk = QColor("#D4D1F8"), .okInk = QColor("#86CFA6"), .warnInk = QColor("#E6BE73"), .dangerInk = QColor("#F09393")};
         return dark;
     }
     if (id == QLatin1String("ocean")) {
@@ -510,25 +511,70 @@ QString accentSettingKey(const char *field) {
  * 不能破（破=把"跟着系统深浅"钉死，见 `apply()` 那段）。样式这一层一份代码就管住
  * 全仓每一张表，连不用我们那两个代理的表、以及下拉框弹出来那张表也一起管住了。
  *
- * （类名 `WtfmlProxyStyle` 管两件；叫"下拉框箭头样式"会让人以为选中色是别处画的。）
- *
- * 【第 1 件：下拉框右边那个 `∨` 为什么非自己画不可】 `qstylesheetstyle.cpp` 里：
- * `QComboBox::drop-down { border: none; … }`，这一格在 `QRenderRule::hasDrawable()` 眼里就
- * 成了"有东西要画" —— `border: none` 解析出来是 `BorderStyle_None`，**不等于**
- * `BorderStyle_Native`（`qcssparser.cpp` 那个 `parseBorderStyle`）—— 于是
- * `drawComplexControl` 走 `subRule.drawRule() + subRule2.drawRule()` 那一条分支，
- * **一个箭头都不画**。也就是说旧样式表下"下拉框没有箭头"不是错觉，"有个箭头"这件事得由
- * 我们自己接回来：把 `border: none` 去掉（只留 `width:`），Qt 就落回基样式那条路，
- * 由基样式调 `proxy()->drawPrimitive(PE_IndicatorArrowDown, …)` —— 而 `proxy()` 指回来的
- * 正是这里。**所以这一条和 `widgetStyleSheet()` 里那个 `::drop-down` 是一对，改一边必须
- * 看另一边。**
- *
- * 【两件量出来的事】(1) 进来时 `opt->rect` 是**箭头那一小格**而不是整个下拉框（基样式已经
- * 收窄过），拿它算格子会算歪 ⇒ 按控件自己的 `rect` 重新问一次；(2) 绘制期间
- * `subControlRect()` 探不到样式表里那个 `::drop-down` 的宽（它头上那句 `RECURSION_GUARD`
- * 让它直接转给基样式），量出来比真正画立体边的那一格**窄 1px** ⇒ 右边要补 1，不然会留一条
- * `#555555` 的竖线。
+ *  * 【下拉框右边那个 `∨`】不归这个类管了（7b）：`::drop-down` 不写 `border: none` 时 QStyleSheetStyle
+ * 走 QWindowsStyle 那份，先用下拉框自己的半透明底再压一块立体按钮 —— 箭头底下那块方框；写了
+ * `border: none` 那一格就什么都不画。现在样式表写 `border: none`，V 由上面那个
+ * `ComboChevronPainter` 在下拉框画完之后补（**这一条和 `widgetStyleSheet()` 里那个 `::drop-down`
+ * 是一对，改一边必须看另一边**）。
  */
+namespace {
+
+/// 下拉框右边那个 V（设计稿只要一个 V，不要底下那块方框）。
+void paintComboChevron(QPainter *p, const QRect &box, const QColor &ink)
+{
+    const QPoint center = box.center();
+    const int half = 4;  // 半宽
+    const int rise = 2;  // 两端比中间高多少
+    QPainterPath path;
+    path.moveTo(center.x() - half, center.y() - rise);
+    path.lineTo(center.x(), center.y() + rise);
+    path.lineTo(center.x() + half, center.y() - rise);
+    QPen pen(ink);
+    pen.setWidthF(1.6);
+    pen.setCapStyle(Qt::RoundCap);
+    pen.setJoinStyle(Qt::RoundJoin);
+    p->save();
+    p->setRenderHint(QPainter::Antialiasing, true);
+    p->setPen(pen);
+    p->setBrush(Qt::NoBrush);
+    p->drawPath(path);
+    p->restore();
+}
+
+/// 样式表下拉框那一格：`::drop-down` 没有可画的规则时 QStyleSheetStyle 直接调 QWindowsStyle 那份，
+/// 用下拉框自己的（7a 起半透明的）底色再压一块立体按钮 —— 叠出来就是箭头底下那块方框，代理样式拦不到。
+/// 所以 `::drop-down` 写成 `border: none`（Qt 那格什么都不画），V 由这个过滤器在下拉框画完之后补上。
+class ComboChevronPainter : public QObject
+{
+public:
+    using QObject::QObject;
+
+    bool eventFilter(QObject *obj, QEvent *event) override
+    {
+        auto *combo = qobject_cast<QComboBox *>(obj);
+        if (combo == nullptr || event->type() != QEvent::Paint) return false;
+        static_cast<QObject *>(combo)->event(event);  // 先让它照常画完（QObject::event 是公开的）
+        QStyleOptionComboBox opt;
+        opt.initFrom(combo);
+        opt.editable = combo->isEditable();
+        opt.subControls = QStyle::SC_All;
+        const QRect cell = combo->style()->subControlRect(QStyle::CC_ComboBox, &opt, QStyle::SC_ComboBoxArrow, combo);
+        QPainter painter(combo);
+        // 墨色跟着 `ButtonText`（样式表的 `color:` 已灌进调色板；initFrom 按可用 / 禁用选好了那一组）。
+        paintComboChevron(&painter, cell.isValid() ? cell : QRect(combo->width() - 28, 0, 28, combo->height()),
+                          opt.palette.color(QPalette::ButtonText));
+        return true;
+    }
+};
+
+ComboChevronPainter *comboChevronPainter()
+{
+    static auto *painter = new ComboChevronPainter(qApp);
+    return painter;
+}
+
+}  // namespace
+
 class WtfmlProxyStyle : public QProxyStyle
 {
 public:
@@ -538,6 +584,11 @@ public:
     void polish(QWidget *w) override
     {
         QProxyStyle::polish(w);
+        if (qobject_cast<QComboBox *>(w) != nullptr) {
+            w->removeEventFilter(comboChevronPainter());  // polish 会反复来，别装两份
+            w->installEventFilter(comboChevronPainter());
+            return;
+        }
         auto *button = qobject_cast<QPushButton *>(w);
         if (button == nullptr || button->testAttribute(Qt::WA_SetFont)) return;
         QFont font = handFont(button->font(), HandFont::Kai);
@@ -699,57 +750,9 @@ public:
             return;
         }
 
-        // 别的向下箭头（带菜单的按钮、表头排序…）原样交回去。
-        if (pe != PE_IndicatorArrowDown || qobject_cast<const QComboBox *>(w) == nullptr) {
-            QProxyStyle::drawPrimitive(pe, opt, p, w);
-            return;
-        }
-
-        // 1) 先把那一格擦成下拉框自己的底：基样式在画箭头之前压了一层 95 风格的立体边
-        // （`qDrawWinButton`），不擦掉的话 V 会坐在一个凸起的小方块里。
-        QStyleOptionComboBox comboOpt;
-        comboOpt.initFrom(w);
-        comboOpt.rect = w->rect();
-        comboOpt.subControls = SC_All;
-        QRect cell = subControlRect(CC_ComboBox, &comboOpt, SC_ComboBoxArrow, w);
-        if (cell.isValid()) {
-            // 只擦边框以内那一片（外圈那一圈是样式表画的那 1px），右边补足上面说的那 1px。
-            // The native drop-down panel also paints its bottom/right bevel.
-            // Clear those pixels too, then restore the single themed outer edge.
-            cell = cell.intersected(w->rect());
-            cell.setRight(w->width() - 1);
-            cell.setBottom(w->height() - 1);
-            p->fillRect(cell, opt->palette.brush(QPalette::Base));
-            p->save();
-            p->setRenderHint(QPainter::Antialiasing, false);
-            p->setPen(opt->palette.color(w->hasFocus() ? QPalette::Link : QPalette::Dark));
-            p->drawLine(cell.left(), w->height() - 1, w->width() - 1, w->height() - 1);
-            p->drawLine(w->width() - 1, cell.top(), w->width() - 1, w->height() - 1);
-            p->restore();
-        }
-
-        // 2) 画 V。墨色跟着 `ButtonText` 走 —— 应用级样式表那句 `color:` 已经被灌进调色板
-        // 了（可用 = 纯黑、禁用 = 灰），**不用自己判 `isEnabled()`**：判了就等于在别的底上
-        // 写死了两档灰。
-        const QRect box = cell.isValid() ? cell : opt->rect;
-        const QPoint center = box.center();
-        const int half = 4;  // 半宽
-        const int rise = 2;  // 两端比中间高多少
-        QPainterPath path;
-        path.moveTo(center.x() - half, center.y() - rise);
-        path.lineTo(center.x(), center.y() + rise);
-        path.lineTo(center.x() + half, center.y() - rise);
-        QPen pen(opt->palette.color(QPalette::ButtonText));
-        pen.setWidthF(1.6);
-        pen.setCapStyle(Qt::RoundCap);
-        pen.setJoinStyle(Qt::RoundJoin);
-        p->save();
-        p->setRenderHint(QPainter::Antialiasing, true);
-        p->setPen(pen);
-        p->setBrush(Qt::NoBrush);
-        p->drawPath(path);
-        p->restore();
+        QProxyStyle::drawPrimitive(pe, opt, p, w);
     }
+
 
     void drawControl(ControlElement ce, const QStyleOption *opt, QPainter *p,
                      const QWidget *w) const override
@@ -1443,7 +1446,7 @@ void markBadge(QLabel *label, BadgeTone tone) {
         QColor bg = t.subtle, ink = t.secondary;
         switch (tone) {
         case BadgeTone::Neutral: break;
-        case BadgeTone::Accent: bg = t.selected; ink = t.deep; break;
+        case BadgeTone::Accent: bg = t.selected; ink = textTone(t.accentInk, t.deep); break;
         case BadgeTone::Ok: bg = t.okSoft; ink = textTone(t.okInk, t.ok); break;
         case BadgeTone::Warn: bg = t.warnSoft; ink = textTone(t.warnInk, t.warn); break;
         case BadgeTone::Danger: bg = t.dangerSoft; ink = textTone(t.dangerInk, t.danger); break;
@@ -1523,10 +1526,11 @@ void markChipButton(QPushButton *button) {
     button->setFixedHeight(chipHeight());
     button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     markIconButton(button);
-    button->setStyleSheet(chipStyleSheet(button->palette()));
+    button->setStyleSheet(chipStyleSheet(QApplication::palette()));
+    // 取应用 palette 而不是 button->palette()：换主题时 follow 回调早于调色板下发到子控件，读按钮自己的会拿到旧主题的字色。
     // QSS 里嵌的是色名 ⇒ 主题一换得重算。chip 是**常驻**控件（不像资源详情页那一排是整排
     // 重建的），没人会替它重挂，所以这一条必须自己接。
-    follow(button, [button]() { button->setStyleSheet(chipStyleSheet(button->palette())); });
+    follow(button, [button]() { button->setStyleSheet(chipStyleSheet(QApplication::palette())); });
 }
 
 QColor swatchBorder(const QColor &color) {
@@ -1837,6 +1841,10 @@ QString widgetStyleSheet() {
     // 跟着长高，不能为了像素对齐把字裁掉。
     // 设计稿层把输入框 / 下拉框钉到 inputHeight()；数字框那 6px 框是基样式画的，内容盒补齐。
     qss += QStringLiteral("QAbstractSpinBox { min-height: %1px; }").arg(inputHeight() - 6);
+    // 表头：不画白底、不描边，字用次要色（工具箱那几张表）。
+    qss += QStringLiteral("QHeaderView { background: transparent; border: none; }"
+                          "QHeaderView::section { background: transparent; border: none;"
+                          " color: %1; padding: 4px 6px; }").arg(paletteRef("placeholder-text"));
     // **数字框 / 下拉框里面那一格也是 `QLineEdit`** —— 上面那条会连它一起框上，画出来
     // 就是"框里还套着一个框"（自旋框自己已经有一圈边了）。这一条把它按回去。
     // 用**后代**选择器（Qt 的 `>` 子选择器不可靠，后代选择器一定生效）。
@@ -1876,7 +1884,7 @@ QString widgetStyleSheet() {
                " min-height: 20px; }"
                "QComboBox:focus { border-color: %2; }"
                "QComboBox:disabled { background-color: %3; color: %4; border-color: %5; }"
-               "QComboBox::drop-down { width: 20px; }"
+               "QComboBox::drop-down { width: 20px; border: none; }"
                "QComboBox QAbstractItemView { background-color: #ffffff; color: #000000;"
                " border: 1px solid %1;"
                " selection-background-color: %6; selection-color: #000000; outline: none; }")
@@ -2061,7 +2069,7 @@ QString widgetStyleSheet() {
         "QLineEdit[wtfmlError=\"true\"], QLineEdit[inputError=\"true\"] { border-bottom: 2px solid palette(bright-text); }"
         "QLineEdit:disabled, QComboBox:disabled { background-color: palette(light); color: palette(link-visited);"
         " border-bottom-color: transparent; }"
-        "QComboBox::drop-down { width: 28px; }"  // 不写 border: none，否则箭头不画（见 WtfmlProxyStyle 那段）
+        "QComboBox::drop-down { width: 28px; border: none; }"  // V 由 ComboChevronPainter 补（见那段）
         "QComboBox QAbstractItemView { background-color: palette(tool-tip-base); color: palette(text);"
         " border: 1px solid palette(dark); selection-background-color: palette(midlight); selection-color: palette(text); }"
         "QCheckBox, QCheckBox:checked { color: palette(window-text); }"
@@ -2253,7 +2261,7 @@ QPalette buildPalette(const Spec &spec, const QPalette &base) {
     palette.setColor(QPalette::Dark, t.stroke);
     palette.setColor(QPalette::ToolTipBase, t.card);
     palette.setColor(QPalette::ToolTipText, t.text);
-    palette.setColor(QPalette::Link, t.deep);
+    palette.setColor(QPalette::Link, textTone(t.accentInk, t.deep));  // 强调色写的字（chip / 分段选中、文字按钮）
     for (const auto role : kInkRoles) palette.setColor(QPalette::Disabled, role, t.disabled);
 
     for (auto it = spec.roles.constBegin(); it != spec.roles.constEnd(); ++it) {

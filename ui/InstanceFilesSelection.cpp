@@ -164,13 +164,13 @@ void InstanceFilesPage::setActionPanelEnabled(bool enabled) {
     m_download->setVisible(downloadVisible);
     m_pathRow->layout()->removeWidget(m_openFolder);
     m_openFolder->setText(tr("打开文件夹"));
-    Theme::markButton(m_openFolder, Theme::ButtonKind::Neutral);
+    Theme::markButton(m_openFolder, Theme::ButtonKind::Ghost);
     header->addWidget(m_openFolder);
     m_openFolder->show();
     m_search->setMinimumWidth(100);
     auto *headerMore = new QPushButton(tr("更多…"), m_searchRow);
     headerMore->setObjectName(QStringLiteral("modHeaderMore"));
-    Theme::markButton(headerMore, Theme::ButtonKind::Neutral);
+    Theme::markButton(headerMore, Theme::ButtonKind::Ghost);
     header->addWidget(headerMore);
     connect(headerMore, &QPushButton::clicked, this, [this, headerMore] {
         QMenu menu(this);

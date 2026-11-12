@@ -100,6 +100,7 @@ int main(int argc, char **argv) {
         // 截图里就会一会儿默认皮肤一会儿陌生人。设计稿对照只要内置默认皮肤，把那条路指向
         // 一个连不上的本地端口。
         RandomSkinStore::setEndpointOverride(QStringLiteral("http://127.0.0.1:9/skins"));
+        DesignShots::seedInstances(root + "/game/versions");
     }
     settings.sync();
     if (settings.status() != QSettings::NoError) return 2;

@@ -18,12 +18,10 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
             // 后者会让整条分类的子条目静默消失（见版本树那几条注释）。
             check(!instanceList->rootIsDecorated(),
                   "不画原生那个小三角（展开/折叠的箭头是组行里自己画的，和版本树一个做法）");
-            check(instanceList->uniformRowHeights(),
-                  "每行等高（真机上六十多个实例，这样滚起来顺得多）");
-            // 14 是照 MainWindowUI.cpp 里的取值抄的。右栏本来就窄（3:7 里的 7 还要
-            // 分给左栏），缩进每多一格就少一格放实例名。
-            check(instanceList->indentation() == 14,
-                  "组下面的实例缩进 14（右栏窄，缩进是拿实例名换的）",
+            check(!instanceList->uniformRowHeights(),
+                  "组头 36 / 实例行 60 两档高度 ⇒ 不开 uniformRowHeights（开了会全按第一行组头算）");
+            check(instanceList->indentation() == 0,
+                  "组下面的实例不缩进（设计稿：实例行和组头左缘对齐）",
                   QString::number(instanceList->indentation()));
         }
 
@@ -255,9 +253,9 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
                       QStringLiteral("齿轮格 %1 px 墨").arg(inkInPlain(gearCell)));
                 // 挪出去之后底色也得回到**行的原底色**（悬停那一档没跟出去）——不然上面那条
                 // 「一个像素都没有」可能只是"整行都还是悬停色、齿轮恰好没画"这种假绿。
-                check(plainShot.pixel(paintRow.right() - 1, hoverCardRect.center().y()) != bg,
-                      "★ 光标挪出去之后，这一行的底色从悬停那一档**退了回去**"
-                      "（证明上面那条量的不是「一块还在悬停里的行」）",
+                // UI 7b：组头是一行手写小标题（设计稿 manage），悬停**不铺底色** ⇒ 挪出去前后底色一样。
+                check(plainShot.pixel(paintRow.right() - 1, hoverCardRect.center().y()) == bg,
+                      "★ 组头悬停不铺底色：光标挪出去前后这一行底色一样（UI 7b 组头是小标题）",
                       QStringLiteral("悬停 %1 / 挪出去 %2")
                           .arg(QColor::fromRgb(bg).name(), QColor::fromRgb(plainBg).name()));
             }
@@ -290,10 +288,11 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
             const int itemH = paintProbe.itemDelegate()
                                   ->sizeHint(heightOpt, paintProbe.model()->index(1, 0))
                                   .height();
-            check(groupH == tallH && itemH == tallH,
-                  "组行和实例行的 sizeHint 高度都是 instanceTreeRowHeight()（实例列表自己那一档）",
-                  QStringLiteral("组 %1 / 实例 %2 / 常数 %3").arg(groupH).arg(itemH).arg(tallH));
-            check(paintRow.height() == tallH,
+            // UI 7b（设计稿 manage）：组头 36、实例行 60（ListRowDelegate 那一档）。
+            check(groupH == InstanceGroupDelegate::groupRowHeight() && itemH == ListRowDelegate::rowHeight(),
+                  "组行 36 / 实例行 60（设计稿 manage 的两档）",
+                  QStringLiteral("组 %1 / 实例 %2").arg(groupH).arg(itemH));
+            check(paintRow.height() == InstanceGroupDelegate::groupRowHeight(),
                   "真的挂进一棵树里，那一行也是这么高",
                   QStringLiteral("visualItemRect 高 %1").arg(paintRow.height()));
         }
@@ -327,10 +326,7 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
                       .arg(row.center().x()).arg(row.center().y())
                       .arg(card.center().x()).arg(card.center().y()));
             check(card.contains(InstanceGroupDelegate::gearGlyphRect(row)) &&
-                      card.contains(InstanceGroupDelegate::chevronRect(row)) &&
-                      card.contains(InstanceGroupDelegate::instanceGearGlyphRect(row)) &&
-                      card.contains(InstanceGroupDelegate::instancePinGlyphRect(row)) &&
-                      card.contains(InstanceGroupDelegate::instanceTrashGlyphRect(row)),
+                      card.contains(InstanceGroupDelegate::chevronRect(row)),
                   "画出来的东西一个不落全装在卡片里（组行那颗齿轮和箭头、实例行那三颗）——"
                   "装不进去的话，收掉的那一带会把按钮上下切掉一条",
                   QStringLiteral("卡片 %1 高 / 行 %2 高").arg(card.height()).arg(h));
@@ -375,12 +371,13 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
             check(firstInk >= 0,
                   "哨兵：选中那一行的底色带真的画出来了（没画出来的话，下面那条是恒绿的假断言）",
                   QStringLiteral("那一列 %1..%2 一个有色像素都没有").arg(gapRow.top()).arg(gapRow.bottom()));
-            check(firstInk == gapRow.top() + pad && lastInk == gapRow.bottom() - padBottom,
-                  "★ 选中那一行的底色带**两头都缩了进去**（行与行之间那道空就是这么来的）——"
-                  "两头一顶到行的边界，这道空就只剩行高变大，屏幕上一点看不出来",
+            // UI 7b：实例行改由 ListRowDelegate 画，选中卡片铺满 60px 整行（设计稿行与行紧挨着）。
+            Q_UNUSED(pad); Q_UNUSED(padBottom);
+            check(firstInk == gapRow.top() && lastInk == gapRow.bottom(),
+                  "★ 选中那一行的底色带铺满整行（ListRowDelegate 的选中卡片，设计稿 manage）",
                   QStringLiteral("行 %1..%2，带子 %3..%4（该是 %5..%6）")
                       .arg(gapRow.top()).arg(gapRow.bottom()).arg(firstInk).arg(lastInk)
-                      .arg(gapRow.top() + pad).arg(gapRow.bottom() - padBottom));
+                      .arg(gapRow.top()).arg(gapRow.bottom()));
             gapProbe.hide();
         }
 
@@ -608,8 +605,8 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
                   QStringLiteral("分支区里被染的像素 = %1").arg(branchStained));
 
             const QImage shotOnGroup = hoverShotAt(groupRowRect.center());
-            check(near(shotOnGroup.pixelColor(groupSpot), groupHover),
-                  "★ 光标停在组行上：组行也染同一个色（两条分支从此是同一件事）",
+            check(shotOnGroup.pixelColor(groupSpot) == plainInstance.pixelColor(groupSpot),
+                  "★ 光标停在组行上：组头不染色（UI 7b 组头是一行小标题，不是可点的卡片）",
                   shotOnGroup.pixelColor(groupSpot).name());
             check(shotOnGroup.pixelColor(childSpot) == plainInstance.pixelColor(childSpot),
                   "★ 而组行悬停时实例那一行没被染（对照组）",

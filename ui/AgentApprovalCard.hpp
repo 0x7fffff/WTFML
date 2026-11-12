@@ -27,6 +27,9 @@ signals:
     void allowed(const QString &approvalId);
     void denied(const QString &approvalId);
 
+protected:
+    void paintEvent(QPaintEvent *event) override;
+
 private:
     QString m_approvalId;
     QLabel *m_title = nullptr;

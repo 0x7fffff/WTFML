@@ -1256,9 +1256,11 @@ int UiInstanceOverridesChecks() {
                     labelHits += label->text() == Dlg::instanceNameText() ? 1 : 0;
                     hintHits += label->text() == Dlg::instanceNameHint() ? 1 : 0;
                 }
-                check(labelHits == 0 &&
+                // UI 7b：概览改成「定宽标题列 | 控件」一行一项（设计稿 instance-overview），
+                // 「实例名」回到行标题上、正好一份；占位文字留着（清空时才看得见，不算重复）。
+                check(labelHits == 1 &&
                           nameEdit->placeholderText() == Dlg::instanceNameText(),
-                      "★ U1c 「实例名」那行**没有**独占一行的标题（名字只在输入框的占位文字里）",
+                      "★ U1c 「实例名」是那一行的标题、正好一份（占位文字也是那句）",
                       QStringLiteral("标签 %1 处 / 占位「%2」")
                           .arg(labelHits)
                           .arg(nameEdit->placeholderText()));

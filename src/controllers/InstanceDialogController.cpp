@@ -397,6 +397,13 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
         localIcon = VersionIcons::fileMark(AppPaths::versionIconPath(versionId), previewSize);
     }
     dialog.setIcon(parts.icon, defaultInstanceMark(parts, m_owner->m_versionManager, previewSize), localIcon);
+    {
+        const QString game = parts.realVersion.isEmpty() ? parts.id : parts.realVersion;
+        const QString loader = parts.loaderName.isEmpty()
+                                   ? tr("原版")
+                                   : (parts.loaderName + QLatin1Char(' ') + parts.loaderVersion).trimmed();
+        dialog.setHeaderMeta(loader + QStringLiteral(" · Minecraft ") + game);
+    }
 
     // 「分组…」那一格：候选项是**现在所有的组**（含空组 —— 「往空组里放第一个实例」正是用户
     // 会干的事，那是它唯一的入口之一），当前值是那个实例的**老家**。

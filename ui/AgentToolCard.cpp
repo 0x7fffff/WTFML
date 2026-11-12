@@ -4,6 +4,7 @@
  */
 
 #include "AgentToolCard.hpp"
+#include "AgentPanelPaint.hpp"
 
 #include "Theme.hpp"
 
@@ -17,7 +18,7 @@ AgentToolCard::AgentToolCard(const AgentView::ToolCard &card, QWidget *parent)
     : QWidget(parent), m_card(card) {
     setObjectName(QStringLiteral("agentToolCard"));
     auto *layout = new QVBoxLayout(this);
-    layout->setContentsMargins(10, 6, 10, 6);
+    layout->setContentsMargins(12, 8, 12, 8);
     layout->setSpacing(4);
     auto *header = new QHBoxLayout;
     header->setContentsMargins(0, 0, 0, 0);
@@ -36,6 +37,7 @@ AgentToolCard::AgentToolCard(const AgentView::ToolCard &card, QWidget *parent)
     m_toggle->setObjectName(QStringLiteral("agentToolToggle"));
     m_toggle->setText(QStringLiteral("详情"));
     m_toggle->setCheckable(true);
+    m_toggle->setAutoRaise(true);
     header->addWidget(m_toggle);
     layout->addLayout(header);
     m_detail = new QLabel(this);
@@ -72,4 +74,8 @@ void AgentToolCard::refresh() {
     m_detail->setText(m_card.detail);
     m_toggle->setVisible(!m_card.detail.isEmpty());
     if (m_card.detail.isEmpty()) m_detail->hide();
+}
+
+void AgentToolCard::paintEvent(QPaintEvent *) {
+    paintAgentSoftPanel(this, 10);
 }

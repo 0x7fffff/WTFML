@@ -27,6 +27,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFont>
+#include <QFrame>
 #include <QFontMetrics>   // 左栏那一列的宽度（见 navListWidth()）
 #include <QGuiApplication>
 #include <QMimeData>
@@ -83,6 +84,77 @@ constexpr int kIconCandidatesPerRow = 4;
 
 using namespace InstanceSettingsDialogInternals;
 
+namespace {
+
+/// UI 7b（设计稿 instance-overview）：一行 = 左边标题（+ 至多一句说明）、右边控件，行底一条极淡分隔。
+/// 长解释留在控件的悬停提示里（设计原则：文字克制，说明限宽约 40 字）。
+/// below = 控件放到标题下面、占满整行（一排按钮 / 一格勾选框那种，靠右挤着放不下）。
+QWidget *overviewRow(QWidget *parent, QWidget *title, const QString &desc, QWidget *control, bool below = false) {
+    auto *row = new QFrame(parent);
+    row->setObjectName(QStringLiteral("instanceOverviewRow"));
+    row->setStyleSheet(QStringLiteral("QFrame#instanceOverviewRow { border: none; border-bottom: 1px solid palette(midlight); }"));
+    auto *line = new QHBoxLayout(row);
+    line->setContentsMargins(0, 12, 0, 12);
+    line->setSpacing(16);
+    auto *text = new QVBoxLayout;
+    text->setContentsMargins(0, 0, 0, 0);
+    text->setSpacing(2);
+    if (title != nullptr) {
+        title->setParent(row);
+        text->addWidget(title, 0, Qt::AlignLeft);
+    }
+    if (!desc.isEmpty()) {
+        auto *hint = new QLabel(desc, row);
+        hint->setObjectName(QStringLiteral("instanceOverviewRowDesc"));
+        hint->setWordWrap(true);
+        hint->setMaximumWidth(560);
+        QFont f = Theme::textFont(hint->font(), Theme::TextRole::Caption);
+        hint->setFont(f);
+        QPalette pal = hint->palette();
+        pal.setColor(QPalette::WindowText, Theme::tokens().secondary);
+        hint->setPalette(pal);
+        text->addWidget(hint, 0, Qt::AlignLeft);
+    }
+    line->addLayout(text, 1);
+    if (control != nullptr && below) {
+        control->setParent(row);
+        text->addSpacing(6);
+        text->addWidget(control);
+    } else if (control != nullptr) {
+        control->setParent(row);
+        line->addWidget(control, 0, Qt::AlignRight | Qt::AlignVCenter);
+    }
+    return row;
+}
+
+QLabel *overviewRowTitle(const QString &text, QWidget *parent) {
+    auto *label = new QLabel(text, parent);
+    QFont f = Theme::textFont(label->font(), Theme::TextRole::Body);
+    f.setBold(true);
+    label->setFont(f);
+    return label;
+}
+
+/// 小节标题（基本 / 更新 / 文件与导出）：文楷 20 px，上面空一段。
+QLabel *overviewSection(const QString &text, QWidget *parent, bool first = false) {
+    auto *label = new QLabel(text, parent);
+    label->setObjectName(QStringLiteral("instanceOverviewSection"));
+    QFont f = Theme::handFont(label->font(), Theme::HandFont::Kai);
+    f.setPixelSize(20);
+    label->setFont(f);
+    label->setContentsMargins(0, first ? 0 : 18, 0, 4);
+    return label;
+}
+
+/// 提示里的第一句（到第一个句号）；超过 40 字就不摆，整段留在悬停提示里。
+QString firstSentence(const QString &hint) {
+    const int stop = hint.indexOf(QChar(0x3002));
+    const QString head = stop < 0 ? hint : hint.left(stop + 1);
+    return head.size() <= 40 ? head : QString();
+}
+
+}  // namespace
+
 /// 概览那一栏（四行：图标+实例名 / 两颗按钮 / 置顶勾选框 / 导出）与它底下的维护入口。
 ///
 /// 从构造函数里按"一栏一摊"搬出来的第一摊。这几栏原来挤在同一个函数里、**共用一份 `grid`**
@@ -113,37 +185,32 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
     // 真的动手改名的是 MainWindow（先改名、再写设置），这一层只负责让用户改到那个格子
     // （见 instanceName()）。
     {
-        auto *cell = new QWidget(this);
-        auto *line = new QHBoxLayout(cell);
-        line->setContentsMargins(0, 0, 0, 0);
-        line->setSpacing(12);
-
-        // 预览：这张图就是"换完图标之后树上会长什么样"。定死边长，换图时整行不跟着跳。
-        m_iconPreview = new QLabel(cell);
+        m_iconPreview = new QLabel(this);
         m_iconPreview->setObjectName(iconPreviewName());
-        m_iconPreview->setFixedSize(kIconPreviewSize, kIconPreviewSize);
+        // 行里摆 40 px（设计稿），图照旧按 iconPreviewSize() 那一档解好、缩进来。
+        m_iconPreview->setFixedSize(40, 40);
+        m_iconPreview->setScaledContents(true);
         m_iconPreview->setAlignment(Qt::AlignCenter);
-        // 顶部对齐：右边那一列（输入框 + 一句解释）多半比 64 px 高，预览图不该被拉到中间。
-        line->addWidget(m_iconPreview, 0, Qt::AlignTop);
 
-        auto *nameColumn = new QVBoxLayout;
-        nameColumn->setContentsMargins(0, 0, 0, 0);
-        nameColumn->setSpacing(4);
-        m_instanceNameEdit = new QLineEdit(instanceId, cell);
+        m_instanceNameEdit = new QLineEdit(instanceId, this);
         m_instanceNameEdit->setObjectName(instanceNameEditName());
         // 初值是**目录名**（不是页眉上那个显示名）—— 见构造函数的 @param instanceId。
-        // 这一格现在**没有行名**了，所以那句占位文字就是它唯一的名字。
         m_instanceNameEdit->setPlaceholderText(instanceNameText());
-        nameColumn->addWidget(m_instanceNameEdit);
         m_instanceNameEdit->setToolTip(instanceNameHint());
-        m_lastLaunchLabel = new QLabel(cell);
+        m_instanceNameEdit->setFixedWidth(260);
+        m_lastLaunchLabel = new QLabel(this);
+        {
+            QPalette pal = m_lastLaunchLabel->palette();
+            pal.setColor(QPalette::WindowText, Theme::tokens().secondary);
+            m_lastLaunchLabel->setPalette(pal);
+        }
         m_lastLaunchLabel->setObjectName(QStringLiteral("instanceLastLaunch"));
         m_lastLaunchLabel->setWordWrap(true);
-        nameColumn->addWidget(m_lastLaunchLabel);
         setLastLaunch(QDateTime());
-        line->addLayout(nameColumn, 1);
 
-        grid->addWidget(cell, row++, 0, 1, 2);
+        grid->addWidget(overviewSection(tr("基本"), this, true), row++, 0, 1, 2);
+        grid->addWidget(overviewRow(this, overviewRowTitle(instanceNameText(), this), QString(), m_instanceNameEdit),
+                        row++, 0, 1, 2);
     }
 
     // ---------- 第二行：两颗按钮（更改图标 / 分组…），各开一个浮层 ----------
@@ -151,10 +218,7 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
     // 第二行是两颗按钮：更改图标 + 分组… —— 点它们各弹一个浮层，
     // **而不是把候选项铺在这一页上**。
     {
-        auto *cell = new QWidget(this);
-        auto *line = new QVBoxLayout(cell);
-        line->setContentsMargins(0, 0, 0, 0);
-        m_changeIconButton = new QPushButton(changeIconText(), cell);
+        m_changeIconButton = new QPushButton(changeIconText(), this);
         m_changeIconButton->setObjectName(changeIconButtonName());
         // 「更换图标…」「移入分组…」「导出…」都是**打开一个菜单或另一个框**（一般性）。
         Theme::markButton(m_changeIconButton, Theme::ButtonKind::Neutral);
@@ -162,17 +226,21 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
         connect(m_changeIconButton, &QPushButton::clicked, this,
                 [this]() { popUpMenuBelow(m_iconMenu, m_changeIconButton); });
 
-        m_groupButton = new QPushButton(groupButtonText(), cell);
+        m_groupButton = new QPushButton(groupButtonText(), this);
         m_groupButton->setObjectName(groupButtonName());
         Theme::markButton(m_groupButton, Theme::ButtonKind::Neutral);
         // tooltip 由 refreshGroupMenuState() 写（它要说清"现在归在哪一组"）。
         connect(m_groupButton, &QPushButton::clicked, this,
                 [this]() { popUpMenuBelow(m_groupMenu, m_groupButton); });
 
-        auto *iconGrid = newActionGrid();
-        layoutActionButtons(iconGrid, {m_changeIconButton, m_groupButton});
-        line->addLayout(iconGrid);
-        grid->addWidget(cell, row++, 0, 1, 2);
+        auto *iconControl = new QWidget(this);
+        auto *iconLine = new QHBoxLayout(iconControl);
+        iconLine->setContentsMargins(0, 0, 0, 0);
+        iconLine->setSpacing(10);
+        iconLine->addWidget(m_iconPreview);
+        iconLine->addWidget(m_changeIconButton);
+        grid->addWidget(overviewRow(this, overviewRowTitle(tr("图标"), this), QString(), iconControl), row++, 0, 1, 2);
+        grid->addWidget(overviewRow(this, overviewRowTitle(tr("分组"), this), QString(), m_groupButton), row++, 0, 1, 2);
     }
 
     // ---------- 「更改图标」那个浮层 ----------
@@ -307,8 +375,11 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
         // （一个管"要不要在置顶组里多摆一条"，一个管"老家在哪"）—— 它们之间没有任何
         // 要同步的东西。
         column->addWidget(m_pinCheck);
+        column->setAlignment(Qt::AlignLeft | Qt::AlignTop);  // 行里靠左（默认会被摆到中间）
         cell->setToolTip(pinHint());
-        grid->addWidget(cell, row++, 0, 1, 2);
+        grid->addWidget(overviewRow(this, cell, firstSentence(pinHint()), nullptr), row++, 0, 1, 2);
+        // 「最后启动」那一行：时间当标题，口径说明在悬停提示里（setLastLaunch 写的）。
+        grid->addWidget(overviewRow(this, m_lastLaunchLabel, QString(), nullptr), row++, 0, 1, 2);
     }
 
     // ---------- 五颗「对整个实例动手」的按钮（一张三列网格）----------
@@ -552,8 +623,16 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
         else
             cell->hide();
     }
-    layoutActionCells(actionGrid, overviewActions);
-    grid->addLayout(actionGrid, row++, 0, 1, 2);
+    // UI 7b：概览那两颗各占一行（标题 + 一句说明 | 按钮），不再摆成按钮网格。
+    delete actionGrid;
+    {
+        auto *updates = new QWidget(this);
+        auto *updatesLine = new QHBoxLayout(updates);
+        updatesLine->setContentsMargins(0, 0, 0, 0);
+        updatesLine->setSpacing(8);
+        for (QWidget *cell : overviewActions) updatesLine->addWidget(cell);
+        grid->addWidget(overviewRow(this, overviewRowTitle(tr("更新"), this), QString(), updates), row++, 0, 1, 2);
+    }
 
     // ---------- 常用目录那一排按钮 ----------
     //
@@ -601,7 +680,10 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
         relayoutShortcuts();
         column->addLayout(buttonGrid);
         cell->setToolTip(filesHint(QStringLiteral("shortcut")));
-        grid->addWidget(cell, row++, 0, 1, 2);
+        grid->addWidget(overviewSection(tr("文件与导出"), this), row++, 0, 1, 2);
+        grid->addWidget(overviewRow(this, overviewRowTitle(tr("打开目录"), this),
+                                    QString(), cell, true),
+                        row++, 0, 1, 2);
     }
 
     // ---------- 「显示哪些页」----------
@@ -620,11 +702,6 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
         column->setContentsMargins(0, 0, 0, 0);
         column->setSpacing(6);
 
-        auto *label = new QLabel(showPagesLabelText(), cell);
-        QFont labelFont = label->font();
-        labelFont.setBold(true);
-        label->setFont(labelFont);
-        column->addWidget(label);
 
         auto *checkGrid = new QGridLayout;
         checkGrid->setContentsMargins(0, 0, 0, 0);
@@ -659,7 +736,7 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
             checkGrid->addWidget(check, i / 2, i % 2, Qt::AlignLeft);
         }
         column->addLayout(checkGrid);
-        grid->addWidget(cell, row++, 0, 1, 2);
+        grid->addWidget(overviewRow(this, overviewRowTitle(showPagesLabelText(), this), QString(), cell, true), row++, 0, 1, 2);
     }
 
 }

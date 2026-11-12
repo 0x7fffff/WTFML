@@ -127,7 +127,7 @@ PresetInstallPicker::PresetInstallPicker(QWidget *parent) : QWidget(parent) {
     m_navigation = new QListWidget(this);
     m_navigation->setObjectName(tabBarName());
     m_navigation->setProperty("wtfmlSidebarRail", true);
-    m_navigation->setFixedWidth(126);
+    m_navigation->setFixedWidth(150);
     m_navigation->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     body->addWidget(m_navigation);
     m_stack = new QStackedWidget(this);
@@ -183,7 +183,7 @@ QWidget *PresetInstallPicker::buildPage(int index, const Category &category) {
         layout->addWidget(empty);
         auto *manage = new QPushButton(manageText(), page);
         manage->setObjectName(manageButtonName(index));
-        Theme::markButton(manage, Theme::ButtonKind::Neutral);
+        Theme::markButton(manage, Theme::ButtonKind::Accent);
         layout->addWidget(manage, 0, Qt::AlignLeft);
         connect(manage, &QPushButton::clicked, this, &PresetInstallPicker::manageRequested);
         layout->addStretch(1);
@@ -236,7 +236,7 @@ QWidget *PresetInstallPicker::buildPage(int index, const Category &category) {
     connect(search, &QLineEdit::textChanged, list, [filter](const QString &) { filter(); });
     auto *details = new QPushButton(reasonsText(), page);
     details->setObjectName(reasonsButtonName(index));
-    Theme::markButton(details, Theme::ButtonKind::Neutral);
+    Theme::markButton(details, Theme::ButtonKind::Ghost);
     layout->addWidget(details, 0, Qt::AlignLeft);
     m_pages[index].details = details;
     details->setEnabled(!category.selectedId.isEmpty());

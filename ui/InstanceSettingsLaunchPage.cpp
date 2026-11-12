@@ -327,6 +327,7 @@ void InstanceSettingsDialog::setupLaunchPage(const GlobalValues &global, const Q
         m_advancedToggle->setChecked(false);
         m_advancedToggle->setArrowType(Qt::RightArrow);
         m_advancedToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+        m_advancedToggle->setAutoRaise(true);  // 扁平：不单画一块底（非 autoRaise 在深色主题下画成一块白）
         // 默认折叠。里面几项都是"改错了游戏直接起不来"的东西，一打开对话框就摆在
         // 眼前等于诱导用户去动它。
         grid->addWidget(m_advancedToggle, row++, 0, 1, 2, Qt::AlignLeft);

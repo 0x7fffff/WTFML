@@ -289,16 +289,16 @@ int main(int argc, char *argv[]) {
     // 那一档角色）—— 不再有缺口式标题、不再有那圈边；
     // · 列表和两颗按钮直接落在侧栏那个"面"（`wtfmlSurface="sidebar"`）上。
     // 下面这几条钉的就是这个形状：**一整个面上有什么**，而不是"某一组里有什么"。
+    // UI 7b（设计稿 manage-*）：左侧文件夹栏收起，文件夹列表 + 小标题 +「添加文件夹…」
+    // 搬进页头那颗胶囊点开的浮层（instanceFolderPopup）；「导入整合包…」挪到页头右上。
     QWidget *instancePageForSidebar = tabs->widget(MainWindowUI::instancesTabIndex());
-    QFrame *instanceSidebar = surfaceOf(instancePageForSidebar, Theme::sidebarSurfaceValue());
-    check(folderGroup == nullptr &&
-              inSurface(folderList, Theme::sidebarSurfaceValue()),
-          "文件夹列表在实例页的**侧栏面**上（不再是「游戏文件夹」那一组）",
-          surfaceValueOf(folderList));
-    check(instanceSidebar != nullptr && inSurface(addFolderBtn, Theme::sidebarSurfaceValue()),
-          "「添加文件夹…」和列表同处那一栏");
-    // 侧栏顶上那行小标题：文字、粗体、`sectionTitle` 角色 —— 三样都得对，否则就是
-    // "框撤了、标题也没了"，那种界面在截图上看不出来，只有这里能红。
+    QWidget *instanceSidebar = instancePageForSidebar != nullptr
+                                   ? instancePageForSidebar->findChild<QWidget *>(MainWindowUI::instanceFolderPopupName())
+                                   : nullptr;
+    check(folderGroup == nullptr && instanceSidebar != nullptr && isDescendantOf(folderList, instanceSidebar),
+          "文件夹列表在页头胶囊点开的浮层里（不再是「游戏文件夹」那一组）");
+    check(instanceSidebar != nullptr && isDescendantOf(addFolderBtn, instanceSidebar),
+          "「添加文件夹…」和列表同处那个浮层");
     {
         auto *title = instanceSidebar != nullptr ? instanceSidebar->findChild<QLabel *>(
                                                        MainWindowUI::folderSectionTitleName())
@@ -307,21 +307,17 @@ int main(int argc, char *argv[]) {
                   title->font().bold() &&
                   title->property(Theme::textRolePropertyName().toUtf8().constData())
                           .toString() == Theme::sectionTitleTextRoleValue(),
-              "侧栏顶上那行小标题是「游戏文件夹」（粗体 + sectionTitle 那一档角色）",
+              "浮层顶上那行小标题是「游戏文件夹」（粗体 + sectionTitle 那一档角色）",
               title != nullptr ? title->text() : QStringLiteral("<null>"));
-        // 它在列表**上面**（原来是组标题、现在是这栏的第一行）。
         QLayout *leftLayout = instanceSidebar != nullptr ? instanceSidebar->layout() : nullptr;
         check(leftLayout != nullptr && title != nullptr && folderList != nullptr &&
                   leftLayout->indexOf(title) >= 0 && leftLayout->indexOf(folderList) >= 0 &&
                   leftLayout->indexOf(title) < leftLayout->indexOf(folderList),
               "那行小标题在列表**上面**");
     }
-    // 「移除文件夹…」那个按钮与列表下面那段提示 一起删掉了（要求：
-    // 「下面那个移除文件夹也可以弃掉了，下面那个文本也删了」）—— 「移除」现在只剩行尾
-    // 齿轮菜单里那一项，它自己那几条断言在下面 V 节。
     check(instanceSidebar != nullptr &&
-              instanceSidebar->findChildren<QPushButton *>().size() == 2,
-          "这一栏里是「添加文件夹…」+「导入整合包…」两个按钮（「移除文件夹…」已经删掉）",
+              instanceSidebar->findChildren<QPushButton *>().size() == 1,
+          "浮层里只有「添加文件夹…」一颗按钮（「移除文件夹…」已经删掉，「导入整合包…」去了页头）",
           QString::number(instanceSidebar != nullptr
                               ? instanceSidebar->findChildren<QPushButton *>().size()
                               : -1));
@@ -384,10 +380,11 @@ int main(int argc, char *argv[]) {
     // 「导入整合包…」**不在**右栏（ 之前它在）：要求「导入整合包放在
     // 左边添加文件夹下面」，所以它在左栏、紧挨着「添加文件夹…」。
     // 这里把那条老断言翻过来钉住 —— 挪回去了（或者被谁顺手加回右栏）要在这里红。
-    check(!inSurface(ui.getImportModpackButton(), Theme::workspaceSurfaceValue()) &&
-              inSurface(ui.getImportModpackButton(), Theme::sidebarSurfaceValue()),
-          "「导入整合包…」在左栏侧栏面上（不在正文面那一支里）",
-          surfaceValueOf(ui.getImportModpackButton()));
+    check(isDescendantOf(ui.getImportModpackButton(),
+                         instancePageForSidebar->findChild<QWidget *>(
+                             MainWindowUI::rightColumnName(QStringLiteral("instance")))) &&
+              !isDescendantOf(ui.getImportModpackButton(), instanceList),
+          "「导入整合包…」在右栏页头（UI 7b 设计稿右上角）");
     // NOTE: 主页左栏只有那两件 —— 离线身份由"当前账号是什么"决定
     // （MainWindow::offlineIdentity()），没有「离线模式」勾选框。
     check(nearestGroupBox(startBtn) == nullptr &&
@@ -450,8 +447,12 @@ int main(int argc, char *argv[]) {
         QListWidget *categories = ui.getDownloadCategoryList();
         QFrame *leftSurface =
             downloadPage == nullptr ? nullptr : surfaceOf(downloadPage, Theme::sidebarSurfaceValue());
-        check(leftColumn != nullptr && back != nullptr && leftColumn->isAncestorOf(back),
-              "它长在**左栏**里（用户原话「就是左边栏的顶上」）");
+        // UI 7b（设计稿 download-*）：左栏收起，分类成了页头下面一排 chip，这颗键跟着搬到那一排最前面。
+        QWidget *chipRow = downloadPage == nullptr ? nullptr
+                                                   : downloadPage->findChild<QWidget *>(MainWindowUI::downloadCategoryChipsName());
+        Q_UNUSED(leftColumn);
+        check(chipRow != nullptr && back != nullptr && chipRow->isAncestorOf(back),
+              "它长在分类 chip 那一排里（左栏收起之后，那一排就是原来「左边栏的顶上」）");
         check(leftSurface != nullptr && categories != nullptr &&
                   inSurface(categories, Theme::sidebarSurfaceValue()),
               "分类那一列也在左栏那个**侧栏面**上（不再画自己那圈边）",
@@ -466,10 +467,12 @@ int main(int argc, char *argv[]) {
         // `columns.left.layout` 指过去的就是它），不是栏控件那条 —— 栏控件那条
         // 里此刻只有侧栏面一个东西。
         QLayout *leftLayout = leftSurface == nullptr ? nullptr : leftSurface->layout();
-        check(leftLayout != nullptr && back != nullptr && categories != nullptr &&
-                  leftLayout->indexOf(back) >= 0 && leftLayout->indexOf(categories) >= 0 &&
-                  leftLayout->indexOf(back) < leftLayout->indexOf(categories),
-              "它在分类那一列的**上头**");
+        Q_UNUSED(leftLayout);
+        QLayout *chipLayout = chipRow == nullptr ? nullptr : chipRow->layout();
+        QWidget *firstChip = chipRow == nullptr ? nullptr : chipRow->findChild<QWidget *>(MainWindowUI::downloadCategoryChipName(0));
+        check(chipLayout != nullptr && back != nullptr && firstChip != nullptr &&
+                  chipLayout->indexOf(back) >= 0 && chipLayout->indexOf(back) < chipLayout->indexOf(firstChip),
+              "它在那一排分类 chip 的**最前面**");
         // 它**不在**右栏那几页里：那几页跟着分类翻，摆进去就是"翻一栏这颗键也跟着滚没了"。
         QStringList inside;
         QStackedWidget *stack = ui.getDownloadStack();
@@ -2351,52 +2354,20 @@ int main(int argc, char *argv[]) {
         // 实例页那两个 `QGroupBox` 拆掉了（用户那份改版文档第一条「减少框」：
         // "右侧只有一个主要内容表面"）。这两颗按钮现在长在**左栏那个侧栏面**上
         // （`wtfmlSurface="sidebar"`），所以"那个组"换成"那张面"。
-        QFrame *iside = surfaceOf(ipage, Theme::sidebarSurfaceValue());
-        check(importBtn != nullptr && addFolderBtn != nullptr && ilist != nullptr &&
-                  iside != nullptr &&
-                  surfaceValueOf(addFolderBtn) == Theme::sidebarSurfaceValue(),
-              "量之前先确认四个控件都在（导入 / 添加文件夹 / 实例列表 / 侧栏那个面）",
-              surfaceValueOf(addFolderBtn));
-        if (importBtn != nullptr && addFolderBtn != nullptr && ilist != nullptr &&
-            iside != nullptr) {
-            // 同一个坐标系里比：都换算到**页面**坐标上。直接拿各自的 geometry() 比是在比两套
-            // 坐标系（当初两颗按钮的父是组、列表在另一个组里；现在它们的父都是那张侧栏面）。
+        // UI 7b（设计稿 manage-*）：它在页头右上角、实例列表的上方偏右。
+        check(importBtn != nullptr && ilist != nullptr, "量之前先确认两个控件都在（导入 / 实例列表）");
+        if (importBtn != nullptr && ilist != nullptr) {
             const auto boxIn = [ipage](QWidget *w) {
                 return QRect(w->mapTo(ipage, QPoint(0, 0)), w->size());
             };
             const QRect importBox = boxIn(importBtn);
-            const QRect addBox = boxIn(addFolderBtn);
-            // 「导入整合包…」紧挨在「添加文件夹…」**下面**（要求）。
-            // "整个在下面"不是"有一半在下面"：两颗按钮的各行高度一样，靠 bottom/top
-            // 比就够了 —— 布局里它们一个是 addLayout 的行、一个是 addWidget，顺序不对
-            // 的话 top 会跑到上面去。
-            check(importBox.top() > addBox.bottom(),
-                  "整个在「添加文件夹…」的**下面**（不是上面，也不是挤在同一行）",
-                  QString("import.top=%1 add.bottom=%2")
-                      .arg(importBox.top())
-                      .arg(addBox.bottom()));
-            check(qAbs(importBox.left() - addBox.left()) <= 2,
-                  "左边缘和「添加文件夹…」对齐（贴左边，不是居中也不是靠右）",
-                  QString("%1 vs %2").arg(importBox.left()).arg(addBox.left()));
-            // 一样宽 = 两颗都顶满这一栏。**这条是"别再改回 Fixed"的几何版**：
-            // 宽度策略那条（上面 B 节）钉的是"没被设成 Fixed"，这条钉的是"在这个
-            // 尺寸下真的长满了" —— 少了宽度策略、只要布局里给的是 AlignLeft，
-            // 宽度照样会缩成 sizeHint，而这条会红。
-            // （差 2 像素的容差是给样式留的边框/内边距。）
-            check(qAbs(importBox.width() - addBox.width()) <= 2,
-                  "宽度和「添加文件夹…」一样（两颗都顶满左栏）",
-                  QString("%1 vs %2").arg(importBox.width()).arg(addBox.width()));
-            // 它确实在左栏：整颗都在实例列表的左边缘**左边**（右栏那三个是"对选中的
-            // 实例做什么"，和它隔着两栏）。
-            check(importBox.right() < boxIn(ilist).left(),
-                  "整颗都在实例列表的左边（在左栏里，没跑到右栏）",
-                  QString("import.right=%1 list.left=%2")
-                      .arg(importBox.right())
-                      .arg(boxIn(ilist).left()));
-            // 说明那句在按钮**下面**（说明是跟着那颗按钮的，摆到别处就白写了）。
-            QLabel *hint =
-                iside->findChild<QLabel *>(MainWindowUI::importHintLabelName());
-            check(hint == nullptr, "导入帮助按需显示，不占用按钮下方空间");
+            const QRect listBox = boxIn(ilist);
+            check(importBtn->isVisibleTo(ipage) && importBox.bottom() < listBox.top() &&
+                      importBox.center().x() > listBox.center().x(),
+                  "「导入整合包…」整颗在实例列表上方、偏右（页头右上角）",
+                  QString("import=%1,%2 list.top=%3 list.cx=%4")
+                      .arg(importBox.center().x()).arg(importBox.bottom())
+                      .arg(listBox.top()).arg(listBox.center().x()));
         }
 
         // 量完把状态收回去：Y 节和"打开就停在主页"的约定都依赖停在主页。

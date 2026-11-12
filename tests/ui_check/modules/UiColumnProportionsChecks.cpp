@@ -45,6 +45,14 @@ int UiColumnProportionsChecks(QComboBox * &installed, QPushButton * &startBtn, Q
             if (left == nullptr || right == nullptr) {
                 continue;
             }
+            // UI 7b：实例页、下载页的左栏收起（文件夹进页头浮层、分类改页头 chip），右栏单独铺满。
+            if (!left->isVisibleTo(page)) {
+                check((key == QStringLiteral("instance") || key == QStringLiteral("download")) &&
+                          right->x() == page->width() - (right->x() + right->width()),
+                      QStringLiteral("%1 页：左栏收起，右栏单独铺满（左右页边距相等）").arg(key),
+                      QString("%1 vs %2").arg(right->x()).arg(page->width() - right->x() - right->width()));
+                continue;
+            }
             check(left->x() >= 0 && left->x() + left->width() <= right->x(),
                   QStringLiteral("%1 页：左栏整个在右栏左边").arg(key),
                   QString("left=[%1,%2] right.x=%3")
@@ -143,15 +151,12 @@ int UiColumnProportionsChecks(QComboBox * &installed, QPushButton * &startBtn, Q
               "没登录时那句话说的是默认外观",
               skinHint != nullptr ? skinHint->text() : QStringLiteral("<null>"));
 
-        // 实例页：左栏那条侧栏里是「游戏文件夹」（小标题 + 列表 + 两个按钮），
-        // 右栏那个正文面里是实例列表。
+        // 实例页（UI 7b）：文件夹列表在页头胶囊点开的浮层里，实例列表在右栏正文面。
         QWidget *instancePage = tabs->widget(1);
-        QWidget *instanceLeft = instancePage->findChild<QWidget *>(
-            MainWindowUI::leftColumnName(QStringLiteral("instance")));
-        check(instanceLeft != nullptr && instanceList != nullptr &&
-                  inSurface(folderList, Theme::sidebarSurfaceValue()) &&
-                  !isDescendantOf(instanceList, instanceLeft),
-              "实例页左栏里是文件夹列表（侧栏面上），实例列表不在左栏");
+        QWidget *folderPopup = instancePage->findChild<QWidget *>(MainWindowUI::instanceFolderPopupName());
+        check(folderPopup != nullptr && instanceList != nullptr && isDescendantOf(folderList, folderPopup) &&
+                  !isDescendantOf(instanceList, folderPopup),
+              "实例页的文件夹列表在页头浮层里，实例列表不在浮层里");
     }
  return 0;
 }

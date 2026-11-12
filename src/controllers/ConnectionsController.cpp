@@ -23,6 +23,11 @@
 #include "download/DownloadRate.hpp"
 #include <memory>
 #include <QTimer>
+#include <QDesktopServices>
+#include <QMenu>
+#include <QUrl>
+#include "ListRowDelegate.hpp"
+#include "util/AppPaths.hpp"
 #include <QElapsedTimer>
 #include "launcher/LauncherManager.hpp"
 #include "manage/FolderManager.hpp"
@@ -299,6 +304,45 @@ void ConnectionsController::setup() {
     // 几何）。过滤器是为了**吃掉**那一下：不然点齿轮会顺手把这一组展开/收起
     // （和加载器树上那个「取消」小叉、下载页那几个刷新圈完全同一个路数）。
     m_owner->m_ui->getInstanceList()->viewport()->installEventFilter(m_owner);
+    // 实例行悬停快捷操作（ListRowDelegate::actionTriggered，由 eventFilter 在按下时发出）：
+    // 文件夹 = 打开实例目录；启动 = 选中它并启动；更多 = 实例设置 / 收藏 / 删除（原行尾三颗）。
+    if (auto *rowDelegate = qobject_cast<ListRowDelegate *>(m_owner->m_ui->getInstanceList()->itemDelegate())) {
+        connect(rowDelegate, &ListRowDelegate::actionTriggered, m_owner,
+                [this](const QModelIndex &index, ListRowDelegate::Action action) {
+            const QString id = index.data(MainWindowUI::instanceIdRole()).toString();
+            if (id.isEmpty()) return;
+            if (action == ListRowDelegate::Action::Folder) {
+                QDesktopServices::openUrl(QUrl::fromLocalFile(AppPaths::versionDir(id)));
+                return;
+            }
+            if (action == ListRowDelegate::Action::Launch) {
+                QComboBox *combo = m_owner->m_ui->getInstalledVersionCombo();
+                const int row = combo == nullptr ? -1 : combo->findData(id);
+                if (row >= 0) {
+                    combo->setCurrentIndex(row);
+                    m_owner->onStartButtonClicked();
+                }
+                return;
+            }
+            QTreeWidget *tree = m_owner->m_ui->getInstanceList();
+            auto *menu = new QMenu(tree);
+            menu->setObjectName(MainWindowUI::instanceRowMenuName());
+            menu->setAttribute(Qt::WA_DeleteOnClose);
+            menu->addAction(MainWindowUI::rowInstanceSettingsTipText(), m_owner,
+                            [this, id] { m_owner->openInstanceSettings(id); });
+            const bool canPin = index.data(MainWindowUI::rowPinRole()).toBool();
+            const bool canUnpin = index.data(MainWindowUI::rowUnpinRole()).toBool();
+            if (canPin || canUnpin) {
+                menu->addAction(canUnpin ? MainWindowUI::rowUnpinTipText() : MainWindowUI::rowPinTipText(), m_owner,
+                                [this, id, canUnpin] { canUnpin ? m_owner->unpinInstance(id) : m_owner->pinInstance(id); });
+            }
+            menu->addSeparator();
+            menu->addAction(MainWindowUI::rowDeleteInstanceTipText(), m_owner,
+                            [this, id] { m_owner->confirmDeleteInstance(id); });
+            const QRect more = ListRowDelegate::actionRect(tree->visualRect(index), ListRowDelegate::Action::More);
+            menu->popup(tree->viewport()->mapToGlobal(more.bottomLeft()));
+        });
+    }
     // 组行行尾那颗齿轮里那几项点了做什么（界面只报"哪一组、第几项"）。
     m_owner->m_ui->setGroupActionHandler([this](const QString &groupId, int action) {
         m_owner->onGroupActionRequested(groupId, action);

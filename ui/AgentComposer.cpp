@@ -12,7 +12,7 @@
 AgentComposer::AgentComposer(QWidget *parent) : QPlainTextEdit(parent) {
     setObjectName(QStringLiteral("agentComposer"));
     setTabChangesFocus(true);
-    setPlaceholderText(QStringLiteral("描述你遇到的问题…（Enter 发送，Shift+Enter 换行）"));
+    setPlaceholderText(QStringLiteral("描述你遇到的问题…"));
     setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
 }

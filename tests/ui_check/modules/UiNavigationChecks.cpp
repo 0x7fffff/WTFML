@@ -239,7 +239,9 @@ int UiNavigationChecks(QMainWindow &window, MainWindowUI &ui, QComboBox * &insta
               "「安装」不在主页（它只在下载页的安装页上）");
         check(instancePage != nullptr && isAncestor(instancePage, folderList) &&
                   isAncestor(instancePage, instanceList) &&
-                  instancePage->findChildren<QPushButton *>().size() == 11,
+                  instancePage->findChildren<QPushButton *>().size() == 14,
+              // UI 7b 从 11 变 14：页头那颗文件夹胶囊（instanceFolderPill，点开是文件夹浮层）
+              // + 空状态那两颗（「去下载页装新版本」「导入整合包…」）。
               // 十一个 = 下面那三颗 + 搜索行那四颗筛选 chip + 模式行那三颗
               // （客户端实例 / 服务端 / 预设）+ 右下那颗「新建服务端…」（M4）。
               // 模式行 从两颗变三颗：预设管理从「设置」里搬了过来，这一颗是三颗里的第三颗。
@@ -343,9 +345,9 @@ int UiNavigationChecks(QMainWindow &window, MainWindowUI &ui, QComboBox * &insta
                       : QStringLiteral("<null>"));
             check(importBtn != nullptr &&
                       isAncestor(instancePage->findChild<QWidget *>(
-                                     MainWindowUI::leftColumnName(QStringLiteral("instance"))),
+                                     MainWindowUI::rightColumnName(QStringLiteral("instance"))),
                                  importBtn),
-                  "在左栏（跟文件夹列表同一栏），不在右栏那三个那一排");
+                  "在右栏页头（UI 7b 设计稿：和「分组设置…」同一排右上角）");
         }
 
         check(folderList != nullptr &&
@@ -357,13 +359,12 @@ int UiNavigationChecks(QMainWindow &window, MainWindowUI &ui, QComboBox * &insta
               "文件夹列表 / 实例列表 / 当前文件夹那句话的 objectName 都是约定的那个");
         // 左边装文件夹、右边装实例：两张列表不能同栏（同栏就退化成一次只看得见一张）。
         check(instancePage != nullptr && folderList != nullptr && instanceList != nullptr &&
-                  isAncestor(instancePage->findChild<QWidget *>(
-                                 MainWindowUI::leftColumnName(QStringLiteral("instance"))),
+                  isAncestor(instancePage->findChild<QWidget *>(MainWindowUI::instanceFolderPopupName()),
                              folderList) &&
                   isAncestor(instancePage->findChild<QWidget *>(
                                  MainWindowUI::rightColumnName(QStringLiteral("instance"))),
                              instanceList),
-              "文件夹列表在左栏、实例列表在右栏");
+              "文件夹列表在页头胶囊点开的浮层里、实例列表在右栏（UI 7b）");
         // 账号那一整块（正版登录 / 加离线账号 / 切换 / 删除 / 皮肤披风）只在
         // 「账号与外观」那个窗里做，设置页这格是它的入口 —— 和主页右栏那个同一个窗、
         // 同一句文案（accountSkinButtonText()）。

@@ -1235,7 +1235,9 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             // 勾上那一格的**字**走的是调色板 `Link`（各预设都把它备成"压在自家底色上
             // 读得清的主题色"），方框那一块走 `Accent`（纯色）—— 两样不是同一个地方取的，
             // 所以分别量。
-            const QColor checkInk = app.palette().color(QPalette::Link);
+            // 7b：调色板 `Link` 改成 accentInk（浅色预设下压到近黑、专给小字用），拿它当「绿」
+            // 会和那一档黑撞在 30 的容差里 —— 「有没有主题色」改用 tokens().deep 量。
+            const QColor checkInk = Theme::tokens().deep;
             // 输入框 / 下拉框那一圈边走调色板 `Dark`（tokens 的 stroke）。
             const QColor inputBorderToken = app.palette().color(QPalette::Dark);
             // 7a：输入框 / 下拉框的底和那条底线都是半透明的，垫在页面底上抓、按叠出来的色量。
@@ -1485,23 +1487,17 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             //
             // 要求：「下拉框和所有输入框的高度略微改高点，下拉框最右边放一个 V 箭头」。
             //
-            // 这一条量的是**字符串**，钉的却是"那一对选择器还在不在"：箭头是
-            // `Theme::createStyle()` 里那个 `QProxyStyle` 画的，而它**只有在样式表里那句
-            // `QComboBox::drop-down` 不带 `border: none` 时才会被调到**（带着的话 Qt 走另一条
-            // 分支、一个箭头都不画，见 `Theme.cpp` 那段长注释）。所以"`::drop-down` 里那句
-            // `border: none` 被谁顺手加回来"这件事，症状是**箭头整个消失**（屏幕上静悄悄少
-            // 一样东西），得在这儿拦住。
-            const QString dropDownRule = QStringLiteral("QComboBox::drop-down { width: 20px; }");
+            // 7b：箭头底下不许再有那块方框（设计稿只要一个 V）。`::drop-down` 写 `border: none`
+            // ⇒ Qt 那一格什么都不画，V 由 `Theme.cpp` 的 `ComboChevronPainter` 在下拉框画完之后补。
+            // 两样必须一起在：只有 `border: none` 箭头就整个没了，没有它就叠出那块方框。
+            const QString dropDownRule = QStringLiteral("QComboBox::drop-down { width: 20px; border: none; }");
             const QString spinHeightRule =
                 QStringLiteral("QAbstractSpinBox { min-height: %1px; }").arg(Theme::inputHeight() - 6);
-            check(sheet.contains(dropDownRule) &&
-                      !sheet.contains(QLatin1String("QComboBox::drop-down { border: none")) &&
-                      sheet.contains(spinHeightRule),
-                  "★★ W13 下拉框那一格：`::drop-down` 里**不许有 `border: none`**（有它 Qt 就把"
-                  "箭头整个吃掉），数字框那一档高度（min + max）也钉着",
-                  QStringLiteral("规则 %1 / 带 border:none 的旧写法 %2 / 数字框那条 %3")
+            check(sheet.contains(dropDownRule) && sheet.contains(spinHeightRule),
+                  "★★ W13 下拉框那一格：`::drop-down` 写 `border: none`（Qt 不画那块底，V 由过滤器补），"
+                  "数字框那一档高度（min + max）也钉着",
+                  QStringLiteral("规则 %1 / 数字框那条 %2")
                       .arg(sheet.contains(dropDownRule) ? 1 : 0)
-                      .arg(sheet.contains(QLatin1String("QComboBox::drop-down { border: none")) ? 1 : 0)
                       .arg(sheet.contains(spinHeightRule) ? 1 : 0));
 
             // 高度：三样**一样高**（并排摆着差 1px 就看得出来）。

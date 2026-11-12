@@ -314,7 +314,8 @@ int UiDownloadTypographyChecks(QMainWindow &window, MainWindowUI &ui) {
         // ②″ 真实那份列表上也量一次：**悬停到第 4 行**（「资源包」，不是当前那一行）那一格
         // 就有东西；再把光标挪到第 0 行，那一格又空了。前面那四条量的是自搭的探针，
         // 这一条钉的是"产品那份列表真的开着 mouseTracking、真的走上了同一条路"。
-        if (categoryList != nullptr && categoryList->count() > 4) {
+        // UI 7b：左栏那列收起（分类改成页头 chip），真列表不上屏 ⇒ 悬停那半段只在它露着时量。
+        if (categoryList != nullptr && categoryList->count() > 4 && categoryList->isVisibleTo(categoryList->window())) {
             check(categoryList->viewport()->hasMouseTracking(),
                   "左栏那份列表开着 mouseTracking（代理读的 State_MouseOver 只有它会填）");
             const auto inkWithCursorAt = [categoryList](const QPoint &cursor, const QRect &cell) {

@@ -1021,6 +1021,8 @@ QWidget *MainWindowUI::setupInstancePage() {
     // `instanceFolderLabel`）—— 文案、灌数据那条路（MainWindow::refreshInstanceList）、
     // 验证工程找它用的名字都落在这一处（标题下面那行说明）。
     fillPageHeader(instance.right, instancePageTitle(), QString());
+    // 设计稿 page-title：一级页标题用 Display 档（28px），比卡片小标题大一级。
+    instance.right.title->setFont(Theme::textFont(instance.right.title->font(), Theme::TextRole::Display));
     instanceFolderLabel = instance.right.subtitle;
     instanceFolderLabel->setObjectName(MainWindowUI::instanceFolderLabelName());
     // 它就是这一页的状态栏那一行，**不跟着"文字空不空"收起来**（文字由 MainWindow 灌，
@@ -1033,6 +1035,67 @@ QWidget *MainWindowUI::setupInstancePage() {
     // 「分组设置…」= 打开另一个窗（一般性），不是"干这件事"。
     Theme::markButton(groupInstanceButton, Theme::ButtonKind::Neutral);
     instance.right.actions->addWidget(groupInstanceButton);
+    // 设计稿 manage.html：没有左栏。标题右边一颗「游戏文件夹」胶囊，点开是文件夹列表浮层
+    // （原左栏的 folderList / 添加文件夹… 原样搬进去，数据流不变）；说明行收进胶囊的悬停提示。
+    instance.left.widget->setVisible(false);
+    instanceFolderLabel->setVisible(false);
+    auto *folderPill = new QPushButton(instance.right.header);
+    folderPill->setObjectName(instanceFolderPillName());
+    folderPill->setCursor(Qt::PointingHandCursor);
+    folderPill->setProperty("wtfmlFolderPill", true);
+    folderPill->setIconSize(QSize(16, 16));
+    const auto paintPill = [folderPill]() {
+        const Theme::Tokens t = Theme::tokens();
+        folderPill->setIcon(QIcon(VersionIcons::line(QStringLiteral("folder"), 16, t.secondary)));
+        folderPill->setStyleSheet(QStringLiteral(
+            "QPushButton { background: transparent; color: %1; border: 1px solid %2; border-radius: 10px;"
+            " padding: 0 30px 0 10px; min-height: 34px; max-height: 34px; text-align: left; font-weight: 600; }"
+            "QPushButton:hover { background: %3; }")
+            .arg(t.text.name(QColor::HexArgb), t.stroke.name(QColor::HexArgb), t.hover.name(QColor::HexArgb)));
+    };
+    paintPill();
+    Theme::follow(folderPill, paintPill);
+    {   // 右端 chevron：画在胶囊自己身上（QPushButton 的图标只能在左边）
+        auto *chev = new QLabel(folderPill);
+        chev->setAttribute(Qt::WA_TransparentForMouseEvents);
+        const auto paintChev = [chev]() {
+            chev->setPixmap(VersionIcons::line(QStringLiteral("chevD"), 14, Theme::tokens().secondary));
+        };
+        paintChev();
+        Theme::follow(chev, paintChev);
+        chev->setFixedSize(14, 14);
+        auto *pillLayout = new QHBoxLayout(folderPill);
+        pillLayout->setContentsMargins(0, 0, 10, 0);
+        pillLayout->addStretch(1);
+        pillLayout->addWidget(chev);
+    }
+    if (auto *titleRow = qobject_cast<QHBoxLayout *>(instance.right.header->layout()->itemAt(0)->layout())) {
+        titleRow->insertWidget(1, folderPill, 0, Qt::AlignVCenter);
+    }
+    // 文件夹浮层：圆角 16 的磨砂面（浮层才有自己的面）。
+    auto *folderPopup = new QFrame(instanceTab, Qt::Popup | Qt::FramelessWindowHint);
+    folderPopup->setObjectName(instanceFolderPopupName());
+    folderPopup->setAttribute(Qt::WA_TranslucentBackground);
+    folderPopup->setAttribute(Qt::WA_StyledBackground);
+    const auto paintPopup = [folderPopup]() {
+        const Theme::Tokens t = Theme::tokens();
+        folderPopup->setStyleSheet(QStringLiteral("QFrame#%1 { background: %2; border: 1px solid %3; border-radius: 16px; }")
+                                       .arg(instanceFolderPopupName(), t.card.name(QColor::HexArgb),
+                                            t.glassEdge.name(QColor::HexArgb)));
+    };
+    paintPopup();
+    Theme::follow(folderPopup, paintPopup);
+    auto *popupLayout = new QVBoxLayout(folderPopup);
+    popupLayout->setContentsMargins(12, 12, 12, 12);
+    popupLayout->setSpacing(8);
+    instance.left.layout = popupLayout;
+    instance.left.surface = folderPopup;
+    QObject::connect(folderPill, &QPushButton::clicked, folderPopup, [folderPill, folderPopup]() {
+        folderPopup->setFixedWidth(qMax(360, folderPill->width()));
+        folderPopup->adjustSize();
+        folderPopup->move(folderPill->mapToGlobal(QPoint(0, folderPill->height() + 6)));
+        folderPopup->show();
+    });
 
     {
         // ---- 侧栏：一个页面小标题「游戏目录」+ 文件夹列表 + 两颗按钮（都在侧栏底部）----
@@ -1070,6 +1133,7 @@ QWidget *MainWindowUI::setupInstancePage() {
         // （见 FolderRowWidget），有没有外框在观感上是"一块面板"和"一串行"的区别。
         folderList->setFrameShape(QFrame::NoFrame);
         styleSidebarList(folderList);
+        folderList->setMinimumHeight(folderRowHeight() * 3 + 8);
         instance.left.layout->addWidget(folderList, 1);
 
         // 下面两颗按钮**贴着侧栏底部**（列表那一格吃掉剩下的高度）。
@@ -1083,6 +1147,9 @@ QWidget *MainWindowUI::setupInstancePage() {
         addFolderButton->setObjectName(addFolderButtonName());
         addFolderButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         instance.left.layout->addWidget(addFolderButton);
+        // 浮层里点了一份文件夹 / 要添加文件夹：先收起浮层（切换本身照旧由 MainWindow 接）。
+        QObject::connect(folderList, &QListWidget::itemClicked, folderPopup, &QWidget::hide);
+        QObject::connect(addFolderButton, &QPushButton::clicked, folderPopup, &QWidget::hide);
 
         // 「导入整合包…」：从 Modrinth 格式的整合包（.zip / .mrpack）里**造一个新实例**。
         // 它和「添加文件夹…」是同一类动作（往这一列里添东西）—— 而右栏那三个都是
@@ -1090,9 +1157,11 @@ QWidget *MainWindowUI::setupInstancePage() {
         importModpackButton = new QPushButton(importModpackText(), instance.left.surface);
         importModpackButton->setObjectName(importModpackButtonName());
         importModpackButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-        // 「导入整合包…」= 一般性（白底黑字那一档），和上面那颗"主题色描边"的加文件夹区分开。
+        // 设计稿：「导入整合包…」在页头右上，和「分组设置…」一排。
         Theme::markButton(importModpackButton, Theme::ButtonKind::Neutral);
-        instance.left.layout->addWidget(importModpackButton);
+        importModpackButton->setParent(instance.right.header);
+        importModpackButton->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+        instance.right.actions->insertWidget(0, importModpackButton);
 
         importModpackButton->setToolTip(QStringLiteral("导入平台整合包或可识别的本地压缩包。"));
 
@@ -1150,9 +1219,9 @@ QWidget *MainWindowUI::setupInstancePage() {
             // "清空搜索恢复原展开状态"，而那一格自己就带着这个动作，再摆一颗是同一件事
             // 说两遍。
             instanceSearchEdit->setClearButtonEnabled(true);
+            instanceSearchEdit->setFixedWidth(280);  // 设计稿：搜索框靠右、定宽，chip 在左
             instanceSearchEdit->setFixedHeight(Theme::chipHeight());
             instanceSearchEdit->setProperty("wtfmlChipHeight", true);
-            row->addWidget(instanceSearchEdit, 1);
 
             // 四颗 chip **全都建着**（和下载页左栏那六个分类、文件页那四颗筛子同一套做法）：
             // 会变的是"露不露"和"亮不亮"，不是"有没有这一颗"—— 建/不建会让"这一页该有什么"
@@ -1171,8 +1240,14 @@ QWidget *MainWindowUI::setupInstancePage() {
                 instanceFilterButtons.append(button);
                 row->addWidget(button);
             }
+            row->addStretch(1);
+            row->addWidget(instanceSearchEdit);
         }
         clientLayout->addWidget(instanceFilterRow);
+        // Tab 顺序跟着设计稿的版面走（左→右）：页头胶囊 → 导入 → 分组设置；四颗 chip → 搜索框。
+        QWidget::setTabOrder(folderPill, importModpackButton);
+        QWidget::setTabOrder(importModpackButton, groupInstanceButton);
+        QWidget::setTabOrder(instanceFilterButtons.last(), instanceSearchEdit);
 
         // 「没有符合筛选条件的实例」那一行：摆在这儿（筛选行下面、树上面）而不是树的
         // 下边 —— 筛空了的时候树是空的，那句话直接跟着筛选行读下来才对得上"是上面那些
@@ -1188,15 +1263,68 @@ QWidget *MainWindowUI::setupInstancePage() {
         instanceNoMatchLabel->setVisible(false);
         clientLayout->addWidget(instanceNoMatchLabel);
         // 空文件夹那一句：同一个位置、同一档次要色，只是说的是另一件事（见 instanceEmptyText()）。
-        instanceEmptyLabel = new QLabel(instanceEmptyText(), clientPage);
+        // 设计稿 manage-empty：插画 + 大标题 + 一句引导 + 两颗主操作，整块居中；
+        // MainWindow::rebuildInstanceTree() 按"空文件夹且没在筛"开关整块（标签跟着容器）。
+        auto *emptyState = new QWidget(clientPage);
+        emptyState->setObjectName(instanceEmptyStateName());
+        emptyState->setVisible(false);
+        auto *emptyLayout = new QVBoxLayout(emptyState);
+        emptyLayout->setContentsMargins(0, 0, 0, 40);
+        emptyLayout->setSpacing(10);
+        emptyLayout->addStretch(1);
+        auto *emptyArt = new QLabel(emptyState);
+        emptyArt->setAlignment(Qt::AlignCenter);
+        const auto paintArt = [emptyArt]() {
+            QPixmap art(160, 140);
+            art.fill(Qt::transparent);
+            QPainter p(&art);
+            p.setRenderHint(QPainter::Antialiasing, true);
+            p.setPen(QPen(Theme::tokens().stroke, 1.0, Qt::DashLine));
+            p.setBrush(Qt::NoBrush);
+            p.drawEllipse(QRectF(5, 2, 150, 126));
+            p.drawPixmap(68, 12, VersionIcons::isoBlock(4, 30));   // 沙
+            p.drawPixmap(26, 46, VersionIcons::isoBlock(0, 62));   // 草
+            p.drawPixmap(72, 66, VersionIcons::isoBlock(6, 46));   // 石
+            emptyArt->setPixmap(art);
+        };
+        paintArt();
+        Theme::follow(emptyArt, paintArt);
+        emptyLayout->addWidget(emptyArt, 0, Qt::AlignHCenter);
+        auto *emptyTitle = new QLabel(instanceEmptyTitleText(), emptyState);
+        emptyTitle->setAlignment(Qt::AlignCenter);
+        {
+            QFont f = Theme::textFont(emptyTitle->font(), Theme::TextRole::Display);
+            f.setLetterSpacing(QFont::AbsoluteSpacing, 3);
+            emptyTitle->setFont(f);
+        }
+        emptyLayout->addWidget(emptyTitle);
+        instanceEmptyLabel = new QLabel(instanceEmptyText(), emptyState);
         instanceEmptyLabel->setObjectName(instanceEmptyLabelName());
         markTextRole(instanceEmptyLabel, Theme::secondaryTextRoleValue());
         instanceEmptyLabel->setAlignment(Qt::AlignCenter);
         instanceEmptyLabel->setWordWrap(true);
-        instanceEmptyLabel->setContentsMargins(0, 24, 0, 0);
         instanceEmptyLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
         instanceEmptyLabel->setVisible(false);
-        clientLayout->addWidget(instanceEmptyLabel);
+        emptyLayout->addWidget(instanceEmptyLabel);
+        auto *emptyActions = new QHBoxLayout;
+        emptyActions->setSpacing(10);
+        emptyActions->addStretch(1);
+        auto *emptyDownload = new QPushButton(instanceEmptyDownloadText(), emptyState);
+        Theme::markButton(emptyDownload, Theme::ButtonKind::Primary);
+        QObject::connect(emptyDownload, &QPushButton::clicked, emptyState,
+                         [this]() { tabWidget->setCurrentIndex(downloadTabIndex()); });
+        emptyActions->addWidget(emptyDownload);
+        auto *emptyImport = new QPushButton(importModpackText(), emptyState);
+        Theme::markButton(emptyImport, Theme::ButtonKind::Neutral);
+        QObject::connect(emptyImport, &QPushButton::clicked, emptyState, [this]() {
+            if (importModpackButton != nullptr) importModpackButton->click();
+        });
+        emptyActions->addWidget(emptyImport);
+        emptyActions->addStretch(1);
+        emptyLayout->addSpacing(8);
+        emptyLayout->addLayout(emptyActions);
+        emptyLayout->addStretch(2);
+        clientLayout->addWidget(emptyState, 1);
 
         instanceList = new QTreeWidget(clientPage);
         instanceList->setObjectName(instanceListName());
@@ -1211,12 +1339,11 @@ QWidget *MainWindowUI::setupInstancePage() {
         // NOTE: 正路就是 setRootIsDecorated(false) —— 拿 `DontShowIndicator` 那条 item flag
         // 顶替会让整条分类的子条目一起消失（版本树那边踩过）。
         instanceList->setRootIsDecorated(false);
-        // 每一行高度一样（没有多行文本），打开这个能让 QTreeWidget 不用去问每一行的
-        // sizeHint —— 实例多的时候滚动明显更顺。
-        instanceList->setUniformRowHeights(true);
-        // 组下面的实例缩进多少由它给。默认 20 在窄栏里有点深，收到 14：
-        // 正文那一栏还要留出滚动条和行尾那几颗按钮的宽度，缩进多一格就少一格放实例名。
-        instanceList->setIndentation(14);
+        // 组头 36px、实例行 60px 两档高度，不能开 uniformRowHeights（会全按第一行的组头算）。
+        instanceList->setUniformRowHeights(false);
+        instanceList->setIndentation(0);  // 设计稿：组内实例行和组头左缘对齐
+        instanceList->viewport()->setAttribute(Qt::WA_Hover, true);
+        instanceList->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
         // 分组头那一行不是默认画法：组名粗体、右边一个箭头 + 一颗齿轮（"点一下打开/关闭"
         // 和"这一组的更多操作"都画在那两个格里）。代理只接管挂着 groupIdRole() 的行，
         // 实例行原样走基类（见 InstanceGroupDelegate 文件头）。
@@ -1262,10 +1389,16 @@ QWidget *MainWindowUI::setupInstancePage() {
                 // chip 那一档（和筛选那几颗同一处出处）。**互斥**由 `MainWindow` 那一层认
                 // （点一颗就把另一颗的勾摘掉）—— 这里不挂 `setAutoExclusive`：那是"单选钮"
                 // 那一套，和这一页别处的手感不一致（见 InstanceFilterButton 那段）。
-                Theme::markChipButton(button);
                 instanceModeButtons.append(button);
-                modeLayout->addWidget(button);
             }
+            // 设计稿分段控件（客户端实例 / 服务端 / 预设）：一个容器包三段。
+            auto *segment = new QWidget(modeRow);
+            auto *segmentLayout = new QHBoxLayout(segment);
+            segmentLayout->setContentsMargins(3, 3, 3, 3);
+            segmentLayout->setSpacing(2);
+            for (QPushButton *button : std::as_const(instanceModeButtons)) segmentLayout->addWidget(button);
+            Theme::markSegmented(segment, instanceModeButtons);
+            modeLayout->insertWidget(0, segment);
             // 两颗靠左，剩下的空当由弹簧吃掉。
             modeLayout->addStretch(1);
             instance.right.layout->addWidget(modeRow);
@@ -1379,6 +1512,8 @@ void MainWindowUI::setInstanceFolderText(const QString &text) {
     if (instanceFolderLabel != nullptr && instanceMode != InstanceMode::Preset) {
         instanceFolderLabel->setText(text);
     }
+    if (tabWidget != nullptr)
+        if (auto *pill = tabWidget->findChild<QPushButton *>(instanceFolderPillName())) pill->setToolTip(text);
 }
 
 void MainWindowUI::setPresetSubtitle(const QString &text) {
@@ -1418,7 +1553,8 @@ void MainWindowUI::setInstanceMode(InstanceMode mode) {
     // 页头那句副标题**一直都有**（"这一页列的是什么"）：换档只是换一句话。
     // 预设和实例同属当前游戏文件夹，所以两份底稿说的都是这个文件夹。
     if (instanceFolderLabel) {
-        instanceFolderLabel->setVisible(true);
+        // 实例 / 服务端：路径与数量收进文件夹胶囊的悬停提示；预设页那句说明仍在标题下。
+        instanceFolderLabel->setVisible(mode == InstanceMode::Preset);
         instanceFolderLabel->setText(mode == InstanceMode::Preset ? presetSubtitleText
                                                                   : instanceFolderText);
     }
@@ -1485,7 +1621,30 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
                 meta->setFont(metaFont);
                 meta->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
                 followHeroInk(meta, true);
-                column->addWidget(meta);
+                // 设计稿 .meta：行首一枚加载器小图标（没装加载器 = 草方块，和 loaderMark() 越界一条规矩）。
+                auto *metaRow = new QHBoxLayout;
+                metaRow->setContentsMargins(0, 0, 0, 0);
+                metaRow->setSpacing(6);
+                if (!item.empty) {
+                    const QString versionLine = item.detail.section(QLatin1Char('\n'), 0, 0);
+                    const QString loader = versionLine.section(QStringLiteral(" / "), 1).trimmed();
+                    const QStringList loaderNames = modLoaderOptionTexts();
+                    int loaderIndex = loaderNames.size();
+                    for (int i = 0; i < loaderNames.size(); ++i) {
+                        if (!loader.isEmpty() && loader.startsWith(loaderNames.at(i), Qt::CaseInsensitive)) {
+                            loaderIndex = i;
+                            break;
+                        }
+                    }
+                    auto *loaderIcon = new QLabel(card);
+                    loaderIcon->setObjectName(QStringLiteral("homeCurrentLoaderIcon"));
+                    loaderIcon->setFixedSize(14, 14);
+                    loaderIcon->setScaledContents(true);
+                    loaderIcon->setPixmap(VersionIcons::loaderMark(loaderIndex, 28));
+                    metaRow->addWidget(loaderIcon, 0, Qt::AlignVCenter);
+                }
+                metaRow->addWidget(meta, 1);
+                column->addLayout(metaRow);
                 auto *gap = new QWidget(card);
                 gap->setObjectName(QStringLiteral("homeCurrentGap"));
                 gap->setFixedHeight(22);
