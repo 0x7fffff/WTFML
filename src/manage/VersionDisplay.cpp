@@ -10,6 +10,8 @@
 #include <QDateTime>
 #include <QStringList>
 
+#include <algorithm>
+
 namespace {
 
 /// 单段的最大长度。手写的 wtfml.meta 里塞一整句话进来是很容易的事，
@@ -170,4 +172,23 @@ QString releaseDateText(const QString &releaseTime) {
         return head;
     }
     return QString();
+}
+
+QString resolveCurrentInstance(const QStringList &ids, const QString &previousId, int previousIndex,
+                               const QString &lastLaunched, const QString &lastSelected) {
+    if (ids.isEmpty()) {
+        return QString();
+    }
+    if (!previousId.isEmpty()) {
+        if (ids.contains(previousId)) {
+            return previousId;
+        }
+        return ids.at(std::clamp(previousIndex, 0, int(ids.size()) - 1));
+    }
+    for (const QString &remembered : {lastLaunched, lastSelected}) {
+        if (!remembered.isEmpty() && ids.contains(remembered)) {
+            return remembered;
+        }
+    }
+    return ids.first();
 }

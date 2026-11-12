@@ -159,6 +159,9 @@ void MainWindow::refreshInstalledVersions() {
 
     // 主页上"已安装版本"只有下拉框这一个控件（右栏那张列表不存在，见
     // MainWindowUI 里主页那一段），所以这里只灌下拉框，同步选中项也只剩实例页那张列表。
+    // 灌之前记下原来的当前实例和它的位置：被删时顺延到同一位置（resolveCurrentInstance()）。
+    const QString previousCurrent = selectedVersionId(combo);
+    const int previousIndex = combo->currentIndex();
     fillVersionCombo(combo, parts, m_settings->versionNameOptions());
 
     // 实例页那张树：**扫盘这一段先把原料留好**（见 m_instancePageParts 那段 —— 搜索框每
@@ -175,8 +178,8 @@ void MainWindow::refreshInstalledVersions() {
     rebuildInstanceTree();
 
     // 占位文案随上下文变。**两个串都必须非空**：空占位文案会让 QComboBox 在往空
-    // 模型里插第一批数据时静默选中第 0 项（qcombobox.cpp:1753-1759），而这里必须
-    // 停在"没选"，否则用户会在毫无察觉的情况下启动一个自己没挑过的版本。
+    // 模型里插第一批数据时静默选中第 0 项（qcombobox.cpp:1753-1759）—— 当前实例挑谁
+    // 只由下面 resolveCurrentInstance() 那一步定，不能让 Qt 顺手替它定。
     //
     // 占位文案必须按 launchable 重设：写死成"暂无已安装版本"的话，灌完数据后
     // 明明装了好几个版本，画面上却说着一个都没有。
@@ -184,6 +187,37 @@ void MainWindow::refreshInstalledVersions() {
     // 装的时候，下拉框里确实一个都挑不了，那时候说"请选择一个版本"是句空话）。
     combo->setPlaceholderText(launchable.isEmpty() ? MainWindowUI::noInstalledVersionPlaceholder()
                                                    : MainWindowUI::chooseVersionPlaceholder());
+
+    // 有实例必有当前实例：fillVersionCombo() 只保住原来那一个，没保住（被删了、刚启动、
+    // 刚从零个装出第一个）就按规则挑一个。不挡信号：当前实例换了，主页、底栏、实例树、
+    // 离线皮肤都要跟着刷（ConnectionsController 那条 currentIndexChanged）；挡掉的只是
+    // 「记成用户手选」那一步（wtfmlAutoPick）。
+    // 顺延只是"它暂时不在"时的替身：被挤掉的那一个（修复期间被滤掉、目录一时读不到）回来了，
+    // 而用户这期间没手选过别的（手选会清掉 wtfmlDisplacedId，见 ConnectionsController），就换回它。
+    const auto autoPick = [combo](const QString &id) {
+        combo->setProperty("wtfmlAutoPick", true);
+        combo->setCurrentIndex(combo->findData(id));
+        combo->setProperty("wtfmlAutoPick", false);
+    };
+    const QString displaced = combo->property("wtfmlDisplacedId").toString();
+    if (!displaced.isEmpty() && combo->findData(displaced) >= 0) {
+        combo->setProperty("wtfmlDisplacedId", QVariant());
+        if (selectedVersionId(combo) != displaced) autoPick(displaced);
+    } else if (combo->currentIndex() < 0 && combo->count() > 0) {
+        QStringList ids;
+        ids.reserve(combo->count());
+        for (int row = 0; row < combo->count(); ++row) {
+            ids.append(combo->itemData(row).toString());
+        }
+        const QString picked =
+            resolveCurrentInstance(ids, previousCurrent, previousIndex,
+                                   m_settings->lastLaunchedVersion(), m_settings->lastSelectedVersion());
+        // 只记第一个被挤掉的：替身自己再被挤掉时，要等回来的还是最初那一个。
+        if (!previousCurrent.isEmpty() && displaced.isEmpty()) {
+            combo->setProperty("wtfmlDisplacedId", previousCurrent);
+        }
+        autoPick(picked);
+    }
 
     // 刷完必须手动同步按钮文字和 tooltip：上面 fillVersionCombo() 里套了
     // QSignalBlocker，重灌过程不会发信号，光靠 connect 那条接不到。
@@ -442,37 +476,6 @@ void MainWindow::updateInstanceTreeRunState() {
         }
         ++it;
     }
-}
-
-void MainWindow::restoreLastLaunchedVersion() {
-    const QString remembered = m_settings->lastLaunchedVersion();
-    if (remembered.isEmpty()) {
-        // 从没成功启动过任何版本：留空，让用户自己挑。这里不是错误路径，不打日志。
-        return;
-    }
-
-    QComboBox *combo = m_ui->getInstalledVersionCombo();
-    if (combo->currentIndex() >= 0) {
-        // 已经有选中项了（理论上不会发生：构造函数里刚刷完、placeholderText 非空所以
-        // 灌数据时不会自动选中第 0 项）。真发生了也不抢 —— 当前显示出来的那个才是
-        // 用户看得见的选择，偷偷改掉比不恢复更糟。
-        return;
-    }
-
-    const int index = combo->findData(remembered);
-    if (index < 0) {
-        // 记着的那个版本已经不在磁盘上了（被删了、目录改过名）。此时**刻意留空**：
-        // 退回"再选一个"，而不是替用户改选一个别的版本 —— 启动是重操作，不替他猜。
-        // 占位文案是"请选择一个版本"，开头那句"暂无已安装版本"只在真一个都没装时出现。
-        qDebug() << "Last launched version is no longer installed:" << remembered;
-        return;
-    }
-    // 显式收尾，**不依赖** currentIndexChanged 那条连接。那条连接是活的（这里没有
-    // QSignalBlocker），但依赖它就等于依赖"setupConnections() 已经跑过了"这个隐藏
-    // 前提 —— 而这里少刷一次的后果是按钮第二行停在"未选择版本"、和上面选中的版本
-    // 对不上，正是 mw_check 那一整摊断言在防的事。这一句是幂等的，重复跑不花钱。
-    combo->setCurrentIndex(index);
-    updateStartButtonText();
 }
 
 void MainWindow::updateStartButtonText() {
