@@ -1,4 +1,5 @@
 #include "modules/Support.hpp"
+#include "ActivityPopover.hpp"
 #include "modules/LiveProbes.hpp"
 #include "controllers/JavaRuntimeController.hpp"
 #include "manage/VersionManager.hpp"
@@ -3185,6 +3186,7 @@ int main(int argc, char *argv[]) {
             ab7Tabs->setCurrentIndex(MainWindowUI::homeTabIndex());
             QApplication::processEvents();
             ab7Cell->click();
+            ActivityPopover::openAllIn(&window);  // 摘要先弹浮动面板，从「全部任务」进整页
             QApplication::processEvents();
             QWidget *ab7Panel = window.findChild<QWidget *>(MainWindowUI::taskCenterPanelName());
             check(ab7Panel != nullptr && ab7Panel->isVisible(),

@@ -1,6 +1,7 @@
 // Bottom bar, transient activity/account/toolbox panels and folder/group menus.
 #include "MainWindowUI.hpp"
 
+#include "ActivityPopover.hpp"
 #include "Animations.hpp"  // 换页 / 展开折叠 / 上拉面板那几段动效
 #include "ElidedLabel.hpp"
 #include "Glass.hpp"
@@ -2175,7 +2176,7 @@ void MainWindowUI::toggleBottomBarPanel(const BottomBarAnchor &anchor) {
         return;
     }
     if (anchor.kind == BottomBarAnchorKind::Tasks) {
-        openTaskCenterPanel();
+        toggleActivityPopover();
         return;
     }
     if (anchor.kind == BottomBarAnchorKind::Tools) {
@@ -2404,6 +2405,33 @@ void MainWindowUI::refreshTaskCenterPanel() {
     if (TaskCenterPanel *panel = taskCenterPanel()) {
         panel->requestRefresh();
     }
+    if (taskSummaryButton != nullptr) {
+        if (auto *popover = taskSummaryButton->window()->findChild<QFrame *>(ActivityPopover::objectNameValue());
+            popover != nullptr && popover->isVisible())
+            if (auto *p = dynamic_cast<ActivityPopover *>(popover)) p->refresh();
+    }
+}
+
+void MainWindowUI::toggleActivityPopover() {
+    if (taskSummaryButton == nullptr) return;
+    closeHomeInstancePicker();
+    QWidget *window = taskSummaryButton->window();
+    if (auto *open = window->findChild<QFrame *>(ActivityPopover::objectNameValue());
+        open != nullptr && open->isVisible()) {
+        open->setObjectName(QString());
+        open->close();
+        return;
+    }
+    ActivityPopover::Handlers handlers;
+    handlers.items = m_taskCenterProvider;
+    handlers.rowAction = m_taskCenterRowAction;
+    handlers.clearFinished = m_taskCenterClearHandler;
+    handlers.rowActivated = m_taskCenterRowActivated;
+    handlers.openAll = [this] { openTaskCenterPanel(); };
+    auto *popover = new ActivityPopover(taskSummaryButton, handlers);
+    popover->show();
+    popover->refresh();
+    popover->setFocus(Qt::PopupFocusReason);
 }
 
 void MainWindowUI::setRunStateActive(bool active) {

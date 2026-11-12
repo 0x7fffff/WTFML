@@ -3780,8 +3780,10 @@ private:
     /// 把 @p anchor 那块面板弹出来。**"收"的那一半在 toggleBottomBarPanel()**：
     /// 这个函数只负责开，不管现在开着什么。
     void openBottomBarPanel(const BottomBarAnchor &anchor);
-    /// 开任务中心那一块（中间那格用的；它和上面那个不是同一个类，见 toggle 的 NOTE）。
+    /// 开任务中心那一块（整页：筛选 / 搜索 / 历史 / 详情；浮动面板「全部任务」进这里）。
     void openTaskCenterPanel();
+    /// 任务摘要那一格：开 / 收活动中心浮动面板（ui/ActivityPopover，设计稿 panels-tasks）。
+    void toggleActivityPopover();
     /// 现在开着的任务中心面板（没开着 = nullptr）。它是个 Qt::Popup 窗口，close() 之后
     /// 要等 deleteLater 才真删 —— 所以同一轮事件处理里还找得到（和 `bottomBarPanelName()`
     /// 那两个 findChild 是同一个路数，见 toggleBottomBarPanel()）。

@@ -1,5 +1,10 @@
 #include "Support.hpp"
 #include "TextMarks.hpp"
+#include "ActivityPopover.hpp"
+
+#include <QKeyEvent>
+#include <QMouseEvent>
+#include <QPointer>
 int UiTaskCenterChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs) {
 
     {
@@ -100,9 +105,35 @@ int UiTaskCenterChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs
                   "I2 底栏能分别写出已取消和已中断");
             cell->click();
             QApplication::processEvents();
+            // 设计稿 panels-tasks：点任务摘要先弹浮动面板（窗口里的一张卡片，贴在摘要上方）。
+            auto *popover = window.findChild<QFrame *>(ActivityPopover::objectNameValue());
+            check(popover != nullptr && popover->isVisible() && !popover->isWindow() &&
+                      popover->width() == ActivityPopover::kWidth &&
+                      popover->mapToGlobal(QPoint(0, popover->height())).y() <= cell->mapToGlobal(QPoint(0, 0)).y() &&
+                      popover->geometry().top() >= 0,
+                  "★ I2 点一下中间那格，弹出 400 宽的活动中心浮动面板，贴在任务摘要上方、整块在窗口里",
+                  popover ? QStringLiteral("%1×%2 @%3,%4").arg(popover->width()).arg(popover->height())
+                                .arg(popover->x()).arg(popover->y()) : QStringLiteral("没弹"));
+            check(popover != nullptr &&
+                      popover->findChild<QWidget *>(ActivityPopover::partName(QStringLiteral("Row"), QStringLiteral("7"))) &&
+                      popover->findChild<QWidget *>(ActivityPopover::partName(QStringLiteral("Row"), QStringLiteral("6"))),
+                  "I2 浮动面板摆出了正在跑的那件和已结束的那件");
+            cell->click();
+            QApplication::processEvents();
+            {
+                auto *again = window.findChild<QFrame *>(ActivityPopover::objectNameValue());
+                check(again == nullptr || !again->isVisible(), "I2 再点一次中间那格，浮动面板收起");
+            }
+            QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            cell->click();
+            QApplication::processEvents();
+            popover = window.findChild<QFrame *>(ActivityPopover::objectNameValue());
+            if (auto *openAll = popover ? popover->findChild<QPushButton *>(ActivityPopover::openAllButtonName()) : nullptr)
+                openAll->click();
+            QApplication::processEvents();
             QWidget *panel = window.findChild<QWidget *>(MainWindowUI::taskCenterPanelName());
             check(panel != nullptr && panel->isVisible(),
-                  "I2 点一下中间那格，打开了完整任务中心工作区");
+                  "I2 浮动面板里点「全部任务」，打开了完整任务中心工作区");
             if (panel != nullptr) {
                 check(!panel->isWindow() && ui.overlay() != nullptr
                           && ui.overlay()->pageOpen(),
@@ -231,6 +262,92 @@ int UiTaskCenterChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs
             check(window.findChild<QWidget *>(MainWindowUI::taskCenterPanelName()) == nullptr,
                   "I2 关闭之后那块面板被删掉了（不留着一块看不见的面板）");
         }
+    }
+    {
+        // ---------- I2b 浮动面板本身：三段、队列上下移 / 移除、清除、重试、Esc 与点外面收起 ----------
+        QWidget host;
+        host.resize(900, 700);
+        auto *anchor = new QPushButton(QStringLiteral("任务"), &host);
+        anchor->setGeometry(20, 640, 160, 40);
+        auto *outside = new QPushButton(QStringLiteral("别处"), &host);
+        outside->setGeometry(600, 20, 100, 30);
+        host.show();
+        QList<QPair<QString, TaskCenter::RowAction>> actions;
+        int clears = 0;
+        ActivityPopover::Handlers handlers;
+        handlers.items = [] {
+            QList<TaskCenter::Item> items;
+            TaskCenter::Item run;
+            run.key = QStringLiteral("r");
+            run.title = QStringLiteral("安装 Fabric 1.21.4");
+            run.percent = 37;
+            run.state = TaskCenter::State::Running;
+            run.steps << TaskCenter::Step{QStringLiteral("下载版本清单"), TaskCenter::StepState::Done, QString()}
+                      << TaskCenter::Step{QStringLiteral("下载库文件"), TaskCenter::StepState::Running,
+                                          QStringLiteral("128 / 342")};
+            items << run;
+            for (int i = 0; i < 2; ++i) {
+                TaskCenter::Item q;
+                q.key = QStringLiteral("q%1").arg(i);
+                q.title = QStringLiteral("排队 %1").arg(i);
+                q.state = TaskCenter::State::Queued;
+                q.queueGroup = QStringLiteral("dl");
+                q.queueOrder = i;
+                q.capabilities.cancel = true;
+                items << q;
+            }
+            TaskCenter::Item failed;
+            failed.key = QStringLiteral("f");
+            failed.title = QStringLiteral("下载光影包");
+            failed.state = TaskCenter::State::Failed;
+            failed.errorSummary = QStringLiteral("校验失败");
+            failed.capabilities.retry = true;
+            failed.finishedAt = QDateTime::currentDateTime();
+            items << failed;
+            return items;
+        };
+        handlers.rowAction = [&actions](const QString &key, TaskCenter::RowAction a) { actions.append({key, a}); };
+        handlers.clearFinished = [&clears] { ++clears; };
+        auto *pop = new ActivityPopover(anchor, handlers);
+        pop->show();
+        pop->refresh();
+        QApplication::processEvents();
+        const auto part = [&pop](const char *name, const char *key) {
+            return pop->findChild<QPushButton *>(
+                ActivityPopover::partName(QString::fromLatin1(name), QString::fromLatin1(key)));
+        };
+        check(pop->geometry().bottom() < anchor->y() && pop->x() == anchor->x() &&
+                  pop->width() == ActivityPopover::kWidth,
+              "★ I2b 浮动面板贴在锚点上方、左沿对齐、400 宽",
+              QStringLiteral("%1,%2 %3×%4").arg(pop->x()).arg(pop->y()).arg(pop->width()).arg(pop->height()));
+        check(part("MoveUp", "q0") && !part("MoveUp", "q0")->isEnabled() && part("MoveDown", "q0")->isEnabled() &&
+                  part("MoveUp", "q1") && part("MoveUp", "q1")->isEnabled() && !part("MoveDown", "q1")->isEnabled() &&
+                  part("Remove", "q1") && !part("MoveUp", "r") && part("Retry", "f"),
+              "★ I2b 等待中那几行有上移 / 下移 / 移除（队首不能再上、队尾不能再下）；正在跑的不排队；失败的有「重试」");
+        if (part("MoveDown", "q0")) part("MoveDown", "q0")->click();
+        if (part("Remove", "q1")) part("Remove", "q1")->click();
+        if (part("Retry", "f")) part("Retry", "f")->click();
+        if (auto *clear = pop->findChild<QPushButton *>(ActivityPopover::clearButtonName())) clear->click();
+        check(actions.size() == 3 && actions.at(0) == qMakePair(QStringLiteral("q0"), TaskCenter::RowAction::MoveDown) &&
+                  actions.at(1) == qMakePair(QStringLiteral("q1"), TaskCenter::RowAction::Cancel) &&
+                  actions.at(2) == qMakePair(QStringLiteral("f"), TaskCenter::RowAction::Retry) && clears == 1,
+              "★ I2b 下移 / 移除 / 重试 / 清除各自转成对应的动作，一次一发",
+              QString::number(actions.size()) + QStringLiteral(" / clear ") + QString::number(clears));
+        QKeyEvent esc(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+        QApplication::sendEvent(pop, &esc);
+        QApplication::processEvents();
+        check(!pop->isVisible(), "I2b Esc 收起浮动面板");
+        QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        pop = new ActivityPopover(anchor, handlers);
+        pop->show();
+        QApplication::processEvents();
+        QPointer<ActivityPopover> watch(pop);
+        QMouseEvent press(QEvent::MouseButtonPress, QPointF(5, 5), outside->mapToGlobal(QPointF(5, 5)),
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(outside, &press);
+        QApplication::processEvents();
+        check(watch.isNull() || !watch->isVisible(), "I2b 点在面板外面就收起");
+        QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     }
  return 0;
 }

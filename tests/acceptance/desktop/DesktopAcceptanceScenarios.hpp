@@ -2,6 +2,7 @@
 // Controlled geometry fixtures for the native acceptance app; never launches a game.
 #include "controllers/ActivityCenterController.hpp"
 #include "OverlayHost.hpp"
+#include "ActivityPopover.hpp"
 #include <QAbstractButton>
 #include <QImage>
 #include <QPainter>
@@ -78,6 +79,7 @@ inline bool scene(MainWindow &window, int index, Tasks::TaskId task) {
     if (index == 4) { ui->getHomeInstanceSelectButton()->click(); return true; }
     if (index == 5 || index == 6) {
         ui->getTaskSummaryButton()->click();
+        ActivityPopover::openAllIn(&window);  // 摘要先弹浮动面板，从「全部任务」进整页
         if (index == 6) QTimer::singleShot(120, &window, [&window, task] {
             for (auto *row : window.findChildren<QWidget *>())
                 if (row->isVisible() && row->property(MainWindowUI::taskCenterPanelRowKeyProperty()).toString() == QString::number(task)) {

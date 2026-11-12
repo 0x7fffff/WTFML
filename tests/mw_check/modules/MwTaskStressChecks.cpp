@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "ActivityPopover.hpp"
 int MwTaskStressChecks(MainWindow &window) {
     // ------------------------------------------------------------------
     // 用户点名的压力形状：一次性排一堆下载、几个实例同时在启动、一批文件在改。
@@ -74,6 +75,7 @@ int MwTaskStressChecks(MainWindow &window) {
             QApplication::processEvents();
             if (ab6Cell != nullptr) {
                 ab6Cell->click();
+                ActivityPopover::openAllIn(&window);  // 摘要先弹浮动面板，从「全部任务」进整页
             }
             QApplication::processEvents();
             QApplication::processEvents();

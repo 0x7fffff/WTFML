@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "ActivityPopover.hpp"
 #include <QVariantAnimation>
 #include "TaskCenterPanel.hpp"
 #include <QMouseEvent>
@@ -625,6 +626,7 @@ int UiUiRefreshCheck(QApplication &app) {
         expect(!ui.homeInstancePickerOpen() && !home->findChild<QWidget *>(QStringLiteral("wtfmlLayoutCurtain")),
                "switching tabs cancels picker animation without restoring stale content");
         ui.getTaskSummaryButton()->click();
+        ActivityPopover::openAllIn(ui.getTaskSummaryButton()->window());
         expect(preview.findChild<QWidget *>(MainWindowUI::taskCenterPanelName()) && curtainCount() == 1,
                "task center open starts a bounded content transition");
         auto *curtain = preview.findChild<QWidget *>(QStringLiteral("wtfmlLayoutCurtain"));
@@ -638,10 +640,12 @@ int UiUiRefreshCheck(QApplication &app) {
         expect(!preview.findChild<QWidget *>(MainWindowUI::taskCenterPanelName()) && curtainCount() == 0,
                "task center closes cleanly during opening animation");
         ui.getTaskSummaryButton()->click();
+        ActivityPopover::openAllIn(ui.getTaskSummaryButton()->window());
         ui.getTabWidget()->setCurrentIndex(MainWindowUI::instancesTabIndex());
         expect(curtainCount() == 0, "switching tabs cancels task center animation immediately");
         ui.getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
         ui.getTaskSummaryButton()->click();
+        ActivityPopover::openAllIn(ui.getTaskSummaryButton()->window());
         preview.resize(1020, 670);
         settle();
         expect(curtainCount() == 0, "window resizing leaves no stale transition snapshot");
@@ -657,6 +661,7 @@ int UiUiRefreshCheck(QApplication &app) {
                    "probe page opens on the overlay");
             QApplication::processEvents();
             ui.getTaskSummaryButton()->click();
+            ActivityPopover::openAllIn(ui.getTaskSummaryButton()->window());
             QApplication::processEvents();
             expect(host->promptOpen(),
                    "task center stacks as a prompt layer over the page");
@@ -678,6 +683,7 @@ int UiUiRefreshCheck(QApplication &app) {
                 expect(false, "task center prompt has a close button");
             }
             ui.getTaskSummaryButton()->click();
+            ActivityPopover::openAllIn(ui.getTaskSummaryButton()->window());
             QApplication::processEvents();
             expect(host->promptOpen(), "task center reopens as a prompt layer");
             ui.getTaskSummaryButton()->click();
@@ -694,6 +700,7 @@ int UiUiRefreshCheck(QApplication &app) {
             expect(!host->findChild<QWidget *>(QStringLiteral("taskCenterPromptWorkspace")),
                    "closed task workspace and toolbar are released together");
             ui.getTaskSummaryButton()->click();
+            ActivityPopover::openAllIn(ui.getTaskSummaryButton()->window());
             ui.getTabWidget()->setCurrentIndex(MainWindowUI::settingsTabIndex());
             QApplication::processEvents();
             expect(!host->promptOpen() && curtainCount() == 0,

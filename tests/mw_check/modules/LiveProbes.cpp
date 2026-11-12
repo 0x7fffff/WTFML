@@ -1,4 +1,5 @@
 #include "LiveProbes.hpp"
+#include "ActivityPopover.hpp"
 
 #include "modules/Support.hpp"
 
@@ -124,6 +125,7 @@ int runLiveProbeMode(int argc, char *argv[]) {
         auto *taskButton = window.findChild<QPushButton *>(MainWindowUI::taskSummaryButtonName());
         if (taskButton == nullptr) { std::printf("FAIL 找不到任务按钮\n"); return 1; }
         taskButton->click();
+        ActivityPopover::openAllIn(&window);  // 摘要先弹浮动面板，从「全部任务」进整页
         QApplication::processEvents();
         const bool stacked = overlay->promptOpen() &&
                              window.findChild<InstanceSettingsDialog *>() != nullptr;
