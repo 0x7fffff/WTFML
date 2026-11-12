@@ -75,14 +75,18 @@ int UiLifecycleCheck(QApplication &app) {
             dialog.findChild<QPushButton *>(Dlg::checkUpdatesButtonName()),
             dialog.findChild<QPushButton *>(Dlg::updateCenterButtonName()),
             dialog.findChild<QPushButton *>(Dlg::shortcutButtonName(0))};
-        bool sameWidth = true;
-        const int referenceWidth = overviewCommands.first()->width();
+        // 概览是「左标题 | 右控件」一行一行（e5a3b79）：按钮按自己的字宽，各行最右那颗收在同一条右边线上；
+        // 快捷方式那排是摆在标题下面的整行，不参与对齐。
         for (auto *button : overviewCommands) {
-            sameWidth &= button && qAbs(button->width() - referenceWidth) <= 1;
             if (button) printf("overview geometry %s: x=%d width=%d parentWidth=%d\n", qPrintable(button->objectName()),
                                button->mapTo(&dialog, QPoint()).x(), button->width(), button->parentWidget()->width());
         }
-        expect(sameWidth, "overview command groups share equal column widths across independent grids");
+        const auto rightEdge = [&dialog](QPushButton *b) { return b ? b->mapTo(&dialog, QPoint(b->width(), 0)).x() : -1; };
+        const int edge = rightEdge(overviewCommands.at(0));
+        bool sameEdge = edge > 0;
+        for (int i : {1, 3}) sameEdge &= qAbs(rightEdge(overviewCommands.at(i)) - edge) <= 1;
+        expect(sameEdge && overviewCommands.at(4) != nullptr,
+               "overview row commands end on one right edge across independent rows");
 
         auto *navigation = dialog.findChild<QTreeWidget *>(Dlg::navigationTreeName());
         bool backupLeaf = false;
