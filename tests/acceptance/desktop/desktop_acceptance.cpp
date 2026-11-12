@@ -235,7 +235,9 @@ int main(int argc, char **argv) {
                 if (page < 4) extra.insert("keyboard", keyboard);
                 int selected = 0, flow = 0;
                 for (auto *child : window.findChildren<QWidget *>()) {
-                    if (child->isVisible() && child->property("taskCenterSelected").toBool()) ++selected;
+                    // 不问 isVisible()：整页窄于 820 时列表和详情是"整块换"的（点开详情 = 列表收起），
+                    // 选中的那一行此刻在被收起的列表里，但选中状态照旧只有它一行。
+                    if (child->property("taskCenterSelected").toBool()) ++selected;
                     if (child->isVisible() && child->objectName().startsWith("taskCenterFlowStepName_")) ++flow;
                 }
                 extra.insert("selectedTaskRows", selected);

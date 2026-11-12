@@ -29,6 +29,7 @@
 #include <functional>
 
 namespace {
+std::atomic_bool g_wallClockBudgets{true};
 struct Declaration {
     QString loader;
     QJsonValue game;
@@ -474,7 +475,7 @@ Scan scan(const QString &root, const QString &sourceId, const QString &cache, co
     for (int modIndex = 0; modIndex < result.mods.size(); ++modIndex) {
         Mod &mod = result.mods[modIndex];
         if (stop->load()) break;
-        if (nestedBudget <= 0 || nestedClock.elapsed() > 10000) {
+        if (nestedBudget <= 0 || (g_wallClockBudgets.load() && nestedClock.elapsed() > 10000)) {
             mod.nestedIncomplete = true;
             continue;
         }
@@ -502,7 +503,7 @@ Scan scan(const QString &root, const QString &sourceId, const QString &cache, co
             }
         }
         // 旧 Forge 注解：只在没有任何现代声明时尝试；最多 3 个 class / 一个 JAR。
-        if (mod.declarations.isEmpty() && legacyBudget > 0 && nestedClock.elapsed() < 8000) {
+        if (mod.declarations.isEmpty() && legacyBudget > 0 && (!g_wallClockBudgets.load() || nestedClock.elapsed() < 8000)) {
             QStringList classes;
             for (const QString &entry : entries) {
                 if (entry.endsWith(QStringLiteral(".class"), Qt::CaseInsensitive)
@@ -838,6 +839,8 @@ QString localState(const Mod &mod, const QString &game, const QString &loader,
     return QObject::tr("本地 Minecraft 声明符合");
 }
 }
+
+void UpgradeAssessment::setWallClockBudgetsForTesting(bool enabled) { g_wallClockBudgets.store(enabled); }
 
 void UpgradeAssessment::attach(InstanceSettingsDialog *dialog, VersionManager *versions, ResourceStore *store,
                                const QString &sourceId, const QString &root, const QString &identityCache) {

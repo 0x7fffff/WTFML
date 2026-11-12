@@ -20,6 +20,7 @@
 #include "ElidedLabel.hpp"
 #include "MainWindowUI.hpp"
 #include "TaskProgressBar.hpp"
+#include "TaskVisuals.hpp"
 #include "Theme.hpp"
 #include "VersionIcons.hpp"
 
@@ -34,78 +35,8 @@ bool stateIsDanger(TaskCenter::State state) {
 
 /// 前面画一枚线条图标的标签。`shown` 非空时屏幕上画它（`text()` 留着带记号的原文），
 /// 右边还能挂一句 `note`；`shown` 空时按 QLabel 自己画（多行换行那块出错说明用）。
-class GlyphLabel : public QLabel {
-public:
-    using QLabel::QLabel;
-    QString glyph;
-    QColor glyphColor;
-    int glyphSize = 16;
-    int glyphGap = 8;
-    QPoint glyphAt{0, 0};  // 只给 shown 为空那一档：图标左上角
-    QString shown;
-    QColor shownColor;
-    QString note;
-    QColor noteColor;
-    QColor fill;
-    int radius = 0;
-    bool divider = false;
+using TaskVisuals::GlyphLabel;
 
-    QSize sizeHint() const override {
-        if (shown.isEmpty()) return QLabel::sizeHint();
-        const QMargins m = contentsMargins();
-        const QFontMetrics fm(font());
-        int w = m.left() + glyphSize + glyphGap + fm.horizontalAdvance(shown) + m.right() + 2;
-        if (!note.isEmpty()) w += 24 + fm.horizontalAdvance(note);
-        return {w, qMax(minimumHeight(), fm.height() + m.top() + m.bottom())};
-    }
-    QSize minimumSizeHint() const override {
-        return shown.isEmpty() ? QLabel::minimumSizeHint() : QSize(0, sizeHint().height());
-    }
-
-protected:
-    void paintEvent(QPaintEvent *event) override {
-        {
-            QPainter p(this);
-            p.setRenderHint(QPainter::Antialiasing);
-            if (fill.isValid()) {
-                p.setPen(Qt::NoPen);
-                p.setBrush(fill);
-                p.drawRoundedRect(QRectF(rect()), radius, radius);
-            }
-            if (divider) {
-                p.fillRect(QRect(0, height() - 1, width(), 1), Theme::tokens().divider);
-            }
-        }
-        if (shown.isEmpty()) {
-            QLabel::paintEvent(event);
-            QPainter p(this);
-            p.setRenderHint(QPainter::Antialiasing);
-            VersionIcons::paintLine(p, glyph, QRectF(glyphAt, QSizeF(glyphSize, glyphSize)), glyphColor);
-            return;
-        }
-        QPainter p(this);
-        p.setRenderHint(QPainter::Antialiasing);
-        const QRect r = contentsRect();
-        const qreal gy = r.top() + (r.height() - glyphSize) / 2.0;
-        VersionIcons::paintLine(p, glyph, QRectF(r.left(), gy, glyphSize, glyphSize), glyphColor);
-        const QFontMetrics fm(font());
-        p.setFont(font());
-        int right = r.right();
-        if (!note.isEmpty()) {
-            const int nw = qMin(fm.horizontalAdvance(note), r.width() / 2);
-            p.setPen(noteColor.isValid() ? noteColor : palette().color(QPalette::PlaceholderText));
-            p.drawText(QRect(right - nw + 1, r.top(), nw, r.height()), Qt::AlignRight | Qt::AlignVCenter,
-                       fm.elidedText(note, Qt::ElideMiddle, nw));
-            right -= nw + 24;
-        }
-        const int x = r.left() + glyphSize + glyphGap;
-        p.setPen(shownColor.isValid() ? shownColor : palette().color(QPalette::WindowText));
-        p.drawText(QRect(x, r.top(), right - x + 1, r.height()), Qt::AlignLeft | Qt::AlignVCenter,
-                   fm.elidedText(shown, Qt::ElideRight, right - x + 1));
-    }
-};
-
-/// 次要那一档小字（次要字色）。挂 objectName 是为了验证工程找得到它。
 QLabel *makeMutedLabel(QWidget *parent, const QString &objectName, int px = 13) {
     auto *label = new QLabel(parent);
     label->setObjectName(objectName);
@@ -266,6 +197,9 @@ TaskDetailPage::TaskDetailPage(QWidget *parent) : QDialog(parent) {
                            m_logButton, m_targetButton}) {
         actions->addWidget(b);
     }
+    // 主钮 + 最多两颗扁平次要钮，其余进「更多…」（rebuild() 按能力位排）。
+    m_overflow = std::make_unique<TaskVisuals::ActionOverflow>(this, QStringLiteral("taskDetailMore"));
+    actions->addWidget(m_overflow->button());
     actions->addStretch(1);
     auto *close = new QPushButton(MainWindowUI::taskDetailCloseText(), this);
     close->setObjectName(MainWindowUI::taskDetailCloseName());
@@ -433,15 +367,20 @@ void TaskDetailPage::rebuild() {
     m_crashDirButton->setVisible(m_item.capabilities.openCrashDir);
     // 「复制摘要」永远在（它不需要任何能力位 —— 摘要就是这一页上那几行字，任何时候都抄得走）。
     m_copyButton->setVisible(!m_key.isEmpty());
-    // 主动作（实心）：重试 > 导出报告 > 继续 > 补齐，露出来的第一颗；没有就全是中性。
+    // 主动作（实心）：重试 > 导出报告 > 继续 > 补齐，能力位给了的第一颗。其余按优先级当扁平
+    // 次要钮，最多露两颗，剩下的进「更多…」（按钮还在，只是藏起来、由菜单项去点）。
     QPushButton *primary = nullptr;
-    for (QPushButton *b : {m_retryButton, m_reportButton, m_recoverButton, m_repairButton}) {
-        if (primary == nullptr && !b->isHidden()) primary = b;
+    QList<QPushButton *> secondaries;
+    for (QPushButton *b : {m_cancelButton, m_pauseButton, m_retryButton, m_reportButton, m_recoverButton,
+                           m_repairButton, m_crashDirButton, m_logButton, m_targetButton, m_copyButton}) {
+        if (b->isHidden()) continue;
+        const bool candidate = b == m_retryButton || b == m_reportButton || b == m_recoverButton || b == m_repairButton;
+        if (primary == nullptr && candidate) primary = b;
+        else secondaries.append(b);
     }
-    for (QPushButton *b : {m_retryButton, m_reportButton, m_recoverButton, m_repairButton}) {
-        const auto kind = b == primary ? Theme::ButtonKind::Primary : Theme::ButtonKind::Neutral;
-        if (b->property("wtfmlButtonKind").toString() != Theme::buttonKindKey(kind)) {
-            Theme::markButton(b, kind);
-        }
-    }
+    m_overflow->arrange(primary, secondaries, 2);
 }
+
+bool TaskDetailPage::offers(const QPushButton *button) const { return m_overflow->offers(button); }
+
+TaskDetailPage::~TaskDetailPage() = default;

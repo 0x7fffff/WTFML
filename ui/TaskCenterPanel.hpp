@@ -31,6 +31,7 @@
 #include <QWidget>
 
 #include <functional>
+#include <memory>
 
 class QScrollArea;
 class QPushButton;
@@ -38,6 +39,8 @@ class QLabel;
 class QComboBox;
 class QLineEdit;
 class QResizeEvent;
+
+namespace TaskVisuals { class ActionOverflow; }
 
 namespace TaskCenter {
 
@@ -205,6 +208,7 @@ public:
                     const TaskCenter::RunningActionHandler &runningAction,
                     const OutsidePressHandler &onOutsidePress, QWidget *parent,
                     bool embedded = false);
+    ~TaskCenterPanel() override;
 
     /// 贴的是哪颗按钮（"再点一次收回"要按它认人：点的是同一颗才算收回）。
     QWidget *anchor() const { return m_anchor; }
@@ -295,6 +299,10 @@ private:
     QPushButton *m_clearFinished = nullptr;
     QWidget *m_runningContent = nullptr;
     QWidget *m_detailContent = nullptr;
+    /// 详情底下那排操作钮：钉在滚动区**外面**，窗口矮时也一直看得见。
+    QWidget *m_detailFooter = nullptr;
+    /// 详情底部那排「主钮 + 两颗扁平钮 + 更多…」的记账（每次重建详情换新）。
+    std::unique_ptr<TaskVisuals::ActionOverflow> m_detailActions;
     QWidget *m_runningPane = nullptr;
     QWidget *m_detailPane = nullptr;
     QScrollArea *m_scroll = nullptr;

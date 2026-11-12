@@ -34,6 +34,8 @@
 #include <QDialog>
 #include <QString>
 
+#include <memory>
+
 #include "TaskCenterPanel.hpp"
 
 class QLabel;
@@ -41,6 +43,7 @@ class QPushButton;
 class QVBoxLayout;
 /// 自绘的进度条（`ui/TaskProgressBar`）。这一页那一根和底栏、面板是同一个。
 class TaskProgressBar;
+namespace TaskVisuals { class ActionOverflow; }
 
 class TaskDetailPage : public QDialog {
     Q_OBJECT
@@ -61,6 +64,10 @@ public:
     };
 
     explicit TaskDetailPage(QWidget *parent = nullptr);
+    ~TaskDetailPage() override;
+
+    /// 这一项眼下提供不提供 @p button 那个操作（露在那一排，或收在「更多…」菜单里）。
+    bool offers(const QPushButton *button) const;
 
     /// 这一页的标题（`OverlayHost::showPage` 顶上那一条写的字）。
     static QString windowTitle() { return QStringLiteral("任务详情"); }
@@ -117,4 +124,5 @@ private:
     QPushButton *m_repairButton = nullptr;
     QPushButton *m_recoverButton = nullptr;
     QPushButton *m_pauseButton = nullptr;
+    std::unique_ptr<TaskVisuals::ActionOverflow> m_overflow;
 };

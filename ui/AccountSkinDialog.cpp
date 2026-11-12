@@ -10,11 +10,12 @@
 #include "MainWindowUI.hpp"
 #include "RoundAvatar.hpp"
 #include "SkinModel.hpp"
-#include "Theme.hpp"   // 这一窗里「删除所选」那一颗是危险按钮（红字红边，见构造函数）
+#include "Theme.hpp"
 #include "SkinViewer.hpp"
 #include "OverlayHost.hpp"
 #include "VersionIcons.hpp"
 #include <QShowEvent>
+#include <algorithm>
 #include <QResizeEvent>
 
 #include <QComboBox>
@@ -298,11 +299,19 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     main->addWidget(m_accountsPanel, 8);
 
     {
-        // 设计稿 acct-col：「账号」后面跟一截灰字「正版 / 离线」，不再写成括号。
+        // 「账号」后面跟两枚小标签：这里正版、离线两种账号都收（灰字太淡，改成 chip）。
         auto *titleRow = new QHBoxLayout;
-        titleRow->setSpacing(10);
-        titleRow->addWidget(makeSectionTitle(accountSectionTitle(), this, 20), 0, Qt::AlignBottom);
-        titleRow->addWidget(makeCaption(QStringLiteral("正版 / 离线"), this), 0, Qt::AlignBottom);
+        titleRow->setSpacing(6);
+        titleRow->addWidget(makeSectionTitle(accountSectionTitle(), this, 20), 0, Qt::AlignVCenter);
+        titleRow->addSpacing(4);
+        for (const auto &[text, tone] : {std::pair{QStringLiteral("正版"), Theme::BadgeTone::Accent},
+                                         std::pair{QStringLiteral("离线"), Theme::BadgeTone::Neutral}}) {
+            auto *chip = new QLabel(text, this);
+            chip->setObjectName(text == QStringLiteral("正版") ? QStringLiteral("accountKindChipOnline")
+                                                               : QStringLiteral("accountKindChipOffline"));
+            Theme::markBadge(chip, tone);
+            titleRow->addWidget(chip, 0, Qt::AlignVCenter);
+        }
         titleRow->addStretch(1);
         left->addLayout(titleRow);
     }
@@ -323,11 +332,24 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_switchButton->setObjectName(switchButtonName());
     // 「用这个账号」= 换个身份（一般性那一档）。
     Theme::markButton(m_switchButton, Theme::ButtonKind::Ghost);
-    m_removeButton = new QPushButton(removeButtonText(), m_rowActions);
+    // 「删除所选」：只在选中那一行的行尾露一颗垃圾桶（红的只有图标，不在高亮底上压一块红字）。
+    // 字留在 tooltip / 读屏名里。
+    m_removeButton = new QPushButton(m_rowActions);
     m_removeButton->setObjectName(removeButtonName());
-    // 「删除所选」是这一窗里唯一一处**删东西**的按钮（账号删了就没了），所以它走那一档
-    // **红字**（`Theme::ButtonKind::Danger`）。属性要在第一次 polish 之前挂上。
-    Theme::markButton(m_removeButton, Theme::ButtonKind::Danger);
+    m_removeButton->setToolTip(removeButtonText());
+    m_removeButton->setAccessibleName(removeButtonText());
+    Theme::markButton(m_removeButton, Theme::ButtonKind::Ghost);
+    Theme::markIconButton(m_removeButton);
+    m_removeButton->setFixedSize(30, 30);
+    m_removeButton->setIconSize(QSize(16, 16));
+    {
+        const auto tint = [b = m_removeButton] {
+            const Theme::Tokens t = Theme::tokens();
+            b->setIcon(VersionIcons::line(QStringLiteral("trash"), 16, Theme::textTone(t.dangerInk, t.danger)));
+        };
+        tint();
+        Theme::follow(m_removeButton, tint);
+    }
     rowActionsLayout->addWidget(m_switchButton);
     rowActionsLayout->addWidget(m_removeButton);
     connect(m_accountList->verticalScrollBar(), &QScrollBar::valueChanged, this,
@@ -338,45 +360,44 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_loginButton->setToolTip(loginHintNote());
     Theme::markButton(m_loginButton, Theme::ButtonKind::Primary);
     m_loginButton->setProperty("wtfmlDialogActions", true);
-    left->addSpacing(4);
-    left->addWidget(m_loginButton);
-    left->addWidget(makeCaption(loginHintNote(), this));
-
-    // 「或添加离线账号」：两边各一根细线（设计稿 .or）。
+    m_offlineToggle = new QPushButton(addOfflineButtonText(), this);
+    m_offlineToggle->setObjectName(QStringLiteral("accountOfflineToggle"));
+    m_offlineToggle->setCursor(Qt::PointingHandCursor);
+    m_offlineToggle->setToolTip(QStringLiteral("离线账号只用一个名字，不需要登录"));
+    Theme::markButton(m_offlineToggle, Theme::ButtonKind::Ghost);
     {
-        auto *orRow = new QHBoxLayout();
-        orRow->setSpacing(10);
-        const auto rule = [this] {
-            auto *line = new QFrame(this);
-            line->setFrameShape(QFrame::HLine);
-            line->setFixedHeight(1);
-            const auto tint = [line] {
-                QPalette palette = line->palette();
-                palette.setColor(QPalette::WindowText, Theme::tokens().divider);
-                line->setPalette(palette);
-            };
-            tint();
-            Theme::follow(line, tint);
-            return line;
-        };
-        orRow->addWidget(rule(), 1);
-        orRow->addWidget(makeCaption(QStringLiteral("或") + addOfflineButtonText(), this));
-        orRow->addWidget(rule(), 1);
-        left->addLayout(orRow);
+        auto *loginRow = new QHBoxLayout;
+        loginRow->setSpacing(8);
+        loginRow->addWidget(m_loginButton);
+        loginRow->addWidget(m_offlineToggle);
+        loginRow->addStretch(1);
+        left->addSpacing(6);
+        left->addLayout(loginRow);
     }
 
-    // 离线账号那一路：不是对"选中项"做事，是一个"加东西"的入口。
-    QHBoxLayout *offlineRow = new QHBoxLayout();
+    // 离线账号那一路：不是对"选中项"做事，是一个"加东西"的入口 —— 点了小链接才露这一行。
+    m_offlineRow = new QWidget(this);
+    m_offlineRow->setObjectName(QStringLiteral("accountOfflineRow"));
+    QHBoxLayout *offlineRow = new QHBoxLayout(m_offlineRow);
+    offlineRow->setContentsMargins(0, 0, 0, 0);
     offlineRow->setSpacing(8);
-    left->addLayout(offlineRow);
-    m_offlineNameEdit = new QLineEdit(this);
+    left->addWidget(m_offlineRow);
+    m_offlineNameEdit = new QLineEdit(m_offlineRow);
     m_offlineNameEdit->setObjectName(offlineNameEditName());
     m_offlineNameEdit->setPlaceholderText(offlineNamePlaceholder());
-    m_addOfflineButton = new QPushButton(addOfflineButtonText(), this);
+    m_addOfflineButton = new QPushButton(QStringLiteral("添加"), m_offlineRow);
     m_addOfflineButton->setObjectName(addOfflineButtonName());
+    m_addOfflineButton->setToolTip(addOfflineButtonText());
+    m_addOfflineButton->setAccessibleName(addOfflineButtonText());
     Theme::markButton(m_addOfflineButton, Theme::ButtonKind::Neutral);
     offlineRow->addWidget(m_offlineNameEdit, 1);
     offlineRow->addWidget(m_addOfflineButton);
+    m_offlineRow->hide();
+    connect(m_offlineToggle, &QPushButton::clicked, this, [this] {
+        m_offlineToggle->hide();
+        m_offlineRow->show();
+        m_offlineNameEdit->setFocus();
+    });
 
     m_refreshButton = new QPushButton(refreshButtonText(), this);
     m_refreshButton->setObjectName(refreshButtonName());
@@ -479,22 +500,27 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_capeCaption = makeCaption(QString(), this);
     controls->addWidget(m_capeCaption);
 
+    // 披风只有两种状态：披着所选那件 / 不披。做成一个分段，勾着的那段 = 现在的样子
+    // （setCapes() 按"有没有正披着的"同步）；长句在 tooltip 里。
     QHBoxLayout *capeButtons = new QHBoxLayout();
     capeButtons->setSpacing(8);
     controls->addLayout(capeButtons);
-    m_applyCapeButton = new QPushButton(applyCapeButtonText(), this);
+    auto *capeSegment = new QWidget(this);
+    capeSegment->setObjectName(QStringLiteral("accountCapeSegment"));
+    auto *capeSegmentLayout = new QHBoxLayout(capeSegment);
+    capeSegmentLayout->setContentsMargins(3, 3, 3, 3);
+    capeSegmentLayout->setSpacing(2);
+    m_applyCapeButton = new QPushButton(tr("显示"), capeSegment);
     m_applyCapeButton->setObjectName(applyCapeButtonName());
-    m_applyCapeButton->setText(tr("应用"));
     m_applyCapeButton->setToolTip(applyCapeButtonText());
-    Theme::markButton(m_applyCapeButton, Theme::ButtonKind::Primary);
-    m_hideCapeButton = new QPushButton(hideCapeButtonText(), this);
+    m_hideCapeButton = new QPushButton(tr("隐藏"), capeSegment);
     m_hideCapeButton->setObjectName(hideCapeButtonName());
-    m_hideCapeButton->setText(tr("隐藏"));
     m_hideCapeButton->setToolTip(hideCapeButtonText());
-    // 「不显示披风」= 拿掉一层；旁边那颗「应用披风」是确认性。
-    Theme::markButton(m_hideCapeButton, Theme::ButtonKind::Neutral);
-    capeButtons->addWidget(m_applyCapeButton);
-    capeButtons->addWidget(m_hideCapeButton);
+    capeSegmentLayout->addWidget(m_applyCapeButton);
+    capeSegmentLayout->addWidget(m_hideCapeButton);
+    Theme::markSegmented(capeSegment, {m_applyCapeButton, m_hideCapeButton});
+    m_hideCapeButton->setChecked(true);
+    capeButtons->addWidget(capeSegment);
     capeButtons->addStretch(1);
 
     // ---------- 底：关闭 ----------
@@ -661,7 +687,12 @@ void AccountSkinDialog::addAccountRow(const AccountRow &row) {
     }
 }
 
-void AccountSkinDialog::clearOfflineNameDraft() { m_offlineNameEdit->clear(); }
+void AccountSkinDialog::clearOfflineNameDraft() {
+    m_offlineNameEdit->clear();
+    // 加完了就收回去：只剩那枚小链接。
+    m_offlineRow->hide();
+    m_offlineToggle->show();
+}
 
 void AccountSkinDialog::setStatusText(const QString &text) {
     m_statusLabel->setText(text);
@@ -691,6 +722,8 @@ void AccountSkinDialog::setCapes(const QList<CapeRow> &capes) {
         item->setData(Qt::UserRole + 2, cape.url);
     }
     m_capeList->setVisible(!capes.isEmpty());
+    const bool wearing = std::any_of(capes.cbegin(), capes.cend(), [](const CapeRow &cape) { return cape.active; });
+    (wearing ? m_applyCapeButton : m_hideCapeButton)->setChecked(true);
     updateCapeCaption();
     refreshButtonStates();
 }
@@ -801,6 +834,7 @@ void AccountSkinDialog::refreshButtonStates() {
     // 那次登录回来还要往活动槽里写 —— 两个人会打架。
     m_offlineNameEdit->setEnabled(idle);
     m_addOfflineButton->setEnabled(idle);
+    m_offlineToggle->setEnabled(idle);
     m_hideCapeButton->setEnabled(idle);
     // 离线那一档：露着的时候才按 idle 判；「恢复默认外观」还要**确实有东西可撤**。
     m_offlineSkinButton->setEnabled(idle && m_offlineSkin);

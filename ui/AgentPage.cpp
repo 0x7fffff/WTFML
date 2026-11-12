@@ -222,6 +222,14 @@ AgentPage::AgentPage(QWidget *parent)
     m_encryptCheck->setToolTip(
         QStringLiteral("用当前 Windows 用户的 DPAPI 加密本会话正文；元数据仍为明文。"));
     m_encryptCheck->setAccessibleName(QStringLiteral("加密本会话"));
+    // 开关只画胶囊不画字：前面单摆一个「加密」小字当行名（和设置页的开关行同一种写法）。
+    Theme::markSwitch(m_encryptCheck);
+    auto *encryptLabel = new QLabel(QStringLiteral("加密"), m_sessionOptions);
+    encryptLabel->setObjectName(QStringLiteral("agentEncryptSessionLabel"));
+    encryptLabel->setBuddy(m_encryptCheck);
+    encryptLabel->setToolTip(m_encryptCheck->toolTip());
+    optionsLayout->addSpacing(6);
+    optionsLayout->addWidget(encryptLabel);
     optionsLayout->addWidget(m_encryptCheck);
     m_encryptionStatus = new QLabel(m_sessionOptions);
     m_encryptionStatus->setObjectName(QStringLiteral("agentEncryptionStatus"));

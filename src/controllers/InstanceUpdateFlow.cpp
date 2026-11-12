@@ -210,6 +210,25 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
     auto *progressLayout = new QVBoxLayout(progress); progressLayout->addWidget(status);
     auto *steps = new QListWidget(progress); steps->setObjectName("instanceUpdateExecutionSteps");
     steps->setSelectionMode(QAbstractItemView::NoSelection); progressLayout->addWidget(steps, 1);
+    // 进度列表 / 变更清单：无硬描边的淡色圆角面板（颜色跟着主题走）。
+    for (QWidget *panel : {static_cast<QWidget *>(steps), static_cast<QWidget *>(changes)}) {
+        const auto paintPanel = [panel] {
+            panel->setStyleSheet(QStringLiteral("#%1 { border: none; border-radius: 10px; background: %2; padding: 6px; }")
+                                     .arg(panel->objectName(), Theme::tokens().hover.name(QColor::HexArgb)));
+        };
+        paintPanel();
+        Theme::follow(panel, paintPanel);
+    }
+    // 空的时候在面板正中写一句灰字，不留一块空框。
+    auto *stepsEmpty = new QLabel(QObject::tr("点击“开始更新”后在这里显示进度"), steps->viewport());
+    stepsEmpty->setObjectName("instanceUpdateExecutionStepsEmpty");
+    stepsEmpty->setForegroundRole(QPalette::PlaceholderText);
+    stepsEmpty->setAlignment(Qt::AlignCenter);
+    (new QVBoxLayout(steps->viewport()))->addWidget(stepsEmpty);
+    const auto syncStepsEmpty = [steps, stepsEmpty] { stepsEmpty->setVisible(steps->count() == 0); };
+    QObject::connect(steps->model(), &QAbstractItemModel::rowsInserted, stepsEmpty, syncStepsEmpty);
+    QObject::connect(steps->model(), &QAbstractItemModel::rowsRemoved, stepsEmpty, syncStepsEmpty);
+    QObject::connect(steps->model(), &QAbstractItemModel::modelReset, stepsEmpty, syncStepsEmpty);
     auto *retryFlow = new QPushButton(QObject::tr("返回目标选择，重新检查"), progress);
     Theme::markButton(retryFlow, Theme::ButtonKind::Neutral); progressLayout->addWidget(retryFlow); retryFlow->hide();
     auto *wizard = new InstanceUpdateWizard(selectors, review, confirmation, progress, dialog);

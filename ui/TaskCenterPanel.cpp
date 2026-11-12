@@ -24,6 +24,7 @@
 #include <QComboBox>
 #include <QLineEdit>
 #include <QMouseEvent>
+#include <QFrame>
 #include <QPainter>
 #include <QPushButton>
 #include <QResizeEvent>
@@ -41,6 +42,7 @@
 #include "ElidedLabel.hpp"
 #include "MainWindowUI.hpp"
 #include "TaskProgressBar.hpp"
+#include "TaskVisuals.hpp"
 #include "Theme.hpp"
 #include "VersionIcons.hpp"
 
@@ -100,7 +102,6 @@ constexpr int kHeightPercent = 72;
 /// 两块面板都是从同一颗按钮往上弹的，缝不一样宽看着就是"两块面板没对齐"）。
 constexpr int kPanelGap = 6;
 /// 标题/小字那一格比面板最多窄这么点（左右边距 + 右边那个百分比/时间的位置）。
-constexpr int kTextMaxWidth = kCompactWidth - 2 * kPanelPadding - 56;
 
 /// 小一号、灰一点的字（"正在下载资源对象"、"19:42"、栏名都用它）。
 ///
@@ -129,7 +130,6 @@ void applyMutedFont(QWidget *widget, int pointDelta) {
 ElidedLabel *makeTextLabel(QWidget *parent, const QString &objectName) {
     auto *label = new ElidedLabel(parent);
     label->setObjectName(objectName);
-    label->setMaximumWidth(kTextMaxWidth);
     label->setMinimumWidth(0);
     label->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     label->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
@@ -166,16 +166,21 @@ public:
         // 验证工程也拿它核对"画出来的是不是那几条"。
         setProperty(MainWindowUI::taskCenterPanelRowKeyProperty(), item.key);
 
-        auto *column = new QVBoxLayout(this);
-        column->setContentsMargins(10, 6, 10, 6);
-        column->setSpacing(kRowInnerSpacing);
+        // 列表行 = 列表页那套行的样子（ListRowDelegate）：左边状态图标，中间标题 + 一行小字，
+        // 右边百分比 / 时间；正在跑的那几行再挂一根细进度条和"第几步"。
+        auto *outerRow = new QHBoxLayout(this);
+        outerRow->setContentsMargins(12, 9, 12, 9);
+        outerRow->setSpacing(12);
+        auto *column = new QVBoxLayout;
+        column->setContentsMargins(0, 0, 0, 0);
+        column->setSpacing(4);
 
-        // ---------- 第一行：记号（可选）+ 标题 + 右边那个数 ----------
+        // ---------- 第一行：标题 + 右边那个数（排队那几行前面多一组拖动 / 上下移） ----------
         auto *titleRow = new QHBoxLayout();
         titleRow->setContentsMargins(0, 0, 0, 0);
         titleRow->setSpacing(kRowInnerSpacing);
         if (acceptDrops()) {
-            titleRow->addWidget(new TaskDragHandle(item.key, item.queueGroup, this));
+            outerRow->addWidget(new TaskDragHandle(item.key, item.queueGroup, this), 0, Qt::AlignVCenter);
             for (int delta : {-1, 1}) {
                 auto *button = new QPushButton(delta < 0 ? QStringLiteral("↑") : QStringLiteral("↓"), this);
                 button->setObjectName(QStringLiteral("taskQueue%1_%2").arg(delta < 0 ? "Up" : "Down", item.key));
@@ -191,8 +196,27 @@ public:
         const bool active = isActive(item.state);
         const bool failed = item.state == TaskCenter::State::Failed;
         const bool interrupted = item.state == TaskCenter::State::Interrupted;
+        // 状态图标：成功 / 失败 / 进行中 / 等待 / 暂停 / 取消各一个（和任务详情页同一套）。
+        auto *icon = TaskVisuals::makeGlyphIcon(TaskVisuals::stateGlyph(item.state, palette()), 18, this);
+        icon->setObjectName(QStringLiteral("taskCenterPanelRowIcon_%1").arg(index));
+        icon->setAccessibleName(MainWindowUI::taskDetailStateText(item.state));
+        auto *iconColumn = new QVBoxLayout;
+        iconColumn->setContentsMargins(0, 2, 0, 0);
+        iconColumn->addWidget(icon);
+        iconColumn->addStretch(1);
+        outerRow->addLayout(iconColumn);
+        outerRow->addLayout(column, 1);
+
+        ElidedLabel *title = makeTextLabel(this, MainWindowUI::taskCenterPanelRowTitleName(index));
+        title->setText(item.title);
+        {
+            QFont font = Theme::textFont(title->font(), Theme::TextRole::Body);
+            font.setWeight(QFont::DemiBold);
+            title->setFont(font);
+        }
+        titleRow->addWidget(title, 1, Qt::AlignVCenter);
         if (item.unreadFailure) {
-            // 用户还没看过的一次失败：一颗红点（图的颜色问 `folderDangerColor()`，和界面上
+            // 用户还没看过的一次失败：标题后面一颗红点（颜色问 `folderDangerColor()`，和界面上
             // 别处的红是**同一个色** —— 见 MainWindowUI 里 runStateMarkColor() 那段）。
             auto *dot = new QLabel(this);
             dot->setObjectName(MainWindowUI::taskCenterPanelRowDotName(index));
@@ -201,27 +225,10 @@ public:
             dot->setPixmap(VersionIcons::runStateMark(size,
                                                       MainWindowUI::folderDangerColor(palette())));
             titleRow->addWidget(dot, 0, Qt::AlignVCenter);
-        } else if (!active) {
-            // 已完成那一行左边那个记号：成功 / 失败 / 取消 / 中断各自说清楚。
-            auto *mark = new QLabel(TaskCenter::terminalMark(item.state), this);
-            if (failed || interrupted) {
-                QPalette markPalette = mark->palette();
-                markPalette.setColor(QPalette::WindowText,
-                                     MainWindowUI::folderDangerColor(palette()));
-                mark->setPalette(markPalette);
-            } else {
-                applyMutedFont(mark, 0);
-            }
-            titleRow->addWidget(mark, 0, Qt::AlignVCenter);
         }
-        ElidedLabel *title = makeTextLabel(this, MainWindowUI::taskCenterPanelRowTitleName(index));
-        title->setText(item.title);
-        titleRow->addWidget(title, 1, Qt::AlignVCenter);
         // ---------- 行尾那颗「取消」（行内快捷动作）----------
-        // 只在**能力位说可以**、而且外面真挂了处理器的时候才长。没挂却露出来 = 一颗点了
-        // 没反应的按钮（这一面板是能单独搭起来用的，验证工程那几处就没挂）。
-        // NOTE: 它是**真按钮**（不是画出来靠事件过滤器认位置），所以点它**不会**同时触发
-        // 整行那一下 —— 父子控件的鼠标事件不会一起送给两边。
+        // 只在**能力位说可以**、而且外面真挂了处理器的时候才长。它是真按钮，点它不会同时
+        // 触发整行那一下（父子控件的鼠标事件不会一起送给两边）。
         if (item.capabilities.cancel && onRowAction) {
             auto *cancel = new QPushButton(MainWindowUI::taskCenterPanelRowCancelText(), this);
             cancel->setObjectName(MainWindowUI::taskCenterPanelRowCancelName(index));
@@ -229,80 +236,75 @@ public:
             cancel->setFlat(true);
             applyMutedFont(cancel, -1);
             const QString key = item.key;
-            // 收下这一下的**是这颗按钮自己**（上下文传 cancel）：这一行随时会被整块重建，
-            // 挂在这一行身上等于给一个马上就要没的东西接信号。
+            // 收下这一下的是这颗按钮自己；故意不当场重建面板：取消要走一趟异步，等账本的
+            // `taskChanged` 传来由 `refreshTaskCenterPanel()` 重画（没取消成就本来没新状态可说）。
             QObject::connect(cancel, &QPushButton::clicked, cancel, [onRowAction, key]() {
                 if (onRowAction) {
                     onRowAction(key, TaskCenter::RowAction::Cancel);
                 }
-                // 这里**故意不重建面板**：取消要走一趟异步（下载器得先把在飞的那几条收
-                // 干净才发终态），当场重画的话画出来的还是"正在进行"那一行，看着像点了没
-                // 反应。等账本那边 `taskChanged` 传来，`refreshTaskCenterPanel()` 会把这里
-                // 重画一遍。没成功取消（那一批刚好已经收尾）时账本一动不动、这一行也
-                // 不动 —— 那一刻它确实没有新状态可说。
             });
             titleRow->addWidget(cancel, 0, Qt::AlignVCenter);
         }
         if (active && item.percent >= 0) {
             auto *percent = new QLabel(MainWindowUI::taskCenterPercentText(item.percent), this);
             percent->setObjectName(MainWindowUI::taskCenterPanelRowPercentName(index));
-            applyMutedFont(percent, 0);
+            applyMutedFont(percent, -1);
             titleRow->addWidget(percent, 0, Qt::AlignVCenter);
         } else if (!active && item.finishedAt.isValid()) {
             auto *when = new QLabel(TaskCenter::timeText(item.finishedAt), this);
             when->setObjectName(MainWindowUI::taskCenterPanelRowTimeName(index));
-            applyMutedFont(when, 0);
+            applyMutedFont(when, -1);
             titleRow->addWidget(when, 0, Qt::AlignVCenter);
         }
         column->addLayout(titleRow);
 
-        // ---------- 第二行：小字（"已下载 12 / 40  文件名"） ----------
+        // ---------- 第二行：小字（"已下载 12 / 40  文件名"；收了尾的写原因 / 结局） ----------
         if (!item.detail.isEmpty()) {
             ElidedLabel *detail =
                 makeTextLabel(this, MainWindowUI::taskCenterPanelRowDetailName(index));
             detail->setText(item.detail);
             applyMutedFont(detail, -1);
             column->addWidget(detail);
+        } else if (!active) {
+            ElidedLabel *subtitle = makeTextLabel(this, QStringLiteral("taskCenterPanelRowSubtitle_%1").arg(index));
+            subtitle->setText((failed || interrupted) && !item.errorSummary.isEmpty()
+                                  ? item.errorSummary.section(QLatin1Char('\n'), 0, 0)
+                                  : MainWindowUI::taskDetailStateText(item.state));
+            applyMutedFont(subtitle, -1);
+            if (failed || interrupted) {
+                QPalette colors = subtitle->palette();
+                colors.setColor(QPalette::WindowText, MainWindowUI::folderDangerColor(palette()));
+                subtitle->setPalette(colors);
+            }
+            column->addWidget(subtitle);
         }
 
-        // ---------- 第三样：进度条（只在**测得出百分比**时才有） ----------
-        // NOTE: 测不出总量的时候**不画一根不确定态的条**（「无
-        // Content-Length 的 Fabric 下载显示'已下载多少'，不显示假百分比」）。
-        // 那种情况下这一行的信息在 `detail` 那句里（"已下载 2.8 MB"）。
+        // ---------- 第三样：进度条（只在**测得出百分比**时才有；测不出就看 detail 那句） ----------
         if (active && item.percent >= 0) {
-            // 自绘那条：条本身就**不画数**，数在上面那一行的 `percent` 里。
             auto *bar = new TaskProgressBar(this);
             bar->setObjectName(MainWindowUI::taskCenterPanelRowBarName(index));
             bar->setRange(0, 100);
             bar->setValue(item.percent);
             bar->setFixedHeight(MainWindowUI::taskCenterPanelBarHeight());
+            column->addSpacing(2);
             column->addWidget(bar);
         }
 
-        // ---------- 第四样：步骤（"✓ 校验文件 ✓ 准备 Java ● 等待游戏输出"） ----------
-        if (!item.steps.isEmpty()) {
-            auto *stepsRow = new QHBoxLayout();
-            stepsRow->setContentsMargins(0, 0, 0, 0);
-            stepsRow->setSpacing(MainWindowUI::taskCenterPanelStepSpacing());
-            for (int i = 0; i < item.steps.size(); ++i) {
-                const TaskCenter::Step step =
-                    TaskCenter::stepForTask(item.state, item.steps.at(i));
-                auto *label = new QLabel(this);
-                label->setObjectName(MainWindowUI::taskCenterPanelRowStepName(index, i));
-                label->setText(TaskCenter::stepMark(step.state) + QLatin1Char(' ') + step.name);
-                if (step.state == TaskCenter::StepState::Failed) {
-                    QPalette stepPalette = label->palette();
-                    stepPalette.setColor(QPalette::WindowText,
-                                         MainWindowUI::folderDangerColor(palette()));
-                    label->setPalette(stepPalette);
-                } else {
-                    applyMutedFont(label, -1);
-                }
-                stepsRow->addWidget(label, 0, Qt::AlignVCenter);
+        // ---------- 第四样：走到第几步（一句话，不再拿 √ ● ○ 拼一串） ----------
+        if (active && !item.steps.isEmpty()) {
+            int current = -1;
+            for (int i = 0; i < item.steps.size() && current < 0; ++i)
+                if (TaskCenter::stepForTask(item.state, item.steps.at(i)).state == TaskCenter::StepState::Running) current = i;
+            for (int i = 0; i < item.steps.size() && current < 0; ++i)
+                if (TaskCenter::stepForTask(item.state, item.steps.at(i)).state != TaskCenter::StepState::Done) current = i;
+            if (current >= 0) {
+                auto *step = new QLabel(this);
+                step->setObjectName(MainWindowUI::taskCenterPanelRowStepName(index, 0));
+                step->setText(TaskCenterPanel::tr("第 %1 / %2 步 · %3")
+                                  .arg(current + 1).arg(item.steps.size()).arg(item.steps.at(current).name));
+                applyMutedFont(step, -1);
+                column->addWidget(step);
             }
-            // 弹簧摆在最后：步骤从左往右排，右边不留空（不摊开）。
-            stepsRow->addStretch(1);
-            column->addLayout(stepsRow);
         }
     }
 
@@ -356,7 +358,7 @@ protected:
         painter.setPen(Qt::NoPen);
         const QColor base = palette().color(QPalette::Base);
         painter.setBrush(selected ? Theme::selectionFill(base) : Theme::rowHoverFill(base));
-        painter.drawRoundedRect(rect(), 6, 6);
+        painter.drawRoundedRect(rect(), 10, 10);
         if (m_dropHover) {
             painter.setPen(QPen(Theme::focusRingColor(palette()), 2));
             const int y = m_dropAfter ? height() - 1 : 1;
@@ -364,7 +366,7 @@ protected:
         }
         if (selected) {
             painter.setBrush(Theme::focusRingColor(palette()));
-            painter.drawRoundedRect(QRectF(0, 6, 3, qMax(0, height() - 12)), 1.5, 1.5);
+            painter.drawRoundedRect(QRectF(3, 12, 3, qMax(0, height() - 24)), 1.5, 1.5);
         }
     }
     void mousePressEvent(QMouseEvent *event) override {
@@ -506,7 +508,9 @@ TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider
     m_toolbar->setObjectName(QStringLiteral("taskCenterToolbar"));
     auto *toolbar = new QHBoxLayout(m_toolbar);
     toolbar->setContentsMargins(0, 0, 0, 0);
+    toolbar->setSpacing(8);
     m_filter = new QComboBox(m_toolbar);
+    m_filter->setFixedHeight(36);
     m_filter->setObjectName(QStringLiteral("taskCenterFilter"));
     m_filter->addItems({tr("全部任务"), tr("正在进行"), tr("已结束"), tr("需要处理")});
     m_filter->setAccessibleName(tr("筛选任务状态"));
@@ -517,11 +521,13 @@ TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider
     m_search->setClearButtonEnabled(true);
     m_search->setMinimumWidth(0);
     m_search->setMaximumWidth(240);
+    m_search->setFixedHeight(36);
     toolbar->addWidget(m_search, 1);
     m_clearFinished = new QPushButton(MainWindowUI::taskCenterPanelClearText(), m_toolbar);
     m_clearFinished->setObjectName(MainWindowUI::taskCenterPanelClearButtonName());
     m_clearFinished->setToolTip(tr("清除全部已结束记录，不影响进行中的任务与下载文件。"));
     m_clearFinished->setVisible(bool(m_onClear));
+    m_clearFinished->setFixedHeight(36);
     Theme::markButton(m_clearFinished, Theme::ButtonKind::Neutral);
     toolbar->addWidget(m_clearFinished);
     outer->addWidget(m_toolbar);
@@ -627,11 +633,22 @@ TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider
     m_detailContent->setObjectName(QStringLiteral("taskCenterDetailContent"));
     m_detailContent->setLayout(new QVBoxLayout);
     m_detailScroll->setWidget(m_detailContent);
-    detailLayout->addWidget(m_detailScroll);
+    detailLayout->addWidget(m_detailScroll, 1);
+    m_detailFooter = new QWidget(m_detailPane);
+    m_detailFooter->setObjectName(QStringLiteral("taskCenterDetailFooter"));
+    m_detailFooter->setMaximumWidth(720);  // 和上面那一栏对齐
+    m_detailFooter->setProperty("wtfmlDialogActions", true);  // 按钮一样高（36）
+    auto *footerLayout = new QVBoxLayout(m_detailFooter);
+    footerLayout->setContentsMargins(0, 0, 4, 6);
+    footerLayout->setSpacing(0);
+    m_detailFooter->hide();
+    detailLayout->addWidget(m_detailFooter);
     workspace->addWidget(m_detailPane);
 
     rebuild();
 }
+
+TaskCenterPanel::~TaskCenterPanel() = default;
 
 void TaskCenterPanel::popUp() {
     rebuild();
@@ -1039,6 +1056,7 @@ void TaskCenterPanel::rebuild() {
     revealBuiltChildren(m_content);
     revealBuiltChildren(m_runningContent);
     revealBuiltChildren(m_detailContent);
+    revealBuiltChildren(m_detailFooter);
     // A top-aligned list needs no synchronous layout. Only settle geometry when
     // restoring an actual scroll offset; forcing it on first open delays the page.
     if (scrollTop > 0) layout->activate();
@@ -1094,6 +1112,7 @@ void TaskCenterPanel::selectTask(const QString &key) {
     rebuildDetail(items);
     syncSelection();
     revealBuiltChildren(m_detailContent);
+    revealBuiltChildren(m_detailFooter);
 }
 
 void TaskCenterPanel::syncSelection() {
@@ -1208,6 +1227,37 @@ void TaskCenterPanel::rebuildDetail(const QList<TaskCenter::Item> &items) {
         delete item->widget();
         delete item;
     }
+    auto *footer = qobject_cast<QVBoxLayout *>(m_detailFooter->layout());
+    while (QLayoutItem *item = footer->takeAt(0)) {
+        delete item->widget();
+        delete item;
+    }
+    m_detailFooter->hide();
+    // 旧的「更多…」按钮已随底栏一起删掉；它的记账也一并换新。
+    m_detailActions.reset();
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
+    // 和任务详情页（7c）同一套样子：一栏，最宽 720，靠左。
+    auto *column = new QWidget(m_detailContent);
+    column->setObjectName(QStringLiteral("taskCenterDetailColumn"));
+    column->setMaximumWidth(720);
+    column->setProperty("wtfmlDialogActions", true);  // 底下那排按钮一样高（36）
+    layout->addWidget(column, 1);
+    auto *box = new QVBoxLayout(column);
+    box->setContentsMargins(0, 2, 4, 6);
+    box->setSpacing(6);
+
+    const Theme::Tokens t = Theme::tokens();
+    const QColor muted = palette().color(QPalette::PlaceholderText);
+    const QColor accent = Theme::textTone(t.accentInk, t.primary);
+    const QColor danger = Theme::textTone(t.dangerInk, t.danger);
+    const auto sectionTitle = [column](const QString &text) {
+        auto *label = new QLabel(text, column);
+        label->setFont(Theme::textFont(label->font(), Theme::TextRole::Heading));
+        label->setContentsMargins(0, 14, 0, 4);
+        return label;
+    };
+
     auto selected = items.constEnd();
     if (!m_selectedKey.isEmpty()) {
         selected = std::find_if(items.constBegin(), items.constEnd(), [this](const auto &item) {
@@ -1232,33 +1282,45 @@ void TaskCenterPanel::rebuildDetail(const QList<TaskCenter::Item> &items) {
                 ++attention;
             }
         }
-        auto *title = new QLabel(tr("任务概览"), m_detailContent);
-        QFont titleFont = title->font();
-        titleFont.setBold(true);
+        auto *title = new QLabel(tr("任务概览"), column);
+        QFont titleFont = Theme::handFont(title->font(), Theme::HandFont::Kai);
+        titleFont.setPixelSize(22);
         title->setFont(titleFont);
-        layout->addWidget(title);
-        for (const QString &line : {tr("正在进行：%1").arg(active),
-                                    tr("已完成：%1").arg(done),
-                                    tr("需要处理：%1").arg(attention)}) {
-            auto *label = new QLabel(line, m_detailContent);
-            layout->addWidget(label);
+        box->addWidget(title);
+        box->addSpacing(6);
+        // 三行「图标 + 名字 + 右侧数」；text() 仍是「需要处理：n」那一句（读屏 / 验证工程认它）。
+        const struct { QString word; int count; const char *glyph; QColor color; } lines[] = {
+            {tr("正在进行"), active, "dots", accent},
+            {tr("已完成"), done, "okc", Theme::textTone(t.okInk, t.ok)},
+            {tr("需要处理"), attention, "warn", attention > 0 ? danger : muted},
+        };
+        for (int i = 0; i < 3; ++i) {
+            auto *label = new TaskVisuals::GlyphLabel(tr("%1：%2").arg(lines[i].word).arg(lines[i].count), column);
+            label->shown = lines[i].word;
+            label->note = QString::number(lines[i].count);
+            label->noteColor = palette().color(QPalette::WindowText);
+            label->glyph = QString::fromLatin1(lines[i].glyph);
+            label->glyphColor = lines[i].color;
+            label->glyphSize = 18;
+            label->glyphGap = 14;
+            label->setMinimumHeight(40);
+            label->setContentsMargins(10, 0, 12, 0);
+            label->divider = i < 2;
+            box->addWidget(label);
         }
-        layout->addStretch(1);
+        box->addStretch(1);
         return;
     }
 
     const TaskCenter::Item &item = *selected;
     m_detailContent->setProperty("taskKey", item.key);
     if (m_embedded && m_compact) {
-        auto *back = new QPushButton(tr("← 返回任务列表"), m_detailContent);
+        auto *back = new QPushButton(tr("← 返回任务列表"), column);
         back->setObjectName(QStringLiteral("taskCenterCompactBack"));
         Theme::markButton(back, Theme::ButtonKind::Ghost);
         connect(back, &QPushButton::clicked, back, [this]() {
-            // 这一发**不能同步**做。`rebuildDetail()` 第一件事就是把
-            // `m_detailContent` 的全部子控件 delete 掉 —— 而 `back` 自己正站在这条信号栈
-            // 里（发送者就是它）。Qt 对"在 clicked 里删掉按钮本身"并不保证安全
-            // （QAbstractButton 在发完 clicked 之后还要接着用自己的成员）。排到下一轮事件
-            // 循环：那时这条信号早就返回了，按钮也只剩一个待删除的对象。
+            // 这一发**不能同步**做：`rebuildDetail()` 第一件事就是把这一栏（连同 `back`
+            // 自己）删掉，而 `back` 正站在这条信号栈里。排到下一轮事件循环再做。
             QTimer::singleShot(0, this, [this]() {
                 if (!m_compact) {
                     // 这一轮里面板换了形态/被关掉：「返回列表」这件事已经没有意义。
@@ -1270,162 +1332,245 @@ void TaskCenterPanel::rebuildDetail(const QList<TaskCenter::Item> &items) {
                 // 窄屏那一档是"列表 ⇄ 详情"整块换的（见 applyWorkspaceMode()）—— 标志清了
                 // 得当场让它摆一次，不能等下面那一趟重建（那一趟是异步的，中间会空一帧）。
                 applyWorkspaceMode();
-                // 回到列表时顺手刷一次：这一页开着的这段时间里账本可能已经动过，而详情那一页
-                // 显示的是点开那一刻的快照。
+                // 回到列表时顺手刷一次：这一页开着的这段时间里账本可能已经动过。
                 requestRefresh();
             });
         });
-        layout->addWidget(back, 0, Qt::AlignLeft);
+        box->addWidget(back, 0, Qt::AlignLeft);
+        box->addSpacing(6);
     }
-    auto *title = new QLabel(item.title, m_detailContent);
+
+    // ---------- 状态那一行：图标 + 状态词 + 时间 ----------
+    auto *stateRow = new QHBoxLayout;
+    stateRow->setContentsMargins(0, 0, 0, 0);
+    stateRow->setSpacing(8);
+    const TaskVisuals::Glyph stateGlyph = TaskVisuals::stateGlyph(item.state, palette());
+    auto *state = new TaskVisuals::GlyphLabel(MainWindowUI::taskDetailStateText(item.state), column);
+    state->setObjectName(MainWindowUI::taskDetailStateName());
+    state->shown = state->text();
+    state->glyph = stateGlyph.name;
+    state->glyphColor = state->shownColor = stateGlyph.color;
+    state->setFont(Theme::textFont(state->font(), Theme::TextRole::Caption));
+    stateRow->addWidget(state, 0, Qt::AlignVCenter);
+    const QString timeLine = MainWindowUI::taskDetailTimeLineText(item.startedAt, item.finishedAt);
+    if (!timeLine.isEmpty()) {
+        auto *when = new QLabel(timeLine, column);
+        when->setObjectName(QStringLiteral("taskCenterDetailTime"));
+        applyMutedFont(when, -1);
+        stateRow->addWidget(when, 0, Qt::AlignVCenter);
+    }
+    stateRow->addStretch(1);
+    box->addLayout(stateRow);
+
+    // ---------- 标题（手写体）----------
+    auto *title = new QLabel(item.title, column);
     title->setObjectName(MainWindowUI::taskDetailTitleName());
     title->setWordWrap(true);
-    QFont titleFont = title->font();
-    titleFont.setBold(true);
+    QFont titleFont = Theme::handFont(title->font(), Theme::HandFont::Kai);
+    titleFont.setPixelSize(m_compact ? 26 : 22);
     title->setFont(titleFont);
-    layout->addWidget(title);
-    auto *state = new QLabel(MainWindowUI::taskDetailStateText(item.state), m_detailContent);
-    state->setObjectName(MainWindowUI::taskDetailStateName());
-    applyMutedFont(state, 0);
-    layout->addWidget(state);
+    box->addWidget(title);
+    if (!item.detail.isEmpty()) {
+        auto *detail = new QLabel(item.detail, column);
+        detail->setWordWrap(true);
+        applyMutedFont(detail, -1);
+        box->addWidget(detail);
+    }
     // 「取消」这一颗不露脸时得说清为什么（不能取消的那一类 / 暂时停不得的那一段）。
     if (isActive(item.state) && !item.capabilities.cancel && !item.cancelBlockedReason.isEmpty()) {
-        auto *blocked = new QLabel(item.cancelBlockedReason, m_detailContent);
+        auto *blocked = new TaskVisuals::GlyphLabel(item.cancelBlockedReason, column);
         blocked->setObjectName(QStringLiteral("taskCenterCancelBlockedReason"));
         blocked->setWordWrap(true);
+        blocked->glyph = QStringLiteral("info");
+        blocked->glyphColor = muted;
+        blocked->glyphSize = 14;
+        blocked->glyphAt = QPoint(0, 2);
+        blocked->setContentsMargins(20, 0, 0, 0);
         applyMutedFont(blocked, -1);
-        layout->addWidget(blocked);
+        box->addWidget(blocked);
     }
-    if (!item.detail.isEmpty()) {
-        auto *detail = new QLabel(item.detail, m_detailContent);
-        detail->setWordWrap(true);
-        layout->addWidget(detail);
-    }
-    if (!item.bytesText.isEmpty()) {
-        auto *bytes = new QLabel(item.bytesText, m_detailContent);
-        applyMutedFont(bytes, -1);
-        layout->addWidget(bytes);
-    }
+    // ---------- 进度：细圆角条 + 右边那个数（测不出总量就不画）----------
     if (item.percent >= 0) {
-        auto *bar = new TaskProgressBar(m_detailContent);
+        auto *barRow = new QHBoxLayout;
+        barRow->setContentsMargins(0, 8, 0, 0);
+        barRow->setSpacing(12);
+        auto *bar = new TaskProgressBar(column);
         bar->setObjectName(QStringLiteral("taskCenterDetailProgress"));
         bar->setRange(0, 100);
         bar->setValue(item.percent);
         bar->setFixedHeight(MainWindowUI::taskCenterPanelBarHeight());
-        layout->addWidget(bar);
+        barRow->addWidget(bar, 1, Qt::AlignVCenter);
+        auto *percent = new QLabel(MainWindowUI::taskCenterPercentText(item.percent), column);
+        applyMutedFont(percent, -1);
+        barRow->addWidget(percent, 0, Qt::AlignVCenter);
+        box->addLayout(barRow);
     }
+    if (!item.bytesText.isEmpty()) {
+        auto *bytes = new QLabel(item.bytesText, column);
+        applyMutedFont(bytes, -1);
+        box->addWidget(bytes);
+    }
+    // ---------- 出错那一块：浅红圆角底 + 警告图标 ----------
     if (!item.errorSummary.isEmpty()) {
-        auto *error = new QLabel(item.errorSummary, m_detailContent);
+        box->addSpacing(6);
+        auto *error = new TaskVisuals::GlyphLabel(item.errorSummary, column);
+        error->setObjectName(QStringLiteral("taskCenterDetailError"));
         error->setWordWrap(true);
-        QPalette colors = error->palette();
-        colors.setColor(QPalette::WindowText, MainWindowUI::folderDangerColor(colors));
-        error->setPalette(colors);
-        layout->addWidget(error);
+        error->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        error->glyph = QStringLiteral("warn");
+        error->glyphAt = QPoint(14, 12);
+        error->glyphColor = danger;
+        error->fill = t.dangerSoft;
+        error->radius = 12;
+        error->setContentsMargins(42, 11, 14, 11);
+        box->addWidget(error);
     }
+    // ---------- 执行流程：图标 + 名字 + 右侧注，行间细线，正在跑那一行浅底 ----------
     if (!item.steps.isEmpty()) {
-        auto *heading = new QLabel(tr("执行流程"), m_detailContent);
+        auto *heading = sectionTitle(tr("执行流程"));
         heading->setObjectName(QStringLiteral("taskCenterFlowHeading"));
-        layout->addWidget(heading);
+        box->addWidget(heading);
+        auto *steps = new QVBoxLayout;
+        steps->setContentsMargins(0, 0, 0, 0);
+        steps->setSpacing(0);
         for (int index = 0; index < item.steps.size(); ++index) {
             // 兼容旧任务历史：终态不能再把当时的当前步骤画成“仍在运行”。判定和另外三处
             // 共用 `stepForTask()`。
             const auto step = TaskCenter::stepForTask(item.state, item.steps.at(index));
-            auto *row = new QWidget(m_detailContent);
+            auto *row = new QFrame(column);
             row->setObjectName(QStringLiteral("taskCenterFlowStep_%1").arg(index));
-            auto *column = new QVBoxLayout(row);
-            column->setContentsMargins(0, 2, 0, 2);
-            column->setSpacing(3);
-            auto *line = new QHBoxLayout;
-            line->setContentsMargins(0, 0, 0, 0);
-            auto *mark = new QLabel(TaskCenter::stepMark(step.state), row);
-            mark->setFixedWidth(18);
-            line->addWidget(mark, 0, Qt::AlignTop);
-            auto *name = new QLabel(step.name, row);
-            name->setWordWrap(true);
+            if (step.state == TaskCenter::StepState::Running) {
+                const auto paintRow = [row] {
+                    row->setStyleSheet(QStringLiteral("QFrame#%1 { background: %2; border-radius: 10px; }")
+                                           .arg(row->objectName(), Theme::tokens().hover.name(QColor::HexArgb)));
+                };
+                paintRow();
+                Theme::follow(row, paintRow);
+            }
+            auto *rowLayout = new QVBoxLayout(row);
+            rowLayout->setContentsMargins(0, 0, 0, 0);
+            rowLayout->setSpacing(0);
+            auto *name = new TaskVisuals::GlyphLabel(
+                step.note.isEmpty() ? step.name : step.name + QStringLiteral(" / ") + step.note, row);
             name->setObjectName(QStringLiteral("taskCenterFlowStepName_%1").arg(index));
+            name->shown = step.name;
+            name->note = step.note;
+            const TaskVisuals::Glyph glyph = TaskVisuals::stepGlyph(step.state, palette());
+            name->glyph = glyph.name;
+            name->glyphColor = glyph.color;
+            name->glyphSize = 18;
+            name->glyphGap = 14;
+            name->setMinimumHeight(42);
+            name->setContentsMargins(10, 0, 12, 0);
+            name->divider = index + 1 < item.steps.size();
             QFont font = name->font();
-            font.setBold(step.state == TaskCenter::StepState::Running);
+            switch (step.state) {
+            case TaskCenter::StepState::Done:
+                font.setWeight(QFont::Medium);
+                break;
+            case TaskCenter::StepState::Failed:
+                name->shownColor = name->noteColor = danger;
+                font.setWeight(QFont::Medium);
+                break;
+            case TaskCenter::StepState::Running:
+                name->divider = false;
+                font.setWeight(QFont::DemiBold);
+                break;
+            case TaskCenter::StepState::Pending:
+                name->shownColor = muted;
+                break;
+            }
             name->setFont(font);
-            line->addWidget(name, 1);
-            column->addLayout(line);
-            if (step.state == TaskCenter::StepState::Pending) {
-                applyMutedFont(mark, 0);
-                applyMutedFont(name, 0);
-            }
-            if (step.state == TaskCenter::StepState::Failed) {
-                QPalette colors = name->palette();
-                colors.setColor(QPalette::WindowText, MainWindowUI::folderDangerColor(colors));
-                name->setPalette(colors);
-                mark->setPalette(colors);
-            }
-            if (!step.note.isEmpty()) {
-                auto *note = new QLabel(step.note, row);
-                note->setWordWrap(true);
-                note->setContentsMargins(24, 0, 0, 0);
-                applyMutedFont(note, -1);
-                column->addWidget(note);
-            }
+            if (step.note.length() > 18) name->setToolTip(step.note);
+            rowLayout->addWidget(name);
             if (step.state == TaskCenter::StepState::Running && isActive(item.state)) {
                 auto *progress = new TaskProgressBar(row);
                 progress->setObjectName(QStringLiteral("taskCenterFlowProgress"));
                 progress->setRange(0, 0); // 阶段没有独立百分比，不借用整个任务的百分比。
                 progress->setFixedHeight(MainWindowUI::taskCenterPanelBarHeight());
-                column->addWidget(progress);
+                auto *barBox = new QHBoxLayout;
+                barBox->setContentsMargins(42, 4, 12, 6);
+                barBox->addWidget(progress);
+                rowLayout->addLayout(barBox);
             }
-            layout->addWidget(row);
+            steps->addWidget(row);
         }
+        box->addLayout(steps);
     }
-    auto addAction = [&](const QString &text, TaskCenter::RowAction action,
-                         Theme::ButtonKind kind) {
-        if (!m_onRowAction) {
-            return;
-        }
-        auto *button = new QPushButton(text, m_detailContent);
+    box->addStretch(1);
+
+    // ---------- 底部一排：主钮（实心）+ 最多两颗扁平钮 + 「更多…」----------
+    if (!m_onRowAction) {
+        return;
+    }
+    QList<QPushButton *> secondaries;
+    QPushButton *primary = nullptr;
+    auto *actionsBar = new QWidget(m_detailFooter);
+    actionsBar->setObjectName(QStringLiteral("taskCenterDetailActions"));
+    auto *actions = new QHBoxLayout(actionsBar);
+    actions->setContentsMargins(0, 0, 0, 0);
+    actions->setSpacing(8);
+    const auto makeAction = [&](const QString &text, TaskCenter::RowAction action) {
+        auto *button = new QPushButton(text, actionsBar);
         if (action == TaskCenter::RowAction::Cancel) {
             button->setObjectName(MainWindowUI::taskDetailCancelName());
         } else if (action == TaskCenter::RowAction::Retry) {
             button->setObjectName(MainWindowUI::taskDetailRetryName());
+        } else {
+            button->setObjectName(QStringLiteral("taskCenterDetailAction_%1").arg(int(action)));
         }
-        Theme::markButton(button, kind);
+        button->setAutoDefault(false);
         const QString key = item.key;
         connect(button, &QPushButton::clicked, button, [this, key, action]() {
             if (m_onRowAction) {
                 m_onRowAction(key, action);
             }
         });
-        layout->addWidget(button);
+        actions->addWidget(button);
+        return button;
     };
-    if (item.capabilities.pause) {
-        addAction(tr("暂停下载"), TaskCenter::RowAction::Pause, Theme::ButtonKind::Neutral);
+    // 主钮按"最该做的那件"挑：重试 > 导出报告 > 继续未完成 > 补齐文件；其余按常用程度排。
+    const auto offer = [&](bool can, const QString &text, TaskCenter::RowAction action, bool primaryCandidate) {
+        if (!can) return;
+        QPushButton *button = makeAction(text, action);
+        if (primaryCandidate && primary == nullptr) primary = button;
+        else secondaries.append(button);
+    };
+    offer(item.capabilities.retry, tr("重试"), TaskCenter::RowAction::Retry, true);
+    offer(item.capabilities.exportReport, tr("导出错误报告"), TaskCenter::RowAction::ExportReport, true);
+    offer(item.capabilities.recover, tr("继续未完成操作"), TaskCenter::RowAction::Recover, true);
+    offer(item.capabilities.repairImport, tr("补齐文件"), TaskCenter::RowAction::RepairImport, true);
+    offer(item.capabilities.cancel, tr("取消任务"), TaskCenter::RowAction::Cancel, false);
+    offer(item.capabilities.pause, tr("暂停下载"), TaskCenter::RowAction::Pause, false);
+    offer(item.capabilities.openTarget, tr("打开目标位置"), TaskCenter::RowAction::OpenTarget, false);
+    offer(item.capabilities.openLog, tr("打开日志"), TaskCenter::RowAction::OpenLog, false);
+    offer(item.capabilities.openCrashDir, tr("打开崩溃报告目录"), TaskCenter::RowAction::OpenCrashDir, false);
+    if (primary == nullptr && secondaries.isEmpty()) {
+        delete actionsBar;
+        return;
     }
-    if (item.capabilities.cancel) {
-        addAction(tr("取消任务"), TaskCenter::RowAction::Cancel, Theme::ButtonKind::Neutral);
-    }
-    if (item.capabilities.retry) {
-        addAction(tr("重试"), TaskCenter::RowAction::Retry, Theme::ButtonKind::Accent);
-    }
-    if (item.capabilities.repairImport) {
-        addAction(tr("补齐文件"), TaskCenter::RowAction::RepairImport, Theme::ButtonKind::Accent);
-    }
-    if (item.capabilities.recover) {
-        addAction(tr("继续未完成操作"), TaskCenter::RowAction::Recover, Theme::ButtonKind::Accent);
-    }
-    if (item.capabilities.openTarget) {
-        addAction(tr("打开目标位置"), TaskCenter::RowAction::OpenTarget,
-                  Theme::ButtonKind::Ghost);
-    }
-    if (item.capabilities.openLog) {
-        addAction(tr("打开日志"), TaskCenter::RowAction::OpenLog, Theme::ButtonKind::Ghost);
-    }
-    if (item.capabilities.exportReport) {
-        addAction(tr("导出错误报告"), TaskCenter::RowAction::ExportReport,
-                  Theme::ButtonKind::Ghost);
-    }
-    if (item.capabilities.openCrashDir) {
-        addAction(tr("打开崩溃报告目录"), TaskCenter::RowAction::OpenCrashDir,
-                  Theme::ButtonKind::Ghost);
-    }
-    layout->addStretch(1);
+    m_detailActions = std::make_unique<TaskVisuals::ActionOverflow>(actionsBar, QStringLiteral("taskCenterDetailMore"));
+    actions->addWidget(m_detailActions->button());
+    actions->addStretch(1);
+    // 能摆多宽：窄屏整页那一档 = 这一页的宽，宽屏 = 右栏的宽（都扣掉边距和滚动条那一溜）。
+    const int budget = qMin(720, (m_compact ? width() - 2 * kPanelPadding : m_detailPane->minimumWidth()) - 16);
+    m_detailActions->arrange(primary, secondaries, 2, budget);
+    auto *hairline = new QFrame(m_detailFooter);
+    hairline->setObjectName(QStringLiteral("taskCenterDetailHairline"));
+    hairline->setFixedHeight(1);
+    hairline->setAutoFillBackground(true);
+    const auto paintLine = [hairline] {
+        QPalette pal = hairline->palette();
+        pal.setColor(QPalette::Window, Theme::tokens().divider);
+        hairline->setPalette(pal);
+    };
+    paintLine();
+    Theme::follow(hairline, paintLine);
+    footer->addSpacing(10);
+    footer->addWidget(hairline);
+    footer->addSpacing(12);
+    footer->addWidget(actionsBar);
+    m_detailFooter->show();
 }
 
 void TaskCenterPanel::keyPressEvent(QKeyEvent *event) {

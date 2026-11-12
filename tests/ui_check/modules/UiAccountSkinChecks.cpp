@@ -62,26 +62,29 @@ int UiAccountSkinChecks() {
                   "窗口标题是产品那句", dialog.windowTitle());
             check(loginBtn->text() == AccountSkinDialog::loginButtonText() &&
                       switchBtn->text() == AccountSkinDialog::switchButtonText() &&
-                      removeBtn->text() == AccountSkinDialog::removeButtonText() &&
+                      removeBtn->toolTip() == AccountSkinDialog::removeButtonText() &&
+                      removeBtn->text().isEmpty() && !removeBtn->icon().isNull() &&
                       refreshBtn->text() == AccountSkinDialog::refreshButtonText(),
                   "左边四个按钮的文字都是产品文案");
-            // 披风那两颗**露出来的字是短的那两个**（「应用」/「隐藏」），长的那两句是
-            // tooltip（按钮并排摆在一张 132 px 高的披风卡片里，长句会把两颗挤到换行）。
+            // 披风是一个「显示 / 隐藏」分段：露出来的字是短的那两个，长的那两句是 tooltip。
+            // 删除是行尾一颗垃圾桶（字只在 tooltip / 读屏名里）。
             check(uploadBtn->text() == AccountSkinDialog::uploadButtonText() &&
-                      applyCapeBtn->text() == QStringLiteral("应用") &&
+                      applyCapeBtn->text() == QStringLiteral("显示") &&
                       applyCapeBtn->toolTip() == AccountSkinDialog::applyCapeButtonText() &&
                       hideCapeBtn->text() == QStringLiteral("隐藏") &&
                       hideCapeBtn->toolTip() == AccountSkinDialog::hideCapeButtonText() &&
                       closeBtn->text() == AccountSkinDialog::closeButtonText(),
                   "右边三个 + 底的「关闭」也都是产品文案",
-                  QStringLiteral("应用=%1 / 隐藏=%2 / 关闭=%3")
+                  QStringLiteral("显示=%1 / 隐藏=%2 / 关闭=%3")
                       .arg(applyCapeBtn->text(), hideCapeBtn->text(), closeBtn->text()));
             check(offlineEdit->placeholderText() == AccountSkinDialog::offlineNamePlaceholder() &&
                       offlineEdit->text().isEmpty(),
                   "离线名字那个框一开始是空的，占位文字说明这里填什么",
                   offlineEdit->placeholderText());
-            check(addOfflineBtn->text() == AccountSkinDialog::addOfflineButtonText(),
-                  "「添加离线账号」也是产品文案", addOfflineBtn->text());
+            check(addOfflineBtn->toolTip() == AccountSkinDialog::addOfflineButtonText()
+                      && !addOfflineBtn->isVisibleTo(&dialog) && !offlineEdit->isVisibleTo(&dialog),
+                  "「添加离线账号」那一行先收着（点小链接才露），按钮说明仍是产品文案",
+                  addOfflineBtn->toolTip());
             check(statusLabel->text() == AccountSkinDialog::notLoggedInNote(),
                   "一进来状态行说的是「还没登录」那句", statusLabel->text());
             // 这个控件任何一档状态都不该是空白的（和主页右栏那个小人同一条约定）。
@@ -410,9 +413,16 @@ int UiAccountSkinChecks() {
                       "在框里回车也交一次（回车 = 点那个按钮）",
                       requested.join(QStringLiteral(" / ")));
 
+                auto *offlineToggle = child(QStringLiteral("accountOfflineToggle"));
+                if (auto *toggleBtn = qobject_cast<QPushButton *>(offlineToggle)) toggleBtn->click();
+                check(offlineToggle != nullptr && offlineEdit->isVisibleTo(&dialog)
+                          && addOfflineBtn->isVisibleTo(&dialog) && !offlineToggle->isVisibleTo(&dialog),
+                      "点「添加离线账号」小链接：露出输入框 + 「添加」，小链接自己收起");
                 offlineEdit->setText(QStringLiteral("留着没提交的名字"));
                 dialog.clearOfflineNameDraft();
-                check(offlineEdit->text().isEmpty(), "clearOfflineNameDraft() 把框清空");
+                check(offlineEdit->text().isEmpty() && !offlineEdit->isVisibleTo(&dialog)
+                          && offlineToggle != nullptr && offlineToggle->isVisibleTo(&dialog),
+                      "clearOfflineNameDraft() 把框清空并收回成小链接");
 
                 // 忙的时候这一行也得灰：它一旦成功就会把活动槽清空（切到离线身份），而正飞着的
                 // 那次登录回来还要往活动槽里写 —— 两个人会打架。

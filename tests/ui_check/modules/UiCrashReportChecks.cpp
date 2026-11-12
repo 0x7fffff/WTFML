@@ -63,7 +63,7 @@ int UiCrashReportChecks() {
 
         check(report != nullptr && report->isVisible()
                   && report->text() == MainWindowUI::taskDetailReportText()
-                  && crashDir != nullptr && crashDir->isVisible()
+                  && crashDir != nullptr && page.offers(crashDir)
                   && crashDir->text() == MainWindowUI::taskDetailCrashDirText(),
               "★ U29.1 能力位说可以 ⇒ 「导出错误报告」「打开崩溃报告目录」两颗都在",
               (report != nullptr ? report->text() : QStringLiteral("<没找到>"))
@@ -76,7 +76,8 @@ int UiCrashReportChecks() {
               "★ U29.1 这一项建出来就是终态 ⇒ 「取消」「重试」都不露");
         // 另外那两颗是**所有**任务都有的（日志窗常驻、目标位置空的话按数据目录开），不能因为
         // 这是崩溃那一项就一起收起来。
-        check(log != nullptr && log->isVisible() && copy != nullptr && copy->isVisible(),
+        // 次要钮最多露两颗，其余收进「更多…」：判"有没有提供"问 offers()，不问 isVisible()。
+        check(log != nullptr && page.offers(log) && copy != nullptr && page.offers(copy),
               "★ U29.1 「打开日志」「复制摘要」照旧在（这一节加的两颗是**多出来**的，不是替换）");
 
         auto *detailLabel = page.findChild<QLabel *>(MainWindowUI::taskDetailDetailName());
