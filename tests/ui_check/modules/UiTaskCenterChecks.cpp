@@ -320,6 +320,8 @@ int UiTaskCenterChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs
                   pop->width() == ActivityPopover::kWidth,
               "★ I2b 浮动面板贴在锚点上方、左沿对齐、400 宽",
               QStringLiteral("%1,%2 %3×%4").arg(pop->x()).arg(pop->y()).arg(pop->width()).arg(pop->height()));
+        // 开着时 refresh 重建：新行要当场算进高度，不能塌成只剩标题行（曾经 68px）。
+        check(pop->height() > 200, "★ I2b 开着时重建，面板高度跟着内容走", QString::number(pop->height()));
         check(part("MoveUp", "q0") && !part("MoveUp", "q0")->isEnabled() && part("MoveDown", "q0")->isEnabled() &&
                   part("MoveUp", "q1") && part("MoveUp", "q1")->isEnabled() && !part("MoveDown", "q1")->isEnabled() &&
                   part("Remove", "q1") && !part("MoveUp", "r") && part("Retry", "f"),

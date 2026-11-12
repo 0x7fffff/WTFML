@@ -372,6 +372,8 @@ void ActivityPopover::rebuild() {
         }
     }
     m_bodyLayout->addStretch(1);
+    // 面板开着时新加进布局的行要等下一拍才 show，那之前 sizeHint 把它们当隐藏算成 0：这里直接 show。
+    for (QWidget *row : m_body->findChildren<QWidget *>(QString(), Qt::FindDirectChildrenOnly)) row->show();
     place();
     // 摆出来的失败就算看过了（底栏红点跟着灭）；放到下一拍发：Seen → 账本变 → 这里重建。
     if (!unreadShown.isEmpty() && m_handlers.rowAction) {
