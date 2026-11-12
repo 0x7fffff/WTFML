@@ -33,7 +33,8 @@ int main(int argc, char **argv) {
     bool pageShots = false;
     for (int i = 1; i < argc; ++i) pageShots |= qstrcmp(argv[i], "--page-shots") == 0;
     for (int i = 1; i < argc; ++i) designShots |= qstrcmp(argv[i], "--design-shots") == 0 || pageShots;
-    if (designShots) qputenv("WTFML_BACKDROP", "scene");  // grab() 也要截到毛玻璃底下的风景
+    // grab() 也要截到毛玻璃底下的风景；真屏抓边缘样张时可从外面指定别的档（如 acrylic）。
+    if (designShots && qEnvironmentVariableIsEmpty("WTFML_BACKDROP")) qputenv("WTFML_BACKDROP", "scene");
     QApplication app(argc, argv);
     app.setOrganizationName("WTFML-desktop-acceptance");
     app.setApplicationName("isolated");
