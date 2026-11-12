@@ -376,7 +376,12 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_refreshButton->setObjectName(refreshButtonName());
     // 「刷新外观」刷的是**这一整个窗**（账号列表 + 皮肤 + 披风），所以放页头，不放某一栏里。
     Theme::markButton(m_refreshButton, Theme::ButtonKind::Neutral);
-    m_refreshButton->setIcon(VersionIcons::line(QStringLiteral("refresh"), 16, Theme::tokens().text));
+    {  // 图标颜色跟主题走（构造时上色的话换主题后还是上一套的字色）
+        const auto tint = [b = m_refreshButton] { b->setIcon(VersionIcons::line(QStringLiteral("refresh"), 16, Theme::tokens().text)); };
+        tint();
+        Theme::follow(m_refreshButton, tint);
+    }
+    statusRow->addStretch(1);  // 标题列有最大宽，余下的空白留在中间，别让按钮吃成一整条
     statusRow->addWidget(m_refreshButton, 0, Qt::AlignTop);
 
     // ---------- 中：立绘（设计稿 .stage）----------
@@ -409,13 +414,16 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     WheelGuard::install(m_variantCombo);
     controls->addWidget(m_variantCombo);
 
-    const Theme::Tokens tk = Theme::tokens();
     auto *skinButtons = new QHBoxLayout();
     skinButtons->setContentsMargins(0, 0, 0, 0);
     skinButtons->setSpacing(8);
     m_uploadButton = new QPushButton(uploadButtonText(), this);
     m_uploadButton->setObjectName(uploadButtonName());
-    m_uploadButton->setIcon(VersionIcons::line(QStringLiteral("upload"), 16, tk.text));
+    {  // 图标颜色跟主题走（构造时上色的话换主题后还是上一套的字色）
+        const auto tint = [b = m_uploadButton] { b->setIcon(VersionIcons::line(QStringLiteral("upload"), 16, Theme::tokens().text)); };
+        tint();
+        Theme::follow(m_uploadButton, tint);
+    }
     Theme::markButton(m_uploadButton, Theme::ButtonKind::Neutral);
     skinButtons->addWidget(m_uploadButton);
 
@@ -426,7 +434,11 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_offlineSkinButton->setObjectName(offlineSkinButtonName());
     m_offlineSkinButton->setAutoDefault(false);
     m_offlineSkinButton->setToolTip(offlineSkinButtonToolTip());
-    m_offlineSkinButton->setIcon(VersionIcons::line(QStringLiteral("upload"), 16, tk.text));
+    {  // 图标颜色跟主题走（构造时上色的话换主题后还是上一套的字色）
+        const auto tint = [b = m_offlineSkinButton] { b->setIcon(VersionIcons::line(QStringLiteral("upload"), 16, Theme::tokens().text)); };
+        tint();
+        Theme::follow(m_offlineSkinButton, tint);
+    }
     Theme::markButton(m_offlineSkinButton, Theme::ButtonKind::Neutral);
     m_offlineSkinResetButton = new QPushButton(offlineSkinResetButtonText(), this);
     m_offlineSkinResetButton->setObjectName(offlineSkinResetButtonName());
