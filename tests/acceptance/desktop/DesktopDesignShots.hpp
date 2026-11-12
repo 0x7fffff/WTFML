@@ -11,6 +11,9 @@
 #include "TitleBar.hpp"
 #include "ToolboxPage.hpp"
 #include "GameLogWindow.hpp"
+#include "SchematicInfoDialog.hpp"
+#include "UpgradeHistoryDialog.hpp"
+#include "UpgradeReportDialog.hpp"
 #include "ToggleSwitch.hpp"
 #include "VersionIcons.hpp"
 #include <QApplication>
@@ -468,6 +471,13 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         {QStringLiteral("gamelog-dark.png"), QStringLiteral("dark"), {1280, 800}, false, home, QStringLiteral("gamelog")},
         {QStringLiteral("gamelog-emerald.png"), QStringLiteral("emerald"), {1280, 800}, false, home, QStringLiteral("gamelog")},
         {QStringLiteral("gamelog-ocean.png"), QStringLiteral("ocean"), {1280, 800}, false, home, QStringLiteral("gamelog")},
+        // 其余独立对话框（ChromeDialog 自绘窄标题条）：页键 dialog:<种类> = 另开一只、抓它自己。
+        {QStringLiteral("dialog-report-dark.png"), QStringLiteral("dark"), {1280, 800}, false, home, QStringLiteral("dialog:report")},
+        {QStringLiteral("dialog-report-emerald.png"), QStringLiteral("emerald"), {1280, 800}, false, home, QStringLiteral("dialog:report")},
+        {QStringLiteral("dialog-history-dark.png"), QStringLiteral("dark"), {1280, 800}, false, home, QStringLiteral("dialog:history")},
+        {QStringLiteral("dialog-history-emerald.png"), QStringLiteral("emerald"), {1280, 800}, false, home, QStringLiteral("dialog:history")},
+        {QStringLiteral("dialog-schematic-dark.png"), QStringLiteral("dark"), {1280, 800}, false, home, QStringLiteral("dialog:schematic")},
+        {QStringLiteral("dialog-schematic-emerald.png"), QStringLiteral("emerald"), {1280, 800}, false, home, QStringLiteral("dialog:schematic")},
         {QStringLiteral("toolbox-page-dark.png"), QStringLiteral("dark"), {1280, 800}, false, home, QStringLiteral("toolbox:anvil")},
         {QStringLiteral("toolbox-page-emerald.png"), QStringLiteral("emerald"), {1280, 800}, false, home, QStringLiteral("toolbox:anvil")},
     };
@@ -545,6 +555,24 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
                     "[12:00:09] [Server thread/INFO]: Preparing spawn area: 84%\n"));
                 log->resize(960, 600);
                 log->show();
+            } else if (shot.page.startsWith(QStringLiteral("dialog:"))) {
+                const QString kind = shot.page.section(QLatin1Char(':'), 1);
+                QDialog *dialog = nullptr;
+                if (kind == QStringLiteral("report")) {
+                    auto *report = new UpgradeReportDialog(nullptr);
+                    UpgradeReport::Row sodium{QStringLiteral("Sodium"), QStringLiteral("目标版本没有对应构建"),
+                                              UpgradeReport::Bucket::Failed, true};
+                    UpgradeReport::Row iris{QStringLiteral("Iris Shaders"), QStringLiteral("只找到测试版"),
+                                            UpgradeReport::Bucket::Unknown, false};
+                    report->setRows({sodium, iris});
+                    dialog = report;
+                } else if (kind == QStringLiteral("history")) {
+                    dialog = new UpgradeHistoryDialog(nullptr);
+                } else {
+                    dialog = new SchematicInfoDialog(QStringLiteral("C:/不存在/城堡.litematic"), nullptr);
+                }
+                dialog->setObjectName(QStringLiteral("designShotGameLog"));
+                dialog->show();
             } else if (shot.page.startsWith(QStringLiteral("toolbox"))) {
                 if (auto *open = window.findChild<QAbstractButton *>(MainWindowUI::toolboxButtonName())) open->click();
                 const QString key = shot.page.section(QLatin1Char(':'), 1);
@@ -557,11 +585,11 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
             else if (shot.tab == MainWindowUI::instancesTabIndex()) hoverInstanceRow(window);
         });
         QTimer::singleShot(shot.page.isEmpty() ? 900 : 1600, &window, [&window, root, shot]() {
-            GameLogWindow *log = nullptr;
+            QWidget *log = nullptr;  // 另开的那只独立窗（日志窗 / 对话框）
             for (QWidget *top : QApplication::topLevelWidgets())
-                if (top->objectName() == QStringLiteral("designShotGameLog")) log = qobject_cast<GameLogWindow *>(top);
+                if (top->objectName() == QStringLiteral("designShotGameLog") && top->isVisible()) log = top;
             QPixmap shotImage = log != nullptr ? log->grab() : window.grab();
-            if (log != nullptr) log->close();
+            if (log != nullptr) { log->close(); log->deleteLater(); }
             // 工具箱面板是 Qt::Popup（另一个顶层窗），window.grab() 抓不到它：按它在窗口里的位置贴上去。
             if (auto *panel = window.findChild<QFrame *>(MainWindowUI::toolboxPanelName()); panel != nullptr && panel->isVisible()) {
                 QPainter painter(&shotImage);
