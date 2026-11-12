@@ -176,9 +176,9 @@ int UiTaskActionsChecks(QMainWindow &window, MainWindowUI &ui) {
         check(cancelPageButton != nullptr && !cancelPageButton->isVisible(),
               "I6 能力位说不能取消 ⇒ 这一页上**没有**「取消」（不是露一颗点了没反应的）");
         auto *logButton = page.findChild<QPushButton *>(MainWindowUI::taskDetailLogName());
-        check(logButton != nullptr && logButton->isVisible(), "I6 「打开日志」跟着能力位露出来");
+        check(logButton != nullptr && page.offers(logButton), "I6 「打开日志」跟着能力位露出来");
         auto *copyButton = page.findChild<QPushButton *>(MainWindowUI::taskDetailCopyName());
-        check(copyButton != nullptr && copyButton->isVisible(),
+        check(copyButton != nullptr && page.offers(copyButton),
               "I6 「复制摘要」**不需要任何能力位**（摘要就是这一页上那几行字，随时抄得走）");
         auto *closeButton = page.findChild<QPushButton *>(MainWindowUI::taskDetailCloseName());
         check(closeButton != nullptr && closeButton->isVisible(),

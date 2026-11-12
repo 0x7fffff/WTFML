@@ -175,11 +175,11 @@ int MwTaskSummaryChecks(MainWindow &window) {
                     rdTitle = title == nullptr ? QString() : title->text();
                     auto *rc = detailContent == nullptr
                                    ? nullptr
-                                   : detailContent->findChild<QPushButton *>(
+                                   : abPanel->findChild<QPushButton *>(
                                          MainWindowUI::taskDetailCancelName());
                     auto *rt = detailContent == nullptr
                                    ? nullptr
-                                   : detailContent->findChild<QPushButton *>(
+                                   : abPanel->findChild<QPushButton *>(
                                          MainWindowUI::taskDetailRetryName());
                     rdCancel = rc != nullptr && rc->isVisible();
                     rdRetry = rt != nullptr && rt->isVisible();
