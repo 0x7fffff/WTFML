@@ -10,6 +10,8 @@
 
 #include <QFont>
 #include <QHBoxLayout>
+#include <QPainter>
+#include <QPainterPath>
 #include <QLabel>
 #include <QPushButton>
 #include <QToolButton>
@@ -19,7 +21,12 @@ AgentMessageView::AgentMessageView(const AgentView::Message &message, QWidget *p
     : QWidget(parent), m_message(message) {
     setObjectName(QStringLiteral("agentMessageView"));
     auto *layout = new QVBoxLayout(this);
-    layout->setContentsMargins(10, 8, 10, 8);
+    if (message.user) {
+        layout->setContentsMargins(16, 10, 16, 10);
+        setMaximumWidth(520);
+    } else {
+        layout->setContentsMargins(0, 0, 0, 0);
+    }
     layout->setSpacing(4);
 
     m_role = new QLabel(this);
@@ -28,6 +35,7 @@ AgentMessageView::AgentMessageView(const AgentView::Message &message, QWidget *p
     roleFont.setBold(true);
     m_role->setFont(Theme::textFont(roleFont, Theme::TextRole::Caption));
     m_role->setForegroundRole(QPalette::PlaceholderText);
+    m_role->hide();
     layout->addWidget(m_role);
 
     m_reasoningToggle = new QToolButton(this);
@@ -85,6 +93,7 @@ void AgentMessageView::setMessage(const AgentView::Message &message) {
 void AgentMessageView::refresh() {
     const bool user = m_message.user;
     m_role->setText(user ? QStringLiteral("你") : QStringLiteral("助手"));
+    setAccessibleName(m_role->text());
     m_body->setText(AgentMarkdown::toHtml(m_message.content));
     const bool hasReasoning = !m_message.reasoning.trimmed().isEmpty();
     m_reasoningToggle->setVisible(hasReasoning);
@@ -108,4 +117,20 @@ void AgentMessageView::refresh() {
     const bool canRetry = !user && (m_message.status == AgentView::MessageStatus::Error ||
                                     m_message.status == AgentView::MessageStatus::Interrupted);
     m_retry->setVisible(canRetry);
+}
+
+void AgentMessageView::paintEvent(QPaintEvent *) {
+    if (!m_message.user) return;
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+    const QRectF r = QRectF(rect());
+    // 圆角 16、右下角 4：气泡「指」向说话的一侧。
+    QPainterPath path;
+    path.addRoundedRect(r, 16, 16);
+    QPainterPath corner;
+    corner.addRect(QRectF(r.right() - 16, r.bottom() - 16, 16, 16));
+    QPainterPath small;
+    small.addRoundedRect(QRectF(r.right() - 16, r.bottom() - 16, 16, 16), 4, 4);
+    path = path.united(corner).subtracted(corner.subtracted(small));
+    p.fillPath(path, Theme::tokens().subtle);
 }

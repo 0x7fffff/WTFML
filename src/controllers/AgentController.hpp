@@ -50,6 +50,9 @@ public:
     /// 主窗口提供“当前主页选中的实例 + 游戏根身份”；首次实例工具调用时锁定。
     using InstanceProvider = std::function<AgentInstanceInfo()>;
     void setInstanceContextProvider(InstanceProvider provider);
+    /// 当前游戏目录下的全部实例（「实例」下拉的选项；锁定的实例是否还在也按它判）。
+    using InstanceListProvider = std::function<QList<AgentInstanceInfo>()>;
+    void setInstanceListProvider(InstanceListProvider provider);
 
     /// 测试专用：固定实例根目录与实例信息，不经过主页。
     void setInstanceContextForTest(const QString &rootPath, const AgentInstanceInfo &info);
@@ -96,7 +99,12 @@ private:
     void onPin(const QString &sessionId, bool pinned);
     void onDelete(const QString &sessionId);
     void onEncryptToggled(bool encrypted);
-    void onInstanceSwitchRequested();
+    void onInstanceMenuRequested();
+    void onInstanceChosen(const QString &instanceId);
+    void onExport(const QString &sessionId);
+    AgentInstanceInfo homeInstance() const;
+    QList<AgentInstanceInfo> instances() const;
+    AgentInstanceInfo lockedInstance() const;
     void onApproval(bool approved);
     AgentToolContext toolContext(QString *problem);
     void updateInstanceChip();
@@ -112,6 +120,7 @@ private:
     AgentFileToolEngine *m_toolEngine = nullptr;
     AgentSession m_session;
     InstanceProvider m_instanceProvider;
+    InstanceListProvider m_instanceListProvider;
     AgentInstanceInfo m_testInstance;
     QString m_testRootPath;
     bool m_useTestInstance = false;
