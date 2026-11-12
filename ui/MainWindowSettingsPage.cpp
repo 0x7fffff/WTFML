@@ -39,6 +39,8 @@
 #include <QResizeEvent>
 #include <QRegularExpression>
 #include <QScrollArea>
+#include <QLineEdit>
+#include <QScrollBar>
 #include <QSet>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -220,15 +222,90 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
     // 越界保护的理由和下载页那条一模一样（见 MainWindow 里那段）：分类表和页数将来要是
     // 对不上，宁可停在原来那页，也不要 setCurrentIndex(-1) 把右栏整片清空 —— 那种
     // "点一下界面就空了"的毛病，用户只会当成崩了。
+    // ---- 左栏分类下面：当前这一栏的小节索引（设计稿 .set-index 子项），点一下滚到那一节 ----
+    auto *subIndex = new QWidget(columns.left.surface);
+    subIndex->setObjectName(QStringLiteral("settingsSubIndex"));
+    auto *subLayout = new QVBoxLayout(subIndex);
+    subLayout->setContentsMargins(14, 0, 0, 0);
+    subLayout->setSpacing(0);
+    const int listIndex = columns.left.layout->indexOf(settingsCategoryList);
+    columns.left.layout->insertWidget(listIndex + 1, subIndex);
+    const auto sectionsOf = [this](int index) {
+        QList<QFrame *> cards;
+        if (QWidget *panel = settingsCategoryStack->widget(index)) {
+            for (QFrame *card : panel->findChildren<QFrame *>())
+                if (!card->property("settingsSectionTitle").toString().isEmpty()) cards.append(card);
+        }
+        return cards;
+    };
+    const auto scrollTo = [this](int index, QWidget *target) {
+        auto *scroll = qobject_cast<QScrollArea *>(settingsCategoryStack->widget(index));
+        if (scroll == nullptr || target == nullptr || scroll->widget() == nullptr) return;
+        const int y = target->mapTo(scroll->widget(), QPoint(0, 0)).y();
+        scroll->verticalScrollBar()->setValue(qMax(0, y - 8));
+    };
+    const auto rebuildSubIndex = [this, subIndex, subLayout, sectionsOf, scrollTo](int index) {
+        while (QLayoutItem *item = subLayout->takeAt(0)) {
+            delete item->widget();
+            delete item;
+        }
+        const QList<QFrame *> cards = sectionsOf(index);
+        subIndex->setVisible(cards.size() > 1);
+        for (QFrame *card : cards) {
+            auto *link = new QPushButton(card->property("settingsSectionTitle").toString(), subIndex);
+            Theme::markButton(link, Theme::ButtonKind::Ghost);
+            link->setProperty("settingsSubIndexItem", true);
+            link->setCursor(Qt::PointingHandCursor);
+            link->setStyleSheet(QStringLiteral("QPushButton { text-align: left; padding: 4px 8px; min-height: 0; }"));
+            QFont f = Theme::textFont(link->font(), Theme::TextRole::Caption);
+            link->setFont(f);
+            QObject::connect(link, &QPushButton::clicked, link, [scrollTo, index, card] { scrollTo(index, card); });
+            subLayout->addWidget(link);
+        }
+    };
     QObject::connect(settingsCategoryList, &QListWidget::currentRowChanged, settingsCategoryList,
-                     [this](int row) {
+                     [this, rebuildSubIndex](int row) {
                          if (row >= 0 && row < settingsCategoryStack->count()) {
                              settingsCategoryStack->setCurrentIndex(row);
+                             rebuildSubIndex(row);
                          }
                      });
+
+    // ---- 页头右上角：搜索设置。按行名 / 小节名找，跳到那一栏并滚到那一行 ----
+    auto *search = new QLineEdit(columns.right.header != nullptr ? columns.right.header : page);
+    search->setObjectName(QStringLiteral("settingsSearchEdit"));
+    search->setPlaceholderText(QStringLiteral("搜索设置"));
+    search->setClearButtonEnabled(true);
+    search->setFixedWidth(240);
+    search->addAction(VersionIcons::line(QStringLiteral("search"), 16, Theme::tokens().secondary),
+                      QLineEdit::LeadingPosition);
+    if (columns.right.actions != nullptr) columns.right.actions->addWidget(search);
+    const auto findSetting = [this, scrollTo](const QString &text) {
+        const QString needle = text.trimmed();
+        if (needle.isEmpty()) return;
+        for (int i = 0; i < settingsCategoryStack->count(); ++i) {
+            QWidget *panel = settingsCategoryStack->widget(i);
+            for (QLabel *label : panel->findChildren<QLabel *>()) {
+                const bool name = label->property("settingsItemLabel").toBool() ||
+                                  label->property(Theme::textRolePropertyName().toUtf8().constData()).toString() ==
+                                      Theme::sectionTitleTextRoleValue();
+                if (!name || !label->text().contains(needle, Qt::CaseInsensitive)) continue;
+                settingsCategoryList->setCurrentRow(i);
+                QWidget *row = label;
+                while (row->parentWidget() && !row->property("settingsItemRow").toBool() &&
+                       row->property("settingsSectionTitle").isNull())
+                    row = row->parentWidget();
+                scrollTo(i, row);
+                return;
+            }
+        }
+    };
+    QObject::connect(search, &QLineEdit::textChanged, search, findSetting);
+    QObject::connect(search, &QLineEdit::returnPressed, search, [search, findSetting] { findSetting(search->text()); });
     // 打开就是第一条：左栏亮着哪一条、右栏就是哪一页，两边不能各说各的。
     settingsCategoryList->setCurrentRow(0);
     settingsCategoryStack->setCurrentIndex(0);
+    rebuildSubIndex(0);
 }
 
 void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
@@ -592,21 +669,44 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         {
             // 磨砂：总开关 + 材质（亚克力 / 云母 / 风景底）+ 两条强度。关掉 = 纯色令牌。
             // 存盘与重新铺主题都在 Glass::setMode() / setTintStrength() 里。
-            auto *glass = new QCheckBox(QStringLiteral("磨砂效果"), form);
+            QWidget *glassBox = makeHintedControl(form);
+            auto *glass = new QCheckBox(QStringLiteral("磨砂效果"), glassBox);
             glass->setObjectName(glassEffectCheckName());
             glass->setChecked(Glass::mode() != Glass::Mode::Solid);
-            auto *material = new QComboBox(form);
-            material->setObjectName(QStringLiteral("backdropModeCombo"));
+            qobject_cast<QVBoxLayout *>(glassBox->layout())->addWidget(glass);
+            addSettingHelp(glassBox, QStringLiteral("窗口透出背后的风景，电脑较慢时可以关掉。"), form);
+            addSettingsControl(section2, QString(), glassBox, form);
+
+            // 材质：三档分段（亚克力 / 云母需 Windows 11；风景底哪儿都行）。
+            QWidget *materialBox = makeHintedControl(form);
+            auto *material = new QWidget(materialBox);
+            material->setObjectName(QStringLiteral("backdropModeSegments"));
+            auto *segLayout = new QHBoxLayout(material);
+            segLayout->setContentsMargins(3, 3, 3, 3);
+            segLayout->setSpacing(2);
+            QList<QPushButton *> segments;
             for (Glass::Mode m : {Glass::Mode::Acrylic, Glass::Mode::Mica, Glass::Mode::Scene}) {
-                material->addItem(Glass::modeName(m), int(m));
+                auto *segment = new QPushButton(Glass::modeName(m), material);
+                segment->setProperty("glassMode", int(m));
+                segLayout->addWidget(segment);
+                segments.append(segment);
             }
-            const int current = material->findData(int(Glass::mode()));
-            material->setCurrentIndex(current < 0 ? 0 : current);
+            Theme::markSegmented(material, segments);
+            const auto currentMode = [segments]() {
+                for (QPushButton *segment : segments)
+                    if (segment->isChecked()) return Glass::Mode(segment->property("glassMode").toInt());
+                return Glass::Mode::Scene;
+            };
+            bool picked = false;
+            for (QPushButton *segment : segments) {
+                if (segment->property("glassMode").toInt() == int(Glass::mode())) { segment->setChecked(true); picked = true; }
+            }
+            if (!picked) segments.last()->setChecked(true);
             material->setEnabled(glass->isChecked());
-            WheelGuard::install(material);
-            auto *reason = new QLabel(form);
+            auto *reason = new QLabel(materialBox);
             reason->setObjectName(QStringLiteral("backdropFallbackLabel"));
             reason->setWordWrap(true);
+            reason->setMaximumWidth(320);
             const auto refreshReason = [reason]() {
                 QPalette p = reason->palette();
                 p.setColor(QPalette::WindowText, p.color(QPalette::PlaceholderText));
@@ -614,26 +714,19 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
                 reason->setText(Glass::fallbackReason());
                 reason->setVisible(!reason->text().isEmpty());
             };
-            const auto apply = [glass, material, refreshReason]() {
+            const auto apply = [glass, material, currentMode, refreshReason]() {
                 material->setEnabled(glass->isChecked());
-                Glass::setMode(glass->isChecked() ? Glass::Mode(material->currentData().toInt()) : Glass::Mode::Solid);
+                Glass::setMode(glass->isChecked() ? currentMode() : Glass::Mode::Solid);
                 refreshReason();
             };
             QObject::connect(glass, &QCheckBox::toggled, glass, apply);
-            QObject::connect(material, &QComboBox::activated, material, apply);
+            for (QPushButton *segment : segments) QObject::connect(segment, &QPushButton::clicked, segment, apply);
             refreshReason();
             Theme::follow(reason, refreshReason);
-            QWidget *box = makeHintedControl(form);
-            auto *row = new QHBoxLayout;
-            row->setContentsMargins(0, 0, 0, 0);
-            row->setSpacing(12);
-            row->addWidget(glass);
-            row->addWidget(material);
-            row->addStretch(1);
-            qobject_cast<QVBoxLayout *>(box->layout())->addLayout(row);
-            qobject_cast<QVBoxLayout *>(box->layout())->addWidget(reason);
-            addSettingHelp(box, QStringLiteral("整窗透出桌面（亚克力 / 云母，需 Windows 11）或主题风景。电脑较慢时可以关掉。"), form);
-            addSettingsControl(section2, QStringLiteral("界面质感"), box, form);
+            qobject_cast<QVBoxLayout *>(materialBox->layout())->addWidget(material);
+            qobject_cast<QVBoxLayout *>(materialBox->layout())->addWidget(reason);
+            addSettingHelp(materialBox, QStringLiteral("风景底最通透；亚克力与云母需 Windows 11。"), form);
+            addSettingsControl(section2, QStringLiteral("材质"), materialBox, form);
         }
         {
             // 着色 / 模糊强度：两条滑块，拖完才存（拖的过程中不重建）。
