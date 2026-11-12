@@ -193,6 +193,45 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     title->setFont(titleFont);
     outer->addWidget(title);
 
+    // UI 7b 页眉（设计稿 instance-*）：图标 + 实例名 + 一行元信息 | 打开目录（扁平）+ 启动实例（这一页唯一的实心钮）。
+    auto *header = new QWidget(this);
+    header->setObjectName(QStringLiteral("instanceSettingsHeader"));
+    auto *headerLine = new QHBoxLayout(header);
+    headerLine->setContentsMargins(4, 0, 4, 4);
+    headerLine->setSpacing(14);
+    m_headerIcon = new QLabel(header);
+    m_headerIcon->setObjectName(QStringLiteral("instanceHeaderIcon"));
+    m_headerIcon->setFixedSize(48, 48);
+    m_headerIcon->setScaledContents(true);
+    headerLine->addWidget(m_headerIcon);
+    auto *headerText = new QVBoxLayout;
+    headerText->setSpacing(2);
+    m_headerTitle = new QLabel(instanceName, header);
+    m_headerTitle->setObjectName(QStringLiteral("instanceHeaderTitle"));
+    QFont headerFont = Theme::textFont(m_headerTitle->font(), Theme::TextRole::Heading);
+    headerFont.setPixelSize(24);
+    m_headerTitle->setFont(headerFont);
+    headerText->addWidget(m_headerTitle);
+    m_headerMeta = new QLabel(header);
+    m_headerMeta->setObjectName(QStringLiteral("instanceHeaderMeta"));
+    {
+        QPalette pal = m_headerMeta->palette();
+        pal.setColor(QPalette::WindowText, Theme::tokens().secondary);
+        m_headerMeta->setPalette(pal);
+    }
+    m_headerMeta->hide();  // 由 setHeaderMeta() 填；没填就不占行
+    headerText->addWidget(m_headerMeta);
+    headerLine->addLayout(headerText, 1);
+    auto *folder = new QToolButton(header);
+    folder->setObjectName(QStringLiteral("instanceHeaderFolder"));
+    folder->setAutoRaise(true);
+    folder->setIcon(VersionIcons::line(QStringLiteral("folder"), 18, Theme::tokens().text));
+    folder->setIconSize(QSize(18, 18));
+    folder->setToolTip(tr("打开实例目录"));
+    connect(folder, &QToolButton::clicked, this, [this]() { emit openInstanceFolderRequested(m_instanceDir); });
+    headerLine->addWidget(folder);
+    outer->addWidget(header);
+
     // ---------- 两栏（见 .hpp 里 pinnedPageKeys() 上面那一段）----------
     auto *columns = new QHBoxLayout;
     columns->setSpacing(kColumnSpacing);
@@ -217,7 +256,8 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     auto *launchInstance = new QPushButton(launchInstanceText(), this);
     launchInstance->setObjectName(launchInstanceButtonName());
     launchInstance->setToolTip(launchInstanceHint());
-    launchInstance->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    launchInstance->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    headerLine->addWidget(launchInstance);
     Theme::markButton(launchInstance, Theme::ButtonKind::Primary);
     connect(launchInstance, &QPushButton::clicked, this,
             [this]() { emit launchInstanceRequested(); });
@@ -230,6 +270,9 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     m_navigationTree->setFixedWidth(navigationTreeWidth());
     m_navigationTree->setMinimumHeight(0);
     m_navigationTree->setFrameShape(QFrame::NoFrame);
+    // 透明：左栏直接落在整窗磨砂底上（不另画一块面板）。
+    m_navigationTree->setStyleSheet(QStringLiteral("QTreeWidget { background: transparent; }"));
+    m_navigationTree->viewport()->setAutoFillBackground(false);
     m_navigationTree->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     connect(m_navigationTree, &QTreeWidget::currentItemChanged, this,
             [this](QTreeWidgetItem *item, QTreeWidgetItem *) {
@@ -257,7 +300,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
                          [](QTreeWidgetItem *item) {
                              return item != nullptr && item->childCount() > 0;
                          });
-    addNavColumn(columns, m_navigationTree, launchInstance);
+    addNavColumn(columns, m_navigationTree);
     QWidget::setTabOrder(m_navigationTree, launchInstance);
 
     m_stack = new QStackedWidget(this);
@@ -504,6 +547,13 @@ void InstanceSettingsDialog::setInstanceDisplayName(const QString &displayName) 
     if (m_titleLabel != nullptr) {
         m_titleLabel->setText(titleTextFor(displayName));
     }
+    if (m_headerTitle != nullptr) m_headerTitle->setText(displayName);
+}
+
+void InstanceSettingsDialog::setHeaderMeta(const QString &meta) {
+    if (m_headerMeta == nullptr) return;
+    m_headerMeta->setText(meta);
+    m_headerMeta->setVisible(!meta.isEmpty());
 }
 
 QString InstanceSettingsDialog::instanceName() const {
@@ -1646,6 +1696,7 @@ void InstanceSettingsDialog::refreshIconRow() {
                                  ? QPixmap()
                                  : mark.scaled(kIconPreviewSize, kIconPreviewSize,
                                                Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    if (m_headerIcon != nullptr) m_headerIcon->setPixmap(m_iconPreview->pixmap());
 
     // 八颗按钮的勾选状态跟着走（"按下去了哪一颗"必须和预览说的是同一件事）。
     const QStringList keys = VersionIcons::iconCandidateKeys();
@@ -1734,6 +1785,11 @@ void InstanceSettingsDialog::rebuildNavigationTree() {
     const auto group = [&add](QTreeWidgetItem *parent, const QString &text, const QString &id) {
         auto *item = add(parent, text, QString());
         item->setData(0, Qt::UserRole + 1, id);
+        // 分组头：小一号、次要色（设计稿左栏的小节名），叶子才是能点的页。
+        QFont f = Theme::textFont(item->font(0), Theme::TextRole::Caption);
+        f.setBold(true);
+        item->setFont(0, f);
+        item->setForeground(0, Theme::tokens().secondary);
         return item;
     };
     const auto leaf = [&add](QTreeWidgetItem *parent, const QString &key) {

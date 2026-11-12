@@ -451,7 +451,7 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         {QStringLiteral("instance-overview-emerald.png"), QStringLiteral("emerald"), {1280, 800}, false, manage, QStringLiteral("overview")},
         {QStringLiteral("instance-overview-ocean.png"), QStringLiteral("ocean"), {1280, 800}, false, manage, QStringLiteral("overview")},
         {QStringLiteral("instance-launch-dark.png"), QStringLiteral("dark"), {1280, 800}, false, manage, QStringLiteral("launch")},
-        {QStringLiteral("instance-mods-dark.png"), QStringLiteral("dark"), {1280, 800}, false, manage, QStringLiteral("mods")},
+        {QStringLiteral("instance-mods-dark.png"), QStringLiteral("dark"), {1280, 800}, false, manage, QStringLiteral("mod")},
     };
     static int index = 0;
     static QJsonArray report;
