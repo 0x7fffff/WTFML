@@ -10,6 +10,7 @@
 #include "Theme.hpp"
 #include "TitleBar.hpp"
 #include "ToolboxPage.hpp"
+#include "GameLogWindow.hpp"
 #include "ToggleSwitch.hpp"
 #include "VersionIcons.hpp"
 #include <QApplication>
@@ -463,6 +464,10 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         {QStringLiteral("toolbox-dark.png"), QStringLiteral("dark"), {1280, 800}, false, home, QStringLiteral("toolbox")},
         {QStringLiteral("toolbox-emerald.png"), QStringLiteral("emerald"), {1280, 800}, false, home, QStringLiteral("toolbox")},
         {QStringLiteral("toolbox-ocean.png"), QStringLiteral("ocean"), {1280, 800}, false, home, QStringLiteral("toolbox")},
+        // 游戏日志窗（独立顶层窗，自绘标题条）：页键 gamelog = 另开一只日志窗、抓它自己。
+        {QStringLiteral("gamelog-dark.png"), QStringLiteral("dark"), {1280, 800}, false, home, QStringLiteral("gamelog")},
+        {QStringLiteral("gamelog-emerald.png"), QStringLiteral("emerald"), {1280, 800}, false, home, QStringLiteral("gamelog")},
+        {QStringLiteral("gamelog-ocean.png"), QStringLiteral("ocean"), {1280, 800}, false, home, QStringLiteral("gamelog")},
         {QStringLiteral("toolbox-page-dark.png"), QStringLiteral("dark"), {1280, 800}, false, home, QStringLiteral("toolbox:anvil")},
         {QStringLiteral("toolbox-page-emerald.png"), QStringLiteral("emerald"), {1280, 800}, false, home, QStringLiteral("toolbox:anvil")},
     };
@@ -515,7 +520,19 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         // 抓图前再灌一次夹具，再让布局走一拍。
         QTimer::singleShot(700, &window, [&window]() { seedHome(window); });
         QTimer::singleShot(850, &window, [&window, shot]() {
-            if (shot.page.startsWith(QStringLiteral("toolbox"))) {
+            if (shot.page == QStringLiteral("gamelog")) {
+                auto *log = new GameLogWindow(QStringLiteral("春日生存"), nullptr);
+                log->setObjectName(QStringLiteral("designShotGameLog"));
+                log->appendText(QStringLiteral(
+                    "[12:00:01] [main/INFO]: Loading Minecraft 1.21.4 with Fabric Loader 0.16.9\n"
+                    "[12:00:02] [main/INFO]: Loading 42 mods\n"
+                    "[12:00:03] [main/WARN]: Mod sodium uses a deprecated mixin config\n"
+                    "[12:00:05] [Render thread/INFO]: Backend library: LWJGL version 3.3.3\n"
+                    "[12:00:07] [Render thread/ERROR]: Failed to load texture minecraft:textures/misc/unknown.png\n"
+                    "[12:00:09] [Server thread/INFO]: Preparing spawn area: 84%\n"));
+                log->resize(960, 600);
+                log->show();
+            } else if (shot.page.startsWith(QStringLiteral("toolbox"))) {
                 if (auto *open = window.findChild<QAbstractButton *>(MainWindowUI::toolboxButtonName())) open->click();
                 const QString key = shot.page.section(QLatin1Char(':'), 1);
                 bool ok = false;
@@ -527,7 +544,11 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
             else if (shot.tab == MainWindowUI::instancesTabIndex()) hoverInstanceRow(window);
         });
         QTimer::singleShot(shot.page.isEmpty() ? 900 : 1600, &window, [&window, root, shot]() {
-            QPixmap shotImage = window.grab();
+            GameLogWindow *log = nullptr;
+            for (QWidget *top : QApplication::topLevelWidgets())
+                if (top->objectName() == QStringLiteral("designShotGameLog")) log = qobject_cast<GameLogWindow *>(top);
+            QPixmap shotImage = log != nullptr ? log->grab() : window.grab();
+            if (log != nullptr) log->close();
             // 工具箱面板是 Qt::Popup（另一个顶层窗），window.grab() 抓不到它：按它在窗口里的位置贴上去。
             if (auto *panel = window.findChild<QFrame *>(MainWindowUI::toolboxPanelName()); panel != nullptr && panel->isVisible()) {
                 QPainter painter(&shotImage);
