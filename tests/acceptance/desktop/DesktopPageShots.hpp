@@ -1,6 +1,7 @@
 #pragma once
 // 页面对照截图（--page-shots）：设置、活动中心、任务详情三态、账号与外观、游戏日志、对话框。
 // 和 DesktopDesignShots 一样只截图：任务是写进活动中心的夹具，日志是灌进窗口的假文本，不启动游戏。
+#include "ActivityPopover.hpp"
 #include "DesktopDesignShots.hpp"
 #include "AccountSkinDialog.hpp"
 #include "GameLogWindow.hpp"
@@ -237,6 +238,7 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
             const bool saved = target && target->grab().save(root + QLatin1Char('/') + shot.file);
             report.append(QJsonObject{{"file", shot.file}, {"saved", saved}});
             if (target && target != &window) target->close();
+            if (auto *pop = window.findChild<QFrame *>(ActivityPopover::objectNameValue())) pop->close();
             window.ui()->overlay()->evict();
             if (auto *popup = QApplication::activePopupWidget()) popup->close();
             QTimer::singleShot(200, &window, [&window]() {

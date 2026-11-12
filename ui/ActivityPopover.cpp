@@ -401,7 +401,9 @@ void ActivityPopover::place() {
     QWidget *host = parentWidget();
     if (host == nullptr || m_anchor == nullptr) return;
     m_body->adjustSize();
-    const int chrome = 12 + kPadding + 8 + 34;  // 上下边距 + 标题行
+    // 上下边距 + 标题行 + 间距，照布局实算（估小了就会冒出滚动条）。
+    const QMargins m = layout()->contentsMargins();
+    const int chrome = m.top() + m.bottom() + layout()->spacing() + layout()->itemAt(0)->sizeHint().height();
     const QPoint anchorTop = m_anchor->mapTo(host, QPoint(0, 0));
     const int bottom = anchorTop.y() - kGapToAnchor;
     const int maxHeight = qMax(160, bottom - 24);
