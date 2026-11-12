@@ -8,7 +8,7 @@
  * 界面；`launchIdentityKey()` / `confirmLaunchWhileRunning()` / `launchArguments()` 是按下
  * 那颗按钮之前的判据；`onStartButtonClicked()` 是唯一入口（真正起进程在
  * `GameSessionController`）；`appendLaunchRecord()` + `updateHomeRecent()` +
- * `openHomeInstancePicker()` 是启动之后主页上"最近玩的"那一条，`applyLauncherBehaviourAfterLaunch()`
+ * `openHomeInstancePicker()`（实例切换弹层的数据）是主页上"最近玩的"那一条，`applyLauncherBehaviourAfterLaunch()`
  * 是窗口行为（最小化 / 退出）。分出来之后，"点了启动到底会发生什么"不必在整扇窗里翻。
  *
  * 【判据不在这一层】
@@ -137,10 +137,6 @@ void MainWindow::updateHomeRecent() {
                 ? QIcon(instanceRowMark(iconParts, m_versionManager, 32))
                 : QIcon(VersionIcons::isoBlock(VersionIcons::isoBlockKindFor(instance.name), 64));
             instance.favorite = m_groupStore != nullptr && m_groupStore->isPinned(instanceKey(instance.id));
-            // 主页启动区那行元信息写「N 个模组」：只数当前那一个（mods 下的 *.jar，停用的不算）。
-            if (instance.id == currentId) {
-                instance.modCount = ServerWorkspaceController::countEnabledMods(AppPaths::versionDir(instance.id));
-            }
             installed.append(instance);
         }
     }
@@ -159,12 +155,15 @@ void MainWindow::openHomeInstancePicker() {
     QList<MainWindowUI::HomePickerFolder> folders;
     QList<MainWindowUI::HomePickerInstance> instances;
 
-    QSet<QString> recentIds;
+    // 最近启动的名次（记录新的在前）：弹层「最近」那一段按它排。
+    QHash<QString, int> recentRank;
     for (const LaunchHistory::Record &record : m_launchHistory->records()) {
-        if (record.isValid() && record.result != LaunchHistory::Result::StartFailed) {
-            recentIds.insert(record.instanceId);
+        if (record.isValid() && record.result != LaunchHistory::Result::StartFailed
+            && !recentRank.contains(record.instanceId)) {
+            recentRank.insert(record.instanceId, int(recentRank.size()));
         }
     }
+    const QString currentId = selectedVersionId(m_ui->getInstalledVersionCombo());
 
     const auto loaderFromId = [](const QString &id) {
         const QString lower = id.toLower();
@@ -205,17 +204,17 @@ void MainWindow::openHomeInstancePicker() {
                 row.loaderKey = loaderGroupKey(loader);
                 row.searchKeywords = QStringList{part.customName, part.realVersion, part.loaderName,
                                                  part.loaderVersion, folder.title}.join(QLatin1Char(' '));
-                row.subtitle = loader.isEmpty()
-                                   ? (part.realVersion.isEmpty() ? QStringLiteral("原版")
-                                                                 : part.realVersion)
-                                   : QStringLiteral("%1 / %2")
-                                         .arg(part.realVersion.isEmpty() ? part.id
-                                                                        : part.realVersion,
-                                              loader);
+                // 行尾那一小段（设计稿 .k）：「Fabric 1.21.4」/「原版 1.20.1」。
+                row.subtitle = QStringLiteral("%1 %2")
+                                   .arg(loader.isEmpty() ? QStringLiteral("原版") : loader,
+                                        part.realVersion.isEmpty() ? part.id : part.realVersion)
+                                   .trimmed();
                 row.icon = m_instancePageMarks.value(part.id);
                 row.favorite = m_groupStore != nullptr
                                && m_groupStore->isPinned(instanceKey(part.id));
-                row.recent = recentIds.contains(part.id);
+                row.recentRank = recentRank.value(part.id, -1);
+                row.recent = row.recentRank >= 0;
+                row.current = part.id == currentId;
                 instances.append(row);
             }
             continue;
@@ -264,8 +263,6 @@ void MainWindow::openHomeInstancePicker() {
             const int row = combo == nullptr ? -1 : combo->findData(instanceId);
             if (row >= 0) {
                 combo->setCurrentIndex(row);
-                // 选中实例后回到“当前”，让收起列表后的启动区立刻说清将启动谁。
-                m_ui->setHomeQuickMode(MainWindowUI::HomeQuickMode::Current);
             }
         });
 }

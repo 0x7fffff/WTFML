@@ -12,12 +12,8 @@ int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget 
         // 那几条在 mw_check 里量。
         QPushButton *runBtn = ui.getRunStateButton();
         QPushButton *accBtn = ui.getAccountButton();
-        // 账号那一块面板的锚点**换成了主页右上那张账号卡片** —— 底栏那颗
-        // 账号按钮 `hide()` 之后点不到它了（要求：「这个的对应功能继承到右上角那个
-        // 按钮去」）。`accBtn` 继续留着量"底栏那组兼容控件还在、宽度还钉着"，
-        // 而凡是"点开/收起那一块"的地方、以及量面板几何时的锚点，都走 `accCard`。
-        // NOTE: 卡片在主页那一页上，几何是**那一页当前摆着的时候**才算得准（量之前那一节
-        // 会把主页切到最前面）。
+        // 账号弹层的锚点是**导航轨底部那颗账号按钮**（`accCard`，设计稿 r2 home-acct-rail）。
+        // `accBtn` 是老那一格账号，一直收着，留着只量"底栏那组兼容控件还在"。
         QPushButton *accCard = ui.getAccountSkinButton();
         QLabel *runState = ui.getRunStateLabel();
         QLabel *runDetail = ui.getRunStateDetailLabel();
@@ -112,27 +108,32 @@ int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget 
             ui.setBottomBarPanelContent(
                 [](bool account) -> QList<MainWindowUI::PanelRow> {
                     if (account) {
-                        // 右边那块（账号）：当前账号那颗按钮写「登出」、**能点**，
-                        // 另一个账号那颗写「选择」/「登录」。
+                        // 账号弹层：当前账号那一行打勾（checked），另一个账号整行可点；
+                        // 末尾两行菜单项（menuItem）。
                         QList<MainWindowUI::PanelRow> accounts;
                         MainWindowUI::PanelRow mine;
                         mine.key = QStringLiteral("uuid-mine");
                         mine.title = QStringLiteral("LoserKugua");
                         mine.subtitle = MainWindowUI::bottomBarPanelOnlineAccountText();
-                        MainWindowUI::PanelAction current;
-                        current.text = MainWindowUI::bottomBarPanelLogoutText();
-                        current.tooltip = MainWindowUI::bottomBarPanelLogoutTip();
-                        mine.actions << current;
+                        mine.checked = true;
                         accounts << mine;
 
                         MainWindowUI::PanelRow other;
                         other.key = QStringLiteral("uuid-other");
                         other.title = QStringLiteral("选手二号");
                         other.subtitle = MainWindowUI::bottomBarPanelOfflineAccountText();
-                        MainWindowUI::PanelAction select;
-                        select.text = MainWindowUI::bottomBarPanelSelectText();
-                        other.actions << select;
                         accounts << other;
+
+                        MainWindowUI::PanelRow add;
+                        add.key = QStringLiteral("menu-add");
+                        add.title = MainWindowUI::accountAddText();
+                        add.menuItem = true;
+                        accounts << add;
+                        MainWindowUI::PanelRow manage;
+                        manage.key = QStringLiteral("menu-manage");
+                        manage.title = MainWindowUI::accountSkinButtonText();
+                        manage.menuItem = true;
+                        accounts << manage;
                         return accounts;
                     }
                     QList<MainWindowUI::PanelRow> rows;
@@ -164,7 +165,7 @@ int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget 
 
                     MainWindowUI::PanelRow note;
                     note.title = MainWindowUI::bottomBarPanelNoRunningTitle();
-                    note.subtitle = MainWindowUI::bottomBarPanelNoRunningNote();
+                    note.subtitle = QStringLiteral("一句说明");
                     note.placeholder = true;
                     rows << note;
                     return rows;
@@ -218,8 +219,8 @@ int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget 
                 check(title1 != nullptr &&
                           title1->text() == MainWindowUI::bottomBarPanelNoRunningTitle() &&
                           subtitle1 != nullptr &&
-                          subtitle1->text() == MainWindowUI::bottomBarPanelNoRunningNote(),
-                      "I4 第二行是那句说明（主页那句「现在没有实例在运行」和它的下一句）",
+                          subtitle1->text() == QStringLiteral("一句说明"),
+                      "I4 第二行是喂进去的那行说明（标题 + 次行字原样画出来）",
                       title1 != nullptr && subtitle1 != nullptr
                           ? title1->text() + " / " + subtitle1->text()
                           : QStringLiteral("<没找到>"));
@@ -471,235 +472,180 @@ int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget 
             QApplication::processEvents();
             check(window.findChild<QWidget *>(MainWindowUI::bottomBarPanelName()) != nullptr,
                   "I4 收回之后再点一下还能打开（开关是双向的）");
-            // 右边那一块（锚点是**主页右上那张账号卡片**）：贴卡片**右**边缘
-            // （面板比卡片宽的时候往左长，不出窗口），而且往下弹 —— 卡片贴着头顶，往上弹没地方。
-            // 这会儿左边那块是开着的：点卡片要**这块收、那块开**，不能两块一起挂着。
-            // NOTE: 真鼠标下这一下多半先被左那块（Qt::Popup）吃掉、只收不开（Qt 的规矩：
-            // 点面板外面 = 关掉，这一下不往下传 —— 探针 popup_probe 实测如此），
-            // 要再点一下才开；这里量的是"clicked 真落到按钮上时不许叠两块"。
+            // ⑥ 账号弹层（锚点是导航轨底部那颗账号按钮，弹在它**右边**、底边对齐）。
+            // 这会儿左边那块是开着的：点账号按钮要**这块收、那块开**，不能两块一起挂着。
             QWidget *leftOpen = window.findChild<QWidget *>(MainWindowUI::bottomBarPanelName());
-            check(leftOpen != nullptr && leftOpen->isVisible() &&
-                      leftOpen->x() == runBtn->mapToGlobal(QPoint(0, 0)).x(),
+            check(leftOpen != nullptr && leftOpen->isVisible(),
                   "I4 换面之前左边那块开着（量下面那条的前提）");
-            if (QTabWidget *tabs = ui.getTabWidget()) {
-                tabs->setCurrentIndex(MainWindowUI::homeTabIndex());
-                QApplication::processEvents();
-            }
-            accCard->click();
-            QApplication::processEvents();
-            QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-            QWidget *rightPanel = window.findChild<QWidget *>(MainWindowUI::bottomBarPanelName());
-            check(rightPanel != nullptr && rightPanel->isVisible(),
-                  "I4 点右边那颗：这块收、那块开（一次点击就换过来）");
-            check(window.findChildren<QWidget *>(MainWindowUI::bottomBarPanelName()).size() == 1,
-                  "I4 换面之后窗口里只剩一块面板（旧的那块真关了）",
-                  QStringLiteral("还剩 %1 块")
-                      .arg(window.findChildren<QWidget *>(MainWindowUI::bottomBarPanelName()).size()));
-            if (rightPanel != nullptr) {
-                const QPoint accAnchor = accCard->mapToGlobal(QPoint(accCard->width(), 0));
-                // 这一条量的是**整条规矩**（「窄窗口避让」）：
-                // 「右边缘贴锚点右边缘」**且**「整块不许越过屏幕右边缘」。这两句会打架
-                // —— 而它们在 **offscreen 那一趟真的打架**：那块虚拟屏只有 800x600，
-                // 而主窗是按 900 摆的，右边那个锚点的全局 x 落在屏幕**外面**（888），
-                // 于是面板被避让逻辑夹回屏幕里（右边缘 = 800），"贴着锚点"这句当场不成立。
-                // NOTE: 所以期望值要按"锚点在不在屏幕里"分两支 —— 只钉前一句的话，
-                // 离屏那一趟必红；只钉后一句的话，正常那一趟就量不出"贴着"了
-                // （而"贴着锚点"正是用户 点名的那句）。
-                // 锚点从**底栏那颗账号按钮**换成**主页右上那张账号卡片**
-                // （见本节开头的 NOTE），两支判据本身一个字都没改。
-                const QRect accScreen =
-                    accCard->screen() != nullptr ? accCard->screen()->availableGeometry() : QRect();
-                const bool anchorOnScreen =
-                    !accScreen.isNull() && accAnchor.x() <= accScreen.right() + 1;
-                const int wantRight =
-                    anchorOnScreen ? accAnchor.x() : accScreen.right() + 1;
-                check(rightPanel->x() + rightPanel->width() == wantRight,
-                      anchorOnScreen
-                          ? "I4 账号那一块右边缘贴卡片右边缘"
-                          : "I4 卡片在屏幕外面时，账号那一块被夹在屏幕右边缘上",
-                      QStringLiteral("面板右边 %1 / 期望 %2（卡片右边 %3，屏幕 %4..%5）")
-                          .arg(rightPanel->x() + rightPanel->width())
-                          .arg(wantRight)
-                          .arg(accAnchor.x())
-                          .arg(accScreen.left())
-                          .arg(accScreen.right()));
-                check(rightPanel->y() >=
-                          accCard->mapToGlobal(QPoint(0, accCard->height())).y(),
-                      "I4 账号那一块是在卡片**下方**（卡片贴着头顶，往上弹没地方）",
-                      QStringLiteral("面板顶 %1 / 卡片底 %2")
-                          .arg(rightPanel->y())
-                          .arg(accCard->mapToGlobal(QPoint(0, accCard->height())).y()));
-                // 右面板的行**是外面按 account = true 喂进来的**（同一个 provider，两块
-                // 面板要的东西不一样）—— 这里量"账号行照画"。
-                QLabel *accountTitle0 =
-                    rightPanel->findChild<QLabel *>(MainWindowUI::bottomBarPanelRowTitleName(0));
-                check(accountTitle0 != nullptr &&
-                          accountTitle0->text() == QStringLiteral("LoserKugua"),
-                      "I4 右面板要的行是**按 account = true 去要**的（给的是账号那两行）",
-                      accountTitle0 != nullptr ? accountTitle0->text()
-                                               : QStringLiteral("<没找到>"));
-                QPushButton *currentBtn = rightPanel->findChild<QPushButton *>(
-                    MainWindowUI::bottomBarPanelRowActionName(0, 0));
-                QPushButton *selectBtn = rightPanel->findChild<QPushButton *>(
-                    MainWindowUI::bottomBarPanelRowActionName(1, 0));
-                check(currentBtn != nullptr &&
-                          currentBtn->text() == MainWindowUI::bottomBarPanelLogoutText() &&
-                          currentBtn->isEnabled() && !currentBtn->toolTip().isEmpty(),
-                      "I4 当前账号那一行写「登出」并且**能点**（不是灰掉的「当前」）",
-                      currentBtn != nullptr
-                          ? QStringLiteral("%1 / enabled=%2")
-                                .arg(currentBtn->text())
-                                .arg(currentBtn->isEnabled())
-                          : QStringLiteral("<没找到>"));
-                check(selectBtn != nullptr &&
-                          selectBtn->text() == MainWindowUI::bottomBarPanelSelectText(),
-                      "I4 另一个账号那颗写「选择」（正版账号那颗写成「登录」是 MainWindow "
-                      "那边挑的字）",
-                      selectBtn != nullptr ? selectBtn->text() : QStringLiteral("<没找到>"));
-                // 几行的按钮要**竖着对齐**：文字按钮的最小宽度是钉死的，跟着字宽变的话
-                // 「选择」和「登录」会错开几个像素，看着像没对齐的表格。
-                check(currentBtn != nullptr && selectBtn != nullptr &&
-                          currentBtn->width() == selectBtn->width(),
-                      "I4 两行的行尾按钮一样宽（同宽 = 竖着对齐）",
-                      currentBtn != nullptr && selectBtn != nullptr
-                          ? QStringLiteral("%1 / %2").arg(currentBtn->width()).arg(selectBtn->width())
-                          : QStringLiteral("<没找到>"));
-                // 点「登出」那颗：面板收回去，回调带 account = true + **那一行**的 uuid +
-                // action 0。MainWindow 就是拿 key 跟 activeUuid() 比来分流"登出"还是"切账号"
-                // 的（相等走登出，见 onBottomBarPanelAction()）—— 一颗按钮按行的状态身兼二职，
-                // key 必须原样还回来，不然点了登出会去切账号。
-                firedPanels.clear();
-                firedKeys.clear();
-                firedActions.clear();
-                if (currentBtn != nullptr) {
-                    currentBtn->click();
-                    QApplication::processEvents();
-                    QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-                    check(firedPanels == QList<bool>{true} &&
-                              firedKeys == QList<QString>{QStringLiteral("uuid-mine")} &&
-                              firedActions == QList<int>{0},
-                          "I4 点「登出」回来的 key 就是那一行的 uuid、action 还是 0",
-                          QStringLiteral("account=%1 key=%2 action=%3")
-                              .arg(firedPanels.value(0))
-                              .arg(firedKeys.value(0))
-                              .arg(firedActions.value(0)));
-                    check(window.findChild<QWidget *>(MainWindowUI::bottomBarPanelName()) == nullptr,
-                          "I4 点了「登出」之后面板也收回去（和「选择」一样）");
-                }
-                // NOTE: 产品里没有任何一颗走 `PanelAction::enabled = false`（那个开关留着，
-                // 给将来"这一下现在做不了"的按钮）。为它硬摆一个合成的假灰按钮就变成在量
-                // Qt 自己（disabled 的 QPushButton 不发 clicked 是 Qt 的规矩）。右面板里
-                // 当前账号那颗写着「登出」且能点 —— 下面那条"真能点、回调带对了 key"就是它。
-                //
-                // 点「选择」那颗：面板收回去，回调带 account = true + 那个账号的 uuid。
-                // 先把它重新打开（上面那一下已经收掉了），**并把上一下那几条回调记录清掉**
-                // —— 不清的话下面那三条断言拿到的是"两次点击加在一起"，而报出来的会是
-                // 第一下的 key（看着像"点选择回来的是登出那一行"，其实只是没清）。
-                firedPanels.clear();
-                firedKeys.clear();
-                firedActions.clear();
-                accCard->click();
+            const auto accountPopover = [&window]() -> QWidget * {
+                QWidget *pop = window.findChild<QWidget *>(MainWindowUI::accountPopoverName());
+                return pop != nullptr && pop->isVisible() ? pop : nullptr;
+            };
+            const auto settle = []() {
                 QApplication::processEvents();
                 QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-                rightPanel = window.findChild<QWidget *>(MainWindowUI::bottomBarPanelName());
-                selectBtn = rightPanel != nullptr
-                                ? rightPanel->findChild<QPushButton *>(
-                                      MainWindowUI::bottomBarPanelRowActionName(1, 0))
-                                : nullptr;
-                if (selectBtn != nullptr) {
-                    selectBtn->click();
-                    QApplication::processEvents();
-                    QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-                    check(firedPanels == QList<bool>{true} &&
-                              firedKeys == QList<QString>{QStringLiteral("uuid-other")} &&
-                              firedActions == QList<int>{0},
-                          "I4 右面板回来的 account = true、key = 账号 uuid（MainWindow 靠 "
-                          "account 分辨切账号还是关实例）",
-                          QStringLiteral("account=%1 key=%2 action=%3")
-                              .arg(firedPanels.value(0))
-                              .arg(firedKeys.value(0))
-                              .arg(firedActions.value(0)));
-                    check(window.findChild<QWidget *>(MainWindowUI::bottomBarPanelName()) == nullptr,
-                          "I4 点了「选择」之后面板已经收回去了");
-                } else if (rightPanel != nullptr) {
-                    rightPanel->close();
-                    QApplication::processEvents();
-                }
+                QApplication::processEvents();
+            };
+            accCard->click();
+            settle();
+            QWidget *pop = accountPopover();
+            check(pop != nullptr, "I4 点账号按钮：开账号弹层");
+            {
+                QWidget *still = window.findChild<QWidget *>(MainWindowUI::bottomBarPanelName());
+                check(still == nullptr || !still->isVisible(),
+                      "I4 换面之后左边那块收掉了（同一时间只挂一块弹层）");
             }
-            // ⑥b 账户那一块**只有一行高的时候就一行高**（
-            // 「账户弹层保持紧凑，单账户不浪费成大列表，多账户时再展开切换列表」）。
-            // 面板的高度跟着**行数**走（popUp() 里 adjustSize()）：一个账号时那块就是
-            // "一行 + 上下内边距"，**不许**留出三行那种大盒子的空位；账号多起来（这里是
-            // 三行）那块自然就长高了。判据刻意不写死字号/内边距那几个数字（它们是
-            // MainWindowUI.cpp 里的文件级常量），只钉"**不到两行**"和"三行那块更高"。
+            check(accCard->property("wtfmlOpen").toBool(),
+                  "I4 弹层开着时账号按钮保持按住的底色（wtfmlOpen）");
+            if (pop != nullptr) {
+                const QPoint a = accCard->mapTo(pop->parentWidget(), QPoint(0, 0));
+                check(pop->x() >= a.x() + accCard->width() ||
+                          pop->x() + pop->width() <= pop->parentWidget()->width() - 8,
+                      "I4 账号弹层摆在账号按钮右边（窄窗时夹在窗口里）",
+                      QStringLiteral("弹层 x=%1 / 按钮右边 %2").arg(pop->x()).arg(a.x() + accCard->width()));
+                check(pop->y() + pop->height() == a.y() + accCard->height() || pop->y() == 8,
+                      "I4 账号弹层底边和账号按钮底边对齐（往上长）",
+                      QStringLiteral("弹层底 %1 / 按钮底 %2")
+                          .arg(pop->y() + pop->height()).arg(a.y() + accCard->height()));
+                auto *row0 = pop->findChild<QAbstractButton *>(QStringLiteral("accountPopoverRow0"));
+                auto *row1 = pop->findChild<QAbstractButton *>(QStringLiteral("accountPopoverRow1"));
+                auto *row2 = pop->findChild<QAbstractButton *>(QStringLiteral("accountPopoverRow2"));
+                auto *row3 = pop->findChild<QAbstractButton *>(QStringLiteral("accountPopoverRow3"));
+                check(row0 != nullptr && row1 != nullptr && row2 != nullptr && row3 != nullptr,
+                      "I4 喂进去四行（两个账号 + 两行菜单项），弹层里就四行");
+                QWidget *tick = pop->findChild<QWidget *>(QStringLiteral("accountPopoverCheck"));
+                check(tick != nullptr && row0 != nullptr && tick->parentWidget() == row0,
+                      "I4 当前账号那一行打勾（只有那一行）");
+                check(pop->findChildren<QPushButton *>().isEmpty() ||
+                          std::none_of(pop->findChildren<QPushButton *>().cbegin(),
+                                       pop->findChildren<QPushButton *>().cend(),
+                                       [](QPushButton *b) {
+                                           return b->text() == MainWindowUI::bottomBarPanelLogoutText();
+                                       }),
+                      "I4 弹层里没有「登出」（登出在「管理账号与皮肤」里）");
+                check(row2 != nullptr && row0 != nullptr && row2->height() < row0->height(),
+                      "I4 菜单项那两行比账号行矮（36 vs 52）",
+                      row2 != nullptr && row0 != nullptr
+                          ? QStringLiteral("%1 / %2").arg(row2->height()).arg(row0->height())
+                          : QString());
+                // 点另一个账号：弹层收回去，回调带 account = true + 那一行的 uuid + 动作 0。
+                firedPanels.clear();
+                firedKeys.clear();
+                firedActions.clear();
+                if (row1 != nullptr) row1->click();
+                settle();
+                check(firedPanels == QList<bool>{true} &&
+                          firedKeys == QList<QString>{QStringLiteral("uuid-other")} &&
+                          firedActions == QList<int>{0},
+                      "I4 点别的账号回来的是 account = true、key = 那一行的 uuid、动作 0",
+                      QStringLiteral("account=%1 key=%2 action=%3")
+                          .arg(firedPanels.value(0))
+                          .arg(firedKeys.value(0))
+                          .arg(firedActions.value(0)));
+                check(accountPopover() == nullptr && !accCard->property("wtfmlOpen").toBool(),
+                      "I4 点了之后弹层收回去、按钮底色也复原");
+            }
+            // 菜单项：「管理账号与皮肤」那一行回来的是它自己的 key。
+            firedKeys.clear();
+            accCard->click();
+            settle();
+            pop = accountPopover();
+            if (auto *manageRow = pop != nullptr
+                                      ? pop->findChild<QAbstractButton *>(QStringLiteral("accountPopoverRow3"))
+                                      : nullptr) {
+                manageRow->click();
+                settle();
+            }
+            check(firedKeys == QList<QString>{QStringLiteral("menu-manage")},
+                  "I4 点「管理账号与皮肤」回来的 key 就是那一行的 key",
+                  firedKeys.value(0));
+            // 开关：开着再点同一颗 = 收回。
+            accCard->click();
+            settle();
+            check(accountPopover() != nullptr, "I4 点一下弹出来（开关的第一下）");
+            accCard->click();
+            settle();
+            check(accountPopover() == nullptr, "I4 展开状态下再点同一颗按钮 = 收回");
+            // Esc 收。
+            accCard->click();
+            settle();
+            if (QWidget *open = accountPopover()) {
+                QKeyEvent esc(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+                QApplication::sendEvent(open, &esc);
+                settle();
+            }
+            check(accountPopover() == nullptr, "I4 Esc 收起账号弹层");
+
+            // ⑥b 未登录：一个账号都没有 ⇒ 头像占位 +「未登录」+ 一颗「登录」。
+            {
+                ui.setBottomBarPanelContent(
+                    [](bool account) -> QList<MainWindowUI::PanelRow> {
+                        MainWindowUI::PanelRow none;
+                        none.placeholder = true;
+                        none.title = account ? MainWindowUI::bottomBarPanelNoAccountTitle()
+                                             : MainWindowUI::bottomBarPanelNoRunningTitle();
+                        if (!account) return {none};
+                        MainWindowUI::PanelRow login;
+                        login.key = QStringLiteral("menu-login");
+                        login.title = QStringLiteral("登录");
+                        login.menuItem = true;
+                        return {none, login};
+                    },
+                    [&firedKeys](bool, const QString &key, int) { firedKeys << key; });
+                firedKeys.clear();
+                accCard->click();
+                settle();
+                QWidget *out = accountPopover();
+                auto *state = out != nullptr ? out->findChild<QLabel *>(QStringLiteral("accountPopoverState")) : nullptr;
+                auto *login = out != nullptr ? out->findChild<QPushButton *>(QStringLiteral("accountPopoverRow1")) : nullptr;
+                check(state != nullptr && state->text() == MainWindowUI::bottomBarPanelNoAccountTitle() &&
+                          login != nullptr && login->text() == QStringLiteral("登录"),
+                      "I4 未登录：弹层写「未登录」+ 一颗「登录」",
+                      state != nullptr ? state->text() : QStringLiteral("<没找到>"));
+                if (login != nullptr) login->click();
+                settle();
+                check(firedKeys == QList<QString>{QStringLiteral("menu-login")} && accountPopover() == nullptr,
+                      "I4 点「登录」：弹层收回、回调带登录那一行的 key",
+                      firedKeys.value(0));
+            }
+
+            // ⑥c 一个账号时弹层紧凑，三个账号时跟着长高。
             {
                 int wantedRows = 1;
                 ui.setBottomBarPanelContent(
                     [&wantedRows](bool account) -> QList<MainWindowUI::PanelRow> {
-                        if (!account) {
-                            MainWindowUI::PanelRow none;
-                            none.placeholder = true;
-                            none.title = MainWindowUI::bottomBarPanelNoRunningTitle();
-                            return {none};
-                        }
                         QList<MainWindowUI::PanelRow> rows;
+                        if (!account) return rows;
                         for (int i = 0; i < wantedRows; ++i) {
                             MainWindowUI::PanelRow one;
                             one.key = QStringLiteral("uuid-%1").arg(i);
                             one.title = QStringLiteral("账号 %1").arg(i + 1);
                             one.subtitle = MainWindowUI::bottomBarPanelOnlineAccountText();
-                            MainWindowUI::PanelAction use;
-                            use.text = MainWindowUI::bottomBarPanelSelectText();
-                            one.actions = {use};
+                            one.checked = i == 0;
                             rows << one;
                         }
                         return rows;
                     },
                     nullptr);
-                const auto measureAccountPanel = [&window, accCard](int *rowHeightOut) {
+                const auto measure = [&]() {
                     accCard->click();
-                    QApplication::processEvents();
-                    QWidget *panel =
-                        window.findChild<QWidget *>(MainWindowUI::bottomBarPanelName());
-                    if (rowHeightOut != nullptr) {
-                        QWidget *row = panel != nullptr
-                                           ? panel->findChild<QWidget *>(
-                                                 MainWindowUI::bottomBarPanelRowName(0))
-                                           : nullptr;
-                        // 面板带 WA_DeleteOnClose；只在 close() 前取数，绝不把它的子控件
-                        // 裸指针带出这个 helper。
-                        *rowHeightOut = row != nullptr ? row->height() : -1;
-                    }
-                    const int height = panel != nullptr ? panel->height() : -1;
-                    if (panel != nullptr) {
-                        panel->close();
-                        QApplication::processEvents();
-                        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-                        QApplication::processEvents();
-                    }
+                    settle();
+                    QWidget *open = accountPopover();
+                    const int height = open != nullptr ? open->height() : -1;
+                    if (open != nullptr) open->close();
+                    settle();
                     return height;
                 };
-                int rowHeight = -1;
-                const int heightOne = measureAccountPanel(&rowHeight);
+                const int heightOne = measure();
                 wantedRows = 3;
-                const int heightThree = measureAccountPanel(nullptr);
-                check(rowHeight > 0 && heightOne > 0 && heightOne < 2 * rowHeight,
-                      "I4 只有一个账号时那块**不到两行高**（不被撑成三行那种大盒子）",
-                      QStringLiteral("面板 %1 / 一行 %2 / 两行 %3")
-                          .arg(heightOne)
-                          .arg(rowHeight)
-                          .arg(rowHeight * 2));
+                const int heightThree = measure();
+                check(heightOne > 0 && heightOne < 2 * 52,
+                      "I4 只有一个账号时弹层**不到两行高**（不被撑成大盒子）",
+                      QStringLiteral("弹层 %1").arg(heightOne));
                 check(heightThree > heightOne,
-                      "I4 账号多起来（三行）那块跟着长高 —— 多账户时才展开那份切换列表",
+                      "I4 账号多起来（三行）弹层跟着长高",
                       QStringLiteral("三行 %1 / 一行 %2").arg(heightThree).arg(heightOne));
-                wantedRows = 1;
-                int accountRowHeight = -1;
-                measureAccountPanel(&accountRowHeight);
-                check(accountRowHeight > 0 &&
-                          window.findChild<QWidget *>(MainWindowUI::bottomBarPanelName()) == nullptr,
-                      "I4 量完那一块收回去了（这一节的收尾不留给下一节）");
-                // 这一份 provider 捕的是上面那个局部量 —— **用完立刻卸**（⑦ 虽然也会把它
-                // 置空，但"依赖下一节替我收尾"这种约定迟早会在中间插进一句话之后变成悬空引用）。
+                check(accountPopover() == nullptr, "I4 量完那一块收回去了（这一节的收尾不留给下一节）");
                 ui.setBottomBarPanelContent(nullptr, nullptr);
             }
             // ⑦ 兜底：没装 provider（或它给了个空列表）时，面板里留**一句话**而不是一块

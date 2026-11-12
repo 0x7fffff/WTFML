@@ -2275,31 +2275,40 @@ int main(int argc, char *argv[]) {
         tabs->setCurrentIndex(0);
         QApplication::processEvents();
 
-        // ---- Y1 账号入口**就在主页右上那张卡片上**（ 用户定的）----
-        // 底栏那颗账号按钮收起来之后，「最近用过的账号」那块面板改由这张卡片打开
-        // （要求：「这个的对应功能继承到右上角那个按钮去」）。卡片本身没有文字
-        // —— 头像 + 名字 + 身份那两行是**卡片里**的控件画的，产品文案落在 tooltip
-        // 和无障碍名上（老那个"账号与外观…"按钮的那套接线一个字都没改）。
+        // ---- Y1 账号入口在导航轨底部（设计稿 r2 home-acct-rail）----
+        // 头像 + 名字一颗按钮，点开账号弹层；主页右上那颗账号胶囊已经删了。
         QPushButton *entry = ui.getAccountSkinButton();
         SkinViewer *homeViewer = ui.getSkinViewer();
         QLabel *hint = ui.getSkinHintLabel();
         check(entry != nullptr && homeViewer != nullptr && hint != nullptr,
-              "入口卡片、3D 预览、说明行三块控件都在");
+              "账号入口、3D 预览、说明行三块控件都在");
         if (entry != nullptr && homeViewer != nullptr && hint != nullptr) {
-            check(entry->toolTip() == MainWindowUI::accountSkinButtonText() &&
-                      entry->accessibleName() == MainWindowUI::accountSkinButtonText(),
-                  "兼容入口仍保留产品文案（tooltip / 无障碍名两处，旧接线不用分叉）",
-                  entry->toolTip() + " / " + entry->accessibleName());
             check(entry->objectName() == MainWindowUI::accountSkinButtonName(),
-                  "objectName 也对得上（验证工程和 mw_check 都按它认控件）");
-            check(entry->isVisibleTo(&window),
-                  "主页右上那张账号卡片是**可见**的账号入口（点它开最近账号那块面板）");
+                  "objectName 对得上（验证工程和 mw_check 都按它认控件）");
+            check(isDescendantOf(entry, bar) && entry->isVisibleTo(&window),
+                  "账号入口在导航轨底部那一串里、可见");
+            check(!entry->accessibleName().isEmpty(), "无障碍名不空", entry->accessibleName());
+            check(entry->height() == TitleBar::navItemHeight(),
+                  "账号那一格和导航项一样高（全局 QSS 的 min-height 没把它压扁）",
+                  QString::number(entry->height()));
+            check(window.findChild<QWidget *>(QStringLiteral("homeProfileCard")) == nullptr ||
+                      window.findChild<QWidget *>(QStringLiteral("homeProfileCard"))
+                              ->findChild<QPushButton *>() == nullptr,
+                  "主页右栏里不再有任何账号按钮（只剩立绘）");
             check(!hint->isVisibleTo(&window),
                   "主页不再显示那句重复解释外观状态的文本");
             check(homeViewer->isVisibleTo(&window), "角色预览仍然完整显示");
             check(ui.getAccountButton() != nullptr &&
                       !ui.getAccountButton()->isVisibleTo(&window),
-                  "底栏那一格已经收起来了（功能整个继承给主页那张卡片）");
+                  "老那一格账号已经收起来了");
+            entry->click();
+            QApplication::processEvents();
+            QWidget *pop = window.findChild<QWidget *>(MainWindowUI::accountPopoverName());
+            check(pop != nullptr && pop->isVisible(), "点账号入口 ⇒ 开账号弹层");
+            entry->click();
+            QApplication::processEvents();
+            pop = window.findChild<QWidget *>(MainWindowUI::accountPopoverName());
+            check(pop == nullptr || !pop->isVisible(), "再点一下 ⇒ 收起（toggle）");
         }
 
         // ---- Y2 底栏名字下面那一行 ----
@@ -2317,10 +2326,10 @@ int main(int argc, char *argv[]) {
                   "（**不是**离线登录 —— 那种状态点开始会被「请先登录」挡回来）",
                   accountType->text());
             // 三种说法本身钉一遍：**三种而不是两种**是这次特意定的（见 .hpp 那段 NOTE）。
-            check(MainWindowUI::accountTypeOnlineText() == QStringLiteral("正版登录") &&
-                      MainWindowUI::accountTypeOfflineText() == QStringLiteral("离线登录") &&
+            check(MainWindowUI::accountTypeOnlineText() == QStringLiteral("正版") &&
+                      MainWindowUI::accountTypeOfflineText() == QStringLiteral("离线") &&
                       MainWindowUI::accountTypeNotLoggedInText() == QStringLiteral("未登录"),
-                  "三种说法分别是 正版登录 / 离线登录 / 未登录");
+                  "三种说法分别是 正版 / 离线 / 未登录（说明删减清单 §4）");
             check(accountType->mapTo(bar, QPoint(0, 0)).y() >
                       accountName->mapTo(bar, QPoint(0, 0)).y(),
                   "它在名字**下面**");
@@ -2922,7 +2931,7 @@ int main(int argc, char *argv[]) {
     }
 
 #endif
-    // ---------- U31b 快速启动固定槽位 ----------
+    // ---------- U31b 实例带：只摆真实例，点卡片 = 设为当前，点 ▶ = 启动 ----------
     {
         window.show();
         if (tabs != nullptr) {
@@ -2936,7 +2945,6 @@ int main(int argc, char *argv[]) {
         for (int i = 0; i < 2; ++i) {
             MainWindowUI::HomeQuickItem empty;
             empty.empty = true;
-            empty.name = QStringLiteral("添加实例");
             favorites.append(empty);
         }
         ui.setHomeQuickRows(favorites, {});
@@ -2946,30 +2954,37 @@ int main(int argc, char *argv[]) {
             window.findChild<QWidget *>(QStringLiteral("homeFavoriteSection"));
         QWidget *recentSection =
             window.findChild<QWidget *>(QStringLiteral("homeQuickRecentSection"));
-        const QList<QPushButton *> emptySlots =
+        const QList<QPushButton *> cards =
             favoriteSection != nullptr
                 ? favoriteSection->findChildren<QPushButton *>(
-                      QRegularExpression(QStringLiteral("^homeQuickEmpty_favorite_")))
+                      QRegularExpression(QStringLiteral("^homeQuickCard_")))
                 : QList<QPushButton *>();
         check(favoriteSection != nullptr && favoriteSection->isVisibleTo(&window) &&
                   recentSection != nullptr && !recentSection->isVisibleTo(&window) &&
-                  emptySlots.size() == 2,
-              "★★ U31b 设置 3 个槽但只有 1 个实例 ⇒ 收藏排固定保留 3 格（2 个空槽）；"
+                  cards.size() == 1 &&
+                  window.findChildren<QWidget *>(
+                            QRegularExpression(QStringLiteral("^homeQuickEmpty_"))).isEmpty(),
+              "★★ U31b 1 个实例 + 2 个空项 ⇒ 收藏排只摆 1 张卡、不补「添加实例」空槽；"
               "数量为 0 的最近排整排隐藏",
-              QStringLiteral("空槽 %1").arg(emptySlots.size()));
+              QStringLiteral("卡 %1").arg(cards.size()));
 
-        int chooseRequests = 0;
+        QList<QPair<QString, MainWindowUI::HomeQuickAction>> requests;
         ui.setHomeQuickActionHandler(
-            [&chooseRequests](const QString &key, MainWindowUI::HomeQuickAction action) {
-                if (key.isEmpty() && action == MainWindowUI::HomeQuickAction::ChooseInstance) {
-                    ++chooseRequests;
-                }
+            [&requests](const QString &key, MainWindowUI::HomeQuickAction action) {
+                requests.append({key, action});
             });
-        if (!emptySlots.isEmpty()) {
-            emptySlots.first()->click();
+        if (!cards.isEmpty()) {
+            cards.first()->click();
+            if (auto *play = cards.first()->findChild<QAbstractButton *>(QStringLiteral("homeQuickPlay"))) {
+                play->click();
+            }
         }
-        check(chooseRequests == 1,
-              "★★ U31b 点击空槽只发“选择实例”，不会落进启动或编辑实例的路径");
+        check(requests.size() == 2 && requests.at(0).first == real.key &&
+                  requests.at(0).second == MainWindowUI::HomeQuickAction::Select &&
+                  requests.at(1).first == real.key &&
+                  requests.at(1).second == MainWindowUI::HomeQuickAction::Launch,
+              "★★ U31b 点卡片只发「设为当前」（Select），点卡上那颗 ▶ 才发「启动」（Launch）",
+              QStringLiteral("收到 %1 次").arg(requests.size()));
         ui.setHomeQuickRows({}, {});
         QApplication::processEvents();
     }

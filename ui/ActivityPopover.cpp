@@ -140,17 +140,9 @@ private:
 }  // namespace
 
 ActivityPopover::ActivityPopover(QWidget *anchor, Handlers handlers)
-    : QFrame(anchor != nullptr ? anchor->window() : nullptr), m_anchor(anchor), m_handlers(std::move(handlers)) {
+    : GlassPopover(anchor), m_handlers(std::move(handlers)) {
     setObjectName(objectNameValue());
-    setAttribute(Qt::WA_DeleteOnClose);
     setFixedWidth(kWidth);
-    setFocusPolicy(Qt::StrongFocus);
-    // 柔和大阴影（设计原则 5：浮层不描硬边，只靠阴影和底色差离开下面那一层）。
-    auto *shadow = new QGraphicsDropShadowEffect(this);
-    shadow->setBlurRadius(36);
-    shadow->setOffset(0, 10);
-    shadow->setColor(QColor(0, 0, 0, Theme::isDark() ? 120 : 60));
-    setGraphicsEffect(shadow);
 
     auto *outer = new QVBoxLayout(this);
     outer->setContentsMargins(kPadding, 12, kPadding - 4, kPadding);
@@ -188,14 +180,11 @@ ActivityPopover::ActivityPopover(QWidget *anchor, Handlers handlers)
     scroll->setWidget(m_body);
     outer->addWidget(scroll, 1);
 
-    qApp->installEventFilter(this);
     Theme::follow(this, [this] { rebuild(); });
     rebuild();
 }
 
-ActivityPopover::~ActivityPopover() {
-    if (qApp != nullptr) qApp->removeEventFilter(this);
-}
+ActivityPopover::~ActivityPopover() = default;
 
 void ActivityPopover::refresh() {
     rebuild();
@@ -383,12 +372,6 @@ void ActivityPopover::rebuild() {
     }
 }
 
-void ActivityPopover::closeEvent(QCloseEvent *event) {
-    // 关了要等 deleteLater 才真删：先把名字摘掉，别让按名字找的人摸到这块残影。
-    setObjectName(QString());
-    QFrame::closeEvent(event);
-}
-
 bool ActivityPopover::openAllIn(QWidget *root) {
     auto *pop = root ? root->findChild<QFrame *>(objectNameValue()) : nullptr;
     auto *all = pop ? pop->findChild<QPushButton *>(openAllButtonName()) : nullptr;
@@ -411,39 +394,4 @@ void ActivityPopover::place() {
     const int x = qBound(8, anchorTop.x(), qMax(8, host->width() - kWidth - 8));
     setGeometry(x, bottom - height, kWidth, height);
     raise();
-}
-
-bool ActivityPopover::eventFilter(QObject *watched, QEvent *event) {
-    if (!isVisible()) return false;
-    if (event->type() == QEvent::MouseButtonPress) {
-        auto *widget = qobject_cast<QWidget *>(watched);
-        // 点在面板里 / 点在锚点（任务摘要）上都不归这里管：后者由按钮自己的 toggle 收起。
-        if (widget == nullptr || widget->window() != window()) return false;
-        if (widget == this || isAncestorOf(widget)) return false;
-        if (m_anchor != nullptr && (widget == m_anchor || m_anchor->isAncestorOf(widget))) return false;
-        close();
-        return false;
-    }
-    if (event->type() == QEvent::KeyPress && static_cast<QKeyEvent *>(event)->key() == Qt::Key_Escape &&
-        qobject_cast<QWidget *>(watched) != nullptr && static_cast<QWidget *>(watched)->window() == window()) {
-        close();
-        return true;
-    }
-    if (watched == window() && event->type() == QEvent::Resize) place();
-    return false;
-}
-
-void ActivityPopover::paintEvent(QPaintEvent *) {
-    // 面：玻璃色几乎不透明（下面是正文，不是磨砂底）+ 顶上一道极淡高光，不描边。
-    const Theme::Tokens t = Theme::tokens();
-    QColor face = t.glass;
-    face.setAlphaF(qMax(0.94, face.alphaF()));
-    QPainter p(this);
-    p.setRenderHint(QPainter::Antialiasing, true);
-    QPainterPath path;
-    path.addRoundedRect(QRectF(rect()), 14, 14);
-    p.fillPath(path, face);
-    QColor highlight = t.glassEdge;
-    p.setPen(QPen(highlight, 1));
-    p.drawLine(QPointF(14, 0.5), QPointF(width() - 14, 0.5));
 }
