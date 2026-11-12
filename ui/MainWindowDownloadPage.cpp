@@ -13,7 +13,6 @@
 #include "ThemeAdvancedEditor.hpp"
 #include "ThemeBackground.hpp"
 #include "TitleBar.hpp"
-#include "ToolboxPage.hpp"  // 工具箱那张表的键与名字（底栏面板那六颗按钮按 tools() 摆）
 #include "VersionIcons.hpp"
 #include "VersionTreeDelegate.hpp"
 #include "WindowChrome.hpp"

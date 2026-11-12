@@ -28,6 +28,7 @@
 #include "util/ImageDecode.hpp"
 #include "util/ServerPing.hpp"
 
+#include <QBoxLayout>
 #include <QColor>
 #include <QDir>
 #include <QFileInfo>
@@ -147,31 +148,32 @@ QString motdHtml(const QString &raw, const QColor &background) {
 
 }  // namespace
 
-ToolboxController::ToolboxController(OverlayHost *overlay, QWidget *pageParent, Host host,
+ToolboxController::ToolboxController(OverlayHost *overlay, QWidget *pageHost, Host host,
                                     QObject *parent)
-    : QObject(parent), m_overlay(overlay), m_pageParent(pageParent), m_host(std::move(host)) {
+    : QObject(parent), m_overlay(overlay), m_pageHost(pageHost), m_host(std::move(host)) {
     // 下载恢复和任务操作不依赖工具页，必须在用户打开工具箱之前可用。
-    m_directDownload = new DirectDownloadController(m_host.activity, pageParent, this);
+    m_directDownload = new DirectDownloadController(m_host.activity, overlay, this);
 }
 
 void ToolboxController::ensurePage() {
     if (m_page != nullptr) return;
-    m_page = new ToolboxPage(m_pageParent);
-    m_page->hide();
+    m_page = new ToolboxPage(m_pageHost);
+    if (auto *hostLayout = qobject_cast<QBoxLayout *>(m_pageHost->layout())) hostLayout->addWidget(m_page);
+    m_directDownload->attach(m_page->downloadPanel());
     m_trimPreview = new ArmorTrimPreviewController(m_page, m_overlay, this);
     // 「显示披风」勾选只改预览那一张图，不碰资源、不写盘 —— 直接重绘即可。
     connect(m_page, &ToolboxPage::trimCapeVisibilityChanged, this,
             [this](bool) { m_trimPreview->refresh(); });
-    // 纹饰那一页一露出来就去读本地预览资源 —— 入口有两条（工具箱面板、顶上那排 chip），
-    // 两条都走 `showTool()`，所以只接这一个信号（见 `ToolboxPage::toolShown` 的注释）。
+    // 纹饰那一片一露出来就去读本地预览资源，高速下载那一片一露出来就统计缓存 ——
+    // 入口有两条（目录格、面包屑切换浮层），都走 `showTool()`，所以只接这一个信号。
     connect(m_page, &ToolboxPage::toolShown, this, [this](ToolboxPage::Tool tool) {
         if (tool == ToolboxPage::Tool::Trim) m_trimPreview->ensureLocal();
+        if (tool == ToolboxPage::Tool::Download) m_directDownload->panelShown();
     });
     // 算完哈希之后盯着那个文件：它一变，屏幕上那串摘要就不再是"它现在的摘要"。
     m_hashWatcher = new QFileSystemWatcher(this);
     connect(m_hashWatcher, &QFileSystemWatcher::fileChanged, this,
             [this](const QString &path) { onHashFileChanged(path); });
-    connect(m_page, &ToolboxPage::downloadToolRequested, this, [this] { m_directDownload->open(); });
     QStringList beamNames;
     for (int i = 0; i < Banner::colorCount(); ++i) beamNames.append(Banner::colorName(i));
     m_page->setBeamColors(beamNames);
@@ -426,35 +428,24 @@ int ToolboxController::dimensionAt(int index) const {
 }
 
 void ToolboxController::open(const QString &toolKey) {
-    if (toolKey == QStringLiteral("download")) { m_directDownload->open(); return; }
-    if (m_overlay == nullptr) {
+    if (m_pageHost == nullptr) {
         return;
     }
+    const bool catalog = toolKey == QStringLiteral("catalog");
     bool known = false;
-    const ToolboxPage::Tool tool = ToolboxPage::toolFromKey(toolKey, &known);
-    if (!known) {
-        return;  // 认不出来的键：不该发生（面板那六颗按钮的键就是这张表）
+    ToolboxPage::Tool tool = ToolboxPage::Tool::Anvil;
+    if (!toolKey.isEmpty() && !catalog) {
+        tool = ToolboxPage::toolFromKey(toolKey, &known);
+        if (!known) {
+            return;  // 认不出来的键：不该发生（键就是 ToolboxPage 那张表）
+        }
     }
     ensurePage();
-    // 换一件工具**先换再开**：这一页是复用的对象，开出来那一刻已经是用户点的那一件。
-    m_page->showTool(tool);
-    // 「再开一页」不再问：覆盖层上压着东西时**静默收掉再继续**（`runWhenOverlayFree()`
-    // 是那条路的唯一出处）。直接开的话，页正开着时它会原地返回那一档「没开成」，
-    // 用户看到的是"点了没反应"。
-    const auto openPage = [this]() {
-        // 非阻塞（见 `OverlayHost::showPage()`）：工具箱这一页后面没有一行代码要等它
-        // 收掉，用户换一件工具只是换内容 + 重开。
-        if (!m_overlay->showPage(m_page, ToolboxPage::windowTitle())) {
-            m_host.log(tr("无法打开工具箱：界面已被另一页占用。"));
-        }
-    };
-    if (m_overlay->isOpen()) {
-        if (m_host.openWhenOverlayFree) {
-            m_host.openWhenOverlayFree(openPage);
-        }
-        return;
+    if (catalog) {
+        m_page->showCatalog();
+    } else if (known) {
+        m_page->showTool(tool);
     }
-    openPage();
 }
 
 // ---------------------------------------------------------------------------

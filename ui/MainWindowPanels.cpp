@@ -16,7 +16,6 @@
 #include "ThemeAdvancedEditor.hpp"
 #include "ThemeBackground.hpp"
 #include "TitleBar.hpp"
-#include "ToolboxPage.hpp"  // 工具箱那张表的键与名字（底栏面板那六颗按钮按 tools() 摆）
 #include "VersionIcons.hpp"
 #include "VersionTreeDelegate.hpp"
 #include "WindowChrome.hpp"
@@ -51,104 +50,6 @@
 using namespace MainWindowPageLayout;
 
 namespace {
-
-// Popup 会截获底下按钮的点击；必须主动处理关闭，避免一次点击被吞掉或重放后重新展开。
-class ToolboxPopup : public QFrame {
-public:
-    ToolboxPopup(QWidget *parent, std::function<void(const QPoint &)> outside)
-        : QFrame(parent, Qt::Popup | Qt::FramelessWindowHint), m_outside(std::move(outside)) {
-        // 浮层那一层唯一的面：磨砂玻璃（17 号反馈：弹出层要真透磨砂，不要一块白卡）。
-        Popups::glassify(this, 14);
-    }
-protected:
-    // 圆角 14 的磨砂底 + 一圈 1px 亮边，不描边 —— 全仓浮层同一个做法（见 ui/Popups.hpp）。
-    void paintEvent(QPaintEvent *) override {
-        QPainter p(this);
-        Popups::paintSurface(p, QRectF(rect()), 14);
-    }
-    void mousePressEvent(QMouseEvent *event) override {
-        if (rect().contains(event->position().toPoint())) {
-            QFrame::mousePressEvent(event);
-            return;
-        }
-        setAttribute(Qt::WA_NoMouseReplay, true);
-        const QPoint global = event->globalPosition().toPoint();
-        m_outside(global);
-        event->accept();
-    }
-    void mouseDoubleClickEvent(QMouseEvent *event) override { mousePressEvent(event); }
-private:
-    std::function<void(const QPoint &)> m_outside;
-};
-}
-
-namespace {
-
-/// 工具箱面板里的一行：左边 32px 图标块，右边名称 + 一句说明；悬停才显底。
-/// `text()` 仍是短名（无障碍名 / 测试按它认），只是换成自己画。
-class ToolboxRowButton : public QPushButton {
-public:
-    ToolboxRowButton(const QString &name, QString summary, QWidget *parent)
-        : QPushButton(name, parent), m_summary(std::move(summary)) {
-        setFlat(true);
-        setAttribute(Qt::WA_Hover);
-        // 高度写进 QSS：全局按钮样式在 polish 时会改写 min/max 高，setFixedSize 顶不住。
-        setStyleSheet(QStringLiteral("QPushButton { border: none; padding: 0px; background: transparent;"
-                                     " min-height: 56px; max-height: 56px; }"));
-    }
-protected:
-    void paintEvent(QPaintEvent *) override {
-        QPainter p(this);
-        p.setRenderHint(QPainter::Antialiasing);
-        const QPalette pal = QApplication::palette();
-        if (underMouse() || isDown()) {
-            p.setPen(Qt::NoPen);
-            p.setBrush(Theme::rowHoverFill(pal.color(QPalette::Base)));
-            p.drawRoundedRect(QRectF(rect()), 10, 10);
-        }
-        const QRect tile(10, (height() - 32) / 2, 32, 32);
-        QColor tileFill = pal.color(QPalette::WindowText);
-        tileFill.setAlpha(Theme::isDark() ? 22 : 16);
-        p.setPen(Qt::NoPen);
-        p.setBrush(tileFill);
-        p.drawRoundedRect(QRectF(tile), 9, 9);
-        icon().paint(&p, tile.adjusted(7, 7, -7, -7));
-        const int x = tile.right() + 12;
-        QFont nameFont = Theme::textFont(font(), Theme::TextRole::Body);
-        nameFont.setWeight(QFont::DemiBold);
-        QFont subFont = Theme::textFont(font(), Theme::TextRole::Caption);
-        const QFontMetrics nm(nameFont), sm(subFont);
-        const int top = (height() - nm.height() - sm.height()) / 2;
-        p.setFont(nameFont);
-        p.setPen(pal.color(QPalette::WindowText));
-        p.drawText(QRect(x, top, width() - x - 8, nm.height()), Qt::AlignLeft | Qt::AlignVCenter,
-                   nm.elidedText(text(), Qt::ElideRight, width() - x - 8));
-        p.setFont(subFont);
-        p.setPen(pal.color(QPalette::PlaceholderText));
-        p.drawText(QRect(x, top + nm.height(), width() - x - 8, sm.height()), Qt::AlignLeft | Qt::AlignVCenter,
-                   sm.elidedText(m_summary, Qt::ElideRight, width() - x - 8));
-    }
-private:
-    QString m_summary;
-};
-
-/// 面板那一行的小字：比 `toolSummary()` 短一截，一眼读完（设计稿 panels-toolbox）；全句留在 tooltip。
-QString toolTagline(ToolboxPage::Tool tool) {
-    using T = ToolboxPage::Tool;
-    switch (tool) {
-    case T::Hash: return QStringLiteral("比对文件哈希");
-    case T::Download: return QStringLiteral("多线程拉取任意链接");
-    case T::Server: return QStringLiteral("服务器 Ping 与 MOTD");
-    case T::Anvil: return QStringLiteral("铁砧顺序与经验最省");
-    case T::Coord: return QStringLiteral("主世界 ↔ 下界");
-    case T::Text: return QStringLiteral("§ 代码与 JSON 文本");
-    case T::Brewing: return QStringLiteral("药水配方一步一步");
-    case T::Banner: return QStringLiteral("图案叠层预览");
-    case T::Beacon: return QStringLiteral("金字塔要多少块");
-    case T::Trim: return QStringLiteral("盔甲纹饰与材料");
-    }
-    return ToolboxPage::toolSummary(tool);
-}
 
 /// 底栏那颗按钮点开之后向上弹出的面板有多大（边距 / 行距 / 和按钮之间的空隙）。
 constexpr int kPanelPadding = 10;
@@ -565,6 +466,8 @@ public:
     using QPushButton::QPushButton;
 
 protected:
+    /// 勾选态 = "工具箱页正开着"，由主窗口按当前选项卡摆，点击不自己翻面。
+    void nextCheckState() override {}
     void paintEvent(QPaintEvent *) override {
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing, true);
@@ -1619,7 +1522,8 @@ void MainWindowUI::setupBottomBar(QWidget *parent) {
     toolboxButton->setObjectName(toolboxButtonName());
     toolboxButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     toolboxButton->setCursor(Qt::PointingHandCursor);
-    toolboxButton->setToolTip(QStringLiteral("展开或收起工具箱"));
+    toolboxButton->setToolTip(QStringLiteral("工具箱"));
+    toolboxButton->setCheckable(true);
     toolboxButton->setAttribute(Qt::WA_Hover, true);
     {
         QFont navFont = toolboxButton->font();
@@ -2366,11 +2270,6 @@ void MainWindowUI::toggleBottomBarPanel(const BottomBarAnchor &anchor) {
             panel->deleteLater();
         }
     }
-    if (bottomBar->findChild<QFrame *>(MainWindowUI::toolboxPanelName()) != nullptr) {
-        sameAnchor = sameAnchor || anchor.kind == BottomBarAnchorKind::Tools;
-        anyOpen = true;
-        closeToolboxPanel();
-    }
     if (reopenTaskCenter) {
         if (overlayHost->evict()) {
             QTimer::singleShot(0, taskSummaryButton, [this]() { openTaskCenterPanel(); });
@@ -2388,100 +2287,10 @@ void MainWindowUI::toggleBottomBarPanel(const BottomBarAnchor &anchor) {
         return;
     }
     if (anchor.kind == BottomBarAnchorKind::Tools) {
-        toggleToolboxPanel();
+        openToolboxTab();
         return;
     }
     openBottomBarPanel(anchor);
-}
-
-void MainWindowUI::toggleToolboxPanel() {
-    if (bottomBar == nullptr || toolboxButton == nullptr) {
-        return;
-    }
-    closeHomeInstancePicker();
-    if (bottomBar->findChild<QFrame *>(toolboxPanelName()) != nullptr) {
-        closeToolboxPanel();
-        return;
-    }
-
-    auto *panel = new ToolboxPopup(bottomBar, [this](const QPoint &global) {
-        const BottomBarAnchor hit = bottomBarAnchorAt(global);
-        closeToolboxPanel();
-        if (hit.button != nullptr && hit.kind != BottomBarAnchorKind::Tools)
-            toggleBottomBarPanel(hit);
-    });
-    panel->setObjectName(toolboxPanelName());
-    panel->setAttribute(Qt::WA_DeleteOnClose);
-    panel->setAttribute(Qt::WA_NoMouseReplay);
-    auto *layout = new QVBoxLayout(panel);
-    layout->setContentsMargins(14, 12, 14, 14);
-    layout->setSpacing(8);
-
-    // ---------- 标题那一行：「工具箱」 + 右边「全部展开为页面 ›」（点外面 / Esc 就收，不另摆 ×）----------
-    const QColor iconInk = QApplication::palette().color(QPalette::WindowText);
-    auto *header = new QHBoxLayout;
-    header->setContentsMargins(4, 0, 0, 0);
-    header->setSpacing(8);
-    header->addWidget(makeHomeTitle(QStringLiteral("工具箱"), panel));
-    header->addStretch(1);
-    auto *expand = new QPushButton(QCoreApplication::translate("MainWindowUI", "全部展开为页面 ›"), panel);
-    expand->setObjectName(QStringLiteral("toolboxExpandButton"));
-    expand->setCursor(Qt::PointingHandCursor);
-    Theme::markButton(expand, Theme::ButtonKind::Ghost);
-    const QString firstKey = ToolboxPage::toolKey(ToolboxPage::Tool::Anvil);  // 页上 chip 第一件（tools() 头一件是不出 chip 的下载）
-    QObject::connect(expand, &QPushButton::clicked, expand, [this, firstKey]() {
-        closeToolboxPanel();
-        if (m_toolboxToolHandler) m_toolboxToolHandler(firstKey);
-    });
-    header->addWidget(expand);
-    layout->addLayout(header);
-
-    auto *grid = new QGridLayout;
-    grid->setContentsMargins(0, 2, 0, 0);
-    grid->setHorizontalSpacing(6);
-    grid->setVerticalSpacing(0);
-    // NOTE: 面板本身是 `Qt::Popup`，点它里面一颗按钮之后 Qt 会把它收掉 —— 但"收掉"这件
-    // 事不该由"Qt 的行为"顺手办，所以这里显式 `closeToolboxPanel()` 一次。
-    const QList<ToolboxPage::Tool> tools = ToolboxPage::panelTools();
-    for (int index = 0; index < tools.size(); ++index) {
-        const ToolboxPage::Tool tool = tools.at(index);
-        auto *button = new ToolboxRowButton(ToolboxPage::toolShortName(tool), toolTagline(tool), panel);
-        button->setObjectName(ToolboxPage::toolButtonName(tool));
-        button->setIcon(ToolboxPage::toolIcon(tool, iconInk));
-        button->setCursor(Qt::PointingHandCursor);
-        button->setFixedWidth(220);
-        button->setToolTip(ToolboxPage::toolSummary(tool));
-        const QString key = ToolboxPage::toolKey(tool);
-        // NOTE: 上下文对象给的是 `button` 自己 —— `MainWindowUI` 不是 QObject，按钮跟着面板
-        // （WA_DeleteOnClose）一起没，连接也就跟着断了。
-        QObject::connect(button, &QPushButton::clicked, button, [this, key]() {
-            closeToolboxPanel();
-            if (m_toolboxToolHandler) {
-                m_toolboxToolHandler(key);
-            }
-        });
-        grid->addWidget(button, index / 2, index % 2);
-    }
-    layout->addLayout(grid);
-    // 不用 adjustSize()：顶层窗口它最多给到屏高的 2/3，小屏上会把行压扁。
-    layout->setSizeConstraint(QLayout::SetFixedSize);
-    panel->resize(panel->sizeHint());
-    // 工具箱入口在左导航轨底部：面板左沿贴按钮左沿、往上弹，整块落在窗口里。
-    const QPoint anchor = toolboxButton->mapToGlobal(QPoint(0, 0));
-    panel->move(anchor.x(), anchor.y() - panel->height() - 8);
-    panel->show();
-}
-
-void MainWindowUI::closeToolboxPanel() {
-    // 收那一块**只有这一条路**（"再点一次同一颗 = 收回"和"点里面一件工具 = 先收再开"
-    // 都走它）：面板是 `WA_DeleteOnClose` 的，找它一律现找、不存指针。
-    if (bottomBar == nullptr) {
-        return;
-    }
-    if (auto *open = bottomBar->findChild<QFrame *>(toolboxPanelName())) {
-        open->setObjectName(QString());
-        open->close();
-    }
 }
 
 void MainWindowUI::setBottomBarTaskSummary(const BottomBarTaskSummary &summary) {
