@@ -193,6 +193,9 @@ void markSurface(QWidget *widget, const QString &value);
 
 void markTextRole(QWidget *label, const QString &value);
 
+/// 搜索框左边那枚放大镜（跟着主题重新着色）。
+void addSearchIcon(QLineEdit *edit);
+
 void styleSidebarList(QListWidget *list);
 
 TwoColumns buildTwoColumnPage(QWidget *page, const QString &tab);

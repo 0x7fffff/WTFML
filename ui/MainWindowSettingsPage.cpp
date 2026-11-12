@@ -311,8 +311,7 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
     search->setPlaceholderText(QStringLiteral("搜索设置"));
     search->setClearButtonEnabled(true);
     search->setFixedWidth(240);
-    search->addAction(VersionIcons::line(QStringLiteral("search"), 16, Theme::tokens().secondary),
-                      QLineEdit::LeadingPosition);
+    addSearchIcon(search);
     if (columns.right.actions != nullptr) columns.right.actions->addWidget(search);
     const auto findSetting = [this, scrollTo](const QString &text) {
         const QString needle = text.trimmed();

@@ -94,6 +94,15 @@ void markTextRole(QWidget *label, const QString &value) {
     label->setProperty(name.constData(), value);
 }
 
+void addSearchIcon(QLineEdit *edit) {
+    QAction *glass = edit->addAction(QIcon(), QLineEdit::LeadingPosition);
+    const auto tint = [glass] {
+        glass->setIcon(VersionIcons::line(QStringLiteral("search"), 16, Theme::tokens().secondary));
+    };
+    tint();
+    Theme::follow(edit, tint);
+}
+
 // 侧栏列表与容器共用一层底色；代理绘制选中/悬停时也拿相同的 Base，避免白色内框。
 void styleSidebarList(QListWidget *list) {
     list->setProperty("wtfmlSidebarRail", true);

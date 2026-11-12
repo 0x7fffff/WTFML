@@ -302,6 +302,7 @@ void MainWindowUI::setupDownloadGamePage() {
     versionFilterEdit = new QLineEdit(versionFilterBar);
     versionFilterEdit->setObjectName(versionFilterEditName());
     versionFilterEdit->setPlaceholderText(versionFilterPlaceholderText());
+    addSearchIcon(versionFilterEdit);
     versionFilterLayout->addWidget(versionFilterEdit, 1);
     versionFilterHint = new QLabel(versionFilterBar);
     versionFilterHint->setObjectName(versionFilterHintName());
@@ -686,6 +687,7 @@ void MainWindowUI::setupDownloadServerPage() {
     auto *search = new QLineEdit(filterBar);
     search->setObjectName(QStringLiteral("serverVersionFilter"));
     search->setPlaceholderText(versionFilterPlaceholderText());
+    addSearchIcon(search);
     filterLayout->addWidget(search, 1);
     auto *hint = new QLabel(filterBar);
     hint->setObjectName(downloadServerHintName());
@@ -928,6 +930,7 @@ void MainWindowUI::setupDownloadResourcePages() {
         auto *search = new QLineEdit(filterRow);
         search->setObjectName(downloadSearchEditName(categoryKey));
         search->setPlaceholderText(downloadSearchHint(i));
+        addSearchIcon(search);
         filterTop->addWidget(search, 1);
 
         // 四个下拉框共用一套竖设置：宽度按"最短内容长度"算（不按内容算，理由见
