@@ -196,6 +196,16 @@ int UiToolboxLayoutCheck(QApplication &app) {
                 check(crumbTool != nullptr && crumbTool->text() == ToolboxPage::toolName(tool) && crumbRoot != nullptr &&
                           crumbRoot->isVisible(),
                       "面包屑「工具箱 / 工具名」", key);
+                // 面包屑文字（按钮左内边距 8）与工具内容左缘对齐。
+                if (crumbRoot != nullptr && crumbRoot->isVisible()) {
+                    auto *scrollArea = page->findChild<QScrollArea *>(ToolboxPage::toolPageName(tool));
+                    QWidget *content = page->findChild<QWidget *>(ToolboxPage::toolPanelName(tool));
+                    if (scrollArea != nullptr && content != nullptr) {
+                        const int textLeft = crumbRoot->mapTo(page, QPoint(0, 0)).x() + 8;
+                        const int contentLeft = content->mapTo(page, QPoint(0, 0)).x();
+                        check(qAbs(textLeft - contentLeft) <= 1, "面包屑文字与内容左缘对齐", QStringLiteral("%1 vs %2 %3 | crumbRoot.x=%4 head.x=%5 inner.x=%6").arg(textLeft).arg(contentLeft).arg(key).arg(crumbRoot->mapTo(page, QPoint(0,0)).x()).arg(crumbRoot->parentWidget()->mapTo(page, QPoint(0,0)).x()).arg(crumbRoot->parentWidget()->parentWidget()->mapTo(page, QPoint(0,0)).x()));
+                    }
+                }
                 auto *scroll = page->findChild<QScrollArea *>(ToolboxPage::toolPageName(tool));
                 check(scroll != nullptr && scroll->isVisible(), "工具页可见", key);
                 if (scroll != nullptr) {

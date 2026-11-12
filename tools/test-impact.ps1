@@ -30,12 +30,13 @@ function Get-TestImpact([string[]]$Paths, [bool]$ForceFull = $false) {
         window = @('main-window', 'window-chrome'); workspace = @('workspace', 'activity-selection')
         java = @('java-manage'); mods = @('mod-action-panel'); upgrade = @('instance-upgrade')
         network = @('download-retry', 'high-speed-download', 'segmented-download', 'segment-install')
-        presets = @('preset-install'); toolbox = @('tool-features', 'toolbox-polish', 'armor-trim')
+        presets = @('preset-install'); toolbox = @('tool-features', 'toolbox-polish', 'toolbox-layout', 'armor-trim', 'high-speed-download')
         resources = @('resource-packs'); app = @('network-diag')
     }
     $testSources = @{
         'tests/ui_check/modules/UiInstallLayoutCheck.cpp' = 'ui'
         'tests/ui_check/modules/UiToolboxPolishCheck.cpp' = 'toolbox'
+        'tests/ui_check/modules/UiToolboxLayoutCheck.cpp' = 'toolbox'
         'tests/ui_check/modules/UiResourcePacksCheck.cpp' = 'resources'
         'tests/ui_check/modules/UiAgentCheck.cpp' = 'ui-agent'
         'tests/mw_check/modules/MwAgentCheck.cpp' = 'agent-window'

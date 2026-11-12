@@ -4,7 +4,7 @@
  * 「高速下载」不是纯算术，它自己一份 `DirectDownloadController`）。
  * @note 要求：「不要再往 mainwindow 里堆超级屎山了，用 controller 等等方式
  * 合理分散功能」。所以这一件**一行逻辑都不往 MainWindow 放**：那边只有三件事 ——
- * 建它、把底栏面板那六颗按钮接到 `open()` 上、析构时 `shutdown()`。
+ * 建它、把导航轨底部的「工具箱」接到 `open()` 上、析构时 `shutdown()`。
  *
  * 【这个 controller 管什么、不管什么】
  *

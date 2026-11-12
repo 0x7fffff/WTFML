@@ -1515,7 +1515,7 @@ void MainWindowUI::setupBottomBar(QWidget *parent) {
     accountRow->addStretch(1);
     accountRow->addWidget(makeChevronLabel(accountButton), 0, Qt::AlignVCenter);
     // 账号身份与入口在主页右上区域；底栏保留这组兼容控件给业务层更新数据，
-    // 但不放进可见布局。右下角是跨页面的轻量工具箱入口。
+    // 但不放进可见布局。工具箱入口在导航轨底部。
     accountButton->hide();
 
     toolboxButton = new RailNavButton(QStringLiteral("工具箱"), bottomBar);

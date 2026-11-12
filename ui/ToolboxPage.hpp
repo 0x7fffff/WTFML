@@ -124,7 +124,6 @@ public:
     static QString trimCapeCheckName() { return QStringLiteral("toolboxTrimCape"); }
     /// 哈希那一件：算完之后文件被改过的那句提醒（空串 = 收起来）。
     static QString hashNoticeName() { return QStringLiteral("toolboxHashNotice"); }
-    static QString hashBatchName() { return QStringLiteral("toolboxHashBatch"); }
     static QString hashCopyAllName() { return QStringLiteral("toolboxHashCopyAll"); }
     static QString hashExportName() { return QStringLiteral("toolboxHashExport"); }
 
@@ -512,7 +511,6 @@ private:
     QDoubleSpinBox *m_coordX = nullptr;
     QDoubleSpinBox *m_coordY = nullptr;
     QDoubleSpinBox *m_coordZ = nullptr;
-    QLineEdit *m_tpInput = nullptr;
     QLineEdit *m_tpCommand = nullptr;
     QLabel *m_tpNotice = nullptr;
     QLabel *m_coordResult = nullptr;
@@ -537,7 +535,6 @@ private:
     /// 算出来的那一串摘要（「复制」那颗拷的是它 —— 结果标签里画的带 HTML，不能整段拷）。
     QString m_hashHex;
     /// 批量那一档（「补多文件」+「复制/导出列表」）。
-    QPushButton *m_hashBatch = nullptr;    ///< 「批量…」——选好几个文件一次算
     QPushButton *m_hashCopyAll = nullptr;  ///< 「复制全部」（标准校验和文本）
     QPushButton *m_hashExport = nullptr;   ///< 「导出…」（写一个 .txt）
     /// 批量结果的纯文本（`<摘要> <文件名>` 一行一个）。空串 = 没有批量结果。

@@ -3183,11 +3183,12 @@ int main(int argc, char *argv[]) {
     // ------------------------------------------------------------------
     {
         ToolboxPage page;
-        auto *batchButton = page.findChild<QPushButton *>(ToolboxPage::hashBatchName());
         auto *copyAll = page.findChild<QPushButton *>(ToolboxPage::hashCopyAllName());
         auto *exportButton = page.findChild<QPushButton *>(ToolboxPage::hashExportName());
-        check(batchButton != nullptr && copyAll != nullptr && exportButton != nullptr,
-              "★★ U42 哈希那一页上有「批量…」「复制全部」「导出…」三颗钮");
+        auto *browse = page.findChild<QPushButton *>(QStringLiteral("hashBrowse"));
+        check(browse != nullptr && copyAll != nullptr && exportButton != nullptr &&
+                  page.findChild<QPushButton *>(QStringLiteral("toolboxHashBatch")) == nullptr,
+              "★★ U42 哈希那一页上没有单独的「批量…」（「选择…」可多选），有「复制全部」「导出…」");
         check(copyAll != nullptr && !copyAll->isEnabled() && exportButton != nullptr
                   && !exportButton->isEnabled(),
               "★★ U42 还没有批量结果时「复制全部」「导出…」是灰的（没东西可拷/存）");

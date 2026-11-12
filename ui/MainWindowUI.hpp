@@ -3718,9 +3718,9 @@ public:
     // NOTE: 产品代码没有取过底栏本身（只取它里面的几个标签/进度条），只有验证工程
     // 用它来量底栏的几何。
     QFrame *getBottomBar() const { return bottomBar; }
-    /// 底栏那几颗按钮（左：实例运行状态 · 中：任务摘要 · 右：工具箱）。点它们会**向上**弹出
-    /// 一块面板（左那块列在跑的实例、中间那块是任务中心、右那块是工具箱菜单），内容由
-    /// MainWindow 灌进来（见 setBottomBarPanelContent()）。
+    /// 底栏那几颗按钮（运行状态 · 任务摘要 · 工具箱）。运行状态与任务摘要点开向上弹一块面板
+    /// （列在跑的实例 / 任务中心），内容由 MainWindow 灌进来（见 setBottomBarPanelContent()）；
+    /// 工具箱那颗不弹面板，直接切到工具箱选项卡。
     QPushButton *getRunStateButton() const { return runStateButton; }
     /// 底栏右头那一格（头像 + 用户名 + 「⌃」）。★ 它**不摆出来**
     /// （`setupBottomBar()` 里 `hide()`）：账号身份与入口在导航轨底部那一格，
