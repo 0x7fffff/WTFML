@@ -180,7 +180,7 @@ QString handFamily(HandFont which) {
 QFont handFont(QFont font, HandFont which) {
     const QString family = handFamily(which);
     if (family.isEmpty()) return font;
-    // 西文也走这一支（文楷自带手写感的拉丁字形）；它缺的字落回系统字体。
+    // 西文也走这一支（文楷自带手写感的拉丁字形）；它缺的字落回系统字体。只给 markDisplay() 那四处用。
     font.setFamilies({family, QApplication::font().family()});
     font.setBold(false);
     return font;
@@ -632,14 +632,16 @@ class WtfmlProxyStyle : public QProxyStyle
 public:
     using QProxyStyle::QProxyStyle;
 
-    /// 设计稿：按钮、胶囊、分段用霞鹜文楷 15 px。代码里自己 setFont 过的（启动大按钮之类）不动。
+    /// tokens-r2 §1：按钮用系统字 14 px、字重 500（手写体只留品牌 / 主页英雄区 / 页标题 / 空状态）。
+    /// 代码里自己 setFont 过的（主页大按钮之类）不动。
     void polish(QWidget *w) override
     {
         QProxyStyle::polish(w);
         auto *button = qobject_cast<QPushButton *>(w);
         if (button == nullptr || button->testAttribute(Qt::WA_SetFont)) return;
-        QFont font = handFont(button->font(), HandFont::Kai);
-        font.setPixelSize(15);
+        QFont font = button->font();
+        font.setPixelSize(textSize(TextRole::Body));
+        font.setWeight(QFont::Medium);
         button->setFont(font);
     }
     using QProxyStyle::polish;
@@ -1196,6 +1198,13 @@ QString textRolePropertyName() { return QString::fromLatin1(kTextRoleProperty); 
 QString pageTitleTextRoleValue() { return QString::fromLatin1(kTextRolePageTitle); }
 QString sectionTitleTextRoleValue() { return QString::fromLatin1(kTextRoleSectionTitle); }
 QString secondaryTextRoleValue() { return QString::fromLatin1(kTextRoleSecondary); }
+QString displayPropertyName() { return QStringLiteral("wtfmlDisplay"); }
+
+void markDisplay(QWidget *widget, const QFont &font) {
+    if (widget == nullptr) return;
+    widget->setFont(font);
+    widget->setProperty("wtfmlDisplay", true);
+}
 
 // ---------------------------------------------------------------------------
 // 滚动条
@@ -1514,7 +1523,7 @@ void markBadge(QLabel *label, BadgeTone tone) {
     label->setFixedHeight(22);
     label->setAlignment(Qt::AlignCenter);
     QFont f = label->font();
-    f.setPixelSize(12);
+    f.setPixelSize(textSize(TextRole::Caption));
     label->setFont(f);
     const auto apply = [label, tone]() {
         const Tokens t = tokens();
@@ -1582,9 +1591,9 @@ void markSegmented(QWidget *container, const QList<QPushButton *> &segments) {
     container->setProperty("wtfmlSegmented", true);
     auto *group = new QButtonGroup(container);
     group->setExclusive(true);
-    QFont f = handFont(container->font(), HandFont::Kai);
-    f.setPixelSize(14);
-    f.setLetterSpacing(QFont::AbsoluteSpacing, 1);
+    QFont f = container->font();
+    f.setPixelSize(textSize(TextRole::Body));
+    f.setWeight(QFont::Medium);
     for (QPushButton *segment : segments) {
         segment->setProperty("wtfmlSegment", true);
         segment->setCheckable(true);

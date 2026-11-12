@@ -152,9 +152,7 @@ ActivityPopover::ActivityPopover(QWidget *anchor, Handlers handlers)
     auto *header = new QHBoxLayout;
     header->setContentsMargins(2, 0, 0, 0);
     auto *title = new QLabel(QStringLiteral("活动中心"), this);
-    QFont tf = Theme::handFont(title->font(), Theme::HandFont::Kai);
-    tf.setPixelSize(Theme::textSize(Theme::TextRole::Heading));
-    title->setFont(tf);
+    title->setFont(Theme::textFont(title->font(), Theme::TextRole::Heading));
     header->addWidget(title);
     header->addStretch(1);
     auto *openAll = textButton(QStringLiteral("全部任务"), openAllButtonName(), this);

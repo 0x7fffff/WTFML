@@ -82,9 +82,7 @@ InstanceUpdateWizard::InstanceUpdateWizard(QWidget *target, QWidget *mods, QWidg
         auto *texts = new QVBoxLayout; texts->setSpacing(2);
         auto *title = new QLabel(titles[i], step);
         title->setObjectName(QStringLiteral("instanceUpdateStepTitle"));
-        QFont titleFont = Theme::textFont(title->font(), Theme::TextRole::Heading);
-        if (const QString kai = Theme::handFamily(Theme::HandFont::Kai); !kai.isEmpty()) titleFont.setFamily(kai);
-        title->setFont(titleFont);
+        title->setFont(Theme::textFont(title->font(), Theme::TextRole::Heading));
         auto *subtitle = new QLabel(tr("第 %1 步 / 共 %2 步").arg(i + 1).arg(content.size()), step);
         subtitle->setObjectName(QStringLiteral("instanceUpdateStepSubtitle"));
         subtitle->setFont(Theme::textFont(subtitle->font(), Theme::TextRole::Caption));

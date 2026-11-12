@@ -81,10 +81,7 @@ public:
         auto *cacheHeader = new QHBoxLayout;
         cacheHeader->setSpacing(8);
         auto *cacheTitle = new QLabel(QStringLiteral("缓存"), this);
-        QFont titleFont = Theme::textFont(cacheTitle->font(), Theme::TextRole::Body);
-        if (const QString kai = Theme::handFamily(Theme::HandFont::Kai); !kai.isEmpty()) titleFont.setFamily(kai);
-        titleFont.setPixelSize(16);
-        cacheTitle->setFont(titleFont);
+        cacheTitle->setFont(Theme::textFont(cacheTitle->font(), Theme::TextRole::Heading));
         cacheHeader->addWidget(cacheTitle);
         cacheHeader->addStretch(1);
         auto *limitLabel = new QLabel(QStringLiteral("闲置上限"), this);

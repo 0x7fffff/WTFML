@@ -208,9 +208,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     headerText->setSpacing(2);
     m_headerTitle = new QLabel(instanceName, header);
     m_headerTitle->setObjectName(QStringLiteral("instanceHeaderTitle"));
-    QFont headerFont = Theme::textFont(m_headerTitle->font(), Theme::TextRole::Heading);
-    headerFont.setPixelSize(24);
-    m_headerTitle->setFont(headerFont);
+    Theme::markDisplay(m_headerTitle, Theme::textFont(m_headerTitle->font(), Theme::TextRole::Display));
     headerText->addWidget(m_headerTitle);
     m_headerMeta = new QLabel(header);
     m_headerMeta->setObjectName(QStringLiteral("instanceHeaderMeta"));

@@ -134,7 +134,7 @@ QWidget *sliderWithValue(QSlider *slider, QLabel *value, QWidget *parent) {
     value->setFixedWidth(44);
     value->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     QFont font = value->font();
-    font.setPixelSize(12);
+    font.setPixelSize(Theme::textSize(Theme::TextRole::Caption));
     value->setFont(font);
     markTextRole(value, Theme::secondaryTextRoleValue());
     layout->addWidget(value, 0);
@@ -156,7 +156,7 @@ QPushButton *textButton(const QString &text, QWidget *parent) {
     Theme::markButton(button, Theme::ButtonKind::Ghost);
     button->setCursor(Qt::PointingHandCursor);
     QFont font = QApplication::font();  // 按钮用系统字（手写体只留品牌 / 主页大标题 / 页标题 / 空状态）
-    font.setPixelSize(13);
+    font.setPixelSize(Theme::textSize(Theme::TextRole::Body));
     font.setWeight(QFont::Medium);
     button->setFont(font);
     return button;
@@ -187,13 +187,7 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
     auto *title = new QLabel(settingsPageTitle(), headInner);
     title->setObjectName(pageTitleName(QStringLiteral("settings")));
     markTextRole(title, Theme::pageTitleTextRoleValue());
-    {
-        // 页标题：手写体 Light 26，字距 2。
-        QFont font = Theme::handFont(title->font(), Theme::HandFont::KaiLight);
-        font.setPixelSize(26);
-        font.setLetterSpacing(QFont::AbsoluteSpacing, 2);
-        title->setFont(font);
-    }
+    Theme::markDisplay(title, Theme::textFont(title->font(), Theme::TextRole::Display));  // 页标题：手写体 Light 26，字距 2
     headLayout->addWidget(title);
 
     settingsTabs = new SettingsParts::SlidingTabs(headInner);
@@ -228,16 +222,6 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
                          if (index >= 0 && index < settingsCategoryStack->count())
                              settingsCategoryStack->setCurrentIndex(index);
                      });
-
-    // 按钮、分段统一用系统字（手写体只留品牌 / 主页大标题 / 页标题 / 空状态）。
-    for (QPushButton *button : settingsCategoryStack->findChildren<QPushButton *>()) {
-        const bool text = button->property("wtfmlTextAction").toBool() || button->property("wtfmlSegment").toBool();
-        if (!text || button->property("wtfmlFoldRow").toBool()) continue;
-        QFont font = QApplication::font();
-        font.setPixelSize(button->property("wtfmlSegment").toBool() ? 14 : 13);
-        font.setWeight(QFont::Medium);
-        button->setFont(font);
-    }
 
     // 设置页里的折叠行（「高级」和高级配色那一行）：标题靠左、整行 44 高。
     // 应用级样式表没写 text-align，这里用实例级样式只作用于折叠行按钮。
@@ -366,7 +350,7 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
         auto *elided = new ElidedLabel(box);
         elided->setText(QStringLiteral("正在读取系统内存…"));
         QFont hintFont = elided->font();
-        hintFont.setPixelSize(12);
+        hintFont.setPixelSize(Theme::textSize(Theme::TextRole::Caption));
         elided->setFont(hintFont);
         markTextRole(elided, Theme::secondaryTextRoleValue());
         elided->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);

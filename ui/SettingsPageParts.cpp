@@ -128,7 +128,7 @@ SettingsRow::SettingsRow(const RowSpec &spec, QWidget *control, QWidget *parent)
         auto *help = new QLabel(spec.help, m_left);
         help->setProperty("settingsHelp", true);
         help->setWordWrap(true);
-        help->setFont(uiFont(12));
+        help->setFont(uiFont(Theme::textSize(Theme::TextRole::Caption)));
         markTextRole(help, Theme::secondaryTextRoleValue());
         leftLayout->addWidget(help);
     }
@@ -497,7 +497,7 @@ SavedToast::SavedToast(QWidget *parent) : QWidget(parent) {
 }
 
 QSize SavedToast::sizeHint() const {
-    const QFontMetrics fm(uiFont(12));
+    const QFontMetrics fm(uiFont(Theme::textSize(Theme::TextRole::Caption)));
     return QSize(fm.horizontalAdvance(QStringLiteral("已保存")) + 42, 26);
 }
 
@@ -542,7 +542,7 @@ void SavedToast::paintEvent(QPaintEvent *) {
     QPen pen(ink, 1.6, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
     p.setPen(pen);
     p.drawPolyline(QPolygonF({QPointF(11, 13.5), QPointF(14.2, 16.5), QPointF(19, 10)}));
-    p.setFont(uiFont(12));
+    p.setFont(uiFont(Theme::textSize(Theme::TextRole::Caption)));
     p.drawText(QRectF(24, 0, width() - 24, height()), Qt::AlignLeft | Qt::AlignVCenter,
                QStringLiteral("已保存"));
 }

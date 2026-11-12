@@ -18,6 +18,27 @@ int UiTitleBarChecks(QMainWindow &window, MainWindowUI &ui) {
     // ---------- 宽窗：轨展开 208，贴在左边整高 ----------
     window.resize(1280, 800);
     QApplication::processEvents();
+
+    // ---------- 手写体只留四处（tokens-r2 §1）：用了手写体的控件都得挂 wtfmlDisplay ----------
+    {
+        const QStringList hand{Theme::handFamily(Theme::HandFont::Kai), Theme::handFamily(Theme::HandFont::KaiLight),
+                               Theme::handFamily(Theme::HandFont::Script)};
+        const QByteArray mark = Theme::displayPropertyName().toUtf8();
+        QStringList strays;
+        int marked = 0;
+        for (QWidget *w : window.findChildren<QWidget *>()) {
+            if (qobject_cast<QLabel *>(w) == nullptr && qobject_cast<QAbstractButton *>(w) == nullptr) continue;
+            w->ensurePolished();
+            const QStringList families = w->font().families();
+            if (families.isEmpty() || hand.first().isEmpty() || !hand.contains(families.first())) continue;
+            if (w->property(mark.constData()).toBool()) { ++marked; continue; }
+            const auto *label = qobject_cast<QLabel *>(w);
+            const auto *button = qobject_cast<QAbstractButton *>(w);
+            strays << QStringLiteral("%1「%2」").arg(w->objectName(), label != nullptr ? label->text() : button->text());
+        }
+        check(strays.isEmpty() && marked > 0, "★ r2 手写体只在品牌 / 主页英雄区 / 页标题 / 空状态（其余控件都是系统字）",
+              QStringLiteral("标了 %1 处；漏网：%2").arg(marked).arg(strays.mid(0, 6).join(QStringLiteral("、"))));
+    }
     check(!rail->isCollapsed() && rail->width() == TitleBar::railWidth() && TitleBar::railWidth() == 208,
           "★ Z11 宽窗下轨展开、宽 208",
           QStringLiteral("轨 %1 / 窗 %2").arg(rail->width()).arg(window.width()));

@@ -146,7 +146,7 @@ public:
         const QRect r = option.rect;
         QFont f = option.font;
         if (index.data(kRoleKind).toInt() == 0) {
-            f.setPixelSize(12);
+            f.setPixelSize(Theme::textSize(Theme::TextRole::Caption));
             f.setWeight(QFont::DemiBold);
             p->setFont(f);
             p->setPen(t.secondary);
@@ -172,7 +172,7 @@ public:
         f.setPixelSize(14);
         f.setWeight(QFont::Normal);
         QFont small = f;
-        small.setPixelSize(12);
+        small.setPixelSize(Theme::textSize(Theme::TextRole::Caption));
         const QString sub = index.data(kRoleSub).toString();
         const int subWidth = sub.isEmpty() ? 0 : QFontMetrics(small).horizontalAdvance(sub);
         const int textLeft = cover.right() + 11;
@@ -252,7 +252,7 @@ public:
             b->setCursor(Qt::PointingHandCursor);
             Theme::markButton(b, Theme::ButtonKind::Ghost);
             QFont f = b->font();
-            f.setPixelSize(13);
+            f.setPixelSize(Theme::textSize(Theme::TextRole::Body));
             b->setFont(f);
             if (!icon.isEmpty()) {
                 b->setIcon(QIcon(VersionIcons::line(icon, 16, Theme::tokens().secondary, 1.8)));
@@ -495,7 +495,7 @@ public:
                 const QColor accent = Theme::textTone(t.accentInk, t.deep);
                 setInk(name, row.checked ? accent : t.text);
                 text->addWidget(name);
-                auto *kind = popLabel(row.subtitle, 12, QFont::Normal, button);
+                auto *kind = popLabel(row.subtitle, Theme::textSize(Theme::TextRole::Caption), QFont::Normal, button);
                 kind->setObjectName(QStringLiteral("accountPopoverRowSub%1").arg(i));
                 QColor kindInk = row.checked ? accent : t.secondary;
                 if (row.checked) kindInk.setAlphaF(0.8);

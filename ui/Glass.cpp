@@ -231,7 +231,9 @@ bool systemBackdrop() {
     return m == Mode::Acrylic || m == Mode::Mica;
 }
 
-int tintStrength() { return qBound(0, QSettings().value(QStringLiteral("Theme/BackdropTint"), 30).toInt(), 100); }
+// 出厂 20：三主题 × 亚克力 / 云母 / 风景底里对比度要的最低 alpha 是 0.24（青瓷亚克力），20 低于它，
+// 出厂时每一档都正好落在「正文、次要字 ≥ 4.5:1 的最薄着色」，磨砂透得最多。
+int tintStrength() { return qBound(0, QSettings().value(QStringLiteral("Theme/BackdropTint"), kDefaultTintStrength).toInt(), 100); }
 int blurStrength() { return qBound(0, QSettings().value(QStringLiteral("Theme/BackdropBlur"), 50).toInt(), 100); }
 
 void setTintStrength(int value) {

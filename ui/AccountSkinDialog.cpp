@@ -110,7 +110,7 @@ public:
         const int actions = selected ? option.widget->property("wtfmlRowActionsWidth").toInt() : 0;
         const int textRight = int(r.right()) - (current && !selected ? 40 : 16) - actions;
         const QFont nameFont = pixelFont(option.font, 14, QFont::DemiBold);
-        const QFont subFont = pixelFont(option.font, 12);
+        const QFont subFont = pixelFont(option.font, Theme::textSize(Theme::TextRole::Caption));
         const QFontMetrics nm(nameFont);
         const QFontMetrics sm(subFont);
         const int blockTop = int(r.center().y()) - (nm.height() + 2 + sm.height()) / 2;
@@ -122,7 +122,7 @@ public:
         painter->drawText(QRect(textLeft, blockTop, textRight - textLeft, nm.height()),
                           Qt::AlignLeft | Qt::AlignVCenter, shownName);
         if (current) {
-            const QFont badgeFont = pixelFont(option.font, 11, QFont::DemiBold);
+            const QFont badgeFont = pixelFont(option.font, Theme::textSize(Theme::TextRole::Caption), QFont::DemiBold);
             const QString badge = bare(AccountSkinDialog::currentMark());
             const int bw = QFontMetrics(badgeFont).horizontalAdvance(badge) + 16;
             const QRectF pill(textLeft + nm.horizontalAdvance(shownName) + 8,
@@ -212,11 +212,9 @@ void makeListTransparent(QListWidget *list) {
     list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
 }
 
-QLabel *makeSectionTitle(const QString &text, QWidget *parent, int px) {
+QLabel *makeSectionTitle(const QString &text, QWidget *parent) {
     auto *label = new QLabel(text, parent);
-    QFont font = Theme::handFont(label->font(), Theme::HandFont::Kai);
-    font.setPixelSize(px);
-    label->setFont(font);
+    label->setFont(Theme::textFont(label->font(), Theme::TextRole::Heading));
     return label;
 }
 
@@ -253,11 +251,7 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     titleColumn->setSpacing(2);
     auto *title = new QLabel(windowTitle(), m_headerBar);
     title->setObjectName(QStringLiteral("accountPageTitle"));
-    {
-        QFont f = Theme::handFont(title->font(), Theme::HandFont::KaiLight);
-        f.setPixelSize(Theme::textSize(Theme::TextRole::Display));
-        title->setFont(f);
-    }
+    Theme::markDisplay(title, Theme::textFont(title->font(), Theme::TextRole::Display));
     m_statusLabel = new QLabel(notLoggedInNote(), m_headerBar);
     m_statusLabel->setObjectName(statusLabelName());
     m_statusLabel->setWordWrap(false);
@@ -302,7 +296,7 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
         // 「账号」后面跟两枚小标签：这里正版、离线两种账号都收（灰字太淡，改成 chip）。
         auto *titleRow = new QHBoxLayout;
         titleRow->setSpacing(6);
-        titleRow->addWidget(makeSectionTitle(accountSectionTitle(), this, 20), 0, Qt::AlignVCenter);
+        titleRow->addWidget(makeSectionTitle(accountSectionTitle(), this), 0, Qt::AlignVCenter);
         titleRow->addSpacing(4);
         for (const auto &[text, tone] : {std::pair{QStringLiteral("正版"), Theme::BadgeTone::Accent},
                                          std::pair{QStringLiteral("离线"), Theme::BadgeTone::Neutral}}) {
@@ -434,7 +428,7 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     controls->setAlignment(Qt::AlignTop);
     main->addWidget(controlsPanel, 0, Qt::AlignTop);
 
-    controls->addWidget(makeSectionTitle(tr("皮肤"), this, 20));
+    controls->addWidget(makeSectionTitle(tr("皮肤"), this));
     m_variantCombo = new QComboBox(this);
     m_variantCombo->setObjectName(variantComboName());
     m_variantCombo->addItem(variantClassicText(), variantClassicValue());
@@ -483,7 +477,7 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_offlineSkinResetButton->hide();
 
     controls->addSpacing(10);
-    controls->addWidget(makeSectionTitle(capeSectionTitle(), this, 20));
+    controls->addWidget(makeSectionTitle(capeSectionTitle(), this));
 
     m_capeList = new QListWidget(this);
     m_capeList->setObjectName(capeListName());

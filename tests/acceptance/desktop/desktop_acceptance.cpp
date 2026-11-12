@@ -8,6 +8,7 @@
 #include <QCommandLineParser>
 #include <QDir>
 #include <QFile>
+#include <QFont>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -35,7 +36,18 @@ int main(int argc, char **argv) {
     for (int i = 1; i < argc; ++i) designShots |= qstrcmp(argv[i], "--design-shots") == 0 || pageShots;
     // grab() 也要截到毛玻璃底下的风景；真屏抓边缘样张时可从外面指定别的档（如 acrylic）。
     if (designShots && qEnvironmentVariableIsEmpty("WTFML_BACKDROP")) qputenv("WTFML_BACKDROP", "scene");
+    // 离屏平台在 Windows 上用 FreeType 字库，只扫 Qt 自己的 lib/fonts（没有这个目录）：系统字体一支
+    // 都没有，正文只能落到我们注册的手写体上（西文被画成 Dancing Script）。指到系统字体目录，再在下面
+    // 把 app 字体钉成真桌面上的默认字（微软雅黑 UI），离屏样张才和真桌面一致。
+    const bool offscreenPlatform = qgetenv("QT_QPA_PLATFORM").startsWith("offscreen");
+    if (designShots && offscreenPlatform && qEnvironmentVariableIsEmpty("QT_QPA_FONTDIR"))
+        qputenv("QT_QPA_FONTDIR", (qgetenv("WINDIR").isEmpty() ? QByteArray("C:\\Windows") : qgetenv("WINDIR")) + "\\Fonts");
     QApplication app(argc, argv);
+    if (designShots && offscreenPlatform) {
+        QFont font = app.font();
+        font.setFamilies({QStringLiteral("Microsoft YaHei UI")});
+        app.setFont(font);
+    }
     app.setOrganizationName("WTFML-desktop-acceptance");
     app.setApplicationName("isolated");
     QCommandLineParser parser;

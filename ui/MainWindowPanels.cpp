@@ -683,11 +683,18 @@ void applyBottomBarButtonStyle(QPushButton *button, const QPalette &barPalette) 
     const bool compact = button->objectName() == MainWindowUI::toolboxButtonName();
     // 运行状态那格里是两行字（状态 + 实例名），按钮 sizeHint 只算一行 ⇒ 和任务摘要同时出现时
     // 被压扁叠字。最小高只能写在这里：全局 QSS 的 min-height 会盖掉 C++ 的 setMinimumHeight。
-    // 只钉高度 —— 宽度归导航轨管。
+    // 只钉高度 —— 宽度归导航轨管。先 polish：按钮字（正文 14）是 polish 时才给的，
+    // 不先 polish 量到的是应用默认字，两行各矮一像素。
+    button->ensurePolished();
+    // 行高按「带中文的一行」量：主字体缺中文时回落字体那一行会比 fm.height() 高。
+    const auto lineHeight = [](const QFont &font) {
+        const QFontMetrics fm(font);
+        return qMax(fm.height(), fm.boundingRect(QRect(), Qt::AlignLeft, QStringLiteral("实例 Ag")).height());
+    };
     const int minHeight =
         button->objectName() == MainWindowUI::runStateButtonName()
-            ? QFontMetrics(button->font()).height() +
-                  QFontMetrics(Theme::textFont(button->font(), Theme::TextRole::Caption)).height() + 8
+            ? lineHeight(button->font()) +
+                  lineHeight(Theme::textFont(button->font(), Theme::TextRole::Caption)) + 8
             : 0;
     button->setStyleSheet(
         QStringLiteral("QPushButton { border: none; background: transparent; text-align: left; "
