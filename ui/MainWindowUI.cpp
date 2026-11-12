@@ -16,6 +16,7 @@
 #include "MemorySlider.hpp"
 #include "OverlayHost.hpp"
 #include "PopupPlacement.hpp"
+#include "RoundAvatar.hpp"
 #include "SkinModel.hpp"
 #include "TaskProgressBar.hpp"
 #include "Theme.hpp"
@@ -153,7 +154,7 @@ protected:
             p.setBrush(isDown() ? t.primaryPressed : underMouse() ? t.primaryHover : t.primary);
             p.drawEllipse(box);
         } else {
-            qreal alpha = m_shape == Shape::Pill ? 0.38 : m_shape == Shape::Square ? 0.40 : 0.0;
+            qreal alpha = m_shape == Shape::Pill ? 0.30 : m_shape == Shape::Square ? 0.40 : 0.0;
             if (m_shape == Shape::Tile && (hot || hasFocus())) alpha = 0.42;
             if (hot) alpha += isDown() ? 0.18 : 0.10;
             if (alpha > 0 || m_dashed) {
@@ -169,7 +170,9 @@ protected:
                     edge.setStyle(Qt::DashLine);
                 }
                 edge.setWidthF(1.0);
-                p.setPen(alpha > 0 || m_dashed ? edge : QPen(Qt::NoPen));
+                // 账号胶囊只留一层极淡的底、不描边：圆头像 + 两行字已经够分出"一颗"了。
+                const bool stroked = m_dashed || (alpha > 0 && m_shape != Shape::Pill);
+                p.setPen(stroked ? edge : QPen(Qt::NoPen));
                 p.drawRoundedRect(box, radius, radius);
             }
         }
@@ -922,7 +925,7 @@ QWidget *MainWindowUI::setupHomePage() {
         auto *accountHeader = new QHBoxLayout(accountSkinButton);
         accountHeader->setContentsMargins(6, 0, 10, 0);
         accountHeader->setSpacing(10);
-        homeAvatarLabel = new QLabel(accountSkinButton);
+        homeAvatarLabel = new RoundAvatar::Label(accountSkinButton);  // 圆头像，和胶囊两头的半圆同心
         homeAvatarLabel->setObjectName(QStringLiteral("homeAvatarLabel"));
         homeAvatarLabel->setFixedSize(32, 32);
         homeAvatarLabel->setAlignment(Qt::AlignCenter);

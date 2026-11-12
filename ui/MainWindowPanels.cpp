@@ -9,6 +9,7 @@
 #include "MemorySlider.hpp"
 #include "OverlayHost.hpp"
 #include "PopupPlacement.hpp"
+#include "RoundAvatar.hpp"
 #include "SkinModel.hpp"
 #include "TaskProgressBar.hpp"
 #include "Theme.hpp"
@@ -162,6 +163,8 @@ QString toolTagline(ToolboxPage::Tool tool) {
 constexpr int kPanelPadding = 10;
 constexpr int kPanelRowSpacing = 6;
 constexpr int kPanelGap = 6;
+/// 面板四角的圆角：行首头像 24 + 边距 10，半径 14 让头像那一圈和面板的角大致同心。
+constexpr qreal kPanelRadius = 14.0;
 
 /// 面板里一行内部的两处间距：行首图标和那列字之间、那列字和行尾第一颗按钮之间。
 /// 后者取小一点（4）：行尾那几颗按钮是一组，得看着"贴着"那列字，别像两个各管各的。
@@ -229,7 +232,7 @@ public:
     /// @param onAction 行尾第 a 颗按钮被点了（参数是"哪一行是谁、第几颗"）。
     BottomBarPanelRowWidget(const MainWindowUI::PanelRow &row, int index,
                             const std::function<void(const QString &, int)> &onAction,
-                            QWidget *parent)
+                            bool roundIcon, QWidget *parent)
         : QWidget(parent) {
         setObjectName(MainWindowUI::bottomBarPanelRowName(index));
 
@@ -243,13 +246,18 @@ public:
         texts->setSpacing(0);
 
         if (!row.icon.isNull()) {
-            QLabel *icon = new QLabel(this);
+            // 账号面板那几行是头像：跟主页那颗一样画成圆（pixmap 照旧是方图）。
+            QLabel *icon = roundIcon ? new RoundAvatar::Label(this) : new QLabel(this);
             icon->setObjectName(MainWindowUI::bottomBarPanelRowIconName(index));
             icon->setPixmap(row.icon);
             icon->setFixedSize(MainWindowUI::bottomBarPanelIconSize(),
                                MainWindowUI::bottomBarPanelIconSize());
             // 图标**对着两行字那一整块居中**（对第一行会显得偏高）。
             line->addWidget(icon, 0, Qt::AlignVCenter);
+        } else if (roundIcon && !row.placeholder) {
+            // 账号面板里没头像的那一行（「账号与外观…」）：空出头像那一格，字和上面几行的名字对齐。
+            // 占位格两边 Qt 不补布局间距，那 8 得自己加上。
+            line->addSpacing(MainWindowUI::bottomBarPanelIconSize() + kPanelRowIconSpacing);
         }
 
         QLabel *title = new ElidedLabel(this);
@@ -367,7 +375,8 @@ public:
         // 浮层单独换一个色）。
         // NOTE: 这一块**每次现建**（Qt::Popup + WA_DeleteOnClose）⇒ 不用挂 follow()：
         // 主题换了之后下一次打开自然就是新的（`Theme::follow()` 的 NOTE 那一段）。
-        setAutoFillBackground(true);
+        // 圆角面：窗口本身透明，底色和那圈细边在 paintEvent 里画（四角才是圆的）。
+        setAttribute(Qt::WA_TranslucentBackground);
         QPalette panelPalette = QApplication::palette();
         panelPalette.setColor(QPalette::Window, Theme::partBackground(Theme::Part::Panel));
         setPalette(panelPalette);
@@ -398,11 +407,11 @@ public:
             MainWindowUI::PanelRow empty;
             empty.title = QString::fromUtf8(kPanelEmptyText);
             empty.placeholder = true;
-            box->addWidget(new BottomBarPanelRowWidget(empty, 0, dispatch, this));
+            box->addWidget(new BottomBarPanelRowWidget(empty, 0, dispatch, alignRight, this));
             return;
         }
         for (int i = 0; i < rows.size(); ++i) {
-            box->addWidget(new BottomBarPanelRowWidget(rows.at(i), i, dispatch, this));
+            box->addWidget(new BottomBarPanelRowWidget(rows.at(i), i, dispatch, alignRight, this));
         }
     }
 
@@ -529,11 +538,14 @@ protected:
         QWidget::mouseDoubleClickEvent(event);
     }
 
-    /// 一圈细边：同一档深浅在浅色主题下几乎看不出边界，分不出"面板到哪为止"。
+    /// 圆角 14 的面 + 一圈极淡的细边（形状和文件夹浮层呼应）。
+    /// 那圈边不能省：同一档深浅在浅色主题下几乎看不出边界，分不出"面板到哪为止"。
     void paintEvent(QPaintEvent *) override {
         QPainter painter(this);
-        painter.setPen(palette().color(QPalette::Mid));
-        painter.drawRect(rect().adjusted(0, 0, -1, -1));
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        painter.setPen(QPen(Theme::tokens().stroke, 1.0));  // 浅色下是极淡的深色细线，深色下是极淡的白线
+        painter.setBrush(palette().color(QPalette::Window));
+        painter.drawRoundedRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5), kPanelRadius, kPanelRadius);
     }
 
 private:
