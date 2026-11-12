@@ -335,7 +335,8 @@ SettingsSection addSettingsSection(QGridLayout *grid, int &row, const QString &t
 }
 
 namespace {
-/// 设置行（设计稿 .set）：底下一条 1px 分隔线，最后一行由 section 那一格的留白收住。
+/// 设置行（设计稿 .set）：底下一条 1px 极淡分隔（divider 的四成，只提示换行、不画成格子），
+/// 最后一行由 section 那一格的留白收住。
 class SettingRow : public QWidget {
 public:
     using QWidget::QWidget;
@@ -343,7 +344,9 @@ public:
 protected:
     void paintEvent(QPaintEvent *) override {
         QPainter painter(this);
-        painter.fillRect(QRect(0, height() - 1, width(), 1), Theme::tokens().divider);
+        QColor line = Theme::tokens().divider;
+        line.setAlphaF(line.alphaF() * 0.4);
+        painter.fillRect(QRect(0, height() - 1, width(), 1), line);
     }
 };
 }  // namespace

@@ -92,7 +92,14 @@ namespace {
 QWidget *overviewRow(QWidget *parent, QWidget *title, const QString &desc, QWidget *control, bool below = false) {
     auto *row = new QFrame(parent);
     row->setObjectName(QStringLiteral("instanceOverviewRow"));
-    row->setStyleSheet(QStringLiteral("QFrame#instanceOverviewRow { border: none; border-bottom: 1px solid palette(midlight); }"));
+    const auto paintRow = [row] {  // 行底分隔压到 fill-press 的四成：只提示换行，不画成格子
+        QColor line = Theme::tokens().fillPress;
+        line.setAlphaF(line.alphaF() * 0.4);
+        row->setStyleSheet(QStringLiteral("QFrame#instanceOverviewRow { border: none; border-bottom: 1px solid %1; }")
+                               .arg(line.name(QColor::HexArgb)));
+    };
+    paintRow();
+    Theme::follow(row, paintRow);
     auto *line = new QHBoxLayout(row);
     line->setContentsMargins(0, 12, 0, 12);
     line->setSpacing(16);
