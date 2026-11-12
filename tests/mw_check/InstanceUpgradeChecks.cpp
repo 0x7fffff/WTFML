@@ -23,7 +23,9 @@
 #include "controllers/UpgradeAssessment.hpp"
 #include "manage/InstanceIconLookup.hpp"
 #include "download/ResourceStore.hpp"
+#include <QPointer>
 #include <QTcpServer>
+#include "net/RequestBudget.hpp"
 #include <QTcpSocket>
 #include <QComboBox>
 #include <QTreeWidget>
@@ -218,7 +220,8 @@ int runInstanceUpgradeChecks() {
             {"sha1", QString::fromLatin1(QCryptographicHash::hash(read(jar), QCryptographicHash::Sha1).toHex())}, {"hit", ResourceCatalog::hitToJson(hit)}};
         check(write(InstanceIconLookup::cachePath(options), QJsonDocument(QJsonObject{{"files", QJsonObject{{jar, record}}}}).toJson()),
               "cache a platform identity verified against the actual JAR hash");
-        QTcpServer server; bool failPlatform = false, fallbackMode = false, delayed = false;
+        QTcpServer server; bool failPlatform = false, fallbackMode = false, holdReplies = false;
+        QList<QPair<QPointer<QTcpSocket>, QByteArray>> heldReplies;
         bool releaseMode = true;
         int inFlight = 0, maxInFlight = 0, fallbackLookups = 0;
         check(server.listen(QHostAddress::LocalHost, 0), "assessment platform fixture listens on loopback");
@@ -272,7 +275,8 @@ int runInstanceUpgradeChecks() {
                     ++inFlight; maxInFlight = qMax(maxInFlight, inFlight);
                     const QByteArray response = "HTTP/1.1 " + QByteArray::number(status) + " Fixture\r\nContent-Type: application/json\r\nContent-Length: "
                         + QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n" + body;
-                    QTimer::singleShot(delayed ? 120 : 0, socket, [&, socket, response] {
+                    if (holdReplies) { heldReplies.append({QPointer<QTcpSocket>(socket), response}); return; }
+                    QTimer::singleShot(0, socket, [&, socket, response] {
                         --inFlight; socket->write(response); socket->disconnectFromHost();
                     });
                 });
@@ -387,7 +391,7 @@ int runInstanceUpgradeChecks() {
             page.findChild<QPushButton *>(QStringLiteral("instanceUpgradeRecheck"))->click();
             check(waitFor(QStringLiteral("平台未找到目标发行版")) && fallbackLookups == 1,
                 "CurseForge 503 uses exact file hash identity before querying Modrinth fallback");
-            fallbackMode = false; delayed = true; maxInFlight = 0;
+            fallbackMode = false; maxInFlight = 0;
             hit.source = ResourceCatalog::Source::Modrinth; record.insert("hit", ResourceCatalog::hitToJson(hit));
             QJsonObject records{{jar, record}};
             for (int i = 0; i < 5; ++i) {
@@ -397,14 +401,32 @@ int runInstanceUpgradeChecks() {
                 records.insert(copy, copyRecord);
             }
             check(write(InstanceIconLookup::cachePath(options), QJsonDocument(QJsonObject{{"files", records}}).toJson()), "cache six valid fixture identities");
+            // 确定性写法：① 先等本地扫描**这件事**做完（它要起 PowerShell 读嵌套 JAR，快慢看机器，
+            // 和并发无关；上限只是防挂死）；② 夹具按住每一条回复，直到在飞的凑满 4 条才放行 ——
+            // 重叠不再靠"120 ms 内碰上"，而是请求被按住、只能靠并发额度一起摆在外面。
+            const auto pumpUntil = [&](const std::function<bool()> &done, int guardMs) {
+                QElapsedTimer guard; guard.start();
+                while (!done() && guard.elapsed() < guardMs) QApplication::processEvents(QEventLoop::AllEvents, 10);
+                return done();
+            };
+            holdReplies = true; heldReplies.clear();
             page.findChild<QPushButton *>(QStringLiteral("instanceUpgradeRecheck"))->click();
-            QElapsedTimer parallelClock; parallelClock.start();
-            while (parallelClock.elapsed() < 10000 && (page.property("upgradeAssessmentReading").toBool()
-                || page.property("upgradeAssessmentQuerying").toBool() || rowCount() != 6)) {
-                QApplication::processEvents(QEventLoop::AllEvents, 10);
+            check(pumpUntil([&] { return !page.property("upgradeAssessmentReading").toBool() && rowCount() == 6; }, 120000),
+                  "parallel-query fixture: local scan finishes and lists all six JARs");
+            const bool saturated = pumpUntil([&] { return inFlight >= 4; }, 30000);
+            // 额度满了以后再多转几轮事件：排队那两条每 25 ms 试一次额度，真漏了就会在这里冒出来。
+            pumpUntil([] { return false; }, 200);
+            const auto lane = RequestBudget::snapshot();
+            check(saturated && maxInFlight == 4 && inFlight == 4 && lane.control == 4,
+                  "platform queries overlap with a hard four-request concurrency limit");
+            holdReplies = false;
+            for (const auto &held : std::as_const(heldReplies)) {
+                --inFlight;
+                if (held.first) { held.first->write(held.second); held.first->disconnectFromHost(); }
             }
-            check(maxInFlight == 4 && !page.property("upgradeAssessmentQuerying").toBool(),
-                "platform queries overlap with a hard four-request concurrency limit");
+            heldReplies.clear();
+            check(pumpUntil([&] { return !page.property("upgradeAssessmentQuerying").toBool(); }, 30000) && maxInFlight == 4,
+                  "released queries drain without ever exceeding the four-request limit");
         }
         AppPaths::setMinecraftDir(oldRoot);
     }
@@ -496,6 +518,8 @@ int runInstanceUpgradeChecks() {
                                 {{QStringLiteral("FabricTarget"), QStringLiteral("DeclFabric")},
                                  {QStringLiteral("QuiltTarget"), QStringLiteral("DeclQuilt")},
                                  {QStringLiteral("ForgeTarget"), QStringLiteral("DeclForge")}});
+        // 这一节断言的是"嵌套 / 旧注解检查的结论"，不是"机器够不够快"：关掉墙钟预算。
+        UpgradeAssessment::setWallClockBudgetsForTesting(false);
         UpgradeAssessment::attach(&page, &versions, &store, QStringLiteral("DeclSource"), source,
                                   scratch.filePath("decl-identity"));
         auto *combo = page.findChild<QComboBox *>(
