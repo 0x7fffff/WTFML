@@ -999,10 +999,10 @@ void OverlayHost::paintEvent(QPaintEvent *event) {
         paintBase();
         return;
     }
-    // 对话框（tokens-extra §6）：玻璃面、圆角 16、1px 亮边。
+    // 对话框（tokens-extra §6）：玻璃面、圆角 16；不描亮边，靠卡面压在遮罩上分出来。
     const QRectF card = QRectF(m_promptCard->geometry()).adjusted(0.5, 0.5, -0.5, -0.5);
     painter.setRenderHint(QPainter::Antialiasing, true);
-    painter.setPen(QPen(Theme::tokens().glassEdge, 1.0));
+    painter.setPen(Qt::NoPen);
     QColor face = Theme::tokens().card;
     face.setAlphaF(0.96);
     painter.setBrush(face);
