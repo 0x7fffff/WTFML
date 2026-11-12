@@ -1,8 +1,8 @@
 /**
  * @file AgentController.hpp
- * @brief 智能体 UI 与核心层的唯一接线点：会话、API 配置、流式聊天、停止/重试、加密。
+ * @brief 智能体 UI 与核心层的唯一接线点：会话、API 配置、流式聊天、停止/重试、加密、实例关联、导出。
  *
- * Stage 1A 不接任何工具、不启动 MCP、不读文件/日志。所有网络只走 `AgentModelClient`；
+ * 文件工具只作用于本会话锁定的实例（Stage 1B，写入逐次确认）；不启动 MCP。所有网络只走 `AgentModelClient`；
  * 所有凭据只走 `AgentSecretStore`；所有会话落盘只走 `AgentSessionStore`。
  */
 
