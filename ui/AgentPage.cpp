@@ -11,6 +11,7 @@
 #include "AgentPanelPaint.hpp"
 #include "AgentToolCard.hpp"
 #include "Theme.hpp"
+#include "VersionIcons.hpp"
 
 #include <QApplication>
 #include <QCheckBox>
@@ -65,6 +66,36 @@ void styleSessionList(QListWidget *list) {
     Theme::follow(list, apply);
 }
 QString pinnedPrefix(bool pinned) { return pinned ? QStringLiteral("★ ") : QString(); }
+
+/// 会话列表里「固定 / 今天 / 更早」那几行小标题：不可选、不可点，身份记在这个角色上。
+constexpr int kGroupHeaderRole = Qt::UserRole + 2;
+
+void tintGroupHeaders(QListWidget *list) {
+    const QColor muted = QApplication::palette().color(QPalette::PlaceholderText);
+    for (int i = 0; i < list->count(); ++i) {
+        QListWidgetItem *item = list->item(i);
+        if (item->data(kGroupHeaderRole).toBool()) item->setForeground(muted);
+    }
+}
+
+/// 输入区右下那颗方形图标钮（发送 / 停止）。
+void markSquareIconButton(QPushButton *button, const QString &icon, const QString &tip,
+                          Theme::ButtonKind kind) {
+    Theme::markButton(button, kind);
+    Theme::markIconButton(button);
+    button->setFixedSize(32, 32);
+    button->setToolTip(tip);
+    button->setAccessibleName(tip);
+    button->setCursor(Qt::PointingHandCursor);
+    const auto tint = [button, icon, kind] {
+        const QColor ink = kind == Theme::ButtonKind::Primary
+                               ? QApplication::palette().color(QPalette::HighlightedText)
+                               : Theme::tokens().text;
+        button->setIcon(VersionIcons::line(icon, 16, ink));
+    };
+    tint();
+    Theme::follow(button, tint);
+}
 }
 
 AgentPage::AgentPage(QWidget *parent)
@@ -94,6 +125,14 @@ AgentPage::AgentPage(QWidget *parent)
     m_search->setObjectName(QStringLiteral("agentSessionSearch"));
     m_search->setPlaceholderText(QStringLiteral("搜索会话"));
     m_search->setClearButtonEnabled(true);
+    {
+        QAction *glass = m_search->addAction(QIcon(), QLineEdit::LeadingPosition);
+        const auto tint = [glass] {
+            glass->setIcon(VersionIcons::line(QStringLiteral("search"), 16, Theme::tokens().secondary));
+        };
+        tint();
+        Theme::follow(m_search, tint);
+    }
     sideLayout->addWidget(m_search);
 
     m_sessionList = new QListWidget(m_sidebar);
@@ -103,6 +142,7 @@ AgentPage::AgentPage(QWidget *parent)
     m_sessionList->setSelectionMode(QAbstractItemView::SingleSelection);
     m_sessionList->setSpacing(2);
     styleSessionList(m_sessionList);
+    Theme::follow(m_sessionList, [list = m_sessionList] { tintGroupHeaders(list); });
     sideLayout->addWidget(m_sessionList, 1);
 
     m_apiStatus = new QLabel(m_sidebar);
@@ -155,6 +195,13 @@ AgentPage::AgentPage(QWidget *parent)
     m_settingsButton->setObjectName(QStringLiteral("agentApiSettingsButton"));
     m_settingsButton->setMinimumWidth(0);
     Theme::markButton(m_settingsButton, Theme::ButtonKind::Ghost);
+    {
+        const auto tint = [b = m_settingsButton] {
+            b->setIcon(VersionIcons::line(QStringLiteral("gear"), 16, Theme::tokens().secondary));
+        };
+        tint();
+        Theme::follow(m_settingsButton, tint);
+    }
     headerLayout->addWidget(m_settingsButton);
     chatLayout->addWidget(header);
 
@@ -168,7 +215,8 @@ AgentPage::AgentPage(QWidget *parent)
     // UI 7d：标题下一行 chip —— 跟随实例 / 模式 / 加密（设计稿 agent）。
     m_instanceChip->setParent(m_sessionOptions);
     optionsLayout->addWidget(m_instanceChip);
-    m_encryptCheck = new QCheckBox(QStringLiteral("加密本会话（DPAPI）"), m_sessionOptions);
+    // 精修：勾选框只留两个字，「DPAPI 加密什么」进悬停提示；右边那句状态也只留结论。
+    m_encryptCheck = new QCheckBox(QStringLiteral("加密"), m_sessionOptions);
     m_encryptCheck->setObjectName(QStringLiteral("agentEncryptSessionCheck"));
     m_encryptCheck->setToolTip(
         QStringLiteral("用当前 Windows 用户的 DPAPI 加密本会话正文；元数据仍为明文。"));
@@ -219,13 +267,21 @@ AgentPage::AgentPage(QWidget *parent)
     composerLayout->setContentsMargins(12, 8, 10, 8);
     composerLayout->setSpacing(4);
 
-    m_modeCombo = new QComboBox(m_sessionOptions);
-    m_modeCombo->setObjectName(QStringLiteral("agentModeCombo"));
-    m_modeCombo->addItem(QStringLiteral("自由对话"), QStringLiteral("general"));
-    m_modeCombo->setToolTip(QStringLiteral("Stage 1A 只有自由对话；维护工作流在 Stage 2 接入。"));
-    m_modeCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
-    m_modeCombo->setFixedHeight(Theme::chipHeight());
-    qobject_cast<QHBoxLayout *>(m_sessionOptions->layout())->insertWidget(1, m_modeCombo);
+    // 模式是一排 chip（设计稿 agent），不是下拉框。今天只有「自由对话」一档，选中态常亮；
+    // 维护工作流接进来时往这一排再添 chip，同组互斥。
+    m_modeChip = new QPushButton(QStringLiteral("自由对话"), m_sessionOptions);
+    m_modeChip->setObjectName(QStringLiteral("agentModeChip"));
+    m_modeChip->setProperty("wtfmlAgentMode", QStringLiteral("general"));
+    m_modeChip->setCheckable(true);
+    m_modeChip->setChecked(true);
+    m_modeChip->setToolTip(QStringLiteral(
+        "自由对话：只发送你输入的文字，不读文件、不调用工具。维护工作流在 Stage 2 接入。"));
+    Theme::markChipButton(m_modeChip);
+    // 唯一一档：点了也不许把自己点灭。
+    connect(m_modeChip, &QPushButton::toggled, m_modeChip, [chip = m_modeChip](bool on) {
+        if (!on) chip->setChecked(true);
+    });
+    qobject_cast<QHBoxLayout *>(m_sessionOptions->layout())->insertWidget(1, m_modeChip);
 
     m_composer = new AgentComposer(composerRow);
     m_composer->setMinimumHeight(34);
@@ -249,12 +305,17 @@ AgentPage::AgentPage(QWidget *parent)
     keyHint->setFont(Theme::textFont(keyHint->font(), Theme::TextRole::Caption));
     keyHint->setForegroundRole(QPalette::PlaceholderText);
     composerBar->addWidget(keyHint);
-    m_send = new QPushButton(QStringLiteral("发送"), composerRow);
+    // 精修：发送 / 停止是右下角一颗方形图标钮（设计稿 agent），字进悬停提示。
+    m_send = new QPushButton(composerRow);
     m_send->setObjectName(QStringLiteral("agentSendButton"));
     m_send->setDefault(true);
     m_send->setEnabled(false);
-    m_stop = new QPushButton(QStringLiteral("停止"), composerRow);
+    markSquareIconButton(m_send, QStringLiteral("send"), QStringLiteral("发送"),
+                         Theme::ButtonKind::Primary);
+    m_stop = new QPushButton(composerRow);
     m_stop->setObjectName(QStringLiteral("agentStopButton"));
+    markSquareIconButton(m_stop, QStringLiteral("stop"), QStringLiteral("停止"),
+                         Theme::ButtonKind::Neutral);
     m_stop->setEnabled(false);
     m_stop->hide();
     composerBar->addWidget(m_send);
@@ -279,21 +340,31 @@ AgentPage::AgentPage(QWidget *parent)
         emit textChanged();
     });
     connect(m_sessionList, &QListWidget::itemClicked, this, [this](QListWidgetItem *item) {
-        if (item != nullptr) emit sessionSelected(item->data(Qt::UserRole).toString());
+        if (item != nullptr && !item->data(kGroupHeaderRole).toBool())
+            emit sessionSelected(item->data(Qt::UserRole).toString());
     });
     connect(m_sessionList, &QListWidget::customContextMenuRequested, this,
             &AgentPage::showSessionMenu);
     connect(m_search, &QLineEdit::textChanged, this, [this](const QString &text) {
-        for (int i = 0; i < m_sessionList->count(); ++i) {
+        const QString needle = text.trimmed();
+        // 倒着走：先定每条会话藏不藏，走到小标题时就知道它那一组还剩没剩。
+        bool groupHasVisible = false;
+        for (int i = m_sessionList->count() - 1; i >= 0; --i) {
             QListWidgetItem *item = m_sessionList->item(i);
-            item->setHidden(!text.trimmed().isEmpty() &&
-                            !item->text().contains(text.trimmed(), Qt::CaseInsensitive));
+            if (item->data(kGroupHeaderRole).toBool()) {
+                item->setHidden(!groupHasVisible);
+                groupHasVisible = false;
+                continue;
+            }
+            const bool hidden = !needle.isEmpty() && !item->text().contains(needle, Qt::CaseInsensitive);
+            item->setHidden(hidden);
+            groupHasVisible = groupHasVisible || !hidden;
         }
     });
     connect(m_modelCombo, &QComboBox::currentTextChanged, this, &AgentPage::modelChanged);
     connect(m_encryptCheck, &QCheckBox::toggled, this, [this](bool checked) {
-        m_encryptionStatus->setText(checked ? QStringLiteral("当前会话：已加密（DPAPI）")
-                                           : QStringLiteral("当前会话：明文 JSON"));
+        m_encryptionStatus->setText(checked ? QStringLiteral("已加密（DPAPI）")
+                                           : QStringLiteral("明文 JSON"));
         emit encryptToggled(checked);
     });
     setConfigured(false, QStringLiteral("API 未配置"));
@@ -327,13 +398,30 @@ void AgentPage::rebuildSessionRow(QListWidgetItem *item, const AgentView::Sessio
 void AgentPage::setSessions(const QList<AgentView::SessionMeta> &sessions) {
     m_metaById.clear();
     m_sessionList->clear();
+    // 分三组（设计稿 agent）：固定 / 今天 / 更早。组内保持传进来的先后；空组不出小标题。
+    const QDate today = QDate::currentDate();
+    QList<AgentView::SessionMeta> groups[3];
     for (const AgentView::SessionMeta &meta : sessions) {
-        m_metaById.insert(meta.id, meta);
-        auto *item = new QListWidgetItem;
-        rebuildSessionRow(item, meta);
-        m_sessionList->addItem(item);
-        item->setData(Qt::AccessibleTextRole, QStringLiteral("会话：%1").arg(meta.title));
+        const int g = meta.pinned ? 0 : (meta.updatedAt.toLocalTime().date() == today ? 1 : 2);
+        groups[g].append(meta);
     }
+    const QString titles[3] = {QStringLiteral("固定"), QStringLiteral("今天"), QStringLiteral("更早")};
+    const QFont headerFont = Theme::textFont(m_sessionList->font(), Theme::TextRole::Caption);
+    for (int g = 0; g < 3; ++g) {
+        if (groups[g].isEmpty()) continue;
+        auto *header = new QListWidgetItem(titles[g]);
+        header->setFlags(Qt::NoItemFlags);
+        header->setData(kGroupHeaderRole, true);
+        header->setFont(headerFont);
+        m_sessionList->addItem(header);
+        for (const AgentView::SessionMeta &meta : std::as_const(groups[g])) {
+            m_metaById.insert(meta.id, meta);
+            auto *item = new QListWidgetItem;
+            rebuildSessionRow(item, meta);
+            m_sessionList->addItem(item);
+        }
+    }
+    tintGroupHeaders(m_sessionList);
     if (!m_currentSessionId.isEmpty()) {
         for (int i = 0; i < m_sessionList->count(); ++i) {
             if (m_sessionList->item(i)->data(Qt::UserRole).toString() == m_currentSessionId) {
@@ -345,8 +433,8 @@ void AgentPage::setSessions(const QList<AgentView::SessionMeta> &sessions) {
         if (meta.isValid()) {
             m_encryptCheck->setChecked(meta.encrypted);
             m_encryptionStatus->setText(meta.encrypted
-                                            ? QStringLiteral("当前会话：已加密（DPAPI）")
-                                            : QStringLiteral("当前会话：明文 JSON"));
+                                            ? QStringLiteral("已加密（DPAPI）")
+                                            : QStringLiteral("明文 JSON"));
             m_title->setText(meta.title);
         }
     }
@@ -367,13 +455,13 @@ void AgentPage::setCurrentSession(const QString &sessionId) {
         QSignalBlocker blocker(m_encryptCheck);
         m_encryptCheck->setChecked(meta.encrypted);
         m_encryptionStatus->setText(meta.encrypted
-                                        ? QStringLiteral("当前会话：已加密（DPAPI）")
-                                        : QStringLiteral("当前会话：明文 JSON"));
+                                        ? QStringLiteral("已加密（DPAPI）")
+                                        : QStringLiteral("明文 JSON"));
     } else {
         m_title->setText(QStringLiteral("新对话"));
         QSignalBlocker blocker(m_encryptCheck);
         m_encryptCheck->setChecked(false);
-        m_encryptionStatus->setText(QStringLiteral("当前会话：明文 JSON"));
+        m_encryptionStatus->setText(QStringLiteral("明文 JSON"));
     }
     m_emptyState->setVisible(sessionId.isEmpty() || m_views.isEmpty());
 }
@@ -511,8 +599,8 @@ void AgentPage::setEncryptionVisible(bool visible) {
 void AgentPage::setEncryptionChecked(bool checked) {
     QSignalBlocker blocker(m_encryptCheck);
     m_encryptCheck->setChecked(checked);
-    m_encryptionStatus->setText(checked ? QStringLiteral("当前会话：已加密（DPAPI）")
-                                       : QStringLiteral("当前会话：明文 JSON"));
+    m_encryptionStatus->setText(checked ? QStringLiteral("已加密（DPAPI）")
+                                       : QStringLiteral("明文 JSON"));
 }
 
 void AgentPage::showNotice(const QString &text) {

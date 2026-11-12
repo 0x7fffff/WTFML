@@ -97,7 +97,7 @@ int UiAgentCheck() {
               find("agentApiSettingsButton") != nullptr &&
               find("agentMessageScroll") != nullptr && find("agentComposer") != nullptr &&
               find("agentSendButton") != nullptr && find("agentStopButton") != nullptr &&
-              find("agentModeCombo") != nullptr && find("agentEmptyState") != nullptr &&
+              find("agentModeChip") != nullptr && find("agentEmptyState") != nullptr &&
               find("agentEncryptSessionCheck") != nullptr,
           "智能体 UI：关键 objectName 全在");
     auto *empty = find("agentEmptyState");
@@ -129,7 +129,13 @@ int UiAgentCheck() {
     page->setSessions(sessions);
     page->setCurrentSession(QStringLiteral("s0"));
     auto *list = qobject_cast<QListWidget *>(find("agentSessionList"));
-    check(list != nullptr && list->count() == 2, "智能体 UI：会话列表两项");
+    // 固定的那条单独一组排最前，今天的另一组；组名是不可点的小标题行。
+    QStringList rows;
+    for (int i = 0; list != nullptr && i < list->count(); ++i) rows << list->item(i)->text().section(QLatin1Char(10), 0, 0);
+    check(rows == QStringList{QStringLiteral("固定"), QStringLiteral("★ 会话 1"), QStringLiteral("今天"), QStringLiteral("会话 0")},
+          "智能体 UI：会话按 固定 / 今天 分组", rows.join(QStringLiteral(" | ")));
+    check(list != nullptr && list->count() == 4 && list->item(0)->flags() == Qt::NoItemFlags,
+          "智能体 UI：分组小标题不可选");
     check(AgentPage::relativeTime(sessions.at(1).updatedAt, QDateTime::currentDateTimeUtc())
               .contains(QStringLiteral("分钟")),
           "智能体 UI：相对时间");
