@@ -158,8 +158,8 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
               Theme::partBackground(Theme::Part::Card).name());
         check(Theme::partBackground(Theme::Part::Scrim).rgb() == Theme::tokens().scrim.rgb() &&
                   qAbs(Theme::partBackground(Theme::Part::Scrim).alphaF() -
-                       Theme::tokens().scrim.alphaF() * 0.6) < 0.01,
-              "★★ W5 四周变暗那一层 = 预设 scrim 色、不透明度 ×0.6（轻压一档，不是黑块）",
+                       Theme::tokens().scrim.alphaF() * (Theme::isDark() ? 0.6 : 1.0)) < 0.01,
+              "★★ W5 四周变暗那一层 = 预设 scrim 色、深色不透明度 ×0.6、浅色照原值（轻压一档，不是黑块）",
               Theme::partBackground(Theme::Part::Scrim).name(QColor::HexArgb));
         check(sameColor(OverlayHost::scrimColor(), Theme::partBackground(Theme::Part::Scrim)),
               "★★ W5 覆盖层问到的「四周变暗」和这一层是**同一个**色（不是两份各写一遍）");
@@ -192,9 +192,14 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
               "★★ W5b 换一个**主题色**之后，已经立着的导航轨照旧不铺底、字色跟着重算",
               QStringLiteral("字 %1 / 正文色 %2")
                   .arg(bar.palette().color(QPalette::WindowText).name(), Theme::tokens().text.name()));
+        const QString sheetBefore = Theme::widgetStyleSheet();
         Theme::setSpec(Theme::presetSpec(QStringLiteral("dark")));
         Theme::apply(app);
         QApplication::processEvents();
+        // 应用级样式表换主题时必须一字不差：变了就会在换调色板**之前**重挂一遍，
+        // 跟主题算色的控件拿到旧色（实例页那排 chip 曾因菜单样式写死颜色停在深色上）。
+        check(Theme::widgetStyleSheet() == sheetBefore,
+              "★★ W5c 换主题前后应用级样式表一字不差（颜色一律走 palette(...)，不写死 token）");
         check(sameColor(bar.palette().color(QPalette::WindowText), Theme::tokens().text),
               "★★ W5b 换主题（预设）之后**已经立着的**导航轨自己把字色重算了一遍"
               "（它持有一份算好的色，不重算就停在旧色上）",

@@ -68,6 +68,7 @@
 #include <utility>
 
 class QPainter;
+class QCheckBox;
 class QPushButton;
 class QLabel;
 class QStyle;
@@ -592,6 +593,9 @@ void markBadge(QLabel *label, BadgeTone tone);
 /// 30 高、圆角 9、霞鹜文楷 14；勾上 = accent-soft 底 + accent 字。样式在 `widgetStyleSheet()`
 /// 里按属性挂（`wtfmlSegmented` / `wtfmlSegment`），这里只打属性、定高、互斥。
 void markSegmented(QWidget *container, const QList<QPushButton *> &segments);
+/// 开关（设计稿 .switch）：40×22 胶囊，勾上 = 强调色底 + 右侧圆钮。控件仍是那个 QCheckBox
+/// （objectName、toggled、text 都不变，text 只当无障碍名，不画）；行名由设置行左侧那一格写。
+void markSwitch(QCheckBox *box);
 
 // ---------------------------------------------------------------------------
 // 色块（一颗按钮，面上就是它代表的那块色）
