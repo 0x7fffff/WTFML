@@ -217,7 +217,7 @@ void JavaSettingsController::updatePathLabel() {
         label->setText(path.isEmpty() ? tr("手动指定：还没有路径，启动会直接失败。")
                                       : tr("手动指定：%1").arg(path));
     else
-        label->setText(path.isEmpty() ? tr("自动：还没挑过，启动时按版本要求找。")
+        label->setText(path.isEmpty() ? tr("自动选择")
                                       : tr("自动：上次用的是 %1").arg(path));
 }
 
@@ -434,6 +434,7 @@ void JavaSettingsController::refreshMemory() {
                    .arg(m_settings->xmx()).arg(m_settings->xms());
     }
     m_ui->getMemoryHint()->setText(hint);
+    m_ui->getMemoryHint()->setToolTip(hint);  // 页上只露一行（截尾），整句在这里
 
     // 自动档在设置页露着的时候才需要每 2 秒刷新一次；其他情况立刻停掉。
     if (autoMode && memoryPageVisible()) {
