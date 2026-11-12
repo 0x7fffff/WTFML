@@ -894,7 +894,7 @@ MainWindow::MainWindow(QWidget *parent)
         });
     m_ui->setHomeQuickActionHandler(
         [this](const QString &key, MainWindowUI::HomeQuickAction action) {
-            if (action == MainWindowUI::HomeQuickAction::ChooseInstance) {
+            if (action == MainWindowUI::HomeQuickAction::SwitchInstance) {
                 openHomeInstancePicker();
                 return;
             }
@@ -907,19 +907,21 @@ MainWindow::MainWindow(QWidget *parent)
                 openInstanceSettings(key);
                 return;
             }
-            if (action == MainWindowUI::HomeQuickAction::OpenFolder) {
-                QDesktopServices::openUrl(QUrl::fromLocalFile(AppPaths::versionDir(key)));
+            if (action == MainWindowUI::HomeQuickAction::Stop) {
+                // 停的是这个实例名下在跑的每一份会话（多开时一起停）。
+                for (const LauncherManager::GameSession &game : m_launcherManager->runningGames()) {
+                    if (game.versionId == key) stopGameSession(game.sessionId);
+                }
                 return;
             }
+            // Select = 设为当前实例；Launch = 设为当前再启动（实例带上那颗 ▶ 也走这里）。
             QComboBox *combo = m_ui->getInstalledVersionCombo();
             const int row = combo == nullptr ? -1 : combo->findData(key);
             if (row >= 0) {
                 combo->setCurrentIndex(row);
-                onStartButtonClicked();
+                if (action == MainWindowUI::HomeQuickAction::Launch) onStartButtonClicked();
             }
         });
-    connect(m_ui->getHomeInstanceSelectButton(), &QPushButton::clicked, this,
-            &MainWindow::openHomeInstancePicker);
     if (OverlayHost *overlay = m_ui->overlay()) {
         connect(overlay, &OverlayHost::pageClosed, this, [this](QWidget *closedPage) {
             if (closedPage != nullptr &&
@@ -1011,13 +1013,9 @@ MainWindow::MainWindow(QWidget *parent)
             appendLog(message);
         }
     }
+    // 当前实例在这一趟里就定下来（上次启动 → 上次选中 → 第一个，见 resolveCurrentInstance()），
+    // 必须在 fetchAvailableVersions() 之前，免得等网络时用户手选的那个被抢掉。
     refreshInstalledVersions();
-    // 顺序要紧：必须在 refreshInstalledVersions() **之后**（下拉框里得先有条目可选），
-    // 并且在 fetchAvailableVersions() 之前（免得用户在等待网络期间就手选了一个，
-    // 那样启动时反而会把用户的选择抢掉）。也**只在启动时**跑这一次 ——
-    // 不能塞进 refreshInstalledVersions()，那个函数每次清单到达、每次下载完成都会跑，
-    // 塞进去就破坏了它"只保住、不新增"的语义。
-    restoreLastLaunchedVersion();
     // 启动历史账本：读回来并刷新主页“最近游玩”排（读完发一声 `changed()`，接在
     // `updateHomeRecent()` 上；那一发是**同步**的，所以下面几行看到的已经是刷新过的界面）。
     //
@@ -1054,16 +1052,30 @@ MainWindow::MainWindow(QWidget *parent)
                 for (const SavedAccount &one : saved) {
                     faces.insert(one.uuid, accountFacePixmap(one));
                 }
-                QList<MainWindowUI::PanelRow> rows = recentAccountPanelRows(saved, 3, faces);
-                MainWindowUI::PanelRow manage;
-                manage.key = kAccountPanelManageKey;
-                manage.title = MainWindowUI::accountSkinButtonText();
-                manage.subtitle = tr("管理账号、皮肤与披风");
-                MainWindowUI::PanelAction open;
-                open.text = tr("打开");
-                open.tooltip = tr("打开账号与外观");
-                manage.actions.append(open);
-                rows.append(manage);
+                QList<MainWindowUI::PanelRow> rows =
+                    recentAccountPanelRows(saved, kAccountPanelLimit, faces);
+                // 末尾两行菜单项（设计稿 .acpop .mi）：一个账号都没有时只摆「登录」。
+                const QColor ink = QApplication::palette().color(QPalette::PlaceholderText);
+                const auto menuRow = [&ink](const QString &key, const QString &title, const QString &icon) {
+                    MainWindowUI::PanelRow row;
+                    row.key = key;
+                    row.title = title;
+                    row.menuItem = true;
+                    if (!icon.isEmpty()) row.icon = VersionIcons::line(icon, 18, ink, 1.8);
+                    return row;
+                };
+                if (saved.isEmpty()) {
+                    rows.append(menuRow(kAccountPanelLoginKey, tr("登录"), QString()));
+                } else {
+                    rows.append(menuRow(kAccountPanelAddKey, MainWindowUI::accountAddText(), QStringLiteral("plus")));
+                    rows.append(menuRow(kAccountPanelManageKey, MainWindowUI::accountSkinButtonText(),
+                                        QStringLiteral("user")));
+                    // 登出只有这一个入口（「管理账号与皮肤」里只有删除）：有当前身份时才摆。
+                    if (!AccountStore::activeUuid().isEmpty()) {
+                        rows.append(menuRow(kAccountPanelLogoutKey, MainWindowUI::accountLogoutText(),
+                                            QStringLiteral("logout")));
+                    }
+                }
                 return rows;
             }
             return runningGamePanelRows(

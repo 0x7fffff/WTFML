@@ -73,12 +73,14 @@ void runOfflineDefaultSkinTests() {
             const int failedBefore =
                 countOccurrences(messagesSnapshot(), QStringLiteral("算离线默认皮肤失败"));
 
-            // ---- ZG1 还没选版本：算不出默认皮肤，退回随机那张 ----
-            // 起窗口时**一个版本都不该被选中**（fillVersionCombo 不替用户选），所以这一条
-            // 同时也是"没有版本 → 不许瞎猜一张"的前提。
-            check(combo->currentIndex() < 0,
-                  "ZG1 前提：刚起来时一个版本都没选中（停在占位文案那档）",
+            // ---- ZG1 没有当前实例：算不出默认皮肤，退回随机那张 ----
+            // 有实例必有当前实例（resolveCurrentInstance()），所以一起来就选中了一个；
+            // "没有当前实例"只在一个实例都没有时出现 —— 这里手动清掉选中项来走那一档。
+            check(combo->currentIndex() >= 0,
+                  "ZG1 前提：有实例 ⇒ 刚起来就有当前实例",
                   QString::number(combo->currentIndex()));
+            combo->setCurrentIndex(-1);
+            QApplication::processEvents();
             check(viewer->skin().pixelColor(0, 0) == tintRandom &&
                       hint->text() == MainWindowUI::skinHintOfflineLoadedText(name),
                   "ZG1 没选中版本 → 画的是随机挑的那张，那句话也还是随机那档", hint->text());

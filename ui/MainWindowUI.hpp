@@ -1634,39 +1634,40 @@ public:
     static QString agentTabName() { return QStringLiteral("agentPage"); }
     static QString skinViewerName() { return SkinViewer::viewerName(); }
     static QString skinHintLabelName() { return QStringLiteral("skinHintLabel"); }
+    /// 账号入口：导航轨底部那一格（头像 + 名字，图标轨时只剩头像），点开账号弹层。
     static QString accountSkinButtonName() { return QStringLiteral("accountSkinButton"); }
-    /// 那个入口按钮上写的字。和其它文案一样做成静态访问器 —— 验证工程引它，
-    /// 产品里改一个字就不用两边各写一遍字面量。
-    static QString accountSkinButtonText() { return QStringLiteral("账号与外观…"); }
-    /// 主页账号卡片右边那颗**朝下**小箭头的 objectName 与边长（像素）。
-    ///
-    /// 箭头是 `VersionIcons::chevron()` 画的位图，**不是字体里的字形**：原先写的是
-    /// U+2304「⌄」，默认界面字体里没有这一格，Qt 第一次量它的时候要做一遍字体回退
-    /// 查找（本机实测 268 ms，见 docs/dev/PERFORMANCE.md「主页那颗箭头」）。
-    static QString homeAccountArrowName() { return QStringLiteral("homeAccountArrow"); }
-    static int homeAccountArrowSize() { return 12; }
+    /// 进「账号与外观」那一页的说法（账号弹层末行、设置页那颗按钮共用）。和其它文案一样
+    /// 做成静态访问器 —— 验证工程引它，产品里改一个字就不用两边各写一遍字面量。
+    static QString accountSkinButtonText() { return QStringLiteral("管理账号与皮肤"); }
+    /// 账号弹层里「添加账号」那一行。
+    static QString accountAddText() { return QStringLiteral("添加账号"); }
+    static QString accountLogoutText() { return QStringLiteral("退出登录"); }
 
     static QString homeFavoriteCountSpinName() { return QStringLiteral("homeFavoriteCountSpin"); }
     static QString homeRecentCountSpinName() { return QStringLiteral("homeRecentCountSpin"); }
     static QString homeInstanceSelectButtonName() {
         return QStringLiteral("homeInstanceSelectButton");
     }
+    /// 主页启动区那张「实例名 + 元信息」块：可点，点开实例切换弹层（`openHomeInstancePicker()`）。
+    static QString homeCurrentPickerName() { return QStringLiteral("homeCurrentPicker"); }
+    /// 实例切换弹层（毛玻璃，盖在实例名那一块上展开）。
     static QString homeInstancePickerName() { return QStringLiteral("homeInstancePicker"); }
+    /// 账号弹层（毛玻璃，贴在导航轨账号那一格右边）。
+    static QString accountPopoverName() { return QStringLiteral("accountPopover"); }
 
-    enum class HomeQuickAction { Launch, Edit, ChooseInstance, OpenFolder };
+    /// 主页启动区 / 实例带上的动作：启动、停止、开实例设置、打开实例切换弹层、设为当前实例。
+    enum class HomeQuickAction { Launch, Stop, Edit, SwitchInstance, Select };
     enum class HomeQuickMode { Current, Recent, Favorite };
     struct HomeQuickItem {
         QString key;
         QString name;
         QString detail;
         QIcon icon;
-        /// 固定槽位还没有实例时为 true。空槽仍参与布局，但不会伪装成可启动实例。
+        /// 启动区那一张：一个实例都没有时为 true（主按钮换成「下载游戏」）。实例带上不出现空卡。
         bool empty = false;
         bool current = false;
         bool recent = false;
         bool favorite = false;
-        /// 实例 mods 目录里的 *.jar 个数；-1 = 没数（主页元信息行就不写模组数）。
-        int modCount = -1;
     };
     using HomeQuickActionHandler =
         std::function<void(const QString &key, HomeQuickAction action)>;
@@ -1700,6 +1701,10 @@ public:
         bool favorite = false;
         bool recent = false;
         QString searchKeywords = {};
+        /// 是不是当前实例（弹层里那一行带底色）。
+        bool current = false;
+        /// 最近启动的名次（0 = 最近一次）；-1 = 没启动过。弹层「最近」那一段按它排、取前 5。
+        int recentRank = -1;
     };
     using HomePickerFolderHandler = std::function<void(const QString &path)>;
     using HomePickerInstanceHandler =
@@ -1710,6 +1715,8 @@ public:
                                 const HomePickerInstanceHandler &instanceHandler);
     void closeHomeInstancePicker();
     bool homeInstancePickerOpen() const;
+    /// 当前实例在不在跑：启动区主按钮在「启动游戏」/「停止游戏」之间换（MainWindow 每次重画底栏时给）。
+    void setHomeLaunchRunning(bool running);
     static QString bottomBarName() { return QStringLiteral("bottomBar"); }
     static QString avatarLabelName() { return QStringLiteral("avatarLabel"); }
     /// 底栏头像那一块的边长（像素）。**唯一出处**：主窗口拿它去裁头像
@@ -1724,8 +1731,8 @@ public:
     /// NOTE: **三种而不是两种** —— 没勾离线、又没登录的时候写「离线登录」是骗人：
     /// 那种状态点下去会被"请先登录"挡回来（见 MainWindow::onStartButtonClicked()
     /// 里 token.isEmpty() 那条分支）。照实说「未登录」，用户才知道该去登录。
-    static QString accountTypeOnlineText() { return QStringLiteral("正版登录"); }
-    static QString accountTypeOfflineText() { return QStringLiteral("离线登录"); }
+    static QString accountTypeOnlineText() { return QStringLiteral("正版"); }
+    static QString accountTypeOfflineText() { return QStringLiteral("离线"); }
     static QString accountTypeNotLoggedInText() { return QStringLiteral("未登录"); }
     /// 底栏**左边那颗按钮（实例运行状态）的固定宽度**（像素）。中间那格（进度）要稳定，
     /// 就只能让旁边这几格不再跟着自己的文字长短变 —— 拉伸因子管的是「富余宽度怎么分」，
@@ -1846,6 +1853,10 @@ public:
         /// true = 这行是"什么都没有"那句话：文字用次要色、行首没图标、行尾没按钮。
         /// **不是**给真行用的（真行有图标和按钮，灰掉某一颗走 PanelAction::enabled）。
         bool placeholder = false;
+        /// 账号弹层：这一行是当前账号（行尾打勾）。
+        bool checked = false;
+        /// 账号弹层：整行就是一颗按钮（「添加账号」「管理账号与皮肤」「登录」），点了按动作 0 回报。
+        bool menuItem = false;
     };
     /// 「点开面板时去哪要这几行」和「行里的按钮被点了」。那个 bool：true = 右边那块
     /// （账号），false = 左边那块（实例）。动作回调里的 key 就是那一行的 PanelRow::key
@@ -1950,7 +1961,7 @@ public:
     /// 登出那颗按钮的悬停提示。文字按钮本可以不写 —— 但这一颗要说清"账号还在不在"，
     /// 不然用户不敢点（"登出"听起来像是要把账号弄没）。
     static QString bottomBarPanelLogoutTip() {
-        return QStringLiteral("退出登录：清掉盘上的登录状态，这个账号还留在列表里");
+        return QStringLiteral("账号仍保留在列表中。");
     }
     /// 右面板里那一行**第二句**说的"这是个什么账号"。
     ///
@@ -1958,18 +1969,12 @@ public:
     /// "这一趟怎么启动"，这里说的是"这个账号是哪一种"。两句混用的话，面板上会出现
     /// "正版登录"——那读起来像"这个账号现在是登录状态"，而这一行恰恰是**还没登录**
     /// 的那个账号。
-    static QString bottomBarPanelOnlineAccountText() { return QStringLiteral("正版账号"); }
-    static QString bottomBarPanelOfflineAccountText() { return QStringLiteral("离线账号"); }
-    /// 左面板里"一份实例都没在跑"时那两句话。
-    static QString bottomBarPanelNoRunningTitle() { return QStringLiteral("现在没有实例在运行"); }
-    static QString bottomBarPanelNoRunningNote() {
-        return QStringLiteral("从主页点「启动游戏」跑一个");
-    }
-    /// 右面板里"一个账号都没保存"时那两句话（不说清"为什么是空的"，用户只能去别处瞎找）。
-    static QString bottomBarPanelNoAccountTitle() { return QStringLiteral("还没有保存的账号"); }
-    static QString bottomBarPanelNoAccountNote() {
-        return QStringLiteral("在「账号与外观…」里登录或添加离线账号");
-    }
+    static QString bottomBarPanelOnlineAccountText() { return QStringLiteral("正版"); }
+    static QString bottomBarPanelOfflineAccountText() { return QStringLiteral("离线"); }
+    /// 左面板里"一份实例都没在跑"时那一句（面板只在有实例在跑时点得开，这一句是兜底）。
+    static QString bottomBarPanelNoRunningTitle() { return QStringLiteral("没有在运行的实例"); }
+    /// 账号弹层里"一个账号都没保存"时那一行，下面紧跟一行「登录」。
+    static QString bottomBarPanelNoAccountTitle() { return QStringLiteral("未登录"); }
     /// 左面板**运行中那一行**最后那颗按钮上的字（运行中实例弹层优先展示实例名、
     /// 运行时长和『打开日志/停止』等可用动作）。
     ///
@@ -3672,14 +3677,12 @@ public:
     QLabel *getHomeAccountLabel() const { return homeAccountLabel; }
     QLabel *getHomeAvatarLabel() const { return homeAvatarLabel; }
     QLabel *getHomeAccountTypeLabel() const { return homeAccountTypeLabel; }
-    /// 主页右上那张账号卡片（头像 + 名字 + 「⌄」）。**它是账号那个入口**：
-    /// 点一下在卡片**下面**展开「最近用过的账号」那一块面板（见 `toggleAccountsPanel()`）。
+    /// 导航轨底部账号那一格（头像 + 名字）。**它是账号唯一的入口**：
+    /// 点一下在它右边弹出账号弹层（见 `toggleAccountsPanel()`）。
     QPushButton *getAccountSkinButton() const { return accountSkinButton; }
 
-    /// 点一下主页右上那张账号卡片：把「最近用过的账号」那块面板挂在卡片下面开/收。
-    void toggleAccountsPanel() {
-        toggleBottomBarPanel({accountSkinButton, BottomBarAnchorKind::Accounts, /*dropDown=*/true});
-    }
+    /// 点一下导航轨底部账号那一格：账号弹层开/收（毛玻璃，贴在那一格右边，见 MainWindowHomePopovers.cpp）。
+    void toggleAccountsPanel();
 
     QTabWidget *getTabWidget() const { return tabWidget; }
     /// 智能体页（第五个选项卡）；没有就是 nullptr。
@@ -3705,9 +3708,9 @@ public:
     /// MainWindow 灌进来（见 setBottomBarPanelContent()）。
     QPushButton *getRunStateButton() const { return runStateButton; }
     /// 底栏右头那一格（头像 + 用户名 + 「⌃」）。★ 它**不摆出来**
-    /// （`setupBottomBar()` 里 `hide()`）：账号身份与入口在主页右上那张卡片，
+    /// （`setupBottomBar()` 里 `hide()`）：账号身份与入口在导航轨底部那一格，
     /// 这里只留下这一组控件供业务层继续灌数据（`updateBottomBar()` 那两行文字）。
-    /// 账号面板现在的锚点是 **`getAccountSkinButton()` 那张卡片**。
+    /// 账号弹层的锚点是 **`getAccountSkinButton()`**。
     QPushButton *getAccountButton() const { return accountButton; }
     QPushButton *getToolboxButton() const { return toolboxButton; }
     /// 底栏中间那一格（整颗都是一颗按钮：点一下向上展开任务中心）。
@@ -3769,18 +3772,12 @@ private:
     enum class BottomBarAnchorKind {
         None,       ///< 没落在任何一颗按钮上
         Instances,  ///< 左下那格：列正在跑的实例（`BottomBarPanel`）
-        Accounts,   ///< 右下那格：列最近用过的账号（`BottomBarPanel`）
         Tasks,      ///< 中间那格：任务中心（`TaskCenterPanel`）
         Tools,      ///< 右下那格：工具箱轻量菜单
     };
     struct BottomBarAnchor {
         QPushButton *button = nullptr;
         BottomBarAnchorKind kind = BottomBarAnchorKind::None;
-        /// 面板挂在锚点**下面**（往下弹），不是上面。只有一档是 true：主页右上那张
-        /// 账号卡片 —— 它本身就贴着头顶，往上弹只会跑到屏幕外面去（见 BottomBarPanel::popUp()）。
-        /// 底栏那颗账号按钮 `hide()`：账号面板挂在主页右上那张卡片上，方向因此翻过来。
-        bool dropDown = false;
-        bool account() const { return kind == BottomBarAnchorKind::Accounts; }
     };
     /// 底栏那三颗按钮"点开 / 收回"的唯一出处，三种情形都在这里分：
     /// 已经开着**同一颗**的 → 收回（不再开）；开着**另一颗**的 → 收旧的、开新的；
@@ -3823,9 +3820,6 @@ private:
     QPushButton *homeInstanceSelectButton = nullptr;
     QWidget *homeLaunchArea = nullptr;
     QWidget *homeHeroArea = nullptr;
-    QWidget *homePickerHost = nullptr;
-    QWidget *homeProfileCard = nullptr;
-    QWidget *homeRightColumn = nullptr;
     QSpacerItem *homeLaunchSpacer = nullptr;
     QWidget *homeQuickSection = nullptr;
     QPushButton *homeQuickCurrentTab = nullptr;
@@ -4043,6 +4037,10 @@ private:
     QLabel *statusLabel = nullptr;
     /// 最近一次摆进底栏的任务摘要：换主题时按它重染一遍（那几样字色取的是当时的调色板）。
     BottomBarTaskSummary m_lastTaskSummary;
+    /// 当前实例在跑（启动区主按钮写「停止游戏」）。见 setHomeLaunchRunning()。
+    bool m_homeLaunchRunning = false;
+    /// 按 m_homeLaunchRunning / m_lastTaskSummary 把启动区主按钮的字、图标、动作对上。
+    void syncHomeLaunchButton();
     QLabel *runStateLabel = nullptr;
     QLabel *runStateDetailLabel = nullptr;
     QLabel *runStateMarkLabel = nullptr;

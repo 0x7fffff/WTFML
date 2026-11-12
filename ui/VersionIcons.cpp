@@ -978,6 +978,7 @@ const QHash<QString, QString> &linePaths() {
         {QStringLiteral("chevU"), QStringLiteral("m7 14 5-5 5 5")},
         {QStringLiteral("plus"), QStringLiteral("M12 5v14M5 12h14")},
         {QStringLiteral("user"), QStringLiteral("M12 4.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7zM5 19.5c.8-3.5 3.6-5.5 7-5.5s6.2 2 7 5.5")},
+        {QStringLiteral("logout"), QStringLiteral("M9 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h3M15 16l4-4-4-4M19 12H9")},
         {QStringLiteral("star"), QStringLiteral("M12 4.2l2.3 4.8 5.2.7-3.8 3.6.9 5.2-4.6-2.5-4.6 2.5.9-5.2-3.8-3.6 5.2-.7z")},
         {QStringLiteral("trash"), QStringLiteral("M4.5 7h15M9.5 7V4.5h5V7M6.5 7l.9 12.5h9.2l.9-12.5M10 11v5M14 11v5")},
         {QStringLiteral("folder"), QStringLiteral("M3.5 6.5c0-.8.7-1.5 1.5-1.5h4.3l2 2.2H19c.8 0 1.5.7 1.5 1.5v9.3c0 .8-.7 1.5-1.5 1.5H5c-.8 0-1.5-.7-1.5-1.5z")},

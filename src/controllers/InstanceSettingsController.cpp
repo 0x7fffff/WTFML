@@ -177,11 +177,13 @@ bool InstanceSettingsController::rename(const QString &oldId, const QString &new
         return false;
     }
 
-    // 改完名字要跟着动的状态。漏掉下面这一条的后果很具体：用户下次打开启动器，
-    // restoreLastLaunchedVersion() 拿老 id 去找人找不到，选中项是空的，他会以为
-    // 刚改名的那个实例丢了。
+    // 改完名字要跟着动的状态：「上次启动」「上次选中」记的是目录名，不跟着改的话下次
+    // 开启动器按老 id 找不到，当前实例会落到列表第一个，用户以为刚改名的那个丢了。
     if (m_settings != nullptr && m_settings->lastLaunchedVersion() == oldId) {
         m_settings->setLastLaunchedVersion(name);
+    }
+    if (m_settings != nullptr && m_settings->lastSelectedVersion() == oldId) {
+        m_settings->setLastSelectedVersion(name);
     }
 
     // 配置回退（`cache/config-backups/<id>`）、资源包顺序备份、存档 level.dat 的
@@ -231,8 +233,8 @@ bool InstanceSettingsController::rename(const QString &oldId, const QString &new
     if (m_host.instanceTreeChanged) {
         m_host.instanceTreeChanged();
     }
-    // 刷新时下拉框那边是"保住原来选中的那个 id"，而那个 id 已经不在了 —— 于是它
-    // 会停在空选。显式选中新名字：用户刚改完，看到的应该是刚改完的那个实例。
+    // 刷新时原来那个 id 已经不在了，下拉框会顺延到同一位置上的实例（resolveCurrentInstance()）。
+    // 显式选中新名字：用户刚改完，看到的应该是刚改完的那个实例。
     if (m_host.instanceRenamed) {
         m_host.instanceRenamed(name);
     }

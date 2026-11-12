@@ -15,7 +15,7 @@
 
 #include "ChromeDialog.hpp"
 #include "DownloadToolDialog.hpp"
-#include "GameLogWindow.hpp"
+#include "GameLogWindow.hpp"
 #include "InstanceUpdateWizard.hpp"
 #include "ShellOpenWith.hpp"
 #include "UpgradeHistoryDialog.hpp"
@@ -141,14 +141,6 @@ void checkWindow(const QString &name, QWidget *window, bool cycleByClose = true)
 }  // namespace
 
 int UiWindowChromeCheck(QApplication &) {
-    QTemporaryDir fixture;
-    QSettings::setDefaultFormat(QSettings::IniFormat);
-    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, fixture.path());
-    QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, fixture.filePath("system"));
-    Anim::setEnabled(false);
-    QApplication::setQuitOnLastWindowClosed(false);  // 下面反复 close() 窗口，不能把事件循环带走
-    std::printf("平台插件：%s\n", qPrintable(QGuiApplication::platformName()));
-
     // 产品里这些窗口都以主窗口为 parent 开出来（带 owner 的顶层窗：关闭时 Qt 会销毁平台窗口，
     // 再打开是新建的 HWND）；这里照样挂在主窗口下，才测得到「第二次打开」。
     HostWindow window;
@@ -233,3 +225,5 @@ int UiWindowChromeCheck(QApplication &) {
     }
     return g_fail == 0 ? 0 : 1;
 }
+
+

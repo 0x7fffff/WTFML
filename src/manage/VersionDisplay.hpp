@@ -7,6 +7,7 @@
 #pragma once
 
 #include <QString>
+#include <QStringList>
 
 #include <optional>
 
@@ -155,3 +156,16 @@ QString launchStatusName(const VersionDisplayParts &parts);
  * `VersionTreeDelegate` 画出来）。纯函数，验证工程可以直接喂真清单那 915 条。
  */
 QString releaseDateText(const QString &releaseTime);
+
+/**
+ * 「当前实例」该是哪一个。规则：**有实例就一定有当前实例**，只有一个都没有时才返回空串。
+ *
+ * - 原来的当前实例还在 → 不动（重命名由调用方先把 previousId 换成新 id 再来问）；
+ * - 原来的被删了 → 顺延到同一位置上的那一个（删的是末尾就落到新的末尾）；
+ * - 原来就没有（刚启动、刚从零个装出第一个）→ 上次启动的 → 上次选中的 → 第一个。
+ *
+ * 启动失败不写 lastLaunched（LaunchController 只在成功时写），所以失败不会改当前实例。
+ * `ids` 是能启动的那一份（正在安装的不算）。纯函数，测试在 VersionNameTests 的 I8。
+ */
+QString resolveCurrentInstance(const QStringList &ids, const QString &previousId, int previousIndex,
+                               const QString &lastLaunched, const QString &lastSelected);

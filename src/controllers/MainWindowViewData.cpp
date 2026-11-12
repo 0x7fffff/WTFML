@@ -79,9 +79,9 @@ QList<Tasks::TaskStep> taskStepsFromNames(const QStringList &names, int runningI
  *
  * clear() 会把用户选中的版本一起丢掉，所以刷新必须自己把选中项捡回来。
  *
- * 语义是"只保住、不新增"：原来选的还在清单里就选回去；已经不在了（目录被删、
- * manifest 变了）就退回 currentIndex() == -1，让占位文案显出来，逼用户重新明确
- * 挑一个 —— 启动和下载都是重操作，不替用户猜。
+ * 这一层只管"保住"：原来选的还在清单里就选回去，不在了就停在 currentIndex() == -1。
+ * 停在 -1 之后挑哪一个由调用方按 resolveCurrentInstance() 定（有实例必有当前实例，
+ * 见 MainWindow::refreshInstalledVersions()）。
  */
 void fillVersionCombo(QComboBox *combo, const QList<VersionDisplayParts> &parts,
                       const VersionNameOptions &options) {
@@ -858,7 +858,6 @@ QList<MainWindowUI::PanelRow> runningGamePanelRows(const QList<LauncherManager::
     if (games.isEmpty()) {
         MainWindowUI::PanelRow empty;
         empty.title = MainWindowUI::bottomBarPanelNoRunningTitle();
-        empty.subtitle = MainWindowUI::bottomBarPanelNoRunningNote();
         empty.placeholder = true;
         rows.append(empty);
         return rows;
@@ -890,7 +889,7 @@ QList<MainWindowUI::PanelRow> runningGamePanelRows(const QList<LauncherManager::
     return session.accountUuid.isEmpty() ? session.accountName : session.accountUuid;
 }
 
-/// 「最后登录的三个账户」翻成面板里的几行。
+/// 「最近登录的几个账户」翻成账号弹层里的几行（几个由调用方给，见 kAccountPanelLimit）。
 ///
 /// 口径：「最后登录的三个账户就拿缓存放（包含离线和正版，总共
 /// 三个）」—— 读的就是**账号列表**那一条缓存（AccountStore::accounts()），不另外记账、
@@ -908,7 +907,6 @@ QList<MainWindowUI::PanelRow> recentAccountPanelRows(const QList<SavedAccount> &
     if (accounts.isEmpty()) {
         MainWindowUI::PanelRow empty;
         empty.title = MainWindowUI::bottomBarPanelNoAccountTitle();
-        empty.subtitle = MainWindowUI::bottomBarPanelNoAccountNote();
         empty.placeholder = true;
         rows.append(empty);
         return rows;
@@ -936,21 +934,8 @@ QList<MainWindowUI::PanelRow> recentAccountPanelRows(const QList<SavedAccount> &
         row.subtitle = account.offline ? MainWindowUI::bottomBarPanelOfflineAccountText()
                                        : MainWindowUI::bottomBarPanelOnlineAccountText();
         row.key = account.uuid;
-
-        MainWindowUI::PanelAction use;
-        if (account.isCurrent) {
-            // 当前账号：按钮写「登出」、**可点** —— 「当前」+ 灰掉那颗点不动，于是这一行除了
-            // 告诉用户"你就是你"之外没有别的用处。
-            use.text = MainWindowUI::bottomBarPanelLogoutText();
-            use.tooltip = MainWindowUI::bottomBarPanelLogoutTip();
-        } else {
-            use.text = account.offline ? MainWindowUI::bottomBarPanelSelectText()
-                                       : MainWindowUI::bottomBarPanelLoginText();
-            use.tooltip = account.offline
-                              ? QObject::tr("切到这个离线账号（用这个名字离线进游戏）")
-                              : QObject::tr("切到这个正版账号；令牌快到期时会自动更新");
-        }
-        row.actions.append(use);
+        // 整行就是那颗按钮（账号弹层）：当前账号打勾，点别人 = 切过去（动作 0，见 onBottomBarPanelAction()）。
+        row.checked = account.isCurrent;
         rows.append(row);
     }
     return rows;

@@ -6,20 +6,18 @@
  * 只摆三段：**当前**（进度 + 步骤）、**等待中**（上移 / 下移 / 移除）、**已结束**（清除 / 重试）。
  * 筛选、搜索、历史与详情仍在整页活动中心里，从标题行「全部任务」进去。
  *
- * 是窗口里的一张子卡片（不是 Qt::Popup 独立窗口）：透得出整窗磨砂，点外面 / Esc / 再点一次
- * 任务摘要就收起。数据每次现问 ItemProvider，不缓存。
+ * 底座是 GlassPopover（窗口里的玻璃子卡片）：点外面 / Esc / 再点一次任务摘要就收起。
+ * 数据每次现问 ItemProvider，不缓存。
  */
 
+#include "GlassPopover.hpp"
 #include "TaskCenterPanel.hpp"
-
-#include <QFrame>
-#include <QPointer>
 
 #include <functional>
 
 class QVBoxLayout;
 
-class ActivityPopover : public QFrame {
+class ActivityPopover : public GlassPopover {
 public:
     struct Handlers {
         TaskCenter::ItemProvider items;
@@ -49,16 +47,12 @@ public:
     void refresh();
 
 protected:
-    bool eventFilter(QObject *watched, QEvent *event) override;
-    void paintEvent(QPaintEvent *event) override;
-    void closeEvent(QCloseEvent *event) override;
+    void place() override;
 
 private:
     void rebuild();
-    void place();
     QWidget *sectionHeader(const QString &title, QWidget *trailing);
 
-    QPointer<QWidget> m_anchor;
     Handlers m_handlers;
     QWidget *m_body = nullptr;
     QVBoxLayout *m_bodyLayout = nullptr;

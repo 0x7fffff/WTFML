@@ -107,27 +107,23 @@ int MwAccountAppearanceChecks() {
 
                 entry->click();
                 QApplication::processEvents();
-                QWidget *panel0 = w10.findChild<QWidget *>(MainWindowUI::bottomBarPanelName());
-                QPushButton *manageButton = nullptr;
-                if (panel0 != nullptr) {
-                    // 末行那一颗按**标题**认：账号有几行由缓存里的账号数决定（这里排前头的
-                    // 是几个 fixture 账号），记死行号会在别的布景下红在一个和产品无关的地方。
-                    for (int i = 0; i < 8 && manageButton == nullptr; ++i) {
-                        QLabel *rowLabel = panel0->findChild<QLabel *>(
-                            MainWindowUI::bottomBarPanelRowTitleName(i));
-                        if (rowLabel == nullptr) {
-                            break;
-                        }
-                        if (rowLabel->text() == MainWindowUI::accountSkinButtonText()) {
-                            manageButton = panel0->findChild<QPushButton *>(
-                                MainWindowUI::bottomBarPanelRowActionName(i, 0));
-                        }
+                // 账号弹层（导航轨底部那颗账号按钮弹出来的）里按名字认「管理账号与皮肤」那一行：
+                // 账号有几行由缓存里的账号数决定，记死行号会红在一个和产品无关的地方。
+                // Z1 刚把账号删光，这时是「未登录」：弹层只有一颗「登录」，开的就是这一页。
+                QWidget *popover0 = w10.findChild<QWidget *>(MainWindowUI::accountPopoverName());
+                QAbstractButton *manageButton = nullptr;
+                if (popover0 != nullptr) {
+                    for (QAbstractButton *row : popover0->findChildren<QAbstractButton *>()) {
+                        if (row->accessibleName() == MainWindowUI::accountSkinButtonText() ||
+                            row->text() == QStringLiteral("登录"))
+                            manageButton = row;
                     }
                 }
                 check(manageButton != nullptr,
-                      "Z2 那一块面板里末行那颗「账号与外观…」找得到（这一页的门在它上面）");
+                      "Z2 账号弹层里通往这一页的那颗（未登录时是「登录」）找得到");
                 if (manageButton != nullptr) {
                     manageButton->click();
+                    QApplication::processEvents();  // 弹层先收、动作排在下一轮（见 AccountPopover）
                 }
                 {
                     OverlayHost *probeHost =
@@ -445,26 +441,20 @@ int MwAccountAppearanceChecks() {
                     if (entry != nullptr) {
                         entry->click();
                         QApplication::processEvents();
-                        QWidget *panel0 =
-                            w11.findChild<QWidget *>(MainWindowUI::bottomBarPanelName());
-                        QPushButton *manageButton = nullptr;
-                        if (panel0 != nullptr) {
-                            for (int i = 0; i < 8 && manageButton == nullptr; ++i) {
-                                QLabel *rowLabel = panel0->findChild<QLabel *>(
-                                    MainWindowUI::bottomBarPanelRowTitleName(i));
-                                if (rowLabel == nullptr) {
-                                    break;
-                                }
-                                if (rowLabel->text() == MainWindowUI::accountSkinButtonText()) {
-                                    manageButton = panel0->findChild<QPushButton *>(
-                                        MainWindowUI::bottomBarPanelRowActionName(i, 0));
-                                }
+                        // 账号弹层（导航轨底部那颗账号按钮弹出来的）里按名字认「管理账号与皮肤」那一行：
+                        // 账号有几行由缓存里的账号数决定，记死行号会红在一个和产品无关的地方。
+                        QWidget *popover0 = w11.findChild<QWidget *>(MainWindowUI::accountPopoverName());
+                        QAbstractButton *manageButton = nullptr;
+                        if (popover0 != nullptr) {
+                            for (QAbstractButton *row : popover0->findChildren<QAbstractButton *>()) {
+                                if (row->accessibleName() == MainWindowUI::accountSkinButtonText()) manageButton = row;
                             }
                         }
                         check(manageButton != nullptr,
-                              "Z9 面板末行那颗「账号与外观…」也找得到");
+                              "Z9 账号弹层里「管理账号与皮肤」那一行找得到（这一页的门在它上面）");
                         if (manageButton != nullptr) {
                             manageButton->click();
+                            QApplication::processEvents();  // 弹层先收、动作排在下一轮（见 AccountPopover）
                         }
                         // 这个入口开的是覆盖层的整页（`OverlayHost::showPage()`），
                         // "点开之后要干的那些事"排进这一发 0 毫秒定时器（它现在跑在主事件

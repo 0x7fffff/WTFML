@@ -152,8 +152,10 @@ void MainWindow::updateBottomBar() {
                                          : MainWindowUI::accountTypeNotLoggedInText());
     m_ui->getAccountTypeLabel()->setText(accountType);
     // 主页是账号的唯一可见入口；底栏那份标签只为兼容保留数据，不再承担身份展示。
+    // 导航轨底部那一格：没登录（也不是离线账号）就写「未登录」、头像画占位（pixmap 留空）。
+    const bool signedIn = offlineIdentity() || m_authManager->loggedIn();
     if (QLabel *homeName = m_ui->getHomeAccountLabel()) {
-        homeName->setText(name);
+        homeName->setText(signedIn ? name : MainWindowUI::bottomBarPanelNoAccountTitle());
     }
     if (QLabel *homeType = m_ui->getHomeAccountTypeLabel()) {
         homeType->setText(accountType);
@@ -171,7 +173,9 @@ void MainWindow::updateBottomBar() {
         m_ui->getAvatarLabel()->setPixmap(m_avatarPixmap);
     }
     if (QLabel *avatar = m_ui->getHomeAvatarLabel()) {
-        if (m_avatarPixmap.isNull()) {
+        if (!signedIn) {
+            avatar->setPixmap(QPixmap());
+        } else if (m_avatarPixmap.isNull()) {
             avatar->setPixmap(QPixmap::fromImage(
                 SkinModel::headAvatar(SkinModel::defaultSteveSkin(), avatar->width())));
         } else {
@@ -209,6 +213,9 @@ void MainWindow::updateBottomBarRunState() {
     QLabel *runStateDetailLabel = m_ui->getRunStateDetailLabel();
     QLabel *runStateMarkLabel = m_ui->getRunStateMarkLabel();
     const QList<LauncherManager::GameSession> games = m_launcherManager->runningGames();
+    // 主页启动区主按钮：当前实例在跑就写「停止游戏」（和这一格看的是同一份会话事实）。
+    const QString currentId = selectedVersionId(m_ui->getInstalledVersionCombo());
+    m_ui->setHomeLaunchRunning(!currentId.isEmpty() && m_launcherManager->isVersionRunning(currentId));
     // 服务端也在这台机器上跑（服务端页起的那些进程，见 `ServerWorkspaceController`）。
     // 底栏这一格是**全局**的：用户不区分"这是哪一页起的东西"，只有服务端在跑时
     // 也得说出来（否则起了服务端还写着「暂无…」，那一格就是在说假话）。
