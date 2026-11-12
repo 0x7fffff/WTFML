@@ -313,7 +313,7 @@ public:
     /// 下载页右上角「下载源 …」：点开是设置页那只下拉框的同一份选项，选了就改那只下拉框。
     static QString downloadSourceButtonName() { return QStringLiteral("downloadSourceButton"); }
     static QString versionFilterPlaceholderText() {
-        return QCoreApplication::translate("MainWindowUI", "按版本号筛选（空格分词，全部匹配）");
+        return QCoreApplication::translate("MainWindowUI", "搜索版本号，如 1.20.1");
     }
     static QString versionFilterNoMatchText(const QString &text) {
         return QCoreApplication::translate("MainWindowUI", "没有版本号匹配「%1」").arg(text);

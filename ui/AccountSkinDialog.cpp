@@ -297,9 +297,19 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     left->setContentsMargins(0, 0, 0, 0);
     left->setSpacing(10);
     left->setAlignment(Qt::AlignTop);
-    main->addWidget(m_accountsPanel, 3);
+    // 精修：伸缩权重压过立绘两边那两段 stretch（各 1），别被压到 240 上下（名字只剩一个
+    // 字母、行尾按钮挤成一团）。不用最小宽度：那会把整窗最小宽顶过窄窗阈值、再也叠不成上下。
+    main->addWidget(m_accountsPanel, 8);
 
-    left->addWidget(makeSectionTitle(accountSectionTitle(), this, 20));
+    {
+        // 设计稿 acct-col：「账号」后面跟一截灰字「正版 / 离线」，不再写成括号。
+        auto *titleRow = new QHBoxLayout;
+        titleRow->setSpacing(10);
+        titleRow->addWidget(makeSectionTitle(accountSectionTitle(), this, 20), 0, Qt::AlignBottom);
+        titleRow->addWidget(makeCaption(QStringLiteral("正版 / 离线"), this), 0, Qt::AlignBottom);
+        titleRow->addStretch(1);
+        left->addLayout(titleRow);
+    }
 
     m_accountList = new QListWidget(this);
     m_accountList->setObjectName(accountListName());

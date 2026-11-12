@@ -311,8 +311,7 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
     search->setPlaceholderText(QStringLiteral("搜索设置"));
     search->setClearButtonEnabled(true);
     search->setFixedWidth(240);
-    search->addAction(VersionIcons::line(QStringLiteral("search"), 16, Theme::tokens().secondary),
-                      QLineEdit::LeadingPosition);
+    addSearchIcon(search);
     if (columns.right.actions != nullptr) columns.right.actions->addWidget(search);
     const auto findSetting = [this, scrollTo](const QString &text) {
         const QString needle = text.trimmed();
@@ -432,7 +431,19 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
         boxLayout->addWidget(line);
         // 文字由 MainWindow 填（要说清系统总内存 / 当前可用 / 现在用的是多少），这里先给
         // 一句占位，免得空标签把行高压成 0、布局跳一下。
-        memoryHint = addDynamicHint(box, QStringLiteral("正在读取系统内存…"), form);
+        // 精修：这一句只占一行（放不下就截尾），整句在悬停提示里（由 MainWindow 填字时一并写）。
+        constexpr int kMemoryHintMaxWidth = 420;
+        {
+            auto *elided = new ElidedLabel(form);
+            elided->setText(QStringLiteral("正在读取系统内存…"));
+            elided->setFont(Theme::textFont(elided->font(), Theme::TextRole::Caption));
+            markTextRole(elided, Theme::secondaryTextRoleValue());
+            // 宽度封顶：不封的话整句的 sizeHint 会把左边那列行名挤没。
+            elided->setMaximumWidth(kMemoryHintMaxWidth);
+            elided->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+            qobject_cast<QVBoxLayout *>(box->layout())->addWidget(elided, 0, Qt::AlignRight);
+            memoryHint = elided;
+        }
         memoryHint->setObjectName(memoryHintName());
         addSettingsControl(section2, QStringLiteral("最大内存"), box, form);
     }
@@ -464,10 +475,9 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
         fileAssociationsButton->setObjectName(fileAssociationsButtonName());
         fileAssociationsButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
         boxLayout->addWidget(fileAssociationsButton, 0, Qt::AlignLeft);
-        addSettingHelp(box,
-                       QStringLiteral("把 .nbt / .litematic / .schematic / .mrpack 的默认打开方式设成本启动器；"
-                                      ".jar / .zip 只进“打开方式”列表，不改默认。"),
+        addSettingHelp(box, QStringLiteral("让 .nbt / .litematic / .schematic / .mrpack 默认用本启动器打开。"),
                        form);
+        fileAssociationsButton->setToolTip(QStringLiteral(".jar / .zip 只进“打开方式”列表，不改默认。"));
         addSettingsControl(section3, QStringLiteral("文件关联"), box, form);
     }
 

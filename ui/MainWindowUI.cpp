@@ -1215,6 +1215,7 @@ QWidget *MainWindowUI::setupInstancePage() {
             instanceSearchEdit = new QLineEdit(instanceFilterRow);
             instanceSearchEdit->setObjectName(instanceSearchName());
             instanceSearchEdit->setPlaceholderText(instanceSearchPlaceholder());
+            addSearchIcon(instanceSearchEdit);
             // 一个 ✕（一行一次清干净）。**不加**"清空搜索"那颗独立按钮：要的是
             // "清空搜索恢复原展开状态"，而那一格自己就带着这个动作，再摆一颗是同一件事
             // 说两遍。
@@ -2074,6 +2075,7 @@ void MainWindowUI::openHomeInstancePicker(
     auto *search = new QLineEdit(instancePane);
     search->setObjectName(QStringLiteral("homePickerSearch"));
     search->setPlaceholderText(QStringLiteral("搜索名称、版本、加载器、文件夹或标签"));
+    addSearchIcon(search);
     search->setToolTip(QStringLiteral("支持空格组合关键词，例如 1.21 fabric。"));
     search->setClearButtonEnabled(true);
     search->setMinimumWidth(140);

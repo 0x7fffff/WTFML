@@ -72,11 +72,22 @@ QWidget *MainWindowUI::setupDownloadPage() {
         fillPageHeader(download.right, downloadPageTitle(),
                        downloadHeaderSubtitle(downloadCategoryGameIndex()));
         downloadHeaderSubtitleLabel = download.right.subtitle;
-        downloadHeaderRefreshButton = new QPushButton(downloadHeaderRefreshText(),
-                                                      download.right.header);
+        // 精修：页头工具钮是嵌在背景里的扁平图标（不带框），字进悬停提示。
+        downloadHeaderRefreshButton = new QPushButton(download.right.header);
         downloadHeaderRefreshButton->setObjectName(downloadHeaderRefreshButtonName());
-        // 「刷新」= 一般性（看一眼 / 重新拉一遍，不是"干这件事"）。
-        Theme::markButton(downloadHeaderRefreshButton, Theme::ButtonKind::Neutral);
+        Theme::markButton(downloadHeaderRefreshButton, Theme::ButtonKind::Ghost);
+        Theme::markIconButton(downloadHeaderRefreshButton);
+        downloadHeaderRefreshButton->setFixedSize(32, 32);
+        downloadHeaderRefreshButton->setToolTip(downloadHeaderRefreshText());
+        downloadHeaderRefreshButton->setAccessibleName(downloadHeaderRefreshText());
+        downloadHeaderRefreshButton->setCursor(Qt::PointingHandCursor);
+        {
+            const auto tint = [b = downloadHeaderRefreshButton] {
+                b->setIcon(VersionIcons::line(QStringLiteral("refresh"), 18, Theme::tokens().secondary));
+            };
+            tint();
+            Theme::follow(downloadHeaderRefreshButton, tint);
+        }
         {
             // 设计稿 download：页头右边「下载源 自动选择（BMCLAPI）⌄」。选项不另存一份：
             // 点开时现读设置页那只下拉框，选中就改它（持久化、生效都走它原来那条路）。
@@ -86,7 +97,10 @@ QWidget *MainWindowUI::setupDownloadPage() {
             source->setCursor(Qt::PointingHandCursor);
             const auto sync = [this, source] {
                 const QString name = downloadSourceCombo != nullptr ? downloadSourceCombo->currentText() : QString();
-                source->setText(name.isEmpty() ? QStringLiteral("下载源") : QStringLiteral("下载源  %1  ⌄").arg(name));
+                // 钮上只留逗号前那半句（「优先官方源」），整句进悬停提示。
+                const QString brief = name.section(QStringLiteral("，"), 0, 0);
+                source->setText(brief.isEmpty() ? QStringLiteral("下载源") : QStringLiteral("下载源 · %1  ⌄").arg(brief));
+                source->setToolTip(name);
             };
             sync();
             QObject::connect(source, &QPushButton::clicked, source, [this, source, sync] {
@@ -288,6 +302,7 @@ void MainWindowUI::setupDownloadGamePage() {
     versionFilterEdit = new QLineEdit(versionFilterBar);
     versionFilterEdit->setObjectName(versionFilterEditName());
     versionFilterEdit->setPlaceholderText(versionFilterPlaceholderText());
+    addSearchIcon(versionFilterEdit);
     versionFilterLayout->addWidget(versionFilterEdit, 1);
     versionFilterHint = new QLabel(versionFilterBar);
     versionFilterHint->setObjectName(versionFilterHintName());
@@ -672,6 +687,7 @@ void MainWindowUI::setupDownloadServerPage() {
     auto *search = new QLineEdit(filterBar);
     search->setObjectName(QStringLiteral("serverVersionFilter"));
     search->setPlaceholderText(versionFilterPlaceholderText());
+    addSearchIcon(search);
     filterLayout->addWidget(search, 1);
     auto *hint = new QLabel(filterBar);
     hint->setObjectName(downloadServerHintName());
@@ -914,6 +930,7 @@ void MainWindowUI::setupDownloadResourcePages() {
         auto *search = new QLineEdit(filterRow);
         search->setObjectName(downloadSearchEditName(categoryKey));
         search->setPlaceholderText(downloadSearchHint(i));
+        addSearchIcon(search);
         filterTop->addWidget(search, 1);
 
         // 四个下拉框共用一套竖设置：宽度按"最短内容长度"算（不按内容算，理由见

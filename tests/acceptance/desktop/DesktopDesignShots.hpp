@@ -438,7 +438,7 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
     const int download = MainWindowUI::downloadTabIndex();
     const int agent = MainWindowUI::agentTabIndex();
     const int home = MainWindowUI::homeTabIndex();
-    static const QList<Shot> shots{
+    static const QList<Shot> shots = [&]() { QList<Shot> list{
         {QStringLiteral("home-dark.png"), QStringLiteral("dark"), {1280, 800}, false},
         {QStringLiteral("home-emerald.png"), QStringLiteral("emerald"), {1280, 800}, false},
         {QStringLiteral("home-ocean.png"), QStringLiteral("ocean"), {1280, 800}, false},
@@ -471,6 +471,19 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         {QStringLiteral("toolbox-page-dark.png"), QStringLiteral("dark"), {1280, 800}, false, home, QStringLiteral("toolbox:anvil")},
         {QStringLiteral("toolbox-page-emerald.png"), QStringLiteral("emerald"), {1280, 800}, false, home, QStringLiteral("toolbox:anvil")},
     };
+        // 精修轮逐页自检：启动设置三主题、工具箱其余九页三主题。
+        for (const QString &theme : {QStringLiteral("emerald"), QStringLiteral("ocean")})
+            list.append({QStringLiteral("instance-launch-%1.png").arg(theme), theme, {1280, 800}, false, manage, QStringLiteral("launch")});
+        for (const char *key : {"text", "coord", "server", "hash", "beacon", "brewing", "banner", "trim"})
+            for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("emerald"), QStringLiteral("ocean")})
+                list.append({QStringLiteral("tool-%1-%2.png").arg(QLatin1String(key), theme), theme, {1280, 800}, false, home,
+                             QStringLiteral("toolbox:") + QLatin1String(key)});
+        // 只出名字含这段字的几张（逐页精修时不必每次跑满 56 张）。
+        const QString only = qEnvironmentVariable("WTFML_DESIGN_SHOT_FILTER");
+        if (!only.isEmpty())
+            list.removeIf([&only](const Shot &shot) { return !shot.file.contains(only); });
+        return list;
+    }();
     static int index = 0;
     static QJsonArray report;
     static std::function<void()> step;

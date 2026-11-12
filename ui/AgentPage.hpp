@@ -114,7 +114,7 @@ private:
     QVBoxLayout *m_messageLayout = nullptr;
     QLabel *m_emptyState = nullptr;
     QLabel *m_notice = nullptr;
-    QComboBox *m_modeCombo = nullptr;
+    QPushButton *m_modeChip = nullptr;
     AgentComposer *m_composer = nullptr;
     QPushButton *m_send = nullptr;
     QPushButton *m_stop = nullptr;

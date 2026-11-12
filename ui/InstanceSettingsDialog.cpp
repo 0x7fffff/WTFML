@@ -1868,6 +1868,9 @@ QWidget *InstanceSettingsDialog::addOverrideRow(QGridLayout *grid, int row, cons
     auto *hintLabel = new QLabel(cell);
     hintLabel->setObjectName(followHintName(field));
     hintLabel->setWordWrap(true);
+    // 精修：「跟随全局（当前 …）」这类说明不占一行，进这一格的悬停提示（refreshHints()
+    // 同时写两处）。跟随时右边那几个灰着的控件本身就摆着全局值。标签照旧在、照旧有字。
+    hintLabel->hide();
     // 提示文字有**两种形态**：选「自定义」时说"这一项只对这个实例生效"，选「跟随
     // 全局」时说"当前跟随的是什么值"。这里先把自定义那一种记下来，refreshHints()
     // 在两种之间切。
@@ -1950,6 +1953,7 @@ void InstanceSettingsDialog::refreshHints() {
     const auto setHint = [this](const QString &field, const QString &text) {
         if (auto *label = findChild<QLabel *>(followHintName(field))) {
             label->setText(text);
+            if (QWidget *cell = label->parentWidget()) cell->setToolTip(text);
         }
     };
     const auto followOrCustom = [this, &setHint](const QString &field, bool isCustom,
