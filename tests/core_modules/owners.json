@@ -51,6 +51,7 @@
   "DefaultSkinTests.cpp": "accounts",
   "AccountSkinTests.cpp": "accounts",
   "OAuthEndpointTests.cpp": "accounts",
+  "SettingsSyncRetryTests.cpp": "accounts",
   "ModpackImportTests.cpp": "resources",
   "MultiMCPatchImportTests.cpp": "resources",
   "CurseForgeTests.cpp": "resources",

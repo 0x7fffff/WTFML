@@ -1895,6 +1895,10 @@ runToolboxExtraTests();
 runOAuthEndpointTests();
 #endif
 
+#ifndef WTFML_CORE_BASELINE
+runSettingsSyncRetryTests();
+#endif
+
     // -----------------------------------------------------------------
     // 「同时最多下几个」那几档（并发数预设），见上面 ZO 节。
     // **纯函数 + 一个字面对象**：四档那个表、归一化、以及"队列泵问的是这个对象当下那一档"

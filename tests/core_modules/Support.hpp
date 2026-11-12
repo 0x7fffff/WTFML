@@ -808,6 +808,7 @@ static SavedAccount accountAt(const QList<SavedAccount> &list, int index) {
 }
 
 void runAccountSkinTests(const QString &sandbox);
+void runSettingsSyncRetryTests();
 
 // ---------------------------------------------------------------------------
 // V. 整合包导入（Modrinth 格式）：清单解析、路径判据、按前缀解压

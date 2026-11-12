@@ -6,6 +6,7 @@
 #include "AccountStore.hpp"
 
 #include "TokenStore.hpp"
+#include "util/SettingsSyncRetry.hpp"
 
 #include <QCryptographicHash>
 #include <QDateTime>
@@ -159,12 +160,11 @@ bool makeOfflineCurrent(const QString &uuid, QString *errorOut) {
         }
         return false;
     }
-    QSettings settings;
-    settings.setValue(TokenStore::currentUuidKey(), uuid);
-    settings.sync();
-    if (settings.status() != QSettings::NoError) {
+    QString fileName;
+    if (!SettingsSyncRetry::write([&](QSettings &s) { s.setValue(TokenStore::currentUuidKey(), uuid); },
+                                  &fileName)) {
         const QString why = QStringLiteral("没能把「当前账号」记到盘上（%1）。")
-                                .arg(settings.fileName());
+                                .arg(fileName);
         qWarning().noquote() << "切到离线账号失败（写 QSettings）：" << why;
         if (errorOut != nullptr) {
             *errorOut = QStringLiteral("这个账号已经保存在列表里了，但%1\n\n再点一次它试试；"
@@ -310,12 +310,11 @@ bool AccountStore::captureActive(QString *errorOut) {
     }
     // 记下当前账号（`CurrentAccountUuid`）。NOTE: 它**读的时候不参与判断**（见 activeUuid()），
     // 只是留着让"上次用的是谁"在活动槽被清掉之后还查得到。
-    QSettings settings;
-    settings.setValue(TokenStore::currentUuidKey(), uuid);
-    settings.sync();
-    if (settings.status() != QSettings::NoError) {
+    QString fileName;
+    if (!SettingsSyncRetry::write([&](QSettings &s) { s.setValue(TokenStore::currentUuidKey(), uuid); },
+                                  &fileName)) {
         // 在线账号的"当前"是从活动槽里那份凭据推出来的，这一格坏了不影响它 —— 只留一行日志。
-        qWarning() << "当前账号记不下来（QSettings 状态异常）：" << settings.fileName();
+        qWarning() << "当前账号记不下来（QSettings 状态异常）：" << fileName;
     }
     return true;
 }
@@ -380,12 +379,11 @@ bool AccountStore::activate(const QString &uuid, QString *errorOut) {
         return false;
     }
 
-    QSettings settings;
-    settings.setValue(TokenStore::currentUuidKey(), uuid);
-    settings.sync();
-    if (settings.status() != QSettings::NoError) {
+    QString fileName;
+    if (!SettingsSyncRetry::write([&](QSettings &s) { s.setValue(TokenStore::currentUuidKey(), uuid); },
+                                  &fileName)) {
         // 在线账号的"当前"是从活动槽里那份凭据推出来的，这一格坏了不影响它 —— 只留一行日志。
-        qWarning() << "当前账号记不下来（QSettings 状态异常）：" << settings.fileName();
+        qWarning() << "当前账号记不下来（QSettings 状态异常）：" << fileName;
     }
     return true;
 }
