@@ -118,9 +118,11 @@ void WindowChrome::applyFrame() {
     const COLORREF none = WTFML_DWMWA_COLOR_NONE;
     DwmSetWindowAttribute(hwnd, WTFML_DWMWA_CAPTION_COLOR, &none, sizeof(none));
     // 自己画了最外沿那一圈，就把系统那条 1px 硬边去掉（Win11 才认这一项，旧系统返回错误、忽略）；
-    // 关掉渐变时还给系统默认色。
-    const COLORREF border = WindowEdge::enabled() ? WTFML_DWMWA_COLOR_NONE : 0xFFFFFFFFu;  // DWMWA_COLOR_DEFAULT
-    DwmSetWindowAttribute(hwnd, WTFML_DWMWA_BORDER_COLOR, &border, sizeof(border));
+    // 关掉渐变时还给系统默认色；Win10 及以下不画、也不动系统边。
+    if (WindowEdge::supported()) {
+        const COLORREF border = WindowEdge::enabled() ? WTFML_DWMWA_COLOR_NONE : 0xFFFFFFFFu;  // DWMWA_COLOR_DEFAULT
+        DwmSetWindowAttribute(hwnd, WTFML_DWMWA_BORDER_COLOR, &border, sizeof(border));
+    }
 
     // 3) 系统背板（文件头"为什么只从底边往上扩"）。用不了的系统上这两句返回错误，忽略。
     const Glass::Mode mode = Glass::effectiveMode();

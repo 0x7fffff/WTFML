@@ -10,7 +10,9 @@
 #include <QEvent>
 #include <QLinearGradient>
 #include <QPainter>
+#include <QOperatingSystemVersion>
 #include <QPainterPath>
+#include <QRegion>
 #include <QTimer>
 #include <QWidget>
 
@@ -35,6 +37,7 @@ public:
         setAttribute(Qt::WA_NoSystemBackground);
         setFocusPolicy(Qt::NoFocus);
         setGeometry(window->rect());
+        updateMask();
         window->installEventFilter(this);
         raise();
         show();
@@ -47,6 +50,7 @@ protected:
             switch (event->type()) {
             case QEvent::Resize:
                 setGeometry(m_window->rect());
+                updateMask();
                 break;
             case QEvent::ChildAdded:
                 // 后加的子控件会盖到它上面：等这一拍加完再抬回最上层。
@@ -69,6 +73,14 @@ protected:
     }
 
 private:
+    /// 只留最外沿那一圈：中间的内容重绘时不经过这一层。
+    void updateMask() {
+        // 线 1px + 淡出 kFadeWidth，再多留 2px 给圆角处往里弯的那一段。
+        const int band = 1 + WindowEdge::kFadeWidth + 2;
+        const QRect all = rect();
+        setMask(QRegion(all).subtracted(QRegion(all.adjusted(band, band, -band, -band))));
+    }
+
     QWidget *m_window;
 };
 
@@ -76,7 +88,15 @@ private:
 
 namespace WindowEdge {
 
-bool enabled() { return qEnvironmentVariable("WTFML_WINDOW_EDGE") != QLatin1String("0"); }
+bool supported() {
+#ifdef Q_OS_WIN
+    return QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows11;
+#else
+    return false;
+#endif
+}
+
+bool enabled() { return supported() && qEnvironmentVariable("WTFML_WINDOW_EDGE") != QLatin1String("0"); }
 
 void paint(QPainter &painter, const QRectF &rect, bool dark) {
     painter.save();
@@ -84,7 +104,7 @@ void paint(QPainter &painter, const QRectF &rect, bool dark) {
     painter.setBrush(Qt::NoBrush);
     // 深色底：白线上亮下淡。浅色底：上沿白高光（再亮一档才看得见），下沿换成极淡的深色收边。
     const QColor top = withAlpha(Qt::white, dark ? kTopAlpha : kTopAlpha * 2.5);
-    const QColor bottom = withAlpha(dark ? QColor(Qt::white) : QColor(Qt::black), kBottomAlpha);
+    const QColor bottom = dark ? withAlpha(Qt::white, kBottomAlpha) : withAlpha(Qt::black, kLightBottomAlpha);
     for (int i = 0; i <= kFadeWidth; ++i) {
         // i = 0 是那根线；往里每一圈按平方衰减，到 kFadeWidth 归零。
         const double k = i == 0 ? 1.0 : 0.35 * std::pow(1.0 - double(i) / (kFadeWidth + 1), 2.0);
