@@ -187,7 +187,7 @@ void MainWindow::closeEvent(QCloseEvent *event) {
 
     if (!serverIds.isEmpty()) {
         // 服务端和游戏**不是一回事**，所以单独问一次（问一句再决定
-        // ——「终止游戏」/「保持后台运行」）。
+        // ——「停止服务端」/「保持后台运行」）。
         //
         // 为什么值得单独问：服务端不是"关掉启动器它也一样活着"的那种进程 —— 它是我们的子
         // 进程，启动器一退，那条析构链就会把它 TerminateProcess 掉，**正在写的世界文件
@@ -202,11 +202,11 @@ void MainWindow::closeEvent(QCloseEvent *event) {
         const QString text =
             serverIds.size() == 1
                 ? tr("服务端「%1」正在运行。\n\n关闭启动器时如何处理？\n"
-                     "「终止游戏」将等待其保存后退出（可能需要一段时间）；"
+                     "「停止服务端」将等待其保存后退出（可能需要一段时间）；"
                      "「保持后台运行」将在关闭启动器后继续运行。")
                       .arg(names.first())
                 : tr("还有 %1 个服务端在运行：%2。\n\n关闭启动器时如何处理？\n"
-                     "「终止游戏」将等待它们保存后退出（可能需要一段时间）；"
+                     "「停止服务端」将等待它们保存后退出（可能需要一段时间）；"
                      "「保持后台运行」将在关闭启动器后继续运行。")
                       .arg(serverIds.size())
                       .arg(names.join(QStringLiteral("、")));
@@ -214,7 +214,7 @@ void MainWindow::closeEvent(QCloseEvent *event) {
         // 进程更安全（突然停下来那一发万一赶在写存档的中间，就是丢存档的姿势）。
         const int choice = InlineMessage::ask(
             m_ui->overlay(), MessageKind::Question, tr("服务端正在运行"), text,
-            QStringList{tr("终止游戏"), tr("保持后台运行")}, 1, -1);
+            QStringList{tr("停止服务端"), tr("保持后台运行")}, 1, -1);
         if (choice == 0) {
             // 停要**等它走完**，而且等的是宽限那两个数算出来的时间（`ServerRun::
             // gracefulStopMs()` —— 模组越多、存档越大，给的越宽）。这一句是阻塞的：
