@@ -333,12 +333,13 @@ QLabel *addPanelHeader(QVBoxLayout *layout, QWidget *parent, ToolboxPage::Tool t
     title->setFont(font);
     layout->addWidget(title);
     auto *hint = makeMutedLabel(parent);
-    QString text = ToolboxPage::toolSummary(tool);
+    // UI 7d：页上只摆一句话说明（限宽），这一片多说的那段放进悬停提示（设计原则：文字克制）。
+    hint->setText(ToolboxPage::toolSummary(tool));
+    hint->setMaximumWidth(600);
     if (!extra.isEmpty()) {
-        text.append(QChar(' '));
-        text.append(extra);
+        hint->setToolTip(extra);
+        title->setToolTip(extra);
     }
-    hint->setText(text);
     layout->addWidget(hint);
     return hint;
 }
@@ -611,6 +612,14 @@ QWidget *ToolboxPage::buildAnvilPanel() {
         {QStringLiteral("附魔"), QStringLiteral("等级"), QStringLiteral("这一件"),
          QStringLiteral("在铁砧上用过几次"), QStringLiteral("和上一行同一件")});
     m_anvilTable->verticalHeader()->setVisible(false);
+    m_anvilTable->setFrameShape(QFrame::NoFrame);  // 不描边、不画格线，落在磨砂底上
+    m_anvilTable->setShowGrid(false);
+    {
+        QPalette pal = m_anvilTable->palette();
+        pal.setColor(QPalette::Base, Qt::transparent);
+        m_anvilTable->setPalette(pal);
+        m_anvilTable->viewport()->setAutoFillBackground(false);
+    }
     m_anvilTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
     m_anvilTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
     m_anvilTable->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -690,6 +699,7 @@ void ToolboxPage::appendAnvilRow() {
     auto *level = new QSpinBox(m_anvilTable);
     level->setRange(1, 9);  // 附魔等级没有超过 5 的；给到 9 是留个余地，真正的上限在表里
     level->setValue(1);
+    level->setButtonSymbols(QAbstractSpinBox::NoButtons);  // 格子窄，上下钮挤成两块白；滚轮 / 键盘照样能调
     m_anvilTable->setCellWidget(row, 1, level);
     auto *kind = new QComboBox(m_anvilTable);
     kind->addItem(QStringLiteral("附魔书"), true);
@@ -699,6 +709,7 @@ void ToolboxPage::appendAnvilRow() {
     uses->setRange(0, 9);
     uses->setValue(0);
     uses->setToolTip(QStringLiteral("在铁砧上加工过几次（前科 = 2^n−1）"));
+    uses->setButtonSymbols(QAbstractSpinBox::NoButtons);
     m_anvilTable->setCellWidget(row, 3, uses);
 
     // 第五格：这一条附魔和**上一行**是不是同一件东西。一本书能带好几条附魔、一件装备

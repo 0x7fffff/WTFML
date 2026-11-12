@@ -1789,6 +1789,10 @@ QString widgetStyleSheet() {
     // 跟着长高，不能为了像素对齐把字裁掉。
     // 设计稿层把输入框 / 下拉框钉到 inputHeight()；数字框那 6px 框是基样式画的，内容盒补齐。
     qss += QStringLiteral("QAbstractSpinBox { min-height: %1px; }").arg(inputHeight() - 6);
+    // 表头：不画白底、不描边，字用次要色（工具箱那几张表）。
+    qss += QStringLiteral("QHeaderView { background: transparent; border: none; }"
+                          "QHeaderView::section { background: transparent; border: none;"
+                          " color: %1; padding: 4px 6px; }").arg(paletteRef("placeholder-text"));
     // **数字框 / 下拉框里面那一格也是 `QLineEdit`** —— 上面那条会连它一起框上，画出来
     // 就是"框里还套着一个框"（自旋框自己已经有一圈边了）。这一条把它按回去。
     // 用**后代**选择器（Qt 的 `>` 子选择器不可靠，后代选择器一定生效）。
