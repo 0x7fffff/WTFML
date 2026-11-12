@@ -49,7 +49,45 @@
 #include <QVBoxLayout>
 #include <functional>
 
+#ifdef Q_OS_WIN
+#  ifndef NOMINMAX
+#    define NOMINMAX
+#  endif
+#  include <windows.h>
+#  include <cstdio>
+#endif
+
 namespace DesignShots {
+
+/// 边缘样张附带的几何账目（物理像素）：窗口矩形、客户区（换到屏幕坐标）、DWM 实际画出来的可见框。
+/// 三者一比就知道左右下各有几像素是系统非客户区条带。
+inline QJsonObject frameNumbers(QWidget &window) {
+    QJsonObject out;
+#ifdef Q_OS_WIN
+    const HWND hwnd = reinterpret_cast<HWND>(window.winId());
+    const auto rect = [](const RECT &r) { return QJsonArray{int(r.left), int(r.top), int(r.right), int(r.bottom)}; };
+    RECT wr{}, cr{}, vis{};
+    GetWindowRect(hwnd, &wr);
+    GetClientRect(hwnd, &cr);
+    POINT tl{cr.left, cr.top}, br{cr.right, cr.bottom};
+    ClientToScreen(hwnd, &tl);
+    ClientToScreen(hwnd, &br);
+    out.insert("windowRect", rect(wr));
+    out.insert("clientRect", rect(RECT{tl.x, tl.y, br.x, br.y}));
+    using GetAttr = HRESULT(WINAPI *)(HWND, DWORD, PVOID, DWORD);
+    if (HMODULE dwm = LoadLibraryW(L"dwmapi.dll")) {
+        if (auto fn = reinterpret_cast<GetAttr>(reinterpret_cast<void *>(GetProcAddress(dwm, "DwmGetWindowAttribute"))))
+            if (SUCCEEDED(fn(hwnd, 9 /* DWMWA_EXTENDED_FRAME_BOUNDS */, &vis, sizeof(vis)))) out.insert("visibleFrame", rect(vis));
+        FreeLibrary(dwm);
+    }
+    out.insert("dpiForWindow", int(GetDpiForWindow(hwnd)));
+    out.insert("frameGeometry", QJsonArray{window.frameGeometry().x(), window.frameGeometry().y(),
+                                           window.frameGeometry().width(), window.frameGeometry().height()});
+#else
+    Q_UNUSED(window);
+#endif
+    return out;
+}
 
 inline void mute(QWidget *w) {
     QPalette p = w->palette();
@@ -523,11 +561,15 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
             for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("emerald"), QStringLiteral("ocean")})
                 list.append({QStringLiteral("tool-%1-%2.png").arg(QLatin1String(key), theme), theme, {1280, 800}, false, home,
                              QStringLiteral("toolbox:") + QLatin1String(key)});
-        // 窗口最外沿渐变样张：真屏抓（带 DWM 圆角与窗外一圈桌面）；WTFML_WINDOW_EDGE=0 再跑一遍出无渐变对照。
-        list.append({QStringLiteral("edge-home-dark.png"), QStringLiteral("dark"), {1000, 700}, false, home, QStringLiteral("edge")});
-        list.append({QStringLiteral("edge-home-light.png"), QStringLiteral("emerald"), {1000, 700}, false, home, QStringLiteral("edge")});
-        list.append({QStringLiteral("edge-manage-dark.png"), QStringLiteral("dark"), {1000, 700}, false, manage, QStringLiteral("edge")});
-        list.append({QStringLiteral("edge-max-dark.png"), QStringLiteral("dark"), {1000, 700}, false, home, QStringLiteral("edge:max")});
+        // 窗口最外沿样张：真屏抓（带 DWM 圆角与窗外一圈桌面），860 宽让竖屏上四条边都在屏内；WTFML_WINDOW_EDGE=0 再跑一遍出系统默认边对照。
+        list.append({QStringLiteral("edge-home-dark.png"), QStringLiteral("dark"), {860, 640}, false, home, QStringLiteral("edge")});
+        list.append({QStringLiteral("edge-home-light.png"), QStringLiteral("emerald"), {860, 640}, false, home, QStringLiteral("edge")});
+        list.append({QStringLiteral("edge-manage-dark.png"), QStringLiteral("dark"), {860, 640}, false, manage, QStringLiteral("edge")});
+        list.append({QStringLiteral("edge-max-dark.png"), QStringLiteral("dark"), {860, 640}, false, home, QStringLiteral("edge:max")});
+        list.append({QStringLiteral("edge-home-ocean.png"), QStringLiteral("ocean"), {860, 640}, false, home, QStringLiteral("edge")});
+        // 最大化 → 还原 → 拖到屏幕另一处再抓（几何账目在还原后最容易差几像素）。
+        list.append({QStringLiteral("edge-restore-dark.png"), QStringLiteral("dark"), {860, 640}, false, home, QStringLiteral("edge:restore")});
+        list.append({QStringLiteral("edge-restore-emerald.png"), QStringLiteral("emerald"), {860, 640}, false, home, QStringLiteral("edge:restore")});
         // 主页右上账号切换条：下拉打开的样子（收起的样子看 home-*.png 右上角）。
         for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("emerald"), QStringLiteral("ocean")})
             list.append({QStringLiteral("account-menu-%1.png").arg(theme), theme, {1000, 700}, false, home, QStringLiteral("account")});
@@ -589,7 +631,13 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
             if (shot.page.startsWith(QStringLiteral("edge"))) {
                 // 整窗（连窗外一圈）都得在屏上：竖屏 / 小屏上 1280 宽会伸出屏外。
                 if (shot.page == QStringLiteral("edge:max")) window.showMaximized();
-                else window.move(window.screen()->availableGeometry().topLeft() + QPoint(60, 60));
+                else if (shot.page == QStringLiteral("edge:restore")) {
+                    window.showMaximized();
+                    QTimer::singleShot(300, &window, [&window] {
+                        window.showNormal();
+                        window.move(window.screen()->availableGeometry().topLeft() + QPoint(33, 417));
+                    });
+                } else window.move(window.screen()->availableGeometry().topLeft() + QPoint(60, 60));
                 window.raise();
                 window.activateWindow();
             } else if (shot.page == QStringLiteral("gamelog")) {
@@ -709,6 +757,11 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
                                                         : window.frameGeometry().adjusted(-24, -24, 24, 24);
                 shotImage = screen->grabWindow(0, area.x() - screen->geometry().x(), area.y() - screen->geometry().y(),
                                                area.width(), area.height());
+                QJsonObject numbers = frameNumbers(window);
+                numbers.insert("file", shot.file);
+                numbers.insert("grabArea", QJsonArray{area.x(), area.y(), area.width(), area.height()});
+                std::fprintf(stdout, "EDGE %s\n", QJsonDocument(numbers).toJson(QJsonDocument::Compact).constData());
+                std::fflush(stdout);
             }
             if (log != nullptr) { log->close(); log->deleteLater(); }
             // 工具箱面板是 Qt::Popup（另一个顶层窗），window.grab() 抓不到它：按它在窗口里的位置贴上去。
