@@ -114,10 +114,14 @@ bool MainWindow::saveUpdatePolicy() {
 }
 
 void MainWindow::setInstanceMode(MainWindowUI::InstanceMode mode) {
-    m_instanceMode = mode;
     if (m_ui != nullptr) {
         m_ui->setInstanceMode(mode);  // 停在哪一页 + 谁勾着（唯一出处）
+        // 预设编辑器里取消离开时界面留在原页：这边也不换档，免得记下的模式和看到的那页对不上。
+        if (QStackedWidget *stack = m_ui->getInstanceModeStack();
+            stack != nullptr && stack->currentIndex() != static_cast<int>(mode))
+            return;
     }
+    m_instanceMode = mode;
     if (mode == MainWindowUI::InstanceMode::Server) {
         // 切到服务端那一页时顺手重扫一遍：盘上那个 Servers/ 可能刚被别的东西动过
         // （用户在资源管理器里删了一个、或者拖进来一个装好的）。

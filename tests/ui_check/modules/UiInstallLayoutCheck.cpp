@@ -107,14 +107,21 @@ int UiInstallLayoutCheck(QApplication &app) {
         {
             ui.setInstanceMode(MainWindowUI::InstanceMode::Preset);
             auto *instancePage=ui.getTabWidget()->widget(MainWindowUI::instancesTabIndex());
-            auto *folderColumn=instancePage->findChild<QWidget *>(MainWindowUI::leftColumnName("instance"));
-            expect(folderColumn&&!folderColumn->isHidden(),"preset mode keeps the folder column, same as instances");
+            // 管理页按设计稿没有左栏了（02ba270）：游戏文件夹是标题右边那颗胶囊，预设也属于当前文件夹，所以每一档都在。
+            auto *folderPill=instancePage->findChild<QPushButton *>(MainWindowUI::instanceFolderPillName());
+            expect(folderPill&&!folderPill->isHidden(),"preset mode keeps the game folder pill, same as instances");
             ui.navigationGuard=[] { return false; };
-            if (auto *client=ui.getInstanceModeButton(MainWindowUI::InstanceMode::Client))client->click();
-            expect(ui.getInstanceModeStack()->currentIndex()==static_cast<int>(MainWindowUI::InstanceMode::Preset) && ui.getInstanceModeButton(MainWindowUI::InstanceMode::Preset)->isChecked(),"cancelled preset departure keeps the active mode indicator");
+            // 点模式钮换页由 MainWindow 接（ConnectionsController → setInstanceMode）；这里只有界面层，照它接上。
+            if (auto *client=ui.getInstanceModeButton(MainWindowUI::InstanceMode::Client)) {
+                const auto wire=QObject::connect(client,&QPushButton::clicked,[&ui]{ui.setInstanceMode(MainWindowUI::InstanceMode::Client);});
+                client->click();
+                QObject::disconnect(wire);
+            }
+            expect(ui.getInstanceModeStack()->currentIndex()==static_cast<int>(MainWindowUI::InstanceMode::Preset) && ui.getInstanceModeButton(MainWindowUI::InstanceMode::Preset)->isChecked()
+                   && !ui.getInstanceModeButton(MainWindowUI::InstanceMode::Client)->isChecked(),"cancelled preset departure keeps the active mode indicator");
             ui.navigationGuard={};
             ui.setInstanceMode(MainWindowUI::InstanceMode::Client);
-            expect(folderColumn&&!folderColumn->isHidden(),"returning to client instances restores the folder column");
+            expect(folderPill&&!folderPill->isHidden(),"returning to client instances keeps the game folder pill");
             PresetEditorPage editor(QJsonObject{{"id","editor-test"},{"name","Original"}});
             if(app.arguments().contains(QStringLiteral("--install-layout-preview"))){
                 editor.resize(980,640);editor.show();app.processEvents();QDir().mkpath("build/install-previews");editor.grab().save("build/install-previews/preset-editor.png");

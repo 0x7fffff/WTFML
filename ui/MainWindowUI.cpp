@@ -1544,7 +1544,7 @@ void MainWindowUI::setInstanceMode(InstanceMode mode) {
     // 三颗按钮的勾和停着的那一页**一起**改（这是这个函数存在的全部意义）。
     instanceModeStack->setCurrentIndex(index);
     // Presets live in the selected game folder too (they serve that folder's instances),
-    // so the folder column stays visible in every mode.
+    // so the game folder pill stays visible in every mode.
     if (auto *page = tabWidget->widget(instancesTabIndex())) {
         if (auto *title = page->findChild<QLabel *>(pageTitleName(QStringLiteral("instance"))))
             title->setText(mode==InstanceMode::Preset ? QStringLiteral("预设") : QStringLiteral("实例"));
