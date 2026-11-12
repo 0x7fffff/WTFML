@@ -29,6 +29,7 @@
 #include <QMenu>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QPixmap>
 #include <QPainterPath>
 #include <QPushButton>
 #include <QResizeEvent>
@@ -159,16 +160,18 @@ public:
         const auto style = [b, icon, on, danger] {
             const Theme::Tokens t = Theme::tokens();
             const QColor ink = danger ? Theme::textTone(t.dangerInk, t.danger) : on ? accentInk() : t.text;
+            // 高度写进样式表：全局 QSS 重新 polish 时会把 setFixedHeight 钉的最小高度改回去。
             b->setStyleSheet(QStringLiteral("QPushButton { text-align: left; padding: 0 12px; border: none; border-radius: 8px;"
-                                            " background: %1; color: %2; }"
+                                            " min-height: 34px; max-height: 34px; background: %1; color: %2; }"
                                             "QPushButton:hover { background: %3; }")
                                  .arg(on ? t.selected.name(QColor::HexArgb) : QStringLiteral("transparent"),
                                       ink.name(QColor::HexArgb),
                                       (on ? t.selected : t.hover).name(QColor::HexArgb)));
-            if (!icon.isEmpty()) {
-                b->setIcon(VersionIcons::line(icon, 18, danger ? ink : t.secondary));
-                b->setIconSize(QSize(18, 18));
-            }
+            // 没有图标的行放一枚透明占位，字和有图标的行对齐。
+            QPixmap blank(18, 18);
+            blank.fill(Qt::transparent);
+            b->setIcon(icon.isEmpty() ? QIcon(blank) : VersionIcons::line(icon, 18, danger ? ink : t.secondary));
+            b->setIconSize(QSize(18, 18));
         };
         style();
         Theme::follow(b, style);
@@ -228,6 +231,9 @@ QPushButton *iconButton(QWidget *parent, const QString &name, const QString &ico
     const auto tint = [b, icon, glyph] {
         b->setIcon(VersionIcons::line(icon, glyph, Theme::tokens().secondary, icon == QLatin1String("more") ? 2.4 : 1.6));
         b->setIconSize(QSize(glyph, glyph));
+        // 弹层开着时锚点留着悬停那层底（样张 .ib.on）。
+        b->setStyleSheet(QStringLiteral("QPushButton[open=\"true\"] { background: %1; border-radius: 10px; }")
+                             .arg(Theme::tokens().hover.name(QColor::HexArgb)));
     };
     tint();
     Theme::follow(b, tint);
@@ -408,9 +414,10 @@ AgentPage::AgentPage(QWidget *parent)
         m_instanceValue->setObjectName(QStringLiteral("agentInstanceValue"));
         m_instanceValue->setAttribute(Qt::WA_TransparentForMouseEvents);
         m_instanceValue->setFont(pxFont(m_instanceValue->font(), 13.5, QFont::Medium));
+        // 父按钮挂了样式表，子 QLabel 的调色板会被样式表那套盖掉：字色也走样式表。
         const auto tint = [lbl, value = m_instanceValue] {
-            setInk(lbl, Theme::tokens().secondary);
-            setInk(value, Theme::tokens().text);
+            lbl->setStyleSheet(QStringLiteral("color: %1;").arg(Theme::tokens().secondary.name(QColor::HexArgb)));
+            value->setStyleSheet(QStringLiteral("color: %1;").arg(Theme::tokens().text.name(QColor::HexArgb)));
         };
         tint();
         Theme::follow(m_instanceChip, tint);
@@ -546,7 +553,8 @@ AgentPage::AgentPage(QWidget *parent)
     }
     m_notice->hide();
     m_messageLayout->addWidget(m_notice);
-    m_messageLayout->addStretch(1);
+    // 弹簧系数 0：空状态（系数 1）在时整块高度归它、内容上下居中；不在时这根 Expanding 弹簧把消息顶到上面。
+    m_messageLayout->addStretch(0);
     m_scroll->setWidget(host);
     chatLayout->addWidget(m_scroll, 1);
 
@@ -589,7 +597,11 @@ AgentPage::AgentPage(QWidget *parent)
     composerBar->addWidget(m_send);
     composerBar->addWidget(m_stop);
     composerLayout->addLayout(composerBar);
-    chatLayout->addWidget(composerRow, 0, Qt::AlignHCenter);
+    // 和消息列同一个摆法：横向一行里只放它，超过 760 时由横排居中（带对齐的格子只按 sizeHint 给宽）。
+    auto *composerLine = new QHBoxLayout;
+    composerLine->setContentsMargins(0, 0, 0, 0);
+    composerLine->addWidget(composerRow);
+    chatLayout->addLayout(composerLine);
     // 岛宽跟对话列一起走：不到 760 时撑满，超过时居中定宽。
     composerRow->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     root->addWidget(chat, 1);
@@ -744,7 +756,6 @@ void AgentPage::upsertMessage(const AgentView::Message &message) {
         m_views.insert(message.id, view);
         insertStreamWidget(view);
         // 自己说的话靠右一块淡底气泡，助手的话铺满（样张 .msg.me / .msg.ai）。
-        if (message.user) m_messageLayout->setAlignment(view, Qt::AlignRight);
     } else {
         view->setMessage(message);
     }
@@ -853,6 +864,8 @@ void AgentPage::setModelLabel(const QString &label) {
 
 void AgentPage::setInstanceChip(const QString &text, bool locked) {
     m_instanceValue->setText(text);
+    // QPushButton 的 sizeHint 只量自己的字（这里是空的），宽度按里面两颗字的布局给。
+    m_instanceChip->setMinimumWidth(qMin(260, m_instanceChip->layout()->sizeHint().width()));
     m_instanceChip->setProperty("locked", locked);
 }
 
@@ -903,6 +916,9 @@ void AgentPage::setEncryptionChecked(bool checked) {
 
 void AgentPage::showNotice(const QString &text) {
     m_noticeText->setText(text);
+    // 折行 QLabel 的 sizeHint 偏窄：短句按一行的宽给，长句（导出路径）到上限再折。
+    m_noticeText->setMinimumWidth(qMin(m_noticeText->fontMetrics().horizontalAdvance(text) + 4,
+                                       m_noticeText->maximumWidth()));
     m_notice->setVisible(!text.isEmpty());
     if (!text.isEmpty()) scrollToLatest();
 }

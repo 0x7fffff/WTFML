@@ -38,6 +38,7 @@ private:
     void refresh();
 
     AgentView::Message m_message;
+    QWidget *m_bubble = nullptr;  ///< 内容那一块；自己的话时它靠右、定宽，底色画在它下面
     QLabel *m_role = nullptr;
     QLabel *m_body = nullptr;
     QLabel *m_reasoning = nullptr;
