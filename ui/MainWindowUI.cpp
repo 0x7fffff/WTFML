@@ -2010,7 +2010,8 @@ void MainWindowUI::setHomeQuickMode(HomeQuickMode mode) {
                 }
             }
             if (name == QStringLiteral("homeCurrentEyebrow") || name == QStringLiteral("homeCurrentName") ||
-                name == QStringLiteral("homeCurrentVersion") || name == QStringLiteral("homeCurrentGap")) {
+                name == QStringLiteral("homeCurrentVersion") || name == QStringLiteral("homeCurrentLoaderIcon") ||
+                name == QStringLiteral("homeCurrentGap")) {  // 行首加载器图标跟元信息一起收，不然压不成一行
                 widget->setVisible(!compact);
             }
             if (name == QStringLiteral("homeCurrentCompactName")) widget->setVisible(compact);
