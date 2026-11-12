@@ -117,10 +117,10 @@ int UiContentRowsChecks() {
                   "★ Z15a 圆钮在**关**的时候贴左边（ink-2）、在**开**的时候贴右边（on-accent）",
                   QStringLiteral("关 %1 / 开 %2")
                       .arg(offKnob.name(), onKnob.name()));
-            // 设计稿：关着是空心描边（轨道里透出底下），开着是强调色实心。
+            // 关着是 fill-press 淡底实心（不描边，「去硬描边」），开着是强调色实心。
             const QColor expectedOn = toggle.palette().color(QPalette::Accent);
             check(paintRgb(onTrack) == paintRgb(expectedOn) && paintRgb(offTrack) != paintRgb(expectedOn),
-                  "★ Z15a 轨道：关着空心、开着是调色板里的强调色实心",
+                  "★ Z15a 轨道：关着是淡底（不是强调色）、开着是调色板里的强调色实心",
                   QStringLiteral("关 %1 / 开 %2（强调 %3）")
                       .arg(offTrack.name(), onTrack.name(), expectedOn.name()));
             toggle.hide();

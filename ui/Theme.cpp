@@ -1439,22 +1439,27 @@ void markIconButton(QWidget *button) {
 }
 
 QString chipStyleSheet(const QPalette &palette) {
-    // 设计稿胶囊：1px line-2 描边 + ink-2 字；悬停中性灰 + ink；按下 fill-press；
-    // 选中 = 强调色淡底 + 强调字、无描边。
+    // 胶囊：不描边（「去硬描边」），靠次按钮那档淡底立住；深色下那档太淡（白 7%），
+    // 提到 11% 形状才清楚。悬停次按钮悬停底 + ink；按下 fill-press；选中 = 强调色淡底 + 强调字。
+    // 四边留 1px 透明边，高度不变。
     const auto c = [&palette](QPalette::ColorRole role) { return palette.color(role).name(QColor::HexArgb); };
+    QColor fill = palette.color(QPalette::Button);
+    if (isDarkPalette(palette)) fill.setAlphaF(qMax(fill.alphaF(), 0.11));
+    QColor hover = palette.color(QPalette::Shadow);
+    if (isDarkPalette(palette)) hover.setAlphaF(qMax(hover.alphaF(), 0.16));
     // 高度写进 QSS：图标按钮那条 `min-height: 0` 复位会把 C++ 的 setFixedHeight 下限冲掉。
     // 内容盒 = chipHeight − 上下 1px 边 − 上下 2px padding。
-    return QStringLiteral("QPushButton { border: 1px solid %1; border-radius: %2px; padding: 2px 14px;"
-                          " background: transparent; color: %3; min-height: %11px; max-height: %11px; }"
+    return QStringLiteral("QPushButton { border: 1px solid transparent; border-radius: %1px; padding: 2px 14px;"
+                          " background-color: %2; color: %3; min-height: %9px; max-height: %9px; }"
                           "QPushButton:hover:!checked { background-color: %4; color: %5; }"
                           "QPushButton:pressed:!checked { background-color: %6; color: %5; }"
-                          "QPushButton:checked { background-color: %7; color: %8; border-color: transparent; }"
-                          "QPushButton:disabled { border-color: %9; color: %10; background: transparent; }")
-        .arg(c(QPalette::Dark)).arg(chipHeight() / 2)
-        .arg(c(QPalette::PlaceholderText), c(QPalette::Light), c(QPalette::WindowText), c(QPalette::Midlight),
-             c(QPalette::Highlight), c(QPalette::Link), tokens().divider.name(QColor::HexArgb),
-             tokens().disabled.name(QColor::HexArgb))
-        .arg(chipHeight() - 6);
+                          "QPushButton:checked { background-color: %7; color: %8; }"
+                          "QPushButton:disabled { color: %10; background: transparent; }")
+        .arg(chipHeight() / 2)
+        .arg(fill.name(QColor::HexArgb), c(QPalette::PlaceholderText), hover.name(QColor::HexArgb),
+             c(QPalette::WindowText), c(QPalette::Midlight), c(QPalette::Highlight), c(QPalette::Link))
+        .arg(chipHeight() - 6)
+        .arg(tokens().disabled.name(QColor::HexArgb));
 }
 
 void markBadge(QLabel *label, BadgeTone tone) {
@@ -1496,7 +1501,7 @@ protected:
         const QRectF track(0.5, 0.5, 39, 21);
         const bool on = box->isChecked();
         if (!box->isEnabled()) p.setOpacity(0.45);
-        p.setPen(on ? Qt::NoPen : QPen(t.stroke, 1));
+        p.setPen(Qt::NoPen);  // 关着也不描边：fill-press 底 + 圆点就认得出轨道
         p.setBrush(on ? t.primary : t.fillPress);
         p.drawRoundedRect(track, 10.5, 10.5);
         const qreal d = 16;
@@ -2077,12 +2082,12 @@ QString widgetStyleSheet() {
                "QPushButton[%2=\"%3\"]:pressed:enabled { background-color: palette(midlight); }"
                "QPushButton[%2=\"%3\"]:checked { background-color: palette(highlight); }")
                .arg(kind, QString::fromLatin1(kButtonSizeProperty), QString::fromLatin1(kIconButtonValue));
-    // 输入框 / 下拉：fill-soft 底 + 底部 1px line-2；悬停 fill-soft-hover；焦点底线 2px 强调色；
+    // 输入框 / 下拉：fill-soft 底、默认不描线（「去硬描边」）；悬停 fill-soft-hover；焦点底线 2px 强调色；
     // 错误底线 2px 危险色；禁用无底线。
     qss += QStringLiteral(
         "QLineEdit, QComboBox { background-color: palette(base); color: palette(text);"
-        // 四边留 1px 透明边、只把底那条上色：和数字框（四边 1px）一样高，看着仍是只有一条底线。
-        " border: 1px solid transparent; border-bottom-color: palette(dark); border-radius: %1px; padding: 1px 10px;"
+        // 四边留 1px 透明边、不上色：和数字框（四边 1px）一样高；底线只在焦点 / 报错时出现。
+        " border: 1px solid transparent; border-radius: %1px; padding: 1px 10px;"
         " min-height: %3px; }"
         "QLineEdit:hover:enabled, QComboBox:hover:enabled { background-color: palette(shadow); }"
         // 和 chip 并排的搜索框（`wtfmlChipHeight`）：QSS 的 min-height 会冲掉 setFixedHeight，高度也写在这儿。
@@ -2094,12 +2099,12 @@ QString widgetStyleSheet() {
         " border-bottom-color: transparent; }"
         "QComboBox::drop-down { width: 28px; border: none; }"  // V 由 ComboChevronPainter 补（见那段）
         "QComboBox QAbstractItemView { background-color: palette(tool-tip-base); color: palette(text);"
-        " border: 1px solid palette(dark); selection-background-color: palette(midlight); selection-color: palette(text); }"
+        " border: none; selection-background-color: palette(midlight); selection-color: palette(text); }"
         "QCheckBox, QCheckBox:checked { color: palette(window-text); }"
         "QCheckBox:disabled { color: palette(link-visited); }"
         "QCheckBox::indicator { width: 18px; height: 18px; }"
         "QToolTip { background-color: palette(tool-tip-base); color: palette(tool-tip-text);"
-        " border: 1px solid palette(dark); padding: 5px 9px; }"
+        " border: none; padding: 5px 9px; }"
         "QProgressBar { background-color: palette(dark); border: none; border-radius: 2px; color: palette(text); }"
         "QProgressBar::chunk { background-color: palette(accent); border-radius: 2px; }"
         "QSlider::groove:horizontal { height: 3px; background: palette(dark); border-radius: 1px; }"
@@ -2125,7 +2130,7 @@ QString widgetStyleSheet() {
     // 字符串必须不变（见 installButtonSheet()），写死 token 会让每次换主题都在换调色板**之前**
     // 重挂一遍，跟着主题算色的控件拿到的还是旧色（U32.4 那排 chip 就是这么停在深色上的）。
     qss += QStringLiteral(
-        "QMenu { background-color: palette(window); color: palette(window-text); border: 1px solid palette(mid);"
+        "QMenu { background-color: palette(window); color: palette(window-text); border: none;"
         " border-radius: 10px; padding: 6px; }"
         "QMenu::item { padding: 6px 22px 6px 12px; border-radius: 6px; background-color: transparent; }"
         "QMenu::item:selected { background-color: palette(light); color: palette(window-text); }"
