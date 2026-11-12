@@ -16,6 +16,17 @@
 
 默认构建目录 `build/verification-mingw13`，首次按 `verification` preset 配置；已有目录沿用它自己的配置，不会换编译器。脚本构建前会强制结束正在运行的 `WTFMinecraftLauncher`（`-NoBuild` / `-ListOnly` 不会）。失败时看 `build/test-runs/<时间>-<随机号>/` 里的日志，控制台只显示末尾摘要。
 
+### 日常看效果
+
+改完代码只想看界面，不跑测试：
+
+```powershell
+./tools/dev-build.ps1      # 增量编 build/verification-mingw13 的 exe，并行度默认 CPU 核数减 2（-Jobs 覆盖）
+./tools/dev-run.ps1        # 用动态 Qt 起 exe，不阻塞终端；打印 exe 路径与 PID
+```
+
+exe 在 `build/verification-mingw13/WTFMinecraftLauncher.exe`，改完代码重跑 `dev-build.ps1` 即可。两个脚本自己把 Qt 的 `bin` 与 MinGW 13.1 的 `bin` 前置进 PATH、设 `QT_PLUGIN_PATH`，路径读构建目录的 `CMakeCache.txt`，读不到用本机默认；目录不存在时 `dev-build.ps1` 按 `verification` preset 配置一次（带 `-DWTFML_BUILD_NETWORK_DIAG=ON`）。有 `ctest`/`mw_check`/`ui_check` 在跑时它拒绝构建，`-Force` 跳过；两个脚本都支持 `-DryRun` 只看命令。
+
 ### 套件
 
 `tools/test.ps1 -Suite <名>` 共 14 个套件：
