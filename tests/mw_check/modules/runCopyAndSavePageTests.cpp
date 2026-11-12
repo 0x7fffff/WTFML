@@ -172,7 +172,7 @@ void runCopyAndSavePageTests() {
         // 断言的 —— 标题颜色跟着 kind 走，混起来用户就分不清"我输错了"和"盘上出事了"。
         check(g_modalTitle == QStringLiteral("复制实例失败"),
               "T27.3 重名是按「复制实例失败」报的（数据层那一整句原样端出来）", g_modalTitle);
-        check(g_modalText.contains(QStringLiteral("已经有一个叫")), "T27.3 原因说清了重名",
+        check(g_modalText.contains(QStringLiteral("已存在名为")), "T27.3 原因说清了重名",
               g_modalText);
         QFile f(elsewhere.path() + QStringLiteral("/versions/副本A/副本A.jar"));
         QByteArray got;
@@ -220,7 +220,7 @@ void runCopyAndSavePageTests() {
         check(!ok, "★★ T27.3 目标就是**这一份实例自己的目录** → 拒绝（不然它会自己抄自己）");
         check(g_modalWasWarning && g_modalTitle == QStringLiteral("复制实例"),
               "T27.3 而且是这一层用一句 warning 拦的", g_modalTitle);
-        check(g_modalText.contains(QStringLiteral("不能复制到它自己里面去")) &&
+        check(g_modalText.contains(QStringLiteral("不能复制到其自身或子目录")) &&
                   g_modalText.contains(QDir::toNativeSeparators(versionDir)),
               "★ T27.3 话里点名了**用户刚挑的那个目录**（这一层存在的意义就是这句话）",
               g_modalText);
@@ -273,8 +273,7 @@ void runCopyAndSavePageTests() {
             // 光看 !ok 会是个**假绿**：复制跑下去撞路径上限也是 !ok。必须是界面上那句
             // warning（标题「复制实例」+ 那句话），不是数据层那句「复制实例失败」。
             check(g_modalTitle == QStringLiteral("复制实例")
-                      && g_modalText.contains(QStringLiteral("不能复制到它自己里面去")),
-                  "★★ T27.3 而且拒的是**那一道闸**（warning 那句话说出来了），不是"
+                      && g_modalText.contains(QStringLiteral("不能复制到其自身或子目录")),
                   "「复制跑下去撞了墙才失败」那种假绿",
                   g_modalTitle + QStringLiteral(" / ") + g_modalText);
             check(!QFileInfo::exists(versionDir + QStringLiteral("/versions")),

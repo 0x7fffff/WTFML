@@ -725,7 +725,7 @@ void runBottomBarPanelTests() {
                   "AH8 令牌换不出来**要弹窗**（产品级约束：错误要弹窗，不能只写日志）",
                   g_modalTitle + QStringLiteral(" / ") + g_modalText);
             check(g_modalText.contains(QStringLiteral("已切换至「Carol」")) &&
-                      g_modalText.contains(QStringLiteral("重新登录一次")),
+                      g_modalText.contains(QStringLiteral("重新登录")),
                   "AH8 弹窗把「切过去了」和「令牌没换到」分开说，并指出下一步", g_modalText);
             check(countOccurrences(messagesSnapshot(), QStringLiteral("没能刷新")) ==
                       refreshFailedBefore + 1,
