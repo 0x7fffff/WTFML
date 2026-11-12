@@ -1167,7 +1167,9 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         spin->setRange(0, 5);
         spin->setSuffix(QStringLiteral(" 个"));
         WheelGuard::install(spin);
-        boxLayout->addWidget(spin, 0, Qt::AlignLeft);
+        // 0–5 的小整数：套成「− 值 +」那一档（controls-c 样张）。值仍在这颗 QSpinBox 上，
+        // 范围 / suffix / valueChanged / 持久化都不动。
+        boxLayout->addWidget(Theme::makeNumberStepper(box, spin, 56), 0, Qt::AlignLeft);
         addSettingHelp(box, QStringLiteral("0 表示隐藏；窄屏自动精简为图标。"), form);
         addSettingsControl(section7, label, box, form);
         *out = spin;

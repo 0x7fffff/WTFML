@@ -323,17 +323,13 @@ void InstanceSettingsDialog::setupLaunchPage(const GlobalValues &global, const Q
 
     // ---------- 高级选项（默认折叠） ----------
     {
-        m_advancedToggle = new QToolButton(this);
+        // 折叠行：整行一颗按钮，右边「展开 / 收起」，不放 ▸ 方框钮（8 号反馈）。
+        m_advancedToggle = Theme::makeFoldRow(this, advancedToggleText());
         m_advancedToggle->setObjectName(advancedToggleName());
-        m_advancedToggle->setText(advancedToggleText());
-        m_advancedToggle->setCheckable(true);
         m_advancedToggle->setChecked(false);
-        m_advancedToggle->setArrowType(Qt::RightArrow);
-        m_advancedToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-        m_advancedToggle->setAutoRaise(true);  // 扁平：不单画一块底（非 autoRaise 在深色主题下画成一块白）
         // 默认折叠。里面几项都是"改错了游戏直接起不来"的东西，一打开对话框就摆在
         // 眼前等于诱导用户去动它。
-        grid->addWidget(m_advancedToggle, row++, 0, 1, 2, Qt::AlignLeft);
+        grid->addWidget(m_advancedToggle, row++, 0, 1, 2);
 
         m_advancedBox = new QWidget(this);
         m_advancedBox->setObjectName(advancedBoxName());
@@ -346,14 +342,13 @@ void InstanceSettingsDialog::setupLaunchPage(const GlobalValues &global, const Q
         m_advancedBox->setHidden(true);
         grid->addWidget(m_advancedBox, row++, 0, 1, 2);
 
-        connect(m_advancedToggle, &QToolButton::toggled, this, [this](bool expanded) {
+        connect(m_advancedToggle, &QAbstractButton::toggled, this, [this](bool expanded) {
             // 展开前这个窗有多高：折回时按它还原（用户自己拉过的也算数 —— 记的是"展开
             // 那一刻"的高度，不是构造时那个 820x560）。
             if (expanded) {
                 m_heightBeforeAdvanced = height();
             }
             m_advancedBox->setHidden(!expanded);
-            m_advancedToggle->setArrowType(expanded ? Qt::DownArrow : Qt::RightArrow);
             // 折回之后得让窗口**缩回去**：Qt 只在"窗口比内容还小"时把它撑大（展开那一下
             // 就是它干的），内容变少时它一动不动 —— 不补这一句，展开一次再收起，底下就
             // 永远留着那一截空白。
