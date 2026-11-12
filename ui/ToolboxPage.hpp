@@ -475,6 +475,8 @@ private:
     void appendAnvilRow();
     /// 删掉一行之后把「和上一行同一件」那一列重新摆一遍（第一行没有上一行）。
     void refreshAnvilSameColumn();
+    /// 哈希结果区右上那组钮：单文件只留「复制」，批量清单才出「复制全部 / 导出…」。
+    void syncHashActions();
     /// chip 的选中态（只认当前那一颗，和下载页四颗 chip 同一套判据）。
     void syncChips();
     /// 旗帜那一排层的列表按 `m_bannerLayers` 重画一遍（行名从两张下拉框里取）。

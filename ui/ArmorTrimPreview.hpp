@@ -26,9 +26,9 @@ public:
 protected:
     void paintEvent(QPaintEvent *) override {
         QPainter painter(this);
-        painter.fillRect(rect(), palette().alternateBase());
+        // 不铺底：它摆在工具页那块柔和面板里，底色由面板给（原来那块 alternateBase 在浅色主题里是一整块白）。
         if (m_scene.skin.isNull()) {
-            painter.setPen(palette().color(QPalette::Text));
+            painter.setPen(palette().color(QPalette::PlaceholderText));
             painter.drawText(rect().adjusted(16,16,-16,-16), Qt::AlignCenter | Qt::TextWordWrap,
                              tr("载入游戏资源后显示纹饰预览"));
         } else SkinModel::render(painter, QRectF(rect()).adjusted(12,12,-12,-12), m_scene);
