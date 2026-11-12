@@ -12,6 +12,11 @@
 #include "ToolboxPage.hpp"
 #include "GameLogWindow.hpp"
 #include "SchematicInfoDialog.hpp"
+#include "ChromeDialog.hpp"
+#include "DownloadToolDialog.hpp"
+#include "InlineMessage.hpp"
+#include "InstanceUpdateWizard.hpp"
+#include "PresetModReview.hpp"
 #include "UpgradeHistoryDialog.hpp"
 #include "UpgradeReportDialog.hpp"
 #include "ToggleSwitch.hpp"
@@ -478,6 +483,10 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         {QStringLiteral("dialog-history-emerald.png"), QStringLiteral("emerald"), {1280, 800}, false, home, QStringLiteral("dialog:history")},
         {QStringLiteral("dialog-schematic-dark.png"), QStringLiteral("dark"), {1280, 800}, false, home, QStringLiteral("dialog:schematic")},
         {QStringLiteral("dialog-schematic-emerald.png"), QStringLiteral("emerald"), {1280, 800}, false, home, QStringLiteral("dialog:schematic")},
+        {QStringLiteral("dialog-download-dark.png"), QStringLiteral("dark"), {1280, 800}, false, home, QStringLiteral("dialog:download")},
+        {QStringLiteral("dialog-wizard-dark.png"), QStringLiteral("dark"), {1280, 800}, false, home, QStringLiteral("dialog:wizard")},
+        {QStringLiteral("dialog-modreview-dark.png"), QStringLiteral("dark"), {1280, 800}, false, home, QStringLiteral("dialog:modreview")},
+        {QStringLiteral("dialog-startup-dark.png"), QStringLiteral("dark"), {1280, 800}, false, home, QStringLiteral("dialog:startup")},
         {QStringLiteral("toolbox-page-dark.png"), QStringLiteral("dark"), {1280, 800}, false, home, QStringLiteral("toolbox:anvil")},
         {QStringLiteral("toolbox-page-emerald.png"), QStringLiteral("emerald"), {1280, 800}, false, home, QStringLiteral("toolbox:anvil")},
     };
@@ -568,6 +577,47 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
                     dialog = report;
                 } else if (kind == QStringLiteral("history")) {
                     dialog = new UpgradeHistoryDialog(nullptr);
+                } else if (kind == QStringLiteral("download")) {
+                    auto *download = new DownloadToolDialog(nullptr);
+                    download->url->setText(QStringLiteral("https://example.com/modpack.zip"));
+                    dialog = download;
+                } else if (kind == QStringLiteral("wizard")) {
+                    auto *target = new QLabel(QStringLiteral("目标版本：1.21.1 · Fabric 0.16.5"));
+                    dialog = new InstanceUpdateWizard(target, new QWidget, new QWidget, new QWidget);
+                    dialog->resize(1060, 720);
+                } else if (kind == QStringLiteral("modreview")) {
+                    Presets::ModInstallPlan plan;
+                    Presets::ModInstallRow sodium;
+                    sodium.key = QStringLiteral("modrinth:sodium");
+                    sodium.title = QStringLiteral("Sodium");
+                    sodium.status = Presets::ModInstallStatus::Download;
+                    sodium.version.id = QStringLiteral("abc123");
+                    sodium.version.versionNumber = QStringLiteral("0.6.0");
+                    sodium.file.filename = QStringLiteral("sodium-fabric-0.6.0.jar");
+                    sodium.file.size = 1200000;
+                    Presets::ModInstallRow iris = sodium;
+                    iris.key = QStringLiteral("modrinth:iris");
+                    iris.title = QStringLiteral("Iris Shaders");
+                    iris.status = Presets::ModInstallStatus::Unknown;
+                    iris.file = {};
+                    iris.version = {};
+                    plan.rows = {sodium, iris};
+                    plan.download = 1;
+                    plan.unknown = 1;
+                    dialog = new PresetModReview(plan, nullptr);
+                } else if (kind == QStringLiteral("startup")) {
+                    // 照 main.cpp 那扇「启动器已在运行或目录不可用」搭一扇；提示卡下一拍再摆（它是阻塞的），
+                    // 抓完图窗一关就把它收掉，嵌套循环随即退出，后面的截图照常走。
+                    auto *host = new ChromeDialog(nullptr);
+                    host->setWindowTitle(QStringLiteral("启动器已在运行或目录不可用"));
+                    host->resize(OverlayHost::promptWidth() + 80, 320 + ChromeDialog::stripHeight());
+                    auto *overlay = new OverlayHost(host->body(), host->body());
+                    QObject::connect(host, &QDialog::finished, overlay, [overlay] { overlay->dismiss(); });
+                    QTimer::singleShot(0, overlay, [overlay] {
+                        InlineMessage::information(overlay, QStringLiteral("启动器已在运行或目录不可用"),
+                                                   QStringLiteral("另一个启动器正在使用这个游戏目录。"));
+                    });
+                    dialog = host;
                 } else {
                     dialog = new SchematicInfoDialog(QStringLiteral("C:/不存在/城堡.litematic"), nullptr);
                 }

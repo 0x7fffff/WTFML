@@ -481,6 +481,7 @@ int UiBannerArmorChecks();
 int UiUpgradeReportChecks(QApplication &app);
 
 int UiUpgradeHistoryChecks(QApplication &app);
+int UiTopLevelDialogChecks(QApplication &app);
 
 
 /// 智能体页/设置页的 offscreen 检查（专门模块 ui_check_agent）。

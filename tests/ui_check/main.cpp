@@ -2674,6 +2674,7 @@ int main(int argc, char *argv[]) {
     if (const int result = UiUpgradePageChecks(app); result != 0) return result;
     if (const int result = UiUpgradeReportChecks(app); result != 0) return result;
     if (const int result = UiUpgradeHistoryChecks(app); result != 0) return result;
+    if (const int result = UiTopLevelDialogChecks(app); result != 0) return result;
 
     if (const int result = UiAnimationsChecks(app, bar); result != 0) return result;
 
