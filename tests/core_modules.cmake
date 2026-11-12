@@ -107,6 +107,7 @@ add_library(core_cases_accounts OBJECT
  core_modules/DefaultSkinTests.cpp
  core_modules/AccountSkinTests.cpp
  core_modules/OAuthEndpointTests.cpp
+ core_modules/SettingsSyncRetryTests.cpp
 )
 wtfml_core_compile(core_cases_accounts)
 list(APPEND WTFML_CORE_CASE_OBJECTS $<TARGET_OBJECTS:core_cases_accounts>)

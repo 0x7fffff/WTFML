@@ -8,6 +8,7 @@
 #include "util/AppPaths.hpp"
 #include "util/SecretProtector.hpp"
 #include "util/DirectorySessionLock.hpp"
+#include "util/SettingsSyncRetry.hpp"
 
 #include <QCryptographicHash>
 #include <QDebug>
@@ -86,21 +87,20 @@ QByteArray TokenStore::unprotect(const QByteArray &stored) {
 bool TokenStore::writeJson(const QString &key, const QJsonObject &json, QString *errorOut) {
     if (!DirectorySessionLock::acquire(AppPaths::defaultMinecraftDir(), errorOut)) return false;
     SecretRedactor::rememberCredentialFields(json);
-    QSettings settings;
     const QByteArray rawData = QJsonDocument(json).toJson(QJsonDocument::Compact);
     const QByteArray stored = protect(rawData.toBase64());
     if (stored.isEmpty()) {
         if (errorOut) *errorOut = QStringLiteral("无法保护登录凭据，未写入，原数据保留。");
         return false;
     }
-    settings.setValue(key, stored);
-    settings.sync();
-    if (settings.status() != QSettings::NoError) {
+    QString fileName;
+    int attempts = 0;
+    if (!SettingsSyncRetry::write([&](QSettings &s) { s.setValue(key, stored); }, &fileName, &attempts)) {
         if (errorOut != nullptr) {
-            *errorOut = QStringLiteral("凭据写盘失败（%1）：%2")
-                            .arg(key, settings.fileName());
+            *errorOut = QStringLiteral("凭据写盘失败（%1，已试 %2 次）：%3")
+                            .arg(key).arg(attempts).arg(fileName);
         }
-        qWarning() << "凭据写盘失败：" << key << settings.fileName();
+        qWarning() << "凭据写盘失败：" << key << fileName << "尝试" << attempts << "次";
         return false;
     }
     return true;
@@ -156,17 +156,17 @@ bool TokenStore::clear(const QString &key, QString *errorOut) {
         }
         return false;
     }
-    QSettings settings;
-    settings.remove(key);
-    settings.sync();
+    QString fileName;
+    int attempts = 0;
+    const bool ok = SettingsSyncRetry::write([&](QSettings &s) { s.remove(key); }, &fileName, &attempts);
     // 清不掉**不是静默的**。登出 / 切离线账号那两条路清的就是活动槽，写不
     // 进去的话用户会看到"已退出登录"，下次启动却还是那个账号 —— 而 QSettings 落盘失败
     // 本身一个字都不说。至少留一行日志（和 writeJson() 那条同一个理由）。
     // R13：调用方要拿"真的清掉了没有"去决定说不说那句"已经退出登录"，所以这里返回结果。
-    if (settings.status() != QSettings::NoError) {
-        qWarning() << "凭据清不掉（QSettings 状态异常）：" << key << settings.fileName();
+    if (!ok) {
+        qWarning() << "凭据清不掉（QSettings 状态异常）：" << key << fileName << "尝试" << attempts << "次";
         if (errorOut != nullptr) {
-            *errorOut = QStringLiteral("凭据清不掉（%1）：%2").arg(key, settings.fileName());
+            *errorOut = QStringLiteral("凭据清不掉（%1，已试 %2 次）：%3").arg(key).arg(attempts).arg(fileName);
         }
         return false;
     }
@@ -191,13 +191,12 @@ bool TokenStore::writeRaw(const QString &key, const QByteArray &stored, QString 
         }
         return false;
     }
-    QSettings settings;
-    settings.setValue(key, stored);
-    settings.sync();
-    if (settings.status() != QSettings::NoError) {
-        qWarning() << "凭据回滚写盘失败：" << key << settings.fileName();
+    QString fileName;
+    int attempts = 0;
+    if (!SettingsSyncRetry::write([&](QSettings &s) { s.setValue(key, stored); }, &fileName, &attempts)) {
+        qWarning() << "凭据回滚写盘失败：" << key << fileName << "尝试" << attempts << "次";
         if (errorOut != nullptr) {
-            *errorOut = QStringLiteral("凭据回滚写盘失败（%1）：%2").arg(key, settings.fileName());
+            *errorOut = QStringLiteral("凭据回滚写盘失败（%1，已试 %2 次）：%3").arg(key).arg(attempts).arg(fileName);
         }
         return false;
     }
