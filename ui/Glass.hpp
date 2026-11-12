@@ -116,7 +116,8 @@ public:
     /// 往 `target`（本控件的子孙）上画它那一块整窗底，不画主页场景。覆盖层整页、独立小窗借它透出同一层磨砂。
     /// `toPixmap`：这一趟画进位图（grab），系统背板拍不进去，按风景底画。
     void paintBase(QPainter &painter, const QWidget *target, bool toPixmap);
-    /// 独立顶层窗（游戏日志）铺底：整张磨砂风景缩进 `rect`，再盖同一层着色。
+    /// 独立顶层窗（游戏日志、各对话框）铺底：和主窗口同一档 —— 亚克力 / 云母只写着色层（真透桌面），
+    /// 风景档把整张磨砂风景缩进 `rect` 再盖同一层着色。
     void paintScene(QPainter &painter, const QRect &rect);
 
     /// 主页场景在 `widget` 那一块上最亮的颜色 —— 直接压在风景上的标题拿它验对比度。

@@ -586,8 +586,18 @@ void Backdrop::paintBase(QPainter &painter, const QWidget *target, bool toPixmap
 }
 
 void Backdrop::paintScene(QPainter &painter, const QRect &rect) {
-    if (effectiveMode() == Mode::Solid) {
+    const Mode m = effectiveMode();
+    if (m == Mode::Solid) {
         painter.fillRect(rect, Theme::tokens().page);
+        return;
+    }
+    // 亚克力 / 云母：和主窗口一样，窗口里只写着色层，系统背板（真透桌面）由 DWM 画在底下。
+    // 往位图里画（grab / 验收截图）时拍不到 DWM 那一层，才退回风景底。
+    if ((m == Mode::Acrylic || m == Mode::Mica) && painter.device()->devType() != QInternal::Pixmap) {
+        painter.save();
+        painter.setCompositionMode(QPainter::CompositionMode_Source);
+        painter.fillRect(rect, tint());
+        painter.restore();
         return;
     }
     if (m_frost.isNull()) rebuildNow();
