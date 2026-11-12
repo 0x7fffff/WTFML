@@ -1,0 +1,39 @@
+#pragma once
+/**
+ * @file GlassPopover.hpp
+ * @brief 窗口里浮起的一张玻璃卡片：活动中心浮层、主页实例切换都用它。
+ *
+ * 是主窗口里的子卡片（不是 Qt::Popup 顶层窗口），透得出整窗磨砂。外观一套：圆角 14、
+ * 不描边、柔和大阴影、顶上一道极淡高光；打开时 150 ms 淡入（「界面动效」关掉时直接出现）。
+ * 点外面、按 Esc 收起；点锚点本身不归这里管（锚点按钮自己 toggle）。子类只管内容和 place()。
+ */
+
+#include <QFrame>
+#include <QPointer>
+
+class GlassPopover : public QFrame {
+public:
+    explicit GlassPopover(QWidget *anchor);
+    ~GlassPopover() override;
+
+    QWidget *anchor() const { return m_anchor; }
+    /// 摆好位置、显示、淡入、拿焦点（Esc 要能关）。
+    void popUp();
+    /// 收掉这个窗里开着的所有弹层（整页摆上来时让位用，见 OverlayHost::openPage()）。
+    static void closeAllIn(QWidget *window);
+
+    static constexpr int kRadius = 14;
+    static constexpr int kFadeMs = 150;
+
+protected:
+    /// 按锚点摆位置。主窗口尺寸变了会再叫一次。
+    virtual void place() = 0;
+    bool eventFilter(QObject *watched, QEvent *event) override;
+    void paintEvent(QPaintEvent *event) override;
+    void closeEvent(QCloseEvent *event) override;
+
+    QPointer<QWidget> m_anchor;
+
+private:
+    void applyShadow();
+};

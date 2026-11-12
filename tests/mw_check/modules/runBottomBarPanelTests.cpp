@@ -169,7 +169,7 @@ void runBottomBarPanelTests() {
     AuthManager *auth = w.findChild<AuthManager *>();
     check(instancesButton != nullptr && accountsButton != nullptr && manager != nullptr &&
               auth != nullptr,
-          "AH0 底栏那颗运行状态按钮、主页那张账号卡片、LauncherManager、AuthManager 都找得到");
+          "AH0 底栏那颗运行状态按钮、导航轨底部那颗账号按钮、LauncherManager、AuthManager 都找得到");
 
     // 面板每次点开都是**新的一个**（关掉就 deleteLater），所以每开一次都重新捞一遍。
     //
@@ -177,39 +177,74 @@ void runBottomBarPanelTests() {
     // MainWindowUI 里 togglePanel 那段），开着的时候再点一下是"只收不开" ——
     // 不收掉就点，捞回来的是那块正在被删的旧面板（findChild 在本轮里还找得到它，
     // 下一轮就是空的），断言会红在一个和产品无关的地方。
+    // 账号那一边是**账号弹层**（导航轨底部那颗账号按钮弹出来的 AccountPopover），左边那一块
+    // 还是底栏面板；下面几个 helper 两种都认（按 objectName 分）。
+    const auto isAccountPopover = [](QWidget *panel) {
+        return panel != nullptr && panel->objectName() == MainWindowUI::accountPopoverName();
+    };
     const auto openPanel = [&](QPushButton *button) -> QWidget * {
-        if (QWidget *open = w.findChild<QWidget *>(MainWindowUI::bottomBarPanelName())) {
-            open->close();
-            QApplication::processEvents();
-            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        for (const QString &name : {MainWindowUI::bottomBarPanelName(), MainWindowUI::accountPopoverName()}) {
+            if (QWidget *open = w.findChild<QWidget *>(name); open != nullptr && open->isVisible()) {
+                open->close();
+                QApplication::processEvents();
+                QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            }
         }
         w.raise();
         w.activateWindow();
         QApplication::processEvents();
         button->click();
         QApplication::processEvents();
-        return w.findChild<QWidget *>(MainWindowUI::bottomBarPanelName());
+        return w.findChild<QWidget *>(button == accountsButton ? MainWindowUI::accountPopoverName()
+                                                               : MainWindowUI::bottomBarPanelName());
     };
-    const auto rowTitle = [](QWidget *panel, int index) {
+    const auto rowTitle = [&isAccountPopover](QWidget *panel, int index) {
         QLabel *label = panel == nullptr
                             ? nullptr
                             : panel->findChild<QLabel *>(
-                                  MainWindowUI::bottomBarPanelRowTitleName(index));
+                                  isAccountPopover(panel)
+                                      ? QStringLiteral("accountPopoverRowTitle%1").arg(index)
+                                      : MainWindowUI::bottomBarPanelRowTitleName(index));
         return label == nullptr ? QString() : label->text();
     };
-    const auto rowSubtitle = [](QWidget *panel, int index) {
+    const auto rowSubtitle = [&isAccountPopover](QWidget *panel, int index) {
         QLabel *label = panel == nullptr
                             ? nullptr
                             : panel->findChild<QLabel *>(
-                                  MainWindowUI::bottomBarPanelRowSubtitleName(index));
+                                  isAccountPopover(panel)
+                                      ? QStringLiteral("accountPopoverRowSub%1").arg(index)
+                                      : MainWindowUI::bottomBarPanelRowSubtitleName(index));
         return label == nullptr ? QString() : label->text();
     };
-    const auto rowIcon = [](QWidget *panel, int index) -> QPixmap {
+    const auto rowIcon = [&isAccountPopover](QWidget *panel, int index) -> QPixmap {
+        if (isAccountPopover(panel)) {
+            // 弹层里画的是圆角过的那张；比"是不是同一张脸"看圆角前那张（wtfmlFaceSource）。
+            QLabel *face = panel->findChild<QLabel *>(QStringLiteral("accountPopoverRowFace%1").arg(index));
+            return face == nullptr ? QPixmap() : face->property("wtfmlFaceSource").value<QPixmap>();
+        }
         QLabel *label = panel == nullptr
                             ? nullptr
                             : panel->findChild<QLabel *>(
                                   MainWindowUI::bottomBarPanelRowIconName(index));
         return label == nullptr ? QPixmap() : label->pixmap();
+    };
+    // 账号弹层里第几行那颗（整行就是一颗按钮）。
+    const auto accountRow = [](QWidget *panel, int index) -> QAbstractButton * {
+        return panel == nullptr ? nullptr
+                                : panel->findChild<QAbstractButton *>(
+                                      QStringLiteral("accountPopoverRow%1").arg(index));
+    };
+    // 当前账号那一行打勾（accountPopoverCheck 挂在那一行里）。
+    const auto rowChecked = [&accountRow](QWidget *panel, int index) {
+        QAbstractButton *row = accountRow(panel, index);
+        return row != nullptr && row->findChild<QWidget *>(QStringLiteral("accountPopoverCheck")) != nullptr;
+    };
+    // 点账号弹层的一行：弹层先收，动作排在下一轮（见 AccountPopover::connectAction）。
+    const auto clickRow = [](QAbstractButton *row) {
+        if (row == nullptr) return;
+        row->click();
+        QApplication::processEvents();
+        QApplication::processEvents();
     };
     const auto rowAction = [](QWidget *panel, int index, int action) -> QPushButton * {
         return panel == nullptr
@@ -572,13 +607,13 @@ void runBottomBarPanelTests() {
         }
     }
 
-    // ---- AH7 右面板：最近登录的三个账户（缓存里拿）----
+    // ---- AH7 账号弹层：最近登录的三个账户（缓存里拿）+ 菜单区 ----
     const int refreshFailedBefore = countOccurrences(messagesSnapshot(), QStringLiteral("没能刷新"));
     const int refreshedOnceBefore =
         countOccurrences(messagesSnapshot(), QStringLiteral("已自动更新"));
     {
         QWidget *panel = openPanel(accountsButton);
-        check(panel != nullptr && panel->isVisible(), "AH7 点底栏右边那颗按钮弹出了右面板");
+        check(panel != nullptr && panel->isVisible(), "AH7 点导航轨底部那颗账号按钮弹出了账号弹层");
         if (panel != nullptr) {
             check(rowTitle(panel, 0) == QStringLiteral("Bob") &&
                       rowTitle(panel, 1) == QStringLiteral("Carol") &&
@@ -586,15 +621,18 @@ void runBottomBarPanelTests() {
                   "AH7 三行 = 按 saved_at 倒序的**最后三个**（Bob 最新，然后是 Carol、Alex）",
                   QStringLiteral("[%1] [%2] [%3]")
                       .arg(rowTitle(panel, 0), rowTitle(panel, 1), rowTitle(panel, 2)));
-            check(rowTitle(panel, 3) == MainWindowUI::accountSkinButtonText() &&
-                      panel->findChild<QLabel *>(
-                          MainWindowUI::bottomBarPanelRowTitleName(4)) == nullptr,
-                  "AH7 三个最近账号之后只有一行「账号与外观…」入口（Alice 和 Steve 不在"
-                  "最近账号列表里）");
+            check(rowTitle(panel, 3) == MainWindowUI::accountAddText() &&
+                      rowTitle(panel, 4) == MainWindowUI::accountSkinButtonText() &&
+                      rowTitle(panel, 5) == MainWindowUI::accountLogoutText() &&
+                      accountRow(panel, 6) == nullptr,
+                  "AH7 三个最近账号之后是菜单区「添加账号」「管理账号与皮肤」「退出登录」"
+                  "（Alice 和 Steve 不在最近账号列表里）",
+                  QStringLiteral("[%1] [%2] [%3]")
+                      .arg(rowTitle(panel, 3), rowTitle(panel, 4), rowTitle(panel, 5)));
             check(rowSubtitle(panel, 0) == MainWindowUI::bottomBarPanelOnlineAccountText() &&
                       rowSubtitle(panel, 1) == MainWindowUI::bottomBarPanelOnlineAccountText() &&
                       rowSubtitle(panel, 2) == MainWindowUI::bottomBarPanelOfflineAccountText(),
-                  "AH7 每一行第二句说的是「这是个什么账号」（离线那行写「离线账号」）",
+                  "AH7 每一行第二句说的是「这是个什么账号」（离线那行写「离线」）",
                   QStringLiteral("[%1] [%2] [%3]")
                       .arg(rowSubtitle(panel, 0), rowSubtitle(panel, 1), rowSubtitle(panel, 2)));
             // ---- AH7b 行首那张脸（ 要求：「在右下角那个上拉框里名字左边
@@ -669,24 +707,17 @@ void runBottomBarPanelTests() {
                       .arg(rowIcon(panel, 0).toImage().pixelColor(0, 0).name())
                       .arg(SkinModel::avatarFallbackColor(QStringLiteral("Carol")).name())
                       .arg(rowIcon(panel, 1).toImage().pixelColor(0, 0).name()));
-            // 当前账号（Alex）那颗写「登出」并且**能点**；正版那两颗写「登录」。
-            QPushButton *current = rowAction(panel, 2, 0);
-            check(current != nullptr &&
-                      current->text() == MainWindowUI::bottomBarPanelLogoutText() &&
-                      current->isEnabled(),
-                  "AH7 当前账号那一行写「登出」且能点（不是灰掉的「当前」）",
-                  current != nullptr ? current->text() : QStringLiteral("<没找到>"));
-            check(rowAction(panel, 0, 0) != nullptr &&
-                      rowAction(panel, 0, 0)->text() == MainWindowUI::bottomBarPanelLoginText() &&
-                      rowAction(panel, 1, 0) != nullptr &&
-                      rowAction(panel, 1, 0)->text() == MainWindowUI::bottomBarPanelLoginText(),
-                  "AH7 正版账号写「登录」（用户原话：正版的右侧写 登录）");
+            // 当前账号（Alex）那一行打勾、只有那一行；别人那两行整行可点（点了 = 切过去）。
+            check(rowChecked(panel, 2) && !rowChecked(panel, 0) && !rowChecked(panel, 1),
+                  "AH7 当前账号（Alex）那一行打勾，只有那一行");
+            check(accountRow(panel, 0) != nullptr && accountRow(panel, 0)->isEnabled() &&
+                      accountRow(panel, 1) != nullptr && accountRow(panel, 1)->isEnabled(),
+                  "AH7 别人那两行整行可点（不再是行尾一颗「登录」/「选择」）");
 
             // ---- AH8 点一个**过期**的正版账号：切过去 + 令牌换不出来要说清楚 ----
-            QPushButton *carolButton = rowAction(panel, 1, 0);
+            QAbstractButton *carolButton = accountRow(panel, 1);
             dismissNextPrompt();
-            carolButton->click();
-            QApplication::processEvents();
+            clickRow(carolButton);
             check(AccountStore::activeUuid() == carolUuid,
                   "AH8 切到那个账号了（令牌没换到也不该把这次切换一起作废）",
                   AccountStore::activeUuid());
@@ -706,7 +737,7 @@ void runBottomBarPanelTests() {
         }
     }
 
-    // ---- AH9 再点开：Carol 成了「当前」，离线那条写「选择」----
+    // ---- AH9 再点开：Carol 成了「当前」（打勾），点离线那一行切过去 ----
     {
         QWidget *panel = openPanel(accountsButton);
         check(rowTitle(panel, 0) == QStringLiteral("Bob") &&
@@ -714,24 +745,15 @@ void runBottomBarPanelTests() {
               "AH9 三行还是那三个账号（切账号不改 saved_at，顺序不变）",
               QStringLiteral("[%1] [%2] [%3]")
                   .arg(rowTitle(panel, 0), rowTitle(panel, 1), rowTitle(panel, 2)));
-        QPushButton *carolButton = rowAction(panel, 1, 0);
-        check(carolButton != nullptr &&
-                  carolButton->text() == MainWindowUI::bottomBarPanelLogoutText() &&
-                  carolButton->isEnabled(),
-              "AH9 刚切过去的 Carol 那一行变成「登出」（判据是活动槽，不是列表里记的那个键）",
-              carolButton != nullptr ? carolButton->text() : QStringLiteral("<没找到>"));
-        QPushButton *alexButton = rowAction(panel, 2, 0);
-        check(alexButton != nullptr &&
-                  alexButton->text() == MainWindowUI::bottomBarPanelSelectText() &&
-                  alexButton->isEnabled(),
-              "AH9 离线账号那颗写「选择」（用户原话：离线的右侧按钮写 选择）",
-              alexButton != nullptr ? alexButton->text() : QStringLiteral("<没找到>"));
+        check(rowChecked(panel, 1) && !rowChecked(panel, 0) && !rowChecked(panel, 2),
+              "AH9 刚切过去的 Carol 那一行打勾（判据是活动槽，不是列表里记的那个键）");
+        QAbstractButton *alexButton = accountRow(panel, 2);
+        check(alexButton != nullptr && alexButton->isEnabled(), "AH9 离线账号 Alex 那一行可点");
 
-        // 点「选择」：离线账号没有令牌这回事，切过去就完事 —— 不弹窗、不发请求。
+        // 点那一行：离线账号没有令牌这回事，切过去就完事 —— 不弹窗、不发请求。
         if (alexButton != nullptr) {
             dismissNextPrompt();
-            alexButton->click();
-            QApplication::processEvents();
+            clickRow(alexButton);
             check(AccountStore::activeUuid() == alexUuid, "AH9 切到那个离线账号了",
                   AccountStore::activeUuid());
             check(g_modalTitle.isEmpty(),
@@ -741,7 +763,7 @@ void runBottomBarPanelTests() {
             check(accountType != nullptr &&
                       accountType->text() == MainWindowUI::accountTypeOfflineText() &&
                       auth->playerName() == alexName,
-                  "AH9 底栏也跟着换了（第二行「离线登录」、名字是这个人）",
+                  "AH9 底栏也跟着换了（第二行「离线」、名字是这个人）",
                   accountType != nullptr
                       ? accountType->text() + QStringLiteral(" / ") + auth->playerName()
                       : QStringLiteral("<没找到>"));
@@ -749,20 +771,17 @@ void runBottomBarPanelTests() {
     }
 
     // ---- AH10 令牌**够用**那一档：一个包都不发 ----
-    // Bob 那张到 2999 年（剩得远远不止 6 小时），所以点他那一行的「登录」不该去换新的。
+    // Bob 那张到 2999 年（剩得远远不止 6 小时），所以点他那一行不该去换新的。
     // 判据有三条：不弹窗、"已自动更新"那条日志没有增加、而且此刻剩的时间确实 ≥6 小时
     // （把"为什么可以不换"这条依据也钉住 —— 少了它，这条断言在"两边都不换"的实现下也绿）。
     {
         QWidget *panel = openPanel(accountsButton);
-        QPushButton *bobButton = rowAction(panel, 0, 0);
-        check(bobButton != nullptr &&
-                  bobButton->text() == MainWindowUI::bottomBarPanelLoginText(),
-              "AH10 Bob 那一行写「登录」",
-              bobButton != nullptr ? bobButton->text() : QStringLiteral("<没找到>"));
+        QAbstractButton *bobButton = accountRow(panel, 0);
+        check(bobButton != nullptr && rowTitle(panel, 0) == QStringLiteral("Bob"),
+              "AH10 Bob 那一行找得到", rowTitle(panel, 0));
         if (bobButton != nullptr) {
             dismissNextPrompt();
-            bobButton->click();
-            QApplication::processEvents();
+            clickRow(bobButton);
             check(AccountStore::activeUuid() == bobUuid, "AH10 切到 Bob 了",
                   AccountStore::activeUuid());
             check(g_modalTitle.isEmpty(), "AH10 没有弹任何框（够用就不换，一个包都不发）",
@@ -779,7 +798,7 @@ void runBottomBarPanelTests() {
                 byObjectName<QLabel>(&w, MainWindowUI::accountTypeLabelName());
             check(accountType != nullptr &&
                       accountType->text() == MainWindowUI::accountTypeOnlineText(),
-                  "AH10 底栏第二行换成「正版登录」", accountType != nullptr ? accountType->text()
+                  "AH10 底栏第二行换成「正版」", accountType != nullptr ? accountType->text()
                                                                         : QStringLiteral("<没找到>"));
         }
     }
@@ -854,15 +873,13 @@ void runBottomBarPanelTests() {
         const int noExtraTokenBefore =
             countOccurrences(messagesSnapshot(), QStringLiteral("已自动更新"));
         QWidget *panel = openPanel(accountsButton);
-        check(panel != nullptr, "AH11 右面板弹出来了");
+        check(panel != nullptr, "AH11 账号弹层弹出来了");
         check(rowTitle(panel, 0) == daveName && rowTitle(panel, 1) == QStringLiteral("Bob"),
               "AH11 两行就是这两个账号（Dave 的 saved_at 更新）",
               QStringLiteral("[%1] [%2]").arg(rowTitle(panel, 0), rowTitle(panel, 1)));
-        QPushButton *daveButton = rowAction(panel, 0, 0);
-        check(daveButton != nullptr && daveButton->isEnabled() &&
-                  daveButton->text() == MainWindowUI::bottomBarPanelLoginText(),
-              "AH11 Dave 那一行写「登录」且点得动（列表里看着就是个正版账号）",
-              daveButton != nullptr ? daveButton->text() : QStringLiteral("<没找到>"));
+        QAbstractButton *daveButton = accountRow(panel, 0);
+        check(daveButton != nullptr && daveButton->isEnabled() && !rowChecked(panel, 0),
+              "AH11 Dave 那一行点得动（列表里看着就是个正版账号）");
         if (daveButton != nullptr) {
             dismissNextPrompt();
             // **兜住第二个框**：缺了那道守卫的那一版会接着去换 Bob 的令牌，换不出来于是**又弹
@@ -870,8 +887,7 @@ void runBottomBarPanelTests() {
             // 会一直等它 —— 那是**测试卡死**，不是红。再排一发（它自己也会重排 0/300 两发），
             // 顺序上第二个框的标题会覆盖第一个，所以下面那几条断言的判据就是"最后一个框"。
             QTimer::singleShot(250, [] { dismissNextPrompt(); });
-            daveButton->click();
-            QApplication::processEvents();
+            clickRow(daveButton);
             check(g_modalTitle == QStringLiteral("切换账号失败") && g_modalWasWarning,
                   "AH11 点它弹的是「切换账号失败」（那一项没有副本，切不过去）", g_modalTitle);
             check(g_modalText.contains(QStringLiteral("凭据不完整")),
@@ -892,10 +908,9 @@ void runBottomBarPanelTests() {
         }
     }
 
-    // ---- AH11b 点当前账号那一行的「登出」：清掉登录状态，账号留下来 ----
+    // ---- AH11b 点账号弹层菜单区那一行「退出登录」：清掉登录状态，账号留下来 ----
     //
-    // 那一行显示「登出」而不是灰着的「当前」—— 后者除了告诉用户"你就是你"
-    // 之外没有别的用处。
+    // 登出只有这一个入口（「管理账号与皮肤」里只有删除），所以它得一直在菜单区里。
     //
     // 这一节要钉的是三个**分开**的事实，少一条这个功能就不成立：
     // ① 盘上的登录状态真没了（活动槽那两份凭据被抹掉，不是只把界面换个字）；
@@ -918,25 +933,18 @@ void runBottomBarPanelTests() {
         // AH11 把列表换成了 Dave + Bob（Dave 的 saved_at 更新，排在前面）—— 所以"第 0 行"
         // 现在是 Dave。按名字找 Bob 那一行。
         const int bobRow = rowIndexOf(panel, QStringLiteral("Bob"));
-        check(bobRow >= 0,
-              "AH11b 右面板上有 Bob 那一行（AH11 换过列表，行号不许再写死）",
+        check(bobRow >= 0 && rowChecked(panel, bobRow),
+              "AH11b 账号弹层上有 Bob 那一行、打着勾（他就是当前账号；AH11 换过列表，行号不许再写死）",
               QString::number(bobRow));
-        QPushButton *bobLogout = bobRow >= 0 ? rowAction(panel, bobRow, 0) : nullptr;
-        check(bobLogout != nullptr &&
-                  bobLogout->text() == MainWindowUI::bottomBarPanelLogoutText() &&
-                  bobLogout->isEnabled(),
-              "AH11b Bob 那一行的按钮写着「登出」、能点（他就是当前账号）",
-              bobLogout != nullptr
-                  ? QStringLiteral("%1 / enabled=%2")
-                        .arg(bobLogout->text())
-                        .arg(bobLogout->isEnabled())
-                  : QStringLiteral("<没找到>"));
+        const int logoutRow = rowIndexOf(panel, MainWindowUI::accountLogoutText());
+        QAbstractButton *bobLogout = logoutRow >= 0 ? accountRow(panel, logoutRow) : nullptr;
+        check(bobLogout != nullptr && bobLogout->isEnabled(),
+              "AH11b 菜单区那一行「退出登录」找得到、能点", QString::number(logoutRow));
 
         const int logoutLogBefore = countOccurrences(messagesSnapshot(), QStringLiteral("已退出账号"));
         if (bobLogout != nullptr) {
             dismissNextPrompt();
-            bobLogout->click();
-            QApplication::processEvents();
+            clickRow(bobLogout);
             // 登出是**可逆**的一步（账号还在列表里，点一下就回来），所以不拦一下 ——
             // 和「删除所选」正相反，那一条是删盘的、要确认。
             check(g_modalTitle.isEmpty(), "AH11b 登出**不弹窗**",
@@ -965,32 +973,25 @@ void runBottomBarPanelTests() {
                   "AH11b 日志里留了一行（命令行那一路看得见）");
         }
 
-        // 再点开：**没有任何一行**写「登出」了（没有当前账号了），Bob 那行写回「登录」。
+        // 再点开：没有任何一行打勾（没有当前账号了），菜单区也不再摆「退出登录」；Bob 那行还在。
         panel = openPanel(accountsButton);
         const int bobRowAgain = rowIndexOf(panel, QStringLiteral("Bob"));
-        QPushButton *bobLogin = bobRowAgain >= 0 ? rowAction(panel, bobRowAgain, 0) : nullptr;
-        check(bobRowAgain >= 0, "AH11b 再点开：Bob 那一行还在（登出没把他从列表里删掉）",
+        QAbstractButton *bobLogin = bobRowAgain >= 0 ? accountRow(panel, bobRowAgain) : nullptr;
+        check(bobRowAgain >= 0 && bobLogin != nullptr,
+              "AH11b 再点开：Bob 那一行还在（登出没把他从列表里删掉）",
               QString::number(bobRowAgain));
-        check(bobLogin != nullptr &&
-                  bobLogin->text() == MainWindowUI::bottomBarPanelLoginText(),
-              "AH11b 再点开：Bob 那一行写回「登录」（他不再是当前账号了）",
-              bobLogin != nullptr ? bobLogin->text() : QStringLiteral("<没找到>"));
-        for (int row = 0; row < 3; ++row) {
-            check(rowAction(panel, row, 0) == nullptr ||
-                      rowAction(panel, row, 0)->text() !=
-                          MainWindowUI::bottomBarPanelLogoutText(),
-                  "AH11b 三行里没有一行写「登出」（登出之后没有当前账号）",
-                  QStringLiteral("第 %1 行").arg(row));
-        }
+        bool anyChecked = false;
+        for (int row = 0; row < 8; ++row) anyChecked = anyChecked || rowChecked(panel, row);
+        check(!anyChecked && rowIndexOf(panel, MainWindowUI::accountLogoutText()) < 0,
+              "AH11b 再点开：没有一行打勾、也没有「退出登录」（登出之后没有当前账号）");
 
-        // 点那一行的「登录」就回来了 —— 这一条才是"登出没删账号"在**界面**上的样子
+        // 点那一行就回来了 —— 这一条才是"登出没删账号"在**界面**上的样子
         // （前面那条 contains() 说的是盘上，这条说的是用户看得到的东西）。
         if (bobLogin != nullptr) {
             dismissNextPrompt();
-            bobLogin->click();
-            QApplication::processEvents();
+            clickRow(bobLogin);
             check(AccountStore::activeUuid() == bobUuid,
-                  "AH11b 点那一行的「登录」就回来了（账号没丢）",
+                  "AH11b 点那一行就回来了（账号没丢）",
                   AccountStore::activeUuid());
             // Bob 那份副本里是 30 天后到期 → 够用，所以这一下不该联网、也不该弹窗。
             check(g_modalTitle.isEmpty(), "AH11b 回来这一下不弹窗（副本里的令牌够用）",
@@ -998,7 +999,7 @@ void runBottomBarPanelTests() {
         }
     }
 
-    // ---- AH12b 从「未登录」点那一行的「选择」切到离线账号：**主页那张脸得跟着换** ----
+    // ---- AH12b 从「未登录」点那一行切到离线账号：**主页那张脸得跟着换** ----
     //
     // 用户 报的 bug，原话：「现在从未登录切换到选择离线账号不会随机给皮肤了」。
     //
@@ -1009,8 +1010,8 @@ void runBottomBarPanelTests() {
     //
     // 切账号现在能从右面板直接点（不必先开「账号与外观…」，那条路上那句 return 进不去）。
     //
-    // 这一节的形状就是用户那两下，一步都不自己造：**建一个离线账号 → 用那一行的「登出」
-    // 退回未登录 → 再点那一行的「选择」**。判据落在"屏幕上那张图变没变"上，不是"某个
+    // 这一节的形状就是用户那两下，一步都不自己造：**建一个离线账号 → 用菜单区「退出登录」
+    // 退回未登录 → 再点她那一行**。判据落在"屏幕上那张图变没变"上，不是"某个
     // 函数被调过"—— 用户看的也是前者。
     {
         const QString lenaName = QStringLiteral("Lena");
@@ -1037,19 +1038,17 @@ void runBottomBarPanelTests() {
               viewer != nullptr ? viewer->skin().pixelColor(0, 0).name()
                                 : QStringLiteral("<没找到>"));
 
-        // ---- 第一下：点那一行的「登出」，退回未登录 ----
+        // ---- 第一下：点菜单区「退出登录」，退回未登录 ----
         QWidget *panel = openPanel(accountsButton);
         const int row = rowIndexOf(panel, lenaName);
-        check(row >= 0, "AH12b 右面板上有 Lena 那一行", QString::number(row));
-        QPushButton *logout = row >= 0 ? rowAction(panel, row, 0) : nullptr;
-        check(logout != nullptr &&
-                  logout->text() == MainWindowUI::bottomBarPanelLogoutText(),
-              "AH12b 她是当前账号 → 那一行写「登出」",
-              logout != nullptr ? logout->text() : QStringLiteral("<没找到>"));
+        check(row >= 0 && rowChecked(panel, row), "AH12b 账号弹层上有 Lena 那一行、打着勾",
+              QString::number(row));
+        const int logoutRow = rowIndexOf(panel, MainWindowUI::accountLogoutText());
+        QAbstractButton *logout = logoutRow >= 0 ? accountRow(panel, logoutRow) : nullptr;
+        check(logout != nullptr, "AH12b 她是当前账号 → 菜单区有「退出登录」");
         if (logout != nullptr) {
             dismissNextPrompt();
-            logout->click();
-            QApplication::processEvents();
+            clickRow(logout);
             check(AccountStore::activeUuid().isEmpty(),
                   "AH12b 登出之后没有当前账号了（未登录）", AccountStore::activeUuid());
             const QImage placeholder = SkinModel::defaultSteveSkin();
@@ -1060,18 +1059,15 @@ void runBottomBarPanelTests() {
             check(hint->text() == MainWindowUI::skinHintNotLoggedInText(),
                   "AH12b 那句话也说未登录", hint->text());
 
-            // ---- 第二下：点那一行的「选择」切过去 ----
+            // ---- 第二下：点她那一行切过去 ----
             panel = openPanel(accountsButton);
             const int row2 = rowIndexOf(panel, lenaName);
-            QPushButton *select = row2 >= 0 ? rowAction(panel, row2, 0) : nullptr;
-            check(select != nullptr &&
-                      select->text() == MainWindowUI::bottomBarPanelSelectText(),
-                  "AH12b 不再是当前账号 → 那一行写「选择」",
-                  select != nullptr ? select->text() : QStringLiteral("<没找到>"));
+            QAbstractButton *select = row2 >= 0 ? accountRow(panel, row2) : nullptr;
+            check(select != nullptr && !rowChecked(panel, row2),
+                  "AH12b 不再是当前账号 → 她那一行不打勾、可点");
             if (select != nullptr) {
                 dismissNextPrompt();
-                select->click();
-                QApplication::processEvents();
+                clickRow(select);
                 check(AccountStore::activeUuid() == lenaUuid,
                       "AH12b 切到 Lena 了", AccountStore::activeUuid());
                 // **这一条就是用户报的那件事**：屏幕上那张脸必须真的换掉。

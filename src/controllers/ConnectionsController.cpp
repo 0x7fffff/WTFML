@@ -15,6 +15,7 @@
 #include "controllers/DownloadTaskLedgerController.hpp"
 #include "controllers/DownloadCompletionController.hpp"
 #include "controllers/InstallPageController.hpp"
+#include "controllers/MainWindowViewData.hpp"
 #include "controllers/JavaSettingsController.hpp"
 #include "controllers/PlayerSkinController.hpp"
 #include "controllers/PresetController.hpp"
@@ -236,6 +237,15 @@ void ConnectionsController::setup() {
     // 一样，那时按钮第二行和 tooltip 会停在旧值上。
     connect(m_owner->m_ui->getInstalledVersionCombo(), &QComboBox::currentIndexChanged, m_owner,
             [this] {
+                // 用户手选的才记成「上次选中」；刷新时自动挑的那一下（wtfmlAutoPick）不记。
+                QComboBox *installed = m_owner->m_ui->getInstalledVersionCombo();
+                if (!installed->property("wtfmlAutoPick").toBool()) {
+                    // 手选了 ⇒ 不再等那个被挤掉的实例回来（见 refreshInstalledVersions()）。
+                    installed->setProperty("wtfmlDisplacedId", QVariant());
+                    if (const QString id = MainWindowViewData::selectedVersionId(installed); !id.isEmpty()) {
+                        m_owner->m_settings->setLastSelectedVersion(id);
+                    }
+                }
                 m_owner->updateStartButtonText();
                 m_owner->updateHomeRecent();
                 // 底栏左下角那条状态要看"选中的是不是正在跑的那个实例"，

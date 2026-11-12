@@ -69,7 +69,7 @@ int UiTitleBarChecks(QMainWindow &window, MainWindowUI &ui) {
             orderOk = orderOk && (i == 0 || button->y() > rail->navButton(i - 1)->geometry().bottom());
         }
         check(labelsOk, "★ Z11 导航的字就是标签页的字（唯一出处 tabText()）");
-        check(fontOk && TitleBar::navFontPixelSize() == 16, "★ Z11 导航字号 16（手写体）");
+        check(fontOk && TitleBar::navFontPixelSize() == 14, "★ Z11 导航字号 14（系统字）");
         check(sizeOk && TitleBar::navItemHeight() == 42, "★ Z11 每颗导航 navItemWidth()×42",
               QStringLiteral("%1x%2").arg(rail->navButton(0)->width()).arg(rail->navButton(0)->height()));
         check(orderOk, "Z11 导航从上到下排、不叠");

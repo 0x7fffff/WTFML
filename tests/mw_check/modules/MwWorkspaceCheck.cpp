@@ -128,8 +128,12 @@ int MwWorkspaceCheck(QApplication &app) {
         for (const int source : {MainWindowUI::homeTabIndex(), MainWindowUI::instancesTabIndex()}) {
             tabs->setCurrentIndex(source);
             if (source == MainWindowUI::homeTabIndex()) {
-                if (auto *picker = window.findChild<QPushButton *>(MainWindowUI::homeInstanceSelectButtonName()))
+                // 点启动区那块「名字 + 版本」= 开实例切换弹层。
+                if (auto *picker = window.findChild<QAbstractButton *>(MainWindowUI::homeCurrentPickerName()))
                     picker->click();
+                app.processEvents();
+                check(window.findChild<QWidget *>(MainWindowUI::homeInstancePickerName()) != nullptr,
+                      "home name block opens the instance popover");
                 if (auto *search = window.findChild<QLineEdit *>(QStringLiteral("homePickerSearch")))
                     search->setText(QStringLiteral("remember-filter"));
             }
@@ -147,10 +151,10 @@ int MwWorkspaceCheck(QApplication &app) {
             check(sawSettings && !host->pageOpen() && tabs->currentIndex() == source,
                   "back returns to source root page");
             if (source == MainWindowUI::homeTabIndex()) {
+                // 整页摆上来时浮在页上的弹层让位收掉（不盖在设置页上，返回后也不复活）。
                 auto *picker = window.findChild<QWidget *>(MainWindowUI::homeInstancePickerName());
-                auto *search = window.findChild<QLineEdit *>(QStringLiteral("homePickerSearch"));
-                check(picker && picker->isVisible() && search && search->text() == QStringLiteral("remember-filter"),
-                      "home instance list and search survive opening settings");
+                check(picker == nullptr || !picker->isVisible(),
+                      "opening a full page closes the floating instance popover");
             }
         }
         {

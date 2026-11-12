@@ -546,6 +546,36 @@ int runVersionNameTests(const QString &sandbox) {
               QString::number(launchStatusName(dirty).size()));
     }
 
+    section("I8. 当前实例（有实例必有当前实例）");
+    {
+        const QStringList three{QStringLiteral("A"), QStringLiteral("B"), QStringLiteral("C")};
+        // 首次扫描：从没启动、从没选过 → 第一个
+        check(resolveCurrentInstance(three, QString(), -1, QString(), QString()) == QStringLiteral("A"),
+              "I8 首次扫描：什么都没记着 → 列表第一个");
+        // 首次扫描：上次启动的排在上次选中前面
+        check(resolveCurrentInstance(three, QString(), -1, QStringLiteral("C"), QStringLiteral("B")) == QStringLiteral("C"),
+              "I8 启动时：上次启动的优先");
+        check(resolveCurrentInstance(three, QString(), -1, QStringLiteral("已删"), QStringLiteral("B")) == QStringLiteral("B"),
+              "I8 启动时：上次启动的已不在 → 上次选中的");
+        // 删除：当前的 B（下标 1）被删 → 顺延到同一位置的 C
+        const QStringList afterDelete{QStringLiteral("A"), QStringLiteral("C")};
+        check(resolveCurrentInstance(afterDelete, QStringLiteral("B"), 1, QStringLiteral("B"), QString()) == QStringLiteral("C"),
+              "I8 删除当前实例：顺延到同一位置上的下一个");
+        check(resolveCurrentInstance(QStringList{QStringLiteral("A")}, QStringLiteral("C"), 2, QString(), QString()) == QStringLiteral("A"),
+              "I8 删除末尾那个：落到新的末尾");
+        // 重命名：调用方把 previous 换成新 id 再问 → 不动；没换（刷新那一下）也不会空着
+        const QStringList renamed{QStringLiteral("A"), QStringLiteral("B2"), QStringLiteral("C")};
+        check(resolveCurrentInstance(renamed, QStringLiteral("B2"), 1, QString(), QString()) == QStringLiteral("B2"),
+              "I8 重命名：新 id 还在 → 当前实例就是改名后的那个");
+        check(!resolveCurrentInstance(renamed, QStringLiteral("B"), 1, QString(), QString()).isEmpty(),
+              "I8 重命名刷新那一下：老 id 不在了也不会落到空");
+        // 空列表：唯一能返回空串的情况
+        check(resolveCurrentInstance(QStringList(), QStringLiteral("A"), 0, QStringLiteral("A"), QStringLiteral("A")).isEmpty(),
+              "I8 空列表：没有当前实例");
+        // 启动失败：LaunchController 只在成功时写 lastLaunched，失败后 previous 仍是 B
+        check(resolveCurrentInstance(three, QStringLiteral("B"), 1, QStringLiteral("A"), QStringLiteral("A")) == QStringLiteral("B"),
+              "I8 启动 B 失败：上次启动仍记着 A，当前实例保持 B");
+    }
+
     return 0;
 }
-

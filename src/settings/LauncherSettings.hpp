@@ -73,6 +73,11 @@ public:
      */
     void setLastLaunchedVersion(const QString &versionId);
 
+    /// 上次在主页 / 实例页手选的实例（版本目录名）。启动时排在「上次启动」之后，
+    /// 用来挑当前实例（见 resolveCurrentInstance()）。
+    QString lastSelectedVersion() const { return m_lastSelectedVersion; }
+    void setLastSelectedVersion(const QString &versionId);
+
     int homeFavoriteCount() const { return m_homeFavoriteCount; }
     int homeRecentCount() const { return m_homeRecentCount; }
     void setHomeFavoriteCount(int count);
@@ -445,6 +450,7 @@ private:
     mutable QVariantMap m_persisted;
 
     QString m_lastLaunchedVersion;
+    QString m_lastSelectedVersion;
     int m_homeFavoriteCount = 3;
     int m_homeRecentCount = 3;
     QStringList m_folders;

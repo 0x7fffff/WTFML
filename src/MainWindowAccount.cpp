@@ -308,15 +308,18 @@ void MainWindow::onBottomBarPanelAction(bool account, const QString &key, int ac
         if (action != kAccountPanelUseAction) {
             return;  // 右面板那一行只有一颗按钮；别的编号是接线错了，什么都不做
         }
-        if (key == kAccountPanelManageKey) {
+        // 「添加账号」「登录」「管理账号与皮肤」都进账号与外观那一页（登录 / 添加离线账号都在那儿）。
+        if (key == kAccountPanelManageKey || key == kAccountPanelAddKey || key == kAccountPanelLoginKey) {
             onAccountSkinButtonClicked();
             return;
         }
-        // 这一行那颗按钮**是哪种**由行的状态决定（当前账号那颗是「登出」，别人是「选择」/
-        // 「登录」），而行的状态是 recentAccountPanelRows() 一家算的 —— 这里用**同一个判据**
-        // 分流，绝不看按钮上画着什么。key = 账号 uuid。
-        if (key == AccountStore::activeUuid()) {
+        // 其余是账号行（key = uuid）：点当前那一行什么都不做（它已经打着勾），点别人 = 切过去。
+        // 登出是菜单区那一行「退出登录」（上面）。
+        if (key == kAccountPanelLogoutKey) {
             logoutCurrentAccount();
+            return;
+        }
+        if (key == AccountStore::activeUuid()) {
             return;
         }
         useAccountFromPanel(key);

@@ -16,6 +16,7 @@ namespace {
 // 键名带 Version/ 前缀，和 GlobalJavaSettings 的 Java/ 前缀一个路子：
 // 不用 beginGroup，键名本身就是分组，在注册表里直接看得出归属。
 static constexpr const char kLastLaunched[] = "Version/LastLaunched";
+static constexpr const char kLastSelected[] = "Version/LastSelected";
 static constexpr const char kHomeFavoriteCount[] = "Home/FavoriteCount";
 static constexpr const char kHomeRecentCount[] = "Home/RecentCount";
 static constexpr const char kNameShowCustom[] = "Version/NameShowCustom";
@@ -117,6 +118,14 @@ void LauncherSettings::setLastLaunchedVersion(const QString &versionId) {
         return;
     }
     m_lastLaunchedVersion = versionId;
+    save();
+}
+
+void LauncherSettings::setLastSelectedVersion(const QString &versionId) {
+    if (m_lastSelectedVersion == versionId) {
+        return;
+    }
+    m_lastSelectedVersion = versionId;
     save();
 }
 
@@ -442,6 +451,7 @@ ProcessPriority LauncherSettings::processPriorityFromKey(const QString &key) {
 void LauncherSettings::load() {
     QSettings settings;
     m_lastLaunchedVersion = settings.value(kLastLaunched, m_lastLaunchedVersion).toString();
+    m_lastSelectedVersion = settings.value(kLastSelected, m_lastSelectedVersion).toString();
     m_homeFavoriteCount = qBound(0, settings.value(kHomeFavoriteCount, 3).toInt(), 5);
     m_homeRecentCount = qBound(0, settings.value(kHomeRecentCount, 3).toInt(), 5);
     // 默认值同样取当前成员：load() 被调第二次而盘上是空的时，值应该留着而不是被抹掉。
@@ -560,6 +570,7 @@ QVariantMap LauncherSettings::persistedValues() const {
     // 不是成员里还没归一化的原始值。
     QVariantMap values;
     values.insert(QString::fromLatin1(kLastLaunched), m_lastLaunchedVersion);
+    values.insert(QString::fromLatin1(kLastSelected), m_lastSelectedVersion);
     values.insert(QString::fromLatin1(kServerFavorites), m_serverFavorites);
     values.insert(QString::fromLatin1(kHomeFavoriteCount), QVariant(m_homeFavoriteCount));
     values.insert(QString::fromLatin1(kHomeRecentCount), QVariant(m_homeRecentCount));

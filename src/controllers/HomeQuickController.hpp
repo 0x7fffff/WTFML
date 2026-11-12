@@ -8,7 +8,7 @@
 #include <QString>
 
 /// 主页收藏/最近两排的纯视图模型组装器。
-/// MainWindow 只收集当前实例快照；去重、排序、丝带身份和空槽都在这里决定。
+/// MainWindow 只收集当前实例快照；去重、排序、丝带身份都在这里决定（实例带不补空槽）。
 class HomeQuickController {
 public:
     struct Instance {
@@ -17,7 +17,6 @@ public:
         QIcon icon;
         bool favorite = false;
         QString version;
-        int modCount = -1;  ///< mods 下的 *.jar 个数；-1 = 没数
     };
 
     struct Rows {

@@ -36,7 +36,6 @@ HomeQuickController::Rows HomeQuickController::build(
         item.favorite = instance.favorite;
         item.recent = latestByInstance.contains(instance.id);
         item.detail = instance.version;
-        item.modCount = instance.modCount;
         if (item.recent) {
             const LaunchHistory::Record record = latestByInstance.value(instance.id);
             item.detail += QStringLiteral("\n上次启动：") + LaunchHistory::whenText(record.startedAt);
@@ -45,20 +44,21 @@ HomeQuickController::Rows HomeQuickController::build(
                 item.detail += item.detail.isEmpty() ? played : QStringLiteral(" / ") + played;
             }
             item.detail += LaunchHistory::resultNote(record);
-        } else {
-            item.detail += QStringLiteral("\n尚无游玩记录");
         }
         return item;
     };
 
     // 「当前」不是另一份持久化状态：它严格来自主页启动下拉框当前选中的实例，和真正按下
-    // 启动按钮时会启动谁保持同一个来源。没有选中实例时留一张空槽，仍可从这里进入列表。
+    // 启动按钮时会启动谁保持同一个来源（有实例必有当前实例，见 resolveCurrentInstance()）。
+    // 一个实例都没有时才是空的那一张（「还没有实例」+「下载游戏」）。
     if (const auto current = installedById.constFind(currentId); current != installedById.constEnd()) {
         rows.current.append(makeItem(current.value()));
+    } else if (!installed.isEmpty()) {
+        rows.current.append(makeItem(installed.first()));
     } else {
         MainWindowUI::HomeQuickItem slot;
         slot.empty = true;
-        slot.name = QObject::tr("选择实例");
+        slot.name = QObject::tr("还没有实例");
         rows.current.append(slot);
     }
 
@@ -86,15 +86,5 @@ HomeQuickController::Rows HomeQuickController::build(
         }
     }
 
-    const auto pad = [](QList<MainWindowUI::HomeQuickItem> *items, int count) {
-        while (items->size() < count) {
-            MainWindowUI::HomeQuickItem slot;
-            slot.empty = true;
-            slot.name = QObject::tr("添加实例");
-            items->append(slot);
-        }
-    };
-    pad(&rows.favorites, favoriteCount);
-    pad(&rows.recent, recentCount);
     return rows;
 }
