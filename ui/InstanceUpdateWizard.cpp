@@ -142,7 +142,7 @@ void InstanceUpdateWizard::resizeEvent(QResizeEvent *event) {
     if (m_strip == nullptr) return;  // setWizardStyle() 在构造中途就同步发一次 resize，那时条还没建
     const int top = ChromeDialog::stripHeight();
     m_strip->setGeometry(0, 0, width(), top);
-    // 不 raise 条：两块不重叠，而 WindowEdge 那层外沿要一直盖在最上面。
+    // 不 raise 条：两块不重叠。
     if (m_content) m_content->setGeometry(0, top, width(), height() - top);
 }
 void InstanceUpdateWizard::paintEvent(QPaintEvent *event) {

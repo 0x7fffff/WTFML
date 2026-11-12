@@ -11,6 +11,9 @@
  * 原来标题栏那一角画一组淡淡的系统按钮；只给 bottom = 10000（从底边一路扩到顶）同样整窗
  * 透出背板，但不算"扩进了标题栏"，那组按钮不出来。
  *
+ * 【左右下那 1px 可见边也收进客户区】否则 DWM 在那 1px 上画一条没着色的背板、圆角也按它裁，和
+ * 客户区错开 1px（浅色主题左边 / 左下角看着像两层页面）。最大化时 WM_NCCALCSIZE 自己算，让客户区正好贴屏。
+ *
  * 命中测试：最上沿那一圈 = 缩放边（左右下三边是系统那圈看不见的边框，本来就能拖）；
  * 拖拽区（`addDragStrip`）的空白处 = HTCAPTION；拖拽区上有子控件的格子不认。
  */
@@ -37,7 +40,7 @@ public:
     /// 再加一条拖拽区（导航轨顶上的品牌那一格）。
     void addDragStrip(QWidget *strip);
 
-    /// 处理一条原生窗口消息（WM_NCHITTEST、WM_DPICHANGED）。
+    /// 处理一条原生窗口消息（WM_NCHITTEST、WM_DPICHANGED、最大化时的 WM_NCCALCSIZE）。
     /// @return true = 这一条我们回了。
     bool handleNativeEvent(void *message, qintptr *result);
 

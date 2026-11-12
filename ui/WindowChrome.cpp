@@ -32,6 +32,7 @@
 #  endif
 #  define WTFML_DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #  define WTFML_DWMWA_BORDER_COLOR 34
+#  define WTFML_DWMWA_VISIBLE_FRAME_BORDER_THICKNESS 37
 #  define WTFML_DWMWA_CAPTION_COLOR 35
 #  define WTFML_DWMWA_SYSTEMBACKDROP_TYPE 38
 #  define WTFML_DWMWA_COLOR_NONE 0xFFFFFFFEu
@@ -40,8 +41,18 @@
 namespace {
 
 #ifdef Q_OS_WIN
-int resizeBorderPhysical() {
-    return GetSystemMetrics(SM_CXSIZEFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
+/// 缩放边（看不见的那圈 + 1px 可见边）有多宽，物理像素。按窗口所在那块屏的 DPI 取，
+/// 和 AdjustWindowRectExForDpi 用同一个 DPI（混用系统 DPI 会在非 100% 屏上差 1px）。
+int resizeBorderPhysical(UINT dpi) {
+    return GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+}
+
+/// DWM 在左右下三边画的那条可见边有多厚（Win11 一般 1px；问不到按 1）。
+int visibleBorderPhysical(HWND hwnd) {
+    UINT thickness = 0;
+    if (FAILED(DwmGetWindowAttribute(hwnd, WTFML_DWMWA_VISIBLE_FRAME_BORDER_THICKNESS, &thickness, sizeof(thickness))))
+        return 1;
+    return int(thickness);
 }
 
 /// 系统那一档缩放比（折物理 <-> 逻辑用）。用系统 DPI 而不是 QScreen：上面那两个度量是
@@ -68,8 +79,6 @@ WindowChrome::WindowChrome(QWidget *window, QWidget *strip, QObject *parent)
     if (realWindowsPlatform()) m_window->setAttribute(Qt::WA_TranslucentBackground, true);
 #endif
     m_window->installEventFilter(this);
-    // 最外沿那一圈（样张）：主窗口、游戏日志窗、ChromeDialog 都从这里装上。
-    WindowEdge::install(m_window);
     // 换档、换深浅：重贴背板类型和深色标题区。
     Theme::follow(m_window, [this] { applyFrame(); });
 }
@@ -82,7 +91,7 @@ void WindowChrome::addDragStrip(QWidget *strip) {
 
 int WindowChrome::resizeBorder() {
 #ifdef Q_OS_WIN
-    return qCeil(resizeBorderPhysical() / systemDpr());
+    return qCeil(resizeBorderPhysical(GetDpiForSystem()) / systemDpr());
 #else
     return 0;
 #endif
@@ -96,12 +105,16 @@ void WindowChrome::applyFrame() {
     if (hwnd == nullptr) return;
 
     // 1) 标题栏收进客户区：顶上那一段非客户区（标题 + 上边框）给负的 customMargins。
-    // 左右下三边留着 —— 那是系统那圈看不见的缩放边。
+    // 左右下三边：看不见的那圈缩放边留给系统（拖边缩放、贴靠白拿），但最外那 1px 可见边也收进
+    // 客户区 —— 留在非客户区时 DWM 在那儿画一条没着色的背板（关背板时是一道透明缝），
+    // 圆角也按它裁，和客户区错开 1px，浅色下左边、左下角看着像两层页面。
+    // 最大化时那一档在 handleNativeEvent 的 WM_NCCALCSIZE 里自己算（见那边）。
     RECT frame{0, 0, 0, 0};
     const LONG style = GetWindowLongW(hwnd, GWL_STYLE);
     const LONG exStyle = GetWindowLongW(hwnd, GWL_EXSTYLE);
     AdjustWindowRectExForDpi(&frame, DWORD(style), FALSE, DWORD(exStyle), GetDpiForWindow(hwnd));
-    const QMargins margins(0, int(frame.top), 0, 0);
+    const int side = WindowEdge::enabled() ? -visibleBorderPhysical(hwnd) : 0;
+    const QMargins margins(side, int(frame.top), side, side);
     if (!m_marginsApplied || margins != m_appliedMargins) {
         if (auto *native = m_window->windowHandle()->nativeInterface<QNativeInterface::Private::QWindowsWindow>()) {
             native->setCustomMargins(margins);
@@ -117,8 +130,8 @@ void WindowChrome::applyFrame() {
     DwmSetWindowAttribute(hwnd, WTFML_DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
     const COLORREF none = WTFML_DWMWA_COLOR_NONE;
     DwmSetWindowAttribute(hwnd, WTFML_DWMWA_CAPTION_COLOR, &none, sizeof(none));
-    // 自己画了最外沿那一圈，就把系统那条 1px 硬边去掉（Win11 才认这一项，旧系统返回错误、忽略）；
-    // 关掉渐变时还给系统默认色；Win10 及以下不画、也不动系统边。
+    // 窗口边不要线：把系统那条 1px 硬边去掉（Win11 才认这一项，旧系统返回错误、忽略）；
+    // WTFML_WINDOW_EDGE=0 时还给系统默认色；Win10 及以下不动系统边。
     if (WindowEdge::supported()) {
         const COLORREF border = WindowEdge::enabled() ? WTFML_DWMWA_COLOR_NONE : 0xFFFFFFFFu;  // DWMWA_COLOR_DEFAULT
         DwmSetWindowAttribute(hwnd, WTFML_DWMWA_BORDER_COLOR, &border, sizeof(border));
@@ -144,6 +157,18 @@ bool WindowChrome::handleNativeEvent(void *message, qintptr *result) {
         // 标题栏高度跟着 DPI 变，等 Qt 把这一条处理完再按新 DPI 重收一次。
         QTimer::singleShot(0, this, [this] { applyFrame(); });
         return false;
+    case WM_NCCALCSIZE: {
+        // 最大化：窗口矩形四边各伸出屏外一圈缩放边。按 customMargins 那套算，顶边会跟着标题栏一起收、
+        // 落到屏幕上沿往上一圈缩放边的地方（内容最上面那几像素在屏外）；左右下给可见边的那 1px 也会出屏。
+        // 这一档自己算：系统默认结果的左右下正好贴屏，顶边改成窗口上沿往下一圈缩放边。
+        if (msg->wParam == FALSE || !IsZoomed(msg->hwnd)) return false;
+        auto *params = reinterpret_cast<NCCALCSIZE_PARAMS *>(msg->lParam);
+        const LONG windowTop = params->rgrc[0].top;
+        DefWindowProcW(msg->hwnd, msg->message, msg->wParam, msg->lParam);
+        params->rgrc[0].top = windowTop + resizeBorderPhysical(GetDpiForWindow(msg->hwnd));
+        *result = 0;
+        return true;
+    }
     case WM_NCHITTEST: {
         RECT wr{};
         if (GetWindowRect(msg->hwnd, &wr) == FALSE) return false;
@@ -151,7 +176,7 @@ bool WindowChrome::handleNativeEvent(void *message, qintptr *result) {
         if (!IsZoomed(msg->hwnd)) {
             const int px = GET_X_LPARAM(msg->lParam) - wr.left;
             const int py = GET_Y_LPARAM(msg->lParam) - wr.top;
-            const int band = resizeBorderPhysical();
+            const int band = resizeBorderPhysical(GetDpiForWindow(msg->hwnd));
             const int w = wr.right - wr.left;
             if (py >= 0 && py < band) {
                 *result = px < band * 2 ? HTTOPLEFT : (px >= w - band * 2 ? HTTOPRIGHT : HTTOP);
