@@ -86,24 +86,40 @@ bool GlassPopover::eventFilter(QObject *watched, QEvent *event) {
     return false;
 }
 
+void GlassPopover::paintSurface(QPainter &p, const QRectF &rect, qreal radius, bool fillBase) {
+    const Theme::Tokens t = Theme::tokens();
+    p.setRenderHint(QPainter::Antialiasing, true);
+    QPainterPath path;
+    path.addRoundedRect(rect, radius, radius);
+    p.save();
+    p.setClipPath(path);
+    if (fillBase) {
+        p.fillRect(rect, t.page);
+    }
+    p.restore();
+    p.fillPath(path, t.glass);
+    p.setPen(QPen(t.glassEdge, 1));
+    p.drawLine(QPointF(rect.left() + radius, rect.top() + 0.5),
+               QPointF(rect.right() - radius, rect.top() + 0.5));
+}
+
 void GlassPopover::paintEvent(QPaintEvent *) {
     // 面：先铺它那一块整窗磨砂（和整页覆盖层同一层），把下面的正文整块盖住，再压玻璃色
     // + 顶上一道极淡高光，不描边。只压一层半透明玻璃色的话，底下的主按钮、大标题会透上来。
     // 系统背板（亚克力 / 云母）拍不进阴影效果那张位图，退回不透明的页底色。
-    const Theme::Tokens t = Theme::tokens();
     QPainter p(this);
-    p.setRenderHint(QPainter::Antialiasing, true);
     QPainterPath path;
     path.addRoundedRect(QRectF(rect()), kRadius, kRadius);
-    p.save();
-    p.setClipPath(path);
-    Glass::Backdrop *backdrop = window()->findChild<Glass::Backdrop *>();
-    if (backdrop != nullptr && !Glass::systemBackdrop()) backdrop->paintBase(p, this, true);
-    else p.fillRect(rect(), t.page);
-    p.restore();
-    p.fillPath(path, t.glass);
-    p.setPen(QPen(t.glassEdge, 1));
-    p.drawLine(QPointF(kRadius, 0.5), QPointF(width() - kRadius, 0.5));
+    p.setRenderHint(QPainter::Antialiasing, true);
+    // 底下那一层：能借整窗磨砂就借（窗口里的卡片），借不到就铺不透明的页底色。
+    Glass::Backdrop *backdrop = window() != nullptr ? window()->findChild<Glass::Backdrop *>() : nullptr;
+    if (backdrop != nullptr && !Glass::systemBackdrop()) {
+        p.save();
+        p.setClipPath(path);
+        backdrop->paintBase(p, this, true);
+        p.restore();
+    }
+    paintSurface(p, QRectF(rect()), kRadius, backdrop == nullptr || Glass::systemBackdrop());
 }
 
 void GlassPopover::closeEvent(QCloseEvent *event) {

@@ -287,6 +287,21 @@ inline void dismissNextInline(OverlayHost *host, int buttonIndex = 0) {
     }
 }
 
+/// 仓库根目录：给"扫源码"的断言用。
+///
+/// 不要拿 `__FILE__` 往上推 —— ccache 的 `CCACHE_BASEDIR` 会把 `__FILE__` 改写成相对路径
+/// （跨工作树命中缓存靠的就是这个），推出的根就成了构建目录。CMake 把绝对路径传进来
+/// （`WTFML_REPO_ROOT`，见 tests/ui_check/CMakeLists.txt）。
+inline QDir repoRoot() {
+#ifdef WTFML_REPO_ROOT
+    return QDir(QStringLiteral(WTFML_REPO_ROOT));
+#else
+    return QDir(QFileInfo(QStringLiteral(__FILE__))
+                    .absoluteDir()
+                    .absoluteFilePath(QStringLiteral("../../..")));
+#endif
+}
+
 /// 把控件"现在长什么样"抓成一张图 —— 抓出来的是**逻辑像素**，跟控件的坐标同一个尺度。
 inline QImage captureWidget(QWidget *widget) {
     QImage image(widget->size(), QImage::Format_ARGB32);

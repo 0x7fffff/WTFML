@@ -1747,9 +1747,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             // 像素断言盯的是"今天画出来的样子"；这一条盯的是**别处又写一遍**：
             // 折叠钮再挂 `setArrowType()`、下拉框再搞一个自绘 ∨ 的过滤器，都在这儿红。
             {
-                const QDir root(QFileInfo(QStringLiteral(__FILE__))
-                                    .absoluteDir()
-                                    .absoluteFilePath(QStringLiteral("../../..")));
+                const QDir root = repoRoot();
                 const QRegularExpression comments(QStringLiteral(R"(/\*.*?\*/|//[^\n]*)"),
                                                   QRegularExpression::DotMatchesEverythingOption);
                 QStringList offenders;

@@ -12,6 +12,7 @@
 
 #include "Animations.hpp"
 #include "Glass.hpp"
+#include "GlassPopover.hpp"
 #include "Theme.hpp"
 
 #include <QAbstractButton>
@@ -49,8 +50,9 @@
 namespace {
 
 // 规格（`.tongxi/设计稿/r2`，tokens-r2 §3 / §6）
-constexpr qreal kTooltipRadius = 8;
-constexpr qreal kPopupRadius = 14;
+constexpr qreal kTooltipRadius = 8;                       // 提示比弹层小一号
+constexpr qreal kPopupRadius = GlassPopover::kRadius;     // 14：和窗口里那些浮层卡片同一个圆角
+constexpr int kPopupFadeMs = GlassPopover::kFadeMs;       // 150ms：同上，同一个淡入时长
 constexpr int kPopupPadding = 6;        // 弹层内边距
 constexpr int kTooltipDelayMs = 500;    // 停 500ms 才出
 constexpr int kTooltipWakeMs = 1000;    // 收起后 1 秒内换到相邻控件：不等，立刻出
@@ -389,7 +391,7 @@ public:
         if (watched == m_view) {
             if (event->type() == QEvent::Show) {
                 decoratePopup();
-                fadeIn(m_view->window(), 150, 4);  // 150ms 淡入 + 下移 4px
+                fadeIn(m_view->window(), kPopupFadeMs, 4);  // 150ms 淡入 + 下移 4px（和窗口里那些浮层同一个时长）
             }
             return false;
         }
@@ -687,7 +689,7 @@ protected:
                 Popups::glassify(menu, kPopupRadius);
             }
         } else if (event->type() == QEvent::Show) {
-            fadeIn(menu, 150, 4);
+            fadeIn(menu, kPopupFadeMs, 4);
         } else if (event->type() == QEvent::Paint) {
             QPainter painter(menu);
             painter.setRenderHint(QPainter::Antialiasing, true);
@@ -704,17 +706,10 @@ protected:
 // ---------------------------------------------------------------------------
 
 void Popups::paintSurface(QPainter &painter, const QRectF &rect, qreal radius) {
-    const Theme::Tokens tokens = Theme::tokens();
-    painter.save();
-    painter.setRenderHint(QPainter::Antialiasing, true);
-    const QRectF box = rect.adjusted(0.5, 0.5, -0.5, -0.5);
-    painter.setPen(Qt::NoPen);
-    painter.setBrush(tokens.glass);
-    painter.drawRoundedRect(box, radius, radius);
-    painter.setBrush(Qt::NoBrush);
-    painter.setPen(QPen(tokens.glassEdge, 1));
-    painter.drawRoundedRect(box, radius, radius);
-    painter.restore();
+    // 面只有一份出处：主页那张玻璃卡片（`GlassPopover`）。顶层浮层是 Qt 自己的弹出窗口、
+    // 装不进窗口里，所以共用的是**画法**（圆角 + 玻璃 + 顶上 1px 高光）；系统背板用不了时
+    // 先在底下垫一层页底色，别让桌面直接透上来。
+    GlassPopover::paintSurface(painter, rect, radius, !Glass::systemBackdrop());
 }
 
 void Popups::glassify(QWidget *popup, qreal radius) {

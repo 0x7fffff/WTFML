@@ -11,6 +11,8 @@
 #include <QFrame>
 #include <QPointer>
 
+class QPainter;
+
 class GlassPopover : public QFrame {
 public:
     explicit GlassPopover(QWidget *anchor);
@@ -24,6 +26,14 @@ public:
 
     static constexpr int kRadius = 14;
     static constexpr int kFadeMs = 150;
+
+    /// 浮层那一块面：圆角 + 磨砂玻璃 + 顶上 1px 高光，不描边。
+    ///
+    /// 窗口里的卡片（本类）、以及**顶层浮层**（下拉弹层、菜单、tooltip —— 那是 Qt 自己的
+    /// 弹出窗口，装不进窗口里）都画这一份，免得两边慢慢长得不一样。
+    /// @param fillBase true = 先在底下垫一层页底色（窗口里那张卡片要盖住下面的正文）；
+    ///                 false = 只压玻璃色，给挂了系统瞬态亚克力的顶层浮层用。
+    static void paintSurface(QPainter &painter, const QRectF &rect, qreal radius, bool fillBase);
 
 protected:
     /// 按锚点摆位置。主窗口尺寸变了会再叫一次。

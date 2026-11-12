@@ -49,9 +49,7 @@ int UiAnimationsChecks(QApplication &app, QFrame * &bar) {
         // 那一档已经整条拔掉（连读它、听 `WM_SETTINGCHANGE` 一起）。"没调用某个系统 API"
         // 这件事编译器断言不了，就扫源码 —— 去掉注释再找，注释里提到这几个名字不算。
         {
-            const QDir root(QFileInfo(QStringLiteral(__FILE__))
-                                .absoluteDir()
-                                .absoluteFilePath(QStringLiteral("../../..")));
+            const QDir root = repoRoot();
             const QRegularExpression comments(QStringLiteral(R"(/\*.*?\*/|//[^\n]*)"),
                                               QRegularExpression::DotMatchesEverythingOption);
             QStringList offenders;

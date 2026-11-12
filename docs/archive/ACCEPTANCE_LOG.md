@@ -216,4 +216,6 @@ python tools/acceptance_directory_boundary.py --exe <WTFMinecraftLauncher.exe> -
 | tooltip 换成自绘那一条 | 停 500ms 出、1 秒内换控件立即出、120ms 淡入上移 2px；文字按钮按 `text()` 判、不出提示；条目仍用 `ToolTipRole` | 系统那条 QToolTip 一律被 `QEvent::ToolTip` 吃掉，不再出现黄底方框 |
 | 下拉弹层（全仓 67 处 QComboBox） | 应用级一个过滤器接管：行高 34、圆角 8、选中强调淡底、8 项限高、S2 3px 细条 600ms 淡出、超过 15 项顶上搜索框 | ① `QComboBox::setMaxVisibleItems()` 在 Fusion + 样式表这一支上**不管用**（45 项照样整屏，正是用户报的），限高得自己按 8 项把弹层窗口收回；② Qt 自带上下翻页箭头（`QComboBoxPrivateScroller`）每次弹出会重新露出来，得在 show 的下一拍再藏一次 |
 | 浮层磨砂统一 | 下拉 / 菜单 / tooltip / 工具箱与账号面板 / 实例设置两个浮层都走 `Popups::paintSurface()` + `glassify()`（Win11 瞬态亚克力） | `Glass.cpp` / `WindowChrome.cpp` 一行没动（DSH 正在改失焦磨砂），浮层外壳在新文件 `ui/Popups.cpp` |
-| ui_check_popups（新增模块，offscreen） | 35 条通过 / 0 失败 | 验收图 `grab()` 拍不到 DWM 合成那层，图里看到的是自绘着色玻璃 |
+| ui_check_popups（新增模块，offscreen） | 37 条通过 / 0 失败 | 验收图 `grab()` 拍不到 DWM 合成那层，图里看到的是自绘着色玻璃 |
+| ui_check / mw_check（offscreen，合入主页后） | ui_check 3238 条、mw_check 2783 条，全过 | ccache 的 `CCACHE_BASEDIR` 会把 `__FILE__` 改写成相对路径 —— 三个「扫源码」的断言靠 `__FILE__` 推仓库根，结果根算成了构建目录（`TL1 扫到了…0`）。改成 CMake 传绝对路径 `WTFML_REPO_ROOT` |
+| 浮层外壳改成复用主页的 `GlassPopover` | 面（圆角 + 玻璃 + 顶上 1px 高光）从 `GlassPopover::paintSurface()` 抽出，窗口里卡片、下拉弹层、菜单、tooltip 共用；圆角 14 / 淡入 150ms 也从它取 | 下拉弹层与菜单是 Qt 自己的顶层弹出窗口，装不进窗口里 —— 共用的是**画法**，不是那个 QFrame；顶层那份仍自己挂 DWM 瞬态亚克力 |

@@ -42,7 +42,7 @@ int UiTopLevelDialogChecks(QApplication &app) {
         {QStringLiteral("PresetOptionsEditor"), QStringLiteral("预设编辑页里的子页，PresetEditorPage 设成 Qt::Widget")},
     };
 
-    const QDir root(QFileInfo(QStringLiteral(__FILE__)).absoluteDir().absoluteFilePath(QStringLiteral("../../..")));
+    const QDir root = repoRoot();
     const QRegularExpression comments(QStringLiteral(R"(/\*.*?\*/|//[^\n]*)"),
                                       QRegularExpression::DotMatchesEverythingOption);
     const QRegularExpression subclass(QStringLiteral(R"(class\s+(\w+)(?:\s+final)?\s*:\s*public\s+(?:QDialog|QWizard)\b)"));

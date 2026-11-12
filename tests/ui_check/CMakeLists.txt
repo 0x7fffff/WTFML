@@ -209,6 +209,10 @@ wtfml_exclude_shared_sources(wtfml_ui_runtime wtfml_core_runtime)
 target_link_libraries(wtfml_ui_runtime PUBLIC wtfml_core_runtime Qt6::Widgets)
 target_include_directories(wtfml_ui_runtime PUBLIC ${REPO_ROOT}/src ${REPO_ROOT}/ui ${REPO_ROOT}/tests ${CMAKE_CURRENT_SOURCE_DIR})
 add_library(wtfml_ui_fixture STATIC modules/Support.cpp modules/Support.hpp chrome_messages.cpp chrome_native.cpp)
+# ccache 的 `CCACHE_BASEDIR` 会把 `__FILE__` 改写成相对路径 —— 那几个"扫源码"的断言
+# 靠 `__FILE__` 推仓库根会算到构建目录上去。这里把真路径直接传进来（正斜杠，免转义）。
+file(TO_CMAKE_PATH "${REPO_ROOT}" WTFML_REPO_ROOT_POSIX)
+target_compile_definitions(wtfml_ui_fixture PUBLIC WTFML_REPO_ROOT="${WTFML_REPO_ROOT_POSIX}")
 target_link_libraries(wtfml_ui_fixture PUBLIC wtfml_ui_runtime)
 file(GLOB _cases CONFIGURE_DEPENDS modules/*.cpp)
 list(REMOVE_ITEM _cases "${CMAKE_CURRENT_SOURCE_DIR}/modules/Support.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/modules/ModuleMain.cpp")
