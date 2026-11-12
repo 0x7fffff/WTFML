@@ -111,14 +111,17 @@ int UiUiRefreshCheck(QApplication &app) {
         expect(accountsPane && accountsPane->width() <= 340,
                "account management pane stays compact instead of consuming half the page");
         auto *status = account.findChild<QLabel *>(AccountSkinDialog::statusLabelName());
-        expect(status && status->alignment().testFlag(Qt::AlignRight), "account identity is right aligned");
+        auto *pageTitle = account.findChild<QLabel *>(QStringLiteral("accountPageTitle"));
+        expect(pageTitle && status && status->alignment().testFlag(Qt::AlignLeft) &&
+                   status->mapTo(&account, QPoint()).y() > pageTitle->mapTo(&account, QPoint()).y(),
+               "account page has a big title with the identity as its one-line subtitle (design .page-head)");
         auto *viewer = account.findChild<SkinViewer *>(AccountSkinDialog::viewerName());
         expect(viewer && viewer->width() == 208 && viewer->height() == 312,
                "account character preview has bounded dimensions");
         auto *login = account.findChild<QPushButton *>(AccountSkinDialog::loginButtonName());
         auto *body = account.findChild<QWidget *>(QStringLiteral("accountBody"));
         expect(body && body->height() < 520 && login &&
-               login->mapTo(&account, QPoint()).y() < 120,
+               login->mapTo(&account, QPoint()).y() < 280,  // 大标题 + 副标题之下：小节名、账号列表、「登录新账号…」
                "account controls stay top aligned without distributing surplus height into gaps");
         expect(login && login->grab().toImage().pixelColor(8, 8) == Theme::tokens().primary,
                "default login button keeps solid primary background");
@@ -141,11 +144,11 @@ int UiUiRefreshCheck(QApplication &app) {
             account.show();
             app.processEvents();
             auto *header = account.findChild<QWidget *>(QStringLiteral("accountHeaderBar"));
-            // 工具栏在宿主中，不再属于 account 的子树。
-            if (!header) header = preview.findChild<QWidget *>(QStringLiteral("accountHeaderBar"));
-            expect(header && header->parentWidget() != &account && header->isVisible(),
-                   "account identity and refresh occupy the existing page header");
-            expect(body && body->y() <= 16, "embedded account content starts without a redundant identity row");
+            // 设计稿：面包屑下面一行大标题（身份副标题 + 右侧「刷新外观」），留在本页顶上。
+            expect(header && header->parentWidget() == &account && header->isVisible() && header->y() <= 16,
+                   "embedded account page keeps its title row at the top of the page");
+            expect(body && header && body->y() <= header->geometry().bottom() + 16,
+                   "embedded account content follows the title row directly");
             if (app.arguments().contains(QStringLiteral("--ui-refresh-preview")))
                 preview.grab().save(QStringLiteral("build/account-embedded-preview.png"));
             accountHost->closeOverlay();

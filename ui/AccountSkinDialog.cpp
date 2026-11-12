@@ -245,20 +245,36 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     root->setSpacing(12);
     root->setAlignment(Qt::AlignTop);
 
-    // ---------- 顶部：当前身份 / 最近一次动作的结果 ----------
-    // 内嵌成整页时这一条交给宿主的面包屑那一行（见 showEvent()）。
-    m_statusLabel = new QLabel(notLoggedInNote(), this);
-    m_statusLabel->setObjectName(statusLabelName());
-    m_statusLabel->setWordWrap(false);
-    m_statusLabel->setMaximumWidth(480);
-    m_statusLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    // ---------- 顶部（设计稿 .page-head）：大标题 + 一句身份副标题，「刷新外观」在右 ----------
     m_headerBar = new QWidget(this);
     m_headerBar->setObjectName(QStringLiteral("accountHeaderBar"));
     m_headerBar->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     auto *statusRow = new QHBoxLayout(m_headerBar);
     statusRow->setContentsMargins(0, 0, 0, 0);
     statusRow->setSpacing(12);
-    statusRow->addWidget(m_statusLabel, 1);
+    auto *titleColumn = new QVBoxLayout;
+    titleColumn->setSpacing(2);
+    auto *title = new QLabel(windowTitle(), m_headerBar);
+    title->setObjectName(QStringLiteral("accountPageTitle"));
+    {
+        QFont f = Theme::handFont(title->font(), Theme::HandFont::KaiLight);
+        f.setPixelSize(Theme::textSize(Theme::TextRole::Display));
+        title->setFont(f);
+    }
+    m_statusLabel = new QLabel(notLoggedInNote(), m_headerBar);
+    m_statusLabel->setObjectName(statusLabelName());
+    m_statusLabel->setWordWrap(false);
+    m_statusLabel->setMaximumWidth(480);
+    m_statusLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    m_statusLabel->setFont(Theme::textFont(m_statusLabel->font(), Theme::TextRole::Caption));
+    const auto tintStatus = [label = m_statusLabel] {
+        label->setStyleSheet(QStringLiteral("color: %1;").arg(Theme::tokens().secondary.name()));
+    };
+    tintStatus();
+    Theme::follow(m_statusLabel, tintStatus);
+    titleColumn->addWidget(title);
+    titleColumn->addWidget(m_statusLabel);
+    statusRow->addLayout(titleColumn, 1);
     root->addWidget(m_headerBar);
 
     auto *body = new QWidget(this);
@@ -361,7 +377,7 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     // 「刷新外观」刷的是**这一整个窗**（账号列表 + 皮肤 + 披风），所以放页头，不放某一栏里。
     Theme::markButton(m_refreshButton, Theme::ButtonKind::Neutral);
     m_refreshButton->setIcon(VersionIcons::line(QStringLiteral("refresh"), 16, Theme::tokens().text));
-    statusRow->addWidget(m_refreshButton);
+    statusRow->addWidget(m_refreshButton, 0, Qt::AlignTop);
 
     // ---------- 中：立绘（设计稿 .stage）----------
     m_viewer = new SkinViewer(this);
@@ -528,15 +544,8 @@ void AccountSkinDialog::showEvent(QShowEvent *event) {
     for (auto *ancestor = parentWidget(); ancestor; ancestor = ancestor->parentWidget()) {
         if ((host = qobject_cast<OverlayHost *>(ancestor))) break;
     }
-    if (host && host->isOpen()) {
-        layout()->removeWidget(m_headerBar);
-        host->setPageHeaderWidget(m_headerBar);
-        m_closeButton->hide(); // 内嵌页已有返回，不占一整排页脚。
-    } else {
-        qobject_cast<QVBoxLayout *>(layout())->insertWidget(0, m_headerBar);
-        m_headerBar->show();
-        m_closeButton->show();
-    }
+    // 标题行两种形态都留在本页顶上（设计稿：面包屑下面一行大标题）；内嵌页已有返回，不占页脚。
+    m_closeButton->setVisible(!(host && host->isOpen()));
     placeRowActions();
 }
 
