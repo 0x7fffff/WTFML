@@ -207,7 +207,7 @@ target_link_libraries(wtfml_ui_runtime PRIVATE dwmapi Qt6::GuiPrivate)
 wtfml_exclude_shared_sources(wtfml_ui_runtime wtfml_core_runtime)
 target_link_libraries(wtfml_ui_runtime PUBLIC wtfml_core_runtime Qt6::Widgets)
 target_include_directories(wtfml_ui_runtime PUBLIC ${REPO_ROOT}/src ${REPO_ROOT}/ui ${REPO_ROOT}/tests ${CMAKE_CURRENT_SOURCE_DIR})
-add_library(wtfml_ui_fixture STATIC modules/Support.cpp modules/Support.hpp chrome_messages.cpp)
+add_library(wtfml_ui_fixture STATIC modules/Support.cpp modules/Support.hpp chrome_messages.cpp chrome_native.cpp)
 target_link_libraries(wtfml_ui_fixture PUBLIC wtfml_ui_runtime)
 file(GLOB _cases CONFIGURE_DEPENDS modules/*.cpp)
 list(REMOVE_ITEM _cases "${CMAKE_CURRENT_SOURCE_DIR}/modules/Support.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/modules/ModuleMain.cpp")
@@ -251,6 +251,7 @@ add_ui_module(ui_check_resource_packs modules/UiResourcePacksCheck.cpp UiResourc
 add_ui_module(ui_check_lifecycle modules/UiLifecycleCheck.cpp UiLifecycleCheck)
 add_ui_module(ui_check_ui_refresh modules/UiUiRefreshCheck.cpp UiUiRefreshCheck)
 add_ui_module(ui_check_theme modules/UiThemeCheck.cpp UiThemeCheck)
+add_ui_module(ui_check_window_chrome modules/UiWindowChromeCheck.cpp UiWindowChromeCheck)
 add_ui_module(ui_check_armor_trim ArmorTrimChecks.cpp runArmorTrimChecks)
 wtfml_write_compact_entries()
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
@@ -304,6 +305,13 @@ set_tests_properties(wtfml.ui-refresh PROPERTIES
     LABELS "ui"
     TIMEOUT 30
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
+# 真 windows 平台插件：窗口摆到屏外、不激活，量真 HWND 上的 WM_NCHITTEST / 标题栏 / 原生子窗口。
+wtfml_add_test(NAME wtfml.window-chrome COMMAND ui_check_window_chrome)
+set_tests_properties(wtfml.window-chrome PROPERTIES
+    LABELS "ui;window"
+    TIMEOUT 120
+    ENVIRONMENT "QT_QPA_PLATFORM=windows;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
 )
 wtfml_add_test(NAME wtfml.theme COMMAND ui_check_theme)
 set_tests_properties(wtfml.theme PROPERTIES

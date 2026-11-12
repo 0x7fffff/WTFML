@@ -124,6 +124,7 @@ private:
     QTimer *m_saveTimer = nullptr;
     bool m_configured = false;
     bool m_savePending = false;
+    bool m_settingsOpenQueued = false;  // 让位后排了下一轮重开 API 设置页
     bool m_shuttingDown = false;
     QString m_autoNoticeShownFor;
 };

@@ -17,13 +17,23 @@
  *
  * 命中测试：最上沿那一圈 = 缩放边（左右下三边是系统那圈看不见的边框，本来就能拖）；
  * 拖拽区（`addDragStrip`）的空白处 = HTCAPTION；拖拽区上有子控件的格子不认。
+ *
+ * 【窗口里其余的空白处】没有人接的左键按下一路冒泡到窗口，在这里 `startSystemMove()`（系统拖窗，
+ * 贴边吸附照常），双击 = 最大化 / 还原。「空白」见 `isDragBlank()`：最深那个控件是纯容器 / 不可选的
+ * 标签，而且它到窗口那一路上没有设过手形光标的控件。按钮、输入框、列表、滚动条、自绘的可点卡片都不是空白。
+ *
+ * 【关掉再打开要重贴】关窗口会销毁平台窗口，再 show 时 Show 事件先到、新的平台窗口后建
+ * （`windowHandle()->handle()` 为空）。这一拍贴不上，新 HWND 就带着系统标题栏上屏（高速下载窗第二次打开
+ * 变成「系统标题栏 + 窗内标题条」两层）。`applyFrame()` 在平台窗口没建好时排下一拍再贴。
  */
 
 #pragma once
 
+#include <QElapsedTimer>
 #include <QList>
 #include <QMargins>
 #include <QObject>
+#include <QPoint>
 #include <QPointer>
 #include <QtGlobal>
 
@@ -51,15 +61,22 @@ public:
     /// 上沿那一圈缩放边有多宽（逻辑像素）。
     static int resizeBorder();
 
+    /// `under` 是不是「空白」：窗口里按下去可以拖窗的地方（见文件头）。`under == window` 算空白。
+    static bool isDragBlank(const QWidget *under, const QWidget *window);
+
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     QPoint hitTestPoint(void *message) const;
+    bool handleBlankPress(QEvent *event);
 
     QWidget *m_window = nullptr;
     QWidget *m_strip = nullptr;
     QList<QPointer<QWidget>> m_extraStrips;
     QMargins m_appliedMargins;
     bool m_marginsApplied = false;
+    bool m_retryPending = false;  // 平台窗口还没建好，已排了下一拍重贴
+    QElapsedTimer m_blankClock;  // 上一次空白处按下的时刻，认双击用
+    QPoint m_blankPos;
 };

@@ -27,7 +27,7 @@ function Get-TestImpact([string[]]$Paths, [bool]$ForceFull = $false) {
         runner = @('test-runner', 'test-modules', 'ci-partitions')
         ui = @('ui-refresh', 'install-layout', 'lifecycle'); theme = @('theme')
         'ui-history' = @('ui-bootstrap')
-        window = @('main-window'); workspace = @('workspace', 'activity-selection')
+        window = @('main-window', 'window-chrome'); workspace = @('workspace', 'activity-selection')
         java = @('java-manage'); mods = @('mod-action-panel'); upgrade = @('instance-upgrade')
         network = @('download-retry', 'high-speed-download', 'segmented-download', 'segment-install')
         presets = @('preset-install'); toolbox = @('tool-features', 'toolbox-polish', 'armor-trim')
@@ -42,6 +42,8 @@ function Get-TestImpact([string[]]$Paths, [bool]$ForceFull = $false) {
         'tests/ui_check/modules/UiLifecycleCheck.cpp' = 'ui'
         'tests/ui_check/modules/UiUiRefreshCheck.cpp' = 'ui'
         'tests/ui_check/modules/UiThemeCheck.cpp' = 'theme'
+        'tests/ui_check/modules/UiWindowChromeCheck.cpp' = 'window'
+        'tests/ui_check/chrome_native.cpp' = 'window'
         'tests/mw_check/modules/MwHighSpeedDownloadCheck.cpp' = 'network'
         'tests/mw_check/modules/MwDownloadRetryCheck.cpp' = 'network'
         'tests/mw_check/RequestBudgetChecks.cpp' = 'network'

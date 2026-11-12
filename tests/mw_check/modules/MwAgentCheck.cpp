@@ -8,6 +8,8 @@
 #include "AgentApprovalCard.hpp"
 #include "AgentPage.hpp"
 #include "AgentToolCard.hpp"
+#include "AgentSettingsPage.hpp"
+#include "OverlayHost.hpp"
 #include "agent/AgentSessionStore.hpp"
 #include "controllers/AgentController.hpp"
 #include "agent/AgentModelClient.hpp"
@@ -18,6 +20,8 @@
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
+#include <QDialog>
+#include <QPushButton>
 #include <QTabWidget>
 #include <QThread>
 #include <QTimer>
@@ -245,6 +249,30 @@ int MwAgentChecks(QApplication &app) {
         check(!controller->sessionStore()->load(toDelete, &gone, nullptr),
               "真窗口：删除后会话不可读回");
         QDir(root).removeRecursively();
+    }
+
+    // 「API 设置」被别的页占着覆盖层时也要打得开（用户报的「点了没反应」：别的选项卡上开的页收着、仍占着这一位，
+    // showPage() 返回 false，按钮静默无事发生）。
+    {
+        OverlayHost *overlay = window.ui()->overlay();
+        check(overlay != nullptr, "真窗口：有覆盖层");
+        if (overlay != nullptr) {
+            auto *other = new QDialog;
+            QPointer<QDialog> otherGuard(other);
+            check(overlay->showPage(other, QStringLiteral("别的页")), "真窗口：先开一页占住覆盖层");
+            tabs->setCurrentIndex(MainWindowUI::homeTabIndex());  // 页所属的选项卡以外 = 收着
+            QCoreApplication::processEvents();
+            tabs->setCurrentWidget(page);
+            QCoreApplication::processEvents();
+            QPushButton *apiButton = page->findChild<QPushButton *>(QStringLiteral("agentApiSettingsButton"));
+            check(apiButton != nullptr, "真窗口：找得到「API 设置」钮");
+            if (apiButton != nullptr) apiButton->click();
+            check(waitFor([&] { return window.findChild<AgentSettingsPage *>() != nullptr && overlay->pageOpen(); }),
+                  "真窗口：覆盖层被别的页占着时点「API 设置」照样打开");
+            check(otherGuard.isNull() || !otherGuard->isVisible(), "真窗口：占着的那页被静默收掉");
+            overlay->evict();
+            QCoreApplication::processEvents();
+        }
     }
 
     controller->shutdown();

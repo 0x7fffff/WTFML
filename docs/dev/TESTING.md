@@ -37,7 +37,7 @@ exe 在 `build/verification-mingw13/WTFMinecraftLauncher.exe`，改完代码重�
 | `quick` | `test-runner`、`test-modules`、`java-manage`、`mod-action-panel`、`workspace`、`activity-selection`、`theme`、`ui-refresh`、`install-layout`、`lifecycle`、`toolbox-polish`、`armor-trim`、`core-agent`、`ui-agent`、`main-window-agent` |
 | `full` | 全部非 `visual` 测试 |
 | `core` | `core` 标签：核心基线 + 12 个核心分片 + 引导检查 |
-| `window` | `main-window`、`main-window-agent` |
+| `window` | `main-window`、`main-window-agent`、`window-chrome`（真 windows 平台插件，窗口摆屏外不激活：WM_NCHITTEST、系统标题栏、原生子窗口、隐藏再显示） |
 | `java` | `java-manage` |
 | `mods` | `mod-action-panel`（模组操作栏、迁移与依赖检查） |
 | `upgrade` | `instance-upgrade`（原地升级、完整快照、故障回滚）；只构建独立的 `mw_check_instance_upgrade` |

@@ -878,6 +878,19 @@ void AgentController::onPageHidden() {
 
 void AgentController::openSettings() {
     if (m_overlay == nullptr || m_page == nullptr) return;
+    // 覆盖层被别的页占着（典型：在别的选项卡上开了页再切过来，那页收着、仍占着这一位）时 showPage() 直接返回
+    // false，按钮就「点了没反应」。用户亲手点的入口按全窗规矩（MainWindow::runWhenOverlayFree）：静默收掉占着的
+    // 那一层、排到下一轮再开；这一层只认自己的 overlay，不依赖 MainWindow，所以在这里做同一件事。
+    if (m_overlay->isOpen()) {
+        if (!m_settingsOpenQueued && m_overlay->evict()) {
+            m_settingsOpenQueued = true;
+            QTimer::singleShot(0, this, [this] {
+                m_settingsOpenQueued = false;
+                openSettings();
+            });
+        }
+        return;
+    }
     if (m_settingsPage != nullptr) {
         // 已经开着/收着：把值重摆一遍再让它露头。
         m_settingsPage->setProfile(viewProfile(m_profile), AgentSecretStore::hasSecret(m_profile.id),
