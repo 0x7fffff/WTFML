@@ -148,7 +148,7 @@ public:
 
     // ---------- 产品文案 ----------
     static QString windowTitle() { return QStringLiteral("账号与外观"); }
-    static QString accountSectionTitle() { return QStringLiteral("账号（正版 / 离线）"); }
+    static QString accountSectionTitle() { return QStringLiteral("账号"); }
     static QString looksSectionTitle() { return QStringLiteral("外观预览"); }
     static QString capeSectionTitle() { return QStringLiteral("披风"); }
     static QString loginButtonText() { return QStringLiteral("登录新账号…"); }
