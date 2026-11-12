@@ -59,6 +59,7 @@ public:
         QString id;
         QString alias;
         bool active = false;
+        QString url;  ///< 披风贴图地址；贴图到了用 setCapeTexture() 补进格子
     };
 
     explicit AccountSkinDialog(QWidget *parent = nullptr);
@@ -82,6 +83,8 @@ public:
 
     /// 重建披风列表（"不显示披风"是列表下面那个按钮，不占一行）。
     void setCapes(const QList<CapeRow> &capes);
+    /// 某件披风的贴图（64×32）到了：那一格改画贴图正面，不再是占位色条。
+    void setCapeTexture(const QString &url, const QImage &texture);
 
     /// 有一件请求在走（登录中、正在拉列表）。按钮一起灰掉 —— 同步请求期间界面本来就
     /// 点不动，这一句是给**登录**那条异步路用的（浏览器可能几十秒才回来）。

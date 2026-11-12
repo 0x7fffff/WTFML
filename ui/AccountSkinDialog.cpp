@@ -184,11 +184,20 @@ public:
         painter->setPen(selected ? QPen(t.primary, 2) : QPen(t.glassEdge, 1));
         painter->setBrush(fill);
         painter->drawRoundedRect(cell.adjusted(0.5, 0.5, -0.5, -0.5), 10, 10);
-        // shortcut: 没有披风贴图可画，按 id 取一个稳定色块；要真图时改成从 cape 贴图裁正面。
-        QColor swatch = SkinModel::avatarFallbackColor(index.data(Qt::UserRole).toString());
+        const QImage texture = index.data(Qt::UserRole + 3).value<QImage>();
         painter->setPen(Qt::NoPen);
-        painter->setBrush(swatch);
-        painter->drawRoundedRect(QRectF(cell.center().x() - 8, cell.top() + 14, 16, 32), 3, 3);
+        if (!texture.isNull() && texture.width() >= 64) {
+            // 披风贴图正面在 (1,1) 起 10×16（按 64 宽的比例换算高清贴图），放大 2 倍、最近邻不糊。
+            const int unit = texture.width() / 64;
+            const QRectF front(cell.center().x() - 10, cell.center().y() - 16, 20, 32);
+            painter->setRenderHint(QPainter::SmoothPixmapTransform, false);
+            painter->drawImage(front, texture, QRect(unit, unit, 10 * unit, 16 * unit));
+        } else {
+            // 贴图还没到（或没地址）：按 id 取一个稳定色块占位。
+            QColor swatch = SkinModel::avatarFallbackColor(index.data(Qt::UserRole).toString());
+            painter->setBrush(swatch);
+            painter->drawRoundedRect(QRectF(cell.center().x() - 8, cell.top() + 14, 16, 32), 3, 3);
+        }
         if (index.data(Qt::UserRole + 1).toBool()) {  // 正披着的那件：右上角一个小圆点
             painter->setBrush(t.ok);
             painter->drawEllipse(QPointF(cell.right() - 8, cell.top() + 8), 3, 3);
@@ -652,10 +661,19 @@ void AccountSkinDialog::setCapes(const QList<CapeRow> &capes) {
         item->setToolTip(cape.alias);
         item->setData(Qt::UserRole, cape.id);
         item->setData(Qt::UserRole + 1, cape.active);
+        item->setData(Qt::UserRole + 2, cape.url);
     }
     m_capeList->setVisible(!capes.isEmpty());
     updateCapeCaption();
     refreshButtonStates();
+}
+
+void AccountSkinDialog::setCapeTexture(const QString &url, const QImage &texture) {
+    if (url.isEmpty() || texture.isNull()) return;
+    for (int i = 0; i < m_capeList->count(); ++i) {
+        QListWidgetItem *item = m_capeList->item(i);
+        if (item->data(Qt::UserRole + 2).toString() == url) item->setData(Qt::UserRole + 3, texture);
+    }
 }
 
 void AccountSkinDialog::updateCapeCaption() {

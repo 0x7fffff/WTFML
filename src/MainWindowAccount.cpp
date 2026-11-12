@@ -110,6 +110,11 @@ void MainWindow::setupAccountSkinDialog() {
             &MainWindow::onCapeSelectRequested);
     connect(m_accountSkinDialog, &AccountSkinDialog::hideCapeRequested, this,
             &MainWindow::onCapeHideRequested);
+    // 披风格画真贴图：走皮肤那套贴图缓存（按地址认领，别的贴图回来对不上地址就不理）。
+    connect(m_skinStore, &PlayerSkinStore::textureReady, m_accountSkinDialog,
+            [this](const QString &url, const QString &path) {
+                m_accountSkinDialog->setCapeTexture(url, QImage(path));
+            });
 }
 
 bool MainWindow::offlineIdentity() const {
@@ -246,10 +251,12 @@ void MainWindow::refreshAccountSkin() {
         AccountSkinDialog::CapeRow row;
         row.id = cape.id;
         row.alias = cape.alias;
+        row.url = cape.url;
         row.active = cape.active;
         capeRows.append(row);
     }
     m_accountSkinDialog->setCapes(capeRows);
+    for (const AccountSkinDialog::CapeRow &row : capeRows) m_skinStore->fetchTexture(row.url);
     // 到这里那一趟联网才算走完（这一条是上面那个忙态唯一的"成功"出口）。
     m_accountSkinDialog->setBusy(false);
 }
