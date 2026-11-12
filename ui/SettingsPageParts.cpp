@@ -90,52 +90,6 @@ protected:
     }
 };
 
-/// 「高级」那一整行的按钮外观。
-class ExpandHeader : public QAbstractButton {
-public:
-    ExpandHeader(const QString &title, const QString &summary, QWidget *parent)
-        : QAbstractButton(parent), m_title(title), m_summary(summary) {
-        setFixedHeight(44);
-        setCursor(Qt::PointingHandCursor);
-        setFocusPolicy(Qt::TabFocus);
-        setAttribute(Qt::WA_Hover, true);
-        setAccessibleName(title);
-        setText(title);
-    }
-    bool open = false;
-
-protected:
-    void paintEvent(QPaintEvent *) override {
-        const Theme::Tokens t = Theme::tokens();
-        QPainter p(this);
-        p.setRenderHint(QPainter::Antialiasing, true);
-        p.setPen(Qt::NoPen);
-        p.setBrush(underMouse() ? t.subtle : t.hover);
-        p.drawRoundedRect(rect(), 10, 10);
-        p.setFont(uiFont(14));
-        p.setPen(underMouse() ? t.text : t.secondary);
-        const QRect inner = rect().adjusted(14, 0, -14, 0);
-        p.drawText(inner, Qt::AlignLeft | Qt::AlignVCenter, m_title);
-        const int titleW = QFontMetrics(p.font()).horizontalAdvance(m_title);
-        p.setFont(uiFont(12));
-        p.setPen(t.disabled);
-        p.drawText(inner.adjusted(titleW + 10, 0, 0, 0), Qt::AlignLeft | Qt::AlignVCenter, m_summary);
-        p.setPen(accentText());
-        p.drawText(inner, Qt::AlignRight | Qt::AlignVCenter,
-                   open ? QStringLiteral("收起") : QStringLiteral("展开"));
-        if (hasFocus()) {
-            p.setBrush(Qt::NoBrush);
-            QColor ring = t.focus;
-            p.setPen(QPen(ring, 3));
-            p.drawRoundedRect(QRectF(rect()).adjusted(1.5, 1.5, -1.5, -1.5), 9, 9);
-        }
-    }
-
-private:
-    QString m_title;
-    QString m_summary;
-};
-
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -467,13 +421,13 @@ void SlidingTabs::paintEvent(QPaintEvent *) {
 // ExpandSection
 // ---------------------------------------------------------------------------
 
-ExpandSection::ExpandSection(const QString &title, const QString &summary, QWidget *parent)
-    : QWidget(parent) {
+ExpandSection::ExpandSection(const QString &title, QWidget *parent) : QWidget(parent) {
     setProperty("settingsExpandSection", true);
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
-    auto *header = new ExpandHeader(title, summary, this);
+    auto *header = Theme::makeFoldRow(this, title);
+    header->setFixedHeight(44);
     m_header = header;
     layout->addWidget(header);
     m_body = new QWidget(this);
@@ -485,14 +439,13 @@ ExpandSection::ExpandSection(const QString &title, const QString &summary, QWidg
     m_anim = new QPropertyAnimation(m_body, "maximumHeight", this);
     m_anim->setDuration(200);
     m_anim->setEasingCurve(QEasingCurve::OutCubic);
-    connect(header, &QAbstractButton::clicked, this, [this] { setExpanded(!m_expanded); });
+    connect(header, &QAbstractButton::toggled, this, [this](bool open) { setExpanded(open); });
 }
 
 void ExpandSection::setExpanded(bool expanded, bool animate) {
     if (expanded == m_expanded) return;
     m_expanded = expanded;
-    static_cast<ExpandHeader *>(m_header)->open = expanded;
-    m_header->update();
+    static_cast<QAbstractButton *>(m_header)->setChecked(expanded);
     m_anim->stop();
     m_anim->disconnect(this);
     const auto settle = [this, expanded] {

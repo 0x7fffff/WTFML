@@ -215,8 +215,24 @@ int UiThemeCheck(QApplication &app) {
             expect(roles && roles->count() == Theme::roleCount() && parts && parts->count() == Theme::partCount(),
                    "advanced editor exposes every supported role and part");
             expect(body && body->isHidden(), "advanced editor starts collapsed");
-            editor.findChild<QToolButton *>("themeAdvancedToggle")->click();
+            auto *fold = editor.findChild<QAbstractButton *>("themeAdvancedToggle");
+            // 折叠行（8 号反馈）：整行一颗按钮、标题在 text()、右边那颗小字写「展开 / 收起」，
+            // 不再有 ▸ / ▾ 箭头，也不再是 QToolButton 那套系统外观。
+            const auto foldState = [fold]() {
+                const auto labels = fold->findChildren<QLabel *>(QString(), Qt::FindDirectChildrenOnly);
+                for (auto *label : labels) {
+                    if (label->text() == QStringLiteral("展开") || label->text() == QStringLiteral("收起")) {
+                        return label->text();
+                    }
+                }
+                return QString();
+            };
+            expect(fold && qobject_cast<QToolButton *>(fold) == nullptr &&
+                       fold->text() == QStringLiteral("细分区域与控件颜色") && foldState() == QStringLiteral("展开"),
+                   "fold row is one plain button with a 展开/收起 word and no arrow");
+            fold->click();
             expect(!body->isHidden(), "advanced editor expands without opening a new page");
+            expect(foldState() == QStringLiteral("收起"), "fold row switches its word to 收起 once open");
             editor.setSpec(Theme::defaultSpec());
             expect(emitted == 0, "refreshing advanced editor never writes theme settings");
             editor.setRoleColor(int(Theme::Role::Base), QColor("#123456"));

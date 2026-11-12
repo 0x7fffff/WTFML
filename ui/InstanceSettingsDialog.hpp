@@ -2340,7 +2340,7 @@ private:
     /// **有损**的：`-Dfoo=bar baz` 会被切成两条。一条一行则原样进原样出。
     QPlainTextEdit *m_appendJvmArgsEdit = nullptr;
     QCheckBox *m_warnJavaMismatchCheck = nullptr;
-    QToolButton *m_advancedToggle = nullptr;
+    QPushButton *m_advancedToggle = nullptr;
     QWidget *m_advancedBox = nullptr;
     /// **展开**「高级选项」之前这个窗有多高。折回时按它还原 —— Qt 只在"窗口比内容还小"
     /// 时把窗口撑大，内容变少时一动不动，不记这一笔的话展开一次再收起，底下就永远留着

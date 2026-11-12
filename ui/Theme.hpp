@@ -68,6 +68,7 @@
 #include <utility>
 
 class QPainter;
+class QAbstractSpinBox;
 class QCheckBox;
 class QPushButton;
 class QLabel;
@@ -628,6 +629,31 @@ QColor swatchBorder(const QColor &color);
  */
 void markColorSwatch(QPushButton *button, const QColor &color);
 
+
+// ---------------------------------------------------------------------------
+// 两个控件工厂（外观都在应用级样式表里，这里只搭结构）
+// ---------------------------------------------------------------------------
+
+/**
+ * @brief 折叠行：**整行就是一个按钮**，右边用文字「展开 / 收起」表示开合。
+ *
+ * 不带 ▸ / ▾ 箭头（8 号反馈：这种小箭头不要再出现），也不留系统 QToolButton 那圈方框。
+ * 结构：`checkable QPushButton` + 一个子布局（左标题、右状态字），两颗 `QLabel` 都
+ * `WA_TransparentForMouseEvents` —— 点在行上任何位置都是按那颗按钮。
+ * 按钮自己的 `text()` 留空（画的是子控件），`isChecked()` = 展开着。
+ */
+QPushButton *makeFoldRow(QWidget *parent, const QString &title);
+
+/**
+ * @brief 数字框外套一层「− 值 +」：小整数（0–5 那种）用它，大范围仍用滑块 + 小框。
+ *
+ * 值仍由调用方那颗 `QAbstractSpinBox` 持有 —— 范围、suffix、`valueChanged`、持久化全不动，
+ * 这里只是把它夹在两个 `Qt::NoFocus` 的 −/+ 按钮中间（点一下 = `stepDown()` / `stepUp()`）。
+ * 返回的是外面那一层容器，调用方摆它、往里 `addWidget`。
+ *
+ * @param spinWidth 大于 0 时给数字框定宽（各页那一列要对齐）。
+ */
+QWidget *makeNumberStepper(QWidget *parent, QAbstractSpinBox *spin, int spinWidth = 0);
 
 /// 输入类控件（`QLineEdit` / `QComboBox` / `QAbstractSpinBox` / 勾选框那个框）的圆角。
 constexpr int controlRadius() { return 10; }

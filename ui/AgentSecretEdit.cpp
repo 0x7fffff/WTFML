@@ -40,6 +40,8 @@ AgentSecretEdit::AgentSecretEdit(QWidget *parent) : QWidget(parent) {
     m_reveal->setToolTip(QStringLiteral("按住显示明文；失焦/保存后恢复遮挡"));
     m_reveal->setCheckable(true);
     m_reveal->setFocusPolicy(Qt::StrongFocus);
+    // 扁平：不留系统 QToolButton 那圈方框（悬停 / 按住才出底）。
+    m_reveal->setAutoRaise(true);
     layout->addWidget(m_reveal);
 
     connect(m_reveal, &QToolButton::toggled, this, [this](bool checked) {

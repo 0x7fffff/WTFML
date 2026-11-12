@@ -89,17 +89,19 @@ QWidget *MainWindowUI::setupDownloadPage() {
             Theme::follow(downloadHeaderRefreshButton, tint);
         }
         {
-            // 设计稿 download：页头右边「下载源 自动选择（BMCLAPI）⌄」。选项不另存一份：
-            // 点开时现读设置页那只下拉框，选中就改它（持久化、生效都走它原来那条路）。
+            // 页头右边「下载源 · 优先官方源」：一颗胶囊触发器（`wtfmlComboTrigger`），
+            // **不带 ∨**（8 号反馈：这种右边的小箭头不要再出现）—— 整块可点、悬停加深。
+            // 选项不另存一份：点开时现读设置页那只下拉框，选中就改它（持久化、生效都走它原来那条路）。
             auto *source = new QPushButton(download.right.header);
             source->setObjectName(downloadSourceButtonName());
+            source->setProperty("wtfmlComboTrigger", true);
             Theme::markButton(source, Theme::ButtonKind::Ghost);
             source->setCursor(Qt::PointingHandCursor);
             const auto sync = [this, source] {
                 const QString name = downloadSourceCombo != nullptr ? downloadSourceCombo->currentText() : QString();
                 // 钮上只留逗号前那半句（「优先官方源」），整句进悬停提示。
                 const QString brief = name.section(QStringLiteral("，"), 0, 0);
-                source->setText(brief.isEmpty() ? QStringLiteral("下载源") : QStringLiteral("下载源 · %1  ⌄").arg(brief));
+                source->setText(brief.isEmpty() ? QStringLiteral("下载源") : QStringLiteral("下载源 · %1").arg(brief));
                 source->setToolTip(name);
             };
             sync();

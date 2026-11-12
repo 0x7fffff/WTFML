@@ -408,7 +408,7 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
            QStringLiteral(".jar / .zip 只进「打开方式」列表，不改默认。"));
 
     // ---------- 高级：JVM 参数 ----------
-    auto *advanced = new ExpandSection(QStringLiteral("高级"), QStringLiteral("1 项 · JVM 参数"), form);
+    auto *advanced = new ExpandSection(QStringLiteral("高级"), form);
     advanced->setObjectName(QStringLiteral("settingsAdvanced-launch"));
     panel.layout->addWidget(advanced);
     SettingsGroup *jvm = new SettingsGroup(QStringLiteral("JVM 参数"), advanced);
@@ -707,16 +707,16 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         spin->setRange(0, 5);
         spin->setSuffix(QStringLiteral(" 个"));
         spin->setSpecialValueText(QStringLiteral("隐藏"));  // 0 直接显示「隐藏」
-        spin->setFixedWidth(kWindowSizeSpinWidth + 22);
         WheelGuard::install(spin);
-        addRow(quick, label, spin, Placement::Natural);
+        // 0–5 的小整数：「− 值 +」步进器（值仍在这颗 QSpinBox 上，范围 / valueChanged / 持久化不动）。
+        addRow(quick, label, Theme::makeNumberStepper(form, spin, 72), Placement::Natural);
         *out = spin;
     };
     addCount(QStringLiteral("收藏"), homeFavoriteCountSpinName(), &homeFavoriteCountSpin);
     addCount(QStringLiteral("上次游玩"), homeRecentCountSpinName(), &homeRecentCountSpin);
 
     // ---------- 高级：语义色 · 高级配色 · 整份主题 ----------
-    auto *advanced = new ExpandSection(QStringLiteral("高级"), QStringLiteral("语义色 · 高级配色 · 整份主题"), form);
+    auto *advanced = new ExpandSection(QStringLiteral("高级"), form);
     advanced->setObjectName(QStringLiteral("settingsAdvanced-look"));
     panel.layout->addWidget(advanced);
     SettingsGroup *advancedGroup = new SettingsGroup(QStringLiteral("主题（高级）"), advanced);

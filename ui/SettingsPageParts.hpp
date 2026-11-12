@@ -133,11 +133,11 @@ private:
     QVariantAnimation *m_anim = nullptr;
 };
 
-/// 「高级」展开行：整行是按钮，右侧写「展开 / 收起」，不画箭头；内容高度 200ms 展开。
+/// 「高级」展开行：整行是按钮（Theme::makeFoldRow），右侧写「展开 / 收起」，不画箭头；内容高度 200ms 展开。
 class ExpandSection : public QWidget {
     Q_OBJECT
 public:
-    ExpandSection(const QString &title, const QString &summary, QWidget *parent);
+    ExpandSection(const QString &title, QWidget *parent);
     /// 往里加分组 / 行。
     QVBoxLayout *bodyLayout() const { return m_bodyLayout; }
     bool expanded() const { return m_expanded; }

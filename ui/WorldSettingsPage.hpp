@@ -87,6 +87,7 @@ class QPushButton;
 class QSpacerItem;
 class QTimer;
 class QToolButton;
+class QPushButton;
 class QVBoxLayout;
 class ToggleSwitch;
 
@@ -468,9 +469,10 @@ private:
     QSpacerItem *m_bodyTail = nullptr;
     /// 那根弹簧在布局里排第几个（`QBoxLayout::setStretch()` 按下标说话）。
     int m_bodyTailIndex = -1;
-    /// 「修改存档文件」那个折叠框的开关（可勾、带箭头）。和「实例设置 → 启动」那一页的
-    /// 「高级选项」是同一个做法（`QToolButton` + `setArrowType()`）。
-    QToolButton *m_fileToggle = nullptr;
+    /// 「修改存档文件」那个折叠框的开关。和「实例设置 → 启动」那一页的「高级选项」、
+    /// 设置页「细分区域与控件颜色」是同一个做法：`Theme::makeFoldRow()` —— 整行一颗可点的
+    /// 按钮，右边用文字「展开 / 收起」，不带箭头。
+    QPushButton *m_fileToggle = nullptr;
     /// 折叠框里那一块（那四行）。**默认藏起来** —— 开没开是 `m_fileToggle` 那一位。
     QWidget *m_fileBody = nullptr;
     QLineEdit *m_nameEdit = nullptr;
