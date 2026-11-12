@@ -15,7 +15,8 @@
 
 #include "ChromeDialog.hpp"
 #include "DownloadToolDialog.hpp"
-#include "GameLogWindow.hpp"
+#include "GameLogWindow.hpp"
+#include "Glass.hpp"
 #include "InstanceUpdateWizard.hpp"
 #include "ShellOpenWith.hpp"
 #include "UpgradeHistoryDialog.hpp"
@@ -141,6 +142,12 @@ void checkWindow(const QString &name, QWidget *window, bool cycleByClose = true)
 }  // namespace
 
 int UiWindowChromeCheck(QApplication &) {
+    // 亚克力档的 accent 路径（实验）：着色值打包和开关语义都是纯函数，任何平台都能量。
+    check(Glass::accentGradientArgb(QColor(0x11, 0x22, 0x33, 0x44)) == 0x44112233u,
+          QStringLiteral("WC accent 着色值按 0xAABBGGRR 打包（alpha 最高字节、红在最低）"),
+          QString::number(Glass::accentGradientArgb(QColor(0x11, 0x22, 0x33, 0x44)), 16));
+    check(!Glass::accentAcrylicEnabled(), QStringLiteral("WC accent 亚克力默认关（要 WTFML_ACCENT_ACRYLIC=1 才走）"),
+          QStringLiteral("默认应是系统背板"));
     QTemporaryDir fixture;
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, fixture.path());
@@ -233,3 +240,4 @@ int UiWindowChromeCheck(QApplication &) {
     }
     return g_fail == 0 ? 0 : 1;
 }
+

@@ -14,6 +14,8 @@
 #include <QAbstractSlider>
 #include <QAbstractSpinBox>
 #include <QApplication>
+#include <cstring>
+#include <QColor>
 #include <QComboBox>
 #include <QDialog>
 #include <QEvent>
@@ -71,6 +73,64 @@ qreal systemDpr() {
 }
 
 bool realWindowsPlatform() { return QGuiApplication::platformName() == QLatin1String("windows"); }
+
+// ---- accent 亚克力（实验路径） ----
+// 系统背板（DWMWA_SYSTEMBACKDROP_TYPE）在窗口失活时被 DWM 换成中性纯色，这是系统策略（见
+// `.tongxi/任务书/失焦磨砂.md`）。`SetWindowCompositionAttribute` 的 accent 亚克力是另一条绘制路径，
+// 不进那条策略。它没进 SDK 头，参数是社区逆向出来的；取不到导出或调用失败时照旧用系统背板。
+struct AccentPolicy {
+    int state;         // 4 = ACCENT_ENABLE_ACRYLICBLURBEHIND
+    int flags;
+    DWORD gradient;    // 0xAABBGGRR（alpha 在前）
+    int animationId;
+};
+
+struct CompositionAttributeData {
+    int attribute;     // 19 = WCA_ACCENT_POLICY
+    void *data;
+    ULONG size;
+};
+
+constexpr int kAccentEnableAcrylicBlurBehind = 4;
+/// qframelesswindow 用的那一档（画边框 + 阴影那几位）。
+constexpr int kAccentFlagsAllBorders = 0x20 | 0x40 | 0x80 | 0x100;
+constexpr int kCompositionAttributeAccentPolicy = 19;
+
+using SetWindowCompositionAttributeFn = BOOL(WINAPI *)(HWND, CompositionAttributeData *);
+
+SetWindowCompositionAttributeFn setWindowCompositionAttribute() {
+    // FARPROC 转函数指针：直接 reinterpret_cast 会踩 -Wcast-function-type，用 memcpy 走一遍。
+    static const auto fn = [] {
+        SetWindowCompositionAttributeFn result = nullptr;
+        const FARPROC proc = GetProcAddress(GetModuleHandleW(L"user32.dll"), "SetWindowCompositionAttribute");
+        static_assert(sizeof(result) == sizeof(proc));
+        std::memcpy(&result, &proc, sizeof(result));
+        return result;
+    }();
+    return fn;
+}
+
+/// 着色值取整窗那一层现算的令牌色（和 Glass 铺在背板上的同一支），取不到时退回主题页色 75%。
+QColor accentGradient() {
+    QColor tint = Theme::tokens().page;
+    if (const Glass::Backdrop *backdrop = Glass::Backdrop::active()) tint = backdrop->tint();
+    if (tint.alpha() == 255) tint.setAlphaF(0.75);
+    return tint;
+}
+
+bool applyAccentAcrylic(HWND hwnd) {
+    const auto fn = setWindowCompositionAttribute();
+    if (fn == nullptr) return false;
+    const QColor tint = accentGradient();
+    AccentPolicy policy{};
+    policy.state = kAccentEnableAcrylicBlurBehind;
+    policy.flags = kAccentFlagsAllBorders;
+    policy.gradient = (DWORD(tint.alpha()) << 24) | (DWORD(tint.blue()) << 16) | (DWORD(tint.green()) << 8) |
+                      DWORD(tint.red());
+    policy.animationId = 0;
+    CompositionAttributeData data{kCompositionAttributeAccentPolicy, &policy, sizeof(policy)};
+    return fn(hwnd, &data) != FALSE;
+}
 #endif
 
 }  // namespace
@@ -175,7 +235,11 @@ void WindowChrome::applyFrame() {
     const MARGINS extend{0, 0, 0, system ? 10000 : 0};
     DwmExtendFrameIntoClientArea(hwnd, &extend);
     const int backdrop = mode == Glass::Mode::Acrylic ? 3 : (mode == Glass::Mode::Mica ? 2 : 1);
-    DwmSetWindowAttribute(hwnd, WTFML_DWMWA_SYSTEMBACKDROP_TYPE, &backdrop, sizeof(backdrop));
+    // 亚克力档的实验路径：先贴 accent，成功就把系统背板关掉（别叠两层材质）。失败 / 没开开关 /
+    // 云母档，都还是原来那一条。
+    const bool accent = mode == Glass::Mode::Acrylic && Glass::accentAcrylicEnabled() && applyAccentAcrylic(hwnd);
+    const int systemBackdrop = accent ? 1 /* DWMSBT_NONE */ : backdrop;
+    DwmSetWindowAttribute(hwnd, WTFML_DWMWA_SYSTEMBACKDROP_TYPE, &systemBackdrop, sizeof(systemBackdrop));
     m_window->update();
 #endif
 }
@@ -321,3 +385,7 @@ QPoint WindowChrome::hitTestPoint(void *message) const {
     return QPoint();
 #endif
 }
+
+
+
+
