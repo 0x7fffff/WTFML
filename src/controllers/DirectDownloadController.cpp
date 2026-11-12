@@ -1,3 +1,5 @@
+#include "InlineMessage.hpp"
+#include "OverlayHost.hpp"
 #include "DirectDownloadController.hpp"
 #include "ActivityCenterController.hpp"
 #include "download/ResumableDownload.hpp"
@@ -10,7 +12,6 @@
 #include <QSettings>
 #include <QThread>
 #include <QFileInfo>
-#include <QMessageBox>
 #include <QLocale>
 #include <QTimer>
 #include <algorithm>
@@ -38,6 +39,12 @@ DirectDownloadController::DirectDownloadController(ActivityCenterController *act
 
 DirectDownloadController::~DirectDownloadController() { shutdown(); delete m_dialog.data(); }
 
+OverlayHost *DirectDownloadController::promptHost() {
+    // 独立窗口没有主窗那层覆盖层：在它自己身上挂一层，提示卡就和主窗里的长一个样。
+    if (m_prompt == nullptr && m_dialog) m_prompt = new OverlayHost(m_dialog, m_dialog);
+    return m_prompt;
+}
+
 void DirectDownloadController::open() {
     if (!m_dialog) {
         m_dialog = new DownloadToolDialog(m_window);
@@ -52,9 +59,9 @@ void DirectDownloadController::open() {
                 QSettings().setValue(QStringLiteral("Toolbox/DownloadDirectory"), m_dialog->directory->text());
         });
         m_dialog->onCache = [this](int action) {
-            if (action == 3 && QMessageBox::question(m_dialog, tr("清空闲置续传缓存"),
-                tr("仅删除未被任务使用的完整分段和续传记录。已下载文件不受影响；清理后相关任务需要重新下载。"),
-                QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) return;
+            if (action == 3 && !InlineMessage::question(promptHost(), tr("清空闲置续传缓存"),
+                tr("只删未被任务使用的分段和续传记录，已下载的文件不受影响。"),
+                tr("清空"), tr("取消"), false, true)) return;
             manageCache(action);
         };
         m_dialog->onStart = [this] {
@@ -64,9 +71,9 @@ void DirectDownloadController::open() {
                 m_dialog->status->setText(error); return;
             }
             const bool exists = QFileInfo::exists(request.path);
-            if (exists && QMessageBox::question(m_dialog, tr("确认替换文件"),
-                    tr("%1 已存在。下载成功后替换它？取消或失败会保留原文件。").arg(QFileInfo(request.path).fileName()),
-                    QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) return;
+            if (exists && !InlineMessage::question(promptHost(), tr("确认替换文件"),
+                    tr("%1 已存在。下载成功后替换它；取消或失败会保留原文件。").arg(QFileInfo(request.path).fileName()),
+                    tr("替换"), tr("取消"), false)) return;
             if (!start(request, exists, &error)) m_dialog->status->setText(error);
         };
         m_dialog->onCancel = [this] { cancel(m_task); };

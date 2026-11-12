@@ -9,7 +9,7 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QMessageBox>
+#include <QAbstractButton>
 #include <QSaveFile>
 #include <QSettings>
 #include <QTimer>
@@ -98,11 +98,14 @@ inline void record(const Context &context, QJsonObject fields) {
 inline void dismissRefusal(const Context &context) {
     if (!context.enabled()) return;
     QTimer::singleShot(500, qApp, [context] {
-        auto *dialog = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
-        const bool shown = dialog && dialog->windowTitle() == QStringLiteral("启动器已在运行或目录不可用");
+        // 提示是一张提示卡，挂在一扇以这句话为标题的小窗上（见 main.cpp 的 showStartupRefusal）。
+        QWidget *dialog = nullptr;
+        for (QWidget *top : QApplication::topLevelWidgets())
+            if (top->isVisible() && top->windowTitle() == QStringLiteral("启动器已在运行或目录不可用")) dialog = top;
+        const bool shown = dialog != nullptr;
         const bool shot = shown && dialog->grab().save(context.root + "/refusal-" + QString::number(QCoreApplication::applicationPid()) + ".png");
         record(context, {{"refused", true}, {"dialogShown", shown}, {"screenshot", shot}});
-        if (dialog) dialog->accept();
+        if (auto *ok = dialog ? dialog->findChild<QAbstractButton *>(QStringLiteral("inlineMessageButton0")) : nullptr) ok->click();
     });
 }
 inline void attach(const Context &context, QWidget &window) {

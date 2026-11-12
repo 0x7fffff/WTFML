@@ -13,6 +13,7 @@
 class ActivityCenterController;
 class ResumableDownload;
 class DownloadToolDialog;
+class OverlayHost;
 class QWidget;
 class QLockFile;
 
@@ -31,6 +32,7 @@ public:
     Tasks::TaskId taskId() const { return m_task; }
     Tasks::TaskId lastSubmittedTaskId() const { return m_lastSubmitted; }
 private:
+    OverlayHost *promptHost();
     struct Recovery { DirectDownloadRequest request; QString token; QJsonObject original; };
     QHash<Tasks::TaskId, Recovery> m_recoveries;
     QString m_recoveryPath;
@@ -52,6 +54,7 @@ private:
     ActivityCenterController *m_activity;
     QWidget *m_window;
     QPointer<DownloadToolDialog> m_dialog;
+    QPointer<OverlayHost> m_prompt;
     ResumableDownload *m_download = nullptr;
     Tasks::TaskId m_task = Tasks::invalidTaskId();
     QSet<Tasks::TaskId> m_ownedTasks;
