@@ -210,7 +210,7 @@ QString fallbackReason() {
     if (highContrast()) return QStringLiteral("系统开着高对比度，用纯色。");
     if (transparencyOff()) return QStringLiteral("系统关了透明效果，用纯色。");
     if ((chosen == Mode::Acrylic || chosen == Mode::Mica) && !systemBackdropSupported())
-        return QStringLiteral("系统背板要 Windows 11 22H2 或更新，这里用风景底。");
+        return QStringLiteral("需要 Windows 11 22H2 或更新，已改用风景底。");
     return QString();
 }
 

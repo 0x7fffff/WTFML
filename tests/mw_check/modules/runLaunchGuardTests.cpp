@@ -191,7 +191,7 @@ void runLaunchGuardTests() {
                 check(first.text.contains(customName),
                       "AJ2 正文里点着实例的**名字**（不是版本号）", first.text);
                 check(first.note.contains(canDisable) &&
-                          first.note.contains(QStringLiteral("进度提醒")),
+                          first.note.contains(QStringLiteral("同一实例已运行时提醒")),
                       "AJ2 那行小字写着「可以在设置中关闭此提示」，并指明是哪一个开关",
                       first.note);
                 check(runningCount() == 1,

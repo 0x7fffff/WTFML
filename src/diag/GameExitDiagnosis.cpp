@@ -217,7 +217,7 @@ QStringList hints(const Facts &facts) {
         // 进程输出另有一份和窗无关的底账（`GameSessionController::sessionLogTail`），
         // 开关关着也照样收得到。真的一行都没有，那是游戏自己没打到能收的地方。
         say(QStringLiteral("本次没有收到游戏的输出：进程启动后没有任何输出。"
-                           "多半是 JVM 尚未初始化就退出了，请先确认「设置 → 启动选项」中的 "
+                           "多半是 JVM 尚未初始化就退出了，请先确认「设置 → 启动」中的 "
                            "Java 是否正确、内存是否设置过高。"));
     }
 

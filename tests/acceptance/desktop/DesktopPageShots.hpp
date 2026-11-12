@@ -85,7 +85,7 @@ struct Shot {
 
 inline QWidget *settings(MainWindow &window, int row) {
     window.ui()->getTabWidget()->setCurrentIndex(MainWindowUI::settingsTabIndex());
-    if (auto *list = window.findChild<QListWidget *>(MainWindowUI::settingsCategoryListName())) list->setCurrentRow(row);
+    window.ui()->showSettingsCategory(MainWindowUI::settingsCategoryKeys().value(row));
     return &window;
 }
 
@@ -120,7 +120,7 @@ inline QList<Shot> shots() {
     QList<Shot> list;
     for (const QString theme : {QStringLiteral("dark"), QStringLiteral("emerald"), QStringLiteral("ocean")}) {
         const bool dark = theme == QLatin1String("dark");
-        list.append({"settings-" + theme + ".png", theme, [](MainWindow &w, const Fixture &) { return settings(w, 3); }});
+        list.append({"settings-" + theme + ".png", theme, [](MainWindow &w, const Fixture &) { return settings(w, 2); }});
         // 整窗衔接自检（轨、顶栏、内容区是不是同一张底）：管理、下载、智能体三页原样截一张。
         for (const auto &[name, index] : {std::pair{"manage", MainWindowUI::instancesTabIndex()},
                                           std::pair{"download", MainWindowUI::downloadTabIndex()},

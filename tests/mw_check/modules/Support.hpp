@@ -30,6 +30,7 @@
  * mw_check.exe modpack-import-live <包.zip> <实例名> <游戏根目录> [java]
  * 真跑一次整合包导入（几个 GB，几个钟头）
  */
+#include "SettingsPageParts.hpp"
 #include "SupportCore.hpp"
 #include "SupportFakes.hpp"
 
@@ -1073,7 +1074,7 @@ int MwActivitySelectionCheck();
 int MwWorkspaceCheck(QApplication &app);
 int MwPlayerSkinChecks(MainWindow &window);
 int MwJavaPreferencesChecks(const bool settingsWired, MainWindow &window, QPushButton * &javaManageButton, QLabel * &javaLabel, QCheckBox * &javaWarn, QComboBox * &memoryMode, QLabel * &memoryHint, QSpinBox * &maxSpin, QComboBox * &behaviourCombo, QComboBox * &sourceCombo, QPlainTextEdit * &jvmEdit, QCheckBox * &customCheck, QCheckBox * &realCheck, QCheckBox * &loaderCheck, QCheckBox * &loaderVersionCheck, MemorySlider * &maxSlider);
-int MwMemoryPreferencesChecks(const bool settingsWired, const QString &kDecorated, MainWindow &window, QComboBox * &installed, QComboBox * &memoryMode, QLabel * &memoryHint, QSpinBox * &maxSpin, QComboBox * &behaviourCombo, QComboBox * &sourceCombo, QPlainTextEdit * &jvmEdit, QPushButton * &applyJvm, QCheckBox * &loaderCheck, QCheckBox * &loaderVersionCheck, MemorySlider * &maxSlider);
+int MwMemoryPreferencesChecks(const bool settingsWired, const QString &kDecorated, MainWindow &window, QComboBox * &installed, QComboBox * &memoryMode, QLabel * &memoryHint, QSpinBox * &maxSpin, QComboBox * &behaviourCombo, QComboBox * &sourceCombo, QPlainTextEdit * &jvmEdit, SettingsParts::CommitOnFocusOut * &applyJvm, QCheckBox * &loaderCheck, QCheckBox * &loaderVersionCheck, MemorySlider * &maxSlider);
 int MwJavaSelectionChecks(const QDir &root);
 int MwFolderSwitchingChecks(const QDir &root, MainWindow &window);
 int MwLoginCompletionChecks();

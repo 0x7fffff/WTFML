@@ -542,7 +542,7 @@ QString dependencyPromptUnknownText(ResourceCatalog::Kind kind, const QStringLis
 QString dependencyPromptNoteText() {
     // 那一行灰字。**唯一出处**：界面（InlineMessage::ask 的 note）和验证工程都读它。
     // 写法照「提示」栏里那两条（重复启动 / 进度提醒）—— 都是"提醒本身 + 去哪儿关"。
-    return QStringLiteral("可以在设置中关闭此提示（设置页「下载」→「缺失前置提醒」）。");
+    return QStringLiteral("可以在设置中关闭此提示（设置 → 提示 →「检查前置模组」）。");
 }
 
 QString dependencyAllButtonText() { return QStringLiteral("一起下载"); }

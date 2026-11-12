@@ -2067,8 +2067,6 @@ int main(int argc, char *argv[]) {
              MainWindowUI::instanceFolderLabelName()},
             {"download", MainWindowUI::downloadTabIndex(), MainWindowUI::downloadPageTitle(),
              MainWindowUI::pageSubtitleName(QStringLiteral("download"))},
-            {"settings", MainWindowUI::settingsTabIndex(), MainWindowUI::settingsPageTitle(),
-             MainWindowUI::pageSubtitleName(QStringLiteral("settings"))},
         };
         const QByteArray textRoleKey = Theme::textRolePropertyName().toUtf8();
         int groupsLeft = 0;
@@ -2128,6 +2126,18 @@ int main(int argc, char *argv[]) {
                   QStringLiteral("%1 页：侧栏和正文是两个并排的面（不是谁套着谁）").arg(key));
             groupsLeft += page->findChildren<QGroupBox *>().size();
         }
+        {
+            // 设置页是单栏：页头（标题 + 页签 + 搜索）+ 滚动表单，没有侧栏和正文面。
+            tabs->setCurrentIndex(MainWindowUI::settingsTabIndex());
+            QApplication::processEvents();
+            QWidget *page = tabs->widget(MainWindowUI::settingsTabIndex());
+            QLabel *title = page->findChild<QLabel *>(MainWindowUI::pageTitleName(QStringLiteral("settings")));
+            check(page->findChild<QWidget *>(MainWindowUI::pageHeaderName(QStringLiteral("settings"))) != nullptr &&
+                      title != nullptr && title->text() == MainWindowUI::settingsPageTitle() &&
+                      title->property(textRoleKey.constData()).toString() == Theme::pageTitleTextRoleValue(),
+                  "settings 页：页头标题「设置」挂着「页面标题」角色");
+            groupsLeft += page->findChildren<QGroupBox *>().size();
+        }
         check(groupsLeft == 0,
               "★ 产品那四页里一颗 QGroupBox 都没有了（用户那份文档第一条「减少框」：整页只留"
               "侧栏和正文两个面，小节改用「标题 + 内容卡片」）",
@@ -2138,21 +2148,15 @@ int main(int argc, char *argv[]) {
         // 选中项退回 Fusion 那个蓝、指示条整个消失，而样式表里没有一条 `::item` 规则能兜住。
         // 两棵树的代理必须是**没开**这一档的（它们不是导航，选中色走另一套）。
         auto *downloadCategories = ui.getDownloadCategoryList();
-        auto *settingsCategories =
-            tabs->widget(MainWindowUI::settingsTabIndex())
-                ->findChild<QListWidget *>(MainWindowUI::settingsCategoryListName());
         const auto navRowOf = [](QAbstractItemView *view) {
             return view != nullptr ? qobject_cast<VersionTreeDelegate *>(view->itemDelegate()) !=
                                          nullptr &&
                                          qobject_cast<VersionTreeDelegate *>(view->itemDelegate())->navRow()
                                    : false;
         };
-        check(navRowOf(downloadCategories) && navRowOf(settingsCategories),
-              "★ 下载页和设置页那两列导航挂的是「侧栏导航」那一档代理（选中 = 浅主题色底 + "
-              "3 px 指示条，不是 Fusion 那个蓝）",
-              QStringLiteral("download=%1 settings=%2")
-                  .arg(navRowOf(downloadCategories) ? 1 : 0)
-                  .arg(navRowOf(settingsCategories) ? 1 : 0));
+        check(navRowOf(downloadCategories),
+              "★ 下载页左栏那列导航挂的是「侧栏导航」那一档代理（选中 = 浅主题色底，不是 Fusion 那个蓝）",
+              QStringLiteral("download=%1").arg(navRowOf(downloadCategories) ? 1 : 0));
         check(!navRowOf(ui.getVersionTree()) && !navRowOf(ui.getLoaderTree()),
               "而两棵树（版本树 / 加载器树）**没开**这一档（它们的选中色不是导航那一套）",
               QStringLiteral("version=%1 loader=%2")

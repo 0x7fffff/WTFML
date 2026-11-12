@@ -59,6 +59,11 @@ class QVBoxLayout;
 class OverlayHost;
 class TitleBar;
 class WindowChrome;
+namespace SettingsParts {
+class SlidingTabs;
+class SavedToast;
+class CommitOnFocusOut;
+}  // namespace SettingsParts
 
 /**
  * @brief 挡掉没有焦点时的滚轮事件，防止鼠标划过就把控件里的值改掉。
@@ -2779,15 +2784,18 @@ public:
     // / 分栏的键。**顺序就是界面上从上到下的顺序**，也是堆叠页的下标顺序。
     // / 进条目的 `Qt::UserRole`（条目文字是显示内容、会随文案改，不能拿它当身份）。
     static QStringList settingsCategoryKeys() {
-        return {QStringLiteral("launch"), QStringLiteral("game"), QStringLiteral("warn"),
-                QStringLiteral("look"), QStringLiteral("download")};
+        return {QStringLiteral("launch"), QStringLiteral("warn"), QStringLiteral("look"),
+                QStringLiteral("download")};
     }
     /// 同上的显示文字（左栏上看到的）。**和键一条一条对齐**（两边条数一样是条不变量）。
     static QStringList settingsCategoryTexts() {
-        return {QStringLiteral("启动"), QStringLiteral("游戏"), QStringLiteral("提示"),
-                QStringLiteral("个性化"), QStringLiteral("下载")};
+        return {QStringLiteral("启动"), QStringLiteral("提示"), QStringLiteral("个性化"),
+                QStringLiteral("下载")};
     }
-    static QString settingsCategoryListName() { return QStringLiteral("settingsCategoryList"); }
+    /// 页头里那一排分段页签（SettingsParts::SlidingTabs），第 N 个页签 = 堆叠页第 N 页。
+    static QString settingsTabsName() { return QStringLiteral("settingsTabs"); }
+    static QString settingsSearchEditName() { return QStringLiteral("settingsSearchEdit"); }
+    static QString settingsSavedToastName() { return QStringLiteral("settingsSavedToast"); }
     static QString settingsCategoryStackName() { return QStringLiteral("settingsCategoryStack"); }
     /// 设置页页头那个标题（页头由 cpp 里 `buildTwoColumnPage()` 建）。
     /// 这一页**没有说明那一行**，只有标题。
@@ -2800,7 +2808,7 @@ public:
     ///
     /// NOTE: 每一栏**各自**限一次（三栏三张表单），因为它挂在 `form` 上而不是滚动区上 ——
     /// 滚动条仍然贴着正文面最右边那条线，只有表单收窄。
-    static int settingsFormMaxWidth() { return 680; }
+    static int settingsFormMaxWidth() { return 720; }
     /// 某一栏那一整页的 objectName（堆叠页里的一页 = 一层滚动区，见 cpp 里的
     /// addSettingsPanel()）。
     static QString settingsPanelName(const QString &key) {
@@ -2822,7 +2830,7 @@ public:
     /// 什么，而这一行说的是"实例指定的 Java 对不上"。它和「重复启动」
     /// 「进度提醒」并排（都在「提示」栏里），用同一族的说法（说的是"什么时候
     /// 会被问一句"）。**勾选框上那句话一个字都不能动**。
-    static QString javaWarnMismatchRowText() { return QStringLiteral("Java 版本"); }
+    static QString javaWarnMismatchRowText() { return QStringLiteral("Java 版本不符时提醒"); }
     static QString memoryHintName() { return QStringLiteral("memoryHint"); }
     /// 「最大内存」那一行下面那句说明。文字随系统内存变（可用内存不是一个定值），
     /// 所以它是这个设置页里少数几个要 MainWindow 反复改文字的 QLabel 之一，得能按名字
@@ -2835,9 +2843,6 @@ public:
     // （见 LauncherManager 里那两行），界面上不摆这一格。
     static QString launcherBehaviourComboName() { return QStringLiteral("launcherBehaviourCombo"); }
     static QString extraJvmArgsEditName() { return QStringLiteral("extraJvmArgsEdit"); }
-    static QString applyExtraJvmArgsButtonName() {
-        return QStringLiteral("applyExtraJvmArgsButton");
-    }
     static QString downloadSourceComboName() { return QStringLiteral("downloadSourceCombo"); }
 
     // ---------- 「同时最多下几个」（并发数预设，在「下载源」那一组里） ----------
@@ -2879,7 +2884,7 @@ public:
     /// 这一行的行标题（左列那一格）。
     static QString curseForgeApiKeyRowText() { return QStringLiteral("CurseForge API key"); }
     /// 输入框里的占位文字（空着的时候显示那一句）。
-    static QString curseForgeApiKeyPlaceholder() { return QStringLiteral("留空则用公共接口"); }
+    static QString curseForgeApiKeyPlaceholder() { return QStringLiteral("留空使用社区镜像"); }
 
     // ---------- 「下载新模组时直接放进当前实例」（在「下载」栏里） ----------
     // 语义的**唯一出处**是 LauncherSettings 里那一节。这里只有形状：
@@ -2893,11 +2898,11 @@ public:
     }
     /// 这一行的行标题（左列那一格）。
     static QString downloadAutoIntoInstanceRowText() {
-        return QStringLiteral("下载新模组");
+        return QStringLiteral("直接存入当前实例");
     }
     /// 勾选框自己的文字。
     static QString downloadAutoIntoInstanceCheckText() {
-        return QStringLiteral("从实例设置里点「下载新模组」时直接放进该实例");
+        return QStringLiteral("直接存入当前实例");
     }
     // ---------- 「下载缺前置时提醒」（也在「下载」栏里） ----------
     // 语义的**唯一出处**是 LauncherSettings 里那一节。这里只有形状。
@@ -2909,11 +2914,11 @@ public:
     }
     /// 这一行的行标题（左列那一格）。
     static QString warnMissingDependenciesRowText() {
-        return QStringLiteral("缺失前置提醒");
+        return QStringLiteral("检查前置模组");
     }
     /// 勾选框自己的文字。
     static QString warnMissingDependenciesCheckText() {
-        return QStringLiteral("下载模组或光影包时检查前置依赖");
+        return QStringLiteral("检查前置模组");
     }
     static QString showGameLogCheckName() { return QStringLiteral("showGameLogCheck"); }
     static QString processPriorityComboName() { return QStringLiteral("processPriorityCombo"); }
@@ -2932,8 +2937,8 @@ public:
     static QString gameWindowSizeTimesLabelName() { return QStringLiteral("gameWindowSizeTimes"); }
     /// 「启动选项」那一组里那几个勾选框/数字框的文案。
     /// 「显示游戏日志」这个串不能改写成别的说法。
-    static QString showGameLogCheckText() { return QStringLiteral("显示游戏日志"); }
-    static QString showGameLogRowText() { return QStringLiteral("游戏日志"); }
+    static QString showGameLogCheckText() { return QStringLiteral("游戏日志窗口"); }
+    static QString showGameLogRowText() { return QStringLiteral("游戏日志窗口"); }
 
     // ---------- 「启动提醒」那一组 ----------
     // 两个勾选框各管一条启动前的确认，默认都是勾上的（理由见 LauncherSettings 那一节）。
@@ -2944,17 +2949,17 @@ public:
         return QStringLiteral("warnDuplicateLaunchCheck");
     }
     /// 这一行的行标题（左列那一格）。
-    static QString warnDuplicateLaunchRowText() { return QStringLiteral("重复启动"); }
+    static QString warnDuplicateLaunchRowText() { return QStringLiteral("重复启动时确认"); }
     /// 勾选框自己的文字。
     static QString warnDuplicateLaunchCheckText() {
-        return QStringLiteral("十秒内重复启动同一实例时确认");
+        return QStringLiteral("重复启动时确认");
     }
 
     /// 第二条：这个实例已经有进程在跑。
     static QString warnWorldLossCheckName() { return QStringLiteral("warnWorldLossCheck"); }
-    static QString warnWorldLossRowText() { return QStringLiteral("进度提醒"); }
+    static QString warnWorldLossRowText() { return QStringLiteral("同一实例已运行时提醒"); }
     static QString warnWorldLossCheckText() {
-        return QStringLiteral("同一实例已在运行时提醒可能丢进度");
+        return QStringLiteral("同一实例已运行时提醒");
     }
     static QString versionNameCustomCheckName() {
         return QStringLiteral("versionNameCustomCheck");
@@ -3125,7 +3130,7 @@ public:
     static QString themeImportText() { return QStringLiteral("导入主题…"); }
     static QString themeAccentResetText() { return QStringLiteral("恢复默认"); }
     static QString themeSemanticResetText() { return QStringLiteral("跟随预设"); }
-    static QString animationsCheckText() { return QStringLiteral("界面动效"); }
+    static QString animationsCheckText() { return QStringLiteral("界面动画"); }
     /// 文字不透明度那个百分数（和背景图那一行同一套写法）。
     static QString themePercentText(int opacity) { return QStringLiteral("%1%").arg(opacity); }
     /// 色块那颗按钮多大（宽 × 高）。**和输入框那一档 24 一样高**（并排摆着才齐），宽取 64 ——
@@ -3497,7 +3502,13 @@ public:
     /// 认一个条目的身份同样看 `Qt::UserRole`（= settingsCategoryKeys() 里那个键），
     /// 下标同样和 settingsCategoryKeys() 一一对应。**两个都可能是 nullptr** ——
     /// setupSettingsPage() 里才建。
-    QListWidget *getSettingsCategoryList() const { return settingsCategoryList; }
+    SettingsParts::SlidingTabs *getSettingsTabs() const { return settingsTabs; }
+    SettingsParts::SavedToast *getSettingsSavedToast() const { return settingsSavedToast; }
+    /// 「全局额外参数」那一格失焦（或 Ctrl+Enter）即存的信号源。
+    SettingsParts::CommitOnFocusOut *getExtraJvmArgsCommit() const { return extraJvmArgsCommit; }
+    /// 切到设置页的某个页签（键见 settingsCategoryKeys()），给出行标题时展开所在「高级」并把那一行滚进视野。
+    /// @return 找到该行（或只切页签时页签存在）
+    bool showSettingsCategory(const QString &key, const QString &rowLabel = QString());
     QStackedWidget *getSettingsCategoryStack() const { return settingsCategoryStack; }
     /// 「游戏」那一页里的两层（版本树 / 安装页）。下标见 downloadGameTreeIndex()
     /// 和 downloadGameInstallIndex()。
@@ -3604,7 +3615,6 @@ public:
     QComboBox *getMemoryModeCombo() const { return memoryModeCombo; }
     QComboBox *getLauncherBehaviourCombo() const { return launcherBehaviourCombo; }
     QPlainTextEdit *getExtraJvmArgsEdit() const { return extraJvmArgsEdit; }
-    QPushButton *getApplyExtraJvmArgsButton() const { return applyExtraJvmArgsButton; }
     QComboBox *getDownloadSourceCombo() const { return downloadSourceCombo; }
     QComboBox *getDownloadConcurrencyCombo() const { return downloadConcurrencyCombo; }
     QComboBox *getDownloadSpeedLimitCombo() const { return downloadSpeedLimitCombo; }
@@ -3757,7 +3767,6 @@ private:
     /// 一个函数一个分栏，这件事就不言自明。
     /// 每个分栏都是"自己的滚动区 + 自己的表格"，页面从 addSettingsPanel() 拿。
     void setupSettingsLaunchPanel(QStackedWidget *stack);
-    void setupSettingsGamePanel(QStackedWidget *stack);
     void setupSettingsWarnPanel(QStackedWidget *stack);
     void setupSettingsLookPanel(QStackedWidget *stack);
     void setupSettingsDownloadPanel(QStackedWidget *stack);
@@ -3902,7 +3911,9 @@ private:
     /// 设置页左栏那份「分类」与右栏那份堆叠页（见头文件上面「设置页：左栏那几条分类」那段）。
     /// 五页全是真的，每一页是一层滚动区（addSettingsPanel() 搭），堆叠页的下标就是
     /// settingsCategoryKeys() 的下标。
-    QListWidget *settingsCategoryList = nullptr;
+    SettingsParts::SlidingTabs *settingsTabs = nullptr;
+    SettingsParts::SavedToast *settingsSavedToast = nullptr;
+    SettingsParts::CommitOnFocusOut *extraJvmArgsCommit = nullptr;
     QStackedWidget *settingsCategoryStack = nullptr;
     /// 「游戏」那一页里的两层：版本树 / 安装页（见头文件上面那段）。
     QStackedWidget *gameStack = nullptr;
@@ -3958,7 +3969,6 @@ private:
     QComboBox *memoryModeCombo = nullptr;
     QComboBox *launcherBehaviourCombo = nullptr;
     QPlainTextEdit *extraJvmArgsEdit = nullptr;
-    QPushButton *applyExtraJvmArgsButton = nullptr;
     QComboBox *downloadSourceCombo = nullptr;
     /// 「同时最多下几个」那个下拉框。项由 MainWindow 灌。
     QComboBox *downloadConcurrencyCombo = nullptr;

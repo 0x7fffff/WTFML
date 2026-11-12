@@ -425,7 +425,7 @@ void runJavaManageTests() {
                           .arg(reread.autoSelectJava() ? 1 : 0)
                           .arg(reread.javaPath()));
             }
-            check(javaLabel->text() == QStringLiteral("自动：上次用的是 %1").arg(java21),
+            check(javaLabel->text() == QStringLiteral("自动选择　上次使用 %1").arg(java21),
                   "T26.7 设置页那行字也跟着变回来", javaLabel->text());
             check(autoLabel != nullptr &&
                       autoLabel->text() ==

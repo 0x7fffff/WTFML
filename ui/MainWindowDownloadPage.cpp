@@ -759,9 +759,9 @@ void MainWindowUI::setupDownloadServerPage() {
     sync->setSingleShot(true);
     const QPointer<QTreeWidget> source = versionTree;
     QObject::connect(sync, &QTimer::timeout, versions,
-                     [source, versions, filter, stack = serverStack, listPage,
-                      outer = downloadStack, serverPage] {
-        if (!source || !versions->property("sourceDirty").toBool()) return;
+                     [source, versions, filter, stack = QPointer<QStackedWidget>(serverStack), listPage,
+                      outer = QPointer<QStackedWidget>(downloadStack), serverPage] {
+        if (!source || !stack || !outer || !versions->property("sourceDirty").toBool()) return;
         // 两件事都得成立才算"这一层真的露着"：外面那一栏停在「服务端」，里面停在版本列表。
         // 少判外面那一条，翻到「游戏」页之后这一棵还会跟着版本树一起重建（白搬整个清单）。
         if (stack->currentWidget() != listPage || outer->currentWidget() != serverPage) return;
@@ -790,24 +790,24 @@ void MainWindowUI::setupDownloadServerPage() {
         filter();
         versions->setUpdatesEnabled(true);
     });
-    const auto invalidate = [versions, sync, stack = serverStack, listPage,
-                             outer = downloadStack, serverPage] {
+    // 不在这里读 stack / outer：树析构时（QTreeWidget::clear → modelReset）它们的布局可能已先析构。
+    // 露没露着由 sync 的超时回调判（那一发随 versions 一起析构，不会在拆窗时跑）。
+    const auto invalidate = [versions, sync] {
         versions->setProperty("sourceDirty", true);
-        if (stack->currentWidget() == listPage && outer->currentWidget() == serverPage)
-            sync->start(0);
+        sync->start(0);
     };
     QObject::connect(serverStack, &QStackedWidget::currentChanged, sync,
-                     [sync, versions, stack = serverStack, listPage,
-                      outer = downloadStack, serverPage](int) {
-        if (stack->currentWidget() == listPage && outer->currentWidget() == serverPage &&
+                     [sync, versions, stack = QPointer<QStackedWidget>(serverStack), listPage,
+                      outer = QPointer<QStackedWidget>(downloadStack), serverPage](int) {
+        if (stack && outer && stack->currentWidget() == listPage && outer->currentWidget() == serverPage &&
             versions->property("sourceDirty").toBool())
             sync->start(0);
     });
     // 外层翻回「服务端」那一栏时也要补一发（翻栏只动外面这一层）。
     QObject::connect(downloadStack, &QStackedWidget::currentChanged, sync,
-                     [sync, versions, stack = serverStack, listPage,
-                      outer = downloadStack, serverPage](int) {
-        if (stack->currentWidget() == listPage && outer->currentWidget() == serverPage &&
+                     [sync, versions, stack = QPointer<QStackedWidget>(serverStack), listPage,
+                      outer = QPointer<QStackedWidget>(downloadStack), serverPage](int) {
+        if (stack && outer && stack->currentWidget() == listPage && outer->currentWidget() == serverPage &&
             versions->property("sourceDirty").toBool())
             sync->start(0);
     });

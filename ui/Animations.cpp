@@ -653,7 +653,7 @@ private:
 namespace Anim {
 
 bool enabled() {
-    // **只认本程序自己的开关**（设置页「界面动效」那个勾，默认开）。下面那些函数全是
+    // **只认本程序自己的开关**（设置页「界面动画」那个勾，默认开）。下面那些函数全是
     // "不 enabled 就原地返回"。
     //
     // 不读 Windows 的「动画效果」（`SPI_GETCLIENTAREAANIMATION`）：用户关掉系统动画时，
