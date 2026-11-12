@@ -6,6 +6,7 @@
 #include <QGraphicsOpacityEffect>
 #include <QHelpEvent>
 #include <QPushButton>
+#include <QToolButton>
 #include <QTimer>
 #include <QComboBox>
 #include <QListView>
@@ -172,6 +173,15 @@ int UiPopupCheck(QApplication &app) {
         expect(Popups::isTextButton(&textButton) && !Popups::isTextButton(&iconButton) &&
                    !Popups::isTextButton(&combo) && !Popups::isTextButton(&edit),
                "判据：只有带 text() 的按钮算「文字按钮」，图标钮 / 下拉 / 输入框不算");
+        // 实例文件那排 ⓘ / ✕：屏幕上是图标，text() 只是给无障碍与验证工程读的 —— 它们仍该有提示。
+        QToolButton glyphButton;
+        glyphButton.setToolButtonStyle(Qt::ToolButtonIconOnly);
+        glyphButton.setText(QStringLiteral("详情"));
+        QPushButton markedIcon;
+        markedIcon.setText(QStringLiteral("详情"));
+        Theme::markIconButton(&markedIcon);
+        expect(!Popups::isTextButton(&glyphButton) && !Popups::isTextButton(&markedIcon),
+               "只画图标的钮（`ToolButtonIconOnly` / `markIconButton()` 过）不算文字按钮，提示照出");
         // 真发一条 ToolTip 事件：文字按钮那一条要被吃掉，而且不许弹出自绘气泡。
         textButton.setToolTip(QStringLiteral("浏览…"));
         QHelpEvent help(QEvent::ToolTip, QPoint(2, 2), textButton.mapToGlobal(QPoint(2, 2)));

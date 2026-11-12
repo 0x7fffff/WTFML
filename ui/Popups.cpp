@@ -40,6 +40,7 @@
 #include <QStyledItemDelegate>
 #include <QStyleOptionViewItem>
 #include <QTimer>
+#include <QToolButton>
 
 #include <cstring>
 
@@ -763,7 +764,21 @@ bool Popups::tooltipVisible() {
 
 bool Popups::isTextButton(const QWidget *widget) {
     auto *button = qobject_cast<const QAbstractButton *>(widget);
-    return button != nullptr && !button->text().trimmed().isEmpty();
+    if (button == nullptr) {
+        return false;
+    }
+    // 「文字按钮」= 屏幕上真的画着一句字的按钮。下面两种身上也有 text()，但那是给
+    // 无障碍 / 验证工程读的，屏幕上只有一个图标：图标钮该有提示，别一起掐掉。
+    //  · `Theme::markIconButton()` 过的（属性 `wtfmlButtonSize = "icon"`，实例文件那排 ⓘ / ✕）；
+    //  · `QToolButton` 摆成 `ToolButtonIconOnly` 的。
+    if (button->property("wtfmlButtonSize").toString() == QLatin1String("icon")) {
+        return false;
+    }
+    if (auto *tool = qobject_cast<const QToolButton *>(button);
+        tool != nullptr && tool->toolButtonStyle() == Qt::ToolButtonIconOnly) {
+        return false;
+    }
+    return !button->text().trimmed().isEmpty();
 }
 
 void Popups::install(QApplication &app) {
