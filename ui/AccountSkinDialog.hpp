@@ -284,6 +284,9 @@ private:
     QPushButton *m_refreshButton = nullptr;
     QLineEdit *m_offlineNameEdit = nullptr;
     QPushButton *m_addOfflineButton = nullptr;
+    /// 「添加离线账号」小链接：点开才露出下面那一行（输入框 + 「添加」）。
+    QPushButton *m_offlineToggle = nullptr;
+    QWidget *m_offlineRow = nullptr;
     SkinViewer *m_viewer = nullptr;
     QPushButton *m_uploadButton = nullptr;
     /// 离线账号那一档的两颗（默认都藏着，见 setOfflineSkinState()）。
