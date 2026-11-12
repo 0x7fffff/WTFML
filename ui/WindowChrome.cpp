@@ -32,7 +32,6 @@
 #  endif
 #  define WTFML_DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #  define WTFML_DWMWA_BORDER_COLOR 34
-#  define WTFML_DWMWA_VISIBLE_FRAME_BORDER_THICKNESS 37
 #  define WTFML_DWMWA_CAPTION_COLOR 35
 #  define WTFML_DWMWA_SYSTEMBACKDROP_TYPE 38
 #  define WTFML_DWMWA_COLOR_NONE 0xFFFFFFFEu
@@ -45,14 +44,6 @@ namespace {
 /// 和 AdjustWindowRectExForDpi 用同一个 DPI（混用系统 DPI 会在非 100% 屏上差 1px）。
 int resizeBorderPhysical(UINT dpi) {
     return GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
-}
-
-/// DWM 在左右下三边画的那条可见边有多厚（Win11 一般 1px；问不到按 1）。
-int visibleBorderPhysical(HWND hwnd) {
-    UINT thickness = 0;
-    if (FAILED(DwmGetWindowAttribute(hwnd, WTFML_DWMWA_VISIBLE_FRAME_BORDER_THICKNESS, &thickness, sizeof(thickness))))
-        return 1;
-    return int(thickness);
 }
 
 /// 系统那一档缩放比（折物理 <-> 逻辑用）。用系统 DPI 而不是 QScreen：上面那两个度量是
@@ -105,16 +96,14 @@ void WindowChrome::applyFrame() {
     if (hwnd == nullptr) return;
 
     // 1) 标题栏收进客户区：顶上那一段非客户区（标题 + 上边框）给负的 customMargins。
-    // 左右下三边：看不见的那圈缩放边留给系统（拖边缩放、贴靠白拿），但最外那 1px 可见边也收进
-    // 客户区 —— 留在非客户区时 DWM 在那儿画一条没着色的背板（关背板时是一道透明缝），
-    // 圆角也按它裁，和客户区错开 1px，浅色下左边、左下角看着像两层页面。
+    // 左右下三边留着 —— 那是系统那圈看不见的缩放边（外面那 1px 可见边 DWM 总画在客户区外，
+    // 跟着客户区走：实测把客户区往外扩 1px，它也外移 1px，所以不去动它）。
     // 最大化时那一档在 handleNativeEvent 的 WM_NCCALCSIZE 里自己算（见那边）。
     RECT frame{0, 0, 0, 0};
     const LONG style = GetWindowLongW(hwnd, GWL_STYLE);
     const LONG exStyle = GetWindowLongW(hwnd, GWL_EXSTYLE);
     AdjustWindowRectExForDpi(&frame, DWORD(style), FALSE, DWORD(exStyle), GetDpiForWindow(hwnd));
-    const int side = WindowEdge::enabled() ? -visibleBorderPhysical(hwnd) : 0;
-    const QMargins margins(side, int(frame.top), side, side);
+    const QMargins margins(0, int(frame.top), 0, 0);
     if (!m_marginsApplied || margins != m_appliedMargins) {
         if (auto *native = m_window->windowHandle()->nativeInterface<QNativeInterface::Private::QWindowsWindow>()) {
             native->setCustomMargins(margins);
