@@ -87,13 +87,14 @@ int MwHighSpeedDownloadCheck(QApplication &app) {
         const auto read = [](const QString &path) { QFile f(path); if (!f.open(QIODevice::ReadOnly)) return QByteArray(); return f.readAll(); };
         auto ok = request(QStringLiteral("ok"), QStringLiteral("result.bin"));
         // 高速下载是工具箱里的一页：controller 接上那一页，输入与状态都走它。
-        DownloadToolPanel panel;
+        QWidget panelHost;
+        DownloadToolPanel panel(&panelHost);
         tool.attach(&panel);
         tool.panelShown();
         QCoreApplication::processEvents();
-        expect(!panel.isWindow() && panel.objectName() == QStringLiteral("downloadToolPanel"),
+        expect(!panel.isWindow() && qobject_cast<QDialog *>(&panel) == nullptr && panel.objectName() == QStringLiteral("downloadToolPanel"),
                "download is a page inside the toolbox, not its own window");
-        panel.resize(700, 460); panel.show(); QCoreApplication::processEvents();
+        panelHost.resize(700, 460); panel.resize(700, 460); panelHost.show(); QCoreApplication::processEvents();
         expect(panel.grab().save(fixture.filePath(QStringLiteral("download-tool-preview.png"))), "tool page preview renders successfully in isolated fixture");
         expect(tool.start(ok, false, &error), "direct download starts asynchronously");
         const auto first = tool.taskId();
@@ -107,7 +108,8 @@ int MwHighSpeedDownloadCheck(QApplication &app) {
         QSettings().setValue(QStringLiteral("Toolbox/DownloadDirectory"), fixture.path());
         QSettings().setValue(QStringLiteral("Toolbox/CacheLimitMiB"), 4096);
         DirectDownloadController reopenedTool(&activity, nullptr);
-        DownloadToolPanel reopenedPanel;
+        QWidget reopenedHost;
+        DownloadToolPanel reopenedPanel(&reopenedHost);
         reopenedTool.attach(&reopenedPanel);
         expect(reopenedPanel.directory->text() == fixture.path() && reopenedPanel.cacheLimit->value() == 4096,
                "the page restores the remembered save directory and cache limit");
