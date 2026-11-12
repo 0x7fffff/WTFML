@@ -4,6 +4,7 @@
  */
 
 #include "AgentApprovalCard.hpp"
+#include "AgentPanelPaint.hpp"
 
 #include <QFont>
 #include <QFormLayout>
@@ -16,7 +17,7 @@
 AgentApprovalCard::AgentApprovalCard(QWidget *parent) : QWidget(parent) {
     setObjectName(QStringLiteral("agentApprovalCard"));
     auto *layout = new QVBoxLayout(this);
-    layout->setContentsMargins(10, 8, 10, 8);
+    layout->setContentsMargins(14, 12, 14, 12);
     layout->setSpacing(6);
     m_title = new QLabel(this);
     m_title->setObjectName(QStringLiteral("agentApprovalTitle"));
@@ -89,4 +90,10 @@ void AgentApprovalCard::setRequest(const QJsonObject &request) {
                                egress.value(QStringLiteral("reason")).toString()));
     m_sessionAllow->setVisible(
         request.value(QStringLiteral("sessionAllowAvailable")).toBool(false));
+}
+
+void AgentApprovalCard::paintEvent(QPaintEvent *) {
+    QColor tint = Theme::tokens().warnSoft;
+    tint.setAlpha(Theme::isDark() ? 60 : 150);
+    paintAgentSoftPanel(this, 12, tint);
 }

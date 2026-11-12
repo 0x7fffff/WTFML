@@ -8,9 +8,11 @@
 #include "AgentApprovalCard.hpp"
 #include "AgentComposer.hpp"
 #include "AgentMessageView.hpp"
+#include "AgentPanelPaint.hpp"
 #include "AgentToolCard.hpp"
 #include "Theme.hpp"
 
+#include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDateTime>
@@ -33,6 +35,35 @@
 #include <QVBoxLayout>
 
 namespace {
+
+/// 输入区那一整块：输入框 + 底下一行（提示 / 发送）合在一个圆角软面板里（设计稿 agent）。
+class ComposerBox : public QWidget {
+public:
+    using QWidget::QWidget;
+protected:
+    void paintEvent(QPaintEvent *) override { paintAgentSoftPanel(this, 14); }
+};
+
+/// 侧栏会话列表：透明底（透出整窗磨砂），选中 / 悬停只罩一层淡墨色。
+void styleSessionList(QListWidget *list) {
+    const auto apply = [list] {
+        QPalette pal = QApplication::palette();
+        const QColor ink = pal.color(QPalette::WindowText);
+        pal.setColor(QPalette::Base, Qt::transparent);
+        pal.setColor(QPalette::Window, Qt::transparent);
+        QColor pick = ink;
+        pick.setAlpha(Theme::isDark() ? 30 : 22);
+        pal.setColor(QPalette::Highlight, pick);
+        pal.setColor(QPalette::HighlightedText, ink);
+        list->setPalette(pal);
+        list->viewport()->setPalette(pal);
+        list->setAutoFillBackground(false);
+        list->viewport()->setAutoFillBackground(false);
+        list->viewport()->update();
+    };
+    apply();
+    Theme::follow(list, apply);
+}
 QString pinnedPrefix(bool pinned) { return pinned ? QStringLiteral("★ ") : QString(); }
 }
 
@@ -50,12 +81,13 @@ AgentPage::AgentPage(QWidget *parent)
     m_sidebar->setObjectName(QStringLiteral("agentSidebar"));
     m_sidebar->setFixedWidth(sidebarWidth());
     auto *sideLayout = new QVBoxLayout(m_sidebar);
-    sideLayout->setContentsMargins(12, 12, 12, 12);
+    sideLayout->setContentsMargins(12, 12, 4, 12);
     sideLayout->setSpacing(8);
 
     m_newSession = new QPushButton(QStringLiteral("＋ 新建对话"), m_sidebar);
     m_newSession->setObjectName(QStringLiteral("agentNewSessionButton"));
     m_newSession->setFocusPolicy(Qt::StrongFocus);
+    Theme::markButton(m_newSession, Theme::ButtonKind::Neutral);
     sideLayout->addWidget(m_newSession);
 
     m_search = new QLineEdit(m_sidebar);
@@ -70,6 +102,7 @@ AgentPage::AgentPage(QWidget *parent)
     m_sessionList->setContextMenuPolicy(Qt::CustomContextMenu);
     m_sessionList->setSelectionMode(QAbstractItemView::SingleSelection);
     m_sessionList->setSpacing(2);
+    styleSessionList(m_sessionList);
     sideLayout->addWidget(m_sessionList, 1);
 
     m_apiStatus = new QLabel(m_sidebar);
@@ -78,11 +111,6 @@ AgentPage::AgentPage(QWidget *parent)
     m_apiStatus->setForegroundRole(QPalette::PlaceholderText);
     sideLayout->addWidget(m_apiStatus);
     root->addWidget(m_sidebar);
-
-    auto *separator = new QFrame(this);
-    separator->setFrameShape(QFrame::VLine);
-    separator->setFrameShadow(QFrame::Plain);
-    root->addWidget(separator);
 
     // ---------- 右侧聊天区 ----------
     auto *chat = new QWidget(this);
@@ -114,8 +142,8 @@ AgentPage::AgentPage(QWidget *parent)
     m_instanceChip->setFlat(true);
     m_instanceChip->setFocusPolicy(Qt::StrongFocus);
     m_instanceChip->setMinimumWidth(0);
-    m_instanceChip->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
-    headerLayout->addWidget(m_instanceChip);
+    m_instanceChip->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
+    Theme::markChipButton(m_instanceChip);
 
     m_modelCombo = new QComboBox(header);
     m_modelCombo->setObjectName(QStringLiteral("agentModelCombo"));
@@ -126,6 +154,7 @@ AgentPage::AgentPage(QWidget *parent)
     m_settingsButton = new QPushButton(QStringLiteral("API 设置"), header);
     m_settingsButton->setObjectName(QStringLiteral("agentApiSettingsButton"));
     m_settingsButton->setMinimumWidth(0);
+    Theme::markButton(m_settingsButton, Theme::ButtonKind::Ghost);
     headerLayout->addWidget(m_settingsButton);
     chatLayout->addWidget(header);
 
@@ -136,6 +165,9 @@ AgentPage::AgentPage(QWidget *parent)
     auto *optionsLayout = new QHBoxLayout(m_sessionOptions);
     optionsLayout->setContentsMargins(0, 0, 0, 0);
     optionsLayout->setSpacing(8);
+    // UI 7d：标题下一行 chip —— 跟随实例 / 模式 / 加密（设计稿 agent）。
+    m_instanceChip->setParent(m_sessionOptions);
+    optionsLayout->addWidget(m_instanceChip);
     m_encryptCheck = new QCheckBox(QStringLiteral("加密本会话（DPAPI）"), m_sessionOptions);
     m_encryptCheck->setObjectName(QStringLiteral("agentEncryptSessionCheck"));
     m_encryptCheck->setToolTip(
@@ -160,11 +192,11 @@ AgentPage::AgentPage(QWidget *parent)
     m_messageLayout = new QVBoxLayout(m_messageHost);
     m_messageLayout->setContentsMargins(0, 0, 0, 0);
     m_messageLayout->setSpacing(8);
-    m_emptyState = new QLabel(QStringLiteral(
-        "自由对话（Stage 1A）。\n\n"
-        "本模式只发送你输入的文字和系统提示；不读取文件、日志、实例元数据，"
-        "也不调用任何工具。消息会发送给当前配置的模型服务，请勿粘贴密钥或令牌。"),
-        m_messageHost);
+    m_emptyState = new QLabel(QStringLiteral("自由对话：只发送你输入的文字，不读文件、不调用工具。"),
+                              m_messageHost);
+    m_emptyState->setToolTip(QStringLiteral(
+        "自由对话（Stage 1A）。本模式只发送你输入的文字和系统提示；不读取文件、日志、实例元数据，"
+        "也不调用任何工具。消息会发送给当前配置的模型服务，请勿粘贴密钥或令牌。"));
     m_emptyState->setObjectName(QStringLiteral("agentEmptyState"));
     m_emptyState->setWordWrap(true);
     m_emptyState->setAlignment(Qt::AlignCenter);
@@ -181,43 +213,53 @@ AgentPage::AgentPage(QWidget *parent)
     chatLayout->addWidget(m_notice);
 
     // ---------- 输入区 ----------
-    auto *composerRow = new QWidget(chat);
+    auto *composerRow = new ComposerBox(chat);
     composerRow->setObjectName(QStringLiteral("agentComposerRow"));
-    auto *composerLayout = new QHBoxLayout(composerRow);
-    composerLayout->setContentsMargins(0, 0, 0, 0);
-    composerLayout->setSpacing(8);
+    auto *composerLayout = new QVBoxLayout(composerRow);
+    composerLayout->setContentsMargins(12, 8, 10, 8);
+    composerLayout->setSpacing(4);
 
-    auto *composerColumn = new QWidget(composerRow);
-    auto *composerColumnLayout = new QVBoxLayout(composerColumn);
-    composerColumnLayout->setContentsMargins(0, 0, 0, 0);
-    composerColumnLayout->setSpacing(4);
-
-    m_modeCombo = new QComboBox(composerColumn);
+    m_modeCombo = new QComboBox(m_sessionOptions);
     m_modeCombo->setObjectName(QStringLiteral("agentModeCombo"));
     m_modeCombo->addItem(QStringLiteral("自由对话"), QStringLiteral("general"));
     m_modeCombo->setToolTip(QStringLiteral("Stage 1A 只有自由对话；维护工作流在 Stage 2 接入。"));
-    composerColumnLayout->addWidget(m_modeCombo);
+    m_modeCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+    m_modeCombo->setFixedHeight(Theme::chipHeight());
+    qobject_cast<QHBoxLayout *>(m_sessionOptions->layout())->insertWidget(1, m_modeCombo);
 
-    m_composer = new AgentComposer(composerColumn);
+    m_composer = new AgentComposer(composerRow);
     m_composer->setMinimumHeight(34);
-    composerColumnLayout->addWidget(m_composer);
-    composerLayout->addWidget(composerColumn, 1);
+    // 输入框默认 sizeHint 有 190 来高，整块就占了半屏：压到约三行，长文自己滚。
+    m_composer->setMaximumHeight(m_composer->fontMetrics().lineSpacing() * 3 + 14);
+    m_composer->setFrameShape(QFrame::NoFrame);
+    {
+        QPalette pal = m_composer->palette();
+        pal.setColor(QPalette::Base, Qt::transparent);
+        m_composer->setPalette(pal);
+        m_composer->viewport()->setAutoFillBackground(false);
+    }
+    composerLayout->addWidget(m_composer, 1);
 
-    auto *buttonColumn = new QWidget(composerRow);
-    auto *buttonLayout = new QVBoxLayout(buttonColumn);
-    buttonLayout->setContentsMargins(0, 0, 0, 0);
-    buttonLayout->setSpacing(4);
-    m_send = new QPushButton(QStringLiteral("发送"), buttonColumn);
+    auto *composerBar = new QHBoxLayout;
+    composerBar->setContentsMargins(0, 0, 0, 0);
+    composerBar->setSpacing(8);
+    composerBar->addStretch(1);
+    auto *keyHint = new QLabel(QStringLiteral("Enter 发送 · Shift+Enter 换行"), composerRow);
+    keyHint->setObjectName(QStringLiteral("agentComposerHint"));
+    keyHint->setFont(Theme::textFont(keyHint->font(), Theme::TextRole::Caption));
+    keyHint->setForegroundRole(QPalette::PlaceholderText);
+    composerBar->addWidget(keyHint);
+    m_send = new QPushButton(QStringLiteral("发送"), composerRow);
     m_send->setObjectName(QStringLiteral("agentSendButton"));
     m_send->setDefault(true);
     m_send->setEnabled(false);
-    m_stop = new QPushButton(QStringLiteral("停止"), buttonColumn);
+    m_stop = new QPushButton(QStringLiteral("停止"), composerRow);
     m_stop->setObjectName(QStringLiteral("agentStopButton"));
     m_stop->setEnabled(false);
     m_stop->hide();
-    buttonLayout->addWidget(m_send);
-    buttonLayout->addWidget(m_stop);
-    composerLayout->addWidget(buttonColumn);
+    composerBar->addWidget(m_send);
+    composerBar->addWidget(m_stop);
+    composerLayout->addLayout(composerBar);
     chatLayout->addWidget(composerRow);
     root->addWidget(chat, 1);
 
@@ -274,7 +316,7 @@ void AgentPage::rebuildSessionRow(QListWidgetItem *item, const AgentView::Sessio
     if (item == nullptr) return;
     QString text = pinnedPrefix(meta.pinned) + (meta.title.isEmpty() ? QStringLiteral("新对话") : meta.title);
     const QString relative = relativeTime(meta.updatedAt, QDateTime::currentDateTimeUtc());
-    if (!relative.isEmpty()) text += QStringLiteral("  ·  ") + relative;
+    if (!relative.isEmpty()) text += QLatin1Char(10) + relative;  // 两行：标题 / 时间（设计稿 agent）
     item->setText(text);
     item->setData(Qt::UserRole, meta.id);
     item->setData(Qt::UserRole + 1, meta.pinned);

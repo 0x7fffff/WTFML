@@ -125,6 +125,7 @@ set(HEADER_FILES
     ui/AgentSecretEdit.hpp
     ui/AgentSettingsPage.hpp
     ui/AgentToolCard.hpp
+    ui/AgentPanelPaint.hpp
     ui/AgentApprovalCard.hpp
     src/net/HttpClient.hpp
     src/manage/DroppedResource.hpp

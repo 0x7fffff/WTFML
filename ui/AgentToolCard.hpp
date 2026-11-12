@@ -24,6 +24,9 @@ public:
     void setCard(const AgentView::ToolCard &card);
     AgentView::ToolCard card() const { return m_card; }
 
+protected:
+    void paintEvent(QPaintEvent *event) override;
+
 private:
     void refresh();
 
