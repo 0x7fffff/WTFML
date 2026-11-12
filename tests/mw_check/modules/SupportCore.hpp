@@ -27,7 +27,7 @@
 #include <QFontDatabase>
 #include "controllers/DirectDownloadController.hpp"
 #include "download/StreamedFile.hpp"
-#include "DownloadToolDialog.hpp"
+#include "DownloadToolPanel.hpp"
 #include <QStyleFactory>
 #include <QAbstractButton>
 #include <QBuffer>

@@ -81,16 +81,15 @@ int UiToolboxPolishCheck(QApplication &app) {
             const int x = column * 300;
             painter.fillRect(QRect(x, 0, 300, 750), column == 2 ? QColor("#20262c") : QColor("#f5f8f7"));
             painter.setPen(inks[column]);
-            ToolboxPage::panelTitleIcon(inks[column]).paint(&painter, QRect(x + 24, 20, 28, 28));
             painter.drawText(QRect(x + 68, 20, 220, 28), Qt::AlignVCenter, QStringLiteral("工具箱 · 线稿预览"));
-            const auto tools = ToolboxPage::panelTools();
+            const auto tools = ToolboxPage::tools();
             for (int index = 0; index < tools.size(); ++index) {
                 const auto tool = tools[index]; const auto icon = ToolboxPage::toolIcon(tool, inks[column]);
                 const auto image = icon.pixmap(24, 24).toImage();
                 expect(!image.isNull() && image.hasAlphaChannel(), "tool icon renders with transparency");
                 icon.paint(&painter, QRect(x + 26, 80 + index * 64, 24, 24));
                 icon.paint(&painter, QRect(x + 70, 72 + index * 64, 40, 40));
-                painter.drawText(QRect(x + 130, 78 + index * 64, 160, 28), Qt::AlignVCenter, ToolboxPage::toolShortName(tool));
+                painter.drawText(QRect(x + 130, 78 + index * 64, 160, 28), Qt::AlignVCenter, ToolboxPage::toolName(tool));
             }
         }
         painter.end();

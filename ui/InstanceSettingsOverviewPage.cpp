@@ -148,13 +148,11 @@ QLabel *overviewRowTitle(const QString &text, QWidget *parent) {
     return label;
 }
 
-/// 小节标题（基本 / 更新 / 文件与导出）：文楷 20 px，上面空一段。
+/// 小节标题（基本 / 更新 / 文件与导出）：系统字 16 半粗，上面空一段。
 QLabel *overviewSection(const QString &text, QWidget *parent, bool first = false) {
     auto *label = new QLabel(text, parent);
     label->setObjectName(QStringLiteral("instanceOverviewSection"));
-    QFont f = Theme::handFont(label->font(), Theme::HandFont::Kai);
-    f.setPixelSize(20);
-    label->setFont(f);
+    label->setFont(Theme::textFont(label->font(), Theme::TextRole::Heading));
     label->setContentsMargins(0, first ? 0 : 18, 0, 4);
     return label;
 }

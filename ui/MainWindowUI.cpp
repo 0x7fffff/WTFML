@@ -23,7 +23,6 @@
 #include "ThemeAdvancedEditor.hpp"
 #include "ThemeBackground.hpp"
 #include "TitleBar.hpp"
-#include "ToolboxPage.hpp"  // 工具箱那张表的键与名字（底栏面板那六颗按钮按 tools() 摆）
 #include "VersionIcons.hpp"
 #include "VersionTreeDelegate.hpp"
 #include "WindowChrome.hpp"
@@ -438,6 +437,55 @@ bool MainWindowUI::isHomeTabCurrent() const {
     return tabWidget != nullptr && tabWidget->currentIndex() == homeTabIndex();
 }
 
+/// 切选项卡的公共那一段：顶上导航和导航轨底部的「工具箱」都走它（唯一出处）。
+/// 返回 -1 = 被导航守卫拦下；0 = 已翻页；1 = 点的就是当前这一颗（已收覆盖层）。
+int MainWindowUI::applyTabRequest(int index) {
+    if (navigationGuard && !navigationGuard()) return -1;
+    const int sourceIndex = tabWidget->currentIndex();
+    const bool reselected = index == sourceIndex;
+    // 点上方那四大钮时要**收起任务中心**，不能卡在别的页上没反应。
+    // 任务中心是**整页覆盖**那一档：它在自己的选项卡上是摊开的，切到别的选项卡上
+    // 只是"收着"（OverlayHost::parked()），而那一位**还占着覆盖层**。于是：
+    // · 在别的选项卡上点导航 —— `dismiss()` 对"收着"的页什么都不做（它按设计不
+    // 替用户收看不见的页），任务中心原样占着那一位；
+    // · 再回到原来那一页 —— 它又摊开，看着像"哪颗都没反应、页面卡住了"。
+    // 所以点导航这一下先把它**收掉**（evict 连"收着"那一档一起收），再照常翻页 /
+    // dismiss。只认任务中心：别的覆盖页（资源详情之类）仍按同一条规矩停放、切回来还在。
+    // NOTE: `pageOpen()` 那一条是"**最上面**那一层是页"的意思 —— 页上面压着一句提示
+    // 的时候不在这儿收（那句话是要人回答的，不能因为切个页就替他答"取消"）。
+    if (taskCenterPanel() != nullptr && overlayHost != nullptr && overlayHost->promptOpen() &&
+        overlayHost->promptFullSize()) {
+        overlayHost->dismiss();
+    } else if (taskCenterPanel() != nullptr && overlayHost != nullptr && overlayHost->pageOpen()) {
+        overlayHost->evict();
+    }
+    // 顶端四个按钮点下去要**自动到达对应选项卡的首页**（比如正开着 sodium 的下载页，
+    // 点启动选项卡就切过去、下载那一层自动收起）；在下载页点顶上那个「下载」（不是
+    // 下载确认键）也回到下载页首页，四个都适用。于是这一颗有两种意思：
+    //
+    // ① 点的**不是**现在这一颗 ⇒ 翻页。切走之后那页不会丢，只是"收着"（见
+    // OverlayHost.hpp 那段），切回来还是原来那个界面、连滚到哪儿都在；
+    // ② 点的**就是**现在这一颗 ⇒ "回到这个功能的首页"：把上面那一层收掉 —— 页面那一档
+    // 走"返回箭头"那一发（收页要经过页面自己的 reject，理由见 dismiss()）。
+    if (reselected) {
+        if (overlayHost != nullptr) {
+            overlayHost->dismiss();
+        }
+    } else {
+        tabWidget->setCurrentIndex(index);
+    }
+    return reselected ? 1 : 0;
+}
+
+void MainWindowUI::openToolboxTab(const QString &key) {
+    const int result = applyTabRequest(toolboxTabIndex());
+    if (result < 0) return;
+    // 空串 = 停在上次那一层；已经在工具箱页上再点一次 = 回目录。
+    if (m_toolboxToolHandler) {
+        m_toolboxToolHandler(!key.isEmpty() ? key : (result == 1 ? QStringLiteral("catalog") : QString()));
+    }
+}
+
 void MainWindowUI::setupUi(QMainWindow *parent) {
     parent->setWindowTitle(QStringLiteral("WTF Minecraft Launcher"));
     // 设计稿主尺寸 1280×800；屏幕放不下就按可用区缩（最小 900×620，窄于 1024 时导航轨自动折）。
@@ -522,6 +570,16 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     tabWidget->addTab(settingsTab, QStringLiteral("设置"));
     // D1：智能体**放最后**；启动默认仍停在主页（下面 setCurrentIndex(homeTabIndex())）。
     tabWidget->addTab(agentPage, QStringLiteral("智能体"));
+    // 工具箱：第六个选项卡，**不上顶上那条导航**（入口是导航轨底部那颗「工具箱」，见 setupBottomBar）。
+    // 页本身由 ToolboxController 首次打开时挂进来（避免没用过工具箱的人白搭十片控件）。
+    {
+        auto *toolboxHost = new ThemeBackground(Theme::Part::PageBackground, tabWidget);
+        toolboxHost->setObjectName(toolboxTabName());
+        auto *toolboxLayout = new QVBoxLayout(toolboxHost);
+        toolboxLayout->setContentsMargins(0, 0, 0, 0);
+        toolboxLayout->setSpacing(0);
+        tabWidget->addTab(toolboxHost, QStringLiteral("工具箱"));
+    }
     tabWidget->setCurrentIndex(homeTabIndex());
     mainLayout->addWidget(tabWidget, 1);
 
@@ -537,50 +595,19 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // 标签**就是** tabWidget 自己的那一份：名字、顺序、条数都只有一处出处。
     // NOTE: 这一句必须在上面四个 addTab **之后** —— tabText() 这会儿才有东西。
     QStringList navLabels;
-    for (int i = 0; i < tabWidget->count(); ++i) {
+    for (int i = 0; i < toolboxTabIndex(); ++i) {  // 工具箱那一页不上导航
         navLabels << tabWidget->tabText(i);
     }
     bar->setNavItems(navLabels);
     bar->setCurrentNav(tabWidget->currentIndex());
     // 条只发信号、不自己动手（见 TitleBar.hpp）：翻页是这一层的事。
     QObject::connect(bar, &TitleBar::navRequested, tabWidget, [this](int index) {
-        if (navigationGuard && !navigationGuard()) return;
         const int sourceIndex = tabWidget->currentIndex();
-        const bool reselected = index == sourceIndex;
-        // 点上方那四大钮时要**收起任务中心**，不能卡在别的页上没反应。
-        // 任务中心是**整页覆盖**那一档：它在自己的选项卡上是摊开的，切到别的选项卡上
-        // 只是"收着"（OverlayHost::parked()），而那一位**还占着覆盖层**。于是：
-        // · 在别的选项卡上点导航 —— `dismiss()` 对"收着"的页什么都不做（它按设计不
-        // 替用户收看不见的页），任务中心原样占着那一位；
-        // · 再回到原来那一页 —— 它又摊开，看着像"哪颗都没反应、页面卡住了"。
-        // 所以点导航这一下先把它**收掉**（evict 连"收着"那一档一起收），再照常翻页 /
-        // dismiss。只认任务中心：别的覆盖页（资源详情之类）仍按同一条规矩停放、切回来还在。
-        // NOTE: `pageOpen()` 那一条是"**最上面**那一层是页"的意思 —— 页上面压着一句提示
-        // 的时候不在这儿收（那句话是要人回答的，不能因为切个页就替他答"取消"）。
-        if (taskCenterPanel() != nullptr && overlayHost != nullptr && overlayHost->promptOpen() &&
-            overlayHost->promptFullSize()) {
-            overlayHost->dismiss();
-        } else if (taskCenterPanel() != nullptr && overlayHost != nullptr && overlayHost->pageOpen()) {
-            overlayHost->evict();
-        }
-        // 顶端四个按钮点下去要**自动到达对应选项卡的首页**（比如正开着 sodium 的下载页，
-        // 点启动选项卡就切过去、下载那一层自动收起）；在下载页点顶上那个「下载」（不是
-        // 下载确认键）也回到下载页首页，四个都适用。于是这一颗有两种意思：
-        //
-        // ① 点的**不是**现在这一颗 ⇒ 翻页。切走之后那页不会丢，只是"收着"（见
-        // OverlayHost.hpp 那段），切回来还是原来那个界面、连滚到哪儿都在；
-        // ② 点的**就是**现在这一颗 ⇒ "回到这个功能的首页"：把上面那一层收掉 —— 页面那一档
-        // 走"返回箭头"那一发（收页要经过页面自己的 reject，理由见 dismiss()）。
-        if (reselected) {
-            if (overlayHost != nullptr) {
-                overlayHost->dismiss();
-            }
-        } else {
-            tabWidget->setCurrentIndex(index);
-        }
+        const int result = applyTabRequest(index);
+        if (result < 0) return;
         // 翻页 / dismiss 都已经发出后再报业务语义。比让 MainWindow 也监听
         // navRequested、并假设“UI 那条先 connect 所以先跑”更稳定。
-        emit bar->navigationApplied(sourceIndex, index, reselected);
+        emit bar->navigationApplied(sourceIndex, index, result == 1);
     });
     // 反方向也要通：别处（底栏、主页那几个入口）翻页之后，条上标着的也得跟着换。
     QObject::connect(tabWidget, &QTabWidget::currentChanged, bar, &TitleBar::setCurrentNav);
@@ -671,6 +698,12 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
 
     setupBottomBar(bar);
     bar->setFooter(bottomBar);
+    // 导航轨底部「工具箱」的高亮 = 工具箱选项卡正开着。
+    toolboxButton->setChecked(tabWidget->currentIndex() == toolboxTabIndex());
+    QObject::connect(tabWidget, &QTabWidget::currentChanged, toolboxButton,
+                     [button = QPointer<QPushButton>(toolboxButton)](int index) {
+                         if (button) button->setChecked(index == toolboxTabIndex());
+                     });
     // 图标轨：任务卡只剩进度环、实例状态那格收起、工具箱只剩图标（tokens.md 第 7 节）。
     QObject::connect(bar, &TitleBar::collapsedChanged, bottomBar, [this](bool collapsed) {
         if (auto *text = taskSummaryButton->findChild<QWidget *>(QStringLiteral("taskSummaryText"))) {
@@ -762,9 +795,9 @@ QWidget *MainWindowUI::setupHomePage() {
         // 窄于 1024 的窗口：标题收一号（50 → 40、副题 32 → 26），立绘缩到七成二（设计稿 @media）。
         const auto applyScale = [this, homeTab, welcome, subtitle]() {
             const bool narrow = homeTab->window()->width() < 1024;
-            welcome->setFont(handPx(welcome->font(), Theme::HandFont::KaiLight,
-                                    narrow ? 40 : kHomeHeroTitlePixelSize, narrow ? 3 : 4));
-            subtitle->setFont(handPx(subtitle->font(), Theme::HandFont::Script, narrow ? 26 : 32, 0));
+            Theme::markDisplay(welcome, handPx(welcome->font(), Theme::HandFont::KaiLight,
+                                               narrow ? 40 : kHomeHeroTitlePixelSize, narrow ? 3 : 4));
+            Theme::markDisplay(subtitle, handPx(subtitle->font(), Theme::HandFont::Script, narrow ? 26 : 32, 0));
             if (skinViewer != nullptr) {
                 skinViewer->setMaximumHeight(narrow ? kHomeSkinViewerHeight * 72 / 100 : kHomeSkinViewerHeight);
             }
@@ -972,8 +1005,8 @@ QWidget *MainWindowUI::setupInstancePage() {
     // `instanceFolderLabel`）—— 文案、灌数据那条路（MainWindow::refreshInstanceList）、
     // 验证工程找它用的名字都落在这一处（标题下面那行说明）。
     fillPageHeader(instance.right, instancePageTitle(), QString());
-    // 设计稿 page-title：一级页标题用 Display 档（28px），比卡片小标题大一级。
-    instance.right.title->setFont(Theme::textFont(instance.right.title->font(), Theme::TextRole::Display));
+    // 设计稿 page-title：一级页标题用 Display 档（26px 手写体 Light）。
+    Theme::markDisplay(instance.right.title, Theme::textFont(instance.right.title->font(), Theme::TextRole::Display));
     instanceFolderLabel = instance.right.subtitle;
     instanceFolderLabel->setObjectName(MainWindowUI::instanceFolderLabelName());
     // 它就是这一页的状态栏那一行，**不跟着"文字空不空"收起来**（文字由 MainWindow 灌，
@@ -1244,9 +1277,7 @@ QWidget *MainWindowUI::setupInstancePage() {
         auto *emptyTitle = new QLabel(instanceEmptyTitleText(), emptyState);
         emptyTitle->setAlignment(Qt::AlignCenter);
         {
-            QFont f = Theme::textFont(emptyTitle->font(), Theme::TextRole::Display);
-            f.setLetterSpacing(QFont::AbsoluteSpacing, 3);
-            emptyTitle->setFont(f);
+            Theme::markDisplay(emptyTitle, Theme::textFont(emptyTitle->font(), Theme::TextRole::Empty));
         }
         emptyLayout->addWidget(emptyTitle);
         instanceEmptyLabel = new QLabel(instanceEmptyText(), emptyState);
@@ -1575,8 +1606,8 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             name->setObjectName(QStringLiteral("homeCurrentName"));
             name->setText(item.empty ? QStringLiteral("还没有实例") : item.name);
             name->setMinimumWidth(1);
-            name->setFont(item.empty ? handPx(name->font(), Theme::HandFont::KaiLight, 34, 3)
-                                     : handPx(name->font(), Theme::HandFont::Kai, 40, 3));
+            Theme::markDisplay(name, item.empty ? handPx(name->font(), Theme::HandFont::KaiLight, 34, 3)
+                                                : handPx(name->font(), Theme::HandFont::Kai, 40, 3));
             name->setMinimumHeight(52);
             name->setAttribute(Qt::WA_TransparentForMouseEvents);
             followHeroInk(name, item.empty);
@@ -1740,7 +1771,7 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
                 auto *badge = new QLabel(QStringLiteral("当前"), card);
                 badge->setObjectName(QStringLiteral("homeQuickCurrentBadge"));
                 QFont badgeFont = badge->font();
-                badgeFont.setPixelSize(11);
+                badgeFont.setPixelSize(Theme::textSize(Theme::TextRole::Caption));
                 badgeFont.setWeight(QFont::Medium);
                 badge->setFont(badgeFont);
                 badge->setAttribute(Qt::WA_TransparentForMouseEvents);
@@ -1758,7 +1789,7 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             auto *sub = new QLabel(homeTileSubtitle(item.detail), card);
             sub->setObjectName(QStringLiteral("homeQuickTileVersion"));
             QFont subFont = sub->font();
-            subFont.setPixelSize(12);
+            subFont.setPixelSize(Theme::textSize(Theme::TextRole::Caption));
             sub->setFont(subFont);
             sub->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
             sub->setAttribute(Qt::WA_TransparentForMouseEvents);

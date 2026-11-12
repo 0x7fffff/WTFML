@@ -53,7 +53,7 @@ int UiAgentCheck() {
     QApplication::processEvents();
 
     QTabWidget *tabs = ui.getTabWidget();
-    check(tabs != nullptr && tabs->count() == 5, "智能体 UI：五个选项卡",
+    check(tabs != nullptr && tabs->count() == 6, "智能体 UI：六个选项卡（含工具箱）",
           QString::number(tabs != nullptr ? tabs->count() : -1));
     check(tabs != nullptr && tabs->tabText(4) == QStringLiteral("智能体") &&
               MainWindowUI::agentTabIndex() == 4,

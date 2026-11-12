@@ -12,16 +12,19 @@
 
 class ActivityCenterController;
 class ResumableDownload;
-class DownloadToolDialog;
+class DownloadToolPanel;
 class OverlayHost;
 class QWidget;
 class QLockFile;
 
 class DirectDownloadController final : public QObject {
 public:
-    DirectDownloadController(ActivityCenterController *activity, QWidget *window, QObject *parent = nullptr);
+    DirectDownloadController(ActivityCenterController *activity, OverlayHost *overlay, QObject *parent = nullptr);
     ~DirectDownloadController() override;
-    void open();
+    /// 把工具箱里的「高速下载」页接上来（页面建好后调一次）；输入与缓存操作都从它收。
+    void attach(DownloadToolPanel *panel);
+    /// 那一页露出来时调：同步忙闲状态与上次的提示，并统计闲置缓存。
+    void panelShown();
     bool start(const DirectDownloadRequest &request, bool allowOverwrite, QString *error);
     bool owns(Tasks::TaskId id) const;
     bool canCancel(Tasks::TaskId id) const;
@@ -32,7 +35,6 @@ public:
     Tasks::TaskId taskId() const { return m_task; }
     Tasks::TaskId lastSubmittedTaskId() const { return m_lastSubmitted; }
 private:
-    OverlayHost *promptHost();
     struct Recovery { DirectDownloadRequest request; QString token; QJsonObject original; };
     QHash<Tasks::TaskId, Recovery> m_recoveries;
     QString m_recoveryPath;
@@ -52,9 +54,8 @@ private:
     void finish(bool success, const QString &error);
     void updateProgress(qint64 done, qint64 total);
     ActivityCenterController *m_activity;
-    QWidget *m_window;
-    QPointer<DownloadToolDialog> m_dialog;
-    QPointer<OverlayHost> m_prompt;
+    QPointer<OverlayHost> m_overlay;
+    QPointer<DownloadToolPanel> m_panel;
     ResumableDownload *m_download = nullptr;
     Tasks::TaskId m_task = Tasks::invalidTaskId();
     QSet<Tasks::TaskId> m_ownedTasks;

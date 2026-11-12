@@ -86,29 +86,33 @@ int MwHighSpeedDownloadCheck(QApplication &app) {
         };
         const auto read = [](const QString &path) { QFile f(path); if (!f.open(QIODevice::ReadOnly)) return QByteArray(); return f.readAll(); };
         auto ok = request(QStringLiteral("ok"), QStringLiteral("result.bin"));
-        tool.open();
+        // 高速下载是工具箱里的一页：controller 接上那一页，输入与状态都走它。
+        QWidget panelHost;
+        DownloadToolPanel panel(&panelHost);
+        tool.attach(&panel);
+        tool.panelShown();
         QCoreApplication::processEvents();
-        auto *dialog = qobject_cast<QDialog *>(QApplication::activeWindow());
-        expect(dialog && dialog->objectName() == QStringLiteral("downloadToolDialog"), "download opens its own reusable tool window");
-        if (dialog) expect(dialog->grab().save(fixture.filePath(QStringLiteral("download-tool-preview.png"))), "tool window preview renders successfully in isolated fixture");
-        if (dialog) dialog->resize(700, 460);
+        expect(!panel.isWindow() && qobject_cast<QDialog *>(&panel) == nullptr && panel.objectName() == QStringLiteral("downloadToolPanel"),
+               "download is a page inside the toolbox, not its own window");
+        panelHost.resize(700, 460); panel.resize(700, 460); panelHost.show(); QCoreApplication::processEvents();
+        expect(panel.grab().save(fixture.filePath(QStringLiteral("download-tool-preview.png"))), "tool page preview renders successfully in isolated fixture");
         expect(tool.start(ok, false, &error), "direct download starts asynchronously");
         const auto first = tool.taskId();
-        if (dialog) dialog->close();
+        panel.hide();
         wait();
-        expect(activity.tasks()->snapshot(first).state == Tasks::TaskState::Succeeded && read(ok.path) == body, "closing window does not interrupt task; file and ledger succeed");
+        expect(activity.tasks()->snapshot(first).state == Tasks::TaskState::Succeeded && read(ok.path) == body, "leaving the page does not interrupt task; file and ledger succeed");
         expect(activity.tasks()->snapshot(first).bytesDone == body.size(), "task centre retains final byte progress");
-        // 独立窗口的尺寸/位置记忆：关窗口时记下，重新打开照旧（唯一一处真的量得到的
-        // "尺寸记忆" —— 主窗口与工具箱页不是独立窗口，见 FEATURES）。
-        expect(QSettings().contains(QStringLiteral("Toolbox/DownloadGeometry")),
-               "closing the tool window remembers its geometry");
+        expect(panel.progressBox->isVisible() == false || panel.percent->text() == QStringLiteral("100%"),
+               "page shows the finished download or keeps the progress row hidden");
+        // 输入记忆：保存目录与闲置上限写进设置，下一次建页照旧（页面本身不是独立窗口，没有尺寸记忆）。
+        QSettings().setValue(QStringLiteral("Toolbox/DownloadDirectory"), fixture.path());
+        QSettings().setValue(QStringLiteral("Toolbox/CacheLimitMiB"), 4096);
         DirectDownloadController reopenedTool(&activity, nullptr);
-        reopenedTool.open();
-        QCoreApplication::processEvents();
-        auto *reopenedDialog = qobject_cast<QDialog *>(QApplication::activeWindow());
-        expect(reopenedDialog && reopenedDialog->objectName() == QStringLiteral("downloadToolDialog") &&
-                   reopenedDialog->size() == QSize(700, 460),
-               "the tool window reopens at the remembered size");
+        QWidget reopenedHost;
+        DownloadToolPanel reopenedPanel(&reopenedHost);
+        reopenedTool.attach(&reopenedPanel);
+        expect(reopenedPanel.directory->text() == fixture.path() && reopenedPanel.cacheLimit->value() == 4096,
+               "the page restores the remembered save directory and cache limit");
         reopenedTool.shutdown();
         auto conflict = request(QStringLiteral("ok"), QStringLiteral("conflict.bin"));
         expect(tool.start(conflict, false, &error), "new destination starts without overwrite permission");

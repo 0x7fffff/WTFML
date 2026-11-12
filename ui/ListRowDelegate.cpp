@@ -100,7 +100,7 @@ void ListRowDelegate::paint(QPainter *painter, const QStyleOptionViewItem &optio
         const QPixmap icon = metaIcon.value<QIcon>().pixmap(32, 32);
         if (!icon.isNull()) painter->drawPixmap(QRect(x, r.center().y() - 8, 16, 16), icon);
         QFont f = option.font;
-        f.setPointSizeF(f.pointSizeF() * 13.0 / 14.0);
+        f.setPixelSize(Theme::textSize(Theme::TextRole::Caption));
         painter->setFont(f);
         painter->setPen(t.secondary);
         painter->drawText(QRect(x + 22, r.top(), qMax(0, r.right() - x - 22), r.height()), Qt::AlignVCenter | Qt::AlignLeft,
@@ -134,7 +134,7 @@ void ListRowDelegate::paint(QPainter *painter, const QStyleOptionViewItem &optio
         const QString meta = index.data(MetaRole).toString();
         if (!meta.isEmpty()) {
             QFont f = option.font;
-            f.setPointSizeF(f.pointSizeF() * 12.5 / 14.0);
+            f.setPixelSize(Theme::textSize(Theme::TextRole::Caption));
             painter->setFont(f);
             painter->setPen(t.disabled);
             const int w = painter->fontMetrics().horizontalAdvance(meta);
@@ -144,14 +144,14 @@ void ListRowDelegate::paint(QPainter *painter, const QStyleOptionViewItem &optio
         }
     }
 
-    // 两行字：标题 14.5/600（设计稿 500，Qt 下同字号显轻，加一档），副行 12.5 次要色
+    // 两行字：标题 14/600（设计稿 500，Qt 下同字号显轻，加一档），副行辅助档 13 次要色
     const int textLeft = cover.right() + 1 + kGap;
     const QRect textBox(textLeft, r.top(), qMax(0, textRight - textLeft), r.height());
     QFont titleFont = option.font;
-    titleFont.setPointSizeF(titleFont.pointSizeF() * 14.5 / 14.0);
+    titleFont.setPixelSize(Theme::textSize(Theme::TextRole::Body));
     titleFont.setWeight(QFont::DemiBold);
     QFont subFont = option.font;
-    subFont.setPointSizeF(subFont.pointSizeF() * 12.5 / 14.0);
+    subFont.setPixelSize(Theme::textSize(Theme::TextRole::Caption));
     const QString title = index.data(Qt::DisplayRole).toString();
     const QString sub = index.data(SubtitleRole).toString();
     const int titleH = 20;

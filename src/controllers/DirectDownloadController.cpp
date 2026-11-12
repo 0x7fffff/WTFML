@@ -3,7 +3,7 @@
 #include "DirectDownloadController.hpp"
 #include "ActivityCenterController.hpp"
 #include "download/ResumableDownload.hpp"
-#include "DownloadToolDialog.hpp"
+#include "DownloadToolPanel.hpp"
 #include "download/DownloadCache.hpp"
 #include "download/DownloadCheckpoint.hpp"
 #include "util/AppPaths.hpp"
@@ -16,8 +16,8 @@
 #include <QTimer>
 #include <algorithm>
 
-DirectDownloadController::DirectDownloadController(ActivityCenterController *activity, QWidget *window, QObject *parent)
-    : QObject(parent), m_activity(activity), m_window(window) {
+DirectDownloadController::DirectDownloadController(ActivityCenterController *activity, OverlayHost *overlay, QObject *parent)
+    : QObject(parent), m_activity(activity), m_overlay(overlay) {
     // Follow the launcher's stable task ledger, not the currently selected game folder.
     m_recoveryPath = (m_activity ? QFileInfo(m_activity->tasks()->historyPath()).absolutePath()
                                 : AppPaths::defaultMinecraftDir()) + QStringLiteral("/wtfml.download-recovery");
@@ -37,65 +37,47 @@ DirectDownloadController::DirectDownloadController(ActivityCenterController *act
     });
 }
 
-DirectDownloadController::~DirectDownloadController() { shutdown(); delete m_dialog.data(); }
+DirectDownloadController::~DirectDownloadController() { shutdown(); }
 
-OverlayHost *DirectDownloadController::promptHost() {
-    // 独立窗口没有主窗那层覆盖层：在它自己身上挂一层，提示卡就和主窗里的长一个样。
-    if (m_prompt == nullptr && m_dialog) m_prompt = new OverlayHost(m_dialog->body(), m_dialog->body());  // 盖内容区，不盖标题条
-    return m_prompt;
+void DirectDownloadController::attach(DownloadToolPanel *panel) {
+    if (panel == nullptr || m_panel == panel) return;
+    m_panel = panel;
+    QSettings settings;
+    panel->cacheLimit->setValue(settings.value(QStringLiteral("Toolbox/CacheLimitMiB"), 2048).toInt());
+    panel->directory->setText(settings.value(QStringLiteral("Toolbox/DownloadDirectory"), panel->directory->text()).toString());
+    connect(panel->cacheLimit, &QSpinBox::valueChanged, this, [](int value) {
+        QSettings().setValue(QStringLiteral("Toolbox/CacheLimitMiB"), value);
+    });
+    connect(panel->directory, &QLineEdit::editingFinished, this, [this] {
+        if (m_panel && QDir(m_panel->directory->text()).exists())
+            QSettings().setValue(QStringLiteral("Toolbox/DownloadDirectory"), m_panel->directory->text());
+    });
+    panel->onCache = [this](int action) {
+        if (action == 3 && !InlineMessage::question(m_overlay, tr("清空闲置续传缓存"),
+            tr("只删未被任务使用的分段和续传记录，已下载的文件不受影响。"),
+            tr("清空"), tr("取消"), false, true)) return;
+        manageCache(action);
+    };
+    panel->onStart = [this] {
+        DirectDownloadRequest request;
+        QString error;
+        if (!DirectDownloadRequest::parse(m_panel->url->text(), m_panel->directory->text(), m_panel->name->text(), &request, &error)) {
+            m_panel->showStatus(error); return;
+        }
+        const bool exists = QFileInfo::exists(request.path);
+        if (exists && !InlineMessage::question(m_overlay, tr("确认替换文件"),
+                tr("%1 已存在。下载成功后替换它；取消或失败会保留原文件。").arg(QFileInfo(request.path).fileName()),
+                tr("替换"), tr("取消"), false)) return;
+        if (!start(request, exists, &error)) m_panel->showStatus(error);
+    };
+    panel->onCancel = [this] { cancel(m_task); };
 }
 
-void DirectDownloadController::open() {
-    if (!m_dialog) {
-        m_dialog = new DownloadToolDialog(m_window);
-        QSettings settings;
-        m_dialog->cacheLimit->setValue(settings.value(QStringLiteral("Toolbox/CacheLimitMiB"), 2048).toInt());
-        m_dialog->directory->setText(settings.value(QStringLiteral("Toolbox/DownloadDirectory"), m_dialog->directory->text()).toString());
-        connect(m_dialog->cacheLimit, &QSpinBox::valueChanged, this, [](int value) {
-            QSettings().setValue(QStringLiteral("Toolbox/CacheLimitMiB"), value);
-        });
-        connect(m_dialog->directory, &QLineEdit::editingFinished, this, [this] {
-            if (QDir(m_dialog->directory->text()).exists())
-                QSettings().setValue(QStringLiteral("Toolbox/DownloadDirectory"), m_dialog->directory->text());
-        });
-        m_dialog->onCache = [this](int action) {
-            if (action == 3 && !InlineMessage::question(promptHost(), tr("清空闲置续传缓存"),
-                tr("只删未被任务使用的分段和续传记录，已下载的文件不受影响。"),
-                tr("清空"), tr("取消"), false, true)) return;
-            manageCache(action);
-        };
-        m_dialog->onStart = [this] {
-            DirectDownloadRequest request;
-            QString error;
-            if (!DirectDownloadRequest::parse(m_dialog->url->text(), m_dialog->directory->text(), m_dialog->name->text(), &request, &error)) {
-                m_dialog->status->setText(error); return;
-            }
-            const bool exists = QFileInfo::exists(request.path);
-            if (exists && !InlineMessage::question(promptHost(), tr("确认替换文件"),
-                    tr("%1 已存在。下载成功后替换它；取消或失败会保留原文件。").arg(QFileInfo(request.path).fileName()),
-                    tr("替换"), tr("取消"), false)) return;
-            if (!start(request, exists, &error)) m_dialog->status->setText(error);
-        };
-        m_dialog->onCancel = [this] { cancel(m_task); };
-        // 独立窗口的尺寸/位置记下来（这一件是全应用唯一的独立窗口，见 FEATURES）。
-        // 关窗口（accept / reject / 标题栏那个叉）都会发 finished ⇒ 记一次；程序被关掉时
-        // 还有 shutdown() 兜最后一次。
-        const QByteArray geometry =
-            settings.value(QStringLiteral("Toolbox/DownloadGeometry")).toByteArray();
-        if (!geometry.isEmpty()) {
-            m_dialog->restoreGeometry(geometry);
-        }
-        connect(m_dialog, &QDialog::finished, this, [this] {
-            if (m_dialog != nullptr) {
-                QSettings().setValue(QStringLiteral("Toolbox/DownloadGeometry"),
-                                     m_dialog->saveGeometry());
-            }
-        });
-    }
-    m_dialog->setBusy(m_running);
-    if (!m_status.isEmpty()) m_dialog->status->setText(m_status);
-    m_dialog->show(); m_dialog->raise(); m_dialog->activateWindow();
-    manageCache(0);
+void DirectDownloadController::panelShown() {
+    if (!m_panel) return;
+    m_panel->setBusy(m_running);
+    if (!m_status.isEmpty()) m_panel->showStatus(m_status);
+    manageCache(0);  // 进页面自动统计闲置缓存
 }
 
 void DirectDownloadController::manageCache(int action) {
@@ -108,13 +90,18 @@ void DirectDownloadController::manageCache(int action) {
     const qint64 limit = qint64(qBound(128, settings.value(QStringLiteral("Toolbox/CacheLimitMiB"), 2048).toInt(), 65536)) * 1024 * 1024;
     const auto result = QSharedPointer<DownloadCache::Result>::create();
     auto *worker = QThread::create([result, kind, limit] { *result = DownloadCache::run(kind, limit); });
-    if (m_dialog) m_dialog->cacheStatus->setText(tr("正在后台整理缓存…"));
+    if (m_panel) m_panel->cacheStatus->setText(tr("正在整理…"));
     connect(worker, &QThread::finished, worker, &QObject::deleteLater);
     connect(worker, &QThread::finished, this, [this, result] {
         m_cacheBusy = false;
-        if (m_dialog) m_dialog->cacheStatus->setText(tr("续传缓存：%1 / 本次释放 %2 / 跳过占用 %3 / 失败 %4%5")
-            .arg(QLocale().formattedDataSize(qMax<qint64>(0, result->bytes)), QLocale().formattedDataSize(result->removed))
-            .arg(result->busy).arg(result->failed).arg(result->incomplete ? tr("（扫描达到安全限制，统计不完整）") : QString()));
+        if (m_panel) {
+            QString text = tr("闲置 %1").arg(QLocale().formattedDataSize(qMax<qint64>(0, result->bytes)));
+            if (result->removed > 0) text += tr(" · 本次释放 %1").arg(QLocale().formattedDataSize(result->removed));
+            if (result->busy > 0) text += tr(" · 跳过占用 %1").arg(result->busy);
+            if (result->failed > 0) text += tr(" · 失败 %1").arg(result->failed);
+            if (result->incomplete) text += tr(" · 统计不完整");
+            m_panel->cacheStatus->setText(text);
+        }
         if (m_cacheTrimPending) { m_cacheTrimPending = false; manageCache(1); }
     });
     worker->start();
@@ -168,7 +155,7 @@ bool DirectDownloadController::start(const DirectDownloadRequest &request, bool 
     auto caps = m_activity->tasks()->snapshot(id).capabilities; caps.canOpenLog = false;
     m_activity->tasks()->setCapabilities(id, caps);
     if (!m_running) m_activity->startReady();
-    else if (m_dialog) m_dialog->status->setText(tr("已加入等待队列，可在任务中心拖动调整顺序。"));
+    else if (m_panel) m_panel->showStatus(tr("已加入等待队列，可在任务中心拖动调整顺序。"));
     if (error) error->clear();
     return true;
 }
@@ -182,12 +169,12 @@ void DirectDownloadController::startJob(Tasks::TaskId id, const DirectDownloadRe
     m_running = true;
     m_activity->tasks()->setStepState(id, 0, Tasks::TaskStepState::Running);
     m_activity->tasks()->setStepState(id, 1, Tasks::TaskStepState::Pending);
-    m_status = tr("正在连接；进度可在任务中心查看。关闭工具窗口后下载继续。");
+    m_status = tr("正在连接；进度可在任务中心查看。");
     if (!m_recoveryReadable) m_status += tr("恢复记录不可用或被占用，原件已保留；本次下载不提供暂停和跨重启恢复。");
     m_activity->tasks()->setDetail(m_task, m_status);
     m_rateClock.start(); m_rate.reset(); m_transferred = 0; m_lastRateUi = -1000;
     m_lastDone = 0; m_lastTotal = -1; m_showTransferTelemetry = false;
-    if (m_dialog) { m_dialog->setBusy(true); m_dialog->showProgress(0, 0, m_status); }
+    if (m_panel) { m_panel->setBusy(true); m_panel->showProgress(0, 0, m_status); }
     connect(m_download, &ResumableDownload::progress, this, [this](qint64 done, qint64 total) {
         if (!m_running) return;
         m_showTransferTelemetry = true;
@@ -204,7 +191,7 @@ void DirectDownloadController::startJob(Tasks::TaskId id, const DirectDownloadRe
         m_status = message;
         syncPauseCapability();
         m_activity->tasks()->setDetail(m_task, message);
-        if (m_dialog) m_dialog->status->setText(message);
+        if (m_panel) m_panel->showStatus(message);
     });
     connect(m_download, &ResumableDownload::finished, this, [this](bool success, const QString &message) { finish(success, message); });
     if (m_recoveries.contains(id)) {
@@ -248,7 +235,7 @@ void DirectDownloadController::updateProgress(qint64 done, qint64 total) {
         } else m_status += speed == 0 ? tr(" / 等待数据…") : tr(" / 正在估算剩余时间…");
     }
     m_activity->tasks()->setDetail(m_task, m_status);
-    if (m_dialog) m_dialog->showProgress(done, total, m_status);
+    if (m_panel) m_panel->showProgress(done, total, m_status);
 }
 
 void DirectDownloadController::finish(bool success, const QString &error) {
@@ -270,7 +257,7 @@ void DirectDownloadController::finish(bool success, const QString &error) {
     if (success) { m_recoveries.remove(finishedTask); saveRecovery(); }
     else if (m_recoveries.contains(finishedTask))
         m_activity->tasks()->setRecovery(finishedTask, m_recoveries.value(finishedTask).token, true);
-    if (m_dialog && m_task == finishedTask && !m_running) { m_dialog->setBusy(false); m_dialog->showProgress(success ? 1 : 0, 1, status); }
+    if (m_panel && m_task == finishedTask && !m_running) { m_panel->setBusy(false); m_panel->showProgress(success ? 1 : 0, 1, status); }
 }
 
 bool DirectDownloadController::owns(Tasks::TaskId id) const { return m_ownedTasks.contains(id); }
@@ -291,7 +278,7 @@ bool DirectDownloadController::cancel(Tasks::TaskId id) {
     if (id != m_task || !m_running || m_download == nullptr) return true;
     const auto reportUnstoppable = [this]() {
         m_status = tr("正在校验并写入文件，此步骤无法取消。");
-        if (m_dialog) m_dialog->status->setText(m_status);
+        if (m_panel) m_panel->showStatus(m_status);
         if (m_activity != nullptr) m_activity->tasks()->setDetail(m_task, m_status);
     };
     if (!canCancel(id)) {
@@ -306,17 +293,12 @@ bool DirectDownloadController::cancel(Tasks::TaskId id) {
     m_recoveries.remove(id); saveRecovery();
     m_activity->tasks()->cancel(m_task);
     m_status = tr("已取消，原文件未替换；完整分段已保留，重开程序后用同一链接和目标可继续。");
-    if (m_dialog) { m_dialog->setBusy(false); m_dialog->showProgress(0, 1, m_status); }
+    if (m_panel) { m_panel->setBusy(false); m_panel->showProgress(0, 1, m_status); }
     return true;
 }
 void DirectDownloadController::shutdown() {
     if (m_stopping) return;
     m_stopping = true;
-    // 关程序时窗口还开着：finished 不会来，这里补记一次（下次打开照上次的尺寸）。
-    if (m_dialog != nullptr) {
-        QSettings().setValue(QStringLiteral("Toolbox/DownloadGeometry"),
-                             m_dialog->saveGeometry());
-    }
     const auto waiting = m_pendingPaths.keys();
     for (auto id : waiting) if (!m_recoveries.contains(id)) cancel(id);
     if (m_running && !pause(m_task)) cancel(m_task);

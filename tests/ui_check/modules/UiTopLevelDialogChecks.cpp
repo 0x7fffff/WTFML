@@ -1,7 +1,7 @@
 #include "Support.hpp"
 
 #include "ChromeDialog.hpp"
-#include "DownloadToolDialog.hpp"
+#include "DownloadToolPanel.hpp"
 #include "InstanceUpdateWizard.hpp"
 #include "OverlayHost.hpp"
 #include "TitleBar.hpp"
@@ -33,7 +33,6 @@ int UiTopLevelDialogChecks(QApplication &app) {
         {QStringLiteral("ServerConsolePage"), QStringLiteral("OverlayHost::showPage 覆盖页（ServerConsoleController）")},
         {QStringLiteral("ServerSettingsPage"), QStringLiteral("OverlayHost::showPage 覆盖页（ServerSettingsPageController）")},
         {QStringLiteral("TaskDetailPage"), QStringLiteral("OverlayHost::showPage 覆盖页（TaskDetailController）")},
-        {QStringLiteral("ToolboxPage"), QStringLiteral("OverlayHost::showPage 覆盖页（ToolboxController）")},
         {QStringLiteral("UpdateCenterPage"), QStringLiteral("OverlayHost::showPage 覆盖页（UpdateCenterController）")},
         {QStringLiteral("PresetEditorPage"), QStringLiteral("OverlayHost::showPage 覆盖页（PresetControllerEditor）")},
         {QStringLiteral("NewServerPage"), QStringLiteral("setWindowFlags(Qt::Widget) 嵌在服务器页的表单宿主里（MainWindowServer）")},
@@ -80,30 +79,37 @@ int UiTopLevelDialogChecks(QApplication &app) {
     check(adHoc.isEmpty(), "TL1 产品代码不再裸开 QDialog / QWizard / QInputDialog / QMessageBox",
           adHoc.join(QStringLiteral("；")));
 
-    // ---- TL2 高速下载窗（独立窗）：ChromeDialog 的条 ----
+    // ---- 高速下载：不再是独立窗口，而是工具箱里的一页（没有系统标题栏、没有第二层标题） ----
     {
-        DownloadToolDialog dialog;
-        auto *strip = dialog.findChild<QWidget *>(ChromeDialog::titleStripName());
-        auto *title = dialog.findChild<QLabel *>(ChromeDialog::titleLabelName());
-        check(strip != nullptr && strip->y() == 0 && strip->height() == ChromeDialog::stripHeight(),
-              "TL2 高速下载窗顶上是那条窄标题条");
-        check(title != nullptr && title->text() == QStringLiteral("高速下载"), "TL2 高速下载窗条上写着窗名",
-              title != nullptr ? title->text() : QString());
-        check(dialog.body()->isAncestorOf(dialog.url), "TL2 高速下载窗的表单排在条下面");
-        // 进度条细圆角条、百分比在右端；四个缓存操作收进「缓存」那行的「…」菜单。
-        dialog.showProgress(42, 100, QStringLiteral("下载中"));
-        check(dialog.progress->height() <= 8 && !dialog.progress->isTextVisible() && dialog.percent->text() == QStringLiteral("42%"),
-              "TL2 高速下载窗进度条 ≤8px 高、百分比在右侧标签里", QString::number(dialog.progress->height()) + QLatin1Char(' ') + dialog.percent->text());
-        QMenu *menu = dialog.cacheMenu != nullptr ? dialog.cacheMenu->findChild<QMenu *>() : nullptr;
+        QWidget host;
+        DownloadToolPanel panel(&host);
+        check(!panel.isWindow() && qobject_cast<QDialog *>(&panel) == nullptr,
+              "TL2 高速下载不是独立窗口 / 对话框，是嵌在工具箱里的一页");
+        host.resize(800, 500);
+        host.show();
+        check(panel.findChild<QWidget *>(ChromeDialog::titleStripName()) == nullptr &&
+                  panel.findChild<QLabel *>(ChromeDialog::titleLabelName()) == nullptr,
+              "TL2 高速下载页里没有自己的标题条（标题是工具页的面包屑）");
+        panel.resize(760, 400);
+        panel.show();
+        check(!panel.progressBox->isVisible(), "TL2 没有任务时进度区不画");
+        panel.showProgress(42, 100, QStringLiteral("下载中"));
+        check(panel.progressBox->isVisible() && panel.progress->height() <= 8 && !panel.progress->isTextVisible() &&
+                  panel.percent->text() == QStringLiteral("42%"),
+              "TL2 高速下载页进度条 ≤8px 高、百分比在右侧标签里",
+              QString::number(panel.progress->height()) + QLatin1Char(' ') + panel.percent->text());
         int fired = -1;
-        dialog.onCache = [&fired](int action) { fired = action; };
-        QAction *trim = menu != nullptr ? menu->findChild<QAction *>(QStringLiteral("downloadCacheAction1")) : nullptr;
-        if (trim != nullptr) trim->trigger();
-        check(menu != nullptr && menu->actions().size() == 5 && fired == 1,
-              "TL2 高速下载窗缓存操作收在「…」菜单里（4 项 + 分隔），点了照走 onCache");
-        dialog.show();
-        if (auto *close = dialog.findChild<QAbstractButton *>(ChromeDialog::closeButtonName())) close->click();
-        check(!dialog.isVisible(), "TL2 高速下载窗点 × 就收起");
+        panel.onCache = [&fired](int action) { fired = action; };
+        auto *trim = panel.findChild<QPushButton *>(QStringLiteral("downloadCacheAction1"));
+        if (trim != nullptr) trim->click();
+        check(trim != nullptr && panel.cacheButtons.size() == 3 && fired == 1,
+              "TL2 高速下载页三个缓存操作是直接的按钮（按上限整理 / 清理过期 / 清空），点了照走 onCache");
+        // 窄于 640：保存目录与文件名上下叠放。
+        panel.resize(520, 400);
+        QApplication::processEvents();
+        check(panel.name->mapTo(&panel, QPoint(0, 0)).y() > panel.directory->mapTo(&panel, QPoint(0, 0)).y() &&
+                  panel.name->mapTo(&panel, QPoint(0, 0)).x() == panel.directory->mapTo(&panel, QPoint(0, 0)).x(),
+              "TL2 高速下载页窄于 640 时保存目录与文件名上下叠放");
     }
 
     // ---- TL2 实例更新向导（QWizard）：自己装的那条 + 内容整体下移 ----

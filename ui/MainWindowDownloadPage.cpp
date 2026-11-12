@@ -13,7 +13,6 @@
 #include "ThemeAdvancedEditor.hpp"
 #include "ThemeBackground.hpp"
 #include "TitleBar.hpp"
-#include "ToolboxPage.hpp"  // 工具箱那张表的键与名字（底栏面板那六颗按钮按 tools() 摆）
 #include "VersionIcons.hpp"
 #include "VersionTreeDelegate.hpp"
 #include "WindowChrome.hpp"
@@ -192,7 +191,7 @@ QWidget *MainWindowUI::setupDownloadPage() {
         // chip 只是它的另一张脸：点 chip = 设列表当前行；列表当前行变了 = 亮对应那颗 chip。
         // 「← 返回实例设置」跟着搬到这一排最前面（左栏收起后它得有地方露面）。
         download.left.widget->setVisible(false);
-        download.right.title->setFont(Theme::textFont(download.right.title->font(), Theme::TextRole::Display));
+        Theme::markDisplay(download.right.title, Theme::textFont(download.right.title->font(), Theme::TextRole::Display));
         auto *chipRow = new QWidget(download.right.widget);
         chipRow->setObjectName(downloadCategoryChipsName());
         {

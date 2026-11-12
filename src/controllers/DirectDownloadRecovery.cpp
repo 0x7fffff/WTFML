@@ -3,7 +3,7 @@
 #include "download/ResumableDownload.hpp"
 #include "download/DownloadCheckpoint.hpp"
 #include "auth/TokenStore.hpp"
-#include "DownloadToolDialog.hpp"
+#include "DownloadToolPanel.hpp"
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -119,7 +119,7 @@ bool DirectDownloadController::pause(Tasks::TaskId id) {
     m_activity->tasks()->setRecovery(id, m_recoveries.value(id).token, true);
     m_activity->tasks()->setDetail(id, tr("已暂停；完整分段保留。继续时重新取得地址并校验缓存，未完成分段可能重下。"));
     m_status = tr("已暂停，可在任务中心继续下载。");
-    if (m_dialog) { m_dialog->setBusy(false); m_dialog->status->setText(m_status); }
+    if (m_panel) { m_panel->setBusy(false); m_panel->showStatus(m_status); }
     m_activity->releaseLane(id);
     return true;
 }

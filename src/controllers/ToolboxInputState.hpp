@@ -21,8 +21,11 @@ inline QString key() { return QStringLiteral("Toolbox/RecentInputsV1"); }
 inline bool input(QWidget *widget) {
     if (widget->objectName().isEmpty() || widget->objectName().startsWith(QStringLiteral("qt_"))
         || widget->objectName() == QStringLiteral("toolboxRememberInputs")) return false;
-    for (auto *parent = widget->parentWidget(); parent; parent = parent->parentWidget())
+    for (auto *parent = widget->parentWidget(); parent; parent = parent->parentWidget()) {
         if (qobject_cast<QTableWidget *>(parent)) return false; // Table rows have a separate stable representation.
+        // 高速下载页的下载地址可能带签名凭据，保存目录 / 缓存上限由 DirectDownloadController 自己存：都不进「记住输入」。
+        if (parent->objectName() == QStringLiteral("downloadToolPanel")) return false;
+    }
     if (auto *edit = qobject_cast<QLineEdit *>(widget)) return !edit->isReadOnly() && edit->echoMode() == QLineEdit::Normal;
     if (auto *edit = qobject_cast<QPlainTextEdit *>(widget)) return !edit->isReadOnly();
     return qobject_cast<QComboBox *>(widget) || qobject_cast<QSpinBox *>(widget)

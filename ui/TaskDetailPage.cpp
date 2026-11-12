@@ -93,7 +93,7 @@ TaskDetailPage::TaskDetailPage(QWidget *parent) : QDialog(parent) {
         m_stateLabel->setFont(font);
     }
     stateRow->addWidget(m_stateLabel, 0, Qt::AlignVCenter);
-    m_timeLabel = makeMutedLabel(this, MainWindowUI::taskDetailTimeName(), 12);
+    m_timeLabel = makeMutedLabel(this, MainWindowUI::taskDetailTimeName());
     stateRow->addWidget(m_timeLabel, 0, Qt::AlignVCenter);
     stateRow->addStretch(1);
     m_box->addLayout(stateRow);
@@ -101,11 +101,7 @@ TaskDetailPage::TaskDetailPage(QWidget *parent) : QDialog(parent) {
     // ---------- 标题（手写体大标题）----------
     m_titleLabel = new ElidedLabel(this);
     m_titleLabel->setObjectName(MainWindowUI::taskDetailTitleName());
-    {
-        QFont titleFont = Theme::handFont(m_titleLabel->font(), Theme::HandFont::Kai);
-        titleFont.setPixelSize(30);
-        m_titleLabel->setFont(titleFont);
-    }
+    Theme::markDisplay(m_titleLabel, Theme::textFont(m_titleLabel->font(), Theme::TextRole::Display));
     m_box->addWidget(m_titleLabel);
 
     // ---------- 一行小字（"已下载 12 / 40  文件名"）----------
@@ -124,12 +120,12 @@ TaskDetailPage::TaskDetailPage(QWidget *parent) : QDialog(parent) {
     m_bar->setRange(0, 100);
     m_bar->setFixedHeight(MainWindowUI::taskCenterPanelBarHeight());
     barRow->addWidget(m_bar, 1);
-    auto *percent = makeMutedLabel(this, MainWindowUI::taskDetailPercentName(), 12);
+    auto *percent = makeMutedLabel(this, MainWindowUI::taskDetailPercentName());
     barRow->addWidget(percent, 0, Qt::AlignVCenter);
     m_box->addLayout(barRow);
 
     // ---------- 字节那一句（按字节记账的任务才有）----------
-    m_bytesLabel = makeMutedLabel(this, MainWindowUI::taskDetailBytesName(), 12);
+    m_bytesLabel = makeMutedLabel(this, MainWindowUI::taskDetailBytesName());
     m_box->addWidget(m_bytesLabel);
 
     // ---------- 「到了哪一步」：步骤清单 ----------

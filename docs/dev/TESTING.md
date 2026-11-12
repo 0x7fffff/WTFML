@@ -8,7 +8,7 @@
 
 ```powershell
 ./tools/test.ps1                                   # 按改动选模块：比较 origin/main...HEAD，并合并未提交/未跟踪文件
-./tools/test.ps1 -Suite quick                      # 固定的快速专项（15 项）
+./tools/test.ps1 -Suite quick                      # 固定的快速专项（16 项）
 ./tools/test.ps1 -Suite full                       # 全部非 visual 测试（改了共享代码、发版前用）
 ./tools/test.ps1 -Suite full -ListOnly             # 只列测试，不构建、不执行
 ./tools/test.ps1 -Suite quick -NoBuild             # 用现有二进制跑，不保证对应最新源码
@@ -34,7 +34,7 @@ exe 在 `build/verification-mingw13/WTFMinecraftLauncher.exe`，改完代码重�
 | 套件 | 选到的测试 |
 | --- | --- |
 | `affected`（默认） | `tools/test-impact.ps1` 算出的模块（见「按改动选择模块」），排除 `visual` 标签；只改文档则跳过构建和测试 |
-| `quick` | `test-runner`、`test-modules`、`java-manage`、`mod-action-panel`、`workspace`、`activity-selection`、`theme`、`ui-refresh`、`install-layout`、`lifecycle`、`toolbox-polish`、`armor-trim`、`core-agent`、`ui-agent`、`main-window-agent` |
+| `quick` | `test-runner`、`test-modules`、`java-manage`、`mod-action-panel`、`workspace`、`activity-selection`、`theme`、`ui-refresh`、`install-layout`、`lifecycle`、`toolbox-polish`、`toolbox-layout`、`armor-trim`、`core-agent`、`ui-agent`、`main-window-agent` |
 | `full` | 全部非 `visual` 测试 |
 | `core` | `core` 标签：核心基线 + 12 个核心分片 + 引导检查 |
 | `window` | `main-window`、`main-window-agent`、`window-chrome`（真 windows 平台插件，窗口摆屏外不激活：WM_NCHITTEST、系统标题栏、原生子窗口、隐藏再显示） |
@@ -177,7 +177,7 @@ CTest 的两种"排除 visual"选到的数量不同：`ctest -E visual` 按名�
 
 - `tests/core_modules/`：每个用例函数一个 `.cpp`（现有 136 个 `.cpp`，其中 120 个 `*Tests.cpp`），按领域组织成 12 个独立可执行程序：`verify_downloads`、`verify_install`、`verify_instances`、`verify_java`、`verify_accounts`、`verify_resources`、`verify_launch`、`verify_servers`、`verify_activity`、`verify_presets`、`verify_toolbox`、`verify_agent`，对应 CTest 的 `wtfml.core-<域>`。`verify_baseline`（`wtfml.core`）保留原 main 里的基础断言，这些入口的并集覆盖旧核心集合。`verify` 是兼容手动模式，CI 只检查它能链接和启动（`wtfml.core-bootstrap`）。
 - 整份 `verify` 与分片的数量不能相加：每个分片程序各自再跑一遍模块级引导断言，所以核心总量以整份 `verify` 或 ctest 为准（2026-11-05：整份 6457/6457，分片明细见流水）。
-- `tests/ui_check/modules/`（82 个 `.cpp`）：导航、主题、任务、配置编辑、内容页、账号、日志等各自一个编译单元。历史顺序测试仍由 `ui_check` 编排，保留共享窗口和执行顺序；快速专项（`ui-refresh`、`install-layout`、`toolbox-polish`、`armor-trim`、`lifecycle`、`resource-packs`、`theme`、`ui-agent`）独立构建和注册。`ui-bootstrap` 只检查完整驱动能链接、启动和读取图标。
+- `tests/ui_check/modules/`（88 个 `.cpp`）：导航、主题、任务、配置编辑、内容页、账号、日志等各自一个编译单元。历史顺序测试仍由 `ui_check` 编排，保留共享窗口和执行顺序；快速专项（`ui-refresh`、`install-layout`、`toolbox-polish`、`armor-trim`、`lifecycle`、`resource-packs`、`theme`、`ui-agent`）独立构建和注册。`ui-bootstrap` 只检查完整驱动能链接、启动和读取图标。
 - `tests/mw_check/modules/`（67 个 `.cpp`）：原命名函数、历史界面接线段和快速专项各自独立；下载、预设、更新、Java、模组等专项各有入口，不链接完整主窗口测试驱动。
 - `mw_check` 的夹具头分三层：`SupportCore.hpp`（断言与不碰界面的小工具）、`SupportFakes.hpp`（假外网与预置皮肤夹具）、`Support.hpp`（真窗口那套 UI 夹具与各节入口声明），`Support.cpp` 放共用的非模板实现。跨段变量显式传参，统计计数共享，历史测试顺序不变。三个原始入口保留编排和手动探针。
 - 生产实现依次复用 `wtfml_core_runtime`、`wtfml_ui_runtime`、`wtfml_mw_runtime`，测试程序之间相同实现和 Qt 元对象不重复编译；图标资源在 UI 入口显式初始化。

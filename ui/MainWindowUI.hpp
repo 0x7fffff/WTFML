@@ -1816,7 +1816,7 @@ public:
     static QString runStateButtonName() { return QStringLiteral("runStateButton"); }
     static QString accountButtonName() { return QStringLiteral("accountButton"); }
     static QString toolboxButtonName() { return QStringLiteral("toolboxButton"); }
-    static QString toolboxPanelName() { return QStringLiteral("toolboxPanel"); }
+    static QString toolboxTabName() { return QStringLiteral("toolboxTab"); }
 
     // ---------- 上拉面板里"一行长什么样" ----------
     //
@@ -1911,15 +1911,18 @@ public:
         m_taskCenterRowActivated = handler;
     }
 
-    /// 底栏那把扳手弹出来的面板上，**某一颗工具按钮被点了**要告诉谁。
-    ///
-    /// 参数是那件工具的键（`ToolboxPage::toolKey()`）。**这一层只管发这一句** —— 面板按下
-    /// 哪一件、页面开在哪一颗 chip 上、算什么东西，全在 `ToolboxController` 那一边（用户
-    /// 原话：「不要再往 mainwindow 里堆超级屎山了，用 controller 等等方式合理
-    /// 分散功能」）。没装 handler 的话那五颗按钮点了什么都不发生（而且不会崩）。
+    /// 工具箱页的钥匙：导航轨底部「工具箱」被点时，主窗口先切到工具箱选项卡，再把这一句交给
+    /// handler（`ToolboxController::open()`）。参数是工具的键（`ToolboxPage::toolKey()`），
+    /// 空串 = 只确保页已建好、停在上次那一层，`"catalog"` = 回目录。**这一层只管发这一句** ——
+    /// 页怎么摆、算什么，全在 `ToolboxController` 那一边。没装 handler 时选项卡是空的。
     void setToolboxToolHandler(const std::function<void(const QString &key)> &handler) {
         m_toolboxToolHandler = handler;
     }
+    /// 切到工具箱选项卡并交给 handler（@p key 见上；空串 = 停在上次那一层，
+    /// 已经在工具箱页上再点一次 = 回目录）。导航轨底部那颗按钮、任务中心等入口都走它。
+    void openToolboxTab(const QString &key = QString());
+    /// 工具箱选项卡的页面容器（`ToolboxController` 把页挂在它的布局里）。
+    QWidget *toolboxTab() const { return tabWidget != nullptr ? tabWidget->widget(toolboxTabIndex()) : nullptr; }
 
     /// 没装的话行尾什么都不长。
     void setTaskCenterRowActionHandler(const TaskCenter::RowActionHandler &handler) {
@@ -3317,6 +3320,8 @@ public:
     static int settingsTabIndex() { return 3; }
     /// 「智能体」页的下标（第五颗，放最后；启动仍默认主页）。
     static int agentTabIndex() { return 4; }
+    /// 「工具箱」页的下标（第六个选项卡，**不在顶上那条导航里**，入口是导航轨底部那颗按钮）。
+    static int toolboxTabIndex() { return 5; }
     /// 当前显示的选项卡是不是主页（即"启动界面"）。
     bool isHomeTabCurrent() const;
 
@@ -3712,9 +3717,9 @@ public:
     // NOTE: 产品代码没有取过底栏本身（只取它里面的几个标签/进度条），只有验证工程
     // 用它来量底栏的几何。
     QFrame *getBottomBar() const { return bottomBar; }
-    /// 底栏那几颗按钮（左：实例运行状态 · 中：任务摘要 · 右：工具箱）。点它们会**向上**弹出
-    /// 一块面板（左那块列在跑的实例、中间那块是任务中心、右那块是工具箱菜单），内容由
-    /// MainWindow 灌进来（见 setBottomBarPanelContent()）。
+    /// 底栏那几颗按钮（运行状态 · 任务摘要 · 工具箱）。运行状态与任务摘要点开向上弹一块面板
+    /// （列在跑的实例 / 任务中心），内容由 MainWindow 灌进来（见 setBottomBarPanelContent()）；
+    /// 工具箱那颗不弹面板，直接切到工具箱选项卡。
     QPushButton *getRunStateButton() const { return runStateButton; }
     /// 底栏右头那一格（头像 + 用户名 + 「⌃」）。★ 它**不摆出来**
     /// （`setupBottomBar()` 里 `hide()`）：账号身份与入口在导航轨底部那一格，
@@ -3781,7 +3786,7 @@ private:
         None,       ///< 没落在任何一颗按钮上
         Instances,  ///< 左下那格：列正在跑的实例（`BottomBarPanel`）
         Tasks,      ///< 中间那格：任务中心（`TaskCenterPanel`）
-        Tools,      ///< 右下那格：工具箱轻量菜单
+        Tools,      ///< 右下那格：工具箱（点它直接切到工具箱选项卡）
     };
     struct BottomBarAnchor {
         QPushButton *button = nullptr;
@@ -3796,13 +3801,9 @@ private:
     /// 两块 `BottomBarPanel` 都叫 `bottomBarPanel` 那一个名字，任务中心那块是
     /// 另一个类、另一个名字，两者不在同一个 findChild 里。
     void toggleBottomBarPanel(const BottomBarAnchor &anchor);
-    void toggleToolboxPanel();
-    /// 收掉工具箱那一块上拉面板（没开着就什么都不做）。
-    ///
-    /// 两条路都走它：「再点一次那颗扳手 = 收回」和「面板里点了某一件工具 = 先收掉再把
-    /// 那一件交给 handler」。面板是 `WA_DeleteOnClose` 的（**不存指针，一律现找**），
-    /// 所以"收"这件事只有这一处说得出口，别在别处再写一遍 `findChild`。
-    void closeToolboxPanel();
+    /// 切选项卡的公共那一段（顶上导航与工具箱按钮共用）：守卫 → 收任务中心 →
+    /// 翻页 / 点的就是当前这一颗时收覆盖层。返回 -1 = 被守卫拦下；否则返回"是不是点的当前这一颗"。
+    int applyTabRequest(int index);
     /// 把 @p anchor 那块面板弹出来。**"收"的那一半在 toggleBottomBarPanel()**：
     /// 这个函数只负责开，不管现在开着什么。
     void openBottomBarPanel(const BottomBarAnchor &anchor);
@@ -4070,7 +4071,7 @@ private:
     TaskCenter::ClearFinishedHandler m_taskCenterClearHandler;
     /// 「任务中心里某一行被点了」该告诉谁（见 setTaskCenterRowActivatedHandler()）。
     std::function<void(const QString &key)> m_taskCenterRowActivated;
-    /// 「工具箱面板里某一颗工具按钮被点了」该告诉谁（见 setToolboxToolHandler()）。
+    /// 工具箱选项卡该告诉谁（见 setToolboxToolHandler()）。
     std::function<void(const QString &key)> m_toolboxToolHandler;
     /// 「那一行行尾那颗小按钮被点了」该告诉谁（见 setTaskCenterRowActionHandler()）。
     TaskCenter::RowActionHandler m_taskCenterRowAction;

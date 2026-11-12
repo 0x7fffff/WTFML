@@ -21,7 +21,7 @@
 #include "controllers/DirectDownloadController.hpp"
 #include "ToolboxPage.hpp"
 #include "TaskCenterPanel.hpp"
-#include "DownloadToolDialog.hpp"
+#include "DownloadToolPanel.hpp"
 #include "MainWindowUI.hpp"
 #include <QTemporaryDir>
 #include <QElapsedTimer>
@@ -190,7 +190,7 @@ int runToolFeatureChecks() {
     });
     ActivityCenterController downloads;
     downloads.tasks()->setHistoryPath(root.filePath(QStringLiteral("download-history.json")));
-    DirectDownloadController tool(&downloads, &anchor);
+    DirectDownloadController tool(&downloads, nullptr);
     const auto request = [&](const QString &name) {
         DirectDownloadRequest parsed; QString problem;
         expect(DirectDownloadRequest::parse(QStringLiteral("http://127.0.0.1:%1/%2").arg(server.serverPort()).arg(name),
@@ -216,7 +216,7 @@ int runToolFeatureChecks() {
         "cancelling waiting download never contacts server or creates target");
     auto *shortLived = new ActivityCenterController;
     shortLived->tasks()->setHistoryPath(root.filePath(QStringLiteral("short-history.json")));
-    DirectDownloadController survivor(shortLived, &anchor);
+    DirectDownloadController survivor(shortLived, nullptr);
     expect(survivor.start(request(QStringLiteral("owner-loss")), false, &error), "active download starts before ledger destruction");
     const auto survivorId = survivor.taskId(); delete shortLived;
     survivor.shutdown(); survivor.shutdown();
@@ -388,7 +388,7 @@ int runToolFeatureChecks() {
             page.showTool(ToolboxPage::Tool::Beacon); QCoreApplication::processEvents();
             expect(page.grab().save(QDir(previews).filePath(QStringLiteral("beacon-preview.png"))), "save actual beacon widget preview");
             page.hide();
-            DownloadToolDialog cachePreview;
+            DownloadToolPanel cachePreview;
             cachePreview.resize(660, 500); cachePreview.show(); QCoreApplication::processEvents();
             expect(cachePreview.grab().save(QDir(previews).filePath(QStringLiteral("download-cache-preview.png"))), "save actual download cache controls preview");
             cachePreview.hide();

@@ -4,7 +4,7 @@
  * 「高速下载」不是纯算术，它自己一份 `DirectDownloadController`）。
  * @note 要求：「不要再往 mainwindow 里堆超级屎山了，用 controller 等等方式
  * 合理分散功能」。所以这一件**一行逻辑都不往 MainWindow 放**：那边只有三件事 ——
- * 建它、把底栏面板那六颗按钮接到 `open()` 上、析构时 `shutdown()`。
+ * 建它、把导航轨底部的「工具箱」接到 `open()` 上、析构时 `shutdown()`。
  *
  * 【这个 controller 管什么、不管什么】
  *
@@ -59,20 +59,20 @@ public:
     struct Host {
         /// 写一行日志（这一层自己只记"问了什么、算出了什么"这种一行）。
         std::function<void(const QString &)> log;
-        /// 「覆盖层被占着」时静默收掉再继续（`MainWindow::runWhenOverlayFree()` —— 唯一出处）。
-        std::function<void(std::function<void()>)> openWhenOverlayFree;
         ActivityCenterController *activity = nullptr;
     };
 
-    ToolboxController(OverlayHost *overlay, QWidget *pageParent, Host host,
+    /// @param pageHost 工具箱选项卡的页面容器（页首次打开时挂进它的布局）。
+    ToolboxController(OverlayHost *overlay, QWidget *pageHost, Host host,
                       QObject *parent = nullptr);
     ~ToolboxController() override;
 
     /**
-     * @brief 打开工具箱那一页，并切到 @p toolKey 那一件（`ToolboxPage::toolKey()` 认人）。
+     * @brief 工具箱选项卡露出来之后摆哪一层：@p toolKey 是 `ToolboxPage::toolKey()` 的键 →
+     * 进那件工具；`"catalog"` → 回目录；空串 → 只确保页已建好，停在上次那一层。
      *
-     * 认不出来的键（不该发生）什么都不做。覆盖层上正压着别的页时**静默收掉再开**
-     * （走 `Host::openWhenOverlayFree`，和全仓"再开一页不再问"那一条同一个路数）。
+     * 切选项卡归 `MainWindowUI::openToolboxTab()`（它再调到这里）；认不出来的键什么都不做。
+     * 页只在首次打开时创建，避免未使用的控件参与主窗口首次布局。
      */
     void open(const QString &toolKey);
 
@@ -126,7 +126,7 @@ private:
     int dimensionAt(int index) const;
 
     OverlayHost *m_overlay = nullptr;
-    QWidget *m_pageParent = nullptr;
+    QWidget *m_pageHost = nullptr;
     Host m_host;
     ToolboxPage *m_page = nullptr;
     QImage m_playerSkin;

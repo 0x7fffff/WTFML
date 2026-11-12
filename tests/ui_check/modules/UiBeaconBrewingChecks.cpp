@@ -12,18 +12,14 @@ int UiBeaconBrewingChecks() {
               "★★ U39 工具箱那张表在 U39 之后又加了两件（这里只认「信标 / 酿造确实在表里」）",
               QString::number(ToolboxPage::tools().size()));
 
-        int chips = 0;
+        int cells = 0;
         for (ToolboxPage::Tool tool : ToolboxPage::tools()) {
-            if (tool == ToolboxPage::Tool::Download) {
-                continue;  // 高速下载不出 chip（它开独立小窗）
-            }
-            if (page.findChild<QPushButton *>(ToolboxPage::toolChipName(tool)) != nullptr) {
-                ++chips;
+            if (page.findChild<QPushButton *>(ToolboxPage::toolCellName(tool)) != nullptr) {
+                ++cells;
             }
         }
-        check(chips == 9,
-              "★ U39 chip 的颗数 = 表里除高速下载之外的九件",
-              QString::number(chips));
+        check(cells == 10, "★ U39 目录页有十格（每件工具一格，高速下载也在里面）",
+              QString::number(cells));
 
         auto *beaconFrom = page.findChild<QSpinBox *>(ToolboxPage::beaconFromSpinName());
         auto *beaconLevel = page.findChild<QSpinBox *>(ToolboxPage::beaconLevelSpinName());

@@ -153,8 +153,8 @@ ${REPO_ROOT}/ui/InstanceSettingsSignature.cpp
                                 ${REPO_ROOT}/ui/TaskProgressBar.cpp
                                 # 完整性检查报告页：MainWindowUI.cpp 用到它那几个名字。
                                 ${REPO_ROOT}/ui/IntegrityReportPage.cpp
-                                # 工具箱那一页：底栏那把扳手弹出来的面板上那五颗
-                                # 按钮的名字与键都从 ToolboxPage 那张表来，少了这一个文件会在
+                                # 工具箱那一页：MainWindowUI 不再直接用它，但验证工程里
+                                # 工具箱各套件 new 它，少了这一个文件会在
                                 # 链接那一步报一串 `undefined reference to ToolboxPage::…`。
                                 ${REPO_ROOT}/ui/ToolboxPage.cpp
                                 # 更新中心那一页：U33 直接 new 它。
@@ -252,6 +252,7 @@ endfunction()
 add_ui_module(ui_check_install_layout modules/UiInstallLayoutCheck.cpp UiInstallLayoutCheck)
 add_ui_module(ui_check_agent modules/UiAgentCheck.cpp UiAgentCheck)
 add_ui_module(ui_check_toolbox_polish modules/UiToolboxPolishCheck.cpp UiToolboxPolishCheck)
+add_ui_module(ui_check_toolbox_layout modules/UiToolboxLayoutCheck.cpp UiToolboxLayoutCheck)
 add_ui_module(ui_check_resource_packs modules/UiResourcePacksCheck.cpp UiResourcePacksCheck)
 add_ui_module(ui_check_lifecycle modules/UiLifecycleCheck.cpp UiLifecycleCheck)
 add_ui_module(ui_check_ui_refresh modules/UiUiRefreshCheck.cpp UiUiRefreshCheck)
@@ -285,6 +286,12 @@ set_tests_properties(wtfml.install-layout PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
 )
 wtfml_add_test(NAME wtfml.toolbox-polish COMMAND ui_check_toolbox_polish)
+wtfml_add_test(NAME wtfml.toolbox-layout COMMAND ui_check_toolbox_layout)
+set_tests_properties(wtfml.toolbox-layout PROPERTIES
+    LABELS "ui;toolbox"
+    TIMEOUT 120
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
 wtfml_add_test(NAME wtfml.armor-trim COMMAND ui_check_armor_trim)
 set_tests_properties(wtfml.armor-trim PROPERTIES
     LABELS "ui;toolbox"

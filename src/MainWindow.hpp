@@ -2747,7 +2747,7 @@ private:
     LauncherPreferencesController *m_launcherPreferences = nullptr;
     CrashReportController *m_crashReports = nullptr;
     IntegrityController *m_integrityController = nullptr;
-    /// 工具箱那五件小工具（底栏那把扳手）。页面、算术、后台线程全在它那儿。
+    /// 工具箱那十件小工具（第六个选项卡，入口是导航轨底部的「工具箱」）。页面、算术、后台线程全在它那儿。
     ToolboxController *m_toolboxController = nullptr;
     BackupController *m_backupController = nullptr;
     ServerPingController *m_serverPingController = nullptr;

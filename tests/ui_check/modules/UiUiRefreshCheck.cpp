@@ -107,21 +107,19 @@ int UiUiRefreshCheck(QApplication &app) {
                    button->parentWidget() != nullptr &&
                    button->width() * 10 >= button->parentWidget()->width() * 8,
                "toolbox trigger fills the rail footer width like a nav item");
+        // 点「工具箱」直接切到工具箱选项卡并高亮，没有弹出框；已经在工具箱页上再点 = 回目录（交给 handler）。
+        QStringList toolboxKeys;
+        ui.setToolboxToolHandler([&toolboxKeys](const QString &key) { toolboxKeys << key; });
+        expect(!button->isChecked(), "toolbox trigger idle before opening");
         button->click();
-        auto *panel = preview.findChild<QFrame *>(MainWindowUI::toolboxPanelName());
-        expect(panel && panel->isVisible(), "toolbox opens on first click");
-        if (panel) {
-            const QPoint global = button->mapToGlobal(button->rect().center());
-            QMouseEvent press(QEvent::MouseButtonPress, QPointF(panel->mapFromGlobal(global)), QPointF(global),
-                              Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
-            QApplication::sendEvent(panel, &press);
-            expect(!panel->isVisible(), "popup forwards same-anchor press to close");
-        }
+        expect(ui.getTabWidget()->currentIndex() == MainWindowUI::toolboxTabIndex() && button->isChecked() &&
+                   toolboxKeys == QStringList{QString()},
+               "toolbox button switches straight to the toolbox tab, no popup");
         button->click();
-        panel = preview.findChild<QFrame *>(MainWindowUI::toolboxPanelName());
-        expect(panel && panel->isVisible(), "toolbox reopens before deferred deletion");
-        button->click();
-        expect(!panel || !panel->isVisible(), "toolbox closes on next button click");
+        expect(toolboxKeys == QStringList({QString(), QStringLiteral("catalog")}),
+               "second click on the toolbox tab goes back to the catalog");
+        ui.getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
+        expect(!button->isChecked(), "toolbox trigger highlight follows the current tab");
         AccountSkinDialog account;
         account.setStatusText(QStringLiteral("当前账号：Player（离线登录）"));
         account.setAccounts({{QStringLiteral("offline-player"), QStringLiteral("Player"), {}, true, true},

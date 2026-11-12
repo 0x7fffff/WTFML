@@ -1,11 +1,14 @@
 /**
  * @file ToolboxPage.cpp
- * @brief 工具箱那一页的实现（形状、"为什么五件挤一页"、第六件为什么单开窗，见头文件）。
+ * @brief 工具箱页的实现（目录页 → 工具页两层的形状见头文件）。
  */
 
 #include "ToolboxPage.hpp"
 #include "ArmorTrimPreview.hpp"
+#include "DownloadToolPanel.hpp"
+#include "GlassPopover.hpp"
 
+#include <QApplication>
 #include <QCheckBox>
 #include <QClipboard>
 #include <QComboBox>
@@ -16,6 +19,7 @@
 #include <QFont>
 #include <QFontDatabase>
 #include <QFrame>
+#include <QGraphicsOpacityEffect>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -29,52 +33,42 @@
 #include <QPainterPath>
 #include <QPixmap>
 #include <QPlainTextEdit>
+#include <QPointer>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSpinBox>
+#include <QKeyEvent>
+#include <QSignalBlocker>
 #include <QStackedWidget>
-#include <QTableWidget>
+#include <QStyledItemDelegate>
+#include <QTimer>
 #include <QVBoxLayout>
+#include <functional>
 
 #include "MainWindowUI.hpp"
 #include "Theme.hpp"
 
 namespace {
 
-/// 十件工具的那张表（**键 / 中文名 / 面板短名 / 一句话说明的唯一出处**）。
-/// NOTE: `Download` 只在这张表里出现 —— chip 那排不摆它（构造里从 `m_tools` 摘掉），
-/// 底栏那块面板按 `panelTools()` 另排一张（两列五排，见 MainWindowUI.cpp 那头）。
+/// 十件工具的那张表（**键 / 名字 / 目录里那一句的唯一出处**，次序 = 目录页与切换浮层的次序）。
 struct ToolInfo {
     ToolboxPage::Tool tool;
     const char *key;
     const char *name;
-    /// 底栏那块面板上写的短名（面板按「不要搜索框、两列五排」排）。
-    /// **只归面板用**：页面标题和 chip 仍取 `name`（完整名字）。
-    const char *shortName;
     const char *summary;
 };
 
 const ToolInfo kToolInfos[] = {
-    {ToolboxPage::Tool::Download, "download", "高速下载", "高速下载",
-     "HTTP/HTTPS 直链下载，复用下载队列并在任务中心跟踪。"},
-    {ToolboxPage::Tool::Anvil, "anvil", "附魔顺序助手", "附魔助手",
-     "照 Java 版铁砧那套惩罚机制，算一条最省等级的顺序。"},
-    {ToolboxPage::Tool::Text, "text", "文本生成器", "彩色文本",
-     "§ 文本、JSON 组件与 tellraw 命令互相转换。"},
-    {ToolboxPage::Tool::Coord, "coord", "坐标换算", "坐标换算",
-     "主世界与下界互转，也认 F3+C 的 tp 命令。"},
-    {ToolboxPage::Tool::Server, "server", "服务器在线检测", "延迟测试",
-     "看 MOTD、版本、在线人数和延迟。"},
-    {ToolboxPage::Tool::Hash, "hash", "文件哈希校验", "SHA校验",
-     "算文件的 SHA-256 / SHA-1 / MD5，可对照已知值。"},
-    {ToolboxPage::Tool::Beacon, "beacon", "信标计算", "信标计算",
-     "信标几级要多少块、范围多大、有哪些效果。"},
-    {ToolboxPage::Tool::Brewing, "brewing", "酿造助手", "酿造助手",
-     "选一种药水，列出从水瓶起每一步加什么。"},
-    {ToolboxPage::Tool::Banner, "banner", "旗帜设计", "旗帜设计",
-     "一层层叠图案，算织布机步骤和染料用量。"},
-    {ToolboxPage::Tool::Trim, "trim", "纹饰搭配", "纹饰搭配",
-     "选材质、图案和材料，算锻造台怎么摆。"},
+    {ToolboxPage::Tool::Anvil, "anvil", "附魔助手", "算最省等级的合并顺序"},
+    {ToolboxPage::Tool::Coord, "coord", "坐标换算", "主世界与下界坐标互换"},
+    {ToolboxPage::Tool::Beacon, "beacon", "信标计算", "底座方块与效果范围"},
+    {ToolboxPage::Tool::Brewing, "brewing", "酿造助手", "药水的酿造步骤"},
+    {ToolboxPage::Tool::Text, "text", "彩色文本", "§ 文本与 JSON 互转"},
+    {ToolboxPage::Tool::Banner, "banner", "旗帜设计", "叠图案，算织布机步骤"},
+    {ToolboxPage::Tool::Trim, "trim", "纹饰搭配", "盔甲纹饰与材料搭配"},
+    {ToolboxPage::Tool::Download, "download", "高速下载", "直链下载，可断点续传"},
+    {ToolboxPage::Tool::Server, "server", "延迟测试", "服务器状态与延迟"},
+    {ToolboxPage::Tool::Hash, "hash", "SHA 校验", "计算并核对文件哈希"},
 };
 
 const ToolInfo *infoOf(ToolboxPage::Tool tool) {
@@ -87,7 +81,7 @@ const ToolInfo *infoOf(ToolboxPage::Tool tool) {
 }
 
 // ---------------------------------------------------------------------------
-// 底栏面板上的那十枚线稿图标
+// 目录与切换浮层里的十枚线稿图标
 // ---------------------------------------------------------------------------
 //
 // 现画，不落盘：48×48 的画布按 2 倍像素密度交出去（逻辑 24×24），线宽 3.4 在这个
@@ -233,28 +227,6 @@ QIcon drawToolIcon(ToolboxPage::Tool tool, const QColor &ink) {
     return QIcon(pixmap);
 }
 
-/// 标题用带提手和锁扣的工具箱。
-QIcon drawToolboxIcon(const QColor &ink) {
-    QPixmap pixmap(48, 48);
-    pixmap.fill(Qt::transparent);
-    QPainter painter(&pixmap);
-    painter.setRenderHint(QPainter::Antialiasing, true);
-    QPen pen(ink, 3.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-    painter.setPen(pen);
-    painter.setBrush(Qt::NoBrush);
-    painter.drawRoundedRect(QRectF(7, 17, 34, 24), 3, 3);
-    QPainterPath handle;
-    handle.moveTo(17, 17); handle.lineTo(17, 10);
-    handle.lineTo(31, 10); handle.lineTo(31, 17);
-    painter.drawPath(handle);
-    painter.drawLine(QPointF(7, 27), QPointF(20, 27));
-    painter.drawLine(QPointF(28, 27), QPointF(41, 27));
-    painter.drawRoundedRect(QRectF(20, 24, 8, 7), 1, 1);
-    painter.end();
-    pixmap.setDevicePixelRatio(2.0);
-    return QIcon(pixmap);
-}
-
 /// 一行小字（次要信息）。挂 objectName 是为了验证工程找得到它。
 QLabel *makeMutedLabel(QWidget *parent, const QString &objectName = QString()) {
     auto *label = new QLabel(parent);
@@ -265,14 +237,6 @@ QLabel *makeMutedLabel(QWidget *parent, const QString &objectName = QString()) {
                        Theme::secondaryTextRoleValue());
     label->setWordWrap(true);
     return label;
-}
-
-/// 隔开两块内容的一条空档（和别的页同一种做法：一条没有形状的 8px）。
-QFrame *makeSeparator(QWidget *parent) {
-    auto *line = new QFrame(parent);
-    line->setFrameShape(QFrame::NoFrame);
-    line->setFixedHeight(8);
-    return line;
 }
 
 /// 一张**小节卡片**（`wtfmlSurface="section"` 那一档面：浅一档的底 + 圆角、不画边）。
@@ -331,28 +295,6 @@ QPlainTextEdit *makeOutputBox(QFrame *card, const QString &objectName = QString(
     return box;
 }
 
-/// 每一片顶上那两行：大字标题 + 一句话说明（五片共用，免得五份各写一套字号）。
-/// @param extra 这一片自己还要多说的那一句（可为空）。
-QLabel *addPanelHeader(QVBoxLayout *layout, QWidget *parent, ToolboxPage::Tool tool,
-                       const QString &extra = QString()) {
-    auto *title = new QLabel(ToolboxPage::toolName(tool), parent);
-    QFont font = title->font();
-    font.setBold(true);
-    font = Theme::textFont(font, Theme::TextRole::Heading);
-    title->setFont(font);
-    layout->addWidget(title);
-    auto *hint = makeMutedLabel(parent);
-    // UI 7d：页上只摆一句话说明（限宽），这一片多说的那段放进悬停提示（设计原则：文字克制）。
-    hint->setText(ToolboxPage::toolSummary(tool));
-    hint->setMaximumWidth(600);
-    if (!extra.isEmpty()) {
-        hint->setToolTip(extra);
-        title->setToolTip(extra);
-    }
-    layout->addWidget(hint);
-    return hint;
-}
-
 void copyToClipboard(const QString &text) {
     if (QClipboard *clipboard = QGuiApplication::clipboard()) {
         clipboard->setText(text);
@@ -369,8 +311,6 @@ void updateResultCopy(QLabel *result, const QString &plainText) {
 // #32：九页共用的三段式零件 —— 页头 / 输入区（标签列定宽）/ 结果区（柔和面板）
 // ---------------------------------------------------------------------------
 
-/// 每页内容最宽多少（宽窗口时不铺满、居中）。
-constexpr int kContentMaxWidth = 940;
 /// 输入区左边那一列标签的宽度（四个字 + 余量），几行的控件因此竖着对齐。
 constexpr int kFormLabelWidth = 72;
 
@@ -505,6 +445,105 @@ QWidget *makeNumberField(QWidget *parent, QAbstractSpinBox *spin, bool steppers,
     return field;
 }
 
+/// 一行控件放不下就折到下一行（标准的流式布局）；每个子项按自己的 sizeHint 摆，不拉伸。
+class FlowLayout final : public QLayout {
+public:
+    explicit FlowLayout(int hSpacing = 8, int vSpacing = 8) : m_h(hSpacing), m_v(vSpacing) {
+        setContentsMargins(0, 0, 0, 0);
+    }
+    ~FlowLayout() override { qDeleteAll(m_items); }
+    void addItem(QLayoutItem *item) override { m_items.append(item); }
+    int count() const override { return int(m_items.size()); }
+    QLayoutItem *itemAt(int index) const override { return m_items.value(index); }
+    QLayoutItem *takeAt(int index) override {
+        return index >= 0 && index < m_items.size() ? m_items.takeAt(index) : nullptr;
+    }
+    Qt::Orientations expandingDirections() const override { return {}; }
+    bool hasHeightForWidth() const override { return true; }
+    int heightForWidth(int width) const override { return arrange(QRect(0, 0, width, 0), true); }
+    void setGeometry(const QRect &rect) override {
+        QLayout::setGeometry(rect);
+        arrange(rect, false);
+    }
+    QSize sizeHint() const override { return minimumSize(); }
+    QSize minimumSize() const override {
+        QSize size;
+        for (QLayoutItem *item : m_items) size = size.expandedTo(item->minimumSize());
+        const QMargins m = contentsMargins();
+        return size + QSize(m.left() + m.right(), m.top() + m.bottom());
+    }
+
+private:
+    int arrange(const QRect &rect, bool testOnly) const {
+        const QMargins m = contentsMargins();
+        const QRect area = rect.adjusted(m.left(), m.top(), -m.right(), -m.bottom());
+        int x = area.x(), y = area.y(), lineHeight = 0;
+        for (QLayoutItem *item : m_items) {
+            if (item->isEmpty()) continue;
+            const QSize hint = item->sizeHint();
+            if (x > area.x() && x + hint.width() > area.right() + 1) {
+                x = area.x();
+                y += lineHeight + m_v;
+                lineHeight = 0;
+            }
+            if (!testOnly) item->setGeometry(QRect(QPoint(x, y), hint));
+            x += hint.width() + m_h;
+            lineHeight = qMax(lineHeight, hint.height());
+        }
+        return y + lineHeight - rect.y() + m.top() + m.bottom();
+    }
+    QList<QLayoutItem *> m_items;
+    int m_h, m_v;
+};
+
+/// 数字框粘贴拦截：粘进来的文字不是一个数（比如 F3+C 复制的 /execute … tp 命令）就交给 @p onCommand，
+/// 不当作数字塞进框里；纯数字照常粘。
+class TpPasteFilter final : public QObject {
+public:
+    TpPasteFilter(QDoubleSpinBox *spin, std::function<void(const QString &)> onCommand)
+        : QObject(spin), m_onCommand(std::move(onCommand)) {
+        if (auto *edit = spin->findChild<QLineEdit *>()) edit->installEventFilter(this);
+    }
+
+protected:
+    bool eventFilter(QObject *, QEvent *event) override {
+        if (event->type() != QEvent::KeyPress) return false;
+        const auto *key = static_cast<QKeyEvent *>(event);
+        if (!key->matches(QKeySequence::Paste)) return false;
+        const QString text = QGuiApplication::clipboard()->text().trimmed();
+        bool number = false;
+        QLocale().toDouble(text, &number);
+        if (text.isEmpty() || number || !text.contains(QLatin1String("tp"))) return false;
+        m_onCommand(text);
+        return true;
+    }
+
+private:
+    std::function<void(const QString &)> m_onCommand;
+};
+
+/// 容器查询：@p watched 的宽度 < @p threshold 时，把 @p box 的方向翻成上下叠放，否则左右并排。
+class NarrowFlip final : public QObject {
+public:
+    NarrowFlip(QWidget *watched, QBoxLayout *box, int threshold)
+        : QObject(watched), m_box(box), m_threshold(threshold) {
+        watched->installEventFilter(this);
+    }
+
+protected:
+    bool eventFilter(QObject *object, QEvent *event) override {
+        if (event->type() == QEvent::Resize && m_box != nullptr) {
+            const int width = static_cast<QWidget *>(object)->width();
+            m_box->setDirection(width < m_threshold ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight);
+        }
+        return false;
+    }
+
+private:
+    QPointer<QBoxLayout> m_box;
+    int m_threshold;
+};
+
 /// 输入区：左边一列标签定宽，后面是控件；一行放一对或两对（标签, 控件）。
 struct FormGrid {
     QGridLayout *grid = new QGridLayout;
@@ -549,6 +588,15 @@ struct FormGrid {
             place(field2, 3);
         }
         ++row;
+    }
+    /// 一行标签 + 一串控件（放不下就折行，不出横向滚动）。
+    QLayout *addFlowRow(const QString &text, const QList<QWidget *> &fields) {
+        grid->addWidget(label(text), row, 0, Qt::AlignTop);
+        auto *line = new FlowLayout(10, 8);
+        for (QWidget *field : fields) line->addWidget(field);
+        grid->addLayout(line, row, 1, 1, 4);
+        ++row;
+        return line;
     }
     /// 一行标签 + 一串控件（横着排，富余的宽度留在右边）。
     QHBoxLayout *addRow(const QString &text, const QList<QWidget *> &fields) {
@@ -626,11 +674,6 @@ ResultBox makeResultBox(QWidget *parent, const QString &caption, const QString &
     return box;
 }
 
-QString mutedHtml(const QString &text) {
-    return QStringLiteral("<span style='color:%1'>%2</span>")
-        .arg(Theme::tokens().secondary.name(QColor::HexRgb), text.toHtmlEscaped());
-}
-
 /// 细项那几行：空行 = 分段；以「：」结尾的一行 = 小标题（次要色、小一号）；其余一行一行原样（转义，不吃 HTML）。
 QString reportDetailHtml(const QStringList &lines) {
     const QString muted = Theme::tokens().secondary.name(QColor::HexRgb);
@@ -654,8 +697,8 @@ QString reportDetailHtml(const QStringList &lines) {
 }
 
 /// 把一份纯文本报告摆进结果区：第一行 → 结论大字，其余 → 细项；复制的是整份原文。
-/// 空报告 = 收起结论、细项里放一句次要色的占位话。
-void setReport(QLabel *headline, const QString &text, const QString &placeholder = QString()) {
+/// 空报告 = 整块结果区不画。
+void setReport(QLabel *headline, const QString &text) {
     updateResultCopy(headline, text);
     QStringList lines = text.split(QLatin1Char('\n'));
     while (!lines.isEmpty() && lines.first().trimmed().isEmpty()) lines.removeFirst();
@@ -665,11 +708,11 @@ void setReport(QLabel *headline, const QString &text, const QString &placeholder
     auto *details = headline->parentWidget()->findChild<QLabel *>(headline->objectName() + QStringLiteral("Detail"),
                                                                   Qt::FindDirectChildrenOnly);
     if (details == nullptr) return;
-    QString html = reportDetailHtml(lines);
-    if (first.isEmpty())
-        html = mutedHtml(placeholder.isEmpty() ? QStringLiteral("结果会显示在这里。") : placeholder);
+    const QString html = reportDetailHtml(lines);
     details->setText(html);
     details->setVisible(!html.isEmpty());
+    // 没内容整块结果区都不画。
+    if (QWidget *card = headline->parentWidget()) card->setVisible(!first.isEmpty() || !html.isEmpty());
 }
 
 /// 预览底台：一块圆角的柔和底（正文色压到很淡），白旗面 / 白光柱摆上去也不会变成一块纯白。
@@ -747,40 +790,462 @@ void paintBeamPreview(QLabel *preview, const QList<QColor> &segments) {
     preview->setPixmap(image);
 }
 
-/// 清单空着的时候在它中间摆一句次要色的提示（盖在 viewport 上、不吃鼠标），有一行就收起。
-void addListEmptyHint(QListWidget *list, const QString &text) {
-    auto *hint = makeMutedLabel(list->viewport());
-    hint->setText(text);
-    hint->setAlignment(Qt::AlignCenter);
-    hint->setAttribute(Qt::WA_TransparentForMouseEvents);
-    auto *overlay = new QVBoxLayout(list->viewport());
-    overlay->setContentsMargins(12, 12, 12, 12);
-    overlay->addWidget(hint);
-    const auto sync = [list, hint] { hint->setVisible(list->count() == 0); };
-    QObject::connect(list->model(), &QAbstractItemModel::rowsInserted, hint, sync);
-    QObject::connect(list->model(), &QAbstractItemModel::rowsRemoved, hint, sync);
-    QObject::connect(list->model(), &QAbstractItemModel::modelReset, hint, sync);
-    sync();
+// ---------------------------------------------------------------------------
+// 目录页：自适应网格 + 一格
+// ---------------------------------------------------------------------------
+
+constexpr int kSidePadding = 28;      ///< 页面左右留白（和设置页同一档）
+constexpr int kHeaderBleed = 8;       ///< 页头比内容两侧各多出的宽度（面包屑按钮的内边距）
+constexpr int kCellMinWidth = 240;    ///< 目录格最小列宽
+constexpr int kCellHeight = 64;
+constexpr int kCellGap = 6;
+
+/// 自适应列数的网格：每格最小 240，按宽度自动分列（auto-fill），格子等宽。
+class CellGridLayout final : public QLayout {
+public:
+    explicit CellGridLayout(QWidget *parent) : QLayout(parent) {}
+    ~CellGridLayout() override { qDeleteAll(m_items); }
+    void addItem(QLayoutItem *item) override { m_items.append(item); }
+    int count() const override { return int(m_items.size()); }
+    QLayoutItem *itemAt(int index) const override { return m_items.value(index); }
+    QLayoutItem *takeAt(int index) override {
+        return index >= 0 && index < m_items.size() ? m_items.takeAt(index) : nullptr;
+    }
+    Qt::Orientations expandingDirections() const override { return {}; }
+    bool hasHeightForWidth() const override { return true; }
+    int heightForWidth(int width) const override { return arrange(QRect(0, 0, width, 0), false); }
+    void setGeometry(const QRect &rect) override {
+        QLayout::setGeometry(rect);
+        arrange(rect, true);
+    }
+    QSize sizeHint() const override { return QSize(kCellMinWidth, heightForWidth(kCellMinWidth)); }
+    QSize minimumSize() const override { return QSize(kCellMinWidth, kCellHeight); }
+
+private:
+    static int columnsFor(int width) { return qMax(1, (width + kCellGap) / (kCellMinWidth + kCellGap)); }
+    int arrange(const QRect &rect, bool apply) const {
+        if (m_items.isEmpty()) return 0;
+        const int columns = columnsFor(rect.width());
+        const int cellWidth = (rect.width() - kCellGap * (columns - 1)) / columns;
+        const int rows = (int(m_items.size()) + columns - 1) / columns;
+        if (apply) {
+            for (int i = 0; i < m_items.size(); ++i) {
+                m_items.at(i)->setGeometry(QRect(rect.x() + (i % columns) * (cellWidth + kCellGap),
+                                                 rect.y() + (i / columns) * (kCellHeight + kCellGap),
+                                                 cellWidth, kCellHeight));
+            }
+        }
+        return rows * kCellHeight + (rows - 1) * kCellGap;
+    }
+    QList<QLayoutItem *> m_items;
+};
+
+/// 目录里的一格：图标块 36 + 名称 + 一句用途；无卡片底，悬停淡底；键盘 Tab 到达画淡环。
+class ToolCell final : public QPushButton {
+public:
+    ToolCell(ToolboxPage::Tool tool, QWidget *parent)
+        : QPushButton(ToolboxPage::toolName(tool), parent), m_tool(tool), m_summary(ToolboxPage::toolSummary(tool)) {
+        setObjectName(ToolboxPage::toolCellName(tool));
+        setFlat(true);
+        setAttribute(Qt::WA_Hover);
+        setCursor(Qt::PointingHandCursor);
+        setAccessibleName(text());
+        setAccessibleDescription(m_summary);
+        // 高度写进自己的样式表：全局按钮样式在 polish 时会改写 min/max 高。
+        setStyleSheet(QStringLiteral("QPushButton { border: none; padding: 0px; background: transparent;"
+                                     " min-height: %1px; max-height: %1px; }").arg(kCellHeight));
+    }
+    QSize sizeHint() const override { return QSize(kCellMinWidth, kCellHeight); }
+    QSize minimumSizeHint() const override { return QSize(160, kCellHeight); }
+
+protected:
+    void paintEvent(QPaintEvent *) override {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+        const Theme::Tokens t = Theme::tokens();
+        const QRectF box = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
+        if (isDown()) {
+            p.setPen(Qt::NoPen);
+            p.setBrush(t.fillPress);
+            p.drawRoundedRect(box, 14, 14);
+        } else if (underMouse() || hasFocus()) {
+            p.setPen(Qt::NoPen);
+            p.setBrush(t.hover);
+            p.drawRoundedRect(box, 14, 14);
+        }
+        if (hasFocus() && property("wtfmlKeyboardFocus").toBool()) {
+            QPen ring(Theme::focusRingColor(palette()));
+            ring.setWidthF(2.0);
+            p.setPen(ring);
+            p.setBrush(Qt::NoBrush);
+            p.drawRoundedRect(box.adjusted(1, 1, -1, -1), 13, 13);
+        }
+        const QRect tile(14, (height() - 36) / 2, 36, 36);
+        p.setPen(Qt::NoPen);
+        p.setBrush(t.subtle);
+        p.drawRoundedRect(QRectF(tile), 10, 10);
+        ToolboxPage::toolIcon(m_tool, Theme::textTone(t.accentInk, t.deep)).paint(&p, tile.adjusted(7, 7, -7, -7));
+        const int x = tile.right() + 14;
+        const int w = qMax(0, width() - x - 12);
+        QFont nameFont = font();
+        nameFont.setPixelSize(14);
+        nameFont.setWeight(QFont::Medium);
+        QFont summaryFont = font();
+        summaryFont.setPixelSize(12);
+        const QFontMetrics nameMetrics(nameFont), summaryMetrics(summaryFont);
+        const int top = (height() - nameMetrics.height() - summaryMetrics.height() - 2) / 2;
+        p.setFont(nameFont);
+        p.setPen(t.text);
+        p.drawText(QRect(x, top, w, nameMetrics.height()), Qt::AlignLeft | Qt::AlignVCenter,
+                   nameMetrics.elidedText(text(), Qt::ElideRight, w));
+        p.setFont(summaryFont);
+        p.setPen(t.secondary);
+        p.drawText(QRect(x, top + nameMetrics.height() + 2, w, summaryMetrics.height()), Qt::AlignLeft | Qt::AlignVCenter,
+                   summaryMetrics.elidedText(m_summary, Qt::ElideRight, w));
+    }
+    void focusInEvent(QFocusEvent *event) override {
+        QPushButton::focusInEvent(event);
+        update();
+    }
+    void focusOutEvent(QFocusEvent *event) override {
+        QPushButton::focusOutEvent(event);
+        update();
+    }
+
+private:
+    ToolboxPage::Tool m_tool;
+    QString m_summary;
+};
+
+// ---------------------------------------------------------------------------
+// 面包屑上的工具名 → 切换浮层（复用 GlassPopover）
+// ---------------------------------------------------------------------------
+
+constexpr int kSwitchWidth = 236;
+constexpr int kSwitchRow = 34;
+
+class SwitchDelegate final : public QStyledItemDelegate {
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+    QSize sizeHint(const QStyleOptionViewItem &, const QModelIndex &) const override { return QSize(0, kSwitchRow); }
+    void paint(QPainter *p, const QStyleOptionViewItem &option, const QModelIndex &index) const override {
+        const Theme::Tokens t = Theme::tokens();
+        p->save();
+        p->setRenderHint(QPainter::Antialiasing, true);
+        const QRect r = option.rect;
+        const bool on = index.data(Qt::UserRole + 1).toBool();
+        const bool hot = (option.state & QStyle::State_MouseOver) || (option.state & QStyle::State_Selected);
+        if (on || hot) {
+            p->setPen(Qt::NoPen);
+            p->setBrush(on ? t.selected : t.fillPress);
+            p->drawRoundedRect(QRectF(r), 8, 8);
+        }
+        const QColor ink = on ? Theme::textTone(t.accentInk, t.deep) : t.text;
+        const auto tool = static_cast<ToolboxPage::Tool>(index.data(Qt::UserRole).toInt());
+        ToolboxPage::toolIcon(tool, on ? ink : t.secondary).paint(p, QRect(r.left() + 12, r.center().y() - 8, 16, 16));
+        QFont f = option.font;
+        f.setPixelSize(14);
+        f.setWeight(QFont::Medium);
+        p->setFont(f);
+        p->setPen(ink);
+        p->drawText(QRect(r.left() + 40, r.top(), r.width() - 52, r.height()), Qt::AlignLeft | Qt::AlignVCenter,
+                    index.data(Qt::DisplayRole).toString());
+        p->restore();
+    }
+};
+
+class ToolSwitchPopover final : public GlassPopover {
+public:
+    ToolSwitchPopover(QWidget *anchor, ToolboxPage::Tool current, std::function<void(ToolboxPage::Tool)> onPick)
+        : GlassPopover(anchor), m_onPick(std::move(onPick)) {
+        setObjectName(ToolboxPage::switchPopoverName());
+        auto *box = new QVBoxLayout(this);
+        box->setContentsMargins(6, 6, 6, 6);
+        box->setSpacing(0);
+        m_list = new QListWidget(this);
+        m_list->setObjectName(QStringLiteral("toolboxSwitchList"));
+        m_list->setFrameShape(QFrame::NoFrame);
+        m_list->setMouseTracking(true);
+        m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        m_list->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        m_list->setItemDelegate(new SwitchDelegate(m_list));
+        m_list->setStyleSheet(QStringLiteral("QListWidget { background: transparent; border: none; outline: none; }"
+                                             "QListWidget::item { background: transparent; border: none; }"));
+        m_list->viewport()->setAutoFillBackground(false);
+        for (ToolboxPage::Tool tool : ToolboxPage::tools()) {
+            auto *item = new QListWidgetItem(ToolboxPage::toolName(tool), m_list);
+            item->setData(Qt::UserRole, int(tool));
+            item->setData(Qt::UserRole + 1, tool == current);
+        }
+        m_list->setFixedHeight(int(m_list->count()) * kSwitchRow);
+        box->addWidget(m_list);
+        setFixedWidth(kSwitchWidth);
+        connect(m_list, &QListWidget::itemClicked, this, [this](QListWidgetItem *item) { pick(item); });
+        connect(m_list, &QListWidget::itemActivated, this, [this](QListWidgetItem *item) { pick(item); });
+    }
+
+protected:
+    void place() override {
+        QWidget *host = parentWidget();
+        if (host == nullptr || m_anchor == nullptr) return;
+        const QPoint a = m_anchor->mapTo(host, QPoint(0, 0));
+        const int height = layout()->sizeHint().height();
+        const int x = qBound(8, a.x(), qMax(8, host->width() - kSwitchWidth - 8));
+        setGeometry(x, a.y() + m_anchor->height() + 4, kSwitchWidth, height);
+        raise();
+    }
+    void showEvent(QShowEvent *event) override {
+        GlassPopover::showEvent(event);
+        for (int i = 0; i < m_list->count(); ++i) {
+            if (m_list->item(i)->data(Qt::UserRole + 1).toBool()) m_list->setCurrentRow(i);
+        }
+    }
+    void keyPressEvent(QKeyEvent *event) override {
+        if (event->key() == Qt::Key_Down || event->key() == Qt::Key_Up) {
+            m_list->setFocus();
+            QApplication::sendEvent(m_list, event);
+            return;
+        }
+        if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) {
+            pick(m_list->currentItem());
+            return;
+        }
+        GlassPopover::keyPressEvent(event);
+    }
+
+private:
+    void pick(QListWidgetItem *item) {
+        if (item == nullptr) return;
+        const auto tool = static_cast<ToolboxPage::Tool>(item->data(Qt::UserRole).toInt());
+        auto fn = m_onPick;
+        close();
+        if (fn) fn(tool);
+    }
+    QListWidget *m_list = nullptr;
+    std::function<void(ToolboxPage::Tool)> m_onPick;
+};
+
+/// 面包屑上的一段：手写体 26，无边框，悬停淡底。
+QPushButton *makeCrumbButton(QWidget *parent, const QString &objectName, const QString &text, bool current) {
+    auto *button = new QPushButton(text, parent);
+    button->setObjectName(objectName);
+    button->setFlat(true);
+    button->setCursor(Qt::PointingHandCursor);
+    button->setAttribute(Qt::WA_Hover);
+    QFont font = Theme::handFont(button->font(), Theme::HandFont::KaiLight);
+    font.setPixelSize(26);
+    font.setLetterSpacing(QFont::AbsoluteSpacing, 2);
+    button->setFont(font);
+    const auto paint = [button, current] {
+        const Theme::Tokens t = Theme::tokens();
+        button->setStyleSheet(QStringLiteral(
+            "QPushButton { border: none; border-radius: 10px; padding: 0px 8px; background: transparent;"
+            " color: %1; min-height: 36px; max-height: 36px; }"
+            "QPushButton:hover, QPushButton:focus { background: %2; }"
+            "QPushButton:pressed { background: %3; }")
+            .arg((current ? t.text : t.secondary).name(QColor::HexArgb), t.hover.name(QColor::HexArgb),
+                 t.fillPress.name(QColor::HexArgb)));
+    };
+    paint();
+    Theme::follow(button, paint);
+    return button;
 }
 
-/// 页的外壳：内容竖着一列，最宽 kContentMaxWidth、宽窗口时居中。
-QWidget *centeredHolder(QWidget *panel) {
-    auto *holder = new QWidget;
-    auto *row = new QHBoxLayout(holder);
-    row->setContentsMargins(0, 0, 0, 0);
-    row->setSpacing(0);
-    row->addStretch(1);
-    panel->setParent(holder);
-    panel->setMaximumWidth(kContentMaxWidth);
-    row->addWidget(panel, 100);
-    row->addStretch(1);
-    return holder;
+// ---------------------------------------------------------------------------
+// 附魔行：固定列宽网格（附魔 1fr(min 200) · 等级 72 · 物品 128 · 已用次数 88 · 删除 32）
+// 四个框统一高 36；内容宽 < 640 时附魔独占第一行，其余三个在第二行。
+// ---------------------------------------------------------------------------
+
+constexpr int kAnvilNarrowBelow = 640;
+constexpr int kAnvilLevelWidth = 72;
+constexpr int kAnvilKindWidth = 128;
+constexpr int kAnvilUsesWidth = 88;
+constexpr int kAnvilRemoveWidth = 32;
+
+QSpinBox *makeUnitSpin(QWidget *parent, int minimum, int maximum, const QString &unit, int width) {
+    auto *spin = new QSpinBox(parent);
+    spin->setRange(minimum, maximum);
+    spin->setSuffix(unit);
+    spin->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    spin->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    spin->setFixedSize(width, Theme::inputHeight());
+    return spin;
 }
+
+class AnvilRowWidget final : public QWidget {
+public:
+    QComboBox *enchant = nullptr;
+    QSpinBox *level = nullptr;
+    QComboBox *kind = nullptr;
+    QSpinBox *uses = nullptr;
+    QPushButton *remove = nullptr;
+
+    explicit AnvilRowWidget(QWidget *parent) : QWidget(parent) {
+        setAttribute(Qt::WA_Hover);
+        enchant = new QComboBox(this);
+        enchant->setFixedHeight(Theme::inputHeight());
+        enchant->setMinimumWidth(200);
+        enchant->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        level = makeUnitSpin(this, 1, 9, QStringLiteral(" 级"), kAnvilLevelWidth);  // 附魔等级没有超过 5 的，给到 9 留余地
+        level->setValue(1);
+        kind = new QComboBox(this);
+        kind->setFixedSize(kAnvilKindWidth, Theme::inputHeight());
+        uses = makeUnitSpin(this, 0, 9, QStringLiteral(" 次"), kAnvilUsesWidth);
+        uses->setToolTip(QStringLiteral("在铁砧上用过几次。"));
+        remove = makeGlyphButton(this, QStringLiteral("anvilRemoveRow"), Glyph::Remove, QStringLiteral("删除这一行"),
+                                 QString(), kAnvilRemoveWidth);
+        // 悬停才出现；键盘到达时（焦点在行里）也出现。
+        auto *fade = new QGraphicsOpacityEffect(remove);
+        fade->setOpacity(0.0);
+        remove->setGraphicsEffect(fade);
+        m_fade = fade;
+        for (QWidget *child : {static_cast<QWidget *>(enchant), static_cast<QWidget *>(level),
+                               static_cast<QWidget *>(kind), static_cast<QWidget *>(uses),
+                               static_cast<QWidget *>(remove)}) {
+            child->installEventFilter(this);
+        }
+        auto *grid = new QGridLayout(this);
+        grid->setContentsMargins(0, 0, 0, 0);
+        grid->setHorizontalSpacing(10);
+        grid->setVerticalSpacing(8);
+        m_grid = grid;
+        arrange(false);
+    }
+
+    void setNarrow(bool narrow) {
+        if (narrow == m_narrow) return;
+        arrange(narrow);
+    }
+    void setRemovable(bool removable) {
+        remove->setEnabled(removable);
+        syncRemoveVisibility();
+    }
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override {
+        Q_UNUSED(watched);
+        if (event->type() == QEvent::FocusIn || event->type() == QEvent::FocusOut ||
+            event->type() == QEvent::Enter || event->type() == QEvent::Leave) {
+            QTimer::singleShot(0, this, [this] { syncRemoveVisibility(); });
+        }
+        return false;
+    }
+    void enterEvent(QEnterEvent *event) override {
+        QWidget::enterEvent(event);
+        syncRemoveVisibility();
+    }
+    void leaveEvent(QEvent *event) override {
+        QWidget::leaveEvent(event);
+        QTimer::singleShot(0, this, [this] { syncRemoveVisibility(); });
+    }
+
+private:
+    void syncRemoveVisibility() {
+        const bool show = remove->isEnabled() && (underMouse() || hasFocusWithin());
+        m_fade->setOpacity(show ? 1.0 : 0.0);
+    }
+    bool hasFocusWithin() const {
+        QWidget *focus = QApplication::focusWidget();
+        return focus != nullptr && isAncestorOf(focus);
+    }
+    void arrange(bool narrow) {
+        m_narrow = narrow;
+        while (m_grid->count() > 0) delete m_grid->takeAt(0);
+        for (int column = 0; column < 6; ++column) {
+            m_grid->setColumnStretch(column, 0);
+            m_grid->setColumnMinimumWidth(column, 0);
+        }
+        if (!narrow) {
+            m_grid->addWidget(enchant, 0, 0);
+            m_grid->addWidget(level, 0, 1);
+            m_grid->addWidget(kind, 0, 2);
+            m_grid->addWidget(uses, 0, 3);
+            m_grid->addWidget(remove, 0, 4);
+            m_grid->setColumnStretch(0, 1);
+            m_grid->setColumnMinimumWidth(0, 200);
+        } else {
+            // 附魔占前四列整行；等级 / 物品 / 已用次数在第二行；删除钮在第一行右端。
+            m_grid->addWidget(enchant, 0, 0, 1, 4);
+            m_grid->addWidget(remove, 0, 4);
+            m_grid->addWidget(level, 1, 0);
+            m_grid->addWidget(kind, 1, 1);
+            m_grid->addWidget(uses, 1, 2);
+            m_grid->setColumnStretch(3, 1);
+        }
+    }
+    QGridLayout *m_grid = nullptr;
+    QGraphicsOpacityEffect *m_fade = nullptr;
+    bool m_narrow = false;
+};
+
+/// 列头一行（宽时显示）：列宽与行内网格一致，窄时隐藏。
+class AnvilHeadRow final : public QWidget {
+public:
+    explicit AnvilHeadRow(QWidget *parent) : QWidget(parent) {
+        auto *grid = new QGridLayout(this);
+        grid->setContentsMargins(0, 0, 0, 0);
+        grid->setHorizontalSpacing(10);
+        const QStringList names{QStringLiteral("附魔"), QStringLiteral("等级"), QStringLiteral("物品"),
+                                QStringLiteral("已用次数")};
+        const int widths[] = {0, kAnvilLevelWidth, kAnvilKindWidth, kAnvilUsesWidth};
+        for (int i = 0; i < 4; ++i) {
+            auto *label = makeMutedLabel(this);
+            label->setText(names.at(i));
+            label->setWordWrap(false);
+            label->setContentsMargins(2, 0, 0, 0);
+            grid->addWidget(label, 0, i);
+            if (widths[i] > 0) grid->setColumnMinimumWidth(i, widths[i]);
+        }
+        grid->setColumnStretch(0, 1);
+        grid->setColumnMinimumWidth(0, 200);
+        grid->setColumnMinimumWidth(4, kAnvilRemoveWidth);
+    }
+};
+
+/// 装一行行输入的容器：按自己的宽度决定每行是否折成两行（相当于容器查询）。
+class AnvilRowsHost final : public QWidget {
+public:
+    explicit AnvilRowsHost(QWidget *parent) : QWidget(parent) {
+        m_layout = new QVBoxLayout(this);
+        m_layout->setContentsMargins(0, 0, 0, 0);
+        m_layout->setSpacing(8);
+        m_head = new AnvilHeadRow(this);
+        m_layout->addWidget(m_head);
+    }
+    void addRow(AnvilRowWidget *row) {
+        m_layout->addWidget(row);
+        row->setNarrow(m_narrow);
+        m_rows.append(row);
+    }
+    void relayout() { applyNarrow(width() < kAnvilNarrowBelow, true); }
+    bool narrow() const { return m_narrow; }
+
+protected:
+    void resizeEvent(QResizeEvent *event) override {
+        QWidget::resizeEvent(event);
+        applyNarrow(event->size().width() < kAnvilNarrowBelow, false);
+    }
+
+private:
+    void applyNarrow(bool narrow, bool force) {
+        if (narrow == m_narrow && !force) return;
+        m_narrow = narrow;
+        m_head->setVisible(!narrow);
+        m_layout->setSpacing(narrow ? 16 : 8);
+        for (const QPointer<AnvilRowWidget> &row : std::as_const(m_rows)) {
+            if (row) row->setNarrow(narrow);
+        }
+    }
+    QVBoxLayout *m_layout = nullptr;
+    AnvilHeadRow *m_head = nullptr;
+    QList<QPointer<AnvilRowWidget>> m_rows;
+    bool m_narrow = false;
+};
 
 }  // namespace
 
 // ---------------------------------------------------------------------------
-// 六件工具那张表（键 / 名字 / 说明）
+// 十件工具那张表（键 / 名字 / 用途）
 // ---------------------------------------------------------------------------
 
 QString ToolboxPage::toolKey(Tool tool) {
@@ -818,31 +1283,12 @@ QList<ToolboxPage::Tool> ToolboxPage::tools() {
     return list;
 }
 
-QList<ToolboxPage::Tool> ToolboxPage::panelTools() {
-    // 面板的次序（两列五排、**行优先**）：
-    // SHA校验 | 高速下载
-    // 延迟测试 | 附魔助手
-    // 坐标换算 | 彩色文本
-    // 酿造助手 | 旗帜设计
-    // 信标计算 | 纹饰搭配
-    return {Tool::Hash,  Tool::Download, Tool::Server, Tool::Anvil, Tool::Coord,
-            Tool::Text,  Tool::Brewing,  Tool::Banner, Tool::Beacon, Tool::Trim};
-}
-
-QString ToolboxPage::toolShortName(Tool tool) {
-    return QString::fromUtf8(infoOf(tool)->shortName);
-}
-
 QIcon ToolboxPage::toolIcon(Tool tool, const QColor &ink) {
     return drawToolIcon(tool, ink);
 }
 
-QIcon ToolboxPage::panelTitleIcon(const QColor &ink) {
-    return drawToolboxIcon(ink);
-}
-
-QString ToolboxPage::toolChipName(Tool tool) {
-    return QStringLiteral("toolboxChip_%1").arg(toolKey(tool));
+QString ToolboxPage::toolCellName(Tool tool) {
+    return QStringLiteral("toolboxCell_%1").arg(toolKey(tool));
 }
 
 QString ToolboxPage::toolPanelName(Tool tool) {
@@ -853,123 +1299,187 @@ QString ToolboxPage::toolPageName(Tool tool) {
     return toolPanelName(tool) + QStringLiteral("Scroll");
 }
 
-QString ToolboxPage::toolButtonName(Tool tool) {
-    return QStringLiteral("toolboxTool_%1").arg(toolKey(tool));
-}
-
 // ---------------------------------------------------------------------------
-// 搭页
+// 搭页：页头 + 两层（目录 / 工具）
 // ---------------------------------------------------------------------------
 
-ToolboxPage::ToolboxPage(QWidget *parent) : QDialog(parent) {
+ToolboxPage::ToolboxPage(QWidget *parent) : QWidget(parent) {
     setObjectName(QStringLiteral("toolboxPage"));
-    setWindowTitle(windowTitle());
-    // 只影响"单独拿出来用"（验证工程那几处）：嵌进覆盖层时这一页拿的是内容区的整幅宽。
-    resize(760, 560);
-    setAcceptDrops(true);  // 哈希那一件要能"拖一个文件进来"
+    setWindowTitle(pageTitle());
+    resize(900, 560);  // 单独拿出来用（验证工程）时的默认尺寸；嵌在选项卡里时拿内容区整幅
+    setAcceptDrops(true);  // SHA 校验那一片要能"拖一个文件进来"
 
     m_tools = tools();
-    // 直链下载使用独立小窗口，所以不在这张工具页的 chip 里。
-    m_tools.removeAll(Tool::Download);
 
     auto *box = new QVBoxLayout(this);
-    box->setContentsMargins(8, 2, 8, 6);
-    box->setSpacing(6);
+    box->setContentsMargins(0, 0, 0, 0);
+    box->setSpacing(0);
+    box->addWidget(buildHeader());
 
-    // 顶上这排 chip 和下面每一页一样限宽居中：宽窗口时整页是正中的一列。
-    auto *toolbarRow = new QWidget(this);
-    auto *toolbar = new QHBoxLayout(toolbarRow);
-    toolbar->setContentsMargins(0, 0, 12, 0); toolbar->setSpacing(8);
-    toolbar->addWidget(buildChipRow(), 1);
-    auto *remember = new QCheckBox(QStringLiteral("记住输入"), this);
-    remember->setToolTip(QStringLiteral("仅保存在本机；关闭后清除工具输入记忆。"));
-    remember->setObjectName(QStringLiteral("toolboxRememberInputs"));
-    remember->setChecked(true);
-    toolbar->addWidget(remember);
-    box->addWidget(centeredHolder(toolbarRow));
-    box->addWidget(makeSeparator(this));
+    m_levels = new QStackedWidget(this);
+    m_levels->setObjectName(QStringLiteral("toolboxLevels"));
+    m_levels->addWidget(buildCatalog());
 
-    m_stack = new QStackedWidget(this);
+    m_stack = new QStackedWidget(m_levels);
+    m_stack->setObjectName(QStringLiteral("toolboxStack"));
     // **加进去的次序 = m_tools 的次序**（`showTool()` 按下标切，两边不许各写一遍次序）。
     for (Tool tool : m_tools) {
         QWidget *panel = nullptr;
         switch (tool) {
-        case Tool::Download:
-            continue;
-        case Tool::Anvil:
-            panel = buildAnvilPanel();
-            break;
-        case Tool::Text:
-            panel = buildTextPanel();
-            break;
-        case Tool::Coord:
-            panel = buildCoordPanel();
-            break;
-        case Tool::Server:
-            panel = buildServerPanel();
-            break;
-        case Tool::Hash:
-            panel = buildHashPanel();
-            break;
-        case Tool::Beacon:
-            panel = buildBeaconPanel();
-            break;
-        case Tool::Brewing:
-            panel = buildBrewingPanel();
-            break;
-        case Tool::Banner:
-            panel = buildBannerPanel();
-            break;
-        case Tool::Trim:
-            panel = buildTrimPanel();
-            break;
+        case Tool::Anvil: panel = buildAnvilPanel(); break;
+        case Tool::Text: panel = buildTextPanel(); break;
+        case Tool::Coord: panel = buildCoordPanel(); break;
+        case Tool::Server: panel = buildServerPanel(); break;
+        case Tool::Hash: panel = buildHashPanel(); break;
+        case Tool::Beacon: panel = buildBeaconPanel(); break;
+        case Tool::Brewing: panel = buildBrewingPanel(); break;
+        case Tool::Banner: panel = buildBannerPanel(); break;
+        case Tool::Trim: panel = buildTrimPanel(); break;
+        case Tool::Download: panel = buildDownloadPanel(); break;
         }
         panel->setObjectName(toolPanelName(tool));
-        // 右边留 12 给滚动条，内容不贴着它。
-        panel->layout()->setContentsMargins(0, 4, 12, 12);
+        panel->layout()->setContentsMargins(0, 4, 0, 0);
         static_cast<QBoxLayout *>(panel->layout())->setSpacing(14);
-        // 长工具页在自身滚动，不把整个窗口的最小高度撑大。
-        auto *scroll = new QScrollArea(m_stack);
+        // 长工具页在自身滚动，不把整个窗口的最小高度撑大；横向永不出滚动条（窄时由各片自己重排）。
+        auto *scroll = new Theme::GutterScrollArea(m_stack);
         scroll->setObjectName(toolPageName(tool));
-        scroll->setWidgetResizable(true); scroll->setFrameShape(QFrame::NoFrame);
-        scroll->setWidget(centeredHolder(panel)); m_stack->addWidget(scroll);
+        scroll->setWidgetResizable(true);
+        scroll->setFrameShape(QFrame::NoFrame);
+        scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        auto *holder = new QWidget(scroll);
+        auto *row = new QHBoxLayout(holder);
+        row->setContentsMargins(kSidePadding, 0, kSidePadding, 40);
+        row->setSpacing(0);
+        row->addStretch(1);
+        panel->setParent(holder);
+        panel->setMaximumWidth(kToolMaxWidth);
+        row->addWidget(panel, 1000);
+        row->addStretch(1);
+        scroll->setWidget(holder);
+        m_stack->addWidget(scroll);
     }
-    box->addWidget(m_stack, 1);
-
-    showTool(Tool::Anvil);
+    m_levels->addWidget(m_stack);
+    box->addWidget(m_levels, 1);
+    showCatalog();
 }
 
-QWidget *ToolboxPage::buildChipRow() {
-    auto *row = new QWidget(this);
-    auto *layout = new QHBoxLayout(row);
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(4);
+QWidget *ToolboxPage::buildHeader() {
+    auto *header = new QWidget(this);
+    header->setObjectName(QStringLiteral("toolboxHeader"));
+    auto *outer = new QHBoxLayout(header);
+    // 页头两侧各比内容多出 8px：面包屑按钮自带 8px 内边距，这样按钮上的字和内容左缘对齐；
+    // 目录页的标题与「记住输入」自己补回这 8px。
+    // 内容区右边常留一条滚动条的位置（GutterScrollArea），页头也让出来，这样两者居中对得上。
+    outer->setContentsMargins(kSidePadding - kHeaderBleed, 40, kSidePadding - kHeaderBleed + Theme::scrollBarThickness(), 14);
+    m_headerInner = new QWidget(header);
+    m_headerInner->setMaximumWidth(kCatalogMaxWidth + 2 * kHeaderBleed);
+    m_headerInner->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    outer->addStretch(1);
+    outer->addWidget(m_headerInner, 1000);
+    outer->addStretch(1);
+    auto *inner = new QVBoxLayout(m_headerInner);
+    inner->setContentsMargins(0, 0, 0, 0);
+    inner->setSpacing(0);
+
+    // 目录页：页标题 + 右端「记住输入」开关。
+    m_catalogHead = new QWidget(m_headerInner);
+    auto *catalogRow = new QHBoxLayout(m_catalogHead);
+    catalogRow->setContentsMargins(kHeaderBleed, 0, kHeaderBleed, 0);
+    catalogRow->setSpacing(10);
+    auto *title = new QLabel(pageTitle(), m_catalogHead);
+    title->setObjectName(QStringLiteral("toolboxTitle"));
+    title->setProperty(Theme::textRolePropertyName().toUtf8().constData(), Theme::pageTitleTextRoleValue());
+    {
+        QFont font = Theme::handFont(title->font(), Theme::HandFont::KaiLight);
+        font.setPixelSize(26);
+        font.setLetterSpacing(QFont::AbsoluteSpacing, 2);
+        title->setFont(font);
+    }
+    title->setMinimumHeight(36);
+    catalogRow->addWidget(title);
+    catalogRow->addStretch(1);
+    auto *rememberLabel = new QLabel(QStringLiteral("记住输入"), m_catalogHead);
+    rememberLabel->setProperty(Theme::textRolePropertyName().toUtf8().constData(), Theme::secondaryTextRoleValue());
+    m_remember = new QCheckBox(m_catalogHead);
+    m_remember->setObjectName(QStringLiteral("toolboxRememberInputs"));
+    m_remember->setText(QStringLiteral("记住输入"));  // 开关只画胶囊；文字作无障碍名
+    m_remember->setToolTip(QStringLiteral("关闭后清除已记住的输入。"));
+    m_remember->setChecked(true);
+    Theme::markSwitch(m_remember);
+    rememberLabel->setToolTip(m_remember->toolTip());
+    catalogRow->addWidget(rememberLabel);
+    catalogRow->addWidget(m_remember);
+    inner->addWidget(m_catalogHead);
+
+    // 工具页：面包屑「工具箱 / 附魔助手」。「工具箱」回目录，工具名弹切换浮层。
+    m_crumbHead = new QWidget(m_headerInner);
+    auto *crumbRow = new QHBoxLayout(m_crumbHead);
+    crumbRow->setContentsMargins(0, 0, 0, 0);
+    crumbRow->setSpacing(2);
+    m_crumbRoot = makeCrumbButton(m_crumbHead, crumbRootName(), pageTitle(), false);
+    m_crumbRoot->setToolTip(QStringLiteral("回到工具箱目录"));
+    crumbRow->addWidget(m_crumbRoot);
+    auto *slash = new QLabel(QStringLiteral("/"), m_crumbHead);
+    {
+        QFont font = Theme::handFont(slash->font(), Theme::HandFont::KaiLight);
+        font.setPixelSize(26);
+        slash->setFont(font);
+        slash->setProperty(Theme::textRolePropertyName().toUtf8().constData(), Theme::secondaryTextRoleValue());
+    }
+    crumbRow->addWidget(slash);
+    m_crumbTool = makeCrumbButton(m_crumbHead, crumbToolName(), QString(), true);
+    m_crumbTool->setToolTip(QStringLiteral("切换工具"));
+    crumbRow->addWidget(m_crumbTool);
+    crumbRow->addStretch(1);
+    inner->addWidget(m_crumbHead);
+
+    connect(m_crumbRoot, &QPushButton::clicked, this, [this] { showCatalog(); });
+    connect(m_crumbTool, &QPushButton::clicked, this, [this] { openSwitchPopover(); });
+    return header;
+}
+
+QWidget *ToolboxPage::buildCatalog() {
+    auto *scroll = new Theme::GutterScrollArea(this);
+    scroll->setObjectName(catalogName());
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    auto *holder = new QWidget(scroll);
+    auto *row = new QHBoxLayout(holder);
+    row->setContentsMargins(kSidePadding, 4, kSidePadding, 40);
+    row->setSpacing(0);
+    m_catalogBody = new QWidget(holder);
+    m_catalogBody->setMaximumWidth(kCatalogMaxWidth);
+    m_catalogBody->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    auto *grid = new CellGridLayout(m_catalogBody);
     for (Tool tool : m_tools) {
-        auto *chip = new QPushButton(toolShortName(tool), row);
-        chip->setFixedHeight(28);
-        chip->setStyleSheet(QStringLiteral("padding: 2px 6px; min-height: 18px;"));
-        chip->setObjectName(toolChipName(tool));
-        chip->setCheckable(true);  // ★ chip 的样式只描述"勾上什么样"，能不能勾是调用方的事
-        chip->setToolTip(toolSummary(tool));
-        Theme::markChipButton(chip);
-        connect(chip, &QPushButton::clicked, this, [this, tool]() { showTool(tool); });
-        layout->addWidget(chip);
-        m_chips.append(chip);
+        auto *cell = new ToolCell(tool, m_catalogBody);
+        connect(cell, &QPushButton::clicked, this, [this, tool] { showTool(tool); });
+        grid->addWidget(cell);
     }
-    layout->addStretch(1);
-    return row;
+    row->addStretch(1);
+    row->addWidget(m_catalogBody, 1000);
+    row->addStretch(1);
+    scroll->setWidget(holder);
+    return scroll;
 }
 
-void ToolboxPage::syncChips() {
-    for (int index = 0; index < m_chips.size() && index < m_tools.size(); ++index) {
-        // 只认"当前那一颗"（和下载页那几颗分类 chip 同一套判据）。
-        const bool current = m_tools.at(index) == m_current;
-        m_chips.at(index)->setChecked(current);
-    }
+void ToolboxPage::syncHeader() {
+    m_catalogHead->setVisible(m_inCatalog);
+    m_crumbHead->setVisible(!m_inCatalog);
+    m_headerInner->setMaximumWidth((m_inCatalog ? kCatalogMaxWidth : kToolMaxWidth) + 2 * kHeaderBleed);
+    if (!m_inCatalog) m_crumbTool->setText(toolName(m_current));
+}
+
+void ToolboxPage::showCatalog() {
+    GlassPopover::closeAllIn(window());
+    m_inCatalog = true;
+    m_levels->setCurrentIndex(0);
+    syncHeader();
+    emit catalogShown();
 }
 
 void ToolboxPage::showTool(Tool tool) {
-    if (tool == Tool::Download) { emit downloadToolRequested(); return; }
     int index = 0;
     for (int i = 0; i < m_tools.size(); ++i) {
         if (m_tools.at(i) == tool) {
@@ -977,15 +1487,35 @@ void ToolboxPage::showTool(Tool tool) {
         }
     }
     m_current = m_tools.at(index);
+    m_inCatalog = false;
     m_stack->setCurrentIndex(index);
-    syncChips();
-    // 顶上那排 chip 只走到这里（不经过 controller），所以"换了哪一件"必须从这里发出去 ——
-    // 纹饰那一页要借它去读预览资源，漏了就是"从 chip 进去不渲染盔甲"。
+    m_levels->setCurrentIndex(1);
+    syncHeader();
+    // 目录格、切换浮层、程序里调 `showTool()` 都只走到这里，所以"换了哪一件"必须从这里发出去 ——
+    // 纹饰那一片要借它去读预览资源，高速下载那一片要借它统计缓存。
     emit toolShown(m_current);
 }
 
+void ToolboxPage::openSwitchPopover() {
+    if (QWidget *open = window()->findChild<QWidget *>(switchPopoverName())) {
+        open->close();  // 再点一次工具名 = 收起
+        return;
+    }
+    auto *popover = new ToolSwitchPopover(m_crumbTool, m_current, [this](Tool tool) { showTool(tool); });
+    popover->popUp();
+}
+
+QWidget *ToolboxPage::buildDownloadPanel() {
+    auto *panel = new QWidget(this);
+    auto *layout = new QVBoxLayout(panel);
+    layout->setContentsMargins(0, 0, 0, 0);
+    m_download = new DownloadToolPanel(panel);
+    layout->addWidget(m_download);
+    return panel;
+}
+
 // ---------------------------------------------------------------------------
-// 一、附魔顺序助手
+// 一、附魔助手
 // ---------------------------------------------------------------------------
 
 QWidget *ToolboxPage::buildAnvilPanel() {
@@ -994,220 +1524,170 @@ QWidget *ToolboxPage::buildAnvilPanel() {
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(8);
 
-    addPanelHeader(layout, panel, Tool::Anvil,
-                   QStringLiteral("列出要合并的物品（默认按附魔书计）。等级上限 39；超出时整条计划"
-                                  "无法执行并会单独提示。勾选第五列 = 把该条附魔并入上一行物品。"));
-
-    m_anvilTable = new QTableWidget(0, 5, panel);
-    m_anvilTable->setObjectName(QStringLiteral("anvilTable"));
-    m_anvilTable->setHorizontalHeaderLabels(
-        {QStringLiteral("附魔"), QStringLiteral("等级"), QStringLiteral("这一件"),
-         QStringLiteral("用过几次"), QStringLiteral("并入上一行")});
-    m_anvilTable->horizontalHeaderItem(3)->setToolTip(QStringLiteral("这一件在铁砧上加工过几次（前科 = 2^n−1）"));
-    m_anvilTable->horizontalHeaderItem(4)->setToolTip(QStringLiteral("勾上 = 和上一行是同一件（比如一本书带两条附魔）"));
-    m_anvilTable->horizontalHeader()->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    m_anvilTable->horizontalHeader()->setProperty(Theme::textRolePropertyName().toUtf8().constData(),
-                                                  Theme::secondaryTextRoleValue());
-    m_anvilTable->verticalHeader()->setVisible(false);
-    m_anvilTable->setFrameShape(QFrame::NoFrame);  // 不描边、不画格线，落在磨砂底上
-    m_anvilTable->setShowGrid(false);
-    {
-        QPalette pal = m_anvilTable->palette();
-        pal.setColor(QPalette::Base, Qt::transparent);
-        m_anvilTable->setPalette(pal);
-        m_anvilTable->viewport()->setAutoFillBackground(false);
-    }
-    m_anvilTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
-    m_anvilTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
-    m_anvilTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_anvilTable->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_anvilTable->verticalHeader()->setDefaultSectionSize(Theme::inputHeight() + 6);
-    // 表格装进一块柔和面板（列头次要色，落在面板上不再浮在磨砂底上）。
-    auto *tableCard = new SoftPanel(panel);
-    tableCard->box()->setContentsMargins(10, 8, 10, 10);
-    tableCard->box()->addWidget(m_anvilTable);
-    layout->addWidget(tableCard);
+    auto *rowsHost = new AnvilRowsHost(panel);
+    rowsHost->setObjectName(QStringLiteral("anvilRows"));
+    m_anvilRowsHost = rowsHost;
+    layout->addWidget(rowsHost);
 
     auto *rowButtons = new QHBoxLayout;
-    rowButtons->setContentsMargins(0, 0, 0, 0);
-    rowButtons->setSpacing(8);
+    rowButtons->setContentsMargins(0, 6, 0, 0);
+    rowButtons->setSpacing(10);
     auto *addRow = makeGlyphButton(panel, QStringLiteral("anvilAddRow"), Glyph::Plus,
-                                   QStringLiteral("在表格末尾加一行"), QStringLiteral("加一行"), 32);
-    auto *removeRow = makeGlyphButton(panel, QStringLiteral("anvilRemoveRow"), Glyph::Remove,
-                                      QStringLiteral("删掉选中的那一行"), QStringLiteral("删掉这一行"), 32);
-    auto *rename = new QCheckBox(QStringLiteral("顺带改个名"), panel);
+                                   QStringLiteral("在末尾加一行"), QStringLiteral("加一行"), 36);
+    auto *renameLabel = new QLabel(QStringLiteral("顺带改名"), panel);
+    renameLabel->setProperty(Theme::textRolePropertyName().toUtf8().constData(), Theme::secondaryTextRoleValue());
+    auto *rename = new QCheckBox(panel);
     rename->setObjectName(QStringLiteral("anvilRename"));
-    // 铁砧那边改名只加在**一次操作**上：合的时候顺手改（+1 级），或者合完单独改一次
-    // （合完那件的前科 + 1、封顶 39）—— 这一格勾上就按"哪条便宜 / 塞得进去"来算。
-    rename->setToolTip(QStringLiteral("勾上就按「要改名」算：能塞进某一步合的时候就只多 1 级；"
-                                      "每一步都到 39 级了，就合完单独改一次"
-                                      "（合完那件的前科 + 1，封顶 39）。"));
+    rename->setText(QStringLiteral("顺带改名"));  // 开关只画胶囊；文字作无障碍名
+    Theme::markSwitch(rename);
+    // 铁砧改名只加在一次操作上：合的时候顺手改（+1 级），或合完单独改一次；规则在结果那一句里说明。
+    rename->setToolTip(QStringLiteral("按「要改名」算，多 1 级。"));
+    renameLabel->setToolTip(rename->toolTip());
     m_anvilRename = rename;
     auto *plan = new QPushButton(QStringLiteral("计算"), panel);
     plan->setObjectName(QStringLiteral("anvilPlan"));
     Theme::markButton(plan, Theme::ButtonKind::Primary);
     plan->setAutoDefault(false);
-    // 左边是改表格的两颗小钮；右边一组：改名开关 + 这一块唯一的主钮「计算」。
     rowButtons->addWidget(addRow);
-    rowButtons->addWidget(removeRow);
     rowButtons->addStretch(1);
+    rowButtons->addWidget(renameLabel);
     rowButtons->addWidget(rename);
-    rowButtons->addSpacing(8);
+    rowButtons->addSpacing(4);
     rowButtons->addWidget(plan);
     layout->addLayout(rowButtons);
 
-    auto *resultCard = new SoftPanel(panel);
+    // 结果：有结果（或报错）才出现。
+    m_anvilResultBox = new QWidget(panel);
+    m_anvilResultBox->setObjectName(QStringLiteral("anvilResultBox"));
+    auto *resultLayout = new QVBoxLayout(m_anvilResultBox);
+    resultLayout->setContentsMargins(0, 18, 0, 0);
+    resultLayout->setSpacing(8);
     auto *resultHead = new QHBoxLayout;
     resultHead->setContentsMargins(0, 0, 0, 0);
-    resultHead->addWidget(makePanelCaption(resultCard, QStringLiteral("合并顺序")));
+    resultHead->setSpacing(12);
+    auto *resultTitle = new QLabel(QStringLiteral("合并顺序"), m_anvilResultBox);
+    {
+        QFont font = resultTitle->font();
+        font.setPixelSize(15);
+        font.setWeight(QFont::DemiBold);
+        resultTitle->setFont(font);
+    }
+    resultHead->addWidget(resultTitle);
+    m_anvilStepCount = makeMutedLabel(m_anvilResultBox, QStringLiteral("anvilStepCount"));
+    m_anvilStepCount->setWordWrap(false);
+    resultHead->addWidget(m_anvilStepCount);
     resultHead->addStretch(1);
-    resultCard->box()->addLayout(resultHead);
-    m_anvilError = makeMutedLabel(resultCard, QStringLiteral("anvilError"));
+    resultLayout->addLayout(resultHead);
+    m_anvilError = makeMutedLabel(m_anvilResultBox, QStringLiteral("anvilError"));
     m_anvilError->hide();
-    resultCard->box()->addWidget(m_anvilError);
-    m_anvilResult = new QLabel(resultCard);
+    resultLayout->addWidget(m_anvilError);
+    m_anvilResult = new QLabel(m_anvilResultBox);
     m_anvilResult->setObjectName(QStringLiteral("anvilResult"));
     m_anvilResult->setTextFormat(Qt::RichText);
     m_anvilResult->setWordWrap(true);
     m_anvilResult->setTextInteractionFlags(Qt::TextSelectableByMouse);
     m_anvilResult->setAlignment(Qt::AlignTop | Qt::AlignLeft);
-    m_anvilResult->setText(mutedHtml(QStringLiteral("把要合的附魔列在上面，点「计算」看最省等级的合并顺序。")));
-    resultCard->box()->addWidget(m_anvilResult);
-    layout->addWidget(resultCard);
+    resultLayout->addWidget(m_anvilResult);
+    m_anvilResultBox->hide();
+    layout->addWidget(m_anvilResultBox);
     layout->addStretch(1);
 
     connect(addRow, &QPushButton::clicked, this, [this]() { appendAnvilRow(); });
-    connect(removeRow, &QPushButton::clicked, this, [this]() {
-        const int row = m_anvilTable->currentRow();
-        if (row >= 0) {
-            m_anvilTable->removeRow(row);
-            refreshAnvilSameColumn();
-        }
-    });
     connect(plan, &QPushButton::clicked, this, [this]() { emit anvilPlanRequested(); });
 
-    // 一进来就摆一行 —— 空表格看着像没搭好。
+    // 一进来就摆一行 —— 空表看着像没搭好。
     appendAnvilRow();
     return panel;
 }
 
 void ToolboxPage::appendAnvilRow() {
-    if (m_anvilTable == nullptr) {
+    auto *host = static_cast<AnvilRowsHost *>(m_anvilRowsHost);
+    if (host == nullptr || m_anvilRowWidgets.size() >= 64) {
         return;
     }
-    const int row = m_anvilTable->rowCount();
-    m_anvilTable->insertRow(row);
-    // 四格**一眼就能看出是输入控件**：附魔和"这一件"是下拉框、等级和次数是数字框。
-    // 用 `setCellWidget` 而不是可编辑的 item：下拉框和数字框的合法值域由控件自己管着，
-    // 让用户敲一串文本再回来判"这算不算一条附魔"是白费一道工。
-    auto *combo = new QComboBox(m_anvilTable);
+    auto *row = new AnvilRowWidget(host);
+    // 下拉框与数字框的合法值域由控件自己管着（不让用户敲一串文本再回来判"这算不算一条附魔"）。
     for (const auto &pair : m_anvilChoices) {
-        combo->addItem(pair.second, pair.first);
+        row->enchant->addItem(pair.second, pair.first);
     }
-    m_anvilTable->setCellWidget(row, 0, combo);
-    auto *level = new QSpinBox(m_anvilTable);
-    level->setRange(1, 9);  // 附魔等级没有超过 5 的；给到 9 是留个余地，真正的上限在表里
-    level->setValue(1);
-    styleNumberSpin(level);  // 格子窄，不要上下钮；滚轮 / 键盘照样能调
-    m_anvilTable->setCellWidget(row, 1, level);
-    auto *kind = new QComboBox(m_anvilTable);
-    kind->addItem(QStringLiteral("附魔书"), true);
-    kind->addItem(QStringLiteral("装备（已经附过魔的）"), false);
-    m_anvilTable->setCellWidget(row, 2, kind);
-    auto *uses = new QSpinBox(m_anvilTable);
-    uses->setRange(0, 9);
-    uses->setValue(0);
-    uses->setToolTip(QStringLiteral("在铁砧上加工过几次（前科 = 2^n−1）"));
-    styleNumberSpin(uses);
-    m_anvilTable->setCellWidget(row, 3, uses);
-
-    // 第五格：这一条附魔和**上一行**是不是同一件东西。一本书能带好几条附魔、一件装备
-    // 本来也可能已经有好几条 —— 勾上就并进上一行那一件（不是"又一件"）。
-    auto *sameWrap = new QWidget(m_anvilTable);
-    auto *sameLayout = new QHBoxLayout(sameWrap);
-    sameLayout->setContentsMargins(0, 0, 0, 0);
-    sameLayout->setAlignment(Qt::AlignCenter);
-    auto *same = new QCheckBox(sameWrap);
-    same->setObjectName(QStringLiteral("anvilSame"));
-    same->setToolTip(QStringLiteral("勾上表示与上一行是同一件（例如一本书带两条附魔）。"));
-    sameLayout->addWidget(same);
-    m_anvilTable->setCellWidget(row, 4, sameWrap);
-    // 勾上之后"这一件"和"用过几次"就归上一行那一件管了 —— 这两格跟着灰掉，
-    // 免得用户以为这里再填一遍会改到别的东西。
-    connect(same, &QCheckBox::toggled, this, [this](bool) { refreshAnvilSameColumn(); });
-    refreshAnvilSameColumn();
+    row->kind->addItem(QStringLiteral("附魔书"), QStringLiteral("book"));
+    row->kind->addItem(QStringLiteral("装备"), QStringLiteral("gear"));
+    host->addRow(row);
+    m_anvilRowWidgets.append(row);
+    connect(row->kind, &QComboBox::currentIndexChanged, this, [this](int) { refreshAnvilRows(); });
+    connect(row->remove, &QPushButton::clicked, this, [this, row]() {
+        const int index = int(m_anvilRowWidgets.indexOf(row));
+        if (index < 0 || m_anvilRowWidgets.size() <= 1) return;
+        m_anvilRowWidgets.removeAt(index);
+        row->hide();
+        row->deleteLater();
+        refreshAnvilRows();
+    });
+    refreshAnvilRows();
 }
 
-void ToolboxPage::refreshAnvilSameColumn() {
-    if (m_anvilTable == nullptr) {
-        return;
+void ToolboxPage::refreshAnvilRows() {
+    for (int index = 0; index < m_anvilRowWidgets.size(); ++index) {
+        auto *row = static_cast<AnvilRowWidget *>(m_anvilRowWidgets.at(index));
+        // 「同上一件」= 这一条附魔并进上一行那一件（一本书带两条附魔、一件装备本来有好几条）。
+        // 第一行没有上一行，下拉里不提供。
+        const int same = row->kind->findData(QStringLiteral("same"));
+        {
+            const QSignalBlocker blocker(row->kind);
+            if (index == 0 && same >= 0) {
+                if (row->kind->currentIndex() == same) row->kind->setCurrentIndex(0);
+                row->kind->removeItem(same);
+            } else if (index > 0 && same < 0) {
+                row->kind->addItem(QStringLiteral("同上一件"), QStringLiteral("same"));
+            }
+        }
+        // 并进上一行时，「已用次数」归上一行那一件管，这一格灰掉。
+        row->uses->setEnabled(row->kind->currentData().toString() != QStringLiteral("same"));
+        row->setRemovable(m_anvilRowWidgets.size() > 1);
     }
-    // 表格高度跟着行数走（一行就一行高，不留一大块空表；超过 6 行才在表里滚）。
-    const int rows = qBound(1, m_anvilTable->rowCount(), 6);
-    m_anvilTable->setFixedHeight(m_anvilTable->horizontalHeader()->sizeHint().height()
-                                 + rows * m_anvilTable->verticalHeader()->defaultSectionSize() + 4);
-    for (int row = 0; row < m_anvilTable->rowCount(); ++row) {
-        QWidget *wrap = m_anvilTable->cellWidget(row, 4);
-        auto *same = wrap != nullptr ? wrap->findChild<QCheckBox *>() : nullptr;
-        if (same == nullptr) {
-            continue;
-        }
-        if (row == 0) {
-            // 第一行上面没有东西可并 —— 灰着，而且不能替它记着一个 true。
-            same->setChecked(false);
-            same->setEnabled(false);
-            same->setToolTip(QStringLiteral("第一行没有上一行：这一件就是新的一件。"));
-        } else {
-            same->setEnabled(true);
-            same->setToolTip(QStringLiteral("勾上 = 这一条附魔属于上一行那一件（比如一本书带着两条附魔）。"
-                                            "不勾 = 这是新的一件。"));
-        }
-        // 「这一件」和「用过几次」描述的是**那一件东西**：并进上一行时它们归上一行管，
-        // 这一行自己那两格灰掉（不然摆着两个能改、真正生效的却是上面那个）。
-        const bool inherit = row > 0 && same->isChecked();
-        if (auto *kind = qobject_cast<QComboBox *>(m_anvilTable->cellWidget(row, 2))) {
-            kind->setEnabled(!inherit);
-        }
-        if (auto *uses = qobject_cast<QSpinBox *>(m_anvilTable->cellWidget(row, 3))) {
-            uses->setEnabled(!inherit);
-        }
-    }
+    if (auto *host = static_cast<AnvilRowsHost *>(m_anvilRowsHost)) host->relayout();
 }
 
 void ToolboxPage::setAnvilRows(const QList<AnvilRow> &rows) {
-    m_anvilTable->setRowCount(0);
+    for (QWidget *old : m_anvilRowWidgets) {
+        old->hide();
+        old->deleteLater();
+    }
+    m_anvilRowWidgets.clear();
     for (const auto &entry : rows.mid(0, 64)) {
         appendAnvilRow();
-        const int row = m_anvilTable->rowCount() - 1;
-        auto *enchant = qobject_cast<QComboBox *>(m_anvilTable->cellWidget(row, 0));
-        const int index = enchant->findData(entry.id);
-        if (index < 0) { m_anvilTable->removeRow(row); continue; }
-        enchant->setCurrentIndex(index);
-        qobject_cast<QSpinBox *>(m_anvilTable->cellWidget(row, 1))->setValue(entry.level);
-        qobject_cast<QComboBox *>(m_anvilTable->cellWidget(row, 2))->setCurrentIndex(entry.isBook ? 0 : 1);
-        qobject_cast<QSpinBox *>(m_anvilTable->cellWidget(row, 3))->setValue(entry.uses);
-        m_anvilTable->cellWidget(row, 4)->findChild<QCheckBox *>()->setChecked(row > 0 && entry.sameAsPrevious);
+        auto *row = static_cast<AnvilRowWidget *>(m_anvilRowWidgets.last());
+        const int index = row->enchant->findData(entry.id);
+        if (index < 0) {
+            m_anvilRowWidgets.removeLast();
+            row->hide();
+            row->deleteLater();
+            continue;
+        }
+        row->enchant->setCurrentIndex(index);
+        row->level->setValue(entry.level);
+        const bool same = m_anvilRowWidgets.size() > 1 && entry.sameAsPrevious;
+        row->kind->setCurrentIndex(row->kind->findData(same ? QStringLiteral("same")
+                                                       : entry.isBook ? QStringLiteral("book") : QStringLiteral("gear")));
+        row->uses->setValue(entry.uses);
     }
-    refreshAnvilSameColumn();
+    if (m_anvilRowWidgets.isEmpty()) appendAnvilRow();
+    refreshAnvilRows();
 }
 
 void ToolboxPage::setEnchantmentChoices(const QList<QPair<QString, QString>> &idAndName) {
     m_anvilChoices = idAndName;
-    if (m_anvilTable == nullptr) {
-        return;
-    }
     // 已经摆着的那几行也得跟上（表是构造之后才喂进来的）。
-    for (int row = 0; row < m_anvilTable->rowCount(); ++row) {
-        if (auto *combo = qobject_cast<QComboBox *>(m_anvilTable->cellWidget(row, 0))) {
-            const QString previous = combo->currentData().toString();
-            combo->clear();
-            for (const auto &pair : idAndName) {
-                combo->addItem(pair.second, pair.first);
-            }
-            const int index = combo->findData(previous);
-            if (index >= 0) {
-                combo->setCurrentIndex(index);
-            }
+    for (QWidget *widget : m_anvilRowWidgets) {
+        auto *row = static_cast<AnvilRowWidget *>(widget);
+        const QString previous = row->enchant->currentData().toString();
+        row->enchant->clear();
+        for (const auto &pair : idAndName) {
+            row->enchant->addItem(pair.second, pair.first);
+        }
+        const int index = row->enchant->findData(previous);
+        if (index >= 0) {
+            row->enchant->setCurrentIndex(index);
         }
     }
 }
@@ -1218,28 +1698,15 @@ bool ToolboxPage::anvilRename() const {
 
 QList<ToolboxPage::AnvilRow> ToolboxPage::anvilRows() const {
     QList<AnvilRow> rows;
-    if (m_anvilTable == nullptr) {
-        return rows;
-    }
-    for (int row = 0; row < m_anvilTable->rowCount(); ++row) {
+    for (int index = 0; index < m_anvilRowWidgets.size(); ++index) {
+        const auto *row = static_cast<const AnvilRowWidget *>(m_anvilRowWidgets.at(index));
         AnvilRow entry;
-        if (auto *combo = qobject_cast<QComboBox *>(m_anvilTable->cellWidget(row, 0))) {
-            entry.id = combo->currentData().toString();
-        }
-        if (auto *level = qobject_cast<QSpinBox *>(m_anvilTable->cellWidget(row, 1))) {
-            entry.level = level->value();
-        }
-        if (auto *kind = qobject_cast<QComboBox *>(m_anvilTable->cellWidget(row, 2))) {
-            entry.isBook = kind->currentData().toBool();
-        }
-        if (auto *uses = qobject_cast<QSpinBox *>(m_anvilTable->cellWidget(row, 3))) {
-            entry.uses = uses->value();
-        }
-        if (QWidget *wrap = m_anvilTable->cellWidget(row, 4)) {
-            if (auto *same = wrap->findChild<QCheckBox *>()) {
-                entry.sameAsPrevious = same->isChecked();
-            }
-        }
+        entry.id = row->enchant->currentData().toString();
+        entry.level = row->level->value();
+        const QString kind = row->kind->currentData().toString();
+        entry.isBook = kind != QStringLiteral("gear");
+        entry.uses = row->uses->value();
+        entry.sameAsPrevious = index > 0 && kind == QStringLiteral("same");
         if (!entry.id.isEmpty()) {
             rows.append(entry);
         }
@@ -1254,12 +1721,15 @@ void ToolboxPage::setAnvilView(const AnvilView &view) {
     m_anvilError->setText(view.error);
     m_anvilError->setVisible(!view.error.isEmpty());
     if (!view.ok) {
-        m_anvilResult->setText(view.error.isEmpty()
-            ? mutedHtml(QStringLiteral("把要合的附魔列在上面，点「计算」看最省等级的合并顺序。")) : QString());
-        m_anvilResult->setVisible(view.error.isEmpty());
+        m_anvilResult->clear();
+        m_anvilResult->hide();
+        m_anvilStepCount->clear();
+        m_anvilResultBox->setVisible(!view.error.isEmpty());
         return;
     }
+    m_anvilResultBox->show();
     m_anvilResult->show();
+    m_anvilStepCount->setText(view.steps.isEmpty() ? QString() : QStringLiteral("%1 步").arg(view.steps.size()));
     // 先一行结论大字，再是说明（次要色），最后一步一步的列表。
     QString html;
     if (!view.summary.isEmpty()) {
@@ -1290,9 +1760,6 @@ QWidget *ToolboxPage::buildTextPanel() {
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(8);
 
-    addPanelHeader(layout, panel, Tool::Text,
-                   QStringLiteral("也可以把一段 JSON 组件粘进下面「JSON 组件」那格、点"
-                                  "「从 JSON 读回来」反着转。"));
 
     // 输入区：一块柔和面板装原文 + 色码 / 格式两排 + 自定颜色 + 转换按钮。
     auto *inputCard = new SoftPanel(panel);
@@ -1300,7 +1767,7 @@ QWidget *ToolboxPage::buildTextPanel() {
     inputBox->setSpacing(10);
     m_textSource = new QPlainTextEdit(inputCard);
     m_textSource->setObjectName(QStringLiteral("textSource"));
-    m_textSource->setPlaceholderText(QStringLiteral("比如：欢迎来到 §b服务器§r！"));
+    m_textSource->setPlaceholderText(QStringLiteral("欢迎来到 §b服务器§r！"));
     m_textSource->setMinimumHeight(72);
     m_textSource->setMaximumHeight(120);
     m_textSource->setFrameShape(QFrame::NoFrame);
@@ -1322,6 +1789,7 @@ QWidget *ToolboxPage::buildTextPanel() {
     m_textPaletteLayout->setHorizontalSpacing(12);
     m_textPaletteLayout->setVerticalSpacing(6);
     m_textPaletteLayout->setColumnMinimumWidth(0, 40);
+    m_textPaletteLayout->setColumnStretch(1, 1);
     inputBox->addWidget(m_textPaletteRow);
 
     // 1.16 起那份自定颜色：十六色表里没有的颜色。这一格只收 `#RRGGBB` 六位 ——
@@ -1331,7 +1799,7 @@ QWidget *ToolboxPage::buildTextPanel() {
     m_textHex->setPlaceholderText(QStringLiteral("#ff8800"));
     m_textHex->setMaxLength(7);
     m_textHex->setFixedWidth(104);
-    m_textHex->setToolTip(QStringLiteral("六位十六进制（#RRGGBB）。§ 写法需 1.16 起。"));
+    m_textHex->setToolTip(QStringLiteral("需 1.16 起。"));
     auto *hexInsert = makeGlyphButton(inputCard, QStringLiteral("textHexInsert"), Glyph::Plus,
                                       m_textHex->toolTip(), QStringLiteral("插自定颜色"), 32);
     connect(hexInsert, &QPushButton::clicked, this,
@@ -1341,7 +1809,7 @@ QWidget *ToolboxPage::buildTextPanel() {
 
     auto *fromJson = new QPushButton(QStringLiteral("从 JSON 读回来"), inputCard);
     fromJson->setObjectName(QStringLiteral("textFromJson"));
-    fromJson->setToolTip(QStringLiteral("把下面「JSON 组件」那一格里的内容读回上面的原文"));
+    fromJson->setToolTip(QStringLiteral("把下面 JSON 里的内容读回原文。"));
     Theme::markButton(fromJson, Theme::ButtonKind::Ghost);
     auto *toJson = new QPushButton(QStringLiteral("从原文生成"), inputCard);
     toJson->setObjectName(QStringLiteral("textFromSource"));
@@ -1351,7 +1819,21 @@ QWidget *ToolboxPage::buildTextPanel() {
     Theme::markButton(clear, Theme::ButtonKind::Ghost);
     for (QPushButton *b : {fromJson, toJson, clear}) b->setAutoDefault(false);
     // 左：自定颜色；右：次要的三颗转换动作成一组。
-    inputBox->addLayout(makeButtonRow({m_textHex, hexInsert}, {fromJson, toJson, clear}));
+    auto *textActions = new QBoxLayout(QBoxLayout::LeftToRight);
+    textActions->setSpacing(8);
+    auto *customGroup = new QHBoxLayout;
+    customGroup->setSpacing(8);
+    customGroup->addWidget(m_textHex);
+    customGroup->addWidget(hexInsert);
+    customGroup->addStretch(1);
+    auto *convertGroup = new QHBoxLayout;
+    convertGroup->setSpacing(8);
+    convertGroup->addStretch(1);
+    for (QWidget *w : QList<QWidget *>{fromJson, toJson, clear}) convertGroup->addWidget(w);
+    textActions->addLayout(customGroup, 1);
+    textActions->addLayout(convertGroup, 1);
+    inputBox->addLayout(textActions);
+    new NarrowFlip(panel, textActions, 640);
 
     m_textNotice = makeMutedLabel(inputCard, QStringLiteral("textNotice"));
     m_textNotice->hide();
@@ -1376,36 +1858,38 @@ QWidget *ToolboxPage::buildTextPanel() {
         layout->addWidget(card);
     }
 
+    // 输出：一张卡，分段切换四种写法（用途只写在分段的提示里），一次只显示一块，复制钮拷当前这一块。
     const struct {
         const char *objectName;
         const char *title;
         const char *tooltip;
     } kOutputs[] = {
-        {"textLegacy", "§ 写法（/give、书与笔）",
-         "直接带 § 码的文本；贴在命令里都用它"},
-        {"textJson", "JSON 组件", "命令里的 text 字段、物品的 display.Name 用它"},
-        {"textTellraw", "/tellraw 命令", "整条命令，可以直接粘进聊天栏按回车"},
-        {"textMotd", "server.properties 的 motd",
-         "整行粘进 server.properties；非 ASCII 已转成 \\uXXXX"},
+        {"textLegacy", "§ 写法", "带 § 码的文本，/give、书与笔、命令里都用它。"},
+        {"textJson", "JSON", "命令里的 text 字段、物品名称用它。"},
+        {"textTellraw", "tellraw", "整条命令，直接粘进聊天栏。"},
+        {"textMotd", "motd", "整行写进 server.properties，非 ASCII 已转成 \\uXXXX。"},
     };
+    QFrame *outCard = makeSectionCard(panel);
+    auto *outBox = static_cast<QVBoxLayout *>(outCard->layout());
+    outBox->setSpacing(8);
+    auto *outHead = new QHBoxLayout;
+    outHead->setContentsMargins(0, 0, 0, 0);
+    outHead->setSpacing(8);
+    auto *segment = new QWidget(outCard);
+    segment->setObjectName(QStringLiteral("textOutputSegments"));
+    auto *segmentLayout = new QHBoxLayout(segment);
+    segmentLayout->setContentsMargins(3, 3, 3, 3);
+    segmentLayout->setSpacing(2);
+    QList<QPushButton *> segments;
+    auto *outStack = new QStackedWidget(outCard);
+    outStack->setObjectName(QStringLiteral("textOutputStack"));
     for (const auto &spec : kOutputs) {
-        QFrame *card = makeSectionCard(panel);
-        auto *cardBox = static_cast<QVBoxLayout *>(card->layout());
-        cardBox->setSpacing(4);
-        auto *head = new QHBoxLayout;
-        head->setContentsMargins(0, 0, 0, 0);
-        head->setSpacing(4);
-        head->addWidget(makePanelCaption(card, QString::fromUtf8(spec.title)));
-        head->addStretch(1);
-        auto *copy = makeGlyphButton(card, QString(), Glyph::Copy, QString::fromUtf8(spec.tooltip),
-                                     QStringLiteral("复制"));
-        head->addWidget(copy);
-        cardBox->addLayout(head);
-        QPlainTextEdit *box = makeOutputBox(card, QString::fromLatin1(spec.objectName));
-        cardBox->addWidget(box);
-        layout->addWidget(card);
-        connect(copy, &QPushButton::clicked, this,
-                [box]() { copyToClipboard(box->toPlainText()); });
+        auto *button = new QPushButton(QString::fromUtf8(spec.title), segment);
+        button->setToolTip(QString::fromUtf8(spec.tooltip));
+        segmentLayout->addWidget(button);
+        segments.append(button);
+        QPlainTextEdit *box = makeOutputBox(outCard, QString::fromLatin1(spec.objectName));
+        outStack->addWidget(box);
         if (qstrcmp(spec.objectName, "textLegacy") == 0) {
             m_textLegacy = box;
         } else if (qstrcmp(spec.objectName, "textJson") == 0) {
@@ -1416,6 +1900,22 @@ QWidget *ToolboxPage::buildTextPanel() {
             m_textMotd = box;
         }
     }
+    Theme::markSegmented(segment, segments);
+    segments.first()->setChecked(true);
+    for (int i = 0; i < segments.size(); ++i) {
+        connect(segments.at(i), &QPushButton::clicked, outStack, [outStack, i] { outStack->setCurrentIndex(i); });
+    }
+    outHead->addWidget(segment);
+    outHead->addStretch(1);
+    auto *copy = makeGlyphButton(outCard, QStringLiteral("textOutputCopy"), Glyph::Copy,
+                                 QStringLiteral("复制当前这一种写法"), QStringLiteral("复制"));
+    outHead->addWidget(copy);
+    outBox->addLayout(outHead);
+    outBox->addWidget(outStack);
+    layout->addWidget(outCard);
+    connect(copy, &QPushButton::clicked, this, [outStack]() {
+        if (auto *box = qobject_cast<QPlainTextEdit *>(outStack->currentWidget())) copyToClipboard(box->toPlainText());
+    });
     layout->addStretch(1);
 
     connect(fromJson, &QPushButton::clicked, this,
@@ -1453,12 +1953,8 @@ void ToolboxPage::setTextPalette(const QList<PaletteEntry> &entries) {
         old->deleteLater();
     }
     // 两排：「颜色」一排十六颗圆色点，「格式」一排文字 chip（粗体 / 斜体 …… / 复位）。
-    auto *colorRow = new QHBoxLayout;
-    colorRow->setContentsMargins(0, 0, 0, 0);
-    colorRow->setSpacing(2);
-    auto *styleRow = new QHBoxLayout;
-    styleRow->setContentsMargins(0, 0, 0, 0);
-    styleRow->setSpacing(6);
+    auto *colorRow = new FlowLayout(2, 2);
+    auto *styleRow = new FlowLayout(6, 6);
     for (const PaletteEntry &entry : entries) {
         auto *button = new QPushButton(m_textPaletteRow);
         button->setObjectName(QStringLiteral("textCode_%1").arg(entry.code));
@@ -1507,17 +2003,15 @@ void ToolboxPage::setTextPalette(const QList<PaletteEntry> &entries) {
             }
         });
     }
-    colorRow->addStretch(1);
-    styleRow->addStretch(1);
     const auto caption = [this](const QString &text) {
         auto *label = makeMutedLabel(m_textPaletteRow);
         label->setText(text);
         label->setWordWrap(false);
         return label;
     };
-    m_textPaletteLayout->addWidget(caption(QStringLiteral("颜色")), 0, 0);
+    m_textPaletteLayout->addWidget(caption(QStringLiteral("颜色")), 0, 0, Qt::AlignTop);
     m_textPaletteLayout->addLayout(colorRow, 0, 1);
-    m_textPaletteLayout->addWidget(caption(QStringLiteral("格式")), 1, 0);
+    m_textPaletteLayout->addWidget(caption(QStringLiteral("格式")), 1, 0, Qt::AlignTop);
     m_textPaletteLayout->addLayout(styleRow, 1, 1);
 }
 
@@ -1570,8 +2064,6 @@ QWidget *ToolboxPage::buildCoordPanel() {
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(8);
 
-    addPanelHeader(layout, panel, Tool::Coord,
-                   QStringLiteral("（主世界与下界是 8:1，末地不按比例算。）"));
 
     // ---------- 输入区：维度 / 三格坐标 / 从 tp 命令认 ----------
     FormGrid form(panel);
@@ -1603,24 +2095,25 @@ QWidget *ToolboxPage::buildCoordPanel() {
     convert->setAutoDefault(false);
     Theme::markButton(convert, Theme::ButtonKind::Primary);
     // 「换算」是这一块唯一的主钮，紧跟在三格坐标后面（同一行、靠右）。
-    auto *coordLine = form.addRow(QStringLiteral("坐标"),
-                {axis(QStringLiteral("X")), makeNumberField(panel, m_coordX, false, 120),
-                 axis(QStringLiteral("Y")), makeNumberField(panel, m_coordY, false, 120),
-                 axis(QStringLiteral("Z")), makeNumberField(panel, m_coordZ, false, 120)});
-    coordLine->addWidget(convert);
+    // 每个轴「字母 + 数字框」成一组，窄时整组折行，不把字母和框拆开。
+    const auto axisGroup = [&](const QString &text, QDoubleSpinBox *spin) {
+        auto *group = new QWidget(panel);
+        auto *row = new QHBoxLayout(group);
+        row->setContentsMargins(0, 0, 0, 0);
+        row->setSpacing(8);
+        row->addWidget(axis(text));
+        row->addWidget(makeNumberField(group, spin, false, 120));
+        return group;
+    };
+    // 「换算」是这一块唯一的主钮，紧跟在三格坐标后面。
+    form.addFlowRow(QStringLiteral("坐标"),
+                    {axisGroup(QStringLiteral("X"), m_coordX), axisGroup(QStringLiteral("Y"), m_coordY),
+                     axisGroup(QStringLiteral("Z"), m_coordZ), convert});
 
-    m_tpInput = new QLineEdit(panel);
-    m_tpInput->setObjectName(QStringLiteral("coordTpInput"));
-    m_tpInput->setPlaceholderText(
-        QStringLiteral("粘一行 /execute in minecraft:overworld run tp @s 80.50 63.00 -76.50 0.00 0.00"));
-    auto *parse = new QPushButton(QStringLiteral("认一下"), panel);
-    parse->setObjectName(QStringLiteral("coordParseTp"));
-    parse->setToolTip(QStringLiteral("从这行命令里读出维度和坐标，填进上面"));
-    parse->setAutoDefault(false);
-    Theme::markButton(parse, Theme::ButtonKind::Neutral);
-    auto *tpLine = form.addRow(QStringLiteral("从命令读"), {m_tpInput, parse});
-    tpLine->setStretchFactor(m_tpInput, 1);
-    delete tpLine->takeAt(tpLine->count() - 1);  // 输入框自己吃满，不再留尾巴空档
+    // 坐标框直接接受粘贴的 tp 命令（F3+C 复制的那一行）：粘进来的不是数字就交给 controller 认。
+    for (QDoubleSpinBox *spin : {m_coordX, m_coordY, m_coordZ}) {
+        new TpPasteFilter(spin, [this](const QString &text) { emit teleportParseRequested(text); });
+    }
     layout->addLayout(form.grid);
 
     m_tpNotice = makeMutedLabel(panel, QStringLiteral("coordTpNotice"));
@@ -1632,7 +2125,7 @@ QWidget *ToolboxPage::buildCoordPanel() {
     // ---------- 结果区：结论一行 + 其余几行 + tp 命令 ----------
     ResultBox result = makeResultBox(panel, QStringLiteral("换算结果"), QStringLiteral("coordResult"));
     m_coordResult = result.headline;
-    setReport(m_coordResult, QString(), QStringLiteral("填好坐标，点「换算」。"));
+    setReport(m_coordResult, QString());
 
     auto *commandRow = new QHBoxLayout;
     commandRow->setContentsMargins(0, 6, 0, 0);
@@ -1641,7 +2134,6 @@ QWidget *ToolboxPage::buildCoordPanel() {
     m_tpCommand->setObjectName(QStringLiteral("coordTpCommand"));
     m_tpCommand->setReadOnly(true);
     m_tpCommand->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
-    m_tpCommand->setPlaceholderText(QStringLiteral("点「生成 tp 命令」得到一条 /tp 命令"));
     auto *makeCommand = new QPushButton(QStringLiteral("生成 tp 命令"), result.card);
     makeCommand->setObjectName(QStringLiteral("coordMakeTp"));
     makeCommand->setAutoDefault(false);
@@ -1655,10 +2147,6 @@ QWidget *ToolboxPage::buildCoordPanel() {
     layout->addWidget(result.card);
     layout->addStretch(1);
 
-    connect(parse, &QPushButton::clicked, this,
-            [this]() { emit teleportParseRequested(m_tpInput->text()); });
-    connect(m_tpInput, &QLineEdit::returnPressed, this,
-            [this]() { emit teleportParseRequested(m_tpInput->text()); });
     connect(convert, &QPushButton::clicked, this, [this]() {
         emit coordinateRequested(m_coordDimension->currentIndex(), m_coordX->value(),
                                  m_coordY->value(), m_coordZ->value());
@@ -1714,7 +2202,7 @@ void ToolboxPage::setCoordinateRows(const QStringList &rows) {
         return;
     }
     // 第一行（目标维度那一格）当结论大字，其余几行当细项；复制的是整几行原文。
-    setReport(m_coordResult, rows.join(QLatin1Char('\n')), QStringLiteral("填好坐标，点「换算」。"));
+    setReport(m_coordResult, rows.join(QLatin1Char('\n')));
 }
 
 void ToolboxPage::setTeleportParse(bool ok, const QString &message) {
@@ -1744,13 +2232,11 @@ QWidget *ToolboxPage::buildServerPanel() {
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(8);
 
-    addPanelHeader(layout, panel, Tool::Server,
-                   QStringLiteral("地址填 host 或 host:port（默认端口 25565）。查实时 MOTD，量的是状态握手一个来回。"));
 
     FormGrid form(panel);
     m_serverInput = new QLineEdit(panel);
     m_serverInput->setObjectName(QStringLiteral("serverAddress"));
-    m_serverInput->setPlaceholderText(QStringLiteral("mc.hypixel.net"));
+    m_serverInput->setPlaceholderText(QStringLiteral("host:port，默认 25565"));
     m_serverCheck = new QPushButton(QStringLiteral("检测"), panel);
     m_serverCheck->setObjectName(QStringLiteral("serverCheck"));
     m_serverCheck->setAutoDefault(false);
@@ -1786,9 +2272,9 @@ QWidget *ToolboxPage::buildServerPanel() {
     m_serverResult->setWordWrap(true);
     m_serverResult->setTextInteractionFlags(Qt::TextSelectableByMouse);
     m_serverResult->setAlignment(Qt::AlignTop | Qt::AlignLeft);
-    m_serverResult->setText(mutedHtml(QStringLiteral("填好地址，点「检测」。")));
     body->addWidget(m_serverResult, 1);
     card->box()->addLayout(body);
+    card->hide();  // 没有结果不画
     layout->addWidget(card);
     layout->addStretch(1);
 
@@ -1860,14 +2346,14 @@ void ToolboxPage::setServerView(const ServerView &view) {
         html.append(QStringLiteral("<div style='font-size:16px'>%1</div>").arg(view.motd));
         line(QStringLiteral("版本"), view.version);
         line(QStringLiteral("在线"), view.players);
-        // 写「握手往返」不写「延迟」：这一次测的是状态查询那一个来回，不是游戏内延迟。
-        line(QStringLiteral("握手往返"), view.latency);
+        line(QStringLiteral("延迟"), view.latency);
     }
     line(QStringLiteral("地址"), view.address);
     if (!rows.isEmpty()) {
         html.append(QStringLiteral("<table style='margin-top:8px' cellspacing='0' cellpadding='0'>%1</table>").arg(rows));
     }
     m_serverResult->setText(html);
+    m_serverResult->parentWidget()->show();
 }
 
 void ToolboxPage::setServerBusy(bool busy) {
@@ -1891,25 +2377,18 @@ QWidget *ToolboxPage::buildHashPanel() {
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(8);
 
-    addPanelHeader(layout, panel, Tool::Hash,
-                   QStringLiteral("拖入文件，或点「选一个…」；已知哈希可直接粘贴。"));
 
     // ---------- 输入区：文件 / 算法 + 对照摘要 ----------
     FormGrid form(panel);
     m_hashPath = new QLineEdit(panel);
     m_hashPath->setObjectName(QStringLiteral("hashPath"));
-    m_hashPath->setPlaceholderText(QStringLiteral("拖一个文件进来，或者点「选一个…」"));
-    auto *browse = new QPushButton(QStringLiteral("选一个…"), panel);
+    m_hashPath->setPlaceholderText(QStringLiteral("拖入文件或点击选择"));
+    auto *browse = new QPushButton(QStringLiteral("选择…"), panel);
+    browse->setToolTip(QStringLiteral("可多选，多个文件逐个计算。"));
     browse->setObjectName(QStringLiteral("hashBrowse"));
     browse->setAutoDefault(false);
     Theme::markButton(browse, Theme::ButtonKind::Neutral);
-    // ---------- 批量（「补多文件、复制/导出列表」） ----------
-    m_hashBatch = new QPushButton(QStringLiteral("批量…"), panel);
-    m_hashBatch->setObjectName(hashBatchName());
-    m_hashBatch->setToolTip(QStringLiteral("一次选好几个文件，按同一档算法逐个算。"));
-    m_hashBatch->setAutoDefault(false);
-    Theme::markButton(m_hashBatch, Theme::ButtonKind::Ghost);
-    auto *fileLine = form.addRow(QStringLiteral("文件"), {m_hashPath, browse, m_hashBatch});
+    auto *fileLine = form.addRow(QStringLiteral("文件"), {m_hashPath, browse});
     fileLine->setStretchFactor(m_hashPath, 1);
     delete fileLine->takeAt(fileLine->count() - 1);
 
@@ -1920,7 +2399,7 @@ QWidget *ToolboxPage::buildHashPanel() {
     form.add(QStringLiteral("算法"), m_hashAlgorithm);
     m_hashExpected = new QLineEdit(panel);
     m_hashExpected->setObjectName(QStringLiteral("hashExpected"));
-    m_hashExpected->setPlaceholderText(QStringLiteral("（可选）粘上人家给的那一串摘要"));
+    m_hashExpected->setPlaceholderText(QStringLiteral("对照摘要（可选）"));
 
     m_hashProgress = makeMutedLabel(panel, QStringLiteral("hashProgress"));
     m_hashRun = new QPushButton(QStringLiteral("计算"), panel);
@@ -1950,7 +2429,7 @@ QWidget *ToolboxPage::buildHashPanel() {
     head->addWidget(makePanelCaption(card, QStringLiteral("校验结果")));
     head->addStretch(1);
     auto *copy = makeGlyphButton(card, QStringLiteral("hashCopy"), Glyph::Copy,
-                                 QStringLiteral("复制算出来的那串摘要"), QStringLiteral("复制"));
+                                 QStringLiteral("复制摘要"), QStringLiteral("复制"));
     copy->setEnabled(false);
     m_hashCopyAll = makeGlyphButton(card, hashCopyAllName(), Glyph::Copy,
                                     QStringLiteral("复制成标准的校验和格式（一行一个「摘要  文件名」）。"),
@@ -1984,17 +2463,19 @@ QWidget *ToolboxPage::buildHashPanel() {
     m_hashResult->setWordWrap(true);
     m_hashResult->setTextInteractionFlags(Qt::TextSelectableByMouse);
     m_hashResult->setAlignment(Qt::AlignTop | Qt::AlignLeft);
-    m_hashResult->setText(mutedHtml(QStringLiteral("选好文件，点「计算」。")));
     card->box()->addWidget(m_hashResult);
+    card->hide();  // 没有结果不画
     layout->addWidget(card);
     layout->addStretch(1);
 
     connect(browse, &QPushButton::clicked, this, [this]() {
-        const QString path = QFileDialog::getOpenFileName(this, QStringLiteral("选一个文件"),
-                                                          QString(), QString(),
-                                                          nullptr, QFileDialog::DontResolveSymlinks);
-        if (!path.isEmpty()) {
-            m_hashPath->setText(path);
+        // 可多选：一个文件填进路径框；多个文件按同一档算法逐个算（清单）。
+        const QStringList paths = QFileDialog::getOpenFileNames(this, QStringLiteral("选择文件"), QString(), QString(),
+                                                                nullptr, QFileDialog::DontResolveSymlinks);
+        if (paths.size() == 1) {
+            m_hashPath->setText(paths.first());
+        } else if (paths.size() > 1) {
+            emit hashBatchRequested(paths, m_hashAlgorithm != nullptr ? m_hashAlgorithm->currentIndex() : 0);
         }
     });
     connect(m_hashRun, &QPushButton::clicked, this, [this]() {
@@ -2010,14 +2491,6 @@ QWidget *ToolboxPage::buildHashPanel() {
         // 拷的是**摘要那一串本身**（`m_hashHex`），不是结果标签里那一段带 HTML 的排版 ——
         // 把标签的文字整段拷出去，用户粘到人家那格里是"一行说明 + 一串摘要"。
         copyToClipboard(m_hashHex);
-    });
-    connect(m_hashBatch, &QPushButton::clicked, this, [this]() {
-        const QStringList paths =
-            QFileDialog::getOpenFileNames(this, QStringLiteral("选几个文件"), QString(), QString(),
-                                          nullptr, QFileDialog::DontResolveSymlinks);
-        if (!paths.isEmpty()) {
-            emit hashBatchRequested(paths, m_hashAlgorithm != nullptr ? m_hashAlgorithm->currentIndex() : 0);
-        }
     });
     connect(m_hashCopyAll, &QPushButton::clicked, this,
             [this]() { copyToClipboard(m_hashBatchText); });
@@ -2077,13 +2550,13 @@ void ToolboxPage::setHashView(const HashView &view) {
     const QString muted = Theme::tokens().secondary.name(QColor::HexRgb);
     QString html;
     if (!view.ok) {
-        html = QStringLiteral("<div style='font-size:17px;font-weight:600'>没算成</div>"
+        html = QStringLiteral("<div style='font-size:17px;font-weight:600'>计算失败</div>"
                               "<div style='color:%1;margin-top:4px'>%2</div>")
                    .arg(muted, view.error.toHtmlEscaped());
     } else {
         // 结论一行：有对照就说一致 / 不一样，没对照就是「算法 · 大小」；下面才是那串摘要（等宽）。
         const QString headline = view.hasVerdict
-            ? (view.matches ? QStringLiteral("一致") : QStringLiteral("不一样"))
+            ? (view.matches ? QStringLiteral("一致") : QStringLiteral("不一致"))
             : QStringLiteral("%1 摘要已算好").arg(view.algorithm);
         html.append(QStringLiteral("<div style='font-size:17px;font-weight:600'>%1</div>").arg(headline.toHtmlEscaped()));
         if (view.hasVerdict) {
@@ -2100,6 +2573,7 @@ void ToolboxPage::setHashView(const HashView &view) {
                         .arg(view.hex.toHtmlEscaped()));
     }
     m_hashResult->setText(html);
+    m_hashResult->parentWidget()->show();
 }
 
 void ToolboxPage::setHashBatchView(const QList<HashBatchRow> &rows, const QString &summary) {
@@ -2121,13 +2595,14 @@ void ToolboxPage::setHashBatchView(const QList<HashBatchRow> &rows, const QStrin
             // 标准校验和格式：一行一个「摘要 文件名」。导出/复制都走这一份文本。
             checksumLines.append(QStringLiteral("%1  %2").arg(row.hex, row.name));
         } else {
-            html.append(QStringLiteral("<div style='color:%1'>没算成：%2</div>")
+            html.append(QStringLiteral("<div style='color:%1'>计算失败：%2</div>")
                             .arg(muted, (row.error.isEmpty() ? QStringLiteral("（没给原因）") : row.error).toHtmlEscaped()));
         }
     }
     m_hashBatchText =
         checksumLines.isEmpty() ? QString() : checksumLines.join(QLatin1Char('\n')) + QLatin1Char('\n');
     m_hashResult->setText(html);
+    m_hashResult->parentWidget()->show();
     syncHashActions();
 }
 
@@ -2201,8 +2676,6 @@ QWidget *ToolboxPage::buildBeaconPanel() {
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(8);
 
-    addPanelHeader(layout, panel, Tool::Beacon,
-                   QStringLiteral("（底座方块数、矿物折算与效果范围；材质只影响折算，不影响效果。）"));
 
     // ---------- 输入区：两行、每行一对 ----------
     FormGrid form(panel);
@@ -2212,7 +2685,7 @@ QWidget *ToolboxPage::buildBeaconPanel() {
     m_beaconFrom->setRange(0, 4);
     m_beaconFrom->setValue(0);
     m_beaconFrom->setSuffix(QStringLiteral(" 级"));
-    m_beaconFrom->setToolTip(QStringLiteral("0 表示还没搭；这一格只影响「还要再加多少块」"));
+    m_beaconFrom->setSpecialValueText(QStringLiteral("未搭建"));  // 0 = 还没搭
     m_beaconLevel = new QSpinBox(panel);
     m_beaconLevel->setObjectName(beaconLevelSpinName());
     m_beaconLevel->setRange(1, 4);
@@ -2224,7 +2697,6 @@ QWidget *ToolboxPage::buildBeaconPanel() {
     // 第二排：底座材质 + 同一座金字塔上放几颗（「矿物折算」「多信标共用底座」）。
     m_beaconMaterial = new QComboBox(panel);
     m_beaconMaterial->setObjectName(beaconMaterialComboName());
-    m_beaconMaterial->setToolTip(QStringLiteral("只影响折成多少个锭或宝石。"));
     m_beaconMaterial->setMinimumWidth(132);
     m_beaconMaterial->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     m_beaconCount = new QSpinBox(panel);
@@ -2232,16 +2704,14 @@ QWidget *ToolboxPage::buildBeaconPanel() {
     m_beaconCount->setRange(1, 9);
     m_beaconCount->setValue(1);
     m_beaconCount->setSuffix(QStringLiteral(" 颗"));
-    m_beaconCount->setToolTip(
-        QStringLiteral("相邻的信标可共用底座（重叠方块只计一次，按最省材料的摆法计算；"
-                       "最多 9 颗）。"));
+    m_beaconCount->setToolTip(QStringLiteral("可共用底座，最多 9 颗。"));
     form.add(QStringLiteral("底座方块"), m_beaconMaterial,
              QStringLiteral("信标颗数"), makeNumberField(panel, m_beaconCount, true, 64));
     layout->addLayout(form.grid);
 
-    ResultBox result = makeResultBox(panel, QStringLiteral("算出来的结果"), beaconResultName());
+    ResultBox result = makeResultBox(panel, QStringLiteral("结果"), beaconResultName());
     m_beaconResult = result.headline;
-    setReport(m_beaconResult, QString(), QStringLiteral("改上面任意一格就会重算。"));
+    setReport(m_beaconResult, QString());
     layout->addWidget(result.card);
 
     // ---------- 光柱配色：一块面板，左边玻璃清单、右边光柱示意 ----------
@@ -2249,7 +2719,7 @@ QWidget *ToolboxPage::buildBeaconPanel() {
     auto *beamHead = new QHBoxLayout;
     beamHead->setContentsMargins(0, 0, 0, 0);
     beamHead->setSpacing(4);
-    beamHead->addWidget(makePanelCaption(beamCard, QStringLiteral("光柱配色 · 现代 Java 版")));
+    beamHead->addWidget(makePanelCaption(beamCard, QStringLiteral("光柱配色 · 从下往上")));
     beamHead->addStretch(1);
     beamCard->box()->addLayout(beamHead);
 
@@ -2263,8 +2733,6 @@ QWidget *ToolboxPage::buildBeaconPanel() {
     glassList->setFrameShape(QFrame::NoFrame);
     glassList->setMinimumHeight(150);
     glassList->setMaximumHeight(150);
-    glassList->setToolTip(QStringLiteral("从下往上排列；颜色按实际顺序逐层混合。最多 64 层。"));
-    addListEmptyHint(glassList, QStringLiteral("还没放玻璃：选一个颜色，点「添加玻璃」。"));
     glassList->setStyleSheet(QStringLiteral("QListWidget { background: transparent; border: none; }"
                                             "QListWidget::item { padding: 3px 6px; border-radius: 6px; }"));
     // 上移 / 下移 / 删除：一组小图标钮，靠右挨着「添加」那一行。
@@ -2318,9 +2786,6 @@ QWidget *ToolboxPage::buildBeaconPanel() {
         const auto text = beamReport->property("copyText").toString();
         if (!text.isEmpty()) copyToClipboard(text);
     });
-    auto *scope = makeMutedLabel(beamCard, QStringLiteral("beamScopeNotice"));
-    scope->setText(QStringLiteral("玻璃与玻璃板同色；光柱图仅示意分段颜色。"));
-    beamCard->box()->addWidget(scope);
     layout->addWidget(beamCard);
     layout->addStretch(1);
 
@@ -2405,7 +2870,7 @@ int ToolboxPage::beaconTargetLevel() const {
 
 void ToolboxPage::setBeaconResult(const QString &text) {
     if (m_beaconResult != nullptr) {
-        setReport(m_beaconResult, text, QStringLiteral("改上面任意一格就会重算。"));
+        setReport(m_beaconResult, text);
     }
 }
 
@@ -2419,8 +2884,6 @@ QWidget *ToolboxPage::buildBrewingPanel() {
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(8);
 
-    addPanelHeader(layout, panel, Tool::Brewing,
-                   QStringLiteral("（红石粉和荧石粉在游戏里二选一；龙息只能加在喷溅药水上。）"));
 
     // 输入区拆成三行：做什么（药水 / 形态）、做多少（瓶数 / 目标版本）、加料（两个开关）。
     FormGrid form(panel);
@@ -2435,10 +2898,8 @@ QWidget *ToolboxPage::buildBrewingPanel() {
     m_brewingBottles->setRange(1, 64);
     m_brewingBottles->setValue(1);
     m_brewingBottles->setSuffix(QStringLiteral(" 瓶"));
-    m_brewingBottles->setToolTip(QStringLiteral("一次酿造最多 3 瓶；材料与次数按这个瓶数算"));
     auto *version = new QComboBox(panel);
     version->setObjectName(brewingVersionComboName());
-    version->setToolTip(QStringLiteral("按药水首次出现的版本提示；已经选的药水不会被改动。"));
     form.add(QStringLiteral("瓶数"), makeNumberField(panel, m_brewingBottles, true, 72),
              QStringLiteral("目标版本"), version);
 
@@ -2449,9 +2910,9 @@ QWidget *ToolboxPage::buildBrewingPanel() {
     form.addRow(QStringLiteral("加料"), {m_brewingExtended, m_brewingLevel2})->setSpacing(24);
     layout->addLayout(form.grid);
 
-    ResultBox result = makeResultBox(panel, QStringLiteral("一步一步"), brewingResultName());
+    ResultBox result = makeResultBox(panel, QStringLiteral("步骤"), brewingResultName());
     m_brewingResult = result.headline;
-    setReport(m_brewingResult, QString(), QStringLiteral("选好药水，步骤会显示在这里。"));
+    setReport(m_brewingResult, QString());
     layout->addWidget(result.card);
     layout->addStretch(1);
 
@@ -2509,7 +2970,7 @@ QString ToolboxPage::brewingVersion() const {
 
 void ToolboxPage::setBrewingResult(const QString &text) {
     if (m_brewingResult != nullptr) {
-        setReport(m_brewingResult, text, QStringLiteral("选好药水，步骤会显示在这里。"));
+        setReport(m_brewingResult, text);
     }
 }
 
@@ -2543,14 +3004,11 @@ QWidget *ToolboxPage::buildBannerPanel() {
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(8);
 
-    addPanelHeader(layout, panel, Tool::Banner,
-                   QStringLiteral("（原版最多叠 6 层；预览读取本地游戏贴图，不联网下载素材。）"));
 
     // ---------- 输入区：版本（右边保存 / 载入）、底色、新的一层 ----------
     FormGrid form(panel);
     auto *version = new QComboBox(panel);
     version->setObjectName(QStringLiteral("bannerGameVersion"));
-    version->setToolTip(QStringLiteral("按图案首次出现的版本筛选；已有图层不会被删除。"));
     version->setMinimumWidth(160);
     auto *versionLine = form.addRow(QStringLiteral("目标版本"), {version});
     for (bool save : {true, false}) {
@@ -2578,10 +3036,9 @@ QWidget *ToolboxPage::buildBannerPanel() {
     m_bannerColor->setMinimumWidth(120);
     m_bannerAdd = new QPushButton(QStringLiteral("加一层"), panel);
     m_bannerAdd->setObjectName(bannerAddName());
-    m_bannerAdd->setToolTip(QStringLiteral("把所选图案和颜色叠到最上面（最多 6 层）"));
     m_bannerAdd->setAutoDefault(false);
     Theme::markButton(m_bannerAdd, Theme::ButtonKind::Primary);
-    auto *layerLine = form.addRow(QStringLiteral("新的一层"), {m_bannerPattern, m_bannerColor, m_bannerAdd});
+    auto *layerLine = form.addRow(QStringLiteral("图层"), {m_bannerPattern, m_bannerColor, m_bannerAdd});
     layerLine->setStretchFactor(m_bannerPattern, 1);
     delete layerLine->takeAt(layerLine->count() - 1);
     layout->addLayout(form.grid);
@@ -2591,7 +3048,7 @@ QWidget *ToolboxPage::buildBannerPanel() {
     auto *layerHead = new QHBoxLayout;
     layerHead->setContentsMargins(0, 0, 0, 0);
     layerHead->setSpacing(2);
-    layerHead->addWidget(makePanelCaption(layerCard, QStringLiteral("已经排好的层（从下往上）")));
+    layerHead->addWidget(makePanelCaption(layerCard, QStringLiteral("图层（从下往上）")));
     layerHead->addStretch(1);
     m_bannerUp = makeGlyphButton(layerCard, bannerUpName(), Glyph::Up, QStringLiteral("上移"));
     m_bannerDown = makeGlyphButton(layerCard, bannerDownName(), Glyph::Down, QStringLiteral("下移"));
@@ -2624,13 +3081,11 @@ QWidget *ToolboxPage::buildBannerPanel() {
     m_bannerList->setFixedHeight(192);
     m_bannerList->setStyleSheet(QStringLiteral("QListWidget { background: transparent; border: none; }"
                                                "QListWidget::item { padding: 4px 6px; border-radius: 6px; }"));
-    m_bannerList->setToolTip(QStringLiteral("拖动调整图层顺序；列表末尾的图层覆盖前面的图层。"));
-    addListEmptyHint(m_bannerList, QStringLiteral("还没有图层：在上面选好图案和颜色，点「加一层」。"));
     bannerPreviewRow->addWidget(m_bannerList, 1);
     layerCard->box()->addLayout(bannerPreviewRow);
 
     auto *bannerNotice = makeMutedLabel(layerCard, QStringLiteral("bannerVisualNotice"));
-    bannerNotice->setText(QStringLiteral("加载原版客户端 JAR 后显示图案缩略图与二维叠层预览。"));
+    bannerNotice->setText(QStringLiteral("加载游戏贴图后显示预览"));
     bannerNotice->setMinimumWidth(0); bannerNotice->setTextFormat(Qt::PlainText);
     auto *loadTextures = new QPushButton(QStringLiteral("加载贴图…"), layerCard);
     loadTextures->setObjectName(QStringLiteral("bannerLoadTextures"));
@@ -2644,7 +3099,7 @@ QWidget *ToolboxPage::buildBannerPanel() {
     layout->addWidget(layerCard);
 
     // ---------- 结果区：右上「复制指令」 ----------
-    ResultBox result = makeResultBox(panel, QStringLiteral("算出来的结果"), bannerResultName(), false);
+    ResultBox result = makeResultBox(panel, QStringLiteral("结果"), bannerResultName(), false);
     m_bannerResult = result.headline;
     m_bannerCopy = makeGlyphButton(result.card, QStringLiteral("toolboxBannerCopy"), Glyph::Copy,
                                    QStringLiteral("把 /give 指令复制走（1.13–1.20.4 的写法）"),
@@ -2653,7 +3108,7 @@ QWidget *ToolboxPage::buildBannerPanel() {
     result.head->addWidget(m_bannerCopy);
     connect(m_bannerCopy, &QPushButton::clicked, this,
             [this]() { copyToClipboard(m_bannerCommand); });
-    setReport(m_bannerResult, QString(), QStringLiteral("加一层图案后，这里给出图层说明。"));
+    setReport(m_bannerResult, QString());
     layout->addWidget(result.card);
     layout->addStretch(1);
 
@@ -2790,6 +3245,9 @@ void ToolboxPage::syncBannerList() {
     if (m_bannerUndo != nullptr) {
         m_bannerUndo->setEnabled(!m_bannerUndoStack.isEmpty());
     }
+    if (m_bannerAdd != nullptr) {
+        m_bannerAdd->setEnabled(m_bannerLayers.size() < 6);  // 原版最多叠 6 层，到上限「加一层」置灰
+    }
 }
 
 void ToolboxPage::emitBannerNow() {
@@ -2822,7 +3280,7 @@ void ToolboxPage::setBannerPatterns(const QStringList &names) {
 
 void ToolboxPage::setBannerResult(const QString &text) {
     if (m_bannerResult != nullptr) {
-        setReport(m_bannerResult, text, QStringLiteral("加一层图案后，这里给出图层说明。"));
+        setReport(m_bannerResult, text);
     }
 }
 
@@ -2834,7 +3292,10 @@ void ToolboxPage::setBannerPreview(const QImage &image, const QString &notice) {
         preview->setPixmap(framedPreview(image, preview->size(), preview->devicePixelRatioF()));
     }
     auto *label = findChild<QLabel *>(QStringLiteral("bannerVisualNotice"));
-    if (label != nullptr) label->setText(notice.isEmpty() ? QStringLiteral("二维旗面预览 / 按贴图实际层序合成。") : notice);
+    if (label != nullptr) {
+        label->setText(notice);
+        label->setVisible(!notice.isEmpty());
+    }
 }
 void ToolboxPage::setBannerPatternIcons(const QList<QIcon> &icons) {
     if (m_bannerPattern == nullptr) return;
@@ -2904,7 +3365,6 @@ QWidget *ToolboxPage::buildTrimPanel() {
     auto *layout = new QVBoxLayout(panel);
     layout->setContentsMargins(0, 0, 0, 0); layout->setSpacing(6);
     // 精修：和其余八页同一个表头（标题 + 一句说明）。
-    addPanelHeader(layout, panel, Tool::Trim);
     // 左：输入（版本 + 四件 × 三行下拉框）与结果；右：一块柔和面板装预览和资源操作。
     auto *body = new QHBoxLayout; body->setSpacing(16);
     auto *left = new QVBoxLayout; left->setSpacing(14);
@@ -2927,7 +3387,7 @@ QWidget *ToolboxPage::buildTrimPanel() {
         for (int row=0; row<3; ++row) {
             auto *combo=new QComboBox(panel);
             combo->setObjectName(keys[row]+QString::number(slot));
-            combo->setMinimumWidth(0); combo->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);
+            combo->setMinimumWidth(72); combo->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);
             groups[row]->append(combo); form->addWidget(combo,row+1,slot+1);
             connect(combo,&QComboBox::currentIndexChanged,this,[this](int) {
                 if (!m_trimSyncing) restoreTrimEquipment(true);
@@ -2940,19 +3400,18 @@ QWidget *ToolboxPage::buildTrimPanel() {
     versionForm.grid->setColumnMinimumWidth(0, kFormLabelWidth - 24);
     auto *trimVersion = new QComboBox(panel);
     trimVersion->setObjectName(trimVersionComboName());
-    trimVersion->setToolTip(tr("按纹饰图案 / 材料的首次出现版本提示；已经选好的搭配不会被改动。"));
     trimVersion->setMinimumWidth(160);
     versionForm.addRow(tr("目标版本"), {trimVersion});
     left->addLayout(versionForm.grid);
     left->addLayout(form);
-    ResultBox result = makeResultBox(panel, tr("这一套要准备的"), trimResultName());
+    ResultBox result = makeResultBox(panel, tr("要准备"), trimResultName());
     m_trimResult = result.headline;
-    setReport(m_trimResult, QString(), tr("给任意一件选上纹饰，这里列出材料与模板来源。"));
+    setReport(m_trimResult, QString());
     left->addWidget(result.card); left->addStretch(1);
     body->addLayout(left,3);
 
     auto *previewCard = new SoftPanel(panel);
-    previewCard->setMinimumWidth(260);
+    previewCard->setMinimumWidth(240);
     auto *right = previewCard->box(); right->setSpacing(8);
     auto *previewHead = new QHBoxLayout;
     previewHead->setContentsMargins(0, 0, 0, 0);
@@ -2964,7 +3423,6 @@ QWidget *ToolboxPage::buildTrimPanel() {
     m_trimCape->setChecked(false);
     // 还没收到账号外观之前一律当"没有披风"：置灰比勾了却什么都不发生好。
     m_trimCape->setEnabled(false);
-    m_trimCape->setToolTip(tr("默认不显示；勾上后使用当前账号的披风。"));
     connect(m_trimCape,&QCheckBox::toggled,this,[this](bool visible){ emit trimCapeVisibilityChanged(visible); });
     previewHead->addWidget(m_trimCape);
     right->addLayout(previewHead);
@@ -2990,6 +3448,8 @@ QWidget *ToolboxPage::buildTrimPanel() {
     m_trimResourceButtons.last()->setEnabled(false); m_trimResourceButtons.last()->hide();
     right->addLayout(actions);
     body->addWidget(previewCard,2,Qt::AlignTop); layout->addLayout(body,1);
+    // 内容宽 < 640：预览挪到下面（左右并排放不下）。
+    new NarrowFlip(panel, body, 640);
 
     // Legacy controls are migration adapters only, never part of the visible editor.
     m_trimArmor=new QComboBox(panel); m_trimArmor->setObjectName(trimArmorComboName());
@@ -3061,8 +3521,7 @@ void ToolboxPage::setTrimCapeAvailable(bool available) {
         m_trimCape->setChecked(false);
     }
     m_trimCape->setEnabled(available);
-    m_trimCape->setToolTip(available ? tr("默认不显示；勾上后使用当前账号的披风。")
-                                     : tr("当前账号没有可用的披风。"));
+    m_trimCape->setToolTip(available ? QString() : tr("当前账号没有可用的披风。"));
 }
 
 bool ToolboxPage::trimShowCape() const {
@@ -3153,7 +3612,7 @@ QString ToolboxPage::trimVersion() const {
 
 void ToolboxPage::setTrimResult(const QString &text) {
     if (m_trimResult != nullptr) {
-        setReport(m_trimResult, text, tr("给任意一件选上纹饰，这里列出材料与模板来源。"));
+        setReport(m_trimResult, text);
     }
 }
 
@@ -3186,26 +3645,34 @@ int ToolboxPage::trimPieces() const {
 // ---------------------------------------------------------------------------
 
 void ToolboxPage::dragEnterEvent(QDragEnterEvent *event) {
-    if (m_current == Tool::Hash && event->mimeData()->hasUrls()
+    if (!m_inCatalog && m_current == Tool::Hash && event->mimeData()->hasUrls()
         && !event->mimeData()->urls().isEmpty()) {
         event->acceptProposedAction();
         return;
     }
-    QDialog::dragEnterEvent(event);
+    QWidget::dragEnterEvent(event);
 }
 
 void ToolboxPage::dropEvent(QDropEvent *event) {
-    if (m_current == Tool::Hash && event->mimeData()->hasUrls()) {
+    if (!m_inCatalog && m_current == Tool::Hash && event->mimeData()->hasUrls()) {
         const QList<QUrl> urls = event->mimeData()->urls();
         if (!urls.isEmpty()) {
-            // 只认本地文件（拖一个网址进来不是"要算哈希"）。
-            const QString path = urls.first().toLocalFile();
-            if (!path.isEmpty()) {
-                setHashPath(path);
+            // 只认本地文件（拖一个网址进来不是"要算哈希"）；拖进多个按同一档算法逐个算。
+            QStringList paths;
+            for (const QUrl &url : urls) {
+                if (url.isLocalFile()) paths << url.toLocalFile();
+            }
+            if (paths.size() == 1) {
+                setHashPath(paths.first());
+                event->acceptProposedAction();
+                return;
+            }
+            if (paths.size() > 1) {
+                emit hashBatchRequested(paths, algorithmIndex());
                 event->acceptProposedAction();
                 return;
             }
         }
     }
-    QDialog::dropEvent(event);
+    QWidget::dropEvent(event);
 }

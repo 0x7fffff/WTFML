@@ -1,51 +1,34 @@
 /**
  * @file ToolboxPage.hpp
- * @brief 工具箱那一整页（底栏那把扳手 → 一片整块盖住内容区的页），五件小工具共用一页；
- * 第六件「高速下载」不在这一页里，它开自己的独立窗口（见下面的【第六件】）。
- * @note 这一页收五件小工具：文件哈希校验、MOTD 文本生成器（含彩色文本那几种
- * 命令写法）、坐标换算（认 F3+C 复制来的那行 tp 命令）、服务器在线检测，外加
- * 「基于 mc 的铁砧惩罚机制」的附魔顺序助手。
+ * @brief 工具箱页：主窗口的第六个选项卡，导航轨底部「工具箱」进来。目录页 → 工具页两层。
+ * @note 十件工具：附魔助手、坐标换算、信标计算、酿造助手、彩色文本、旗帜设计、纹饰搭配、
+ * 高速下载、延迟测试、SHA 校验。
  *
- * 【为什么五件工具在一个页里，而不是五片页】
+ * 【两层】目录页是自适应网格（每格图标 + 名称 + 一句用途），点一格进工具页；工具页页头是
+ * 面包屑「工具箱 / 附魔助手」：「工具箱」点了回目录，工具名点了弹浮层（`GlassPopover`）直接
+ * 换到别的工具。**没有页内页签，也没有导航轨底部的弹出框。**
  *
- * 这一页和「设置」那页是一个形状：**顶上五颗 tool chip，底下那五件工具各自一片、换着露**
- * （`QStackedWidget`）。理由也一样：这五件事互相之间没有次序、没有前后依赖，用户要的是
- * "随手拿一件用一下就走"，为它各开一页只会让底栏那把扳手变成五个入口。chip 那一排的写法
- * 照抄下载页四颗 chip / 文件页四颗筛选按钮（同一套 `Theme::markButton` 和选中判据）。
- *
- * 【第六件：高速下载为什么不在 chip 里】
- *
- * 直链下载那一件**和这五件不是一个形状**：它要一直挂着一个正在跑的任务
- * （进度、取消、关掉窗口还得接着下），塞进"随手用一下就走"的 chip 页会把这一页变成半个
- * 任务中心。所以它仍然登记在**同一张表** `kToolInfos` / `tools()` 里（键、名字、说明、底栏
- * 面板那颗按钮都跟着这张表走），但 `m_tools` 在构造里把它摘掉：chip 只有五颗、
- * `QStackedWidget` 也只有五片，它由 `ToolboxController::open("download")` 转给独立窗口。
- * 工具箱里的工具允许开独立小窗口（以后可能加到十条）。
+ * 【每件工具一片】十片各自一层滚动区，放在 `QStackedWidget` 里换着露；构造时全搭好，换工具
+ * 只是换哪一格。窄窗口下每片自己重排（内容宽 < 640 时折行 / 叠放），不出横向滚动条。
  *
  * 【这一页自己一根手指都不碰游戏目录】
  *
- * `ui/` **不 include `src/`**（全仓的规矩）。所以这一页只干两件事：把用户敲的东西
- * **收成信号**发出去、把 `ToolboxController` 算好的**字符串**摆上去。算哈希、认坐标、
- * 拼 `tellraw`、排附魔顺序那些全在 `src/tools/` 里（纯函数，各自有判据在 tests/main.cpp）。
- *
- * 【"算"这件事为什么不在这一页里做】
- *
- * 哈希要读一个可能几百 MB 的文件（要进度、要能取消），服务器检测要联网（要超时），
- * 这两件都是**慢活**：它们必须由 controller 派到线程上去，页面上那颗按钮只负责发一句
- * "用户要算了"。另三件是纯字符串活，本来当场就能算，但为了"这几件工具一个形状"，入口
- * 一律是同一条（发信号 → controller 算 → 回来填页面）。「高速下载」不走这一条：它整条链
- * 在 `DirectDownloadController` 里，窗口只管收输入和摆状态（见头文件【第六件】）。
+ * `ui/` **不 include `src/`**（全仓的规矩）。这一页只干两件事：把用户敲的东西**收成信号**
+ * 发出去、把 `ToolboxController` 算好的**字符串**摆上去。算哈希、认坐标、拼 `tellraw`、排附魔
+ * 顺序全在 `src/tools/`（纯函数，各自有判据）。哈希要读大文件、服务器检测要联网，这两件是慢活，
+ * 由 controller 派到线程上去。「高速下载」整条链在 `DirectDownloadController` 里，这一片只管
+ * 收输入、摆状态（`DownloadToolPanel`）。
  */
 
 #pragma once
 
-#include <QDialog>
 #include <QIcon>
 #include <QList>
 #include <QPair>
 #include <QString>
 #include <QStringList>
 #include <QPixmap>
+#include <QWidget>
 
 class QCheckBox;
 class QColor;
@@ -61,52 +44,44 @@ class QPlainTextEdit;
 class QPushButton;
 class QSpinBox;
 class QStackedWidget;
-class QTableWidget;
-class QWidget;
+class QScrollArea;
+class QPushButton;
+class DownloadToolPanel;
 class ArmorTrimPreview;
 namespace SkinModel { struct Scene; }
 
-class ToolboxPage : public QDialog {
+class ToolboxPage : public QWidget {
     Q_OBJECT
 
 public:
-    /// 十件工具。**`tools()` 是 chip 那一排的次序唯一出处**：顶上那排 chip 用其中除
-    /// `Download` 之外的九件（`.cpp` 构造里摘的）；底栏面板另按 `panelTools()` 摆
-    /// （两列五排）。
+    /// 十件工具。**`tools()` 是目录页格子与切换浮层的次序唯一出处。**
     enum class Tool { Anvil, Text, Coord, Server, Hash, Beacon, Brewing, Banner, Trim, Download };
 
-    /// 工具的键（底栏面板那六颗按钮、`ToolboxController::open()` 都用它认人）。
+    /// 工具的键（`ToolboxController::open()` 用它认人）。
     static QString toolKey(Tool tool);
     /// 反着来。认不出来时 @p ok 写 false。
     static Tool toolFromKey(const QString &key, bool *ok = nullptr);
-    /// 中文名（`附魔顺序助手`）。
+    /// 名字（`附魔助手`）：目录格、面包屑、切换浮层都用它。
     static QString toolName(Tool tool);
-    /// 一句话说明（chip 的 tooltip、以及每一片顶上那行小字）。
+    /// 目录格里的一句用途（≤14 字）。
     static QString toolSummary(Tool tool);
-    /// 八件，**次序唯一出处**（`Download` 排第一；它不出 chip、只出底栏面板那颗按钮）。
+    /// 十件，**次序唯一出处**（目录页格子、切换浮层）。
     static QList<Tool> tools();
-    /// 底栏那块「工具箱」面板的摆放次序（**两列五排、
-    /// 行优先**）。它和 `tools()` 故意不是同一个次序 —— `tools()` 是 chip 那一排的次序，
-    /// 面板按常用程度从左到右、从上到下另排一张。返回的十件一件不多一件不少。
-    static QList<Tool> panelTools();
-    /// 面板上那一行短名（`SHA校验` / `延迟测试` …）。**页面 / chip 仍用 `toolName()`**
-    /// （那是完整名字，写在每一片顶上）；面板窄，只放得下两三个字的那个。
-    static QString toolShortName(Tool tool);
-    /// 面板上每一件工具左边画的那枚 24×24 线稿图标。**不是位图资源** —— 现画，
-    /// 颜色由调用方给（面板拿主题色那一档）。
+    /// 一枚 24×24 线稿图标。**不是位图资源** —— 现画，颜色由调用方给。
     static QIcon toolIcon(Tool tool, const QColor &ink);
-    /// 面板标题旁那把扳手（同一个画法）。
-    static QIcon panelTitleIcon(const QColor &ink);    /// 这一页的标题（`OverlayHost::showPage` 顶上那一条写的字）。
-    static QString windowTitle() { return QStringLiteral("工具箱"); }
+    /// 页头那个「工具箱」。
+    static QString pageTitle() { return QStringLiteral("工具箱"); }
 
-    /// 验证工程认控件用的那几个名字（`@p tool` 那一档的 chip / 页 / 以及**底栏面板上
-    /// 对应的那颗按钮** —— 后者长在 `MainWindowUI` 里，但名字跟着这张表走）。
-    static QString toolChipName(Tool tool);
+    /// 验证工程认控件用的名字：目录页里那一格 / 工具页（滚动区）/ 工具面板本体。
+    static QString toolCellName(Tool tool);
     static QString toolPanelName(Tool tool);
-    /// 面板外面那层滚动容器 —— **它才是 `QStackedWidget` 的那一页**。换工具时显隐落在
-    /// 这一层，面板自己是它的子控件（`panel->isHidden()` 量不出"这一片收起来了"）。
+    /// 面板外面那层滚动容器 —— **它才是 `QStackedWidget` 的那一页**。
     static QString toolPageName(Tool tool);
-    static QString toolButtonName(Tool tool);
+    /// 页头面包屑上的三个控件。
+    static QString crumbRootName() { return QStringLiteral("toolboxCrumbRoot"); }
+    static QString crumbToolName() { return QStringLiteral("toolboxCrumbTool"); }
+    static QString catalogName() { return QStringLiteral("toolboxCatalog"); }
+    static QString switchPopoverName() { return QStringLiteral("toolboxSwitchPopover"); }
 
     /// 信标 / 酿造 / 旗帜 / 纹饰四件里认控件用的名字（验证工程用）。
     static QString beaconFromSpinName() { return QStringLiteral("toolboxBeaconFrom"); }
@@ -149,15 +124,23 @@ public:
     static QString trimCapeCheckName() { return QStringLiteral("toolboxTrimCape"); }
     /// 哈希那一件：算完之后文件被改过的那句提醒（空串 = 收起来）。
     static QString hashNoticeName() { return QStringLiteral("toolboxHashNotice"); }
-    static QString hashBatchName() { return QStringLiteral("toolboxHashBatch"); }
     static QString hashCopyAllName() { return QStringLiteral("toolboxHashCopyAll"); }
     static QString hashExportName() { return QStringLiteral("toolboxHashExport"); }
 
     explicit ToolboxPage(QWidget *parent = nullptr);
 
-    /// 切到 @p tool（开页时也走它）。
+    /// 进 @p tool 那一片（开页时也走它）。
     void showTool(Tool tool);
     Tool currentTool() const { return m_current; }
+    /// 回目录页。
+    void showCatalog();
+    /// 现在停在目录页吗。
+    bool inCatalog() const { return m_inCatalog; }
+    /// 「高速下载」那一片（`DirectDownloadController::attach()` 接它）。
+    DownloadToolPanel *downloadPanel() const { return m_download; }
+    /// 工具页里内容区的最大宽度（宽窗口时居中）。
+    static constexpr int kToolMaxWidth = 880;
+    static constexpr int kCatalogMaxWidth = 980;
 
     // ================= 一、附魔顺序助手 =================
 
@@ -408,8 +391,10 @@ public:
     bool trimWholeSet() const;
 
 signals:
-    /// 换到哪一件工具（顶上那排 chip 和工具箱面板都走 `showTool()`，只在这里发一次）。
+    /// 进了哪一件工具（目录格、切换浮层、程序里调 `showTool()` 都在这里发一次）。
     void toolShown(ToolboxPage::Tool tool);
+    /// 回到了目录页。
+    void catalogShown();
     void trimEquipmentChanged();
     /// 「显示披风」被勾上 / 取消（披风图由 controller 给，这一层只报这个开关）。
     void trimCapeVisibilityChanged(bool visible);
@@ -418,7 +403,6 @@ signals:
     void bannerTexturesRequested();
     void bannerSaveRequested();
     void bannerLoadRequested();
-    void downloadToolRequested();
     // ---- 附魔顺序助手 ----
     void anvilPlanRequested();
     // ---- 文本生成器 ----
@@ -452,14 +436,13 @@ signals:
                        int pieces, bool wholeSet);
 
 protected:
-    /// 拖一个文件进来（只对"哈希校验"这一件有意义 —— 别的工具不吃文件）。
-    /// 判据见 .cpp：当前不是哈希那一件、或者拖进来的不是本地文件，就原样交给基类。
+    /// 拖一个文件进来（只对「SHA 校验」这一片有意义 —— 别的工具不吃文件）。
+    /// 判据见 .cpp：当前不是哈希那一片、或者拖进来的不是本地文件，就原样交给基类。
     void dragEnterEvent(QDragEnterEvent *event) override;
     void dropEvent(QDropEvent *event) override;
 
 private:
-    /// 五片各自搭一次（构造函数里全搭好，切的时候只是换 `QStackedWidget` 那一格）。
-    /// NOTE: `Download` 不占 `QStackedWidget` 的一格（它不是这一页的一片，见头文件）。
+    /// 十片各自搭一次（构造函数里全搭好，切的时候只是换 `QStackedWidget` 那一格）。
     QWidget *buildAnvilPanel();
     QWidget *buildTextPanel();
     QWidget *buildCoordPanel();
@@ -469,16 +452,19 @@ private:
     QWidget *buildBrewingPanel();
     QWidget *buildBannerPanel();
     QWidget *buildTrimPanel();
-    /// 顶上那排 chip（点一下 = showTool）。
-    QWidget *buildChipRow();
+    QWidget *buildDownloadPanel();
+    /// 页头（目录页：标题 + 记住输入；工具页：面包屑）。
+    QWidget *buildHeader();
+    QWidget *buildCatalog();
+    /// 弹出切换浮层（面包屑上的工具名）。
+    void openSwitchPopover();
+    void syncHeader();
     /// 附魔那一张表加一行（「加一行」和"构造时先摆一行"走的是同一段）。
     void appendAnvilRow();
-    /// 删掉一行之后把「和上一行同一件」那一列重新摆一遍（第一行没有上一行）。
-    void refreshAnvilSameColumn();
+    /// 删掉 / 加上一行之后重新摆一遍：第一行的「同上一件」去掉、悬停删除钮、窄时折行。
+    void refreshAnvilRows();
     /// 哈希结果区右上那组钮：单文件只留「复制」，批量清单才出「复制全部 / 导出…」。
     void syncHashActions();
-    /// chip 的选中态（只认当前那一颗，和下载页四颗 chip 同一套判据）。
-    void syncChips();
     /// 旗帜那一排层的列表按 `m_bannerLayers` 重画一遍（行名从两张下拉框里取）。
     void syncBannerList();
     /// 旗帜这一份改了（底色 / 层序）之后发一发。
@@ -486,12 +472,24 @@ private:
 
     Tool m_current = Tool::Anvil;
     QList<Tool> m_tools;
-    QStackedWidget *m_stack = nullptr;
-    QList<QPushButton *> m_chips;
+    bool m_inCatalog = true;
+    QStackedWidget *m_levels = nullptr;  ///< 0 = 目录页，1 = 工具页
+    QStackedWidget *m_stack = nullptr;   ///< 十片工具，次序 = `m_tools`
+    QWidget *m_headerInner = nullptr;
+    QWidget *m_catalogHead = nullptr;
+    QWidget *m_crumbHead = nullptr;
+    QPushButton *m_crumbRoot = nullptr;
+    QPushButton *m_crumbTool = nullptr;
+    QCheckBox *m_remember = nullptr;
+    QWidget *m_catalogBody = nullptr;
+    DownloadToolPanel *m_download = nullptr;
 
     // 一、附魔顺序助手
-    QTableWidget *m_anvilTable = nullptr;
+    QWidget *m_anvilRowsHost = nullptr;      ///< 一行一行的输入区（固定列宽网格）
+    QList<QWidget *> m_anvilRowWidgets;      ///< 每行一个容器；容器 property "role" 区分框
     QCheckBox *m_anvilRename = nullptr;
+    QWidget *m_anvilResultBox = nullptr;
+    QLabel *m_anvilStepCount = nullptr;
     QList<QPair<QString, QString>> m_anvilChoices;
     QLabel *m_anvilResult = nullptr;
     QLabel *m_anvilError = nullptr;
@@ -513,7 +511,6 @@ private:
     QDoubleSpinBox *m_coordX = nullptr;
     QDoubleSpinBox *m_coordY = nullptr;
     QDoubleSpinBox *m_coordZ = nullptr;
-    QLineEdit *m_tpInput = nullptr;
     QLineEdit *m_tpCommand = nullptr;
     QLabel *m_tpNotice = nullptr;
     QLabel *m_coordResult = nullptr;
@@ -538,7 +535,6 @@ private:
     /// 算出来的那一串摘要（「复制」那颗拷的是它 —— 结果标签里画的带 HTML，不能整段拷）。
     QString m_hashHex;
     /// 批量那一档（「补多文件」+「复制/导出列表」）。
-    QPushButton *m_hashBatch = nullptr;    ///< 「批量…」——选好几个文件一次算
     QPushButton *m_hashCopyAll = nullptr;  ///< 「复制全部」（标准校验和文本）
     QPushButton *m_hashExport = nullptr;   ///< 「导出…」（写一个 .txt）
     /// 批量结果的纯文本（`<摘要> <文件名>` 一行一个）。空串 = 没有批量结果。

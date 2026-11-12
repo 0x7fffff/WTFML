@@ -1,5 +1,6 @@
 #include "Support.hpp"
 #include "ThemeAdvancedEditor.hpp"
+#include "Glass.hpp"
 #include <QToolButton>
 #include <QSpinBox>
 int UiThemeCheck(QApplication &app) {
@@ -31,11 +32,48 @@ int UiThemeCheck(QApplication &app) {
             Theme::apply(app);
             expect(app.font().pixelSize() == 14, "application body text uses the shared 14 px scale");
             QFont bold = app.font(); bold.setBold(true);
-            expect(Theme::textFont(bold, Theme::TextRole::Caption).pixelSize() == 12 &&
-                   Theme::textFont(bold, Theme::TextRole::Heading).pixelSize() == 18 &&
-                   Theme::textFont(bold, Theme::TextRole::Display).pixelSize() == 28 &&
+            expect(Theme::textFont(bold, Theme::TextRole::Caption).pixelSize() == 13 &&
+                   Theme::textFont(bold, Theme::TextRole::Body).pixelSize() == 14 &&
+                   Theme::textFont(bold, Theme::TextRole::Heading).pixelSize() == 16 &&
+                   Theme::textFont(bold, Theme::TextRole::Display).pixelSize() == 26 &&
+                   Theme::textFont(bold, Theme::TextRole::Empty).pixelSize() == 22 &&
                    Theme::textFont(bold, Theme::TextRole::Caption).bold(),
-                   "four readable text roles preserve font weight across themes");
+                   "tokens-r2 type scale: aux 13 / body 14 / section 16 / title 26 (+ empty 22)");
+            {
+                // 手写体只给页标题与空状态大字；小节标题是系统字半粗。
+                const QStringList hand{Theme::handFamily(Theme::HandFont::Kai), Theme::handFamily(Theme::HandFont::KaiLight),
+                                       Theme::handFamily(Theme::HandFont::Script)};
+                const auto isHand = [&hand](const QFont &f) { return !f.families().isEmpty() && hand.contains(f.families().first()); };
+                const QFont plain = app.font();
+                expect(!isHand(Theme::textFont(plain, Theme::TextRole::Caption)) && !isHand(Theme::textFont(plain, Theme::TextRole::Body)) &&
+                           !isHand(Theme::textFont(plain, Theme::TextRole::Heading)) &&
+                           Theme::textFont(plain, Theme::TextRole::Heading).weight() == QFont::DemiBold &&
+                           (hand.first().isEmpty() || (isHand(Theme::textFont(plain, Theme::TextRole::Display)) &&
+                                                       isHand(Theme::textFont(plain, Theme::TextRole::Empty)))),
+                       "hand font only on Display / Empty roles; section headings are system semibold");
+                QWidget host;
+                QPushButton plainButton(QStringLiteral("Enter 发送 Fabric 1.21.4"), &host);
+                plainButton.ensurePolished();
+                expect(!isHand(plainButton.font()) && plainButton.font().pixelSize() == 14,
+                       "buttons are polished to the system font at 14 px");
+            }
+            {
+                // 着色 alpha 自检：出厂浓度下，亚克力 / 云母（系统背板区间）每一档都落在对比度要的最薄着色，
+                // 正文、次要字在背板最暗、最亮两端都 ≥ 4.5:1。
+                const auto inks = Glass::bodyInks();
+                const QList<QColor> range = Glass::systemBackdropRange();
+                const qreal need = Glass::minimumTintAlpha(Theme::tokens().page, inks, range, 0.0);
+                const qreal got = Glass::minimumTintAlpha(Theme::tokens().page, inks, range, Glass::tintStrength() / 100.0);
+                QColor layer = Theme::tokens().page;
+                layer.setAlphaF(got);
+                double worst = 21.0;
+                for (const QColor &bg : range)
+                    for (const auto &ink : inks)
+                        worst = qMin(worst, Glass::contrast(Glass::over(ink.first, Glass::over(layer, bg)), Glass::over(layer, bg)));
+                printf("INFO tint %s alpha=%.2f need=%.2f worst=%.2f\n", qPrintable(id), got, need, worst);
+                expect(qFuzzyCompare(got, need) && worst >= 4.5,
+                       "default tint strength never binds: system backdrop tint is the thinnest readable alpha");
+            }
             if (installedSheet.isEmpty()) {
                 installedSheet = app.styleSheet();
             }
