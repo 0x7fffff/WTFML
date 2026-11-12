@@ -632,6 +632,29 @@ public:
         return QGuiApplication::palette().color(QPalette::Active, QPalette::Highlight);
     }
 
+    /// 数字框右边那一列上下箭头：Fusion 拿 `Button` 色现算按钮底时用 `setHsv()` 把 alpha 抹成
+    /// 255，我们那档半透明白（subtle）就变成一整列不透明的白块（深色主题下最扎眼的一条硬边）。
+    /// 这里先把 `Button` 换成「页面底 + 半透明白」合成后的不透明色，按钮底就和框里那片同色。
+    void drawComplexControl(ComplexControl cc, const QStyleOptionComplex *opt, QPainter *p,
+                            const QWidget *w) const override
+    {
+        if (cc == CC_SpinBox && opt != nullptr) {
+            if (const auto *spin = qstyleoption_cast<const QStyleOptionSpinBox *>(opt)) {
+                QStyleOptionSpinBox copy(*spin);
+                const QColor page = copy.palette.color(QPalette::Window);
+                const QColor over = copy.palette.color(QPalette::Base);
+                const qreal a = over.alphaF();
+                const QColor flat = QColor::fromRgbF(page.redF() * (1 - a) + over.redF() * a,
+                                                     page.greenF() * (1 - a) + over.greenF() * a,
+                                                     page.blueF() * (1 - a) + over.blueF() * a);
+                copy.palette.setColor(QPalette::Button, flat);
+                QProxyStyle::drawComplexControl(cc, &copy, p, w);
+                return;
+            }
+        }
+        QProxyStyle::drawComplexControl(cc, opt, p, w);
+    }
+
     void drawPrimitive(PrimitiveElement pe, const QStyleOption *opt, QPainter *p,
                        const QWidget *w) const override
     {
