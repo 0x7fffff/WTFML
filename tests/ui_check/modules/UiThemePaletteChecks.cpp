@@ -1693,6 +1693,31 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                       .arg(arrowCombo->width()));
             arrowHost.hide();
 
+            // 数字框「越界回最近合法值」：往 0–5 的框里打进 99，焦点一走就落到 5（不是退回旧值）。
+            {
+                QWidget clampHost;
+                auto *clampSpin = new QSpinBox(&clampHost);
+                clampSpin->setRange(0, 5);
+                clampSpin->setValue(3);
+                auto *clampEdit = new QLineEdit(&clampHost);
+                auto *clampRow = new QHBoxLayout(&clampHost);
+                clampRow->addWidget(clampSpin);
+                clampRow->addWidget(clampEdit);
+                clampHost.show();
+                clampHost.activateWindow();
+                clampSpin->setFocus();
+                QApplication::processEvents();
+                if (auto *clampLine = clampSpin->findChild<QLineEdit *>(QString(), Qt::FindDirectChildrenOnly)) {
+                    clampLine->setText(QStringLiteral("99"));
+                }
+                clampEdit->setFocus();  // 焦点走开 ⇒ 过滤器钳到边界
+                QApplication::processEvents();
+                check(clampSpin->value() == 5,
+                      "★★ W13 数字框越界键入**钳到最近合法值**（0–5 的框里打 99 ⇒ 5，不是退回旧值）",
+                      QStringLiteral("值 %1").arg(clampSpin->value()));
+                clampHost.hide();
+            }
+
             // 数字框同理：上下箭头不画（滚轮 / ↑↓ / PgUp / PgDn 照旧，那是控件自己的键盘处理）。
             const QImage spinSizeShot = captureWidgetOn(sizeSpin, formBase);
             const QRect spinArrowCell(sizeSpin->width() - 26, 6, 18, sizeSpin->height() - 12);

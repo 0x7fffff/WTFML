@@ -13,6 +13,7 @@
 #include <QLabel>
 #include <QAbstractSpinBox>
 #include <QApplication>
+#include <QDoubleSpinBox>
 #include <QComboBox>
 #include <QDir>
 #include <QEvent>
@@ -27,6 +28,7 @@
 #include <QCheckBox>
 #include <QMenu>
 #include <QLineEdit>
+#include <QLocale>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPlainTextEdit>
@@ -36,6 +38,7 @@
 #include <QScrollBar>
 #include <QSettings>
 #include <QSizePolicy>
+#include <QSpinBox>
 #include <QStyle>
 #include <QStyleFactory>
 #include <QStyleHints>
@@ -228,6 +231,9 @@ protected:
             setKeyboard(watched, false);
         } else if (event->type() == QEvent::KeyPress) {
             const int key = static_cast<QKeyEvent *>(event)->key();
+            if (key == Qt::Key_Return || key == Qt::Key_Enter) {
+                clampSpin(qobject_cast<QWidget *>(watched));
+            }
             if (key != Qt::Key_Shift && key != Qt::Key_Control && key != Qt::Key_Alt && key != Qt::Key_Meta) {
                 m_keyboard = true;
                 setVisible(qobject_cast<QAbstractButton *>(QApplication::focusWidget()), true);
@@ -277,6 +283,7 @@ protected:
             setVisible(button, m_keyboard);
             setKeyboard(watched, reason == Qt::TabFocusReason || reason == Qt::BacktabFocusReason);
         } else if (event->type() == QEvent::FocusOut) {
+            clampSpin(qobject_cast<QWidget *>(watched));
             setKeyboard(watched, false);
         }
         return false;
@@ -314,6 +321,59 @@ private:
             const auto edits = widget->findChildren<QLineEdit *>(QString(), Qt::FindDirectChildrenOnly);
             for (auto *edit : edits) mark(edit, on);
         }
+    }
+    /// 数字框「越界回最近合法值」：Qt 出厂只做**回退**（打进 99999 按 Tab 会退回上一个值），
+    /// 这里补成**钳到边界**（99999 → 最大值）。只处理「文本能解析成一个数、但越界」那一档：
+    /// 打了一半（空 / 只有负号）或特殊值文本（`跟随全局`）解析不出来，仍交给 Qt 自己回退。
+    ///
+    /// ★ 这次只**读**文本、算出该落到的值，真正的 `setValue()` 排到下一拍（`QTimer::singleShot`
+    /// 带控件当上下文，控件没了就自动不打）：焦点转移那一刻直接改值，会顺着
+    /// `valueChanged` 把页面 / 对话框（服务端设置页那几颗表内编辑框就是）在别人的
+    /// FocusOut 事件里拆掉，mw_check 当场段错误 —— 这是实测撞过的，别改回同步。
+    static void clampSpin(QObject *watched) {
+        auto *spin = qobject_cast<QAbstractSpinBox *>(watched);
+        if (spin == nullptr) {
+            // 焦点其实在数字框**里面那一格** QLineEdit 上。
+            auto *edit = qobject_cast<QLineEdit *>(watched);
+            if (edit == nullptr || edit->parentWidget() == nullptr) return;
+            spin = qobject_cast<QAbstractSpinBox *>(edit->parentWidget());
+            if (spin == nullptr) return;
+        }
+        // `QAbstractSpinBox::lineEdit()` 是 protected，这里按直接子对象找那一格。
+        auto *edit = spin->findChild<QLineEdit *>(QString(), Qt::FindDirectChildrenOnly);
+        if (edit == nullptr) return;
+        QString bare = edit->text();
+        QVariant target;
+        if (auto *ints = qobject_cast<QSpinBox *>(spin); ints != nullptr) {
+            bare.remove(ints->prefix());
+            bare.remove(ints->suffix());
+            bool ok = false;
+            const int typed = QLocale().toInt(bare.trimmed(), &ok);
+            if (!ok) return;
+            const int clamped = qBound(ints->minimum(), typed, ints->maximum());
+            if (clamped == ints->value()) return;
+            target = clamped;
+        } else if (auto *real = qobject_cast<QDoubleSpinBox *>(spin); real != nullptr) {
+            bare.remove(real->prefix());
+            bare.remove(real->suffix());
+            bool ok = false;
+            const double typed = QLocale().toDouble(bare.trimmed(), &ok);
+            if (!ok) return;
+            const double clamped = qBound(real->minimum(), typed, real->maximum());
+            if (qFuzzyCompare(clamped, real->value())) return;
+            target = clamped;
+        } else {
+            return;
+        }
+        const QPointer<QAbstractSpinBox> guard(spin);
+        QTimer::singleShot(0, spin, [guard, target]() {
+            if (guard.isNull()) return;
+            if (auto *ints = qobject_cast<QSpinBox *>(guard.data())) {
+                ints->setValue(target.toInt());
+            } else if (auto *real = qobject_cast<QDoubleSpinBox *>(guard.data())) {
+                real->setValue(target.toDouble());
+            }
+        });
     }
     static void setVisible(QAbstractButton *button, bool visible) {
         if (button == nullptr || (button->property("wtfmlKeyboardFocus").isValid() &&
