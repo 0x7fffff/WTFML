@@ -159,6 +159,7 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
     auto *copyName = new QLineEdit(sourceId + QObject::tr("-更新副本"), selectors);
     copyName->setObjectName("instanceUpdateCopyName"); copyName->setPlaceholderText(QObject::tr("更新副本名称"));
     modeRow->addWidget(new QLabel(QObject::tr("2. 更新方式"), selectors)); modeRow->addWidget(mode, 1); modeRow->addWidget(copyName, 1);
+    modeRow->setContentsMargins(0, 0, 0, 0);
     auto *modePanel = new QWidget(page); modePanel->setLayout(modeRow);
     auto *note = new QLabel(QObject::tr("兼容声明不是运行保证。未知项必须明确选择处理方式，不会自动禁用；"
                                      "只有平台明确给出目标发行版的模组才提供「替换为平台适配版」，"
@@ -195,12 +196,14 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
     auto *confirmation = new QWidget;
     auto *confirmLayout = new QVBoxLayout(confirmation);
     confirmLayout->addWidget(modePanel);
+    confirmLayout->addSpacing(8);
     auto *changes = new QPlainTextEdit(confirmation);
     changes->setObjectName("instanceUpdateChanges");
     changes->setReadOnly(true);
     changes->setFixedHeight(132);
     confirmLayout->addWidget(new QLabel(QObject::tr("执行前的文件变更（模组适配替换）："), confirmation));
     confirmLayout->addWidget(changes);
+    confirmLayout->addSpacing(8);
     auto *summary = new QLabel(confirmation); summary->setObjectName("instanceUpdateConfirmation"); summary->setWordWrap(true);
     confirmLayout->addWidget(summary); confirmLayout->addStretch();
     auto *progress = new QWidget;

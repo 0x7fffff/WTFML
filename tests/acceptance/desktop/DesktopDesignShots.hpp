@@ -15,7 +15,7 @@
 #include "ChromeDialog.hpp"
 #include "DownloadToolDialog.hpp"
 #include "InlineMessage.hpp"
-#include "InstanceUpdateWizard.hpp"
+#include <QWizard>
 #include "PresetModReview.hpp"
 #include "UpgradeHistoryDialog.hpp"
 #include "UpgradeReportDialog.hpp"
@@ -484,7 +484,11 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         {QStringLiteral("dialog-schematic-dark.png"), QStringLiteral("dark"), {1280, 800}, false, home, QStringLiteral("dialog:schematic")},
         {QStringLiteral("dialog-schematic-emerald.png"), QStringLiteral("emerald"), {1280, 800}, false, home, QStringLiteral("dialog:schematic")},
         {QStringLiteral("dialog-download-dark.png"), QStringLiteral("dark"), {1280, 800}, false, home, QStringLiteral("dialog:download")},
-        {QStringLiteral("dialog-wizard-dark.png"), QStringLiteral("dark"), {1280, 800}, false, home, QStringLiteral("dialog:wizard")},
+        {QStringLiteral("dialog-download-busy-dark.png"), QStringLiteral("dark"), {1280, 800}, false, home, QStringLiteral("dialog:download-busy")},
+        {QStringLiteral("wizard-step1-dark.png"), QStringLiteral("dark"), {1280, 800}, false, manage, QStringLiteral("wizard:0")},
+        {QStringLiteral("wizard-step2-dark.png"), QStringLiteral("dark"), {1280, 800}, false, manage, QStringLiteral("wizard:1")},
+        {QStringLiteral("wizard-step3-dark.png"), QStringLiteral("dark"), {1280, 800}, false, manage, QStringLiteral("wizard:2")},
+        {QStringLiteral("wizard-step4-dark.png"), QStringLiteral("dark"), {1280, 800}, false, manage, QStringLiteral("wizard:3")},
         {QStringLiteral("dialog-modreview-dark.png"), QStringLiteral("dark"), {1280, 800}, false, home, QStringLiteral("dialog:modreview")},
         {QStringLiteral("dialog-startup-dark.png"), QStringLiteral("dark"), {1280, 800}, false, home, QStringLiteral("dialog:startup")},
         {QStringLiteral("toolbox-page-dark.png"), QStringLiteral("dark"), {1280, 800}, false, home, QStringLiteral("toolbox:anvil")},
@@ -577,14 +581,15 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
                     dialog = report;
                 } else if (kind == QStringLiteral("history")) {
                     dialog = new UpgradeHistoryDialog(nullptr);
-                } else if (kind == QStringLiteral("download")) {
+                } else if (kind.startsWith(QStringLiteral("download"))) {
                     auto *download = new DownloadToolDialog(nullptr);
                     download->url->setText(QStringLiteral("https://example.com/modpack.zip"));
+                    if (kind.endsWith(QStringLiteral("busy"))) {
+                        download->setBusy(true);
+                        download->showProgress(42, 100, QStringLiteral("分 8 段下载中 · 12.4 MB/s · 剩余约 9 秒"));
+                        download->cacheStatus->setText(QStringLiteral("续传缓存：186 MiB / 本次释放 0 / 跳过占用 1 / 失败 0"));
+                    }
                     dialog = download;
-                } else if (kind == QStringLiteral("wizard")) {
-                    auto *target = new QLabel(QStringLiteral("目标版本：1.21.1 · Fabric 0.16.5"));
-                    dialog = new InstanceUpdateWizard(target, new QWidget, new QWidget, new QWidget);
-                    dialog->resize(1060, 720);
                 } else if (kind == QStringLiteral("modreview")) {
                     Presets::ModInstallPlan plan;
                     Presets::ModInstallRow sodium;
@@ -623,6 +628,11 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
                 }
                 dialog->setObjectName(QStringLiteral("designShotGameLog"));
                 dialog->show();
+            } else if (shot.page.startsWith(QStringLiteral("wizard:"))) {
+                // 实例更新向导（兜底那扇独立窗）：开「机械动力 Create」的「版本升级」页，拿页里那只真向导翻到第 n 步。
+                // 翻页、显示放到下面抓图那一拍里同步做（见那边）。
+                QMetaObject::invokeMethod(&window, "openInstanceSettings", Q_ARG(QString, QStringLiteral("create")),
+                                          Q_ARG(QString, QStringLiteral("upgrade")));
             } else if (shot.page.startsWith(QStringLiteral("toolbox"))) {
                 if (auto *open = window.findChild<QAbstractButton *>(MainWindowUI::toolboxButtonName())) open->click();
                 const QString key = shot.page.section(QLatin1Char(':'), 1);
@@ -638,7 +648,20 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
             QWidget *log = nullptr;  // 另开的那只独立窗（日志窗 / 对话框）
             for (QWidget *top : QApplication::topLevelWidgets())
                 if (top->objectName() == QStringLiteral("designShotGameLog") && top->isVisible()) log = top;
-            QPixmap shotImage = log != nullptr ? log->grab() : window.grab();
+            QWizard *wizard = nullptr;  // 实例更新向导是设置页的孩子：抓完只藏起来，不删（页里的回调还拿着它）
+            if (shot.page.startsWith(QStringLiteral("wizard:"))) {
+                wizard = window.findChild<QWizard *>(QStringLiteral("instanceUpdateWizard"));
+                if (wizard != nullptr) {
+                    wizard->restart();
+                    for (int i = 0, n = shot.page.section(QLatin1Char(':'), 1).toInt(); i < n; ++i) wizard->next();
+                    wizard->show();
+                    for (int i = 0; i < 5; ++i) QApplication::processEvents();
+                }
+                qInfo().noquote() << "design shot" << shot.page << "wizard" << (wizard != nullptr)
+                                  << (wizard != nullptr ? wizard->currentId() : -1);
+            }
+            QPixmap shotImage = wizard != nullptr ? wizard->grab() : log != nullptr ? log->grab() : window.grab();
+            if (wizard != nullptr) wizard->hide();
             if (log != nullptr) { log->close(); log->deleteLater(); }
             // 工具箱面板是 Qt::Popup（另一个顶层窗），window.grab() 抓不到它：按它在窗口里的位置贴上去。
             if (auto *panel = window.findChild<QFrame *>(MainWindowUI::toolboxPanelName()); panel != nullptr && panel->isVisible()) {
