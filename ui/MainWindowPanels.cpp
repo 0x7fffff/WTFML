@@ -46,6 +46,7 @@
 #include <algorithm>
 
 #include "MainWindowPageLayout.hpp"
+#include "Popups.hpp"
 using namespace MainWindowPageLayout;
 
 namespace {
@@ -55,25 +56,14 @@ class ToolboxPopup : public QFrame {
 public:
     ToolboxPopup(QWidget *parent, std::function<void(const QPoint &)> outside)
         : QFrame(parent, Qt::Popup | Qt::FramelessWindowHint), m_outside(std::move(outside)) {
-        setAttribute(Qt::WA_TranslucentBackground);
+        // 浮层那一层唯一的面：磨砂玻璃（17 号反馈：弹出层要真透磨砂，不要一块白卡）。
+        Popups::glassify(this, 14);
     }
 protected:
-    // UI 7d（设计稿 panels-toolbox）：圆角浮层底 + 顶上一道极淡高光，不描边。
+    // 圆角 14 的磨砂底 + 一圈 1px 亮边，不描边 —— 全仓浮层同一个做法（见 ui/Popups.hpp）。
     void paintEvent(QPaintEvent *) override {
         QPainter p(this);
-        p.setRenderHint(QPainter::Antialiasing);
-        QColor fill = Theme::partBackground(Theme::Part::Panel);
-        fill.setAlpha(qMax(fill.alpha(), 236));
-        p.setPen(Qt::NoPen);
-        p.setBrush(fill);
-        const QRectF box = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
-        p.drawRoundedRect(box, 14, 14);
-        QLinearGradient shine(box.topLeft(), QPointF(box.left(), box.top() + 24));
-        shine.setColorAt(0, QColor(255, 255, 255, Theme::isDark() ? 22 : 60));
-        shine.setColorAt(1, QColor(255, 255, 255, 0));
-        p.setBrush(Qt::NoBrush);
-        p.setPen(QPen(QBrush(shine), 1));
-        p.drawRoundedRect(box, 14, 14);
+        Popups::paintSurface(p, QRectF(rect()), 14);
     }
     void mousePressEvent(QMouseEvent *event) override {
         if (rect().contains(event->position().toPoint())) {
@@ -808,10 +798,10 @@ public:
         // **不写死颜色**：从当前调色板推出来，浅色/深色主题下都成立（和底栏、面板同一个路数）。
         // 这一族（浮层）那一档由 `Theme::partBackground(Part::Panel)` 说了算。
         // NOTE: 每次现建 ⇒ 不用挂 follow()（和底栏面板同一条）。
-        setAutoFillBackground(true);
-        QPalette menuPalette = QApplication::palette();
-        menuPalette.setColor(QPalette::Window, Theme::partBackground(Theme::Part::Panel));
-        setPalette(menuPalette);
+        // 17 号反馈之后浮层只有一种面：磨砂玻璃（窗外挂系统瞬态亚克力），不再铺不透明底。
+        Popups::glassify(this, 14);
+        setAutoFillBackground(false);
+        const QPalette menuPalette = palette();  // 里面那几项的外观仍按调色板取色
 
         // 点某一项要**先把自己收回去**，再把动作交给外面 —— 那五项里有两项要弹模态窗
         // （重命名那个输入框、删除那个确认框），而这块框是个 Qt::Popup，按着鼠标键盘的
@@ -930,9 +920,9 @@ protected:
 
     /// 一圈细边：同一档深浅在浅色主题下几乎看不出边界，分不出"框到哪为止"。
     void paintEvent(QPaintEvent *) override {
+        // 磨砂玻璃那一层（圆角 14 + 1px 亮边），和其他浮层同一套；不再画那圈 Mid 细边。
         QPainter painter(this);
-        painter.setPen(palette().color(QPalette::Mid));
-        painter.drawRect(rect().adjusted(0, 0, -1, -1));
+        Popups::paintSurface(painter, QRectF(rect()), 14);
     }
 
 private:
@@ -1154,19 +1144,18 @@ protected:
     /// 一圈细边（和 FolderMenu 那条同一个理由）：同一档深浅在浅色主题下几乎看不出边界，
     /// 分不出"框到哪为止"。
     void paintEvent(QPaintEvent *) override {
+        // 磨砂玻璃那一层（圆角 14 + 1px 亮边），和其他浮层同一套；不再画那圈 Mid 细边。
         QPainter painter(this);
-        painter.setPen(palette().color(QPalette::Mid));
-        painter.drawRect(rect().adjusted(0, 0, -1, -1));
+        Popups::paintSurface(painter, QRectF(rect()), 14);
     }
 
 private:
     /// 底色比内容区深一档（从调色板推，**不写死颜色**）—— 和 FolderMenu 那条一样。
     /// 那一档由 `Theme::partBackground(Part::Panel)` 说了算（这一族浮层共用一个色）。
     void applyMenuPalette() {
-        setAutoFillBackground(true);
-        QPalette menuPalette = QApplication::palette();
-        menuPalette.setColor(QPalette::Window, Theme::partBackground(Theme::Part::Panel));
-        setPalette(menuPalette);
+        // 不再铺一块不透明面板色：浮层的面由 `Popups::paintSurface()` 画（磨砂玻璃）。
+        Popups::glassify(this, 14);
+        setAutoFillBackground(false);
     }
 
     /// 菜单里一项的外观。**和 FolderMenu::folderActionStyle() 逐字同形** —— 两块框是

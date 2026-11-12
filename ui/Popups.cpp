@@ -1,0 +1,784 @@
+/**
+ * @file Popups.cpp
+ * @brief 浮层那一套（tooltip / 下拉弹层 / 菜单）的实现在这里，对外只有 `Popups.hpp` 那几个口子。
+ *
+ * 这一层**不碰窗口**：`Glass` 那一份失焦磨砂、`WindowChrome` 的边框 / 圆角都不归这里管。
+ * 这里只借 `Glass::systemBackdrop()` 问一句"系统背板现在能不能用"，然后给**浮层自己的
+ * 顶层窗口**挂 DWM 瞬态亚克力（`DWMSBT_TRANSIENTWINDOW`）；挂不上（Win10 / 关透明 /
+ * 高对比度）就只剩自绘的那层着色玻璃 —— 观感仍是"一块磨砂"，只是背后不是真模糊。
+ */
+
+#include "Popups.hpp"
+
+#include "Animations.hpp"
+#include "Glass.hpp"
+#include "Theme.hpp"
+
+#include <QAbstractButton>
+#include <QAbstractItemView>
+#include <QApplication>
+#include <QBoxLayout>
+#include <QComboBox>
+#include <QCursor>
+#include <QDateTime>
+#include <QEasingCurve>
+#include <QFrame>
+#include <QGraphicsOpacityEffect>
+#include <QGuiApplication>
+#include <QHelpEvent>
+#include <QKeyEvent>
+#include <QLineEdit>
+#include <QListView>
+#include <QLinearGradient>
+#include <QMenu>
+#include <QPainter>
+#include <QPointer>
+#include <QPropertyAnimation>
+#include <QScreen>
+#include <QScrollBar>
+#include <QStyledItemDelegate>
+#include <QStyleOptionViewItem>
+#include <QTimer>
+
+#include <cstring>
+
+#ifdef Q_OS_WIN
+#  include <windows.h>
+#endif
+
+namespace {
+
+// 规格（`.tongxi/设计稿/r2`，tokens-r2 §3 / §6）
+constexpr qreal kTooltipRadius = 8;
+constexpr qreal kPopupRadius = 14;
+constexpr int kPopupPadding = 6;        // 弹层内边距
+constexpr int kTooltipDelayMs = 500;    // 停 500ms 才出
+constexpr int kTooltipWakeMs = 1000;    // 收起后 1 秒内换到相邻控件：不等，立刻出
+constexpr int kRowHeight = 34;          // 下拉项高
+constexpr int kMaxVisibleItems = 8;     // 最多露 8 项，超出在弹层里滚
+constexpr int kSearchAfterItems = 15;   // 超过这么多项，顶部加搜索框
+constexpr int kThumbFadeMs = 600;       // 细条停 600ms 淡出
+constexpr int kFadeEdgePx = 16;         // 上下渐隐那一条的高度
+
+// ---------------------------------------------------------------------------
+// 真·透桌面那一档：给浮层自己的 HWND 挂 DWM 瞬态亚克力
+// ---------------------------------------------------------------------------
+
+void applyTransientBackdrop(QWidget *popup) {
+#ifdef Q_OS_WIN
+    if (QGuiApplication::platformName() != QLatin1String("windows")) {
+        return;  // offscreen 那类平台给的 winId 不是真 HWND
+    }
+    // 不直接链 dwmapi：这个文件也被验证工程编，它们各自只链了 Qt。取一次函数指针就够，
+    // 系统没有这幅 API（Win10 以前）就静默跳过，只留下自绘那层玻璃。
+    static HMODULE dwm = LoadLibraryW(L"dwmapi.dll");
+    if (dwm == nullptr) {
+        return;
+    }
+    using SetAttribute = HRESULT(WINAPI *)(HWND, DWORD, LPCVOID, DWORD);
+    // `reinterpret_cast` 直接从 FARPROC 转函数指针会被 `-Wcast-function-type` 拦下（产品那份
+    // 把警告当错误），走一趟 memcpy 把函数指针的位原样搬过来。
+    static SetAttribute setAttribute = [](HMODULE module) -> SetAttribute {
+        SetAttribute fn = nullptr;
+        if (module != nullptr) {
+            FARPROC raw = GetProcAddress(module, "DwmSetWindowAttribute");
+            std::memcpy(&fn, &raw, sizeof(fn));
+        }
+        return fn;
+    }(dwm);
+    if (setAttribute == nullptr) {
+        return;
+    }
+    const HWND hwnd = reinterpret_cast<HWND>(popup->winId());
+    if (hwnd == nullptr) {
+        return;
+    }
+    const int transient = 3;  // DWMSBT_TRANSIENTWINDOW：弹出层 / 菜单专门那一档亚克力
+    setAttribute(hwnd, 38 /* DWMWA_SYSTEMBACKDROP_TYPE */, &transient, sizeof(transient));
+    const int round = 2;      // DWMWCP_ROUND
+    setAttribute(hwnd, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, &round, sizeof(round));
+#else
+    Q_UNUSED(popup);
+#endif
+}
+
+// ---------------------------------------------------------------------------
+// 淡入（+ 位移）：`Anim::enabled()` 关着时直接落到位
+// ---------------------------------------------------------------------------
+
+void fadeIn(QWidget *widget, int ms, int risePixels) {
+    if (widget == nullptr) {
+        return;
+    }
+    if (!Anim::enabled()) {
+        widget->setWindowOpacity(1.0);
+        return;
+    }
+    const QPoint target = widget->pos();
+    widget->setWindowOpacity(0.0);
+    auto *fade = new QPropertyAnimation(widget, "windowOpacity", widget);
+    fade->setDuration(ms);
+    fade->setStartValue(0.0);
+    fade->setEndValue(1.0);
+    fade->setEasingCurve(QEasingCurve::OutCubic);
+    fade->start(QAbstractAnimation::DeleteWhenStopped);
+    if (risePixels != 0) {
+        widget->move(target + QPoint(0, risePixels));
+        auto *slide = new QPropertyAnimation(widget, "pos", widget);
+        slide->setDuration(ms);
+        slide->setStartValue(widget->pos());
+        slide->setEndValue(target);
+        slide->setEasingCurve(QEasingCurve::OutCubic);
+        slide->start(QAbstractAnimation::DeleteWhenStopped);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// tooltip：自己画的一条（系统那个黄底方角气泡不再出现）
+// ---------------------------------------------------------------------------
+
+class TooltipBubble : public QWidget {
+public:
+    TooltipBubble()
+        : QWidget(nullptr, Qt::ToolTip | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint) {
+        setObjectName(QStringLiteral("wtfmlTooltip"));
+        setAttribute(Qt::WA_TranslucentBackground);
+        setAttribute(Qt::WA_ShowWithoutActivating);
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+        setFocusPolicy(Qt::NoFocus);
+        setFont(Theme::textFont(font(), Theme::TextRole::Caption));
+    }
+
+    void setBody(const QString &text) {
+        m_text = text;
+        const QFontMetrics metrics(font());
+        const int limit = 260;  // 一行放不下就折到 260：提示都是短句
+        QRect box = metrics.boundingRect(QRect(0, 0, limit, 4000), Qt::TextWordWrap, text);
+        if (!text.contains(QLatin1Char('\n')) && box.width() < limit) {
+            box.setWidth(metrics.horizontalAdvance(text) + 1);
+        }
+        resize(box.width() + 20, box.height() + 12);  // 内边距 10 / 6
+    }
+
+    QString body() const { return m_text; }
+
+protected:
+    void paintEvent(QPaintEvent *) override {
+        QPainter painter(this);
+        Popups::paintSurface(painter, QRectF(rect()), kTooltipRadius);
+        painter.setPen(Theme::tokens().text);
+        painter.drawText(rect().adjusted(10, 6, -10, -6),
+                         Qt::AlignLeft | Qt::AlignVCenter | Qt::TextWordWrap, m_text);
+    }
+
+private:
+    QString m_text;
+};
+
+TooltipBubble *bubble() {
+    // 应用活多久它活多久（`Qt::ToolTip` 顶层窗口，没有父级）。
+    static TooltipBubble *instance = new TooltipBubble;
+    return instance;
+}
+
+/// 落在锚点正上方（放不下就落下方），再收进屏幕可用区。
+QPoint placeNear(const QSize &size, const QPoint &anchorPoint, const QRect *anchorRect) {
+    QPoint target = anchorPoint + QPoint(0, 18);
+    if (anchorRect != nullptr) {
+        target = QPoint(anchorRect->center().x() - size.width() / 2,
+                        anchorRect->top() - size.height() - 8);
+    }
+    QScreen *screen = QGuiApplication::screenAt(anchorPoint);
+    if (screen == nullptr) {
+        screen = QGuiApplication::primaryScreen();
+    }
+    if (screen != nullptr) {
+        const QRect available = screen->availableGeometry();
+        if (anchorRect != nullptr && target.y() < available.top()) {
+            target.setY(anchorRect->bottom() + 8);
+        }
+        target.setX(qBound(available.left() + 4, target.x(), available.right() - size.width() - 4));
+        target.setY(qBound(available.top() + 4, target.y(), available.bottom() - size.height() - 4));
+    }
+    return target;
+}
+
+// ---------------------------------------------------------------------------
+// tooltip 的调度：进控件 500ms 才出、离开立刻收、1 秒内换到相邻控件不等
+// ---------------------------------------------------------------------------
+
+class TooltipDriver : public QObject {
+public:
+    explicit TooltipDriver(QApplication &app) : QObject(&app) {
+        setObjectName(QStringLiteral("wtfmlTooltipDriver"));
+        app.installEventFilter(this);
+        m_delay.setSingleShot(true);
+        m_delay.setInterval(kTooltipDelayMs);
+        QObject::connect(&m_delay, &QTimer::timeout, this, [this] {
+            if (m_pending.isNull()) {
+                return;
+            }
+            Popups::showTooltip(m_pending->toolTip(), QCursor::pos(), m_pending.data());
+        });
+        m_hideGuard.setSingleShot(true);
+        m_hideGuard.setInterval(0);
+    }
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override {
+        switch (event->type()) {
+        case QEvent::Enter: {
+            auto *widget = qobject_cast<QWidget *>(watched);
+            if (widget == nullptr || !widget->isVisible()) {
+                return false;
+            }
+            const QString text = widget->toolTip();
+            if (text.isEmpty() || Popups::isTextButton(widget)) {
+                return false;  // 文字按钮不出提示（按 text() 判，见 `isTextButton`）
+            }
+            m_pending = widget;
+            if (QDateTime::currentMSecsSinceEpoch() - m_lastHideMs < kTooltipWakeMs) {
+                Popups::showTooltip(text, QCursor::pos(), widget);  // 换到相邻控件：不等
+            } else {
+                m_delay.start();
+            }
+            return false;
+        }
+        case QEvent::ToolTip: {
+            // 系统那条气泡**一律不出**：文字按钮没有提示，别的一律换成自绘那一条。
+            auto *widget = qobject_cast<QWidget *>(watched);
+            if (widget == nullptr) {
+                return false;
+            }
+            auto *help = static_cast<QHelpEvent *>(event);
+            const QString text = textAt(widget, help->pos());
+            if (Popups::isTextButton(widget)) {
+                return true;
+            }
+            if (text.isEmpty()) {
+                return false;  // 条目自带的提示由代理自己叫 `showTooltip()`，这里别抢
+            }
+            m_delay.stop();
+            Popups::showTooltip(text, help->globalPos(), widget);
+            return true;
+        }
+        case QEvent::Leave:
+        case QEvent::Hide:
+        case QEvent::MouseButtonPress:
+        case QEvent::MouseButtonDblClick:
+        case QEvent::Wheel:
+        case QEvent::KeyPress:
+            m_delay.stop();
+            hideNow();
+            return false;
+        default:
+            return false;
+        }
+    }
+
+private:
+    /// 这一格现在该说哪句：条目看 `ToolTipRole`，别的控件看 `toolTip`。
+    static QString textAt(QWidget *widget, const QPoint &pos) {
+        if (auto *view = qobject_cast<QAbstractItemView *>(widget)) {
+            const QModelIndex index = view->indexAt(pos);
+            return index.isValid() ? index.data(Qt::ToolTipRole).toString() : QString();
+        }
+        // 列表 / 树的视口：事件打在 viewport 上，条目要从父级那只 view 问。
+        if (widget->parentWidget() != nullptr) {
+            if (auto *view = qobject_cast<QAbstractItemView *>(widget->parentWidget())) {
+                if (widget == view->viewport()) {
+                    const QModelIndex index = view->indexAt(pos);
+                    return index.isValid() ? index.data(Qt::ToolTipRole).toString() : QString();
+                }
+            }
+        }
+        return widget->toolTip();
+    }
+
+    void hideNow() {
+        TooltipBubble *tip = bubble();
+        if (tip->isVisible()) {
+            tip->hide();
+            m_lastHideMs = QDateTime::currentMSecsSinceEpoch();
+        }
+    }
+
+    QTimer m_delay;
+    QTimer m_hideGuard;
+    QPointer<QWidget> m_pending;
+    qint64 m_lastHideMs = 0;
+};
+
+// ---------------------------------------------------------------------------
+// 下拉弹层的项：34 高、悬停淡底、选中 = 强调淡底 + 强调字（不画勾不画条）
+// ---------------------------------------------------------------------------
+
+class PopupItemDelegate : public QStyledItemDelegate {
+public:
+    explicit PopupItemDelegate(QObject *parent) : QStyledItemDelegate(parent) {}
+
+    QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override {
+        return QSize(QStyledItemDelegate::sizeHint(option, index).width(), kRowHeight);
+    }
+
+    void paint(QPainter *painter, const QStyleOptionViewItem &option,
+               const QModelIndex &index) const override {
+        const Theme::Tokens tokens = Theme::tokens();
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing, true);
+        const QRect box = option.rect.adjusted(4, 3, -4, -3);  // 项之间留 6px
+        const bool selected = (option.state & QStyle::State_Selected) != 0;
+        const bool hover = (option.state & QStyle::State_MouseOver) != 0;
+        painter->setPen(Qt::NoPen);
+        if (selected) {
+            painter->setBrush(tokens.selected);
+            painter->drawRoundedRect(box, 8, 8);
+        } else if (hover) {
+            painter->setBrush(tokens.hover);
+            painter->drawRoundedRect(box, 8, 8);
+        }
+        painter->setFont(Theme::textFont(option.font, Theme::TextRole::Body));
+        painter->setPen(selected ? option.palette.color(QPalette::Link) : tokens.text);
+        painter->drawText(box.adjusted(8, 0, -8, 0), Qt::AlignLeft | Qt::AlignVCenter,
+                          index.data(Qt::DisplayRole).toString());
+        painter->restore();
+    }
+};
+
+/// 弹层上下那 16px 的渐隐：项滚到边上时淡进那层玻璃，不硬切。
+class EdgeFade : public QWidget {
+public:
+    EdgeFade(QWidget *parent, bool top) : QWidget(parent), m_top(top) {
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+        setAttribute(Qt::WA_NoSystemBackground);
+        setAttribute(Qt::WA_TranslucentBackground);
+    }
+
+protected:
+    void paintEvent(QPaintEvent *) override {
+        QColor solid = Theme::tokens().glass;
+        solid.setAlpha(255);  // 渐隐到"这一层的底"，不是渐隐到黑
+        QColor clear = solid;
+        clear.setAlpha(0);
+        QLinearGradient gradient(0, 0, 0, height());
+        gradient.setColorAt(m_top ? 1.0 : 0.0, clear);
+        gradient.setColorAt(m_top ? 0.0 : 1.0, solid);
+        QPainter painter(this);
+        painter.fillRect(rect(), gradient);
+    }
+
+private:
+    bool m_top = true;
+};
+
+// ---------------------------------------------------------------------------
+// 下拉弹层的外壳：磨砂底、圆角 14、3px 细条（滚动时露 / 停 600ms 淡出）、
+// 超过 15 项时顶上一条搜索框
+// ---------------------------------------------------------------------------
+
+class ComboDecorator : public QObject {
+public:
+    ComboDecorator(QComboBox *combo, QAbstractItemView *view)
+        : QObject(combo), m_combo(combo), m_view(view) {
+        m_thumbIdle.setSingleShot(true);
+        m_thumbIdle.setInterval(kThumbFadeMs);
+        QObject::connect(&m_thumbIdle, &QTimer::timeout, this, [this] { fadeThumb(false); });
+    }
+
+    bool eventFilter(QObject *watched, QEvent *event) override {
+        if (watched == m_view) {
+            if (event->type() == QEvent::Show) {
+                decoratePopup();
+                fadeIn(m_view->window(), 150, 4);  // 150ms 淡入 + 下移 4px
+            }
+            return false;
+        }
+        if (watched == m_search) {
+            return filterSearchKey(event);
+        }
+        if (m_popup.isNull() || watched != m_popup.data()) {
+            return false;
+        }
+        if (event->type() == QEvent::Show) {
+            // Qt 每次弹出都会把那两块重新摆出来，而且在 show 之后还要再跑一趟
+            // `updateScrollers()`：当场藏一次不够，排到下一拍再藏一次。
+            hideScrollers();
+            QTimer::singleShot(0, this, [this] {
+                hideScrollers();
+                fitPopup();
+            });
+        } else if (event->type() == QEvent::Paint) {
+            // 先铺那一层磨砂玻璃，再让弹层自己把项画上去（容器自身被样式表清成透明）。
+            QPainter painter(m_popup.data());
+            painter.setRenderHint(QPainter::Antialiasing, true);
+            Popups::paintSurface(painter, QRectF(m_popup->rect()), kPopupRadius);
+        } else if (event->type() == QEvent::Resize) {
+            hideScrollers();
+            layoutFades();
+        }
+        return false;
+    }
+
+private:
+    void decoratePopup() {
+        QWidget *popup = m_view->window();
+        if (popup == nullptr) {
+            return;
+        }
+        if (m_popup.data() != popup) {
+            m_popup = popup;
+            popup->installEventFilter(this);
+            Popups::glassify(popup, kPopupRadius);
+            popup->setAutoFillBackground(false);
+            m_view->setFrameShape(QFrame::NoFrame);
+            // 这一份只给弹层里那张表：底归玻璃给，别自己铺一块不透明的。
+            m_view->setStyleSheet(QStringLiteral("QListView { background: transparent; border: none; }"));
+            if (auto *layout = qobject_cast<QBoxLayout *>(popup->layout())) {
+                layout->setContentsMargins(kPopupPadding, kPopupPadding, kPopupPadding, kPopupPadding);
+                layout->setSpacing(0);
+            }
+            // ★ 限高只能钉在**视图**上：`QComboBox::setMaxVisibleItems()` 在 Fusion + 样式表
+            // 这一支上不管用（弹层是"按整张表撑开"的，45 项就是整屏 —— 用户报的就是这个）。
+            // 弹层容器按视图的尺寸算，所以把视图按住就等于弹层按住。
+            m_view->setMaximumHeight(kMaxVisibleItems * kRowHeight + 2);
+            ensureThumb();
+            ensureFades();
+            hideScrollers();
+        }
+        ensureSearch();
+        layoutFades();
+        m_view->setFocus();
+    }
+
+    /// 右缘那条 3px 细条：常态透明，滚动时淡入、停 600ms 淡出（S2）。
+    void ensureThumb() {
+        QScrollBar *bar = m_view->verticalScrollBar();
+        if (bar == nullptr || m_thumbBar == bar) {
+            return;
+        }
+        m_thumbBar = bar;
+        // 形状（3px 宽、圆角 1px）在应用级样式表的 `QComboBox QAbstractItemView QScrollBar`
+        // 那几条里；这里只管"什么时候露"：常态透明度 0，滚动时 120ms 淡入、停 600ms 淡出。
+        m_thumbEffect = new QGraphicsOpacityEffect(bar);
+        m_thumbEffect->setOpacity(0.0);
+        bar->setGraphicsEffect(m_thumbEffect);
+        QObject::connect(bar, &QScrollBar::valueChanged, this, [this] { fadeThumb(true); });
+    }
+
+    void fadeThumb(bool visible) {
+        if (m_thumbEffect == nullptr) {
+            return;
+        }
+        if (!Anim::enabled()) {
+            m_thumbEffect->setOpacity(visible ? 1.0 : 0.0);
+        } else {
+            auto *fade = new QPropertyAnimation(m_thumbEffect, "opacity", m_thumbEffect);
+            fade->setDuration(visible ? 120 : 300);
+            fade->setStartValue(m_thumbEffect->opacity());
+            fade->setEndValue(visible ? 1.0 : 0.0);
+            fade->start(QAbstractAnimation::DeleteWhenStopped);
+        }
+        if (visible) {
+            m_thumbIdle.start();
+        }
+    }
+
+    /// Qt 给装不下的弹层在上下加了两块"翻一屏"的箭头（`QComboBoxPrivateScroller`，
+    /// 私有类，认不了类型就按类名认）。这种小箭头一个都不要：滚轮 / 拖动 / ↑↓ 已经够了。
+    void hideScrollers() {
+        if (m_popup.isNull()) {
+            return;
+        }
+        const auto children = m_popup->findChildren<QWidget *>();
+        for (QWidget *child : children) {
+            if (QString::fromLatin1(child->metaObject()->className())
+                    .contains(QLatin1String("QComboBoxPrivateScroller"))) {
+                child->setVisible(false);
+            }
+        }
+    }
+
+    /// Qt 把弹层撑到"装得下全部项"（45 项就是整屏）。这里按 8 项收回：
+    /// 弹层是按视图的尺寸摆的，所以改的是**弹层这一层**的高度。
+    void fitPopup() {
+        if (m_popup.isNull() || m_view.isNull()) {
+            return;
+        }
+        int visible = 0;
+        auto *list = qobject_cast<QListView *>(m_view.data());
+        for (int row = 0; row < m_combo->count(); ++row) {
+            if (list == nullptr || !list->isRowHidden(row)) {
+                ++visible;
+            }
+        }
+        const int rows = qBound(1, qMin(visible, kMaxVisibleItems), kMaxVisibleItems);
+        int height = rows * kRowHeight + 2 * kPopupPadding + 2;
+        if (!m_search.isNull() && m_search->isVisible()) {
+            height += m_search->sizeHint().height() + 4;
+        }
+        if (m_popup->height() > height) {
+            m_popup->resize(m_popup->width(), height);
+        }
+    }
+
+    void ensureFades() {
+        if (m_fadeTop == nullptr) {
+            m_fadeTop = new EdgeFade(m_popup.data(), true);
+            m_fadeBottom = new EdgeFade(m_popup.data(), false);
+        }
+        m_fadeTop->show();
+        m_fadeBottom->show();
+        m_fadeTop->raise();
+        m_fadeBottom->raise();
+    }
+
+    void layoutFades() {
+        if (m_fadeTop == nullptr || m_popup.isNull()) {
+            return;
+        }
+        QWidget *list = m_view;
+        const QRect area = list->geometry();
+        const int height = qMin(kFadeEdgePx, qMax(0, area.height() / 3));
+        m_fadeTop->setGeometry(area.left(), area.top(), area.width(), height);
+        m_fadeBottom->setGeometry(area.left(), area.bottom() - height + 1, area.width(), height);
+    }
+
+    void ensureSearch() {
+        if (m_combo->count() <= kSearchAfterItems) {
+            return;  // 短列表不要搜索框
+        }
+        if (m_search.isNull()) {
+            auto *popup = m_popup.data();
+            m_search = new QLineEdit(popup);
+            m_search->setObjectName(QStringLiteral("wtfmlPopupSearch"));
+            m_search->setPlaceholderText(QObject::tr("搜索…"));
+            m_search->setClearButtonEnabled(true);
+            m_search->installEventFilter(this);
+            if (auto *layout = qobject_cast<QBoxLayout *>(popup->layout())) {
+                layout->insertWidget(0, m_search);
+            }
+            QObject::connect(m_search, &QLineEdit::textChanged, this,
+                             [this](const QString &query) { applyFilter(query); });
+        }
+        m_search->show();
+        m_search->setFocus();
+        if (m_search->text().isEmpty()) {
+            applyFilter(QString());
+        } else {
+            m_search->clear();
+        }
+    }
+
+    /// 搜索框拿着焦点时，↑↓ / 回车还得能当列表用。
+    bool filterSearchKey(QEvent *event) {
+        if (event->type() != QEvent::KeyPress) {
+            return false;
+        }
+        const int key = static_cast<QKeyEvent *>(event)->key();
+        if (key == Qt::Key_Escape || key == Qt::Key_Return || key == Qt::Key_Enter) {
+            m_combo->hidePopup();
+            return true;
+        }
+        if (key == Qt::Key_Down || key == Qt::Key_Up || key == Qt::Key_PageDown ||
+            key == Qt::Key_PageUp) {
+            QApplication::sendEvent(m_view, event);
+            return true;
+        }
+        return false;
+    }
+
+    void applyFilter(const QString &query) {
+        auto *list = qobject_cast<QListView *>(m_view.data());
+        if (list == nullptr) {
+            return;  // 换了别的视图（树）就不做过滤，搜索框也不该出现
+        }
+        const QString needle = query.trimmed();
+        int firstVisible = -1;
+        for (int row = 0; row < m_combo->count(); ++row) {
+            const bool match =
+                needle.isEmpty() || m_combo->itemText(row).contains(needle, Qt::CaseInsensitive);
+            list->setRowHidden(row, !match);
+            if (match && firstVisible < 0) {
+                firstVisible = row;
+            }
+        }
+        if (firstVisible >= 0) {
+            m_view->setCurrentIndex(m_combo->model()->index(firstVisible, m_combo->modelColumn()));
+        }
+        fitPopup();
+        hideScrollers();
+    }
+
+    QPointer<QComboBox> m_combo;
+    QPointer<QAbstractItemView> m_view;
+    QPointer<QWidget> m_popup;
+    QPointer<QScrollBar> m_thumbBar;
+    QPointer<QGraphicsOpacityEffect> m_thumbEffect;
+    QPointer<QLineEdit> m_search;
+    QPointer<QWidget> m_fadeTop;
+    QPointer<QWidget> m_fadeBottom;
+    QTimer m_thumbIdle;
+};
+
+// ---------------------------------------------------------------------------
+// 全仓 QComboBox：一只一次，挂在 Polish 上（以后新加的下拉框自动跟上）
+// ---------------------------------------------------------------------------
+
+class ComboWatcher : public QObject {
+public:
+    explicit ComboWatcher(QApplication &app) : QObject(&app) {
+        setObjectName(QStringLiteral("wtfmlComboWatcher"));
+        app.installEventFilter(this);
+    }
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override {
+        if (event->type() != QEvent::Polish) {
+            return false;
+        }
+        auto *combo = qobject_cast<QComboBox *>(watched);
+        if (combo == nullptr || combo->property("wtfmlPopupStyled").toBool()) {
+            return false;
+        }
+        combo->setProperty("wtfmlPopupStyled", true);
+        combo->setMaxVisibleItems(kMaxVisibleItems);
+        QAbstractItemView *view = combo->view();
+        if (view == nullptr) {
+            return false;
+        }
+        // 这个代理类在匿名命名空间里（没有 Q_OBJECT，moc 认不到），认它靠挂在身上的属性。
+        auto *delegate = view->itemDelegate();
+        if (delegate == nullptr || !delegate->property("wtfmlPopupDelegate").toBool()) {
+            auto *popupDelegate = new PopupItemDelegate(view);
+            popupDelegate->setProperty("wtfmlPopupDelegate", true);
+            view->setItemDelegate(popupDelegate);
+        }
+        view->setMouseTracking(true);
+        view->viewport()->setMouseTracking(true);
+        view->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        auto *decorator = new ComboDecorator(combo, view);
+        view->installEventFilter(decorator);
+        return false;
+    }
+};
+
+// ---------------------------------------------------------------------------
+// 菜单：同一个外壳（底由这里画，项由 QMenu 自己画）
+// ---------------------------------------------------------------------------
+
+class MenuGlass : public QObject {
+public:
+    explicit MenuGlass(QApplication &app) : QObject(&app) {
+        setObjectName(QStringLiteral("wtfmlMenuGlass"));
+        app.installEventFilter(this);
+    }
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override {
+        auto *menu = qobject_cast<QMenu *>(watched);
+        if (menu == nullptr) {
+            return false;
+        }
+        if (event->type() == QEvent::Polish) {
+            if (!menu->testAttribute(Qt::WA_TranslucentBackground)) {
+                menu->setAttribute(Qt::WA_TranslucentBackground);
+                menu->setAttribute(Qt::WA_NoSystemBackground);
+                menu->setWindowFlag(Qt::FramelessWindowHint);
+                Popups::glassify(menu, kPopupRadius);
+            }
+        } else if (event->type() == QEvent::Show) {
+            fadeIn(menu, 150, 4);
+        } else if (event->type() == QEvent::Paint) {
+            QPainter painter(menu);
+            painter.setRenderHint(QPainter::Antialiasing, true);
+            Popups::paintSurface(painter, QRectF(menu->rect()), kPopupRadius);
+        }
+        return false;
+    }
+};
+
+}  // namespace
+
+// ---------------------------------------------------------------------------
+// 对外那几个口子
+// ---------------------------------------------------------------------------
+
+void Popups::paintSurface(QPainter &painter, const QRectF &rect, qreal radius) {
+    const Theme::Tokens tokens = Theme::tokens();
+    painter.save();
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    const QRectF box = rect.adjusted(0.5, 0.5, -0.5, -0.5);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(tokens.glass);
+    painter.drawRoundedRect(box, radius, radius);
+    painter.setBrush(Qt::NoBrush);
+    painter.setPen(QPen(tokens.glassEdge, 1));
+    painter.drawRoundedRect(box, radius, radius);
+    painter.restore();
+}
+
+void Popups::glassify(QWidget *popup, qreal radius) {
+    Q_UNUSED(radius);
+    if (popup == nullptr) {
+        return;
+    }
+    popup->setAttribute(Qt::WA_TranslucentBackground, true);
+    popup->setAttribute(Qt::WA_NoSystemBackground, true);
+    if (Glass::systemBackdrop()) {
+        applyTransientBackdrop(popup);
+    }
+}
+
+void Popups::showTooltip(const QString &text, const QPoint &globalPos, const QWidget *anchor) {
+    if (text.isEmpty()) {
+        return;
+    }
+    TooltipBubble *tip = bubble();
+    tip->setBody(text);
+    QRect anchorRect;
+    const QRect *rect = nullptr;
+    if (anchor != nullptr && anchor->isVisible()) {
+        anchorRect = QRect(anchor->mapToGlobal(QPoint(0, 0)), anchor->size());
+        rect = &anchorRect;
+    }
+    tip->move(placeNear(tip->size(), globalPos, rect));
+    const bool wasVisible = tip->isVisible();
+    tip->show();
+    tip->raise();
+    if (!wasVisible) {
+        fadeIn(tip, 120, -2);  // 120ms 淡入 + 上移 2px
+    }
+}
+
+void Popups::hideTooltip() {
+    TooltipBubble *tip = bubble();
+    if (tip->isVisible()) {
+        tip->hide();
+    }
+}
+
+QString Popups::tooltipText() {
+    TooltipBubble *tip = bubble();
+    return tip->isVisible() ? tip->body() : QString();
+}
+
+bool Popups::tooltipVisible() {
+    return bubble()->isVisible();
+}
+
+bool Popups::isTextButton(const QWidget *widget) {
+    auto *button = qobject_cast<const QAbstractButton *>(widget);
+    return button != nullptr && !button->text().trimmed().isEmpty();
+}
+
+void Popups::install(QApplication &app) {
+    if (app.findChild<QObject *>(QStringLiteral("wtfmlTooltipDriver")) == nullptr) {
+        new TooltipDriver(app);
+    }
+    if (app.findChild<QObject *>(QStringLiteral("wtfmlComboWatcher")) == nullptr) {
+        new ComboWatcher(app);
+    }
+    if (app.findChild<QObject *>(QStringLiteral("wtfmlMenuGlass")) == nullptr) {
+        new MenuGlass(app);
+    }
+}

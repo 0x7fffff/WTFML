@@ -142,6 +142,7 @@ ${REPO_ROOT}/ui/InstanceSettingsSignature.cpp
                                 # `undefined reference to ThemeBackground::ThemeBackground(…)`。
                                 ${REPO_ROOT}/ui/ThemeBackground.cpp
                                 # 磨砂玻璃：场景底与绘制过滤器（Theme::apply() 装它）。
+                                ${REPO_ROOT}/ui/Popups.cpp
                                 ${REPO_ROOT}/ui/Glass.cpp
                                 # 任务中心那块面板：`MainWindowUI.cpp` 直接
                                 # new 它（底栏中间那格点开那一下），少了这一个文件会在链接
@@ -251,6 +252,7 @@ add_ui_module(ui_check_resource_packs modules/UiResourcePacksCheck.cpp UiResourc
 add_ui_module(ui_check_lifecycle modules/UiLifecycleCheck.cpp UiLifecycleCheck)
 add_ui_module(ui_check_ui_refresh modules/UiUiRefreshCheck.cpp UiUiRefreshCheck)
 add_ui_module(ui_check_theme modules/UiThemeCheck.cpp UiThemeCheck)
+add_ui_module(ui_check_popups modules/UiPopupCheck.cpp UiPopupCheck)
 add_ui_module(ui_check_window_chrome modules/UiWindowChromeCheck.cpp UiWindowChromeCheck)
 add_ui_module(ui_check_armor_trim ArmorTrimChecks.cpp runArmorTrimChecks)
 wtfml_write_compact_entries()

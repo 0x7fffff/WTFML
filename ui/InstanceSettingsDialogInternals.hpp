@@ -29,6 +29,7 @@
 
 #include "InstanceSettingsDialog.hpp"
 #include "Theme.hpp"
+#include "Popups.hpp"
 
 #include <QColor>
 #include <QGridLayout>
@@ -204,13 +205,11 @@ inline void layoutActionButtons(QGridLayout *grid, const QList<QWidget *> &butto
 class MenuPopup : public QWidget {
 public:
     explicit MenuPopup(QWidget *parent) : QWidget(parent, Qt::Popup | Qt::FramelessWindowHint) {
-        // 底色比内容区深一档（从调色板推，**不写死颜色**）—— 和那两块菜单逐字同款。
-        // 那一档由 `Theme::partBackground(Part::Panel)` 说了算（这一族浮层共用一个色）。
+        // 17 号反馈之后浮层只有一种面：磨砂玻璃（`Popups::paintSurface()` 画底，
+        // 窗外挂系统瞬态亚克力），不再铺一块不透明面板色。
         // NOTE: 这块框**每次现建** ⇒ 不用挂 follow()：主题换了之后下一次打开自然就是新的。
-        setAutoFillBackground(true);
-        QPalette menuPalette = QGuiApplication::palette();
-        menuPalette.setColor(QPalette::Window, Theme::partBackground(Theme::Part::Panel));
-        setPalette(menuPalette);
+        Popups::glassify(this, 14);
+        setAutoFillBackground(false);
     }
 
     /// 贴着 @p anchor 那一格的**下边缘**弹出来（超出屏幕时往里收）。
@@ -249,12 +248,11 @@ protected:
         QWidget::mousePressEvent(event);
     }
 
-    /// 一圈细边（和齿轮菜单那条同一个理由）：同一档深浅在浅色主题下几乎看不出边界，
-    /// 分不出"框到哪为止"。
+    /// 浮层那一层唯一的面：磨砂玻璃（圆角 14 + 1px 亮边）。原来那圈 Mid 细边和
+    /// "比内容区深一档的不透明底"一起去掉 —— 17 号反馈要的是真透磨砂。
     void paintEvent(QPaintEvent *) override {
         QPainter painter(this);
-        painter.setPen(palette().color(QPalette::Mid));
-        painter.drawRect(rect().adjusted(0, 0, -1, -1));
+        Popups::paintSurface(painter, QRectF(rect()), 14);
     }
 };
 

@@ -6,7 +6,7 @@
 #include <QHelpEvent>
 #include <QPainter>
 #include <QStyle>
-#include <QToolTip>
+#include "Popups.hpp"
 #include <QTreeView>
 
 #include "MainWindowUI.hpp"
@@ -97,7 +97,7 @@ bool InstanceGroupDelegate::helpEvent(QHelpEvent *event, QAbstractItemView *view
     if (m_inlineRowActions && event != nullptr && event->type() == QEvent::ToolTip) {
         const QString tip = rowActionTip(index, option.rect, event->pos());
         if (!tip.isEmpty()) {
-            QToolTip::showText(event->globalPos(), tip, view);
+            Popups::showTooltip(tip, event->globalPos(), view);
             return true;
         }
     }

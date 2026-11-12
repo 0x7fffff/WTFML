@@ -12,7 +12,7 @@
 #include <QModelIndex>
 #include <QPainter>
 #include <QStyle>
-#include <QToolTip>
+#include "Popups.hpp"
 
 #include "MainWindowUI.hpp"
 #include "Theme.hpp"
@@ -112,7 +112,7 @@ bool GroupListDelegate::helpEvent(QHelpEvent *event, QAbstractItemView *view,
     if (event != nullptr && event->type() == QEvent::ToolTip) {
         const QString tip = rowActionTip(index, option.rect, event->pos());
         if (!tip.isEmpty()) {
-            QToolTip::showText(event->globalPos(), tip, view);
+            Popups::showTooltip(tip, event->globalPos(), view);
             return true;
         }
     }

@@ -208,3 +208,12 @@ python tools/acceptance_directory_boundary.py --exe <WTFMinecraftLauncher.exe> -
 | ui_check（offscreen） | 3229 条通过 / 0 失败 | W13 三组旧断言（∨ 形状、底部边线、箭头禁用色）按新规格重写；下拉框那格用空条目量，否则「跟随全局」四个字伸进右带造成假红 |
 | 数字框越界键入钳到边界 | 0–5 的框里打 99、焦点一走就落到 5（Qt 出厂只会退回旧值） | **焦点转移里直接 `setValue()` 会把页面在别人的 FocusOut 事件里拆掉**：mw_check 当场段错误（服务端设置页那几颗表内编辑框）。改成只读文本算值、`QTimer::singleShot` 带控件当上下文再落值，复跑 2784/2784 全过 |
 | mw_check（offscreen） | 2784 条通过 / 0 失败 | ui_check 首跑有一条 `I2b Esc 收起浮动面板` 偶发失败（offscreen 时序），同一二进制复跑 3229/3229 全过 |
+
+## 2026-11-12　控件层第二批（tooltip / 下拉弹层 / 浮层磨砂）
+
+| 项 | 结果 | 首轮失败 / 意外发现 |
+| --- | --- | --- |
+| tooltip 换成自绘那一条 | 停 500ms 出、1 秒内换控件立即出、120ms 淡入上移 2px；文字按钮按 `text()` 判、不出提示；条目仍用 `ToolTipRole` | 系统那条 QToolTip 一律被 `QEvent::ToolTip` 吃掉，不再出现黄底方框 |
+| 下拉弹层（全仓 67 处 QComboBox） | 应用级一个过滤器接管：行高 34、圆角 8、选中强调淡底、8 项限高、S2 3px 细条 600ms 淡出、超过 15 项顶上搜索框 | ① `QComboBox::setMaxVisibleItems()` 在 Fusion + 样式表这一支上**不管用**（45 项照样整屏，正是用户报的），限高得自己按 8 项把弹层窗口收回；② Qt 自带上下翻页箭头（`QComboBoxPrivateScroller`）每次弹出会重新露出来，得在 show 的下一拍再藏一次 |
+| 浮层磨砂统一 | 下拉 / 菜单 / tooltip / 工具箱与账号面板 / 实例设置两个浮层都走 `Popups::paintSurface()` + `glassify()`（Win11 瞬态亚克力） | `Glass.cpp` / `WindowChrome.cpp` 一行没动（DSH 正在改失焦磨砂），浮层外壳在新文件 `ui/Popups.cpp` |
+| ui_check_popups（新增模块，offscreen） | 35 条通过 / 0 失败 | 验收图 `grab()` 拍不到 DWM 合成那层，图里看到的是自绘着色玻璃 |

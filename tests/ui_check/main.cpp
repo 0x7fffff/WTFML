@@ -57,6 +57,7 @@ int main(int argc, char *argv[]) {
     if (app.arguments().contains(QStringLiteral("--ui-refresh-check"))) { return UiUiRefreshCheck(app); }
 
     if (app.arguments().contains(QStringLiteral("--theme-check"))) { return UiThemeCheck(app); }
+    if (app.arguments().contains(QStringLiteral("--popup-check"))) { return UiPopupCheck(app); }
 
     // 把 Qt 的无障碍那一层**关掉**：offscreen 插件下它是恒开的，于是每个控件被藏起来 /
     // 析构时都要走一趟 `QAccessible::updateAccessibility`，而这个工程建/销的控件比产品

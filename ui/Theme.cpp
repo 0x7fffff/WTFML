@@ -6,6 +6,7 @@
 #include "Theme.hpp"
 
 #include "Glass.hpp"
+#include "Popups.hpp"
 
 #include <QAbstractItemView>
 #include <QAbstractButton>
@@ -2241,8 +2242,20 @@ QString widgetStyleSheet() {
         "QPushButton[wtfmlFoldRow=\"true\"]:checked { background-color: transparent; color: palette(window-text); }"
         "QPushButton[wtfmlFoldRow=\"true\"]:hover:enabled { background-color: palette(light); }"
         "QPushButton[wtfmlFoldRow=\"true\"]:pressed:enabled { background-color: palette(midlight); }"
-        "QComboBox QAbstractItemView { background-color: palette(tool-tip-base); color: palette(text);"
-        " border: none; selection-background-color: palette(midlight); selection-color: palette(text); }"
+        // 弹层里那根滚动条是 S2 那条 3px 细条：常态不显（`ComboDecorator` 用透明度动效
+        // 让它只在滚动时露出来），所以这里只钉宽度、圆角和墨色，不画槽底。
+        "QComboBox QAbstractItemView QScrollBar:vertical { width: 3px; background: transparent;"
+        " margin: 0px; border: none; }"
+        "QComboBox QAbstractItemView QScrollBar::handle:vertical { background: palette(highlight);"
+        " border-radius: 1px; min-height: 24px; }"
+        "QComboBox QAbstractItemView QScrollBar::add-line:vertical,"
+        " QComboBox QAbstractItemView QScrollBar::sub-line:vertical { height: 0px; border: none; }"
+        "QComboBox QAbstractItemView QScrollBar::add-page:vertical,"
+        " QComboBox QAbstractItemView QScrollBar::sub-page:vertical { background: transparent; }"
+        // 下拉弹层那张表也是透明的：磨砂底由 `ComboDecorator` 铺在弹层窗口上，项由
+        // `PopupItemDelegate` 自己画（悬停淡底 / 选中强调淡底），都不许再铺一块不透明底。
+        "QComboBox QAbstractItemView { background-color: transparent; color: palette(text);"
+        " border: none; selection-background-color: transparent; selection-color: palette(text); }"
         "QCheckBox, QCheckBox:checked { color: palette(window-text); }"
         "QCheckBox:disabled { color: palette(link-visited); }"
         "QCheckBox::indicator { width: 18px; height: 18px; }"
@@ -2274,8 +2287,10 @@ QString widgetStyleSheet() {
     // 菜单（右键 / 「…」）：一律走 palette(...)，**不写死颜色** —— 这一份应用级样式表换主题时
     // 字符串必须不变（见 installButtonSheet()），写死 token 会让每次换主题都在换调色板**之前**
     // 重挂一遍，跟着主题算色的控件拿到的还是旧色（U32.4 那排 chip 就是这么停在深色上的）。
+    // 底**不在这儿画**：磨砂玻璃由 `Popups::paintSurface()` 在菜单自己的 Paint 之前铺
+    // （见 ui/Popups.cpp）。这里写成一个不透明底色就会把它整块盖掉。
     qss += QStringLiteral(
-        "QMenu { background-color: palette(window); color: palette(window-text); border: none;"
+        "QMenu { background-color: transparent; color: palette(window-text); border: none;"
         " border-radius: 10px; padding: 6px; }"
         "QMenu::item { padding: 6px 22px 6px 12px; border-radius: 6px; background-color: transparent; }"
         "QMenu::item:selected { background-color: palette(light); color: palette(window-text); }"
@@ -2620,6 +2635,8 @@ void apply(QApplication &app) {
         new ScrollBarStyler(app);
     if (app.findChild<QObject *>(QStringLiteral("wtfmlColorSchemeWatcher")) == nullptr)
         new ColorSchemeWatcher(app);
+    // 浮层那一层（自绘 tooltip / 下拉弹层 / 菜单外壳）：自己按 objectName 幂等安装。
+    Popups::install(app);
     Glass::install(app);
 
     const Spec &spec = current();
