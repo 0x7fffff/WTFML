@@ -9,9 +9,11 @@
 #include "TaskProgressBar.hpp"
 #include "Theme.hpp"
 #include "TitleBar.hpp"
+#include "ToolboxPage.hpp"
 #include "ToggleSwitch.hpp"
 #include "VersionIcons.hpp"
 #include <QApplication>
+#include <QAbstractButton>
 #include <QCheckBox>
 #include <QEnterEvent>
 #include <QFile>
@@ -433,6 +435,8 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
     struct Shot { QString file; QString theme; QSize size; bool collapsed; int tab = MainWindowUI::homeTabIndex(); QString page = {}; };
     const int manage = MainWindowUI::instancesTabIndex();
     const int download = MainWindowUI::downloadTabIndex();
+    const int agent = MainWindowUI::agentTabIndex();
+    const int home = MainWindowUI::homeTabIndex();
     static const QList<Shot> shots{
         {QStringLiteral("home-dark.png"), QStringLiteral("dark"), {1280, 800}, false},
         {QStringLiteral("home-emerald.png"), QStringLiteral("emerald"), {1280, 800}, false},
@@ -452,6 +456,15 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         {QStringLiteral("instance-overview-ocean.png"), QStringLiteral("ocean"), {1280, 800}, false, manage, QStringLiteral("overview")},
         {QStringLiteral("instance-launch-dark.png"), QStringLiteral("dark"), {1280, 800}, false, manage, QStringLiteral("launch")},
         {QStringLiteral("instance-mods-dark.png"), QStringLiteral("dark"), {1280, 800}, false, manage, QStringLiteral("mod")},
+        // 智能体页、工具箱（设计稿 agent / panels-toolbox）：页键 toolbox = 底栏面板，toolbox:<键> = 展开那一页。
+        {QStringLiteral("agent-dark.png"), QStringLiteral("dark"), {1280, 800}, false, agent},
+        {QStringLiteral("agent-emerald.png"), QStringLiteral("emerald"), {1280, 800}, false, agent},
+        {QStringLiteral("agent-ocean.png"), QStringLiteral("ocean"), {1280, 800}, false, agent},
+        {QStringLiteral("toolbox-dark.png"), QStringLiteral("dark"), {1280, 800}, false, home, QStringLiteral("toolbox")},
+        {QStringLiteral("toolbox-emerald.png"), QStringLiteral("emerald"), {1280, 800}, false, home, QStringLiteral("toolbox")},
+        {QStringLiteral("toolbox-ocean.png"), QStringLiteral("ocean"), {1280, 800}, false, home, QStringLiteral("toolbox")},
+        {QStringLiteral("toolbox-page-dark.png"), QStringLiteral("dark"), {1280, 800}, false, home, QStringLiteral("toolbox:anvil")},
+        {QStringLiteral("toolbox-page-emerald.png"), QStringLiteral("emerald"), {1280, 800}, false, home, QStringLiteral("toolbox:anvil")},
     };
     static int index = 0;
     static QJsonArray report;
@@ -502,16 +515,31 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         // 抓图前再灌一次夹具，再让布局走一拍。
         QTimer::singleShot(700, &window, [&window]() { seedHome(window); });
         QTimer::singleShot(850, &window, [&window, shot]() {
-            if (!shot.page.isEmpty()) QMetaObject::invokeMethod(&window, "openInstanceSettings", Q_ARG(QString, QStringLiteral("create")), Q_ARG(QString, shot.page));
+            if (shot.page.startsWith(QStringLiteral("toolbox"))) {
+                if (auto *open = window.findChild<QAbstractButton *>(MainWindowUI::toolboxButtonName())) open->click();
+                const QString key = shot.page.section(QLatin1Char(':'), 1);
+                bool ok = false;
+                const ToolboxPage::Tool tool = ToolboxPage::toolFromKey(key, &ok);
+                if (ok) {
+                    if (auto *button = window.findChild<QPushButton *>(ToolboxPage::toolButtonName(tool))) button->click();
+                }
+            } else if (!shot.page.isEmpty()) QMetaObject::invokeMethod(&window, "openInstanceSettings", Q_ARG(QString, QStringLiteral("create")), Q_ARG(QString, shot.page));
             else if (shot.tab == MainWindowUI::instancesTabIndex()) hoverInstanceRow(window);
         });
         QTimer::singleShot(shot.page.isEmpty() ? 900 : 1600, &window, [&window, root, shot]() {
-            const bool saved = window.grab().save(root + QLatin1Char('/') + shot.file);
+            QPixmap shotImage = window.grab();
+            // 工具箱面板是 Qt::Popup（另一个顶层窗），window.grab() 抓不到它：按它在窗口里的位置贴上去。
+            if (auto *panel = window.findChild<QFrame *>(MainWindowUI::toolboxPanelName()); panel != nullptr && panel->isVisible()) {
+                QPainter painter(&shotImage);
+                painter.drawPixmap(window.mapFromGlobal(panel->mapToGlobal(QPoint(0, 0))), panel->grab());
+            }
+            const bool saved = shotImage.save(root + QLatin1Char('/') + shot.file);
             report.append(QJsonObject{{"file", shot.file}, {"saved", saved}, {"width", window.width()},
                                       {"height", window.height()}, {"dpr", window.devicePixelRatioF()},
                                       {"maxWidth", window.maximumWidth()}, {"screenWidth", window.screen()->availableGeometry().width()},
                                       {"state", int(window.windowState())}});
             if (!shot.page.isEmpty()) window.ui()->overlay()->closeOverlay();
+            if (auto *panel = window.findChild<QFrame *>(MainWindowUI::toolboxPanelName())) panel->close();
             QTimer::singleShot(shot.page.isEmpty() ? 0 : 300, &window, step);
         });
     };
