@@ -79,13 +79,6 @@ QList<QPair<QColor, double>> bodyInks();
 
 /// 三遍盒式模糊（半径按像素），给场景副本用。
 QImage boxBlur(const QImage &source, int radius);
-/// ---- 亚克力档的 accent 路径（实验，Windows） ----
-/// `WTFML_ACCENT_ACRYLIC=1` 时「亚克力」档改用 `SetWindowCompositionAttribute` 的 accent 亚克力：
-/// 它不进 DWM 那条「窗口失焦就把材质换成中性纯色」的策略（见 `docs/features/` 磨砂一节）。
-/// 默认关；判据与结论见 `.tongxi/任务书/失焦磨砂.md`。
-bool accentAcrylicEnabled();
-/// accent 的 GradientColor：`0xAABBGGRR`（alpha 在最高字节，红在最低）。
-unsigned accentGradientArgb(const QColor &tint);
 
 /// 主窗口的中央控件：画整窗那一层底和主页场景，持有缓存。
 class Backdrop : public QWidget {
@@ -160,6 +153,3 @@ private:
 };
 
 }  // namespace Glass
-
-
-

@@ -16,7 +16,6 @@
 #include "ChromeDialog.hpp"
 #include "DownloadToolDialog.hpp"
 #include "GameLogWindow.hpp"
-#include "Glass.hpp"
 #include "InstanceUpdateWizard.hpp"
 #include "ShellOpenWith.hpp"
 #include "UpgradeHistoryDialog.hpp"
@@ -142,20 +141,6 @@ void checkWindow(const QString &name, QWidget *window, bool cycleByClose = true)
 }  // namespace
 
 int UiWindowChromeCheck(QApplication &) {
-    // 亚克力档的 accent 路径（实验）：着色值打包和开关语义都是纯函数，任何平台都能量。
-    check(Glass::accentGradientArgb(QColor(0x11, 0x22, 0x33, 0x44)) == 0x44112233u,
-          QStringLiteral("WC accent 着色值按 0xAABBGGRR 打包（alpha 最高字节、红在最低）"),
-          QString::number(Glass::accentGradientArgb(QColor(0x11, 0x22, 0x33, 0x44)), 16));
-    check(!Glass::accentAcrylicEnabled(), QStringLiteral("WC accent 亚克力默认关（要 WTFML_ACCENT_ACRYLIC=1 才走）"),
-          QStringLiteral("默认应是系统背板"));
-    QTemporaryDir fixture;
-    QSettings::setDefaultFormat(QSettings::IniFormat);
-    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, fixture.path());
-    QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, fixture.filePath("system"));
-    Anim::setEnabled(false);
-    QApplication::setQuitOnLastWindowClosed(false);  // 下面反复 close() 窗口，不能把事件循环带走
-    std::printf("平台插件：%s\n", qPrintable(QGuiApplication::platformName()));
-
     // 产品里这些窗口都以主窗口为 parent 开出来（带 owner 的顶层窗：关闭时 Qt 会销毁平台窗口，
     // 再打开是新建的 HWND）；这里照样挂在主窗口下，才测得到「第二次打开」。
     HostWindow window;
@@ -240,4 +225,5 @@ int UiWindowChromeCheck(QApplication &) {
     }
     return g_fail == 0 ? 0 : 1;
 }
+
 

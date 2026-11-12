@@ -250,20 +250,6 @@ void setBlurStrength(int value) {
 void install(QApplication &) { initGlassResources(); }
 
 // ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-// 亚克力档的 accent 路径（实验）
-// ---------------------------------------------------------------------------
-
-bool accentAcrylicEnabled() {
-    // 只在 Windows 上有意义；别的平台这条路径不会被调用（WindowChrome 那层就不编译）。
-    static const bool on = qEnvironmentVariableIntValue("WTFML_ACCENT_ACRYLIC") == 1;
-    return on;
-}
-
-unsigned accentGradientArgb(const QColor &tint) {
-    return (unsigned(tint.alpha()) << 24) | (unsigned(tint.blue()) << 16) | (unsigned(tint.green()) << 8) |
-           unsigned(tint.red());
-}
 // 对比度
 // ---------------------------------------------------------------------------
 
@@ -655,6 +641,3 @@ void Backdrop::paintEvent(QPaintEvent *) {
 }
 
 }  // namespace Glass
-
-
-
