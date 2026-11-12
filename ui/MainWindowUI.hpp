@@ -306,6 +306,12 @@ public:
     static QString versionFilterEditName() { return QStringLiteral("versionFilterEdit"); }
     /// 筛选框右边那句结果（`找到 N 个版本` / `没有版本号匹配「…」`）。空筛选时藏着。
     static QString versionFilterHintName() { return QStringLiteral("versionFilterHint"); }
+    /// 版本树上方那排分段（设计稿 download）：全部 / 正式版 / 快照 / 远古版。键 = 分类键，「全部」= 空串。
+    static QString versionChannelButtonName(const QString &key) {
+        return QStringLiteral("versionChannel_") + (key.isEmpty() ? QStringLiteral("all") : key);
+    }
+    /// 下载页右上角「下载源 …」：点开是设置页那只下拉框的同一份选项，选了就改那只下拉框。
+    static QString downloadSourceButtonName() { return QStringLiteral("downloadSourceButton"); }
     static QString versionFilterPlaceholderText() {
         return QCoreApplication::translate("MainWindowUI", "按版本号筛选（空格分词，全部匹配）");
     }
@@ -3915,6 +3921,9 @@ private:
     /// 上一趟过滤是不是"真的在筛"（空串 / 纯空白 = 没在筛）。
     /// 用来判"要不要先把展开状态记下来"，以及"这一趟是不是第一次生效"。
     bool versionFilterActive = false;
+    /// 分段选中的分类键（空串 = 全部）。
+    QString versionChannelFilter;
+    QList<QPushButton *> versionChannelButtons;
     QLabel *installTargetLabel = nullptr;
     QLineEdit *installNameEdit = nullptr;
     QLabel *installNameError = nullptr;

@@ -22,6 +22,7 @@
 #include <QScrollBar>
 
 #include <QButtonGroup>
+#include <QMenu>
 #include <QColor>
 #include <QEvent>
 #include <QFont>
@@ -76,6 +77,36 @@ QWidget *MainWindowUI::setupDownloadPage() {
         downloadHeaderRefreshButton->setObjectName(downloadHeaderRefreshButtonName());
         // 「刷新」= 一般性（看一眼 / 重新拉一遍，不是"干这件事"）。
         Theme::markButton(downloadHeaderRefreshButton, Theme::ButtonKind::Neutral);
+        {
+            // 设计稿 download：页头右边「下载源 自动选择（BMCLAPI）⌄」。选项不另存一份：
+            // 点开时现读设置页那只下拉框，选中就改它（持久化、生效都走它原来那条路）。
+            auto *source = new QPushButton(download.right.header);
+            source->setObjectName(downloadSourceButtonName());
+            Theme::markButton(source, Theme::ButtonKind::Ghost);
+            source->setCursor(Qt::PointingHandCursor);
+            const auto sync = [this, source] {
+                const QString name = downloadSourceCombo != nullptr ? downloadSourceCombo->currentText() : QString();
+                source->setText(name.isEmpty() ? QStringLiteral("下载源") : QStringLiteral("下载源  %1  ⌄").arg(name));
+            };
+            sync();
+            QObject::connect(source, &QPushButton::clicked, source, [this, source, sync] {
+                if (downloadSourceCombo == nullptr || downloadSourceCombo->count() == 0) return;
+                QMenu menu(source);
+                for (int i = 0; i < downloadSourceCombo->count(); ++i) {
+                    QAction *action = menu.addAction(downloadSourceCombo->itemText(i));
+                    action->setCheckable(true);
+                    action->setChecked(i == downloadSourceCombo->currentIndex());
+                    action->setData(i);
+                }
+                if (QAction *chosen = menu.exec(source->mapToGlobal(QPoint(0, source->height())))) {
+                    downloadSourceCombo->setCurrentIndex(chosen->data().toInt());
+                }
+                sync();
+            });
+            // 设置页那只下拉框读配置时挡了信号，这里换到下载页时再对一次字。
+            QObject::connect(tabWidget, &QTabWidget::currentChanged, source, [sync](int) { sync(); });
+            download.right.actions->addWidget(source);
+        }
         download.right.actions->addWidget(downloadHeaderRefreshButton);
         // 页头那一整块（进安装页时连标题带按钮一起收起来，见 getDownloadHeader() 那段）。
         downloadHeader = download.right.header;
@@ -268,6 +299,37 @@ void MainWindowUI::setupDownloadGamePage() {
     versionFilterLayout->addWidget(versionFilterHint);
     // 设计稿 download：搜索框定宽靠左，不再横贯整行。
     versionFilterEdit->setMaximumWidth(360);
+    {
+        // 分段：全部 / 正式版 / 快照 / 远古版（设计稿 download）。只藏 / 露那几条分类，
+        // 和筛选框叠着生效（见 applyVersionFilter()）。各段的版本数在 tooltip 里。
+        auto *segment = new QWidget(versionFilterBar);
+        auto *segmentLayout = new QHBoxLayout(segment);
+        segmentLayout->setContentsMargins(3, 3, 3, 3);
+        segmentLayout->setSpacing(2);
+        const QList<QPair<QString, QString>> channels = {
+            {QString(), QStringLiteral("全部")},
+            {QStringLiteral("release"), QStringLiteral("正式版")},
+            {QStringLiteral("snapshot"), QStringLiteral("快照")},
+            {QStringLiteral("old"), QStringLiteral("远古版")}};
+        for (const auto &channel : channels) {
+            auto *button = new QPushButton(channel.second, segment);
+            button->setObjectName(versionChannelButtonName(channel.first));
+            button->setCheckable(true);
+            button->setChecked(channel.first.isEmpty());
+            button->setProperty("wtfmlChannelKey", channel.first);
+            segmentLayout->addWidget(button);
+            versionChannelButtons.append(button);
+            const QString key = channel.first;
+            QObject::connect(button, &QPushButton::clicked, versionFilterBar, [this, key] {
+                versionChannelFilter = key;
+                for (QPushButton *other : std::as_const(versionChannelButtons))
+                    other->setChecked(other->property("wtfmlChannelKey").toString() == key);
+                applyVersionFilter();
+            });
+        }
+        Theme::markSegmented(segment, versionChannelButtons);
+        versionFilterLayout->addWidget(segment);
+    }
     versionFilterLayout->addStretch(1);
     treeLayout->addWidget(versionFilterBar);
     // 打在框里就筛（不另要一颗「筛选」键）：这一层只是藏/露条目，便宜到可以每敲一个字
@@ -1072,7 +1134,12 @@ void MainWindowUI::applyVersionFilter() {
                 matchedIds.insert(id);
             }
         }
-        if (active) {
+        if (!versionChannelFilter.isEmpty() && key != versionChannelFilter) {
+            top->setHidden(true);  // 分段只看一类：别的分类（含「最新版本」）整条收起
+        } else if (!versionChannelFilter.isEmpty()) {
+            top->setHidden(active && visibleChildren == 0);
+            top->setExpanded(true);
+        } else if (active) {
             // 有命中的分类自动撑开（不然"找到 2 个"却还藏在收着的分类里，等于没找到）；
             // 一个都不命中的分类整条收起来 —— 留一行空分类在结果里只是噪音。
             top->setHidden(visibleChildren == 0);
@@ -1088,6 +1155,19 @@ void MainWindowUI::applyVersionFilter() {
         versionFilterExpandedBefore.clear();
     }
     versionFilterActive = active;
+    // 分段上的计数（tooltip）：每类多少个版本；「全部」不算「最新版本」那几条重复的。
+    int total = 0;
+    QHash<QString, int> counts;
+    for (int i = 0; i < versionTree->topLevelItemCount(); ++i) {
+        QTreeWidgetItem *top = versionTree->topLevelItem(i);
+        const QString key = top->data(column, Qt::UserRole).toString();
+        counts.insert(key, top->childCount());
+        if (key != QStringLiteral("latest")) total += top->childCount();
+    }
+    for (QPushButton *button : std::as_const(versionChannelButtons)) {
+        const QString key = button->property("wtfmlChannelKey").toString();
+        button->setToolTip(QStringLiteral("%1 个版本").arg(key.isEmpty() ? total : counts.value(key)));
+    }
 
     if (versionFilterHint != nullptr) {
         versionFilterHint->setVisible(active);
