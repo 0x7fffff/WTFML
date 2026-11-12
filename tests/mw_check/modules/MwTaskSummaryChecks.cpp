@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "ActivityPopover.hpp"
 int MwTaskSummaryChecks(MainWindow &window) {
     // ------------------------------------------------------------------
     // 底栏中间那格不归谁所有 —— 每一件活（下载 / 安装 / 导入 / 启动）都是账本里的一行，
@@ -81,6 +82,7 @@ int MwTaskSummaryChecks(MainWindow &window) {
             // 真正该量的是"账本里记的那个数"，它在**面板那一行**上（面板不走动画、
             // 直接 setValue）。点开面板读它。
             abCell->click();
+            ActivityPopover::openAllIn(&window);  // 摘要先弹浮动面板，从「全部任务」进整页
             QApplication::processEvents();
             QWidget *abPanel = window.findChild<QWidget *>(MainWindowUI::taskCenterPanelName());
             check(abPanel != nullptr && abPanel->isVisible(), "AB2 点中间那格弹出了任务中心面板");
@@ -231,6 +233,7 @@ int MwTaskSummaryChecks(MainWindow &window) {
 
             // ---- ⑤ 打开任务中心：那次失败被「看过」了，红点灭掉；顺手把已完成清掉 ----
             abCell->click();
+            ActivityPopover::openAllIn(&window);  // 摘要先弹浮动面板，从「全部任务」进整页
             QApplication::processEvents();
             check(!abDot->isVisible(),
                   "AB4 打开过任务中心之后那颗红点灭掉（看过了，就不是「没看过」）",

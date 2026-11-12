@@ -43,6 +43,31 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
             }
             check(itemsOk, "每条分类的键（userData）与文字都和那张表一一对应");
 
+            // 小节索引紧跟在当前分类下面（设计稿 .set-index），不是摆在整列分类的末尾。
+            {
+                const int was = categoryList->currentRow();
+                const int look = categoryKeys.indexOf(QStringLiteral("look"));
+                categoryList->setCurrentRow(look >= 0 ? look : 0);
+                QApplication::processEvents();
+                const int cur = categoryList->currentRow();
+                auto *sub = categoryList->findChild<QWidget *>(QStringLiteral("settingsSubIndex"));
+                const QRect curRect = categoryList->visualRect(categoryList->model()->index(cur, 0));
+                const QRect nextRect = cur + 1 < categoryList->count()
+                                           ? categoryList->visualRect(categoryList->model()->index(cur + 1, 0))
+                                           : QRect();
+                check(sub != nullptr && sub->isVisible() && sub->y() > curRect.top() &&
+                          sub->geometry().bottom() <= curRect.bottom() &&
+                          (nextRect.isNull() || sub->geometry().bottom() < nextRect.top()) &&
+                          categoryList->viewport()->rect().contains(sub->geometry().bottomLeft()),
+                      "★ 小节索引摆在当前分类和下一条之间",
+                      sub ? QStringLiteral("sub %1..%2 cur %3..%4 next %5")
+                                .arg(sub->y()).arg(sub->geometry().bottom())
+                                .arg(curRect.top()).arg(curRect.bottom()).arg(nextRect.top())
+                          : QStringLiteral("没有索引"));
+                categoryList->setCurrentRow(was);
+                QApplication::processEvents();
+            }
+
             // 每一页：objectName == settingsPanelName(key)，它自己就是一层滚动区（跟着宽度变），
             // 里面那块 form 的 objectName == settingsFormName(key)、表格是 3:7 两列。
             int pagesOk = 0;

@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "ActivityPopover.hpp"
 int MwIntegrityActionsChecks(const QDir &root) {
     // 全程一个外网请求都不发：原版那一档的地址取自**本地**那份版本 json，而那份 json 里
     // 写的是指向 127.0.0.1 上一台假服务器的地址（下载器把 URL 原样用，见
@@ -364,6 +365,7 @@ int MwIntegrityActionsChecks(const QDir &root) {
             bool cancelledByUi = false;
             if (summaryCell != nullptr) {
                 summaryCell->click();
+                ActivityPopover::openAllIn(&w);  // 摘要先弹浮动面板，从「全部任务」进整页
                 QApplication::processEvents();
                 if (QWidget *panel =
                         w.findChild<QWidget *>(MainWindowUI::taskCenterPanelName())) {

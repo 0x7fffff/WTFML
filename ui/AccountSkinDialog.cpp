@@ -184,11 +184,20 @@ public:
         painter->setPen(selected ? QPen(t.primary, 2) : QPen(t.glassEdge, 1));
         painter->setBrush(fill);
         painter->drawRoundedRect(cell.adjusted(0.5, 0.5, -0.5, -0.5), 10, 10);
-        // shortcut: 没有披风贴图可画，按 id 取一个稳定色块；要真图时改成从 cape 贴图裁正面。
-        QColor swatch = SkinModel::avatarFallbackColor(index.data(Qt::UserRole).toString());
+        const QImage texture = index.data(Qt::UserRole + 3).value<QImage>();
         painter->setPen(Qt::NoPen);
-        painter->setBrush(swatch);
-        painter->drawRoundedRect(QRectF(cell.center().x() - 8, cell.top() + 14, 16, 32), 3, 3);
+        if (!texture.isNull() && texture.width() >= 64) {
+            // 披风贴图正面在 (1,1) 起 10×16（按 64 宽的比例换算高清贴图），放大 2 倍、最近邻不糊。
+            const int unit = texture.width() / 64;
+            const QRectF front(cell.center().x() - 10, cell.center().y() - 16, 20, 32);
+            painter->setRenderHint(QPainter::SmoothPixmapTransform, false);
+            painter->drawImage(front, texture, QRect(unit, unit, 10 * unit, 16 * unit));
+        } else {
+            // 贴图还没到（或没地址）：按 id 取一个稳定色块占位。
+            QColor swatch = SkinModel::avatarFallbackColor(index.data(Qt::UserRole).toString());
+            painter->setBrush(swatch);
+            painter->drawRoundedRect(QRectF(cell.center().x() - 8, cell.top() + 14, 16, 32), 3, 3);
+        }
         if (index.data(Qt::UserRole + 1).toBool()) {  // 正披着的那件：右上角一个小圆点
             painter->setBrush(t.ok);
             painter->drawEllipse(QPointF(cell.right() - 8, cell.top() + 8), 3, 3);
@@ -236,20 +245,36 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     root->setSpacing(12);
     root->setAlignment(Qt::AlignTop);
 
-    // ---------- 顶部：当前身份 / 最近一次动作的结果 ----------
-    // 内嵌成整页时这一条交给宿主的面包屑那一行（见 showEvent()）。
-    m_statusLabel = new QLabel(notLoggedInNote(), this);
-    m_statusLabel->setObjectName(statusLabelName());
-    m_statusLabel->setWordWrap(false);
-    m_statusLabel->setMaximumWidth(480);
-    m_statusLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    // ---------- 顶部（设计稿 .page-head）：大标题 + 一句身份副标题，「刷新外观」在右 ----------
     m_headerBar = new QWidget(this);
     m_headerBar->setObjectName(QStringLiteral("accountHeaderBar"));
     m_headerBar->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     auto *statusRow = new QHBoxLayout(m_headerBar);
     statusRow->setContentsMargins(0, 0, 0, 0);
     statusRow->setSpacing(12);
-    statusRow->addWidget(m_statusLabel, 1);
+    auto *titleColumn = new QVBoxLayout;
+    titleColumn->setSpacing(2);
+    auto *title = new QLabel(windowTitle(), m_headerBar);
+    title->setObjectName(QStringLiteral("accountPageTitle"));
+    {
+        QFont f = Theme::handFont(title->font(), Theme::HandFont::KaiLight);
+        f.setPixelSize(Theme::textSize(Theme::TextRole::Display));
+        title->setFont(f);
+    }
+    m_statusLabel = new QLabel(notLoggedInNote(), m_headerBar);
+    m_statusLabel->setObjectName(statusLabelName());
+    m_statusLabel->setWordWrap(false);
+    m_statusLabel->setMaximumWidth(480);
+    m_statusLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    m_statusLabel->setFont(Theme::textFont(m_statusLabel->font(), Theme::TextRole::Caption));
+    const auto tintStatus = [label = m_statusLabel] {
+        label->setStyleSheet(QStringLiteral("color: %1;").arg(Theme::tokens().secondary.name()));
+    };
+    tintStatus();
+    Theme::follow(m_statusLabel, tintStatus);
+    titleColumn->addWidget(title);
+    titleColumn->addWidget(m_statusLabel);
+    statusRow->addLayout(titleColumn, 1);
     root->addWidget(m_headerBar);
 
     auto *body = new QWidget(this);
@@ -351,8 +376,13 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_refreshButton->setObjectName(refreshButtonName());
     // 「刷新外观」刷的是**这一整个窗**（账号列表 + 皮肤 + 披风），所以放页头，不放某一栏里。
     Theme::markButton(m_refreshButton, Theme::ButtonKind::Neutral);
-    m_refreshButton->setIcon(VersionIcons::line(QStringLiteral("refresh"), 16, Theme::tokens().text));
-    statusRow->addWidget(m_refreshButton);
+    {  // 图标颜色跟主题走（构造时上色的话换主题后还是上一套的字色）
+        const auto tint = [b = m_refreshButton] { b->setIcon(VersionIcons::line(QStringLiteral("refresh"), 16, Theme::tokens().text)); };
+        tint();
+        Theme::follow(m_refreshButton, tint);
+    }
+    statusRow->addStretch(1);  // 标题列有最大宽，余下的空白留在中间，别让按钮吃成一整条
+    statusRow->addWidget(m_refreshButton, 0, Qt::AlignTop);
 
     // ---------- 中：立绘（设计稿 .stage）----------
     m_viewer = new SkinViewer(this);
@@ -384,13 +414,16 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     WheelGuard::install(m_variantCombo);
     controls->addWidget(m_variantCombo);
 
-    const Theme::Tokens tk = Theme::tokens();
     auto *skinButtons = new QHBoxLayout();
     skinButtons->setContentsMargins(0, 0, 0, 0);
     skinButtons->setSpacing(8);
     m_uploadButton = new QPushButton(uploadButtonText(), this);
     m_uploadButton->setObjectName(uploadButtonName());
-    m_uploadButton->setIcon(VersionIcons::line(QStringLiteral("upload"), 16, tk.text));
+    {  // 图标颜色跟主题走（构造时上色的话换主题后还是上一套的字色）
+        const auto tint = [b = m_uploadButton] { b->setIcon(VersionIcons::line(QStringLiteral("upload"), 16, Theme::tokens().text)); };
+        tint();
+        Theme::follow(m_uploadButton, tint);
+    }
     Theme::markButton(m_uploadButton, Theme::ButtonKind::Neutral);
     skinButtons->addWidget(m_uploadButton);
 
@@ -401,7 +434,11 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_offlineSkinButton->setObjectName(offlineSkinButtonName());
     m_offlineSkinButton->setAutoDefault(false);
     m_offlineSkinButton->setToolTip(offlineSkinButtonToolTip());
-    m_offlineSkinButton->setIcon(VersionIcons::line(QStringLiteral("upload"), 16, tk.text));
+    {  // 图标颜色跟主题走（构造时上色的话换主题后还是上一套的字色）
+        const auto tint = [b = m_offlineSkinButton] { b->setIcon(VersionIcons::line(QStringLiteral("upload"), 16, Theme::tokens().text)); };
+        tint();
+        Theme::follow(m_offlineSkinButton, tint);
+    }
     Theme::markButton(m_offlineSkinButton, Theme::ButtonKind::Neutral);
     m_offlineSkinResetButton = new QPushButton(offlineSkinResetButtonText(), this);
     m_offlineSkinResetButton->setObjectName(offlineSkinResetButtonName());
@@ -519,15 +556,8 @@ void AccountSkinDialog::showEvent(QShowEvent *event) {
     for (auto *ancestor = parentWidget(); ancestor; ancestor = ancestor->parentWidget()) {
         if ((host = qobject_cast<OverlayHost *>(ancestor))) break;
     }
-    if (host && host->isOpen()) {
-        layout()->removeWidget(m_headerBar);
-        host->setPageHeaderWidget(m_headerBar);
-        m_closeButton->hide(); // 内嵌页已有返回，不占一整排页脚。
-    } else {
-        qobject_cast<QVBoxLayout *>(layout())->insertWidget(0, m_headerBar);
-        m_headerBar->show();
-        m_closeButton->show();
-    }
+    // 标题行两种形态都留在本页顶上（设计稿：面包屑下面一行大标题）；内嵌页已有返回，不占页脚。
+    m_closeButton->setVisible(!(host && host->isOpen()));
     placeRowActions();
 }
 
@@ -652,10 +682,19 @@ void AccountSkinDialog::setCapes(const QList<CapeRow> &capes) {
         item->setToolTip(cape.alias);
         item->setData(Qt::UserRole, cape.id);
         item->setData(Qt::UserRole + 1, cape.active);
+        item->setData(Qt::UserRole + 2, cape.url);
     }
     m_capeList->setVisible(!capes.isEmpty());
     updateCapeCaption();
     refreshButtonStates();
+}
+
+void AccountSkinDialog::setCapeTexture(const QString &url, const QImage &texture) {
+    if (url.isEmpty() || texture.isNull()) return;
+    for (int i = 0; i < m_capeList->count(); ++i) {
+        QListWidgetItem *item = m_capeList->item(i);
+        if (item->data(Qt::UserRole + 2).toString() == url) item->setData(Qt::UserRole + 3, texture);
+    }
 }
 
 void AccountSkinDialog::updateCapeCaption() {

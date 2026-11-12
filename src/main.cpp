@@ -13,7 +13,6 @@
 #include <QFile>
 #include <QStyleFactory>
 #include <QTextStream>
-#include <QMessageBox>
 #include <QRecursiveMutex>
 #include <QMutexLocker>
 #include "util/StartupAcceptance.hpp"
@@ -22,6 +21,8 @@
 #include "util/FileAssociations.hpp"
 #include "perf/PerfProbe.hpp"  // 测量构建专用；普通构建里 attach() 是内联空函数
 #include "../ui/Animations.hpp"  // 按下按钮那一份动效（见下面那段 NOTE）
+#include "../ui/InlineMessage.hpp"
+#include "../ui/OverlayHost.hpp"
 #include "../ui/Theme.hpp"   // 主题从盘上读回来、铺开（见下面那段 NOTE）
 #include "util/AppPaths.hpp"
 #include "util/SecretRedactor.hpp"
@@ -199,8 +200,16 @@ int main(int argc, char *argv[]) {
     QString lockProblem;
     if (!DirectorySessionLock::acquire(startupFolders.currentFolder(), &lockProblem) ||
         !DirectorySessionLock::acquire(FolderManager::defaultFolder(), &lockProblem)) {
+        Theme::setSpec(Theme::load());
+        Theme::apply(app);
         StartupAcceptance::dismissRefusal(acceptance);
-        QMessageBox::information(nullptr, QStringLiteral("启动器已在运行或目录不可用"), lockProblem);
+        // 主窗还没建：开一扇小窗当提示卡的底，和主窗里的提示长一个样。
+        QWidget host;
+        host.setWindowTitle(QStringLiteral("启动器已在运行或目录不可用"));
+        host.resize(OverlayHost::promptWidth() + 80, 320);
+        auto *overlay = new OverlayHost(&host, &host);
+        host.show();
+        InlineMessage::information(overlay, QStringLiteral("启动器已在运行或目录不可用"), lockProblem);
         return 1;
     }
 

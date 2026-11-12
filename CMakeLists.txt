@@ -598,6 +598,7 @@ set(SOURCE_FILES
     ui/ToolboxPage.cpp
     ui/ToggleSwitch.cpp
     ui/TaskCenterPanel.cpp
+    ui/ActivityPopover.cpp
     ui/TaskDetailPage.cpp
     ui/TaskProgressBar.cpp
     ui/IntegrityReportPage.cpp

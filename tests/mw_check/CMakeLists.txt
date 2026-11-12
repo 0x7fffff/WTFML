@@ -440,6 +440,7 @@ set(SOURCE_FILES
     # 任务中心那一套：面板本身（MainWindowUI.cpp 直接 new 它）和账本
     # （MainWindow 直接 new 它 + 读它）。少哪一个都会在链接那一步报一串 undefined reference。
     ${REPO_ROOT}/ui/TaskCenterPanel.cpp
+    ${REPO_ROOT}/ui/ActivityPopover.cpp
     ${REPO_ROOT}/ui/TaskDetailPage.cpp
     ${REPO_ROOT}/ui/TaskProgressBar.cpp
     # 完整性检查报告页：MainWindow.cpp 直接 new 它。

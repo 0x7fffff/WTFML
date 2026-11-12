@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "ActivityPopover.hpp"
 #include "TextMarks.hpp"
 int UiTaskActionsChecks(QMainWindow &window, MainWindowUI &ui) {
 
@@ -34,6 +35,7 @@ int UiTaskActionsChecks(QMainWindow &window, MainWindowUI &ui) {
                 },
                 nullptr);
             cell->click();
+            ActivityPopover::openAllIn(&window);  // 摘要先弹浮动面板，从「全部任务」进整页
             QApplication::processEvents();
             QWidget *panel = window.findChild<QWidget *>(MainWindowUI::taskCenterPanelName());
             check(panel != nullptr && panel->isVisible(), "I6 任务中心页面再次打开（喂了一件在跑的）");

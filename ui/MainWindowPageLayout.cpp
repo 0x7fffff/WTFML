@@ -18,6 +18,7 @@
 #include "VersionTreeDelegate.hpp"
 #include "WindowChrome.hpp"
 
+#include <QCheckBox>
 #include <QColor>
 #include <QEvent>
 #include <QFont>
@@ -350,7 +351,14 @@ void addSettingItem(const SettingsSection &section, const QString &labelText, QW
     rowLayout->setContentsMargins(0, 10, 0, 10);
     rowLayout->setSpacing(24);
     control->setParent(row);
-    const QString name = labelText != section.title ? labelText : QString();
+    QString name = labelText != section.title ? labelText : QString();
+    // 一行只有一个勾选框 = 开关行：勾选框上那句话挪到左格当行名，它自己变成右侧 40×22 开关。
+    if (name.isEmpty()) {
+        if (auto *check = control->findChild<QCheckBox *>(QString(), Qt::FindDirectChildrenOnly)) {
+            name = check->text();
+            Theme::markSwitch(check);
+        }
+    }
     if (name.isEmpty()) {
         rowLayout->addWidget(control, 1);
         section.layout->addWidget(row);

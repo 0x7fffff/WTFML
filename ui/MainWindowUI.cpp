@@ -2010,7 +2010,8 @@ void MainWindowUI::setHomeQuickMode(HomeQuickMode mode) {
                 }
             }
             if (name == QStringLiteral("homeCurrentEyebrow") || name == QStringLiteral("homeCurrentName") ||
-                name == QStringLiteral("homeCurrentVersion") || name == QStringLiteral("homeCurrentGap")) {
+                name == QStringLiteral("homeCurrentVersion") || name == QStringLiteral("homeCurrentLoaderIcon") ||
+                name == QStringLiteral("homeCurrentGap")) {  // 行首加载器图标跟元信息一起收，不然压不成一行
                 widget->setVisible(!compact);
             }
             if (name == QStringLiteral("homeCurrentCompactName")) widget->setVisible(compact);
@@ -2021,7 +2022,10 @@ void MainWindowUI::setHomeQuickMode(HomeQuickMode mode) {
         if (auto *card = homeQuickCurrentSection->findChild<QWidget *>(QStringLiteral("homeCurrentInstanceCard"))) {
             // 压成一行时紧贴下面的实例带，不再给柔光留底。
             card->layout()->setContentsMargins(0, 0, 0, compact ? 0 : kHomeLaunchGlowRoom);
+            // invalidate() 不往下清子布局的缓存（元信息那一行是嵌套布局，会带着旧的 17px）；
+            // activate() 会把子布局一并作废再量。
             card->layout()->invalidate();
+            card->layout()->activate();
             card->setFixedHeight(card->layout()->sizeHint().height());
         }
     }

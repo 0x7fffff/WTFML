@@ -22,6 +22,8 @@
 #include <QHash>
 #include <QJsonObject>
 #include <QJsonValue>
+#include <QCheckBox>
+#include <QMenu>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPointer>
@@ -249,6 +251,12 @@ protected:
                     }
                 }
             }
+        } else if (event->type() == QEvent::Polish) {
+            // 菜单的圆角要窗口透明才露得出来（否则四角是方的系统底）。
+            if (auto *menu = qobject_cast<QMenu *>(watched); menu != nullptr && !menu->testAttribute(Qt::WA_TranslucentBackground)) {
+                menu->setAttribute(Qt::WA_TranslucentBackground);
+                menu->setWindowFlag(Qt::FramelessWindowHint);
+            }
         } else if (event->type() == QEvent::FocusIn && button != nullptr) {
             const auto reason = static_cast<QFocusEvent *>(event)->reason();
             if (reason == Qt::MouseFocusReason) {
@@ -330,7 +338,8 @@ static_assert(sizeof(kImageFitInfos) / sizeof(kImageFitInfos[0]) ==
 /// 用户反馈弹窗一出整块发黑：这一层只该"轻轻压一档"，磨砂风景还得透得出来。
 QColor scrimLiteral() {
     QColor color = tokens().scrim;
-    color.setAlphaF(color.alphaF() * 0.6);
+    // 浅色预设的 scrim 本来就淡（.22），再打六折几乎看不出弹窗下面压了一层：浅色照原值。
+    color.setAlphaF(color.alphaF() * (isDark() ? 0.6 : 1.0));
     return color;
 }
 
@@ -1449,6 +1458,49 @@ void markBadge(QLabel *label, BadgeTone tone) {
     follow(label, apply);
 }
 
+namespace {
+class SwitchPainter : public QObject {
+public:
+    using QObject::QObject;
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override {
+        if (event->type() != QEvent::Paint) return false;
+        auto *box = qobject_cast<QCheckBox *>(watched);
+        if (box == nullptr) return false;
+        const Tokens t = tokens();
+        QPainter p(box);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        const QRectF track(0.5, 0.5, 39, 21);
+        const bool on = box->isChecked();
+        if (!box->isEnabled()) p.setOpacity(0.45);
+        p.setPen(on ? Qt::NoPen : QPen(t.stroke, 1));
+        p.setBrush(on ? t.primary : t.fillPress);
+        p.drawRoundedRect(track, 10.5, 10.5);
+        const qreal d = 16;
+        const QRectF knob(on ? track.right() - 3 - d : track.left() + 3, track.center().y() - d / 2, d, d);
+        p.setPen(Qt::NoPen);
+        p.setBrush(on ? t.onPrimary : t.secondary);
+        p.drawEllipse(knob);
+        if (box->hasFocus() && box->property("wtfmlKeyboardFocus").toBool()) {
+            p.setBrush(Qt::NoBrush);
+            p.setPen(QPen(t.focus, 2));
+            p.drawRoundedRect(track.adjusted(0.5, 0.5, -0.5, -0.5), 10, 10);
+        }
+        return true;
+    }
+};
+}  // namespace
+
+void markSwitch(QCheckBox *box) {
+    if (box == nullptr || box->property("wtfmlSwitch").toBool()) return;
+    static SwitchPainter *painter = new SwitchPainter(qApp);
+    box->setProperty("wtfmlSwitch", true);
+    if (box->accessibleName().isEmpty()) box->setAccessibleName(box->text());
+    box->setFixedSize(40, 22);
+    box->setCursor(Qt::PointingHandCursor);
+    box->installEventFilter(painter);
+}
+
 void markSegmented(QWidget *container, const QList<QPushButton *> &segments) {
     if (container == nullptr) return;
     container->setAttribute(Qt::WA_StyledBackground, true);
@@ -2045,6 +2097,18 @@ QString widgetStyleSheet() {
         "QPushButton[wtfmlSegment=\"true\"]:pressed:enabled { background-color: palette(midlight); color: palette(window-text); }"
         "QPushButton[wtfmlSegment=\"true\"]:checked { background-color: palette(highlight); color: palette(link); }"
         "QPushButton[wtfmlSegment=\"true\"]:disabled { background-color: transparent; color: palette(link-visited); }");
+    // 右键 / 「…」菜单：玻璃面、不描硬边、圆角，项悬停淡底（窗口透明由 ButtonFocusVisibility 在 Polish 时打开）。
+    // 菜单（右键 / 「…」）：一律走 palette(...)，**不写死颜色** —— 这一份应用级样式表换主题时
+    // 字符串必须不变（见 installButtonSheet()），写死 token 会让每次换主题都在换调色板**之前**
+    // 重挂一遍，跟着主题算色的控件拿到的还是旧色（U32.4 那排 chip 就是这么停在深色上的）。
+    qss += QStringLiteral(
+        "QMenu { background-color: palette(window); color: palette(window-text); border: 1px solid palette(mid);"
+        " border-radius: 10px; padding: 6px; }"
+        "QMenu::item { padding: 6px 22px 6px 12px; border-radius: 6px; background-color: transparent; }"
+        "QMenu::item:selected { background-color: palette(light); color: palette(window-text); }"
+        "QMenu::item:disabled { color: palette(link-visited); }"
+        "QMenu::separator { height: 1px; background-color: palette(mid); margin: 4px 8px; }"
+        "QMenu::icon { padding-left: 8px; }");
     return qss;
 }
 

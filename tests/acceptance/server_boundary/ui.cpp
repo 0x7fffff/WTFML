@@ -1,4 +1,5 @@
 #include "MainWindowUI.hpp"
+#include "ActivityPopover.hpp"
 #include "MainWindow.hpp"
 #include "NewServerPage.hpp"
 #include "OverlayHost.hpp"
@@ -175,7 +176,10 @@ QJsonObject serverWizardInstall(const QString &root, bool checkpoint, bool clien
     const auto taskScreenshot = [&](MainWindow &host, const QString &name) {
         auto *panel = host.findChild<QWidget *>(MainWindowUI::taskCenterPanelName());
         if (!panel || !panel->isVisible())
-            if (auto *button = host.findChild<QPushButton *>(MainWindowUI::taskSummaryButtonName())) button->click();
+            if (auto *button = host.findChild<QPushButton *>(MainWindowUI::taskSummaryButtonName())) {
+                button->click();
+                ActivityPopover::openAllIn(&host);  // 摘要先弹浮动面板，从「全部任务」进整页
+            }
         QElapsedTimer animation; animation.start();
         while (animation.elapsed() < 400) QApplication::processEvents(QEventLoop::AllEvents, 20);
         if (auto *row = host.findChild<QWidget *>(MainWindowUI::taskCenterPanelRowName(0))) {

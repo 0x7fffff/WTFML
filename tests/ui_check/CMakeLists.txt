@@ -147,6 +147,7 @@ ${REPO_ROOT}/ui/InstanceSettingsSignature.cpp
                                 # new 它（底栏中间那格点开那一下），少了这一个文件会在链接
                                 # 那一步报 `undefined reference to TaskCenterPanel::…`。
                                 ${REPO_ROOT}/ui/TaskCenterPanel.cpp
+                                ${REPO_ROOT}/ui/ActivityPopover.cpp
                                 ${REPO_ROOT}/ui/TaskDetailPage.cpp
                                 ${REPO_ROOT}/ui/TaskProgressBar.cpp
                                 # 完整性检查报告页：MainWindowUI.cpp 用到它那几个名字。

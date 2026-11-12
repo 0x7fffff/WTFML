@@ -256,9 +256,20 @@ int UiAccountSkinChecks() {
                 capes.append(AccountSkinDialog::CapeRow{QStringLiteral("cape-1"),
                                                         QStringLiteral("Migrator"), true});
                 capes.append(AccountSkinDialog::CapeRow{QStringLiteral("cape-2"),
-                                                        QStringLiteral("MineCon 2016"), false});
+                                                        QStringLiteral("MineCon 2016"), false,
+                                                        QStringLiteral("https://textures.example/cape-2")});
                 dialog.setCapes(capes);
                 QApplication::processEvents();
+                {
+                    // 披风贴图到了：只补进地址对得上的那一格（另一格仍画占位色条）。
+                    QImage texture(64, 32, QImage::Format_ARGB32);
+                    texture.fill(Qt::red);
+                    dialog.setCapeTexture(QStringLiteral("https://textures.example/cape-2"), texture);
+                    dialog.setCapeTexture(QStringLiteral("https://textures.example/other"), texture);
+                    check(capeList->item(1)->data(Qt::UserRole + 3).value<QImage>().size() == QSize(64, 32) &&
+                              capeList->item(0)->data(Qt::UserRole + 3).isNull(),
+                          "★ 披风贴图按地址认领：对得上的那一格换成贴图，对不上的不动");
+                }
                 check(capeList->count() == 2, "两件披风都摆出来了",
                       QString::number(capeList->count()));
                 check(capeList->item(0)->text() ==

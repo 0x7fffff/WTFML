@@ -13,8 +13,13 @@
 #include "TitleBar.hpp"
 #include "WindowChrome.hpp"
 #include "Theme.hpp"   // 按钮身份、`neutralFill()`（那几档中性灰）、`isDarkPalette()`
+#include "VersionIcons.hpp"
 
 #include <QApplication>
+#include <QAction>
+#include <QGuiApplication>
+#include <QClipboard>
+#include <QMenu>
 #include <QComboBox>
 #include <QCoreApplication>
 #include <QEvent>
@@ -302,6 +307,30 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
         m_stateBadge->setAttribute(Qt::WA_TransparentForMouseEvents);
         strip->addWidget(m_stateBadge, 0, Qt::AlignVCenter);
         strip->addStretch(1);
+        // 清空 / 复制 / 两种导出是同一类小动作：收进标题条右边那颗「…」（在三颗窗口按钮左边；
+        // 窗口本身有关闭钮，关掉走 close()，WA_DeleteOnClose 与 finished() 照旧）。
+        m_moreButton = new QPushButton(m_titleStrip);
+        m_moreButton->setObjectName(moreButtonName());
+        m_moreButton->setToolTip(tr("更多操作"));
+        m_moreButton->setIcon(VersionIcons::line(QStringLiteral("dots"), 16, Theme::tokens().secondary));
+        m_moreButton->setCursor(Qt::PointingHandCursor);
+        Theme::markButton(m_moreButton, Theme::ButtonKind::Ghost);
+        auto *menu = new QMenu(m_moreButton);
+        m_copyAction = menu->addAction(tr("复制全部"));
+        m_exportLogAction = menu->addAction(exportLogButtonText());
+        m_exportLogAction->setToolTip(exportLogButtonTooltip());
+        m_exportReportAction = menu->addAction(exportReportButtonText());
+        m_exportReportAction->setToolTip(exportReportButtonTooltip());
+        menu->setToolTipsVisible(true);
+        menu->addSeparator();
+        m_clearAction = menu->addAction(clearButtonText());
+        m_clearAction->setToolTip(tr("只清这个窗口里看到的内容，日志文件不受影响。"));
+        connect(m_moreButton, &QPushButton::clicked, this, [this, menu]() {
+            menu->popup(m_moreButton->mapToGlobal(QPoint(m_moreButton->width() - menu->sizeHint().width(),
+                                                         m_moreButton->height() + 4)));
+        });
+        strip->addWidget(m_moreButton, 0, Qt::AlignVCenter);
+        strip->addSpacing(4);
         auto *minimize = new TitleBarButton(TitleBarButton::Glyph::Minimize, QColor(), QColor(), m_titleStrip);
         minimize->setObjectName(QStringLiteral("gameLogMinimize"));
         minimize->setToolTip(tr("最小化"));
@@ -429,12 +458,6 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
     filters->addWidget(m_searchEdit);
     filters->addWidget(m_lineLimitCombo);
 
-    m_clearButton = new QPushButton(clearButtonText(), this);
-    m_clearButton->setObjectName(clearButtonName());
-    // 「清空」= 一般性（黑）：它清的是**这个窗看到的东西**（见下面那条 connect 的注释），
-    // 盘上那份日志一行都没少 —— 所以它**不是**危险那一档。
-    Theme::markButton(m_clearButton, Theme::ButtonKind::Neutral);
-    filters->addWidget(m_clearButton);
 
     layout->addLayout(filters);
 
@@ -492,44 +515,16 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
     m_view->setLineWrapMode(QPlainTextEdit::NoWrap);
     layout->addWidget(m_view, 1);
 
-    // 这两颗**摆在关闭的左边**、三颗一起靠右：「关闭」在最右，不该因为加了两颗就把它
-    // 挤走 —— 一扇窗上最右边那颗永远该是"退出这一页"的那一颗。
-    // NOTE: 左边留一个 stretch：三颗键的宽度会随字号变，靠它让它们**贴着右边**，
-    // 而不是被拉开。
-    auto *buttons = new QHBoxLayout;
-    buttons->addStretch(1);
-    m_exportLogButton = new QPushButton(exportLogButtonText(), this);
-    m_exportLogButton->setObjectName(exportLogButtonName());
-    m_exportLogButton->setToolTip(exportLogButtonTooltip());
-    // 两颗导出键走 **Ghost**：它们是这一页最不打紧的
-    // 两下 —— 只读、低频（出事的时候才按一次）、按错了也没有任何后果。摆成有框的按钮，
-    // 它们会和「关闭」抢同一条视线；只留字，视线就自然落在"退出这一页"那颗上。
-    // NOTE: 「关闭」和上面那颗「清空」**留在一般性（黑）**：一扇窗最右边那颗永远是
-    // "退出这一页"，它得是个看得出是按钮的东西；「清空」清的是这个窗看到的内容
-    // （盘上那份一行没少），够"一般性"。
-    Theme::markButton(m_exportLogButton, Theme::ButtonKind::Ghost);
-    buttons->addWidget(m_exportLogButton);
-    m_exportReportButton = new QPushButton(exportReportButtonText(), this);
-    m_exportReportButton->setObjectName(exportReportButtonName());
-    m_exportReportButton->setToolTip(exportReportButtonTooltip());
-    Theme::markButton(m_exportReportButton, Theme::ButtonKind::Ghost);
-    buttons->addWidget(m_exportReportButton);
-    m_closeButton = new QPushButton(closeButtonText(), this);
-    m_closeButton->setObjectName(closeButtonName());
-    Theme::markButton(m_closeButton, Theme::ButtonKind::Neutral);
-    buttons->addWidget(m_closeButton);
-    layout->addLayout(buttons);
-
-    connect(m_exportLogButton, &QPushButton::clicked, this,
-            &GameLogWindow::exportLogRequested);
-    connect(m_exportReportButton, &QPushButton::clicked, this,
-            &GameLogWindow::exportReportRequested);
+    connect(m_exportLogAction, &QAction::triggered, this, &GameLogWindow::exportLogRequested);
+    connect(m_exportReportAction, &QAction::triggered, this, &GameLogWindow::exportReportRequested);
+    connect(m_copyAction, &QAction::triggered, this,
+            [this]() { QGuiApplication::clipboard()->setText(allLogText()); });
 
     // 「清空」清的是**这个窗看到的东西**：模型、计数、那半行一起清（视图只是模型的投影，
     // 只清视图的话按钮上会留着「ERROR 12」而底下一行都没有 —— 看着像坏的）。游戏进程一个
     // 都不动：这仍然只是个视图，和"关掉这个窗不会停游戏"是同一件事。
     // **筛选的勾不动**：那是"我现在想看哪几档"的偏好，不是日志内容。
-    connect(m_clearButton, &QPushButton::clicked, this, [this]() {
+    connect(m_clearAction, &QAction::triggered, this, [this]() {
         m_model.clear();
         m_pending.clear();
         m_view->clear();
@@ -537,9 +532,6 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
         updateFilterButtons();
         refreshPlaceholder();
     });
-    // 「关闭」走 close()，于是 WA_DeleteOnClose 生效、finished() 发出去 —— 调用方靠
-    // finished() 记住"这一份用户不想再看日志了"（见 MainWindow 里那一段）。
-    connect(m_closeButton, &QPushButton::clicked, this, &QDialog::close);
 }
 
 // ---------------------------------------------------------------------------
@@ -1071,9 +1063,7 @@ QString GameLogWindow::logTextFrom(LogLevel minLevel) const {
 
 QPlainTextEdit *GameLogWindow::getLogView() const { return m_view; }
 
-QPushButton *GameLogWindow::getClearButton() const { return m_clearButton; }
 
-QPushButton *GameLogWindow::getCloseButton() const { return m_closeButton; }
 
 QLabel *GameLogWindow::getHintLabel() const { return m_hintLabel; }
 
@@ -1198,7 +1188,6 @@ QString GameLogWindow::droppedHintText(int dropped, int capacity) {
 
 QString GameLogWindow::clearButtonText() { return QStringLiteral("清空"); }
 
-QString GameLogWindow::closeButtonText() { return QStringLiteral("关闭"); }
 
 QString GameLogWindow::exportLogButtonText() { return QStringLiteral("导出日志…"); }
 

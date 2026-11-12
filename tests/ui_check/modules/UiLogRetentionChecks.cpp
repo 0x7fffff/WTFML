@@ -7,11 +7,10 @@ int UiLogRetentionChecks() {
         QApplication::processEvents();
         QComboBox *combo = log->getLineLimitCombo();
         QPlainTextEdit *view = log->getLogView();
-        QPushButton *clear = log->getClearButton();
-        QPushButton *close = log->getCloseButton();
-        check(combo != nullptr && view != nullptr && clear != nullptr && close != nullptr,
-              "Z10 顶上那颗行数下拉框、清空、关闭都找得到");
-        if (combo != nullptr && view != nullptr && clear != nullptr && close != nullptr) {
+        QPushButton *more = log->getMoreButton();
+        check(combo != nullptr && view != nullptr && more != nullptr && log->clearAction() != nullptr,
+              "Z10 顶上那颗行数下拉框、「…」菜单和里面的清空都找得到");
+        if (combo != nullptr && view != nullptr && more != nullptr) {
             // ---- (a) 六档，数字写全，默认「全部」 ----
             const QVector<int> choices = GameLogWindow::lineLimitChoices();
             QSet<int> uniqueChoices;
@@ -106,28 +105,18 @@ int UiLogRetentionChecks() {
                       "Z10 再调小一次，模型还是 1200 行", QString::number(log->lineCount()));
             }
 
-            // ---- (d) 清空挪到下拉框旁边；关闭在底下、右对齐 ----
-            // 几何一律换算到窗口坐标再比（几件分属不同的行/布局，直接比 geometry 是比几套坐标系）。
-            const QPoint comboAt = combo->mapTo(log, QPoint(0, 0));
-            const QPoint clearAt = clear->mapTo(log, QPoint(0, 0));
-            const QPoint closeAt = close->mapTo(log, QPoint(0, 0));
+            // ---- (d) 「…」在标题条最右（三颗窗口按钮左边紧挨着）：正文之上 ----
+            const QPoint moreAt = more->mapTo(log, QPoint(0, 0));
             const QPoint viewAt = view->mapTo(log, QPoint(0, 0));
-            check(clearAt.y() < viewAt.y(),
-                  "Z10 清空挪到**顶上那一排**了（在正文之上，不再是底下那一排的一个）",
-                  QStringLiteral("清空 y=%1 / 正文 y=%2").arg(clearAt.y()).arg(viewAt.y()));
-            check(clearAt.x() >= comboAt.x() + combo->width(),
-                  "Z10 清空就在那颗下拉框的右边（「把清除放到这个的旁边」）",
-                  QStringLiteral("下拉框右缘 %1 / 清空左缘 %2")
-                      .arg(comboAt.x() + combo->width())
-                      .arg(clearAt.x()));
-            check(closeAt.y() > viewAt.y(),
-                  "Z10 关闭还在底下那一排（没跟着清空一起上去）",
-                  QStringLiteral("关闭 y=%1 / 正文 y=%2").arg(closeAt.y()).arg(viewAt.y()));
-            // 右对齐 = 它右边缘贴着窗口右边缘那一侧的布局留白（Fusion 下十来像素，这里给
-            // 40 的余量）。左对齐的话这个差会是"窗口宽度减两个按钮宽"，几百像素。
-            const int gap = log->width() - (closeAt.x() + close->width());
+            check(moreAt.y() + more->height() <= viewAt.y(),
+                  "Z10 「…」在正文之上的标题行里",
+                  QStringLiteral("… y=%1 / 正文 y=%2").arg(moreAt.y()).arg(viewAt.y()));
+            auto *minimize = log->findChild<QWidget *>(QStringLiteral("gameLogMinimize"));
+            const int gap = minimize == nullptr
+                                ? -1
+                                : minimize->mapTo(log, QPoint(0, 0)).x() - (moreAt.x() + more->width());
             check(gap >= 0 && gap < 40,
-                  "Z10 关闭是**右对齐**的（右缘贴着窗口右边，不是左边）",
+                  "Z10 「…」右对齐（右缘贴着标题条上的最小化钮）",
                   QStringLiteral("差 %1 px（窗口宽 %2）").arg(gap).arg(log->width()));
         }
         log->close();

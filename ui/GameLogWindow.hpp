@@ -96,6 +96,7 @@ class QComboBox;
 class QLabel;
 class QLineEdit;
 class QPlainTextEdit;
+class QAction;
 class QPushButton;
 class QToolButton;
 class QAbstractButton;
@@ -227,11 +228,13 @@ public:
 
     /// 那一块文本控件（验证工程量几何/只读性用）。
     QPlainTextEdit *getLogView() const;
-    QPushButton *getClearButton() const;
-    QPushButton *getCloseButton() const;
+    /// 标题行「…」菜单里那几项（清空 / 复制全部 / 导出日志 / 导出错误报告）。
+    QAction *clearAction() const { return m_clearAction; }
+    QAction *copyAction() const { return m_copyAction; }
+    QPushButton *getMoreButton() const { return m_moreButton; }
     /// 底下那一排最左那颗（「导出日志…」）。
-    QPushButton *getExportLogButton() const { return m_exportLogButton; }
-    QPushButton *getExportReportButton() const { return m_exportReportButton; }
+    QAction *exportLogAction() const { return m_exportLogAction; }
+    QAction *exportReportAction() const { return m_exportReportAction; }
     QLabel *getHintLabel() const;
     QToolButton *getFilterButton(LogLevel level) const;
     /// 顶上那一排最右那颗行数下拉框（验证工程拿它切上限、也拿它量"清空在不在旁边"）。
@@ -305,7 +308,6 @@ public:
     /// 挤掉过行时补在 `hintText()` 后面那一句；没挤掉回空串（两段之间由调用方补空格）。
     static QString droppedHintText(int dropped, int capacity);
     static QString clearButtonText();
-    static QString closeButtonText();
     /// 底下那两颗导出键（说明见文件头）。两颗都写成"带省略号"那种
     /// （点下去还会再问一次存哪儿）。
     static QString exportLogButtonText();
@@ -414,10 +416,7 @@ signals:
 
 public:
     static QString logViewName() { return QStringLiteral("gameLogView"); }
-    static QString clearButtonName() { return QStringLiteral("gameLogClearButton"); }
-    static QString closeButtonName() { return QStringLiteral("gameLogCloseButton"); }
-    static QString exportLogButtonName() { return QStringLiteral("gameLogExportButton"); }
-    static QString exportReportButtonName() { return QStringLiteral("gameLogExportReportButton"); }
+    static QString moreButtonName() { return QStringLiteral("gameLogMoreButton"); }
     static QString hintLabelName() { return QStringLiteral("gameLogHintLabel"); }
     static QString lineLimitComboName() { return QStringLiteral("gameLogLineLimitCombo"); }
     static QString filterButtonName(LogLevel level);
@@ -478,11 +477,12 @@ private:
     QPlainTextEdit *m_view = nullptr;
     /// 正文区上面那一行搜索框。
     QLineEdit *m_searchEdit = nullptr;
-    QPushButton *m_clearButton = nullptr;
-    QPushButton *m_closeButton = nullptr;
+    QPushButton *m_moreButton = nullptr;
+    QAction *m_clearAction = nullptr;
+    QAction *m_copyAction = nullptr;
     /// 底下那一排那两颗导出键。顺序就是界面上从左到右的顺序。
-    QPushButton *m_exportLogButton = nullptr;
-    QPushButton *m_exportReportButton = nullptr;
+    QAction *m_exportLogAction = nullptr;
+    QAction *m_exportReportAction = nullptr;
     QComboBox *m_lineLimitCombo = nullptr;
     /// 造这个窗时给的那个实例名（见 instanceName()）。只存不用 —— 标题那一下用完就没别处
     /// 需要它了，导出报告那一条得能取回来（那时候会话多半已经从 LauncherManager 里摘掉了）。
