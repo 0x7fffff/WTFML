@@ -2240,6 +2240,59 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             QApplication::processEvents();
         }
 
+        // ---------- W15 加载器标志在深色底上认得出 ----------
+        //
+        // Forge 那张是**透明底 + 深藏青铁砧**（`assets/loader/README.md`）：浅色主题下压在白底
+        // 列表上看得很清楚，深色主题下就是一团和底色差不多的剪影（r81 的 `dark-1280` 主页
+        // 当前实例那一行、管理列表都看不出来）。所以 `loaderMark()` 在深色主题下把它按文字色
+        // 重描一遍。这里量的是**结果**：深色那一份的墨要亮（压在深底上看得见），浅色那一份
+        // 还是原来那张深色图（不许一刀切成永远浅色）；另外三张自带浅色内容 / 底色，两种主题
+        // 下应该一个像素都不变。
+        {
+            const auto inkLuminance = [](const QImage &image) {
+                double sum = 0.0;
+                int count = 0;
+                for (int y = 0; y < image.height(); ++y) {
+                    for (int x = 0; x < image.width(); ++x) {
+                        const QColor pixel = image.pixelColor(x, y);
+                        if (pixel.alpha() < 200) continue;
+                        sum += 0.299 * pixel.red() + 0.587 * pixel.green() + 0.114 * pixel.blue();
+                        ++count;
+                    }
+                }
+                return count == 0 ? -1.0 : sum / count;
+            };
+
+            Theme::setSpec(Theme::presetSpec(QStringLiteral("emerald")));
+            Theme::apply(app);
+            const QImage lightForge = VersionIcons::loaderMark(1, 32).toImage();
+            const QImage lightFabric = VersionIcons::loaderMark(0, 32).toImage();
+            const QImage lightNeo = VersionIcons::loaderMark(2, 32).toImage();
+            const QImage lightOpti = VersionIcons::loaderMark(3, 32).toImage();
+
+            Theme::setSpec(Theme::presetSpec(QStringLiteral("dark")));
+            Theme::apply(app);
+            const QImage darkForge = VersionIcons::loaderMark(1, 32).toImage();
+            const QImage darkFabric = VersionIcons::loaderMark(0, 32).toImage();
+            const QImage darkNeo = VersionIcons::loaderMark(2, 32).toImage();
+            const QImage darkOpti = VersionIcons::loaderMark(3, 32).toImage();
+
+            check(inkLuminance(lightForge) >= 0 && inkLuminance(lightForge) < 90,
+                  "★ W15 浅色主题下 Forge 还是原来那把深色铁砧（不是一路浅色）",
+                  QStringLiteral("墨的明度 %1").arg(inkLuminance(lightForge)));
+            check(inkLuminance(darkForge) > 128,
+                  "★★ W15 深色主题下 Forge 的铁砧按文字色重描过（压在深底上看得见）",
+                  QStringLiteral("墨的明度 %1").arg(inkLuminance(darkForge)));
+            check(darkFabric == lightFabric && darkNeo == lightNeo && darkOpti == lightOpti,
+                  "★ W15 另外三张自带浅色内容 / 底色，两种主题下一个像素都不动");
+            check(darkForge != lightForge,
+                  "W15 Forge 的那两份不是同一张图（换主题真的会换样子）");
+
+            // 铺回浅色：后面那几段（还有别的模块）都按浅色那一身拿像素。
+            Theme::setSpec(Theme::presetSpec(QStringLiteral("emerald")));
+            Theme::apply(app);
+        }
+
         // ---------- 收尾：铺回出厂那一份 ----------
         // 这一段动过全局主题，收尾要铺回去：一是"换过深色预设之后能原样收回出厂那一份"
         // （光"什么都不做"是收不回的，深色那份还挂在应用上 —— 这条断言量的就是那个收回

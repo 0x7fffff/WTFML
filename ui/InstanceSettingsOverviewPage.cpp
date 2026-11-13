@@ -216,7 +216,10 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
             m_lastLaunchLabel->setPalette(pal);
         }
         m_lastLaunchLabel->setObjectName(QStringLiteral("instanceLastLaunch"));
-        m_lastLaunchLabel->setWordWrap(true);
+        // 这一行只有一句状态，**不折行**：折行标签的 sizeHint 是"按要折成的宽度量出来的一行"，
+        // 而这一行是按 sizeHint 宽摆的（overviewRow 里 AlignLeft），于是日期被折到第二行、
+        // 行高只够第一行 —— 屏幕上就只剩「最后启动：」。
+        m_lastLaunchLabel->setWordWrap(false);
         setLastLaunch(QDateTime());
 
         grid->addWidget(overviewSection(tr("基本"), this, true), row++, 0, 1, 2);

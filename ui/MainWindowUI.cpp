@@ -348,13 +348,18 @@ protected:
 /// 实例带那一排卡片的"取景框"：卡片按自己的宽度一张挨一张排，排不下就从右边裁掉，
 /// 最后 120px 渐隐（设计稿 `.cards { overflow: hidden; mask-image: … }`）。
 /// 里面那一排是个普通的 QHBoxLayout（`row()`），重建卡片的代码照旧往里塞。
+///
+/// 卡片**不摊开、不居中**：每张卡按自己名字的宽度定尺寸（`kHomeTileWidth` ~
+/// `kHomeTileMaxWidth`，见 `rebuildRow()` 里那段），从这一排的左缘一张挨一张摆，
+/// 剩下的宽度就空在右边 —— 和设计稿 `.cards` 的"一排卡片、超出的裁掉"是一回事。
 class HomeStripRow final : public QWidget {
 public:
     explicit HomeStripRow(QWidget *parent) : QWidget(parent), m_content(new QWidget(this)) {
         m_row = new QHBoxLayout(m_content);
-        m_row->setContentsMargins(0, 0, 0, 0);
+        // 左边让 4 px：卡片自己的内边距是 8，页签那一排的外边距是 12 —— 补上这 4 px，
+        // 第一张卡的封面左缘就和上面「最近 / 收藏」页签的左缘落在同一条线上。
+        m_row->setContentsMargins(4, 0, 0, 0);
         m_row->setSpacing(6);
-        m_row->setSizeConstraint(QLayout::SetFixedSize);
         m_content->installEventFilter(this);
         setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     }
@@ -368,8 +373,12 @@ protected:
         relayout();
     }
     bool eventFilter(QObject *watched, QEvent *event) override {
-        if (watched == m_content && event->type() == QEvent::Resize) {
-            if (m_content->height() != height()) updateGeometry();
+        if (watched == m_content &&
+            (event->type() == QEvent::Resize || event->type() == QEvent::LayoutRequest)) {
+            // 卡片是重建的（`rebuildRow()` 里清空再塞），那一排的自然宽会变：铺满 / 让位都
+            // 得按新的数目重算。只在几何真的变了的时候动，免得 LayoutRequest 自己喂自己。
+            relayout();
+            if (event->type() == QEvent::Resize && m_content->height() != height()) updateGeometry();
             syncFade();
         }
         return QWidget::eventFilter(watched, event);
@@ -377,7 +386,14 @@ protected:
 
 private:
     void relayout() {
-        m_content->move(0, 0);
+        // 卡片只有自然宽（每张自己定死），这一条内层就是它那么宽：从左缘摆起，
+        // 排不下时右边超出去的那截由 `syncFade()` 渐隐裁掉。
+        const QSize hint = m_content->sizeHint();
+        const int width = qMax(hint.width(), 0);
+        const int height = qMax(hint.height(), this->height());
+        if (m_content->geometry() != QRect(0, 0, width, height)) {
+            m_content->setGeometry(0, 0, width, height);
+        }
         syncFade();
     }
     void syncFade() {
@@ -1760,7 +1776,12 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
                 loaderIcon->setObjectName(QStringLiteral("homeCurrentLoaderIcon"));
                 loaderIcon->setFixedSize(14, 14);
                 loaderIcon->setScaledContents(true);
-                loaderIcon->setPixmap(VersionIcons::loaderMark(loaderIndex, 28));
+                // 标志跟着主题走（深色主题下 Forge 那把铁砧是浅色那版，见 VersionIcons::loaderMark）。
+                const auto applyLoaderMark = [loaderIcon, loaderIndex]() {
+                    loaderIcon->setPixmap(VersionIcons::loaderMark(loaderIndex, 28));
+                };
+                applyLoaderMark();
+                Theme::follow(loaderIcon, applyLoaderMark);
                 loaderIcon->setAttribute(Qt::WA_TransparentForMouseEvents);
                 metaRow->addWidget(loaderIcon, 0, Qt::AlignVCenter);
                 auto *meta = new ElidedLabel(block);
@@ -1860,10 +1881,13 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             card->setObjectName(QStringLiteral("homeQuickCard_%1").arg(item.key));
             card->setAccessibleName(item.name);
             // QPushButton 的全局 QSS 也声明了 min-height；只写 setMinimumHeight() 会在 polish
-            // 后被它压回普通按钮高度。属性选择器负责复位 QSS，这里再用固定尺寸表达卡片的布局尺寸。
+            // 后被它压回普通按钮高度。属性选择器负责复位 QSS，这里再用布局尺寸表达卡片的
+            // 高度。宽度**跟着名字走**（下面按内容量出来，196 下限、320 上限），尺寸策略是
+            // Fixed —— 这一排**不把剩下的宽度分给卡片**，右边空着就空着。
             card->setProperty("wtfmlQuickCard", true);
             card->setProperty("wtfmlQuickCardSize", QStringLiteral("normal"));
-            card->setFixedSize(kHomeTileWidth, kHomeTileHeight);
+            card->setFixedHeight(kHomeTileHeight);
+            card->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
             Theme::markButton(card, Theme::ButtonKind::Neutral);
 
             auto *content = new QHBoxLayout(card);
@@ -1946,6 +1970,16 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             QObject::connect(card, &QPushButton::clicked, card, [this, key = item.key]() {
                 if (m_homeQuickActionHandler) m_homeQuickActionHandler(key, HomeQuickAction::Select);
             });
+            // 宽度按**内容**量：封面 + 名字（+「当前」）+ 播放钮。不能指望 QPushButton 的
+            // sizeHint —— 那个按 text / icon 算，不认它身上这套布局，量出来总是缩到下限。
+            // 播放钮平时是收着的（悬停才露），布局的 sizeHint 里没有它，所以这里把它那一格
+            // 手动加回去：不加的话鼠标一进来名字就被挤出一截省略号。
+            if (QLayout *contentLayout = card->layout()) {
+                const int playRoom = play->sizeHint().width() + contentLayout->spacing();
+                card->setFixedWidth(qBound(kHomeTileWidth,
+                                           contentLayout->sizeHint().width() + playRoom,
+                                           kHomeTileMaxWidth));
+            }
             row->addWidget(card);
         }
     };

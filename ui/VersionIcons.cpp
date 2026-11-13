@@ -176,6 +176,25 @@ QPixmap loaderLogoPixmap(int index, int size) {
                                                : Qt::SmoothTransformation);
 }
 
+// Forge 那张是**只有形状**的两透明底之一：铁砧本身是深藏青 `#1E2D43`，压在深色主题
+// 的底上（页面明度 20 上下）分不出边。这一档把它按主题的文字色重描一遍 —— 只换颜色，
+// 形状和 alpha 一个像素都不动。另外三张自带浅色内容 / 自带底色，深色底上都还在。
+constexpr int kForgeIndex = 1;
+
+/// 把一张**只有形状**的图按 @p ink 重描：alpha 原样搬过来。
+/// @note 走 `QImage`（ARGB32_Premultiplied）而不是 `QPixmap`：`QPixmap(size)` 在本机是
+/// **不带 alpha 通道**的那一档，`DestinationIn` 画完再转回来，透明的地方会变成不透明的黑。
+QPixmap tintedSilhouette(const QPixmap &source, const QColor &ink) {
+    QImage canvas(source.size(), QImage::Format_ARGB32_Premultiplied);
+    canvas.setDevicePixelRatio(source.devicePixelRatio());
+    canvas.fill(ink);
+    QPainter painter(&canvas);
+    painter.setCompositionMode(QPainter::CompositionMode_DestinationIn);
+    painter.drawImage(0, 0, source.toImage());
+    painter.end();
+    return QPixmap::fromImage(canvas);
+}
+
 /// 画一次就够了：这几张图在一棵树上是**每一行都要用**的（900 多条 × 每次重绘），
 /// 每次都现画一遍太浪费。缓存按"要画的东西"键住（颜色那几个组合是有限的）。
 QPixmap cached(const QString &key, const std::function<QPixmap()> &make) {
@@ -363,10 +382,16 @@ QPixmap VersionIcons::loaderMark(int index, int size) {
     if (index < 0 || index > 3) {
         return grassBlock(size);
     }
-    return cached(QStringLiteral("mark/%1/%2").arg(index).arg(size), [index, size]() {
+    // 深色主题下 Forge 那把深色铁砧按文字色重描（见上面 kForgeIndex 那段）。颜色进缓存键：
+    // 用户改过文字色之后拿到的应该是新那一支。
+    const QColor ink = index == kForgeIndex && Theme::isDark() ? Theme::tokens().text : QColor();
+    const QString inkKey = ink.isValid() ? ink.name(QColor::HexArgb) : QStringLiteral("base");
+    return cached(QStringLiteral("mark/%1/%2/%3").arg(index).arg(size).arg(inkKey),
+                  [index, size, ink]() {
         const QPixmap logo = loaderLogoPixmap(index, size);
         // 图读不出来（资源没编进来）也总得画点什么：退回草方块，和"认不出下标"一条规矩。
-        return logo.isNull() ? grassBlock(size) : logo;
+        if (logo.isNull()) return grassBlock(size);
+        return ink.isValid() ? tintedSilhouette(logo, ink) : logo;
     });
 }
 

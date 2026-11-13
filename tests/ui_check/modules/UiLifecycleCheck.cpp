@@ -30,14 +30,14 @@ int UiLifecycleCheck(QApplication &app) {
         Dlg dialog(QStringLiteral("Test"), QStringLiteral("test"), Dlg::Override(),
                    Dlg::GlobalValues(), {}, true);
         auto *lastLaunch = dialog.findChild<QLabel *>(QStringLiteral("instanceLastLaunch"));
-        expect(lastLaunch && lastLaunch->text() == QStringLiteral("尚无启动记录"),
+        expect(lastLaunch && lastLaunch->text() == QStringLiteral("从未启动"),
                "overview does not invent a last launch for a new instance");
         const auto launched = QDateTime::fromString(QStringLiteral("2026-10-20T10:20:00"), Qt::ISODate);
         dialog.setLastLaunch(launched);
         expect(lastLaunch && lastLaunch->text().contains(QStringLiteral("2026-10-20 10:20")),
                "overview displays the supplied real launch timestamp");
         dialog.setLastLaunch(QDateTime());
-        expect(lastLaunch && lastLaunch->text() == QStringLiteral("尚无启动记录"),
+        expect(lastLaunch && lastLaunch->text() == QStringLiteral("从未启动"),
                "overview clears a previous timestamp when the record is absent");
         QHash<QString, QString> dirs;
         const QStringList keys{QStringLiteral("screenshots"), QStringLiteral("replay"),
@@ -69,6 +69,19 @@ int UiLifecycleCheck(QApplication &app) {
         dialog.show();
         dialog.showPage(Dlg::overviewCategoryKey());
         app.processEvents();
+        // 「最后启动：…」那一行要**整句**摆得下：它按 sizeHint 宽摆在行里（overviewRow 的
+        // AlignLeft），折行的标签会把日期折到行高看不见的第二行 —— 屏幕上只剩「最后启动：」。
+        dialog.setLastLaunch(launched);
+        app.processEvents();
+        if (lastLaunch) {
+            const int needed = lastLaunch->fontMetrics().horizontalAdvance(lastLaunch->text());
+            printf("last launch geometry: width=%d needed=%d height=%d\n", lastLaunch->width(), needed,
+                   lastLaunch->height());
+            expect(!lastLaunch->wordWrap() && lastLaunch->width() >= needed &&
+                       lastLaunch->height() >= lastLaunch->fontMetrics().height(),
+                   "overview shows the whole last-launch line on one line");
+        }
+        dialog.setLastLaunch(QDateTime());
         const QList<QPushButton *> overviewCommands = {
             dialog.findChild<QPushButton *>(Dlg::changeIconButtonName()),
             dialog.findChild<QPushButton *>(Dlg::groupButtonName()),
