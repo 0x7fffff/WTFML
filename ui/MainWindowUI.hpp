@@ -1021,7 +1021,7 @@ public:
     /// NOTE: `instanceSettingsText()` 不是这一页的出处。这一页相关的那句话有**两个**
     /// 出处，各管一件事，别再合成一个：`rowInstanceSettingsTipText()`（实例行行尾那颗
     /// 齿轮的悬停提示）和 `InstanceSettingsDialog::titleText()`（覆盖层页眉上那行
-    /// 「实例设置：<实例名>」）。
+    /// 「实例设置」）。
     /// NOTE: 带省略号 —— 按 Qt 的规矩，点了之后还要弹框问点什么的，文案结尾就带省略号
     /// （这个字传出去的信息是"点下去不等于事情就开始了"）。
     static QString importModpackText() { return QStringLiteral("导入整合包…"); }

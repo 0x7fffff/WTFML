@@ -381,7 +381,7 @@ void runInstanceFileResourceTests() {
             bool hasSettings = false;
             QString header;        // 覆盖层页眉上那行字
             QString instanceName;  // 那一页「实例名」那一格现在写着的（= 目录名）
-            // **停在哪一页**。页眉上那行字是「实例设置：<实例名>」，**换页
+            // **停在哪一页**。页眉上那行字是「实例设置」，**换页
             // 不换字** —— 光比它只量得出"退回到同一个实例设置"，量不出用户 那句
             // 「从模组点进去，返回也在模组而非概览」。判据只能问这一页自己（唯一出处
             // InstanceSettingsDialog::currentPageKey()）。
@@ -542,7 +542,7 @@ void runInstanceFileResourceTests() {
               "—— 详情页回来时带的那个 id 就是发起这一下的实例",
               returned.instanceName);
         // 这一条才是用户 那句的**落点**：「从模组点进去，返回也在模组而非概览，
-        // 其余同理」。上面那条比的是页眉那行字，而它换页不换字（「实例设置：<实例名>」）
+        // 其余同理」。上面那条比的是页眉那行字，而它换页不换字（「实例设置」）
         // —— 落回「概览」也照样通过。停在哪一页只能问那一页自己。
         check(returned.pageKey == QStringLiteral("resourcepack"),
               "★★ T24.5 而且**还停在原来那一页上**（资源包那一页，不是落回「概览」）"
