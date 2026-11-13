@@ -90,6 +90,53 @@ int UiDailyQuoteCheck(QApplication &app) {
           "DQ-UI19 收起之后版面回到原来那一格（大标题位置不变、那一行不占位）");
     check(quote->toolTip().isEmpty(), "DQ-UI20 收起时不留悬停提示");
 
+    // ---- 引文只吃标题下面那块空白：开关前后「当前实例」以下整块不动、最近条不被挤出底边 ----
+    //
+    // 这一行是最容易出回归的一处：加高度谁都会加，但主页竖着已经不剩多少空档了 ——
+    // 只有它**占的是标题与启动区之间那块空白**，开关才不该把下面的东西推下去。
+    MainWindowUI::HomeQuickItem item;
+    item.key = QStringLiteral("demo");
+    item.name = QStringLiteral("1.21.4 Fabric");
+    item.detail = QStringLiteral("Fabric 0.16.9 · 1.21.4");
+    item.current = true;
+    ui.setHomeQuickRows({item}, {item}, {item});
+    ui.setHomeQuickMode(MainWindowUI::HomeQuickMode::Current);
+    // 「当前实例」那行字是灌了实例之后才建出来的，所以先灌再看它在不在。
+    auto *eyebrow = window.findChild<QWidget *>(QStringLiteral("homeCurrentEyebrow"));
+    check(eyebrow != nullptr, "DQ-UI23 「当前实例」那一行字在（量它的纵向位置当基准）");
+    if (eyebrow != nullptr) {
+        const auto pump = [] {
+            QApplication::processEvents();
+            QApplication::processEvents();
+        };
+        const auto yOf = [&](QWidget *w) { return w->mapTo(&window, QPoint(0, 0)).y(); };
+        for (const QSize size : {QSize(1280, 800), QSize(900, 620)}) {
+            window.resize(size);
+            pump();
+            ui.setHomeHeroQuote(QString(), QString(), Theme::QuoteScript::Han);
+            pump();
+            const int off = yOf(eyebrow);
+            auto *card = window.findChild<QWidget *>(QStringLiteral("homeQuickCard_demo"));
+            const int cardBottomOff = card == nullptr ? -1 : yOf(card) + card->height();
+            ui.setHomeHeroQuote(QStringLiteral("长河千嶂，大荒孤城，历历在目。"),
+                                QStringLiteral("— 令《明日方舟》"), Theme::QuoteScript::Han);
+            pump();
+            const int on = yOf(eyebrow);
+            const int cardBottomOn = card == nullptr ? -1 : yOf(card) + card->height();
+            const QString where = QStringLiteral("%1x%2").arg(size.width()).arg(size.height());
+            check(qAbs(on - off) <= 4,
+                  QStringLiteral("DQ-UI24 %1：开关每日一言前后「当前实例」不动（最多差 4 px）").arg(where),
+                  QStringLiteral("关 %1 / 开 %2，差 %3").arg(off).arg(on).arg(on - off));
+            check(card != nullptr && cardBottomOn <= window.height() && cardBottomOff <= window.height(),
+                  QStringLiteral("DQ-UI25 %1：最近条那张卡整张都在窗口里（开关前后都一样）").arg(where),
+                  card == nullptr ? QStringLiteral("没找到卡片")
+                                  : QStringLiteral("卡片底 关 %1 / 开 %2，窗口高 %3")
+                                        .arg(cardBottomOff)
+                                        .arg(cardBottomOn)
+                                        .arg(window.height()));
+        }
+    }
+
     // ---- 设置页那个开关 ----
     auto *dailyQuote = window.findChild<QCheckBox *>(MainWindowUI::dailyQuoteCheckName());
     check(dailyQuote != nullptr, "DQ-UI21 设置 → 个性化 → 外观 有「每日一言」开关");
