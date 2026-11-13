@@ -118,8 +118,17 @@ public:
     /// 列表"的意思，用户正打字时来一次刷新就把没提交的名字擦掉了。
     void clearOfflineNameDraft();
 
+    /// 「正版 / 离线」页签：下面只露所选那一种「加账号」的入口。开页前由调用方按当前身份挑一次。
+    void showAccountKind(bool offline);
+    bool offlineKindShown() const;
+    /// 非空 = 这一版正版登录用不了：「正版」页签摆这句话，不摆「登录新账号…」。
+    void setOnlineLoginUnavailable(const QString &reason);
+
     // ---------- 控件的 objectName ----------
     // 验证工程靠这些名字认控件，别改回按文字去认（文字会随数据变）。
+    static QString onlineKindButtonName() { return QStringLiteral("accountKindOnline"); }
+    static QString offlineKindButtonName() { return QStringLiteral("accountKindOffline"); }
+    static QString onlineUnavailableLabelName() { return QStringLiteral("accountOnlineUnavailable"); }
     static QString statusLabelName() { return QStringLiteral("accountSkinStatus"); }
     static QString accountListName() { return QStringLiteral("accountSkinAccountList"); }
     static QString loginButtonName() { return QStringLiteral("accountSkinLoginButton"); }
@@ -286,7 +295,10 @@ private:
     QLineEdit *m_offlineNameEdit = nullptr;
     QPushButton *m_addOfflineButton = nullptr;
     /// 「添加离线账号」小链接：点开才露出下面那一行（输入框 + 「添加」）。
-    QPushButton *m_offlineToggle = nullptr;
+    QPushButton *m_onlineKindButton = nullptr;
+    QPushButton *m_offlineKindButton = nullptr;
+    QWidget *m_onlineRow = nullptr;
+    QLabel *m_onlineUnavailableLabel = nullptr;
     QWidget *m_offlineRow = nullptr;
     SkinViewer *m_viewer = nullptr;
     QPushButton *m_uploadButton = nullptr;

@@ -274,7 +274,7 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     root->addWidget(body);
 
     // ---------- 左：账号（设计稿 .acct-col）----------
-    // 标题 → 账号列表 → 「登录新账号…」 → 说明 → 「或添加离线账号」 → 离线那一行。
+    // 标题（带「正版 / 离线」页签）→ 账号列表 → 所选那一种的入口（正版：「登录新账号…」；离线：名字 +「添加」）。
     m_accountsPanel = new QWidget(this);
     m_accountsPanel->setObjectName(QStringLiteral("accountManagementPane"));
     m_accountsPanel->setMaximumWidth(kAccountsWidth);
@@ -289,19 +289,26 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     main->addWidget(m_accountsPanel, 8);
 
     {
-        // 「账号」后面跟两枚小标签：这里正版、离线两种账号都收（灰字太淡，改成 chip）。
+        // 「账号」后面是「正版 / 离线」页签：只管下面那一块「加账号」的入口，列表照旧两种都列。
         auto *titleRow = new QHBoxLayout;
         titleRow->setSpacing(6);
         titleRow->addWidget(makeSectionTitle(accountSectionTitle(), this), 0, Qt::AlignVCenter);
         titleRow->addSpacing(4);
-        for (const auto &[text, tone] : {std::pair{QStringLiteral("正版"), Theme::BadgeTone::Accent},
-                                         std::pair{QStringLiteral("离线"), Theme::BadgeTone::Neutral}}) {
-            auto *chip = new QLabel(text, this);
-            chip->setObjectName(text == QStringLiteral("正版") ? QStringLiteral("accountKindChipOnline")
-                                                               : QStringLiteral("accountKindChipOffline"));
-            Theme::markBadge(chip, tone);
-            titleRow->addWidget(chip, 0, Qt::AlignVCenter);
-        }
+        auto *kindSegment = new QWidget(this);
+        kindSegment->setObjectName(QStringLiteral("accountKindSegment"));
+        auto *kindLayout = new QHBoxLayout(kindSegment);
+        kindLayout->setContentsMargins(3, 3, 3, 3);
+        kindLayout->setSpacing(2);
+        m_onlineKindButton = new QPushButton(QStringLiteral("正版"), kindSegment);
+        m_onlineKindButton->setObjectName(onlineKindButtonName());
+        m_offlineKindButton = new QPushButton(QStringLiteral("离线"), kindSegment);
+        m_offlineKindButton->setObjectName(offlineKindButtonName());
+        kindLayout->addWidget(m_onlineKindButton);
+        kindLayout->addWidget(m_offlineKindButton);
+        Theme::markSegmented(kindSegment, {m_onlineKindButton, m_offlineKindButton});
+        connect(m_onlineKindButton, &QPushButton::clicked, this, [this] { showAccountKind(false); });
+        connect(m_offlineKindButton, &QPushButton::clicked, this, [this] { showAccountKind(true); });
+        titleRow->addWidget(kindSegment, 0, Qt::AlignVCenter);
         titleRow->addStretch(1);
         left->addLayout(titleRow);
     }
@@ -350,22 +357,26 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_loginButton->setToolTip(loginHintNote());
     Theme::markButton(m_loginButton, Theme::ButtonKind::Primary);
     m_loginButton->setProperty("wtfmlDialogActions", true);
-    m_offlineToggle = new QPushButton(addOfflineButtonText(), this);
-    m_offlineToggle->setObjectName(QStringLiteral("accountOfflineToggle"));
-    m_offlineToggle->setCursor(Qt::PointingHandCursor);
-    m_offlineToggle->setToolTip(QStringLiteral("离线账号只用一个名字，不需要登录"));
-    Theme::markButton(m_offlineToggle, Theme::ButtonKind::Ghost);
+    // 这一版正版登录用不了（没配微软应用 ID）时，「正版」页签摆这一句代替按钮：不给点了再报错的机会。
+    m_onlineUnavailableLabel = new QLabel(this);
+    m_onlineUnavailableLabel->setObjectName(onlineUnavailableLabelName());
+    m_onlineUnavailableLabel->setWordWrap(true);
+    m_onlineUnavailableLabel->setForegroundRole(QPalette::PlaceholderText);
+    m_onlineUnavailableLabel->hide();
+    m_onlineRow = new QWidget(this);
+    m_onlineRow->setObjectName(QStringLiteral("accountOnlineRow"));
     {
-        auto *loginRow = new QHBoxLayout;
+        auto *loginRow = new QHBoxLayout(m_onlineRow);
+        loginRow->setContentsMargins(0, 0, 0, 0);
         loginRow->setSpacing(8);
         loginRow->addWidget(m_loginButton);
-        loginRow->addWidget(m_offlineToggle);
+        loginRow->addWidget(m_onlineUnavailableLabel, 1);
         loginRow->addStretch(1);
         left->addSpacing(6);
-        left->addLayout(loginRow);
+        left->addWidget(m_onlineRow);
     }
 
-    // 离线账号那一路：不是对"选中项"做事，是一个"加东西"的入口 —— 点了小链接才露这一行。
+    // 离线账号那一路：「离线」页签下的入口，名字 +「添加」。
     m_offlineRow = new QWidget(this);
     m_offlineRow->setObjectName(QStringLiteral("accountOfflineRow"));
     QHBoxLayout *offlineRow = new QHBoxLayout(m_offlineRow);
@@ -384,12 +395,7 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     Theme::markButton(m_addOfflineButton, Theme::ButtonKind::Neutral);
     offlineRow->addWidget(m_offlineNameEdit, 1);
     offlineRow->addWidget(m_addOfflineButton);
-    m_offlineRow->hide();
-    connect(m_offlineToggle, &QPushButton::clicked, this, [this] {
-        m_offlineToggle->hide();
-        m_offlineRow->show();
-        m_offlineNameEdit->setFocus();
-    });
+    showAccountKind(false);
 
     m_refreshButton = new QPushButton(refreshButtonText(), this);
     m_refreshButton->setObjectName(refreshButtonName());
@@ -681,9 +687,22 @@ void AccountSkinDialog::addAccountRow(const AccountRow &row) {
 
 void AccountSkinDialog::clearOfflineNameDraft() {
     m_offlineNameEdit->clear();
-    // 加完了就收回去：只剩那枚小链接。
-    m_offlineRow->hide();
-    m_offlineToggle->show();
+}
+
+void AccountSkinDialog::showAccountKind(bool offline) {
+    m_onlineKindButton->setChecked(!offline);
+    m_offlineKindButton->setChecked(offline);
+    m_onlineRow->setVisible(!offline);
+    m_offlineRow->setVisible(offline);
+    if (offline && isVisible()) m_offlineNameEdit->setFocus();
+}
+
+bool AccountSkinDialog::offlineKindShown() const { return m_offlineKindButton->isChecked(); }
+
+void AccountSkinDialog::setOnlineLoginUnavailable(const QString &reason) {
+    m_onlineUnavailableLabel->setText(reason);
+    m_onlineUnavailableLabel->setVisible(!reason.isEmpty());
+    m_loginButton->setVisible(reason.isEmpty());
 }
 
 void AccountSkinDialog::setStatusText(const QString &text) {
@@ -826,7 +845,6 @@ void AccountSkinDialog::refreshButtonStates() {
     // 那次登录回来还要往活动槽里写 —— 两个人会打架。
     m_offlineNameEdit->setEnabled(idle);
     m_addOfflineButton->setEnabled(idle);
-    m_offlineToggle->setEnabled(idle);
     m_hideCapeButton->setEnabled(idle);
     // 离线那一档：露着的时候才按 idle 判；「恢复默认外观」还要**确实有东西可撤**。
     m_offlineSkinButton->setEnabled(idle && m_offlineSkin);

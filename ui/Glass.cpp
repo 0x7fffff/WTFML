@@ -637,7 +637,7 @@ void Backdrop::resizeEvent(QResizeEvent *event) {
     scheduleRebuild();
 }
 
-void Backdrop::paintBase(QPainter &painter, const QWidget *target, bool toPixmap) {
+void Backdrop::paintBase(QPainter &painter, const QWidget *target, bool toPixmap, bool withHero) {
     // 按同一扇窗里的位置算：浮层（GlassPopover）是窗口的直接孩子，不在本控件底下。
     const QRect area(target->mapTo(target->window(), QPoint(0, 0)) - mapTo(window(), QPoint(0, 0)), target->size());
     const QRect local(QPoint(0, 0), target->size());
@@ -661,6 +661,20 @@ void Backdrop::paintBase(QPainter &painter, const QWidget *target, bool toPixmap
         layer.setAlphaF(minimumTintAlpha(layer, bodyInks(), {m_darkest, m_brightest}, tintStrength() / 100.0));
         painter.fillRect(local, layer);
         painter.restore();
+    }
+    // 和 paintEvent() 末尾那一笔同一张图、同一个不透明度，按 target 那一块裁出来。
+    if (withHero && m_heroOpacity > 0.0 && sceneShown()) {
+        rebuildHero();
+        if (!m_heroPixmap.isNull()) {
+            const qreal hx = qreal(m_heroPixmap.width()) / qMax(1, width());
+            const qreal hy = qreal(m_heroPixmap.height()) / qMax(1, height());
+            painter.save();
+            painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+            painter.setOpacity(painter.opacity() * m_heroOpacity);
+            painter.drawPixmap(QRectF(local), m_heroPixmap,
+                               QRectF(area.x() * hx, area.y() * hy, area.width() * hx, area.height() * hy));
+            painter.restore();
+        }
     }
 }
 

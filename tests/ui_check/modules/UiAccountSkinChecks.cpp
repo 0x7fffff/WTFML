@@ -83,8 +83,31 @@ int UiAccountSkinChecks() {
                   offlineEdit->placeholderText());
             check(addOfflineBtn->toolTip() == AccountSkinDialog::addOfflineButtonText()
                       && !addOfflineBtn->isVisibleTo(&dialog) && !offlineEdit->isVisibleTo(&dialog),
-                  "「添加离线账号」那一行先收着（点小链接才露），按钮说明仍是产品文案",
+                  "默认在「正版」页签：离线那一行不露，按钮说明仍是产品文案",
                   addOfflineBtn->toolTip());
+            {
+                auto *online = qobject_cast<QPushButton *>(child(AccountSkinDialog::onlineKindButtonName()));
+                auto *offline = qobject_cast<QPushButton *>(child(AccountSkinDialog::offlineKindButtonName()));
+                auto *note = child(AccountSkinDialog::onlineUnavailableLabelName());
+                check(online != nullptr && offline != nullptr && note != nullptr && online->isChecked()
+                          && loginBtn->isVisibleTo(&dialog) && !note->isVisibleTo(&dialog),
+                      "「正版」页签只露「登录新账号…」");
+                if (online != nullptr && offline != nullptr && note != nullptr) {
+                    offline->click();
+                    check(offline->isChecked() && !online->isChecked() && dialog.offlineKindShown()
+                              && offlineEdit->isVisibleTo(&dialog) && addOfflineBtn->isVisibleTo(&dialog)
+                              && !loginBtn->isVisibleTo(&dialog),
+                          "点「离线」页签：只露名字框 +「添加」，「登录新账号…」收起");
+                    dialog.setOnlineLoginUnavailable(QStringLiteral("这个版本暂时不能登录正版账号。"));
+                    online->click();
+                    check(!dialog.offlineKindShown() && note->isVisibleTo(&dialog) && !loginBtn->isVisibleTo(&dialog)
+                              && !offlineEdit->isVisibleTo(&dialog),
+                          "正版登录用不了：「正版」页签摆那句说明，不摆登录按钮（不给点了再报错的机会）");
+                    dialog.setOnlineLoginUnavailable(QString());
+                    check(loginBtn->isVisibleTo(&dialog) && !note->isVisibleTo(&dialog),
+                          "说明清空后「登录新账号…」回来");
+                }
+            }
             check(statusLabel->text() == AccountSkinDialog::notLoggedInNote(),
                   "一进来状态行说的是「还没登录」那句", statusLabel->text());
             // 这个控件任何一档状态都不该是空白的（和主页右栏那个小人同一条约定）。
@@ -413,16 +436,11 @@ int UiAccountSkinChecks() {
                       "在框里回车也交一次（回车 = 点那个按钮）",
                       requested.join(QStringLiteral(" / ")));
 
-                auto *offlineToggle = child(QStringLiteral("accountOfflineToggle"));
-                if (auto *toggleBtn = qobject_cast<QPushButton *>(offlineToggle)) toggleBtn->click();
-                check(offlineToggle != nullptr && offlineEdit->isVisibleTo(&dialog)
-                          && addOfflineBtn->isVisibleTo(&dialog) && !offlineToggle->isVisibleTo(&dialog),
-                      "点「添加离线账号」小链接：露出输入框 + 「添加」，小链接自己收起");
+                dialog.showAccountKind(true);
                 offlineEdit->setText(QStringLiteral("留着没提交的名字"));
                 dialog.clearOfflineNameDraft();
-                check(offlineEdit->text().isEmpty() && !offlineEdit->isVisibleTo(&dialog)
-                          && offlineToggle != nullptr && offlineToggle->isVisibleTo(&dialog),
-                      "clearOfflineNameDraft() 把框清空并收回成小链接");
+                check(offlineEdit->text().isEmpty() && offlineEdit->isVisibleTo(&dialog) && dialog.offlineKindShown(),
+                      "clearOfflineNameDraft() 只清空框，页签留在「离线」（接着能加下一个）");
 
                 // 忙的时候这一行也得灰：它一旦成功就会把活动槽清空（切到离线身份），而正飞着的
                 // 那次登录回来还要往活动槽里写 —— 两个人会打架。

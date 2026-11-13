@@ -23,6 +23,7 @@
 #include "ChromeDialog.hpp"
 #include "GameLogWindow.hpp"
 #include "Glass.hpp"
+#include "OverlayHost.hpp"
 #include "SystemBackdrop.hpp"
 
 #include "InstanceUpdateWizard.hpp"
@@ -36,6 +37,10 @@
 #include <QAbstractSpinBox>
 #include <QTabBar>
 #include <QElapsedTimer>
+#include <functional>
+#include <QVBoxLayout>
+#include <QLabel>
+#include <QDialog>
 #include <QVariantAnimation>
 
 namespace {
@@ -109,10 +114,10 @@ void scanBlank(const QString &name, QWidget *window) {
 
 /// 5) 背板：DWM 背板类型跟着档位；模拟一次失焦后，亚克力 / 云母档（开关没关）非客户区仍是激活态，别的情况退成未激活。
 /// 切到 `tab`，边等风景淡完边每 8 ms 记一次 `heroOpacity()`（含切之前那一刻和淡完那一刻）。
-QList<qreal> sweepHeroFade(QTabWidget *tabs, Glass::Backdrop *backdrop, int tab) {
+QList<qreal> sweepHeroFade(Glass::Backdrop *backdrop, const std::function<void()> &act) {
     auto *fade = backdrop->findChild<QVariantAnimation *>(QStringLiteral("glassHeroFade"));
     QList<qreal> seen{backdrop->heroOpacity()};
-    tabs->setCurrentIndex(tab);
+    act();
     QElapsedTimer clock;
     clock.start();
     while (fade != nullptr && fade->state() != QAbstractAnimation::Stopped && clock.elapsed() < 2000) {
@@ -123,6 +128,17 @@ QList<qreal> sweepHeroFade(QTabWidget *tabs, Glass::Backdrop *backdrop, int tab)
     }
     seen << backdrop->heroOpacity();
     return seen;
+}
+
+QList<qreal> sweepHeroFade(QTabWidget *tabs, Glass::Backdrop *backdrop, int tab) {
+    return sweepHeroFade(backdrop, [tabs, tab] { tabs->setCurrentIndex(tab); });
+}
+
+/// `host` 底下那块换页幕布（`Anim::pageAppear()` 摆的）此刻露着没有。
+bool curtainShown(const QWidget *host) {
+    const QWidget *curtain = host == nullptr ? nullptr
+        : host->findChild<QWidget *>(QStringLiteral("wtfmlPageCurtain"), Qt::FindDirectChildrenOnly);
+    return curtain != nullptr && curtain->isVisible();
 }
 
 /// 风景淡变那一串采样：有中间值、单调（`down` = 往 0 走）、终值恰为 `end`。
@@ -298,6 +314,83 @@ int UiWindowChromeCheck(QApplication &) {
             const qreal on = backdrop->heroOpacity();
             check(off == 0.0 && on == 1.0, "WC 风景淡变 动效关着：换页当下直接落到终值（0 / 1，不经中间值）",
                   QStringLiteral("出 %1 / 回 %2").arg(off).arg(on));
+            settle();
+        }
+        // ---- 6b) 主页上开整页（账号页那条路，体验反馈2 第 1、2 条）：和导航轨换页同一发过渡 ----
+        OverlayHost *overlay = ui.overlay();
+        if (backdrop != nullptr && overlay != nullptr) {
+            tabs->setCurrentIndex(home);
+            settle();
+            window.grab();
+            Anim::setEnabled(true);
+            QDialog page;
+            auto *pageBox = new QVBoxLayout(&page);
+            pageBox->addWidget(new QLabel(QStringLiteral("整页过渡检查"), &page));
+            QWidget *pageFrame = nullptr;
+            bool curtainOnOpen = false;
+            QColor overlayPixel, backdropPixel;
+            checkHeroSweep(sweepHeroFade(backdrop, [&] {
+                               overlay->showPage(&page, QStringLiteral("整页过渡检查"));
+                               for (QWidget *w = &page; w != nullptr && w != overlay; w = w->parentWidget()) {
+                                   if (w->parentWidget() == overlay) pageFrame = w;
+                               }
+                               curtainOnOpen = curtainShown(pageFrame);
+                               // 覆盖层自己那一笔底和整窗底同一个像素：风景层也在里面（不然淡变被整块挡住）。
+                               QImage mine(overlay->size(), QImage::Format_ARGB32_Premultiplied);
+                               mine.fill(Qt::transparent);
+                               overlay->render(&mine, QPoint(), QRegion(), QWidget::RenderFlags());
+                               QImage under(overlay->size(), QImage::Format_ARGB32_Premultiplied);
+                               under.fill(Qt::transparent);
+                               backdrop->render(&under, QPoint(), QRegion(QRect(overlay->mapTo(backdrop, QPoint()), overlay->size())),
+                                                QWidget::RenderFlags());
+                               const QPoint mid(overlay->width() / 2, overlay->height() / 2);
+                               overlayPixel = mine.pixelColor(mid);
+                               backdropPixel = under.pixelColor(mid);
+                           }),
+                           true, 0.0, "WC 整页过渡 主页开整页：风景中途 0<α<1、单调变小、终值恰为 0");
+            check(curtainOnOpen, "WC 整页过渡 开页那一刻整页挂着换页幕布（内容淡入上抬，不硬切）");
+            const auto near = [](const QColor &a, const QColor &b) {
+                return qAbs(a.red() - b.red()) <= 3 && qAbs(a.green() - b.green()) <= 3 && qAbs(a.blue() - b.blue()) <= 3;
+            };
+            check(near(overlayPixel, backdropPixel), "WC 整页过渡 覆盖层铺的底带着正在淡的风景（和整窗底同色）",
+                  QStringLiteral("覆盖层 %1 / 整窗底 %2").arg(overlayPixel.name(), backdropPixel.name()));
+            // 开页半路弹提示：过渡收到终点，风景不回来，覆盖层铺整页底（不透出底下的主页）。
+            overlay->closeOverlay();
+            settle();
+            tabs->setCurrentIndex(home);
+            settle();
+            window.grab();
+            const auto cornerAlpha = [overlay] {
+                QImage shot(overlay->size(), QImage::Format_ARGB32_Premultiplied);
+                shot.fill(Qt::transparent);
+                overlay->render(&shot, QPoint(), QRegion(), QWidget::RenderFlags());
+                return shot.pixelColor(4, overlay->height() - 4).alpha();
+            };
+            const QList<qreal> promptSweep = sweepHeroFade(backdrop, [&] {
+                overlay->showPage(&page, QStringLiteral("整页过渡检查"));
+                overlay->openPrompt();
+                check(!curtainShown(pageFrame), "WC 整页过渡 换页半路弹提示：幕布收到终点，底图不是半透明的中间帧");
+            });
+            bool neverBack = true;
+            for (int i = 1; i < promptSweep.size(); ++i) neverBack = neverBack && promptSweep.at(i) <= promptSweep.at(i - 1);
+            check(neverBack && !backdrop->heroShown() && backdrop->heroOpacity() == 0.0,
+                  "WC 整页过渡 提示叠在整页上：主页风景一路淡到 0，不回来",
+                  QString::number(backdrop->heroOpacity()));
+            // 底下那块的不透明度和整页单独开着时一样（亚克力 / 云母档本来就半透，不能拿 255 比）。
+            const int promptAlpha = cornerAlpha();
+            overlay->closeOverlay();  // 收提示，回到那一页
+            settle();
+            const int pageAlpha = cornerAlpha();
+            check(promptAlpha >= pageAlpha && pageAlpha > 0,
+                  "WC 整页过渡 提示叠在整页上：覆盖层先铺整页底（不透出底下的主页）",
+                  QStringLiteral("提示 %1 / 整页 %2").arg(promptAlpha).arg(pageAlpha));
+            checkHeroSweep(sweepHeroFade(backdrop, [&] {
+                               overlay->closeOverlay();
+                               curtainOnOpen = curtainShown(tabs);
+                           }),
+                           false, 1.0, "WC 整页过渡 返回主页：风景中途 0<α<1、单调变大、终值恰为 1");
+            check(curtainOnOpen, "WC 整页过渡 返回那一刻主页挂着换页幕布（和导航轨换页同一发）");
+            Anim::setEnabled(false);
             settle();
         }
     }

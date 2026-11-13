@@ -949,16 +949,6 @@ MainWindow::MainWindow(QWidget *parent)
                 if (action == MainWindowUI::HomeQuickAction::Launch) onStartButtonClicked();
             }
         });
-    if (OverlayHost *overlay = m_ui->overlay()) {
-        connect(overlay, &OverlayHost::pageClosed, this, [this](QWidget *closedPage) {
-            if (closedPage != nullptr &&
-                qobject_cast<InstanceSettingsDialog *>(closedPage) != nullptr) {
-                if (QWidget *tabs = m_ui->getTabWidget()) {
-                    Anim::pageAppear(tabs);
-                }
-            }
-        });
-    }
     // ---------- 主页「每日一言」 ----------
     // 建在 setupConnections() 之前：设置页那个开关的槽要它。取句全在后台异步，
     // 起点是下面 applySettingsToUi() 之后的 refresh()（关着就一个请求都不发）。

@@ -79,6 +79,10 @@ void MainWindow::onAccountSkinButtonClicked() {
         // 露的是正版才有的「上传皮肤…」（离线账号按下去只会失败）。
         m_accountSkinDialog->setOfflineSkinState(offlineIdentity(),
                                                  OfflineSkin::hasSkin(AccountStore::activeUuid()));
+        // 页签落在哪：当前是离线账号，或者这一版正版登录用不了 → 「离线」；否则「正版」。
+        const QString onlineUnavailable = AuthManager::loginConfigurationError();
+        m_accountSkinDialog->setOnlineLoginUnavailable(onlineUnavailable);
+        m_accountSkinDialog->showAccountKind(offlineIdentity() || !onlineUnavailable.isEmpty());
         if (!overlay->showPage(m_accountSkinDialog, AccountSkinDialog::windowTitle())) {
             appendLog(tr("无法打开账号与外观页：界面已被另一页占用。"));
         }

@@ -191,6 +191,9 @@ bool installScrollBarAnimation(QApplication &app);
  * 避免重复绘制已被完全遮住的页面。
  */
 void pageAppear(QWidget *widget);
+/// 把 `widget` 上正在跑的那一发 `pageAppear()` 立即收到终点（幕布收起，露出真页面）。
+/// 换页半路要拍底图（提示弹出来）时先调它，否则拍进去的是半透明的中间帧。
+void finishPageAppear(QWidget *widget);
 
 /// 整块覆盖的那一层（`OverlayHost`）淡进来。**只淡、不抬** —— 它是"整块盖住内容区"的，
 /// 抬起来会在边上露出一条没盖住的缝。

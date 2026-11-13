@@ -121,9 +121,11 @@ public:
     /// 立刻按当前尺寸与主题重算（验证工程截图前用；产品里走防抖）。
     void rebuildNow();
 
-    /// 往 `target`（同一扇窗里的控件）上画它那一块整窗底，不画主页场景。覆盖层整页、独立小窗、浮层借它透出同一层磨砂。
+    /// 往 `target`（同一扇窗里的控件）上画它那一块整窗底。覆盖层整页、独立小窗、浮层借它透出同一层磨砂。
     /// `toPixmap`：这一趟画进位图（grab），系统背板拍不进去，按风景底画。
-    void paintBase(QPainter &painter, const QWidget *target, bool toPixmap);
+    /// `withHero`：连主页风景那一层按此刻的不透明度一起画（整页覆盖层用：它盖住整个内容区，
+    /// 不带这一层的话风景 250ms 的淡出被它整块挡住，只剩导航轨那一窄条在淡）。浮层不带。
+    void paintBase(QPainter &painter, const QWidget *target, bool toPixmap, bool withHero = false);
     /// 独立顶层窗（游戏日志、各对话框）铺底：和主窗口同一档 —— 亚克力 / 云母只写着色层（真透桌面），
     /// 风景档把整张磨砂风景缩进 `rect` 再盖同一层着色。
     void paintScene(QPainter &painter, const QRect &rect);

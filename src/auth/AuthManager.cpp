@@ -169,12 +169,13 @@ AuthManager::AuthManager(QObject *parent)
     applyMinecraftTokenData(loadMinecraftTokenData());
 }
 
+// 两句写给玩家：账号页「正版」页签事先摆的就是它，刷新正版账号失败时也弹它。
 QString AuthManager::loginConfigurationError() {
     if (QString::fromLatin1(kClientId).trimmed().isEmpty()) {
-        return tr("此构建尚未配置项目的微软登录应用 ID，暂不能登录或刷新正版账号。请使用配置完成的正式版本；已有凭据不会被删除。");
+        return tr("这个版本暂时不能登录正版账号，可以先用离线账号进游戏。已保存的账号不会丢失。");
     }
     if (!OAuthEndpoints::isUsableRedirectUri(QString::fromLatin1(kRedirectUri))) {
-        return tr("此构建的微软登录回调地址无效，请联系维护者修正构建配置。");
+        return tr("这个版本的正版登录暂时用不了，可以先用离线账号进游戏。");
     }
     return {};
 }
