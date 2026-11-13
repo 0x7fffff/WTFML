@@ -64,8 +64,8 @@ inline constexpr int kHomeHeroInset = 8;
 inline constexpr int kHomeAccountPillWidth = 184;
 inline constexpr int kHomeAccountPillHeight = 44;
 /// 实例带卡片的宽 / 高（设计稿 .card：196 宽，封面 48 + 上下 8）。
-/// 196 是**下限**：一排里没摆满时，卡片按可用宽度摊开（名字就不用省略），摊到
-/// `kHomeTileMaxWidth` 为止 —— 再宽就是一张空荡荡的大卡，而不是一条"实例带"。
+/// 196 是**下限**、320 是上限：卡片宽度跟着实例名走（名字整句放得下就宽一点，放不下
+/// 才在 320 那档省略），一排里不给它分"剩下的宽度"。
 inline constexpr int kHomeTileWidth = 196;
 inline constexpr int kHomeTileMaxWidth = 320;
 inline constexpr int kHomeTileHeight = 64;

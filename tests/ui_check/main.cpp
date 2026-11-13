@@ -3099,8 +3099,8 @@ int main(int argc, char *argv[]) {
                   "★★ U31b 一排里只画一个「当前」徽章（只认 item.current，不认'排在第几个'）",
                   QStringLiteral("画了 %1 个").arg(badges.size()));
         }
-        // 窗口宽的时候实例带把卡片**摊开**（不是钉死 196、让名字被截成「1.20.1-Forg…」，
-        // 右边还空着一大片）：两张卡各分到的宽度够，实例名就整句放得下。
+        // 实例带：卡片**跟着名字定宽**（196 下限、320 上限），从这一排的左缘一张挨一张摆，
+        // 剩下的宽度不分给卡片（右边空着就空着），实例名整句放得下。
         {
             const QSize before = window.size();
             window.resize(1280, 800);
@@ -3112,6 +3112,9 @@ int main(int argc, char *argv[]) {
             second.key = QStringLiteral("wide-b");
             second.name = QStringLiteral("1.21.4-Fabric 0.16.9");
             ui.setHomeQuickRows({first}, {}, {first, second});
+            // 两次：第一次摆卡片、第二次让实例带那条内层按新的自然宽重新定位（它是在
+            // LayoutRequest 里改自己几何的，和窗口 resize 挤在同一轮）。
+            QApplication::processEvents();
             QApplication::processEvents();
             QWidget *recent = window.findChild<QWidget *>(QStringLiteral("homeQuickRecentSection"));
             const QList<QPushButton *> wideCards =
@@ -3119,10 +3122,11 @@ int main(int argc, char *argv[]) {
                     ? QList<QPushButton *>()
                     : recent->findChildren<QPushButton *>(
                           QRegularExpression(QStringLiteral("^homeQuickCard_")));
-            bool grew = wideCards.size() == 2;
+            bool cardsOk = wideCards.size() == 2;
             QStringList detail;
+            int used = 0;
             for (QPushButton *card : wideCards) {
-                grew = grew && card->width() > card->minimumWidth();
+                // 名字整句放得下（这一排不截实例名）。
                 QLabel *name = nullptr;
                 for (QLabel *label : card->findChildren<QLabel *>()) {
                     if (label->text() == QStringLiteral("1.20.1-Forge 47.2.0") ||
@@ -3133,14 +3137,37 @@ int main(int argc, char *argv[]) {
                 }
                 const int needed = name == nullptr ? -1
                                                    : name->fontMetrics().horizontalAdvance(name->text());
-                grew = grew && name != nullptr && name->width() >= needed;
+                cardsOk = cardsOk && name != nullptr && name->width() >= needed &&
+                          card->width() >= 196 && card->width() <= 320;
+                used += card->width();
                 detail << QStringLiteral("卡 %1 / 名字 %2（要 %3）")
                               .arg(card->width())
                               .arg(name == nullptr ? -1 : name->width())
                               .arg(needed);
             }
-            check(grew, "★★ U31b 1280 宽时实例带把卡片摊开、实例名整句放得下（不是 196 定死再截）",
-                  detail.join(QStringLiteral("；")));
+            // 从这一排的左缘排起，中间只隔 6；第一张卡的**封面左缘**（卡片左缘 + 里面那 8 px）
+            // 要和上面「最近」页签的左缘落在同一条线上。
+            const int stripLeft = recent == nullptr ? 0 : recent->mapTo(&window, QPoint(0, 0)).x();
+            const int firstLeft = wideCards.isEmpty() ? -1 : wideCards.first()->mapTo(&window, QPoint(0, 0)).x();
+            const int secondLeft = wideCards.size() < 2 ? -1 : wideCards.at(1)->mapTo(&window, QPoint(0, 0)).x();
+            const int gap = wideCards.size() < 2 ? -1 : secondLeft - (firstLeft + wideCards.first()->width());
+            QWidget *tab = window.findChild<QWidget *>(QStringLiteral("homeQuickRecentTab"));
+            const int tabLeft = tab == nullptr ? -1 : tab->mapTo(&window, QPoint(0, 0)).x();
+            check(cardsOk && firstLeft >= stripLeft && firstLeft - stripLeft <= 6 &&
+                      qAbs(firstLeft + 8 - tabLeft) <= 2 && gap == 6,
+                  "★★ U31b 1280 宽时实例带：卡片跟名字定宽（196~320）、从左缘一张挨一张摆、"
+                  "第一张卡的封面和「最近」页签左缘对齐、名字整句放得下",
+                  QStringLiteral("卡片起点 %1（这一排 %2）/ 封面 %3（页签 %4）%5 间距 %6")
+                      .arg(firstLeft)
+                      .arg(stripLeft)
+                      .arg(firstLeft + 8)
+                      .arg(tabLeft)
+                      .arg(detail.join(QStringLiteral("；")))
+                      .arg(gap));
+            // 剩下的宽度**没有**分给卡片：两张卡加起来远小于这一排的宽度。
+            check(recent != nullptr && used + 100 < recent->width(),
+                  "★★ U31b 实例带**不把剩下的宽度分给卡片**（右边空着就空着）",
+                  QStringLiteral("两张卡 %1 / 这一排 %2").arg(used).arg(recent ? recent->width() : -1));
             window.resize(before);
             QApplication::processEvents();
         }
