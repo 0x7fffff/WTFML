@@ -65,8 +65,6 @@ agent/
 - 大文本转 artifact 的内联上限为 16 KB，超出部分只提供模型可读 artifact id。artifact 仅保存本次读取到的分片内容（默认 256 KB、最大 1 MB），不是整个原文件。
 - 活动会话删除：有待审批/执行中先取消；文件提交阶段（`committing()`）拒绝删除并提示。
 - **首轮人工发现的缺口（修复前 G1B 不通过）**，详见 [SECURITY_BOUNDARIES.md](SECURITY_BOUNDARIES.md) §8：
-  - 脱敏只认精确字段名，`hypixel_api_key`、`DB_PASSWORD`、`REDIS_PASSWORD`、`API_SECRET`、`JWT_SECRET` 等变体未命中；
-  - 凭据文件识别只覆盖精确 `.env` 等少数文件名，`env`/`test.env` 等变体不会硬阻断；
   - 工具文案"完整内容见 artifact"不准确，脱敏未命中时 artifact 仍可被分段取回；
   - 日志里的用户名、启动参数回显、绝对路径、硬件指纹留给 Stage 2 字段投影。
 

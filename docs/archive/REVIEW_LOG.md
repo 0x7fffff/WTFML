@@ -64,3 +64,7 @@
 ## 2026-11-09　计划状态
 
 已完成（有证据）：实例设置打开 ~130 ms → ~10 ms（懒建文件页、覆层输入拦截、首次露面动画）；任务中心作整页提示层叠在实例设置页上，开关统一整页快照转场，补筛选/搜索/清理工具栏；长错误提示正文进滚动区；退出转场统一 200 ms；大列表先建 80 行、其余每轮 120 行分帧，1000 行 362 ms；`ZipUtil` 压缩炸弹阈值 1000→10000；真机验收 16/16、1000×750+150% DPI、1 GiB+6000 文件升级、核心 6508/6508（数据见 ACCEPTANCE_LOG）；acceptance profile 支持 `windowWidth`/`windowHeight`。剩余项表已并入 [ROADMAP](../ROADMAP.md)「剩余项与边界」。
+
+## 2026-11-13　G1B 的 B1、B2 修复
+
+2026-11-13｜修 `AgentRedaction` 键名判定（改为切词根比 `password`/`passwd`/`pwd`/`secret`/`token`/`credential(s)`/`cookie`/`csrf`/`session`/`apikey` 与相邻 `api`+`key`）和 `AgentEgressPolicy::isCredentialFileName`（dotenv 家族 + 词根出现在任意位置）；`verify_agent` 加 26 条用例｜先撤源码改动只留用例，14 条变红（318/332），改回来 332/332 通过｜`\b` 在下划线和连字符中间不成立，所以正则里写死完整字段名这一版放过的是**带前后缀的全部变体**，而不只是漏了几个名字；另外全大写单词不能按驼峰切（`PASSWORD` 切开会变成 `pass`+`word`，谁都不认），切分只在「小写或数字接大写」处下刀。
