@@ -867,28 +867,23 @@ public:
     /// 上一批按老条件筛出来的结果，而那正是用户点这颗键要摆脱的东西。
     static QString downloadFilterResetText() { return QStringLiteral("清空条件"); }
     /// 版本那一格空着时里面的灰字。**必须 ≤ `downloadFilterMinimumContentsLength()` 个字符**，
-    /// 否则会把框顶宽（那个坑见 .cpp 里 installedVersionCombo 那一段）。
+    /// 否则一个空框就被它顶宽了（宽度按内容算，见下）。
     static QString downloadFilterVersionPlaceholder() { return QStringLiteral("全部版本"); }
-    /// 四个筛子下拉框的 `minimumContentsLength`（宽度按这个算，不按内容算）。
-    ///
-    /// 为什么不按内容算（`AdjustToContentsOnFirstShow`，也是 Qt 的默认）：那一个在**第一次
-    /// 显示**时把宽度定死，而这一层搭出来的那一刻框还是空的 —— 之后 MainWindow 灌进来的
-    /// 是「1.21.1-pre1」这种长度不定的版本号，宽度就再也跟不上（灌长版本号时框会突然变宽，
-    /// 整行跟着跳）。8 是量着"`1.21.1` 这种版本号放得下"取的。
+    /// 四个筛子下拉框的 `minimumContentsLength`。宽度现在按**内容**算（`AdjustToContents`，
+    /// 见 .cpp 里 makeFilterCombo 那一段）：框里最长那一项要整句放得下，`88` 那一档会把
+    /// 「全部加载器」最后一个字裁掉。这一位留着当"一个空框至少多宽"的地板，也是验证工程
+    /// 认得出这一族控件的标记。
     static int downloadFilterMinimumContentsLength() { return 8; }
 
-    /// 四个筛子下拉框的**宽度上限**。上面那个 `minimumContentsLength` 管的是"有多宽"，
-    /// 这一个管的是"不许比这更宽"——两个一起才把这一行的宽度钉住。
+    /// 四个筛子下拉框的**宽度上限**。宽度按内容走，这一个管的是"不许比这更宽"。
     ///
-    /// 为什么非要有上限：**这一行摆不下就顶大整窗的 sizeHint**。加上这一行之后整窗
-    /// sizeHint 会涨到 **934**，正好是"模组那一页四个下拉框"顶出来的
-    /// （模组页 644，别的页 454）—— 也就是说到了默认那个 900 px 宽的窗口上，这一行会被
-    /// 右边界切掉一块（四个框各自的
-    /// minimumSizeHint 就是它的 sizeHint，挤不下去）。
-    /// 88 是照着"900 px 窗口、轨折成 64 后下载页 ≤ 836"反算的（四组标签 + 框 + 间隙落在
-    /// 右栏里，整页最小宽约 826）。代价：框里那串字会被省略（「CurseForge」显示成
-    /// 「CurseFor…」）—— 展开下拉框看得见全的，而这些框本来就是"点开挑一个"的东西。
-    static int downloadFilterComboMaxWidth() { return 88; }
+    /// 为什么非要有上限：**这一行摆不下就顶大整窗的 sizeHint**。没有上限时，版本那一格
+    /// 会跟着「一整份在线版本清单」里最长那个版本号（`22w13oneblockatatime` 那一类）一直长，
+    /// 到了默认那个 900 px 宽的窗口上，这一行就会被右边界切掉一块。
+    /// 132 这一档在 900 px 窗口（导航轨折起）里四组一起摆仍有富余，而「全部加载器」
+    /// 「CurseForge」这种常用项能整句放得下；更长的版本号才省略 —— 展开下拉框看得见全的，
+    /// 而这些框本来就是"点开挑一个"的东西。
+    static int downloadFilterComboMaxWidth() { return 132; }
     /// 整合包那一页那颗「导入整合包…」的 objectName。
     ///
     /// NOTE: 字和实例页那颗是**同一句**（`importModpackText()`，一个"导入整合包…"不该有

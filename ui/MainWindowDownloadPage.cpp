@@ -935,15 +935,14 @@ void MainWindowUI::setupDownloadResourcePages() {
         addSearchIcon(search);
         filterTop->addWidget(search, 1);
 
-        // 四个下拉框共用一套竖设置：宽度按"最短内容长度"算（不按内容算，理由见
-        // installedVersionCombo 那一段 —— 这一层搭出来的这一刻框还是空的，按内容算就会
-        // 定在"空框"那个宽度上，之后灌进长版本号也再也跟不上）、宽度再来一个上限
-        // （四个框加起来顶不破整窗那个 900 —— 那个 934 就是这么来的，见头文件里
-        // downloadFilterComboMaxWidth() 那段）、装滚轮防护。
+        // 四个下拉框共用一套竖设置：宽度按**内容**算（`AdjustToContents`）—— 框里最长那一项
+        // 要整句放得下。原来钉的是"按最短内容长度算 + 88 的上限"，结果是「全部加载器」最后
+        // 一个字被裁掉（88 里能画字的只有 66 px，那五个字要 70）。上限还在，只用来兜住
+        // 「一整份在线版本清单」那种没边的长项（见头文件里 downloadFilterComboMaxWidth()）。
         const auto makeFilterCombo = [&](const QString &objectName) {
             auto *combo = new QComboBox(filterRow);
             combo->setObjectName(objectName);
-            combo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+            combo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
             combo->setMinimumContentsLength(downloadFilterMinimumContentsLength());
             combo->setMaximumWidth(downloadFilterComboMaxWidth());
             WheelGuard::install(combo);
