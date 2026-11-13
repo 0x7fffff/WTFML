@@ -19,6 +19,7 @@
 
 #include "Support.hpp"
 
+#include "AccountSkinDialog.hpp"
 #include "Animations.hpp"
 #include "ChromeDialog.hpp"
 #include "GameLogWindow.hpp"
@@ -37,6 +38,7 @@
 #include <QAbstractSpinBox>
 #include <QTabBar>
 #include <QElapsedTimer>
+#include <algorithm>
 #include <functional>
 #include <QVBoxLayout>
 #include <QLabel>
@@ -390,6 +392,56 @@ int UiWindowChromeCheck(QApplication &) {
                            }),
                            false, 1.0, "WC 整页过渡 返回主页：风景中途 0<α<1、单调变大、终值恰为 1");
             check(curtainOnOpen, "WC 整页过渡 返回那一刻主页挂着换页幕布（和导航轨换页同一发）");
+            // 6c) 开页第一帧就是最终版面：幕布在 showPage() 里当场拍快照，那一刻页里控件的几何
+            // 必须和稳定后一致（差 ≤1px）。账号与外观页：套在滚动区里、按宽窄换横排 / 竖排，
+            // 首次打开（刚建出来、布局还没算过）和再次打开（已建好）各量一次；窗口 901x800
+            //（真机 1127x1001 物理像素 / 125%，正落在竖排那一档）。
+            {
+                const QSize oldSize = window.size();
+                window.resize(901, 800);
+                settle();
+                auto *account = new AccountSkinDialog(&window);
+                const auto keyRects = [account] {
+                    QList<QRect> rects;
+                    for (const QString &name : {QStringLiteral("accountKindSegment"), AccountSkinDialog::offlineNameEditName(),
+                                                AccountSkinDialog::viewerName(), AccountSkinDialog::variantComboName()}) {
+                        const auto *w = account->findChild<QWidget *>(name);
+                        rects << (w != nullptr ? QRect(w->mapTo(account, QPoint()), w->size()) : QRect());
+                    }
+                    return rects;
+                };
+                for (const char *pass : {"首次打开", "再次打开"}) {
+                    account->showAccountKind(true);
+                    overlay->showPage(account, AccountSkinDialog::windowTitle());
+                    const bool curtained = curtainShown(pageFrame);
+                    const QList<QRect> atOpen = keyRects();
+                    QEventLoop wait;
+                    QTimer::singleShot(400, &wait, &QEventLoop::quit);
+                    wait.exec();
+                    const QList<QRect> settled = keyRects();
+                    int drift = 0;
+                    QStringList trace;
+                    for (int i = 0; i < atOpen.size(); ++i) {
+                        const QRect a = atOpen.at(i), b = settled.at(i);
+                        drift = std::max({drift, qAbs(a.x() - b.x()), qAbs(a.y() - b.y()), qAbs(a.width() - b.width()),
+                                          qAbs(a.height() - b.height())});
+                        trace << QStringLiteral("(%1,%2 %3x%4→%5,%6 %7x%8)")
+                                     .arg(a.x()).arg(a.y()).arg(a.width()).arg(a.height())
+                                     .arg(b.x()).arg(b.y()).arg(b.width()).arg(b.height());
+                    }
+                    check(curtained && drift <= 1,
+                          QStringLiteral("WC 整页过渡 账号页%1：过渡第一帧就是最终版面（页签 / 名字框 / 立绘 / 皮肤下拉框差 ≤1px）")
+                              .arg(QString::fromUtf8(pass)),
+                          QStringLiteral("幕布 %1 / 差 %2 px %3").arg(curtained).arg(drift).arg(trace.join(QLatin1Char(' '))));
+                    overlay->closeOverlay();
+                    QEventLoop back;
+                    QTimer::singleShot(400, &back, &QEventLoop::quit);
+                    back.exec();
+                }
+                delete account;
+                window.resize(oldSize);
+                settle();
+            }
             Anim::setEnabled(false);
             settle();
         }

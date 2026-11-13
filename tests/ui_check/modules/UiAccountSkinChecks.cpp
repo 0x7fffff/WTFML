@@ -163,18 +163,14 @@ int UiAccountSkinChecks() {
                       resetOfflineBtn->isHidden(),
                   "切回正版账号：又只剩「上传皮肤」（两组不共存）");
 
-            // ---- X2 一个账号都没有：摆一句说明，而不是一片空白 ----
-            // 空白让人以为"还没加载完"，于是一直等 —— 一行说明才是"就是没有"。
+            // ---- X2 一个账号都没有：列表整块收起，页签下面直接接入口；「未登录」只在页头说一次 ----
             dialog.setAccounts({});
             QApplication::processEvents();
-            check(accountList->count() == 1, "空列表里摆了一行",
+            check(accountList->count() == 0 && !accountList->isVisibleTo(&dialog),
+                  "空列表不占位（不摆占位行、不留一行高的空白）",
                   QString::number(accountList->count()));
-            check(accountList->count() == 1 &&
-                      accountList->item(0)->text() == AccountSkinDialog::noAccountsText(),
-                  "那一行是「还没有保存的账号。」");
-            check(accountList->count() == 1 &&
-                      !accountList->item(0)->flags().testFlag(Qt::ItemIsSelectable),
-                  "那一行**选不动**（它不是一个账号）");
+            check(!statusLabel->text().isEmpty() && statusLabel->text() == AccountSkinDialog::notLoggedInNote(),
+                  "「未登录」由页头副题说", statusLabel->text());
             check(dialog.selectedUuid().isEmpty(), "所以 selectedUuid() 是空串");
             check(!switchBtn->isEnabled() && !removeBtn->isEnabled(),
                   "没有账号可选的时候那两个按钮照样灰着");

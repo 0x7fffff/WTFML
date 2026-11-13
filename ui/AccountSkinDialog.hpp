@@ -201,10 +201,8 @@ public:
     static QString offlineIdentityText(const QString &name) {
         return QStringLiteral("已登录为「%1」（离线登录）").arg(name);
     }
-    /// 这一列只在有账号时才有内容，空的时候给一句说明而不是一片空白。
-    static QString noAccountsText() { return QStringLiteral("未登录"); }
-    /// 未登录时头部状态列为空：状态由账号列表那一行占位承载，不再重复一遍。
-    static QString notLoggedInNote() { return QString(); }
+    /// 未登录时页头副题那一句。账号列表空着时整块收起、不再摆占位行，状态只在这里说一次。
+    static QString notLoggedInNote() { return QStringLiteral("未登录"); }
     static QString loginHintNote() {
         return QStringLiteral("微软账号通过浏览器登录；离线账号直接输入玩家名称。");
     }
