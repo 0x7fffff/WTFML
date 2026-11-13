@@ -68,3 +68,7 @@
 ## 2026-11-13　G1B 的 B1、B2 修复
 
 2026-11-13｜修 `AgentRedaction` 键名判定（改为切词根比 `password`/`passwd`/`pwd`/`secret`/`token`/`credential(s)`/`cookie`/`csrf`/`session`/`apikey` 与相邻 `api`+`key`）和 `AgentEgressPolicy::isCredentialFileName`（dotenv 家族 + 词根出现在任意位置）；`verify_agent` 加 26 条用例｜先撤源码改动只留用例，14 条变红（318/332），改回来 332/332 通过｜`\b` 在下划线和连字符中间不成立，所以正则里写死完整字段名这一版放过的是**带前后缀的全部变体**，而不只是漏了几个名字；另外全大写单词不能按驼峰切（`PASSWORD` 切开会变成 `pass`+`word`，谁都不认），切分只在「小写或数字接大写」处下刀。
+
+## 2026-11-13　G1B 的 B3 文案
+
+2026-11-13｜`AgentFileToolEngine` 两处大文本内联截断的提示由完整内容见模型可读 artifact 改为本次读取内容见模型可读 artifact、同样已脱敏（`AgentArtifactStore.cpp:59` 写入即脱敏、`:109` 每次读取重新脱敏，两句都能对上）；`AgentToolTests.cpp` 大文本用例补一条断言锁住新文案｜先撤回文案改动只留断言：332/333、该条 FAIL；改回来 333/333 通过｜artifact 只存本次读取窗口（默认 256 KB、最大 1 MB），脱敏未命中时仍可被 `artifact.read` 分段取回，这一条不在 B3 范围内、保持未修。
