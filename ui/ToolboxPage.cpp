@@ -3178,10 +3178,18 @@ QWidget *ToolboxPage::buildBannerPanel() {
     loadTextures->setObjectName(QStringLiteral("bannerLoadTextures"));
     loadTextures->setToolTip(QStringLiteral("加载游戏 JAR / 资源包贴图"));
     Theme::markButton(loadTextures, Theme::ButtonKind::Ghost); loadTextures->setAutoDefault(false);
+    // 说明句独占卡宽那一行，「加载贴图…」紧跟其下、左对齐：两句并排时说明句被压窄，
+    // 四十个字折成三行、按钮悬在折行文字右边（走查 j05）。挤在一行省不下高度 ——
+    // 900×620 下面板还有余量，见 `wtfml.toolbox-layout` 的纵向滚动条那条。
     auto *noticeRow = new QHBoxLayout;
-    noticeRow->setContentsMargins(0, 0, 0, 0); noticeRow->setSpacing(12);
-    noticeRow->addWidget(bannerNotice, 1); noticeRow->addWidget(loadTextures, 0, Qt::AlignVCenter);
+    noticeRow->setContentsMargins(0, 0, 0, 0);
+    noticeRow->addWidget(bannerNotice);
     layerCard->box()->addLayout(noticeRow);
+    auto *textureRow = new QHBoxLayout;
+    textureRow->setContentsMargins(0, 0, 0, 0);
+    textureRow->addWidget(loadTextures, 0, Qt::AlignLeft);
+    textureRow->addStretch(1);
+    layerCard->box()->addLayout(textureRow);
     connect(loadTextures, &QPushButton::clicked, this, &ToolboxPage::bannerTexturesRequested);
     body->addWidget(layerCard, 1);
 
