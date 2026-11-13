@@ -193,7 +193,7 @@ int MwAgentChecks(QApplication &app) {
                              QUuid::createUuid().toString(QUuid::WithoutBraces);
         QDir().mkpath(root + QStringLiteral("/config"));
         QFile config(root + QStringLiteral("/config/a.toml"));
-        config.open(QIODevice::WriteOnly);
+        check(config.open(QIODevice::WriteOnly), "真窗口：造一个实例配置文件", config.fileName());
         config.write("maxMemory = 4096\n");
         config.close();
         AgentInstanceInfo info;

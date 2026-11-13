@@ -80,7 +80,7 @@ void runAgentSessionStoreTests() {
     check(store.load(session.meta.id, &loaded, &problem), "会话存储：哈希不一致仍能载入", problem);
     {
         QFile meta(fixture.path() + "/sessions/" + session.meta.id + ".meta.json");
-        meta.open(QIODevice::ReadOnly);
+        check(meta.open(QIODevice::ReadOnly), "会话存储：读回元数据看哈希", meta.fileName());
         const QJsonObject object = QJsonDocument::fromJson(meta.readAll()).object();
         check(object.value(QStringLiteral("bodySha256")).toString() != QStringLiteral("deadbeef"),
               "会话存储：按正文重算 bodySha256");
@@ -118,7 +118,7 @@ void runAgentSessionStoreTests() {
     check(store.requestDeletion(second.meta.id, &problem), "会话存储：登记 pending 删除");
     {
         QFile meta(fixture.path() + "/sessions/" + second.meta.id + ".meta.json");
-        meta.open(QIODevice::ReadOnly);
+        check(meta.open(QIODevice::ReadOnly), "会话存储：读回元数据看删除标记", meta.fileName());
         const QJsonObject object = QJsonDocument::fromJson(meta.readAll()).object();
         check(object.value(QStringLiteral("deletionState")).toString() == QStringLiteral("pending"),
               "会话存储：pending 落到元数据");

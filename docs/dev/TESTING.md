@@ -242,6 +242,10 @@ CTest 的两种"排除 visual"选到的数量不同：`ctest -E visual` 按名�
 
 `./tools/test-runner-check.ps1`（CTest `wtfml.test-runner`）用独立的带空格/中文路径构造成功、断言失败、超时和空测试集四种情况，验证退出码、环境恢复、独立报告和 JUnit 生成；另覆盖 `RunnerMode` 选择、构建目标去重、空选择拒绝。故意失败的内部样例不混入普通 JUnit，原始输出在 `build/test-runner-selfchecks/<随机号>/`，只有入口自身判断失败才使本项变红。
 
+设置沙盒另有一条硬判据（`./tools/check-test-modules.ps1`，CTest `wtfml.test-modules`）：`tests/` 下每个带 `main()` 的进程——包括 `ui_check_*` / `mw_check_*` 那些模块可执行文件——都必须 `QSettings::setDefaultFormat(IniFormat)` + `setPath(IniFormat, UserScope, <本进程临时目录>)`，并在隔离之后调用 `requireIsolatedSettings(<沙盒根>, <名字>)`（`tests/support/SettingsIsolation.hpp`）。不隔离就当场打印路径并以 97 退出，扫描不到这四样东西则 `wtfml.test-modules` 直接红。
+
+只写 `setPath()` 不算隔离：Windows 上默认格式是 `NativeFormat`，`setPath` 管不到它，`QSettings()` 仍然读写 `HKCU\Software\WTFML\WTFML`。2026-11-13 用户真实设置里的 `Theme/BackdropTint` / `Theme/BackdropBlur` 被写成 0，就是自动化在**真**设置上点到了设置页那两根强度滑块。起产品 exe 的自动化一律 `--acceptance-profile <临时目录>`（`tools/dev-run.ps1 -AcceptanceProfile` 会建好这一份）；确需动真设置的脚本要在头部写一行 `# settings-isolation: real-settings（为什么）` 备案，`check-test-modules.ps1` 认这一行。
+
 ## 智能体（Agent）测试套件
 
 独立核心域和两个专项 UI / 集成模块，不联网、不写真实用户目录：

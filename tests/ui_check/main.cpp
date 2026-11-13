@@ -1,4 +1,5 @@
 #include "modules/Support.hpp"
+#include "support/SettingsIsolation.hpp"
 #include <QFile>
 #include <QIcon>
 #include "AppIcon.hpp" // 产品和验证工程用的是同一个函数，见 ui/AppIcon.hpp
@@ -38,6 +39,7 @@ int main(int argc, char *argv[]) {
         // 每趟都从"从没打开过启动器"开始（和 mw_check 那份沙盒同一个形状）：
         // 上一趟 W 段自己存进去的预设不许活到这一趟，否则第二次跑就又是一片红。
         QFile::remove(settingsDir + QStringLiteral("/WTFML-check/ui_check.ini"));
+        requireIsolatedSettings(processSandbox.path(), "ui_check");
     }
     if (app.arguments().contains(QStringLiteral("--bootstrap-check"))) {
         const QStringList icons{QStringLiteral("fabric"), QStringLiteral("forge"),

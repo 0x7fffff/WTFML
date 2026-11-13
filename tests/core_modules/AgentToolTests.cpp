@@ -33,11 +33,11 @@ void runAgentToolTests() {
     const QString root = fixture.path() + QStringLiteral("/instance");
     QDir().mkpath(root + QStringLiteral("/config"));
     QFile config(root + QStringLiteral("/config/a.toml"));
-    config.open(QIODevice::WriteOnly);
+    check(config.open(QIODevice::WriteOnly), "工具：造一个配置文件", config.fileName());
     config.write("maxMemory = 4096\n");
     config.close();
     QFile other(root + QStringLiteral("/notes.txt"));
-    other.open(QIODevice::WriteOnly);
+    check(other.open(QIODevice::WriteOnly), "工具：造一个带口令的便签", other.fileName());
     other.write("password=super-secret-value\n");
     other.close();
 
@@ -135,7 +135,7 @@ void runAgentToolTests() {
           "工具：确认后也只发送脱敏片段");
 
     QFile big(root + QStringLiteral("/big.txt"));
-    big.open(QIODevice::WriteOnly);
+    check(big.open(QIODevice::WriteOnly), "工具：造一个大文本", big.fileName());
     big.write(QByteArray(20000, 'a'));
     big.close();
     const AgentToolResult bigRead = engine.invoke(callFor(
@@ -149,7 +149,7 @@ void runAgentToolTests() {
           "工具：大文本内联部分被截断");
 
     QFile credential(root + QStringLiteral("/.env"));
-    credential.open(QIODevice::WriteOnly);
+    check(credential.open(QIODevice::WriteOnly), "工具：造一个凭据文件", credential.fileName());
     credential.write("API_KEY=abcdefghijklmnop");
     credential.close();
     const AgentToolResult readCredential = engine.invoke(callFor(
@@ -180,7 +180,7 @@ void runAgentToolTests() {
               .status == AgentToolResult::Status::Error,
           "工具：拒绝写审批");
     QFile unchanged(root + QStringLiteral("/config/a.toml"));
-    unchanged.open(QIODevice::ReadOnly);
+    check(unchanged.open(QIODevice::ReadOnly), "工具：读回被拒写的那一份", unchanged.fileName());
     check(unchanged.readAll() == QByteArray("maxMemory = 4096\n"),
           "工具：拒绝后文件一个字节不变");
     unchanged.close();
@@ -190,7 +190,7 @@ void runAgentToolTests() {
         writeAllowed.approval.value(QStringLiteral("approvalId")).toString(), true);
     check(written.ok(), "工具：允许后写入成功", written.summary);
     QFile after(root + QStringLiteral("/config/a.toml"));
-    after.open(QIODevice::ReadOnly);
+    check(after.open(QIODevice::ReadOnly), "工具：读回写入后的文件", after.fileName());
     check(after.readAll() == QByteArray("maxMemory = 8192\n"), "工具：写入内容正确");
     after.close();
     check(!written.data.value(QStringLiteral("backupId")).toString().isEmpty(),
@@ -207,7 +207,8 @@ void runAgentToolTests() {
                     {QStringLiteral("expectedSha256"), snapshot.sha256},
                     {QStringLiteral("fileIdentityToken"), snapshot.identityToken}}));
     QFile replaced(root + QStringLiteral("/config/a.toml"));
-    replaced.open(QIODevice::WriteOnly | QIODevice::Truncate);
+    check(replaced.open(QIODevice::WriteOnly | QIODevice::Truncate), "工具：外部替换掉文件",
+          replaced.fileName());
     replaced.write("maxMemory = 2048\n");
     replaced.close();
     const AgentToolResult rejected = engine.resolveApproval(
@@ -217,7 +218,7 @@ void runAgentToolTests() {
                rejected.error.message.contains(QStringLiteral("变化"))),
           "工具：提交前对象变化拒绝写入", rejected.error.message);
     QFile still(root + QStringLiteral("/config/a.toml"));
-    still.open(QIODevice::ReadOnly);
+    check(still.open(QIODevice::ReadOnly), "工具：读回外部写入的那一份", still.fileName());
     check(still.readAll() == QByteArray("maxMemory = 2048\n"),
           "工具：被拒后保留外部写入的内容");
 

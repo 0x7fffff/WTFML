@@ -1,4 +1,5 @@
 #include "modules/Support.hpp"
+#include "support/SettingsIsolation.hpp"
 #include "ActivityPopover.hpp"
 #include "modules/LiveProbes.hpp"
 #include "controllers/JavaRuntimeController.hpp"
@@ -275,6 +276,7 @@ int main(int argc, char *argv[]) {
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir);
     QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, root.filePath("system-settings"));
+    requireIsolatedSettings(processSandbox.path(), "mw_check");
     check(AppPaths::defaultMinecraftDir() == root.filePath(QStringLiteral(".minecraft")) &&
               AppPaths::minecraftDir() == AppPaths::defaultMinecraftDir(),
           "主窗口测试默认数据根属于本进程临时目录");

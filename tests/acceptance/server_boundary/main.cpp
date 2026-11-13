@@ -6,6 +6,7 @@
 #include "download/DownloadManager.hpp"
 #include "util/AppPaths.hpp"
 #include "util/SecretRedactor.hpp"
+#include "support/SettingsIsolation.hpp"
 #include <QCoreApplication>
 #include <QApplication>
 #include <QCommandLineParser>
@@ -58,6 +59,7 @@ int main(int argc, char **argv) {
     }
     AppPaths::setMinecraftDir(root + "/game");
     QSettings::setDefaultFormat(QSettings::IniFormat); QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, root + "/settings");
+    requireIsolatedSettings(root, "server_boundary");
     ServerInstall::Request request; request.gameVersion = "1.20.1";
     request.flavor = flavor == "forge" ? ServerInstall::Flavor::Forge : flavor == "fabric" ? ServerInstall::Flavor::Fabric : ServerInstall::Flavor::Vanilla;
     if (flavor == "fabric") { request.loaderVersion = "0.16.14"; request.installerVersion = "1.0.1"; }

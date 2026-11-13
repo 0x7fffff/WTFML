@@ -108,9 +108,14 @@ void runDailyQuoteTests() {
     check(pool.size() == 30, "DQ52 句子池只留最近 30 条", QString::number(pool.size()));
     check(pool.last().author == QStringLiteral("作者34") && pool.first().author == QStringLiteral("作者5"),
           "DQ53 留的是最近那 30 条（先进先出）");
-    poolAppend(pool, pool.last());
+    // 复制一份再传：`poolAppend()` 会先把同正文的那条从池里删掉，删的就是 `pool.last()`
+    // 本身 —— 直接传它的引用，等 `append()` 再读的时候那个引用已经悬空了（DQ55 因此会跟着
+    // 二进制布局时红时绿）。
+    const Quote duplicate = pool.last();
+    poolAppend(pool, duplicate);
     check(pool.size() == 30, "DQ54 重复正文的句子只留一条");
-    check(pool.last().author == QStringLiteral("作者34"), "DQ55 重复的那条挪到最新");
+    check(pool.last().author == QStringLiteral("作者34") && pool.last().text == duplicate.text,
+          "DQ55 重复的那条挪到最新");
     Quote latin;
     latin.text = QStringLiteral("The significance of life is living.");
     latin.script = Script::Latin;

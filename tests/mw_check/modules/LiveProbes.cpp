@@ -368,7 +368,10 @@ if (argc >= 5 && QString::fromLocal8Bit(argv[1]) == QLatin1String("instance-file
     const QString modPath = instance + QStringLiteral("/mods/测试模组.jar");
     QFile::remove(modPath);
     if (!QFile::copy(sourceJar, modPath)) { std::printf("FAIL 模组拷不进去：%s -> %s\n", qPrintable(sourceJar), qPrintable(modPath)); return 1; }
-    writeFile(instance + QStringLiteral("/resourcepacks/测试材质包.zip"), QByteArray("PK\x03\x04fake"));
+    // 相邻字面量分两段：`"\x04f"` 会被当成一个三位的十六进制转义（GCC 报
+    // "hex escape sequence out of range"），拆开之后 zip 头那四个字节才是对的。
+    writeFile(instance + QStringLiteral("/resourcepacks/测试材质包.zip"),
+              QByteArray("PK\x03\x04" "fake"));
     writeFile(instance + QStringLiteral("/saves/测试存档/level.dat"), QByteArray("NBT-fake"));
     writeFile(instance + QStringLiteral("/saves/测试存档/region/r.0.0.mca"), QByteArray("region"));
 

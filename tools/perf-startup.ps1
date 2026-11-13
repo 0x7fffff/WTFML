@@ -14,6 +14,11 @@
     跑完在 finally 里删干净、再 import 回来，并再导出一份和备份逐字节比对（SHA256）。
     比对不一致会写 registry-diff.txt 并以失败退出。
 
+    # settings-isolation: real-settings —— 冷启动量的就是"真实设置在这一台机器上从零读起"，
+    用 --acceptance-profile 换掉的是被量的东西本身（换成了 INI 与临时数据根）。所以它必须
+    动真 HKCU；代价由上面那段兜着：跑前导出备份、跑后 import 回来并逐字节比对，中断时按
+    报告目录里的 restore.ps1 还原。
+
     ⚠ 跑之前必须没有启动器在运行：脚本会检查，发现就拒绝（不会去杀用户那个）。
     ⚠ 如果脚本被强行中断，用报告目录里的 restore.ps1 手工还原。
 
