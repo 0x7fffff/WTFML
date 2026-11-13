@@ -18,10 +18,11 @@ namespace HomeGreeting {
 inline constexpr int kLongAbsenceDays = 14;
 
 /// 取第一条命中的：
-/// 1. 没有上次打开记录（@p lastOpened 无效）且一个实例都没有 →「欢迎来到 WTFML。」；
-/// 2. 上次打开距今 ≥ 14 天 →「好久不见，{名字}。」；
+/// 1. 没有上次打开记录（@p lastOpened 无效）且一个实例都没有 →「欢迎来到 WTFML」；
+/// 2. 上次打开距今 ≥ 14 天 →「好久不见 {名字}」；
 /// 3. 按 @p now 的钟点：05–10 早上好 / 11–12 中午好 / 13–17 下午好 / 18–22 晚上好 / 23–04 夜深了。
-/// @p name 为空（没登录）时不带名字：「晚上好。」。
+/// @p name 为空（没登录）时不带名字：「晚上好」。
+/// 不带标点，问候和名字之间是一个空格（界面按字号画宽这一格）。
 QString text(const QDateTime &now, const QDate &lastOpened, bool hasInstances, const QString &name);
 
 }  // namespace HomeGreeting
