@@ -485,6 +485,10 @@ public:
     /// 行首那个**资源图标**的边长。和下载页那几张表同一个尺寸（`resourceTreeIconSize()`）
     /// —— 同一个模组在下载页和在本地列表里该长得一样大。
     static int instanceFileIconSize() { return resourceTreeIconSize(); }
+    /// 文件管理那几页一行多高：比版本树（46）宽一档，名字和「大小 / 时间」两行之间留得出空。
+    static int instanceFileRowHeight() { return 56; }
+    /// 行尾那几颗图标按钮（详情 / 编辑 / 删除）的字形边长：比行首图标小一档，行尾是配角。
+    static int instanceFileActionGlyphSize() { return 20; }
 
     /// 「启用 / 禁用」那枚**拨动开关**的尺寸（宽 × 高）。高度是行高（46）装得下的一档。
     static int toggleSwitchWidth() { return 40; }

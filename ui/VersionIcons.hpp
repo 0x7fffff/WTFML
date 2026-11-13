@@ -178,7 +178,8 @@ QPixmap windowMinimize(int size, const QColor &color);
 /// @param color 线的颜色（和 cross 一样用次要那一档：它是行里的一个动作，不是正文）。
 QPixmap refresh(int size, const QColor &color);
 /// Theme-aware action icons resolve their colour when painted, not when the widget is created.
-enum class Action { Refresh, Settings, Edit, Folder, Details, Delete };
+/// `QuietDelete`：行尾那颗低调的垃圾桶 —— 平时次要墨色，悬停（QIcon::Active）才换危险色。
+enum class Action { Refresh, Settings, Edit, Folder, Details, Delete, QuietDelete };
 QIcon actionIcon(Action action);
 
 /// 那个**电源**符号（⏻）：左面板每一行右边第一颗按钮，「关闭这个实例」。
