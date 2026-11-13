@@ -683,6 +683,16 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
                          [](bool enabled) { QSettings().setValue(QStringLiteral("Look/LogColors"), enabled); });
         addSwitch(look, colors, QStringLiteral("日志颜色"), QStringLiteral("对新日志窗口生效。"));
     }
+    {
+        // 「每日一言」：默认开。checked 状态由 MainWindow 灌（值在 LauncherSettings，
+        // 和上面「日志颜色」那种自己落盘的不一样 —— 它还要驱动主页那一行）。
+        auto *quote = new QCheckBox(QStringLiteral("每日一言"), form);
+        quote->setObjectName(dailyQuoteCheckName());
+        addSwitch(look, quote, QStringLiteral("每日一言"),
+                  QStringLiteral("每天向 hitokoto、ZenQuotes 请求一句，不带个人信息；关闭后不请求。"
+                                 "英文句子来自 ZenQuotes（zenquotes.io）。"));
+        dailyQuoteCheck = quote;
+    }
 
     // ---------- 版本名格式 ----------
     SettingsGroup *names = addGroup(panel, QStringLiteral("版本名格式"));

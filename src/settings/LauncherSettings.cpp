@@ -47,6 +47,9 @@ static constexpr const char kDownloadAutoIntoInstance[] = "Download/AutoIntoInst
 // "点下载那一刻多问一句"这一类的事。
 static constexpr const char kWarnMissingDependencies[] = "Download/WarnMissingDependencies";
 static constexpr const char kShowGameLog[] = "Launcher/ShowGameLog";
+// 主页「每日一言」的开关（默认开）。和 ShowGameLog 同一个前缀：都是「启动器自己的一次
+// 动作要不要做」，不是某个游戏实例的属性。
+static constexpr const char kDailyQuote[] = "Launcher/DailyQuote";
 static constexpr const char kGameWindowWidth[] = "Launcher/WindowWidth";
 static constexpr const char kGameWindowHeight[] = "Launcher/WindowHeight";
 // 窗口模式（小窗 / 最大化 / 全屏）。**值就是 GameWindowSettings 里那一份 token**
@@ -311,6 +314,14 @@ void LauncherSettings::setShowGameLog(bool show) {
     save();
 }
 
+void LauncherSettings::setDailyQuote(bool enabled) {
+    if (m_dailyQuote == enabled) {
+        return;
+    }
+    m_dailyQuote = enabled;
+    save();
+}
+
 void LauncherSettings::setGameWindowSize(int width, int height) {
     const int w = clampWindowWidth(width);
     const int h = clampWindowHeight(height);
@@ -489,6 +500,9 @@ void LauncherSettings::load() {
     m_warnMissingDependencies =
         settings.value(kWarnMissingDependencies, m_warnMissingDependencies).toBool();
     m_showGameLog = settings.value(kShowGameLog, m_showGameLog).toBool();
+    // 默认值取当前成员（构造时是 true）：盘上认不出来的值给 false = 关掉那一行，
+    // 方向安全 —— 关着就没有任何外发请求。
+    m_dailyQuote = settings.value(kDailyQuote, m_dailyQuote).toBool();
     // 宽高**读回来就钳位**：这两个数会原样进游戏命令行，盘上那份不能当成可信的。
     // 存进去的值也可能是手改的，所以两边都要兜。
     m_gameWindowWidth =
@@ -588,6 +602,7 @@ QVariantMap LauncherSettings::persistedValues() const {
     values.insert(QString::fromLatin1(kWarnMissingDependencies),
                   QVariant(m_warnMissingDependencies));
     values.insert(QString::fromLatin1(kShowGameLog), QVariant(m_showGameLog));
+    values.insert(QString::fromLatin1(kDailyQuote), QVariant(m_dailyQuote));
     values.insert(QString::fromLatin1(kGameWindowWidth), QVariant(clampWindowWidth(m_gameWindowWidth)));
     values.insert(QString::fromLatin1(kGameWindowHeight),
                   QVariant(clampWindowHeight(m_gameWindowHeight)));

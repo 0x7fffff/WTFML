@@ -177,6 +177,32 @@ QString handFamily(HandFont which) {
     return families[int(which)];
 }
 
+QStringList quoteFamilies(QuoteScript script) {
+    const QString base = QApplication::font().family();
+    switch (script) {
+    case QuoteScript::Kana:
+        return {QStringLiteral("Yu Mincho"), QStringLiteral("Yu Gothic UI"),
+                QStringLiteral("Meiryo UI"), base};
+    case QuoteScript::Han: {
+        const QString kai = handFamily(HandFont::KaiLight);
+        return kai.isEmpty() ? QStringList{base} : QStringList{kai, base};
+    }
+    case QuoteScript::Latin: {
+        const QString latin = handFamily(HandFont::Script);
+        return latin.isEmpty() ? QStringList{base} : QStringList{latin, base};
+    }
+    }
+    return {base};
+}
+
+QFont quoteFont(QFont font, QuoteScript script, int pixelSize) {
+    font.setFamilies(quoteFamilies(script));
+    font.setPixelSize(pixelSize);
+    font.setBold(false);
+    font.setLetterSpacing(QFont::AbsoluteSpacing, 0);
+    return font;
+}
+
 QFont handFont(QFont font, HandFont which) {
     const QString family = handFamily(which);
     if (family.isEmpty()) return font;

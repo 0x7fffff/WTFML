@@ -1,0 +1,7 @@
+bool hasKana(const QString &text) {
+    for (const QChar ch : text) {
+        const ushort u = ch.unicode();
+        if ((u >= 0x3040 && u <= 0x30FF) || u == 0x3005) return true;
+    }
+    return false;
+}
