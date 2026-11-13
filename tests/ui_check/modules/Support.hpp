@@ -409,6 +409,7 @@ int UiResourcePacksCheck(QApplication &app);
 int UiLifecycleCheck(QApplication &app);
 int UiUiRefreshCheck(QApplication &app);
 int UiSettingsShotsCheck(QApplication &app);
+int UiReviewShotsCheck(QApplication &app);
 int UiThemeCheck(QApplication &app);
 int UiPopupCheck(QApplication &app);
 int UiNavigationChecks(QMainWindow &window, MainWindowUI &ui, QComboBox * &installed, QPushButton * &startBtn, QStackedWidget * &gameStack, QTreeWidget * &versionTree, QLineEdit * &installNameEdit, QPushButton * &installBtn, QPushButton * &installBackBtn, QTreeWidget * &loaderTree, QListWidget * &folderList, QTreeWidget * &instanceList, QLabel * &instanceFolderLabel, QTabWidget * &tabs);
