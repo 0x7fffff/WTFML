@@ -413,6 +413,7 @@ int UiReviewShotsCheck(QApplication &app);
 // 主页「每日一言」：那一行（进 CTest）与它的离屏样张（不进 CTest）。
 int UiDailyQuoteCheck(QApplication &app);
 int UiDailyQuoteShots(QApplication &app);
+int UiHomeGreetingShots(QApplication &app);
 // 自定义背景图的离屏样张（设置页那一组 + 设了图之后的主页与设置页）。
 int UiBackgroundShots(QApplication &app);
 int UiThemeCheck(QApplication &app);

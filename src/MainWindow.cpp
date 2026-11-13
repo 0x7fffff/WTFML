@@ -1062,6 +1062,15 @@ MainWindow::MainWindow(QWidget *parent)
     // 还是「启动实例」要看"那一份实例还在不在已安装列表里"，列表空着的时候问它只会得到
     // "不在"，卡片就会显示成降级的那一档（明明能玩）。
     m_launchHistory->load();
+    // 主页问候：先拿旧的「上次打开日期」和这一刻有没有实例定好，再把今天写回去
+    // （下面 updateBottomBar() 里第一次算出来的就是这次该说的那句）。
+    m_greetingLastOpened = m_settings->lastOpenedDate();
+    m_greetingHadInstances = m_ui->getInstalledVersionCombo()->count() > 0;
+    m_settings->setLastOpenedDate(QDate::currentDate());
+    // 开着窗跨了时段（下午 → 晚上），切回来时换一句。不挂定时器。
+    connect(qApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
+        if (state == Qt::ApplicationActive) updateHomeGreeting();
+    });
     // 底栏那三格的初始值：登录名可能已经从存下来的令牌里恢复了，进度两格先藏起来，
     // 运行状态也要等第一次真的启动才有内容。
     updateBottomBar();

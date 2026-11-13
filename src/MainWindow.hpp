@@ -2059,6 +2059,9 @@ private:
     /// 刷新底部状态条那三格（头像/用户名、**任务摘要**、实例运行状态）。
     /// 显示规则见 .cpp；界面那边只负责把控件搭出来。
     void updateBottomBar();
+    /// 主页大标题那句问候（规则在 util/HomeGreeting）：名字和账号胶囊同一来源，没登录不带名字。
+    /// 启动、账号变化（走 updateBottomBar）、应用重新激活时重算；文字没变不重画。
+    void updateHomeGreeting();
 
     /// 底栏右下那一格（"当前实例运行状态"）：方块的颜色 + 两行字，整个重画一遍。
     void updateBottomBarRunState();
@@ -2771,6 +2774,10 @@ private:
     ConnectionsController *m_connectionsController = nullptr;
     /// 主页「每日一言」：取句、当天缓存与句子池（见 controllers/DailyQuoteController.hpp）。
     DailyQuoteController *m_dailyQuote = nullptr;
+    /// 这次启动之前记下的「上次打开日期」（启动时读出旧值再写入今天），以及启动那一刻有没有实例。
+    /// 两样都只在启动时定一次：第一次打开的那一整趟都说「欢迎」，不因中途装了实例改口。
+    QDate m_greetingLastOpened;
+    bool m_greetingHadInstances = false;
     InstanceIconController *m_instanceIconController = nullptr;
     /// 控制台那一页。**页对象和"这一页现在说的是哪一个服务端"都在控制器里**
     /// （`src/controllers/ServerConsoleController`），这一层

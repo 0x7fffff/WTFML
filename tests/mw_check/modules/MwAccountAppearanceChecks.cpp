@@ -115,6 +115,11 @@ int MwAccountAppearanceChecks() {
                               pillFace->pixmap().isNull(),
                           "Z2 未登录：主页胶囊写「登录」、小状态收起、头像画占位",
                           pillName != nullptr ? pillName->text() : QString());
+                    QLabel *title = w10.findChild<QLabel *>(MainWindowUI::homeHeroTitleName());
+                    check(title != nullptr && !title->text().isEmpty() &&
+                              !title->text().contains(QStringLiteral("，")),
+                          "Z2 未登录：主页大标题问候不带名字（「晚上好。」这一类）",
+                          title != nullptr ? title->text() : QString());
                 }
                 entry->click();
                 QApplication::processEvents();

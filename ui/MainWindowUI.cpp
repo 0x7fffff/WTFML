@@ -134,6 +134,82 @@ QFont handPx(QFont font, Theme::HandFont which, int px, qreal spacing) {
     return font;
 }
 
+/// 主页大标题的字分两路画：拉丁字母（名字、「WTFML」）用英文手写体 Dancing Script，
+/// 其余（问候、全角「，。」）用文楷。一支 QFont 做不到：Dancing Script 的 x 高只有文楷的七成，
+/// 同号会显小，要单独放大；它是连笔字，也不能吃文楷那 3~4 px 字距。
+bool heroLatin(QChar c) {
+    return c.script() == QChar::Script_Latin || (c.unicode() < 0x80 && !c.isSpace()) || c == QChar(0x2026);
+}
+
+/// 拉丁那一路的字体：Dancing Script，按文楷字号放大 1.2 倍（两支字的小写字面看着齐），字距 0。
+/// 注册不上就原样用文楷那一支。
+QFont heroLatinFont(const QFont &han) {
+    const QString script = Theme::handFamily(Theme::HandFont::Script);
+    if (script.isEmpty()) return han;
+    QFont latin = han;
+    latin.setFamilies(QStringList{script} + han.families());
+    latin.setPixelSize(qRound(han.pixelSize() * 1.2));
+    latin.setLetterSpacing(QFont::AbsoluteSpacing, 0);
+    return latin;
+}
+
+/// 按两路字体把 @p text 切段：{文字, 是不是拉丁}。
+QList<QPair<QString, bool>> heroRuns(const QString &text) {
+    QList<QPair<QString, bool>> runs;
+    for (const QChar c : text) {
+        const bool latin = heroLatin(c);
+        if (runs.isEmpty() || runs.last().second != latin) runs.append({QString(), latin});
+        runs.last().first += c;
+    }
+    return runs;
+}
+
+int heroAdvance(const QFont &han, const QString &text) {
+    const QFontMetrics hanMetrics(han);
+    const QFontMetrics latinMetrics(heroLatinFont(han));
+    int width = 0;
+    for (const auto &run : heroRuns(text))
+        width += (run.second ? latinMetrics : hanMetrics).horizontalAdvance(run.first);
+    return width;
+}
+
+/// 主页大标题：单行问候，放不下时只把名字收成省略号，「晚上好，」留着。
+/// 宽度交给布局（Ignored），名字长短不会把左栏抻开。
+class HomeGreetingLabel final : public ElidedLabel {
+public:
+    using ElidedLabel::ElidedLabel;
+    void setGreeting(const QString &text, const QString &name) {
+        // updateBottomBar() 每次进度刷新都会走到这里：没变就不重画。
+        if (text == this->text() && name == m_name) return;
+        m_name = name;
+        setText(text);
+        update();
+    }
+    QString shown() const {
+        return MainWindowUI::elideHomeHeroTitle(font(), text(), m_name, contentsRect().width());
+    }
+    int shownWidth() const { return heroAdvance(font(), shown()); }
+
+protected:
+    void paintEvent(QPaintEvent *) override {
+        QPainter painter(this);
+        painter.setPen(palette().color(foregroundRole()));
+        const QFont latin = heroLatinFont(font());
+        const QRect box = contentsRect();
+        // 两路字共用文楷的基线（标题高度也按文楷算）。
+        QPointF pen(box.left(), box.top() + QFontMetrics(font()).ascent());
+        for (const auto &run : heroRuns(shown())) {
+            const QFont &f = run.second ? latin : font();
+            painter.setFont(f);
+            painter.drawText(pen, run.first);
+            pen.rx() += QFontMetrics(f).horizontalAdvance(run.first);
+        }
+    }
+
+private:
+    QString m_name;
+};
+
 /// 主页压在风景上的那几颗"玻璃"按钮：账号胶囊、启动区的切换 / 设置、实例带上的卡片和那颗
 /// 悬停才出来的播放钮。底色是场景暗角色（heroVeil）按设计稿的浓度叠上去，不描边（只有快速启动
 /// 空槽描虚线）；没有场景时退回中性淡底。
@@ -856,6 +932,44 @@ void MainWindowUI::updateHomeQuoteFont(bool narrow) {
     Theme::markDisplay(homeHeroQuote, font);
 }
 
+QString MainWindowUI::elideHomeHeroTitle(const QFont &font, const QString &text,
+                                         const QString &name, int width) {
+    const auto fits = [&](const QString &s) { return heroAdvance(font, s) <= width; };
+    if (fits(text)) return text;
+    const QString ellipsis = QStringLiteral("…");
+    const qsizetype at = name.isEmpty() ? -1 : text.lastIndexOf(name);
+    if (at < 0) {
+        for (qsizetype n = text.size() - 1; n > 0; --n)
+            if (fits(text.left(n) + ellipsis)) return text.left(n) + ellipsis;
+        return ellipsis;
+    }
+    const QString head = text.left(at);
+    QString tail = text.mid(at + name.size());
+    // 省略号后不再跟句号（GB/T 15834），「Ver…。」两个标点挤在一起也难看。
+    if (tail == QStringLiteral("。")) tail.clear();
+    // 名字最多二三十个字符，逐个往回退就够了。
+    for (qsizetype n = name.size() - 1; n > 0; --n) {
+        const QString candidate = head + name.left(n) + ellipsis + tail;
+        if (fits(candidate)) return candidate;
+    }
+    // 连一个字母都放不下（窗口窄到离谱）：照样留「…」，句子形状不散。
+    return head + ellipsis + tail;
+}
+
+void MainWindowUI::setHomeHeroTitle(const QString &text, const QString &name) {
+    if (auto *title = static_cast<HomeGreetingLabel *>(homeHeroTitle)) title->setGreeting(text, name);
+}
+
+QString MainWindowUI::homeHeroTitleShown() const {
+    return homeHeroTitle == nullptr ? QString() : static_cast<HomeGreetingLabel *>(homeHeroTitle)->shown();
+}
+
+QFont MainWindowUI::homeHeroTitleLatinFont(const QFont &han) { return heroLatinFont(han); }
+
+int MainWindowUI::homeHeroTitleShownWidth() const {
+    return homeHeroTitle == nullptr ? 0 : static_cast<HomeGreetingLabel *>(homeHeroTitle)->shownWidth();
+}
+
 void MainWindowUI::setHomeHeroQuote(const QString &text, const QString &tooltip,
                                     Theme::QuoteScript script) {
     if (homeHeroQuote == nullptr) return;
@@ -899,10 +1013,14 @@ QWidget *MainWindowUI::setupHomePage() {
     homePageLayout->addWidget(homeBottomArea);
     {
         home.left.layout->addSpacing(40);
-        auto *welcome = new QLabel(QStringLiteral("下一个世界，等你开启。"), home.left.widget);
-        welcome->setObjectName(QStringLiteral("homeHeroTitle"));
-        welcome->setWordWrap(true);
+        // 问候语由 MainWindow::updateHomeGreeting() 灌（规则在 src/util/HomeGreeting）；
+        // 灌之前先写「欢迎来到 WTFML。」，不留空。
+        auto *welcome = new HomeGreetingLabel(home.left.widget);
+        welcome->setGreeting(QStringLiteral("欢迎来到 WTFML。"), QString());
+        welcome->setObjectName(homeHeroTitleName());
+        welcome->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
         welcome->setContentsMargins(kHomeHeroInset, 0, 0, 0);
+        homeHeroTitle = welcome;
         home.left.layout->addWidget(welcome);
         followHeroInk(welcome, false);
         // 大标题正下方那一行「每日一言」：一天一句，零实例与有实例都显示。
@@ -921,8 +1039,13 @@ QWidget *MainWindowUI::setupHomePage() {
         // 窄于 1024 的窗口：标题收一号（50 → 40），一言收一号（16 → 14），立绘缩到七成二（设计稿 @media）。
         const auto applyScale = [this, homeTab, welcome]() {
             const bool narrow = homeTab->window()->width() < 1024;
-            Theme::markDisplay(welcome, handPx(welcome->font(), Theme::HandFont::KaiLight,
-                                               narrow ? 40 : kHomeHeroTitlePixelSize, narrow ? 3 : 4));
+            QFont titleFont = handPx(welcome->font(), Theme::HandFont::KaiLight,
+                                     narrow ? 40 : kHomeHeroTitlePixelSize, narrow ? 3 : 4);
+            // 名字里文楷没有的字（é、Я、假名）先落系统楷体，笔意还接得上；再没有才到系统字体。
+            QStringList families = titleFont.families();
+            if (families.size() >= 2) families.insert(1, QStringLiteral("KaiTi"));
+            titleFont.setFamilies(families);
+            Theme::markDisplay(welcome, titleFont);
             updateHomeQuoteFont(narrow);
             if (skinViewer != nullptr) {
                 skinViewer->setMaximumHeight(narrow ? kHomeSkinViewerHeight * 72 / 100 : kHomeSkinViewerHeight);

@@ -6,7 +6,7 @@
 
 ## 显示
 
-- 位置：主页大标题「下一个世界，等你开启。」正下方那一行（原英文副题那一格，`git show 8fc9f5e` 的反向 diff），
+- 位置：主页大标题（按时段的问候语，见 [FEATURES.md](../FEATURES.md) 主页那一条）正下方那一行（原英文副题那一格，`git show 8fc9f5e` 的反向 diff），
   边距 `kHomeHeroInset + 4, 12, 0, 0`，单行小字，字号 16（窗口窄于 1024 时 14）。
 - 一天一句，零实例与有实例的主页都显示；颜色跟随主页英雄区字色（`followHeroInk(quote, true)`）。
 - 超宽自己从尾巴收省略号（`ui/ElidedLabel.hpp`），文字长短不会把左栏抻开。

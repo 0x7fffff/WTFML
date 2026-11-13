@@ -260,6 +260,7 @@ add_ui_module(ui_check_ui_refresh modules/UiUiRefreshCheck.cpp UiUiRefreshCheck)
 add_ui_module(ui_check_theme modules/UiThemeCheck.cpp UiThemeCheck)
 add_ui_module(ui_check_daily_quote modules/UiDailyQuoteCheck.cpp UiDailyQuoteCheck)
 add_ui_module(ui_check_daily_quote_shots modules/UiDailyQuoteShots.cpp UiDailyQuoteShots)  # 样张，不进 ctest
+add_ui_module(ui_check_home_greeting_shots modules/UiHomeGreetingShots.cpp UiHomeGreetingShots)  # 样张，不进 ctest
 add_ui_module(ui_check_popups modules/UiPopupCheck.cpp UiPopupCheck)
 add_ui_module(ui_check_window_chrome modules/UiWindowChromeCheck.cpp UiWindowChromeCheck)
 add_ui_module(ui_check_armor_trim ArmorTrimChecks.cpp runArmorTrimChecks)
