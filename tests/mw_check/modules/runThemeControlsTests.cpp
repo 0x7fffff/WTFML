@@ -1,5 +1,6 @@
 #include "Support.hpp"
 #include "ThemeAdvancedEditor.hpp"
+#include "Glass.hpp"
 void runThemeControlsTests() {
     const QString originalDir = AppPaths::minecraftDir();
     const Theme::Spec themeBefore = Theme::current();
@@ -80,6 +81,40 @@ void runThemeControlsTests() {
             animationsCheck == nullptr) {
             restore();
             return;
+        }
+
+        // ---------- T39.1b 建页面这一趟不许往盘上写 ----------
+        //
+        // 2026-11-13 用户真实的 `Theme/BackdropTint` / `Theme/BackdropBlur` 被写成了 0
+        //（出厂 20 / 50，用户说自己没动过）。产品这一侧唯一会写这两个键的是设置页那两根
+        // 强度滑块的 setter，而它们的 `setValue()` 是在 connect **之前**做的，所以"把页面
+        // 搭出来"这一趟一个键都不该落盘；只有值真的变了才写（下面第二发钉这条）。
+        // objectName 是 `ui/MainWindowSettingsPage.cpp` 里那两行字面量（这一层拿不到头文件里的
+        // 常量，改名字时两边一起改）。
+        {
+            QSettings disk;
+            check(!disk.contains(QStringLiteral("Theme/BackdropTint")) &&
+                      !disk.contains(QStringLiteral("Theme/BackdropBlur")) &&
+                      !disk.contains(QStringLiteral("Theme/Backdrop")),
+                  "T39.1b 建完设置页，磨砂那三个键一个都没写盘（构造期不许发 valueChanged(0)）",
+                  disk.fileName());
+            auto *tint = byObjectName<QSlider>(&w, QStringLiteral("backdropTintSlider"));
+            auto *blur = byObjectName<QSlider>(&w, QStringLiteral("backdropBlurSlider"));
+            check(tint != nullptr && blur != nullptr, "T39.1b 着色 / 模糊两根强度滑块都找得回来");
+            if (tint != nullptr && blur != nullptr) {
+                check(tint->value() == Glass::tintStrength() && blur->value() == Glass::blurStrength() &&
+                          tint->value() == Glass::kDefaultTintStrength && blur->value() == 50,
+                      "T39.1b 干净沙盒里两根滑块停在出厂 20 / 50（不是 0）",
+                      QStringLiteral("着色 %1 / 模糊 %2").arg(tint->value()).arg(blur->value()));
+                // 用户真的把它拖到底才算改动：这一发之后盘上必须有 0，收尾由 `restore()` 清。
+                tint->setValue(0);
+                check(QSettings().value(QStringLiteral("Theme/BackdropTint"), -1).toInt() == 0,
+                      "T39.1b 值真的变了才落盘（滑块是「改完立刻生效」那条路）",
+                      QSettings().fileName());
+                // 收尾：把这一节自己拨下去的那一档放回出厂，别让后面的绘制量到一个 0 度着色。
+                tint->setValue(Glass::kDefaultTintStrength);
+                QSettings().remove(QStringLiteral("Theme/BackdropTint"));
+            }
         }
 
         // ---------- ① 构造完那一刻：控件照着规格画出来了 ----------
