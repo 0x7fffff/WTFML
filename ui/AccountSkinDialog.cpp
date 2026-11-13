@@ -427,6 +427,7 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
 
     // ---------- 右：皮肤 / 披风（设计稿 .looks）----------
     auto *controlsPanel = new QWidget(this);
+    m_looksPanel = controlsPanel;
     controlsPanel->setObjectName(QStringLiteral("accountLooksPane"));
     controlsPanel->setFixedWidth(kControlsWidth);
     auto *controls = new QVBoxLayout(controlsPanel);
@@ -597,9 +598,29 @@ void AccountSkinDialog::showEvent(QShowEvent *event) {
 
 void AccountSkinDialog::resizeEvent(QResizeEvent *event) {
     QDialog::resizeEvent(event);
-    const bool narrow = width() < 860;
-    m_bodyLayout->setDirection(narrow ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight);
-    m_accountsPanel->setMaximumWidth(narrow ? QWIDGETSIZE_MAX : kAccountsWidth);
+    // 三档：宽（≥860）账号 | 立绘 | 皮肤披风 三栏；中宽（默认窗 900 逻辑宽就落在这一档）两栏，
+    // 皮肤 / 披风挪进账号栏下面，立绘独占右栏、随右栏宽放大；再窄（实际到不了，窗口最小宽 900）
+    // 才整列上下堆叠。中宽不再整列堆叠：那样右半边空着、披风被挤出窗口要滚动。
+    const int w = width();
+    const bool wide = w >= 860;
+    const bool stacked = !wide && w < kAccountsWidth + 28 + 240;
+    auto *left = static_cast<QBoxLayout *>(m_accountsPanel->layout());
+    const bool looksInLeft = left->indexOf(m_looksPanel) >= 0;
+    if (wide == looksInLeft) {
+        (looksInLeft ? left : m_bodyLayout)->removeWidget(m_looksPanel);
+        if (wide) {
+            m_bodyLayout->addWidget(m_looksPanel, 0, Qt::AlignTop);
+        } else {
+            left->insertWidget(left->count() - 1, m_looksPanel);  // 列底那段 stretch 之前
+        }
+        // 放进账号栏时上面再补 8：和栏内控件间距 8 合起来是区块间距 16。
+        m_looksPanel->layout()->setContentsMargins(0, wide ? 0 : 8, 0, 0);
+    }
+    m_bodyLayout->setDirection(stacked ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight);
+    m_accountsPanel->setMaximumWidth(stacked ? QWIDGETSIZE_MAX : kAccountsWidth);
+    // 立绘 2:3。中宽时右栏 = 页宽 - 账号栏 - 栏距，左右各留 24 后撑满，封顶 288（再大就盖过左栏高度）。
+    const int viewerW = (wide || stacked) ? 208 : qBound(208, w - kAccountsWidth - 28 - 48, 288);
+    m_viewer->setFixedSize(viewerW, viewerW * 3 / 2);
 }
 
 bool AccountSkinDialog::eventFilter(QObject *watched, QEvent *event) {

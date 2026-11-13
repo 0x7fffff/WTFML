@@ -277,6 +277,7 @@ private:
     bool m_busy = false;
     QWidget *m_headerBar = nullptr;
     QWidget *m_accountsPanel = nullptr;
+    QWidget *m_looksPanel = nullptr;  // 皮肤 / 披风：宽版在右栏，中宽挪进账号栏下面（见 resizeEvent）
     QBoxLayout *m_bodyLayout = nullptr;
 
     /// 「皮肤」那一行现在露的是哪一档（见 setOfflineSkinState()）。两个都从外面喂进来，
