@@ -192,7 +192,9 @@ void MainWindow::refreshAccountSkin() {
     startPlayerSkinLoad();
 
     // 4) 披风列表要令牌，是这一整块里唯一会真的去联网的地方（过期令牌也是在这里顺带刷新的）。
-    if (offlineIdentity()) {
+    // 一个账号都没有时也跳过：没有令牌可换，硬走下去只会把「还没有登录过…」那句原因写进副题，
+    // 和「未登录」、正版页签的说明说成三遍。
+    if (offlineIdentity() || accounts.isEmpty()) {
         // 当前是离线账号 = "别联网"，而拉披风列表正是联网。跳过。
         m_accountSkinDialog->setCapes({});
         return;

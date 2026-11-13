@@ -283,11 +283,12 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_accountsPanel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     QVBoxLayout *left = new QVBoxLayout(m_accountsPanel);
     left->setContentsMargins(0, 0, 0, 0);
-    left->setSpacing(10);
+    left->setSpacing(8);  // 控件间距（全站三档里的 8）：页签 → 账号列表 → 入口
     left->setAlignment(Qt::AlignTop);
-    // 精修：伸缩权重压过立绘两边那两段 stretch（各 1），别被压到 240 上下（名字只剩一个
-    // 字母、行尾按钮挤成一团）。不用最小宽度：那会把整窗最小宽顶过窄窗阈值、再也叠不成上下。
-    main->addWidget(m_accountsPanel, 8);
+    // 伸缩权重 100 对立绘两边那两段 stretch（各 1）：余宽先给账号栏长到 kAccountsWidth，
+    // 两段留白只分零头。原来 8:1:1 时 1280 窗下账号栏只分到约 280，正版说明再被行尾 stretch
+    // 对半分，只剩 160 上下、折成四行。不用最小宽度：那会把整窗最小宽顶过窄窗阈值、再也叠不成上下。
+    main->addWidget(m_accountsPanel, 100);
 
     {
         // 「账号」后面是「正版 / 离线」页签：只管下面那一块「加账号」的入口，列表照旧两种都列。
@@ -320,6 +321,7 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_accountList->setItemDelegate(new AccountRowDelegate(m_accountList, &m_currentSkin));
     m_accountList->viewport()->installEventFilter(this);
     left->addWidget(m_accountList);
+    m_accountList->hide();  // 没有账号时不占位：页签下面直接接入口（见 setAccounts()）
 
     // 「切换到所选」「删除所选」：不再占一整排，跟着选中那一行摆在行尾（placeRowActions()）。
     m_rowActions = new QWidget(m_accountList->viewport());
@@ -370,10 +372,9 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
         auto *loginRow = new QHBoxLayout(m_onlineRow);
         loginRow->setContentsMargins(0, 0, 0, 0);
         loginRow->setSpacing(8);
-        loginRow->addWidget(m_loginButton);
+        // 按钮靠左、不跟说明抢宽：行尾若再挂一段 stretch，说明只分到半行。
+        loginRow->addWidget(m_loginButton, 0, Qt::AlignLeft);
         loginRow->addWidget(m_onlineUnavailableLabel, 1);
-        loginRow->addStretch(1);
-        left->addSpacing(6);
         left->addWidget(m_onlineRow);
     }
 
@@ -579,7 +580,6 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     connect(m_hideCapeButton, &QPushButton::clicked, this,
             &AccountSkinDialog::hideCapeRequested);
 
-    m_accountList->setFixedHeight(kAccountRowHeight + 2);
     updateCapeCaption();
     refreshButtonStates();
 }
@@ -636,13 +636,9 @@ void AccountSkinDialog::setAccounts(const QList<AccountRow> &rows) {
         addAccountRow(row);
     }
 
-    if (m_accountList->count() == 0) {
-        // 一个账号都没有时摆一句话，而不是一片空白：空白让人以为"还没加载完"。
-        QListWidgetItem *placeholder = new QListWidgetItem(noAccountsText(), m_accountList);
-        placeholder->setFlags(Qt::NoItemFlags);  // 选不动 —— 它不是一个账号
-        placeholder->setForeground(palette().color(QPalette::PlaceholderText));
-        placeholder->setSizeHint(QSize(0, kAccountRowHeight));
-    } else {
+    // 一个账号都没有时整块收起，页签下面直接接入口；「未登录」由页头副题说一次（notLoggedInNote()）。
+    m_accountList->setVisible(m_accountList->count() > 0);
+    if (m_accountList->count() > 0) {
         // 选中"当前"那一条；没有当前账号（凭据被清了）就选第一条。
         int index = 0;
         for (int i = 0; i < m_accountList->count(); ++i) {
@@ -791,7 +787,7 @@ void AccountSkinDialog::setOfflineSkinState(bool offline, bool hasCustomSkin) {
 QString AccountSkinDialog::selectedUuid() const {
     const QListWidgetItem *item = m_accountList->currentItem();
     if (item == nullptr || !item->flags().testFlag(Qt::ItemIsSelectable)) {
-        return QString();  // 占位那一行选不动，见 setAccounts()
+        return QString();
     }
     return item->data(Qt::UserRole).toString();
 }
