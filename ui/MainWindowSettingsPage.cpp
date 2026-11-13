@@ -688,8 +688,8 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         auto *quote = new QCheckBox(QStringLiteral("每日一言"), form);
         quote->setObjectName(dailyQuoteCheckName());
         addSwitch(look, quote, QStringLiteral("每日一言"),
-                  QStringLiteral("每天向 hitokoto、ZenQuotes 请求一句，不带个人信息；关闭后不请求。"
-                                 "英文句子来自 ZenQuotes（zenquotes.io）。"));
+                  QStringLiteral("每天向 hitokoto 和 ZenQuotes（zenquotes.io）取一句，不带个人信息；"
+                                 "关闭后不请求。"));
         dailyQuoteCheck = quote;
     }
 
