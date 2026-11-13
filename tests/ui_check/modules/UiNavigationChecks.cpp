@@ -240,9 +240,10 @@ int UiNavigationChecks(QMainWindow &window, MainWindowUI &ui, QComboBox * &insta
               "「安装」不在主页（它只在下载页的安装页上）");
         check(instancePage != nullptr && isAncestor(instancePage, folderList) &&
                   isAncestor(instancePage, instanceList) &&
-                  instancePage->findChildren<QPushButton *>().size() == 14,
+                  instancePage->findChildren<QPushButton *>().size() == 13,
               // UI 7b 从 11 变 14：页头那颗文件夹胶囊（instanceFolderPill，点开是文件夹浮层）
               // + 空状态那两颗（「去下载页装新版本」「导入整合包…」）。
+              // 14 又变 13：空状态里的「导入整合包…」去掉（页头右上已有同一颗），只剩「去下载页装新版本」。
               // 十一个 = 下面那三颗 + 搜索行那四颗筛选 chip + 模式行那三颗
               // （客户端实例 / 服务端 / 预设）+ 右下那颗「新建服务端…」（M4）。
               // 模式行 从两颗变三颗：预设管理从「设置」里搬了过来，这一颗是三颗里的第三颗。
