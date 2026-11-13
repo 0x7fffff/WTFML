@@ -180,7 +180,7 @@ void runResourceDetailPageTests() {
               "ZJ3 第一行是那个模组、底下挂着两个游戏版本、而且是收着的",
               QStringLiteral("子项 %1").arg(first == nullptr ? -1 : first->childCount()));
         check(!firstRect.isEmpty() &&
-                  firstRect.height() == MainWindowUI::versionTreeRowHeight() &&
+                  firstRect.height() == VersionTreeDelegate::resourceRowHeight() &&
                   firstRect.contains(arrowZone.center()) &&
                   arrowZone.left() > firstRect.center().x(),
               "ZJ3 行矩形和箭头那一格都是真的（那一页是当前页、这一行也滚到了可见）"
