@@ -397,6 +397,63 @@ int UiPopupCheck(QApplication &app) {
         QApplication::processEvents();
     }
 
+
+    // ---------- ③c 弹层窗口：无边框 + 半透明要在 HWND 建出来之前就挂上 ----------
+    // 这一条决定真机上四角透不透明：Windows 上 Qt 只给「无边框**且**半透明」的窗口建
+    // WS_EX_LAYERED（逐像素 alpha）。下拉弹层是 Qt 自己造的 `QComboBoxPrivateContainer`，
+    // 带 Qt::Popup 但不带 FramelessWindowHint；属性要是等到 Show 才挂，窗口早按不透明造成，
+    // 四角那块没人画的像素就是黑的（风景底 / 纯色下打开设置就能看见）。
+    {
+        QWidget host;
+        auto *column = new QVBoxLayout(&host);
+        host.resize(320, 120);
+        host.show();
+        auto *combo = new QComboBox(&host);
+        for (int i = 0; i < 3; ++i) {
+            combo->addItem(QStringLiteral("选项 %1").arg(i + 1));
+        }
+        column->addWidget(combo);
+        QApplication::processEvents();  // 走一遍 Polish：弹层装饰器在那一步挂
+        QWidget *popup = combo->view() != nullptr ? combo->view()->window() : nullptr;
+        expect(popup != nullptr && popup != combo, "下拉弹层是独立顶层窗口");
+        if (popup != nullptr) {
+            expect(popup->windowHandle() == nullptr,
+                   "断言这一刻弹层的原生窗口还没建出来（属性还来得及）");
+            expect(popup->testAttribute(Qt::WA_TranslucentBackground),
+                   "弹层窗口在 Show 之前就挂上了半透明（四角才不露黑）");
+            expect(popup->windowFlags().testFlag(Qt::FramelessWindowHint),
+                   "弹层窗口无边框（无边框 + 半透明才拿得到逐像素 alpha）");
+        }
+        host.hide();
+        QApplication::processEvents();
+    }
+
+    // ---------- ③d 禁用下拉外面不画框 ----------
+    // 旧白框时代那条 `QComboBox:disabled { border-color: palette(mid) }` 带伪类，
+    // 优先级压得过后面那条 3px 透明边 —— 真机上禁用下拉外面就多出一圈灰边框。
+    {
+        QWidget host;
+        auto *column = new QVBoxLayout(&host);
+        host.resize(320, 120);
+        host.show();
+        auto *combo = new QComboBox(&host);
+        combo->addItem(QStringLiteral("填充"));
+        combo->setEnabled(false);
+        column->addWidget(combo);
+        QApplication::processEvents();
+        const QImage shot = combo->grab().toImage();
+        const qreal dpr = shot.devicePixelRatio();
+        const QColor fill = shot.pixelColor(shot.width() / 2, shot.height() / 2);
+        const QColor edge = shot.pixelColor(shot.width() / 2, qMax(1, qRound(1.5 * dpr)));
+        expect(colorDistance(edge, fill) <= 12,
+               "禁用下拉外圈和它自己的底色一致（没有那圈灰边框）",
+               QStringLiteral("芯 %1 / 边 %2 / 差 %3")
+                   .arg(fill.name(), edge.name())
+                   .arg(colorDistance(edge, fill)));
+        host.hide();
+        QApplication::processEvents();
+    }
+
     // ---------- ④ 菜单：同一个外壳 ----------
     {
         QMenu menu;
