@@ -41,6 +41,7 @@
 #include <QStyleOptionViewItem>
 #include <QTimer>
 #include <QToolButton>
+#include <QWindow>
 
 #include <cstring>
 
@@ -694,6 +695,20 @@ protected:
         view->setMouseTracking(true);
         view->viewport()->setMouseTracking(true);
         view->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        // ★ 两件事都得赶在弹层自己的 HWND 建出来之前说（`QWidget` 只在**首次**上屏时
+        // 按当时的属性、旗标造平台窗口）。这里还是 Polish：`combo->view()` 已经把
+        // `QComboBoxPrivateContainer` 造就了、但还没 show 过。
+        //   · 无边框：Windows 上 Qt 只给「无边框**且**半透明」的窗口建 WS_EX_LAYERED
+        //     （逐像素 alpha），而这个容器只有 Qt::Popup、没有 FramelessWindowHint；
+        //   · 半透明：属性要是等到 `ComboDecorator` 收到 Show 才挂，窗口早按不透明造成。
+        // 少了这两件，四角那块没人画过的像素就是黑（96 把出厂材质从亚克力
+        // 改成风景底之后，新装用户一打开就能看见）。
+        if (QWidget *popup = view->window(); popup != nullptr && popup != combo) {
+            if (popup->windowHandle() == nullptr) {
+                popup->setWindowFlag(Qt::FramelessWindowHint, true);
+            }
+            Popups::glassify(popup, kPopupRadius);
+        }
         auto *decorator = new ComboDecorator(combo, view);
         view->installEventFilter(decorator);
         return false;
@@ -755,7 +770,10 @@ void Popups::glassify(QWidget *popup, qreal radius) {
     }
     popup->setAttribute(Qt::WA_TranslucentBackground, true);
     popup->setAttribute(Qt::WA_NoSystemBackground, true);
-    if (Glass::systemBackdrop()) {
+    // DWM 那层要真 HWND：`applyTransientBackdrop()` 里有 `winId()`，在弹层还没上屏时调它
+    // 会**提前**把原生窗口造出来（挂在控件树里当子窗口，主窗口的「没有原生子窗口」那条就红了）。
+    // Polish 那一趟只挂属性和旗标；HWND 出来之后 `ComboDecorator` 收到 Show 会再调一次这里。
+    if (Glass::systemBackdrop() && popup->windowHandle() != nullptr) {
         applyTransientBackdrop(popup);
     }
 }

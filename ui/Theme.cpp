@@ -2247,8 +2247,14 @@ QString widgetStyleSheet() {
         // 报错：淡环换危险色（下方那行小字仍由各页自己的报错展示给，这里只管这一圈）。
         "QLineEdit[wtfmlError=\"true\"], QLineEdit[inputError=\"true\"]"
         " { border-color: palette(bright-text); }"
+        // ★ 禁用态也不画框：靠这一条把 border-color 改回透明。
+        // 不能只依赖上面那条 `QLineEdit, QComboBox, QAbstractSpinBox`：文件前半还有一份
+        // 旧白框时代的 `QComboBox:disabled { border-color: palette(mid) }`，它带伪类、
+        // 优先级高于不带伪类的那条 —— 于是禁用下拉外面就多出一圈 3px 灰边
+        // （用户看成“灰虚线框”那个）。这里随后写、选择器一模一样，才压得住。
         "QLineEdit:disabled, QComboBox:disabled, QAbstractSpinBox:disabled"
-        " { background-color: palette(light); color: palette(link-visited); }"
+        " { background-color: palette(light); color: palette(link-visited);"
+        " border-color: transparent; }"
         // 下拉不再有「文字 + ∨」那颗箭头：整块可点（点框内任何位置都会弹），那一格宽度归零。
         "QComboBox::drop-down { width: 0px; border: none; }"
         // ★ 数字框的内容盒再低 3px：`QStyleSheetStyle` 给 `CT_SpinBox` 算尺寸时会在
