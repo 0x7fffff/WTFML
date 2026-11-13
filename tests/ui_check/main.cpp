@@ -1,4 +1,7 @@
 #include "modules/Support.hpp"
+#include <QFile>
+#include <QIcon>
+#include "AppIcon.hpp" // 产品和验证工程用的是同一个函数，见 ui/AppIcon.hpp
 
 
 int main(int argc, char *argv[]) {
@@ -41,7 +44,17 @@ int main(int argc, char *argv[]) {
         for (const QString &icon : icons) {
             if (QPixmap(QStringLiteral(":/assets/loader/%1.png").arg(icon)).isNull()) return 1;
         }
-        std::puts("PASS historical UI driver links, starts, and loads shared icon resources");
+        // 应用图标（#74）：四档 PNG 都在 qrc 里，同一个函数建出来的 QIcon 四档都报得出来。
+        // 运行时窗口用的就是这一份；exe 自己那份（assets/app/wtfml.ico）由 res/wtfml.rc 编进
+        // 资源，验证工程不链它 —— 那一份靠对构建出来的 exe 做 ExtractAssociatedIcon 看。
+        const QIcon appIcon = wtfmlWindowIcon();
+        if (appIcon.isNull()) return 1;
+        const QList<QSize> appIconSizes = appIcon.availableSizes();
+        for (const int size : {16, 32, 48, 256}) {
+            if (!QFile::exists(QStringLiteral(":/assets/app/wtfml-%1.png").arg(size))) return 1;
+            if (!appIconSizes.contains(QSize(size, size))) return 1;
+        }
+        std::puts("PASS historical UI driver links, starts, and loads shared icon resources and the app icon (16/32/48/256)");
         return 0;
     }
 

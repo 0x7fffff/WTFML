@@ -24,6 +24,7 @@
 #include "../ui/Animations.hpp"  // 按下按钮那一份动效（见下面那段 NOTE）
 #include "../ui/InlineMessage.hpp"
 #include "../ui/OverlayHost.hpp"
+#include "../ui/AppIcon.hpp" // 窗口 / 任务栏图标（自绘标题栏里不画，见那个文件头）
 #include "../ui/Theme.hpp"   // 主题从盘上读回来、铺开（见下面那段 NOTE）
 #include "util/AppPaths.hpp"
 #include "util/SecretRedactor.hpp"
@@ -187,6 +188,11 @@ int main(int argc, char *argv[]) {
     // **不许在这儿写第二份字面量** —— 这两处长期对不上（CMakeLists 0.1.0 / 这儿 1.0.0）。
     app.setApplicationVersion(QStringLiteral(WTFML_VERSION));
     app.setOrganizationName("WTFML");
+
+    // 应用图标：这一句铺给**所有**顶层窗口（主窗口、ChromeDialog、游戏日志窗、任务栏、
+    // Alt+Tab），之后建的窗口继承它，各窗口不用各自再 setWindowIcon。
+    // 自绘标题栏里不画图标（用户定的），这里只做窗口与任务栏那两处。
+    QApplication::setWindowIcon(wtfmlWindowIcon());
 
     StartupAcceptance::Context acceptance;
     QString acceptanceProblem;

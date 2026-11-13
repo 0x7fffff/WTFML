@@ -680,6 +680,12 @@ qt_add_executable(WTFMinecraftLauncher
     $<$<PLATFORM_ID:Windows>:${CMAKE_CURRENT_SOURCE_DIR}/res/wtfml.rc>
 )
 
+# exe 图标（assets/app/wtfml.ico，由上面那份 .rc 编进去）。windres 只看 .rc、不看它引用的
+# .ico，所以换图标时**必须让这份 .rc 重编**：OBJECT_DEPENDS 是唯一能把这两条接上的地方
+# （AUTORCC / 依赖扫描都不管 .rc 里引用的文件）。漏了这一条的表现是换了图标、exe 里还是旧的。
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/res/wtfml.rc PROPERTIES
+    OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/app/wtfml.ico")
+
 # 测量构建（-DWTFML_PERF_PROBE=ON）：只给真 Release 量界面耗时用。
 # 默认不加进来 —— 普通构建里连这个 .cpp 都不编，`PerfProbe::attach()` 是内联空函数。
 # 只给主程序挂宏，验证工程不受影响（它们本来也不该跑探针）。
