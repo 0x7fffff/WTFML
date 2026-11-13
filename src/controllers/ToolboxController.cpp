@@ -1187,7 +1187,9 @@ void ToolboxController::refreshBanner(int baseColor, const QStringList &layers) 
     QString notice;
     const auto image = plan.ok ? BannerRender::compose(baseColor, parsed, m_bannerTextures, &notice) : QImage();
     if (!plan.ok) notice = plan.error;
-    if (m_bannerTextures.isEmpty() && parsed.isEmpty()) notice = tr("加载本地游戏贴图后可预览图案；当前仅显示底色。需要重新加载时可再次选择 JAR。");
+    // 一句就够：下面的「加载贴图…」按钮紧跟在这句之下（走查 j05 之后），重新加载怎么办不用再写一遍。
+    // 文案短到一行放得下 —— 四十个字挤在卡里会折三行，断句还落在词中间。
+    if (m_bannerTextures.isEmpty() && parsed.isEmpty()) notice = tr("加载本地游戏贴图后可预览图案。");
     m_page->setBannerPreview(image, notice);
 }
 

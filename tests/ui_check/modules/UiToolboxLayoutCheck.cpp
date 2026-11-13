@@ -52,6 +52,9 @@ void fillSamples(ToolboxPage &page) {
                          {QColor(0xf9fffe), QColor(0xf9801d), QColor(0xc74ebd), QColor(0x1d1d21)});
     page.setBannerPatterns({QStringLiteral("条纹"), QStringLiteral("十字"), QStringLiteral("边框")});
     page.setBannerVersions({QString(), QStringLiteral("1.21")});
+    // 真机上空贴图时 controller 给的就是这一句（`ToolboxController::refreshBanner`），此处照抄，
+    // 验收图里说明句的宽度与折行才和产品一致。
+    page.setBannerPreview(QImage(), QStringLiteral("加载本地游戏贴图后可预览图案。"));
     page.setTrimArmorMaterials({QStringLiteral("下界合金"), QStringLiteral("钻石"), QStringLiteral("铁")});
     page.setTrimParts({QStringLiteral("头盔"), QStringLiteral("胸甲"), QStringLiteral("护腿"), QStringLiteral("靴子")});
     page.setTrimPatterns({QStringLiteral("海岸"), QStringLiteral("哨兵"), QStringLiteral("尖塔")});
@@ -120,6 +123,40 @@ bool noChildClipped(QWidget *panel, QString *why) {
             return false;
         }
     }
+    return true;
+}
+
+/// 一件控件**画出来之后**，那一行字离左、右两边各多少逻辑像素（取中线上下四分之一带里
+/// 第一个和最后一个墨点）。判据落在像素上而不是 `alignment()` 上：要守的是"看起来居中"，
+/// 设了哪个标志是手段，不是结论。
+///
+/// NOTE: 图像取**整窗** `grab()` 再裁这块，不取控件自己 —— 这块的底是半透明的（主题给的是
+/// 带 alpha 的 fill），单独 grab 出来合成在"什么都没有"上，深浅两套主题下都变成一片白，
+/// 字和底分不开（实测 dark 下最大色差只有 21 级）。整窗那张才是屏幕上真实的那一张。
+bool textSideGaps(QWidget *widget, QWidget *root, int *leftGap, int *rightGap) {
+    const qreal dpr = widget->devicePixelRatioF() > 0 ? widget->devicePixelRatioF() : 1.0;
+    const QPoint origin = widget->mapTo(root, QPoint(0, 0));
+    const QRect rect = QRect(qRound(origin.x() * dpr), qRound(origin.y() * dpr),
+                             qRound(widget->width() * dpr), qRound(widget->height() * dpr)).adjusted(-1, -1, 1, 1);
+    const QImage image = root->grab(rect).toImage().convertToFormat(QImage::Format_RGB32);
+    if (image.isNull() || image.width() < 32 || image.height() < 12) return false;
+    const int mid = image.height() / 2;
+    const int band = qMax(2, image.height() / 4);
+    const QRgb fill = image.pixel(4, mid);  // 四边是 3px 透明边，从 4 起落在自己的底上
+    const auto lum = [](QRgb c) { return 299 * qRed(c) + 587 * qGreen(c) + 114 * qBlue(c); };
+    int first = -1;
+    int last = -1;
+    for (int x = 4; x < image.width() - 4; ++x) {
+        bool ink = false;
+        for (int y = mid - band; y <= mid + band && !ink; ++y)
+            ink = qAbs(lum(image.pixel(x, y)) - lum(fill)) > 40 * 1000;
+        if (!ink) continue;
+        if (first < 0) first = x;
+        last = x;
+    }
+    if (first < 0) return false;
+    *leftGap = qRound(first / dpr);
+    *rightGap = qRound((image.width() - 1 - last) / dpr);
     return true;
 }
 
@@ -229,6 +266,52 @@ int UiToolboxLayoutCheck(QApplication &app) {
                 }
                 auto *scroll = page->findChild<QScrollArea *>(ToolboxPage::toolPageName(tool));
                 check(scroll != nullptr && scroll->isVisible(), "工具页可见", key);
+                if (tool == ToolboxPage::Tool::Banner) {
+                    // 走查 j05：说明句原先与「加载贴图…」并排，可用宽只剩 252，四十个字折成三行、
+                    // 按钮悬在折行文字右边。判据落在**画出来之后**的几何上：说明句占满卡宽、
+                    // 一两行读完，按钮在它下面另起一行、左对齐。
+                    auto *notice = page->findChild<QLabel *>(QStringLiteral("bannerVisualNotice"));
+                    auto *loadButton = page->findChild<QPushButton *>(QStringLiteral("bannerLoadTextures"));
+                    check(notice != nullptr && loadButton != nullptr && notice->parentWidget() == loadButton->parentWidget(),
+                          "旗帜页：说明句与「加载贴图…」在同一张图层卡里", sizeText);
+                    if (notice != nullptr && loadButton != nullptr && notice->parentWidget() == loadButton->parentWidget()) {
+                        QWidget *card = notice->parentWidget();
+                        const QMargins margins = card->layout()->contentsMargins();
+                        const int inner = card->width() - margins.left() - margins.right();
+                        const int lines = notice->height() / qMax(1, notice->fontMetrics().lineSpacing());
+                        const QPoint noticeAt = notice->mapTo(card, QPoint(0, 0));
+                        const QPoint buttonAt = loadButton->mapTo(card, QPoint(0, 0));
+                        check(notice->width() * 5 >= inner * 4,
+                              QStringLiteral("旗帜页 %1：说明句占满卡宽（≥ 80%）").arg(sizeText),
+                              QStringLiteral("说明句 %1 / 卡内宽 %2").arg(notice->width()).arg(inner));
+                        check(lines <= 2, QStringLiteral("旗帜页 %1：说明句一两行读完").arg(sizeText),
+                              QStringLiteral("%1 行，宽 %2").arg(lines).arg(notice->width()));
+                        check(buttonAt.x() == noticeAt.x() && buttonAt.y() >= noticeAt.y() + notice->height(),
+                              QStringLiteral("旗帜页 %1：「加载贴图…」在说明句下方的左端").arg(sizeText),
+                              QStringLiteral("按钮 (%1,%2) 说明句 (%3,%4) 高 %5")
+                                  .arg(buttonAt.x()).arg(buttonAt.y()).arg(noticeAt.x()).arg(noticeAt.y()).arg(notice->height()));
+                    }
+                }
+                if (tool == ToolboxPage::Tool::Download) {
+                    // 走查 j07：数字框里那行字右对齐，33px 余量全落在左边（看着像左空 48、右空 15）。
+                    // 判据量的是 grab() 出来的像素：文字的左右留白差 ≤ 4px。
+                    auto *limit = page->findChild<QSpinBox *>(QStringLiteral("downloadCacheLimit"));
+                    auto *trimButton = page->findChild<QPushButton *>(QStringLiteral("downloadCacheAction1"));
+                    auto *expireButton = page->findChild<QPushButton *>(QStringLiteral("downloadCacheAction2"));
+                    check(limit != nullptr && trimButton != nullptr && expireButton != nullptr &&
+                              limit->height() == trimButton->height() && trimButton->height() == expireButton->height(),
+                          QStringLiteral("高速下载 %1：缓存上限数字框与两颗整理按钮等高").arg(sizeText),
+                          QStringLiteral("数字框 %1 / 按钮 %2 %3")
+                              .arg(limit != nullptr ? limit->height() : -1)
+                              .arg(trimButton != nullptr ? trimButton->height() : -1)
+                              .arg(expireButton != nullptr ? expireButton->height() : -1));
+                    int leftGap = -1;
+                    int rightGap = -1;
+                    const bool measured = limit != nullptr && textSideGaps(static_cast<QWidget *>(limit), &window, &leftGap, &rightGap);
+                    check(measured && qAbs(leftGap - rightGap) <= 4,
+                          QStringLiteral("高速下载 %1：数字框文字左右留白差 ≤ 4px").arg(sizeText),
+                          QStringLiteral("左 %1 / 右 %2").arg(leftGap).arg(rightGap));
+                }
                 if (scroll != nullptr) {
                     QWidget *panel = page->findChild<QWidget *>(ToolboxPage::toolPanelName(tool));
                     QString why;
