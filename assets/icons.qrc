@@ -28,5 +28,6 @@
         <file alias="app/wtfml-48.png">app/wtfml-48.png</file>
         <file alias="app/wtfml-32.png">app/wtfml-32.png</file>
         <file alias="app/wtfml-16.png">app/wtfml-16.png</file>
+        <file alias="app/wtfml-24.svg">app/wtfml-24.svg</file>
     </qresource>
 </RCC>

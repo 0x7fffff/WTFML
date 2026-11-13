@@ -341,7 +341,7 @@ int UiContentRowsChecks() {
                         QListWidgetItem *item = page->list()->item(row);
                         allRowHeight =
                             allRowHeight && item != nullptr &&
-                            item->sizeHint().height() == MainWindowUI::versionTreeRowHeight();
+                            item->sizeHint().height() == MainWindowUI::instanceFileRowHeight();
                     }
                 }
                 // 页数从键表里算（同 U10a 那条 NOTE：写死的数字是加一页就红的那一种）。
@@ -361,8 +361,8 @@ int UiContentRowsChecks() {
                       "时布局不该重算 —— 一列几十行同时重排会让整张表抖一下",
                       QStringLiteral("%1 px").arg(MainWindowUI::instanceFileIconSize()));
                 check(allRowHeight,
-                      "★ Z15c 行高还是那一个常数（46）—— 多了图标这一格之后行**没变高**",
-                      QStringLiteral("%1 px").arg(MainWindowUI::versionTreeRowHeight()));
+                      "★ Z15c 行高还是那一个常数（instanceFileRowHeight()）—— 多了图标这一格之后行**没变高**",
+                      QStringLiteral("%1 px").arg(MainWindowUI::instanceFileRowHeight()));
             }
 
             // ---- 真图标换上去：那一格换的是**这一条**的图 ----
@@ -624,9 +624,10 @@ int UiContentRowsChecks() {
                       "（悬停提示和无障碍都读它）",
                       trash != nullptr ? trash->text() : QStringLiteral("<没有这一颗>"));
                 check(trash != nullptr && !trash->icon().isNull() &&
-                          trash->iconSize() == QSize(iconPx, iconPx),
-                      "★ Z15c 垃圾桶的字形**画出来了**（不是一颗空按钮）、而且和行首那枚"
-                      "图标同一个尺寸（行尾两颗按钮和行首那格看着才是一套的）",
+                          trash->iconSize() == QSize(MainWindowUI::instanceFileActionGlyphSize(),
+                                                     MainWindowUI::instanceFileActionGlyphSize()),
+                      "★ Z15c 垃圾桶的字形**画出来了**（不是一颗空按钮）、而且是行尾那一档"
+                      "（instanceFileActionGlyphSize()，行尾几颗按钮一样大、比行首图标小一档）",
                       QStringLiteral("%1x%2").arg(trash != nullptr ? trash->iconSize().width() : -1)
                           .arg(trash != nullptr ? trash->iconSize().height() : -1));
                 check(trash != nullptr && trash->toolButtonStyle() != Qt::ToolButtonTextOnly,

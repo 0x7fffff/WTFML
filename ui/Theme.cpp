@@ -2146,6 +2146,8 @@ QString widgetStyleSheet() {
         "QTabWidget::pane { background-color: transparent; border: none; }"
         "QFrame[%1=\"workspace\"] QAbstractItemView, QFrame[%1=\"sidebar\"] QAbstractItemView"
         " { background-color: transparent; }"
+        // 实例设置里那几页文件列表：直接排在对话框底上（圆角行底由它自己的代理画）。
+        "QListWidget#instanceFilesList { background-color: transparent; border: none; }"
         "QScrollArea, QScrollArea > QWidget#qt_scrollarea_viewport,"
         " QScrollArea > QWidget#qt_scrollarea_viewport > QWidget { background: transparent; }")
                .arg(QString::fromLatin1(kSurfaceProperty));

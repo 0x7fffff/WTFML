@@ -228,7 +228,7 @@ void InstanceFilesPage::rebuildRows() {
             auto *item = new QListWidgetItem(QString(), m_list);
             item->setData(pathRole(), entry.path);
             item->setData(disabledRole(), entry.disabled);
-            item->setSizeHint(QSize(0, MainWindowUI::versionTreeRowHeight()));
+            item->setSizeHint(QSize(0, MainWindowUI::instanceFileRowHeight()));
             m_list->addItem(item);
             const QString identity = identityPath(entry.path);
             shownIdentities.insert(identity);
@@ -400,8 +400,8 @@ QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &pat
     row->setProperty(rowPathProperty(), path);
     row->installEventFilter(this);
     auto *layout = new QHBoxLayout(row);
-    layout->setContentsMargins(8, 0, 8, 0);
-    layout->setSpacing(8);
+    layout->setContentsMargins(12, 0, 12, 0);
+    layout->setSpacing(12);
 
     // ---------- 最左一格：这一条的图标 ----------
     //
@@ -441,12 +441,13 @@ QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &pat
     // 名字和「大小 / 时间」分两行排：三样挤在一行时，大小 / 时间那一截在 150% 缩放的
     // 字号下要 300 px，而行宽只有 450 上下 —— 名字那一格会被挤成 **0 宽**，一整列的
     // 名字全看不见（`fabric-api-0.119.3+1.21.4.jar` 这类名字在盘上是常态）。
-    // 行高本来就是 46 px（versionTreeRowHeight()），
-    // 装两行字够 —— 摆成上下两行，名字那一格就能拿到整幅宽度（按钮除外）。
+    // 行高 56 px（instanceFileRowHeight()），
+    // 装两行字还留得出行间距 —— 摆成上下两行，名字那一格就能拿到整幅宽度（按钮除外）。
     auto *textColumn = new QWidget(row);
     auto *textLayout = new QVBoxLayout(textColumn);
     textLayout->setContentsMargins(0, 0, 0, 0);
-    textLayout->setSpacing(2);
+    textLayout->setSpacing(4);
+    textLayout->addStretch(1);  // 两行字合成一块在行里居中，行高放宽时不各自贴到上下沿
 
     // 名字那一格是**会省略号收尾**的（ElidedLabel，不是普通 QLabel）：普通 QLabel 在控件
     // 比文字窄的时候是**硬裁**的 —— 最后一个字被切掉一半，看着像这一条的名字就是那串
@@ -508,6 +509,7 @@ QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &pat
     makeSecondary(metaLabel);
     makeSmallLine(metaLabel);
     textLayout->addWidget(metaLabel);
+    textLayout->addStretch(1);
     if (wantsStats) {
         // 登记的是**这一格**，不是行号：统计是一格一格异步补上来的，这中间用户完全可能
         // 点过「刷新」（行整个重建过）—— 存行号的话，补上去的是**别人**那一格。
@@ -538,7 +540,7 @@ QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &pat
         auto *detail = new QToolButton(row);
         detail->setObjectName(detailButtonName());
         detail->setAutoRaise(true);
-        const int glyph = MainWindowUI::instanceFileIconSize();
+        const int glyph = MainWindowUI::instanceFileActionGlyphSize();
         detail->setIcon(VersionIcons::actionIcon(VersionIcons::Action::Details));
         detail->setIconSize(QSize(glyph, glyph));
         // 文字仍然给着（虽然不画）：读出这一格是"详情"这件事**只剩这一个出口**
@@ -591,7 +593,7 @@ QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &pat
         auto *edit = new QToolButton(row);
         edit->setObjectName(editButtonName());
         edit->setAutoRaise(true);
-        const int glyph = MainWindowUI::instanceFileIconSize();
+        const int glyph = MainWindowUI::instanceFileActionGlyphSize();
         edit->setIcon(VersionIcons::actionIcon(VersionIcons::Action::Edit));
         edit->setIconSize(QSize(glyph, glyph));
         edit->setText(editText());
@@ -604,11 +606,11 @@ QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &pat
         auto *remove = new QToolButton(row);
         remove->setObjectName(deleteButtonName());
         remove->setAutoRaise(true);
-        // 字形是**画的**（VersionIcons，全仓一个图片文件都没有），尺寸取和图标那一格
-        // 一样的一档 —— 行尾两颗按钮和行首那枚图标同一个大小，看着才是一套的。
-        // 删除保留主题危险色，禁用时由公共图标引擎改用禁用色。
-        const int glyph = MainWindowUI::instanceFileIconSize();
-        remove->setIcon(VersionIcons::actionIcon(VersionIcons::Action::Delete));
+        // 字形是**画的**（VersionIcons，全仓一个图片文件都没有），尺寸取行尾那一档
+        // （instanceFileActionGlyphSize()）—— 行尾几颗按钮一样大，比行首图标小一档。
+        // 平时是次要墨色（一列红垃圾桶比名字还抢眼），指到它才换危险色；禁用时由公共图标引擎改用禁用色。
+        const int glyph = MainWindowUI::instanceFileActionGlyphSize();
+        remove->setIcon(VersionIcons::actionIcon(VersionIcons::Action::QuietDelete));
         remove->setIconSize(QSize(glyph, glyph));
         // 文字仍然给着（虽然不画）：读出这一格是"删除"这件事**只剩这一个出口**
         // （悬停提示、无障碍，以及验证工程按它核对"这一颗是干什么的"）。

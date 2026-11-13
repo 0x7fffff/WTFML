@@ -183,9 +183,10 @@ int UiElidedNameChecks(const QString &instanceDisplayName, const QString &instan
             // 有墨的像素（"有墨"= 和这一行的底色不一样，所以次要那一档的灰字也算得上），
             // 数连续有几段。两段 = 名字一行 + 小字一行。
             {
-                const QPixmap shot = page->list()->viewport()->grab();
-                const QImage shotImage = shot.toImage();
-                const qreal shotDpr = shot.devicePixelRatio();
+                // 列表本身透明（底由背后的页面铺），所以垫在页面底色上量 —— 直接 grab
+                // 的话底是透明黑，深色细字的抗锯齿边够不上阈值，一段字会断成两截。
+                const QImage shotImage = captureWidgetOn(page->list()->viewport(), Theme::tokens().page);
+                const qreal shotDpr = 1.0;
                 const QRect rowRect = page->list()->visualItemRect(item);
                 const QPoint nameOrigin =
                     nameLabel->mapTo(page->list()->viewport(), QPoint(0, 0));
@@ -198,8 +199,8 @@ int UiElidedNameChecks(const QString &instanceDisplayName, const QString &instan
                 const int inkY0 = int(rowRect.top() * shotDpr);
                 const int inkY1 = qMin(shotImage.height(),
                                        int((rowRect.top() + rowRect.height()) * shotDpr));
-                // 底色 = 这一块里出现次数最多的那个颜色（行控件是透明的，底色就是列表
-                // 自己的底色，一整行都是它）。取"最暗的那个阈值"这种写法在小字上会漏。
+                // 底色 = 这一块里出现次数最多的那个颜色（行控件和列表都是透明的，底色就是
+                // 垫在下面的页面底色，一整行都是它）。取"最暗的那个阈值"这种写法在小字上会漏。
                 QHash<QRgb, int> histogram;
                 for (int y = inkY0; y < inkY1; ++y) {
                     for (int x = inkX0; x < inkX1; ++x) {

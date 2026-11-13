@@ -4,10 +4,12 @@
 // 主页零实例 / 管理页空状态 / 设置·启动 / 设置·下载 / 下载·游戏，窗口 1001×776。
 //
 // 带 `--extended` 时出一整套「默认窗口尺寸」参考图：指定一个主题和一个窗口尺寸，
-// 按固定页面顺序把 29 张图拍下来（文件名为 <页面>-<状态>.png）：
+// 按固定页面顺序把 30 张图拍下来（文件名为 <页面>-<状态>.png）：
 //
 //   QT_QPA_PLATFORM=offscreen ui_check_review_shots --extended \
 //       --theme dark --size 1280x800 --out D:/shots/dark-1280
+//
+// `--background <图片绝对路径>` 把它设成自定义页面背景图（铺满整窗），用来看墨色 / 品牌标的取色。
 //
 // 尺寸只影响主窗口（离屏、DPR=1）；实例设置对话框是产品里那个 820×560 的浮层，
 // 这里照真实样子嵌在覆盖层里拍，不跟着窗口拉伸。
@@ -39,6 +41,7 @@ struct ShotOptions {
     QString out;
     QString theme;
     QSize size{0, 0};
+    QString background; ///< 自定义页面背景图（绝对路径），空 = 不设
     bool extended = false;
 };
 
@@ -488,7 +491,13 @@ int runExtended(QApplication &app, const ShotOptions &options) {
     const QStringList families = QFontDatabase::applicationFontFamilies(fontId);
     app.setFont(QFont(families.isEmpty() ? QStringLiteral("Microsoft YaHei UI") : families.first(), 9));
 
-    Theme::setSpec(options.theme == QLatin1String("default") ? Theme::load() : Theme::presetSpec(options.theme));
+    Theme::Spec spec = options.theme == QLatin1String("default") ? Theme::load() : Theme::presetSpec(options.theme);
+    if (!options.background.isEmpty()) {
+        Theme::PartStyle &page = spec.parts[int(Theme::Part::PageBackground)];
+        page.hasImage = true;
+        page.imagePath = options.background;
+    }
+    Theme::setSpec(spec);
     Theme::apply(app);
 
     QDir().mkpath(options.out);
@@ -515,6 +524,9 @@ int runExtended(QApplication &app, const ShotOptions &options) {
 
     fillHomeSamples(ui);
     saveShot(app, window, options.out, QStringLiteral("home-instances"), &saved);
+    ui.titleBar()->setCollapsed(true);
+    saveShot(app, window, options.out, QStringLiteral("home-rail-collapsed"), &saved);
+    ui.titleBar()->setCollapsed(false);
 
     // ---- 实例管理：空状态 / 列表 ----
     ui.getTabWidget()->setCurrentIndex(MainWindowUI::instancesTabIndex());
@@ -905,6 +917,10 @@ int UiReviewShotsCheck(QApplication &app) {
         } else if (arg == QLatin1String("--size") && i + 1 < args.size()) {
             const QStringList parts = args.at(++i).split(QLatin1Char('x'));
             if (parts.size() == 2) options.size = QSize(parts.at(0).toInt(), parts.at(1).toInt());
+        } else if (arg.startsWith(QLatin1String("--background="))) {
+            options.background = valueOf(QStringLiteral("--background="));
+        } else if (arg == QLatin1String("--background") && i + 1 < args.size()) {
+            options.background = args.at(++i);
         } else if (arg.startsWith(QLatin1String("--out="))) {
             options.out = valueOf(QStringLiteral("--out="));
         } else if (arg == QLatin1String("--out") && i + 1 < args.size()) {

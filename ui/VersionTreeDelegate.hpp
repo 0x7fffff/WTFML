@@ -57,6 +57,13 @@ public:
     void setLeafVerb(const QString &verb) { m_leafVerb = verb; }
     QString leafVerb() const { return m_leafVerb; }
 
+    /// 下载页搜索结果那一档：行高放宽一档（`resourceRowHeight()`）、悬停是内缩圆角块，
+    /// 展开的那一条连同它底下的版本行铺一块圆角淡底（「收起」就落在这块底的右上角），
+    /// 子行不画草方块、文字对齐父行的名字。
+    void setResourceRows(bool on) { m_resourceRows = on; }
+    bool resourceRows() const { return m_resourceRows; }
+    static int resourceRowHeight();
+
     /// 这一列是不是"侧栏导航"那一档（见构造函数）。验证工程同样要能钉住**产品那边真的
     /// 开了这一档**（只验"开了就画成主题色"不成立 —— 那条路自己也能通过）。
     bool navRow() const { return m_navRow; }
@@ -130,5 +137,6 @@ private:
     bool m_leafArrow = true;
     int m_iconSize = 0;
     bool m_navRow = false;
+    bool m_resourceRows = false;
     QString m_leafVerb;
 };

@@ -596,6 +596,33 @@ QColor Backdrop::brightestUnder(const QWidget *widget) const {
     return brightest;
 }
 
+QList<QColor> Backdrop::colorsUnder(const QWidget *widget) const {
+    const Theme::Tokens t = Theme::tokens();
+    const Mode m = effectiveMode();
+    if (m == Mode::Solid || widget == nullptr) return {t.page};
+    QList<QColor> out;
+    const QRect hero = heroRect();
+    if (m_heroOpacity > 0.0 && !m_heroSmall.isNull() && !hero.isEmpty()) {
+        const QRect area = QRect(widget->mapTo(this, QPoint()), widget->size()).translated(-hero.topLeft());
+        const qreal sx = qreal(m_heroSmall.width()) / hero.width();
+        const qreal sy = qreal(m_heroSmall.height()) / hero.height();
+        QColor darkest(Qt::white), brightest(Qt::black);
+        extremes(m_heroSmall,
+                 QRect(qFloor(area.left() * sx), qFloor(area.top() * sy), qCeil(area.width() * sx) + 1,
+                       qCeil(area.height() * sy) + 1),
+                 &darkest, &brightest);
+        out << darkest << brightest;
+    }
+    if (m_heroOpacity < 1.0 || out.isEmpty()) {
+        const QList<QColor> range =
+            m == Mode::Scene ? QList<QColor>{m_darkest, m_brightest} : systemBackdropRange();
+        QColor layer = t.page;
+        layer.setAlphaF(minimumTintAlpha(layer, bodyInks(), range, tintStrength() / 100.0));
+        for (const QColor &bg : range) out << over(layer, bg);
+    }
+    return out;
+}
+
 void Backdrop::scheduleRebuild() {
     if (m_frost.isNull()) {
         rebuildNow();
