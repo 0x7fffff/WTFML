@@ -325,8 +325,9 @@ void OverlayHost::applyVisibility() {
     relayout();
     placeVeil();
     // 整页 / 铺满的提示盖住主页时，整窗一起换成磨砂底（轨、顶栏和这一层同一张底）。
+    // 提示叠在整页上时页面只是暂时藏起来、画在底图里，主页风景照样不许回来。
     if (auto *backdrop = Glass::Backdrop::of(this)) {
-        backdrop->setHeroCovered(isVisible() && (pageShown || (promptShown && m_promptFullSize)));
+        backdrop->setHeroCovered(isVisible() && (pageShown || promptOverShownPage() || (promptShown && m_promptFullSize)));
     }
 }
 
@@ -375,7 +376,21 @@ void OverlayHost::onAnchorTabChanged() {
     if (m_mode == Mode::Prompt) {
         refreshBackdrop();
     }
+    const bool pageWasShown = m_pageFrame != nullptr && m_pageFrame->isVisible();
     applyVisibility();
+    // 切回这一页的选项卡：它和别的换页一样淡进来（选项卡那一层这时不动，见 MainWindowUI）。
+    if (!pageWasShown) animatePageIn();
+}
+
+bool OverlayHost::promptOverShownPage() const {
+    return m_mode == Mode::Prompt && m_overPage && onOwnersTab();
+}
+
+void OverlayHost::animatePageIn() {
+    if (m_mode != Mode::Page || m_pageFrame == nullptr || !m_pageFrame->isVisible()) return;
+    // 布局先落定，幕布照的才是这一页摆好之后的样子。
+    if (QLayout *layout = m_pageFrame->layout()) layout->activate();
+    Anim::pageAppear(m_pageFrame);
 }
 
 void OverlayHost::setPromptBlockedWidget(QWidget *widget) {
@@ -505,6 +520,9 @@ QWidget *OverlayHost::openPrompt(bool dismissOnOutsideClick, bool fullSize) {
     // NOTE: 底下压着一页、而那一页**正收在别的选项卡上**的时候（用户切走之后又冒出来一条
     // 提示），拍的是**现在这一页**：那一页此刻不露面，要变暗的是用户正看着的这块。
     // `m_overPage` 照旧是 true —— 提示收掉之后还是回到那一页（它只是收着）。
+    // 换页过渡还在半路时先收到终点：底图要的是那一页本来的样子，不是半透明的中间帧。
+    Anim::finishPageAppear(m_pageFrame);
+    Anim::finishPageAppear(m_anchor);
     m_backdrop = captureBackdrop();
 
     m_mode = Mode::Prompt;
@@ -567,7 +585,10 @@ void OverlayHost::closeOverlay() {
         m_mode = Mode::None;
         m_pageOwnerTab = -1;
         m_pageFocus = nullptr;
+        const bool pageWasShown = m_pageFrame != nullptr && m_pageFrame->isVisible();
         applyVisibility();
+        // 返回：底下那一页同样淡进来（所有收页路都汇到这里，入口不用各补一次）。
+        if (pageWasShown && m_anchor != nullptr && m_anchor->isVisible()) Anim::pageAppear(m_anchor);
         // 所有收页路都汇到这里，所以收页钩子只发这一处（见头文件那段）。
         emit pageClosed(closedPage);
         schedulePageDrain();
@@ -757,6 +778,8 @@ bool OverlayHost::showPage(QDialog *dialog, const QString &title, int ownerTab) 
     area->layout()->addWidget(dialog);
     dialog->setVisible(true);
     relayout();
+    // 开页和导航轨换页走同一发过渡（内容淡入上抬，主页风景同时淡成磨砂）。
+    animatePageIn();
 
     // ③ 收页：返回箭头接成 `reject()`（和 `execPage()` 里那条一模一样），Esc / 这一页
     // 自己 accept/reject 也落到 `finished` —— 两条都在同一处收掉这一层。**没有**卡在
@@ -819,6 +842,7 @@ int OverlayHost::execEmbedded(QDialog *dialog, const QString &title, bool asPage
     dialog->setVisible(true);
     // 内容到位了，卡片按真实内容再量一次（`openPrompt()` 那一次量的时候里面还是空的）。
     relayout();
+    if (asPage) animatePageIn();
 
     // ③ 卡住调用方，形状和 `dialog.exec()` 一模一样（语义一个字不变：QMessageBox::exec()
     // 本来就是嵌套事件循环，可重入性的风险面也一样）。
@@ -978,7 +1002,7 @@ void OverlayHost::paintEvent(QPaintEvent *event) {
     const bool toPixmap = redirect != nullptr && redirect->devType() == QInternal::Pixmap;
     const auto paintBase = [&]() {
         // 整页要"盖住"下面那一页，同时和别的页一样直接站在整窗磨砂上：铺那一块整窗底。
-        if (auto *backdrop = Glass::Backdrop::of(this)) backdrop->paintBase(painter, this, toPixmap);
+        if (auto *backdrop = Glass::Backdrop::of(this)) backdrop->paintBase(painter, this, toPixmap, /*withHero=*/true);
         else painter.fillRect(rect(), palette().color(QPalette::Window));
     };
     if (m_mode == Mode::Page) {
@@ -991,6 +1015,9 @@ void OverlayHost::paintEvent(QPaintEvent *event) {
     // 提示：先铺底图（开之前拍下来的那一层），再压一层半透明黑。用户要的是"四周变暗"，
     // 不是"四周消失"。
     // 没拍到底图时什么都不铺：父控件那张整窗磨砂本来就画在下面。
+    // 叠在整页上：底图是那一页（不带底），下面露着的却是选项卡那一页 —— 先铺整页那块底，
+    // 不然两页叠着画（体验反馈2 第 2 条）。
+    if (promptOverShownPage()) paintBase();
     if (!m_backdrop.isNull()) {
         painter.drawPixmap(rect(), m_backdrop);
     }

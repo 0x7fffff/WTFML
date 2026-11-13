@@ -828,11 +828,10 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
                 workspace->deleteLater();
             }
         }
-        // 覆盖层页面在别的主选项卡上“停放”时，切回所属页会由 OverlayHost 立即恢复。
-        // 此时若再给底下的 QTabWidget 盖一层换页幕布，幕布会短暂从页面周围
-        // 露出来，形成一拍延迟。普通根页面仍有换页动画。
+        // 切回停放着整页的那颗选项卡：整页自己淡进来（OverlayHost::onAnchorTabChanged），
+        // 底下的 QTabWidget 再盖一层幕布会从页面周围露出来。其余换页（包括从整页切走）照常动。
         if (tabWidget->isVisible()
-            && (overlayHost == nullptr || !overlayHost->pageOpen())) {
+            && (overlayHost == nullptr || !overlayHost->pageOpen() || overlayHost->parked())) {
             Anim::pageAppear(tabWidget);
         }
     });

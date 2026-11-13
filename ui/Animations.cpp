@@ -810,6 +810,21 @@ void pageAppear(QWidget *widget) {
                 });
 }
 
+void finishPageAppear(QWidget *widget) {
+    if (widget == nullptr) return;
+    QWidget *curtain = widget->findChild<QWidget *>(QLatin1String(kCurtainName), Qt::FindDirectChildrenOnly);
+    if (curtain == nullptr) return;
+    for (QVariantAnimation *running : curtain->findChildren<QVariantAnimation *>()) {
+        running->stop();
+        running->deleteLater();
+    }
+    for (QTimer *stepping : curtain->findChildren<QTimer *>(QLatin1String(kStepperName))) {
+        stepping->stop();
+        stepping->deleteLater();
+    }
+    curtain->hide();
+}
+
 
 void vanishWidget(QWidget *widget, const std::function<void()> &done) {
     const auto finish = [done] { if (done) done(); };

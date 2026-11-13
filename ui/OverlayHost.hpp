@@ -430,6 +430,10 @@ private:
     int anchorTabIndex() const;
     /// 现在是不是在**开这一页的那颗选项卡**上（锚点不是 QTabWidget / 手上没有页面时恒真）。
     bool onOwnersTab() const;
+    /// 提示叠在一页上、而那一页的选项卡正是当前这颗（页面暂时画在底图里）。
+    bool promptOverShownPage() const;
+    /// 整页刚露面（开页 / 切回它的选项卡）：跑一发和导航轨换页同一条过渡。
+    void animatePageIn();
     /// 覆盖层开着时，把"被盖住的那一页"按住（见实现里那段 NOTE）；关掉时放回去。
     void retargetCoveredPage();
     /// 把某个内容容器里装的东西**还回去**（不删）：见 closeOverlay 的 NOTE。
