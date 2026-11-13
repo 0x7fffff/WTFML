@@ -395,7 +395,7 @@ void InstanceFilesPage::ensureRowWidgetWindow() {
 
 QWidget *InstanceFilesPage::makeRow(const QString &shownName, const QString &path, bool isDir,
                                     bool isDisabled, qint64 size, const QDateTime &modified) {
-    // 行整行透明：底和选中（含指示条）都由列表那一格画 —— 7a 令牌里两者半透明，行再铺一层就叠两层。
+    // 行整行透明：底和选中都由列表那一格画 —— 7a 令牌里两者半透明，行再铺一层就叠两层。
     auto *row = new QWidget(m_list);
     row->setProperty(rowPathProperty(), path);
     row->installEventFilter(this);

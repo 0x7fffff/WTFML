@@ -313,14 +313,13 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     // NOTE: 顶上的四颗选项卡、下载页 / 设置页那几层走的是 `MainWindowUI` 里同一条形状的
     // 接线 —— 形状一样是故意的，但**不是同一个 `connect`**（那几个 `QStackedWidget`
     // 在那边、这个在这一层）。
-    // 垫的底色是 `QPalette::Base`：右栏每一页都活在一层滚动区里（见 `addPage()`），
-    // 视口铺的就是它。垫窗口那份的话，起手那一帧会看见一整块偏灰的方块。
+    // 底不垫色：写回的是祖先们原样那层（磨砂透着），见 `Anim::pageAppear()` 那段。
     // 抬的也是那一层**视口**（`liftTarget()`，`ui/Animations.cpp` 里那个，滚动区自己那圈框留在原地）——
     // 见 `Animations.hpp` 里 `pageAppear()` 那段。
     connect(m_stack, &QStackedWidget::currentChanged, this, [this](int) {
         QWidget *page = m_stack->currentWidget();
         if (page != nullptr && page->isVisible()) {
-            Anim::pageAppear(page, page->palette().color(QPalette::Base));
+            Anim::pageAppear(page);
         }
     });
     // 两栏吃掉整页剩下的竖直空间（底下那排按钮按自己的高排）。
@@ -1720,7 +1719,7 @@ void InstanceSettingsDialog::showEvent(QShowEvent *event) {
     // 之前只有「已经开着再换页」才有，第一次进来是硬切。
     QTimer::singleShot(0, this, [this, page] {
         if (!isVisible() || m_stack == nullptr || m_stack->currentWidget() != page) return;
-        Anim::pageAppear(page, page->palette().color(QPalette::Base));
+        Anim::pageAppear(page);
     });
 }
 

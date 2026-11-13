@@ -320,7 +320,7 @@ QLabel *makePanelCaption(QWidget *parent, const QString &text) {
     label->setText(text);
     label->setWordWrap(false);
     QFont font = label->font();
-    font.setPixelSize(13);
+    font.setPixelSize(Theme::textSize(Theme::TextRole::Caption));
     font.setWeight(QFont::DemiBold);
     label->setFont(font);
     return label;
@@ -648,7 +648,7 @@ ResultBox makeResultBox(QWidget *parent, const QString &caption, const QString &
     box.headline->setWordWrap(true);
     box.headline->setTextInteractionFlags(Qt::TextSelectableByMouse);
     QFont big = box.headline->font();
-    big.setPixelSize(17);
+    big.setPixelSize(Theme::textSize(Theme::TextRole::Heading));  // 结果标题 = 小节档 16/600
     big.setWeight(QFont::DemiBold);
     box.headline->setFont(big);
     box.headline->hide();
@@ -688,7 +688,7 @@ QString reportDetailHtml(const QStringList &lines) {
         const QString top = html.isEmpty() ? QStringLiteral("0") : gap ? QStringLiteral("10px") : QStringLiteral("4px");
         gap = false;
         if (line.endsWith(QStringLiteral("：")) || line.endsWith(QLatin1Char(':')))
-            html += QStringLiteral("<div style='margin-top:%1;color:%2;font-size:12px'>%3</div>")
+            html += QStringLiteral("<div style='margin-top:%1;color:%2;font-size:13px'>%3</div>")
                         .arg(top, muted, line.toHtmlEscaped());
         else
             html += QStringLiteral("<div style='margin-top:%1'>%2</div>").arg(top, line.toHtmlEscaped());
@@ -888,10 +888,10 @@ protected:
         const int x = tile.right() + 14;
         const int w = qMax(0, width() - x - 12);
         QFont nameFont = font();
-        nameFont.setPixelSize(14);
+        nameFont.setPixelSize(Theme::textSize(Theme::TextRole::Body));
         nameFont.setWeight(QFont::Medium);
         QFont summaryFont = font();
-        summaryFont.setPixelSize(12);
+        summaryFont.setPixelSize(Theme::textSize(Theme::TextRole::Caption));
         const QFontMetrics nameMetrics(nameFont), summaryMetrics(summaryFont);
         const int top = (height() - nameMetrics.height() - summaryMetrics.height() - 2) / 2;
         p.setFont(nameFont);
@@ -1568,7 +1568,7 @@ QWidget *ToolboxPage::buildAnvilPanel() {
     auto *resultTitle = new QLabel(QStringLiteral("合并顺序"), m_anvilResultBox);
     {
         QFont font = resultTitle->font();
-        font.setPixelSize(15);
+        font.setPixelSize(Theme::textSize(Theme::TextRole::Heading));
         font.setWeight(QFont::DemiBold);
         resultTitle->setFont(font);
     }
@@ -1733,7 +1733,7 @@ void ToolboxPage::setAnvilView(const AnvilView &view) {
     // 先一行结论大字，再是说明（次要色），最后一步一步的列表。
     QString html;
     if (!view.summary.isEmpty()) {
-        html.append(QStringLiteral("<div style='font-size:17px;font-weight:600;margin-bottom:6px'>%1</div>")
+        html.append(QStringLiteral("<div style='font-size:16px;font-weight:600;margin-bottom:6px'>%1</div>")
                         .arg(view.summary.toHtmlEscaped()));
     }
     if (!view.notes.isEmpty()) {
@@ -1852,7 +1852,7 @@ QWidget *ToolboxPage::buildTextPanel() {
         m_textPreview->setAlignment(Qt::AlignTop | Qt::AlignLeft);
         m_textPreview->setMinimumHeight(28);
         QFont big = m_textPreview->font();
-        big.setPixelSize(17);
+        big.setPixelSize(Theme::textSize(Theme::TextRole::Heading));  // 预览要读得清：取小节档 16
         m_textPreview->setFont(big);
         cardBox->addWidget(m_textPreview);
         layout->addWidget(card);
@@ -1975,7 +1975,7 @@ void ToolboxPage::setTextPalette(const QList<PaletteEntry> &entries) {
                 p.setBrush(color);
                 p.drawEllipse(QRectF(1.5, 1.5, 21, 21));
                 QFont font = button->font();
-                font.setPixelSize(11);
+                font.setPixelSize(Theme::textSize(Theme::TextRole::Caption));  // 21 px 圆点里一个字符，13 放得下
                 font.setWeight(QFont::DemiBold);
                 p.setFont(font);
                 p.setPen(color.lightness() < 140 ? QColor(255, 255, 255) : QColor(0, 0, 0));
@@ -2339,11 +2339,11 @@ void ToolboxPage::setServerView(const ServerView &view) {
                                      ? view.kind
                                      : (view.timedOut ? QStringLiteral("超时")
                                                       : QStringLiteral("检测失败"));
-        html.append(QStringLiteral("<div style='font-size:17px;font-weight:600'>%1</div>").arg(headline.toHtmlEscaped()));
+        html.append(QStringLiteral("<div style='font-size:16px;font-weight:600'>%1</div>").arg(headline.toHtmlEscaped()));
         html.append(QStringLiteral("<div style='color:%1;margin-top:4px'>%2</div>").arg(muted, view.error.toHtmlEscaped()));
     } else {
         // MOTD 那一行是**服务器自己配的富文本**（controller 已经把 § 码翻成 HTML 了）。
-        html.append(QStringLiteral("<div style='font-size:16px'>%1</div>").arg(view.motd));
+        html.append(QStringLiteral("<div style='font-size:14px'>%1</div>").arg(view.motd));
         line(QStringLiteral("版本"), view.version);
         line(QStringLiteral("在线"), view.players);
         line(QStringLiteral("延迟"), view.latency);
@@ -2550,7 +2550,7 @@ void ToolboxPage::setHashView(const HashView &view) {
     const QString muted = Theme::tokens().secondary.name(QColor::HexRgb);
     QString html;
     if (!view.ok) {
-        html = QStringLiteral("<div style='font-size:17px;font-weight:600'>计算失败</div>"
+        html = QStringLiteral("<div style='font-size:16px;font-weight:600'>计算失败</div>"
                               "<div style='color:%1;margin-top:4px'>%2</div>")
                    .arg(muted, view.error.toHtmlEscaped());
     } else {
@@ -2558,7 +2558,7 @@ void ToolboxPage::setHashView(const HashView &view) {
         const QString headline = view.hasVerdict
             ? (view.matches ? QStringLiteral("一致") : QStringLiteral("不一致"))
             : QStringLiteral("%1 摘要已算好").arg(view.algorithm);
-        html.append(QStringLiteral("<div style='font-size:17px;font-weight:600'>%1</div>").arg(headline.toHtmlEscaped()));
+        html.append(QStringLiteral("<div style='font-size:16px;font-weight:600'>%1</div>").arg(headline.toHtmlEscaped()));
         if (view.hasVerdict) {
             html.append(QStringLiteral("<div style='color:%1;margin-top:2px'>%2</div>")
                             .arg(muted, view.verdict.toHtmlEscaped()));
@@ -2569,7 +2569,7 @@ void ToolboxPage::setHashView(const HashView &view) {
         }
         html.append(QStringLiteral("<div style='color:%1;margin-top:%2'>%3</div>")
                         .arg(muted, view.hasVerdict ? QStringLiteral("10px") : QStringLiteral("4px"), meta));
-        html.append(QStringLiteral("<div style='font-family:Consolas,monospace;font-size:15px;margin-top:4px'>%1</div>")
+        html.append(QStringLiteral("<div style='font-family:Consolas,monospace;font-size:14px;margin-top:4px'>%1</div>")
                         .arg(view.hex.toHtmlEscaped()));
     }
     m_hashResult->setText(html);

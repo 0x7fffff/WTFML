@@ -121,7 +121,7 @@ int UiInstallFormLayoutChecks(MainWindowUI &ui, QLineEdit * &installNameEdit, QL
         // 「确认操作放右下角或固定底栏，不悬浮在页面中间」：**靠右**，不居中。
         // 居中会让上面是表单、下面是深浅不定的一截空白，这颗键落在哪儿全看那一栏
         // 当时多高。
-        // 大 —— 字比同页那些控件大（字号加了两档）而且给了最小高度。
+        // 字号收进 4 档：按钮一律正文 14 系统字（tokens-r2 §1），另给最小高度。
         QWidget *installPage = installBtn;
         while (installPage != nullptr &&
                installPage->objectName() != MainWindowUI::installPageName()) {
@@ -129,10 +129,9 @@ int UiInstallFormLayoutChecks(MainWindowUI &ui, QLineEdit * &installNameEdit, QL
         }
         const QRect rPage = rectInPage(installPage);
         check(!rInstall.isNull() && installBtn != nullptr && installNameEdit != nullptr &&
-                  installBtn->font().pixelSize() >=
-                      installNameEdit->font().pixelSize() + MainWindowUI::installButtonFontStep() &&
+                  installBtn->font().pixelSize() == Theme::textSize(Theme::TextRole::Body) &&
                   installBtn->minimumHeight() >= MainWindowUI::installButtonMinHeight(),
-              "「安装」的字比这一页那些控件大（installButtonFontStep 档）而且有最小高度",
+              "「安装」用正文 14（不再是小节标题那一档）而且有最小高度",
               installBtn != nullptr
                   ? QString("btn=%1 edit=%2 minH=%3")
                         .arg(installBtn->font().pixelSize())

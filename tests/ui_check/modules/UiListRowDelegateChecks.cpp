@@ -52,8 +52,10 @@ int UiListRowDelegateChecks() {
           hovered.pixelColor(hoverProbe).name() + QStringLiteral(" / 常态 ") + before.pixelColor(hoverProbe).name());
 
     const QColor bar = hovered.pixelColor(row2.left() + 4, row2.center().y());
-    check(bar == Theme::tokens().deep, "LR6 选中那一行左侧 3px 强调色指示条", bar.name());
     const QColor selectedBg = hovered.pixelColor(row2.left() + 20, row2.top() + 4);
+    // tokens-r2 §6：选中 = 淡底 + 强调字，左侧不再画 3px 指示条 ⇒ 原来条所在那一列就是选中底。
+    check(bar == selectedBg && bar != Theme::tokens().deep, "LR6 选中那一行左侧没有指示条（同一档淡底）",
+          bar.name() + QStringLiteral(" / 选中底 ") + selectedBg.name());
     const QColor plainBg = hovered.pixelColor(row0.left() + 20, row0.top() + 4);
     check(selectedBg != plainBg && selectedBg != hovered.pixelColor(hoverProbe), "LR7 选中那一行铺强调色淡底（和常态、悬停都不同）",
           selectedBg.name() + QStringLiteral(" / 常态 ") + plainBg.name());

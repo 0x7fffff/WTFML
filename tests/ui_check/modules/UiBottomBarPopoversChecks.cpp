@@ -35,64 +35,13 @@ int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget 
                                                     : QStringLiteral("<null>"));
             // 是**贴着按钮左边缘**摆的：靠右摆会在头像左边空出一大段（实测 115 px ——
             // 那一格宽 208、内容只有九十来 px），「头像那里的左侧有一段空白」就是它。
-            // 箭头照旧钉在按钮右边缘。
             check(avatar->x() == 0, "I4 头像贴着按钮左边缘（左边不留空）",
                   QStringLiteral("头像 x=%1 / 按钮宽 %2").arg(avatar->x()).arg(accBtn->width()));
-            QLabel *accChevron = accBtn->findChild<QLabel *>(MainWindowUI::bottomBarChevronName());
-            check(accChevron != nullptr &&
-                      accChevron->x() + accChevron->width() == accBtn->width(),
-                  "I4 右那颗的箭头仍然钉在按钮右边缘（空档留在姓名格里）",
-                  accChevron != nullptr
-                      ? QStringLiteral("箭头右边 %1 / 按钮宽 %2")
-                            .arg(accChevron->x() + accChevron->width()).arg(accBtn->width())
-                      : QStringLiteral("<没找到箭头>"));
-
-            // ② 两颗按钮各带一个**朝上**的箭头。朝向不看"像不像"，量画出来的像素：
-            // 朝上那个顶行是**尖的**（一小撮、居中），朝下那个顶行是张开的两个点。
-            const QColor ink(0x12, 0x34, 0x56);
-            const int chevSize = MainWindowUI::bottomBarChevronSize();
-            const auto paintedSpan = [](const QImage &img, bool top) {
-                if (img.isNull()) {
-                    return 0;
-                }
-                const int step = top ? 1 : -1;
-                for (int y = top ? 0 : img.height() - 1; y >= 0 && y < img.height(); y += step) {
-                    int lo = -1;
-                    int hi = -1;
-                    int n = 0;
-                    for (int x = 0; x < img.width(); ++x) {
-                        if (qAlpha(img.pixel(x, y)) > 40) {
-                            if (lo < 0) {
-                                lo = x;
-                            }
-                            hi = x;
-                            ++n;
-                        }
-                    }
-                    if (n > 0) {
-                        return hi - lo + 1;  // 这一行画到的宽度
-                    }
-                }
-                return 0;
-            };
-            const QImage upImg = VersionIcons::chevronUp(chevSize, ink).toImage();
-            const QImage downImg = VersionIcons::chevron(true, chevSize, ink).toImage();
-            const int upTop = paintedSpan(upImg, true);
-            const int upBottom = paintedSpan(upImg, false);
-            const int downTop = paintedSpan(downImg, true);
-            check(upTop > 0 && upTop < downTop,
-                  "I4 按钮上那个箭头是**朝上**的（顶行是尖的，不是版本树里那个张开的 V）",
-                  QStringLiteral("朝上顶行宽 %1 / 朝下顶行宽 %2").arg(upTop).arg(downTop));
-            check(upTop > 0 && upTop < upBottom, "I4 上窄下宽 = 尖朝上",
-                  QStringLiteral("顶 %1 / 底 %2").arg(upTop).arg(upBottom));
-            // 三格各带一个箭头：左边"几份在跑"、
-            // 中间"任务摘要"、右边"账号"，三块都是往上弹的面板，所以箭头长得一样、名字也
-            // 共用（`makeChevronLabel()` 是唯一出处）。数的时候按**整窗**数 —— 这也就顺手
-            // 钉住了"三颗都得挂上"。
-            check(window.findChildren<QLabel *>(MainWindowUI::bottomBarChevronName()).size() == 2,
-                  "I4 「在跑的实例」和「账号」各带一个箭头（任务卡换成进度环，不再挂箭头）",
+            // ② 体验反馈 8：底栏按钮右侧不再挂朝上的小箭头（原 objectName `bottomBarChevron`）。
+            check(window.findChildren<QLabel *>(QStringLiteral("bottomBarChevron")).isEmpty(),
+                  "I4 底栏按钮右侧没有小箭头",
                   QStringLiteral("找到 %1 个")
-                      .arg(window.findChildren<QLabel *>(MainWindowUI::bottomBarChevronName()).size()));
+                      .arg(window.findChildren<QLabel *>(QStringLiteral("bottomBarChevron")).size()));
 
             // ③ 点一下 —— 向上弹出一块面板。先把进度条亮出来，好量"弹面板不动底栏"。
             //
@@ -688,41 +637,26 @@ int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget 
             // 是 WA_TransparentForMouseEvents、按钮本身是 enabled 的 —— 所以
             // `click()` 照样发 clicked()，能不能弹出来全看 toggle 里那道闸。
             {
-                QLabel *chevron =
-                    runBtn->findChild<QLabel *>(MainWindowUI::bottomBarChevronName());
-                const auto describe = [runBtn, chevron]() {
-                    return QStringLiteral("箭头 %1 / 收鼠标 %2 / tooltip「%3」")
-                        .arg(chevron == nullptr
-                                 ? QStringLiteral("<没找到>")
-                                 : (chevron->isVisibleTo(runBtn) ? QStringLiteral("在")
-                                                                 : QStringLiteral("藏了")))
+                const auto describe = [runBtn]() {
+                    return QStringLiteral("收鼠标 %1 / tooltip「%2」")
                         .arg(runBtn->testAttribute(Qt::WA_TransparentForMouseEvents)
                                  ? QStringLiteral("是")
                                  : QStringLiteral("不是"))
                         .arg(runBtn->toolTip());
                 };
-                check(chevron != nullptr && chevron->isVisibleTo(runBtn) &&
-                          !runBtn->testAttribute(Qt::WA_TransparentForMouseEvents) &&
+                check(!runBtn->testAttribute(Qt::WA_TransparentForMouseEvents) &&
                           runBtn->toolTip() == MainWindowUI::bottomBarRunPanelTip(),
-                      "I4 没被告知「没有实例在跑」时，这一格照旧点得开（箭头在、鼠标收得到、"
+                      "I4 没被告知「没有实例在跑」时，这一格照旧点得开（鼠标收得到、"
                       "悬停那句话也挂着）",
                       describe());
 
                 ui.setRunPanelAvailable(false);
                 QApplication::processEvents();
-                check(chevron != nullptr && !chevron->isVisibleTo(runBtn) &&
-                          runBtn->testAttribute(Qt::WA_TransparentForMouseEvents) &&
+                check(runBtn->testAttribute(Qt::WA_TransparentForMouseEvents) &&
                           runBtn->toolTip().isEmpty(),
-                      "I4 被告知「没有实例在跑」之后：箭头**收起来**、这一格**不再收鼠标**、"
+                      "I4 被告知「没有实例在跑」之后：这一格**不再收鼠标**、"
                       "那句「点一下向上展开」也摘掉了",
                       describe());
-                // 箭头只是藏起来、**没有删**：「底栏三格各带一个箭头」那条断言（上面
-                // I4 ②）拿的是 findChildren，删了就当场红 —— 这里顺手把它钉住。
-                check(window.findChildren<QLabel *>(MainWindowUI::bottomBarChevronName()).size() == 2,
-                      "I4 收起来的箭头还在（findChildren 照旧数得到两个）",
-                      QStringLiteral("找到 %1 个")
-                          .arg(window.findChildren<QLabel *>(
-                                   MainWindowUI::bottomBarChevronName()).size()));
 
                 runBtn->click();
                 QApplication::processEvents();
@@ -735,9 +669,8 @@ int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget 
                 QApplication::processEvents();
                 QWidget *backPanel =
                     window.findChild<QWidget *>(MainWindowUI::bottomBarPanelName());
-                check(chevron != nullptr && chevron->isVisibleTo(runBtn) && backPanel != nullptr &&
-                          backPanel->isVisible(),
-                      "I4 摆回「点得开」之后，箭头回来了、点它照旧弹得出来",
+                check(backPanel != nullptr && backPanel->isVisible(),
+                      "I4 摆回「点得开」之后，点它照旧弹得出来",
                       describe());
                 if (backPanel != nullptr) {
                     backPanel->close();

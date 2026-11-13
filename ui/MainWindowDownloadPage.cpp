@@ -622,12 +622,13 @@ void MainWindowUI::setupDownloadGamePage() {
     installButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     installButton->setMinimumWidth(qMax(180, kDownloadButtonMinWidth));
     Theme::markButton(installButton, Theme::ButtonKind::Primary);
-    // 字放大两档、给一个最小高度（字大了还顶着老高度会显得挤）。
+    // 正文 14、给一个最小高度（浮在内容区底部的主操作）。
     //
     // Latest design: a compact floating action at the bottom-centre of the right content pane.
     // Only its own rectangle intercepts input; the surrounding scroll area remains interactive.
     QFont installFont = installButton->font();
-    installFont = Theme::textFont(installFont, Theme::TextRole::Heading);
+    installFont = Theme::textFont(installFont, Theme::TextRole::Body);  // 按钮一律正文 14 系统字（tokens-r2 §1）
+    installFont.setWeight(QFont::Medium);
     installButton->setFont(installFont);
     installButton->setMinimumHeight(qMax(48, installButtonMinHeight()));
     auto *installFooter = new QFrame(installContent);
@@ -1040,8 +1041,8 @@ void MainWindowUI::setupDownloadResourcePages() {
         // 行高常数、左边那个小三角不画、同一个字号偏移），所以长得一样。
         // 只有两处不一样：
         // ① 图标大一点（resourceTreeIconSize()）—— 要看清缩略图，18 px 那个不行；
-        // ② 叶子那一层**画**箭头（leafArrow=true）—— 第三层"点一个版本号"是**下它**，
-        // 是个真动作（"点进去"那层意思），和加载器树上"选中它"不是一回事。
+        // ② 叶子那一层悬停写「下载」（leafArrow=true）—— 第三层"点一个版本号"是**下它**，
+        // 是个真动作，和加载器树上"选中它"不是一回事。
         QTreeWidget *tree = new QTreeWidget(page);
         tree->setObjectName(downloadResourceTreeName(categoryKey));
         tree->setHeaderHidden(true);
@@ -1049,8 +1050,9 @@ void MainWindowUI::setupDownloadResourcePages() {
         tree->setRootIsDecorated(false);
         tree->setColumnCount(1);
         stabilizeDownloadTree(tree);
-        tree->setItemDelegate(
-            new VersionTreeDelegate(tree, /*leafArrow=*/true, resourceTreeIconSize()));
+        auto *resourceDelegate = new VersionTreeDelegate(tree, /*leafArrow=*/true, resourceTreeIconSize());
+        resourceDelegate->setLeafVerb(QStringLiteral("下载"));  // 第三层点一下就是下它
+        tree->setItemDelegate(resourceDelegate);
         // 悬停底色要它，理由见版本树那第一处：视图不填 State_MouseOver 就不出底色，也不报错。
         tree->setMouseTracking(true);
         tree->setExpandsOnDoubleClick(false);

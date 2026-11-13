@@ -607,17 +607,14 @@ int UiInstanceRowPaintingChecks() {
             longItem->addChild(new QTreeWidgetItem(QStringList{QStringLiteral("1.2.3")}));
             const QModelIndex index = arrowProbe.model()->index(0, 0);
             const QRect rowBox(0, 0, 400, MainWindowUI::versionTreeRowHeight());
-            const int arrowSize = MainWindowUI::versionTreeArrowSize();
+            const int trail = MainWindowUI::versionTreeTrailWidth();
             const QRect hit = VersionTreeDelegate::arrowRect(rowBox);
-            const QRect glyph(hit.center().x() - arrowSize / 2,
-                              rowBox.center().y() - arrowSize / 2, arrowSize, arrowSize);
-            // 命中格 = 画出来那一枚 + 四周 3 px（**不写死那 3**：量的是"两边差多少"）。
-            // 居中那一处只能比到 ±1 px：QRect::center() 在偶数边长上是取整的，而画和点
-            // 走的是同一个 center()，所以那 1 px 是同一处、不是错开。
-            check(glyph.size() == QSize(arrowSize, arrowSize) && hit.contains(glyph) &&
+            // 画出来那格「展开 / 收起」= 命中格四周各收 3 px（行尾不再画箭头，体验反馈 8）。
+            const QRect glyph = hit.adjusted(3, 3, -3, -3);
+            check(glyph.width() == trail && hit.contains(glyph) &&
                       hit.width() - glyph.width() == 6 && hit.height() - glyph.height() == 6 &&
-                      (glyph.center() - hit.center()).manhattanLength() <= 1,
-                  "★ Z14 命中格 = 画出来那一枚 + 四周各 3 px（画与点同一个出处）",
+                      glyph.right() == rowBox.right() - MainWindowUI::versionTreeRowPadding(),
+                  "★ Z14 命中格 = 行尾那格文字 + 四周各 3 px（画与点同一个出处）",
                   QStringLiteral("命中 %1x%2 / 画 %3x%4")
                       .arg(hit.width())
                       .arg(hit.height())
@@ -643,6 +640,7 @@ int UiInstanceRowPaintingChecks() {
             const QColor marker(255, 0, 255);
             opt.palette.setColor(QPalette::WindowText, marker);
             opt.palette.setColor(QPalette::Text, marker);
+            opt.palette.setColor(QPalette::PlaceholderText, marker);  // 「展开」用次要色画
             opt.palette.setColor(QPalette::Base, QColor(255, 255, 255));
             opt.palette.setColor(QPalette::Highlight, QColor(255, 255, 255));
             arrowProbe.itemDelegate()->paint(&painter, opt, index);
@@ -665,7 +663,7 @@ int UiInstanceRowPaintingChecks() {
                 }
             }
             check(!arrowInk.isNull() && hit.contains(arrowInk),
-                  "★ Z14 真画出来那一枚箭头落在命中格里（点那一格点得到它）",
+                  "★ Z14 真画出来那格「展开」落在命中格里（点那一格点得到它）",
                   QStringLiteral("箭头墨迹 %1,%2-%3,%4 / 命中格 %5,%6-%7,%8")
                       .arg(arrowInk.left())
                       .arg(arrowInk.top())
@@ -680,8 +678,8 @@ int UiInstanceRowPaintingChecks() {
                   QStringLiteral("正文到 x = %1，命中格从 x = %2 起")
                       .arg(textInk.right())
                       .arg(hit.left()));
-            check(arrowInk.width() <= arrowSize && arrowInk.height() <= arrowSize,
-                  "Z14 箭头墨迹不超出画的那一枚（arrowSize 那一格装得下它）",
+            check(arrowInk.width() <= trail && arrowInk.width() > MainWindowUI::versionTreeArrowSize(),
+                  "Z14 行尾墨迹是一行字（宽于 12 px 的旧箭头、装在 trail 那一格里）",
                   QStringLiteral("%1x%2").arg(arrowInk.width()).arg(arrowInk.height()));
         }
 

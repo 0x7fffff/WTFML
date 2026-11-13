@@ -134,6 +134,32 @@ int UiThemeCheck(QApplication &app) {
                 QKeyEvent tab(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier);
                 QApplication::sendEvent(&button, &tab);
                 expect(button.property("wtfmlKeyboardFocus").toBool(), "Tab restores keyboard focus feedback after mouse use");
+
+                // 设置页分段页签（自绘焦点环）：真机反馈"点完页签整条外面一圈绿框"。鼠标点完后焦点由 Qt
+                // 从藏起来那一页挪过来，理由同样是 TabFocusReason —— 判据得是"最后一次输入是不是键盘"。
+                SettingsParts::SlidingTabs segments(&focusHost);
+                segments.addTab(QStringLiteral("启动"));
+                segments.addTab(QStringLiteral("下载"));
+                segments.move(20, 70);
+                segments.show();
+                app.processEvents();
+                const QPoint at = segments.tabRect(1).center();
+                QMouseEvent tabPress(QEvent::MouseButtonPress, QPointF(at), QPointF(segments.mapToGlobal(at)),
+                                     Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                QApplication::sendEvent(&segments, &tabPress);
+                segments.setFocus(Qt::TabFocusReason);
+                app.processEvents();
+                const QImage segMouse = segments.grab().toImage();
+                expect(segments.hasFocus() && !segments.property("wtfmlKeyboardFocus").toBool(),
+                       "segmented tabs: focus moved in after a mouse click draws no outer ring");
+                QKeyEvent segKey(QEvent::KeyPress, Qt::Key_A, Qt::NoModifier);
+                QApplication::sendEvent(&segments, &segKey);
+                QFocusEvent segTabIn(QEvent::FocusIn, Qt::TabFocusReason);
+                QApplication::sendEvent(&segments, &segTabIn);
+                const QImage segKeyboard = segments.grab().toImage();
+                expect(segments.property("wtfmlKeyboardFocus").toBool() &&
+                           segKeyboard.pixelColor(2, segKeyboard.height() / 2) != segMouse.pixelColor(2, segMouse.height() / 2),
+                       "segmented tabs: keyboard arrival still draws the focus ring (F1)");
             }
             ToggleSwitch toggle;
             toggle.resize(toggle.sizeHint());

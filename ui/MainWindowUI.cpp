@@ -641,9 +641,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // 个地方，整块一起挪就是**框自己跳了一下再滑回来**；内容是新上来的，没有参照物，反倒
     // 像正常的滑入。整段理由与做法见 `Animations.hpp` 里 `pageAppear()` 那段。
     //
-    // NOTE: 垫的底色是**卡片那一层**（`QPalette::Base`）：内容抬起来让出来的那一条露的就是
-    // 它。垫成窗口底色（`#f0f0f0`）的话，卡片上会横着一条偏灰的带子（卡片自己是
-    // `#fcfcfc`，Fusion 画这一层用的就是 `Base`）。
+    // NOTE: 幕布底下写回的是祖先们原样那层底（含整窗磨砂的半透明着色），不垫不透明色 ——
+    // 垫 `QPalette::Base` 那一版在真机上换页时磨砂整块变实心再变回来。
     // NOTE: 挂的是 `currentChanged`，不是某一次点击 —— 四颗导航、底栏、主页那几个入口
     // 都会翻页，只有挂在这儿才一处管住全部（"唯一出处"那条规矩）。
     // NOTE: 只在**已经露着头**的时候动。搭界面这一路会挨个 `addTab()`，`currentChanged`
@@ -660,11 +659,11 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             }
         }
         // 覆盖层页面在别的主选项卡上“停放”时，切回所属页会由 OverlayHost 立即恢复。
-        // 此时若再给底下的 QTabWidget 盖一层换页幕布，幕布的 Base 色会短暂从页面周围
-        // 露出来，形成用户看到的灰屏和一拍延迟。普通根页面仍有换页动画。
+        // 此时若再给底下的 QTabWidget 盖一层换页幕布，幕布会短暂从页面周围
+        // 露出来，形成一拍延迟。普通根页面仍有换页动画。
         if (tabWidget->isVisible()
             && (overlayHost == nullptr || !overlayHost->pageOpen())) {
-            Anim::pageAppear(tabWidget, tabWidget->palette().color(QPalette::Base));
+            Anim::pageAppear(tabWidget);
         }
     });
 
@@ -674,9 +673,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // * 设置页右栏：启动 / 游戏 / 提示 / 个性化 / 下载。
     // 都是 `QStackedWidget`，所以一条 `currentChanged` 就够了（谁换的都算）。
     //
-    // 垫的底色是 `QPalette::Base`（**不是**顶上那一档的窗口底色）：这三层右栏每一页都
-    // 活在一层滚动区里，视口铺的是 `Base` —— 垫窗口那份的话，起手那一帧会看见一整块
-    // 偏灰的方块贴在页面正中（见 `Anim::pageAppear(widget, backdrop)` 那段）。
+    // 底同样不垫色：写回的是这一页祖先们原样那层（磨砂透着），见 `Anim::pageAppear()` 那段。
     // 这几页是滚动区：抬的会是它们的**视口**（`liftTarget()`，`ui/Animations.cpp` 里那个），滚动区自己那圈框
     // 留在原地 —— 和顶上那一档同一条规矩（见 `Animations.hpp` 里 `pageAppear()` 那段）。
     const auto appearOnSwitch = [](QStackedWidget *stack) {
@@ -686,7 +683,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         QObject::connect(stack, &QStackedWidget::currentChanged, stack, [stack](int) {
             QWidget *page = stack->currentWidget();
             if (page != nullptr && page->isVisible()) {
-                Anim::pageAppear(page, page->palette().color(QPalette::Base));
+                Anim::pageAppear(page);
             }
         });
     };
@@ -925,14 +922,8 @@ QWidget *MainWindowUI::setupHomePage() {
         }
         QObject::connect(homeInstanceSelectButton, &QPushButton::clicked, homeInstanceSelectButton,
                          [this]() { tabWidget->setCurrentIndex(instancesTabIndex()); });
-        {
-            const auto applyAllInk = [button = homeInstanceSelectButton]() {
-                button->setIcon(QIcon(VersionIcons::chevron(false, 14, heroInk(true))));
-            };
-            followHeroInk(homeInstanceSelectButton, true);
-            applyAllInk();
-            Theme::follow(homeInstanceSelectButton, applyAllInk);
-        }
+        // 不挂 › 图标（体验反馈 8）：「管理」两个字本身就说明点下去去哪。
+        followHeroInk(homeInstanceSelectButton, true);
         quickTabs->addWidget(homeInstanceSelectButton);
         quickColumn->addLayout(quickTabs);
         const auto makeQuickPage = [quickColumn, this](const QString &name, QWidget **sectionOut,
@@ -1033,26 +1024,13 @@ QWidget *MainWindowUI::setupInstancePage() {
         folderPill->setIcon(QIcon(VersionIcons::line(QStringLiteral("folder"), 16, t.secondary)));
         folderPill->setStyleSheet(QStringLiteral(
             "QPushButton { background: %2; color: %1; border: 1px solid transparent; border-radius: 10px;"
-            " padding: 0 30px 0 10px; min-height: 34px; max-height: 34px; text-align: left; font-weight: 600; }"
+            " padding: 0 12px 0 10px; min-height: 34px; max-height: 34px; text-align: left; font-weight: 600; }"
             "QPushButton:hover { background: %3; }")
             .arg(t.text.name(QColor::HexArgb), t.subtle.name(QColor::HexArgb), t.fillSoftHover.name(QColor::HexArgb)));
     };
     paintPill();
     Theme::follow(folderPill, paintPill);
-    {   // 右端 chevron：画在胶囊自己身上（QPushButton 的图标只能在左边）
-        auto *chev = new QLabel(folderPill);
-        chev->setAttribute(Qt::WA_TransparentForMouseEvents);
-        const auto paintChev = [chev]() {
-            chev->setPixmap(VersionIcons::line(QStringLiteral("chevD"), 14, Theme::tokens().secondary));
-        };
-        paintChev();
-        Theme::follow(chev, paintChev);
-        chev->setFixedSize(14, 14);
-        auto *pillLayout = new QHBoxLayout(folderPill);
-        pillLayout->setContentsMargins(0, 0, 10, 0);
-        pillLayout->addStretch(1);
-        pillLayout->addWidget(chev);
-    }
+    // 胶囊右端不画 ∨（体验反馈 8 / tokens-r2 §6 下拉去箭头）：整块可点，悬停有底色。
     if (auto *titleRow = qobject_cast<QHBoxLayout *>(instance.right.header->layout()->itemAt(0)->layout())) {
         titleRow->insertWidget(1, folderPill, 0, Qt::AlignVCenter);
     }

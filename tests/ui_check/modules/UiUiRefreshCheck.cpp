@@ -492,13 +492,10 @@ int UiUiRefreshCheck(QApplication &app) {
             canvas.resize(240, 160);
             canvas.show();
             app.processEvents();
-            Anim::pageAppear(&canvas, QColor(Qt::white));
+            Anim::pageAppear(&canvas);
             auto *cover = canvas.findChild<QWidget *>(QStringLiteral("wtfmlPageCurtain"));
             expect(cover && cover->testAttribute(Qt::WA_OpaquePaintEvent),
-                   "solid page curtain avoids repainting the covered page each frame");
-            Anim::pageAppear(&canvas, QColor(255, 255, 255, 80));
-            expect(cover && !cover->testAttribute(Qt::WA_OpaquePaintEvent),
-                   "translucent page curtain retains background composition");
+                   "page curtain writes every pixel (underlay + content) so the covered page is not repainted each frame");
             QScrollBar bar(Qt::Vertical, &canvas);
             bar.resize(16, 120);
             bar.show();

@@ -560,7 +560,8 @@ TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider
     m_runningTitle->setObjectName(QStringLiteral("taskCenterRunningTitle"));
     runningHeader->addWidget(m_runningTitle);
     runningHeader->addStretch(1);
-    m_collapseRunning = new QPushButton(QStringLiteral("‹"), m_runningPane);
+    // 写「收起 / 展开」两个字，不用 ‹ / › 小箭头（体验反馈 8，tokens-r2 §6）。
+    m_collapseRunning = new QPushButton(tr("收起"), m_runningPane);
     m_collapseRunning->setObjectName(QStringLiteral("taskCenterRunningCollapse"));
     m_collapseRunning->setToolTip(tr("收起运行中实例"));
     m_collapseRunning->setAccessibleName(tr("收起运行中实例"));
@@ -569,8 +570,9 @@ TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider
     // 鼠标点击不留下焦点框；Tab 仍可聚焦并用空格切换。
     m_collapseRunning->setFocusPolicy(Qt::TabFocus);
     Theme::markButton(m_collapseRunning, Theme::ButtonKind::Ghost);
-    Theme::markIconButton(m_collapseRunning);
-    m_collapseRunning->setFixedSize(28, 28);
+    Theme::markIconButton(m_collapseRunning);  // 借图标钮那档紧凑内边距，36 宽的收起态才放得下两个字
+    m_collapseRunning->setFont(Theme::textFont(m_collapseRunning->font(), Theme::TextRole::Caption));
+    m_collapseRunning->setFixedSize(34, 28);
     runningHeader->addWidget(m_collapseRunning);
     runningLayout->addLayout(runningHeader);
     m_runningScroll = new Theme::GutterScrollArea(m_runningPane);
@@ -729,7 +731,7 @@ void TaskCenterPanel::applyRunningCollapsed() {
     }
     m_runningScroll->setVisible(!m_runningCollapsed);
     m_runningPane->setFixedWidth(m_runningCollapsed ? 36 : kRunningWidth);
-    m_collapseRunning->setText(m_runningCollapsed ? QStringLiteral("›") : QStringLiteral("‹"));
+    m_collapseRunning->setText(m_runningCollapsed ? tr("展开") : tr("收起"));
     m_collapseRunning->setToolTip(m_runningCollapsed ? tr("展开运行中实例")
                                                      : tr("收起运行中实例"));
     m_collapseRunning->setAccessibleName(m_collapseRunning->toolTip());

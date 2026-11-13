@@ -1009,17 +1009,14 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
                       .arg(bodyWorstPixel.name())
                       .arg(bodyTint)
                       .arg(probeHighlight.name(), probeBase.name()));
-            // 最左边那一列（x = 0..2）现在是**那根 3 px 的主题色指示条**（点名要的
-            // 那一根）：样式早在画选中底的时候就把它铺上了，而代理紧接着又把左边那一截
-            // 分支区**整段**补了一遍底色（上面那段代码）—— 补的时候正好把它盖掉，所以
-            // 代理在那之后还得**再补一次指示条**。这条判据量到的是后者。
-            // 设计稿：离左缘 3 px 的圆头短条，竖直居中（见 `paintSelectionRail()`）。
-            const QPoint railSpot(3 + Theme::selectionBarThickness() / 2, selectRowRect.center().y());
+            // tokens-r2 §6：选中 = 淡底 + 强调字，左缘不再有 3 px 指示条 ⇒ 原来那根条
+            // 所在的那一列（x = 4）量到的也该是同一档选中底。
+            const QPoint railSpot(4, selectRowRect.center().y());
             const QColor railPixel = selectShot.pixelColor(railSpot);
-            check(railPixel.rgb() == Theme::selectionBar().rgb(),
-                  "★ 选中那一行最左边是那根 3 px 的主题色指示条（和侧栏导航同款）",
-                  QStringLiteral("条中间量到 %1（该是主题色 %2）")
-                      .arg(railPixel.name(), Theme::selectionBar().name()));
+            check(near(railPixel, probeSelection),
+                  "★ 选中那一行最左边没有指示条，铺的是同一档选中淡底",
+                  QStringLiteral("x=4 量到 %1（该是选中底 %2）")
+                      .arg(railPixel.name(), probeSelection.name()));
             const QPoint selectStripSpot(selectRowRect.left() - 2, selectRowRect.top() + 1);
             const QColor selectStrip = selectShot.pixelColor(selectStripSpot);
             check(near(selectStrip, probeSelection),

@@ -322,7 +322,7 @@ QColor neutralFill(const QColor &base, const QColor &ink, int percent = 29);
 // ---------------------------------------------------------------------------
 //
 // 全仓每一处"选中一行"都是**同一档**：由这一行自己的底色混出的低饱和浅主题色底 +
-// 左边一根 3 px 主题色指示条 + 主题色那一支里的深墨（与侧栏导航同款）。
+// 主题色那一支里的深墨（与侧栏导航同款）；不画左侧指示条（tokens-r2 §6：选中 = 淡底 + 强调字）。
 // 数据行和导航行**长得一样** —— 没有"灰是数据、绿是导航"那条区分。
 //
 // 底为什么从**这一行自己的底色**出发混，而不是写死一个浅绿：深色预设下
@@ -345,17 +345,6 @@ QColor selectionInk(const QColor &base = QColor(Qt::white));
 /// 它上面那行**次要**小字（版本树第二行那行小字 / 占位文字 / 行里那些小图标）：
 /// 比正文浅一档，但压在这块底上仍然读得清。
 QColor selectionSubInk(const QColor &base = QColor(Qt::white));
-/// 左边那根指示条的色：主题色本色（`AccentShade::Pure`）—— 它和顶栏是同一个色，
-/// "这一行被选中了"这件事只靠这一笔就说得清。
-QColor selectionBar();
-/// 那根指示条多宽（px）。
-constexpr int selectionBarThickness() { return 3; }
-/// 把那根指示条画在**画家坐标系 x = 0** 那一列上（竖直方向取 @p rowRect 的那一条）。
-///
-/// 唯一出处：样式那两条原语和代理都走这一句 —— 各自 `fillRect` 一个矩形的话，
-/// "那条竖条从哪儿起、多宽"就有了第二个说法。x 恒取 0 是因为行在画家坐标系里的
-/// 左边缘就是 0（横向滚动是烘进 `option.rect` 里的，不是平移画家）。
-void paintSelectionRail(QPainter *painter, const QRect &rowRect);
 
 /**
  * @brief 把"选中那一行画在浅主题色底上"这件事落到**一份能直接取色的调色板**上。
@@ -539,8 +528,8 @@ QString secondaryTextRoleValue();
 //
 // 两处**故意不跟令牌**的（写在这儿免得以后被"顺手统一"掉）：
 // * 主页那颗「启动游戏」是 76（`kStartButtonMinHeight`）—— 它是这一页唯一的主角；
-// * 下载页的「安装」是 40（`MainWindowUI::installButtonMinHeight()`）—— 它的字号比
-// 别处大 2pt（`installButtonFontStep()`），32 会显得挤。
+// * 下载页的「安装」是 40（`MainWindowUI::installButtonMinHeight()`）—— 它是浮在内容区
+// 底部的主操作，字号和别处按钮一样是正文 14。
 
 /// 普通动作按钮（确定 / 取消 / 应用 / 全部那些）的最小高度。
 constexpr int actionHeight() { return 36; }

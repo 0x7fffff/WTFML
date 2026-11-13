@@ -942,7 +942,7 @@ MainWindow::MainWindow(QWidget *parent)
             if (closedPage != nullptr &&
                 qobject_cast<InstanceSettingsDialog *>(closedPage) != nullptr) {
                 if (QWidget *tabs = m_ui->getTabWidget()) {
-                    Anim::pageAppear(tabs, tabs->palette().color(QPalette::Base));
+                    Anim::pageAppear(tabs);
                 }
             }
         });

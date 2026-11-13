@@ -228,6 +228,7 @@ protected:
         if (event->type() == QEvent::MouseButtonPress || event->type() == QEvent::MouseButtonDblClick) {
             m_keyboard = false;
             setVisible(qobject_cast<QAbstractButton *>(QApplication::focusWidget()), false);
+            setRingOwner(QApplication::focusWidget(), false);
             setVisible(button, false);
             setKeyboard(watched, false);
         } else if (event->type() == QEvent::KeyPress) {
@@ -238,6 +239,7 @@ protected:
             if (key != Qt::Key_Shift && key != Qt::Key_Control && key != Qt::Key_Alt && key != Qt::Key_Meta) {
                 m_keyboard = true;
                 setVisible(qobject_cast<QAbstractButton *>(QApplication::focusWidget()), true);
+                setRingOwner(QApplication::focusWidget(), true);
             }
             // A native frameless window can receive its first Tab before Qt has
             // assigned any child focus. Recover that entry only; existing editors,
@@ -282,10 +284,12 @@ protected:
                 m_keyboard = false;
             }
             setVisible(button, m_keyboard);
+            setRingOwner(qobject_cast<QWidget *>(watched), m_keyboard);
             setKeyboard(watched, reason == Qt::TabFocusReason || reason == Qt::BacktabFocusReason);
         } else if (event->type() == QEvent::FocusOut) {
             clampSpin(qobject_cast<QWidget *>(watched));
             setKeyboard(watched, false);
+            setRingOwner(qobject_cast<QWidget *>(watched), false);
         }
         return false;
     }
@@ -383,6 +387,13 @@ private:
         button->style()->unpolish(button);
         button->style()->polish(button);
         button->update();
+    }
+    /// 自绘焦点环的控件（挂了 `wtfmlFocusRingOwner`，如设置页分段页签）：和按钮同一条判据。
+    static void setRingOwner(QWidget *widget, bool visible) {
+        if (widget == nullptr || !widget->property("wtfmlFocusRingOwner").toBool() ||
+            widget->property("wtfmlKeyboardFocus").toBool() == visible) return;
+        widget->setProperty("wtfmlKeyboardFocus", visible);
+        widget->update();
     }
     bool m_keyboard = false;
 };
@@ -613,8 +624,7 @@ QString accentSettingKey(const char *field) {
  *
  * **选中那一块**（`PE_PanelItemViewItem` / `PE_PanelItemViewRow` 两条原语 +
  * `CE_ItemViewItem` 里换墨）—— 选中那一块不用平台那档蓝色，而是画成
- * "这一行自己的底色混一档主题色 + 左边一根 3 px 主题色指示条"
- * （和侧栏导航同款）。
+ * "这一行自己的底色混一档主题色"（和侧栏导航同款，不画指示条）。
  * 为什么落在这一层：调色板的 `Highlight` 是平台给的蓝，而"出厂那一份不碰调色板"这条
  * 不能破（破=把"跟着系统深浅"钉死，见 `apply()` 那段）。样式这一层一份代码就管住
  * 全仓每一张表，连不用我们那两个代理的表、以及下拉框弹出来那张表也一起管住了。
@@ -707,6 +717,10 @@ public:
     void drawPrimitive(PrimitiveElement pe, const QStyleOption *opt, QPainter *p,
                        const QWidget *w) const override
     {
+        // 树的展开小三角一律不画（体验反馈 8「右边的小箭头不要再出现」）：可展开的行
+        // 靠整行点击 + 组头样式 / 「展开 · 收起」文字 / 数量说明表达，见 tokens-r2 §6。
+        if (pe == PE_IndicatorBranch)
+            return;
         if ((pe == PE_IndicatorCheckBox || pe == PE_IndicatorItemViewItemCheck) && opt && p) {
             // 设计稿：18 px、圆角 5；空心 1.5 px ink-3 描边，悬停垫中性灰、描边转 ink-2；
             // 勾上 = 强调色实心 + on-accent 勾；禁用整体 .45。
@@ -742,8 +756,8 @@ public:
         }
         // 选中那一块：调色板里那一档（`Highlight`）是**平台给的蓝**，而"出厂那一份不碰
         // 调色板"这条不能破（破了就把"跟着系统深浅"钉死了，见 `apply()` 那段）⇒ 由这里
-        // 接过来自己画成"这一行自己的底色混一档主题色 + 左边一根 3 px 指示条"
-        // （和侧栏导航同款）—— 底和左边那根指示条的理由都在 `ui/Theme.hpp` 那段里。
+        // 接过来自己画成"这一行自己的底色混一档主题色"（和侧栏导航同款，不画指示条）——
+        // 理由在 `ui/Theme.hpp` 那段里。
         //
         // 两条原语各管一半，缺一条屏幕上就留一块蓝：
         // - `PE_PanelItemViewItem` = 条目那一格（每张表都有）；
@@ -751,23 +765,14 @@ public:
         // 交给代理之前自己铺的那一条，矩形是"整条行高 × 缩进宽度"）。
         // 代理侧还有一份同样的补涂（`VersionTreeDelegate::paint()` 里那段），因为这两条
         // 原语是不是真的被走到由**视图**决定 —— 补涂那一份是保底，两边同一个色。
-        //
-        // 指示条也在这里画：这张表是不是真的走这两条原语由**视图**决定，等它铺完再
-        // 补一条竖条的话，视图那条路上就又留一个"补没补"的分叉 ⇒ 一次画齐（代理那边
-        // 只在"它自己把这一格又盖了一遍"时才需要重画一次，见 `VersionTreeDelegate`）。
-        // 两处例子**故意不要这根条**（各自有自己那一圈形状），由它们自己拿底色擦掉：
-        // 实例行（带子只有卡片那一圈 —— 左边那根竖条在那里是多余的）
-        // 和分组对话框那份表（一行一块内缩的卡片）。见那两个代理里的 NOTE。
         if (pe == PE_PanelItemViewItem || pe == PE_PanelItemViewRow) {
             if (const QStyleOptionViewItem *vopt = selectedItemOption(opt)) {
-                // 实例树（选中带只有卡片那一圈）：分支区那一截不涂、也不要指示条。7a 令牌里
+                // 实例树（选中带只有卡片那一圈）：分支区那一截不涂。7a 令牌里
                 // 选中底是半透明的，先涂再让代理拿底色「擦」已经擦不掉了，只能从源头不画。
                 const bool cardOnly = w != nullptr && w->property("wtfmlCardSelection").toBool();
                 if (pe == PE_PanelItemViewRow && cardOnly)
                     return;
                 p->fillRect(vopt->rect, selectionFill(vopt->palette.color(QPalette::Base)));
-                if (!cardOnly)
-                    paintSelectionRail(p, vopt->rect);
                 return;
             }
         }
@@ -783,7 +788,7 @@ public:
         // **条目视图（列表 / 树 / 表格）不接管、而且是"一笔都不画"**：
         // 交回基样式的话，Fusion 就在"当前项"那一格外面套一圈**浅色细框**
         // （左边三页的左栏那一列上量到的是 1 px 的 `#BDD9F0` 圆角框）。列表这边"现在
-        // 停在哪儿"本来就由我们那套选中底（`selectionFill()` + 左边那根指示条）说清楚
+        // 停在哪儿"本来就由我们那套选中底（`selectionFill()` 那块淡底）说清楚
         // 了，这一圈框是多余的第二层，而且它画在**整格**上、比里面那块内缩的圆角选中块
         // 大一圈，正是"框和实际按钮大小不同 ⇒ 难看"。所以直接返回，什么都不画。
         // `w == nullptr` 时交回去：没有控件就没有"谁拿着焦点"这回事（验证工程直接调进来时就是这样）。
@@ -1030,25 +1035,6 @@ QColor selectionSubInk(const QColor &base) {
         return QColor(0x55, 0x55, 0x55);
     }
     return mixWithWhite(accentShade(AccentShade::Pure), 45);
-}
-
-QColor selectionBar() {
-    return accentShade(AccentShade::Pure);
-}
-
-void paintSelectionRail(QPainter *painter, const QRect &rowRect) {
-    if (painter == nullptr || rowRect.height() <= 0 || selectionBarThickness() <= 0) {
-        return;
-    }
-    // 设计稿：离左缘 3 px、上下各缩三成的圆头短条（导航项、列表行同一语言）。
-    const int inset = qRound(rowRect.height() * 0.3);
-    const QRectF bar(3, rowRect.top() + inset, selectionBarThickness(), qMax(8, rowRect.height() - 2 * inset));
-    painter->save();
-    painter->setRenderHint(QPainter::Antialiasing, true);
-    painter->setPen(Qt::NoPen);
-    painter->setBrush(selectionBar());
-    painter->drawRoundedRect(bar, selectionBarThickness() / 2.0, selectionBarThickness() / 2.0);
-    painter->restore();
 }
 
 QPalette selectionPalette(const QPalette &palette, bool selected) {
@@ -2105,8 +2091,7 @@ QString widgetStyleSheet() {
     // 挂在那里让人以为"侧栏选中样式配好了"，而实际画出来的仍然只有代理那一支。
     // 所以那一档落成了**代理里的 `navRow` 模式**（`new VersionTreeDelegate(..., true)`），
     // 色一个字节都没另写：`selectionFill()`（这一列自己的底色混 20% 主题色）、
-    // `selectionInk()`（主题色那一支里配套的那一档墨）、`selectionBar()` +
-    // `selectionBarThickness()`（左边那根 3 px 的指示条），三处都在 ui/Theme.hpp 里 ——
+    // `selectionInk()`（主题色那一支里配套的那一档墨），都在 ui/Theme.hpp 里 ——
     // **全仓的列表选中态都是这一套**（和侧栏导航同款）。
     // 行高和圆角同理：那份列表的行高一直是 `versionTreeRowHeight()`（46，比 42 那条下限还高），
     // 而代理画的是一整行**不带圆角**的方块 —— 多出来的圆角只能由代理画（今天没画）。

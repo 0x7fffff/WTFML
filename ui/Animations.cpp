@@ -15,6 +15,7 @@
 #include <QElapsedTimer>
 #include <QEvent>
 #include <QGraphicsEffect>
+#include <QImage>
 #include <QKeyEvent>
 #include <QLayout>
 #include <QMouseEvent>
@@ -220,13 +221,15 @@ public:
     }
 
     /// 摆好位置、照一张新的、露头。`target` = 要抬的那一块（`liftTarget()` 算的）。
-    void start(QWidget *target, const QColor &backdrop) {
+    /// `underlay`：先把这一块**换页前后都不变的那层底**（祖先们自己画的那一笔，含整窗磨砂）
+    /// 原样写回去盖住正在长出来的新页面（换页用）；false = 只画内容，底下照常透出来（浮层淡出用）。
+    void start(QWidget *target, bool underlay) {
         m_target = target;
-        m_backdrop = backdrop;
-        // 实底由幕布整幅填满，不必每帧重新绘制下面被遮住的整页。
-        // 半透明底色仍需 Qt 合成下层，不能声明不透明。
-        setAttribute(Qt::WA_OpaquePaintEvent, backdrop.isValid() && backdrop.alpha() == 255);
-        m_snapshot = QPixmap();   // 这一发重新照一张
+        m_underlay = underlay;
+        // 有底板时每一帧都把整块像素（连 alpha）写满，不必每帧重画下面被盖住的整页。
+        setAttribute(Qt::WA_OpaquePaintEvent, underlay);
+        m_content = QImage();   // 这一发重新照一张
+        m_plate = QImage();
         m_snapshotSize = QSize();
         if (target != nullptr && parentWidget() != nullptr) {
             setGeometry(QRect(target->mapTo(parentWidget(), QPoint(0, 0)), target->size()));
@@ -274,19 +277,21 @@ protected:
         // 留出一块透明区域，动画时正好透出后面的灰色窗口。
         // 「不许有元素超出」：画之前先把范围收到这一格（挪下去的那一条也不会跑出去）。
         painter.setClipRect(inMe, Qt::IntersectClip);
-        // 底下先铺满底色：起手那几帧是半透明的，而 `target` 底下可能有"谁都不画"的
-        // 不透明子控件视口（那一块屏幕上留着的是上一帧的像素）。铺一层就总是满的。
-        if (m_backdrop.isValid() && m_backdrop.alpha() > 0) {
-            painter.setOpacity(1.0);
-            painter.fillRect(inMe, m_backdrop);
+        // 底板用 Source 连 alpha 一起写回：整窗磨砂（亚克力 / 云母）在窗口里只是一层半透明着色，
+        // 这里写回去的就是那一层，DWM 的系统背板全程照常透上来 —— 不铺任何不透明底
+        // （以前铺 `QPalette::Base` + 一张按风景底画的 QPixmap，真机上换页那 250ms 整块变实心）。
+        if (m_underlay && !m_plate.isNull()) {
+            painter.setCompositionMode(QPainter::CompositionMode_Source);
+            painter.drawImage(inMe.topLeft(), m_plate);
+            painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
         }
         painter.setOpacity(qBound(0.0, m_opacity, 1.0));
         // 「抬」这一位按**逻辑像素**说；落到屏幕上再吸到**整设备像素**上
         // （150% 缩放下 1 逻辑 px = 1.5 设备 px —— 不吸的话内容每一拍都停在半像素上，
         // 文字会发虚）。
-        const qreal dpr = m_snapshot.devicePixelRatio() > 0.0 ? m_snapshot.devicePixelRatio() : 1.0;
+        const qreal dpr = m_content.devicePixelRatio() > 0.0 ? m_content.devicePixelRatio() : 1.0;
         const qreal shift = m_shift > 0.0 ? qRound(m_shift * dpr) / dpr : 0.0;
-        painter.drawPixmap(QPointF(inMe.topLeft()) + QPointF(0.0, shift), m_snapshot);
+        painter.drawImage(QPointF(inMe.topLeft()) + QPointF(0.0, shift), m_content);
     }
 
 private:
@@ -296,49 +301,69 @@ private:
         if (m_target == nullptr || parentWidget() == nullptr) {
             return;
         }
-        if (!m_snapshot.isNull() && m_snapshotSize == m_target->size()) {
+        if (!m_content.isNull() && m_snapshotSize == m_target->size()) {
             return;   // 已经照好了（尺寸也没变），一个字节都不碰。
         }
-        QWidget *host = parentWidget();
-        const QRect inHost(m_target->mapTo(host, QPoint(0, 0)), m_target->size());
-        if (inHost.isEmpty()) {
+        if (m_target->size().isEmpty()) {
             return;
         }
-        // NOTE: 不能直接 `m_target->grab()`：页面本身经常是透明光板，单独抓它时 Qt 会
-        // 用 `QPalette::Window` 补底（Fusion 下就是灰的），而屏幕上真正透出来的是
-        // 父层那张白卡片。动画期间于是会先灰、收掉幕布后才突然变白。
-        // 从 host 的对应区域抓，拿到的才是用户此刻真正看见的合成结果。
-        // 幕布自己可能就在 host 里面，所以照相时让自己一个像素都不画，避免照镜子
-        // （`m_grabbing` 那道早退 —— 抓图会把这块幕布也重画一遍）。
-        QWidget *grabSource = host;
-        if (grabSource == m_target) {
-            if (QWidget *top = m_target->window()) {
-                grabSource = top;
-            }
-        }
-        const QRect inGrab(grabSource == host
-                               ? inHost
-                               : QRect(m_target->mapTo(grabSource, QPoint(0, 0)),
-                                       m_target->size()));
+        // NOTE: 照进 **QImage**，不用 `grab()`（QPixmap）：`Glass::Backdrop` 认"往 QPixmap 里画"
+        // 为截图、按风景底画一张不透明的图（DWM 那层拍不进位图）；往 QImage 里画它走屏上那条路，
+        // 只写半透明着色层 —— 照出来的就是屏上那一块真实的像素（连 alpha）。
+        // 也不带 `DrawWindowBackground`：带上它 Qt 会给照的那一块补一层 `QPalette::Window`。
+        // 幕布自己可能就在照的那一块里，照相时让自己一个像素都不画（`m_grabbing` 那道早退）。
         m_grabbing = true;
-        // 抓图时幕布不画自己，也不能遮挡下层的绘制，否则快照会留下空洞。
-        const bool opaque = testAttribute(Qt::WA_OpaquePaintEvent);
-        setAttribute(Qt::WA_OpaquePaintEvent, false);
         QElapsedTimer captureClock;
         captureClock.start();
-        m_snapshot = grabSource->grab(inGrab);
+        m_content = blankImage(m_target);
+        {
+            QPainter painter(&m_content);
+            m_target->render(&painter, QPoint(), QRegion(m_target->rect()), QWidget::DrawChildren);
+        }
+        m_plate = m_underlay ? underlayOf(m_target) : QImage();
         if (captureClock.elapsed() > 32)
             qInfo() << "[UI timing] slow page snapshot" << m_target->metaObject()->className()
-                    << inGrab.size() << captureClock.elapsed() << "ms";
+                    << m_target->size() << captureClock.elapsed() << "ms";
         m_snapshotSize = m_target->size();
-        setAttribute(Qt::WA_OpaquePaintEvent, opaque);
         m_grabbing = false;
     }
 
+    static QImage blankImage(const QWidget *target) {
+        const qreal dpr = target->devicePixelRatioF();
+        QImage image(target->size() * dpr, QImage::Format_ARGB32_Premultiplied);
+        image.setDevicePixelRatio(dpr);
+        image.fill(Qt::transparent);
+        return image;
+    }
+
+    /// `target` 底下那层底：从顶层窗口往下到它父亲，每一层**只画自己那一笔**（不画孩子），
+    /// 等于把 `target` 这一整棵从画面里拿掉之后屏上那一块的样子。不透明的顶层窗口屏上
+    /// 先铺一层系统底（`QPalette::Window`），这里照样先铺；透明窗口（整窗磨砂）不铺。
+    static QImage underlayOf(QWidget *target) {
+        QImage plate = blankImage(target);
+        QList<QWidget *> chain;
+        for (QWidget *w = target->parentWidget(); w != nullptr; w = w->parentWidget()) {
+            chain.prepend(w);
+            if (w->isWindow()) break;
+        }
+        QPainter painter(&plate);
+        if (!chain.isEmpty() && chain.first()->isWindow() &&
+            !chain.first()->testAttribute(Qt::WA_TranslucentBackground) &&
+            !chain.first()->testAttribute(Qt::WA_NoSystemBackground)) {
+            painter.fillRect(QRect(QPoint(0, 0), target->size()), chain.first()->palette().brush(QPalette::Window));
+        }
+        for (QWidget *w : std::as_const(chain)) {
+            const QRect area(target->mapTo(w, QPoint(0, 0)), target->size());
+            w->render(&painter, QPoint(), QRegion(area), QWidget::RenderFlags());
+        }
+        return plate;
+    }
+
     QPointer<QWidget> m_target;   ///< 要抬的那一块（照它、也按它的尺寸定位）。
-    QPixmap m_snapshot;           ///< 起手照的那一张（定住）。
+    QImage m_content;             ///< 起手照的那一张内容（定住，不含底）。
+    QImage m_plate;               ///< 它底下那层底（含整窗磨砂的着色层，连 alpha）。
     QSize m_snapshotSize;
-    QColor m_backdrop;
+    bool m_underlay = false;
     qreal m_shift = 0.0;
     qreal m_opacity = 1.0;
     bool m_grabbing = false;      ///< 正在照那一张（照的时候自己别画）。
@@ -601,10 +626,24 @@ QWidget *liftTarget(QWidget *widget) {
     return widget;
 }
 
+/// 窗口里 `area` 那一块屏上真实的样子（连 alpha）。照进 QImage 而不是 `grab()`：
+/// `Glass::Backdrop` 往 QPixmap 里画时当成截图、按不透明风景底画，屏上（亚克力 / 云母）只是一层半透明着色。
+QImage compositeOf(QWidget *window, const QRect &area) {
+    const qreal dpr = window->devicePixelRatioF();
+    QImage image(area.size() * dpr, QImage::Format_ARGB32_Premultiplied);
+    image.setDevicePixelRatio(dpr);
+    image.fill(Qt::transparent);
+    QPainter painter(&image);
+    if (!window->testAttribute(Qt::WA_TranslucentBackground) && !window->testAttribute(Qt::WA_NoSystemBackground))
+        painter.fillRect(QRect(QPoint(0, 0), area.size()), window->palette().brush(QPalette::Window));
+    window->render(&painter, QPoint(), QRegion(area), QWidget::DrawChildren);
+    return image;
+}
+
 // 布局切换只绘制两个稳定状态，避免在每帧重排列表或缩放文字。
 class LayoutCurtain : public QWidget {
 public:
-    LayoutCurtain(QWidget *surface, const QRect &area, const QPixmap &before, const QPixmap &after,
+    LayoutCurtain(QWidget *surface, const QRect &area, const QImage &before, const QImage &after,
                   bool expanding)
         : QWidget(surface), m_before(before), m_after(after), m_expanding(expanding) {
         setObjectName(QStringLiteral("wtfmlLayoutCurtain"));
@@ -614,7 +653,7 @@ public:
         surface->installEventFilter(this);
     }
     void frame(qreal progress) { m_progress = progress; update(); }
-    void captureDestination(const std::function<QPixmap()> &capture) {
+    void captureDestination(const std::function<QImage()> &capture) {
         // 保持幕布可见，仅在离屏抓图时跳过自身，避免抓进旧快照。
         m_capturing = true;
         m_after = capture();
@@ -634,15 +673,18 @@ protected:
         if (m_capturing) return;
         QPainter painter(this);
         painter.setClipRect(rect());
-        painter.drawPixmap(0, 0, m_before);
+        // 两张都连 alpha 照（见 `compositeOf()`）：Source 写回、再按进度插值过去，
+        // 整窗磨砂那层半透明着色从头到尾原样，不会叠深也不会变实心。
+        painter.setCompositionMode(QPainter::CompositionMode_Source);
+        painter.drawImage(0, 0, m_before);
         painter.setOpacity(m_progress);
         const qreal dpr = qMax(qreal(1), m_after.devicePixelRatio());
         const qreal shift = qRound((m_expanding ? 1 : -1) * Anim::pageRiseDistance() *
                                   (1 - m_progress) * dpr) / dpr;
-        painter.drawPixmap(QPointF(0, shift), m_after);
+        painter.drawImage(QPointF(0, shift), m_after);
     }
 private:
-    QPixmap m_before, m_after;
+    QImage m_before, m_after;
     bool m_expanding;
     bool m_capturing = false;
     qreal m_progress = 0;
@@ -712,15 +754,6 @@ void scrollBarAppear(QWidget *bar) {
 }
 
 void pageAppear(QWidget *widget) {
-    if (widget == nullptr) {
-        return;
-    }
-    // 默认垫的是**顶层窗口**的窗口底色 —— 内容和它那一圈之间露出来的地方通常就是它。
-    // 内容区那一发（`QTabWidget`）垫的不是它，见 `MainWindowUI` 里那个调用点的说明。
-    pageAppear(widget, widget->window()->palette().color(QPalette::Window));
-}
-
-void pageAppear(QWidget *widget, const QColor &backdrop) {
     if (widget == nullptr || !enabled()) {
         return;
     }
@@ -750,7 +783,7 @@ void pageAppear(QWidget *widget, const QColor &backdrop) {
     }
     const qreal rise = pageRiseDistance();
     const qreal from = pageStartOpacity();
-    curtain->start(lift, backdrop);
+    curtain->start(lift, true);
     // 第一帧就摆到"还没进来"的样子：`pageStartOpacity()` 那么透 + 往下 `rise` 那么多
     // （幕布里是整块往下挪着画，所以多出来的那一条在**上面**、被裁掉的是下面那一条）。
     curtain->setFrame(rise, from);
@@ -778,7 +811,7 @@ void vanishWidget(QWidget *widget, const std::function<void()> &done) {
     QWidget *host = widget->parentWidget();
     if (host == nullptr) { finish(); return; }
     auto *curtain = new PageCurtain(host);
-    curtain->start(widget, QColor());
+    curtain->start(widget, false);
     curtain->setFrame(0.0, 1.0);
     widget->hide();
     const qreal rise = pageRiseDistance();
@@ -806,10 +839,10 @@ void layoutTransition(QWidget *surface, const std::function<void()> &change,
     const bool animate = enabled() && surface->isVisible() && !area.isEmpty();
     const auto capture = [surface, area]() {
         QWidget *window = surface->window();
-        return window->grab(QRect(surface->mapTo(window, area.topLeft()), area.size()));
+        return compositeOf(window, QRect(surface->mapTo(window, area.topLeft()), area.size()));
     };
     // 连点时从当前视觉帧起步，再移除旧幕布；旧动画不会晚到一步覆盖新状态。
-    const QPixmap before = animate ? capture() : QPixmap();
+    const QImage before = animate ? capture() : QImage();
     cancelLayoutTransition(surface);
     // 主选项卡刚切换时可能仍有旧的换页快照，不能把它当作新布局的终点。
     for (QWidget *ancestor = surface; ancestor != nullptr; ancestor = ancestor->parentWidget()) {
@@ -821,7 +854,7 @@ void layoutTransition(QWidget *surface, const std::function<void()> &change,
     // 先遮住旧画面，再切换真实布局；延迟到下一轮事件后采集稳定终点。
     QPointer<LayoutCurtain> curtain;
     if (animate) {
-        curtain = new LayoutCurtain(surface, area, before, QPixmap(), expanding);
+        curtain = new LayoutCurtain(surface, area, before, QImage(), expanding);
         curtain->show();
         curtain->raise();
     }

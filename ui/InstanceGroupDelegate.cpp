@@ -28,14 +28,16 @@ QRect InstanceGroupDelegate::chevronRect(const QRect &row) {
     // 一条被切掉；行高是 `instanceTreeRowHeight()` = 58 ——
     // 所以这一缩**平时不生效**，留着是兜底。
     const int arrowSize = qMin(MainWindowUI::versionTreeArrowSize(), row.height());
-    // 贴着行右边缘（和 VersionTreeDelegate 算那个箭头是同一个式子："右边留出 pad"）。
+    // 这一格现在写「展开 / 收起」（体验反馈 8：不画箭头），宽取 versionTreeTrailWidth()，
+    // 高仍按上面那档收。贴着行右边缘（和 VersionTreeDelegate 行尾那格同一个式子）。
+    const int trail = MainWindowUI::versionTreeTrailWidth();
     //
     // NOTE: 竖直位置走 `top + (行高 - 边长) / 2`，**不用 `row.center().y()`** —— 后者走的是
     // QRect::center()（= top + (h-1)/2），行高是**偶数**时分母那一半少一像素：行高
     // 和边长一样时（就是上面那一档）那个箭头会往上冒一个像素出去，整屏重绘压到上面
     // 那条行、局部重绘被切掉一条。这个式子在"边长 ≤ 行高"时恒在行内。
-    return QRect(row.right() - pad - arrowSize, row.top() + (row.height() - arrowSize) / 2,
-                 arrowSize, arrowSize);
+    return QRect(row.right() - pad - trail + 1, row.top() + (row.height() - arrowSize) / 2,
+                 trail, arrowSize);
 }
 
 QRect InstanceGroupDelegate::cardRect(const QRect &row) {
@@ -204,17 +206,6 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
             }
             style->drawControl(QStyle::CE_ItemViewItem, &opt, painter, opt.widget);
         }
-        // 左边那根 3 px 指示条在这一行上**不要**。
-        //
-        // 全仓的"选中一行"都带一根主题色指示条（`Theme::selectionRail()`），而那一条是
-        // **样式**在 `PE_PanelItemViewItem` 里画的（上一句 `drawControl` 的那条路）。
-        // 实例行是个例外：它选中时的带子**只有卡片那一圈** —— 左边冒出来的那一条要擦掉
-        // （长注释在上面那段 ★★）。
-        //
-        // 上面那句 `fillRect` 擦的是 `drawRow()` 涂的分支区，它排在这一行**之前**；
-        // 指示条是紧接着 `drawControl` 画的 ⇒ 只能排在这一句**之后**擦，擦的是
-        // "指示条那一档宽"（不是整截分支区）—— 分支区本来就已经是底色了。
-        // 7a：这根条改由样式那边不画（`wtfmlCardSelection`），这里不再擦。
 
         // 三颗都用**正文色**（和实例页文件夹行那颗齿轮一个取色口径）：它们是行里的动作，
         // 但这一行的正文就是实例名，动作和正文同色才不显得"行尾挂了三个别的东西"。
@@ -258,15 +249,14 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
     const QRect row = option.rect;
     const QPalette &palette = option.palette;
     const int pad = MainWindowUI::versionTreeRowPadding();
-    const int arrowSize = MainWindowUI::versionTreeArrowSize();
     const bool hasGear = index.data(MainWindowUI::rowGroupGearRole()).toBool();
-    // 展开着就画朝下的 V、收着就画朝右的 >。状态只有视图知道（`isExpanded`）——
+    // 展开着写「收起」、收着写「展开」。状态只有视图知道（`isExpanded`）——
     // 和 VersionTreeDelegate 一样从 option.widget 上问，问不到就当收着。
     const auto *view = qobject_cast<const QTreeView *>(option.widget);
     const bool expanded = view != nullptr && view->isExpanded(index);
 
     // 右边那几格从文字的可用宽度里扣掉 —— 不扣的话长组名会从齿轮底下穿过去。
-    int textRight = row.right() - pad - arrowSize - 6;
+    int textRight = chevronRect(row).left() - 6;
     if (hasGear) {
         textRight -= gearRect(row).width() + 6;
     }
@@ -310,10 +300,13 @@ void InstanceGroupDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
                             VersionIcons::gear(glyph.width(),
                                                Theme::tokens().primary));
     }
-    // 最右边那个箭头：分组头**一定**画（"点一下打开/关闭"就是它）。用正文色 ——
-    // 这一行真的能展开，和版本树那几条分类同一条规矩。
-    painter->drawPixmap(chevronRect(row).topLeft(),
-                        VersionIcons::chevron(expanded, arrowSize, groupInk));
+    // 最右边那格「展开 / 收起」：分组头**一定**写（整行点一下就是打开/关闭）。次要色、
+    // 辅助档 13 —— 和版本树行尾那格同一条规矩（tokens-r2 §6）。
+    painter->setFont(Theme::textFont(option.font, Theme::TextRole::Caption));
+    painter->setPen(Theme::tokens().secondary);
+    const QRect trailBox = chevronRect(row);
+    painter->drawText(QRect(trailBox.left(), row.top(), trailBox.width(), row.height()),
+                      Qt::AlignRight | Qt::AlignVCenter, expanded ? tr("收起") : tr("展开"));
     painter->restore();
 }
 
@@ -333,7 +326,7 @@ QSize InstanceGroupDelegate::sizeHint(const QStyleOptionViewItem &option,
     if (!isGroup) {
         return QSize(size.width() + MainWindowUI::versionTreeRowPadding(), rowHeight());
     }
-    int extra = MainWindowUI::versionTreeArrowSize() + 6;
+    int extra = MainWindowUI::versionTreeTrailWidth() + 6;
     if (index.data(MainWindowUI::rowGroupGearRole()).toBool()) {
         extra += MainWindowUI::instanceGroupGearSize() + 6 + 6;
     }

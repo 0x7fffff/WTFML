@@ -125,8 +125,7 @@ QString motdPreviewHtml(const QString &raw) {
 }
 
 /// 往右栏那一叠里加一页。**每一页都活在一层滚动区里**（和实例设置那几页同一个形状）：
-/// 内容比视口高的时候自己能滚，而且换页动画垫的底色正是滚动区视口铺的那一份
-/// （`QPalette::Base`，见构造末尾那条 `currentChanged`）。
+/// 内容比视口高的时候自己能滚；换页动画抬的是视口（见构造末尾那条 `currentChanged`）。
 ///
 /// @param objectName 里面那一页的名字（没名字就传空串 —— 表里一页一张，名字只能是噪音）。
 /// @return 那一页自己的竖排布局（往它里面加东西）。
@@ -233,12 +232,11 @@ ServerSettingsPage::ServerSettingsPage(QWidget *parent) : QDialog(parent) {
     columns->addWidget(m_stack, 1);
     // 换页那一下：新那一页淡进来、顺带从下面抬
     // 一小段。这一层和实例设置那一页是同一个形状（左栏 + 一个 `QStackedWidget`）。
-    // 垫的底色是 `QPalette::Base`：右栏每一页都活在一层滚动区里（见 `addSectionPage()`），
-    // 视口铺的就是它 —— 垫窗口那份的话，起手那一帧会看见一整块偏灰的方块。
+    // 底不垫色：写回的是祖先们原样那层（磨砂透着），见 `Anim::pageAppear()` 那段。
     connect(m_stack, &QStackedWidget::currentChanged, this, [this](int) {
         QWidget *page = m_stack->currentWidget();
         if (page != nullptr && page->isVisible()) {
-            Anim::pageAppear(page, page->palette().color(QPalette::Base));
+            Anim::pageAppear(page);
         }
     });
     box->addLayout(columns, 1);

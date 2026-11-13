@@ -132,18 +132,15 @@ int UiBottomBarGeometryChecks(MainWindowUI &ui, QFrame * &bar) {
                   QStringLiteral("缩进 %1 px / 方块那段 %2 px")
                       .arg(runDetail->contentsMargins().left())
                       .arg(markBand));
-            // 这一格的宽度预算要**对得上**：方块那段 + 文字宽 + 箭头间距 + 箭头 = 170。
+            // 这一格的宽度预算要**对得上**：方块那段 + 文字宽 = 整格（右侧不再挂箭头）。
             // 加方块的时候最容易漏掉的就是"文字的上限没跟着减"，那一步会让方块把整格撑出去。
             check(MainWindowUI::bottomBarRunStateMarkWidth() +
-                      MainWindowUI::bottomBarRunStateTextWidth() +
-                      MainWindowUI::bottomBarChevronSpacing() + MainWindowUI::bottomBarChevronSize() ==
+                      MainWindowUI::bottomBarRunStateTextWidth() ==
                   MainWindowUI::bottomBarRunStateColumnWidth(),
-                  "那一格的宽度预算加得起来（方块段 + 文字上限 + 箭头那一段 = 170）",
-                  QStringLiteral("%1 + %2 + %3 + %4 vs %5")
+                  "那一格的宽度预算加得起来（方块段 + 文字上限 = 整格）",
+                  QStringLiteral("%1 + %2 vs %3")
                       .arg(MainWindowUI::bottomBarRunStateMarkWidth())
                       .arg(MainWindowUI::bottomBarRunStateTextWidth())
-                      .arg(MainWindowUI::bottomBarChevronSpacing())
-                      .arg(MainWindowUI::bottomBarChevronSize())
                       .arg(MainWindowUI::bottomBarRunStateColumnWidth()));
             // 两行**留给字**的宽度必须一样。第一行那颗方块是布局里
             // 单独的控件（占的是上限**之外**的位置），第二行的缩进走 contentsMargins
