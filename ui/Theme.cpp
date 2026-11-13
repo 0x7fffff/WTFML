@@ -946,8 +946,9 @@ bool roleFromKey(const QString &key, Role *out) {
 // ---------------------------------------------------------------------------
 
 QColor defaultAccentColor() {
-    // 主题色是更沉稳的翡翠绿：顶栏长时间停在视野里，降低明度后不抢内容；
-    // 同时白字对它仍有 4.5:1 以上的对比度，实心主按钮也能复用。
+    // 翡翠绿那一支主题色（`tokens("emerald").primary`）。出厂主题色现在跟预设走
+    // （`defaultSpec()` = 石炭灰，主题色是它自己的 primary）；这一支只剩挑色框里那行
+    // 示例色在用（`InlineMessage::pickColor()`）。
     // 全仓只有这一处写这六个十六进制位 —— 顶栏、按钮的字与边、当前那一颗导航底下那条
     // 线，量的都是它算出来的某一档（见 `accentShade()`），**不许在别处再写一遍**。
     return QColor(QStringLiteral("#457F70"));
@@ -956,10 +957,10 @@ QColor defaultAccentColor() {
 QColor rowHoverFill(const QColor &base) {
     if (current().presetId != QLatin1String("system") && current().accent == tokens().primary)
         return tokens().hover;
-    // 认不出（盘上手改歪了）就退回出厂那一支 —— 和 accentShade() 同一个兜底。
+    // 认不出（盘上手改歪了）就退回当前预设那一支 —— 和 `accentShade()` 同一个兜底。
     QColor accent = current().accent;
     if (!accent.isValid()) {
-        accent = defaultAccentColor();
+        accent = tokens().primary;
     }
     // 混法**必须和 `mixWithWhite()` 逐字同式**（`(底*(100-p) + 主题*p + 50) / 100`）：
     // 浅色下 `base` 就是白，这一份和 `accentShade(AccentShade::Hover)` 因此**逐字节相等**
@@ -992,7 +993,7 @@ QColor selectionFill(const QColor &base) {
     // `accentShade(AccentShade::Hover)` 也只差那两个百分比。
     QColor accent = current().accent;
     if (!accent.isValid()) {
-        accent = defaultAccentColor();
+        accent = tokens().primary;
     }
     return mixToward(base, accent, selectionAccentPercent());
 }
@@ -1068,10 +1069,10 @@ QPalette selectionPalette(const QPalette &palette, bool selected) {
 }
 
 QColor accentShade(AccentShade shade) {
-    // 当前那一份里的主题色；认不出（盘上手改歪了）就退回出厂那一支。
+    // 当前那一份里的主题色；认不出（盘上手改歪了）就退回当前预设那一支。
     QColor pure = current().accent;
     if (!pure.isValid()) {
-        pure = defaultAccentColor();
+        pure = tokens().primary;
     }
     switch (shade) {
     case AccentShade::Pure:
@@ -2316,7 +2317,8 @@ QStyle *createStyle() {
 // ---------------------------------------------------------------------------
 
 QStringList presetIds() {
-    return {QStringLiteral("emerald"), QStringLiteral("ocean"), QStringLiteral("dark"),
+    // 这一个是设置页「配色」那一格的下拉顺序：出厂默认那一档排第一。
+    return {QStringLiteral("dark"), QStringLiteral("emerald"), QStringLiteral("ocean"),
             QStringLiteral("system")};
 }
 
@@ -2344,10 +2346,11 @@ Spec presetSpec(const QString &id) {
 }
 
 Spec defaultSpec() {
-    // 新安装默认使用翡翠实验室；已有的系统主题和自定义覆盖继续读回。
+    // 新安装默认使用石炭灰：主题色跟着预设那一支走（和 `presetSpec()` 同一个来源）。
+    // 盘上存过预设 / 主题色 / 覆盖项的继续按存的那一份读回。
     Spec spec;
-    spec.presetId = QStringLiteral("emerald");
-    spec.accent = defaultAccentColor();
+    spec.presetId = QStringLiteral("dark");
+    spec.accent = tokens(spec.presetId).primary;
     return spec;
 }
 

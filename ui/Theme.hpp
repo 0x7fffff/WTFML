@@ -30,7 +30,8 @@
  *
  * 【默认与兼容】
  *
- * `defaultSpec()` 使用翡翠实验室。海洋蓝和炭灰由相同的 Tokens 映射到调色板与 QSS。
+ * `defaultSpec()` 使用石炭灰（`dark`），主题色就是它自己那一支 tokens 的 `primary`。
+ * 翡翠绿、海洋蓝和石炭灰由同一套 Tokens 映射到调色板与 QSS。
  * 已存储的系统主题继续跟随系统；旧 light 标识迁移为 emerald，自定义覆盖仍优先。
  *
  * 【换主题那一刻会发生什么】
@@ -271,9 +272,10 @@ enum class AccentShade {
 
 constexpr int accentShadeCount() { return static_cast<int>(AccentShade::Count); }
 
-/// 某一档现在的色。**永远有效**（`Spec::accent` 认不出时退回出厂那支绿）。
+/// 某一档现在的色。**永远有效**（`Spec::accent` 认不出时退回当前预设那一支）。
 QColor accentShade(AccentShade shade);
-/// 出厂那一支（那六个十六进制位）。**全仓唯一出处。**
+/// 翡翠绿那一支主题色（挑色框里那行示例色）。出厂主题色不取这里，见 `defaultSpec()`。
+/// **全仓唯一出处。**
 QColor defaultAccentColor();
 
 /**
@@ -785,12 +787,15 @@ QStyle *createStyle();
  * 只有用户在预设之外点名要一个色时才写进来。
  */
 struct Spec {
-    /// 预设 id（`presetIds()` 里那三个之一）。**故意没有 "custom"**：覆盖项是叠在预设
+    /// 预设 id（`presetIds()` 里那几个之一）。**故意没有 "custom"**：覆盖项是叠在预设
     /// 上面的，换了覆盖项预设还是那一个（"深色 + 我改的那几项"读起来比"自定义"准）。
+    /// NOTE: 默认构造这里是 `system`（没说过用哪一档 = 跟着系统）；出厂那一份看
+    /// `defaultSpec()`（石炭灰）。
     QString presetId = QStringLiteral("system");
     /// 全体文字的不透明度（0~100）。100 = 一点也不透（今天的样子）。
     int textOpacity = 100;
-    /// **主题色**（那一支绿）。出厂 = `defaultAccentColor()`，永远有效（认不出退回出厂）。
+    /// **主题色**（那一支强调色）。出厂 = 当前预设的 `tokens(presetId).primary`
+    /// （新安装是石炭灰的 #B7B3EE），永远有效（认不出退回同一支）。
     ///
     /// NOTE: 它**不是** `Theme/Accents/*` 底下那四个（那四个是"语义色"：危险 / 警告 /
     /// 正常 / 报错）。单数那个是"这一套界面是什么颜色"，复数那几个是"红黄绿各是
@@ -812,10 +817,11 @@ const Spec &current();
 /// 只换内存里这一份（不落盘、也不铺开 —— 要生效得再 `apply()`）。参数越界会被收拾干净。
 void setSpec(const Spec &spec);
 
-/// "出厂"那一份：翡翠实验室、一项覆盖都没有（**主题色除外** —— 它出厂就是那一支绿）。
+/// "出厂"那一份：石炭灰、一项覆盖都没有（主题色是石炭灰那一支 primary）。
 Spec defaultSpec();
 
-/// 三个预设：`system`（跟着系统）/ `light` / `dark`。
+/// 四个预设，按设置页「配色」那一格的下拉顺序：
+/// `dark`（石炭灰，出厂默认）/ `emerald`（翡翠绿）/ `ocean`（海洋蓝）/ `system`（跟着系统）。
 QStringList presetIds();
 QString presetName(const QString &id);
 bool isPresetId(const QString &id);

@@ -41,7 +41,9 @@ int UiScrollBarsChecks(QApplication &app, QFrame * &bar) {
         host.resize(240, 160);
         host.setAutoFillBackground(true);
         QPalette hostPalette = host.palette();
-        const QColor hostFill(0xfc, 0xfc, 0xfc);   // 页面底（`Part::PageBackground` 出厂那一档）
+        // 页面底取**当前预设那一支**（`tokens().page`）：把手色也是那一支里挑的
+        // （`scrollHandleColor()`），两样同一个底才量得出"把手和它底下那层分得开"。
+        const QColor hostFill = Theme::tokens().page;
         hostPalette.setColor(QPalette::Window, hostFill);
         host.setPalette(hostPalette);
 
@@ -141,9 +143,8 @@ int UiScrollBarsChecks(QApplication &app, QFrame * &bar) {
                   .arg(grooveRect.height())
                   .arg(bar->width())
                   .arg(bar->height()));
-        // 把手得是**主题那一支**（`scrollHandleColor()`：认得出的预设是自家 `thumb`，
-        // 默认这一档是翡翠的浅绿灰 —— 不是 Fusion 那种中性灰），拿混色算一遍对一下；
-        // 并且和底下那一层明度差得开（看得见才叫把手）。
+        // 把手得是**主题那一支**（`scrollHandleColor()`：认得出的预设是自家 `thumb`），
+        // 拿混色算一遍对一下；并且和底下那一层明度差得开（看得见才叫把手）。
         const QColor handleInk = at((firstInk + lastInk) / 2, probeY);
         const QColor want = Theme::scrollHandleColor();
         const auto blend = [](const QColor &over, const QColor &under) {

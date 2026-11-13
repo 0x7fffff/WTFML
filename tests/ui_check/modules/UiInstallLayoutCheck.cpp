@@ -42,6 +42,7 @@ int UiInstallLayoutCheck(QApplication &app) {
             if (preset == QStringLiteral("system")) continue; // May legitimately match a named preset.
             auto spec = Theme::defaultSpec();
             spec.presetId = preset;
+            spec.accent = Theme::tokens(preset).primary;
             Theme::setSpec(spec);
             Theme::apply(app);
             const QImage normal = themedGear.pixmap(24, 24, QIcon::Normal).toImage();
