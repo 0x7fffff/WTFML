@@ -169,7 +169,7 @@ void runBottomBarPanelTests() {
     AuthManager *auth = w.findChild<AuthManager *>();
     check(instancesButton != nullptr && accountsButton != nullptr && manager != nullptr &&
               auth != nullptr,
-          "AH0 底栏那颗运行状态按钮、导航轨底部那颗账号按钮、LauncherManager、AuthManager 都找得到");
+          "AH0 底栏那颗运行状态按钮、主页右上那颗账号胶囊、LauncherManager、AuthManager 都找得到");
 
     // 面板每次点开都是**新的一个**（关掉就 deleteLater），所以每开一次都重新捞一遍。
     //
@@ -177,7 +177,7 @@ void runBottomBarPanelTests() {
     // MainWindowUI 里 togglePanel 那段），开着的时候再点一下是"只收不开" ——
     // 不收掉就点，捞回来的是那块正在被删的旧面板（findChild 在本轮里还找得到它，
     // 下一轮就是空的），断言会红在一个和产品无关的地方。
-    // 账号那一边是**账号弹层**（导航轨底部那颗账号按钮弹出来的 AccountPopover），左边那一块
+    // 账号那一边是**账号弹层**（主页右上那颗账号胶囊弹出来的 AccountPopover），左边那一块
     // 还是底栏面板；下面几个 helper 两种都认（按 objectName 分）。
     const auto isAccountPopover = [](QWidget *panel) {
         return panel != nullptr && panel->objectName() == MainWindowUI::accountPopoverName();
@@ -592,8 +592,22 @@ void runBottomBarPanelTests() {
     const int refreshedOnceBefore =
         countOccurrences(messagesSnapshot(), QStringLiteral("已自动更新"));
     {
+        // 胶囊本身：当前是离线账号 Alex ⇒ 名字 Alex、小状态「离线」、头像有脸。
+        {
+            QLabel *pillName = w.findChild<QLabel *>(QStringLiteral("homeAccountLabel"));
+            QLabel *pillType = w.findChild<QLabel *>(QStringLiteral("homeAccountTypeLabel"));
+            QLabel *pillFace = w.findChild<QLabel *>(QStringLiteral("homeAvatarLabel"));
+            check(pillName != nullptr && pillType != nullptr && pillFace != nullptr &&
+                      pillName->text() == QStringLiteral("Alex") &&
+                      pillType->text() == MainWindowUI::accountTypeOfflineText() && !pillType->isHidden() &&
+                      !pillFace->pixmap().isNull(),
+                  "AH7 主页胶囊：名字 Alex + 小状态「离线」+ 一张脸",
+                  pillName != nullptr && pillType != nullptr
+                      ? pillName->text() + QStringLiteral(" / ") + pillType->text()
+                      : QString());
+        }
         QWidget *panel = openPanel(accountsButton);
-        check(panel != nullptr && panel->isVisible(), "AH7 点导航轨底部那颗账号按钮弹出了账号弹层");
+        check(panel != nullptr && panel->isVisible(), "AH7 点主页右上那颗账号胶囊弹出了账号弹层");
         if (panel != nullptr) {
             check(rowTitle(panel, 0) == QStringLiteral("Bob") &&
                       rowTitle(panel, 1) == QStringLiteral("Carol") &&
@@ -701,6 +715,16 @@ void runBottomBarPanelTests() {
             check(AccountStore::activeUuid() == carolUuid,
                   "AH8 切到那个账号了（令牌没换到也不该把这次切换一起作废）",
                   AccountStore::activeUuid());
+            {
+                QLabel *pillName = w.findChild<QLabel *>(QStringLiteral("homeAccountLabel"));
+                QLabel *pillType = w.findChild<QLabel *>(QStringLiteral("homeAccountTypeLabel"));
+                check(pillName != nullptr && pillType != nullptr && pillName->text() == QStringLiteral("Carol") &&
+                          pillType->text() == MainWindowUI::homeAccountMicrosoftText() && !pillType->isHidden(),
+                      "AH8 主页胶囊跟着换成 Carol + 「微软账号」",
+                      pillName != nullptr && pillType != nullptr
+                          ? pillName->text() + QStringLiteral(" / ") + pillType->text()
+                          : QString());
+            }
             check(g_modalTitle == QStringLiteral("登录令牌没能刷新") && g_modalWasWarning,
                   "AH8 令牌换不出来**要弹窗**（产品级约束：错误要弹窗，不能只写日志）",
                   g_modalTitle + QStringLiteral(" / ") + g_modalText);

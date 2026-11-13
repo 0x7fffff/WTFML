@@ -1,6 +1,6 @@
 /**
  * @file MainWindowHomePopovers.cpp
- * @brief 主页上的两块毛玻璃弹层：实例切换（盖在启动区实例名上展开）与账号（贴在导航轨账号那一格右边）。
+ * @brief 主页上的两块毛玻璃弹层：实例切换（盖在启动区实例名上展开）与账号（从右上账号胶囊下面弹出）。
  *
  * 两块都是 GlassPopover（窗口里的子卡片，圆角 14、150 ms 淡入、点外面 / Esc 收起），
  * 设计稿见 r2 home.html 的 .swpop / .acpop。数据由 MainWindow 每次打开时现给，这里只画和回报。
@@ -399,7 +399,7 @@ private:
 
 /// 已登录：账号一行一个（头像 32 + 名字 / 类型，当前那个打勾），一道细线，「添加账号」「管理账号与皮肤」。
 /// 一个账号都没有：居中一块占位头像 48 +「未登录」+ 一颗「登录」主按钮。
-/// 贴在锚点（导航轨账号那一格）右边 10，底边和它对齐。
+/// 从锚点（主页右上那颗账号胶囊）下面 8 弹出，右边和它对齐（窄窗时夹在窗口里）。
 class AccountPopover final : public GlassPopover {
 public:
     AccountPopover(QWidget *anchor, const QList<MainWindowUI::PanelRow> &rows,
@@ -527,10 +527,8 @@ protected:
         if (host == nullptr || m_anchor == nullptr) return;
         adjustSize();
         const QPoint a = m_anchor->mapTo(host, QPoint(0, 0));
-        const int x = qMin(a.x() + m_anchor->width() + 10, qMax(8, host->width() - width() - 8));
-        const int bottom = a.y() + m_anchor->height();
-        const int y = qMax(8, bottom - height());
-        move(x, y);
+        const int x = qBound(8, a.x() + m_anchor->width() - width(), qMax(8, host->width() - width() - 8));
+        move(x, a.y() + m_anchor->height() + 8);
         raise();
     }
 

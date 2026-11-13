@@ -105,12 +105,31 @@ int MwAccountAppearanceChecks() {
                 check(w10.findChild<AccountSkinDialog *>() == nullptr,
                       "Z2 没点之前那个窗**还没有**被建出来（懒建，不点不占内存）");
 
+                // Z1 刚把账号删光：胶囊写「登录」、小状态收起、头像是占位（没有脸）。
+                {
+                    QLabel *pillName = w10.findChild<QLabel *>(QStringLiteral("homeAccountLabel"));
+                    QLabel *pillType = w10.findChild<QLabel *>(QStringLiteral("homeAccountTypeLabel"));
+                    QLabel *pillFace = w10.findChild<QLabel *>(QStringLiteral("homeAvatarLabel"));
+                    check(pillName != nullptr && pillType != nullptr && pillFace != nullptr &&
+                              pillName->text() == MainWindowUI::homeAccountSignInText() && pillType->isHidden() &&
+                              pillFace->pixmap().isNull(),
+                          "Z2 未登录：主页胶囊写「登录」、小状态收起、头像画占位",
+                          pillName != nullptr ? pillName->text() : QString());
+                }
                 entry->click();
                 QApplication::processEvents();
-                // 账号弹层（导航轨底部那颗账号按钮弹出来的）里按名字认「管理账号与皮肤」那一行：
+                // 账号弹层（主页右上那颗账号胶囊弹出来的）里按名字认「管理账号与皮肤」那一行：
                 // 账号有几行由缓存里的账号数决定，记死行号会红在一个和产品无关的地方。
                 // Z1 刚把账号删光，这时是「未登录」：弹层只有一颗「登录」，开的就是这一页。
                 QWidget *popover0 = w10.findChild<QWidget *>(MainWindowUI::accountPopoverName());
+                {
+                    QLabel *state = popover0 != nullptr
+                                        ? popover0->findChild<QLabel *>(QStringLiteral("accountPopoverState"))
+                                        : nullptr;
+                    check(state != nullptr && state->text() == MainWindowUI::bottomBarPanelNoAccountTitle(),
+                          "Z2 未登录时弹层写「未登录」（下面一颗「登录」）",
+                          state != nullptr ? state->text() : QString());
+                }
                 QAbstractButton *manageButton = nullptr;
                 if (popover0 != nullptr) {
                     for (QAbstractButton *row : popover0->findChildren<QAbstractButton *>()) {
@@ -441,7 +460,7 @@ int MwAccountAppearanceChecks() {
                     if (entry != nullptr) {
                         entry->click();
                         QApplication::processEvents();
-                        // 账号弹层（导航轨底部那颗账号按钮弹出来的）里按名字认「管理账号与皮肤」那一行：
+                        // 账号弹层（主页右上那颗账号胶囊弹出来的）里按名字认「管理账号与皮肤」那一行：
                         // 账号有几行由缓存里的账号数决定，记死行号会红在一个和产品无关的地方。
                         QWidget *popover0 = w11.findChild<QWidget *>(MainWindowUI::accountPopoverName());
                         QAbstractButton *manageButton = nullptr;

@@ -12,7 +12,7 @@ int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget 
         // 那几条在 mw_check 里量。
         QPushButton *runBtn = ui.getRunStateButton();
         QPushButton *accBtn = ui.getAccountButton();
-        // 账号弹层的锚点是**导航轨底部那颗账号按钮**（`accCard`，设计稿 r2 home-acct-rail）。
+        // 账号弹层的锚点是**主页右上那颗账号胶囊**（`accCard`，11-12 用户反馈）。
         // `accBtn` 是老那一格账号，一直收着，留着只量"底栏那组兼容控件还在"。
         QPushButton *accCard = ui.getAccountSkinButton();
         QLabel *runState = ui.getRunStateLabel();
@@ -421,8 +421,11 @@ int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget 
             QApplication::processEvents();
             check(window.findChild<QWidget *>(MainWindowUI::bottomBarPanelName()) != nullptr,
                   "I4 收回之后再点一下还能打开（开关是双向的）");
-            // ⑥ 账号弹层（锚点是导航轨底部那颗账号按钮，弹在它**右边**、底边对齐）。
-            // 这会儿左边那块是开着的：点账号按钮要**这块收、那块开**，不能两块一起挂着。
+            // ⑥ 账号弹层（锚点是主页右上那颗账号胶囊，从它**下面**弹出、右边对齐）。
+            // 这会儿左边那块是开着的：点账号胶囊要**这块收、那块开**，不能两块一起挂着。
+            // 胶囊在主页上：先切到主页，量的才是它真摆着的几何。
+            tabs->setCurrentIndex(0);
+            QApplication::processEvents();
             QWidget *leftOpen = window.findChild<QWidget *>(MainWindowUI::bottomBarPanelName());
             check(leftOpen != nullptr && leftOpen->isVisible(),
                   "I4 换面之前左边那块开着（量下面那条的前提）");
@@ -448,14 +451,14 @@ int UiBottomBarPopoversChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget 
                   "I4 弹层开着时账号按钮保持按住的底色（wtfmlOpen）");
             if (pop != nullptr) {
                 const QPoint a = accCard->mapTo(pop->parentWidget(), QPoint(0, 0));
-                check(pop->x() >= a.x() + accCard->width() ||
-                          pop->x() + pop->width() <= pop->parentWidget()->width() - 8,
-                      "I4 账号弹层摆在账号按钮右边（窄窗时夹在窗口里）",
-                      QStringLiteral("弹层 x=%1 / 按钮右边 %2").arg(pop->x()).arg(a.x() + accCard->width()));
-                check(pop->y() + pop->height() == a.y() + accCard->height() || pop->y() == 8,
-                      "I4 账号弹层底边和账号按钮底边对齐（往上长）",
-                      QStringLiteral("弹层底 %1 / 按钮底 %2")
-                          .arg(pop->y() + pop->height()).arg(a.y() + accCard->height()));
+                check(pop->x() + pop->width() == a.x() + accCard->width() || pop->x() == 8 ||
+                          pop->x() + pop->width() == pop->parentWidget()->width() - 8,
+                      "I4 账号弹层右边和账号胶囊右边对齐（窄窗时夹在窗口里）",
+                      QStringLiteral("弹层右 %1 / 胶囊右 %2")
+                          .arg(pop->x() + pop->width()).arg(a.x() + accCard->width()));
+                check(pop->y() == a.y() + accCard->height() + 8,
+                      "I4 账号弹层从胶囊下面 8 弹出（往下长）",
+                      QStringLiteral("弹层顶 %1 / 胶囊底 %2").arg(pop->y()).arg(a.y() + accCard->height()));
                 auto *row0 = pop->findChild<QAbstractButton *>(QStringLiteral("accountPopoverRow0"));
                 auto *row1 = pop->findChild<QAbstractButton *>(QStringLiteral("accountPopoverRow1"));
                 auto *row2 = pop->findChild<QAbstractButton *>(QStringLiteral("accountPopoverRow2"));

@@ -229,6 +229,88 @@ private:
     bool m_dashed = false;
 };
 
+/// 主页右上那颗账号胶囊里的圆头像（32，和胶囊两头的半圆同心）。没登录（pixmap 空）画淡底 + 人形线条。
+class HomeAccountAvatar final : public QLabel {
+public:
+    using QLabel::QLabel;
+
+protected:
+    void paintEvent(QPaintEvent *) override {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        const QRectF box(rect());
+        if (!pixmap().isNull()) {
+            RoundAvatar::paint(p, box, pixmap().toImage());
+            return;
+        }
+        const Theme::Tokens t = Theme::tokens();
+        p.setPen(Qt::NoPen);
+        p.setBrush(t.subtle);
+        p.drawEllipse(box);
+        const qreal side = box.width() * 0.5;
+        VersionIcons::paintLine(p, QStringLiteral("user"),
+                                QRectF(box.center() - QPointF(side / 2, side / 2), QSizeF(side, side)), heroInk(true));
+    }
+};
+
+/// 主页右上的账号胶囊：圆头像 + 名字 + 一行很淡的小状态，点开账号弹层。
+/// 一直铺一层场景暗角色（heroVeil）的淡底、不描边 —— 风景再花，名字也压得住（浓度见
+/// `MainWindowUI::homeAccountPillVeilAlpha()`）；悬停 / 按下 / 弹层开着再浓一档。
+/// 宽度随内容走，封顶 kHomeAccountPillWidth（QPushButton 的 sizeHint 不看布局，这里改成看）。
+class HomeAccountPill final : public QPushButton {
+public:
+    explicit HomeAccountPill(QWidget *parent) : QPushButton(parent) {
+        setAttribute(Qt::WA_Hover, true);
+        setCursor(Qt::PointingHandCursor);
+    }
+    QSize sizeHint() const override {
+        const QSize s = layout() != nullptr ? layout()->sizeHint() : QSize();
+        return QSize(qMin(s.width(), kHomeAccountPillWidth), kHomeAccountPillHeight);
+    }
+    QSize minimumSizeHint() const override { return QSize(kHomeAccountPillHeight, kHomeAccountPillHeight); }
+
+protected:
+    bool event(QEvent *e) override {
+        // 名字换了 => 里面那套布局重算 => 让外面重新问一遍 sizeHint（宽度跟着名字走）。
+        if (e->type() == QEvent::LayoutRequest) updateGeometry();
+        return QPushButton::event(e);
+    }
+    void paintEvent(QPaintEvent *) override {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        const Theme::Tokens t = Theme::tokens();
+        const bool hot = property("wtfmlOpen").toBool() || isDown() || underMouse();
+        const QRectF box(rect());
+        const qreal radius = box.height() / 2;
+        QColor fill;
+        if (Glass::sceneShown()) {
+            fill = t.heroVeil;
+            fill.setAlphaF(qMin(1.0, MainWindowUI::homeAccountPillVeilAlpha(Theme::isDark()) +
+                                         (isDown() ? 0.18 : hot ? 0.10 : 0.0)));
+        } else {
+            fill = hot ? t.hover : t.subtle;
+        }
+        p.setPen(Qt::NoPen);
+        p.setBrush(fill);
+        p.drawRoundedRect(box, radius, radius);
+        if (hasFocus() && property("wtfmlKeyboardFocus").toBool()) {
+            QPen ring(Theme::focusRingColor(palette()));
+            ring.setWidthF(2.0);
+            p.setPen(ring);
+            p.setBrush(Qt::NoBrush);
+            p.drawRoundedRect(box.adjusted(1, 1, -1, -1), radius - 1, radius - 1);
+        }
+    }
+    void enterEvent(QEnterEvent *event) override {
+        QPushButton::enterEvent(event);
+        update();
+    }
+    void leaveEvent(QEvent *event) override {
+        QPushButton::leaveEvent(event);
+        update();
+    }
+};
+
 /// 实例带上的「最近 / 收藏」页签（设计稿 r2 .htabs span）：系统字 14，28 高的小胶囊；
 /// 平时 heroInk2，选中铺弱强调底、字用强调色。
 class HomeStripTab final : public QPushButton {
@@ -935,8 +1017,9 @@ QWidget *MainWindowUI::setupHomePage() {
         homeLaunchLayout->addWidget(homeQuickSection);
         homeBottomLayout->addWidget(homeLaunchArea);
     }
-    // ---------- 主页右栏：站在风景里的立绘 ----------
-    // 设计稿：立绘不进任何盒子，脚踩一圈落地影站在右下，脚底和启动按钮底边齐。账号入口在导航轨底部。
+    // ---------- 主页右栏：账号胶囊 + 站在风景里的立绘 ----------
+    // 设计稿：账号胶囊贴右上（页面在 40 高的拖动条下面，窗口按钮压不到它）；立绘不进任何盒子，
+    // 脚踩一圈落地影站在右下，脚底和启动按钮底边齐。
     {
         auto *profileCard = new QWidget(home.right.widget);
         profileCard->setObjectName(QStringLiteral("homeProfileCard"));
@@ -944,6 +1027,47 @@ QWidget *MainWindowUI::setupHomePage() {
         auto *profileLayout = new QVBoxLayout(profileCard);
         profileLayout->setContentsMargins(0, 0, 0, 0);
         profileLayout->setSpacing(0);
+
+        // 账号唯一的入口。名字 / 小状态 / 头像由 MainWindow::updateBottomBar() 灌。
+        accountSkinButton = new HomeAccountPill(profileCard);
+        accountSkinButton->setObjectName(accountSkinButtonName());
+        accountSkinButton->setAccessibleName(QStringLiteral("账号"));
+        accountSkinButton->setToolTip(accountSkinButtonText());
+        auto *accountRow = new QHBoxLayout(accountSkinButton);
+        accountRow->setContentsMargins(6, 0, 16, 0);
+        accountRow->setSpacing(10);
+        homeAvatarLabel = new HomeAccountAvatar(accountSkinButton);
+        homeAvatarLabel->setObjectName(QStringLiteral("homeAvatarLabel"));
+        homeAvatarLabel->setFixedSize(32, 32);
+        homeAvatarLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+        accountRow->addWidget(homeAvatarLabel);
+        auto *identity = new QVBoxLayout;
+        identity->setContentsMargins(0, 0, 0, 0);
+        identity->setSpacing(0);
+        identity->addStretch(1);
+        homeAccountLabel = new ElidedLabel(accountSkinButton);
+        homeAccountLabel->setObjectName(QStringLiteral("homeAccountLabel"));
+        {
+            QFont nameFont = Theme::textFont(homeAccountLabel->font(), Theme::TextRole::Body);
+            nameFont.setWeight(QFont::DemiBold);
+            homeAccountLabel->setFont(nameFont);
+        }
+        homeAccountLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+        followHeroInk(homeAccountLabel, false);
+        identity->addWidget(homeAccountLabel);
+        homeAccountTypeLabel = new ElidedLabel(accountSkinButton);
+        homeAccountTypeLabel->setObjectName(QStringLiteral("homeAccountTypeLabel"));
+        homeAccountTypeLabel->setFont(Theme::textFont(homeAccountTypeLabel->font(), Theme::TextRole::Caption));
+        homeAccountTypeLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+        followHeroInk(homeAccountTypeLabel, true);
+        identity->addWidget(homeAccountTypeLabel);
+        // 业务层灌数据之前先按「没登录」摆：名字写「登录」、小状态收起。
+        homeAccountLabel->setText(homeAccountSignInText());
+        homeAccountTypeLabel->hide();
+        identity->addStretch(1);
+        accountRow->addLayout(identity, 1);
+        QObject::connect(accountSkinButton, &QPushButton::clicked, accountSkinButton, [this]() { toggleAccountsPanel(); });
+        profileLayout->addWidget(accountSkinButton, 0, Qt::AlignRight | Qt::AlignTop);
 
         skinViewer = new SkinViewer(profileCard);
         skinViewer->setObjectName(skinViewerName());

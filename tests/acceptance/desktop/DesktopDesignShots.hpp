@@ -11,6 +11,7 @@
 #include "TaskProgressBar.hpp"
 #include "Theme.hpp"
 #include "TitleBar.hpp"
+#include "auth/AccountStore.hpp"
 #include "ToolboxPage.hpp"
 #include "GameLogWindow.hpp"
 #include "SchematicInfoDialog.hpp"
@@ -571,7 +572,7 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
     const int download = MainWindowUI::downloadTabIndex();
     const int agent = MainWindowUI::agentTabIndex();
     const int home = MainWindowUI::homeTabIndex();
-    static const QList<Shot> shots = [&]() { QList<Shot> list{
+    static const QList<Shot> shots = [&]() { QList<Shot> r66; QList<Shot> list{
         {QStringLiteral("home-dark.png"), QStringLiteral("dark"), {1280, 800}, false},
         {QStringLiteral("home-emerald.png"), QStringLiteral("emerald"), {1280, 800}, false},
         {QStringLiteral("home-ocean.png"), QStringLiteral("ocean"), {1280, 800}, false},
@@ -634,11 +635,11 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         // 最大化 → 还原 → 拖到屏幕另一处再抓（几何账目在还原后最容易差几像素）。
         list.append({QStringLiteral("edge-restore-dark.png"), QStringLiteral("dark"), {860, 640}, false, home, QStringLiteral("edge:restore")});
         list.append({QStringLiteral("edge-restore-emerald.png"), QStringLiteral("emerald"), {860, 640}, false, home, QStringLiteral("edge:restore")});
-        // 导航轨底部账号那一格：账号弹层打开的样子（收起的样子看 home-*.png 左下角）。
+        // 主页右上账号胶囊：账号弹层打开的样子（收起的样子看 home-*.png 右上角）。
         for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("emerald"), QStringLiteral("ocean")})
             list.append({QStringLiteral("account-menu-%1.png").arg(theme), theme, {1000, 700}, false, home, QStringLiteral("account")});
         // r2 主页方案 A 对照（设计稿 r2/png/home-A-* / home-A-switch-* / home-empty-* / home-acct-rail-*）：
-        // 有实例、实例切换弹层打开、没有实例、导航轨账号弹层打开 × 暗 / 翡翠 × 两档尺寸。
+        // 有实例、实例切换弹层打开、没有实例、账号弹层打开（锚点现在是主页右上那颗胶囊）× 暗 / 翡翠 × 两档尺寸。
         for (const char *state : {"home-A", "home-A-switch", "home-empty", "home-acct-rail"})
             for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("emerald")})
                 for (const QSize size : {QSize(900, 620), QSize(1280, 800)})
@@ -650,6 +651,14 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
                 for (const QSize size : {QSize(900, 620), QSize(1280, 800)})
                     list.append({QStringLiteral("r2-agent-%1-%2-%3x%4.png").arg(QLatin1String(state), theme).arg(size.width()).arg(size.height()),
                                  theme, size, false, agent, QStringLiteral("r2:agent-") + QLatin1String(state)});
+        // r66 账号胶囊回主页右上：已登录 / 已登录弹层开 / 未登录 / 未登录弹层开 × 三主题 × 两档尺寸。
+        // 未登录那两组排在**整张单子最后**（WTFML_DESIGN_SHOT_FILTER=r66- 只出这一组）：头一张会真的
+        // 点弹层里的「退出登录」，之后的样张都是未登录。
+        for (const char *state : {"in", "in-open", "out", "out-open"})
+            for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("emerald"), QStringLiteral("ocean")})
+                for (const QSize size : {QSize(1280, 800), QSize(900, 620)})
+                    r66.append({QStringLiteral("r66-%1-%2-%3x%4.png").arg(QLatin1String(state), theme).arg(size.width()).arg(size.height()),
+                                theme, size, false, home, QStringLiteral("r66:") + QLatin1String(state)});
         // 设置页三主题（去硬描边那轮逐页自检用）。
         for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("emerald"), QStringLiteral("ocean")})
             list.append({QStringLiteral("settings-%1.png").arg(theme), theme, {1280, 800}, false, MainWindowUI::settingsTabIndex()});
@@ -673,6 +682,7 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         const QString only = qEnvironmentVariable("WTFML_DESIGN_SHOT_FILTER");
         if (!only.isEmpty())
             list.removeIf([&only](const Shot &shot) { return !shot.file.contains(only); });
+        list += r66;  // 未登录那组会真的退出登录：放最后
         return list;
     }();
     static int index = 0;
@@ -831,6 +841,19 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
                         tree->setCurrentItem(top->child(0));
                         break;
                     }
+            } else if (shot.page.startsWith(QStringLiteral("r66:"))) {
+                QPushButton *pill = window.ui()->getAccountSkinButton();
+                const bool open = shot.page.endsWith(QStringLiteral("-open"));
+                if (shot.page.startsWith(QStringLiteral("r66:out")) && !AccountStore::activeUuid().isEmpty()) {
+                    // 走真路径退出：点胶囊 → 弹层里「退出登录」那一行（动作排到下一轮，见 AccountPopover）。
+                    pill->click();
+                    if (auto *pop = window.findChild<QWidget *>(MainWindowUI::accountPopoverName()))
+                        for (QAbstractButton *row : pop->findChildren<QAbstractButton *>())
+                            if (row->accessibleName() == MainWindowUI::accountLogoutText()) row->click();
+                    if (open) QTimer::singleShot(300, pill, [pill]() { pill->click(); });
+                } else if (open) {
+                    pill->click();
+                }
             } else if (shot.page == QStringLiteral("account")) {
                 // 面板按屏幕可用区夹位置：窗口伸出屏外时它会被夹回来、不再贴着胶囊右沿。
                 window.move(window.screen()->availableGeometry().topLeft() + QPoint(60, 60));

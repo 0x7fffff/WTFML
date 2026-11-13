@@ -256,7 +256,7 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
         fold->setFixedHeight(44);
     }
 
-    // 「账号与外观」窗的入口只在主页身份区和导航轨底部浮层；设置里不再有账户一节。
+    // 「账号与外观」窗的入口只在主页右上账号胶囊的浮层里；设置里不再有账户一节。
     // 这颗按钮留作隐藏的兼容入口（MainWindow / 验证工程按名字取它，直通同一个窗）。
     accountSkinSettingsButton = new QPushButton(accountSkinButtonText(), page);
     accountSkinSettingsButton->setObjectName(accountSkinSettingsButtonName());

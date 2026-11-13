@@ -151,14 +151,16 @@ void MainWindow::updateBottomBar() {
             : (m_authManager->loggedIn() ? MainWindowUI::accountTypeOnlineText()
                                          : MainWindowUI::accountTypeNotLoggedInText());
     m_ui->getAccountTypeLabel()->setText(accountType);
-    // 主页是账号的唯一可见入口；底栏那份标签只为兼容保留数据，不再承担身份展示。
-    // 导航轨底部那一格：没登录（也不是离线账号）就写「未登录」、头像画占位（pixmap 留空）。
+    // 主页右上那颗账号胶囊是账号的唯一可见入口；底栏那份标签只为兼容保留数据。
+    // 没登录（也不是离线账号）：名字那里写「登录」、小状态收起、头像画占位（pixmap 留空）。
     const bool signedIn = offlineIdentity() || m_authManager->loggedIn();
     if (QLabel *homeName = m_ui->getHomeAccountLabel()) {
-        homeName->setText(signedIn ? name : MainWindowUI::bottomBarPanelNoAccountTitle());
+        homeName->setText(signedIn ? name : MainWindowUI::homeAccountSignInText());
     }
     if (QLabel *homeType = m_ui->getHomeAccountTypeLabel()) {
-        homeType->setText(accountType);
+        homeType->setText(offlineIdentity() ? MainWindowUI::accountTypeOfflineText()
+                                            : MainWindowUI::homeAccountMicrosoftText());
+        homeType->setVisible(signedIn);
     }
     // 头像优先用**真皮肤**抠出来的那一块（m_avatarPixmap，在 applyPlayerSkin() 里算好
     // 存着 —— 这里每次进度刷新都会被调到，不能现算）。没有它的时候（未登录、还没取到、

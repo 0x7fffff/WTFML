@@ -2280,8 +2280,8 @@ int main(int argc, char *argv[]) {
         tabs->setCurrentIndex(0);
         QApplication::processEvents();
 
-        // ---- Y1 账号入口在导航轨底部（设计稿 r2 home-acct-rail）----
-        // 头像 + 名字一颗按钮，点开账号弹层；主页右上那颗账号胶囊已经删了。
+        // ---- Y1 账号入口：主页右上那颗胶囊（11-12 用户反馈，取代导航轨底部那一格）----
+        // 圆头像 + 名字 + 一行小状态，极淡的底、不描边，点开账号弹层。
         QPushButton *entry = ui.getAccountSkinButton();
         SkinViewer *homeViewer = ui.getSkinViewer();
         QLabel *hint = ui.getSkinHintLabel();
@@ -2290,16 +2290,83 @@ int main(int argc, char *argv[]) {
         if (entry != nullptr && homeViewer != nullptr && hint != nullptr) {
             check(entry->objectName() == MainWindowUI::accountSkinButtonName(),
                   "objectName 对得上（验证工程和 mw_check 都按它认控件）");
-            check(isDescendantOf(entry, bar) && entry->isVisibleTo(&window),
-                  "账号入口在导航轨底部那一串里、可见");
+            QWidget *profileCard = window.findChild<QWidget *>(QStringLiteral("homeProfileCard"));
+            check(profileCard != nullptr && isDescendantOf(entry, profileCard) && entry->isVisibleTo(&window),
+                  "账号胶囊在主页右栏（立绘那一栏）里、可见");
+            check(bar->findChild<QPushButton *>(MainWindowUI::accountSkinButtonName()) == nullptr &&
+                      bar->findChild<QLabel *>(QStringLiteral("homeAvatarLabel")) == nullptr &&
+                      bar->findChild<QLabel *>(QStringLiteral("homeAccountLabel")) == nullptr &&
+                      ui.titleBar()->findChild<QPushButton *>(MainWindowUI::accountSkinButtonName()) == nullptr,
+                  "导航轨底部没有账号格（头像 / 名字都不在轨上）");
             check(!entry->accessibleName().isEmpty(), "无障碍名不空", entry->accessibleName());
-            check(entry->height() == TitleBar::navItemHeight(),
-                  "账号那一格和导航项一样高（全局 QSS 的 min-height 没把它压扁）",
+            check(entry->height() == 44, "胶囊高 44（全局 QSS 的 min-height 没把它压扁）",
                   QString::number(entry->height()));
-            check(window.findChild<QWidget *>(QStringLiteral("homeProfileCard")) == nullptr ||
-                      window.findChild<QWidget *>(QStringLiteral("homeProfileCard"))
-                              ->findChild<QPushButton *>() == nullptr,
-                  "主页右栏里不再有任何账号按钮（只剩立绘）");
+            QLabel *pillName = ui.getHomeAccountLabel();
+            QLabel *pillType = ui.getHomeAccountTypeLabel();
+            QLabel *pillFace = ui.getHomeAvatarLabel();
+            check(pillName != nullptr && pillType != nullptr && pillFace != nullptr &&
+                      pillName->parentWidget() == entry && pillType->parentWidget() == entry &&
+                      pillFace->parentWidget() == entry,
+                  "圆头像、名字、小状态都装在胶囊里");
+            if (pillName != nullptr && pillType != nullptr && pillFace != nullptr) {
+                check(pillName->text() == MainWindowUI::homeAccountSignInText() && !pillType->isVisibleTo(&window),
+                      "没登录（还没人灌数据）：胶囊写「登录」、小状态收起", pillName->text());
+                check(pillName->font().pixelSize() == Theme::textSize(Theme::TextRole::Body) &&
+                          pillType->font().pixelSize() == Theme::textSize(Theme::TextRole::Caption),
+                      "名字正文 14、小状态说明 13（26/16/14/13 四档里的两档）",
+                      QStringLiteral("%1 / %2").arg(pillName->font().pixelSize()).arg(pillType->font().pixelSize()));
+                check(pillFace->width() == 32 && pillFace->height() == 32, "头像 32 见方（画成圆）");
+            }
+            check(window.findChild<QWidget *>(QStringLiteral("homeHeroSubtitle")) == nullptr,
+                  "主页没有英文副题「Your next world awaits.」");
+            // 两档窗口：胶囊整颗在窗里、不压拖动条（窗口按钮在那条上）、贴右上、不挤大标题。
+            {
+                const QSize before = window.size();
+                QWidget *caption = ui.titleBar()->captionStrip();
+                QWidget *title = window.findChild<QWidget *>(QStringLiteral("homeHeroTitle"));
+                for (const QSize size : {QSize(1280, 800), QSize(900, 620)}) {
+                    window.resize(size);
+                    QApplication::processEvents();
+                    QApplication::processEvents();
+                    const QRect r(entry->mapTo(&window, QPoint(0, 0)), entry->size());
+                    const QRect cap(caption->mapTo(&window, QPoint(0, 0)), caption->size());
+                    const QString where = QStringLiteral("%1x%2 胶囊 %3,%4 %5x%6 / 拖动条底 %7")
+                                              .arg(size.width()).arg(size.height())
+                                              .arg(r.x()).arg(r.y()).arg(r.width()).arg(r.height())
+                                              .arg(cap.bottom());
+                    check(window.rect().contains(r), "胶囊整颗在窗口里（没被裁）", where);
+                    check(!r.intersects(cap), "胶囊不压窗口按钮那条拖动条", where);
+                    check(r.right() >= window.width() - 48 && r.top() <= cap.bottom() + 24,
+                          "胶囊贴着右上角", where);
+                    check(title == nullptr || !r.intersects(QRect(title->mapTo(&window, QPoint(0, 0)), title->size())),
+                          "胶囊不挤大标题", where);
+                }
+                window.resize(before);
+                QApplication::processEvents();
+            }
+            // 底色浓度：名字（heroInk）压在「胶囊底 over 花背景」上要有 4.5:1。
+            // 暗色主题按灰 160 的亮块、浅色主题按灰 96 的暗块量（中间调的风景是最难压的那种）。
+            {
+                const auto lum = [](const QColor &c) {
+                    const auto ch = [](double v) {
+                        return v <= 0.04045 ? v / 12.92 : std::pow((v + 0.055) / 1.055, 2.4);
+                    };
+                    return 0.2126 * ch(c.redF()) + 0.7152 * ch(c.greenF()) + 0.0722 * ch(c.blueF());
+                };
+                for (const QString &id : Theme::presetIds()) {
+                    const Theme::Tokens t = Theme::tokens(id);
+                    const bool dark = t.heroVeil.lightness() < 128;
+                    const double a = MainWindowUI::homeAccountPillVeilAlpha(dark);
+                    const double bg = (dark ? 160 : 96) / 255.0;
+                    const QColor under = QColor::fromRgbF(float(a * t.heroVeil.redF() + (1 - a) * bg),
+                                                          float(a * t.heroVeil.greenF() + (1 - a) * bg),
+                                                          float(a * t.heroVeil.blueF() + (1 - a) * bg));
+                    const double l1 = lum(t.heroInk), l2 = lum(under);
+                    const double ratio = (std::max(l1, l2) + 0.05) / (std::min(l1, l2) + 0.05);
+                    check(ratio >= 4.5 && a <= 0.40, "胶囊底极淡（≤ 0.40）但名字在花背景上仍有 4.5:1",
+                          QStringLiteral("%1 α=%2 对比 %3").arg(id).arg(a).arg(ratio, 0, 'f', 2));
+                }
+            }
             check(!hint->isVisibleTo(&window),
                   "主页不再显示那句重复解释外观状态的文本");
             check(homeViewer->isVisibleTo(&window), "角色预览仍然完整显示");

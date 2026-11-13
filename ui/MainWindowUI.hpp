@@ -1636,8 +1636,16 @@ public:
     static QString agentTabName() { return QStringLiteral("agentPage"); }
     static QString skinViewerName() { return SkinViewer::viewerName(); }
     static QString skinHintLabelName() { return QStringLiteral("skinHintLabel"); }
-    /// 账号入口：导航轨底部那一格（头像 + 名字，图标轨时只剩头像），点开账号弹层。
+    /// 账号入口：主页右上那颗胶囊（圆头像 + 名字 + 一行小状态），点开账号弹层。
     static QString accountSkinButtonName() { return QStringLiteral("accountSkinButton"); }
+    /// 账号胶囊压在风景上时那层 heroVeil 底的浓度。按主题定：名字（heroInk，正文 14）在
+    /// 中间调的花背景上也要有 4.5:1 —— 暗色主题按灰 160 的亮块、浅色主题按灰 96 的暗块算，
+    /// 分别要 0.34 / 0.28，各留一点余量（ui_check 主题那一节按这个式子量）。
+    static constexpr double homeAccountPillVeilAlpha(bool dark) { return dark ? 0.36 : 0.30; }
+    /// 没登录时胶囊上那一个字（点开弹层再挑「登录」）。
+    static QString homeAccountSignInText() { return QStringLiteral("登录"); }
+    /// 胶囊里那行小状态：微软正版账号 / 离线账号。
+    static QString homeAccountMicrosoftText() { return QStringLiteral("微软账号"); }
     /// 进「账号与外观」那一页的说法（账号弹层末行、设置页那颗按钮共用）。和其它文案一样
     /// 做成静态访问器 —— 验证工程引它，产品里改一个字就不用两边各写一遍字面量。
     static QString accountSkinButtonText() { return QStringLiteral("管理账号与皮肤"); }
@@ -1654,7 +1662,7 @@ public:
     static QString homeCurrentPickerName() { return QStringLiteral("homeCurrentPicker"); }
     /// 实例切换弹层（毛玻璃，盖在实例名那一块上展开）。
     static QString homeInstancePickerName() { return QStringLiteral("homeInstancePicker"); }
-    /// 账号弹层（毛玻璃，贴在导航轨账号那一格右边）。
+    /// 账号弹层（毛玻璃，从主页右上那颗账号胶囊下面弹出、右边对齐）。
     static QString accountPopoverName() { return QStringLiteral("accountPopover"); }
 
     /// 主页启动区 / 实例带上的动作：启动、停止、开实例设置、打开实例切换弹层、设为当前实例。
@@ -3682,11 +3690,11 @@ public:
     QLabel *getHomeAccountLabel() const { return homeAccountLabel; }
     QLabel *getHomeAvatarLabel() const { return homeAvatarLabel; }
     QLabel *getHomeAccountTypeLabel() const { return homeAccountTypeLabel; }
-    /// 导航轨底部账号那一格（头像 + 名字）。**它是账号唯一的入口**：
-    /// 点一下在它右边弹出账号弹层（见 `toggleAccountsPanel()`）。
+    /// 主页右上那颗账号胶囊（圆头像 + 名字 + 小状态）。**它是账号唯一的入口**：
+    /// 点一下在它下面弹出账号弹层（见 `toggleAccountsPanel()`）。导航轨上没有账号格。
     QPushButton *getAccountSkinButton() const { return accountSkinButton; }
 
-    /// 点一下导航轨底部账号那一格：账号弹层开/收（毛玻璃，贴在那一格右边，见 MainWindowHomePopovers.cpp）。
+    /// 点一下主页账号胶囊：账号弹层开/收（毛玻璃，从胶囊下面弹出，见 MainWindowHomePopovers.cpp）。
     void toggleAccountsPanel();
 
     QTabWidget *getTabWidget() const { return tabWidget; }
@@ -3713,7 +3721,7 @@ public:
     /// 工具箱那颗不弹面板，直接切到工具箱选项卡。
     QPushButton *getRunStateButton() const { return runStateButton; }
     /// 底栏右头那一格（头像 + 用户名 + 「⌃」）。★ 它**不摆出来**
-    /// （`setupBottomBar()` 里 `hide()`）：账号身份与入口在导航轨底部那一格，
+    /// （`setupBottomBar()` 里 `hide()`）：账号身份与入口在主页右上那颗胶囊，
     /// 这里只留下这一组控件供业务层继续灌数据（`updateBottomBar()` 那两行文字）。
     /// 账号弹层的锚点是 **`getAccountSkinButton()`**。
     QPushButton *getAccountButton() const { return accountButton; }
