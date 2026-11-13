@@ -6,6 +6,7 @@
  */
 
 #include "Support.hpp"
+#include "support/SettingsIsolation.hpp"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -49,6 +50,7 @@ int main(int argc, char **argv) {
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir);
     QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope,
                        fixture.filePath(QStringLiteral("system-settings")));
+    requireIsolatedSettings(fixture.path(), "verify agent");
     app.setProperty("wtfml.testDefaultMinecraftDir", fixture.filePath(QStringLiteral("minecraft")));
     app.setProperty("wtfml.testAgentDataDir", fixture.filePath(QStringLiteral("agent")));
 

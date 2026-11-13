@@ -1,5 +1,6 @@
 #include "core_modules/Support.hpp"
 #include "core_modules/LongPathTests.hpp"
+#include "support/SettingsIsolation.hpp"
 
 int main(int argc, char *argv[]) {
     QCoreApplication app(argc, argv);
@@ -19,6 +20,7 @@ int main(int argc, char *argv[]) {
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, processSandbox.filePath("settings"));
     QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, processSandbox.filePath("system-settings"));
+    requireIsolatedSettings(processSandbox.path(), "verify");
     app.setProperty("wtfml.testDefaultMinecraftDir", processSandbox.filePath("default-game"));
     const QString repoRoot = QStringLiteral(REPO_ROOT_PATH);
     const QString metaDir = repoRoot + "/tests/meta";

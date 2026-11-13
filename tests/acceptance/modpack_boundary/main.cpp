@@ -5,6 +5,7 @@
 #include "presets/ModInstallPlan.hpp"
 #include "util/AppPaths.hpp"
 #include "util/ZipUtil.hpp"
+#include "support/SettingsIsolation.hpp"
 #include <QElapsedTimer>
 #include <QCoreApplication>
 #include <QCommandLineParser>
@@ -52,6 +53,7 @@ int importRestricted(const QString &root, int cancelAfter, bool crash) {
     QCoreApplication::instance()->setProperty("wtfml.testDefaultMinecraftDir", root + "/game");
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, root + "/settings");
+    requireIsolatedSettings(root, "modpack_boundary");
     AppPaths::setMinecraftDir(root + "/game");
     const QByteArray manifest = R"({"manifestType":"minecraftModpack","manifestVersion":1,"name":"RestrictedBoundary","version":"1","minecraft":{"version":"1.20.1","modLoaders":[{"id":"fabric-0.16.14","primary":true}]},"files":[{"projectID":1121856,"fileID":5813216,"required":true}],"overrides":"overrides"})";
     if (!save(root + "/manifest.json", manifest)) return 2;
@@ -143,6 +145,7 @@ int main(int argc, char **argv) {
     app.setProperty("wtfml.testDefaultMinecraftDir", root + "/game");
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, root + "/settings");
+    requireIsolatedSettings(root, "modpack_boundary");
     AppPaths::setMinecraftDir(root + "/game");
     QNetworkAccessManager network;
     const QString api = "https://mod.mcimirror.top/curseforge/v1";

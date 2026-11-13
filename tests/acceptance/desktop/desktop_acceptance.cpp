@@ -4,6 +4,7 @@
 #include "Theme.hpp"
 #include "Animations.hpp"
 #include "util/AppPaths.hpp"
+#include "support/SettingsIsolation.hpp"
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QDir>
@@ -91,6 +92,7 @@ int main(int argc, char **argv) {
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, root + "/settings");
     QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, root + "/settings-system");
+    requireIsolatedSettings(root, "desktop_acceptance");
     QSettings settings;
     settings.setValue("Launcher/Folders", QStringList{root + "/game"});
     settings.setValue("Launcher/CurrentFolder", root + "/game");

@@ -1,6 +1,7 @@
 // Test-process-only Windows import substitute. No product fault hooks or DLL patching.
 #include "auth/TokenStore.hpp"
 #include "util/AppPaths.hpp"
+#include "support/SettingsIsolation.hpp"
 #include <QCoreApplication>
 #include <QTemporaryDir>
 #include <QSettings>
@@ -40,6 +41,7 @@ int main(int argc, char **argv) {
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, root.path());
     QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, root.filePath("system"));
+    requireIsolatedSettings(root.path(), "token_protection_fault");
     app.setProperty("wtfml.testDefaultMinecraftDir", root.filePath("game"));
     AppPaths::setMinecraftDir(root.filePath("game"));
     int failures = 0;
