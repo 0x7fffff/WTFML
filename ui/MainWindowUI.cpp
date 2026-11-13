@@ -782,19 +782,13 @@ QWidget *MainWindowUI::setupHomePage() {
         welcome->setWordWrap(true);
         welcome->setContentsMargins(kHomeHeroInset, 0, 0, 0);
         home.left.layout->addWidget(welcome);
-        // 副题：普通字阶（16），不再用手写体——主页英雄区只让大标题一层手写，层级才分得开。
-        auto *subtitle = new QLabel(QStringLiteral("Your next world awaits."), home.left.widget);
-        subtitle->setObjectName(QStringLiteral("homeHeroSubtitle"));
-        subtitle->setContentsMargins(kHomeHeroInset + 4, 12, 0, 0);
-        home.left.layout->addWidget(subtitle);
+        // 英文副题「Your next world awaits.」已去掉（11-12 用户反馈）：大标题一句就够。
         followHeroInk(welcome, false);
-        followHeroInk(subtitle, true);
-        // 窄于 1024 的窗口：标题收一号（50 → 40、副题 32 → 26），立绘缩到七成二（设计稿 @media）。
-        const auto applyScale = [this, homeTab, welcome, subtitle]() {
+        // 窄于 1024 的窗口：标题收一号（50 → 40），立绘缩到七成二（设计稿 @media）。
+        const auto applyScale = [this, homeTab, welcome]() {
             const bool narrow = homeTab->window()->width() < 1024;
             Theme::markDisplay(welcome, handPx(welcome->font(), Theme::HandFont::KaiLight,
                                                narrow ? 40 : kHomeHeroTitlePixelSize, narrow ? 3 : 4));
-            subtitle->setFont(Theme::textFont(subtitle->font(), Theme::TextRole::Heading));
             if (skinViewer != nullptr) {
                 skinViewer->setMaximumHeight(narrow ? kHomeSkinViewerHeight * 72 / 100 : kHomeSkinViewerHeight);
             }
