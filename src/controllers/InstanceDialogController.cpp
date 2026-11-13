@@ -2428,15 +2428,8 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 // 「文件管理」那八页说的也是**这个实例的目录**，整份跟着重算 ——
                 // 重算之前它们还指着那个已经不在了的老目录（见上面那个 lambda 的 NOTE）。
                 refreshInstanceDirs(targetId);
-                // 页眉上那行字也是"这个实例叫什么"，跟着换 —— 不换的话页面上最高处还写着
-                // 老名字，而它底下那一格已经是新的了。
-                //
-                // NOTE: 先让对话框把**它自己那行标题**重拼一遍（`titleText()` 读的就是它），
-                // 再拿它去问覆盖层要那行字。`titleText()` 在改名前是**构造时按当时那个
-                // 名字拼好的死字符串** —— 不重拼就直接递给 setPageTitle，页眉上写的
-                // 还是老名字（而且看不出来哪里错了：两边调的是同一个函数）。
+                // 页内页眉那行大字也是"这个实例叫什么"，跟着换（覆盖层面包屑只写「实例设置」，不带实例名）。
                 dialog.setInstanceDisplayName(m_owner->instanceDisplayName(targetId));
-                m_owner->m_ui->overlay()->setPageTitle(dialog.titleText());
             });
 
     // ---------- 停在哪一页 ----------
@@ -2502,16 +2495,13 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
             });
 
     // 这一页盖在内容区上（标签栏和底栏都留着），左上角那颗返回箭头 = 关掉这一页（见
-    // OverlayHost::showPage）。标题写在页眉上，所以这一页自己那行标题要收起来 ——
-    // 两行一模一样的字挨着是重复，不是强调。
-    //
+    // OverlayHost::showPage）。    //
     // NOTE: 这一页**不再 accept**（没有「确定」了），所以这里**不看返回值** —— 关页
     // 不等于放弃（该写的早就在上面那些 lambda 里写完了），"关掉"就是"关掉"。
     // 「导出为整合包…」那颗按钮是唯一的例外：它把自己 `reject()` 掉，收页之后由下面
     // 那条钩子接过去开预设编辑器（这一位放在会话里，钩子读得到）。
     bool &exportPreset = session->exportPreset;
     connect(&dialog, &InstanceSettingsDialog::exportPresetRequested, &dialog, [&dialog, &exportPreset] { exportPreset = true; dialog.reject(); });
-    dialog.setTitleVisible(false);
 
     // 摆上去就返回（不再是 `execPage()` 那个嵌套事件循环）。收页之后的两件事都接在
     // `pageClosed(QWidget *)` 上 —— 所有收页路（返回箭头 / Esc / 页上自己的操作 /

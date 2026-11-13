@@ -59,14 +59,11 @@ int MwInstanceRenameChecks(const QDir &versionsDir, MainWindow &window) {
                 recordPrompt(nullptr);  // 没摆出那一页：下面那条断言会红，这里别崩
                 return;
             }
-            if (auto *title = host->findChild<QLabel *>(OverlayHost::overlayTitleLabelName())) {
+            if (host->findChild<QLabel *>(OverlayHost::overlayTitleLabelName()) != nullptr) {
                 sawPage = true;
-                pageTitle = title->text();
+                pageTitle = overlayHeading(host);
             }
-            const auto titleNow = [host] {
-                auto *label = host->findChild<QLabel *>(OverlayHost::overlayTitleLabelName());
-                return label != nullptr ? label->text() : QString();
-            };
+            const auto titleNow = [host] { return overlayHeading(host); };
             auto *pageScroll =
                 host->findChild<QScrollArea *>(OverlayHost::overlayPageScrollName());
             if (pageScroll != nullptr && pageScroll->verticalScrollBar() != nullptr) {
@@ -158,8 +155,8 @@ int MwInstanceRenameChecks(const QDir &versionsDir, MainWindow &window) {
         // NOTE: 比的是"**以新名字结尾**"而不是"不含老名字"：老名字 `26.3` 是新名字
         // `26.3-按钮改的` 的前缀，那一条恒真 —— 恒真的断言等于没断言。
         check(titleAfterRename.endsWith(btnNewId) && titleAfterRename != pageTitle,
-              "★ S2 页眉上那行字跟着换成新名字了（不换的话最高处还写着老名字、底下那一格"
-              "却是新的 —— OverlayHost::setPageTitle 就是为这一下加的）",
+              "★ S2 页内页眉那行大字跟着换成新名字了（不换的话最高处还写着老名字、底下那一格"
+              "却是新的）",
               QStringLiteral("%1 -> %2").arg(pageTitle, titleAfterRename));
         check(nameRevertedOnEmpty,
               "★ S2 负例：把那一格清空再提交（回车）—— 空名字不是「改成没有名字」，等于没改，"

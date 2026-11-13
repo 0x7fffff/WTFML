@@ -1478,25 +1478,18 @@ public:
     }
     static QString advancedToggleName() { return QStringLiteral("instanceAdvancedToggle"); }
     static QString advancedBoxName() { return QStringLiteral("instanceAdvancedBox"); }
-    static QString titleLabelName() { return QStringLiteral("instanceSettingsTitle"); }
     // NOTE: 这一页**没有「确定」也没有「取消」**（改了就写）⇒ 覆盖层页眉上那颗返回
     // 箭头就是这一页唯一的出口（Esc 同它）。
 
-    /// 这一页叫什么（`「实例设置：<实例名>」`）。页面型覆盖层要把这一句写在自己那条
-    /// 页眉上，所以它得能问出来 —— 不然两边就各写各的了。
+    /// 这一页叫什么（「实例设置」）。页面型覆盖层把它写在自己那条页眉（面包屑）上。
+    /// 实例名不拼进去：页内页眉那一行大字已经是实例名，拼进去就是两行重复。
     QString titleText() const;
 
-    /// 把上面那句里的**实例名**换成新的（@param displayName 是**显示名**，不是目录名 ——
-    /// 标题上写的一直是用户认得的那一串）。
+    /// 把页内页眉那行大字换成新的实例名（@param displayName 是**显示名**，不是目录名）。
+    /// 实例在这一页开着时会改名（「实例名」那一格），页眉要跟着换。
     ///
-    /// 为什么必须有它：这一页开出来之后**实例自己会改名**（「实例名」那一格）。改名那
-    /// 一刻 MainWindow 会把覆盖层页眉上那行字跟着换（`OverlayHost::setPageTitle()`），
-    /// 而它问的就是 `titleText()` —— 那行字是构造时按**当时那个名字**拼好就再没人管过
-    /// 的死字符串，不在这儿重拼一个的话，改完名之后页眉上写的还是老名字（用户看到的是
-    /// "最高处写着那个已经不在了的名字，底下那一格却是新的"）。
-    ///
-    /// NOTE: 和 `setInstanceName()` 是两件事、也没互相调用：那个换的是**控件上那一格**和
-    /// `m_instanceId`（拿的是目录名），这个换的是那行标题（拿的是显示名）——
+    /// NOTE: 和 `setInstanceName()` 是两件事：那个换的是**控件上那一格**和
+    /// `m_instanceId`（拿的是目录名），这个换的是页眉大字（拿的是显示名）——
     /// 带自定义名的实例这两个值本来就不是一回事。
     void setInstanceDisplayName(const QString &displayName);
     /// 页眉名字下那一行（加载器 · 游戏版本）；空 = 不显示。
@@ -1515,13 +1508,6 @@ public:
     ///
     /// NOTE: 编辑器那一格没开着、或者它是干净的，这一条一个字都不做（照旧正常关页）。
     void reject() override;
-
-    /// 嵌进覆盖层那一页的时候把这行标题收起来。
-    ///
-    /// NOTE: 覆盖层的页眉**就是这个页面的标题栏**（那行字和窗口的标题栏是同一件事）。
-    /// 不收的话屏幕上会紧接着出现两行一模一样的字。收不收由调用方说了算 ——
-    /// 单独拿出来用（验证工程那种）时它还是要有标题的。
-    void setTitleVisible(bool visible);
 
     /// 把「实例名」那一格改成 @p name（**控件上那一格**，不碰盘）。
     ///
@@ -2130,9 +2116,6 @@ private:
     /// 全局那一层的值，用来写「跟随全局（当前 …）」。构造之后不再变。
     GlobalValues m_global;
 
-    /// 这一页自己那行标题。页面型覆盖层用的是**它的字**（页眉 = 这个页面的标题栏），
-    /// 所以它得留着给人问（见 titleText / setTitleVisible）。
-    QLabel *m_titleLabel = nullptr;
     QLabel *m_headerIcon = nullptr;   // 页眉（UI 7b）：图标、名字、元信息
     QLabel *m_headerTitle = nullptr;
     QLabel *m_headerMeta = nullptr;

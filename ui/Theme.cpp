@@ -1804,14 +1804,17 @@ QString widgetStyleSheet() {
         // 主动作单独高一档（36）。它是页面上唯一一颗实心
         // 按钮，"这一页最重要的那一下"值得多 4px；其余那颗留在 32 上，一页里两档就够。
         return QStringLiteral("QPushButton[%1=\"%2\"], QPushButton[%1=\"%2\"]:default:enabled { background-color: %3; color: #ffffff;"
-                              " border-color: %3; border-radius: %6px; min-height: %7px; }"
+                              " border-color: %3; border-radius: %6px; min-height: %7px;"
+                              " padding-left: %8px; padding-right: %8px; min-width: %9px; }"
                               "QPushButton[%1=\"%2\"]:hover:enabled { background-color: %4;"
                               " border-color: %4; }"
                               "QPushButton[%1=\"%2\"]:pressed:enabled { background-color: %5;"
                               " border-color: %5; }")
             .arg(QString::fromLatin1(kButtonKindProperty), key, fill, hoverFill, pressedFill)
             .arg(buttonRadius())
-            .arg(primaryActionHeight() - kButtonChrome);
+            .arg(primaryActionHeight() - kButtonChrome)
+            .arg(primaryButtonPadX())
+            .arg(primaryButtonMinWidth() - 2 * primaryButtonPadX() - 2);  // min-width 是内容盒：扣内边距与左右各 1px 边框
     };
     // 主动作那两颗（悬停 / 按下）由 `kindButtonStyleSheet()` 给每一颗 Primary 挂控件级
     // 样式；这一份应用级规则只是兜底（同色），别拿它当"悬停会变深"的唯一出处。
@@ -1890,8 +1893,12 @@ QString widgetStyleSheet() {
     // "我按自己钉死的边长来"，把上面那条 `min-height` 按回去。
     // 写死 22 的 `QPushButton` 在 `min-height: 18px` 下实际是 **32**
     // —— `setFixedSize()` 拦不住它，只能靠这一条。`min-height: 0` 是有效的复位。
-    qss += QStringLiteral("QPushButton[%1=\"%2\"] { min-height: 0px; }")
-               .arg(QString::fromLatin1(kButtonSizeProperty), QString::fromLatin1(kIconButtonValue));
+    // 主按钮那条的左右内边距 / 最小宽也在这里按回去（图标档是方块，不吃留白）。
+    qss += QStringLiteral("QPushButton[%1=\"%2\"] { min-height: 0px; }"
+                          "QPushButton[%3=\"primary\"][%1=\"%2\"] { min-width: 0px;"
+                          " padding-left: 6px; padding-right: 6px; }")
+               .arg(QString::fromLatin1(kButtonSizeProperty), QString::fromLatin1(kIconButtonValue),
+                    QString::fromLatin1(kButtonKindProperty));
 
     // 快速启动卡自己按内容档位钉高度。和图标按钮相同，先把通用 QPushButton 的
     // min-height / padding 复位，否则 QSS polish 会把 C++ 里给卡片的高度压回普通按钮。

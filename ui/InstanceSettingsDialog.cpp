@@ -114,12 +114,6 @@ constexpr int kColumnSpacing = 16;
 constexpr int kDialogWidth = 820;
 constexpr int kDialogHeight = 560;
 
-/// 这一页顶上那行标题长什么样。**唯一出处**：构造时那一行和 `setInstanceDisplayName()`
-/// 那一行都走它（两边各拼一次的话，改完名之后那行字的格式迟早会飘）。
-QString titleTextFor(const QString &displayName) {
-    return InstanceSettingsDialog::tr("实例设置：%1").arg(displayName);
-}
-
 /// 把左栏那棵导航树摆进两栏那一行。
 ///
 /// NOTE: 外面套一层**竖排 + 底部 stretch**，不是直接把列表 addWidget 进去 —— 列表自己是
@@ -184,14 +178,6 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     auto *outer = new QVBoxLayout(this);
     outer->setContentsMargins(12, 12, 12, 12);
     outer->setSpacing(10);
-
-    auto *title = new QLabel(titleTextFor(instanceName), this);
-    m_titleLabel = title;
-    title->setObjectName(titleLabelName());
-    QFont titleFont = title->font();
-    titleFont.setBold(true);
-    title->setFont(titleFont);
-    outer->addWidget(title);
 
     // UI 7b 页眉（设计稿 instance-*）：图标 + 实例名 + 一行元信息 | 打开目录（扁平）+ 启动实例（这一页唯一的实心钮）。
     auto *header = new QWidget(this);
@@ -526,7 +512,7 @@ void InstanceSettingsDialog::reject() {
 }
 
 QString InstanceSettingsDialog::titleText() const {
-    return m_titleLabel != nullptr ? m_titleLabel->text() : QString();
+    return tr("实例设置");
 }
 
 void InstanceSettingsDialog::setInstanceName(const QString &name) {
@@ -541,9 +527,6 @@ void InstanceSettingsDialog::setInstanceName(const QString &name) {
 }
 
 void InstanceSettingsDialog::setInstanceDisplayName(const QString &displayName) {
-    if (m_titleLabel != nullptr) {
-        m_titleLabel->setText(titleTextFor(displayName));
-    }
     if (m_headerTitle != nullptr) m_headerTitle->setText(displayName);
 }
 
@@ -558,12 +541,6 @@ QString InstanceSettingsDialog::instanceName() const {
     // **不 trim**：去掉空格是多一层判断，而"只有空格差别"那一档由调用方（MainWindow）
     // 按 trimmed() 之后的结果比 —— 那是它的事，这里原样给。
     return m_instanceNameEdit != nullptr ? m_instanceNameEdit->text() : QString();
-}
-
-void InstanceSettingsDialog::setTitleVisible(bool visible) {
-    if (m_titleLabel != nullptr) {
-        m_titleLabel->setVisible(visible);
-    }
 }
 
 // ---------- 分栏（见 .hpp 里 pinnedPageKeys() 上面那一段）----------
