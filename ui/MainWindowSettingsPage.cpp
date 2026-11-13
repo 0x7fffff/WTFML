@@ -5,7 +5,6 @@
 #include "MainWindowUI.hpp"
 
 #include "Animations.hpp"
-#include "ElidedLabel.hpp"
 #include "Glass.hpp"
 #include "MemorySlider.hpp"
 #include "SettingsPageParts.hpp"
@@ -20,7 +19,9 @@
 #include <QFont>
 #include <QGridLayout>
 #include <QHBoxLayout>
+#include <QAbstractButton>
 #include <QLineEdit>
+#include <QMouseEvent>
 #include <QPalette>
 #include <QPointer>
 #include <QPointer>
@@ -47,6 +48,29 @@ QWidget *MainWindowUI::setupSettingsTab() {
 }
 
 namespace {
+
+/// 单击（按下与松开基本在同一点，拖选文字不算）标签 = 点一下那颗按钮。
+class LabelClickToButton : public QObject {
+public:
+    LabelClickToButton(QObject *parent, QAbstractButton *button) : QObject(parent), m_button(button) {}
+
+protected:
+    bool eventFilter(QObject *, QEvent *event) override {
+        if (event->type() != QEvent::MouseButtonPress && event->type() != QEvent::MouseButtonRelease) return false;
+        auto *mouse = static_cast<QMouseEvent *>(event);
+        if (mouse->button() != Qt::LeftButton) return false;
+        if (event->type() == QEvent::MouseButtonPress) {
+            m_press = mouse->position().toPoint();
+        } else if (m_button != nullptr && (mouse->position().toPoint() - m_press).manhattanLength() <= 4) {
+            m_button->click();
+        }
+        return false;
+    }
+
+private:
+    QPointer<QAbstractButton> m_button;
+    QPoint m_press;
+};
 
 /// 页面尺寸变化时把「已保存」贴回右上角。
 class AnchorFilter : public QObject {
@@ -305,7 +329,13 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
     javaPathLabel = new QLabel(form);
     javaPathLabel->setObjectName(javaPathLabelName());
     javaPathLabel->setWordWrap(true);
+    // 控件外观（淡底圆角，同输入框一族），点一下 = 点「Java 管理…」。路径仍可框选复制，
+    // 单击（没拖动）才算点：按下与松开在同一点。
     javaPathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    javaPathLabel->setProperty("wtfmlFieldLabel", true);
+    javaPathLabel->setCursor(Qt::PointingHandCursor);
+    javaPathLabel->setToolTip(QStringLiteral("点击打开 Java 管理"));
+    javaPathLabel->installEventFilter(new LabelClickToButton(javaPathLabel, javaManageButton));
     // 全局这一层挑中的 Java 对不上时直接报错，不替用户换也不问；实例层单独钉的 Java 对不上时会弹框问
     // 要不要改用匹配的（开关在「提示」页）。
     addRow(runtime, QStringLiteral("Java 版本"), javaPathLabel, Placement::Wide, QString(),
@@ -347,16 +377,18 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
         lineLayout->addWidget(memoryMaxSpin, 0);
         boxLayout->addWidget(line);
         // 文字由 MainWindow 填（系统总内存 / 可用 / 当前用量）；先给占位，免得空标签把行高压成 0。
-        auto *elided = new ElidedLabel(box);
-        elided->setText(QStringLiteral("正在读取系统内存…"));
-        QFont hintFont = elided->font();
+        // 说明可能长到一行放不下：换行显示整句，不用省略号截掉。
+        auto *hint = new QLabel(box);
+        hint->setText(QStringLiteral("正在读取系统内存…"));
+        hint->setWordWrap(true);
+        QFont hintFont = hint->font();
         hintFont.setPixelSize(Theme::textSize(Theme::TextRole::Caption));
-        elided->setFont(hintFont);
-        markTextRole(elided, Theme::secondaryTextRoleValue());
-        elided->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-        elided->setObjectName(memoryHintName());
-        boxLayout->addWidget(elided);
-        memoryHint = elided;
+        hint->setFont(hintFont);
+        markTextRole(hint, Theme::secondaryTextRoleValue());
+        hint->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+        hint->setObjectName(memoryHintName());
+        boxLayout->addWidget(hint);
+        memoryHint = hint;
         addRow(memory, QStringLiteral("最大内存"), box, Placement::Wide);
     }
     // 「最小内存」（-Xms）不在界面上：值照旧存在设置里（默认 1024 MB，命令行照发）。
@@ -805,7 +837,8 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
     downloadSourceCombo = new QComboBox(form);
     downloadSourceCombo->setObjectName(downloadSourceComboName());
     WheelGuard::install(downloadSourceCombo);
-    addRow(source, QStringLiteral("来源"), downloadSourceCombo, Placement::Column, QString(),
+    addRow(source, QStringLiteral("来源"), downloadSourceCombo, Placement::Column,
+           QStringLiteral("优先源速度缓慢时，自动改用另一个源。"),
            QStringLiteral("镜像服务由 BMCLAPI 提供。"));
     downloadConcurrencyCombo = new QComboBox(form);
     downloadConcurrencyCombo->setObjectName(downloadConcurrencyComboName());

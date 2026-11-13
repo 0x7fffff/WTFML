@@ -785,10 +785,10 @@ QWidget *MainWindowUI::setupHomePage() {
         welcome->setWordWrap(true);
         welcome->setContentsMargins(kHomeHeroInset, 0, 0, 0);
         home.left.layout->addWidget(welcome);
-        // 副题：西文手写体，和大标题一中一西。
+        // 副题：普通字阶（16），不再用手写体——主页英雄区只让大标题一层手写，层级才分得开。
         auto *subtitle = new QLabel(QStringLiteral("Your next world awaits."), home.left.widget);
         subtitle->setObjectName(QStringLiteral("homeHeroSubtitle"));
-        subtitle->setContentsMargins(kHomeHeroInset + 4, 6, 0, 0);
+        subtitle->setContentsMargins(kHomeHeroInset + 4, 12, 0, 0);
         home.left.layout->addWidget(subtitle);
         followHeroInk(welcome, false);
         followHeroInk(subtitle, true);
@@ -797,7 +797,7 @@ QWidget *MainWindowUI::setupHomePage() {
             const bool narrow = homeTab->window()->width() < 1024;
             Theme::markDisplay(welcome, handPx(welcome->font(), Theme::HandFont::KaiLight,
                                                narrow ? 40 : kHomeHeroTitlePixelSize, narrow ? 3 : 4));
-            Theme::markDisplay(subtitle, handPx(subtitle->font(), Theme::HandFont::Script, narrow ? 26 : 32, 0));
+            subtitle->setFont(Theme::textFont(subtitle->font(), Theme::TextRole::Heading));
             if (skinViewer != nullptr) {
                 skinViewer->setMaximumHeight(narrow ? kHomeSkinViewerHeight * 72 / 100 : kHomeSkinViewerHeight);
             }
@@ -1247,7 +1247,7 @@ QWidget *MainWindowUI::setupInstancePage() {
         instanceNoMatchLabel->setVisible(false);
         clientLayout->addWidget(instanceNoMatchLabel);
         // 空文件夹那一句：同一个位置、同一档次要色，只是说的是另一件事（见 instanceEmptyText()）。
-        // 设计稿 manage-empty：插画 + 大标题 + 一句引导 + 两颗主操作，整块居中；
+        // 设计稿 manage-empty：插画（不画虚线圈）+ 大标题 + 一句引导 + 一颗主操作，整块居中；
         // MainWindow::rebuildInstanceTree() 按"空文件夹且没在筛"开关整块（标签跟着容器）。
         auto *emptyState = new QWidget(clientPage);
         emptyState->setObjectName(instanceEmptyStateName());
@@ -1263,9 +1263,6 @@ QWidget *MainWindowUI::setupInstancePage() {
             art.fill(Qt::transparent);
             QPainter p(&art);
             p.setRenderHint(QPainter::Antialiasing, true);
-            p.setPen(QPen(Theme::tokens().stroke, 1.0, Qt::DashLine));
-            p.setBrush(Qt::NoBrush);
-            p.drawEllipse(QRectF(5, 2, 150, 126));
             p.drawPixmap(68, 12, VersionIcons::isoBlock(4, 30));   // 沙
             p.drawPixmap(26, 46, VersionIcons::isoBlock(0, 62));   // 草
             p.drawPixmap(72, 66, VersionIcons::isoBlock(6, 46));   // 石
@@ -1296,12 +1293,7 @@ QWidget *MainWindowUI::setupInstancePage() {
         QObject::connect(emptyDownload, &QPushButton::clicked, emptyState,
                          [this]() { tabWidget->setCurrentIndex(downloadTabIndex()); });
         emptyActions->addWidget(emptyDownload);
-        auto *emptyImport = new QPushButton(importModpackText(), emptyState);
-        Theme::markButton(emptyImport, Theme::ButtonKind::Neutral);
-        QObject::connect(emptyImport, &QPushButton::clicked, emptyState, [this]() {
-            if (importModpackButton != nullptr) importModpackButton->click();
-        });
-        emptyActions->addWidget(emptyImport);
+        // 「导入整合包…」只留页头右上那一颗（有无实例都在），空状态里不再重复放一颗。
         emptyActions->addStretch(1);
         emptyLayout->addSpacing(8);
         emptyLayout->addLayout(emptyActions);
@@ -1606,11 +1598,15 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             name->setObjectName(QStringLiteral("homeCurrentName"));
             name->setText(item.empty ? QStringLiteral("还没有实例") : item.name);
             name->setMinimumWidth(1);
-            Theme::markDisplay(name, item.empty ? handPx(name->font(), Theme::HandFont::KaiLight, 34, 3)
-                                                : handPx(name->font(), Theme::HandFont::Kai, 40, 3));
-            name->setMinimumHeight(52);
+            // 零实例：「还没有实例」只是一句状态，用普通字阶（16），大标题才是这一屏唯一的手写大字。
+            if (item.empty) {
+                name->setFont(Theme::textFont(name->font(), Theme::TextRole::Heading));
+            } else {
+                Theme::markDisplay(name, handPx(name->font(), Theme::HandFont::Kai, 40, 3));
+            }
+            name->setMinimumHeight(item.empty ? 28 : 52);
             name->setAttribute(Qt::WA_TransparentForMouseEvents);
-            followHeroInk(name, item.empty);
+            followHeroInk(name, false);
             blockColumn->addWidget(name);
             if (!item.empty) {
                 // 设计稿 .meta：行首一枚加载器小图标（没装加载器 = 草方块，和 loaderMark() 越界一条规矩）。
@@ -1647,7 +1643,7 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
                 blockColumn->addLayout(metaRow);
             }
             column->addWidget(block, 0, Qt::AlignLeft);
-            column->addSpacing(item.empty ? 12 : 18);
+            column->addSpacing(item.empty ? 20 : 18);
             auto *actions = new QHBoxLayout;
             actions->setContentsMargins(kHomeHeroInset, 0, 0, 0);
             actions->setSpacing(10);

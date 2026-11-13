@@ -71,12 +71,14 @@ QWidget *MainWindowUI::setupDownloadPage() {
         fillPageHeader(download.right, downloadPageTitle(),
                        downloadHeaderSubtitle(downloadCategoryGameIndex()));
         downloadHeaderSubtitleLabel = download.right.subtitle;
-        // 精修：页头工具钮是嵌在背景里的扁平图标（不带框），字进悬停提示。
+        // 页头工具钮：和左边「下载源」同高同底的圆钮（字进悬停提示），两颗并排对得齐。
         downloadHeaderRefreshButton = new QPushButton(download.right.header);
         downloadHeaderRefreshButton->setObjectName(downloadHeaderRefreshButtonName());
         Theme::markButton(downloadHeaderRefreshButton, Theme::ButtonKind::Ghost);
         Theme::markIconButton(downloadHeaderRefreshButton);
-        downloadHeaderRefreshButton->setFixedSize(32, 32);
+        downloadHeaderRefreshButton->setFixedSize(28, 28);
+        downloadHeaderRefreshButton->setProperty("wtfmlComboTrigger", true);
+        downloadHeaderRefreshButton->setProperty("wtfmlIconOnly", true);
         downloadHeaderRefreshButton->setToolTip(downloadHeaderRefreshText());
         downloadHeaderRefreshButton->setAccessibleName(downloadHeaderRefreshText());
         downloadHeaderRefreshButton->setCursor(Qt::PointingHandCursor);
@@ -98,10 +100,8 @@ QWidget *MainWindowUI::setupDownloadPage() {
             source->setCursor(Qt::PointingHandCursor);
             const auto sync = [this, source] {
                 const QString name = downloadSourceCombo != nullptr ? downloadSourceCombo->currentText() : QString();
-                // 钮上只留逗号前那半句（「优先官方源」），整句进悬停提示。
-                const QString brief = name.section(QStringLiteral("，"), 0, 0);
-                source->setText(brief.isEmpty() ? QStringLiteral("下载源") : QStringLiteral("下载源 · %1").arg(brief));
-                source->setToolTip(name);
+                source->setText(name.isEmpty() ? QStringLiteral("下载源") : QStringLiteral("下载源 · %1").arg(name));
+                source->setToolTip(QStringLiteral("优先源速度缓慢时，自动改用另一个源。"));
             };
             sync();
             QObject::connect(source, &QPushButton::clicked, source, [this, source, sync] {

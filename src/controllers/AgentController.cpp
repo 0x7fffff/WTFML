@@ -495,13 +495,36 @@ void AgentController::onNewSession() {
         m_loop->cancel();
         flushSave(true);
     }
-    AgentSession created;
-    QString problem;
-    if (!m_store.create(&created, &problem)) {
-        if (m_page != nullptr) m_page->showNotice(problem);
-        return;
+    // 空会话复用：当前这条还没内容就继续用它；否则盘上已有现成的空「新对话」就切过去，
+    // 不再多建一条同名空会话。
+    if (m_session.meta.id.isEmpty() || !m_session.messages.isEmpty() || m_session.meta.instanceLock.isValid()) {
+        QString reuseId;
+        QList<AgentSessionMeta> metas;
+        m_store.list(&metas, nullptr);
+        for (const AgentSessionMeta &meta : metas) {
+            if (meta.messageCount == 0 && !meta.corrupt && !meta.archived && !meta.encrypted &&
+                meta.deletionState == QLatin1String("none") && !meta.instanceLock.isValid() &&
+                meta.title == QLatin1String("新对话")) {
+                reuseId = meta.id;
+                break;
+            }
+        }
+        if (!reuseId.isEmpty()) {
+            selectSession(reuseId);
+            if (m_session.meta.id == reuseId) {
+                refreshSessions();
+                refreshApiState();
+                return;
+            }
+        }
+        AgentSession created;
+        QString problem;
+        if (!m_store.create(&created, &problem)) {
+            if (m_page != nullptr) m_page->showNotice(problem);
+            return;
+        }
+        m_session = created;
     }
-    m_session = created;
     refreshSessions();
     updateHeader();
     refreshApiState();

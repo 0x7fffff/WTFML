@@ -2240,9 +2240,16 @@ QString widgetStyleSheet() {
         " { width: 0px; height: 0px; border: none; background: transparent; }"
         // QToolButton 上的菜单小三角一律不画（本仓没有哪颗钮挂 menu）。
         "QToolButton::menu-indicator { width: 0px; height: 0px; image: none; }"
-        // 下拉触发器（本仓那种「文字 + ∨」的钮改成的那颗）：胶囊 999 + fill-soft，整块可点。
+        // 下拉触发器（本仓那种「文字 + ∨」的钮改成的那颗）：胶囊（半径 = 高度一半）+ fill-soft，整块可点。
+        // ★ 半径别写 999：Qt 的 QSS 遇到比半高还大的半径会整个放弃圆角，画成直角。
         "QPushButton[wtfmlComboTrigger=\"true\"] { background-color: palette(button);"
-        " border-radius: 999px; padding: 0px 14px; min-height: 28px; max-height: 28px; }"
+        " border-radius: 14px; padding: 0px 14px; min-height: 28px; max-height: 28px; }"
+        // 同一排里的纯图标钮（页头刷新）：同高同底，圆形。
+        "QPushButton[wtfmlComboTrigger=\"true\"][wtfmlIconOnly=\"true\"] { padding: 0px; }"
+        // 设置页「Java 版本」那一行的值：和输入框同一族（淡底、圆角），整块可点。
+        "QLabel[wtfmlFieldLabel=\"true\"] { background-color: palette(base); color: palette(text);"
+        " border-radius: %1px; padding: 9px 12px; }"
+        "QLabel[wtfmlFieldLabel=\"true\"]:hover { background-color: palette(shadow); }"
         "QPushButton[wtfmlComboTrigger=\"true\"]:hover:enabled { background-color: palette(shadow); }"
         "QPushButton[wtfmlComboTrigger=\"true\"]:pressed:enabled { background-color: palette(midlight); }"
         // 折叠行：整行一颗按钮，不带箭头；勾上（展开着）不再铺强调色淡底，只靠右边那两个字说明。

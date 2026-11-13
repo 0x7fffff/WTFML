@@ -434,7 +434,6 @@ void JavaSettingsController::refreshMemory() {
                    .arg(m_settings->xmx()).arg(m_settings->xms());
     }
     m_ui->getMemoryHint()->setText(hint);
-    m_ui->getMemoryHint()->setToolTip(hint);  // 页上只露一行（截尾），整句在这里
 
     // 自动档在设置页露着的时候才需要每 2 秒刷新一次；其他情况立刻停掉。
     if (autoMode && memoryPageVisible()) {
