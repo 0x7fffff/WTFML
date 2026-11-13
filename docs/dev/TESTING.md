@@ -345,6 +345,7 @@ pwsh -NoProfile -File tools/acceptance_download_recovery.ps1 ...
 - `--manual-input` 不生成键盘事件，记录收到的原生事件、焦点和截图；没有 Tab 或焦点失败返回非零。
 - 游戏主菜单专项沿用隔离 Fabric 1.21.11 夹具：`--game-root` 的测试目录要含 `p1-game-acceptance.json`（格式 `wtfml-isolated-game/1`）并提供 `--java-path`；只创建私有 DesktopTest 离线配置，正常退出记录 `game-exit.json`，300 秒截止。进程退出 0 不单独证明主菜单，要另行观察。不要给真实游戏目录添加测试标记。
 - 大实例整套脚本 `tools/acceptance_p0_*.py`、`tools/prepare-p0-vhd.ps1` 用于 P0 磁盘/权限/事务矩阵，记录见 [ACCEPTANCE_LOG.md](../archive/ACCEPTANCE_LOG.md)。
+- 失焦磨砂真机判定：`pwsh tools/defocus-glass.ps1 -Backdrop acrylic -Theme dark`（`-Rollback` 做系统默认退色的对照）。起自己的实例摆在自己的红蓝棋盘上，前台只在本脚本自己的窗口之间交接，比「聚焦 vs 失焦」「失焦时换背后颜色」两组整窗差；`-Theme` 临时写 HKCU 的 `Theme/Preset`，结束还原。退出码 0 = 失焦前后一样，1 = 退色 / 变了，2 = 没采到。需要交互式桌面，会短暂占前台。
 - UI 压力入口：`./tools/stress-ui-offscreen.ps1 -Runs 50 -StopOnFailure` 逐趟保存日志，首失败保留在 `build/ui-stress/<时间>/` 并返回非零。
 - 单独定位更新中心：构建 `mw_check` 后运行 `mw_check.exe update-center-check`（约 2 秒，须设独立进程截止）。
 
