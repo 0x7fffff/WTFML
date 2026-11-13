@@ -514,6 +514,16 @@ if(EXISTS ${REPO_ROOT}/src/download/LoaderMeta.hpp)
     list(APPEND SOURCE_FILES ${REPO_ROOT}/src/download/LoaderMeta.hpp)
 endif()
 
+# DailyQuoteController 是「每日一言」那一行（71）引入的：MainWindow 构造里 new 它、
+# MainWindowSettings 里按开关调它。少了这一个文件，编译过得去，链接期报的是
+# `undefined reference to DailyQuoteController::DailyQuoteController/refresh/setEnabled`。
+# 理由同上：别的分支上没有它，存在才加（它在 `src/util/DailyQuote.cpp` 之上，
+# 那一份按 tests/CMakeLists.txt 里那条 EXISTS 加进 verify 的源文件清单）。
+if(EXISTS ${REPO_ROOT}/src/controllers/DailyQuoteController.cpp)
+    list(APPEND SOURCE_FILES ${REPO_ROOT}/src/controllers/DailyQuoteController.cpp
+                             ${REPO_ROOT}/src/controllers/DailyQuoteController.hpp)
+endif()
+
 
 add_library(wtfml_mw_runtime STATIC ${SOURCE_FILES})
 add_executable(wtfml_desktop_acceptance EXCLUDE_FROM_ALL ${REPO_ROOT}/tests/acceptance/desktop/desktop_acceptance.cpp)
