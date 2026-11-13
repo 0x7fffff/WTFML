@@ -5,6 +5,7 @@
 
 #include "Glass.hpp"
 
+#include "SystemBackdrop.hpp"
 #include "Theme.hpp"
 
 #include <QApplication>
@@ -231,7 +232,7 @@ bool systemBackdrop() {
     return m == Mode::Acrylic || m == Mode::Mica;
 }
 
-// 出厂 20：三主题 × 亚克力 / 云母 / 风景底里对比度要的最低 alpha 是 0.24（青瓷亚克力），20 低于它，
+// 出厂 20：三主题 × 亚克力 / 云母 / 风景底里对比度要的最低 alpha 是 0.51（石炭灰风景底；亚克力 / 云母最低 0.55 翡翠），20 低于它，
 // 出厂时每一档都正好落在「正文、次要字 ≥ 4.5:1 的最薄着色」，磨砂透得最多。
 int tintStrength() { return qBound(0, QSettings().value(QStringLiteral("Theme/BackdropTint"), kDefaultTintStrength).toInt(), 100); }
 int blurStrength() { return qBound(0, QSettings().value(QStringLiteral("Theme/BackdropBlur"), 50).toInt(), 100); }
@@ -285,10 +286,16 @@ qreal minimumTintAlpha(const QColor &tint, const QList<QPair<QColor, double>> &i
 }
 
 QList<QColor> systemBackdropRange() {
-    // 深色亚克力 / 云母自带一层深灰着色，背后是纯白窗口时也到不了 #8c8c8c；浅色那一支背后
-    // 是纯黑时也在 #b4b4b4 以上（拿本机截图量过再放宽一档）。
-    if (darkTokens()) return {QColor(0x0a, 0x0a, 0x0a), QColor(0x8c, 0x8c, 0x8c)};
-    return {QColor(0xb4, 0xb4, 0xb4), QColor(0xff, 0xff, 0xff)};
+    // 背后是纯黑、纯白和六个纯色时，系统亚克力、云母（激活态，见 ui/SystemBackdrop）合出来的颜色。
+    // 浅色亚克力背后纯黑时是 #878787，比旧估计的 #b4 暗得多。
+    const bool dark = darkTokens();
+    QList<QColor> out;
+    for (const SystemBackdrop::Material material : {SystemBackdrop::Material::Acrylic, SystemBackdrop::Material::Mica}) {
+        const SystemBackdrop::Recipe recipe = SystemBackdrop::recipe(material, dark);
+        for (const unsigned behind : {0x000000u, 0xffffffu, 0xff0000u, 0x00ff00u, 0x0000ffu, 0x00ffffu, 0xff00ffu, 0xffff00u})
+            out << QColor::fromRgb(SystemBackdrop::composite(recipe, behind));
+    }
+    return out;
 }
 
 QList<QPair<QColor, double>> bodyInks() {

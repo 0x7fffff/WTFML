@@ -71,6 +71,11 @@ qreal systemDpr() {
 }
 
 bool realWindowsPlatform() { return QGuiApplication::platformName() == QLatin1String("windows"); }
+
+/// 失焦也让 DWM 按激活态画亚克力 / 云母（文件头【失焦不退色】）。WTFML_KEEP_BACKDROP_ACTIVE=0 关掉，回到系统默认的失焦退色。
+bool keepBackdropActive() {
+    return Glass::systemBackdrop() && qEnvironmentVariable("WTFML_KEEP_BACKDROP_ACTIVE") != QLatin1String("0");
+}
 #endif
 
 }  // namespace
@@ -176,6 +181,8 @@ void WindowChrome::applyFrame() {
     DwmExtendFrameIntoClientArea(hwnd, &extend);
     const int backdrop = mode == Glass::Mode::Acrylic ? 3 : (mode == Glass::Mode::Mica ? 2 : 1);
     DwmSetWindowAttribute(hwnd, WTFML_DWMWA_SYSTEMBACKDROP_TYPE, &backdrop, sizeof(backdrop));
+    // 换档时窗口可能正失焦：换进亚克力 / 云母补一句激活态，换走还回真实状态（-1 = 不重画非客户区）。
+    DefWindowProcW(hwnd, WM_NCACTIVATE, keepBackdropActive() || GetForegroundWindow() == hwnd, -1);
     m_window->update();
 #endif
 }
@@ -189,6 +196,11 @@ bool WindowChrome::handleNativeEvent(void *message, qintptr *result) {
         // 标题栏高度跟着 DPI 变，等 Qt 把这一条处理完再按新 DPI 重收一次。
         QTimer::singleShot(0, this, [this] { applyFrame(); });
         return false;
+    case WM_NCACTIVATE:
+        // 失焦也按激活交给系统：DWM 只在激活态画亚克力 / 云母（文件头【失焦不退色】）。焦点、键盘走 WM_ACTIVATE，不受影响。
+        if (!keepBackdropActive()) return false;
+        *result = DefWindowProcW(msg->hwnd, WM_NCACTIVATE, TRUE, msg->lParam);
+        return true;
     case WM_NCCALCSIZE: {
         // 最大化：窗口矩形四边各伸出屏外一圈缩放边。按 customMargins 那套算，顶边会跟着标题栏一起收、
         // 落到屏幕上沿往上一圈缩放边的地方（内容最上面那几像素在屏外）；左右下给可见边的那 1px 也会出屏。

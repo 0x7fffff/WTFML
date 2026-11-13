@@ -29,6 +29,15 @@ int chromeNativeChildCount(QWidget *window);
 /// （被原生子窗口盖住就是 false）；没有真 HWND 返回 -1。
 int chromeNativeMouseReachesWindow(QWidget *window, const QPoint &local);
 
+/// HWND 上的 DWM 背板类型（`DWMWA_SYSTEMBACKDROP_TYPE`：1 无、2 云母、3 亚克力）；读不到或没有真 HWND 返回 -1。
+int chromeNativeBackdropType(QWidget *window);
+
+/// DWM 眼里这扇窗口的非客户区是不是激活态（`GetWindowInfo().dwWindowStatus == WS_ACTIVECAPTION`）：
+/// 亚克力 / 云母只在激活态画材质，失焦时换平色。1 / 0；没有真 HWND 返回 -1。
+int chromeNativeFrameActive(QWidget *window);
+/// 给真 HWND 发一条 `WM_NCACTIVATE`（走 Qt 的窗口过程 → nativeEvent），模拟窗口得到 / 失去焦点时系统发的那条。
+void chromeNativeSendNcActivate(QWidget *window, bool active);
+
 /// HTCAPTION / HTCLIENT 的数值。
 int chromeHtCaption();
 int chromeHtClient();
