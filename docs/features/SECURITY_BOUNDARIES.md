@@ -112,5 +112,5 @@ PNG、BMP、WebP 等格式的头部信息可能声明超大分辨率，引发解
 
 - `AgentRedaction` 是键名词根 + 固定令牌形态匹配，不能作为通用凭据兜底：词根表之外的自造字段名要靠形态匹配命中。
 - 凭据文件识别按 dotenv 家族（`.env`、`*.env`、`*.env.*`）、证书后缀和 `credential`/`secret`/`token`/`apikey`/`api_key`/`api-key` 词根判定，文件名里不含这些词根的名字进入普通文本审批。
-- 大文本 `truncated=true` 时仍生成模型可读 artifact。artifact 只存本次读取窗口（默认 256 KB、最大 1 MB），脱敏未命中时仍可被 `artifact.read` 分段取回；工具文案"完整内容见 artifact"应改为"本次读取内容见 artifact"。
+- 大文本 `truncated=true` 时仍生成模型可读 artifact。artifact 只存本次读取窗口（默认 256 KB、最大 1 MB），脱敏未命中时仍可被 `artifact.read` 分段取回；
 - 日志自动读取仍可能带出 Windows 用户名、启动参数回显、绝对路径、显卡/驱动/音频设备等硬件指纹，留给 Stage 2 的日志/诊断字段投影处理。

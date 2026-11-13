@@ -433,7 +433,7 @@
 | 阶段 | 状态 | 人工验收 |
 | --- | --- | --- |
 | Stage 1A：无工具对话 | 已实现，自动验收通过 | G1A 除网络错误外通过；网络错误延后到 [ACCEPTANCE_LOG](archive/ACCEPTANCE_LOG.md) |
-| Stage 1B：受控文件工具 | 已实现，自动验收通过 | **G1B 未通过**：脱敏键名判定与凭据文件名识别两条已修（2026-11-13，见 [REVIEW_LOG](archive/REVIEW_LOG.md)）；artifact 的完整内容说法不准确未修，复测 R1–R4、R6、R7 与补做 W4/W5、A1、P4、P5 待做 |
+| Stage 1B：受控文件工具 | 已实现，自动验收通过 | **G1B 未通过**：首轮提的 B1/B2/B3 三条已修（2026-11-13，见 [REVIEW_LOG](archive/REVIEW_LOG.md)）；复测 R1–R4、R6、R7 与补做 W4/W5、A1、P4、P5 待做 |
 
 **聊天（1A）**
 
