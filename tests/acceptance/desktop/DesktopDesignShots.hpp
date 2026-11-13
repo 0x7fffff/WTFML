@@ -2,6 +2,7 @@
 // 设计稿对照截图（--design-shots）：主页三主题、窄窗、宽窗、折叠轨、组件总表。
 // 只截图，不登录、不联网、不启动游戏；实例和账号是写在隔离目录里的夹具。
 #include "AgentPage.hpp"
+#include "Animations.hpp"
 #include "Glass.hpp"
 #include "GlassPopover.hpp"
 #include "ListRowDelegate.hpp"
@@ -25,6 +26,7 @@
 #include "ToggleSwitch.hpp"
 #include "VersionIcons.hpp"
 #include <QApplication>
+#include <QVariantAnimation>
 #include <QAbstractButton>
 #include <QCheckBox>
 #include <QEnterEvent>
@@ -659,6 +661,15 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
                 for (const QSize size : {QSize(1280, 800), QSize(900, 620)})
                     r66.append({QStringLiteral("r66-%1-%2-%3x%4.png").arg(QLatin1String(state), theme).arg(size.width()).arg(size.height()),
                                 theme, size, false, home, QStringLiteral("r66:") + QLatin1String(state)});
+        // r68 主页风景 ↔ 磨砂淡变：主页 → 出主页中途 → 设置 → 回主页中途 → 主页 × 四主题 × 两档尺寸
+        // （FILTER=r68-）。中途帧 = 淡变停在一半（kHeroFadeMs / 2）的那一刻。
+        for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("emerald"), QStringLiteral("ocean"), QStringLiteral("system")})
+            for (const QSize size : {QSize(900, 620), QSize(1280, 800)})
+                for (const auto &[step, tab] : {std::pair{"1-home", home}, std::pair{"2-out-mid", home},
+                                                std::pair{"3-settings", MainWindowUI::settingsTabIndex()},
+                                                std::pair{"4-in-mid", MainWindowUI::settingsTabIndex()}, std::pair{"5-home-back", home}})
+                    list.append({QStringLiteral("r68-%1-%2x%3-%4.png").arg(theme).arg(size.width()).arg(size.height()).arg(QLatin1String(step)),
+                                 theme, size, false, tab, QStringLiteral("r68:") + QLatin1String(step)});
         // 设置页三主题（去硬描边那轮逐页自检用）。
         for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("emerald"), QStringLiteral("ocean")})
             list.append({QStringLiteral("settings-%1.png").arg(theme), theme, {1280, 800}, false, MainWindowUI::settingsTabIndex()});
@@ -722,6 +733,10 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         }
         const Shot shot = shots.at(index++);
         GlassPopover::closeAllIn(&window);  // 上一张开着的弹层（再点一次锚点就成了"收起"）
+        // r68 中途帧把风景淡变停在了半路：这一张起手先把它走完（落到终值、撤掉「正在淡」标记）。
+        if (auto *fade = window.findChild<QVariantAnimation *>(QStringLiteral("glassHeroFade"));
+            fade != nullptr && fade->state() != QAbstractAnimation::Stopped)
+            fade->setCurrentTime(fade->duration());
         Theme::setSpec(Theme::presetSpec(shot.theme));
         Theme::apply(app);
         window.showNormal();
@@ -841,6 +856,19 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
                         tree->setCurrentItem(top->child(0));
                         break;
                     }
+            } else if (shot.page.startsWith(QStringLiteral("r68:"))) {
+                if (shot.page.endsWith(QStringLiteral("-mid"))) {
+                    // 开着动效换页，把风景淡变停在一半，再关回动效（换页幕布照常 250 ms 收掉，抓图时已不在）。
+                    Anim::setEnabled(true);
+                    window.ui()->getTabWidget()->setCurrentIndex(shot.page.contains(QStringLiteral("out"))
+                                                                     ? MainWindowUI::settingsTabIndex()
+                                                                     : MainWindowUI::homeTabIndex());
+                    if (auto *fade = window.findChild<QVariantAnimation *>(QStringLiteral("glassHeroFade"))) {
+                        fade->pause();
+                        fade->setCurrentTime(Glass::Backdrop::kHeroFadeMs / 2);
+                    }
+                    Anim::setEnabled(false);
+                }
             } else if (shot.page.startsWith(QStringLiteral("r66:"))) {
                 QPushButton *pill = window.ui()->getAccountSkinButton();
                 const bool open = shot.page.endsWith(QStringLiteral("-open"));
