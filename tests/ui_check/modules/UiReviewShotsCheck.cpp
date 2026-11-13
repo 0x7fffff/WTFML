@@ -14,6 +14,7 @@
 // 尺寸只影响主窗口（离屏、DPR=1）；实例设置对话框是产品里那个 820×560 的浮层，
 // 这里照真实样子嵌在覆盖层里拍，不跟着窗口拉伸。
 #include "Support.hpp"
+#include "InputWidthScan.hpp"
 
 #include "AgentPage.hpp"
 #include "AgentViewTypes.hpp"
@@ -472,6 +473,11 @@ bool saveShot(QApplication &app, QMainWindow &window, const QString &outDir, con
               int *saved) {
     app.processEvents();
     app.processEvents();
+    if (qEnvironmentVariableIsSet("WTFML_SCAN_INPUTS")) {
+        for (const InputProbe &p : scanInputs(&window))
+            std::printf("  INPUT [%s] %s %s '%s' w=%d max=%d kind=%s\n", qPrintable(name), qPrintable(p.cls),
+                        qPrintable(p.name), qPrintable(p.hint.left(24)), p.width, p.maxWidth, qPrintable(p.kind));
+    }
     const QString file = QDir(outDir).filePath(name + QStringLiteral(".png"));
     if (window.grab().save(file)) {
         ++(*saved);

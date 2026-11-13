@@ -405,6 +405,7 @@ inline QString wheelGuardProblem(QWidget *widget) {
 int UiInstallLayoutCheck(QApplication &app);
 int UiToolboxPolishCheck(QApplication &app);
 int UiToolboxLayoutCheck(QApplication &app);
+int UiInputWidthCheck(QApplication &app);
 int UiResourcePacksCheck(QApplication &app);
 int UiLifecycleCheck(QApplication &app);
 int UiUiRefreshCheck(QApplication &app);

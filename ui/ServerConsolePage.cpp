@@ -4,6 +4,7 @@
  */
 
 #include "ServerConsolePage.hpp"
+#include "InputSizing.hpp"
 
 #include <QComboBox>
 #include <QEvent>
@@ -81,6 +82,7 @@ ServerConsolePage::ServerConsolePage(QWidget *parent) : QDialog(parent) {
         m_searchEdit->setObjectName(searchEditName());
         m_searchEdit->setPlaceholderText(searchPlaceholderText());
         m_searchEdit->setClearButtonEnabled(true);
+        InputSizing::longValue(m_searchEdit, "搜索框：筛选日志行，关键词长度不定");
         m_searchEdit->setToolTip(
             QStringLiteral("只筛选当前显示的行；「导出日志…」仍导出完整日志。"));
         connect(m_searchEdit, &QLineEdit::textChanged, this, [this](const QString &text) {
@@ -147,6 +149,7 @@ ServerConsolePage::ServerConsolePage(QWidget *parent) : QDialog(parent) {
         layout->setSpacing(8);
         m_commandEdit = new QLineEdit(row);
         m_commandEdit->setObjectName(MainWindowUI::serverConsoleCommandEditName());
+        InputSizing::longValue(m_commandEdit, "命令输入：像聊天框一样整行");
         m_commandEdit->setPlaceholderText(
             QStringLiteral("往这个服务端敲一条命令（比如 say 大家好），回车发送"));
         layout->addWidget(m_commandEdit, 1);

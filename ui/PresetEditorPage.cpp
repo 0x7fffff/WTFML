@@ -1,4 +1,5 @@
 #include "PresetEditorPage.hpp"
+#include "InputSizing.hpp"
 #include "InlineMessage.hpp"
 #include "OverlayHost.hpp"
 #include "PresetModEditor.hpp"
@@ -150,12 +151,14 @@ void PresetEditorPage::rebuildPages(const QJsonObject &state) {
     layout->addWidget(new QLabel(tr("名称"), overview));
     m_name = new QLineEdit(state.value("name").toString(), overview);
     m_name->setObjectName("presetEditorName");
+    InputSizing::shortValue(m_name, InputSizing::kNameChars, InputSizing::Script::Han);
     layout->addWidget(m_name);
     layout->addWidget(new QLabel(tr("图标"), overview));
     auto *iconRow = new QHBoxLayout;
     m_icon = new QLineEdit(state.value("icon").toString(), overview);
     m_icon->setReadOnly(true);
     m_icon->setObjectName("presetEditorIcon");
+    InputSizing::longValue(m_icon, "只读：图标文件路径，旁边是「选择图片」");
     iconRow->addWidget(m_icon, 1);
     auto *choose = new QPushButton(tr("选择图片"), overview);
     Theme::markButton(choose, Theme::ButtonKind::Neutral);

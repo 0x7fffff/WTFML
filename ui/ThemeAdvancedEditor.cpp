@@ -1,4 +1,5 @@
 #include "ThemeAdvancedEditor.hpp"
+#include "InputSizing.hpp"
 #include <QComboBox>
 #include <QFormLayout>
 #include <QHBoxLayout>
@@ -60,6 +61,7 @@ ThemeAdvancedEditor::ThemeAdvancedEditor(QWidget *parent) : QWidget(parent), m_s
     form->addRow(tr("区域文字"), m_foregroundRow);
     m_opacity = new QSpinBox(body);
     m_opacity->setObjectName("themePartTextOpacity");
+    InputSizing::shortValue(m_opacity, 0);
     m_opacity->setRange(-1, 100);
     m_opacity->setSpecialValueText(tr("跟随全局"));
     m_opacity->setSuffix("%");

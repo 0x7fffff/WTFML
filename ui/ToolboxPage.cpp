@@ -4,6 +4,7 @@
  */
 
 #include "ToolboxPage.hpp"
+#include "InputSizing.hpp"
 #include "ArmorTrimPreview.hpp"
 #include "DownloadToolPanel.hpp"
 #include "GlassPopover.hpp"
@@ -2169,6 +2170,7 @@ QWidget *ToolboxPage::buildCoordPanel() {
     m_tpCommand = new QLineEdit(result.card);
     m_tpCommand->setObjectName(QStringLiteral("coordTpCommand"));
     m_tpCommand->setReadOnly(true);
+    InputSizing::longValue(m_tpCommand, "只读结果：整条 tp 命令，方便选中复制");
     m_tpCommand->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     auto *makeCommand = new QPushButton(QStringLiteral("生成 tp 命令"), result.card);
     makeCommand->setObjectName(QStringLiteral("coordMakeTp"));
@@ -2273,6 +2275,7 @@ QWidget *ToolboxPage::buildServerPanel() {
     m_serverInput = new QLineEdit(panel);
     m_serverInput->setObjectName(QStringLiteral("serverAddress"));
     m_serverInput->setPlaceholderText(QStringLiteral("host:port，默认 25565"));
+    InputSizing::shortValue(m_serverInput, 40);  // 域名:端口，常见不超过 30 个字符
     m_serverCheck = new QPushButton(QStringLiteral("检测"), panel);
     m_serverCheck->setObjectName(QStringLiteral("serverCheck"));
     m_serverCheck->setAutoDefault(false);
@@ -2284,8 +2287,9 @@ QWidget *ToolboxPage::buildServerPanel() {
     m_serverCancel->setEnabled(false);
     m_serverCancel->hide();  // 只在检测中出现
     auto *line = form.addRow(QStringLiteral("服务器地址"), {m_serverInput, m_serverCheck, m_serverCancel});
-    line->setStretchFactor(m_serverInput, 1);
+    line->setStretchFactor(m_serverInput, 100);
     delete line->takeAt(line->count() - 1);
+    line->addStretch(1);  // 地址框封顶后，「检测」紧跟在它后面，别被拉成一长条
     layout->addLayout(form.grid);
 
     // 结果区：左边服务器图标，右边 MOTD 与几行细项。
@@ -2418,6 +2422,7 @@ QWidget *ToolboxPage::buildHashPanel() {
     FormGrid form(panel);
     m_hashPath = new QLineEdit(panel);
     m_hashPath->setObjectName(QStringLiteral("hashPath"));
+    InputSizing::longValue(m_hashPath, "文件路径：深度不定");
     m_hashPath->setPlaceholderText(QStringLiteral("拖入文件或点击选择"));
     auto *browse = new QPushButton(QStringLiteral("选择…"), panel);
     browse->setToolTip(QStringLiteral("可多选，多个文件逐个计算。"));
@@ -2435,6 +2440,7 @@ QWidget *ToolboxPage::buildHashPanel() {
     form.add(QStringLiteral("算法"), m_hashAlgorithm);
     m_hashExpected = new QLineEdit(panel);
     m_hashExpected->setObjectName(QStringLiteral("hashExpected"));
+    InputSizing::longValue(m_hashExpected, "对照摘要：SHA-256 是 64 个十六进制字符，要能看全");
     m_hashExpected->setPlaceholderText(QStringLiteral("对照摘要（可选）"));
 
     m_hashProgress = makeMutedLabel(panel, QStringLiteral("hashProgress"));

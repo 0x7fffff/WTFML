@@ -3,6 +3,7 @@
  * @brief 将目标核心安装与当前实例更新串联；只使用现有下载器和快照事务。
  */
 #include "InstanceUpdateFlow.hpp"
+#include "InputSizing.hpp"
 #include "TextMarks.hpp"
 #include "MainWindow.hpp"
 #include "InstanceSettingsDialog.hpp"
@@ -158,6 +159,7 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
     mode->addItem(QObject::tr("更新当前实例（先完整快照）"), true);
     auto *copyName = new QLineEdit(sourceId + QObject::tr("-更新副本"), selectors);
     copyName->setObjectName("instanceUpdateCopyName"); copyName->setPlaceholderText(QObject::tr("更新副本名称"));
+    InputSizing::shortValue(copyName, InputSizing::kNameChars, InputSizing::Script::Han);
     modeRow->addWidget(new QLabel(QObject::tr("2. 更新方式"), selectors)); modeRow->addWidget(mode, 1); modeRow->addWidget(copyName, 1);
     modeRow->setContentsMargins(0, 0, 0, 0);
     auto *modePanel = new QWidget(page); modePanel->setLayout(modeRow);

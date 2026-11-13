@@ -124,6 +124,7 @@ set(HEADER_FILES
     ui/AgentComposer.hpp
     ui/AgentPage.hpp
     ui/AgentSecretEdit.hpp
+    ui/InputSizing.hpp
     ui/AgentSettingsPage.hpp
     ui/AgentToolCard.hpp
     ui/AgentPanelPaint.hpp

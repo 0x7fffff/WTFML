@@ -13,6 +13,7 @@
 #include <QWidget>
 #include <functional>
 #include "Theme.hpp"
+#include "InputSizing.hpp"
 
 /// 工具箱里「高速下载」那一页（原来的独立窗口并进了工具箱）。
 /// 只收集输入和显示状态；下载与任务生命周期由 `DirectDownloadController` 持有，切走页面不取消任务。
@@ -35,6 +36,7 @@ public:
         url = new QLineEdit(this);
         url->setObjectName(QStringLiteral("downloadToolUrl"));
         url->setPlaceholderText(QStringLiteral("https://"));
+        InputSizing::longValue(url, "下载网址：长度不定");
         layout->addWidget(url);
         layout->addSpacing(8);
 
@@ -45,6 +47,7 @@ public:
         row->setSpacing(8);
         directory = new QLineEdit(QStandardPaths::writableLocation(QStandardPaths::DownloadLocation), directoryRow);
         directory->setObjectName(QStringLiteral("downloadToolDirectory"));
+        InputSizing::longValue(directory, "保存目录：路径深度不定");
         browse = new QPushButton(QStringLiteral("浏览"), directoryRow);
         browse->setObjectName(QStringLiteral("downloadToolBrowse"));
         Theme::markButton(browse, Theme::ButtonKind::Neutral);
@@ -57,6 +60,7 @@ public:
         name = new QLineEdit(this);
         name->setObjectName(QStringLiteral("downloadToolFileName"));
         name->setPlaceholderText(QStringLiteral("留空使用链接中的文件名"));
+        InputSizing::longValue(name, "文件名：整合包、模组文件名常带版本号，可到 80 字符");
         m_pathGrid = new QGridLayout;
         m_pathGrid->setContentsMargins(0, 0, 0, 0);
         m_pathGrid->setHorizontalSpacing(8);

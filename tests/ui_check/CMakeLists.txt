@@ -254,6 +254,7 @@ add_ui_module(ui_check_install_layout modules/UiInstallLayoutCheck.cpp UiInstall
 add_ui_module(ui_check_agent modules/UiAgentCheck.cpp UiAgentCheck)
 add_ui_module(ui_check_toolbox_polish modules/UiToolboxPolishCheck.cpp UiToolboxPolishCheck)
 add_ui_module(ui_check_toolbox_layout modules/UiToolboxLayoutCheck.cpp UiToolboxLayoutCheck)
+add_ui_module(ui_check_input_widths modules/UiInputWidthCheck.cpp UiInputWidthCheck)
 add_ui_module(ui_check_resource_packs modules/UiResourcePacksCheck.cpp UiResourcePacksCheck)
 add_ui_module(ui_check_lifecycle modules/UiLifecycleCheck.cpp UiLifecycleCheck)
 add_ui_module(ui_check_ui_refresh modules/UiUiRefreshCheck.cpp UiUiRefreshCheck)
@@ -299,6 +300,12 @@ set_tests_properties(wtfml.install-layout PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
 )
 wtfml_add_test(NAME wtfml.toolbox-polish COMMAND ui_check_toolbox_polish)
+wtfml_add_test(NAME wtfml.input-widths COMMAND ui_check_input_widths)
+set_tests_properties(wtfml.input-widths PROPERTIES
+    LABELS "ui;layout"
+    TIMEOUT 120
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
 wtfml_add_test(NAME wtfml.toolbox-layout COMMAND ui_check_toolbox_layout)
 set_tests_properties(wtfml.toolbox-layout PROPERTIES
     LABELS "ui;toolbox"

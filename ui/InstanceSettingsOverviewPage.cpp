@@ -11,6 +11,7 @@
  */
 
 #include "InstanceSettingsDialog.hpp"
+#include "InputSizing.hpp"
 #include "ResourcePackPage.hpp"
 #include "WheelSafeComboBox.hpp"
 
@@ -208,6 +209,7 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
         // 初值是**目录名**（不是页眉上那个显示名）—— 见构造函数的 @param instanceId。
         m_instanceNameEdit->setPlaceholderText(instanceNameText());
         m_instanceNameEdit->setToolTip(instanceNameHint());
+        InputSizing::shortValue(m_instanceNameEdit, InputSizing::kNameChars, InputSizing::Script::Han);
         m_instanceNameEdit->setFixedWidth(260);
         m_lastLaunchLabel = new QLabel(this);
         {

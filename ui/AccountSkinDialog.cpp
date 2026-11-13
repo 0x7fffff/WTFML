@@ -4,6 +4,7 @@
  */
 
 #include "AccountSkinDialog.hpp"
+#include "InputSizing.hpp"
 
 // WheelGuard 住在 MainWindowUI.hpp 里（和 InstanceSettingsDialog.cpp 一样，直接引那一份，
 // 不另外抄一个防护类）。它护的是下面那个「模型」下拉框。
@@ -388,13 +389,16 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_offlineNameEdit = new QLineEdit(m_offlineRow);
     m_offlineNameEdit->setObjectName(offlineNameEditName());
     m_offlineNameEdit->setPlaceholderText(offlineNamePlaceholder());
+    // 名字最多 16 个字符（AccountStore::validateOfflineName），框只留这么长，「添加」紧跟在后面。
+    InputSizing::shortValue(m_offlineNameEdit, 16, InputSizing::Script::Han);
     m_addOfflineButton = new QPushButton(QStringLiteral("添加"), m_offlineRow);
     m_addOfflineButton->setObjectName(addOfflineButtonName());
     m_addOfflineButton->setToolTip(addOfflineButtonText());
     m_addOfflineButton->setAccessibleName(addOfflineButtonText());
     Theme::markButton(m_addOfflineButton, Theme::ButtonKind::Neutral);
-    offlineRow->addWidget(m_offlineNameEdit, 1);
+    offlineRow->addWidget(m_offlineNameEdit, 100);  // 拉伸比 100:1，框先长到上限，余宽才落到行尾
     offlineRow->addWidget(m_addOfflineButton);
+    offlineRow->addStretch(1);
     showAccountKind(false);
 
     m_refreshButton = new QPushButton(refreshButtonText(), this);
