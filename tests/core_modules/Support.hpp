@@ -1003,6 +1003,9 @@ void runResourceDetailTests();
 
 void runDailyQuoteTests();
 
+// HG 节：主页大标题的问候规则（`src/util/HomeGreeting`）—— 时段边界、首次与升级老用户、久别、有名无名。
+void runHomeGreetingTests();
+
 // =========================================================================
 // ZI 节：资源商店那几发请求也走共享的 Control 额度。
 //

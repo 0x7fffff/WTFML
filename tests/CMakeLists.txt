@@ -525,6 +525,11 @@ if(EXISTS ${REPO_ROOT}/src/util/DailyQuote.cpp)
     list(APPEND PROJECT_SOURCES ${REPO_ROOT}/src/util/DailyQuote.cpp
                                 ${REPO_ROOT}/src/util/DailyQuote.hpp)
 endif()
+# HomeGreeting：主页大标题的问候规则（纯函数）。verify 单测它，mw_check 经 MainWindow 用它。
+if(EXISTS ${REPO_ROOT}/src/util/HomeGreeting.cpp)
+    list(APPEND PROJECT_SOURCES ${REPO_ROOT}/src/util/HomeGreeting.cpp
+                                ${REPO_ROOT}/src/util/HomeGreeting.hpp)
+endif()
 if(EXISTS ${REPO_ROOT}/src/util/ImageDecode.cpp)
     list(APPEND PROJECT_SOURCES ${REPO_ROOT}/src/util/ImageDecode.cpp
                                 ${REPO_ROOT}/src/util/ImageDecode.hpp)

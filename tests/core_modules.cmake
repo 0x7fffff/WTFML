@@ -130,6 +130,8 @@ add_library(core_cases_resources OBJECT
  core_modules/ResourceDetailTests.cpp
  # DQ：主页「每日一言」的判据层（纯函数 + 假响应，不联网）。
  core_modules/DailyQuoteTests.cpp
+ # HG：主页大标题的问候规则（纯函数）。
+ core_modules/HomeGreetingTests.cpp
  # ZI：资源商店那几发也走共享的 Control 额度（本机假接口，不碰外网）。
  core_modules/ResourceStoreBudgetTests.cpp
  # R1：更新检查批次表在"一发已收场、一发还在飞"时的收场（R1）。

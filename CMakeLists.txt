@@ -258,6 +258,7 @@ set(HEADER_FILES
     src/util/AppPaths.hpp
     src/util/ThemeImage.hpp
     src/util/DailyQuote.hpp
+    src/util/HomeGreeting.hpp
     src/util/ImageDecode.hpp
     src/util/SystemMemory.hpp
     # 掉盘时那句话：卷认得出来且已就绪才算可用（见头文件）。
@@ -563,6 +564,8 @@ set(SOURCE_FILES
     # 服务端内容（模组 / 数据包）的名字与分类。
     src/server/ServerContent.cpp
     src/util/DailyQuote.cpp
+    # 主页大标题那句问候（按时段 / 上次打开日期 / 玩家名）。
+    src/util/HomeGreeting.cpp
     src/util/ImageDecode.cpp
     src/util/ThemeImage.cpp
     src/util/SystemMemory.cpp

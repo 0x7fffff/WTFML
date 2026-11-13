@@ -2925,6 +2925,7 @@ public:
     static QString showGameLogCheckName() { return QStringLiteral("showGameLogCheck"); }
     /// 主页「每日一言」那一行。
     static QString homeHeroQuoteName() { return QStringLiteral("homeHeroQuote"); }
+    static QString homeHeroTitleName() { return QStringLiteral("homeHeroTitle"); }
     /// 设置页「外观」组里「每日一言」那个开关。
     static QString dailyQuoteCheckName() { return QStringLiteral("dailyQuoteCheck"); }
     static QString processPriorityComboName() { return QStringLiteral("processPriorityCombo"); }
@@ -3695,6 +3696,23 @@ public:
     QLabel *getHomeAvatarLabel() const { return homeAvatarLabel; }
     /// 主页大标题下那一行「每日一言」。没有句子、或设置里关着时它是**隐藏的**（不占位）。
     QLabel *getHomeHeroQuote() const { return homeHeroQuote; }
+    /// 主页大标题（问候语）。单行，`text()` 是整句，画出来的样子见 homeHeroTitleShown()。
+    QLabel *getHomeHeroTitle() const { return homeHeroTitle; }
+    /// 换大标题：@p text 是整句（`HomeGreeting::text()` 出的），@p name 是其中的玩家名
+    /// （空 = 没带名字）。放不下时只截名字，问候保留，句末句号让给省略号。
+    void setHomeHeroTitle(const QString &text, const QString &name);
+    /// 大标题按当前宽度实际画出来的那一句（截过的样子）。
+    QString homeHeroTitleShown() const;
+    /// 那一句按实际混排字体（拉丁 Dancing Script、其余文楷）量出来的宽度。
+    int homeHeroTitleShownWidth() const;
+    /// 大标题里拉丁字母那一路的字体（Dancing Script，按 @p han 放大 1.2 倍、字距 0）。
+    static QFont homeHeroTitleLatinFont(const QFont &han);
+    /// 截名字的规则：整句放得下原样返回；否则把 @p text 里最后一处 @p name 收成「名…」，
+    /// 前面的问候不动，名字后面只剩一个「。」时去掉它（省略号后不加句号）。
+    /// 量宽按 @p font（文楷那一支）和由它派生的拉丁手写体分段算。
+    /// @p name 为空或不在句中时退回整句从尾巴省略。
+    static QString elideHomeHeroTitle(const QFont &font, const QString &text,
+                                      const QString &name, int width);
     /// 设置页「外观」组里「每日一言」那个开关。
     QCheckBox *getDailyQuoteCheck() const { return dailyQuoteCheck; }
     /// 换这一行：空句子 = 隐藏；@p tooltip 是悬停时那句署名（空串 = 不设提示）。
@@ -3857,6 +3875,7 @@ private:
     QLabel *homeAccountLabel = nullptr;
     QLabel *homeAvatarLabel = nullptr;
     QLabel *homeHeroQuote = nullptr;
+    QLabel *homeHeroTitle = nullptr;
     Theme::QuoteScript homeQuoteScript = Theme::QuoteScript::Han;
     QLabel *homeAccountTypeLabel = nullptr;
     QPushButton *addFolderButton = nullptr;

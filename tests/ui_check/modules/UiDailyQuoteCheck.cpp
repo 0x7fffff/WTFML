@@ -137,6 +137,60 @@ int UiDailyQuoteCheck(QApplication &app) {
         }
     }
 
+    // ---- 大标题问候：单行、随名字变、长名字只截名字 ----
+    if (title != nullptr) {
+        window.resize(1280, 800);
+        app.processEvents();
+        check(!title->wordWrap(), "HG-UI1 大标题不折行（单行）");
+        const QStringList families = title->font().families();
+        check(families.value(0).contains(QStringLiteral("WenKai")) && families.value(1) == QStringLiteral("KaiTi"),
+              "HG-UI2 文楷 Light 打头，文楷没有的字先落系统楷体", families.join(QStringLiteral(" / ")));
+        const QFont latin = MainWindowUI::homeHeroTitleLatinFont(title->font());
+        check(latin.families().value(0).contains(QStringLiteral("Dancing")) &&
+                  latin.pixelSize() == qRound(title->font().pixelSize() * 1.2) && latin.letterSpacing() == 0,
+              "HG-UI2b 名字里的拉丁字母用 Dancing Script，放大 1.2 倍、字距 0（连笔不断）",
+              QStringLiteral("%1 %2px").arg(latin.families().join(QStringLiteral(" / "))).arg(latin.pixelSize()));
+        ui.setHomeHeroTitle(QStringLiteral("晚上好，Steve。"), QStringLiteral("Steve"));
+        app.processEvents();
+        check(title->text() == QStringLiteral("晚上好，Steve。") &&
+                  ui.homeHeroTitleShown() == QStringLiteral("晚上好，Steve。"),
+              "HG-UI3 短名字整句照写", ui.homeHeroTitleShown());
+        ui.setHomeHeroTitle(QStringLiteral("晚上好，Alex。"), QStringLiteral("Alex"));
+        app.processEvents();
+        check(title->text() == QStringLiteral("晚上好，Alex。"), "HG-UI4 换账号后标题跟着换名字",
+              title->text());
+        auto *pill = window.findChild<QWidget *>(MainWindowUI::accountSkinButtonName());
+        const QString longName = QStringLiteral("ThisIsAVeryLongName_16");
+        for (const QSize size : {QSize(1280, 800), QSize(900, 620)}) {
+            window.resize(size);
+            ui.setHomeHeroTitle(QStringLiteral("晚上好，Steve。"), QStringLiteral("Steve"));
+            for (int i = 0; i < 4; ++i) app.processEvents();
+            const int shortWidth = title->width();
+            const int lineHeight = title->height();
+            ui.setHomeHeroTitle(QStringLiteral("晚上好，") + longName + QStringLiteral("。"), longName);
+            for (int i = 0; i < 4; ++i) app.processEvents();
+            const QString shown = ui.homeHeroTitleShown();
+            const QString where = QStringLiteral("%1x%2").arg(size.width()).arg(size.height());
+            const int room = title->contentsRect().width();
+            check(shown.startsWith(QStringLiteral("晚上好，This")) && shown.endsWith(QStringLiteral("…")) &&
+                      ui.homeHeroTitleShownWidth() <= room,
+                  QStringLiteral("HG-UI5 %1：长名字只截名字，问候留着、省略号收尾不跟句号，整句装得下").arg(where),
+                  QStringLiteral("%1（%2 / %3 px）")
+                      .arg(shown)
+                      .arg(ui.homeHeroTitleShownWidth())
+                      .arg(room));
+            check(title->width() == shortWidth && title->height() == lineHeight,
+                  QStringLiteral("HG-UI6 %1：长名字不把左栏抻宽、不折成两行").arg(where),
+                  QStringLiteral("短 %1x%2 / 长 %3x%4")
+                      .arg(shortWidth).arg(lineHeight).arg(title->width()).arg(title->height()));
+            const QRect titleRect(title->mapTo(&window, QPoint(0, 0)), title->size());
+            check(pill == nullptr || !titleRect.intersects(QRect(pill->mapTo(&window, QPoint(0, 0)), pill->size())),
+                  QStringLiteral("HG-UI7 %1：长名字的标题不压右上账号胶囊").arg(where));
+        }
+        window.resize(1280, 800);
+        app.processEvents();
+    }
+
     // ---- 设置页那个开关 ----
     auto *dailyQuote = window.findChild<QCheckBox *>(MainWindowUI::dailyQuoteCheckName());
     check(dailyQuote != nullptr, "DQ-UI21 设置 → 个性化 → 外观 有「每日一言」开关");
