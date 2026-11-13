@@ -56,6 +56,12 @@ int UiDailyQuoteShots(QApplication &app) {
     };
     const QVector<Scope> scopes = {{"1280", QSize(1280, 800)}, {"900", QSize(900, 620)}};
 
+    // 版面要走几趟事件循环才稳：实例带是 show() 之后才灌进去的，它那一段高度一变，
+    // 上面英雄区（stretch 1）就跟着重排。截早了截到的就是那半截没排完的样子。
+    const auto settle = [&app] {
+        for (int i = 0; i < 12; ++i) app.processEvents();
+    };
+
     int saved = 0;
     for (const QString &preset : {QStringLiteral("dark"), QStringLiteral("emerald")}) {
         Theme::setSpec(Theme::presetSpec(preset));
@@ -77,12 +83,27 @@ int UiDailyQuoteShots(QApplication &app) {
                 // 卡片是 show() 之后才塞进去的，一次 processEvents 排不完版。
                 ui.setHomeQuickMode(MainWindowUI::HomeQuickMode::Current);
                 ui.setHomeHeroQuote(sample.text, sample.tip, sample.script);
-                app.processEvents();
-                app.processEvents();
+                settle();
+                const QString where = QStringLiteral("%1-%2").arg(preset, QString::fromLatin1(scope.key));
                 const QString file = QDir(out).filePath(
                     QStringLiteral("r71-%1-%2-%3.png")
                         .arg(preset, QString::fromLatin1(scope.key), QString::fromLatin1(sample.key)));
                 if (window.grab().save(file)) ++saved;
+                // 同档的对照（没有引文那一张）+ 两边的「当前实例」y：证明这一行只吃标题下面那块空白。
+                if (QString::fromLatin1(sample.key) == QLatin1String("zh")) {
+                    auto *eyebrow = window.findChild<QWidget *>(QStringLiteral("homeCurrentEyebrow"));
+                    const auto yOf = [&](QWidget *w) { return w->mapTo(&window, QPoint(0, 0)).y(); };
+                    const int on = eyebrow == nullptr ? -1 : yOf(eyebrow);
+                    ui.setHomeHeroQuote(QString(), QString(), sample.script);
+                    settle();
+                    const int off = eyebrow == nullptr ? -1 : yOf(eyebrow);
+                    const QString plain = QDir(out).filePath(
+                        QStringLiteral("r71-%1-%2-noquote.png")
+                            .arg(preset, QString::fromLatin1(scope.key)));
+                    if (window.grab().save(plain)) ++saved;
+                    std::printf("eyebrow %s: on=%d off=%d\n", qPrintable(where), on, off);
+                    std::fflush(stdout);
+                }
                 window.hide();
             }
         }
@@ -109,5 +130,5 @@ int UiDailyQuoteShots(QApplication &app) {
         }
     }
     std::printf("daily-quote shots: %d saved to %s" "\n", saved, qPrintable(out));
-    return saved == 13 ? 0 : 1;
+    return saved == 18 ? 0 : 1;
 }
