@@ -98,6 +98,20 @@ constexpr int textSize(TextRole role) {
 /// 空状态大字），由 markDisplay() 落到控件上；导航、按钮、胶囊、小节标题、表单、列表、对话框正文
 /// 一律系统字（app 字体）。
 enum class HandFont { Kai, KaiLight, Script };
+/// 主页「每日一言」那一行的文字种类：决定用哪支字体、以及限长（限长在
+/// `util/DailyQuote` 里判，这一层只管字体）。名字和那边的 `DailyQuote::Script`
+/// 一一对应，但**不能共用那个类型**：ui/ 不许 include src/（分层铁律）。
+enum class QuoteScript { Latin, Han, Kana };
+/// 三类文字各自的 family 列表（第一档是主字体，后面是回退）。
+/// - 拉丁：Dancing Script（品牌手写体）；
+/// - 汉字无假名：文楷 Light（和主页大标题同一支）；
+/// - 含假名：Windows 自带的日文字体（Yu Mincho → Yu Gothic UI → Meiryo UI）。
+///   **文楷没有假名**：实测 assets/fonts 那两支文楷的 cmap 只有 3911 个码点，
+///   0x3040–0x30FF（平假名 / 片假名 / 长音符「ー」）一个都没有，连「々」也没有；
+///   把文楷排在前面只会让日文句子里汉字用文楷、假名落回系统字，一行两种字形。
+QStringList quoteFamilies(QuoteScript script);
+/// 「每日一言」的字号也是分档的：正常 16，窄窗 14（见 MainWindowUI 的 applyScale）。
+QFont quoteFont(QFont font, QuoteScript script, int pixelSize);
 QString handFamily(HandFont which);
 /// 把 `font` 换成那一支手写体（注册不上就原样返回）。
 QFont handFont(QFont font, HandFont which);
@@ -537,6 +551,18 @@ QString secondaryTextRoleValue();
 constexpr int actionHeight() { return 36; }
 /// "页面上唯一最重要的动作"那一档（`ButtonKind::Primary`），比普通动作略高一档。
 constexpr int primaryActionHeight() { return 36; }
+/// 主按钮（`ButtonKind::Primary`，强调色实心）左右内边距与最小总宽。**唯一出处**：
+/// 样式表里 `padding` 取前者、`min-width` 按总宽 88 扣掉内边距与 1px 边框后写入，
+/// 所以「计算」「启动实例」这种两三个字的主按钮不再窄成一条。图标档按钮不吃这一条。
+constexpr int primaryButtonPadX() { return 20; }
+constexpr int primaryButtonMinWidth() { return 88; }
+
+/// 一级页（管理 / 下载 / 设置 / 工具箱目录 / 工具页）标题的统一落点：
+/// 标题字左缘离内容区左边、标题行上沿离内容区上边各多远。**唯一出处**，各页的页头外边距
+/// 从这两个数推出来，换页时标题不跳。
+/// = 页面外边距（`MainWindowUI::pageMargin()` 20）+ 正文面内边距 18 / 页头上沿 2。
+constexpr int pageTitleInsetLeft() { return 38; }
+constexpr int pageTitleInsetTop() { return 22; }
 
 /// 这一位是**图标按钮**（齿轮 / 底栏面板上那几颗 / 详情页顶上的 chip）：它按自己钉死的
 /// 边长来，不跟 `actionHeight()` 那一档。

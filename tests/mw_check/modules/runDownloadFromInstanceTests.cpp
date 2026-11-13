@@ -219,7 +219,7 @@ void runDownloadFromInstanceTests() {
         // 0 毫秒定时器（那一发在它那层循环里跑），量完点顶上那颗返回箭头收页 —— 外面这一句
         // `click()` 才拿得回控制权。
         QString returnedHeader;
-        // 页眉那行字（「实例设置：<实例名>」）**不随页走**，所以"退回的还是模组那一页、
+        // 页眉那行字（「实例设置」）**不随页走**，所以"退回的还是模组那一页、
         // 不是落回「概览」"这件事页眉量不出来 —— 得问 `currentPageKey()`（唯一出处就是
         // 它，见 InstanceSettingsDialog.hpp 那段 ★）。
         QString returnedPageKey;

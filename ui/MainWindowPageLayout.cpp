@@ -222,7 +222,9 @@ TwoColumns buildTwoColumnPage(QWidget *page, const QString &tab) {
         auto *header = new QWidget(columns.right.widget);
         header->setObjectName(MainWindowUI::pageHeaderName(tab));
         auto *headerLayout = new QVBoxLayout(header);
-        headerLayout->setContentsMargins(kSurfacePadding, 2, kSurfacePadding, 0);
+        // 左缘 / 上沿取一级页统一落点（页面外边距已在外层留过，这里只补差）
+        headerLayout->setContentsMargins(Theme::pageTitleInsetLeft() - kPageMargin, Theme::pageTitleInsetTop() - kPageMargin,
+                                         kSurfacePadding, 0);
         headerLayout->setSpacing(kHeaderSpacing);
 
         auto *titleRow = new QHBoxLayout;

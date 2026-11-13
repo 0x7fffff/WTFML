@@ -31,6 +31,8 @@ public:
         const auto tokens = Theme::tokens();
         const QColor ink = mode == QIcon::Disabled ? tokens.disabled
             : m_action == VersionIcons::Action::Delete ? Theme::dangerColor(QApplication::palette())
+            : m_action == VersionIcons::Action::QuietDelete
+                ? (mode == QIcon::Active ? Theme::dangerColor(QApplication::palette()) : tokens.secondary)
             : (Theme::isDark() ? Theme::accentShade(Theme::AccentShade::Pure) : tokens.primary);
         const int side = qMin(size.width(), size.height());
         switch (m_action) {
@@ -39,7 +41,8 @@ public:
         case VersionIcons::Action::Edit: return VersionIcons::pen(side, ink);
         case VersionIcons::Action::Folder: return VersionIcons::folderMark(side, ink);
         case VersionIcons::Action::Details: return VersionIcons::infoMark(side, ink);
-        case VersionIcons::Action::Delete: return VersionIcons::trash(side, ink);
+        case VersionIcons::Action::Delete:
+        case VersionIcons::Action::QuietDelete: return VersionIcons::trash(side, ink);
         }
         return {};
     }

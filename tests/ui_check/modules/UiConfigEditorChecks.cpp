@@ -365,11 +365,11 @@ int UiConfigEditorChecks() {
                     item != nullptr ? files->list()->itemWidget(item) : nullptr;
                 check(rowWidget != nullptr, "U11c 前提：那一行有行控件");
                 if (rowWidget != nullptr) {
-                    check(rowWidget->height() == MainWindowUI::versionTreeRowHeight(),
+                    check(rowWidget->height() == MainWindowUI::instanceFileRowHeight(),
                           "U11c 前提：那一行的行控件已经**摆好位了**（这是下面那些合成双击"
                           "成立的前提，见紧上面那一 NOTE）",
                           QStringLiteral("%1x%2").arg(rowWidget->width()).arg(rowWidget->height()));
-                    const QPoint click(10, rowWidget->height() / 2);
+                    const QPoint click(20, rowWidget->height() / 2); // 行首图标那一格（左边距 12 之内是空的）
                     check(rowWidget->childAt(click) != nullptr,
                           "U11c 前提：鼠标落在那儿时**底下是一个子控件**（行首那一格图标）"
                           "—— 事件要从那一层冒上来，这一条才有意义");

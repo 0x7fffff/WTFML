@@ -18,6 +18,7 @@
  */
 
 #include "MainWindow.hpp"
+#include "controllers/DailyQuoteController.hpp"
 
 #include "..\ui\Animations.hpp"
 #include "..\ui\Theme.hpp"
@@ -115,6 +116,7 @@ void MainWindow::applySettingsToUi() {
     const QSignalBlocker blockProxyMode(m_ui->getDownloadProxyCombo());
     const QSignalBlocker blockProxyManual(m_ui->getDownloadProxyManualEdit());
     const QSignalBlocker blockShowLog(m_ui->getShowGameLogCheck());
+    const QSignalBlocker blockDailyQuote(m_ui->getDailyQuoteCheck());
     const QSignalBlocker blockWarnDuplicate(m_ui->getWarnDuplicateLaunchCheck());
     const QSignalBlocker blockWarnWorldLoss(m_ui->getWarnWorldLossCheck());
     const QSignalBlocker blockDownloadInto(
@@ -175,6 +177,7 @@ void MainWindow::applySettingsToUi() {
 
     // ---------- 启动选项 ----------
     m_ui->getShowGameLogCheck()->setChecked(m_settings->showGameLog());
+    m_ui->getDailyQuoteCheck()->setChecked(m_settings->dailyQuote());
     // 两条启动提醒（上面那两个 blocker 已经挡上了）。这里**不能**顺手把值抄成
     // "界面 = 盘上"以外的任何默认：默认开这件事只有 LauncherSettings 一处出处。
     m_ui->getWarnDuplicateLaunchCheck()->setChecked(m_settings->warnDuplicateLaunch());
@@ -413,6 +416,12 @@ void MainWindow::onWarnMissingDependenciesChanged() {
 
 void MainWindow::onShowGameLogChanged() {
     m_launcherPreferences->showGameLogChanged();
+}
+
+void MainWindow::onDailyQuoteChanged() {
+    // 开关本身就是这一项的全部语义：落盘（控制器里一并写）+ 立刻生效。关掉会掐掉在飞的
+    // 请求并把主页那一行收起来（不占位）；打开会按当前日期重来一遍（有缓存就不问网络）。
+    m_dailyQuote->setEnabled(m_ui->getDailyQuoteCheck()->isChecked());
 }
 
 void MainWindow::onWarnDuplicateLaunchChanged() {

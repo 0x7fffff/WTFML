@@ -790,7 +790,8 @@ int UiUiRefreshCheck(QApplication &app) {
                 // 对比列表空白处那点。
                 expect(row && !row->autoFillBackground(), "embedded file row does not stack a second base layer");
                 if (row) {
-                    const QPoint rowSpot = row->mapTo(list, QPoint(5, 2));
+                    // 行左边距的竖直正中：选中底是圆角块，角上那几个像素是抗锯齿过渡，不能拿来比。
+                    const QPoint rowSpot = row->mapTo(list, QPoint(5, row->height() / 2));
                     const QPoint emptySpot(rowSpot.x(), row->mapTo(list, QPoint(0, row->height())).y() + 20);
                     const auto shot = [list]() { return captureWidgetOn(list, Theme::tokens().page); };
                     const auto near = [](const QColor &a, const QColor &b) {

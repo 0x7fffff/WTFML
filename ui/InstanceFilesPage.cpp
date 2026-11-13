@@ -24,6 +24,8 @@
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QMouseEvent>
+#include <QPainter>
+#include <QStyledItemDelegate>
 #include <QPalette>
 #include <QPushButton>
 #include <QScrollBar>  // 滚动那一趟要重摆「详情」那一格（见构造里那段）
@@ -41,6 +43,29 @@ namespace {
 constexpr int kSelectionBarPadding = 8;
 constexpr int kSelectionBarSpacing = 8;
 
+/// 文件列表每一格只画底（内容是 setItemWidget 挂上去的行控件）：选中 / 指着那一行铺一块
+/// 圆角淡底，和管理页列表同一套（ListRowDelegate：r=10、悬停 hover）。
+/// 「指着」认行控件的 underMouse()：行控件盖满整格，视图自己收不到悬停。
+class FileRowBackdropDelegate final : public QStyledItemDelegate {
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override {
+        const auto *list = qobject_cast<const QListWidget *>(option.widget);
+        const QWidget *row = list != nullptr ? list->itemWidget(list->item(index.row())) : nullptr;
+        const bool selected = option.state.testFlag(QStyle::State_Selected);
+        const bool hovered = row != nullptr && row->underMouse();
+        if (!selected && !hovered) return;
+        const Theme::Tokens t = Theme::tokens();
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing, true);
+        painter->setPen(Qt::NoPen);
+        // 选中色和行内按钮的底同一个出处（selectionFill），否则按钮会在行上留色块。
+        painter->setBrush(selected ? Theme::selectionFill(list->palette().color(QPalette::Base)) : t.hover);
+        painter->drawRoundedRect(QRectF(option.rect).adjusted(0, 1, 0, -1), Theme::controlRadius(),
+                                 Theme::controlRadius());
+        painter->restore();
+    }
+};
 
 }  // namespace
 
@@ -260,6 +285,9 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
     m_list->setSelectionMode(QAbstractItemView::SingleSelection);
     m_list->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_list->setUniformItemSizes(true);
+    // 不画外框、不铺底（底色规则见 Theme 样式表里 #instanceFilesList 那条），行底由代理画成圆角淡底。
+    m_list->setFrameShape(QFrame::NoFrame);
+    m_list->setItemDelegate(new FileRowBackdropDelegate(m_list));
     // 行是**真控件**（见 .hpp 里那段"为什么每行是一个真控件"），宽度由它自己说了算；
     // 不许出现横向滚动条，否则那一排按钮会跟着来回滑。
     m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);

@@ -104,17 +104,16 @@ SettingsPanel addSettingsPanel(QStackedWidget *stack, const QString &key) {
     panel.scroll->setWidgetResizable(true);
     panel.scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     panel.scroll->setFrameShape(QFrame::NoFrame);
-    // 两侧留白放在 holder 上、表单本身限宽居中：窄窗时表单收窄，不会横向溢出。
+    // 两侧留白放在 holder 上、表单本身限宽并贴左（左缘 = 页标题左缘）：窄窗时表单收窄，不会横向溢出。
     auto *holder = new QWidget(panel.scroll);
     holder->setObjectName(QStringLiteral("settingsHolder-") + key);
     auto *holderLayout = new QHBoxLayout(holder);
-    holderLayout->setContentsMargins(kSidePadding, 4, kSidePadding, 40);
+    holderLayout->setContentsMargins(Theme::pageTitleInsetLeft(), 4, kSidePadding, 40);
     panel.form = new QWidget(holder);
     panel.form->setObjectName(MainWindowUI::settingsFormName(key));
     panel.form->setMaximumWidth(MainWindowUI::settingsFormMaxWidth());
     panel.form->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    // 居中靠两侧弹簧，不靠对齐（带对齐的子项只拿 sizeHint 宽，表单会缩成内容那么窄）。
-    holderLayout->addStretch(1);
+    // 左对齐靠右侧弹簧，不靠对齐（带对齐的子项只拿 sizeHint 宽，表单会缩成内容那么窄）。
     holderLayout->addWidget(panel.form, 1000);
     holderLayout->addStretch(1);
     panel.layout = new QVBoxLayout(panel.form);
@@ -193,15 +192,14 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
     pageLayout->setContentsMargins(0, 0, 0, 0);
     pageLayout->setSpacing(0);
 
-    // ---- 页头：标题「设置」 + 4 个分段页签 + 右侧搜索（最宽 720，居中，和表单同宽） ----
+    // ---- 页头：标题「设置」 + 4 个分段页签 + 右侧搜索（最宽 720，贴左，和表单同宽） ----
     auto *header = new QWidget(page);
     header->setObjectName(pageHeaderName(QStringLiteral("settings")));
     auto *headerOuter = new QHBoxLayout(header);
-    headerOuter->setContentsMargins(kSidePadding, 40, kSidePadding, 14);
+    headerOuter->setContentsMargins(Theme::pageTitleInsetLeft(), Theme::pageTitleInsetTop(), kSidePadding, 14);
     auto *headInner = new QWidget(header);
     headInner->setMaximumWidth(settingsFormMaxWidth());
     headInner->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    headerOuter->addStretch(1);
     headerOuter->addWidget(headInner, 1000);
     headerOuter->addStretch(1);
     auto *headLayout = new QHBoxLayout(headInner);
@@ -682,6 +680,16 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         QObject::connect(colors, &QCheckBox::toggled, colors,
                          [](bool enabled) { QSettings().setValue(QStringLiteral("Look/LogColors"), enabled); });
         addSwitch(look, colors, QStringLiteral("日志颜色"), QStringLiteral("对新日志窗口生效。"));
+    }
+    {
+        // 「每日一言」：默认开。checked 状态由 MainWindow 灌（值在 LauncherSettings，
+        // 和上面「日志颜色」那种自己落盘的不一样 —— 它还要驱动主页那一行）。
+        auto *quote = new QCheckBox(QStringLiteral("每日一言"), form);
+        quote->setObjectName(dailyQuoteCheckName());
+        addSwitch(look, quote, QStringLiteral("每日一言"),
+                  QStringLiteral("每天向 hitokoto、ZenQuotes 请求一句，不带个人信息；关闭后不请求。"
+                                 "英文句子来自 ZenQuotes（zenquotes.io）。"));
+        dailyQuoteCheck = quote;
     }
 
     // ---------- 版本名格式 ----------

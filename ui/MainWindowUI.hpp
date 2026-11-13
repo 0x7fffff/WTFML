@@ -9,6 +9,8 @@
 
 #pragma once
 
+#include "Theme.hpp"  // Theme::QuoteScript / 手写体与字号（主页「每日一言」那一行要用）
+
 #include <QCoreApplication>
 #include <QCheckBox>
 #include <QColor>
@@ -483,6 +485,10 @@ public:
     /// 行首那个**资源图标**的边长。和下载页那几张表同一个尺寸（`resourceTreeIconSize()`）
     /// —— 同一个模组在下载页和在本地列表里该长得一样大。
     static int instanceFileIconSize() { return resourceTreeIconSize(); }
+    /// 文件管理那几页一行多高：比版本树（46）宽一档，名字和「大小 / 时间」两行之间留得出空。
+    static int instanceFileRowHeight() { return 56; }
+    /// 行尾那几颗图标按钮（详情 / 编辑 / 删除）的字形边长：比行首图标小一档，行尾是配角。
+    static int instanceFileActionGlyphSize() { return 20; }
 
     /// 「启用 / 禁用」那枚**拨动开关**的尺寸（宽 × 高）。高度是行高（46）装得下的一档。
     static int toggleSwitchWidth() { return 40; }
@@ -1010,7 +1016,7 @@ public:
     /// NOTE: `instanceSettingsText()` 不是这一页的出处。这一页相关的那句话有**两个**
     /// 出处，各管一件事，别再合成一个：`rowInstanceSettingsTipText()`（实例行行尾那颗
     /// 齿轮的悬停提示）和 `InstanceSettingsDialog::titleText()`（覆盖层页眉上那行
-    /// 「实例设置：<实例名>」）。
+    /// 「实例设置」）。
     /// NOTE: 带省略号 —— 按 Qt 的规矩，点了之后还要弹框问点什么的，文案结尾就带省略号
     /// （这个字传出去的信息是"点下去不等于事情就开始了"）。
     static QString importModpackText() { return QStringLiteral("导入整合包…"); }
@@ -2917,6 +2923,10 @@ public:
         return QStringLiteral("检查前置模组");
     }
     static QString showGameLogCheckName() { return QStringLiteral("showGameLogCheck"); }
+    /// 主页「每日一言」那一行。
+    static QString homeHeroQuoteName() { return QStringLiteral("homeHeroQuote"); }
+    /// 设置页「外观」组里「每日一言」那个开关。
+    static QString dailyQuoteCheckName() { return QStringLiteral("dailyQuoteCheck"); }
     static QString processPriorityComboName() { return QStringLiteral("processPriorityCombo"); }
     /// 「窗口模式」那个下拉框（小窗 / 最大化 / 全屏）。
     ///
@@ -3684,6 +3694,14 @@ public:
     QLabel *getSkinHintLabel() const { return skinHintLabel; }
     QLabel *getHomeAccountLabel() const { return homeAccountLabel; }
     QLabel *getHomeAvatarLabel() const { return homeAvatarLabel; }
+    /// 主页大标题下那一行「每日一言」。没有句子、或设置里关着时它是**隐藏的**（不占位）。
+    QLabel *getHomeHeroQuote() const { return homeHeroQuote; }
+    /// 设置页「外观」组里「每日一言」那个开关。
+    QCheckBox *getDailyQuoteCheck() const { return dailyQuoteCheck; }
+    /// 换这一行：空句子 = 隐藏；@p tooltip 是悬停时那句署名（空串 = 不设提示）。
+    /// 字体按 @p script 选（见 `Theme::quoteFamilies()`），字号随窄窗收一号。
+    void setHomeHeroQuote(const QString &text, const QString &tooltip,
+                          Theme::QuoteScript script);
     QLabel *getHomeAccountTypeLabel() const { return homeAccountTypeLabel; }
     /// 主页右上那颗账号胶囊（圆头像 + 名字 + 小状态）。**它是账号唯一的入口**：
     /// 点一下在它下面弹出账号弹层（见 `toggleAccountsPanel()`）。导航轨上没有账号格。
@@ -3820,6 +3838,8 @@ private:
     // 全都排在 setupUi() 之后才没炸。
     // NOTE: 新加控件指针时**一并写上 = nullptr**，别让它单独破例。
     QPushButton *startButton = nullptr;
+    void updateHomeQuoteFont(bool narrow);
+
     QPushButton *homeInstanceSelectButton = nullptr;
     QWidget *homeLaunchArea = nullptr;
     QWidget *homeHeroArea = nullptr;
@@ -3837,6 +3857,8 @@ private:
     QPushButton *accountSkinSettingsButton = nullptr;
     QLabel *homeAccountLabel = nullptr;
     QLabel *homeAvatarLabel = nullptr;
+    QLabel *homeHeroQuote = nullptr;
+    Theme::QuoteScript homeQuoteScript = Theme::QuoteScript::Han;
     QLabel *homeAccountTypeLabel = nullptr;
     QPushButton *addFolderButton = nullptr;
     QListWidget *folderList = nullptr;
@@ -3988,6 +4010,7 @@ private:
     QSpinBox *gameWindowWidthSpin = nullptr;
     QSpinBox *gameWindowHeightSpin = nullptr;
     QLineEdit *titleTextEdit = nullptr;
+    QCheckBox *dailyQuoteCheck = nullptr;
     /// 「背景图」那一节的各行控件，按 `ThemeImageRow::partKey` 认（见这一节在头文件里那段）。
     QVector<ThemeImageRow> m_themeImageRows;
     ThemeAdvancedEditor *m_themeAdvancedEditor = nullptr;

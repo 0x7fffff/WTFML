@@ -1051,6 +1051,7 @@ void MainWindowUI::setupDownloadResourcePages() {
         stabilizeDownloadTree(tree);
         auto *resourceDelegate = new VersionTreeDelegate(tree, /*leafArrow=*/true, resourceTreeIconSize());
         resourceDelegate->setLeafVerb(QStringLiteral("下载"));  // 第三层点一下就是下它
+        resourceDelegate->setResourceRows(true);
         tree->setItemDelegate(resourceDelegate);
         // 悬停底色要它，理由见版本树那第一处：视图不填 State_MouseOver 就不出底色，也不报错。
         tree->setMouseTracking(true);
