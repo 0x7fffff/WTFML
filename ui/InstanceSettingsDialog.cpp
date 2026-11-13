@@ -1478,7 +1478,7 @@ void InstanceSettingsDialog::setLastLaunch(const QDateTime &at) {
     if (m_lastLaunchLabel == nullptr) return;
     m_lastLaunchLabel->setText(at.isValid()
         ? tr("最后启动：%1").arg(at.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm")))
-        : tr("尚无启动记录"));
+        : tr("从未启动"));
     m_lastLaunchLabel->setToolTip(tr("以成功创建游戏进程的时间为准，不代表进入世界的时间。"));
 }
 
