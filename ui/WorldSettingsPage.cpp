@@ -6,6 +6,7 @@
  */
 
 #include "WorldSettingsPage.hpp"
+#include "InputSizing.hpp"
 
 #include <QAbstractButton>
 #include <QComboBox>
@@ -305,6 +306,7 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     // refreshFileHints()）。
     m_nameEdit = new QLineEdit(m_fileBody);
     m_nameEdit->setObjectName(nameEditName());
+    InputSizing::shortValue(m_nameEdit, InputSizing::kNameChars, InputSizing::Script::Han);  // 世界名，不限长
     fileBody->addLayout(makeOptionRow(
         m_fileBody, tr("世界名"), m_nameEdit,
         // 星号在界面上是原样画出来的，重点一律用「」。
@@ -367,6 +369,7 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     // 自己撑开 —— 这一行是"另起一段"，不和上面那四格的标签对齐。
     rulesRow->addWidget(rulesLabel);
     m_ruleFilter = new QLineEdit(m_fileBody);
+    InputSizing::longValue(m_ruleFilter, "搜索框：筛选规则名，关键词长度不定");
     m_ruleFilter->setObjectName(ruleFilterName());
     m_ruleFilter->setPlaceholderText(ruleFilterPlaceholder());
     m_ruleFilter->setClearButtonEnabled(true);
@@ -948,6 +951,8 @@ void WorldSettingsPage::rebuildRuleRows(bool harvestFromRows) {
         } else {
             auto *edit = new QLineEdit(row);
             edit->setObjectName(ruleEditorName());
+            if (rule.kind == Kind::Int) InputSizing::shortValue(edit, 19);  // 最多 18 位整数加负号
+            else InputSizing::longValue(edit, "游戏规则的文本值：长度不定");
             edit->setToolTip(ruleTip);
             if (rule.kind == Kind::Int) {
                 // 只能填整数：**在这里挡住**比"存下去再由游戏报错"好 —— 游戏那边对一个

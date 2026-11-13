@@ -1,4 +1,5 @@
 #include "PresetModEditor.hpp"
+#include "InputSizing.hpp"
 #include "Theme.hpp"
 #include <QCheckBox>
 #include <QComboBox>
@@ -42,6 +43,7 @@ PresetModEditor::PresetModEditor(const QList<Entry> &entries, QWidget *parent) :
     auto *quickRow = new QHBoxLayout;
     auto *link = new QLineEdit(this);
     link->setObjectName(QStringLiteral("presetModQuickAdd"));
+    InputSizing::longValue(link, "Modrinth 链接：网址长度不定");
     link->setPlaceholderText(tr("Modrinth 链接或项目 ID，例如 https://modrinth.com/mod/sodium"));
     link->setClearButtonEnabled(true);
     auto *quickAdd = new QPushButton(tr("添加"), this);

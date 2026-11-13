@@ -4,6 +4,7 @@
  */
 
 #include "AgentSettingsPage.hpp"
+#include "InputSizing.hpp"
 
 #include "AgentSecretEdit.hpp"
 #include "Theme.hpp"
@@ -49,11 +50,13 @@ AgentSettingsPage::AgentSettingsPage(QWidget *parent) : QDialog(parent) {
 
     m_name = new QLineEdit(content);
     m_name->setObjectName(QStringLiteral("agentProfileNameEdit"));
+    InputSizing::shortValue(m_name, InputSizing::kNameChars, InputSizing::Script::Han);
     form->addRow(QStringLiteral("配置名"), m_name);
 
     m_baseUrl = new QLineEdit(content);
     m_baseUrl->setObjectName(QStringLiteral("agentBaseUrlEdit"));
     m_baseUrl->setPlaceholderText(QStringLiteral("例如 https://api.example.com/v1"));
+    InputSizing::longValue(m_baseUrl, "网址：路径长度不定");
     form->addRow(QStringLiteral("Base URL"), m_baseUrl);
 
     m_urlPreview = new QLabel(content);
@@ -65,9 +68,11 @@ AgentSettingsPage::AgentSettingsPage(QWidget *parent) : QDialog(parent) {
     m_model = new QLineEdit(content);
     m_model->setObjectName(QStringLiteral("agentModelEdit"));
     m_model->setPlaceholderText(QStringLiteral("模型 ID，例如 deepseek-chat"));
+    InputSizing::shortValue(m_model, 40);  // 模型 ID 如 deepseek-chat、claude-sonnet-4-5-20250929
     form->addRow(QStringLiteral("模型 ID"), m_model);
 
     m_contextWindow = new QSpinBox(content);
+    InputSizing::shortValue(m_contextWindow, 0);
     m_contextWindow->setObjectName(QStringLiteral("agentContextWindowSpin"));
     m_contextWindow->setRange(1024, 10000000);
     m_contextWindow->setSingleStep(1024);
@@ -75,12 +80,14 @@ AgentSettingsPage::AgentSettingsPage(QWidget *parent) : QDialog(parent) {
     form->addRow(QStringLiteral("上下文窗口"), m_contextWindow);
 
     m_maxOutput = new QSpinBox(content);
+    InputSizing::shortValue(m_maxOutput, 0);
     m_maxOutput->setObjectName(QStringLiteral("agentMaxOutputSpin"));
     m_maxOutput->setRange(1, 1000000);
     m_maxOutput->setValue(4096);
     form->addRow(QStringLiteral("最大输出"), m_maxOutput);
 
     m_temperature = new QDoubleSpinBox(content);
+    InputSizing::shortValue(m_temperature, 0);
     m_temperature->setObjectName(QStringLiteral("agentTemperatureSpin"));
     m_temperature->setRange(0.0, 2.0);
     m_temperature->setSingleStep(0.1);
@@ -88,6 +95,7 @@ AgentSettingsPage::AgentSettingsPage(QWidget *parent) : QDialog(parent) {
     form->addRow(QStringLiteral("温度"), m_temperature);
 
     m_timeout = new QSpinBox(content);
+    InputSizing::shortValue(m_timeout, 0);
     m_timeout->setObjectName(QStringLiteral("agentTimeoutSpin"));
     m_timeout->setRange(5, 600);
     m_timeout->setValue(120);

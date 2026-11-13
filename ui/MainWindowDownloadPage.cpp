@@ -1,5 +1,6 @@
 // Download page construction, filtering and header visibility.
 #include "MainWindowUI.hpp"
+#include "InputSizing.hpp"
 
 #include "Animations.hpp"  // 换页 / 展开折叠 / 上拉面板那几段动效
 #include "ElidedLabel.hpp"
@@ -454,6 +455,7 @@ void MainWindowUI::setupDownloadGamePage() {
     nameBox->layout()->addWidget(nameLabel);
     installNameEdit = new QLineEdit(nameBox);
     installNameEdit->setObjectName(installNameEditName());
+    InputSizing::shortValue(installNameEdit, InputSizing::kNameChars, InputSizing::Script::Han);  // 实例目录名，不限长，框留常见长度
     nameBox->layout()->addWidget(installNameEdit);
     // 名字不能用（有非法字符、空着）时的**原因**：一行红字。平时它空着、也藏起来 ——
     // 藏起来而不是"留一个空行"，是为了正常情况下名字框底下那几行的位置不动。
@@ -932,6 +934,7 @@ void MainWindowUI::setupDownloadResourcePages() {
         auto *search = new QLineEdit(filterRow);
         search->setObjectName(downloadSearchEditName(categoryKey));
         search->setPlaceholderText(downloadSearchHint(i));
+        InputSizing::longValue(search, "搜索框：关键词长度不定，占满筛选行");
         addSearchIcon(search);
         filterTop->addWidget(search, 1);
 

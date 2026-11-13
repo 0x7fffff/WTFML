@@ -4,6 +4,7 @@
  */
 
 #include "InstanceUpgradePage.hpp"
+#include "InputSizing.hpp"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -132,6 +133,7 @@ InstanceUpgradePage::InstanceUpgradePage(QWidget *parent) : QWidget(parent) {
         m_instanceName = new QLineEdit(target);
         m_instanceName->setObjectName(instanceNameEditName());
         m_instanceName->setPlaceholderText(QStringLiteral("新实例的名字"));
+        InputSizing::shortValue(m_instanceName, InputSizing::kNameChars, InputSizing::Script::Han);
         layout->addWidget(m_instanceName);
         layout->addStretch();
         columns->addWidget(target, 1);

@@ -3,6 +3,7 @@
 // 输入失焦或回车即存，右上淡出「已保存」；少用项收进每页底部「高级」展开行。
 // 部件在 SettingsPageParts.*；这里只摆控件。
 #include "MainWindowUI.hpp"
+#include "InputSizing.hpp"
 
 #include "Animations.hpp"
 #include "Glass.hpp"
@@ -669,6 +670,7 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
     SettingsGroup *look = addGroup(panel, QStringLiteral("外观"));
     titleTextEdit = new QLineEdit(form);
     titleTextEdit->setObjectName(titleTextEditName());
+    InputSizing::shortValue(titleTextEdit, titleTextMaxLength(), InputSizing::Script::Han);
     titleTextEdit->setMaxLength(titleTextMaxLength());  // 上限在 ui/ 与 src/ 各写一遍（ui/ 不许 include src/）
     titleTextEdit->setPlaceholderText(TitleBar::defaultBrandText());  // 默认标题直接作占位文字
     addRow(look, QStringLiteral("主页标题"), titleTextEdit);
@@ -877,6 +879,7 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
     // CurseForge API key：明文显示（贴错了要能一眼看见；它本来就明文躺在配置里），可以留空（走社区镜像）。
     curseForgeApiKeyEdit = new QLineEdit(form);
     curseForgeApiKeyEdit->setObjectName(curseForgeApiKeyEditName());
+    InputSizing::longValue(curseForgeApiKeyEdit, "API 密钥：约 60 个字符，明文显示便于核对");
     curseForgeApiKeyEdit->setPlaceholderText(curseForgeApiKeyPlaceholder());
     addRow(source, curseForgeApiKeyRowText(), curseForgeApiKeyEdit);
 

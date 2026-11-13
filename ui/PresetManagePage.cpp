@@ -12,6 +12,7 @@
  */
 
 #include "PresetManagePage.hpp"
+#include "InputSizing.hpp"
 #include "TextMarks.hpp"
 #include "Animations.hpp"
 #include "InstanceGroupDelegate.hpp"
@@ -418,10 +419,12 @@ QWidget *PresetManagePage::buildIdentityBlock(QWidget *parent) {
     m_nameEdit = new QLineEdit(block);
     m_nameEdit->setObjectName(nameEditName());
     m_nameEdit->setPlaceholderText(QStringLiteral("预设名称"));
+    InputSizing::shortValue(m_nameEdit, InputSizing::kNameChars, InputSizing::Script::Han);
     fields->addWidget(m_nameEdit);
     m_descriptionEdit = new QLineEdit(block);
     m_descriptionEdit->setObjectName(descriptionEditName());
     m_descriptionEdit->setPlaceholderText(QStringLiteral("说明（可选）"));
+    InputSizing::longValue(m_descriptionEdit, "预设说明：一两句话，长度不定");
     fields->addWidget(m_descriptionEdit);
     m_presetMeta = new QLabel(block);
     m_presetMeta->setObjectName(QStringLiteral("presetMetaLabel"));
@@ -632,6 +635,7 @@ QWidget *PresetManagePage::buildCaptureSection(QWidget *parent) {
     m_newPresetNameEdit = new QLineEdit(section);
     m_newPresetNameEdit->setObjectName(newPresetNameEditName());
     m_newPresetNameEdit->setPlaceholderText(QStringLiteral("新预设名称（可选）"));
+    InputSizing::shortValue(m_newPresetNameEdit, InputSizing::kNameChars, InputSizing::Script::Han);
     m_newPresetNameEdit->setMaximumWidth(220);
     captureButtons->addWidget(m_newPresetNameEdit);
     m_captureAsNewButton = new QPushButton(QStringLiteral("提取为新预设"), section);

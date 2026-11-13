@@ -4,6 +4,7 @@
  */
 
 #include "NewServerPage.hpp"
+#include "InputSizing.hpp"
 
 #include <QFont>
 #include <QFrame>
@@ -72,7 +73,8 @@ QWidget *makeRow(QWidget *parent, const QString &labelText, QLineEdit **editOut,
     layout->addWidget(label);
     auto *edit = new QLineEdit(row);
     edit->setObjectName(objectName);
-    layout->addWidget(edit, 1);
+    layout->addWidget(edit, 100);
+    layout->addStretch(1);  // 输入框是短值（调用方 InputSizing::shortValue），多出的宽度留在行尾
     *editOut = edit;
     return row;
 }
@@ -88,7 +90,7 @@ QWidget *makeControlRow(QWidget *parent, const QString &labelText, QWidget *cont
     label->setFixedWidth(96);
     layout->addWidget(label);
     control->setParent(row);
-    layout->addWidget(control, stretchControl ? 1 : 0);
+    layout->addWidget(control, stretchControl ? 100 : 0);
     if (!stretchControl) {
         layout->addStretch(1);
     }
@@ -137,6 +139,7 @@ NewServerPage::NewServerPage(QWidget *parent) : QDialog(parent) {
     m_nameEdit = new QLineEdit(identity);
     m_nameEdit->setObjectName(MainWindowUI::newServerNameEditName());
     m_nameEdit->setPlaceholderText(QStringLiteral("会当成这个服务端的目录名"));
+    InputSizing::shortValue(m_nameEdit, InputSizing::kNameChars, InputSizing::Script::Han);
     identityLayout->addWidget(m_nameEdit);
     m_targetDirLabel = makeMutedLabel(identity, MainWindowUI::newServerTargetDirName());
     m_targetDirLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
@@ -172,6 +175,7 @@ NewServerPage::NewServerPage(QWidget *parent) : QDialog(parent) {
     serverCardLayout->addWidget(m_flavorList);
     serverCardLayout->addWidget(makeRow(serverCard, QStringLiteral("游戏版本"), &m_gameVersionEdit,
                                         MainWindowUI::newServerGameVersionEditName()));
+    InputSizing::shortValue(m_gameVersionEdit, 20);  // 1.21.4、24w14potato 这一类版本号
     auto versionRow = [this, serverCard](const QString &title, const QString &name,
                                           QComboBox **comboOut, QLineEdit **editOut) {
         auto *combo = new QComboBox(serverCard);
@@ -182,12 +186,14 @@ NewServerPage::NewServerPage(QWidget *parent) : QDialog(parent) {
         combo->lineEdit()->setObjectName(name);
         combo->setPlaceholderText(tr("正在获取…"));
         combo->lineEdit()->setPlaceholderText(tr("正在获取…"));
+        InputSizing::shortValue(combo, 24);  // 加载器 / 安装器版本号，如 0.16.9、1.0.1-build.123
         *comboOut = combo; *editOut = combo->lineEdit();
         auto *row = makeControlRow(serverCard, title, combo, true);
         auto *retry = new QPushButton(tr("刷新"), row);
         retry->setAutoDefault(false);
         Theme::markButton(retry, Theme::ButtonKind::Neutral);
         row->layout()->addWidget(retry);
+        static_cast<QHBoxLayout *>(row->layout())->addStretch(1);  // 下拉框封顶后，「刷新」跟在它后面
         connect(retry, &QPushButton::clicked, this, &NewServerPage::versionsRetryRequested);
         return row;
     };
@@ -199,6 +205,7 @@ NewServerPage::NewServerPage(QWidget *parent) : QDialog(parent) {
     serverCardLayout->addWidget(m_installerRow);
     m_buildRow = makeRow(serverCard, QStringLiteral("构建号"), &m_buildEdit,
                          MainWindowUI::newServerBuildEditName());
+    InputSizing::shortValue(m_buildEdit, 12);  // 构建号是几位数字
     serverCardLayout->addWidget(m_buildRow);
     {
         m_memorySpin = new QSpinBox(serverCard);

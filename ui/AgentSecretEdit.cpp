@@ -4,6 +4,7 @@
  */
 
 #include "AgentSecretEdit.hpp"
+#include "InputSizing.hpp"
 
 #include <QHBoxLayout>
 #include <QLineEdit>
@@ -34,6 +35,7 @@ AgentSecretEdit::AgentSecretEdit(QWidget *parent) : QWidget(parent) {
     m_edit->setEchoMode(QLineEdit::Password);
     m_edit->setStyle(new StarPasswordStyle(m_edit->style()));
     m_edit->setAutoFillBackground(true);
+    InputSizing::longValue(m_edit, "API 密钥：一般 40~100 个字符，要能看全");
     layout->addWidget(m_edit, 1);
     m_reveal = new QToolButton(this);
     m_reveal->setText(QStringLiteral("👁"));
