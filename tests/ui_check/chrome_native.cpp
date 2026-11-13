@@ -6,6 +6,7 @@
 #include "chrome_native.hpp"
 
 #include <windows.h>   // 必须在 Qt 头之前
+#include <dwmapi.h>
 
 #include <QGuiApplication>
 #include <QWidget>
@@ -52,6 +53,26 @@ int chromeNativeChildCount(QWidget *window) {
     EnumChildWindows(
         hwnd, [](HWND, LPARAM l) -> BOOL { ++*reinterpret_cast<int *>(l); return TRUE; }, reinterpret_cast<LPARAM>(&count));
     return count;
+}
+
+int chromeNativeBackdropType(QWidget *window) {
+    const HWND hwnd = hwndOf(window);
+    if (hwnd == nullptr) return -1;
+    int type = -1;
+    return SUCCEEDED(DwmGetWindowAttribute(hwnd, 38, &type, sizeof(type))) ? type : -1;  // DWMWA_SYSTEMBACKDROP_TYPE
+}
+
+int chromeNativeFrameActive(QWidget *window) {
+    const HWND hwnd = hwndOf(window);
+    if (hwnd == nullptr) return -1;
+    WINDOWINFO info{};
+    info.cbSize = sizeof(info);
+    if (GetWindowInfo(hwnd, &info) == FALSE) return -1;
+    return info.dwWindowStatus == WS_ACTIVECAPTION ? 1 : 0;
+}
+
+void chromeNativeSendNcActivate(QWidget *window, bool active) {
+    if (const HWND hwnd = hwndOf(window)) SendMessageW(hwnd, WM_NCACTIVATE, active ? TRUE : FALSE, 0);
 }
 
 int chromeNativeMouseReachesWindow(QWidget *window, const QPoint &local) {

@@ -8,8 +8,11 @@
  * 2. 顶部条：WM_NCHITTEST 在空白格回 HTCAPTION、在控件格不回；
  * 3. 没有原生子窗口盖住客户区（对子控件调 winId() 会造出来，HTCAPTION 就到不了顶层窗）；
  * 4. 窗口隐藏再显示（HWND 重建）后系统标题栏没有回来（高速下载窗第二次打开带系统标题栏的根因）。
- * 5. 系统材质模型的合成色 = 本机量的那几个数（纯黑 / 纯白 / 棋盘，见 SystemBackdrop.cpp）。
- * offscreen 下 2~4 跳过并明说，1 和配方照量。
+ * 5. 背板：DWM 背板类型跟着档位（亚克力 3、云母 2、别的 1），HWND 重建后照样；亚克力 / 云母档模拟一次失焦
+ *    （发 WM_NCACTIVATE FALSE）后非客户区仍是激活态 —— DWM 只在激活态画材质，这就是「失焦不退色」；
+ *    别的档、`WTFML_KEEP_BACKDROP_ACTIVE=0` 时照系统默认退成未激活。
+ *    另钉住系统材质模型的合成色 = 本机量的那几个数（纯黑 / 纯白 / 棋盘，见 SystemBackdrop.cpp）。
+ * offscreen 下 2~5 跳过并明说，1 和配方照量。
  */
 
 #include "Support.hpp"
@@ -99,6 +102,21 @@ void scanBlank(const QString &name, QWidget *window) {
     check(blank > 0, QStringLiteral("WC %1 窗口里找得到空白点").arg(name), QString::number(blank));
 }
 
+/// 5) 背板：DWM 背板类型跟着档位；模拟一次失焦后，亚克力 / 云母档（开关没关）非客户区仍是激活态，别的情况退成未激活。
+void checkBackdrop(const QString &name, QWidget *window, const QString &when) {
+    const Glass::Mode mode = Glass::effectiveMode();
+    const bool system = mode == Glass::Mode::Acrylic || mode == Glass::Mode::Mica;
+    const bool keep = system && qEnvironmentVariable("WTFML_KEEP_BACKDROP_ACTIVE") != QLatin1String("0");
+    const int dwm = mode == Glass::Mode::Acrylic ? 3 : (mode == Glass::Mode::Mica ? 2 : 1);
+    const int type = chromeNativeBackdropType(window);
+    chromeNativeSendNcActivate(window, false);
+    const int frame = chromeNativeFrameActive(window);
+    chromeNativeSendNcActivate(window, true);  // 还原成激活态（真实的键盘焦点不受这两条影响）
+    check(type == dwm && frame == (keep ? 1 : 0),
+          QStringLiteral("WC %1 %2：背板类型跟档位、失焦后%3").arg(name, when, keep ? QStringLiteral("仍是激活态（不退色）") : QStringLiteral("照常退成未激活")),
+          QStringLiteral("%1 DWM=%2 失焦后激活态=%3").arg(Glass::modeName(mode)).arg(type).arg(frame));
+}
+
 /// 配方合成色和本机对着系统材质量的数差不过 `tolerance`（每通道）。
 bool closeEnough(unsigned got, unsigned want, int tolerance) {
     for (int shift : {16, 8, 0}) {
@@ -164,6 +182,7 @@ void checkWindow(const QString &name, QWidget *window, bool cycleByClose = true)
     // ---- 4) 标题栏收掉，隐藏再显示两次也一样 ----
     check(chromeNativeCaptionHeight(window) == 0, QStringLiteral("WC %1 第一次显示没有系统标题栏").arg(name),
           QString::number(chromeNativeCaptionHeight(window)));
+    checkBackdrop(name, window, QStringLiteral("第一次显示"));
     for (int round = 2; round <= 3; ++round) {
         // 对话框关窗口走 close / reject：Qt 会销毁平台窗口，再 show 时 HWND 是新建的。
         // 主窗口 close 会走产品的 closeEvent 一整套，这里的 HostWindow 只是壳，用 hide。
@@ -174,6 +193,7 @@ void checkWindow(const QString &name, QWidget *window, bool cycleByClose = true)
         settle();
         check(chromeNativeCaptionHeight(window) == 0, QStringLiteral("WC %1 第 %2 次显示没有系统标题栏").arg(name).arg(round),
               QString::number(chromeNativeCaptionHeight(window)));
+        checkBackdrop(name, window, QStringLiteral("第 %1 次显示").arg(round));
     }
 }
 
@@ -182,7 +202,7 @@ void checkWindow(const QString &name, QWidget *window, bool cycleByClose = true)
 int UiWindowChromeCheck(QApplication &) {
     // 产品里这些窗口都以主窗口为 parent 开出来（带 owner 的顶层窗：关闭时 Qt 会销毁平台窗口，
     // 再打开是新建的 HWND）；这里照样挂在主窗口下，才测得到「第二次打开」。
-    checkRecipes();
+    checkRecipes();  // 顺带把档位定在亚克力：下面每扇窗口都按亚克力量背板
     HostWindow window;
     MainWindowUI ui(&window);
     window.chrome = ui.chrome();
@@ -238,6 +258,30 @@ int UiWindowChromeCheck(QApplication &) {
         ChromeDialog dialog(&window);
         checkWindow(QStringLiteral("ChromeDialog"), &dialog);
     }
+    // ---- 5b) 换档跟着换背板；回退开关 WTFML_KEEP_BACKDROP_ACTIVE=0；窗口正失焦时换进亚克力要补回激活态 ----
+    if (chromeNativeAvailable()) {
+        const QString main = QStringLiteral("主窗口");
+        Glass::setMode(Glass::Mode::Mica);
+        settle();
+        checkBackdrop(main, &window, QStringLiteral("换到云母"));
+        Glass::setMode(Glass::Mode::Scene);
+        settle();
+        checkBackdrop(main, &window, QStringLiteral("换到风景底"));
+        qputenv("WTFML_KEEP_BACKDROP_ACTIVE", "0");
+        Glass::setMode(Glass::Mode::Acrylic);
+        settle();
+        checkBackdrop(main, &window, QStringLiteral("WTFML_KEEP_BACKDROP_ACTIVE=0"));
+        chromeNativeSendNcActivate(&window, false);  // 开关关着时失焦：DWM 按未激活画平色
+        qunsetenv("WTFML_KEEP_BACKDROP_ACTIVE");
+        window.chrome->applyFrame();  // 撤掉开关后重贴（档位没变 Theme 不一定重贴，手动贴一次）
+        settle();
+        if (Glass::systemBackdrop()) {  // 没有系统背板（Win10、Server）时亚克力落到风景底，本来就不补
+            check(chromeNativeFrameActive(&window) == 1, "WC 主窗口 失焦时重贴外框补回激活态（不等下一次得焦点）",
+                  QString::number(chromeNativeFrameActive(&window)));
+        }
+        checkBackdrop(main, &window, QStringLiteral("撤掉开关"));
+    }
+
     // ---- 原生子窗口的来源：对子控件调 winId() 的后果，和「打开方式」挂的那个 owner ----
     {
         HostWindow plain;
