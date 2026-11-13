@@ -348,13 +348,16 @@ protected:
 /// 实例带那一排卡片的"取景框"：卡片按自己的宽度一张挨一张排，排不下就从右边裁掉，
 /// 最后 120px 渐隐（设计稿 `.cards { overflow: hidden; mask-image: … }`）。
 /// 里面那一排是个普通的 QHBoxLayout（`row()`），重建卡片的代码照旧往里塞。
+///
+/// 排得下时（卡片总下限不超过这一排的宽），里面那一排铺满整排：每张卡片按
+/// `kHomeTileWidth` ~ `kHomeTileMaxWidth` 摊开（见 `rebuildRow()` 里那段），
+/// 名字就不用被截成「1.20.1-Forg…」。
 class HomeStripRow final : public QWidget {
 public:
     explicit HomeStripRow(QWidget *parent) : QWidget(parent), m_content(new QWidget(this)) {
         m_row = new QHBoxLayout(m_content);
         m_row->setContentsMargins(0, 0, 0, 0);
         m_row->setSpacing(6);
-        m_row->setSizeConstraint(QLayout::SetFixedSize);
         m_content->installEventFilter(this);
         setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     }
@@ -368,8 +371,12 @@ protected:
         relayout();
     }
     bool eventFilter(QObject *watched, QEvent *event) override {
-        if (watched == m_content && event->type() == QEvent::Resize) {
-            if (m_content->height() != height()) updateGeometry();
+        if (watched == m_content &&
+            (event->type() == QEvent::Resize || event->type() == QEvent::LayoutRequest)) {
+            // 卡片是重建的（`rebuildRow()` 里清空再塞），那一排的自然宽会变：铺满 / 让位都
+            // 得按新的数目重算。只在几何真的变了的时候动，免得 LayoutRequest 自己喂自己。
+            relayout();
+            if (event->type() == QEvent::Resize && m_content->height() != height()) updateGeometry();
             syncFade();
         }
         return QWidget::eventFilter(watched, event);
@@ -377,7 +384,14 @@ protected:
 
 private:
     void relayout() {
-        m_content->move(0, 0);
+        // 排得下 ⇒ 铺满这一排（卡片摊开）；排不下 ⇒ 保持自然宽，右边按设计稿裁掉 + 渐隐。
+        const QSize hint = m_content->sizeHint();
+        const int natural = m_row->minimumSize().width();
+        const int width = qMax(this->width(), natural);
+        const int height = qMax(hint.height(), this->height());
+        if (m_content->geometry() != QRect(0, 0, width, height)) {
+            m_content->setGeometry(0, 0, width, height);
+        }
         syncFade();
     }
     void syncFade() {
@@ -1723,7 +1737,12 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
                 loaderIcon->setObjectName(QStringLiteral("homeCurrentLoaderIcon"));
                 loaderIcon->setFixedSize(14, 14);
                 loaderIcon->setScaledContents(true);
-                loaderIcon->setPixmap(VersionIcons::loaderMark(loaderIndex, 28));
+                // 标志跟着主题走（深色主题下 Forge 那把铁砧是浅色那版，见 VersionIcons::loaderMark）。
+                const auto applyLoaderMark = [loaderIcon, loaderIndex]() {
+                    loaderIcon->setPixmap(VersionIcons::loaderMark(loaderIndex, 28));
+                };
+                applyLoaderMark();
+                Theme::follow(loaderIcon, applyLoaderMark);
                 loaderIcon->setAttribute(Qt::WA_TransparentForMouseEvents);
                 metaRow->addWidget(loaderIcon, 0, Qt::AlignVCenter);
                 auto *meta = new ElidedLabel(block);
@@ -1823,10 +1842,15 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             card->setObjectName(QStringLiteral("homeQuickCard_%1").arg(item.key));
             card->setAccessibleName(item.name);
             // QPushButton 的全局 QSS 也声明了 min-height；只写 setMinimumHeight() 会在 polish
-            // 后被它压回普通按钮高度。属性选择器负责复位 QSS，这里再用固定尺寸表达卡片的布局尺寸。
+            // 后被它压回普通按钮高度。属性选择器负责复位 QSS，这里再用布局尺寸表达卡片的
+            // 宽高：宽 **196 起步、铺开最多 320**（这一排有几张、窗口多宽由 HomeStripRow 分），
+            // 名字放不下时才是省略号。
             card->setProperty("wtfmlQuickCard", true);
             card->setProperty("wtfmlQuickCardSize", QStringLiteral("normal"));
-            card->setFixedSize(kHomeTileWidth, kHomeTileHeight);
+            card->setMinimumWidth(kHomeTileWidth);
+            card->setMaximumWidth(kHomeTileMaxWidth);
+            card->setFixedHeight(kHomeTileHeight);
+            card->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
             Theme::markButton(card, Theme::ButtonKind::Neutral);
 
             auto *content = new QHBoxLayout(card);

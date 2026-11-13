@@ -3079,6 +3079,71 @@ int main(int argc, char *argv[]) {
                   requests.at(1).second == MainWindowUI::HomeQuickAction::Launch,
               "★★ U31b 点卡片只发「设为当前」（Select），点卡上那颗 ▶ 才发「启动」（Launch）",
               QStringLiteral("收到 %1 次").arg(requests.size()));
+
+        // 「当前」那枚小字只给 `item.current` 那一张：一排里同时摆着"当前"和别的实例时，
+        // 徽章**只能有一个**（r81 那批截图里"最近"那排两个都带着它）。
+        {
+            MainWindowUI::HomeQuickItem current = real;
+            current.key = QStringLiteral("current-one");
+            current.name = QStringLiteral("当前那一份");
+            current.current = true;
+            MainWindowUI::HomeQuickItem other = real;
+            other.key = QStringLiteral("other-one");
+            other.name = QStringLiteral("另一份");
+            other.current = false;
+            ui.setHomeQuickRows({current}, {}, {current, other});
+            QApplication::processEvents();
+            const QList<QLabel *> badges =
+                window.findChildren<QLabel *>(QStringLiteral("homeQuickCurrentBadge"));
+            check(badges.size() == 1 && badges.first()->parentWidget() != nullptr,
+                  "★★ U31b 一排里只画一个「当前」徽章（只认 item.current，不认'排在第几个'）",
+                  QStringLiteral("画了 %1 个").arg(badges.size()));
+        }
+        // 窗口宽的时候实例带把卡片**摊开**（不是钉死 196、让名字被截成「1.20.1-Forg…」，
+        // 右边还空着一大片）：两张卡各分到的宽度够，实例名就整句放得下。
+        {
+            const QSize before = window.size();
+            window.resize(1280, 800);
+            QApplication::processEvents();
+            MainWindowUI::HomeQuickItem first = real;
+            first.key = QStringLiteral("wide-a");
+            first.name = QStringLiteral("1.20.1-Forge 47.2.0");
+            MainWindowUI::HomeQuickItem second = real;
+            second.key = QStringLiteral("wide-b");
+            second.name = QStringLiteral("1.21.4-Fabric 0.16.9");
+            ui.setHomeQuickRows({first}, {}, {first, second});
+            QApplication::processEvents();
+            QWidget *recent = window.findChild<QWidget *>(QStringLiteral("homeQuickRecentSection"));
+            const QList<QPushButton *> wideCards =
+                recent == nullptr
+                    ? QList<QPushButton *>()
+                    : recent->findChildren<QPushButton *>(
+                          QRegularExpression(QStringLiteral("^homeQuickCard_")));
+            bool grew = wideCards.size() == 2;
+            QStringList detail;
+            for (QPushButton *card : wideCards) {
+                grew = grew && card->width() > card->minimumWidth();
+                QLabel *name = nullptr;
+                for (QLabel *label : card->findChildren<QLabel *>()) {
+                    if (label->text() == QStringLiteral("1.20.1-Forge 47.2.0") ||
+                        label->text() == QStringLiteral("1.21.4-Fabric 0.16.9")) {
+                        name = label;
+                        break;
+                    }
+                }
+                const int needed = name == nullptr ? -1
+                                                   : name->fontMetrics().horizontalAdvance(name->text());
+                grew = grew && name != nullptr && name->width() >= needed;
+                detail << QStringLiteral("卡 %1 / 名字 %2（要 %3）")
+                              .arg(card->width())
+                              .arg(name == nullptr ? -1 : name->width())
+                              .arg(needed);
+            }
+            check(grew, "★★ U31b 1280 宽时实例带把卡片摊开、实例名整句放得下（不是 196 定死再截）",
+                  detail.join(QStringLiteral("；")));
+            window.resize(before);
+            QApplication::processEvents();
+        }
         ui.setHomeQuickRows({}, {});
         QApplication::processEvents();
     }

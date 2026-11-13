@@ -1,10 +1,62 @@
 #include "Support.hpp"
+#include "controllers/HomeQuickController.hpp"
 #include "controllers/TaskDetailController.hpp"
 #include "manage/ModpackInstallReport.hpp"
 #include "manage/ModpackCompletion.hpp"
 #include "controllers/ImportController.hpp"
 #include "controllers/ResourceInstallController.hpp"
 int MwWorkspaceCheck(QApplication &app) {
+        // ---------- 主页「最近 / 收藏」两排：只有一个「当前」 ----------
+        //
+        // 「当前」这一位不是另一份持久化状态：它严格来自下拉框里选中的那一份
+        // （`MainWindow::updateHomeRecent()` → `HomeQuickController::build()`）。四份实例、
+        // 两排一起摆着的时候，标着「当前」的必须**正好一个**，而且就是 currentId 那一份 ——
+        // r81 那批走查截图里"最近"那一排两个实例都带着「当前」，根因在截图夹具（四个样例
+        // 全写成 true），这一条钉的是产品这一侧的判据。
+        {
+            QList<HomeQuickController::Instance> installed;
+            const QList<QPair<QString, QString>> samples{
+                {QStringLiteral("a"), QStringLiteral("1.20.1-Forge 47.2.0")},
+                {QStringLiteral("b"), QStringLiteral("1.21.4-Fabric 0.16.9")},
+                {QStringLiteral("c"), QStringLiteral("1.20.4 原版")},
+                {QStringLiteral("d"), QStringLiteral("1.19.2-NeoForge 20.4.237")}};
+            for (const auto &sample : samples) {
+                HomeQuickController::Instance instance;
+                instance.id = sample.first;
+                instance.name = sample.second;
+                instance.version = QStringLiteral("Minecraft 1.20.1 / Forge 47.2.0");
+                instance.favorite = sample.first == QStringLiteral("b") || sample.first == QStringLiteral("d");
+                installed.append(instance);
+            }
+            QList<LaunchHistory::Record> history;
+            for (const QString &id : {QStringLiteral("a"), QStringLiteral("b")}) {
+                LaunchHistory::Record record;
+                record.instanceId = id;
+                record.startedAt = QDateTime::currentDateTime().addSecs(id == QStringLiteral("a") ? -3600 : -7200);
+                record.durationSeconds = 600;
+                record.result = LaunchHistory::Result::NormalExit;
+                history.append(record);
+            }
+            const HomeQuickController::Rows rows =
+                HomeQuickController::build(installed, history, QStringLiteral("a"), 3, 3);
+            // 「当前」那一张卡（左下启动区）另算：它只有一份，眉题是「当前实例」。
+            int currentRows = 0;
+            QStringList currentKeys;
+            for (const QList<MainWindowUI::HomeQuickItem> &row : {rows.favorites, rows.recent}) {
+                for (const MainWindowUI::HomeQuickItem &item : row) {
+                    if (item.current) {
+                        ++currentRows;
+                        currentKeys << item.key;
+                    }
+                }
+            }
+            check(rows.current.size() == 1 && rows.current.first().key == QStringLiteral("a") &&
+                      currentRows == 1 && currentKeys.value(0) == QStringLiteral("a"),
+                  "★★ 主页「最近 / 收藏」两排里正好一个「当前」，而且是 currentId 那一份",
+                  QStringLiteral("标了 %1 个：%2")
+                      .arg(currentRows)
+                      .arg(currentKeys.join(QStringLiteral(","))));
+        }
         runPromptProbeChecks();
         QPointer<QObject> resourceLifetime;
         {

@@ -112,7 +112,11 @@ void fillSettingsSamples(MainWindowUI &ui) {
     if (ui.getHomeRecentCountSpin() != nullptr) ui.getHomeRecentCountSpin()->setValue(3);
 }
 
-/// 主页那几排快捷方式：4 个"当前"实例 + 2 个收藏 + 2 个最近，含一个带加载器的。
+/// 主页那几排快捷方式：4 个已安装实例 + 2 个收藏 + 2 个最近，含一个带加载器的。
+///
+/// NOTE: `current` 这一位**全表只有一个真**（就是下拉框里选中的那一份，见
+/// `HomeQuickController::build()`）；这里 4 个都标上就会在「最近」条上摆出两个「当前」——
+/// r81 那批截图正是这么错的。
 void fillHomeSamples(MainWindowUI &ui) {
     const auto item = [](const QString &key, const QString &name, const QString &detail, bool current,
                          bool favorite, bool recent) {
@@ -127,19 +131,20 @@ void fillHomeSamples(MainWindowUI &ui) {
         row.recent = recent;
         return row;
     };
-    const QList<MainWindowUI::HomeQuickItem> current{
+    // 第一个是当前实例（唯一一个 `current = true`）。
+    const QList<MainWindowUI::HomeQuickItem> installed{
         item(QStringLiteral("1.20.1-Forge"), QStringLiteral("1.20.1-Forge 47.2.0"),
              QStringLiteral("Minecraft 1.20.1 / Forge 47.2.0"), true, false, true),
         item(QStringLiteral("1.21.4-Fabric"), QStringLiteral("1.21.4-Fabric 0.16.9"),
-             QStringLiteral("Minecraft 1.21.4 / Fabric 0.16.9"), true, true, true),
+             QStringLiteral("Minecraft 1.21.4 / Fabric 0.16.9"), false, true, true),
         item(QStringLiteral("1.20.4"), QStringLiteral("1.20.4 原版"),
-             QStringLiteral("Minecraft 1.20.4 / 原版"), true, false, false),
+             QStringLiteral("Minecraft 1.20.4 / 原版"), false, false, false),
         item(QStringLiteral("1.19.2-NeoForge"), QStringLiteral("1.19.2-NeoForge 20.4.237"),
-             QStringLiteral("Minecraft 1.19.2 / NeoForge 20.4.237"), true, true, false)};
+             QStringLiteral("Minecraft 1.19.2 / NeoForge 20.4.237"), false, true, false)};
     const QList<MainWindowUI::HomeQuickItem> favorites{
-        current.at(1), current.at(3)};
-    const QList<MainWindowUI::HomeQuickItem> recent{current.at(0), current.at(1)};
-    ui.setHomeQuickRows(current, favorites, recent);
+        installed.at(1), installed.at(3)};
+    const QList<MainWindowUI::HomeQuickItem> recent{installed.at(0), installed.at(1)};
+    ui.setHomeQuickRows({installed.at(0)}, favorites, recent);
     ui.setHomeQuickMode(MainWindowUI::HomeQuickMode::Current);
 }
 

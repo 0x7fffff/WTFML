@@ -64,7 +64,10 @@ inline constexpr int kHomeHeroInset = 8;
 inline constexpr int kHomeAccountPillWidth = 184;
 inline constexpr int kHomeAccountPillHeight = 44;
 /// 实例带卡片的宽 / 高（设计稿 .card：196 宽，封面 48 + 上下 8）。
+/// 196 是**下限**：一排里没摆满时，卡片按可用宽度摊开（名字就不用省略），摊到
+/// `kHomeTileMaxWidth` 为止 —— 再宽就是一张空荡荡的大卡，而不是一条"实例带"。
 inline constexpr int kHomeTileWidth = 196;
+inline constexpr int kHomeTileMaxWidth = 320;
 inline constexpr int kHomeTileHeight = 64;
 /// 主页启动区卡片底下给「启动游戏」柔光留的余量（光晕向下偏 10、模糊 30）。
 inline constexpr int kHomeLaunchGlowRoom = 24;
