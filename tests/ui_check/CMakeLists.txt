@@ -263,6 +263,7 @@ add_ui_module(ui_check_daily_quote_shots modules/UiDailyQuoteShots.cpp UiDailyQu
 add_ui_module(ui_check_popups modules/UiPopupCheck.cpp UiPopupCheck)
 add_ui_module(ui_check_window_chrome modules/UiWindowChromeCheck.cpp UiWindowChromeCheck)
 add_ui_module(ui_check_armor_trim ArmorTrimChecks.cpp runArmorTrimChecks)
+add_ui_module(ui_check_background_shots modules/UiBackgroundShots.cpp UiBackgroundShots)  # 背景图样张，不进 ctest
 add_ui_module(ui_check_settings_shots modules/UiSettingsShotsCheck.cpp UiSettingsShotsCheck)  # 设置页验收截图，不进 ctest
 add_ui_module(ui_check_review_shots modules/UiReviewShotsCheck.cpp UiReviewShotsCheck)  # 走查验收截图，不进 ctest
 wtfml_write_compact_entries()

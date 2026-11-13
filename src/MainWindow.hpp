@@ -1968,11 +1968,11 @@ private:
     // 为了验证工程能按名字把 `refreshThemeImageRows()` 调起来（见那一处的 NOTE）。
     /**
      * @brief 把某一块的图改掉，然后**落盘 + 立刻铺开 + 重画这一行**。
-     * @param partKey `Theme::partKey()` 的结果（"homeLeft" / "pageBackground"）。
+     * @param partKey `Theme::partKey()` 的结果（今天只有 "pageBackground"）。
      * @param imagePath 改完之后要铺的那张图（**绝对路径**）；空串 = 这一块不铺图。
      * @param imageName 用户挑的那张**原来叫什么**（换图那一发给 `QFileInfo(picked).fileName()`，
      * 拖滑块/换摆法那两发把上一份的名字原样带过来）。设置页那一行「现在铺的是：…」
-     * 写的是它 —— 盘上那份叫 `homeLeft.jpg`，写那个用户等于什么都没看见。
+     * 写的是它 —— 盘上那份叫 `pageBackground.jpg`，写那个用户等于什么都没看见。
      * @param fit `int(Theme::ImageFit)`。
      * @param opacity 0~100。
      *

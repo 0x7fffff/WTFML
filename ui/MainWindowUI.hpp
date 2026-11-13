@@ -3033,14 +3033,13 @@ public:
     static int titleTextMaxLength() { return 16; }
 
     // ---------- 「背景图」那一节 ----------
-    // 两块底各一行：
-    // 主页左栏（`Theme::Part::HomeLeft`）+ 四个页面的内容区（`Theme::Part::PageBackground`）。
+    // 一块底一行：四个页面的内容区（`Theme::Part::PageBackground`），铺满整窗。
     // **没设图时一个像素都不改**，所以这一节可以一直不用（见 ui/ThemeBackground.hpp）。
     //
-    // NOTE: 一行里那几颗控件的名字以 **partKey 打头**（`homeLeftImageChoose`）—— 认这一行管的是
+    // NOTE: 一行里那几颗控件的名字以 **partKey 打头**（`pageBackgroundImageChoose`）—— 认这一行管的是
     // 哪一块靠的是那个串，不是行的下标（下标只是"第几行"）。
 
-    /// 一行里那几颗控件的名字。参数是 `Theme::partKey()` 的结果（"homeLeft" / "pageBackground"）。
+    /// 一行里那几颗控件的名字。参数是 `Theme::partKey()` 的结果（"pageBackground"）。
     /// **这六个是唯一出处**：验证工程要取这几颗控件时走这里，别照字面再拼一遍。
     static QString themeImageChooseName(const QString &partKey) {
         return partKey + QStringLiteral("ImageChoose");
@@ -3645,13 +3644,13 @@ public:
     QSpinBox *getGameWindowHeightSpin() const { return gameWindowHeightSpin; }
     QLineEdit *getTitleTextEdit() const { return titleTextEdit; }
 
-    /// 「背景图」那一节里，**一块底**对应的一组控件（主页左栏一组、页面背景一组）。
+    /// 「背景图」那一节里，**一块底**对应的一组控件（今天只有页面背景这一组）。
     ///
     /// NOTE: 这一组是**当值存下来**的（`m_themeImageRows`），外面拿到的是引用 —— 和别处那些
     /// 一个一个 getter 的写法不一样，理由是这五颗控件**只在一起用**（换一张图的动作要
     /// 同时动"现在铺的是哪一张"那行字），拆成五个 getter 只是让每一处调用都写五遍。
     struct ThemeImageRow {
-        /// `Theme::partKey()` 的结果（"homeLeft" / "pageBackground"）—— 认这一行管的是哪一块，
+        /// `Theme::partKey()` 的结果（"pageBackground"）—— 认这一行管的是哪一块，
         /// 靠的是这个串，不是行的下标。
         QString partKey;
         QPushButton *choose = nullptr;  ///< 「选择图片…」
@@ -3662,8 +3661,8 @@ public:
         QLabel *state = nullptr;        ///< 底下那行"现在铺的是哪一张"
     };
 
-    /// 这一节一共几行（今天 = 主页左栏 + 页面背景两行）。
-    static int themeImageRowCount() { return 2; }
+    /// 这一节一共几行（今天 = 页面背景一行）。
+    static int themeImageRowCount() { return 1; }
     /// 第 @p index 行；越界给一个**空行**（那几个指针都是 nullptr），调用方自己判空。
     const ThemeImageRow &getThemeImageRow(int index) const;
 

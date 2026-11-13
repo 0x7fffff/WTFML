@@ -488,25 +488,27 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
         Theme::Spec blank = Theme::defaultSpec();
         Theme::PartStyle blankStyle;
         blankStyle.imagePath = QStringLiteral("   ");
-        blank.parts.insert(int(Theme::Part::HomeLeft), blankStyle);
+        blank.parts.insert(int(Theme::Part::Card), blankStyle);
         check(Theme::normalize(blank).parts.isEmpty(),
               "★★ W11 只设过图、而路径是空白 ⇒ 这一块整条丢掉"
               "（「这一块设过」在盘上不许是假的，见 Theme.cpp 里那段）");
 
         // ④ 出厂那一份里这两块**一项都没设过**。这一位就是"没东西可画"的判据。
+        // （卡片是这一节拿来量 `ThemeBackground` 画法的那一块，页面背景是产品里真正铺图的那一块。）
         Theme::setSpec(Theme::defaultSpec());
-        check(!Theme::partHasBackground(Theme::Part::HomeLeft) &&
+        check(!Theme::partHasBackground(Theme::Part::Card) &&
                   !Theme::partHasBackground(Theme::Part::PageBackground) &&
-                  !Theme::partImage(Theme::Part::HomeLeft).isSet() &&
+                  !Theme::partImage(Theme::Part::Card).isSet() &&
                   !Theme::partImage(Theme::Part::PageBackground).isSet(),
-              "★★ W11 出厂那一份里主页左栏和页面背景**一项都没设过**"
+              "★★ W11 出厂那一份里卡片和页面背景**一项都没设过**"
               "（`partHasBackground()` 为假 ⇒ `ThemeBackground` 一笔都不画）",
-              QStringLiteral("设过底色：主页左栏 %1 / 页面背景 %2")
-                  .arg(Theme::partHasBackground(Theme::Part::HomeLeft) ? 1 : 0)
+              QStringLiteral("设过底色：卡片 %1 / 页面背景 %2")
+                  .arg(Theme::partHasBackground(Theme::Part::Card) ? 1 : 0)
                   .arg(Theme::partHasBackground(Theme::Part::PageBackground) ? 1 : 0));
 
-        // ⑤ 一像素一像素地量"画不画"。量的是主页左栏那一块：磨砂开着时「页面背景」那张图改由
-        // 场景底（Glass::Backdrop）铺在整窗最底下，ThemeBackground 那一层不再画它（同一套画法）。父控件刷成一个一眼认得出的色，子控件那一块就靠它判。
+        // ⑤ 一像素一像素地量"画不画"。量的是卡片那一块 —— `ThemeBackground` 对每一块都是同一套
+        // 画法（页面背景那一块另外有一条：磨砂开着时那张图由场景底铺在整窗最底下，不在这里量）。
+        // 父控件刷成一个一眼认得出的色，子控件那一块就靠它判。
         {
             QTemporaryDir scratch;
             const QString picturePath = scratch.filePath(QStringLiteral("pic.png"));
@@ -521,7 +523,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             hostPalette.setColor(QPalette::Window, hostColor);
             host.setPalette(hostPalette);
             host.setAutoFillBackground(true);  // 父控件那一层得真的刷上去，不然量的是别的
-            auto *background = new ThemeBackground(Theme::Part::HomeLeft, &host);
+            auto *background = new ThemeBackground(Theme::Part::Card, &host);
             background->setGeometry(0, 0, 40, 40);
 
             const QImage untouched = host.grab().toImage();
@@ -537,7 +539,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             stretchStyle.imagePath = picturePath;
             stretchStyle.fit = Theme::ImageFit::Stretch;
             stretchStyle.imageOpacity = 100;
-            withPicture.parts.insert(int(Theme::Part::HomeLeft), stretchStyle);
+            withPicture.parts.insert(int(Theme::Part::Card), stretchStyle);
             Theme::setSpec(withPicture);
             const QImage stretched = host.grab().toImage();
             check(stretched.pixelColor(20, 20) == QColor(0xff, 0x00, 0xff) &&
@@ -549,7 +551,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             Theme::PartStyle containStyle = stretchStyle;
             containStyle.fit = Theme::ImageFit::Contain;
             Theme::Spec withContain = Theme::defaultSpec();
-            withContain.parts.insert(int(Theme::Part::HomeLeft), containStyle);
+            withContain.parts.insert(int(Theme::Part::Card), containStyle);
             Theme::setSpec(withContain);
             const QImage contained = host.grab().toImage();
             check(contained.pixelColor(20, 20) == QColor(0xff, 0x00, 0xff) &&
@@ -563,7 +565,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             Theme::PartStyle invisible = stretchStyle;
             invisible.imageOpacity = 0;
             Theme::Spec withInvisible = Theme::defaultSpec();
-            withInvisible.parts.insert(int(Theme::Part::HomeLeft), invisible);
+            withInvisible.parts.insert(int(Theme::Part::Card), invisible);
             Theme::setSpec(withInvisible);
             check(host.grab().toImage().pixelColor(20, 20) == hostColor,
                   "★ W11 不透明度调到 0 ⇒ 图上不来，底下那一层原样透出来");
@@ -593,7 +595,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
 
             Theme::PartStyle counterStyle = stretchStyle;
             Theme::Spec emeraldPicture = Theme::presetSpec(QStringLiteral("emerald"));
-            emeraldPicture.parts.insert(int(Theme::Part::HomeLeft), counterStyle);
+            emeraldPicture.parts.insert(int(Theme::Part::Card), counterStyle);
             Theme::setSpec(emeraldPicture);
             Theme::apply(*qApp);
             QApplication::processEvents();
@@ -602,7 +604,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             // 第二趟：只把摆法从「拉伸」换成「完整放下」。调色板一个字节都不变。
             counterStyle.fit = Theme::ImageFit::Contain;
             Theme::Spec emeraldContain = emeraldPicture;
-            emeraldContain.parts.insert(int(Theme::Part::HomeLeft), counterStyle);
+            emeraldContain.parts.insert(int(Theme::Part::Card), counterStyle);
             Theme::setSpec(emeraldContain);
             Theme::apply(*qApp);
             QApplication::processEvents();
@@ -631,22 +633,22 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             Theme::Spec pictureSpec = Theme::defaultSpec();
             Theme::PartStyle style;
             style.imagePath = QStringLiteral("C:/tmp/pic.png");
-            // 用户挑的那张原来叫什么（盘上那份叫 `homeLeft.png`，是槽位名）——设置页那一行
+            // 用户挑的那张原来叫什么（盘上那份叫 `card.png`，是槽位名）——设置页那一行
             // 「现在铺的是：…」写的就是这一位，所以它必须跟着图一起存回来。
             style.imageName = QStringLiteral("我挑的那张.png");
             style.fit = Theme::ImageFit::Tile;
             style.imageOpacity = 45;
-            pictureSpec.parts.insert(int(Theme::Part::HomeLeft), style);
+            pictureSpec.parts.insert(int(Theme::Part::Card), style);
             Theme::save(pictureSpec);
             // 读回来那一步得**真的走一趟盘**：`save()` 只写盘，不碰内存里那一份
             // （产品里那一条路是 save 完再 apply）。拿内存里那份量就成了"自己问自己"。
             Theme::setSpec(Theme::load());
 
-            const Theme::PartImage back = Theme::partImage(Theme::Part::HomeLeft);
+            const Theme::PartImage back = Theme::partImage(Theme::Part::Card);
             // 注册表里那一串**得是反斜杠**（用户在 regedit 里一眼认得出那是自己盘上的哪一条），
             // 读回来一律是 `/`（内部只认这一种）。这一来一回是故意的，见 `Theme::save()`。
             const QString onDisk = QSettings()
-                                       .value(QStringLiteral("Theme/Parts/homeLeft/Image"))
+                                       .value(QStringLiteral("Theme/Parts/card/Image"))
                                        .toString();
             check(back.isSet() && back.path == QStringLiteral("C:/tmp/pic.png") &&
                       back.fit == Theme::ImageFit::Tile && back.opacity == 45 &&
@@ -662,11 +664,11 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             Theme::Spec cleared = Theme::defaultSpec();
             Theme::PartStyle clearedStyle;
             clearedStyle.imagePath = QString();
-            cleared.parts.insert(int(Theme::Part::HomeLeft), clearedStyle);
+            cleared.parts.insert(int(Theme::Part::Card), clearedStyle);
             Theme::save(cleared);
             Theme::setSpec(Theme::load());
-            check(!Theme::partImage(Theme::Part::HomeLeft).isSet() &&
-                      !Theme::load().parts.contains(int(Theme::Part::HomeLeft)),
+            check(!Theme::partImage(Theme::Part::Card).isSet() &&
+                      !Theme::load().parts.contains(int(Theme::Part::Card)),
                   "★★ W11 清了图再存 ⇒ 这一块整条没了（旧的那条不会自己复活）",
                   QStringLiteral("读回来还有 %1 块").arg(Theme::load().parts.size()));
 
@@ -677,10 +679,10 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                 Theme::Spec nameless = Theme::defaultSpec();
                 Theme::PartStyle namelessStyle;
                 namelessStyle.imagePath = QStringLiteral("C:/tmp/pic.png");
-                nameless.parts.insert(int(Theme::Part::HomeLeft), namelessStyle);
+                nameless.parts.insert(int(Theme::Part::Card), namelessStyle);
                 Theme::save(nameless);
                 Theme::setSpec(Theme::load());
-                const Theme::PartImage back = Theme::partImage(Theme::Part::HomeLeft);
+                const Theme::PartImage back = Theme::partImage(Theme::Part::Card);
                 check(back.isSet() && back.name.isEmpty(),
                       "★ W11 盘上没有那个名字时读回来是空的（界面那一侧要退回盘上那个名字）",
                       back.name);
@@ -691,8 +693,8 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                 Theme::Spec orphan = Theme::defaultSpec();
                 Theme::PartStyle orphanStyle;
                 orphanStyle.imageName = QStringLiteral("孤儿名字.png");
-                orphan.parts.insert(int(Theme::Part::HomeLeft), orphanStyle);
-                check(!Theme::normalize(orphan).parts.contains(int(Theme::Part::HomeLeft)),
+                orphan.parts.insert(int(Theme::Part::Card), orphanStyle);
+                check(!Theme::normalize(orphan).parts.contains(int(Theme::Part::Card)),
                       "★ W11 只留着一个名字、没有图的那一块整条丢掉（名字不是一项覆盖）");
             }
 
@@ -1893,7 +1895,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             roundPart.hasImage = true;
             roundPart.fit = Theme::ImageFit::Contain;
             roundPart.imageOpacity = 40;
-            round.parts.insert(int(Theme::Part::HomeLeft), roundPart);
+            round.parts.insert(int(Theme::Part::Card), roundPart);
 
             const QJsonObject roundJson = Theme::specToJson(round);
             Theme::Spec back;
@@ -1901,7 +1903,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             const bool roundOk = Theme::specFromJson(roundJson, &back, &roundError);
             const Theme::Spec cleanRound = Theme::normalize(round);
             const Theme::PartStyle backPart =
-                back.parts.value(int(Theme::Part::HomeLeft));
+                back.parts.value(int(Theme::Part::Card));
             check(roundOk && back.presetId == cleanRound.presetId &&
                       back.textOpacity == cleanRound.textOpacity &&
                       sameColor(back.accent, cleanRound.accent) &&

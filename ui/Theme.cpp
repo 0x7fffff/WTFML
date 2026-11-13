@@ -452,11 +452,10 @@ const PartInfo kPartInfos[] = {
     {"panel", "浮层面板", 112, QPalette::Window, false, false},
     {"card", "卡片", 0, QPalette::Base, false, false},
     {"scrim", "四周变暗", 0, QPalette::Window, true, false},
-    // 下面两块的 `from` / `shade` 只是"万一有人给它设了个底色"时的兜底算法（今天没有任何
-    // 调用点取它们的底）—— 它们真正的底是 `QTabWidget` 自己画的那一层，**不在调色板里**
-    // （见 `partHasBackground()` 那段）。加这两项是为了能单独铺一张图。没设图时它们一个
+    // 这一块的 `from` / `shade` 只是"万一有人给它设了个底色"时的兜底算法（今天没有任何
+    // 调用点取它的底）—— 它真正的底是 `QTabWidget` 自己画的那一层，**不在调色板里**
+    // （见 `partHasBackground()` 那段）。加这一项是为了能单独铺一张图。没设图时它一个
     // 像素都不改。
-    {"homeLeft", "主页左栏", 0, QPalette::Window, false, false},
     {"pageBackground", "页面背景", 0, QPalette::Window, false, false},
 };
 static_assert(sizeof(kPartInfos) / sizeof(kPartInfos[0]) == static_cast<size_t>(partCount()),

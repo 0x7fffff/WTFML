@@ -17,7 +17,7 @@ void runThemeImageTests(const QString &sandbox) {
               "V5v 两个临时目录建出来了（临时数据根目录 + 放源图的那个）");
         AppPaths::setMinecraftDir(themeRoot.path());
         const QString src = sourceRoot.path();
-        const QString slotA = QStringLiteral("homeLeft");
+        const QString slotA = QStringLiteral("card");
         const QString slotB = QStringLiteral("pageBackground");
         const QString slotC = QStringLiteral("titleBar");
         QString error;

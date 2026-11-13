@@ -604,7 +604,7 @@ int runExtended(QApplication &app, const ShotOptions &options) {
     pump();
     saveShot(app, window, options.out, QStringLiteral("download-mod"), &saved);
 
-    // ---- 设置：启动 / 提示 / 个性化（顶、主页背景图）/ 下载 ----
+    // ---- 设置：启动 / 提示 / 个性化（顶、背景图）/ 下载 ----
     ui.getTabWidget()->setCurrentIndex(MainWindowUI::settingsTabIndex());
     fillSettingsSamples(ui);
     const QStringList settingsKeys = MainWindowUI::settingsCategoryKeys();
@@ -625,7 +625,7 @@ int runExtended(QApplication &app, const ShotOptions &options) {
         QLabel *anchor = nullptr;
         if (scroll->widget() != nullptr) {
             for (QLabel *label : scroll->widget()->findChildren<QLabel *>()) {
-                if (label->text() == QStringLiteral("主页背景图")) {
+                if (label->text() == QStringLiteral("背景图")) {
                     anchor = label;
                     break;
                 }
@@ -639,7 +639,7 @@ int runExtended(QApplication &app, const ShotOptions &options) {
         } else {
             scroll->verticalScrollBar()->setValue(scroll->verticalScrollBar()->maximum() / 3);
         }
-        saveShot(app, window, options.out, QStringLiteral("settings-look-home-background"), &saved);
+        saveShot(app, window, options.out, QStringLiteral("settings-look-background"), &saved);
     }
     shotSettings(settingsKeys.indexOf(QStringLiteral("download")), QStringLiteral("settings-download"));
     if (settingsPage != nullptr) settingsPage->update();
