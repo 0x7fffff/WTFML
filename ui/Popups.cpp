@@ -758,9 +758,9 @@ protected:
 
 void Popups::paintSurface(QPainter &painter, const QRectF &rect, qreal radius) {
     // 面只有一份出处：主页那张玻璃卡片（`GlassPopover`）。顶层浮层是 Qt 自己的弹出窗口、
-    // 装不进窗口里，所以共用的是**画法**（圆角 + 玻璃 + 顶上 1px 高光）；系统背板用不了时
-    // 先在底下垫一层页底色，别让桌面直接透上来。
-    GlassPopover::paintSurface(painter, rect, radius, !Glass::systemBackdrop());
+    // 装不进窗口里，所以共用的是**画法**（圆角 + 玻璃 + 顶上 1px 高光）。底下一律垫页底色：
+    // 弹层是无边框半透明的分层窗口，亚克力/云母下 DWM 背板也贴不上，不垫就透出底下的控件。
+    GlassPopover::paintSurface(painter, rect, radius, true);
 }
 
 void Popups::glassify(QWidget *popup, qreal radius) {
