@@ -388,8 +388,20 @@ bool OverlayHost::promptOverShownPage() const {
 
 void OverlayHost::animatePageIn() {
     if (m_mode != Mode::Page || m_pageFrame == nullptr || !m_pageFrame->isVisible()) return;
-    // 布局先落定，幕布照的才是这一页摆好之后的样子。
-    if (QLayout *layout = m_pageFrame->layout()) layout->activate();
+    // 布局先落定，幕布照的才是这一页摆好之后的样子：幕布在 pageAppear() 里当场拍一张定住的
+    // 快照，拍下的若是半成品，淡入那几帧就是挤着的、摆好后再跳一下。
+    //
+    // 只 activate 最外层不够：页面套在 widgetResizable 的滚动区里，滚动区要等**排队**的
+    // LayoutRequest 才把内容区撑到视口大小（见 eventFilter 里 m_pageContent 那段），页面自己的
+    // 布局也是排队算的；按宽窄换横排 / 竖排的页（账号与外观）收到新宽度后还会再排一轮。
+    // 于是在这里把这几轮排队的布局请求当场送完。轮数固定：没有请求时一轮几乎不花时间，
+    // 而"内容区尺寸没变"不能当收敛判据（页内换方向时内容区可能一样大）。
+    // 动效关着时不拍快照，排队的布局在首次绘制前照常送到，这里就不提前冲刷。
+    for (int pass = 0; Anim::enabled() && pass < 4; ++pass) {
+        if (QLayout *layout = m_pageFrame->layout()) layout->activate();
+        if (m_pageContentLayout != nullptr) m_pageContentLayout->activate();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::LayoutRequest);
+    }
     Anim::pageAppear(m_pageFrame);
 }
 
