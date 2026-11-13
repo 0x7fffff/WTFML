@@ -305,6 +305,18 @@ set_tests_properties(wtfml.toolbox-polish PROPERTIES
     TIMEOUT 30
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
 )
+# 下拉弹层高度（最后一项被裁那条）：同一套断言跑两遍 —— 本机缩放一遍、125% 一遍
+# （用户那台就是 125%，弹层少 12 逻辑 px 只在有断言时看得见）。见 UiPopupCheck 的 ③b。
+wtfml_add_test(NAME wtfml.popups COMMAND ui_check_popups)
+wtfml_add_test(NAME wtfml.popups-scale COMMAND ui_check_popups)
+set_tests_properties(wtfml.popups wtfml.popups-scale PROPERTIES
+    LABELS "ui;popups"
+    TIMEOUT 60
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
+set_tests_properties(wtfml.popups-scale PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_SCALE_FACTOR=1.25;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
 wtfml_add_test(NAME wtfml.lifecycle COMMAND ui_check_lifecycle)
 wtfml_add_test(NAME wtfml.resource-packs COMMAND ui_check_resource_packs)
 set_tests_properties(wtfml.resource-packs PROPERTIES

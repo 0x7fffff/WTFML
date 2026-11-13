@@ -418,6 +418,8 @@ public:
         } else if (event->type() == QEvent::Resize) {
             hideScrollers();
             layoutFades();
+            // Qt 自己再摆一次（它按"整张表"算）时会把视图压回去 —— 再收紧成按项数算的那一版。
+            fitPopup();
         }
         return false;
     }
@@ -501,12 +503,18 @@ private:
         }
     }
 
-    /// Qt 把弹层撑到"装得下全部项"（45 项就是整屏）。这里按 8 项收回：
-    /// 弹层是按视图的尺寸摆的，所以改的是**弹层这一层**的高度。
+    /// Qt 把弹层撑到"装得下全部项"（45 项就是整屏）。这里按 8 项收回，并且**高度按项数算准**。
+    ///
+    /// ★ 不能只缩不涨：容器的高度是 Qt 按"视图要多大"摆的，而 `decoratePopup()` 给容器加了
+    /// 一圈内边距 —— 那几像素是从视图身上扣掉的，Qt 算的时候并不知道。于是 4 项就少露半行
+    /// （用户那台 125% 下量到末项被裁 15 物理像素）。所以这里钉**视图**：视图拿到
+    /// rows × kRowHeight，容器高度再由布局自己算（内边距、顶上那条搜索框都在 sizeHint 里），
+    /// 不再拿魔数补。屏幕装不下才往下收，收的是视图那一截（剩下的靠弹层里滚动）。
     void fitPopup() {
-        if (m_popup.isNull() || m_view.isNull()) {
+        if (m_popup.isNull() || m_view.isNull() || m_fitting) {
             return;
         }
+        m_fitting = true;
         int visible = 0;
         auto *list = qobject_cast<QListView *>(m_view.data());
         for (int row = 0; row < m_combo->count(); ++row) {
@@ -515,13 +523,39 @@ private:
             }
         }
         const int rows = qBound(1, qMin(visible, kMaxVisibleItems), kMaxVisibleItems);
-        int height = rows * kRowHeight + 2 * kPopupPadding + 2;
-        if (!m_search.isNull() && m_search->isVisible()) {
-            height += m_search->sizeHint().height() + 4;
+        m_view->setFixedHeight(rows * kRowHeight);
+        auto *layout = qobject_cast<QBoxLayout *>(m_popup->layout());
+        const auto totalHeight = [this, layout] {
+            if (layout == nullptr) {
+                return m_view->height() + 2 * kPopupPadding;
+            }
+            layout->activate();
+            auto *frame = qobject_cast<QFrame *>(m_popup.data());
+            return layout->sizeHint().height() + 2 * (frame != nullptr ? frame->frameWidth() : 0);
+        };
+        int height = totalHeight();
+        // 屏幕放不下：只收视图那一截，弹层本身不许越出可用区。
+        if (QScreen *screen = m_popup->screen()) {
+            const int allowed = qMax(kRowHeight, screen->availableGeometry().height());
+            if (height > allowed && rows > 1) {
+                const int viewHeight = qMax(kRowHeight, m_view->height() - (height - allowed));
+                m_view->setFixedHeight(viewHeight);
+                height = totalHeight();
+            }
         }
-        if (m_popup->height() > height) {
+        if (m_popup->height() != height) {
             m_popup->resize(m_popup->width(), height);
+            // 长高之后可能顶出屏幕下沿：Qt 摆位置是在我们改高度**之前**做的，往上挪回来。
+            if (QScreen *screen = m_popup->screen()) {
+                const QRect available = screen->availableGeometry();
+                const QRect frame = m_popup->frameGeometry();
+                if (frame.bottom() > available.bottom()) {
+                    m_popup->move(frame.x(),
+                                  qMax(available.top(), available.bottom() - frame.height() + 1));
+                }
+            }
         }
+        m_fitting = false;
     }
 
     void ensureFades() {
@@ -615,6 +649,7 @@ private:
     QPointer<QComboBox> m_combo;
     QPointer<QAbstractItemView> m_view;
     QPointer<QWidget> m_popup;
+    bool m_fitting = false;  ///< 正在按项数摆高：`resize()` 会回灌 Resize 事件，别自己套自己
     QPointer<QScrollBar> m_thumbBar;
     QPointer<QGraphicsOpacityEffect> m_thumbEffect;
     QPointer<QLineEdit> m_search;
@@ -792,3 +827,4 @@ void Popups::install(QApplication &app) {
         new MenuGlass(app);
     }
 }
+
