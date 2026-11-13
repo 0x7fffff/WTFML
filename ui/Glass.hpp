@@ -23,6 +23,8 @@
 #include <QPointer>
 #include <QWidget>
 
+class QVariantAnimation;
+
 class QApplication;
 class QPainter;
 class QTimer;
@@ -99,6 +101,10 @@ public:
     /// 否则轨和顶栏还是清晰风景、内容区却是磨砂，看着是三块拼起来的。
     void setHeroCovered(bool covered);
     bool heroShown() const { return !heroRect().isEmpty(); }
+    /// 主页风景这一刻画多不透（0 = 只剩磨砂，1 = 清晰风景）。进出主页时按 `kHeroFadeMs` 淡变，
+    /// 动效关着 / 还没上屏时直接落到终值。
+    qreal heroOpacity() const { return m_heroOpacity; }
+    static constexpr int kHeroFadeMs = 250;
 
 signals:
     /// 主页场景露没露（主页进出、被整页盖住 / 揭开）：导航轨据此换主页字色。
@@ -128,6 +134,7 @@ public:
 protected:
     void paintEvent(QPaintEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
+    void hideEvent(QHideEvent *event) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
@@ -149,6 +156,10 @@ private:
     bool m_heroCovered = false;
     bool m_heroWasShown = false;
     void noteHeroShown();
+    void fadeHeroTo(qreal target);
+    qreal m_heroOpacity = 0.0;
+    QVariantAnimation *m_heroFade = nullptr;  // objectName "glassHeroFade"
+    bool m_painted = false;                   // 上屏以来画过：没画过的不淡（启动、从托盘回来）
     QString m_heroKey;
     QColor m_darkest = QColor(Qt::black);
     QColor m_brightest = QColor(Qt::white);

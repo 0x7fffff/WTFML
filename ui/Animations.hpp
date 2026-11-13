@@ -66,6 +66,9 @@ constexpr int pressOutMs() { return 150; }
 ///
 /// 页面进入使用 250 ms ease-out，与覆盖层和面板保持一致。
 constexpr int appearMs() { return 250; }
+/// 整窗底（`Glass::Backdrop`）的主页风景正在淡入 / 淡出时，顶层窗口上挂着的这个属性为 true。
+/// 换页幕布据此每一帧重拍底板（底板里有风景那一层，定住的话淡变会在内容区卡住、收尾跳一下）。
+inline constexpr const char *kBackdropFadingProperty = "wtfmlBackdropFading";
 /// 整块覆盖那一层（`OverlayHost`）淡进来那一下。**和换页同一个量级**（同一类转场）。
 constexpr int overlayMs() { return 250; }
 /// 底栏上拉面板滑上来那一下。

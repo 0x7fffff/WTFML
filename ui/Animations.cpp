@@ -247,6 +247,11 @@ public:
         // 目标中间改了尺寸（第一拍迟到、摆版还没落定的那一下）就在这儿补照：每一拍都在
         // paint 外面，是唯一安全的补照时机。尺寸没变时它只是一句比较，一个像素都不抓。
         ensureSnapshot();
+        // 主页风景正在淡入 / 淡出（`Glass::Backdrop`）：底板里就有那一层，每一拍重拍一次，
+        // 淡完的那一拍再拍一次落到终值。内容那张照旧定住。
+        const bool fading = m_underlay && window()->property(Anim::kBackdropFadingProperty).toBool();
+        if (m_target != nullptr && (fading || m_plateFading)) m_plate = underlayOf(m_target);
+        m_plateFading = fading;
         update();   // ★ 普通控件，这一句就是"这一帧真的会重画"的唯一出处
     }
 
@@ -367,6 +372,7 @@ private:
     qreal m_shift = 0.0;
     qreal m_opacity = 1.0;
     bool m_grabbing = false;      ///< 正在照那一张（照的时候自己别画）。
+    bool m_plateFading = false;   ///< 上一拍风景还在淡变（这一拍要再重拍一次底板）。
 };
 
 /// 定时器只决定采样频率，动画进度始终按真实经过的时间推进。

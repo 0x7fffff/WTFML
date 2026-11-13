@@ -5,6 +5,8 @@
 
 #include "Glass.hpp"
 
+#include "Animations.hpp"
+
 #include "SystemBackdrop.hpp"
 #include "Theme.hpp"
 
@@ -16,6 +18,7 @@
 #include <QSettings>
 #include <QThread>
 #include <QTimer>
+#include <QVariantAnimation>
 
 #include <cmath>
 
@@ -356,6 +359,19 @@ Backdrop::Backdrop(QWidget *parent) : QWidget(parent) {
         update();
     });
     activeBackdrop() = this;
+    // 主页风景淡入 / 淡出：只动风景那一层的不透明度，磨砂和着色层不动（导航轨也不动）。
+    m_heroFade = new QVariantAnimation(this);
+    m_heroFade->setObjectName(QStringLiteral("glassHeroFade"));
+    m_heroFade->setEasingCurve(QEasingCurve::InOutQuad);
+    connect(m_heroFade, &QVariantAnimation::valueChanged, this, [this](const QVariant &value) {
+        m_heroOpacity = value.toReal();
+        update();
+    });
+    connect(m_heroFade, &QAbstractAnimation::finished, this, [this] {
+        m_heroOpacity = m_heroFade->endValue().toReal();  // 终值钉死成 0 / 1，不留缓动的尾数
+        window()->setProperty(Anim::kBackdropFadingProperty, false);
+        update();
+    });
     Theme::follow(this, [this] {
         rebuildNow();
         update();
@@ -410,7 +426,31 @@ void Backdrop::noteHeroShown() {
     const bool shown = heroShown();
     if (shown == m_heroWasShown) return;
     m_heroWasShown = shown;
+    fadeHeroTo(shown ? 1.0 : 0.0);
     emit heroShownChanged(shown);
+}
+
+void Backdrop::fadeHeroTo(qreal target) {
+    m_heroFade->stop();
+    const qreal from = m_heroOpacity;
+    if (!Anim::enabled() || !isVisible() || !m_painted || from == target) {
+        m_heroOpacity = target;
+        window()->setProperty(Anim::kBackdropFadingProperty, false);
+        update();
+        return;
+    }
+    // 半路折返（淡到一半又切回来）从当前值接着走，时长按剩下的路程折算。
+    m_heroFade->setStartValue(from);
+    m_heroFade->setEndValue(target);
+    m_heroFade->setDuration(qMax(1, qRound(kHeroFadeMs * qAbs(target - from))));
+    window()->setProperty(Anim::kBackdropFadingProperty, true);
+    m_heroFade->start();
+}
+
+void Backdrop::hideEvent(QHideEvent *event) {
+    QWidget::hideEvent(event);
+    // 窗口真的收起来了（不是最小化）：下次露面先按终值画，不在露面那一刻淡一次。
+    if (!event->spontaneous()) m_painted = false;
 }
 
 QRect Backdrop::heroRect() const {
@@ -642,12 +682,17 @@ void Backdrop::paintEvent(QPaintEvent *) {
         layer.setAlphaF(minimumTintAlpha(layer, bodyInks(), {m_darkest, m_brightest}, tintStrength() / 100.0));
         painter.fillRect(rect(), layer);
     }
-    const QRect hero = heroRect();
-    if (!hero.isEmpty() && sceneShown()) {
+    // 风景铺满整窗（heroRect() == rect()）。淡出时 heroRect() 已经空了：rebuildHero() 不动缓存，
+    // 拿上一张接着淡完。
+    if (m_heroOpacity > 0.0 && sceneShown()) {
         rebuildHero();  // 键没变时立刻返回（尺寸、主题、导航轨宽都在键里）
-        painter.setRenderHint(QPainter::SmoothPixmapTransform, m_heroCacheRect.size() != hero.size());
-        painter.drawPixmap(hero, m_heroPixmap, m_heroPixmap.rect());
+        if (!m_heroPixmap.isNull()) {
+            painter.setRenderHint(QPainter::SmoothPixmapTransform, m_heroCacheRect.size() != size());
+            painter.setOpacity(m_heroOpacity);
+            painter.drawPixmap(rect(), m_heroPixmap, m_heroPixmap.rect());
+        }
     }
+    m_painted = true;
 }
 
 }  // namespace Glass

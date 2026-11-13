@@ -12,11 +12,14 @@
  *    （发 WM_NCACTIVATE FALSE）后非客户区仍是激活态 —— DWM 只在激活态画材质，这就是「失焦不退色」；
  *    别的档、`WTFML_KEEP_BACKDROP_ACTIVE=0` 时照系统默认退成未激活。
  *    另钉住系统材质模型的合成色 = 本机量的那几个数（纯黑 / 纯白 / 棋盘，见 SystemBackdrop.cpp）。
- * offscreen 下 2~5 跳过并明说，1 和配方照量。
+ * 6. 主页风景进出主页时淡入 / 淡出（`Glass::Backdrop::heroOpacity()`）：中途 0<α<1 且单调，终值恰为 0 / 1，
+ *    动效关着时直接落到终值。
+ * offscreen 下 2~5 跳过并明说，1、6 和配方照量。
  */
 
 #include "Support.hpp"
 
+#include "Animations.hpp"
 #include "ChromeDialog.hpp"
 #include "GameLogWindow.hpp"
 #include "Glass.hpp"
@@ -32,6 +35,8 @@
 #include <QAbstractSlider>
 #include <QAbstractSpinBox>
 #include <QTabBar>
+#include <QElapsedTimer>
+#include <QVariantAnimation>
 
 namespace {
 
@@ -103,6 +108,37 @@ void scanBlank(const QString &name, QWidget *window) {
 }
 
 /// 5) 背板：DWM 背板类型跟着档位；模拟一次失焦后，亚克力 / 云母档（开关没关）非客户区仍是激活态，别的情况退成未激活。
+/// 切到 `tab`，边等风景淡完边每 8 ms 记一次 `heroOpacity()`（含切之前那一刻和淡完那一刻）。
+QList<qreal> sweepHeroFade(QTabWidget *tabs, Glass::Backdrop *backdrop, int tab) {
+    auto *fade = backdrop->findChild<QVariantAnimation *>(QStringLiteral("glassHeroFade"));
+    QList<qreal> seen{backdrop->heroOpacity()};
+    tabs->setCurrentIndex(tab);
+    QElapsedTimer clock;
+    clock.start();
+    while (fade != nullptr && fade->state() != QAbstractAnimation::Stopped && clock.elapsed() < 2000) {
+        seen << backdrop->heroOpacity();
+        QEventLoop loop;
+        QTimer::singleShot(8, &loop, &QEventLoop::quit);
+        loop.exec();
+    }
+    seen << backdrop->heroOpacity();
+    return seen;
+}
+
+/// 风景淡变那一串采样：有中间值、单调（`down` = 往 0 走）、终值恰为 `end`。
+void checkHeroSweep(const QList<qreal> &seen, bool down, qreal end, const char *name) {
+    bool monotonic = true;
+    int middle = 0;
+    QStringList trace;
+    for (int i = 0; i < seen.size(); ++i) {
+        trace << QString::number(seen.at(i), 'f', 3);
+        if (seen.at(i) > 0.0 && seen.at(i) < 1.0) ++middle;
+        if (i > 0 && (down ? seen.at(i) > seen.at(i - 1) : seen.at(i) < seen.at(i - 1))) monotonic = false;
+    }
+    check(middle > 0 && monotonic && seen.last() == end, name,
+          QStringLiteral("中间值 %1 个 / 单调 %2 / %3").arg(middle).arg(monotonic).arg(trace.join(QLatin1Char(' '))));
+}
+
 void checkBackdrop(const QString &name, QWidget *window, const QString &when) {
     const Glass::Mode mode = Glass::effectiveMode();
     const bool system = mode == Glass::Mode::Acrylic || mode == Glass::Mode::Mica;
@@ -235,6 +271,35 @@ int UiWindowChromeCheck(QApplication &) {
         }
         check(stolen.isEmpty() && railCaption > 0, QStringLiteral("WC 主窗口 导航轨：空白回 HTCAPTION、导航钮不回"),
               QStringLiteral("空白 %1 / 误吞 %2").arg(railCaption).arg(stolen.join(QLatin1Char(','))));
+    }
+    // ---- 6) 主页风景淡入 / 淡出（#68）----
+    if (QTabWidget *tabs = ui.getTabWidget(); tabs != nullptr) {
+        auto *backdrop = window.findChild<Glass::Backdrop *>();
+        const int home = MainWindowUI::homeTabIndex();
+        const int away = MainWindowUI::settingsTabIndex();
+        tabs->setCurrentIndex(home);
+        settle();
+        // 上面隐藏再显示过；摆在屏外的窗口重显后 Windows 不一定送 WM_PAINT，没画过的 Backdrop 按「还没上屏」
+        // 直接跳终值（启动 / 从托盘回来不淡）。先画一帧 = 已经上过屏。
+        window.grab();
+        check(backdrop != nullptr && backdrop->heroOpacity() == 1.0, "WC 风景淡变 起点：停在主页时风景不透明度恰为 1",
+              backdrop != nullptr ? QString::number(backdrop->heroOpacity()) : QStringLiteral("没有 Backdrop"));
+        if (backdrop != nullptr) {
+            Anim::setEnabled(true);
+            checkHeroSweep(sweepHeroFade(tabs, backdrop, away), true, 0.0,
+                           "WC 风景淡变 主页→设置：中途 0<α<1、单调变小、终值恰为 0");
+            check(!window.property(Anim::kBackdropFadingProperty).toBool(), "WC 风景淡变 淡完撤掉「正在淡」窗口标记（幕布不再每帧重拍底板）");
+            checkHeroSweep(sweepHeroFade(tabs, backdrop, home), false, 1.0,
+                           "WC 风景淡变 设置→主页：中途 0<α<1、单调变大、终值恰为 1");
+            Anim::setEnabled(false);
+            tabs->setCurrentIndex(away);
+            const qreal off = backdrop->heroOpacity();
+            tabs->setCurrentIndex(home);
+            const qreal on = backdrop->heroOpacity();
+            check(off == 0.0 && on == 1.0, "WC 风景淡变 动效关着：换页当下直接落到终值（0 / 1，不经中间值）",
+                  QStringLiteral("出 %1 / 回 %2").arg(off).arg(on));
+            settle();
+        }
     }
     {
         UpgradeHistoryDialog dialog(&window);
