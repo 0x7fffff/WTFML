@@ -309,6 +309,8 @@ void SettingsGroup::position(const QWidget *row, int *index, int *count) {
 
 SlidingTabs::SlidingTabs(QWidget *parent) : QWidget(parent) {
     setFocusPolicy(Qt::TabFocus);
+    // 焦点环只在键盘操作时画（F1）：由 Theme 那个焦点过滤器按"最后一次输入是不是键盘"挂 wtfmlKeyboardFocus。
+    setProperty("wtfmlFocusRingOwner", true);
     setMouseTracking(true);
     setCursor(Qt::PointingHandCursor);
     setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
@@ -411,7 +413,8 @@ void SlidingTabs::paintEvent(QPaintEvent *) {
         p.setPen(i == m_current ? accentText() : (i == m_hover ? t.text : t.secondary));
         p.drawText(tabRect(i), Qt::AlignCenter, m_texts.at(i));
     }
-    if (hasFocus()) {
+    // 鼠标点页签后焦点会被 Qt 从藏起来的那一页挪到这儿 —— 只认键盘到达，不然整条外面一圈绿框。
+    if (hasFocus() && property("wtfmlKeyboardFocus").toBool()) {
         p.setBrush(Qt::NoBrush);
         p.setPen(QPen(t.focus, 3));
         p.drawRoundedRect(QRectF(rect()).adjusted(1.5, 1.5, -1.5, -1.5), 11, 11);

@@ -228,6 +228,7 @@ protected:
         if (event->type() == QEvent::MouseButtonPress || event->type() == QEvent::MouseButtonDblClick) {
             m_keyboard = false;
             setVisible(qobject_cast<QAbstractButton *>(QApplication::focusWidget()), false);
+            setRingOwner(QApplication::focusWidget(), false);
             setVisible(button, false);
             setKeyboard(watched, false);
         } else if (event->type() == QEvent::KeyPress) {
@@ -238,6 +239,7 @@ protected:
             if (key != Qt::Key_Shift && key != Qt::Key_Control && key != Qt::Key_Alt && key != Qt::Key_Meta) {
                 m_keyboard = true;
                 setVisible(qobject_cast<QAbstractButton *>(QApplication::focusWidget()), true);
+                setRingOwner(QApplication::focusWidget(), true);
             }
             // A native frameless window can receive its first Tab before Qt has
             // assigned any child focus. Recover that entry only; existing editors,
@@ -282,10 +284,12 @@ protected:
                 m_keyboard = false;
             }
             setVisible(button, m_keyboard);
+            setRingOwner(qobject_cast<QWidget *>(watched), m_keyboard);
             setKeyboard(watched, reason == Qt::TabFocusReason || reason == Qt::BacktabFocusReason);
         } else if (event->type() == QEvent::FocusOut) {
             clampSpin(qobject_cast<QWidget *>(watched));
             setKeyboard(watched, false);
+            setRingOwner(qobject_cast<QWidget *>(watched), false);
         }
         return false;
     }
@@ -383,6 +387,13 @@ private:
         button->style()->unpolish(button);
         button->style()->polish(button);
         button->update();
+    }
+    /// 自绘焦点环的控件（挂了 `wtfmlFocusRingOwner`，如设置页分段页签）：和按钮同一条判据。
+    static void setRingOwner(QWidget *widget, bool visible) {
+        if (widget == nullptr || !widget->property("wtfmlFocusRingOwner").toBool() ||
+            widget->property("wtfmlKeyboardFocus").toBool() == visible) return;
+        widget->setProperty("wtfmlKeyboardFocus", visible);
+        widget->update();
     }
     bool m_keyboard = false;
 };
