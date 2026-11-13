@@ -1,5 +1,5 @@
-// 主页大标题问候的离屏样张：深色 / 青瓷 × 1280x800 与 900x620 × 四种问候，另拼一张总览 contact.png；
-// 再出一张 compare-latin-name.png：名字用文楷自带拉丁字形（旧）与 Dancing Script（新）的对照。
+// 主页大标题问候的离屏样张：深色 / 青瓷 × 1280x800 与 900x620 × 六种问候，另拼一张总览 contact.png。
+// 带名字的那几张，右上账号胶囊也写同一个名字（和真窗口一样同一来源）；不带名字的胶囊写「登录」。
 // 用法：QT_QPA_PLATFORM=offscreen ui_check_home_greeting_shots <输出目录>
 // 不进 ctest：只出图，不做断言（断言在 UiDailyQuoteCheck 的 HG-UI 段）。
 #include "Support.hpp"
@@ -41,10 +41,12 @@ int UiHomeGreetingShots(QApplication &app) {
     };
     const QString longName = QStringLiteral("ThisIsAVeryLongName_16");
     const QVector<Sample> samples = {
-        {"evening", QStringLiteral("晚上好，Steve。"), QStringLiteral("Steve")},
-        {"late-noname", QStringLiteral("夜深了。"), QString()},
-        {"welcome", QStringLiteral("欢迎来到 WTFML。"), QString()},
-        {"long", QStringLiteral("晚上好，") + longName + QStringLiteral("。"), longName},
+        {"steve", QStringLiteral("晚上好 Steve"), QStringLiteral("Steve")},
+        {"xiaoming", QStringLiteral("晚上好 小明"), QStringLiteral("小明")},
+        {"mixed", QStringLiteral("晚上好 Steve小明"), QStringLiteral("Steve小明")},
+        {"late-noname", QStringLiteral("夜深了"), QString()},
+        {"welcome", QStringLiteral("欢迎来到 WTFML"), QString()},
+        {"long", QStringLiteral("晚上好 ") + longName, longName},
     };
     const QVector<QSize> sizes = {QSize(1280, 800), QSize(900, 620)};
     const auto settle = [&app] {
@@ -75,9 +77,24 @@ int UiHomeGreetingShots(QApplication &app) {
                 ui.setHomeHeroQuote(QStringLiteral("长河千嶂，大荒孤城，历历在目。"),
                                     QStringLiteral("— 令《明日方舟》"), Theme::QuoteScript::Han);
                 ui.setHomeHeroTitle(sample.text, sample.name);
+                const bool named = !sample.name.isEmpty();
+                if (QLabel *pill = ui.getHomeAccountLabel())
+                    pill->setText(named ? sample.name : MainWindowUI::homeAccountSignInText());
+                if (QLabel *type = ui.getHomeAccountTypeLabel()) {
+                    type->setText(MainWindowUI::homeAccountMicrosoftText());
+                    type->setVisible(named);
+                }
+                if (QLabel *face = ui.getHomeAvatarLabel()) {
+                    QPixmap mark;
+                    if (named) {
+                        mark = QPixmap(face->size());
+                        mark.fill(QColor(0x3c, 0x9e, 0x7a));
+                    }
+                    face->setPixmap(mark);
+                }
                 settle();
                 const QImage shot = window.grab().toImage();
-                const QString file = QDir(out).filePath(QStringLiteral("r89-%1-%2-%3.png")
+                const QString file = QDir(out).filePath(QStringLiteral("r89b-%1-%2-%3.png")
                                                             .arg(preset)
                                                             .arg(size.width())
                                                             .arg(QString::fromLatin1(sample.key)));
@@ -104,67 +121,7 @@ int UiHomeGreetingShots(QApplication &app) {
     }
     if (sheet.save(QDir(out).filePath(QStringLiteral("contact.png")))) ++saved;
 
-    // ---- 对照：旧（整句文楷，拉丁字母用文楷自带字形）/ 新（拉丁字母走 Dancing Script） ----
-    // 旧的那一格：把标题清空后，按旧做法（整句一支文楷、名字用 QFontMetrics 截）画回原位。
-    const QStringList names = {QStringLiteral("Steve"), QStringLiteral("José"), longName};
-    QVector<QImage> strips;
-    for (const QString &preset : {QStringLiteral("dark"), QStringLiteral("emerald")}) {
-        Theme::setSpec(Theme::presetSpec(preset));
-        Theme::apply(app);
-        for (const QString &name : names) {
-            for (const bool latinScript : {false, true}) {
-                QMainWindow window;
-                MainWindowUI ui(&window);
-                window.resize(1280, 800);
-                window.show();
-                const QString text = QStringLiteral("晚上好，") + name + QStringLiteral("。");
-                ui.setHomeHeroTitle(latinScript ? text : QString(), latinScript ? name : QString());
-                settle();
-                QLabel *title = ui.getHomeHeroTitle();
-                QImage shot = window.grab().toImage();
-                const QRect box(title->mapTo(&window, title->contentsRect().topLeft()), title->contentsRect().size());
-                if (!latinScript) {
-                    QPainter p(&shot);
-                    p.setFont(title->font());
-                    p.setPen(title->palette().color(title->foregroundRole()));
-                    const QFontMetrics fm(title->font());
-                    QString old = text;
-                    if (fm.horizontalAdvance(old) > box.width()) {
-                        const QString head = QStringLiteral("晚上好，");
-                        old = head + fm.elidedText(name, Qt::ElideRight, box.width() - fm.horizontalAdvance(head));
-                    }
-                    p.drawText(QPointF(box.left(), box.top() + fm.ascent()), old);
-                }
-                const QImage crop = shot.copy(QRect(box.left() - 24, box.top() - 16, 900, box.height() + 32));
-                QImage labeled(crop.width() + 120, crop.height(), QImage::Format_RGB32);
-                labeled.fill(QColor(32, 32, 32));
-                {
-                    QPainter p(&labeled);
-                    p.drawImage(120, 0, crop);
-                    p.setPen(Qt::white);
-                    p.setFont(QFont(app.font().family(), 11));
-                    p.drawText(QRect(8, 0, 110, crop.height()), Qt::AlignVCenter | Qt::TextWordWrap,
-                               latinScript ? QStringLiteral("新：Dancing Script") : QStringLiteral("旧：文楷拉丁字形"));
-                }
-                strips.append(labeled);
-                window.hide();
-            }
-        }
-    }
-    int compareH = 0;
-    for (const QImage &strip : strips) compareH += strip.height() + 4;
-    QImage compare(strips.value(0).width(), compareH, QImage::Format_RGB32);
-    compare.fill(Qt::black);
-    {
-        QPainter p(&compare);
-        int y = 0;
-        for (const QImage &strip : strips) {
-            p.drawImage(0, y, strip);
-            y += strip.height() + 4;
-        }
-    }
-    if (compare.save(QDir(out).filePath(QStringLiteral("compare-latin-name.png")))) ++saved;
     std::printf("home-greeting shots: %d saved to %s\n", saved, qPrintable(out));
     std::fflush(stdout);
-    return saved == 18 ? 0 : 1;
+    return saved == samples.size() * sizes.size() * 2 + 1 ? 0 : 1;
 }

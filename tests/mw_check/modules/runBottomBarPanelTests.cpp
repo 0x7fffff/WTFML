@@ -607,7 +607,7 @@ void runBottomBarPanelTests() {
                       : QString());
             // 有实例、今天打开过 ⇒ 按时段问候，名字和胶囊同一个。
             QLabel *title = w.findChild<QLabel *>(MainWindowUI::homeHeroTitleName());
-            check(title != nullptr && title->text().endsWith(QStringLiteral("，Alex。")),
+            check(title != nullptr && title->text().endsWith(QStringLiteral(" Alex")),
                   "AH7 主页大标题问候带上当前账号名 Alex", title != nullptr ? title->text() : QString());
         }
         QWidget *panel = openPanel(accountsButton);
@@ -729,7 +729,7 @@ void runBottomBarPanelTests() {
                           ? pillName->text() + QStringLiteral(" / ") + pillType->text()
                           : QString());
                 QLabel *title = w.findChild<QLabel *>(MainWindowUI::homeHeroTitleName());
-                check(title != nullptr && title->text().endsWith(QStringLiteral("，Carol。")),
+                check(title != nullptr && title->text().endsWith(QStringLiteral(" Carol")),
                       "AH8 主页大标题问候跟着换成 Carol", title != nullptr ? title->text() : QString());
             }
             check(g_modalTitle == QStringLiteral("登录令牌没能刷新") && g_modalWasWarning,

@@ -145,36 +145,50 @@ int UiDailyQuoteCheck(QApplication &app) {
         const QStringList families = title->font().families();
         check(families.value(0).contains(QStringLiteral("WenKai")) && families.value(1) == QStringLiteral("KaiTi"),
               "HG-UI2 文楷 Light 打头，文楷没有的字先落系统楷体", families.join(QStringLiteral(" / ")));
-        const QFont latin = MainWindowUI::homeHeroTitleLatinFont(title->font());
-        check(latin.families().value(0).contains(QStringLiteral("Dancing")) &&
-                  latin.pixelSize() == qRound(title->font().pixelSize() * 1.2) && latin.letterSpacing() == 0,
-              "HG-UI2b 名字里的拉丁字母用 Dancing Script，放大 1.2 倍、字距 0（连笔不断）",
-              QStringLiteral("%1 %2px").arg(latin.families().join(QStringLiteral(" / "))).arg(latin.pixelSize()));
-        ui.setHomeHeroTitle(QStringLiteral("晚上好，Steve。"), QStringLiteral("Steve"));
+        // 名字字体按整段判：纯英文 → Dancing Script ×1.2、字距 0；带中文（纯中文或中英混）→ 整段文楷。
+        const auto nameFontIs = [&](const QString &name) {
+            ui.setHomeHeroTitle(QStringLiteral("晚上好 ") + name, name);
+            return ui.homeHeroTitleNameFont();
+        };
+        const QFont steve = nameFontIs(QStringLiteral("Steve"));
+        check(steve.families().value(0).contains(QStringLiteral("Dancing")) &&
+                  steve.pixelSize() == qRound(title->font().pixelSize() * 1.2) && steve.letterSpacing() == 0,
+              "HG-UI2b 纯英文名字整段用 Dancing Script，放大 1.2 倍、字距 0（连笔不断）",
+              QStringLiteral("%1 %2px").arg(steve.families().join(QStringLiteral(" / "))).arg(steve.pixelSize()));
+        for (const QString &name : {QStringLiteral("小明"), QStringLiteral("Steve小明")}) {
+            const QFont f = nameFontIs(name);
+            check(f.families() == title->font().families() && f.pixelSize() == title->font().pixelSize(),
+                  QStringLiteral("HG-UI2c 「%1」带中文：整个名字用文楷，不拆成两种字").arg(name),
+                  f.families().join(QStringLiteral(" / ")));
+        }
+        ui.setHomeHeroTitle(QStringLiteral("欢迎来到 WTFML"), QString());
+        check(ui.homeHeroTitleNameFont().families().value(0).contains(QStringLiteral("Dancing")),
+              "HG-UI2d 「欢迎来到 WTFML」里的 WTFML 用 Dancing Script");
+        ui.setHomeHeroTitle(QStringLiteral("晚上好 Steve"), QStringLiteral("Steve"));
         app.processEvents();
-        check(title->text() == QStringLiteral("晚上好，Steve。") &&
-                  ui.homeHeroTitleShown() == QStringLiteral("晚上好，Steve。"),
+        check(title->text() == QStringLiteral("晚上好 Steve") &&
+                  ui.homeHeroTitleShown() == QStringLiteral("晚上好 Steve"),
               "HG-UI3 短名字整句照写", ui.homeHeroTitleShown());
-        ui.setHomeHeroTitle(QStringLiteral("晚上好，Alex。"), QStringLiteral("Alex"));
+        ui.setHomeHeroTitle(QStringLiteral("晚上好 Alex"), QStringLiteral("Alex"));
         app.processEvents();
-        check(title->text() == QStringLiteral("晚上好，Alex。"), "HG-UI4 换账号后标题跟着换名字",
+        check(title->text() == QStringLiteral("晚上好 Alex"), "HG-UI4 换账号后标题跟着换名字",
               title->text());
         auto *pill = window.findChild<QWidget *>(MainWindowUI::accountSkinButtonName());
         const QString longName = QStringLiteral("ThisIsAVeryLongName_16");
         for (const QSize size : {QSize(1280, 800), QSize(900, 620)}) {
             window.resize(size);
-            ui.setHomeHeroTitle(QStringLiteral("晚上好，Steve。"), QStringLiteral("Steve"));
+            ui.setHomeHeroTitle(QStringLiteral("晚上好 Steve"), QStringLiteral("Steve"));
             for (int i = 0; i < 4; ++i) app.processEvents();
             const int shortWidth = title->width();
             const int lineHeight = title->height();
-            ui.setHomeHeroTitle(QStringLiteral("晚上好，") + longName + QStringLiteral("。"), longName);
+            ui.setHomeHeroTitle(QStringLiteral("晚上好 ") + longName, longName);
             for (int i = 0; i < 4; ++i) app.processEvents();
             const QString shown = ui.homeHeroTitleShown();
             const QString where = QStringLiteral("%1x%2").arg(size.width()).arg(size.height());
             const int room = title->contentsRect().width();
-            check(shown.startsWith(QStringLiteral("晚上好，This")) && shown.endsWith(QStringLiteral("…")) &&
+            check(shown.startsWith(QStringLiteral("晚上好 This")) && shown.endsWith(QStringLiteral("…")) &&
                       ui.homeHeroTitleShownWidth() <= room,
-                  QStringLiteral("HG-UI5 %1：长名字只截名字，问候留着、省略号收尾不跟句号，整句装得下").arg(where),
+                  QStringLiteral("HG-UI5 %1：长名字只截名字，问候留着、省略号收尾，整句装得下").arg(where),
                   QStringLiteral("%1（%2 / %3 px）")
                       .arg(shown)
                       .arg(ui.homeHeroTitleShownWidth())
