@@ -43,8 +43,12 @@ QString decisionKey(Decision decision) {
 
 bool isCredentialFileName(const QString &relativePath) {
     const QString name = QFileInfo(relativePath).fileName().toLower();
-    if (name == QLatin1String(".env") || name == QLatin1String("launcher_accounts.json") ||
-        name == QLatin1String("credentials.json") || name == QLatin1String("tokens.json")) {
+    // dotenv 家族：裸 `.env`，以及 `prod.env`、`.env.local`、`app.env.production`。
+    // 只判等于 `.env` 放过的是后面这两种 —— 它们才是实际项目里常见的写法。
+    if (name.endsWith(QLatin1String(".env")) || name.contains(QLatin1String(".env."))) {
+        return true;
+    }
+    if (name == QLatin1String("launcher_accounts.json")) {
         return true;
     }
     const QString suffix = QFileInfo(name).suffix().toLower();
@@ -53,10 +57,18 @@ bool isCredentialFileName(const QString &relativePath) {
         suffix == QLatin1String("jks")) {
         return true;
     }
-    return name.startsWith(QLatin1String("credentials")) ||
-           name.startsWith(QLatin1String("token")) ||
-           name.startsWith(QLatin1String("secret")) ||
-           name.startsWith(QLatin1String("auth."));
+    // 词根按「名字里出现」判，不按开头判：`my_credentials_backup.json`、`github_token.json`
+    // 都不以这些词起头，按 startsWith 就漏。这里宁可多拦 —— 文件名是别人起的，
+    // 少拦一次是把真凭据发给模型服务。
+    static const QStringList roots = {
+        QStringLiteral("credential"), QStringLiteral("secret"),      QStringLiteral("token"),
+        QStringLiteral("apikey"),     QStringLiteral("api_key"),     QStringLiteral("api-key")};
+    for (const QString &root : roots) {
+        if (name.contains(root)) {
+            return true;
+        }
+    }
+    return name.startsWith(QLatin1String("auth."));
 }
 
 Kind kindForPath(const QString &relativePath) {

@@ -126,4 +126,26 @@ void runAgentEgressPolicyTests() {
     check(AgentRedaction::redact(QStringLiteral("DB_PASSWORD: p@ssw0rdvalue"))
               .text.contains(QStringLiteral("DB_PASSWORD")),
           "脱敏：遮值不遮字段名");
+
+    // 凭据文件名的词根与 dotenv 家族。
+    const auto isCredential = [](const QString &path) {
+        return AgentEgressPolicy::kindForPath(path) == Kind::CredentialFile;
+    };
+    check(isCredential(QStringLiteral(".env.local")), "外发：.env.local 归凭据文件");
+    check(isCredential(QStringLiteral("server.env")), "外发：server.env 归凭据文件");
+    check(isCredential(QStringLiteral("config/app.env.production")),
+          "外发：app.env.production 归凭据文件");
+    check(isCredential(QStringLiteral("backup/my_credentials_backup.json")),
+          "外发：词根在中间的文件名也归凭据文件");
+    check(isCredential(QStringLiteral("config/github_token.json")),
+          "外发：github_token.json 归凭据文件");
+    check(isCredential(QStringLiteral("credentials.json")), "外发：原先认识的凭据文件仍然认识");
+    check(isCredential(QStringLiteral("tokens.json")), "外发：tokens.json 仍然认识");
+    const QStringList newlyBlocked = {QStringLiteral(".env.local"),
+                                      QStringLiteral("config/github_token.json"),
+                                      QStringLiteral("backup/my_credentials_backup.json")};
+    for (const QString &path : newlyBlocked) {
+        check(decision(AgentEgressPolicy::kindForPath(path), path).decision == Decision::Block,
+              QStringLiteral("外发：分类成凭据文件之后硬阻断 ") + path);
+    }
 }
