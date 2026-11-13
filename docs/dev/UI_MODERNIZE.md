@@ -39,7 +39,7 @@ python tools/ui_modernize.py apply --profile baseline --write
 令牌配置文件位于 `tools/ui-modernize.json`，默认使用 `modern_soft` 配置档。主要参数包括：
 
 - **色彩**：
-  - `accent`：`ui/Theme.cpp` 里 `defaultAccentColor()` 那一支的色值（翡翠绿；现在只有挑色框的示例色用它，出厂主题色和无效主题色的兜底都跟预设的 `tokens(presetId).primary` 走），格式为 `#RRGGBB`。
+  - `accent`：`ui/Theme.cpp` 里 `defaultAccentColor()` 那一支的色值（冰川碧湖；现在只有挑色框的示例色用它，出厂主题色和无效主题色的兜底都跟预设的 `tokens(presetId).primary` 走），格式为 `#RRGGBB`。
 - **控件与卡片圆角**：
   - `control_radius`：基础输入框与选项控件圆角。
   - `button_radius`：普通按钮与动作按钮圆角。

@@ -488,7 +488,7 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
                               qRound(top.blue() * a + under.blue() * (1 - a)));
             };
             const auto near = [&rgbDist](const QColor &a, const QColor &b) { return rgbDist(a, b) <= 4; };
-            // 认得出的预设（出厂是石炭灰）**一档只有一个色**：不管这一行自己的底是什么，
+            // 认得出的预设（出厂是暮色雪山）**一档只有一个色**：不管这一行自己的底是什么，
             // 悬停都铺 `tokens().hover` ——「悬停全应用只有一种深浅」就是靠这一条。
             const QColor darkBase(0x32, 0x32, 0x32);
             const QColor presetHover = Theme::tokens().hover;

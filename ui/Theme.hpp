@@ -30,8 +30,8 @@
  *
  * 【默认与兼容】
  *
- * `defaultSpec()` 使用石炭灰（`dark`），主题色就是它自己那一支 tokens 的 `primary`。
- * 翡翠绿、海洋蓝和石炭灰由同一套 Tokens 映射到调色板与 QSS。
+ * `defaultSpec()` 使用暮色雪山（`dark`），主题色就是它自己那一支 tokens 的 `primary`。
+ * 冰川碧湖、落日海崖和暮色雪山由同一套 Tokens 映射到调色板与 QSS。
  * 已存储的系统主题继续跟随系统；旧 light 标识迁移为 emerald，自定义覆盖仍优先。
  *
  * 【换主题那一刻会发生什么】
@@ -285,7 +285,7 @@ constexpr int accentShadeCount() { return static_cast<int>(AccentShade::Count); 
 
 /// 某一档现在的色。**永远有效**（`Spec::accent` 认不出时退回当前预设那一支）。
 QColor accentShade(AccentShade shade);
-/// 翡翠绿那一支主题色（挑色框里那行示例色）。出厂主题色不取这里，见 `defaultSpec()`。
+/// 冰川碧湖那一支主题色（挑色框里那行示例色）。出厂主题色不取这里，见 `defaultSpec()`。
 /// **全仓唯一出处。**
 QColor defaultAccentColor();
 
@@ -813,12 +813,12 @@ struct Spec {
     /// 预设 id（`presetIds()` 里那几个之一）。**故意没有 "custom"**：覆盖项是叠在预设
     /// 上面的，换了覆盖项预设还是那一个（"深色 + 我改的那几项"读起来比"自定义"准）。
     /// NOTE: 默认构造这里是 `system`（没说过用哪一档 = 跟着系统）；出厂那一份看
-    /// `defaultSpec()`（石炭灰）。
+    /// `defaultSpec()`（暮色雪山）。
     QString presetId = QStringLiteral("system");
     /// 全体文字的不透明度（0~100）。100 = 一点也不透（今天的样子）。
     int textOpacity = 100;
     /// **主题色**（那一支强调色）。出厂 = 当前预设的 `tokens(presetId).primary`
-    /// （新安装是石炭灰的 #B7B3EE），永远有效（认不出退回同一支）。
+    /// （新安装是暮色雪山的 #B7B3EE），永远有效（认不出退回同一支）。
     ///
     /// NOTE: 它**不是** `Theme/Accents/*` 底下那四个（那四个是"语义色"：危险 / 警告 /
     /// 正常 / 报错）。单数那个是"这一套界面是什么颜色"，复数那几个是"红黄绿各是
@@ -840,11 +840,11 @@ const Spec &current();
 /// 只换内存里这一份（不落盘、也不铺开 —— 要生效得再 `apply()`）。参数越界会被收拾干净。
 void setSpec(const Spec &spec);
 
-/// "出厂"那一份：石炭灰、一项覆盖都没有（主题色是石炭灰那一支 primary）。
+/// "出厂"那一份：暮色雪山、一项覆盖都没有（主题色是暮色雪山那一支 primary）。
 Spec defaultSpec();
 
 /// 四个预设，按设置页「配色」那一格的下拉顺序：
-/// `dark`（石炭灰，出厂默认）/ `emerald`（翡翠绿）/ `ocean`（海洋蓝）/ `system`（跟着系统）。
+/// `dark`（暮色雪山，出厂默认）/ `emerald`（冰川碧湖）/ `ocean`（落日海崖）/ `system`（跟着系统）。
 QStringList presetIds();
 QString presetName(const QString &id);
 bool isPresetId(const QString &id);

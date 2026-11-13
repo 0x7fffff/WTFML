@@ -641,7 +641,7 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("emerald"), QStringLiteral("ocean")})
             list.append({QStringLiteral("account-menu-%1.png").arg(theme), theme, {1000, 700}, false, home, QStringLiteral("account")});
         // r2 主页方案 A 对照（设计稿 r2/png/home-A-* / home-A-switch-* / home-empty-* / home-acct-rail-*）：
-        // 有实例、实例切换弹层打开、没有实例、账号弹层打开（锚点现在是主页右上那颗胶囊）× 暗 / 翡翠 × 两档尺寸。
+        // 有实例、实例切换弹层打开、没有实例、账号弹层打开（锚点现在是主页右上那颗胶囊）× 暗 / 冰川碧湖 × 两档尺寸。
         for (const char *state : {"home-A", "home-A-switch", "home-empty", "home-acct-rail"})
             for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("emerald")})
                 for (const QSize size : {QSize(900, 620), QSize(1280, 800)})

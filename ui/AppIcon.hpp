@@ -8,7 +8,7 @@
  *   * **运行中的窗口**（主窗口、各独立窗口、任务栏、Alt+Tab）用 qrc 里那四张 PNG，
  *     `QApplication::setWindowIcon()` 一次铺给所有顶层窗口；
  *   * 自绘标题栏 `ui/TitleBar` 不挂窗口图标；导航轨左上角的品牌标画的是 `wtfml-24.svg`
- *     那条 W 路径，跟主题着色（石炭灰用原色），和这份 QIcon 无关。
+ *     那条 W 路径，跟主题着色（暮色雪山用原色），和这份 QIcon 无关。
  *
  * 运行时为什么不直接读那份 .ico：QIcon 读 .ico 要挂 imageformats 插件，而四个尺寸
  * 各一张 PNG 就是 `addFile(size)` 四行，系统要哪一档就给哪一档原图，不用缩放。

@@ -133,13 +133,13 @@ const QPainterPath &brandMarkPath() {
     return path;
 }
 
-/// 品牌标的两档渐变色（上 → 下）。出厂石炭灰（预设 dark、没改主题色）用图标原色；
+/// 品牌标的两档渐变色（上 → 下）。出厂暮色雪山（预设 dark、没改主题色）用图标原色；
 /// 别的主题、改过主题色的按主题色走（上一档提亮）。
 QPair<QColor, QColor> brandMarkStops() {
     const Theme::Spec spec = Theme::current();
     const QColor presetAccent = Theme::tokens(spec.presetId).primary;
     const bool customAccent = spec.accent.isValid() && spec.accent != presetAccent;
-    // 「跟着系统」落在深色那一档时长得和石炭灰一样，也用原色。
+    // 「跟着系统」落在深色那一档时长得和暮色雪山一样，也用原色。
     const bool charcoal = Theme::tokens().primary == Theme::tokens(QStringLiteral("dark")).primary;
     if (charcoal && !customAccent) return {QColor("#8682D4"), QColor("#6C68BC")};
     const QColor base = customAccent ? spec.accent : Theme::tokens().deep;

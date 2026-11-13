@@ -40,6 +40,9 @@ QString modeKey(Mode mode);
 QString modeName(Mode mode);
 /// 用户选的那一档。
 Mode mode();
+/// 盘上没写过材质时的那一档（出厂）：风景底；≤ 2 线程的机器、旧版关过「磨砂效果」的是纯色。
+/// 单独拎出来是为了能直接量，不用先有一个没写过设置的进程。
+Mode factoryMode(int threadCount, bool legacyGlassOff);
 /// 实际生效的那一档（按系统能力与无障碍设置回退之后）。
 Mode effectiveMode();
 /// 为什么没按用户选的来（生效的就是选的那档时为空）。

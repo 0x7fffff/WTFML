@@ -22,6 +22,19 @@ int UiThemeCheck(QApplication &app) {
             printf("%s %s\n", ok ? "PASS" : "FAIL", name);
             if (!ok) ++failures;
         };
+        // 出厂材质：盘上没写过 `Theme/Backdrop` 时用风景底（≤ 2 线程的机器、旧版关过磨砂的是纯色）。
+        expect(Glass::factoryMode(8, false) == Glass::Mode::Scene &&
+                   Glass::factoryMode(2, false) == Glass::Mode::Solid &&
+                   Glass::factoryMode(8, true) == Glass::Mode::Solid,
+               "factory backdrop is the scene; few-thread machines and old 'glass off' stay solid");
+        // 主题显示名照着三张内置风景起；内部 id 与「配色」下拉的顺序不动（盘上存的是 id）。
+        expect(Theme::presetName(QStringLiteral("dark")) == QStringLiteral("暮色雪山") &&
+                   Theme::presetName(QStringLiteral("emerald")) == QStringLiteral("冰川碧湖") &&
+                   Theme::presetName(QStringLiteral("light")) == QStringLiteral("冰川碧湖") &&
+                   Theme::presetName(QStringLiteral("ocean")) == QStringLiteral("落日海崖") &&
+                   Theme::presetName(QStringLiteral("system")) == QStringLiteral("跟随系统") &&
+                   Theme::presetIds().value(0) == QStringLiteral("dark"),
+               "preset names follow the three scenes / ids and order untouched");
         // 换配色不再重挂整份应用样式表 —— 样式表字符串必须与主题无关。
         // 这一条直接钉住那个代价（6800 个控件重挂一次要 1.9 秒）：三套预设铺完，
         // 应用身上挂的那一份必须还是同一串。
