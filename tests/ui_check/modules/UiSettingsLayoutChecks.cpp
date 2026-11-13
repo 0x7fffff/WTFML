@@ -474,7 +474,7 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
             window->resize(width, 720);
             QApplication::processEvents();
             bool fits = look && look->widget()->width() <= look->viewport()->width() && look->horizontalScrollBar()->maximum() == 0;
-            for (const auto part : {Theme::Part::HomeLeft, Theme::Part::PageBackground}) {
+            for (const auto part : {Theme::Part::PageBackground}) {
                 const QString key = Theme::partKey(part);
                 auto *choose = page->findChild<QPushButton *>(MainWindowUI::themeImageChooseName(key));
                 auto *fit = page->findChild<QComboBox *>(MainWindowUI::themeImageFitName(key));

@@ -618,7 +618,7 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         addRow(theme, themeTextOpacityRowText(), sliderWithValue(themeTextOpacitySlider, themeTextOpacityPercent, form));
     }
 
-    // ---------- 背景图（两块底各一组） ----------
+    // ---------- 背景图（一块底一组） ----------
     // 挑图那一下不是记用户那个路径：文件会被拷进数据目录。这里只摆控件，收图和落盘在 MainWindow。
     const auto addImageGroup = [&](Theme::Part part, const QString &groupTitle, const QString &scope) {
         const QString key = Theme::partKey(part);
@@ -662,9 +662,8 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         addRow(group, QStringLiteral("不透明度"), sliderWithValue(widgets.opacity, widgets.percent, form));
         m_themeImageRows.append(widgets);
     };
-    addImageGroup(Theme::Part::HomeLeft, QStringLiteral("主页背景图"), QStringLiteral("主页内容区。"));
-    addImageGroup(Theme::Part::PageBackground, QStringLiteral("页面背景图"),
-                  QStringLiteral("主页、管理、下载和设置的页面背景。"));
+    addImageGroup(Theme::Part::PageBackground, QStringLiteral("背景图"),
+                  QStringLiteral("主页、管理、下载和设置页，铺满整窗。"));
 
     // ---------- 外观 ----------
     SettingsGroup *look = addGroup(panel, QStringLiteral("外观"));
@@ -687,8 +686,8 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         auto *quote = new QCheckBox(QStringLiteral("每日一言"), form);
         quote->setObjectName(dailyQuoteCheckName());
         addSwitch(look, quote, QStringLiteral("每日一言"),
-                  QStringLiteral("每天向 hitokoto、ZenQuotes 请求一句，不带个人信息；关闭后不请求。"
-                                 "英文句子来自 ZenQuotes（zenquotes.io）。"));
+                  QStringLiteral("每天向 hitokoto 和 ZenQuotes（zenquotes.io）取一句，不带个人信息；"
+                                 "关闭后不请求。"));
         dailyQuoteCheck = quote;
     }
 

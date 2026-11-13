@@ -72,7 +72,12 @@ int UiDailyQuoteShots(QApplication &app) {
                 item.detail = QStringLiteral("Fabric 0.16.9 · 1.21.4");
                 item.current = true;
                 ui.setHomeQuickRows({item}, {item}, {item});
+                // 停在「当前」：否则实例带那两排（最近 / 收藏）浮在别的那一档上，
+                // 截出来是一条空带（r71 那批就是这样）。灌完再走一遍事件循环，
+                // 卡片是 show() 之后才塞进去的，一次 processEvents 排不完版。
+                ui.setHomeQuickMode(MainWindowUI::HomeQuickMode::Current);
                 ui.setHomeHeroQuote(sample.text, sample.tip, sample.script);
+                app.processEvents();
                 app.processEvents();
                 const QString file = QDir(out).filePath(
                     QStringLiteral("r71-%1-%2-%3.png")
