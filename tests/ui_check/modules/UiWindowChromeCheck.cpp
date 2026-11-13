@@ -41,6 +41,8 @@
 #include <algorithm>
 #include <functional>
 #include <QVBoxLayout>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <QLabel>
 #include <QDialog>
 #include <QVariantAnimation>
@@ -394,11 +396,12 @@ int UiWindowChromeCheck(QApplication &) {
             check(curtainOnOpen, "WC 整页过渡 返回那一刻主页挂着换页幕布（和导航轨换页同一发）");
             // 6c) 开页第一帧就是最终版面：幕布在 showPage() 里当场拍快照，那一刻页里控件的几何
             // 必须和稳定后一致（差 ≤1px）。账号与外观页：套在滚动区里、按宽窄换横排 / 竖排，
-            // 首次打开（刚建出来、布局还没算过）和再次打开（已建好）各量一次；窗口 901x800
-            //（真机 1127x1001 物理像素 / 125%，正落在竖排那一档）。
+            // 首次打开（刚建出来、布局还没算过、未登录）和再次打开（已建好、两个离线账号）各量一次；
+            // 窗口 902x801（真机 1127x1001 物理像素 / 125%，正落在中宽两栏那一档）。
+            // 顺带量中宽版面：皮肤、披风两组整个落在窗口里、页面不用滚，立绘撑开右栏、右边不空一大片。
             {
                 const QSize oldSize = window.size();
-                window.resize(901, 800);
+                window.resize(902, 801);
                 settle();
                 auto *account = new AccountSkinDialog(&window);
                 const auto keyRects = [account] {
@@ -411,6 +414,10 @@ int UiWindowChromeCheck(QApplication &) {
                     return rects;
                 };
                 for (const char *pass : {"首次打开", "再次打开"}) {
+                    if (QByteArray(pass) == "再次打开") {
+                        account->setAccounts({{QStringLiteral("offline-steve"), QStringLiteral("Steve"), {}, true, true},
+                                              {QStringLiteral("offline-alex"), QStringLiteral("Alex"), {}, false, true}});
+                    }
                     account->showAccountKind(true);
                     overlay->showPage(account, AccountSkinDialog::windowTitle());
                     const bool curtained = curtainShown(pageFrame);
@@ -433,6 +440,19 @@ int UiWindowChromeCheck(QApplication &) {
                           QStringLiteral("WC 整页过渡 账号页%1：过渡第一帧就是最终版面（页签 / 名字框 / 立绘 / 皮肤下拉框差 ≤1px）")
                               .arg(QString::fromUtf8(pass)),
                           QStringLiteral("幕布 %1 / 差 %2 px %3").arg(curtained).arg(drift).arg(trace.join(QLatin1Char(' '))));
+                    const auto *looks = account->findChild<QWidget *>(QStringLiteral("accountLooksPane"));
+                    const auto *viewer = account->findChild<QWidget *>(AccountSkinDialog::viewerName());
+                    const auto *scroll = pageFrame->findChild<QScrollArea *>();
+                    const int looksBottom = looks != nullptr ? looks->mapTo(&window, QPoint(0, looks->height())).y() : -1;
+                    const int rightGap = viewer != nullptr ? account->width() - viewer->mapTo(account, QPoint(viewer->width(), 0)).x() : -1;
+                    check(looks != nullptr && scroll != nullptr && looksBottom > 0 && looksBottom <= window.height() &&
+                              scroll->verticalScrollBar()->maximum() == 0,
+                          QStringLiteral("WC 账号页中宽 %1：皮肤 / 披风两组整个落在 902x801 窗口里，页面不用滚").arg(QString::fromUtf8(pass)),
+                          QStringLiteral("披风组底 %1 / 窗高 %2 / 滚动上限 %3").arg(looksBottom).arg(window.height())
+                              .arg(scroll != nullptr ? scroll->verticalScrollBar()->maximum() : -1));
+                    check(viewer != nullptr && viewer->width() > 208 && rightGap >= 0 && rightGap <= 64,
+                          QStringLiteral("WC 账号页中宽 %1：两栏不整列堆叠，立绘放大撑满右栏、右边不留大片空白").arg(QString::fromUtf8(pass)),
+                          QStringLiteral("立绘宽 %1 / 右边留白 %2").arg(viewer != nullptr ? viewer->width() : -1).arg(rightGap));
                     overlay->closeOverlay();
                     QEventLoop back;
                     QTimer::singleShot(400, &back, &QEventLoop::quit);

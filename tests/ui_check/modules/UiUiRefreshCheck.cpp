@@ -152,10 +152,19 @@ int UiUiRefreshCheck(QApplication &app) {
                "default login button keeps solid primary background");
         if (app.arguments().contains(QStringLiteral("--ui-refresh-preview")))
             account.grab().save(QStringLiteral("build/account-layout-preview.png"));
+        // 中宽（真机默认窗 900 逻辑宽就在这一档）：两栏，皮肤 / 披风挪进账号栏下面，立绘放大占右栏。
         account.resize(720, 700);
         app.processEvents();
-        expect(accountsPane && viewer &&
-               viewer->mapTo(&account, QPoint()).y() > accountsPane->geometry().bottom(),
+        auto *looks = account.findChild<QWidget *>(QStringLiteral("accountLooksPane"));
+        const auto rectIn = [&account](QWidget *w) { return QRect(w->mapTo(&account, QPoint()), w->size()); };
+        expect(accountsPane && viewer && looks && looks->parentWidget() == accountsPane &&
+                   rectIn(viewer).left() > rectIn(accountsPane).right() && rectIn(viewer).right() < account.width() &&
+                   viewer->width() > 208,
+               "mid-width account page uses two columns (looks under accounts, larger preview on the right) without clipping");
+        // 再窄（窗口最小宽 900 下到不了，兜底）才整列上下堆叠。
+        account.resize(600, 700);
+        app.processEvents();
+        expect(accountsPane && viewer && rectIn(viewer).top() > rectIn(accountsPane).bottom(),
                "narrow account page stacks sections instead of clipping horizontal controls");
         account.hide();
         preview.resize(1200, 760);

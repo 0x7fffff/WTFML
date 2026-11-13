@@ -1,5 +1,5 @@
-// 账号页「正版 / 离线」两个页签的离屏样张（没配应用 ID 的状态）：深色 / 翡翠 × 1280x800 与 900x620
-// × 无账号 / 两个离线账号。整页照真窗口那样经 OverlayHost::showPage 摆在主窗口上，另拼一张总览 contact.png。
+// 账号页离线页签的离屏样张（没配应用 ID 的状态）：深色 / 翡翠 × 902x801（真机默认窗，中宽两栏）与
+// 1280x800（三栏）× 未登录 / 两个离线账号。整页照真窗口那样经 OverlayHost::showPage 摆在主窗口上，另拼一张总览 contact.png。
 // 用法：QT_QPA_PLATFORM=offscreen ui_check_account_kind_shots <输出目录>
 // 不进 ctest：只出图，不做断言（断言在 UiAccountSkinChecks）。
 #include "Support.hpp"
@@ -18,6 +18,8 @@
 #include <QLineEdit>
 #include <QMainWindow>
 #include <QPainter>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTimer>
@@ -53,9 +55,9 @@ int UiAccountKindShots(QApplication &app) {
     for (const QString &preset : {QStringLiteral("dark"), QStringLiteral("emerald")}) {
         Theme::setSpec(Theme::presetSpec(preset));
         Theme::apply(app);
-        for (const QSize size : {QSize(1280, 800), QSize(900, 620)}) {
+        for (const QSize size : {QSize(902, 801), QSize(1280, 800)}) {
             for (const bool withAccounts : {false, true}) {
-                for (const bool offline : {false, true}) {
+                for (const bool offline : {true}) {
                     QMainWindow window;
                     MainWindowUI ui(&window);
                     window.resize(size);
@@ -77,7 +79,7 @@ int UiAccountKindShots(QApplication &app) {
                     settle();
                     const QImage shot = window.grab().toImage();
                     const QString file = QDir(out).filePath(
-                        QStringLiteral("r94b-account-%1-%2-%3-%4.png")
+                        QStringLiteral("r100-account-%1-%2-%3-%4.png")
                             .arg(preset)
                             .arg(size.width())
                             .arg(withAccounts ? QStringLiteral("two-offline") : QStringLiteral("none"))
@@ -90,9 +92,19 @@ int UiAccountKindShots(QApplication &app) {
                     const int noteLines = note != nullptr && note->isVisible()
                                               ? note->height() / qMax(1, note->fontMetrics().lineSpacing())
                                               : 0;
-                    std::printf("%s pane %d, note %d lines, edit %d, dialog %d\n",
+                    const auto *looks = dialog->findChild<QWidget *>(QStringLiteral("accountLooksPane"));
+                    const auto *viewer = dialog->findChild<QWidget *>(AccountSkinDialog::viewerName());
+                    const QScrollArea *scroll = nullptr;  // 页面自己那一个（主页上也有滚动区）
+                    for (QWidget *w = dialog->parentWidget(); w != nullptr && scroll == nullptr; w = w->parentWidget())
+                        scroll = qobject_cast<QScrollArea *>(w);
+                    std::printf("%s pane %d, note %d lines, edit %d, dialog %d, looks bottom %d / window %d, "
+                                "scroll max %d, viewer %dx%d, right gap %d\n",
                                 qPrintable(QFileInfo(file).fileName()), pane ? pane->width() : -1, noteLines,
-                                edit != nullptr && edit->isVisible() ? edit->width() : -1, dialog->width());
+                                edit != nullptr && edit->isVisible() ? edit->width() : -1, dialog->width(),
+                                looks ? looks->mapTo(&window, QPoint(0, looks->height())).y() : -1, window.height(),
+                                scroll ? scroll->verticalScrollBar()->maximum() : -1, viewer ? viewer->width() : -1,
+                                viewer ? viewer->height() : -1,
+                                viewer ? dialog->width() - viewer->mapTo(dialog, QPoint(viewer->width(), 0)).x() : -1);
                     cells.append(shot.scaledToWidth(cellW, Qt::SmoothTransformation));
                     ui.overlay()->closeOverlay();
                     window.hide();
@@ -100,7 +112,7 @@ int UiAccountKindShots(QApplication &app) {
             }
         }
     }
-    // 开页过渡帧：首次打开（这一页刚建出来）/ 再次打开（已建好、收过一次），窗口 901x800
+    // 开页过渡帧：首次打开（这一页刚建出来）/ 再次打开（已建好、收过一次），窗口 902x801
     //（真机 1127x1001 物理像素 / 125%）。照 MainWindow::onAccountSkinButtonClicked 的顺序喂：
     // 先摆页签那几项、showPage，列表和副题那一发刷新排在开页之后。
     {
@@ -109,7 +121,7 @@ int UiAccountKindShots(QApplication &app) {
         Anim::setEnabled(true);
         QMainWindow window;
         MainWindowUI ui(&window);
-        window.resize(901, 800);
+        window.resize(902, 801);
         window.show();
         settle();
         auto *dialog = new AccountSkinDialog(&window);
@@ -161,10 +173,10 @@ int UiAccountKindShots(QApplication &app) {
             QPainter p(&strip);
             for (int i = 0; i < frames.size(); ++i) {
                 p.drawImage(i * (frameW + 6), 0, frames[i].scaledToWidth(frameW, Qt::SmoothTransformation));
-                if (i < 2) frames[i].save(QDir(out).filePath(QStringLiteral("r94b-open-%1-t%2.png").arg(pass).arg(i + 1)));
+                if (i < 2) frames[i].save(QDir(out).filePath(QStringLiteral("r100-open-%1-t%2.png").arg(pass).arg(i + 1)));
             }
             p.end();
-            if (strip.save(QDir(out).filePath(QStringLiteral("r94b-open-%1-strip.png").arg(pass)))) ++saved;
+            if (strip.save(QDir(out).filePath(QStringLiteral("r100-open-%1-strip.png").arg(pass)))) ++saved;
             ui.overlay()->closeOverlay();
             settle();
             QEventLoop loop;
@@ -174,7 +186,7 @@ int UiAccountKindShots(QApplication &app) {
         Anim::setEnabled(false);
         window.hide();
     }
-    // 总览：每行一个 主题 × 尺寸 × 账号档，左正版右离线。
+    // 总览：每行一个 主题 × 尺寸，左未登录右两个离线账号。
     int sheetH = 0;
     for (int i = 0; i < cells.size(); i += 2) sheetH += cells.at(i).height() + 8;
     QImage sheet(cellW * 2 + 8, sheetH - 8, QImage::Format_RGB32);
