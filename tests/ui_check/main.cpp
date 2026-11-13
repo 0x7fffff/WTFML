@@ -16,7 +16,8 @@ int main(int argc, char *argv[]) {
     app.setProperty("wtfml.testAgentDataDir", processSandbox.filePath("agent"));
 
     // ---------- 设置沙盒：必须在**第一个 QSettings 对象出现之前**重定向 ----------
-    // 这个工程量的是"出厂那套外观"（主题色 #3d8068、跟着系统、一项覆盖都没有），
+    // 这个工程量的是**一套固定的基线外观**（预设见下面 `Theme::setSpec` 那一句、一项
+    // 覆盖都没有），
     // 而 Theme / 样式表那一层读的正是 QSettings。不重定向的话，跑这一趟的人自己在启动器里
     // 挑过的主题（预设 / 主题色 / 背景图）会原样灌进来 —— 于是同一个 HEAD 在开发机上
     // 一片红、在 CI 上全绿，红的还偏偏是"出厂色对不对"那一类断言（见 W1 / W12 / Z11）。
@@ -83,6 +84,13 @@ int main(int argc, char *argv[]) {
     // 算出来的（PM_ComboBoxFrameWidth、箭头宽度等），换个样式数值就变。不在这里钉住的话，
     // 验证跑的是系统原生样式、产品跑的是 Fusion，测的就不是要发的那份东西了。
     QApplication::setStyle(Theme::createStyle());
+
+    // 这一套像素基线的底：**翡翠绿那一支**（浅色）。历史断言量的是浅色那身 —— 白底上的墨、
+    // 深像素扫描、日志窗的浅色表 —— 出厂默认换成石炭灰之后它们不该跟着 `Theme::load()` 走。
+    // 出厂那一份（石炭灰）由 W1 / W8 / W9 / 收尾 和 `ui_check_review_shots` 的 default
+    // 那一趟单独验。只设规格、不 `apply()`：和改默认之前一样，调色板仍是 Fusion 那份浅色，
+    // 换掉它会把整份基线的像素重新洗一遍。
+    Theme::setSpec(Theme::presetSpec(QStringLiteral("emerald")));
 
     QMainWindow window;
     MainWindowUI ui(&window);

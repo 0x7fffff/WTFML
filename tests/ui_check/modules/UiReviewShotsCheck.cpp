@@ -1,4 +1,5 @@
-// 走查验收截图：offscreen 下 grab() 出 主页零实例 / 管理页空状态 / 设置·启动 / 下载页 在 深色 + 青瓷 + 海蓝 下的样子。
+// 走查验收截图：offscreen 下 grab() 出 主页零实例 / 管理页空状态 / 设置·启动 / 下载页 在
+// 「新安装默认」（临时设置目录里一项都没有 ⇒ `Theme::load()` 给出厂那一份）和三个具名预设下的样子。
 // 用法：QT_QPA_PLATFORM=offscreen ui_check_review_shots  [输出目录，默认 build/review-shots]
 #include "Support.hpp"
 
@@ -27,9 +28,22 @@ int UiReviewShotsCheck(QApplication &app) {
                                                    : QDir::current().filePath(QStringLiteral("build/review-shots"));
     QDir().mkpath(out);
     int saved = 0;
-    for (const QString &id : {QStringLiteral("dark"), QStringLiteral("emerald"), QStringLiteral("ocean")}) {
-        Theme::setSpec(Theme::presetSpec(id));
+    // 第一趟是**新安装**：这个进程用的是临时设置目录（上面那段），盘上一项主题都没有，
+    // 所以 `Theme::load()` 拿到的就是出厂那一份 —— 顺带把预设 / 主题色 / 窗口底色打出来。
+    for (const QString &id : {QStringLiteral("default"), QStringLiteral("dark"),
+                              QStringLiteral("emerald"), QStringLiteral("ocean")}) {
+        if (id == QLatin1String("default")) {
+            Theme::setSpec(Theme::load());
+        } else {
+            Theme::setSpec(Theme::presetSpec(id));
+        }
         Theme::apply(app);
+        if (id == QLatin1String("default")) {
+            std::printf("new install (no settings): preset=%s accent=%s window-bg=%s\n",
+                        qPrintable(Theme::current().presetId),
+                        qPrintable(Theme::current().accent.name()),
+                        qPrintable(app.palette().color(QPalette::Window).name()));
+        }
         QMainWindow window;
         MainWindowUI ui(&window);
         window.resize(1127 * 4 / 5 + 100, 776);

@@ -88,6 +88,8 @@ QString sceneId() {
     const QString id = Theme::current().presetId;
     if (id == QLatin1String("dark") || id == QLatin1String("emerald") || id == QLatin1String("ocean"))
         return id;
+    // 走到这儿只剩「跟着系统」：认不出的 id 在 `Theme::normalize()` 里已经落到出厂那一档
+    // （石炭灰）了，不会带着空 presetId 上来。
     return Theme::isDark() ? QStringLiteral("dark") : QStringLiteral("emerald");
 }
 
