@@ -331,7 +331,7 @@ int UiAnimationsChecks(QApplication &app, QFrame * &bar) {
             QApplication::processEvents();
             const QColor before = compositeHost.grab().toImage().pixelColor(67, 41);
 
-            Anim::pageAppear(transparentPage, Qt::white);
+            Anim::pageAppear(transparentPage);
             QApplication::processEvents();
             const QColor during = compositeHost.grab().toImage().pixelColor(67, 41);
             QWidget *compositeCurtain = curtainOf(&compositeHost);
@@ -348,6 +348,54 @@ int UiAnimationsChecks(QApplication &app, QFrame * &bar) {
                       .arg(during.blue())
                       .arg(compositeCurtain != nullptr ? QStringLiteral("有")
                                                        : QStringLiteral("无")));
+        }
+
+        // —— 整窗磨砂（透明窗口 + 一层半透明着色）上换页：幕布写回的底保持原来的 alpha ——
+        // 真机反馈「切页时磨砂突然变实心又变回去」：幕布以前垫 `QPalette::Base`（不透明）再贴
+        // 一张 grab()，那 250ms 里 DWM 背板整块被盖住。判据：动画中幕布自己画出来的像素，
+        // 没内容的地方 alpha 和换页前那层着色一样（这里 80），不是 255。
+        {
+            QWidget glassWindow;
+            glassWindow.setAttribute(Qt::WA_TranslucentBackground, true);
+            glassWindow.resize(140, 90);
+            class Tint final : public QWidget {
+            public:
+                using QWidget::QWidget;
+            protected:
+                void paintEvent(QPaintEvent *) override {
+                    QPainter p(this);
+                    p.setCompositionMode(QPainter::CompositionMode_Source);
+                    p.fillRect(rect(), QColor(20, 40, 60, 80));
+                }
+            };
+            auto *tint = new Tint(&glassWindow);
+            tint->setGeometry(glassWindow.rect());
+            auto *glassPage = new QWidget(tint);
+            glassPage->setGeometry(10, 10, 120, 70);
+            auto *ink = new QWidget(glassPage);
+            ink->setGeometry(0, 0, 30, 20);
+            ink->setAutoFillBackground(true);
+            QPalette inkPalette = ink->palette();
+            inkPalette.setColor(QPalette::Window, Qt::red);
+            ink->setPalette(inkPalette);
+            glassWindow.show();
+            QApplication::processEvents();
+
+            Anim::pageAppear(glassPage);
+            QWidget *glassCurtain = curtainOf(tint);
+            QImage frame(glassPage->size(), QImage::Format_ARGB32_Premultiplied);
+            frame.fill(Qt::transparent);
+            if (glassCurtain != nullptr) glassCurtain->render(&frame, QPoint(), QRegion(), QWidget::DrawChildren);
+            const QColor bare = frame.pixelColor(90, 50);   // 没内容的地方
+            int opaque = 0;
+            for (int y = 40; y < frame.height(); ++y)
+                for (int x = 0; x < frame.width(); ++x) opaque += qAlpha(frame.pixel(x, y)) == 255;
+            check(glassCurtain != nullptr && qAbs(bare.alpha() - 80) <= 2 && opaque == 0,
+                  "★★ ⑬ 整窗磨砂上换页：幕布不垫不透明底，底那层着色的 alpha 原样（磨砂全程透着）",
+                  QStringLiteral("幕布 %1 / 空白处 alpha %2 / 不透明像素 %3")
+                      .arg(glassCurtain != nullptr ? QStringLiteral("有") : QStringLiteral("无"))
+                      .arg(bare.alpha())
+                      .arg(opaque));
         }
 
         // —— 按下按钮那一下：装上过滤器，用真的鼠标事件走一趟 ——
@@ -408,6 +456,10 @@ int UiAnimationsChecks(QApplication &app, QFrame * &bar) {
         {
             QWidget snapHost;
             snapHost.resize(120, 80);
+            // 底是黑的（幕布写回的是宿主那层底：顶层窗口的系统底 = 它的 Window 色）。
+            QPalette snapHostPalette = snapHost.palette();
+            snapHostPalette.setColor(QPalette::Window, Qt::black);
+            snapHost.setPalette(snapHostPalette);
             auto *snapPage = new QWidget(&snapHost);
             snapPage->setGeometry(0, 0, 120, 80);
             snapPage->setAutoFillBackground(true);
@@ -417,7 +469,7 @@ int UiAnimationsChecks(QApplication &app, QFrame * &bar) {
             snapHost.show();
             QApplication::processEvents();
 
-            Anim::pageAppear(snapPage, Qt::black);
+            Anim::pageAppear(snapPage);
             QWidget *snapCurtain = curtainOf(&snapHost);
             // **不等那一帧了、当场就改颜色**。快照从这一版起是在
             // `pageAppear()` 里同步照的（`PageCurtain::ensureSnapshot()`，不在
