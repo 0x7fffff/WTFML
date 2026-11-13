@@ -37,6 +37,10 @@ void fillSamples(ToolboxPage &page) {
         palette.append({pair.first, pair.second, QString(), false});
     page.setTextPalette(palette);
     page.setTextSource(QStringLiteral("欢迎来到 §b服务器§r！"));
+    page.setTextPreview(QStringLiteral("欢迎来到 <span style=\"color:#55ffff\">服务器</span>！"));
+    page.setTextOutputs(QStringLiteral("欢迎来到 §b服务器§r！"),
+                        QStringLiteral("{\"text\":\"欢迎来到 \",\"extra\":[{\"text\":\"服务器\",\"color\":\"aqua\"},{\"text\":\"！\",\"color\":\"white\"}]}"),
+                        QStringLiteral("/tellraw @a {\"text\":\"欢迎来到 \",\"extra\":[{\"text\":\"服务器\",\"color\":\"aqua\"},{\"text\":\"！\",\"color\":\"white\"}]}"));
     page.setDimensionChoices({QStringLiteral("主世界"), QStringLiteral("下界"), QStringLiteral("末地")});
     page.setAlgorithmChoices({QStringLiteral("SHA-256"), QStringLiteral("SHA-1"), QStringLiteral("MD5")});
     page.setBeaconMaterials({QStringLiteral("铁块"), QStringLiteral("金块"), QStringLiteral("钻石块"),
@@ -44,7 +48,8 @@ void fillSamples(ToolboxPage &page) {
     page.setBrewingPotions({QStringLiteral("迅捷药水"), QStringLiteral("力量药水"), QStringLiteral("治疗药水")});
     page.setBrewingForms({QStringLiteral("普通"), QStringLiteral("喷溅型"), QStringLiteral("滞留型")});
     page.setBrewingVersions({QString(), QStringLiteral("1.21"), QStringLiteral("1.20")});
-    page.setBannerColors({QStringLiteral("白色"), QStringLiteral("橙色"), QStringLiteral("品红色"), QStringLiteral("黑色")});
+    page.setBannerColors({QStringLiteral("白色"), QStringLiteral("橙色"), QStringLiteral("品红色"), QStringLiteral("黑色")},
+                         {QColor(0xf9fffe), QColor(0xf9801d), QColor(0xc74ebd), QColor(0x1d1d21)});
     page.setBannerPatterns({QStringLiteral("条纹"), QStringLiteral("十字"), QStringLiteral("边框")});
     page.setBannerVersions({QString(), QStringLiteral("1.21")});
     page.setTrimArmorMaterials({QStringLiteral("下界合金"), QStringLiteral("钻石"), QStringLiteral("铁")});
@@ -80,9 +85,25 @@ void fillSamples(ToolboxPage &page) {
     page.setServerView(server);
     page.setCoordinateRows({QStringLiteral("下界：x 10.00 y 64.00 z -9.50"), QStringLiteral("区块 (0, -1) 一带"),
                             QStringLiteral("region 文件 r.0.-1.mca")});
-    page.setBeaconResult(QStringLiteral("需要 164 块\n范围 50 格\n全部效果"));
+    page.setBeaconResult(QStringLiteral(
+        "4 级信标：范围 50 格，底座共 164 块。\n• 第 4 层：9 × 9 = 81 块（最上面那层固定 3 × 3）\n"
+        "• 效果：速度、急迫、抗性提升、跳跃提升、力量、再生\n• 信标放在金字塔正中间，上方留出天空（可用玻璃）\n\n"
+        "164 块铁块 = 1476 个铁锭（每块 9 个）\n每颗信标另需 3 块黑曜石 + 1 颗下界之星 + 5 块玻璃（合成表：底下 3 块黑曜石、"
+        "中间一颗下界之星、四周 5 块玻璃）。"));
+    page.setBeamLayers({0, 1, 2, 1, 0});
+    page.setBeamResult({QColor(255, 255, 255), QColor(255, 140, 0), QColor(0, 0, 255), QColor(255, 140, 0), QColor(255, 255, 255)},
+                       QStringLiteral("第 1 层 / 白色玻璃 → 白\n第 2 层 / 橙色玻璃 → 橙\n第 3 层 / 蓝色玻璃 → 蓝\n"
+                                      "第 4 层 / 橙色玻璃 → 橙\n第 5 层 / 白色玻璃 → 白\n最终颜色：#c9c9c9 / RGB(201, 201, 201)\n"
+                                      "材料：白色玻璃 × 2、橙色玻璃 × 2、蓝色玻璃 × 1"));
     page.setBrewingResult(QStringLiteral("1 步：水瓶 + 下界疣 → 粗制\n2 步：粗制 + 糖 → 迅捷"));
-    page.setBannerResult(QStringLiteral("白色底色，1 条纹（红色）"));
+    page.setBannerDesign(0, {QStringLiteral("0:1"), QStringLiteral("1:2"), QStringLiteral("2:3"), QStringLiteral("0:0"),
+                             QStringLiteral("1:1"), QStringLiteral("2:2")}, QString());
+    page.setBannerResult(QStringLiteral(
+        "底色 白色 / 6 层 / 6\n\n一步一步：\n• 先做一面白色旗帜：6 块白色羊毛 + 1 根木棍\n• 第 1 层：条纹（橙色）\n• 第 2 层：十字（品红色）\n"
+        "• 第 3 层：边框（黑色）\n• 第 4 层：条纹（白色）\n• 第 5 层：十字（橙色）\n• 第 6 层：边框（品红色）\n\n"
+        "材料清单：\n• 白色羊毛 × 6\n• 木棍 × 1\n• 橙色染料 × 2\n• 品红色染料 × 2\n• 黑色染料 × 1\n\n"
+        "指令（1.13–1.20.4 的 NBT 写法；1.20.5 起换成了组件写法，这一版不出）：\n"
+        "/give @p white_banner{BlockEntityTag:{Patterns:[{Pattern:ss,Color:2},{Pattern:cr,Color:6},{Pattern:bo,Color:15}]}}"));
     page.setTrimResult(QStringLiteral("要准备：海岸锻造模板 × 2、紫水晶 × 4"));
 }
 
@@ -218,6 +239,14 @@ int UiToolboxLayoutCheck(QApplication &app) {
                           QStringLiteral("%1 > %2").arg(panel ? panel->minimumSizeHint().width() : -1).arg(scroll->viewport()->width()));
                     check(panel != nullptr && noChildClipped(panel, &why),
                           QStringLiteral("%1 %2：没有控件被右侧裁掉").arg(key, sizeText), why);
+                    // 信标 / 彩色文本 / 旗帜：最小窗口下整页放得下，不出纵向滚动条。
+                    if (size == QSize(900, 620) && (tool == ToolboxPage::Tool::Beacon || tool == ToolboxPage::Tool::Text ||
+                                                    tool == ToolboxPage::Tool::Banner)) {
+                        check(scroll->verticalScrollBar()->maximum() == 0,
+                              QStringLiteral("%1 %2：没有纵向滚动范围").arg(key, sizeText),
+                              QStringLiteral("max=%1 viewport=%2 content=%3").arg(scroll->verticalScrollBar()->maximum())
+                                  .arg(scroll->viewport()->height()).arg(scroll->widget()->height()));
+                    }
                 }
                 shot(key);
             }
@@ -277,7 +306,10 @@ int UiToolboxLayoutCheck(QApplication &app) {
                 QString why;
                 const QString label = QStringLiteral("%1 @%2").arg(ToolboxPage::toolKey(tool)).arg(width);
                 check(scroll != nullptr && scroll->horizontalScrollBar()->maximum() == 0,
-                      QStringLiteral("窄宽 %1：没有横向滚动范围").arg(label));
+                      QStringLiteral("窄宽 %1：没有横向滚动范围").arg(label),
+                      QStringLiteral("max=%1 panelMin=%2 viewport=%3").arg(scroll != nullptr ? scroll->horizontalScrollBar()->maximum() : -1)
+                          .arg(panel != nullptr ? panel->minimumSizeHint().width() : -1)
+                          .arg(scroll != nullptr ? scroll->viewport()->width() : -1));
                 check(panel != nullptr && noChildClipped(panel, &why),
                       QStringLiteral("窄宽 %1：没有控件被裁").arg(label), why);
                 if (!shotDir.isEmpty() && (width == 560 || width == 700) && narrow.grab().save(QDir(shotDir).filePath(

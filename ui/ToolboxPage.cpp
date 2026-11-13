@@ -314,6 +314,11 @@ void updateResultCopy(QLabel *result, const QString &plainText) {
 /// 输入区左边那一列标签的宽度（四个字 + 余量），几行的控件因此竖着对齐。
 constexpr int kFormLabelWidth = 72;
 
+/// 信标页光柱配色那一块（玻璃清单 + 光柱示意）的高度。
+constexpr int kBeamBodyHeight = 160;
+/// 旗帜页旗面预览与图层清单的高度（六行清单刚好放下）。
+constexpr int kBannerBodyHeight = 196;
+
 /// 面板左上那一行小标题（次要色、比正文小一档）。
 QLabel *makePanelCaption(QWidget *parent, const QString &text) {
     auto *label = makeMutedLabel(parent);
@@ -383,6 +388,21 @@ QIcon glyphIcon(Glyph glyph, const QColor &ink) {
         break;
     }
     p.drawPath(path);
+    p.end();
+    return QIcon(pixmap);
+}
+
+/// 一颗实心色点（清单行首：这一层是什么颜色）。
+QIcon colorDotIcon(const QColor &color) {
+    if (!color.isValid()) return QIcon();
+    QPixmap pixmap(28, 28);
+    pixmap.setDevicePixelRatio(2.0);
+    pixmap.fill(Qt::transparent);
+    QPainter p(&pixmap);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setPen(QPen(Theme::swatchBorder(color), 1.0));
+    p.setBrush(color);
+    p.drawEllipse(QRectF(1, 1, 12, 12));
     p.end();
     return QIcon(pixmap);
 }
@@ -1762,14 +1782,20 @@ QWidget *ToolboxPage::buildTextPanel() {
 
 
     // 输入区：一块柔和面板装原文 + 色码 / 格式两排 + 自定颜色 + 转换按钮。
+    // 左边输入面板，右边预览 + 输出（整页在 900×620 下不出纵向滚动条）。
+    auto *textBody = new QHBoxLayout;
+    textBody->setContentsMargins(0, 0, 0, 0);
+    textBody->setSpacing(14);
+    auto *textRight = new QVBoxLayout;
+    textRight->setContentsMargins(0, 0, 0, 0);
+    textRight->setSpacing(8);
     auto *inputCard = new SoftPanel(panel);
     auto *inputBox = inputCard->box();
     inputBox->setSpacing(10);
     m_textSource = new QPlainTextEdit(inputCard);
     m_textSource->setObjectName(QStringLiteral("textSource"));
     m_textSource->setPlaceholderText(QStringLiteral("欢迎来到 §b服务器§r！"));
-    m_textSource->setMinimumHeight(72);
-    m_textSource->setMaximumHeight(120);
+    m_textSource->setFixedHeight(96);
     m_textSource->setFrameShape(QFrame::NoFrame);
     m_textSource->setStyleSheet(QStringLiteral(
         "QPlainTextEdit { background-color: palette(base); border: 1px solid palette(base); border-radius: %1px;"
@@ -1819,7 +1845,7 @@ QWidget *ToolboxPage::buildTextPanel() {
     Theme::markButton(clear, Theme::ButtonKind::Ghost);
     for (QPushButton *b : {fromJson, toJson, clear}) b->setAutoDefault(false);
     // 左：自定颜色；右：次要的三颗转换动作成一组。
-    auto *textActions = new QBoxLayout(QBoxLayout::LeftToRight);
+    auto *textActions = new QVBoxLayout;
     textActions->setSpacing(8);
     auto *customGroup = new QHBoxLayout;
     customGroup->setSpacing(8);
@@ -1828,22 +1854,28 @@ QWidget *ToolboxPage::buildTextPanel() {
     customGroup->addStretch(1);
     auto *convertGroup = new QHBoxLayout;
     convertGroup->setSpacing(8);
-    convertGroup->addStretch(1);
     for (QWidget *w : QList<QWidget *>{fromJson, toJson, clear}) convertGroup->addWidget(w);
-    textActions->addLayout(customGroup, 1);
-    textActions->addLayout(convertGroup, 1);
+    convertGroup->addStretch(1);
+    textActions->addLayout(customGroup);
+    textActions->addLayout(convertGroup);
     inputBox->addLayout(textActions);
-    new NarrowFlip(panel, textActions, 640);
 
     m_textNotice = makeMutedLabel(inputCard, QStringLiteral("textNotice"));
     m_textNotice->hide();
     inputBox->addWidget(m_textNotice);
-    layout->addWidget(inputCard);
+    inputBox->addStretch(1);
+    textBody->addWidget(inputCard, 6);
 
     {
         QFrame *card = makeSectionCard(panel);
         auto *cardBox = static_cast<QVBoxLayout *>(card->layout());
-        cardBox->addWidget(makePanelCaption(card, QStringLiteral("预览")));
+        // 小标题与预览同一行：整页在最小窗口下放得下。
+        auto *previewRow = new QHBoxLayout;
+        previewRow->setContentsMargins(0, 0, 0, 0);
+        previewRow->setSpacing(12);
+        auto *previewCaption = makePanelCaption(card, QStringLiteral("预览"));
+        previewRow->addWidget(previewCaption, 0, Qt::AlignTop);
+        cardBox->addLayout(previewRow);
         m_textPreview = new QLabel(card);
         m_textPreview->setObjectName(QStringLiteral("textPreview"));
         m_textPreview->setTextFormat(Qt::RichText);
@@ -1854,8 +1886,8 @@ QWidget *ToolboxPage::buildTextPanel() {
         QFont big = m_textPreview->font();
         big.setPixelSize(Theme::textSize(Theme::TextRole::Heading));  // 预览要读得清：取小节档 16
         m_textPreview->setFont(big);
-        cardBox->addWidget(m_textPreview);
-        layout->addWidget(card);
+        previewRow->addWidget(m_textPreview, 1);
+        textRight->addWidget(card);
     }
 
     // 输出：一张卡，分段切换四种写法（用途只写在分段的提示里），一次只显示一块，复制钮拷当前这一块。
@@ -1889,6 +1921,9 @@ QWidget *ToolboxPage::buildTextPanel() {
         segmentLayout->addWidget(button);
         segments.append(button);
         QPlainTextEdit *box = makeOutputBox(outCard, QString::fromLatin1(spec.objectName));
+        box->setMinimumHeight(60);
+        box->setMaximumHeight(QWIDGETSIZE_MAX);  // 高度跟着卡片，不钉三行
+        box->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
         outStack->addWidget(box);
         if (qstrcmp(spec.objectName, "textLegacy") == 0) {
             m_textLegacy = box;
@@ -1911,8 +1946,11 @@ QWidget *ToolboxPage::buildTextPanel() {
                                  QStringLiteral("复制当前这一种写法"), QStringLiteral("复制"));
     outHead->addWidget(copy);
     outBox->addLayout(outHead);
-    outBox->addWidget(outStack);
-    layout->addWidget(outCard);
+    outBox->addWidget(outStack, 1);
+    textRight->addWidget(outCard, 1);
+    textBody->addLayout(textRight, 5);
+    layout->addLayout(textBody);
+    new NarrowFlip(panel, textBody, 720);  // 内容宽 < 720（并排的最小宽约 690）：左右两块上下叠放
     connect(copy, &QPushButton::clicked, this, [outStack]() {
         if (auto *box = qobject_cast<QPlainTextEdit *>(outStack->currentWidget())) copyToClipboard(box->toPlainText());
     });
@@ -2709,12 +2747,18 @@ QWidget *ToolboxPage::buildBeaconPanel() {
              QStringLiteral("信标颗数"), makeNumberField(panel, m_beaconCount, true, 64));
     layout->addLayout(form.grid);
 
+    // 下半：左边结果，右边光柱配色（玻璃清单 + 光柱示意），整页在 900×620 下不出纵向滚动条。
+    auto *body = new QHBoxLayout;
+    body->setContentsMargins(0, 0, 0, 0);
+    body->setSpacing(14);
+
     ResultBox result = makeResultBox(panel, QStringLiteral("结果"), beaconResultName());
     m_beaconResult = result.headline;
     setReport(m_beaconResult, QString());
-    layout->addWidget(result.card);
+    result.card->box()->addStretch(1);  // 文字贴着上沿，面板跟右边那块等高
+    body->addWidget(result.card, 5);
 
-    // ---------- 光柱配色：一块面板，左边玻璃清单、右边光柱示意 ----------
+    // ---------- 光柱配色：一块面板，上面选色 + 清单操作，下面左边玻璃清单、右边光柱示意（放在柔和底台上） ----------
     auto *beamCard = new SoftPanel(panel);
     auto *beamHead = new QHBoxLayout;
     beamHead->setContentsMargins(0, 0, 0, 0);
@@ -2725,14 +2769,15 @@ QWidget *ToolboxPage::buildBeaconPanel() {
 
     auto *glassColor = new QComboBox(beamCard);
     glassColor->setObjectName(QStringLiteral("beamGlassColor"));
-    glassColor->setMinimumWidth(132);
+    glassColor->setMinimumWidth(110);
     auto *glassAdd = makeGlyphButton(beamCard, QStringLiteral("beamGlassAdd"), Glyph::Plus,
                                      QStringLiteral("把这一色玻璃加到最上面"), QStringLiteral("添加玻璃"), 32);
     auto *glassList = new QListWidget(beamCard);
     glassList->setObjectName(QStringLiteral("beamGlassList"));
     glassList->setFrameShape(QFrame::NoFrame);
-    glassList->setMinimumHeight(150);
-    glassList->setMaximumHeight(150);
+    glassList->setIconSize(QSize(14, 14));
+    glassList->setMinimumHeight(kBeamBodyHeight);
+    glassList->setMaximumHeight(kBeamBodyHeight);
     glassList->setStyleSheet(QStringLiteral("QListWidget { background: transparent; border: none; }"
                                             "QListWidget::item { padding: 3px 6px; border-radius: 6px; }"));
     // 上移 / 下移 / 删除：一组小图标钮，靠右挨着「添加」那一行。
@@ -2764,13 +2809,13 @@ QWidget *ToolboxPage::buildBeaconPanel() {
 
     auto *glassBody = new QHBoxLayout;
     glassBody->setContentsMargins(0, 0, 0, 0);
-    glassBody->setSpacing(16);
+    glassBody->setSpacing(12);
     glassBody->addWidget(glassList, 1);
     auto *beam = new QLabel(beamCard);
     beam->setObjectName(QStringLiteral("beamColorPreview"));
-    beam->setFixedSize(64, 150);
+    beam->setFixedSize(72, kBeamBodyHeight);
     beam->setAlignment(Qt::AlignCenter);
-    glassBody->addWidget(beam, 0, Qt::AlignVCenter);
+    glassBody->addWidget(beam, 0, Qt::AlignTop);
     beamCard->box()->addLayout(glassBody);
 
     auto *beamReport = new QLabel(QStringLiteral("未放置染色玻璃：白色光柱。"), beamCard);
@@ -2778,6 +2823,7 @@ QWidget *ToolboxPage::buildBeaconPanel() {
     beamReport->setTextFormat(Qt::PlainText);
     beamReport->setTextInteractionFlags(Qt::TextSelectableByMouse);
     beamCard->box()->addWidget(beamReport);
+    beamCard->box()->addStretch(1);
     auto *reportCopy = makeGlyphButton(beamCard, QStringLiteral("beamColorReportCopy"), Glyph::Copy,
                                        QStringLiteral("复制配色说明"), QStringLiteral("复制"));
     reportCopy->setEnabled(false);
@@ -2786,7 +2832,10 @@ QWidget *ToolboxPage::buildBeaconPanel() {
         const auto text = beamReport->property("copyText").toString();
         if (!text.isEmpty()) copyToClipboard(text);
     });
-    layout->addWidget(beamCard);
+    body->addWidget(beamCard, 6);
+    layout->addLayout(body);
+    // 内容宽 < 640：两块上下叠放。
+    new NarrowFlip(panel, body, 640);
     layout->addStretch(1);
 
     connect(glassAdd, &QPushButton::clicked, this, [glassList, glassColor, recalculate] {
@@ -2827,7 +2876,19 @@ void ToolboxPage::setBeamLayers(const QList<int> &colors) {
 }
 void ToolboxPage::setBeamResult(const QList<QColor> &segments, const QString &report) {
     auto *label = findChild<QLabel *>(QStringLiteral("beamColorReport"));
-    if (label != nullptr) { label->setText(report); updateResultCopy(label, report); }
+    if (label != nullptr) {
+        // 逐层那几行（「第 n 层 / … → 色」）由清单里每行的色点表达，说明里只留汇总；复制拿到的仍是整份。
+        QStringList shown;
+        for (const QString &line : report.split(QLatin1Char('\n')))
+            if (!line.contains(QStringLiteral(" → "))) shown << line;
+        label->setText(shown.join(QLatin1Char('\n')));
+        label->setToolTip(report);
+        updateResultCopy(label, report);
+    }
+    if (auto *list = findChild<QListWidget *>(QStringLiteral("beamGlassList"))) {
+        for (int i = 0; i < list->count(); ++i)
+            list->item(i)->setIcon(i < segments.size() ? colorDotIcon(segments.at(i)) : QIcon());
+    }
     if (auto *preview = findChild<QLabel *>(QStringLiteral("beamColorPreview"))) paintBeamPreview(preview, segments);
 }
 
@@ -3005,45 +3066,51 @@ QWidget *ToolboxPage::buildBannerPanel() {
     layout->setSpacing(8);
 
 
-    // ---------- 输入区：版本（右边保存 / 载入）、底色、新的一层 ----------
+    // ---------- 输入区：一行 —— 版本、底色，右边保存 / 载入 ----------
     FormGrid form(panel);
     auto *version = new QComboBox(panel);
     version->setObjectName(QStringLiteral("bannerGameVersion"));
-    version->setMinimumWidth(160);
-    auto *versionLine = form.addRow(QStringLiteral("目标版本"), {version});
+    version->setMinimumWidth(140);
+    m_bannerBase = new QComboBox(panel);
+    m_bannerBase->setObjectName(bannerBaseComboName());
+    m_bannerBase->setMinimumWidth(120);
+    // 版本与底色是一排（放不下就折行），保存 / 载入靠右。
+    auto *baseGroup = new QWidget(panel);
+    auto *baseGroupRow = new QHBoxLayout(baseGroup);
+    baseGroupRow->setContentsMargins(0, 0, 0, 0);
+    baseGroupRow->setSpacing(10);
+    baseGroupRow->addWidget(form.label(QStringLiteral("底色")));
+    baseGroupRow->addWidget(m_bannerBase);
+    auto *versionFlow = new FlowLayout(16, 8);
+    versionFlow->addWidget(version);
+    versionFlow->addWidget(baseGroup);
+    auto *versionLine = new QHBoxLayout;
+    versionLine->setContentsMargins(0, 0, 0, 0);
+    versionLine->setSpacing(10);
+    versionLine->addLayout(versionFlow, 1);
+    QLabel *versionLabel = form.label(QStringLiteral("目标版本"));
+    versionLabel->setContentsMargins(0, 8, 0, 0);  // 与第一行下拉框的文字对齐
+    form.grid->addWidget(versionLabel, 0, 0, Qt::AlignTop);
+    form.grid->addLayout(versionLine, 0, 1, 1, 4);
     for (bool save : {true, false}) {
         auto *button = new QPushButton(save ? QStringLiteral("保存设计…") : QStringLiteral("载入设计…"), panel);
         button->setObjectName(save ? QStringLiteral("bannerSaveDesign") : QStringLiteral("bannerLoadDesign"));
         button->setToolTip(save ? QStringLiteral("保存 / 导出这面旗的设计") : QStringLiteral("载入 / 导入一份旗帜设计"));
         button->setAutoDefault(false);
         Theme::markButton(button, Theme::ButtonKind::Ghost);
-        versionLine->addWidget(button);
+        versionLine->addWidget(button, 0, Qt::AlignTop);
         connect(button, &QPushButton::clicked, this, [this, save] {
             if (save) emit bannerSaveRequested(); else emit bannerLoadRequested();
         });
     }
     connect(version, &QComboBox::currentIndexChanged, this, [this] { emitBannerNow(); });
-
-    m_bannerBase = new QComboBox(panel);
-    m_bannerBase->setObjectName(bannerBaseComboName());
-    m_bannerBase->setMinimumWidth(160);
-    form.addRow(QStringLiteral("底色"), {m_bannerBase});
-
-    m_bannerPattern = new QComboBox(panel);
-    m_bannerPattern->setObjectName(bannerPatternComboName());
-    m_bannerColor = new QComboBox(panel);
-    m_bannerColor->setObjectName(bannerColorComboName());
-    m_bannerColor->setMinimumWidth(120);
-    m_bannerAdd = new QPushButton(QStringLiteral("加一层"), panel);
-    m_bannerAdd->setObjectName(bannerAddName());
-    m_bannerAdd->setAutoDefault(false);
-    Theme::markButton(m_bannerAdd, Theme::ButtonKind::Primary);
-    auto *layerLine = form.addRow(QStringLiteral("图层"), {m_bannerPattern, m_bannerColor, m_bannerAdd});
-    layerLine->setStretchFactor(m_bannerPattern, 1);
-    delete layerLine->takeAt(layerLine->count() - 1);
     layout->addLayout(form.grid);
 
-    // ---------- 图层面板：左边旗面预览（居中），右边图层清单；右上一组上移 / 下移 / 删除 / 撤销 ----------
+    // ---------- 下半：左边图层卡（选图案 + 颜色 → 加一层；旗面预览在左、清单在右），右边结果卡（分段看步骤 / 材料 / 指令） ----------
+    auto *body = new QHBoxLayout;
+    body->setContentsMargins(0, 0, 0, 0);
+    body->setSpacing(14);
+
     auto *layerCard = new SoftPanel(panel);
     auto *layerHead = new QHBoxLayout;
     layerHead->setContentsMargins(0, 0, 0, 0);
@@ -3058,19 +3125,38 @@ QWidget *ToolboxPage::buildBannerPanel() {
     for (QPushButton *button : {m_bannerUp, m_bannerDown, m_bannerRemove, m_bannerUndo}) layerHead->addWidget(button);
     layerCard->box()->addLayout(layerHead);
 
+    // 新的一层：图案 · 颜色 · 加一层，一行放下。
+    m_bannerPattern = new QComboBox(layerCard);
+    m_bannerPattern->setObjectName(bannerPatternComboName());
+    m_bannerPattern->setMinimumWidth(96);
+    m_bannerColor = new QComboBox(layerCard);
+    m_bannerColor->setObjectName(bannerColorComboName());
+    m_bannerColor->setMinimumWidth(96);
+    m_bannerAdd = new QPushButton(QStringLiteral("加一层"), layerCard);
+    m_bannerAdd->setObjectName(bannerAddName());
+    m_bannerAdd->setAutoDefault(false);
+    Theme::markButton(m_bannerAdd, Theme::ButtonKind::Primary);
+    auto *addRow = new QHBoxLayout;
+    addRow->setContentsMargins(0, 0, 0, 0);
+    addRow->setSpacing(8);
+    addRow->addWidget(m_bannerPattern, 3);
+    addRow->addWidget(m_bannerColor, 2);
+    addRow->addWidget(m_bannerAdd);
+    layerCard->box()->addLayout(addRow);
+
     auto *bannerPreviewRow = new QHBoxLayout;
     bannerPreviewRow->setContentsMargins(0, 0, 0, 0);
-    bannerPreviewRow->setSpacing(16);
+    bannerPreviewRow->setSpacing(14);
     auto *bannerPreview = new QLabel(layerCard);
     bannerPreview->setObjectName(QStringLiteral("bannerVisualPreview"));
-    bannerPreview->setFixedSize(96, 192); bannerPreview->setAlignment(Qt::AlignCenter);
+    bannerPreview->setFixedSize(108, kBannerBodyHeight); bannerPreview->setAlignment(Qt::AlignCenter);
     bannerPreview->setPixmap(framedPreview(QImage(), bannerPreview->size(), bannerPreview->devicePixelRatioF()));
     // 底台与描边取主题色，换主题时用记下的那张图重画。
     Theme::follow(bannerPreview, [bannerPreview] {
         bannerPreview->setPixmap(framedPreview(bannerPreview->property("bannerImage").value<QImage>(),
                                                bannerPreview->size(), bannerPreview->devicePixelRatioF()));
     });
-    bannerPreviewRow->addWidget(bannerPreview, 0, Qt::AlignVCenter);
+    bannerPreviewRow->addWidget(bannerPreview, 0, Qt::AlignTop);
     m_bannerList = new QListWidget(layerCard);
     m_bannerList->setObjectName(bannerListName());
     m_bannerList->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -3078,7 +3164,8 @@ QWidget *ToolboxPage::buildBannerPanel() {
     m_bannerList->setDefaultDropAction(Qt::MoveAction);
     m_bannerList->setDropIndicatorShown(true);
     m_bannerList->setFrameShape(QFrame::NoFrame);
-    m_bannerList->setFixedHeight(192);
+    m_bannerList->setIconSize(QSize(14, 14));
+    m_bannerList->setFixedHeight(kBannerBodyHeight);
     m_bannerList->setStyleSheet(QStringLiteral("QListWidget { background: transparent; border: none; }"
                                                "QListWidget::item { padding: 4px 6px; border-radius: 6px; }"));
     bannerPreviewRow->addWidget(m_bannerList, 1);
@@ -3096,9 +3183,9 @@ QWidget *ToolboxPage::buildBannerPanel() {
     noticeRow->addWidget(bannerNotice, 1); noticeRow->addWidget(loadTextures, 0, Qt::AlignVCenter);
     layerCard->box()->addLayout(noticeRow);
     connect(loadTextures, &QPushButton::clicked, this, &ToolboxPage::bannerTexturesRequested);
-    layout->addWidget(layerCard);
+    body->addWidget(layerCard, 1);
 
-    // ---------- 结果区：右上「复制指令」 ----------
+    // ---------- 结果卡：右上「复制指令」；结论一行，下面分段看 步骤 / 材料 / 指令（框高跟着左边那张卡） ----------
     ResultBox result = makeResultBox(panel, QStringLiteral("结果"), bannerResultName(), false);
     m_bannerResult = result.headline;
     m_bannerCopy = makeGlyphButton(result.card, QStringLiteral("toolboxBannerCopy"), Glyph::Copy,
@@ -3108,9 +3195,47 @@ QWidget *ToolboxPage::buildBannerPanel() {
     result.head->addWidget(m_bannerCopy);
     connect(m_bannerCopy, &QPushButton::clicked, this,
             [this]() { copyToClipboard(m_bannerCommand); });
+    result.details->hide();  // 细项改由下面三个分段框装，这一格不再显示
+    {
+        const struct { const char *objectName; const char *title; } kTabs[] = {
+            {"bannerStepsBox", "步骤"}, {"bannerMaterialsBox", "材料"}, {"bannerCommandBox", "指令"}};
+        auto *segment = new QWidget(result.card);
+        segment->setObjectName(QStringLiteral("bannerResultSegments"));
+        auto *segmentLayout = new QHBoxLayout(segment);
+        segmentLayout->setContentsMargins(3, 3, 3, 3);
+        segmentLayout->setSpacing(2);
+        auto *resultStack = new QStackedWidget(result.card);
+        resultStack->setObjectName(QStringLiteral("bannerResultStack"));
+        QList<QPushButton *> tabs;
+        for (const auto &spec : kTabs) {
+            auto *tab = new QPushButton(QString::fromUtf8(spec.title), segment);
+            segmentLayout->addWidget(tab);
+            tabs.append(tab);
+            QPlainTextEdit *box = makeOutputBox(result.card, QString::fromLatin1(spec.objectName));
+            box->setMinimumHeight(60);
+            box->setMaximumHeight(QWIDGETSIZE_MAX);  // 高度跟着卡片，不钉三行
+            box->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+            if (qstrcmp(spec.objectName, "bannerCommandBox") != 0) box->setFont(QApplication::font());  // 步骤 / 材料是人话，不用等宽
+            resultStack->addWidget(box);
+        }
+        Theme::markSegmented(segment, tabs);
+        tabs.first()->setChecked(true);
+        for (int i = 0; i < tabs.size(); ++i)
+            connect(tabs.at(i), &QPushButton::clicked, resultStack, [resultStack, i] { resultStack->setCurrentIndex(i); });
+        auto *segmentRow = new QHBoxLayout;
+        segmentRow->setContentsMargins(0, 0, 0, 0);
+        segmentRow->addWidget(segment);
+        segmentRow->addStretch(1);
+        result.card->box()->addLayout(segmentRow);
+        result.card->box()->addWidget(resultStack, 1);
+    }
     setReport(m_bannerResult, QString());
-    layout->addWidget(result.card);
+    result.card->show();  // 空结果也留着这张卡：左右两块的宽度不随内容跳
+    body->addWidget(result.card, 1);
+    layout->addLayout(body);
     layout->addStretch(1);
+    // 内容宽 < 640：两块上下叠放。
+    new NarrowFlip(panel, body, 640);
 
     const auto pushUndo = [this]() {
         m_bannerUndoStack.append(m_bannerLayers);
@@ -3226,6 +3351,7 @@ void ToolboxPage::syncBannerList() {
                                   .arg(patternName)
                                   .arg(colorName));
         m_bannerList->item(index)->setData(Qt::UserRole, m_bannerLayers.at(index));
+        m_bannerList->item(index)->setIcon(colorDotIcon(m_bannerSwatches.value(color)));
     }
     if (row >= 0 && row < m_bannerList->count()) {
         m_bannerList->setCurrentRow(row);
@@ -3255,7 +3381,7 @@ void ToolboxPage::emitBannerNow() {
                          m_bannerLayers);
 }
 
-void ToolboxPage::setBannerColors(const QStringList &names) {
+void ToolboxPage::setBannerColors(const QStringList &names, const QList<QColor> &swatches) {
     if (m_bannerBase == nullptr) {
         return;
     }
@@ -3265,6 +3391,13 @@ void ToolboxPage::setBannerColors(const QStringList &names) {
     m_bannerBase->addItems(names);
     m_bannerColor->clear();
     m_bannerColor->addItems(names);
+    m_bannerSwatches = swatches;
+    m_bannerBase->setIconSize(QSize(14, 14));
+    m_bannerColor->setIconSize(QSize(14, 14));
+    for (int i = 0; i < names.size() && i < swatches.size(); ++i) {
+        m_bannerBase->setItemIcon(i, colorDotIcon(swatches.at(i)));
+        m_bannerColor->setItemIcon(i, colorDotIcon(swatches.at(i)));
+    }
     syncBannerList();  // 行里那截颜色名跟着换一套说法
 }
 
@@ -3279,9 +3412,36 @@ void ToolboxPage::setBannerPatterns(const QStringList &names) {
 }
 
 void ToolboxPage::setBannerResult(const QString &text) {
-    if (m_bannerResult != nullptr) {
-        setReport(m_bannerResult, text);
+    if (m_bannerResult == nullptr) {
+        return;
     }
+    setReport(m_bannerResult, text);
+    QWidget *card = m_bannerResult->parentWidget();
+    card->show();  // 空结果也留着这张卡
+    if (auto *details = card->findChild<QLabel *>(bannerResultName() + QStringLiteral("Detail"))) details->hide();
+    // 报告按小标题拆成 步骤 / 材料 / 指令 三块（第一行是结论，已在上面）；认不出小标题时整段放进「步骤」。
+    QStringList lead, steps, materials, notes, command;
+    QStringList *current = &lead;
+    bool first = true;
+    for (const QString &raw : text.split(QLatin1Char('\n'))) {
+        const QString line = raw.trimmed();
+        if (first) {
+            first = line.isEmpty();
+            continue;
+        }
+        if (line.isEmpty()) continue;
+        if (line == QStringLiteral("一步一步：")) current = &steps;
+        else if (line == QStringLiteral("材料清单：")) current = &materials;
+        else if (line.startsWith(QStringLiteral("指令（"))) current = &command;
+        else if (line.startsWith(QStringLiteral("（")) && line.endsWith(QStringLiteral("）"))) notes << line;
+        else *current << line;
+    }
+    const auto fill = [card](const char *name, const QStringList &lines) {
+        if (auto *box = card->findChild<QPlainTextEdit *>(QString::fromLatin1(name))) box->setPlainText(lines.join(QLatin1Char('\n')));
+    };
+    fill("bannerStepsBox", lead + steps + (notes.isEmpty() ? QStringList() : QStringList{QString()} + notes));
+    fill("bannerMaterialsBox", materials);
+    fill("bannerCommandBox", command);
 }
 
 void ToolboxPage::setBannerPreview(const QImage &image, const QString &notice) {

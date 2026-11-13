@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include <QColor>
 #include <QIcon>
 #include <QList>
 #include <QPair>
@@ -344,7 +345,8 @@ public:
     // ================= 八、旗帜设计 =================
 
     /// 底色 / 当前这一层的图案 / 当前这一层的颜色（三张表的次序都由 controller 给）。
-    void setBannerColors(const QStringList &names);
+    /// @p swatches 与 @p names 一一对应时，下拉框与图层清单的每个颜色名前画一颗色点。
+    void setBannerColors(const QStringList &names, const QList<QColor> &swatches = {});
     void setBannerPatterns(const QStringList &names);
     /// 结果那一整段（`Banner::Plan::detailText()` 拼好的）。
     void setBannerResult(const QString &text);
@@ -569,6 +571,7 @@ private:
     QLabel *m_bannerResult = nullptr;
     /// 已经排好的层（`图案下标:颜色下标`），顺序 = 从下往上叠。
     QStringList m_bannerLayers;
+    QList<QColor> m_bannerSwatches;
     /// 撤销栈（每一次改动前先把上一份抄进来；**只留最近二十次**，免得一直长）。
     QList<QStringList> m_bannerUndoStack;
     /// 「复制指令」那颗按的：controller 递进来的那条 `/give`（排不出来时是空串 ⇒ 收起来）。

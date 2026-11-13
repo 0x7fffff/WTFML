@@ -237,10 +237,12 @@ void ToolboxController::ensurePage() {
 
     // 旗帜 / 纹饰那两张表（出处分别在 `Banner` / `ArmorTrim` 里，这一层只翻成字符串）。
     QStringList bannerColors;
+    QList<QColor> bannerSwatches;
     for (int index = 0; index < Banner::colorCount(); ++index) {
         bannerColors.append(Banner::colorName(index));
+        bannerSwatches.append(BeaconBeam::dyeColor(index));
     }
-    m_page->setBannerColors(bannerColors);
+    m_page->setBannerColors(bannerColors, bannerSwatches);
     m_page->setBannerPatterns(Banner::patternNames());
     m_page->setBannerVersions(BannerDesign::versions());
     connect(m_page, &ToolboxPage::bannerSaveRequested, this, [this] {
