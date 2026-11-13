@@ -100,7 +100,7 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
             check(groups >= 12 && groupsBad == 0, "每个分组都有小标题（分组标题角色）",
                   QStringLiteral("分组 %1，缺标题 %2").arg(groups).arg(groupsBad));
             check(rows >= 30 && rowsBad == 0, "每一行都是「标签 + 控件」",
-                  QStringLiteral("行 %1，坏 %2：%3").arg(rows).arg(rowsBad).arg(bad.join(QLatin1Char('、'))));
+                  QStringLiteral("行 %1，坏 %2：%3").arg(rows).arg(rowsBad).arg(bad.join(QStringLiteral("、"))));
         }
 
         // 二十四个设置控件都得能按 objectName 找回来（MainWindow 靠名字取它们，
