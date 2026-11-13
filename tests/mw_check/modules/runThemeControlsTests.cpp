@@ -86,7 +86,7 @@ void runThemeControlsTests() {
         //
         // 这一条量的正是 `refreshThemeControls()` 那一发的产物 —— 控件照着内存里那一份
         // 规格画：主题色是规格里那一支、四个语义色是**按当前深浅现推**的那四个、预设那一格
-        // 停在规格里那一个（新安装是石炭灰）。
+        // 停在规格里那一个（新安装是暮色雪山）。
         //
         // 四块语义色**必须真的被涂过**（`wtfmlSwatchColor` 那条动态属性是
         // `Theme::markColorSwatch()` 挂的）：不涂的话它们是四颗空白按钮，而屏幕上只是
@@ -139,7 +139,7 @@ void runThemeControlsTests() {
         // —— 在 offscreen 底下跑会得到一条看起来像产品坏了的**假红**。
         const int darkIndex = presetCombo->findData(QStringLiteral("dark"));
         check(darkIndex >= 0, "T39.3 配色那格里找得到「深色」那一档");
-        // 出厂默认已经是石炭灰：这一栏要是本来就停在它上面，`setCurrentIndex()` 同一个
+        // 出厂默认已经是暮色雪山：这一栏要是本来就停在它上面，`setCurrentIndex()` 同一个
         // index 不发 `currentIndexChanged`，下面那三样就一样都不会动 —— 先拨到别的
         // 一档，让"拨一下深色"真的是一次切换。
         const int awayIndex = presetCombo->findData(QStringLiteral("emerald"));

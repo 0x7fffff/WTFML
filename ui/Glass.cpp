@@ -89,7 +89,7 @@ QString sceneId() {
     if (id == QLatin1String("dark") || id == QLatin1String("emerald") || id == QLatin1String("ocean"))
         return id;
     // 走到这儿只剩「跟着系统」：认不出的 id 在 `Theme::normalize()` 里已经落到出厂那一档
-    // （石炭灰）了，不会带着空 presetId 上来。
+    // （暮色雪山）了，不会带着空 presetId 上来。
     return Theme::isDark() ? QStringLiteral("dark") : QStringLiteral("emerald");
 }
 
@@ -188,16 +188,22 @@ QString modeName(Mode mode) {
     return QString();
 }
 
+Mode factoryMode(int threadCount, bool legacyGlassOff) {
+    // 核数太少的机器（≤ 2 线程）出厂纯色：那一档的模糊是亏的。旧版「磨砂效果」关着 ⇒ 纯色。
+    if (legacyGlassOff) return Mode::Solid;
+    return threadCount > 2 ? Mode::Scene : Mode::Solid;
+}
+
 Mode mode() {
     const QByteArray env = qgetenv("WTFML_BACKDROP");
-    if (!env.isEmpty()) return parseMode(QString::fromLatin1(env), Mode::Acrylic);
+    if (!env.isEmpty()) return parseMode(QString::fromLatin1(env), Mode::Scene);
     int &cache = modeCache();
     if (cache < 0) {
         QSettings settings;
-        // 出厂：亚克力；核数太少的机器（≤ 2 线程）出厂纯色。旧版「磨砂效果」关着 ⇒ 纯色。
-        Mode fallback = QThread::idealThreadCount() > 2 ? Mode::Acrylic : Mode::Solid;
-        if (settings.contains(QStringLiteral("Theme/Glass")) && !settings.value(QStringLiteral("Theme/Glass")).toBool())
-            fallback = Mode::Solid;
+        const bool legacyGlassOff =
+            settings.contains(QStringLiteral("Theme/Glass")) &&
+            !settings.value(QStringLiteral("Theme/Glass")).toBool();
+        const Mode fallback = factoryMode(QThread::idealThreadCount(), legacyGlassOff);
         cache = int(parseMode(settings.value(settingsKey()).toString(), fallback));
     }
     return Mode(cache);
@@ -237,7 +243,7 @@ bool systemBackdrop() {
     return m == Mode::Acrylic || m == Mode::Mica;
 }
 
-// 出厂 20：三主题 × 亚克力 / 云母 / 风景底里对比度要的最低 alpha 是 0.51（石炭灰风景底；亚克力 / 云母最低 0.55 翡翠），20 低于它，
+// 出厂 20：三主题 × 亚克力 / 云母 / 风景底里对比度要的最低 alpha 是 0.51（暮色雪山风景底；亚克力 / 云母最低 0.55 冰川碧湖），20 低于它，
 // 出厂时每一档都正好落在「正文、次要字 ≥ 4.5:1 的最薄着色」，磨砂透得最多。
 int tintStrength() { return qBound(0, QSettings().value(QStringLiteral("Theme/BackdropTint"), kDefaultTintStrength).toInt(), 100); }
 int blurStrength() { return qBound(0, QSettings().value(QStringLiteral("Theme/BackdropBlur"), 50).toInt(), 100); }

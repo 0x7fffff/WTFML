@@ -196,7 +196,7 @@ CTest 的两种"排除 visual"选到的数量不同：`ctest -E visual` 按名�
 
 - `*&` 是例外：全仓只有 `UiInstallFormLayoutChecks` 真的会给形参重新赋值（换掉 `loaderCard` / `installFooter`，因为它把安装页重搭了一遍）。其余模块的 `*&` 是历史上照抄签名，没有实际用途。
 - 没人用的形参要删（`UiContentPagesChecks` 已改成无参，因为函数体里的 `bar` 是页内自己的控件）。
-- `ui_check` 开头把主题规格钉在翡翠绿预设（`Theme::presetSpec("emerald")`，只设规格、不 `apply()`）：整份像素基线量的是浅色那一身。出厂默认是石炭灰，由 W1 / W8 / W9 / 收尾 和 `ui_check_review_shots` 的第一趟（临时设置目录 + `Theme::load()`）单独验。改默认配色时先看这两处。
+- `ui_check` 开头把主题规格钉在冰川碧湖预设（`Theme::presetSpec("emerald")`，只设规格、不 `apply()`）：整份像素基线量的是浅色那一身。出厂默认是暮色雪山，由 W1 / W8 / W9 / 收尾 和 `ui_check_review_shots` 的第一趟（临时设置目录 + `Theme::load()`）单独验。改默认配色时先看这两处。
 
 `UiContentPagesChecks.cpp` 原来的 18 段已全部拆出（2026-11-04）：`UiServerPageChecks`（U10L，服务器页）、`UiBatchManagementChecks`（U10Q，批量管理）、`UiRowActionsChecks`（U10R）、`UiDetailEntryChecks`（U10N）、`UiDownloadNewChecks`（U10M）、`UiEmptyPageChecks`（U10f）、`UiQuickPlayChecks`（U10S）、`UiSearchFilterChecks`（U10P）、`UiElidedNameChecks`（U10k）、`UiScrollAnchorChecks`（U10M-2）、`UiMediumPagesChecks`（U10O）、`UiToggleChecks`（U10d）、`UiDirectoryButtonsChecks`（U10b2）等，夹具都是显式形参（共用 `InstanceSettingsDialog &dialog`、两个名字、`GlobalValues &global`、临时目录）。拆分前后 `ui_check` 断言数不变，`UiContentPagesChecks.cpp` 从 4060 行降到 294 行。
 
@@ -271,7 +271,7 @@ build-audit/tools/network_diag/WTFMLNetworkDiag.exe --self-test
 
 ## 设置页验收截图（offscreen，不弹窗）
 
-`ui_check_settings_shots` 在 offscreen 下用 `QWidget::grab()` 出设置页截图：深色 / 青瓷 × 900×620 / 1280×800 × 4 个页签，另有「个性化」页展开「高级」和表单收窄到 560 的 stack 态。
+`ui_check_settings_shots` 在 offscreen 下用 `QWidget::grab()` 出设置页截图：暮色雪山 / 冰川碧湖 × 900×620 / 1280×800 × 4 个页签，另有「个性化」页展开「高级」和表单收窄到 560 的 stack 态；两档尺寸各另拍一张拉开的「配色」下拉弹层（`look-preset-popup-*`），并印出下拉框宽度与最长的预设名宽度，看四字名放不放得下。
 
 ```powershell
 cmake --build build/verification-mingw13 --target ui_check_settings_shots

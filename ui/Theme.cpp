@@ -971,8 +971,8 @@ bool roleFromKey(const QString &key, Role *out) {
 // ---------------------------------------------------------------------------
 
 QColor defaultAccentColor() {
-    // 翡翠绿那一支主题色（`tokens("emerald").primary`）。出厂主题色现在跟预设走
-    // （`defaultSpec()` = 石炭灰，主题色是它自己的 primary）；这一支只剩挑色框里那行
+    // 冰川碧湖那一支主题色（`tokens("emerald").primary`）。出厂主题色现在跟预设走
+    // （`defaultSpec()` = 暮色雪山，主题色是它自己的 primary）；这一支只剩挑色框里那行
     // 示例色在用（`InlineMessage::pickColor()`）。
     // 全仓只有这一处写这六个十六进制位 —— 顶栏、按钮的字与边、当前那一颗导航底下那条
     // 线，量的都是它算出来的某一档（见 `accentShade()`），**不许在别处再写一遍**。
@@ -2357,14 +2357,12 @@ QStringList presetIds() {
 }
 
 QString presetName(const QString &id) {
-    if (id == QLatin1String("light")) {
-        return QStringLiteral("翡翠绿");
-    }
-    if (id == QLatin1String("dark")) {
-        return QStringLiteral("石炭灰");
-    }
-    if (id == QLatin1String("emerald")) return QStringLiteral("翡翠绿");
-    if (id == QLatin1String("ocean")) return QStringLiteral("海洋蓝");
+    // 显示名照着各自那张内置风景起（`assets/scenes/`）：dark = 暮色雪山（麦克唐纳湖的暮光雪山），
+    // emerald = 冰川碧湖（梦莲湖），ocean = 落日海崖（雷斯岬）。只换显示名，内部 id 与顺序不动 ——
+    // 盘上存的是 id，老设置照常读回。
+    if (id == QLatin1String("light") || id == QLatin1String("emerald")) return QStringLiteral("冰川碧湖");
+    if (id == QLatin1String("dark")) return QStringLiteral("暮色雪山");
+    if (id == QLatin1String("ocean")) return QStringLiteral("落日海崖");
     return QStringLiteral("跟随系统");
 }
 
@@ -2380,7 +2378,7 @@ Spec presetSpec(const QString &id) {
 }
 
 Spec defaultSpec() {
-    // 新安装默认使用石炭灰：主题色跟着预设那一支走（和 `presetSpec()` 同一个来源）。
+    // 新安装默认使用暮色雪山：主题色跟着预设那一支走（和 `presetSpec()` 同一个来源）。
     // 盘上存过预设 / 主题色 / 覆盖项的继续按存的那一份读回。
     Spec spec;
     spec.presetId = QStringLiteral("dark");

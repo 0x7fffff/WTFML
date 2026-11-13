@@ -228,7 +228,7 @@ int main(int argc, char *argv[]) {
     // 出厂色，而且是那种"改了设置重启之后只有一半地方变了"的错。
     //
     // NOTE: 盘上一项都没有（新装、或者用户从没改过）时 `load()` 给的是出厂那一份
-    // —— 石炭灰（`dark`），`presetId` / 主题色都跟着它走。
+    // —— 暮色雪山（`dark`），`presetId` / 主题色都跟着它走。
     Theme::setSpec(Theme::load());
     Theme::apply(app);
 

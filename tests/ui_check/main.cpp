@@ -98,9 +98,9 @@ int main(int argc, char *argv[]) {
     // 验证跑的是系统原生样式、产品跑的是 Fusion，测的就不是要发的那份东西了。
     QApplication::setStyle(Theme::createStyle());
 
-    // 这一套像素基线的底：**翡翠绿那一支**（浅色）。历史断言量的是浅色那身 —— 白底上的墨、
-    // 深像素扫描、日志窗的浅色表 —— 出厂默认换成石炭灰之后它们不该跟着 `Theme::load()` 走。
-    // 出厂那一份（石炭灰）由 W1 / W8 / W9 / 收尾 和 `ui_check_review_shots` 的 default
+    // 这一套像素基线的底：**冰川碧湖那一支**（浅色）。历史断言量的是浅色那身 —— 白底上的墨、
+    // 深像素扫描、日志窗的浅色表 —— 出厂默认换成暮色雪山之后它们不该跟着 `Theme::load()` 走。
+    // 出厂那一份（暮色雪山）由 W1 / W8 / W9 / 收尾 和 `ui_check_review_shots` 的 default
     // 那一趟单独验。只设规格、不 `apply()`：和改默认之前一样，调色板仍是 Fusion 那份浅色，
     // 换掉它会把整份基线的像素重新洗一遍。
     Theme::setSpec(Theme::presetSpec(QStringLiteral("emerald")));

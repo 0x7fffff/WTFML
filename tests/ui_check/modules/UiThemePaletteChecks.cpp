@@ -11,8 +11,8 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             return a.isValid() && b.isValid() && a.name(QColor::HexArgb) == b.name(QColor::HexArgb);
         };
 
-        // ---------- W1 出厂那一份 = 石炭灰，一项覆盖都没有 ----------
-        // 出厂预设不再是"跟着系统"、也不再是翡翠绿：新安装铺的就是**石炭灰**那一套
+        // ---------- W1 出厂那一份 = 暮色雪山，一项覆盖都没有 ----------
+        // 出厂预设不再是"跟着系统"、也不再是冰川碧湖：新安装铺的就是**暮色雪山**那一套
         // tokens（见 `Theme::defaultSpec()`），主题色是它自己的 primary。所以判据是
         // "铺下去之后应用调色板就是这一支 tokens"，而不是"和平台给的那一份一个字节不差"。
         Theme::setSpec(Theme::defaultSpec());
@@ -20,7 +20,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
         const Theme::Tokens factoryTokens = Theme::tokens();
         check(app.palette().color(QPalette::Window).rgb() == factoryTokens.page.rgb() &&
                   app.palette().color(QPalette::WindowText).rgb() == factoryTokens.text.rgb(),
-              "★★ W1 出厂那一份铺下去 = 应用调色板就是石炭灰那一支 tokens",
+              "★★ W1 出厂那一份铺下去 = 应用调色板就是暮色雪山那一支 tokens",
               QStringLiteral("量到 %1 / %2，该是 %3 / %4")
                   .arg(app.palette().color(QPalette::Window).name(),
                        app.palette().color(QPalette::WindowText).name(),
@@ -28,18 +28,18 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
         check(Theme::current().presetId == QStringLiteral("dark") &&
                   Theme::current().roles.isEmpty() && Theme::current().parts.isEmpty() &&
                   Theme::current().textOpacity == 100,
-              "★ W1 出厂那一份就是「石炭灰 + 一项覆盖都没有」",
+              "★ W1 出厂那一份就是「暮色雪山 + 一项覆盖都没有」",
               Theme::current().presetId);
         check(sameColor(Theme::current().accent, Theme::tokens(QStringLiteral("dark")).primary) &&
                   !sameColor(Theme::current().accent, Theme::defaultAccentColor()),
-              "★★ W1 出厂主题色 = 石炭灰那一支 primary（不是 `defaultAccentColor()` 那一支翡翠绿）",
-              QStringLiteral("%1 / 预设那一支 %2 / 翡翠绿 %3")
+              "★★ W1 出厂主题色 = 暮色雪山那一支 primary（不是 `defaultAccentColor()` 那一支冰川碧湖）",
+              QStringLiteral("%1 / 预设那一支 %2 / 冰川碧湖 %3")
                   .arg(Theme::current().accent.name(),
                        Theme::tokens(QStringLiteral("dark")).primary.name(),
                        Theme::defaultAccentColor().name()));
 
         // ---------- W2 深色 / 浅色两个预设 ----------
-        // 预设现在**自带颜色表**（`tokens(id)`）：`dark` 是石炭灰那一套、`emerald` 是翡翠
+        // 预设现在**自带颜色表**（`tokens(id)`）：`dark` 是暮色雪山那一套、`emerald` 是冰川碧湖
         // 那一套，和平台插件认不认 `ColorScheme` 没关系（`Theme::apply()` 里那次
         // `setColorScheme()` 只是告诉平台"想要哪一档"）。所以这里直接量两份调色板：
         // 一深一浅，而且深的那份真的是深色。
@@ -141,7 +141,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
         const QColor factoryDeep = Theme::tokens().deep;
         check(sameColor(Theme::partBackground(Theme::Part::TitleBar), factoryDeep),
               "★★ W5 标题栏底色（没覆盖过）= **tokens 的 deep 那一档**（和主题色同一支，"
-              "石炭灰下就是本色）",
+              "暮色雪山下就是本色）",
               Theme::partBackground(Theme::Part::TitleBar).name());
         check(sameColor(Theme::partBackground(Theme::Part::BottomBar), Theme::tokens().subtle),
               "★ W5 底栏 = `subtle`（它装的是启动/日志那一排控件）",
@@ -313,13 +313,13 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                   .arg(afterClear.parts.size())
                   .arg(afterClear.presetId));
 
-        // 出厂默认换成石炭灰之后，**盘上存过预设的人不受影响**：存的是翡翠绿就读回翡翠绿，
+        // 出厂默认换成暮色雪山之后，**盘上存过预设的人不受影响**：存的是冰川碧湖就读回冰川碧湖，
         // 主题色也还是那一支（新默认只落在 `Theme/Preset` 这一项从没写过的人身上）。
         Theme::save(Theme::presetSpec(QStringLiteral("emerald")));
         const Theme::Spec storedEmerald = Theme::load();
         check(storedEmerald.presetId == QStringLiteral("emerald") &&
                   sameColor(storedEmerald.accent, Theme::tokens(QStringLiteral("emerald")).primary),
-              "★★ W7 盘上存过「翡翠绿」的人读回来还是翡翠绿（新默认只影响没存过预设的人）",
+              "★★ W7 盘上存过「冰川碧湖」的人读回来还是冰川碧湖（新默认只影响没存过预设的人）",
               QStringLiteral("预设 %1 / 主题色 %2 / 那一支 %3")
                   .arg(storedEmerald.presetId, storedEmerald.accent.name(),
                        Theme::tokens(QStringLiteral("emerald")).primary.name()));
@@ -335,7 +335,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
         const Theme::Spec salvaged = Theme::load();
         check(salvaged.presetId == QStringLiteral("dark") && salvaged.textOpacity == 100 &&
                   salvaged.roles.isEmpty() && salvaged.parts.isEmpty(),
-              "★★ W8 盘上手改出来的垃圾一律退回出厂那一档（石炭灰）"
+              "★★ W8 盘上手改出来的垃圾一律退回出厂那一档（暮色雪山）"
               "（认不出的预设 / 越界的不透明度 / 不是颜色的字符串 / 负数的不透明度）",
               QStringLiteral("预设 %1，不透明度 %2，角色 %3 项，骨架 %4 项")
                   .arg(salvaged.presetId)
@@ -418,7 +418,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                   Theme::isPresetId(QStringLiteral("dark")) &&
                   !Theme::isPresetId(QStringLiteral("custom")) &&
                   !Theme::presetName(QStringLiteral("dark")).isEmpty(),
-              "★ W9 四个预设「石炭灰 / 翡翠 / 海洋 / 跟着系统」，石炭灰排第一（出厂默认）"
+              "★ W9 四个预设「暮色雪山 / 冰川碧湖 / 落日海崖 / 跟着系统」，暮色雪山排第一（出厂默认）"
               "（**故意没有『自定义』**：覆盖项是叠在预设上面的，换了覆盖项预设还是那一个）；"
               "旧名字 `light` 仍然认",
               Theme::presetIds().join(QLatin1Char('/')));
@@ -738,13 +738,13 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
 
             check(sameColor(pure, factory.primary) &&
                       !sameColor(pure, Theme::tokens(QStringLiteral("emerald")).primary),
-                  "★★ W12 出厂主题色就是石炭灰那一支 primary（不再是 `defaultAccentColor()`"
-                  " 那一支翡翠绿）",
-                  QStringLiteral("%1 / 预设那一支 %2 / 翡翠绿 %3")
+                  "★★ W12 出厂主题色就是暮色雪山那一支 primary（不再是 `defaultAccentColor()`"
+                  " 那一支冰川碧湖）",
+                  QStringLiteral("%1 / 预设那一支 %2 / 冰川碧湖 %3")
                       .arg(pure.name(), factory.primary.name(),
                            Theme::tokens(QStringLiteral("emerald")).primary.name()));
             check(sameColor(Theme::partBackground(Theme::Part::TitleBar), factory.deep),
-                  "★★ W12 顶栏铺的是 `deep` 那一档（石炭灰下这一档就是主题色本色）",
+                  "★★ W12 顶栏铺的是 `deep` 那一档（暮色雪山下这一档就是主题色本色）",
                   Theme::partBackground(Theme::Part::TitleBar).name());
             check(ink.value() < pure.value() && edge.value() < pure.value() &&
                       edge.value() > ink.value(),
@@ -752,7 +752,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
                   QStringLiteral("纯 %1 / 边 %2 / 字 %3")
                       .arg(pure.value()).arg(edge.value()).arg(ink.value()));
             // 主按钮：底 = 主题色本色，悬停 / 按下是 tokens 里另写的两档，字是 `onPrimary`
-            // （石炭灰下是深字压浅紫）。三层底都得让那行字够正文那条 4.5:1。
+            // （暮色雪山下是深字压浅紫）。三层底都得让那行字够正文那条 4.5:1。
             check(contrast(factory.onPrimary, factory.primary) >= 4.5 &&
                       contrast(factory.onPrimary, factory.primaryHover) >= 4.5 &&
                       contrast(factory.onPrimary, factory.primaryPressed) >= 4.5,
@@ -2302,7 +2302,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
         check(app.palette().color(QPalette::Window).rgb() == factoryTokens.page.rgb() &&
                   app.palette().color(QPalette::WindowText).rgb() == factoryTokens.text.rgb(),
               "★★ W 收尾 从深色预设铺回出厂那一份之后，调色板又回到**出厂那一份**"
-              "（石炭灰那一支收得回来，而且是原样收回来的）",
+              "（暮色雪山那一支收得回来，而且是原样收回来的）",
               QStringLiteral("量到 %1 / %2，该是 %3 / %4")
                   .arg(app.palette().color(QPalette::Window).name(),
                        app.palette().color(QPalette::WindowText).name(),

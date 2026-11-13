@@ -7,6 +7,8 @@
 #include <QDir>
 #include <QFontDatabase>
 #include <QMainWindow>
+#include <QAbstractItemView>
+#include <QComboBox>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QSettings>
@@ -94,8 +96,26 @@ int UiSettingsShotsCheck(QApplication &app) {
                     scroll->verticalScrollBar()->setValue(0);
                 }
             }
-            // 「个性化」页展开「高级」，再收回。
+            // 「配色」下拉：闭合态上面已拍；把弹层拉开再拍一张 —— 四字名在 900×620 与
+            // 1280×800 下要整条显示。顺带把「字宽 / 控件宽」印出来，图之外还留一个数。
             tabs->setCurrentIndex(keys.indexOf(QStringLiteral("look")));
+            if (auto *preset = page->findChild<QComboBox *>(MainWindowUI::themePresetComboName())) {
+                int need = 0;
+                for (const QString &id : Theme::presetIds())
+                    need = qMax(need, preset->fontMetrics().horizontalAdvance(Theme::presetName(id)));
+                std::printf("  preset combo %s：控件宽 %d / 最宽的名字 %d px\n",
+                            qPrintable(sizeText), preset->width(), need);
+                preset->showPopup();
+                pump();
+                if (QWidget *popup = preset->view() != nullptr ? preset->view()->window() : nullptr) {
+                    const QString file = QDir(out).filePath(QStringLiteral("look-preset-popup-%1.png").arg(sizeText));
+                    if (popup->grab().save(file)) ++saved;
+                    else std::printf("FAIL save %s\n", qPrintable(file));
+                }
+                preset->hidePopup();
+                pump();
+            }
+            // 「个性化」页展开「高级」，再收回。
             for (auto *section : page->findChildren<SettingsParts::ExpandSection *>()) section->setExpanded(true, false);
             if (auto *scroll = qobject_cast<QScrollArea *>(ui.getSettingsCategoryStack()->widget(keys.indexOf(QStringLiteral("look"))))) {
                 pump();
