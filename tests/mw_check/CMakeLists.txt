@@ -484,6 +484,7 @@ set(SOURCE_FILES
     ${REPO_ROOT}/src/server/ServerContent.cpp
     ${REPO_ROOT}/src/tasks/TaskManager.cpp
     ${REPO_ROOT}/src/tasks/TaskHistory.cpp
+    ${REPO_ROOT}/ui/SystemBackdrop.cpp
     ${REPO_ROOT}/ui/WindowChrome.cpp
     ${REPO_ROOT}/ui/WindowEdge.cpp
     ${REPO_ROOT}/ui/ChromeDialog.cpp

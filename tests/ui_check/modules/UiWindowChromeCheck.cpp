@@ -8,13 +8,16 @@
  * 2. 顶部条：WM_NCHITTEST 在空白格回 HTCAPTION、在控件格不回；
  * 3. 没有原生子窗口盖住客户区（对子控件调 winId() 会造出来，HTCAPTION 就到不了顶层窗）；
  * 4. 窗口隐藏再显示（HWND 重建）后系统标题栏没有回来（高速下载窗第二次打开带系统标题栏的根因）。
- * offscreen 下 2~4 跳过并明说，1 照量。
+ * 5. 系统材质模型的合成色 = 本机量的那几个数（纯黑 / 纯白 / 棋盘，见 SystemBackdrop.cpp）。
+ * offscreen 下 2~4 跳过并明说，1 和配方照量。
  */
 
 #include "Support.hpp"
 
 #include "ChromeDialog.hpp"
 #include "GameLogWindow.hpp"
+#include "Glass.hpp"
+#include "SystemBackdrop.hpp"
 
 #include "InstanceUpdateWizard.hpp"
 #include "ShellOpenWith.hpp"
@@ -96,6 +99,42 @@ void scanBlank(const QString &name, QWidget *window) {
     check(blank > 0, QStringLiteral("WC %1 窗口里找得到空白点").arg(name), QString::number(blank));
 }
 
+/// 配方合成色和本机对着系统材质量的数差不过 `tolerance`（每通道）。
+bool closeEnough(unsigned got, unsigned want, int tolerance) {
+    for (int shift : {16, 8, 0}) {
+        if (qAbs(int((got >> shift) & 0xff) - int((want >> shift) & 0xff)) > tolerance) return false;
+    }
+    return true;
+}
+
+void checkRecipes() {
+    using SystemBackdrop::Material;
+    struct Case {
+        Material material;
+        bool dark;
+        unsigned behind, measured;
+        const char *what;
+    };
+    // 2026-11-12 本机 26200：同一扇窗、DWM 系统背板聚焦态，背后垫纯黑 / 纯白 / 红蓝棋盘（模糊后 #7f007f）量的平均色。
+    const Case cases[] = {
+        {Material::Acrylic, false, 0x000000, 0x878787, "浅色亚克力 背后纯黑"},  {Material::Acrylic, false, 0xffffff, 0xe3e3e3, "浅色亚克力 背后纯白"},
+        {Material::Acrylic, false, 0x7f007f, 0xcd75cd, "浅色亚克力 背后棋盘"},  {Material::Acrylic, true, 0x000000, 0x363636, "深色亚克力 背后纯黑"},
+        {Material::Acrylic, true, 0xffffff, 0x929292, "深色亚克力 背后纯白"},   {Material::Acrylic, true, 0x7f007f, 0x931493, "深色亚克力 背后棋盘"},
+        {Material::Mica, false, 0x000000, 0xf3f3f3, "浅色云母 明度整个换掉"}, {Material::Mica, true, 0xffffff, 0x202020, "深色云母 明度整个换掉"},
+    };
+    QStringList off;
+    for (const Case &c : cases) {
+        const unsigned got = SystemBackdrop::composite(SystemBackdrop::recipe(c.material, c.dark), c.behind);
+        if (!closeEnough(got, c.measured, 5)) off << QStringLiteral("%1 #%2≠#%3").arg(QString::fromUtf8(c.what)).arg(got, 6, 16, QLatin1Char('0')).arg(c.measured, 6, 16, QLatin1Char('0'));
+    }
+    check(off.isEmpty(), "WC 系统材质模型合成色 = 本机量的数（每通道 ±5）", off.join(QLatin1Char(' ')));
+    // 对比度现算用的区间要包住两端：浅色亚克力背后纯黑那一下（#878787）是最暗的一档。
+    Glass::setMode(Glass::Mode::Acrylic);
+    bool darkest = false;
+    for (const QColor &c : Glass::systemBackdropRange()) darkest = darkest || c.lightness() <= 0x90;
+    check(darkest, "WC 背板区间含背后纯黑那一档（浅色亚克力 #878787，不是旧估计的 #b4）");
+}
+
 void checkWindow(const QString &name, QWidget *window, bool cycleByClose = true) {
     showQuiet(window);
     scanBlank(name, window);
@@ -143,6 +182,7 @@ void checkWindow(const QString &name, QWidget *window, bool cycleByClose = true)
 int UiWindowChromeCheck(QApplication &) {
     // 产品里这些窗口都以主窗口为 parent 开出来（带 owner 的顶层窗：关闭时 Qt 会销毁平台窗口，
     // 再打开是新建的 HWND）；这里照样挂在主窗口下，才测得到「第二次打开」。
+    checkRecipes();
     HostWindow window;
     MainWindowUI ui(&window);
     window.chrome = ui.chrome();
@@ -198,7 +238,6 @@ int UiWindowChromeCheck(QApplication &) {
         ChromeDialog dialog(&window);
         checkWindow(QStringLiteral("ChromeDialog"), &dialog);
     }
-
     // ---- 原生子窗口的来源：对子控件调 winId() 的后果，和「打开方式」挂的那个 owner ----
     {
         HostWindow plain;

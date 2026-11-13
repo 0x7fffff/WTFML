@@ -5,7 +5,7 @@
  * 整个主窗口只有**一层**底，由中央控件 `Glass::Backdrop` 画；页面内容直接排在它上面，
  * 不再给侧栏、正文、小节各铺一块面（分组靠留白、小标题、细线）。四档：
  * - 亚克力 / 云母：Win11 22H2 起的 DWM 系统背板（`ui/WindowChrome` 把它贴到 HWND 上），
- *   这里只铺一层半透明令牌色；alpha 按系统背板可能的明暗区间现算，保证正文 ≥ 4.5:1。
+ *   这里只铺一层半透明令牌色；alpha 按系统背板可能的明暗区间现算（`ui/SystemBackdrop`），保证正文 ≥ 4.5:1。
  * - 风景底：一张风景缩小、盒式模糊、往令牌色混一点，再盖一层令牌色（alpha 按模糊图的明暗极值现算）。
  *   系统背板用不了（Win10、非 windows 平台）时亚克力 / 云母落到这一档。
  * - 纯色：不透明令牌。系统开了高对比度或关了「透明效果」时，前三档都落到这一档。
@@ -73,7 +73,8 @@ QColor over(const QColor &top, const QColor &bottom);
 /// 怎么都达不到时返回 1.0（完全不透明）。
 qreal minimumTintAlpha(const QColor &tint, const QList<QPair<QColor, double>> &inks,
                        const QList<QColor> &backgrounds, qreal floor);
-/// 系统背板在当前深浅下可能落到的最暗、最亮两种颜色（保守估计，用来现算着色 alpha）。
+/// 亚克力 / 云母在当前深浅下可能落到的颜色：背后是纯黑、纯白、六个纯色时配方合出来的那些
+/// （`SystemBackdrop::composite`，用来现算着色 alpha）。
 QList<QColor> systemBackdropRange();
 /// 正文墨色 4.5、次要墨色 4.5（次要字也是正文字号）。
 QList<QPair<QColor, double>> bodyInks();
