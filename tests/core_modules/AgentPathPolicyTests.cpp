@@ -49,7 +49,7 @@ void runAgentPathPolicyTests() {
     const QString root = fixture.path();
     QDir().mkpath(root + QStringLiteral("/config"));
     QFile file(root + QStringLiteral("/config/a.toml"));
-    file.open(QIODevice::WriteOnly);
+    check(file.open(QIODevice::WriteOnly), "路径：造一个可被解析的文件", file.fileName());
     file.write("maxMemory = 4096\n");
     file.close();
 
@@ -70,7 +70,8 @@ void runAgentPathPolicyTests() {
 
     // 改内容/大小/mtime 后旧 token 失效。
     QFile modified(root + QStringLiteral("/config/a.toml"));
-    modified.open(QIODevice::WriteOnly | QIODevice::Truncate);
+    check(modified.open(QIODevice::WriteOnly | QIODevice::Truncate), "路径：改内容与 mtime",
+          modified.fileName());
     modified.write("maxMemory = 16384\n");
     modified.close();
     AgentWinPath::Info after;
@@ -88,7 +89,7 @@ void runAgentPathPolicyTests() {
     // junction 逃逸：能建就验，建不了（权限/文件系统）不假装通过。
     QTemporaryDir outside;
     QFile secret(outside.path() + QStringLiteral("/secret.txt"));
-    secret.open(QIODevice::WriteOnly);
+    check(secret.open(QIODevice::WriteOnly), "路径：沙盒外放一个文件", secret.fileName());
     secret.write("outside");
     secret.close();
     QProcess mklink;

@@ -79,7 +79,7 @@ void runAgentBackupLifecycleTests() {
                         {QStringLiteral("owner"), QStringLiteral("user")},
                         {QStringLiteral("source"), QStringLiteral("user-export")}};
     QFile foreignMeta(backups.dirFor(foreignId) + QStringLiteral("/meta.json"));
-    foreignMeta.open(QIODevice::WriteOnly);
+    check(foreignMeta.open(QIODevice::WriteOnly), "备份：写一份外部来源的元数据", foreignMeta.fileName());
     foreignMeta.write(QJsonDocument(foreign).toJson());
     foreignMeta.close();
     check(!backups.removeOwnedBackup(foreignId, &problem), "备份：owner=user 不允许 Agent 清理");

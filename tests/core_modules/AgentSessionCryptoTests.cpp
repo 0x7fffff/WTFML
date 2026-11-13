@@ -32,7 +32,7 @@ void runAgentSessionCryptoTests() {
           "会话加密：明文正文被删除，只剩 .enc");
     {
         QFile body(encrypted);
-        body.open(QIODevice::ReadOnly);
+        check(body.open(QIODevice::ReadOnly), "会话加密：读回密文", body.fileName());
         const QByteArray bytes = body.readAll();
         check(bytes.startsWith(AgentSessionCrypto::magic()),
               "会话加密：.enc 以 WTFML-AGENT-SESSION-1 开头");
@@ -51,7 +51,8 @@ void runAgentSessionCryptoTests() {
     // 改坏密文：只能报错，不能回退明文。
     {
         QFile body(encrypted);
-        body.open(QIODevice::WriteOnly | QIODevice::Truncate);
+        check(body.open(QIODevice::WriteOnly | QIODevice::Truncate), "会话加密：改坏密文",
+              body.fileName());
         body.write(AgentSessionCrypto::magic() + QByteArray("broken"));
     }
     AgentSession broken;
