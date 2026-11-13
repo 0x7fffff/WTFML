@@ -186,6 +186,7 @@
 #include "controllers/InstanceIconController.hpp"
 #include "controllers/ActivityCenterController.hpp"
 #include "controllers/TaskDetailController.hpp"
+#include "controllers/DailyQuoteController.hpp"
 #include "controllers/HomeQuickController.hpp"
 #include "controllers/InstanceMaintenanceController.hpp"
 #include "controllers/ServerWorkspaceController.hpp"
@@ -254,6 +255,17 @@
 using namespace MainWindowViewData;
 
 namespace {
+/// 主页「每日一言」的文字种类：判据层那套（`util/DailyQuote.hpp`）映射到界面层那套
+/// （`Theme::QuoteScript`）。两张表不共用类型是分层铁律：ui/ 不许 include src/。
+Theme::QuoteScript quoteScriptForTheme(DailyQuote::Script script) {
+    switch (script) {
+    case DailyQuote::Script::Han: return Theme::QuoteScript::Han;
+    case DailyQuote::Script::Kana: return Theme::QuoteScript::Kana;
+    case DailyQuote::Script::Latin: return Theme::QuoteScript::Latin;
+    }
+    return Theme::QuoteScript::Han;
+}
+
 /**
  * @brief 「这件事对账本上那件任务的收尾责任」——从建出来到 `disarm()` 之间任何一个早退
  * （`return`）都由析构里那一发兜住。
@@ -947,6 +959,15 @@ MainWindow::MainWindow(QWidget *parent)
             }
         });
     }
+    // ---------- 主页「每日一言」 ----------
+    // 建在 setupConnections() 之前：设置页那个开关的槽要它。取句全在后台异步，
+    // 起点是下面 applySettingsToUi() 之后的 refresh()（关着就一个请求都不发）。
+    m_dailyQuote = new DailyQuoteController(this, m_settings);
+    m_dailyQuote->shown = [this](const DailyQuote::Quote &quote, bool visible) {
+        m_ui->setHomeHeroQuote(visible ? quote.text : QString(),
+                               visible ? DailyQuote::attribution(quote) : QString(),
+                               quoteScriptForTheme(quote.script));
+    };
     setupConnections();
     // 下载页那五页的筛子先灌上（来源 / 类型 / 加载器那三项这一刻就定得下来；「版本」那一栏
     // 等在线清单一到才有的灌，见 onVersionsFetched）。界面那边只搭空框 —— ui/ 不 include
@@ -956,6 +977,9 @@ MainWindow::MainWindow(QWidget *parent)
     // refreshJavaList()）。必须在下面 fetchAvailableVersions() **之前**：
     // 清单请求要不要走镜像就是在这一步交给 VersionManager 的。
     applySettingsToUi();
+    // 主页那一行到这一步才决定：盘上关着就什么都不发；开着先显示缓存 / 池 / 兜底，
+    // 网络回来再替换（不阻塞首帧）。
+    m_dailyQuote->refresh();
     // 上次用的是个**离线账号**：把名字接回 AuthManager。**必须在下面 updateBottomBar()
     // 之前** —— AuthManager 构造函数只读活动槽，而离线账号在盘上**没有凭据**，它读出来的
     // 是占位的 "Player"：不接回来的话底栏和 --username 里是个假名字。

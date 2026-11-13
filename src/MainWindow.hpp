@@ -92,6 +92,7 @@ class ImportController;
 class GameSessionController;
 class LaunchController;
 class ConnectionsController;
+class DailyQuoteController;
 class InstanceIconController;
 class QTreeWidget;  // 下载页那几张资源表（只用指针和引用，所以前置声明够）
 class QTreeWidgetItem;
@@ -1931,6 +1932,8 @@ private:
     // / 「显示游戏日志」开关。关掉**不关已经开着的那些窗**（用户可能正在读崩溃信息）；
     // / 打开之后从下一行输出开始就会开窗（这是刻意的，见 showGameLogLine 的说明）。
     void onShowGameLogChanged();
+    /// 设置页「每日一言」那个开关：立刻落盘，开着就按当前日期取一句（关着不发任何请求）。
+    void onDailyQuoteChanged();
     // ---------- 「启动提醒」那两条（设置页里同一组） ----------
     // / 十秒内重复启动同一实例时要不要先问一句。改了这一项**不影响已经开着的那些游戏**，
     // / 也不清 m_lastLaunchAttempts —— 那个表只是"上次点启动是什么时候"，关掉开关不该
@@ -2766,6 +2769,8 @@ private:
     GameSessionController *m_gameSessionController = nullptr;
     LaunchController *m_launchController = nullptr;
     ConnectionsController *m_connectionsController = nullptr;
+    /// 主页「每日一言」：取句、当天缓存与句子池（见 controllers/DailyQuoteController.hpp）。
+    DailyQuoteController *m_dailyQuote = nullptr;
     InstanceIconController *m_instanceIconController = nullptr;
     /// 控制台那一页。**页对象和"这一页现在说的是哪一个服务端"都在控制器里**
     /// （`src/controllers/ServerConsoleController`），这一层

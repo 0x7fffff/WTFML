@@ -70,6 +70,7 @@ set(HEADER_FILES
     src/controllers/ActivityCenterController.hpp
     src/controllers/TaskDetailController.hpp
     src/controllers/HomeQuickController.hpp
+    src/controllers/DailyQuoteController.hpp
     src/controllers/InstanceMaintenanceController.hpp
     src/controllers/ServerWorkspaceController.hpp
     src/controllers/ServerConsoleController.hpp
@@ -256,6 +257,7 @@ set(HEADER_FILES
     src/server/ServerContent.hpp
     src/util/AppPaths.hpp
     src/util/ThemeImage.hpp
+    src/util/DailyQuote.hpp
     src/util/ImageDecode.hpp
     src/util/SystemMemory.hpp
     # 掉盘时那句话：卷认得出来且已就绪才算可用（见头文件）。
@@ -376,6 +378,8 @@ set(SOURCE_FILES
     src/controllers/ActivityCenterController.cpp
     src/controllers/TaskDetailController.cpp
     src/controllers/HomeQuickController.cpp
+    # 主页「每日一言」：取句 / 当天缓存 / 句子池（判据在 src/util/DailyQuote.cpp）。
+    src/controllers/DailyQuoteController.cpp
     src/controllers/InstanceMaintenanceController.cpp
     src/controllers/ServerWorkspaceController.cpp
     src/controllers/ServerConsoleController.cpp
@@ -558,6 +562,7 @@ set(SOURCE_FILES
     src/server/ServerResourcePack.cpp
     # 服务端内容（模组 / 数据包）的名字与分类。
     src/server/ServerContent.cpp
+    src/util/DailyQuote.cpp
     src/util/ImageDecode.cpp
     src/util/ThemeImage.cpp
     src/util/SystemMemory.cpp
