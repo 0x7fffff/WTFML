@@ -38,6 +38,8 @@ set(HEADER_FILES
     ${REPO_ROOT}/src/controllers/GameSessionController.hpp
     ${REPO_ROOT}/src/controllers/LaunchController.hpp
     ${REPO_ROOT}/src/controllers/ConnectionsController.hpp
+    # 主页「每日一言」：MainWindow 建它、开关那一路调它（少了这一对就链接不过）。
+    ${REPO_ROOT}/src/controllers/DailyQuoteController.hpp
     ${REPO_ROOT}/src/controllers/InstanceIconController.hpp
     ${REPO_ROOT}/src/controllers/ActivityCenterController.hpp
     ${REPO_ROOT}/src/controllers/TaskDetailController.hpp
@@ -157,6 +159,7 @@ set(SOURCE_FILES
     ${REPO_ROOT}/src/controllers/GameSessionController.cpp
     ${REPO_ROOT}/src/controllers/LaunchController.cpp
     ${REPO_ROOT}/src/controllers/ConnectionsController.cpp
+    ${REPO_ROOT}/src/controllers/DailyQuoteController.cpp
     ${REPO_ROOT}/src/controllers/InstanceIconController.cpp
     ${REPO_ROOT}/src/controllers/ActivityCenterController.cpp
     ${REPO_ROOT}/src/controllers/TaskDetailController.cpp
