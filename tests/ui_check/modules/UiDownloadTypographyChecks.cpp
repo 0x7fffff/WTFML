@@ -94,14 +94,12 @@ int UiDownloadTypographyChecks(QMainWindow &window, MainWindowUI &ui) {
                       .arg(row.right() - MainWindowUI::versionTreeRowPadding())
                       .arg(topGap)
                       .arg(bottomGap));
-            // NOTE: 这一格和 clearRect()（那个「取消」小叉）**占的是行尾同一块地方** ——
-            // 分类条目没有孩子、代理本来就不给它画箭头，而 clearRect 是挂在箭头左边的，
-            // 算出来两者会差几像素地叠在一起。所以**一行不能同时挂这两件事**。
-            // 今天界面上没有任何一行同时挂着，下面单有一条断言钉住它（真要是哪天多出来
-            // 一行同时挂的，那里先红，而不是等用户看到两个字形叠成一团）。
+            // NOTE: 行尾那格改成「展开 / 收起」文字（28 宽）之后，clearRect()（「取消」小叉）
+            // 挂在文字格左边，和这一格不再重叠。下面那条互斥断言照留：一行同时挂两件事
+            // 在产品上仍然没有意义（分类条目没有可取消的东西）。
             const QRect cross = VersionTreeDelegate::clearRect(row);
-            check(box.intersects(cross),
-                  "它和「取消」小叉占的确实是行尾同一块地方（所以那一条互斥断言是必要的）",
+            check(!box.intersects(cross) && cross.right() < box.left(),
+                  "它和「取消」小叉不重叠（小叉在行尾文字格左边）",
                   QString("refresh=%1..%2  clear=%3..%4")
                       .arg(box.x())
                       .arg(box.right())

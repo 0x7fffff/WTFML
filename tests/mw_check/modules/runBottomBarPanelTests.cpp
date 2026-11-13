@@ -313,22 +313,12 @@ void runBottomBarPanelTests() {
         // 会话是**直接调 manager->startGame() 起的**，所以这句同时是"产品真的在那条路上
         // 重画过底栏"的证人 —— 少了它，下面 AH6 那条"停光了点不开"改成"永远点不开"
         // 也能绿。
-        QLabel *ah2Chevron = instancesButton != nullptr
-                                 ? instancesButton->findChild<QLabel *>(
-                                       MainWindowUI::bottomBarChevronName())
-                                 : nullptr;
-        check(instancesButton != nullptr && ah2Chevron != nullptr &&
-                  ah2Chevron->isVisibleTo(instancesButton) &&
+        check(instancesButton != nullptr &&
                   !instancesButton->testAttribute(Qt::WA_TransparentForMouseEvents),
-              "AH2 有会话在跑时，左下那一格点得开（箭头在、鼠标收得到）",
+              "AH2 有会话在跑时，左下那一格点得开（鼠标收得到）",
               instancesButton == nullptr
                   ? QStringLiteral("<没找到那颗按钮>")
-                  : QStringLiteral("箭头 %1 / 收鼠标 %2")
-                        .arg(ah2Chevron == nullptr
-                                 ? QStringLiteral("<没找到>")
-                                 : (ah2Chevron->isVisibleTo(instancesButton)
-                                        ? QStringLiteral("在")
-                                        : QStringLiteral("藏了")))
+                  : QStringLiteral("收鼠标 %1")
                         .arg(instancesButton->testAttribute(Qt::WA_TransparentForMouseEvents)
                                  ? QStringLiteral("是")
                                  : QStringLiteral("不是")));
@@ -576,26 +566,16 @@ void runBottomBarPanelTests() {
     // ---- AH6 一份都没在跑：左下那一格**点不开**（ 要求：「没有运行中的
     // 实例时让那个实例栏点不开，箭头隐藏」）----
     //
-    // 上面 AH2 量的是另一半（有会话时点得开、箭头在），两条合起来才是"它会**变**"的证人。
+    // 上面 AH2 量的是另一半（有会话时点得开），两条合起来才是"它会**变**"的证人。
     // 这一步的触发走的是**真产品路径**：AH5 用面板上那颗电源停了最后一份 → LauncherManager
     // 发 gameFinished → MainWindow 重画底栏 → setRunPanelAvailable(false)。
     {
-        QLabel *ah6Chevron = instancesButton != nullptr
-                                 ? instancesButton->findChild<QLabel *>(
-                                       MainWindowUI::bottomBarChevronName())
-                                 : nullptr;
-        check(instancesButton != nullptr && ah6Chevron != nullptr &&
-                  !ah6Chevron->isVisibleTo(instancesButton) &&
+        check(instancesButton != nullptr &&
                   instancesButton->testAttribute(Qt::WA_TransparentForMouseEvents),
-              "AH6 一份会话都没在跑时，左下那一格点不开了（箭头收起来、鼠标也收不到）",
+              "AH6 一份会话都没在跑时，左下那一格点不开了（鼠标收不到）",
               instancesButton == nullptr
                   ? QStringLiteral("<没找到那颗按钮>")
-                  : QStringLiteral("箭头 %1 / 收鼠标 %2")
-                        .arg(ah6Chevron == nullptr
-                                 ? QStringLiteral("<没找到>")
-                                 : (ah6Chevron->isVisibleTo(instancesButton)
-                                        ? QStringLiteral("在")
-                                        : QStringLiteral("藏了")))
+                  : QStringLiteral("收鼠标 %1")
                         .arg(instancesButton->testAttribute(Qt::WA_TransparentForMouseEvents)
                                  ? QStringLiteral("是")
                                  : QStringLiteral("不是")));

@@ -623,22 +623,6 @@ void applyBottomBarButtonStyle(QPushButton *button, const QPalette &barPalette) 
     Theme::follow(button, [button]() { applyBottomBarButtonStyle(button, QApplication::palette()); });
 }
 
-/// 按钮右边那个**朝上**的小箭头（点开是向上弹的，所以箭头朝上）。画的，不是图片文件。
-QLabel *makeChevronLabel(QWidget *parent) {
-    const int size = MainWindowUI::bottomBarChevronSize();
-    QLabel *label = new QLabel(parent);
-    label->setObjectName(MainWindowUI::bottomBarChevronName());
-    label->setPixmap(VersionIcons::chevronUp(size, parent->palette().color(QPalette::WindowText)));
-    // 这是**位图**：颜色已经落在像素里了 ⇒ 主题一换得重画一张，不然那颗箭头会停在旧色上。
-    // （`VersionIcons` 里按"边长 + 颜色"缓存着，所以重画这一步不贵。）
-    Theme::follow(label, [label, size]() {
-        label->setPixmap(
-            VersionIcons::chevronUp(size, label->palette().color(QPalette::WindowText)));
-    });
-    label->setFixedSize(size, size);
-    return label;
-}
-
 // ---------------------------------------------------------------------------
 // 实例页左栏「游戏文件夹」列表：一行 = 上面一个名字、下面那条路径、行尾一颗齿轮。
 // ---------------------------------------------------------------------------
@@ -1310,10 +1294,7 @@ void MainWindowUI::setupBottomBar(QWidget *parent) {
     runStateRow->setContentsMargins(12, 4, 8, 4);
     runStateRow->setSpacing(MainWindowUI::bottomBarChevronSpacing());
     runStateRow->addLayout(runStateLayout, 1);
-    // 这个箭头**另存一份指针**（右边那颗按钮上那个不用）：没有实例在跑时它要收起来，
-    // 见 setRunPanelAvailable()。
-    runStateChevron = makeChevronLabel(runStateButton);
-    runStateRow->addWidget(runStateChevron, 0, Qt::AlignVCenter);
+    // 右侧不挂朝上的小箭头（体验反馈 8）：点得开由悬停底色、手型指针和悬停提示说明。
 
     // 没有实例在跑时这几样藏着。**藏的是字和那颗方块，不是格子** —— 格子（上面那颗
     // 按钮）永远占着那 170 px（宽度是 bottomBarRunStateColumnWidth()）。
@@ -1325,7 +1306,7 @@ void MainWindowUI::setupBottomBar(QWidget *parent) {
 
     // ---------- 中：任务摘要（点一下展开任务中心） ----------
     // 这一格**也是一整颗按钮**（整块可点击），做法跟两头那两颗一样：
-    // 悬停高亮走 applyBottomBarButtonStyle()、右边一个朝上的箭头、整格都是一个点击区。
+    // 悬停高亮走 applyBottomBarButtonStyle()、整格都是一个点击区。
     // 宽度**不钉**（两头那两颗才钉）—— 中间这格本来就是"吃掉富余宽度"的那一份。
     taskSummaryButton = new QPushButton(bottomBar);
     taskSummaryButton->setObjectName(taskSummaryButtonName());
@@ -1513,14 +1494,13 @@ void MainWindowUI::setupBottomBar(QWidget *parent) {
     // 头像**贴着按钮左边缘**摆（不是靠右摆）：这一格宽 208，而头像 + 名字常态只有
     // 九十来 px，靠右摆就会在头像左边留出一大段空白 ——
     // 「头像那里的左侧有一段空白」就是它（空 115 px：头像 x=115、按钮宽 208）。
-    // 弹簧因此摆在**名字和箭头之间**：剩下的那一截落在名字右边的姓名格里
-    // （姓名格自己就是这么宽的），箭头照旧钉在窗口右边，中间那根条的位置一点都不动。
+    // 弹簧因此摆在名字右边：剩下的那一截落在姓名格里（姓名格自己就是这么宽的），
+    // 中间那根条的位置一点都不动。
     accountRow->addWidget(avatarLabel);
     // 头像和那两行文字按竖直居中对齐（QHBoxLayout 默认就是这个），所以名字多一行之后
     // 那块方头像不会往上看。
     accountRow->addLayout(accountTextLayout);
     accountRow->addStretch(1);
-    accountRow->addWidget(makeChevronLabel(accountButton), 0, Qt::AlignVCenter);
     // 账号身份与入口在主页右上区域；底栏保留这组兼容控件给业务层更新数据，
     // 但不放进可见布局。工具箱入口在导航轨底部。
     accountButton->hide();
@@ -2224,7 +2204,7 @@ void MainWindowUI::toggleBottomBarPanel(const BottomBarAnchor &anchor) {
         overlayHost->dismiss();
         return;
     }
-    // 左下那一格**没有实例可列时点不开**（箭头也收起来了，见 setRunPanelAvailable()）：
+    // 左下那一格**没有实例可列时点不开**（见 setRunPanelAvailable()）：
     // 这一下只当"收"用。
     //
     // NOTE: 之所以不只靠那颗按钮收不到鼠标（WA_TransparentForMouseEvents）：面板开着的
@@ -2440,9 +2420,6 @@ void MainWindowUI::setRunPanelAvailable(bool available) {
         return;
     }
     m_runPanelAvailable = available;
-    if (runStateChevron != nullptr) {
-        runStateChevron->setVisible(available);
-    }
     // 点不动的那一格**收的是鼠标**（理由见头文件里那段 NOTE：不用 setEnabled 是为了不让
     // 里面那几行字跟着变灰）。顺带把 hover 高亮、手型指针、tooltip 一起收掉了 —— 它们
     // 都挂在"这个控件收不收得到鼠标"上。

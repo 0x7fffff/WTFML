@@ -16,7 +16,8 @@
 
 VersionTreeDelegate::VersionTreeDelegate(QObject *parent, bool leafArrow, int iconSize,
                                          bool navRow)
-    : QStyledItemDelegate(parent), m_leafArrow(leafArrow), m_iconSize(iconSize), m_navRow(navRow) {
+    : QStyledItemDelegate(parent), m_leafArrow(leafArrow), m_iconSize(iconSize), m_navRow(navRow),
+      m_leafVerb(tr("安装")) {
 }
 
 int VersionTreeDelegate::rowIconSize() const {
@@ -30,8 +31,8 @@ QRect VersionTreeDelegate::clearRect(const QRect &row) {
     // 命中格比画出来的那个叉大一圈（x 的边长是 arrowSize，格子里四周各留 3 px）——
     // 12 px 的点击目标太小了，手一抖就点到旁边的箭头或者那一行上。
     const int box = arrowSize + 6;
-    // 它紧挨着箭头左边，中间留 6 px（"文字和箭头之间"也是这个数，看着才是一套的）。
-    const int left = row.right() - pad - arrowSize - 6 - box;
+    // 它紧挨着行尾那格文字左边，中间留 6 px（"文字和行尾之间"也是这个数，看着才是一套的）。
+    const int left = row.right() - pad - MainWindowUI::versionTreeTrailWidth() - 6 - box;
     return QRect(left, row.center().y() - box / 2, box, box);
 }
 
@@ -48,13 +49,11 @@ QRect VersionTreeDelegate::refreshRect(const QRect &row) {
 
 QRect VersionTreeDelegate::arrowRect(const QRect &row) {
     const int pad = MainWindowUI::versionTreeRowPadding();
-    const int arrowSize = MainWindowUI::versionTreeArrowSize();
-    // 命中格比画出来的那个箭头四周各大 3 px（和 clearRect / refreshRect 一个做法）。
-    const int box = arrowSize + 6;
-    // 命中格**以画出来的那一格为中心**：画出来的是贴右边缘留 pad 的那一块
-    // （`row.right() - pad - arrowSize` 起、宽 arrowSize），中心就在它中间。
-    const int centerX = row.right() - pad - arrowSize / 2;
-    return QRect(centerX - box / 2, row.center().y() - box / 2, box, box);
+    const int trail = MainWindowUI::versionTreeTrailWidth();
+    // 命中格比画出来的那格文字四周各大 3 px（和 clearRect / refreshRect 一个做法）。
+    const int box = MainWindowUI::versionTreeArrowSize() + 6;
+    // 画出来的是贴右边缘留 pad 的那一块（`row.right() - pad - trail + 1` 起、宽 trail）。
+    return QRect(row.right() - pad - trail + 1 - 3, row.center().y() - box / 2, trail + 6, box);
 }
 
 QString VersionTreeDelegate::rowActionTip(const QModelIndex &index, const QRect &row,
@@ -107,10 +106,9 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     // 读的是**原样传进来**的那个 option，不是 initStyleOption 之后的那一份：这一位是视图
     // 填的，它在 initStyleOption 里留没留住不该由我们猜（这条路上我们自己说了算）。
     const bool hovered = (option.state & QStyle::State_MouseOver) != 0;
-    // 选中那一块由**样式**画成"这一行自己的底色混一档主题色 + 左边一根 3 px 指示条"
-    // （与侧栏导航同款 —— 两条原语覆写在 `Theme::createStyle()` 那一份代理样式里，
-    // 见 `ui/Theme.hpp` 的 `selectionFill()` 那段）。这一位在这儿用来做三件事：左边那一截
-    // 分支区补涂、分支区那截上**把指示条补回来**，以及下面那一份**局部调色板**里换墨。
+    // 选中那一块由**样式**画成"这一行自己的底色混一档主题色"（与侧栏导航同款 —— 两条
+    // 原语覆写在 `Theme::createStyle()` 那一份代理样式里，见 `ui/Theme.hpp` 的
+    // `selectionFill()` 那段）。这一位在这儿用来给下面那一份**局部调色板**换墨。
     const bool selected = (option.state & QStyle::State_Selected) != 0;
     opt.state &= ~QStyle::State_MouseOver;
     // 侧栏导航的选中底由下面那支自己画成「内缩圆角块」。这里先把 Selected 从交给
@@ -174,32 +172,20 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     // 选中底是半透明的，再涂一遍那一截就比整行深一档。
     // NOTE: 实例树那一边**故意不补**（它选中时的带子只有卡片那一圈，左边没有竖条，
     // 见那条 ★★）。两张表的选中带形状本来就不一样。
-    //
-    // 指示条得在**这一句之后**补一次：样式那条 `PE_PanelItemViewItem` 早在 3 行之前
-    // 就把 0..3 那一列画成主题色了，而这一句正好从 0 铺过来、会把它整根盖掉。
-    // （`option.rect.left() == 0` 的行不补 —— 那时候这一句根本不画，样式画的那根还在。）
-    if (selected && !m_navRow && index.column() == 0 && option.rect.left() > 0) {
-        Theme::paintSelectionRail(painter, option.rect);
-    }
 
-    // Sidebar selection uses a rectangular inset and rail, matching other navigation lists.
+    // Sidebar selection uses a rounded inset block (no rail), matching other navigation lists.
     // The platform Selected layer is suppressed above so it cannot paint another background.
     if (m_navRow && selected) {
         const QRectF selectedRect = QRectF(option.rect.adjusted(3, 2, -3, -2));
         painter->save();
         painter->setRenderHint(QPainter::Antialiasing, true);
         painter->setPen(Qt::NoPen);
-        // 和左导航轨同一套：半径 10 的低透明主题色底 + 左边一根短的圆头指示条。
+        // 和左导航轨同一套：半径 10 的低透明主题色底，不画指示条。
         const Theme::Tokens t = Theme::tokens();
         QColor fill = t.focus;
         fill.setAlpha(t.page.lightness() < 128 ? 34 : 30);
         painter->setBrush(fill);
         painter->drawRoundedRect(selectedRect, Theme::controlRadius(), Theme::controlRadius());
-        const qreal barHeight = selectedRect.height() * 0.44;
-        const qreal bar = Theme::selectionBarThickness();
-        painter->setBrush(t.focus);
-        painter->drawRoundedRect(QRectF(selectedRect.left() + 2, selectedRect.center().y() - barHeight / 2, bar, barHeight),
-                                 bar / 2, bar / 2);
         painter->restore();
     }
 
@@ -234,7 +220,6 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
         view != nullptr && view->model() != nullptr && view->model()->rowCount(index) > 0;
 
     const int pad = MainWindowUI::versionTreeRowPadding();
-    const int arrowSize = MainWindowUI::versionTreeArrowSize();
     const int iconSize = rowIconSize();
 
     // 前面那个小图标：条目自己给了 `Qt::DecorationRole` 就画它（加载器那棵树五条都是
@@ -280,7 +265,7 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     const bool hasRefresh = index.data(MainWindowUI::rowRefreshRole()).toBool();
     const bool showRefresh = hasRefresh && hovered;
     const QRect refreshBox = refreshRect(row);
-    int textRight = row.right() - pad - arrowSize - 6;
+    int textRight = row.right() - pad - MainWindowUI::versionTreeTrailWidth() - 6;
     if (showClear) {
         textRight -= crossBox.width() + 6;
     }
@@ -413,50 +398,44 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     }
     painter->restore();
 
-    // 最右边那个 >：分类点上它会展开、展开之后变成朝下的 V；版本号那些是**叶子**，
-    // 一直朝右（"点进去"那层意思）。一个版本都没有的分类**连箭头都不画** ——
-    // 画了就骗人说点得开。
+    // 行尾那格文字（体验反馈 8：右侧不再画 > / V 小箭头，tokens-r2 §6「收起 / 展开」）：
+    // 能展开的行写「展开 / 收起」；叶子行若点进去有下一页（版本树进安装页、资源表下载），
+    // 悬停时写那个动词。一个版本都没有的分类什么都不写 —— 写了就骗人说点得开。
     if (isChannel && !hasChildren) {
         return;
     }
-    // 叶子那一层的箭头：版本树上是"点进去"（点一个版本号进安装页），安装页那棵加载器树上
-    // **不画** —— 那一层没有下一页，两档和具体版本号都是"选中它"（见构造函数的 @param）。
-    // 注意这一位只管**那一笔箭头**：同一个 save/restore 里还画着那个「取消」小叉，两个
-    // 功能各管各的（把整个块一起 return 掉的话，"叶子不画箭头"会顺手把叉也吃掉 ——
-    // ui_check 里恰好有一条拿叶子行验叉的断言，一跑就红）。
-    const bool drawArrow = isChannel || m_leafArrow;
-    // 箭头颜色：**真能展开的**那几行用正文色（"这儿点得开"要说清楚），别的用浅一档的
-    // （"点进去"那层意思，次要）。
-    // NOTE: 判据要带上 `hasChildren`：只看 `isChannel`（顶层）的话，下载页那张资源表里
-    // "游戏版本"那一层**不是顶层、但真的能展开**（点它才去问版本列表），会被画成浅色。
-    // 另外两棵树的非顶层行全是叶子（没有孩子），所以这一位不影响它们的颜色。
-    const QColor arrowColor = (isChannel || hasChildren)
-                                  ? palette.color(QPalette::WindowText)
-                                  : palette.color(QPalette::PlaceholderText);
-    // 箭头那一格：**几何只有 arrowRect() 一处** —— 它给的是命中格（比画出来的大一圈），
-    // 画的是它居中那一块。下载页那四张表按同一个函数认"这一下点的是不是箭头"
-    // （见 MainWindow::eventFilter 里那一段），两处就是同一处。
-    const QRect arrowBox = arrowRect(row);
-    const QRect arrowGlyph(arrowBox.center().x() - arrowSize / 2,
-                           row.center().y() - arrowSize / 2, arrowSize, arrowSize);
+    // 叶子那一层：加载器树、服务器那一列点下去是"选中它"，没有下一页（`m_leafArrow` 为假）。
+    // 注意这一位只管那格文字：同一个 save/restore 里还画着那个「取消」小叉。
+    QString trailText;
+    if (isChannel || m_leafArrow) {
+        // NOTE: 判据只看 `expanded` 与 `hasChildren`，**不能**再与 `isChannel` 相与：下载页
+        // 那张资源表里"游戏版本"那一层是非顶层、又要能展开的。
+        if (isChannel || hasChildren)
+            trailText = expanded ? tr("收起") : tr("展开");
+        else if (hovered)
+            trailText = m_leafVerb;
+    }
+    // 几何只有 arrowRect() 一处 —— 下载页那四张表按同一个函数认"这一下点的是不是展开格"
+    // （见 MainWindow::eventFilter 里那一段），画的是它去掉四周 3 px 的那一块。
+    const QRect trailBox = arrowRect(row).adjusted(3, 0, -3, 0);
     painter->save();
     painter->setOpacity(rowOpacity);
-    // 选中的那条加载器：箭头**左边**再画一个「取消」小叉（点它 = 不装这个加载器了，
-    // 退回纯原版）。
-    // 它比正文浅一档：那是个次要操作，别和版本号抢眼睛。
+    // 选中的那条加载器：行尾文字**左边**再画一个「取消」小叉（点它 = 不装这个加载器了，
+    // 退回纯原版）。它比正文浅一档：那是个次要操作，别和版本号抢眼睛。
     if (showClear) {
         const QRect glyph = crossBox.adjusted(3, 3, -3, -3);
         painter->drawPixmap(glyph.topLeft(),
                             VersionIcons::cross(glyph.width(),
                                                 palette.color(QPalette::PlaceholderText)));
     }
-    if (drawArrow) {
-        // 展开着就画朝下的 V，收着就画朝右的 >。
-        // NOTE: 判据只看 `expanded`，**不能**再与 `isChannel` 相与：下载页那张资源表里
-        // "游戏版本"那一层就是非顶层、又要能展开的 —— 相与之后展开完箭头还朝右，
-        // 和"收着"长得一样。叶子永远 expanded 为假，取到的还是 >。
-        painter->drawPixmap(arrowGlyph.topLeft(),
-                            VersionIcons::chevron(expanded, arrowSize, arrowColor));
+    if (!trailText.isEmpty()) {
+        // 「展开 / 收起」用次要色（说明性）；悬停动词用主题色（它是这一下点下去要做的事）。
+        const bool verb = !(isChannel || hasChildren);
+        painter->setFont(Theme::textFont(option.font, Theme::TextRole::Caption));
+        painter->setPen(verb && (index.flags() & Qt::ItemIsEnabled) ? Theme::tokens().primary
+                                                                     : palette.color(QPalette::PlaceholderText));
+        painter->drawText(QRect(trailBox.left(), row.top(), trailBox.width(), row.height()),
+                          Qt::AlignRight | Qt::AlignVCenter, trailText);
     }
     painter->restore();
 }
@@ -523,7 +502,7 @@ QSize VersionTreeDelegate::sizeHint(const QStyleOptionViewItem &option,
     if (index.parent().isValid() || hasIcon) {
         width += rowIconSize() + 8;
     }
-    width += 2 * MainWindowUI::versionTreeRowPadding() + MainWindowUI::versionTreeArrowSize() + 6;
+    width += 2 * MainWindowUI::versionTreeRowPadding() + MainWindowUI::versionTreeTrailWidth() + 6;
     // 行尾那个「取消」小叉也占宽度（只有选中的那条加载器有，见 rowClearRole()）。
     if (index.data(MainWindowUI::rowClearRole()).toBool()) {
         width += MainWindowUI::versionTreeArrowSize() + 6 + 6;

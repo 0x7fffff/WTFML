@@ -93,10 +93,6 @@ public:
             painter->setBrush(selected ? t.selected : t.hover);
             painter->drawRoundedRect(r, 12, 12);
         }
-        if (selected) {
-            painter->setBrush(t.primary);
-            painter->drawRoundedRect(QRectF(r.left() + 2, r.center().y() - 10, 3, 20), 1.5, 1.5);
-        }
 
         const QRect avatar(int(r.left()) + 12, int(r.center().y()) - 16, 32, 32);
         const QImage face = current && !m_currentSkin->isNull()

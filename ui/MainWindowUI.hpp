@@ -528,6 +528,8 @@ public:
     static int versionTreeIconSize() { return 18; }
     /// 最右边那个 >/V 的边长。
     static int versionTreeArrowSize() { return 12; }
+    /// 行尾那一格文字（「展开 / 收起」或悬停时的动词）占多宽：13 px 两个汉字 + 余量。
+    static int versionTreeTrailWidth() { return 28; }
     /// 行内左右留白。
     static int versionTreeRowPadding() { return 6; }
 
@@ -633,11 +635,7 @@ public:
     /// 正文面还够宽）。
     static int pageMargin() { return 20; }
 
-    /// 「安装」按钮的字号相对**默认**字号的偏移：安装键做大一点。
-    /// NOTE: 记的是**偏移**不是点数（和 versionTreeFontStep() 一个道理：默认字号在系统上
-    /// 是 9~12 pt 不等）。
-    static int installButtonFontStep() { return 2; }
-    /// 「安装」按钮的最小高度（字大了以后再顶着老高度会显得挤）。
+    /// 「安装」按钮的最小高度（浮在内容区底部的主操作，字号与其他按钮同为正文 14）。
     static int installButtonMinHeight() { return 40; }
     static QString installNameLabelText() {
         return QCoreApplication::translate("MainWindowUI", "版本名称");
@@ -1770,15 +1768,13 @@ public:
     /// 两行留给字的宽度才真的都是 136（两行都写这个数时，第二行实际只有 120，
     /// 右边短一截）。
     static int bottomBarRunStateTextWidth() {
-        return bottomBarRunStateColumnWidth() - bottomBarChevronSpacing() - bottomBarChevronSize() -
-               bottomBarRunStateMarkWidth();
+        return bottomBarRunStateColumnWidth() - bottomBarRunStateMarkWidth();
     }
-    /// 底栏**右边那颗按钮（头像 + 用户名 + 箭头）的固定宽度**（像素）。右边那颗和左边的
+    /// 底栏**右边那颗按钮（头像 + 用户名）的固定宽度**（像素）。右边那颗和左边的
     /// 一样**要钉死**：进度条那一边彻底不再受"用户名多长"的影响（只给用户名封顶时，
     /// 换账号这一格仍会变 200 px）。
     static int bottomBarAccountButtonWidth() {
-        return avatarSize() + bottomBarAccountRowSpacing() + bottomBarAccountColumnWidth() +
-               bottomBarChevronSpacing() + bottomBarChevronSize();
+        return avatarSize() + bottomBarAccountRowSpacing() + bottomBarAccountColumnWidth();
     }
     /// 底栏那颗账号按钮里**用户名那一格的宽度上限**（像素）：16 个字符的 ID 按当前字体
     /// 大约就是这么宽，再长的名字截成省略号。
@@ -1803,9 +1799,7 @@ public:
 
     /// 底栏两颗按钮里**头像和文字之间的间距**（8）。
     static int bottomBarAccountRowSpacing() { return 8; }
-    /// 底栏两颗按钮右边那个**朝上箭头**的边长（像素）：点开是向上弹的，箭头就朝上。
-    static int bottomBarChevronSize() { return 12; }
-    /// 箭头和它左边那些字之间的间距（像素）。
+    /// 底栏按钮里那一排横向子控件之间的间距（像素；名字沿用旧称，右侧已不挂箭头）。
     static int bottomBarChevronSpacing() { return 6; }
     /// 左下那一格（**能点开的时候**）鼠标停上去显示的那句话。
     ///
@@ -2019,9 +2013,6 @@ public:
     /// （VersionIcons::power() / gear()），按钮再按图形的实际大小设 iconSize ——
     /// 两边各写一个数字的结果是"图标被拉变形"或者"按钮里空一圈"。
     static int bottomBarPanelActionIconSize() { return 14; }
-    /// 那两颗按钮右边那个朝上箭头的 objectName。两颗**共用**这一个名字 ——
-    /// findChild 只会拿到其中一颗，要两颗一起用 findChildren。
-    static QString bottomBarChevronName() { return QStringLiteral("bottomBarChevron"); }
     static QString runStateLabelName() { return QStringLiteral("runStateLabel"); }
     static QString runStateDetailLabelName() { return QStringLiteral("runStateDetailLabel"); }
     static QString progressBarName() { return QStringLiteral("progressBar"); }
@@ -4054,9 +4045,6 @@ private:
     QLabel *runStateLabel = nullptr;
     QLabel *runStateDetailLabel = nullptr;
     QLabel *runStateMarkLabel = nullptr;
-    /// 左下那一格右边那个朝上的箭头。**单独存一份指针**是因为它要跟着
-    /// setRunPanelAvailable() 显隐（右边那颗按钮上那个不需要，一直亮着）。
-    QLabel *runStateChevron = nullptr;
     /// 左下那一格现在点不点得开。初值 true = 装好就能点 —— 界面**还没被谁摆过**的时候
     /// 不该是"点不动"的（独立构造 MainWindowUI 的验证工程就吃这个初值，见
     /// setRunPanelAvailable()）。

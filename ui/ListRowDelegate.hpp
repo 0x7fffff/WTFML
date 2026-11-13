@@ -1,7 +1,7 @@
 /**
  * @file ListRowDelegate.hpp
  * @brief 设计稿「列表行」（components.html .row）：40 封面 + 两行字 + 行尾元信息；
- *        悬停时行尾换成快捷操作（文件夹 / 更多 / 启动胶囊），选中 = 强调色淡底 + 左侧 3px 指示条。
+ *        悬停时行尾换成快捷操作（文件夹 / 更多 / 启动胶囊），选中 = 强调色淡底（不画指示条）。
  *
  * 数据：DisplayRole = 标题，DecorationRole = 封面（QIcon / QPixmap），SubtitleRole = 第二行，
  * MetaRole = 行尾那句（如「2 小时前」）。行高 60（设计稿令牌），用 install() 挂到视图上。

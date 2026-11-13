@@ -223,7 +223,8 @@ NewServerPage::NewServerPage(QWidget *parent) : QDialog(parent) {
     m_createButton->setMinimumWidth(180);
     Theme::markButton(m_createButton, Theme::ButtonKind::Primary);
     QFont createFont = m_createButton->font();
-    createFont = Theme::textFont(createFont, Theme::TextRole::Heading);
+    createFont = Theme::textFont(createFont, Theme::TextRole::Body);  // 按钮一律正文 14 系统字（tokens-r2 §1）
+    createFont.setWeight(QFont::Medium);
     m_createButton->setFont(createFont);
     m_createButton->setMinimumHeight(48);
     auto *footer = new QFrame(content);

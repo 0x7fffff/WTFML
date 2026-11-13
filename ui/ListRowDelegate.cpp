@@ -72,11 +72,6 @@ void ListRowDelegate::paint(QPainter *painter, const QStyleOptionViewItem &optio
         bg.addRoundedRect(QRectF(r), kRadius, kRadius);
         painter->fillPath(bg, selected ? t.selected : t.hover);
     }
-    if (selected) {  // 左侧 3px 指示条：距左 3，上下各缩 18
-        QPainterPath bar;
-        bar.addRoundedRect(QRectF(r.left() + 3, r.top() + 18, 3, r.height() - 36), 1.5, 1.5);
-        painter->fillPath(bar, t.deep);
-    }
 
     // 封面：圆角淡底块（设计稿 .cover），里面居中摆图标（7/12 边长）
     const QRect cover(r.left() + kPad, r.center().y() - coverSize() / 2 + 1, coverSize(), coverSize());

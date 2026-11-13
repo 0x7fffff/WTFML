@@ -925,14 +925,8 @@ QWidget *MainWindowUI::setupHomePage() {
         }
         QObject::connect(homeInstanceSelectButton, &QPushButton::clicked, homeInstanceSelectButton,
                          [this]() { tabWidget->setCurrentIndex(instancesTabIndex()); });
-        {
-            const auto applyAllInk = [button = homeInstanceSelectButton]() {
-                button->setIcon(QIcon(VersionIcons::chevron(false, 14, heroInk(true))));
-            };
-            followHeroInk(homeInstanceSelectButton, true);
-            applyAllInk();
-            Theme::follow(homeInstanceSelectButton, applyAllInk);
-        }
+        // 不挂 › 图标（体验反馈 8）：「管理」两个字本身就说明点下去去哪。
+        followHeroInk(homeInstanceSelectButton, true);
         quickTabs->addWidget(homeInstanceSelectButton);
         quickColumn->addLayout(quickTabs);
         const auto makeQuickPage = [quickColumn, this](const QString &name, QWidget **sectionOut,
@@ -1033,26 +1027,13 @@ QWidget *MainWindowUI::setupInstancePage() {
         folderPill->setIcon(QIcon(VersionIcons::line(QStringLiteral("folder"), 16, t.secondary)));
         folderPill->setStyleSheet(QStringLiteral(
             "QPushButton { background: %2; color: %1; border: 1px solid transparent; border-radius: 10px;"
-            " padding: 0 30px 0 10px; min-height: 34px; max-height: 34px; text-align: left; font-weight: 600; }"
+            " padding: 0 12px 0 10px; min-height: 34px; max-height: 34px; text-align: left; font-weight: 600; }"
             "QPushButton:hover { background: %3; }")
             .arg(t.text.name(QColor::HexArgb), t.subtle.name(QColor::HexArgb), t.fillSoftHover.name(QColor::HexArgb)));
     };
     paintPill();
     Theme::follow(folderPill, paintPill);
-    {   // 右端 chevron：画在胶囊自己身上（QPushButton 的图标只能在左边）
-        auto *chev = new QLabel(folderPill);
-        chev->setAttribute(Qt::WA_TransparentForMouseEvents);
-        const auto paintChev = [chev]() {
-            chev->setPixmap(VersionIcons::line(QStringLiteral("chevD"), 14, Theme::tokens().secondary));
-        };
-        paintChev();
-        Theme::follow(chev, paintChev);
-        chev->setFixedSize(14, 14);
-        auto *pillLayout = new QHBoxLayout(folderPill);
-        pillLayout->setContentsMargins(0, 0, 10, 0);
-        pillLayout->addStretch(1);
-        pillLayout->addWidget(chev);
-    }
+    // 胶囊右端不画 ∨（体验反馈 8 / tokens-r2 §6 下拉去箭头）：整块可点，悬停有底色。
     if (auto *titleRow = qobject_cast<QHBoxLayout *>(instance.right.header->layout()->itemAt(0)->layout())) {
         titleRow->insertWidget(1, folderPill, 0, Qt::AlignVCenter);
     }

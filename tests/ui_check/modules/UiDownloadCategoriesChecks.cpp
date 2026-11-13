@@ -160,7 +160,7 @@ int UiDownloadCategoriesChecks(MainWindowUI &ui, QStackedWidget * &gameStack, QW
             treeShapeOk = treeShapeOk && delegate != nullptr &&
                           delegate->iconSize() == MainWindowUI::resourceTreeIconSize() &&
                           delegate->rowIconSize() == MainWindowUI::resourceTreeIconSize() &&
-                          delegate->leafArrow();
+                          delegate->leafArrow() && delegate->leafVerb() == QStringLiteral("下载");
             treesOk = treesOk && treeShapeOk;
 
             // ③ 筛子那一行：该有的那几件按名字数一遍

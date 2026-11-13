@@ -299,7 +299,7 @@ private:
         };
         addRow(QStringLiteral("主按钮"), [&](int) { return pushButton(QStringLiteral("启动"), Theme::ButtonKind::Primary, QStringLiteral("play")); }, {3});
         addRow(QStringLiteral("次按钮"), [&](int) { return pushButton(QStringLiteral("导入"), Theme::ButtonKind::Neutral); });
-        addRow(QStringLiteral("文字按钮"), [&](int) { return pushButton(QStringLiteral("全部实例  ›"), Theme::ButtonKind::Ghost); }, {3});
+        addRow(QStringLiteral("文字按钮"), [&](int) { return pushButton(QStringLiteral("管理"), Theme::ButtonKind::Ghost); }, {3});
         addRow(QStringLiteral("危险按钮"), [&](int) { return pushButton(QStringLiteral("删除"), Theme::ButtonKind::Danger, QStringLiteral("trash")); }, {3});
         addRow(QStringLiteral("危险实心"), [&](int) { return pushButton(QStringLiteral("删除实例"), Theme::ButtonKind::DangerSolid); }, {3});
         addRow(QStringLiteral("图标按钮"), [&](int s) {
@@ -658,6 +658,17 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
             for (const auto &[page, tab] : {std::pair{"home", home}, std::pair{"settings", MainWindowUI::settingsTabIndex()},
                                             std::pair{"agent", agent}, std::pair{"manage", manage}, std::pair{"download", download}})
                 list.append({QStringLiteral("type-%1-%2-1280x800.png").arg(QLatin1String(page), theme), theme, {1280, 800}, false, tab});
+        // r2 收尾对照（去竖条 / 去小箭头 / 工具箱字阶）：六页 + 下载树展开 + 实例设置导航 × 暗 / 青瓷（FILTER=final-）。
+        for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("emerald")}) {
+            for (const auto &[page, tab] : {std::pair{"home", home}, std::pair{"manage", manage}, std::pair{"download", download},
+                                            std::pair{"settings", MainWindowUI::settingsTabIndex()}, std::pair{"agent", agent}})
+                list.append({QStringLiteral("final-%1-%2-1280x800.png").arg(QLatin1String(page), theme), theme, {1280, 800}, false, tab});
+            list.append({QStringLiteral("final-download-expanded-%1-1280x800.png").arg(theme), theme, {1280, 800}, false, download,
+                         QStringLiteral("final:expand")});
+            list.append({QStringLiteral("final-toolbox-%1-1280x800.png").arg(theme), theme, {1280, 800}, false, home, QStringLiteral("toolbox:server")});
+            list.append({QStringLiteral("final-toolbox-text-%1-1280x800.png").arg(theme), theme, {1280, 800}, false, home, QStringLiteral("toolbox:text")});
+            list.append({QStringLiteral("final-instance-launch-%1-1280x800.png").arg(theme), theme, {1280, 800}, false, manage, QStringLiteral("launch")});
+        }
         // 只出名字含这段字的几张（逐页精修时不必每次跑满 56 张）。
         const QString only = qEnvironmentVariable("WTFML_DESIGN_SHOT_FILTER");
         if (!only.isEmpty())
@@ -811,6 +822,15 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
             } else if (shot.page.startsWith(QStringLiteral("r2:agent-"))) {
                 if (auto *page = window.findChild<AgentPage *>()) seedAgent(*page, shot.page.section(QLatin1Char('-'), 1));
             } else if (shot.page.startsWith(QStringLiteral("r2:"))) {
+            } else if (shot.page == QStringLiteral("final:expand")) {
+                // 展开态：版本树头一个有孩子的频道展开、选中它下面头一条（看「收起」字与选中淡底）。
+                QTreeWidget *tree = window.ui()->getVersionTree();
+                for (int i = 0; tree != nullptr && i < tree->topLevelItemCount(); ++i)
+                    if (QTreeWidgetItem *top = tree->topLevelItem(i); top->childCount() > 0) {
+                        top->setExpanded(true);
+                        tree->setCurrentItem(top->child(0));
+                        break;
+                    }
             } else if (shot.page == QStringLiteral("account")) {
                 // 面板按屏幕可用区夹位置：窗口伸出屏外时它会被夹回来、不再贴着胶囊右沿。
                 window.move(window.screen()->availableGeometry().topLeft() + QPoint(60, 60));

@@ -341,7 +341,8 @@ void PresetManagePage::buildDetailLayer() {
     m_applyButton->setAutoDefault(false);
     Theme::markButton(m_applyButton, Theme::ButtonKind::Primary);
     QFont applyFont = m_applyButton->font();
-    applyFont = Theme::textFont(applyFont, Theme::TextRole::Heading);
+    applyFont = Theme::textFont(applyFont, Theme::TextRole::Body);  // 按钮一律正文 14 系统字（tokens-r2 §1）
+    applyFont.setWeight(QFont::Medium);
     m_applyButton->setFont(applyFont);
     m_applyButton->setMinimumHeight(48);
     navLayout->addWidget(m_applyButton);

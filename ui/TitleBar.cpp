@@ -47,8 +47,6 @@ constexpr int kCaptionHeight = 40;
 constexpr int kWindowButtonWidth = 46;
 constexpr int kWindowButtonsRightMargin = 0;
 constexpr int kRadius = 10;
-constexpr int kIndicatorWidth = 3;
-constexpr int kIndicatorInset = 13;
 constexpr int kHoverAnimationMs = 120;
 constexpr int kSlideAnimationMs = 180;
 /// 比这个窄就按图标轨画（宽度动画过程中也按这条判）。
@@ -543,7 +541,7 @@ void TitleBar::paintEvent(QPaintEvent *) {
     if (Theme::partHasBackground(Theme::Part::TitleBar))
         p.fillRect(rect(), Theme::partBackground(Theme::Part::TitleBar));
 
-    // 选中那一格：accent-soft 底 + 左边 3px 指示条（上下各缩 13），从上一颗滑过来。
+    // 选中那一格：accent-soft 圆角 10 淡底（不画指示条，tokens-r2 §6），从上一颗滑过来。
     if (QAbstractButton *to = navButton(m_currentNav)) {
         QRectF rect = to->geometry();
         if (QAbstractButton *from = navButton(m_pillFrom); from != nullptr && m_pillProgress < 1.0) {
@@ -553,10 +551,6 @@ void TitleBar::paintEvent(QPaintEvent *) {
         p.setPen(Qt::NoPen);
         p.setBrush(t.selected);
         p.drawRoundedRect(rect, kRadius, kRadius);
-        p.setBrush(t.deep);
-        p.drawRoundedRect(QRectF(rect.left() + 3, rect.top() + kIndicatorInset, kIndicatorWidth,
-                                 rect.height() - 2 * kIndicatorInset),
-                          2, 2);
     }
 
     // 品牌名（西文手写体 30）；图标轨时只剩草方块。

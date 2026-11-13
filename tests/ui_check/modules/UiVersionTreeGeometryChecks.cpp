@@ -70,10 +70,11 @@ int UiVersionTreeGeometryChecks(QMainWindow &window, QTreeWidget * &versionTree)
             }
             return bb;
         };
-        // 箭头那一格：代理把它画在 row.right() - pad - arrowSize 那 12×12 里。
+        // 行尾那格文字（「展开 / 收起」或悬停动词）：代理把它画在 row.right() - pad - trail 起、
+        // 宽 trail 的那一列里（体验反馈 8 之后不再画 12×12 的 > / V）。
+        const int trail = MainWindowUI::versionTreeTrailWidth();
         const auto arrowBox = [&](int r) {
-            return QRect(vw - pad - arrowSize, rowRect(r).center().y() - arrowSize / 2, arrowSize,
-                         arrowSize);
+            return QRect(vw - pad - trail, rowRect(r).top() + 2, trail, rowHeight - 4);
         };
 
         check(shot.width() > 200 && shot.height() >= rowHeight * 3,
@@ -179,16 +180,15 @@ int UiVersionTreeGeometryChecks(QMainWindow &window, QTreeWidget * &versionTree)
               "下面那行日期和上面那行版本号左对齐（都在方块右边那一列）",
               QStringLiteral("%1 vs %2").arg(dateLeft).arg(leftmostInk(stripAbove)));
 
-        // ③ 行最右边那个箭头：收起时是朝右的 >（一小竖条，高比宽大），
-        // 展开之后变成朝下的 V（横过来，宽比高大）。两张图分别在两种状态下抓。
+        // ③ 行尾不画箭头，写字（tokens-r2 §6）：能展开的分类写「收起 / 展开」，叶子行
+        // 只在悬停时写动词（这张图里没有悬停 ⇒ 叶子那一格是空的）。
         check(inkCount(shot, leafRow) > 0, "版本号那种叶子行整行有内容");
-        const QRect bbLeafArrow = inkBBox(shot, arrowBox(1));
-        check(!bbLeafArrow.isNull() && bbLeafArrow.height() >= bbLeafArrow.width(),
-              "版本号那种叶子行右边那个箭头一直朝右（版本号没有可展开的东西）",
-              QStringLiteral("%1x%2").arg(bbLeafArrow.width()).arg(bbLeafArrow.height()));
+        check(inkCount(shot, arrowBox(1)) == 0,
+              "版本号那种叶子行不悬停时行尾是空的（不再挂一个朝右的 >）",
+              QStringLiteral("墨点 %1").arg(inkCount(shot, arrowBox(1))));
         const QRect bbExpanded = inkBBox(shot, arrowBox(0));
-        check(!bbExpanded.isNull() && bbExpanded.width() > bbExpanded.height(),
-              "展开着的时候，分类右边那格是个朝下的 V（宽比高大）",
+        check(!bbExpanded.isNull() && bbExpanded.width() > arrowSize + 6,
+              "展开着的分类行尾是一行字（墨迹比 12 px 的箭头宽得多 —— 是「收起」两个字）",
               QStringLiteral("%1x%2").arg(bbExpanded.width()).arg(bbExpanded.height()));
         probe.collapseItem(channel);
         QApplication::processEvents();
@@ -196,41 +196,32 @@ int UiVersionTreeGeometryChecks(QMainWindow &window, QTreeWidget * &versionTree)
         probe.expandItem(channel);
         QApplication::processEvents();
         const QRect bbCollapsed = inkBBox(collapsedShot, arrowBox(0));
-        check(!bbCollapsed.isNull() && bbCollapsed.height() > bbCollapsed.width(),
-              "收起之后同一格变成朝右的 >（高比宽大）—— 「展开以后变成 V」就是这条",
+        check(!bbCollapsed.isNull() && bbCollapsed.width() > arrowSize + 6,
+              "收起之后同一格也是一行字（「展开」）",
               QStringLiteral("%1x%2").arg(bbCollapsed.width()).arg(bbCollapsed.height()));
-        check(collapsedShot != shot,
-              "收起和展开那两张图不是同一张（箭头真的换了朝向）");
-        check(bbCollapsed != bbExpanded,
-              "两次抓到的箭头墨迹不一样（不是同一个像素块）",
-              QStringLiteral("%1,%2,%3,%4 / %5,%6,%7,%8")
-                  .arg(bbCollapsed.x()).arg(bbCollapsed.y()).arg(bbCollapsed.width())
-                  .arg(bbCollapsed.height()).arg(bbExpanded.x()).arg(bbExpanded.y())
-                  .arg(bbExpanded.width()).arg(bbExpanded.height()));
+        check(collapsedShot.copy(arrowBox(0)) != shot.copy(arrowBox(0)),
+              "收起和展开那一格写的不是同一行字（「展开」↔「收起」真的换了）");
 
-        // ④ 一个版本都没有的分类**连箭头都不画** —— 画了就骗人说点得开。
+        // ④ 一个版本都没有的分类行尾什么都不写 —— 写了就骗人说点得开。
         check(inkCount(shot, arrowBox(2)) == 0,
-              "一条版本都没有的分类右边不画箭头（画了就骗人）",
+              "一条版本都没有的分类行尾是空的（写了就骗人）",
               QString::number(inkCount(shot, arrowBox(2))));
 
-        // ④b 换成**叶子不画箭头**那个代理（安装页那棵加载器树用的就是它）再抓一张。
-        // 同一棵树、同一份条目、同一个几何，只换这一个开关 —— 于是这一格里有墨没墨
-        // 就只可能是那个开关干的。两条一起看才说明问题：叶子那格**空**（用户要的），
-        // 顶层那行那格**照旧有墨**（那个开关没管到它，加载器那一条还得能展开）。
+        // ④b 换成**叶子不写动词**那个代理（安装页那棵加载器树用的就是它）再抓一张：
+        // 顶层那行照旧写「收起」（那个开关没管到能展开的那一层）。
         probe.setItemDelegate(new VersionTreeDelegate(&probe, /*leafArrow=*/false));
         QApplication::processEvents();
         const QImage noLeafArrowShot = captureWidget(probe.viewport());
         check(inkCount(noLeafArrowShot, arrowBox(1)) == 0,
-              "★ 叶子那一层**不画**行尾那个 >（加载器树那层没有下拉框）—— 那一格一格墨都没有",
+              "★ 叶子那一层行尾什么都不写（加载器树那层没有下一页）",
               QStringLiteral("墨点 %1").arg(inkCount(noLeafArrowShot, arrowBox(1))));
         check(inkCount(noLeafArrowShot, arrowBox(0)) > 0,
-              "★ 顶层那一条照旧画箭头（它是真的能展开）—— 那个开关没管到分类/加载器那一层",
+              "★ 顶层那一条照旧写「展开 / 收起」（它是真的能展开）",
               QStringLiteral("墨点 %1").arg(inkCount(noLeafArrowShot, arrowBox(0))));
         check(inkCount(noLeafArrowShot, leafRow) > 0,
-              "叶子那一行别的内容一个没少（只少了右边那个 >）",
+              "叶子那一行别的内容一个没少",
               QString::number(inkCount(noLeafArrowShot, leafRow)));
-        // 把代理换回**原来那个**（叶子照画箭头）再往下走 —— 下面 ⑤ 那一段量的就是
-        // "叶子那格原本长什么样、加了叉之后动没动"，换了代理它就不是同一个东西了。
+        // 把代理换回**原来那个**再往下走 —— 下面 ⑤ 那一段量的就是同一个代理。
         probe.setItemDelegate(new VersionTreeDelegate(&probe, /*leafArrow=*/true));
         QApplication::processEvents();
 
@@ -287,7 +278,7 @@ int UiVersionTreeGeometryChecks(QMainWindow &window, QTreeWidget * &versionTree)
         const QRect clearBox = VersionTreeDelegate::clearRect(leafRow);
         check(!clearBox.isNull() && clearBox.right() < arrowBox(1).left() &&
                   clearBox.width() >= arrowSize,
-              "那个叉算得出来、正好落在箭头左边那一格（和箭头不重叠）",
+              "那个叉算得出来、正好落在行尾文字左边那一格（和它不重叠）",
               QStringLiteral("%1x%2 @x=%3（箭头 @x=%4）")
                   .arg(clearBox.width())
                   .arg(clearBox.height())
@@ -311,12 +302,8 @@ int UiVersionTreeGeometryChecks(QMainWindow &window, QTreeWidget * &versionTree)
               QStringLiteral("墨点 %1").arg(clearInk));
         check(!bbCross.isNull() && bbCross.height() <= bbCross.width() + 1 &&
                   bbCross.width() >= 5,
-              "★ 那一格画的是个叉（宽高差不多、不是细高的一条）—— 和右边那个 > 分得开",
-              QStringLiteral("叉 %1x%2 / 箭头 %3x%4")
-                  .arg(bbCross.width())
-                  .arg(bbCross.height())
-                  .arg(bbLeafArrow.width())
-                  .arg(bbLeafArrow.height()));
+              "★ 那一格画的是个叉（宽高差不多、不是细高的一条）",
+              QStringLiteral("叉 %1x%2").arg(bbCross.width()).arg(bbCross.height()));
         // 悬停在那**一格**上弹「取消」（和左栏那个刷新圈走的是同一条路：几何都由
         // VersionTreeDelegate 给，文案在 MainWindowUI 里 —— 见 rowActionTip()）。
         // NOTE: 下标要从分类往下点一层（`model()->index(0,0)` 是**顶层第 1 条**，
@@ -352,14 +339,10 @@ int UiVersionTreeGeometryChecks(QMainWindow &window, QTreeWidget * &versionTree)
                   QString("拿到「%1」").arg(elsewhere));
             QToolTip::hideText();
         }
-        // 右边那个 > 还在（叉是**加在**它左边的，不是把它顶掉了）。
-        check(inkBBox(clearShot, arrowBox(1)) == bbLeafArrow,
-              "★ 加了叉之后右边那个 > 一点没动（叉是加在它左边那一格里的）",
-              QStringLiteral("%1x%2@%3,%4 vs %5x%6@%7,%8")
-                  .arg(bbCross.width()).arg(bbCross.height())
-                  .arg(bbCross.x()).arg(bbCross.y())
-                  .arg(bbLeafArrow.width()).arg(bbLeafArrow.height())
-                  .arg(bbLeafArrow.x()).arg(bbLeafArrow.y()));
+        // 叉是**加在**行尾那格左边的：行尾那格（叶子、不悬停）照旧是空的，没被叉压到。
+        check(inkCount(clearShot, arrowBox(1)) == 0,
+              "★ 加了叉之后行尾那格照旧是空的（叉在它左边那一格里）",
+              QStringLiteral("墨点 %1").arg(inkCount(clearShot, arrowBox(1))));
         // 那一格是从**文字**里扣出来的（不是压着版本号画的）：带标记的那一行要宽一点。
         // 量的是代理的 sizeHint —— 用户真会看到的那一列宽度就是它说了算。
         {
