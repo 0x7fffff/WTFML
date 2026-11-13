@@ -45,7 +45,7 @@ public:
 
     static constexpr int kTimeoutMs = 4000;
     static constexpr int kBodyLimit = 8 * 1024;
-    /// 一次启动最多发几个请求：一言 2 发（主 + 备），英文 3 发（ZenQuotes 今天 + 两次随机）。
+    /// 一次启动最多发几个请求：一言 3 发（主 → 备 → 回主再要一次），英文 3 发（今天 + 两次随机）。
     static constexpr int kMaxRequests = 5;
 
 private:

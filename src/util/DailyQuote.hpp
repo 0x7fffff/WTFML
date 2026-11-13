@@ -1,7 +1,7 @@
 #pragma once
 /**
  * @file DailyQuote.hpp
- * @brief 主页「每日一言」的判据层：语种/限长/日期选题、三种接口的解析、缓存与句子池的序列化。
+ * @brief 主页「每日一言」的判据层：语种/限长/日期选题、两种接口的解析、缓存与句子池的序列化。
  *
  * 这一层**不联网、不碰界面**，只吃字节、吐结构：请求怎么发在
  * `controllers/DailyQuoteController`，字怎么画在 `ui/MainWindowUI` 与 `Theme::quoteFont()`。
@@ -11,6 +11,7 @@
  * - 语种按本地日期定，当天不变：`(julianDay * 2654435761u) % 100 < 60` 是英文日，其余是一言日。
  * - 限长分档：含假名 ≤30 字、含汉字无假名 ≤24 字、纯拉丁 ≤80 字符；硬上限 128 字符、响应体 8 KiB。
  * - 回退顺序：同语种其他站点 → 最近成功句子池（同语种按日取一条）→ 内置 36 条。
+ * - 英文日只有 ZenQuotes 一个站：抽到的诗集残句不能用，2026-11-13 只留这一个来源。
  */
 
 #include <QDate>
@@ -25,12 +26,12 @@ namespace DailyQuote {
 enum class Script { Latin, Han, Kana };
 
 /// 句子从哪来。只用于句子池与日志，界面上不写站名。
-enum class Origin { Hitokoto, ZenQuotes, PoetryDb, Fallback };
+enum class Origin { Hitokoto, ZenQuotes, Fallback };
 
 struct Quote {
     QString text;    ///< 正文
     QString author;  ///< 作者，可能为空（一言的 `from_who` 就是 nullable）
-    QString source;  ///< 出处，可能为空（一言 `from` / PoetryDB `title`；ZenQuotes 没有）
+    QString source;  ///< 出处，可能为空（一言 `from`；ZenQuotes 没有）
     Script script = Script::Latin;
     Origin origin = Origin::Fallback;
 
@@ -53,22 +54,13 @@ quint32 julianDay(const QDate &date);
 /// 英文日（60%）：`(julianDay * 2654435761u) % 100 < 60`。
 bool englishDay(const QDate &date);
 
-/// 英文站点的先后（0..count-1 的一个排列），按日期定、同一天不变。
-QVector<int> englishOrder(const QDate &date, int count);
-
-// ---------------- 三种响应 ----------------
+// ---------------- 两种响应 ----------------
 
 /// 一言：`{hitokoto, from, from_who}`，`from_who` 可为 null。
 Quote parseHitokoto(const QByteArray &body);
 
 /// ZenQuotes：`[{q, a}]`。不判长度（调用方按 80 字符决定要不要换 `/api/random`）。
 Quote parseZenQuotes(const QByteArray &body);
-
-/// PoetryDB：`[{title, author, lines:[...]}]`。按取行规则挑一行，挑不到返回无效句。
-Quote parsePoetryDb(const QByteArray &body);
-
-/// PoetryDB 的单行判据：以 `.` `!` `?` 结尾、20–80 字符、首字母大写。挑不到返回空串。
-QString poetryLine(const QJsonArray &lines);
 
 // ---------------- 缓存与句子池 ----------------
 

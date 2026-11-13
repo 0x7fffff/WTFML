@@ -49,7 +49,6 @@ Origin originFromInt(int value) {
     switch (value) {
     case int(Origin::Hitokoto): return Origin::Hitokoto;
     case int(Origin::ZenQuotes): return Origin::ZenQuotes;
-    case int(Origin::PoetryDb): return Origin::PoetryDb;
     default: return Origin::Fallback;
     }
 }
@@ -84,24 +83,6 @@ quint32 julianDay(const QDate &date) { return quint32(date.toJulianDay()); }
 /// 会换成另一个语种，而"哪天是英文日"由 verify 的 DQ20–DQ23 钉着。
 bool englishDay(const QDate &date) { return (julianDay(date) * 2654435761u) % 100u < 60u; }
 
-QVector<int> englishOrder(const QDate &date, int count) {
-    QVector<int> order;
-    for (int i = 0; i < count; ++i) order.append(i);
-    if (count <= 1) return order;
-    const quint32 day = (julianDay(date) * 2246822519u) % quint32(count);
-    const int start = int(day);
-    const int step = int((julianDay(date) * 2654435761u) % quint32(count - 1)) + 1;
-    int cursor = start;
-    QVector<int> walked;
-    for (int i = 0; i < count; ++i) {
-        walked.append(cursor);
-        cursor = (cursor + step) % count;
-    }
-    for (int i = 0; i < count; ++i)
-        if (!walked.contains(i)) walked.append(i);
-    return walked;
-}
-
 Quote parseHitokoto(const QByteArray &body) {
     Quote quote;
     const QJsonObject object = QJsonDocument::fromJson(body).object();
@@ -124,32 +105,6 @@ Quote parseZenQuotes(const QByteArray &body) {
     quote.author = clean(object.value(QStringLiteral("a")).toString());
     quote.script = scriptOf(quote.text);
     quote.origin = Origin::ZenQuotes;
-    if (!withinHardLimit(quote.text)) return Quote{};
-    return quote;
-}
-
-QString poetryLine(const QJsonArray &lines) {
-    for (const QJsonValue &value : lines) {
-        const QString text = clean(value.toString());
-        if (text.size() < 20 || text.size() > 80) continue;
-        const QChar last = text.at(text.size() - 1);
-        if (last != QLatin1Char('.') && last != QLatin1Char('!') && last != QLatin1Char('?')) continue;
-        if (!text.at(0).isUpper()) continue;
-        return text;
-    }
-    return QString();
-}
-
-Quote parsePoetryDb(const QByteArray &body) {
-    Quote quote;
-    const QJsonArray array = QJsonDocument::fromJson(body).array();
-    if (array.isEmpty()) return quote;
-    const QJsonObject object = array.first().toObject();
-    quote.text = poetryLine(object.value(QStringLiteral("lines")).toArray());
-    quote.author = clean(object.value(QStringLiteral("author")).toString());
-    quote.source = clean(object.value(QStringLiteral("title")).toString());
-    quote.script = scriptOf(quote.text);
-    quote.origin = Origin::PoetryDb;
     if (!withinHardLimit(quote.text)) return Quote{};
     return quote;
 }
@@ -221,10 +176,10 @@ Quote fromJson(const QJsonObject &object) {
 }
 
 const QVector<Quote> &fallbackQuotes() {
-    // 开发时从 hitokoto / ZenQuotes / PoetryDB 抽样，只按长度挑，不做口吻过滤。
-    // 英文 22（ZenQuotes 9 + PoetryDB 13）/ 中文 10 / 日文 4，每条都过得了 maxLength()。
+    // 开发时从 hitokoto / ZenQuotes 抽样，只按长度挑，不做口吻过滤。
+    // 英文 22（全部 ZenQuotes，每条 ≤80 字符）/ 中文 10 / 日文 4，每条都过得了 maxLength()。
     static const QVector<Quote> quotes = {
-        // ---- 英文 ----
+        // ---- 英文（ZenQuotes） ----
         {QStringLiteral("Insanity is relative. It depends on who has who locked in what cage."),
          QStringLiteral("Ray Bradbury"), QString(), Script::Latin, Origin::ZenQuotes},
         {QStringLiteral("Supreme excellence consists of breaking the enemy's resistance without fighting."),
@@ -237,54 +192,38 @@ const QVector<Quote> &fallbackQuotes() {
          QStringLiteral("Paulo Coelho"), QString(), Script::Latin, Origin::ZenQuotes},
         {QStringLiteral("The Only Thing That Is Constant Is Change"),
          QStringLiteral("Heraclitus"), QString(), Script::Latin, Origin::ZenQuotes},
-        {QStringLiteral("Fools are my theme, let Satire be my song."),
-         QStringLiteral("George Gordon, Lord Byron"),
-         QStringLiteral("English Bards, and Scotch Reviewers"), Script::Latin, Origin::PoetryDb},
-        {QStringLiteral("I know I should be happy with them."),
-         QStringLiteral("Walt Whitman"), QStringLiteral("This Moment, Yearning and Thoughtful"),
-         Script::Latin, Origin::PoetryDb},
-        {QStringLiteral("But the benches are crammed, like a garden in flower."),
-         QStringLiteral("George Gordon, Lord Byron"), QStringLiteral("The Blues: A Literary Eclogue"),
-         Script::Latin, Origin::PoetryDb},
-        {QStringLiteral("She makes her own face, and does not make her rhymes."),
-         QStringLiteral("George Gordon, Lord Byron"), QStringLiteral("From the French"),
-         Script::Latin, Origin::PoetryDb},
-        {QStringLiteral("O'er his uncertain shadow droops the day."),
-         QStringLiteral("Lord Alfred Tennyson"), QStringLiteral("The Progress of Spring"),
-         Script::Latin, Origin::PoetryDb},
-        {QStringLiteral("O SUN of real peace! O hastening light!"),
-         QStringLiteral("Walt Whitman"), QStringLiteral("O Sun of Real Peace"),
-         Script::Latin, Origin::PoetryDb},
-        {QStringLiteral("And the moon no cloud is staining."),
-         QStringLiteral("Percy Bysshe Shelley"), QStringLiteral("Fragment: A Roman's Chamber"),
-         Script::Latin, Origin::PoetryDb},
-        {QStringLiteral("It is an hour before the hour of dawn."),
-         QStringLiteral("Algernon Charles Swinburne"), QStringLiteral("Tiresias"),
-         Script::Latin, Origin::PoetryDb},
-        {QStringLiteral("That other, where we see as we are seen!"),
-         QStringLiteral("Lord Alfred Tennyson"), QStringLiteral("Geraint and Enid"),
-         Script::Latin, Origin::PoetryDb},
-        {QStringLiteral("Barefoot boy, with cheek of tan!"),
-         QStringLiteral("John Greenleaf Whittier"), QStringLiteral("The Barefoot Boy"),
-         Script::Latin, Origin::PoetryDb},
-        {QStringLiteral("On what wings of the terror of darkness he rideth?"),
-         QStringLiteral("William Morris"), QStringLiteral("Song VI: Cherish Life that Abideth"),
-         Script::Latin, Origin::PoetryDb},
-        {QStringLiteral("Above is death--and we are death."),
-         QStringLiteral("Percy Bysshe Shelley"), QStringLiteral("Death"),
-         Script::Latin, Origin::PoetryDb},
-        {QStringLiteral("To eat the world's due, by the grave and thee."),
-         QStringLiteral("William Shakespeare"), QStringLiteral("Sonnet 1"),
-         Script::Latin, Origin::PoetryDb},
-        {QStringLiteral("All silent, and all--damned!"),
-         QStringLiteral("Percy Bysshe Shelley"),
-         QStringLiteral("Peter Bell the Third"), Script::Latin, Origin::PoetryDb},
-        {QStringLiteral("Naming me the fifty poems finished!"),
-         QStringLiteral("Robert Browning"), QStringLiteral("One Word More: To E.B.B."),
-         Script::Latin, Origin::PoetryDb},
-        {QStringLiteral("So far between my pleasures are and few."),
-         QStringLiteral("Christina Rossetti"), QStringLiteral("Monna Innominata"),
-         Script::Latin, Origin::PoetryDb},
+        {QStringLiteral("Education breeds confidence. Confidence breeds hope. Hope breeds peace."),
+         QStringLiteral("Confucius"), QString(), Script::Latin, Origin::ZenQuotes},
+        {QStringLiteral("True love stories never have endings."),
+         QStringLiteral("Richard Bach"), QString(), Script::Latin, Origin::ZenQuotes},
+        {QStringLiteral("You make your own luck if you stay at it long enough."),
+         QStringLiteral("Naval Ravikant"), QString(), Script::Latin, Origin::ZenQuotes},
+        {QStringLiteral("We are shaped and fashioned by what we love."),
+         QStringLiteral("Johann Wolfgang von Goethe"), QString(), Script::Latin, Origin::ZenQuotes},
+        {QStringLiteral("To lead an orchestra, you must turn your back on the crowd."),
+         QStringLiteral("Aristotle"), QString(), Script::Latin, Origin::ZenQuotes},
+        {QStringLiteral("Throw me to the wolves and I will return leading the pack."),
+         QStringLiteral("Seneca"), QString(), Script::Latin, Origin::ZenQuotes},
+        {QStringLiteral("It's okay to be discouraged. It's not okay to quit."),
+         QStringLiteral("Ryan Holiday"), QString(), Script::Latin, Origin::ZenQuotes},
+        {QStringLiteral("All know the way; few actually walk it."),
+         QStringLiteral("Bodhidharma"), QString(), Script::Latin, Origin::ZenQuotes},
+        {QStringLiteral("What we desire makes us vulnerable."),
+         QStringLiteral("Ryan Holiday"), QString(), Script::Latin, Origin::ZenQuotes},
+        {QStringLiteral("Be confident, not certain."),
+         QStringLiteral("Eleanor Roosevelt"), QString(), Script::Latin, Origin::ZenQuotes},
+        {QStringLiteral("We have a choice everyday regarding the attitude we will embrace for that day."),
+         QStringLiteral("Charles Swindoll"), QString(), Script::Latin, Origin::ZenQuotes},
+        {QStringLiteral("Motivation is what gets you started. Habit is what keeps you going."),
+         QStringLiteral("Jim Rohn"), QString(), Script::Latin, Origin::ZenQuotes},
+        {QStringLiteral("Everything flows, nothing stands still."),
+         QStringLiteral("Heraclitus"), QString(), Script::Latin, Origin::ZenQuotes},
+        {QStringLiteral("A hut full of laughter is richer than a palace full of sadness."),
+         QStringLiteral("Zen Proverb"), QString(), Script::Latin, Origin::ZenQuotes},
+        {QStringLiteral("Success is never final; failure is never fatal."),
+         QStringLiteral("Conrad Hilton"), QString(), Script::Latin, Origin::ZenQuotes},
+        {QStringLiteral("Imagination is more important than knowledge."),
+         QStringLiteral("Albert Einstein"), QString(), Script::Latin, Origin::ZenQuotes},
         // ---- 中文 ----
         {QStringLiteral("把半生的将就，换成那自由。"),
          QStringLiteral("王健美"), QStringLiteral("山风山风等等我"), Script::Han, Origin::Hitokoto},

@@ -7,7 +7,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 
-/// 「每日一言」判据层的脱网单测：语种、限长、按日期选题、三种 JSON 的解析、缓存与句子池、
+/// 「每日一言」判据层的脱网单测：语种、限长、按日期选题、两种 JSON 的解析、缓存与句子池、
 /// 36 条兜底。一个网络请求都不发 —— 喂的全是写死的字节。
 void runDailyQuoteTests() {
     using namespace DailyQuote;
@@ -56,19 +56,7 @@ void runDailyQuoteTests() {
     // 同一天算两次必须一样（界面上重启不能换语种）。
     check(englishDay(day("2026-11-13")) == englishDay(day("2026-11-13")), "DQ24 同一天两次算出来一致");
 
-    // ---- 英文站点的先后 ----
-    for (const char *iso : {"2026-11-13", "2026-11-14", "2026-11-15", "2027-01-01"}) {
-        const QVector<int> order = englishOrder(day(iso), 2);
-        const bool permuted = order.size() == 2 && order.contains(0) && order.contains(1);
-        check(permuted, QStringLiteral("DQ25 %1 的站点先后是 0/1 的一个排列")
-                            .arg(QString::fromLatin1(iso)),
-              QStringLiteral("%1,%2").arg(order.value(0)).arg(order.value(1)));
-    }
-    check(englishOrder(day("2026-11-13"), 1) == QVector<int>{0}, "DQ26 只启用一个站点时先后就是它自己");
-    check(englishOrder(day("2026-11-13"), 2) == englishOrder(day("2026-11-13"), 2),
-          "DQ27 同一天的站点先后不变");
-
-    section(QStringLiteral("DQ 三种响应：一言 / ZenQuotes / PoetryDB"));
+    section(QStringLiteral("DQ 两种响应：一言 / ZenQuotes"));
 
     // ---- 一言（from_who 为 null 是真实返回里就有的一种） ----
     const QByteArray hitokoto =
@@ -96,27 +84,6 @@ void runDailyQuoteTests() {
     check(zq.origin == Origin::ZenQuotes, "DQ38 ZenQuotes：来源标对");
     check(!parseZenQuotes(QByteArrayLiteral("[]")).isValid(), "DQ39 ZenQuotes：空数组 → 无效");
     check(!parseZenQuotes(QByteArrayLiteral("{}")).isValid(), "DQ40 ZenQuotes：对象而不是数组 → 无效");
-
-    // ---- PoetryDB（按行挑） ----
-    const QJsonArray lines = QJsonArray{
-        QStringLiteral("and then the moon rose over the hill."),  // 小写开头
-        QStringLiteral("short line."),                            // 太短
-        QStringLiteral("And muche more; for little heaviness"),   // 没有句末标点
-        QStringLiteral("Fools are my theme, let Satire be my song."),  // ✓
-        QStringLiteral("And muche more; for little heaviness"),        // 没有句末标点
-    };
-    check(poetryLine(lines) == QStringLiteral("Fools are my theme, let Satire be my song."),
-          "DQ41 PoetryDB 取行：句末标点 + 20–80 字 + 首字母大写");
-    check(poetryLine(QJsonArray{QStringLiteral("short line.")}) .isEmpty(), "DQ42 一首里挑不到 → 空串（调用方换一首）");
-    const QByteArray poetry =
-        R"([{"title":"English Bards","author":"Lord Byron","lines":["THE PROLOGUE.","Fools are my theme, let Satire be my song.","And muche more;"]}])";
-    const Quote pq = parsePoetryDb(poetry);
-    check(pq.isValid() && pq.text == QStringLiteral("Fools are my theme, let Satire be my song."),
-          "DQ43 PoetryDB：从 lines 里挑出一行");
-    check(pq.author == QStringLiteral("Lord Byron") && pq.source == QStringLiteral("English Bards"),
-          "DQ44 PoetryDB：作者 = author，出处 = title");
-    check(!parsePoetryDb(QByteArrayLiteral("[]")).isValid(), "DQ45 PoetryDB：空数组 → 无效");
-    check(!parsePoetryDb(QByteArrayLiteral("[{\"lines\":[]}]")).isValid(), "DQ46 PoetryDB：一行都挑不到 → 无效");
 
     section(QStringLiteral("DQ 当天缓存、句子池、兜底与署名"));
 

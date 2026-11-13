@@ -1,11 +1,14 @@
-// 主页「每日一言」的离屏样张：四主题 × 1280/900 × 零实例/有实例 × 中/英/日。
+// 主页「每日一言」的离屏样张：深色 / 青瓷 × 1280x800 与 900x620 × 有实例 × 中/英/日，
+// 另出设置页那一个开关所在的一行。
 // 用法：QT_QPA_PLATFORM=offscreen ui_check_daily_quote_shots <输出目录>
 // 不进 ctest（和 ui_check_settings_shots 同一个路数）：它只出图，不做断言。
 #include "Support.hpp"
 
 #include "MainWindowUI.hpp"
+#include "SettingsPageParts.hpp"
 #include "Theme.hpp"
 
+#include <QCheckBox>
 #include <QDir>
 #include <QFile>
 #include <QFontDatabase>
@@ -51,48 +54,55 @@ int UiDailyQuoteShots(QApplication &app) {
         const char *key;
         QSize size;
     };
-    const QVector<Scope> scopes = {{"1280", QSize(1280, 800)}, {"900", QSize(900, 700)}};
+    const QVector<Scope> scopes = {{"1280", QSize(1280, 800)}, {"900", QSize(900, 620)}};
 
     int saved = 0;
-    for (const QString &preset : {QStringLiteral("dark"), QStringLiteral("emerald"),
-                                  QStringLiteral("ocean"), QStringLiteral("system")}) {
+    for (const QString &preset : {QStringLiteral("dark"), QStringLiteral("emerald")}) {
         Theme::setSpec(Theme::presetSpec(preset));
         Theme::apply(app);
         for (const Scope &scope : scopes) {
-            for (const bool withInstance : {false, true}) {
-                for (const Sample &sample : samples) {
-                    QMainWindow window;
-                    MainWindowUI ui(&window);
-                    window.resize(scope.size);
-                    window.show();
-                    if (withInstance) {
-                        MainWindowUI::HomeQuickItem item;
-                        item.key = QStringLiteral("demo");
-                        item.name = QStringLiteral("1.21.4 Fabric");
-                        item.detail = QStringLiteral("Fabric 0.16.9 · 1.21.4");
-                        item.current = true;
-                        ui.setHomeQuickRows({item}, {item}, {item});
-                    } else {
-                        MainWindowUI::HomeQuickItem empty;
-                        empty.key = QStringLiteral("none");
-                        empty.name = QStringLiteral("还没有实例");
-                        empty.empty = true;
-                        empty.current = true;
-                        ui.setHomeQuickRows({empty}, {}, {});
-                    }
-                    ui.setHomeHeroQuote(sample.text, sample.tip, sample.script);
-                    app.processEvents();
-                    const QString file = QDir(out).filePath(
-                        QStringLiteral("r71-%1-%2-%3-%4.png")
-                            .arg(preset, QString::fromLatin1(scope.key),
-                                 withInstance ? QStringLiteral("instance") : QStringLiteral("empty"),
-                                 QString::fromLatin1(sample.key)));
-                    if (window.grab().save(file)) ++saved;
-                    window.hide();
-                }
+            for (const Sample &sample : samples) {
+                QMainWindow window;
+                MainWindowUI ui(&window);
+                window.resize(scope.size);
+                window.show();
+                MainWindowUI::HomeQuickItem item;
+                item.key = QStringLiteral("demo");
+                item.name = QStringLiteral("1.21.4 Fabric");
+                item.detail = QStringLiteral("Fabric 0.16.9 · 1.21.4");
+                item.current = true;
+                ui.setHomeQuickRows({item}, {item}, {item});
+                ui.setHomeHeroQuote(sample.text, sample.tip, sample.script);
+                app.processEvents();
+                const QString file = QDir(out).filePath(
+                    QStringLiteral("r71-%1-%2-%3.png")
+                        .arg(preset, QString::fromLatin1(scope.key), QString::fromLatin1(sample.key)));
+                if (window.grab().save(file)) ++saved;
+                window.hide();
             }
         }
+        // 设置页那个开关：切到「个性化」、把「每日一言」那一行滚进视野，只抓那一行。
+        {
+            QMainWindow window;
+            MainWindowUI ui(&window);
+            window.resize(1280, 800);
+            window.show();
+            ui.getTabWidget()->setCurrentIndex(MainWindowUI::settingsTabIndex());
+            ui.showSettingsCategory(QStringLiteral("look"), QStringLiteral("每日一言"));
+            auto *check = window.findChild<QCheckBox *>(MainWindowUI::dailyQuoteCheckName());
+            if (check != nullptr) check->setChecked(true);
+            app.processEvents();
+            app.processEvents();
+            QWidget *row = check;
+            while (row != nullptr && qobject_cast<SettingsParts::SettingsRow *>(row) == nullptr)
+                row = row->parentWidget();
+            const QString file = QDir(out).filePath(
+                QStringLiteral("r71-%1-settings-switch.png").arg(preset));
+            if (row != nullptr && row->grab().save(file)) ++saved;
+            else std::printf("FAIL save %s" "\n", qPrintable(file));
+            window.hide();
+        }
     }
-    std::printf("daily-quote shots: %d saved to %s\n", saved, qPrintable(out));
-    return saved == 48 ? 0 : 1;
+    std::printf("daily-quote shots: %d saved to %s" "\n", saved, qPrintable(out));
+    return saved == 13 ? 0 : 1;
 }

@@ -121,7 +121,7 @@ PNG、BMP、WebP 等格式的头部信息可能声明超大分辨率，引发解
 
 | 项 | 上限 / 约束 |
 | --- | --- |
-| 目标站点 | `v1.hitokoto.cn`（备用 `international.v1.hitokoto.cn`）、`zenquotes.io`、`poetrydb.org`，三站之外不发 |
+| 目标站点 | `v1.hitokoto.cn`（备用 `international.v1.hitokoto.cn`）、`zenquotes.io`；英文日只有 ZenQuotes，两站之外不发 |
 | 方法 / 头 | 只有 GET；`User-Agent: WTFML-Launcher`、`Accept: application/json`；不带账号、Cookie 或任何用户标识 |
 | 频率 | 每天至多一次成功取句（当天有缓存就不发）；一次启动最多 5 个请求 |
 | 响应体 | 8 KiB（`RequestBudget::ControlGet` 的正文上限，超了当场 abort） |

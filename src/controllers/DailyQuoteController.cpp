@@ -3,9 +3,7 @@
 #include "net/ControlGet.hpp"
 #include "settings/LauncherSettings.hpp"
 
-#include <QJsonArray>
 #include <QJsonDocument>
-#include <QJsonObject>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
@@ -21,19 +19,9 @@ constexpr const char kPoolKey[] = "Quote/Pool";
 
 constexpr const char kUserAgent[] = "WTFML-Launcher";
 
-/// 英文站点表：删掉一行就是停用（`enabled = false` 也行）。先后不写死在这儿，
-/// 由 `DailyQuote::englishOrder()` 按日期排。
-struct Source {
-    const char *name;
-    const char *url;
-    DailyQuote::Quote (*parse)(const QByteArray &);
-    bool enabled;
-    bool retryWithRandom;  ///< ZenQuotes：今天那句太长就再抽两次随机的
-};
-const Source kEnglishSources[] = {
-    {"zenquotes", "https://zenquotes.io/api/today", &DailyQuote::parseZenQuotes, true, true},
-    {"poetrydb", "https://poetrydb.org/random/1", &DailyQuote::parsePoetryDb, true, false},
-};
+/// 英文日只有一个站：ZenQuotes 的「今天」。太长（>80 字符）就在同一个站补抽随机的，
+/// 抽不到就走句子池 → 内置兜底，不再换别的站。
+constexpr const char kZenTodayUrl[] = "https://zenquotes.io/api/today";
 constexpr const char kZenRandomUrl[] = "https://zenquotes.io/api/random";
 constexpr const char kHitokotoUrl[] = "https://v1.hitokoto.cn/?encode=json&max_length=30";
 constexpr const char kHitokotoFallbackUrl[] =
@@ -135,16 +123,8 @@ void DailyQuoteController::request() {
     m_sent = 0;
     m_randomTries = 0;
     if (DailyQuote::englishDay(m_day)) {
-        QVector<int> enabled;
-        for (int i = 0; i < int(sizeof(kEnglishSources) / sizeof(kEnglishSources[0])); ++i)
-            if (kEnglishSources[i].enabled) enabled.append(i);
-        for (const int index : DailyQuote::englishOrder(m_day, enabled.size())) {
-            const Source &source = kEnglishSources[enabled.at(index)];
-            Step step;
-            step.url = QString::fromLatin1(source.url);
-            step.parse = source.parse;
-            m_steps.append(step);
-        }
+        m_steps.append(
+            Step{QString::fromLatin1(kZenTodayUrl), &DailyQuote::parseZenQuotes, false});
     } else {
         // 主域名 → 备用域名 → 再回主域名要一次：限长超了要"重取"，同一次启动最多 3 发
         // （一言不能指定语种，也不保证长度，多半要抽两三发才落一句进得了主页的）。
@@ -189,7 +169,7 @@ void DailyQuoteController::handleReply(QNetworkReply *reply, const QString &queu
         finish(quote);
         return;
     }
-    // ZenQuotes 的「今天」太长：同一个站点补抽随机的（最多两次）；别的失败一律换下一个站点。
+    // ZenQuotes 的「今天」太长：同一个站点补抽随机的（最多两次）；再不行就交给句子池 → 兜底。
     const bool zenToday = step.parse == &DailyQuote::parseZenQuotes && !step.random;
     if (zenToday && ok && m_randomTries < 2 && m_sent < kMaxRequests) {
         ++m_next;
