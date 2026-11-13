@@ -258,6 +258,8 @@ add_ui_module(ui_check_resource_packs modules/UiResourcePacksCheck.cpp UiResourc
 add_ui_module(ui_check_lifecycle modules/UiLifecycleCheck.cpp UiLifecycleCheck)
 add_ui_module(ui_check_ui_refresh modules/UiUiRefreshCheck.cpp UiUiRefreshCheck)
 add_ui_module(ui_check_theme modules/UiThemeCheck.cpp UiThemeCheck)
+add_ui_module(ui_check_daily_quote modules/UiDailyQuoteCheck.cpp UiDailyQuoteCheck)
+add_ui_module(ui_check_daily_quote_shots modules/UiDailyQuoteShots.cpp UiDailyQuoteShots)  # 样张，不进 ctest
 add_ui_module(ui_check_popups modules/UiPopupCheck.cpp UiPopupCheck)
 add_ui_module(ui_check_window_chrome modules/UiWindowChromeCheck.cpp UiWindowChromeCheck)
 add_ui_module(ui_check_armor_trim ArmorTrimChecks.cpp runArmorTrimChecks)
@@ -281,6 +283,12 @@ wtfml_add_test(NAME wtfml.ui-bootstrap COMMAND ui_check --bootstrap-check)
 set_tests_properties(wtfml.ui-bootstrap PROPERTIES LABELS "ui;compile" TIMEOUT 30
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}")
 wtfml_add_test(NAME wtfml.ui-refresh COMMAND ui_check_ui_refresh)
+wtfml_add_test(NAME wtfml.ui-daily-quote COMMAND ui_check_daily_quote)
+set_tests_properties(wtfml.ui-daily-quote PROPERTIES
+    LABELS "ui;theme"
+    TIMEOUT 60
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
 wtfml_add_test(NAME wtfml.install-layout COMMAND ui_check_install_layout)
 set_tests_properties(wtfml.install-layout PROPERTIES
     LABELS "ui;install"

@@ -146,9 +146,12 @@ void DailyQuoteController::request() {
             m_steps.append(step);
         }
     } else {
+        // 主域名 → 备用域名 → 再回主域名要一次：限长超了要"重取"，同一次启动最多 3 发
+        // （一言不能指定语种，也不保证长度，多半要抽两三发才落一句进得了主页的）。
         m_steps.append(Step{QString::fromLatin1(kHitokotoUrl), &DailyQuote::parseHitokoto, false});
         m_steps.append(
             Step{QString::fromLatin1(kHitokotoFallbackUrl), &DailyQuote::parseHitokoto, false});
+        m_steps.append(Step{QString::fromLatin1(kHitokotoUrl), &DailyQuote::parseHitokoto, false});
     }
     sendNext();
 }

@@ -114,3 +114,18 @@ PNG、BMP、WebP 等格式的头部信息可能声明超大分辨率，引发解
 - 凭据文件识别只覆盖精确 `.env`、`credentials*`、`token*`、`secret*`、`auth.*` 和少数证书后缀；`env`、`test.env` 等变体进入普通文本审批。
 - 大文本 `truncated=true` 时仍生成模型可读 artifact。artifact 只存本次读取窗口（默认 256 KB、最大 1 MB），脱敏未命中时仍可被 `artifact.read` 分段取回；工具文案"完整内容见 artifact"应改为"本次读取内容见 artifact"。
 - 日志自动读取仍可能带出 Windows 用户名、启动参数回显、绝对路径、显卡/驱动/音频设备等硬件指纹，留给 Stage 2 的日志/诊断字段投影处理。
+
+## 9. 主页「每日一言」的外部请求（2026-11-13）
+
+判据在 `src/util/DailyQuote.*`，请求在 `src/controllers/DailyQuoteController.*`。
+
+| 项 | 上限 / 约束 |
+| --- | --- |
+| 目标站点 | `v1.hitokoto.cn`（备用 `international.v1.hitokoto.cn`）、`zenquotes.io`、`poetrydb.org`，三站之外不发 |
+| 方法 / 头 | 只有 GET；`User-Agent: WTFML-Launcher`、`Accept: application/json`；不带账号、Cookie 或任何用户标识 |
+| 频率 | 每天至多一次成功取句（当天有缓存就不发）；一次启动最多 5 个请求 |
+| 响应体 | 8 KiB（`RequestBudget::ControlGet` 的正文上限，超了当场 abort） |
+| 单发超时 | 4 秒（排队与传输共用一个截止） |
+| 正文 | ≤128 字符、非空、按语种分档限长（假名 30 / 汉字 24 / 拉丁 80）；不合规当这一发失败 |
+| 写入 | 只写 `HKCU\Software\WTFML` 的 `Quote/Cache`、`Quote/Pool`（JSON 字符串）与开关 `Launcher/DailyQuote` |
+| 关掉开关 | 不发任何请求、主页不显示也不占位；在飞的请求当场掐掉 |

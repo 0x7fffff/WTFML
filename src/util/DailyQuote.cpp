@@ -79,6 +79,9 @@ bool fitsLength(const Quote &quote) {
 
 quint32 julianDay(const QDate &date) { return quint32(date.toJulianDay()); }
 
+/// NOTE: 这个乘法**是故意让它溢出回绕的**（quint32 × 2^32 取模）—— 规格里那个
+/// `(julianDay * 2654435761u) % 100` 就是 32 位上的算法。换成 64 位再取模，某些日子
+/// 会换成另一个语种，而"哪天是英文日"由 verify 的 DQ20–DQ23 钉着。
 bool englishDay(const QDate &date) { return (julianDay(date) * 2654435761u) % 100u < 60u; }
 
 QVector<int> englishOrder(const QDate &date, int count) {

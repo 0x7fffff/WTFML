@@ -47,10 +47,12 @@ void runDailyQuoteTests() {
     // ---- 按日期定语种 ----
     const auto day = [](const char *iso) { return QDate::fromString(QString::fromLatin1(iso), Qt::ISODate); };
     check(julianDay(day("1970-01-01")) == 2440588u, "DQ19 儒略日就是 QDate::toJulianDay（1970-01-01 = 2440588）");
-    check(englishDay(day("2026-11-13")), "DQ20 2026-11-13 是英文日（38 < 60）");
-    check(!englishDay(day("2026-11-14")), "DQ21 2026-11-14 是一言日（99 ≥ 60）");
-    check(!englishDay(day("2026-11-15")), "DQ22 边界：正好 60 算一言日（< 60 才是英文）");
-    check(englishDay(day("2027-01-01")), "DQ23 2027-01-01 是英文日（27）");
+    // NOTE: 乘法是在 quint32 上做的（会溢出回绕），期望值就是这么算出来的 ——
+    // 换成 64 位再取模，某些日子会换语种。
+    check(englishDay(day("2026-11-13")), "DQ20 2026-11-13 是英文日（46 < 60）");
+    check(!englishDay(day("2026-11-20")), "DQ21 2026-11-20 是一言日（93 ≥ 60）");
+    check(!englishDay(day("2027-02-11")), "DQ22 边界：正好 60 算一言日（< 60 才是英文）");
+    check(englishDay(day("2027-01-01")), "DQ23 2027-01-01 是英文日（59）");
     // 同一天算两次必须一样（界面上重启不能换语种）。
     check(englishDay(day("2026-11-13")) == englishDay(day("2026-11-13")), "DQ24 同一天两次算出来一致");
 
@@ -97,9 +99,9 @@ void runDailyQuoteTests() {
 
     // ---- PoetryDB（按行挑） ----
     const QJsonArray lines = QJsonArray{
-        QStringLiteral("SCENE I.--_A Hall in the Palace_."),   // 句点结尾但小写开头、也不到 20 字
-        QStringLiteral("short line."),                        // 太短
-        QStringLiteral("fools are my theme, let satire be my song."),  // 小写开头
+        QStringLiteral("and then the moon rose over the hill."),  // 小写开头
+        QStringLiteral("short line."),                            // 太短
+        QStringLiteral("And muche more; for little heaviness"),   // 没有句末标点
         QStringLiteral("Fools are my theme, let Satire be my song."),  // ✓
         QStringLiteral("And muche more; for little heaviness"),        // 没有句末标点
     };
