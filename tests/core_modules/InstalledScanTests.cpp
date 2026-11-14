@@ -1,5 +1,9 @@
 #include "Support.hpp"
 
+#include <QElapsedTimer>
+#include <QEventLoop>
+#include <QTimer>
+
 int runInstalledScanTests(const QString &sandbox) {
     section("J. 已安装版本扫描（认不出的要说）");
 
@@ -90,6 +94,65 @@ int runInstalledScanTests(const QString &sandbox) {
     vm.installedVersions(&afterCleanup);
     check(afterCleanup.isEmpty(), "J3 清理后不再有任何告警（下一次运行不会被污染）",
           QString::number(afterCleanup.size()));
+
+    section("K128. 后台扫盘：只认最新那一发、析构后不回调");
+    {
+        // `requestInstalledVersions()` 是版本清单从网络回来那条刷新的后台入口。两条
+        // 保证都在这里钉住：旧结果不许盖新结果、对象没了就不再回调。
+        const QString oldDir = QStringLiteral("后台扫盘-旧");
+        const QString newDir = QStringLiteral("后台扫盘-新");
+        QDir().mkpath(versionsRoot + "/" + oldDir);
+        writeFile(versionsRoot + "/" + oldDir + "/" + oldDir + ".jar");
+
+        VersionManager async;
+        int emissions = 0;
+        QStringList lastVersions;
+        QObject::connect(&async, &VersionManager::installedVersionsScanned, &async,
+                         [&emissions, &lastVersions](const QStringList &versions,
+                                                     const QStringList &) {
+                             ++emissions;
+                             lastVersions = versions;
+                         });
+        async.requestInstalledVersions(true);
+        // 第一发还在跑：趁它没回来把盘改掉，再发第二发 —— 第一发的结果已经过期。
+        QDir(versionsRoot + "/" + oldDir).removeRecursively();
+        QDir().mkpath(versionsRoot + "/" + newDir);
+        writeFile(versionsRoot + "/" + newDir + "/" + newDir + ".jar");
+        async.requestInstalledVersions(true);
+
+        QEventLoop loop;
+        QObject::connect(&async, &VersionManager::installedVersionsScanned, &loop,
+                         &QEventLoop::quit);
+        QTimer::singleShot(3000, &loop, &QEventLoop::quit);
+        loop.exec();
+        // 再多转一会儿：旧那一发要是也会回调，这一刻就露出来了。
+        QElapsedTimer settle;
+        settle.start();
+        while (settle.elapsed() < 300) {
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+        }
+        check(emissions == 1, "K128-1 连着发两次只回最新那一发（旧结果被代数丢掉）",
+              QString::number(emissions));
+        check(lastVersions.contains(newDir) && !lastVersions.contains(oldDir),
+              "K128-1 回来的那份是新那一发看到的结果", lastVersions.join(QStringLiteral(",")));
+        QDir(versionsRoot + "/" + newDir).removeRecursively();
+    }
+    {
+        // 析构之后在途的那一发：watcher 挂了、工作线程只持有取消旗，不许再回调。
+        auto *dying = new VersionManager();
+        int lateCalls = 0;
+        QObject::connect(dying, &VersionManager::installedVersionsScanned, dying,
+                         [&lateCalls](const QStringList &, const QStringList &) { ++lateCalls; });
+        dying->requestInstalledVersions(true);
+        delete dying;
+        QElapsedTimer settle;
+        settle.start();
+        while (settle.elapsed() < 500) {
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+        }
+        check(lateCalls == 0, "K128-2 对象析构之后在途那一发没有再回调",
+              QString::number(lateCalls));
+    }
 
     return 0;
 }

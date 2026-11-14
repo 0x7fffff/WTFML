@@ -36,7 +36,10 @@ QPixmap ThemeBackground::sourceImage() {
     m_sourceKey = key;
     // 先清空再读：读失败时**不能**留着上一张图（用户换了一张坏图，屏幕上还挂着他换掉的那
     // 一张，那是"换了没生效"）。
-    m_source = QPixmap(image.path);
+    //
+    // 解码走 `Theme::cachedImage()`：同一张图这时候多半已经被别的页 / 整窗底解过一次了，
+    // 不共享的话换一次主题就是同一份文件解四五遍（`路径|大小|修改时间` 是它的判据）。
+    m_source = QPixmap::fromImage(Theme::cachedImage(image.path));
     return m_source;
 }
 

@@ -56,6 +56,7 @@
 #include <QEvent>
 #include <QFont>
 #include <QHash>
+#include <QImage>
 #include <QJsonObject>
 #include <QPalette>
 #include <QRect>
@@ -931,6 +932,15 @@ struct PartImage {
     bool isSet() const { return !path.isEmpty(); }
 };
 PartImage partImage(Part part);
+
+/// 按盘上那张图解一份出来，**同一份文件只解一次**。
+///
+/// 判据是 `路径|文件大小|修改时间`：同一个路径换了另一张图时后两位会变。同一张背景图
+/// 可能被好几块 `ThemeBackground` 和整窗底（`Glass::Backdrop`）一起用，各解一次就是
+/// 同一份解码付好几遍（主题切换那一下最明显）。缓存按张数封顶，超了就丢最久没用的那张。
+///
+/// 读不出来（删了、挪走了、根本不是图片）返回空图，不报错 —— 调用方按"只有底色"处理。
+QImage cachedImage(const QString &path);
 
 /// 提示框四周那一层。**就是 `partBackground(Part::Scrim)`** —— 单独留一个名字是因为
 /// `OverlayHost::scrimColor()` 用这个名字。
