@@ -399,6 +399,10 @@ void InstanceSettingsDialog::buildLifecyclePage(const QString &key) {
                 refreshCheck->setObjectName(QStringLiteral("instanceUpgradeRecheck"));
                 refreshCheck->setAutoDefault(false);
                 Theme::markButton(refreshCheck, Theme::ButtonKind::Neutral);
+                // 点击转成对话框自己的一发信号：接的人在**这一页建出来之前**就 attach 了，
+                // 拿不到这颗按钮（见 .hpp 里 upgradeRecheckRequested()）。
+                connect(refreshCheck, &QPushButton::clicked, this,
+                        &InstanceSettingsDialog::upgradeRecheckRequested);
                 checkRow->addWidget(refreshCheck);
                 assessmentLayout->addLayout(checkRow);
                 auto *mods = new QTreeWidget(assessment);

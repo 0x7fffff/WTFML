@@ -399,13 +399,16 @@ QString InstanceSettingsDialog::maskedServerAddress(const QString &address) {
 }
 
 void InstanceSettingsDialog::setServerStatuses(const QList<ServerRowStatus> &statuses) {
+    // **先存再判空**：页是第一次切过去才建的（见 ensurePage()），这一份来得比页早 ——
+    // 存下来，`replayServerPage()` 建页时会照着它再摆一遍（那条注释成立的前提就是这一行
+    // 排在判空之前）。
+    m_serverStatuses = statuses;
     if (m_serverTree == nullptr) {
         return;
     }
     // 行数是"盘上那份 servers.dat"说了算，状态是"刚问回来的那一趟"说了算 —— 两边对不上
     // 时**按行来写**：多出来的状态丢掉，行多出来的那些回到「还没测」（不是留着上一次那几句
     // ——那些话配的是上一份列表的行）。两条都不越界。
-    m_serverStatuses = statuses;
     const int rows = m_serverTree->topLevelItemCount();
     for (int i = 0; i < rows; ++i) {
         QTreeWidgetItem *item = m_serverTree->topLevelItem(i);

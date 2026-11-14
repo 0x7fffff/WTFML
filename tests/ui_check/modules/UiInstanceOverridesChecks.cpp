@@ -1325,6 +1325,46 @@ int UiInstanceOverridesChecks() {
                   hintOf(dialog, Dlg::extraJvmArgsField()));
         }
 
+        // ---- U2b 防丢数据：启动页还没建出来时，那三问必须原样回去 ----
+        //
+        // 页是第一次切过去才建的（见 InstanceSettingsDialog::ensurePage()），而写盘那一侧
+        // 读的是 override() / appendJvmArgs() / warnJavaMismatch()。这几问要是"页没建就
+        // 给空"，用户打开设置、只改一个图标，盘上那几项覆盖（Java 路径 / 内存 / 额外参数 /
+        // 窗口）和版本提醒开关就被抹掉了 —— 界面上什么都看不出来，下一次启动才发现。
+        {
+            Dlg::Override current;
+            current.javaPath = QStringLiteral("D:/jdk21/bin/java.exe");
+            current.xmx = 6144;
+            current.xms = 2048;
+            current.extraJvmArgs = QStringLiteral("-XX:+UseG1GC");
+            current.windowMode = QStringLiteral("fullscreen");
+            current.windowWidth = 1600;
+            current.windowHeight = 900;
+            const QStringList append = {QStringLiteral("-Dfoo=bar baz"), QStringLiteral("-Xss2M")};
+            const QList<Dlg::WindowModeChoice> modes = {
+                {QStringLiteral("小窗"), QStringLiteral("windowed")},
+                {QStringLiteral("全屏"), QStringLiteral("fullscreen")}};
+            Dlg dialog(instanceDisplayName, instanceDirName, current, global, append, false, modes);
+            const auto sameAsDisk = [&dialog, &current, &append]() {
+                const Dlg::Override ov = dialog.override();
+                return ov.javaPath == current.javaPath && ov.xmx == current.xmx &&
+                       ov.xms == current.xms && ov.extraJvmArgs == current.extraJvmArgs &&
+                       ov.windowMode == current.windowMode && ov.windowWidth == current.windowWidth &&
+                       ov.windowHeight == current.windowHeight && !ov.autoMemory.has_value() &&
+                       dialog.appendJvmArgs() == append && !dialog.warnJavaMismatch();
+            };
+            // ① 一页都没切：启动页还没建出来。
+            check(sameAsDisk(),
+                  "★ U2b 启动页还没建出来时 override() / appendJvmArgs() / warnJavaMismatch() "
+                  "原样返回盘上那一份（不然改一下图标就把这几项覆盖抹了）",
+                  dialog.appendJvmArgs().join(QLatin1Char('|')));
+            // ② 切过去把页建出来：还是同一份。
+            dialog.showPage(Dlg::launchCategoryKey());
+            check(sameAsDisk(),
+                  "★ U2b 切到启动页（页建出来了）之后那三问还是同一份",
+                  dialog.appendJvmArgs().join(QLatin1Char('|')));
+        }
+
         // ---- U3 逐项切「自定义」：只有那一项进 Override ----
         {
             Dlg dialog(instanceDisplayName, instanceDirName, Dlg::Override(), global,

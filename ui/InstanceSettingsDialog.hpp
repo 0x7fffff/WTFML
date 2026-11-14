@@ -1753,6 +1753,14 @@ signals:
     void updateWizardRequested();
     void stopUpgradeQueryRequested();
 
+    /// 用户按了「升级」那一页上的「重新检查」（那颗按钮在页里，见 buildLifecyclePage()）。
+    ///
+    /// NOTE: 转成这一发是因为**页是第一次切过去才建的**：接的人（`UpgradeAssessment`）
+    /// 在开页那一刻就 attach 了，那时那颗按钮还不存在，`findChild()` 摸到的是空的 ——
+    /// 直接接按钮的 `clicked` 会静默接不上（点了什么都不发生）。和 `stopUpgradeQueryRequested`
+    /// 同一个做法：按钮在页里发，接的人在对话框上接。
+    void upgradeRecheckRequested();
+
     /// 用户按了「搬过去…」/「创建升级副本…」。**只发意图，不写盘**：路径闸、运不运
     /// 行、要不要问名字都在 controller 那一层。
     /// @param key `migration` / `upgrade`
