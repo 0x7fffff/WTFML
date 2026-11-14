@@ -313,7 +313,14 @@ void markRoundButton(QPushButton *button, const QString &icon, const QString &ti
         QString sheet = QStringLiteral("QPushButton { border-radius: 18px; padding: 0; }"
                                        "QPushButton:disabled { background-color: %1; }")
                             .arg(t.fillPress.name(QColor::HexArgb));
-        if (kind != Theme::ButtonKind::Primary) {
+        if (kind == Theme::ButtonKind::Primary) {
+            // 发送：本样式表盖掉了 markButton 给主按钮挂的控件级悬停 / 按下，这里按全局主按钮同一取法补回；
+            // 常态底和那 1px 同色边仍走应用级主按钮规则，不碰。
+            sheet += QStringLiteral("QPushButton:hover:enabled { background-color: %1; border-color: %1; }"
+                                    "QPushButton:pressed:enabled { background-color: %2; border-color: %2; }")
+                         .arg(Theme::primaryHoverFill().name(QColor::HexArgb),
+                              Theme::primaryPressedFill().name(QColor::HexArgb));
+        } else {
             // 中性圆钮（停止）：图标钮那条全局规则把底刷成透明（r104 真机只剩一个小空心框），
             // 这里自己给常态 / 悬停 / 按下三档底。fillPress 是「字色 × 9% 透明度」，按比例加深，
             // 深浅主题同一套取法；常态和禁用发送钮同底，两颗放一起是一套。

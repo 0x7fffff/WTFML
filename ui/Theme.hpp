@@ -285,6 +285,9 @@ constexpr int accentShadeCount() { return static_cast<int>(AccentShade::Count); 
 
 /// 某一档现在的色。**永远有效**（`Spec::accent` 认不出时退回当前预设那一支）。
 QColor accentShade(AccentShade shade);
+/// 主按钮（实心强调色）悬停 / 按下那一档的底：`markButton(Primary)` 和自画底的圆钮共用这一处。
+QColor primaryHoverFill();
+QColor primaryPressedFill();
 /// 冰川碧湖那一支主题色（挑色框里那行示例色）。出厂主题色不取这里，见 `defaultSpec()`。
 /// **全仓唯一出处。**
 QColor defaultAccentColor();

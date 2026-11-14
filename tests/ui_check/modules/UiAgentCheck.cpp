@@ -138,6 +138,27 @@ int UiAgentCheck() {
     page->composer()->setPlainText(QStringLiteral("你好"));
     QApplication::processEvents();
     check(send != nullptr && send->isEnabled(), "智能体 UI：配置 + 有文字后发送可用");
+    if (send != nullptr && composerRow != nullptr) {
+        // 110：发送钮悬停要有一档反馈（圆钮样式表曾盖掉主按钮的控件级悬停色）。离屏得手喂悬停进入 + 移动。
+        const auto sample = [&] {
+            const QImage row = composerRow->grab().toImage();
+            const QPoint at = send->mapTo(composerRow, QPoint(6, 18));  // 圆内、箭头外
+            return row.pixelColor((at.toPointF() * row.devicePixelRatio()).toPoint());
+        };
+        const QColor idle = sample();
+        send->setAttribute(Qt::WA_UnderMouse, true);
+        const QPointF at(send->rect().center());
+        QHoverEvent enter(QEvent::HoverEnter, at, send->mapToGlobal(at), QPointF(-1, -1));
+        QApplication::sendEvent(send, &enter);
+        QMouseEvent move(QEvent::MouseMove, at, send->mapToGlobal(at), Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+        QApplication::sendEvent(send, &move);
+        const QColor hovered = sample();
+        send->setAttribute(Qt::WA_UnderMouse, false);
+        QHoverEvent leave(QEvent::HoverLeave, at, send->mapToGlobal(at), at);
+        QApplication::sendEvent(send, &leave);
+        check(hovered != idle, "智能体 UI：发送钮悬停色和常态色不同",
+              QStringLiteral("常态 %1 / 悬停 %2").arg(idle.name(), hovered.name()));
+    }
     page->setStreaming(true);
     QApplication::processEvents();
     check(stop != nullptr && stop->isVisible() && !send->isVisible(),

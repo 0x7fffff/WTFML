@@ -1128,6 +1128,18 @@ int runPopups(QApplication &app, const ShotOptions &options) {
 
 /// `--agent-polish`（步骤 108）：发送钮禁用 / 可用（各带一张放大）、长标题 + 失败行、
 /// API 设置页「不认证」态（顶部 + 高级展开）。
+/// 离屏没有真鼠标：挂悬停位还不够，按钮自己记着「鼠标在不在形状里」，得喂一次悬停进入 + 移动才认
+/// （别 repolish，会把 36 的定高冲掉）。on=false 撤掉。
+void fakeHover(QWidget *w, bool on) {
+    w->setAttribute(Qt::WA_UnderMouse, on);
+    const QPointF at(w->rect().center());
+    QHoverEvent hover(on ? QEvent::HoverEnter : QEvent::HoverLeave, at, w->mapToGlobal(at), QPointF(-1, -1));
+    QApplication::sendEvent(w, &hover);
+    if (!on) return;
+    QMouseEvent move(QEvent::MouseMove, at, w->mapToGlobal(at), Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+    QApplication::sendEvent(w, &move);
+}
+
 int runAgentPolish(QApplication &app, const ShotOptions &options) {
     Theme::setSpec(Theme::presetSpec(options.theme));
     Theme::apply(app);
@@ -1180,7 +1192,16 @@ int runAgentPolish(QApplication &app, const ShotOptions &options) {
         if (composer != nullptr) composer->setPlainText(QStringLiteral("为什么启动就崩？"));
         pump();
         saveShot(app, window, options.out, prefix + QStringLiteral("send-enabled"), &saved);
-        if (send != nullptr) zoomOf(send, prefix + QStringLiteral("send-enabled-zoom"));
+        if (send != nullptr) {
+            zoomOf(send, prefix + QStringLiteral("send-enabled-zoom"));
+            zoomOf(send, prefix + QStringLiteral("send-hover-zoom"), [send] { fakeHover(send, true); });
+            if (auto *button = qobject_cast<QPushButton *>(send)) {
+                button->setDown(true);
+                zoomOf(send, prefix + QStringLiteral("send-pressed-zoom"));
+                button->setDown(false);
+            }
+            fakeHover(send, false);
+        }
         if (composer != nullptr) composer->clear();
 
         // 长标题 + 发送失败那一行（只在消息行上出一次，带「重试」）。
@@ -1210,22 +1231,11 @@ int runAgentPolish(QApplication &app, const ShotOptions &options) {
         saveShot(app, window, options.out, prefix + QStringLiteral("streaming"), &saved);
         if (auto *stop = agent->findChild<QPushButton *>(QStringLiteral("agentStopButton"))) {
             zoomOf(stop, prefix + QStringLiteral("stop-zoom"));
-            // 离屏没有真鼠标：手挂悬停位，:hover 在绘制时按它认（别 repolish，会把 36 的定高冲掉）。
-            zoomOf(stop, prefix + QStringLiteral("stop-hover-zoom"),
-                   [stop] {
-                       stop->setAttribute(Qt::WA_UnderMouse, true);
-                       // 按钮自己还记着「鼠标在不在按钮形状里」，得喂一次悬停进入 + 移动才认。
-                       const QPointF at(stop->rect().center());
-                       QHoverEvent enter(QEvent::HoverEnter, at, stop->mapToGlobal(at), QPointF(-1, -1));
-                       QApplication::sendEvent(stop, &enter);
-                       QMouseEvent move(QEvent::MouseMove, at, stop->mapToGlobal(at), Qt::NoButton, Qt::NoButton,
-                                        Qt::NoModifier);
-                       QApplication::sendEvent(stop, &move);
-                   });
+            zoomOf(stop, prefix + QStringLiteral("stop-hover-zoom"), [stop] { fakeHover(stop, true); });
             stop->setDown(true);
             zoomOf(stop, prefix + QStringLiteral("stop-pressed-zoom"));
             stop->setDown(false);
-            stop->setAttribute(Qt::WA_UnderMouse, false);
+            fakeHover(stop, false);
         }
         agent->setStreaming(false);
     }

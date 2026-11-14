@@ -1356,6 +1356,18 @@ constexpr const char kButtonKindFollowProperty[] = "wtfmlKindFollow";
 /// 主动作 / 危险这两档的**悬停与按下**用的是比底色再深一档的同色，而调色板里
 /// 只备得起"本色 / 亮一档 / 深一档"那几个通用档位。这两档的按钮一共几十颗，
 /// 所以走**控件级样式表**：只影响它们自己，不动整份应用样式表（那才是卡顿的来源）。
+QColor primaryHoverFill() {
+    const QColor pure = accentShade(AccentShade::Pure);
+    if (pure == tokens().primary) return tokens().primaryHover;  // 预设主题色：设计稿给的那一档
+    return isDark() ? pure.lighter(108) : pure.darker(108);
+}
+
+QColor primaryPressedFill() {
+    const QColor pure = accentShade(AccentShade::Pure);
+    if (pure == tokens().primary) return tokens().primaryPressed;
+    return isDark() ? pure.darker(108) : pure.darker(118);
+}
+
 QString kindButtonStyleSheet(const QString &kind) {
     // 设计稿：主按钮实心强调色 + on-accent 字；危险默认柔和淡红（悬停 α.22 / 按下 α.28）；
     // 实心暗哑红只给对话框里不可逆确认。按下一律固定色，不靠亮度滤镜。
@@ -1369,12 +1381,8 @@ QString kindButtonStyleSheet(const QString &kind) {
     const auto css = [](const QColor &c) { return c.name(QColor::HexArgb); };
     const auto alpha = [](QColor c, qreal a) { c.setAlphaF(a); return c; };
     if (kind == QLatin1String("primary")) {
-        const QColor pure = accentShade(AccentShade::Pure);
-        const bool preset = pure == t.primary;
-        const QColor hover = preset ? t.primaryHover : (isDark() ? pure.lighter(108) : pure.darker(108));
-        const QColor pressed = preset ? t.primaryPressed : (isDark() ? pure.darker(108) : pure.darker(118));
-        return block.arg(css(pure), css(t.onPrimary), css(hover), css(pressed), css(t.focus), css(t.subtle),
-                         css(t.disabled));
+        return block.arg(css(accentShade(AccentShade::Pure)), css(t.onPrimary), css(primaryHoverFill()),
+                         css(primaryPressedFill()), css(t.focus), css(t.subtle), css(t.disabled));
     }
     if (kind == QLatin1String("danger"))
         return block.arg(css(t.dangerSoft), css(t.danger), css(alpha(t.danger, .22)), css(alpha(t.danger, .28)),
