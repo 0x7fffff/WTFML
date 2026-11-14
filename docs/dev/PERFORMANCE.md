@@ -576,7 +576,7 @@ B 比 A 多做了一件事：纹饰页那十二个下拉框改成一个框一次
 
 拆开量过一次纹饰页的第一次进：搭这一片本身约 2 ms。搭好以后挪进滚动区那两次重挂父对象，或者先就地搭在滚动区里，样式表都要把整棵子树重新过一遍，都是 25 ms 上下。灌下拉表、显示、布局之后是 30 ms 上下。先就地搭再显示，总数和先搭后挪一样，所以没留那个改法。
 
-纹饰、旗帜两页第一次进时，在编译负载下会超过 50 ms 守卫，守卫会让这一趟以非零退出。它们不在允许名单上，名单也不许加。负载正常时多半在线内，但这里没量到空载数字。要压到线内，可以选空闲时分片预搭（每片 ≤16 ms），或者减少这两页的控件数。
+纹饰、旗帜两页第一次进时，在编译负载下会超过 50 ms 守卫，守卫会让这一趟以非零退出。空闲重量（2026-11-14，步骤 135；Release 探针，`-Runs 3 -Instances 20 -InstanceMods 60`；两轮分别记到开跑 45% / 37%、跑完 29% / 22% 的 `Win32_Processor.LoadPercentage`，没有 cc1plus、没有别的构建在跑）：`toolbox:tool:trim` 两轮各三趟 55.1 / 52.6 / 53.4 与 57.1 / 57.7 / 58.5 ms（中位 53.4、57.7）都在线上，按任务单进 `tools/perf-firstframe-allowlist.txt`（参考值 57.7，不进判定）；`toolbox:tool:banner` 两轮 42.3 / 39.8 / 39.6 与 41.0 / 38.7 / 40.9 ms（中位 39.8、40.9）在线内，没进名单。要把纹饰页压回线内，可以选空闲时分片预搭（每片 ≤16 ms），或者减少这一页的控件数。
 
 ### 实例文件页改成代理画行（2026-11-14，步骤 139）
 
@@ -589,7 +589,7 @@ B 比 A 多做了一件事：纹饰页那十二个下拉框改成一个框一次
 | `instance:page:mod` | 102.7 / 68.4 / 67.9 ms | 28.8 / 31.7 / 44.1 ms | 117 ms（60 条） |
 | `instance:page:mod-second` | 91.8 / 60.2 / 63.5 ms | 20.0 / 20.7 / 23.8 ms | 91 ms（60 条） |
 
-首帧 = `actionMs + repaintMs`（守卫口径）。改后 `files page refresh` 那条日志没再出现：它只在一趟刷新超过 40 ms 时才打印。`instance:page:mod` 和 `instance:page:mod-second` 已从 `tools/perf-firstframe-allowlist.txt` 删掉（138、139、140 都合入后名单剩 `instance:open-settings` 和 `instance:open-settings-again` 2 条）。
+首帧 = `actionMs + repaintMs`（守卫口径）。改后 `files page refresh` 那条日志没再出现：它只在一趟刷新超过 40 ms 时才打印。`instance:page:mod` 和 `instance:page:mod-second` 已从 `tools/perf-firstframe-allowlist.txt` 删掉（138、139、140 都合入后名单剩 `instance:open-settings`、`instance:open-settings-again` 2 条；140 的纹饰页在空闲下仍超线，步骤 135 又加回 `toolbox:tool:trim`，见上一节）。
 
 另外：`ui_check_files_rows`（`wtfml.files-rows`）钉住"60 行不建 60 套控件"（空页和 60 行时页面子控件数一样，视口里 0 个）和"点开关真改盘上文件名、刷新后滚动不跳"。
 
