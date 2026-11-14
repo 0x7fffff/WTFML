@@ -238,9 +238,11 @@ namespace {
 // Qt 的 :focus 同时包含鼠标和键盘焦点，而这一套界面只对**键盘到达**画焦点环（F1）：
 // 按钮、输入框、下拉框、数字框都一样 —— 鼠标点进来只把底提亮一档，不画线。
 //
-// 落法：应用级一个过滤器，在 `FocusIn` 时看 `QFocusEvent::reason()`，只有
-// `TabFocusReason` / `BacktabFocusReason` 才挂 `wtfmlKeyboardFocus`（样式表按它选那个 3px 淡环），
-// 别的理由（鼠标、程序 setFocus、窗口激活）一律摘掉；`FocusOut` 也摘掉。
+// 落法：应用级一个过滤器记着"最后一次输入是不是键盘"（非修饰键的 `KeyPress` 置上，
+// 任何 `MouseButtonPress` 摘掉），焦点进来时按这一条挂 `wtfmlKeyboardFocus`
+// （样式表按它选那个 3px 淡环、按钮和自绘环的控件也读它）；`FocusOut` 摘掉。
+// **判据不能是 `QFocusEvent::reason()`**：Qt 把焦点从藏起来的那一页交接给新页、以及代码里
+// `setFocus(Qt::TabFocusReason)`，报的都是 `TabFocusReason` —— 和用户真按 Tab 一模一样。
 // 不清除真实焦点、不改 Tab 顺序，也不影响输入框和列表的焦点行为。
 class ControlFocusVisibility : public QObject {
 public:
@@ -309,9 +311,12 @@ protected:
             if (reason == Qt::MouseFocusReason) {
                 m_keyboard = false;
             }
+            // 三个分支同一条判据（"最后一次输入是不是键盘"）：按钮看样式表、输入类控件由
+            // `setKeyboard()` 标里外两层、自绘环的控件读同一个属性。**别按 `reason()` 判** ——
+            // 换页交接和真按 Tab 报的是同一个理由，那样鼠标换页后新页第一个控件就会亮一圈。
             setVisible(button, m_keyboard);
             setRingOwner(qobject_cast<QWidget *>(watched), m_keyboard);
-            setKeyboard(watched, reason == Qt::TabFocusReason || reason == Qt::BacktabFocusReason);
+            setKeyboard(watched, m_keyboard);
         } else if (event->type() == QEvent::FocusOut) {
             clampSpin(qobject_cast<QWidget *>(watched));
             setKeyboard(watched, false);
