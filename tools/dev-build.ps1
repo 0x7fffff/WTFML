@@ -74,13 +74,13 @@ $env:PATH = (@($qtBin, $minGwBin, $env:PATH) -join ';')
 $env:QT_PLUGIN_PATH = Join-Path $qtPrefix 'plugins'
 
 $needConfigure = -not (Test-Path -LiteralPath $cachePath)
+$configureArgs = @('--preset', 'verification', '-B', $build, '-DWTFML_BUILD_NETWORK_DIAG=ON')
+$cmdArgs = @('--build', $build, '--target', $target, '--parallel', $Jobs)
 if ($needConfigure) {
-    $cmdArgs = @('--preset', 'verification', '-B', $build, '-DWTFML_BUILD_NETWORK_DIAG=ON')
-    Write-Host "配置（$build 还没配置过）："
-} else {
-    $cmdArgs = @('--build', $build, '--target', $target, '--parallel', $Jobs)
-    Write-Host "增量构建（$Jobs 路并行）："
+    Write-Host "先配置（$build 还没配置过）："
+    Write-Host "  cmake $($configureArgs -join ' ')"
 }
+Write-Host "增量构建（$Jobs 路并行）："
 Write-Host "  cmake $($cmdArgs -join ' ')"
 Write-Host "  PATH 前置：$qtBin;$minGwBin"
 Write-Host "  QT_PLUGIN_PATH=$env:QT_PLUGIN_PATH"
@@ -88,6 +88,10 @@ Write-Host "  QT_PLUGIN_PATH=$env:QT_PLUGIN_PATH"
 if ($DryRun) { Write-Host '[DryRun] 不执行。' -ForegroundColor Yellow; exit 0 }
 
 $clock = [Diagnostics.Stopwatch]::StartNew()
+if ($needConfigure) {
+    & $cmake @configureArgs
+    if ($LASTEXITCODE -ne 0) { throw "配置失败（退出码 $LASTEXITCODE）。" }
+}
 & $cmake @cmdArgs
 if ($LASTEXITCODE -ne 0) { throw "构建失败（退出码 $LASTEXITCODE）。" }
 $clock.Stop()
