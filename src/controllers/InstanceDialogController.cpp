@@ -2530,6 +2530,10 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 dialog.deleteLater();
             },
             Qt::SingleShotConnection);
+    // 这一页收掉之后是**我们自己** `deleteLater()`（见上面那条 `pageClosed` 钩子）⇒ 告诉
+    // 覆盖层别再把它"还回寄存处"：收页时换一次父容器要让整棵控件树重算继承的样式和调色板，
+    // 实测 75 ms，而这份树紧接着就要被删掉。
+    dialog.setProperty(OverlayHost::disposesOnCloseProperty(), true);
     QElapsedTimer showClock;
     showClock.start();
     if (!overlay->showPage(&dialog, dialog.titleText(), settingsTab)) {

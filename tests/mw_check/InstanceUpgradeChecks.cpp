@@ -287,6 +287,9 @@ int runInstanceUpgradeChecks() {
         {
             VersionManager versions;
             InstanceSettingsDialog page(QStringLiteral("Source"), QStringLiteral("Source"), {}, {}, {}, true);
+            // 页是第一次切过去才建的（见 InstanceSettingsDialog::ensurePage()）：这一节要摸
+            // 「升级」那一页上的控件，得先切过去。
+            page.showPage(QStringLiteral("upgrade"));
             page.setProperty("modernUpgradeFlow", true);
             page.setProperty("upgradeTargetLoader", QStringLiteral("fabric"));
             ResourceStore store;
@@ -507,6 +510,8 @@ int runInstanceUpgradeChecks() {
         ResourceStore store;
         InstanceSettingsDialog page(QStringLiteral("DeclSource"), QStringLiteral("DeclSource"),
                                     {}, {}, {}, true);
+        // 页是第一次切过去才建的 ⇒ 先切到「升级」那一页，再摸它的控件。
+        page.showPage(QStringLiteral("upgrade"));
         page.setProperty("modernUpgradeFlow", true);
         const QString runtime = scratch.filePath("decl-runtime");
         check(write(runtime + QStringLiteral("/bin/java.exe"), "fixture")
@@ -755,6 +760,8 @@ int runInstanceUpgradeChecks() {
     {
         InstanceSettingsDialog page("Test", "Instance", InstanceSettingsDialog::Override(),
                                    InstanceSettingsDialog::GlobalValues(), {}, true);
+        // 页是第一次切过去才建的 ⇒ 先切到「升级」那一页，再摸它的控件。
+        page.showPage(QStringLiteral("upgrade"));
         page.setTransferTargets("upgrade", {{"Target", "target-id"}});
         bool upgrade = false, rollback = false;
         QObject::connect(&page, &InstanceSettingsDialog::upgradeInPlaceRequested, &page,

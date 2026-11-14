@@ -72,6 +72,8 @@ private:
 constexpr int kOverlayPageMargin = 9;
 /// 整页那一档的左右留白：和主页、设置页正文左缘对齐（设计稿内容区左右 40）。
 constexpr int kOverlayPageSide = 40;
+/// 「这一页收掉之后由主人 deleteLater()」那个属性名（见 OverlayHost::disposesOnCloseProperty()）。
+constexpr const char *kDisposesOnCloseProperty = "wtfmlOverlayDisposesOnClose";
 
 /// 卡片（整页里那张 / 小提示那张）那一块布的调色板：底出厂是 `Base`（用户单独改过就是那个）。
 QPalette cardChromePalette() {
@@ -465,6 +467,8 @@ void OverlayHost::setPageHeaderWidget(QWidget *widget) {
     }
 }
 
+const char *OverlayHost::disposesOnCloseProperty() { return kDisposesOnCloseProperty; }
+
 void OverlayHost::releaseContent(QVBoxLayout *content) {
     if (content == nullptr) {
         return;
@@ -474,8 +478,15 @@ void OverlayHost::releaseContent(QVBoxLayout *content) {
         if (QWidget *widget = item->widget()) {
             // **不删**，还回去：调用方那些对话框是栈对象，必须让它在自己的作用域里正常
             // 析构。这里要是把它当子控件删了，回到调用方就是二次释放。
+            //
+            // 例外：页自己声明了"收页之后由主人 `deleteLater()`"（`kDisposesOnCloseProperty`）。
+            // 那种页只藏起来就行 —— `setParent()` 会让整棵控件树重算继承的样式和调色板
+            // （实例设置那一页实测这一段 75 ms，见 docs/dev/PERFORMANCE.md「实例设置按页懒建」），
+            // 而那份树几毫秒之后就要被删掉，这一趟纯属白花。
             widget->hide();
-            widget->setParent(m_parking);
+            if (!widget->property(kDisposesOnCloseProperty).toBool()) {
+                widget->setParent(m_parking);
+            }
         }
         delete item;
     }
@@ -583,6 +594,8 @@ void OverlayHost::closeOverlay() {
         // 这一层刚才是哪一页（`pageClosed()` 要带上它）：`showPage()` 那一档直接记着；
         // `execPage()` 那一档记的是内容区里那**唯一**一个子控件 —— 页面对象活到这次收页
         // 结束（收页信号在下面发，之后才轮到调用方决定删不删）。
+        QElapsedTimer closeClock;
+        closeClock.start();
         QWidget *closedPage = m_pageWidget;
         if (closedPage == nullptr && m_pageContentLayout != nullptr &&
             m_pageContentLayout->count() > 0) {
@@ -597,13 +610,22 @@ void OverlayHost::closeOverlay() {
         disconnect(m_pageWidgetFinished);
         m_pageWidget = nullptr;
         releaseContent(m_pageContentLayout);
+        // 收页的钱花在哪一段：还回去（隐藏 + 换父容器）／藏这一层／底下那一页淡进来
+        // （`pageAppear()` 要先照一张整窗快照）。超 10 ms 才记一行。
+        const qint64 releaseMs = closeClock.restart();
         m_mode = Mode::None;
         m_pageOwnerTab = -1;
         m_pageFocus = nullptr;
         const bool pageWasShown = m_pageFrame != nullptr && m_pageFrame->isVisible();
         applyVisibility();
+        const qint64 hideMs = closeClock.restart();
         // 返回：底下那一页同样淡进来（所有收页路都汇到这里，入口不用各补一次）。
         if (pageWasShown && m_anchor != nullptr && m_anchor->isVisible()) Anim::pageAppear(m_anchor);
+        const qint64 appearMs = closeClock.elapsed();
+        if (releaseMs + hideMs + appearMs > 10) {
+            qInfo() << "[UI timing] overlay close page" << releaseMs << "release" << hideMs << "hide"
+                    << appearMs << "appear";
+        }
         // 所有收页路都汇到这里，所以收页钩子只发这一处（见头文件那段）。
         emit pageClosed(closedPage);
         schedulePageDrain();

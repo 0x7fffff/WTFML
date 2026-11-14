@@ -5,7 +5,4 @@
 nav:toolbox	137.5
 instance:open-settings	294.5
 instance:page:mod	85.3
-instance:page:mod-second	76.4
-instance:close	162.8
 instance:open-settings-again	237.4
-instance:close-again	111.5

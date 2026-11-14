@@ -542,22 +542,17 @@ int UiConfigEditorChecks() {
                        Dlg::Override(), global, QStringList(), true);
             dialog.show();
 
-            QWidget *overview = dialog.stack() != nullptr && dialog.stack()->count() > 0
-                                    ? dialog.stack()->widget(0)
-                                    : nullptr;
-            // 堆叠页里那一格是**外面的滚动区**（`scrollName()`），真正的面板
-            // （`panelName()`）在它肚子里 —— 搬东西/找归属按 `isAncestorOf()` 走，
-            // 所以拿外面这一层当根是对的。
-            check(overview != nullptr &&
-                      overview->objectName() == Dlg::scrollName(QStringLiteral("overview")),
-                  "U12 前提：第 0 格就是概览那一页（外层滚动区）",
+            // 页是**第一次切过去才建**的（见 InstanceSettingsDialog::ensurePage()）：堆叠页
+            // 第 0 格是概览（打开对话框那一刻就建好），外面套着**它自己那层滚动区**
+            // （`scrollName()`），真正的面板（`panelName()`）在它肚子里 —— 搬东西 / 找归属按
+            // `isAncestorOf()` 走，所以拿外面这一层当根是对的。
+            auto *overview = dialog.findChild<QScrollArea *>(
+                Dlg::scrollName(QStringLiteral("overview")));
+            const QWidget *overviewPanel = overview != nullptr ? overview->widget() : nullptr;
+            check(overview != nullptr && overviewPanel != nullptr &&
+                      overviewPanel->objectName() == Dlg::panelName(QStringLiteral("overview")),
+                  "U12 前提：概览那一页建好了（外层滚动区 + 里面那张面板）",
                   overview != nullptr ? overview->objectName() : QStringLiteral("<没有>"));
-            const QWidget *overviewPanel =
-                overview != nullptr ? overview->findChild<QWidget *>(
-                                          Dlg::panelName(QStringLiteral("overview")))
-                                    : nullptr;
-            check(overviewPanel != nullptr,
-                  "U12 前提：概览那张面板在那一格肚子里（找得回来）");
 
             // ---- ① 七条：都在概览页里，而且与 optionalPageKeys() 逐位对齐 ----
             //

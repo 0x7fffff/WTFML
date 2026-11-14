@@ -382,6 +382,7 @@ cmake --build build/perf-probe --parallel 8
   - 允许名单是 `键<TAB>值` 的纯文本，键 = 探针步骤名，值 = 放行时记录到的参考首帧（不参与判定）；只许删不许加，修好一条删一条。
   - `scan:` / `theme:` / `tasks:` / `presets:` / `concurrent:` 是故意同步的扫描、换主题重刷或合成负载，`*-wait` 是等待那一半，都不进守卫。
   - 守卫只认 Release 探针的数。`ui_check_surface_sweep` 的 offscreen `-O0` 数字只能横向比，不拿来判。
+- 100 s 硬收尾：那一刻还没走完就按已有的几步落盘，JSON 里写 `hardFinalized: true`。启动脚本只等 120 s，验收配置到点会关窗，而中途关窗时报告根本不会生成；网络卡在某一步的等待里、或者某一步弹出了提示，都会走到这一档。它只决定收不收尾，不改任何一步的量法。
 - 20 ms 的 `Qt::PreciseTimer` 看门狗记主线程空档：`maxGapMs` 含 20 ms 节拍，`maxStallMs` 是减掉节拍之后的值，`over50ms` 数超过 50 ms 的节拍。看门狗在 `app.exec()` 之前就开始，所以最长空档包含启动期那一段。
 - 步骤：先单独跑一遍本地 Java 扫描（`scan:java`）→ 四个导航页各一次 → 四个主题预设各一次 → 回主页 → 还原主题 → 再进一次设置页（`nav:settings-again`，第一次与第二次的差就是首次 Java 扫描的价）→ 回主页。卡顿归属（`stalls.maxGapFromStep/maxGapAtStep`、`slowSpans` 保存 50 ms 以上的跨度）和采栈见 [MAIN_THREAD_STALLS.md](perf-notes/MAIN_THREAD_STALLS.md)。
 
@@ -549,6 +550,29 @@ pwsh -File tools/perf-startup.ps1 -Probe -Runs 3 -Instances 0 -Exe build/perf-pr
 - 主题背景图：`Theme::cachedImage()` 按 `路径|大小|修改时间` 缓存解码后的 `QImage`（按张数封顶 6 张），`ThemeBackground` 和 `Glass::Backdrop` 都走它；同一张图在换主题那一下只解一次。
 
 验证：`verify_instances` 的 K128 两段（连着发两次只回最新那一发、对象析构后不再回调）、`ui_check_theme`（写设置后 `enabled()` 立刻反映新值，直接写盘 + `invalidateSettingsCache()` 同样生效）；`tools/check-test-modules.ps1` PASS。
+
+### 实例设置按页懒建、收页不再换父容器（2026-11-14）
+
+量法：探针构建（Release + `-DWTFML_PERF_PROBE=ON`，只编产品），沙盒夹具 = 4 份实例，第一份塞 60 模组 / 12 资源包 / 6 光影 / 5 数据包 / 8 存档 / 24 张截图 / 4000 行 `latest.log` / 24 份 config；改前改后各一趟（同一个夹具、背靠背）。测量时机器上另有两个成员的编译和一个别的探针在跑（负载 60% 上下），绝对值偏高，正式判定要等空闲时重跑；两趟都在 `install:*` 那一段被 100 s 硬收尾截断（`hardFinalized: true`），实例设置那一段之前已经走完。
+
+| 步骤 | 改前 | 改后 |
+| --- | ---: | ---: |
+| `instance:open-settings` | 212.1 | 88.9 |
+| `instance:open-settings-again` | 202.4 | 79.5 |
+| `instance:close` | 131.4 | 10.7 |
+| `instance:close-again` | 92.1 | 9.3 |
+| `instance:page:launch`（第一次切过去，现在含建这一页） | 16.1 | 26.1 |
+| `instance:page:logs` | 15.1 | 14.4 |
+| `instance:page:mod` / `mod-second` | 51.6 / 47.5 | 56.0 / 47.5 |
+
+产品自己的分段日志（`[UI timing]`，两趟的范围）：`settings dialog ctor` 30 → 9–10 ms，`overlay show settings` 113 → 42–49 ms，`settings first idle` 132 → 55–58 ms。
+
+两类改动：
+
+- 页第一次切过去才建（`InstanceSettingsDialog::ensurePage()`）：构造里只按 `pageCount()` 的顺序把堆叠页每一格的空位挖好、建出概览和「备份与操作」（后者要把概览上那几颗维护按钮搬走）。导航、`pageChoices()`、文件目录表这些都不靠"先把页建出来"——左栏那棵树本来就是按 `shownEntryKeys()` 现算的。
+- 收页不换父容器：`OverlayHost::releaseContent()` 原来对每一页都 `setParent(m_parking)`"还回去"，实例设置这一页实测那一段 75 ms（整棵控件树重算继承的样式和调色板）。页自己声明 `wtfmlOverlayDisposesOnClose`（收页后由主人 `deleteLater()`）时只 `hide()`，删除照旧在 `pageClosed()` 那一发里办。
+
+仍然超 50 ms 的是打开那一下（89 ms）：ctor 10 + 覆盖层挂载 49（换父容器 + 首帧铺开）+ 控制器那一段接线（读目录、认可用性、连几十条信号、`filesPage("save")` 那几处取页）；页本身已经不是大头。
 
 ### 列表与选择
 

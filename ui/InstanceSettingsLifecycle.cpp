@@ -100,15 +100,30 @@ protected:
 }  // namespace
 
 
-void InstanceSettingsDialog::setupLifecyclePages() {
-    for (const QString &key : lifecyclePageKeys()) {
+/// 「创作工具 / 维护」那几页里**的一页**。第一次切过去才跑（见 ensurePage()）。
+void InstanceSettingsDialog::buildLifecyclePage(const QString &key) {
+    // 有两页是**从别的页里搬按钮**过来的（见下面那几处 `buttonRow({findChild…})`）：
+    // 那几颗按钮得先在原来那一页里建出来 —— 页是懒建的，没建就是 nullptr，搬过来的是个洞。
+    if (key == QStringLiteral("diagnosis")) {
+        ensurePage(launchCategoryKey());    // 「补全版本文件」在「启动」那一页上
+        ensurePage(overviewCategoryKey());  // 「检查并修复」在概览上
+    } else if (key == QStringLiteral("operationsmenu")) {
+        ensurePage(overviewCategoryKey());  // 快照 / 复制 / 导出 / 删除那四颗都在概览上
+    }
+    {
         QWidget *page = addPage(key);
-        auto *layout = qobject_cast<QVBoxLayout *>(page->layout());
+        auto *layout = page != nullptr ? qobject_cast<QVBoxLayout *>(page->layout()) : nullptr;
+        if (layout == nullptr) {
+            return;
+        }
         // Old page keys remain valid for saved navigation and external callers;
         // showPage() redirects them to the consolidated maintenance pages.
         if (key == QStringLiteral("integrity") || key == QStringLiteral("repair") ||
             key == QStringLiteral("export") || key == QStringLiteral("diagnosticsmenu") ||
-            key == QStringLiteral("integritymenu") || key == QStringLiteral("snapshots")) continue;
+            key == QStringLiteral("integritymenu") || key == QStringLiteral("snapshots")) {
+            // 这几页的内容已经并进去了（见上面那句），只留一个空壳占位。
+            return;
+        }
         auto *title = new QLabel(pageText(key), page);
         QFont font = title->font();
         font.setBold(true);
@@ -182,7 +197,7 @@ void InstanceSettingsDialog::setupLifecyclePages() {
             section(tr("删除实例"));
             buttonRow({findChild<QPushButton *>(deleteButtonName())});
             layout->addStretch(1);
-            continue;
+            return;
         }
         const bool browse = key == QStringLiteral("screenshots") || key == QStringLiteral("replay")
                             || key == QStringLiteral("logs") || key == QStringLiteral("crash")
@@ -218,6 +233,11 @@ void InstanceSettingsDialog::setupLifecyclePages() {
             result->setObjectName(QStringLiteral("instanceLifecycleResult_%1").arg(key));
             layout->addWidget(result);
             auto *list = new LifecycleFileList(page);
+            // 行高一致（每行都是"文件名 + 换行 + 时间 / 大小"两行字，截图那一页还都带同一尺寸的图标）
+            // ⇒ 让控件别再一行一问样式和字形：设计盘点里「日志」页那 97 ms 的重画全花在
+            // `sizeFromContents` → 字体排版上。行代理照旧（`ui/DesignDefaults` 那一层挂在
+            // 控件上，跟行高怎么算没关系）。
+            list->setUniformItemSizes(true);
             list->setSelectionMode(QAbstractItemView::ExtendedSelection);
             list->setDragEnabled(true);
             list->setDragDropMode(QAbstractItemView::DragOnly);
@@ -264,7 +284,7 @@ void InstanceSettingsDialog::setupLifecyclePages() {
                     if (!path.isEmpty()) emit openInstanceFolderRequested(QFileInfo(path).absolutePath());
                 }
             });
-            continue;
+            return;
         }
         if (key == QStringLiteral("worldbackup")) {
             action(tr("返回存档"), [this]() { showPage(QStringLiteral("save")); })
@@ -439,6 +459,14 @@ void InstanceSettingsDialog::setupLifecyclePages() {
             updateTransferApplyState(key);
         }
         if (key != QStringLiteral("upgrade") && key != QStringLiteral("diagnosis")) layout->addStretch(1);
+        // 调用方（controller）**开页那一刻**就把这些灌进来了，而这一页是第一次切过去才建
+        // 的 —— 存的那些在这儿摆上去（见 replayTransferPage() / setDiagnosisText()）。
+        if (key == QStringLiteral("migration") || key == QStringLiteral("upgrade")) {
+            replayTransferPage(key);
+        }
+        if (key == QStringLiteral("diagnosis") && !m_diagnosisText.isEmpty()) {
+            setDiagnosisText(m_diagnosisText);
+        }
     }
 }
 
@@ -600,19 +628,37 @@ void InstanceSettingsDialog::setLifecycleInfoText(const QString &key, const QStr
 }
 
 void InstanceSettingsDialog::setDiagnosisText(const QString &text) {
+    // 页可能是后建的（见 ensurePage()）：先存着，buildLifecyclePage() 里再摆上去。
+    m_diagnosisText = text;
     if (m_diagnosisReport == nullptr) return;
     m_diagnosisReport->setPlainText(text.isEmpty() ? diagnosisPendingText() : text);
 }
 
 // ---------- 「迁移」/「升级」那两页 ----------
 //
-// 两页的控件是 setupLifecyclePages() 建好的；这一组只负责"把接的人递来的东西摆上去"和
+// 两页的控件是 buildLifecyclePage() 建好的；这一组只负责"把接的人递来的东西摆上去"和
 // "把用户勾了什么读回来"。**不读盘、不算兼容性、也不写盘**。
 
 void InstanceSettingsDialog::setTransferTargets(const QString &key,
                                                 const QList<QPair<QString, QString>> &targets) {
+    m_transferTargetRows.insert(key, targets);
     auto *combo = m_transferTargets.value(key);
-    if (combo == nullptr) return;
+    if (combo == nullptr) {
+        // 页还没建：把"现在选的是哪一项"算出来存着 —— controller 紧接着会读
+        // transferTarget()（见那边 setTransferTargets 之后的那一句）。
+        const QString previous = m_transferTargetId.value(key);
+        QString kept;
+        for (const QPair<QString, QString> &target : targets) {
+            if (target.second == previous) kept = previous;
+        }
+        // 认不出来（或者本来就没选过）就落在下拉框的第 0 项上：升级那一页的第 0 项是
+        // 「请选择目标版本」（空 data），迁移那一页的第 0 项就是第一个目标。
+        if (kept.isEmpty() && key != QStringLiteral("upgrade") && !targets.isEmpty()) {
+            kept = targets.first().second;
+        }
+        m_transferTargetId.insert(key, kept);
+        return;
+    }
     // 这一发**不出声**：灌列表是 controller 在开页时做的，它紧接着会自己算第一份计划；
     // 这里要是发 currentIndexChanged，controller 会在同一次调用里再算一遍（白扫一次盘）。
     const QSignalBlocker blocker(combo);
@@ -624,20 +670,26 @@ void InstanceSettingsDialog::setTransferTargets(const QString &key,
     }
     const int keep = combo->findData(previous);
     if (keep >= 0) combo->setCurrentIndex(keep);
+    m_transferTargetId.insert(key, transferTarget(key));
     updateTransferApplyState(key);
 }
 
 void InstanceSettingsDialog::setTransferPlan(const QString &key, const QString &text) {
+    m_transferPlanText.insert(key, text);
     auto *plan = m_transferPlans.value(key);
     if (plan == nullptr) return;
     plan->setPlainText(text);
 }
 
 void InstanceSettingsDialog::setUpgradeContext(const QString &text) {
+    m_upgradeContextText = text;
     if (auto *label = findChild<QLabel *>(QStringLiteral("instanceUpgradeContext"))) label->setText(text);
 }
 
 void InstanceSettingsDialog::setUpgradeModChecks(const QList<QStringList> &rows, const QString &summary) {
+    // 页可能是后建的（见 ensurePage()）：先存着，那一页建出来时 replayTransferPage() 再摆。
+    m_upgradeModRows = rows;
+    m_upgradeModSummary = summary;
     if (auto *tree = findChild<QTreeWidget *>(QStringLiteral("instanceUpgradeModChecks"))) {
         const int scroll = tree->verticalScrollBar()->value();
         const QString selected = tree->currentItem() ? tree->currentItem()->text(0) : QString();
@@ -774,6 +826,8 @@ int InstanceSettingsDialog::upgradePendingModCount() const {
 void InstanceSettingsDialog::setTransferItems(const QString &key,
                                               const QList<QPair<QString, QString>> &items,
                                               const QStringList &defaultKeys) {
+    m_transferItemRows.insert(key, items);
+    m_transferItemDefaults.insert(key, defaultKeys);
     auto *list = m_transferItems.value(key);
     if (list == nullptr) return;
     // 清空 / 添加都会经 itemChanged，而这里正是一批**程序摆上去的**默认勾选 —— 挡掉这
@@ -791,8 +845,43 @@ void InstanceSettingsDialog::setTransferItems(const QString &key,
 
 QString InstanceSettingsDialog::transferTarget(const QString &key) const {
     auto *combo = m_transferTargets.value(key);
-    if (combo == nullptr || (combo->isEditable() && combo->currentText() != combo->itemText(combo->currentIndex()))) return {};
+    if (combo == nullptr) {
+        // 页还没建（第一次切过去才建）：读存着的那一位，见 setTransferTargets()。
+        return m_transferTargetId.value(key);
+    }
+    if (combo->isEditable() && combo->currentText() != combo->itemText(combo->currentIndex())) return {};
     return combo->currentData().toString();
+}
+
+void InstanceSettingsDialog::replayTransferPage(const QString &key) {
+    // 页刚建出来：把 controller 开页那一刻灌进来的那一份摆上去（顺序照着它当时的先后）。
+    if (m_transferTargetRows.contains(key)) {
+        const QString kept = m_transferTargetId.value(key);
+        setTransferTargets(key, m_transferTargetRows.value(key));
+        auto *combo = m_transferTargets.value(key);
+        if (combo != nullptr) {
+            const int index = combo->findData(kept);
+            if (index >= 0) {
+                // 这一下是**还原**，不是用户换的目标（换目标要发 transferTargetChosen）。
+                const QSignalBlocker blocker(combo);
+                combo->setCurrentIndex(index);
+            }
+            m_transferTargetId.insert(key, transferTarget(key));
+        }
+    }
+    if (m_transferPlanText.contains(key)) {
+        setTransferPlan(key, m_transferPlanText.value(key));
+    }
+    if (m_transferItemRows.contains(key)) {
+        setTransferItems(key, m_transferItemRows.value(key), m_transferItemDefaults.value(key));
+    }
+    if (key == QStringLiteral("upgrade")) {
+        if (!m_upgradeContextText.isEmpty()) setUpgradeContext(m_upgradeContextText);
+        if (!m_upgradeModRows.isEmpty() || !m_upgradeModSummary.isEmpty()) {
+            setUpgradeModChecks(m_upgradeModRows, m_upgradeModSummary);
+        }
+    }
+    updateTransferApplyState(key);
 }
 
 QStringList InstanceSettingsDialog::transferSelectedKeys(const QString &key) const {

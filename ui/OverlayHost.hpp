@@ -438,6 +438,15 @@ private:
     void retargetCoveredPage();
     /// 把某个内容容器里装的东西**还回去**（不删）：见 closeOverlay 的 NOTE。
     void releaseContent(QVBoxLayout *content);
+
+public:
+    /// "这一页收掉之后由**主人** `deleteLater()`"那个属性名。设了它的页收页时只 hide，
+    /// **不**再换父容器还到寄存处（那一趟 `setParent()` 要让整棵控件树重算继承的样式，
+    /// 实例设置那一页实测 75 ms，而那份树紧接着就要被删掉）。谁设谁负责删 —— 在
+    /// `pageClosed()` 那一发里 `deleteLater()`，和 `showPage()` 那一套本来就有的收尾一致。
+    static const char *disposesOnCloseProperty();
+
+private:
     /// 当前被盖住的那一页（锚点是 QTabWidget 时才有）。
     QWidget *coveredPage() const;
     /// 放掉"按住"的那一页。

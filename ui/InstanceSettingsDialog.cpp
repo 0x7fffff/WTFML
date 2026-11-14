@@ -178,6 +178,19 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     // 这一句只影响单独把它拿出来用的时候（验证工程那几处）。
     resize(kDialogWidth, kDialogHeight);
 
+    // 盘上那一份「现状」留着：**启动页第一次切过去才建**，建之前 override() /
+    // appendJvmArgs() / warnJavaMismatch() 读的就是它（见 .hpp 里那几个成员）。
+    // autoMemory 这一页从不产出（见 .hpp 里 override() 那段），清掉免得顺手写回去。
+    m_currentOverride = current;
+    m_currentOverride.autoMemory.reset();
+    for (const QString &line : appendJvmArgs) {
+        const QString trimmed = line.trimmed();
+        if (!trimmed.isEmpty()) {
+            m_pendingAppendJvmArgs.append(trimmed);
+        }
+    }
+    m_pendingWarnJavaMismatch = warnJavaMismatch;
+
     auto *outer = new QVBoxLayout(this);
     outer->setContentsMargins(12, 12, 12, 12);
     outer->setSpacing(10);
@@ -303,14 +316,28 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     outer->addLayout(columns, 1);
 
 
-    // ---------- 概览（四行）----------
-    setupOverviewPage(instanceId);
+    // ---------- 堆叠页：先按 pageCount() 的顺序把每一格占住 ----------
+    //
+    // 页里的控件是**第一次切过去才建**的（见 ensurePage()）：原来打开这个对话框要
+    // 290–993 ms，绝大部分是 23 页控件树（每页还各套一层滚动区），而用户一开就看见的
+    // 只有概览。空位必须先占住 —— 堆叠页的下标是 stackPageIndexOf() 算出来的，页按
+    // **顺序**占位。
+    for (const QString &key : pinnedPageKeys()) addPageSlot(key);
+    for (const QString &key : filePageKeys()) addPageSlot(key);
+    for (const QString &key : lifecyclePageKeys()) addPageSlot(key);
 
-    // ---------- 启动（Java 选项 / 内存 / 高级选项）----------
-    setupLaunchPage(global, appendJvmArgs, warnJavaMismatch, windowModes);
-
-    // ---------- 文件那八页（见 .hpp 里 filePageKeys() 那一段）----------
-    setupFilePages();
+    // 每一页怎么造，登记成 builder。灌值那几段跟着页走（`applyLaunchValues()` 就是原来
+    // 构造函数里那一串 setChoiceCustom / setValue）：页晚建，值就晚灌一遍。
+    m_pageBuilders.insert(overviewCategoryKey(), [this, instanceId] { setupOverviewPage(instanceId); });
+    m_pageBuilders.insert(launchCategoryKey(),
+                          [this, current, global, appendJvmArgs, warnJavaMismatch, windowModes] {
+                              setupLaunchPage(global, appendJvmArgs, warnJavaMismatch, windowModes);
+                              applyLaunchValues(current, global);
+                          });
+    for (const QString &key : filePageKeys())
+        m_pageBuilders.insert(key, [this, key] { buildFilePage(key); });
+    for (const QString &key : lifecyclePageKeys())
+        m_pageBuilders.insert(key, [this, key] { buildLifecyclePage(key); });
 
     // ---------- 左栏那一列的接线 ----------
     //
@@ -319,7 +346,6 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     // NOTE: 越界保护的理由和设置页那条一样 —— 左栏的条目和堆叠页要是对不上，宁可停在原来
     // 那页，也不要 setCurrentIndex(-1) 把右栏整片清空（"点一下界面就空了"用户只会
     // 当成崩了）。
-    setupLifecyclePages();
     connect(m_pageList, &QListWidget::currentRowChanged, this,
             [this](int row) { applyEntry(row); });
     // 打开就是第一条（概览）—— 左栏亮着哪一条、右栏就是哪一页，两边不能各说各的。
@@ -329,63 +355,14 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     // ---------- 灌值 ----------
     // 「有值 = 自定义，没值 = 跟随全局」这一条两边都要对上：磁盘上有一项覆盖时，
     // 重开这个对话框必须停在「自定义」上，否则用户会以为自己的设置丢了。
-    setChoiceCustom(javaPathField(), current.javaPath.has_value());
-    m_javaPathEdit->setText(current.javaPath.value_or(global.javaPath));
-
-    setChoiceCustom(xmxField(), current.xmx.has_value());
-    m_memoryMaxSpin->setValue(current.xmx.value_or(global.xmx));
-    // 条那半边也要摆过来：数字框本来就已经是这个值时上面那一句不发信号，光靠同步那条线
-    // 等不到（条会停在上一次那一格上）—— 一进这一页看见的条和数字框就不是一个数。
-    // 挡信号：这一发是**灌值**，不是用户改的 —— 不挡的话它会顺手报一次"值变了"
-    // （条自己接的那条线，见上面那段），而那时候 `m_lastSignature` 还是空的，
-    // 于是打开这一页本身就等于替用户写了一次盘。
-    {
-        const QSignalBlocker blockSlider(m_memoryMaxSlider);
-        m_memoryMaxSlider->setValueMb(m_memoryMaxSpin->value());
-    }
-
-    setChoiceCustom(xmsField(), current.xms.has_value());
-    m_memoryMinSpin->setValue(current.xms.value_or(global.xms));
-
-    setChoiceCustom(extraJvmArgsField(), current.extraJvmArgs.has_value());
-    m_extraJvmArgsEdit->setText(current.extraJvmArgs.value_or(global.extraJvmArgs));
-
-    // ---------- 窗口模式 / 窗口大小 ----------
-    if (m_windowModeCombo != nullptr) {
-        // 档位：有覆盖就用覆盖那一档、没有就摆**全局那一档**（那一档这时是禁用的，摆出来的
-        // 意义是"你跟随的是这一档"）。认不出来的代号（手改过 meta、或者别处写进去的名字）
-        // 就退回第 0 项 —— 和 `GlobalValues::windowModeLabel` 那边同一个态度：看不懂的值
-        // 不猜它是什么档，摆最保守的那一档（调用方喂进来的第 0 项就是「小窗」，见
-        // MainWindow 构造这张表的地方）。
-        const QString token = current.windowMode.value_or(global.windowMode);
-        const int index = m_windowModeCombo->findData(token);
-        {
-            // 挡信号：这一发是**灌值**不是用户改的（和上面那条注释同一个理由 —— 不挡的话
-            // 打开这一页本身就等于替用户写一次盘，见 notifyEdited() 那条路）。
-            const QSignalBlocker block(m_windowModeCombo);
-            m_windowModeCombo->setCurrentIndex(index >= 0 ? index : 0);
-        }
-        setChoiceCustom(windowModeField(), current.windowMode.has_value());
-    }
-    if (m_windowWidthSpin != nullptr) {
-        // 分辨率那两格：**以窗口宽那一格有没有值为准**（它们是同一个决定的两半，见 .hpp
-        // 里 override() 那段），值本身各自取覆盖或全局那一份。
-        setChoiceCustom(windowWidthField(), current.windowWidth.has_value());
-        m_windowWidthSpin->setValue(current.windowWidth.value_or(global.windowWidth));
-        m_windowHeightSpin->setValue(current.windowHeight.value_or(global.windowHeight));
-    }
-
-    // 每一行下面那句话要等值灌完才刷（它写的是"当前是什么"）。
     //
-    // NOTE: 上面那一串是 `setChoiceCustom()`，它**自己挡着信号**（档位下拉框的
-    // `currentIndexChanged` 既接 refreshHints 也接写盘那条线，灌值的时候一条都不该
-    // 响）—— 所以这一发是这个函数里**唯一**一次算提示的时机，不是"再刷一遍"。
-    refreshHints();
+    // 启动页那几项（Java 路径 / 内存 / 额外参数 / 窗口模式与大小）的灌值搬进了
+    // `applyLaunchValues()`：那一页是第一次切过去才建的，值就跟着页一起灌。概览页那几行
+    // 不在这儿 —— 它一开就建好了。
 
     // 图标那一行的初值走 setIcon()（调用方在后头调，见 .hpp 里那段"为什么用 setter"）。
-    // 这里先按"默认"画一遍：没被 setIcon() 叫过的时候（验证工程里那些只验结构的构造点）
-    // 八颗按钮也得是**八颗都没勾**的样子，而不是停在某个随机状态上。
-    refreshIconRow();
+    // 下面 ensurePage() 建出概览页之后才画得了：没被 setIcon() 叫过的时候（验证工程里
+    // 那些只验结构的构造点）八颗按钮也得是**八颗都没勾**的样子，而不是停在随机状态上。
 
     // ---------- 「改了就写」那套 ----------
     //
@@ -396,7 +373,17 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     // NOTE: **这个对话框自己从不 accept**（没有「确定」那一类默认按钮）。收页时读的是
     // `QDialog::result()`（`pageClosed()` 那一发，和原来 `execPage()` 的返回值同一套），
     // 这里永远是 Rejected —— 而那正是"这一页关掉了"的意思，收尾不看它做什么。
+    // 页眉、左右两栏那几颗控件先接上（那会儿概览页还没建，它自己在下一条里接）。
     watchEditors();
+    // **默认那一页当场建**：打开对话框停的就是概览，它必须先有东西可摆。其余页
+    // 第一次切过去才建（见 ensurePage()）。
+    ensurePage(overviewCategoryKey());
+    // 「备份与操作」那一页要**当众搬走**概览上那几颗按钮（快照 / 复制 / 导出 / 删除，
+    // 见 buildLifecyclePage() 里 operationsmenu 那一段）：它不建，那几颗就留在概览上，
+    // 一开对话框就多出一排。这一页只有几行字和三排按钮，建起来很便宜。
+    ensurePage(QStringLiteral("operationsmenu"));
+    // 图标那一行按"默认"画一遍 —— 要有概览页那八颗按钮才画得出来，所以排在它后面。
+    refreshIconRow();
     // 左栏那一列灌第一遍（内容和第一页都归它管）。**排在 watchEditors() 之后**：它会在
     // 那一列上挑一条（程序化 setCurrentRow()），接上接线之后才走"选中 → 换页"那条正常路。
     rebuildEntryList();
@@ -538,6 +525,63 @@ QString InstanceSettingsDialog::instanceName() const {
 
 // ---------- 分栏（见 .hpp 里 pinnedPageKeys() 上面那一段）----------
 
+QWidget *InstanceSettingsDialog::addPageSlot(const QString &key) {
+    auto *slot = new QWidget(m_stack);
+    slot->setObjectName(QStringLiteral("instanceSettingsSlot-") + key);
+    m_stack->addWidget(slot);
+    return slot;
+}
+
+QWidget *InstanceSettingsDialog::pageSlot(const QString &key) const {
+    const int index = stackPageIndexOf(key);
+    if (m_stack == nullptr || index < 0 || index >= m_stack->count()) {
+        return nullptr;
+    }
+    return m_stack->widget(index);
+}
+
+void InstanceSettingsDialog::ensurePage(const QString &key) {
+    // **不在这里改键**：并进去的那几个老页键（`maintenancePageKey()` 那张表）在堆叠页里
+    // 仍有自己那一格，跳页的调用方（`showPage()` / `applyPageKey()`）早就换成目标键了。
+    // 在这里再换一次，那几个老键自己那一页就永远建不出来 —— 而"建得出来、只是没人摆"正是
+    // 那一格的意思（验证工程按 panelName() 认它）。
+    const QString pageKey = key;
+    if (pageKey.isEmpty() || m_builtPages.contains(pageKey)) {
+        return;
+    }
+    const auto it = m_pageBuilders.find(pageKey);
+    if (it == m_pageBuilders.end()) {
+        return;
+    }
+    const auto build = it.value();
+    // 先记成"建过"再跑：builder 里可能绕回 applyPageKey()（比如建「存档」时那颗
+    // 「世界备份」接的是 showPage()），那时不能再进来一次造第二份。
+    m_pageBuilders.erase(it);
+    m_builtPages.insert(pageKey);
+    {
+        // 这一页的建造成本 = "第一次切过去的首帧"那一笔的大头。超 20 ms 就记一行 ——
+        // 预算 50 ms（同 `[UI timing] lifecycle page refresh` 那几条一样的写法）。
+        QElapsedTimer buildClock;
+        buildClock.start();
+        build();
+        if (buildClock.elapsed() > 20) {
+            qInfo() << "[UI timing] settings page build" << pageKey << buildClock.elapsed() << "ms";
+        }
+    }
+    if (!filePagesPending()) {
+        // 「文件管理」那几页**全建完了**：留给它们补灌的那几份就用不上了（见 filePagesPending()）。
+        m_pendingFileIcons.clear();
+        m_pendingFileResources.clear();
+        m_hasPendingUpdates = false;
+        m_pendingOutdatedPaths.clear();
+    }
+    // 新造出来的控件要接上"改了就写"那几条线 —— 构造末尾那一次 watchEditors() 扫不到它们。
+    QWidget *slot = pageSlot(pageKey);
+    watchPage(slot != nullptr ? slot->findChild<QWidget *>(panelName(pageKey)) : nullptr);
+    // 谁要在这一页的控件上接线，等的是这一发（见 .hpp 里 pageBuilt()）。
+    emit pageBuilt(pageKey);
+}
+
 QWidget *InstanceSettingsDialog::addPage(const QString &key) {
     // **一页一层滚动区**（不是整页套一层）—— 和设置页的 addSettingsPanel() 同一套写法、
     // 同一条理由（见 MainWindowUI.cpp 里那段）。
@@ -545,7 +589,14 @@ QWidget *InstanceSettingsDialog::addPage(const QString &key) {
     // NOTE: 页面自己是 `scroll->widget()`（objectName 还是 panelName(key)）—— 堆叠页里
     // 加进去的仍然是**一页一个控件**，所以那些按 index 认页的代码（filePageFirstIndex()
     // 那套）一位都不动。验证工程按 panelName() 找回来的也还是那一页。
-    auto *scroll = new Theme::GutterScrollArea(m_stack);
+    //
+    // NOTE: 外层那一格是 addPageSlot() 在构造里挖的空位 —— 堆叠页的下标那时就定好了，
+    // 这一页里的东西是第一次切过去才往里填（见 ensurePage()）。
+    QWidget *slot = pageSlot(key);
+    if (slot == nullptr) {
+        return nullptr;
+    }
+    auto *scroll = new Theme::GutterScrollArea(slot);
     scroll->setObjectName(scrollName(key));
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
@@ -556,7 +607,10 @@ QWidget *InstanceSettingsDialog::addPage(const QString &key) {
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(10);
     scroll->setWidget(page);
-    m_stack->addWidget(scroll);
+    auto *slotLayout = new QVBoxLayout(slot);
+    slotLayout->setContentsMargins(0, 0, 0, 0);
+    slotLayout->setSpacing(0);
+    slotLayout->addWidget(scroll);
     return page;
 }
 
@@ -681,6 +735,9 @@ void InstanceSettingsDialog::applyPageKey(const QString &requestedKey) {
     if (index < 0) {
         return;
     }
+    // 这一页第一次切过来 ⇒ **现在就建**（打开对话框那一刻只建了概览）。建完堆叠页那一格里
+    // 才有东西可摆 —— 构造里挖的空位自己什么都不画。
+    ensurePage(key);
     // **"进这一页"和"同一页再摆一次"是两件事**：showPage() 那条路里"选中那一条"这一发
     // 底下不该再做一遍。refresh() 重复一次只是白列一遍目录（还好，而且"再摆一次就重新读
     // 一遍盘"本来就是这一页要的），但 serverPageEntered 多发一次是**白连一轮**（用户看到
@@ -1363,7 +1420,7 @@ void InstanceSettingsDialog::setFileUpdates(const QStringList &outdatedPaths, bo
     // 只有**开得了「可更新」那一格**的那几页接（判据逐字同构造里那一条：下载页里真有
     // 对应一栏的那四页）。别的页上那一格根本不在，喂给它只是让它白白记着一份用不上的
     // 名单（而有名单就会有"下一次刷新之后它还在"这类问题）。
-    if (!m_filePageBuilders.isEmpty()) {
+    if (filePagesPending()) {
         m_pendingOutdatedPaths = outdatedPaths;
         m_pendingUpdatesChecked = checked;
         m_hasPendingUpdates = true;
@@ -1385,23 +1442,30 @@ void InstanceSettingsDialog::setFileIcon(const QString &path, const QPixmap &ico
             // "图标是异步回来的、这一条可能已经被删了"解释掉了 —— 什么都没有要做的。
             page->setIconForPath(path, icon);
         }
-    if (!m_filePageBuilders.isEmpty()) m_pendingFileIcons.insert(path, icon);
+    // 还有页没建 ⇒ 存着，那一页建出来时会自己补上（见 buildFilePage 末尾那几条 for）。
+    if (filePagesPending()) m_pendingFileIcons.insert(path, icon);
     }
 }
 
+bool InstanceSettingsDialog::filePagesPending() const {
+    for (const QString &fileKey : filePageKeys()) {
+        if (!m_builtPages.contains(fileKey)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void InstanceSettingsDialog::ensureFilePage(const QString &key) {
+    // 这一页的壳（addPage 那一层）里才登记着"内容怎么造"（见 buildFilePage），所以先确保
+    // 那一页建出来，再谈它里面的文件列表。
+    ensurePage(key);
     if (m_filesPages.contains(key)) return;
     const auto it = m_filePageBuilders.find(key);
     if (it == m_filePageBuilders.end()) return;
     const auto build = it.value();
     m_filePageBuilders.erase(it);
     build();
-    if (m_filePageBuilders.isEmpty()) {
-        m_pendingFileIcons.clear();
-        m_pendingFileResources.clear();
-        m_hasPendingUpdates = false;
-        m_pendingOutdatedPaths.clear();
-    }
 }
 
 InstanceFilesPage *InstanceSettingsDialog::filesPage(const QString &key) {
@@ -1425,7 +1489,7 @@ void InstanceSettingsDialog::setFileResource(const QString &path, const QString 
         // 认不出来了；这一趟的负结果得覆盖上一趟的正结果）。
         it.value()->setResourceForPath(path, tip);
     }
-    if (!m_filePageBuilders.isEmpty()) m_pendingFileResources.insert(path, tip);
+    if (filePagesPending()) m_pendingFileResources.insert(path, tip);
 }
 
 // ---------- 概览栏那三行（见 .hpp 里 setIcon() 上面那一段）----------
@@ -1885,9 +1949,17 @@ bool InstanceSettingsDialog::effectiveAutoMemory() const {
     return m_global.autoMemory;
 }
 
-bool InstanceSettingsDialog::advancedExpanded() const { return m_advancedToggle->isChecked(); }
+bool InstanceSettingsDialog::advancedExpanded() const {
+    // 「高级选项」那一行在启动页里；页还没建 = 从来没展开过（默认折叠）。
+    return m_advancedToggle != nullptr && m_advancedToggle->isChecked();
+}
 
 void InstanceSettingsDialog::refreshHints() {
+    // 启动页还没建出来（第一次切过去才建）就没有"提示"可刷 —— 建的那一下
+    // `applyLaunchValues()` 末尾会自己刷一遍。
+    if (!m_launchPageBuilt) {
+        return;
+    }
     const bool autoMemory = effectiveAutoMemory();
 
     // 内存那两行：自动档下**整格**禁用（档位下拉框 + 数字框），提示换成"为什么它由不得你"。
@@ -1989,6 +2061,11 @@ void InstanceSettingsDialog::refreshHints() {
 }
 
 InstanceSettingsDialog::Override InstanceSettingsDialog::override() const {
+    // 启动页还没建 = 这一段里用户没碰过它 ⇒ 盘上那一份就是"现在的值"，原样透传。
+    // 反过来读控件的话那几个指针还是空的。
+    if (!m_launchPageBuilt) {
+        return m_currentOverride;
+    }
     Override result;
 
     if (isCustomChoice(javaPathField())) {
@@ -2053,6 +2130,10 @@ InstanceSettingsDialog::Override InstanceSettingsDialog::override() const {
 }
 
 QStringList InstanceSettingsDialog::appendJvmArgs() const {
+    // 页还没建 ⇒ 构造时那一份（同 override()）。
+    if (!m_launchPageBuilt) {
+        return m_pendingAppendJvmArgs;
+    }
     QStringList result;
     // 一条一行（不是空格分隔）：见 .hpp 里那个成员的说明 —— 参数本身可能含空格，
     // 空格分隔会把 `-Dfoo=bar baz` 切成两条。
@@ -2067,23 +2148,37 @@ QStringList InstanceSettingsDialog::appendJvmArgs() const {
 }
 
 bool InstanceSettingsDialog::warnJavaMismatch() const {
-    // 控件没建出来时返回 true（= 提醒）：读侧默认"要提醒"这个方向是**安全**的那个
-    // ——宁可多问一次，也不要静默放行一个版本不对的 Java。
+    // 启动页还没建 ⇒ 构造时那一份。**不许退回"默认 true"**：盘上存的是 false 的话，
+    // 这里回 true 就等于把用户的开关掰回去（下一次写盘就真写回去了）。
+    if (!m_launchPageBuilt) {
+        return m_pendingWarnJavaMismatch;
+    }
+    // 控件没建出来（只验结构的构造点）时返回 true（= 提醒）：读侧默认"要提醒"这个方向是
+    // **安全**的那个 —— 宁可多问一次，也不要静默放行一个版本不对的 Java。
     return m_warnJavaMismatchCheck == nullptr || m_warnJavaMismatchCheck->isChecked();
 }
 
 // ---------- 「改了就写」那套（见 .hpp 里 settingsEdited() 那一段）----------
 
 void InstanceSettingsDialog::watchEditors() {
+    // 构造函数末尾那一次：把**这一刻已经建出来的**控件接上（页眉那两颗按钮、左右两栏）。
+    // 懒建的页在 ensurePage() → watchPage() 里各自补一遍。
+    watchPage(this);
+}
+
+void InstanceSettingsDialog::watchPage(QWidget *page) {
+    if (page == nullptr) {
+        return;
+    }
     // 四类各一条线。**按类型接、不按对象接**：往这一页加控件时不用记得回来补一行。
     // 代价是这里面有两处接不到的（程序化改值），它们各自补一发 —— 见下面那段 NOTE。
-    for (QAbstractButton *button : findChildren<QAbstractButton *>()) {
+    for (QAbstractButton *button : page->findChildren<QAbstractButton *>()) {
         // 勾选框 / 各种按钮一并算上。「值变了没有」由 notifyEdited() 判，
         // 所以那些**不改值**的按钮（打开文件夹 / 导出脚本 / 高级选项那个折叠开关）
         // 多接一条线是白接，不会多写一次盘。
         connect(button, &QAbstractButton::clicked, this, &InstanceSettingsDialog::notifyEdited);
     }
-    for (QLineEdit *edit : findChildren<QLineEdit *>()) {
+    for (QLineEdit *edit : page->findChildren<QLineEdit *>()) {
         // 「实例名」那一格走改名那条路（renameRequested），**不接在这儿**：它改的是目录名，
         // 不能和别的值挤在同一次写盘里。
         if (edit == m_instanceNameEdit) {
@@ -2096,7 +2191,7 @@ void InstanceSettingsDialog::watchEditors() {
     }
     // QSpinBox 的两条 valueChanged 重载里挑 int 那条（另一个是 QString，Qt 6 已经删了，
     // 但 QOverload 写成 int 这一条在两边都编得过）。
-    for (QSpinBox *spin : findChildren<QSpinBox *>()) {
+    for (QSpinBox *spin : page->findChildren<QSpinBox *>()) {
         connect(spin, QOverload<int>::of(&QSpinBox::valueChanged), this,
                 &InstanceSettingsDialog::notifyEdited);
     }
@@ -2112,11 +2207,11 @@ void InstanceSettingsDialog::watchEditors() {
     // 那一页的难度下拉框 —— 它们都是这一页的后代）。改了它们会白喊一声 notifyEdited()
     // —— 无害：那个函数按 `valueSignature()` 去重，而那几个值不在签名里，所以一次盘都
     // 不会写。按"这一页上的哪些下拉框"去筛是**多一条会过期的名单**，不值当。
-    for (QComboBox *combo : findChildren<QComboBox *>()) {
+    for (QComboBox *combo : page->findChildren<QComboBox *>()) {
         connect(combo, &QComboBox::currentIndexChanged, this,
                 &InstanceSettingsDialog::notifyEdited);
     }
-    for (QPlainTextEdit *text : findChildren<QPlainTextEdit *>()) {
+    for (QPlainTextEdit *text : page->findChildren<QPlainTextEdit *>()) {
         // 这个没有 editingFinished，只能用 textChanged —— 于是"追加参数"那一格是这一页上
         // **唯一一处按每个按键写盘**的（一条一行，本来就短）。值没变还是不发（空格、回车这
         // 种改动会被签名里那句 `appendJvmArgs()` 归一掉）。
@@ -2124,7 +2219,7 @@ void InstanceSettingsDialog::watchEditors() {
     }
 
     // 「实例名」那一格：回车 / 离开这一格 ⇒ 报"用户要改名"（不是"值变了"）。
-    if (m_instanceNameEdit != nullptr) {
+    if (m_instanceNameEdit != nullptr && page->isAncestorOf(m_instanceNameEdit)) {
         connect(m_instanceNameEdit, &QLineEdit::editingFinished, this, [this]() {
             emit renameRequested(m_instanceNameEdit->text());
         });
