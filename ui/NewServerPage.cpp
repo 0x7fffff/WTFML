@@ -13,6 +13,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QPainter>
 #include <QPushButton>
 #include <QSpinBox>
 #include <QVBoxLayout>
@@ -32,20 +33,31 @@ namespace {
 /// 端类别那几行的行高 / 图标边长（安装页那张「模组加载器」卡片是同一档）。
 constexpr int kFlavorRowHeight = 44;
 constexpr int kFlavorIconSize = 26;
+/// 行内左边距：高亮框左缘仍和名称框对齐，图标退到名称框文字那条线上（名称框文字距框左缘 12 px，
+/// 图标自己在格里已经靠右 3 px，这里补 10）。做在图标左侧的透明留白里，不碰列表的样式。
+constexpr int kFlavorRowPad = 10;
 
 /// 一档的头像：原版是草方块，Fabric / Forge / NeoForge 用各自的标志，
 /// 认不出来的（Quilt / Paper / Purpur / Spigot）用拼图 —— 和列表里"这一份是什么"
 /// 同一个记号（见 VersionIcons::puzzleMark 那段）。
 QIcon flavorMark(const NewServerPage::FlavorOption &option) {
+    QPixmap mark;
     if (option.token == QLatin1String("vanilla")) {
-        return QIcon(VersionIcons::grassBlock(kFlavorIconSize));
+        mark = VersionIcons::grassBlock(kFlavorIconSize);
+    } else {
+        mark = VersionIcons::iconMarkForKey(option.token, kFlavorIconSize);
+        if (mark.isNull()) {
+            mark = VersionIcons::puzzleMark(kFlavorIconSize, QApplication::palette().color(QPalette::WindowText));
+        }
     }
-    const QPixmap known = VersionIcons::iconMarkForKey(option.token, kFlavorIconSize);
-    if (!known.isNull()) {
-        return QIcon(known);
-    }
-    return QIcon(VersionIcons::puzzleMark(
-        kFlavorIconSize, QApplication::palette().color(QPalette::WindowText)));
+    // 左边补透明留白（kFlavorRowPad），图标按设备像素比整张重画。
+    const qreal dpr = mark.devicePixelRatio();
+    QPixmap padded(QSize(kFlavorIconSize + kFlavorRowPad, kFlavorIconSize) * dpr);
+    padded.setDevicePixelRatio(dpr);
+    padded.fill(Qt::transparent);
+    QPainter painter(&padded);
+    painter.drawPixmap(kFlavorRowPad, 0, mark);
+    return QIcon(padded);
 }
 
 /// 一行小字（说明/计划）。和更新中心那一页的 `makeMutedLabel()` 是同一套做法。
@@ -146,6 +158,8 @@ NewServerPage::NewServerPage(QWidget *parent) : QDialog(parent) {
     // 路径可能很长：**不许**参与横向度量（同一条规矩，和摘要那一句一样）。
     m_targetDirLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     m_targetDirLabel->setToolTip(QStringLiteral("服务端根目录下面以它的名字命名的那个目录"));
+    // 没有路径可写（名字还空着）时整行不占位：空着的一行会把名称框和下面的「服务端」撑开 20 多 px。
+    m_targetDirLabel->hide();
     identityLayout->addWidget(m_targetDirLabel);
     bodyLayout->addWidget(identity);
 
@@ -171,7 +185,7 @@ NewServerPage::NewServerPage(QWidget *parent) : QDialog(parent) {
     m_flavorList->setFrameShape(QFrame::NoFrame);
     m_flavorList->setStyleSheet(QStringLiteral("QListWidget{background:transparent;border:none;}"));
     m_flavorList->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_flavorList->setIconSize(QSize(kFlavorIconSize, kFlavorIconSize));
+    m_flavorList->setIconSize(QSize(kFlavorIconSize + kFlavorRowPad, kFlavorIconSize));
     m_flavorList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_flavorList->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     serverCardLayout->addWidget(m_flavorList);
@@ -299,6 +313,7 @@ void NewServerPage::setTargetDir(const QString &dir) {
         return;
     }
     m_targetDirLabel->setText(dir);
+    m_targetDirLabel->setVisible(!dir.isEmpty());
     m_targetDirLabel->setToolTip(dir.isEmpty()
                                      ? QStringLiteral("先给它起个名字，目录名是照着名字来的。")
                                      : dir);

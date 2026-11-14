@@ -27,6 +27,7 @@
 #include <QFontDatabase>
 #include <QFrame>
 #include <QKeyEvent>
+#include <QLineEdit>
 #include <QLabel>
 #include <QListWidget>
 #include <QMainWindow>
@@ -813,6 +814,23 @@ int runExtended(QApplication &app, const ShotOptions &options) {
         std::printf("  SKIP toolbox：工具箱页挂不上\n");
     }
 
+    // ---- 下载 → 游戏 → 安装页（版本名称 + 模组加载器卡片 + 底下的主按钮）----
+    if (QLineEdit *installName = ui.getInstallNameEdit()) {
+        ui.getTabWidget()->setCurrentIndex(MainWindowUI::downloadTabIndex());
+        ui.getDownloadCategoryList()->setCurrentRow(MainWindowUI::downloadCategoryGameIndex());
+        ui.getDownloadStack()->setCurrentIndex(MainWindowUI::downloadCategoryGameIndex());
+        for (QWidget *child = installName; child != nullptr && child->parentWidget() != nullptr; child = child->parentWidget()) {
+            if (auto *stack = qobject_cast<QStackedWidget *>(child->parentWidget())) stack->setCurrentWidget(child);
+        }
+        installName->show();
+        pump();
+        if (QPushButton *button = ui.getInstallButton())
+            std::printf("  install button center x=%d (window %d)\n", button->mapTo(&window, button->rect().center()).x(), window.width());
+        saveShot(app, window, options.out, QStringLiteral("download-install"), &saved);
+    } else {
+        std::printf("  SKIP download-install：拿不到安装页\n");
+    }
+
     // ---- 下载 → 服务端 → 新建服务端：照 MainWindow::openNewServerPage() 嵌进表单宿主，八档照 ServerInstall::allFlavors() ----
     if (QWidget *formHost = ui.getServerFormHost(); formHost != nullptr && formHost->layout() != nullptr) {
         auto *page = new NewServerPage(formHost);
@@ -847,6 +865,19 @@ int runExtended(QApplication &app, const ShotOptions &options) {
         ui.getDownloadStack()->setCurrentIndex(MainWindowUI::downloadCategoryServerIndex());
         ui.getServerStack()->setCurrentIndex(MainWindowUI::downloadServerFormIndex());
         pump();
+        {
+            const auto yOf = [&](QWidget *w) { return w != nullptr ? w->mapTo(&window, QPoint(0, 0)).y() : -1; };
+            QWidget *nameEdit = page->findChild<QWidget *>(MainWindowUI::newServerNameEditName());
+            QWidget *card = page->findChild<QWidget *>(QStringLiteral("newServerIdentity"));
+            QWidget *create = page->findChild<QWidget *>(MainWindowUI::newServerCreateButtonName());
+            std::printf("  new-server: name edit y=%d h=%d, identity y=%d h=%d, create center x=%d (window %d)\n",
+                        yOf(nameEdit), nameEdit != nullptr ? nameEdit->height() : -1, yOf(card),
+                        card != nullptr ? card->height() : -1,
+                        create != nullptr ? create->mapTo(&window, create->rect().center()).x() : -1, window.width());
+            for (QLabel *label : page->findChildren<QLabel *>())
+                if (label->text() == QStringLiteral("服务端"))
+                    std::printf("  new-server: section title y=%d\n", yOf(label));
+        }
         saveShot(app, window, options.out, QStringLiteral("new-server"), &saved);
     } else {
         std::printf("  SKIP new-server：表单宿主挂不上\n");

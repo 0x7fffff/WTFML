@@ -271,16 +271,19 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
         mark = VersionIcons::grassBlock(iconSize);
     }
 
-    int textLeft = row.left() + pad;
+    // 视图可以用 `wtfmlRowLeftPad` 属性把图标和文字整体再往里推一截（高亮底色仍铺满整行）：
+    // 下载安装页的加载器列表左缘和上面「版本名称」框齐平，行内内容要退到框内文字那条线上。
+    const int leftPad = pad + (view != nullptr ? view->property("wtfmlRowLeftPad").toInt() : 0);
+    int textLeft = row.left() + leftPad;
     if (m_resourceRows && !isChannel && mark.isNull() && view != nullptr) {
         // 搜索结果底下的版本行：不画图标，文字对齐父行名字那一列，再往里缩一档（深一层缩 12）。
         int depth = 0;
         for (QModelIndex i = index; i.parent().isValid(); i = i.parent()) ++depth;
-        textLeft = row.left() - depth * view->indentation() + pad + iconSize + 8 + (depth - 1) * 12;
+        textLeft = row.left() - depth * view->indentation() + leftPad + iconSize + 8 + (depth - 1) * 12;
     }
     QRect iconRect;
     if (!mark.isNull()) {
-        iconRect = QRect(row.left() + pad, row.center().y() - iconSize / 2, iconSize, iconSize);
+        iconRect = QRect(row.left() + leftPad, row.center().y() - iconSize / 2, iconSize, iconSize);
         textLeft = iconRect.right() + 1 + 8;
     }
     // 右边那个箭头自己占一格，文字不许压过去；选中的那条加载器右边还多一个「取消」小叉

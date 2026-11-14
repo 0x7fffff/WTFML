@@ -13,6 +13,7 @@
 #include "WheelSafeComboBox.hpp"
 
 #include "Animations.hpp"
+#include "SettingsPageParts.hpp"
 #include "Theme.hpp"   // 浮层的底色（Theme::Part::Panel）
 
 #include <QAbstractItemView>  // eventFilter()：那两件导航控件共同的兜底（focusInEvent 替人挑第一条）
@@ -344,13 +345,17 @@ void InstanceSettingsDialog::setupLaunchPage(const GlobalValues &global, const Q
         m_advancedBox->setHidden(true);
         grid->addWidget(m_advancedBox, row++, 0, 1, 2);
 
-        connect(m_advancedToggle, &QAbstractButton::toggled, this, [this](bool expanded) {
+        // 开合动效与设置页「高级」同一份（200ms、每帧排完版面）；窗口缩回去等动画落定后再做。
+        auto *advancedMotion = new SettingsParts::FoldMotion(m_advancedBox);
+        connect(m_advancedToggle, &QAbstractButton::toggled, this, [this, advancedMotion](bool expanded) {
             // 展开前这个窗有多高：折回时按它还原（用户自己拉过的也算数 —— 记的是"展开
             // 那一刻"的高度，不是构造时那个 820x560）。
             if (expanded) {
                 m_heightBeforeAdvanced = height();
             }
-            m_advancedBox->setHidden(!expanded);
+            advancedMotion->setOpen(expanded);
+        });
+        connect(advancedMotion, &SettingsParts::FoldMotion::settled, this, [this](bool expanded) {
             // 折回之后得让窗口**缩回去**：Qt 只在"窗口比内容还小"时把它撑大（展开那一下
             // 就是它干的），内容变少时它一动不动 —— 不补这一句，展开一次再收起，底下就
             // 永远留着那一截空白。

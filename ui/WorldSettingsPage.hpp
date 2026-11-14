@@ -90,6 +90,9 @@ class QToolButton;
 class QPushButton;
 class QVBoxLayout;
 class ToggleSwitch;
+namespace SettingsParts {
+class FoldMotion;
+}
 
 class WorldSettingsPage : public QWidget {
     Q_OBJECT
@@ -475,6 +478,8 @@ private:
     QPushButton *m_fileToggle = nullptr;
     /// 折叠框里那一块（那四行）。**默认藏起来** —— 开没开是 `m_fileToggle` 那一位。
     QWidget *m_fileBody = nullptr;
+    /// 折叠框的开合动效（与设置页「高级」同一份）。
+    SettingsParts::FoldMotion *m_fileMotion = nullptr;
     QLineEdit *m_nameEdit = nullptr;
     /// 那四行各自那一句"盘上有没有这一项"的说明（tooltip 的出处）。
     QString m_nameTip;

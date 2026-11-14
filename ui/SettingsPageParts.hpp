@@ -133,6 +133,30 @@ private:
     QVariantAnimation *m_anim = nullptr;
 };
 
+/// 折叠体的开合动效：body 的最大高度 0 ↔ 内容高，200ms OutCubic；每一帧当场把版面排完，
+/// 标题行和已经看见的内容全程不位移。「高级」展开行（ExpandSection）和各页自己的折叠行共用这一份。
+/// 动效关着（Anim::enabled()）或 body 还没显示出来时直接切换。body 要有自己的布局。
+/// `fillsSpace`：body 在父布局里带 stretch、展开后要撑满剩余高度（世界设置页的存档文件框）时给 true，
+/// 终点高度改为「摊开后版面实际给它的高度」，不然动画停在内容高、放开上限那一下会再跳一截。
+class FoldMotion : public QObject {
+    Q_OBJECT
+public:
+    explicit FoldMotion(QWidget *body, bool fillsSpace = false);
+    bool open() const { return m_open; }
+    /// 开合 body。已经在目标状态时什么也不做。
+    void setOpen(bool open, bool animate = true);
+
+signals:
+    /// 开合落定（动画跑完，或直接切换完）：body 的显隐与最大高度已经是终态。
+    void settled(bool open);
+
+private:
+    QWidget *m_body = nullptr;
+    QPropertyAnimation *m_anim = nullptr;
+    bool m_open = false;
+    bool m_fillsSpace = false;
+};
+
 /// 「高级」展开行：整行是按钮（Theme::makeFoldRow），右侧写「展开 / 收起」，不画箭头；内容高度 200ms 展开。
 class ExpandSection : public QWidget {
     Q_OBJECT
@@ -152,7 +176,7 @@ private:
     QWidget *m_header = nullptr;
     QWidget *m_body = nullptr;
     QVBoxLayout *m_bodyLayout = nullptr;
-    QPropertyAnimation *m_anim = nullptr;
+    FoldMotion *m_motion = nullptr;
     bool m_expanded = false;
 };
 

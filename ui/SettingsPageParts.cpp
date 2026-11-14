@@ -429,6 +429,70 @@ void SlidingTabs::paintEvent(QPaintEvent *) {
 }
 
 // ---------------------------------------------------------------------------
+// FoldMotion
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/// 把已经排队的版面请求当场处理完（父链上每一层各占一轮，4 轮够用）。
+void settleLayouts() {
+    for (int i = 0; i < 4; ++i) QCoreApplication::sendPostedEvents(nullptr, QEvent::LayoutRequest);
+}
+
+} // namespace
+
+FoldMotion::FoldMotion(QWidget *body, bool fillsSpace)
+    : QObject(body), m_body(body), m_open(!body->isHidden()), m_fillsSpace(fillsSpace) {
+    m_anim = new QPropertyAnimation(m_body, "maximumHeight", this);
+    m_anim->setDuration(200);
+    m_anim->setEasingCurve(QEasingCurve::OutCubic);
+}
+
+void FoldMotion::setOpen(bool open, bool animate) {
+    if (open == m_open) return;
+    m_open = open;
+    m_anim->stop();
+    m_anim->disconnect(this);
+    const auto settle = [this, open] {
+        m_body->setMaximumHeight(QWIDGETSIZE_MAX);
+        m_body->setVisible(open);
+        settleLayouts();
+        emit settled(open);
+    };
+    QWidget *host = m_body->parentWidget();
+    if (!animate || !Anim::enabled() || host == nullptr || !host->isVisible() || m_body->layout() == nullptr) {
+        settle();
+        return;
+    }
+    QLayout *inner = m_body->layout();
+    inner->activate();
+    int width = host->width();
+    if (const QLayout *hostLayout = host->layout()) width -= hostLayout->contentsMargins().left() + hostLayout->contentsMargins().right();
+    width = qMax(1, width);
+    int full = inner->hasHeightForWidth() ? inner->totalHeightForWidth(width) : inner->totalSizeHint().height();
+    if (open && m_fillsSpace) {
+        // 先摊开量一次再缩回 0：这一段全在同一个事件处理里，不会画出来。
+        m_body->setMaximumHeight(QWIDGETSIZE_MAX);
+        m_body->show();
+        settleLayouts();
+        full = qMax(full, m_body->height());
+        m_body->hide();
+    }
+    const int from = open ? 0 : m_body->height();
+    const int to = open ? full : 0;
+    m_body->setMaximumHeight(from);
+    m_body->show();
+    m_anim->setStartValue(from);
+    m_anim->setEndValue(to);
+    // 每一帧改完 body 高度，当场把版面排完：滚动区的内容窗口要晚一个事件轮才被撑高，
+    // 这一轮里表单按旧高度排版，标题行被压上去，下一轮才排回来，两轮之间会画一次，
+    // 展开时就是标题行每帧往上闪一下。
+    connect(m_anim, &QVariantAnimation::valueChanged, this, [] { settleLayouts(); });
+    connect(m_anim, &QPropertyAnimation::finished, this, settle);
+    m_anim->start();
+}
+
+// ---------------------------------------------------------------------------
 // ExpandSection
 // ---------------------------------------------------------------------------
 
@@ -451,9 +515,7 @@ ExpandSection::ExpandSection(const QString &title, QWidget *parent) : QWidget(pa
     m_bodyLayout->setSpacing(22);
     m_body->hide();
     layout->addWidget(m_body);
-    m_anim = new QPropertyAnimation(m_body, "maximumHeight", this);
-    m_anim->setDuration(200);
-    m_anim->setEasingCurve(QEasingCurve::OutCubic);
+    m_motion = new FoldMotion(m_body);
     connect(header, &QAbstractButton::toggled, this, [this](bool open) { setExpanded(open); });
 }
 
@@ -461,29 +523,7 @@ void ExpandSection::setExpanded(bool expanded, bool animate) {
     if (expanded == m_expanded) return;
     m_expanded = expanded;
     static_cast<QAbstractButton *>(m_header)->setChecked(expanded);
-    m_anim->stop();
-    m_anim->disconnect(this);
-    const auto settle = [this, expanded] {
-        m_body->setMaximumHeight(QWIDGETSIZE_MAX);
-        m_body->setVisible(expanded);
-    };
-    if (!animate || !Anim::enabled() || !isVisible()) {
-        settle();
-    } else {
-        QLayout *inner = m_body->layout();
-        inner->activate();
-        const int width = qMax(1, this->width());
-        const int full = inner->hasHeightForWidth() ? inner->totalHeightForWidth(width)
-                                                    : inner->totalSizeHint().height();
-        const int from = expanded ? 0 : m_body->height();
-        const int to = expanded ? full : 0;
-        m_body->setMaximumHeight(from);
-        m_body->show();
-        m_anim->setStartValue(from);
-        m_anim->setEndValue(to);
-        connect(m_anim, &QPropertyAnimation::finished, this, settle);
-        m_anim->start();
-    }
+    m_motion->setOpen(expanded, animate);
     emit toggled(expanded);
 }
 

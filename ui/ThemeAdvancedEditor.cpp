@@ -1,5 +1,6 @@
 #include "ThemeAdvancedEditor.hpp"
 #include "InputSizing.hpp"
+#include "SettingsPageParts.hpp"
 #include <QComboBox>
 #include <QFormLayout>
 #include <QHBoxLayout>
@@ -21,7 +22,8 @@ ThemeAdvancedEditor::ThemeAdvancedEditor(QWidget *parent) : QWidget(parent), m_s
     body->setObjectName("themeAdvancedBody");
     body->hide();
     layout->addWidget(body);
-    connect(toggle, &QAbstractButton::toggled, this, [body](bool open) { body->setVisible(open); });
+    auto *motion = new SettingsParts::FoldMotion(body);
+    connect(toggle, &QAbstractButton::toggled, this, [motion](bool open) { motion->setOpen(open); });
     auto *form = new QFormLayout(body);
     form->setContentsMargins(0, 4, 0, 0);
     form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
