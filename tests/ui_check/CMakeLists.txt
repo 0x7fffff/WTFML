@@ -133,6 +133,10 @@ ${REPO_ROOT}/ui/InstanceSettingsSignature.cpp
                                 ${REPO_ROOT}/ui/SkinViewer.cpp
                                 ${REPO_ROOT}/ui/TitleBar.cpp
                                 ${REPO_ROOT}/ui/Theme.cpp
+                                # 「预设管理」与「原理图信息」这两页：表面巡检要真的把它们摆出来。
+                                # 产品里它们是 MainWindow 直接 new 的，这一层原先没编进来。
+                                ${REPO_ROOT}/ui/PresetManagePage.cpp
+                                ${REPO_ROOT}/ui/SchematicInfoDialog.cpp
                                 ${REPO_ROOT}/ui/ThemeAdvancedEditor.cpp
                                 # 动效那一层：按钮按下 / 换页 / 展开折叠。
                                 # MainWindowUI.cpp 和 OverlayHost.cpp 都直接调它。
@@ -255,6 +259,8 @@ add_ui_module(ui_check_agent modules/UiAgentCheck.cpp UiAgentCheck)
 add_ui_module(ui_check_toolbox_polish modules/UiToolboxPolishCheck.cpp UiToolboxPolishCheck)
 add_ui_module(ui_check_toolbox_layout modules/UiToolboxLayoutCheck.cpp UiToolboxLayoutCheck)
 add_ui_module(ui_check_input_widths modules/UiInputWidthCheck.cpp UiInputWidthCheck)
+# 子页面 / 弹框 / 浮层巡检：只报告漏接设计系统的控件，不断言失败（见模块文件头）。
+add_ui_module(ui_check_surface_sweep modules/UiSurfaceSweepCheck.cpp UiSurfaceSweepCheck)
 add_ui_module(ui_check_resource_packs modules/UiResourcePacksCheck.cpp UiResourcePacksCheck)
 add_ui_module(ui_check_lifecycle modules/UiLifecycleCheck.cpp UiLifecycleCheck)
 add_ui_module(ui_check_ui_refresh modules/UiUiRefreshCheck.cpp UiUiRefreshCheck)
@@ -305,6 +311,13 @@ wtfml_add_test(NAME wtfml.input-widths COMMAND ui_check_input_widths)
 set_tests_properties(wtfml.input-widths PROPERTIES
     LABELS "ui;layout"
     TIMEOUT 120
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
+# 表面巡检：跑一遍、打印漏接清单，不改判定（模块之后才改成守卫）。
+wtfml_add_test(NAME wtfml.surface-sweep COMMAND ui_check_surface_sweep)
+set_tests_properties(wtfml.surface-sweep PROPERTIES
+    LABELS "ui;theme"
+    TIMEOUT 180
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
 )
 wtfml_add_test(NAME wtfml.toolbox-layout COMMAND ui_check_toolbox_layout)

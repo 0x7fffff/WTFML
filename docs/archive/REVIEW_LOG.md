@@ -76,3 +76,7 @@
 ## 2026-11-14　G1B 补 private/access key 词根
 
 2026-11-14｜`AgentRedaction` 相邻词根补 `private/key`、`access/key`，`public_key` 保持不遮；`verify_agent` 加 3 条用例｜`tools/test.ps1 -Suite affected -BaseRef HEAD`：`wtfml.core-agent` 336/336、`wtfml.network-diag` 通过｜参考 Presidio recognizer 的字段名与上下文优先原则，组合词根和单个词根一样按相邻 token 判，不能只认 `api`+`key`。
+
+## 2026-11-14　子页面与弹框的设计系统巡检（步骤 119）
+
+2026-11-14｜新增 `ui_check_surface_sweep`：95 个用户可见表面（主窗口各页、覆盖层整页、提示卡、浮层、向导四步、安装页预设弹框四份）逐个打开，扫列表代理 / 视口实底 / 原生表头 / 带边框文本框 / 开关式复选框与换页动效，900×620 出厂默认主题各出一张样张｜95 个表面里 64 个扫出问题、142 处（去重 83 个控件），`check-test-modules` PASS、`wtfml.surface-sweep` 1/1 Passed｜安装页「实例预设」四条观感全部复现：左栏 `presetInstallNavigation` 没挂代理、综合预设空列表视口实底、底部一行裸 `QLabel`、`PresetInstallPicker` 4～5 页硬切；58 个表面不在已有巡检清单里。
