@@ -443,7 +443,7 @@
 | 阶段 | 状态 | 人工验收 |
 | --- | --- | --- |
 | Stage 1A：无工具对话 | 已实现，自动验收通过 | G1A 除网络错误外通过；网络错误延后到 [ACCEPTANCE_LOG](archive/ACCEPTANCE_LOG.md) |
-| Stage 1B：受控文件工具 | 已实现，自动验收通过 | **G1B 首轮未通过**：脱敏只认精确字段名（`DB_PASSWORD`、`hypixel_api_key` 等变体未命中）、凭据文件识别只覆盖精确 `.env` 等少数名字、artifact 文案"完整内容"不准确；修复前不算通过 |
+| Stage 1B：受控文件工具 | 已实现，自动验收通过 | **G1B 未通过**：首轮提的 B1/B2/B3 三条已修（2026-11-13，见 [REVIEW_LOG](archive/REVIEW_LOG.md)）；复测 R1–R4、R6、R7 与补做 W4/W5、A1、P4、P5 待做 |
 
 **聊天（1A）**
 

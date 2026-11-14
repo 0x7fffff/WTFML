@@ -16,7 +16,7 @@ Stage 1B 在 1A 的聊天闭环上加入只针对锁定实例的受控文件工�
   - `fs.listNames`：完整文件名清单，每次审批，最多 2000 项；
   - `fs.read`：只读锁定实例内文本，默认 256 KB、最大 1 MB，NUL/控制字符判二进制，返回 sha256 + 不透明 `fileIdentityToken`，大文本转模型可读 artifact；
   - `fs.write`：只允许 `config/**`、`defaultconfigs/**`、`options.txt`，必须带 `expectedSha256` + `fileIdentityToken`，每次审批，写前 DPAPI 备份、原子替换、写后回读；
-  - `artifact.read`：只能读模型可读 artifact，每次重新脱敏，本地原始存档 id 不可读且错误不泄露存在性。
+  - `artifact.read`：只能读模型可读 artifact，每次重新脱敏，本地原始存档 id 不可读且错误不泄露存在性；大文本内联截断时的提示写本次读取内容见模型可读 artifact、同样已脱敏，不写完整内容。
 - **D11 外发策略**：日志/崩溃报告/锁定实例元数据/目录元数据自动；配置/完整文件名清单/其他文本/完整实例列表逐次确认；凭据文件/凭据存储/二进制硬阻断；严格模式把自动整列改为逐次确认；自动读取在 UI 提示"可能发送给当前模型服务"。
 - **实例锁定**：第一次实例工具调用锁定当前主页实例并先落盘；锁定后不跟随主页切换；换游戏文件夹/实例删除 → `InstanceUnavailable`；显式切换需确认（可新建会话）。
 - **审批**：只读自动；文件读确认/写/命令/外部 MCP 逐次；没有会话级目录放行；审批请求持久化但不存"已批准"布尔，重启后作废、必须重新请求。
@@ -65,9 +65,7 @@ agent/
 - 大文本转 artifact 的内联上限为 16 KB，超出部分只提供模型可读 artifact id。artifact 仅保存本次读取到的分片内容（默认 256 KB、最大 1 MB），不是整个原文件。
 - 活动会话删除：有待审批/执行中先取消；文件提交阶段（`committing()`）拒绝删除并提示。
 - **首轮人工发现的缺口（修复前 G1B 不通过）**，详见 [SECURITY_BOUNDARIES.md](SECURITY_BOUNDARIES.md) §8：
-  - 脱敏只认精确字段名，`hypixel_api_key`、`DB_PASSWORD`、`REDIS_PASSWORD`、`API_SECRET`、`JWT_SECRET` 等变体未命中；
-  - 凭据文件识别只覆盖精确 `.env` 等少数文件名，`env`/`test.env` 等变体不会硬阻断；
-  - 工具文案"完整内容见 artifact"不准确，脱敏未命中时 artifact 仍可被分段取回；
+  - 脱敏未命中时 artifact 仍可被分段取回；
   - 日志里的用户名、启动参数回显、绝对路径、硬件指纹留给 Stage 2 字段投影。
 
 ## 5. 自动验收（2026-11-10 本机）

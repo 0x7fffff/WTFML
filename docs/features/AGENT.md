@@ -629,7 +629,7 @@ provider profile 标注部署类型，默认按 URL 自动判断，可手动改�
 
 - `fs.read` / `fs.listNames` / 配置读取返回给模型的内容一律先脱敏；用户确认了完整原文时，完整原文只进本地原始存档，模型可读 artifact 只存脱敏版本。
 - 模型可读 artifact 的 id 可进上下文；本地原始存档 id 不返回给模型，也不出现在工具 schema/错误提示里。模型请求本地 id 按 `EgressBlocked` 处理，不泄露"存在"。
-- 工具结果超过内联上限时，完整内容写模型可读 artifact（仍脱敏），消息里放摘要 + id + 长度 + sha256。注意 artifact 保存的是**本次读取到的内容片段**（受读取上限约束）。
+- 工具结果超过内联上限时，本次读取内容写模型可读 artifact（仍脱敏），消息里放摘要 + id + 长度 + sha256。注意 artifact 保存的是**本次读取到的内容片段**（受读取上限约束）。
 - `artifact.read {artifactId, offset, length}` 分段读取模型可读 artifact；每次都重新过 `AgentEgressPolicy` + `AgentRedaction`，先前审批不豁免。
 - 自动读取类别（日志/崩溃报告/元数据）的原始内容默认不落盘；需要本地留存时只进本地原始存档并加密。
 - 删除会话删除本会话两类 artifacts，**不删除** `backups/maintenance/` 下的备份。
@@ -1286,7 +1286,7 @@ G1B 通过前不得写成已通过；未完成的真机项：真实路径/juncti
 
 已实现：`AgentWinPath` 句柄级路径校验；`fs.list`（只回目录元数据）/ `fs.listNames` / `fs.read` / `fs.write` / `artifact.read`；D11 标准/严格模式；实例锁定；逐次审批（无会话级目录放行）；写前 DPAPI 备份、原子写、写后校验；审批卡/工具卡；Loop 的 tool_calls → 审批 → 回灌；模型可读/本地原始 artifact 分离。
 
-G1B 修复项（P0，修完再复测 R1–R4 / R6 / R7 与 W4 / W5）：脱敏要覆盖 `hypixel_api_key`、`DB_PASSWORD`、`REDIS_PASSWORD`、`API_SECRET`、`JWT_SECRET` 等变体；凭据文件识别要覆盖 `env`、`test.env` 等；artifact 文案"完整内容见 artifact"改成"本次读取内容见 artifact"；日志里的用户名、启动参数回显、绝对路径、硬件指纹留给 Stage 2 的字段投影。
+G1B 修复项（B1/B2/B3 已修，2026-11-13）：脱敏覆盖 `hypixel_api_key`、`DB_PASSWORD`、`REDIS_PASSWORD`、`API_SECRET`、`JWT_SECRET` 等变体，凭据文件识别覆盖 dotenv 家族与词根在中间的文件名，artifact 提示改为本次读取内容并说明同样脱敏；仍须复测 R1–R4 / R6 / R7 与 W4 / W5。日志里的用户名、启动参数回显、绝对路径、硬件指纹留给 Stage 2 的字段投影。
 
 ### Stage 2：维护工作流 + MCP（单独验收）（约 12–17 个工作日）
 

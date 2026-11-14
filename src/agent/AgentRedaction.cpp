@@ -6,6 +6,7 @@
 #include "AgentRedaction.hpp"
 
 #include <QRegularExpression>
+#include <QSet>
 
 namespace AgentRedaction {
 namespace {
@@ -19,6 +20,70 @@ void note(Result *result, const QString &kind) {
     }
 }
 
+/// 键名切成小写词根：`_`、`-`、`.` 断开，外加「小写/数字后面紧跟大写」这一刀。
+///
+/// 不在**全大写串内部**切（`PASSWORD` 是一个词根，切成 pass+word 就谁都不认识了），
+/// 所以这里没有用「大写后面接小写就断」那条常见的驼峰收尾规则。
+QStringList keyNameTokens(const QString &key) {
+    QStringList tokens;
+    QString current;
+    for (int i = 0; i < key.size(); ++i) {
+        const QChar character = key.at(i);
+        if (character == QLatin1Char('_') || character == QLatin1Char('-') ||
+            character == QLatin1Char('.')) {
+            if (!current.isEmpty()) {
+                tokens << current;
+                current.clear();
+            }
+            continue;
+        }
+        if (character.isUpper() && !current.isEmpty()) {
+            const QChar previous = key.at(i - 1);
+            if (previous.isLower() || previous.isDigit()) {
+                tokens << current;
+                current.clear();
+            }
+        }
+        current.append(character.toLower());
+    }
+    if (!current.isEmpty()) {
+        tokens << current;
+    }
+    return tokens;
+}
+
+/// 键名里出现这些词根，就按凭据字段对待。
+///
+/// NOTE: 判据不能写成「键名等于某个完整名字」。`\b` 在下划线和连字符**中间不成立**
+/// （那两个都是单词字符），所以写死名字那一版放过的是 `hypixel_api_key`、`DB_PASSWORD`、
+/// `REDIS_PASSWORD`、`API_SECRET`、`JWT_SECRET` 这一整类带前后缀的名字 —— 而字段名是
+/// 服务方和用户配置说了算的，我们列不完。
+bool isCredentialKeyName(const QString &key) {
+    static const QSet<QString> roots = {
+        QStringLiteral("password"),  QStringLiteral("passwd"), QStringLiteral("pwd"),
+        QStringLiteral("secret"),    QStringLiteral("token"),  QStringLiteral("credential"),
+        QStringLiteral("credentials"), QStringLiteral("cookie"), QStringLiteral("csrf"),
+        QStringLiteral("session"),   QStringLiteral("apikey")};
+    const QStringList tokens = keyNameTokens(key);
+    for (const QString &token : tokens) {
+        if (roots.contains(token)) {
+            return true;
+        }
+    }
+    // 相邻两个词根合起来也是凭据字段：`api_key`、`x-api-key`、`apiKey`，
+    // 以及 `private_key`、`access_key`。`public_key` 不在其中，它是公开材料。
+    static const QSet<QString> credentialPairs = {
+        QStringLiteral("api/key"),     QStringLiteral("key/api"),
+        QStringLiteral("private/key"), QStringLiteral("access/key")};
+    for (int i = 0; i + 1 < tokens.size(); ++i) {
+        const QString adjacent = tokens.at(i) + QLatin1Char('/') + tokens.at(i + 1);
+        if (credentialPairs.contains(adjacent)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 const QRegularExpression &authorizationPattern() {
     static const QRegularExpression pattern(
         QStringLiteral(R"((?i)\b(authorization\s*[:=]\s*)(bearer\s+)?([A-Za-z0-9._~+/=-]{8,}))"));
@@ -27,8 +92,9 @@ const QRegularExpression &authorizationPattern() {
 
 const QRegularExpression &fieldPattern() {
     // 只遮“字段名 = 值”里的值；值本身必须够长，避免把 `password = true` 这种说明文字遮掉。
+    // 键名这里**只放宽形状**（任意 2–64 个名字字符），是不是凭据由 isCredentialKeyName() 判。
     static const QRegularExpression pattern(QStringLiteral(
-        R"((?i)\b(access_token|refresh_token|id_token|password|passwd|secret|client_secret|api_key|apikey|cookie|set-cookie|csrf|session(?:_id|token)?)\b(\s*[:=]\s*["']?)([^\s"',;]{6,}))"));
+        R"(\b([A-Za-z0-9_.\-]{2,64})(\s*[:=]\s*["']?)([^\s"',;]{6,}))"));
     return pattern;
 }
 
@@ -94,13 +160,24 @@ Result redact(const QString &text) {
     }
 
     {
-        auto match = fieldPattern().match(result.text);
-        while (match.hasMatch()) {
+        int from = 0;
+        while (true) {
+            const auto match = fieldPattern().match(result.text, from);
+            if (!match.hasMatch()) {
+                break;
+            }
+            const QString key = match.captured(1);
+            if (!isCredentialKeyName(key)) {
+                // 非凭据键名（`version=1.21.1`、`username=…`）原样留着，只把扫描位置
+                // 推过这一段键名。
+                from = match.capturedStart() + match.capturedLength(1);
+                continue;
+            }
             note(&result, QStringLiteral("credential-field"));
-            const QString head = match.captured(1) + match.captured(2);
+            const QString head = key + match.captured(2);
             result.text.replace(match.capturedStart(), match.capturedLength(),
                                 head + replacementText());
-            match = fieldPattern().match(result.text, match.capturedStart() + 1);
+            from = match.capturedStart() + head.size() + replacementText().size();
         }
     }
 
