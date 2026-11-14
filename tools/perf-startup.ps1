@@ -8,19 +8,13 @@
     WTFMinecraftLauncher.exe —— 验证工程（mw_check/verify）按设计是 -O0，量出来的
     速度不能代表产品（docs/dev/TESTING.md 的性能规则）。
 
-    为什么要换注册表：产品的"数据目录"是 QSettings 里的 Launcher/CurrentFolder
-    （HKCU\Software\WTFML\WTFML）。不换就会写到用户真正在用的游戏文件夹里。这里把
-    整个 HKCU\Software\WTFML 导出成 backup.reg → 删掉 → 种一份指向沙盒的最小设置 →
-    跑完在 finally 里删干净、再 import 回来，并再导出一份和备份逐字节比对（SHA256）。
-    比对不一致会写 registry-diff.txt 并以失败退出。
+    设置不进用户注册表：每次运行都建一份临时验收配置，用
+    `--acceptance-profile <临时目录>` 起 exe —— 设置落在 `<目录>/settings`、游戏目录
+    落在 `<目录>/game`、智能体数据落在 `<目录>/agent`，夹具也造在 `<目录>/game` 里，
+    跑完整个临时目录删掉。不碰用户注册表，也就不需要备份 / 还原。
 
-    # settings-isolation: real-settings —— 冷启动量的就是"真实设置在这一台机器上从零读起"，
-    用 --acceptance-profile 换掉的是被量的东西本身（换成了 INI 与临时数据根）。所以它必须
-    动真 HKCU；代价由上面那段兜着：跑前导出备份、跑后 import 回来并逐字节比对，中断时按
-    报告目录里的 restore.ps1 还原。
-
-    ⚠ 跑之前必须没有启动器在运行：脚本会检查，发现就拒绝（不会去杀用户那个）。
-    ⚠ 如果脚本被强行中断，用报告目录里的 restore.ps1 手工还原。
+    ⚠ 跑之前必须没有启动器在运行：机器上另有一份在跑会干扰测量。
+    ⚠ 探针模式带首帧守卫：表面超过 50 ms 又不在允许名单里，这一趟以非零退出。
 
     指标（每次运行一条）：
       visibleMs  子进程创建 → 找到标题为 "WTF Minecraft Launcher" 的可见顶层窗口
@@ -68,6 +62,11 @@ param(
     # `-DWTFML_PERF_PROBE=ON` 的 Release 构建（见 docs/dev/PERFORMANCE.md）。
     # 这一档不做外部 WM_NULL 探测（会干扰探针自己量的节拍）。
     [switch]$Probe,
+    # 探针模式的首帧允许名单：`步骤名<TAB>放行时的最大首帧`。默认
+    # tools/perf-firstframe-allowlist.txt（只许删条目，不许加）。
+    [string]$FirstFrameAllowlist,
+    # 验收配置的临时根目录（`--acceptance-profile` 指向它）。默认 <报告目录>/profile，
+    # 跑完整个删掉；设置 / 游戏目录 / 智能体数据都在这一份里。
     [string]$Sandbox,
     [string]$ReportDir,
     [string]$QtBin = 'D:/Qt/Qt/6.10.1/mingw_64',
@@ -89,16 +88,21 @@ if (-not [IO.Path]::IsPathRooted($ReportDir)) { $ReportDir = Join-Path $repo $Re
 $ReportDir = [IO.Path]::GetFullPath($ReportDir)
 New-Item -ItemType Directory -Force -Path $ReportDir | Out-Null
 
-if (-not $Sandbox) { $Sandbox = Join-Path $ReportDir 'sandbox' }
+if (-not $Sandbox) { $Sandbox = Join-Path $ReportDir 'profile' }
 if (-not [IO.Path]::IsPathRooted($Sandbox)) { $Sandbox = Join-Path $repo $Sandbox }
 $Sandbox = [IO.Path]::GetFullPath($Sandbox)
 if (Test-Path -LiteralPath $Sandbox) { Remove-Item -LiteralPath $Sandbox -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $Sandbox | Out-Null
+$GameDir = Join-Path $Sandbox 'game'
+$ProfileMarker = Join-Path $Sandbox 'acceptance-profile.json'
+
+if (-not $FirstFrameAllowlist) { $FirstFrameAllowlist = Join-Path $repo 'tools/perf-firstframe-allowlist.txt' }
+$FirstFrameAllowlist = [IO.Path]::GetFullPath($FirstFrameAllowlist)
 
 # ---- 运行前的闸：用户自己的启动器在跑就拒绝；绝不替用户杀掉它。 ----
 $running = @(Get-Process -Name 'WTFMinecraftLauncher' -ErrorAction SilentlyContinue)
 if ($running.Count -gt 0) {
-    throw "检测到启动器正在运行（PID $($running.Id -join ', ')）。先关掉再测：要换注册表，不能和你正在用的那份抢设置。"
+    throw "检测到启动器正在运行（PID $($running.Id -join ', ')）。先关掉再测：另有一份在跑会干扰测量。"
 }
 
 $env:PATH = (@((Join-Path $QtBin 'bin'), $env:PATH) -join ';')
@@ -173,7 +177,7 @@ function Write-EmptyZip([string]$Path) {
     [IO.File]::WriteAllBytes($Path, $bytes)
 }
 
-$versionsDir = Join-Path $Sandbox 'versions'
+$versionsDir = Join-Path $GameDir 'versions'
 New-Item -ItemType Directory -Force -Path $versionsDir | Out-Null
 for ($i = 1; $i -le $Instances; $i++) {
     $id = 'perf-instance-{0:D3}' -f $i
@@ -250,24 +254,11 @@ if ($InstanceMods -gt 0) {
     Set-Content -LiteralPath (Join-Path $fixture 'options.txt') -Value 'renderDistance:12' -Encoding utf8
 }
 
-# ---- 注册表换沙盒 ----
-$regRoot = 'HKCU\Software\WTFML'
-$hadKey = Test-Path 'Registry::HKEY_CURRENT_USER\Software\WTFML'
-$backup = Join-Path $ReportDir 'registry-backup.reg'
-$backupHash = ''
-if ($hadKey) {
-    & reg export $regRoot $backup /y | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "导出注册表失败（$regRoot）。不做任何改动。" }
-    $backupHash = (Get-FileHash -LiteralPath $backup -Algorithm SHA256).Hash
-}
-
-$restoreScript = Join-Path $ReportDir 'restore.ps1'
-@"
-# 如果 perf-startup.ps1 被强行中断，用这个把启动器设置逐字还原。
-# 由 tools/perf-startup.ps1 生成（$stamp）。
-reg delete "$regRoot" /f
-$(if ($hadKey) { "reg import `"$backup`"" } else { '# 跑之前本来就没有这个键，删掉就算还原。' })
-"@ | Set-Content -LiteralPath $restoreScript -Encoding utf8
+# ---- 验收配置：设置 / 游戏目录 / 智能体数据都落在临时目录里，不碰用户注册表 ----
+# `--acceptance-profile` 要求根目录里有一份标记文件（见 src/util/StartupAcceptance.hpp），
+# closeAfterMs 是自动关窗的兜底；上限就是 120000（2 s~120 s 的配额）。
+@{ format = 'wtfml-startup-acceptance/1'; closeAfterMs = 120000; stressRows = 0 } |
+    ConvertTo-Json -Compress | Set-Content -LiteralPath $ProfileMarker -Encoding utf8 -NoNewline
 
 $exeInfo = Get-Item -LiteralPath $Exe
 $exeMd5 = (Get-FileHash -LiteralPath $Exe -Algorithm MD5).Hash.ToLowerInvariant()
@@ -277,19 +268,21 @@ $exeMd5 = (Get-FileHash -LiteralPath $Exe -Algorithm MD5).Hash.ToLowerInvariant(
 $runResults = [Collections.Generic.List[object]]::new()
 $notes = [Collections.Generic.List[string]]::new()
 $current = $null
-$restoredVerbatim = $false
-$afterExport = Join-Path $ReportDir 'registry-after-restore.reg'
 
 function Invoke-OneRun {
     param([int]$Index, [bool]$Measure)
     $probeOut = if ($Probe) { Join-Path $Sandbox 'perf-probe.json' } else { $null }
     if ($probeOut -and (Test-Path -LiteralPath $probeOut)) { Remove-Item -LiteralPath $probeOut -Force }
+    $profileArg = "--acceptance-profile=`"$Sandbox`""
     $proc = if ($Probe) {
-        # 沙盒路径里可能有空格，参数整体带上引号再交给 Start-Process。
+        # 路径里可能有空格，参数整体带上引号再交给 Start-Process。
+        $probeArg = "--wtfml-perf-probe=`"$probeOut`""
+        $allowArg = "--wtfml-firstframe-allowlist=`"$FirstFrameAllowlist`""
         Start-Process -FilePath $Exe -WorkingDirectory (Split-Path -Parent $Exe) `
-            -ArgumentList "--wtfml-perf-probe=`"$probeOut`"" -PassThru
+            -ArgumentList @($profileArg, $probeArg, $allowArg) -PassThru
     } else {
-        Start-Process -FilePath $Exe -WorkingDirectory (Split-Path -Parent $Exe) -PassThru
+        Start-Process -FilePath $Exe -WorkingDirectory (Split-Path -Parent $Exe) `
+            -ArgumentList @($profileArg) -PassThru
     }
     $script:current = $proc
     $sw = [Diagnostics.Stopwatch]::StartNew()
@@ -324,7 +317,7 @@ function Invoke-OneRun {
         $script:current = $null
         Start-Sleep -Milliseconds 300
 
-        $appLog = Join-Path $Sandbox 'logs/wtfml.log'
+        $appLog = Join-Path $GameDir 'logs/wtfml.log'
         $logCopy = $null
         if (Test-Path -LiteralPath $appLog) {
             $logCopy = Join-Path $ReportDir ("run-{0:D2}-wtfml.log" -f $Index)
@@ -348,7 +341,20 @@ function Invoke-OneRun {
                     $Index, $visibleMs, $ok, $(if ($probeCopy) { '有' } else { '没有' }))
         }
         if (-not $ok) { throw ("第 {0} 次探针运行没有在 120 s 内退出。" -f $Index) }
-        if ($exitCode -ne 0) { throw ("第 {0} 次探针异常退出：exitCode={1}。日志保留在报告目录。" -f $Index, $exitCode) }
+        if ($exitCode -ne 0) {
+            $guardNames = @()
+            if ($probeCopy -and (Test-Path -LiteralPath $probeCopy)) {
+                try {
+                    $probeJson = Get-Content -LiteralPath $probeCopy -Raw -Encoding utf8 | ConvertFrom-Json
+                    $guardNames = @($probeJson.firstFrameGuard.overLimit | ForEach-Object { $_.name })
+                } catch { }
+            }
+            if ($guardNames.Count -gt 0) {
+                throw ("第 {0} 次首帧守卫失败（超过 50 ms 且不在允许名单）：{1}。逐条数字见 {2}" -f
+                    $Index, ($guardNames -join '、'), (Join-Path $ReportDir 'summary.md'))
+            }
+            throw ("第 {0} 次探针异常退出：exitCode={1}。日志保留在报告目录。" -f $Index, $exitCode)
+        }
         if (-not $probeCopy) { throw ("第 {0} 次探针没有产出 perf-probe.json（exe 是不是没带 WTFML_PERF_PROBE=ON？）。" -f $Index) }
         Start-Sleep -Milliseconds 300
         return $probeCopy
@@ -387,7 +393,7 @@ function Invoke-OneRun {
     $script:current = $null
     Start-Sleep -Milliseconds 300
 
-    $appLog = Join-Path $Sandbox 'logs/wtfml.log'
+    $appLog = Join-Path $GameDir 'logs/wtfml.log'
     $logCopy = $null
     if (Test-Path -LiteralPath $appLog) {
         $logCopy = Join-Path $ReportDir ("run-{0:D2}-wtfml.log" -f $Index)
@@ -417,13 +423,6 @@ function Invoke-OneRun {
 
 $failure = $null
 try {
-    & reg delete $regRoot /f 2>$null | Out-Null
-    $launcherKey = "$regRoot\WTFML\Launcher"
-    & reg add $launcherKey /v CurrentFolder /t REG_SZ /d $Sandbox /f | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "写 CurrentFolder 失败。" }
-    & reg add $launcherKey /v Folders /t REG_MULTI_SZ /d $Sandbox /f | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "写 Folders 失败。" }
-
     for ($i = 1; $i -le $Warmup; $i++) { Invoke-OneRun -Index 0 -Measure $false | Out-Null }
     for ($i = 1; $i -le $Runs; $i++) { Invoke-OneRun -Index $i -Measure $true | Out-Null }
 } catch {
@@ -439,35 +438,11 @@ try {
             if ($_.Path -eq $Exe) { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
         } catch { }
     }
-
-    & reg delete $regRoot /f 2>$null | Out-Null
-    if ($hadKey) {
-        & reg import $backup 2>$null | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            Start-Sleep -Milliseconds 400
-            & reg import $backup 2>$null | Out-Null
-        }
-    }
-    if ($hadKey) {
-        & reg export $regRoot $afterExport /y 2>$null | Out-Null
-        $restoredVerbatim = (Test-Path -LiteralPath $afterExport) -and
-            ((Get-FileHash -LiteralPath $afterExport -Algorithm SHA256).Hash -eq $backupHash)
-        if (-not $restoredVerbatim) {
-            $diffPath = Join-Path $ReportDir 'registry-diff.txt'
-            try {
-                Compare-Object (Get-Content -LiteralPath $backup) (Get-Content -LiteralPath $afterExport) |
-                    Format-Table -AutoSize | Out-String | Set-Content -LiteralPath $diffPath -Encoding utf8
-            } catch { }
-            $notes.Add("注册表还原后与备份不一致，见 $diffPath；可用 restore.ps1 再试一次。")
-        }
-    } else {
-        $restoredVerbatim = -not (Test-Path 'Registry::HKEY_CURRENT_USER\Software\WTFML')
-    }
 }
 
 if (-not $KeepSandbox) {
-    # 沙盒里只有夹具和这次跑出来的日志副本；日志已经另存，留着目录只会占盘。
-    # 但注册表还原的证据不能丢，所以报告目录本身永远保留。
+    # 验收配置里只有夹具、设置和这次跑出来的日志副本；日志已经另存到报告目录，
+    # 留着临时目录只会占盘。整个删掉，用户注册表本来就没动过。
     Remove-Item -LiteralPath $Sandbox -Recurse -Force -ErrorAction SilentlyContinue
 }
 
@@ -524,13 +499,12 @@ $report = [ordered]@{
     } else {
         '外部测量：进程创建 → 标题为 "WTF Minecraft Launcher" 的顶层窗口可见 → 应答 WM_NULL；窗口出现后观察主线程最长阻塞。'
     }
-    registry          = [ordered]@{
-        hadKey              = $hadKey
-        backedUp            = [bool]$hadKey
-        backupFile          = if ($hadKey) { [IO.Path]::GetRelativePath($repo, $backup) } else { $null }
-        restoredVerbatim    = $restoredVerbatim
-        restoreScript       = [IO.Path]::GetRelativePath($repo, $restoreScript)
+    acceptanceProfile = [ordered]@{
+        root       = [IO.Path]::GetRelativePath($repo, $Sandbox)
+        gameDir    = [IO.Path]::GetRelativePath($repo, $GameDir)
+        keptOnDisk = [bool]$KeepSandbox
     }
+    firstFrameAllowlist = if ($Probe) { [IO.Path]::GetRelativePath($repo, $FirstFrameAllowlist) } else { $null }
     runs              = $runResults
     stats             = [ordered]@{
         visibleMs  = Get-Stats 'visibleMs'
@@ -585,6 +559,36 @@ if ($Probe) {
                 $probeJson.stalls.tickMs, $probeJson.stalls.maxGapMs, $probeJson.stalls.maxStallMs,
                 $probeJson.stalls.over50ms, $probeJson.stalls.ticks))
     }
+    # 首帧守卫只认 Release 探针的数（offscreen -O0 只能横向比），每趟探针自己判一次；
+    # 这里把结论抄进摘要，失败时不用再翻 JSON。
+    $guards = @($probeJsons | ForEach-Object { $_.firstFrameGuard } | Where-Object { $null -ne $_ })
+    if ($guards.Count -gt 0) {
+        $guard = $guards[-1]
+        $allowlistCount = @(if (Test-Path -LiteralPath $FirstFrameAllowlist) {
+                Get-Content -LiteralPath $FirstFrameAllowlist -Encoding utf8 |
+                    Where-Object { $_.Trim() -and -not $_.TrimStart().StartsWith('#') }
+            }).Count
+        $lines.Add('')
+        $lines.Add("## 首帧守卫（阈值 $($guard.thresholdMs) ms；等数据 waitMs 不算首帧）")
+        $lines.Add('')
+        $lines.Add("- 允许名单：$($guard.allowlistPath)（$allowlistCount 条，只许删不许加）")
+        if ($guard.PSObject.Properties['error'] -and $guard.error) {
+            $lines.Add("- 名单读取失败：$($guard.error)")
+        }
+        foreach ($entry in @($guard.overLimit)) {
+            $lines.Add(("- 超阈值且不在名单：{0} 首帧 {1} ms（动作 {2} + 重画 {3}）" -f
+                    $entry.name, $entry.firstFrameMs, $entry.actionMs, $entry.repaintMs))
+        }
+        foreach ($entry in @($guard.whitelisted)) {
+            $lines.Add(("- 超阈值但在名单：{0} 首帧 {1} ms（放行时记录 {2} ms）" -f
+                    $entry.name, $entry.firstFrameMs, $entry.allowlistValue))
+        }
+        foreach ($entry in @($guard.staleWhitelist)) {
+            $lines.Add(("- 名单里但这次没超（先留着，稳定低于 50 ms 再删）：{0} 首帧 {1} ms" -f
+                    $entry.name, $entry.firstFrameMs))
+        }
+        $lines.Add("- 结论：$(if ($guard.failed) { '失败' } else { '通过' })；这一趟看了 $($guard.surfaces) 个表面。")
+    }
     # 跑不止一次时再给一张中位表：每一次的抖动都能从上面几张表里看出来，但结论只认这一张。
     if ($probeJsons.Count -gt 1) {
         $names = [Collections.Generic.List[string]]::new()
@@ -620,7 +624,7 @@ if ($Probe) {
     }
 }
 $lines.Add('')
-$lines.Add("注册表：备份=$([bool]$hadKey)；还原逐字节一致=$restoredVerbatim")
+$lines.Add("验收配置：$([IO.Path]::GetRelativePath($repo, $Sandbox))（--acceptance-profile；$(if ($KeepSandbox) { '保留' } else { '跑完已删' })）")
 if ($notes.Count) {
     $lines.Add('')
     $lines.Add('说明：')
@@ -632,5 +636,5 @@ $lines | Set-Content -LiteralPath $summaryPath -Encoding utf8
 Write-Host ''
 Write-Host "报告：$jsonPath"
 Write-Host "摘要：$summaryPath"
-if ($failure -or -not $restoredVerbatim -or $runResults.Count -eq 0) { exit 1 }
+if ($failure -or $runResults.Count -eq 0) { exit 1 }
 exit 0
