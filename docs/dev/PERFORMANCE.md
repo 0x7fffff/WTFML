@@ -521,6 +521,31 @@ pwsh -File tools/perf-startup.ps1 -Probe -Runs 3 -Instances 0 -Exe build/perf-pr
 
 验证：`mw_check_preset_install` 新增十项（四类各自只出现自己的、复合预设的子项按父项次序出现在对应类里、缺的那一类不凭空造、未知类别回空、复合项带着父项名字和读回来的 `components`，不再第二次读 manifest）；复跑 `verify` 6182/6182、`verify_presets` 762/762、`ui_check` 3136/3136、`mw_check` 2722/2722。
 
+### 五笔卡界面线程的活挪到后台（2026-11-14）
+
+量法：Release 产品 exe（`verification` preset，ccache 自动套着），`--acceptance-profile <临时目录>`（设置与游戏目录都在里面，不碰真注册表）。夹具 = 20 份实例（版本清单那一条另跑 200 份）+ 一份重实例（60 模组 / 24 张 1920×1080 截图）+ 40 份预设 + 一张 4K JPEG。临时探针打在五处生产代码里（`TEMP-128`，量完已删），只记"这一段在界面线程上花了多久"；每项跑 3 次，表里给的是范围。
+
+| 位置 | 改前（界面线程） | 改后（界面线程） | 改后（后台线程） |
+| --- | ---: | ---: | ---: |
+| 版本清单回来刷新实例，20 份 | 5 ms，扫盘 + 重建都在回调里 | 0 ms 发请求；3 ms 收尾（下一轮事件循环） | — |
+| 同上，200 份 | 31–34 ms | 0 ms 发请求；17 ms 收尾 | 扫盘不在界面线程（差出来的那 14–17 ms） |
+| 安装页「预设」弹框取数据，40 份预设、摘要缓存冷 | 25–26 ms | 0 ms（只发 `CatalogLoader` 请求） | 20–21 ms |
+| 截图页 24 张缩略图解码 | 274–280 ms | 0 ms（只派发） | 40–45 ms（线程池） |
+| `Glass::enabled()` ×2000 | 70–78 ms（35–39 µs/次） | 0 ms（<0.5 µs/次） | — |
+| 同一张 4K 背景图解码 ×5 | 164–210 ms（每次 31–34 ms） | 34–38 ms | —（第一次 34–37 ms，后四次命中缓存） |
+
+版本清单那条的"改前"比 125 那轮加载盘点里的 63 / 116 ms 小：那一份夹具带 `wtfml.meta`、盘是冷的，这里的热盘夹具扫得更快；要看的是"这一次回调还占界面线程多少"，不是绝对值。
+
+五笔改动：
+
+- `VersionManager::requestInstalledVersions()`：扫盘挪进 `QtConcurrent`，结果从 `installedVersionsScanned` 回来。每次请求 +1 一代，旧的（晚到的）直接丢，在途那一发被取消旗叫停；watcher 挂在版本管理器上，析构后不再回调。`MainWindow::refreshInstalledVersionsAsync()` 只在版本清单从网络回来那条路上用，同步入口 `refreshInstalledVersions()` 留给"改名 / 删实例 / 下载收尾"这些要立刻看见的场合。
+- `PresetController::requestInstallPickerData()`：列表走 `Presets::CatalogLoader` 的异步快照（同一份目录的并发请求并进一趟），复合预设的 manifest 也在工作线程里读；安装页点「预设」不再在这一帧读盘，数据回来才摆弹框（布局不动）。
+- 截图页缩略图：`QImageReader` 缩放解码放进 `QtConcurrent`，结果按 `路径|大小|修改时间` 缓存；列表项建出来就挂一张透明占位图，图回来只换内容，行高不跳。表头里"写得荒唐"（>64 MP）的那一份直接不解（原来会整张读一遍）。
+- `Glass::enabled()`：四档判据（用户选的档 + 高对比度 + 系统透明开关 + 系统背板可用）一次读完缓存住；`setMode()` 写完当场失效，系统设置变化由 `install()` 装的过滤器在 `ThemeChange` / `ApplicationPaletteChange` / `ApplicationStateChange` 时失效。
+- 主题背景图：`Theme::cachedImage()` 按 `路径|大小|修改时间` 缓存解码后的 `QImage`（按张数封顶 6 张），`ThemeBackground` 和 `Glass::Backdrop` 都走它；同一张图在换主题那一下只解一次。
+
+验证：`verify_instances` 的 K128 两段（连着发两次只回最新那一发、对象析构后不再回调）、`ui_check_theme`（写设置后 `enabled()` 立刻反映新值，直接写盘 + `invalidateSettingsCache()` 同样生效）；`tools/check-test-modules.ps1` PASS。
+
 ### 列表与选择
 
 实例文件页的大列表首绘/重列、反选的批量选择（1000 条：逐行 1279.164 ms / 1000 次通知，批量 1.430 ms / 1 次）见 [LIST_PAINT.md](perf-notes/LIST_PAINT.md)。

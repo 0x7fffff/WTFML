@@ -75,7 +75,7 @@ Presets::loadManifest   PresetStore.cpp
 Presets::list
 ```
 
-当时 `Presets::list()` 先读下标，再按 id 逐个 `loadManifest()`（`QFile::open` + `read` + JSON 解析），1000 份约 2.3 s，每份约 2.3 ms，三趟一致。预设页走异步的 `Presets::CatalogLoader`，同步入口 `PresetController::availablePresets()` / `installPickerData()` 直接调 `list()`。现状见 [PRESET_LIST_IO.md](PRESET_LIST_IO.md)。
+当时 `Presets::list()` 先读下标，再按 id 逐个 `loadManifest()`（`QFile::open` + `read` + JSON 解析），1000 份约 2.3 s，每份约 2.3 ms，三趟一致。预设页走异步的 `Presets::CatalogLoader`。同步入口 `PresetController::availablePresets()` / `installPickerData()` 仍然直接调 `list()`（`installPickerData()` 留给验证工程与同步调用方）；安装页那张「实例预设」弹窗从 2026-11-14 起走 `requestInstallPickerData()`：列表并进 `CatalogLoader` 那一趟，复合预设的 manifest 也在工作线程读，界面线程只剩派发。现状见 [PRESET_LIST_IO.md](PRESET_LIST_IO.md) 与 [PERFORMANCE.md](../PERFORMANCE.md) 的「五笔卡界面线程的活挪到后台」。
 
 ### 预设 store 同步写：约 1.7 s
 
