@@ -21,6 +21,7 @@
 
 #include "..\ui\MainWindowUI.hpp"
 #include "..\ui\VersionIcons.hpp"
+#include "LoadingState.hpp"
 #include "controllers/GameSessionController.hpp"
 #include "controllers/HomeQuickController.hpp"
 #include "controllers/LaunchController.hpp"
@@ -59,6 +60,8 @@ void MainWindow::applyLauncherBehaviourAfterLaunch() {
 }
 
 void MainWindow::onVersionsFetched(const QStringList &versions) {
+    // 下载页「游戏」页头刷新那一行加载态（没挂过就什么都不做）。失败时这一发带的是上一份好清单。
+    LoadingState::finish(m_ui->getVersionRefreshStatus());
     refreshAvailableVersions();
     // 下载页那五页的「版本」筛子也灌一遍：它的选项就是这份在线清单（用户要"按版本搜"，
     // 而"有哪些版本"这件事只有这一份是一手来源）。放在**失败也照灌**的位置 —— 空清单时

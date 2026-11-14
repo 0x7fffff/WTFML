@@ -9,8 +9,8 @@
  * - 三颗主题色的点，一轮 `Anim::loadingDotPeriodMs()`，错开 `Anim::loadingDotStaggerMs()`，
  *   InOutSine。动效关着时门槛照旧，但不淡入淡出、点不呼吸（三颗一样 .55）。
  * - 出错：断开的云 + 一句原因 + 「重试」（整块是次按钮，行内是文字按钮）。
- *
- * 下拉框不归这里管（它们照旧写占位文字「正在获取…」）。
+ * - 整块那一套挂在矮宿主（比 48px 矮：下拉框、一行字）上时画成一行：点 + 话从那一格原来的字
+ *   起点开始摆，字用宿主自己的字号；出错时「重试」也是文字按钮。调用方先把宿主自己的字清掉。
  */
 
 #pragma once
@@ -60,6 +60,8 @@ bool paintRow(QPainter *painter, const QStyleOptionViewItem &option, const QMode
 QWidget *overlay(QWidget *host);
 /// 整块出错态那颗「重试」的 objectName。
 QString retryButtonName();
+/// 矮宿主（画成一行）出错时「重试」那一格（宿主坐标；上一次画出来的位置，没画过是空矩形）。
+QRect inlineRetryRect(QWidget *host);
 /// 共享时钟这会儿在不在转。
 bool clockRunning();
 /// 时钟上登记着几条行内加载行。

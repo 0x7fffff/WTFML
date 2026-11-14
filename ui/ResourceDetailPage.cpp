@@ -24,6 +24,7 @@
 #include <QVBoxLayout>
 
 #include "Animations.hpp"
+#include "LoadingState.hpp"
 #include "MainWindowUI.hpp"
 #include "RowActivation.hpp"
 #include "Theme.hpp"
@@ -610,6 +611,7 @@ void ResourceDetailPage::setGroups(const QList<Group> &groups) {
 }
 
 void ResourceDetailPage::fillGroups(const QList<Group> &groups) {
+    LoadingState::finish(m_list);
     m_list->clear();
     m_placeholder.clear();
     for (const Group &group : groups) {
@@ -653,6 +655,7 @@ QString ResourceDetailPage::dependenciesText() const {
 void ResourceDetailPage::setPlaceholder(const QString &text) { showPlaceholder(text); }
 
 void ResourceDetailPage::showPlaceholder(const QString &text) {
+    LoadingState::finish(m_list);
     m_list->clear();
     m_placeholder = text;
     if (text.isEmpty()) {
@@ -664,6 +667,18 @@ void ResourceDetailPage::showPlaceholder(const QString &text) {
 }
 
 QString ResourceDetailPage::placeholderText() const { return m_placeholder; }
+
+void ResourceDetailPage::setLoading(const QString &text) {
+    m_list->clear();
+    m_placeholder = text;
+    LoadingState::begin(m_list, text);
+}
+
+void ResourceDetailPage::setFailed(const QString &reason, std::function<void()> retry) {
+    m_list->clear();
+    m_placeholder = reason;
+    LoadingState::fail(m_list, reason, std::move(retry));
+}
 QTreeWidget *ResourceDetailPage::versionList() const { return m_list; }
 
 int ResourceDetailPage::groupCount() const {

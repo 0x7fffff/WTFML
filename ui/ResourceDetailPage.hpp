@@ -41,6 +41,8 @@
 #include <QString>
 #include <QStringList>
 
+#include <functional>
+
 class QCheckBox;
 class QKeyEvent;
 class QLabel;
@@ -171,6 +173,10 @@ public:
     void setPlaceholder(const QString &text);
     /// 现在列表上摆着的那句说明（没摆 = 空串）。
     QString placeholderText() const;
+    /// 版本列表还在路上：清空列表，盖上整块加载态（LoadingState）。placeholderText() 返回 text。
+    void setLoading(const QString &text);
+    /// 没取到：整块出错态（原因 + 「重试」）。placeholderText() 返回 reason。
+    void setFailed(const QString &reason, std::function<void()> retry);
 
     // ---------- 名字（验证工程按这些 objectName 找控件，别在别处再写一遍字面量）----------
     static QString headerCardName();

@@ -82,6 +82,9 @@ public:
     /// @param problem 非空 = 现在这一份填法还不成立，把那句话（而不是计划说明）摆出来。
     void setSummary(const QString &text, const QString &problem);
     void setVersionChoices(bool installer, const QStringList &versions, const QString &status = {});
+    /// 这一格真的发了请求在等：框清空、点不动，上面画一行加载态（LoadingState）。
+    /// 不发请求的档位不调它，框里就不会出现「正在获取」。
+    void setVersionsLoading(bool installer);
 
     // ---------- 读回用户填的（`accept()` 之后）----------
     QString serverName() const;

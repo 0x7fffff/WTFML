@@ -478,6 +478,7 @@ int UiDailyQuoteCheck(QApplication &app);
 int UiDailyQuoteShots(QApplication &app);
 int UiLongInstanceNameChecks(QApplication &app);
 int UiLongInstanceNameShots(QApplication &app);
+int UiLoadingStateShots(QApplication &app);
 int UiHomeGreetingShots(QApplication &app);
 int UiAccountKindShots(QApplication &app);
 // 自定义背景图的离屏样张（设置页那一组 + 设了图之后的主页与设置页）。

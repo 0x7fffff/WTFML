@@ -1222,7 +1222,9 @@ void PresetManagePage::setPlanLoading(bool loading) {
     m_previewButton->setText(loading ? tr("取消预览") : tr("预览计划"));
     m_previewButton->setToolTip(loading ? tr("取消本次预览，不会修改实例。")
         : tr("预览会改动的段落与条目，这一步不写文件。"));
-    m_planHint->setText(loading ? tr("正在读取实例并生成计划…") : QString());
+    // 计划那一格还空着：整格盖加载态（和上面预设详情同一个组件），底下那行提示不再写状态字。
+    if (loading) LoadingState::begin(m_planList, tr("正在读取实例并生成计划…"));
+    else LoadingState::finish(m_planList);
     refreshActions();
 }
 

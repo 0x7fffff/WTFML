@@ -6,6 +6,7 @@
 #include <QTreeWidget>
 #include "MainWindow.hpp"
 #include "MainWindowUI.hpp"
+#include "LoadingState.hpp"
 #include "manage/VersionManager.hpp"
 
 DownloadFilterController::DownloadFilterController(MainWindow *owner) : QObject(owner), m_owner(*owner) {}
@@ -78,12 +79,12 @@ void DownloadFilterController::refreshDownloadCategory(int row) {
         // 「游戏」那一页是**在线版本清单**，不是资源搜索（那张表上根本没有"游戏"这个键，
         // kindFromCategoryKey 也认不出来，所以它得自己一条分支）。
         //
-        // 摆不摆"正在…"那一行：**不摆**。版本树那边和资源表不是一回事 ——
-        // refreshAvailableVersions() 每一发都重建**恰好那几条顶层**（「最新版本」那一组 +
-        // 四条分类，那是它的活），中途插一行灰的会被它整个冲掉；而且版本树本来就不会因为
-        // "正在等"而空着：那棵一直挂在
-        // 那儿（fetchAvailableVersions 失败时也保留上一份好清单，见 onVersionsFetched）。
-        // 用户看到的是"点了一下、树没消失、过一会儿多的版本冒出来"，正是要的样子。
+        // 树里**不插**"正在…"那一行：refreshAvailableVersions() 每一发都重建**恰好那几条顶层**
+        // （「最新版本」那一组 + 四条分类，那是它的活），中途插一行会被它整个冲掉；而且版本树
+        // 本来就不会因为"正在等"而空着：那棵一直挂在那儿（fetchAvailableVersions 失败时也保留
+        // 上一份好清单，见 onVersionsFetched）。等待的提示挂在筛选条右边那块空地上（一行加载态，
+        // 过 150ms 才露），onVersionsFetched 收掉它 —— 成功失败都收，失败时旧清单照旧留着。
+        LoadingState::begin(m_owner.m_ui->getVersionRefreshStatus(), MainWindowUI::versionRefreshingText());
         m_owner.appendLog(tr("正在重新获取游戏版本列表…"));
         m_owner.m_versionManager->fetchAvailableVersions();
         return;

@@ -399,7 +399,7 @@ public:
     void setInfoText(const QString &path, const QString &text, const QString &toolTip = QString());
 
     static QString infoLabelName() { return QStringLiteral("instanceFilesInfoLabel"); }
-    /// 发出请求到接的人回来之间，那一格先写这句（读一份 gzip NBT 要几百毫秒）。
+    /// 发出请求到接的人回来之间，那一格挂的加载态写这句（读一份 gzip NBT 要几百毫秒）。
     static QString infoPendingText() { return QStringLiteral("正在读取…"); }
 
     /// 重新列一遍目录。切到这一页时、以及 MainWindow 动过盘之后都会调它。
@@ -1296,6 +1296,7 @@ private:
     /// 按"现在选着哪一条"决定那一格露不露、写什么、要不要发 infoRequested()。
     /// 选择变化、重列、开/关信息格时都会调它。
     void updateInfoPanel();
+    void stopInfoLoading();  ///< 撤掉那一格的加载态、放开为它留的行高
 
     // ---------- 批量管理（见文件头那段）----------
 

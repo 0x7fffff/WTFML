@@ -1,9 +1,23 @@
 // 加载态组件（ui/LoadingState）：整块 begin / finish / fail 与行内 beginRow / failRow。
 // 钉的是规矩本身：150ms 门槛、出错态「重试」接线、重复 begin 不叠层、动效关时照样露面且点不动、
-// 行内只重绘登记的那几行、行删了时钟就停。
+// 行内只重绘登记的那几行、行删了时钟就停；矮宿主（下拉框、一行字）画成一行、出错时「重试」是文字按钮；
+// 步骤 126 接上的几处页面（资源详情、新建服务端、预设计划、文件详情、下载页游戏刷新那一格）。
 #include "Support.hpp"
+#include "InstanceFilesPage.hpp"
 #include "LoadingState.hpp"
+#include "MainWindowUI.hpp"
+#include "NewServerPage.hpp"
+#include "PresetManagePage.hpp"
+#include "ResourceDetailPage.hpp"
 #include "VersionTreeDelegate.hpp"
+
+#include <QComboBox>
+#include <QFile>
+#include <QLabel>
+#include <QLineEdit>
+#include <QListWidget>
+#include <QMainWindow>
+#include <QTemporaryDir>
 
 #include <QEventLoop>
 #include <QMouseEvent>
@@ -227,12 +241,229 @@ void inlineChecks() {
     Anim::setEnabled(true);
 }
 
+/// [x0, x1) 这几列里有没有画过东西（不透明度 > 60）：粗判"那一行摆在哪边"。
+bool inkInColumns(const QImage &image, int x0, int x1) {
+    for (int y = 0; y < image.height(); ++y)
+        for (int x = qMax(0, x0); x < qMin(image.width(), x1); ++x)
+            if (qAlpha(image.pixel(x, y)) > 60) return true;
+    return false;
+}
+
+void waitShown() { wait(Anim::loadingDelayMs() + Anim::appearMs() + 60); }
+
+/// 只画加载态那一层（透明底），拿来判"画在哪"。
+QImage layerImage(QWidget *layer) {
+    QImage image(layer->size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    layer->render(&image, QPoint(), QRegion(), QWidget::DrawChildren);
+    return image;
+}
+
+void compactChecks() {
+    QWidget window;
+    window.resize(520, 160);
+    auto *layout = new QVBoxLayout(&window);
+    auto *combo = new QComboBox(&window);
+    combo->setFixedHeight(34);
+    auto *label = new QLabel(&window);
+    label->setFixedHeight(20);
+    layout->addWidget(combo);
+    layout->addWidget(label);
+    layout->addStretch(1);
+    window.show();
+    QApplication::processEvents();
+
+    // ---- 下拉框：一行，点靠左（从框里字的起点开始），不叠一颗真按钮 ----
+    LoadingState::begin(combo, QStringLiteral("正在获取版本…"));
+    QWidget *layer = LoadingState::overlay(combo);
+    waitShown();
+    check(layer != nullptr && layer->isVisible() && layer->geometry() == combo->rect(),
+          "LC1 矮宿主（下拉框）：过了门槛露面，铺满那个框");
+    if (layer != nullptr) {
+        const QImage img = layerImage(layer);
+        check(inkInColumns(img, 0, img.width() / 3) && !inkInColumns(img, img.width() * 2 / 3, img.width()),
+              "★ LC1 下拉框上画成一行、靠左（右边三分之一没画东西）");
+    }
+    int retried = 0;
+    LoadingState::fail(combo, QStringLiteral("列表没取到"), [&] {
+        ++retried;
+        LoadingState::begin(combo, QStringLiteral("正在获取版本…"));
+    });
+    layer = LoadingState::overlay(combo);
+    if (layer != nullptr) layerImage(layer);  // 画一遍，记下「重试」那一格
+    auto *button = layer != nullptr ? layer->findChild<QPushButton *>(LoadingState::retryButtonName()) : nullptr;
+    const QRect retryRect = LoadingState::inlineRetryRect(combo);
+    check(layer != nullptr && layer->property("state").toString() == QStringLiteral("error") && button != nullptr &&
+              !button->isVisible(),
+          "★ LC2 矮宿主出错：不露那颗次按钮（放不下）");
+    check(!retryRect.isEmpty() && combo->rect().contains(retryRect.center()),
+          "★ LC2 矮宿主出错：「重试」是画在框里的文字按钮",
+          QString("%1,%2 %3x%4").arg(retryRect.x()).arg(retryRect.y()).arg(retryRect.width()).arg(retryRect.height()));
+    if (layer != nullptr && !retryRect.isEmpty()) {
+        const QPointF at = retryRect.center();
+        QMouseEvent press(QEvent::MouseButtonPress, at, layer->mapToGlobal(at), Qt::LeftButton, Qt::LeftButton,
+                          Qt::NoModifier);
+        QMouseEvent release(QEvent::MouseButtonRelease, at, layer->mapToGlobal(at), Qt::LeftButton, Qt::NoButton,
+                            Qt::NoModifier);
+        QApplication::sendEvent(layer, &press);
+        QApplication::sendEvent(layer, &release);
+    }
+    check(retried == 1 && LoadingState::overlay(combo) != nullptr &&
+              LoadingState::overlay(combo)->property("state").toString() == QStringLiteral("loading") &&
+              LoadingState::inlineRetryRect(combo).isEmpty(),
+          "★ LC2 点那一格「重试」= 调 retry 一次，换回加载中", QString::number(retried));
+    LoadingState::finish(combo);
+    wait(Anim::exitMs() + 80);
+    check(overlayCount(combo) == 0, "LC3 下拉框上那一层 finish 后撤掉");
+
+    // ---- 一行字（QLabel）：照标签的对齐摆 ----
+    label->setAlignment(Qt::AlignHCenter | Qt::AlignVCenter);
+    LoadingState::begin(label, QStringLiteral("正在读取…"));
+    waitShown();
+    layer = LoadingState::overlay(label);
+    if (layer != nullptr) {
+        const QImage img = layerImage(layer);
+        check(layer->isVisible() && !inkInColumns(img, 0, img.width() / 4) &&
+                  !inkInColumns(img, img.width() * 3 / 4, img.width()) &&
+                  inkInColumns(img, img.width() / 4, img.width() * 3 / 4),
+              "★ LC4 居中的标签：那一行跟着居中（两边各四分之一是空的）");
+    } else {
+        check(false, "★ LC4 标签上挂得上加载态");
+    }
+    LoadingState::finish(label);
+    QApplication::processEvents();
+}
+
+void pageChecks() {
+    // ---- 资源详情页：整块盖在版本列表上；回来了撤；没取到 = 出错态 + 重试 ----
+    {
+        ResourceDetailPage page;
+        page.resize(760, 560);
+        page.show();
+        QApplication::processEvents();
+        page.setLoading(QStringLiteral("正在读版本列表…"));
+        QTreeWidget *list = page.versionList();
+        waitShown();
+        check(LoadingState::overlay(list) != nullptr && LoadingState::overlay(list)->isVisible() &&
+                  list->topLevelItemCount() == 0,
+              "★ R126-1 资源详情：版本列表盖整块加载态（列表里不再插一行「正在读版本列表…」）");
+        int retried = 0;
+        page.setFailed(QStringLiteral("连接超时"), [&] { ++retried; });
+        QWidget *layer = LoadingState::overlay(list);
+        auto *button = layer != nullptr ? layer->findChild<QPushButton *>(LoadingState::retryButtonName()) : nullptr;
+        if (button != nullptr) button->click();
+        check(retried == 1 && page.placeholderText() == QStringLiteral("连接超时"),
+              "★ R126-1 资源详情：没取到 = 出错态，点「重试」再问一次");
+        page.setGroups({});
+        check(LoadingState::overlay(list) == nullptr, "R126-1 资源详情：摆了内容 / 空表那句就撤掉加载态");
+    }
+    // ---- 新建服务端：建好时不挂假的「正在获取」；真等时一行加载态；回来撤 ----
+    {
+        NewServerPage page;
+        NewServerPage::FlavorOption vanilla;
+        vanilla.token = QStringLiteral("vanilla");
+        vanilla.name = QStringLiteral("原版");
+        NewServerPage::FlavorOption fabric;
+        fabric.token = QStringLiteral("fabric");
+        fabric.name = QStringLiteral("Fabric");
+        fabric.needsLoader = true;
+        fabric.needsInstaller = true;
+        page.setFlavors({vanilla, fabric}, QStringLiteral("vanilla"));
+        page.resize(900, 700);
+        page.show();
+        QApplication::processEvents();
+        auto *loader = page.findChild<QComboBox *>(MainWindowUI::newServerLoaderEditName() + "Combo");
+        auto *installer = page.findChild<QComboBox *>(MainWindowUI::newServerInstallerEditName() + "Combo");
+        const bool noFake = loader != nullptr && installer != nullptr &&
+                            !loader->lineEdit()->placeholderText().contains(QStringLiteral("正在")) &&
+                            !installer->lineEdit()->placeholderText().contains(QStringLiteral("正在")) &&
+                            LoadingState::overlay(loader) == nullptr;
+        check(noFake, "★ R126-3 新建服务端：没发请求时两个版本框不写「正在获取…」（原版档没有假的加载态）");
+        auto *flavors = page.findChild<QListWidget *>(MainWindowUI::newServerFlavorListName());
+        if (loader != nullptr && flavors != nullptr) {
+            flavors->setCurrentRow(1);
+            page.setVersionsLoading(false);
+            waitShown();
+            check(LoadingState::overlay(loader) != nullptr && LoadingState::overlay(loader)->isVisible() &&
+                      loader->count() == 0 && loader->lineEdit()->placeholderText().isEmpty(),
+                  "★ R126-3 新建服务端：真在等时框清空、上面一行加载态");
+            page.setVersionChoices(false, {QStringLiteral("0.16.9")});
+            check(LoadingState::overlay(loader) == nullptr && loader->count() == 1,
+                  "R126-3 新建服务端：版本回来就撤掉加载态");
+            page.setVersionsLoading(false);
+            flavors->setCurrentRow(0);
+            QApplication::processEvents();
+            check(LoadingState::overlay(loader) == nullptr, "R126-3 新建服务端：换回不要这一格的档，加载态一起撤");
+        } else {
+            check(false, "R126-3 新建服务端：找得到版本框与端类别");
+        }
+    }
+    // ---- 预设计划：计划那一格整块加载态；生成完 / 取消就撤 ----
+    {
+        PresetManagePage page;
+        page.resize(1000, 760);
+        page.show();
+        QApplication::processEvents();
+        auto *plan = page.findChild<QListWidget *>(PresetManagePage::planListName());
+        page.setPlanLoading(true);
+        check(plan != nullptr && LoadingState::overlay(plan) != nullptr,
+              "★ R126-5 预设应用：生成计划时计划那一格挂加载态");
+        page.setPlanLoading(false);
+        check(plan != nullptr && LoadingState::overlay(plan) == nullptr, "R126-5 预设应用：取消 / 生成完就撤");
+    }
+    // ---- 文件详情那一行：字清掉、行高留住、上面一行加载态；答案到了撤 ----
+    {
+        QTemporaryDir dir;
+        QFile file(dir.filePath(QStringLiteral("a.litematic")));
+        if (file.open(QIODevice::WriteOnly)) {
+            file.write("x");
+            file.close();
+        }
+        InstanceFilesPage page;
+        page.resize(700, 500);
+        page.show();
+        page.setDirectory(dir.path());
+        page.setInfoPanelEnabled(true);
+        QApplication::processEvents();
+        page.list()->setCurrentRow(0);
+        QApplication::processEvents();
+        auto *info = page.findChild<QLabel *>(InstanceFilesPage::infoLabelName());
+        check(info != nullptr && info->isVisible() && info->text().isEmpty() && info->height() > 0 &&
+                  LoadingState::overlay(info) != nullptr,
+              "★ R126-4 文件详情：选中一份文件 ⇒ 那一行挂加载态（字清掉，行高留住）");
+        if (info != nullptr && page.list()->count() > 0) {
+            page.setInfoText(page.list()->item(0)->data(InstanceFilesPage::pathRole()).toString(),
+                             QStringLiteral("原理图"));
+        }
+        check(info != nullptr && info->text() == QStringLiteral("原理图") && LoadingState::overlay(info) == nullptr,
+              "R126-4 文件详情：答案到了撤掉加载态、写上说明");
+    }
+    // ---- 下载页「游戏」：刷新状态那一格在筛选条上，矮（画成一行） ----
+    {
+        QMainWindow window;
+        MainWindowUI ui(&window);
+        window.resize(1280, 800);
+        window.show();
+        QApplication::processEvents();
+        QLabel *status = ui.getVersionRefreshStatus();
+        check(status != nullptr && status->text().isEmpty(),
+              "★ R126-6 下载页「游戏」：筛选条上有那一格刷新状态（平时是空的）");
+        if (status != nullptr) {
+            status->window()->show();
+            status->resize(qMax(status->width(), 240), status->height());
+            check(status->height() < 48, "R126-6 那一格够矮：加载态画成一行", QString::number(status->height()));
+        }
+    }
+}
+
 }  // namespace
 
 int UiLoadingStateChecks(QApplication &) {
     Anim::setEnabled(true);
     blockChecks();
     inlineChecks();
+    compactChecks();
+    pageChecks();
     Anim::setEnabled(false);
     return 0;
 }

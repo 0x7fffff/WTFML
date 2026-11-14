@@ -347,7 +347,12 @@ void MainWindowUI::setupDownloadGamePage() {
         Theme::markSegmented(segment, versionChannelButtons);
         versionFilterLayout->addWidget(segment);
     }
-    versionFilterLayout->addStretch(1);
+    // 原来那段弹簧换成一个空标签：占的还是那块剩余空地（横向不报尺寸，不挤搜索框），
+    // 刷新在线清单时上面挂一行加载态，版本树本身不动。
+    versionRefreshStatus = new QLabel(versionFilterBar);
+    versionRefreshStatus->setObjectName(versionRefreshStatusName());
+    versionRefreshStatus->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    versionFilterLayout->addWidget(versionRefreshStatus, 1);
     treeLayout->addWidget(versionFilterBar);
     // 打在框里就筛（不另要一颗「筛选」键）：这一层只是藏/露条目，便宜到可以每敲一个字
     // 跑一遍；资源页要按回车是因为那边真去发网络请求，两件事别混。

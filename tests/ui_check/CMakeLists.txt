@@ -276,6 +276,7 @@ add_ui_module(ui_check_daily_quote modules/UiDailyQuoteCheck.cpp UiDailyQuoteChe
 add_ui_module(ui_check_daily_quote_shots modules/UiDailyQuoteShots.cpp UiDailyQuoteShots)  # 样张，不进 ctest
 add_ui_module(ui_check_long_instance_name modules/UiLongInstanceNameChecks.cpp UiLongInstanceNameChecks)
 add_ui_module(ui_check_long_instance_name_shots modules/UiLongInstanceNameShots.cpp UiLongInstanceNameShots)  # 样张，不进 ctest
+add_ui_module(ui_check_loading_state_shots modules/UiLoadingStateShots.cpp UiLoadingStateShots)  # 样张，不进 ctest
 add_ui_module(ui_check_home_greeting_shots modules/UiHomeGreetingShots.cpp UiHomeGreetingShots)  # 样张，不进 ctest
 add_ui_module(ui_check_account_kind_shots modules/UiAccountKindShots.cpp UiAccountKindShots)  # 样张，不进 ctest
 add_ui_module(ui_check_popups modules/UiPopupCheck.cpp UiPopupCheck)
