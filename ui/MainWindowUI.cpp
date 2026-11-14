@@ -737,9 +737,9 @@ void MainWindowUI::openToolboxTab(const QString &key) {
 
 void MainWindowUI::setupUi(QMainWindow *parent) {
     parent->setWindowTitle(QStringLiteral("WTF Minecraft Launcher"));
-    // 设计稿主尺寸 1280×800；屏幕放不下就按可用区缩（最小 900×620，窄于 1024 时导航轨自动折）。
+    // 默认 = 最小尺寸 900×620，窄于 1024 时导航轨自动折；屏幕放不下仍按可用区缩（不缩到最小值以下）。
     {
-        QSize size(1280, 800);
+        QSize size(kMainWindowMinWidth, kMainWindowMinHeight);
         if (const QScreen *screen = QGuiApplication::primaryScreen()) {
             const QSize room = screen->availableGeometry().size() * 0.9;
             size = size.boundedTo(room).expandedTo(QSize(kMainWindowMinWidth, kMainWindowMinHeight));
