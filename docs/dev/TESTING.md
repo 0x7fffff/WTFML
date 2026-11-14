@@ -230,6 +230,7 @@ CTest 的两种"排除 visual"选到的数量不同：`ctest -E visual` 按名�
 
 - **假外网**：`tests/mw_check/modules/SupportFakes.hpp` 的 `FakeNetwork` 按请求行路径（去掉查询串）路由，`hits` / `paths` 记每发的次数与原文，`notFound` + `unrouted` 记没演到的请求并回 404。构造 `MainWindow` 的入口（`wtfml.main-window`、`wtfml.workspace`）在构造前把五条 `Launcher/*Base` 写进沙盒 INI，收尾断言 `notFound == 0`，断言只看次数、不看响应次序。新增的网络入口没被演到会直接变红。曾靠它抓到 `sessionServerBase()` 回 `…/session` 而产品拿到的是完整档案前缀，皮肤档案请求一直被 404、界面只是"没有皮肤"、测试却全绿；现夹具为 `…/session/minecraft/profile`。
 - **默认根隔离**：`mw_check/main.cpp` 与 `modules/ModuleMain.cpp` 在测试控制器初始化前建每进程 `QTemporaryDir`，注入 `wtfml.testDefaultMinecraftDir` 应用属性并重定向默认 INI；正式入口不设该属性，便携式目录规则不变。断点续传子进程同样先建独立设置和默认数据根，工作目录由父进程指定。工作区另起真实 `sandbox-probe` 子进程核对父子设置互不可见、退出后目录回收。
+- **浮层防漏**：`ui_check` 主入口与 `modules/ModuleMain.cpp` 在 `QApplication` 上挂 `PopupWindowGuard`（`modules/Support.hpp`），本进程每块 `Qt::Popup` / `Qt::ToolTip` 顶层窗一上屏就验无边框 + 半透明，收尾记一条断言。白名单只有一条：没调过 `Theme::apply()` 的进程里 Qt 自建的 QMenu、下拉弹层容器、补全列表。新浮层在构造里调 `Popups::preparePopup()` 即可通过。
 - **Windows 句柄占用**：用允许读写共享、不允许删除共享的原生句柄占住文件，调用生产流程。`ModpackCompletionTests.cpp` 的 ZG9 占住 `wtfml.importing`，断言最后删除失败时返回失败、报告退回未完成、启动门禁仍生效；升级夹具占住测试 JAR，验证拒绝发布、原 JAR 逐字节一致、完整快照存在、错误包含占用 PID。
 - **后台作业**：用信号量控制真实后台读取，验证输入可响应、单读取与最新待选合并、旧结果丢弃、页面销毁与换根；等待有界（信号量最多 3 秒，测试自身最多 4 秒），不等全局线程池，删除页面后等实际加载结束再断言，避免提前销毁掩盖迟到回调。
 - **提示探针**：实现在 mw fixture 的 `PromptProbe.cpp`，扫描实际提示并按代次有界等待（20 秒），命中后收尾；不要只找"第一个打开的覆盖层"（会漏另一窗口的提示），也不要固定 0/300 ms 两次尝试。`ui_check` 的 `dismissNextInline()` 按"票号"走：只有最近一次调用排下的两发有效，兑现一次即作废，否则 300 ms 兜底会把下一条提示当成自己的答案。
