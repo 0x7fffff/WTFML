@@ -55,12 +55,14 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Check doc links and repo layout
+      - name: Check doc links, repo layout and surface registry
         shell: pwsh
         run: |
           ./tools/check-doc-links.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./tools/check-repo-layout.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./tools/check-surface-registry.ps1
 
   verify:
     needs: plan

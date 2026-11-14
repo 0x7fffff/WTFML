@@ -263,7 +263,7 @@ add_ui_module(ui_check_agent modules/UiAgentCheck.cpp UiAgentCheck)
 add_ui_module(ui_check_toolbox_polish modules/UiToolboxPolishCheck.cpp UiToolboxPolishCheck)
 add_ui_module(ui_check_toolbox_layout modules/UiToolboxLayoutCheck.cpp UiToolboxLayoutCheck)
 add_ui_module(ui_check_input_widths modules/UiInputWidthCheck.cpp UiInputWidthCheck)
-# 子页面 / 弹框 / 浮层巡检：只报告漏接设计系统的控件，不断言失败（见模块文件头）。
+# 子页面 / 弹框 / 浮层巡检：计入的残留不为 0 就失败（守卫，见模块文件头）。
 add_ui_module(ui_check_surface_sweep modules/UiSurfaceSweepCheck.cpp UiSurfaceSweepCheck)
 add_ui_module(ui_check_resource_packs modules/UiResourcePacksCheck.cpp UiResourcePacksCheck)
 add_ui_module(ui_check_lifecycle modules/UiLifecycleCheck.cpp UiLifecycleCheck)
@@ -329,7 +329,8 @@ set_tests_properties(wtfml.input-widths PROPERTIES
     TIMEOUT 120
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
 )
-# 表面巡检：跑一遍、打印漏接清单，不改判定（模块之后才改成守卫）。
+# 表面巡检守卫：计入的残留不为 0 就失败（例外只认 SurfaceScan.hpp 的 checkBoxException()）。
+# 单跑实测 8–21 秒（验证构建、offscreen）；超时留到 180 秒是给 CI 慢机。
 wtfml_add_test(NAME wtfml.surface-sweep COMMAND ui_check_surface_sweep)
 set_tests_properties(wtfml.surface-sweep PROPERTIES
     LABELS "ui;theme"

@@ -2,8 +2,9 @@
 // 分组框、单选钮、页签、带边框的文本框、没走 markSwitch 的复选框，以及换页没有动效的
 // QStackedWidget。
 //
-// 判据只报「看起来没接设计系统」，不断言失败：清单里有些是产品本来就要的原生件
-// （比如 QTabWidget 只是容器），要人看一眼再决定改不改。
+// 判据只报「看起来没接设计系统」。计入的每一条都让 `wtfml.surface-sweep` 失败（守卫，见
+// UiSurfaceSweepCheck.cpp 末尾）；真该保留原样的地方不另开白名单，只在 checkBoxException()
+// 里登记，并写一句理由。
 //
 // 检测「换页动效」的办法：打开 Anim，切一页，看有没有 `wtfmlPageCurtain`
 // （`Anim::pageAppear()` 挂上去的那块幕布）露出来 —— 有就是接了，没有就是硬切。

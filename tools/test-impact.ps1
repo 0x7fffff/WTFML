@@ -43,6 +43,7 @@ function Get-TestImpact([string[]]$Paths, [bool]$ForceFull = $false) {
         'tests/ui_check/modules/UiLifecycleCheck.cpp' = 'ui'
         'tests/ui_check/modules/UiInputWidthCheck.cpp' = 'ui'
         'tests/ui_check/modules/UiSurfaceSweepCheck.cpp' = 'ui'
+        'tests/ui_check/surface-registry.txt' = 'ui'
         'tests/ui_check/modules/UiUiRefreshCheck.cpp' = 'ui'
         'tests/ui_check/modules/UiThemeCheck.cpp' = 'theme'
         'tests/ui_check/modules/UiWindowChromeCheck.cpp' = 'window'

@@ -662,6 +662,9 @@ set_tests_properties(wtfml.core-bootstrap PROPERTIES LABELS "core;compile" TIMEO
 wtfml_add_test(NAME wtfml.test-runner COMMAND pwsh -NoProfile -File "${REPO_ROOT}/tools/test-runner-check.ps1")
 wtfml_add_test(NAME wtfml.test-modules COMMAND pwsh -NoProfile -File "${REPO_ROOT}/tools/check-test-modules.ps1")
 set_tests_properties(wtfml.test-modules PROPERTIES LABELS "tooling" TIMEOUT 60)
+# 表面登记：新写的对话框 / showPage 页面没登记进 sweep 的表面清单就红（见 tools/check-surface-registry.ps1）。
+wtfml_add_test(NAME wtfml.surface-registry COMMAND pwsh -NoProfile -File "${REPO_ROOT}/tools/check-surface-registry.ps1")
+set_tests_properties(wtfml.surface-registry PROPERTIES LABELS "tooling" TIMEOUT 120)
 if(NOT DEFINED WTFML_BUILD_NETWORK_DIAG OR WTFML_BUILD_NETWORK_DIAG)
     wtfml_add_test(NAME wtfml.ci-partitions COMMAND pwsh -NoProfile -File "${REPO_ROOT}/tools/check-ci-partitions.ps1"
         -BuildDir "${CMAKE_BINARY_DIR}")
