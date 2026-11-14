@@ -1,7 +1,8 @@
 // 加载态组件（ui/LoadingState）：整块 begin / finish / fail 与行内 beginRow / failRow。
 // 钉的是规矩本身：150ms 门槛、出错态「重试」接线、重复 begin 不叠层、动效关时照样露面且点不动、
 // 行内只重绘登记的那几行、行删了时钟就停；矮宿主（下拉框、一行字）画成一行、出错时「重试」是文字按钮；
-// 步骤 126 接上的几处页面（资源详情、新建服务端、预设计划、文件详情、下载页游戏刷新那一格）。
+// 步骤 126 接上的几处页面（资源详情、新建服务端、预设计划、文件详情、下载页游戏刷新那一格）；
+// 步骤 136 的行尾加载态（列表一行行尾那句状态在等：预设弹框的兼容检查）。
 #include "Support.hpp"
 #include "InstanceFilesPage.hpp"
 #include "LoadingState.hpp"
@@ -21,6 +22,7 @@
 
 #include <QEventLoop>
 #include <QMouseEvent>
+#include <QPainter>
 #include <QPushButton>
 #include <QTimer>
 #include <QTreeWidget>
@@ -456,6 +458,48 @@ void pageChecks() {
     }
 }
 
+void rowStatusChecks() {
+    QListWidget list;
+    list.resize(400, 200);
+    list.addItem(QStringLiteral("a"));
+    list.addItem(QStringLiteral("b"));
+    list.show();
+    QApplication::processEvents();
+    const QModelIndex a = list.model()->index(0, 0);
+    const QModelIndex b = list.model()->index(1, 0);
+    const int before = LoadingState::tickingRowCount();
+    LoadingState::beginRowStatus(&list, a);
+    const qint64 started = a.data(LoadingState::rowLoadingRole()).toLongLong();
+    check(a.data(LoadingState::rowLoadingRole()).isValid() && !b.data(LoadingState::rowLoadingRole()).isValid() &&
+              LoadingState::tickingRowCount() == before + 1 && LoadingState::clockRunning(),
+          "★ RS1 行尾加载态：只挂在那一行上，登记到共享时钟");
+    wait(30);
+    LoadingState::beginRowStatus(&list, a);
+    check(a.data(LoadingState::rowLoadingRole()).toLongLong() == started &&
+              LoadingState::tickingRowCount() == before + 1,
+          "★ RS2 再 begin 一次不重新计门槛、不重复登记（进度更新不闪）");
+    QImage img(400, 40, QImage::Format_ARGB32_Premultiplied);
+    img.fill(Qt::transparent);
+    QPainter painter(&img);
+    const QRect area(200, 0, 190, 40);
+    const QFont font = list.font();
+    const int early = LoadingState::paintRowStatus(&painter, area, a, font, QStringLiteral("检查中 1/3"));
+    const bool blankEarly = !inkInColumns(img, 0, img.width());
+    wait(Anim::loadingDelayMs() + Anim::appearMs());
+    const int later = LoadingState::paintRowStatus(&painter, area, a, font, QStringLiteral("检查中 1/3"));
+    painter.end();
+    check(early > 0 && early == later && blankEarly && inkInColumns(img, area.left(), area.right() + 1) &&
+              !inkInColumns(img, 0, area.left()),
+          "★ RS3 没过门槛什么都不画但宽度占着；过了门槛在那一格里画「点 + 话」",
+          QString::number(early));
+    check(LoadingState::paintRowStatus(&painter, area, b, font, QStringLiteral("x")) == -1,
+          "RS3 不在等的行回 -1（调用方照常画字）");
+    LoadingState::finishRowStatus(&list, a);
+    wait(Anim::stepMs() * 3);
+    check(!a.data(LoadingState::rowLoadingRole()).isValid() && LoadingState::tickingRowCount() == before,
+          "★ RS4 finish 后角色清掉、登记表下一拍丢掉它");
+}
+
 }  // namespace
 
 int UiLoadingStateChecks(QApplication &) {
@@ -464,6 +508,7 @@ int UiLoadingStateChecks(QApplication &) {
     inlineChecks();
     compactChecks();
     pageChecks();
+    rowStatusChecks();
     Anim::setEnabled(false);
     return 0;
 }

@@ -1614,6 +1614,14 @@ void PresetController::requestInstallPickerData(
         root, [this, root, generation, done = std::move(done)](
                   const Presets::CatalogSnapshot &snapshot) {
             if (generation != m_pickerDataGeneration) return;
+            // 文件夹不在 = 还没有预设（空表，不是出错）；在、却读不了才是出错。
+            const QFileInfo rootInfo(root);
+            if (rootInfo.exists() && (!rootInfo.isDir() || !rootInfo.isReadable())) {
+                InstallPickerData failed;
+                failed.problem = tr("预设文件夹读不了：%1").arg(QDir::toNativeSeparators(root));
+                if (done) done(failed);
+                return;
+            }
             QList<Presets::PresetSummary> summaries;
             summaries.reserve(snapshot.presets.size());
             for (const Presets::PresetSummary &summary : snapshot.presets) {

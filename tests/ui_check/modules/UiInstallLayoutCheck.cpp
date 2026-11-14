@@ -166,11 +166,49 @@ int UiInstallLayoutCheck(QApplication &app) {
             {
                 // 步骤 133：右栏加载态、综合预设空态、「显示综合预设」是开关。
                 PresetInstallPicker loading;
+                loading.setContext("1.21.1", "Fabric");
                 loading.beginLoading();
                 auto *stack = loading.findChild<QStackedWidget *>();
                 expect(stack && LoadingState::overlay(stack), "preset picker right pane shows the shared loading state while data is pending");
+                // 步骤 136：读不了 ⇒ 出错态 +「重试」，点了再 begin。
+                int retried = 0;
+                loading.failLoading("预设文件夹读不了：X", [&] { ++retried; loading.beginLoading(); });
+                QWidget *layer = stack ? LoadingState::overlay(stack) : nullptr;
+                auto *retry = layer ? layer->findChild<QPushButton *>(LoadingState::retryButtonName()) : nullptr;
+                expect(layer && layer->property("state").toString() == "error" && retry,
+                       "preset picker data failure shows the error state with a retry button");
+                if (retry) retry->click();
+                expect(retried == 1 && LoadingState::overlay(stack) &&
+                           LoadingState::overlay(stack)->property("state").toString() == "loading",
+                       "retry on the preset picker asks again and goes back to loading");
                 loading.setCategories({game, mods});
                 expect(!LoadingState::overlay(stack), "setCategories retires the preset picker loading state");
+                // 步骤 136：兼容检查没查完时，选着那一行的行尾挂一行加载态；查完 / 换一行就撤。
+                auto *modList = loading.findChild<QListWidget *>(PresetInstallPicker::listName(1));
+                const auto checking = [modList](int row) {
+                    return modList && modList->item(row) &&
+                           modList->item(row)->data(LoadingState::rowLoadingRole()).isValid();
+                };
+                if (modList) {
+                    modList->setCurrentRow(1);
+                    loading.setChecking("mods", true);
+                    const qint64 started = modList->item(1)->data(LoadingState::rowLoadingRole()).toLongLong();
+                    expect(checking(1) && !checking(0) && !checking(2) && LoadingState::clockRunning(),
+                           "compatibility check in progress puts the inline loading state on the selected row only");
+                    loading.setStatus("mods", "检查中 1/3", {}, false);
+                    loading.setChecking("mods", true);
+                    expect(checking(1) &&
+                               modList->item(1)->data(LoadingState::rowLoadingRole()).toLongLong() == started,
+                           "progress updates keep the same loading start (no re-gated flicker)");
+                    loading.setChecking("mods", false);
+                    expect(!checking(1), "finished compatibility check retires the row loading state");
+                    loading.setChecking("mods", true);
+                    modList->setCurrentRow(0);
+                    expect(!checking(1) && !checking(0) && loading.selectedId("mods").isEmpty(),
+                           "switching to none drops the previous row's loading state");
+                } else {
+                    expect(false, "preset picker mods list exists");
+                }
                 loading.setComposites({});
                 expect(!loading.findChild<QListWidget *>("presetCompositeList") &&
                            loading.findChild<QLabel *>(PresetInstallPicker::emptyLabelName(2)) &&

@@ -88,7 +88,12 @@ public:
         int right = option.rect.right() - 12;
         const QFont caption = Theme::textFont(option.font, Theme::TextRole::Caption);
         const QString status = index.data(kStatusRole).toString();
-        if (!status.isEmpty()) {
+        const int statusMax = int(option.rect.width() * 0.42);
+        const int checkingW = status.isEmpty() ? -1 : LoadingState::paintRowStatus(
+            painter, QRect(right + 1 - statusMax, option.rect.top(), statusMax, option.rect.height()), index, caption, status);
+        if (checkingW >= 0) {
+            right -= checkingW + 12;
+        } else if (!status.isEmpty()) {
             const QFontMetrics fm(caption);
             const int width = qMin(fm.horizontalAdvance(status), int(option.rect.width() * 0.42));
             painter->setFont(caption);
@@ -461,6 +466,16 @@ void PresetInstallPicker::setCategories(const QList<Category> &categories) {
     updateSummary();
 }
 
+void PresetInstallPicker::setChecking(const QString &key, bool checking) {
+    const int i = indexOfKey(key);
+    if (i < 0 || !m_pages[i].list) return;
+    QListWidget *list = m_pages[i].list;
+    QListWidgetItem *current = checking ? list->currentItem() : nullptr;
+    for (int n = 0; n < list->count(); ++n)
+        if (list->item(n) != current) LoadingState::finishRowStatus(list, list->model()->index(n, 0));
+    if (current != nullptr) LoadingState::beginRowStatus(list, list->model()->index(list->row(current), 0));
+}
+
 void PresetInstallPicker::beginLoading() { LoadingState::begin(m_stack, tr("正在读取预设…")); }
 void PresetInstallPicker::failLoading(const QString &reason, std::function<void()> retry) {
     LoadingState::fail(m_stack, reason, std::move(retry));
@@ -518,6 +533,12 @@ void PresetInstallPicker::setStatus(const QString &key, const QString &status, c
     Page &page = m_pages[i]; page.status = status; page.reasons = reasons;
     if (missing >= 0) page.missing = missing;
     if (unknown >= 0) page.unknown = unknown;
+    if (page.list) {
+        // 换了一行：上一行行尾那句检查中的点跟着撤（检查归当前选着的那一份）。
+        for (int n = 0; n < page.list->count(); ++n)
+            if (page.list->item(n) != page.list->currentItem())
+                LoadingState::finishRowStatus(page.list, page.list->model()->index(n, 0));
+    }
     if (page.list && page.list->currentItem()) {
         auto *item = page.list->currentItem();
         item->setData(kStatusRole, status);

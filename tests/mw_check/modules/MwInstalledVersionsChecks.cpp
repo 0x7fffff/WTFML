@@ -331,8 +331,8 @@ int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStac
                         box->close();
                     }
                 };
-                // 预设数据现在在**后台读**（`PresetController::requestInstallPickerData()`）：
-                // 点完那一下只发请求，弹窗在数据回来之后才摆。等它真出来再验。
+                // 预设数据在**后台读**（`PresetController::requestInstallPickerData()`）：
+                // 步骤 136 起点完那一下弹框立刻出来、右栏挂加载态，数据回来才填。等它填好再验。
                 //
                 // NOTE: 检查不能只在点击之后才排 —— `clickRow()` 自己会转一圈事件循环，
                 // 数据快的时候弹窗就在那一圈里摆上并阻塞在 `execPrompt()` 的嵌套循环里。
@@ -344,7 +344,9 @@ int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStac
                 QObject::connect(&inspectPoll, &QTimer::timeout, [&] {
                     if (inspected) return;
                     InlineMessageBox *box = currentPrompt();
-                    if (box == nullptr || box->findChild<PresetInstallPicker *>() == nullptr) return;
+                    auto *picker = box != nullptr ? box->findChild<PresetInstallPicker *>() : nullptr;
+                    auto *pickerStack = picker != nullptr ? picker->findChild<QStackedWidget *>() : nullptr;
+                    if (pickerStack == nullptr || pickerStack->count() == 0) return;
                     inspectPicker();
                     inspected = true;
                     inspectPoll.stop();

@@ -428,7 +428,8 @@ void tick() {
     auto &entries = rows();
     for (int i = entries.size() - 1; i >= 0; --i) {
         RowEntry &e = entries[i];
-        if (e.view.isNull() || !e.index.isValid()) {
+        // 行没了 / 行尾那一格撤掉了（finishRowStatus 清了角色）⇒ 不再登记。
+        if (e.view.isNull() || !e.index.isValid() || !e.index.data(LoadingState::rowLoadingRole()).isValid()) {
             entries.removeAt(i);
             continue;
         }
@@ -626,6 +627,50 @@ bool paintRow(QPainter *painter, const QStyleOptionViewItem &option, const QMode
     painter->restore();
     if (RowEntry *entry = entryFor(index)) entry->retryRect = button;
     return true;
+}
+
+void beginRowStatus(QAbstractItemView *view, const QModelIndex &index) {
+    if (view == nullptr || view->model() == nullptr || !index.isValid()) return;
+    const QVariant state = index.data(rowLoadingRole());
+    if (!state.isValid() || state.toLongLong() < 0) view->model()->setData(index, clockMs(), rowLoadingRole());
+    if (RowEntry *entry = entryFor(index)) {
+        entry->ticking = true;
+    } else {
+        rows().append({view, QPersistentModelIndex(index), nullptr, QRect(), true, false});
+    }
+    ensureClock();
+}
+
+void finishRowStatus(QAbstractItemView *view, const QModelIndex &index) {
+    if (view == nullptr || view->model() == nullptr || !index.isValid() ||
+        !index.data(rowLoadingRole()).isValid())
+        return;
+    view->model()->setData(index, QVariant(), rowLoadingRole());  // 登记表下一拍自己丢掉它
+    view->viewport()->update(view->visualRect(index));
+}
+
+int paintRowStatus(QPainter *painter, const QRect &area, const QModelIndex &index, const QFont &font,
+                   const QString &text) {
+    const QVariant state = index.data(rowLoadingRole());
+    if (!state.isValid() || state.toLongLong() < 0) return -1;
+    constexpr int dot = 6, gap = 6, after = 10;
+    constexpr int dotsW = 3 * dot + 2 * gap + after;
+    const QFontMetrics metrics(font);
+    const int textW = qMin(metrics.horizontalAdvance(text), qMax(0, area.width() - dotsW));
+    const int total = dotsW + textW;
+    const qint64 shown = clockMs() - state.toLongLong() - Anim::loadingDelayMs();
+    if (shown >= 0) {
+        painter->save();
+        painter->setOpacity(painter->opacity() * (Anim::enabled() ? outCubic(qreal(shown) / Anim::appearMs()) : 1.0));
+        const int left = area.right() + 1 - total;
+        paintDots(painter, QPointF(left, area.center().y() + 0.5), dot, gap, clockMs());
+        painter->setFont(font);
+        painter->setPen(Theme::tokens().secondary);
+        painter->drawText(QRect(left + dotsW, area.top(), textW, area.height()), Qt::AlignLeft | Qt::AlignVCenter,
+                          metrics.elidedText(text, Qt::ElideRight, textW));
+        painter->restore();
+    }
+    return total;
 }
 
 bool clockRunning() { return timer().isActive(); }

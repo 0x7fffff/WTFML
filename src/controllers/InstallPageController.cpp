@@ -566,23 +566,11 @@ void InstallPageController::openPresetPicker() {
                                MainWindow::tr("这一份启动器里预设那一层没有初始化，没法挑预设。"));
         return;
     }
-    // 预设数据在**后台读**（列表走 `Presets::CatalogLoader` 的异步快照，复合预设的
-    // manifest 也在工作线程里读），读完才摆弹框：点击这一帧不再扫盘。
-    //
-    // 等待期间界面保持原样（安装页不动、不弹半个空框）。QPointer 守住"控制器先没了"：
-    // 那一发回调回来时 `this` 已经析构就什么都不做。
-    QPointer<InstallPageController> self(this);
-    m_owner.m_presetController->requestInstallPickerData(
-        [this, self](const PresetController::InstallPickerData &data) {
-            if (self.isNull()) {
-                return;
-            }
-            openPresetPickerWith(data);
-        });
-}
-
-void InstallPageController::openPresetPickerWith(
-    const PresetController::InstallPickerData &pickerData) {
+    // 弹框一点就出来（这一张开着时整页盖着，点不到第二下）。真有一张提示开着就不做事：
+    // 再发一次请求会把开着那张的数据作废（只认最新一次），它就一直停在加载态。
+    if (m_owner.m_ui->overlay()->promptOpen()) {
+        return;
+    }
     // 这一趟弹窗里改的东西**只落在这张本地草稿上**：取消 / 点「前往预设管理」都
     // 不写 `m_presetChoices`（取消不丢安装配置）。
     QMap<QString, QString> draft = m_presetChoices;
@@ -639,67 +627,9 @@ void InstallPageController::openPresetPickerWith(
         return out;
     };
 
-    QList<PresetInstallPicker::Category> categories;
-    // 四类的可选项和复合预设那一张表**来自同一次扫盘**（`requestInstallPickerData()` 那段
-    // 写着为什么不能再按类各扫一趟）：这一整段只认那一份（后台读回来的）快照。
-    // 每类的默认项：「用户没在弹窗里表过态」的那几类一进来就按它摆好 —— 这就是"默认"在
-    // 安装页的意思（用户在弹窗里选过，哪怕是选"不使用预设"，也一律听用户的）。
-    const QMap<QString, QString> defaults =
-        m_owner.m_presetController != nullptr ? m_owner.m_presetController->categoryDefaultsInEffect()
-                                              : QMap<QString, QString>();
+
     // 「模组」那一类：状态行让给兼容检查，计划那几行收进原因里。
     const QString modsCategoryKey = Presets::presetCategoryKey(Presets::PresetCategory::Mods);
-    for (const PresetController::InstallCategory &one : PresetController::installCategories()) {
-        PresetInstallPicker::Category category;
-        category.key = one.key;
-        category.title = one.title;
-        for (const Presets::PresetSummary &preset : pickerData.optionsFor(one.key)) {
-            category.options.append({preset.id, preset.name, true, !preset.componentCategories.isEmpty(),
-                                     preset.itemCount, QIcon(preset.iconPath)});
-        }
-        const bool userChose = draft.contains(one.key);
-        category.selectedId = userChose ? draft.value(one.key) : defaults.value(one.key);
-        if (!userChose && !category.selectedId.isEmpty()) {
-            bool offered = false;
-            for (const PresetInstallPicker::Option &option : category.options) {
-                if (option.id == category.selectedId) {
-                    offered = true;
-                    break;
-                }
-            }
-            // 默认项不在这一类的可选项里（默认指着的是一份别的类的 / 一份没露面的子项）⇒
-            // 当这一类没有默认。**不**学下面那条"用户选过、盘上没了"的样子去摆一行
-            // "已删除"：用户压根没选过它。
-            if (!offered) {
-                category.selectedId.clear();
-            }
-        }
-        // 选过、但盘上已经不在的那一份：**留在下拉框里**并标出来（「已删除/损坏的
-        // 所选项明确提示，不静默换为另一项」）。名字也读不出来了，只能拿 id 认。
-        if (!category.selectedId.isEmpty()) {
-            bool found = false;
-            for (const PresetInstallPicker::Option &option : category.options) {
-                if (option.id == category.selectedId) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                category.options.append({category.selectedId, category.selectedId, false});
-            }
-            if (one.key == modsCategoryKey) {
-                // 模组引用要联网查（本地/缓存那部分立刻就出来），先摆一句"正在检查"。
-                category.status = MainWindow::tr("正在检查模组兼容性…");
-                category.problem = false;
-            } else {
-                const StatusText status = describe(category.selectedId);
-                category.status = status.status;
-                category.reasons = status.reasons;
-                category.problem = status.problem;
-            }
-        }
-        categories.append(category);
-    }
 
     // 这一块**必须在堆上**：`InlineMessageBox::setContent()` 会 `setParent(box)`，
     // 弹窗析构时按 QObject 的规矩把子控件一起 delete。栈对象被 delete 是未定义行为。
@@ -709,18 +639,111 @@ void InstallPageController::openPresetPickerWith(
             ? MainWindowUI::modLoaderOptionTexts().value(selectedLoader())
             : QString();
     picker->setContext(gameVersion(), pickerLoaderName);
-    picker->setCategories(categories);
-    QList<PresetInstallPicker::Composite> composites;
-    for (const PresetController::InstallPickerPreset &choice : pickerData.presets) {
-        if (choice.summary.componentCategories.isEmpty() || !choice.componentsLoaded) continue;
-        PresetInstallPicker::Composite option; option.id=choice.summary.id; option.name=choice.summary.name;
-        option.parts = choice.components;
-        option.icon = QIcon(choice.summary.iconPath);
-        option.itemCount = choice.summary.itemCount;
-        option.counts = choice.summary.componentItemCounts;
-        composites.append(option);
-    }
-    picker->setComposites(composites);
+    // 数据回来那一半：四类、复合预设、模组那一类的首轮兼容检查。
+    const auto fill = [&, picker, modsCategoryKey, pickerLoaderName](
+                          const PresetController::InstallPickerData &pickerData) {
+        QList<PresetInstallPicker::Category> categories;
+        // 四类的可选项和复合预设那一张表**来自同一次扫盘**（`requestInstallPickerData()` 那段
+        // 写着为什么不能再按类各扫一趟）：这一整段只认那一份（后台读回来的）快照。
+        // 每类的默认项：「用户没在弹窗里表过态」的那几类一进来就按它摆好 —— 这就是"默认"在
+        // 安装页的意思（用户在弹窗里选过，哪怕是选"不使用预设"，也一律听用户的）。
+        const QMap<QString, QString> defaults =
+            m_owner.m_presetController != nullptr ? m_owner.m_presetController->categoryDefaultsInEffect()
+                                                  : QMap<QString, QString>();
+        for (const PresetController::InstallCategory &one : PresetController::installCategories()) {
+            PresetInstallPicker::Category category;
+            category.key = one.key;
+            category.title = one.title;
+            for (const Presets::PresetSummary &preset : pickerData.optionsFor(one.key)) {
+                category.options.append({preset.id, preset.name, true, !preset.componentCategories.isEmpty(),
+                                         preset.itemCount, QIcon(preset.iconPath)});
+            }
+            const bool userChose = draft.contains(one.key);
+            category.selectedId = userChose ? draft.value(one.key) : defaults.value(one.key);
+            if (!userChose && !category.selectedId.isEmpty()) {
+                bool offered = false;
+                for (const PresetInstallPicker::Option &option : category.options) {
+                    if (option.id == category.selectedId) {
+                        offered = true;
+                        break;
+                    }
+                }
+                // 默认项不在这一类的可选项里（默认指着的是一份别的类的 / 一份没露面的子项）⇒
+                // 当这一类没有默认。**不**学下面那条"用户选过、盘上没了"的样子去摆一行
+                // "已删除"：用户压根没选过它。
+                if (!offered) {
+                    category.selectedId.clear();
+                }
+            }
+            // 选过、但盘上已经不在的那一份：**留在下拉框里**并标出来（「已删除/损坏的
+            // 所选项明确提示，不静默换为另一项」）。名字也读不出来了，只能拿 id 认。
+            if (!category.selectedId.isEmpty()) {
+                bool found = false;
+                for (const PresetInstallPicker::Option &option : category.options) {
+                    if (option.id == category.selectedId) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    category.options.append({category.selectedId, category.selectedId, false});
+                }
+                if (one.key == modsCategoryKey) {
+                    // 模组引用要联网查（本地/缓存那部分立刻就出来），先摆一句"正在检查"。
+                    category.status = MainWindow::tr("正在检查模组兼容性…");
+                    category.problem = false;
+                } else {
+                    const StatusText status = describe(category.selectedId);
+                    category.status = status.status;
+                    category.reasons = status.reasons;
+                    category.problem = status.problem;
+                }
+            }
+            categories.append(category);
+        }
+        picker->setCategories(categories);
+        QList<PresetInstallPicker::Composite> composites;
+        for (const PresetController::InstallPickerPreset &choice : pickerData.presets) {
+            if (choice.summary.componentCategories.isEmpty() || !choice.componentsLoaded) continue;
+            PresetInstallPicker::Composite option; option.id=choice.summary.id; option.name=choice.summary.name;
+            option.parts = choice.components;
+            option.icon = QIcon(choice.summary.iconPath);
+            option.itemCount = choice.summary.itemCount;
+            option.counts = choice.summary.componentItemCounts;
+            composites.append(option);
+        }
+        picker->setComposites(composites);
+
+        // 打开时已经选着的那一份（用户选的或这一类的默认）：立刻开查
+        // （本地能判的那几条同步就出来，其余排队）。
+        const QString initialModsPreset = picker->selectedId(modsCategoryKey);
+        if (!initialModsPreset.isEmpty()) {
+            // 先挂再开查：本地能判完的那一轮会同步发 finished，把它撤掉。
+            picker->setChecking(modsCategoryKey, true);
+            m_owner.m_presetController->startModCheck(initialModsPreset, gameVersion(),
+                                              pickerLoaderName, true);
+        }
+    };
+    // 预设数据在**后台读**（列表走 `Presets::CatalogLoader` 的异步快照，复合预设的 manifest
+    // 也在工作线程里读）：点击这一帧不扫盘，右栏先挂加载态。两层 QPointer：控制器先没了 /
+    // 弹框已经关了（picker 跟 box 一起析构，`fill` 引用的这几个局部也就过期了）⇒ 什么都不做。
+    QPointer<InstallPageController> self(this);
+    QPointer<PresetInstallPicker> alive(picker);
+    std::function<void()> request;
+    request = [this, self, alive, &fill, &request] {
+        alive->beginLoading();
+        m_owner.m_presetController->requestInstallPickerData(
+            [self, alive, &fill, &request](const PresetController::InstallPickerData &data) {
+                if (self.isNull() || alive.isNull()) {
+                    return;
+                }
+                if (!data.problem.isEmpty()) {
+                    alive->failLoading(data.problem, [&request] { request(); });
+                    return;
+                }
+                fill(data);
+            });
+    };
 
     InlineMessageBox box(MessageKind::Question, MainWindowUI::installPresetPickerTitle(),
                          QString(),
@@ -733,6 +756,10 @@ void InstallPageController::openPresetPickerWith(
         if (auto *confirm = box.findChild<QPushButton *>(InlineMessageBox::buttonName(0)))
             confirm->setEnabled(!pending);
     });
+    // 候选没读回来时「确定选择」点不得：拿空表确定会把已经挑好的几类整个清掉。
+    // setCategories() 发 pendingChanged(false) 时由上面那条放开。
+    if (auto *confirm = box.findChild<QPushButton *>(InlineMessageBox::buttonName(0)))
+        confirm->setEnabled(false);
 
     // 兼容检查那几行：一条引用一行（匹配的不列，只说有问题的 + 暂无法确认的）。
     const auto modCompatReasons = [](const QList<Presets::CompatibilityResult> &results) {
@@ -784,6 +811,7 @@ void InstallPageController::openPresetPickerWith(
                          picker->setStatus(modsCategoryKey, update.summary.text(),
                                            modCompatReasons(update.results), problem, update.summary.total,
                                            update.summary.missing, update.summary.unknown + update.summary.invalid);
+                         picker->setChecking(modsCategoryKey, !update.finished);
                      });
     // 弹窗一关就作废这一代（在途请求的回调按 generation 丢掉，不再擦已经关掉的那几行）。
     QObject::connect(&box, &QObject::destroyed, m_owner.m_presetController,
@@ -810,17 +838,11 @@ void InstallPageController::openPresetPickerWith(
                 reasons.prepend(status.status);
             }
             picker->setStatus(key, MainWindow::tr("正在检查模组兼容性…"), reasons, status.problem);
+            picker->setChecking(key, true);
             m_owner.m_presetController->startModCheck(presetId, gameVersion(), pickerLoaderName,
                                               true);
         });
 
-    // 打开时已经选着的那一份（用户选的或这一类的默认）：立刻开查
-    // （本地能判的那几条同步就出来，其余排队）。
-    const QString initialModsPreset = picker->selectedId(modsCategoryKey);
-    if (!initialModsPreset.isEmpty()) {
-        m_owner.m_presetController->startModCheck(initialModsPreset, gameVersion(),
-                                          pickerLoaderName, true);
-    }
 
     // 「前往预设管理」：收掉这张弹窗，**把用户带过去**，安装上下文一个字都不动。
     bool goManage = false;
@@ -831,6 +853,7 @@ void InstallPageController::openPresetPickerWith(
         m_owner.m_ui->overlay()->dismiss();
     });
 
+    request();
     m_owner.m_ui->overlay()->execPrompt(&box);
     if (goManage) {
         // 安装页那一趟的状态全在内存里（版本 / 名字 / 已选的几类）—— 切过去再切回来

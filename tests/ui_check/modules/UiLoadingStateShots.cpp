@@ -1,7 +1,8 @@
 // 步骤 126 加载态接入的离屏样张：资源详情、更新向导的加载器版本框、新建服务端、文件详情、预设计划、
 // 下载页「游戏」刷新，以及主页外观预览上没采用的那种叠法（留图说明）。
+// 步骤 136：安装页预设弹框（点开瞬间右栏加载态 / 读不了 / 填好后模组那一行兼容检查中），文件名 r136-*。
 // 每处一张「改前」（照旧写法摆出来）和一张「加载中」，能出错的再一张「出错」。
-// 主题暮色雪山（dark）。用法：QT_QPA_PLATFORM=offscreen ui_check_loading_state_shots <输出目录>
+// 主题暮色雪山（dark）。用法：QT_QPA_PLATFORM=offscreen ui_check_loading_state_shots <输出目录>（紧凑运行器：ui_check_modules ui_check_loading_state_shots <输出目录>）
 // 不进 ctest：只出图，不做断言。
 #include "Support.hpp"
 
@@ -9,6 +10,7 @@
 #include "LoadingState.hpp"
 #include "MainWindowUI.hpp"
 #include "NewServerPage.hpp"
+#include "PresetInstallPicker.hpp"
 #include "PresetManagePage.hpp"
 #include "ResourceDetailPage.hpp"
 #include "SkinViewer.hpp"
@@ -27,6 +29,7 @@
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QTreeWidget>
+#include <QVBoxLayout>
 
 namespace {
 
@@ -46,8 +49,10 @@ int UiLoadingStateShots(QApplication &app) {
     const int fontId = QFile::exists(fontPath) ? QFontDatabase::addApplicationFont(fontPath) : -1;
     const QStringList families = QFontDatabase::applicationFontFamilies(fontId);
     app.setFont(QFont(families.isEmpty() ? QStringLiteral("Microsoft YaHei UI") : families.first(), 9));
-    const QString out = app.arguments().size() > 1 ? app.arguments().at(1)
-                                                    : QDir::current().filePath(QStringLiteral("build/r126-shots"));
+    // 输出目录 = 带路径分隔符的那个参数（紧凑运行器的第一个参数是模块名）。
+    QString out = QDir::current().filePath(QStringLiteral("build/r126-shots"));
+    for (const QString &arg : app.arguments().mid(1))
+        if (arg.contains(QLatin1Char('/')) || arg.contains(QLatin1Char('\\'))) out = arg;
     QDir().mkpath(out);
     Theme::setSpec(Theme::presetSpec(QStringLiteral("dark")));
     Theme::apply(app);
@@ -223,6 +228,55 @@ int UiLoadingStateShots(QApplication &app) {
                             MainWindowUI::skinHintLoadingText(QStringLiteral("Steve")));
         shown();
         save(&window, QStringLiteral("7-skin-overlay-rejected"));  // 没采用：字压在人物身上看不清
+    }
+
+    // ---- r136 预设弹框 ----
+    {
+        const auto save136 = [&](QWidget *w, const QString &name) {
+            if (w->grab().save(QDir(out).filePath(QStringLiteral("r136-%1.png").arg(name)))) ++saved;
+        };
+        QWidget card;
+        card.setObjectName(QStringLiteral("r136card"));
+        card.setAttribute(Qt::WA_StyledBackground, true);
+        card.setStyleSheet(QStringLiteral("QWidget#r136card{background:%1;}").arg(Theme::tokens().page.name()));
+        auto *layout = new QVBoxLayout(&card);
+        layout->setContentsMargins(24, 24, 24, 24);
+        auto *picker = new PresetInstallPicker(&card);
+        layout->addWidget(picker);
+        picker->setContext(QStringLiteral("1.21.4"), QStringLiteral("Fabric"));
+        card.resize(848, 520);
+        card.show();
+        picker->beginLoading();
+        shown();
+        save136(&card, QStringLiteral("1-preset-picker-loading"));
+        picker->failLoading(QStringLiteral("预设文件夹读不了：D:\\Games\\.minecraft\\wtfml\\presets"), [] {});
+        pump(Anim::appearMs() + 80);
+        save136(&card, QStringLiteral("2-preset-picker-error"));
+        PresetInstallPicker::Category mods;
+        mods.key = QStringLiteral("mods");
+        mods.title = QStringLiteral("模组");
+        mods.options.append({QStringLiteral("daily"), QStringLiteral("日常配置"), true, true, 42});
+        mods.options.append({QStringLiteral("build"), QStringLiteral("建筑辅助"), true, false, 18});
+        mods.options.append({QStringLiteral("perf"), QStringLiteral("性能优化"), true, false, 9});
+        mods.selectedId = QStringLiteral("build");
+        mods.status = QStringLiteral("检查中 6/18");
+        PresetInstallPicker::Category game;
+        game.key = QStringLiteral("gameSettings");
+        game.title = QStringLiteral("游戏设置");
+        game.options.append({QStringLiteral("daily-game"), QStringLiteral("日常配置"), true, true, 12});
+        PresetInstallPicker::Category packs;
+        packs.key = QStringLiteral("resourcePacks");
+        packs.title = QStringLiteral("资源包");
+        picker->setCategories({game, mods, packs});
+        picker->setComposites({});
+        if (auto *nav = picker->findChild<QListWidget *>(PresetInstallPicker::tabBarName())) nav->setCurrentRow(1);
+        picker->setChecking(QStringLiteral("mods"), true);
+        shown();
+        save136(&card, QStringLiteral("3-preset-picker-checking"));
+        picker->setStatus(QStringLiteral("mods"), QStringLiteral("缺失 2 项"), {}, true, 18, 2, 0);
+        picker->setChecking(QStringLiteral("mods"), false);
+        pump(80);
+        save136(&card, QStringLiteral("4-preset-picker-filled"));
     }
 
     std::printf("saved %d shots to %s\n", saved, qPrintable(QDir::toNativeSeparators(out)));

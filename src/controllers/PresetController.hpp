@@ -211,6 +211,8 @@ public:
     };
     struct InstallPickerData {
         QList<InstallPickerPreset> presets;  // 按下标次序
+        /// 读不了（预设文件夹在、但不是文件夹 / 没权限读）：那句原因。空 = 读到了（哪怕一份都没有）。
+        QString problem;
         /// 某一类的可用项（含复合预设里的那一子项，次序跟着父项）。认不出的 key 回空表。
         QList<Presets::PresetSummary> optionsFor(const QString &categoryKey) const;
     };

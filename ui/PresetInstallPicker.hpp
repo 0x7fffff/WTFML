@@ -61,6 +61,9 @@ public:
     /// 右栏加载态（数据还没到时）：下一次 setCategories() 收掉；失败换成出错态 +「重试」。
     void beginLoading();
     void failLoading(const QString &reason, std::function<void()> retry);
+    /// 这一类选着的那一行，行尾状态挂 / 撤一行加载态（兼容检查还没查完时）。
+    /// 别的行一律撤掉；setStatus() 也会撤掉不是当前行的那几行。
+    void setChecking(const QString &key, bool checking);
     static QString contextLabelName() { return QStringLiteral("presetInstallContext"); }
     static QString tabBarName() { return QStringLiteral("presetInstallNavigation"); }
     static QString listName(int i) { return QStringLiteral("presetInstallList%1").arg(i); }

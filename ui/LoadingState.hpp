@@ -15,11 +15,13 @@
 
 #pragma once
 
+#include <QFont>
 #include <QRect>
 #include <QString>
 
 #include <functional>
 
+class QAbstractItemView;
 class QModelIndex;
 class QPainter;
 class QStyleOptionViewItem;
@@ -45,6 +47,17 @@ QTreeWidgetItem *beginRow(QTreeWidgetItem *parent, const QString &text = QString
 /// 同一行改成出错样子；行尾「重试」那一格点中 = 调 retry（retry 可以删掉这一行）。
 void failRow(QTreeWidgetItem *row, const QString &reason, std::function<void()> retry);
 // 结果到了：调用方照旧 takeChildren() 删占位行、摆新行。不另加 API。
+
+// —— 行尾：列表里一行的行尾那句状态还在等（预设弹框的兼容检查）。委托认 `rowLoadingRole()` 来画 ——
+
+/// 那一行行尾挂上加载态，登记到共享时钟上。已经挂着就不重新计门槛（进度更新不闪）。
+void beginRowStatus(QAbstractItemView *view, const QModelIndex &index);
+/// 撤掉（没挂着就什么都不做）。
+void finishRowStatus(QAbstractItemView *view, const QModelIndex &index);
+/// 委托的钩子：这一行行尾在等 ⇒ 在 area 里靠右画「点 + text」，返回占的宽度
+/// （没过门槛时什么都不画，宽度照旧占着）；不在等回 -1，调用方照常画字。
+int paintRowStatus(QPainter *painter, const QRect &area, const QModelIndex &index, const QFont &font,
+                   const QString &text);
 
 /// 行内那条占位行挂的角色：值 ≥ 0 = 加载中（开始时刻，`clockMs()` 刻度）；-1 = 出错。
 constexpr int rowLoadingRole() { return Qt::UserRole + 17; }  // 号码登记见 MainWindowUI.hpp

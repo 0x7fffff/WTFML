@@ -29,7 +29,7 @@
 #pragma once
 
 #include "download/LoaderMeta.hpp"
-#include "PresetController.hpp"  // openPresetPickerWith() 的入参（后台读回来的那张表）
+#include "PresetController.hpp"
 
 #include <QHash>
 #include <QList>
@@ -131,11 +131,6 @@ public:
     QString defaultInstanceName() const;
 
 private:
-    /// 预设数据回来之后真正摆弹框那一半（`openPresetPicker()` 只负责发后台请求）。
-    ///
-    /// 弹框布局和原来那一版逐字一样，变的只是数据从哪儿来：参数是
-    /// `PresetController::requestInstallPickerData()` 在后台读回来的快照。
-    void openPresetPickerWith(const PresetController::InstallPickerData &pickerData);
     /// 那棵树里某一条加载器的条目；找不到回 nullptr。
     QTreeWidgetItem *loaderItem(int loaderIndex) const;
     /// 那棵树里「预设」那一行（`UserRole == installPresetRowRole()`）；找不到回 nullptr。
