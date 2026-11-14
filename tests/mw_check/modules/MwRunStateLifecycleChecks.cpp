@@ -91,6 +91,9 @@ int MwRunStateLifecycleChecks(const QDir &root, const QDir &versionsDir) {
                 check(g_modalText.isEmpty(),
                       "AG2 那一趟启动没有弹框（假 java 是通的，路走到底了）",
                       g_modalTitle + QStringLiteral(" / ") + g_modalText);
+                // 没弹框，上面排的那一发就没处落：它还会盯 20 秒，把下一节弹的第一张框
+                // （Y 段的预设弹窗）当成自己的点掉。这里作废它。
+                ++g_modalHandlerGeneration;
 
                 // ---- 黄：正在启动 ----
                 // 名字那一条是**逐字**钉的：自定义名来自沙盒里那份 wtfml.meta，
