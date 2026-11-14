@@ -821,12 +821,15 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     agentPage = new AgentPage(tabWidget);
 
     // NOTE: 顺序就是契约：homeTabIndex() == 0 靠的就是"主页第一个 addTab"。
-    tabWidget->addTab(homeTab, QStringLiteral("主页"));
-    tabWidget->addTab(instanceTab, QStringLiteral("管理"));
-    tabWidget->addTab(downloadTab, QStringLiteral("下载"));
-    tabWidget->addTab(settingsTab, QStringLiteral("设置"));
+    // NOTE: 这五个是 **要翻的**（`QCoreApplication::translate` 的上下文是 "MainWindowUI"，
+    // 译文在 `assets/i18n/wtfml_en.ts`）。标签文字同时是顶上导航条那五个按钮的字
+    // （下面 `bar->setNavItems(tabText…)` 抄的就是这一份），所以一处翻译两处生效。
+    tabWidget->addTab(homeTab, QCoreApplication::translate("MainWindowUI", "主页"));
+    tabWidget->addTab(instanceTab, QCoreApplication::translate("MainWindowUI", "管理"));
+    tabWidget->addTab(downloadTab, QCoreApplication::translate("MainWindowUI", "下载"));
+    tabWidget->addTab(settingsTab, QCoreApplication::translate("MainWindowUI", "设置"));
     // D1：智能体**放最后**；启动默认仍停在主页（下面 setCurrentIndex(homeTabIndex())）。
-    tabWidget->addTab(agentPage, QStringLiteral("智能体"));
+    tabWidget->addTab(agentPage, QCoreApplication::translate("MainWindowUI", "智能体"));
     // 工具箱：第六个选项卡，**不上顶上那条导航**（入口是导航轨底部那颗「工具箱」，见 setupBottomBar）。
     // 页本身由 ToolboxController 首次打开时挂进来（避免没用过工具箱的人白搭十片控件）。
     {

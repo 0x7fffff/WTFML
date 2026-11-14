@@ -2940,6 +2940,10 @@ public:
     static QString gameWindowHeightSpinName() { return QStringLiteral("gameWindowHeightSpin"); }
     /// 「外观」那一格那个文本框：条上那行字。
     static QString titleTextEditName() { return QStringLiteral("titleTextEdit"); }
+    /// 「外观」那一格那个下拉框：界面语言（`system` / `zh_CN` / `en`，存在 itemData 里）。
+    /// 三个选项在这一层就摆好（「简体中文」「English」是各自语言里的写法，不用翻；
+    /// 「跟随系统」跟着当前界面语言走）。落盘与重启提示在 MainWindow。
+    static QString languageComboName() { return QStringLiteral("languageCombo"); }
     /// 「宽 × 高」中间那个乘号。它也要有名字：验证工程量这三格的几何时得能取到它。
     static QString gameWindowSizeTimesLabelName() { return QStringLiteral("gameWindowSizeTimes"); }
     /// 「启动选项」那一组里那几个勾选框/数字框的文案。
@@ -3643,6 +3647,8 @@ public:
     QSpinBox *getGameWindowWidthSpin() const { return gameWindowWidthSpin; }
     QSpinBox *getGameWindowHeightSpin() const { return gameWindowHeightSpin; }
     QLineEdit *getTitleTextEdit() const { return titleTextEdit; }
+    /// 「语言」那一格（界面语言下拉框，itemData 是 `system` / `zh_CN` / `en`）。
+    QComboBox *getLanguageCombo() const { return languageCombo; }
 
     /// 「背景图」那一节里，**一块底**对应的一组控件（今天只有页面背景这一组）。
     ///
@@ -4025,6 +4031,7 @@ private:
     QSpinBox *gameWindowWidthSpin = nullptr;
     QSpinBox *gameWindowHeightSpin = nullptr;
     QLineEdit *titleTextEdit = nullptr;
+    QComboBox *languageCombo = nullptr;
     QCheckBox *dailyQuoteCheck = nullptr;
     /// 「背景图」那一节的各行控件，按 `ThemeImageRow::partKey` 认（见这一节在头文件里那段）。
     QVector<ThemeImageRow> m_themeImageRows;

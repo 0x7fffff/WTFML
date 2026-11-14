@@ -61,6 +61,9 @@ jobs:
           ./tools/check-doc-links.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./tools/check-repo-layout.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # 界面中文必须包在 tr() 里才翻得出来；基线见 tools/i18n-baseline.txt
+          ./tools/check-i18n.ps1
 
   verify:
     needs: plan

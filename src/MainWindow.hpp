@@ -1907,6 +1907,8 @@ private:
     /// 「内存分配」那颗下拉框（自动分配 / 手动分配）。
     void onMemoryModeChanged();
     void onLauncherBehaviourChanged();
+    /// 「语言」那一格（界面语言）：落盘 + 提示重启 + 可选「立即重启」。
+    void onLanguageChanged();
     void onDownloadSourceChanged();
     /// 「下载源」那一组里那颗「并发数」下拉框。
     void onDownloadConcurrencyChanged();

@@ -221,6 +221,11 @@ list(FILTER _cases EXCLUDE REGEX "/Ui[^/]*Check\\.cpp$")
 add_library(ui_legacy_cases STATIC ${_cases})
 target_link_libraries(ui_legacy_cases PUBLIC wtfml_ui_fixture)
 add_executable(ui_check main.cpp)
+# 「English 界面下导航轨是英文」那几条要看真的 .qm，所以这一份 exe 也带一份资源
+# （和产品同一个生成物，见顶层 CMakeLists 里 wtfml_embed_translations）。
+if(COMMAND wtfml_embed_translations)
+    wtfml_embed_translations(ui_check)
+endif()
 target_link_libraries(ui_check PRIVATE ui_legacy_cases)
 if(WTFML_COMPACT_TEST_RUNNERS)
  add_executable(ui_check_modules modules/ModuleMain.cpp)

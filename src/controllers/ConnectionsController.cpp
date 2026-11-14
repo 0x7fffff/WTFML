@@ -803,6 +803,9 @@ void ConnectionsController::setup() {
             &MainWindow::onMemoryChanged);
     connect(m_owner->m_ui->getLauncherBehaviourCombo(), &QComboBox::currentIndexChanged, m_owner,
             &MainWindow::onLauncherBehaviourChanged);
+    // 「语言」：落盘 + 提示重启（见 MainWindow::onLanguageChanged）。
+    connect(m_owner->m_ui->getLanguageCombo(), &QComboBox::currentIndexChanged, m_owner,
+            &MainWindow::onLanguageChanged);
     connect(m_owner->m_ui->getDownloadSourceCombo(), &QComboBox::currentIndexChanged, m_owner,
             &MainWindow::onDownloadSourceChanged);
     // 「同时最多下几个」。和上面那颗同一个形状：改完立刻生效。

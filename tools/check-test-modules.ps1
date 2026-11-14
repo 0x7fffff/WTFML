@@ -64,6 +64,14 @@ try {
         }
     }
 
+    # ---- 界面语言：测试一律钉 zh_CN ----
+    # CI 的 Windows 是英文区域；产品默认跟随系统，不钉的话英文区域那一趟会装英文翻译，
+    # 几千条中文断言一起变红。钉的位置只有一处（守卫里），所以每个入口用守卫就自动钉住。
+    $isolationHeader = [IO.File]::ReadAllText((Join-Path $repo 'tests/support/SettingsIsolation.hpp'))
+    if (-not $isolationHeader.Contains('General/Language')) {
+        throw 'tests/support/SettingsIsolation.hpp 没有把界面语言钉成 zh_CN（见 docs/dev/I18N.md）'
+    }
+
     # ---- tools/：起真 exe 的脚本要么带 --acceptance-profile，要么写明为什么必须动真设置 ----
     # 2026-11-13 那次真 HKCU 被写进 BackdropTint=0 / BackdropBlur=0，就是自动化在**真**设置上
     # 点到了滑块。新加一个起 exe 的脚本忘了隔离，这里直接红，不靠谁记得。

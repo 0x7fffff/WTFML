@@ -69,12 +69,20 @@ QColor blendedColor(const QColor &from, const QColor &to, qreal progress) {
 }
 
 TitleBarButton::NavIcon iconForLabel(const QString &label) {
-    if (label == QStringLiteral("主页")) return TitleBarButton::NavIcon::Home;
-    if (label == QStringLiteral("管理")) return TitleBarButton::NavIcon::Instances;
-    if (label == QStringLiteral("下载")) return TitleBarButton::NavIcon::Download;
-    if (label == QStringLiteral("设置")) return TitleBarButton::NavIcon::Settings;
-    if (label == QStringLiteral("智能体")) return TitleBarButton::NavIcon::Agent;
-    if (label == QStringLiteral("工具箱")) return TitleBarButton::NavIcon::Toolbox;
+    // 认**中文源文和它的英文译文**两种：条上的字是 `MainWindowUI` 那五个标签的文本
+    // （装了英文翻译时就是英文），只认中文的话英文界面会上五个"没有图标"的按钮。
+    // 限制：这一层只认这两份写法；再加语言时这里要跟着加一列。
+    if (label == QStringLiteral("主页") || label == QStringLiteral("Home")) return TitleBarButton::NavIcon::Home;
+    if (label == QStringLiteral("管理") || label == QStringLiteral("Library"))
+        return TitleBarButton::NavIcon::Instances;
+    if (label == QStringLiteral("下载") || label == QStringLiteral("Download"))
+        return TitleBarButton::NavIcon::Download;
+    if (label == QStringLiteral("设置") || label == QStringLiteral("Settings"))
+        return TitleBarButton::NavIcon::Settings;
+    if (label == QStringLiteral("智能体") || label == QStringLiteral("Agent"))
+        return TitleBarButton::NavIcon::Agent;
+    if (label == QStringLiteral("工具箱") || label == QStringLiteral("Toolbox"))
+        return TitleBarButton::NavIcon::Toolbox;
     return TitleBarButton::NavIcon::None;
 }
 

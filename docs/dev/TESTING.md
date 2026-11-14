@@ -93,6 +93,7 @@ ctest --preset visual                        # 只跑 visual 标签（完整历�
 ```powershell
 ./tools/check-test-modules.ps1      # 测试入口 / 模块归属 / 大小上限
 ./tools/check-doc-links.ps1         # 文档相对链接与源码里的 docs 引用
+./tools/check-i18n.ps1              # 新代码里的中文包没包 tr()（基线见 docs/dev/I18N.md）
 ./tools/test.ps1 -Suite quick
 ```
 

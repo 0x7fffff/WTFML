@@ -668,6 +668,20 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
 
     // ---------- 外观 ----------
     SettingsGroup *look = addGroup(panel, QStringLiteral("外观"));
+    {
+        // 界面语言。改了**不当场换**：已经建好的那些控件上的字换不了，所以提示重启
+        // （提示与「立即重启」在 MainWindow::onLanguageChanged()）。
+        // 「简体中文」「English」是各自语言里的写法，永远不翻（标了不翻标记）。
+        languageCombo = new QComboBox(form);
+        languageCombo->setObjectName(languageComboName());
+        languageCombo->addItem(QCoreApplication::translate("MainWindowUI", "跟随系统"),
+                               QStringLiteral("system"));
+        languageCombo->addItem(QStringLiteral("简体中文"), QStringLiteral("zh_CN"));  // i18n-ignore
+        languageCombo->addItem(QStringLiteral("English"), QStringLiteral("en"));
+        WheelGuard::install(languageCombo);
+        addRow(look, QCoreApplication::translate("MainWindowUI", "语言"), languageCombo,
+               Placement::Column);
+    }
     titleTextEdit = new QLineEdit(form);
     titleTextEdit->setObjectName(titleTextEditName());
     InputSizing::shortValue(titleTextEdit, titleTextMaxLength(), InputSizing::Script::Han);

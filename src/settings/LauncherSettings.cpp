@@ -5,6 +5,7 @@
  */
 
 #include "LauncherSettings.hpp"
+#include "../ui/UiLanguage.hpp"
 #include "util/ServerPing.hpp"
 #include <QHostAddress>
 
@@ -60,6 +61,9 @@ static constexpr const char kGameWindowHeight[] = "Launcher/WindowHeight";
 static constexpr const char kGameWindowMode[] = "Launcher/WindowMode";
 static constexpr const char kProcessPriority[] = "Launcher/ProcessPriority";
 static constexpr const char kTitleText[] = "Launcher/TitleText";
+// 界面语言（`system` / `zh_CN` / `en`）。不在 `Launcher/` 底下：它既不是"启动游戏之后
+// 怎么办"，也不是某个游戏实例的属性，而是**这个进程画字用哪一份**。
+static constexpr const char kLanguage[] = "General/Language";
 static constexpr const char kWarnDuplicateLaunch[] = "Launcher/WarnDuplicateLaunch";
 static constexpr const char kWarnWorldLoss[] = "Launcher/WarnWorldLoss";
 /// 用户自己填的 CurseForge API key（空 = 走那台不要 key 的社区镜像）。
@@ -367,6 +371,13 @@ void LauncherSettings::setProcessPriority(ProcessPriority priority) {
     save();
 }
 
+void LauncherSettings::setLanguage(const QString &value) {
+    const QString normalized = UiLanguage::normalizedSetting(value);
+    if (m_language == normalized) return;
+    m_language = normalized;
+    save();
+}
+
 void LauncherSettings::setTitleText(const QString &text) {
     const QString cleaned = clampTitleText(text);
     // 比的是**收拾过的**那一份：用户接着打一个空格（"名字 " → "名字"）不该白写一次盘。
@@ -536,6 +547,10 @@ void LauncherSettings::load() {
     // 顶上那行字也**读回来就收拾**：盘上那一份会被原样画到条上，多长、带不带空格都不该
     // 信它（和宽高那两个数同一个理由）。
     m_titleText = clampTitleText(settings.value(kTitleText, m_titleText).toString());
+    // 界面语言：认不出来的值（手改过、旧版本写的）按 `system` 算 —— 归一化在
+    // `UiLanguage::normalizedSetting()` 那一处，别在这儿写第二份。
+    m_language = UiLanguage::normalizedSetting(
+        settings.value(kLanguage, m_language).toString());
     // 两个提醒开关：默认值同样取当前成员（构造时是 true）。盘上那一份是布尔，
     // 手改成一个不认识的值时 toBool() 给 false —— 那正好等于"用户关掉了"，
     // 不会把一个"看不懂的值"变成弹窗，这个方向是安全的。
@@ -623,6 +638,7 @@ QVariantMap LauncherSettings::persistedValues() const {
     values.insert(QString::fromLatin1(kGameWindowMode), gameWindowModeToken(m_gameWindowMode));
     values.insert(QString::fromLatin1(kProcessPriority), processPriorityKey(m_processPriority));
     values.insert(QString::fromLatin1(kTitleText), clampTitleText(m_titleText));
+    values.insert(QString::fromLatin1(kLanguage), UiLanguage::normalizedSetting(m_language));
     values.insert(QString::fromLatin1(kWarnDuplicateLaunch), QVariant(m_warnDuplicateLaunch));
     values.insert(QString::fromLatin1(kWarnWorldLoss), QVariant(m_warnWorldLoss));
     values.insert(QString::fromLatin1(kCurseForgeApiKey), m_curseForgeApiKey);

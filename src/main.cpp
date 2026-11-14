@@ -11,6 +11,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QLocale>
 #include <QStyleFactory>
 #include <QTextStream>
 #include <QRecursiveMutex>
@@ -26,6 +27,7 @@
 #include "../ui/OverlayHost.hpp"
 #include "../ui/AppIcon.hpp" // 窗口 / 任务栏图标（自绘标题栏里不画，见那个文件头）
 #include "../ui/Theme.hpp"   // 主题从盘上读回来、铺开（见下面那段 NOTE）
+#include "../ui/UiLanguage.hpp" // 界面语言：解析设置值、装翻译（见下面那段）
 #include "util/AppPaths.hpp"
 #include "util/SecretRedactor.hpp"
 #include "util/DownloadDiagnostics.hpp"
@@ -199,6 +201,25 @@ int main(int argc, char *argv[]) {
     if (!StartupAcceptance::configure(&acceptance, &acceptanceProblem)) {
         qCritical().noquote() << acceptanceProblem;
         return 2;
+    }
+
+    // 界面语言：**排在所有界面创建之前**（`MainWindow`、提示窗、日志窗都按这一份翻译
+    // 建自己的字）。源文是中文，所以只有英文要装翻译 —— 那一份 .qm 由 lrelease 在构建时
+    // 从 `assets/i18n/wtfml_en.ts` 生成、编进资源（见 CMakeLists 与 docs/dev/I18N.md）。
+    //
+    // NOTE: 这一句必须排在 `setOrganizationName` / `setApplicationName` **之后**（设置值从
+    // `QSettings` 读，它按 org/app 两个名字找那一份），也必须排在验收档案**建好之后**
+    // （那一步把 QSettings 指到隔离目录里，见 StartupAcceptance::configure）。
+    // NOTE: 资源里没有那一份时只记一句警告、界面退回中文 —— 构建管线已经把「找不到
+    // lrelease」拦在配置阶段了，走到这儿说明产物被换过，运行期没有补救办法。
+    {
+        const QString languageSetting = UiLanguage::readSetting();
+        const QString uiLanguage =
+            UiLanguage::resolve(languageSetting, QLocale::system().uiLanguages());
+        qInfo() << "[WTFML] 界面语言" << languageSetting << "→" << uiLanguage;  // i18n-ignore
+        if (!UiLanguage::installTranslation(app, uiLanguage)) {
+            qWarning() << "[WTFML] 界面语言为 English，但翻译资源 :/i18n/wtfml_en.qm 加载失败，界面退回中文";  // i18n-ignore
+        }
     }
 
     DirectorySessionLock::enabled = true;

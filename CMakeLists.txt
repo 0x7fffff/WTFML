@@ -12,6 +12,82 @@ endif()
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets Network Core Gui Concurrent GuiPrivate)
 
+# ---------------------------------------------------------------------------
+# 界面多语言（英文）：assets/i18n/wtfml_en.ts → lrelease → 编进资源
+# ---------------------------------------------------------------------------
+# 源语言是中文，英文那一份是译文（流程见 docs/dev/I18N.md）。这一段的规矩：
+#   * 有 Qt6LinguistTools 就用它给的 lrelease；
+#   * 没有（静态 Qt 只编了 qtbase，没有 LinguistTools）就用缓存变量 WTFML_LRELEASE 指的
+#     那一个，本机默认位置见下面的 find_program；
+#   * 两个都找不到 → **配置阶段直接失败**。悄悄出一个没有英文的版本比配置失败更糟：
+#     用户切了 English、界面还是中文，谁也说不清是哪一层坏了。
+#   * 只有显式 -DWTFML_I18N=OFF 才允许跳过。
+option(WTFML_I18N "Build and embed UI translations (wtfml_en.qm)" ON)
+
+if(WTFML_I18N)
+    # 这一个只是"我自己指一个"的口子（-DWTFML_LRELEASE=<path>）。不设它会自己找：
+    # 先看 Qt6LinguistTools 给的 lrelease 目标，再在几个默认位置里找（见下面 find_program）。
+    # NOTE: 别把它先建成一个空缓存项 —— find_program 见到该变量已定义就不搜了，
+    # 静态 Qt 那一趟会直接报"找不到 lrelease"。
+    set(_wtfml_lrelease "")
+    if(WTFML_LRELEASE)
+        set(_wtfml_lrelease "${WTFML_LRELEASE}")
+    else()
+        find_package(Qt6 QUIET COMPONENTS LinguistTools)
+        if(TARGET Qt6::lrelease)
+            set(_wtfml_lrelease "$<TARGET_FILE:Qt6::lrelease>")
+        else()
+            # 本机默认查找位置：**当前这套 Qt 自己的 bin**（qmake 在哪、lrelease 就在哪）、
+            # QTDIR，以及这台开发机上那份动态 Qt —— 静态 Qt（static-6.10.1-mingw13）只编了
+            # qtbase，没有 lrelease。
+            get_target_property(_wtfml_qmake Qt6::qmake IMPORTED_LOCATION)
+            if(_wtfml_qmake)
+                get_filename_component(_wtfml_qt_bin "${_wtfml_qmake}" DIRECTORY)
+            endif()
+            find_program(_wtfml_lrelease_found NAMES lrelease lrelease.exe
+                HINTS "${_wtfml_qt_bin}" "${QT6_INSTALL_PREFIX}/bin" "$ENV{QTDIR}/bin"
+                PATHS "D:/Qt/Qt/6.10.1/mingw_64/bin")
+            if(_wtfml_lrelease_found)
+                set(_wtfml_lrelease "${_wtfml_lrelease_found}")
+            endif()
+        endif()
+    endif()
+    if(NOT _wtfml_lrelease)
+        message(FATAL_ERROR
+            "找不到 lrelease，界面英文翻译无法生成。三条路选一条：
+"
+            "  1. 装 Qt6 的 LinguistTools（动态 Qt 自带）；
+"
+            "  2. 用 -DWTFML_LRELEASE=<lrelease.exe 的完整路径> 指一个；
+"
+            "  3. 确实不要英文界面时显式 -DWTFML_I18N=OFF。")
+    endif()
+
+    set(WTFML_TS_FILE "${CMAKE_CURRENT_SOURCE_DIR}/assets/i18n/wtfml_en.ts")
+    set(WTFML_I18N_QM_DIR "${CMAKE_CURRENT_BINARY_DIR}/i18n")
+    set(WTFML_QM_FILE "${WTFML_I18N_QM_DIR}/wtfml_en.qm")
+    add_custom_command(OUTPUT "${WTFML_QM_FILE}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${WTFML_I18N_QM_DIR}"
+        COMMAND "${_wtfml_lrelease}" "${WTFML_TS_FILE}" -qm "${WTFML_QM_FILE}"
+        DEPENDS "${WTFML_TS_FILE}"
+        COMMENT "lrelease: wtfml_en.qm"
+        VERBATIM)
+    add_custom_target(wtfml_translations DEPENDS "${WTFML_QM_FILE}")
+
+    # 把那一份 .qm 编进指定目标。产品挂一次，验证工程要验英文界面的再挂一次
+    # （AUTORCC 漏了的表现是"编过了、界面上没有英文"，见 ui/ 那份 CMakeLists 里的同一条）。
+    function(wtfml_embed_translations target)
+        if(NOT WTFML_I18N)
+            return()
+        endif()
+        qt_add_resources(${target} "wtfml_i18n"
+            PREFIX "/i18n"
+            BASE "${WTFML_I18N_QM_DIR}"
+            FILES "${WTFML_QM_FILE}")
+        add_dependencies(${target} wtfml_translations)
+    endfunction()
+endif()
+
 # The launcher used to keep its verification programs under build/, which meant
 # they were invisible to source control and to CTest.  Keep normal developer
 # builds lean, but provide one switch that enables the complete regression suite.
@@ -688,6 +764,9 @@ qt_add_executable(WTFMinecraftLauncher
     # 见 res/wtfml.rc 与 res/wtfml.manifest 的注释。
     $<$<PLATFORM_ID:Windows>:${CMAKE_CURRENT_SOURCE_DIR}/res/wtfml.rc>
 )
+
+# 英文翻译编进 exe（资源路径 `:/i18n/wtfml_en.qm`，见 ui/UiLanguage.hpp）。
+wtfml_embed_translations(WTFMinecraftLauncher)
 
 # exe 图标（assets/app/wtfml.ico，由上面那份 .rc 编进去）。windres 只看 .rc、不看它引用的
 # .ico，所以换图标时**必须让这份 .rc 重编**：OBJECT_DEPENDS 是唯一能把这两条接上的地方

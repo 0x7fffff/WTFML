@@ -202,6 +202,7 @@ int main(int argc, char *argv[]) {
     check(tabs != nullptr, "主窗口里有选项卡控件");
 
     if (const int result = UiNavigationChecks(window, ui, installed, startBtn, gameStack, versionTree, installNameEdit, installBtn, installBackBtn, loaderTree, folderList, instanceList, instanceFolderLabel, tabs); result != 0) return result;
+    if (const int result = UiLanguageChecks(ui, tabs); result != 0) return result;
 
     std::printf("===== B. 分组归属 =====\n");
     // 往上找最近的那个 QGroupBox：下拉框和按钮是不是同一组，看的就得是这个。

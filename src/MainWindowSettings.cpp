@@ -21,6 +21,7 @@
 #include "controllers/DailyQuoteController.hpp"
 
 #include "..\ui\Animations.hpp"
+#include "..\ui\InlineMessage.hpp"
 #include "..\ui\Theme.hpp"
 #include "..\ui\TitleBar.hpp"
 #include "auth/SkinApi.hpp"
@@ -29,15 +30,19 @@
 #include "controllers/MainWindowViewData.hpp"
 #include "controllers/PresetController.hpp"
 #include "controllers/ThemeSettingsController.hpp"
+#include "manage/FolderManager.hpp"
 #include "manage/PlayerSkinStore.hpp"
 #include "manage/VersionManager.hpp"
 #include "settings/GlobalJavaSettings.hpp"
 #include "settings/LauncherSettings.hpp"
+#include "util/AppPaths.hpp"
+#include "util/DirectorySessionLock.hpp"
 
 #include <QComboBox>
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonObject>
+#include <QProcess>
 #include <QLocale>
 #include <QSettings>
 #include <QSignalBlocker>
@@ -160,6 +165,15 @@ void MainWindow::applySettingsToUi() {
     // 两边喂的都是盘上那份（空串 = 没改过，条自己会退回 defaultBrandText()）。
     m_ui->getTitleTextEdit()->setText(m_settings->titleText());
     m_ui->titleBar()->setBrandText(m_settings->titleText());
+
+    // ---------- 界面语言 ----------
+    // 三个选项在 MainWindowUI 里就摆好了（itemData 是记号 `system` / `zh_CN` / `en`）；
+    // 这里只把盘上那一档选上。挡信号：不挡会当成用户改了、弹一次「重启后生效」。
+    {
+        const QSignalBlocker blockLanguage(m_ui->getLanguageCombo());
+        const int index = m_ui->getLanguageCombo()->findData(m_settings->language());
+        if (index >= 0) m_ui->getLanguageCombo()->setCurrentIndex(index);
+    }
 
     // ---------- 背景图 ----------
     // 那两行控件画的是 `Theme::current()` 里那两块图的样子（**不是** `m_settings` 里的
@@ -384,6 +398,51 @@ void MainWindow::onMemoryModeChanged() {
 
 void MainWindow::onLauncherBehaviourChanged() {
     m_launcherPreferences->launcherBehaviourChanged();
+}
+
+namespace {
+
+/// 「立即重启」：把这一份进程换成一份新的。
+///
+/// 参数照抄本进程那一份（`--acceptance-profile` 也在其中）—— 新进程起来的样子
+/// 和用户这次打开时一样。
+///
+/// **先放目录锁、再起新进程**：锁的语义是「同一个游戏文件夹只允许一个窗口」
+///（见 docs/features/DIRECTORY_SESSION_LOCK.md），旧进程不放锁的话，新进程会停在
+/// 「启动器已在运行」那一屏 —— 那正是「重启之后进不去」的成因。
+bool relaunchWithSameArguments() {
+    const QString program = QCoreApplication::applicationFilePath();
+    QStringList arguments = QCoreApplication::arguments();
+    if (!arguments.isEmpty()) arguments.removeFirst();
+    DirectorySessionLock::releaseAll();
+    qint64 pid = 0;
+    if (QProcess::startDetached(program, arguments, QDir::currentPath(), &pid)) {
+        qInfo() << "[WTFML] 立即重启：新进程" << pid;  // i18n-ignore
+        return true;
+    }
+    qWarning() << "[WTFML] 立即重启失败：起不来新进程" << program;  // i18n-ignore
+    // 起不来就把锁拿回来：这一份窗还在跑，不能让它停在无锁状态。
+    DirectorySessionLock::acquire(AppPaths::minecraftDir());
+    DirectorySessionLock::acquire(FolderManager::defaultFolder());
+    return false;
+}
+
+}  // namespace
+
+void MainWindow::onLanguageChanged() {
+    m_settings->setLanguage(m_ui->getLanguageCombo()->currentData().toString());
+    const int choice = InlineMessage::ask(m_ui->overlay(), MessageKind::Question, tr("界面语言"),
+                                          tr("已保存为当前选择，重启启动器后生效。"),
+                                          {tr("立即重启"), tr("稍后")}, 0);
+    if (choice != 0) return;
+    if (!relaunchWithSameArguments()) {
+        InlineMessage::critical(m_ui->overlay(), tr("重启失败"),
+                                tr("无法启动新的启动器进程，请手动关闭后重新打开。"));
+        return;
+    }
+    // 新进程已经在路上了，这一份退出。走 quit() 而不是 close()：关窗那一套会问
+    // 「游戏还在跑，要不要收起启动器」，而这里不是那道问句的场合。
+    QCoreApplication::quit();
 }
 
 void MainWindow::onDownloadSourceChanged() {
