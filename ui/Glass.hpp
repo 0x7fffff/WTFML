@@ -49,6 +49,20 @@ Mode effectiveMode();
 QString fallbackReason();
 /// 改档：落盘，然后重新铺一遍主题（样式表、调色板、所有控件重画、外框重贴）。
 void setMode(Mode mode);
+/// 丢掉「四档判据」的缓存：下次 `mode()` / `effectiveMode()` / `enabled()` 重新读设置。
+///
+/// 生产里只有两条路需要它：`setMode()` 写完设置，以及系统个人化 / 无障碍设置变化
+/// （`install()` 装的那个事件过滤器）。测试直接往 `QSettings` 里写 `Theme/Backdrop` 时
+/// 自己调一次，别等事件。
+void invalidateSettingsCache();
+/// **验证工程专用**：把「系统开了高对比度 / 关了透明效果 / 系统背板可用」三位钉成给定值。
+///
+/// 这三个判据现读系统（`SystemParametersInfoW` + 原生 `QSettings`），测试机上是什么样都
+/// 可能；不钉住的话"写 scene 之后 `enabled()` 必须为真"这种断言会跟着机器走。
+/// 产品代码不调它（默认就是现读系统）。
+void setSystemFlagsForTest(bool highContrast, bool transparencyOff, bool systemBackdrop);
+/// 撤掉 `setSystemFlagsForTest()`，回到现读系统。
+void clearSystemFlagsForTest();
 
 /// 生效的不是纯色。
 bool enabled();
