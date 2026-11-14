@@ -102,25 +102,20 @@ int runLiveProbeMode(int argc, char *argv[]) {
                 QThread::msleep(10);
                 if (rowsMs >= 0 && pageClock.elapsed() > rowsMs + 800) break;
             }
-            bool bottomRowReady = false;
-            bool topRecycled = false;
+            // 行是代理画的：没有行控件要补、要收 —— 滚到底，最后一行直接就在视口里。
+            bool bottomRowVisible = false;
+            int viewportChildren = -1;
             if (list != nullptr && list->count() != 0) {
                 list->scrollToBottom();
                 QApplication::processEvents();
-                QElapsedTimer settle;
-                settle.start();
-                while (settle.elapsed() < 3000 &&
-                       list->itemWidget(list->item(list->count() - 1)) == nullptr) {
-                    QApplication::processEvents();
-                    QThread::msleep(10);
-                }
-                bottomRowReady = list->itemWidget(list->item(list->count() - 1)) != nullptr;
-                topRecycled = list->itemWidget(list->item(0)) == nullptr;
+                bottomRowVisible = list->visualItemRect(list->item(list->count() - 1))
+                                       .intersects(list->viewport()->rect());
+                viewportChildren = static_cast<int>(list->viewport()->findChildren<QWidget *>().size());
             }
-            std::printf("PASS 页面 %s 行=%d 首行出现=%lld ms 滚到底=%.0f ms 末行控件=%d 顶行回收=%d\n",
+            std::printf("PASS 页面 %s 行=%d 首行出现=%lld ms 滚到底=%.0f ms 末行可见=%d 视口子控件=%d\n",
                         qPrintable(pageKey), list != nullptr ? list->count() : -1,
                         static_cast<long long>(rowsMs),
-                        static_cast<double>(pageClock.elapsed()), bottomRowReady, topRecycled);
+                        static_cast<double>(pageClock.elapsed()), bottomRowVisible, viewportChildren);
         }
         auto *taskButton = window.findChild<QPushButton *>(MainWindowUI::taskSummaryButtonName());
         if (taskButton == nullptr) { std::printf("FAIL 找不到任务按钮\n"); return 1; }

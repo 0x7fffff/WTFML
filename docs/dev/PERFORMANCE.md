@@ -577,6 +577,21 @@ B 比 A 多做了一件事：纹饰页那十二个下拉框改成一个框一次
 
 纹饰、旗帜两页第一次进时，在编译负载下会超过 50 ms 守卫，守卫会让这一趟以非零退出。它们不在允许名单上，名单也不许加。负载正常时多半在线内，但这里没量到空载数字。要压到线内，可以选空闲时分片预搭（每片 ≤16 ms），或者减少这两页的控件数。
 
+### 实例文件页改成代理画行（2026-11-14，步骤 139）
+
+文件管理八页（`InstanceFilesPage`）原来每一行 `setItemWidget()` 挂一套真控件（图标、名字、小字、开关、三颗工具按钮），进模组页那一下光建 60 行就要几十毫秒。现在行由 `InstanceFilesPage::RowDelegate` 画，数据全在条目上，刷新只换条目、视图不重建（做法见 [LIST_PAINT.md](perf-notes/LIST_PAINT.md)「现行做法」）。
+
+量法：Release 探针（`-DWTFML_PERF_PROBE=ON -DWTFML_BUILD_TESTS=OFF`，严格告警当错误），`pwsh -File tools/perf-startup.ps1 -Probe -Runs 3 -Instances 20 -InstanceMods 60`，改前 = main 187b75f，改后 = 本分支，两边背靠背跑，同一台机器（Ultra 5 225H / 31.5 GB），没有别的启动器在跑。当天在线版本清单最新是 26.3，探针的安装页那段（`install:*`，OptiFine 没有 26.3）在改前改后两个 exe 上都卡到 120 s 不退出，和这一步无关；这次测量在两个 exe 里都临时加了一行"跳过安装页及其后几段"（量完已撤，没有提交），实例页那几步排在它前面，不受影响。CPU 负载（`Win32_Processor.LoadPercentage`）：改前那一趟开跑时 96%，改后那一趟开跑时 35%、跑完 56%。改前那趟负载更高，所以改前数字偏高一些，但改后三次都低于阈值。
+
+| 步骤 | 改前首帧（3 次） | 改后首帧（3 次） | 改前 `files page refresh`（产品日志） |
+| --- | ---: | ---: | ---: |
+| `instance:page:mod` | 102.7 / 68.4 / 67.9 ms | 28.8 / 31.7 / 44.1 ms | 117 ms（60 条） |
+| `instance:page:mod-second` | 91.8 / 60.2 / 63.5 ms | 20.0 / 20.7 / 23.8 ms | 91 ms（60 条） |
+
+首帧 = `actionMs + repaintMs`（守卫口径）。改后 `files page refresh` 那条日志没再出现：它只在一趟刷新超过 40 ms 时才打印。`instance:page:mod` 和 `instance:page:mod-second` 已从 `tools/perf-firstframe-allowlist.txt` 删掉（名单剩 5 条）。
+
+另外：`ui_check_files_rows`（`wtfml.files-rows`）钉住"60 行不建 60 套控件"（空页和 60 行时页面子控件数一样，视口里 0 个）和"点开关真改盘上文件名、刷新后滚动不跳"。
+
 ### 列表与选择
 
 实例文件页的大列表首绘/重列、反选的批量选择（1000 条：逐行 1279.164 ms / 1000 次通知，批量 1.430 ms / 1 次）见 [LIST_PAINT.md](perf-notes/LIST_PAINT.md)。

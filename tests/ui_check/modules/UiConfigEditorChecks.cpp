@@ -287,20 +287,12 @@ int UiConfigEditorChecks() {
                 }
                 return -1;
             };
-            // 合成一发双击。**发给"鼠标底下真正是谁"那一个控件**（`childAt()` 就是 Qt 的
-            // 命中测试），而不是直接发给行控件 —— 真实的鼠标落在这一行最左边那一格
-            // （图标 QLabel）上，事件得从那一层**一路冒上去**（子控件 → 行控件 → 视口），
-            // 列表才收得到。直接发给行控件等于把"子控件不认鼠标事件"那一步跳过去了，
-            // 而那一步正是 InstanceFilesPage 里那条 NOTE 押着的东西。
-            const auto sendDbl = [](QWidget *rowWidget, const QPoint &pos) {
-                QWidget *target = rowWidget->childAt(pos);
-                if (target == nullptr) {
-                    target = rowWidget;
-                }
-                const auto one = [&target, &pos](QEvent::Type type, Qt::MouseButtons buttons) {
-                    QMouseEvent event(type, QPointF(pos), QPointF(target->mapToGlobal(pos)),
+            // 合成一发双击，发给**视口**（行是代理画的，鼠标底下就是视口本身）。
+            const auto sendDbl = [](QWidget *viewport, const QPoint &pos) {
+                const auto one = [viewport, &pos](QEvent::Type type, Qt::MouseButtons buttons) {
+                    QMouseEvent event(type, QPointF(pos), QPointF(viewport->mapToGlobal(pos)),
                                       Qt::LeftButton, buttons, Qt::NoModifier);
-                    QApplication::sendEvent(target, &event);
+                    QApplication::sendEvent(viewport, &event);
                 };
                 one(QEvent::MouseButtonPress, Qt::LeftButton);
                 one(QEvent::MouseButtonRelease, Qt::NoButton);
@@ -361,25 +353,19 @@ int UiConfigEditorChecks() {
                 const int row = rowOf(files, QStringLiteral("sodium-options.json"));
                 check(row >= 0, "U11c 前提：那一份 json 在列表里");
                 QListWidgetItem *item = row >= 0 ? files->list()->item(row) : nullptr;
-                QWidget *rowWidget =
-                    item != nullptr ? files->list()->itemWidget(item) : nullptr;
-                check(rowWidget != nullptr, "U11c 前提：那一行有行控件");
-                if (rowWidget != nullptr) {
-                    check(rowWidget->height() == MainWindowUI::instanceFileRowHeight(),
-                          "U11c 前提：那一行的行控件已经**摆好位了**（这是下面那些合成双击"
-                          "成立的前提，见紧上面那一 NOTE）",
-                          QStringLiteral("%1x%2").arg(rowWidget->width()).arg(rowWidget->height()));
-                    const QPoint click(20, rowWidget->height() / 2); // 行首图标那一格（左边距 12 之内是空的）
-                    check(rowWidget->childAt(click) != nullptr,
-                          "U11c 前提：鼠标落在那儿时**底下是一个子控件**（行首那一格图标）"
-                          "—— 事件要从那一层冒上来，这一条才有意义");
-                    sendDbl(rowWidget, click);
+                const QRect rect = item != nullptr ? files->list()->visualItemRect(item) : QRect();
+                check(rect.height() == MainWindowUI::instanceFileRowHeight(),
+                      "U11c 前提：那一行已经**摆好位了**（这是下面那发合成双击成立的前提）",
+                      QStringLiteral("%1x%2").arg(rect.width()).arg(rect.height()));
+                if (item != nullptr) {
+                    // 行首图标那一格（左边距 12 之内是空的）：不压着行尾任何一格。
+                    sendDbl(files->list()->viewport(), QPoint(rect.x() + 20, rect.center().y()));
                 }
             }
             check(askCount == 1 &&
                       QFileInfo(asked).fileName() == QStringLiteral("sodium-options.json"),
                   "★★ U11c 双击一条**文件**：发 openConfigFileRequested()，带的是那一条的"
-                  "**绝对路径** —— 而且是发给那个行控件（鼠标真在它上面）",
+                  "**绝对路径** —— 双击落在视口上那一行的行首（鼠标真在它上面）",
                   QStringLiteral("收到 %1 次").arg(askCount));
 
             // ---- 点一条**目录**：这一层自己就办得了（不发信号）----
@@ -387,10 +373,9 @@ int UiConfigEditorChecks() {
                 const int row = rowOf(files, QStringLiteral("ftbquests"));
                 check(row >= 0, "U11c 前提：那个子目录在列表里");
                 QListWidgetItem *item = row >= 0 ? files->list()->item(row) : nullptr;
-                QWidget *rowWidget =
-                    item != nullptr ? files->list()->itemWidget(item) : nullptr;
-                if (rowWidget != nullptr) {
-                    sendDbl(rowWidget, QPoint(10, rowWidget->height() / 2));
+                if (item != nullptr) {
+                    const QRect rect = files->list()->visualItemRect(item);
+                    sendDbl(files->list()->viewport(), QPoint(rect.x() + 10, rect.center().y()));
                 }
             }
             check(askCount == 1,

@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "UiInstanceFilesTestHelpers.hpp"
 
 // U10N：行尾那颗「详情」⇒ 报出这一条是哪个文件（模组 / 资源包 / 数据包 / 光影包）。
 //
@@ -104,56 +105,56 @@ int UiDetailEntryChecks(const QString &instanceDisplayName, const QString &insta
             }
             return -1;
         };
+        // 名字那一格：条目上的名字 + 那一行挂的悬停提示（行首图标、名字两格都挂整条路径）。
+        struct NameCell {
+            QString text;
+            QString tip;
+            QString toolTip() const { return tip; }
+        };
         const auto nameLabelFor = [&rowForPath](Dlg &d, const QString &key,
-                                                const QString &path) -> QLabel * {
+                                                const QString &path) -> std::shared_ptr<NameCell> {
             const int row = rowForPath(d, key, path);
             InstanceFilesPage *page = d.filesPage(key);
-            return row < 0 || page == nullptr ? nullptr : page->nameLabelAt(row);
+            QListWidgetItem *item = row < 0 || page == nullptr ? nullptr : page->list()->item(row);
+            if (item == nullptr) return nullptr;
+            return std::make_shared<NameCell>(
+                NameCell{item->data(Qt::AccessibleTextRole).toString(), item->toolTip()});
         };
         const auto detailButtonFor = [&rowForPath](Dlg &d, const QString &key,
-                                                   const QString &path) -> QToolButton * {
+                                                   const QString &path) -> UiRowCellPtr {
             const int row = rowForPath(d, key, path);
-            InstanceFilesPage *page = d.filesPage(key);
-            return row < 0 || page == nullptr ? nullptr : page->detailButtonAt(row);
+            return row < 0 ? nullptr : uiDetailAt(d.filesPage(key), row);
         };
 
         // 认出来的那一条，报"点得动"的方式就是**给一个标题**（这一层不知道资源长什么样，
         // 名字是 MainWindow 从反查那一趟带回来的）。
         linked.setFileResource(packPath, QStringLiteral("材质包甲"));
-        QLabel *packLabel = nameLabelFor(linked, QStringLiteral("resourcepack"), packPath);
-        QLabel *unknownLabel =
+        const auto packLabel = nameLabelFor(linked, QStringLiteral("resourcepack"), packPath);
+        const auto unknownLabel =
             nameLabelFor(linked, QStringLiteral("resourcepack"), unknownPath);
         check(packLabel != nullptr && unknownLabel != nullptr,
               "U10N 前提：资源包那一页上那两个文件都列出来了");
 
-        // 名字那一格**两种行都不再是链接**（用户 点名把这一件事挪到那颗
-        // 按钮上，单击改成选中）。剩下的只是那张老底：普通文字色 + 箭头光标 + 完整
-        // 路径那个提示（名字是省略过的，`ElidedLabel` 一直挂着那条路径）。
+        // 名字那一格**两种行都不再是链接**（用户 点名把这一件事挪到那颗按钮上，单击改成
+        // 选中）。行是代理画的：名字那一格没有链接色、没有手形光标可言（代理只画正文墨），
+        // 剩下的只是那条悬停提示 —— 完整路径（名字是省略过的）。
         const QString plainTip = QDir::toNativeSeparators(unknownPath);
         check(packLabel != nullptr && unknownLabel != nullptr &&
-                  packLabel->cursor().shape() != Qt::PointingHandCursor &&
-                  packLabel->palette().color(QPalette::WindowText) !=
-                      packLabel->palette().color(QPalette::Link) &&
                   packLabel->toolTip() != plainTip &&
-                  packLabel->toolTip().contains(
-                      QDir::toNativeSeparators(packPath)) &&
-                  unknownLabel->cursor().shape() != Qt::PointingHandCursor &&
-                  unknownLabel->palette().color(QPalette::WindowText) !=
-                      unknownLabel->palette().color(QPalette::Link) &&
+                  packLabel->toolTip().contains(QDir::toNativeSeparators(packPath)) &&
                   unknownLabel->toolTip() == plainTip,
-              "★★ U10N 名字那一格**不再是链接**（认得出认不出都一样：普通文字色 + 箭头"
-              "光标）—— 它现在只负责「选中这一行」，详情在那颗按钮上",
+              "★★ U10N 名字那一格**不再是链接**（认得出认不出都一样，只挂完整路径那条提示）"
+              "—— 它现在只负责「选中这一行」，详情在那颗按钮上",
               packLabel != nullptr ? packLabel->toolTip() : QString());
 
         // ---- 那颗「详情」：认出来了才点得动 ----
-        QToolButton *packDetail = detailButtonFor(linked, QStringLiteral("resourcepack"), packPath);
-        QToolButton *unknownDetail =
+        const auto packDetail = detailButtonFor(linked, QStringLiteral("resourcepack"), packPath);
+        const auto unknownDetail =
             detailButtonFor(linked, QStringLiteral("resourcepack"), unknownPath);
         check(packDetail != nullptr && unknownDetail != nullptr,
               "★★ U10N 资源包那一页**每一行尾巴上都有一颗「详情」**（认得出认不出都有"
               "—— 一列下来那三格要对得齐）");
-        check(packDetail != nullptr && packDetail->text() == InstanceFilesPage::detailText() &&
-                  packDetail->isEnabled() &&
+        check(packDetail != nullptr && packDetail->isEnabled() &&
                   packDetail->toolTip() == Dlg::filesResourceTip(QStringLiteral("材质包甲")),
               "★★ U10N 认出来的那一条：那颗「详情」**点得动**，提示就是这一条资源"
               "（没这几样的话用户根本不知道它能点 —— 「看着像一行普通文字」和「点不动」"
@@ -171,25 +172,20 @@ int UiDetailEntryChecks(const QString &instanceDisplayName, const QString &insta
         // 对资源包已经不成立（`fileKeyCanToggle()` 只留给模组和光影，资源包改走
         // `options.txt` 的启用顺序页，见 U10d），所以这一页的行尾只剩
         // **`[详情][删除]`**。这条断言问的次序还在（详情最左、删除最右），多钉一个
-        // "开关这一格**压根没有**"（`toggleButtonAt()` 回 nullptr）—— 只钉前两格的话，
+        // "开关这一格**压根没有**"（`uiToggleAt()` 回 nullptr）—— 只钉前两格的话，
         // 开关哪天被顺手加回来照样绿。
         InstanceFilesPage *packPage = linked.filesPage(QStringLiteral("resourcepack"));
         const int packRow = rowForPath(linked, QStringLiteral("resourcepack"), packPath);
-        QWidget *packRowWidget =
-            packRow < 0 ? nullptr : packPage->list()->itemWidget(packPage->list()->item(packRow));
-        QLayout *packRowLayout = packRowWidget != nullptr ? packRowWidget->layout() : nullptr;
-        QAbstractButton *packToggle =
-            packRow < 0 ? nullptr : packPage->toggleButtonAt(packRow);
-        QToolButton *packDelete = packRow < 0 ? nullptr : packPage->deleteButtonAt(packRow);
-        check(packRowLayout != nullptr && packDetail != nullptr && packDelete != nullptr &&
-                  packToggle == nullptr && packRowLayout->indexOf(packDetail) >= 0 &&
-                  packRowLayout->indexOf(packDetail) < packRowLayout->indexOf(packDelete),
+        const auto packToggle = packRow < 0 ? nullptr : uiToggleAt(packPage, packRow);
+        const auto packDelete = packRow < 0 ? nullptr : uiDeleteAt(packPage, packRow);
+        check(packDetail != nullptr && packDelete != nullptr && packToggle == nullptr &&
+                  packDetail->geometry().right() < packDelete->geometry().left(),
               "★★ U10N 资源包那一页行尾是 **[详情][删除]**：改名开关退场（资源包走"
               "options.txt 的启用顺序页），详情在最左、删除在最右",
-              QStringLiteral("详情=%1 开关=%2 删除=%3")
-                  .arg(packRowLayout != nullptr ? packRowLayout->indexOf(packDetail) : -1)
-                  .arg(packToggle != nullptr ? packRowLayout->indexOf(packToggle) : -1)
-                  .arg(packRowLayout != nullptr ? packRowLayout->indexOf(packDelete) : -1));
+              QStringLiteral("详情 x=%1 开关=%2 删除 x=%3")
+                  .arg(packDetail != nullptr ? packDetail->geometry().x() : -1)
+                  .arg(packToggle != nullptr ? QStringLiteral("有") : QStringLiteral("无"))
+                  .arg(packDelete != nullptr ? packDelete->geometry().x() : -1));
 
         // ③ 点一下：报的**就是这一条文件的路径**，而且只报一次。
         QStringList reported;
@@ -221,7 +217,7 @@ int UiDetailEntryChecks(const QString &instanceDisplayName, const QString &insta
         const QString modTitle = QStringLiteral("模组甲");
         linked.showPage(QStringLiteral("mod"));
         linked.setFileResource(modPath, modTitle);
-        QToolButton *modDetail = detailButtonFor(linked, QStringLiteral("mod"), modPath);
+        const auto modDetail = detailButtonFor(linked, QStringLiteral("mod"), modPath);
         check(modDetail != nullptr && modDetail->isEnabled() &&
                   modDetail->toolTip() == Dlg::filesResourceTip(modTitle),
               "★★ U10N 模组那一页的「详情」**也认得出**（原话："
@@ -239,7 +235,7 @@ int UiDetailEntryChecks(const QString &instanceDisplayName, const QString &insta
         // 上一趟记住的资源得作废 —— 那一格要从"点得动"**退回"点不动"**，不然点进去
         // 是另一个资源。
         linked.setFileResource(packPath, QString());
-        QToolButton *unlinked =
+        const auto unlinked =
             detailButtonFor(linked, QStringLiteral("resourcepack"), packPath);
         check(unlinked != nullptr && !unlinked->isEnabled() &&
                   !unlinked->toolTip().contains(

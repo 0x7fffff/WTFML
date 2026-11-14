@@ -467,6 +467,8 @@ int UiSurfaceSweepCheck(QApplication &app);
 int UiResourcePacksCheck(QApplication &app);
 int UiLifecycleCheck(QApplication &app);
 int UiUiRefreshCheck(QApplication &app);
+/// 文件页的行由代理画：60 行不建 60 套控件、点开关真改盘上文件名、刷新不跳滚动。
+int UiFilesRowsCheck(QApplication &app);
 int UiSettingsShotsCheck(QApplication &app);
 int UiFoldMotionChecks(QApplication &app);
 int UiLoadingStateChecks(QApplication &app);

@@ -32,23 +32,20 @@ int UiMediumPagesChecks(InstanceSettingsDialog &dialog, const QString &root,
             // 那支笔只在**存档**这一页露 —— 判据是 setCanEdit()，而对话框只为
             // "save" 那一页调它。别的几页要是也露出来，用户会在一个 .jar 上看见
             // 一支"编辑"笔，点下去是"重命名这个世界"。
-            QToolButton *pen = saves->editButtonAt(0);
+            const auto pen = uiEditAt(saves, 0);
             check(pen != nullptr, "★ U10O 存档那一行行尾有那支笔（「编辑」）");
             if (pen != nullptr) {
-                check(pen->objectName() == InstanceFilesPage::editButtonName(),
-                      "U10O 那支笔挂的是那个唯一出处里的 objectName", pen->objectName());
-                check(pen->text() == InstanceFilesPage::editText(),
-                      "U10O 笔上那几个字是「编辑」", pen->text());
-                check(!pen->toolTip().isEmpty(), "U10O 而且有 tooltip 说清点下去会怎样");
-                check(pen->isVisible(), "U10O 那一页开着的时候它是看得见的");
-                // 一支"画出来的笔"：图标不许是空的（空图标 + 空白字 = 行尾一小块真空）。
-                check(!pen->icon().isNull(), "U10O 笔的图标真的画出来了（不是一张空图）");
+                check(pen->isEnabled(), "U10O 那支笔点得动");
+                check(!pen->toolTip().isEmpty(), "U10O 而且有 tooltip 说清点下去会怎样",
+                      pen->toolTip());
+                check(pen->isShown() && pen->geometry().intersects(saves->list()->viewport()->rect()),
+                      "U10O 那一页开着的时候它是看得见的（就画在那一行行尾）");
             }
             for (const QString &key : {QStringLiteral("mod"), QStringLiteral("resourcepack"),
                                        QStringLiteral("datapack"), QStringLiteral("shader"),
                                        QStringLiteral("schematic")}) {
                 InstanceFilesPage *other = dialog.filesPage(key);
-                check(other == nullptr || other->editButtonAt(0) == nullptr,
+                check(other == nullptr || uiEditAt(other, 0) == nullptr,
                       QStringLiteral("★ U10O 「%1」那一页**没有**那支笔（那儿的每一行不是"
                                      "世界，给它一支笔就是骗人）")
                           .arg(key));
@@ -98,12 +95,7 @@ int UiMediumPagesChecks(InstanceSettingsDialog &dialog, const QString &root,
             // 这一条会变成一条**看起来**偶尔红的断言。
             const auto metaTextOf = [&](InstanceFilesPage *page, int row) {
                 QListWidgetItem *item = page->list()->item(row);
-                QWidget *rowWidget = item != nullptr ? page->list()->itemWidget(item) : nullptr;
-                QLabel *meta = rowWidget != nullptr
-                                   ? rowWidget->findChild<QLabel *>(
-                                         InstanceFilesPage::metaLabelName())
-                                   : nullptr;
-                return meta != nullptr ? meta->text() : QString();
+                return item != nullptr ? item->data(InstanceFilesPage::metaRole()).toString() : QString();
             };
 
             check(metaTextOf(saves, 0) == InstanceFilesPage::statsPendingText(),

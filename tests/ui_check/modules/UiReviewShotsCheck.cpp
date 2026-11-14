@@ -66,6 +66,7 @@ struct ShotOptions {
     bool popups = false;
     bool loading = false;  ///< `--loading`：只拍加载态（步骤 122）那几张
     bool agentPolish = false;
+    bool files = false;  ///< `--files`：只拍实例设置·模组页 60 个模组（步骤 139），文件名 r139-<主题>-*
 };
 
 /// 颜色块 + 一个字母的小图标（资源行 / 账号行用；产品里那些是真图，这里只要不像空白）。
@@ -411,6 +412,81 @@ bool saveShot(QApplication &app, QMainWindow &window, const QString &outDir, con
 
 /// `--loading`：加载态（ui/LoadingState）在真界面上的样子。动效开着、等淡入走完再拍。
 /// 文件名 after-<场景>-<主题>.png。
+/// `--files`：实例设置·模组页，60 个模组（每 5 个禁一个），平铺 / 悬停 + 选中 / 悬停在禁用行上。
+/// 悬停用合成事件：行控件版发 Enter 给那一行，代理版发 MouseMove 给视口，两版都吃。
+int shootFiles(QApplication &app, QMainWindow &window, MainWindowUI &ui, const ShotOptions &options) {
+    int saved = 0;
+    QTemporaryDir instanceRoot(QDir::current().filePath(QStringLiteral(".review-files-XXXXXX")));
+    if (!instanceRoot.isValid()) return 2;
+    const QString root = instanceRoot.path();
+    makeInstanceFixture(root);
+    QDir(root + QStringLiteral("/mods")).removeRecursively();
+    QDir().mkpath(root + QStringLiteral("/mods"));
+    for (int i = 0; i < 60; ++i) {
+        QFile file(root + QStringLiteral("/mods/mod-%1-1.%2.%3.jar%4")
+                              .arg(QChar(QLatin1Char('a' + i % 26)))
+                              .arg(i)
+                              .arg(i % 7)
+                              .arg(i % 5 == 1 ? QStringLiteral(".disabled") : QString()));
+        if (file.open(QIODevice::WriteOnly)) file.write(QByteArray(4096 + i * 1531, 'x'));
+    }
+    using Dlg = InstanceSettingsDialog;
+    Dlg::GlobalValues global;
+    global.javaPath = QStringLiteral("C:/Program Files/Java/jdk-21/bin/java.exe");
+    Dlg dialog(QStringLiteral("1.20.1 整合包"), QStringLiteral("1.20.1-Forge"), Dlg::Override(), global,
+               QStringList(), false);
+    QHash<QString, QString> dirs;
+    dirs.insert(QStringLiteral("mod"), root + QStringLiteral("/mods"));
+    dirs.insert(QStringLiteral("resourcepack"), root + QStringLiteral("/resourcepacks"));
+    dirs.insert(QStringLiteral("save"), root + QStringLiteral("/saves"));
+    dialog.setInstanceDir(root);
+    dialog.setFileDirs(dirs);
+    ui.getTabWidget()->setCurrentIndex(MainWindowUI::instancesTabIndex());
+    app.processEvents();
+    if (!ui.overlay()->showPage(&dialog, QStringLiteral("实例设置"), MainWindowUI::instancesTabIndex())) {
+        std::printf("  SKIP files：覆盖层没开出来\n");
+        return 1;
+    }
+    app.processEvents();
+    app.processEvents();
+    dialog.showPage(QStringLiteral("mod"));
+    for (int i = 0; i < 4; ++i) app.processEvents();
+    InstanceFilesPage *page = dialog.filesPage(QStringLiteral("mod"));
+    QListWidget *list = page != nullptr ? page->list() : nullptr;
+    if (list == nullptr) return 1;
+    const QString tag = QStringLiteral("r139-") + options.theme + QStringLiteral("-");
+    saveShot(app, window, options.out, tag + QStringLiteral("mods"), &saved);
+    const auto hoverRow = [&](int row) {
+        QWidget *viewport = list->viewport();
+        // 先把上一行的悬停撤掉（行控件版：每一行各收一发 Leave；代理版：视口收一发 Leave）。
+        QEvent leave(QEvent::Leave);
+        for (QObject *child : viewport->children())
+            if (child->isWidgetType()) QApplication::sendEvent(child, &leave);
+        QApplication::sendEvent(viewport, &leave);
+        const QPoint pos = list->visualItemRect(list->item(row)).center() + QPoint(-40, 0);
+        QWidget *w = viewport->childAt(pos);
+        while (w != nullptr && w->parentWidget() != viewport) w = w->parentWidget();
+        const QPoint global = viewport->mapToGlobal(pos);
+        if (w != nullptr) {
+            QEnterEvent enter(w->mapFrom(viewport, pos), w->mapFrom(viewport, pos), global);
+            QApplication::sendEvent(w, &enter);
+        }
+        QMouseEvent move(QEvent::MouseMove, pos, pos, global, Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+        QApplication::sendEvent(viewport, &move);
+        viewport->update();
+    };
+    list->item(2)->setSelected(true);
+    hoverRow(0);
+    saveShot(app, window, options.out, tag + QStringLiteral("mods-hover-selected"), &saved);
+    list->item(2)->setSelected(false);
+    hoverRow(3);  // mod-b-1.1.1.jar.disabled
+    saveShot(app, window, options.out, tag + QStringLiteral("mods-disabled-hover"), &saved);
+    ui.overlay()->closeOverlay();
+    app.processEvents();
+    std::printf("\nFiles shots: %d saved -> %s\n", saved, qPrintable(options.out));
+    return saved == 3 ? 0 : 1;
+}
+
 int shootLoading(QApplication &app, QMainWindow &window, MainWindowUI &ui, const ShotOptions &options) {
     Anim::setEnabled(true);
     int saved = 0;
@@ -581,6 +657,7 @@ int runExtended(QApplication &app, const ShotOptions &options) {
     window.show();
     pump();
     if (options.loading) return shootLoading(app, window, ui, options);
+    if (options.files) return shootFiles(app, window, ui, options);
 
     // ---- 主页：零实例 / 有实例 ----
     ui.getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
@@ -1413,6 +1490,9 @@ int UiReviewShotsCheck(QApplication &app) {
             options.popups = true;
         } else if (arg == QLatin1String("--loading")) {
             options.loading = true;
+            options.extended = true;
+        } else if (arg == QLatin1String("--files")) {
+            options.files = true;
             options.extended = true;
         } else if (arg == QLatin1String("--agent-polish")) {
             options.agentPolish = true;

@@ -11,7 +11,7 @@
 //
 // 这一段原来住在 `UiContentPagesChecks.cpp` 里、跟着那一大段共用的 `dialog`（当前页就是
 // 这一段挑的）。分出来以后 `dialog` 按引用传；读行里那几格改用 `uiItemText()` /
-// `uiItemPath()` / `uiItemFlag()` / `uiColorOf()`（`UiInstanceFilesTestHelpers.hpp`）。
+// `uiItemPath()` / `uiItemFlag()`（`UiInstanceFilesTestHelpers.hpp`）。
 int UiSearchFilterChecks(InstanceSettingsDialog &dialog, const QString &modsDir) {
     using Dlg = InstanceSettingsDialog;
     const auto showPage = [](Dlg &d, const QString &key) { d.showPage(key); };
@@ -20,7 +20,6 @@ int UiSearchFilterChecks(InstanceSettingsDialog &dialog, const QString &modsDir)
         return uiItemFlag(page, row, role);
     };
     const auto itemPath = [](InstanceFilesPage *page, int row) { return uiItemPath(page, row); };
-    const auto colorOf = [](QLabel *label) { return uiColorOf(label); };
     // ---- U10P 顶上那条搜索 + 按钮下面那栏状态----
     //
     // 要求：「模组等的下载新/刷新/打开文件夹的**上方**加一个搜索，三个按钮的
@@ -248,8 +247,28 @@ int UiSearchFilterChecks(InstanceSettingsDialog &dialog, const QString &modsDir)
             check(rowUpdate >= 0 && rowPlain >= 0 && rowOff >= 0,
                   "U10P 前提：三条各按**盘上那个真路径**各找到一行（下面按行取控件）",
                   QStringLiteral("%1 / %2 / %3").arg(rowUpdate).arg(rowPlain).arg(rowOff));
-            QLabel *name = rowUpdate >= 0 ? page->nameLabelAt(rowUpdate) : nullptr;
-            QLabel *plainName = rowPlain >= 0 ? page->nameLabelAt(rowPlain) : nullptr;
+            // 名字那一格：条目上的名字 + 代理画它用的字体 / 墨色（RowDelegate::paint 那一套：
+            // 禁用的那条换次要墨、划删除线，别的是正文墨）。
+            struct NameCell {
+                QString shown;
+                bool disabled;
+                QPalette palette;
+                QString text() const { return shown; }
+                bool strikeOut() const { return disabled; }
+                QColor ink() const {
+                    return palette.color(disabled ? QPalette::PlaceholderText : QPalette::WindowText);
+                }
+            };
+            const auto nameAt = [page](int row) -> std::shared_ptr<NameCell> {
+                QListWidgetItem *item = row >= 0 ? page->list()->item(row) : nullptr;
+                if (item == nullptr) return nullptr;
+                return std::make_shared<NameCell>(
+                    NameCell{item->data(Qt::AccessibleTextRole).toString(),
+                             item->data(InstanceFilesPage::disabledRole()).toBool(),
+                             page->list()->palette()});
+            };
+            const auto name = nameAt(rowUpdate);
+            const auto plainName = nameAt(rowPlain);
             check(name != nullptr && plainName != nullptr &&
                       name->text() == InstanceFilesPage::nameTextWithUpdateMark(
                                           QStringLiteral("sodium.jar"), true) &&
@@ -264,24 +283,22 @@ int UiSearchFilterChecks(InstanceSettingsDialog &dialog, const QString &modsDir)
                       .arg(name != nullptr ? name->text() : QStringLiteral("<null>"),
                            plainName != nullptr ? plainName->text()
                                                 : QStringLiteral("<null>")));
-            QLabel *offName = rowOff >= 0 ? page->nameLabelAt(rowOff) : nullptr;
+            const auto offName = nameAt(rowOff);
             check(offName != nullptr && !offName->text().contains(
                                             InstanceFilesPage::updateArrowText()),
                   "★★ U10P 禁用着的那一条**没有**那个 ↑（这一趟压根不查它 —— "
                   "见 MainWindow::checkInstanceUpdates() 里「禁用着的不查」那条）",
                   offName != nullptr ? offName->text() : QStringLiteral("<null>"));
-            const auto colorOf = [](QLabel *label) {
-                return label != nullptr
-                           ? label->palette().color(QPalette::WindowText)
-                           : QColor();
+            const auto colorOf = [](const std::shared_ptr<NameCell> &cell) {
+                return cell != nullptr ? cell->ink() : QColor();
             };
-            check(offName != nullptr && offName->font().strikeOut(),
+            check(offName != nullptr && offName->strikeOut(),
                   "★★ U10P 被禁用那一条的名字**划了一道删除线**（用户原话「禁用的模组名字"
                   "标灰，删除线覆盖」）—— 走的是字体上的 strikeOut，不是画上去的一条线",
                   QStringLiteral("划没划：%1").arg(offName != nullptr
-                                                      ? offName->font().strikeOut()
+                                                      ? offName->strikeOut()
                                                       : false));
-            check(name != nullptr && !name->font().strikeOut() && offName != nullptr &&
+            check(name != nullptr && !name->strikeOut() && offName != nullptr &&
                       colorOf(offName) != colorOf(name),
                   "★★ U10P 而且**只有禁用那一条**名字是灰的、也只有它被划掉（旁边那条"
                   "启用的：正文色、没有删除线）—— 灰走的是和「大小 / 时间」同一档的次要"
@@ -315,37 +332,10 @@ int UiSearchFilterChecks(InstanceSettingsDialog &dialog, const QString &modsDir)
         {
             const bool animWas = Anim::enabled();   // 这个工程平时关着，收尾要摆回去
             Anim::setEnabled(true);
-            const auto rowWidgetAt = [page](int row) -> QWidget * {
-                QListWidgetItem *item = page != nullptr ? page->list()->item(row) : nullptr;
-                return item != nullptr ? page->list()->itemWidget(item) : nullptr;
-            };
-            // 「这一行正在被淡进来吗」= 身上挂着**我们那个效果**、而且那一发动画的时长
-            // 就是 `rowAppearMs()`。★ 那一发动画挂在**效果**身上（`runProgress()` 的
-            // `owner` 就是它），不挂在控件身上 —— 要够它得先够到那个效果（名字是全仓
-            // 唯一那个字符串，和上面够幕布、够步进器是同一招）。
-            const auto rowAnimIsFade = [](QWidget *row) {
-                QGraphicsEffect *effect = row != nullptr ? row->graphicsEffect() : nullptr;
-                if (effect == nullptr ||
-                    effect->objectName() != QStringLiteral("wtfmlAnimEffect")) {
-                    return false;
-                }
-                const QList<QVariantAnimation *> anims =
-                    effect->findChildren<QVariantAnimation *>();
-                return anims.size() == 1 && anims.first()->duration() == Anim::rowAppearMs();
-            };
-            // 「不许有元素超出」在这一发上的样子：效果自己要回来的那个矩形**正好就是
-            // 这一行自己**（`QGraphicsEffect::boundingRectFor()` 是公开的虚函数，
-            // 够得到它不用把产品那边的类型露出来）。这一条才是"淡的时候会不会糊出
-            // 行外面去"的正经判据 —— 列表整块被收起/放出来会挪位置（那是布局的活），
-            // 拿列表的几何跟重列之前比是量的东西不对。
-            const auto rowEffectKeepsBounds = [](QWidget *row) {
-                QGraphicsEffect *effect = row != nullptr ? row->graphicsEffect() : nullptr;
-                if (effect == nullptr) {
-                    return false;
-                }
-                const QRectF own(row->rect());
-                return effect->boundingRectFor(own) == own;
-            };
+            // 「这一行正在被淡进来吗」：代理按 rowAppearMs() 那一段时间给这一行降不透明度
+            // （只淡内容，行底照常），判据就是页面上那份「这一趟新冒出来的身份」。
+            // 淡的时候代理只在这一行自己的矩形里画 —— 不会糊出行外面去。
+            const auto rowAnimIsFade = [page](int row) { return page->rowFadingIn(row); };
             // 前提：筛到一条不剩（一趟之后"上一趟摆过的身份"就是空的）
             search->setText(QStringLiteral("zzz-一个文件都不叫这个"));
             const bool emptied = page->list()->count() == 0;
@@ -353,42 +343,32 @@ int UiSearchFilterChecks(InstanceSettingsDialog &dialog, const QString &modsDir)
             search->clear();
             const bool refilled = page->list()->count() == 3;
             int faded = 0;
-            int boundsKept = 0;
             for (int row = 0; row < page->list()->count(); ++row) {
-                QWidget *w = rowWidgetAt(row);
-                if (rowAnimIsFade(w)) {
+                if (rowAnimIsFade(row)) {
                     ++faded;
-                }
-                if (rowEffectKeepsBounds(w)) {
-                    ++boundsKept;
                 }
             }
             // 这一趟**故意不把事件循环再跑起来**：要求的那两条（"新冒出来的在淡"
             // 和"本来就在的不淡"）都是**接线上**的事，重列那一发是同步的，当场就量得
             // 到。"动画跑起来那一段时间里几何不动"由 ⑬ 那一段自己量（它本来就有一整
             // 段真帧），这一段不必再往这一段 U10 里塞一发事件循环。
-            check(emptied && refilled && faded == 3 && boundsKept == 3,
-                  "★★ U10P 筛到一条不剩再筛回来：重新冒出来的那三条**都**在淡（一人一个"
-                  "效果、时长就是 `rowAppearMs()`），而且效果要回来的那个矩形**正好就是"
-                  "那一行自己**（多一个像素都不行 —— 用户点名的「不许有元素超出」）",
-                  QStringLiteral("筛空%1 / 筛回来%2 条 / 在淡的 %3 条 / 框住自己的 %4 条")
+            check(emptied && refilled && faded == 3,
+                  "★★ U10P 筛到一条不剩再筛回来：重新冒出来的那三条**都**在淡（时长就是 "
+                  "`rowAppearMs()`，代理只在那一行自己的矩形里画 —— 用户点名的「不许有元素超出」）",
+                  QStringLiteral("筛空%1 / 筛回来%2 条 / 在淡的 %3 条")
                       .arg(emptied ? QStringLiteral("成") : QStringLiteral("没成"))
                       .arg(page->list()->count())
-                      .arg(faded)
-                      .arg(boundsKept));
+                      .arg(faded));
             // 反面：换一档**不引入任何新行**（那一条本来就在上一趟的名单里）⇒ 一条都不淡。
             // 这一条正是「不重播整页」：列表整个重建过，可屏幕上没有哪一行在闪。
             selectState(InstanceFilesPage::StateFilter::Disabled);
-            QWidget *keptRow = page->list()->count() == 1 ? rowWidgetAt(0) : nullptr;
-            check(page->list()->count() == 1 && keptRow != nullptr &&
-                      keptRow->graphicsEffect() == nullptr,
+            const bool keptFading = page->list()->count() == 1 && rowAnimIsFade(0);
+            check(page->list()->count() == 1 && !keptFading,
                   "★★ U10P 而换一档时**本来就在的那几行一个效果都不挂**（列表照样整个重"
                   "建过，可屏幕上没有哪一行在闪 —— 「不重播整页」量的就是这一条）",
                   QStringLiteral("换档后 %1 条、那一条身上%2")
                       .arg(page->list()->count())
-                      .arg(keptRow != nullptr && keptRow->graphicsEffect() != nullptr
-                               ? QStringLiteral("挂着效果")
-                               : QStringLiteral("干净")));
+                      .arg(keptFading ? QStringLiteral("在淡") : QStringLiteral("干净")));
             // 收尾把这一页摆回原样（下面那几段量的还是这三条、这一档）：动画开关也要
             // 摆回去 —— 这个工程往后整段都是按"关着"搭界面的。
             selectState(InstanceFilesPage::StateFilter::All);

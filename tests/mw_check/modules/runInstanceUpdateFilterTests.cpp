@@ -253,14 +253,14 @@ void runInstanceUpdateFilterTests() {
                                 ->item(row)
                                 ->data(InstanceFilesPage::pathRole())
                                 .toString();
-                        QLabel *name = mods->nameLabelAt(row);
-                        if (name == nullptr) {
-                            continue;
-                        }
+                        // 行是代理画的：名字在条目的 AccessibleTextRole 上，字号就是列表的字号
+                        // （代理拿列表字体画名字），关着的那条划删除线（判据是 disabledRole）。
+                        QListWidgetItem *item = mods->list()->item(row);
+                        const QString name = item->data(Qt::AccessibleTextRole).toString();
                         arrowOnPath.insert(
-                            rowPath, name->text().endsWith(InstanceFilesPage::updateArrowText()));
-                        namePointSize.insert(rowPath, name->font().pointSize());
-                        if (name->font().strikeOut()) {
+                            rowPath, name.endsWith(InstanceFilesPage::updateArrowText()));
+                        namePointSize.insert(rowPath, mods->list()->font().pointSize());
+                        if (item->data(InstanceFilesPage::disabledRole()).toBool()) {
                             struckPaths.insert(rowPath);
                         }
                     }
@@ -278,8 +278,8 @@ void runInstanceUpdateFilterTests() {
                                         .toString();
                 }
                 // 这一刻列表停在「可更新」上 ⇒ 只剩那一行，它的名字后面该缀着那个 ↑。
-                if (QLabel *first = mods->nameLabelAt(0)) {
-                    updateArrowGlyph = first->text();
+                if (QListWidgetItem *first = mods->list()->item(0)) {
+                    updateArrowGlyph = first->data(Qt::AccessibleTextRole).toString();
                 }
             }
             // 收页（返回箭头 = reject）。

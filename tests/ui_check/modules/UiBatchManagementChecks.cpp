@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "UiInstanceFilesTestHelpers.hpp"
 
 // U10Q：批量管理（多选 / Ctrl+A / 悬浮操作条 / 灰化）。
 //
@@ -314,13 +315,13 @@ int UiBatchManagementChecks(const QString &instanceDisplayName, const QString &i
             // 放到开关和删除中间」。「认不认得出」是这一格能不能点的**唯一**判据（见
             // setResourceForPath 那段：在 m_resourceTips 里 = 认出来了）。这一节只喂
             // 一条手工的账；真去问 Modrinth、真开那一页在 mw_check / 真机那两处。
-            check(mods->detailButtonAt(rowOf(firstMod)) != nullptr &&
-                      !mods->detailButtonAt(rowOf(firstMod))->isEnabled(),
+            check(uiDetailAt(mods, rowOf(firstMod)) != nullptr &&
+                      !uiDetailAt(mods, rowOf(firstMod))->isEnabled(),
                   "★★ U10Q 没认出来的那一行，那颗「详情」是**灰的**（认不出是哪个资源，"
                   "点进去只会是一张空页）");
             check(mods->setResourceForPath(firstMod, QStringLiteral("测试资源")) &&
-                      mods->detailButtonAt(rowOf(firstMod)) != nullptr &&
-                      mods->detailButtonAt(rowOf(firstMod))->isEnabled(),
+                      uiDetailAt(mods, rowOf(firstMod)) != nullptr &&
+                      uiDetailAt(mods, rowOf(firstMod))->isEnabled(),
                   "★★ U10Q 认出来的那一行那颗「详情」**亮起来**（setResourceForPath 的"
                   "返回值就是「认没认出来」这件事本身）");
 
@@ -357,7 +358,7 @@ int UiBatchManagementChecks(const QString &instanceDisplayName, const QString &i
                       "★★ U10Q 没开批量的页仍是**单选**（Ctrl+A 自然也就不通 —— 这正是"
                       "「这一套只铺那四页」的落法）",
                       QString::number(static_cast<int>(saves->list()->selectionMode())));
-                check(saves->list()->count() > 0 ? saves->detailButtonAt(0) == nullptr : true,
+                check(saves->list()->count() > 0 ? uiDetailAt(saves, 0) == nullptr : true,
                       "★★ U10Q 没开批量的页上**没有**那颗「详情」（它只在开了批量的页上建）");
                 check(saves->stateCombo() != nullptr && saves->stateButtonAt(
                           InstanceFilesPage::StateFilter::All) != nullptr &&
@@ -517,21 +518,21 @@ int UiBatchManagementChecks(const QString &instanceDisplayName, const QString &i
             list->scrollToBottom();
             QApplication::processEvents();
         }
-        // 滚到底：按可见范围补行控件，同时回收远处的行控件。
-        while (list != nullptr && list->count() > 0 &&
-               list->itemWidget(list->item(list->count() - 1)) == nullptr &&
-               clock.elapsed() < 15000) {
-            QApplication::processEvents();
-        }
-        const qint64 scrollMs = clock.elapsed();
-        check(list != nullptr && list->itemWidget(list->item(list->count() - 1)) != nullptr,
-              "滚到底后最后一行有控件（可见范围按需重建）");
+        // 滚到底：行是代理画的，没有行控件要补、要收 —— 最后一行直接就在视口里。
         if (list != nullptr && list->verticalScrollBar() != nullptr) {
             list->verticalScrollBar()->setValue(list->verticalScrollBar()->maximum());
             QApplication::processEvents();
         }
-        check(list != nullptr && list->count() == 1000 && list->itemWidget(list->item(0)) == nullptr,
-              "滚到底后远处顶部的行控件已被回收");
+        const qint64 scrollMs = clock.elapsed();
+        check(list != nullptr && list->count() == 1000 &&
+                  list->visualItemRect(list->item(list->count() - 1))
+                      .intersects(list->viewport()->rect()),
+              "滚到底后最后一行就在视口里（代理画，不用等行控件补上来）");
+        check(list != nullptr &&
+                  list->viewport()->findChildren<QWidget *>().size() < 10,
+              "★ 1000 条文件：视口里**没有**一行一个的控件（每一行都是代理画的）",
+              list != nullptr ? QString::number(list->viewport()->findChildren<QWidget *>().size())
+                              : QStringLiteral("无列表"));
         check(scrollMs < 3000, "1000 条文件滚到底在 3 秒内", QString::number(scrollMs));
         qInfo() << "[perf] large file list: first paint" << firstPaint << "ms, scroll-to-bottom" << scrollMs << "ms";
 
