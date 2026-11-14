@@ -72,6 +72,8 @@ public:
 public slots:
     /// 切到别的选项卡时调用：Stage 1A 选择取消不可见的后台请求，避免悄悄花钱。
     void onPageHidden();
+    /// 切回智能体页：「跟随主页」的胶囊按主页此刻的实例重算（主页实例可能在别的页换过）。
+    void onPageShown();
 
 private:
     void wirePage();

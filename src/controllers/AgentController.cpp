@@ -985,6 +985,8 @@ void AgentController::onPageHidden() {
     if (m_loop->busy()) onStop();
 }
 
+void AgentController::onPageShown() { updateInstanceChip(); }
+
 void AgentController::openSettings() {
     if (m_overlay == nullptr || m_page == nullptr) return;
     // 覆盖层被别的页占着（典型：在别的选项卡上开了页再切过来，那页收着、仍占着这一位）时 showPage() 直接返回

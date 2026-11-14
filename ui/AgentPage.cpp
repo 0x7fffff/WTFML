@@ -9,6 +9,7 @@
 #include "AgentComposer.hpp"
 #include "AgentMessageView.hpp"
 #include "AgentToolCard.hpp"
+#include "ElidedLabel.hpp"
 #include "GlassPopover.hpp"
 #include "Popups.hpp"
 #include "Theme.hpp"
@@ -465,7 +466,9 @@ AgentPage::AgentPage(QWidget *parent)
     auto *headerLayout = new QHBoxLayout(header);
     headerLayout->setContentsMargins(0, 0, 0, 0);
     headerLayout->setSpacing(6);
-    m_title = new QLabel(QStringLiteral("新对话"), header);
+    // 长标题装不下时收省略号，不让「实例」胶囊压住半个字。
+    m_title = new ElidedLabel(header);
+    m_title->setText(QStringLiteral("新对话"));
     m_title->setObjectName(QStringLiteral("agentSessionTitle"));
     m_title->setFont(pxFont(m_title->font(), 16, QFont::DemiBold));
     m_title->setMinimumWidth(0);

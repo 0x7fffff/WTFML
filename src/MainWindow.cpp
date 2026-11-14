@@ -360,6 +360,8 @@ MainWindow::MainWindow(QWidget *parent)
                 [this](int index) {
                     if (index != MainWindowUI::agentTabIndex()) {
                         m_agentController->onPageHidden();
+                    } else {
+                        m_agentController->onPageShown();
                     }
                 });
     }
