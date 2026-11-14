@@ -14,7 +14,7 @@
   </a>
 </p>
 
-<p align="center"><sub>单文件 exe，下载即用，不用安装。只支持 Windows x64。</sub></p>
+<p align="center"><sub>单文件 exe，下载即用，不用安装。支持 Windows x64。</sub></p>
 
 <br>
 
