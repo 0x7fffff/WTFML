@@ -1,0 +1,11 @@
+# 首帧允许名单（tools/perf-startup.ps1 -Probe，Release 探针，阈值 50 ms）。
+# 键是探针步骤名，值是放行时记录到的参考首帧（ms，动作 + 整窗重画；等数据不算），
+# 不参与判定；同一台机器忙时这一趟的实测可以比它高。
+# 只许删、不许加：修好一条删一条；新增一条要有任务单和实测数字。
+nav:toolbox	137.5
+instance:open-settings	294.5
+instance:page:mod	85.3
+instance:page:mod-second	76.4
+instance:close	162.8
+instance:open-settings-again	237.4
+instance:close-again	111.5

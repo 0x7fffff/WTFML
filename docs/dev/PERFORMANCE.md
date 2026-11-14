@@ -17,7 +17,7 @@
 | CI 分片与缓存 | `pwsh -File tools/perf-ci.ps1 -Limit 8` | `ci.json` |
 | 发布体积 | `pwsh -File tools/prepare-release-copy.ps1 -BuildDir <静态构建目录>`；`tools/measure-release-size.ps1` | 见 [RELEASE_SIZE.md](perf-notes/RELEASE_SIZE.md) |
 
-`perf-startup.ps1` 开头检查有没有启动器在跑，有就拒绝；它把 `HKCU\Software\WTFML` 导出、换成指向沙盒的最小设置，跑完还原，并对还原后的导出做 SHA256 逐字节比对（`startup.json` 的 `registry.restoredVerbatim`）。`-InstanceMeta` 给每个实例多写一份 `wtfml.meta`；默认夹具没有它，两种夹具的数字不能横向比。
+`perf-startup.ps1` 开头检查有没有启动器在跑，有就拒绝。每次运行都在 `<报告目录>/profile` 建一份验收配置，用 `--acceptance-profile <目录>` 起 exe：设置、游戏目录（夹具造在它的 `game/versions`）、智能体数据都在这一份里，跑完整个删掉，不碰用户注册表（`startup.json` 的 `acceptanceProfile`）。`-InstanceMeta` 给每个实例多写一份 `wtfml.meta`；默认夹具没有它，两种夹具的数字不能横向比。`-Probe` 另带首帧守卫，见「界面交互」那一节。
 
 ## 基线速查表
 
@@ -378,6 +378,10 @@ cmake --build build/perf-probe --parallel 8
 探针在 `src/perf/PerfProbe.cpp`：argv 里带 `--wtfml-perf-probe=<文件>` 才动，否则这个 exe 和普通启动器一样。它按用户点的按钮发动作（`TitleBar::navButton()`、设置页的主题下拉框），不绕业务层。
 
 - 每步量两段：`actionMs`（同步那一截，翻页后的懒加载/列表重建都在里面）和 `repaintMs`（把整窗立刻重画一遍，是上限，真实使用只重画脏的几块）。
+- 首帧守卫：首帧 = `actionMs + repaintMs`；异步才出现的东西（如后台快照到位后才摆的预设弹框）用 `nestedFirstFrameMs`。`waitMs`（等数据）不算首帧。阈值 50 ms，超了又不在 `tools/perf-firstframe-allowlist.txt` 里，探针以非零退出（`firstFrameGuard.failed`），这一趟测量算失败。
+  - 允许名单是 `键<TAB>值` 的纯文本，键 = 探针步骤名，值 = 放行时记录到的参考首帧（不参与判定）；只许删不许加，修好一条删一条。
+  - `scan:` / `theme:` / `tasks:` / `presets:` / `concurrent:` 是故意同步的扫描、换主题重刷或合成负载，`*-wait` 是等待那一半，都不进守卫。
+  - 守卫只认 Release 探针的数。`ui_check_surface_sweep` 的 offscreen `-O0` 数字只能横向比，不拿来判。
 - 20 ms 的 `Qt::PreciseTimer` 看门狗记主线程空档：`maxGapMs` 含 20 ms 节拍，`maxStallMs` 是减掉节拍之后的值，`over50ms` 数超过 50 ms 的节拍。看门狗在 `app.exec()` 之前就开始，所以最长空档包含启动期那一段。
 - 步骤：先单独跑一遍本地 Java 扫描（`scan:java`）→ 四个导航页各一次 → 四个主题预设各一次 → 回主页 → 还原主题 → 再进一次设置页（`nav:settings-again`，第一次与第二次的差就是首次 Java 扫描的价）→ 回主页。卡顿归属（`stalls.maxGapFromStep/maxGapAtStep`、`slowSpans` 保存 50 ms 以上的跨度）和采栈见 [MAIN_THREAD_STALLS.md](perf-notes/MAIN_THREAD_STALLS.md)。
 

@@ -13,7 +13,11 @@
  * 只有一条入口：`attach()`。argv 里没有 `--wtfml-perf-probe=<文件>` 时立即返回，
  * 所以这个 exe 不测量时和普通启动器没有区别。
  *
- * 跑法见 `tools/perf-startup.ps1 -Probe`（沙盒 + 注册表还原那一套都在那边）。
+ * 跑法见 `tools/perf-startup.ps1 -Probe`（验收配置 `--acceptance-profile` 那一套在那边）。
+ *
+ * 首帧守卫：带 `--wtfml-firstframe-allowlist=<文件>` 时，每个"点击 → 首帧"表面都
+ * 必须在 50 ms 内画出来；超过的要么在允许名单里，要么整趟探针以非零退出。允许名单
+ * 是 `tools/perf-firstframe-allowlist.txt`，只许删不许加（详见 docs/dev/PERFORMANCE.md）。
  */
 
 #include "perf/PerfProbe.hpp"
@@ -41,6 +45,7 @@
 #include <QAbstractButton>
 #include <QApplication>
 #include <QComboBox>
+#include <QDebug>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
@@ -51,8 +56,10 @@
 #include <QList>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMap>
 #include <QPointer>
 #include <QPushButton>
+#include <QSet>
 #include <QTimer>
 #include <QTemporaryDir>
 #include <QTreeWidget>
@@ -65,6 +72,13 @@
 #include <memory>
 #include <utility>
 
+// `Step` 用 `{name, action}` 聚合初始化，其余成员都有默认值；GCC 的 `-Wextra` 仍按
+// `-Wmissing-field-initializers` 逐条报（本文件一百多条）。测量构建按
+// docs/dev/PERFORMANCE.md 带 `-Werror` 编，这里只关这一条，别的诊断照旧。
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#endif
+
 namespace {
 
 constexpr int kStallTickMs = 20;
@@ -72,6 +86,8 @@ constexpr int kStallTickMs = 20;
 constexpr int kStallSampleAfterMs = 50;
 constexpr int kBetweenStepsMs = 150;
 constexpr int kFinalSettleMs = 300;
+// 首帧守卫的门槛。和 StallSampler 的采栈门槛同一个数，守卫红了可以直接对着卡顿栈看。
+constexpr double kFirstFrameLimitMs = 50.0;
 
 QString probeTarget(const QApplication &app)
 {
@@ -83,6 +99,34 @@ QString probeTarget(const QApplication &app)
         }
     }
     return QString();
+}
+
+QString probeArgument(const QApplication &app, const QString &name)
+{
+    const QString prefix = name + QLatin1Char('=');
+    const QStringList arguments = app.arguments();
+    for (const QString &argument : arguments) {
+        if (argument.startsWith(prefix)) {
+            return argument.mid(prefix.size());
+        }
+    }
+    return QString();
+}
+
+/// 守卫只认"点一下 → 界面画出来"的表面。合成负载（tasks / presets / concurrent）、
+/// 故意同步量的 `scan:java`、换主题（整窗重刷，不是开页）和等待那一半（`*-wait`）
+/// 不算首帧。
+bool isFirstFrameSurface(const QString &name)
+{
+    static const QStringList skippedPrefixes{QStringLiteral("scan:"), QStringLiteral("theme:"),
+                                             QStringLiteral("tasks:"), QStringLiteral("presets:"),
+                                             QStringLiteral("concurrent:")};
+    for (const QString &prefix : skippedPrefixes) {
+        if (name.startsWith(prefix)) {
+            return false;
+        }
+    }
+    return !name.endsWith(QStringLiteral("-wait"));
 }
 
 double milliseconds(const QElapsedTimer &timer)
@@ -112,6 +156,11 @@ struct StepResult {
     int contentRows = -1;
     /// 动作阻塞在嵌套事件循环里时，从循环内部量的首帧（-1 = 没量）。
     double extraMs = -1.0;
+    /// 这一发是不是首帧守卫要看的表面；是的话 `firstFrameMs` 才有意义。
+    bool guarded = false;
+    /// 点击 → 首帧：动作同步那一截 + 整窗重画一次；嵌套事件循环里量到的用那一个。
+    /// 等异步内容（`waitMs`）不算在内。
+    double firstFrameMs = 0.0;
 };
 
 class Probe final : public QObject {
@@ -136,6 +185,7 @@ public:
         m_themeBefore = Theme::current().presetId;
         m_fixtureId = detectFixtureId();
         buildSteps();
+        loadFirstFrameAllowlist();
 
         m_clock.start();
         m_lastTickMs = 0;
@@ -179,6 +229,38 @@ public:
     }
 
 private:
+    /// 首帧允许名单：`键<TAB>值` 的纯文本（值 = 放行时记录的最大首帧，给人看）。
+    /// 只认第一列，空行和 `#` 开头跳过。没传参数就不启用守卫（手动跑探针时仍然出数）。
+    void loadFirstFrameAllowlist()
+    {
+        m_allowlistPath = probeArgument(m_app, QStringLiteral("--wtfml-firstframe-allowlist"));
+        if (m_allowlistPath.isEmpty()) {
+            return;
+        }
+        QFile file(m_allowlistPath);
+        if (!file.open(QIODevice::ReadOnly)) {
+            m_guardError = QStringLiteral("允许名单打不开：%1").arg(m_allowlistPath);
+            return;
+        }
+        QString text = QString::fromUtf8(file.readAll());
+        if (text.startsWith(QChar(0xFEFF))) {
+            text.remove(0, 1);
+        }
+        for (const QString &raw : text.split(QLatin1Char('\n'))) {
+            const QString line = raw.trimmed();
+            if (line.isEmpty() || line.startsWith(QLatin1Char('#'))) {
+                continue;
+            }
+            const int tab = line.indexOf(QLatin1Char('\t'));
+            const QString key = (tab < 0 ? line : line.left(tab)).trimmed();
+            if (key.isEmpty()) {
+                continue;
+            }
+            m_allowlist.insert(key, tab < 0 ? QString() : line.mid(tab + 1).trimmed());
+        }
+        m_guardEnabled = true;
+    }
+
     /// 夹具实例 = versions/ 下面模组数 >= 50 的那一份（`tools/perf-startup.ps1 -InstanceMods`）。
     /// 找不到就空串，实例页那几步自动跳过，报告里能看到 `instance:open-settings` 是空的。
     QString detectFixtureId() const
@@ -609,23 +691,35 @@ private:
                 }
             }});
         }
-        // 预设弹框走的是 `OverlayHost::execPrompt()`：**动作会阻塞在嵌套事件循环里**，
-        // 直到用户按下确认/取消。探针在这里自己排两个定时器：第一发（50 ms）量下
-        // "弹框已经摆上来"的时刻，第二发（400 ms）替用户按取消。`actionMs` 因此约等于
-        // 那 400 ms，真正要看的是 `nestedFirstFrameMs`。
+        // 预设弹框：`openPresetPicker()` 在 128 之后只发后台快照请求，数据回来才摆框
+        // （`execPrompt` 在那条回调里阻塞）。所以这一发不能再用"动作里阻塞多久"当首帧：
+        // 记点击 → `PresetInstallPicker` 真上屏的那一段（`extra`），弹出来就自己按取消，
+        // 免得覆盖层留着把后头的账号弹框挡掉（那一步会一直等不到）。
         {
             Step step;
             step.name = QStringLiteral("install:preset-picker");
             step.action = [this] {
                 m_promptShownMs = -1.0;
                 m_promptClock.start();
-                QTimer::singleShot(50, this, [this] { m_promptShownMs = milliseconds(m_promptClock); });
-                QTimer::singleShot(400, this, [this] {
-                    if (m_window.ui()->overlay() != nullptr) m_window.ui()->overlay()->dismiss();
-                });
                 if (InstallPageController *controller = installPage()) {
                     controller->openPresetPicker();
                 }
+            };
+            step.ready = [this] {
+                if (m_promptShownMs < 0.0) {
+                    auto *picker = m_window.findChild<PresetInstallPicker *>();
+                    if (picker != nullptr && picker->isVisible()) {
+                        m_promptShownMs = milliseconds(m_promptClock);
+                        QTimer::singleShot(0, this, [this] {
+                            if (m_window.ui()->overlay() != nullptr) m_window.ui()->overlay()->dismiss();
+                        });
+                    }
+                }
+                return m_promptShownMs >= 0.0;
+            };
+            step.timeoutMs = 5000;
+            step.waitingText = [] {
+                return QStringLiteral("安装页「预设」：后台读完预设快照才摆弹框");
             };
             step.extra = [this] { return m_promptShownMs; };
             m_steps.push_back(std::move(step));
@@ -924,7 +1018,18 @@ private:
             timer.restart();
             m_window.repaint();
             result.contentRepaintMs = milliseconds(timer);
+            // 异步才摆出来的东西（例如后台快照到位后才上的预设弹框）在等的过程里才量得到
+            // 首帧：动作刚回来时它还不在，这里补读一次。
+            if (step.extra) {
+                const double extra = step.extra();
+                if (extra >= 0.0) result.extraMs = extra;
+            }
         }
+
+        result.guarded = isFirstFrameSurface(result.name);
+        // 首帧 = 动作同步那一截 + 整窗重画一次；嵌套事件循环里能量到首帧的用它。
+        // `waitMs`（等异步内容）在动作和重画之后，天然不计入。
+        result.firstFrameMs = result.extraMs >= 0 ? result.extraMs : result.actionMs + result.repaintMs;
 
         m_results.push_back(result);
         ++m_next;
@@ -947,6 +1052,11 @@ private:
             if (result.extraMs >= 0) {
                 entry.insert(QStringLiteral("nestedFirstFrameMs"), round1(result.extraMs));
             }
+            if (result.guarded) {
+                entry.insert(QStringLiteral("firstFrameMs"), round1(result.firstFrameMs));
+                entry.insert(QStringLiteral("firstFrameWhitelisted"),
+                             m_allowlist.contains(result.name));
+            }
             if (result.hasWait) {
                 entry.insert(QStringLiteral("waitMs"), round1(result.waitMs));
                 entry.insert(QStringLiteral("waitOk"), result.waitOk);
@@ -956,6 +1066,70 @@ private:
             }
             steps.append(entry);
         }
+
+        // ---- 首帧守卫：超过 50 ms 的表面要么在允许名单里，要么整趟失败 ----
+        QJsonArray overLimit;
+        QJsonArray whitelistedOver;
+        QJsonArray staleWhitelist;
+        QSet<QString> seenGuarded;
+        int guardedSurfaces = 0;
+        bool guardFailed = false;
+        for (const StepResult &result : std::as_const(m_results)) {
+            if (!result.guarded) {
+                continue;
+            }
+            ++guardedSurfaces;
+            seenGuarded.insert(result.name);
+            const bool over = result.firstFrameMs > kFirstFrameLimitMs;
+            const bool allowed = m_allowlist.contains(result.name);
+            QJsonObject detail{
+                {QStringLiteral("name"), result.name},
+                {QStringLiteral("firstFrameMs"), round1(result.firstFrameMs)},
+                {QStringLiteral("actionMs"), round1(result.actionMs)},
+                {QStringLiteral("repaintMs"), round1(result.repaintMs)}};
+            if (result.extraMs >= 0) {
+                detail.insert(QStringLiteral("nestedFirstFrameMs"), round1(result.extraMs));
+            }
+            if (over && allowed) {
+                detail.insert(QStringLiteral("allowlistValue"), m_allowlist.value(result.name));
+                whitelistedOver.append(detail);
+            } else if (over) {
+                overLimit.append(detail);
+                guardFailed = true;
+                qWarning().noquote() << QStringLiteral("[first-frame] %1 首帧 %2 ms（动作 %3 + 重画 %4），超过 %5 ms 且不在允许名单")
+                                            .arg(result.name)
+                                            .arg(round1(result.firstFrameMs), 0, 'f', 1)
+                                            .arg(round1(result.actionMs), 0, 'f', 1)
+                                            .arg(round1(result.repaintMs), 0, 'f', 1)
+                                            .arg(kFirstFrameLimitMs, 0, 'f', 0);
+            } else if (allowed) {
+                staleWhitelist.append(detail);
+            }
+        }
+        for (auto it = m_allowlist.cbegin(); it != m_allowlist.cend(); ++it) {
+            if (!seenGuarded.contains(it.key())) {
+                staleWhitelist.append(QJsonObject{{QStringLiteral("name"), it.key()},
+                                                  {QStringLiteral("reason"), QStringLiteral("这趟没有跑到的表面")}});
+            }
+        }
+        if (!m_guardEnabled && m_guardError.isEmpty()) {
+            // 没给允许名单 = 手动跑探针，只出数不判失败；给了却读不开是配置错，要红。
+            guardFailed = false;
+        }
+
+        QJsonObject firstFrameGuard;
+        firstFrameGuard.insert(QStringLiteral("thresholdMs"), kFirstFrameLimitMs);
+        firstFrameGuard.insert(QStringLiteral("enabled"), m_guardEnabled);
+        firstFrameGuard.insert(QStringLiteral("allowlistPath"),
+                               m_allowlistPath.isEmpty() ? QJsonValue() : QJsonValue(m_allowlistPath));
+        if (!m_guardError.isEmpty()) {
+            firstFrameGuard.insert(QStringLiteral("error"), m_guardError);
+        }
+        firstFrameGuard.insert(QStringLiteral("surfaces"), guardedSurfaces);
+        firstFrameGuard.insert(QStringLiteral("overLimit"), overLimit);
+        firstFrameGuard.insert(QStringLiteral("whitelisted"), whitelistedOver);
+        firstFrameGuard.insert(QStringLiteral("staleWhitelist"), staleWhitelist);
+        firstFrameGuard.insert(QStringLiteral("failed"), guardFailed);
 
         QJsonObject stalls;
         stalls.insert(QStringLiteral("tickMs"), kStallTickMs);
@@ -1049,6 +1223,7 @@ private:
             {QStringLiteral("guiTicks"), m_asyncCatalogTicks},
             {QStringLiteral("maxGuiGapMs"), m_asyncCatalogMaxGap}});
         root.insert(QStringLiteral("stalls"), stalls);
+        root.insert(QStringLiteral("firstFrameGuard"), firstFrameGuard);
 
         QJsonObject window;
         window.insert(QStringLiteral("width"), m_window.width());
@@ -1061,7 +1236,7 @@ private:
             file.close();
         }
 
-        m_app.exit(m_storeFailed ? 1 : 0);
+        m_app.exit(m_storeFailed || guardFailed ? 1 : 0);
     }
 
     struct Step {
@@ -1086,6 +1261,11 @@ private:
     QElapsedTimer m_clock;
     QTimer *m_watchdog = nullptr;
     QString m_themeBefore;
+    /// 首帧允许名单（`--wtfml-firstframe-allowlist=`）：键 = 步骤名，值 = 放行时记录的最大首帧。
+    QString m_allowlistPath;
+    QMap<QString, QString> m_allowlist;
+    bool m_guardEnabled = false;
+    QString m_guardError;
     QList<TaskCenter::Item> m_tasks;
     QPointer<TaskCenterPanel> m_taskPanel;
     QList<PresetManagePage::PresetItem> m_presets;
