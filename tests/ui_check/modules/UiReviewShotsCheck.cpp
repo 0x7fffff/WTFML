@@ -1143,8 +1143,9 @@ int runAgentPolish(QApplication &app, const ShotOptions &options) {
     window.show();
     pump();
     const QString prefix = options.theme + QLatin1Char('-');
-    const auto zoomOf = [&](QWidget *target, const QString &name) {
+    const auto zoomOf = [&](QWidget *target, const QString &name, const std::function<void()> &prep = {}) {
         pump();
+        if (prep) prep();  // 抓图前最后一刻挂状态：pump 里的合成进出事件会清掉悬停位
         const QPixmap shot = window.grab();
         const QRect at(target->mapTo(&window, QPoint(0, 0)), target->size());
         const QPixmap piece = shot.copy(at.adjusted(-40, -28, 16, 16).intersected(shot.rect()));
@@ -1196,6 +1197,37 @@ int runAgentPolish(QApplication &app, const ShotOptions &options) {
         agent->setMessages({ask, failed});
         agent->showEmptyState(false);
         saveShot(app, window, options.out, prefix + QStringLiteral("long-title-failed"), &saved);
+
+        // 生成中（步骤 110）：停止钮常态 / 悬停 / 按下。
+        AgentView::Message streaming;
+        streaming.id = QStringLiteral("m2");
+        streaming.status = AgentView::MessageStatus::Streaming;
+        streaming.content = QStringLiteral("先看日志里 mixin 冲突那几行：");
+        agent->setMessages({ask, streaming});
+        agent->setStreaming(true);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);  // 旧行 deleteLater，离屏手动收
+        pump();
+        saveShot(app, window, options.out, prefix + QStringLiteral("streaming"), &saved);
+        if (auto *stop = agent->findChild<QPushButton *>(QStringLiteral("agentStopButton"))) {
+            zoomOf(stop, prefix + QStringLiteral("stop-zoom"));
+            // 离屏没有真鼠标：手挂悬停位，:hover 在绘制时按它认（别 repolish，会把 36 的定高冲掉）。
+            zoomOf(stop, prefix + QStringLiteral("stop-hover-zoom"),
+                   [stop] {
+                       stop->setAttribute(Qt::WA_UnderMouse, true);
+                       // 按钮自己还记着「鼠标在不在按钮形状里」，得喂一次悬停进入 + 移动才认。
+                       const QPointF at(stop->rect().center());
+                       QHoverEvent enter(QEvent::HoverEnter, at, stop->mapToGlobal(at), QPointF(-1, -1));
+                       QApplication::sendEvent(stop, &enter);
+                       QMouseEvent move(QEvent::MouseMove, at, stop->mapToGlobal(at), Qt::NoButton, Qt::NoButton,
+                                        Qt::NoModifier);
+                       QApplication::sendEvent(stop, &move);
+                   });
+            stop->setDown(true);
+            zoomOf(stop, prefix + QStringLiteral("stop-pressed-zoom"));
+            stop->setDown(false);
+            stop->setAttribute(Qt::WA_UnderMouse, false);
+        }
+        agent->setStreaming(false);
     }
 
     // API 与模型设置：认证方式「不认证」、没存密钥。

@@ -142,6 +142,17 @@ int UiAgentCheck() {
     QApplication::processEvents();
     check(stop != nullptr && stop->isVisible() && !send->isVisible(),
           "智能体 UI：流式中停止替代发送");
+    if (stop != nullptr && composerRow != nullptr) {
+        // 110：停止钮要有自己的圆底（r104 冰川碧湖下底被刷透明，只剩小空心框）。
+        // 圆内、方块外一点 vs 钮左外侧一点，颜色必须不同。
+        const QImage row = composerRow->grab().toImage();
+        const qreal dpr = row.devicePixelRatio();
+        const QPoint origin = stop->mapTo(composerRow, QPoint(0, 0));
+        const QColor inside = row.pixelColor(((origin + QPoint(6, 18)).toPointF() * dpr).toPoint());
+        const QColor outside = row.pixelColor(((origin + QPoint(-4, 18)).toPointF() * dpr).toPoint());
+        check(inside != outside, "智能体 UI：生成中停止钮有圆底（和输入岛底色分得开）",
+              QStringLiteral("圆内 %1 / 钮外 %2").arg(inside.name(), outside.name()));
+    }
     page->setStreaming(false);
 
     QList<AgentView::SessionMeta> sessions;

@@ -310,12 +310,41 @@ void markRoundButton(QPushButton *button, const QString &icon, const QString &ti
         const Theme::Tokens t = Theme::tokens();
         // 禁用态：中性按下那档的淡底 + 禁用字色的箭头。全局禁用底（浅色主题近白）落在输入岛上
         // 看不出是颗按钮，白箭头又自动淡成近白（真机 r104 冰川碧湖：底 249 / 箭头 253 叠在 239 上）。
-        button->setStyleSheet(QStringLiteral("QPushButton { border-radius: 18px; padding: 0; }"
-                                             "QPushButton:disabled { background-color: %1; }")
-                                  .arg(t.fillPress.name(QColor::HexArgb)));
+        QString sheet = QStringLiteral("QPushButton { border-radius: 18px; padding: 0; }"
+                                       "QPushButton:disabled { background-color: %1; }")
+                            .arg(t.fillPress.name(QColor::HexArgb));
+        if (kind != Theme::ButtonKind::Primary) {
+            // 中性圆钮（停止）：图标钮那条全局规则把底刷成透明（r104 真机只剩一个小空心框），
+            // 这里自己给常态 / 悬停 / 按下三档底。fillPress 是「字色 × 9% 透明度」，按比例加深，
+            // 深浅主题同一套取法；常态和禁用发送钮同底，两颗放一起是一套。
+            const auto deeper = [&t](qreal factor) {
+                QColor c = t.fillPress;
+                c.setAlphaF(qMin(1.0, c.alphaF() * factor));
+                return c.name(QColor::HexArgb);
+            };
+            sheet += QStringLiteral("QPushButton:enabled { background-color: %1; }"
+                                    "QPushButton:hover:enabled { background-color: %2; }"
+                                    "QPushButton:pressed:enabled { background-color: %3; }")
+                         .arg(t.fillPress.name(QColor::HexArgb), deeper(1.7), deeper(2.4));
+        }
+        button->setStyleSheet(sheet);
         const QColor ink = kind == Theme::ButtonKind::Primary ? t.onPrimary : t.text;
-        QIcon glyph(VersionIcons::line(icon, 18, ink, 2.0));
-        glyph.addPixmap(VersionIcons::line(icon, 18, t.disabled, 2.0), QIcon::Disabled);
+        // 停止画实心圆角方块（线框 10px 小方框太弱，不像「点这里停」）。
+        const auto solidStop = [](const QColor &color) {
+            const qreal dpr = qApp ? qApp->devicePixelRatio() : 1.0;
+            QPixmap pixmap(QSize(18, 18) * dpr);
+            pixmap.setDevicePixelRatio(dpr);
+            pixmap.fill(Qt::transparent);
+            QPainter p(&pixmap);
+            p.setRenderHint(QPainter::Antialiasing);
+            p.setPen(Qt::NoPen);
+            p.setBrush(color);
+            p.drawRoundedRect(QRectF(4, 4, 10, 10), 2.5, 2.5);
+            return pixmap;
+        };
+        const bool stop = icon == QLatin1String("stop");
+        QIcon glyph(stop ? solidStop(ink) : VersionIcons::line(icon, 18, ink, 2.0));
+        glyph.addPixmap(stop ? solidStop(t.disabled) : VersionIcons::line(icon, 18, t.disabled, 2.0), QIcon::Disabled);
         button->setIcon(glyph);
         button->setIconSize(QSize(18, 18));
     };
