@@ -1,5 +1,5 @@
-// 主页「每日一言」的离屏样张：深色 / 青瓷 × 1280x800 与 900x620 × 有实例 × 中/英/日，
-// 另出设置页那一个开关所在的一行。
+// 主页「每日一言」的离屏样张：深色 / 青瓷 × 1280x800 与 900x620 × 有实例 × 中/英/日 × 句库里最短 / 最长那句，
+// 另出设置页那一个开关所在的一行。每张图同时往标准输出打一行「px <主题> <宽> <键> <字号> <句子>」，拼对照图用。
 // 用法：QT_QPA_PLATFORM=offscreen ui_check_daily_quote_shots <输出目录>
 // 不进 ctest（和 ui_check_settings_shots 同一个路数）：它只出图，不做断言。
 #include "Support.hpp"
@@ -7,6 +7,7 @@
 #include "MainWindowUI.hpp"
 #include "SettingsPageParts.hpp"
 #include "Theme.hpp"
+#include "util/DailyQuote.hpp"
 
 #include <QCheckBox>
 #include <QDir>
@@ -37,19 +38,32 @@ int UiDailyQuoteShots(QApplication &app) {
     QDir().mkpath(out);
 
     struct Sample {
-        const char *key;
+        QByteArray key;
         QString text;
         QString tip;
         Theme::QuoteScript script;
     };
-    const QVector<Sample> samples = {
-        {"zh", QStringLiteral("长河千嶂，大荒孤城，历历在目。"),
-         QStringLiteral("— 令《明日方舟》"), Theme::QuoteScript::Han},
-        {"en", QStringLiteral("The significance of life is living."),
-         QStringLiteral("— Jiddu Krishnamurti"), Theme::QuoteScript::Latin},
-        {"ja", QStringLiteral("希望とシェイクハンドして、鏡を見つめ直して、真新しい自分。"),
-         QStringLiteral("— 大森元貴《Brand New》"), Theme::QuoteScript::Kana},
-    };
+    // 句库（fallbackQuotes）里每种文字最短、最长各一句：字号区间两头都看得到。
+    QVector<Sample> samples;
+    const struct {
+        const char *key;
+        DailyQuote::Script from;
+        Theme::QuoteScript to;
+    } scripts[] = {{"zh", DailyQuote::Script::Han, Theme::QuoteScript::Han},
+                   {"en", DailyQuote::Script::Latin, Theme::QuoteScript::Latin},
+                   {"ja", DailyQuote::Script::Kana, Theme::QuoteScript::Kana}};
+    for (const auto &script : scripts) {
+        const DailyQuote::Quote *shortest = nullptr;
+        const DailyQuote::Quote *longest = nullptr;
+        for (const DailyQuote::Quote &q : DailyQuote::fallbackQuotes()) {
+            if (q.script != script.from) continue;
+            if (shortest == nullptr || q.text.size() < shortest->text.size()) shortest = &q;
+            if (longest == nullptr || q.text.size() > longest->text.size()) longest = &q;
+        }
+        if (shortest == nullptr) continue;
+        samples.append({QByteArray(script.key) + "-short", shortest->text, DailyQuote::attribution(*shortest), script.to});
+        samples.append({QByteArray(script.key) + "-long", longest->text, DailyQuote::attribution(*longest), script.to});
+    }
     struct Scope {
         const char *key;
         QSize size;
@@ -86,11 +100,14 @@ int UiDailyQuoteShots(QApplication &app) {
                 settle();
                 const QString where = QStringLiteral("%1-%2").arg(preset, QString::fromLatin1(scope.key));
                 const QString file = QDir(out).filePath(
-                    QStringLiteral("r71-%1-%2-%3.png")
+                    QStringLiteral("r116-%1-%2-%3.png")
                         .arg(preset, QString::fromLatin1(scope.key), QString::fromLatin1(sample.key)));
                 if (window.grab().save(file)) ++saved;
+                std::printf("px %s %s %s %d %s\n", qPrintable(preset), scope.key, sample.key.constData(),
+                            ui.getHomeHeroQuote()->font().pixelSize(), qPrintable(sample.text));
+                std::fflush(stdout);
                 // 同档的对照（没有引文那一张）+ 两边的「当前实例」y：证明这一行只吃标题下面那块空白。
-                if (QString::fromLatin1(sample.key) == QLatin1String("zh")) {
+                if (QString::fromLatin1(sample.key) == QLatin1String("zh-long")) {
                     auto *eyebrow = window.findChild<QWidget *>(QStringLiteral("homeCurrentEyebrow"));
                     const auto yOf = [&](QWidget *w) { return w->mapTo(&window, QPoint(0, 0)).y(); };
                     const int on = eyebrow == nullptr ? -1 : yOf(eyebrow);
@@ -98,7 +115,7 @@ int UiDailyQuoteShots(QApplication &app) {
                     settle();
                     const int off = eyebrow == nullptr ? -1 : yOf(eyebrow);
                     const QString plain = QDir(out).filePath(
-                        QStringLiteral("r71-%1-%2-noquote.png")
+                        QStringLiteral("r116-%1-%2-noquote.png")
                             .arg(preset, QString::fromLatin1(scope.key)));
                     if (window.grab().save(plain)) ++saved;
                     std::printf("eyebrow %s: on=%d off=%d\n", qPrintable(where), on, off);
@@ -123,12 +140,12 @@ int UiDailyQuoteShots(QApplication &app) {
             while (row != nullptr && qobject_cast<SettingsParts::SettingsRow *>(row) == nullptr)
                 row = row->parentWidget();
             const QString file = QDir(out).filePath(
-                QStringLiteral("r71-%1-settings-switch.png").arg(preset));
+                QStringLiteral("r116-%1-settings-switch.png").arg(preset));
             if (row != nullptr && row->grab().save(file)) ++saved;
             else std::printf("FAIL save %s" "\n", qPrintable(file));
             window.hide();
         }
     }
     std::printf("daily-quote shots: %d saved to %s" "\n", saved, qPrintable(out));
-    return saved == 18 ? 0 : 1;
+    return saved == 2 * (scopes.size() * (samples.size() + 1) + 1) ? 0 : 1;
 }

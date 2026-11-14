@@ -81,10 +81,12 @@ inline constexpr int kHomeLaunchGlowRoom = 24;
 inline constexpr int kHomeCardGap = 0;
 /// 主页大标题的字号（设计稿 home.html：细楷 50，窄窗 40）。
 inline constexpr int kHomeHeroTitlePixelSize = 50;
-/// 大标题下那行「每日一言」的字号：正常 16，窄窗 <1024 收一号到 14
-/// （和原来的英文副题同一档，见 8fc9f5e 的反向 diff）。
-inline constexpr int kHomeQuotePixelSize = 16;
-inline constexpr int kHomeQuoteNarrowPixelSize = 14;
+/// 大标题下那行「每日一言」的字号区间：按句长在区间里取放得下整句的最大一号，
+/// 到下限还放不下就收省略号。宽窗 18–24，窄窗（<1024）16–20。行高按上限预留，换句不跳。
+inline constexpr int kHomeQuoteMinPixelSize = 18;
+inline constexpr int kHomeQuoteMaxPixelSize = 24;
+inline constexpr int kHomeQuoteNarrowMinPixelSize = 16;
+inline constexpr int kHomeQuoteNarrowMaxPixelSize = 20;
 
 /// 「额外 JVM 参数」多行输入框的高度，约三四行的样子；再高会把下面那几项挤出可视区。
 inline constexpr int kJvmArgsEditHeight = 72;

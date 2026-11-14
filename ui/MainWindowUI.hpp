@@ -3851,6 +3851,7 @@ private:
     // NOTE: 新加控件指针时**一并写上 = nullptr**，别让它单独破例。
     QPushButton *startButton = nullptr;
     void updateHomeQuoteFont(bool narrow);
+    void fitHomeQuoteFont();
 
     QPushButton *homeInstanceSelectButton = nullptr;
     QWidget *homeLaunchArea = nullptr;
@@ -3872,6 +3873,7 @@ private:
     QLabel *homeHeroQuote = nullptr;
     QLabel *homeHeroTitle = nullptr;
     Theme::QuoteScript homeQuoteScript = Theme::QuoteScript::Han;
+    bool homeQuoteNarrow = false;
     QLabel *homeAccountTypeLabel = nullptr;
     QPushButton *addFolderButton = nullptr;
     QListWidget *folderList = nullptr;

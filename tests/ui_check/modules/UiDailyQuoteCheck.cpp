@@ -1,7 +1,10 @@
 #include "Support.hpp"
 
+#include "MainWindowPageLayout.hpp"
 #include "MainWindowUI.hpp"
 #include "Theme.hpp"
+
+#include <QFontMetrics>
 
 // 主页「每日一言」那一行：在有 / 没有之间来回摆，量的是**版面和字体**，不是网络。
 //
@@ -9,7 +12,7 @@
 // 单行小字。这一层要证的三件事：
 // 1. 有句子时它在、没句子/关掉时它**不占位**（启动区那一块回到原位）；
 // 2. 中文 / 英文 / 日文各自选的 family 对得上（不靠像素，靠 family 列表）；
-// 3. 窄窗（<1024）字号收一号，超宽自己收省略号。
+// 3. 字号随句长在区间里取放得下整句的最大一号（宽窗 18–24、窄窗 16–20），到下限还放不下就收省略号。
 int UiDailyQuoteCheck(QApplication &app) {
     app.setStyle(Theme::createStyle());
     Theme::setSpec(Theme::defaultSpec());
@@ -35,6 +38,27 @@ int UiDailyQuoteCheck(QApplication &app) {
     check(title != nullptr, "DQ-UI6 大标题在（拿它的纵向位置当版面基准）");
     const int titleY = title != nullptr ? title->mapTo(&window, QPoint(0, 0)).y() : -1;
 
+    // 字号判据：在 [lo, hi] 里；整句放得下（除非已到下限、交给省略号）；且再大一号就放不下（除非已到上限）。
+    const auto advanceAt = [quote](int px) {
+        QFont f = quote->font();
+        f.setPixelSize(px);
+        return QFontMetrics(f).horizontalAdvance(quote->text());
+    };
+    const auto sizeOk = [&](int lo, int hi) {
+        const int px = quote->font().pixelSize();
+        const int room = quote->contentsRect().width();
+        const bool inRange = px >= lo && px <= hi;
+        const bool fits = advanceAt(px) <= room || px == lo;
+        const bool largest = px == hi || advanceAt(px + 1) > room;
+        return inRange && fits && largest;
+    };
+    const auto sizeDetail = [&] {
+        return QStringLiteral("%1px，句宽 %2 / 可用 %3")
+            .arg(quote->font().pixelSize())
+            .arg(advanceAt(quote->font().pixelSize()))
+            .arg(quote->contentsRect().width());
+    };
+
     // ---- 中文：文楷 ----
     ui.setHomeHeroQuote(QStringLiteral("长河千嶂，大荒孤城，历历在目。"),
                         QStringLiteral("— 令《明日方舟》"), Theme::QuoteScript::Han);
@@ -43,8 +67,8 @@ int UiDailyQuoteCheck(QApplication &app) {
           "DQ-UI7 有句子时显示出来，文字就是那一句");
     check(quote->font().families().value(0).contains(QStringLiteral("WenKai")),
           "DQ-UI8 中文选的是文楷（family 列表第一档）", quote->font().families().join(QStringLiteral(" / ")));
-    check(quote->font().pixelSize() == 16, "DQ-UI9 宽窗字号 16",
-          QString::number(quote->font().pixelSize()));
+    check(sizeOk(MainWindowPageLayout::kHomeQuoteMinPixelSize, MainWindowPageLayout::kHomeQuoteMaxPixelSize),
+          "DQ-UI9 宽窗字号在 18–24 里，是放得下整句的最大一号", sizeDetail());
     check(quote->toolTip() == QStringLiteral("— 令《明日方舟》"), "DQ-UI10 悬停提示是「— 作者《出处》」",
           quote->toolTip());
     check(quote->height() > 0 && quote->mapTo(&window, QPoint(0, 0)).y() > titleY,
@@ -73,14 +97,46 @@ int UiDailyQuoteCheck(QApplication &app) {
     check(!quote->property("wtfmlDisplay").toBool(),
           "DQ-UI15 日文不挂 wtfmlDisplay（系统字体不算手写体）");
 
-    // ---- 窄窗收一号 ----
+    // ---- 窄窗换区间 ----
     window.resize(900, 700);
     app.processEvents();
-    check(quote->font().pixelSize() == 14, "DQ-UI16 窄窗（<1024）字号收一号到 14",
-          QString::number(quote->font().pixelSize()));
+    check(sizeOk(MainWindowPageLayout::kHomeQuoteNarrowMinPixelSize, MainWindowPageLayout::kHomeQuoteNarrowMaxPixelSize),
+          "DQ-UI16 窄窗（<1024）字号在 16–20 里，是放得下整句的最大一号", sizeDetail());
     window.resize(1280, 800);
     app.processEvents();
-    check(quote->font().pixelSize() == 16, "DQ-UI17 回到宽窗又变回 16");
+    check(sizeOk(MainWindowPageLayout::kHomeQuoteMinPixelSize, MainWindowPageLayout::kHomeQuoteMaxPixelSize), "DQ-UI17 回到宽窗按 18–24 重挑",
+          sizeDetail());
+
+    // ---- 短句字号大于长句；换句不挪下面的版面 ----
+    for (const QSize size : {QSize(1280, 800), QSize(900, 620)}) {
+        window.resize(size);
+        app.processEvents();
+        const QString where = QStringLiteral("%1x%2").arg(size.width()).arg(size.height());
+        ui.setHomeHeroQuote(QStringLiteral("Be confident, not certain."), QStringLiteral("— Eleanor Roosevelt"),
+                            Theme::QuoteScript::Latin);
+        app.processEvents();
+        const int shortPx = quote->font().pixelSize();
+        const int shortBottom = quote->mapTo(&window, QPoint(0, quote->height())).y();
+        // 宽窗下句库里最长那句（80 字符）在 24px 也放得下；这里用贴着 128 字硬上限的长句，两档都放不下上限。
+        ui.setHomeHeroQuote(
+            QStringLiteral("Supreme excellence consists of breaking the enemy's resistance without fighting, "
+                           "and the wise win before the battle ever begins."),
+            QStringLiteral("— Sun Tzu"), Theme::QuoteScript::Latin);
+        app.processEvents();
+        const int longPx = quote->font().pixelSize();
+        const int longBottom = quote->mapTo(&window, QPoint(0, quote->height())).y();
+        check(shortPx > longPx, QStringLiteral("DQ-UI26 %1：短句字号大于长句").arg(where),
+              QStringLiteral("短 %1px / 长 %2px").arg(shortPx).arg(longPx));
+        ui.setHomeHeroQuote(QStringLiteral("以有涯随无涯，殆已！"), QStringLiteral("— 庄周《庄子》"),
+                            Theme::QuoteScript::Han);
+        app.processEvents();
+        const int hanBottom = quote->mapTo(&window, QPoint(0, quote->height())).y();
+        check(shortBottom == longBottom && longBottom == hanBottom,
+              QStringLiteral("DQ-UI27 %1：换句（含换语种）这一行底边不动，行高按上限预留").arg(where),
+              QStringLiteral("短 %1 / 长 %2 / 中文 %3").arg(shortBottom).arg(longBottom).arg(hanBottom));
+    }
+    window.resize(1280, 800);
+    app.processEvents();
 
     // ---- 收起来：不占位 ----
     ui.setHomeHeroQuote(QString(), QString(), Theme::QuoteScript::Han);

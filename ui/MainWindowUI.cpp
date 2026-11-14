@@ -164,14 +164,22 @@ void followHeroInk(QWidget *w, bool secondary) {
     Theme::follow(w, apply);
 }
 
-/// 主页「每日一言」：16px 细笔画手写体直接压在风景上（亮雪山那块尤其发虚）。不放大、不加底框，
+/// 主页「每日一言」：细笔画手写体直接压在风景上（亮雪山那块尤其发虚），字号随句长在区间里挑（见
+/// MainWindowUI::fitHomeQuoteFont()）。不加底框，
 /// 画的时候按这一格背后**此刻实测**的明暗两端兜对比度 ≥ 3:1（和导航轨品牌标同一路数：往 heroInk 挪），
 /// 再垫一圈很淡的暗角色光晕把细笔画托出来；背后连 heroInk 都不够 3:1 时光晕加重。中 / 英 / 日三种句子同一套。
 class HomeQuoteLabel final : public ElidedLabel {
 public:
     using ElidedLabel::ElidedLabel;
+    /// 宽度一变就重挑字号（窗口拉伸、左栏让位都走这里）。
+    std::function<void()> widthChanged;
 
 protected:
+    void resizeEvent(QResizeEvent *event) override {
+        ElidedLabel::resizeEvent(event);
+        if (widthChanged && event->size().width() != event->oldSize().width()) widthChanged();
+    }
+
     void paintEvent(QPaintEvent *) override {
         const QRect box = contentsRect();
         const QString shown = fontMetrics().elidedText(text(), elideMode(), box.width());
@@ -994,9 +1002,32 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
 }
 
 void MainWindowUI::updateHomeQuoteFont(bool narrow) {
+    homeQuoteNarrow = narrow;
+    fitHomeQuoteFont();
+}
+
+void MainWindowUI::fitHomeQuoteFont() {
     if (homeHeroQuote == nullptr) return;
-    const QFont font = Theme::quoteFont(homeHeroQuote->font(), homeQuoteScript,
-                                       narrow ? kHomeQuoteNarrowPixelSize : kHomeQuotePixelSize);
+    const int lo = homeQuoteNarrow ? kHomeQuoteNarrowMinPixelSize : kHomeQuoteMinPixelSize;
+    const int hi = homeQuoteNarrow ? kHomeQuoteNarrowMaxPixelSize : kHomeQuoteMaxPixelSize;
+    // 行高按上限、按三种文字里最高的那一种预留：换句（连带换语种）时下面的版面不跳。
+    int line = 0;
+    for (const Theme::QuoteScript s : {Theme::QuoteScript::Han, Theme::QuoteScript::Latin, Theme::QuoteScript::Kana})
+        line = qMax(line, QFontMetrics(Theme::quoteFont(homeHeroQuote->font(), s, hi)).height());
+    const QMargins m = homeHeroQuote->contentsMargins();
+    homeHeroQuote->setFixedHeight(m.top() + line + m.bottom());
+    // 放得下整句的最大一号；到下限还放不下就用下限，交给省略号。
+    const int width = homeHeroQuote->contentsRect().width();
+    const QString text = homeHeroQuote->text();
+    int px = lo;
+    for (int candidate = hi; candidate > lo; --candidate) {
+        if (QFontMetrics(Theme::quoteFont(homeHeroQuote->font(), homeQuoteScript, candidate)).horizontalAdvance(text) <=
+            width) {
+            px = candidate;
+            break;
+        }
+    }
+    const QFont font = Theme::quoteFont(homeHeroQuote->font(), homeQuoteScript, px);
     if (homeQuoteScript == Theme::QuoteScript::Kana) {
         // 日文走系统字体链，不算手写体：不挂 wtfmlDisplay（ui_check 按它查手写体有没有漏）。
         homeHeroQuote->setFont(font);
@@ -1026,9 +1057,9 @@ void MainWindowUI::setHomeHeroQuote(const QString &text, const QString &tooltip,
                                     Theme::QuoteScript script) {
     if (homeHeroQuote == nullptr) return;
     homeQuoteScript = script;
+    homeHeroQuote->setText(text);
     const QWidget *host = homeHeroQuote->window();
     updateHomeQuoteFont(host != nullptr && host->width() < 1024);
-    homeHeroQuote->setText(text);
     homeHeroQuote->setToolTip(tooltip);
     homeHeroQuote->setVisible(!text.isEmpty());
 }
@@ -1083,12 +1114,15 @@ QWidget *MainWindowUI::setupHomePage() {
         quote->setContentsMargins(kHomeHeroInset + 4, 12, 0, 0);
         // 宽度交给布局（Ignored），文字长短不会把左栏抻开；装不下自己收省略号。
         quote->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+        // 字号随句长变，顶边对齐：和大标题的间距不跟着字号走。
+        quote->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+        quote->widthChanged = [this] { fitHomeQuoteFont(); };
         quote->setToolTip(QString());
         quote->setVisible(false);
         homeHeroQuote = quote;
         home.left.layout->addWidget(quote);
         followHeroInk(quote, true);
-        // 窄于 1024 的窗口：标题收一号（50 → 40），一言收一号（16 → 14），立绘缩到七成二（设计稿 @media）。
+        // 窄于 1024 的窗口：标题收一号（50 → 40），一言换到窄窗那档字号区间，立绘缩到七成二（设计稿 @media）。
         const auto applyScale = [this, homeTab, welcome]() {
             const bool narrow = homeTab->window()->width() < 1024;
             QFont titleFont = handPx(welcome->font(), Theme::HandFont::KaiLight,
