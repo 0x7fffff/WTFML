@@ -513,9 +513,15 @@ bool InstanceFilesPage::clickRowAction(int row, RowAction action) {
     if (m_list == nullptr) return false;
     QListWidgetItem *item = m_list->item(row);
     if (!actionEnabled(item, action)) return false;
-    m_list->scrollToItem(item);
     QWidget *viewport = m_list->viewport();
-    const QPoint pos = rowActionRect(row, action).center();
+    const QRect cell = rowActionRect(row, action);
+    // 那一格不在视口里：**不替用户滚**（scrollToItem 会把这一屏挪走，接着那一发刷新又按挪过的
+    // 位置还原 —— 滚动就凭空跳了几行），直接走松开鼠标那一路的同一个落点。
+    if (!viewport->rect().contains(cell)) {
+        triggerRowAction(item->data(pathRole()).toString(), action);
+        return true;
+    }
+    const QPoint pos = cell.center();
     const QPoint global = viewport->mapToGlobal(pos);
     QMouseEvent move(QEvent::MouseMove, pos, global, Qt::NoButton, Qt::NoButton, Qt::NoModifier);
     QApplication::sendEvent(viewport, &move);

@@ -111,6 +111,44 @@ int UiFilesRowsCheck(QApplication &app) {
     app.processEvents();
     expect(QFileInfo::exists(jar), "Space on a focused row does not rename the file");
 
+    // ---- U10M 那条路：选着一条**在视口下面看不见**的行、拨它的开关 ----
+    // 原来 clickRowAction() 先 scrollToItem() 把那一行滚进来，刷新再按挪过的位置还原 ——
+    // 滚动凭空往下跳了几行（全量 wtfml.ui 里 27 → 35）。这里要的是一个像素都不差。
+    const auto topIdentity = [list]() {
+        for (int r = 0; r < list->count(); ++r) {
+            if (list->visualItemRect(list->item(r)).bottom() > 0)
+                return InstanceFilesPage::identityPath(list->item(r)->data(InstanceFilesPage::pathRole()).toString());
+        }
+        return QString();
+    };
+    list->clearSelection();
+    bar->setValue(bar->maximum() / 2);
+    app.processEvents();
+    const int midValue = bar->value();
+    const QString topBefore = topIdentity();
+    int below = -1;
+    for (int r = 0; r < list->count(); ++r) {
+        if (list->visualItemRect(list->item(r)).top() > viewport->height() + list->sizeHintForRow(0) * 3) {
+            below = r;
+            break;
+        }
+    }
+    const QString belowJar = below >= 0 ? uiItemPath(&page, below) : QString();
+    expect(below >= 0, "U10M path: a row well below the visible area exists", QString::number(below));
+    if (below >= 0) {
+        list->item(below)->setSelected(true);
+        if (const auto offscreen = uiToggleAt(&page, below)) offscreen->click();
+        QEventLoop settle;
+        QTimer::singleShot(50, &settle, &QEventLoop::quit);
+        settle.exec();
+        app.processEvents();
+        expect(QFileInfo::exists(belowJar + QStringLiteral(".disabled")),
+               "U10M path: toggling an off-screen selected row still renames it on disk");
+        expect(bar->value() == midValue && topIdentity() == topBefore,
+               "U10M path: the visible stretch does not move (same scroll value, same top row)",
+               QStringLiteral("%1 -> %2 / %3 -> %4").arg(midValue).arg(bar->value()).arg(topBefore, topIdentity()));
+    }
+
     printf("%s files-rows: %d failure(s)\n", failures == 0 ? "PASS" : "FAIL", failures);
     return failures == 0 ? 0 : 1;
 }

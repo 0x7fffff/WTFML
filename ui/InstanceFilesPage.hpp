@@ -480,6 +480,7 @@ public:
     /// 第 row 行此刻是不是正在淡进来（只有这一趟新冒出来的行才淡，见 rebuildRows）。
     bool rowFadingIn(int row) const;
     /// 照真鼠标那样点第 row 行的某一格：先移过去（悬停）、再按下、松开，走和用户同一条事件路。
+    /// 那一格不在视口里时不滚动列表（滚了就改了用户看着的那一屏），直接触发同一个动作。
     /// 返回那一格有没有、点不点得动（false 时什么都没发生）。
     bool clickRowAction(int row, RowAction action);
     /// 照真鼠标那样把光标移到第 row 行上（-1 = 移出列表）。
