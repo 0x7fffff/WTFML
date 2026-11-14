@@ -49,7 +49,17 @@ if(WTFML_USE_CCACHE AND NOT CMAKE_CXX_COMPILER_LAUNCHER)
         set(CMAKE_CXX_COMPILER_LAUNCHER "${WTFML_CCACHE_PROGRAM}")
     endif()
 endif()
-get_filename_component(WTFML_LAUNCHER_NAME "${CMAKE_CXX_COMPILER_LAUNCHER}" NAME_WE)
+set(WTFML_LAUNCHER_NAME "")
+if(CMAKE_CXX_COMPILER_LAUNCHER)
+    list(GET CMAKE_CXX_COMPILER_LAUNCHER 0 WTFML_LAUNCHER_PROGRAM)
+    get_filename_component(WTFML_LAUNCHER_NAME "${WTFML_LAUNCHER_PROGRAM}" NAME_WE)
+endif()
+if(WTFML_LAUNCHER_NAME STREQUAL "ccache")
+    # base_dir 设成本仓库根目录，直接写在 ccache 的命令行上：仓库里的路径都改写成相对构建目录的
+    # 路径，主仓和各工作树才能互相命中。不靠环境变量 CCACHE_BASEDIR，因为长期开着的进程
+    # （同席）拉起的成员只带启动那一刻的旧值（11-14 就是这样：旧值不含 D:\AI，跨工作树全不命中）。
+    list(INSERT CMAKE_CXX_COMPILER_LAUNCHER 1 "base_dir=${CMAKE_SOURCE_DIR}")
+endif()
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
