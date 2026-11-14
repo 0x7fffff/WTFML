@@ -3722,12 +3722,19 @@ void fillTrimSlots(const QList<QComboBox *> &combos, const QStringList &names, c
         auto *combo=combos[slot]; const bool had=combo->count()>0;
         const int previous=combo->currentData().toInt(); const QSignalBlocker blocker(combo);
         combo->clear();
-        if(!emptyLabel.isEmpty()) combo->addItem(emptyLabel,-1);
-        for(int i=0;i<names.size();++i) combo->addItem(names[i],i);
-        if(armor && slot>0 && names.size()==7) {
-            if(auto *model=qobject_cast<QStandardItemModel *>(combo->model()))
-                if(auto *item=model->item(combo->findData(6))) item->setEnabled(false);
-        }
+        // 一个框一次整批插进去：逐项 addItem 每项各发一轮 rowsInserted、各重算一次尺寸，
+        // 十二个框近两百项都压在纹饰页第一次进的那一帧里（灌表那段实测 16 ms 上下）。
+        QList<QStandardItem *> items;
+        const auto add=[&items](const QString &text,int value) {
+            auto *item=new QStandardItem(text); item->setData(value,Qt::UserRole); items.append(item);
+        };
+        if(!emptyLabel.isEmpty()) add(emptyLabel,-1);
+        for(int i=0;i<names.size();++i) add(names[i],i);
+        auto *model=qobject_cast<QStandardItemModel *>(combo->model());
+        if(model!=nullptr) model->invisibleRootItem()->appendRows(items);
+        else for(auto *item:std::as_const(items)) { combo->addItem(item->text(),item->data(Qt::UserRole)); delete item; }
+        if(armor && slot>0 && names.size()==7 && model!=nullptr)
+            if(auto *item=model->item(combo->findData(6))) item->setEnabled(false);
         combo->setCurrentIndex(combo->findData(had?previous:0));
     }
 }
