@@ -622,6 +622,11 @@ int MwFolderSwitchingChecks(const QDir &root, MainWindow &window) {
                 QPushButton *gear = gearOf(otherTitle);
                 check(gear != nullptr, "P2 行尾那颗齿轮是个真按钮");
                 if (gear != nullptr) {
+                    // 列表住在页头文件夹胶囊点开的浮层里：浮层没开过，行控件就没排过布局，
+                    // 量到的是默认大小。先打开量，量完收起（后面那几段只点不量）。
+                    auto *folderPill = w9.findChild<QPushButton *>(MainWindowUI::instanceFolderPillName());
+                    if (folderPill != nullptr) folderPill->click();
+                    QApplication::processEvents();
                     const int rowIndex = folderRowIndexOf(&w9, otherTitle);
                     QWidget *rowWidget =
                         w9.findChild<QWidget *>(MainWindowUI::folderRowName(rowIndex));
@@ -638,6 +643,8 @@ int MwFolderSwitchingChecks(const QDir &root, MainWindow &window) {
                               ? QString("%1 / %2").arg(gear->geometry().right()).arg(
                                     rowWidget->width())
                               : QString());
+                    if (auto *popup = w9.findChild<QWidget *>(MainWindowUI::instanceFolderPopupName())) popup->hide();
+                    QApplication::processEvents();
                 }
                 QWidget *menu = openMenuOf(gear);
                 check(menu != nullptr && menu->isVisible(), "P2 点齿轮弹出一块框（不是右键菜单，"

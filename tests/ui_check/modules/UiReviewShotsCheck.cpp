@@ -1084,7 +1084,8 @@ int runPopups(QApplication &app, const ShotOptions &options) {
                            QStringLiteral("1.21.4"), QStringLiteral("24w14a")});
         editable.completer()->setFilterMode(Qt::MatchContains);
         editable.completer()->setCompletionMode(QCompleter::PopupCompletion);
-        editable.setGeometry(120, 160, 320, 36);
+        // 摆在「运行时」小标题那一行的空档里（标题和「Java 管理…」之间），不压任何字。
+        editable.setGeometry(120, 82, 320, 32);
         editable.show();
         editable.lineEdit()->setText(QStringLiteral("1.2"));
         editable.completer()->setCompletionPrefix(QStringLiteral("1.2"));

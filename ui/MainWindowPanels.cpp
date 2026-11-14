@@ -547,6 +547,8 @@ void applyBottomBarButtonStyle(QPushButton *button, const QPalette &barPalette) 
 /// 行里两圈边距：外面那圈（行自己的内边距）比组框那圈小一点，里面两行字之间不留缝
 /// （它们是一段话的两行，不是两个控件）。
 constexpr int kFolderRowSideMargin = 8;
+/// 文件夹浮层列表最多露几行（再多在列表里滚；5 × 56 和下拉弹层露 8 项差不多高）。
+constexpr int kFolderListMaxRows = 5;
 constexpr int kFolderRowTopMargin = 6;
 
 /// 行尾那颗齿轮到自己那两行字的间距。
@@ -656,6 +658,17 @@ public:
     /// 行尾那颗齿轮。**只有 `setFolderRows()` 串焦点链的时候要** —— 那几颗按钮是运行时
     /// 才建的，得在它们建出来之后当场把顺序接上（见那儿那段）。
     QPushButton *gearButton() const { return m_gear; }
+
+protected:
+    // 行底（悬停那块圆角）是列表代理画在 viewport 上的，按本行 underMouse() 认：进出时让它重画。
+    void enterEvent(QEnterEvent *event) override {
+        QWidget::enterEvent(event);
+        if (parentWidget() != nullptr) parentWidget()->update(geometry());
+    }
+    void leaveEvent(QEvent *event) override {
+        QWidget::leaveEvent(event);
+        if (parentWidget() != nullptr) parentWidget()->update(geometry());
+    }
 
 private:
     QPushButton *m_gear = nullptr;
@@ -1723,6 +1736,11 @@ void MainWindowUI::setFolderRows(const QList<FolderRow> &rows) {
     }
     if (addFolderButton != nullptr) {
         QWidget::setTabOrder(previous, addFolderButton);
+    }
+    // 高度按行数走（最多露 kFolderListMaxRows 行，再多在列表里滚）；浮层开着时跟着收放。
+    list->setFixedHeight(qBound(1, int(list->count()), kFolderListMaxRows) * folderRowHeight());
+    if (QWidget *popup = list->window(); popup->windowType() == Qt::Popup && popup->isVisible()) {
+        popup->adjustSize();
     }
 }
 

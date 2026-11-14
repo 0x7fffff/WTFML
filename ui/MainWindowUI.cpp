@@ -29,6 +29,7 @@
 #include "VersionTreeDelegate.hpp"
 #include "WindowChrome.hpp"
 
+#include <QApplication>
 #include <QColor>
 #include <QEvent>
 #include <QFont>
@@ -45,6 +46,7 @@
 #include <QSignalBlocker>
 #include <QSettings>
 #include <QStyle>
+#include <QStyledItemDelegate>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPalette>
@@ -70,6 +72,28 @@ protected:
     void paintEvent(QPaintEvent *) override {
         QPainter painter(this);
         Popups::paintSurface(painter, QRectF(rect()), GlassPopover::kRadius);
+    }
+};
+
+/// 文件夹浮层那张列表的行底：内缩的圆角块（圆角 8，和菜单行 / 智能体实例下拉同一档）。
+/// 行内容是 setItemWidget() 塞的 FolderRowWidget，条目上没字，这里只画底。悬停按那块行控件
+/// 认（`underMouse()`）：鼠标落在两行字 / 齿轮上时列表自己的悬停下标收不到移动事件。
+class FolderRowDelegate final : public QStyledItemDelegate {
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+
+    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override {
+        const auto *view = qobject_cast<const QAbstractItemView *>(option.widget);
+        const QWidget *row = view != nullptr ? view->indexWidget(index) : nullptr;
+        const bool selected = (option.state & QStyle::State_Selected) != 0;
+        const bool hover = (row != nullptr && row->underMouse()) || (option.state & QStyle::State_MouseOver) != 0;
+        if (!selected && !hover) return;
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing, true);
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(selected ? Theme::tokens().selected : Theme::tokens().hover);
+        painter->drawRoundedRect(QRectF(option.rect.adjusted(4, 2, -4, -2)), 8, 8);
+        painter->restore();
     }
 };
 
@@ -1407,19 +1431,34 @@ QWidget *MainWindowUI::setupInstancePage() {
         // （见 FolderRowWidget），有没有外框在观感上是"一块面板"和"一串行"的区别。
         folderList->setFrameShape(QFrame::NoFrame);
         styleSidebarList(folderList);
-        folderList->setMinimumHeight(folderRowHeight() * 3 + 8);
-        instance.left.layout->addWidget(folderList, 1);
+        // 选中 / 悬停画成内缩圆角块：只这张列表换代理，styleSidebarList() 的共用部分（下载页
+        // 分类列表也走它）不动。高度按行数定，见 setFolderRows()。
+        folderList->setItemDelegate(new FolderRowDelegate(folderList));
+        folderList->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+        instance.left.layout->addWidget(folderList);
 
-        // 下面两颗按钮**贴着侧栏底部**（列表那一格吃掉剩下的高度）。
-        // 这一行**只有「添加文件夹…」一个按钮**；「移除」只在行尾齿轮菜单里那一项（同一个
-        // MainWindow::removeFolderFromList()，同一个确认框）。
-        //
-        // 两颗的身份是**有意分开**的（它们本来就是两种样子）：「添加文件夹…」
-        // 是"加东西进来"那一档（主题色描边，`ButtonKind::Accent` = 默认那一份样式）；
-        // 「导入整合包…」是**另一条**路（一般性），走中性那档白底黑字。两颗都顶满侧栏。
+        // 「添加文件夹…」是浮层里的一行动作，长相跟菜单行走：无底无框、左对齐、强调色字 +
+        // 「+」，悬停铺一块和列表行同样内缩的圆角底（原先那颗描边按钮落在磨砂面上几乎看不出边）。
+        // 「移除」只在行尾齿轮菜单里那一项（同一个 MainWindow::removeFolderFromList()）。
         addFolderButton = new QPushButton(addFolderText(), instance.left.surface);
         addFolderButton->setObjectName(addFolderButtonName());
         addFolderButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        addFolderButton->setFixedHeight(34);
+        addFolderButton->setCursor(Qt::PointingHandCursor);
+        addFolderButton->setIconSize(QSize(16, 16));
+        const auto styleAddFolder = [button = addFolderButton] {
+            const Theme::Tokens t = Theme::tokens();
+            const QColor ink = QApplication::palette().color(QPalette::Link);
+            button->setIcon(QIcon(VersionIcons::line(QStringLiteral("plus"), 16, ink)));
+            button->setStyleSheet(
+                QStringLiteral("QPushButton { border: none; border-radius: 8px; background: transparent;"
+                               " margin: 0 4px; padding: 0 4px; min-height: 0px; text-align: left; color: %1; }"
+                               "QPushButton:hover:enabled { background: %2; }"
+                               "QPushButton:pressed:enabled { background: %3; }")
+                    .arg(ink.name(), t.hover.name(QColor::HexArgb), t.selected.name(QColor::HexArgb)));
+        };
+        styleAddFolder();
+        Theme::follow(addFolderButton, styleAddFolder);
         instance.left.layout->addWidget(addFolderButton);
         // 浮层里点了一份文件夹 / 要添加文件夹：先收起浮层（切换本身照旧由 MainWindow 接）。
         QObject::connect(folderList, &QListWidget::itemClicked, folderPopup, &QWidget::hide);
