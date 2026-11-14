@@ -2954,10 +2954,36 @@ void save(const Spec &spec) {
     PersistedThemeValues &persisted = persistedThemeValues();
     const QString scope = settingsScope(settings);
     if (persisted.scope != scope) {
-        // 没有基线（这个进程还没 `load()` 过，或者刚换了配置文件）：退回老规矩 ——
-        // 整组清掉再写，这样"上一次设过、这一次没设"的那几项不会在读回来时复活。
+        // 没有基线（这个进程还没 `load()` 过，或者刚换了配置文件）：主题自己那几项整组清掉再写，
+        // 这样"上一次设过、这一次没设"的那几项不会在读回来时复活。
         // 这一支只在启动早期/测试切文件时走，跨进程互不覆盖那条保证本来就无从谈起。
-        settings.remove(QStringLiteral("Theme"));
+        //
+        // **只清主题自己的键**：`Theme/` 这一组里还有 Glass 的材质 / 着色 / 模糊
+        // （`Theme/Backdrop`、`Theme/BackdropTint`、`Theme/BackdropBlur`，见 ui/Glass.cpp），
+        // 整组删会把用户挑的那三项抹回出厂。
+        // 主题自己的键就是这三组加三个主键。以后主题再加键，加在这一支里，别退回整组删。
+        for (const char *prefix : {kRolesPrefix, kPartsPrefix, kAccentsPrefix}) {
+            // 这三个组只装主题的键（Roles / Parts / Accents），整组删掉连注册表里那层空键一起收。
+            QString group = QLatin1String(prefix);
+            group.chop(1);  // 去掉尾部那个 '/'
+            settings.remove(group);
+        }
+        settings.remove(QLatin1String(kPresetKey));
+        settings.remove(QLatin1String(kTextOpacityKey));
+        settings.remove(QLatin1String(kAccentKey));
+        // `Theme` 那一组只在确实空了的时候才收（Glass 的键还在就不动它）。
+        bool themeGroupHasKeys = false;
+        for (const QString &key : settings.allKeys()) {
+            if (key.startsWith(QLatin1String(kThemeGroupPrefix))) {
+                themeGroupHasKeys = true;
+                break;
+            }
+        }
+        if (!themeGroupHasKeys) {
+            QString group = QLatin1String(kThemeGroupPrefix);
+            group.chop(1);
+            settings.remove(group);
+        }
         for (auto it = desired.constBegin(); it != desired.constEnd(); ++it) {
             settings.setValue(it.key(), it.value());
         }

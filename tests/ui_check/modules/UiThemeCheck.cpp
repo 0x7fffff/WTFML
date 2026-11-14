@@ -22,6 +22,33 @@ int UiThemeCheck(QApplication &app) {
             printf("%s %s\n", ok ? "PASS" : "FAIL", name);
             if (!ok) ++failures;
         };
+        // `Theme::save()` 在「没有基线」那一支只清**主题自己的键**。Glass 的材质 / 着色 / 模糊
+        // 也在 `Theme/` 下（`Theme/Backdrop`、`Theme/BackdropTint`、`Theme/BackdropBlur`，
+        // 见 ui/Glass.cpp），整组删会把用户挑的那三项抹回出厂。
+        {
+            // 换一个应用名 = 换一份配置文件 ⇒ 这一支必然按「没有基线」走（不看本进程之前 load 过没有）。
+            app.setApplicationName(QStringLiteral("ThemeSaveCheck"));
+            {
+                QSettings glass;
+                glass.setValue(QStringLiteral("Theme/Backdrop"), QStringLiteral("mica"));
+                glass.setValue(QStringLiteral("Theme/BackdropTint"), 37);
+                glass.setValue(QStringLiteral("Theme/BackdropBlur"), 61);
+                // 主题自己的旧键：没基线那一支要清掉（「上一次设过、这一次没设」的项不许复活）。
+                glass.setValue(QStringLiteral("Theme/Parts/card/Image"), QStringLiteral("C:/old.png"));
+                glass.sync();
+            }
+            Theme::save(Theme::presetSpec(QStringLiteral("dark")));
+            QSettings after;
+            expect(after.value(QStringLiteral("Theme/Backdrop")).toString() == QStringLiteral("mica") &&
+                       after.value(QStringLiteral("Theme/BackdropTint")).toInt() == 37 &&
+                       after.value(QStringLiteral("Theme/BackdropBlur")).toInt() == 61,
+                   "Theme::save() 没有基线时一根手指都不碰 Glass 的材质三项（材质 / 着色 / 模糊）");
+            expect(after.value(QStringLiteral("Theme/Preset")).toString() == QStringLiteral("dark"),
+                   "…主题自己的键照旧写回去");
+            expect(!after.contains(QStringLiteral("Theme/Parts/card/Image")),
+                   "…上一次设过、这一次没设的主题项照旧清掉");
+            app.setApplicationName(QStringLiteral("ThemeCheck"));
+        }
         // 出厂材质：盘上没写过 `Theme/Backdrop` 时用风景底（≤ 2 线程的机器、旧版关过磨砂的是纯色）。
         expect(Glass::factoryMode(8, false) == Glass::Mode::Scene &&
                    Glass::factoryMode(2, false) == Glass::Mode::Solid &&
