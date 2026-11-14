@@ -8,8 +8,10 @@
  * 面包屑「工具箱 / 附魔助手」：「工具箱」点了回目录，工具名点了弹浮层（`GlassPopover`）直接
  * 换到别的工具。**没有页内页签，也没有导航轨底部的弹出框。**
  *
- * 【每件工具一片】十片各自一层滚动区，放在 `QStackedWidget` 里换着露；构造时全搭好，换工具
- * 只是换哪一格。窄窗口下每片自己重排（内容宽 < 640 时折行 / 叠放），不出横向滚动条。
+ * 【每件工具一片】十片各自一层滚动区，放在 `QStackedWidget` 里换着露。构造时只搭页头和目录页；
+ * 某件工具第一次进去才搭那一片（`showTool()` → `ensureTool()`），搭完发 `toolBuilt()`，之后一直
+ * 留着，再进只换格。**某片没搭之前，它那一组 set / get 都不能调** —— 灌表、恢复输入、算初值一律
+ * 接 `toolBuilt()` 做。窄窗口下每片自己重排（内容宽 < 640 时折行 / 叠放），不出横向滚动条。
  *
  * 【这一页自己一根手指都不碰游戏目录】
  *
@@ -25,6 +27,7 @@
 #include <QColor>
 #include <QIcon>
 #include <QList>
+#include <QMap>
 #include <QPair>
 #include <QString>
 #include <QStringList>
@@ -137,7 +140,9 @@ public:
     void showCatalog();
     /// 现在停在目录页吗。
     bool inCatalog() const { return m_inCatalog; }
-    /// 「高速下载」那一片（`DirectDownloadController::attach()` 接它）。
+    /// @p tool 那一片搭出来了吗（第一次 `showTool()` 才搭）。
+    bool hasTool(Tool tool) const { return m_pages.contains(tool); }
+    /// 「高速下载」那一片（`DirectDownloadController::attach()` 接它；没进过那一件时是空指针）。
     DownloadToolPanel *downloadPanel() const { return m_download; }
     /// 工具页里内容区的最大宽度（宽窗口时居中）。
     static constexpr int kToolMaxWidth = 880;
@@ -393,6 +398,8 @@ public:
     bool trimWholeSet() const;
 
 signals:
+    /// @p tool 那一片刚搭出来（每片只发一次，在 `toolShown()` 之前）。它那一组 set / get 从这一刻起能用。
+    void toolBuilt(ToolboxPage::Tool tool);
     /// 进了哪一件工具（目录格、切换浮层、程序里调 `showTool()` 都在这里发一次）。
     void toolShown(ToolboxPage::Tool tool);
     /// 回到了目录页。
@@ -444,7 +451,9 @@ protected:
     void dropEvent(QDropEvent *event) override;
 
 private:
-    /// 十片各自搭一次（构造函数里全搭好，切的时候只是换 `QStackedWidget` 那一格）。
+    /// 搭 @p tool 那一片（已搭过就直接返回），返回 `m_stack` 里那一页。
+    QWidget *ensureTool(Tool tool);
+    /// 十片各自搭一次（`ensureTool()` 调，之后切的时候只是换 `QStackedWidget` 那一格）。
     QWidget *buildAnvilPanel();
     QWidget *buildTextPanel();
     QWidget *buildCoordPanel();
@@ -476,7 +485,8 @@ private:
     QList<Tool> m_tools;
     bool m_inCatalog = true;
     QStackedWidget *m_levels = nullptr;  ///< 0 = 目录页，1 = 工具页
-    QStackedWidget *m_stack = nullptr;   ///< 十片工具，次序 = `m_tools`
+    QStackedWidget *m_stack = nullptr;   ///< 已搭出来的那几片，按第一次进的先后
+    QMap<Tool, QWidget *> m_pages;       ///< 已搭的工具 → `m_stack` 里那一页
     QWidget *m_headerInner = nullptr;
     QWidget *m_catalogHead = nullptr;
     QWidget *m_crumbHead = nullptr;
