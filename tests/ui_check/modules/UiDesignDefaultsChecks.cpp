@@ -5,6 +5,8 @@
 
 #include <QComboBox>
 #include <QEventLoop>
+#include <QHeaderView>
+#include <QImage>
 #include <QLabel>
 #include <QListWidget>
 #include <QPlainTextEdit>
@@ -87,6 +89,48 @@ void viewChecks() {
     check(list->itemDelegate() == before, "DD6 重复 polish 不换掉已换上的默认代理");
 }
 
+/// @p area 里第一列有墨的 x（和这一片左缘那个底色差得开就算墨）；没有返回 -1。
+int firstInkX(const QImage &image, const QRect &area) {
+    const QRect r = area.intersected(image.rect());
+    const QColor ground = image.pixelColor(r.left() + 1, r.center().y());
+    for (int x = r.left(); x <= r.right(); ++x)
+        for (int y = r.top(); y <= r.bottom(); ++y) {
+            const QColor c = image.pixelColor(x, y);
+            if (qMax(qAbs(c.red() - ground.red()), qMax(qAbs(c.green() - ground.green()), qAbs(c.blue() - ground.blue()))) > 60)
+                return x;
+        }
+    return -1;
+}
+
+/// 表头字和单元格字左缘对齐：每一列（首列、中间列、末列）都量一遍，不按某张表打补丁。
+void headerAlignChecks(QApplication &app) {
+    Theme::apply(app);  // 表头那条 padding 在应用 QSS 里
+    QWidget window;
+    window.resize(640, 240);
+    auto *layout = new QVBoxLayout(&window);
+    auto *table = new QTableWidget(2, 3);
+    table->setHorizontalHeaderLabels({QStringLiteral("甲乙"), QStringLiteral("甲乙"), QStringLiteral("甲乙")});
+    for (int row = 0; row < 2; ++row)
+        for (int col = 0; col < 3; ++col) table->setItem(row, col, new QTableWidgetItem(QStringLiteral("甲乙")));
+    table->verticalHeader()->hide();
+    layout->addWidget(table);
+    window.show();
+    QApplication::processEvents();
+    const QImage shot = window.grab().toImage();
+    QHeaderView *header = table->horizontalHeader();
+    QStringList detail;
+    bool aligned = true;
+    for (int col = 0; col < 3; ++col) {
+        const QPoint headerAt = header->mapTo(&window, QPoint(header->sectionViewportPosition(col), 0));
+        const int headX = firstInkX(shot, QRect(headerAt, QSize(header->sectionSize(col), header->height())));
+        const QRect cell = table->visualRect(table->model()->index(0, col));
+        const int cellX = firstInkX(shot, QRect(table->viewport()->mapTo(&window, cell.topLeft()), cell.size()));
+        aligned &= headX >= 0 && cellX >= 0 && qAbs(headX - cellX) <= 1;
+        detail << QStringLiteral("列%1 表头 %2 / 格 %3").arg(col).arg(headX).arg(cellX);
+    }
+    check(aligned, "★ DD11 表头字和单元格字每一列左缘对齐（同一个 cellTextInset）", detail.join(QStringLiteral("；")));
+}
+
 /// 两页的栈；页上各一块标签撑面积。
 QStackedWidget *twoPages(QWidget *parent) {
     auto *stack = new QStackedWidget(parent);
@@ -142,10 +186,11 @@ void stackChecks() {
 
 }  // namespace
 
-int UiDesignDefaultsChecks(QApplication &) {
+int UiDesignDefaultsChecks(QApplication &app) {
     viewChecks();
     Anim::setEnabled(true);
     stackChecks();
     Anim::setEnabled(false);
+    headerAlignChecks(app);
     return 0;
 }

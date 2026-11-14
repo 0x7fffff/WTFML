@@ -25,8 +25,13 @@
 
 namespace {
 
-/// 文字离圆角块边的留白（块内缩 3，再让 8）。
-constexpr int kTextPad = 8;
+/// 样式画 `CE_ItemViewItem` 时自己在文字前让出的那一截（`QCommonStyle` 的 viewItem 文字边距）。
+int styleTextMargin(const QWidget *widget) {
+    const QStyle *style = widget != nullptr ? widget->style() : QApplication::style();
+    return style->pixelMetric(QStyle::PM_FocusFrameHMargin, nullptr, widget) + 1;
+}
+/// 我们要额外让的那一截：加上样式自己那截，文字正好落在 `cellTextInset()`。
+int extraTextPad(const QWidget *widget) { return qMax(0, DesignDefaults::cellTextInset() - styleTextMargin(widget)); }
 /// 已经接过换页那条 connect 的栈（polish 会反复进来）。
 constexpr const char *kStackWired = "wtfmlDefaultPageAppear";
 
@@ -43,7 +48,7 @@ public:
     QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override {
         QSize size = QStyledItemDelegate::sizeHint(option, index);
         if (iconMode(option)) return size;
-        return QSize(size.width() + 2 * kTextPad, qMax(size.height(), DesignDefaults::minRowHeight()));
+        return QSize(size.width() + 2 * extraTextPad(option.widget), qMax(size.height(), DesignDefaults::minRowHeight()));
     }
 
     void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override {
@@ -54,25 +59,15 @@ public:
         bool roundLeft = true, roundRight = true;
         edges(opt, index, &roundLeft, &roundRight);
         const bool tile = iconMode(opt);
-        if (selected || hovered) {
-            const qreal r = Theme::controlRadius();
-            const QRectF block = QRectF(opt.rect).adjusted(tile ? 2 : roundLeft ? 3 : -r - 1, 2,
-                                                         tile ? -2 : roundRight ? -3 : r + 1, -2);
-            const Theme::Tokens t = Theme::tokens();
-            QColor fill = selected ? t.focus : t.text;
-            fill.setAlpha(selected ? (t.page.lightness() < 128 ? 34 : 30) : 14);
-            painter->save();
-            painter->setClipRect(opt.rect);
-            painter->setRenderHint(QPainter::Antialiasing, true);
-            painter->setPen(Qt::NoPen);
-            painter->setBrush(fill);
-            painter->drawRoundedRect(block, r, r);
-            painter->restore();
-        }
+        DesignDefaults::paintRowBlock(painter, opt.rect, selected, hovered, roundLeft || tile, roundRight || tile);
         // 底已经画好了：样式那边只印内容（不铺选中底、不画焦点框），墨按这块底换。
         opt.state &= ~(QStyle::State_Selected | QStyle::State_MouseOver | QStyle::State_HasFocus);
         opt.palette = Theme::selectionPalette(opt.palette, selected);
-        if (!tile) opt.rect.adjust(roundLeft ? kTextPad : 0, 0, roundRight ? -kTextPad : 0, 0);
+        // 每一格（不只首尾）都让到 cellTextInset()：表头每一节的 padding 是同一个数，两边从同一条竖线起。
+        if (!tile) {
+            const int pad = extraTextPad(opt.widget);
+            opt.rect.adjust(pad, 0, -pad, 0);
+        }
         QStyle *style = opt.widget != nullptr ? opt.widget->style() : QApplication::style();
         style->drawControl(QStyle::CE_ItemViewItem, &opt, painter, opt.widget);
     }
@@ -157,6 +152,22 @@ bool optedOut(const QWidget *widget) {
 
 bool isRowDelegate(const QAbstractItemDelegate *delegate) {
     return delegate != nullptr && typeid(*delegate) == typeid(RowDelegate);
+}
+
+void paintRowBlock(QPainter *painter, const QRect &cell, bool selected, bool hovered, bool roundLeft, bool roundRight) {
+    if (!selected && !hovered) return;
+    const qreal r = Theme::controlRadius();
+    const QRectF block = QRectF(cell).adjusted(roundLeft ? 3 : -r - 1, 2, roundRight ? -3 : r + 1, -2);
+    const Theme::Tokens t = Theme::tokens();
+    QColor fill = selected ? t.focus : t.text;
+    fill.setAlpha(selected ? (t.page.lightness() < 128 ? 34 : 30) : 14);
+    painter->save();
+    painter->setClipRect(cell);
+    painter->setRenderHint(QPainter::Antialiasing, true);
+    painter->setPen(Qt::NoPen);
+    painter->setBrush(fill);
+    painter->drawRoundedRect(block, r, r);
+    painter->restore();
 }
 
 void apply(QWidget *widget) {

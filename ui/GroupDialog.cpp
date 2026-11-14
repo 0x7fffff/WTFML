@@ -50,20 +50,48 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
       m_defaultGroups(defaultGroups),
       m_defaultCounts(defaultCounts) {
     setWindowTitle(windowTitle());
-    resize(460, 460);
+    resize(720, 480);
 
     auto *mainLayout = new QVBoxLayout(this);
+    mainLayout->setSpacing(16);
 
-    auto *hint = new QLabel(
-        tr("删除分组不会删除实例，所有实例将归入未分组。\n新建同名分组时将保留原分组内容。"),
-        this);
-    hint->setWordWrap(true);
-    mainLayout->addWidget(hint);
+    // 步骤 137：左右两张小节卡片。左边是清单（标题行右头「新建分组」），右边是**选中那一组**
+    // 的设置：标题就是组名，下面重命名 / 删除，再下面两条设置行（开关在行尾）。
+    // 「默认展开 / 设为收藏组」改的是选中那一组 ⇒ 摆在写着那一组名字的卡片里，关系一眼看得出。
+    auto *body = new QHBoxLayout;
+    body->setSpacing(16);
+    mainLayout->addLayout(body, 1);
+
+    // 卡片标题行右头挂一颗按钮：把 makeSectionCard() 放进去的那条标题拿出来，和按钮并一排。
+    const auto headingRow = [](QVBoxLayout *layout, QWidget *trailing) {
+        QLayoutItem *item = layout->takeAt(0);
+        auto *row = new QHBoxLayout;
+        row->setContentsMargins(0, 0, 0, 0);
+        row->addWidget(item->widget(), 1);
+        delete item;
+        if (trailing != nullptr) row->addWidget(trailing);
+        layout->insertLayout(0, row);
+    };
+    const auto caption = [](const QString &text, QWidget *parent) {
+        auto *label = new QLabel(text, parent);
+        label->setWordWrap(true);
+        label->setFont(Theme::textFont(label->font(), Theme::TextRole::Caption));
+        const auto tone = [label] {
+            QPalette palette = label->palette();
+            palette.setColor(QPalette::WindowText, Theme::tokens().secondary);
+            label->setPalette(palette);
+        };
+        tone();
+        Theme::follow(label, tone);
+        return label;
+    };
 
     {
-        // 小节标题 + 底色分组（步骤 133，替掉 QGroupBox 那圈原生框）。
         QVBoxLayout *layout = nullptr;
         QFrame *groupBox = MainWindowPageLayout::makeSectionCard(tr("分组"), this, &layout);
+        m_addButton = new QPushButton(tr("新建分组…"), groupBox);
+        m_addButton->setObjectName(addGroupButtonName());
+        headingRow(layout, m_addButton);  // 「新建」= 创建 ⇒ 默认那一档（Accent）
 
         m_groupList = new QListWidget(groupBox);
         m_groupList->setObjectName(groupListName());
@@ -73,53 +101,63 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
         m_groupList->setItemDelegate(new GroupListDelegate(m_groupList));
         m_groupList->viewport()->installEventFilter(this);
         layout->addWidget(m_groupList, 1);
+        layout->addWidget(caption(tr("行尾箭头调整顺序，按住 Shift 直接放到最上 / 最下。"), groupBox));
+        body->addWidget(groupBox, 5);
+    }
 
-        // 第一排：对**这一个组**做的事（新建 / 改建 / 删掉）。
-        auto *buttons = new QHBoxLayout;
-        m_addButton = new QPushButton(tr("新建…"), groupBox);
-        m_addButton->setObjectName(addGroupButtonName());
-        m_renameButton = new QPushButton(tr("重命名…"), groupBox);
+    {
+        QVBoxLayout *layout = nullptr;
+        QFrame *detail = MainWindowPageLayout::makeSectionCard(QString(), this, &layout);
+        m_detailTitle = qobject_cast<QLabel *>(layout->itemAt(0)->widget());
+        m_detailTitle->setObjectName(detailTitleName());
+        // 组名最长 32 个字：标题不许把整张窗顶宽，放不下就裁掉，全名在悬停提示里。
+        // shortcut: 裁的是硬边不是省略号，真有人起满 32 字再按宽度做 elide。
+        m_detailTitle->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+
+        // 对**选中那一组**做的事，挂在组名那一行右头（和左卡「新建分组…」同一个高度）。
+        // 「重命名…」带省略号是 UI_COPY 4.1 的规矩（会弹一格输入）；「删除」只问一句确认，不带。
+        auto *actions = new QWidget(detail);
+        auto *actionsLayout = new QHBoxLayout(actions);
+        actionsLayout->setContentsMargins(0, 0, 0, 0);
+        actionsLayout->setSpacing(8);
+        m_renameButton = new QPushButton(tr("重命名…"), detail);
         m_renameButton->setObjectName(renameGroupButtonName());
-        // 「重命名…」= 改一格名字（一般性）；旁边那颗「新建…」是确认性。
         Theme::markButton(m_renameButton, Theme::ButtonKind::Neutral);
-        m_removeButton = new QPushButton(tr("删除"), groupBox);
+        m_removeButton = new QPushButton(tr("删除"), detail);
         m_removeButton->setObjectName(removeGroupButtonName());
-        // 「删除」删的是**整个分组**（组里那些实例会掉回未分组），和旁边那两颗不是一回事
-        // ⇒ 走危险那一档（红字红边）。属性在第一次 polish 之前挂上，见
-        // `Theme::buttonStyleSheet()` 里那几条按属性选中的规则。
+        // 「删除」删的是**整个分组**（组里那些实例会掉回未分组）⇒ 危险那一档。
         Theme::markButton(m_removeButton, Theme::ButtonKind::Danger);
-        buttons->addWidget(m_addButton);
-        buttons->addWidget(m_renameButton);
-        buttons->addWidget(m_removeButton);
-        layout->addLayout(buttons);
+        actionsLayout->addWidget(m_renameButton);
+        actionsLayout->addWidget(m_removeButton);
+        headingRow(layout, actions);
 
-        // 第二排：只剩"画出来是展开还是收着"。**顺序**那一半是行尾那两颗三角。
-        auto *orderRow = new QHBoxLayout;
-        m_expandedCheck = new QCheckBox(tr("默认展开"), groupBox);
+        // 两条设置行：标题 + 一句说明，开关在行尾（实例设置概览同一个 makeSettingRow）。
+        m_expandedCheck = new QCheckBox(detail);
         m_expandedCheck->setObjectName(expandedCheckName());
-        m_expandedCheck->setToolTip(
-            tr("这一组在实例列表里默认展开。点组头也能切换。"));
-        orderRow->addStretch(1);
-        orderRow->addWidget(m_expandedCheck);
-        // 紧挨着「默认展开」右边 —— 「旁边」就是这一行、这一格。
-        // 勾上的那一组变成**置顶组**（全清单只能有一个，
-        // 所以勾这一颗会把别组那一颗清掉，见 setGroupPinned()）。
-        m_pinnedCheck = new QCheckBox(pinnedCheckText(), groupBox);
+        m_expandedCheck->setAccessibleName(tr("默认展开"));
+        m_expandedCheck->setToolTip(tr("这一组在实例列表里默认展开。点组头也能切换。"));
+        Theme::markSwitch(m_expandedCheck);
+        layout->addWidget(MainWindowPageLayout::makeSettingRow(
+            detail, MainWindowPageLayout::makeSettingRowTitle(tr("默认展开"), detail),
+            tr("在实例列表里默认展开这一组。"), m_expandedCheck));
+        // 打开的那一组变成**收藏组**（全清单只能有一个，所以打开这一颗会把别组那一颗关掉，
+        // 见 setGroupPinned()）。说明**必须短**（上限见 pinnedHintText()）。
+        m_pinnedCheck = new QCheckBox(detail);
         m_pinnedCheck->setObjectName(pinnedCheckName());
+        m_pinnedCheck->setAccessibleName(pinnedCheckText());
         m_pinnedCheck->setToolTip(
-            tr("这一组是收藏组：收藏的实例会同时出现在主页快速启动区和这个组里。\n"
-               "只能有一个收藏组 —— 勾了这一颗，别的组就不再作为收藏来源。"));
-        orderRow->addWidget(m_pinnedCheck);
-        layout->addLayout(orderRow);
+            tr("只能有一个收藏组 —— 打开这一颗，别的组就不再作为收藏来源。"));
+        Theme::markSwitch(m_pinnedCheck);
+        layout->addWidget(MainWindowPageLayout::makeSettingRow(
+            detail, MainWindowPageLayout::makeSettingRowTitle(pinnedCheckText(), detail), pinnedHintText(),
+            m_pinnedCheck));
+        layout->addSpacing(4);
+        layout->addWidget(caption(tr("删除分组不会删除实例，它们会回到未分组。"), detail));
+        layout->addStretch(1);
+        body->addWidget(detail, 4);
+    }
 
-        // 底下那句说明紧跟着这一行（中间不隔东西）。**必须短**：为了说清它而写长一句，
-        // 代价是这张窗整个变宽（理由与 40 个字的上限见 pinnedHintText()）。
-        auto *pinHint = new QLabel(pinnedHintText(), groupBox);
-        pinHint->setWordWrap(true);
-        layout->addWidget(pinHint);
-
-        mainLayout->addWidget(groupBox, 1);
-
+    {
         // 「新建」永远可点（一个组都没有的时候它是唯一的出路，而"组一个都没有"是删得
         // 出来的状态）；别的要有选中的组才有意义，可用性由 refreshActionButtons() 统一管
         // （它连"已经在最上面了就别给上移"也一起管）。
@@ -195,14 +233,13 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
     }
 
     auto *buttons = new QHBoxLayout;
-    // 「恢复默认分组设置…」摆在最左边（离取消/确定远远的）：它是个"把整张表推倒重来"的
+    // 「恢复默认分组」摆在最左边（离取消/确定远远的）：它是个"把整张表推倒重来"的
     // 动作，和那两颗"这一趟改完了没有"的按钮不是一类东西，挨着摆会点错。
-    m_restoreButton = new QPushButton(tr("恢复默认分组设置…"), this);
+    m_restoreButton = new QPushButton(tr("恢复默认分组"), this);
     m_restoreButton->setObjectName(restoreDefaultsButtonName());
-    // 红：下面那段说得很死 —— 它是**不可逆**的（自己建的组全没了），
-    // 而且和旁边那对「这一趟改完了没有」的按钮不是一类东西 ——
-    // 颜色和摆位置（最左边）说的是同一件事。
-    Theme::markButton(m_restoreButton, Theme::ButtonKind::Danger);
+    // 次要那一档（只有字）：这张窗改的只是工作副本，按「取消」整个作废；
+    // 真要恢复时弹的那一问已经是危险样式。用不着在底栏再挂一颗红的。
+    Theme::markButton(m_restoreButton, Theme::ButtonKind::Ghost);
     buttons->addWidget(m_restoreButton);
     buttons->addStretch(1);
     auto *cancelButton = new QPushButton(tr("取消"), this);
@@ -527,9 +564,12 @@ void GroupDialog::rebuildGroupList() {
             item->setData(Qt::UserRole, group.id);
             item->setSizeHint(QSize(0, rowHeight));
         }
+        // 原来没选中（刚打开）就停在第一组：右边那张卡片写的是"选中那一组"，空着没意义。
         const int row = rowOfGroup(previous);
         if (row >= 0) {
             m_groupList->setCurrentRow(row);
+        } else if (m_groupList->count() > 0) {
+            m_groupList->setCurrentRow(0);
         }
     }
     // 选中项是在挡着信号的时候摆的，那条 currentRowChanged 收不到，
@@ -543,6 +583,8 @@ void GroupDialog::refreshActionButtons() {
     const bool hasSelection = row >= 0;
     m_renameButton->setEnabled(hasSelection);
     m_removeButton->setEnabled(hasSelection);
+    m_detailTitle->setText(hasSelection ? m_groups.at(row).name : tr("未选择分组"));
+    m_detailTitle->setToolTip(hasSelection ? m_groups.at(row).name : QString());
     // NOTE: 上移/下移**不在这儿启用/禁用** —— 它们画在每一行自己的行尾，挪不动的那一侧
     // 根本不画（判据是 ui/GroupListDelegate::canMoveUp()/canMoveDown()，和
     // eventFilter() 认下那一下读的是同一对函数）。这一点和"选中的那一组"没关系，

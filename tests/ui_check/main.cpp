@@ -2196,9 +2196,7 @@ int main(int argc, char *argv[]) {
 
     if (const int result = UiInstanceGroupingChecks(ui, instanceList); result != 0) return result;
 
-    std::printf("===== N. 分组设置对话框（管的是分组本身，只改手里那份清单） =====\n");
-
-    if (const int result = UiGroupEditorChecks(); result != 0) return result;
+    // N. 分组设置对话框拆成了单独的 ui_check_group_editor（ctest: wtfml.group-editor）。
 
     std::printf("===== U. 实例设置对话框（控件 → 值，且不碰磁盘） =====\n");
 

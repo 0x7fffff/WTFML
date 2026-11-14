@@ -161,18 +161,18 @@ public slots:
     static QString addGroupButtonName() { return QStringLiteral("addGroupButton"); }
     static QString renameGroupButtonName() { return QStringLiteral("renameGroupButton"); }
     static QString removeGroupButtonName() { return QStringLiteral("removeGroupButton"); }
-    /// 「默认展开」那个勾选框（按选中那一组的状态亮着）。
+    /// 右边那张卡片的标题：选中那一组的名字（没选中写「未选择分组」）。
+    static QString detailTitleName() { return QStringLiteral("groupDetailTitle"); }
+    /// 「默认展开」那颗开关（QCheckBox + Theme::markSwitch，按选中那一组的状态亮着）。
     static QString expandedCheckName() { return QStringLiteral("groupExpandedCheck"); }
-    /// 「设为置顶组」那个勾选框（就在「默认展开」右边，同一行）。
+    /// 「设为收藏组」那颗开关（右边卡片里「默认展开」下面那一行）。
     static QString pinnedCheckName() { return QStringLiteral("groupPinnedCheck"); }
-    /// 那颗勾选框上的字。**唯一出处** —— 勾选框、验证工程认的那句话都念它。
+    /// 那一行的标题。**唯一出处** —— 勾选框、验证工程认的那句话都念它。
     static QString pinnedCheckText() { return QStringLiteral("设为收藏组"); }
-    /// 勾选框底下那句极短的说明。
+    /// 那一行标题下的说明。
     ///
-    /// NOTE: 「置顶组」光看那五个字不知道勾上会怎样 ——
-    /// 所以紧挨着它写一句。**上限 40 个汉字，而且这个数字是量出来的、不是随便定的**：
-    /// 这张窗只有 460 宽，折行的 QLabel 一长就把整窗的 sizeHint 顶宽。
-    /// 这句 21 个字，一行放得下。
+    /// NOTE: 「收藏组」光看那五个字不知道打开会怎样 —— 所以紧挨着它写一句。
+    /// **要短**（40 个汉字以内）：右边那张卡片只占半张窗，说明一长就折成好几行。
     static QString pinnedHintText() {
         return QStringLiteral("收藏的实例会同时显示在这个组和主页快速启动区。");
     }
@@ -246,4 +246,5 @@ private:
     QCheckBox *m_expandedCheck = nullptr;
     QCheckBox *m_pinnedCheck = nullptr;
     QPushButton *m_restoreButton = nullptr;
+    QLabel *m_detailTitle = nullptr;
 };
