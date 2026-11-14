@@ -32,6 +32,7 @@
 #include <QPushButton>
 #include <QLineEdit>
 #include <QMap>
+#include <QPointer>
 #include <QSignalBlocker>
 #include <QTabWidget>
 #include <QTreeWidget>
@@ -565,7 +566,23 @@ void InstallPageController::openPresetPicker() {
                                MainWindow::tr("这一份启动器里预设那一层没有初始化，没法挑预设。"));
         return;
     }
+    // 预设数据在**后台读**（列表走 `Presets::CatalogLoader` 的异步快照，复合预设的
+    // manifest 也在工作线程里读），读完才摆弹框：点击这一帧不再扫盘。
+    //
+    // 等待期间界面保持原样（安装页不动、不弹半个空框）。QPointer 守住"控制器先没了"：
+    // 那一发回调回来时 `this` 已经析构就什么都不做。
+    QPointer<InstallPageController> self(this);
+    m_owner.m_presetController->requestInstallPickerData(
+        [this, self](const PresetController::InstallPickerData &data) {
+            if (self.isNull()) {
+                return;
+            }
+            openPresetPickerWith(data);
+        });
+}
 
+void InstallPageController::openPresetPickerWith(
+    const PresetController::InstallPickerData &pickerData) {
     // 这一趟弹窗里改的东西**只落在这张本地草稿上**：取消 / 点「前往预设管理」都
     // 不写 `m_presetChoices`（取消不丢安装配置）。
     QMap<QString, QString> draft = m_presetChoices;
@@ -623,10 +640,8 @@ void InstallPageController::openPresetPicker() {
     };
 
     QList<PresetInstallPicker::Category> categories;
-    // 四类的可选项和复合预设那一张表**来自同一次扫盘**（`installPickerData()` 那段
-    // 写着为什么不能再按类各扫一趟）：这一整段只读一次盘。
-    const PresetController::InstallPickerData pickerData =
-        m_owner.m_presetController->installPickerData();
+    // 四类的可选项和复合预设那一张表**来自同一次扫盘**（`requestInstallPickerData()` 那段
+    // 写着为什么不能再按类各扫一趟）：这一整段只认那一份（后台读回来的）快照。
     // 每类的默认项：「用户没在弹窗里表过态」的那几类一进来就按它摆好 —— 这就是"默认"在
     // 安装页的意思（用户在弹窗里选过，哪怕是选"不使用预设"，也一律听用户的）。
     const QMap<QString, QString> defaults =

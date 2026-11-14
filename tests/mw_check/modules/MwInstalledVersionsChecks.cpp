@@ -331,10 +331,32 @@ int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStac
                         box->close();
                     }
                 };
-                QTimer::singleShot(0, inspectPicker);
+                // 预设数据现在在**后台读**（`PresetController::requestInstallPickerData()`）：
+                // 点完那一下只发请求，弹窗在数据回来之后才摆。等它真出来再验。
+                //
+                // NOTE: 检查不能只在点击之后才排 —— `clickRow()` 自己会转一圈事件循环，
+                // 数据快的时候弹窗就在那一圈里摆上并阻塞在 `execPrompt()` 的嵌套循环里。
+                // 所以先挂一个 10ms 的轮询定时器：它在哪个循环里醒过来都行，一旦看见
+                // 预设弹窗就验一遍并点取消（点完 execPrompt 才返回）。
+                bool inspected = false;
+                QTimer inspectPoll;
+                inspectPoll.setInterval(10);
+                QObject::connect(&inspectPoll, &QTimer::timeout, [&] {
+                    if (inspected) return;
+                    InlineMessageBox *box = currentPrompt();
+                    if (box == nullptr || box->findChild<PresetInstallPicker *>() == nullptr) return;
+                    inspectPicker();
+                    inspected = true;
+                    inspectPoll.stop();
+                });
+                inspectPoll.start();
                 if (presetRow != nullptr && loaderTree != nullptr) {
                     clickRow(loaderTree, presetRow);
                 }
+                pumpUntil([&] { return inspected; }, 5000);
+                inspectPoll.stop();
+                if (!inspected) pickerNote = QStringLiteral("5 秒内没等到预设弹窗");
+                pumpUntil([] { return currentPrompt() == nullptr; }, 5000);
                 check(pickerSeen,
                       "★★ 点「预设」那一行开的是中间那块紧凑弹窗（不是另开一页）",
                       pickerNote);

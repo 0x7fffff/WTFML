@@ -47,10 +47,12 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QFile>
+#include <QFutureWatcher>
 #include <QLayout>
 #include <QSignalBlocker>
 #include <QUrl>
 #include <QVBoxLayout>
+#include <QtConcurrent/QtConcurrentRun>
 
 namespace {
 
@@ -1562,20 +1564,25 @@ QList<PresetController::InstallCategory> PresetController::installCategories() {
     return out;
 }
 
-PresetController::InstallPickerData PresetController::installPickerData() const {
-    InstallPickerData data;
-    const QList<Presets::PresetSummary> summaries = Presets::list(presetsRoot());
-    data.presets.reserve(summaries.size());
+namespace {
+
+/// 把摘要列表补成安装页弹窗要的那张表：复合预设再读一次它的 manifest（普通预设不读）。
+///
+/// 两条路（同步的 `installPickerData()` 和后台的 `requestInstallPickerData()`）共用这一份，
+/// 免得"哪些是复合预设、子项叫什么"在两处各算一遍。
+QList<PresetController::InstallPickerPreset> buildInstallPickerRows(
+    const QString &root, const QList<Presets::PresetSummary> &summaries) {
+    QList<PresetController::InstallPickerPreset> rows;
+    rows.reserve(summaries.size());
     for (const Presets::PresetSummary &summary : summaries) {
-        InstallPickerPreset row;
+        PresetController::InstallPickerPreset row;
         row.summary = summary;
         // 普通预设没有要读的那份 manifest；复合预设读完一次，这一整段就都用这一份
         // （别的调用点再读一遍是同一次读盘变成两次）。
         row.componentsLoaded = summary.componentCategories.isEmpty();
         if (!row.componentsLoaded) {
             bool loaded = false;
-            const Presets::PresetManifest manifest =
-                Presets::loadManifest(presetsRoot(), summary.id, &loaded);
+            const Presets::PresetManifest manifest = Presets::loadManifest(root, summary.id, &loaded);
             row.componentsLoaded = loaded;
             if (loaded) {
                 const QJsonObject parts =
@@ -1585,9 +1592,51 @@ PresetController::InstallPickerData PresetController::installPickerData() const 
                 }
             }
         }
-        data.presets.append(row);
+        rows.append(row);
     }
+    return rows;
+}
+
+}  // namespace
+
+PresetController::InstallPickerData PresetController::installPickerData() const {
+    InstallPickerData data;
+    const QString root = presetsRoot();
+    data.presets = buildInstallPickerRows(root, Presets::list(root));
     return data;
+}
+
+void PresetController::requestInstallPickerData(
+    std::function<void(const InstallPickerData &)> done) {
+    const quint64 generation = ++m_pickerDataGeneration;
+    const QString root = presetsRoot();
+    m_catalogLoader->load(
+        root, [this, root, generation, done = std::move(done)](
+                  const Presets::CatalogSnapshot &snapshot) {
+            if (generation != m_pickerDataGeneration) return;
+            QList<Presets::PresetSummary> summaries;
+            summaries.reserve(snapshot.presets.size());
+            for (const Presets::PresetSummary &summary : snapshot.presets) {
+                // 草稿属于预设页：安装页那张弹窗一直只列正式预设（`Presets::list()` 不带
+                // 草稿，而预设页那份目录快照会带 —— 这里按同一个口径滤掉）。
+                if (summary.id.startsWith(QStringLiteral("draft:"))) continue;
+                summaries.append(summary);
+            }
+            // 复合预设那几份 manifest 也在后台读：这一段要是不挪走，等于把"同步读盘"
+            // 从列表换到了详情上。
+            auto *watcher = new QFutureWatcher<QList<InstallPickerPreset>>(this);
+            connect(watcher, &QFutureWatcher<QList<InstallPickerPreset>>::finished, this,
+                    [this, watcher, generation, done] {
+                        const QList<InstallPickerPreset> rows = watcher->result();
+                        watcher->deleteLater();
+                        if (generation != m_pickerDataGeneration) return;
+                        InstallPickerData data;
+                        data.presets = rows;
+                        if (done) done(data);
+                    });
+            watcher->setFuture(QtConcurrent::run(
+                [root, summaries] { return buildInstallPickerRows(root, summaries); }));
+        });
 }
 
 QList<Presets::PresetSummary> PresetController::InstallPickerData::optionsFor(
