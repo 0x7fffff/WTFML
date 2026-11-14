@@ -64,10 +64,14 @@ AgentSessionMeta AgentSessionMeta::fromJson(const QJsonObject &object) {
 }
 
 namespace AgentSessionTitle {
+QString defaultTitle() { return QStringLiteral("新对话"); }
+
+bool isDefault(const QString &title) { return title.isEmpty() || title == defaultTitle(); }
+
 QString fromMessage(const QString &message) {
     const QString simplified = message.simplified();
     if (simplified.isEmpty()) {
-        return QStringLiteral("新对话");
+        return defaultTitle();
     }
     if (simplified.size() <= 24) {
         return simplified;

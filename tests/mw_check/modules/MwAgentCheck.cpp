@@ -10,6 +10,7 @@
 #include "AgentToolCard.hpp"
 #include "AgentSettingsPage.hpp"
 #include "OverlayHost.hpp"
+#include "agent/AgentPaths.hpp"
 #include "agent/AgentSessionStore.hpp"
 #include "controllers/AgentController.hpp"
 #include "agent/AgentModelClient.hpp"
@@ -272,6 +273,125 @@ int MwAgentChecks(QApplication &app) {
             check(otherGuard.isNull() || !otherGuard->isVisible(), "真窗口：占着的那页被静默收掉");
             overlay->evict();
             QCoreApplication::processEvents();
+        }
+    }
+
+    // r109：空「新对话」被选中后切走即丢（108 加的功能在真 exe 上没生效）。
+    // 真机复现：列表里一条空「新对话」+ 一条有消息的会话；点空会话（主区空态）再点有消息那条，
+    // 空会话还在列表里，盘上 `<id>.meta.json` 的修改时间也没动。这一节走**真鼠标**：按下 + 松开
+    // 两发打到列表视口上（切换会话只认 `QListWidget::itemClicked`），断言盘上和列表里都干净。
+    {
+        AgentSessionStore *store = controller->sessionStore();
+        QListWidget *list = page->findChild<QListWidget *>(QStringLiteral("agentSessionList"));
+        check(list != nullptr, "空会话：会话列表在");
+        QPushButton *plus = page->findChild<QPushButton *>(QStringLiteral("agentNewSessionButton"));
+        check(plus != nullptr, "空会话：「+」钮在");
+        if (list != nullptr && plus != nullptr) {
+            const auto clickSession = [&](const QString &id) {
+                for (int i = 0; i < list->count(); ++i) {
+                    QListWidgetItem *row = list->item(i);
+                    if (row->data(Qt::UserRole).toString() != id) continue;
+                    list->scrollToItem(row);
+                    QCoreApplication::processEvents();
+                    const QPoint local = list->visualItemRect(row).center();
+                    const QPointF global(list->viewport()->mapToGlobal(local));
+                    ::QMouseEvent press(QEvent::MouseButtonPress, QPointF(local), global,
+                                        Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                    QApplication::sendEvent(list->viewport(), &press);
+                    ::QMouseEvent release(QEvent::MouseButtonRelease, QPointF(local), global,
+                                          Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+                    QApplication::sendEvent(list->viewport(), &release);
+                    QCoreApplication::processEvents();
+                    return true;
+                }
+                return false;
+            };
+            const auto hasMeta = [&](const QString &id) {
+                QList<AgentSessionMeta> metas;
+                store->list(&metas, nullptr);
+                for (const AgentSessionMeta &meta : metas) {
+                    if (meta.id == id) return true;
+                }
+                return false;
+            };
+            const auto hasRow = [&](const QString &id) {
+                for (int i = 0; i < list->count(); ++i) {
+                    if (list->item(i)->data(Qt::UserRole).toString() == id) return true;
+                }
+                return false;
+            };
+            const auto makeSession = [&](const QString &title, const QString &line) {
+                AgentSession made;
+                QString makeProblem;
+                if (!store->create(&made, &makeProblem)) return QString();
+                Agent::Message mine;
+                mine.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+                mine.role = Agent::Role::User;
+                mine.content = line;
+                mine.status = Agent::MessageStatus::Complete;
+                mine.createdAt = QDateTime::currentDateTimeUtc();
+                made.messages.append(mine);
+                made.meta.title = title;
+                if (!store->save(made, false, &makeProblem)) return QString();
+                return made.meta.id;
+            };
+
+            const QString withMessages =
+                makeSession(QStringLiteral("有消息的会话"), QStringLiteral("这条有消息，切走不该被丢"));
+            check(!withMessages.isEmpty(), "空会话：造一条有消息的会话");
+
+            // ① 「+」建一条空「新对话」并选中（产品的正常入口）。
+            plus->click();
+            QCoreApplication::processEvents();
+            const QString blankId = controller->currentSessionId();
+            check(!blankId.isEmpty() && blankId != withMessages, "空会话：「+」后停在新会话上", blankId);
+            check(!blankId.isEmpty() && hasMeta(blankId) && hasRow(blankId),
+                  "空会话：新会话在盘上和列表里都在");
+
+            // ② 点有消息的那条：空「新对话」应当当场丢掉。
+            check(clickSession(withMessages), "空会话：点得到有消息那行");
+            check(controller->currentSessionId() == withMessages, "空会话：切到了有消息的会话");
+            check(!blankId.isEmpty() && !hasMeta(blankId), "空会话：空「新对话」从盘上没了", blankId);
+            check(!blankId.isEmpty() && !hasRow(blankId), "空会话：空「新对话」从列表里没了");
+            check(!QFileInfo::exists(AgentPaths::sessionMetaPath(blankId)),
+                  "空会话：`<id>.meta.json` 不在了");
+
+            // ③ 再建一条空「新对话」，这次先改个名：改过名的不算「没动过」。
+            plus->click();
+            QCoreApplication::processEvents();
+            const QString renamedId = controller->currentSessionId();
+            check(!renamedId.isEmpty() && renamedId != withMessages, "空会话：又停在新会话上", renamedId);
+            QMetaObject::invokeMethod(page, "sessionRenameRequested", Qt::DirectConnection,
+                                      Q_ARG(QString, renamedId),
+                                      Q_ARG(QString, QStringLiteral("我改过名")));
+            QCoreApplication::processEvents();
+            AgentSession named;
+            QString namedProblem;
+            check(store->load(renamedId, &named, &namedProblem) &&
+                      named.meta.title == QStringLiteral("我改过名"),
+                  "空会话：改名落到了盘上", namedProblem);
+
+            // ④ 从改过名的空会话切走：留着。
+            check(clickSession(withMessages), "空会话：点回有消息那行");
+            check(hasMeta(renamedId), "空会话：改过名的空会话不丢");
+            check(hasRow(renamedId), "空会话：改过名的空会话还在列表里");
+
+            // ⑤ 从有消息的会话切走：也留着。
+            check(clickSession(renamedId), "空会话：点回改过名那行");
+            check(controller->currentSessionId() == renamedId, "空会话：切到了改过名的会话");
+            check(hasMeta(withMessages), "空会话：有消息的会话不丢");
+            check(hasRow(withMessages), "空会话：有消息的会话还在列表里");
+
+            // ⑥ 「+」不再攒第二条空「新对话」：当前会话有内容、盘上已有现成的空会话时切过去，不再新建
+            //    （r104 的「列表里两条空会话」就是这个判断一次都没成立过）。
+            AgentSession extra;
+            QString extraProblem;
+            check(store->create(&extra, &extraProblem), "空会话：盘上再摆一条空「新对话」", extraProblem);
+            check(clickSession(withMessages), "空会话：点回有消息那行（好让「+」走找现成空会话那支）");
+            plus->click();
+            QCoreApplication::processEvents();
+            check(controller->currentSessionId() == extra.meta.id,
+                  "空会话：「+」复用盘上现成的空会话", controller->currentSessionId());
         }
     }
 

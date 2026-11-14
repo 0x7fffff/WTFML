@@ -384,10 +384,15 @@ void AgentController::loadInitialSession() {
 
 /// 从一条没动过的空「新对话」切走时把它丢掉：「+」复用空会话只管「别再建」，这里管「别攒下」
 /// （r104：重启后列表里留了两条空「新对话」）。改过名 / 固定 / 加密 / 关联了实例的都算动过，留着。
+/// 认标题一律用 `AgentSessionTitle::isDefault`：这里原来写的是 `QLatin1String("新对话")`，
+/// UTF-8 字节被当成 Latin-1，跟盘上读回的标题永远不相等，条件一次都没成立过（r109）。
 void AgentController::discardBlankCurrent(const QString &nextId) {
     const AgentSessionMeta &meta = m_session.meta;
     if (meta.id.isEmpty() || meta.id == nextId || !m_session.messages.isEmpty()) return;
-    if (meta.pinned || meta.encrypted || meta.instanceLock.isValid() || meta.title != QLatin1String("新对话")) return;
+    if (meta.pinned || meta.encrypted || meta.instanceLock.isValid() ||
+        !AgentSessionTitle::isDefault(meta.title)) {
+        return;
+    }
     const QString id = meta.id;
     QString problem;
     if (m_store.requestDeletion(id, &problem)) m_store.completeDeletion(id, &problem, nullptr);
@@ -522,7 +527,7 @@ void AgentController::onNewSession() {
         for (const AgentSessionMeta &meta : metas) {
             if (meta.messageCount == 0 && !meta.corrupt && !meta.archived && !meta.encrypted &&
                 meta.deletionState == QLatin1String("none") && !meta.instanceLock.isValid() &&
-                meta.title == QLatin1String("新对话")) {
+                AgentSessionTitle::isDefault(meta.title)) {
                 reuseId = meta.id;
                 break;
             }

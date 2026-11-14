@@ -79,6 +79,11 @@ struct AgentSession {
 };
 
 namespace AgentSessionTitle {
+/// 会话还没起名时的标题。认这条标题的地方一律走这里：写成 `QLatin1String("新对话")` 会把
+/// UTF-8 字节按 Latin-1 解，跟盘上读回的 `QString` 永远不相等（r109「空会话切走没丢」的根因）。
+QString defaultTitle();
+/// @p title 是不是「还没动过」的默认标题（空串也算：列表本来就把空标题显示成「新对话」）。
+bool isDefault(const QString &title);
 /// 第一条用户消息前 24 个字符；去掉换行/多余空白；空输入回退“新对话”。
 QString fromMessage(const QString &message);
 }  // namespace AgentSessionTitle
