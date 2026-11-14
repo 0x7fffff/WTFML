@@ -58,7 +58,7 @@ PNG、BMP、WebP 等格式的头部信息可能声明超大分辨率，引发解
 
 - **网络边界**：仅允许访问配置的模型 API 端点；仅接受 `https://`（环回 `http://` 需显式确认）；不跟随 HTTP 重定向，严格校验 TLS 证书。
 - **凭据隔离**：API Key 仅存储于 Windows 凭据管理器或 DPAPI，不写入日志、会话文件或错误报告；界面默认遮挡并不提供回显与直接复制。
-- **数据脱敏**：出站文本统一过 `AgentRedaction`，对已知令牌、密钥块与凭据字段进行本地遮盖。
+- **数据脱敏**：出站文本统一过 `AgentRedaction`，对已知令牌、密钥块与凭据字段进行本地遮盖。凭据字段按键名词根判定：键名按 `_`、`-`、`.` 和小写接大写的驼峰边界切 token，任一词根是 `password`/`passwd`/`pwd`/`secret`/`token`/`credential`/`credentials`/`cookie`/`csrf`/`session`/`apikey`，或相邻两个词根组成 `api`+`key`，就遮掉值、保留键名；`sk-`、JWT、`AKIA…`、PEM 私钥块、`Authorization`/`Bearer` 这些形态匹配照旧。限制：词根表之外的自造字段名（如 `azure_kv`）仍要靠形态匹配兜，值少于 6 个字符的不遮。
 - **受控文件工具（Stage 1B）**：
   - 工具操作仅限锁定实例根目录；
   - 路径校验结合字符串拒绝与 Windows 句柄级最终路径核对（`GetFinalPathNameByHandleW`、`FileIdInfo`、`FileAttributeTagInfo`），防范 junction 绕过；
@@ -110,22 +110,7 @@ PNG、BMP、WebP 等格式的头部信息可能声明超大分辨率，引发解
 
 详细记录见 [ACCEPTANCE_LOG](../archive/ACCEPTANCE_LOG.md)。
 
-- `AgentRedaction` 是精确字段名 + 固定令牌形态匹配，不能作为通用凭据兜底：`hypixel_api_key`、`DB_PASSWORD`、`REDIS_PASSWORD`、`API_SECRET`、`JWT_SECRET` 等变体未命中。
-- 凭据文件识别只覆盖精确 `.env`、`credentials*`、`token*`、`secret*`、`auth.*` 和少数证书后缀；`env`、`test.env` 等变体进入普通文本审批。
-- 大文本 `truncated=true` 时仍生成模型可读 artifact。artifact 只存本次读取窗口（默认 256 KB、最大 1 MB），脱敏未命中时仍可被 `artifact.read` 分段取回；工具文案"完整内容见 artifact"应改为"本次读取内容见 artifact"。
+- `AgentRedaction` 是键名词根 + 固定令牌形态匹配，不能作为通用凭据兜底：词根表之外的自造字段名要靠形态匹配命中。
+- 凭据文件识别按 dotenv 家族（`.env`、`*.env`、`*.env.*`）、证书后缀和 `credential`/`secret`/`token`/`apikey`/`api_key`/`api-key` 词根判定，文件名里不含这些词根的名字进入普通文本审批。
+- 大文本 `truncated=true` 时仍生成模型可读 artifact。artifact 只存本次读取窗口（默认 256 KB、最大 1 MB），脱敏未命中时仍可被 `artifact.read` 分段取回；
 - 日志自动读取仍可能带出 Windows 用户名、启动参数回显、绝对路径、显卡/驱动/音频设备等硬件指纹，留给 Stage 2 的日志/诊断字段投影处理。
-
-## 9. 主页「每日一言」的外部请求（2026-11-13）
-
-判据在 `src/util/DailyQuote.*`，请求在 `src/controllers/DailyQuoteController.*`。
-
-| 项 | 上限 / 约束 |
-| --- | --- |
-| 目标站点 | `v1.hitokoto.cn`（备用 `international.v1.hitokoto.cn`）、`zenquotes.io`；英文日只有 ZenQuotes，两站之外不发 |
-| 方法 / 头 | 只有 GET；`User-Agent: WTFML-Launcher`、`Accept: application/json`；不带账号、Cookie 或任何用户标识 |
-| 频率 | 每天至多一次成功取句（当天有缓存就不发）；一次启动最多 5 个请求 |
-| 响应体 | 8 KiB（`RequestBudget::ControlGet` 的正文上限，超了当场 abort） |
-| 单发超时 | 4 秒（排队与传输共用一个截止） |
-| 正文 | ≤128 字符、非空、按语种分档限长（假名 30 / 汉字 24 / 拉丁 80）；不合规当这一发失败 |
-| 写入 | 只写 `HKCU\Software\WTFML` 的 `Quote/Cache`、`Quote/Pool`（JSON 字符串）与开关 `Launcher/DailyQuote` |
-| 关掉开关 | 不发任何请求、主页不显示也不占位；在飞的请求当场掐掉 |

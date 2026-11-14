@@ -22,7 +22,7 @@
 | 国际化 | 未排期 | — |
 | 真机文件关联 / 7-Zip | 环境受限 | 文件关联自 0.5.0 起已实现；真机 `assoc-live` 写 `HKCU\Software\Classes` 被拒（错误 5），本机无 `7z.exe`，均需正常桌面会话/安装后复跑 |
 
-下一步可选：预设子清单批量写盘（先测量再改）；hover 过渡收口；外部样本/网络/桌面会话齐备后补 U8、实网、注册表、7-Zip；G1B 的 P0 修复（见 §4）。
+下一步可选：预设子清单批量写盘（先测量再改）；hover 过渡收口；外部样本/网络/桌面会话齐备后补 U8、实网、注册表、7-Zip；G1B 复测（见 §4）。
 
 ## 2. P0 与已确认回归
 
@@ -43,10 +43,7 @@
 - [x] **Stage 1A**：Provider（OpenAI-compatible 基础子集）＋无工具 Loop＋会话存储/DPAPI 加密＋基础聊天 UI；`verify_agent` 自动验收已过。
 - [x] **G1A 人工审查**（2026-11-10）：除网络错误外全部通过。
 - [x] **Stage 1B**：受控文件工具（`fs.list`/`fs.listNames`/`fs.read`/`fs.write`/`artifact.read`）、逐次审批、D11 外发策略、实例锁定；自动验收 core-agent 306/306、ui-agent 39/39、main-window-agent 31/31。
-- [ ] **G1B 人工审查**：首轮未通过，P0 未清。须先修：
-  - **B1** 脱敏只认精确键名，`hypixel_api_key`、`DB_PASSWORD`、`REDIS_PASSWORD`、`API_SECRET`、`JWT_SECRET` 等变体未命中 → 键名 token 化后含 password/secret/token/api-key/credential 即脱敏，保留格式检测；
-  - **B2** 凭据文件硬阻断只覆盖少数文件名 → `.env`/`*.env`/`*.env.*`、`*credential*`、`*secret*`、`*token*`、`*apikey*` 统一按凭据文件处理；
-  - **B3**（P1）artifact 文案"完整内容见 artifact"改为"本次读取内容见 artifact"，并明确其同样经过脱敏。
+- [ ] **G1B 人工审查**：首轮未通过；B1、B2、B3 已在 2026-11-13 修掉（见 [REVIEW_LOG](archive/REVIEW_LOG.md)）：
   - 修完后复测 R1–R4、R6、R7，补做 W4/W5、A1、P4、P5；P0/P1 清零前不进入 Stage 2。
 - [ ] **网络错误验收**（延后，未执行）：401/403、429、断网、流中断、重定向、TLS 证书错误、代理、400 错误体，清单见 ACCEPTANCE_LOG 2026-11-10 节末尾。
 - [ ] **Stage 2**：维护工作流（体检、崩溃急救、升级接入、模组维护）＋ stdio MCP，单独验收。日志/诊断工具须按字段白名单投影（用户名、启动参数回显、绝对路径、硬件指纹不整段送模型）。
