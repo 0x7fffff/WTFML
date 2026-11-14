@@ -51,6 +51,7 @@ signals:
 
 private:
     void updateUrlPreview();
+    void updateKeyNote();
     void updatePrivacyText();
 
     QComboBox *m_provider = nullptr;

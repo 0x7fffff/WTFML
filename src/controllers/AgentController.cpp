@@ -194,7 +194,9 @@ AgentController::AgentController(AgentPage *page, OverlayHost *overlay, QObject 
         if (m_page != nullptr) {
             m_page->setStreaming(false);
             m_page->hideApproval();
-            if (!message.errorText.isEmpty()) m_page->showNotice(message.errorText);
+            // 出错的那句已经在消息行上（带「重试」），不再弹居中提示条重复一遍；
+            // 只有这条消息没 id、进不了消息列（upsertAssistant 直接丢）时才用提示条兜底。
+            if (message.id.isEmpty() && !message.errorText.isEmpty()) m_page->showNotice(message.errorText);
         }
         refreshSessions();
     });
@@ -380,6 +382,21 @@ void AgentController::loadInitialSession() {
     selectSession(metas.constFirst().id);
 }
 
+/// 从一条没动过的空「新对话」切走时把它丢掉：「+」复用空会话只管「别再建」，这里管「别攒下」
+/// （r104：重启后列表里留了两条空「新对话」）。改过名 / 固定 / 加密 / 关联了实例的都算动过，留着。
+void AgentController::discardBlankCurrent(const QString &nextId) {
+    const AgentSessionMeta &meta = m_session.meta;
+    if (meta.id.isEmpty() || meta.id == nextId || !m_session.messages.isEmpty()) return;
+    if (meta.pinned || meta.encrypted || meta.instanceLock.isValid() || meta.title != QLatin1String("新对话")) return;
+    const QString id = meta.id;
+    QString problem;
+    if (m_store.requestDeletion(id, &problem)) m_store.completeDeletion(id, &problem, nullptr);
+    m_session = {};
+    m_savePending = false;
+    m_saveTimer->stop();
+    refreshSessions();
+}
+
 void AgentController::refreshSessions() {
     QList<AgentSessionMeta> metas;
     m_store.list(&metas, nullptr);
@@ -392,6 +409,7 @@ void AgentController::selectSession(const QString &sessionId) {
         m_loop->cancel();
         flushSave(true);
     }
+    discardBlankCurrent(sessionId);
     AgentSession loaded;
     QString problem;
     if (!m_store.load(sessionId, &loaded, &problem)) {

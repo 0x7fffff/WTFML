@@ -150,8 +150,10 @@ AgentSettingsPage::AgentSettingsPage(QWidget *parent) : QDialog(parent) {
 
     // ---------- 生成 ----------
     SettingsGroup *generation = addGroup(QStringLiteral("生成"));
+    // 这一组四个数字框同宽（按上下文长度上限 10000000 的 8 位钉），左右沿都对齐。
+    constexpr int kGenerationDigits = 8;
     m_contextWindow = new QSpinBox(content);
-    InputSizing::shortValue(m_contextWindow, 0);
+    InputSizing::shortValue(m_contextWindow, kGenerationDigits);
     m_contextWindow->setObjectName(QStringLiteral("agentContextWindowSpin"));
     m_contextWindow->setRange(1024, 10000000);
     m_contextWindow->setSingleStep(1024);
@@ -160,7 +162,7 @@ AgentSettingsPage::AgentSettingsPage(QWidget *parent) : QDialog(parent) {
         QStringLiteral("模型一次最多能读多少 token，按服务商写的填；填大了会被服务商拒绝。"));
 
     m_maxOutput = new QSpinBox(content);
-    InputSizing::shortValue(m_maxOutput, 0);
+    InputSizing::shortValue(m_maxOutput, kGenerationDigits);
     m_maxOutput->setObjectName(QStringLiteral("agentMaxOutputSpin"));
     m_maxOutput->setRange(1, 1000000);
     m_maxOutput->setValue(4096);
@@ -168,7 +170,7 @@ AgentSettingsPage::AgentSettingsPage(QWidget *parent) : QDialog(parent) {
         QStringLiteral("一条回答最多多少 token。"));
 
     m_temperature = new QDoubleSpinBox(content);
-    InputSizing::shortValue(m_temperature, 0);
+    InputSizing::shortValue(m_temperature, kGenerationDigits);
     m_temperature->setObjectName(QStringLiteral("agentTemperatureSpin"));
     m_temperature->setRange(0.0, 2.0);
     m_temperature->setSingleStep(0.1);
@@ -177,7 +179,7 @@ AgentSettingsPage::AgentSettingsPage(QWidget *parent) : QDialog(parent) {
         QStringLiteral("越低回答越稳定，越高越发散。排查问题建议 0.3~0.7。"));
 
     m_timeout = new QSpinBox(content);
-    InputSizing::shortValue(m_timeout, 0);
+    InputSizing::shortValue(m_timeout, kGenerationDigits);
     m_timeout->setObjectName(QStringLiteral("agentTimeoutSpin"));
     m_timeout->setRange(5, 600);
     m_timeout->setValue(120);
@@ -307,10 +309,22 @@ AgentSettingsPage::AgentSettingsPage(QWidget *parent) : QDialog(parent) {
         if (!m_secret->text().isEmpty()) m_clearKey = false;
     });
     connect(m_deleteProfile, &QPushButton::clicked, this, &AgentSettingsPage::deleteProfileRequested);
+    connect(m_authMode, &QComboBox::currentIndexChanged, this, [this] { updateKeyNote(); });
     m_secret->setStoredKey(false);
     m_clearKeyButton->hide();
     updateUrlPreview();
     updatePrivacyText();
+}
+
+void AgentSettingsPage::updateKeyNote() {
+    // 已存 / 待清除那两句照旧；只有「还没存」时按认证方式说：不认证时根本用不到密钥，
+    // 再说「还没保存密钥，填好后点保存」会让人以为非填不可。
+    if (m_clearKey || m_secret->hasStoredKey()) return;
+    const bool none = m_authMode->currentData().toString() == QLatin1String("none");
+    m_storage->setText(none ? QStringLiteral("认证方式是「不认证」，用不到 API Key，留空即可。")
+                            : QStringLiteral("还没保存密钥。填好后点「保存」。"));
+    m_secret->lineEdit()->setPlaceholderText(none ? QStringLiteral("不认证，可留空")
+                                                  : QStringLiteral("尚未保存 API Key"));
 }
 
 void AgentSettingsPage::updatePrivacyText() {
@@ -365,6 +379,7 @@ void AgentSettingsPage::setProfile(const AgentView::ProviderDraft &profile, bool
                                   : QStringLiteral("已保存在 Windows 凭据管理器，只有当前账户能读；不会显示出来。"))
                            : QStringLiteral("还没保存密钥。填好后点「保存」。"));
     m_clearKeyButton->setVisible(hasStoredKey);
+    updateKeyNote();
     updateUrlPreview();
 }
 

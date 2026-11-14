@@ -72,7 +72,16 @@ QString fromMessage(const QString &message) {
     if (simplified.size() <= 24) {
         return simplified;
     }
-    return simplified.left(24);
+    // 超长：留 23 字 + 「…」（总长仍 ≤ 24），不劈开代理对；切点落在英文单词中间时退到前一个空格
+    // （不远于 8 字），免得出现「日志里说 m…」。
+    int cut = 23;
+    if (simplified.at(cut - 1).isHighSurrogate()) --cut;
+    const auto latin = [](QChar c) { return c.unicode() < 0x80 && c.isLetterOrNumber(); };
+    if (latin(simplified.at(cut - 1)) && latin(simplified.at(cut))) {
+        const int space = simplified.lastIndexOf(QLatin1Char(' '), cut - 1);
+        if (space > 0 && cut - space <= 8) cut = space;
+    }
+    return simplified.left(cut).trimmed() + QStringLiteral("…");
 }
 }  // namespace AgentSessionTitle
 

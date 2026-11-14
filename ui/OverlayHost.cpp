@@ -107,7 +107,9 @@ OverlayHost::OverlayHost(QWidget *anchor, QWidget *parent) : QWidget(parent), m_
     QHBoxLayout *headerLayout = new QHBoxLayout(header);
     // 面包屑（tokens-extra §1）：「‹ 返回」文字按钮 + 「/」+ 当前页，左缘比正文多出按钮内边距。
     headerLayout->setContentsMargins(kOverlayPageSide - 10, 6, kOverlayPageSide, 0);
-    headerLayout->setSpacing(4);
+    // 间距 0：「返回」右侧那 8px 是按钮自己的内边距（悬停底要留着），「/」右边再补 8 与之对称
+    // （原先布局间距 4 叠在内边距上，返回到斜杠 12、斜杠到标题 4，r104 看着左空右挤）。
+    headerLayout->setSpacing(0);
     m_backButton = new QPushButton(backButtonText(), header);
     m_backButton->setObjectName(overlayBackButtonName());
     m_backButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
@@ -133,6 +135,7 @@ OverlayHost::OverlayHost(QWidget *anchor, QWidget *parent) : QWidget(parent), m_
     auto *slash = new QLabel(QStringLiteral("/"), header);
     crumbFont(slash);
     slash->setForegroundRole(QPalette::PlaceholderText);
+    slash->setContentsMargins(0, 0, 8, 0);
     headerLayout->addWidget(slash);
     m_titleLabel = new QLabel(header);
     m_titleLabel->setObjectName(overlayTitleLabelName());

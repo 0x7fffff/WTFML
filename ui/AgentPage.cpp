@@ -303,13 +303,20 @@ void markRoundButton(QPushButton *button, const QString &icon, const QString &ti
     Theme::markButton(button, kind);
     Theme::markIconButton(button);
     button->setFixedSize(36, 36);
-    button->setStyleSheet(QStringLiteral("QPushButton { border-radius: 18px; padding: 0; }"));
     button->setToolTip(tip);
     button->setAccessibleName(tip);
     button->setCursor(Qt::PointingHandCursor);
     const auto tint = [button, icon, kind] {
-        const QColor ink = kind == Theme::ButtonKind::Primary ? Theme::tokens().onPrimary : Theme::tokens().text;
-        button->setIcon(VersionIcons::line(icon, 18, ink, 2.0));
+        const Theme::Tokens t = Theme::tokens();
+        // 禁用态：中性按下那档的淡底 + 禁用字色的箭头。全局禁用底（浅色主题近白）落在输入岛上
+        // 看不出是颗按钮，白箭头又自动淡成近白（真机 r104 冰川碧湖：底 249 / 箭头 253 叠在 239 上）。
+        button->setStyleSheet(QStringLiteral("QPushButton { border-radius: 18px; padding: 0; }"
+                                             "QPushButton:disabled { background-color: %1; }")
+                                  .arg(t.fillPress.name(QColor::HexArgb)));
+        const QColor ink = kind == Theme::ButtonKind::Primary ? t.onPrimary : t.text;
+        QIcon glyph(VersionIcons::line(icon, 18, ink, 2.0));
+        glyph.addPixmap(VersionIcons::line(icon, 18, t.disabled, 2.0), QIcon::Disabled);
+        button->setIcon(glyph);
         button->setIconSize(QSize(18, 18));
     };
     tint();
@@ -517,7 +524,8 @@ AgentPage::AgentPage(QWidget *parent)
         auto *encryptNote = new QLabel(QStringLiteral("标题和时间仍为明文。"), menu);
         encryptNote->setObjectName(QStringLiteral("agentEncryptNote"));
         encryptNote->setFont(pxFont(encryptNote->font(), 12.5));
-        encryptNote->setContentsMargins(40, 0, 12, 6);
+        // 和上面那行的字左缘对齐：行内边距 12 + 图标 18 + Qt 图标与字之间的 4。
+        encryptNote->setContentsMargins(12 + 18 + 4, 0, 12, 6);
         setInk(encryptNote, Theme::tokens().secondary);
         Theme::follow(encryptNote, [encryptNote] { setInk(encryptNote, Theme::tokens().secondary); });
         menu->layout()->addWidget(encryptNote);
@@ -1140,6 +1148,15 @@ void AgentPage::showSessionMenu(const QPoint &position) {
     menu.addSeparator();
     QAction *remove = menu.addAction(QStringLiteral("删除"));
     QAction *chosen = menu.exec(m_sessionList->viewport()->mapToGlobal(position));
+    // 右键按下就把那一行选上了，可打开的仍是原会话：菜单收起后把选中放回当前会话那一行
+    // （切换会话只认左键单击 itemClicked，这里改选中不会触发切换）。
+    m_sessionList->clearSelection();
+    for (int i = 0; i < m_sessionList->count(); ++i) {
+        if (m_sessionList->item(i)->data(Qt::UserRole).toString() == m_currentSessionId) {
+            m_sessionList->setCurrentRow(i);
+            break;
+        }
+    }
     if (chosen == rename) {
         promptRename(id);
     } else if (chosen == pin) {

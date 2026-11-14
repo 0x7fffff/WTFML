@@ -51,13 +51,20 @@ inline int widthForChars(const QWidget *widget, int maxChars, Script script = Sc
 }
 
 /// 短值（名字、端口、十六进制颜色、版本号……）：宽度按内容封顶，窄窗仍可收缩，不留固定宽。
-/// QLineEdit 与可编辑下拉框按字符数定；数字框用自己的 sizeHint（范围已决定位数）。
+/// QLineEdit 与可编辑下拉框按字符数定；数字框传 0 用自己的 sizeHint（范围已决定位数），
+/// 传字符数则按字符数钉一个宽（同一组几个数字框要一样宽时用，免得右沿齐、左沿参差）。
 inline void shortValue(QWidget *widget, int maxChars, Script script = Script::Latin) {
     widget->setProperty(kKindProp, QStringLiteral("short"));
     if (qobject_cast<QAbstractSpinBox *>(widget) != nullptr) {
         QSizePolicy policy = widget->sizePolicy();
         policy.setHorizontalPolicy(QSizePolicy::Maximum);
         widget->setSizePolicy(policy);
+        if (maxChars > 0) {
+            const int width = std::min(widthForChars(widget, maxChars, script), kShortMaxWidth);
+            widget->setFixedWidth(width);
+            widget->setProperty(kLimitProp, width);
+            return;
+        }
         widget->setProperty(kLimitProp, 0);  // 数字框的上限就是 sizeHint，检查时现取
         return;
     }

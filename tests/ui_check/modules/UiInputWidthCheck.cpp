@@ -37,7 +37,9 @@ struct Counters {
 
 /// 短值输入框的宽度上限：数字框取它自己的 sizeHint，其余取登记时算出来的那一个。
 int shortLimit(const InputProbe &p) {
-    if (qobject_cast<QAbstractSpinBox *>(p.widget) != nullptr) return p.widget->sizeHint().width() + 2;
+    // 数字框：登记时按字符数钉过宽（同组统一宽）就认那一个，否则取它自己的 sizeHint。
+    if (qobject_cast<QAbstractSpinBox *>(p.widget) != nullptr)
+        return p.limit > 0 ? p.limit : p.widget->sizeHint().width() + 2;
     return p.limit + 2;
 }
 

@@ -78,6 +78,7 @@ private:
     void loadInitialSession();
     void refreshSessions();
     void selectSession(const QString &sessionId);
+    void discardBlankCurrent(const QString &nextId);
     void updateHeader();
     void refreshApiState();
     void updateConfiguredState();

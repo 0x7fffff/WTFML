@@ -23,6 +23,7 @@
 #include "AgentPage.hpp"
 #include "AgentSettingsPage.hpp"
 #include "AgentViewTypes.hpp"
+#include "agent/AgentSession.hpp"
 #include "OverlayHost.hpp"
 #include "Popups.hpp"
 #include "ToolboxPage.hpp"
@@ -40,6 +41,7 @@
 #include <QMainWindow>
 #include <QMenu>
 #include <QPainter>
+#include <QPlainTextEdit>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QSettings>
@@ -56,6 +58,7 @@ struct ShotOptions {
     QString background; ///< 自定义页面背景图（绝对路径），空 = 不设
     bool extended = false;
     bool popups = false;
+    bool agentPolish = false;
 };
 
 /// 颜色块 + 一个字母的小图标（资源行 / 账号行用；产品里那些是真图，这里只要不像空白）。
@@ -1123,6 +1126,107 @@ int runPopups(QApplication &app, const ShotOptions &options) {
     return saved > 0 ? 0 : 1;
 }
 
+/// `--agent-polish`（步骤 108）：发送钮禁用 / 可用（各带一张放大）、长标题 + 失败行、
+/// API 设置页「不认证」态（顶部 + 高级展开）。
+int runAgentPolish(QApplication &app, const ShotOptions &options) {
+    Theme::setSpec(Theme::presetSpec(options.theme));
+    Theme::apply(app);
+    QDir().mkpath(options.out);
+    int saved = 0;
+    const auto pump = [&app] {
+        app.processEvents();
+        app.processEvents();
+    };
+    QMainWindow window;
+    MainWindowUI ui(&window);
+    window.resize(options.size);
+    window.show();
+    pump();
+    const QString prefix = options.theme + QLatin1Char('-');
+    const auto zoomOf = [&](QWidget *target, const QString &name) {
+        pump();
+        const QPixmap shot = window.grab();
+        const QRect at(target->mapTo(&window, QPoint(0, 0)), target->size());
+        const QPixmap piece = shot.copy(at.adjusted(-40, -28, 16, 16).intersected(shot.rect()));
+        if (piece.scaled(piece.size() * 4, Qt::KeepAspectRatio, Qt::FastTransformation)
+                .save(QDir(options.out).filePath(name + QStringLiteral(".png"))))
+            ++saved;
+    };
+
+    ui.getTabWidget()->setCurrentIndex(MainWindowUI::agentTabIndex());
+    if (AgentPage *agent = ui.getAgentPage()) {
+        agent->setConfigured(true, QStringLiteral("已连接 · OpenAI 兼容"));
+        agent->setInstanceChip(QStringLiteral("跟随主页"), false);
+        const QString longAsk = QStringLiteral("Forge 1.20.1 启动就崩，日志里说 mixin 冲突");
+        AgentView::SessionMeta session;
+        session.id = QStringLiteral("s1");
+        session.title = AgentSessionTitle::fromMessage(longAsk);
+        session.updatedAt = QDateTime::currentDateTime();
+        AgentView::SessionMeta blank;
+        blank.id = QStringLiteral("s0");
+        blank.title = QStringLiteral("新对话");
+        blank.updatedAt = QDateTime::currentDateTime().addSecs(-60);
+        agent->setSessions({session, blank});
+
+        // 空会话：发送钮禁用 / 打字后可用。
+        agent->setCurrentSession(QStringLiteral("s0"));
+        agent->showEmptyState(true);
+        pump();
+        QWidget *send = agent->findChild<QWidget *>(QStringLiteral("agentSendButton"));
+        saveShot(app, window, options.out, prefix + QStringLiteral("send-disabled"), &saved);
+        if (send != nullptr) zoomOf(send, prefix + QStringLiteral("send-disabled-zoom"));
+        auto *composer = agent->findChild<QPlainTextEdit *>();
+        if (composer != nullptr) composer->setPlainText(QStringLiteral("为什么启动就崩？"));
+        pump();
+        saveShot(app, window, options.out, prefix + QStringLiteral("send-enabled"), &saved);
+        if (send != nullptr) zoomOf(send, prefix + QStringLiteral("send-enabled-zoom"));
+        if (composer != nullptr) composer->clear();
+
+        // 长标题 + 发送失败那一行（只在消息行上出一次，带「重试」）。
+        agent->setCurrentSession(QStringLiteral("s1"));
+        agent->setTitle(session.title);
+        AgentView::Message ask;
+        ask.id = QStringLiteral("m1");
+        ask.user = true;
+        ask.content = longAsk;
+        AgentView::Message failed;
+        failed.id = QStringLiteral("m2");
+        failed.status = AgentView::MessageStatus::Error;
+        failed.errorText = QStringLiteral("模型服务拒绝连接。");
+        agent->setMessages({ask, failed});
+        agent->showEmptyState(false);
+        saveShot(app, window, options.out, prefix + QStringLiteral("long-title-failed"), &saved);
+    }
+
+    // API 与模型设置：认证方式「不认证」、没存密钥。
+    {
+        AgentSettingsPage settingsPage;
+        AgentView::ProviderDraft draft;
+        draft.id = QStringLiteral("default");
+        draft.name = QStringLiteral("Local test");
+        draft.baseUrl = QStringLiteral("http://127.0.0.1:9/v1");
+        draft.model = QStringLiteral("test-model");
+        draft.authMode = QStringLiteral("none");
+        draft.deployment = QStringLiteral("local");
+        settingsPage.setProfile(draft, false, QString());
+        if (ui.overlay()->showPage(&settingsPage, QStringLiteral("API 与模型设置"), MainWindowUI::agentTabIndex())) {
+            pump();
+            saveShot(app, window, options.out, prefix + QStringLiteral("api-noauth-top"), &saved);
+            if (auto *advanced = settingsPage.findChild<SettingsParts::ExpandSection *>()) {
+                advanced->setExpanded(true, false);
+                pump();
+                if (auto *scroll = settingsPage.findChild<QScrollArea *>())
+                    scroll->ensureWidgetVisible(advanced->body(), 0, 0);
+                saveShot(app, window, options.out, prefix + QStringLiteral("api-noauth-advanced"), &saved);
+            }
+            ui.overlay()->closeOverlay();
+            pump();
+        }
+    }
+    std::printf("agent-polish: %d 张\n", saved);
+    return saved > 0 ? 0 : 1;
+}
+
 int runLegacy(QApplication &app, const QString &out) {
     Theme::setSpec(Theme::load());
     QDir().mkpath(out);
@@ -1222,6 +1326,8 @@ int UiReviewShotsCheck(QApplication &app) {
             options.extended = true;
         } else if (arg == QLatin1String("--popups")) {
             options.popups = true;
+        } else if (arg == QLatin1String("--agent-polish")) {
+            options.agentPolish = true;
         } else if (arg.startsWith(QLatin1String("--theme="))) {
             options.theme = valueOf(QStringLiteral("--theme="));
         } else if (arg == QLatin1String("--theme") && i + 1 < args.size()) {
@@ -1247,6 +1353,11 @@ int UiReviewShotsCheck(QApplication &app) {
     // 不带参数时仍是老行为：第一个位置参数是输出目录。
     if (!positional.isEmpty() && options.out.endsWith(QStringLiteral("build/review-shots"))) {
         options.out = positional.first();
+    }
+    if (options.agentPolish) {
+        if (options.theme.isEmpty()) options.theme = QStringLiteral("dark");
+        if (!options.size.isValid() || options.size.width() <= 0) options.size = QSize(1280, 800);
+        return runAgentPolish(app, options);
     }
     if (options.popups) {
         if (options.theme.isEmpty()) options.theme = QStringLiteral("dark");
