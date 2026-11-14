@@ -9,6 +9,7 @@
 //   · 每个表面拍一张 900×620、出厂默认主题（暮色雪山 dark）的样张；
 //   · 扫出「还长着 Qt 默认样子」的控件，按类别计数；
 //   · 设 WTFML_SURFACE_SHOTS=<目录> 时写样张与 surfaces.tsv / findings.tsv。
+//   · 设 WTFML_SURFACE_THEME=emerald|ocean 时换主题（默认出厂暮色雪山）。
 //
 // 采样口径见 `SurfaceScan.hpp`。
 #include "Support.hpp"
@@ -207,7 +208,9 @@ int UiSurfaceSweepCheck(QApplication &app) {
     app.setFont(QFont(families.isEmpty() ? QStringLiteral("Microsoft YaHei UI") : families.first(), 9));
 
     // 出厂默认主题：设置是刚建的空沙盒，Theme::load() 拿到的就是暮色雪山（dark）。
-    Theme::setSpec(Theme::load());
+    // WTFML_SURFACE_THEME=emerald / ocean 换成别的预设（只为出三主题样张，判据不随主题变）。
+    const QString themeId = qEnvironmentVariable("WTFML_SURFACE_THEME");
+    Theme::setSpec(Theme::isPresetId(themeId) ? Theme::presetSpec(themeId) : Theme::load());
     Theme::apply(app);
 
     const QString shotDir = qEnvironmentVariable("WTFML_SURFACE_SHOTS");
@@ -354,6 +357,9 @@ int UiSurfaceSweepCheck(QApplication &app) {
                          QStringLiteral("ui/ToolboxPage.cpp"), QString(),
                          window.findChild<QWidget *>(ToolboxPage::switchPopoverName()), &window);
             GlassPopover::closeAllIn(&window);
+            // 兜底：离屏下有的浮层 closeAllIn 收不掉，留着会叠进后面每一张样张。
+            for (QWidget *top : QApplication::topLevelWidgets())
+                if (top->windowType() == Qt::Popup && top->isVisible()) top->close();
             pump();
         }
         toolbox->showCatalog();
@@ -496,6 +502,9 @@ int UiSurfaceSweepCheck(QApplication &app) {
                          QStringLiteral("主窗口 → 实例管理 → 版本列表顶上那排「文件夹」"),
                          QStringLiteral("ui/MainWindowUI.cpp"), QStringLiteral("ui-review-shots"), surface, &window);
             GlassPopover::closeAllIn(&window);
+            // 兜底：离屏下有的浮层 closeAllIn 收不掉，留着会叠进后面每一张样张。
+            for (QWidget *top : QApplication::topLevelWidgets())
+                if (top->windowType() == Qt::Popup && top->isVisible()) top->close();
             pump();
         }
         if (QTreeWidget *tree = ui.getInstanceList(); tree != nullptr && tree->topLevelItemCount() > 0) {
@@ -518,6 +527,9 @@ int UiSurfaceSweepCheck(QApplication &app) {
                          QStringLiteral("主窗口 → 实例管理 → 分组行上的齿轮"),
                          QStringLiteral("ui/MainWindowUI.cpp"), QStringLiteral("ui-review-shots"), surface, &window);
             GlassPopover::closeAllIn(&window);
+            // 兜底：离屏下有的浮层 closeAllIn 收不掉，留着会叠进后面每一张样张。
+            for (QWidget *top : QApplication::topLevelWidgets())
+                if (top->windowType() == Qt::Popup && top->isVisible()) top->close();
             pump();
         }
     }

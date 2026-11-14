@@ -1343,7 +1343,7 @@ void PresetManagePage::showPresetLoading(const QString &id) {
     m_nameEdit->clear();
     m_descriptionEdit->clear();
     m_sectionList->clear();
-    m_presetMeta->setText(tr("正在读取预设内容…"));
+    m_presetMeta->clear();  // 读取中只看正中那一个加载态，这行不再重复一遍
     LoadingState::begin(m_sectionList, tr("正在读取预设…"));
     clearPlan();
     for (const auto &name : {QStringLiteral("presetEditModsButton"), QStringLiteral("presetEditOptionsButton")})

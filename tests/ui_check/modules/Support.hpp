@@ -174,6 +174,7 @@
 // Z16：规则行上盖的那层官方中文名（表和"认不出来原样回自己"那一条都在这儿量）。
 #include "GameRuleNames.hpp"
 #include "VersionTreeDelegate.hpp"
+#include "DesignDefaults.hpp"
 #include "download/ResourceCatalog.hpp"
 // 更新检测那三档话术的唯一出处。概览页那颗「检查更新」的 tooltip 里写死的
 // 「说不清」必须和它**是同一个字** —— 两边都在同一个 TU 里，这条等号才钉得住。
@@ -469,6 +470,8 @@ int UiUiRefreshCheck(QApplication &app);
 int UiSettingsShotsCheck(QApplication &app);
 int UiFoldMotionChecks(QApplication &app);
 int UiLoadingStateChecks(QApplication &app);
+/// 设计系统默认生效：光秃秃的列表 / 文本框 / 栈拿到默认、退出口、手动接线不重播。
+int UiDesignDefaultsChecks(QApplication &app);
 int UiReviewShotsCheck(QApplication &app);
 // 主页「每日一言」：那一行（进 CTest）与它的离屏样张（不进 CTest）。
 int UiDailyQuoteCheck(QApplication &app);
