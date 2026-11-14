@@ -882,6 +882,9 @@ int UiSurfaceSweepCheck(QApplication &app) {
         table->setEditTriggers(QAbstractItemView::NoEditTriggers);
         table->setSelectionBehavior(QAbstractItemView::SelectRows);
         table->verticalHeader()->hide();
+        // 和产品那段一样的列宽（早先夹具漏了这两行，第一列被挤窄、方块 ID 被省略）。
+        table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+        table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
         table->setRowCount(3);
         table->setItem(0, 0, new QTableWidgetItem(QStringLiteral("minecraft:stone")));
         table->setItem(0, 1, new QTableWidgetItem(QStringLiteral("2048")));
@@ -1106,11 +1109,17 @@ int UiSurfaceSweepCheck(QApplication &app) {
                           auto *picker = new PresetInstallPicker;
                           picker->setContext(QStringLiteral("1.20.1"), QStringLiteral("Forge"));
                           QList<PresetInstallPicker::Category> categories;
-                          for (const QString &key : {QStringLiteral("mods"), QStringLiteral("config"),
-                                                     QStringLiteral("resourcepack"), QStringLiteral("shader")}) {
+                          // 分类与名字照 PresetController::installCategories()（早先夹具把 id 当名字喂进来）。
+                          const QList<QPair<QString, QString>> kinds = {
+                              {QStringLiteral("gameSettings"), QStringLiteral("游戏设置")},
+                              {QStringLiteral("mods"), QStringLiteral("模组")},
+                              {QStringLiteral("resourcePacks"), QStringLiteral("资源包")},
+                              {QStringLiteral("dataPacks"), QStringLiteral("数据包")},
+                              {QStringLiteral("shaderPacks"), QStringLiteral("光影包")}};
+                          for (const auto &[key, title] : kinds) {
                               PresetInstallPicker::Category category;
                               category.key = key;
-                              category.title = key;
+                              category.title = title;
                               categories.append(category);
                           }
                           picker->setCategories(categories);
@@ -1119,92 +1128,94 @@ int UiSurfaceSweepCheck(QApplication &app) {
                       },
                       MessageKind::Question);
 
+        // 有数据的三档共用一份：五类照产品，模组选着一份（兼容检查报缺失 2 项），
+        // 游戏设置选着一份，数据包 / 光影包没有可选项；另有两份综合预设。
+        const auto fillPicker = [](PresetInstallPicker *picker, bool withComposites) {
+            picker->setContext(QStringLiteral("1.20.1"), QStringLiteral("Forge"));
+            PresetInstallPicker::Category game;
+            game.key = QStringLiteral("gameSettings");
+            game.title = QStringLiteral("游戏设置");
+            game.selectedId = QStringLiteral("g-pvp");
+            game.status = QStringLiteral("应用 6 项");
+            game.options = {{QStringLiteral("g-pvp"), QStringLiteral("PVP 键位"), true, false, 6},
+                            {QStringLiteral("g-rec"), QStringLiteral("录屏画质"), true, false, 4}};
+            PresetInstallPicker::Category mods;
+            mods.key = QStringLiteral("mods");
+            mods.title = QStringLiteral("模组");
+            mods.selectedId = QStringLiteral("p-tech");
+            mods.options = {{QStringLiteral("p-perf"), QStringLiteral("性能优化"), true, false, 12},
+                            {QStringLiteral("p-tech"), QStringLiteral("生电基础包"), true, false, 47},
+                            {QStringLiteral("all-in-one"), QStringLiteral("整合包同款"), true, true, 31}};
+            PresetInstallPicker::Category packs;
+            packs.key = QStringLiteral("resourcePacks");
+            packs.title = QStringLiteral("资源包");
+            packs.options = {{QStringLiteral("r-plus"), QStringLiteral("原版增强"), true, false, 3}};
+            PresetInstallPicker::Category data;
+            data.key = QStringLiteral("dataPacks");
+            data.title = QStringLiteral("数据包");
+            PresetInstallPicker::Category shaders;
+            shaders.key = QStringLiteral("shaderPacks");
+            shaders.title = QStringLiteral("光影包");
+            picker->setCategories({game, mods, packs, data, shaders});
+            picker->setStatus(QStringLiteral("mods"), QStringLiteral("缺失 2 项"), {QStringLiteral("sodium（缺失）")},
+                              true, 47, 2, 0);
+            QList<PresetInstallPicker::Composite> composites;
+            if (withComposites) {
+                PresetInstallPicker::Composite pack;
+                pack.id = QStringLiteral("all-in-one");
+                pack.name = QStringLiteral("整合包同款");
+                pack.parts = {{QStringLiteral("mods"), QStringLiteral("p-tech")},
+                              {QStringLiteral("gameSettings"), QStringLiteral("g-pvp")},
+                              {QStringLiteral("resourcePacks"), QStringLiteral("r-plus")}};
+                pack.itemCount = 31;
+                pack.counts = {{QStringLiteral("mods"), 24}, {QStringLiteral("gameSettings"), 6},
+                               {QStringLiteral("resourcePacks"), 1}};
+                PresetInstallPicker::Composite friends;
+                friends.id = QStringLiteral("friends");
+                friends.name = QStringLiteral("朋友服一键");
+                friends.parts = {{QStringLiteral("mods"), QStringLiteral("p-perf")},
+                                 {QStringLiteral("gameSettings"), QStringLiteral("g-rec")}};
+                friends.itemCount = 18;
+                friends.counts = {{QStringLiteral("mods"), 15}, {QStringLiteral("gameSettings"), 3}};
+                composites = {pack, friends};
+            }
+            picker->setComposites(composites);
+        };
+        const auto showLastPage = [](PresetInstallPicker *picker) {
+            if (auto *nav = picker->findChild<QListWidget *>(PresetInstallPicker::tabBarName()))
+                nav->setCurrentRow(nav->count() - 1);
+        };
         promptSurface(QStringLiteral("install-preset-full"), QStringLiteral("安装页·实例预设（有数据）"),
                       QStringLiteral("下载 → 安装页 → 「选择预设」"), QStringLiteral("ui/PresetInstallPicker.cpp"),
                       QString(), QStringLiteral("实例预设"),
-                      [](InlineMessageBox &box) {
+                      [fillPicker](InlineMessageBox &box) {
                           auto *picker = new PresetInstallPicker;
-                          picker->setContext(QStringLiteral("1.20.1"), QStringLiteral("Forge"));
-                          QList<PresetInstallPicker::Category> categories;
-                          PresetInstallPicker::Category mods;
-                          mods.key = QStringLiteral("mods");
-                          mods.title = QStringLiteral("模组");
-                          mods.selectedId = QStringLiteral("p-perf");
-                          mods.status = QStringLiteral("将安装 12 个模组");
-                          mods.options = {{QStringLiteral("p-perf"), QStringLiteral("性能整合包"), true, false, 12},
-                                          {QStringLiteral("p-qol"), QStringLiteral("舒适整合包"), true, false, 8},
-                                          {QStringLiteral("p-none"), QStringLiteral("不使用"), true, false, 0}};
-                          categories.append(mods);
-                          PresetInstallPicker::Category config;
-                          config.key = QStringLiteral("config");
-                          config.title = QStringLiteral("配置");
-                          config.status = QStringLiteral("将覆盖 3 个配置文件");
-                          config.options = {{QStringLiteral("c-fps"), QStringLiteral("高帧率配置"), true, false, 3},
-                                            {QStringLiteral("c-none"), QStringLiteral("不使用"), true, false, 0}};
-                          categories.append(config);
-                          PresetInstallPicker::Category rp;
-                          rp.key = QStringLiteral("resourcepack");
-                          rp.title = QStringLiteral("资源包");
-                          rp.options = {{QStringLiteral("r-none"), QStringLiteral("不使用"), true, false, 0}};
-                          categories.append(rp);
-                          picker->setCategories(categories);
-                          PresetInstallPicker::Composite composite;
-                          composite.id = QStringLiteral("all-in-one");
-                          composite.name = QStringLiteral("一站式整合");
-                          composite.parts = {{QStringLiteral("mods"), QStringLiteral("p-perf")},
-                                             {QStringLiteral("config"), QStringLiteral("c-fps")}};
-                          composite.itemCount = 15;
-                          composite.counts = {{QStringLiteral("mods"), 12}, {QStringLiteral("config"), 3}};
-                          picker->setComposites({composite});
+                          fillPicker(picker, true);
                           box.setContent(picker, 800);
+                          picker->setCurrentTab(1);  // 模组页：设计稿 v=pick
                       },
                       MessageKind::Question);
-
         promptSurface(QStringLiteral("install-preset-composite"), QStringLiteral("安装页·实例预设·综合预设页"),
                       QStringLiteral("下载 → 安装页 → 「选择预设」→ 左栏「综合预设」"),
                       QStringLiteral("ui/PresetInstallPicker.cpp"), QString(), QStringLiteral("实例预设"),
-                      [](InlineMessageBox &box) {
+                      [fillPicker, showLastPage](InlineMessageBox &box) {
                           auto *picker = new PresetInstallPicker;
-                          picker->setContext(QStringLiteral("1.20.1"), QStringLiteral("Forge"));
-                          PresetInstallPicker::Category mods;
-                          mods.key = QStringLiteral("mods");
-                          mods.title = QStringLiteral("模组");
-                          mods.options = {{QStringLiteral("p-perf"), QStringLiteral("性能整合包"), true, false, 12}};
-                          picker->setCategories({mods});
-                          PresetInstallPicker::Composite composite;
-                          composite.id = QStringLiteral("all-in-one");
-                          composite.name = QStringLiteral("一站式整合");
-                          composite.parts = {{QStringLiteral("mods"), QStringLiteral("p-perf")}};
-                          composite.itemCount = 12;
-                          composite.counts = {{QStringLiteral("mods"), 12}};
-                          picker->setComposites({composite});
-                          picker->setCurrentTab(picker->currentTab());  // 保持默认页，接着切到最后一页
+                          fillPicker(picker, true);
                           box.setContent(picker, 800);
-                          // 「综合预设」是导航里最后那一行。
-                          if (auto *nav = picker->findChild<QListWidget *>(PresetInstallPicker::tabBarName()))
-                              nav->setCurrentRow(nav->count() - 1);
+                          showLastPage(picker);
+                          if (auto *list = picker->findChild<QListWidget *>(QStringLiteral("presetCompositeList")))
+                              list->setCurrentRow(0);
                       },
                       MessageKind::Question);
         promptSurface(QStringLiteral("install-preset-composite-empty"),
                       QStringLiteral("安装页·实例预设·综合预设页（空）"),
                       QStringLiteral("下载 → 安装页 → 「选择预设」→ 左栏「综合预设」"),
                       QStringLiteral("ui/PresetInstallPicker.cpp"), QString(), QStringLiteral("实例预设"),
-                      [](InlineMessageBox &box) {
+                      [fillPicker, showLastPage](InlineMessageBox &box) {
                           auto *picker = new PresetInstallPicker;
-                          picker->setContext(QStringLiteral("1.20.1"), QStringLiteral("Forge"));
-                          PresetInstallPicker::Category mods;
-                          mods.key = QStringLiteral("mods");
-                          mods.title = QStringLiteral("模组");
-                          mods.options = {{QStringLiteral("p-perf"), QStringLiteral("性能整合包"), true, false, 12}};
-                          PresetInstallPicker::Category config;
-                          config.key = QStringLiteral("config");
-                          config.title = QStringLiteral("配置");
-                          config.options = {{QStringLiteral("c-fps"), QStringLiteral("高帧率配置"), true, false, 3}};
-                          picker->setCategories({mods, config});
-                          picker->setComposites({});  // 一份综合预设都没有：这就是用户看到的那块空列表
+                          fillPicker(picker, false);
                           box.setContent(picker, 800);
-                          if (auto *nav = picker->findChild<QListWidget *>(PresetInstallPicker::tabBarName()))
-                              nav->setCurrentRow(nav->count() - 1);
+                          showLastPage(picker);
                       },
                       MessageKind::Question);
     }
@@ -1214,16 +1225,23 @@ int UiSurfaceSweepCheck(QApplication &app) {
     // 汇总：按类别计数，只打印，不判失败。
     QMap<QString, int> kindCounts;
     int withFindings = 0;
+    int exempt = 0;
     for (const SurfaceRecord &rec : sweep.records()) {
-        if (!rec.findings.isEmpty()) ++withFindings;
-        for (const SurfaceFinding &finding : rec.findings) ++kindCounts[finding.kind];
+        bool counted = false;
+        for (const SurfaceFinding &finding : rec.findings) {
+            // 例外（人看过、确定保留原样的）单独计数，不算「扫出问题」。
+            if (finding.kind == QStringLiteral("exempt")) { ++exempt; continue; }
+            ++kindCounts[finding.kind];
+            counted = true;
+        }
+        if (counted) ++withFindings;
     }
-    std::printf("\nsurface-sweep: %d 个表面，%d 个扫出问题，%d 处\n", int(sweep.records().size()), withFindings,
+    std::printf("\nsurface-sweep: %d 个表面，%d 个扫出问题，%d 处（另有例外 %d 处）\n", int(sweep.records().size()), withFindings,
                 [&kindCounts] {
                     int total = 0;
                     for (int count : kindCounts) total += count;
                     return total;
-                }());
+                }(), exempt);
     for (auto it = kindCounts.constBegin(); it != kindCounts.constEnd(); ++it)
         std::printf("  %-22s %d\n", qPrintable(it.key()), it.value());
     // 首帧分布：>50 ms 的进 B 类候选（口径见 SurfaceRecord::paintMs 的注释）。

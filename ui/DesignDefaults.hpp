@@ -7,7 +7,7 @@
  * `apply()`。它管四件事：
  * 1. **默认代理**：还挂着 Qt 自带 `QStyledItemDelegate` / `QItemDelegate` 的列表、树、表，
  *    换成 `rowDelegate`：悬停 / 选中是内缩圆角块（和侧栏 navRow 同款，不画竖条），
- *    行高不低于 `minRowHeight()`，文字离块边留白；表格不画网格。自家代理（typeid 不是那两个）一个都不碰，
+ *    行高不低于 `minRowHeight()`，文字离块边留白；表格不画网格、关左上角角按钮、表头字靠左。自家代理（typeid 不是那两个）一个都不碰，
  *    下拉 / 补全弹层各有自己的代理，所以也不会被带歪。
  * 2. **视口透明**：列表 / 树 / 表与文本框一律 `NoFrame`、视口不铺底，直接排在窗口那层底上。
  * 3. **栈换页**：`QStackedWidget`（含 `QTabWidget` 里那个）切页时对新那一页 `Anim::pageAppear()`。

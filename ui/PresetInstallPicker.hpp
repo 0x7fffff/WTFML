@@ -1,7 +1,9 @@
 /**
  * @file PresetInstallPicker.hpp
- * @brief 安装时的预设选择：左侧分类、右侧候选、底部最终来源。
+ * @brief 安装时的预设选择：左侧分类、右侧候选，每类页底写这一类的最终来源。
  * @note 只维护本次选择。读取、兼容检查及安装仍由控制器负责。
+ * 版式按 `.tongxi/设计稿/presetpick-r120.html`（步骤 133）：「本次应用」汇总挂上
+ * `wtfmlPromptActionsLead`，装进 InlineMessageBox 后由它挪到按钮行左边。
  */
 #pragma once
 #include <QWidget>
@@ -14,10 +16,10 @@
 #include <QStringList>
 #include <functional>
 class QListWidget;
+class QListWidgetItem;
 class QLabel;
 class QPushButton;
 class QStackedWidget;
-class QCheckBox;
 class QDialog;
 class QPlainTextEdit;
 
@@ -56,6 +58,9 @@ public:
     int selectedCount() const;
     int currentTab() const;
     void setCurrentTab(int index);
+    /// 右栏加载态（数据还没到时）：下一次 setCategories() 收掉；失败换成出错态 +「重试」。
+    void beginLoading();
+    void failLoading(const QString &reason, std::function<void()> retry);
     static QString contextLabelName() { return QStringLiteral("presetInstallContext"); }
     static QString tabBarName() { return QStringLiteral("presetInstallNavigation"); }
     static QString listName(int i) { return QStringLiteral("presetInstallList%1").arg(i); }
@@ -76,6 +81,7 @@ private:
         QListWidget *list = nullptr;
         QPushButton *details = nullptr;
         QLabel *source = nullptr;
+        QListWidgetItem *nav = nullptr;
         QString status;
         QStringList reasons;
         int missing = -1, unknown = -1;
@@ -95,7 +101,7 @@ private:
     QLabel *m_summaryTitle = nullptr, *m_pendingLabel = nullptr;
     QWidget *m_summary = nullptr, *m_pendingBar = nullptr, *m_compositePage = nullptr;
     QListWidget *m_compositeList = nullptr;
-    QMap<QString, QCheckBox *> m_compositeChecks;
+    QMap<QString, QPushButton *> m_compositeChecks;
     QList<Category> m_categories;
     QList<Page> m_pages;
     QList<Composite> m_composites;

@@ -166,6 +166,7 @@ public:
      * NOTE: 只能插一块（再调一次就是换内容）。和 `setLineEdit()` 一样**不进 ctor**。
      * NOTE: 摆上去之后，这一块里**第一个 `QLineEdit`** 会拿到焦点（和 `setLineEdit()`
      * 那一条同一个理由、同一个时机，见 `showEvent()`）。
+     * NOTE: 这一块里挂了属性 `wtfmlPromptActionsLead` 的那一格会被挪到按钮行左边（预设弹窗的汇总）。
      */
     QWidget *setContent(QWidget *content, int preferredWidth = 0);
 

@@ -64,6 +64,9 @@ void viewChecks() {
     check(defaultsOn(list), "★ DD1 光秃秃的 QListWidget：默认行代理 + NoFrame + 视口透明");
     check(defaultsOn(tree), "★ DD1 光秃秃的 QTreeView：默认行代理 + NoFrame + 视口透明");
     check(defaultsOn(table) && !table->showGrid(), "DD1 光秃秃的 QTableWidget：默认行代理 + NoFrame + 视口透明 + 不画网格");
+    check(!table->isCornerButtonEnabled() &&
+              table->horizontalHeader()->defaultAlignment() == (Qt::AlignLeft | Qt::AlignVCenter),
+          "DD1b 光秃秃的 QTableWidget：关左上角角按钮，表头字靠左");
     check(list->sizeHintForRow(0) >= DesignDefaults::minRowHeight(), "DD1 默认行代理行高不低于 minRowHeight",
           QString::number(list->sizeHintForRow(0)));
     check(!DesignDefaults::isRowDelegate(table->horizontalHeader()->itemDelegate()),

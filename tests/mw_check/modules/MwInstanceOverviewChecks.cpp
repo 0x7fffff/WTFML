@@ -438,7 +438,7 @@ int MwInstanceOverviewChecks(const QDir &root, const QDir &versionsDir) {
                   && !roots.contains(QStringLiteral("structures")),
               "UG6 截图 / 原理图默认不在复制清单里", roots.join(QLatin1Char(',')));
         auto *savesBox = upgrade != nullptr
-                             ? upgrade->findChild<QCheckBox *>(
+                             ? upgrade->findChild<QAbstractButton *>(
                                    InstanceUpgradePage::categoryCheckName(QStringLiteral("saves")))
                              : nullptr;
         check(savesBox != nullptr, "UG6 找得到「存档」那一格");

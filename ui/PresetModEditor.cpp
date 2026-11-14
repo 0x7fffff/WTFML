@@ -60,6 +60,7 @@ PresetModEditor::PresetModEditor(const QList<Entry> &entries, QWidget *parent) :
     m_table->setAlternatingRowColors(false);
     m_table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     m_table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    m_table->verticalHeader()->hide();  // 行号没有用处（顺序不影响安装），和预设选项表一样不显示
     layout->addWidget(m_table, 1);
     for (const auto &entry : entries) append(entry);
     auto *actions = new QHBoxLayout;

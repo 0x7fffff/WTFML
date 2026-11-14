@@ -497,6 +497,15 @@ QWidget *InlineMessageBox::setContent(QWidget *content, int preferredWidth) {
     } else m_content->setFixedWidth(OverlayHost::promptContentWidth());
     // 插在**按钮行前面**（写成 count()-1 不写死下标，同 setLineEdit 那一句）。
     layout->insertWidget(layout->count() - 1, m_content);
+    // 那块里挂了 `wtfmlPromptActionsLead` 的一格（如预设弹窗的「本次应用」汇总）挪到按钮行左边。
+    // shortcut: 换内容时不把它还回旧那块；今天挂它的只有 PresetInstallPicker，且只 setContent 一次。
+    if (auto *row = findChild<QWidget *>(buttonRowName()); row != nullptr) {
+        for (QWidget *lead : m_content->findChildren<QWidget *>()) {
+            if (!lead->property("wtfmlPromptActionsLead").toBool()) continue;
+            static_cast<QHBoxLayout *>(row->layout())->insertWidget(0, lead, 1);
+            break;
+        }
+    }
     relinkTabOrder();  // 调用方那块里可能有好几格能 Tab 到，一起按看得见的顺序排。
     return m_content;
 }

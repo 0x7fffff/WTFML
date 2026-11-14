@@ -114,8 +114,13 @@ void applyItemView(QAbstractItemView *view) {
     if (qobject_cast<QHeaderView *>(view) != nullptr || insidePopup(view)) return;
     if (isQtDefaultDelegate(view->itemDelegate())) view->setItemDelegate(new RowDelegate(view));
     view->setFrameShape(QFrame::NoFrame);
-    // 去线条化：表格不画网格，行靠悬停 / 选中那块底分开。
-    if (auto *table = qobject_cast<QTableView *>(view)) table->setShowGrid(false);
+    // 去线条化：表格不画网格，行靠悬停 / 选中那块底分开。左上角那颗角按钮（全选）不要：
+    // 它画成一块原生白方块，行号列也大多是 Qt 默认带出来的。表头字和格里的字一样靠左。
+    if (auto *table = qobject_cast<QTableView *>(view)) {
+        table->setShowGrid(false);
+        table->setCornerButtonEnabled(false);
+        table->horizontalHeader()->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    }
     if (QWidget *viewport = view->viewport()) {
         viewport->setAutoFillBackground(false);
         viewport->setAttribute(Qt::WA_Hover, true);

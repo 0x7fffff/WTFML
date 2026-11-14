@@ -144,6 +144,10 @@ void InstanceSettingsDialog::setupLifecyclePages() {
             row->setContentsMargins(0, 0, 0, 0);
             row->setSpacing(8);
             layout->addWidget(rowHost);
+            // 宽够时每颗都是 commandWidth；900 宽窗口里三颗排不下（r133 第 6 项），就一起等宽缩到字宽 + 24。
+            int count = 0;
+            for (auto *button : buttons) count += button != nullptr;
+            rowHost->setMaximumWidth(count * commandWidth + qMax(0, count - 1) * row->spacing());
             for (auto *button : buttons) {
                 if (!button) continue;
                 if (auto *previous = button->parentWidget(); previous && previous != page && previous != rowHost)
@@ -155,12 +159,13 @@ void InstanceSettingsDialog::setupLifecyclePages() {
                     button->setToolTip(restoreSnapshotTooltip() + QLatin1Char('\n') + restoreSnapshotHint());
                 if (button->property("wtfmlButtonKind").toString().isEmpty())
                     Theme::markButton(button, Theme::ButtonKind::Neutral);
-                button->setFixedSize(commandWidth, actionButtonHeight());
-                button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-                row->addWidget(button);
+                button->setFixedHeight(actionButtonHeight());
+                button->setMinimumWidth(button->fontMetrics().horizontalAdvance(button->text()) + 24);
+                button->setMaximumWidth(commandWidth);
+                button->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);  // Ignored：按 stretch 等分，不看各自字宽
+                row->addWidget(button, 1);
                 button->show();
             }
-            row->addStretch();
         };
         if (key == QStringLiteral("operationsmenu")) {
             const auto section = [page, layout](const QString &text) {
@@ -387,8 +392,8 @@ void InstanceSettingsDialog::setupLifecyclePages() {
                 mods->setMinimumHeight(80);
                 items->setMinimumHeight(80);
                 mods->header()->setSectionResizeMode(0, QHeaderView::Stretch);
-                mods->header()->setSectionResizeMode(1, QHeaderView::Interactive);
-                mods->setColumnWidth(1, 240);
+                // 状态列按内容宽：钉 240 时窄窗下第一列只剩几十像素，表头「当前模组」都被截掉。
+                mods->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
                 mods->header()->setSectionResizeMode(2, QHeaderView::Stretch);
                 assessmentLayout->addWidget(mods, 1);
                 auto *scope = new QWidget(page);

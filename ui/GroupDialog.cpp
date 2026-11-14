@@ -10,7 +10,8 @@
 
 #include <QApplication>
 #include <QCheckBox>
-#include <QGroupBox>
+#include <QFrame>
+#include "MainWindowPageLayout.hpp"
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -60,8 +61,9 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
     mainLayout->addWidget(hint);
 
     {
-        auto *groupBox = new QGroupBox(tr("分组"), this);
-        auto *layout = new QVBoxLayout(groupBox);
+        // 小节标题 + 底色分组（步骤 133，替掉 QGroupBox 那圈原生框）。
+        QVBoxLayout *layout = nullptr;
+        QFrame *groupBox = MainWindowPageLayout::makeSectionCard(tr("分组"), this, &layout);
 
         m_groupList = new QListWidget(groupBox);
         m_groupList->setObjectName(groupListName());

@@ -20,7 +20,6 @@
 
 #include "operations/UpgradePageState.hpp"
 
-class QCheckBox;
 class QComboBox;
 class QLabel;
 class QLineEdit;
@@ -101,7 +100,7 @@ private:
     QPushButton *m_history = nullptr;
     bool m_checkPending = false;
     QPushButton *m_preview = nullptr;
-    QList<QCheckBox *> m_checks;
+    QList<QPushButton *> m_checks;
     QHash<QString, QPair<int, qint64>> m_categoryAmounts;
     QHash<QString, int> m_categoryLinks;
 };

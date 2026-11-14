@@ -5,6 +5,7 @@
 #include <QDoubleSpinBox>
 #include <QKeyEvent>
 #include "PresetInstallPicker.hpp"
+#include "LoadingState.hpp"
 #include <QJsonArray>
 int UiInstallLayoutCheck(QApplication &app) {
 
@@ -162,9 +163,26 @@ int UiInstallLayoutCheck(QApplication &app) {
             PresetInstallPicker::Category dataCategory; dataCategory.key="dataPacks"; dataCategory.title="数据包";
             PresetInstallPicker::Category shaderCategory; shaderCategory.key="shaderPacks"; shaderCategory.title="光影包";
             picker.setCategories({game,mods,packCategory,dataCategory,shaderCategory});picker.setComposites({{"parent","日常配置",{{"gameSettings","game-child"},{"mods","mod-child"}}}});
+            {
+                // 步骤 133：右栏加载态、综合预设空态、「显示综合预设」是开关。
+                PresetInstallPicker loading;
+                loading.beginLoading();
+                auto *stack = loading.findChild<QStackedWidget *>();
+                expect(stack && LoadingState::overlay(stack), "preset picker right pane shows the shared loading state while data is pending");
+                loading.setCategories({game, mods});
+                expect(!LoadingState::overlay(stack), "setCategories retires the preset picker loading state");
+                loading.setComposites({});
+                expect(!loading.findChild<QListWidget *>("presetCompositeList") &&
+                           loading.findChild<QLabel *>(PresetInstallPicker::emptyLabelName(2)) &&
+                           loading.findChild<QPushButton *>(PresetInstallPicker::manageButtonName(2)),
+                       "empty composite page shows an empty state with a manage button instead of an empty list");
+                auto *show = loading.findChild<QCheckBox *>("presetShowComposite1");
+                expect(show && show->property("wtfmlSwitch").toBool(),
+                       "show-composite toggle is a switch on pages that list composite presets");
+            }
             picker.findChild<QListWidget *>("presetCompositeList")->setCurrentRow(0);
             expect(picker.selectedId("gameSettings")=="game-child"&&picker.selectedId("mods")=="mod-child","composite selection maps to independent category parts");
-            picker.findChild<QCheckBox *>("presetCompositePart_mods")->setChecked(false);
+            picker.findChild<QAbstractButton *>("presetCompositePart_mods")->setChecked(false);
             expect(picker.selectedId("mods").isEmpty()&&picker.selectedId("gameSettings")=="game-child","unchecking a composite part leaves other parts selected");
             auto *modChoices = picker.findChild<QListWidget *>(PresetInstallPicker::listName(1));
             expect(modChoices && modChoices->count() == 3 &&
@@ -216,7 +234,7 @@ int UiInstallLayoutCheck(QApplication &app) {
                        "confirmed mod replacement preserves other category sources");
                 auto *source = picker.findChild<QLabel *>("presetSource_mods");
                 expect(source && source->text().contains("建筑辅助"), "summary reflects the final per-category source");
-                picker.findChild<QCheckBox *>("presetCompositePart_gameSettings")->setChecked(false);
+                picker.findChild<QAbstractButton *>("presetCompositePart_gameSettings")->setChecked(false);
                 expect(picker.selectedId("mods") == "mod-other", "unchecking another composite part preserves independently replaced mods");
                 picker.setContext("1.21.1", QString());
                 expect(picker.selectedId("mods").isEmpty() &&
@@ -224,7 +242,7 @@ int UiInstallLayoutCheck(QApplication &app) {
                        "vanilla context clears and disables mod presets");
                 picker.findChild<QListWidget *>("presetCompositeList")->setCurrentRow(0);
                 expect(picker.selectedId("mods").isEmpty() &&
-                       !picker.findChild<QCheckBox *>("presetCompositePart_mods")->isEnabled(),
+                       !picker.findChild<QAbstractButton *>("presetCompositePart_mods")->isEnabled(),
                        "composite preset cannot bypass the mod loader requirement");
 
             }

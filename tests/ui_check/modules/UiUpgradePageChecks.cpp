@@ -37,7 +37,7 @@ int UiUpgradePageChecks(QApplication &app) {
     int found = 0;
     QStringList checkedKeys;
     for (const UpgradeSelection::Category &category : categories) {
-        auto *box = page.findChild<QCheckBox *>(InstanceUpgradePage::categoryCheckName(category.key));
+        auto *box = page.findChild<QAbstractButton *>(InstanceUpgradePage::categoryCheckName(category.key));
         if (box == nullptr) {
             continue;
         }
@@ -71,7 +71,7 @@ int UiUpgradePageChecks(QApplication &app) {
     check(summary != nullptr && summary->text().contains(QStringLiteral("已选 1 类")),
           "UG3 底部摘要显示已选类数", summary != nullptr ? summary->text() : QString());
 
-    auto *modBox = page.findChild<QCheckBox *>(
+    auto *modBox = page.findChild<QAbstractButton *>(
         InstanceUpgradePage::categoryCheckName(QStringLiteral("mods")));
     check(modBox != nullptr, "UG4 找得到 Mod 文件那一格");
     if (modBox != nullptr) {

@@ -384,16 +384,16 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
     // 第三行：勾选框 + 下面那句注释。那句解释必须留着 —— 它说的是
     // "在被设为置顶组的那个组里再放一个同名的"。
     {
-        auto [cell, column] = makeZeroColumn(this);
-        m_pinCheck = new QCheckBox(pinCheckText(), cell);
+        // 一直生效的状态 ⇒ 开关（步骤 133）：行名在左、开关在行尾，和上面几行同一个排法。
+        m_pinCheck = new QCheckBox(pinCheckText(), this);
         m_pinCheck->setObjectName(pinCheckName());
         // **这儿不接 `toggled`**：勾选框和「分组」那一格说的是**两件互不相干的事**
         // （一个管"要不要在置顶组里多摆一条"，一个管"老家在哪"）—— 它们之间没有任何
         // 要同步的东西。
-        column->addWidget(m_pinCheck);
-        column->setAlignment(Qt::AlignLeft | Qt::AlignTop);  // 行里靠左（默认会被摆到中间）
-        cell->setToolTip(pinHint());
-        grid->addWidget(overviewRow(this, cell, firstSentence(pinHint()), nullptr), row++, 0, 1, 2);
+        Theme::markSwitch(m_pinCheck);
+        m_pinCheck->setToolTip(pinHint());
+        grid->addWidget(overviewRow(this, overviewRowTitle(pinCheckText(), this), firstSentence(pinHint()), m_pinCheck),
+                        row++, 0, 1, 2);
         // 「最后启动」那一行：时间当标题，口径说明在悬停提示里（setLastLaunch 写的）。
         grid->addWidget(overviewRow(this, m_lastLaunchLabel, QString(), nullptr), row++, 0, 1, 2);
     }
