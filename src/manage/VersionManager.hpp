@@ -50,6 +50,21 @@ public:
     // （下载残骸、纯空目录、误丢进来的整合包 zip）不报 —— 那些本来就不像实例。
     // 传 nullptr 时只是不收告警，返回的列表逐项一致。
     QStringList installedVersions(QStringList *warnings = nullptr) const;
+    /// `installedVersions()` 的后台版：扫盘在工作线程里做，结果从
+    /// `installedVersionsScanned` 回来。
+    ///
+    /// 版本清单从网络回来那一下会顺带重扫一遍 `versions/`（20 份 63 ms、200 份 116 ms），
+    /// 那笔钱落在"用户正在等下载页"的同一段时间里。调用方原来同步拿结果的，现在改成接
+    /// 这个信号 —— 结果回来之前界面保持上一次的样子。
+    ///
+    /// 两条保证：
+    /// * **连着触发两次，旧结果不许盖新结果**：每次请求 +1 一代，回调只认最新那一代；
+    ///   上一发还在跑的话会被取消旗叫停（每个目录看一眼）。
+    /// * **对象析构后不再回调**：watcher 挂在本对象上，跟着一起销毁；工作线程只持有
+    ///   路径 / 取消旗，不碰 `this`。
+    ///
+    /// @param reportWarnings 要不要收"有 jar 但认不出客户端"的告警（见 `installedVersions()`）。
+    void requestInstalledVersions(bool reportWarnings = true);
     QStringList availableVersions() const;
 
     /// 四个分类里的一个，连同它底下的版本。
@@ -1276,6 +1291,9 @@ public:
 
 signals:
     void versionsFetched(const QStringList &versions);
+    /// `requestInstalledVersions()` 的回复。只有**最新一次**请求会发：旧的那一发的结果
+    /// 直接丢掉（见那个函数的注释）。
+    void installedVersionsScanned(const QStringList &versions, const QStringList &warnings);
     void versionDetailsFetched(const QString &versionId, const QJsonObject &versionJson);
     // 进度只走这个信号，UI 把它显示成进度条，不再往日志里写。
     void versionDownloadStats(int done, int total, int failed, const QString &currentFile);
@@ -1955,4 +1973,9 @@ private:
     // 版本列表还没拉过时要先拉列表，拿到之后再回来取 version.json。
     // 这里记下待取的版本号，续接动作放在 onVersionManifestFetched 里。
     QString m_fetchJsonAfterManifest;
+    /// 后台扫盘的代数：每次 `requestInstalledVersions()` +1，回调只认最新那一代。
+    quint64 m_installedScanGeneration = 0;
+    /// 在途那一发的取消旗（析构时也置真）。用 shared_ptr 是因为工作线程可能比某一次
+    /// 请求活得久 —— 它只持有这个旗和路径，不碰本对象。
+    std::shared_ptr<std::atomic_bool> m_installedScanCancelled;
 };

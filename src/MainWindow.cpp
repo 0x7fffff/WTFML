@@ -408,6 +408,15 @@ MainWindow::MainWindow(QWidget *parent)
     // 以及实例页第三档那个宿主（页面由 controller 自己塞进去）。
     // 兼容性提供方在构造时就固定端点；不能等后面的 applySettingsToUi() 才注入。
     m_versionManager->setModrinthApiBaseOverride(m_settings->modrinthApiBaseOverride());
+    // 后台扫盘的回复。接在版本管理器上（不是某个控制器）：实例下拉框、实例树、服务端页、
+    // 预设页的实例下拉框、主页"最近运行"都由 `applyInstalledVersions()` 一次收尾。
+    connect(m_versionManager, &VersionManager::installedVersionsScanned, this,
+            [this](const QStringList &installed, const QStringList &warnings) {
+                if (m_installedRefreshToken != m_pendingInstalledRefreshToken) {
+                    return;  // 这之后又有人同步刷过一遍，这份比屏幕上那份旧
+                }
+                applyInstalledVersions(installed, warnings);
+            });
     m_presetController = new PresetController(
         m_versionManager, m_ui->getInstancePresetPage(),
         PresetController::Host{

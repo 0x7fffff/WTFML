@@ -139,6 +139,9 @@ VersionManager::VersionManager(QObject *parent)
 }
 
 VersionManager::~VersionManager() {
+    // 后台扫盘那一发：叫停（工作线程每个目录看一眼旗），不在此等它 —— 它只读盘。
+    // watcher 是本对象的子对象，析构之后不会再有回调。
+    if (m_installedScanCancelled) m_installedScanCancelled->store(true);
     // 工作线程只持有路径与结果值；退出前等它结束，避免程序退出后仍在写实例。
     // 先通知外部解压进程退出，避免析构时一直等完整解压超时。
     if (m_modpackOverridesCancelled) m_modpackOverridesCancelled->store(true);
@@ -158,7 +161,19 @@ VersionManager::~VersionManager() {
     delete optifineWorkDir;
 }
 
-QStringList VersionManager::installedVersions(QStringList *warnings) const {
+namespace {
+
+/// 一次扫盘的结果（后台那一版要把它整个带回主线程）。
+struct InstalledScanResult {
+    QStringList versions;
+    QStringList warnings;
+};
+
+/// 扫 `.minecraft/versions`。工作线程直接调这个 —— 只读盘和 `InstanceFiles` 的纯判据，
+/// 不碰 `VersionManager` 的任何成员。
+///
+/// @param cancelled 非空时每进一个目录看一眼：置真就收工（新请求把旧的叫停）。
+QStringList scanInstalledVersions(const std::atomic_bool *cancelled, QStringList *warnings) {
     QStringList versions;
 
     // Scan for installed versions in .minecraft/versions
@@ -168,6 +183,9 @@ QStringList VersionManager::installedVersions(QStringList *warnings) const {
     if (versionsDir.exists()) {
         QStringList versionDirs = versionsDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
         for (const QString &versionDir : versionDirs) {
+            if (cancelled != nullptr && cancelled->load()) {
+                return {};
+            }
             // 判据是"认得出客户端 jar 在不在"，**不要求 jar 名和目录名一致** ——
             // 放宽的来龙去脉见 InstanceFiles.hpp 的块注释（一句话：用户自己在资源管理器里
             // 改过目录名的实例不能被静默丢掉）。
@@ -187,8 +205,8 @@ QStringList VersionManager::installedVersions(QStringList *warnings) const {
                 if (InstanceFiles::isUnfinishedImport(versionDir)) {
                     if (warnings != nullptr) {
                         warnings->append(
-                            tr("目录 %1 是上一次没导完的整合包（没有顶层 jar），先不列在启动列表里；"
-                               "重新导入同一个整合包、用同一个名字就能接着下。")
+                            VersionManager::tr("目录 %1 是上一次没导完的整合包（没有顶层 jar），先不列在启动列表里；"
+                                               "重新导入同一个整合包、用同一个名字就能接着下。")
                                 .arg(versionDir));
                     }
                     continue;
@@ -201,7 +219,7 @@ QStringList VersionManager::installedVersions(QStringList *warnings) const {
             // 一个 jar 都没有的目录（下载残骸、纯空目录、误丢进 versions/ 的整合包 zip）
             // 继续静默 —— 那些本来就没人指望它是实例，报了才知道是噪音。
             if (warnings != nullptr && !resolved.jarCandidates.isEmpty()) {
-                warnings->append(tr("目录 %1 里有 %2 个 jar（%3），认不出哪个是客户端，已忽略。")
+                warnings->append(VersionManager::tr("目录 %1 里有 %2 个 jar（%3），认不出哪个是客户端，已忽略。")
                                      .arg(versionDir)
                                      .arg(resolved.jarCandidates.size())
                                      .arg(resolved.jarCandidates.join(QStringLiteral("、"))));
@@ -218,6 +236,40 @@ QStringList VersionManager::installedVersions(QStringList *warnings) const {
     // 上面的 QDir::Dirs 过滤 + <id>.jar 判据已经把这两类都正确排除了，jars 为空也就
     // 不会上报 —— 别为了"看起来更宽松"把 .zip 也当版本收进来。
     return versions;
+}
+
+}  // namespace
+
+QStringList VersionManager::installedVersions(QStringList *warnings) const {
+    return scanInstalledVersions(nullptr, warnings);
+}
+
+void VersionManager::requestInstalledVersions(bool reportWarnings) {
+    const quint64 generation = ++m_installedScanGeneration;
+    // 上一发还在跑：叫停（它每个目录看一眼旗）。不 `waitForFinished` —— 旧结果本来就不
+    // 打算用，等它只是把这次的请求拖住。
+    if (m_installedScanCancelled) m_installedScanCancelled->store(true);
+    auto cancelled = std::make_shared<std::atomic_bool>(false);
+    m_installedScanCancelled = cancelled;
+
+    auto *watcher = new QFutureWatcher<InstalledScanResult>(this);
+    connect(watcher, &QFutureWatcher<InstalledScanResult>::finished, this,
+            [this, watcher, generation] {
+                const InstalledScanResult result = watcher->result();
+                watcher->deleteLater();
+                // 晚到的那一代直接丢（它已经被新请求盖掉）。析构之后这里根本不会进来：
+                // watcher 是本对象的子对象，跟着一起销毁。
+                if (generation != m_installedScanGeneration) {
+                    return;
+                }
+                emit installedVersionsScanned(result.versions, result.warnings);
+            });
+    watcher->setFuture(QtConcurrent::run([cancelled, reportWarnings] {
+        InstalledScanResult result;
+        result.versions = scanInstalledVersions(cancelled.get(),
+                                                reportWarnings ? &result.warnings : nullptr);
+        return result;
+    }));
 }
 
 QStringList VersionManager::availableVersions() const {
