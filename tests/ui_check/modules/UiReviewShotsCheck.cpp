@@ -19,6 +19,8 @@
 // 这里照真实样子嵌在覆盖层里拍，不跟着窗口拉伸。
 #include "Support.hpp"
 #include "InputWidthScan.hpp"
+#include "LoadingState.hpp"
+#include "PresetManagePage.hpp"
 
 #include "AgentPage.hpp"
 #include "AgentSettingsPage.hpp"
@@ -47,7 +49,10 @@
 #include <QSettings>
 #include <QStackedWidget>
 #include <QTemporaryDir>
+#include <QTimer>
 #include <QTreeWidget>
+
+#include <tuple>
 
 namespace {
 
@@ -58,6 +63,7 @@ struct ShotOptions {
     QString background; ///< 自定义页面背景图（绝对路径），空 = 不设
     bool extended = false;
     bool popups = false;
+    bool loading = false;  ///< `--loading`：只拍加载态（步骤 122）那几张
     bool agentPolish = false;
 };
 
@@ -503,6 +509,142 @@ bool saveShot(QApplication &app, QMainWindow &window, const QString &outDir, con
     return false;
 }
 
+/// `--loading`：加载态（ui/LoadingState）在真界面上的样子。动效开着、等淡入走完再拍。
+/// 文件名 after-<场景>-<主题>.png。
+int shootLoading(QApplication &app, QMainWindow &window, MainWindowUI &ui, const ShotOptions &options) {
+    Anim::setEnabled(true);
+    int saved = 0;
+    const auto settle = [&app](int ms) {
+        QEventLoop loop;
+        QTimer::singleShot(ms, &loop, &QEventLoop::quit);
+        loop.exec();
+        app.processEvents();
+    };
+    // 拍在三颗点有明有暗的那一刻（第一颗刚过峰、第二颗快到峰），别碰巧拍到三颗都歇着。
+    const auto toPhase = [&app] {
+        while (LoadingState::clockMs() % Anim::loadingDotPeriodMs() < 430 ||
+               LoadingState::clockMs() % Anim::loadingDotPeriodMs() > 470) {
+            QEventLoop loop;
+            QTimer::singleShot(4, &loop, &QEventLoop::quit);
+            loop.exec();
+        }
+        app.processEvents();
+    };
+    const QString tag = options.theme;
+    const QString modKey = QStringLiteral("mod");
+
+    // ---- 下载·模组：整块加载（树清空，盖一层「正在获取最热门的模组…」）----
+    ui.getTabWidget()->setCurrentIndex(MainWindowUI::downloadTabIndex());
+    ui.getDownloadCategoryList()->setCurrentRow(MainWindowUI::downloadCategoryModIndex());
+    ui.setDownloadHeaderRow(MainWindowUI::downloadCategoryModIndex());
+    ui.getDownloadStack()->setCurrentIndex(MainWindowUI::downloadCategoryModIndex());
+    QTreeWidget *modTree = ui.getDownloadResourceTree(modKey);
+    if (modTree != nullptr) {
+        modTree->clear();
+        LoadingState::begin(modTree, QStringLiteral("正在获取最热门的模组…"));
+        settle(Anim::loadingDelayMs() + Anim::appearMs() + 120);
+        toPhase();
+        saveShot(app, window, options.out, QStringLiteral("after-block-%1").arg(tag), &saved);
+        // ---- 整块出错 ----
+        LoadingState::fail(modTree, QStringLiteral("没取到模组列表：连接 Modrinth 超时"), [] {});
+        settle(Anim::overlayMs() + 120);
+        saveShot(app, window, options.out, QStringLiteral("after-error-%1").arg(tag), &saved);
+        LoadingState::finish(modTree);
+        settle(Anim::exitMs() + 80);
+    }
+
+    // ---- 下载·模组：第三层行内加载（Iris Shaders → 1.21.4 展开在等）----
+    fillResourceTree(ui, modKey);
+    if (modTree != nullptr && modTree->topLevelItemCount() > 1 && modTree->topLevelItem(1)->childCount() > 0) {
+        QTreeWidgetItem *game = modTree->topLevelItem(1)->child(0);
+        LoadingState::beginRow(game, QStringLiteral("正在获取…"));
+        game->setExpanded(true);
+        settle(Anim::loadingDelayMs() + Anim::appearMs() + 120);
+        toPhase();
+        saveShot(app, window, options.out, QStringLiteral("after-inline-%1").arg(tag), &saved);
+    }
+
+    // ---- 安装页加载器树：一条在等、一条没取到（带「重试」）----
+    if (QTreeWidget *loaders = ui.getLoaderTree(); loaders != nullptr && ui.getInstallNameEdit() != nullptr) {
+        ui.getDownloadCategoryList()->setCurrentRow(MainWindowUI::downloadCategoryGameIndex());
+        ui.getDownloadStack()->setCurrentIndex(MainWindowUI::downloadCategoryGameIndex());
+        for (QWidget *child = ui.getInstallNameEdit(); child != nullptr && child->parentWidget() != nullptr;
+             child = child->parentWidget()) {
+            if (auto *stack = qobject_cast<QStackedWidget *>(child->parentWidget())) stack->setCurrentWidget(child);
+        }
+        if (loaders->topLevelItemCount() > 2) {
+            QTreeWidgetItem *waiting = loaders->topLevelItem(1);
+            QTreeWidgetItem *failed = loaders->topLevelItem(2);
+            qDeleteAll(waiting->takeChildren());
+            qDeleteAll(failed->takeChildren());
+            LoadingState::beginRow(waiting, MainWindowUI::loaderVersionFetchingText());
+            for (const QString &text :
+                 {MainWindowUI::loaderVersionLatestText(), MainWindowUI::loaderVersionStableText()})
+                new QTreeWidgetItem(failed, {text});
+            LoadingState::failRow(LoadingState::beginRow(failed), MainWindowUI::loaderVersionFailedText(), [] {});
+            waiting->setExpanded(true);
+            failed->setExpanded(true);
+        }
+        // 页面滚到底：出错那一行在最下面。
+        for (QWidget *w = loaders->parentWidget(); w != nullptr; w = w->parentWidget()) {
+            if (auto *area = qobject_cast<QScrollArea *>(w)) {
+                area->widget()->adjustSize();
+                app.processEvents();
+                area->verticalScrollBar()->setValue(area->verticalScrollBar()->maximum());
+                break;
+            }
+        }
+        settle(Anim::loadingDelayMs() + Anim::appearMs() + 120);
+        toPhase();
+        saveShot(app, window, options.out, QStringLiteral("after-loader-%1").arg(tag), &saved);
+    }
+
+    // ---- 实例页「预设」那一档：点进一份，「预设内容」那一格在读 ----
+    // 照产品的嵌法（PresetController::buildPage）：塞进 getInstancePresetPage() 那个宿主。
+    if (QWidget *host = ui.getInstancePresetPage(); host != nullptr && host->layout() != nullptr) {
+        ui.getTabWidget()->setCurrentIndex(MainWindowUI::instancesTabIndex());
+        ui.setInstanceMode(MainWindowUI::InstanceMode::Preset);
+        auto *page = new PresetManagePage(host);
+        page->setWindowFlags(Qt::Widget);
+        page->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        host->layout()->addWidget(page);
+        page->setCategories({{QString(), QStringLiteral("全部"), true},
+                             {QStringLiteral("settings"), QStringLiteral("游戏设置"), false},
+                             {QStringLiteral("mods"), QStringLiteral("模组"), false}});
+        QList<PresetManagePage::PresetItem> presets;
+        for (const auto &[id, name, category] :
+             {std::tuple{QStringLiteral("p1"), QStringLiteral("生存常用"), QStringLiteral("settings")},
+              std::tuple{QStringLiteral("p2"), QStringLiteral("光影与性能"), QStringLiteral("mods")},
+              std::tuple{QStringLiteral("p3"), QStringLiteral("建筑按键"), QStringLiteral("settings")}}) {
+            PresetManagePage::PresetItem item;
+            item.id = id;
+            item.name = name;
+            item.categoryKey = category;
+            item.categoryText = category == QStringLiteral("mods") ? QStringLiteral("模组") : QStringLiteral("游戏设置");
+            item.sectionCount = 2;
+            presets.append(item);
+        }
+        page->setPresets(presets, {}, QStringLiteral("p2"));
+        page->show();
+        // 点中那一份 = 进细节那一层（产品里那条 itemClicked 连接）。
+        if (auto *list = page->findChild<QTreeWidget *>(PresetManagePage::presetListName());
+            list != nullptr && list->currentItem() != nullptr)
+            emit list->itemClicked(list->currentItem(), 0);
+        app.processEvents();
+        page->showPresetLoading(QStringLiteral("p2"));
+        settle(Anim::loadingDelayMs() + Anim::appearMs() + 120);
+        toPhase();
+        saveShot(app, window, options.out, QStringLiteral("after-preset-%1").arg(tag), &saved);
+        page->showPresetReadError(QStringLiteral("preset.json 不是合法的 JSON"));
+        settle(Anim::overlayMs() + 120);
+        saveShot(app, window, options.out, QStringLiteral("after-preset-error-%1").arg(tag), &saved);
+        delete page;
+    }
+    Anim::setEnabled(false);
+    std::printf("\nLoading shots: %d saved -> %s\n", saved, qPrintable(options.out));
+    return saved > 0 ? 0 : 1;
+}
+
 int runExtended(QApplication &app, const ShotOptions &options) {
     Anim::setEnabled(false);
     QTemporaryDir settingsDir(QDir::current().filePath(QStringLiteral(".review-shots-XXXXXX")));
@@ -538,6 +680,7 @@ int runExtended(QApplication &app, const ShotOptions &options) {
     window.resize(options.size);
     window.show();
     pump();
+    if (options.loading) return shootLoading(app, window, ui, options);
 
     // ---- 主页：零实例 / 有实例 ----
     ui.getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
@@ -1368,6 +1511,9 @@ int UiReviewShotsCheck(QApplication &app) {
             options.extended = true;
         } else if (arg == QLatin1String("--popups")) {
             options.popups = true;
+        } else if (arg == QLatin1String("--loading")) {
+            options.loading = true;
+            options.extended = true;
         } else if (arg == QLatin1String("--agent-polish")) {
             options.agentPolish = true;
         } else if (arg.startsWith(QLatin1String("--theme="))) {

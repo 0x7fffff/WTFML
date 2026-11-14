@@ -100,6 +100,14 @@ constexpr int progressMs() { return 240; }
 /// 定时采样动画的间隔；进度按真实经过时间计算，不按采样次数累计。
 constexpr int stepMs() { return 16; }
 
+/// 加载态（`ui/LoadingState.hpp`）开始后多久还没结果才露面。之前到了什么都不出 ——
+/// 快网下一闪而过的点比没有更扎眼。
+constexpr int loadingDelayMs() { return 150; }
+/// 加载态那三颗点一轮多长：每颗 0→30% 由暗到亮、30→60% 暗回去、其余歇着。
+constexpr int loadingDotPeriodMs() { return 1200; }
+/// 三颗点彼此错开多少。
+constexpr int loadingDotStaggerMs() { return 160; }
+
 /// Page content begins faintly visible, then fades in over the upward transition.
 /// Keep a small nonzero start to avoid a blank first frame while the page is populated.
 constexpr qreal pageStartOpacity() { return 0.12; }

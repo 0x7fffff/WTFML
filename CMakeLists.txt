@@ -662,6 +662,7 @@ set(SOURCE_FILES
     # CMakeLists 里同一行的注释）：漏了的表现是那几张图**静默变回草方块**。
     assets/icons.qrc
     ui/VersionTreeDelegate.cpp
+    ui/LoadingState.cpp
     ui/ResourceDetailPage.cpp
     ui/InstanceGroupDelegate.cpp
     ui/SkinViewer.cpp

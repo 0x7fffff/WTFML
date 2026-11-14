@@ -1,4 +1,5 @@
 #include "VersionTreeDelegate.hpp"
+#include "LoadingState.hpp"
 #include "Popups.hpp"
 
 #include <QAbstractItemView>
@@ -285,6 +286,11 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     if (!mark.isNull()) {
         iconRect = QRect(row.left() + leftPad, row.center().y() - iconSize / 2, iconSize, iconSize);
         textLeft = iconRect.right() + 1 + 8;
+    }
+    // 行内加载态（LoadingState::beginRow / failRow 那条占位行）：点 + 话 / 出错 + 重试，
+    // 整行交给它画（不走下面那层"禁用就淡到 0.5"）。从图标那一格起手，和兄弟行同缩进。
+    if (LoadingState::paintRow(painter, option, index, iconRect.isNull() ? textLeft : iconRect.left())) {
+        return;
     }
     // 右边那个箭头自己占一格，文字不许压过去；选中的那条加载器右边还多一个「取消」小叉
     // （rowClearRole()，见下），那一格也要从文字的可用宽度里扣掉。

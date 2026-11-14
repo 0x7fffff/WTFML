@@ -1,4 +1,14 @@
 #include "Support.hpp"
+#include "LoadingState.hpp"
+namespace {
+// 树上那一层整块加载态写着的那句话（没有那一层就是空串）。
+QString loadingText(QWidget *tree) {
+    QWidget *layer = LoadingState::overlay(tree);
+    return layer != nullptr && layer->property("state").toString() == QStringLiteral("loading")
+               ? layer->accessibleName()
+               : QString();
+}
+}  // namespace
 int MwDownloadNavigationChecks(MainWindow &window) {
     // ------------------------------------------------------------------
     // 左栏从"挑加载器 + 挑版本"换成 PCL 那种一列分类（游戏 / 整合包 / 模组 / 资源包 /
@@ -13,9 +23,9 @@ int MwDownloadNavigationChecks(MainWindow &window) {
     // 就是结果，不是空树）。所以这一节要读的是"切过去当下"的状态 —— 见下面那段 NOTE。
     //
     // NOTE: **mw_check 不是离线的**：这一节每跑一次会真的往
-    // api.modrinth.com 发四次搜索（每页一次）。断网时也不会红 —— 那一行占位的
+    // api.modrinth.com 发四次搜索（每页一次）。断网时也不会红 —— 那一层加载态
     // 「正在获取…」跟回复到没到没关系，它就是"发出去那一刻"的东西；断网的结果
-    // 是过了一会儿它换成一行「搜索失败：…」（那句只在树上，不弹窗，见
+    // 是过了一会儿它换成出错态「原因 + 重试」（只在树上，不弹窗，见
     // onResourceSearchFinished 里那段 NOTE）。
     {
         auto *categoryList =
@@ -74,9 +84,9 @@ int MwDownloadNavigationChecks(MainWindow &window) {
                 // "最热门的" —— ensureResourcePageLoaded() 就接在切分类那条路上。
                 //
                 // NOTE: 这一段**必须在下面的 processEvents() 之前**读。setCurrentRow()
-                // 是同步一路走到 startResourceSearch() 的，这会儿树里只摆着那一行
-                // 灰的「正在获取…」；跑过一轮事件、回复（或者超时）落了地，那行就
-                // 换成结果了 —— 那时候再断言就等于在赌网络快不快。
+                // 是同步一路走到 startResourceSearch() 的，这会儿树是空的、上面盖着
+                // 「正在获取…」加载态；跑过一轮事件、回复（或者超时）落了地，就换成
+                // 结果了 —— 那时候再断言就等于在赌网络快不快。
                 const QString categoryKey = keys.value(i);
                 ResourceCatalog::Kind kind{};
                 if (i != gameIndex && ResourceCatalog::kindFromCategoryKey(categoryKey, &kind)) {
@@ -93,28 +103,23 @@ int MwDownloadNavigationChecks(MainWindow &window) {
                                   stack->widget(i)->isAncestorOf(resTree),
                               QString("「%1」那一页的树就长在那一页上")
                                   .arg(MainWindowUI::downloadCategoryTexts().value(i)));
-                        // 切过去的第一眼：一行灰的「正在获取最热门的<类>…」。没有它，
-                        // 点这一下到结果回来之间界面**完全没有反应**（请求一秒上下），
-                        // 而"点了没反应"是用户唯一会当成启动器坏了的情况。
-                        const QString placeholder =
-                            resTree->topLevelItemCount() == 1
-                                ? resTree->topLevelItem(0)->text(
-                                      MainWindowUI::versionTreeKeyColumn())
-                                : QString();
+                        // 切过去的第一眼：树上盖着整块加载态「正在获取最热门的<类>…」
+                        // （150ms 后才露面，但这一刻已经挂上了）。没有它，点这一下到结果
+                        // 回来之间界面**完全没有反应**（请求一秒上下），而"点了没反应"是
+                        // 用户唯一会当成启动器坏了的情况。
+                        const QString placeholder = loadingText(resTree);
                         check(placeholder.contains(QStringLiteral("正在获取最热门的%1")
                                                        .arg(ResourceCatalog::kindLabel(kind))),
-                              QString("点「%1」那一下，树上立刻摆出「正在获取最热门的%1…」")
+                              QString("点「%1」那一下，树上立刻盖上「正在获取最热门的%1…」")
                                   .arg(MainWindowUI::downloadCategoryTexts().value(i)),
-                              QString("行数=%1 第一行=「%2」")
+                              QString("行数=%1 加载态=「%2」")
                                   .arg(resTree->topLevelItemCount())
                                   .arg(placeholder));
-                        // 那一行是**灰的**（禁用位）：它不是一个能点的东西，点它什么都不该
-                        // 发生（onResourceItemActivated 开头就是这一条）。将来有人把它改成
-                        // 能点，用户点一下就得到一条"正在获取…"的假条目。
-                        check(resTree->topLevelItemCount() != 1 ||
-                                  resTree->topLevelItem(0)->isDisabled(),
-                              QString("「%1」那一页上那行「正在获取…」是灰的（点不动）")
-                                  .arg(MainWindowUI::downloadCategoryTexts().value(i)));
+                        // 加载态不是树里的条目：树是空的，用户点不到一条"正在获取…"的假条目。
+                        check(resTree->topLevelItemCount() == 0,
+                              QString("「%1」那一页在等的时候树里没有假条目")
+                                  .arg(MainWindowUI::downloadCategoryTexts().value(i)),
+                              QString::number(resTree->topLevelItemCount()));
                     }
                 }
 
@@ -244,19 +249,14 @@ int MwDownloadNavigationChecks(MainWindow &window) {
                     addMarker(resTree);
                     check(hasMarker(resTree), "① 前提：标记行挂上去了");
                     clickListAt(categoryList, refreshBox.center());
-                    check(!hasMarker(resTree) && resTree->topLevelItemCount() == 1 &&
-                              resTree->topLevelItem(0)->text(
-                                  MainWindowUI::versionTreeKeyColumn())
-                                  .contains(QStringLiteral("正在")),
+                    check(!hasMarker(resTree) && resTree->topLevelItemCount() == 0 &&
+                              loadingText(resTree).contains(QStringLiteral("正在")),
                           "★ 点「模组」那条右边的刷新 = 这一类**重新问了一遍**"
-                          "（树上换成了「正在获取…」那一行占位）",
-                          QString("行数=%1 标记还在=%2 第一行=「%3」")
+                          "（树清空、盖上了「正在获取…」加载态）",
+                          QString("行数=%1 标记还在=%2 加载态=「%3」")
                               .arg(resTree->topLevelItemCount())
                               .arg(hasMarker(resTree) ? 1 : 0)
-                              .arg(resTree->topLevelItemCount() > 0
-                                       ? resTree->topLevelItem(0)->text(
-                                             MainWindowUI::versionTreeKeyColumn())
-                                       : QString()));
+                              .arg(loadingText(resTree)));
                     check(categoryList->currentRow() == modKindIndex,
                           "★ 点刷新**没有**把左栏切到别的类去（刷新的还是原来那一页）",
                           QString::number(categoryList->currentRow()));
@@ -305,15 +305,14 @@ int MwDownloadNavigationChecks(MainWindow &window) {
                               QString("row=%1 page=%2")
                                   .arg(categoryList->currentRow())
                                   .arg(stack->currentIndex()));
-                        check(!hasMarker(packTree) && packTree->topLevelItemCount() == 1 &&
-                                  packTree->topLevelItem(0)
-                                      ->text(MainWindowUI::versionTreeKeyColumn())
-                                      .contains(QStringLiteral("正在")),
-                              "★ 而且**它那一页**的树上换成了「正在获取…」（问的是资源包，"
+                        check(!hasMarker(packTree) && packTree->topLevelItemCount() == 0 &&
+                                  loadingText(packTree).contains(QStringLiteral("正在")),
+                              "★ 而且**它那一页**的树上盖上了「正在获取…」（问的是资源包，"
                               "不是只切过去看了一眼）",
-                              QString("行数=%1 标记还在=%2")
+                              QString("行数=%1 标记还在=%2 加载态=「%3」")
                                   .arg(packTree->topLevelItemCount())
-                                  .arg(hasMarker(packTree) ? 1 : 0));
+                                  .arg(hasMarker(packTree) ? 1 : 0)
+                                  .arg(loadingText(packTree)));
                         QApplication::processEvents();
                     } else {
                         check(false, "「资源包」那一页的资源树找得回来（第③段的前提）");
