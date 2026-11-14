@@ -259,6 +259,7 @@ add_ui_module(ui_check_resource_packs modules/UiResourcePacksCheck.cpp UiResourc
 add_ui_module(ui_check_lifecycle modules/UiLifecycleCheck.cpp UiLifecycleCheck)
 add_ui_module(ui_check_ui_refresh modules/UiUiRefreshCheck.cpp UiUiRefreshCheck)
 add_ui_module(ui_check_theme modules/UiThemeCheck.cpp UiThemeCheck)
+add_ui_module(ui_check_fold_motion modules/UiFoldMotionChecks.cpp UiFoldMotionChecks)
 add_ui_module(ui_check_daily_quote modules/UiDailyQuoteCheck.cpp UiDailyQuoteCheck)
 add_ui_module(ui_check_daily_quote_shots modules/UiDailyQuoteShots.cpp UiDailyQuoteShots)  # 样张，不进 ctest
 add_ui_module(ui_check_home_greeting_shots modules/UiHomeGreetingShots.cpp UiHomeGreetingShots)  # 样张，不进 ctest
@@ -358,6 +359,12 @@ set_tests_properties(wtfml.window-chrome PROPERTIES
     LABELS "ui;window"
     TIMEOUT 120
     ENVIRONMENT "QT_QPA_PLATFORM=windows;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
+wtfml_add_test(NAME wtfml.fold-motion COMMAND ui_check_fold_motion)
+set_tests_properties(wtfml.fold-motion PROPERTIES
+    LABELS "ui;settings"
+    TIMEOUT 120
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
 )
 wtfml_add_test(NAME wtfml.theme COMMAND ui_check_theme)
 set_tests_properties(wtfml.theme PROPERTIES

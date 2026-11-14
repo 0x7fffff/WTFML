@@ -490,8 +490,9 @@ void MainWindowUI::setupDownloadGamePage() {
     auto *loaderCard = new QFrame(installPage);
     markSurface(loaderCard, Theme::sectionSurfaceValue());
     auto *loaderLayout = new QVBoxLayout(loaderCard);
-    // 和设置页那些小节同一圈内边距/行距（18,16,18,18 / 12）。
-    loaderLayout->setContentsMargins(18, 16, 18, 18);
+    // 卡片本身没有底色，左右不留内边距：小标题、加载器列表和上面的「版本名称」同一条左缘
+    // （新建服务端页那张「服务端」卡片是同一个形状）。行内的内边距由列表自己给（下面 wtfmlRowLeftPad）。
+    loaderLayout->setContentsMargins(0, 16, 0, 18);
     loaderLayout->setSpacing(12);
     {
         auto *loaderTitle = new QLabel(modLoaderLabelText(), loaderCard);
@@ -509,6 +510,8 @@ void MainWindowUI::setupDownloadGamePage() {
     // 不画、同一个代理、同一个字号偏移）—— 按"和上一页相同的模式"来，
     // 两边长得不一样的话这条模式就只兑现了一半。
     loaderTree->setHeaderHidden(true);
+    // 行内图标 / 文字退到名称框文字那条线上（名称框文字距框左缘 12，委托自己已留 7，补 6）。
+    loaderTree->setProperty("wtfmlRowLeftPad", 6);
     // 树**自己不画那圈边**（和实例列表、文件夹列表、下载页左栏那三张
     // 同一条规矩）：它四周已经是上面那张小节卡片，再套一圈又是"框套框"。
     loaderTree->setFrameShape(QFrame::NoFrame);

@@ -7,6 +7,7 @@
 
 #include "WorldSettingsPage.hpp"
 #include "InputSizing.hpp"
+#include "SettingsPageParts.hpp"
 
 #include <QAbstractButton>
 #include <QComboBox>
@@ -300,6 +301,7 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     fileBody->setSpacing(8);
     // 默认收起：这是"改存档文件"那几格，用户没点开之前一个都不该看见。
     m_fileBody->setVisible(false);
+    m_fileMotion = new SettingsParts::FoldMotion(m_fileBody, /*fillsSpace=*/true);
 
     // 世界名：盘上没有这一格
     // 时它照样能改，只是 tooltip 会说明"现在写的是默认值，改了才会写进去"（见
@@ -345,10 +347,10 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
         // 下去屏幕上什么都不动（警告还在弹），像按了个坏按钮。
         // MainWindow 那一头有两种回话：答应 ⇒ `setFileEditingOpen(true)`（和现在一样）、
         // 反悔 ⇒ `setFileEditingOpen(false)`（把框收回去，那一下会把这个钮也拨回来）。
-        m_fileBody->setVisible(open);
         // 正文收尾那根弹簧也要跟着翻（见 `m_bodyTail` 那一段：收着的时候不管它，上面两样
-        // 会被均分到整块正文里）。
+        // 会被均分到整块正文里）。先翻弹簧再开合，动画一开头版面就是对的。
         updateBodyTail(open);
+        m_fileMotion->setOpen(open);
         // 底下那行小字里有一句是**说那个列表怎么来的**（`rulesSourceHint()`）—— 框收着的
         // 时候那一列根本不在屏幕上，说它等于让用户找一样看不见的东西。所以这一句跟着
         // 框的开合走（`refreshNote()` 里判的是 `m_fileToggle->isChecked()`）。
@@ -771,9 +773,9 @@ void WorldSettingsPage::setFileEditingOpen(bool open) {
     // 第二次是在他**刚答应完之后**弹的（屏幕上看着像"这按钮点不完"）。
     const QSignalBlocker blocker(m_fileToggle);
     m_fileToggle->setChecked(open);
-    m_fileBody->setVisible(open);
     // 正文收尾那根弹簧（见 `m_bodyTail` 那段 —— 这一条路和用户点那颗钮那一条路都要叫它）。
     updateBodyTail(open);
+    m_fileMotion->setOpen(open);
     // 那行小字里有一句跟着框的开合走（`rulesSourceHint()`，理由见 `refreshNote()` 那段）。
     // 这一条路被 `QSignalBlocker` 挡着，所以**得自己叫一次** —— 不然主程序答完那句警告、
     // 把框摆开之后，底下那句"这一列是怎么来的"要等到用户自己再点一下那颗钮才说得出口。
