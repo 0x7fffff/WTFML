@@ -68,21 +68,21 @@ QColor blendedColor(const QColor &from, const QColor &to, qreal progress) {
                             from.alphaF() + (to.alphaF() - from.alphaF()) * t);
 }
 
-TitleBarButton::NavIcon iconForLabel(const QString &label) {
-    // 认**中文源文和它的英文译文**两种：条上的字是 `MainWindowUI` 那五个标签的文本
-    // （装了英文翻译时就是英文），只认中文的话英文界面会上五个"没有图标"的按钮。
-    // 限制：这一层只认这两份写法；再加语言时这里要跟着加一列。
-    if (label == QStringLiteral("主页") || label == QStringLiteral("Home")) return TitleBarButton::NavIcon::Home;
-    if (label == QStringLiteral("管理") || label == QStringLiteral("Library"))
-        return TitleBarButton::NavIcon::Instances;
-    if (label == QStringLiteral("下载") || label == QStringLiteral("Download"))
-        return TitleBarButton::NavIcon::Download;
-    if (label == QStringLiteral("设置") || label == QStringLiteral("Settings"))
-        return TitleBarButton::NavIcon::Settings;
-    if (label == QStringLiteral("智能体") || label == QStringLiteral("Agent"))
-        return TitleBarButton::NavIcon::Agent;
-    if (label == QStringLiteral("工具箱") || label == QStringLiteral("Toolbox"))
-        return TitleBarButton::NavIcon::Toolbox;
+TitleBarButton::NavIcon iconForIndex(int index) {
+    // 按**序号**认，不按文字：条上的字是 `MainWindowUI` 那五个标签的文本，会跟着界面语言变
+    //（装了英文翻译时就是英文）。按文字认等于每加一门语言都要来这里加一列，漏了就是几个
+    // "没有图标"的按钮。
+    //
+    // 顺序契约：和 `MainWindowUI` 里那五个 `addTab` 的先后一致（home / instance / download /
+    // settings / agent，见 `homeTabIndex()` 那一组常量）。加语言不动这里；**重排页面**才要动。
+    switch (index) {
+    case 0: return TitleBarButton::NavIcon::Home;
+    case 1: return TitleBarButton::NavIcon::Instances;
+    case 2: return TitleBarButton::NavIcon::Download;
+    case 3: return TitleBarButton::NavIcon::Settings;
+    case 4: return TitleBarButton::NavIcon::Agent;
+    default: break;
+    }
     return TitleBarButton::NavIcon::None;
 }
 
@@ -591,7 +591,7 @@ void TitleBar::setNavItems(const QStringList &labels) {
         auto *button = new TitleBarButton(TitleBarButton::Glyph::Text, QColor(), QColor(), this);
         button->setObjectName(QStringLiteral("titleBarNav%1").arg(i));
         button->setLabel(labels.at(i));
-        button->setNavIcon(iconForLabel(labels.at(i)));
+        button->setNavIcon(iconForIndex(i));
         button->setFont(navFont);
         button->setFixedSize(width() - 2 * pad, kNavItemHeight);
         button->setAccessibleName(labels.at(i));

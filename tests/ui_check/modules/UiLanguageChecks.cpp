@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "TitleBar.hpp"
 #include "UiLanguage.hpp"
 
 #include <QLocale>
@@ -77,6 +78,21 @@ int UiLanguageChecks(MainWindowUI &ui, QTabWidget *tabs) {
         check(englishUi.getLanguageCombo() != nullptr &&
                   englishUi.getLanguageCombo()->itemText(0) == QStringLiteral("Follow system"),
               "英文界面下「跟随系统」跟着翻成 Follow system");
+        // 图标按**序号**认（见 ui/TitleBar.cpp 的 iconForIndex）：英文下五颗导航照样有图标。
+        // 以前按标签文字认，每加一门语言都得去 TitleBar 加一列，漏了就是几个没图标的按钮。
+        bool iconsOk = englishUi.titleBar() != nullptr && englishUi.titleBar()->navCount() == 5;
+        QStringList iconDetail;
+        if (englishUi.titleBar() != nullptr) {
+            for (int i = 0; i < englishUi.titleBar()->navCount(); ++i) {
+                auto *button = static_cast<TitleBarButton *>(englishUi.titleBar()->navButton(i));
+                const bool hasIcon =
+                    button != nullptr && button->navIcon() != TitleBarButton::NavIcon::None;
+                iconsOk = iconsOk && hasIcon;
+                iconDetail << (hasIcon ? QStringLiteral("ok") : QStringLiteral("none"));
+            }
+        }
+        check(iconsOk, "英文界面下五个导航按钮都有图标（按序号认，不认标签文字）",
+              iconDetail.join(QLatin1Char('/')));
     }
     qApp->removeTranslator(&translator);
 
