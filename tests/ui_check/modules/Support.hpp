@@ -38,6 +38,7 @@
 #include <QStyleFactory>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QMenu>
 #include <QContextMenuEvent>  // U10L：地址那一格右键（复制完整地址）那两发
 #include <QDateTime>  // I4：面板那句"已运行…"的四档话术（纯函数，按毫秒差算）
 #include <QDir>  // V：行下面那行路径给的是系统分隔符（QDir::toNativeSeparators）
@@ -220,6 +221,60 @@ inline void check(bool ok, const QString &what, const QString &detail = QString(
     }
     std::fflush(stdout);
 }
+
+/// 防漏判据：一块顶层浮层（`Qt::Popup` / `Qt::ToolTip`）必须无边框 + 半透明。
+/// 缺无边框，Windows 不给建分层窗口，圆角外那圈没人画的像素就是直角黑框（第三轮反馈第 4 条）。
+/// 返回不合格的理由，空串 = 合格或不归这条管。
+/// 白名单只有一条：Qt 自建的弹层（QMenu、QComboBox 的弹层容器、QCompleter 的补全列表）由
+/// `Popups::install()` 装的过滤器统一接手，本进程没调过 `Theme::apply()` 时它们保持 Qt 原样，不算。
+inline QString popupWindowProblem(const QWidget *widget) {
+    const Qt::WindowType type = widget->windowType();
+    if (type != Qt::Popup && type != Qt::ToolTip) {
+        return QString();
+    }
+    const bool qtBuilt = qobject_cast<const QMenu *>(widget) != nullptr ||
+                         qobject_cast<const QAbstractItemView *>(widget) != nullptr ||
+                         qobject_cast<const QComboBox *>(widget->parentWidget()) != nullptr;
+    if (qtBuilt && qApp->findChild<QObject *>(QStringLiteral("wtfmlMenuGlass"), Qt::FindDirectChildrenOnly) == nullptr) {
+        return QString();
+    }
+    QStringList missing;
+    if (!widget->windowFlags().testFlag(Qt::FramelessWindowHint)) missing << QStringLiteral("无边框");
+    if (!widget->testAttribute(Qt::WA_TranslucentBackground)) missing << QStringLiteral("半透明");
+    if (missing.isEmpty()) return QString();
+    return QStringLiteral("%1(%2) 缺%3").arg(QString::fromLatin1(widget->metaObject()->className()),
+                                             widget->objectName(), missing.join(QStringLiteral("、")));
+}
+
+/// 防漏守卫：装在 QApplication 上，本进程任何一块顶层浮层上屏（Show）都过一遍
+/// `popupWindowProblem()`；进程收尾时 `report()` 记一条断言。按需现建的浮层
+/// （WA_DeleteOnClose）在某一时刻遍历 `topLevelWidgets()` 抓不全，所以挂在 Show 上。
+class PopupWindowGuard : public QObject {
+public:
+    explicit PopupWindowGuard(QApplication &app) : QObject(&app) { app.installEventFilter(this); }
+    void report() const {
+        if (m_shown == 0) return;
+        check(m_problems.isEmpty(),
+              QStringLiteral("防漏：本进程 %1 次顶层浮层上屏都是无边框 + 半透明").arg(m_shown),
+              m_problems.join(QStringLiteral("; ")));
+    }
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override {
+        if (event->type() != QEvent::Show || !watched->isWidgetType()) return false;
+        auto *widget = static_cast<QWidget *>(watched);
+        const Qt::WindowType type = widget->windowType();
+        if (type != Qt::Popup && type != Qt::ToolTip) return false;
+        ++m_shown;
+        const QString problem = popupWindowProblem(widget);
+        if (!problem.isEmpty() && !m_problems.contains(problem)) m_problems << problem;
+        return false;
+    }
+
+private:
+    int m_shown = 0;
+    QStringList m_problems;
+};
 
 /// 上一个被关掉的提示说了什么（标题 / 正文）。产品规矩是"出错必须弹窗"，
 /// 所以"弹没弹、弹的是什么"本身就是要验的东西，不只是为了把测试跑通。

@@ -12,10 +12,12 @@
 #include "Animations.hpp"  // 换页 / 展开折叠 / 上拉面板那几段动效
 #include "ElidedLabel.hpp"
 #include "Glass.hpp"
+#include "GlassPopover.hpp"
 #include "InstanceGroupDelegate.hpp"
 #include "MemorySlider.hpp"
 #include "OverlayHost.hpp"
 #include "PopupPlacement.hpp"
+#include "Popups.hpp"
 #include "RoundAvatar.hpp"
 #include "SkinModel.hpp"
 #include "TaskProgressBar.hpp"
@@ -58,6 +60,18 @@
 using namespace MainWindowPageLayout;
 
 namespace {
+
+/// 实例页「文件夹」浮层的底：`Qt::Popup` 顶层窗，走 `Popups::preparePopup()` + `paintSurface()`。
+class FolderPopupSurface final : public QFrame {
+public:
+    explicit FolderPopupSurface(QWidget *owner) : QFrame(owner, Qt::Popup) { Popups::preparePopup(this); }
+
+protected:
+    void paintEvent(QPaintEvent *) override {
+        QPainter painter(this);
+        Popups::paintSurface(painter, QRectF(rect()), GlassPopover::kRadius);
+    }
+};
 
 /// 启动区里「当前实例 · 名字 · 元信息」那一块（设计稿 .inst）：平时无底，悬停 / 弹层开着时铺一层
 /// 场景暗角的雾底（圆角 14），点开实例切换弹层。是 QAbstractButton 不是 QPushButton：后者的
@@ -1342,18 +1356,9 @@ QWidget *MainWindowUI::setupInstancePage() {
     if (auto *titleRow = qobject_cast<QHBoxLayout *>(instance.right.header->layout()->itemAt(0)->layout())) {
         titleRow->insertWidget(1, folderPill, 0, Qt::AlignVCenter);
     }
-    // 文件夹浮层：圆角 16 的磨砂面（浮层才有自己的面）。
-    auto *folderPopup = new QFrame(instanceTab, Qt::Popup | Qt::FramelessWindowHint);
+    // 文件夹浮层：和其他浮层同一张磨砂面（原先铺的是一块不透明卡片色）。
+    auto *folderPopup = new FolderPopupSurface(instanceTab);
     folderPopup->setObjectName(instanceFolderPopupName());
-    folderPopup->setAttribute(Qt::WA_TranslucentBackground);
-    folderPopup->setAttribute(Qt::WA_StyledBackground);
-    const auto paintPopup = [folderPopup]() {
-        const Theme::Tokens t = Theme::tokens();
-        folderPopup->setStyleSheet(QStringLiteral("QFrame#%1 { background: %2; border: none; border-radius: 16px; }")
-                                       .arg(instanceFolderPopupName(), t.card.name(QColor::HexArgb)));
-    };
-    paintPopup();
-    Theme::follow(folderPopup, paintPopup);
     auto *popupLayout = new QVBoxLayout(folderPopup);
     popupLayout->setContentsMargins(12, 12, 12, 12);
     popupLayout->setSpacing(8);

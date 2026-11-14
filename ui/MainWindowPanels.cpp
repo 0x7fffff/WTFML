@@ -267,8 +267,8 @@ public:
         // 浮层单独换一个色）。
         // NOTE: 这一块**每次现建**（Qt::Popup + WA_DeleteOnClose）⇒ 不用挂 follow()：
         // 主题换了之后下一次打开自然就是新的（`Theme::follow()` 的 NOTE 那一段）。
-        // 圆角面：窗口本身透明，底色和那圈细边在 paintEvent 里画（四角才是圆的）。
-        setAttribute(Qt::WA_TranslucentBackground);
+        // 圆角面：窗口本身透明，面在 paintEvent 里画（四角才是圆的）。
+        Popups::preparePopup(this);
         QPalette panelPalette = QApplication::palette();
         panelPalette.setColor(QPalette::Window, Theme::partBackground(Theme::Part::Panel));
         setPalette(panelPalette);
@@ -430,14 +430,10 @@ protected:
         QWidget::mouseDoubleClickEvent(event);
     }
 
-    /// 圆角 14 的面 + 一圈极淡的细边（形状和文件夹浮层呼应）。
-    /// 那圈边不能省：同一档深浅在浅色主题下几乎看不出边界，分不出"面板到哪为止"。
+    /// 和其他浮层同一张磨砂面（`Popups::paintSurface()`），调色板只给行取色。
     void paintEvent(QPaintEvent *) override {
         QPainter painter(this);
-        painter.setRenderHint(QPainter::Antialiasing, true);
-        painter.setPen(QPen(Theme::tokens().stroke, 1.0));  // 浅色下是极淡的深色细线，深色下是极淡的白线
-        painter.setBrush(palette().color(QPalette::Window));
-        painter.drawRoundedRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5), kPanelRadius, kPanelRadius);
+        Popups::paintSurface(painter, QRectF(rect()), kPanelRadius);
     }
 
 private:
@@ -692,7 +688,7 @@ public:
         // 这一族（浮层）那一档由 `Theme::partBackground(Part::Panel)` 说了算。
         // NOTE: 每次现建 ⇒ 不用挂 follow()（和底栏面板同一条）。
         // 17 号反馈之后浮层只有一种面：磨砂玻璃（窗外挂系统瞬态亚克力），不再铺不透明底。
-        Popups::glassify(this, 14);
+        Popups::preparePopup(this);
         setAutoFillBackground(false);
         const QPalette menuPalette = palette();  // 里面那几项的外观仍按调色板取色
 
@@ -1047,7 +1043,7 @@ private:
     /// 那一档由 `Theme::partBackground(Part::Panel)` 说了算（这一族浮层共用一个色）。
     void applyMenuPalette() {
         // 不再铺一块不透明面板色：浮层的面由 `Popups::paintSurface()` 画（磨砂玻璃）。
-        Popups::glassify(this, 14);
+        Popups::preparePopup(this);
         setAutoFillBackground(false);
     }
 

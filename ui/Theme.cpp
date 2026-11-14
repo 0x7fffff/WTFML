@@ -27,7 +27,6 @@
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QCheckBox>
-#include <QMenu>
 #include <QLineEdit>
 #include <QLocale>
 #include <QPainter>
@@ -299,12 +298,6 @@ protected:
                         if (QApplication::focusWidget() && QApplication::focusWidget() != host) { event->accept(); return true; }
                     }
                 }
-            }
-        } else if (event->type() == QEvent::Polish) {
-            // 菜单的圆角要窗口透明才露得出来（否则四角是方的系统底）。
-            if (auto *menu = qobject_cast<QMenu *>(watched); menu != nullptr && !menu->testAttribute(Qt::WA_TranslucentBackground)) {
-                menu->setAttribute(Qt::WA_TranslucentBackground);
-                menu->setWindowFlag(Qt::FramelessWindowHint);
             }
         } else if (event->type() == QEvent::FocusIn) {
             const auto reason = static_cast<QFocusEvent *>(event)->reason();

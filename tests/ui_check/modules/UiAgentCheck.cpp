@@ -242,6 +242,18 @@ int UiAgentCheck() {
               QApplication::focusWidget() != nullptr ? QApplication::focusWidget()->objectName() : QStringLiteral("无"));
     }
 
+    // 107：实例下拉（PopMenu）是 Qt::Popup 顶层窗，缺无边框时圆角面外套一圈直角黑框。
+    {
+        page->showInstanceMenu({{QStringLiteral("a"), QStringLiteral("生存 1.21")}}, QString());
+        QApplication::processEvents();
+        QWidget *menu = page->instanceMenu();
+        const QString problem = menu != nullptr ? popupWindowProblem(menu) : QStringLiteral("没弹出来");
+        check(menu != nullptr && menu->isVisible() && problem.isEmpty(), "智能体 UI：实例下拉是无边框 + 半透明的浮层",
+              problem);
+        if (menu != nullptr) menu->close();
+        QApplication::processEvents();
+    }
+
     // 106：实例胶囊没经过 setInstanceChip 时也按两颗字给宽（以前裁成「实 无」）。
     {
         AgentPage fresh;

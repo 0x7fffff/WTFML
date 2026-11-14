@@ -9,6 +9,7 @@
 #include <QToolButton>
 #include <QTimer>
 #include <QComboBox>
+#include <QCompleter>
 #include <QListView>
 #include <QLineEdit>
 #include <QMenu>
@@ -557,6 +558,53 @@ int UiPopupCheck(QApplication &app) {
         }
         Theme::setSpec(Theme::defaultSpec());
         Theme::apply(app);
+    }
+
+    // ---------- ⑦ 防漏：Qt 自建的几种弹层也都是无边框 + 半透明 ----------
+    // 第三轮反馈第 4 条（圆角面外套直角黑框）。每块浮层上屏时进程级的 PopupWindowGuard 还会再验一遍。
+    {
+        QWidget host;
+        host.resize(320, 120);
+        host.show();
+        Popups::showTooltip(QStringLiteral("防漏检查"), host.mapToGlobal(QPoint(20, 20)), nullptr);
+        auto *probe = new QComboBox(&host);
+        probe->addItems({QStringLiteral("一"), QStringLiteral("二")});
+        probe->show();
+        probe->showPopup();
+        QApplication::processEvents();
+        const QWidget *comboPopup = probe->view()->window();
+        const QString comboProblem = popupWindowProblem(comboPopup);
+        probe->hidePopup();
+        QMenu probeMenu;
+        probeMenu.addAction(QStringLiteral("一项"));
+        probeMenu.show();
+        QApplication::processEvents();
+        const QString menuProblem = popupWindowProblem(&probeMenu);
+        probeMenu.hide();
+        // 可编辑下拉框的补全列表（实例设置「目标版本」、更新实例那两处）。
+        auto *editable = new QComboBox(&host);
+        editable->setEditable(true);
+        editable->addItems({QStringLiteral("1.20.1"), QStringLiteral("1.20.4"), QStringLiteral("1.21")});
+        editable->completer()->setCompletionMode(QCompleter::PopupCompletion);
+        editable->show();
+        editable->completer()->setCompletionPrefix(QStringLiteral("1.2"));
+        editable->completer()->complete();
+        QApplication::processEvents();
+        QWidget *completerPopup = editable->completer()->popup();
+        const QString completerProblem = completerPopup->isVisible() ? popupWindowProblem(completerPopup)
+                                                                     : QStringLiteral("补全列表没弹出来");
+        completerPopup->hide();
+        QString tipProblem = QStringLiteral("tooltip 窗口没找到");
+        for (QWidget *widget : QApplication::topLevelWidgets()) {
+            if (widget->objectName() == QStringLiteral("wtfmlTooltip")) tipProblem = popupWindowProblem(widget);
+        }
+        expect(tipProblem.isEmpty() && comboProblem.isEmpty() && menuProblem.isEmpty() &&
+                   completerProblem.isEmpty(),
+               "tooltip / 下拉弹层 / 菜单 / 补全列表都是无边框 + 半透明",
+               QStringList({tipProblem, comboProblem, menuProblem, completerProblem}).join(QLatin1Char(' ')));
+        Popups::hideTooltip();
+        host.hide();
+        QApplication::processEvents();
     }
 
     printf("%s %d 项失败\n", failures == 0 ? "PASS" : "FAIL", failures);

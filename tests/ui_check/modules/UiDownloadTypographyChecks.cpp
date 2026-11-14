@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "Popups.hpp"
 int UiDownloadTypographyChecks(QMainWindow &window, MainWindowUI &ui) {
 
     {
@@ -271,10 +272,10 @@ int UiDownloadTypographyChecks(QMainWindow &window, MainWindowUI &ui) {
                 const QString sentinel = QStringLiteral("哨兵");
                 const auto tipAt = [&probe, &sentinel](const QPoint &pos) {
                     // 哨兵就挂在这一格上（弹的位置无关紧要，量的是文字换没换）。
-                    QToolTip::showText(pos, sentinel, probe.viewport());
+                    Popups::showTooltip(sentinel, probe.viewport()->mapToGlobal(pos), probe.viewport());
                     QHelpEvent event(QEvent::ToolTip, pos, probe.viewport()->mapToGlobal(pos));
                     QApplication::sendEvent(probe.viewport(), &event);
-                    const QString shown = QToolTip::text();
+                    const QString shown = Popups::tooltipText();  // 代理走自绘那条（107）
                     return shown == sentinel ? QString() : shown;
                 };
                 const QString onButton = tipAt(hoverCell.center());
@@ -284,7 +285,7 @@ int UiDownloadTypographyChecks(QMainWindow &window, MainWindowUI &ui) {
                 const QString onText = tipAt(QPoint(hoverRow.left() + 4, hoverCell.center().y()));
                 check(onText.isEmpty(), "同一个事件发到那一行的正文上，一个字都不弹（还是那句哨兵）",
                       QString("拿到「%1」").arg(onText));
-                QToolTip::hideText();
+                Popups::hideTooltip();
             }
             // 扣出来的可用宽度：挂了刷新的那一行必须给这一格多留出位置，不然长条目会从它底下穿过去。
             // NOTE: 宽度只能**直接问代理的 sizeHint()**（和上面"带叉那一行"那条同一个写法）。

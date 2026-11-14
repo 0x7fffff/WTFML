@@ -208,9 +208,8 @@ public:
         auto *box = new QVBoxLayout(this);
         box->setContentsMargins(6, 6, 6, 6);
         box->setSpacing(0);
-        // glassify 会要 HWND：⋯ 菜单随页面一起建，这时候要会在主窗口里多出一串原生子窗口
-        // （ui_check WC「没有原生子窗口盖住客户区」），所以等第一次弹出再挂。
-        setAttribute(Qt::WA_TranslucentBackground, true);
+        // 无边框必须赶在 HWND 之前：原先只挂了半透明，Windows 不建分层窗口，圆角外套一圈直角黑框。
+        Popups::preparePopup(this);
     }
     QPushButton *addRow(const QString &name, const QString &icon, const QString &text, bool on = false,
                         bool danger = false) {
@@ -265,8 +264,6 @@ public:
         QPoint at = anchor->mapToGlobal(QPoint(anchor->width() - width(), anchor->height() + 6));
         at.setX(qBound(win.left() + 8, at.x(), qMax(win.left() + 8, win.right() - width() - 8)));
         move(at);
-        if (!m_glassed) Popups::glassify(this, GlassPopover::kRadius);
-        m_glassed = true;
         show();
         raise();
         activateWindow();
@@ -276,8 +273,6 @@ protected:
         QPainter p(this);
         Popups::paintSurface(p, QRectF(rect()), GlassPopover::kRadius);
     }
-private:
-    bool m_glassed = false;
 };
 
 /// 图标钮（新建 / ⋯ / ⚙）：Ghost、定边长、字进悬停提示。

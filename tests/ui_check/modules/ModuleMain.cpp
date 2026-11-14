@@ -24,6 +24,7 @@ int main(int argc, char **argv) {
  app.setFont(Theme::textFont(app.font(), Theme::TextRole::Body));
     Q_INIT_RESOURCE(icons);
  std::setvbuf(stdout, nullptr, _IONBF, 0);
+ PopupWindowGuard popupGuard(app);  // 防漏：每块顶层浮层一上屏就验无边框 + 半透明
  Anim::setEnabled(false);
  app.setStyle(Theme::createStyle());
  const auto invoke = []<typename F>(F fn, QApplication &application) {
@@ -40,6 +41,7 @@ int main(int argc, char **argv) {
 #else
  const int result = invoke(WTFML_MODULE_ENTRY, app);
 #endif
+ popupGuard.report();
  std::printf("\nModule assertions: %d passed, %d failed\n", g_pass, g_fail);
  return result != 0 ? result : (g_fail == 0 ? 0 : 1);
 }

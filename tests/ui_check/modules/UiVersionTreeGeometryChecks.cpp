@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "Popups.hpp"
 int UiVersionTreeGeometryChecks(QMainWindow &window, QTreeWidget * &versionTree) {
 
 
@@ -323,10 +324,10 @@ int UiVersionTreeGeometryChecks(QMainWindow &window, QTreeWidget * &versionTree)
             // 在这个平台上不生效（见左栏那一块里那段 NOTE），看 isVisible 会拿到上一条。
             const QString sentinel = QStringLiteral("哨兵");
             const auto tipAtTree = [&probe, &sentinel](const QPoint &pos) {
-                QToolTip::showText(pos, sentinel, probe.viewport());
+                Popups::showTooltip(sentinel, probe.viewport()->mapToGlobal(pos), probe.viewport());
                 QHelpEvent event(QEvent::ToolTip, pos, probe.viewport()->mapToGlobal(pos));
                 QApplication::sendEvent(probe.viewport(), &event);
-                const QString shown = QToolTip::text();
+                const QString shown = Popups::tooltipText();  // 代理走自绘那条（107）
                 return shown == sentinel ? QString() : shown;
             };
             const QString shown = tipAtTree(clearBox.center());
@@ -337,7 +338,7 @@ int UiVersionTreeGeometryChecks(QMainWindow &window, QTreeWidget * &versionTree)
             check(elsewhere.isEmpty(),
                   "★ 同一个事件发到那一行的正文上，一个字都不弹（还是那句哨兵）",
                   QString("拿到「%1」").arg(elsewhere));
-            QToolTip::hideText();
+            Popups::hideTooltip();
         }
         // 叉是**加在**行尾那格左边的：行尾那格（叶子、不悬停）照旧是空的，没被叉压到。
         check(inkCount(clearShot, arrowBox(1)) == 0,

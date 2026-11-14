@@ -208,7 +208,7 @@ public:
         // 17 号反馈之后浮层只有一种面：磨砂玻璃（`Popups::paintSurface()` 画底，
         // 窗外挂系统瞬态亚克力），不再铺一块不透明面板色。
         // NOTE: 这块框**每次现建** ⇒ 不用挂 follow()：主题换了之后下一次打开自然就是新的。
-        Popups::glassify(this, 14);
+        Popups::preparePopup(this);
         setAutoFillBackground(false);
     }
 

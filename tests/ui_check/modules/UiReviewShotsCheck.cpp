@@ -11,6 +11,10 @@
 //
 // `--background <图片绝对路径>` 把它设成自定义页面背景图（铺满整窗），用来看墨色 / 品牌标的取色。
 //
+// `--popups` 只拍自造顶层浮层打开时的样子（智能体实例下拉 / ⋯ 菜单、下拉弹层、右键菜单、
+// tooltip、实例页文件夹浮层与分组齿轮菜单），每张另出一张 `-zoom` 的两倍放大，看四角。
+// 浮层是独立的顶层窗，`window.grab()` 拍不到，这里按全局位置叠回主窗口那张图上。
+//
 // 尺寸只影响主窗口（离屏、DPR=1）；实例设置对话框是产品里那个 820×560 的浮层，
 // 这里照真实样子嵌在覆盖层里拍，不跟着窗口拉伸。
 #include "Support.hpp"
@@ -20,9 +24,12 @@
 #include "AgentSettingsPage.hpp"
 #include "AgentViewTypes.hpp"
 #include "OverlayHost.hpp"
+#include "Popups.hpp"
 #include "ToolboxPage.hpp"
 #include "VersionIcons.hpp"
 
+#include <QComboBox>
+#include <QCompleter>
 #include <QDir>
 #include <QFontDatabase>
 #include <QFrame>
@@ -31,6 +38,7 @@
 #include <QLabel>
 #include <QListWidget>
 #include <QMainWindow>
+#include <QMenu>
 #include <QPainter>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -47,6 +55,7 @@ struct ShotOptions {
     QSize size{0, 0};
     QString background; ///< 自定义页面背景图（绝对路径），空 = 不设
     bool extended = false;
+    bool popups = false;
 };
 
 /// 颜色块 + 一个字母的小图标（资源行 / 账号行用；产品里那些是真图，这里只要不像空白）。
@@ -950,6 +959,169 @@ int runExtended(QApplication &app, const ShotOptions &options) {
 }
 
 /// 原有的那五张 × 四个主题（窗口 1001×776）—— 不带参数时的默认行为，保持不动。
+/// 主窗口 + 此刻开着的顶层浮层叠成一张；`-zoom` 那张是浮层四周留 24px、放大两倍。
+bool savePopupShot(QApplication &app, QMainWindow &window, const QString &outDir, const QString &name, int *saved) {
+    app.processEvents();
+    app.processEvents();
+    QPixmap shot = window.grab();
+    QRect popupArea;
+    {
+        QPainter painter(&shot);
+        for (QWidget *top : QApplication::topLevelWidgets()) {
+            const Qt::WindowType type = top->windowType();
+            if ((type != Qt::Popup && type != Qt::ToolTip) || !top->isVisible()) continue;
+            const QRect at(window.mapFromGlobal(top->mapToGlobal(QPoint(0, 0))), top->size());
+            painter.drawPixmap(at.topLeft(), top->grab());
+            popupArea = popupArea.united(at);
+        }
+    }
+    if (popupArea.isEmpty()) {
+        std::printf("  FAIL %s：没有开着的浮层\n", qPrintable(name));
+        return false;
+    }
+    const QDir dir(outDir);
+    const QPixmap zoom = shot.copy(popupArea.adjusted(-24, -24, 24, 24).intersected(shot.rect()));
+    const QPixmap zoomed = zoom.scaled(zoom.size() * 2, Qt::KeepAspectRatio, Qt::FastTransformation);
+    if (!shot.save(dir.filePath(name + QStringLiteral(".png"))) ||
+        !zoomed.save(dir.filePath(name + QStringLiteral("-zoom.png")))) {
+        std::printf("  FAIL %s -> %s\n", qPrintable(name), qPrintable(outDir));
+        return false;
+    }
+    ++(*saved);
+    std::printf("  %s  %dx%d\n", qPrintable(name), window.width(), window.height());
+    return true;
+}
+
+int runPopups(QApplication &app, const ShotOptions &options) {
+    Theme::Spec spec = options.theme == QLatin1String("default") ? Theme::load() : Theme::presetSpec(options.theme);
+    if (!options.background.isEmpty()) {
+        Theme::PartStyle &page = spec.parts[int(Theme::Part::PageBackground)];
+        page.hasImage = true;
+        page.imagePath = options.background;
+    }
+    Theme::setSpec(spec);
+    Theme::apply(app);
+    QDir().mkpath(options.out);
+    int saved = 0;
+    const auto pump = [&app] {
+        app.processEvents();
+        app.processEvents();
+    };
+    const auto closePopups = [&pump] {
+        for (QWidget *top : QApplication::topLevelWidgets()) {
+            if (top->windowType() == Qt::Popup && top->isVisible()) top->close();
+        }
+        Popups::hideTooltip();
+        pump();
+    };
+
+    QMainWindow window;
+    MainWindowUI ui(&window);
+    window.resize(options.size);
+    window.show();
+    pump();
+
+    // ---- 主页风景底上：右键菜单 + tooltip ----
+    ui.getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
+    fillHomeSamples(ui);
+    pump();
+    {
+        QMenu menu(&window);
+        menu.addAction(QStringLiteral("打开实例文件夹"));
+        menu.addAction(QStringLiteral("复制路径"));
+        menu.addSeparator();
+        menu.addAction(QStringLiteral("删除实例"));
+        menu.popup(window.mapToGlobal(QPoint(window.width() / 2, window.height() / 3)));
+        savePopupShot(app, window, options.out, QStringLiteral("home-context-menu"), &saved);
+        menu.close();
+        pump();
+    }
+    Popups::showTooltip(QStringLiteral("打开实例文件夹"), window.mapToGlobal(QPoint(window.width() / 3, window.height() / 2)));
+    savePopupShot(app, window, options.out, QStringLiteral("home-tooltip"), &saved);
+    closePopups();
+
+    // ---- 智能体：实例下拉（用户报黑框的那一块）/ ⋯ 菜单 ----
+    ui.getTabWidget()->setCurrentIndex(MainWindowUI::agentTabIndex());
+    if (AgentPage *agent = ui.getAgentPage()) {
+        agent->setConfigured(true, QStringLiteral("已连接 · OpenAI 兼容"));
+        agent->setInstanceChip(QStringLiteral("跟随主页"), false);
+        AgentView::SessionMeta session;
+        session.id = QStringLiteral("s1");
+        session.title = QStringLiteral("查一下崩溃原因");
+        agent->setSessions({session});
+        agent->setCurrentSession(QStringLiteral("s1"));
+        agent->setTitle(session.title);
+        agent->showEmptyState(false);
+        pump();
+        agent->showInstanceMenu({{QStringLiteral("a"), QStringLiteral("1.20.1-Forge 47.2.0")},
+                                 {QStringLiteral("b"), QStringLiteral("1.21.4-Fabric 0.16.9")},
+                                 {QStringLiteral("c"), QStringLiteral("1.20.4 原版")}},
+                                QString());
+        savePopupShot(app, window, options.out, QStringLiteral("agent-instance-menu"), &saved);
+        closePopups();
+        agent->openMoreMenu();
+        savePopupShot(app, window, options.out, QStringLiteral("agent-more-menu"), &saved);
+        closePopups();
+    }
+
+    // ---- 设置页：下拉弹层 ----
+    ui.getTabWidget()->setCurrentIndex(MainWindowUI::settingsTabIndex());
+    fillSettingsSamples(ui);
+    pump();
+    for (QComboBox *combo : window.findChildren<QComboBox *>()) {
+        if (!combo->isVisible() || combo->count() < 3) continue;
+        combo->showPopup();
+        savePopupShot(app, window, options.out, QStringLiteral("settings-combo"), &saved);
+        combo->hidePopup();
+        pump();
+        break;
+    }
+    {
+        // 补全列表（实例设置「目标版本」、更新实例那两处的可编辑下拉框）：借设置页当底。
+        QComboBox editable(ui.getTabWidget()->currentWidget());
+        editable.setEditable(true);
+        editable.addItems({QStringLiteral("1.20.1"), QStringLiteral("1.20.4"), QStringLiteral("1.21"),
+                           QStringLiteral("1.21.4"), QStringLiteral("24w14a")});
+        editable.completer()->setFilterMode(Qt::MatchContains);
+        editable.completer()->setCompletionMode(QCompleter::PopupCompletion);
+        editable.setGeometry(120, 160, 320, 36);
+        editable.show();
+        editable.lineEdit()->setText(QStringLiteral("1.2"));
+        editable.completer()->setCompletionPrefix(QStringLiteral("1.2"));
+        editable.completer()->complete();
+        savePopupShot(app, window, options.out, QStringLiteral("settings-completer"), &saved);
+        editable.completer()->popup()->hide();
+        pump();
+    }
+
+    // ---- 实例页：文件夹浮层 / 分组齿轮菜单 ----
+    ui.getTabWidget()->setCurrentIndex(MainWindowUI::instancesTabIndex());
+    fillInstanceTree(ui);
+    ui.setFolderRows({{QStringLiteral("D:/Games/.minecraft"), QStringLiteral("官方启动器"), QStringLiteral("D:/Games/.minecraft"), false, true},
+                      {QStringLiteral("E:/MC/modpacks"), QStringLiteral("整合包"), QStringLiteral("E:/MC/modpacks"), false, false}});
+    pump();
+    if (auto *pill = window.findChild<QPushButton *>(MainWindowUI::instanceFolderPillName())) {
+        pill->click();
+        savePopupShot(app, window, options.out, QStringLiteral("instance-folder-popup"), &saved);
+        closePopups();
+    }
+    if (QTreeWidget *tree = ui.getInstanceList(); tree != nullptr && tree->topLevelItemCount() > 0) {
+        MainWindowUI::GroupRow row;
+        row.groupId = QStringLiteral("g-modded");
+        row.name = QStringLiteral("1.20.1 整合包");
+        row.memberCount = 2;
+        row.hasSelection = true;
+        const QRect head = tree->visualItemRect(tree->topLevelItem(0));
+        // 锚点放在行中间：只为看面，贴行尾时 offscreen 那块屏比窗口宽，菜单会伸到窗外拍不全。
+        const QRect gear(tree->viewport()->mapToGlobal(QPoint(head.center().x(), head.top())), QSize(28, head.height()));
+        ui.openGroupMenu(row, gear);
+        savePopupShot(app, window, options.out, QStringLiteral("instance-group-menu"), &saved);
+        closePopups();
+    }
+    std::printf("popups: %d 张\n", saved);
+    return saved > 0 ? 0 : 1;
+}
+
 int runLegacy(QApplication &app, const QString &out) {
     Theme::setSpec(Theme::load());
     QDir().mkpath(out);
@@ -1047,6 +1219,8 @@ int UiReviewShotsCheck(QApplication &app) {
         };
         if (arg == QLatin1String("--extended")) {
             options.extended = true;
+        } else if (arg == QLatin1String("--popups")) {
+            options.popups = true;
         } else if (arg.startsWith(QLatin1String("--theme="))) {
             options.theme = valueOf(QStringLiteral("--theme="));
         } else if (arg == QLatin1String("--theme") && i + 1 < args.size()) {
@@ -1072,6 +1246,11 @@ int UiReviewShotsCheck(QApplication &app) {
     // 不带参数时仍是老行为：第一个位置参数是输出目录。
     if (!positional.isEmpty() && options.out.endsWith(QStringLiteral("build/review-shots"))) {
         options.out = positional.first();
+    }
+    if (options.popups) {
+        if (options.theme.isEmpty()) options.theme = QStringLiteral("dark");
+        if (!options.size.isValid() || options.size.width() <= 0) options.size = QSize(1280, 800);
+        return runPopups(app, options);
     }
     if (options.extended) {
         if (options.theme.isEmpty()) options.theme = QStringLiteral("dark");

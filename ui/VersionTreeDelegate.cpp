@@ -1,4 +1,5 @@
 #include "VersionTreeDelegate.hpp"
+#include "Popups.hpp"
 
 #include <QAbstractItemView>
 #include <QApplication>
@@ -6,7 +7,6 @@
 #include <QHelpEvent>
 #include <QPainter>
 #include <QStyle>
-#include <QToolTip>
 #include <QTreeView>
 
 #include "MainWindowUI.hpp"
@@ -78,7 +78,7 @@ bool VersionTreeDelegate::helpEvent(QHelpEvent *event, QAbstractItemView *view,
     if (event != nullptr && event->type() == QEvent::ToolTip) {
         const QString tip = rowActionTip(index, option.rect, event->pos());
         if (!tip.isEmpty()) {
-            QToolTip::showText(event->globalPos(), tip, view);
+            Popups::showTooltip(tip, event->globalPos(), view);  // 系统黄底气泡不出
             return true;
         }
     }

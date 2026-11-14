@@ -12,6 +12,7 @@ int main(int argc, char *argv[]) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
 
     QApplication app(argc, argv);
+    PopupWindowGuard popupGuard(app);  // 防漏：每块顶层浮层一上屏就验无边框 + 半透明
     app.setFont(Theme::textFont(app.font(), Theme::TextRole::Body));
     Q_INIT_RESOURCE(icons);
     QTemporaryDir processSandbox;
@@ -3548,6 +3549,7 @@ int main(int argc, char *argv[]) {
         if (versionTree != nullptr) versionTree->clear();
     }
 
+    popupGuard.report();
     std::printf("\n===== %s: %d/%d =====\n", g_fail == 0 ? "全部通过" : "有失败", g_pass,
                 g_pass + g_fail);
     std::fflush(stdout);

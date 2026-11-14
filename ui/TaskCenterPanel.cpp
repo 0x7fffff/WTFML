@@ -4,6 +4,7 @@
  */
 
 #include "TaskCenterPanel.hpp"
+#include "Popups.hpp"
 #include "TextMarks.hpp"
 #include <QDrag>
 #include <QMimeData>
@@ -493,11 +494,13 @@ TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider
       m_onOutsidePress(onOutsidePress),
       m_embedded(embedded) {
     setObjectName(MainWindowUI::taskCenterPanelName());
-    // 底色和底栏那两块面板**同一档**（`Theme::Part::Panel`）：三块都是从底栏弹出来的，
-    // 颜色不一样就成了"三块不同的东西"。理由全文见 MainWindowUI.cpp 里 BottomBarPanel 那段。
+    // 浮层那一档和别的浮层同一张磨砂面（paintEvent 里画），调色板只给行取色。
     // 整页那一档（嵌在覆盖层里）不铺底、不描边：直接站在整窗磨砂上，否则内容区中间
     // 是一整块不透明深色矩形，和轨、顶栏拼成三块。
-    setAutoFillBackground(!m_embedded);
+    setAutoFillBackground(false);
+    if (!m_embedded) {
+        Popups::preparePopup(this);
+    }
     QPalette panelPalette = QApplication::palette();
     panelPalette.setColor(QPalette::Window, Theme::partBackground(Theme::Part::Panel));
     setPalette(panelPalette);
@@ -1643,6 +1646,5 @@ void TaskCenterPanel::paintEvent(QPaintEvent *) {
         return;
     }
     QPainter painter(this);
-    painter.setPen(palette().color(QPalette::Mid));
-    painter.drawRect(rect().adjusted(0, 0, -1, -1));
+    Popups::paintSurface(painter, QRectF(rect()), 14);
 }

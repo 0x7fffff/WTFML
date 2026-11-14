@@ -146,7 +146,7 @@ public:
     TooltipBubble()
         : QWidget(nullptr, Qt::ToolTip | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint) {
         setObjectName(QStringLiteral("wtfmlTooltip"));
-        setAttribute(Qt::WA_TranslucentBackground);
+        Popups::preparePopup(this);
         setAttribute(Qt::WA_ShowWithoutActivating);
         setAttribute(Qt::WA_TransparentForMouseEvents);
         setFocusPolicy(Qt::NoFocus);
@@ -434,7 +434,7 @@ private:
         if (m_popup.data() != popup) {
             m_popup = popup;
             popup->installEventFilter(this);
-            Popups::glassify(popup, kPopupRadius);
+            Popups::preparePopup(popup);  // 上屏了才挂得上 DWM 背板：每次换容器补一趟
             popup->setAutoFillBackground(false);
             m_view->setFrameShape(QFrame::NoFrame);
             // 这一份只给弹层里那张表：底归玻璃给，别自己铺一块不透明的。
@@ -704,10 +704,7 @@ protected:
         // 少了这两件，四角那块没人画过的像素就是黑（96 把出厂材质从亚克力
         // 改成风景底之后，新装用户一打开就能看见）。
         if (QWidget *popup = view->window(); popup != nullptr && popup != combo) {
-            if (popup->windowHandle() == nullptr) {
-                popup->setWindowFlag(Qt::FramelessWindowHint, true);
-            }
-            Popups::glassify(popup, kPopupRadius);
+            Popups::preparePopup(popup);
         }
         auto *decorator = new ComboDecorator(combo, view);
         view->installEventFilter(decorator);
@@ -716,7 +713,7 @@ protected:
 };
 
 // ---------------------------------------------------------------------------
-// 菜单：同一个外壳（底由这里画，项由 QMenu 自己画）
+// 菜单与补全列表：同一个外壳（底由这里画，项由它们自己画）
 // ---------------------------------------------------------------------------
 
 class MenuGlass : public QObject {
@@ -728,23 +725,40 @@ public:
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override {
-        auto *menu = qobject_cast<QMenu *>(watched);
-        if (menu == nullptr) {
+        const QEvent::Type type = event->type();
+        if (type != QEvent::Polish && type != QEvent::Show && type != QEvent::Paint) {
             return false;
         }
-        if (event->type() == QEvent::Polish) {
-            if (!menu->testAttribute(Qt::WA_TranslucentBackground)) {
-                menu->setAttribute(Qt::WA_TranslucentBackground);
-                menu->setAttribute(Qt::WA_NoSystemBackground);
-                menu->setWindowFlag(Qt::FramelessWindowHint);
-                Popups::glassify(menu, kPopupRadius);
+        QWidget *popup = qobject_cast<QMenu *>(watched);
+        if (popup == nullptr) {
+            // 可编辑下拉框的补全列表（`QCompleter` 自建的 QListView）：它自己就是 `Qt::Popup` 顶层窗。
+            auto *list = qobject_cast<QAbstractItemView *>(watched);
+            if (list == nullptr || list->windowType() != Qt::Popup) {
+                return false;
             }
-        } else if (event->type() == QEvent::Show) {
-            fadeIn(menu, kPopupFadeMs, 4);
-        } else if (event->type() == QEvent::Paint) {
-            QPainter painter(menu);
+            popup = list;
+            if (type == QEvent::Polish && !list->property("wtfmlPopupList").toBool()) {
+                list->setProperty("wtfmlPopupList", true);
+                list->setFrameShape(QFrame::NoFrame);
+                list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+                // 内边距 3：QCompleter 算弹层高时只多给 6px（上下各 3），再大就冒滚动条。
+                list->setStyleSheet(QStringLiteral(
+                    "QAbstractItemView { background: transparent; border: none; padding: 3px; }"));
+                list->viewport()->setAutoFillBackground(false);
+                auto *delegate = new PopupItemDelegate(list);
+                delegate->setProperty("wtfmlPopupDelegate", true);
+                list->setItemDelegate(delegate);
+            }
+        }
+        if (type == QEvent::Polish) {
+            // Polish 先于 HWND：旗标和半透明这时挂才算数（`preparePopup()` 的注释）。
+            Popups::preparePopup(popup);
+        } else if (type == QEvent::Show) {
+            fadeIn(popup, kPopupFadeMs, 4);
+        } else {
+            QPainter painter(popup);
             painter.setRenderHint(QPainter::Antialiasing, true);
-            Popups::paintSurface(painter, QRectF(menu->rect()), kPopupRadius);
+            Popups::paintSurface(painter, QRectF(popup->rect()), kPopupRadius);
         }
         return false;
     }
@@ -763,16 +777,24 @@ void Popups::paintSurface(QPainter &painter, const QRectF &rect, qreal radius) {
     GlassPopover::paintSurface(painter, rect, radius, true);
 }
 
-void Popups::glassify(QWidget *popup, qreal radius) {
-    Q_UNUSED(radius);
+void Popups::preparePopup(QWidget *popup) {
     if (popup == nullptr) {
         return;
+    }
+    if (!popup->windowFlags().testFlag(Qt::FramelessWindowHint)) {
+        // 没上屏之前改旗标都算数（QMenu 在 Polish 时平台窗口已经建了，Qt 会按新旗标重建）；
+        // 已经显示出来再改，Qt 要先藏起来销毁重建，弹层会闪没。
+        if (!popup->isVisible()) {
+            popup->setWindowFlag(Qt::FramelessWindowHint, true);
+        } else {
+            qWarning("Popups::preparePopup: %s(%s) 显示后才补无边框，四角会露黑",
+                     popup->metaObject()->className(), qPrintable(popup->objectName()));
+        }
     }
     popup->setAttribute(Qt::WA_TranslucentBackground, true);
     popup->setAttribute(Qt::WA_NoSystemBackground, true);
     // DWM 那层要真 HWND：`applyTransientBackdrop()` 里有 `winId()`，在弹层还没上屏时调它
     // 会**提前**把原生窗口造出来（挂在控件树里当子窗口，主窗口的「没有原生子窗口」那条就红了）。
-    // Polish 那一趟只挂属性和旗标；HWND 出来之后 `ComboDecorator` 收到 Show 会再调一次这里。
     if (Glass::systemBackdrop() && popup->windowHandle() != nullptr) {
         applyTransientBackdrop(popup);
     }
