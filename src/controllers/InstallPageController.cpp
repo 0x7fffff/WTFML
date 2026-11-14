@@ -14,6 +14,7 @@
 #include "MainWindowUI.hpp"
 #include "OverlayHost.hpp"
 #include "PresetInstallPicker.hpp"
+#include "LoadingState.hpp"
 #include "presets/PresetStore.hpp"
 #include "VersionIcons.hpp"
 #include "controllers/DownloadCompletionController.hpp"
@@ -251,14 +252,11 @@ void InstallPageController::requestAllLoaderVersions() {
         if (item == nullptr) {
             continue;
         }
-        // 先摆一条灰的"正在获取…"占住那一条底下的位置：空着一条看着像"这个加载器一个
+        // 先摆一条行内加载态占住那一条底下的位置：空着一条看着像"这个加载器一个
         // 版本都没有"。回复在 onLoaderVersionsFetched() 里收，按"加载器 + 游戏版本"认领。
         item->setExpanded(false);
         qDeleteAll(item->takeChildren());
-        auto *waiting = new QTreeWidgetItem(item);
-        waiting->setText(MainWindowUI::loaderTreeKeyColumn(),
-                         MainWindowUI::loaderVersionFetchingText());
-        waiting->setDisabled(true);  // 灰的、点不动：它不是能选的东西（选了也不该有反应）
+        LoadingState::beginRow(item, MainWindowUI::loaderVersionFetchingText());
         m_owner.m_versionManager->requestLoaderVersions(m_gameVersion, kind);
     }
 }
@@ -399,9 +397,22 @@ void InstallPageController::onLoaderVersionsFetched(const QString &gameVersion, 
         // 具体原因（超时？404？）写进日志 —— 那是给排查用的，不是给用户读的。
         fillLoaderVersionItems(loaderIndex, LoaderMeta::LoaderVersionList(),
                                /*includeChannels=*/true);
-        auto *failed = new QTreeWidgetItem(item);
-        failed->setText(MainWindowUI::loaderTreeKeyColumn(), MainWindowUI::loaderVersionFailedText());
-        failed->setDisabled(true);
+        // 行尾「重试」：只撤这一行（那两档留着），原样再问一次。
+        LoadingState::failRow(
+            LoadingState::beginRow(item), MainWindowUI::loaderVersionFailedText(),
+            [this, loaderIndex, kind, gameVersion] {
+                QTreeWidgetItem *loader = loaderItem(loaderIndex);
+                if (loader == nullptr || gameVersion != m_gameVersion) {
+                    return;
+                }
+                for (int i = loader->childCount() - 1; i >= 0; --i) {
+                    if (loader->child(i)->data(0, LoadingState::rowLoadingRole()).isValid()) {
+                        delete loader->takeChild(i);
+                    }
+                }
+                LoadingState::beginRow(loader, MainWindowUI::loaderVersionFetchingText());
+                m_owner.m_versionManager->requestLoaderVersions(m_gameVersion, kind);
+            });
         m_owner.appendLog(MainWindow::tr("%1 在 %2 上有哪些版本没取到：%3")
                       .arg(VersionManager::loaderDisplayName(kind), gameVersion, errorMessage));
         return;

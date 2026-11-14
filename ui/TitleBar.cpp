@@ -162,7 +162,9 @@ QColor ensureGraphicContrast(QColor color, const QColor &ink, const QList<QColor
         for (const QColor &bg : backgrounds) low = qMin(low, Glass::contrast(c, bg));
         return low;
     };
-    for (int step = 0; step < 10 && worst(color) < 3.0; ++step) color = blendedColor(color, ink, 0.2);
+    // 小步挪（每步 5%），刚够 3:1 就停：离主题色越近越好（出厂暮色雪山的下端只需挪一点）。
+    const QColor from = color;
+    for (int step = 1; step <= 20 && worst(color) < 3.0; ++step) color = blendedColor(from, ink, step * 0.05);
     return color;
 }
 
@@ -175,10 +177,10 @@ int TitleBar::narrowBreakpoint() { return kNarrowBreakpoint; }
 int TitleBar::barHeight() { return kCaptionHeight; }
 
 void TitleBar::styleCaptionButtons(QAbstractButton *minimize, QAbstractButton *maximize,
-                                   QAbstractButton *close, bool hero) {
+                                   QAbstractButton *close, qreal hero) {
     const Theme::Tokens t = Theme::tokens();
-    const QColor captionInk = hero ? t.heroInk2 : t.secondary;
-    const QColor captionHoverInk = hero ? t.heroInk : t.text;
+    const QColor captionInk = blendedColor(t.secondary, t.heroInk2, hero);
+    const QColor captionHoverInk = blendedColor(t.text, t.heroInk, hero);
     for (QAbstractButton *b : {minimize, maximize}) {
         if (auto *button = qobject_cast<TitleBarButton *>(b)) {
             button->setHoverColors(t.hover, captionHoverInk);
@@ -283,11 +285,12 @@ void TitleBarButton::paintEvent(QPaintEvent *) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, true);
     if (m_glyph == Glyph::Logo) {
-        // 颜色先按主题取（brandMarkStops），再按这一格底下此刻真正的底色补对比度：
-        // 自定义背景图很亮 / 很暗时字靠着色层兜底，这枚小图形靠往这一处的墨色挪（m_ink 由轨给）。
+        // 颜色先按主题取（brandMarkStops），再补对比度：底色取这一格在**任一页**可能落到的
+        // （主页清晰风景 + 别的页磨砂底），墨色固定用轨的正文色，所以换页、风景淡入淡出时颜色不跳。
+        // 自定义背景图很亮 / 很暗时字靠着色层兜底，这枚小图形靠往墨色挪。
         const QPair<QColor, QColor> stops = brandMarkStops();
         QList<QColor> under{Theme::tokens().page};
-        if (const Glass::Backdrop *backdrop = Glass::Backdrop::of(this)) under = backdrop->colorsUnder(this);
+        if (const Glass::Backdrop *backdrop = Glass::Backdrop::of(this)) under = backdrop->colorsUnderAnyPage(this);
         if (Theme::partHasBackground(Theme::Part::TitleBar)) {
             const QColor railFill = Theme::partBackground(Theme::Part::TitleBar);
             for (QColor &c : under) c = Glass::over(railFill, c);
@@ -454,9 +457,9 @@ void TitleBar::applyColors() {
     railPalette.setColor(QPalette::Inactive, QPalette::WindowText, t.text);
     setPalette(railPalette);
     setAutoFillBackground(false);
-    styleCaptionButtons(m_minimize, m_maximize, m_close, m_hero);
-    // 品牌标补对比度时往这一处的字色挪（主页压在风景上用 heroInk）。
-    if (auto *logo = qobject_cast<TitleBarButton *>(m_logo)) logo->setInkColor(m_hero ? t.heroInk : t.text);
+    styleCaptionButtons(m_minimize, m_maximize, m_close, m_heroOpacity);
+    // 品牌标补对比度时往这一处的字色挪：固定正文色，不随主页换（换页不变色）。
+    if (auto *logo = qobject_cast<TitleBarButton *>(m_logo)) logo->setInkColor(t.text);
     if (auto *button = qobject_cast<TitleBarButton *>(m_fold)) {
         button->setHoverColors(t.hover, t.secondary);
         button->setPressColor(t.fillPress);
@@ -566,10 +569,10 @@ void TitleBar::setMaximized(bool maximized) {
     }
 }
 
-void TitleBar::setHeroMode(bool hero) {
-    if (m_hero == hero) return;
-    m_hero = hero;
-    applyColors();
+void TitleBar::setHeroOpacity(qreal opacity) {
+    if (m_heroOpacity == opacity) return;
+    m_heroOpacity = opacity;
+    styleCaptionButtons(m_minimize, m_maximize, m_close, m_heroOpacity);
 }
 
 void TitleBar::setNavItems(const QStringList &labels) {
@@ -661,7 +664,7 @@ void TitleBar::paintEvent(QPaintEvent *) {
     brandFont.setPixelSize(30);
     brandFont.setLetterSpacing(QFont::AbsoluteSpacing, 0.5);
     p.setFont(brandFont);
-    p.setPen(m_hero ? t.heroInk : t.text);
+    p.setPen(t.text);  // 品牌字不随主页换色：heroInk 与 text 三主题里明暗同档，压在风景上照样读得清
     const int left = m_logo->geometry().right() + 1 + 10;
     const int right = m_fold->isVisible() ? m_fold->geometry().left() - 4 : width() - kRailPadding;
     const QRect textRect(left, kRailTopPadding + 2, right - left, kBrandHeight);

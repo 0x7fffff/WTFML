@@ -4,6 +4,7 @@
 #include "MainWindowUI.hpp"
 #include "ResourceDetailPage.hpp"
 #include "InlineMessage.hpp"
+#include "LoadingState.hpp"
 #include "controllers/ResourcePageController.hpp"
 #include "controllers/InstanceIconController.hpp"
 #include "download/ResourceStore.hpp"
@@ -22,14 +23,13 @@ void ResourceSearchController::startResourceSearch(ResourceCatalog::Kind kind) {
     const QLineEdit *edit = m_owner.m_ui->getDownloadSearchEdit(key);
     const QString query = edit == nullptr ? QString() : edit->text().trimmed();
 
-    // 上一批结果连同展开状态一起清掉，换上一行灰的「正在…」。不摆这一行的话，用户按回车
-    // 之后界面**完全没有反应**（请求一秒上下才回来），而"点了没反应"是用户唯一会当成
-    // 启动器坏了的情况。
+    // 上一批结果连同展开状态一起清掉，盖上整块加载态（150ms 还没回来才露面）。不盖的话，
+    // 用户按回车之后界面**完全没有反应**（请求一秒上下才回来），而"点了没反应"是用户唯一
+    // 会当成启动器坏了的情况。
     tree->clear();
-    m_owner.addResourcePlaceholderRow(tree,
-                             query.isEmpty()
-                                 ? MainWindow::tr("正在获取最热门的%1…").arg(ResourceCatalog::kindLabel(kind))
-                                 : MainWindow::tr("正在搜索「%1」…").arg(query));
+    LoadingState::begin(tree, query.isEmpty()
+                                  ? MainWindow::tr("正在获取最热门的%1…").arg(ResourceCatalog::kindLabel(kind))
+                                  : MainWindow::tr("正在搜索「%1」…").arg(query));
     // 记下**这一发真的问了什么**：回来时那句「没有搜到「xx」」里的 xx 要是那一次的词。
     // 读编辑框里现在的字是错的 —— 用户完全可能在等结果的时候又敲了几个字（那几下还没发出去，
     // 回车才算一发）。
@@ -171,9 +171,10 @@ void ResourceSearchController::onResourceSearchFinished(const QString &requestKe
         // 这一条和加载器树那条「列表没取到」是同一种形状，所以做法也一样。
         // 真要弹窗的是那些**没有别的地方能显示**的错（见 onResourceDownloadFinished）。
         m_owner.appendLog(TextMarks::failed(tr("搜索%1失败：%2").arg(ResourceCatalog::kindLabel(kind), result.problem)));
-        m_owner.addResourcePlaceholderRow(tree, result.problem);
+        LoadingState::fail(tree, result.problem, [this, kind] { startResourceSearch(kind); });
         return;
     }
+    LoadingState::finish(tree);
     if (result.hits.isEmpty()) {
         // **问到了、就是没有** —— 不算错，也**不弹窗**（一个"什么都没发生"的弹窗比没有
         // 更烦人）。用记下来的那个搜索词，别读编辑框里现在的字（理由见 startResourceSearch）。
@@ -262,43 +263,46 @@ void ResourceSearchController::onResourceItemActivated(QTreeWidgetItem *item) {
         // 第二层**第一次**被点开：这时才去问"这个资源在这个游戏版本上，哪些版本可下"。
         // 判据是"底下一条都没有" —— 这一层点开之前一定是空的，问过之后无论有没有结果都会
         // 留下至少一行（版本号、或者一句灰的"没有"），所以"空"就等于"还没问过"。
-        // 这也顺带成了"再点一次重试"那条路：没取到时底下留着一行灰的，把那一条删掉
-        // （重搜/重新点开）就会再问一次。
-        const QTreeWidgetItem *resourceItem = item->parent();
-        const QString projectId = resourceItem == nullptr
-                                      ? QString()
-                                      : resourceItem->data(MainWindowUI::versionTreeKeyColumn(),
-                                                           Qt::UserRole).toString();
-        // 这一条是从哪个来源搜出来的（见 resourceSourceRole()）：**必须问对那一侧** ——
-        // 两个来源的 id 空间会撞，问错了不报错，只会显示另一个资源的版本列表。
-        // 认不出来（那一行不是我们建的）就当 Modrinth，和"没选来源"的默认一致。
-        ResourceCatalog::Source source = ResourceCatalog::Source::Modrinth;
-        if (resourceItem != nullptr) {
-            ResourceCatalog::sourceFromKey(
-                resourceItem->data(MainWindowUI::versionTreeKeyColumn(),
-                                   MainWindowUI::resourceSourceRole()).toString(),
-                &source);
-        }
-        const QString gameVersion =
-            item->data(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole).toString();
-        if (projectId.isEmpty() || gameVersion.isEmpty()) {
-            return;
-        }
-        m_owner.addResourcePlaceholderChild(item, MainWindow::tr("正在获取…"));
-        // NOTE: **不按加载器筛**（loader 传空）。为什么：这一层的游戏版本是从**搜索响应**
-        // 来的，而那份响应里没有"这个资源的哪个游戏版本属于哪个加载器"这份对应关系
-        // （categories 是整个资源的标签，不是某个版本的）。要按加载器筛就得先知道
-        // 用户在给哪个实例装 —— 那件事在点版本号那一下才定（见
-        // downloadResourceVersion 里那道加载器对不上的闸口）。
-        m_owner.m_resourceStore->fetchVersions(
-            ResourceCatalog::versionsRequestKey(projectId, gameVersion, QString(), source),
-            projectId, source, gameVersion);
+        // 没取到时底下那一行带「重试」（LoadingState::failRow），点它就再问一次。
+        requestResourceVersions(item);
         return;
     }
     if (depth == 2) {
         // 第三层（一个版本号）：**这一下就是"下它"**。
         downloadResourceVersion(item);
     }
+}
+
+void ResourceSearchController::requestResourceVersions(QTreeWidgetItem *item) {
+    const QTreeWidgetItem *resourceItem = item->parent();
+    const QString projectId = resourceItem == nullptr
+                                  ? QString()
+                                  : resourceItem->data(MainWindowUI::versionTreeKeyColumn(),
+                                                       Qt::UserRole).toString();
+    // 这一条是从哪个来源搜出来的（见 resourceSourceRole()）：**必须问对那一侧** ——
+    // 两个来源的 id 空间会撞，问错了不报错，只会显示另一个资源的版本列表。
+    // 认不出来（那一行不是我们建的）就当 Modrinth，和"没选来源"的默认一致。
+    ResourceCatalog::Source source = ResourceCatalog::Source::Modrinth;
+    if (resourceItem != nullptr) {
+        ResourceCatalog::sourceFromKey(
+            resourceItem->data(MainWindowUI::versionTreeKeyColumn(),
+                               MainWindowUI::resourceSourceRole()).toString(),
+            &source);
+    }
+    const QString gameVersion =
+        item->data(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole).toString();
+    if (projectId.isEmpty() || gameVersion.isEmpty()) {
+        return;
+    }
+    LoadingState::beginRow(item, MainWindow::tr("正在获取…"));
+    // NOTE: **不按加载器筛**（loader 传空）。为什么：这一层的游戏版本是从**搜索响应**
+    // 来的，而那份响应里没有"这个资源的哪个游戏版本属于哪个加载器"这份对应关系
+    // （categories 是整个资源的标签，不是某个版本的）。要按加载器筛就得先知道
+    // 用户在给哪个实例装 —— 那件事在点版本号那一下才定（见
+    // downloadResourceVersion 里那道加载器对不上的闸口）。
+    m_owner.m_resourceStore->fetchVersions(
+        ResourceCatalog::versionsRequestKey(projectId, gameVersion, QString(), source),
+        projectId, source, gameVersion);
 }
 
 void ResourceSearchController::fillResourceVersionRows(QTreeWidgetItem *gameItem,
@@ -315,8 +319,11 @@ void ResourceSearchController::fillResourceVersionRows(QTreeWidgetItem *gameItem
 
     if (!problem.isEmpty()) {
         // 「没取到」（超时 / 限流 / 那条资源被作者删了）。**不弹窗**：要的是"展开看看"，
-        // 进来已经有话说了；而且这一层再点一次（收起再展开）就是重新问一次。
-        m_owner.addResourcePlaceholderChild(gameItem, problem);
+        // 进来已经有话说了；行尾「重试」= 删掉这一行、原样再问一次。
+        LoadingState::failRow(LoadingState::beginRow(gameItem), problem, [this, gameItem] {
+            qDeleteAll(gameItem->takeChildren());
+            requestResourceVersions(gameItem);
+        });
         return;
     }
     if (versions.isEmpty()) {

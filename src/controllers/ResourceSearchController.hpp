@@ -19,6 +19,8 @@ public:
                                          const ResourceCatalog::SearchResult &result);
     void onResourceIconReady(const QString &iconId, const QPixmap &icon);
     void onResourceItemActivated(QTreeWidgetItem *item);
+    /// 第二层（一个游戏版本）底下摆上行内加载态，并去问"这个资源在这个游戏版本上有哪些版本"。
+    void requestResourceVersions(QTreeWidgetItem *gameItem);
     void fillResourceVersionRows(QTreeWidgetItem *gameItem,
                                         const QList<ResourceCatalog::VersionEntry> &versions,
                                         const QString &problem);

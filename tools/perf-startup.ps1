@@ -57,6 +57,10 @@ param(
     [int]$Runs = 6,
     [int]$Instances = 0,
     [switch]$InstanceMeta,
+    # 给第一份预置实例（perf-instance-001）造一份"重实例"夹具：模组 / 资源包 / 光影 /
+    # 数据包 / 存档 / 截图 / 日志 / 配置文件。加载态盘点（步骤 125）要量实例设置各页签
+    # 首次铺开的成本，0 个模组的空实例量不出东西。默认 0 = 不造（老报告可比）。
+    [int]$InstanceMods = 0,
     [int]$StallSeconds = 3,
     [int]$Warmup = 1,
     # 界面探针模式：给 exe 传 `--wtfml-perf-probe=<沙盒>/perf-probe.json`，由它自己
@@ -195,6 +199,55 @@ for ($i = 1; $i -le $Instances; $i++) {
         } | ConvertTo-Json -Depth 4
         Set-Content -LiteralPath (Join-Path $dir 'wtfml.meta') -Value $metaFile -Encoding utf8
     }
+}
+
+# ---- 重实例夹具（-InstanceMods）：第一份实例里塞模组 / 资源包 / 存档 / 截图 / 日志 ----
+# 加载态盘点要量实例设置那几个页签"首次铺开"的成本。空实例每个目录都是 0 项，量到的
+# 只有控件构造；用户真机上那种 50+ 模组的实例才会走读盘 / 解析 / 缩略图那条路。
+if ($InstanceMods -gt 0) {
+    if ($Instances -lt 1) { throw "-InstanceMods 需要至少 1 份预置实例（-Instances >= 1）。" }
+    $fixture = Join-Path $versionsDir 'perf-instance-001'
+    # 一张 1x1 PNG：截图页要的是"能解码成图"的文件，不是任意字节。
+    [byte[]]$png = [Convert]::FromBase64String(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==')
+    $modsDir = Join-Path $fixture 'mods'
+    New-Item -ItemType Directory -Force -Path $modsDir | Out-Null
+    for ($i = 1; $i -le $InstanceMods; $i++) {
+        Write-EmptyZip (Join-Path $modsDir ('fixture-mod-{0:D3}.jar' -f $i))
+    }
+    foreach ($pair in @(@('resourcepacks', 12, 'resourcepack'), @('shaderpacks', 6, 'shaderpack'),
+                        @('datapacks', 5, 'datapack'))) {
+        $dir = Join-Path $fixture $pair[0]
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        for ($i = 1; $i -le $pair[1]; $i++) {
+            Write-EmptyZip (Join-Path $dir ('fixture-{0}-{1:D2}.zip' -f $pair[2], $i))
+        }
+    }
+    $savesDir = Join-Path $fixture 'saves'
+    for ($i = 1; $i -le 8; $i++) {
+        $dir = Join-Path $savesDir ('FixtureWorld{0:D2}' -f $i)
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        [IO.File]::WriteAllBytes((Join-Path $dir 'level.dat'), [byte[]]::new(4096))
+        Set-Content -LiteralPath (Join-Path $dir 'levelname.txt') -Value ('FixtureWorld{0:D2}' -f $i) -Encoding utf8
+    }
+    $shotsDir = Join-Path $fixture 'screenshots'
+    New-Item -ItemType Directory -Force -Path $shotsDir | Out-Null
+    for ($i = 1; $i -le 24; $i++) {
+        [IO.File]::WriteAllBytes((Join-Path $shotsDir ('2026-11-14_12.{0:D2}.{1:D2}.png' -f ($i % 60), $i)), $png)
+    }
+    $logsDir = Join-Path $fixture 'logs'
+    New-Item -ItemType Directory -Force -Path $logsDir | Out-Null
+    $logLines = for ($i = 1; $i -le 4000; $i++) {
+        '[{0:D2}:{1:D2}:{2:D2}] [Render thread/INFO]: fixture log line {3} (sodium 0.6.13)' -f ($i % 24), ($i % 60), ($i % 60), $i
+    }
+    Set-Content -LiteralPath (Join-Path $logsDir 'latest.log') -Value $logLines -Encoding utf8
+    $configDir = Join-Path $fixture 'config'
+    New-Item -ItemType Directory -Force -Path $configDir | Out-Null
+    for ($i = 1; $i -le 24; $i++) {
+        Set-Content -LiteralPath (Join-Path $configDir ('fixture-{0:D2}.json' -f $i)) `
+            -Value ('{{ "quality": "high", "maxFps": {0} }}' -f (30 + $i)) -Encoding utf8
+    }
+    Set-Content -LiteralPath (Join-Path $fixture 'options.txt') -Value 'renderDistance:12' -Encoding utf8
 }
 
 # ---- 注册表换沙盒 ----
@@ -464,6 +517,7 @@ $report = [ordered]@{
     warmupRuns        = $Warmup
     instances         = $Instances
     instanceMeta      = [bool]$InstanceMeta
+    instanceMods      = $InstanceMods
     sandbox           = [IO.Path]::GetRelativePath($repo, $Sandbox)
     measurement       = if ($Probe) {
         '产品内探针（WTFML_PERF_PROBE=1，Release）：Java/导航/主题、200条合成任务、1000条预设视图、临时预设元数据同步/后台读取；每步量动作+整窗repaint；20ms看门狗标记卡顿跨度。造数及故意同步读取不代表产品界面路径。'

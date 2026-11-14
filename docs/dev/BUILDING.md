@@ -19,7 +19,12 @@ Qt 的 dll 在 `PATH` 上。
 
 默认会预编译一份 Qt 控件头（`WTFML_USE_PCH`），主程序的全量构建 95 → 75 秒；代价是构建
 目录里多一份 177 MB 的 `.gch`。不想用就 `-DWTFML_USE_PCH=OFF`，量法与取舍见
-[PERFORMANCE.md](PERFORMANCE.md)「构建耗时」里的预编译头一节。要**真·单文件**（一个自包含的 exe，不带任何 dll）就换静态 Qt，
+[PERFORMANCE.md](PERFORMANCE.md)「构建耗时」里的预编译头一节。
+本机装了 ccache，配置时会自动套上编译缓存，这时不用预编译头：各构建目录的 `.gch` 内容都不同，带着它，换一个工作树就一个文件也命中不了。
+缓存的 `base_dir` 设成仓库根目录、写在编译命令里，所以主仓和各工作树能互相命中。
+不要缓存就加 `-DWTFML_USE_CCACHE=OFF`。
+
+要**真·单文件**（一个自包含的 exe，不带任何 dll）就换静态 Qt，
 CMakeLists 一个字都不用改：
 
 ```powershell

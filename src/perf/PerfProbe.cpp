@@ -20,12 +20,19 @@
 
 #include "perf/StallSampler.hpp"
 
+#include "AccountSkinDialog.hpp"
+#include "InstanceSettingsDialog.hpp"
 #include "MainWindow.hpp"
 #include "MainWindowUI.hpp"
+#include "NewServerPage.hpp"
+#include "OverlayHost.hpp"
+#include "PresetInstallPicker.hpp"
 #include "Theme.hpp"
 #include "TitleBar.hpp"
 #include "TaskCenterPanel.hpp"
 #include "PresetManagePage.hpp"
+#include "controllers/InstallPageController.hpp"
+#include "download/ResourceCatalog.hpp"
 #include "presets/PresetStore.hpp"
 #include "presets/PresetCatalog.hpp"
 #include "settings/GlobalJavaSettings.hpp"
@@ -34,16 +41,21 @@
 #include <QAbstractButton>
 #include <QApplication>
 #include <QComboBox>
+#include <QDir>
 #include <QElapsedTimer>
+#include <QEventLoop>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QList>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QPointer>
+#include <QPushButton>
 #include <QTimer>
 #include <QTemporaryDir>
+#include <QTreeWidget>
 #include <QUuid>
 #include <QWidget>
 
@@ -89,6 +101,17 @@ struct StepResult {
     double repaintMs = 0.0;
     /// 这一步执行时后台目录加载是否还在跑。多任务那一组 A/B 靠它判断这一发到底算不算"加载中"。
     bool loadActive = false;
+    /// 动作做完后是否还要等异步内容。等的时候界面在画什么（一行灰字 / 空列表 / 弹框）。
+    bool hasWait = false;
+    bool waitOk = false;
+    double waitMs = 0.0;
+    /// 内容到了之后整窗重画一遍的耗时（A 类的"内容首帧"）。
+    double contentRepaintMs = 0.0;
+    QString waitingText;
+    /// 等待结束后量到的内容行数（树/列表），用来核对"等到的真的是内容"。
+    int contentRows = -1;
+    /// 动作阻塞在嵌套事件循环里时，从循环内部量的首帧（-1 = 没量）。
+    double extraMs = -1.0;
 };
 
 class Probe final : public QObject {
@@ -111,6 +134,7 @@ public:
     void start()
     {
         m_themeBefore = Theme::current().presetId;
+        m_fixtureId = detectFixtureId();
         buildSteps();
 
         m_clock.start();
@@ -155,6 +179,20 @@ public:
     }
 
 private:
+    /// 夹具实例 = versions/ 下面模组数 >= 50 的那一份（`tools/perf-startup.ps1 -InstanceMods`）。
+    /// 找不到就空串，实例页那几步自动跳过，报告里能看到 `instance:open-settings` 是空的。
+    QString detectFixtureId() const
+    {
+        const QDir versions(QDir(AppPaths::minecraftDir()).filePath(QStringLiteral("versions")));
+        for (const QString &id : versions.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name)) {
+            const QDir mods(versions.filePath(id + QStringLiteral("/mods")));
+            if (mods.entryList({QStringLiteral("*.jar")}, QDir::Files).size() >= 50) {
+                return id;
+            }
+        }
+        return QString();
+    }
+
     void buildSteps()
     {
         // 单独测扫描成本，保留优化前后相同的探针步骤。设置页现已后台扫描，下面这条
@@ -334,6 +372,461 @@ private:
             });
         }});
         addNavCycle(QStringLiteral("concurrent:busy"));
+
+        // 步骤 125：加载态盘点要走的那些点击路径（一级页二次、实例页签、下载分类、
+        // 资源版本树、安装页加载器树、预设弹框、账号外观、新建服务端）。都排在合成
+        // 负载之后，免得先把盘和字形缓存捂热再量"首次"。
+        addLoadingPathSteps();
+    }
+
+    // ---------- 步骤 125：加载态盘点走的那些点击路径 ----------
+    //
+    // 每一步后面的 `ready` 是"内容到了没有"的判据：动作那一瞬间界面往往是空的，用户
+    // 真正在等的是这一段时间。`waitingText` 记下等待时界面在显示什么（空白 / 灰字 /
+    // 占位行），交给 `.tongxi/任务书/加载盘点.md` 的 A 清单用。
+    void addLoadingPathSteps()
+    {
+        const auto addWait = [this](const QString &name, std::function<void()> action,
+                                    std::function<bool()> ready, int timeoutMs,
+                                    std::function<QString()> waitingText,
+                                    std::function<int()> rows = {}) {
+            Step step;
+            step.name = name;
+            step.action = std::move(action);
+            step.ready = std::move(ready);
+            step.timeoutMs = timeoutMs;
+            step.waitingText = std::move(waitingText);
+            step.contentRows = std::move(rows);
+            m_steps.push_back(std::move(step));
+        };
+
+        // 一级页：智能体、工具箱（首次 + 再次）。主页/实例/下载/设置那四颗上面已经量过。
+        m_steps.push_back({QStringLiteral("nav:agent"), [this] { clickNav(MainWindowUI::agentTabIndex()); }});
+        m_steps.push_back({QStringLiteral("nav:toolbox"), [this] {
+            if (QAbstractButton *button = m_window.ui()->getToolboxButton()) button->click();
+        }});
+        m_steps.push_back({QStringLiteral("nav:agent-again"), [this] { clickNav(MainWindowUI::agentTabIndex()); }});
+        m_steps.push_back({QStringLiteral("nav:toolbox-again"), [this] {
+            if (QAbstractButton *button = m_window.ui()->getToolboxButton()) button->click();
+        }});
+        m_steps.push_back({QStringLiteral("nav:instances-again"), [this] { clickNav(MainWindowUI::instancesTabIndex()); }});
+
+        // 切当前实例：主页那个「已安装版本」下拉框（和实例页的树双向同步）。
+        m_steps.push_back({QStringLiteral("instance:select-second"), [this] {
+            if (QComboBox *combo = m_window.ui()->getInstalledVersionCombo(); combo != nullptr && combo->count() > 1) {
+                combo->setCurrentIndex(1);
+            }
+        }});
+        m_steps.push_back({QStringLiteral("instance:select-fixture"), [this] {
+            if (QComboBox *combo = m_window.ui()->getInstalledVersionCombo()) {
+                const int index = combo->findData(m_fixtureId);
+                if (index >= 0) combo->setCurrentIndex(index);
+            }
+        }});
+
+        // ---------- 实例设置：打开 + 各页签（50+ 模组的夹具实例） ----------
+        m_steps.push_back({QStringLiteral("instance:open-settings"), [this] {
+            if (m_fixtureId.isEmpty()) return;
+            QMetaObject::invokeMethod(&m_window, "openInstanceSettings", Qt::DirectConnection,
+                                      Q_ARG(QString, m_fixtureId), Q_ARG(QString, QString()));
+        }});
+        addWait(QStringLiteral("instance:open-settings-wait"),
+                [] {},
+                [this] {
+                    m_instanceDialog = m_window.findChild<InstanceSettingsDialog *>();
+                    return !m_instanceDialog.isNull() && m_instanceDialog->isVisible();
+                },
+                15000,
+                [] { return QStringLiteral("实例页 → 点实例行：覆盖层还没出来（窗口保持原样）"); },
+                [this] { return m_instanceDialog.isNull() ? -1 : m_instanceDialog->pageCount(); });
+
+        const QStringList pageKeys = [] {
+            QStringList keys = InstanceSettingsDialog::pinnedPageKeys();
+            keys += InstanceSettingsDialog::filePageKeys();
+            keys += InstanceSettingsDialog::lifecyclePageKeys();
+            return keys;
+        }();
+        for (const QString &key : pageKeys) {
+            // 只挑盘点点名的几页 + 成本明显的那几页；全量 23 页会把报告淹掉。
+            static const QStringList wanted{QStringLiteral("overview"), QStringLiteral("launch"),
+                                            QStringLiteral("mod"), QStringLiteral("resourcepack"),
+                                            QStringLiteral("shader"), QStringLiteral("save"),
+                                            QStringLiteral("screenshots"), QStringLiteral("logs"),
+                                            QStringLiteral("datapack"), QStringLiteral("config")};
+            if (!wanted.contains(key)) continue;
+            m_steps.push_back({QStringLiteral("instance:page:%1").arg(key), [this, key] {
+                if (!m_instanceDialog.isNull()) m_instanceDialog->showPage(key);
+            }});
+            if (key == QLatin1String("mod") || key == QLatin1String("screenshots")) {
+                m_steps.push_back({QStringLiteral("instance:page:%1-again").arg(key), [this, key] {
+                    if (!m_instanceDialog.isNull()) m_instanceDialog->showPage(QStringLiteral("overview"));
+                }});
+                m_steps.push_back({QStringLiteral("instance:page:%1-second").arg(key), [this, key] {
+                    if (!m_instanceDialog.isNull()) m_instanceDialog->showPage(key);
+                }});
+            }
+        }
+        m_steps.push_back({QStringLiteral("instance:close"), [this] {
+            if (m_window.ui()->overlay() != nullptr) m_window.ui()->overlay()->dismiss();
+        }});
+        addWait(QStringLiteral("instance:close-wait"), [] {},
+                [this] { return m_window.findChild<InstanceSettingsDialog *>() == nullptr; }, 5000,
+                [] { return QStringLiteral("收页"); });
+
+        // 第二次打开：只为量"构造 + 首次铺开"那笔一次性成本是不是每次都付。
+        m_steps.push_back({QStringLiteral("instance:open-settings-again"), [this] {
+            if (m_fixtureId.isEmpty()) return;
+            QMetaObject::invokeMethod(&m_window, "openInstanceSettings", Qt::DirectConnection,
+                                      Q_ARG(QString, m_fixtureId), Q_ARG(QString, QString()));
+        }});
+        addWait(QStringLiteral("instance:open-settings-again-wait"), [] {},
+                [this] {
+                    m_instanceDialog = m_window.findChild<InstanceSettingsDialog *>();
+                    return !m_instanceDialog.isNull() && m_instanceDialog->isVisible();
+                },
+                15000, [] { return QStringLiteral("实例设置第二开"); });
+        m_steps.push_back({QStringLiteral("instance:close-again"), [this] {
+            if (m_window.ui()->overlay() != nullptr) m_window.ui()->overlay()->dismiss();
+        }});
+        addWait(QStringLiteral("instance:close-again-wait"), [] {},
+                [this] { return m_window.findChild<InstanceSettingsDialog *>() == nullptr; }, 5000,
+                [] { return QStringLiteral("收页"); });
+
+        // ---------- 下载页 ----------
+        m_steps.push_back({QStringLiteral("download:open"), [this] { clickNav(MainWindowUI::downloadTabIndex()); }});
+        addWait(QStringLiteral("download:cat-game"),
+                [this] {
+                    if (QListWidget *list = m_window.ui()->getDownloadCategoryList()) {
+                        list->setCurrentRow(MainWindowUI::downloadCategoryGameIndex());
+                    }
+                    // 走页头那颗「刷新」——它就是 refreshDownloadCategory(currentRow())，
+                    // 也就是用户重新拉一遍在线版本清单的那一下。
+                    if (QAbstractButton *refresh = m_window.ui()->getDownloadHeaderRefreshButton()) {
+                        refresh->click();
+                    }
+                },
+                [this] { return versionTreeReady(); }, 15000,
+                [this] { return versionTreeWaitingText(); },
+                [this] { return m_window.ui()->getVersionTree() == nullptr ? -1 : m_window.ui()->getVersionTree()->topLevelItemCount(); });
+
+        const auto categoryStep = [this, &addWait](const QString &name, int row, const QString &key) {
+            addWait(name, [this, row] {
+                if (QListWidget *list = m_window.ui()->getDownloadCategoryList()) list->setCurrentRow(row);
+            }, [this, key] { return resourceTreeReady(key); }, 12000,
+            [this, key] { return resourceTreeWaitingText(key); },
+            [this, key] {
+                QTreeWidget *tree = m_window.ui()->getDownloadResourceTree(key);
+                return tree == nullptr ? -1 : tree->topLevelItemCount();
+            });
+        };
+        categoryStep(QStringLiteral("download:cat-mods"), MainWindowUI::downloadCategoryModIndex(), QStringLiteral("mod"));
+        addWait(QStringLiteral("download:cat-game-back"),
+                [this] { if (QListWidget *list = m_window.ui()->getDownloadCategoryList()) list->setCurrentRow(MainWindowUI::downloadCategoryGameIndex()); },
+                [] { return true; }, 1000, [] { return QString(); });
+        categoryStep(QStringLiteral("download:cat-mods-again"), MainWindowUI::downloadCategoryModIndex(), QStringLiteral("mod"));
+        addWait(QStringLiteral("download:search-sodium"), [this] {
+            QTreeWidget *tree = m_window.ui()->getDownloadResourceTree(QStringLiteral("mod"));
+            if (tree == nullptr) return;
+            (void)tree;
+            if (QLineEdit *edit = m_window.ui()->getDownloadSearchEdit(QStringLiteral("mod"))) {
+                edit->setText(QStringLiteral("sodium"));
+                QMetaObject::invokeMethod(edit, "returnPressed", Qt::DirectConnection);
+            }
+        }, [this] { return resourceTreeReady(QStringLiteral("mod")); }, 12000,
+        [this] { return resourceTreeWaitingText(QStringLiteral("mod")); },
+        [this] {
+            QTreeWidget *tree = m_window.ui()->getDownloadResourceTree(QStringLiteral("mod"));
+            return tree == nullptr ? -1 : tree->topLevelItemCount();
+        });
+        addWait(QStringLiteral("download:expand-resource-versions"), [this] {
+            QTreeWidget *tree = m_window.ui()->getDownloadResourceTree(QStringLiteral("mod"));
+            if (tree == nullptr || tree->topLevelItemCount() == 0) return;
+            QTreeWidgetItem *hit = tree->topLevelItem(0);
+            hit->setExpanded(true);
+            if (hit->childCount() > 0) {
+                QTreeWidgetItem *game = hit->child(0);
+                // 不要再自己 setExpanded(true)：处理函数看到"已经展开"就当这一下是收起，
+                // 直接返回、不再发版本请求。单击那一下本来就会展开它。
+                QMetaObject::invokeMethod(tree, "itemClicked", Qt::DirectConnection,
+                                          Q_ARG(QTreeWidgetItem *, game), Q_ARG(int, 0));
+            }
+        }, [this] {
+            QTreeWidget *tree = m_window.ui()->getDownloadResourceTree(QStringLiteral("mod"));
+            if (tree == nullptr || tree->topLevelItemCount() == 0) return false;
+            QTreeWidgetItem *hit = tree->topLevelItem(0);
+            if (hit->childCount() == 0) return false;
+            QTreeWidgetItem *game = hit->child(0);
+            return game->childCount() > 0 && !game->child(0)->isDisabled();
+        }, 15000, [this] {
+            QTreeWidget *tree = m_window.ui()->getDownloadResourceTree(QStringLiteral("mod"));
+            if (tree == nullptr || tree->topLevelItemCount() == 0) return QStringLiteral("(空白)");
+            QTreeWidgetItem *hit = tree->topLevelItem(0);
+            if (hit->childCount() == 0) return QStringLiteral("(没有游戏版本层)");
+            QTreeWidgetItem *game = hit->child(0);
+            return game->childCount() == 0 ? QStringLiteral("(游戏版本层底下空白)")
+                                           : game->child(0)->text(MainWindowUI::versionTreeKeyColumn());
+        }, [this] {
+            QTreeWidget *tree = m_window.ui()->getDownloadResourceTree(QStringLiteral("mod"));
+            if (tree == nullptr || tree->topLevelItemCount() == 0) return -1;
+            QTreeWidgetItem *hit = tree->topLevelItem(0);
+            return hit->childCount() == 0 || hit->child(0)->childCount() == 0
+                       ? -1 : hit->child(0)->childCount();
+        });
+
+        for (const auto &entry : {std::pair{MainWindowUI::downloadCategoryModpackIndex(), QStringLiteral("modpack")},
+                                  std::pair{5, QStringLiteral("resourcepack")},
+                                  std::pair{6, QStringLiteral("shader")},
+                                  std::pair{4, QStringLiteral("datapack")}}) {
+            categoryStep(QStringLiteral("download:cat:%1").arg(entry.second), entry.first, entry.second);
+            addWait(QStringLiteral("download:cat:game-away:%1").arg(entry.second),
+                    [this] { if (QListWidget *list = m_window.ui()->getDownloadCategoryList()) list->setCurrentRow(MainWindowUI::downloadCategoryGameIndex()); },
+                    [] { return true; }, 1000, [] { return QString(); });
+            categoryStep(QStringLiteral("download:cat:%1-again").arg(entry.second), entry.first, entry.second);
+        }
+
+        // ---------- 安装页：四个加载器的版本树（进页面时一次性全问） ----------
+        addWait(QStringLiteral("install:open"), [this] {
+            m_gameVersion = pickGameVersion();
+            if (InstallPageController *controller = installPage()) {
+                if (!m_gameVersion.isEmpty()) controller->openPage(m_gameVersion);
+            }
+        }, [this] { return loaderVersionsFilled() > 0; }, 15000,
+        [this] { return loaderTreeWaitingText(); },
+        [this] { return loaderVersionsFilled(); });
+        addWait(QStringLiteral("install:all-loaders"), [] {},
+                [this] { return loaderVersionsFilled() >= 4; }, 15000,
+                [this] { return loaderTreeWaitingText(); },
+                [this] { return loaderVersionsFilled(); });
+        for (int loader = 0; loader < 4; ++loader) {
+            m_steps.push_back({QStringLiteral("install:expand-loader-%1").arg(loader), [this, loader] {
+                QTreeWidget *tree = m_window.ui()->getLoaderTree();
+                if (tree == nullptr) return;
+                for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+                    QTreeWidgetItem *item = tree->topLevelItem(i);
+                    if (item->data(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole).toInt() == loader) {
+                        item->setExpanded(true);
+                    }
+                }
+            }});
+        }
+        // 预设弹框走的是 `OverlayHost::execPrompt()`：**动作会阻塞在嵌套事件循环里**，
+        // 直到用户按下确认/取消。探针在这里自己排两个定时器：第一发（50 ms）量下
+        // "弹框已经摆上来"的时刻，第二发（400 ms）替用户按取消。`actionMs` 因此约等于
+        // 那 400 ms，真正要看的是 `nestedFirstFrameMs`。
+        {
+            Step step;
+            step.name = QStringLiteral("install:preset-picker");
+            step.action = [this] {
+                m_promptShownMs = -1.0;
+                m_promptClock.start();
+                QTimer::singleShot(50, this, [this] { m_promptShownMs = milliseconds(m_promptClock); });
+                QTimer::singleShot(400, this, [this] {
+                    if (m_window.ui()->overlay() != nullptr) m_window.ui()->overlay()->dismiss();
+                });
+                if (InstallPageController *controller = installPage()) {
+                    controller->openPresetPicker();
+                }
+            };
+            step.extra = [this] { return m_promptShownMs; };
+            m_steps.push_back(std::move(step));
+        }
+
+        // ---------- 账号与外观（皮肤 / 披风） ----------
+        addWait(QStringLiteral("account:open"), [this] {
+            QMetaObject::invokeMethod(&m_window, "onAccountSkinButtonClicked", Qt::DirectConnection);
+        }, [this] {
+            m_accountDialog = m_window.findChild<AccountSkinDialog *>();
+            return !m_accountDialog.isNull() && m_accountDialog->isVisible();
+        }, 5000, [] { return QStringLiteral("主页右上账号胶囊 → 账号与外观"); },
+        [this] {
+            if (m_accountDialog.isNull()) return -1;
+            auto *list = m_accountDialog->findChild<QListWidget *>(AccountSkinDialog::accountListName());
+            return list == nullptr ? -1 : list->count();
+        });
+        addWait(QStringLiteral("account:cape-list"), [this] {
+            if (!m_accountDialog.isNull()) {
+                auto *list = m_accountDialog->findChild<QListWidget *>(AccountSkinDialog::capeListName());
+                if (list != nullptr) list->setFocus();
+            }
+        }, [this] {
+            if (m_accountDialog.isNull()) return false;
+            auto *list = m_accountDialog->findChild<QListWidget *>(AccountSkinDialog::capeListName());
+            return list != nullptr;
+        }, 3000, [] { return QStringLiteral("同一个弹框里的披风列表"); },
+        [this] {
+            if (m_accountDialog.isNull()) return -1;
+            auto *list = m_accountDialog->findChild<QListWidget *>(AccountSkinDialog::capeListName());
+            return list == nullptr ? -1 : list->count();
+        });
+        m_steps.push_back({QStringLiteral("account:close"), [this] {
+            if (m_window.ui()->overlay() != nullptr) m_window.ui()->overlay()->dismiss();
+        }});
+
+        // ---------- 新建服务端：服务端版本 / 加载器版本 ----------
+        addWait(QStringLiteral("server:open"), [this] {
+            m_gameVersion = pickGameVersion();
+            if (QPushButton *button = m_window.ui()->getDownloadNewServerButton()) {
+                button->setProperty("selectedVersion", m_gameVersion);
+                button->click();
+            }
+        }, [this] {
+            m_serverPage = m_window.findChild<NewServerPage *>();
+            return !m_serverPage.isNull() && m_serverPage->isVisible();
+        }, 6000, [] { return QStringLiteral("下载 → 服务端 → 新建服务端"); },
+        [this] { return m_serverPage.isNull() ? -1 : m_serverPage->findChildren<QComboBox *>().size(); });
+        // 默认那一档（原版）既不要加载器也不要安装器，两个版本框根本不会去取数 —— 可它们
+        // 的占位字是构造时写死的「正在获取…」。先挑一档要加载器的（Fabric），量的才是真的等待。
+        m_steps.push_back({QStringLiteral("server:flavor-fabric"), [this] {
+            if (m_serverPage.isNull()) return;
+            auto *list = m_serverPage->findChild<QListWidget *>(MainWindowUI::newServerFlavorListName());
+            if (list == nullptr) return;
+            for (int i = 0; i < list->count(); ++i) {
+                if (list->item(i)->data(Qt::UserRole).toString() == QStringLiteral("fabric")) {
+                    list->setCurrentRow(i);
+                    return;
+                }
+            }
+        }});
+        addWait(QStringLiteral("server:versions"), [] {},
+                [this] {
+                    if (m_serverPage.isNull()) return false;
+                    auto *loaderEdit = m_serverPage->findChild<QLineEdit *>(MainWindowUI::newServerLoaderEditName());
+                    auto *installerEdit = m_serverPage->findChild<QLineEdit *>(MainWindowUI::newServerInstallerEditName());
+                    auto *loaderCombo = serverVersionCombo(MainWindowUI::newServerLoaderEditName());
+                    auto *installerCombo = serverVersionCombo(MainWindowUI::newServerInstallerEditName());
+                    Q_UNUSED(loaderEdit);
+                    Q_UNUSED(installerEdit);
+                    return (loaderCombo != nullptr && loaderCombo->count() > 0)
+                        || (installerCombo != nullptr && installerCombo->count() > 0);
+                }, 12000, [this] {
+                    auto *loaderEdit = m_serverPage.isNull() ? nullptr
+                        : m_serverPage->findChild<QLineEdit *>(MainWindowUI::newServerLoaderEditName());
+                    auto *installerEdit = m_serverPage.isNull() ? nullptr
+                        : m_serverPage->findChild<QLineEdit *>(MainWindowUI::newServerInstallerEditName());
+                    return QStringLiteral("加载器框「%1」/ 安装器框「%2」")
+                        .arg(loaderEdit != nullptr ? loaderEdit->placeholderText() : QStringLiteral("?"),
+                             installerEdit != nullptr ? installerEdit->placeholderText() : QStringLiteral("?"));
+                },
+                [this] {
+                    int filled = 0;
+                    for (QComboBox *combo : m_serverPage.isNull() ? QList<QComboBox *>{}
+                                                                 : m_serverPage->findChildren<QComboBox *>()) {
+                        if (combo->count() > 0) ++filled;
+                    }
+                    return filled;
+                });
+        m_steps.push_back({QStringLiteral("server:close"), [this] {
+            if (QPushButton *back = m_window.ui()->getServerFormBackButton()) back->click();
+        }});
+    }
+
+    QComboBox *serverVersionCombo(const QString &editName) const
+    {
+        if (m_serverPage.isNull()) return nullptr;
+        return m_serverPage->findChild<QComboBox *>(editName + QStringLiteral("Combo"));
+    }
+
+    bool versionTreeReady() const
+    {
+        QTreeWidget *tree = m_window.ui()->getVersionTree();
+        if (tree == nullptr || tree->topLevelItemCount() == 0) return false;
+        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+            if (tree->topLevelItem(i)->childCount() > 0) return true;
+        }
+        return false;
+    }
+
+    QString versionTreeWaitingText() const
+    {
+        QTreeWidget *tree = m_window.ui()->getVersionTree();
+        if (tree == nullptr) return QStringLiteral("(没有版本树)");
+        if (tree->topLevelItemCount() == 0) return QStringLiteral("(空白版本树)");
+        return QStringLiteral("%1（顶层 %2 条）")
+            .arg(tree->topLevelItem(0)->text(MainWindowUI::versionTreeKeyColumn()))
+            .arg(tree->topLevelItemCount());
+    }
+
+    QString pickGameVersion() const
+    {
+        QTreeWidget *tree = m_window.ui()->getVersionTree();
+        if (tree == nullptr) return QString();
+        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+            QTreeWidgetItem *category = tree->topLevelItem(i);
+            for (int j = 0; j < category->childCount(); ++j) {
+                const QString id = category->child(j)
+                                       ->data(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole)
+                                       .toString();
+                if (!id.isEmpty()) return id;
+            }
+        }
+        return QString();
+    }
+
+    bool resourceTreeReady(const QString &key) const
+    {
+        QTreeWidget *tree = m_window.ui()->getDownloadResourceTree(key);
+        if (tree == nullptr || tree->topLevelItemCount() == 0) return false;
+        QTreeWidgetItem *first = tree->topLevelItem(0);
+        if (first->isDisabled()) return false;
+        return !first->data(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole).toString().isEmpty();
+    }
+
+    QString resourceTreeWaitingText(const QString &key) const
+    {
+        QTreeWidget *tree = m_window.ui()->getDownloadResourceTree(key);
+        if (tree == nullptr) return QStringLiteral("(没有这张表)");
+        if (tree->topLevelItemCount() == 0) return QStringLiteral("(空白列表)");
+        QTreeWidgetItem *first = tree->topLevelItem(0);
+        return QStringLiteral("%1%2")
+            .arg(first->text(MainWindowUI::versionTreeKeyColumn()),
+                 first->isDisabled() ? QStringLiteral("（灰）") : QString());
+    }
+
+    int loaderVersionsFilled() const
+    {
+        QTreeWidget *tree = m_window.ui()->getLoaderTree();
+        if (tree == nullptr) return 0;
+        int filled = 0;
+        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+            QTreeWidgetItem *item = tree->topLevelItem(i);
+            const int loader = item->data(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole).toInt();
+            if (loader < 0 || item->childCount() == 0) continue;
+            if (item->child(0)->text(MainWindowUI::versionTreeKeyColumn())
+                != MainWindowUI::loaderVersionFetchingText()) {
+                ++filled;
+            }
+        }
+        return filled;
+    }
+
+    QString loaderTreeWaitingText() const
+    {
+        QTreeWidget *tree = m_window.ui()->getLoaderTree();
+        if (tree == nullptr) return QStringLiteral("(没有加载器树)");
+        QStringList parts;
+        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+            QTreeWidgetItem *item = tree->topLevelItem(i);
+            const int loader = item->data(MainWindowUI::versionTreeKeyColumn(), Qt::UserRole).toInt();
+            if (loader < 0) continue;
+            parts.append(item->childCount() == 0
+                             ? QStringLiteral("%1:空").arg(item->text(MainWindowUI::versionTreeKeyColumn()))
+                             : QStringLiteral("%1:%2").arg(
+                                   item->text(MainWindowUI::versionTreeKeyColumn()),
+                                   item->child(0)->text(MainWindowUI::versionTreeKeyColumn())));
+        }
+        return parts.join(QStringLiteral(" / "));
+    }
+
+    /// `InstallPageController` 没有 Q_OBJECT（不是信号槽那一套），`findChild<T>()` 用不了；
+    /// 它是 MainWindow 的子对象，按类型在直接子对象里认。
+    InstallPageController *installPage() const
+    {
+        for (QObject *child : m_window.children()) {
+            if (auto *controller = dynamic_cast<InstallPageController *>(child)) {
+                return controller;
+            }
+        }
+        return nullptr;
     }
 
     QComboBox *themeCombo() const
@@ -395,10 +888,43 @@ private:
         timer.start();
         step.action();
         result.actionMs = milliseconds(timer);
+        if (step.extra) result.extraMs = step.extra();
 
         timer.restart();
         m_window.repaint();
         result.repaintMs = milliseconds(timer);
+
+        // A 类：动作只把请求发出去，内容还在路上。这一段用嵌套事件循环等，看门狗和
+        // StallSampler 照常跑，所以"等的时候界面有没有被占住"也能采到。
+        if (step.ready) {
+            result.hasWait = true;
+            result.waitingText = step.waitingText ? step.waitingText() : QString();
+            QElapsedTimer waitClock;
+            waitClock.start();
+            const int timeout = step.timeoutMs > 0 ? step.timeoutMs : 15000;
+            // 总预算闸：`tools/perf-startup.ps1` 只等 120 s，网络卡住时宁可这一步记
+            // `waitOk=false`，也不能把整份报告拖没。
+            const qint64 elapsed = m_clock.elapsed();
+            const int budget = elapsed < 85000 ? int(85000 - elapsed) : 1000;
+            QEventLoop loop;
+            QTimer poll;
+            poll.setTimerType(Qt::PreciseTimer);
+            poll.setInterval(10);
+            QObject::connect(&poll, &QTimer::timeout, &loop, [&] {
+                if (step.ready() || waitClock.elapsed() >= std::min(timeout, budget)) loop.quit();
+            });
+            if (!step.ready()) {
+                poll.start();
+                loop.exec();
+                poll.stop();
+            }
+            result.waitMs = milliseconds(waitClock);
+            result.waitOk = step.ready();
+            result.contentRows = step.contentRows ? step.contentRows() : -1;
+            timer.restart();
+            m_window.repaint();
+            result.contentRepaintMs = milliseconds(timer);
+        }
 
         m_results.push_back(result);
         ++m_next;
@@ -418,6 +944,16 @@ private:
             entry.insert(QStringLiteral("actionMs"), round1(result.actionMs));
             entry.insert(QStringLiteral("repaintMs"), round1(result.repaintMs));
             entry.insert(QStringLiteral("loadActive"), result.loadActive);
+            if (result.extraMs >= 0) {
+                entry.insert(QStringLiteral("nestedFirstFrameMs"), round1(result.extraMs));
+            }
+            if (result.hasWait) {
+                entry.insert(QStringLiteral("waitMs"), round1(result.waitMs));
+                entry.insert(QStringLiteral("waitOk"), result.waitOk);
+                entry.insert(QStringLiteral("contentRepaintMs"), round1(result.contentRepaintMs));
+                entry.insert(QStringLiteral("waitingText"), result.waitingText);
+                entry.insert(QStringLiteral("contentRows"), result.contentRows);
+            }
             steps.append(entry);
         }
 
@@ -531,6 +1067,15 @@ private:
     struct Step {
         QString name;
         std::function<void()> action;
+        /// 内容到了没有（空 = 这一步不等异步内容）。轮询间隔 10 ms。
+        std::function<bool()> ready;
+        int timeoutMs = 0;
+        /// 等待时界面上显示什么（空白 / 灰字 / 占位行）。
+        std::function<QString()> waitingText;
+        /// 等完之后量到的内容行数（-1 = 不算）。
+        std::function<int()> contentRows;
+        /// 动作阻塞在嵌套事件循环里时，从循环内部量的首帧（-1 = 没量）。
+        std::function<double()> extra;
     };
 
     QApplication &m_app;
@@ -545,6 +1090,16 @@ private:
     QPointer<TaskCenterPanel> m_taskPanel;
     QList<PresetManagePage::PresetItem> m_presets;
     QPointer<PresetManagePage> m_presetPage;
+    /// 沙盒里那个"50+ 模组"的夹具实例（由 tools/perf-startup.ps1 的 -InstanceMods 造）。
+    QString m_fixtureId;
+    /// 安装页 / 新建服务端页用的游戏版本号（从在线版本树里挑第一个真版本）。
+    QString m_gameVersion;
+    QPointer<InstanceSettingsDialog> m_instanceDialog;
+    QPointer<AccountSkinDialog> m_accountDialog;
+    QPointer<NewServerPage> m_serverPage;
+    QPointer<PresetInstallPicker> m_presetPicker;
+    QElapsedTimer m_promptClock;
+    double m_promptShownMs = -1.0;
     std::unique_ptr<QTemporaryDir> m_storeDir;
     qsizetype m_storeRows = 0;
     bool m_storeFailed = false;

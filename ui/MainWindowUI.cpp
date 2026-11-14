@@ -971,18 +971,10 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         runStateButton->setVisible(m_runStateActive && !collapsed);
     });
     backdrop->setHeroWidget(homeTab);
-    // 主页上轨和窗口按钮压在清晰风景上：品牌、窗口按钮换主页字色。
-    // 跟着「主页场景此刻露没露」走，而不是只看选项卡：主页上开了整页覆盖层时场景收起，
-    // 轨也得换回普通字色（不然深底上一圈主页字色，和内容区是两种样子）。
-    bar->setHeroMode(tabWidget->currentIndex() == homeTabIndex());
-    // 捕获指针而不是 this：MainWindow 析构先 delete m_ui、后在 ~QWidget 里隐藏子控件，
-    // 那一刻 Backdrop 还会发 heroShownChanged，lambda 里的 this 已经悬空。
-    QObject::connect(tabWidget, &QTabWidget::currentChanged, bar,
-                     [bar = QPointer<TitleBar>(bar)](int index) { if (bar) bar->setHeroMode(index == homeTabIndex()); });
-    QObject::connect(backdrop, &Glass::Backdrop::heroShownChanged, bar,
-                     [bar = QPointer<TitleBar>(bar), tabs = QPointer<QTabWidget>(tabWidget)](bool shown) {
-                         if (bar && tabs) bar->setHeroMode(shown && tabs->currentIndex() == homeTabIndex());
-                     });
+    // 主页上窗口按钮压在清晰风景上换主页字色：跟着风景层此刻的不透明度渐变（进出主页 250ms 淡变，
+    // 主页上开了整页覆盖层时风景收起，也跟着淡回普通字色），不在换页那一刻硬切。品牌标、品牌字不变。
+    bar->setHeroOpacity(backdrop->heroOpacity());
+    QObject::connect(backdrop, &Glass::Backdrop::heroOpacityChanged, bar, &TitleBar::setHeroOpacity);
 
     // ---------- 内容区上面那一层 ----------
     // 设置界面和各种提示都开在这儿，不另开窗口（见 OverlayHost.hpp 开头那段）。

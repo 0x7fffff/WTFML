@@ -112,7 +112,30 @@ option(WTFML_PERF_DOWNLOAD "Build the concurrent-download benchmark tool (measur
 # 构建耗时，不影响产物：PCH 只是"提前把这份头的解析结果存盘"，编出来的代码和不用它时相同。
 # 关掉它：`-DWTFML_USE_PCH=OFF`。什么时候要关：换编译器/工具链排查奇怪的警告，
 # 或者盘太紧（这份 .gch 本机 177 MB，在构建目录里、不进仓库）。
-option(WTFML_USE_PCH "Precompile the shared Qt header for every launcher TU" ON)
+option(WTFML_USE_PCH "Precompile the shared Qt header for every launcher TU (ignored under ccache)" ON)
+# 编译缓存：本机装了 ccache 就默认自动套上，不用每次配置都记得加参数。
+# CI 通过环境变量 CMAKE_CXX_COMPILER_LAUNCHER=sccache 指定缓存，那种情况这里不动。
+# 套着 ccache 时，主程序不再用上面那份 PCH：GCC 的 .gch 每个构建目录各编一份、内容都不一样
+# （11-14 实测两个工作树的 .gch md5 不同），带着它，主程序在别的工作树里一个 TU 都命中不了。
+# 想退回：-DWTFML_USE_CCACHE=OFF。
+option(WTFML_USE_CCACHE "Use ccache as the compiler launcher when it is installed" ON)
+if(WTFML_USE_CCACHE AND NOT CMAKE_CXX_COMPILER_LAUNCHER)
+    find_program(WTFML_CCACHE_PROGRAM ccache)
+    if(WTFML_CCACHE_PROGRAM)
+        set(CMAKE_CXX_COMPILER_LAUNCHER "${WTFML_CCACHE_PROGRAM}")
+    endif()
+endif()
+set(WTFML_LAUNCHER_NAME "")
+if(CMAKE_CXX_COMPILER_LAUNCHER)
+    list(GET CMAKE_CXX_COMPILER_LAUNCHER 0 WTFML_LAUNCHER_PROGRAM)
+    get_filename_component(WTFML_LAUNCHER_NAME "${WTFML_LAUNCHER_PROGRAM}" NAME_WE)
+endif()
+if(WTFML_LAUNCHER_NAME STREQUAL "ccache")
+    # base_dir 设成本仓库根目录，直接写在 ccache 的命令行上：仓库里的路径都改写成相对构建目录的
+    # 路径，主仓和各工作树才能互相命中。不靠环境变量 CCACHE_BASEDIR，因为长期开着的进程
+    # （同席）拉起的成员只带启动那一刻的旧值（11-14 就是这样：旧值不含 D:\AI，跨工作树全不命中）。
+    list(INSERT CMAKE_CXX_COMPILER_LAUNCHER 1 "base_dir=${CMAKE_SOURCE_DIR}")
+endif()
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
@@ -738,6 +761,7 @@ set(SOURCE_FILES
     # CMakeLists 里同一行的注释）：漏了的表现是那几张图**静默变回草方块**。
     assets/icons.qrc
     ui/VersionTreeDelegate.cpp
+    ui/LoadingState.cpp
     ui/ResourceDetailPage.cpp
     ui/InstanceGroupDelegate.cpp
     ui/SkinViewer.cpp
@@ -830,7 +854,11 @@ target_compile_definitions(WTFMinecraftLauncher PRIVATE WTFML_VERSION="${PROJECT
 #
 # 只挂在主程序上：验证工程是几十个各自独立的 target，每个都要自己那份 .gch（几十份
 # 177 MB），换不来时间。它们本来也不是日常改动的那一份。
-if(WTFML_USE_PCH)
+#
+# 编译器外面套的是 ccache 时不用 PCH（原因见文件开头 WTFML_USE_CCACHE 那段）。
+if(WTFML_USE_PCH AND WTFML_LAUNCHER_NAME STREQUAL "ccache")
+    message(STATUS "WTFML: compiler launcher is ccache, precompiled header skipped so cache hits carry across worktrees")
+elseif(WTFML_USE_PCH)
     target_precompile_headers(WTFMinecraftLauncher PRIVATE
         "$<$<COMPILE_LANGUAGE:CXX>:<QtWidgets/QWidget>>")
 endif()

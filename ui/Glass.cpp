@@ -374,11 +374,13 @@ Backdrop::Backdrop(QWidget *parent) : QWidget(parent) {
     connect(m_heroFade, &QVariantAnimation::valueChanged, this, [this](const QVariant &value) {
         m_heroOpacity = value.toReal();
         update();
+        emit heroOpacityChanged(m_heroOpacity);
     });
     connect(m_heroFade, &QAbstractAnimation::finished, this, [this] {
         m_heroOpacity = m_heroFade->endValue().toReal();  // 终值钉死成 0 / 1，不留缓动的尾数
         window()->setProperty(Anim::kBackdropFadingProperty, false);
         update();
+        emit heroOpacityChanged(m_heroOpacity);
     });
     Theme::follow(this, [this] {
         rebuildNow();
@@ -435,7 +437,6 @@ void Backdrop::noteHeroShown() {
     if (shown == m_heroWasShown) return;
     m_heroWasShown = shown;
     fadeHeroTo(shown ? 1.0 : 0.0);
-    emit heroShownChanged(shown);
 }
 
 void Backdrop::fadeHeroTo(qreal target) {
@@ -445,6 +446,7 @@ void Backdrop::fadeHeroTo(qreal target) {
         m_heroOpacity = target;
         window()->setProperty(Anim::kBackdropFadingProperty, false);
         update();
+        emit heroOpacityChanged(m_heroOpacity);
         return;
     }
     // 半路折返（淡到一半又切回来）从当前值接着走，时长按剩下的路程折算。
@@ -511,6 +513,7 @@ void Backdrop::rebuildNow() {
         QImage frost = boxBlur(coverScaled(source, small, t.page), blurRadius);
         processFrost(frost, t.page, dark ? 0.35 : 0.3, dark ? 1.05 : 1.15);
         extremes(frost, frost.rect(), &m_darkest, &m_brightest);
+        m_frostSmall = frost;
         m_frost = QPixmap::fromImage(frost.scaled(device, Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
         m_frost.setDevicePixelRatio(dpr);
         m_frostSize = size();
@@ -519,7 +522,9 @@ void Backdrop::rebuildNow() {
 }
 
 void Backdrop::rebuildHero() {
-    const QRect hero = heroRect();
+    // 不在主页（风景没露）也备好这一张：导航轨品牌标按「任一页」取色要量它（colorsUnderAnyPage）。
+    if (m_hero == nullptr || m_hero->window() != window()) return;
+    const QRect hero = rect();
     if (hero.isEmpty()) return;
     const qreal dpr = devicePixelRatioF();
     const QSize device = (QSizeF(hero.size()) * dpr).toSize();
@@ -603,29 +608,56 @@ QColor Backdrop::brightestUnder(const QWidget *widget) const {
 }
 
 QList<QColor> Backdrop::colorsUnder(const QWidget *widget) const {
-    const Theme::Tokens t = Theme::tokens();
-    const Mode m = effectiveMode();
-    if (m == Mode::Solid || widget == nullptr) return {t.page};
+    if (effectiveMode() == Mode::Solid || widget == nullptr) return {Theme::tokens().page};
     QList<QColor> out;
-    const QRect hero = heroRect();
-    if (m_heroOpacity > 0.0 && !m_heroSmall.isNull() && !hero.isEmpty()) {
-        const QRect area = QRect(widget->mapTo(this, QPoint()), widget->size()).translated(-hero.topLeft());
-        const qreal sx = qreal(m_heroSmall.width()) / hero.width();
-        const qreal sy = qreal(m_heroSmall.height()) / hero.height();
+    if (m_heroOpacity > 0.0 && !heroRect().isEmpty()) out = sceneColorsUnder(widget);
+    if (m_heroOpacity < 1.0 || out.isEmpty()) out << frostColorsUnder(widget, false);
+    return out;
+}
+
+QList<QColor> Backdrop::colorsUnderAnyPage(const QWidget *widget) const {
+    if (effectiveMode() == Mode::Solid || widget == nullptr) return {Theme::tokens().page};
+    QList<QColor> out = frostColorsUnder(widget, true);
+    if (sceneShown()) out << sceneColorsUnder(widget);
+    return out;
+}
+
+/// 主页清晰风景（含暗角）在 `widget` 那一块的最暗 / 最亮；还没备好图时为空。
+QList<QColor> Backdrop::sceneColorsUnder(const QWidget *widget) const {
+    const QRect hero = m_heroCacheRect;
+    if (m_heroSmall.isNull() || hero.isEmpty()) return {};
+    const QRect area = QRect(widget->mapTo(this, QPoint()), widget->size()).translated(-hero.topLeft());
+    const qreal sx = qreal(m_heroSmall.width()) / hero.width();
+    const qreal sy = qreal(m_heroSmall.height()) / hero.height();
+    QColor darkest(Qt::white), brightest(Qt::black);
+    extremes(m_heroSmall,
+             QRect(qFloor(area.left() * sx), qFloor(area.top() * sy), qCeil(area.width() * sx) + 1,
+                   qCeil(area.height() * sy) + 1),
+             &darkest, &brightest);
+    return {darkest, brightest};
+}
+
+/// 磨砂底盖上着色层之后的两端。`local`：风景底档按 `widget` 那一块实测（否则取整窗两端）；
+/// 亚克力 / 云母透的是桌面，量不到，总按配方可能落到的范围。
+QList<QColor> Backdrop::frostColorsUnder(const QWidget *widget, bool local) const {
+    const Mode m = effectiveMode();
+    const QList<QColor> range = m == Mode::Scene ? QList<QColor>{m_darkest, m_brightest} : systemBackdropRange();
+    QColor layer = Theme::tokens().page;
+    layer.setAlphaF(minimumTintAlpha(layer, bodyInks(), range, tintStrength() / 100.0));
+    QList<QColor> under = range;
+    if (local && m == Mode::Scene && !m_frostSmall.isNull() && !m_frostSize.isEmpty()) {
+        const QRect area(widget->mapTo(this, QPoint()), widget->size());
+        const qreal sx = qreal(m_frostSmall.width()) / m_frostSize.width();
+        const qreal sy = qreal(m_frostSmall.height()) / m_frostSize.height();
         QColor darkest(Qt::white), brightest(Qt::black);
-        extremes(m_heroSmall,
+        extremes(m_frostSmall,
                  QRect(qFloor(area.left() * sx), qFloor(area.top() * sy), qCeil(area.width() * sx) + 1,
                        qCeil(area.height() * sy) + 1),
                  &darkest, &brightest);
-        out << darkest << brightest;
+        under = {darkest, brightest};
     }
-    if (m_heroOpacity < 1.0 || out.isEmpty()) {
-        const QList<QColor> range =
-            m == Mode::Scene ? QList<QColor>{m_darkest, m_brightest} : systemBackdropRange();
-        QColor layer = t.page;
-        layer.setAlphaF(minimumTintAlpha(layer, bodyInks(), range, tintStrength() / 100.0));
-        for (const QColor &bg : range) out << over(layer, bg);
-    }
+    QList<QColor> out;
+    for (const QColor &bg : under) out << over(layer, bg);
     return out;
 }
 

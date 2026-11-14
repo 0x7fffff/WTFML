@@ -461,11 +461,14 @@ int UiInstallLayoutCheck(QApplication &app);
 int UiToolboxPolishCheck(QApplication &app);
 int UiToolboxLayoutCheck(QApplication &app);
 int UiInputWidthCheck(QApplication &app);
+/// 子页面 / 弹框 / 浮层的漏接设计系统巡检：只报告，不断言失败。
+int UiSurfaceSweepCheck(QApplication &app);
 int UiResourcePacksCheck(QApplication &app);
 int UiLifecycleCheck(QApplication &app);
 int UiUiRefreshCheck(QApplication &app);
 int UiSettingsShotsCheck(QApplication &app);
 int UiFoldMotionChecks(QApplication &app);
+int UiLoadingStateChecks(QApplication &app);
 int UiReviewShotsCheck(QApplication &app);
 // 主页「每日一言」：那一行（进 CTest）与它的离屏样张（不进 CTest）。
 int UiDailyQuoteCheck(QApplication &app);

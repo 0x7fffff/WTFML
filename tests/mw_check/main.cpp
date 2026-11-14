@@ -1,5 +1,6 @@
 #include "modules/Support.hpp"
 #include "support/SettingsIsolation.hpp"
+#include "LoadingState.hpp"
 #include "ActivityPopover.hpp"
 #include "modules/LiveProbes.hpp"
 #include "controllers/JavaRuntimeController.hpp"
@@ -1188,16 +1189,13 @@ int main(int argc, char *argv[]) {
         edit->setText(query);
         QMetaObject::invokeMethod(edit, "returnPressed", Qt::DirectConnection);
 
-        // 回车那一下就该在树上看见反应（走的是产品里那条 connect，不是我们自己调的槽）。
-        check(resTree->topLevelItemCount() == 1 &&
-                  resTree->topLevelItem(0)->text(column).contains(query) &&
-                  resTree->topLevelItem(0)->isDisabled(),
-              "回车那一下，树上立刻换成一行灰的「正在搜索「<搜索词>」…」",
-              QString("行数=%1 第一行=「%2」")
-                  .arg(resTree->topLevelItemCount())
-                  .arg(resTree->topLevelItemCount() > 0
-                           ? resTree->topLevelItem(0)->text(column)
-                           : QString()));
+        // 回车那一下就该在树上看见反应（走的是产品里那条 connect，不是我们自己调的槽）：
+        // 树清空、盖上整块加载态「正在搜索「<搜索词>」…」。
+        QWidget *loadingLayer = LoadingState::overlay(resTree);
+        const QString loadingSays = loadingLayer != nullptr ? loadingLayer->accessibleName() : QString();
+        check(resTree->topLevelItemCount() == 0 && loadingSays.contains(query),
+              "回车那一下，树上立刻盖上「正在搜索「<搜索词>」…」加载态",
+              QString("行数=%1 加载态=「%2」").arg(resTree->topLevelItemCount()).arg(loadingSays));
 
         // 等真结果。判据是"第一行不是灰的" —— 灰的那些（正在搜索/没搜到/搜索失败）都不是
         // 能点开的东西，它们下面那些断言也无从谈起。

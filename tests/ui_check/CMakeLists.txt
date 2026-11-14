@@ -22,6 +22,8 @@ add_library(wtfml_ui_runtime STATIC
                                 ${REPO_ROOT}/ui/AccountSkinDialog.cpp
                                 ${REPO_ROOT}/ui/MainWindowUI.cpp
                                 ${REPO_ROOT}/ui/PresetInstallPicker.cpp
+                                # 预设管理页：加载态走查截图（--loading）要把它摆上来；纯界面，不认识业务。
+                                ${REPO_ROOT}/ui/PresetManagePage.cpp
                                 ${REPO_ROOT}/ui/PresetEditorPage.cpp
                                 ${REPO_ROOT}/ui/PresetOptionsEditor.cpp
                                 ${REPO_ROOT}/ui/PresetModEditor.cpp
@@ -97,6 +99,7 @@ ${REPO_ROOT}/ui/InstanceSettingsSignature.cpp
                                 ${REPO_ROOT}/ui/ToggleSwitch.cpp
                                 ${REPO_ROOT}/ui/MotdText.cpp
                                 ${REPO_ROOT}/ui/VersionTreeDelegate.cpp
+                                ${REPO_ROOT}/ui/LoadingState.cpp
                                 ${REPO_ROOT}/ui/ResourceDetailPage.cpp
                                 ${REPO_ROOT}/ui/InstanceGroupDelegate.cpp
                                 # 下载页那四页的"点的是哪一类"和"去问哪一类"是靠一个字符串对
@@ -133,6 +136,10 @@ ${REPO_ROOT}/ui/InstanceSettingsSignature.cpp
                                 ${REPO_ROOT}/ui/SkinViewer.cpp
                                 ${REPO_ROOT}/ui/TitleBar.cpp
                                 ${REPO_ROOT}/ui/Theme.cpp
+                                # 「预设管理」与「原理图信息」这两页：表面巡检要真的把它们摆出来。
+                                # 产品里它们是 MainWindow 直接 new 的，这一层原先没编进来。
+                                ${REPO_ROOT}/ui/PresetManagePage.cpp
+                                ${REPO_ROOT}/ui/SchematicInfoDialog.cpp
                                 ${REPO_ROOT}/ui/ThemeAdvancedEditor.cpp
                                 # 动效那一层：按钮按下 / 换页 / 展开折叠。
                                 # MainWindowUI.cpp 和 OverlayHost.cpp 都直接调它。
@@ -260,11 +267,14 @@ add_ui_module(ui_check_agent modules/UiAgentCheck.cpp UiAgentCheck)
 add_ui_module(ui_check_toolbox_polish modules/UiToolboxPolishCheck.cpp UiToolboxPolishCheck)
 add_ui_module(ui_check_toolbox_layout modules/UiToolboxLayoutCheck.cpp UiToolboxLayoutCheck)
 add_ui_module(ui_check_input_widths modules/UiInputWidthCheck.cpp UiInputWidthCheck)
+# 子页面 / 弹框 / 浮层巡检：只报告漏接设计系统的控件，不断言失败（见模块文件头）。
+add_ui_module(ui_check_surface_sweep modules/UiSurfaceSweepCheck.cpp UiSurfaceSweepCheck)
 add_ui_module(ui_check_resource_packs modules/UiResourcePacksCheck.cpp UiResourcePacksCheck)
 add_ui_module(ui_check_lifecycle modules/UiLifecycleCheck.cpp UiLifecycleCheck)
 add_ui_module(ui_check_ui_refresh modules/UiUiRefreshCheck.cpp UiUiRefreshCheck)
 add_ui_module(ui_check_theme modules/UiThemeCheck.cpp UiThemeCheck)
 add_ui_module(ui_check_fold_motion modules/UiFoldMotionChecks.cpp UiFoldMotionChecks)
+add_ui_module(ui_check_loading_state modules/UiLoadingStateChecks.cpp UiLoadingStateChecks)
 add_ui_module(ui_check_daily_quote modules/UiDailyQuoteCheck.cpp UiDailyQuoteCheck)
 add_ui_module(ui_check_daily_quote_shots modules/UiDailyQuoteShots.cpp UiDailyQuoteShots)  # 样张，不进 ctest
 add_ui_module(ui_check_home_greeting_shots modules/UiHomeGreetingShots.cpp UiHomeGreetingShots)  # 样张，不进 ctest
@@ -310,6 +320,13 @@ wtfml_add_test(NAME wtfml.input-widths COMMAND ui_check_input_widths)
 set_tests_properties(wtfml.input-widths PROPERTIES
     LABELS "ui;layout"
     TIMEOUT 120
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
+# 表面巡检：跑一遍、打印漏接清单，不改判定（模块之后才改成守卫）。
+wtfml_add_test(NAME wtfml.surface-sweep COMMAND ui_check_surface_sweep)
+set_tests_properties(wtfml.surface-sweep PROPERTIES
+    LABELS "ui;theme"
+    TIMEOUT 180
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
 )
 wtfml_add_test(NAME wtfml.toolbox-layout COMMAND ui_check_toolbox_layout)
@@ -369,6 +386,12 @@ wtfml_add_test(NAME wtfml.fold-motion COMMAND ui_check_fold_motion)
 set_tests_properties(wtfml.fold-motion PROPERTIES
     LABELS "ui;settings"
     TIMEOUT 120
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
+wtfml_add_test(NAME wtfml.loading-state COMMAND ui_check_loading_state)
+set_tests_properties(wtfml.loading-state PROPERTIES
+    LABELS "ui;loading"
+    TIMEOUT 60
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
 )
 wtfml_add_test(NAME wtfml.theme COMMAND ui_check_theme)
