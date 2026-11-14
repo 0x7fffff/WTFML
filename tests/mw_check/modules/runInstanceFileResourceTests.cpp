@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "ui_check/modules/UiInstanceFilesTestHelpers.hpp"
 void runInstanceFileResourceTests() {
     const QString originalDir = AppPaths::minecraftDir();
     QTemporaryDir root;
@@ -196,12 +197,12 @@ void runInstanceFileResourceTests() {
             // 反查那一趟在**后台线程**里（读那两个文件算哈希 + 发三发请求），行尾那颗「详情」
             // 要等 `pushInstanceFileIcons()` 摆上去才会从灰的变亮。
             const auto detailForPath = [](InstanceFilesPage *files,
-                                          const QString &path) -> QToolButton * {
+                                          const QString &path) -> UiRowCellPtr {
                 for (int row = 0; row < files->list()->count(); ++row) {
                     QListWidgetItem *item = files->list()->item(row);
                     if (item != nullptr &&
                         item->data(InstanceFilesPage::pathRole()).toString() == path) {
-                        return files->detailButtonAt(row);
+                        return uiDetailAt(files, row);
                     }
                 }
                 return nullptr;
@@ -210,7 +211,7 @@ void runInstanceFileResourceTests() {
             // （名字上的手型光标不再是入口。）
             const bool arrived = pumpUntil(
                 [&] {
-                    QToolButton *detail = detailForPath(packs, packZip);
+                    const auto detail = detailForPath(packs, packZip);
                     return detail != nullptr && detail->isEnabled();
                 },
                 15000);
@@ -236,7 +237,7 @@ void runInstanceFileResourceTests() {
                   "—— 拿一个压根没认出来的文件去量「名字点得动」是量不出规矩的",
                   modProject);
             page->showPage(QStringLiteral("mod"));
-            QToolButton *modDetail = detailForPath(mods, modJar);
+            const auto modDetail = detailForPath(mods, modJar);
             modRowFound = modDetail != nullptr;
             modTip = modDetail != nullptr ? modDetail->toolTip() : QString();
             modClickable = modDetail != nullptr && modDetail->isEnabled();
@@ -254,8 +255,8 @@ void runInstanceFileResourceTests() {
             // （点在这儿的话那一页会当场开出来，把下面资源包那一整段挤进另一层嵌套循环里）。
 
             // ---------- ② 资源包那一页：两个文件，一个点得动、一个点不动 ----------
-            QToolButton *packDetail = detailForPath(packs, packZip);
-            QToolButton *unknownDetail = detailForPath(packs, unknownZip);
+            const auto packDetail = detailForPath(packs, packZip);
+            const auto unknownDetail = detailForPath(packs, unknownZip);
             packRowFound = packDetail != nullptr;
             unknownRowFound = unknownDetail != nullptr;
             packTip = packDetail != nullptr ? packDetail->toolTip() : QString();
@@ -291,8 +292,8 @@ void runInstanceFileResourceTests() {
             // （见 openInstanceFileResource() 里那段 ★）—— 在这儿泵一下事件，
             // 新页就会在旧的这一层还没拆干净的时候开，被 `overlay->isOpen()` 吃掉。
             // （ZJ 那一段里同一条规矩的另一种写法。）
-            // 按的是**行尾那颗「详情」**（单击条目只是选中）。`click()` 走的是
-            // `QToolButton::clicked` —— 这颗按钮接的就是 `emit detailRequested(path)`。
+            // 按的是**行尾那颗「详情」**（单击条目只是选中）。`click()` 合成一发真鼠标
+            // （移过去、按下、松开）落在视口上那一格 —— 那一格接的就是 `emit detailRequested(path)`。
             if (packDetail != nullptr) {
                 packDetail->click();
             }
@@ -578,12 +579,12 @@ void runInstanceFileResourceTests() {
                 if (mods2 == nullptr || mods2->list() == nullptr) {
                     return;
                 }
-                const auto modDetailAt = [&]() -> QToolButton * {
+                const auto modDetailAt = [&]() -> UiRowCellPtr {
                     for (int row = 0; row < mods2->list()->count(); ++row) {
                         QListWidgetItem *item = mods2->list()->item(row);
                         if (item != nullptr &&
                             item->data(InstanceFilesPage::pathRole()).toString() == modJar) {
-                            return mods2->detailButtonAt(row);
+                            return uiDetailAt(mods2, row);
                         }
                     }
                     return nullptr;
@@ -593,12 +594,12 @@ void runInstanceFileResourceTests() {
                 // 点得动"这个用户看得见的终点。
                 modClickableAgain = pumpUntil(
                     [&] {
-                        QToolButton *detail = modDetailAt();
+                        const auto detail = modDetailAt();
                         return detail != nullptr && detail->isEnabled();
                     },
                     5000);
                 // 按的仍是行尾那颗「详情」（和上面资源包那一趟同一条路，见那一段 ★）。
-                if (QToolButton *detail = modDetailAt()) {
+                if (const auto detail = modDetailAt()) {
                     detail->click();
                 }
             };

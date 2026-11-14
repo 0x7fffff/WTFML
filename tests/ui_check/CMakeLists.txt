@@ -268,6 +268,7 @@ add_ui_module(ui_check_surface_sweep modules/UiSurfaceSweepCheck.cpp UiSurfaceSw
 add_ui_module(ui_check_resource_packs modules/UiResourcePacksCheck.cpp UiResourcePacksCheck)
 add_ui_module(ui_check_lifecycle modules/UiLifecycleCheck.cpp UiLifecycleCheck)
 add_ui_module(ui_check_ui_refresh modules/UiUiRefreshCheck.cpp UiUiRefreshCheck)
+add_ui_module(ui_check_files_rows modules/UiFilesRowsCheck.cpp UiFilesRowsCheck)
 add_ui_module(ui_check_theme modules/UiThemeCheck.cpp UiThemeCheck)
 add_ui_module(ui_check_fold_motion modules/UiFoldMotionChecks.cpp UiFoldMotionChecks)
 add_ui_module(ui_check_loading_state modules/UiLoadingStateChecks.cpp UiLoadingStateChecks)
@@ -304,6 +305,12 @@ wtfml_add_test(NAME wtfml.ui-bootstrap COMMAND ui_check --bootstrap-check)
 set_tests_properties(wtfml.ui-bootstrap PROPERTIES LABELS "ui;compile" TIMEOUT 30
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}")
 wtfml_add_test(NAME wtfml.ui-refresh COMMAND ui_check_ui_refresh)
+wtfml_add_test(NAME wtfml.files-rows COMMAND ui_check_files_rows)
+set_tests_properties(wtfml.files-rows PROPERTIES
+    LABELS "ui"
+    TIMEOUT 30
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
 wtfml_add_test(NAME wtfml.ui-daily-quote COMMAND ui_check_daily_quote)
 set_tests_properties(wtfml.ui-daily-quote PROPERTIES
     LABELS "ui;theme"

@@ -55,122 +55,100 @@ int UiElidedNameChecks(const QString &instanceDisplayName, const QString &instan
         QApplication::processEvents();
         InstanceFilesPage *page = longDlg.filesPage(QStringLiteral("mod"));
         QListWidgetItem *item = page != nullptr ? page->list()->item(0) : nullptr;
-        QWidget *rowWidget =
-            (page != nullptr && item != nullptr) ? page->list()->itemWidget(item) : nullptr;
-        auto *nameLabel =
-            rowWidget != nullptr
-                ? rowWidget->findChild<QLabel *>(InstanceFilesPage::nameLabelName())
-                : nullptr;
+        // 行是代理画的：名字那一格、小字那一格的位置都由 rowGeometry() 给（paint 和点击命中
+        // 认的是同一份）。
+        const InstanceFilesPage::RowGeometry geo =
+            item != nullptr ? page->rowGeometry(0) : InstanceFilesPage::RowGeometry();
         const QString shownName =
             longName + InstanceFilesPage::disabledMark();
+        const QString itemName =
+            item != nullptr ? item->data(Qt::AccessibleTextRole).toString() : QString();
 
-        check(nameLabel != nullptr && nameLabel->text() == shownName,
-              "U10k 名字那一格挂的是 `instanceFilesNameLabel`，文字是**完整**那串"
-              "（截的只是画出来的样子，数据一个字都不少）",
-              nameLabel != nullptr ? nameLabel->text() : QStringLiteral("<null>"));
-        // 会省略那种标签：读它在构造时就写好的动态属性（普通 QLabel 上这个属性是 0 ——
-        // Qt::ElideNone，所以"删掉 setElideMode()"这条会被当场抓住）。
-        check(nameLabel != nullptr &&
-                  nameLabel->property("elideMode").toInt() == int(Qt::ElideMiddle),
-              "★ U10k 名字那一格是**会省略**的标签，而且从**中间**截（尾巴上挂着"
-              "「（已禁用）」，从尾巴截等于先把「这一条是关着的」扔了）",
-              nameLabel != nullptr
-                  ? QStringLiteral("elideMode=%1").arg(nameLabel->property("elideMode").toInt())
-                  : QStringLiteral("<null>"));
-        if (nameLabel != nullptr) {
-            const QFontMetrics metrics = nameLabel->fontMetrics();
-            auto *metaLabel =
-                rowWidget->findChild<QLabel *>(InstanceFilesPage::metaLabelName());
+        check(item != nullptr && itemName == shownName,
+              "U10k 名字记在条目的 AccessibleTextRole 上，是**完整**那串（截的只是画出来的样子，"
+              "数据一个字都不少；读屏读的也是这一串）",
+              item != nullptr ? itemName : QStringLiteral("<null>"));
+        // 画一遍（截一张视口），代理当场记下这一行收没收省略号。
+        if (page != nullptr) {
+            (void)page->list()->viewport()->grab();
+        }
+        check(item != nullptr && page->rowNameElided(0),
+              "★ U10k 名字那一格装不下时**收了省略号**（代理按 Qt::ElideMiddle 从**中间**截 ——"
+              "尾巴上挂着「（已禁用）」，从尾巴截等于先把「这一条是关着的」扔了）");
+        if (item != nullptr) {
+            const QFontMetrics metrics(page->list()->font());
+            const QRect nameRect = geo.name;
+            const QRect metaRect = geo.meta;
+            const QString metaText = item->data(InstanceFilesPage::metaRole()).toString();
 
             // ---- U10k-1 **名字那一格真的拿到了宽度**（这一节的正题）----
             //
             // 这三样挤在**同一行**时，「4.0 KB / 00:12」在 150% 的字号下要 300 px ——
-            // 名字那一格（横向是 Ignored，最小宽度 0）被挤成 **0 宽**，一整列名字一个
-            // 字都看不见（不是"裁得难看"，是"根本没有"）。
-            const bool wideEnough = nameLabel->width() >= InstanceFilesPage::nameLabelMinWidth();
-            const bool moreThanHalf =
-                rowWidget != nullptr && nameLabel->width() * 2 > rowWidget->width();
+            // 名字那一格被挤成 **0 宽**，一整列名字一个字都看不见（不是"裁得难看"，是"根本没有"）。
+            const bool wideEnough = nameRect.width() >= InstanceFilesPage::nameLabelMinWidth();
+            const bool moreThanHalf = nameRect.width() * 2 > geo.row.width();
             check(wideEnough && moreThanHalf,
                   "★ U10k 名字那一格**真的拿到了宽度**（不小于下限，而且超过行宽的一半）"
                   "—— 那个大小·时间不能跟它挤同一行（会把它挤成 0 宽）",
                   QStringLiteral("名字宽 %1（下限 %2、行宽 %3、要过半 %4）；列表宽 %5；"
                                  "小字「%6」宽 %7")
-                      .arg(nameLabel->width())
+                      .arg(nameRect.width())
                       .arg(InstanceFilesPage::nameLabelMinWidth())
-                      .arg(rowWidget != nullptr ? rowWidget->width() : -1)
-                      .arg(rowWidget != nullptr ? (rowWidget->width() + 1) / 2 : -1)
+                      .arg(geo.row.width())
+                      .arg((geo.row.width() + 1) / 2)
                       .arg(page->list()->width())
-                      .arg(metaLabel != nullptr ? metaLabel->text() : QStringLiteral("<null>"))
-                      .arg(metaLabel != nullptr ? metaLabel->width() : -1));
+                      .arg(metaText)
+                      .arg(metaRect.width()));
 
             // ---- U10k-2 那个大小·时间在**下一行**（同一个左边，名字底下）----
             //
             // 这才是修法本身：把"名字"和"大小 / 时间"摆成上下两行，名字那一格就再也不
             // 用跟谁抢宽度了。摆回同一行的改动会让这条当场红。
-            const bool stacked =
-                metaLabel != nullptr && metaLabel->isVisible() &&
-                metaLabel->mapTo(rowWidget, QPoint(0, 0)).y() >=
-                    nameLabel->mapTo(rowWidget, QPoint(0, 0)).y() + nameLabel->height() &&
-                metaLabel->mapTo(rowWidget, QPoint(0, 0)).x() ==
-                    nameLabel->mapTo(rowWidget, QPoint(0, 0)).x();
+            const bool stacked = !metaRect.isEmpty() &&
+                                 metaRect.y() >= nameRect.y() + nameRect.height() &&
+                                 metaRect.x() == nameRect.x();
             check(stacked,
                   "★ U10k 大小·时间在名字的**下一行**（同一个左边、名字脚底下）"
                   "—— 两样摆成上下两行，名字那一格才拿得到整幅宽度",
                   QStringLiteral("名字 y=%1 x=%2 h=%3；小字 y=%4 x=%5")
-                      .arg(nameLabel->mapTo(rowWidget, QPoint(0, 0)).y())
-                      .arg(nameLabel->mapTo(rowWidget, QPoint(0, 0)).x())
-                      .arg(nameLabel->height())
-                      .arg(metaLabel != nullptr
-                               ? metaLabel->mapTo(rowWidget, QPoint(0, 0)).y()
-                               : -1)
-                      .arg(metaLabel != nullptr
-                               ? metaLabel->mapTo(rowWidget, QPoint(0, 0)).x()
-                               : -1));
+                      .arg(nameRect.y())
+                      .arg(nameRect.x())
+                      .arg(nameRect.height())
+                      .arg(metaRect.y())
+                      .arg(metaRect.x()));
 
-            // ---- U10k-3 两行字**装得进这一行**（行高是常数 46）----
-            //
-            // 上面那条改动有个前提：46 px 那一格塞得下两行字。第二行用的是
-            // versionDateFontDelta() 那一档小字（和版本树同一个做法），这儿量出来对一下
-            // —— 字号配置一改（150% 缩放的机器上字更高），先红的是这一条，
-            // 而不是等用户看见两行贴着边。
-            const bool fitsVertically =
-                metaLabel != nullptr && nameLabel->height() + metaLabel->height() <=
-                                            rowWidget->height();
+            // ---- U10k-3 两行字**装得进这一行** ----
+            const bool fitsVertically = nameRect.height() + metaRect.height() <= geo.row.height();
             check(fitsVertically,
-                  "★ U10k 名字那一行 + 小字那一行都装得进行高里（行高 46 = "
-                  "versionTreeRowHeight()，装不下就该动行高）",
+                  "★ U10k 名字那一行 + 小字那一行都装得进行高里（装不下就该动行高）",
                   QStringLiteral("名字高 %1 + 小字高 %2 ≤ 行高 %3")
-                      .arg(nameLabel->height())
-                      .arg(metaLabel != nullptr ? metaLabel->height() : -1)
-                      .arg(rowWidget != nullptr ? rowWidget->height() : -1));
+                      .arg(nameRect.height())
+                      .arg(metaRect.height())
+                      .arg(geo.row.height()));
 
             // ---- U10k-4 这么窄的一格里，省略出来的是什么 ----
             //
-            // ① 这份夹具**真的**长到装不下 —— 不然这一节等于空转（夹具太短就是这样：
-            // 名字全短得根本用不上省略，所以那个"硬裁"的毛病一直没人看见）。
-            const bool tooLong = metrics.horizontalAdvance(shownName) > nameLabel->width();
+            // ① 这份夹具**真的**长到装不下 —— 不然这一节等于空转；
             // ② 省略之后尾巴上那四个字还在（`…` 之后那一段）—— 硬裁恰好会把它切没。
+            const bool tooLong = metrics.horizontalAdvance(shownName) > nameRect.width();
             const QString elided =
-                metrics.elidedText(shownName, Qt::ElideMiddle, nameLabel->width());
+                metrics.elidedText(shownName, Qt::ElideMiddle, nameRect.width());
             check(tooLong && elided.contains(InstanceFilesPage::disabledMark()),
                   "★ U10k 这条名字确实比那一格宽，而省略之后**尾巴上那四个字还在**"
                   "（硬裁出来的那串两头都看不全）",
                   QStringLiteral("宽 %1 < 文字 %2；画出来是「%3」")
-                      .arg(nameLabel->width())
+                      .arg(nameRect.width())
                       .arg(metrics.horizontalAdvance(shownName))
                       .arg(elided));
 
-            // ---- U10k-5 这一条自己**不带文字** ----
+            // ---- U10k-5 条目的 DisplayRole **空着** ----
             //
-            // 补，用户截图报的「模组名称出现了两次」。
-            // `new QListWidgetItem(文字, list)` 那一份文字是**视图代理**画的，而这一行
-            // 的内容是一个用 setItemWidget() 摆上去的真控件、而且是**透明的**（要这样
-            // 选中高亮才从底下透出来）—— 代理画的字从控件底下露出来，同一个名字在
-            // 屏幕上画两遍，两遍的位置差着半行，看着像重影。
-            // 这一条钉的是**修法本身**（名字的唯一出处是那一格标签）。
+            // 补，用户截图报的「模组名称出现了两次」：DisplayRole 上带字的话，列表会按首字母
+            // 跳行（原来那套行控件没有这回事），基类代理哪天被换回来也会再画一遍同一个名字。
+            // 名字只在 AccessibleTextRole 上、只由 RowDelegate 画一遍。
             check(item->text().isEmpty(),
-                  "★ U10k 条目自己**不带文字**（名字只由行里那一格标签画）—— 带一份的话，"
-                  "代理会在透明的行控件底下再画一遍同一个名字，就是屏幕上那个重影",
+                  "★ U10k 条目的 DisplayRole **空着**（名字只在 AccessibleTextRole 上，由代理画"
+                  "一遍）—— 带一份的话就可能在屏幕上画两遍，就是那个重影",
                   QStringLiteral("item->text()=「%1」").arg(item->text()));
 
             // ---- U10k-6 一行里**只有两段墨**（名字 + 大小·时间）----
@@ -188,18 +166,17 @@ int UiElidedNameChecks(const QString &instanceDisplayName, const QString &instan
                 const QImage shotImage = captureWidgetOn(page->list()->viewport(), Theme::tokens().page);
                 const qreal shotDpr = 1.0;
                 const QRect rowRect = page->list()->visualItemRect(item);
-                const QPoint nameOrigin =
-                    nameLabel->mapTo(page->list()->viewport(), QPoint(0, 0));
+                const QPoint nameOrigin = nameRect.topLeft();
                 // 从名字那一格的左边起（**不含**行首那枚图标：它也算墨，混进来会把两段
                 // 并成一段），到它右边为止。
                 const int inkX0 = int(nameOrigin.x() * shotDpr);
                 const int inkX1
                     = qMin(shotImage.width(),
-                           int((nameOrigin.x() + nameLabel->width()) * shotDpr));
+                           int((nameOrigin.x() + nameRect.width()) * shotDpr));
                 const int inkY0 = int(rowRect.top() * shotDpr);
                 const int inkY1 = qMin(shotImage.height(),
                                        int((rowRect.top() + rowRect.height()) * shotDpr));
-                // 底色 = 这一块里出现次数最多的那个颜色（行控件和列表都是透明的，底色就是
+                // 底色 = 这一块里出现次数最多的那个颜色（列表是透明的、这一行没选中没悬停，底色就是
                 // 垫在下面的页面底色，一整行都是它）。取"最暗的那个阈值"这种写法在小字上会漏。
                 QHash<QRgb, int> histogram;
                 for (int y = inkY0; y < inkY1; ++y) {

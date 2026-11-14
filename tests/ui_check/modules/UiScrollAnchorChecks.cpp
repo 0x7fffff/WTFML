@@ -120,7 +120,7 @@ int UiScrollAnchorChecks(const QString &instanceDisplayName, const QString &inst
                         check(QFile::rename(path, dest), "U10M 前提：盘上改好名了", path);
                         many->refresh();
                     });
-                QAbstractButton *rowSwitch = many->toggleButtonAt(targetRow);
+                const auto rowSwitch = uiToggleAt(many, targetRow);
                 check(rowSwitch != nullptr, "U10M 前提：那一行行尾的开关在");
                 if (rowSwitch != nullptr) {
                     rowSwitch->click();

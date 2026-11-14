@@ -24,11 +24,7 @@ int UiToggleChecks(InstanceSettingsDialog &dialog, const QString &modsDir) {
             }
             int found = 0;
             for (int row = 0; row < page->list()->count(); ++row) {
-                // 「启用 / 禁用」那一颗 起是一个 `ToggleSwitch`
-                // （`QAbstractButton`），而垃圾桶仍是 `QToolButton` —— 两条路
-                // 各自型别不同，所以这里分开取，不能合成一个 `QToolButton *`。
-                const QAbstractButton *button =
-                    wantToggle ? page->toggleButtonAt(row) : page->deleteButtonAt(row);
+                const auto button = wantToggle ? uiToggleAt(page, row) : uiDeleteAt(page, row);
                 found += button != nullptr ? 1 : 0;
             }
             return found;

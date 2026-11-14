@@ -25,6 +25,8 @@
 
 #include <QAbstractButton>
 
+class QPainter;
+
 class ToggleSwitch : public QAbstractButton {
     Q_OBJECT
 
@@ -37,6 +39,11 @@ public:
     static int switchHeight();
 
     QSize sizeHint() const override;
+
+    /// 在 @p box（整枚开关的矩形）里画一枚开关。控件自己的 paintEvent 和
+    /// 列表代理（InstanceFilesPage 那几页一行一枚、不建控件）共用这一处，两边长得一样。
+    static void paintSwitch(QPainter *painter, const QRect &box, const QColor &accent, bool on,
+                            bool hovered, bool down, bool enabled);
 
 protected:
     void paintEvent(QPaintEvent *event) override;

@@ -784,6 +784,7 @@ int UiUiRefreshCheck(QApplication &app) {
             fixture.close();
             InstanceFilesPage page;
             page.setBatchMode(true);
+            page.setCanDelete(true);  // 行尾有一颗垃圾桶，量它底下透不透选中底
             page.setMode(InstanceFilesPage::Mode::FilesOnly);
             page.resize(700, 350);
             page.setDirectory(files.path());
@@ -793,15 +794,16 @@ int UiUiRefreshCheck(QApplication &app) {
             QListWidget *list = page.list();
             expect(list && list->count() == 1, "file row painting fixture displayed");
             if (list && list->count() == 1) {
-                QWidget *row = list->itemWidget(list->item(0));
-                // 7a：行本身透明（不 autoFill、只在选中时铺选中那一层），底由视口铺 —— 半透明的
-                // Base 叠两层，行就比列表空白处白一截。量法：整张列表垫在页面底上抓，行上那点
-                // 对比列表空白处那点。
-                expect(row && !row->autoFillBackground(), "embedded file row does not stack a second base layer");
-                if (row) {
+                const QRect rowRect = list->visualItemRect(list->item(0));
+                // 7a：行是代理画的（没有嵌进去的行控件），底只由视口铺一层 —— 半透明的 Base 叠两层，
+                // 行就比列表空白处白一截。量法：整张列表垫在页面底上抓，行上那点对比列表空白处那点。
+                expect(!rowRect.isEmpty() && list->indexWidget(list->model()->index(0, 0)) == nullptr,
+                       "file row is painted by the delegate, no embedded row widget stacks a second base layer");
+                if (!rowRect.isEmpty()) {
+                    QWidget *viewport = list->viewport();
                     // 行左边距的竖直正中：选中底是圆角块，角上那几个像素是抗锯齿过渡，不能拿来比。
-                    const QPoint rowSpot = row->mapTo(list, QPoint(5, row->height() / 2));
-                    const QPoint emptySpot(rowSpot.x(), row->mapTo(list, QPoint(0, row->height())).y() + 20);
+                    const QPoint rowSpot = viewport->mapTo(list, QPoint(rowRect.x() + 5, rowRect.center().y()));
+                    const QPoint emptySpot(rowSpot.x(), viewport->mapTo(list, QPoint(0, rowRect.bottom() + 1)).y() + 20);
                     const auto shot = [list]() { return captureWidgetOn(list, Theme::tokens().page); };
                     const auto near = [](const QColor &a, const QColor &b) {
                         return qAbs(a.red() - b.red()) + qAbs(a.green() - b.green()) +
@@ -816,15 +818,15 @@ int UiUiRefreshCheck(QApplication &app) {
                                                        image.pixelColor(emptySpot));
                         expect(near(got, want), "embedded row shows exactly one selected layer over the list base");
                     }
-                    const auto buttons = row->findChildren<QToolButton *>();
-                    bool matchingBackground = !buttons.isEmpty();
-                    for (QToolButton *button : buttons) {
-                        matchingBackground &= button->palette().color(QPalette::Window) ==
-                            Theme::selectionFill(list->palette().color(QPalette::Base));
-                        matchingBackground &= button->palette().color(QPalette::Button) ==
-                            Theme::selectionFill(list->palette().color(QPalette::Base));
+                    {
+                        // 行尾那颗垃圾桶是自动浮起的工具按钮：不悬停时一点底都不铺，选中底从它底下
+                        // 透上来 —— 取它左边缘（字形之外）那一点，和行身同一个颜色。
+                        const QRect trash = page.rowActionRect(0, InstanceFilesPage::RowAction::Delete);
+                        const QImage image = shot();
+                        const QPoint trashSpot = viewport->mapTo(list, QPoint(trash.left() + 1, trash.center().y()));
+                        expect(!trash.isNull() && near(image.pixelColor(trashSpot), image.pixelColor(rowSpot)),
+                               "row buttons sit on the selected background instead of white patches");
                     }
-                    expect(matchingBackground, "row buttons inherit selected background instead of white patches");
                     list->clearSelection();
                     app.processEvents();
                     {

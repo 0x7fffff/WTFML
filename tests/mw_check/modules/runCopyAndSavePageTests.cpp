@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "ui_check/modules/UiInstanceFilesTestHelpers.hpp"
 void runCopyAndSavePageTests() {
     const QString originalDir = AppPaths::minecraftDir();
     QTemporaryDir root;
@@ -676,7 +677,7 @@ void runCopyAndSavePageTests() {
             }
             probed = true;
             page->showPage(QStringLiteral("save"));
-            QToolButton *pen = saves->editButtonAt(0);
+            const auto pen = uiEditAt(saves, 0);
             penFound = pen != nullptr;
             if (pen != nullptr && saves->list() != nullptr && saves->list()->item(0) != nullptr) {
                 rowPath =
@@ -946,8 +947,7 @@ void runCopyAndSavePageTests() {
                     // 下面那条断言红在"不该弹东西"上，而不是让这一节挂住。）
                     PromptAnswerer answerer({0});
                     answerer.start();
-                    if (QToolButton *pen =
-                            rowHealthy >= 0 ? saves->editButtonAt(rowHealthy) : nullptr) {
+                    if (const auto pen = rowHealthy >= 0 ? uiEditAt(saves, rowHealthy) : nullptr) {
                         pen->click();
                     }
                     answerer.stop();
@@ -1337,8 +1337,7 @@ void runCopyAndSavePageTests() {
                 {
                     PromptAnswerer answerer({0});
                     answerer.start();
-                    if (QToolButton *pen =
-                            rowBroken >= 0 ? saves->editButtonAt(rowBroken) : nullptr) {
+                    if (const auto pen = rowBroken >= 0 ? uiEditAt(saves, rowBroken) : nullptr) {
                         pen->click();
                     }
                     answerer.stop();

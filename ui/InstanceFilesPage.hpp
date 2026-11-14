@@ -37,9 +37,9 @@
  * 【行尾三格的次序、悬停、右键，以及选中那笔账】
  *
  * 四件事：
- * ① 行尾是 **`[详情][开关][删除]`**（makeRow 里那两段的次序）；
- * ② 「详情」那一格**只在鼠标悬停这一行时露着**（`setRowDetailVisible`，显隐由
- * `eventFilter` 里的 Enter/Leave 管；**占位留着**，所以整行不会跟着伸缩）；
+ * ① 行尾是 **`[详情][开关][删除]`**（layoutRow 里的次序）；
+ * ② 「详情」那一格**只在鼠标悬停这一行时画**（悬停由 `eventFilter` 里视口的
+ * MouseMove / Leave 记，见 m_hoverPath；**占位留着**，所以名字一列不会跟着伸缩）；
  * ③ **右键点一行 = 开这一条的详情页**（`eventFilter` 里 `MouseButtonPress` 那一支），
  * 而且那一发**被吃掉** ⇒ 视图连选中态都不会动（于是保留上一页的选择）；
  * ④ 底下那条操作条上「启用」「禁用」两颗**对称**：摆着、不适用就灰着，
@@ -73,13 +73,13 @@
  * batchUpdateRequested() / batchToggleRequested() / batchDeleteRequested()，
  * 真正下手的是 MainWindow（见上面【批量管理】那一段）。
  *
- * 【为什么每行是一个真控件，而不是自己画】
+ * 【每行是代理画的，不是一行一套控件】
  *
- * 仓库里别的列表（实例树、版本树、资源表）都是「QListWidget + 代理自己画行 + 自己
- * hit-test 认下那一发」。这一页**故意不那样**：文件列表的行数可能几十上百，每行两颗
- * 按钮又要悬停变色，用代理画等于把「鼠标落在哪颗按钮上」这件事重写一遍（那套东西
- * 在 InstanceGroupDelegate 里踩过的坑有注释在）。setItemWidget() 让 Qt 去做命中测试，
- * 代价是行多的时候慢一点 —— 而一个 mods 文件夹通常就是几十个 jar，够用。
+ * 一行一套 `QWidget` + 两个标签 + 开关 + 两三颗按钮时，60 个模组的页每次进都要 70–300 ms
+ * （建控件 + 每个开关 `setChecked` 触发的无障碍事件）。现在是 `QListWidget` 的条目 +
+ * `RowDelegate` 自绘：条目只带数据（见「给验证工程用的访问器」那段的角色），几何只有
+ * `layoutRow()` 一处，画和点击命中都认它；行尾按钮交给样式按 QToolButton 画（借一颗藏着的
+ * 探针按钮匹配样式表），开关和 `ToggleSwitch` 共用 `ToggleSwitch::paintSwitch()`。
  */
 #pragma once
 
@@ -90,6 +90,7 @@
 #include <QSet>
 #include <QString>
 #include <QStringList>
+#include <QElapsedTimer>
 #include <QWidget>
 
 class QAbstractButton;
@@ -103,6 +104,7 @@ class QRubberBand;
 class QListWidgetItem;
 class QPushButton;
 class QToolButton;
+class QStyledItemDelegate;
 class QTimer;
 class QVBoxLayout;
 
@@ -313,7 +315,7 @@ public:
     /// 灌进来的那一刻，**如果这一页不是用户正看着的那一页，就先不列**
     /// （把这一趟欠着，见 `refreshPending()`）。开一次实例设置会把七个目录一起灌进来，
     /// 而用户看的是「概览」那一页：
-    /// 七页各列一遍目录、逐条 `stat`、逐条建行（每行一个真控件），全是白做的。
+    /// 七页各列一遍目录、逐条 `stat`、逐条建行，全是白做的。
     /// 补上的那一刻只有一个出处：**它被摆到台前**（`InstanceSettingsDialog::applyPageKey()`
     /// 在 `setCurrentIndex()` 之后一定会喊 `refresh()`）。
     void setDirectory(const QString &dir);
@@ -446,33 +448,42 @@ public:
 
     // ---------- 给验证工程用的访问器 ----------
     //
-    // 条目上挂的东西走 item->data()，**唯一出处是下面两个角色**：
+    // 每一行是**代理画的**（`RowDelegate`，见 InstanceFilesPageRows.cpp），不是一行一套控件：
+    // 60 个模组就是 60 个 `QListWidgetItem`，列表里没有一个行控件。条目上的东西走 item->data()：
     // pathRole() = 绝对路径（发给 MainWindow 的就是它）
     // disabledRole() = 这一条现在是不是禁用着（`X.jar.disabled`）
-    // 行尾那两颗按钮按**行号**取 —— 行号会随 refresh() 变，所以别跨 refresh 存着。
+    // Qt::AccessibleTextRole = 名字那一行画的字（含「（已禁用）」和更新箭头，读屏读的也是它；
+    //                          DisplayRole 空着，免得列表按首字母跳行）
+    // Qt::CheckStateRole = 开关开着没有（只有带开关的行才有这一格，读屏据此报开 / 关）
+    // Qt::DecorationRole = 行首那张图（真图标或占位图，已缩到那一格大小）
+    // metaRole() = 名字底下那行小字（大小 / 时间、目录的「正在统计…」）
+    // 行号会随 refresh() 变，所以别跨 refresh 存着。
     QListWidget *list() const { return m_list; }
-    /// 行尾那个「启用 / 禁用」**开关**（`ToggleSwitch`）。**对外只当它是个
-    /// `QAbstractButton`** —— 调用方
-    /// 要的就是"点它"和"它现在开着没有"（`click()` / `isChecked()`），不必知道它是画出来的。
-    /// NOTE: 存着它的类型是 ToggleSwitch 的话，`InstanceFilesPage.hpp` 就得把那个头拖进来，
-    /// 而这一页的每一个使用者（实例设置对话框、四个验证工程）都得跟着编一遍。
-    QAbstractButton *toggleButtonAt(int row) const;
-    /// 行尾那颗垃圾桶（**字形画的，没有文字**：文字仍然给着，只是 QToolButton 默认
-    /// `ToolButtonIconOnly` 不画它 —— 验证工程按 `text()` 认它是干什么的）。
-    QToolButton *deleteButtonAt(int row) const;
-    /// 行尾那支笔（同上：字形画的，`text()` 里写着「编辑」）。**没给 setCanEdit(true)
-    /// 的页上每一行都是 nullptr**。保存档页的话 `toggleButtonAt()` / `deleteButtonAt()`
-    /// 反过来恒是 nullptr（那两档这一页都没开）。
-    QToolButton *editButtonAt(int row) const;
-    /// 行尾那颗「详情」。★★ 它**在开关前面**（行尾是 `[详情][开关][删除]`），
-    /// 而且**只在鼠标悬停这一行的时候才露着**。**没开 setBatchMode(true) 的页上每一行
-    /// 都是 nullptr**；
-    /// 开了的话每一行都有一格（认不出资源的那些 `setEnabled(false)`）—— 一列下来三格
-    /// 左右对得齐。
-    /// NOTE: 判据层量"露没露"取 **`isVisibleTo()`**（`isHidden()` 量的是显式隐藏位，而这一格
-    /// 平时正是显式隐藏着的）；量"这一行现在悬停着没有"就合一个 `QEvent::Enter`
-    /// （见 eventFilter 那段）。
-    QToolButton *detailButtonAt(int row) const;
+
+    /// 行尾那几格（`[详情][开关][笔][垃圾桶]`，按页开关决定有哪几格）。
+    enum class RowAction { None, Detail, Toggle, Edit, Delete };
+    /// 第 row 行各格在**视口坐标**里的矩形（代理画和点击命中都认它）。这一行没有的格子是空矩形。
+    /// 「详情」那一格**只在悬停那一行画**，但这里照样给出它的位置（藏着时留着占位，名字一列不抖）。
+    struct RowGeometry {
+        QRect row, icon, name, meta, detail, toggle, edit, remove;
+    };
+    RowGeometry rowGeometry(int row) const;
+    QRect rowActionRect(int row, RowAction action) const;
+    /// 那一格点不点得动：只有「详情」会灰（资源没认出来，`m_resourceTips` 里没有这一条）。
+    bool rowActionEnabled(int row, RowAction action) const;
+    /// 那一格的悬停提示（开关说「禁用 / 启用所选文件」、垃圾桶说删什么、详情说去哪）。
+    QString rowActionToolTip(int row, RowAction action) const;
+    /// 「详情」那一格此刻画没画（= 光标正压在这一行上，且这一页开了批量）。
+    bool rowDetailShown(int row) const;
+    /// 上一次画的时候名字那一行收没收省略号（从中间截，尾巴上的「（已禁用）」和 ↑ 留着）。
+    bool rowNameElided(int row) const;
+    /// 第 row 行此刻是不是正在淡进来（只有这一趟新冒出来的行才淡，见 rebuildRows）。
+    bool rowFadingIn(int row) const;
+    /// 照真鼠标那样点第 row 行的某一格：先移过去（悬停）、再按下、松开，走和用户同一条事件路。
+    /// 返回那一格有没有、点不点得动（false 时什么都没发生）。
+    bool clickRowAction(int row, RowAction action);
+    /// 照真鼠标那样把光标移到第 row 行上（-1 = 移出列表）。
+    void hoverRow(int row);
     QPushButton *refreshButton() const { return m_refresh; }
     QPushButton *openFolderButton() const { return m_openFolder; }
     /// 顶上那两颗（只有存档那一页露着，见 setImportText / setBatchText）。
@@ -487,11 +498,6 @@ public:
     /// 那种缓存 —— 重列之后行是新的，缓存就会指着一个已经不在了的位置。
     /// 和 `selectedPathList()` 同一个出处、同一把钥匙（`pathRole()`）。
     QString currentPath() const;
-    /// 第 @p row 行那一格**名字**（ElidedLabel，对外当个 QLabel）。验证工程按它量名字那一格
-    /// 装不下时是省略号收尾、以及每一行都有这一格。
-    /// NOTE: 名字这一格**不链接到详情页**（入口是行尾那颗详情按钮），所以颜色 /
-    /// 光标 / 悬停提示那几条断言都在那颗按钮上。
-    QLabel *nameLabelAt(int row) const;
     /// 顶上那颗「下载新 X」。**没接过 setDownloadText() 的页上它是藏着的** —— 验证工程量
     /// 的也是它"露不露"（`isVisibleTo(这一页)`），不是"存不存在"（它每一页都有，只是空着）。
     QPushButton *downloadButton() const { return m_download; }
@@ -539,16 +545,10 @@ public:
 
     static int pathRole() { return Qt::UserRole; }
     static int disabledRole() { return Qt::UserRole + 1; }
-
-    /// **行控件上那个动态属性**，存的是这一条的绝对路径（和 `pathRole()`
-    /// 同一格内容）。它只服务于事件过滤器里那三发（`eventFilter`）—— 靠它认"这一发来自
-    /// 哪一行"：装过滤器的对象是**每一个行控件**，而过滤器里拿到的只有一个 `QObject *`，
-    /// 而列表底下另一个孩子（那条悬浮操作条）身上没有这一格 ⇒ 同一段代码自动把非行的
-    /// 控件排除在外，不必再写一份"哪些控件算一行"的名单。
-    ///
-    /// NOTE: 叫**属性**不叫角色，是因为它挂在控件上（`setProperty`），不是在条目数据里
-    /// （`setData`）—— 行控件和它的条目是两样东西，这里要认的正是"控件"这一侧。
-    static const char *rowPathProperty() { return "instanceFilesRowPath"; }
+    /// 这一条是不是文件夹（占位图形状、目录统计、行尾那支笔都看它）。
+    static int isDirRole() { return Qt::UserRole + 2; }
+    /// 名字底下那行小字（大小 / 时间；目录行先是「正在统计…」，算完换成真数）。
+    static int metaRole() { return Qt::UserRole + 3; }
 
     /// 禁用的写法：把后缀**接在完整文件名后面**（`X.jar` → `X.jar.disabled`），
     /// 启用就是把它去掉。**不是**改扩展名也不是移到别的目录 —— 游戏扫 mods 的时候
@@ -628,14 +628,6 @@ public:
     /// 顶上那颗「下载新 X」（名字和上面两颗同处一排，认法也一样是 findChild）。
     static QString downloadButtonName() { return QStringLiteral("instanceFilesDownloadButton"); }
     static QString noticeLabelName() { return QStringLiteral("instanceFilesNotice"); }
-    /// 行首那个**名字**（ElidedLabel）。一页里有很多个、名字都一样 —— 取法和下面那两颗
-    /// 一样按行取（`list()->itemWidget(item)->findChild<QLabel*>(nameLabelName())`）。
-    /// 验证工程靠它核三件事：名字装不下时是**省略号**收尾（不是硬裁）、省略是从
-    /// **中间**截的（尾巴上挂着「（已禁用）」那四个字，截尾巴等于把状态先说没了），
-    /// 以及它**确实拿到了宽度**（大于 nameLabelMinWidth()；名字那一格不能缩成 0 宽，
-    /// 否则一整列名字全看不见 —— 见 InstanceFilesPageRows.cpp 里 makeRow 那段）。
-    static QString nameLabelName() { return QStringLiteral("instanceFilesNameLabel"); }
-
     /// 它补的是「可更新」筛子说不出口的那件事：筛子只说得出口"这个目录里有几条这样的"
     /// （而且**没查过的时候整颗收着**，见 stateFilterVisible() 里那段），"到底是哪一条"
     /// 得站在那一行上才知道 —— 那正是这一串尾巴。
@@ -660,31 +652,12 @@ public:
     /// 溢出被裁，也不许它缩到看不见。
     static int nameLabelMinWidth() { return 120; }
 
-    /// 名字底下那一行小字（大小 / 时间，ElidedLabel）。和名字同一列 —— 名字在上、
-    /// 它在下（两样和那两颗按钮挤在同一行里时，字号一大名字就没地方了）。
-    static QString metaLabelName() { return QStringLiteral("instanceFilesMetaLabel"); }
-    /// 行尾那两颗。**一页里有很多颗、名字都一样** —— 认它们要按行取（见上面那个
-    /// toggleButtonAt()），从页上 findChild 拿到的只是第一行那一颗。
-    static QString toggleButtonName() { return QStringLiteral("instanceFilesToggleButton"); }
-    static QString deleteButtonName() { return QStringLiteral("instanceFilesDeleteButton"); }
-    /// 行尾那支笔。和上面那两颗**同一个取法**（一页里很多支、名字都一样 ⇒ 按行取，
-    /// 见 editButtonAt()）。
-    static QString editButtonName() { return QStringLiteral("instanceFilesEditButton"); }
-    /// 行尾那颗「详情」。和上面那三颗同一个取法：一页里很多颗、名字都一样
-    /// ⇒ 按行取（见 detailButtonAt()）。
-    static QString detailButtonName() { return QStringLiteral("instanceFilesDetailButton"); }
     /// 顶上那两颗（「导入世界」/「批量编辑」）。和 downloadButtonName() 同处一排、同一个
     /// 认法；**没接过 setImportText / setBatchText 的页上它们是藏着的**（和「下载新 X」
     /// 一样：每一页都建，露不露由文字说了算）。
     static QString importButtonName() { return QStringLiteral("instanceFilesImportButton"); }
     static QString batchButtonName() { return QStringLiteral("instanceFilesBatchButton"); }
     static QString joinButtonName() { return QStringLiteral("instanceFilesJoinButton"); }
-
-    /// 行首那一格**图标**（QLabel，里面是一张 pixmap，见 setIconForPath()）。
-    /// 和上面那两颗一样：一页里有很多个、名字都一样 ⇒ 按行取。
-    /// 验证工程靠它核两件事：图标回来之后**这一格真换上了**（pixmap 变了），以及
-    /// 六页里**每一行都有**这一格（有图标和没图标的两行才会左右对得齐）。
-    static QString iconLabelName() { return QStringLiteral("instanceFilesIconLabel"); }
 
     static QString refreshText() { return QStringLiteral("刷新"); }
     static QString openFolderText() { return QStringLiteral("打开文件夹"); }
@@ -849,7 +822,7 @@ signals:
     /// 这一页**不自带检查更新的入口**：检查更新只有「概览」那一栏那一颗。
     /// ⚠ 别加第二个入口：这一层连 AppPaths 都够不着（见文件头那段），而且那颗按钮
     /// 本来就该是纯粹的筛子 —— 点一下筛条件就走网络是两件事挤在一颗按钮上。
-    /// 哪一条有新版本由**那一行自己的 ↑**说（见 makeRow 里那个箭头）。
+    /// 哪一条有新版本由**那一行自己的 ↑**说（见 makeItem 里那个箭头）。
 
     /// 用户点了悬浮操作条上的**「更新」**：把选中的这些升到最新版。
     /// @param paths 选中的那些条目的**绝对路径**（现在盘上那个名字）。
@@ -933,25 +906,13 @@ protected:
     /// 自己算，而"该重算"的时刻正是**viewport 变大小**这一发（父控件是 `m_list` 不等于
     /// 该盯 `m_list` 的 resize：贴的是**viewport** 的下缘，算的也全是 viewport 的宽高）。
     ///
-    /// NOTE: 这里管**两处**（装过滤器的对象因此也有两类）：
-    /// · `m_list->viewport()` —— 上面那一条（resize ⇒ 重算那条操作条的位置）；
-    /// · **每一个行控件**（makeRow 里 `installEventFilter`，靠 `rowPathProperty()` 认出来）
-    /// —— 三发：
-    /// `Enter` / `Leave` ⇒ 这一行的「详情」露 / 收（见 setRowDetailVisible）；
-    /// `MouseButtonPress` + 右键 ⇒ 认得出资源的那一条**开它的详情页**，而且**吃掉这一发**
+    /// NOTE: 行是代理画的，**行上的鼠标全在 `m_list->viewport()` 这一处**：
+    /// · `MouseMove` / `Leave` ⇒ 记下光标压着哪一行、哪一格（悬停底、「详情」露不露、
+    /// 垃圾桶变不变红都看它，见 m_hoverPath）；
+    /// · 左键按在行尾某一格上 ⇒ 这一发**吃掉**（不改选择、不起拖动），松开时还在同一格才算点；
+    /// · 右键 ⇒ 认得出资源的那一条**开它的详情页**，而且**吃掉这一发**
     /// （不 accept 光 return true 是拦不住的：Qt 那个"被忽略就往上冒"的循环判的是
-    /// `res && isAccepted()`，见 qapplication.cpp 里 `QApplication::notify` 那一段 ——
-    /// 只 return true 的话这一发照样会被送到 viewport 上，视图于是会自己改选中态，
-    /// 而要保留上一页的选择）。
-    ///
-    /// 【为什么 Enter/Leave 这一个判据是站得住的】（Qt 6.10 的 `dispatchEnterLeave`，
-    /// qapplication.cpp:2047 一带 —— 逐行核过）
-    /// · Enter 是**往祖先那一串发的**（"进了行里哪颗控件"也算进了这一行）⇒ 只看行控件的
-    /// Enter 就够，不必给行里每一颗控件都装一遍；
-    /// · 从行里一颗控件挪到同一行的另一颗（名字 → 开关）时，共同祖先（= 这一行）**两样都
-    /// 不发** ⇒ 鼠标在行内怎么动，这一格都不会闪一下；
-    /// · 从这一行挪到**这条操作条的**（它是 `m_list` 的孩子、和 viewport 平级）或者挪出
-    /// 列表，Leave 都会发到行控件上 ⇒ 该收的时候收得住。
+    /// `res && isAccepted()`，只 return true 的话视图照样会自己改选中态）。
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
@@ -968,10 +929,24 @@ private:
         QDateTime modified;
     };
 
-    /// 造一条行：**左边一列两行字**（名字一行、大小 / 时间一行，见 nameLabelName() /
-    /// metaLabelName()）+ 尾巴上那两颗按钮，已经按状态摆好。
-    QWidget *makeRow(const QString &shownName, const QString &path, bool isDir, bool isDisabled,
-                     qint64 size, const QDateTime &modified);
+    /// 一条条目：名字、小字、图标、开关状态都写进 item 的角色里，交给 RowDelegate 画。
+    QListWidgetItem *makeItem(const Entry &entry);
+    /// 那几格怎么排（paint 与命中测试共用这一处）：@p rowRect 是条目矩形。
+    RowGeometry layoutRow(const QRect &rowRect, bool isDir) const;
+    /// @p pos（视口坐标）落在第几行的哪一格上；不在任何一格上 = RowAction::None。
+    RowAction actionAt(const QPoint &pos, int *row = nullptr) const;
+    /// 某一行某一格此刻在不在（页上那几档开关 + 这一行是不是文件夹）。
+    bool rowHasAction(const QListWidgetItem *item, RowAction action) const;
+    QString actionToolTip(const QListWidgetItem *item, RowAction action) const;
+    bool actionEnabled(const QListWidgetItem *item, RowAction action) const;
+    /// 点中一格之后真办的事（发哪个信号）。
+    void triggerRowAction(const QString &path, RowAction action);
+    /// 按路径找条目（找不到 = 那一行已经不在了，nullptr）。
+    QListWidgetItem *itemForPath(const QString &path) const;
+    /// 行尾工具按钮的大小（问那颗藏着的探针，跟着样式表走）。
+    /// 造那一个画行的代理（顺带造量按钮大小的探针、淡入那只定时器），构造里调一次。
+    QStyledItemDelegate *createRowDelegate();
+    QSize actionButtonSize() const;
 
     /// 四个状态（正常 / 空目录 / **筛完一条不剩** / 用不上）之间切换可见性。refresh()、
     /// rebuildRows() 和 setUnavailable() 都走这一处，免得几条路上摆得不一样。
@@ -985,17 +960,13 @@ private:
     ///
     /// 【为什么筛选 = 重列，而不是"把不中的那几行藏起来"】
     ///
-    /// 这一页的行是 `setItemWidget()` 摆上去的**真控件**，"藏"要么走 `setHidden()`（隐藏
-    /// 条目**不会**自动把那个行控件一起收起来 —— 它会留在原地，于是筛完屏幕上还是那些行）、
-    /// 要么自己挨个 setVisible（那就等于把五行状态散在第二处）。重列和 `refresh()`
-    /// 走同一条路，代价是每敲一个字重建一次行 —— 一个目录几十上百条，
-    /// 这个代价当场就回来了。**换来的是一条：屏幕上剩下的每一条都真的过了筛选。**
+    /// 重列和 `refresh()` 走同一条路：只换条目（模型数据），视图和代理不动 —— 每敲一个字
+    /// 重排一次条目，一个目录几十上百条也就一两毫秒。**换来的是一条：屏幕上剩下的每一条都
+    /// 真的过了筛选**（不必在第二处维护"哪几行藏着"）。
     ///
     /// NOTE: 只重列**不读盘**（读盘那一步在 refresh() 里，存进 m_entries）—— 敲字时
     /// "盘上有没有变"不是这一趟要回答的问题，用户按「刷新」才是。
     void rebuildRows();
-    /// 大列表：只为可见范围附近保留行控件（滚远了的销毁、滚回来的重建）。
-    void ensureRowWidgetWindow();
 
     /// 这一条过不过现在这两条筛选条件（搜索词 + 状态栏）。
     bool entryMatchesFilter(const Entry &entry) const;
@@ -1084,7 +1055,7 @@ private:
     /// - 更新：选中的里面**至少一条**在 `m_outdatedPaths` 里；
     /// - 禁用：至少一条**现在开着**；启用：至少一条**现在禁用着**；
     /// - 全选 / 反选 / 取消 / 删除：恒可用。
-    /// 判据是 `m_entries` 里那一条的 `disabled`（不是行控件的开关状态 —— 那个是画出来的）。
+    /// 判据是 `m_entries` 里那一条的 `disabled`（不是条目上画的那颗开关 —— 那个是画出来的）。
     void updateSelectionBar();
 
     /// 顶上那颗「加入选中的世界」的**灰/亮**照"现在选没选中一条"重算一次。
@@ -1106,38 +1077,20 @@ private:
     /// 按路径取那一份"筛之前"的条目（`m_entries`）。找不到给 nullptr。
     const Entry *entryForPath(const QString &path) const;
 
-    /// 行尾那颗「详情」现在该不该点得动 + 它的悬停提示 —— **判据只有 `m_resourceTips`
-    /// 一处**（在表里 = 认出来了）。makeRow() 建那一格时和 setResourceForPath() 那一趟
-    /// 回来时都走它，免得两处各写一遍"认出来了没有"。
-    void applyDetailButtonState(QToolButton *button, const QString &path) const;
-
-    /// 把某一行行尾那颗「详情」露出来 / 收起来（见文件头【行尾三格的次序】②）。
-    /// 由 `eventFilter` 的 Enter/Leave 那一支调，`rebuildRows()` 末尾的 `syncRowHover()`
-    /// 也调一次（理由见那儿）。@p rowWidget 是 `m_list->itemWidget(…)` 那一格（不是条目）。
-    ///
-    /// NOTE: 没收 / 没开批量的那几页不必传"这一页没有这一档"——`findChild` 给 nullptr 就是
-    /// 全部的处理（那里根本不会有这一格）。
-    void setRowDetailVisible(QWidget *rowWidget, bool visible);
-
     /// 「选中了哪几条」的账**从列表里现在真选着的那些行现问一遍**（见 m_selectedPaths 那段）。
     ///
     /// 两处调：`itemSelectionChanged` 那一支（用户点了）和 `rebuildRows()` 末尾（我们重列完
     /// 了 —— 那一段把信号挡着，所以必须自己把账摆对）。
     void syncSelectedPaths();
 
-    /// 光标**此刻正压在某一行上**时，把那一行的「详情」露出来。
+    /// 按光标**此刻**的位置重认悬停那一行 / 那一格（见 m_hoverPath）。
     ///
-    /// 两处调，治的是同一件事：**鼠标没动过、光标底下那一行却换了** —— Qt 只在"鼠标底下那个
-    /// 控件变了"的时候发 Enter，那种时刻它一个 Enter 都不会补发（症状：点一下行尾的开关，
-    /// 那一行的「详情」就一直藏着，直到挪一下鼠标）：
-    /// · `rebuildRows()` 末尾（重列把行控件整个换掉了；★ 那一句**排了个 0 毫秒的定时器**
-    /// —— 行位置那会儿还没算出来，见 .cpp 里那一句的 NOTE）；
-    /// · 列表滚动条 `valueChanged`（滚轮一动，光标底下换人了；那一趟在监听里先把每一行的
-    /// 「详情」都收起来，再让这一句把人重新露出来）。
-    ///
-    /// NOTE: 认"哪一行"是**顺着光标底下那个控件的爹链往上找**（凭据是 `rowPathProperty()`），
-    /// 不问 `itemAt()` —— 见 .cpp 里那段：调用方可能正在"行位置还没算出来"的时刻。
+    /// 两处调，治的是同一件事：**鼠标没动过、光标底下那一行却换了**（没有 MouseMove 可等）：
+    /// · `rebuildRows()` 末尾（重列换了一批条目；★ 排在 0 毫秒定时器里，等视图排完版）；
+    /// · 列表滚动条 `valueChanged`（滚轮一动，光标底下换人了）。
     void syncRowHover();
+    /// 把悬停记到 @p path / @p action 上，变了才重画（旧那行和新那行）。
+    void setHover(const QString &path, RowAction action);
 
     /// 选中的那些路径，按**列表里那一行的先后**排成一份（发给 MainWindow 的形态）。
     QStringList selectedPathList() const;
@@ -1152,7 +1105,7 @@ private:
     void requestToggle(const QStringList &paths, bool disable);
 
     /// 这一条那一格该摆什么：真图标在 `m_icons` 里就摆它，否则摆占位图（形状按 isDir 分，
-    /// 见 .cpp 里 placeholderIcon）。makeRow() 和 setIconForPath() 都走这一处 ——
+    /// 见 .cpp 里 placeholderIcon）。makeItem() 和 setIconForPath() 都走这一处 ——
     /// 两处各写一遍的话，"没查到"那一档迟早会有一处漏掉、退成空白。
     QPixmap iconForPath(const QString &path, bool isDir, const QColor &placeholderColor) const;
 
@@ -1333,8 +1286,25 @@ private:
     QSet<QString> m_shownIdentities;
 
     bool m_rowsBuilt = false;
-    /// 每次整表重建 +1：延迟挂行控件的批次据此判断"这一趟还在不在"。
-    int m_rowsGeneration = 0;
+
+    // ---------- 代理画行用的状态 ----------
+    class RowDelegate;
+    friend class RowDelegate;
+    /// 光标压着的那一行（路径）和那一格。悬停淡底、「详情」露不露、垃圾桶变不变红都看它 ——
+    /// 不用视图自带的 `State_MouseOver`：重列 / 滚动之后它要等鼠标再动一下才更新。
+    QString m_hoverPath;
+    RowAction m_hoverAction = RowAction::None;
+    /// 左键按在哪一行的哪一格上（松开时还在同一格才算点；开关按住时圆点拉长）。
+    QString m_pressActionPath;
+    RowAction m_pressAction = RowAction::None;
+    /// 上一次画时名字收了省略号的那些路径（验证工程读它）。
+    mutable QSet<QString> m_elidedNames;
+    /// 「只淡新冒出来的那几行」：这一批的身份 + 起点（RowDelegate 按经过的时间算不透明度）。
+    QSet<QString> m_fadeIdentities;
+    QElapsedTimer m_fadeClock;
+    QTimer *m_fadeTimer = nullptr;
+    /// 量行尾按钮大小、交给样式画按钮用的那一颗（藏着，一页一颗，不是一行一颗）。
+    QToolButton *m_buttonProbe = nullptr;
 
     /// 底下那条**悬浮操作条**。★ 父控件是 **`m_list`**（为什么不能用 viewport 见
     /// setBatchMode 上面那一段 —— viewport 的孩子会被滚轮一起搬走），
@@ -1353,23 +1323,15 @@ private:
     /// 那七颗按钮，**下标就是 `static_cast<int>(SelectionAction)`**。
     QList<QPushButton *> m_selectionButtons;
 
-    /// 等着算大小/时间的那些目录行：路径 → 那一行的「大小 / 时间」那一格。
+    /// 等着算大小/时间的那些目录行（算完写回那一条的 metaRole()，按路径找回）。
     ///
-    /// 【为什么不能在建行的时候顺手算出来】
     /// 目录的字节数要**递归遍历**整棵树（`saves/<世界>/region/*.mca` 动辄几十万个文件），
     /// 而 `refresh()` 是在"切到这一页"那一瞬间同步跑的 —— 在里面算等于每开一次实例设置都
     /// 卡住几秒到十几秒。所以建行时先摆一句「正在统计…」，真正的数由定时器在**事件循环
-    /// 转起来之后**一格一格补上。
-    ///
-    /// NOTE: `QPointer` 而不是裸指针：`refresh()` 是 `m_list->clear()` + 重新建行，那些
-    /// 标签会被一起删掉，而定时器可能正好排在下一趟。悬空的话是段错误（不是"数字
-    /// 没显示出来"）。
-    QHash<QString, QPointer<QLabel>> m_statLabels;
-    /// 已经算出来的目录大小/时间：行控件被回收后再滚回来，直接显示，不重算。
+    /// 转起来之后**一格一格补上；补的时候那一行不在了（用户刚刷新或删了它）就跳过。
+    /// 已经算出来的目录大小/时间：同一趟里重列（筛一下搜索）直接摆，不重算。
     QHash<QString, QString> m_statCache;
-    /// 还没算的那些（按轮到的先后）。**和上面那张表分开**：表是"哪些行要算"，这个是
-    /// "还剩哪些没算"——算完的那些在表里留着（它们那一格已经写好了，不用再动），
-    /// 从队里去掉就行。队列空 = 这一趟统计做完了。
+    /// 还没算的那些（按轮到的先后）。队列空 = 这一趟统计做完了。
     QStringList m_statQueue;
     /// 排下一行的定时器（单发、0 毫秒：下一个事件循环转过来就干一行）。
     QTimer *m_statTimer = nullptr;

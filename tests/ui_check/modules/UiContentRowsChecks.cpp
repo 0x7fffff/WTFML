@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "UiInstanceFilesTestHelpers.hpp"
 int UiContentRowsChecks() {
     // 这一节对着用户 那三句话：
     // 「模组和资源包等都有一个图标，把图标显示出来」→ Z15c
@@ -285,13 +286,19 @@ int UiContentRowsChecks() {
             dialog.show();
             dialog.showPage(QStringLiteral("mod"));
 
-            const auto iconLabelAt = [](InstanceFilesPage *page, int row) -> QLabel * {
+            // 行首那一格：代理按 rowGeometry().icon 摆、画的是条目的 DecorationRole。
+            // 这一页没开图标栏 ⇒ 没有这一格（nullptr）。
+            struct IconSlot {
+                QRect rect;
+                QPixmap shown;
+                QPixmap pixmap() const { return shown; }
+                int width() const { return rect.width(); }
+            };
+            const auto iconLabelAt = [](InstanceFilesPage *page, int row) -> std::shared_ptr<IconSlot> {
                 QListWidgetItem *item = page != nullptr ? page->list()->item(row) : nullptr;
-                QWidget *rowWidget =
-                    item != nullptr && page != nullptr ? page->list()->itemWidget(item) : nullptr;
-                return rowWidget != nullptr
-                           ? rowWidget->findChild<QLabel *>(InstanceFilesPage::iconLabelName())
-                           : nullptr;
+                if (item == nullptr || page->rowGeometry(row).icon.isNull()) return nullptr;
+                return std::make_shared<IconSlot>(
+                    IconSlot{page->rowGeometry(row).icon, item->data(Qt::DecorationRole).value<QPixmap>()});
             };
 
             InstanceFilesPage *mods = dialog.filesPage(QStringLiteral("mod"));
@@ -327,7 +334,7 @@ int UiContentRowsChecks() {
                     const bool pageHasIcons = key != QStringLiteral("schematic")
                                               && key != QStringLiteral("config");
                     for (int row = 0; row < page->list()->count(); ++row) {
-                        QLabel *label = iconLabelAt(page, row);
+                        const auto label = iconLabelAt(page, row);
                         if (pageHasIcons) {
                             ++rowsChecked;
                             allHaveIconSlot = allHaveIconSlot && label != nullptr;
@@ -518,7 +525,7 @@ int UiContentRowsChecks() {
             {
                 const auto labelPixmapFor = [&](const QString &path) -> QPixmap {
                     const int row = rowOfPath(mods, path);
-                    QLabel *label = iconLabelAt(mods, row);
+                    const auto label = iconLabelAt(mods, row);
                     return label != nullptr ? label->pixmap() : QPixmap();
                 };
 
@@ -588,10 +595,11 @@ int UiContentRowsChecks() {
             {
                 const int onRow = rowOfPath(mods, jarPath);
                 const int disabledRow = rowOfPath(mods, offPath);
-                auto *enabled = mods->toggleButtonAt(onRow);
-                auto *disabled = mods->toggleButtonAt(disabledRow);
+                const auto enabled = uiToggleAt(mods, onRow);
+                const auto disabled = uiToggleAt(mods, disabledRow);
                 check(enabled != nullptr && disabled != nullptr &&
-                          qobject_cast<ToggleSwitch *>(enabled) != nullptr,
+                          enabled->geometry().size() ==
+                              QSize(ToggleSwitch::switchWidth(), ToggleSwitch::switchHeight()),
                       "★ Z15c 行尾那颗是**开关**（用户原话「启用和禁用使用开关的那种形式」），"
                       "不是一颗写着「禁用」/「启用」的文字按钮");
                 check(enabled != nullptr && disabled != nullptr && enabled->isChecked() &&
@@ -617,22 +625,19 @@ int UiContentRowsChecks() {
 
             // ---- 垃圾桶：是画的、只有图标、文字仍给着 ----
             {
-                auto *trash = mods->deleteButtonAt(0);
-                check(trash != nullptr && trash->text() == InstanceFilesPage::deleteText(),
+                const auto trash = uiDeleteAt(mods, 0);
+                check(trash != nullptr && trash->toolTip() == QStringLiteral("删除文件。"),
                       "★ Z15c 行尾最后一格是**垃圾桶**（用户原话「删除还是垃圾桶」），"
-                      "文字仍然是「删除」—— 那是「这一格是干什么的」唯一还读得出来的地方"
-                      "（悬停提示和无障碍都读它）",
-                      trash != nullptr ? trash->text() : QStringLiteral("<没有这一颗>"));
-                check(trash != nullptr && !trash->icon().isNull() &&
-                          trash->iconSize() == QSize(MainWindowUI::instanceFileActionGlyphSize(),
-                                                     MainWindowUI::instanceFileActionGlyphSize()),
-                      "★ Z15c 垃圾桶的字形**画出来了**（不是一颗空按钮）、而且是行尾那一档"
-                      "（instanceFileActionGlyphSize()，行尾几颗按钮一样大、比行首图标小一档）",
-                      QStringLiteral("%1x%2").arg(trash != nullptr ? trash->iconSize().width() : -1)
-                          .arg(trash != nullptr ? trash->iconSize().height() : -1));
-                check(trash != nullptr && trash->toolButtonStyle() != Qt::ToolButtonTextOnly,
-                      "★ Z15c 而且它**不画那两个字**（ToolButtonIconOnly：一颗写着「删除」的"
-                      "按钮占的地方是这颗垃圾桶的三倍，一列下来把名字那一格挤没了）");
+                      "悬停提示说清删的是什么（读屏和悬停都读它）",
+                      trash != nullptr ? trash->toolTip() : QStringLiteral("<没有这一格>"));
+                check(trash != nullptr && trash->geometry().size() == mods->rowGeometry(0).remove.size() &&
+                          trash->geometry().width() <
+                              QFontMetrics(mods->list()->font()).horizontalAdvance(
+                                  InstanceFilesPage::deleteText()) * 3,
+                      "★ Z15c 而且它**只画字形、不画那两个字**（一颗写着「删除」的按钮占的地方"
+                      "是这颗垃圾桶的三倍，一列下来把名字那一格挤没了）",
+                      QStringLiteral("%1x%2").arg(trash != nullptr ? trash->geometry().width() : -1)
+                          .arg(trash != nullptr ? trash->geometry().height() : -1));
             }
 
             // ---- 存档那一页：那一行**没有**开关（游戏不会自己去扫 saves/）----
@@ -651,10 +656,10 @@ int UiContentRowsChecks() {
             const int brokenRow = rowOfPath(saves, saveBroken);
             check(worldRow >= 0 && plainRow >= 0 && brokenRow >= 0,
                   "Z15c 前提：三个世界都按路径找得到那一行");
-            check(saves != nullptr && saves->toggleButtonAt(worldRow) == nullptr,
+            check(saves != nullptr && uiToggleAt(saves, worldRow) == nullptr,
                   "★ Z15c 存档那一页**没有**那颗开关（游戏不会自己去扫 saves/ —— 摆一颗"
                   "改了就生效的开关在那儿是骗人）");
-            check(saves != nullptr && saves->deleteButtonAt(worldRow) == nullptr,
+            check(saves != nullptr && uiDeleteAt(saves, worldRow) == nullptr,
                   "★ Z15c 存档那一页也没有垃圾桶（那是用户手里唯一那份，误删找不回来）");
             check(iconLabelAt(saves, worldRow) != nullptr,
                   "Z15c 但它那一行**照样有图标那一格**（中间那几页的行要左右对得齐）");
@@ -671,17 +676,13 @@ int UiContentRowsChecks() {
                   "而用户在这一页上最想认的就是「哪个是哪个世界」");
             check(worldIcon.size() == QSize(iconPx, iconPx),
                   "★ Z15c 而且那张图是**缩过的**（盘上 66x66 → 这一格 32x32）："
-                  "`QLabel::setPixmap()` 不缩放，不缩就只露左上角那一小块 —— 和资源真图标"
+                  "`QPainter::drawPixmap()` 按原尺寸画，不缩就只露左上角那一小块 —— 和资源真图标"
                   "是同一个坑（见 scaleToIconSlot）",
                   QStringLiteral("量到 %1x%2").arg(worldIcon.width()).arg(worldIcon.height()));
 
             // 目录里**没有** icon.png 的：照旧文件夹字形。顺带钉住"退化的方向" ——
             // 这一档是**目录**，退回去的该是文件夹的形状，不是文件那一片拼图。
-            QWidget *plainRowWidget =
-                plainRow >= 0 ? saves->list()->itemWidget(saves->list()->item(plainRow)) : nullptr;
-            const QColor slotColor = plainRowWidget != nullptr
-                                         ? plainRowWidget->palette().color(QPalette::PlaceholderText)
-                                         : QColor();
+            const QColor slotColor = saves->list()->palette().color(QPalette::PlaceholderText);
             const QPixmap plainIcon = iconLabelAt(saves, plainRow) != nullptr
                                           ? iconLabelAt(saves, plainRow)->pixmap()
                                           : QPixmap();

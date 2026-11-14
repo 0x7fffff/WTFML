@@ -28,27 +28,78 @@ inline void uiMkFile(const QString &path, int bytes = 4096, char fill = 'x') {
 }
 #include "InstanceFilesPage.hpp"
 
+#include <QApplication>
 #include <QColor>
-#include <QLabel>
 #include <QListWidget>
 #include <QListWidgetItem>
-#include <QPalette>
+#include <QPixmap>
+
+#include <memory>
 
 // ---- 行里那几格怎么读 ----
 //
-// 「这一条叫什么」**不在 `item->text()` 上**：条目故意不带文字（带了的话视图代理会在透明的
-// 行控件底下再画一遍同一个名字，屏幕上是重影；用户截图报的「模组名称出现了两次」就是它）。
-// 名字的唯一出处是行里那一格标签，所以照着**界面上真正显示的东西**读。
+// 行是**代理画的**（InstanceFilesPage::RowDelegate），没有行控件可拿。名字在条目的
+// `Qt::AccessibleTextRole` 上（代理画的、读屏读的都是它；DisplayRole 故意空着），
+// 所以照着条目读。
 
-/// 这一行的显示名（读行控件里那个名字标签）。
+/// 这一行的显示名（含「（已禁用）」和更新箭头）。
 inline QString uiItemText(InstanceFilesPage *page, int row) {
     QListWidgetItem *item = page != nullptr ? page->list()->item(row) : nullptr;
-    QWidget *rowWidget =
-        (page != nullptr && item != nullptr) ? page->list()->itemWidget(item) : nullptr;
-    auto *label = rowWidget != nullptr
-                      ? rowWidget->findChild<QLabel *>(InstanceFilesPage::nameLabelName())
-                      : nullptr;
-    return label != nullptr ? label->text() : QString();
+    return item != nullptr ? item->data(Qt::AccessibleTextRole).toString() : QString();
+}
+
+/// 这一行行首那张图（条目的 DecorationRole；没有图标栏的页上是空的）。
+inline QPixmap uiItemIcon(InstanceFilesPage *page, int row) {
+    QListWidgetItem *item = page != nullptr ? page->list()->item(row) : nullptr;
+    return item != nullptr ? item->data(Qt::DecorationRole).value<QPixmap>() : QPixmap();
+}
+
+/// 行尾的某一格（`[详情][开关][笔][垃圾桶]` 之一）。行是画的，这个小壳替测试问页面：
+/// 点不点得动、悬停提示、开关开没开；click() 走 InstanceFilesPage::clickRowAction()
+/// —— 合成真鼠标（移过去、按下、松开），和用户同一条事件路。
+class UiRowCell {
+public:
+    UiRowCell(InstanceFilesPage *page, int row, InstanceFilesPage::RowAction action)
+        : m_page(page), m_row(row), m_action(action) {}
+    bool isEnabled() const { return m_page->rowActionEnabled(m_row, m_action); }
+    QString toolTip() const { return m_page->rowActionToolTip(m_row, m_action); }
+    /// 那一格在视口里的矩形。
+    QRect geometry() const { return m_page->rowActionRect(m_row, m_action); }
+    /// 开关那一格：开着 = 游戏扫得到（条目的勾选位，读屏也读它）。
+    bool isChecked() const {
+        const QListWidgetItem *item = m_page->list()->item(m_row);
+        return item != nullptr && item->checkState() == Qt::Checked;
+    }
+    /// 此刻画没画：「详情」只在悬停那一行画，别的格子一直画着。
+    bool isShown() const {
+        return m_action != InstanceFilesPage::RowAction::Detail || m_page->rowDetailShown(m_row);
+    }
+    void click() const { m_page->clickRowAction(m_row, m_action); }
+
+private:
+    InstanceFilesPage *m_page;
+    int m_row;
+    InstanceFilesPage::RowAction m_action;
+};
+using UiRowCellPtr = std::shared_ptr<UiRowCell>;
+
+/// 第 @p row 行的那一格；这一行没有这一格（页上没开、或者是文件夹）回 nullptr。
+inline UiRowCellPtr uiRowCell(InstanceFilesPage *page, int row, InstanceFilesPage::RowAction action) {
+    if (page == nullptr || page->list() == nullptr || page->list()->item(row) == nullptr) return nullptr;
+    if (page->rowActionRect(row, action).isNull()) return nullptr;
+    return std::make_shared<UiRowCell>(page, row, action);
+}
+inline UiRowCellPtr uiToggleAt(InstanceFilesPage *page, int row) {
+    return uiRowCell(page, row, InstanceFilesPage::RowAction::Toggle);
+}
+inline UiRowCellPtr uiDeleteAt(InstanceFilesPage *page, int row) {
+    return uiRowCell(page, row, InstanceFilesPage::RowAction::Delete);
+}
+inline UiRowCellPtr uiEditAt(InstanceFilesPage *page, int row) {
+    return uiRowCell(page, row, InstanceFilesPage::RowAction::Edit);
+}
+inline UiRowCellPtr uiDetailAt(InstanceFilesPage *page, int row) {
+    return uiRowCell(page, row, InstanceFilesPage::RowAction::Detail);
 }
 
 /// 这一行在 @p role 上记的是不是真（禁用 / 可更新那些角色位）。
@@ -63,7 +114,3 @@ inline QString uiItemPath(InstanceFilesPage *page, int row) {
     return item != nullptr ? item->data(InstanceFilesPage::pathRole()).toString() : QString();
 }
 
-/// 一格标签现在用的是哪种前景色（量"禁用那一条是不是灰的"用）。
-inline QColor uiColorOf(QLabel *label) {
-    return label != nullptr ? label->palette().color(QPalette::WindowText) : QColor();
-}

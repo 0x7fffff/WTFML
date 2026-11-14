@@ -1114,12 +1114,11 @@ void runInstanceFilesPagesTests() {
             QString promptTitle;
             QStringList promptButtons;
 
-            const auto dbl = [](QWidget *rowWidget) {
-                const QPoint pos(10, rowWidget->height() / 2);
-                QWidget *target = rowWidget->childAt(pos);
-                if (target == nullptr) {
-                    target = rowWidget;
-                }
+            // 合成一发双击，落在视口上那一行的行首（行是代理画的，鼠标底下就是视口本身）。
+            const auto dbl = [](QListWidget *list, QListWidgetItem *item) {
+                QWidget *target = list->viewport();
+                const QRect rect = list->visualItemRect(item);
+                const QPoint pos(rect.x() + 10, rect.center().y());
                 const auto one = [&target, &pos](QEvent::Type type, Qt::MouseButtons buttons) {
                     QMouseEvent event(type, QPointF(pos), QPointF(target->mapToGlobal(pos)),
                                       Qt::LeftButton, buttons, Qt::NoModifier);
@@ -1163,9 +1162,7 @@ void runInstanceFilesPagesTests() {
                         if (one != QStringLiteral("sodium-options.json")) {
                             continue;
                         }
-                        if (QWidget *rowWidget = files->list()->itemWidget(item)) {
-                            dbl(rowWidget);
-                        }
+                        dbl(files->list(), item);
                         return;
                     }
                 };
@@ -1950,15 +1947,9 @@ void runInstanceFilesPagesTests() {
                         if (one != QStringLiteral("sodium-options.json")) {
                             continue;
                         }
-                        QWidget *rowWidget = files->list()->itemWidget(item);
-                        if (rowWidget == nullptr) {
-                            return;
-                        }
-                        const QPoint pos(10, rowWidget->height() / 2);
-                        QWidget *target = rowWidget->childAt(pos);
-                        if (target == nullptr) {
-                            target = rowWidget;
-                        }
+                        QWidget *target = files->list()->viewport();
+                        const QRect rect = files->list()->visualItemRect(item);
+                        const QPoint pos(rect.x() + 10, rect.center().y());
                         const auto one_event = [&target, &pos](QEvent::Type type,
                                                                Qt::MouseButtons buttons) {
                             QMouseEvent event(type, QPointF(pos),

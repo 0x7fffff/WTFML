@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "ui_check/modules/UiInstanceFilesTestHelpers.hpp"
 void runDependencyAndBatchTests() {
     // 那两项设置在盘上的名字。和 T25 一个规矩：这一节量的是"盘上那个键"，
     // 而 `LauncherSettings` 里那两个常量在匿名命名空间里、外面看不见，所以字面量写这儿。
@@ -178,7 +179,7 @@ void runDependencyAndBatchTests() {
 
         // 某一页上某一条文件的行尾那颗「详情」（按路径找行，不按行号）。
         const auto detailForPath = [](InstanceFilesPage *files,
-                                      const QString &path) -> QToolButton * {
+                                      const QString &path) -> UiRowCellPtr {
             if (files == nullptr || files->list() == nullptr) {
                 return nullptr;
             }
@@ -186,7 +187,7 @@ void runDependencyAndBatchTests() {
                 QListWidgetItem *item = files->list()->item(row);
                 if (item != nullptr &&
                     item->data(InstanceFilesPage::pathRole()).toString() == path) {
-                    return files->detailButtonAt(row);
+                    return uiDetailAt(files, row);
                 }
             }
             return nullptr;
@@ -240,7 +241,7 @@ void runDependencyAndBatchTests() {
                     page->showPage(QStringLiteral("mod"));
                     InstanceFilesPage *mods = page->filesPage(QStringLiteral("mod"));
                     if (mods != nullptr && mods->list() != nullptr) {
-                        QToolButton *detail = nullptr;
+                        UiRowCellPtr detail;
                         pumpUntil(
                             [&] {
                                 detail = detailForPath(mods, modJar);

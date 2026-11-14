@@ -71,7 +71,7 @@ void InstanceFilesPage::setBatchMode(bool batchMode) {
         m_list->clearSelection();
         m_selectedPaths.clear();
     }
-    // 详情按钮的建/不建是 makeRow 说了算 ⇒ 得重列一遍（这一趟不读盘，只重建行）。
+    // 详情按钮的建/不建是 layoutRow 说了算 ⇒ 得重列一遍（这一趟不读盘，只重建行）。
     rebuildRows();
 }
 
