@@ -11,6 +11,8 @@
 #include <QAbstractItemView>
 #include <QAbstractButton>
 #include <QButtonGroup>
+#include <QCache>
+#include <QFileInfo>
 #include <QLabel>
 #include <QAbstractSpinBox>
 #include <QApplication>
@@ -2812,6 +2814,26 @@ PartImage partImage(Part part) {
     image.name = it->imageName;
     image.fit = it->fit;
     image.opacity = clampOpacity(it->imageOpacity);
+    return image;
+}
+
+QImage cachedImage(const QString &path) {
+    if (path.isEmpty()) {
+        return {};
+    }
+    const QFileInfo info(path);
+    // `路径|大小|修改时间`：和 `ThemeBackground` 那一串同一个口径，换了一张图时后两位会变。
+    const QString key = path + QLatin1Char('|') + QString::number(info.size()) +
+                        QLatin1Char('|') + QString::number(info.lastModified().toMSecsSinceEpoch());
+    // 按张数封顶：一张 4K 图解码后约 33 MB，留住的是"最近用过的那几张"，不是整个相册。
+    static QCache<QString, QImage> cache(6);
+    if (const QImage *hit = cache.object(key)) {
+        return *hit;
+    }
+    const QImage image(path);
+    if (!image.isNull()) {
+        cache.insert(key, new QImage(image));
+    }
     return image;
 }
 
