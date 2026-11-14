@@ -2,6 +2,7 @@
 // Explicit marked-profile acceptance only. Normal startup does not enter this path.
 #include "AppPaths.hpp"
 #include "SecretRedactor.hpp"
+#include "agent/AgentPaths.hpp"
 #include <QApplication>
 #include <QDebug>
 #include <QSharedPointer>
@@ -65,13 +66,17 @@ inline bool configure(Context *out, QString *error) {
          (windowWidth < 640 || windowWidth > 3840 || windowHeight < 480 || windowHeight > 2160))) {
         *error = "Invalid acceptance limits"; return false;
     }
-    if (!safe(root + "/settings") || !safe(root + "/game") ||
-        !QDir().mkpath(root + "/settings") || !QDir().mkpath(root + "/game")) {
+    if (!safe(root + "/settings") || !safe(root + "/game") || !safe(root + "/agent") ||
+        !QDir().mkpath(root + "/settings") || !QDir().mkpath(root + "/game") ||
+        !QDir().mkpath(root + "/agent")) {
         *error = "Cannot create isolated acceptance settings/data"; return false;
     }
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, root + "/settings");
     QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, root + "/settings-system");
+    // 智能体会话/产物/日志的根（`AgentPaths::dataDir()`）：不收进来就落进真实的
+    // `%LOCALAPPDATA%\…\WTFML\agent`。API Key 在 Windows 凭据管理器里，不在这份隔离中。
+    qApp->setProperty("wtfml.testAgentDataDir", root + "/agent");
     qApp->setProperty("wtfml.testDefaultMinecraftDir", root + "/game");
     AppPaths::setMinecraftDir(root + "/game");
     *out = {root, sentinel, closeMs, rows, windowWidth, windowHeight};
@@ -88,6 +93,7 @@ inline void record(const Context &context, QJsonObject fields) {
     object.insert("pid", QString::number(QCoreApplication::applicationPid()));
     object.insert("platform", QGuiApplication::platformName());
     object.insert("dataRoot", AppPaths::minecraftDir());
+    object.insert("agentDataDir", AgentPaths::dataDir());
     object.insert("settingsFile", QSettings().fileName());
     QSaveFile output(path); output.setDirectWriteFallback(false);
     if (output.open(QIODevice::WriteOnly)) {

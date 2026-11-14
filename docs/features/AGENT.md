@@ -543,7 +543,7 @@ provider profile 标注部署类型，默认按 URL 自动判断，可手动改�
   mcp\...                         # 非密配置；密钥不落这里（Stage 2）
 ```
 
-- 测试用 `QCoreApplication::setProperty("wtfml.testAgentDataDir", <临时目录>)` 隔离（与 `wtfml.testDefaultMinecraftDir` 同一做法），正式入口不设置；路径统一由 `AgentPaths` 计算，其他层不自己拼。
+- 测试用 `QCoreApplication::setProperty("wtfml.testAgentDataDir", <临时目录>)` 隔离（与 `wtfml.testDefaultMinecraftDir` 同一做法），正式入口不设置；路径统一由 `AgentPaths` 计算，其他层不自己拼。`--acceptance-profile <目录>` 会把它设成 `<目录>\agent`（和设置、默认游戏目录一起隔离），自动化与走查因此不碰真实的 `%LOCALAPPDATA%\WTFML\agent`；API Key 仍在 Windows 凭据管理器里，不在这一份隔离中。
 - API key/access token 不存进上述任何目录，走 §5.2。
 - 会话目录权限依赖 Windows 用户目录 ACL，界面告诉用户"这是本机当前用户的数据"。
 

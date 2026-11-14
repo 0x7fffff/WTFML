@@ -245,7 +245,7 @@ CTest 的两种"排除 visual"选到的数量不同：`ctest -E visual` 按名�
 
 设置沙盒另有一条硬判据（`./tools/check-test-modules.ps1`，CTest `wtfml.test-modules`）：`tests/` 下每个带 `main()` 的进程——包括 `ui_check_*` / `mw_check_*` 那些模块可执行文件——都必须 `QSettings::setDefaultFormat(IniFormat)` + `setPath(IniFormat, UserScope, <本进程临时目录>)`，并在隔离之后调用 `requireIsolatedSettings(<沙盒根>, <名字>)`（`tests/support/SettingsIsolation.hpp`）。不隔离就当场打印路径并以 97 退出，扫描不到这四样东西则 `wtfml.test-modules` 直接红。
 
-只写 `setPath()` 不算隔离：Windows 上默认格式是 `NativeFormat`，`setPath` 管不到它，`QSettings()` 仍然读写 `HKCU\Software\WTFML\WTFML`。2026-11-13 用户真实设置里的 `Theme/BackdropTint` / `Theme/BackdropBlur` 被写成 0，就是自动化在**真**设置上点到了设置页那两根强度滑块。起产品 exe 的自动化一律 `--acceptance-profile <临时目录>`（`tools/dev-run.ps1 -AcceptanceProfile` 会建好这一份）；确需动真设置的脚本要在头部写一行 `# settings-isolation: real-settings（为什么）` 备案，`check-test-modules.ps1` 认这一行。
+只写 `setPath()` 不算隔离：Windows 上默认格式是 `NativeFormat`，`setPath` 管不到它，`QSettings()` 仍然读写 `HKCU\Software\WTFML\WTFML`。2026-11-13 用户真实设置里的 `Theme/BackdropTint` / `Theme/BackdropBlur` 被写成 0，就是自动化在**真**设置上点到了设置页那两根强度滑块。起产品 exe 的自动化一律 `--acceptance-profile <临时目录>`（`tools/dev-run.ps1 -AcceptanceProfile` 会建好这一份）：设置落在 `<目录>/settings`、默认游戏目录落在 `<目录>/game`、智能体数据目录落在 `<目录>/agent`，三份都在这一份里，跑完整个删掉；确需动真设置的脚本要在头部写一行 `# settings-isolation: real-settings（为什么）` 备案，`check-test-modules.ps1` 认这一行。
 
 ## 智能体（Agent）测试套件
 
