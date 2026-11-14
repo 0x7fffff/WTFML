@@ -33,6 +33,7 @@
 #include "PresetInstallPicker.hpp"
 #include "Theme.hpp"
 #include "TitleBar.hpp"
+#include "ToolboxPage.hpp"
 #include "TaskCenterPanel.hpp"
 #include "PresetManagePage.hpp"
 #include "controllers/InstallPageController.hpp"
@@ -490,6 +491,18 @@ private:
         m_steps.push_back({QStringLiteral("nav:agent-again"), [this] { clickNav(MainWindowUI::agentTabIndex()); }});
         m_steps.push_back({QStringLiteral("nav:toolbox-again"), [this] {
             if (QAbstractButton *button = m_window.ui()->getToolboxButton()) button->click();
+        }});
+        // 工具箱里每件工具第一次进（工具页按需搭，见 ui/ToolboxPage.hpp）：从目录页点那一格。
+        for (const ToolboxPage::Tool tool : ToolboxPage::tools()) {
+            m_steps.push_back({QStringLiteral("toolbox:tool:%1").arg(ToolboxPage::toolKey(tool)), [this, tool] {
+                auto *page = m_window.findChild<ToolboxPage *>();
+                if (page == nullptr) return;
+                page->showCatalog();
+                if (auto *cell = page->findChild<QAbstractButton *>(ToolboxPage::toolCellName(tool))) cell->click();
+            }});
+        }
+        m_steps.push_back({QStringLiteral("toolbox:catalog"), [this] {
+            if (auto *page = m_window.findChild<ToolboxPage *>()) page->showCatalog();
         }});
         m_steps.push_back({QStringLiteral("nav:instances-again"), [this] { clickNav(MainWindowUI::instancesTabIndex()); }});
 
