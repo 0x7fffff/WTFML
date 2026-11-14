@@ -116,7 +116,10 @@ private:
     void insertStreamWidget(QWidget *widget);
     AgentMessageView *viewFor(const QString &messageId);
     void showSessionMenu(const QPoint &position);
+    /// 「重命名」：当前会话就地改顶行标题，别的会话就地改列表里那一行。
     void promptRename(const QString &sessionId);
+    void beginTitleRename();
+    void beginListRename(QListWidgetItem *item);
 
     QWidget *m_sidebar = nullptr;
     QLineEdit *m_search = nullptr;

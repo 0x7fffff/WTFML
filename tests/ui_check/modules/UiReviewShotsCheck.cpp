@@ -26,6 +26,7 @@
 #include <QDir>
 #include <QFontDatabase>
 #include <QFrame>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QListWidget>
 #include <QMainWindow>
@@ -677,6 +678,7 @@ int runExtended(QApplication &app, const ShotOptions &options) {
         saveShot(app, window, options.out, QStringLiteral("agent-unconfigured"), &saved);
 
         agent->setConfigured(true, QStringLiteral("已连接 · OpenAI 兼容"));
+        saveShot(app, window, options.out, QStringLiteral("agent-configured-empty"), &saved);
         agent->setModelLabel(QStringLiteral("gpt-4o"));
         agent->setEncryptionChecked(true);
         agent->setInstanceChip(QStringLiteral("1.20.1-Forge"), false);
@@ -728,6 +730,32 @@ int runExtended(QApplication &app, const ShotOptions &options) {
         agent->setToolCards({card});
         agent->showEmptyState(false);
         saveShot(app, window, options.out, QStringLiteral("agent-session"), &saved);
+
+        // 就地改名：顶行标题点一下 / 列表双击，各拍一张编辑态，再按 Esc 收掉。
+        const auto escape = [agent](const char *name) {
+            if (QWidget *edit = agent->findChild<QWidget *>(QString::fromLatin1(name))) {
+                QKeyEvent esc(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+                QApplication::sendEvent(edit, &esc);
+                QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            }
+        };
+        if (auto *title = agent->findChild<QLabel *>(QStringLiteral("agentSessionTitle"))) {
+            const QPointF at(4, title->height() / 2.0);
+            QMouseEvent release(QEvent::MouseButtonRelease, at, title->mapToGlobal(at), Qt::LeftButton, Qt::NoButton,
+                                Qt::NoModifier);
+            QApplication::sendEvent(title, &release);
+            saveShot(app, window, options.out, QStringLiteral("agent-title-rename"), &saved);
+            escape("agentTitleRenameEdit");
+        }
+        QListWidget *list = agent->sessionList();
+        for (int i = 0; list != nullptr && i < list->count(); ++i) {
+            if (list->item(i)->text() == QStringLiteral("帮我写一条启动参数")) {
+                emit list->itemDoubleClicked(list->item(i));
+                saveShot(app, window, options.out, QStringLiteral("agent-list-rename"), &saved);
+                escape("agentSessionRenameEdit");
+                break;
+            }
+        }
     } else {
         std::printf("  SKIP agent：拿不到 AgentPage\n");
     }

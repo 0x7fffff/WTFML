@@ -20,6 +20,7 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QGroupBox>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -62,6 +63,21 @@ int UiAgentCheck() {
           "智能体 UI：智能体是第五颗（最后）");
     check(tabs != nullptr && tabs->currentIndex() == MainWindowUI::homeTabIndex(),
           "智能体 UI：启动仍停在主页");
+
+    // 106（原则 36 去硬描边）：六个页签里露出来的 QFrame / 滚动区都不带默认那一圈边。
+    {
+        QStringList framed;
+        for (int i = 0; i < tabs->count(); ++i) {
+            tabs->setCurrentIndex(i);
+            QApplication::processEvents();
+            for (QFrame *f : window.findChildren<QFrame *>()) {
+                if (f->isVisible() && f->frameShape() != QFrame::NoFrame && f->frameWidth() > 0)
+                    framed << QStringLiteral("%1(%2)").arg(f->objectName(), QString::fromLatin1(f->metaObject()->className()));
+            }
+        }
+        framed.removeDuplicates();
+        check(framed.isEmpty(), "智能体 UI：各页没有带默认边框的 QFrame / 滚动区", framed.join(QStringLiteral(", ")));
+    }
 
     tabs->setCurrentIndex(MainWindowUI::agentTabIndex());
     QApplication::processEvents();
@@ -150,6 +166,91 @@ int UiAgentCheck() {
     check(AgentPage::relativeTime(sessions.at(1).updatedAt, QDateTime::currentDateTimeUtc())
               .contains(QStringLiteral("分钟")),
           "智能体 UI：相对时间");
+
+    // 106：会话就地改名（顶行标题点一下 / 列表双击），回车确认、Esc 取消、空串算取消；不弹窗。
+    {
+        QStringList renames;
+        const QMetaObject::Connection spy = QObject::connect(
+            page, &AgentPage::sessionRenameRequested,
+            [&renames](const QString &id, const QString &title) { renames << id + QLatin1Char('=') + title; });
+        const auto key = [](QWidget *w, int k) {
+            QKeyEvent press(QEvent::KeyPress, k, Qt::NoModifier);
+            QApplication::sendEvent(w, &press);
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            QApplication::processEvents();
+        };
+        auto *title = qobject_cast<QLabel *>(find("agentSessionTitle"));
+        const auto clickTitle = [title] {
+            const QPointF at(4, title->height() / 2.0);
+            QMouseEvent release(QEvent::MouseButtonRelease, at, title->mapToGlobal(at), Qt::LeftButton,
+                                Qt::NoButton, Qt::NoModifier);
+            QApplication::sendEvent(title, &release);
+            QApplication::processEvents();
+        };
+        const auto titleEdit = [page] { return page->findChild<QLineEdit *>(QStringLiteral("agentTitleRenameEdit")); };
+        clickTitle();
+        QLineEdit *edit = titleEdit();
+        check(edit != nullptr && edit->isVisible() && title != nullptr && !title->isVisible() &&
+                  edit->text() == QStringLiteral("会话 0"),
+              "智能体 UI：点顶行标题就地变成输入框（带原名）");
+        if (edit != nullptr) {
+            edit->setText(QStringLiteral("  显卡驱动  "));
+            key(edit, Qt::Key_Return);
+        }
+        check(renames == QStringList{QStringLiteral("s0=显卡驱动")} && titleEdit() == nullptr && title->isVisible(),
+              "智能体 UI：标题编辑回车确认，去掉首尾空白后发改名", renames.join(QLatin1Char('|')));
+        renames.clear();
+        clickTitle();
+        if ((edit = titleEdit()) != nullptr) {
+            edit->setText(QStringLiteral("不要了"));
+            key(edit, Qt::Key_Escape);
+        }
+        clickTitle();
+        if ((edit = titleEdit()) != nullptr) {
+            edit->clear();
+            key(edit, Qt::Key_Return);
+        }
+        check(renames.isEmpty() && titleEdit() == nullptr && title->isVisible(),
+              "智能体 UI：Esc 与空串都不改名", renames.join(QLatin1Char('|')));
+
+        QListWidgetItem *other = list != nullptr ? list->item(1) : nullptr;  // 「会话 1」
+        if (other != nullptr) emit list->itemDoubleClicked(other);
+        QApplication::processEvents();
+        auto *listEdit = page->findChild<QLineEdit *>(QStringLiteral("agentSessionRenameEdit"));
+        check(listEdit != nullptr && listEdit->isVisible() && listEdit->parentWidget() == list->viewport() &&
+                  list->visualItemRect(other).contains(listEdit->geometry()) &&
+                  listEdit->text() == QStringLiteral("会话 1"),
+              "智能体 UI：列表双击会话，就地在那一行出输入框");
+        if (listEdit != nullptr) {
+            listEdit->setText(QStringLiteral("模组冲突"));
+            key(listEdit, Qt::Key_Enter);
+        }
+        check(renames == QStringList{QStringLiteral("s1=模组冲突")} &&
+                  page->findChild<QLineEdit *>(QStringLiteral("agentSessionRenameEdit")) == nullptr,
+              "智能体 UI：列表改名回车确认", renames.join(QLatin1Char('|')));
+        QObject::disconnect(spy);
+    }
+
+    // 106：点「+」后光标直接进输入框（当前已是空会话、没再新建时也一样）。
+    if (auto *plus = qobject_cast<QPushButton *>(find("agentNewSessionButton"))) {
+        window.activateWindow();
+        list->setFocus();
+        QApplication::processEvents();
+        plus->click();
+        QApplication::processEvents();
+        check(page->composer()->hasFocus(), "智能体 UI：点「+」后输入框拿到焦点",
+              QApplication::focusWidget() != nullptr ? QApplication::focusWidget()->objectName() : QStringLiteral("无"));
+    }
+
+    // 106：实例胶囊没经过 setInstanceChip 时也按两颗字给宽（以前裁成「实 无」）。
+    {
+        AgentPage fresh;
+        auto *chip = fresh.findChild<QPushButton *>(QStringLiteral("agentInstanceLockChip"));
+        check(chip != nullptr && chip->minimumWidth() >= chip->layout()->sizeHint().width(),
+              "智能体 UI：实例胶囊一建出来就装得下「实例」和值",
+              chip != nullptr ? QStringLiteral("%1 < %2").arg(chip->minimumWidth()).arg(chip->layout()->sizeHint().width())
+                              : QString());
+    }
     page->setMessages({messageFor(true, QStringLiteral("启动就崩溃"),
                                   AgentView::MessageStatus::Complete),
                        messageFor(false,

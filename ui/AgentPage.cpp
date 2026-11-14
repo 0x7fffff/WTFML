@@ -10,8 +10,6 @@
 #include "AgentMessageView.hpp"
 #include "AgentToolCard.hpp"
 #include "GlassPopover.hpp"
-#include "InlineMessage.hpp"
-#include "OverlayHost.hpp"
 #include "Popups.hpp"
 #include "Theme.hpp"
 #include "VersionIcons.hpp"
@@ -47,6 +45,7 @@ namespace {
 constexpr int kColumnMax = 760;              // 对话流与输入岛最宽（样张 .col / .composer）
 constexpr int kGroupHeaderRole = Qt::UserRole + 2;  // 「固定 / 今天 / 更早」小标题行
 constexpr int kTimeRole = Qt::UserRole + 3;         // 会话行右侧的相对时间
+constexpr int kEditingRole = Qt::UserRole + 4;      // 这一行正在就地改名：字不画，让给输入框
 
 QColor accentInk() { return Theme::textTone(Theme::tokens().accentInk, Theme::tokens().deep); }
 
@@ -90,6 +89,10 @@ public:
             p->setBrush(on ? t.selected : t.hover);
             p->drawRoundedRect(QRectF(r), 10, 10);
         }
+        if (index.data(kEditingRole).toBool()) {
+            p->restore();
+            return;
+        }
         const QColor ink = on ? accentInk() : t.text;
         const QString time = index.data(kTimeRole).toString();
         const QFont small = pxFont(option.font, 12.5);
@@ -112,15 +115,75 @@ public:
     }
 };
 
-/// 输入岛：磨砂圆角 20（样张 .composer.glass），和浮层同一块面。
+/// 输入岛：磨砂圆角 20（样张 .composer.glass），和浮层同一种玻璃色。
+/// 只铺面、不走 GlassPopover::paintSurface：那条顶边 glassEdge 高光两头各收进一个圆角（20px），
+/// 落在岛上沿，看着像对话区底下多了一条细线（体验反馈 3-2；原则 36 去线改底色差）。
 class ComposerBox final : public QWidget {
 public:
     using QWidget::QWidget;
 protected:
     void paintEvent(QPaintEvent *) override {
         QPainter p(this);
-        GlassPopover::paintSurface(p, QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5), 20, false);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        QPainterPath path;
+        path.addRoundedRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5), 20, 20);
+        p.fillPath(path, Theme::tokens().glass);
     }
+};
+
+/// 就地改名的输入框（顶行标题、会话列表共用）：回车或失焦确认，Esc 取消；空串、没改动都算取消。
+/// 收尾时先回调 @p finished（把原来的字摆回去），真改了名才回调 @p commit，然后自删。
+class InlineRenameEdit final : public QLineEdit {
+public:
+    InlineRenameEdit(QWidget *parent, const QString &text, std::function<void(const QString &)> commit,
+                     std::function<void()> finished)
+        : QLineEdit(text, parent), m_original(text), m_commit(std::move(commit)), m_finished(std::move(finished)) {
+        setMaxLength(80);  // 和 AgentSessionStore::rename 的截断一致
+        selectAll();
+    }
+protected:
+    bool event(QEvent *event) override {
+        // 回车 / Esc 先归自己：窗口级的 Esc（关覆盖层）之类快捷键别抢走。
+        if (event->type() == QEvent::ShortcutOverride) {
+            const int key = static_cast<QKeyEvent *>(event)->key();
+            if (key == Qt::Key_Escape || key == Qt::Key_Return || key == Qt::Key_Enter) {
+                event->accept();
+                return true;
+            }
+        }
+        return QLineEdit::event(event);
+    }
+    void keyPressEvent(QKeyEvent *event) override {
+        if (event->key() == Qt::Key_Escape) {
+            finish(false);
+            return;
+        }
+        if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) {
+            finish(true);
+            return;
+        }
+        QLineEdit::keyPressEvent(event);
+    }
+    void focusOutEvent(QFocusEvent *event) override {
+        QLineEdit::focusOutEvent(event);
+        // 输入框自带的右键菜单弹出来也会抢焦点，那不算离开。
+        if (event->reason() != Qt::PopupFocusReason) finish(true);
+    }
+private:
+    void finish(bool accept) {
+        if (m_done) return;
+        m_done = true;
+        const QString name = text().simplified();
+        const bool changed = accept && !name.isEmpty() && name != m_original.simplified();
+        hide();
+        if (m_finished) m_finished();
+        if (changed && m_commit) m_commit(name);
+        deleteLater();
+    }
+    QString m_original;
+    std::function<void(const QString &)> m_commit;
+    std::function<void()> m_finished;
+    bool m_done = false;
 };
 
 /// 系统提示两侧那道细线（最长 120）。
@@ -369,7 +432,8 @@ AgentPage::AgentPage(QWidget *parent)
     m_title->setFont(pxFont(m_title->font(), 16, QFont::DemiBold));
     m_title->setMinimumWidth(0);
     m_title->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-    m_title->setToolTip(QStringLiteral("双击重命名"));
+    m_title->setToolTip(QStringLiteral("点击重命名"));
+    m_title->setMouseTracking(true);  // 指针只在字上变成 I 形，点字才进编辑
     m_title->installEventFilter(this);
     headerLayout->addWidget(m_title, 1);
 
@@ -425,6 +489,8 @@ AgentPage::AgentPage(QWidget *parent)
         row->addWidget(m_instanceValue);
     }
     headerLayout->addWidget(m_instanceChip);
+    // 控制器第一次 setInstanceChip 之前也得按两颗字给宽，不然「实例」被裁成「实」。
+    setInstanceChip(m_instanceValue->text(), false);
 
     m_moreButton = iconButton(header, QStringLiteral("agentMoreButton"), QStringLiteral("more"),
                               QStringLiteral("更多"), 36, 20);
@@ -607,7 +673,11 @@ AgentPage::AgentPage(QWidget *parent)
     root->addWidget(chat, 1);
 
     // ---------- 接线 ----------
-    connect(m_newSession, &QPushButton::clicked, this, &AgentPage::newSessionRequested);
+    connect(m_newSession, &QPushButton::clicked, this, [this] {
+        emit newSessionRequested();
+        // 新建了、或者当前已是空会话没再建（64），都把光标交给输入框：点完「+」直接打字。
+        if (m_configured) m_composer->setFocus(Qt::OtherFocusReason);
+    });
     connect(m_settingsButton, &QPushButton::clicked, this, &AgentPage::settingsRequested);
     connect(m_apiWarn, &QPushButton::clicked, this, &AgentPage::settingsRequested);
     connect(m_emptyAction, &QPushButton::clicked, this, &AgentPage::settingsRequested);
@@ -629,6 +699,7 @@ AgentPage::AgentPage(QWidget *parent)
         if (item != nullptr && !item->data(kGroupHeaderRole).toBool())
             emit sessionSelected(item->data(Qt::UserRole).toString());
     });
+    connect(m_sessionList, &QListWidget::itemDoubleClicked, this, &AgentPage::beginListRename);
     connect(m_sessionList, &QListWidget::customContextMenuRequested, this,
             &AgentPage::showSessionMenu);
     connect(m_search, &QLineEdit::textChanged, this, [this](const QString &text) {
@@ -971,26 +1042,93 @@ void AgentPage::resizeEvent(QResizeEvent *event) {
 }
 
 bool AgentPage::eventFilter(QObject *watched, QEvent *event) {
-    if (watched == m_title && event->type() == QEvent::MouseButtonDblClick && !m_currentSessionId.isEmpty()) {
-        promptRename(m_currentSessionId);
-        return true;
+    if (watched == m_title && !m_currentSessionId.isEmpty() &&
+        (event->type() == QEvent::MouseMove || event->type() == QEvent::MouseButtonRelease)) {
+        const auto *mouse = static_cast<QMouseEvent *>(event);
+        // 标题格子一直撑到右边的胶囊：只有指在字上才算点标题。
+        const bool onText =
+            mouse->position().x() <= m_title->fontMetrics().horizontalAdvance(m_title->text()) + 8;
+        if (event->type() == QEvent::MouseMove) {
+            m_title->setCursor(onText ? Qt::IBeamCursor : Qt::ArrowCursor);
+        } else if (mouse->button() == Qt::LeftButton && onText) {
+            beginTitleRename();
+            return true;
+        }
     }
     if (watched == m_moreMenu && event->type() == QEvent::Hide) markOpen(m_moreButton, false);
     return ThemeBackground::eventFilter(watched, event);
 }
 
 void AgentPage::promptRename(const QString &sessionId) {
-    const AgentView::SessionMeta meta = m_metaById.value(sessionId);
-    if (!meta.isValid()) return;
-    // 问名字用内容区里那张提示卡，不另开带系统标题栏的 QInputDialog。本页挂在主窗的页签里，
-    // 覆盖层是页签旁边那一个（centralWidget 的直接子控件），所以往上逐层找直接子控件。
-    OverlayHost *host = OverlayHost::forWidget(this);
-    for (QWidget *w = parentWidget(); host == nullptr && w != nullptr; w = w->parentWidget())
-        host = w->findChild<OverlayHost *>(QString(), Qt::FindDirectChildrenOnly);
-    bool accepted = false;
-    const QString title = InlineMessage::getText(host, QStringLiteral("重命名会话"),
-                                                 QStringLiteral("标题"), meta.title, &accepted);
-    if (accepted) emit sessionRenameRequested(sessionId, title);
+    // ⋯ 菜单 / 右键菜单的「重命名」也走就地编辑：当前会话改顶行标题，别的会话改列表里那一行。
+    if (sessionId == m_currentSessionId) {
+        beginTitleRename();
+        return;
+    }
+    for (int i = 0; i < m_sessionList->count(); ++i) {
+        if (m_sessionList->item(i)->data(Qt::UserRole).toString() == sessionId) {
+            beginListRename(m_sessionList->item(i));
+            return;
+        }
+    }
+}
+
+void AgentPage::beginTitleRename() {
+    if (m_currentSessionId.isEmpty() || !m_title->isVisible()) return;
+    auto *headerLayout = m_title->parentWidget()->layout();
+    const QString id = m_currentSessionId;
+    // 标题那格一直撑到胶囊：输入框放进同样会缩的一格里、最宽 420 靠左，不拉成一整条。
+    auto *slot = new QWidget(m_title->parentWidget());
+    slot->setMinimumWidth(0);
+    slot->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    auto *slotRow = new QHBoxLayout(slot);
+    slotRow->setContentsMargins(0, 0, 0, 0);
+    auto *edit = new InlineRenameEdit(
+        slot, m_title->text(), [this, id](const QString &name) { emit sessionRenameRequested(id, name); },
+        [this, headerLayout, slot]() {
+            headerLayout->replaceWidget(slot, m_title);
+            m_title->show();
+            slot->deleteLater();
+        });
+    edit->setObjectName(QStringLiteral("agentTitleRenameEdit"));
+    edit->setAccessibleName(QStringLiteral("会话标题"));
+    edit->setFont(m_title->font());
+    edit->setFixedHeight(32);
+    edit->setMinimumWidth(0);
+    edit->setMaximumWidth(420);
+    edit->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    slotRow->addWidget(edit);
+    slotRow->addStretch(0);
+    headerLayout->replaceWidget(m_title, slot);
+    m_title->hide();
+    slot->show();
+    edit->show();
+    edit->setFocus(Qt::OtherFocusReason);
+}
+
+void AgentPage::beginListRename(QListWidgetItem *item) {
+    if (item == nullptr || item->data(kGroupHeaderRole).toBool()) return;
+    const QString id = item->data(Qt::UserRole).toString();
+    if (!m_metaById.contains(id)) return;
+    m_sessionList->scrollToItem(item);
+    // 盖在那一行上：左右各收 2、上下各收 4，正好落在行底色的圆角里。
+    const QRect cell = m_sessionList->visualItemRect(item).adjusted(2, 4, -2, -4);
+    // 输入框底色是半透明的：编辑时这一行的标题和时间先不画，免得字从框底下透上来。
+    item->setData(kEditingRole, true);
+    auto *edit = new InlineRenameEdit(
+        m_sessionList->viewport(), item->text(), [this, id](const QString &name) { emit sessionRenameRequested(id, name); },
+        [this, id]() {
+            for (int i = 0; i < m_sessionList->count(); ++i) {
+                QListWidgetItem *row = m_sessionList->item(i);
+                if (row->data(Qt::UserRole).toString() == id) row->setData(kEditingRole, false);
+            }
+        });
+    edit->setObjectName(QStringLiteral("agentSessionRenameEdit"));
+    edit->setAccessibleName(QStringLiteral("会话标题"));
+    edit->setFont(pxFont(m_sessionList->font(), 14));
+    edit->setGeometry(cell);
+    edit->show();
+    edit->setFocus(Qt::OtherFocusReason);
 }
 
 void AgentPage::showSessionMenu(const QPoint &position) {
