@@ -94,13 +94,13 @@ int MwJavaPreferencesChecks(const bool settingsWired, MainWindow &window, QPushB
               "最小内存不会超过最大内存（JVM 会拒绝这种组合）",
               QString("%1/%2").arg(javaProbe.xms()).arg(javaProbe.xmx()));
         check(memoryHint->text().contains(QStringLiteral("系统总内存")) &&
-                  memoryHint->text().contains(QStringLiteral("可用")) &&
-                  memoryHint->text().contains(QStringLiteral("拖着改")),
-              "手动档说明文字讲清了这台机器有多少内存、并说明这个数怎么改",
-              memoryHint->text());
-        check(memoryHint->text().contains(QStringLiteral("最小内存由启动器定")) &&
-                  memoryHint->text().contains(QStringLiteral("不用管")),
+                  memoryHint->text().contains(QStringLiteral("可用")),
+              "手动档说明文字讲清了这台机器有多少内存", memoryHint->text());
+        check(memoryHint->text().contains(QStringLiteral("最小内存由启动器设为")),
               "说明文字把撤掉的那一项说全了（它还是发给 JVM 的）", memoryHint->text());
+        check(!memoryHint->text().contains(QStringLiteral("不用管")) &&
+                  !memoryHint->text().contains(QStringLiteral("拖着改")),
+              "手动档说明文字是一句平实的话，不带口语", memoryHint->text());
 
         // ---- 启动后 ----
         check(behaviourCombo->count() == 4 &&
