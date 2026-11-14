@@ -14,6 +14,7 @@
 #include <QStyle>
 #include "Popups.hpp"
 
+#include "DesignDefaults.hpp"
 #include "MainWindowUI.hpp"
 #include "Theme.hpp"
 #include "VersionIcons.hpp"
@@ -125,21 +126,14 @@ void GroupListDelegate::paint(QPainter *painter, const QStyleOptionViewItem &opt
     QStyleOptionViewItem opt(option);
     initStyleOption(&opt, index);
     const QString text = opt.text;
-    // 背景/选中/悬停那一层交给样式画，但**铺的是画出来的那一块**（不是整条条目矩形）：
-    // 铺满整条的话相邻两行的选中底色会连成一片，`rowGap()` 那条缝就白留了。
     const QRect content = contentRect(option.rect);
-    opt.rect = content;
-    // 文字和图标先清掉 —— 位置由下面自己摆（右边要给那个方框让出地方，长组名不能从框
-    // 底下穿过去）。
-    opt.text.clear();
-    opt.icon = QIcon();
-    if (QStyle *style = opt.widget != nullptr ? opt.widget->style() : QApplication::style()) {
-        style->drawControl(QStyle::CE_ItemViewItem, &opt, painter, opt.widget);
-    }
-
     // 下面所有几何都吃**条目矩形**（option.rect），映射在里面做一次（见 .hpp 那段）。
     const QRect row = option.rect;
     const bool selected = (option.state & QStyle::State_Selected) != 0;
+    const bool hovered = (option.state & QStyle::State_MouseOver) != 0;
+    // 选中 / 悬停底和别的列表是同一块（DesignDefaults::paintRowBlock），**铺的是画出来的那一块**
+    // （不是整条条目矩形）：铺满整条的话相邻两行的底色会连成一片，`rowGap()` 那条缝就白留了。
+    DesignDefaults::paintRowBlock(painter, content, selected, hovered);
     // 选中那一行的底色是浅灰（`#cccccc`，见 `ui/Theme.hpp` 的 `selectionFill()`）⇒
     // 这一行上手画的那两笔（组名、行尾方框里那两颗三角）取色的那一份也得跟着换：
     // "选中就取 `HighlightedText`"那条规矩本身没错，错的是**浅灰上那一档仍照蓝底配**
@@ -154,31 +148,21 @@ void GroupListDelegate::paint(QPainter *painter, const QStyleOptionViewItem &opt
     const int textRight = moveBoxRect(row).left() - 6;
     const QRect textRect(textLeft, content.top(), qMax(0, textRight - textLeft), content.height());
 
-    // 字色跟基类画的时候一样：没选中是正文色、选中是高亮前景色（= 上面那份 palette 里
-    // 换过的那一支**暗**墨）。**不能一直用正文色** —— 选中那一档是样式挑的那个高亮前景色；
-    // 底色不复用调色板里那一份之后，深色主题下平台给的白字压浅灰等于没字
-    // （浅色主题下正文色恰好也能用，但同一支墨只能有一处出处）。
-    const QColor ink = palette.color(selected ? QPalette::HighlightedText : QPalette::Text);
+    // 字色和默认行代理一样：底是半透明的那一块，字一直是这份 palette 里的正文色。
+    const QColor ink = palette.color(QPalette::Text);
     painter->save();
     painter->setPen(ink);
     painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter,
                       option.fontMetrics.elidedText(text, Qt::ElideRight, textRect.width()));
 
-    // 行尾那个方框 + 里面那两颗实心三角：**只有这一行真挪得动的那一侧才画**（不是画成灰的）
+    // 行尾那两颗实心三角：**只有这一行真挪得动的那一侧才画**（不是画成灰的）
     // —— 判据和 eventFilter() 认那一下读的是同一对函数，画和点永远不会错开。
-    //
-    // NOTE: 选中那一行改用高亮前景色：这几笔用的是次要那一档灰（PlaceholderText），压在
-    // 选中底色上基本看不见 —— 用户会以为"箭头没了"。字色那一档怎么走，它就怎么走
-    // （两档之外不引入第三种颜色）。
+    // 步骤 137：不再画那圈框（原生线框，和设计系统里别的东西都不像）。平时是次要色，
+    // 指到 / 选中这一行时提成正文色 —— 和组名同一份 palette，两档之外不引入第三种颜色。
     if (showsMoveBox(index)) {
         const QColor arrowInk =
-            palette.color(selected ? QPalette::HighlightedText : QPalette::PlaceholderText);
+            palette.color((selected || hovered) ? QPalette::Text : QPalette::PlaceholderText);
         const int size = MainWindowUI::versionTreeArrowSize();
-        painter->setPen(arrowInk);
-        // 框线画在**方框自己的最后一列/最后一行**上（`-1`）：不这么收一下的话，drawRect()
-        // 会多画出去一像素，正落在行尾那一圈留白里（而那一圈是"行到哪儿为止"的凭据）。
-        // 这一笔同时是"这两格在哪儿"的可见轮廓 —— 框和命中格是同一个矩形。
-        painter->drawRect(moveBoxRect(row).adjusted(0, 0, -1, -1));
         if (canMoveUp(index)) {
             const QRect glyph = moveUpGlyphRect(row);
             painter->drawPixmap(glyph.topLeft(),

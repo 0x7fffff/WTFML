@@ -251,6 +251,13 @@ QFrame *makeSectionCard(const QString &title, QWidget *parent,
 QWidget *makePageSection(const QString &title, QWidget *parent,
                          QVBoxLayout **layoutOut = nullptr);
 
+/// 一条设置行（设计稿 instance-overview）：左边标题（+ 至多一句说明，次要色小字）、右边控件，行底一条极淡分隔。
+/// 长解释留在控件的悬停提示里。@p below = 控件放到标题下面、占满整行（一排按钮那种）。
+/// 实例设置概览和分组设置共用这一份。
+QWidget *makeSettingRow(QWidget *parent, QWidget *title, const QString &desc, QWidget *control, bool below = false);
+/// 设置行左边那个标题（正文字号、加粗）。
+QLabel *makeSettingRowTitle(const QString &text, QWidget *parent);
+
 /// 正文那层滚动区。@p bottomMargin 是给浮着的主按钮留的高度（不要浮按钮就传 0）。
 QScrollArea *makePageScroll(QWidget *parent, int bottomMargin,
                             QVBoxLayout **bodyOut = nullptr);

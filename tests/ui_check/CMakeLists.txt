@@ -272,6 +272,7 @@ add_ui_module(ui_check_theme modules/UiThemeCheck.cpp UiThemeCheck)
 add_ui_module(ui_check_fold_motion modules/UiFoldMotionChecks.cpp UiFoldMotionChecks)
 add_ui_module(ui_check_loading_state modules/UiLoadingStateChecks.cpp UiLoadingStateChecks)
 add_ui_module(ui_check_design_defaults modules/UiDesignDefaultsChecks.cpp UiDesignDefaultsChecks)
+add_ui_module(ui_check_group_editor modules/UiGroupEditorChecks.cpp UiGroupEditorChecks)
 add_ui_module(ui_check_daily_quote modules/UiDailyQuoteCheck.cpp UiDailyQuoteCheck)
 add_ui_module(ui_check_daily_quote_shots modules/UiDailyQuoteShots.cpp UiDailyQuoteShots)  # 样张，不进 ctest
 add_ui_module(ui_check_long_instance_name modules/UiLongInstanceNameChecks.cpp UiLongInstanceNameChecks)
@@ -403,6 +404,12 @@ set_tests_properties(wtfml.loading-state PROPERTIES
 wtfml_add_test(NAME wtfml.design-defaults COMMAND ui_check_design_defaults)
 set_tests_properties(wtfml.design-defaults PROPERTIES
     LABELS "ui;theme"
+    TIMEOUT 60
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
+wtfml_add_test(NAME wtfml.group-editor COMMAND ui_check_group_editor)
+set_tests_properties(wtfml.group-editor PROPERTIES
+    LABELS "ui"
     TIMEOUT 60
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
 )

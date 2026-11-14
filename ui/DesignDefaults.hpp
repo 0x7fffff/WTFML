@@ -23,6 +23,8 @@
 #pragma once
 
 class QAbstractItemDelegate;
+class QPainter;
+class QRect;
 class QWidget;
 
 namespace DesignDefaults {
@@ -40,5 +42,13 @@ void apply(QWidget *widget);
 bool isRowDelegate(const QAbstractItemDelegate *delegate);
 /// 默认行代理的最小行高（列表 / 树；表格的行高归表头管）。
 constexpr int minRowHeight() { return 32; }
+/// 格内文字离格边的距离（左右同值）。**行代理每一格和表头每一节共用这一个数**
+/// （表头那条 QSS 的左右 padding 念的就是它），所以表头字和下面那一列的字从同一条竖线起。
+constexpr int cellTextInset() { return 11; }
+
+/// 行的悬停 / 选中底：内缩圆角淡块（默认行代理和自家代理共用，别各画一份）。
+/// @p roundLeft / @p roundRight：多列时只有一行首尾两格是圆的，中间几格方着接上。
+void paintRowBlock(QPainter *painter, const QRect &cell, bool selected, bool hovered, bool roundLeft = true,
+                   bool roundRight = true);
 
 }  // namespace DesignDefaults
