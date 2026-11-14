@@ -105,8 +105,8 @@ int MwMemoryPreferencesChecks(const bool settingsWired, const QString &kDecorate
                   "最大内存降到 256 时，最小内存跟着降到 256（JVM 会拒绝相反的组合）",
                   QString("%1/%2").arg(after.xmx()).arg(after.xms()));
             check(memoryHint->text().contains(
-                      QStringLiteral("最小内存由启动器定（%1 MB）").arg(after.xms())),
-                  "说明文字里那句「最小内存由启动器定（… MB）」跟着重画了",
+                      QStringLiteral("最小内存由启动器设为 %1 MB").arg(after.xms())),
+                  "说明文字里那句「最小内存由启动器设为 … MB」跟着重画了",
                   memoryHint->text());
             check(maxSpin->value() == 256 && maxSlider->value() == 0,
                   "条和数字框都在下限那一格上",

@@ -2305,6 +2305,7 @@ QString widgetStyleSheet() {
         " border: none; padding: 5px 9px; }"
         "QProgressBar { background-color: palette(dark); border: none; border-radius: 2px; color: palette(text); }"
         "QProgressBar::chunk { background-color: palette(accent); border-radius: 2px; }"
+        "QSlider:horizontal { min-height: 20px; }"  // 圆钮 16px 外加抗锯齿边，控件盒不到 18px 时底部会被裁平
         "QSlider::groove:horizontal { height: 3px; background: palette(dark); border-radius: 1px; }"
         "QSlider::sub-page:horizontal { height: 3px; background: palette(accent); border-radius: 1px; }"
         "QSlider::handle:horizontal { width: 16px; height: 16px; margin: -7px 0; border-radius: 8px;"

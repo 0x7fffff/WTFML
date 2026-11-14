@@ -35,7 +35,7 @@ namespace SettingsParts {
 namespace {
 
 constexpr int kRadiusGroup = 14;  // --r-pop：分组首尾行的外圆角
-constexpr int kRadiusInner = 4;   // 行与行之间的内侧小圆角
+constexpr int kRadiusInner = 0;   // 行与行之间不留缝也不切角：分组淡底连成一块
 
 QFont uiFont(int pixel, QFont::Weight weight = QFont::Normal) {
     QFont font = QApplication::font();
@@ -248,6 +248,13 @@ void SettingsRow::paintEvent(QPaintEvent *) {
     p.setPen(Qt::NoPen);
     p.setBrush(fill);
     p.drawPath(cornerPath(QRectF(rect()), top, top, bottom, bottom));
+    // 行间分隔：缩进 14 的一像素底色差（深色压暗、浅色压暗），不画描边。
+    if (index > 0) {
+        QColor divider(0, 0, 0);
+        divider.setAlphaF(dark ? 0.16 : 0.07);
+        p.setBrush(divider);
+        p.drawRect(QRectF(14, 0, width() - 28, 1));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -270,7 +277,7 @@ SettingsGroup::SettingsGroup(const QString &title, QWidget *parent) : QWidget(pa
     m_rows = new QWidget(this);
     m_rowsLayout = new QVBoxLayout(m_rows);
     m_rowsLayout->setContentsMargins(0, 0, 0, 0);
-    m_rowsLayout->setSpacing(2);
+    m_rowsLayout->setSpacing(0);
     layout->addWidget(m_rows);
 }
 

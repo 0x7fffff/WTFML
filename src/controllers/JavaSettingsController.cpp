@@ -425,13 +425,11 @@ void JavaSettingsController::refreshMemory() {
                        .arg(m_settings->manualXmx());
         }
     } else if (usage.totalMb <= 0) {
-        hint = tr("读不到系统内存，最大内存直接用右边的数字框填。最小内存由启动器定（%1 MB），不用管它。")
-                   .arg(m_settings->xms());
+        hint = tr("无法读取系统内存，请在右侧直接填写数值。");
     } else {
-        hint = tr("系统总内存 %1、当前可用 %2；现在最多给到 %3 MB。左边拖着改，也可以直接填数字。"
-                  "最小内存由启动器定（%4 MB），不用管它。")
+        hint = tr("系统总内存 %1，当前可用 %2；最小内存由启动器设为 %3 MB。")
                    .arg(memoryText(usage.totalMb), memoryText(usage.availableMb))
-                   .arg(m_settings->xmx()).arg(m_settings->xms());
+                   .arg(m_settings->xms());
     }
     m_ui->getMemoryHint()->setText(hint);
 

@@ -255,7 +255,7 @@ public:
     explicit SoftPanel(QWidget *parent) : QFrame(parent) {
         setFrameShape(QFrame::NoFrame);
         auto *layout = new QVBoxLayout(this);
-        layout->setContentsMargins(16, 12, 16, 14);
+        layout->setContentsMargins(16, 12, 16, 20);  // 底边留得比顶边多：文字行盒自带的空白在上面，底边看起来才一样宽
         layout->setSpacing(8);
         Theme::follow(this, [this] { update(); });
     }
@@ -612,7 +612,13 @@ struct FormGrid {
     }
     /// 一行标签 + 一串控件（放不下就折行，不出横向滚动）。
     QLayout *addFlowRow(const QString &text, const QList<QWidget *> &fields) {
-        grid->addWidget(label(text), row, 0, Qt::AlignTop);
+        // 折行时标签只跟第一行：高度取控件的行高、字在里面垂直居中，再贴顶放。
+        QLabel *name = label(text);
+        int lineHeight = 0;
+        for (const QWidget *field : fields) lineHeight = qMax(lineHeight, field->sizeHint().height());
+        name->setFixedHeight(qMax(lineHeight, name->sizeHint().height()));
+        name->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+        grid->addWidget(name, row, 0, Qt::AlignTop);
         auto *line = new FlowLayout(10, 8);
         for (QWidget *field : fields) line->addWidget(field);
         grid->addLayout(line, row, 1, 1, 4);

@@ -101,7 +101,7 @@ void fillSettingsSamples(MainWindowUI &ui) {
     fill(ui.getMemoryModeCombo(), {QStringLiteral("自动分配"), QStringLiteral("手动分配")}, 1);
     if (ui.getJavaPathLabel() != nullptr) ui.getJavaPathLabel()->setText(QStringLiteral("自动选择　按游戏版本"));
     if (ui.getMemoryHint() != nullptr)
-        ui.getMemoryHint()->setText(QStringLiteral("系统总内存 31.5 GB、当前可用 14.5 GB；现在最多给到 4096 MB。"));
+        ui.getMemoryHint()->setText(QStringLiteral("系统总内存 31.5 GB，当前可用 14.5 GB；最小内存由启动器设为 1024 MB。"));
     if (ui.getMemoryMaxSpin() != nullptr) ui.getMemoryMaxSpin()->setValue(4096);
     if (ui.getMemoryMaxSlider() != nullptr) ui.getMemoryMaxSlider()->setValueMb(4096);
     if (ui.getGameWindowWidthSpin() != nullptr) ui.getGameWindowWidthSpin()->setValue(1280);
@@ -785,6 +785,45 @@ int runExtended(QApplication &app, const ShotOptions &options) {
         std::printf("  SKIP toolbox：工具箱页挂不上\n");
     }
 
+    // ---- 下载 → 服务端 → 新建服务端：照 MainWindow::openNewServerPage() 嵌进表单宿主，八档照 ServerInstall::allFlavors() ----
+    if (QWidget *formHost = ui.getServerFormHost(); formHost != nullptr && formHost->layout() != nullptr) {
+        auto *page = new NewServerPage(formHost);
+        page->setWindowFlags(Qt::Widget);
+        page->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        formHost->layout()->addWidget(page);
+        QList<NewServerPage::FlavorOption> flavors;
+        const auto flavor = [&](const char *token, const QString &name, bool loader, bool installer, bool build) {
+            NewServerPage::FlavorOption option;
+            option.token = QString::fromLatin1(token);
+            option.name = name;
+            option.needsLoader = loader;
+            option.needsInstaller = installer;
+            option.needsBuild = build;
+            option.needsLoaderGame = true;
+            flavors.append(option);
+        };
+        flavor("vanilla", QStringLiteral("原版"), false, false, false);
+        flavor("forge", QStringLiteral("Forge"), true, false, false);
+        flavor("neoforge", QStringLiteral("NeoForge"), true, false, false);
+        flavor("fabric", QStringLiteral("Fabric"), true, true, false);
+        flavor("quilt", QStringLiteral("Quilt"), false, true, false);
+        flavor("paper", QStringLiteral("Paper"), false, false, true);
+        flavor("purpur", QStringLiteral("Purpur"), false, false, true);
+        flavor("spigot", QStringLiteral("Spigot"), false, false, false);
+        page->setFlavors(flavors, QStringLiteral("vanilla"));
+        page->setDefaults(QStringLiteral("Server1.21.4"), QStringLiteral("1.21.4"));
+        ui.setServerFormIntro(QStringLiteral("将安装 1.21.4 服务端"));
+        page->show();
+        ui.getTabWidget()->setCurrentIndex(MainWindowUI::downloadTabIndex());
+        ui.getDownloadCategoryList()->setCurrentRow(MainWindowUI::downloadCategoryServerIndex());
+        ui.getDownloadStack()->setCurrentIndex(MainWindowUI::downloadCategoryServerIndex());
+        ui.getServerStack()->setCurrentIndex(MainWindowUI::downloadServerFormIndex());
+        pump();
+        saveShot(app, window, options.out, QStringLiteral("new-server"), &saved);
+    } else {
+        std::printf("  SKIP new-server：表单宿主挂不上\n");
+    }
+
     // ---- 活动中心：两三条任务 ----
     ui.getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
     ui.setTaskCenterContent([] { return activityItems(); }, [] {});
@@ -888,9 +927,7 @@ int runLegacy(QApplication &app, const QString &out) {
         fill(ui.getGameWindowModeCombo(), {QStringLiteral("窗口"), QStringLiteral("最大化"), QStringLiteral("全屏")});
         if (ui.getJavaPathLabel() != nullptr) ui.getJavaPathLabel()->setText(QStringLiteral("自动选择　按游戏版本"));
         if (ui.getMemoryHint() != nullptr)
-            ui.getMemoryHint()->setText(QStringLiteral(
-                "系统总内存 31.5 GB、当前可用 14.5 GB；现在最多给到 4096 MB。左边拖着改，也可以直接填数字。"
-                "最小内存由启动器定（1024 MB），不用管它。"));
+            ui.getMemoryHint()->setText(QStringLiteral("系统总内存 31.5 GB，当前可用 14.5 GB；最小内存由启动器设为 1024 MB。"));
         if (ui.getMemoryMaxSpin() != nullptr) ui.getMemoryMaxSpin()->setValue(4096);
         if (ui.getMemoryMaxSlider() != nullptr) ui.getMemoryMaxSlider()->setValueMb(4096);
 

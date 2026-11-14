@@ -162,6 +162,8 @@ NewServerPage::NewServerPage(QWidget *parent) : QDialog(parent) {
     // ---------- 服务端：整页唯一的一张卡片 ----------
     QVBoxLayout *serverCardLayout = nullptr;
     auto *serverCard = makeSectionCard(QStringLiteral("服务端"), body, &serverCardLayout);
+    // 卡片本身没有底色，左右不留内边距：小标题、端类别、各行与上面的名称框、顶上的返回行同一条左缘。
+    serverCardLayout->setContentsMargins(0, 16, 0, 18);
     // 端类别是**一排行**（不是下拉框）：和安装页那张「模组加载器」卡片同一个形状 ——
     // 一眼看得见有哪几档、每行点一下就选它。
     m_flavorList = new QListWidget(serverCard);
