@@ -94,7 +94,22 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
     auto *tree = dialog->findChild<QTreeWidget *>("instanceUpgradeModChecks");
     auto *plan = dialog->findChild<QPlainTextEdit *>(InstanceSettingsDialog::transferPlanTextName("upgrade"));
     auto *scopes = dialog->findChild<QListWidget *>(InstanceSettingsDialog::transferItemsListName("upgrade"));
-    if (!legacy || !tree || !plan || !scopes) return;
+    if (!legacy || !tree || !plan || !scopes) {
+        // 「升级」那一页是**第一次切过去才建**的（见 InstanceSettingsDialog::ensurePage()），
+        // 开页这一刻这一页还不存在 —— 这一趟先什么都不接，等它真的建出来再接一遍。
+        // 连接挂在一个自毁的小对象上：接上一次就断（同一个对话框只该接一遍）；页一直没建
+        // 就跟着对话框一起没。
+        auto *once = new QObject(dialog);
+        QObject::connect(dialog, &InstanceSettingsDialog::pageBuilt, once,
+                         [owner, dialog, sourceId, once](const QString &key) {
+                             if (key != QStringLiteral("upgrade")) {
+                                 return;
+                             }
+                             once->deleteLater();
+                             InstanceUpdateFlow::attach(owner, dialog, sourceId);
+                         });
+        return;
+    }
     auto *page = legacy->parentWidget();
     auto *layout = qobject_cast<QVBoxLayout *>(page->layout());
     if (!layout) return;
@@ -619,8 +634,13 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
         const QString target = state->game.isEmpty() ? QString() : QStringLiteral("@download:") + state->game;
         dialog->setTransferTargets("upgrade", {{state->game, target}});
         if (!target.isEmpty()) {
-            auto *hidden = dialog->findChild<QComboBox *>(InstanceSettingsDialog::transferTargetComboName("upgrade"));
-            const QSignalBlocker block(hidden); hidden->setCurrentIndex(1);
+            // 那一格**可能不在**（页懒建之后它随页走）：找不到就什么都不做 —— 这一发只是
+            // 让旧转移控件跟上新目标，`transferTargetChosen` 那一发才是真正的驱动。
+            if (auto *hidden = dialog->findChild<QComboBox *>(
+                    InstanceSettingsDialog::transferTargetComboName("upgrade"))) {
+                const QSignalBlocker block(hidden);
+                hidden->setCurrentIndex(1);
+            }
         }
         emit dialog->transferTargetChosen("upgrade", target);
         plan->setPlainText(state->game.isEmpty() ? QObject::tr("选择目标后会检查当前实例的模组。")

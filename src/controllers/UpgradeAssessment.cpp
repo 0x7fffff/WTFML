@@ -1156,21 +1156,31 @@ void UpgradeAssessment::attach(InstanceSettingsDialog *dialog, VersionManager *v
         state->pending.clear(); store->abortAll(); dialog->setProperty("upgradeAssessmentQuerying", false); render();
     });
     QObject::connect(dialog, &InstanceSettingsDialog::transferTargetChosen, dialog, select);
-    auto *refresh = dialog->findChild<QPushButton *>(QStringLiteral("instanceUpgradeRecheck"));
-    const auto startScan = [dialog, store, state, root, sourceId, identityCache, stop, select, render, refresh] {
+    // 「重新检查」那一颗**不在这儿 findChild**：产品的顺序是开页那一刻就 attach，而「升级」
+    // 页是第一次切过去才建的（见 InstanceSettingsDialog::ensurePage()）—— 这里拿到的是
+    // nullptr，`clicked → startScan` 就静默接不上（点了什么都不发生）。改成接对话框自己那一发
+    // 信号（按钮在页里发，见 buildLifecyclePage()）；那一颗的可用性也**用时再找**，同一个理由。
+    const auto setRefreshEnabled = [dialog](bool on) {
+        if (auto *button = dialog->findChild<QPushButton *>(QStringLiteral("instanceUpgradeRecheck"))) {
+            button->setEnabled(on);
+        }
+    };
+    const auto startScan = [dialog, store, state, root, sourceId, identityCache, stop, select, render,
+                            setRefreshEnabled] {
         if (state->started && !state->ready) return;
         state->started = true; state->ready = false; state->active.clear(); ++state->generation; store->abortAll();
         dialog->setProperty("upgradeAssessmentReading", true); render();
         dialog->setProperty("upgradeAssessmentQuerying", false);
-        if (refresh) refresh->setEnabled(false);
+        setRefreshEnabled(false);
         auto *watcher = new QFutureWatcher<QPair<Scan, int>>(dialog);
-        QObject::connect(watcher, &QFutureWatcher<QPair<Scan, int>>::finished, dialog, [watcher, dialog, state, select, refresh] {
+        QObject::connect(watcher, &QFutureWatcher<QPair<Scan, int>>::finished, dialog,
+                         [watcher, dialog, state, select, setRefreshEnabled] {
             const auto result = watcher->result();
             state->scan = result.first;
             dialog->setProperty("upgradeRuntimeJavaMajor", result.second);
             state->ready = true; state->target = QStringLiteral("@invalid");
             dialog->setProperty("upgradeAssessmentReading", false);
-            if (refresh) refresh->setEnabled(true);
+            setRefreshEnabled(true);
             select(QStringLiteral("upgrade"), dialog->transferTarget(QStringLiteral("upgrade"))); watcher->deleteLater();
         });
         const QString javaPath = dialog->property("upgradeRuntimeJavaPath").toString();
@@ -1181,7 +1191,7 @@ void UpgradeAssessment::attach(InstanceSettingsDialog *dialog, VersionManager *v
             return qMakePair(scan(root, sourceId, identityCache, stop), major);
         }));
     };
-    if (refresh) QObject::connect(refresh, &QPushButton::clicked, dialog, startScan);
+    QObject::connect(dialog, &InstanceSettingsDialog::upgradeRecheckRequested, dialog, startScan);
     QObject::connect(dialog, &InstanceSettingsDialog::transferTargetChosen, dialog,
         [state, startScan](const QString &key, const QString &) {
             if (key != QStringLiteral("upgrade") || state->started) return;

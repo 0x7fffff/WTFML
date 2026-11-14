@@ -568,7 +568,7 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
         actionCells.append(cell);
     }
 
-    // 概览只保留更新入口；维护与实例操作的控件由 setupLifecyclePages() 迁入专属页。
+    // 概览只保留更新入口；维护与实例操作的控件由 buildLifecyclePage() 迁入专属页。
     // 保留同一份控件和接线，不另造一个相同功能的按钮。
     QList<QWidget *> overviewActions;
     for (QWidget *cell : actionCells) {

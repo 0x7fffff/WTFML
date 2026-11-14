@@ -501,3 +501,68 @@ void InstanceSettingsDialog::setupLaunchPage(const GlobalValues &global, const Q
 
 }
 
+
+/// 把构造函数那份「现状」灌进「启动」这一页。
+///
+/// 这一页是**第一次切过去才建**的（见 `ensurePage()`），所以灌值不能留在构造函数里：
+/// 页晚建，值就跟着页一起灌。顺序不能动 —— 条的另一半要等数字框到位、每一行那句提示
+/// 要等所有值灌完才刷（段落里各自的理由都还留着）。
+void InstanceSettingsDialog::applyLaunchValues(const Override &current, const GlobalValues &global) {
+    // 这一位先立起来：下面 `refreshHints()` 有一道"页还没建就别碰控件"的闸。
+    m_launchPageBuilt = true;
+    // ---------- 灌值 ----------
+    // 「有值 = 自定义，没值 = 跟随全局」这一条两边都要对上：磁盘上有一项覆盖时，
+    // 重开这个对话框必须停在「自定义」上，否则用户会以为自己的设置丢了。
+    setChoiceCustom(javaPathField(), current.javaPath.has_value());
+    m_javaPathEdit->setText(current.javaPath.value_or(global.javaPath));
+
+    setChoiceCustom(xmxField(), current.xmx.has_value());
+    m_memoryMaxSpin->setValue(current.xmx.value_or(global.xmx));
+    // 条那半边也要摆过来：数字框本来就已经是这个值时上面那一句不发信号，光靠同步那条线
+    // 等不到（条会停在上一次那一格上）—— 一进这一页看见的条和数字框就不是一个数。
+    // 挡信号：这一发是**灌值**，不是用户改的 —— 不挡的话它会顺手报一次"值变了"
+    // （条自己接的那条线，见上面那段），而那时候 `m_lastSignature` 还是空的，
+    // 于是打开这一页本身就等于替用户写了一次盘。
+    {
+        const QSignalBlocker blockSlider(m_memoryMaxSlider);
+        m_memoryMaxSlider->setValueMb(m_memoryMaxSpin->value());
+    }
+
+    setChoiceCustom(xmsField(), current.xms.has_value());
+    m_memoryMinSpin->setValue(current.xms.value_or(global.xms));
+
+    setChoiceCustom(extraJvmArgsField(), current.extraJvmArgs.has_value());
+    m_extraJvmArgsEdit->setText(current.extraJvmArgs.value_or(global.extraJvmArgs));
+
+    // ---------- 窗口模式 / 窗口大小 ----------
+    if (m_windowModeCombo != nullptr) {
+        // 档位：有覆盖就用覆盖那一档、没有就摆**全局那一档**（那一档这时是禁用的，摆出来的
+        // 意义是"你跟随的是这一档"）。认不出来的代号（手改过 meta、或者别处写进去的名字）
+        // 就退回第 0 项 —— 和 `GlobalValues::windowModeLabel` 那边同一个态度：看不懂的值
+        // 不猜它是什么档，摆最保守的那一档（调用方喂进来的第 0 项就是「小窗」，见
+        // MainWindow 构造这张表的地方）。
+        const QString token = current.windowMode.value_or(global.windowMode);
+        const int index = m_windowModeCombo->findData(token);
+        {
+            // 挡信号：这一发是**灌值**不是用户改的（和上面那条注释同一个理由 —— 不挡的话
+            // 打开这一页本身就等于替用户写一次盘，见 notifyEdited() 那条路）。
+            const QSignalBlocker block(m_windowModeCombo);
+            m_windowModeCombo->setCurrentIndex(index >= 0 ? index : 0);
+        }
+        setChoiceCustom(windowModeField(), current.windowMode.has_value());
+    }
+    if (m_windowWidthSpin != nullptr) {
+        // 分辨率那两格：**以窗口宽那一格有没有值为准**（它们是同一个决定的两半，见 .hpp
+        // 里 override() 那段），值本身各自取覆盖或全局那一份。
+        setChoiceCustom(windowWidthField(), current.windowWidth.has_value());
+        m_windowWidthSpin->setValue(current.windowWidth.value_or(global.windowWidth));
+        m_windowHeightSpin->setValue(current.windowHeight.value_or(global.windowHeight));
+    }
+
+    // 每一行下面那句话要等值灌完才刷（它写的是"当前是什么"）。
+    //
+    // NOTE: 上面那一串是 `setChoiceCustom()`，它**自己挡着信号**（档位下拉框的
+    // `currentIndexChanged` 既接 refreshHints 也接写盘那条线，灌值的时候一条都不该
+    // 响）—— 所以这一发是这个函数里**唯一**一次算提示的时机，不是"再刷一遍"。
+    refreshHints();
+}

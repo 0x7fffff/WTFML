@@ -87,6 +87,13 @@ constexpr int kStallTickMs = 20;
 constexpr int kStallSampleAfterMs = 50;
 constexpr int kBetweenStepsMs = 150;
 constexpr int kFinalSettleMs = 300;
+/// 硬收尾闸：走到这一刻还没走完就**照样落盘**（只记走到哪、每步多少）。
+///
+/// 为什么要有：`tools/perf-startup.ps1` 只等 120 s，验收配置里那道 `closeAfterMs` 到点就
+/// 把主窗关掉 —— 而中途关窗时 `finish()` 根本不会跑，整份报告就没了。网络卡在某一步的
+/// 等待里、或者某一步弹出了提示，都会走到这一档：宁可记一份"走到第几步"的报告，
+/// 也不要白跑一趟。（不改变任何一步的量法，只决定收不收尾。）
+constexpr int kHardFinalizeMs = 100000;
 // 首帧守卫的门槛。和 StallSampler 的采栈门槛同一个数，守卫红了可以直接对着卡顿栈看。
 constexpr double kFirstFrameLimitMs = 50.0;
 
@@ -187,6 +194,15 @@ public:
         m_fixtureId = detectFixtureId();
         buildSteps();
         loadFirstFrameAllowlist();
+        QTimer::singleShot(kHardFinalizeMs, this, [this] {
+            if (m_finished) {
+                return;
+            }
+            m_hardFinalized = true;
+            qWarning().noquote() << QStringLiteral("[perf] 到 %1 ms 还没走完，按已有的那几步落盘")
+                                        .arg(kHardFinalizeMs);
+            finish();
+        });
 
         m_clock.start();
         m_lastTickMs = 0;
@@ -1055,6 +1071,11 @@ private:
 
     void finish()
     {
+        // 走完和硬收尾闸可能同时到：只落一次盘。
+        if (m_finished) {
+            return;
+        }
+        m_finished = true;
         m_watchdog->stop();
         StallSampler::stop();
 
@@ -1182,6 +1203,9 @@ private:
         root.insert(QStringLiteral("appVersion"), m_app.applicationVersion());
         root.insert(QStringLiteral("qt"), QString::fromLatin1(qVersion()));
         root.insert(QStringLiteral("themeBefore"), m_themeBefore);
+        // 这一趟是不是**没走完**就被硬收尾闸落盘的（见 kHardFinalizeMs）：那时 `steps` 只到
+        // 卡住的那一步，后面的步骤不在报告里，别当成"跑过了、没问题"。
+        root.insert(QStringLiteral("hardFinalized"), m_hardFinalized);
         root.insert(QStringLiteral("steps"), steps);
         root.insert(QStringLiteral("taskWorkload"), QJsonObject{
             {QStringLiteral("source"), QStringLiteral("synthetic-view-only")},
@@ -1300,6 +1324,10 @@ private:
     qsizetype m_storeRows = 0;
     bool m_storeFailed = false;
     QString m_currentStep = QStringLiteral("startup");
+    /// finish() 只跑一次（走完 / 硬收尾闸两条路都可能叫它）。
+    bool m_finished = false;
+    /// 这一趟是被硬收尾闸落盘的（没走完全部步骤）。
+    bool m_hardFinalized = false;
     QString m_lastTickStep = QStringLiteral("startup");
     QString m_maxGapFrom;
     QString m_maxGapAt;

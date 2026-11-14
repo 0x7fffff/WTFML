@@ -294,7 +294,11 @@ int runInstanceUpgradeChecks() {
             page.setTransferTargets(QStringLiteral("upgrade"), {{QStringLiteral("Target"), QStringLiteral("Target")}, {QStringLiteral("Other"), QStringLiteral("Other")},
                 {QStringLiteral("Excluded"), QStringLiteral("Excluded")}, {QStringLiteral("Forge"), QStringLiteral("ForgeTarget")}, {QStringLiteral("NeoForge"), QStringLiteral("NeoTarget")},
                 {QStringLiteral("Unprepared"), QStringLiteral("@download:1.21.2")}});
+            // **产品的顺序**：开页那一刻就 attach，而「升级」页是用户切过去才建的
+            // （见 InstanceSettingsDialog::ensurePage()）。这一节照抄那个顺序 —— 原来这里
+            // 先 showPage 再 attach，正好把"attach 的时候页还没建"那一段盖掉了。
             UpgradeAssessment::attach(&page, &versions, &store, QStringLiteral("Source"), source, options.cacheDir);
+            page.showPage(QStringLiteral("upgrade"));
             auto *combo = page.findChild<QComboBox *>(InstanceSettingsDialog::transferTargetComboName(QStringLiteral("upgrade")));
             auto *tree = page.findChild<QTreeWidget *>(QStringLiteral("instanceUpgradeModChecks"));
             // 现代向导会把“平台有目标发行版 + 本地声明符合”的行收进末尾的「正常兼容」分组，
@@ -373,9 +377,15 @@ int runInstanceUpgradeChecks() {
             check(waitFor(QStringLiteral("平台未找到目标发行版")) && tree->topLevelItem(0)->text(1).contains(QStringLiteral("本地 Minecraft 声明符合")),
                   "unprepared target is assessed using the explicitly stated current-loader assumption");
             check(write(InstanceIconLookup::cachePath(options), "{\"files\":{}}"), "remove only the fixture's platform identity");
+            const QString beforeRecheck = firstRow() != nullptr ? firstRow()->text(1) : QString();
             page.findChild<QPushButton *>(QStringLiteral("instanceUpgradeRecheck"))->click();
             check(waitFor(QStringLiteral("未识别平台项目")) && firstRow()->text(1).contains(QStringLiteral("本地 Minecraft 声明符合")),
                   "unknown platform identity still retains the local compatibility declaration after recheck");
+            // 上面那一格变了 = 这一下点击真的让扫描重跑了一遍。修之前 `attach()` 里
+            // `findChild("instanceUpgradeRecheck")` 拿到的是 nullptr（页还没建），
+            // `clicked -> startScan` 静默没接上，点了什么都不发生，这一格不动。
+            check(firstRow() != nullptr && firstRow()->text(1) != beforeRecheck,
+                  "upgrade recheck still reruns the scan when the page is built after attach");
             const QJsonObject installed{{"filename", QStringLiteral("example.jar")}, {"sha1", record.value(QStringLiteral("sha1"))}, {"project", QStringLiteral("modrinth:known-project")}};
             check(write(source + QStringLiteral("/wtfml.preset-mod-install.json"), QJsonDocument(QJsonObject{
                 {"format", QStringLiteral("wtfml-preset-mod-result/1")}, {"plannedFiles", QJsonArray{installed}}}).toJson()), "prepare a hash-verifiable preset install identity");
@@ -507,6 +517,8 @@ int runInstanceUpgradeChecks() {
         ResourceStore store;
         InstanceSettingsDialog page(QStringLiteral("DeclSource"), QStringLiteral("DeclSource"),
                                     {}, {}, {}, true);
+        // 页是第一次切过去才建的 ⇒ 先切到「升级」那一页，再摸它的控件。
+        page.showPage(QStringLiteral("upgrade"));
         page.setProperty("modernUpgradeFlow", true);
         const QString runtime = scratch.filePath("decl-runtime");
         check(write(runtime + QStringLiteral("/bin/java.exe"), "fixture")
@@ -755,6 +767,8 @@ int runInstanceUpgradeChecks() {
     {
         InstanceSettingsDialog page("Test", "Instance", InstanceSettingsDialog::Override(),
                                    InstanceSettingsDialog::GlobalValues(), {}, true);
+        // 页是第一次切过去才建的 ⇒ 先切到「升级」那一页，再摸它的控件。
+        page.showPage(QStringLiteral("upgrade"));
         page.setTransferTargets("upgrade", {{"Target", "target-id"}});
         bool upgrade = false, rollback = false;
         QObject::connect(&page, &InstanceSettingsDialog::upgradeInPlaceRequested, &page,

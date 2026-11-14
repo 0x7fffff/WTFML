@@ -3,6 +3,4 @@
 # 不参与判定；同一台机器忙时这一趟的实测可以比它高。
 # 只许删、不许加：修好一条删一条；新增一条要有任务单和实测数字。
 instance:open-settings	294.5
-instance:close	162.8
 instance:open-settings-again	237.4
-instance:close-again	111.5
