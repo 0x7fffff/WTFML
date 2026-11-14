@@ -159,11 +159,8 @@ void ToolboxController::ensurePage() {
     if (m_page != nullptr) return;
     m_page = new ToolboxPage(m_pageHost);
     if (auto *hostLayout = qobject_cast<QBoxLayout *>(m_pageHost->layout())) hostLayout->addWidget(m_page);
-    m_directDownload->attach(m_page->downloadPanel());
-    m_trimPreview = new ArmorTrimPreviewController(m_page, m_overlay, this);
-    // 「显示披风」勾选只改预览那一张图，不碰资源、不写盘 —— 直接重绘即可。
-    connect(m_page, &ToolboxPage::trimCapeVisibilityChanged, this,
-            [this](bool) { m_trimPreview->refresh(); });
+    // 工具页第一次进才搭（见 ToolboxPage 文件头）：下拉表、恢复输入、初值都等那一片搭出来再做。
+    connect(m_page, &ToolboxPage::toolBuilt, this, [this](ToolboxPage::Tool tool) { setupTool(tool); });
     // 纹饰那一片一露出来就去读本地预览资源，高速下载那一片一露出来就统计缓存 ——
     // 入口有两条（目录格、面包屑切换浮层），都走 `showTool()`，所以只接这一个信号。
     connect(m_page, &ToolboxPage::toolShown, this, [this](ToolboxPage::Tool tool) {
@@ -174,9 +171,6 @@ void ToolboxController::ensurePage() {
     m_hashWatcher = new QFileSystemWatcher(this);
     connect(m_hashWatcher, &QFileSystemWatcher::fileChanged, this,
             [this](const QString &path) { onHashFileChanged(path); });
-    QStringList beamNames;
-    for (int i = 0; i < Banner::colorCount(); ++i) beamNames.append(Banner::colorName(i));
-    m_page->setBeamColors(beamNames);
     connect(m_page, &ToolboxPage::beamRequested, this, [this](const QList<int> &glass) {
         const auto result = BeaconBeam::calculate(glass);
         QStringList rows;
@@ -193,7 +187,6 @@ void ToolboxController::ensurePage() {
         if (glass.isEmpty()) rows.prepend(tr("未放置染色玻璃：白色光柱。"));
         m_page->setBeamResult(result.segments, result.ok ? rows.join(QLatin1Char('\n')) : result.error);
     });
-    m_page->beamRequested({});
     connect(m_page, &ToolboxPage::bannerTexturesRequested, this, [this] {
         if (m_bannerTextureLoading) return;
         const QString archive = QFileDialog::getOpenFileName(m_page, tr("选择原版游戏 JAR 或旗帜资源包"), {}, tr("游戏资源 (*.jar *.zip)"));
@@ -216,35 +209,6 @@ void ToolboxController::ensurePage() {
         worker->start();
     });
 
-    // ---------- 那四张表（各自的唯一出处都在 src/tools/ 里）----------
-    QStringList algorithms;
-    for (FileHash::Algorithm algorithm : FileHash::algorithms()) {
-        algorithms.append(FileHash::algorithmName(algorithm));
-    }
-    m_page->setAlgorithmChoices(algorithms);
-    m_page->setDimensionChoices(dimensionNames());
-
-    // 信标 / 酿造那两张表（出处分别在 `Beacon` / `Brewing` 里，这一层只翻成字符串）。
-    m_page->setBeaconMaterials(Beacon::materialNames());
-    m_page->setBrewingPotions(Brewing::potionNames());
-    QStringList brewForms;
-    for (int index = 0; index < Brewing::formCount(); ++index) {
-        brewForms.append(Brewing::formName(Brewing::Form(index)));
-    }
-    m_page->setBrewingForms(brewForms);
-    // 版本表和旗帜那一页共用一份（`GameVersion` 是唯一出处）。
-    m_page->setBrewingVersions(GameVersion::versions());
-
-    // 旗帜 / 纹饰那两张表（出处分别在 `Banner` / `ArmorTrim` 里，这一层只翻成字符串）。
-    QStringList bannerColors;
-    QList<QColor> bannerSwatches;
-    for (int index = 0; index < Banner::colorCount(); ++index) {
-        bannerColors.append(Banner::colorName(index));
-        bannerSwatches.append(BeaconBeam::dyeColor(index));
-    }
-    m_page->setBannerColors(bannerColors, bannerSwatches);
-    m_page->setBannerPatterns(Banner::patternNames());
-    m_page->setBannerVersions(BannerDesign::versions());
     connect(m_page, &ToolboxPage::bannerSaveRequested, this, [this] {
         const QString path = QFileDialog::getSaveFileName(m_page, tr("保存旗帜设计"), QStringLiteral("banner.wtfml-banner.json"), tr("旗帜设计 (*.json)"));
         if (path.isEmpty()) return;
@@ -262,48 +226,6 @@ void ToolboxController::ensurePage() {
         m_page->setBannerDesign(design.base, design.layers, design.version);
         refreshBanner(design.base, design.layers);
     });
-
-    QStringList trimArmor;
-    for (int index = 0; index < ArmorTrim::armorMaterialCount(); ++index) {
-        trimArmor.append(ArmorTrim::armorMaterialName(index));
-    }
-    m_page->setTrimArmorMaterials(trimArmor);
-    QStringList trimParts;
-    for (int index = 0; index < ArmorTrim::partCount(); ++index) {
-        trimParts.append(ArmorTrim::partName(index));
-    }
-    m_page->setTrimParts(trimParts);
-    m_page->setTrimPatterns(ArmorTrim::patternNames());
-    m_page->setTrimMaterials(ArmorTrim::trimMaterialNames());
-    // 纹饰与旗帜 / 酿造同一套版本表（`GameVersion` 是唯一出处）。
-    m_page->setTrimVersions(GameVersion::versions());
-
-    QList<QPair<QString, QString>> enchantments;
-    for (const Anvil::EnchantInfo &info : Anvil::enchantmentTable()) {
-        enchantments.append({info.id, QStringLiteral("%1（%2，上限 %3 级）")
-                                        .arg(info.name, info.english)
-                                        .arg(info.maxLevel)});
-    }
-    m_page->setEnchantmentChoices(enchantments);
-
-    QList<ToolboxPage::PaletteEntry> palette;
-    for (char code = '0'; code <= '9'; ++code) {
-        const QChar ch(code);
-        const TextFormat::Color color = TextFormat::colorFromCode(ch);
-        palette.append({QString(ch), TextFormat::colorText(color),
-                        QColor(TextFormat::colorRgb(color)).name(), true});
-    }
-    for (char code = 'a'; code <= 'f'; ++code) {
-        const QChar ch(code);
-        const TextFormat::Color color = TextFormat::colorFromCode(ch);
-        palette.append({QString(ch), TextFormat::colorText(color),
-                        QColor(TextFormat::colorRgb(color)).name(), true});
-    }
-    // 五个格式码 + 复位（`k` 乱码、`l` 粗体、`m` 删除线、`n` 下划线、`o` 斜体、`r` 复位）。
-    for (QChar ch : {QChar('k'), QChar('l'), QChar('m'), QChar('n'), QChar('o'), QChar('r')}) {
-        palette.append({QString(ch), TextFormat::formatText(ch), QString(), false});
-    }
-    m_page->setTextPalette(palette);
 
     // ---------- 工具箱里那几件的信号 ----------
     connect(m_page, &ToolboxPage::anvilPlanRequested, this, [this]() { runAnvilPlan(); });
@@ -359,17 +281,139 @@ void ToolboxController::ensurePage() {
     connect(m_page, &ToolboxPage::trimEquipmentChanged, this, [this] { refreshTrim(); });
 
     ToolboxInputState::attach(m_page);
-    // 一进来先把文本生成器那一页的两块空着的地方填上（空预览框看着像没搭好）。
-    refreshText();
-    // 信标、酿造也一样：开页之前先把那几格算出来，别摆在"空的"那一档上。
-    refreshBeacon(m_page->beaconFromLevel(), m_page->beaconTargetLevel(),
-                  m_page->beaconMaterialIndex(), m_page->beaconCount());
-    refreshBrewing(m_page->brewingPotionIndex(), m_page->brewingExtended(),
-                   m_page->brewingLevel2(), m_page->brewingFormIndex(), m_page->brewingBottles());
-    refreshBanner(m_page->bannerBaseColor(), m_page->bannerLayers());
-    refreshTrim();
-    if (m_hasPlayerSkin)
-        m_trimPreview->setPlayerSkin(m_playerSkin, m_playerCape, m_playerSlim);
+}
+
+void ToolboxController::setupTool(ToolboxPage::Tool tool) {
+    using Tool = ToolboxPage::Tool;
+    // 次序和原先一次全搭时一样：先灌下拉表（恢复输入要按下标落到表里），再摆回记住的输入，最后算初值。
+    switch (tool) {
+    case Tool::Anvil: {
+        QList<QPair<QString, QString>> enchantments;
+        for (const Anvil::EnchantInfo &info : Anvil::enchantmentTable()) {
+            enchantments.append({info.id, QStringLiteral("%1（%2，上限 %3 级）")
+                                            .arg(info.name, info.english)
+                                            .arg(info.maxLevel)});
+        }
+        m_page->setEnchantmentChoices(enchantments);
+        break;
+    }
+    case Tool::Text: {
+        QList<ToolboxPage::PaletteEntry> palette;
+        for (char code = '0'; code <= '9'; ++code) {
+            const QChar ch(code);
+            const TextFormat::Color color = TextFormat::colorFromCode(ch);
+            palette.append({QString(ch), TextFormat::colorText(color),
+                            QColor(TextFormat::colorRgb(color)).name(), true});
+        }
+        for (char code = 'a'; code <= 'f'; ++code) {
+            const QChar ch(code);
+            const TextFormat::Color color = TextFormat::colorFromCode(ch);
+            palette.append({QString(ch), TextFormat::colorText(color),
+                            QColor(TextFormat::colorRgb(color)).name(), true});
+        }
+        // 五个格式码 + 复位（`k` 乱码、`l` 粗体、`m` 删除线、`n` 下划线、`o` 斜体、`r` 复位）。
+        for (QChar ch : {QChar('k'), QChar('l'), QChar('m'), QChar('n'), QChar('o'), QChar('r')}) {
+            palette.append({QString(ch), TextFormat::formatText(ch), QString(), false});
+        }
+        m_page->setTextPalette(palette);
+        break;
+    }
+    case Tool::Coord:
+        m_page->setDimensionChoices(dimensionNames());
+        break;
+    case Tool::Server:
+        break;
+    case Tool::Hash: {
+        QStringList algorithms;
+        for (FileHash::Algorithm algorithm : FileHash::algorithms()) {
+            algorithms.append(FileHash::algorithmName(algorithm));
+        }
+        m_page->setAlgorithmChoices(algorithms);
+        break;
+    }
+    case Tool::Beacon: {
+        QStringList beamNames;
+        for (int i = 0; i < Banner::colorCount(); ++i) beamNames.append(Banner::colorName(i));
+        m_page->setBeamColors(beamNames);
+        m_page->beamRequested({});
+        // 底座材质表的出处在 `Beacon` 里，这一层只翻成字符串。
+        m_page->setBeaconMaterials(Beacon::materialNames());
+        break;
+    }
+    case Tool::Brewing: {
+        m_page->setBrewingPotions(Brewing::potionNames());
+        QStringList brewForms;
+        for (int index = 0; index < Brewing::formCount(); ++index) {
+            brewForms.append(Brewing::formName(Brewing::Form(index)));
+        }
+        m_page->setBrewingForms(brewForms);
+        // 版本表和旗帜 / 纹饰共用一份（`GameVersion` 是唯一出处）。
+        m_page->setBrewingVersions(GameVersion::versions());
+        break;
+    }
+    case Tool::Banner: {
+        QStringList bannerColors;
+        QList<QColor> bannerSwatches;
+        for (int index = 0; index < Banner::colorCount(); ++index) {
+            bannerColors.append(Banner::colorName(index));
+            bannerSwatches.append(BeaconBeam::dyeColor(index));
+        }
+        m_page->setBannerColors(bannerColors, bannerSwatches);
+        m_page->setBannerPatterns(Banner::patternNames());
+        m_page->setBannerVersions(BannerDesign::versions());
+        break;
+    }
+    case Tool::Trim: {
+        m_trimPreview = new ArmorTrimPreviewController(m_page, m_overlay, this);
+        // 「显示披风」勾选只改预览那一张图，不碰资源、不写盘 —— 直接重绘即可。
+        connect(m_page, &ToolboxPage::trimCapeVisibilityChanged, this,
+                [this](bool) { m_trimPreview->refresh(); });
+        QStringList trimArmor;
+        for (int index = 0; index < ArmorTrim::armorMaterialCount(); ++index) {
+            trimArmor.append(ArmorTrim::armorMaterialName(index));
+        }
+        m_page->setTrimArmorMaterials(trimArmor);
+        QStringList trimParts;
+        for (int index = 0; index < ArmorTrim::partCount(); ++index) {
+            trimParts.append(ArmorTrim::partName(index));
+        }
+        m_page->setTrimParts(trimParts);
+        m_page->setTrimPatterns(ArmorTrim::patternNames());
+        m_page->setTrimMaterials(ArmorTrim::trimMaterialNames());
+        // 纹饰与旗帜 / 酿造同一套版本表（`GameVersion` 是唯一出处）。
+        m_page->setTrimVersions(GameVersion::versions());
+        break;
+    }
+    case Tool::Download:
+        m_directDownload->attach(m_page->downloadPanel());
+        break;
+    }
+
+    ToolboxInputState::restoreTool(m_page, tool);
+
+    // 开页之前先把结果那几格算出来，别摆在"空的"那一档上（空预览框看着像没搭好）。
+    switch (tool) {
+    case Tool::Text:
+        refreshText();
+        break;
+    case Tool::Beacon:
+        refreshBeacon(m_page->beaconFromLevel(), m_page->beaconTargetLevel(),
+                      m_page->beaconMaterialIndex(), m_page->beaconCount());
+        break;
+    case Tool::Brewing:
+        refreshBrewing(m_page->brewingPotionIndex(), m_page->brewingExtended(),
+                       m_page->brewingLevel2(), m_page->brewingFormIndex(), m_page->brewingBottles());
+        break;
+    case Tool::Banner:
+        refreshBanner(m_page->bannerBaseColor(), m_page->bannerLayers());
+        break;
+    case Tool::Trim:
+        refreshTrim();
+        if (m_hasPlayerSkin) m_trimPreview->setPlayerSkin(m_playerSkin, m_playerCape, m_playerSlim);
+        break;
+    default:
+        break;
+    }
 }
 
 ToolboxController::~ToolboxController() { shutdown(); }

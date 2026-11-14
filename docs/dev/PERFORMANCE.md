@@ -550,6 +550,33 @@ pwsh -File tools/perf-startup.ps1 -Probe -Runs 3 -Instances 0 -Exe build/perf-pr
 
 验证：`verify_instances` 的 K128 两段（连着发两次只回最新那一发、对象析构后不再回调）、`ui_check_theme`（写设置后 `enabled()` 立刻反映新值，直接写盘 + `invalidateSettingsCache()` 同样生效）；`tools/check-test-modules.ps1` PASS。
 
+### 工具箱按工具懒建（2026-11-14）
+
+改法：`ToolboxPage` 构造只搭表头和目录页；某件工具第一次进才搭那一片（`ensureTool()` → `toolBuilt`），搭完留着。`ToolboxController` 在 `toolBuilt` 里给那一片灌表、恢复记住的输入、算初值。探针新加 `toolbox:tool:<键>`（从目录页点那一格）和 `toolbox:catalog` 两类步骤。
+
+量法：`tools/perf-startup.ps1 -Probe -Instances 0`，看各趟 `run-*-probe.json` 的 `firstFrameMs`。改前和改后背靠背量，但当时另有成员在编译，负载记在表头里。改前那一列的工具页在 `nav:toolbox` 时已经全搭好，只是切过去；改后那一列是第一次进，要现搭。
+
+| 步骤 | 改前（n=3 中位；负载 55–70%，无 cc1plus） | 改后 A（2 趟；负载 51–69%，6–11 个 cc1plus） | 改后 B（1 趟；负载 91–93%，4–5 个 cc1plus） |
+| --- | ---: | ---: | ---: |
+| `nav:toolbox` | 132.8 | 14.0 / 14.8 | 13.6 |
+| `toolbox:tool:anvil` | 9.7 | 18.0 / 25.5 | 17.5 |
+| `toolbox:tool:coord` | 14.8 | 24.5 / 25.2 | 25.2 |
+| `toolbox:tool:beacon` | 24.8 | 43.7 / 48.7 | 48.0 |
+| `toolbox:tool:brewing` | 19.9 | 36.1 / 35.7 | 37.7 |
+| `toolbox:tool:text` | 20.3 | 38.3 / 32.8 | 39.1 |
+| `toolbox:tool:banner` | 17.9 | 46.7 / 45.7 | **55.7** |
+| `toolbox:tool:trim` | 22.5 | **56.5 / 54.6** | **63.1** |
+| `toolbox:tool:download` | 17.8 | 27.0 / 24.4 | 23.9 |
+| `toolbox:tool:server` | 16.2 | 19.6 / 18.9 | 18.7 |
+| `toolbox:tool:hash` | 15.4 | 26.7 / 22.2 | 25.6 |
+| `toolbox:catalog` | 8.9 | 11.2 / 10.5 | 10.4 |
+
+B 比 A 多做了一件事：纹饰页那十二个下拉框改成一个框一次整批插入。负载变了，所以这一项单独省了多少看不出来。
+
+拆开量过一次纹饰页的第一次进：搭这一片本身约 2 ms。搭好以后挪进滚动区那两次重挂父对象，或者先就地搭在滚动区里，样式表都要把整棵子树重新过一遍，都是 25 ms 上下。灌下拉表、显示、布局之后是 30 ms 上下。先就地搭再显示，总数和先搭后挪一样，所以没留那个改法。
+
+纹饰、旗帜两页第一次进时，在编译负载下会超过 50 ms 守卫，守卫会让这一趟以非零退出。它们不在允许名单上，名单也不许加。负载正常时多半在线内，但这里没量到空载数字。要压到线内，可以选空闲时分片预搭（每片 ≤16 ms），或者减少这两页的控件数。
+
 ### 列表与选择
 
 实例文件页的大列表首绘/重列、反选的批量选择（1000 条：逐行 1279.164 ms / 1000 次通知，批量 1.430 ms / 1 次）见 [LIST_PAINT.md](perf-notes/LIST_PAINT.md)。

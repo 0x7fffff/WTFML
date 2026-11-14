@@ -13,6 +13,24 @@ int UiToolboxPolishCheck(QApplication &app) {
             if (!ok) ++failures;
         };
         ToolboxPage page;
+        // 工具页按需搭：刚构造只有目录页；第一次进才搭那一片，只发一次 toolBuilt，再进不重建。
+        QList<ToolboxPage::Tool> built;
+        QObject::connect(&page, &ToolboxPage::toolBuilt, &page, [&](ToolboxPage::Tool tool) { built << tool; });
+        bool noneBuilt = page.inCatalog() && page.findChild<QWidget *>(QStringLiteral("toolboxCatalog")) != nullptr;
+        for (const auto tool : ToolboxPage::tools())
+            noneBuilt = noneBuilt && !page.hasTool(tool) && page.findChild<QWidget *>(ToolboxPage::toolPageName(tool)) == nullptr;
+        expect(noneBuilt, "a fresh toolbox builds only the catalog, no tool page");
+        page.showTool(ToolboxPage::Tool::Coord);
+        QWidget *coordPage = page.findChild<QWidget *>(ToolboxPage::toolPageName(ToolboxPage::Tool::Coord));
+        expect(coordPage != nullptr && page.hasTool(ToolboxPage::Tool::Coord) && !page.hasTool(ToolboxPage::Tool::Anvil)
+                   && built == QList<ToolboxPage::Tool>{ToolboxPage::Tool::Coord},
+               "first visit builds exactly that tool page");
+        page.showCatalog();
+        page.showTool(ToolboxPage::Tool::Coord);
+        expect(built.size() == 1 && page.findChild<QWidget *>(ToolboxPage::toolPageName(ToolboxPage::Tool::Coord)) == coordPage,
+               "revisiting a tool keeps the built page instead of rebuilding");
+        for (const auto tool : {ToolboxPage::Tool::Beacon, ToolboxPage::Tool::Brewing, ToolboxPage::Tool::Trim, ToolboxPage::Tool::Server})
+            page.showTool(tool);
         const QStringList names{QStringLiteral("coordResult"), ToolboxPage::beaconResultName(),
                                 ToolboxPage::brewingResultName(), ToolboxPage::trimResultName()};
         for (const auto &name : names) {

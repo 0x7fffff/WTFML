@@ -33,6 +33,7 @@
 #include "PresetInstallPicker.hpp"
 #include "Theme.hpp"
 #include "TitleBar.hpp"
+#include "ToolboxPage.hpp"
 #include "TaskCenterPanel.hpp"
 #include "PresetManagePage.hpp"
 #include "controllers/InstallPageController.hpp"
@@ -491,6 +492,18 @@ private:
         m_steps.push_back({QStringLiteral("nav:toolbox-again"), [this] {
             if (QAbstractButton *button = m_window.ui()->getToolboxButton()) button->click();
         }});
+        // 工具箱里每件工具第一次进（工具页按需搭，见 ui/ToolboxPage.hpp）：从目录页点那一格。
+        for (const ToolboxPage::Tool tool : ToolboxPage::tools()) {
+            m_steps.push_back({QStringLiteral("toolbox:tool:%1").arg(ToolboxPage::toolKey(tool)), [this, tool] {
+                auto *page = m_window.findChild<ToolboxPage *>();
+                if (page == nullptr) return;
+                page->showCatalog();
+                if (auto *cell = page->findChild<QAbstractButton *>(ToolboxPage::toolCellName(tool))) cell->click();
+            }});
+        }
+        m_steps.push_back({QStringLiteral("toolbox:catalog"), [this] {
+            if (auto *page = m_window.findChild<ToolboxPage *>()) page->showCatalog();
+        }});
         m_steps.push_back({QStringLiteral("nav:instances-again"), [this] { clickNav(MainWindowUI::instancesTabIndex()); }});
 
         // 切当前实例：主页那个「已安装版本」下拉框（和实例页的树双向同步）。
@@ -701,22 +714,25 @@ private:
             step.action = [this] {
                 m_promptShownMs = -1.0;
                 m_promptClock.start();
+                // 步骤 136 起弹框一点就出，`execPrompt` 就阻塞在这一下里：只能在它的嵌套循环里
+                // 看弹框上屏、再自己按取消（等动作返回再看就互相等住，整趟跑到超时）。
+                auto *poll = new QTimer(this);
+                poll->setInterval(1);
+                connect(poll, &QTimer::timeout, this, [this, poll] {
+                    auto *picker = m_window.findChild<PresetInstallPicker *>();
+                    const bool shown = picker != nullptr && picker->isVisible();
+                    if (!shown && m_promptClock.elapsed() < 5000) return;
+                    if (shown) m_promptShownMs = milliseconds(m_promptClock);
+                    poll->stop();
+                    poll->deleteLater();
+                    if (m_window.ui()->overlay() != nullptr) m_window.ui()->overlay()->dismiss();
+                });
+                poll->start();
                 if (InstallPageController *controller = installPage()) {
                     controller->openPresetPicker();
                 }
             };
-            step.ready = [this] {
-                if (m_promptShownMs < 0.0) {
-                    auto *picker = m_window.findChild<PresetInstallPicker *>();
-                    if (picker != nullptr && picker->isVisible()) {
-                        m_promptShownMs = milliseconds(m_promptClock);
-                        QTimer::singleShot(0, this, [this] {
-                            if (m_window.ui()->overlay() != nullptr) m_window.ui()->overlay()->dismiss();
-                        });
-                    }
-                }
-                return m_promptShownMs >= 0.0;
-            };
+            step.ready = [this] { return m_promptShownMs >= 0.0; };
             step.timeoutMs = 5000;
             step.waitingText = [] {
                 return QStringLiteral("安装页「预设」：后台读完预设快照才摆弹框");

@@ -21,6 +21,9 @@ int UiBannerArmorChecks() {
         check(cells == 10, "★ U40 目录页有十格（每件工具一格，高速下载也在里面）",
               QString::number(cells));
 
+        // 工具页第一次进才搭：先进纹饰、旗帜这两片，下面才认得到它们的控件。
+        page.showTool(ToolboxPage::Tool::Trim);
+        page.showTool(ToolboxPage::Tool::Banner);
         auto *base = page.findChild<QComboBox *>(ToolboxPage::bannerBaseComboName());
         auto *pattern = page.findChild<QComboBox *>(ToolboxPage::bannerPatternComboName());
         auto *color = page.findChild<QComboBox *>(ToolboxPage::bannerColorComboName());

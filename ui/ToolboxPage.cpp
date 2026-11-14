@@ -1349,41 +1349,7 @@ ToolboxPage::ToolboxPage(QWidget *parent) : QWidget(parent) {
 
     m_stack = new QStackedWidget(m_levels);
     m_stack->setObjectName(QStringLiteral("toolboxStack"));
-    // **加进去的次序 = m_tools 的次序**（`showTool()` 按下标切，两边不许各写一遍次序）。
-    for (Tool tool : m_tools) {
-        QWidget *panel = nullptr;
-        switch (tool) {
-        case Tool::Anvil: panel = buildAnvilPanel(); break;
-        case Tool::Text: panel = buildTextPanel(); break;
-        case Tool::Coord: panel = buildCoordPanel(); break;
-        case Tool::Server: panel = buildServerPanel(); break;
-        case Tool::Hash: panel = buildHashPanel(); break;
-        case Tool::Beacon: panel = buildBeaconPanel(); break;
-        case Tool::Brewing: panel = buildBrewingPanel(); break;
-        case Tool::Banner: panel = buildBannerPanel(); break;
-        case Tool::Trim: panel = buildTrimPanel(); break;
-        case Tool::Download: panel = buildDownloadPanel(); break;
-        }
-        panel->setObjectName(toolPanelName(tool));
-        panel->layout()->setContentsMargins(0, 4, 0, 0);
-        static_cast<QBoxLayout *>(panel->layout())->setSpacing(14);
-        // 长工具页在自身滚动，不把整个窗口的最小高度撑大；横向永不出滚动条（窄时由各片自己重排）。
-        auto *scroll = new Theme::GutterScrollArea(m_stack);
-        scroll->setObjectName(toolPageName(tool));
-        scroll->setWidgetResizable(true);
-        scroll->setFrameShape(QFrame::NoFrame);
-        scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-        auto *holder = new QWidget(scroll);
-        auto *row = new QHBoxLayout(holder);
-        row->setContentsMargins(Theme::pageTitleInsetLeft(), 0, kSidePadding, 40);
-        row->setSpacing(0);
-        panel->setParent(holder);
-        panel->setMaximumWidth(kToolMaxWidth);
-        row->addWidget(panel, 1000);
-        row->addStretch(1);
-        scroll->setWidget(holder);
-        m_stack->addWidget(scroll);
-    }
+    // 工具页不在这里搭：第一次进哪件才搭哪件（`ensureTool()`），目录页先出。
     m_levels->addWidget(m_stack);
     box->addWidget(m_levels, 1);
     showCatalog();
@@ -1504,16 +1470,51 @@ void ToolboxPage::showCatalog() {
     emit catalogShown();
 }
 
-void ToolboxPage::showTool(Tool tool) {
-    int index = 0;
-    for (int i = 0; i < m_tools.size(); ++i) {
-        if (m_tools.at(i) == tool) {
-            index = i;
-        }
+QWidget *ToolboxPage::ensureTool(Tool tool) {
+    if (QWidget *built = m_pages.value(tool)) return built;
+    QWidget *panel = nullptr;
+    switch (tool) {
+    case Tool::Anvil: panel = buildAnvilPanel(); break;
+    case Tool::Text: panel = buildTextPanel(); break;
+    case Tool::Coord: panel = buildCoordPanel(); break;
+    case Tool::Server: panel = buildServerPanel(); break;
+    case Tool::Hash: panel = buildHashPanel(); break;
+    case Tool::Beacon: panel = buildBeaconPanel(); break;
+    case Tool::Brewing: panel = buildBrewingPanel(); break;
+    case Tool::Banner: panel = buildBannerPanel(); break;
+    case Tool::Trim: panel = buildTrimPanel(); break;
+    case Tool::Download: panel = buildDownloadPanel(); break;
     }
-    m_current = m_tools.at(index);
+    panel->setObjectName(toolPanelName(tool));
+    panel->layout()->setContentsMargins(0, 4, 0, 0);
+    static_cast<QBoxLayout *>(panel->layout())->setSpacing(14);
+    // 长工具页在自身滚动，不把整个窗口的最小高度撑大；横向永不出滚动条（窄时由各片自己重排）。
+    auto *scroll = new Theme::GutterScrollArea(m_stack);
+    scroll->setObjectName(toolPageName(tool));
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    auto *holder = new QWidget(scroll);
+    auto *row = new QHBoxLayout(holder);
+    row->setContentsMargins(Theme::pageTitleInsetLeft(), 0, kSidePadding, 40);
+    row->setSpacing(0);
+    panel->setParent(holder);
+    panel->setMaximumWidth(kToolMaxWidth);
+    row->addWidget(panel, 1000);
+    row->addStretch(1);
+    scroll->setWidget(holder);
+    m_stack->addWidget(scroll);
+    m_pages.insert(tool, scroll);
+    // 先让 controller 灌表、恢复输入、算出初值，再换到这一页（`showTool()` 接着做）。
+    emit toolBuilt(tool);
+    return scroll;
+}
+
+void ToolboxPage::showTool(Tool tool) {
+    QWidget *page = ensureTool(tool);
+    m_current = tool;
     m_inCatalog = false;
-    m_stack->setCurrentIndex(index);
+    m_stack->setCurrentWidget(page);
     m_levels->setCurrentIndex(1);
     syncHeader();
     // 目录格、切换浮层、程序里调 `showTool()` 都只走到这里，所以"换了哪一件"必须从这里发出去 ——
@@ -3721,12 +3722,19 @@ void fillTrimSlots(const QList<QComboBox *> &combos, const QStringList &names, c
         auto *combo=combos[slot]; const bool had=combo->count()>0;
         const int previous=combo->currentData().toInt(); const QSignalBlocker blocker(combo);
         combo->clear();
-        if(!emptyLabel.isEmpty()) combo->addItem(emptyLabel,-1);
-        for(int i=0;i<names.size();++i) combo->addItem(names[i],i);
-        if(armor && slot>0 && names.size()==7) {
-            if(auto *model=qobject_cast<QStandardItemModel *>(combo->model()))
-                if(auto *item=model->item(combo->findData(6))) item->setEnabled(false);
-        }
+        // 一个框一次整批插进去：逐项 addItem 每项各发一轮 rowsInserted、各重算一次尺寸，
+        // 十二个框近两百项都压在纹饰页第一次进的那一帧里（灌表那段实测 16 ms 上下）。
+        QList<QStandardItem *> items;
+        const auto add=[&items](const QString &text,int value) {
+            auto *item=new QStandardItem(text); item->setData(value,Qt::UserRole); items.append(item);
+        };
+        if(!emptyLabel.isEmpty()) add(emptyLabel,-1);
+        for(int i=0;i<names.size();++i) add(names[i],i);
+        auto *model=qobject_cast<QStandardItemModel *>(combo->model());
+        if(model!=nullptr) model->invisibleRootItem()->appendRows(items);
+        else for(auto *item:std::as_const(items)) { combo->addItem(item->text(),item->data(Qt::UserRole)); delete item; }
+        if(armor && slot>0 && names.size()==7 && model!=nullptr)
+            if(auto *item=model->item(combo->findData(6))) item->setEnabled(false);
         combo->setCurrentIndex(combo->findData(had?previous:0));
     }
 }

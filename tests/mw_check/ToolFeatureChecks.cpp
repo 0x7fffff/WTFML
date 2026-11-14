@@ -222,6 +222,10 @@ int runToolFeatureChecks() {
     survivor.shutdown(); survivor.shutdown();
     expect(!survivor.canCancel(survivorId), "ledger destruction and repeated shutdown cannot access freed activity state");
     ToolboxPage dragPage;
+    // 工具页第一次进才搭（和 ToolboxController 一样）：先进要用到的那几片。
+    for (const auto tool : {ToolboxPage::Tool::Anvil, ToolboxPage::Tool::Coord, ToolboxPage::Tool::Server,
+                            ToolboxPage::Tool::Beacon, ToolboxPage::Tool::Banner, ToolboxPage::Tool::Trim})
+        dragPage.showTool(tool);
     QStringList colors;
     for (int i = 0; i < Banner::colorCount(); ++i) colors.append(Banner::colorName(i));
     dragPage.setBannerColors(colors);
@@ -289,6 +293,10 @@ int runToolFeatureChecks() {
     dragPage.findChild<QCheckBox *>(ToolboxPage::trimWholeSetName())->setChecked(true);
     const auto remembered = ToolboxInputState::capture(&dragPage);
     ToolboxPage restored;
+    // 工具页第一次进才搭（和 ToolboxController 一样）：先进要用到的那几片。
+    for (const auto tool : {ToolboxPage::Tool::Anvil, ToolboxPage::Tool::Coord, ToolboxPage::Tool::Server,
+                            ToolboxPage::Tool::Beacon, ToolboxPage::Tool::Banner, ToolboxPage::Tool::Trim})
+        restored.showTool(tool);
     restored.setBannerColors(colors); restored.setBannerPatterns(Banner::patternNames());
     restored.setBannerVersions(BannerDesign::versions()); restored.setBeamColors(colors);
     restored.setDimensionChoices({QStringLiteral("主世界"), QStringLiteral("下界"), QStringLiteral("末地")});
@@ -307,6 +315,7 @@ int runToolFeatureChecks() {
         && !restored.findChild<QSpinBox *>(ToolboxPage::trimPiecesSpinName())->isEnabled(),
         "remembered whole-set option restores dependent control presentation");
     ToolboxPage equipmentPage;
+    equipmentPage.showTool(ToolboxPage::Tool::Trim);
     const QStringList armorNames{"皮革","锁链","铁","金","钻石","下界合金","海龟壳"};
     equipmentPage.setTrimArmorMaterials(armorNames); equipmentPage.setTrimParts({"头盔","胸甲","护腿","靴子"});
     equipmentPage.setTrimPatterns({"海岸","哨兵"}); equipmentPage.setTrimMaterials({"紫水晶","铜"});
@@ -317,6 +326,7 @@ int runToolFeatureChecks() {
         pattern->setCurrentIndex(pattern->findData(slot%2));
     }
     ToolboxPage equipmentRestored;
+    equipmentRestored.showTool(ToolboxPage::Tool::Trim);
     equipmentRestored.setTrimArmorMaterials(armorNames); equipmentRestored.setTrimParts({"头盔","胸甲","护腿","靴子"});
     equipmentRestored.setTrimPatterns({"海岸","哨兵"}); equipmentRestored.setTrimMaterials({"紫水晶","铜"});
     expect(ToolboxInputState::restore(&equipmentRestored,ToolboxInputState::capture(&equipmentPage)),
@@ -334,6 +344,12 @@ int runToolFeatureChecks() {
     expect(ToolboxInputState::restore(&equipmentRestored,QJsonDocument(oldDocument).toJson())
            && equipmentRestored.trimEquipment()[0].armor==4 && equipmentRestored.trimEquipment()[3].armor==4,
            "legacy whole-set drafts migrate into all four equipment columns");
+    // 只搭了纹饰那一片时存盘：没搭的那几片（旗帜、地址框…）沿用上一份记住的值，不被清空。
+    const auto merged = QJsonDocument::fromJson(ToolboxInputState::capture(&equipmentPage, remembered)).object();
+    expect(merged.value("fields").toObject().value(QStringLiteral("serverAddress")).toString() == QStringLiteral("example.test:25565")
+        && merged.value("banner") == QJsonDocument::fromJson(remembered).object().value("banner")
+        && merged.value("fields").toObject().contains(QStringLiteral("trimArmorSlot0")),
+        "saving with only some tool pages built keeps remembered inputs of the unbuilt ones");
     expect(!ToolboxInputState::restore(&restored, "{bad") && restored.bannerLayers() == QStringList{red, blue},
         "corrupt remembered input is rejected without replacing the current draft");
     QSettings inputSettings(root.filePath(QStringLiteral("inputs.ini")), QSettings::IniFormat);
@@ -351,6 +367,8 @@ int runToolFeatureChecks() {
     expect(!(patternCombo->model()->flags(patternCombo->model()->index(flow, 0)) & Qt::ItemIsEnabled)
         && restored.bannerLayers() == QStringList{red, blue}, "version filtering disables future patterns without deleting the design");
     ToolboxPage page;
+    page.showTool(ToolboxPage::Tool::Beacon);
+    page.showTool(ToolboxPage::Tool::Banner);
     page.setBannerColors({QStringLiteral("白"), QStringLiteral("黑")});
     page.setBannerPatterns({QStringLiteral("测试图案")});
     page.setBannerPatternIcons({QIcon(QPixmap::fromImage(flag))});
