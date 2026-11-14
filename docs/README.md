@@ -22,6 +22,7 @@
 | [AGENT.md](features/AGENT.md) | 智能体（Agent）设计与开发计划原稿 |
 | [AGENT_STAGE1A.md](features/AGENT_STAGE1A.md) | 智能体 Stage 1A 实现与验收：Provider + Loop + 会话 + 基础聊天 UI（无工具对话） |
 | [AGENT_STAGE1B.md](features/AGENT_STAGE1B.md) | 智能体 Stage 1B 实现与验收：受控文件工具、审批、D11 外发策略、实例锁定、维护备份 |
+| [DAILY_QUOTE.md](features/DAILY_QUOTE.md) | 主页「每日一言」：句子从哪三个站来、按日期定语种、限长与回退、字体选择、开关与隐私 |
 | [DIRECTORY_SESSION_LOCK.md](features/DIRECTORY_SESSION_LOCK.md) | 同一数据目录只允许一个窗口：锁的实现、目录/文件被占用、写入口审计、复制实例先暂存后发布、破坏性操作矩阵 |
 | [HIGH_SPEED_DOWNLOAD.md](features/HIGH_SPEED_DOWNLOAD.md) | 高速下载：暂停/显式继续/跨进程恢复、分段与限速、本机文件复用、速度与剩余时间 |
 | [MODPACK_IMPORT.md](features/MODPACK_IMPORT.md) | 整合包导入的支持范围与安全边界：声明式启动补丁（GTNH）、MCLib AssetDirector 首启资源预取、缺项报告 |

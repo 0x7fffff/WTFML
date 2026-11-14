@@ -39,6 +39,17 @@
 // 弹出来的那一刻 exec() 就在等用户点 —— 测试里不安排人把它点掉就会永远卡在那儿。
 // 做法是先排一个 0 毫秒的定时器：它在模态窗自己那个事件循环里立刻响，把窗关掉，顺手
 // 把上面写了什么记下来，好让断言能检查"弹窗说的对不对"。
+/// 覆盖层页眉那行字；实例设置页的页眉只写「实例设置」，是哪个实例由页内大标题
+/// （`instanceHeaderTitle`）说，这里拼成「实例设置：<实例名>」让"页眉写着它"的断言仍能认出实例。
+inline QString overlayHeading(OverlayHost *host) {
+    QString heading;
+    if (auto *title = host->findChild<QLabel *>(OverlayHost::overlayTitleLabelName())) heading = title->text();
+    if (auto *name = host->findChild<QLabel *>(QStringLiteral("instanceHeaderTitle"))) {
+        heading += QStringLiteral("：") + name->text();
+    }
+    return heading;
+}
+
 inline QString g_modalTitle;
 inline QString g_modalText;
 inline bool g_modalWasWarning = false;
@@ -252,9 +263,7 @@ private:
             return;
         }
         Seen one;
-        if (auto *title = host->findChild<QLabel *>(OverlayHost::overlayTitleLabelName())) {
-            one.title = title->text();
-        }
+        one.title = overlayHeading(host);
         // 指定了标题就只认那一页（见 setOnlyTitle 那段）：**不记也不收**，让它继续开着。
         if (!m_onlyTitle.isEmpty() && one.title != m_onlyTitle) {
             return;

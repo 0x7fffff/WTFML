@@ -130,6 +130,9 @@ public:
 
     /// 主页场景在 `widget` 那一块上最亮的颜色 —— 直接压在风景上的标题拿它验对比度。
     QColor brightestUnder(const QWidget *widget) const;
+    /// `widget` 那一块此刻屏上可能落到的底色（最暗 / 最亮两端，盖过着色层或主页暗角之后）：
+    /// 主页风景露着时量清晰风景，没露 / 正在淡出时量磨砂底。不靠固定墨色的小图形（导航轨品牌标）拿它验对比度。
+    QList<QColor> colorsUnder(const QWidget *widget) const;
 
 protected:
     void paintEvent(QPaintEvent *event) override;

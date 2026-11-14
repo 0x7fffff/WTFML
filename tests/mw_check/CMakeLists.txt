@@ -38,6 +38,8 @@ set(HEADER_FILES
     ${REPO_ROOT}/src/controllers/GameSessionController.hpp
     ${REPO_ROOT}/src/controllers/LaunchController.hpp
     ${REPO_ROOT}/src/controllers/ConnectionsController.hpp
+    # 主页「每日一言」：MainWindow 建它、开关那一路调它（少了这一对就链接不过）。
+    ${REPO_ROOT}/src/controllers/DailyQuoteController.hpp
     ${REPO_ROOT}/src/controllers/InstanceIconController.hpp
     ${REPO_ROOT}/src/controllers/ActivityCenterController.hpp
     ${REPO_ROOT}/src/controllers/TaskDetailController.hpp
@@ -157,6 +159,7 @@ set(SOURCE_FILES
     ${REPO_ROOT}/src/controllers/GameSessionController.cpp
     ${REPO_ROOT}/src/controllers/LaunchController.cpp
     ${REPO_ROOT}/src/controllers/ConnectionsController.cpp
+    ${REPO_ROOT}/src/controllers/DailyQuoteController.cpp
     ${REPO_ROOT}/src/controllers/InstanceIconController.cpp
     ${REPO_ROOT}/src/controllers/ActivityCenterController.cpp
     ${REPO_ROOT}/src/controllers/TaskDetailController.cpp
@@ -512,6 +515,16 @@ endif()
 # 见上面同一段的注释：存在才加，别的分支上没有它。
 if(EXISTS ${REPO_ROOT}/src/download/LoaderMeta.hpp)
     list(APPEND SOURCE_FILES ${REPO_ROOT}/src/download/LoaderMeta.hpp)
+endif()
+
+# DailyQuoteController 是「每日一言」那一行（71）引入的：MainWindow 构造里 new 它、
+# MainWindowSettings 里按开关调它。少了这一个文件，编译过得去，链接期报的是
+# `undefined reference to DailyQuoteController::DailyQuoteController/refresh/setEnabled`。
+# 理由同上：别的分支上没有它，存在才加（它在 `src/util/DailyQuote.cpp` 之上，
+# 那一份按 tests/CMakeLists.txt 里那条 EXISTS 加进 verify 的源文件清单）。
+if(EXISTS ${REPO_ROOT}/src/controllers/DailyQuoteController.cpp)
+    list(APPEND SOURCE_FILES ${REPO_ROOT}/src/controllers/DailyQuoteController.cpp
+                             ${REPO_ROOT}/src/controllers/DailyQuoteController.hpp)
 endif()
 
 

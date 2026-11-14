@@ -829,6 +829,9 @@ void ConnectionsController::setup() {
     // showGameLogLine 的说明），所以槽里只落盘，不去碰任何正在跑的东西。
     connect(m_owner->m_ui->getShowGameLogCheck(), &QCheckBox::toggled, m_owner,
             &MainWindow::onShowGameLogChanged);
+    // 「每日一言」（设置 → 个性化 → 外观）：关掉立刻不显示也不请求，打开立刻取。
+    connect(m_owner->m_ui->getDailyQuoteCheck(), &QCheckBox::toggled, m_owner,
+            &MainWindow::onDailyQuoteChanged);
     connect(m_owner->m_ui->getProcessPriorityCombo(), &QComboBox::currentIndexChanged, m_owner,
             &MainWindow::onProcessPriorityChanged);
     // 「窗口模式」（小窗 / 最大化 / 全屏， 加的）。改完不只是落盘，还要**回头

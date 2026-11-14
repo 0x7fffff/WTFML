@@ -134,6 +134,78 @@ QFont handPx(QFont font, Theme::HandFont which, int px, qreal spacing) {
     return font;
 }
 
+/// 问候和名字之间那一格，按标题字号的比例算（文楷那 3~4 px 字距另算在问候末字后面）。
+constexpr qreal kHeroGapEm = 0.4;
+
+/// 名字（或「WTFML」）那一段的字体，按整段判：全是正版名那套字符（ASCII 字母、数字、下划线）
+/// 用英文手写体 Dancing Script，放大 1.2 倍（它的 x 高只有文楷七成，同号显小）、字距 0（连笔字）；
+/// 含中文就整段文楷。Dancing Script 注册不上也退回文楷。
+QFont heroWordFont(const QFont &han, const QString &word) {
+    const QString script = Theme::handFamily(Theme::HandFont::Script);
+    const bool latin = !word.isEmpty() && std::all_of(word.cbegin(), word.cend(), [](QChar c) {
+        return c == QLatin1Char('_') || (c.unicode() < 0x80 && c.isLetterOrNumber());
+    });
+    if (!latin || script.isEmpty()) return han;
+    QFont font = han;
+    font.setFamilies(QStringList{script} + han.families());
+    font.setPixelSize(qRound(han.pixelSize() * 1.2));
+    font.setLetterSpacing(QFont::AbsoluteSpacing, 0);
+    return font;
+}
+
+/// 主页大标题：单行问候，不带标点。拆成「问候 + 一格空隙 + 名字」两段画，共用文楷的基线；
+/// 放不下时只把名字收成「名…」，问候留着。宽度交给布局（Ignored），名字长短不会把左栏抻开。
+class HomeGreetingLabel final : public ElidedLabel {
+public:
+    using ElidedLabel::ElidedLabel;
+    void setGreeting(const QString &text, const QString &name) {
+        // updateBottomBar() 每次进度刷新都会走到这里：没变就不重画。
+        if (text == this->text() && name == m_name) return;
+        m_name = name;
+        setText(text);
+        update();
+    }
+    QString lead() const { return text().left(split()).trimmed(); }
+    QString word() const { return text().mid(split()); }
+    QFont wordFont() const { return heroWordFont(font(), word()); }
+    QString shownWord() const {
+        const int room = contentsRect().width() - QFontMetrics(font()).horizontalAdvance(lead()) - gap();
+        const QString shown = QFontMetrics(wordFont()).elidedText(word(), Qt::ElideRight, room);
+        // 窄到连「名…」都放不下：照样留「…」，句子形状不散。
+        return shown.isEmpty() && !word().isEmpty() ? QStringLiteral("…") : shown;
+    }
+    QString shown() const { return lead().isEmpty() ? shownWord() : lead() + QLatin1Char(' ') + shownWord(); }
+    int shownWidth() const {
+        return QFontMetrics(font()).horizontalAdvance(lead()) + gap() +
+               QFontMetrics(wordFont()).horizontalAdvance(shownWord());
+    }
+
+protected:
+    void paintEvent(QPaintEvent *) override {
+        QPainter painter(this);
+        painter.setPen(palette().color(foregroundRole()));
+        const QRect box = contentsRect();
+        QPointF pen(box.left(), box.top() + QFontMetrics(font()).ascent());
+        painter.setFont(font());
+        painter.drawText(pen, lead());
+        pen.rx() += QFontMetrics(font()).horizontalAdvance(lead()) + gap();
+        painter.setFont(wordFont());
+        painter.drawText(pen, shownWord());
+    }
+
+private:
+    /// 名字从哪儿起：带名字时就是句尾那个名字；没名字时取最后一个空格之后（「欢迎来到 WTFML」
+    /// 的 WTFML）；一个空格都没有就整句当一段（「夜深了」）。
+    qsizetype split() const {
+        const QString t = text();
+        if (!m_name.isEmpty() && t.endsWith(m_name)) return t.size() - m_name.size();
+        return t.lastIndexOf(QLatin1Char(' ')) + 1;
+    }
+    int gap() const { return lead().isEmpty() ? 0 : qRound(font().pixelSize() * kHeroGapEm); }
+
+    QString m_name;
+};
+
 /// 主页压在风景上的那几颗"玻璃"按钮：账号胶囊、启动区的切换 / 设置、实例带上的卡片和那颗
 /// 悬停才出来的播放钮。底色是场景暗角色（heroVeil）按设计稿的浓度叠上去，不描边（只有快速启动
 /// 空槽描虚线）；没有场景时退回中性淡底。
@@ -348,13 +420,18 @@ protected:
 /// 实例带那一排卡片的"取景框"：卡片按自己的宽度一张挨一张排，排不下就从右边裁掉，
 /// 最后 120px 渐隐（设计稿 `.cards { overflow: hidden; mask-image: … }`）。
 /// 里面那一排是个普通的 QHBoxLayout（`row()`），重建卡片的代码照旧往里塞。
+///
+/// 卡片**不摊开、不居中**：每张卡按自己名字的宽度定尺寸（`kHomeTileWidth` ~
+/// `kHomeTileMaxWidth`，见 `rebuildRow()` 里那段），从这一排的左缘一张挨一张摆，
+/// 剩下的宽度就空在右边 —— 和设计稿 `.cards` 的"一排卡片、超出的裁掉"是一回事。
 class HomeStripRow final : public QWidget {
 public:
     explicit HomeStripRow(QWidget *parent) : QWidget(parent), m_content(new QWidget(this)) {
         m_row = new QHBoxLayout(m_content);
-        m_row->setContentsMargins(0, 0, 0, 0);
+        // 左边让 4 px：卡片自己的内边距是 8，页签那一排的外边距是 12 —— 补上这 4 px，
+        // 第一张卡的封面左缘就和上面「最近 / 收藏」页签的左缘落在同一条线上。
+        m_row->setContentsMargins(4, 0, 0, 0);
         m_row->setSpacing(6);
-        m_row->setSizeConstraint(QLayout::SetFixedSize);
         m_content->installEventFilter(this);
         setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     }
@@ -368,8 +445,12 @@ protected:
         relayout();
     }
     bool eventFilter(QObject *watched, QEvent *event) override {
-        if (watched == m_content && event->type() == QEvent::Resize) {
-            if (m_content->height() != height()) updateGeometry();
+        if (watched == m_content &&
+            (event->type() == QEvent::Resize || event->type() == QEvent::LayoutRequest)) {
+            // 卡片是重建的（`rebuildRow()` 里清空再塞），那一排的自然宽会变：铺满 / 让位都
+            // 得按新的数目重算。只在几何真的变了的时候动，免得 LayoutRequest 自己喂自己。
+            relayout();
+            if (event->type() == QEvent::Resize && m_content->height() != height()) updateGeometry();
             syncFade();
         }
         return QWidget::eventFilter(watched, event);
@@ -377,7 +458,14 @@ protected:
 
 private:
     void relayout() {
-        m_content->move(0, 0);
+        // 卡片只有自然宽（每张自己定死），这一条内层就是它那么宽：从左缘摆起，
+        // 排不下时右边超出去的那截由 `syncFade()` 渐隐裁掉。
+        const QSize hint = m_content->sizeHint();
+        const int width = qMax(hint.width(), 0);
+        const int height = qMax(hint.height(), this->height());
+        if (m_content->geometry() != QRect(0, 0, width, height)) {
+            m_content->setGeometry(0, 0, width, height);
+        }
         syncFade();
     }
     void syncFade() {
@@ -827,6 +915,46 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
 
 }
 
+void MainWindowUI::updateHomeQuoteFont(bool narrow) {
+    if (homeHeroQuote == nullptr) return;
+    const QFont font = Theme::quoteFont(homeHeroQuote->font(), homeQuoteScript,
+                                       narrow ? kHomeQuoteNarrowPixelSize : kHomeQuotePixelSize);
+    if (homeQuoteScript == Theme::QuoteScript::Kana) {
+        // 日文走系统字体链，不算手写体：不挂 wtfmlDisplay（ui_check 按它查手写体有没有漏）。
+        homeHeroQuote->setFont(font);
+        homeHeroQuote->setProperty(Theme::displayPropertyName().toUtf8().constData(), false);
+        return;
+    }
+    Theme::markDisplay(homeHeroQuote, font);
+}
+
+void MainWindowUI::setHomeHeroTitle(const QString &text, const QString &name) {
+    if (auto *title = static_cast<HomeGreetingLabel *>(homeHeroTitle)) title->setGreeting(text, name);
+}
+
+QString MainWindowUI::homeHeroTitleShown() const {
+    return homeHeroTitle == nullptr ? QString() : static_cast<HomeGreetingLabel *>(homeHeroTitle)->shown();
+}
+
+QFont MainWindowUI::homeHeroTitleNameFont() const {
+    return homeHeroTitle == nullptr ? QFont() : static_cast<HomeGreetingLabel *>(homeHeroTitle)->wordFont();
+}
+
+int MainWindowUI::homeHeroTitleShownWidth() const {
+    return homeHeroTitle == nullptr ? 0 : static_cast<HomeGreetingLabel *>(homeHeroTitle)->shownWidth();
+}
+
+void MainWindowUI::setHomeHeroQuote(const QString &text, const QString &tooltip,
+                                    Theme::QuoteScript script) {
+    if (homeHeroQuote == nullptr) return;
+    homeQuoteScript = script;
+    const QWidget *host = homeHeroQuote->window();
+    updateHomeQuoteFont(host != nullptr && host->width() < 1024);
+    homeHeroQuote->setText(text);
+    homeHeroQuote->setToolTip(tooltip);
+    homeHeroQuote->setVisible(!text.isEmpty());
+}
+
 /// 主页那一页：左 = 挑一个已装好的版本、启动、三种快捷入口；右 = 我的角色（3D 预览）。
 ///
 /// 原先是 `setupUi()` 中间那两百多行。搬出来只是为了让"哪一页长什么样"有个名字：
@@ -859,18 +987,40 @@ QWidget *MainWindowUI::setupHomePage() {
     homePageLayout->addWidget(homeBottomArea);
     {
         home.left.layout->addSpacing(40);
-        auto *welcome = new QLabel(QStringLiteral("下一个世界，等你开启。"), home.left.widget);
-        welcome->setObjectName(QStringLiteral("homeHeroTitle"));
-        welcome->setWordWrap(true);
+        // 问候语由 MainWindow::updateHomeGreeting() 灌（规则在 src/util/HomeGreeting）；
+        // 灌之前先写「欢迎来到 WTFML」，不留空。
+        auto *welcome = new HomeGreetingLabel(home.left.widget);
+        welcome->setGreeting(QStringLiteral("欢迎来到 WTFML"), QString());
+        welcome->setObjectName(homeHeroTitleName());
+        welcome->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
         welcome->setContentsMargins(kHomeHeroInset, 0, 0, 0);
+        homeHeroTitle = welcome;
         home.left.layout->addWidget(welcome);
-        // 英文副题「Your next world awaits.」已去掉（11-12 用户反馈）：大标题一句就够。
         followHeroInk(welcome, false);
-        // 窄于 1024 的窗口：标题收一号（50 → 40），立绘缩到七成二（设计稿 @media）。
+        // 大标题正下方那一行「每日一言」：一天一句，零实例与有实例都显示。
+        // 位置就是被删掉的英文副题那一格（边距 kHomeHeroInset + 4, 12）。没句子时**隐藏**，
+        // 版面和没有这一行时一模一样（设置里关掉也走这条路）。
+        auto *quote = new ElidedLabel(home.left.widget);
+        quote->setObjectName(homeHeroQuoteName());
+        quote->setContentsMargins(kHomeHeroInset + 4, 12, 0, 0);
+        // 宽度交给布局（Ignored），文字长短不会把左栏抻开；装不下自己收省略号。
+        quote->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+        quote->setToolTip(QString());
+        quote->setVisible(false);
+        homeHeroQuote = quote;
+        home.left.layout->addWidget(quote);
+        followHeroInk(quote, true);
+        // 窄于 1024 的窗口：标题收一号（50 → 40），一言收一号（16 → 14），立绘缩到七成二（设计稿 @media）。
         const auto applyScale = [this, homeTab, welcome]() {
             const bool narrow = homeTab->window()->width() < 1024;
-            Theme::markDisplay(welcome, handPx(welcome->font(), Theme::HandFont::KaiLight,
-                                               narrow ? 40 : kHomeHeroTitlePixelSize, narrow ? 3 : 4));
+            QFont titleFont = handPx(welcome->font(), Theme::HandFont::KaiLight,
+                                     narrow ? 40 : kHomeHeroTitlePixelSize, narrow ? 3 : 4);
+            // 名字里文楷没有的字（é、Я、假名）先落系统楷体，笔意还接得上；再没有才到系统字体。
+            QStringList families = titleFont.families();
+            if (families.size() >= 2) families.insert(1, QStringLiteral("KaiTi"));
+            titleFont.setFamilies(families);
+            Theme::markDisplay(welcome, titleFont);
+            updateHomeQuoteFont(narrow);
             if (skinViewer != nullptr) {
                 skinViewer->setMaximumHeight(narrow ? kHomeSkinViewerHeight * 72 / 100 : kHomeSkinViewerHeight);
             }
@@ -1723,7 +1873,12 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
                 loaderIcon->setObjectName(QStringLiteral("homeCurrentLoaderIcon"));
                 loaderIcon->setFixedSize(14, 14);
                 loaderIcon->setScaledContents(true);
-                loaderIcon->setPixmap(VersionIcons::loaderMark(loaderIndex, 28));
+                // 标志跟着主题走（深色主题下 Forge 那把铁砧是浅色那版，见 VersionIcons::loaderMark）。
+                const auto applyLoaderMark = [loaderIcon, loaderIndex]() {
+                    loaderIcon->setPixmap(VersionIcons::loaderMark(loaderIndex, 28));
+                };
+                applyLoaderMark();
+                Theme::follow(loaderIcon, applyLoaderMark);
                 loaderIcon->setAttribute(Qt::WA_TransparentForMouseEvents);
                 metaRow->addWidget(loaderIcon, 0, Qt::AlignVCenter);
                 auto *meta = new ElidedLabel(block);
@@ -1823,10 +1978,13 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             card->setObjectName(QStringLiteral("homeQuickCard_%1").arg(item.key));
             card->setAccessibleName(item.name);
             // QPushButton 的全局 QSS 也声明了 min-height；只写 setMinimumHeight() 会在 polish
-            // 后被它压回普通按钮高度。属性选择器负责复位 QSS，这里再用固定尺寸表达卡片的布局尺寸。
+            // 后被它压回普通按钮高度。属性选择器负责复位 QSS，这里再用布局尺寸表达卡片的
+            // 高度。宽度**跟着名字走**（下面按内容量出来，196 下限、320 上限），尺寸策略是
+            // Fixed —— 这一排**不把剩下的宽度分给卡片**，右边空着就空着。
             card->setProperty("wtfmlQuickCard", true);
             card->setProperty("wtfmlQuickCardSize", QStringLiteral("normal"));
-            card->setFixedSize(kHomeTileWidth, kHomeTileHeight);
+            card->setFixedHeight(kHomeTileHeight);
+            card->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
             Theme::markButton(card, Theme::ButtonKind::Neutral);
 
             auto *content = new QHBoxLayout(card);
@@ -1909,6 +2067,16 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             QObject::connect(card, &QPushButton::clicked, card, [this, key = item.key]() {
                 if (m_homeQuickActionHandler) m_homeQuickActionHandler(key, HomeQuickAction::Select);
             });
+            // 宽度按**内容**量：封面 + 名字（+「当前」）+ 播放钮。不能指望 QPushButton 的
+            // sizeHint —— 那个按 text / icon 算，不认它身上这套布局，量出来总是缩到下限。
+            // 播放钮平时是收着的（悬停才露），布局的 sizeHint 里没有它，所以这里把它那一格
+            // 手动加回去：不加的话鼠标一进来名字就被挤出一截省略号。
+            if (QLayout *contentLayout = card->layout()) {
+                const int playRoom = play->sizeHint().width() + contentLayout->spacing();
+                card->setFixedWidth(qBound(kHomeTileWidth,
+                                           contentLayout->sizeHint().width() + playRoom,
+                                           kHomeTileMaxWidth));
+            }
             row->addWidget(card);
         }
     };

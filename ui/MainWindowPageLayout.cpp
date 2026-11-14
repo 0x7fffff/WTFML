@@ -11,7 +11,6 @@
 #include "TaskProgressBar.hpp"
 #include "Theme.hpp"
 #include "ThemeAdvancedEditor.hpp"
-#include "ThemeBackground.hpp"
 #include "TitleBar.hpp"
 #include "VersionIcons.hpp"
 #include "VersionTreeDelegate.hpp"
@@ -165,17 +164,12 @@ TwoColumns buildTwoColumnPage(QWidget *page, const QString &tab) {
 
     const bool home = tab == QLatin1String("home");
 
-    // 栏本身是个控件（不是裸布局），而且**主页那一条左栏要能铺图**：「主页左侧自定义图像」
-    // 就铺在这一格（`Theme::Part::HomeLeft`，见 Theme.hpp）。
-    //
-    // NOTE: 栏本身在"没设图"时**什么都不画**（`ThemeBackground::paintEvent` 直接 return，
-    // 见那个文件头），所以这一栏用它**一个像素都不差** ——
-    // 看到的都是底下那一层（页面 / 选项卡自己画的底）。
-    const auto makeColumn = [page](const QString &name, bool themed) {
+    // 栏本身是个控件（不是裸布局），为的是验证工程能按 objectName 找回来量几何。
+    // 自定义背景图铺在**整页那一层**（`Theme::Part::PageBackground`，见 MainWindowUI.cpp），
+    // 栏自己不画任何东西 —— 看到的都是底下那一层（页面 / 选项卡自己画的底）。
+    const auto makeColumn = [page](const QString &name) {
         Column column;
-        column.widget = themed ? static_cast<QWidget *>(
-                                     new ThemeBackground(Theme::Part::HomeLeft, page))
-                               : new QWidget(page);
+        column.widget = new QWidget(page);
         column.widget->setObjectName(name);
         column.layout = new QVBoxLayout(column.widget);
         // 栏本身不留边距：页面那一层已经留过 kPageMargin 了，再留一层就是双层边距
@@ -185,8 +179,8 @@ TwoColumns buildTwoColumnPage(QWidget *page, const QString &tab) {
     };
 
     TwoColumns columns;
-    columns.left = makeColumn(MainWindowUI::leftColumnName(tab), home);
-    columns.right = makeColumn(MainWindowUI::rightColumnName(tab), false);
+    columns.left = makeColumn(MainWindowUI::leftColumnName(tab));
+    columns.right = makeColumn(MainWindowUI::rightColumnName(tab));
     if (home) {
         // 右栏**钉死**在人物预览那一栏的宽度上（唯一出处见头文件
         // `homeRightColumnWidth()`）—— 主页不按份数分宽，左栏吃剩下的全部。
@@ -222,7 +216,9 @@ TwoColumns buildTwoColumnPage(QWidget *page, const QString &tab) {
         auto *header = new QWidget(columns.right.widget);
         header->setObjectName(MainWindowUI::pageHeaderName(tab));
         auto *headerLayout = new QVBoxLayout(header);
-        headerLayout->setContentsMargins(kSurfacePadding, 2, kSurfacePadding, 0);
+        // 左缘 / 上沿取一级页统一落点（页面外边距已在外层留过，这里只补差）
+        headerLayout->setContentsMargins(Theme::pageTitleInsetLeft() - kPageMargin, Theme::pageTitleInsetTop() - kPageMargin,
+                                         kSurfacePadding, 0);
         headerLayout->setSpacing(kHeaderSpacing);
 
         auto *titleRow = new QHBoxLayout;

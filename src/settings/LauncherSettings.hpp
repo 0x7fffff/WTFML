@@ -6,6 +6,7 @@
  */
 #pragma once
 
+#include <QDate>
 #include <QObject>
 #include <QString>
 #include <QStringList>
@@ -318,6 +319,19 @@ public:
     /// 设置「显示游戏日志」并立刻落盘。
     void setShowGameLog(bool show);
 
+    /// 主页「每日一言」那一行：默认开。关掉 = 不发任何请求、主页不显示也不占位。
+    /// 说明文字在设置页「个性化 → 外观」那一组里（见 MainWindowSettingsPage）。
+    bool dailyQuote() const { return m_dailyQuote; }
+
+    /// 设置「每日一言」并立刻落盘。
+    void setDailyQuote(bool enabled);
+
+    /// 上次打开启动器的本地日期（主页问候用，见 util/HomeGreeting）。没记录时无效。
+    QDate lastOpenedDate() const { return m_lastOpenedDate; }
+
+    /// 记下这次打开的日期并立刻落盘。启动时先拿旧值算完问候再调它。
+    void setLastOpenedDate(const QDate &date);
+
     /// 游戏窗口的**模式**：小窗 / 最大化 / 全屏。默认小窗。
     ///
     /// 三档各自发什么参数、以及"最大化"为什么要照屏幕工作区算大小，全写在
@@ -472,6 +486,8 @@ private:
     /// 点下载模组 / 光影包时要不要先查前置（见上面那一节）。默认勾上。
     bool m_warnMissingDependencies = true;
     bool m_showGameLog = false;
+    bool m_dailyQuote = true;
+    QDate m_lastOpenedDate;
     /// 默认**小窗**：启动器发的是"照下面那两个数开一个普通窗口" ——
     /// 默认值取这一档的意思是"谁都不动这一项时，行为一个字都不变"。
     GameWindowMode m_gameWindowMode = GameWindowMode::Windowed;

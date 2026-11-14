@@ -234,8 +234,8 @@ void closeInstanceSettingsPage(QString *instanceOut) {
     if (!opened) {
         return;  // 这一页压根没开起来：断言会从页眉那一条红，这里别崩
     }
-    if (auto *title = host->findChild<QLabel *>(OverlayHost::overlayTitleLabelName())) {
-        *instanceOut = title->text();
+    if (host->findChild<QLabel *>(OverlayHost::overlayTitleLabelName()) != nullptr) {
+        *instanceOut = overlayHeading(host);
     } else {
         // 不是那一页：按一条提示记下来（断言会看到"多弹了一个"）。
         recordPrompt(host->findChild<InlineMessageBox *>());

@@ -64,7 +64,10 @@ inline constexpr int kHomeHeroInset = 8;
 inline constexpr int kHomeAccountPillWidth = 184;
 inline constexpr int kHomeAccountPillHeight = 44;
 /// 实例带卡片的宽 / 高（设计稿 .card：196 宽，封面 48 + 上下 8）。
+/// 196 是**下限**、320 是上限：卡片宽度跟着实例名走（名字整句放得下就宽一点，放不下
+/// 才在 320 那档省略），一排里不给它分"剩下的宽度"。
 inline constexpr int kHomeTileWidth = 196;
+inline constexpr int kHomeTileMaxWidth = 320;
 inline constexpr int kHomeTileHeight = 64;
 /// 主页启动区卡片底下给「启动游戏」柔光留的余量（光晕向下偏 10、模糊 30）。
 inline constexpr int kHomeLaunchGlowRoom = 24;
@@ -78,6 +81,10 @@ inline constexpr int kHomeLaunchGlowRoom = 24;
 inline constexpr int kHomeCardGap = 0;
 /// 主页大标题的字号（设计稿 home.html：细楷 50，窄窗 40）。
 inline constexpr int kHomeHeroTitlePixelSize = 50;
+/// 大标题下那行「每日一言」的字号：正常 16，窄窗 <1024 收一号到 14
+/// （和原来的英文副题同一档，见 8fc9f5e 的反向 diff）。
+inline constexpr int kHomeQuotePixelSize = 16;
+inline constexpr int kHomeQuoteNarrowPixelSize = 14;
 
 /// 「额外 JVM 参数」多行输入框的高度，约三四行的样子；再高会把下面那几项挤出可视区。
 inline constexpr int kJvmArgsEditHeight = 72;

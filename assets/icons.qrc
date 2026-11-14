@@ -9,7 +9,7 @@
     而产品本身看着一切正常。
 
   内容就一个前缀：`/assets`，所以代码里写的是 `:/assets/loader/fabric.png`。
-  四张图的来路见 loader/README.md；场景图见 scenes/README.md，标题字体见 fonts/README.md，默认皮肤见 skins/README.md。
+  四张图的来路见 loader/README.md；场景图见 scenes/README.md，标题字体见 fonts/README.md，默认皮肤见 skins/README.md，应用图标见 app/README.md。
 -->
 <RCC version="1.0">
     <qresource prefix="/assets">
@@ -24,5 +24,10 @@
         <file alias="fonts/LXGWWenKai-Light.ttf">fonts/LXGWWenKai-Light.ttf</file>
         <file alias="fonts/DancingScript-Regular.ttf">fonts/DancingScript-Regular.ttf</file>
         <file alias="skins/default.png">skins/default.png</file>
+        <file alias="app/wtfml-256.png">app/wtfml-256.png</file>
+        <file alias="app/wtfml-48.png">app/wtfml-48.png</file>
+        <file alias="app/wtfml-32.png">app/wtfml-32.png</file>
+        <file alias="app/wtfml-16.png">app/wtfml-16.png</file>
+        <file alias="app/wtfml-24.svg">app/wtfml-24.svg</file>
     </qresource>
 </RCC>

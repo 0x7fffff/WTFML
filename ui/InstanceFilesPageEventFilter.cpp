@@ -67,9 +67,11 @@ bool InstanceFilesPage::eventFilter(QObject *watched, QEvent *event) {
             // 鼠标进了这一行 ⇒ 露出这一行的「详情」。**进的是行里哪一个孩子也算** —— Qt 的
             // Enter 是往祖先那一串发的（见 .hpp 里 setRowDetailVisible 那段）。
             setRowDetailVisible(rowWidget, true);
+            if (m_list != nullptr) m_list->viewport()->update();  // 行底的悬停淡底跟着换
             break;
         case QEvent::Leave:
             setRowDetailVisible(rowWidget, false);
+            if (m_list != nullptr) m_list->viewport()->update();
             break;
         case QEvent::MouseButtonPress: {
             const auto *mouse = static_cast<QMouseEvent *>(event);

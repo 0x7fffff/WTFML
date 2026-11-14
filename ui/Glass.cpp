@@ -88,6 +88,8 @@ QString sceneId() {
     const QString id = Theme::current().presetId;
     if (id == QLatin1String("dark") || id == QLatin1String("emerald") || id == QLatin1String("ocean"))
         return id;
+    // 走到这儿只剩「跟着系统」：认不出的 id 在 `Theme::normalize()` 里已经落到出厂那一档
+    // （石炭灰）了，不会带着空 presetId 上来。
     return Theme::isDark() ? QStringLiteral("dark") : QStringLiteral("emerald");
 }
 
@@ -592,6 +594,33 @@ QColor Backdrop::brightestUnder(const QWidget *widget) const {
     QColor brightest(Qt::black);
     extremes(m_heroSmall, small, nullptr, &brightest);
     return brightest;
+}
+
+QList<QColor> Backdrop::colorsUnder(const QWidget *widget) const {
+    const Theme::Tokens t = Theme::tokens();
+    const Mode m = effectiveMode();
+    if (m == Mode::Solid || widget == nullptr) return {t.page};
+    QList<QColor> out;
+    const QRect hero = heroRect();
+    if (m_heroOpacity > 0.0 && !m_heroSmall.isNull() && !hero.isEmpty()) {
+        const QRect area = QRect(widget->mapTo(this, QPoint()), widget->size()).translated(-hero.topLeft());
+        const qreal sx = qreal(m_heroSmall.width()) / hero.width();
+        const qreal sy = qreal(m_heroSmall.height()) / hero.height();
+        QColor darkest(Qt::white), brightest(Qt::black);
+        extremes(m_heroSmall,
+                 QRect(qFloor(area.left() * sx), qFloor(area.top() * sy), qCeil(area.width() * sx) + 1,
+                       qCeil(area.height() * sy) + 1),
+                 &darkest, &brightest);
+        out << darkest << brightest;
+    }
+    if (m_heroOpacity < 1.0 || out.isEmpty()) {
+        const QList<QColor> range =
+            m == Mode::Scene ? QList<QColor>{m_darkest, m_brightest} : systemBackdropRange();
+        QColor layer = t.page;
+        layer.setAlphaF(minimumTintAlpha(layer, bodyInks(), range, tintStrength() / 100.0));
+        for (const QColor &bg : range) out << over(layer, bg);
+    }
+    return out;
 }
 
 void Backdrop::scheduleRebuild() {

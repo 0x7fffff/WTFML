@@ -92,6 +92,7 @@ class ImportController;
 class GameSessionController;
 class LaunchController;
 class ConnectionsController;
+class DailyQuoteController;
 class InstanceIconController;
 class QTreeWidget;  // 下载页那几张资源表（只用指针和引用，所以前置声明够）
 class QTreeWidgetItem;
@@ -1931,6 +1932,8 @@ private:
     // / 「显示游戏日志」开关。关掉**不关已经开着的那些窗**（用户可能正在读崩溃信息）；
     // / 打开之后从下一行输出开始就会开窗（这是刻意的，见 showGameLogLine 的说明）。
     void onShowGameLogChanged();
+    /// 设置页「每日一言」那个开关：立刻落盘，开着就按当前日期取一句（关着不发任何请求）。
+    void onDailyQuoteChanged();
     // ---------- 「启动提醒」那两条（设置页里同一组） ----------
     // / 十秒内重复启动同一实例时要不要先问一句。改了这一项**不影响已经开着的那些游戏**，
     // / 也不清 m_lastLaunchAttempts —— 那个表只是"上次点启动是什么时候"，关掉开关不该
@@ -1965,11 +1968,11 @@ private:
     // 为了验证工程能按名字把 `refreshThemeImageRows()` 调起来（见那一处的 NOTE）。
     /**
      * @brief 把某一块的图改掉，然后**落盘 + 立刻铺开 + 重画这一行**。
-     * @param partKey `Theme::partKey()` 的结果（"homeLeft" / "pageBackground"）。
+     * @param partKey `Theme::partKey()` 的结果（今天只有 "pageBackground"）。
      * @param imagePath 改完之后要铺的那张图（**绝对路径**）；空串 = 这一块不铺图。
      * @param imageName 用户挑的那张**原来叫什么**（换图那一发给 `QFileInfo(picked).fileName()`，
      * 拖滑块/换摆法那两发把上一份的名字原样带过来）。设置页那一行「现在铺的是：…」
-     * 写的是它 —— 盘上那份叫 `homeLeft.jpg`，写那个用户等于什么都没看见。
+     * 写的是它 —— 盘上那份叫 `pageBackground.jpg`，写那个用户等于什么都没看见。
      * @param fit `int(Theme::ImageFit)`。
      * @param opacity 0~100。
      *
@@ -2056,6 +2059,9 @@ private:
     /// 刷新底部状态条那三格（头像/用户名、**任务摘要**、实例运行状态）。
     /// 显示规则见 .cpp；界面那边只负责把控件搭出来。
     void updateBottomBar();
+    /// 主页大标题那句问候（规则在 util/HomeGreeting）：名字和账号胶囊同一来源，没登录不带名字。
+    /// 启动、账号变化（走 updateBottomBar）、应用重新激活时重算；文字没变不重画。
+    void updateHomeGreeting();
 
     /// 底栏右下那一格（"当前实例运行状态"）：方块的颜色 + 两行字，整个重画一遍。
     void updateBottomBarRunState();
@@ -2766,6 +2772,12 @@ private:
     GameSessionController *m_gameSessionController = nullptr;
     LaunchController *m_launchController = nullptr;
     ConnectionsController *m_connectionsController = nullptr;
+    /// 主页「每日一言」：取句、当天缓存与句子池（见 controllers/DailyQuoteController.hpp）。
+    DailyQuoteController *m_dailyQuote = nullptr;
+    /// 这次启动之前记下的「上次打开日期」（启动时读出旧值再写入今天），以及启动那一刻有没有实例。
+    /// 两样都只在启动时定一次：第一次打开的那一整趟都说「欢迎」，不因中途装了实例改口。
+    QDate m_greetingLastOpened;
+    bool m_greetingHadInstances = false;
     InstanceIconController *m_instanceIconController = nullptr;
     /// 控制台那一页。**页对象和"这一页现在说的是哪一个服务端"都在控制器里**
     /// （`src/controllers/ServerConsoleController`），这一层

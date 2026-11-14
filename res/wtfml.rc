@@ -1,3 +1,13 @@
+// 两件事：exe 的应用图标 + res/wtfml.manifest。
+//
+// 图标 ID **必须是 1**（IDI_ICON1）：资源管理器 / 固定到任务栏取的是第一组图标，
+// windres 按 ID 排序，ID 最小的排第一。它和下面 manifest 的 (类型 24, 编号 1) 是不同的
+// 资源类型，编号撞了不影响。
+// 路径按 windres 的规矩相对这个 .rc 所在目录解析（下面 wtfml.manifest 就是这么写的）。
+// NOTE: windres 只看 .rc、不看它引用的 .ico —— 换图标后靠 CMakeLists.txt 里那条
+//       OBJECT_DEPENDS 让这份 .rc 重编，不然 exe 里还是旧图标。
+IDI_ICON1 ICON "../assets/app/wtfml.ico"
+
 // 只做一件事：把 res/wtfml.manifest 绑到 exe 上（资源类型 24 = RT_MANIFEST，
 // 编号**必须是 1**，那是 Windows 认的那一个）。
 1 24 "wtfml.manifest"

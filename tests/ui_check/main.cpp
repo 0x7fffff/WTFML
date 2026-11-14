@@ -1,4 +1,7 @@
 #include "modules/Support.hpp"
+#include <QFile>
+#include <QIcon>
+#include "AppIcon.hpp" // 产品和验证工程用的是同一个函数，见 ui/AppIcon.hpp
 
 
 int main(int argc, char *argv[]) {
@@ -16,7 +19,8 @@ int main(int argc, char *argv[]) {
     app.setProperty("wtfml.testAgentDataDir", processSandbox.filePath("agent"));
 
     // ---------- 设置沙盒：必须在**第一个 QSettings 对象出现之前**重定向 ----------
-    // 这个工程量的是"出厂那套外观"（主题色 #3d8068、跟着系统、一项覆盖都没有），
+    // 这个工程量的是**一套固定的基线外观**（预设见下面 `Theme::setSpec` 那一句、一项
+    // 覆盖都没有），
     // 而 Theme / 样式表那一层读的正是 QSettings。不重定向的话，跑这一趟的人自己在启动器里
     // 挑过的主题（预设 / 主题色 / 背景图）会原样灌进来 —— 于是同一个 HEAD 在开发机上
     // 一片红、在 CI 上全绿，红的还偏偏是"出厂色对不对"那一类断言（见 W1 / W12 / Z11）。
@@ -41,7 +45,17 @@ int main(int argc, char *argv[]) {
         for (const QString &icon : icons) {
             if (QPixmap(QStringLiteral(":/assets/loader/%1.png").arg(icon)).isNull()) return 1;
         }
-        std::puts("PASS historical UI driver links, starts, and loads shared icon resources");
+        // 应用图标（#74）：四档 PNG 都在 qrc 里，同一个函数建出来的 QIcon 四档都报得出来。
+        // 运行时窗口用的就是这一份；exe 自己那份（assets/app/wtfml.ico）由 res/wtfml.rc 编进
+        // 资源，验证工程不链它 —— 那一份靠对构建出来的 exe 做 ExtractAssociatedIcon 看。
+        const QIcon appIcon = wtfmlWindowIcon();
+        if (appIcon.isNull()) return 1;
+        const QList<QSize> appIconSizes = appIcon.availableSizes();
+        for (const int size : {16, 32, 48, 256}) {
+            if (!QFile::exists(QStringLiteral(":/assets/app/wtfml-%1.png").arg(size))) return 1;
+            if (!appIconSizes.contains(QSize(size, size))) return 1;
+        }
+        std::puts("PASS historical UI driver links, starts, and loads shared icon resources and the app icon (16/32/48/256)");
         return 0;
     }
 
@@ -83,6 +97,13 @@ int main(int argc, char *argv[]) {
     // 算出来的（PM_ComboBoxFrameWidth、箭头宽度等），换个样式数值就变。不在这里钉住的话，
     // 验证跑的是系统原生样式、产品跑的是 Fusion，测的就不是要发的那份东西了。
     QApplication::setStyle(Theme::createStyle());
+
+    // 这一套像素基线的底：**翡翠绿那一支**（浅色）。历史断言量的是浅色那身 —— 白底上的墨、
+    // 深像素扫描、日志窗的浅色表 —— 出厂默认换成石炭灰之后它们不该跟着 `Theme::load()` 走。
+    // 出厂那一份（石炭灰）由 W1 / W8 / W9 / 收尾 和 `ui_check_review_shots` 的 default
+    // 那一趟单独验。只设规格、不 `apply()`：和改默认之前一样，调色板仍是 Fusion 那份浅色，
+    // 换掉它会把整份基线的像素重新洗一遍。
+    Theme::setSpec(Theme::presetSpec(QStringLiteral("emerald")));
 
     QMainWindow window;
     MainWindowUI ui(&window);
@@ -3058,6 +3079,98 @@ int main(int argc, char *argv[]) {
                   requests.at(1).second == MainWindowUI::HomeQuickAction::Launch,
               "★★ U31b 点卡片只发「设为当前」（Select），点卡上那颗 ▶ 才发「启动」（Launch）",
               QStringLiteral("收到 %1 次").arg(requests.size()));
+
+        // 「当前」那枚小字只给 `item.current` 那一张：一排里同时摆着"当前"和别的实例时，
+        // 徽章**只能有一个**（r81 那批截图里"最近"那排两个都带着它）。
+        {
+            MainWindowUI::HomeQuickItem current = real;
+            current.key = QStringLiteral("current-one");
+            current.name = QStringLiteral("当前那一份");
+            current.current = true;
+            MainWindowUI::HomeQuickItem other = real;
+            other.key = QStringLiteral("other-one");
+            other.name = QStringLiteral("另一份");
+            other.current = false;
+            ui.setHomeQuickRows({current}, {}, {current, other});
+            QApplication::processEvents();
+            const QList<QLabel *> badges =
+                window.findChildren<QLabel *>(QStringLiteral("homeQuickCurrentBadge"));
+            check(badges.size() == 1 && badges.first()->parentWidget() != nullptr,
+                  "★★ U31b 一排里只画一个「当前」徽章（只认 item.current，不认'排在第几个'）",
+                  QStringLiteral("画了 %1 个").arg(badges.size()));
+        }
+        // 实例带：卡片**跟着名字定宽**（196 下限、320 上限），从这一排的左缘一张挨一张摆，
+        // 剩下的宽度不分给卡片（右边空着就空着），实例名整句放得下。
+        {
+            const QSize before = window.size();
+            window.resize(1280, 800);
+            QApplication::processEvents();
+            MainWindowUI::HomeQuickItem first = real;
+            first.key = QStringLiteral("wide-a");
+            first.name = QStringLiteral("1.20.1-Forge 47.2.0");
+            MainWindowUI::HomeQuickItem second = real;
+            second.key = QStringLiteral("wide-b");
+            second.name = QStringLiteral("1.21.4-Fabric 0.16.9");
+            ui.setHomeQuickRows({first}, {}, {first, second});
+            // 两次：第一次摆卡片、第二次让实例带那条内层按新的自然宽重新定位（它是在
+            // LayoutRequest 里改自己几何的，和窗口 resize 挤在同一轮）。
+            QApplication::processEvents();
+            QApplication::processEvents();
+            QWidget *recent = window.findChild<QWidget *>(QStringLiteral("homeQuickRecentSection"));
+            const QList<QPushButton *> wideCards =
+                recent == nullptr
+                    ? QList<QPushButton *>()
+                    : recent->findChildren<QPushButton *>(
+                          QRegularExpression(QStringLiteral("^homeQuickCard_")));
+            bool cardsOk = wideCards.size() == 2;
+            QStringList detail;
+            int used = 0;
+            for (QPushButton *card : wideCards) {
+                // 名字整句放得下（这一排不截实例名）。
+                QLabel *name = nullptr;
+                for (QLabel *label : card->findChildren<QLabel *>()) {
+                    if (label->text() == QStringLiteral("1.20.1-Forge 47.2.0") ||
+                        label->text() == QStringLiteral("1.21.4-Fabric 0.16.9")) {
+                        name = label;
+                        break;
+                    }
+                }
+                const int needed = name == nullptr ? -1
+                                                   : name->fontMetrics().horizontalAdvance(name->text());
+                cardsOk = cardsOk && name != nullptr && name->width() >= needed &&
+                          card->width() >= 196 && card->width() <= 320;
+                used += card->width();
+                detail << QStringLiteral("卡 %1 / 名字 %2（要 %3）")
+                              .arg(card->width())
+                              .arg(name == nullptr ? -1 : name->width())
+                              .arg(needed);
+            }
+            // 从这一排的左缘排起，中间只隔 6；第一张卡的**封面左缘**（卡片左缘 + 里面那 8 px）
+            // 要和上面「最近」页签的左缘落在同一条线上。
+            const int stripLeft = recent == nullptr ? 0 : recent->mapTo(&window, QPoint(0, 0)).x();
+            const int firstLeft = wideCards.isEmpty() ? -1 : wideCards.first()->mapTo(&window, QPoint(0, 0)).x();
+            const int secondLeft = wideCards.size() < 2 ? -1 : wideCards.at(1)->mapTo(&window, QPoint(0, 0)).x();
+            const int gap = wideCards.size() < 2 ? -1 : secondLeft - (firstLeft + wideCards.first()->width());
+            QWidget *tab = window.findChild<QWidget *>(QStringLiteral("homeQuickRecentTab"));
+            const int tabLeft = tab == nullptr ? -1 : tab->mapTo(&window, QPoint(0, 0)).x();
+            check(cardsOk && firstLeft >= stripLeft && firstLeft - stripLeft <= 6 &&
+                      qAbs(firstLeft + 8 - tabLeft) <= 2 && gap == 6,
+                  "★★ U31b 1280 宽时实例带：卡片跟名字定宽（196~320）、从左缘一张挨一张摆、"
+                  "第一张卡的封面和「最近」页签左缘对齐、名字整句放得下",
+                  QStringLiteral("卡片起点 %1（这一排 %2）/ 封面 %3（页签 %4）%5 间距 %6")
+                      .arg(firstLeft)
+                      .arg(stripLeft)
+                      .arg(firstLeft + 8)
+                      .arg(tabLeft)
+                      .arg(detail.join(QStringLiteral("；")))
+                      .arg(gap));
+            // 剩下的宽度**没有**分给卡片：两张卡加起来远小于这一排的宽度。
+            check(recent != nullptr && used + 100 < recent->width(),
+                  "★★ U31b 实例带**不把剩下的宽度分给卡片**（右边空着就空着）",
+                  QStringLiteral("两张卡 %1 / 这一排 %2").arg(used).arg(recent ? recent->width() : -1));
+            window.resize(before);
+            QApplication::processEvents();
+        }
         ui.setHomeQuickRows({}, {});
         QApplication::processEvents();
     }

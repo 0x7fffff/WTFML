@@ -6,11 +6,14 @@
 #include "TitleBar.hpp"
 
 #include "Animations.hpp"
+#include "Glass.hpp"
 #include "Theme.hpp"
 #include "VersionIcons.hpp"
 
 #include <QApplication>
 #include <QEasingCurve>
+#include <QFile>
+#include <QRegularExpression>
 #include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QPaintEvent>
@@ -21,6 +24,9 @@
 #include <QVariantAnimation>
 
 #include <QShowEvent>
+
+// `Q_INIT_RESOURCE` 不能写在命名空间里（见 ui/AppIcon.hpp）。
+static void initIconResources() { Q_INIT_RESOURCE(icons); }
 
 namespace {
 
@@ -41,7 +47,7 @@ constexpr int kNavPaddingX = 14;
 /// 品牌那一行：高 44，下面再空 18 才是第一颗导航。
 constexpr int kBrandHeight = 44;
 constexpr int kBrandGap = 18;
-constexpr int kLogoSize = 22;
+constexpr int kLogoSize = 26;  // 手写 W 横向撑满这一格（字形本身扁，高约 17）
 constexpr int kFoldSize = 28;
 constexpr int kCaptionHeight = 40;
 constexpr int kWindowButtonWidth = 46;
@@ -86,6 +92,71 @@ QString iconName(TitleBarButton::NavIcon icon) {
 }
 
 int railPaddingFor(int width) { return width < (kRailWidth + kRailMiniWidth) / 2 ? kRailMiniPadding : kRailPadding; }
+
+/// 品牌标「手写的 W」：设计稿 24 px 专版（`assets/app/wtfml-24.svg`，一条只有 M/L/Z 的填充路径），
+/// 读成 24×24 坐标里的 QPainterPath，画多大缩多大、颜色由调用方给。
+const QPainterPath &brandMarkPath() {
+    static const QPainterPath path = [] {
+        initIconResources();
+        QFile file(QStringLiteral(":/assets/app/wtfml-24.svg"));
+        QPainterPath out;
+        out.setFillRule(Qt::WindingFill);  // SVG 默认 nonzero
+        if (!file.open(QIODevice::ReadOnly)) return out;
+        const QString svg = QString::fromUtf8(file.readAll());
+        const QString d = QRegularExpression(QStringLiteral(" d=\"([^\"]*)\"")).match(svg).captured(1);
+        QChar command;
+        QList<qreal> numbers;
+        const auto flush = [&] {
+            for (int i = 0; i + 1 < numbers.size(); i += 2) {
+                const QPointF p(numbers.at(i), numbers.at(i + 1));
+                // M 后面跟着的多组坐标按 L 算（SVG 规矩）。
+                if (command == QLatin1Char('M') && i == 0) out.moveTo(p);
+                else out.lineTo(p);
+            }
+            if (command == QLatin1Char('Z')) out.closeSubpath();
+            numbers.clear();
+        };
+        static const QRegularExpression token(QStringLiteral(R"([MLZ]|-?\d*\.?\d+)"));
+        for (auto it = token.globalMatch(d); it.hasNext();) {
+            const QString t = it.next().captured(0);
+            if (t.size() == 1 && t.at(0).isLetter()) {
+                flush();
+                command = t.at(0);
+                if (command == QLatin1Char('Z')) flush();
+            } else {
+                numbers.append(t.toDouble());
+            }
+        }
+        flush();
+        return out;
+    }();
+    return path;
+}
+
+/// 品牌标的两档渐变色（上 → 下）。出厂石炭灰（预设 dark、没改主题色）用图标原色；
+/// 别的主题、改过主题色的按主题色走（上一档提亮）。
+QPair<QColor, QColor> brandMarkStops() {
+    const Theme::Spec spec = Theme::current();
+    const QColor presetAccent = Theme::tokens(spec.presetId).primary;
+    const bool customAccent = spec.accent.isValid() && spec.accent != presetAccent;
+    // 「跟着系统」落在深色那一档时长得和石炭灰一样，也用原色。
+    const bool charcoal = Theme::tokens().primary == Theme::tokens(QStringLiteral("dark")).primary;
+    if (charcoal && !customAccent) return {QColor("#8682D4"), QColor("#6C68BC")};
+    const QColor base = customAccent ? spec.accent : Theme::tokens().deep;
+    return {base.lighter(118), base};
+}
+
+/// 把 @p color 往 @p ink 那头挪，直到它在 @p backgrounds 每一种底上都有 3:1（WCAG 图形对比度）。
+/// @p ink 是这一处文字用的墨（主题保证它在这些底上读得清），所以一定收得住。
+QColor ensureGraphicContrast(QColor color, const QColor &ink, const QList<QColor> &backgrounds) {
+    const auto worst = [&](const QColor &c) {
+        double low = 21.0;
+        for (const QColor &bg : backgrounds) low = qMin(low, Glass::contrast(c, bg));
+        return low;
+    };
+    for (int step = 0; step < 10 && worst(color) < 3.0; ++step) color = blendedColor(color, ink, 0.2);
+    return color;
+}
 
 }  // namespace
 
@@ -204,7 +275,25 @@ void TitleBarButton::paintEvent(QPaintEvent *) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, true);
     if (m_glyph == Glyph::Logo) {
-        p.drawPixmap(rect(), VersionIcons::grassBlock(kLogoSize));
+        // 颜色先按主题取（brandMarkStops），再按这一格底下此刻真正的底色补对比度：
+        // 自定义背景图很亮 / 很暗时字靠着色层兜底，这枚小图形靠往这一处的墨色挪（m_ink 由轨给）。
+        const QPair<QColor, QColor> stops = brandMarkStops();
+        QList<QColor> under{Theme::tokens().page};
+        if (const Glass::Backdrop *backdrop = Glass::Backdrop::of(this)) under = backdrop->colorsUnder(this);
+        if (Theme::partHasBackground(Theme::Part::TitleBar)) {
+            const QColor railFill = Theme::partBackground(Theme::Part::TitleBar);
+            for (QColor &c : under) c = Glass::over(railFill, c);
+        }
+        // 按字形外框等比撑满这一格（SVG 画布四周留着白，照 24 缩会小一圈）。
+        const QRectF box = brandMarkPath().boundingRect();
+        const qreal scale = qMin(width() / box.width(), height() / box.height());
+        p.translate((width() - box.width() * scale) / 2.0, (height() - box.height() * scale) / 2.0);
+        p.scale(scale, scale);
+        p.translate(-box.topLeft());
+        QLinearGradient gradient(0, 4.8, 0, 19.2);  // 设计稿 24 专版的渐变区间（路径坐标）
+        gradient.setColorAt(0, ensureGraphicContrast(stops.first, m_ink, under));
+        gradient.setColorAt(1, ensureGraphicContrast(stops.second, m_ink, under));
+        p.fillPath(brandMarkPath(), gradient);
         return;
     }
     if (!isEnabled()) p.setOpacity(0.6);
@@ -315,7 +404,7 @@ TitleBar::TitleBar(QWidget *parent) : QWidget(parent) {
     connect(m_maximize, &QAbstractButton::clicked, this, &TitleBar::maximizeRequested);
     connect(m_close, &QAbstractButton::clicked, this, &TitleBar::closeRequested);
 
-    // 品牌行：草方块（折叠时点它展开）+ 名字（画的）+ 折叠钮。
+    // 品牌行：手写的 W（应用图标，折叠时点它展开）+ 名字（画的）+ 折叠钮。
     m_logo = new TitleBarButton(TitleBarButton::Glyph::Logo, QColor(), QColor(), this);
     m_logo->setObjectName(QStringLiteral("titleBarLogo"));
     connect(m_logo, &QAbstractButton::clicked, this, [this]() {
@@ -358,6 +447,8 @@ void TitleBar::applyColors() {
     setPalette(railPalette);
     setAutoFillBackground(false);
     styleCaptionButtons(m_minimize, m_maximize, m_close, m_hero);
+    // 品牌标补对比度时往这一处的字色挪（主页压在风景上用 heroInk）。
+    if (auto *logo = qobject_cast<TitleBarButton *>(m_logo)) logo->setInkColor(m_hero ? t.heroInk : t.text);
     if (auto *button = qobject_cast<TitleBarButton *>(m_fold)) {
         button->setHoverColors(t.hover, t.secondary);
         button->setPressColor(t.fillPress);
@@ -447,8 +538,9 @@ void TitleBar::layoutForWidth(int w) {
     m_layout->setContentsMargins(pad, kRailTopPadding + kBrandHeight + kBrandGap, pad, kRailTopPadding);
     for (QAbstractButton *button : std::as_const(m_navButtons)) button->setFixedSize(w - 2 * pad, kNavItemHeight);
     const bool compact = w < (kRailWidth + kRailMiniWidth) / 2;
-    // 品牌行：展开时 padding 0 10，图标轨时 0 11（草方块对准导航图标）。
-    const int logoX = compact ? pad + 11 : pad + 10;
+    // 品牌行：展开时 padding 0 10，图标轨时 0 11（W 对准导航图标）。
+    // 中线对准导航图标：图标轨时导航图标居中，展开时图标中心在 pad + 14 + 10。
+    const int logoX = compact ? (w - kLogoSize) / 2 : pad + kNavPaddingX + kNavIconSize / 2 - kLogoSize / 2;
     m_logo->move(logoX, kRailTopPadding + (kBrandHeight - kLogoSize) / 2);
     const bool expandable = isCollapsed() && !m_narrow;
     m_logo->setAttribute(Qt::WA_TransparentForMouseEvents, !expandable);
@@ -553,7 +645,7 @@ void TitleBar::paintEvent(QPaintEvent *) {
         p.drawRoundedRect(rect, kRadius, kRadius);
     }
 
-    // 品牌名（西文手写体 30）；图标轨时只剩草方块。
+    // 品牌名（西文手写体 30）；图标轨时只剩 W。
     if (width() < (kRailWidth + kRailMiniWidth) / 2) return;
     const QString brand = titleText();
     if (brand.isEmpty()) return;

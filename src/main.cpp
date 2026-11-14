@@ -24,6 +24,7 @@
 #include "../ui/Animations.hpp"  // 按下按钮那一份动效（见下面那段 NOTE）
 #include "../ui/InlineMessage.hpp"
 #include "../ui/OverlayHost.hpp"
+#include "../ui/AppIcon.hpp" // 窗口 / 任务栏图标（自绘标题栏里不画，见那个文件头）
 #include "../ui/Theme.hpp"   // 主题从盘上读回来、铺开（见下面那段 NOTE）
 #include "util/AppPaths.hpp"
 #include "util/SecretRedactor.hpp"
@@ -188,6 +189,11 @@ int main(int argc, char *argv[]) {
     app.setApplicationVersion(QStringLiteral(WTFML_VERSION));
     app.setOrganizationName("WTFML");
 
+    // 应用图标：这一句铺给**所有**顶层窗口（主窗口、ChromeDialog、游戏日志窗、任务栏、
+    // Alt+Tab），之后建的窗口继承它，各窗口不用各自再 setWindowIcon。
+    // 自绘标题栏里不画图标（用户定的），这里只做窗口与任务栏那两处。
+    QApplication::setWindowIcon(wtfmlWindowIcon());
+
     StartupAcceptance::Context acceptance;
     QString acceptanceProblem;
     if (!StartupAcceptance::configure(&acceptance, &acceptanceProblem)) {
@@ -221,8 +227,8 @@ int main(int argc, char *argv[]) {
     // 底栏底色、几张卡片、11 处 QSS）都是按**那一刻**的调色板算的 —— 铺晚了它们就全是
     // 出厂色，而且是那种"改了设置重启之后只有一半地方变了"的错。
     //
-    // NOTE: 盘上一项都没有（新装、或者用户从没改过）时 `load()` 给的是出厂那一份，而
-    // 出厂那一份 `apply()` **连调色板都不碰** —— 这就是"没设过主题"的样子。
+    // NOTE: 盘上一项都没有（新装、或者用户从没改过）时 `load()` 给的是出厂那一份
+    // —— 石炭灰（`dark`），`presetId` / 主题色都跟着它走。
     Theme::setSpec(Theme::load());
     Theme::apply(app);
 

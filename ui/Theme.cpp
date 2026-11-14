@@ -177,6 +177,32 @@ QString handFamily(HandFont which) {
     return families[int(which)];
 }
 
+QStringList quoteFamilies(QuoteScript script) {
+    const QString base = QApplication::font().family();
+    switch (script) {
+    case QuoteScript::Kana:
+        return {QStringLiteral("Yu Mincho"), QStringLiteral("Yu Gothic UI"),
+                QStringLiteral("Meiryo UI"), base};
+    case QuoteScript::Han: {
+        const QString kai = handFamily(HandFont::KaiLight);
+        return kai.isEmpty() ? QStringList{base} : QStringList{kai, base};
+    }
+    case QuoteScript::Latin: {
+        const QString latin = handFamily(HandFont::Script);
+        return latin.isEmpty() ? QStringList{base} : QStringList{latin, base};
+    }
+    }
+    return {base};
+}
+
+QFont quoteFont(QFont font, QuoteScript script, int pixelSize) {
+    font.setFamilies(quoteFamilies(script));
+    font.setPixelSize(pixelSize);
+    font.setBold(false);
+    font.setLetterSpacing(QFont::AbsoluteSpacing, 0);
+    return font;
+}
+
 QFont handFont(QFont font, HandFont which) {
     const QString family = handFamily(which);
     if (family.isEmpty()) return font;
@@ -426,11 +452,10 @@ const PartInfo kPartInfos[] = {
     {"panel", "浮层面板", 112, QPalette::Window, false, false},
     {"card", "卡片", 0, QPalette::Base, false, false},
     {"scrim", "四周变暗", 0, QPalette::Window, true, false},
-    // 下面两块的 `from` / `shade` 只是"万一有人给它设了个底色"时的兜底算法（今天没有任何
-    // 调用点取它们的底）—— 它们真正的底是 `QTabWidget` 自己画的那一层，**不在调色板里**
-    // （见 `partHasBackground()` 那段）。加这两项是为了能单独铺一张图。没设图时它们一个
+    // 这一块的 `from` / `shade` 只是"万一有人给它设了个底色"时的兜底算法（今天没有任何
+    // 调用点取它的底）—— 它真正的底是 `QTabWidget` 自己画的那一层，**不在调色板里**
+    // （见 `partHasBackground()` 那段）。加这一项是为了能单独铺一张图。没设图时它一个
     // 像素都不改。
-    {"homeLeft", "主页左栏", 0, QPalette::Window, false, false},
     {"pageBackground", "页面背景", 0, QPalette::Window, false, false},
 };
 static_assert(sizeof(kPartInfos) / sizeof(kPartInfos[0]) == static_cast<size_t>(partCount()),
@@ -946,8 +971,9 @@ bool roleFromKey(const QString &key, Role *out) {
 // ---------------------------------------------------------------------------
 
 QColor defaultAccentColor() {
-    // 主题色是更沉稳的翡翠绿：顶栏长时间停在视野里，降低明度后不抢内容；
-    // 同时白字对它仍有 4.5:1 以上的对比度，实心主按钮也能复用。
+    // 翡翠绿那一支主题色（`tokens("emerald").primary`）。出厂主题色现在跟预设走
+    // （`defaultSpec()` = 石炭灰，主题色是它自己的 primary）；这一支只剩挑色框里那行
+    // 示例色在用（`InlineMessage::pickColor()`）。
     // 全仓只有这一处写这六个十六进制位 —— 顶栏、按钮的字与边、当前那一颗导航底下那条
     // 线，量的都是它算出来的某一档（见 `accentShade()`），**不许在别处再写一遍**。
     return QColor(QStringLiteral("#457F70"));
@@ -956,10 +982,10 @@ QColor defaultAccentColor() {
 QColor rowHoverFill(const QColor &base) {
     if (current().presetId != QLatin1String("system") && current().accent == tokens().primary)
         return tokens().hover;
-    // 认不出（盘上手改歪了）就退回出厂那一支 —— 和 accentShade() 同一个兜底。
+    // 认不出（盘上手改歪了）就退回当前预设那一支 —— 和 `accentShade()` 同一个兜底。
     QColor accent = current().accent;
     if (!accent.isValid()) {
-        accent = defaultAccentColor();
+        accent = tokens().primary;
     }
     // 混法**必须和 `mixWithWhite()` 逐字同式**（`(底*(100-p) + 主题*p + 50) / 100`）：
     // 浅色下 `base` 就是白，这一份和 `accentShade(AccentShade::Hover)` 因此**逐字节相等**
@@ -992,7 +1018,7 @@ QColor selectionFill(const QColor &base) {
     // `accentShade(AccentShade::Hover)` 也只差那两个百分比。
     QColor accent = current().accent;
     if (!accent.isValid()) {
-        accent = defaultAccentColor();
+        accent = tokens().primary;
     }
     return mixToward(base, accent, selectionAccentPercent());
 }
@@ -1068,10 +1094,10 @@ QPalette selectionPalette(const QPalette &palette, bool selected) {
 }
 
 QColor accentShade(AccentShade shade) {
-    // 当前那一份里的主题色；认不出（盘上手改歪了）就退回出厂那一支。
+    // 当前那一份里的主题色；认不出（盘上手改歪了）就退回当前预设那一支。
     QColor pure = current().accent;
     if (!pure.isValid()) {
-        pure = defaultAccentColor();
+        pure = tokens().primary;
     }
     switch (shade) {
     case AccentShade::Pure:
@@ -1803,14 +1829,17 @@ QString widgetStyleSheet() {
         // 主动作单独高一档（36）。它是页面上唯一一颗实心
         // 按钮，"这一页最重要的那一下"值得多 4px；其余那颗留在 32 上，一页里两档就够。
         return QStringLiteral("QPushButton[%1=\"%2\"], QPushButton[%1=\"%2\"]:default:enabled { background-color: %3; color: #ffffff;"
-                              " border-color: %3; border-radius: %6px; min-height: %7px; }"
+                              " border-color: %3; border-radius: %6px; min-height: %7px;"
+                              " padding-left: %8px; padding-right: %8px; min-width: %9px; }"
                               "QPushButton[%1=\"%2\"]:hover:enabled { background-color: %4;"
                               " border-color: %4; }"
                               "QPushButton[%1=\"%2\"]:pressed:enabled { background-color: %5;"
                               " border-color: %5; }")
             .arg(QString::fromLatin1(kButtonKindProperty), key, fill, hoverFill, pressedFill)
             .arg(buttonRadius())
-            .arg(primaryActionHeight() - kButtonChrome);
+            .arg(primaryActionHeight() - kButtonChrome)
+            .arg(primaryButtonPadX())
+            .arg(primaryButtonMinWidth() - 2 * primaryButtonPadX() - 2);  // min-width 是内容盒：扣内边距与左右各 1px 边框
     };
     // 主动作那两颗（悬停 / 按下）由 `kindButtonStyleSheet()` 给每一颗 Primary 挂控件级
     // 样式；这一份应用级规则只是兜底（同色），别拿它当"悬停会变深"的唯一出处。
@@ -1889,8 +1918,12 @@ QString widgetStyleSheet() {
     // "我按自己钉死的边长来"，把上面那条 `min-height` 按回去。
     // 写死 22 的 `QPushButton` 在 `min-height: 18px` 下实际是 **32**
     // —— `setFixedSize()` 拦不住它，只能靠这一条。`min-height: 0` 是有效的复位。
-    qss += QStringLiteral("QPushButton[%1=\"%2\"] { min-height: 0px; }")
-               .arg(QString::fromLatin1(kButtonSizeProperty), QString::fromLatin1(kIconButtonValue));
+    // 主按钮那条的左右内边距 / 最小宽也在这里按回去（图标档是方块，不吃留白）。
+    qss += QStringLiteral("QPushButton[%1=\"%2\"] { min-height: 0px; }"
+                          "QPushButton[%3=\"primary\"][%1=\"%2\"] { min-width: 0px;"
+                          " padding-left: 6px; padding-right: 6px; }")
+               .arg(QString::fromLatin1(kButtonSizeProperty), QString::fromLatin1(kIconButtonValue),
+                    QString::fromLatin1(kButtonKindProperty));
 
     // 快速启动卡自己按内容档位钉高度。和图标按钮相同，先把通用 QPushButton 的
     // min-height / padding 复位，否则 QSS polish 会把 C++ 里给卡片的高度压回普通按钮。
@@ -2145,6 +2178,8 @@ QString widgetStyleSheet() {
         "QTabWidget::pane { background-color: transparent; border: none; }"
         "QFrame[%1=\"workspace\"] QAbstractItemView, QFrame[%1=\"sidebar\"] QAbstractItemView"
         " { background-color: transparent; }"
+        // 实例设置里那几页文件列表：直接排在对话框底上（圆角行底由它自己的代理画）。
+        "QListWidget#instanceFilesList { background-color: transparent; border: none; }"
         "QScrollArea, QScrollArea > QWidget#qt_scrollarea_viewport,"
         " QScrollArea > QWidget#qt_scrollarea_viewport > QWidget { background: transparent; }")
                .arg(QString::fromLatin1(kSurfaceProperty));
@@ -2316,7 +2351,8 @@ QStyle *createStyle() {
 // ---------------------------------------------------------------------------
 
 QStringList presetIds() {
-    return {QStringLiteral("emerald"), QStringLiteral("ocean"), QStringLiteral("dark"),
+    // 这一个是设置页「配色」那一格的下拉顺序：出厂默认那一档排第一。
+    return {QStringLiteral("dark"), QStringLiteral("emerald"), QStringLiteral("ocean"),
             QStringLiteral("system")};
 }
 
@@ -2344,10 +2380,11 @@ Spec presetSpec(const QString &id) {
 }
 
 Spec defaultSpec() {
-    // 新安装默认使用翡翠实验室；已有的系统主题和自定义覆盖继续读回。
+    // 新安装默认使用石炭灰：主题色跟着预设那一支走（和 `presetSpec()` 同一个来源）。
+    // 盘上存过预设 / 主题色 / 覆盖项的继续按存的那一份读回。
     Spec spec;
-    spec.presetId = QStringLiteral("emerald");
-    spec.accent = defaultAccentColor();
+    spec.presetId = QStringLiteral("dark");
+    spec.accent = tokens(spec.presetId).primary;
     return spec;
 }
 

@@ -14,6 +14,8 @@
 #include <QMenu>
 #include <QScreen>
 #include <QScrollBar>
+#include <QFrame>
+#include <QVBoxLayout>
 
 namespace {
 constexpr int kPopupRowHeight = 34;
@@ -229,9 +231,10 @@ int UiPopupCheck(QApplication &app) {
         expect(popup != nullptr &&
                    popup->findChild<QLineEdit *>(QStringLiteral("wtfmlPopupSearch")) == nullptr,
                "短列表（5 项）没有搜索框");
-        const int scrollMax = view != nullptr ? view->verticalScrollBar()->maximum() : 0;
-        expect(scrollMax > 0, "内容超出 8 项时弹层里能滚（滚轮 / 拖动 / 键盘）",
-               QStringLiteral("滚动上限 %1").arg(scrollMax));
+        // 5 项装得下：这里**不该**有滚动（以前弹层矮一截，靠"内容溢出"才意外滚得起来）。
+        const int shortScrollMax = view != nullptr ? view->verticalScrollBar()->maximum() : 0;
+        expect(view != nullptr && shortScrollMax == 0, "5 项装得下就不滚（滚动上限 0）",
+               QStringLiteral("滚动上限 %1").arg(shortScrollMax));
         if (view != nullptr) {
             // 细条：常驻的是 3px 一根，但常态透明度是 0（滚动时才露、停 600ms 淡出）。
             auto *effect = qobject_cast<QGraphicsOpacityEffect *>(view->verticalScrollBar()->graphicsEffect());
@@ -270,6 +273,12 @@ int UiPopupCheck(QApplication &app) {
                            ? longPopup->findChild<QLineEdit *>(QStringLiteral("wtfmlPopupSearch"))
                            : nullptr;
         expect(search != nullptr, "长列表（45 项）顶上有一条搜索框");
+        // 45 项 > 8 项：弹层里必须能滚（滚轮 / 拖动 / 键盘），露出来的正好 8 行。
+        const int longScrollMax =
+            longView != nullptr ? longView->verticalScrollBar()->maximum() : 0;
+        expect(longView != nullptr && longScrollMax > 0,
+               "内容超出 8 项时弹层里能滚（滚轮 / 拖动 / 键盘）",
+               QStringLiteral("45 项滚动上限 %1").arg(longScrollMax));
         // 限高按**项数**算：8 项 × 34 + 内边距，再给顶上那条搜索框留出自己那一截。
         const int longHeight = longPopup != nullptr ? longPopup->height() : -1;
         const int designHeight = kPopupRowHeight * 8 + 12;  // 项 8 个 + 上下内边距 6
@@ -295,6 +304,97 @@ int UiPopupCheck(QApplication &app) {
         longCombo->hidePopup();
         QApplication::processEvents();
         host.hide();
+    }
+
+    // ---------- ③b 弹层高度**恰好**装下露出来的那几项（2 / 4 / 8 / 45 项） ----------
+    // 用户报的是「最后一项被裁掉一截」：125% 下弹层比「项数 × 项高」少 15 物理像素
+    // （= 12 逻辑像素），末项下沿压在底部渐隐上。这里量的就是那条线：
+    // ① 弹层高度 ≥ 可见项数 × 34 + 上下内边距（有搜索框再加它那一截）；
+    // ② 视图高度 ≥ 可见项数 × 34；
+    // ③ 凡是露在视口里的行都**整行**在里面，不许有半行。
+    // 同一段在两个 CTest 条目里跑：`wtfml.popups`（本机 100%）和 `wtfml.popups-scale`
+    // （`QT_SCALE_FACTOR=1.25`）—— 用户那台就是这个缩放。
+    {
+        QWidget host;
+        auto *column = new QVBoxLayout(&host);
+        host.resize(520, 200);
+        host.show();
+        QApplication::processEvents();
+        const qreal dpr = host.devicePixelRatioF();
+        QList<QComboBox *> combos;
+        for (int items : {2, 4, 8, 45}) {
+            auto *combo = new QComboBox(&host);
+            for (int i = 0; i < items; ++i) {
+                combo->addItem(QStringLiteral("选项 %1").arg(i + 1));
+            }
+            column->addWidget(combo);
+            combos.append(combo);
+        }
+        // 先让这一列排完，把 Polish 跑过（`ComboWatcher` 靠 Polish 挂自绘代理和弹层装饰器），
+        // 再一个个弹 —— 否则量到的是"还没装装饰器"的裸弹层，测不到内边距那一层。
+        QApplication::processEvents();
+        for (QComboBox *combo : combos) {
+            const int items = combo->count();
+            combo->showPopup();
+            QApplication::processEvents();
+            QAbstractItemView *view = combo->view();
+            QWidget *popup = view != nullptr ? view->window() : nullptr;
+            const int rows = qMin(items, 8);
+            auto *search = popup != nullptr
+                               ? popup->findChild<QLineEdit *>(QStringLiteral("wtfmlPopupSearch"))
+                               : nullptr;
+            const int searchHeight = search != nullptr && search->isVisible() ? search->height() : 0;
+            const int needView = rows * kPopupRowHeight;
+            const int needPopup = needView + 12 + searchHeight;  // 上下各 6px 内边距
+
+            int clipped = 0;      // 露了一截、下沿被切掉的行
+            int fullyVisible = 0; // 整行都在视口里的行
+            if (view != nullptr) {
+                auto *listView = qobject_cast<QListView *>(view);
+                const int viewportHeight = view->viewport()->height();
+                for (int i = 0; i < items; ++i) {
+                    if (listView != nullptr && listView->isRowHidden(i)) {
+                        continue;
+                    }
+                    const QRect rect = view->visualRect(view->model()->index(i, 0));
+                    if (rect.isEmpty() || rect.top() >= viewportHeight) {
+                        continue;
+                    }
+                    if (rect.bottom() >= viewportHeight) {
+                        ++clipped;
+                    } else {
+                        ++fullyVisible;
+                    }
+                }
+            }
+
+            const QString measured =
+                QStringLiteral("%1 项：弹层 %2 / 视图 %3 / 视口 %4 / 该有 %5+%6 / DPR %7")
+                    .arg(items)
+                    .arg(popup != nullptr ? popup->height() : -1)
+                    .arg(view != nullptr ? view->height() : -1)
+                    .arg(view != nullptr ? view->viewport()->height() : -1)
+                    .arg(needPopup)
+                    .arg(searchHeight > 0 ? QStringLiteral("（含搜索框 %1）").arg(searchHeight)
+                                          : QStringLiteral(""))
+                    .arg(dpr);
+                   (qobject_cast<QFrame *>(popup) ? qobject_cast<QFrame *>(popup)->frameWidth() : -1), view ? view->maximumHeight() : -1,
+            expect(popup != nullptr && popup->height() >= needPopup,
+                   "弹层高度装得下露出来的项（项高 34 × 可见项数 + 内边距）", measured);
+            expect(view != nullptr && view->height() >= needView,
+                   "视图高度装得下露出来的项（每一行都有 34）", measured);
+            expect(view != nullptr && clipped == 0 && fullyVisible >= rows,
+                   "露在视口里的行都是整行（末项不被裁、不被底部渐隐盖住）",
+                   QStringLiteral("%1 项：整行 %2 行 / 被裁 %3 行 / 视口 %4")
+                       .arg(items)
+                       .arg(fullyVisible)
+                       .arg(clipped)
+                       .arg(view != nullptr ? view->viewport()->height() : -1));
+            combo->hidePopup();
+            QApplication::processEvents();
+        }
+        host.hide();
+        QApplication::processEvents();
     }
 
     // ---------- ④ 菜单：同一个外壳 ----------
@@ -405,3 +505,5 @@ int UiPopupCheck(QApplication &app) {
     printf("%s %d 项失败\n", failures == 0 ? "PASS" : "FAIL", failures);
     return failures == 0 ? 0 : 1;
 }
+
+

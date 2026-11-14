@@ -147,7 +147,9 @@ public:
         cacheLimit->setValue(2048);
         cacheLimit->setSuffix(QStringLiteral(" MiB 上限"));
         cacheLimit->setButtonSymbols(QAbstractSpinBox::NoButtons);
-        cacheLimit->setAlignment(Qt::AlignRight);
+        // 数字 + 单位一起居中：右对齐时那 33px 余量全落在左边，看起来像"左空 48、右空 15"
+        // （走查 j07）。QSS 里四边对称的 3px 边 + 8px padding 保证居中之后两边一样宽。
+        cacheLimit->setAlignment(Qt::AlignCenter);
         cacheLimit->setFixedWidth(150);
         cacheRow->addWidget(cacheLimit);
         const struct { const char *text; const char *tip; bool danger; } kActions[] = {

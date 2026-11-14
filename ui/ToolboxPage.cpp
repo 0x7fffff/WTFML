@@ -1368,9 +1368,8 @@ ToolboxPage::ToolboxPage(QWidget *parent) : QWidget(parent) {
         scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         auto *holder = new QWidget(scroll);
         auto *row = new QHBoxLayout(holder);
-        row->setContentsMargins(kSidePadding, 0, kSidePadding, 40);
+        row->setContentsMargins(Theme::pageTitleInsetLeft(), 0, kSidePadding, 40);
         row->setSpacing(0);
-        row->addStretch(1);
         panel->setParent(holder);
         panel->setMaximumWidth(kToolMaxWidth);
         row->addWidget(panel, 1000);
@@ -1388,13 +1387,13 @@ QWidget *ToolboxPage::buildHeader() {
     header->setObjectName(QStringLiteral("toolboxHeader"));
     auto *outer = new QHBoxLayout(header);
     // 页头两侧各比内容多出 8px：面包屑按钮自带 8px 内边距，这样按钮上的字和内容左缘对齐；
-    // 目录页的标题与「记住输入」自己补回这 8px。
-    // 内容区右边常留一条滚动条的位置（GutterScrollArea），页头也让出来，这样两者居中对得上。
-    outer->setContentsMargins(kSidePadding - kHeaderBleed, 40, kSidePadding - kHeaderBleed + Theme::scrollBarThickness(), 14);
+    // 目录页的标题与「记住输入」自己补回这 8px。左缘、上沿走一级页统一落点（Theme::pageTitleInset*）。
+    // 内容区右边常留一条滚动条的位置（GutterScrollArea），页头也让出来，这样两者右缘对得上。
+    outer->setContentsMargins(Theme::pageTitleInsetLeft() - kHeaderBleed, Theme::pageTitleInsetTop(),
+                              kSidePadding - kHeaderBleed + Theme::scrollBarThickness(), 14);
     m_headerInner = new QWidget(header);
     m_headerInner->setMaximumWidth(kCatalogMaxWidth + 2 * kHeaderBleed);
     m_headerInner->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    outer->addStretch(1);
     outer->addWidget(m_headerInner, 1000);
     outer->addStretch(1);
     auto *inner = new QVBoxLayout(m_headerInner);
@@ -1466,7 +1465,7 @@ QWidget *ToolboxPage::buildCatalog() {
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     auto *holder = new QWidget(scroll);
     auto *row = new QHBoxLayout(holder);
-    row->setContentsMargins(kSidePadding, 4, kSidePadding, 40);
+    row->setContentsMargins(Theme::pageTitleInsetLeft(), 4, kSidePadding, 40);
     row->setSpacing(0);
     m_catalogBody = new QWidget(holder);
     m_catalogBody->setMaximumWidth(kCatalogMaxWidth);
@@ -1477,7 +1476,6 @@ QWidget *ToolboxPage::buildCatalog() {
         connect(cell, &QPushButton::clicked, this, [this, tool] { showTool(tool); });
         grid->addWidget(cell);
     }
-    row->addStretch(1);
     row->addWidget(m_catalogBody, 1000);
     row->addStretch(1);
     scroll->setWidget(holder);
@@ -3178,10 +3176,18 @@ QWidget *ToolboxPage::buildBannerPanel() {
     loadTextures->setObjectName(QStringLiteral("bannerLoadTextures"));
     loadTextures->setToolTip(QStringLiteral("加载游戏 JAR / 资源包贴图"));
     Theme::markButton(loadTextures, Theme::ButtonKind::Ghost); loadTextures->setAutoDefault(false);
+    // 说明句独占卡宽那一行，「加载贴图…」紧跟其下、左对齐：两句并排时说明句被压窄，
+    // 四十个字折成三行、按钮悬在折行文字右边（走查 j05）。挤在一行省不下高度 ——
+    // 900×620 下面板还有余量，见 `wtfml.toolbox-layout` 的纵向滚动条那条。
     auto *noticeRow = new QHBoxLayout;
-    noticeRow->setContentsMargins(0, 0, 0, 0); noticeRow->setSpacing(12);
-    noticeRow->addWidget(bannerNotice, 1); noticeRow->addWidget(loadTextures, 0, Qt::AlignVCenter);
+    noticeRow->setContentsMargins(0, 0, 0, 0);
+    noticeRow->addWidget(bannerNotice);
     layerCard->box()->addLayout(noticeRow);
+    auto *textureRow = new QHBoxLayout;
+    textureRow->setContentsMargins(0, 0, 0, 0);
+    textureRow->addWidget(loadTextures, 0, Qt::AlignLeft);
+    textureRow->addStretch(1);
+    layerCard->box()->addLayout(textureRow);
     connect(loadTextures, &QPushButton::clicked, this, &ToolboxPage::bannerTexturesRequested);
     body->addWidget(layerCard, 1);
 

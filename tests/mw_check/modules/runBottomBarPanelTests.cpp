@@ -605,6 +605,10 @@ void runBottomBarPanelTests() {
                   pillName != nullptr && pillType != nullptr
                       ? pillName->text() + QStringLiteral(" / ") + pillType->text()
                       : QString());
+            // 有实例、今天打开过 ⇒ 按时段问候，名字和胶囊同一个。
+            QLabel *title = w.findChild<QLabel *>(MainWindowUI::homeHeroTitleName());
+            check(title != nullptr && title->text().endsWith(QStringLiteral(" Alex")),
+                  "AH7 主页大标题问候带上当前账号名 Alex", title != nullptr ? title->text() : QString());
         }
         QWidget *panel = openPanel(accountsButton);
         check(panel != nullptr && panel->isVisible(), "AH7 点主页右上那颗账号胶囊弹出了账号弹层");
@@ -724,6 +728,9 @@ void runBottomBarPanelTests() {
                       pillName != nullptr && pillType != nullptr
                           ? pillName->text() + QStringLiteral(" / ") + pillType->text()
                           : QString());
+                QLabel *title = w.findChild<QLabel *>(MainWindowUI::homeHeroTitleName());
+                check(title != nullptr && title->text().endsWith(QStringLiteral(" Carol")),
+                      "AH8 主页大标题问候跟着换成 Carol", title != nullptr ? title->text() : QString());
             }
             check(g_modalTitle == QStringLiteral("登录令牌没能刷新") && g_modalWasWarning,
                   "AH8 令牌换不出来**要弹窗**（产品级约束：错误要弹窗，不能只写日志）",

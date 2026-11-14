@@ -62,6 +62,8 @@ function Get-TestImpact([string[]]$Paths, [bool]$ForceFull = $false) {
         'tests/mw_check/PresetDependencyChecks.cpp' = 'presets'
         'tests/mw_check/InstanceUpgradeChecks.cpp' = 'upgrade'
         'tests/ui_check/ArmorTrimChecks.cpp' = 'toolbox'
+        # 主页「每日一言」那一行：挨着主题/字号走，归 ui 那一组。
+        'tests/ui_check/modules/UiDailyQuoteCheck.cpp' = 'ui'
     }
     $modules = [Collections.Generic.HashSet[string]]::new()
     $reasons = [Collections.Generic.List[string]]::new()

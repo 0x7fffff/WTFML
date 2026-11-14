@@ -258,9 +258,13 @@ add_ui_module(ui_check_resource_packs modules/UiResourcePacksCheck.cpp UiResourc
 add_ui_module(ui_check_lifecycle modules/UiLifecycleCheck.cpp UiLifecycleCheck)
 add_ui_module(ui_check_ui_refresh modules/UiUiRefreshCheck.cpp UiUiRefreshCheck)
 add_ui_module(ui_check_theme modules/UiThemeCheck.cpp UiThemeCheck)
+add_ui_module(ui_check_daily_quote modules/UiDailyQuoteCheck.cpp UiDailyQuoteCheck)
+add_ui_module(ui_check_daily_quote_shots modules/UiDailyQuoteShots.cpp UiDailyQuoteShots)  # 样张，不进 ctest
+add_ui_module(ui_check_home_greeting_shots modules/UiHomeGreetingShots.cpp UiHomeGreetingShots)  # 样张，不进 ctest
 add_ui_module(ui_check_popups modules/UiPopupCheck.cpp UiPopupCheck)
 add_ui_module(ui_check_window_chrome modules/UiWindowChromeCheck.cpp UiWindowChromeCheck)
 add_ui_module(ui_check_armor_trim ArmorTrimChecks.cpp runArmorTrimChecks)
+add_ui_module(ui_check_background_shots modules/UiBackgroundShots.cpp UiBackgroundShots)  # 背景图样张，不进 ctest
 add_ui_module(ui_check_settings_shots modules/UiSettingsShotsCheck.cpp UiSettingsShotsCheck)  # 设置页验收截图，不进 ctest
 add_ui_module(ui_check_review_shots modules/UiReviewShotsCheck.cpp UiReviewShotsCheck)  # 走查验收截图，不进 ctest
 wtfml_write_compact_entries()
@@ -281,6 +285,12 @@ wtfml_add_test(NAME wtfml.ui-bootstrap COMMAND ui_check --bootstrap-check)
 set_tests_properties(wtfml.ui-bootstrap PROPERTIES LABELS "ui;compile" TIMEOUT 30
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}")
 wtfml_add_test(NAME wtfml.ui-refresh COMMAND ui_check_ui_refresh)
+wtfml_add_test(NAME wtfml.ui-daily-quote COMMAND ui_check_daily_quote)
+set_tests_properties(wtfml.ui-daily-quote PROPERTIES
+    LABELS "ui;theme"
+    TIMEOUT 60
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
 wtfml_add_test(NAME wtfml.install-layout COMMAND ui_check_install_layout)
 set_tests_properties(wtfml.install-layout PROPERTIES
     LABELS "ui;install"
@@ -304,6 +314,18 @@ set_tests_properties(wtfml.toolbox-polish PROPERTIES
     LABELS "ui;toolbox"
     TIMEOUT 30
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
+# 下拉弹层高度（最后一项被裁那条）：同一套断言跑两遍 —— 本机缩放一遍、125% 一遍
+# （用户那台就是 125%，弹层少 12 逻辑 px 只在有断言时看得见）。见 UiPopupCheck 的 ③b。
+wtfml_add_test(NAME wtfml.popups COMMAND ui_check_popups)
+wtfml_add_test(NAME wtfml.popups-scale COMMAND ui_check_popups)
+set_tests_properties(wtfml.popups wtfml.popups-scale PROPERTIES
+    LABELS "ui;popups"
+    TIMEOUT 60
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
+set_tests_properties(wtfml.popups-scale PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_SCALE_FACTOR=1.25;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
 )
 wtfml_add_test(NAME wtfml.lifecycle COMMAND ui_check_lifecycle)
 wtfml_add_test(NAME wtfml.resource-packs COMMAND ui_check_resource_packs)

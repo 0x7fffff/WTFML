@@ -9,6 +9,8 @@
 
 #pragma once
 
+#include "Theme.hpp"  // Theme::QuoteScript / 手写体与字号（主页「每日一言」那一行要用）
+
 #include <QCoreApplication>
 #include <QCheckBox>
 #include <QColor>
@@ -483,6 +485,10 @@ public:
     /// 行首那个**资源图标**的边长。和下载页那几张表同一个尺寸（`resourceTreeIconSize()`）
     /// —— 同一个模组在下载页和在本地列表里该长得一样大。
     static int instanceFileIconSize() { return resourceTreeIconSize(); }
+    /// 文件管理那几页一行多高：比版本树（46）宽一档，名字和「大小 / 时间」两行之间留得出空。
+    static int instanceFileRowHeight() { return 56; }
+    /// 行尾那几颗图标按钮（详情 / 编辑 / 删除）的字形边长：比行首图标小一档，行尾是配角。
+    static int instanceFileActionGlyphSize() { return 20; }
 
     /// 「启用 / 禁用」那枚**拨动开关**的尺寸（宽 × 高）。高度是行高（46）装得下的一档。
     static int toggleSwitchWidth() { return 40; }
@@ -867,28 +873,23 @@ public:
     /// 上一批按老条件筛出来的结果，而那正是用户点这颗键要摆脱的东西。
     static QString downloadFilterResetText() { return QStringLiteral("清空条件"); }
     /// 版本那一格空着时里面的灰字。**必须 ≤ `downloadFilterMinimumContentsLength()` 个字符**，
-    /// 否则会把框顶宽（那个坑见 .cpp 里 installedVersionCombo 那一段）。
+    /// 否则一个空框就被它顶宽了（宽度按内容算，见下）。
     static QString downloadFilterVersionPlaceholder() { return QStringLiteral("全部版本"); }
-    /// 四个筛子下拉框的 `minimumContentsLength`（宽度按这个算，不按内容算）。
-    ///
-    /// 为什么不按内容算（`AdjustToContentsOnFirstShow`，也是 Qt 的默认）：那一个在**第一次
-    /// 显示**时把宽度定死，而这一层搭出来的那一刻框还是空的 —— 之后 MainWindow 灌进来的
-    /// 是「1.21.1-pre1」这种长度不定的版本号，宽度就再也跟不上（灌长版本号时框会突然变宽，
-    /// 整行跟着跳）。8 是量着"`1.21.1` 这种版本号放得下"取的。
+    /// 四个筛子下拉框的 `minimumContentsLength`。宽度现在按**内容**算（`AdjustToContents`，
+    /// 见 .cpp 里 makeFilterCombo 那一段）：框里最长那一项要整句放得下，`88` 那一档会把
+    /// 「全部加载器」最后一个字裁掉。这一位留着当"一个空框至少多宽"的地板，也是验证工程
+    /// 认得出这一族控件的标记。
     static int downloadFilterMinimumContentsLength() { return 8; }
 
-    /// 四个筛子下拉框的**宽度上限**。上面那个 `minimumContentsLength` 管的是"有多宽"，
-    /// 这一个管的是"不许比这更宽"——两个一起才把这一行的宽度钉住。
+    /// 四个筛子下拉框的**宽度上限**。宽度按内容走，这一个管的是"不许比这更宽"。
     ///
-    /// 为什么非要有上限：**这一行摆不下就顶大整窗的 sizeHint**。加上这一行之后整窗
-    /// sizeHint 会涨到 **934**，正好是"模组那一页四个下拉框"顶出来的
-    /// （模组页 644，别的页 454）—— 也就是说到了默认那个 900 px 宽的窗口上，这一行会被
-    /// 右边界切掉一块（四个框各自的
-    /// minimumSizeHint 就是它的 sizeHint，挤不下去）。
-    /// 88 是照着"900 px 窗口、轨折成 64 后下载页 ≤ 836"反算的（四组标签 + 框 + 间隙落在
-    /// 右栏里，整页最小宽约 826）。代价：框里那串字会被省略（「CurseForge」显示成
-    /// 「CurseFor…」）—— 展开下拉框看得见全的，而这些框本来就是"点开挑一个"的东西。
-    static int downloadFilterComboMaxWidth() { return 88; }
+    /// 为什么非要有上限：**这一行摆不下就顶大整窗的 sizeHint**。没有上限时，版本那一格
+    /// 会跟着「一整份在线版本清单」里最长那个版本号（`22w13oneblockatatime` 那一类）一直长，
+    /// 到了默认那个 900 px 宽的窗口上，这一行就会被右边界切掉一块。
+    /// 132 这一档在 900 px 窗口（导航轨折起）里四组一起摆仍有富余，而「全部加载器」
+    /// 「CurseForge」这种常用项能整句放得下；更长的版本号才省略 —— 展开下拉框看得见全的，
+    /// 而这些框本来就是"点开挑一个"的东西。
+    static int downloadFilterComboMaxWidth() { return 132; }
     /// 整合包那一页那颗「导入整合包…」的 objectName。
     ///
     /// NOTE: 字和实例页那颗是**同一句**（`importModpackText()`，一个"导入整合包…"不该有
@@ -1015,7 +1016,7 @@ public:
     /// NOTE: `instanceSettingsText()` 不是这一页的出处。这一页相关的那句话有**两个**
     /// 出处，各管一件事，别再合成一个：`rowInstanceSettingsTipText()`（实例行行尾那颗
     /// 齿轮的悬停提示）和 `InstanceSettingsDialog::titleText()`（覆盖层页眉上那行
-    /// 「实例设置：<实例名>」）。
+    /// 「实例设置」）。
     /// NOTE: 带省略号 —— 按 Qt 的规矩，点了之后还要弹框问点什么的，文案结尾就带省略号
     /// （这个字传出去的信息是"点下去不等于事情就开始了"）。
     static QString importModpackText() { return QStringLiteral("导入整合包…"); }
@@ -2922,6 +2923,11 @@ public:
         return QStringLiteral("检查前置模组");
     }
     static QString showGameLogCheckName() { return QStringLiteral("showGameLogCheck"); }
+    /// 主页「每日一言」那一行。
+    static QString homeHeroQuoteName() { return QStringLiteral("homeHeroQuote"); }
+    static QString homeHeroTitleName() { return QStringLiteral("homeHeroTitle"); }
+    /// 设置页「外观」组里「每日一言」那个开关。
+    static QString dailyQuoteCheckName() { return QStringLiteral("dailyQuoteCheck"); }
     static QString processPriorityComboName() { return QStringLiteral("processPriorityCombo"); }
     /// 「窗口模式」那个下拉框（小窗 / 最大化 / 全屏）。
     ///
@@ -3027,14 +3033,13 @@ public:
     static int titleTextMaxLength() { return 16; }
 
     // ---------- 「背景图」那一节 ----------
-    // 两块底各一行：
-    // 主页左栏（`Theme::Part::HomeLeft`）+ 四个页面的内容区（`Theme::Part::PageBackground`）。
+    // 一块底一行：四个页面的内容区（`Theme::Part::PageBackground`），铺满整窗。
     // **没设图时一个像素都不改**，所以这一节可以一直不用（见 ui/ThemeBackground.hpp）。
     //
-    // NOTE: 一行里那几颗控件的名字以 **partKey 打头**（`homeLeftImageChoose`）—— 认这一行管的是
+    // NOTE: 一行里那几颗控件的名字以 **partKey 打头**（`pageBackgroundImageChoose`）—— 认这一行管的是
     // 哪一块靠的是那个串，不是行的下标（下标只是"第几行"）。
 
-    /// 一行里那几颗控件的名字。参数是 `Theme::partKey()` 的结果（"homeLeft" / "pageBackground"）。
+    /// 一行里那几颗控件的名字。参数是 `Theme::partKey()` 的结果（"pageBackground"）。
     /// **这六个是唯一出处**：验证工程要取这几颗控件时走这里，别照字面再拼一遍。
     static QString themeImageChooseName(const QString &partKey) {
         return partKey + QStringLiteral("ImageChoose");
@@ -3639,13 +3644,13 @@ public:
     QSpinBox *getGameWindowHeightSpin() const { return gameWindowHeightSpin; }
     QLineEdit *getTitleTextEdit() const { return titleTextEdit; }
 
-    /// 「背景图」那一节里，**一块底**对应的一组控件（主页左栏一组、页面背景一组）。
+    /// 「背景图」那一节里，**一块底**对应的一组控件（今天只有页面背景这一组）。
     ///
     /// NOTE: 这一组是**当值存下来**的（`m_themeImageRows`），外面拿到的是引用 —— 和别处那些
     /// 一个一个 getter 的写法不一样，理由是这五颗控件**只在一起用**（换一张图的动作要
     /// 同时动"现在铺的是哪一张"那行字），拆成五个 getter 只是让每一处调用都写五遍。
     struct ThemeImageRow {
-        /// `Theme::partKey()` 的结果（"homeLeft" / "pageBackground"）—— 认这一行管的是哪一块，
+        /// `Theme::partKey()` 的结果（"pageBackground"）—— 认这一行管的是哪一块，
         /// 靠的是这个串，不是行的下标。
         QString partKey;
         QPushButton *choose = nullptr;  ///< 「选择图片…」
@@ -3656,8 +3661,8 @@ public:
         QLabel *state = nullptr;        ///< 底下那行"现在铺的是哪一张"
     };
 
-    /// 这一节一共几行（今天 = 主页左栏 + 页面背景两行）。
-    static int themeImageRowCount() { return 2; }
+    /// 这一节一共几行（今天 = 页面背景一行）。
+    static int themeImageRowCount() { return 1; }
     /// 第 @p index 行；越界给一个**空行**（那几个指针都是 nullptr），调用方自己判空。
     const ThemeImageRow &getThemeImageRow(int index) const;
 
@@ -3689,6 +3694,26 @@ public:
     QLabel *getSkinHintLabel() const { return skinHintLabel; }
     QLabel *getHomeAccountLabel() const { return homeAccountLabel; }
     QLabel *getHomeAvatarLabel() const { return homeAvatarLabel; }
+    /// 主页大标题下那一行「每日一言」。没有句子、或设置里关着时它是**隐藏的**（不占位）。
+    QLabel *getHomeHeroQuote() const { return homeHeroQuote; }
+    /// 主页大标题（问候语）。单行，`text()` 是整句，画出来的样子见 homeHeroTitleShown()。
+    QLabel *getHomeHeroTitle() const { return homeHeroTitle; }
+    /// 换大标题：@p text 是整句（`HomeGreeting::text()` 出的，不带标点），@p name 是句尾的玩家名
+    /// （空 = 没带名字）。放不下时只把名字截成「名…」，问候保留。
+    void setHomeHeroTitle(const QString &text, const QString &name);
+    /// 大标题按当前宽度实际画出来的那一句（截过的样子；问候和名字之间写成一个空格）。
+    QString homeHeroTitleShown() const;
+    /// 那一句按实际字体（问候文楷、名字按整段判）加上中间空隙量出来的宽度。
+    int homeHeroTitleShownWidth() const;
+    /// 名字（或「WTFML」）那一段用的字体：纯 ASCII 字母数字下划线 → Dancing Script ×1.2、字距 0；
+    /// 含中文 → 和问候同一支文楷。
+    QFont homeHeroTitleNameFont() const;
+    /// 设置页「外观」组里「每日一言」那个开关。
+    QCheckBox *getDailyQuoteCheck() const { return dailyQuoteCheck; }
+    /// 换这一行：空句子 = 隐藏；@p tooltip 是悬停时那句署名（空串 = 不设提示）。
+    /// 字体按 @p script 选（见 `Theme::quoteFamilies()`），字号随窄窗收一号。
+    void setHomeHeroQuote(const QString &text, const QString &tooltip,
+                          Theme::QuoteScript script);
     QLabel *getHomeAccountTypeLabel() const { return homeAccountTypeLabel; }
     /// 主页右上那颗账号胶囊（圆头像 + 名字 + 小状态）。**它是账号唯一的入口**：
     /// 点一下在它下面弹出账号弹层（见 `toggleAccountsPanel()`）。导航轨上没有账号格。
@@ -3825,6 +3850,8 @@ private:
     // 全都排在 setupUi() 之后才没炸。
     // NOTE: 新加控件指针时**一并写上 = nullptr**，别让它单独破例。
     QPushButton *startButton = nullptr;
+    void updateHomeQuoteFont(bool narrow);
+
     QPushButton *homeInstanceSelectButton = nullptr;
     QWidget *homeLaunchArea = nullptr;
     QWidget *homeHeroArea = nullptr;
@@ -3842,6 +3869,9 @@ private:
     QPushButton *accountSkinSettingsButton = nullptr;
     QLabel *homeAccountLabel = nullptr;
     QLabel *homeAvatarLabel = nullptr;
+    QLabel *homeHeroQuote = nullptr;
+    QLabel *homeHeroTitle = nullptr;
+    Theme::QuoteScript homeQuoteScript = Theme::QuoteScript::Han;
     QLabel *homeAccountTypeLabel = nullptr;
     QPushButton *addFolderButton = nullptr;
     QListWidget *folderList = nullptr;
@@ -3993,6 +4023,7 @@ private:
     QSpinBox *gameWindowWidthSpin = nullptr;
     QSpinBox *gameWindowHeightSpin = nullptr;
     QLineEdit *titleTextEdit = nullptr;
+    QCheckBox *dailyQuoteCheck = nullptr;
     /// 「背景图」那一节的各行控件，按 `ThemeImageRow::partKey` 认（见这一节在头文件里那段）。
     QVector<ThemeImageRow> m_themeImageRows;
     ThemeAdvancedEditor *m_themeAdvancedEditor = nullptr;

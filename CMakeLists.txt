@@ -70,6 +70,7 @@ set(HEADER_FILES
     src/controllers/ActivityCenterController.hpp
     src/controllers/TaskDetailController.hpp
     src/controllers/HomeQuickController.hpp
+    src/controllers/DailyQuoteController.hpp
     src/controllers/InstanceMaintenanceController.hpp
     src/controllers/ServerWorkspaceController.hpp
     src/controllers/ServerConsoleController.hpp
@@ -256,6 +257,8 @@ set(HEADER_FILES
     src/server/ServerContent.hpp
     src/util/AppPaths.hpp
     src/util/ThemeImage.hpp
+    src/util/DailyQuote.hpp
+    src/util/HomeGreeting.hpp
     src/util/ImageDecode.hpp
     src/util/SystemMemory.hpp
     # 掉盘时那句话：卷认得出来且已就绪才算可用（见头文件）。
@@ -376,6 +379,8 @@ set(SOURCE_FILES
     src/controllers/ActivityCenterController.cpp
     src/controllers/TaskDetailController.cpp
     src/controllers/HomeQuickController.cpp
+    # 主页「每日一言」：取句 / 当天缓存 / 句子池（判据在 src/util/DailyQuote.cpp）。
+    src/controllers/DailyQuoteController.cpp
     src/controllers/InstanceMaintenanceController.cpp
     src/controllers/ServerWorkspaceController.cpp
     src/controllers/ServerConsoleController.cpp
@@ -558,6 +563,9 @@ set(SOURCE_FILES
     src/server/ServerResourcePack.cpp
     # 服务端内容（模组 / 数据包）的名字与分类。
     src/server/ServerContent.cpp
+    src/util/DailyQuote.cpp
+    # 主页大标题那句问候（按时段 / 上次打开日期 / 玩家名）。
+    src/util/HomeGreeting.cpp
     src/util/ImageDecode.cpp
     src/util/ThemeImage.cpp
     src/util/SystemMemory.cpp
@@ -679,6 +687,12 @@ qt_add_executable(WTFMinecraftLauncher
     # 见 res/wtfml.rc 与 res/wtfml.manifest 的注释。
     $<$<PLATFORM_ID:Windows>:${CMAKE_CURRENT_SOURCE_DIR}/res/wtfml.rc>
 )
+
+# exe 图标（assets/app/wtfml.ico，由上面那份 .rc 编进去）。windres 只看 .rc、不看它引用的
+# .ico，所以换图标时**必须让这份 .rc 重编**：OBJECT_DEPENDS 是唯一能把这两条接上的地方
+# （AUTORCC / 依赖扫描都不管 .rc 里引用的文件）。漏了这一条的表现是换了图标、exe 里还是旧的。
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/res/wtfml.rc PROPERTIES
+    OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/app/wtfml.ico")
 
 # 测量构建（-DWTFML_PERF_PROBE=ON）：只给真 Release 量界面耗时用。
 # 默认不加进来 —— 普通构建里连这个 .cpp 都不编，`PerfProbe::attach()` 是内联空函数。

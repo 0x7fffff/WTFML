@@ -521,6 +521,15 @@ endif()
 # WIC）。这条能离线验：喂一段真 webp 字节进去看解不解得出来（webpAvailable() 是"这台机器
 # 现在能不能解"，不是常量，所以那条断言要按它分支，见 main.cpp 的 ZC 段）。
 # 理由同上：别的分支上没有它，存在才加。
+if(EXISTS ${REPO_ROOT}/src/util/DailyQuote.cpp)
+    list(APPEND PROJECT_SOURCES ${REPO_ROOT}/src/util/DailyQuote.cpp
+                                ${REPO_ROOT}/src/util/DailyQuote.hpp)
+endif()
+# HomeGreeting：主页大标题的问候规则（纯函数）。verify 单测它，mw_check 经 MainWindow 用它。
+if(EXISTS ${REPO_ROOT}/src/util/HomeGreeting.cpp)
+    list(APPEND PROJECT_SOURCES ${REPO_ROOT}/src/util/HomeGreeting.cpp
+                                ${REPO_ROOT}/src/util/HomeGreeting.hpp)
+endif()
 if(EXISTS ${REPO_ROOT}/src/util/ImageDecode.cpp)
     list(APPEND PROJECT_SOURCES ${REPO_ROOT}/src/util/ImageDecode.cpp
                                 ${REPO_ROOT}/src/util/ImageDecode.hpp)

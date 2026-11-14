@@ -28,6 +28,7 @@
 #include "..\ui\MainWindowUI.hpp"
 #include "..\ui\SkinModel.hpp"
 #include "auth/AuthManager.hpp"
+#include "util/HomeGreeting.hpp"
 #include "controllers/ActivityCenterController.hpp"
 #include "controllers/CrashReportController.hpp"
 #include "controllers/DownloadCompletionController.hpp"
@@ -132,6 +133,15 @@ void MainWindow::setDownloadUiBusy(bool busy) {
     updateBottomBar();
 }
 
+void MainWindow::updateHomeGreeting() {
+    // 名字和上面账号胶囊同一个判据：登录了（或是离线账号）才带名字。
+    const bool signedIn = offlineIdentity() || m_authManager->loggedIn();
+    const QString name = signedIn ? m_authManager->playerName().trimmed() : QString();
+    m_ui->setHomeHeroTitle(HomeGreeting::text(QDateTime::currentDateTime(), m_greetingLastOpened,
+                                              m_greetingHadInstances, name),
+                           name);
+}
+
 void MainWindow::updateBottomBar() {
     // ---------- 左：头像 + 用户名 ----------
     // 登录过就是档案里的真名（登录那一刻拿到的，或者开窗时从盘上读回来的那份）；
@@ -162,6 +172,7 @@ void MainWindow::updateBottomBar() {
                                             : MainWindowUI::homeAccountMicrosoftText());
         homeType->setVisible(signedIn);
     }
+    updateHomeGreeting();
     // 头像优先用**真皮肤**抠出来的那一块（m_avatarPixmap，在 applyPlayerSkin() 里算好
     // 存着 —— 这里每次进度刷新都会被调到，不能现算）。没有它的时候（未登录、还没取到、
     // 取不到、贴图载不进来）退回首字母方块：退路必须留着，一块空白的头像比一个首字母

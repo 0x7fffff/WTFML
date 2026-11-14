@@ -20,6 +20,8 @@ VersionTreeDelegate::VersionTreeDelegate(QObject *parent, bool leafArrow, int ic
       m_leafVerb(tr("安装")) {
 }
 
+int VersionTreeDelegate::resourceRowHeight() { return MainWindowUI::versionTreeRowHeight() + 8; }
+
 int VersionTreeDelegate::rowIconSize() const {
     // 0 = 没传 = 用默认那一档（`MainWindowUI::versionTreeIconSize()`）。
     return m_iconSize > 0 ? m_iconSize : MainWindowUI::versionTreeIconSize();
@@ -129,7 +131,39 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     // 再铺一层底色反而像是"点得动"。在这儿**内联**写一遍是因为 `rowEnabled` 要到下面才
     // 算得出来，而这一层必须赶在样式画底色之前。
     const bool hoverable = hovered && (index.flags() & Qt::ItemIsEnabled) != 0;
-    if (hoverable) {
+    const auto *treeView = qobject_cast<const QTreeView *>(option.widget);
+    if (m_resourceRows && treeView != nullptr && treeView->model() != nullptr) {
+        // 展开的那一组（顶层那条 + 它底下露出来的行）铺一块圆角淡底：首行圆上角、末行圆下角。
+        const QAbstractItemModel *model = treeView->model();
+        QModelIndex top = index;
+        while (top.parent().isValid()) top = top.parent();
+        if (treeView->isExpanded(top) && model->rowCount(top) > 0) {
+            bool last = !(treeView->isExpanded(index) && model->rowCount(index) > 0);
+            for (QModelIndex i = index; last && i.parent().isValid(); i = i.parent())
+                last = i.row() == model->rowCount(i.parent()) - 1;
+            const bool first = !index.parent().isValid();
+            const QRect band(0, option.rect.top(), option.rect.right() + 1, option.rect.height());
+            const qreal r = Theme::controlRadius();
+            painter->save();
+            painter->setRenderHint(QPainter::Antialiasing, true);
+            painter->setClipRect(band);
+            painter->setPen(Qt::NoPen);
+            painter->setBrush(Theme::tokens().subtle);
+            painter->drawRoundedRect(QRectF(band).adjusted(0, first ? 1 : -2 * r, 0, last ? -1 : 2 * r), r, r);
+            painter->restore();
+        }
+    }
+    if (hoverable && m_resourceRows) {
+        // 搜索结果那一档：悬停是内缩圆角块（和管理页列表同一套），连分支区那一截一起盖住。
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing, true);
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(Theme::rowHoverFill(option.palette.color(QPalette::Base)));
+        painter->drawRoundedRect(QRectF(0, option.rect.top(), option.rect.right() + 1, option.rect.height())
+                                     .adjusted(0, 1, 0, -1),
+                                 Theme::controlRadius(), Theme::controlRadius());
+        painter->restore();
+    } else if (hoverable) {
         const QColor hoverFill = Theme::rowHoverFill(option.palette.color(QPalette::Base));
         if (m_navRow) {
             const QRectF hoverRect = QRectF(option.rect.adjusted(3, 2, -3, -2));
@@ -233,11 +267,17 @@ void VersionTreeDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
         mark = qvariant_cast<QPixmap>(decoration).scaled(iconSize, iconSize, Qt::KeepAspectRatio,
                                                          Qt::SmoothTransformation);
     }
-    if (mark.isNull() && !isChannel) {
+    if (mark.isNull() && !isChannel && !m_resourceRows) {
         mark = VersionIcons::grassBlock(iconSize);
     }
 
     int textLeft = row.left() + pad;
+    if (m_resourceRows && !isChannel && mark.isNull() && view != nullptr) {
+        // 搜索结果底下的版本行：不画图标，文字对齐父行名字那一列，再往里缩一档（深一层缩 12）。
+        int depth = 0;
+        for (QModelIndex i = index; i.parent().isValid(); i = i.parent()) ++depth;
+        textLeft = row.left() - depth * view->indentation() + pad + iconSize + 8 + (depth - 1) * 12;
+    }
     QRect iconRect;
     if (!mark.isNull()) {
         iconRect = QRect(row.left() + pad, row.center().y() - iconSize / 2, iconSize, iconSize);
@@ -454,8 +494,9 @@ QSize VersionTreeDelegate::sizeHint(const QStyleOptionViewItem &option,
     // 宽度**照旧自己算**（它要按两行字、图标、行尾那几个角色逐项加起来），只在条目自己
     // 给了更宽的要求时才让路。
     const QSize hint = index.data(Qt::SizeHintRole).toSize();
-    const int height =
-        hint.height() > 0 ? hint.height() : MainWindowUI::versionTreeRowHeight();
+    const int height = hint.height() > 0 ? hint.height()
+                       : m_resourceRows ? resourceRowHeight()
+                                        : MainWindowUI::versionTreeRowHeight();
     // 顶层那几条是粗体画的，宽度也得按粗体量（不然"加载器名 + 右边那个箭头"会差几个像素）。
     QFont mainFont = option.font;
     if (!index.parent().isValid()) {

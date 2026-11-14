@@ -30,7 +30,8 @@
  *
  * 【默认与兼容】
  *
- * `defaultSpec()` 使用翡翠实验室。海洋蓝和炭灰由相同的 Tokens 映射到调色板与 QSS。
+ * `defaultSpec()` 使用石炭灰（`dark`），主题色就是它自己那一支 tokens 的 `primary`。
+ * 翡翠绿、海洋蓝和石炭灰由同一套 Tokens 映射到调色板与 QSS。
  * 已存储的系统主题继续跟随系统；旧 light 标识迁移为 emerald，自定义覆盖仍优先。
  *
  * 【换主题那一刻会发生什么】
@@ -97,6 +98,20 @@ constexpr int textSize(TextRole role) {
 /// 空状态大字），由 markDisplay() 落到控件上；导航、按钮、胶囊、小节标题、表单、列表、对话框正文
 /// 一律系统字（app 字体）。
 enum class HandFont { Kai, KaiLight, Script };
+/// 主页「每日一言」那一行的文字种类：决定用哪支字体、以及限长（限长在
+/// `util/DailyQuote` 里判，这一层只管字体）。名字和那边的 `DailyQuote::Script`
+/// 一一对应，但**不能共用那个类型**：ui/ 不许 include src/（分层铁律）。
+enum class QuoteScript { Latin, Han, Kana };
+/// 三类文字各自的 family 列表（第一档是主字体，后面是回退）。
+/// - 拉丁：Dancing Script（品牌手写体）；
+/// - 汉字无假名：文楷 Light（和主页大标题同一支）；
+/// - 含假名：Windows 自带的日文字体（Yu Mincho → Yu Gothic UI → Meiryo UI）。
+///   **文楷没有假名**：实测 assets/fonts 那两支文楷的 cmap 只有 3911 个码点，
+///   0x3040–0x30FF（平假名 / 片假名 / 长音符「ー」）一个都没有，连「々」也没有；
+///   把文楷排在前面只会让日文句子里汉字用文楷、假名落回系统字，一行两种字形。
+QStringList quoteFamilies(QuoteScript script);
+/// 「每日一言」的字号也是分档的：正常 16，窄窗 14（见 MainWindowUI 的 applyScale）。
+QFont quoteFont(QFont font, QuoteScript script, int pixelSize);
 QString handFamily(HandFont which);
 /// 把 `font` 换成那一支手写体（注册不上就原样返回）。
 QFont handFont(QFont font, HandFont which);
@@ -149,9 +164,6 @@ enum class Part {
     Panel,      ///< 压在内容区上来的浮层：底栏那两块面板、行尾齿轮弹的那两列菜单 —— darker(112)
     Card,       ///< 覆盖层里那张卡片（整页 / 小提示）—— 今天 = `Base`
     Scrim,      ///< 提示框四周变暗那一层 —— 今天 = `rgba(0, 0, 0, 96)`
-    /// 主页左栏那一块（「已安装版本」到「启动游戏」那一片）—— 今天 = 窗口底色（不额外压暗）。
-    /// 主页左侧自定义图像铺在这一块。
-    HomeLeft,
     /// 四个页面（主页 / 实例 / 下载 / 设置）内容区那一整块底 —— 今天 = 窗口底色。
     /// 内容区那一整块底 —— 今天 = 窗口底色。一块管四页（换一页就得再加一格，
     /// 而那四个页面今天长得一模一样，分成四格只是让用户点四下）。
@@ -271,9 +283,10 @@ enum class AccentShade {
 
 constexpr int accentShadeCount() { return static_cast<int>(AccentShade::Count); }
 
-/// 某一档现在的色。**永远有效**（`Spec::accent` 认不出时退回出厂那支绿）。
+/// 某一档现在的色。**永远有效**（`Spec::accent` 认不出时退回当前预设那一支）。
 QColor accentShade(AccentShade shade);
-/// 出厂那一支（那六个十六进制位）。**全仓唯一出处。**
+/// 翡翠绿那一支主题色（挑色框里那行示例色）。出厂主题色不取这里，见 `defaultSpec()`。
+/// **全仓唯一出处。**
 QColor defaultAccentColor();
 
 /**
@@ -535,6 +548,18 @@ QString secondaryTextRoleValue();
 constexpr int actionHeight() { return 36; }
 /// "页面上唯一最重要的动作"那一档（`ButtonKind::Primary`），比普通动作略高一档。
 constexpr int primaryActionHeight() { return 36; }
+/// 主按钮（`ButtonKind::Primary`，强调色实心）左右内边距与最小总宽。**唯一出处**：
+/// 样式表里 `padding` 取前者、`min-width` 按总宽 88 扣掉内边距与 1px 边框后写入，
+/// 所以「计算」「启动实例」这种两三个字的主按钮不再窄成一条。图标档按钮不吃这一条。
+constexpr int primaryButtonPadX() { return 20; }
+constexpr int primaryButtonMinWidth() { return 88; }
+
+/// 一级页（管理 / 下载 / 设置 / 工具箱目录 / 工具页）标题的统一落点：
+/// 标题字左缘离内容区左边、标题行上沿离内容区上边各多远。**唯一出处**，各页的页头外边距
+/// 从这两个数推出来，换页时标题不跳。
+/// = 页面外边距（`MainWindowUI::pageMargin()` 20）+ 正文面内边距 18 / 页头上沿 2。
+constexpr int pageTitleInsetLeft() { return 38; }
+constexpr int pageTitleInsetTop() { return 22; }
 
 /// 这一位是**图标按钮**（齿轮 / 底栏面板上那几颗 / 详情页顶上的 chip）：它按自己钉死的
 /// 边长来，不跟 `actionHeight()` 那一档。
@@ -785,12 +810,15 @@ QStyle *createStyle();
  * 只有用户在预设之外点名要一个色时才写进来。
  */
 struct Spec {
-    /// 预设 id（`presetIds()` 里那三个之一）。**故意没有 "custom"**：覆盖项是叠在预设
+    /// 预设 id（`presetIds()` 里那几个之一）。**故意没有 "custom"**：覆盖项是叠在预设
     /// 上面的，换了覆盖项预设还是那一个（"深色 + 我改的那几项"读起来比"自定义"准）。
+    /// NOTE: 默认构造这里是 `system`（没说过用哪一档 = 跟着系统）；出厂那一份看
+    /// `defaultSpec()`（石炭灰）。
     QString presetId = QStringLiteral("system");
     /// 全体文字的不透明度（0~100）。100 = 一点也不透（今天的样子）。
     int textOpacity = 100;
-    /// **主题色**（那一支绿）。出厂 = `defaultAccentColor()`，永远有效（认不出退回出厂）。
+    /// **主题色**（那一支强调色）。出厂 = 当前预设的 `tokens(presetId).primary`
+    /// （新安装是石炭灰的 #B7B3EE），永远有效（认不出退回同一支）。
     ///
     /// NOTE: 它**不是** `Theme/Accents/*` 底下那四个（那四个是"语义色"：危险 / 警告 /
     /// 正常 / 报错）。单数那个是"这一套界面是什么颜色"，复数那几个是"红黄绿各是
@@ -812,10 +840,11 @@ const Spec &current();
 /// 只换内存里这一份（不落盘、也不铺开 —— 要生效得再 `apply()`）。参数越界会被收拾干净。
 void setSpec(const Spec &spec);
 
-/// "出厂"那一份：翡翠实验室、一项覆盖都没有（**主题色除外** —— 它出厂就是那一支绿）。
+/// "出厂"那一份：石炭灰、一项覆盖都没有（主题色是石炭灰那一支 primary）。
 Spec defaultSpec();
 
-/// 三个预设：`system`（跟着系统）/ `light` / `dark`。
+/// 四个预设，按设置页「配色」那一格的下拉顺序：
+/// `dark`（石炭灰，出厂默认）/ `emerald`（翡翠绿）/ `ocean`（海洋蓝）/ `system`（跟着系统）。
 QStringList presetIds();
 QString presetName(const QString &id);
 bool isPresetId(const QString &id);
