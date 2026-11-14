@@ -1,10 +1,10 @@
 # 文档索引
 
-仓库根目录只放 [README.md](../README.md)（安装、构建、运行、目录结构）。其余文档都在 `docs/` 下：
+仓库根目录的 [README.md](../README.md) 是给玩家看的介绍页（下载、特点、截图）。构建、运行、目录结构见 [dev/BUILDING.md](dev/BUILDING.md)。其余文档都在 `docs/` 下：
 
 - 顶层：产品约定总账 [FEATURES.md](FEATURES.md)、未完成工作 [ROADMAP.md](ROADMAP.md)。
 - [features/](features/)：各功能的约定、设计与现行边界。
-- [dev/](dev/)：开发者手册（测试、性能、重构、工具用法、注释规范）。
+- [dev/](dev/)：开发者手册（构建、测试、性能、重构、工具用法、注释规范）。
 - [archive/](archive/)：一次性的验收、审查、计划记录。数字和结论是当时的快照，当前行为以 `features/` 与 [FEATURES.md](FEATURES.md) 为准。
 - 贡献与 agent 规则：根目录 [AGENTS.md](../AGENTS.md)（目录布局、文档规则、写作口吻、提交与验证），`CLAUDE.md`、`GEMINI.md` 只指向它；布局由 `tools/check-repo-layout.ps1` 检查，CI 里与 `check-doc-links.ps1` 一起跑。
 
@@ -36,6 +36,7 @@
 
 | 文档 | 内容 |
 | --- | --- |
+| [BUILDING.md](dev/BUILDING.md) | 构建（动态 / 静态单文件）、跑起来之后数据与日志在哪、源码目录结构、开发与验证的常用命令 |
 | [COMMENT_STYLE.md](dev/COMMENT_STYLE.md) | 注释规范：写“为什么/约束”、不写“做了什么”；文件头、行内、类注释、TODO/FIXME/NOTE、正反例 |
 | [TESTING.md](dev/TESTING.md) | 测试怎么跑：`tools/test.ps1` 14 个套件、`ctest --preset`、CI 分片、超时与环境变量、模块与夹具边界、新增用例约定、Agent 套件、未覆盖项；日常看效果用 `tools/dev-build.ps1` / `tools/dev-run.ps1` |
 | [PERFORMANCE.md](dev/PERFORMANCE.md) | 性能基线：构建耗时、启动/就绪、CI 分片缓存、界面交互与并发下载的量法与数字 |

@@ -4,7 +4,7 @@ WTFML 是 C++23 + Qt 6 Widgets 写的 Minecraft 启动器，只支持 Windows。
 
 ## 入口
 
-- 构建、运行、目录结构：[README.md](README.md)。
+- 构建、运行、目录结构：[docs/dev/BUILDING.md](docs/dev/BUILDING.md)。根目录 [README.md](README.md) 是给玩家看的介绍页。
 - 测试怎么跑、套件与超时：[docs/dev/TESTING.md](docs/dev/TESTING.md)。命令以那里为准，别另抄一份。
 - 文档索引：[docs/README.md](docs/README.md)。
 

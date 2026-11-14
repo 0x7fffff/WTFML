@@ -32,7 +32,7 @@ Usage read() {
     usage.totalMb = static_cast<qint64>(status.ullTotalPhys) / kBytesPerMb;
     usage.availableMb = static_cast<qint64>(status.ullAvailPhys) / kBytesPerMb;
 #else
-    // 这个项目只出 Windows 版（见 README「支持 Windows 平台」）。别的平台留 {0, 0}，
+    // 这个项目只出 Windows 版（见 docs/FEATURES.md「产品边界」）。别的平台留 {0, 0}，
     // 调用方按"读不到"处理 —— 不猜，也不为此在这里铺一堆平台分支。
 #endif
 

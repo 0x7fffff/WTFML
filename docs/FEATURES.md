@@ -4,7 +4,7 @@
 
 - 未完成工作参见 [ROADMAP.md](ROADMAP.md)
 - 注释规范参见 [COMMENT_STYLE.md](dev/COMMENT_STYLE.md)
-- 构建与运行参见 [README.md](../README.md)
+- 构建与运行参见 [BUILDING.md](dev/BUILDING.md)
 - 子系统专题细节参见 `docs/` 各篇
 
 ---

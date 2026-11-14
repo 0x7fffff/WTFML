@@ -1,136 +1,140 @@
-# WTFML — Wonderful Tremendous Fantastic Minecraft Launcher
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/readme/hero-dark.webp">
+    <img src="assets/readme/hero-light.webp" alt="WTFML · Wonderful Tremendous Fantastic Minecraft Launcher · 写给 Windows 的 Minecraft 启动器" width="100%">
+  </picture>
+</p>
 
-C++23 + Qt 6 Widgets 写的 Minecraft 启动器，只支持 Windows。
+<p align="center">
+  <a href="https://github.com/0x7fffff/WTFML/releases/latest">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="assets/readme/download-dark.svg">
+      <img src="assets/readme/download-light.svg" alt="下载最新版" height="48">
+    </picture>
+  </a>
+</p>
 
-> **文档**：功能约定、开发手册、归档记录的索引见 [docs/README.md](docs/README.md)。本文件只管安装、构建、运行、目录结构。
+<p align="center"><sub>单文件 exe，下载即用，不用安装。只支持 Windows x64。</sub></p>
 
-## 构建
+<br>
 
-需要 **Qt 6.10 + MinGW 13.1**。动态那份（开发用）：
+WTFML 是一个用 C++ 和 Qt 写的 Minecraft 启动器。整窗铺一张风景，导航和面板是一层磨砂玻璃；安装游戏、管理实例、导入整合包、开服务端，都在这一扇窗里完成。
 
-```bash
-cmake -S . -B build -G "MinGW Makefiles" \
-      -DCMAKE_PREFIX_PATH=D:/Qt/Qt/6.10.1/mingw_64 \
-      -DCMAKE_CXX_COMPILER=D:/Qt/Qt/Tools/mingw1310_64/bin/g++.exe \
-      -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j
-```
+<br>
 
-产物 `build/WTFMinecraftLauncher.exe`。它是 **GUI 子系统**（跑起来不弹控制台），所以要
-Qt 的 dll 在 `PATH` 上。
+## <picture><source media="(prefers-color-scheme: dark)" srcset="assets/readme/h-home-dark.svg"><img src="assets/readme/h-home-light.svg" alt="主页" height="40"></picture>
 
-默认会预编译一份 Qt 控件头（`WTFML_USE_PCH`），主程序的全量构建 95 → 75 秒；代价是构建
-目录里多一份 177 MB 的 `.gch`。不想用就 `-DWTFML_USE_PCH=OFF`，量法与取舍见
-[docs/dev/PERFORMANCE.md](docs/dev/PERFORMANCE.md)「构建耗时」里的预编译头一节。要**真·单文件**（一个自包含的 exe，不带任何 dll）就换静态 Qt，
-CMakeLists 一个字都不用改：
+打开先是一片风景。左上角一句问候，下面一行每日一言，中文用霞鹜文楷，英文用 Dancing Script。当前实例默认是上次启动的那一个，点一下就进游戏；右上角是账号，皮肤立在一旁。
 
-```bash
-cmake -S . -B build/static-release -G "MinGW Makefiles" \
-      -DCMAKE_PREFIX_PATH=D:/Qt/static-6.10.1/install \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DCMAKE_C_COMPILER=C:/mingw64/bin/gcc.exe \
-      -DCMAKE_CXX_COMPILER=C:/mingw64/bin/g++.exe
-cmake --build build/static-release -j
-```
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/readme/shot-home-dark.webp">
+    <img src="assets/readme/shot-home-light.webp" alt="主页：问候、每日一言、当前实例与启动按钮" width="100%">
+  </picture>
+</p>
 
-★ **静态那份必须用编静态 Qt 的那个工具链**。`D:/Qt/static-6.10.1` 是 `C:/mingw64`
-（MinGW-Builds，GCC 15.2，mcf 线程模型）编的；拿开发用的 `D:/Qt/Qt/Tools/mingw1310_64`
-去链，会在 `_MCF_mutex_lock_slow` / `_MCF_mutex_unlock_slow` / `__intrinsic_setjmpex`
-上链接失败 —— 那几个符号是 mcfgthread 的，13.1 那份没有。上面显式指定编译器就是为了
-不靠 PATH 的运气。
+## <picture><source media="(prefers-color-scheme: dark)" srcset="assets/readme/h-themes-dark.svg"><img src="assets/readme/h-themes-light.svg" alt="三套主题" height="40"></picture>
 
-要拿去发布的那一份再走 `tools/prepare-release-copy.ps1`：只对**副本**去符号，
-原构建目录不动，调试信息单独留一份。
+暮色雪山、冰川碧湖、落日海崖，每一套带着自己的风景和主题色，也可以跟随系统的深浅色。磨砂的底默认是模糊过的风景，在 Windows 11 上也可以换成系统的亚克力或云母。主题色、文字不透明度、背景图都能换，细到某个区域、某类控件的颜色也能单独调。
 
-版本号**只有一个出处**：`CMakeLists.txt` 的 `project(... VERSION x.y.z)`，编成
-`WTFML_VERSION` 宏交给界面显示。
+<p align="center">
+  <img src="assets/readme/themes.webp" alt="同一个主页在暮色雪山、冰川碧湖、落日海崖三套主题下的样子" width="100%">
+</p>
 
-## 跑起来之后
+## <picture><source media="(prefers-color-scheme: dark)" srcset="assets/readme/h-library-dark.svg"><img src="assets/readme/h-library-light.svg" alt="管理" height="40"></picture>
 
-**数据目录 = 当前选中的游戏文件夹**，不是 exe 所在目录。
+可以挂多个游戏文件夹，实例能分组、收藏、改名、换图标、复制或移动，改名不会丢掉分组和启动记录。每个实例的设置页里管着模组、资源包、光影、数据包、存档和服务器列表，世界备份与整份快照也在这里。删除实例前要先确认，删掉的目录进回收站。
 
-| 什么 | 在哪 |
-| --- | --- |
-| 日志 | `<数据目录>/logs/wtfml.log`，**每次启动截断重写** |
-| 启动器状态、账户表 | `HKCU\Software\WTFML`（令牌是 DPAPI 加密后落盘的） |
-| 图标 / 主题图 / 备份等缓存 | `<数据目录>/cache/` |
-| 智能体会话（全局，不跟游戏文件夹） | `%LOCALAPPDATA%\WTFML\agent\sessions`；API Key 在 Windows 凭据管理器/DPAPI |
+<p align="center">
+  <img src="assets/readme/shot-library.webp" alt="管理页：实例列表与分组" width="100%">
+</p>
 
-同一个数据目录同时只允许一个启动器窗口。第二个进程在写日志、开主窗口之前就会被拒绝并退出；
-边界细节见 [docs/features/DIRECTORY_SESSION_LOCK.md](docs/features/DIRECTORY_SESSION_LOCK.md)。
+## <picture><source media="(prefers-color-scheme: dark)" srcset="assets/readme/h-downloads-dark.svg"><img src="assets/readme/h-downloads-light.svg" alt="下载" height="40"></picture>
 
-GUI 子系统下面**没人看得见 stdout / stderr**，那份日志文件就是“当时到底发生了什么”的
-第一现场；想让日志同时进终端就设 `QT_FORCE_STDERR_LOGGING=1`。
+客户端支持原版、Fabric、Quilt、Forge、NeoForge，服务端另有 Paper、Purpur 和 Spigot。下载可以并发、限速、走代理、断点续传，已经有的文件先校验，能用就不再下。整合包认 ZIP、mrpack、CurseForge 导出包和 MultiMC / Prism 实例，装了 7-Zip 时也能直接导入 `.rar`、`.7z`。
 
-## 项目结构
+<p align="center">
+  <img src="assets/readme/shot-download.webp" alt="下载页：版本与加载器" width="100%">
+</p>
 
-| 目录 | 内容 |
-| --- | --- |
-| `src/launcher/` | 启动：命令行拼接、继承链合并、natives、进程优先级 |
-| `src/auth/` | 微软登录链、账户表、皮肤与披风、令牌落盘（DPAPI） |
-| `src/manage/` | 文件夹与实例、分组、整合包导入/导出、备份、世界/服务器文件 |
-| `src/download/` | 版本/加载器/资源/服务端下载与安装判据、下载器与限速 |
-| `src/presets/` | 实例预设的数据模型与存储 |
-| `src/settings/` | `GlobalJavaSettings`（Java/内存）、`LauncherSettings`（启动器状态） |
-| `src/net/` | `HttpClient` |
-| `src/controllers/` | 连接 UI 与业务层的控制器，避免继续扩大 `MainWindow` |
-| `src/server/` | 服务端属性、控制台、进程管理 |
-| `src/tools/` | 工具箱的纯函数/后台任务 |
-| `src/agent/` | 智能体核心：provider/SSE、会话存储/加密、上下文、Loop、受控文件工具/审批、D11 外发、路径校验、脱敏、凭据存储 |
-| `src/diag/` | 启动诊断、游戏退出诊断、错误报告 |
-| `src/util/` | 与业务无关的小工具（`AppPaths` / `ZipUtil` / `NbtUtil` / `ServerPing` / …） |
-| `ui/` | 全部界面。**没有 .ui 文件**，界面一律手写；实际存在少量双向引用（`ui/` 有 6 处 include `src/` 模型与控制器，`src/` 有 45 个文件 include `ui/` 头文件；复杂业务与网络逻辑由 `src/` 承载） |
-| `assets/` | 编进 exe 的资源（`icons.qrc`），来路见 `assets/loader/README.md` |
+## <picture><source media="(prefers-color-scheme: dark)" srcset="assets/readme/h-settings-dark.svg"><img src="assets/readme/h-settings-light.svg" alt="设置" height="40"></picture>
 
-## 开发与验证
+设置分启动、提示、个性化、下载四页，没有「应用」按钮，改完就存。缺的 Java 可以从 Adoptium 一键下好，也可以扫描本机已有的，或者手动指定一个 `java.exe`；内存可以手动给，也可以按物理内存自动分配。
 
-仓库里的本地预设与上面的安装位置一致，可以直接运行：
+<p align="center">
+  <img src="assets/readme/shot-settings.webp" alt="设置页" width="100%">
+</p>
 
-```bash
-cmake --preset dev-debug
-cmake --build --preset dev-debug
+## <picture><source media="(prefers-color-scheme: dark)" srcset="assets/readme/h-toolbox-dark.svg"><img src="assets/readme/h-toolbox-light.svg" alt="工具箱" height="40"></picture>
 
-cmake --preset verification
-cmake --build --preset verification
-ctest --preset verification
-```
+玩的时候常要算的东西放在一起：附魔顺序、彩色文本、坐标换算、服务器延迟、文件校验、信标、酿造、旗帜图案、直链下载，还有一个能拖着转的盔甲纹饰三维预览。
 
-三套纳入 CTest 的回归程序在 `tests/`：
+<p align="center">
+  <img src="assets/readme/shot-toolbox.webp" alt="工具箱" width="100%">
+</p>
 
-- `verify`：数据层纯函数与文件格式。**已按域拆成多个可执行程序**（`verify_<域>`，另有基线
-  那一个），`ctest --preset verification` 一次跑全；
-- `ui_check`：offscreen 控件、布局与像素探针；
-- `mw_check`：真 `MainWindow` 与跨控制器集成。
+## <picture><source media="(prefers-color-scheme: dark)" srcset="assets/readme/h-agent-dark.svg"><img src="assets/readme/h-agent-light.svg" alt="智能体" height="40"></picture>
 
-日常改完代码用 `tools/test.ps1` 按套件跑（它会挑要建的目标，再调 ctest）：
+接一个兼容 OpenAI 接口的模型，就能在启动器里聊天，让它读当前实例的日志和崩溃报告帮忙排查。它只碰锁定的那一个实例：改配置文件前每次都要你批准，改之前先备份；凭据文件和二进制文件一律不外发。API Key 存在 Windows 凭据管理器里。
 
-```powershell
-./tools/check-test-modules.ps1                       # 测试入口/模块归属/大小上限
-./tools/check-doc-links.ps1                          # 文档相对链接与源码里的 docs 引用
-./tools/test.ps1 -Suite quick                        # 十几秒的冒烟
-./tools/test.ps1 -Suite full -TestJobs 1             # CI 同款：按标签排除 visual
-```
+<p align="center">
+  <img src="assets/readme/shot-agent.webp" alt="智能体页" width="100%">
+</p>
 
-**受限令牌环境**（Windows 沙箱 / 某些企业策略）下子进程只能写工作区，而测试要建临时目录。
-这时给 `tools/test.ps1` 指一个工作区里的临时根，否则 `QTemporaryDir` 会拿到"拒绝访问"：
+<br>
 
-```powershell
-$env:WTFML_TEST_TEMP = 'D:\Desktop\the_project\.tmp-test'
-```
+## <picture><source media="(prefers-color-scheme: dark)" srcset="assets/readme/h-start-dark.svg"><img src="assets/readme/h-start-light.svg" alt="上手" height="40"></picture>
 
-> 2026-11-05 核对：预设 `dev-debug` / `release` / `verification` / `ci-verification` 与本节命令
-> 一致；`verification` 的产物在 `build/verification-mingw13`；`WTFML_USE_PCH` 默认 ON。
+1. 从 [Releases](https://github.com/0x7fffff/WTFML/releases/latest) 下载 exe，放在哪里都行，双击打开。
+2. 第一次打开还没有实例，点主页的「下载游戏」，选一个版本和加载器装上。
+3. 点右上角「登录」，用微软账号登录，或者填一个离线名字。
+4. 回到主页，点「启动游戏」。
 
-默认验证与 CI 跑非 visual 的确定性集合；依赖真机桌面或已知受 Qt offscreen 影响的像素探针
-用 `ctest --preset visual` 单独运行。测试基线、已知离屏限制和验证原则见
-[FEATURES.md](docs/FEATURES.md) 的「验证工程」，命令细节见 [docs/dev/TESTING.md](docs/dev/TESTING.md)。
+<details>
+<summary><b>常见问题</b></summary>
 
-- **改代码前先读它周围的注释** —— 例外、坑点和“为什么不能换一种写法”写在代码边上。
-- 新功能/行为变化同步更新 `FEATURES.md`；未完成事项只进 `ROADMAP.md`。
-- 本地凭据 / 私有文件（`LOCAL_FILES.md`、`dev-login.json`、`credential.json`）**不入库**，
-  也不要贴出来或同步到别处。
+<br>
 
-## 许可
+**数据放在哪里**
+放在当前选中的游戏文件夹里，和 exe 在哪无关。启动器自己的设置和账号表在注册表 `HKCU\Software\WTFML`，登录令牌用 Windows DPAPI 加密后才落盘。
 
-见 [LICENSE](LICENSE)。
+**日志在哪里**
+`<游戏文件夹>/logs/wtfml.log`，每次启动重写一份。游戏自己的输出在单独的日志窗口里，不进这份文件。
 
+**能同时开两个窗口吗**
+同一个游戏文件夹同时只能有一个启动器窗口，第二个会在打开前被拒绝；换一个游戏文件夹就可以。
+
+**智能体的对话存在哪里**
+`%LOCALAPPDATA%\WTFML\agent`，不跟着游戏文件夹走。每个会话可以单独选择用 DPAPI 加密存储。
+
+</details>
+
+<details>
+<summary><b>更多功能</b></summary>
+
+<br>
+
+- **任务中心**：下载、安装、复制、备份、升级都登记成任务，可以暂停、继续、重试；游戏异常退出会留一条记录，附带诊断和错误报告导出。
+- **实例更新**：把实例升到新的游戏版本，能替换的模组换成适配版，原地升级前先做完整快照，可以回滚。
+- **实例预设**：游戏设置、模组、资源包、数据包、光影五类分开保存，新建实例时选一份套上。
+- **服务端工作区**：控制台、`server.properties` 表单与原文两种编辑、白名单 / OP / 封禁列表、备份，首次启动需要明确同意 EULA。
+- **文件安全**：复制、导入、还原都先写到暂存目录，完整了才替换；中途断掉能从任务中心接着做。
+
+完整的行为约定见 [docs/FEATURES.md](docs/FEATURES.md)。
+
+</details>
+
+<br>
+
+## <picture><source media="(prefers-color-scheme: dark)" srcset="assets/readme/h-contributing-dark.svg"><img src="assets/readme/h-contributing-light.svg" alt="参与开发" height="40"></picture>
+
+WTFML 进入了合作维护阶段，欢迎提 issue 和 PR。遇到问题时附上 `logs/wtfml.log` 会省很多来回。
+
+- 构建、运行与目录结构：[docs/dev/BUILDING.md](docs/dev/BUILDING.md)
+- 测试怎么跑：[docs/dev/TESTING.md](docs/dev/TESTING.md)
+- 文档索引：[docs/README.md](docs/README.md)
+- 仓库规则（目录布局、文档、提交）：[AGENTS.md](AGENTS.md)
+
+## <picture><source media="(prefers-color-scheme: dark)" srcset="assets/readme/h-license-dark.svg"><img src="assets/readme/h-license-light.svg" alt="许可" height="40"></picture>
+
+WTFML 以 [GNU GPL v3](LICENSE) 发布。界面里的 Dancing Script 与霞鹜文楷遵循 SIL Open Font License，三套主题的风景照来自 Wikimedia Commons，作者与许可见 [assets/scenes/README.md](assets/scenes/README.md)。

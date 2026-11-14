@@ -24,7 +24,7 @@
 
 .PARAMETER BuildDir
     构建目录（里面有 WTFMinecraftLauncher.exe）。默认 `build/static-release` —— 发布用的是
-    静态 Qt 那份（README「要真·单文件就换静态 Qt」）。
+    静态 Qt 那份（docs/dev/BUILDING.md「要真·单文件就换静态 Qt」）。
 
 .PARAMETER OutputDir
     输出目录。默认 `build/release-copy-<时间戳>`，**不会**覆盖已有的东西。
