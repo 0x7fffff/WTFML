@@ -1,6 +1,7 @@
 #include "Support.hpp"
 #include "ThemeAdvancedEditor.hpp"
 #include "Glass.hpp"
+#include "TitleBar.hpp"
 #include <QToolButton>
 #include <QSpinBox>
 int UiThemeCheck(QApplication &app) {
@@ -471,6 +472,100 @@ int UiThemeCheck(QApplication &app) {
             }
             expect(clean, "★ 真窗口：鼠标点导航换页后，新页上没有任何控件带着键盘焦点环");
             expect(moved, "…换页后焦点确实交接到了新页的控件上（上面那条不是靠「没焦点」过的）");
+        }
+        // ---- 左上角品牌标 W：换页不变色（步骤 121），主页风景 / 别的页磨砂底上都有 3:1 ----
+        // 三套预设各一份，再加暮色雪山配一张很亮的自定义背景图（最难兜对比度的那一档）。
+        {
+            const QString brightPath = QDir(settingsDir.path()).filePath(QStringLiteral("bright-bg.png"));
+            QImage bright(640, 400, QImage::Format_RGB32);
+            bright.fill(QColor(246, 246, 248));
+            bright.save(brightPath);
+            struct LogoCase {
+                QString preset;
+                bool brightImage;
+            };
+            const QList<LogoCase> cases{{QStringLiteral("dark"), false}, {QStringLiteral("emerald"), false},
+                                        {QStringLiteral("ocean"), false}, {QStringLiteral("dark"), true}};
+            const Theme::Spec restore = Theme::current();
+            bool same = true, readable = true, fades = true;
+            for (const LogoCase &c : cases) {
+                Theme::Spec spec = Theme::presetSpec(c.preset);
+                if (c.brightImage) {
+                    Theme::PartStyle &page = spec.parts[int(Theme::Part::PageBackground)];
+                    page.hasImage = true;
+                    page.imagePath = brightPath;
+                }
+                Theme::setSpec(spec);
+                Theme::apply(app);
+                QMainWindow window;
+                MainWindowUI windowUi(&window);
+                window.resize(1280, 800);
+                window.show();
+                app.processEvents();
+                QWidget *logo = window.findChild<QWidget *>(QStringLiteral("titleBarLogo"));
+                Glass::Backdrop *backdrop = Glass::Backdrop::of(logo);
+                QTabWidget *tabs = windowUi.getTabWidget();
+                if (logo == nullptr || backdrop == nullptr) {
+                    same = readable = false;
+                    std::printf("  品牌标 %s：找不到 W 或整窗底\n", qUtf8Printable(c.preset));
+                    continue;
+                }
+                const auto shoot = [&](int tab) {
+                    tabs->setCurrentIndex(tab);
+                    app.processEvents();
+                    backdrop->rebuildNow();
+                    app.processEvents();
+                    QImage img(logo->size(), QImage::Format_ARGB32);
+                    img.fill(Qt::transparent);
+                    logo->render(&img, QPoint(), QRegion(), QWidget::DrawChildren);
+                    return img;
+                };
+                const QImage home = shoot(MainWindowUI::homeTabIndex());
+                const QList<QColor> homeUnder = backdrop->colorsUnder(logo);  // 主页此刻真正的底（清晰风景）
+                const QImage manage = shoot(MainWindowUI::instancesTabIndex());
+                // 别的页此刻真正的底：W 那一块的磨砂底（风景淡出后只剩它）+ 主页那一份
+                const QList<QColor> under = homeUnder + backdrop->colorsUnderAnyPage(logo);
+                double worst = 21.0;
+                int opaque = 0;
+                QColor first, last;
+                for (int y = 0; y < home.height(); ++y) {
+                    for (int x = 0; x < home.width(); ++x) {
+                        const QColor px = home.pixelColor(x, y);
+                        if (px.alpha() < 255) continue;  // 只量实心那部分（边缘抗锯齿是半透明）
+                        if (opaque++ == 0) first = px;
+                        last = px;
+                        for (const QColor &bg : under) worst = qMin(worst, Glass::contrast(px, bg));
+                    }
+                }
+                const bool caseSame = home == manage && opaque > 20;
+                const bool caseReadable = worst >= 3.0;
+                same = same && caseSame;
+                readable = readable && caseReadable;
+                std::printf("  品牌标 %s%s：主页 / 管理页%s，W 实心 %d 像素，上 %s → 下 %s，最差对比度 %.2f\n",
+                            qUtf8Printable(c.preset), c.brightImage ? "+亮背景图" : "",
+                            caseSame ? "一致" : "不一致", opaque, qUtf8Printable(first.name()),
+                            qUtf8Printable(last.name()), worst);
+                // 窗口按钮墨色跟风景不透明度渐变：一半时既不是普通字色也不是主页字色。
+                if (!c.brightImage) {
+                    TitleBar *rail = windowUi.titleBar();
+                    QAbstractButton *close = rail->closeButton();
+                    const auto glyph = [&](qreal opacity) {
+                        rail->setHeroOpacity(opacity);
+                        QImage img(close->size(), QImage::Format_ARGB32);
+                        img.fill(Qt::transparent);
+                        close->render(&img, QPoint(), QRegion(), QWidget::DrawChildren);
+                        return img;
+                    };
+                    const QImage normal = glyph(0.0), mid = glyph(0.5), hero = glyph(1.0);
+                    fades = fades && normal != hero && mid != normal && mid != hero;
+                    rail->setHeroOpacity(backdrop->heroOpacity());
+                }
+            }
+            Theme::setSpec(restore);
+            Theme::apply(app);
+            expect(same, "★ 品牌标 W 在主页和管理页画出来一模一样（三套预设 + 亮背景图）");
+            expect(readable, "★ 品牌标 W 在主页风景和别的页磨砂底上都有 3:1（三套预设 + 亮背景图）");
+            expect(fades, "窗口按钮墨色按风景不透明度在普通 / 主页字色之间渐变（一半时介于两者）");
         }
         {
             Theme::Spec edited;

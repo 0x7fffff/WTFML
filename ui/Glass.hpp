@@ -110,8 +110,8 @@ public:
     static constexpr int kHeroFadeMs = 250;
 
 signals:
-    /// 主页场景露没露（主页进出、被整页盖住 / 揭开）：导航轨据此换主页字色。
-    void heroShownChanged(bool shown);
+    /// 主页风景的不透明度变了（淡变的每一帧，以及不淡时直接落到终值）：窗口按钮的墨色跟着它渐变。
+    void heroOpacityChanged(qreal opacity);
 
 public:
 
@@ -136,8 +136,11 @@ public:
     /// 主页场景在 `widget` 那一块上最亮的颜色 —— 直接压在风景上的标题拿它验对比度。
     QColor brightestUnder(const QWidget *widget) const;
     /// `widget` 那一块此刻屏上可能落到的底色（最暗 / 最亮两端，盖过着色层或主页暗角之后）：
-    /// 主页风景露着时量清晰风景，没露 / 正在淡出时量磨砂底。不靠固定墨色的小图形（导航轨品牌标）拿它验对比度。
+    /// 主页风景露着时量清晰风景，没露 / 正在淡出时量磨砂底（取整窗两端）。主页上压在风景上、随这一刻的底取色的字拿它验对比度。
     QList<QColor> colorsUnder(const QWidget *widget) const;
+    /// `widget` 那一块在**任一页**可能落到的底色：主页清晰风景 + 别的页的磨砂底（都按这一块实测）。
+    /// 和此刻在哪一页、风景淡到哪无关 —— 导航轨品牌标拿它取色，换页时颜色不跳。
+    QList<QColor> colorsUnderAnyPage(const QWidget *widget) const;
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -150,6 +153,8 @@ private:
     void scheduleRebuild();
     QRect heroRect() const;
     void rebuildHero();
+    QList<QColor> sceneColorsUnder(const QWidget *widget) const;
+    QList<QColor> frostColorsUnder(const QWidget *widget, bool local) const;
 
     QTimer *m_debounce = nullptr;
     QPointer<QWidget> m_hero;
@@ -157,6 +162,7 @@ private:
     QImage m_source;
     QPixmap m_frost;       // 风景底：模糊 + 混色后的整窗图
     QSize m_frostSize;
+    QImage m_frostSmall;   // 风景底缩小版（量某一块底下的明暗）
     QString m_frostKey;
     QPixmap m_heroPixmap;  // 主页场景：清晰图 + 暗角 + 左沿渐隐
     QImage m_heroSmall;    // 主页场景缩小版（量标题底下的明暗）

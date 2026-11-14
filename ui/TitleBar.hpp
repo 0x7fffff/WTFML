@@ -42,9 +42,9 @@ public:
     /// 右上那条窗口按钮条的高（顶部拖动区高）。
     static int barHeight();
     /// 三颗窗口按钮（最小化 / 最大化 / 关闭）的配色：主窗口这条和独立窗口自绘的标题条共用一份。
-    /// 传进来的应是 `TitleBarButton`（别的按钮原样跳过）；hero = 主页压在风景上那一档字色。
+    /// 传进来的应是 `TitleBarButton`（别的按钮原样跳过）；hero = 往主页压在风景上那一档字色走了多少（0~1）。
     static void styleCaptionButtons(QAbstractButton *minimize, QAbstractButton *maximize,
-                                    QAbstractButton *close, bool hero = false);
+                                    QAbstractButton *close, qreal hero = 0.0);
     /// 窗口按钮的高（= 条高；宽是 `windowButtonWidth()`）。
     static int buttonSize();
     static int windowButtonWidth();
@@ -87,8 +87,9 @@ public:
     bool isCollapsed() const { return m_userCollapsed || m_narrow; }
     /// 窗口最大化时把「最大化」那颗换成「还原」的样子。
     void setMaximized(bool maximized);
-    /// 主页上（轨压在清晰风景上）窗口按钮用主页字色。
-    void setHeroMode(bool hero);
+    /// 主页风景此刻的不透明度（Glass::Backdrop::heroOpacity）：窗口按钮的墨色按它在普通 / 主页字色之间渐变。
+    /// 品牌标与品牌字不跟它走，换页不变色。
+    void setHeroOpacity(qreal opacity);
 
 signals:
     void minimizeRequested();
@@ -126,7 +127,7 @@ private:
     bool m_applyingColors = false;
     bool m_userCollapsed = false;
     bool m_narrow = false;
-    bool m_hero = false;
+    qreal m_heroOpacity = 0.0;
     bool m_watchingWindow = false;
     int m_pillFrom = -1;
     qreal m_pillProgress = 1.0;
