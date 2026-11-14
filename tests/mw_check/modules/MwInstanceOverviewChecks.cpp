@@ -424,6 +424,11 @@ int MwInstanceOverviewChecks(const QDir &root, const QDir &versionsDir) {
         auto *host = currentOverlay();
         auto *page = host != nullptr ? host->findChild<InstanceSettingsDialog *>() : nullptr;
         check(page != nullptr, "UG6 实例设置页开出来了");
+        // 页是第一次切过去才建的（见 InstanceSettingsDialog::ensurePage()）：升级页的东西要
+        // 先切到那一页 —— 照用户的走法，别在开页那一刻就 findChild。
+        if (page != nullptr) {
+            page->showPage(QStringLiteral("upgrade"));
+        }
         auto *upgrade = page != nullptr ? page->findChild<InstanceUpgradePage *>() : nullptr;
         check(upgrade != nullptr, "UG6 维护页里有新版升级页（不是只剩旧向导入口）");
         QStringList roots =

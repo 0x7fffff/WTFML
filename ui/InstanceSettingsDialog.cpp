@@ -576,8 +576,13 @@ void InstanceSettingsDialog::ensurePage(const QString &key) {
         m_pendingOutdatedPaths.clear();
     }
     // 新造出来的控件要接上"改了就写"那几条线 —— 构造末尾那一次 watchEditors() 扫不到它们。
-    QWidget *slot = pageSlot(pageKey);
-    watchPage(slot != nullptr ? slot->findChild<QWidget *>(panelName(pageKey)) : nullptr);
+    //
+    // NOTE: 扫的是**整个对话框**，不是这一页。有几样浮层是挂在对话框自己身上的（概览页
+    // 「更改图标」那一排候选、「分组…」那几行 —— `MenuPopup(this)` 的 this 是对话框，
+    // 不是页），只扫这一页就漏掉它们：点一下图标候选，值变了却没人发 settingsEdited，
+    // 盘上一直不动（T18⑥ 钉的就是这一条）。`watchPage()` 里那几条线都是
+    // Qt::UniqueConnection，重复扫同几个控件不会再接一遍，所以这里每建一页都扫一遍整个对话框是安全的。
+    watchPage(this);
     // 谁要在这一页的控件上接线，等的是这一发（见 .hpp 里 pageBuilt()）。
     emit pageBuilt(pageKey);
 }
@@ -2176,7 +2181,8 @@ void InstanceSettingsDialog::watchPage(QWidget *page) {
         // 勾选框 / 各种按钮一并算上。「值变了没有」由 notifyEdited() 判，
         // 所以那些**不改值**的按钮（打开文件夹 / 导出脚本 / 高级选项那个折叠开关）
         // 多接一条线是白接，不会多写一次盘。
-        connect(button, &QAbstractButton::clicked, this, &InstanceSettingsDialog::notifyEdited);
+        connect(button, &QAbstractButton::clicked, this, &InstanceSettingsDialog::notifyEdited,
+                Qt::UniqueConnection);
     }
     for (QLineEdit *edit : page->findChildren<QLineEdit *>()) {
         // 「实例名」那一格走改名那条路（renameRequested），**不接在这儿**：它改的是目录名，
@@ -2187,13 +2193,14 @@ void InstanceSettingsDialog::watchPage(QWidget *page) {
         // `editingFinished`（回车 / 离开这一格）而不是 `textChanged`：路径和额外参数都是
         // "一段字"，打字打到一半就写盘等于每次按键改一次磁盘上的设置。改名那一格是同一条
         // 理由（见 .hpp 里 renameRequested()）。
-        connect(edit, &QLineEdit::editingFinished, this, &InstanceSettingsDialog::notifyEdited);
+        connect(edit, &QLineEdit::editingFinished, this, &InstanceSettingsDialog::notifyEdited,
+                Qt::UniqueConnection);
     }
     // QSpinBox 的两条 valueChanged 重载里挑 int 那条（另一个是 QString，Qt 6 已经删了，
     // 但 QOverload 写成 int 这一条在两边都编得过）。
     for (QSpinBox *spin : page->findChildren<QSpinBox *>()) {
         connect(spin, QOverload<int>::of(&QSpinBox::valueChanged), this,
-                &InstanceSettingsDialog::notifyEdited);
+                &InstanceSettingsDialog::notifyEdited, Qt::UniqueConnection);
     }
     // 下拉框：这一页上**所有** QComboBox 一起接。档位那七格和「窗口模式」都是下拉框，
     // 一个个手接就成了"每加一行都要记得回来补一条线" —— 收进这个循环之后和上面四条是
@@ -2209,17 +2216,19 @@ void InstanceSettingsDialog::watchPage(QWidget *page) {
     // 不会写。按"这一页上的哪些下拉框"去筛是**多一条会过期的名单**，不值当。
     for (QComboBox *combo : page->findChildren<QComboBox *>()) {
         connect(combo, &QComboBox::currentIndexChanged, this,
-                &InstanceSettingsDialog::notifyEdited);
+                &InstanceSettingsDialog::notifyEdited, Qt::UniqueConnection);
     }
     for (QPlainTextEdit *text : page->findChildren<QPlainTextEdit *>()) {
         // 这个没有 editingFinished，只能用 textChanged —— 于是"追加参数"那一格是这一页上
         // **唯一一处按每个按键写盘**的（一条一行，本来就短）。值没变还是不发（空格、回车这
         // 种改动会被签名里那句 `appendJvmArgs()` 归一掉）。
-        connect(text, &QPlainTextEdit::textChanged, this, &InstanceSettingsDialog::notifyEdited);
+        connect(text, &QPlainTextEdit::textChanged, this, &InstanceSettingsDialog::notifyEdited,
+                Qt::UniqueConnection);
     }
 
     // 「实例名」那一格：回车 / 离开这一格 ⇒ 报"用户要改名"（不是"值变了"）。
-    if (m_instanceNameEdit != nullptr && page->isAncestorOf(m_instanceNameEdit)) {
+    if (m_instanceNameEdit != nullptr && !m_renameWired && page->isAncestorOf(m_instanceNameEdit)) {
+        m_renameWired = true;
         connect(m_instanceNameEdit, &QLineEdit::editingFinished, this, [this]() {
             emit renameRequested(m_instanceNameEdit->text());
         });
