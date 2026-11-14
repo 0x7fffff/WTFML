@@ -136,6 +136,9 @@ protected:
     }
     void enterEvent(QEnterEvent *event) override {
         QAbstractButton::enterEvent(event);
+        // 名字那一格对鼠标透明：它收了省略号时的全名提示由这一整块代出。进门就同步——
+        // 玻璃提示的过滤器在 event() 之前读 toolTip，晚了就落回 Qt 原生提示框。
+        if (auto *name = findChild<QLabel *>(QStringLiteral("homeCurrentName"))) setToolTip(name->toolTip());
         update();
     }
     void leaveEvent(QEvent *event) override {
@@ -989,16 +992,8 @@ void MainWindowUI::fitHomeQuoteFont() {
     const QMargins m = homeHeroQuote->contentsMargins();
     homeHeroQuote->setFixedHeight(m.top() + line + m.bottom());
     // 放得下整句的最大一号；到下限还放不下就用下限，交给省略号。
-    const int width = homeHeroQuote->contentsRect().width();
-    const QString text = homeHeroQuote->text();
-    int px = lo;
-    for (int candidate = hi; candidate > lo; --candidate) {
-        if (QFontMetrics(Theme::quoteFont(homeHeroQuote->font(), homeQuoteScript, candidate)).horizontalAdvance(text) <=
-            width) {
-            px = candidate;
-            break;
-        }
-    }
+    const int px = Theme::fitPixelSize(Theme::quoteFont(homeHeroQuote->font(), homeQuoteScript, hi),
+                                       homeHeroQuote->text(), homeHeroQuote->contentsRect().width(), hi, lo);
     const QFont font = Theme::quoteFont(homeHeroQuote->font(), homeQuoteScript, px);
     if (homeQuoteScript == Theme::QuoteScript::Kana) {
         // 日文走系统字体链，不算手写体：不挂 wtfmlDisplay（ui_check 按它查手写体有没有漏）。
@@ -1935,12 +1930,14 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             name->setText(item.empty ? QStringLiteral("还没有实例") : item.name);
             name->setMinimumWidth(1);
             // 零实例：「还没有实例」只是一句状态，用普通字阶（16），大标题才是这一屏唯一的手写大字。
+            name->setMinimumHeight(item.empty ? 28 : 52);
             if (item.empty) {
                 name->setFont(Theme::textFont(name->font(), Theme::TextRole::Heading));
             } else {
-                Theme::markDisplay(name, handPx(name->font(), Theme::HandFont::Kai, 40, 3));
+                Theme::markDisplay(name, handPx(name->font(), Theme::HandFont::Kai, kHomeCurrentNameMaxPixelSize, 3));
+                // 长名先收字号，到下限还放不下才收省略号；行高按上限钉死，下面那行和按钮不挪。
+                name->setFitPixelRange(kHomeCurrentNameMaxPixelSize, kHomeCurrentNameMinPixelSize);
             }
-            name->setMinimumHeight(item.empty ? 28 : 52);
             name->setAttribute(Qt::WA_TransparentForMouseEvents);
             followHeroInk(name, false);
             blockColumn->addWidget(name);
@@ -2163,9 +2160,10 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             // 手动加回去：不加的话鼠标一进来名字就被挤出一截省略号。
             if (QLayout *contentLayout = card->layout()) {
                 const int playRoom = play->sizeHint().width() + contentLayout->spacing();
-                card->setFixedWidth(qBound(kHomeTileWidth,
-                                           contentLayout->sizeHint().width() + playRoom,
-                                           kHomeTileMaxWidth));
+                const int want = contentLayout->sizeHint().width() + playRoom;
+                card->setFixedWidth(qBound(kHomeTileWidth, want, kHomeTileMaxWidth));
+                // 到上限、名字收了省略号：悬停给全名（名字那格对鼠标透明，提示挂在卡片上）。
+                if (want > kHomeTileMaxWidth) card->setToolTip(item.name);
             }
             row->addWidget(card);
         }

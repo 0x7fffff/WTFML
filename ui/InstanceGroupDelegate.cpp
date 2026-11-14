@@ -102,6 +102,11 @@ bool InstanceGroupDelegate::helpEvent(QHelpEvent *event, QAbstractItemView *view
             Popups::showTooltip(tip, event->globalPos(), view);
             return true;
         }
+        // 实例名长到收了省略号：指着这一行给全名。
+        if (!index.data(MainWindowUI::groupIdRole()).isValid() && titleElided(index)) {
+            Popups::showTooltip(index.data(Qt::DisplayRole).toString(), event->globalPos(), view);
+            return true;
+        }
     }
     // 兜底：条目自己写 `Qt::ToolTipRole` 的老路（基类就干这个）。
     return QStyledItemDelegate::helpEvent(event, view, option, index);

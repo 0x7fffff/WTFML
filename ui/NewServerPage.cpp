@@ -5,6 +5,7 @@
 
 #include "NewServerPage.hpp"
 #include "InputSizing.hpp"
+#include "LoadingState.hpp"
 
 #include <QFont>
 #include <QFrame>
@@ -200,8 +201,8 @@ NewServerPage::NewServerPage(QWidget *parent) : QDialog(parent) {
         combo->setInsertPolicy(QComboBox::NoInsert);
         combo->lineEdit()->setReadOnly(true);
         combo->lineEdit()->setObjectName(name);
-        combo->setPlaceholderText(tr("正在获取…"));
-        combo->lineEdit()->setPlaceholderText(tr("正在获取…"));
+        // 建框时不写「正在获取…」：不发请求的档位（原版等）不该挂着一句假的加载话。
+        // 真在等的时候由 setVersionsLoading() 画加载态，回来后 setVersionChoices() 写占位。
         InputSizing::shortValue(combo, 24);  // 加载器 / 安装器版本号，如 0.16.9、1.0.1-build.123
         *comboOut = combo; *editOut = combo->lineEdit();
         auto *row = makeControlRow(serverCard, title, combo, true);
@@ -323,6 +324,7 @@ void NewServerPage::setVersionChoices(bool installer, const QStringList &version
     auto *combo = installer ? m_installerCombo : m_loaderCombo;
     auto *edit = installer ? m_installerEdit : m_loaderEdit;
     const QString previous = edit->text();
+    LoadingState::finish(combo);
     {
         const QSignalBlocker block(combo), lineBlock(edit);
         combo->clear();
@@ -335,6 +337,22 @@ void NewServerPage::setVersionChoices(bool installer, const QStringList &version
         combo->setEnabled(!versions.isEmpty());
         combo->setToolTip(status);
     }
+    emit fieldsChanged();
+}
+
+void NewServerPage::setVersionsLoading(bool installer) {
+    auto *combo = installer ? m_installerCombo : m_loaderCombo;
+    auto *edit = installer ? m_installerEdit : m_loaderEdit;
+    {
+        const QSignalBlocker block(combo), lineBlock(edit);
+        combo->clear();
+        combo->setPlaceholderText(QString());
+        edit->setPlaceholderText(QString());
+        edit->clear();
+        combo->setEnabled(false);
+        combo->setToolTip(QString());
+    }
+    LoadingState::begin(combo, tr("正在获取版本…"));
     emit fieldsChanged();
 }
 
@@ -355,6 +373,9 @@ void NewServerPage::applyFlavorVisibility() {
     m_loaderRow->setVisible(option.needsLoader);
     m_installerRow->setVisible(option.needsInstaller);
     m_buildRow->setVisible(option.needsBuild);
+    // 换到不要这一格的档：那一发的答复会被丢掉，加载态也一起撤（别让共享时钟为藏着的框空转）。
+    if (!option.needsLoader) LoadingState::finish(m_loaderCombo);
+    if (!option.needsInstaller) LoadingState::finish(m_installerCombo);
 }
 
 QString NewServerPage::serverName() const { return m_nameEdit->text().trimmed(); }

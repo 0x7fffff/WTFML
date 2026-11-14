@@ -12,6 +12,8 @@
 #include <QAbstractItemView>
 #include <QAbstractButton>
 #include <QButtonGroup>
+#include <QCache>
+#include <QFileInfo>
 #include <QLabel>
 #include <QAbstractSpinBox>
 #include <QApplication>
@@ -20,6 +22,7 @@
 #include <QDir>
 #include <QEvent>
 #include <QFontDatabase>
+#include <QFontMetrics>
 #include <QFocusEvent>
 #include <QHBoxLayout>
 #include <QKeyEvent>
@@ -201,6 +204,14 @@ QFont quoteFont(QFont font, QuoteScript script, int pixelSize) {
     font.setBold(false);
     font.setLetterSpacing(QFont::AbsoluteSpacing, 0);
     return font;
+}
+
+int fitPixelSize(QFont font, const QString &text, int width, int hi, int lo) {
+    for (int px = hi; px > lo; --px) {
+        font.setPixelSize(px);
+        if (QFontMetrics(font).horizontalAdvance(text) <= width) return px;
+    }
+    return lo;
 }
 
 QFont handFont(QFont font, HandFont which) {
@@ -2826,6 +2837,26 @@ PartImage partImage(Part part) {
     image.name = it->imageName;
     image.fit = it->fit;
     image.opacity = clampOpacity(it->imageOpacity);
+    return image;
+}
+
+QImage cachedImage(const QString &path) {
+    if (path.isEmpty()) {
+        return {};
+    }
+    const QFileInfo info(path);
+    // `路径|大小|修改时间`：和 `ThemeBackground` 那一串同一个口径，换了一张图时后两位会变。
+    const QString key = path + QLatin1Char('|') + QString::number(info.size()) +
+                        QLatin1Char('|') + QString::number(info.lastModified().toMSecsSinceEpoch());
+    // 按张数封顶：一张 4K 图解码后约 33 MB，留住的是"最近用过的那几张"，不是整个相册。
+    static QCache<QString, QImage> cache(6);
+    if (const QImage *hit = cache.object(key)) {
+        return *hit;
+    }
+    const QImage image(path);
+    if (!image.isNull()) {
+        cache.insert(key, new QImage(image));
+    }
     return image;
 }
 

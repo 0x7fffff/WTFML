@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "LoadingState.hpp"
 #include <QElapsedTimer>
 #include <QThread>
 #include "controllers/InstanceFileController.hpp"
@@ -1475,11 +1476,12 @@ void runInstanceFilesPagesTests() {
                 }
                 list->setCurrentItem(targetItem);
                 QApplication::processEvents();
-                pendingSeen = info->isVisible() && info->text() == InstanceFilesPage::infoPendingText();
+                // 步骤 126：等的时候字清掉、上面挂一行加载态（LoadingState，过 150ms 才露「正在读取…」）。
+                pendingSeen = info->isVisible() && info->text().isEmpty() && LoadingState::overlay(info) != nullptr;
                 // 那一发合并定时器是 150 ms，读盘还要一会儿 —— 最多等 1.5 秒。
                 QElapsedTimer timer;
                 timer.start();
-                while (timer.elapsed() < 1500 && info->text() == InstanceFilesPage::infoPendingText()) {
+                while (timer.elapsed() < 1500 && LoadingState::overlay(info) != nullptr) {
                     QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
                     QThread::msleep(5);
                 }
@@ -1509,7 +1511,7 @@ void runInstanceFilesPagesTests() {
                   "★ T20.11 原理图那一页有「这一份是什么」那一格，而且**什么都没选的时候藏着**"
                   "（别的页上它压根不开，一个像素都不变）");
             check(pendingSeen,
-                  "★ T20.11 选中一份投影 ⇒ 立即写「正在读取…」（不是空白、也不是上一份的字）");
+                  "★ T20.11 选中一份投影 ⇒ 立即挂上加载态、上一份的字清掉");
             check(infoText.contains(QStringLiteral("真原理图")) &&
                       infoText.contains(QStringLiteral("3 × 1 × 2")) &&
                       infoText.contains(QStringLiteral("3 个方块")) &&
@@ -1517,7 +1519,7 @@ void runInstanceFilesPagesTests() {
                   "★★ T20.11 过一会儿那一格换成真读出来的元数据与方块统计"
                   "（名字 / 尺寸 / 方块数 / 格式）",
                   infoText);
-            check(infoText != InstanceFilesPage::infoPendingText() && !infoText.isEmpty(),
+            check(!infoText.isEmpty(),
                   "★ T20.11 那一格真的被接上了（停在「正在读取…」= 控制器那条连接漏了）");
             check(infoTip.contains(QStringLiteral("minecraft:stone：2")),
                   "★ T20.11 悬停提示里是方块排行（最多的那种真数出来了）", infoTip);

@@ -313,6 +313,12 @@ public:
     static QString versionFilterEditName() { return QStringLiteral("versionFilterEdit"); }
     /// 筛选框右边那句结果（`找到 N 个版本` / `没有版本号匹配「…」`）。空筛选时藏着。
     static QString versionFilterHintName() { return QStringLiteral("versionFilterHint"); }
+    /// 筛选条右边那块空地：页头「刷新」重取在线版本清单时，这里挂一行加载态（LoadingState）。
+    /// 平时是个空标签；失败时旧清单照旧留着，这一行只是撤掉。
+    static QString versionRefreshStatusName() { return QStringLiteral("versionRefreshStatus"); }
+    static QString versionRefreshingText() {
+        return QCoreApplication::translate("MainWindowUI", "正在刷新版本列表…");
+    }
     /// 版本树上方那排分段（设计稿 download）：全部 / 正式版 / 快照 / 远古版。键 = 分类键，「全部」= 空串。
     static QString versionChannelButtonName(const QString &key) {
         return QStringLiteral("versionChannel_") + (key.isEmpty() ? QStringLiteral("all") : key);
@@ -3530,6 +3536,7 @@ public:
     QLineEdit *getVersionFilterEdit() const { return versionFilterEdit; }
     /// 筛选框右边那句结果（空筛选时藏着）。
     QLabel *getVersionFilterHint() const { return versionFilterHint; }
+    QLabel *getVersionRefreshStatus() const { return versionRefreshStatus; }
     /// 按筛选框里现在的文字把树过滤一遍。
     ///
     /// **每次重灌版本树之后必须再调一次**（`MainWindow::refreshAvailableVersions` 末尾）：
@@ -3954,6 +3961,7 @@ private:
     /// 版本树上面那个筛选框和它右边那句结果（见 versionFilterEditName() 那段）。
     QLineEdit *versionFilterEdit = nullptr;
     QLabel *versionFilterHint = nullptr;
+    QLabel *versionRefreshStatus = nullptr;
     /// 筛选**第一次生效之前**每个分类是展开还是收着（键 = 分类键）。
     /// 筛完清空时按它还原 —— 不然"筛一下再清空"会把筛选前只展开一个分类的树撑成
     /// 四栏全开，那不是用户自己动的手。

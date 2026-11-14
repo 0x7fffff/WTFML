@@ -56,6 +56,7 @@
 #include <QEvent>
 #include <QFont>
 #include <QHash>
+#include <QImage>
 #include <QJsonObject>
 #include <QPalette>
 #include <QRect>
@@ -124,6 +125,9 @@ inline QFont textFont(QFont font, TextRole role) {
     }
     return font;
 }
+/// 放得下整段 @p text 的最大一号（像素，在 [lo, hi] 里挑；只改字号，字族、字距照 @p font）。
+/// 到下限还放不下就返回下限，交给省略号。每日一言、主页当前实例名、实例设置页眉共用。
+int fitPixelSize(QFont font, const QString &text, int width, int hi, int lo);
 /// 手写体控件的唯一入口：设字体并挂 `wtfmlDisplay=true`（ui_check 按它查手写体没有漏到别处）。
 void markDisplay(QWidget *widget, const QFont &font);
 QString displayPropertyName();
@@ -928,6 +932,15 @@ struct PartImage {
     bool isSet() const { return !path.isEmpty(); }
 };
 PartImage partImage(Part part);
+
+/// 按盘上那张图解一份出来，**同一份文件只解一次**。
+///
+/// 判据是 `路径|文件大小|修改时间`：同一个路径换了另一张图时后两位会变。同一张背景图
+/// 可能被好几块 `ThemeBackground` 和整窗底（`Glass::Backdrop`）一起用，各解一次就是
+/// 同一份解码付好几遍（主题切换那一下最明显）。缓存按张数封顶，超了就丢最久没用的那张。
+///
+/// 读不出来（删了、挪走了、根本不是图片）返回空图，不报错 —— 调用方按"只有底色"处理。
+QImage cachedImage(const QString &path);
 
 /// 提示框四周那一层。**就是 `partBackground(Part::Scrim)`** —— 单独留一个名字是因为
 /// `OverlayHost::scrimColor()` 用这个名字。

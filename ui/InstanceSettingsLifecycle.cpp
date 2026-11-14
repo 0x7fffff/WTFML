@@ -17,6 +17,10 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFont>
+#include <QFutureWatcher>
+#include <QImage>
+#include <QImageReader>
+#include <QtConcurrent/QtConcurrentRun>
 #include <QFontMetrics>   // 左栏那一列的宽度（见 navListWidth()）
 #include <QGuiApplication>
 #include <QMimeData>
@@ -97,13 +101,6 @@ protected:
 
 
 void InstanceSettingsDialog::setupLifecyclePages() {
-    if (m_lifecycleThumbTimer == nullptr) {
-        m_lifecycleThumbTimer = new QTimer(this);
-        m_lifecycleThumbTimer->setSingleShot(true);
-        m_lifecycleThumbTimer->setInterval(0);
-        connect(m_lifecycleThumbTimer, &QTimer::timeout, this,
-                [this] { loadNextLifecycleThumb(); });
-    }
     for (const QString &key : lifecyclePageKeys()) {
         QWidget *page = addPage(key);
         auto *layout = qobject_cast<QVBoxLayout *>(page->layout());
@@ -448,8 +445,11 @@ void InstanceSettingsDialog::setupLifecyclePages() {
 void InstanceSettingsDialog::refreshLifecycleFiles(const QString &key) {
     QElapsedTimer refreshClock;
     refreshClock.start();
-    m_lifecycleThumbQueue.clear();
-    if (m_lifecycleThumbTimer != nullptr) m_lifecycleThumbTimer->stop();
+    // 重列一次 = 新的一代：上一份列表排出去的缩略图回来了也不许往这一份里塞。
+    // 只有截图页在排缩略图，别的页重列不该把截图那几发作废（它们回来照样进缓存）。
+    if (key == QStringLiteral("screenshots")) {
+        ++m_lifecycleThumbGeneration;
+    }
     auto *list = m_lifecycleLists.value(key);
     if (list == nullptr) return;
     list->clear();
@@ -500,14 +500,18 @@ void InstanceSettingsDialog::refreshLifecycleFiles(const QString &key) {
             }
             // 尺寸读不出来也照样试着解一张缩略图（有些 PNG 的头信息坏了，数据还能读）。
             // NOTE: 但"头里写得荒唐"的那一份不在此列 —— 那种读一次就是几个 G。
-            // 缩略图排到事件循环之后解（见 m_lifecycleThumbQueue）。
+            // 缩略图**在后台线程解**（`requestLifecycleThumb()`），这一趟只排请求。
             details << InstanceFilesPage::formatSize(file.size());
             auto *item = new QListWidgetItem(
                 file.fileName() + QLatin1Char('\n') + details.join(QStringLiteral(" / ")),
                 list);
             item->setData(Qt::UserRole, file.absoluteFilePath());
             item->setToolTip(file.absoluteFilePath());
-            m_lifecycleThumbQueue.append(file.absoluteFilePath());
+            // 透明占位图：让这一行的几何**按"有图"算**。图回来只换图标内容，行高不跳。
+            QPixmap placeholder(list->iconSize());
+            placeholder.fill(Qt::transparent);
+            item->setIcon(placeholder);
+            requestLifecycleThumb(file.absoluteFilePath());
             continue;
         }
         details << InstanceFilesPage::formatSize(file.size());
@@ -524,8 +528,6 @@ void InstanceSettingsDialog::refreshLifecycleFiles(const QString &key) {
     // 重列之后选中项可能已经没了（`clear()` 不一定发 currentItemChanged）——
     // 和 InstanceFilesPage::rebuildRows() 一样，收尾再对一次，别让旧的一句留在底下。
     updateLifecycleInfo(key);
-    if (!m_lifecycleThumbQueue.isEmpty() && m_lifecycleThumbTimer != nullptr)
-        m_lifecycleThumbTimer->start();
     if (refreshClock.elapsed() > 60)
         qInfo() << "[UI timing] lifecycle page refresh" << key << files.size() << "files,"
                 << refreshClock.elapsed() << "ms";
@@ -822,26 +824,57 @@ void InstanceSettingsDialog::updateTransferApplyState(const QString &key) {
             inPlace->setEnabled(hasTarget);
     }
 }
-void InstanceSettingsDialog::loadNextLifecycleThumb() {
-    if (m_lifecycleThumbQueue.isEmpty()) return;
-    const QString path = m_lifecycleThumbQueue.takeFirst();
+void InstanceSettingsDialog::requestLifecycleThumb(const QString &path) {
     QListWidget *list = m_lifecycleLists.value(QStringLiteral("screenshots"));
-    if (list != nullptr) {
+    if (list == nullptr || path.isEmpty()) return;
+    const QFileInfo info(path);
+    // `路径|大小|修改时间`：同一个路径换了另一张图时后两位会变。
+    const QString key = path + QLatin1Char('|') + QString::number(info.size()) +
+                        QLatin1Char('|') + QString::number(info.lastModified().toMSecsSinceEpoch());
+    const auto apply = [list, path](const QImage &image) {
+        if (image.isNull()) return;
         for (int row = 0; row < list->count(); ++row) {
             QListWidgetItem *item = list->item(row);
-            if (item == nullptr || item->data(Qt::UserRole).toString() != path) continue;
-            QImageReader reader(path);
-            const QSize pixels = reader.size();
-            if (pixels.isValid() && pixels.width() > 0 && pixels.height() > 0
-                && pixels.width() <= 16384 && pixels.height() <= 16384) {
-                reader.setScaledSize(pixels.scaled(QSize(96, 64), Qt::KeepAspectRatio));
+            if (item != nullptr && item->data(Qt::UserRole).toString() == path) {
+                item->setIcon(QPixmap::fromImage(image));
+                return;
             }
-            const QImage thumb = reader.read();
-            if (!thumb.isNull()) item->setIcon(QPixmap::fromImage(thumb));
-            break;
         }
+    };
+    if (const auto hit = m_lifecycleThumbCache.constFind(key); hit != m_lifecycleThumbCache.constEnd()) {
+        apply(*hit);
+        return;
     }
-    if (!m_lifecycleThumbQueue.isEmpty() && m_lifecycleThumbTimer != nullptr)
-        m_lifecycleThumbTimer->start();
+    const quint64 generation = m_lifecycleThumbGeneration;
+    auto *watcher = new QFutureWatcher<QImage>(this);
+    connect(watcher, &QFutureWatcher<QImage>::finished, this,
+            [this, watcher, key, apply = std::move(apply), generation] {
+        const QImage image = watcher->result();
+        watcher->deleteLater();
+        if (image.isNull()) return;
+        // 缓存按张数封顶：一页几十张 96×64 的缩略图很小，但换实例换文件夹会一直攒。
+        if (m_lifecycleThumbCache.size() >= 512) m_lifecycleThumbCache.clear();
+        m_lifecycleThumbCache.insert(key, image);
+        // 这一页已经重列过 / 换过页：图照样进缓存，只是不再往现在这份列表里塞。
+        if (generation != m_lifecycleThumbGeneration) return;
+        apply(image);
+    });
+    watcher->setFuture(QtConcurrent::run([path] {
+        // 截图也是**盘上的文件**（实例 / 存档跟着分享走的时候能带进来）：头里写得荒唐
+        // 就不解 —— 8K 截图是 33 MP，这里留到 64 MP。解不开就给空图，那一行留着占位图标。
+        constexpr int kMaxSide = 16384;
+        constexpr qint64 kMaxPixels = 64LL * 1024 * 1024;
+        QImageReader reader(path);
+        reader.setAutoTransform(true);
+        const QSize pixels = reader.size();
+        if (pixels.isValid() && pixels.width() > 0 && pixels.height() > 0) {
+            if (pixels.width() > kMaxSide || pixels.height() > kMaxSide ||
+                qint64(pixels.width()) * pixels.height() > kMaxPixels) {
+                return QImage();
+            }
+            reader.setScaledSize(pixels.scaled(QSize(96, 64), Qt::KeepAspectRatio));
+        }
+        return reader.read();
+    }));
 }
 

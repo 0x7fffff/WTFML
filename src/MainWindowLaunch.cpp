@@ -21,6 +21,7 @@
 
 #include "..\ui\MainWindowUI.hpp"
 #include "..\ui\VersionIcons.hpp"
+#include "LoadingState.hpp"
 #include "controllers/GameSessionController.hpp"
 #include "controllers/HomeQuickController.hpp"
 #include "controllers/LaunchController.hpp"
@@ -59,6 +60,8 @@ void MainWindow::applyLauncherBehaviourAfterLaunch() {
 }
 
 void MainWindow::onVersionsFetched(const QStringList &versions) {
+    // 下载页「游戏」页头刷新那一行加载态（没挂过就什么都不做）。失败时这一发带的是上一份好清单。
+    LoadingState::finish(m_ui->getVersionRefreshStatus());
     refreshAvailableVersions();
     // 下载页那五页的「版本」筛子也灌一遍：它的选项就是这份在线清单（用户要"按版本搜"，
     // 而"有哪些版本"这件事只有这一份是一手来源）。放在**失败也照灌**的位置 —— 空清单时
@@ -68,7 +71,10 @@ void MainWindow::onVersionsFetched(const QStringList &versions) {
     // 顺带把已安装的也刷一遍：一次网络往返之后两个下拉框都是最新的，这条不变式
     // 很便宜（就是一次 QDir 扫描），但能兜住"清单在拉的这段时间用户往
     // .minecraft/versions 里拷了个版本目录"这种情况。
-    refreshInstalledVersions();
+    //
+    // 这一趟走后台：扫盘在实例多的机器上要 60–120 ms，正好压在"用户等着下载页"那一段。
+    // 结果回来之前界面保持上一次的样子（见 refreshInstalledVersionsAsync()）。
+    refreshInstalledVersionsAsync();
 
     if (versions.isEmpty()) {
         // 拉清单失败时 DownloadManager 也会发这个信号，发的是**上一次成功的结果**

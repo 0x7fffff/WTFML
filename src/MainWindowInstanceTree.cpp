@@ -76,17 +76,32 @@ QSet<QString> MainWindow::installingVersionIds() const {
 }
 
 void MainWindow::refreshInstalledVersions() {
-    QElapsedTimer refreshTimer;
-    refreshTimer.start();
-    // 只扫本地磁盘（.minecraft/versions/<id>/<id>.jar），同步返回，随叫随到。
+    // 同步那条路：改名 / 删实例 / 下载收尾 / 改设置这些"用户刚做完一件事、要立刻看见"的场合
+    // 用。扫的是本地磁盘（.minecraft/versions/<id>/<id>.jar），实例少时是几毫秒。
     //
-    // 识别不出来的版本只在第一次上报：本函数一次会话会被调很多次（构造、版本清单到达、
-    // 下载完成、每勾一下「版本名格式」都会走一遍），每回都报就是刷屏。第一次报过之后
-    // 连扫都不扫了 —— 传 nullptr 时
-    // installedVersions() 走的是不带 out 参数的那条路径。
+    // 版本清单从网络回来那一下（20 份 63 ms、200 份 116 ms）走异步那条：见
+    // `refreshInstalledVersionsAsync()`。
+    ++m_installedRefreshToken;
+    // 识别不出来的版本只在第一次上报：本函数一次会话会被调很多次（构造、下载完成、每勾一下
+    // 「版本名格式」都会走一遍），每回都报就是刷屏。第一次报过之后连扫都不扫了 —— 传
+    // nullptr 时 installedVersions() 走的是不带 out 参数的那条路径。
     QStringList warnings;
     const QStringList installed = m_versionManager->installedVersions(
         m_reportedUnrecognizedVersions ? nullptr : &warnings);
+    applyInstalledVersions(installed, warnings);
+}
+
+void MainWindow::refreshInstalledVersionsAsync() {
+    // **不扫盘、不动界面**：只把请求发出去。结果回来之前下拉框和实例树保持上一次的样子
+    // （`installedVersionsScanned` 的接收端在 MainWindow 构造里接好了）。
+    m_pendingInstalledRefreshToken = ++m_installedRefreshToken;
+    m_versionManager->requestInstalledVersions(!m_reportedUnrecognizedVersions);
+}
+
+void MainWindow::applyInstalledVersions(const QStringList &installed,
+                                        const QStringList &warnings) {
+    QElapsedTimer refreshTimer;
+    refreshTimer.start();
     if (!warnings.isEmpty()) {
         m_reportedUnrecognizedVersions = true;
         for (const QString &warning : warnings) {

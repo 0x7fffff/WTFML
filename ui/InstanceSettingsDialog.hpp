@@ -38,6 +38,7 @@
 #include <QDateTime>
 #include <QHash>
 #include <QIcon>  // ServerRowStatus 里那一枚（服务器图标）
+#include <QImage>  // 截图缩略图缓存（m_lifecycleThumbCache）
 #include <QJsonObject>  // pageChoices() / setPageChoices()（"藏起来的那几页"）
 #include <QList>
 #include <QPair>
@@ -60,6 +61,7 @@ class ConfigFileEditorPage;
 class InstanceFilesPage;
 class MemorySlider;
 
+class ElidedLabel;
 class QCheckBox;
 class QComboBox;
 class QGridLayout;
@@ -2117,7 +2119,7 @@ private:
     GlobalValues m_global;
 
     QLabel *m_headerIcon = nullptr;   // 页眉（UI 7b）：图标、名字、元信息
-    QLabel *m_headerTitle = nullptr;
+    ElidedLabel *m_headerTitle = nullptr;
     QLabel *m_headerMeta = nullptr;
 
     // ---------- 左栏那一列 + 右栏堆叠页（见 pinnedPageKeys() 上面那一段）----------
@@ -2140,10 +2142,17 @@ private:
     bool m_closing = false;
     bool m_pendingUpdatesChecked = false;
     void ensureFilePage(const QString &key);
-    /// 截图页的缩略图**排到事件循环之后再解**：一页 73 张 PNG 同步读会把点页面的那一下卡住。
-    QStringList m_lifecycleThumbQueue;
-    QTimer *m_lifecycleThumbTimer = nullptr;
-    void loadNextLifecycleThumb();
+    /// 截图页的缩略图在**后台线程**解（`QtConcurrent`），结果按 `路径|大小|修改时间` 缓存：
+    /// 一页几十张 PNG 在界面线程上逐张解（原来是排到事件循环之后），点开截图的
+    /// 那一下和随后几帧都要等它。
+    ///
+    /// 缓存跟着这个对话框走（关掉就没了）：它只在"这一份实例的截图"这一小撮上复用，
+    /// 换一页再回来、点「刷新」再列一遍都不必重解。行高在**没有图的时候**就用
+    /// `setSizeHint()` 钉死，图回来只换图标，行不跳。
+    QHash<QString, QImage> m_lifecycleThumbCache;
+    /// 重列一次就 +1：在途的解码回调按它丢掉（不往新一页里塞旧图）。
+    quint64 m_lifecycleThumbGeneration = 0;
+    void requestLifecycleThumb(const QString &path);
     QPlainTextEdit *m_diagnosisReport = nullptr;
     /// 「迁移」/「升级」那两页（键 → 控件；键就是 `migration` / `upgrade`）。
     QHash<QString, QComboBox *> m_transferTargets;

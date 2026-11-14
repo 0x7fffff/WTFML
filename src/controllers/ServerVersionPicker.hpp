@@ -56,12 +56,12 @@ private:
         delete m_request.data();
         m_request = nullptr;
         if (needsLoader(token)) {
-            m_page->setVersionChoices(false, {}, tr("正在获取…"));
+            m_page->setVersionsLoading(false);
             m_versions->requestLoaderVersions(game, loaderKind(token));
         }
         if (token != "fabric" && token != "quilt") return;
         if (m_cache.contains(token)) { m_page->setVersionChoices(true, m_cache.value(token)); return; }
-        m_page->setVersionChoices(true, {}, tr("正在获取…"));
+        m_page->setVersionsLoading(true);
         QNetworkRequest request(QUrl(token == "fabric" ? ServerInstall::fabricInstallerListUrl()
                                                         : ServerInstall::quiltInstallerMetadataUrl()));
         request.setTransferTimeout(15000);

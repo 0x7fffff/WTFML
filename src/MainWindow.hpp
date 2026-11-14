@@ -2313,6 +2313,20 @@ private:
     // 列表、以及实例页顶上的"当前文件夹"那句。扫的是**当前游戏文件夹**的
     // .minecraft/versions，同步返回。保住用户原来选中的那一项的逻辑在 fillVersionCombo() 里。
     void refreshInstalledVersions();
+    /// 同上，但扫盘走后台（`VersionManager::requestInstalledVersions()`），**界面在结果
+    /// 回来之前保持上一次的样子**。版本清单从网络回来那一下走这条：那一趟扫盘 20 份
+    /// 63 ms、200 份 116 ms，正落在用户等下载页的同一段时间里。
+    ///
+    /// 连着发两次由 `VersionManager` 的代数保证"旧的不盖新的"；这之后如果又有人调了同步的
+    /// `refreshInstalledVersions()`，晚到的那一份也按 `m_installedRefreshToken` 丢掉。
+    void refreshInstalledVersionsAsync();
+    /// 刷新那两条路共用的收尾：灌下拉框、实例树、服务端页、预设页的实例下拉框、
+    /// 主页「最近运行」。@p warnings 里的告警只在第一次非空时写日志。
+    void applyInstalledVersions(const QStringList &installed, const QStringList &warnings);
+    /// 同步 / 异步刷新共用的代数：异步请求发出时记进 `m_pendingInstalledRefreshToken`，
+    /// 结果回来一看代数变了就丢（这期间有人同步刷过、或者又发了一次）。
+    quint64 m_installedRefreshToken = 0;
+    quint64 m_pendingInstalledRefreshToken = 0;
     /// 主页启动区那块「名字 + 版本」点开的实例切换弹层（搜索 / 最近 / 全部）。只负责切当前实例，
     /// 管理动作在弹层底部那颗「管理全部实例」后面。
     void openHomeInstancePicker();

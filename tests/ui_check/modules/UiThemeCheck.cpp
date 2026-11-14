@@ -55,6 +55,25 @@ int UiThemeCheck(QApplication &app) {
                    Glass::factoryMode(2, false) == Glass::Mode::Solid &&
                    Glass::factoryMode(8, true) == Glass::Mode::Solid,
                "factory backdrop is the scene; few-thread machines and old 'glass off' stay solid");
+        // `enabled()` 的四档判据现在缓存起来了（每次重绘都要问它，原来每次都读注册表 +
+        // 问系统）。写设置之后**同一帧里**就得反映新值，不能等某个事件来清缓存。
+        {
+            const Glass::Mode before = Glass::mode();
+            // 系统那三位（高对比度 / 透明效果 / 系统背板）在测试机上什么样都有可能，先钉死。
+            Glass::setSystemFlagsForTest(false, false, true);
+            Glass::setMode(Glass::Mode::Solid);
+            expect(!Glass::enabled(), "写 solid 之后 enabled() 立刻是 false（写路径清了缓存）");
+            Glass::setMode(Glass::Mode::Scene);
+            expect(Glass::enabled(), "写 scene 之后 enabled() 立刻是 true");
+            // 绕过 setMode、直接往盘上写（外部改设置）那条：用公开的失效入口。
+            QSettings().setValue(Glass::settingsKey(), Glass::modeKey(Glass::Mode::Solid));
+            Glass::invalidateSettingsCache();
+            expect(!Glass::enabled(), "直接写盘 + invalidateSettingsCache() 之后立刻生效");
+            Glass::setMode(before);
+            Glass::clearSystemFlagsForTest();
+            expect(Glass::enabled() == (Glass::effectiveMode() != Glass::Mode::Solid),
+                   "撤掉测试用的系统标志之后回到现读系统（判据一致）");
+        }
         // 主题显示名照着三张内置风景起；内部 id 与「配色」下拉的顺序不动（盘上存的是 id）。
         expect(Theme::presetName(QStringLiteral("dark")) == QStringLiteral("暮色雪山") &&
                    Theme::presetName(QStringLiteral("emerald")) == QStringLiteral("冰川碧湖") &&

@@ -2501,14 +2501,34 @@ int main(int argc, char *argv[]) {
               "改选 1.18.2 后第二行跟着变", buttonVersionLine(startBtn));
     }
 
+    // 版本清单回来那条刷新现在走后台（`MainWindow::refreshInstalledVersionsAsync()`）：
+    // 等版本管理器真把结果发回来再断言 —— 不等的话，"什么都没变"和"还没回来"长得一样。
+    const auto waitInstalledScan = [&window] {
+        auto *manager = window.findChild<VersionManager *>();
+        if (manager == nullptr) return false;
+        bool done = false;
+        QEventLoop loop;
+        const auto connection = QObject::connect(
+            manager, &VersionManager::installedVersionsScanned, &loop,
+            [&done, &loop] {
+                done = true;
+                loop.quit();
+            });
+        QTimer::singleShot(3000, &loop, &QEventLoop::quit);
+        loop.exec();
+        QObject::disconnect(connection);
+        return done;
+    };
+
     header("D. 刷新路径（信号被 QSignalBlocker 挡掉，靠手动收尾）");
     {
         // onVersionsFetched() 是 private slot，但走元对象能调到，且它不弹任何对话框
-        // （里面只写日志）。它内部会调 refreshInstalledVersions()，正是要验的那条路。
+        // （里面只写日志）。它内部会调 refreshInstalledVersionsAsync()，正是要验的那条路。
         const bool invoked = QMetaObject::invokeMethod(
             &window, "onVersionsFetched", Qt::DirectConnection,
             Q_ARG(QStringList, QStringList({QStringLiteral("1.20.1")})));
         check(invoked, "调得动 onVersionsFetched（元对象里有这个槽）");
+        check(waitInstalledScan(), "后台扫盘在 3 秒内把结果发回来了");
         QApplication::processEvents();
 
         check(selectedId(installed) == QStringLiteral("1.18.2"),
@@ -2528,6 +2548,7 @@ int main(int argc, char *argv[]) {
             &window, "onVersionsFetched", Qt::DirectConnection,
             Q_ARG(QStringList, QStringList({QStringLiteral("1.20.1")})));
         check(invoked, "再刷一次");
+        check(waitInstalledScan(), "后台扫盘回来了");
         QApplication::processEvents();
 
         check(installed->findData(QStringLiteral("1.18.2")) < 0, "1.18.2 从下拉框里消失了");
@@ -2545,6 +2566,7 @@ int main(int argc, char *argv[]) {
         makeInstalledVersion(versionsDir, QStringLiteral("1.18.2"));
         QMetaObject::invokeMethod(&window, "onVersionsFetched", Qt::DirectConnection,
                                   Q_ARG(QStringList, QStringList({QStringLiteral("1.20.1")})));
+        check(waitInstalledScan(), "后台扫盘回来了");
         QApplication::processEvents();
         check(installed->count() == 3 && selectedId(installed) == QStringLiteral("1.18.2"),
               "1.18.2 回来了、这期间没手选别的 ⇒ 当前实例换回它（顺延只是替身）",
@@ -2554,12 +2576,14 @@ int main(int argc, char *argv[]) {
         check(QFile::remove(versionsDir.filePath(QStringLiteral("1.18.2/1.18.2.jar"))), "再抽走一次 1.18.2.jar");
         QMetaObject::invokeMethod(&window, "onVersionsFetched", Qt::DirectConnection,
                                   Q_ARG(QStringList, QStringList({QStringLiteral("1.20.1")})));
+        check(waitInstalledScan(), "后台扫盘回来了");
         QApplication::processEvents();
         installed->setCurrentIndex(installed->findData(QStringLiteral("26.3")));
         QApplication::processEvents();
         makeInstalledVersion(versionsDir, QStringLiteral("1.18.2"));
         QMetaObject::invokeMethod(&window, "onVersionsFetched", Qt::DirectConnection,
                                   Q_ARG(QStringList, QStringList({QStringLiteral("1.20.1")})));
+        check(waitInstalledScan(), "后台扫盘回来了");
         QApplication::processEvents();
         check(selectedId(installed) == QStringLiteral("26.3"),
               "被挤掉期间用户手选了 26.3 ⇒ 1.18.2 回来也不抢回去", selectedId(installed));
@@ -2577,6 +2601,7 @@ int main(int argc, char *argv[]) {
         QDir().rename(versionsDir.absolutePath(), stash);
         QMetaObject::invokeMethod(&window, "onVersionsFetched", Qt::DirectConnection,
                                   Q_ARG(QStringList, QStringList()));
+        check(waitInstalledScan(), "后台扫盘回来了");
         QApplication::processEvents();
         check(installed->count() == 0, "一个条目都没有", QString::number(installed->count()));
         check(installed->placeholderText() == MainWindowUI::noInstalledVersionPlaceholder(),
@@ -2587,6 +2612,7 @@ int main(int argc, char *argv[]) {
         QDir().rename(stash, versionsDir.absolutePath());
         QMetaObject::invokeMethod(&window, "onVersionsFetched", Qt::DirectConnection,
                                   Q_ARG(QStringList, QStringList({QStringLiteral("1.20.1")})));
+        check(waitInstalledScan(), "后台扫盘回来了");
         QApplication::processEvents();
         check(installed->count() == 3, "版本目录回来后三个又都在",
               QString::number(installed->count()));
@@ -2681,6 +2707,7 @@ int main(int argc, char *argv[]) {
             QMetaObject::invokeMethod(
                 &window, "onVersionsFetched", Qt::DirectConnection,
                 Q_ARG(QStringList, QStringList({QStringLiteral("1.20.1")})));
+            check(waitInstalledScan(), "后台扫盘回来了");
             QApplication::processEvents();
         }
         check(countOccurrences(messagesSnapshot(), kTwoJarsDir) == beforeRefresh,
@@ -2730,6 +2757,7 @@ int main(int argc, char *argv[]) {
         const int beforeRenameScan = countOccurrences(messagesSnapshot(), renamedDir);
         QMetaObject::invokeMethod(&window, "onVersionsFetched", Qt::DirectConnection,
                                   Q_ARG(QStringList, QStringList({QStringLiteral("1.20.1")})));
+        check(waitInstalledScan(), "后台扫盘回来了");
         QApplication::processEvents();
 
         check(listedIds().contains(renamedDir),
@@ -2762,6 +2790,7 @@ int main(int argc, char *argv[]) {
         QDir(versionsDir.filePath(renamedDir)).removeRecursively();
         QMetaObject::invokeMethod(&window, "onVersionsFetched", Qt::DirectConnection,
                                   Q_ARG(QStringList, QStringList({QStringLiteral("1.20.1")})));
+        check(waitInstalledScan(), "后台扫盘回来了");
         QApplication::processEvents();
         check(installed->count() == 3, "收拾之后回到那 3 个",
               QString::number(installed->count()));
@@ -2819,6 +2848,7 @@ int main(int argc, char *argv[]) {
             QMetaObject::invokeMethod(
                 &window, "onVersionsFetched", Qt::DirectConnection,
                 Q_ARG(QStringList, QStringList({QStringLiteral("1.20.1")})));
+            check(waitInstalledScan(), "后台扫盘回来了");
             QApplication::processEvents();
             check(!progress->isVisible() &&
                       status->text() == MainWindowUI::taskSummaryNoTaskText(),
@@ -3433,6 +3463,7 @@ int main(int argc, char *argv[]) {
     {
         QMetaObject::invokeMethod(&window, "onVersionsFetched", Qt::DirectConnection,
                                   Q_ARG(QStringList, QStringList({QStringLiteral("1.20.1")})));
+        check(waitInstalledScan(), "后台扫盘回来了");
         QApplication::processEvents();
         check(installed->count() == 3, "沙盒回到 3 个版本",
               QString::number(installed->count()));

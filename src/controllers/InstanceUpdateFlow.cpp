@@ -13,6 +13,7 @@
 #include "UpgradeHistoryDialog.hpp"
 #include "MainWindowUI.hpp"
 #include "InlineMessage.hpp"
+#include "LoadingState.hpp"
 #include "Theme.hpp"
 #include "controllers/InstanceTransferController.hpp"
 #include "controllers/DownloadCompletionController.hpp"
@@ -631,22 +632,31 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
     const auto requestLoaders = [owner, state, game, loader, loaderVersion, evaluate] {
         if (state->preparing || state->executing) return;
         const QSignalBlocker block(loaderVersion); loaderVersion->clear();
+        // 下拉框里不再放一项「正在获取」：框空着，上面画一行加载态（LoadingState，矮宿主画成一行）。
+        LoadingState::finish(loaderVersion);
         if (loader->currentData().toString().isEmpty()) loaderVersion->addItem(QObject::tr("无需加载器"), QString());
         else if (game->currentIndex() > 0) {
-            loaderVersion->addItem(QObject::tr("正在获取版本…"), QString());
+            LoadingState::begin(loaderVersion, QObject::tr("正在获取版本…"));
             owner->m_versionManager->requestLoaderVersions(game->currentData().toString(), loaderKind(loader->currentData().toString()));
         }
         evaluate();
     };
     QObject::connect(owner->m_versionManager, &VersionManager::loaderVersionsFetched, dialog,
-        [state, game, loader, loaderVersion, evaluate](const QString &version, VersionManager::LoaderKind kind, bool ok,
+        [state, game, loader, loaderVersion, evaluate, requestLoaders](const QString &version, VersionManager::LoaderKind kind, bool ok,
             const LoaderMeta::LoaderVersionList &entries, const QString &problem) {
             if (state->preparing || state->executing) return;
             if (version != game->currentData().toString() || loader->currentData().toString().isEmpty()
                 || kind != loaderKind(loader->currentData().toString())) return;
             const QSignalBlocker block(loaderVersion); loaderVersion->clear();
-            loaderVersion->addItem(ok ? QObject::tr("请选择加载器版本") : QObject::tr("获取失败，点击刷新"), QString());
             loaderVersion->setToolTip(problem);
+            if (!ok) {
+                // 没取到：框上一行「列表没取到 · 重试」，重试 = 按现在的游戏版本与加载器再问一次。
+                LoadingState::fail(loaderVersion, MainWindowUI::loaderVersionFailedText(), requestLoaders);
+                evaluate();
+                return;
+            }
+            LoadingState::finish(loaderVersion);
+            loaderVersion->addItem(QObject::tr("请选择加载器版本"), QString());
             int recommended = -1;
             for (const auto &entry : entries) {
                 loaderVersion->addItem(entry.version + (entry.stable ? QString() : QObject::tr("（测试版）")), entry.version);

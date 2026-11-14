@@ -5,9 +5,9 @@
  * 【为什么单独一个翻译单元】
  *
  * 这一格是**异步**的：用户点中一条，这一层把路径记进 `m_infoPath`、把定时器起起来、
- * 先摆「正在读取…」；答案由外面那一位算好（读 gzip NBT、认 Litematica 的位打包都是 src/
- * 的事）再递回来。于是有一半的状态是"过期答案"——用户在等的这一条和屏幕上选着的那条
- * 已经不是同一个了。这一片的全部内容就是这笔账：
+ * 先挂一行加载态（LoadingState，过 150ms 才露「正在读取…」）；答案由外面那一位算好
+ * （读 gzip NBT、认 Litematica 的位打包都是 src/ 的事）再递回来。于是有一半的状态是
+ * "过期答案"——用户在等的这一条和屏幕上选着的那条已经不是同一个了。这一片的全部内容就是这笔账：
  *
  * - `setInfoPanelEnabled()`：这一页有没有这一格（关掉时一个字都不留，不是只藏起来）；
  * - `updateInfoPanel()`：判据"**正好选了一条、而且它是文件**"—— 选两个、选一个目录、
@@ -22,6 +22,7 @@
 #include "InstanceFilesPage.hpp"
 
 #include "InstanceFilesPageInternals.hpp"
+#include "LoadingState.hpp"
 
 #include <QLabel>
 #include <QPushButton>
@@ -46,6 +47,7 @@ void InstanceFilesPage::setInfoPanelEnabled(bool enabled) {
         }
         m_infoPath.clear();
         if (m_info != nullptr) {
+            stopInfoLoading();
             m_info->clear();
             m_info->setToolTip(QString());
             m_info->setVisible(false);
@@ -64,6 +66,7 @@ void InstanceFilesPage::setInfoText(const QString &path, const QString &text,
     if (path != m_infoPath) {
         return;
     }
+    stopInfoLoading();
     m_info->setText(text);
     m_info->setToolTip(toolTip);
     m_info->setVisible(!text.isEmpty());
@@ -90,6 +93,7 @@ void InstanceFilesPage::updateInfoPanel() {
             m_infoTimer->stop();
         }
         m_infoPath.clear();
+        stopInfoLoading();
         m_info->clear();
         m_info->setToolTip(QString());
         m_info->setVisible(false);
@@ -100,7 +104,10 @@ void InstanceFilesPage::updateInfoPanel() {
         return;
     }
     m_infoPath = path;
-    m_info->setText(infoPendingText());
+    // 字清掉、行高留住（空 QLabel 会塌成 0 高），上面挂一行加载态：读得快就什么都不闪。
+    m_info->clear();
+    m_info->setMinimumHeight(m_info->fontMetrics().lineSpacing());
+    LoadingState::begin(m_info, infoPendingText());
     m_info->setToolTip(QString());
     // 列表本身藏着的时候（目录空 / 筛完一条不剩）不露 —— 那种画面下不可能有选中的一行，
     // 这里只是兜底：applyState() 也会把它收起来。
@@ -108,4 +115,9 @@ void InstanceFilesPage::updateInfoPanel() {
     if (m_infoTimer != nullptr) {
         m_infoTimer->start();
     }
+}
+
+void InstanceFilesPage::stopInfoLoading() {
+    LoadingState::finish(m_info);
+    m_info->setMinimumHeight(0);
 }

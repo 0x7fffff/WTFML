@@ -12,6 +12,7 @@
 #include "Glass.hpp"
 #include "TitleBar.hpp"
 #include "WindowChrome.hpp"
+#include "ElidedLabel.hpp"
 #include "Theme.hpp"   // 按钮身份、`neutralFill()`（那几档中性灰）、`isDarkPalette()`
 #include "VersionIcons.hpp"
 
@@ -292,7 +293,9 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
         title->setAttribute(Qt::WA_TransparentForMouseEvents);
         strip->addWidget(title, 0, Qt::AlignVCenter);
         if (!instanceName.isEmpty()) {
-            auto *instance = new QLabel(instanceName, m_titleStrip);
+            auto *instance = new ElidedLabel(m_titleStrip);
+            instance->setText(instanceName);
+            instance->setMinimumWidth(1);  // 长名收省略号，不把窗口的最小宽撑开（全名在系统窗口标题里）
             instance->setObjectName(QStringLiteral("gameLogTitleInstance"));
             instance->setForegroundRole(QPalette::PlaceholderText);
             instance->setAttribute(Qt::WA_TransparentForMouseEvents);

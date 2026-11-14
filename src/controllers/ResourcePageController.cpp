@@ -215,7 +215,7 @@ bool ResourcePageController::open(const QString &iconKey, const QString &kindKey
     // 图标是异步来的：先清掉上一次那一张（不然会留着上一个资源的图标，比空着糟），
     // 那一格的位置照旧留着，图回来时整张卡不会往左跳一下。
     page->setIcon(QPixmap());
-    page->setPlaceholder(tr("正在读版本列表…"));
+    page->setLoading(tr("正在读版本列表…"));
     // 中间那一行也**每次开页清一次**（同上：这一页是建一次留着的，不清就留着上一个
     // 资源的"要装的前置"，而那一行看着像是这个资源的）。
     m_state.dependencies.clear();
@@ -302,7 +302,7 @@ void ResourcePageController::fillGroups() {
     // 还没回来：chip 是在这一页上点的，而版本列表可能还在路上（用户手快）。
     // **不能**在这儿说"这一档没有版本" —— 那是在替一份还没到的数据回答。
     if (!m_state.loaded) {
-        m_page->setPlaceholder(tr("正在读版本列表…"));
+        m_page->setLoading(tr("正在读版本列表…"));
         return;
     }
     // 这一页当下摆在**最上面那一版**（= 用户一眼看到、最可能点的那一条）。下面那一段
