@@ -68,7 +68,7 @@ ld.exe: .ltrans1.ltrans.o: undefined reference to `DownloadManager::beginBatch()
 
 ## `tools/prepare-release-copy.ps1`
 
-读构建目录 → 复制副本 → 只对副本 `--strip-unneeded` → 导入清单逐条比对 → 调试信息单独留一份（`objcopy --only-keep-debug`，再挂 `--add-gnu-debuglink`）→ 写 `release-copy.json`（两边字节数、SHA-256、导入清单、原件路径）。最后再核一次原件的 SHA-256，期间有人构建就报错退出，不留来路说不清的副本。脚本不启动任何程序，不碰原构建目录。`README.md` 的静态构建段已补上必须指定 `C:/mingw64` 编译器和去符号这一步。发布流程是否切到这份副本由用户决定。
+读构建目录 → 复制副本 → 只对副本 `--strip-unneeded` → 导入清单逐条比对 → 调试信息单独留一份（`objcopy --only-keep-debug`，再挂 `--add-gnu-debuglink`）→ 写 `release-copy.json`（两边字节数、SHA-256、导入清单、原件路径）。最后再核一次原件的 SHA-256，期间有人构建就报错退出，不留来路说不清的副本。脚本不启动任何程序，不碰原构建目录。[BUILDING.md](../BUILDING.md) 的静态构建段已补上必须指定 `C:/mingw64` 编译器和去符号这一步。发布流程是否切到这份副本由用户决定。
 
 证据目录：`build/tmp-wtfml-size/`（`perf-static-base`、`perf-static-slim`、`perf-os-base`、`perf-slim-softwaregl`、各份 `release-copy.json`、`build*.log`）。
 
