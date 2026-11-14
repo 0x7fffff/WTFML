@@ -456,7 +456,7 @@ MainWindow::MainWindow(QWidget *parent)
             [this](QDialog *dialog, const QString &title, int ownerTab,
                    std::function<void(int)> onClosed) {
                 OverlayHost *overlay = m_ui->overlay();
-                if (!overlay->showPage(dialog, title, ownerTab)) {
+                if (!overlay->showPage(dialog, title, ownerTab)) {  // surface-registry-ignore: 转发口，页面在各调用方的入口登记
                     return false;
                 }
                 // 收页结果接在 `pageClosed()` 上：确定 / 取消 / 返回箭头 / Esc /

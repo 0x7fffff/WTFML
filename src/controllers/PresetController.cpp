@@ -57,7 +57,7 @@
 namespace {
 
 // Embedded pages must not inherit QDialog's Escape/Enter dismissal behavior.
-class EmbeddedPresetManagePage final : public PresetManagePage {
+class EmbeddedPresetManagePage final : public PresetManagePage {  // surface-registry-ignore: 嵌在预设控制器里的副本，随 preset-manage 那个表面一起扫
 public:
     explicit EmbeddedPresetManagePage(QWidget *parent) : PresetManagePage(parent) {}
     QSize minimumSizeHint() const override { return QSize(0,0); }

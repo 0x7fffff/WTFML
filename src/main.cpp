@@ -212,7 +212,7 @@ int main(int argc, char *argv[]) {
         StartupAcceptance::dismissRefusal(acceptance);
         // 主窗还没建：开一扇小窗当提示卡的底，和主窗里的提示长一个样（自绘窄条，不带系统标题栏；
         // 提示卡摆在条下面那块，条上的 × 和拖动照常能用）。
-        ChromeDialog host;
+        ChromeDialog host;  // surface-registry-ignore: 主窗建不起来时的拒开提示小窗，进程随即退出，sweep 够不到
         host.setWindowTitle(QStringLiteral("启动器已在运行或目录不可用"));
         host.resize(OverlayHost::promptWidth() + 80, 320 + ChromeDialog::stripHeight());
         auto *overlay = new OverlayHost(host.body(), host.body());

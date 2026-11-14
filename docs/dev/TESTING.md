@@ -92,11 +92,12 @@ ctest --preset visual                        # 只跑 visual 标签（完整历�
 
 ```powershell
 ./tools/check-test-modules.ps1      # 测试入口 / 模块归属 / 大小上限
+./tools/check-surface-registry.ps1  # 新对话框 / showPage 页面有没有登记进 sweep 表面清单
 ./tools/check-doc-links.ps1         # 文档相对链接与源码里的 docs 引用
 ./tools/test.ps1 -Suite quick
 ```
 
-`check-test-modules.ps1` 即 CTest 的 `wtfml.test-modules`：入口不超过 4000 行、职责模块不超过 5000 行，禁止入口 include `.cpp`，并核对核心用例的归属表。新增用例放进相应模块，不靠抬高阈值堆入口。
+`check-test-modules.ps1` 即 CTest 的 `wtfml.test-modules`：入口不超过 4000 行、职责模块不超过 5000 行，禁止入口 include `.cpp`，并核对核心用例的归属表。新增用例放进相应模块，不靠抬高阈值堆入口。`check-surface-registry.ps1` 即 CTest 的 `wtfml.surface-registry`，判据与豁免写法见「新增测试约定」下面那条。
 
 ## 环境变量
 
@@ -225,6 +226,15 @@ CTest 的两种"排除 visual"选到的数量不同：`ctest -E visual` 按名�
 - 已知崩溃保留首次证据、独立复现，不以"重跑直到绿"为验收规则。
 - 新增的 `tests/` 文件要能被 `tools/test-impact.ps1` 的映射认出（否则 `wtfml.test-modules` 会报"没有领域归属"）；新增 `assets/` 或工具脚本要补映射。
 - 新加 `QLineEdit` / `QSpinBox` / 可编辑下拉框：短值调 `InputSizing::shortValue`，长值调 `InputSizing::longValue` 写理由（`ui/InputSizing.hpp`）。`wtfml.input-widths` 在 1280×800 与 900×620 下扫主窗口各页和覆盖层页面，没登记又宽过 420 px 的输入框判失败；`WTFML_INPUT_WIDTH_DUMP=1` 打印每个输入框，`WTFML_INPUT_WIDTH_SHOTS=<目录>` 出前后样张（加 `WTFML_INPUT_WIDTH_BEFORE=1` 撤掉短值登记再拍）。限制：覆盖不到 `PresetManagePage`（`ui_check` 夹具未链接）和表格单元格内的编辑器。
+- 新写 `QDialog` / `ChromeDialog` / `GlassPopover` 子类，或新开一页 `showPage()`：登记进 `tests/ui_check/surface-registry.txt`，让 `wtfml.surface-sweep` 真的扫到。`tools/check-surface-registry.ps1`（CTest `wtfml.surface-registry`，CI 的 repo-rules 也跑）核对两边：代码里的对话框子类、就地建的裸对话框、`overlay->showPage()` 目标都必须在清单里；清单里的表面键也必须在 sweep 里 `record()` 过。判据宁可多报不漏报，确需豁免的在类声明行、构造行或 `showPage()` 调用行尾写 `// surface-registry-ignore: 理由`（理由不能是空的）。
+
+### 表面巡检（sweep）
+
+`wtfml.surface-sweep`（`tests/ui_check/modules/UiSurfaceSweepCheck.cpp`，判据在 `SurfaceScan.hpp`）把 96 个界面表面逐个打开，扫「还长着 Qt 默认样子」的控件。它现在是守卫：计入的残留不为 0 就退出码 1，输出逐条点名表面键、类别、控件类名和 objectName。
+
+例外不另开白名单文件，只写在 `SurfaceScan.hpp` 的 `checkBoxException()`：键是控件 objectName，值是一句理由，扫到记 `exempt`、不计数。加例外等于承认这里就要原生样子，人看过再写。
+
+单跑实测 8–21 秒（验证构建、offscreen，多趟），CTest 超时 180 秒。出样张用 `WTFML_SURFACE_SHOTS=<目录>`；`WTFML_SURFACE_THEME=emerald|ocean` 换主题（判据不随主题变，`WTFML_SURFACE_DEBUG_VIEWS=1` 打印每个视图挂的代理）。
 
 ### 夹具与探针技巧
 

@@ -5,11 +5,15 @@
 // Qt 默认外观，而且已有巡检（input-widths / review-shots）的页面清单是手写的，由按钮
 // 再弹出来的提示卡、对话框、向导步骤、浮层大多不在清单里。
 //
-// 本模块只报告，不断言失败：
+// 本模块是守卫：扫出「计入的残留」就判失败（退出码 1），并在输出里点名表面、控件、类别。
+// 例外只有 `SurfaceScan.hpp` 的 `checkBoxException()` 一处，每条带一句理由。
 //   · 每个表面拍一张 900×620、出厂默认主题（暮色雪山 dark）的样张；
 //   · 扫出「还长着 Qt 默认样子」的控件，按类别计数；
 //   · 设 WTFML_SURFACE_SHOTS=<目录> 时写样张与 surfaces.tsv / findings.tsv。
 //   · 设 WTFML_SURFACE_THEME=emerald|ocean 时换主题（默认出厂暮色雪山）。
+//
+// 表面清单（哪个入口算什么键）在 `tests/ui_check/surface-registry.txt`，由
+// `tools/check-surface-registry.ps1` 静态核对新入口有没有登记。
 //
 // 采样口径见 `SurfaceScan.hpp`。
 #include "Support.hpp"
@@ -35,6 +39,7 @@
 #include "PresetInstallPicker.hpp"
 #include "PresetManagePage.hpp"
 #include "PresetModEditor.hpp"
+#include "PresetModReview.hpp"
 #include "PresetOptionsEditor.hpp"
 #include "ResourceDetailPage.hpp"
 #include "ResourcePackPage.hpp"
@@ -867,6 +872,40 @@ int UiSurfaceSweepCheck(QApplication &app) {
                       QStringLiteral("ui/PresetOptionsEditor.cpp"), QString(), &page, QStringLiteral("选项"));
     }
     {
+        // 预设应用前那颗「确认模组预设」：有缺失项时要让用户填替代项目，是最宽的一档。
+        Presets::ModInstallPlan plan;
+        plan.ok = false;
+        plan.missing = 1;
+        Presets::ModInstallRow downloadRow;
+        downloadRow.key = QStringLiteral("modrinth:sodium");
+        downloadRow.title = QStringLiteral("Sodium");
+        downloadRow.status = Presets::ModInstallStatus::Download;
+        downloadRow.version.id = QStringLiteral("mc1.21.4-0.6.13");
+        downloadRow.version.versionNumber = QStringLiteral("0.6.13");
+        downloadRow.file.filename = QStringLiteral("sodium-fabric-0.6.13.jar");
+        downloadRow.file.size = 1234567;
+        downloadRow.file.sha1 = QStringLiteral("0000000000000000000000000000000000000000");
+        plan.rows.append(downloadRow);
+        Presets::ModInstallRow missingRow;
+        missingRow.key = QStringLiteral("modrinth:iris");
+        missingRow.title = QStringLiteral("Iris");
+        missingRow.status = Presets::ModInstallStatus::Missing;
+        missingRow.problem = QStringLiteral("没有兼容 1.21.4 的发行版");
+        missingRow.details = {QStringLiteral("modrinth:iris 只支持到 1.20.6")};
+        plan.rows.append(missingRow);
+        auto *page = new PresetModReview(plan, &window);
+        page->show();
+        pump();
+        sweep.record(QStringLiteral("preset-mod-review"), QStringLiteral("预设·模组确认"),
+                     QStringLiteral("实例管理 → 预设 → 应用 → 有缺失项时「确认安装」"),
+                     QStringLiteral("ui/PresetModReview.cpp"), QString(), page, page);
+        page->hide();
+        pump();
+        page->setAttribute(Qt::WA_DeleteOnClose, false);
+        page->deleteLater();
+        QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    }
+    {
         // src/controllers/InstanceDialogController.cpp:63 那一块「方块统计」：ChromeDialog + 原生 QTableWidget。
         ChromeDialog page(&window, true);
         page.setWindowTitle(QStringLiteral("方块统计"));
@@ -1222,28 +1261,32 @@ int UiSurfaceSweepCheck(QApplication &app) {
 
     sweep.writeReports();
 
-    // 汇总：按类别计数，只打印，不判失败。
+    // 守卫：计入的残留必须是 0。例外只认 SurfaceScan.hpp 的 checkBoxException()，
+    // 那里每条都带一句理由；kind = exempt 的条目不计数。
     QMap<QString, int> kindCounts;
-    int withFindings = 0;
-    int exempt = 0;
+    QList<SurfaceRecord> withFindings;
+    QList<QPair<QString, SurfaceFinding>> residue;
+    QList<QPair<QString, SurfaceFinding>> exceptions;
     for (const SurfaceRecord &rec : sweep.records()) {
         bool counted = false;
         for (const SurfaceFinding &finding : rec.findings) {
-            // 例外（人看过、确定保留原样的）单独计数，不算「扫出问题」。
-            if (finding.kind == QStringLiteral("exempt")) { ++exempt; continue; }
+            if (finding.kind == QStringLiteral("exempt")) {
+                exceptions.append({rec.key, finding});
+                continue;
+            }
             ++kindCounts[finding.kind];
+            residue.append({rec.key, finding});
             counted = true;
         }
-        if (counted) ++withFindings;
+        if (counted) withFindings.append(rec);
     }
-    std::printf("\nsurface-sweep: %d 个表面，%d 个扫出问题，%d 处（另有例外 %d 处）\n", int(sweep.records().size()), withFindings,
-                [&kindCounts] {
-                    int total = 0;
-                    for (int count : kindCounts) total += count;
-                    return total;
-                }(), exempt);
+    std::printf("\nsurface-sweep: %d 个表面，%d 个扫出问题，%d 处（另有例外 %d 处）\n", int(sweep.records().size()),
+                int(withFindings.size()), int(residue.size()), int(exceptions.size()));
     for (auto it = kindCounts.constBegin(); it != kindCounts.constEnd(); ++it)
         std::printf("  %-22s %d\n", qPrintable(it.key()), it.value());
+    for (const auto &[surface, finding] : exceptions)
+        std::printf("  例外（不计数）%-24s %-18s %-28s %s\n", qPrintable(surface), qPrintable(finding.cls),
+                    qPrintable(finding.name), qPrintable(finding.detail));
     // 首帧分布：>50 ms 的进 B 类候选（口径见 SurfaceRecord::paintMs 的注释）。
     QList<SurfaceRecord> slow;
     for (const SurfaceRecord &rec : sweep.records()) {
@@ -1258,6 +1301,18 @@ int UiSurfaceSweepCheck(QApplication &app) {
                     rec.openMs);
     }
     if (!shotDir.isEmpty()) std::printf("样张与清单：%s\n", qPrintable(shotDir));
+
+    // 有新残留就红。例外不能在这里长：只认 SurfaceScan::checkBoxException()，每条带理由。
+    if (!residue.isEmpty()) {
+        std::printf("\nFAIL 计入的残留 %d 处（修掉，或在 SurfaceScan::checkBoxException() 里登记例外并写理由）：\n",
+                    int(residue.size()));
+        for (const auto &[surface, finding] : residue)
+            std::printf("  %-30s %-20s %-22s %-28s %s\n", qPrintable(surface), qPrintable(finding.kind),
+                        qPrintable(finding.cls), qPrintable(finding.name), qPrintable(finding.detail));
+        std::printf("surface-sweep: FAILED（%d 处计入的残留）\n", int(residue.size()));
+        return 1;
+    }
+    std::printf("surface-sweep: PASS（0 处计入，%d 条例外）\n", int(exceptions.size()));
     return 0;
 }
 

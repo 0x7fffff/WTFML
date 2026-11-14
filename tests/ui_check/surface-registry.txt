@@ -1,0 +1,69 @@
+# sweep 的表面清单：每个「入口」在 UiSurfaceSweepCheck.cpp 里扫成哪个表面键。
+#
+# 谁看：新写 QDialog / ChromeDialog / GlassPopover 子类，或新开一页 showPage() 的人。
+# 怎么查：pwsh tools/check-surface-registry.ps1（CI 的 repo-rules 也会跑）。
+# 判据：src/、ui/ 里的每个对话框子类（含间接继承）和每处 showPage() 目标都必须在下面有一行；
+#       下面的键也必须在 sweep 里真的被 record() 过。两样缺一样都失败。
+#
+# 列：表面键 | 入口（逗号分隔） | 说明
+#   · 表面键支持一条 `*` 通配（对应 sweep 里的动态键，例如 settings-%1）。
+#   · 入口写类名；就地 new / 栈上建的 ChromeDialog 写 `类名#objectName`。
+#   · 确实不该进 sweep 的（框架基类、随父页一起扫到的嵌入副本）在源码那一行行尾写
+#     `// surface-registry-ignore: 理由`，不放这里。
+#
+# 加一行之前先让 sweep 真的扫到这个表面；只登记不扫，下面第四条会红。
+
+home | MainWindowUI | 主页
+instances | MainWindowUI | 实例管理
+download-* | MainWindowUI | 下载·游戏 / 模组 / 整合包三档
+download-install | MainWindowUI | 下载·安装页
+settings-* | MainWindowUI | 设置各分类
+agent | AgentPage | 智能体
+toolbox-catalog | ToolboxPage | 工具箱·目录
+toolbox-* | ToolboxPage | 工具箱·各工具
+toolbox-switch-popover | ToolSwitchPopover | 工具箱·工具切换浮层
+home-instance-picker | HomeInstancePicker | 主页·实例切换浮层
+account-popover | AccountPopover | 主页·账号浮层
+activity-popover | ActivityPopover | 底栏·活动中心浮层
+task-center | TaskCenterPanel | 任务中心整页
+instance-folder-popup | MainWindowUI, FolderPopupSurface | 实例页·文件夹浮层
+instance-group-menu | MainWindowUI, GroupMenu | 实例页·分组齿轮菜单
+account-skin | AccountSkinDialog | 账号与外观
+account-offline | AccountSkinDialog | 账号与外观·离线页签
+group-settings | GroupDialog | 分组设置
+java-manage | JavaManageDialog | Java 管理
+java-mismatch | JavaMismatchDialog | Java 版本不符
+new-server | NewServerPage | 新建服务端
+server-settings | ServerSettingsPage | 服务端设置
+server-console | ServerConsolePage | 服务端控制台
+agent-settings | AgentSettingsPage | API 与模型设置
+preset-editor | PresetEditorPage | 预设编辑器
+preset-manage | PresetManagePage | 预设管理
+preset-mod-review | PresetModReview | 预设·模组确认（应用前）
+task-detail | TaskDetailPage | 任务详情
+update-center | UpdateCenterPage | 更新中心
+integrity-report | IntegrityReportPage | 完整性检查
+resource-detail | ResourceDetailPage | 资源详情
+instance-upgrade | InstanceUpgradePage | 实例升级
+upgrade-report | UpgradeReportDialog | 升级兼容报告
+upgrade-history | UpgradeHistoryDialog | 升级历史
+schematic-info | SchematicInfoDialog | 原理图信息
+preset-mod-editor | PresetModEditor | 预设·模组编辑
+preset-options-editor | PresetOptionsEditor | 预设·选项编辑
+schematic-block-counts | ChromeDialog#schematicDetailsDialog | 原理图·方块统计
+preset-reasons | ChromeDialog#presetCompatibilityDetails | 实例预设·兼容性详情
+world-settings | WorldSettingsPage | 存档设置
+game-log | GameLogWindow | 游戏日志窗
+instance-update-wizard-* | InstanceUpdateWizard | 更新向导各步
+theme-advanced | ThemeAdvancedEditor | 个性化·高级编辑
+resource-pack-page | ResourcePackPage | 资源包页
+instance-settings-* | InstanceSettingsDialog | 实例设置各页
+inline-confirm | InlineMessageBox | 提示卡·确认
+inline-input | InlineMessageBox | 提示卡·输入名字
+inline-list | InlineMessageBox | 提示卡·列表选择
+inline-report | InlineMessageBox | 提示卡·长文本报告
+inline-preview | InlineMessageBox | 提示卡·文本预览
+install-preset-empty | InlineMessageBox, PresetInstallPicker | 安装页·实例预设（空）
+install-preset-full | InlineMessageBox, PresetInstallPicker | 安装页·实例预设（有数据）
+install-preset-composite | InlineMessageBox, PresetInstallPicker | 实例预设·综合预设页
+install-preset-composite-empty | InlineMessageBox, PresetInstallPicker | 实例预设·综合预设页（空）
