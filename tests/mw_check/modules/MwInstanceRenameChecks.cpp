@@ -204,6 +204,9 @@ int MwInstanceRenameChecks(const QDir &versionsDir, MainWindow &window) {
                 }
                 QObject::connect(page, &InstanceSettingsDialog::settingsEdited, page,
                                  [&edited] { ++edited; });
+                // 页是第一次切过去才建的（见 InstanceSettingsDialog::ensurePage()）：要摸的
+                // 那两格在「启动」页上，照用户的走法先进这一页。
+                page->showPage(InstanceSettingsDialog::launchCategoryKey());
                 editedAtOpen = edited;
                 // 「启动前提醒 Java 版本对不上」那一格：默认勾着（= 提醒），点一下变成不提醒。
                 // 挑它当扳机是因为它直接落在 wtfml.meta 的 skipJavaVersionWarning 上 ——

@@ -530,6 +530,10 @@ void runInstanceFilesPagesTests() {
             const bool invokedA = QMetaObject::invokeMethod(
                 &w, "loadServerList", Qt::DirectConnection,
                 Q_ARG(InstanceSettingsDialog *, &dialog), Q_ARG(QString, idV));
+            // 产品的顺序：开窗那一刻就 `loadServerList()`（页还没建），用户点进「服务器」那一页
+            // 才建 —— 建页时 `replayServerPage()` 要把先到的那一份摆上去。这一下同时钉住那条
+            // 回放：读的时候页还是空的，切过去之后必须已经有了。
+            dialog.showPage(InstanceSettingsDialog::serverPageKey());
             const QString noticeA = dialog.serverNotice() != nullptr
                                         ? dialog.serverNotice()->text()
                                         : QString();
@@ -684,6 +688,9 @@ void runInstanceFilesPagesTests() {
             QMetaObject::invokeMethod(&w, "loadServerList", Qt::DirectConnection,
                                       Q_ARG(InstanceSettingsDialog *, &dialog2),
                                       Q_ARG(QString, idV));
+            // 同上：列表先到、页后建（见 InstanceSettingsDialog::ensurePage()），这里照用户的
+            // 走法进那一页 —— 三行是建页时 `replayServerPage()` 摆上去的。
+            dialog2.showPage(InstanceSettingsDialog::serverPageKey());
             check(dialog2.serverTree() != nullptr &&
                       dialog2.serverTree()->topLevelItemCount() == 3,
                   "★ T20.6 那三台服务器从 servers.dat 里读出来了（自己拼的 NBT 字节过得了"
@@ -874,6 +881,8 @@ void runInstanceFilesPagesTests() {
             QMetaObject::invokeMethod(&w, "loadServerList", Qt::DirectConnection,
                                       Q_ARG(InstanceSettingsDialog *, &dialog3),
                                       Q_ARG(QString, idV));
+            // 同上：进那一页，那两颗按钮和两行才在。
+            dialog3.showPage(InstanceSettingsDialog::serverPageKey());
 
             check(dialog3.serverEditButton() != nullptr &&
                       dialog3.serverEditButton()->objectName() ==
@@ -2623,6 +2632,9 @@ void runInstanceFilesPagesTests() {
             const QString modeField = InstanceSettingsDialog::windowModeField();
             const QString sizeField = InstanceSettingsDialog::windowWidthField();
             withPage(idV, [&](InstanceSettingsDialog *page) {
+                // 页是第一次切过去才建的（见 InstanceSettingsDialog::ensurePage()）：窗口模式 /
+                // 窗口大小这两行在「启动」页上，先进这一页再动它们。
+                page->showPage(InstanceSettingsDialog::launchCategoryKey());
                 auto *combo = page->findChild<QComboBox *>(
                     InstanceSettingsDialog::windowModeComboName());
                 comboHasThree = combo != nullptr && combo->count() == 3;
@@ -2679,6 +2691,8 @@ void runInstanceFilesPagesTests() {
             bool reopenPicked = false;
             bool reopenSize = false;
             withPage(idV, [&](InstanceSettingsDialog *page) {
+                // 页是第一次切过去才建的，重开的这一扇也一样：先进「启动」那一页再读。
+                page->showPage(InstanceSettingsDialog::launchCategoryKey());
                 // 档位从单选框变成下拉框之后，"停在「自定义」上"还是同一件事，只是读法
                 // 成了"那个下拉框停在下标 1"（`choiceCustomIndex()`）。
                 auto *modeChoice = page->findChild<QComboBox *>(
@@ -2714,6 +2728,7 @@ void runInstanceFilesPagesTests() {
             // 留着一份"看起来跟全局一样"的副本，以后改全局这个实例就不跟着走了 ——
             // 而用户明明选的是「跟随全局」。
             withPage(idV, [&](InstanceSettingsDialog *page) {
+                page->showPage(InstanceSettingsDialog::launchCategoryKey());
                 setChoice(page, modeField, false);
                 setChoice(page, sizeField, false);
                 QApplication::processEvents();
@@ -2839,7 +2854,15 @@ void runInstanceFilesPagesTests() {
                     // 取最后一个：上一扇页可能还在等 deleteLater，刚开的这扇是最后加进来的子控件。
                     const auto pages = host->findChildren<InstanceSettingsDialog *>();
                     auto *page = pages.isEmpty() ? nullptr : pages.last();
-                    if (page && page->serverTree()->topLevelItemCount() == 2 &&
+                    // 页是第一次切过去才建的（见 InstanceSettingsDialog::ensurePage()）：
+                    // 服务器的表格、那几颗按钮都在那一页上，先照用户的走法切过去。
+                    // 列表是开窗那一刻就 `loadServerList()` 进来的（页还没建），切过去时
+                    // `replayServerPage()` 把它摆上 —— 下面数的就是那两行。
+                    if (page != nullptr) {
+                        page->showPage(InstanceSettingsDialog::serverPageKey());
+                    }
+                    if (page && page->serverTree() != nullptr &&
+                        page->serverTree()->topLevelItemCount() == 2 &&
                         page->findChild<QPushButton *>(QStringLiteral("serverFavorite")) &&
                         page->findChild<QCheckBox *>(QStringLiteral("serverFavoritesOnly"))) {
                         ++visits;

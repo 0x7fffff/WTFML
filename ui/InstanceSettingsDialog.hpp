@@ -2257,6 +2257,10 @@ private:
     bool m_pendingWarnJavaMismatch = true;
     bool m_launchPageBuilt = false;
 
+    /// 「实例名」那一格接改名那条线没有（`watchPage()` 每建一页都会扫一遍整个对话框，
+    /// 而那一发是 lambda —— `Qt::UniqueConnection` 管不了它，得自己记一笔）。
+    bool m_renameWired = false;
+
     // ---- 「灌值」先到、页后建的那几页 ----
     //
     // 调用方（MainWindow / controller）开页那一刻就把服务器列表、迁移计划这些灌进来，
