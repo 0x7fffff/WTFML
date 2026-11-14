@@ -272,6 +272,8 @@ add_ui_module(ui_check_fold_motion modules/UiFoldMotionChecks.cpp UiFoldMotionCh
 add_ui_module(ui_check_loading_state modules/UiLoadingStateChecks.cpp UiLoadingStateChecks)
 add_ui_module(ui_check_daily_quote modules/UiDailyQuoteCheck.cpp UiDailyQuoteCheck)
 add_ui_module(ui_check_daily_quote_shots modules/UiDailyQuoteShots.cpp UiDailyQuoteShots)  # 样张，不进 ctest
+add_ui_module(ui_check_long_instance_name modules/UiLongInstanceNameChecks.cpp UiLongInstanceNameChecks)
+add_ui_module(ui_check_long_instance_name_shots modules/UiLongInstanceNameShots.cpp UiLongInstanceNameShots)  # 样张，不进 ctest
 add_ui_module(ui_check_home_greeting_shots modules/UiHomeGreetingShots.cpp UiHomeGreetingShots)  # 样张，不进 ctest
 add_ui_module(ui_check_account_kind_shots modules/UiAccountKindShots.cpp UiAccountKindShots)  # 样张，不进 ctest
 add_ui_module(ui_check_popups modules/UiPopupCheck.cpp UiPopupCheck)
@@ -300,6 +302,12 @@ set_tests_properties(wtfml.ui-bootstrap PROPERTIES LABELS "ui;compile" TIMEOUT 3
 wtfml_add_test(NAME wtfml.ui-refresh COMMAND ui_check_ui_refresh)
 wtfml_add_test(NAME wtfml.ui-daily-quote COMMAND ui_check_daily_quote)
 set_tests_properties(wtfml.ui-daily-quote PROPERTIES
+    LABELS "ui;theme"
+    TIMEOUT 60
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
+wtfml_add_test(NAME wtfml.ui-long-instance-name COMMAND ui_check_long_instance_name)
+set_tests_properties(wtfml.ui-long-instance-name PROPERTIES
     LABELS "ui;theme"
     TIMEOUT 60
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"

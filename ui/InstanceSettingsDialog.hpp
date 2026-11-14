@@ -60,6 +60,7 @@ class ConfigFileEditorPage;
 class InstanceFilesPage;
 class MemorySlider;
 
+class ElidedLabel;
 class QCheckBox;
 class QComboBox;
 class QGridLayout;
@@ -2117,7 +2118,7 @@ private:
     GlobalValues m_global;
 
     QLabel *m_headerIcon = nullptr;   // 页眉（UI 7b）：图标、名字、元信息
-    QLabel *m_headerTitle = nullptr;
+    ElidedLabel *m_headerTitle = nullptr;
     QLabel *m_headerMeta = nullptr;
 
     // ---------- 左栏那一列 + 右栏堆叠页（见 pinnedPageKeys() 上面那一段）----------
