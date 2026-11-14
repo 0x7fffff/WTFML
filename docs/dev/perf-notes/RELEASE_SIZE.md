@@ -10,7 +10,9 @@
 
 ## 怎么构建与量
 
-静态 Qt 是 `D:/Qt/static-6.10.1/install`，**编译器必须用 `C:/mingw64`（MinGW-Builds GCC 15.2，mcf 线程模型）**：那份 Qt 就是用它编的，用开发用的 13.1 会在 `_MCF_mutex_lock_slow` / `_MCF_mutex_unlock_slow` / `__intrinsic_setjmpex` 上链接失败。
+> 2026-11-14 起静态 Qt 换成用 MinGW 13.1 编的 `D:/Qt/static-6.10.1-mingw13/install`，现行构建命令见 [BUILDING.md](../BUILDING.md)。下面是 11-01 实测时的旧工具链，数字按它量。
+
+当时静态 Qt 是 `D:/Qt/static-6.10.1/install`，**编译器必须用 `C:/mingw64`（MinGW-Builds GCC 15.2，mcf 线程模型）**：那份 Qt 就是用它编的，用开发用的 13.1 会在 `_MCF_mutex_lock_slow` / `_MCF_mutex_unlock_slow` / `__intrinsic_setjmpex` 上链接失败。
 
 ```powershell
 cmake -S . -B build/static-release -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release `
