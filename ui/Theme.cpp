@@ -5,6 +5,7 @@
 
 #include "Theme.hpp"
 
+#include "DesignDefaults.hpp"
 #include "Glass.hpp"
 #include "Popups.hpp"
 
@@ -670,6 +671,8 @@ public:
     void polish(QWidget *w) override
     {
         QProxyStyle::polish(w);
+        // 设计系统默认生效（列表代理 / 视口透明 / 栈换页 / 文本框去框），见 DesignDefaults.hpp。
+        DesignDefaults::apply(w);
         auto *button = qobject_cast<QPushButton *>(w);
         if (button == nullptr || button->testAttribute(Qt::WA_SetFont)) return;
         QFont font = button->font();
@@ -793,7 +796,10 @@ public:
                 // 实例树（选中带只有卡片那一圈）：分支区那一截不涂。7a 令牌里
                 // 选中底是半透明的，先涂再让代理拿底色「擦」已经擦不掉了，只能从源头不画。
                 const bool cardOnly = w != nullptr && w->property("wtfmlCardSelection").toBool();
-                if (pe == PE_PanelItemViewRow && cardOnly)
+                // 默认行代理自己画内缩圆角块，分支区那一截也不涂（否则块左边多一截方的）。
+                const auto *view = qobject_cast<const QAbstractItemView *>(w);
+                const bool rowBlock = view != nullptr && DesignDefaults::isRowDelegate(view->itemDelegate());
+                if (pe == PE_PanelItemViewRow && (cardOnly || rowBlock))
                     return;
                 p->fillRect(vopt->rect, selectionFill(vopt->palette.color(QPalette::Base)));
                 return;
@@ -2261,6 +2267,12 @@ QString widgetStyleSheet() {
         "QLineEdit:disabled, QComboBox:disabled, QAbstractSpinBox:disabled"
         " { background-color: palette(light); color: palette(link-visited);"
         " border-color: transparent; }"
+        // 多行文本框：和输入框同一族（fill-soft 底、透明 3px 边、同圆角），键盘焦点同一圈淡环。
+        // 原生框与视口底由 DesignDefaults 撤掉；自己挂了样式表的（聊天输入、日志）照旧以那份为准。
+        "QPlainTextEdit, QTextEdit { background-color: palette(base); color: palette(text);"
+        " border: 3px solid transparent; border-radius: %1px; padding: 2px 4px; }"
+        "QPlainTextEdit[wtfmlKeyboardFocus=\"true\"]:focus, QTextEdit[wtfmlKeyboardFocus=\"true\"]:focus"
+        " { border-color: palette(highlight); }"
         // 下拉不再有「文字 + ∨」那颗箭头：整块可点（点框内任何位置都会弹），那一格宽度归零。
         "QComboBox::drop-down { width: 0px; border: none; }"
         // ★ 数字框的内容盒再低 3px：`QStyleSheetStyle` 给 `CT_SpinBox` 算尺寸时会在

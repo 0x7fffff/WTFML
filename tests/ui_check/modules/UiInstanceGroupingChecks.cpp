@@ -665,6 +665,8 @@ int UiInstanceGroupingChecks(MainWindowUI &ui, QTreeWidget * &instanceList) {
             // 像是悬停没铺到头。
             const int versionRowH = MainWindowUI::versionTreeRowHeight();
             QTreeWidget versionProbe;
+            // 退出设计默认：下面拿「没悬停那张」逐点当底色对照，要视口自己铺 Base。
+            DesignDefaults::optOut(&versionProbe);
             versionProbe.setObjectName(QStringLiteral("wtfml_hover_version_probe"));
             versionProbe.setHeaderHidden(true);
             versionProbe.setRootIsDecorated(false);

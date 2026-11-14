@@ -218,7 +218,9 @@ inline QList<SurfaceFinding> probePageTransitions(QWidget *root, QApplication &a
             }
         stack->setCurrentIndex(old);
         for (int i = 0; i < 2; ++i) app.processEvents();
-        Anim::finishPageAppear(root);
+        // 换回原页那一下同样起了一发（栈默认就有）：幕布长在页上，逐块收掉，截图不截到半路。
+        for (QWidget *curtain : root->findChildren<QWidget *>(QStringLiteral("wtfmlPageCurtain")))
+            Anim::finishPageAppear(curtain->parentWidget());
         if (!curtainUp) {
             SurfaceFinding finding;
             finding.kind = QStringLiteral("stacked-no-anim");

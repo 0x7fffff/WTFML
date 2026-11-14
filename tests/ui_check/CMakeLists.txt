@@ -135,6 +135,7 @@ ${REPO_ROOT}/ui/InstanceSettingsSignature.cpp
                                 ${REPO_ROOT}/ui/RuntimeOutputModel.cpp
                                 ${REPO_ROOT}/ui/SkinViewer.cpp
                                 ${REPO_ROOT}/ui/TitleBar.cpp
+                                ${REPO_ROOT}/ui/DesignDefaults.cpp
                                 ${REPO_ROOT}/ui/Theme.cpp
                                 # 「预设管理」与「原理图信息」这两页：表面巡检要真的把它们摆出来。
                                 # 产品里它们是 MainWindow 直接 new 的，这一层原先没编进来。
@@ -270,6 +271,7 @@ add_ui_module(ui_check_ui_refresh modules/UiUiRefreshCheck.cpp UiUiRefreshCheck)
 add_ui_module(ui_check_theme modules/UiThemeCheck.cpp UiThemeCheck)
 add_ui_module(ui_check_fold_motion modules/UiFoldMotionChecks.cpp UiFoldMotionChecks)
 add_ui_module(ui_check_loading_state modules/UiLoadingStateChecks.cpp UiLoadingStateChecks)
+add_ui_module(ui_check_design_defaults modules/UiDesignDefaultsChecks.cpp UiDesignDefaultsChecks)
 add_ui_module(ui_check_daily_quote modules/UiDailyQuoteCheck.cpp UiDailyQuoteCheck)
 add_ui_module(ui_check_daily_quote_shots modules/UiDailyQuoteShots.cpp UiDailyQuoteShots)  # 样张，不进 ctest
 add_ui_module(ui_check_home_greeting_shots modules/UiHomeGreetingShots.cpp UiHomeGreetingShots)  # 样张，不进 ctest
@@ -386,6 +388,12 @@ set_tests_properties(wtfml.fold-motion PROPERTIES
 wtfml_add_test(NAME wtfml.loading-state COMMAND ui_check_loading_state)
 set_tests_properties(wtfml.loading-state PROPERTIES
     LABELS "ui;loading"
+    TIMEOUT 60
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
+wtfml_add_test(NAME wtfml.design-defaults COMMAND ui_check_design_defaults)
+set_tests_properties(wtfml.design-defaults PROPERTIES
+    LABELS "ui;theme"
     TIMEOUT 60
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
 )

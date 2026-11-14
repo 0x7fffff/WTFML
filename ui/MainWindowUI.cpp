@@ -10,6 +10,7 @@
 #include "TaskCenterPanel.hpp"
 #include "AgentPage.hpp"
 #include "Animations.hpp"  // 换页 / 展开折叠 / 上拉面板那几段动效
+#include "DesignDefaults.hpp"
 #include "ElidedLabel.hpp"
 #include "Glass.hpp"
 #include "GlassPopover.hpp"
@@ -803,6 +804,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // 两边本来就是互不相干的数据源（一个是盘上装好的、一个是清单里能下的）。
     tabWidget = new QTabWidget(centralWidget);
     tabWidget->setObjectName(tabWidgetName());
+    // 退出默认换页动效：顶层选项卡自己接 pageAppear（整页停放时不盖幕布，见下面 currentChanged 那段）。
+    DesignDefaults::optOut(tabWidget);
     // QTabWidget 默认把所有页面里最大的 minimumSizeHint 当成自己的下限。下载页那棵
     // 固定行数的版本树会把它顶到 568px，再加标题栏和底栏后整窗被强制到 710px；即使
     // 当前停在主页也缩不下去，只能在上半部留下大块空白。竖直方向忽略这个跨页提示，
@@ -923,31 +926,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         }
     });
 
-    // 内层那三层"换页"走同一条路（"切换页面"不只顶上那四颗）：
-    // * 下载页右栏：游戏 / 模组 / 资源包 / 数据包 / 光影 / 整合包 之间横着换；
-    // * 下载页里"游戏"那一栏自己还有一层（版本树 ↔ 安装页）；
-    // * 设置页右栏：启动 / 游戏 / 提示 / 个性化 / 下载。
-    // 都是 `QStackedWidget`，所以一条 `currentChanged` 就够了（谁换的都算）。
-    //
-    // 底同样不垫色：写回的是这一页祖先们原样那层（磨砂透着），见 `Anim::pageAppear()` 那段。
-    // 这几页是滚动区：抬的会是它们的**视口**（`liftTarget()`，`ui/Animations.cpp` 里那个），滚动区自己那圈框
-    // 留在原地 —— 和顶上那一档同一条规矩（见 `Animations.hpp` 里 `pageAppear()` 那段）。
-    const auto appearOnSwitch = [](QStackedWidget *stack) {
-        if (stack == nullptr) {
-            return;
-        }
-        QObject::connect(stack, &QStackedWidget::currentChanged, stack, [stack](int) {
-            QWidget *page = stack->currentWidget();
-            if (page != nullptr && page->isVisible()) {
-                Anim::pageAppear(page);
-            }
-        });
-    };
-    appearOnSwitch(downloadStack);
-    appearOnSwitch(gameStack);
-    appearOnSwitch(settingsCategoryStack);
-    // 实例页那一层"客户端实例 / 服务端"也走同一条换页动画。
-    appearOnSwitch(instanceModeStack);
+    // 内层那几层换页（下载页右栏、游戏栏、设置页右栏、实例页客户端 / 服务端）不用再接：
+    // 所有 `QStackedWidget` 换页默认就有 `pageAppear()`（`ui/DesignDefaults.hpp`）。
 
     setupBottomBar(bar);
     bar->setFooter(bottomBar);

@@ -292,22 +292,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     m_stack->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
     m_stack->setObjectName(stackName());
     columns->addWidget(m_stack, 1);
-    // 换页那一下也要加动画：这一页的左栏是**每个实例各一张的页表**（不是顶上那四颗选项卡），而它
-    // 换页只走 `applyPageKey()` 这一条路 —— 挂在这儿等于一处管住左栏点击（`applyEntry`）
-    // 与 `showPage()` 两边。别处那三层右栏是 `MainWindowUI` 接的（那儿够不着这一个对话框：
-    // 它是每次开页时现建的，活在栈上）。
-    // NOTE: 顶上的四颗选项卡、下载页 / 设置页那几层走的是 `MainWindowUI` 里同一条形状的
-    // 接线 —— 形状一样是故意的，但**不是同一个 `connect`**（那几个 `QStackedWidget`
-    // 在那边、这个在这一层）。
-    // 底不垫色：写回的是祖先们原样那层（磨砂透着），见 `Anim::pageAppear()` 那段。
-    // 抬的也是那一层**视口**（`liftTarget()`，`ui/Animations.cpp` 里那个，滚动区自己那圈框留在原地）——
-    // 见 `Animations.hpp` 里 `pageAppear()` 那段。
-    connect(m_stack, &QStackedWidget::currentChanged, this, [this](int) {
-        QWidget *page = m_stack->currentWidget();
-        if (page != nullptr && page->isVisible()) {
-            Anim::pageAppear(page);
-        }
-    });
+    // 左栏换页的动效不用接：`QStackedWidget` 换页默认就有 `pageAppear()`（`ui/DesignDefaults.hpp`）。
     // 两栏吃掉整页剩下的竖直空间（底下那排按钮按自己的高排）。
     outer->addLayout(columns, 1);
 

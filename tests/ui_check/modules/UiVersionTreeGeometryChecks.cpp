@@ -10,6 +10,8 @@ int UiVersionTreeGeometryChecks(QMainWindow &window, QTreeWidget * &versionTree)
         const int pad = MainWindowUI::versionTreeRowPadding();
 
         QTreeWidget probe;
+        // 退出设计默认：下面按「和视口 Base 底色不同的像素」数墨，要的就是视口铺满 Base。
+        DesignDefaults::optOut(&probe);
         probe.setColumnCount(1);
         probe.setHeaderHidden(true);
         probe.setUniformRowHeights(true);
