@@ -13,6 +13,7 @@
 
 #include "PresetManagePage.hpp"
 #include "InputSizing.hpp"
+#include "LoadingState.hpp"
 #include "TextMarks.hpp"
 #include "Animations.hpp"
 #include "InstanceGroupDelegate.hpp"
@@ -1142,6 +1143,7 @@ void PresetManagePage::showPreset(const QString &id, const QString &name,
                                   const QList<SectionItem> &sections) {
     m_detailsAvailable = true;
     m_currentId = id;
+    LoadingState::finish(m_sectionList);
     m_nameEdit->setText(name);
     m_descriptionEdit->setText(description);
     // 细节那一层顶上的标题就是这一份的名字（外面改了名之后这一发跟着换）。
@@ -1342,6 +1344,7 @@ void PresetManagePage::showPresetLoading(const QString &id) {
     m_descriptionEdit->clear();
     m_sectionList->clear();
     m_presetMeta->setText(tr("正在读取预设内容…"));
+    LoadingState::begin(m_sectionList, tr("正在读取预设…"));
     clearPlan();
     for (const auto &name : {QStringLiteral("presetEditModsButton"), QStringLiteral("presetEditOptionsButton")})
         if (auto *button = findChild<QPushButton *>(name)) button->hide();
@@ -1351,7 +1354,9 @@ void PresetManagePage::showPresetLoading(const QString &id) {
 void PresetManagePage::showPresetReadError(const QString &reason) {
     m_detailsAvailable = false;
     m_presetMeta->setText(tr("无法读取预设内容"));
-    showStatus(tr("这一份读不出来：%1").arg(reason));
+    // 原因和「重试」就摆在内容那一格上（重试 = 原样再选一次这一份，控制器重新读盘）。
+    LoadingState::fail(m_sectionList, tr("这一份读不出来：%1").arg(reason),
+                       [this] { emit presetSelected(m_currentId); });
     refreshActions();
 }
 

@@ -471,6 +471,8 @@ public:
     /// NOTE: 号码 **`Qt::UserRole + 16`**（15 是 serverAddressRole() 的，见
     /// rowSubTextRole() 上面那段"撞号的表现是屏幕上多出一笔"）。
     static int serverNameRole() { return Qt::UserRole + 16; }
+    // NOTE: `Qt::UserRole + 17` 已被行内加载态占用：`LoadingState::rowLoadingRole()`
+    // （ui/LoadingState.hpp，VersionTreeDelegate 认它画点 / 出错 + 重试）。新角色从 +18 起。
 
     /// 「服务器列表」那一页的行高：比版本树那个常数**高一档**（多出来的那一档正好是
     /// 第二行小字的高度）。

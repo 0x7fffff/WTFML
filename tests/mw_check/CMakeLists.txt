@@ -420,6 +420,7 @@ set(SOURCE_FILES
     ${REPO_ROOT}/ui/ToggleSwitch.cpp
     ${REPO_ROOT}/ui/MotdText.cpp
     ${REPO_ROOT}/ui/VersionTreeDelegate.cpp
+    ${REPO_ROOT}/ui/LoadingState.cpp
     ${REPO_ROOT}/ui/ResourceDetailPage.cpp
     ${REPO_ROOT}/ui/InstanceGroupDelegate.cpp
     ${REPO_ROOT}/ui/OverlayHost.cpp

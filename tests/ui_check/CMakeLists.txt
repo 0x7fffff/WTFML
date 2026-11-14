@@ -22,6 +22,8 @@ add_library(wtfml_ui_runtime STATIC
                                 ${REPO_ROOT}/ui/AccountSkinDialog.cpp
                                 ${REPO_ROOT}/ui/MainWindowUI.cpp
                                 ${REPO_ROOT}/ui/PresetInstallPicker.cpp
+                                # 预设管理页：加载态走查截图（--loading）要把它摆上来；纯界面，不认识业务。
+                                ${REPO_ROOT}/ui/PresetManagePage.cpp
                                 ${REPO_ROOT}/ui/PresetEditorPage.cpp
                                 ${REPO_ROOT}/ui/PresetOptionsEditor.cpp
                                 ${REPO_ROOT}/ui/PresetModEditor.cpp
@@ -97,6 +99,7 @@ ${REPO_ROOT}/ui/InstanceSettingsSignature.cpp
                                 ${REPO_ROOT}/ui/ToggleSwitch.cpp
                                 ${REPO_ROOT}/ui/MotdText.cpp
                                 ${REPO_ROOT}/ui/VersionTreeDelegate.cpp
+                                ${REPO_ROOT}/ui/LoadingState.cpp
                                 ${REPO_ROOT}/ui/ResourceDetailPage.cpp
                                 ${REPO_ROOT}/ui/InstanceGroupDelegate.cpp
                                 # 下载页那四页的"点的是哪一类"和"去问哪一类"是靠一个字符串对
@@ -266,6 +269,7 @@ add_ui_module(ui_check_lifecycle modules/UiLifecycleCheck.cpp UiLifecycleCheck)
 add_ui_module(ui_check_ui_refresh modules/UiUiRefreshCheck.cpp UiUiRefreshCheck)
 add_ui_module(ui_check_theme modules/UiThemeCheck.cpp UiThemeCheck)
 add_ui_module(ui_check_fold_motion modules/UiFoldMotionChecks.cpp UiFoldMotionChecks)
+add_ui_module(ui_check_loading_state modules/UiLoadingStateChecks.cpp UiLoadingStateChecks)
 add_ui_module(ui_check_daily_quote modules/UiDailyQuoteCheck.cpp UiDailyQuoteCheck)
 add_ui_module(ui_check_daily_quote_shots modules/UiDailyQuoteShots.cpp UiDailyQuoteShots)  # 样张，不进 ctest
 add_ui_module(ui_check_home_greeting_shots modules/UiHomeGreetingShots.cpp UiHomeGreetingShots)  # 样张，不进 ctest
@@ -377,6 +381,12 @@ wtfml_add_test(NAME wtfml.fold-motion COMMAND ui_check_fold_motion)
 set_tests_properties(wtfml.fold-motion PROPERTIES
     LABELS "ui;settings"
     TIMEOUT 120
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
+wtfml_add_test(NAME wtfml.loading-state COMMAND ui_check_loading_state)
+set_tests_properties(wtfml.loading-state PROPERTIES
+    LABELS "ui;loading"
+    TIMEOUT 60
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
 )
 wtfml_add_test(NAME wtfml.theme COMMAND ui_check_theme)
