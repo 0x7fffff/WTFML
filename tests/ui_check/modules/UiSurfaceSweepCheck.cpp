@@ -51,6 +51,7 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFontDatabase>
 #include <QHeaderView>
@@ -66,6 +67,7 @@
 #include <QTimer>
 #include <QVBoxLayout>
 
+#include <algorithm>
 #include <functional>
 #include <memory>
 
@@ -82,6 +84,11 @@ struct SurfaceRecord {
     QString shotFile;
     bool shotOk = false;
     QList<SurfaceFinding> findings;
+    /// 强制画一遍这一整块（grab）的耗时。这是 offscreen `ui_check`（-O0）里的绘制成本，
+    /// 不是产品 Release 的首帧；只用来在 95 个表面之间横向比，超过 50 ms 的进 B 类候选。
+    double paintMs = -1.0;
+    /// 调用方从"打开这一页 / 这一个弹框"开始计的耗时（不传 = 没量）。同样只做横向比。
+    double openMs = -1.0;
 };
 
 class Sweep {
@@ -96,26 +103,39 @@ public:
     }
 
     /// 扫一个表面：控件树 + 换页动效；顺手拍一张。
+    /// @param openMs 调用方从"打开"到"这一页摆好"的耗时（不传 = 没量）。
     void record(const QString &key, const QString &name, const QString &entry, const QString &source,
-                const QString &covered, QWidget *root, QWidget *shotTarget = nullptr) {
+                const QString &covered, QWidget *root, QWidget *shotTarget = nullptr,
+                double openMs = -1.0) {
         SurfaceRecord rec;
         rec.key = key;
         rec.name = name;
         rec.entry = entry;
         rec.source = source;
         rec.covered = covered;
+        rec.openMs = openMs;
         if (root == nullptr) {
             std::printf("== %-38s SKIP：表面没建出来\n", qPrintable(key));
             m_records.append(rec);
             return;
         }
         pump();
+        // 首帧：强制把这一整块画出来（离屏）。量的是控件树 + 代理 + 图标的绘制成本。
+        {
+            QElapsedTimer paintClock;
+            paintClock.start();
+            const QPixmap warm = root->grab();
+            rec.paintMs = double(paintClock.nsecsElapsed()) / 1.0e6;
+            (void)warm;
+        }
         rec.findings = SurfaceScan::scanWidgets(root);
         rec.findings += SurfaceScan::probePageTransitions(root, m_app);
         pump();
         rec.shotOk = capture(rec, shotTarget != nullptr ? shotTarget : root);
         m_records.append(rec);
-        std::printf("== %-38s %-3d 处  %s\n", qPrintable(key), int(rec.findings.size()),
+        std::printf("== %-38s %-3d 处  paint %6.1f ms%s  %s\n", qPrintable(key),
+                    int(rec.findings.size()), rec.paintMs,
+                    rec.openMs >= 0 ? qPrintable(QStringLiteral("  open %1 ms").arg(rec.openMs, 0, 'f', 1)) : "",
                     rec.shotOk ? qPrintable(rec.shotFile) : "无样张");
         for (const SurfaceFinding &finding : rec.findings) {
             std::printf("     - %-18s %-20s %-28s %s\n", qPrintable(finding.kind), qPrintable(finding.cls),
@@ -129,11 +149,13 @@ public:
         if (surfaces.open(QIODevice::WriteOnly | QIODevice::Text)) {
             QTextStream out(&surfaces);
             out.setEncoding(QStringConverter::Utf8);
-            out << "key\tname\tentry\tsource\tcovered\tshot\tfindings\tkinds\n";
+            out << "key\tname\tentry\tsource\tcovered\tshot\tfindings\tkinds\tpaintMs\topenMs\n";
             for (const SurfaceRecord &rec : m_records) {
                 out << rec.key << '\t' << rec.name << '\t' << rec.entry << '\t' << rec.source << '\t'
                     << rec.covered << '\t' << (rec.shotOk ? rec.shotFile : QString()) << '\t'
-                    << rec.findings.size() << '\t' << SurfaceScan::findingSummary(rec.findings) << '\n';
+                    << rec.findings.size() << '\t' << SurfaceScan::findingSummary(rec.findings) << '\t'
+                    << (rec.paintMs >= 0 ? QString::number(rec.paintMs, 'f', 1) : QString()) << '\t'
+                    << (rec.openMs >= 0 ? QString::number(rec.openMs, 'f', 1) : QString()) << '\n';
             }
         }
         QFile findings(QDir(m_shotDir).filePath(QStringLiteral("findings.tsv")));
@@ -229,6 +251,8 @@ int UiSurfaceSweepCheck(QApplication &app) {
                                    QWidget *shotTarget = nullptr) {
         ui.getTabWidget()->setCurrentIndex(MainWindowUI::instancesTabIndex());
         pump();
+        QElapsedTimer openClock;
+        openClock.start();
         if (!ui.overlay()->showPage(page, title, MainWindowUI::instancesTabIndex())) {
             std::printf("  SKIP %s：覆盖层没开出来（%s）\n", qPrintable(key), qPrintable(title));
             sweep.record(key, name, entry, source, covered, nullptr);
@@ -237,7 +261,9 @@ int UiSurfaceSweepCheck(QApplication &app) {
         for (int i = 0; i < 4; ++i) pump();
         if (prepare) prepare();
         for (int i = 0; i < 4; ++i) pump();
-        sweep.record(key, name, entry, source, covered, page, shotTarget != nullptr ? shotTarget : &window);
+        const double openMs = double(openClock.nsecsElapsed()) / 1.0e6;
+        sweep.record(key, name, entry, source, covered, page, shotTarget != nullptr ? shotTarget : &window,
+                     openMs);
         ui.overlay()->closeOverlay();
         pump();
     };
@@ -250,9 +276,12 @@ int UiSurfaceSweepCheck(QApplication &app) {
         InlineMessageBox box(kind, title, QString(), {QStringLiteral("确定"), QStringLiteral("取消")}, 0, -1,
                              &window);
         fill(box);
+        QElapsedTimer openClock;
+        openClock.start();
         QTimer::singleShot(0, &app, [&]() {
             pump();
-            sweep.record(key, name, entry, source, covered, &box, &window);
+            const double openMs = double(openClock.nsecsElapsed()) / 1.0e6;
+            sweep.record(key, name, entry, source, covered, &box, &window, openMs);
             box.reject();
         });
         ui.overlay()->execPrompt(&box, false);
@@ -1185,6 +1214,19 @@ int UiSurfaceSweepCheck(QApplication &app) {
                 }());
     for (auto it = kindCounts.constBegin(); it != kindCounts.constEnd(); ++it)
         std::printf("  %-22s %d\n", qPrintable(it.key()), it.value());
+    // 首帧分布：>50 ms 的进 B 类候选（口径见 SurfaceRecord::paintMs 的注释）。
+    QList<SurfaceRecord> slow;
+    for (const SurfaceRecord &rec : sweep.records()) {
+        if (rec.paintMs > 50.0 || rec.openMs > 50.0) slow.append(rec);
+    }
+    std::sort(slow.begin(), slow.end(), [](const SurfaceRecord &a, const SurfaceRecord &b) {
+        return std::max(a.paintMs, a.openMs) > std::max(b.paintMs, b.openMs);
+    });
+    std::printf("\n首帧 > 50 ms 的表面：%d 个\n", int(slow.size()));
+    for (const SurfaceRecord &rec : slow) {
+        std::printf("  %-40s paint %6.1f ms   open %6.1f ms\n", qPrintable(rec.key), rec.paintMs,
+                    rec.openMs);
+    }
     if (!shotDir.isEmpty()) std::printf("样张与清单：%s\n", qPrintable(shotDir));
     return 0;
 }
