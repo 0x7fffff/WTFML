@@ -154,8 +154,10 @@ void ListRowDelegate::paint(QPainter *painter, const QStyleOptionViewItem &optio
     const int top = r.top() + (r.height() - titleH - subH) / 2;
     painter->setFont(titleFont);
     painter->setPen(t.text);
-    painter->drawText(QRect(textBox.left(), top, textBox.width(), titleH), Qt::AlignVCenter | Qt::AlignLeft,
-                      painter->fontMetrics().elidedText(title, Qt::ElideRight, textBox.width()));
+    const QString shownTitle = painter->fontMetrics().elidedText(title, Qt::ElideRight, textBox.width());
+    painter->drawText(QRect(textBox.left(), top, textBox.width(), titleH), Qt::AlignVCenter | Qt::AlignLeft, shownTitle);
+    if (shownTitle != title) m_elidedTitles.insert(index);
+    else m_elidedTitles.remove(index);
     if (!sub.isEmpty()) {
         painter->setFont(subFont);
         painter->setPen(t.secondary);

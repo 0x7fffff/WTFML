@@ -87,6 +87,10 @@ inline constexpr int kHomeQuoteMinPixelSize = 18;
 inline constexpr int kHomeQuoteMaxPixelSize = 24;
 inline constexpr int kHomeQuoteNarrowMinPixelSize = 16;
 inline constexpr int kHomeQuoteNarrowMaxPixelSize = 20;
+/// 主页「当前实例」名的字号区间（文楷）：长名先收字号，到下限还放不下才收省略号；行高按上限预留。
+/// 下限不低于页标题的 26，再小就和眉题、元信息那几行分不出主次。
+inline constexpr int kHomeCurrentNameMinPixelSize = 28;
+inline constexpr int kHomeCurrentNameMaxPixelSize = 40;
 
 /// 「额外 JVM 参数」多行输入框的高度，约三四行的样子；再高会把下面那几项挤出可视区。
 inline constexpr int kJvmArgsEditHeight = 72;

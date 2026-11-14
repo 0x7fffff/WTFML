@@ -348,6 +348,7 @@ private:
         item->setData(kRoleFolder, instance.folderPath);
         item->setData(kRoleCurrent, instance.current);
         item->setData(kRoleSub, instance.subtitle);
+        item->setToolTip(instance.title);  // 名字在 320 宽的一行里会收省略号，悬停给全名
     }
     void rebuild() {
         m_list->clear();

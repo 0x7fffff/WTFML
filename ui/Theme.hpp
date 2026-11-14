@@ -124,6 +124,9 @@ inline QFont textFont(QFont font, TextRole role) {
     }
     return font;
 }
+/// 放得下整段 @p text 的最大一号（像素，在 [lo, hi] 里挑；只改字号，字族、字距照 @p font）。
+/// 到下限还放不下就返回下限，交给省略号。每日一言、主页当前实例名、实例设置页眉共用。
+int fitPixelSize(QFont font, const QString &text, int width, int hi, int lo);
 /// 手写体控件的唯一入口：设字体并挂 `wtfmlDisplay=true`（ui_check 按它查手写体没有漏到别处）。
 void markDisplay(QWidget *widget, const QFont &font);
 QString displayPropertyName();

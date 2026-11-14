@@ -21,6 +21,7 @@
 #include "WheelSafeComboBox.hpp"
 
 #include "Animations.hpp"
+#include "ElidedLabel.hpp"
 #include "Theme.hpp"   // 浮层的底色（Theme::Part::Panel）
 
 #include <QAbstractItemView>  // eventFilter()：那两件导航控件共同的兜底（focusInEvent 替人挑第一条）
@@ -109,6 +110,8 @@ constexpr int kChoiceComboWidth = 110;
 constexpr int kNavListExtraWidth = 28;
 /// 两栏之间空多少。和整页外边距那一档（12）同一档。
 constexpr int kColumnSpacing = 16;
+/// 页眉实例名的字号下限：从 Display 26 往下收到这一号，再放不下才省略。
+constexpr int kHeaderTitleMinPixelSize = 20;
 /// 单独拿出来用时的初始大小。宽是"一列导航 + 一块还放得下两列表格的内容"量出来的
 /// （见 .cpp 构造函数里那句 NOTE：嵌进覆盖层时这个数不作数）。
 constexpr int kDialogWidth = 820;
@@ -192,9 +195,12 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     headerLine->addWidget(m_headerIcon);
     auto *headerText = new QVBoxLayout;
     headerText->setSpacing(2);
-    m_headerTitle = new QLabel(instanceName, header);
+    m_headerTitle = new ElidedLabel(header);
+    m_headerTitle->setText(instanceName);
     m_headerTitle->setObjectName(QStringLiteral("instanceHeaderTitle"));
     Theme::markDisplay(m_headerTitle, Theme::textFont(m_headerTitle->font(), Theme::TextRole::Display));
+    // 长名先收字号（Display 26 → 20），再放不下才省略、悬停看全名；高度按 26 钉死，页眉不随名字变高矮。
+    m_headerTitle->setFitPixelRange(Theme::textSize(Theme::TextRole::Display), kHeaderTitleMinPixelSize);
     headerText->addWidget(m_headerTitle);
     m_headerMeta = new QLabel(header);
     m_headerMeta->setObjectName(QStringLiteral("instanceHeaderMeta"));
@@ -512,7 +518,9 @@ void InstanceSettingsDialog::setInstanceName(const QString &name) {
 }
 
 void InstanceSettingsDialog::setInstanceDisplayName(const QString &displayName) {
-    if (m_headerTitle != nullptr) m_headerTitle->setText(displayName);
+    if (m_headerTitle == nullptr) return;
+    m_headerTitle->setText(displayName);
+    m_headerTitle->refitFont();
 }
 
 void InstanceSettingsDialog::setHeaderMeta(const QString &meta) {

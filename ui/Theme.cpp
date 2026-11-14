@@ -20,6 +20,7 @@
 #include <QDir>
 #include <QEvent>
 #include <QFontDatabase>
+#include <QFontMetrics>
 #include <QFocusEvent>
 #include <QHBoxLayout>
 #include <QKeyEvent>
@@ -201,6 +202,14 @@ QFont quoteFont(QFont font, QuoteScript script, int pixelSize) {
     font.setBold(false);
     font.setLetterSpacing(QFont::AbsoluteSpacing, 0);
     return font;
+}
+
+int fitPixelSize(QFont font, const QString &text, int width, int hi, int lo) {
+    for (int px = hi; px > lo; --px) {
+        font.setPixelSize(px);
+        if (QFontMetrics(font).horizontalAdvance(text) <= width) return px;
+    }
+    return lo;
 }
 
 QFont handFont(QFont font, HandFont which) {

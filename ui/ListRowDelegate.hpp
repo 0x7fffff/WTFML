@@ -10,6 +10,8 @@
  */
 #pragma once
 
+#include <QPersistentModelIndex>
+#include <QSet>
 #include <QStyledItemDelegate>
 
 class QAbstractItemView;
@@ -31,6 +33,8 @@ public:
     static QRect actionRect(const QRect &row, Action action);
 
     void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override;
+    /// 上一次画的时候这一行的标题收了省略号（悬停提示据此给全名）。
+    bool titleElided(const QModelIndex &index) const { return m_elidedTitles.contains(index); }
     QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override;
 
 signals:
@@ -39,4 +43,7 @@ signals:
 protected:
     bool editorEvent(QEvent *event, QAbstractItemModel *model, const QStyleOptionViewItem &option,
                      const QModelIndex &index) override;
+
+private:
+    mutable QSet<QPersistentModelIndex> m_elidedTitles;
 };
