@@ -5,6 +5,8 @@
 
 #include "AgentSecretEdit.hpp"
 #include "InputSizing.hpp"
+#include "Theme.hpp"
+#include "VersionIcons.hpp"
 
 #include <QHBoxLayout>
 #include <QLineEdit>
@@ -38,16 +40,25 @@ AgentSecretEdit::AgentSecretEdit(QWidget *parent) : QWidget(parent) {
     InputSizing::longValue(m_edit, "API 密钥：一般 40~100 个字符，要能看全");
     layout->addWidget(m_edit, 1);
     m_reveal = new QToolButton(this);
-    m_reveal->setText(QStringLiteral("👁"));
-    m_reveal->setToolTip(QStringLiteral("按住显示明文；失焦/保存后恢复遮挡"));
     m_reveal->setCheckable(true);
+    m_reveal->setIconSize(QSize(18, 18));
+    m_reveal->setAccessibleName(QStringLiteral("显示密钥"));
     m_reveal->setFocusPolicy(Qt::StrongFocus);
     // 扁平：不留系统 QToolButton 那圈方框（悬停 / 按住才出底）。
     m_reveal->setAutoRaise(true);
     layout->addWidget(m_reveal);
 
-    connect(m_reveal, &QToolButton::toggled, this, [this](bool checked) {
+    // 图标是画的（VersionIcons::eye），墨色随主题重取；看得见时画带斜杠那只。
+    const auto paintIcon = [this] {
+        const bool shown = m_reveal->isChecked();
+        m_reveal->setIcon(QIcon(VersionIcons::eye(18 * 2, Theme::tokens().secondary, shown)));
+        m_reveal->setToolTip(shown ? QStringLiteral("遮住密钥") : QStringLiteral("显示密钥（失焦后自动遮住）"));
+    };
+    paintIcon();
+    Theme::follow(m_reveal, paintIcon);
+    connect(m_reveal, &QToolButton::toggled, this, [this, paintIcon](bool checked) {
         m_edit->setEchoMode(checked ? QLineEdit::Normal : QLineEdit::Password);
+        paintIcon();
     });
     connect(m_edit, &QLineEdit::textChanged, this, &AgentSecretEdit::textChanged);
     connect(m_edit, &QLineEdit::editingFinished, this, [this] {

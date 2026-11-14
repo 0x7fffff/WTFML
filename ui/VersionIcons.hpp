@@ -177,6 +177,9 @@ QPixmap windowMinimize(int size, const QColor &color);
 /// @param size 边长（像素）。
 /// @param color 线的颜色（和 cross 一样用次要那一档：它是行里的一个动作，不是正文）。
 QPixmap refresh(int size, const QColor &color);
+/// 一只**眼睛**（杏仁形眼眶 + 瞳孔）：密钥框右侧「显示 / 遮挡」。@p crossed 为真时多一道斜杠（= 现在看得见，点了遮回去）。
+/// 和 refresh 同一支 24 格线稿笔，纯代码画、带缓存、颜色由调用方给（emoji 👁 在不少系统字体里缺字形，画成豆腐块）。
+QPixmap eye(int size, const QColor &color, bool crossed);
 /// Theme-aware action icons resolve their colour when painted, not when the widget is created.
 /// `QuietDelete`：行尾那颗低调的垃圾桶 —— 平时次要墨色，悬停（QIcon::Active）才换危险色。
 enum class Action { Refresh, Settings, Edit, Folder, Details, Delete, QuietDelete };

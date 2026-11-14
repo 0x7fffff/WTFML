@@ -17,6 +17,7 @@
 #include "InputWidthScan.hpp"
 
 #include "AgentPage.hpp"
+#include "AgentSettingsPage.hpp"
 #include "AgentViewTypes.hpp"
 #include "OverlayHost.hpp"
 #include "ToolboxPage.hpp"
@@ -729,6 +730,38 @@ int runExtended(QApplication &app, const ShotOptions &options) {
         saveShot(app, window, options.out, QStringLiteral("agent-session"), &saved);
     } else {
         std::printf("  SKIP agent：拿不到 AgentPage\n");
+    }
+
+    // ---- 智能体：API 与模型设置（覆盖层整页；顶部 / 滚到底） ----
+    {
+        AgentSettingsPage settingsPage;
+        AgentView::ProviderDraft draft;
+        draft.id = QStringLiteral("default");
+        draft.name = QStringLiteral("DeepSeek");
+        draft.baseUrl = QStringLiteral("https://api.deepseek.com/v1");
+        draft.model = QStringLiteral("deepseek-chat");
+        settingsPage.setProfile(draft, true, QStringLiteral("credential-manager"));
+        if (ui.overlay()->showPage(&settingsPage, QStringLiteral("API 与模型设置"), MainWindowUI::agentTabIndex())) {
+            pump();
+            saveShot(app, window, options.out, QStringLiteral("agent-settings-top"), &saved);
+            if (auto *scroll = settingsPage.findChild<QScrollArea *>()) {
+                scroll->verticalScrollBar()->setValue(scroll->verticalScrollBar()->maximum());
+                pump();
+            }
+            saveShot(app, window, options.out, QStringLiteral("agent-settings-bottom"), &saved);
+            if (auto *advanced = settingsPage.findChild<SettingsParts::ExpandSection *>()) {
+                advanced->setExpanded(true, false);
+                pump();
+                if (auto *scroll = settingsPage.findChild<QScrollArea *>())
+                    scroll->ensureWidgetVisible(advanced->body(), 0, 0);
+                pump();
+                saveShot(app, window, options.out, QStringLiteral("agent-settings-advanced"), &saved);
+            }
+            ui.overlay()->closeOverlay();
+            pump();
+        } else {
+            std::printf("  SKIP agent-settings：覆盖层没开出来\n");
+        }
     }
 
     // ---- 工具箱：目录页 + 十个工具页 ----

@@ -849,6 +849,8 @@ void AgentPage::setConfigured(bool configured, const QString &statusText) {
                                                                         : QStringLiteral("API 未配置"));
     m_apiWarn->setToolTip(m_statusText);
     m_composer->setReadOnly(!configured);
+    // 没配好就不摆输入岛：一块打不了字的框 + 灰掉的发送钮只会让人以为坏了；空状态那颗「配置 API」就是唯一入口。
+    m_composer->parentWidget()->setVisible(configured);
     setModelLabel(m_modelLabel);
     updateEmptyState();
     updateComposerHint();

@@ -59,7 +59,7 @@ bool validateBaseUrl(const QString &baseUrl, bool localHttpAllowed, bool *isLoop
             return reject(QStringLiteral("远程服务必须使用 https://；http:// 只允许本机回环地址。"));
         }
         if (!localHttpAllowed) {
-            return reject(QStringLiteral("本机明文 HTTP 需要显式勾选“允许本地明文 HTTP”。"));
+            return reject(QStringLiteral("本机 http:// 地址要先在「连接」里打开「允许本机 HTTP」。"));
         }
         return true;
     }

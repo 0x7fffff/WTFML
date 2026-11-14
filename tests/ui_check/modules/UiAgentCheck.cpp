@@ -14,6 +14,8 @@
 #include "AgentApprovalCard.hpp"
 #include "AgentSettingsPage.hpp"
 #include "AgentToolCard.hpp"
+#include "SettingsPageParts.hpp"
+#include "ToggleSwitch.hpp"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -108,8 +110,15 @@ int UiAgentCheck() {
     auto *stop = qobject_cast<QPushButton *>(find("agentStopButton"));
     check(send != nullptr && !send->isEnabled(), "智能体 UI：未配置 API 时发送禁用");
     check(stop != nullptr && !stop->isVisible(), "智能体 UI：空闲时停止按钮不露头");
+    // 101：未配置时空态只给一句说明 + 「配置 API」主按钮，不摆打不了字的输入岛。
+    auto *composerRow = find("agentComposerRow");
+    auto *configure = find("agentEmptyConfigureButton");
+    check(composerRow != nullptr && !composerRow->isVisible() && configure != nullptr && configure->isVisible(),
+          "智能体 UI：未配置 API 时收起输入岛，空态露「配置 API」");
 
     page->setConfigured(true, QStringLiteral("API 已配置"));
+    check(composerRow != nullptr && composerRow->isVisible() && configure != nullptr && !configure->isVisible(),
+          "智能体 UI：配置好后输入岛回来，「配置 API」收起");
     page->composer()->setPlainText(QStringLiteral("你好"));
     QApplication::processEvents();
     check(send != nullptr && send->isEnabled(), "智能体 UI：配置 + 有文字后发送可用");
@@ -264,18 +273,38 @@ int UiAgentCheck() {
     check(baseUrl != nullptr && preview != nullptr &&
               preview->text().contains(QStringLiteral("https://api.example.com/v1/chat/completions")),
           "设置页：显示最终请求 URL 预览", preview != nullptr ? preview->text() : QString());
-    auto *advanced = settings.findChild<QGroupBox *>(QStringLiteral("agentAdvancedGroup"));
+    // 101：和设置页同一套部件 —— 高级收在 ExpandSection 里（默认收起），开关是 ToggleSwitch，整页没有原生勾选框和带框分组。
+    auto *advanced = settings.findChild<SettingsParts::ExpandSection *>(QStringLiteral("agentAdvancedGroup"));
     auto *authMode = settings.findChild<QComboBox *>(QStringLiteral("agentAuthModeCombo"));
-    check(advanced != nullptr && !advanced->isChecked() && authMode != nullptr,
-          "设置页：协议适配默认折叠");
-    auto *strict = settings.findChild<QCheckBox *>(QStringLiteral("agentEgressStrictCheck"));
-    check(strict != nullptr, "设置页：严格模式勾选框存在");
+    check(advanced != nullptr && !advanced->expanded() && authMode != nullptr &&
+              advanced->isAncestorOf(authMode),
+          "设置页：协议适配收在默认收起的「高级」里");
+    check(settings.findChildren<QCheckBox *>().isEmpty() && settings.findChildren<QGroupBox *>().isEmpty(),
+          "设置页：没有原生勾选框和带框分组");
+    bool allSwitches = true;
+    for (const char *name : {"agentLocalHttpCheck", "agentEgressStrictCheck", "agentStreamCheck",
+                             "agentSendTemperatureCheck", "agentSendToolChoiceCheck"})
+        allSwitches = allSwitches && settings.findChild<ToggleSwitch *>(QString::fromLatin1(name)) != nullptr;
+    check(allSwitches, "设置页：五个开关都是 ToggleSwitch");
+    check(reveal != nullptr && reveal->text().isEmpty() && !reveal->icon().isNull(),
+          "设置页：眼睛按钮是画出来的图标，不靠可能缺字形的 emoji");
+    auto *privacy = settings.findChild<QLabel *>(QStringLiteral("agentPrivacyText"));
+    const QString standardText = privacy != nullptr ? privacy->text() : QString();
     settings.setStrictEgress(true);
     check(settings.strictEgress(), "设置页：严格模式可切换");
-    auto *privacy = settings.findChild<QLabel *>(QStringLiteral("agentPrivacyText"));
-    check(privacy != nullptr && privacy->text().contains(QStringLiteral("不读取文件")) &&
-              privacy->text().contains(QStringLiteral("不做遥测")),
-          "设置页：隐私/外发说明写明 Stage 1A 边界");
+    check(privacy != nullptr && privacy->wordWrap() && standardText.contains(QStringLiteral("崩溃报告")) &&
+              privacy->text() != standardText && privacy->text().contains(QStringLiteral("逐次同意")) &&
+              privacy->text().contains(QStringLiteral("永远不会发送")),
+          "设置页：隐私说明换行显示，随严格模式切换写明会发出去什么", privacy != nullptr ? privacy->text() : QString());
+    bool noCodename = true;
+    for (QLabel *label : settings.findChildren<QLabel *>())
+        noCodename = noCodename && !label->text().contains(QStringLiteral("Stage"));
+    check(noCodename, "设置页：界面上不出现 Stage 1A 之类的内部代号");
+    auto *save = settings.findChild<QPushButton *>(QStringLiteral("agentSaveButton"));
+    auto *removeProfile = settings.findChild<QPushButton *>(QStringLiteral("agentDeleteProfileButton"));
+    check(save != nullptr && removeProfile != nullptr && save->parentWidget() != removeProfile->parentWidget() &&
+              !removeProfile->isAncestorOf(save),
+          "设置页：「删除此配置」不和「保存」挤在同一行");
     check(settings.findChild<QWidget *>(QStringLiteral("agentMcpList")) == nullptr,
           "设置页：Stage 1A 不显示 MCP 一栏");
     return 0;

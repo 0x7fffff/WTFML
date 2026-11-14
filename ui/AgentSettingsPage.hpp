@@ -2,7 +2,9 @@
  * @file AgentSettingsPage.hpp
  * @brief 智能体的“API 与模型设置”整页（OverlayHost::showPage 里开，不另开窗口）。
  *
- * Stage 1A 只有模型服务 + 隐私/外发说明 + 会话加密语义；MCP 一栏不显示。
+ * 版式和设置页同一套（SettingsParts：分组淡底 + 左标签右控件、窄时上下叠放、开关用 ToggleSwitch）：
+ * 模型服务 / API 密钥 / 生成 / 连接 / 隐私 五组，协议适配收在默认折叠的「高级」里，
+ * 删除配置单独一组放最下面；底栏只留「测试连接」和「保存」。MCP 一栏不显示。
  * 密钥：已保存时留空、占位文字说明；保存前不发任何网络请求。
  */
 
@@ -12,15 +14,17 @@
 
 #include <QDialog>
 
-class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
-class QGroupBox;
 class QLabel;
 class QLineEdit;
 class QPushButton;
 class QSpinBox;
 class AgentSecretEdit;
+class ToggleSwitch;
+namespace SettingsParts {
+class ExpandSection;
+}
 
 class AgentSettingsPage : public QDialog {
     Q_OBJECT
@@ -47,6 +51,7 @@ signals:
 
 private:
     void updateUrlPreview();
+    void updatePrivacyText();
 
     QComboBox *m_provider = nullptr;
     QLineEdit *m_name = nullptr;
@@ -57,26 +62,27 @@ private:
     QDoubleSpinBox *m_temperature = nullptr;
     QSpinBox *m_timeout = nullptr;
     QComboBox *m_deployment = nullptr;
-    QCheckBox *m_localHttp = nullptr;
-    QGroupBox *m_advanced = nullptr;
+    ToggleSwitch *m_localHttp = nullptr;
+    SettingsParts::ExpandSection *m_advanced = nullptr;
     QComboBox *m_authMode = nullptr;
-    QCheckBox *m_stream = nullptr;
+    ToggleSwitch *m_stream = nullptr;
     QComboBox *m_maxTokensField = nullptr;
     QComboBox *m_systemRole = nullptr;
     QComboBox *m_reasoningEcho = nullptr;
-    QCheckBox *m_sendTemperature = nullptr;
-    QCheckBox *m_sendToolChoice = nullptr;
+    ToggleSwitch *m_sendTemperature = nullptr;
+    ToggleSwitch *m_sendToolChoice = nullptr;
     AgentSecretEdit *m_secret = nullptr;
     QLabel *m_storage = nullptr;
     QLabel *m_urlPreview = nullptr;
     QLabel *m_status = nullptr;
     QLabel *m_testResult = nullptr;
     QLabel *m_privacy = nullptr;
-    QCheckBox *m_strict = nullptr;
+    ToggleSwitch *m_strict = nullptr;
     QPushButton *m_test = nullptr;
     QPushButton *m_save = nullptr;
     QPushButton *m_clearKeyButton = nullptr;
     QPushButton *m_deleteProfile = nullptr;
+    QString m_privacyOverride;  ///< setPrivacyText() 给的整段说明；空 = 按严格模式开关现写
     QString m_profileId;
     bool m_clearKey = false;
 };

@@ -126,6 +126,47 @@ void followHeroInk(QWidget *w, bool secondary) {
     Theme::follow(w, apply);
 }
 
+/// 主页「每日一言」：16px 细笔画手写体直接压在风景上（亮雪山那块尤其发虚）。不放大、不加底框，
+/// 画的时候按这一格背后**此刻实测**的明暗两端兜对比度 ≥ 3:1（和导航轨品牌标同一路数：往 heroInk 挪），
+/// 再垫一圈很淡的暗角色光晕把细笔画托出来；背后连 heroInk 都不够 3:1 时光晕加重。中 / 英 / 日三种句子同一套。
+class HomeQuoteLabel final : public ElidedLabel {
+public:
+    using ElidedLabel::ElidedLabel;
+
+protected:
+    void paintEvent(QPaintEvent *) override {
+        const QRect box = contentsRect();
+        const QString shown = fontMetrics().elidedText(text(), elideMode(), box.width());
+        const int flags = int(alignment()) | Qt::TextSingleLine;
+        QColor ink = palette().color(foregroundRole());
+        QPainter p(this);
+        if (Glass::sceneShown()) {
+            const Theme::Tokens t = Theme::tokens();
+            QList<QColor> under{t.page};
+            if (const Glass::Backdrop *backdrop = Glass::Backdrop::of(this)) under = backdrop->colorsUnder(this);
+            const auto worst = [&under](const QColor &c) {
+                double low = 21.0;
+                for (const QColor &bg : under) low = qMin(low, Glass::contrast(Glass::over(c, bg), bg));
+                return low;
+            };
+            for (int step = 0; step < 5 && worst(ink) < 3.0; ++step) {
+                ink = QColor::fromRgbF(ink.redF() + (t.heroInk.redF() - ink.redF()) * 0.25,
+                                       ink.greenF() + (t.heroInk.greenF() - ink.greenF()) * 0.25,
+                                       ink.blueF() + (t.heroInk.blueF() - ink.blueF()) * 0.25,
+                                       ink.alphaF() + (1.0 - ink.alphaF()) * 0.25);
+            }
+            if (worst(ink) < 3.0) ink = t.heroInk;
+            QColor halo = t.heroVeil;
+            halo.setAlphaF(worst(ink) < 3.0 ? 0.30 : 0.14);
+            p.setPen(halo);
+            static const QPoint kRing[] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}, {-1, -1}, {1, -1}, {-1, 1}, {1, 1}};
+            for (const QPoint &d : kRing) p.drawText(box.translated(d), flags, shown);
+        }
+        p.setPen(ink);
+        p.drawText(box, flags, shown);
+    }
+};
+
 /// 把 @p font 换成手写楷体、按像素定号并加字距（设计稿 --hand）。
 QFont handPx(QFont font, Theme::HandFont which, int px, qreal spacing) {
     font = Theme::handFont(font, which);
@@ -999,7 +1040,7 @@ QWidget *MainWindowUI::setupHomePage() {
         // 大标题正下方那一行「每日一言」：一天一句，零实例与有实例都显示。
         // 位置就是被删掉的英文副题那一格（边距 kHomeHeroInset + 4, 12）。没句子时**隐藏**，
         // 版面和没有这一行时一模一样（设置里关掉也走这条路）。
-        auto *quote = new ElidedLabel(home.left.widget);
+        auto *quote = new HomeQuoteLabel(home.left.widget);
         quote->setObjectName(homeHeroQuoteName());
         quote->setContentsMargins(kHomeHeroInset + 4, 12, 0, 0);
         // 宽度交给布局（Ignored），文字长短不会把左栏抻开；装不下自己收省略号。

@@ -634,6 +634,28 @@ QPixmap VersionIcons::refresh(int size, const QColor &color) {
     });
 }
 
+QPixmap VersionIcons::eye(int size, const QColor &color, bool crossed) {
+    if (size <= 0) return {};
+    return cached(QStringLiteral("eye/%1/%2/%3").arg(size).arg(color.name(QColor::HexArgb)).arg(int(crossed)),
+                  [size, color, crossed]() {
+        QPixmap image(size, size);
+        image.fill(Qt::transparent);
+        QPainter painter(&image);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.scale(size / 24.0, size / 24.0);
+        painter.setPen(QPen(color, 1.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.setBrush(Qt::NoBrush);
+        QPainterPath lid;
+        lid.moveTo(2.5, 12);
+        lid.quadTo(12, 3.2, 21.5, 12);
+        lid.quadTo(12, 20.8, 2.5, 12);
+        painter.drawPath(lid);
+        painter.drawEllipse(QPointF(12, 12), 3.1, 3.1);
+        if (crossed) painter.drawLine(QPointF(4.5, 19.5), QPointF(19.5, 4.5));
+        return image;
+    });
+}
+
 QPixmap VersionIcons::power(int size, const QColor &color) {
     if (size <= 0) {
         return QPixmap();

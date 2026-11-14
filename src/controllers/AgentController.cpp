@@ -1098,7 +1098,7 @@ void AgentController::onSettingsDeleteProfile() {
     if (m_overlay == nullptr) return;
     const int choice = InlineMessage::ask(
         m_overlay, MessageKind::Question, QStringLiteral("删除模型配置"),
-        QStringLiteral("会删除这份 provider 配置和它保存的 API Key（凭据管理器/DPAPI 后备）。"
+        QStringLiteral("会删除这份模型配置和它保存的 API 密钥。"
                        "会话本身保留。确定吗？"),
         QStringList{QStringLiteral("删除"), QStringLiteral("取消")}, 1, 0);
     if (choice != 0) return;
