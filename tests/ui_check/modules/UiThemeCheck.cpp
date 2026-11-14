@@ -22,6 +22,33 @@ int UiThemeCheck(QApplication &app) {
             printf("%s %s\n", ok ? "PASS" : "FAIL", name);
             if (!ok) ++failures;
         };
+        // `Theme::save()` 在「没有基线」那一支只清**主题自己的键**。Glass 的材质 / 着色 / 模糊
+        // 也在 `Theme/` 下（`Theme/Backdrop`、`Theme/BackdropTint`、`Theme/BackdropBlur`，
+        // 见 ui/Glass.cpp），整组删会把用户挑的那三项抹回出厂。
+        {
+            // 换一个应用名 = 换一份配置文件 ⇒ 这一支必然按「没有基线」走（不看本进程之前 load 过没有）。
+            app.setApplicationName(QStringLiteral("ThemeSaveCheck"));
+            {
+                QSettings glass;
+                glass.setValue(QStringLiteral("Theme/Backdrop"), QStringLiteral("mica"));
+                glass.setValue(QStringLiteral("Theme/BackdropTint"), 37);
+                glass.setValue(QStringLiteral("Theme/BackdropBlur"), 61);
+                // 主题自己的旧键：没基线那一支要清掉（「上一次设过、这一次没设」的项不许复活）。
+                glass.setValue(QStringLiteral("Theme/Parts/card/Image"), QStringLiteral("C:/old.png"));
+                glass.sync();
+            }
+            Theme::save(Theme::presetSpec(QStringLiteral("dark")));
+            QSettings after;
+            expect(after.value(QStringLiteral("Theme/Backdrop")).toString() == QStringLiteral("mica") &&
+                       after.value(QStringLiteral("Theme/BackdropTint")).toInt() == 37 &&
+                       after.value(QStringLiteral("Theme/BackdropBlur")).toInt() == 61,
+                   "Theme::save() 没有基线时一根手指都不碰 Glass 的材质三项（材质 / 着色 / 模糊）");
+            expect(after.value(QStringLiteral("Theme/Preset")).toString() == QStringLiteral("dark"),
+                   "…主题自己的键照旧写回去");
+            expect(!after.contains(QStringLiteral("Theme/Parts/card/Image")),
+                   "…上一次设过、这一次没设的主题项照旧清掉");
+            app.setApplicationName(QStringLiteral("ThemeCheck"));
+        }
         // 出厂材质：盘上没写过 `Theme/Backdrop` 时用风景底（≤ 2 线程的机器、旧版关过磨砂的是纯色）。
         expect(Glass::factoryMode(8, false) == Glass::Mode::Scene &&
                    Glass::factoryMode(2, false) == Glass::Mode::Solid &&
@@ -278,6 +305,172 @@ int UiThemeCheck(QApplication &app) {
                 expect(log.grab().save(directory + QLatin1Char('/') + id + QStringLiteral("-log.png")),
                        "save log preview");
             }
+        }
+        // ---- 换页那一下（F1）：鼠标点导航换页后，新页第一个控件不该带焦点环 ----
+        //
+        // 判据只能有一条：「最后一次输入是不是键盘」。`QFocusEvent::reason()` 不算数 ——
+        // 代码里 `setFocus(Qt::TabFocusReason)`（换页交接、分段页签那一路）和用户真按 Tab
+        // 报的是同一个理由，只按理由判就会凭空亮一圈（分段页签那次就是这么亮的，见 00c25a0）。
+        // 按钮和自绘环的控件早就按这一条判了，**输入类控件还留在理由上**：这里把两条路一起钉住。
+        {
+            QWidget host;
+            host.resize(360, 200);
+            auto *nav = new QPushButton(QStringLiteral("管理"), &host);
+            nav->setObjectName(QStringLiteral("navProbeButton"));
+            nav->setFocusPolicy(Qt::NoFocus);
+            nav->setGeometry(8, 8, 120, 32);
+            auto *stack = new QStackedWidget(&host);
+            stack->setGeometry(8, 48, 340, 140);
+            auto *oldPage = new QWidget;
+            auto *oldButton = new QPushButton(QStringLiteral("旧页那颗"), oldPage);
+            oldButton->setGeometry(8, 8, 140, 32);
+            auto *newPage = new QWidget;
+            auto *newEdit = new QLineEdit(newPage);
+            newEdit->setObjectName(QStringLiteral("newPageFirstControl"));
+            newEdit->setGeometry(8, 8, 180, 32);
+            auto *newButton = new QPushButton(QStringLiteral("新页第二颗"), newPage);
+            newButton->setGeometry(8, 52, 140, 32);
+            stack->addWidget(oldPage);
+            stack->addWidget(newPage);
+            QObject::connect(nav, &QPushButton::clicked, stack, [stack]() { stack->setCurrentIndex(1); });
+            host.show();
+            host.activateWindow();
+            app.processEvents();
+            oldButton->setFocus(Qt::TabFocusReason);
+            QKeyEvent warm(QEvent::KeyPress, Qt::Key_A, Qt::NoModifier);
+            QApplication::sendEvent(oldButton, &warm);
+            app.processEvents();
+            expect(oldButton->hasFocus() && oldButton->property("wtfmlKeyboardFocus").toBool(),
+                   "换页前：键盘到达的那颗按钮带着焦点环（判据的正面那一半）");
+            const QPoint navAt = nav->rect().center();
+            QMouseEvent navPress(QEvent::MouseButtonPress, QPointF(navAt), QPointF(nav->mapToGlobal(navAt)),
+                                 Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(nav, &navPress);
+            QMouseEvent navRelease(QEvent::MouseButtonRelease, QPointF(navAt), QPointF(nav->mapToGlobal(navAt)),
+                                   Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+            QApplication::sendEvent(nav, &navRelease);
+            app.processEvents();
+            expect(stack->currentIndex() == 1 && newEdit->hasFocus(),
+                   "鼠标点导航真的翻页，焦点交接给新页第一个控件");
+            const bool ringedAfterMouse = newEdit->property("wtfmlKeyboardFocus").toBool();
+            const QImage afterMouse = newEdit->grab().toImage();
+            // 只看最上面那 3 px（输入框常驻的那圈透明边就是环带）。两版都**有焦点**，
+            // 底那一档一样，所以这个带子里唯一的差别就是那圈环本身。
+            const auto topBand = [](const QImage &image) {
+                return image.copy(image.width() / 5, 0, image.width() * 3 / 5, 3);
+            };
+            expect(!ringedAfterMouse, "★ 鼠标点导航换页后，新页第一个控件不挂键盘焦点那一档");
+            // 反方向：焦点拿掉再放回来、理由写成 TabFocusReason（"交接"和"真按 Tab"本来就是同一个
+            // 理由）—— 最后一次输入还是鼠标，就不该点亮。这一条钉的是判据本身，和 Qt 交接时到底
+            // 报哪个理由无关。
+            newEdit->clearFocus();
+            app.processEvents();
+            newEdit->setFocus(Qt::TabFocusReason);
+            app.processEvents();
+            expect(newEdit->hasFocus() && !newEdit->property("wtfmlKeyboardFocus").toBool(),
+                   "★ 只凭 FocusIn 那个理由（TabFocusReason）点不亮环（交接与真按 Tab 用的是同一个理由）");
+            const QImage focusedNoRing = newEdit->grab().toImage();
+            expect(topBand(afterMouse) == topBand(focusedNoRing),
+                   "…换页交接过来的那一版和「有焦点、没环」那一版，环带上一模一样");
+            QKeyEvent tab(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier);
+            QApplication::sendEvent(newEdit, &tab);
+            app.processEvents();
+            expect(newButton->hasFocus() && newButton->property("wtfmlKeyboardFocus").toBool(),
+                   "★ 按 Tab 到达新页那颗控件之后焦点环照旧出来");
+            const QImage ringShot = newButton->grab().toImage();
+            const QPoint buttonAt = newButton->rect().center();
+            QMouseEvent buttonPress(QEvent::MouseButtonPress, QPointF(buttonAt),
+                                    QPointF(newButton->mapToGlobal(buttonAt)), Qt::LeftButton, Qt::LeftButton,
+                                    Qt::NoModifier);
+            QApplication::sendEvent(newButton, &buttonPress);
+            app.processEvents();
+            const QImage plainShot = newButton->grab().toImage();
+            expect(!newButton->property("wtfmlKeyboardFocus").toBool() && ringShot != plainShot,
+                   "…鼠标按下那一下把环收掉（画出来的像素真的变了）");
+            // 键盘到达的那个输入框：环带上真多出那圈环 —— 证明上面"没挂那一档"确实等于"没画环"，
+            // 不是这套判据根本画不出来。
+            QKeyEvent warmAgain(QEvent::KeyPress, Qt::Key_B, Qt::NoModifier);
+            QApplication::sendEvent(newButton, &warmAgain);
+            newEdit->setFocus(Qt::TabFocusReason);
+            app.processEvents();
+            expect(newEdit->property("wtfmlKeyboardFocus").toBool() &&
+                       topBand(newEdit->grab().toImage()) != topBand(focusedNoRing),
+                   "★ 键盘到达的输入框画得出那一圈环（同一套判据的正面）");
+        }
+        // ---- 真窗口那一份：导航点上五颗都走一遍 ----
+        {
+            QMainWindow window;
+            MainWindowUI windowUi(&window);
+            window.resize(1000, 720);
+            window.show();
+            window.activateWindow();
+            app.processEvents();
+            QTabWidget *tabs = windowUi.getTabWidget();
+            TitleBar *rail = windowUi.titleBar();
+            const QList<int> targets{MainWindowUI::instancesTabIndex(), MainWindowUI::downloadTabIndex(),
+                                     MainWindowUI::agentTabIndex(), MainWindowUI::settingsTabIndex(),
+                                     MainWindowUI::homeTabIndex()};
+            bool clean = true, moved = false;
+            QString detail;
+            for (int target : targets) {
+                // 先在当前页上用键盘到达一颗控件，把「键盘在用」那一档摆上（用户报的那一幕就是
+                // 这样来的：之前按过 Tab，再拿鼠标点导航）。
+                QWidget *warm = nullptr;
+                for (QWidget *w : tabs->widget(tabs->currentIndex())->findChildren<QWidget *>()) {
+                    if (w->isVisible() && w->isEnabled() && (w->focusPolicy() & Qt::TabFocus)) {
+                        warm = w;
+                        break;
+                    }
+                }
+                if (warm != nullptr) {
+                    warm->setFocus(Qt::TabFocusReason);
+                    QKeyEvent key(QEvent::KeyPress, Qt::Key_A, Qt::NoModifier);
+                    QApplication::sendEvent(warm, &key);
+                    app.processEvents();
+                }
+                QAbstractButton *navButton = rail->navButton(target);
+                if (navButton == nullptr) {
+                    clean = false;
+                    detail = QStringLiteral("导航轨上找不到第 %1 颗").arg(target);
+                    break;
+                }
+                const QPoint at = navButton->rect().center();
+                QMouseEvent press(QEvent::MouseButtonPress, QPointF(at), QPointF(navButton->mapToGlobal(at)),
+                                  Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                QApplication::sendEvent(navButton, &press);
+                QMouseEvent release(QEvent::MouseButtonRelease, QPointF(at),
+                                    QPointF(navButton->mapToGlobal(at)), Qt::LeftButton, Qt::NoButton,
+                                    Qt::NoModifier);
+                QApplication::sendEvent(navButton, &release);
+                app.processEvents();
+                if (tabs->currentIndex() != target) {
+                    clean = false;
+                    detail = QStringLiteral("点了第 %1 颗没翻过去").arg(target);
+                    break;
+                }
+                QWidget *focus = QApplication::focusWidget();
+                if (focus != nullptr) {
+                    moved = true;
+                    if (focus->property("wtfmlKeyboardFocus").toBool()) {
+                        clean = false;
+                        detail = QStringLiteral("第 %1 页焦点控件 %2 带着环").arg(target).arg(focus->objectName());
+                        break;
+                    }
+                }
+                for (QWidget *w : tabs->widget(target)->findChildren<QWidget *>()) {
+                    if (w->isVisible() && w->property("wtfmlKeyboardFocus").toBool()) {
+                        clean = false;
+                        detail = QStringLiteral("第 %1 页的 %2 带着环").arg(target).arg(w->objectName());
+                        break;
+                    }
+                }
+                if (!clean) break;
+            }
+            if (!clean && !detail.isEmpty()) {
+                std::printf("  导航焦点那一项没过的细节：%s\n", qUtf8Printable(detail));
+            }
+            expect(clean, "★ 真窗口：鼠标点导航换页后，新页上没有任何控件带着键盘焦点环");
+            expect(moved, "…换页后焦点确实交接到了新页的控件上（上面那条不是靠「没焦点」过的）");
         }
         {
             Theme::Spec edited;
