@@ -461,6 +461,8 @@ int UiInstallLayoutCheck(QApplication &app);
 int UiToolboxPolishCheck(QApplication &app);
 int UiToolboxLayoutCheck(QApplication &app);
 int UiInputWidthCheck(QApplication &app);
+/// 子页面 / 弹框 / 浮层的漏接设计系统巡检：只报告，不断言失败。
+int UiSurfaceSweepCheck(QApplication &app);
 int UiResourcePacksCheck(QApplication &app);
 int UiLifecycleCheck(QApplication &app);
 int UiUiRefreshCheck(QApplication &app);
