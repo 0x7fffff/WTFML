@@ -4404,6 +4404,13 @@ Minecraft %2 / %3 %4</source>
     </message>
 </context>
 <context>
+    <name>LoadingOverlay</name>
+    <message>
+        <source>重试</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>MainWindow</name>
     <message>
         <source>应用实例预设</source>
@@ -8020,6 +8027,10 @@ Minecraft %2 / %3 %4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>正在读取预设…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>无法读取预设内容</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10615,6 +10626,14 @@ Minecraft %2 / %3
     </message>
     <message>
         <source>加一</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>正在获取…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>重试</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

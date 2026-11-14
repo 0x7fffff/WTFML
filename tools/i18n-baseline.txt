@@ -134,7 +134,7 @@ src/operations/UpgradeHistory.cpp	5
 src/operations/UpgradePageState.cpp	9
 src/operations/UpgradeReport.cpp	21
 src/operations/UpgradeSelection.cpp	15
-src/perf/PerfProbe.cpp	18
+src/perf/PerfProbe.cpp	37
 src/presets/DataPackPreset.cpp	86
 src/presets/GenericFiles.cpp	54
 src/presets/InstalledModInventory.cpp	9
@@ -260,7 +260,7 @@ ui/SkinModel.cpp	13
 ui/TaskCenterPanel.cpp	3
 ui/TaskDetailPage.hpp	1
 ui/Theme.cpp	30
-ui/TitleBar.cpp	13
+ui/TitleBar.cpp	7
 ui/ToolboxPage.cpp	180
 ui/ToolboxPage.hpp	1
 ui/UpdateCenterPage.cpp	1
