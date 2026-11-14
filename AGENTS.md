@@ -1,16 +1,16 @@
 # AGENTS.md — 本仓库给所有 AI agent 的规则
 
-WTFML 是 C++23 + Qt 6 Widgets 写的 Minecraft 启动器，只支持 Windows。本文件是规则的唯一来源，`CLAUDE.md`、`GEMINI.md` 只指向这里。违反布局规则的提交会让 CI 变红。
+WTFML 是 C++23 + Qt 6 Widgets 写的 Minecraft 启动器，目前只有 Windows x64 版。本文件是规则的唯一来源，`CLAUDE.md`、`GEMINI.md` 只指向这里。违反布局规则的提交会让 CI 变红。
 
 ## 入口
 
-- 构建、运行、目录结构：[docs/dev/BUILDING.md](docs/dev/BUILDING.md)。根目录 [README.md](README.md) 是给玩家看的介绍页。
+- 构建、运行、目录结构：[docs/dev/BUILDING.md](docs/dev/BUILDING.md)。根目录 [README.md](README.md)（英文）与 [README.zh-CN.md](README.zh-CN.md)（中文）是给玩家看的介绍页。
 - 测试怎么跑、套件与超时：[docs/dev/TESTING.md](docs/dev/TESTING.md)。命令以那里为准，别另抄一份。
 - 文档索引：[docs/README.md](docs/README.md)。
 
 ## 目录布局：东西放哪
 
-- 根目录只许这些文件：`README.md`、`LICENSE`、`AGENTS.md`、`CLAUDE.md`、`GEMINI.md`、`CMakeLists.txt`、`CMakePresets.json`、`.clang-format`、`.gitattributes`、`.gitignore`，以及 `.github/` 目录。其他一律不放根目录。
+- 根目录只许这些文件：`README.md`、`README.zh-CN.md`、`LICENSE`、`AGENTS.md`、`CLAUDE.md`、`GEMINI.md`、`CMakeLists.txt`、`CMakePresets.json`、`.clang-format`、`.gitattributes`、`.gitignore`，以及 `.github/` 目录。其他一律不放根目录。
 - 根目录下只许这些目录：`.github` `assets` `docs` `res` `src` `tests` `tools` `ui`。
 - 源码 `src/`、界面 `ui/`、测试 `tests/`、脚本与小工具 `tools/`、素材 `assets/` `res/`。
 - 文档只进 `docs/`：

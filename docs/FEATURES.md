@@ -20,7 +20,7 @@
 
 ## 1. 产品边界
 
-- Windows x64 桌面启动器，采用 C++23 + Qt 6 Widgets，仅支持 Windows。
+- 桌面启动器，采用 C++23 + Qt 6 Widgets，目前只发布 Windows x64 版。
 - **没有 `.ui` 文件**，界面全部手写。
 - 界面层与核心层分工：实际存在少量双向引用（`ui/` 有 6 处 include `src/` 模型与控制器，`src/` 有 45 个文件 include `ui/` 头文件；复杂业务、网络与文件操作由 `src/` 和 controller 层承载）。
 - 产品 exe 为 GUI 子系统，不弹控制台；stdout/stderr 默认不可见，诊断信息写入 `<数据目录>/logs/wtfml.log`。验证工程为控制台程序。

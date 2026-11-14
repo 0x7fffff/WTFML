@@ -1,6 +1,6 @@
 # 文档索引
 
-仓库根目录的 [README.md](../README.md) 是给玩家看的介绍页（下载、特点、截图）。构建、运行、目录结构见 [dev/BUILDING.md](dev/BUILDING.md)。其余文档都在 `docs/` 下：
+仓库根目录的 [README.md](../README.md)（英文）与 [README.zh-CN.md](../README.zh-CN.md)（中文）是给玩家看的介绍页（下载、特点、截图）。构建、运行、目录结构见 [dev/BUILDING.md](dev/BUILDING.md)。其余文档都在 `docs/` 下：
 
 - 顶层：产品约定总账 [FEATURES.md](FEATURES.md)、未完成工作 [ROADMAP.md](ROADMAP.md)。
 - [features/](features/)：各功能的约定、设计与现行边界。

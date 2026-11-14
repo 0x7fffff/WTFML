@@ -6,7 +6,7 @@
 .DESCRIPTION
     规则见仓库根目录 AGENTS.md「目录布局」。用 `git ls-files` 取已跟踪文件，逐条检查：
 
-    1. 根目录文件只许白名单里的（README.md LICENSE AGENTS.md CLAUDE.md GEMINI.md
+    1. 根目录文件只许白名单里的（README.md README.zh-CN.md LICENSE AGENTS.md CLAUDE.md GEMINI.md
        CMakeLists.txt CMakePresets.json .clang-format .gitattributes .gitignore）；
     2. 根目录下的目录只许 .github assets docs res src tests tools ui；
     3. docs/ 下的 .md 只能在 docs 顶层白名单（README.md FEATURES.md ROADMAP.md），
@@ -30,7 +30,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$RootFiles = 'README.md', 'LICENSE', 'AGENTS.md', 'CLAUDE.md', 'GEMINI.md', 'CMakeLists.txt',
+$RootFiles = 'README.md', 'README.zh-CN.md', 'LICENSE', 'AGENTS.md', 'CLAUDE.md', 'GEMINI.md', 'CMakeLists.txt',
     'CMakePresets.json', '.clang-format', '.gitattributes', '.gitignore'
 $RootDirs = '.github', 'assets', 'docs', 'res', 'src', 'tests', 'tools', 'ui'
 $DocsTop = 'README.md', 'FEATURES.md', 'ROADMAP.md'
