@@ -70,13 +70,14 @@ bool isCredentialKeyName(const QString &key) {
             return true;
         }
     }
-    // `api` 和 `key` 分开写也是同一个意思（`api_key`、`x-api-key`、`apiKey`）。
+    // 相邻两个词根合起来也是凭据字段：`api_key`、`x-api-key`、`apiKey`，
+    // 以及 `private_key`、`access_key`。`public_key` 不在其中，它是公开材料。
+    static const QSet<QString> credentialPairs = {
+        QStringLiteral("api/key"),     QStringLiteral("key/api"),
+        QStringLiteral("private/key"), QStringLiteral("access/key")};
     for (int i = 0; i + 1 < tokens.size(); ++i) {
-        const bool apiThenKey = tokens.at(i) == QLatin1String("api") &&
-                                tokens.at(i + 1) == QLatin1String("key");
-        const bool keyThenApi = tokens.at(i) == QLatin1String("key") &&
-                                tokens.at(i + 1) == QLatin1String("api");
-        if (apiThenKey || keyThenApi) {
+        const QString adjacent = tokens.at(i) + QLatin1Char('/') + tokens.at(i + 1);
+        if (credentialPairs.contains(adjacent)) {
             return true;
         }
     }

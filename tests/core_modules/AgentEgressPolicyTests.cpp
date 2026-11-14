@@ -108,6 +108,15 @@ void runAgentEgressPolicyTests() {
     check(valueRedacted(QStringLiteral("apiKey=camelcasevalue1"),
                         QStringLiteral("camelcasevalue1")),
           "脱敏：apiKey 驼峰写法也遮");
+    check(valueRedacted(QStringLiteral("private_key=abcd1234efgh5678"),
+                        QStringLiteral("abcd1234efgh5678")),
+          "脱敏：private_key 这类相邻词根也遮");
+    check(valueRedacted(QStringLiteral("aws_access_key=abcd1234efgh5678"),
+                        QStringLiteral("abcd1234efgh5678")),
+          "脱敏：access_key 带前缀也遮");
+    check(!AgentRedaction::redact(QStringLiteral("public_key=abcd1234efgh5678"))
+               .text.contains(QStringLiteral("<redacted>")),
+          "脱敏：public_key 是公开材料，不算凭据字段");
     check(valueRedacted(QStringLiteral("PASSWORD=ALLCAPSVALUE1"),
                         QStringLiteral("ALLCAPSVALUE1")),
           "脱敏：全大写的 PASSWORD 不被切成两个词根而漏掉");

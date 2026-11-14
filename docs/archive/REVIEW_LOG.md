@@ -72,3 +72,7 @@
 ## 2026-11-13　G1B 的 B3 文案
 
 2026-11-13｜`AgentFileToolEngine` 两处大文本内联截断的提示由完整内容见模型可读 artifact 改为本次读取内容见模型可读 artifact、同样已脱敏（`AgentArtifactStore.cpp:59` 写入即脱敏、`:109` 每次读取重新脱敏，两句都能对上）；`AgentToolTests.cpp` 大文本用例补一条断言锁住新文案｜先撤回文案改动只留断言：332/333、该条 FAIL；改回来 333/333 通过｜artifact 只存本次读取窗口（默认 256 KB、最大 1 MB），脱敏未命中时仍可被 `artifact.read` 分段取回，这一条不在 B3 范围内、保持未修。
+
+## 2026-11-14　G1B 补 private/access key 词根
+
+2026-11-14｜`AgentRedaction` 相邻词根补 `private/key`、`access/key`，`public_key` 保持不遮；`verify_agent` 加 3 条用例｜`tools/test.ps1 -Suite affected -BaseRef HEAD`：`wtfml.core-agent` 336/336、`wtfml.network-diag` 通过｜参考 Presidio recognizer 的字段名与上下文优先原则，组合词根和单个词根一样按相邻 token 判，不能只认 `api`+`key`。
