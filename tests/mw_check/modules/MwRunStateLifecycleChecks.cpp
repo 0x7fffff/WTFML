@@ -60,6 +60,7 @@ int MwRunStateLifecycleChecks(const QDir &root, const QDir &versionsDir) {
             MainWindow w;
             w.show();
             w.resize(1280, 800);  // 7a：窄于 1024 时导航轨折成图标轨，实例状态那格的字收起（见 main.cpp 同一句）
+            w.ui()->titleBar()->setCollapsed(false);  // 155 起每次启动导航先收起：宽窗也要显式展开
             QApplication::processEvents();
             QComboBox *combo = comboByObjectName(&w, MainWindowUI::installedVersionComboName());
             QMetaObject::invokeMethod(&w, "onVersionsFetched", Qt::DirectConnection,

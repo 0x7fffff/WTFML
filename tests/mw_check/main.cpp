@@ -2379,6 +2379,7 @@ int main(int argc, char *argv[]) {
     // 7a：窗宽不到 1024 时左导航轨自动折成图标轨（任务卡、实例状态那两格的字都收起）。
     // offscreen 屏只有 800x600，按默认尺寸起会被夹窄 ⇒ 这里按设计稿的标准尺寸放宽，量的是展开的轨。
     window.resize(1280, 800);
+    window.ui()->titleBar()->setCollapsed(false);  // 155 起每次启动导航先收起：宽窗也要显式展开
     QApplication::processEvents();
 
     // 冷启动那一发清单必须落在夹具上：没落到的话（键没读、或者读晚了）它打的是真地址，
