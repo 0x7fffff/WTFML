@@ -410,6 +410,66 @@ int MwInstanceOverviewChecks(const QDir &root, const QDir &versionsDir) {
                   !QFile::exists(groupFile),
               "T18 收拾：1.20.1 的 meta 逐字节还原，icon.png 和这份 wtfml.folders 都删掉了");
     }
+    // T18b：页眉那一行**文字里**的加载器名，和主页 / 管理列表 / 页眉那张图标是同一个出处。
+    //
+    // 这一条只在一种实例上分得开：加载器**只写在版本 json 的 `libraries` 里**（`net.fabricmc:
+    // fabric-loader:0.16.14`），没有 `inheritsFrom`、`wtfml.meta` 里也没有 `loaderName` ——
+    // PCL / HMCL 合并出来的实例大多长这样。那种实例上 `displayParts().loaderName` 是空的，
+    // 而页眉图标（`defaultInstanceMark()`，同一个控制器第 234 行那一段）、主页那一行、
+    // 管理列表都回扣版本 json 认得出 Fabric。页眉文字原来直接读 `parts.loaderName`，于是
+    // 同一个实例图标是 Fabric、字却写「原版 · Minecraft …」。
+    {
+        const QString kId = QStringLiteral("T18b-merged-fabric");
+        const QDir instanceDir(versionsDir.filePath(kId));
+        QDir(versionsDir.filePath(kId)).removeRecursively();  // 上一跑崩在这里留下的残骸
+        makeInstalledVersion(versionsDir, kId);
+        writeFileAt(instanceDir.filePath(kId + QStringLiteral(".json")),
+                    QByteArrayLiteral("{\"id\":\"T18b-merged-fabric\","
+                                      "\"mainClass\":\"net.fabricmc.loader.impl.launch.knot.KnotClient\","
+                                      "\"libraries\":[{\"name\":\"net.fabricmc:fabric-loader:0.16.14\"}]}"));
+        check(!QFile::exists(instanceDir.filePath(QStringLiteral("wtfml.meta"))),
+              "T18b 前提：这个实例没有 wtfml.meta（加载器只写在版本 json 的 libraries 里）");
+
+        QString headerMeta;
+        bool sawPage18b = false;
+        {
+            MainWindow w;
+            w.show();
+            QApplication::processEvents();
+            QMetaObject::invokeMethod(&w, "openInstanceSettings", Qt::DirectConnection,
+                                      Q_ARG(QString, kId));
+            QApplication::processEvents();
+            OverlayHost *host = currentPageOverlay();
+            auto *page = host != nullptr ? host->findChild<InstanceSettingsDialog *>() : nullptr;
+            sawPage18b = page != nullptr;
+            auto *meta = page != nullptr
+                             ? page->findChild<QLabel *>(InstanceSettingsDialog::headerMetaName())
+                             : nullptr;
+            if (meta != nullptr) {
+                headerMeta = meta->text();
+            }
+            if (host != nullptr) {
+                host->closeOverlay();
+            }
+        }
+        check(sawPage18b && !headerMeta.isEmpty(),
+              "T18b 这个实例的实例设置页开出来了，页眉那一行是写着的", headerMeta);
+        // 版本号那一格也是**这一趟从 json 认出来的**（meta 里没有 loaderVersion），所以这条
+        // 断言同时钉住了"名字和版本同一次读取的两半"。
+        check(headerMeta.startsWith(QStringLiteral("Fabric 0.16.14 · Minecraft ")),
+              "★ T18b 页眉那一行写「Fabric 0.16.14 · Minecraft …」—— 和主页 / 管理列表 / 页眉"
+              "那张图标同一个出处（回扣版本 json 的 libraries 认加载器）。直接读 "
+              "displayParts().loaderName 的话，这一行在 PCL 那种实例上会写「原版」",
+              headerMeta);
+        check(!headerMeta.startsWith(QStringLiteral("原版")),
+              "★ T18b 而且它不再是「原版 · Minecraft …」", headerMeta);
+
+        // 收拾：目录整个删掉。后面的段会重扫 versions/，留一个实例在那儿它们数的数就变了。
+        QDir(versionsDir.filePath(kId)).removeRecursively();
+        QApplication::processEvents();
+        check(!QDir(versionsDir.filePath(kId)).exists(),
+              "T18b 收拾：这个临时实例的目录删干净了");
+    }
     // UG6：维护页里的新版升级页 —— 勾选决定副本要复制哪些类别。
     //
     // 这是"页面 → 请求"那条线唯一能验的地方：页面上的九类勾选必须实时落到

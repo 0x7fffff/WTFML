@@ -216,7 +216,7 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     m_headerTitle->setFitPixelRange(Theme::textSize(Theme::TextRole::Display), kHeaderTitleMinPixelSize);
     headerText->addWidget(m_headerTitle);
     m_headerMeta = new QLabel(header);
-    m_headerMeta->setObjectName(QStringLiteral("instanceHeaderMeta"));
+    m_headerMeta->setObjectName(headerMetaName());
     {
         QPalette pal = m_headerMeta->palette();
         pal.setColor(QPalette::WindowText, Theme::tokens().secondary);

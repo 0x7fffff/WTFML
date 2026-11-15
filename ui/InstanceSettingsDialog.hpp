@@ -1001,6 +1001,9 @@ public:
     // / 第一行：图标预览（一张固定边长的图，当前选的是哪一张就画哪一张）+ 名称输入框
     // / （`instanceNameEditName()`，就是「实例名」那一格）。
     static QString iconPreviewName() { return QStringLiteral("instanceIconPreview"); }
+    /// 页眉名字下面那一行（加载器 · 游戏版本，见 `setHeaderMeta()`）。验证工程要读它 ——
+    /// 这一行和主页 / 管理列表是不是同一个加载器名，只有从控件上才问得出来。
+    static QString headerMetaName() { return QStringLiteral("instanceHeaderMeta"); }
     /// 第二行左边那颗「更改图标」——点了在它底下开 @c iconMenuName() 那个浮层。
     static QString changeIconButtonName() { return QStringLiteral("instanceChangeIconButton"); }
     /// 那个浮层本身（**常驻**：构造函数里建好一次，以后每次点按钮只是再弹一遍 —— 见
