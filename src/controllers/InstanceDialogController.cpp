@@ -117,6 +117,7 @@ void showSchematicDetails(OverlayHost *overlay, QWidget *parent, const QString &
                 table->setItem(row, 0, new QTableWidgetItem(block.id));
                 auto *count = new QTableWidgetItem;
                 count->setData(Qt::DisplayRole, QVariant::fromValue(block.count));
+                count->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);  // 数字列右对齐，表头跟着它
                 table->setItem(row, 1, count);
             }
             table->setSortingEnabled(true);

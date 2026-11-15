@@ -1,4 +1,5 @@
 #include "PresetOptionsEditor.hpp"
+#include "DesignDefaults.hpp"
 #include "Theme.hpp"
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -105,9 +106,10 @@ private:
     QString current;
     bool armed = false, suppressRelease = false;
 };
-class OptionValueDelegate : public QStyledItemDelegate {
+// 从默认行代理派生：格里的字和表头从同一条竖线起，悬停 / 选中也是那块内缩圆角底。
+class OptionValueDelegate : public DesignDefaults::RowDelegate {
 public:
-    using QStyledItemDelegate::QStyledItemDelegate;
+    using DesignDefaults::RowDelegate::RowDelegate;
     QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option, const QModelIndex &index) const override {
         const auto *spec = PresetOptionCatalog::find(index.siblingAtColumn(0).data().toString());
         if (index.column() == 1 && spec) {
