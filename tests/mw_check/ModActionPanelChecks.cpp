@@ -182,6 +182,47 @@ int runModActionPanelChecks() {
             "at widths 400..1120 ") + moved.join(QStringLiteral("; "))).toUtf8();
         check(moved.isEmpty() && sawTwoRows && sawOneRow, name.constData());
     }
+    // 紧凑页头（资源包页）：查完更新「可更新」冒出来、再查一趟收回去，列表视口都不许动。
+    // 同样逐档扫页宽，窄档胶囊单占一排、宽档排进搜索那一排，两种都得见到。
+    {
+        QStringList moved;
+        bool sawOwnRow = false, sawInline = false;
+        QTemporaryDir packDir;
+        for (int i = 0; i < 12; ++i) {
+            QFile file(packDir.filePath(QStringLiteral("pack-%1.zip").arg(i, 2, 10, QLatin1Char('0'))));
+            if (!file.open(QIODevice::WriteOnly) || file.write("fixture") < 0) return 1;
+        }
+        for (int width = 240; width <= 1120; width += 40) {
+            InstanceFilesPage pack;
+            pack.setCompactHeader(new QPushButton(QStringLiteral("启用与顺序"), &pack));
+            pack.setMode(InstanceFilesPage::Mode::FilesAndDirs);
+            pack.setCanDelete(true); pack.setCanFilterUpdates(true);
+            pack.setDownloadText(QStringLiteral("下载新资源包"), QStringLiteral("安装更多资源包"));
+            pack.setBatchMode(true);
+            pack.resize(width, 640); pack.show();
+            pack.setDirectory(packDir.path()); pack.refresh(); QApplication::processEvents();
+            auto *packList = pack.findChild<QListWidget *>();
+            auto *update = pack.findChild<QPushButton *>(
+                InstanceFilesPage::stateButtonName(InstanceFilesPage::StateFilter::Update));
+            const auto listY = [&] { return packList->viewport()->mapTo(&pack, QPoint()).y(); };
+            const int before = listY();
+            pack.setUpdateResult({packList->item(0)->data(InstanceFilesPage::pathRole()).toString()}, true);
+            QApplication::processEvents();
+            const bool shown = update->isVisible();
+            const int afterShow = listY();
+            pack.setUpdateResult({}, true); QApplication::processEvents();
+            const int afterHide = listY();
+            if (!shown || update->isVisible() || afterShow != before || afterHide != before)
+                moved << QStringLiteral("%1: list %2->%3->%4").arg(width).arg(before).arg(afterShow).arg(afterHide);
+            QWidget *stateRow = update->parentWidget()->parentWidget();
+            (stateRow->parentWidget() == pack.findChild<QWidget *>(InstanceFilesPage::searchEditName())->parentWidget()
+                 ? sawInline : sawOwnRow) = true;
+        }
+        const QByteArray name = (QStringLiteral("compact header keeps list viewport in place when the update pill "
+            "appears and goes at widths 240..1120 ") + moved.join(QStringLiteral("; "))).toUtf8();
+        std::printf("DBG own=%d inline=%d\n", sawOwnRow, sawInline);
+        check(moved.isEmpty() && sawOwnRow && sawInline, name.constData());
+    }
     // Opt-in real-widget comparison. Keep timing out of pass/fail thresholds:
     // the reference intentionally repeats the old row-by-row notification path.
     const int requestedRows = qEnvironmentVariableIntValue("WTFML_MOD_SELECTION_PROBE_ROWS");

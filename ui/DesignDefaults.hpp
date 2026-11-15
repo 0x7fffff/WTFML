@@ -22,9 +22,12 @@
 
 #pragma once
 
+#include <QStyledItemDelegate>
+
 class QAbstractItemDelegate;
 class QPainter;
 class QRect;
+class QStyleOptionHeader;
 class QWidget;
 
 namespace DesignDefaults {
@@ -37,6 +40,26 @@ bool optedOut(const QWidget *widget);
 
 /// 样式 polish 时调：按控件种类补上默认。可重复调用（焦点环那条会反复 unpolish / polish）。
 void apply(QWidget *widget);
+
+/**
+ * 默认行代理：悬停 / 选中画成内缩圆角块（和 `VersionTreeDelegate` 的 navRow 同一档：
+ * 内缩 3/2、半径 `controlRadius()`、悬停 = 正文色 α14、选中 = 焦点色 α34/30，不画竖条），
+ * 其余（图标、文字、勾选框、省略）交回样式照常画，只是不再让样式铺选中底。
+ * 多列（树 / 表）时只有一行的首尾两格是圆的，中间几格方着接上，整行看着是一块。
+ * 有表头的视图要自己的编辑器时从它派生（只改 createEditor / initStyleOption 那几样），
+ * 格里的字才和表头从同一条竖线起。
+ */
+class RowDelegate : public QStyledItemDelegate {
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+    QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override;
+    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override;
+};
+
+/// 表头每一节跟着那一列的内容走（样式画 `CE_HeaderLabel` 前调，改的是那一份拷贝）：
+/// 没单独给对齐的一节照这一列第一行的对齐（数字列右对齐，表头也右对齐）；
+/// 树的第一节往里让一档缩进（`rootIsDecorated` 时顶层行的字从缩进后起）。
+void alignHeaderLabel(QStyleOptionHeader *option, const QWidget *header);
 
 /// 是不是这一层换上去的那个默认行代理。
 bool isRowDelegate(const QAbstractItemDelegate *delegate);

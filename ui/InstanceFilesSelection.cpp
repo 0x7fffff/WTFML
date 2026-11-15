@@ -330,12 +330,7 @@ void InstanceFilesPage::repositionSelectionBar() {
         // 按「这一排可能露出的全部胶囊 +「已选 N 项」」量，不按此刻露着的几颗：否则禁用第一项时
         // 「启用 / 禁用」冒出来就换行，列表整体下跳，指针底下换成别的一行（连点开关会点错）。
         // 宽度一定，排法就一定。
-        const int spacing = m_stateButtonsRow->layout()->spacing();
-        int pillsWidth = 0;
-        for (int i = 0; i < m_stateButtons.size(); ++i) {
-            if (static_cast<StateFilter>(i) == StateFilter::Update && !m_canFilterUpdates) continue;
-            pillsWidth += m_stateButtons.at(i)->sizeHint().width() + spacing;
-        }
+        const int pillsWidth = possibleStatePillsWidth();
         int toolsWidth = m_selectionTools->sizeHint().width();
         if (m_selectionReopen->isHidden())
             toolsWidth += m_selectionReopen->sizeHint().width() + m_selectionTools->layout()->spacing();
@@ -386,6 +381,36 @@ void InstanceFilesPage::repositionSelectionBar() {
     // 横竖都夹在 [0, …] 里：列表窄/矮的那一档（窗口拉到最小）会算出负数，摆到负坐标上
     // 就是"这一条被窗口左边切掉半截"。
     m_selectionBar->setGeometry(qMax(0, x), qMax(0, y), width, hint.height());
+}
+
+int InstanceFilesPage::possibleStatePillsWidth() const {
+    const int spacing = m_stateButtonsRow->layout()->spacing();
+    int width = 0;
+    for (int i = 0; i < m_stateButtons.size(); ++i) {
+        const auto filter = static_cast<StateFilter>(i);
+        if (filter == StateFilter::Update && !m_canFilterUpdates) continue;
+        if ((filter == StateFilter::Enabled || filter == StateFilter::Disabled) && !m_canToggle) continue;
+        width += m_stateButtons.at(i)->sizeHint().width() + spacing;
+    }
+    return width;
+}
+
+bool InstanceFilesPage::placeCompactStateRow() {
+    if (!m_compactHeader || !m_batchMode || m_worldLayout) return false;
+    auto *search = qobject_cast<QHBoxLayout *>(m_searchRow->layout());
+    auto *outer = qobject_cast<QVBoxLayout *>(layout());
+    // 搜索框留出它自己 sizeHint 那么宽，剩下的装得下全部胶囊才同排（和模组页计数排同一判据）。
+    const int needed = m_search->sizeHint().width() + search->spacing() + possibleStatePillsWidth() + 24;
+    const bool inlineRow = m_contentHost->width() >= needed;
+    if (inlineRow == (m_stateRow->parentWidget() == m_searchRow)) return false;
+    if (inlineRow) {
+        outer->removeWidget(m_stateRow);
+        search->insertWidget(search->indexOf(m_search) + 1, m_stateRow);
+    } else {
+        search->removeWidget(m_stateRow);
+        outer->insertWidget(outer->indexOf(m_structureRows) + 1, m_stateRow);
+    }
+    return true; // 换了父控件会被藏起来，显隐交给 applyState() 重摆
 }
 
 QPushButton *InstanceFilesPage::selectionButtonAt(int action) const {

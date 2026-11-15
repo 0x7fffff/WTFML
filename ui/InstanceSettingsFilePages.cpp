@@ -68,6 +68,7 @@
 // 第 1 格那个世界设置。头文件那边已经 include 了它（进参是个嵌套类型），
 // 这一句是给"这一份 .cpp 自己用得上它的完整定义"留的。
 #include "WorldSettingsPage.hpp"
+#include "DesignDefaults.hpp"
 #include "VersionTreeDelegate.hpp"
 
 /// 「文件管理」里哪几页有「启用 / 禁用」。
@@ -507,6 +508,9 @@ void InstanceSettingsDialog::buildServerPage() {
                 m_serverTree->setItemDelegateForColumn(
                     0, new VersionTreeDelegate(m_serverTree, /*leafArrow=*/false,
                                                MainWindowUI::serverIconSize()));
+                // 图标从表头字那条竖线起（代理自己只让 versionTreeRowPadding()，表头让 cellTextInset()）。
+                m_serverTree->setProperty("wtfmlRowLeftPad",
+                    DesignDefaults::cellTextInset() - MainWindowUI::versionTreeRowPadding());
                 // 悬停底色由代理画（`Theme::rowHoverFill()`），但那一位 `State_MouseOver` 是**视图**填的。
                 // 少了这一句，代理里那段一个字都不会生效 —— 不报错、断言也不一定先红，屏幕上就是"悬停没反应"。
                 m_serverTree->setMouseTracking(true);

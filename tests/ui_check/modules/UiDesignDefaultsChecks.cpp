@@ -2,6 +2,8 @@
 // 什么都不接也拿到自家默认；退出口那个属性管用；手动接过换页的栈不会一次换页播两发。
 #include "Support.hpp"
 #include "DesignDefaults.hpp"
+#include "InstanceSettingsDialog.hpp"
+#include "PresetOptionsEditor.hpp"
 
 #include <QComboBox>
 #include <QEventLoop>
@@ -16,6 +18,7 @@
 #include <QTableWidget>
 #include <QTimer>
 #include <QTreeView>
+#include <QTreeWidget>
 #include <QVBoxLayout>
 #include <QVariantAnimation>
 
@@ -131,6 +134,108 @@ void headerAlignChecks(QApplication &app) {
     check(aligned, "★ DD11 表头字和单元格字每一列左缘对齐（同一个 cellTextInset）", detail.join(QStringLiteral("；")));
 }
 
+/// @p area 里最后一列有墨的 x；没有返回 -1。
+int lastInkX(const QImage &image, const QRect &area) {
+    const QRect r = area.intersected(image.rect());
+    const QColor ground = image.pixelColor(r.left() + 1, r.center().y());
+    for (int x = r.right(); x >= r.left(); --x)
+        for (int y = r.top(); y <= r.bottom(); ++y) {
+            const QColor c = image.pixelColor(x, y);
+            if (qMax(qAbs(c.red() - ground.red()), qMax(qAbs(c.green() - ground.green()), qAbs(c.blue() - ground.blue()))) > 60)
+                return x;
+        }
+    return -1;
+}
+
+/// 表头这一节和 (row 0, @p col) 那一格在 @p shot 里的墨：左缘 / 右缘。
+struct ColumnInk { int headLeft, headRight, cellLeft, cellRight; };
+ColumnInk columnInk(QWidget *window, const QImage &shot, QAbstractItemView *view, QHeaderView *header, int col) {
+    const QPoint headerAt = header->mapTo(window, QPoint(header->sectionViewportPosition(col), 0));
+    const QRect headRect(headerAt, QSize(header->sectionSize(col), header->height()));
+    const QRect cell = view->visualRect(view->model()->index(0, col));
+    const QRect cellRect(view->viewport()->mapTo(window, cell.topLeft()), cell.size());
+    return {firstInkX(shot, headRect), lastInkX(shot, headRect), firstInkX(shot, cellRect), lastInkX(shot, cellRect)};
+}
+
+/// 表头每一节跟着那一列的内容走：树的第一节和缩进后的字齐、数字列右对齐时表头也右对齐、
+/// 自家代理的两张真表（预设游戏设置表、实例服务器列表）第一列和表头齐。
+void headerFollowsColumnChecks() {
+    QStringList detail;
+    bool indentOk = true, rightOk = true, ownOk = true;
+    {
+        QWidget window;
+        window.resize(640, 360);
+        auto *layout = new QVBoxLayout(&window);
+        auto *tree = new QTreeWidget;
+        tree->setHeaderLabels({QStringLiteral("甲乙"), QStringLiteral("甲乙")});
+        auto *top = new QTreeWidgetItem(tree, {QStringLiteral("甲乙"), QStringLiteral("甲乙")});
+        new QTreeWidgetItem(top, {QStringLiteral("甲乙"), QStringLiteral("甲乙")});
+        top->setExpanded(true);
+        auto *numbers = new QTreeWidget;
+        numbers->setRootIsDecorated(false);
+        numbers->setHeaderLabels({QStringLiteral("甲乙"), QStringLiteral("数量")});
+        auto *row = new QTreeWidgetItem(numbers, {QStringLiteral("甲乙"), QStringLiteral("123")});
+        row->setTextAlignment(1, Qt::AlignRight | Qt::AlignVCenter);
+        auto *table = new QTableWidget(1, 2);
+        table->verticalHeader()->hide();
+        table->setHorizontalHeaderLabels({QStringLiteral("甲乙"), QStringLiteral("数量")});
+        table->setItem(0, 0, new QTableWidgetItem(QStringLiteral("甲乙")));
+        auto *count = new QTableWidgetItem(QStringLiteral("123"));
+        count->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        table->setItem(0, 1, count);
+        layout->addWidget(tree);
+        layout->addWidget(numbers);
+        layout->addWidget(table);
+        window.show();
+        QApplication::processEvents();
+        const QImage shot = window.grab().toImage();
+        const ColumnInk first = columnInk(&window, shot, tree, tree->header(), 0);
+        indentOk = first.headLeft >= 0 && qAbs(first.headLeft - first.cellLeft) <= 1;
+        detail << QStringLiteral("树首列 表头 %1 / 格 %2").arg(first.headLeft).arg(first.cellLeft);
+        const ColumnInk treeNum = columnInk(&window, shot, numbers, numbers->header(), 1);
+        const ColumnInk tableNum = columnInk(&window, shot, table, table->horizontalHeader(), 1);
+        rightOk = treeNum.headRight >= 0 && qAbs(treeNum.headRight - treeNum.cellRight) <= 2 &&
+                  tableNum.headRight >= 0 && qAbs(tableNum.headRight - tableNum.cellRight) <= 2;
+        detail << QStringLiteral("树数字列右缘 表头 %1 / 格 %2").arg(treeNum.headRight).arg(treeNum.cellRight)
+               << QStringLiteral("表数字列右缘 表头 %1 / 格 %2").arg(tableNum.headRight).arg(tableNum.cellRight);
+    }
+    {
+        PresetOptionsEditor editor({});
+        editor.resize(600, 440);
+        editor.show();
+        QApplication::processEvents();
+        auto *table = editor.findChild<QTableWidget *>(QStringLiteral("presetOptionsEditorTable"));
+        const QImage shot = editor.grab().toImage();
+        for (int col = 0; table != nullptr && col < 2; ++col) {
+            const ColumnInk ink = columnInk(&editor, shot, table, table->horizontalHeader(), col);
+            ownOk &= ink.headLeft >= 0 && qAbs(ink.headLeft - ink.cellLeft) <= 1;
+            detail << QStringLiteral("预设设置表列%1 表头 %2 / 格 %3").arg(col).arg(ink.headLeft).arg(ink.cellLeft);
+        }
+        ownOk &= table != nullptr;
+    }
+    {
+        using Dlg = InstanceSettingsDialog;
+        Dlg dialog(QStringLiteral("Test"), QStringLiteral("test"), Dlg::Override(), Dlg::GlobalValues(), {}, true);
+        dialog.resize(820, 560);
+        dialog.show();
+        dialog.showPage(QStringLiteral("server"));
+        dialog.setServerList({{QStringLiteral("甲乙服"), QStringLiteral("mc.example.org")}}, QString());
+        QApplication::processEvents();
+        auto *tree = dialog.findChild<QTreeWidget *>(Dlg::serverTreeName());
+        const QImage shot = dialog.grab().toImage();
+        if (tree != nullptr) {
+            const ColumnInk ink = columnInk(&dialog, shot, tree, tree->header(), 0);
+            ownOk &= ink.headLeft >= 0 && qAbs(ink.headLeft - ink.cellLeft) <= 2;
+            detail << QStringLiteral("服务器列表首列 表头 %1 / 图标 %2").arg(ink.headLeft).arg(ink.cellLeft);
+        }
+        ownOk &= tree != nullptr;
+    }
+    const QString joined = detail.join(QStringLiteral("；"));
+    check(indentOk, "★ DD12 树的第一节表头字和缩进后的格字左缘对齐", joined);
+    check(rightOk, "★ DD13 右对齐的数字列，表头字也右对齐、右缘和格字齐", joined);
+    check(ownOk, "★ DD14 自家代理的表（预设游戏设置 / 服务器列表）第一列和表头左缘对齐", joined);
+}
+
 /// 两页的栈；页上各一块标签撑面积。
 QStackedWidget *twoPages(QWidget *parent) {
     auto *stack = new QStackedWidget(parent);
@@ -192,5 +297,6 @@ int UiDesignDefaultsChecks(QApplication &app) {
     stackChecks();
     Anim::setEnabled(false);
     headerAlignChecks(app);
+    headerFollowsColumnChecks();
     return 0;
 }

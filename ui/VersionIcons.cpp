@@ -1034,6 +1034,7 @@ const QHash<QString, QString> &linePaths() {
         {QStringLiteral("folder"), QStringLiteral("M3.5 6.5c0-.8.7-1.5 1.5-1.5h4.3l2 2.2H19c.8 0 1.5.7 1.5 1.5v9.3c0 .8-.7 1.5-1.5 1.5H5c-.8 0-1.5-.7-1.5-1.5z")},
         {QStringLiteral("more"), QStringLiteral("M6 12h.01M12 12h.01M18 12h.01")},
         {QStringLiteral("list"), QStringLiteral("M9 7h11M9 12h11M9 17h11M4.5 7h.01M4.5 12h.01M4.5 17h.01")},
+        {QStringLiteral("puzzle"), QStringLiteral("M10 4h4v3a2 2 0 1 0 4 0h2v4h-3a2 2 0 1 0 0 4h3v5H4v-5h3a2 2 0 1 0 0-4H4V7h6z")},
         // 7c：任务详情 / 对话框 / 日志窗 / 账号页用的几枚（照抄设计稿 shell.js、shell-extra.js）。
         {QStringLiteral("chevL"), QStringLiteral("m14 7-5 5 5 5")},
         {QStringLiteral("check"), QStringLiteral("m5.5 12.5 4 4 9-9")},

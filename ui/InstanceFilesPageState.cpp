@@ -47,7 +47,11 @@ void InstanceFilesPage::applyState() {
     if (m_stateRow != nullptr) {
         const bool choice = stateFilterVisible(StateFilter::Enabled) ||
             stateFilterVisible(StateFilter::Disabled) || stateFilterVisible(StateFilter::Update);
-        m_stateRow->setVisible(filtersUseful && !m_worldLayout && (!m_compactHeader || choice));
+        // 紧凑页头开了批量时，只要哪颗胶囊**可能**露出来就一直留着这一排（位置见
+        // placeCompactStateRow）：按「此刻有没有可选的」显隐的话，查完更新「可更新」一冒出来列表就下跳。
+        const bool reserved = m_batchMode && (m_canToggle || m_canFilterUpdates);
+        placeCompactStateRow();
+        m_stateRow->setVisible(filtersUseful && !m_worldLayout && (!m_compactHeader || choice || reserved));
     }
     // 那一排里**下拉框和四颗按钮互相显隐**（见 .hpp 里 m_stateRow 那段）：
     // 开了批量的页摆那四颗（连「显示」那个标签一起收掉 —— 那四颗自己就写着「全部(352)」），

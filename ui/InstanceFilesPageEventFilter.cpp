@@ -39,8 +39,10 @@
 #include <QWidget>
 
 bool InstanceFilesPage::eventFilter(QObject *watched, QEvent *event) {
-    if (watched == m_contentHost && event->type() == QEvent::Resize)
+    if (watched == m_contentHost && event->type() == QEvent::Resize) {
         repositionSelectionBar();
+        if (placeCompactStateRow()) applyState();
+    }
     // 列表的 viewport 变大小了 ⇒ 底下那条悬浮操作条要重算位置（见 .hpp 里那段）。
     //
     // NOTE: 那条操作条**不在布局里**（在布局里就成了"列表下面另起一行"，而用户要的是

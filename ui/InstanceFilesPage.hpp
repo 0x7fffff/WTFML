@@ -1074,6 +1074,12 @@ private:
     /// 把那条操作条摆到"viewport 下缘、横向居中"那一格。**由 viewport 的 Resize 事件和
     /// 每一次显隐驱动**（见 eventFilter）。
     void repositionSelectionBar();
+    /// 这一页可能露出的全部状态胶囊（不按此刻露着的几颗）加间距的总宽：排法按它定，
+    /// 胶囊冒出来 / 收起来时才不换行。
+    int possibleStatePillsWidth() const;
+    /// 紧凑页头（资源包页）的状态胶囊：页宽装得下就排进搜索那一排，装不下单占一排。
+    /// 排法只看页宽，胶囊出现或消失不改列表的纵向位置。挪了位置返回 true。
+    bool placeCompactStateRow();
 
     /// 按路径取那一份"筛之前"的条目（`m_entries`）。找不到给 nullptr。
     const Entry *entryForPath(const QString &path) const;

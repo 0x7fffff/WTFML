@@ -21,6 +21,8 @@
 #include "InputWidthScan.hpp"
 #include "LoadingState.hpp"
 #include "PresetManagePage.hpp"
+#include "InlineMessage.hpp"
+#include "PresetInstallPicker.hpp"
 
 #include "AgentPage.hpp"
 #include "AgentSettingsPage.hpp"
@@ -70,6 +72,9 @@ struct ShotOptions {
     /// `--files --first-disable`：40 个模组全启用 → 禁用第一个，前后各一张（看列表跳不跳），
     /// 文件名 first-disable-<before|after>-<宽>.png
     bool firstDisable = false;
+    /// `--r151`：步骤 151 的四处（资源包页查完更新前后 / 预设弹窗标题图标 / 服务器表头 /
+    /// 主页窗口按钮），文件名 r151-<主题>-<宽>-*；配 `--background` 拍亮背景图那一档。
+    bool r151 = false;
 };
 
 /// 颜色块 + 一个字母的小图标（资源行 / 账号行用；产品里那些是真图，这里只要不像空白）。
@@ -510,6 +515,106 @@ int shootFiles(QApplication &app, QMainWindow &window, MainWindowUI &ui, const S
     return saved == 3 ? 0 : 1;
 }
 
+/// `--r151`：步骤 151 走查。资源包页（紧凑页头 + 批量）查更新前 / 冒出「可更新」后各一张，
+/// 服务器列表（自家代理的第一列 + 右对齐的状态列）一张，预设弹窗提问 ⓘ / 拼图各一张，主页一张。
+int shootR151(QApplication &app, QMainWindow &window, MainWindowUI &ui, const ShotOptions &options) {
+    int saved = 0;
+    const QString tag = QStringLiteral("r151-%1-%2-").arg(options.theme).arg(window.width());
+    const auto pump = [&app] { for (int i = 0; i < 4; ++i) app.processEvents(); };
+    ui.getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
+    pump();
+    saveShot(app, window, options.out, tag + QStringLiteral("home"), &saved);
+    if (!options.background.isEmpty()) return saved == 1 ? 0 : 1;  // 亮背景图那一档只看主页
+
+    QTemporaryDir instanceRoot(QDir::current().filePath(QStringLiteral(".review-r151-XXXXXX")));
+    if (!instanceRoot.isValid()) return 2;
+    const QString root = instanceRoot.path();
+    makeInstanceFixture(root);
+    QDir().mkpath(root + QStringLiteral("/resourcepacks"));
+    for (int i = 0; i < 12; ++i) {
+        QFile file(root + QStringLiteral("/resourcepacks/pack-%1.zip").arg(QChar(QLatin1Char('a' + i))));
+        if (file.open(QIODevice::WriteOnly)) file.write(QByteArray(2048 + i * 977, 'x'));
+    }
+    using Dlg = InstanceSettingsDialog;
+    Dlg dialog(QStringLiteral("1.20.1 整合包"), QStringLiteral("1.20.1-Forge"), Dlg::Override(), Dlg::GlobalValues(),
+               QStringList(), false);
+    QHash<QString, QString> dirs;
+    dirs.insert(QStringLiteral("mod"), root + QStringLiteral("/mods"));
+    dirs.insert(QStringLiteral("resourcepack"), root + QStringLiteral("/resourcepacks"));
+    dirs.insert(QStringLiteral("save"), root + QStringLiteral("/saves"));
+    dialog.setInstanceDir(root);
+    dialog.setFileDirs(dirs);
+    ui.getTabWidget()->setCurrentIndex(MainWindowUI::instancesTabIndex());
+    pump();
+    if (!ui.overlay()->showPage(&dialog, QStringLiteral("实例设置"), MainWindowUI::instancesTabIndex())) return 1;
+    pump();
+    dialog.showPage(QStringLiteral("resourcepack"));
+    pump();
+    if (InstanceFilesPage *page = dialog.filesPage(QStringLiteral("resourcepack")); page != nullptr && page->list()) {
+        QListWidget *list = page->list();
+        std::printf("  resourcepack before check: list viewport y=%d\n", list->viewport()->mapTo(&window, QPoint()).y());
+        saveShot(app, window, options.out, tag + QStringLiteral("rp-before-check"), &saved);
+        page->setUpdateResult({list->item(0)->data(InstanceFilesPage::pathRole()).toString()}, true);
+        pump();
+        std::printf("  resourcepack update found: list viewport y=%d\n", list->viewport()->mapTo(&window, QPoint()).y());
+        saveShot(app, window, options.out, tag + QStringLiteral("rp-update-found"), &saved);
+    }
+    dialog.showPage(QStringLiteral("server"));
+    dialog.setServerList({{QStringLiteral("甲乙服"), QStringLiteral("mc.example.org")},
+                          {QStringLiteral("周末建筑"), QStringLiteral("build.example.net:25570")},
+                          {QStringLiteral("老服"), QStringLiteral("old.example.com")}},
+                         QString());
+    Dlg::ServerRowStatus up;
+    up.tested = up.online = true;
+    up.latencyMs = 42;
+    up.playersOnline = 7;
+    up.playersMax = 20;
+    up.motd = QStringLiteral("欢迎回来");
+    Dlg::ServerRowStatus slow = up;
+    slow.latencyMs = 318;
+    slow.playersOnline = 0;
+    Dlg::ServerRowStatus down;
+    down.tested = true;
+    down.timedOut = true;
+    down.error = QStringLiteral("超时（网络不通）");
+    dialog.setServerStatuses({up, slow, down});
+    pump();
+    saveShot(app, window, options.out, tag + QStringLiteral("server-list"), &saved);
+    ui.overlay()->closeOverlay();
+    pump();
+
+    // 预设弹窗：照 InstallPageController 那样开（提问底色 + 800 宽正文），左边是改前（不换图标）。
+    for (const bool puzzle : {false, true}) {
+        InlineMessageBox box(MessageKind::Question, MainWindowUI::installPresetPickerTitle(), QString(),
+                             {MainWindowUI::installPresetConfirmText(), MainWindowUI::installPresetCancelText()}, 0, -1,
+                             &window);
+        auto *picker = new PresetInstallPicker;
+        picker->setContext(QStringLiteral("1.21.4"), QStringLiteral("Fabric"));
+        PresetInstallPicker::Category game;
+        game.key = QStringLiteral("gameSettings");
+        game.title = QStringLiteral("游戏设置");
+        game.options.append({QStringLiteral("daily-game"), QStringLiteral("日常配置"), true, true, 12});
+        PresetInstallPicker::Category mods;
+        mods.key = QStringLiteral("mods");
+        mods.title = QStringLiteral("模组");
+        mods.options.append({QStringLiteral("daily"), QStringLiteral("日常配置"), true, true, 42});
+        mods.options.append({QStringLiteral("build"), QStringLiteral("建筑辅助"), true, false, 18});
+        picker->setCategories({game, mods});
+        picker->setComposites({});
+        box.setContent(picker, 800);
+        if (puzzle) box.setHeaderIcon(QStringLiteral("puzzle"));
+        const QString name = tag + (puzzle ? QStringLiteral("preset-puzzle") : QStringLiteral("preset-question-i"));
+        QTimer::singleShot(150, &box, [&] {
+            saveShot(app, window, options.out, name, &saved);
+            box.done(1);
+        });
+        ui.overlay()->execPrompt(&box);
+        pump();
+    }
+    std::printf("\nr151 shots: %d saved -> %s\n", saved, qPrintable(options.out));
+    return saved == 6 ? 0 : 1;
+}
+
 int shootLoading(QApplication &app, QMainWindow &window, MainWindowUI &ui, const ShotOptions &options) {
     Anim::setEnabled(true);
     int saved = 0;
@@ -681,6 +786,7 @@ int runExtended(QApplication &app, const ShotOptions &options) {
     pump();
     if (options.loading) return shootLoading(app, window, ui, options);
     if (options.files) return shootFiles(app, window, ui, options);
+    if (options.r151) return shootR151(app, window, ui, options);
 
     // ---- 主页：零实例 / 有实例 ----
     ui.getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
@@ -1539,6 +1645,9 @@ int UiReviewShotsCheck(QApplication &app) {
             options.extended = true;
         } else if (arg == QLatin1String("--files")) {
             options.files = true;
+            options.extended = true;
+        } else if (arg == QLatin1String("--r151")) {
+            options.r151 = true;
             options.extended = true;
         } else if (arg == QLatin1String("--first-disable")) {
             options.firstDisable = true;

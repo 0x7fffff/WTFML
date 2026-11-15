@@ -897,6 +897,16 @@ public:
                 return;
             }
         }
+        if (ce == CE_HeaderLabel) {
+            if (const auto *header = qstyleoption_cast<const QStyleOptionHeader *>(opt)) {
+                QStyleOptionHeaderV2 patched;
+                if (const auto *v2 = qstyleoption_cast<const QStyleOptionHeaderV2 *>(opt)) patched = *v2;
+                else static_cast<QStyleOptionHeader &>(patched) = *header;
+                DesignDefaults::alignHeaderLabel(&patched, w);
+                QProxyStyle::drawControl(ce, &patched, p, w);
+                return;
+            }
+        }
         QProxyStyle::drawControl(ce, opt, p, w);
     }
 };

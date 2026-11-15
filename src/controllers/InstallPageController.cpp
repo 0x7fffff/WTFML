@@ -751,6 +751,8 @@ void InstallPageController::openPresetPicker() {
                           MainWindowUI::installPresetCancelText()},
                          0, -1, &m_owner);
     box.setContent(picker, 800);  // box 接管它（弹窗析构时一起 delete）
+    // 设计稿 presetpick-r120：提问底色 + 拼图图标（ⓘ 在本仓库专指「详情 / 说明」）。
+    box.setHeaderIcon(QStringLiteral("puzzle"));
 
     QObject::connect(picker, &PresetInstallPicker::pendingChanged, &box, [&box](bool pending) {
         if (auto *confirm = box.findChild<QPushButton *>(InlineMessageBox::buttonName(0)))

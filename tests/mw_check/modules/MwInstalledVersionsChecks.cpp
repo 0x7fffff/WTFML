@@ -293,6 +293,7 @@ int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStac
                 bool contextOk = false;
                 bool tabsOk = false;
                 bool firstPageOk = false;
+                bool headerIconOk = false;
                 bool switchOk = false;
                 int tabsSeen = -1;
                 QString pickerNote;
@@ -318,6 +319,14 @@ int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStac
                         tabsOk &= tabs->item(i)->text().startsWith(categories[i].title);
                     auto *stack = picker->findChild<QStackedWidget *>();
                     firstPageOk = stack != nullptr && stack->currentIndex() == 0;
+                    // 标题图标块不是提问弹框那枚 ⓘ（本仓库 ⓘ 专指「详情 / 说明」）。
+                    InlineMessageBox plain(MessageKind::Question, QString(), QString(), {}, 0, -1);
+                    const auto chipOf = [](QWidget *owner) {
+                        auto *chip = owner->findChild<QLabel *>(QStringLiteral("inlineMessageIcon"),
+                                                                Qt::FindDirectChildrenOnly);
+                        return chip ? chip->pixmap().toImage() : QImage();
+                    };
+                    headerIconOk = !chipOf(box).isNull() && chipOf(box) != chipOf(&plain);
                     // 「四类切换」：点第 2 页签，正文那一层得跟着翻。
                     if (tabs != nullptr && stack != nullptr && tabs->count() > 2) {
                         tabs->setCurrentRow(2);
@@ -442,6 +451,7 @@ int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStac
                       "★★ 预设弹窗包含五类内容和综合预设导航",
                       QStringLiteral("页签 %1").arg(tabsSeen));
                 check(firstPageOk, "★ 弹窗默认停在第一类（游戏设置）");
+                check(headerIconOk, "预设弹窗标题图标块换成拼图，不是提问弹框的 ⓘ");
                 check(switchOk, "★ 点第二个页签，正文跟着翻到第二类");
                 check(shownLoading && !loadingConfirmEnabled,
                       "★ 预设候选读回来之前「确定选择」是灰的（拿空表确定会把挑好的几类清掉）",

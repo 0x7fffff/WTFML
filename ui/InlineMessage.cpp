@@ -201,8 +201,9 @@ InlineMessageBox::InlineMessageBox(MessageKind kind, const QString &title, const
     relinkTabOrder();
 }
 
-QHBoxLayout *InlineMessageBox::makeHeader(QWidget *owner, QLabel *title, MessageKind kind,
-                                          const QString &icon) {
+namespace {
+/// 对话框头左边那块 32px 图标块：底色与默认图标按 @p kind，@p icon 非空时只换图标。
+QPixmap headerChip(MessageKind kind, const QString &icon) {
     const Theme::Tokens t = Theme::tokens();
     QColor fill = t.accentSoft2;
     QColor ink = Theme::textTone(t.accentInk, t.primary);
@@ -220,14 +221,24 @@ QHBoxLayout *InlineMessageBox::makeHeader(QWidget *owner, QLabel *title, Message
     QPixmap chip(QSize(32, 32) * dpr);
     chip.setDevicePixelRatio(dpr);
     chip.fill(Qt::transparent);
-    {
-        QPainter painter(&chip);
-        painter.setRenderHint(QPainter::Antialiasing);
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(fill);
-        painter.drawRoundedRect(QRectF(0, 0, 32, 32), 10, 10);
-        VersionIcons::paintLine(painter, name, QRectF(7, 7, 18, 18), ink, 1.8);
-    }
+    QPainter painter(&chip);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(fill);
+    painter.drawRoundedRect(QRectF(0, 0, 32, 32), 10, 10);
+    VersionIcons::paintLine(painter, name, QRectF(7, 7, 18, 18), ink, 1.8);
+    return chip;
+}
+}  // namespace
+
+void InlineMessageBox::setHeaderIcon(const QString &icon) {
+    if (auto *chip = findChild<QLabel *>(QStringLiteral("inlineMessageIcon"), Qt::FindDirectChildrenOnly))
+        chip->setPixmap(headerChip(m_kind, icon));
+}
+
+QHBoxLayout *InlineMessageBox::makeHeader(QWidget *owner, QLabel *title, MessageKind kind,
+                                          const QString &icon) {
+    const QPixmap chip = headerChip(kind, icon);
     auto *chipLabel = new QLabel(owner);
     chipLabel->setObjectName(QStringLiteral("inlineMessageIcon"));
     chipLabel->setFixedSize(32, 32);

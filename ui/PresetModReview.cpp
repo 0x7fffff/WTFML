@@ -38,6 +38,7 @@ PresetModReview::PresetModReview(const Presets::ModInstallPlan &plan, QWidget *p
         auto *item = new QTreeWidgetItem(m_rows, {title,
             release, Presets::modInstallStatusText(row.status), row.file.filename,
             row.file.size >= 0 ? QLocale().formattedDataSize(row.file.size, 1, QLocale::DataSizeSIFormat) : QString()});
+        item->setTextAlignment(4, Qt::AlignRight | Qt::AlignVCenter);  // 大小是数字列，表头跟着右对齐
         item->setToolTip(3, tr("下载后校验 SHA-1：%1").arg(row.file.sha1));
         item->setToolTip(0, row.key);
         item->setToolTip(2, row.problem + QLatin1Char('\n') + row.details.join(QLatin1Char('\n')));
