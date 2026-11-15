@@ -88,6 +88,12 @@ int UiWindowSizeCheck(QApplication &app) {
           QStringLiteral("窗中心 %1,%2 / 可用区中心 %3,%4（容差 %5）").arg(center.x()).arg(center.y())
               .arg(area.center().x()).arg(area.center().y()).arg(slack));
     check(MainWindowUI::isDefaultWindowSize(&window) && !reset->isEnabled(), "★ 155 已是默认大小：「恢复默认」置灰");
+    // 默认 offscreen 屏 800×600，比 1024 窄：恢复默认后的窗不是 1024×620，但它就是这块屏上的默认大小。
+    check(avail.width() < def.width() && window.size() != def && MainWindowUI::isDefaultWindowSize(&window) &&
+              !reset->isEnabled(),
+          "★ 155 屏幕装不下 1024：按可用区夹出来的大小也算默认，「恢复默认」置灰",
+          QStringLiteral("可用区 %1x%2，窗 %3x%4").arg(avail.width()).arg(avail.height()).arg(window.width())
+              .arg(window.height()));
     window.resize(window.width() + 20, window.height());
     pump();
     check(reset->isEnabled(), "★ 155 窗口大小一变，「恢复默认」跟着变回可点");
