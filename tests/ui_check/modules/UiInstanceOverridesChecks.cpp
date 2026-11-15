@@ -950,8 +950,11 @@ int UiInstanceOverridesChecks() {
                       groupButtonOf(dialog)->isEnabled(),
                   "★ U0h 勾上置顶**不动**「分组…」那一格（老家归老家、置顶归置顶）",
                   dialog.chosenGroupId());
-            check(pinOf(dialog)->parentWidget()->toolTip() == Dlg::pinHint(),
-                  "收藏规则通过按需帮助提供，不重复占用页面");
+            // 步骤 133 起提示挂在开关自己身上（makeSettingRow 各行同此惯例），行本身不再挂一份。
+            check(pinOf(dialog)->toolTip() == Dlg::pinHint() &&
+                      pinOf(dialog)->parentWidget()->toolTip().isEmpty(),
+                  "收藏规则通过按需帮助提供，不重复占用页面（只挂在开关上一处）",
+                  pinOf(dialog)->parentWidget()->toolTip());
             pinOf(dialog)->setChecked(false);
             check(!dialog.pinned() && dialog.chosenGroupId() == QStringLiteral("default-vanilla"),
                   "U0h 取消置顶：分组那一格还是原来那一组（两件事各管各的）");
@@ -962,10 +965,11 @@ int UiInstanceOverridesChecks() {
                       !dialog.pinned(),
                   "★ U0h 没有置顶组时勾选框灰掉、并说清为什么（不是「勾得上但什么都不发生」）",
                   pinOf(dialog)->toolTip());
-            // 有置顶组时它是亮的、tooltip 也摘掉（别让上一档那句话留着）。
+            // 有置顶组时它是亮的、那句「没有置顶组」换回收藏规则（别让上一档那句话留着）。
             dialog.setPinned(false, QStringLiteral("default-moddable"));
-            check(pinOf(dialog)->isEnabled() && pinOf(dialog)->toolTip().isEmpty(),
-                  "U0h 有置顶组时勾选框可用、那句「没有置顶组」的解释摘掉");
+            check(pinOf(dialog)->isEnabled() && pinOf(dialog)->toolTip() == Dlg::pinHint(),
+                  "U0h 有置顶组时勾选框可用、那句「没有置顶组」的解释换回收藏规则",
+                  pinOf(dialog)->toolTip());
 
             // ---- 那四行上的字----
             //

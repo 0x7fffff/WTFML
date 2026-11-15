@@ -1595,10 +1595,11 @@ void InstanceSettingsDialog::setPinned(bool pinned, const QString &pinnedGroupId
     // （MainWindow::pinInstance() 直接返回）⇒ **灰掉它并说清为什么**。灰着不说话是这一层
     // 另一条明令禁止的（用户只会以为界面坏了），所以 tooltip 必须给上。
     m_pinCheck->setEnabled(!pinnedGroupId.isEmpty());
+    // 有组时换回收藏规则（步骤 133 起它挂在开关自己身上，清空就等于把它弄丢了）。
     m_pinCheck->setToolTip(
         pinnedGroupId.isEmpty()
             ? tr("暂无收藏组，请先在分组设置中指定。")
-            : QString());
+            : pinHint());
 }
 
 void InstanceSettingsDialog::chooseGroup(int index) {
