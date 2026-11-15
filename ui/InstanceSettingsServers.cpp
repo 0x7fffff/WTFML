@@ -64,6 +64,22 @@
 #include "VersionTreeDelegate.hpp"
 
 
+void InstanceSettingsDialog::replayServerPage() {
+    // 顺序照调用方开页时的先后（列表 → 状态 → 收藏 → 加入 → 正在测速）。
+    // NOTE: 列表那一发会把状态清成"还没测"（配的是旧的行），所以状态排在它后面重放一遍 ——
+    // 那一份早就存在 m_serverStatuses 里了。
+    const QList<ServerRowStatus> statuses = m_serverStatuses;
+    setServerList(m_serverRows, m_serverProblem);
+    if (!statuses.isEmpty()) {
+        setServerStatuses(statuses);
+    }
+    refreshServerFavorites();
+    if (!m_serverJoinText.isEmpty()) {
+        setServerJoinText(m_serverJoinText, m_serverJoinTipPending);
+    }
+    setServerPinging(m_serverPinging);
+}
+
 void InstanceSettingsDialog::updateServerSelectionActions() {
     if (m_serverEdit == nullptr || m_serverJoin == nullptr || m_serverDelete == nullptr) {
         return;
@@ -90,6 +106,10 @@ void InstanceSettingsDialog::updateServerSelectionActions() {
 }
 
 void InstanceSettingsDialog::setServerJoinText(const QString &text, const QString &tip) {
+    // 页是第一次切过去才建的（见 ensurePage()）：开页那一刻这一句就会递进来，先存着，
+    // replayServerPage() 建页时再摆。
+    m_serverJoinText = text;
+    m_serverJoinTipPending = tip;
     if (m_serverJoin == nullptr) {
         return;
     }
@@ -104,6 +124,9 @@ void InstanceSettingsDialog::setServerJoinText(const QString &text, const QStrin
 
 void InstanceSettingsDialog::setServerList(const QList<QPair<QString, QString>> &servers,
                                            const QString &problem) {
+    // 同 setServerJoinText()：先存着，页建出来再摆（replayServerPage()）。
+    m_serverRows = servers;
+    m_serverProblem = problem;
     if (m_serverTree == nullptr) {
         return;
     }
@@ -166,6 +189,14 @@ void InstanceSettingsDialog::setServerFavorites(const QStringList &addresses) {
 
 QStringList InstanceSettingsDialog::serverAddresses() const {
     QStringList addresses;
+    if (m_serverTree == nullptr) {
+        // 页还没建（第一次切过去才建）：读存着的那一份。调用方开页时拿它算收藏，
+        // 要的是"盘上有哪几台"，不是"表上画了几行"。
+        for (const auto &row : m_serverRows) {
+            addresses.append(row.second);
+        }
+        return addresses;
+    }
     if (m_serverTree) {
         for (int i = 0; i < m_serverTree->topLevelItemCount(); ++i)
             addresses.append(m_serverTree->topLevelItem(i)->data(1, MainWindowUI::serverAddressRole()).toString());
@@ -368,13 +399,16 @@ QString InstanceSettingsDialog::maskedServerAddress(const QString &address) {
 }
 
 void InstanceSettingsDialog::setServerStatuses(const QList<ServerRowStatus> &statuses) {
+    // **先存再判空**：页是第一次切过去才建的（见 ensurePage()），这一份来得比页早 ——
+    // 存下来，`replayServerPage()` 建页时会照着它再摆一遍（那条注释成立的前提就是这一行
+    // 排在判空之前）。
+    m_serverStatuses = statuses;
     if (m_serverTree == nullptr) {
         return;
     }
     // 行数是"盘上那份 servers.dat"说了算，状态是"刚问回来的那一趟"说了算 —— 两边对不上
     // 时**按行来写**：多出来的状态丢掉，行多出来的那些回到「还没测」（不是留着上一次那几句
     // ——那些话配的是上一份列表的行）。两条都不越界。
-    m_serverStatuses = statuses;
     const int rows = m_serverTree->topLevelItemCount();
     for (int i = 0; i < rows; ++i) {
         QTreeWidgetItem *item = m_serverTree->topLevelItem(i);
@@ -405,6 +439,7 @@ void InstanceSettingsDialog::setServerStatuses(const QList<ServerRowStatus> &sta
 }
 
 void InstanceSettingsDialog::setServerPinging(bool pinging) {
+    m_serverPinging = pinging;
     if (m_serverRefresh == nullptr) {
         return;
     }

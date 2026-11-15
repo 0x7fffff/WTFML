@@ -102,10 +102,16 @@ int UiGroupEditorChecks() {
                   bare != nullptr && bare->item(0) != nullptr ? bare->item(0)->text() : QString());
         }
 
-        // ---- 一开窗没选中任何一行：除了「新建」，别的都点不动 ----
+        // ---- 一开窗停在第一组（步骤 137：右边那张卡片写的是"选中那一组"，空着没意义）----
+        check(list != nullptr && list->currentRow() == 0 && renameButton != nullptr &&
+                  renameButton->isEnabled(),
+              "★ 开窗就选中第一组，「重命名…」能点",
+              QString::number(list != nullptr ? list->currentRow() : -2));
+        // ---- 没选中任何一行：除了「新建」，别的都点不动 ----
         // （点一个不存在的组没有意义；「新建」是唯一一个不依赖选中项的动作 —— 一个组
         // 都没有的时候它是唯一的出路，而"组一个都没有"是删得出来的状态。）
-        check(addButton != nullptr && addButton->isEnabled(), "开窗时「新建」就能点");
+        if (list != nullptr) list->setCurrentRow(-1);
+        check(addButton != nullptr && addButton->isEnabled(), "没选中时「新建」照样能点");
         check(renameButton != nullptr && !renameButton->isEnabled() &&
                   removeButton != nullptr && !removeButton->isEnabled() &&
                   expandedBox != nullptr && !expandedBox->isEnabled(),
@@ -422,6 +428,9 @@ int UiGroupEditorChecks() {
 
                 // ④ 画哪一颗就是那一对函数说了算（量像素，不看代码）：第一条只有下移那一格
                 // 有墨、上移那一格一个像素都没有 —— 挪不动的一侧是**不画**，不是画成灰的。
+                // 开窗默认选中第一组（步骤 137）：这里量的是"画哪一颗"，不是选中配色 ——
+                // 这个测试没套主题，选中那一档的墨是按深色底配的，压在未套主题的浅底上量不出来。
+                glist->clearSelection();
                 const QImage listShot = captureWidget(glist->viewport());
                 // 底色按**整行数票**取多数色（dominantColor()），不取某一个像素：
                 // 这张表上还有别的东西会改那一片的颜色 —— 第 0 行挂着"当前项"那一圈
@@ -456,18 +465,14 @@ int UiGroupEditorChecks() {
                       QStringLiteral("上格 %1 px / 下格 %2 px")
                           .arg(inkIn(cFirst, GroupListDelegate::moveUpGlyphRect(rFirst)))
                           .arg(inkIn(cFirst, GroupListDelegate::moveDownGlyphRect(rFirst))));
-                // 那个方框**真的画出来了**：框左沿那一列有墨，往左 4 px 那一列一个像素
-                // 都没有（只量「有墨」的话，一个笔画歪到那儿去的三角也能让它绿）。
+                // 步骤 137：那圈原生线框不画了 —— 框左沿那一列一个像素的墨都没有
+                // （三角照画，上面那条已经量过）。
                 {
                     const QRect frameProbe(boxFirst.left(), boxFirst.top(), 1,
                                            boxFirst.height());
-                    const QRect frameControl(boxFirst.left() - 4, boxFirst.top(), 1,
-                                             boxFirst.height());
-                    check(inkIn(cFirst, frameProbe) > 0 && inkIn(cFirst, frameControl) == 0,
-                          "★ 那个方框真画出来了（框左沿那一列有墨、框外 4 px 那一列没有）",
-                          QStringLiteral("框沿 %1 px / 框外 %2 px")
-                              .arg(inkIn(cFirst, frameProbe))
-                              .arg(inkIn(cFirst, frameControl)));
+                    check(inkIn(cFirst, frameProbe) == 0,
+                          "★ 行尾两颗三角外面不再画线框（框左沿那一列没有墨）",
+                          QStringLiteral("框沿 %1 px").arg(inkIn(cFirst, frameProbe)));
                 }
                 check(inkIn(drawnRect(2), GroupListDelegate::moveUpGlyphRect(rowRect(2))) > 0 &&
                           inkIn(drawnRect(2), GroupListDelegate::moveDownGlyphRect(rowRect(2))) ==

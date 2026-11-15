@@ -21,6 +21,7 @@
 #include <QVariantAnimation>
 
 #include <cmath>
+#include <optional>
 
 #ifdef Q_OS_WIN
 #  include <windows.h>
@@ -42,11 +43,6 @@ constexpr int kDownscale = 8;
 QPointer<Backdrop> &activeBackdrop() {
     static QPointer<Backdrop> backdrop;
     return backdrop;
-}
-
-int &modeCache() {
-    static int value = -1;
-    return value;
 }
 
 Mode parseMode(const QString &key, Mode fallback) {
@@ -82,6 +78,90 @@ bool systemBackdropSupported() {
     return QGuiApplication::platformName() == QLatin1String("windows") &&
            QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows11_22H2;
 }
+
+/// 四档判据要读的那几样，**一次读完留着**。
+///
+/// `enabled()` 在每一次重绘上（`ThemeBackground::paintEvent`、`SkinViewer`、浮层），
+/// 而它底下的 `transparencyOff()` 是一次原生 `QSettings` 读注册表、`highContrast()` 是一次
+/// `SystemParametersInfoW`：实例页来回切的时候采到过 64 ms 的栈就在这儿。值只会在三个地方
+/// 变 —— 本进程写设置（`setMode()`）、主题 / 无障碍设置变化（事件过滤器）、系统个人化
+/// 设置变化（切回窗口时 Qt 派的 `ApplicationStateChange` / `ThemeChange`）—— 都在下面
+/// 逐条清掉这个缓存。
+struct BackdropSettings {
+    bool valid = false;
+    Mode chosen = Mode::Scene;
+    bool highContrast = false;
+    bool transparencyOff = false;
+    bool systemBackdrop = false;
+};
+
+BackdropSettings &settingsCache() {
+    static BackdropSettings cache;
+    return cache;
+}
+
+/// 验证工程把"系统那三位"钉成给定值用；产品里永远是空的（现读系统）。
+struct SystemFlagsForTest {
+    bool highContrast = false;
+    bool transparencyOff = false;
+    bool systemBackdrop = false;
+};
+
+std::optional<SystemFlagsForTest> &systemFlagsForTest() {
+    static std::optional<SystemFlagsForTest> flags;
+    return flags;
+}
+
+void refreshSettingsCache() {
+    BackdropSettings &cache = settingsCache();
+    QSettings settings;
+    const bool legacyGlassOff =
+        settings.contains(QStringLiteral("Theme/Glass")) &&
+        !settings.value(QStringLiteral("Theme/Glass")).toBool();
+    const Mode fallback = factoryMode(QThread::idealThreadCount(), legacyGlassOff);
+    cache.chosen = parseMode(settings.value(settingsKey()).toString(), fallback);
+    if (const std::optional<SystemFlagsForTest> &pinned = systemFlagsForTest()) {
+        cache.highContrast = pinned->highContrast;
+        cache.transparencyOff = pinned->transparencyOff;
+        cache.systemBackdrop = pinned->systemBackdrop;
+    } else {
+        cache.highContrast = highContrast();
+        cache.transparencyOff = transparencyOff();
+        cache.systemBackdrop = systemBackdropSupported();
+    }
+    cache.valid = true;
+}
+
+const BackdropSettings &cachedSettings() {
+    BackdropSettings &cache = settingsCache();
+    if (!cache.valid) refreshSettingsCache();
+    return cache;
+}
+
+/// 主题 / 无障碍 / 系统个人化设置可能变了：丢掉缓存。
+///
+/// 早先这里只缓存了「用户选的那一档」（`modeCache`），系统那两位每次现读。现在两位也进来
+/// 了，所以除了 `setMode()` 之外还要有人在"用户去系统设置里按了开关再切回来"时清一次 ——
+/// 那几种变化 Qt 会在应用身上派 `ThemeChange` / `ApplicationPaletteChange` /
+/// `ApplicationStateChange`。
+class SettingsCacheInvalidator final : public QObject {
+public:
+    using QObject::QObject;
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override {
+        switch (event->type()) {
+        case QEvent::ThemeChange:
+        case QEvent::ApplicationPaletteChange:
+        case QEvent::ApplicationStateChange:
+            invalidateSettingsCache();
+            break;
+        default:
+            break;
+        }
+        return QObject::eventFilter(watched, event);
+    }
+};
 
 /// 当前主题用哪一张风景（「跟着系统」按这一刻的深浅挑）。
 QString sceneId() {
@@ -166,6 +246,20 @@ QImage coverScaled(const QImage &source, const QSize &size, const QColor &fill) 
 // 四档与回退
 // ---------------------------------------------------------------------------
 
+void invalidateSettingsCache() {
+    settingsCache().valid = false;
+}
+
+void setSystemFlagsForTest(bool highContrast, bool transparencyOff, bool systemBackdrop) {
+    systemFlagsForTest() = SystemFlagsForTest{highContrast, transparencyOff, systemBackdrop};
+    invalidateSettingsCache();
+}
+
+void clearSystemFlagsForTest() {
+    systemFlagsForTest().reset();
+    invalidateSettingsCache();
+}
+
 QString settingsKey() { return QStringLiteral("Theme/Backdrop"); }
 
 QString modeKey(Mode mode) {
@@ -197,38 +291,33 @@ Mode factoryMode(int threadCount, bool legacyGlassOff) {
 Mode mode() {
     const QByteArray env = qgetenv("WTFML_BACKDROP");
     if (!env.isEmpty()) return parseMode(QString::fromLatin1(env), Mode::Scene);
-    int &cache = modeCache();
-    if (cache < 0) {
-        QSettings settings;
-        const bool legacyGlassOff =
-            settings.contains(QStringLiteral("Theme/Glass")) &&
-            !settings.value(QStringLiteral("Theme/Glass")).toBool();
-        const Mode fallback = factoryMode(QThread::idealThreadCount(), legacyGlassOff);
-        cache = int(parseMode(settings.value(settingsKey()).toString(), fallback));
-    }
-    return Mode(cache);
+    return cachedSettings().chosen;
 }
 
 Mode effectiveMode() {
-    const Mode chosen = mode();
-    if (chosen == Mode::Solid || highContrast() || transparencyOff()) return Mode::Solid;
-    if ((chosen == Mode::Acrylic || chosen == Mode::Mica) && !systemBackdropSupported()) return Mode::Scene;
+    const BackdropSettings &settings = cachedSettings();
+    const Mode chosen = settings.chosen;
+    if (chosen == Mode::Solid || settings.highContrast || settings.transparencyOff) return Mode::Solid;
+    if ((chosen == Mode::Acrylic || chosen == Mode::Mica) && !settings.systemBackdrop) return Mode::Scene;
     return chosen;
 }
 
 QString fallbackReason() {
-    const Mode chosen = mode();
+    const BackdropSettings &settings = cachedSettings();
+    const Mode chosen = settings.chosen;
     if (chosen == Mode::Solid) return QString();
-    if (highContrast()) return QStringLiteral("系统开着高对比度，用纯色。");
-    if (transparencyOff()) return QStringLiteral("系统关了透明效果，用纯色。");
-    if ((chosen == Mode::Acrylic || chosen == Mode::Mica) && !systemBackdropSupported())
+    if (settings.highContrast) return QStringLiteral("系统开着高对比度，用纯色。");
+    if (settings.transparencyOff) return QStringLiteral("系统关了透明效果，用纯色。");
+    if ((chosen == Mode::Acrylic || chosen == Mode::Mica) && !settings.systemBackdrop)
         return QStringLiteral("需要 Windows 11 22H2 或更新，已改用风景底。");
     return QString();
 }
 
 void setMode(Mode m) {
     QSettings().setValue(settingsKey(), modeKey(m));
-    modeCache() = int(m);
+    // 写设置的**唯一**生产入口就是这里；写完当场丢掉缓存，下一次 `enabled()` 读到的就是
+    // 刚落盘这一档（不是等某个事件把缓存清掉）。
+    invalidateSettingsCache();
     if (auto *app = qobject_cast<QApplication *>(QCoreApplication::instance())) {
         Theme::apply(*app);
         for (QWidget *top : QApplication::topLevelWidgets()) top->update();
@@ -236,7 +325,7 @@ void setMode(Mode m) {
 }
 
 bool enabled() { return effectiveMode() != Mode::Solid; }
-bool sceneShown() { return !highContrast(); }
+bool sceneShown() { return !cachedSettings().highContrast; }
 
 bool systemBackdrop() {
     const Mode m = effectiveMode();
@@ -261,7 +350,15 @@ void setBlurStrength(int value) {
     }
 }
 
-void install(QApplication &) { initGlassResources(); }
+void install(QApplication &app) {
+    initGlassResources();
+    // 系统个人化 / 无障碍那两位的缓存靠这个过滤器清（见 SettingsCacheInvalidator）。
+    // 产品与验证工程各调一次 `install()`，装过的就不再装第二条。
+    if (app.findChild<QObject *>(QStringLiteral("glassSettingsCacheInvalidator")) == nullptr) {
+        auto *invalidator = new SettingsCacheInvalidator(&app);
+        invalidator->setObjectName(QStringLiteral("glassSettingsCacheInvalidator"));
+    }
+}
 
 // ---------------------------------------------------------------------------
 // 对比度
@@ -486,9 +583,11 @@ QImage Backdrop::sourceImage() {
     const QString path = custom.isSet() ? custom.path : builtIn;
     if (path != m_sourceKey || m_source.isNull()) {
         m_sourceKey = path;
-        m_source = QImage(path);
+        // 解码走 `Theme::cachedImage()`：页面底（`ThemeBackground`）铺的常常就是同一张图，
+        // 各解一遍等于同一份文件解两三次。
+        m_source = Theme::cachedImage(path);
         // 用户那张读不出来（拔了 U 盘之类）：退回主题自带的风景，不报错。
-        if (m_source.isNull() && custom.isSet()) m_source = QImage(builtIn);
+        if (m_source.isNull() && custom.isSet()) m_source = Theme::cachedImage(builtIn);
     }
     return m_source;
 }

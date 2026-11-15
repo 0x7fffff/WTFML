@@ -21,6 +21,8 @@
 #include "InputWidthScan.hpp"
 #include "LoadingState.hpp"
 #include "PresetManagePage.hpp"
+#include "InlineMessage.hpp"
+#include "PresetInstallPicker.hpp"
 
 #include "AgentPage.hpp"
 #include "AgentSettingsPage.hpp"
@@ -29,6 +31,7 @@
 #include "OverlayHost.hpp"
 #include "Popups.hpp"
 #include "ToolboxPage.hpp"
+#include "ToolboxSamples.hpp"
 #include "VersionIcons.hpp"
 
 #include <QComboBox>
@@ -65,6 +68,13 @@ struct ShotOptions {
     bool popups = false;
     bool loading = false;  ///< `--loading`：只拍加载态（步骤 122）那几张
     bool agentPolish = false;
+    bool files = false;  ///< `--files`：只拍实例设置·模组页 60 个模组（步骤 139），文件名 r139-<主题>-*
+    /// `--files --first-disable`：40 个模组全启用 → 禁用第一个，前后各一张（看列表跳不跳），
+    /// 文件名 first-disable-<before|after>-<宽>.png
+    bool firstDisable = false;
+    /// `--r151`：步骤 151 的四处（资源包页查完更新前后 / 预设弹窗标题图标 / 服务器表头 /
+    /// 主页窗口按钮），文件名 r151-<主题>-<宽>-*；配 `--background` 拍亮背景图那一档。
+    bool r151 = false;
 };
 
 /// 颜色块 + 一个字母的小图标（资源行 / 账号行用；产品里那些是真图，这里只要不像空白）。
@@ -288,107 +298,6 @@ void fillResourceTree(MainWindowUI &ui, const QString &categoryKey) {
     }
 }
 
-/// 工具箱十页的样例数据（照 ToolboxController 灌进来的那几张表；版式才接近真实界面）。
-void fillToolboxSamples(ToolboxPage &page) {
-    page.setEnchantmentChoices(
-        {{QStringLiteral("protection"), QStringLiteral("保护（Protection，上限 4 级）")},
-         {QStringLiteral("unbreaking"), QStringLiteral("耐久（Unbreaking，上限 3 级）")},
-         {QStringLiteral("mending"), QStringLiteral("经验修补（Mending，上限 1 级）")},
-         {QStringLiteral("thorns"), QStringLiteral("荆棘（Thorns，上限 3 级）")}});
-    QList<ToolboxPage::PaletteEntry> palette;
-    const QStringList colors{QStringLiteral("#000000"), QStringLiteral("#0000aa"), QStringLiteral("#00aa00"),
-                             QStringLiteral("#00aaaa"), QStringLiteral("#aa0000"), QStringLiteral("#aa00aa"),
-                             QStringLiteral("#ffaa00"), QStringLiteral("#aaaaaa"), QStringLiteral("#555555"),
-                             QStringLiteral("#5555ff"), QStringLiteral("#55ff55"), QStringLiteral("#55ffff"),
-                             QStringLiteral("#ff5555"), QStringLiteral("#ff55ff"), QStringLiteral("#ffff55"),
-                             QStringLiteral("#ffffff")};
-    const QString codes = QStringLiteral("0123456789abcdef");
-    for (int i = 0; i < 16; ++i) palette.append({codes.mid(i, 1), QStringLiteral("颜色"), colors.at(i), true});
-    for (const auto &pair : {qMakePair(QStringLiteral("k"), QStringLiteral("乱码")),
-                             qMakePair(QStringLiteral("l"), QStringLiteral("粗体")),
-                             qMakePair(QStringLiteral("m"), QStringLiteral("删除线")),
-                             qMakePair(QStringLiteral("n"), QStringLiteral("下划线")),
-                             qMakePair(QStringLiteral("o"), QStringLiteral("斜体")),
-                             qMakePair(QStringLiteral("r"), QStringLiteral("复位"))})
-        palette.append({pair.first, pair.second, QString(), false});
-    page.setTextPalette(palette);
-    page.setTextSource(QStringLiteral("欢迎来到 §b服务器§r！"));
-    page.setTextPreview(QStringLiteral("欢迎来到 <span style=\"color:#55ffff\">服务器</span>！"));
-    page.setTextOutputs(
-        QStringLiteral("欢迎来到 §b服务器§r！"),
-        QStringLiteral("{\"text\":\"欢迎来到 \",\"extra\":[{\"text\":\"服务器\",\"color\":\"aqua\"},{\"text\":\"！\",\"color\":\"white\"}]}"),
-        QStringLiteral("/tellraw @a {\"text\":\"欢迎来到 \",\"extra\":[{\"text\":\"服务器\",\"color\":\"aqua\"},{\"text\":\"！\",\"color\":\"white\"}]}"));
-    page.setDimensionChoices({QStringLiteral("主世界"), QStringLiteral("下界"), QStringLiteral("末地")});
-    page.setAlgorithmChoices({QStringLiteral("SHA-256"), QStringLiteral("SHA-1"), QStringLiteral("MD5")});
-    page.setBeaconMaterials({QStringLiteral("铁块"), QStringLiteral("金块"), QStringLiteral("钻石块"),
-                             QStringLiteral("绿宝石块"), QStringLiteral("下界合金块")});
-    page.setBrewingPotions({QStringLiteral("迅捷药水"), QStringLiteral("力量药水"), QStringLiteral("治疗药水")});
-    page.setBrewingForms({QStringLiteral("普通"), QStringLiteral("喷溅型"), QStringLiteral("滞留型")});
-    page.setBrewingVersions({QString(), QStringLiteral("1.21"), QStringLiteral("1.20")});
-    page.setBannerColors({QStringLiteral("白色"), QStringLiteral("橙色"), QStringLiteral("品红色"), QStringLiteral("黑色")},
-                         {QColor(0xf9fffe), QColor(0xf9801d), QColor(0xc74ebd), QColor(0x1d1d21)});
-    page.setBannerPatterns({QStringLiteral("条纹"), QStringLiteral("十字"), QStringLiteral("边框")});
-    page.setBannerVersions({QString(), QStringLiteral("1.21")});
-    page.setBannerPreview(QImage(), QStringLiteral("加载本地游戏贴图后可预览图案。"));
-    page.setTrimArmorMaterials({QStringLiteral("下界合金"), QStringLiteral("钻石"), QStringLiteral("铁")});
-    page.setTrimParts({QStringLiteral("头盔"), QStringLiteral("胸甲"), QStringLiteral("护腿"), QStringLiteral("靴子")});
-    page.setTrimPatterns({QStringLiteral("海岸"), QStringLiteral("哨兵"), QStringLiteral("尖塔")});
-    page.setTrimMaterials({QStringLiteral("紫水晶"), QStringLiteral("金"), QStringLiteral("红石")});
-    page.setTrimVersions({QString(), QStringLiteral("1.21")});
-    page.setBeamColors({QStringLiteral("白色"), QStringLiteral("橙色"), QStringLiteral("蓝色")});
-    page.setAnvilRows({{QStringLiteral("protection"), 4, false, 1, false},
-                       {QStringLiteral("unbreaking"), 3, true, 1, true},
-                       {QStringLiteral("mending"), 1, true, 0, false},
-                       {QStringLiteral("thorns"), 3, true, 0, false}});
-    ToolboxPage::AnvilView view;
-    view.ok = true;
-    view.summary = QStringLiteral("合计 14 级（每一步都在 39 级以内），合并后为 保护 IV、耐久 III。");
-    view.steps = {QStringLiteral("第 1 步：左槽 经验修补的书 + 右槽 荆棘 III 的书 → 经验修补、荆棘 III 的书（代价 6 级）"),
-                  QStringLiteral("第 2 步：左槽 胸甲 + 右槽 第 1 步的合并产物 → 胸甲（代价 8 级）")};
-    page.setAnvilView(view);
-    ToolboxPage::HashView hash;
-    hash.ok = true;
-    hash.hex = QStringLiteral("a3f9c1d4e5b6a7980123456789abcdef0123456789abcdef0123456789abcdef");
-    hash.sizeText = QStringLiteral("12.4 MB");
-    hash.algorithm = QStringLiteral("SHA-256");
-    page.setHashView(hash);
-    ToolboxPage::ServerView server;
-    server.ok = true;
-    server.address = QStringLiteral("mc.example.com:25565");
-    server.motd = QStringLiteral("欢迎来到服务器");
-    server.version = QStringLiteral("Paper 1.21.4");
-    server.players = QStringLiteral("128 / 500");
-    server.latency = QStringLiteral("42 ms");
-    page.setServerAddress(server.address);
-    page.setServerView(server);
-    page.setCoordinateRows({QStringLiteral("下界：x 10.00 y 64.00 z -9.50"),
-                            QStringLiteral("区块 (0, -1) 一带"),
-                            QStringLiteral("region 文件 r.0.-1.mca")});
-    page.setBeaconResult(QStringLiteral(
-        "4 级信标：范围 50 格，底座共 164 块。\n• 第 4 层：9 × 9 = 81 块（最上面那层固定 3 × 3）\n"
-        "• 效果：速度、急迫、抗性提升、跳跃提升、力量、再生\n• 信标放在金字塔正中间，上方留出天空（可用玻璃）\n\n"
-        "164 块铁块 = 1476 个铁锭（每块 9 个）\n每颗信标另需 3 块黑曜石 + 1 颗下界之星 + 5 块玻璃（合成表：底下 3 块黑曜石、"
-        "中间一颗下界之星、四周 5 块玻璃）。"));
-    page.setBeamLayers({0, 1, 2, 1, 0});
-    page.setBeamResult({QColor(255, 255, 255), QColor(255, 140, 0), QColor(0, 0, 255), QColor(255, 140, 0),
-                        QColor(255, 255, 255)},
-                       QStringLiteral("第 1 层 / 白色玻璃 → 白\n第 2 层 / 橙色玻璃 → 橙\n第 3 层 / 蓝色玻璃 → 蓝\n"
-                                      "第 4 层 / 橙色玻璃 → 橙\n第 5 层 / 白色玻璃 → 白\n最终颜色：#c9c9c9 / RGB(201, 201, 201)\n"
-                                      "材料：白色玻璃 × 2、橙色玻璃 × 2、蓝色玻璃 × 1"));
-    page.setBrewingResult(QStringLiteral("1 步：水瓶 + 下界疣 → 粗制\n2 步：粗制 + 糖 → 迅捷"));
-    page.setBannerDesign(0,
-                         {QStringLiteral("0:1"), QStringLiteral("1:2"), QStringLiteral("2:3"), QStringLiteral("0:0"),
-                          QStringLiteral("1:1"), QStringLiteral("2:2")},
-                         QString());
-    page.setBannerResult(QStringLiteral(
-        "底色 白色 / 6 层 / 6\n\n一步一步：\n• 先做一面白色旗帜：6 块白色羊毛 + 1 根木棍\n• 第 1 层：条纹（橙色）\n"
-        "• 第 2 层：十字（品红色）\n• 第 3 层：边框（黑色）\n• 第 4 层：条纹（白色）\n• 第 5 层：十字（橙色）\n"
-        "• 第 6 层：边框（品红色）\n\n材料清单：\n• 白色羊毛 × 6\n• 木棍 × 1\n• 橙色染料 × 2\n• 品红色染料 × 2\n"
-        "• 黑色染料 × 1\n\n指令（1.13–1.20.4 的 NBT 写法；1.20.5 起换成了组件写法，这一版不出）：\n"
-        "/give @p white_banner{BlockEntityTag:{Patterns:[{Pattern:ss,Color:2},{Pattern:cr,Color:6},{Pattern:bo,Color:15}]}}"));
-    page.setTrimResult(QStringLiteral("要准备：海岸锻造模板 × 2、紫水晶 × 4"));
-}
-
 /// 实例设置对话框的夹具：一个装了点东西的实例目录（模组页要有内容）。
 void makeInstanceFixture(const QString &root) {
     const auto mkfile = [](const QString &path) {
@@ -511,6 +420,201 @@ bool saveShot(QApplication &app, QMainWindow &window, const QString &outDir, con
 
 /// `--loading`：加载态（ui/LoadingState）在真界面上的样子。动效开着、等淡入走完再拍。
 /// 文件名 after-<场景>-<主题>.png。
+/// `--files`：实例设置·模组页，60 个模组（每 5 个禁一个），平铺 / 悬停 + 选中 / 悬停在禁用行上。
+/// 悬停用合成事件：行控件版发 Enter 给那一行，代理版发 MouseMove 给视口，两版都吃。
+int shootFiles(QApplication &app, QMainWindow &window, MainWindowUI &ui, const ShotOptions &options) {
+    int saved = 0;
+    QTemporaryDir instanceRoot(QDir::current().filePath(QStringLiteral(".review-files-XXXXXX")));
+    if (!instanceRoot.isValid()) return 2;
+    const QString root = instanceRoot.path();
+    makeInstanceFixture(root);
+    QDir(root + QStringLiteral("/mods")).removeRecursively();
+    QDir().mkpath(root + QStringLiteral("/mods"));
+    for (int i = 0; i < (options.firstDisable ? 40 : 60); ++i) {
+        QFile file(root + QStringLiteral("/mods/mod-%1-1.%2.%3.jar%4")
+                              .arg(QChar(QLatin1Char('a' + i % 26)))
+                              .arg(i)
+                              .arg(i % 7)
+                              .arg(i % 5 == 1 && !options.firstDisable ? QStringLiteral(".disabled") : QString()));
+        if (file.open(QIODevice::WriteOnly)) file.write(QByteArray(4096 + i * 1531, 'x'));
+    }
+    using Dlg = InstanceSettingsDialog;
+    Dlg::GlobalValues global;
+    global.javaPath = QStringLiteral("C:/Program Files/Java/jdk-21/bin/java.exe");
+    Dlg dialog(QStringLiteral("1.20.1 整合包"), QStringLiteral("1.20.1-Forge"), Dlg::Override(), global,
+               QStringList(), false);
+    QHash<QString, QString> dirs;
+    dirs.insert(QStringLiteral("mod"), root + QStringLiteral("/mods"));
+    dirs.insert(QStringLiteral("resourcepack"), root + QStringLiteral("/resourcepacks"));
+    dirs.insert(QStringLiteral("save"), root + QStringLiteral("/saves"));
+    dialog.setInstanceDir(root);
+    dialog.setFileDirs(dirs);
+    ui.getTabWidget()->setCurrentIndex(MainWindowUI::instancesTabIndex());
+    app.processEvents();
+    if (!ui.overlay()->showPage(&dialog, QStringLiteral("实例设置"), MainWindowUI::instancesTabIndex())) {
+        std::printf("  SKIP files：覆盖层没开出来\n");
+        return 1;
+    }
+    app.processEvents();
+    app.processEvents();
+    dialog.showPage(QStringLiteral("mod"));
+    for (int i = 0; i < 4; ++i) app.processEvents();
+    InstanceFilesPage *page = dialog.filesPage(QStringLiteral("mod"));
+    QListWidget *list = page != nullptr ? page->list() : nullptr;
+    if (list == nullptr) return 1;
+    if (options.firstDisable) {
+        const QString width = QString::number(window.width());
+        const auto report = [&](const char *when) {
+            const auto *tools = page->findChild<QWidget *>(QStringLiteral("modSelectionTools"));
+            std::printf("  %s: list viewport y=%d, selection row y=%d\n", when,
+                        list->viewport()->mapTo(&window, QPoint()).y(),
+                        tools != nullptr ? tools->mapTo(&window, QPoint()).y() : -1);
+        };
+        report("before");
+        saveShot(app, window, options.out, QStringLiteral("first-disable-before-") + width, &saved);
+        const QString first = list->item(0)->data(InstanceFilesPage::pathRole()).toString();
+        QFile::rename(first, first + QStringLiteral(".disabled"));
+        page->refresh();
+        for (int i = 0; i < 4; ++i) app.processEvents();
+        report("after");
+        saveShot(app, window, options.out, QStringLiteral("first-disable-after-") + width, &saved);
+        ui.overlay()->closeOverlay();
+        app.processEvents();
+        return saved == 2 ? 0 : 1;
+    }
+    const QString tag = QStringLiteral("r139-") + options.theme + QStringLiteral("-");
+    saveShot(app, window, options.out, tag + QStringLiteral("mods"), &saved);
+    const auto hoverRow = [&](int row) {
+        QWidget *viewport = list->viewport();
+        // 先把上一行的悬停撤掉（行控件版：每一行各收一发 Leave；代理版：视口收一发 Leave）。
+        QEvent leave(QEvent::Leave);
+        for (QObject *child : viewport->children())
+            if (child->isWidgetType()) QApplication::sendEvent(child, &leave);
+        QApplication::sendEvent(viewport, &leave);
+        const QPoint pos = list->visualItemRect(list->item(row)).center() + QPoint(-40, 0);
+        QWidget *w = viewport->childAt(pos);
+        while (w != nullptr && w->parentWidget() != viewport) w = w->parentWidget();
+        const QPoint global = viewport->mapToGlobal(pos);
+        if (w != nullptr) {
+            QEnterEvent enter(w->mapFrom(viewport, pos), w->mapFrom(viewport, pos), global);
+            QApplication::sendEvent(w, &enter);
+        }
+        QMouseEvent move(QEvent::MouseMove, pos, pos, global, Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+        QApplication::sendEvent(viewport, &move);
+        viewport->update();
+    };
+    list->item(2)->setSelected(true);
+    hoverRow(0);
+    saveShot(app, window, options.out, tag + QStringLiteral("mods-hover-selected"), &saved);
+    list->item(2)->setSelected(false);
+    hoverRow(3);  // mod-b-1.1.1.jar.disabled
+    saveShot(app, window, options.out, tag + QStringLiteral("mods-disabled-hover"), &saved);
+    ui.overlay()->closeOverlay();
+    app.processEvents();
+    std::printf("\nFiles shots: %d saved -> %s\n", saved, qPrintable(options.out));
+    return saved == 3 ? 0 : 1;
+}
+
+/// `--r151`：步骤 151 走查。资源包页（紧凑页头 + 批量）查更新前 / 冒出「可更新」后各一张，
+/// 服务器列表（自家代理的第一列 + 右对齐的状态列）一张，预设弹窗提问 ⓘ / 拼图各一张，主页一张。
+int shootR151(QApplication &app, QMainWindow &window, MainWindowUI &ui, const ShotOptions &options) {
+    int saved = 0;
+    const QString tag = QStringLiteral("r151-%1-%2-").arg(options.theme).arg(window.width());
+    const auto pump = [&app] { for (int i = 0; i < 4; ++i) app.processEvents(); };
+    ui.getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
+    pump();
+    saveShot(app, window, options.out, tag + QStringLiteral("home"), &saved);
+    if (!options.background.isEmpty()) return saved == 1 ? 0 : 1;  // 亮背景图那一档只看主页
+
+    QTemporaryDir instanceRoot(QDir::current().filePath(QStringLiteral(".review-r151-XXXXXX")));
+    if (!instanceRoot.isValid()) return 2;
+    const QString root = instanceRoot.path();
+    makeInstanceFixture(root);
+    QDir().mkpath(root + QStringLiteral("/resourcepacks"));
+    for (int i = 0; i < 12; ++i) {
+        QFile file(root + QStringLiteral("/resourcepacks/pack-%1.zip").arg(QChar(QLatin1Char('a' + i))));
+        if (file.open(QIODevice::WriteOnly)) file.write(QByteArray(2048 + i * 977, 'x'));
+    }
+    using Dlg = InstanceSettingsDialog;
+    Dlg dialog(QStringLiteral("1.20.1 整合包"), QStringLiteral("1.20.1-Forge"), Dlg::Override(), Dlg::GlobalValues(),
+               QStringList(), false);
+    QHash<QString, QString> dirs;
+    dirs.insert(QStringLiteral("mod"), root + QStringLiteral("/mods"));
+    dirs.insert(QStringLiteral("resourcepack"), root + QStringLiteral("/resourcepacks"));
+    dirs.insert(QStringLiteral("save"), root + QStringLiteral("/saves"));
+    dialog.setInstanceDir(root);
+    dialog.setFileDirs(dirs);
+    ui.getTabWidget()->setCurrentIndex(MainWindowUI::instancesTabIndex());
+    pump();
+    if (!ui.overlay()->showPage(&dialog, QStringLiteral("实例设置"), MainWindowUI::instancesTabIndex())) return 1;
+    pump();
+    dialog.showPage(QStringLiteral("resourcepack"));
+    pump();
+    if (InstanceFilesPage *page = dialog.filesPage(QStringLiteral("resourcepack")); page != nullptr && page->list()) {
+        QListWidget *list = page->list();
+        std::printf("  resourcepack before check: list viewport y=%d\n", list->viewport()->mapTo(&window, QPoint()).y());
+        saveShot(app, window, options.out, tag + QStringLiteral("rp-before-check"), &saved);
+        page->setUpdateResult({list->item(0)->data(InstanceFilesPage::pathRole()).toString()}, true);
+        pump();
+        std::printf("  resourcepack update found: list viewport y=%d\n", list->viewport()->mapTo(&window, QPoint()).y());
+        saveShot(app, window, options.out, tag + QStringLiteral("rp-update-found"), &saved);
+    }
+    dialog.showPage(QStringLiteral("server"));
+    dialog.setServerList({{QStringLiteral("甲乙服"), QStringLiteral("mc.example.org")},
+                          {QStringLiteral("周末建筑"), QStringLiteral("build.example.net:25570")},
+                          {QStringLiteral("老服"), QStringLiteral("old.example.com")}},
+                         QString());
+    Dlg::ServerRowStatus up;
+    up.tested = up.online = true;
+    up.latencyMs = 42;
+    up.playersOnline = 7;
+    up.playersMax = 20;
+    up.motd = QStringLiteral("欢迎回来");
+    Dlg::ServerRowStatus slow = up;
+    slow.latencyMs = 318;
+    slow.playersOnline = 0;
+    Dlg::ServerRowStatus down;
+    down.tested = true;
+    down.timedOut = true;
+    down.error = QStringLiteral("超时（网络不通）");
+    dialog.setServerStatuses({up, slow, down});
+    pump();
+    saveShot(app, window, options.out, tag + QStringLiteral("server-list"), &saved);
+    ui.overlay()->closeOverlay();
+    pump();
+
+    // 预设弹窗：照 InstallPageController 那样开（提问底色 + 800 宽正文），左边是改前（不换图标）。
+    for (const bool puzzle : {false, true}) {
+        InlineMessageBox box(MessageKind::Question, MainWindowUI::installPresetPickerTitle(), QString(),
+                             {MainWindowUI::installPresetConfirmText(), MainWindowUI::installPresetCancelText()}, 0, -1,
+                             &window);
+        auto *picker = new PresetInstallPicker;
+        picker->setContext(QStringLiteral("1.21.4"), QStringLiteral("Fabric"));
+        PresetInstallPicker::Category game;
+        game.key = QStringLiteral("gameSettings");
+        game.title = QStringLiteral("游戏设置");
+        game.options.append({QStringLiteral("daily-game"), QStringLiteral("日常配置"), true, true, 12});
+        PresetInstallPicker::Category mods;
+        mods.key = QStringLiteral("mods");
+        mods.title = QStringLiteral("模组");
+        mods.options.append({QStringLiteral("daily"), QStringLiteral("日常配置"), true, true, 42});
+        mods.options.append({QStringLiteral("build"), QStringLiteral("建筑辅助"), true, false, 18});
+        picker->setCategories({game, mods});
+        picker->setComposites({});
+        box.setContent(picker, 800);
+        if (puzzle) box.setHeaderIcon(QStringLiteral("puzzle"));
+        const QString name = tag + (puzzle ? QStringLiteral("preset-puzzle") : QStringLiteral("preset-question-i"));
+        QTimer::singleShot(150, &box, [&] {
+            saveShot(app, window, options.out, name, &saved);
+            box.done(1);
+        });
+        ui.overlay()->execPrompt(&box);
+        pump();
+    }
+    std::printf("\nr151 shots: %d saved -> %s\n", saved, qPrintable(options.out));
+    return saved == 6 ? 0 : 1;
+}
+
 int shootLoading(QApplication &app, QMainWindow &window, MainWindowUI &ui, const ShotOptions &options) {
     Anim::setEnabled(true);
     int saved = 0;
@@ -681,6 +785,8 @@ int runExtended(QApplication &app, const ShotOptions &options) {
     window.show();
     pump();
     if (options.loading) return shootLoading(app, window, ui, options);
+    if (options.files) return shootFiles(app, window, ui, options);
+    if (options.r151) return shootR151(app, window, ui, options);
 
     // ---- 主页：零实例 / 有实例 ----
     ui.getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
@@ -955,7 +1061,7 @@ int runExtended(QApplication &app, const ShotOptions &options) {
     if (host != nullptr && host->layout() != nullptr) {
         toolbox = new ToolboxPage(host);
         host->layout()->addWidget(toolbox);
-        fillToolboxSamples(*toolbox);
+        wireToolboxSamples(*toolbox);
         toolbox->showCatalog();
         pump();
         saveShot(app, window, options.out, QStringLiteral("toolbox-catalog"), &saved);
@@ -1265,6 +1371,29 @@ int runPopups(QApplication &app, const ShotOptions &options) {
         savePopupShot(app, window, options.out, QStringLiteral("instance-group-menu"), &saved);
         closePopups();
     }
+    // ---- 实例设置·概览：「更改图标」浮层（勾着第 4 颗「幸运方块」）----
+    {
+        using Dlg = InstanceSettingsDialog;
+        Dlg dialog(QStringLiteral("1.20.1 整合包"), QStringLiteral("1.20.1-Forge"), Dlg::Override(),
+                   Dlg::GlobalValues(), QStringList(), false);
+        dialog.setIcon(VersionIcons::iconValueForKey(VersionIcons::iconCandidateKeys().value(3)), QPixmap(), QPixmap());
+        if (ui.overlay()->showPage(&dialog, QStringLiteral("实例设置"), MainWindowUI::instancesTabIndex())) {
+            dialog.showPage(Dlg::overviewCategoryKey());
+            pump();
+            if (auto *change = dialog.findChild<QPushButton *>(Dlg::changeIconButtonName())) {
+                change->click();
+                // 浮层左缘对齐按钮，按钮贴着页右缘 ⇒ 离屏那张图里会伸出窗口；拍图时往左挪回窗内。
+                if (auto *popup = dialog.findChild<QWidget *>(Dlg::iconMenuName())) {
+                    const int overflow = popup->frameGeometry().right() - window.mapToGlobal(QPoint(window.width() - 16, 0)).x();
+                    if (overflow > 0) popup->move(popup->pos() - QPoint(overflow, 0));
+                }
+                savePopupShot(app, window, options.out, QStringLiteral("instance-icon-popup"), &saved);
+                closePopups();
+            }
+            ui.overlay()->closeOverlay();
+            pump();
+        }
+    }
     std::printf("popups: %d 张\n", saved);
     return saved > 0 ? 0 : 1;
 }
@@ -1514,6 +1643,14 @@ int UiReviewShotsCheck(QApplication &app) {
         } else if (arg == QLatin1String("--loading")) {
             options.loading = true;
             options.extended = true;
+        } else if (arg == QLatin1String("--files")) {
+            options.files = true;
+            options.extended = true;
+        } else if (arg == QLatin1String("--r151")) {
+            options.r151 = true;
+            options.extended = true;
+        } else if (arg == QLatin1String("--first-disable")) {
+            options.firstDisable = true;
         } else if (arg == QLatin1String("--agent-polish")) {
             options.agentPolish = true;
         } else if (arg.startsWith(QLatin1String("--theme="))) {

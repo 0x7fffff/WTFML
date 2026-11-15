@@ -30,12 +30,12 @@ int UiRowButtonsChecks(InstanceSettingsDialog &dialog, const QString &modsDir) {
                              lastPath = path;
                              ++deletes;
                          });
-        if (page != nullptr && page->toggleButtonAt(2) != nullptr) {
-            page->toggleButtonAt(2)->click();
+        if (const auto toggle = uiToggleAt(page, 2)) {
+            toggle->click();
         }
         const bool toggleOk = toggles == 1 && lastPath.endsWith(QStringLiteral(".disabled"));
-        if (page != nullptr && page->deleteButtonAt(0) != nullptr) {
-            page->deleteButtonAt(0)->click();
+        if (const auto trash = uiDeleteAt(page, 0)) {
+            trash->click();
         }
         check(toggleOk && deletes == 1 &&
                   lastPath == modsDir + QStringLiteral("/iris-1.6.5.jar"),

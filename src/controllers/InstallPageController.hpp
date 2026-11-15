@@ -29,6 +29,7 @@
 #pragma once
 
 #include "download/LoaderMeta.hpp"
+#include "PresetController.hpp"
 
 #include <QHash>
 #include <QList>

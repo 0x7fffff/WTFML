@@ -143,6 +143,86 @@ int runModActionPanelChecks() {
     page.setSearchText(QString()); all->click();
     clear->click();
     check(list->selectedItems().isEmpty() && panel->isHidden(), "clear selection closes panel");
+    // 第一次禁用一项时「启用 / 禁用」两颗胶囊冒出来：计数排换不换行、列表视口落在哪，都得和禁用前一样
+    // （否则列表整体下跳，指针底下换成另一行，连点开关会点错）。换行的临界宽度随字体浮动，
+    // 所以 400~1120 每 40 一档逐档扫，窄档计数排另起一行、宽档同排，两种都得稳。
+    {
+        QStringList moved;
+        bool sawTwoRows = false, sawOneRow = false;
+        QTemporaryDir stableDir;
+        for (int i = 0; i < 12; ++i) {
+            QFile file(stableDir.filePath(QStringLiteral("stable-%1.jar").arg(i, 2, 10, QLatin1Char('0'))));
+            if (!file.open(QIODevice::WriteOnly) || file.write("fixture") < 0) return 1;
+        }
+        for (int width = 400; width <= 1120; width += 40) {
+            InstanceFilesPage stable;
+            stable.setBatchMode(true); stable.setCanToggle(true); stable.setCanDelete(true);
+            stable.setCanFilterUpdates(true);
+            stable.setActionPanelEnabled(true); stable.setMode(InstanceFilesPage::Mode::FilesOnly);
+            stable.setDownloadText(QStringLiteral("下载新模组"), QStringLiteral("安装更多模组"));
+            stable.resize(width, 640); stable.show();
+            const QString first = stableDir.filePath(QStringLiteral("stable-00.jar"));
+            QFile::rename(first + QStringLiteral(".disabled"), first);
+            stable.setDirectory(stableDir.path()); stable.refresh(); QApplication::processEvents();
+            auto *stableList = stable.findChild<QListWidget *>();
+            auto *tools = stable.findChild<QWidget *>(QStringLiteral("modSelectionTools"));
+            const auto listY = [&] { return stableList->viewport()->mapTo(&stable, QPoint()).y(); };
+            const auto toolsY = [&] { return tools->mapTo(&stable, QPoint()).y(); };
+            const int listBefore = listY(), toolsBefore = toolsY();
+            QFile::rename(first, first + QStringLiteral(".disabled"));
+            stable.refresh(); QApplication::processEvents();
+            const bool pillsShown = stable.findChild<QPushButton *>(InstanceFilesPage::stateButtonName(
+                InstanceFilesPage::StateFilter::Disabled))->isVisible();
+            if (!pillsShown || listY() != listBefore || toolsY() != toolsBefore)
+                moved << QStringLiteral("%1: list %2->%3 row %4->%5").arg(width).arg(listBefore).arg(listY())
+                             .arg(toolsBefore).arg(toolsY());
+            (tools->parentWidget() == &stable ? sawTwoRows : sawOneRow) = true;
+        }
+        const QByteArray name = (QStringLiteral("first disable keeps list viewport and selection row in place "
+            "at widths 400..1120 ") + moved.join(QStringLiteral("; "))).toUtf8();
+        check(moved.isEmpty() && sawTwoRows && sawOneRow, name.constData());
+    }
+    // 紧凑页头（资源包页）：查完更新「可更新」冒出来、再查一趟收回去，列表视口都不许动。
+    // 同样逐档扫页宽，窄档胶囊单占一排、宽档排进搜索那一排，两种都得见到。
+    {
+        QStringList moved;
+        bool sawOwnRow = false, sawInline = false;
+        QTemporaryDir packDir;
+        for (int i = 0; i < 12; ++i) {
+            QFile file(packDir.filePath(QStringLiteral("pack-%1.zip").arg(i, 2, 10, QLatin1Char('0'))));
+            if (!file.open(QIODevice::WriteOnly) || file.write("fixture") < 0) return 1;
+        }
+        for (int width = 240; width <= 1120; width += 40) {
+            InstanceFilesPage pack;
+            pack.setCompactHeader(new QPushButton(QStringLiteral("启用与顺序"), &pack));
+            pack.setMode(InstanceFilesPage::Mode::FilesAndDirs);
+            pack.setCanDelete(true); pack.setCanFilterUpdates(true);
+            pack.setDownloadText(QStringLiteral("下载新资源包"), QStringLiteral("安装更多资源包"));
+            pack.setBatchMode(true);
+            pack.resize(width, 640); pack.show();
+            pack.setDirectory(packDir.path()); pack.refresh(); QApplication::processEvents();
+            auto *packList = pack.findChild<QListWidget *>();
+            auto *update = pack.findChild<QPushButton *>(
+                InstanceFilesPage::stateButtonName(InstanceFilesPage::StateFilter::Update));
+            const auto listY = [&] { return packList->viewport()->mapTo(&pack, QPoint()).y(); };
+            const int before = listY();
+            pack.setUpdateResult({packList->item(0)->data(InstanceFilesPage::pathRole()).toString()}, true);
+            QApplication::processEvents();
+            const bool shown = update->isVisible();
+            const int afterShow = listY();
+            pack.setUpdateResult({}, true); QApplication::processEvents();
+            const int afterHide = listY();
+            if (!shown || update->isVisible() || afterShow != before || afterHide != before)
+                moved << QStringLiteral("%1: list %2->%3->%4").arg(width).arg(before).arg(afterShow).arg(afterHide);
+            QWidget *stateRow = update->parentWidget()->parentWidget();
+            (stateRow->parentWidget() == pack.findChild<QWidget *>(InstanceFilesPage::searchEditName())->parentWidget()
+                 ? sawInline : sawOwnRow) = true;
+        }
+        const QByteArray name = (QStringLiteral("compact header keeps list viewport in place when the update pill "
+            "appears and goes at widths 240..1120 ") + moved.join(QStringLiteral("; "))).toUtf8();
+        std::printf("DBG own=%d inline=%d\n", sawOwnRow, sawInline);
+        check(moved.isEmpty() && sawOwnRow && sawInline, name.constData());
+    }
     // Opt-in real-widget comparison. Keep timing out of pass/fail thresholds:
     // the reference intentionally repeats the old row-by-row notification path.
     const int requestedRows = qEnvironmentVariableIntValue("WTFML_MOD_SELECTION_PROBE_ROWS");

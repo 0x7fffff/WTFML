@@ -21,6 +21,9 @@ int UiBeaconBrewingChecks() {
         check(cells == 10, "★ U39 目录页有十格（每件工具一格，高速下载也在里面）",
               QString::number(cells));
 
+        // 工具页第一次进才搭：先进酿造、信标这两片，下面才认得到它们的控件。
+        page.showTool(ToolboxPage::Tool::Brewing);
+        page.showTool(ToolboxPage::Tool::Beacon);
         auto *beaconFrom = page.findChild<QSpinBox *>(ToolboxPage::beaconFromSpinName());
         auto *beaconLevel = page.findChild<QSpinBox *>(ToolboxPage::beaconLevelSpinName());
         auto *beaconResult = page.findChild<QLabel *>(ToolboxPage::beaconResultName());

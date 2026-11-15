@@ -211,10 +211,18 @@ public:
     };
     struct InstallPickerData {
         QList<InstallPickerPreset> presets;  // 按下标次序
+        /// 读不了（预设文件夹在、但不是文件夹 / 没权限读）：那句原因。空 = 读到了（哪怕一份都没有）。
+        QString problem;
         /// 某一类的可用项（含复合预设里的那一子项，次序跟着父项）。认不出的 key 回空表。
         QList<Presets::PresetSummary> optionsFor(const QString &categoryKey) const;
     };
     InstallPickerData installPickerData() const;
+    /// 安装页那张预设弹窗要的数据，**在后台读**：列表走 `Presets::CatalogLoader` 的异步
+    /// 快照（预设页正在读的话并进同一趟），复合预设那几份 manifest 也在工作线程里读。
+    ///
+    /// 点「预设」那一行不再同步扫盘（20 份预设原本约 150 ms，全压在点击那一帧上）。
+    /// 只要最新一次请求的结果：后发的那一次把前一次作废（`m_pickerDataGeneration`）。
+    void requestInstallPickerData(std::function<void(const InstallPickerData &)> done);
 
     /// 安装前的计划预览（`lines` 每一项是"段名 + 那一行计划"，`summary` 是一句话）。
     struct InstallPreview {
@@ -365,6 +373,8 @@ private:
     void closeEditor();
 
     Presets::CatalogLoader *m_catalogLoader = nullptr;
+    /// 安装页预设弹窗那张表的代数：晚到的后台结果按它丢掉。
+    quint64 m_pickerDataGeneration = 0;
     Presets::ManifestLoader *m_manifestLoader = nullptr;
     Presets::PreviewLoader *m_previewLoader = nullptr;
     /// 正在显示的那一份（应用/提取都带着它出门）。

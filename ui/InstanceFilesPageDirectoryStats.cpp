@@ -27,8 +27,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
-#include <QLabel>
-#include <QPointer>
+#include <QListWidgetItem>
 #include <QTimer>
 
 namespace {
@@ -135,8 +134,7 @@ void InstanceFilesPage::fillDirectoryStats() {
 
     // 行可能已经不在屏幕上了：上面那句 takeFirst 之后、这一格找到之前，用户完全可能点了
     // 「刷新」或者删掉了一条。**找不到不是错误**（那一行已经不在了，没什么可写的）。
-    const QPointer<QLabel> label = m_statLabels.value(path);
-    if (!label.isNull()) {
+    if (QListWidgetItem *item = itemForPath(path)) {
         const qint64 bytes = directoryBytes(path);
         const QDateTime played = worldLastPlayed(path);
         // 拼接方式**逐字和上面那个文件行一样**（「12.3 MB / 12:00」）：
@@ -145,7 +143,8 @@ void InstanceFilesPage::fillDirectoryStats() {
         if (played.isValid()) {
             meta += QStringLiteral(" / ") + played.toString(QStringLiteral("yyyy-MM-dd HH:mm"));
         }
-        label->setText(meta);
+        item->setData(metaRole(), meta);
+        item->setData(Qt::AccessibleDescriptionRole, meta);
         m_statCache.insert(path, meta);
     }
 

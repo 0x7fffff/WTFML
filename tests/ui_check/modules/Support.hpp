@@ -174,6 +174,7 @@
 // Z16：规则行上盖的那层官方中文名（表和"认不出来原样回自己"那一条都在这儿量）。
 #include "GameRuleNames.hpp"
 #include "VersionTreeDelegate.hpp"
+#include "DesignDefaults.hpp"
 #include "download/ResourceCatalog.hpp"
 // 更新检测那三档话术的唯一出处。概览页那颗「检查更新」的 tooltip 里写死的
 // 「说不清」必须和它**是同一个字** —— 两边都在同一个 TU 里，这条等号才钉得住。
@@ -461,18 +462,25 @@ int UiInstallLayoutCheck(QApplication &app);
 int UiToolboxPolishCheck(QApplication &app);
 int UiToolboxLayoutCheck(QApplication &app);
 int UiInputWidthCheck(QApplication &app);
-/// 子页面 / 弹框 / 浮层的漏接设计系统巡检：只报告，不断言失败。
+/// 子页面 / 弹框 / 浮层的漏接设计系统巡检：计入的残留不为 0 就失败（守卫）。
 int UiSurfaceSweepCheck(QApplication &app);
 int UiResourcePacksCheck(QApplication &app);
 int UiLifecycleCheck(QApplication &app);
 int UiUiRefreshCheck(QApplication &app);
+/// 文件页的行由代理画：60 行不建 60 套控件、点开关真改盘上文件名、刷新不跳滚动。
+int UiFilesRowsCheck(QApplication &app);
 int UiSettingsShotsCheck(QApplication &app);
 int UiFoldMotionChecks(QApplication &app);
 int UiLoadingStateChecks(QApplication &app);
+/// 设计系统默认生效：光秃秃的列表 / 文本框 / 栈拿到默认、退出口、手动接线不重播。
+int UiDesignDefaultsChecks(QApplication &app);
 int UiReviewShotsCheck(QApplication &app);
 // 主页「每日一言」：那一行（进 CTest）与它的离屏样张（不进 CTest）。
 int UiDailyQuoteCheck(QApplication &app);
 int UiDailyQuoteShots(QApplication &app);
+int UiLongInstanceNameChecks(QApplication &app);
+int UiLongInstanceNameShots(QApplication &app);
+int UiLoadingStateShots(QApplication &app);
 int UiHomeGreetingShots(QApplication &app);
 int UiAccountKindShots(QApplication &app);
 // 自定义背景图的离屏样张（设置页那一组 + 设了图之后的主页与设置页）。

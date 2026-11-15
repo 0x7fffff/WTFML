@@ -784,6 +784,9 @@ void pageAppear(QWidget *widget) {
     PageCurtain *curtain = nullptr;
     if (QWidget *existing = widget->findChild<QWidget *>(QLatin1String(kCurtainName))) {
         curtain = static_cast<PageCurtain *>(existing);
+        // 同一拍里第二次叫（栈的默认换页 + 某处还留着的手动接线）：这一发刚起、一帧没走，不重起。
+        for (const QVariantAnimation *running : curtain->findChildren<QVariantAnimation *>())
+            if (running->state() == QAbstractAnimation::Running && running->currentTime() == 0) return;
     } else {
         curtain = new PageCurtain(widget);
     }

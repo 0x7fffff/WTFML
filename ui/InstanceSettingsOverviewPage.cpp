@@ -10,6 +10,7 @@
  * 匿名命名空间里，拆开之后另外几个 .cpp 看不见（匿名命名空间是内部链接）。
  */
 
+#include "MainWindowPageLayout.hpp"
 #include "InstanceSettingsDialog.hpp"
 #include "InputSizing.hpp"
 #include "ResourcePackPage.hpp"
@@ -87,68 +88,6 @@ using namespace InstanceSettingsDialogInternals;
 
 namespace {
 
-/// UI 7b（设计稿 instance-overview）：一行 = 左边标题（+ 至多一句说明）、右边控件，行底一条极淡分隔。
-/// 长解释留在控件的悬停提示里（设计原则：文字克制，说明限宽约 40 字）。
-/// below = 控件放到标题下面、占满整行（一排按钮 / 一格勾选框那种，靠右挤着放不下）。
-QWidget *overviewRow(QWidget *parent, QWidget *title, const QString &desc, QWidget *control, bool below = false) {
-    auto *row = new QFrame(parent);
-    row->setObjectName(QStringLiteral("instanceOverviewRow"));
-    const auto paintRow = [row] {  // 行底分隔压到 fill-press 的四成：只提示换行，不画成格子
-        QColor line = Theme::tokens().fillPress;
-        line.setAlphaF(line.alphaF() * 0.4);
-        row->setStyleSheet(QStringLiteral("QFrame#instanceOverviewRow { border: none; border-bottom: 1px solid %1; }")
-                               .arg(line.name(QColor::HexArgb)));
-    };
-    paintRow();
-    Theme::follow(row, paintRow);
-    auto *line = new QHBoxLayout(row);
-    line->setContentsMargins(0, 12, 0, 12);
-    line->setSpacing(16);
-    auto *text = new QVBoxLayout;
-    text->setContentsMargins(0, 0, 0, 0);
-    text->setSpacing(2);
-    if (title != nullptr) {
-        title->setParent(row);
-        text->addWidget(title, 0, Qt::AlignLeft);
-    }
-    if (!desc.isEmpty()) {
-        auto *hint = new QLabel(desc, row);
-        hint->setObjectName(QStringLiteral("instanceOverviewRowDesc"));
-        hint->setWordWrap(true);
-        hint->setMaximumWidth(560);
-        QFont f = Theme::textFont(hint->font(), Theme::TextRole::Caption);
-        hint->setFont(f);
-        QPalette pal = hint->palette();
-        pal.setColor(QPalette::WindowText, Theme::tokens().secondary);
-        hint->setPalette(pal);
-        // 带 AlignLeft 的换行标签只拿 sizeHint 那点宽、高度不跟折行长，会被压成一条缝；直接放进竖排又会
-        // 把整列的最大宽压成 560、被摆到中间。⇒ 横排里 + 一截弹簧：限宽、靠左、按宽折行算高。
-        auto *hintRow = new QHBoxLayout;
-        hintRow->setContentsMargins(0, 0, 0, 0);
-        hintRow->addWidget(hint, 1);  // 先把字长到 560，余下的给弹簧
-        hintRow->addStretch(0);
-        text->addLayout(hintRow);
-    }
-    line->addLayout(text, 1);
-    if (control != nullptr && below) {
-        control->setParent(row);
-        text->addSpacing(6);
-        text->addWidget(control);
-    } else if (control != nullptr) {
-        control->setParent(row);
-        line->addWidget(control, 0, Qt::AlignRight | Qt::AlignVCenter);
-    }
-    return row;
-}
-
-QLabel *overviewRowTitle(const QString &text, QWidget *parent) {
-    auto *label = new QLabel(text, parent);
-    QFont f = Theme::textFont(label->font(), Theme::TextRole::Body);
-    f.setBold(true);
-    label->setFont(f);
-    return label;
-}
-
 /// 小节标题（基本 / 更新 / 文件与导出）：系统字 16 半粗，上面空一段。
 QLabel *overviewSection(const QString &text, QWidget *parent, bool first = false) {
     auto *label = new QLabel(text, parent);
@@ -156,6 +95,17 @@ QLabel *overviewSection(const QString &text, QWidget *parent, bool first = false
     label->setFont(Theme::textFont(label->font(), Theme::TextRole::Heading));
     label->setContentsMargins(0, first ? 0 : 18, 0, 4);
     return label;
+}
+
+/// 八格统一成最宽那一格的宽度（四列等宽）。弹出前再算一次：字号 / 主题换过之后旧下限会偏。
+void equalizeCandidateWidths(const QList<QToolButton *> &buttons) {
+    int widest = 0;
+    for (QToolButton *button : buttons) {
+        button->setMinimumWidth(0);
+        button->ensurePolished();
+        widest = qMax(widest, button->sizeHint().width());
+    }
+    for (QToolButton *button : buttons) button->setMinimumWidth(widest);
 }
 
 /// 提示里的第一句（到第一个句号）；超过 40 字就不摆，整段留在悬停提示里。
@@ -219,13 +169,13 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
         }
         m_lastLaunchLabel->setObjectName(QStringLiteral("instanceLastLaunch"));
         // 这一行只有一句状态，**不折行**：折行标签的 sizeHint 是"按要折成的宽度量出来的一行"，
-        // 而这一行是按 sizeHint 宽摆的（overviewRow 里 AlignLeft），于是日期被折到第二行、
+        // 而这一行是按 sizeHint 宽摆的（makeSettingRow 里 AlignLeft），于是日期被折到第二行、
         // 行高只够第一行 —— 屏幕上就只剩「最后启动：」。
         m_lastLaunchLabel->setWordWrap(false);
         setLastLaunch(QDateTime());
 
         grid->addWidget(overviewSection(tr("基本"), this, true), row++, 0, 1, 2);
-        grid->addWidget(overviewRow(this, overviewRowTitle(instanceNameText(), this), QString(), m_instanceNameEdit),
+        grid->addWidget(MainWindowPageLayout::makeSettingRow(this, MainWindowPageLayout::makeSettingRowTitle(instanceNameText(), this), QString(), m_instanceNameEdit),
                         row++, 0, 1, 2);
     }
 
@@ -240,7 +190,10 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
         Theme::markButton(m_changeIconButton, Theme::ButtonKind::Neutral);
         m_changeIconButton->setToolTip(iconHint());
         connect(m_changeIconButton, &QPushButton::clicked, this,
-                [this]() { popUpMenuBelow(m_iconMenu, m_changeIconButton); });
+                [this]() {
+                    equalizeCandidateWidths(m_iconButtons);
+                    popUpMenuBelow(m_iconMenu, m_changeIconButton);
+                });
 
         m_groupButton = new QPushButton(groupButtonText(), this);
         m_groupButton->setObjectName(groupButtonName());
@@ -255,8 +208,8 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
         iconLine->setSpacing(10);
         iconLine->addWidget(m_iconPreview);
         iconLine->addWidget(m_changeIconButton);
-        grid->addWidget(overviewRow(this, overviewRowTitle(tr("图标"), this), QString(), iconControl), row++, 0, 1, 2);
-        grid->addWidget(overviewRow(this, overviewRowTitle(tr("分组"), this), QString(), m_groupButton), row++, 0, 1, 2);
+        grid->addWidget(MainWindowPageLayout::makeSettingRow(this, MainWindowPageLayout::makeSettingRowTitle(tr("图标"), this), QString(), iconControl), row++, 0, 1, 2);
+        grid->addWidget(MainWindowPageLayout::makeSettingRow(this, MainWindowPageLayout::makeSettingRowTitle(tr("分组"), this), QString(), m_groupButton), row++, 0, 1, 2);
     }
 
     // ---------- 「更改图标」那个浮层 ----------
@@ -302,6 +255,8 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
             // 图由 VersionIcons 按同一份候选表解出来（键和画法都只有那一处），这里只管贴。
             button->setIcon(QIcon(VersionIcons::iconCandidateMark(i, kIconCandidateSize)));
             button->setCheckable(true);
+            // 「挑一个」的样子与状态筛选胶囊同一档：淡底、悬停加深、勾上强调色淡底 + 强调字。
+            Theme::markButton(button, Theme::ButtonKind::Neutral);
             // 和设置页那些"点一下换个样子"的按钮同一条：不该抢键盘焦点（抢了之后
             // 键盘上那几下就不再是"在这张浮层上操作"了）。
             button->setFocusPolicy(Qt::NoFocus);
@@ -320,6 +275,7 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
             m_iconButtons.append(button);
             candidates->addWidget(button, i / kIconCandidatesPerRow, i % kIconCandidatesPerRow);
         }
+        equalizeCandidateWidths(m_iconButtons);
         box->addLayout(candidates);
 
         auto *actions = new QHBoxLayout;
@@ -384,18 +340,18 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
     // 第三行：勾选框 + 下面那句注释。那句解释必须留着 —— 它说的是
     // "在被设为置顶组的那个组里再放一个同名的"。
     {
-        auto [cell, column] = makeZeroColumn(this);
-        m_pinCheck = new QCheckBox(pinCheckText(), cell);
+        // 一直生效的状态 ⇒ 开关（步骤 133）：行名在左、开关在行尾，和上面几行同一个排法。
+        m_pinCheck = new QCheckBox(pinCheckText(), this);
         m_pinCheck->setObjectName(pinCheckName());
         // **这儿不接 `toggled`**：勾选框和「分组」那一格说的是**两件互不相干的事**
         // （一个管"要不要在置顶组里多摆一条"，一个管"老家在哪"）—— 它们之间没有任何
         // 要同步的东西。
-        column->addWidget(m_pinCheck);
-        column->setAlignment(Qt::AlignLeft | Qt::AlignTop);  // 行里靠左（默认会被摆到中间）
-        cell->setToolTip(pinHint());
-        grid->addWidget(overviewRow(this, cell, firstSentence(pinHint()), nullptr), row++, 0, 1, 2);
+        Theme::markSwitch(m_pinCheck);
+        m_pinCheck->setToolTip(pinHint());
+        grid->addWidget(MainWindowPageLayout::makeSettingRow(this, MainWindowPageLayout::makeSettingRowTitle(pinCheckText(), this), firstSentence(pinHint()), m_pinCheck),
+                        row++, 0, 1, 2);
         // 「最后启动」那一行：时间当标题，口径说明在悬停提示里（setLastLaunch 写的）。
-        grid->addWidget(overviewRow(this, m_lastLaunchLabel, QString(), nullptr), row++, 0, 1, 2);
+        grid->addWidget(MainWindowPageLayout::makeSettingRow(this, m_lastLaunchLabel, QString(), nullptr), row++, 0, 1, 2);
     }
 
     // ---------- 五颗「对整个实例动手」的按钮（一张三列网格）----------
@@ -629,7 +585,7 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
         actionCells.append(cell);
     }
 
-    // 概览只保留更新入口；维护与实例操作的控件由 setupLifecyclePages() 迁入专属页。
+    // 概览只保留更新入口；维护与实例操作的控件由 buildLifecyclePage() 迁入专属页。
     // 保留同一份控件和接线，不另造一个相同功能的按钮。
     QList<QWidget *> overviewActions;
     for (QWidget *cell : actionCells) {
@@ -647,7 +603,7 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
         updatesLine->setContentsMargins(0, 0, 0, 0);
         updatesLine->setSpacing(8);
         for (QWidget *cell : overviewActions) updatesLine->addWidget(cell);
-        grid->addWidget(overviewRow(this, overviewRowTitle(tr("更新"), this), QString(), updates), row++, 0, 1, 2);
+        grid->addWidget(MainWindowPageLayout::makeSettingRow(this, MainWindowPageLayout::makeSettingRowTitle(tr("更新"), this), QString(), updates), row++, 0, 1, 2);
     }
 
     // ---------- 常用目录那一排按钮 ----------
@@ -697,7 +653,7 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
         column->addLayout(buttonGrid);
         cell->setToolTip(filesHint(QStringLiteral("shortcut")));
         grid->addWidget(overviewSection(tr("文件与导出"), this), row++, 0, 1, 2);
-        grid->addWidget(overviewRow(this, overviewRowTitle(tr("打开目录"), this),
+        grid->addWidget(MainWindowPageLayout::makeSettingRow(this, MainWindowPageLayout::makeSettingRowTitle(tr("打开目录"), this),
                                     QString(), cell, true),
                         row++, 0, 1, 2);
     }
@@ -752,7 +708,7 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
             checkGrid->addWidget(check, i / 2, i % 2, Qt::AlignLeft);
         }
         column->addLayout(checkGrid);
-        grid->addWidget(overviewRow(this, overviewRowTitle(showPagesLabelText(), this), QString(), cell, true), row++, 0, 1, 2);
+        grid->addWidget(MainWindowPageLayout::makeSettingRow(this, MainWindowPageLayout::makeSettingRowTitle(showPagesLabelText(), this), QString(), cell, true), row++, 0, 1, 2);
     }
 
 }

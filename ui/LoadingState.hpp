@@ -9,17 +9,19 @@
  * - 三颗主题色的点，一轮 `Anim::loadingDotPeriodMs()`，错开 `Anim::loadingDotStaggerMs()`，
  *   InOutSine。动效关着时门槛照旧，但不淡入淡出、点不呼吸（三颗一样 .55）。
  * - 出错：断开的云 + 一句原因 + 「重试」（整块是次按钮，行内是文字按钮）。
- *
- * 下拉框不归这里管（它们照旧写占位文字「正在获取…」）。
+ * - 整块那一套挂在矮宿主（比 48px 矮：下拉框、一行字）上时画成一行：点 + 话从那一格原来的字
+ *   起点开始摆，字用宿主自己的字号；出错时「重试」也是文字按钮。调用方先把宿主自己的字清掉。
  */
 
 #pragma once
 
+#include <QFont>
 #include <QRect>
 #include <QString>
 
 #include <functional>
 
+class QAbstractItemView;
 class QModelIndex;
 class QPainter;
 class QStyleOptionViewItem;
@@ -46,6 +48,17 @@ QTreeWidgetItem *beginRow(QTreeWidgetItem *parent, const QString &text = QString
 void failRow(QTreeWidgetItem *row, const QString &reason, std::function<void()> retry);
 // 结果到了：调用方照旧 takeChildren() 删占位行、摆新行。不另加 API。
 
+// —— 行尾：列表里一行的行尾那句状态还在等（预设弹框的兼容检查）。委托认 `rowLoadingRole()` 来画 ——
+
+/// 那一行行尾挂上加载态，登记到共享时钟上。已经挂着就不重新计门槛（进度更新不闪）。
+void beginRowStatus(QAbstractItemView *view, const QModelIndex &index);
+/// 撤掉（没挂着就什么都不做）。
+void finishRowStatus(QAbstractItemView *view, const QModelIndex &index);
+/// 委托的钩子：这一行行尾在等 ⇒ 在 area 里靠右画「点 + text」，返回占的宽度
+/// （没过门槛时什么都不画，宽度照旧占着）；不在等回 -1，调用方照常画字。
+int paintRowStatus(QPainter *painter, const QRect &area, const QModelIndex &index, const QFont &font,
+                   const QString &text);
+
 /// 行内那条占位行挂的角色：值 ≥ 0 = 加载中（开始时刻，`clockMs()` 刻度）；-1 = 出错。
 constexpr int rowLoadingRole() { return Qt::UserRole + 17; }  // 号码登记见 MainWindowUI.hpp
 /// 委托的钩子：这一格是加载/出错行就画掉并返回 true（调用方别再画别的）。
@@ -60,6 +73,8 @@ bool paintRow(QPainter *painter, const QStyleOptionViewItem &option, const QMode
 QWidget *overlay(QWidget *host);
 /// 整块出错态那颗「重试」的 objectName。
 QString retryButtonName();
+/// 矮宿主（画成一行）出错时「重试」那一格（宿主坐标；上一次画出来的位置，没画过是空矩形）。
+QRect inlineRetryRect(QWidget *host);
 /// 共享时钟这会儿在不在转。
 bool clockRunning();
 /// 时钟上登记着几条行内加载行。

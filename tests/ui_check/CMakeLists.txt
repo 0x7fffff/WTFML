@@ -135,6 +135,7 @@ ${REPO_ROOT}/ui/InstanceSettingsSignature.cpp
                                 ${REPO_ROOT}/ui/RuntimeOutputModel.cpp
                                 ${REPO_ROOT}/ui/SkinViewer.cpp
                                 ${REPO_ROOT}/ui/TitleBar.cpp
+                                ${REPO_ROOT}/ui/DesignDefaults.cpp
                                 ${REPO_ROOT}/ui/Theme.cpp
                                 # 「预设管理」与「原理图信息」这两页：表面巡检要真的把它们摆出来。
                                 # 产品里它们是 MainWindow 直接 new 的，这一层原先没编进来。
@@ -267,16 +268,22 @@ add_ui_module(ui_check_agent modules/UiAgentCheck.cpp UiAgentCheck)
 add_ui_module(ui_check_toolbox_polish modules/UiToolboxPolishCheck.cpp UiToolboxPolishCheck)
 add_ui_module(ui_check_toolbox_layout modules/UiToolboxLayoutCheck.cpp UiToolboxLayoutCheck)
 add_ui_module(ui_check_input_widths modules/UiInputWidthCheck.cpp UiInputWidthCheck)
-# 子页面 / 弹框 / 浮层巡检：只报告漏接设计系统的控件，不断言失败（见模块文件头）。
+# 子页面 / 弹框 / 浮层巡检：计入的残留不为 0 就失败（守卫，见模块文件头）。
 add_ui_module(ui_check_surface_sweep modules/UiSurfaceSweepCheck.cpp UiSurfaceSweepCheck)
 add_ui_module(ui_check_resource_packs modules/UiResourcePacksCheck.cpp UiResourcePacksCheck)
 add_ui_module(ui_check_lifecycle modules/UiLifecycleCheck.cpp UiLifecycleCheck)
 add_ui_module(ui_check_ui_refresh modules/UiUiRefreshCheck.cpp UiUiRefreshCheck)
+add_ui_module(ui_check_files_rows modules/UiFilesRowsCheck.cpp UiFilesRowsCheck)
 add_ui_module(ui_check_theme modules/UiThemeCheck.cpp UiThemeCheck)
 add_ui_module(ui_check_fold_motion modules/UiFoldMotionChecks.cpp UiFoldMotionChecks)
 add_ui_module(ui_check_loading_state modules/UiLoadingStateChecks.cpp UiLoadingStateChecks)
+add_ui_module(ui_check_design_defaults modules/UiDesignDefaultsChecks.cpp UiDesignDefaultsChecks)
+add_ui_module(ui_check_group_editor modules/UiGroupEditorChecks.cpp UiGroupEditorChecks)
 add_ui_module(ui_check_daily_quote modules/UiDailyQuoteCheck.cpp UiDailyQuoteCheck)
 add_ui_module(ui_check_daily_quote_shots modules/UiDailyQuoteShots.cpp UiDailyQuoteShots)  # 样张，不进 ctest
+add_ui_module(ui_check_long_instance_name modules/UiLongInstanceNameChecks.cpp UiLongInstanceNameChecks)
+add_ui_module(ui_check_long_instance_name_shots modules/UiLongInstanceNameShots.cpp UiLongInstanceNameShots)  # 样张，不进 ctest
+add_ui_module(ui_check_loading_state_shots modules/UiLoadingStateShots.cpp UiLoadingStateShots)  # 样张，不进 ctest
 add_ui_module(ui_check_home_greeting_shots modules/UiHomeGreetingShots.cpp UiHomeGreetingShots)  # 样张，不进 ctest
 add_ui_module(ui_check_account_kind_shots modules/UiAccountKindShots.cpp UiAccountKindShots)  # 样张，不进 ctest
 add_ui_module(ui_check_popups modules/UiPopupCheck.cpp UiPopupCheck)
@@ -303,8 +310,20 @@ wtfml_add_test(NAME wtfml.ui-bootstrap COMMAND ui_check --bootstrap-check)
 set_tests_properties(wtfml.ui-bootstrap PROPERTIES LABELS "ui;compile" TIMEOUT 30
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}")
 wtfml_add_test(NAME wtfml.ui-refresh COMMAND ui_check_ui_refresh)
+wtfml_add_test(NAME wtfml.files-rows COMMAND ui_check_files_rows)
+set_tests_properties(wtfml.files-rows PROPERTIES
+    LABELS "ui"
+    TIMEOUT 30
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
 wtfml_add_test(NAME wtfml.ui-daily-quote COMMAND ui_check_daily_quote)
 set_tests_properties(wtfml.ui-daily-quote PROPERTIES
+    LABELS "ui;theme"
+    TIMEOUT 60
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
+wtfml_add_test(NAME wtfml.ui-long-instance-name COMMAND ui_check_long_instance_name)
+set_tests_properties(wtfml.ui-long-instance-name PROPERTIES
     LABELS "ui;theme"
     TIMEOUT 60
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
@@ -322,7 +341,8 @@ set_tests_properties(wtfml.input-widths PROPERTIES
     TIMEOUT 120
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
 )
-# 表面巡检：跑一遍、打印漏接清单，不改判定（模块之后才改成守卫）。
+# 表面巡检守卫：计入的残留不为 0 就失败（例外只认 SurfaceScan.hpp 的 checkBoxException()）。
+# 单跑实测 8–21 秒（验证构建、offscreen）；超时留到 180 秒是给 CI 慢机。
 wtfml_add_test(NAME wtfml.surface-sweep COMMAND ui_check_surface_sweep)
 set_tests_properties(wtfml.surface-sweep PROPERTIES
     LABELS "ui;theme"
@@ -391,6 +411,18 @@ set_tests_properties(wtfml.fold-motion PROPERTIES
 wtfml_add_test(NAME wtfml.loading-state COMMAND ui_check_loading_state)
 set_tests_properties(wtfml.loading-state PROPERTIES
     LABELS "ui;loading"
+    TIMEOUT 60
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
+wtfml_add_test(NAME wtfml.design-defaults COMMAND ui_check_design_defaults)
+set_tests_properties(wtfml.design-defaults PROPERTIES
+    LABELS "ui;theme"
+    TIMEOUT 60
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
+wtfml_add_test(NAME wtfml.group-editor COMMAND ui_check_group_editor)
+set_tests_properties(wtfml.group-editor PROPERTIES
+    LABELS "ui"
     TIMEOUT 60
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
 )

@@ -201,8 +201,9 @@ InlineMessageBox::InlineMessageBox(MessageKind kind, const QString &title, const
     relinkTabOrder();
 }
 
-QHBoxLayout *InlineMessageBox::makeHeader(QWidget *owner, QLabel *title, MessageKind kind,
-                                          const QString &icon) {
+namespace {
+/// 对话框头左边那块 32px 图标块：底色与默认图标按 @p kind，@p icon 非空时只换图标。
+QPixmap headerChip(MessageKind kind, const QString &icon) {
     const Theme::Tokens t = Theme::tokens();
     QColor fill = t.accentSoft2;
     QColor ink = Theme::textTone(t.accentInk, t.primary);
@@ -220,14 +221,24 @@ QHBoxLayout *InlineMessageBox::makeHeader(QWidget *owner, QLabel *title, Message
     QPixmap chip(QSize(32, 32) * dpr);
     chip.setDevicePixelRatio(dpr);
     chip.fill(Qt::transparent);
-    {
-        QPainter painter(&chip);
-        painter.setRenderHint(QPainter::Antialiasing);
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(fill);
-        painter.drawRoundedRect(QRectF(0, 0, 32, 32), 10, 10);
-        VersionIcons::paintLine(painter, name, QRectF(7, 7, 18, 18), ink, 1.8);
-    }
+    QPainter painter(&chip);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(fill);
+    painter.drawRoundedRect(QRectF(0, 0, 32, 32), 10, 10);
+    VersionIcons::paintLine(painter, name, QRectF(7, 7, 18, 18), ink, 1.8);
+    return chip;
+}
+}  // namespace
+
+void InlineMessageBox::setHeaderIcon(const QString &icon) {
+    if (auto *chip = findChild<QLabel *>(QStringLiteral("inlineMessageIcon"), Qt::FindDirectChildrenOnly))
+        chip->setPixmap(headerChip(m_kind, icon));
+}
+
+QHBoxLayout *InlineMessageBox::makeHeader(QWidget *owner, QLabel *title, MessageKind kind,
+                                          const QString &icon) {
+    const QPixmap chip = headerChip(kind, icon);
     auto *chipLabel = new QLabel(owner);
     chipLabel->setObjectName(QStringLiteral("inlineMessageIcon"));
     chipLabel->setFixedSize(32, 32);
@@ -497,6 +508,15 @@ QWidget *InlineMessageBox::setContent(QWidget *content, int preferredWidth) {
     } else m_content->setFixedWidth(OverlayHost::promptContentWidth());
     // 插在**按钮行前面**（写成 count()-1 不写死下标，同 setLineEdit 那一句）。
     layout->insertWidget(layout->count() - 1, m_content);
+    // 那块里挂了 `wtfmlPromptActionsLead` 的一格（如预设弹窗的「本次应用」汇总）挪到按钮行左边。
+    // shortcut: 换内容时不把它还回旧那块；今天挂它的只有 PresetInstallPicker，且只 setContent 一次。
+    if (auto *row = findChild<QWidget *>(buttonRowName()); row != nullptr) {
+        for (QWidget *lead : m_content->findChildren<QWidget *>()) {
+            if (!lead->property("wtfmlPromptActionsLead").toBool()) continue;
+            static_cast<QHBoxLayout *>(row->layout())->insertWidget(0, lead, 1);
+            break;
+        }
+    }
     relinkTabOrder();  // 调用方那块里可能有好几格能 Tab 到，一起按看得见的顺序排。
     return m_content;
 }

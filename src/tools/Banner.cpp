@@ -288,7 +288,7 @@ Plan plan(int baseColorIndex, const QList<Layer> &layers, const QString &version
                                             .arg(patternTags.join(QChar(','))));
     }
 
-    result.summary = QStringLiteral("底色 %1 / %2 层 / %3").arg(baseName).arg(layers.size()).arg(kMaxLayers);
+    result.summary = QStringLiteral("底色 %1 · %2/%3 层").arg(baseName).arg(layers.size()).arg(kMaxLayers);
     result.materials = materials.rows();
     result.ok = true;
     return result;

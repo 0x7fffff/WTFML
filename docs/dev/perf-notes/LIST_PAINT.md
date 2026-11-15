@@ -1,17 +1,17 @@
 # 大列表：首绘、重列、滚动与选择
 
-给改 `ui/InstanceFilesPage*` 或任何"一行一个真控件"的列表的人看：实例文件页 1000 行级目录的实测、现行建行做法、反选的批量选择，以及怎么复测。
+给改 `ui/InstanceFilesPage*` 或任何"一行一个真控件"的列表的人看：实例文件页 1000 行级目录的实测、现行画行做法、反选的批量选择，以及怎么复测。
 
 ## 现行做法
 
-实例文件页（`ui/InstanceFilesPage`）是条目最多的列表（模组目录几百到几千个文件是常态），每行是 `setItemWidget()` 摆上去的真控件。`rebuildRows()`（`ui/InstanceFilesPageRows.cpp`）这样建：
+实例文件页（`ui/InstanceFilesPage`）是条目最多的列表（模组目录几百到几千个文件是常态）。2026-11-14（步骤 139）起**每一行由 `InstanceFilesPage::RowDelegate`（`ui/InstanceFilesPageRows.cpp`）画**，不再 `setItemWidget()` 挂真控件：
 
-1. **item 一次排完，控件不夹在中间挂**。循环里只建 `QListWidgetItem` 并 `addItem()`；`setItemWidget()` 挂上一条后，视图后面每一次 `addItem()` 都要替已挂着的整摞控件重算几何，夹着写整表是平方级。
-2. **头 80 行（`kImmediateRows`）的控件当场建**，出了循环一趟 `setItemWidget()`。
-3. **其余行的控件分帧建**：`QTimer::singleShot(0)` 驱动，每轮最多 120 行，用 `m_rowsGeneration` 代次判断重列时丢弃旧任务；建完且统计队列非空时启动 `m_statTimer`。
-4. **超过 400 行时**，`ensureRowWidgetWindow()` 只保证可见区上下各 25 行有控件，可见区上下 120 行之外的控件回收（`removeItemWidget`），滚动时按需补建。
+1. **数据全在条目上**：路径 `pathRole()`、禁用 `disabledRole()`、文件夹 `isDirRole()`、大小·时间 `metaRole()`、名字在 `Qt::AccessibleTextRole`（读屏读它；DisplayRole 故意空着，免得列表按首字母跳行）、图标在 `DecorationRole`、开关是 `ItemIsUserCheckable` + `CheckStateRole`。`rebuildRows()` 只 `clear()` + 逐条 `addItem()`，视图和视口不重建。
+2. **一行的格子位置只算一处**：`layoutRow()` 给图标 / 名字 / 小字 / `[详情][开关][笔][垃圾桶]` 的矩形，`paint()` 照它画，视口事件过滤器照它命中（按下与松开落在同一格才算点击），测试也照它取（`rowGeometry()` / `rowActionRect()` / `clickRowAction()`）。
+3. **行尾按钮借一颗藏着的 `QToolButton` 画**（`drawComplexControl(CC_ToolButton)`，自动浮起、只在悬停时铺底），开关走 `ToggleSwitch::paintSwitch()` —— 和原来那几颗真控件同一套样式。
+4. **新冒出来的行淡入**：只记"这一趟新出现的身份"，代理在 `rowAppearMs()` 内按时间降不透明度，只在这一行自己的矩形里画。
 
-2026-10-31 的实测（下面三档对照与修前/修后表）对应第 1 步"先排后挂、一趟全挂"的写法；第 2–4 步（头 80 行 + 分帧 + 窗口回收）是之后加的，这几步的数字没有重测。
+下面 2026-10-31 的实测和三档对照是"一行一套控件"时代的，留作为什么改成代理画的依据；那时第 2–4 步（头 80 行 + 分帧 + 窗口回收）的数字没有重测，现在这几步已随代理绘制一起删掉。
 
 ## 实测（2026-10-31，offscreen，MinGW 13 构建目录）
 
@@ -77,7 +77,7 @@ Remove-Item Env:WTFML_FILES_PAINT_PROBE_ROWS
 
 - `makeRow()` 约 80 ms / 1000 行：每行约 10 个控件，要再降只能靠委托画或只给可见范围建（现行的分帧 + 窗口回收是朝后一个方向）。
 - `setItemWidget()` 约 150 ms 仍是平方级（每次挂都遍历全部已挂控件重算几何）。试过 `setUpdatesEnabled(false)` 无效、`m_list->hide()` 降到 111 ms、先 `doItemsLayout()` 无效。
-- 没有改成模型委托 / 虚拟列表：会动行构建、悬停露"详情"、开关、选择按身份还回去、统计异步补格、滚动锚点这些判据，`itemWidget()` 本身也是这一页和测试在读的接口。其余列表没测。
+- 当时没有改成模型委托 / 虚拟列表：会动行构建、悬停露"详情"、开关、选择按身份还回去、统计异步补格、滚动锚点这些判据。2026-11-14（步骤 139）已改成代理画，这些判据都改为对着条目数据和 `rowGeometry()` 量（见上面「现行做法」）。其余列表没测。
 
 ## 同一条规矩：游戏规则表（`WorldSettingsPage`）
 

@@ -32,8 +32,10 @@ namespace InstanceFilter {
 
 /// 实例类型的两个档（外加"不管"）。
 ///
-/// 判据是**加载器名有没有检测出来**（`VersionDisplayParts::loaderName`）—— 和实例行左边
-/// 那个图标、`instanceLoaderName()` 同一个来源。"原版"在这里的意思是"没装模组加载器"，
+/// 判据是**加载器名有没有检测出来** —— 和实例行左边那个图标、`instanceLoaderName()`
+/// 同一个来源（调用方用 `InstancePagesController::loaderName()` 判好再放进 `hasLoader`，
+/// 理由见 `textsFor()`：`VersionDisplayParts::loaderName` 只有我们自己的安装器会写）。
+/// "原版"在这里的意思是"没装模组加载器"，
 /// 不是"没装模组"（光看 mods 目录里有没有文件的话，一个装过又删干净的实例会被算成原版，
 /// 而它其实带着 Forge）。
 enum class Kind {
@@ -127,6 +129,14 @@ inline bool matches(const Query &query, const Facts &facts) {
  * @brief 一个实例参与比对的那些串 —— **唯一出处**。
  * @param parts 版本显示用的那几段（`VersionManager::displayParts()` 读出来的）。
  * @param options 全局「版本名格式」开关（显示名要按它拼，见 `formatVersionName()`）。
+ * @param loaderName 调用方**判好**的加载器名（空串 = 没认出来）。
+ * @param loaderVersion 同上，加载器版本（空串 = 没认出来）。
+ *
+ * ⑤ / ⑥ 由调用方递进来、**不读 `parts.loaderName`**：那一格只有我们自己的安装器会写，
+ * PCL / HMCL 合并出来的实例（加载器只写在版本 json 的 `libraries` 里）在那儿是空的 ——
+ * 读它的话，界面上写着「Fabric 0.16.14」的实例，搜「fabric」搜不到。这一层在 `manage`，
+ * 够不着 `controllers`，所以判据由调用方用 `InstancePagesController::loaderName()` 算好
+ * 再传进来；这一层不写第二份判据。
  *
  * 六个串，按"用户最可能打的那一个"排在前面（顺序不影响结果，只影响人读它的时候）：
  * ① 显示名 —— 屏幕上那一行**逐字**在里头，用户是照着它打的；
@@ -140,9 +150,10 @@ inline bool matches(const Query &query, const Facts &facts) {
  * NOTE: 空串不往里放（`contains("")` 恒真 ⇒ 一个空串会让**任何**关键词都命中，
  * 那就等于"搜什么都搜得到"）。字段全空时回一个空表：那样只剩筛子生效。
  */
-inline QStringList textsFor(const VersionDisplayParts &parts, const VersionNameOptions &options) {
+inline QStringList textsFor(const VersionDisplayParts &parts, const VersionNameOptions &options,
+                            const QString &loaderName, const QString &loaderVersion) {
     const QStringList candidates{formatVersionName(parts, options), parts.id, parts.customName,
-                                 parts.realVersion, parts.loaderName, parts.loaderVersion};
+                                 parts.realVersion, loaderName, loaderVersion};
     QStringList texts;
     texts.reserve(candidates.size());
     for (const QString &candidate : candidates) {

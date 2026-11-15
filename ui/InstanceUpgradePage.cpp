@@ -6,7 +6,6 @@
 #include "InstanceUpgradePage.hpp"
 #include "InputSizing.hpp"
 
-#include <QCheckBox>
 #include <QComboBox>
 #include <QFrame>
 #include <QGridLayout>
@@ -168,18 +167,21 @@ InstanceUpgradePage::InstanceUpgradePage(QWidget *parent) : QWidget(parent) {
             auto *cell = new QWidget(this);
             auto *layout = new QVBoxLayout(cell);
             layout->setContentsMargins(0, 0, 0, 0);
-            layout->setSpacing(2);
-            auto *check = new QCheckBox(category.label, cell);
+            layout->setSpacing(4);
+            // 九类是一组「选哪几样」⇒ chip（步骤 133），不排一列开关；说明照旧压在下面一行。
+            auto *check = new QPushButton(category.label, cell);
             check->setObjectName(categoryCheckName(category.key));
             check->setProperty("categoryKey", category.key);
-            layout->addWidget(check);
+            check->setCheckable(true);
+            Theme::markChipButton(check);
+            layout->addWidget(check, 0, Qt::AlignLeft);
             auto *note = mutedLabel(cell, categoryNoteName(category.key));
             note->setText(categoryDescription(category.key));
             layout->addWidget(note);
             grid->addWidget(cell, index / 3, index % 3);
             m_checks.append(check);
             const QString key = category.key;
-            connect(check, &QCheckBox::toggled, this, [this, key](bool on) {
+            connect(check, &QPushButton::toggled, this, [this, key](bool on) {
                 emit categoryToggled(key, on);
             });
             ++index;
@@ -282,7 +284,7 @@ void InstanceUpgradePage::setState(const UpgradePageState::State &state) {
         }
         m_instanceName->setText(state.target.instanceName);
     }
-    for (QCheckBox *check : m_checks) {
+    for (QPushButton *check : m_checks) {
         const QSignalBlocker blocker(check);
         const QString key = check->property("categoryKey").toString();
         check->setChecked(state.selection.state.contains(key));
@@ -300,7 +302,7 @@ void InstanceUpgradePage::setCheckPending(bool pending) {
 }
 
 void InstanceUpgradePage::setSelectionVisible(bool visible) {
-    for (QCheckBox *check : m_checks) {
+    for (QPushButton *check : m_checks) {
         check->setVisible(visible);
         if (auto *note = findChild<QLabel *>(categoryNoteName(check->property("categoryKey").toString()))) {
             note->setVisible(visible);

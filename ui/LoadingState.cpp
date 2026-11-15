@@ -6,6 +6,9 @@
 
 #include <QAbstractItemView>
 #include <QAbstractScrollArea>
+#include <QComboBox>
+#include <QLabel>
+#include <QLineEdit>
 #include <QCoreApplication>
 #include <QEasingCurve>
 #include <QElapsedTimer>
@@ -16,6 +19,8 @@
 #include <QPersistentModelIndex>
 #include <QPointer>
 #include <QPushButton>
+#include <QStyleOptionComboBox>
+#include <QStyleOptionFrame>
 #include <QStyleOptionViewItem>
 #include <QTimer>
 #include <QTreeWidget>
@@ -28,6 +33,8 @@ constexpr const char *kOverlayName = "wtfmlLoadingOverlay";
 constexpr const char *kRetryName = "wtfmlLoadingRetry";
 constexpr const char *kRetryFilterMark = "wtfmlLoadingRetryFilter";
 constexpr qreal kStaticDot = 0.55;
+/// 比这矮的宿主（下拉框、一行字）画成一行：点 + 话靠左，和那一格原来的字同一个起点。
+constexpr int kBlockMinHeight = 48;
 
 QString defaultText() { return QObject::tr("正在获取…"); }
 
@@ -126,6 +133,8 @@ public:
         m_onRetry = nullptr;
         m_leaving = false;
         m_retry->hide();
+        m_inlineRetry = QRect();
+        unsetCursor();
         setAttribute(Qt::WA_TransparentForMouseEvents, true);
         setProperty("state", QStringLiteral("loading"));
         setAccessibleName(m_text);
@@ -146,7 +155,7 @@ public:
         setProperty("state", QStringLiteral("error"));
         setAccessibleName(reason);
         setAttribute(Qt::WA_TransparentForMouseEvents, false);
-        m_retry->show();
+        m_retry->setVisible(!compact());
         layoutError();
         showOnTop();
         if (!wasVisible) Anim::overlayAppear(this);
@@ -194,14 +203,33 @@ protected:
     bool eventFilter(QObject *watched, QEvent *event) override {
         if (watched == parent() && event->type() == QEvent::Resize) {
             setGeometry(parentWidget()->rect());
-            if (m_error) layoutError();
+            if (m_error) {
+                m_retry->setVisible(!compact());
+                layoutError();
+            }
         }
         return false;
+    }
+
+    // 一行那种出错态的「重试」是画出来的文字按钮（宿主太矮，放不下一颗真按钮）。
+    void mouseMoveEvent(QMouseEvent *event) override {
+        if (m_inlineRetry.contains(event->position().toPoint())) setCursor(Qt::PointingHandCursor);
+        else unsetCursor();
+    }
+    void mouseReleaseEvent(QMouseEvent *event) override {
+        if (event->button() != Qt::LeftButton || !m_error || !m_inlineRetry.contains(event->position().toPoint()))
+            return;
+        const auto retry = m_onRetry;  // retry 里会 begin()，可能改掉 m_onRetry
+        if (retry) retry();
     }
 
     void paintEvent(QPaintEvent *) override {
         QPainter painter(this);
         const Theme::Tokens t = Theme::tokens();
+        if (compact()) {
+            paintInline(&painter, t);
+            return;
+        }
         QFont font = Theme::textFont(this->font(), Theme::TextRole::Body);
         painter.setFont(font);
         if (m_error) {
@@ -224,6 +252,79 @@ protected:
     }
 
 private:
+    bool compact() const { return height() < kBlockMinHeight; }
+
+    /// 宿主里那一格字原来从哪儿起、到哪儿止（overlay 坐标 = 宿主坐标）。
+    QRect inlineArea(Qt::Alignment *align) const {
+        QWidget *host = parentWidget();
+        *align = Qt::AlignLeft;
+        if (auto *combo = qobject_cast<QComboBox *>(host)) {
+            QStyleOptionComboBox option;
+            option.initFrom(combo);
+            option.editable = combo->isEditable();
+            option.frame = combo->hasFrame();
+            QRect field =
+                combo->style()->subControlRect(QStyle::CC_ComboBox, &option, QStyle::SC_ComboBoxEditField, combo);
+            if (QLineEdit *edit = combo->lineEdit()) {
+                // 可编辑的下拉框：照输入框里字的起点摆（内边距由 QSS 定；+2 是 QLineEdit 自带的横向留白）。
+                QStyleOptionFrame frame;
+                frame.initFrom(edit);
+                frame.lineWidth = edit->hasFrame() ? edit->style()->pixelMetric(QStyle::PM_DefaultFrameWidth, &frame, edit) : 0;
+                const QRect contents = edit->style()->subElementRect(QStyle::SE_LineEditContents, &frame, edit);
+                field.setLeft(edit->mapTo(combo, contents.topLeft()).x() + edit->textMargins().left() + 2);
+            } else {
+                field.setLeft(field.left() + 8);
+            }
+            return field;
+        }
+        if (auto *label = qobject_cast<QLabel *>(host)) {
+            *align = label->alignment() & Qt::AlignHorizontal_Mask;
+            return label->contentsRect().adjusted(qMax(0, label->indent()), 0, 0, 0);
+        }
+        return rect();
+    }
+
+    /// 一行：加载中 = 三颗小点 + 话；出错 = 断开的云 + 原因 + 「重试」文字按钮。字用宿主自己的字号。
+    void paintInline(QPainter *painter, const Theme::Tokens &t) {
+        Qt::Alignment align;
+        const QRect area = inlineArea(&align);
+        const QFont font = this->font();
+        const QFontMetrics metrics(font);
+        painter->setFont(font);
+        const int cy = area.center().y();
+        const auto startX = [&](int total) {
+            if (align & Qt::AlignHCenter) return area.left() + (area.width() - total) / 2;
+            if (align & Qt::AlignRight) return area.right() - total;
+            return area.left();
+        };
+        if (!m_error) {
+            painter->setOpacity(m_opacity);
+            constexpr int dot = 6, gap = 6, after = 10;
+            const int dotsW = 3 * dot + 2 * gap + after;
+            const int textW = qMin(metrics.horizontalAdvance(m_text), qMax(0, area.width() - dotsW));
+            const int left = startX(dotsW + textW);
+            paintDots(painter, QPointF(left, cy + 0.5), dot, gap, clockMs());
+            painter->setPen(t.secondary);
+            painter->drawText(QRect(left + dotsW, area.top(), textW, area.height()), Qt::AlignLeft | Qt::AlignVCenter,
+                              metrics.elidedText(m_text, Qt::ElideRight, textW));
+            return;
+        }
+        constexpr int icon = 16, iconGap = 8, buttonPad = 8;
+        const QString retryText = tr("重试");
+        const int buttonW = metrics.horizontalAdvance(retryText) + 2 * buttonPad;
+        const int reasonW =
+            qMax(0, qMin(metrics.horizontalAdvance(m_text), area.width() - icon - iconGap - 4 - buttonW));
+        const int left = startX(icon + iconGap + reasonW + 4 + buttonW);
+        paintCloudOff(painter, QRectF(left, cy - icon / 2.0, icon, icon), 1.6, t.disabled);
+        const int x = left + icon + iconGap;
+        painter->setPen(t.secondary);
+        painter->drawText(QRect(x, area.top(), reasonW, area.height()), Qt::AlignLeft | Qt::AlignVCenter,
+                          metrics.elidedText(m_text, Qt::ElideRight, reasonW));
+        m_inlineRetry = QRect(x + reasonW + 4, 0, buttonW, height());
+        painter->setPen(Theme::textTone(t.accentInk, t.deep));
+        painter->drawText(QRect(m_inlineRetry.left(), area.top(), buttonW, area.height()), Qt::AlignCenter, retryText);
+    }
+
     void showOnTop() {
         setGeometry(parentWidget()->rect());
         show();
@@ -231,6 +332,12 @@ private:
     }
 
     void layoutError() {
+        if (compact()) {
+            setMouseTracking(true);
+            update();
+            return;
+        }
+        m_inlineRetry = QRect();
         constexpr int icon = 28, gap = 10;
         const QFont font = Theme::textFont(this->font(), Theme::TextRole::Body);
         const QFontMetrics metrics(font);
@@ -257,7 +364,13 @@ private:
     qreal m_leaveFrom = 0.0;
     QRect m_iconRect;
     QRect m_reasonRect;
+    QRect m_inlineRetry;  // 一行那种出错态的「重试」那一格（上一次画出来的位置）
     std::function<void()> m_onRetry;
+
+public:
+    QRect inlineRetryRect() const { return m_error && compact() ? m_inlineRetry : QRect(); }
+
+private:
 
     static qint64 clockMs() { return LoadingState::clockMs(); }
 };
@@ -315,7 +428,8 @@ void tick() {
     auto &entries = rows();
     for (int i = entries.size() - 1; i >= 0; --i) {
         RowEntry &e = entries[i];
-        if (e.view.isNull() || !e.index.isValid()) {
+        // 行没了 / 行尾那一格撤掉了（finishRowStatus 清了角色）⇒ 不再登记。
+        if (e.view.isNull() || !e.index.isValid() || !e.index.data(LoadingState::rowLoadingRole()).isValid()) {
             entries.removeAt(i);
             continue;
         }
@@ -393,6 +507,11 @@ QWidget *overlay(QWidget *host) {
 }
 
 QString retryButtonName() { return QString::fromLatin1(kRetryName); }
+
+QRect inlineRetryRect(QWidget *host) {
+    auto *layer = static_cast<LoadingOverlay *>(overlay(host));
+    return layer != nullptr ? layer->inlineRetryRect() : QRect();
+}
 
 void begin(QWidget *host, const QString &text) {
     if (host == nullptr) return;
@@ -508,6 +627,50 @@ bool paintRow(QPainter *painter, const QStyleOptionViewItem &option, const QMode
     painter->restore();
     if (RowEntry *entry = entryFor(index)) entry->retryRect = button;
     return true;
+}
+
+void beginRowStatus(QAbstractItemView *view, const QModelIndex &index) {
+    if (view == nullptr || view->model() == nullptr || !index.isValid()) return;
+    const QVariant state = index.data(rowLoadingRole());
+    if (!state.isValid() || state.toLongLong() < 0) view->model()->setData(index, clockMs(), rowLoadingRole());
+    if (RowEntry *entry = entryFor(index)) {
+        entry->ticking = true;
+    } else {
+        rows().append({view, QPersistentModelIndex(index), nullptr, QRect(), true, false});
+    }
+    ensureClock();
+}
+
+void finishRowStatus(QAbstractItemView *view, const QModelIndex &index) {
+    if (view == nullptr || view->model() == nullptr || !index.isValid() ||
+        !index.data(rowLoadingRole()).isValid())
+        return;
+    view->model()->setData(index, QVariant(), rowLoadingRole());  // 登记表下一拍自己丢掉它
+    view->viewport()->update(view->visualRect(index));
+}
+
+int paintRowStatus(QPainter *painter, const QRect &area, const QModelIndex &index, const QFont &font,
+                   const QString &text) {
+    const QVariant state = index.data(rowLoadingRole());
+    if (!state.isValid() || state.toLongLong() < 0) return -1;
+    constexpr int dot = 6, gap = 6, after = 10;
+    constexpr int dotsW = 3 * dot + 2 * gap + after;
+    const QFontMetrics metrics(font);
+    const int textW = qMin(metrics.horizontalAdvance(text), qMax(0, area.width() - dotsW));
+    const int total = dotsW + textW;
+    const qint64 shown = clockMs() - state.toLongLong() - Anim::loadingDelayMs();
+    if (shown >= 0) {
+        painter->save();
+        painter->setOpacity(painter->opacity() * (Anim::enabled() ? outCubic(qreal(shown) / Anim::appearMs()) : 1.0));
+        const int left = area.right() + 1 - total;
+        paintDots(painter, QPointF(left, area.center().y() + 0.5), dot, gap, clockMs());
+        painter->setFont(font);
+        painter->setPen(Theme::tokens().secondary);
+        painter->drawText(QRect(left + dotsW, area.top(), textW, area.height()), Qt::AlignLeft | Qt::AlignVCenter,
+                          metrics.elidedText(text, Qt::ElideRight, textW));
+        painter->restore();
+    }
+    return total;
 }
 
 bool clockRunning() { return timer().isActive(); }

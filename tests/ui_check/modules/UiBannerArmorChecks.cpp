@@ -21,6 +21,9 @@ int UiBannerArmorChecks() {
         check(cells == 10, "★ U40 目录页有十格（每件工具一格，高速下载也在里面）",
               QString::number(cells));
 
+        // 工具页第一次进才搭：先进纹饰、旗帜这两片，下面才认得到它们的控件。
+        page.showTool(ToolboxPage::Tool::Trim);
+        page.showTool(ToolboxPage::Tool::Banner);
         auto *base = page.findChild<QComboBox *>(ToolboxPage::bannerBaseComboName());
         auto *pattern = page.findChild<QComboBox *>(ToolboxPage::bannerPatternComboName());
         auto *color = page.findChild<QComboBox *>(ToolboxPage::bannerColorComboName());
@@ -93,8 +96,8 @@ int UiBannerArmorChecks() {
                   "★ U40 程序摆层不发信号、也不留撤销点（那是恢复草稿，不是用户动作）");
             check(bannerSignals == 5, "★ U40 程序摆层那一发没有多出来",
                   QString::number(bannerSignals));
-            page.setBannerResult(QStringLiteral("底色 红色 · 1 层 / 6"));
-            check(bannerResult->text() == QStringLiteral("底色 红色 · 1 层 / 6"),
+            page.setBannerResult(QStringLiteral("底色 红色 · 1/6 层"));
+            check(bannerResult->text() == QStringLiteral("底色 红色 · 1/6 层"),
                   "★ U40 结果那一格逐字摆进来（怎么算的不在这一层）");
         }
 

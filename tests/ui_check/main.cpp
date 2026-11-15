@@ -2197,9 +2197,7 @@ int main(int argc, char *argv[]) {
 
     if (const int result = UiInstanceGroupingChecks(ui, instanceList); result != 0) return result;
 
-    std::printf("===== N. 分组设置对话框（管的是分组本身，只改手里那份清单） =====\n");
-
-    if (const int result = UiGroupEditorChecks(); result != 0) return result;
+    // N. 分组设置对话框拆成了单独的 ui_check_group_editor（ctest: wtfml.group-editor）。
 
     std::printf("===== U. 实例设置对话框（控件 → 值，且不碰磁盘） =====\n");
 
@@ -3205,6 +3203,9 @@ int main(int argc, char *argv[]) {
     // ------------------------------------------------------------------
     {
         ToolboxPage page;
+        // 工具页第一次进才搭：先进旗帜、文本这两片。
+        page.showTool(ToolboxPage::Tool::Banner);
+        page.showTool(ToolboxPage::Tool::Text);
         auto *hex = page.findChild<QLineEdit *>(QStringLiteral("textHex"));
         auto *hexInsert = page.findChild<QPushButton *>(QStringLiteral("textHexInsert"));
         auto *motd = page.findChild<QPlainTextEdit *>(QStringLiteral("textMotd"));
@@ -3273,12 +3274,13 @@ int main(int argc, char *argv[]) {
     // ------------------------------------------------------------------
     {
         ToolboxPage page;
+        page.resize(900, 560);
+        page.show();
+        // 和 controller 一样：附魔那一片搭出来之后再灌表。
+        page.showTool(ToolboxPage::Tool::Anvil);
         page.setEnchantmentChoices(
             {{QStringLiteral("sharpness"), QStringLiteral("锋利")},
              {QStringLiteral("unbreaking"), QStringLiteral("耐久")}});
-        page.resize(900, 560);
-        page.show();
-        page.showTool(ToolboxPage::Tool::Anvil);
         QApplication::processEvents();
         auto *rowsHost = page.findChild<QWidget *>(QStringLiteral("anvilRows"));
         auto *addRow = page.findChild<QPushButton *>(QStringLiteral("anvilAddRow"));
@@ -3346,6 +3348,7 @@ int main(int argc, char *argv[]) {
     // ------------------------------------------------------------------
     {
         ToolboxPage page;
+        page.showTool(ToolboxPage::Tool::Hash);
         auto *notice = page.findChild<QLabel *>(ToolboxPage::hashNoticeName());
         check(notice != nullptr && notice->isHidden(),
               "★★ U41 那句提醒平时收着（算完没事的话页面上看不见它）");
@@ -3368,6 +3371,7 @@ int main(int argc, char *argv[]) {
     // ------------------------------------------------------------------
     {
         ToolboxPage page;
+        page.showTool(ToolboxPage::Tool::Hash);
         auto *copyAll = page.findChild<QPushButton *>(ToolboxPage::hashCopyAllName());
         auto *exportButton = page.findChild<QPushButton *>(ToolboxPage::hashExportName());
         auto *browse = page.findChild<QPushButton *>(QStringLiteral("hashBrowse"));

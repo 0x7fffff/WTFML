@@ -68,6 +68,7 @@
 // 第 1 格那个世界设置。头文件那边已经 include 了它（进参是个嵌套类型），
 // 这一句是给"这一份 .cpp 自己用得上它的完整定义"留的。
 #include "WorldSettingsPage.hpp"
+#include "DesignDefaults.hpp"
 #include "VersionTreeDelegate.hpp"
 
 /// 「文件管理」里哪几页有「启用 / 禁用」。
@@ -84,11 +85,16 @@ bool fileKeyCanToggle(const QString &key) {
 
 using namespace InstanceSettingsDialogInternals;
 
-/// 「文件管理」那八页（服务器列表 + 七份同一个 `InstanceFilesPage`）。
+/// 「文件管理」那八页（服务器列表 + 七份同一个 `InstanceFilesPage`）里**的一页**。
 ///
-/// 目录一律由调用方算好递进来（见这一摊开头那段），这里只搭壳。
-void InstanceSettingsDialog::setupFilePages() {
-    // ---------- 文件那八页（见 .hpp 里 filePageKeys() 那一段）----------
+/// 目录一律由调用方算好递进来（见这一摊开头那段），这里只搭壳。**第一次切过去才跑**
+/// （见 `InstanceSettingsDialog::ensurePage()`）—— 打开对话框那一刻只建概览。
+void InstanceSettingsDialog::buildFilePage(const QString &key) {
+    if (key == serverPageKey()) {
+        buildServerPage();
+        return;
+    }
+    // ---------- 文件那几页（见 .hpp 里 filePageKeys() 那一段）----------
     //
     // 这八页说的是**这个实例自己的目录**：`--gameDir` 就是 `versions/<实例名>/`，所以
     // `mods/ resourcepacks/ shaderpacks/ datapacks/ saves/` 都在里头 —— 实例之间天然隔离，
@@ -103,15 +109,10 @@ void InstanceSettingsDialog::setupFilePages() {
     // 挨着说两遍。每一页正文底下那行小字才是这一页**特有**的那句。
     {
         // ② 中间那七页：同一个控件，喂不同的目录与三条开关。
-        const QStringList keys = filePageKeys();
-        for (const QString &key : keys) {
-            if (key == serverPageKey()) {
-                continue;
-            }
             QWidget *page = addPage(key);
-            auto *layout = qobject_cast<QVBoxLayout *>(page->layout());
+            auto *layout = page != nullptr ? qobject_cast<QVBoxLayout *>(page->layout()) : nullptr;
             if (layout == nullptr) {
-                continue;
+                return;
             }
 
             // 「配置文件」那一页是**两格子**（见 .hpp 里 configFilePage() 上面那一段：
@@ -352,10 +353,12 @@ void InstanceSettingsDialog::setupFilePages() {
             if (m_hasPendingUpdates)
                 files->setUpdateResult(m_pendingOutdatedPaths, m_pendingUpdatesChecked);
             });
-        }
+    }
+}
 
-        // ③ 服务器列表：读 servers.dat 的结果由调用方递进来（这一层不 include src/）。
-        {
+void InstanceSettingsDialog::buildServerPage() {
+    // ③ 服务器列表：读 servers.dat 的结果由调用方递进来（这一层不 include src/）。
+    {
             QWidget *page = addPage(QStringLiteral("server"));
             auto *layout = qobject_cast<QVBoxLayout *>(page->layout());
             if (layout != nullptr) {
@@ -505,6 +508,9 @@ void InstanceSettingsDialog::setupFilePages() {
                 m_serverTree->setItemDelegateForColumn(
                     0, new VersionTreeDelegate(m_serverTree, /*leafArrow=*/false,
                                                MainWindowUI::serverIconSize()));
+                // 图标从表头字那条竖线起（代理自己只让 versionTreeRowPadding()，表头让 cellTextInset()）。
+                m_serverTree->setProperty("wtfmlRowLeftPad",
+                    DesignDefaults::cellTextInset() - MainWindowUI::versionTreeRowPadding());
                 // 悬停底色由代理画（`Theme::rowHoverFill()`），但那一位 `State_MouseOver` 是**视图**填的。
                 // 少了这一句，代理里那段一个字都不会生效 —— 不报错、断言也不一定先红，屏幕上就是"悬停没反应"。
                 m_serverTree->setMouseTracking(true);
@@ -554,11 +560,10 @@ void InstanceSettingsDialog::setupFilePages() {
 
                 m_serverTree->setToolTip(filesHint(QStringLiteral("server")));
             }
-            // 没被 setServerList() 叫过的时候（验证工程里那些只验结构的构造点）先摆成
-            // "还没读到" —— 露出一张空表格比说一句话更像坏了。
-            setServerList({}, QString());
+            // 页可能是**先收到列表、后建出来**的（调用方开页那一刻就调 setServerList()）：
+            // 把存着的那一份摆上去；一次都没收到过就是"还没读到" —— 露出一张空表格比
+            // 说一句话更像坏了（验证工程里那些只验结构的构造点走的就是这一支）。
+            replayServerPage();
         }
-    }
-
 }
 

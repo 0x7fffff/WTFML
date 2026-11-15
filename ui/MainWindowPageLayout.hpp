@@ -87,6 +87,10 @@ inline constexpr int kHomeQuoteMinPixelSize = 18;
 inline constexpr int kHomeQuoteMaxPixelSize = 24;
 inline constexpr int kHomeQuoteNarrowMinPixelSize = 16;
 inline constexpr int kHomeQuoteNarrowMaxPixelSize = 20;
+/// 主页「当前实例」名的字号区间（文楷）：长名先收字号，到下限还放不下才收省略号；行高按上限预留。
+/// 下限不低于页标题的 26，再小就和眉题、元信息那几行分不出主次。
+inline constexpr int kHomeCurrentNameMinPixelSize = 28;
+inline constexpr int kHomeCurrentNameMaxPixelSize = 40;
 
 /// 「额外 JVM 参数」多行输入框的高度，约三四行的样子；再高会把下面那几项挤出可视区。
 inline constexpr int kJvmArgsEditHeight = 72;
@@ -246,6 +250,13 @@ QFrame *makeSectionCard(const QString &title, QWidget *parent,
 /// 一页上的小节（无卡片）。@p layoutOut 同上。
 QWidget *makePageSection(const QString &title, QWidget *parent,
                          QVBoxLayout **layoutOut = nullptr);
+
+/// 一条设置行（设计稿 instance-overview）：左边标题（+ 至多一句说明，次要色小字）、右边控件，行底一条极淡分隔。
+/// 长解释留在控件的悬停提示里。@p below = 控件放到标题下面、占满整行（一排按钮那种）。
+/// 实例设置概览和分组设置共用这一份。
+QWidget *makeSettingRow(QWidget *parent, QWidget *title, const QString &desc, QWidget *control, bool below = false);
+/// 设置行左边那个标题（正文字号、加粗）。
+QLabel *makeSettingRowTitle(const QString &text, QWidget *parent);
 
 /// 正文那层滚动区。@p bottomMargin 是给浮着的主按钮留的高度（不要浮按钮就传 0）。
 QScrollArea *makePageScroll(QWidget *parent, int bottomMargin,

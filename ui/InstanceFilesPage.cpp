@@ -43,30 +43,6 @@ namespace {
 constexpr int kSelectionBarPadding = 8;
 constexpr int kSelectionBarSpacing = 8;
 
-/// 文件列表每一格只画底（内容是 setItemWidget 挂上去的行控件）：选中 / 指着那一行铺一块
-/// 圆角淡底，和管理页列表同一套（ListRowDelegate：r=10、悬停 hover）。
-/// 「指着」认行控件的 underMouse()：行控件盖满整格，视图自己收不到悬停。
-class FileRowBackdropDelegate final : public QStyledItemDelegate {
-public:
-    using QStyledItemDelegate::QStyledItemDelegate;
-    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override {
-        const auto *list = qobject_cast<const QListWidget *>(option.widget);
-        const QWidget *row = list != nullptr ? list->itemWidget(list->item(index.row())) : nullptr;
-        const bool selected = option.state.testFlag(QStyle::State_Selected);
-        const bool hovered = row != nullptr && row->underMouse();
-        if (!selected && !hovered) return;
-        const Theme::Tokens t = Theme::tokens();
-        painter->save();
-        painter->setRenderHint(QPainter::Antialiasing, true);
-        painter->setPen(Qt::NoPen);
-        // 选中色和行内按钮的底同一个出处（selectionFill），否则按钮会在行上留色块。
-        painter->setBrush(selected ? Theme::selectionFill(list->palette().color(QPalette::Base)) : t.hover);
-        painter->drawRoundedRect(QRectF(option.rect).adjusted(0, 1, 0, -1), Theme::controlRadius(),
-                                 Theme::controlRadius());
-        painter->restore();
-    }
-};
-
 }  // namespace
 
 InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
@@ -287,9 +263,12 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
     m_list->setUniformItemSizes(true);
     // 不画外框、不铺底（底色规则见 Theme 样式表里 #instanceFilesList 那条），行底由代理画成圆角淡底。
     m_list->setFrameShape(QFrame::NoFrame);
-    m_list->setItemDelegate(new FileRowBackdropDelegate(m_list));
-    // 行是**真控件**（见 .hpp 里那段"为什么每行是一个真控件"），宽度由它自己说了算；
-    // 不许出现横向滚动条，否则那一排按钮会跟着来回滑。
+    // 每一行由 RowDelegate 画（见 .hpp 文件头），整页只有这一个视图、没有行控件。
+    m_list->setItemDelegate(createRowDelegate());
+    // 悬停那一行 / 那一格要靠 MouseMove 认（见 eventFilter），视口得开着鼠标跟踪。
+    m_list->setMouseTracking(true);
+    m_list->viewport()->setMouseTracking(true);
+    // 行宽跟着视口走，不许出现横向滚动条，否则那一排按钮会跟着来回滑。
     m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     // 用 itemActivated 而不是 itemDoubleClicked：前者是 Qt 说的「用户激活了这一条」
     // —— 双击**和**选中之后按回车都会发它（各平台按自己的习惯），而那正是"打开一个
@@ -310,9 +289,13 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
     // NOTE: 它**不看是哪一路来的**：所以这一处是唯一出处，不必在每条路上各记一遍。
     // 记账那一趟本身收进了 syncSelectedPaths() —— 重列末尾要办的正是同一件事
     // （那一段把信号挡着，只能自己喊），两处各写一遍就是第二份真相。
-    // 大列表滚动时按可见范围补/收行控件。
-    connect(m_list->verticalScrollBar(), &QScrollBar::valueChanged, this,
-            [this](int) { ensureRowWidgetWindow(); });
+    // 读屏那条路（无障碍「切换」动作）改的是勾选位：照开关被点了一下办 —— 真去改盘上的名字；
+    // 勾选位本身由改名之后那一趟刷新重摆（代理的 editorEvent 不接点击，鼠标 / 空格走不到这里）。
+    connect(m_list, &QListWidget::itemChanged, this, [this](QListWidgetItem *item) {
+        if (item == nullptr || !m_canToggle || !item->flags().testFlag(Qt::ItemIsUserCheckable)) return;
+        const bool wantOn = item->checkState() == Qt::Checked;
+        if (wantOn == item->data(disabledRole()).toBool()) requestToggle(item->data(pathRole()).toString());
+    });
     connect(m_list, &QListWidget::itemSelectionChanged, this, [this] {
         m_actionPanelDismissed = false;
         syncSelectedPaths();
@@ -356,23 +339,9 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
         }
     });
     }
-    // **滚动也要重摆一遍「详情」那一格**（见文件头【行尾三格的次序】②）。
-    // 滚轮一动，光标底下那一行往往就换人了 —— 而 Qt **不会**因为滚动补发 Enter/Leave
-    // （滚的是 viewport 的孩子，鼠标一个像素都没动，见 scrollContentsBy 那段）⇒ 那一格会
-    // 留在**已经不光标底下的**那一行上，直到用户动一下鼠标才自己纠正。所以每一趟滚动之后：
-    // 先全收起来，再按"光标底下现在是谁"露一次（`syncRowHover()` 用的正是那个权威判据）。
-    // NOTE: 收的时候是**全列表**走一遍 —— 一页几十上百行，每一句对一个本来就没露着的控件
-    // 都是白改（`setVisible(false)` 探一下就走），这点代价和"滚一格留一个错格"比不值一提。
-    connect(m_list->verticalScrollBar(), &QScrollBar::valueChanged, this, [this] {
-        if (!m_batchMode || m_list == nullptr) {
-            return;
-        }
-        for (int row = 0; row < m_list->count(); ++row) {
-            QListWidgetItem *item = m_list->item(row);
-            setRowDetailVisible(item != nullptr ? m_list->itemWidget(item) : nullptr, false);
-        }
-        syncRowHover();
-    });
+    // **滚动之后按光标重认悬停那一行**：滚轮一动，光标底下那一行往往就换人了，而鼠标一个像素
+    // 都没动 ⇒ 没有 MouseMove 可等（见 syncRowHover）。
+    connect(m_list->verticalScrollBar(), &QScrollBar::valueChanged, this, [this] { syncRowHover(); });
     m_selectionTools = new QWidget(this);
     m_selectionTools->setObjectName(QStringLiteral("modSelectionTools"));
     m_selectionTools->hide();
@@ -563,7 +532,7 @@ InstanceFilesPage::InstanceFilesPage(QWidget *parent) : QWidget(parent) {
     makeSecondary(m_notice);
     outer->addWidget(m_notice, 1);
 
-    // 目录统计那一趟的节拍器（见 fillDirectoryStats / m_statLabels 那段）。单发 + 0 毫秒：
+    // 目录统计那一趟的节拍器（见 fillDirectoryStats / m_statQueue 那段）。单发 + 0 毫秒：
     // 每排一次就在**下一个事件循环**里干一行，干完自己再排下一次。
     m_statTimer = new QTimer(this);
     m_statTimer->setSingleShot(true);

@@ -2,8 +2,9 @@
 // 分组框、单选钮、页签、带边框的文本框、没走 markSwitch 的复选框，以及换页没有动效的
 // QStackedWidget。
 //
-// 判据只报「看起来没接设计系统」，不断言失败：清单里有些是产品本来就要的原生件
-// （比如 QTabWidget 只是容器），要人看一眼再决定改不改。
+// 判据只报「看起来没接设计系统」。计入的每一条都让 `wtfml.surface-sweep` 失败（守卫，见
+// UiSurfaceSweepCheck.cpp 末尾）；真该保留原样的地方不另开白名单，只在 checkBoxException()
+// 里登记，并写一句理由。
 //
 // 检测「换页动效」的办法：打开 Anim，切一页，看有没有 `wtfmlPageCurtain`
 // （`Anim::pageAppear()` 挂上去的那块幕布）露出来 —— 有就是接了，没有就是硬切。
@@ -17,6 +18,7 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QGroupBox>
+#include <QHash>
 #include <QHeaderView>
 #include <QItemDelegate>
 #include <QLayout>
@@ -84,6 +86,15 @@ inline QString runtimeClassName(const QObject *object) {
 #endif
 }
 
+/// 单独成行、但确实该留复选框的那几颗（不改开关）。每条写一句理由；只许人看过再加。
+inline QString checkBoxException(const QString &objectName) {
+    static const QHash<QString, QString> reasons = {
+        {QStringLiteral("javaMismatchDontRemindCheck"),
+         QStringLiteral("「不再提醒」是随这一次确认提交的一次性勾选，不是一直生效的状态")},
+    };
+    return reasons.value(objectName);
+}
+
 /// 父布局里只摆了这一件（「单独成行」的复选框多半是想当开关用）。
 inline bool aloneInItsRow(QWidget *widget) {
     QWidget *parent = widget != nullptr ? widget->parentWidget() : nullptr;
@@ -136,13 +147,30 @@ inline QList<SurfaceFinding> scanWidgets(QWidget *root) {
                 add(QStringLiteral("native-frame"), view,
                     QStringLiteral("frame=%1（QSS 里可能已经 border:none 盖掉，待人看）").arg(shape));
             }
+            // 表头的底和字色 QSS 已经统一接管（透明底、辅助色）；这里只报还剩的三种原生毛病：
+            // 表格左上角那颗白色角按钮、表头字居中（格里的字靠左）、某一列窄到表头字被截。
             QHeaderView *header = nullptr;
+            QStringList headerIssues;
             if (auto *tree = qobject_cast<QTreeView *>(view)) header = tree->header();
-            if (auto *table = qobject_cast<QTableView *>(view)) header = table->horizontalHeader();
-            if (header != nullptr && header->isVisible()) {
-                add(QStringLiteral("native-header"), view,
-                    QStringLiteral("表头可见（%1 段），看 QSS 接管了没有").arg(header->count()));
+            if (auto *table = qobject_cast<QTableView *>(view)) {
+                header = table->horizontalHeader();
+                if (table->isCornerButtonEnabled() && table->verticalHeader()->isVisible())
+                    headerIssues.append(QStringLiteral("左上角角按钮"));
+                if (header->defaultAlignment().testFlag(Qt::AlignHCenter))
+                    headerIssues.append(QStringLiteral("表头字居中"));
             }
+            if (header != nullptr && header->isVisible() && header->model() != nullptr) {
+                const QFontMetrics fm(header->font());
+                for (int i = 0; i < header->count(); ++i) {
+                    if (header->isSectionHidden(i)) continue;
+                    const QString label = header->model()->headerData(i, header->orientation()).toString();
+                    const int need = fm.horizontalAdvance(label) + 12;  // QSS 里表头左右各 6px
+                    if (!label.isEmpty() && header->sectionSize(i) < need)
+                        headerIssues.append(QStringLiteral("「%1」列宽 %2 < %3").arg(label).arg(header->sectionSize(i)).arg(need));
+                }
+            }
+            if (header != nullptr && header->isVisible() && !headerIssues.isEmpty())
+                add(QStringLiteral("native-header"), view, headerIssues.join(QStringLiteral("；")));
             continue;
         }
         if (auto *edit = qobject_cast<QPlainTextEdit *>(w)) {
@@ -182,7 +210,11 @@ inline QList<SurfaceFinding> scanWidgets(QWidget *root) {
                 }
             }
             if (check == nullptr) continue;
-            if (aloneInItsRow(check)) add(QStringLiteral("switch-like-checkbox"), check, check->text());
+            if (!aloneInItsRow(check)) continue;
+            if (const QString reason = checkBoxException(check->objectName()); !reason.isEmpty())
+                add(QStringLiteral("exempt"), check, QStringLiteral("switch-like-checkbox 例外：%1").arg(reason));
+            else
+                add(QStringLiteral("switch-like-checkbox"), check, check->text());
             continue;
         }
         if (auto *tabs = qobject_cast<QTabWidget *>(w)) {
@@ -218,7 +250,9 @@ inline QList<SurfaceFinding> probePageTransitions(QWidget *root, QApplication &a
             }
         stack->setCurrentIndex(old);
         for (int i = 0; i < 2; ++i) app.processEvents();
-        Anim::finishPageAppear(root);
+        // 换回原页那一下同样起了一发（栈默认就有）：幕布长在页上，逐块收掉，截图不截到半路。
+        for (QWidget *curtain : root->findChildren<QWidget *>(QStringLiteral("wtfmlPageCurtain")))
+            Anim::finishPageAppear(curtain->parentWidget());
         if (!curtainUp) {
             SurfaceFinding finding;
             finding.kind = QStringLiteral("stacked-no-anim");

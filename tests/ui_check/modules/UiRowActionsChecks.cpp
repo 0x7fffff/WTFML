@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "UiInstanceFilesTestHelpers.hpp"
 
 // U10R：第四批 —— 行尾次序 / 详情悬停才露 / 右键进详情 / 两颗开关的显隐 / 拨开关不掉出选择。
 //
@@ -82,51 +83,42 @@ int UiRowActionsChecks(const QString &instanceDisplayName, const QString &instan
                   QString::number(list->count()));
 
             // ---- ① 行尾三格的次序：`[详情][开关][删除]` ----
-            QWidget *rowWidget = list->itemWidget(list->item(rowA));
-            check(rowWidget != nullptr, "U10R 前提：那一行是个真控件（setItemWidget 挂上去的）");
-            QToolButton *detail = page->detailButtonAt(rowA);
-            QAbstractButton *toggle = page->toggleButtonAt(rowA);
-            QToolButton *remove = page->deleteButtonAt(rowA);
-            QLayout *rowLayout = rowWidget != nullptr ? rowWidget->layout() : nullptr;
-            check(rowLayout != nullptr && detail != nullptr && toggle != nullptr &&
-                      remove != nullptr && rowLayout->indexOf(detail) >= 0 &&
-                      rowLayout->indexOf(detail) < rowLayout->indexOf(toggle) &&
-                      rowLayout->indexOf(toggle) < rowLayout->indexOf(remove),
+            // 行是代理画的：三格的位置由 rowGeometry() 给（paint 和点击命中认同一份）。
+            const auto detail = uiDetailAt(page, rowA);
+            const auto toggle = uiToggleAt(page, rowA);
+            const auto remove = uiDeleteAt(page, rowA);
+            check(detail != nullptr && toggle != nullptr && remove != nullptr &&
+                      detail->geometry().right() < toggle->geometry().left() &&
+                      toggle->geometry().right() < remove->geometry().left(),
                   "★★ U10R 行尾三格是 **[详情][开关][删除]**（用户原话「详情和启用/禁用"
                   "换个顺序」）",
-                  QStringLiteral("详情=%1 开关=%2 删除=%3")
-                      .arg(rowLayout != nullptr ? rowLayout->indexOf(detail) : -1)
-                      .arg(rowLayout != nullptr ? rowLayout->indexOf(toggle) : -1)
-                      .arg(rowLayout != nullptr ? rowLayout->indexOf(remove) : -1));
+                  QStringLiteral("详情 x=%1 开关 x=%2 删除 x=%3")
+                      .arg(detail != nullptr ? detail->geometry().x() : -1)
+                      .arg(toggle != nullptr ? toggle->geometry().x() : -1)
+                      .arg(remove != nullptr ? remove->geometry().x() : -1));
 
             // ---- ② 「详情」只在鼠标悬停这一行时露着 ----
-            //
-            // 判据取 `isVisibleTo()`（不是 `isHidden()`）：这一格平时正是**显式隐藏**着的，
-            // 而"显式隐藏位"恰恰是产品摆出来的那一半；要问的是"用户看不看得见"。
-            check(detail != nullptr && !detail->isVisibleTo(page),
+            page->hoverRow(-1);
+            check(detail != nullptr && !detail->isShown(),
                   "★★ U10R 一进来那一格是**藏着的**（用户原话「详情只在悬停时显现」）");
-            check(detail != nullptr && detail->sizePolicy().retainSizeWhenHidden(),
-                  "★★ U10R 而且它藏起来时**占位留着**（RetainSizeWhenHidden）—— 不留的话"
+            const int toggleXBefore = toggle != nullptr ? toggle->geometry().x() : -1;
+            check(detail != nullptr && toggleXBefore >= 0 &&
+                      detail->geometry().right() < toggleXBefore,
+                  "★★ U10R 而且它藏起来时**占位留着**（不画，但那一格的位置还在）—— 不留的话"
                   "鼠标一进一出整行都要重排，而这一格正好夹在名字和开关中间，抖起来最扎眼");
-            const int toggleXBefore =
-                toggle != nullptr ? toggle->mapTo(rowWidget, QPoint(0, 0)).x() : -1;
-            // 合成一发 Enter 给**行控件**（真机上 Qt 是往祖先那一串发的：鼠标进了行里
-            // 哪个孩子都算进了这一行 —— 所以行控件一定收得到，见 .hpp 里 eventFilter 那段）。
-            QEvent enterEvent(QEvent::Enter);
-            QApplication::sendEvent(rowWidget, &enterEvent);
-            check(detail != nullptr && detail->isVisibleTo(page),
-                  "★★ U10R 合成一发 Enter ⇒ 那一格**露出来**（悬停才露的那一半）");
-            check(toggle != nullptr && toggleXBefore >= 0 &&
-                      toggle->mapTo(rowWidget, QPoint(0, 0)).x() == toggleXBefore,
+            // 合成一发 MouseMove 给视口（光标压到这一行上，和真鼠标同一条路）。
+            page->hoverRow(rowA);
+            check(detail != nullptr && detail->isShown(),
+                  "★★ U10R 光标移到这一行上 ⇒ 那一格**露出来**（悬停才露的那一半）");
+            check(toggle != nullptr && toggleXBefore >= 0 && toggle->geometry().x() == toggleXBefore,
                   "★★ U10R 露出这一格**没有把别的挤走**（开关的 x 一动不动 —— 这就是"
                   "「占位留着」在屏幕上的意思）",
                   QStringLiteral("露出前 x=%1 / 露出后 x=%2")
                       .arg(toggleXBefore)
-                      .arg(toggle != nullptr ? toggle->mapTo(rowWidget, QPoint(0, 0)).x() : -1));
-            QEvent leaveEvent(QEvent::Leave);
-            QApplication::sendEvent(rowWidget, &leaveEvent);
-            check(detail != nullptr && !detail->isVisibleTo(page),
-                  "★★ U10R 合成一发 Leave ⇒ 又**收回去**（是「悬停才露」，不是「露过一次"
+                      .arg(toggle != nullptr ? toggle->geometry().x() : -1));
+            page->hoverRow(-1);
+            check(detail != nullptr && !detail->isShown(),
+                  "★★ U10R 光标移出列表 ⇒ 又**收回去**（是「悬停才露」，不是「露过一次"
                   "就一直留着」）");
 
             // ---- ③ 右键点一行 = 开这一条的详情页，而且那一发**被吃掉** ----
@@ -145,8 +137,10 @@ int UiRowActionsChecks(const QString &instanceDisplayName, const QString &instan
             selectOnly(modB);
             check(list->selectedItems().size() == 1,
                   "U10R 前提：右键之前先选着「乙」那一条");
-            const QPointF localAt(8, 8);
-            const QPointF globalAt = rowWidget->mapToGlobal(QPoint(8, 8));
+            QWidget *viewport = list->viewport();
+            const QPoint pointA = page->rowGeometry(rowA).name.center();
+            const QPointF localAt(pointA);
+            const QPointF globalAt = viewport->mapToGlobal(pointA);
             QMouseEvent rightPress(QEvent::MouseButtonPress, localAt, globalAt,
                                    Qt::RightButton, Qt::RightButton, Qt::NoModifier);
             // `ignore()` 那一句**不能省**：`QEvent` 生出来时 accepted 位**默认就是真**，
@@ -155,7 +149,7 @@ int UiRowActionsChecks(const QString &instanceDisplayName, const QString &instan
             // 那个循环判的是 `res && isAccepted()`，不 accept 的话这一发会继续冒到
             // viewport 上、视图顺手就把选中态改掉（见 .hpp 里 eventFilter 那段）。
             rightPress.ignore();
-            QApplication::sendEvent(rowWidget, &rightPress);
+            QApplication::sendEvent(viewport, &rightPress);
             check(rightClicked == QStringList{modA},
                   "★★ U10R 右键点一行 ⇒ 发的是**这一条**的 detailRequested（用户原话"
                   "「右键点击时也可以进入详情页」）",
@@ -172,12 +166,12 @@ int UiRowActionsChecks(const QString &instanceDisplayName, const QString &instan
             // 认不出来的那一条：右键**一个字节都不发**（灰的那颗和这一发是同一条判据）。
             rightClicked.clear();
             const int rowB = rowOf(modB);
-            QWidget *rowWidgetB =
-                rowB < 0 ? nullptr : list->itemWidget(list->item(rowB));
-            QMouseEvent rightPressUnknown(QEvent::MouseButtonPress, localAt, globalAt,
+            const QPoint pointB = rowB < 0 ? QPoint(-1, -1) : page->rowGeometry(rowB).name.center();
+            QMouseEvent rightPressUnknown(QEvent::MouseButtonPress, QPointF(pointB),
+                                          QPointF(viewport->mapToGlobal(pointB)),
                                           Qt::RightButton, Qt::RightButton, Qt::NoModifier);
             rightPressUnknown.ignore();
-            QApplication::sendEvent(rowWidgetB, &rightPressUnknown);
+            QApplication::sendEvent(viewport, &rightPressUnknown);
             check(rightClicked.isEmpty(),
                   "★★ U10R 右键点那条**认不出来的** ⇒ 什么都不发（正确界面就是「按下去"
                   "没反应」）",
@@ -258,7 +252,7 @@ int UiRowActionsChecks(const QString &instanceDisplayName, const QString &instan
             selectOnly(modA);
             check(list->selectedItems().size() == 1, "U10R 前提：先选中「甲」那一条");
             const QString modARenamed = modA + InstanceFilesPage::disabledSuffix();
-            QAbstractButton *rowSwitch = page->toggleButtonAt(rowOf(modA));
+            const auto rowSwitch = uiToggleAt(page, rowOf(modA));
             check(rowSwitch != nullptr, "U10R 前提：行尾那颗开关在（按得下去才谈得上这条路）");
             if (rowSwitch != nullptr) {
                 rowSwitch->click();
@@ -294,7 +288,7 @@ int UiRowActionsChecks(const QString &instanceDisplayName, const QString &instan
                   "路径必须是盘上真那一个",
                   account.join(QStringLiteral(" | ")));
             // 再反过来（启用）：同一条规矩的另一面，同样走**真那条路**。
-            QAbstractButton *rowSwitchBack = page->toggleButtonAt(rowOf(modARenamed));
+            const auto rowSwitchBack = uiToggleAt(page, rowOf(modARenamed));
             check(rowSwitchBack != nullptr, "U10R 前提：改名之后那条的行尾开关也在");
             if (rowSwitchBack != nullptr) {
                 rowSwitchBack->click();

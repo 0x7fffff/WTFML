@@ -43,6 +43,7 @@ function Get-TestImpact([string[]]$Paths, [bool]$ForceFull = $false) {
         'tests/ui_check/modules/UiLifecycleCheck.cpp' = 'ui'
         'tests/ui_check/modules/UiInputWidthCheck.cpp' = 'ui'
         'tests/ui_check/modules/UiSurfaceSweepCheck.cpp' = 'ui'
+        'tests/ui_check/surface-registry.txt' = 'ui'
         'tests/ui_check/modules/UiUiRefreshCheck.cpp' = 'ui'
         'tests/ui_check/modules/UiThemeCheck.cpp' = 'theme'
         'tests/ui_check/modules/UiWindowChromeCheck.cpp' = 'window'
@@ -66,6 +67,7 @@ function Get-TestImpact([string[]]$Paths, [bool]$ForceFull = $false) {
         'tests/ui_check/ArmorTrimChecks.cpp' = 'toolbox'
         # 主页「每日一言」那一行：挨着主题/字号走，归 ui 那一组。
         'tests/ui_check/modules/UiDailyQuoteCheck.cpp' = 'ui'
+        'tests/ui_check/modules/UiLongInstanceNameChecks.cpp' = 'ui'
     }
     $modules = [Collections.Generic.HashSet[string]]::new()
     $reasons = [Collections.Generic.List[string]]::new()

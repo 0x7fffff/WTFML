@@ -122,7 +122,7 @@ bool InstanceFilesPage::stateFilterVisible(StateFilter filter) const {
     }
     // * 没查过 ⇒ 这一颗**收着**（页面上确实没有任何东西说"有更新"，但那是对的 ——
     // 还没问过，谁也说不出口）；哪一条有新版本改由**那一行自己的 ↑**
-    // 来说（见 makeRow 里那个箭头），不靠这一颗筛子。
+    // 来说（见 makeItem 里那个箭头），不靠这一颗筛子。
     // * 查过了、一条没有 ⇒ 也收着（下面那条"空档收起来"）。
     // * 查过了、有几条 ⇒ 露着，写「可更新(N)」。
     //
@@ -256,7 +256,7 @@ void InstanceFilesPage::setStateFilter(StateFilter filter) {
 
 void InstanceFilesPage::setUpdateResult(const QStringList &outdatedPaths, bool checked) {
     const QSet<QString> incoming(outdatedPaths.cbegin(), outdatedPaths.cend());
-    // 这份名单**每一行都在吃**（那一行名字后面的 ↑ 就是它，见 makeRow
+    // 这份名单**每一行都在吃**（那一行名字后面的 ↑ 就是它，见 makeItem
     // 里那段）—— 于是它一变就得把行重列一遍。
     // 判据取"**名单本身变没变**"而不是一刀切重列：主程序每查完一趟都会往这一页递一份
     // （哪怕结果和上一趟一模一样），一刀切就是白重排一次上百行的表。

@@ -24,7 +24,6 @@
 #include <QTreeWidgetItem>
 #include <QVBoxLayout>
 
-#include "Animations.hpp"  // 换页那一发（Anim::pageAppear）
 #include "MainWindowUI.hpp"
 #include "InstanceSettingsDialog.hpp"
 #include "RowActivation.hpp"
@@ -230,15 +229,7 @@ ServerSettingsPage::ServerSettingsPage(QWidget *parent) : QDialog(parent) {
     m_stack = new QStackedWidget(this);
     m_stack->setObjectName(MainWindowUI::serverSettingsStackName());
     columns->addWidget(m_stack, 1);
-    // 换页那一下：新那一页淡进来、顺带从下面抬
-    // 一小段。这一层和实例设置那一页是同一个形状（左栏 + 一个 `QStackedWidget`）。
-    // 底不垫色：写回的是祖先们原样那层（磨砂透着），见 `Anim::pageAppear()` 那段。
-    connect(m_stack, &QStackedWidget::currentChanged, this, [this](int) {
-        QWidget *page = m_stack->currentWidget();
-        if (page != nullptr && page->isVisible()) {
-            Anim::pageAppear(page);
-        }
-    });
+    // 换页动效不用接：`QStackedWidget` 换页默认就有 `pageAppear()`（`ui/DesignDefaults.hpp`）。
     box->addLayout(columns, 1);
 
     // ---------- ① 常用设置（表单）----------

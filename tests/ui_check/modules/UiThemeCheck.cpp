@@ -55,6 +55,25 @@ int UiThemeCheck(QApplication &app) {
                    Glass::factoryMode(2, false) == Glass::Mode::Solid &&
                    Glass::factoryMode(8, true) == Glass::Mode::Solid,
                "factory backdrop is the scene; few-thread machines and old 'glass off' stay solid");
+        // `enabled()` 的四档判据现在缓存起来了（每次重绘都要问它，原来每次都读注册表 +
+        // 问系统）。写设置之后**同一帧里**就得反映新值，不能等某个事件来清缓存。
+        {
+            const Glass::Mode before = Glass::mode();
+            // 系统那三位（高对比度 / 透明效果 / 系统背板）在测试机上什么样都有可能，先钉死。
+            Glass::setSystemFlagsForTest(false, false, true);
+            Glass::setMode(Glass::Mode::Solid);
+            expect(!Glass::enabled(), "写 solid 之后 enabled() 立刻是 false（写路径清了缓存）");
+            Glass::setMode(Glass::Mode::Scene);
+            expect(Glass::enabled(), "写 scene 之后 enabled() 立刻是 true");
+            // 绕过 setMode、直接往盘上写（外部改设置）那条：用公开的失效入口。
+            QSettings().setValue(Glass::settingsKey(), Glass::modeKey(Glass::Mode::Solid));
+            Glass::invalidateSettingsCache();
+            expect(!Glass::enabled(), "直接写盘 + invalidateSettingsCache() 之后立刻生效");
+            Glass::setMode(before);
+            Glass::clearSystemFlagsForTest();
+            expect(Glass::enabled() == (Glass::effectiveMode() != Glass::Mode::Solid),
+                   "撤掉测试用的系统标志之后回到现读系统（判据一致）");
+        }
         // 主题显示名照着三张内置风景起；内部 id 与「配色」下拉的顺序不动（盘上存的是 id）。
         expect(Theme::presetName(QStringLiteral("dark")) == QStringLiteral("暮色雪山") &&
                    Theme::presetName(QStringLiteral("emerald")) == QStringLiteral("冰川碧湖") &&
@@ -487,7 +506,7 @@ int UiThemeCheck(QApplication &app) {
             const QList<LogoCase> cases{{QStringLiteral("dark"), false}, {QStringLiteral("emerald"), false},
                                         {QStringLiteral("ocean"), false}, {QStringLiteral("dark"), true}};
             const Theme::Spec restore = Theme::current();
-            bool same = true, readable = true, fades = true;
+            bool same = true, readable = true, fades = true, captionReadable = true, captionKept = true;
             for (const LogoCase &c : cases) {
                 Theme::Spec spec = Theme::presetSpec(c.preset);
                 if (c.brightImage) {
@@ -522,6 +541,34 @@ int UiThemeCheck(QApplication &app) {
                 };
                 const QImage home = shoot(MainWindowUI::homeTabIndex());
                 const QList<QColor> homeUnder = backdrop->colorsUnder(logo);  // 主页此刻真正的底（清晰风景）
+                // 主页三颗窗口按钮共用一份墨色：取三颗字形里最实的那一点（最小化那一横落在半像素上，
+                // 单看它会被抗锯齿压淡），叠到每颗按钮底下实测的两端上量对比度。
+                // 亮背景图要过 3:1；默认风景墨色原样是主页字色 heroInk2（补对比度那一步不许动它）。
+                {
+                    QColor core(0, 0, 0, 0);
+                    QList<QColor> under;
+                    for (const char *name : {"titleBarMinimize", "titleBarMaximize", "titleBarClose"}) {
+                        auto *button = window.findChild<QWidget *>(QString::fromLatin1(name));
+                        if (button == nullptr) continue;
+                        QImage img(button->size(), QImage::Format_ARGB32);
+                        img.fill(Qt::transparent);
+                        button->render(&img, QPoint(), QRegion(), QWidget::DrawChildren);
+                        for (int y = 0; y < img.height(); ++y)
+                            for (int x = 0; x < img.width(); ++x)
+                                if (img.pixelColor(x, y).alpha() > core.alpha()) core = img.pixelColor(x, y);
+                        under += backdrop->colorsUnder(button);
+                    }
+                    double low = under.isEmpty() ? 0.0 : 21.0;
+                    for (const QColor &bg : under) low = qMin(low, Glass::contrast(Glass::over(core, bg), bg));
+                    const QColor expected = Theme::tokens().heroInk2;
+                    const bool kept = qAbs(core.red() - expected.red()) <= 2 && qAbs(core.green() - expected.green()) <= 2 &&
+                                      qAbs(core.blue() - expected.blue()) <= 2 && qAbs(core.alpha() - expected.alpha()) <= 3;
+                    if (c.brightImage) captionReadable = captionReadable && low >= 3.0;
+                    else captionKept = captionKept && kept;
+                    std::printf("  窗口按钮 %s%s：墨 %s α%d（主页字色 %s α%d），最差对比度 %.2f\n", qUtf8Printable(c.preset),
+                                c.brightImage ? "+亮背景图" : "", qUtf8Printable(core.name()), core.alpha(),
+                                qUtf8Printable(expected.name()), expected.alpha(), low);
+                }
                 const QImage manage = shoot(MainWindowUI::instancesTabIndex());
                 // 别的页此刻真正的底：W 那一块的磨砂底（风景淡出后只剩它）+ 主页那一份
                 const QList<QColor> under = homeUnder + backdrop->colorsUnderAnyPage(logo);
@@ -566,6 +613,8 @@ int UiThemeCheck(QApplication &app) {
             expect(same, "★ 品牌标 W 在主页和管理页画出来一模一样（三套预设 + 亮背景图）");
             expect(readable, "★ 品牌标 W 在主页风景和别的页磨砂底上都有 3:1（三套预设 + 亮背景图）");
             expect(fades, "窗口按钮墨色按风景不透明度在普通 / 主页字色之间渐变（一半时介于两者）");
+            expect(captionReadable, "★ 亮背景图下主页三颗窗口按钮对实测底色有 3:1");
+            expect(captionKept, "★ 默认风景三套预设下主页窗口按钮墨色仍是主页字色（补对比度不改默认观感）");
         }
         {
             Theme::Spec edited;

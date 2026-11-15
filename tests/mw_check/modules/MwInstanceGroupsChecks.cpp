@@ -199,22 +199,39 @@ int MwInstanceGroupsChecks(const QDir &root, const QDir &versionsDir) {
             AppPaths::setMinecraftDir(otherRoot);
             QMetaObject::invokeMethod(&w, "onVersionsFetched", Qt::DirectConnection,
                                       Q_ARG(QStringList, QStringList({QStringLiteral("1.7.10")})));
-            QApplication::processEvents();
-            check(groupHeadersOf(tree) == QStringList({QStringLiteral("另一份里的组 (1)")}),
+            // NOTE: 这一发**不是同步的**。`onVersionsFetched()` 只把请求发出去
+            // （`refreshInstalledVersionsAsync()` → `VersionManager::requestInstalledVersions`），
+            // 扫盘在后台线程，结果由 `installedVersionsScanned` 送回界面。所以这里必须等
+            // **条件成立**，不能 `processEvents()` 一下就断言 —— 那等于在赌后台线程和主线程谁先跑，
+            // 实例多的机器上必输。等的是"树变成另一份里的样子"，不是"等 200 毫秒"。
+            const QString otherHeader = QStringLiteral("另一份里的组 (1)");
+            check(pumpUntil(
+                      [&] {
+                          return groupHeadersOf(tree) == QStringList({otherHeader});
+                      },
+                      4000),
                   "T4 同一个窗口里换了目录，分组自己跟着换了（没有谁去通知那个 store）"
                   "，那一份里「未分组」是空的所以只有一行",
                   groupHeadersOf(tree).join(QLatin1Char('|')));
-            check(instanceItemsOf(tree).size() == 1 &&
-                      instanceItemsOf(tree).first()->data(0, Qt::UserRole).toString() ==
-                          QStringLiteral("1.7.10"),
+            check(pumpUntil(
+                      [&] {
+                          return instanceItemsOf(tree).size() == 1 &&
+                                 instanceItemsOf(tree).first()->data(0, Qt::UserRole).toString() ==
+                                     QStringLiteral("1.7.10");
+                      },
+                      4000),
                   "T4 实例也换成了那一份里的",
                   QString::number(instanceItemsOf(tree).size()));
 
             AppPaths::setMinecraftDir(QString());  // 回沙盒
             QMetaObject::invokeMethod(&w, "onVersionsFetched", Qt::DirectConnection,
                                       Q_ARG(QStringList, QStringList({QStringLiteral("1.20.1")})));
-            QApplication::processEvents();
-            check(groupHeadersOf(tree) == QStringList({QStringLiteral("未分组 (3)")}),
+            // 回来这一趟同样等条件（理由同上）：等的是"分组又变回沙盒那三行"。
+            check(pumpUntil(
+                      [&] {
+                          return groupHeadersOf(tree) == QStringList({QStringLiteral("未分组 (3)")});
+                      },
+                      4000),
                   "T4 切回沙盒，分组又跟着回来了（两个方向都认账）",
                   groupHeadersOf(tree).join(QLatin1Char('|')));
 

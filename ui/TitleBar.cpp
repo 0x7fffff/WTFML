@@ -154,18 +154,31 @@ QPair<QColor, QColor> brandMarkStops() {
     return {base.lighter(118), base};
 }
 
+/// @p c 叠在 @p backgrounds 每一种底上之后最低的那个对比度（半透明的墨按叠出来的色算）。
+double worstContrast(const QColor &c, const QList<QColor> &backgrounds) {
+    double low = 21.0;
+    for (const QColor &bg : backgrounds) low = qMin(low, Glass::contrast(Glass::over(c, bg), bg));
+    return low;
+}
+
 /// 把 @p color 往 @p ink 那头挪，直到它在 @p backgrounds 每一种底上都有 3:1（WCAG 图形对比度）。
 /// @p ink 是这一处文字用的墨（主题保证它在这些底上读得清），所以一定收得住。
 QColor ensureGraphicContrast(QColor color, const QColor &ink, const QList<QColor> &backgrounds) {
-    const auto worst = [&](const QColor &c) {
-        double low = 21.0;
-        for (const QColor &bg : backgrounds) low = qMin(low, Glass::contrast(c, bg));
-        return low;
-    };
+    const auto worst = [&](const QColor &c) { return worstContrast(c, backgrounds); };
     // 小步挪（每步 5%），刚够 3:1 就停：离主题色越近越好（出厂暮色雪山的下端只需挪一点）。
     const QColor from = color;
     for (int step = 1; step <= 20 && worst(color) < 3.0; ++step) color = blendedColor(from, ink, step * 0.05);
     return color;
+}
+
+/// 窗口按钮的墨：在 @p under（这颗按钮底下此刻实测的两端）上不够 3:1 时，往这一套主题里
+/// heroInk / heroVeil（一深一浅）中对比度更高的那头小步挪，刚够就停（和品牌标同一个逼近）。
+/// 默认风景本来就够，原样返回。
+QColor legibleCaptionInk(const QColor &ink, const QList<QColor> &under) {
+    const Theme::Tokens t = Theme::tokens();
+    if (worstContrast(ink, under) >= 3.0) return ink;
+    const bool light = worstContrast(t.heroInk, under) >= worstContrast(t.heroVeil, under);
+    return ensureGraphicContrast(ink, light ? t.heroInk : t.heroVeil, under);
 }
 
 }  // namespace
@@ -332,9 +345,18 @@ void TitleBarButton::paintEvent(QPaintEvent *) {
             p.drawRoundedRect(QRectF(rect()), radius, radius);
         }
     }
+    // 窗口按钮压在用户自定义的亮背景图上时，墨按底下实测的颜色补到 3:1（关闭那颗悬停是红底白字，不动）。
+    QColor rest = m_ink, hoverInk = m_hoverInk;
+    if (m_glyph == Glyph::Minimize || m_glyph == Glyph::Maximize || m_glyph == Glyph::Close) {
+        if (const Glass::Backdrop *backdrop = Glass::Backdrop::of(this)) {
+            const QList<QColor> under = backdrop->colorsUnder(this);
+            rest = legibleCaptionInk(m_ink, under);
+            if (m_glyph != Glyph::Close) hoverInk = legibleCaptionInk(m_hoverInk, under);
+        }
+    }
     const QColor ink = !isEnabled() ? Theme::tokens().disabled
-                       : m_current  ? m_ink
-                                    : blendedColor(m_ink, m_hoverInk, m_hoverProgress);
+                       : m_current  ? rest
+                                    : blendedColor(rest, hoverInk, m_hoverProgress);
     switch (m_glyph) {
     case Glyph::Text: {
         const bool compact = width() < kCompactButtonWidth;

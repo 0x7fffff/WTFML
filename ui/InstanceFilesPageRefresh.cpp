@@ -17,8 +17,8 @@
  * - `m_list->clear()` **必须挡信号**：它会发一次 `itemSelectionChanged`，而那一发接的是
  *   重算 `m_selectedPaths` —— 此刻表已空，用户的选择在这一句上就被抹平，`rebuildRows()`
  *   想按路径还回去时手里那份账已经空了；
- * - 条目**故意不给文字**：行里是一个 `setItemWidget()` 摆上去的透明控件，代理画的字会从
- *   它底下露出来，屏幕上是同一个名字画两遍；
+ * - 条目的 DisplayRole **故意空着**：名字在 AccessibleTextRole 里（读屏读它、代理画它），
+ *   给了 DisplayRole 列表会按首字母跳行；
  * - 一个来源不见了就跳过它接着列别的 —— 不要因为一个存档被删就把整页判成空的。
  */
 
@@ -58,7 +58,6 @@ void InstanceFilesPage::refresh() {
     m_pathLabel->setText(shownDir);
     // 装不下时是从中间省略的，两头那几段还能看；整条路径靠悬停提示给（见构造里那段 NOTE）。
     m_pathLabel->setToolTip(shownDir);
-    // clear() 会连同 setItemWidget() 挂上去的那些行控件一起删掉（列表持有它们）。
     // **这一发也得把信号挡着**（真机踩到）。`clear()` 会发一次
     // `itemSelectionChanged`，而那一发接的是「重算 m_selectedPaths」—— 此刻表已经空了，
     // 于是**用户的选择在这一句上就被抹平**；紧接着 rebuildRows() 想按路径把选择还回去，
@@ -70,12 +69,8 @@ void InstanceFilesPage::refresh() {
         const QSignalBlocker blocker(m_list);
         m_list->clear();
     }
-    // 统计那一趟跟着作废（见 m_statLabels 那段）：上面这一句把上一趟那些标签一起删了，
-    // 队列里还没轮到的那几个路径指向的是已经不存在的控件。**先清队列再清表**，而且
-    // 两样都要清 —— 只清表的话，下一趟的 fillDirectoryStats() 会拿着一个悬空路径去
-    // 找行（找不到，白跑一趟）。
+    // 统计那一趟跟着作废：队列里还没轮到的那几个路径指的是上一趟的条目。
     m_statQueue.clear();
-    m_statLabels.clear();
     // 先当空的，下面每加一条翻过来 —— 这样"目录不存在"和"目录是空的"自然走同一条路。
     m_empty = true;
     m_entries.clear();
@@ -128,17 +123,11 @@ void InstanceFilesPage::refresh() {
             const QString shown = disabled ? raw.left(raw.size() - disabledSuffix().size()) : raw;
             const QString path = info.absoluteFilePath();
             // 「这一条叫什么」——**盘上的名字**去掉那个后缀，被禁用的再挂上四个字。
-            // 条目不给文字（见下），所以这一格得自己算出来，否则那四个字会**整条从界面上
+            // 名字由这一格自己算出来，否则那四个字会**整条从界面上
             // 消失** —— 名字后面不再有任何东西说明这一条是关着的，而灰掉的名字色在浅色
             // 主题下几乎看不出来。
             const QString displayName = disabled ? shown + disabledMark() : shown;
 
-            // 条目**故意不给文字**。`QListWidgetItem` 上的文字是**视图代理画的**，而这一行
-            // 的内容是一个用 setItemWidget() 摆上去的真控件；那个控件是**透明的**（要这样，
-            // 选中高亮才从底下透出来），所以代理画的字会从它底下露出来 —— 屏幕上是
-            // **同一个名字画两遍**，一行字的位置和控件里那个名字差着半行，看着像重影。
-            // 文字由 makeRow() 那一格全权负责（名字在 nameLabelName() 上，那才是"这一条
-            // 叫什么"的唯一出处）。
             Entry entry;
             entry.displayName = displayName;
             entry.raw = raw;

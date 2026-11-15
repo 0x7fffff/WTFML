@@ -462,8 +462,7 @@ void runToolboxExtraTests() {
                   && plan.materials.contains(QStringLiteral("旗帜图案 × 1")),
               "★★ ZAJ1 材料按种类合并成「× N」，特殊材料用图案表里那件东西",
               plan.materials.join(QStringLiteral(" / ")));
-        check(plan.summary.contains(QStringLiteral("底色 红色"))
-                  && plan.summary.contains(QStringLiteral("2 层 / 6")),
+        check(plan.summary.contains(QStringLiteral("底色 红色 · 2/6 层")),
               "★ ZAJ1 总述写清底色和层数", plan.summary);
         check(plan.command.contains(QStringLiteral("minecraft:red_banner"))
                   && plan.command.contains(QStringLiteral("{Pattern:\"cross\",Color:0}"))

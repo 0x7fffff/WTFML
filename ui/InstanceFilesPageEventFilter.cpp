@@ -1,25 +1,24 @@
 /**
  * @file InstanceFilesPageEventFilter.cpp
- * @brief 这一页上的事件路由：浮条重定位、行控件悬停时露「详情」、右键进详情页。
+ * @brief 这一页上的事件路由：浮条重定位、行上的悬停 / 点格子 / 右键进详情页、拖出与框选。
  *
  * 【为什么单独一个翻译单元】
  *
- * 这一页的行不是普通条目，而是 `setItemWidget()` 摆上去的真控件；底下那条悬浮操作条又
- * **不在布局里**（它压在列表上）。于是有一批位置和悬停状态没有别人帮着算，全在这支过滤器里：
+ * 这一页的行是**代理画的**（RowDelegate），行尾那几格不是控件，点不点中、悬停在哪一格都得
+ * 自己按坐标算；底下那条悬浮操作条又**不在布局里**（它压在列表上）。于是有一批位置和悬停
+ * 状态没有别人帮着算，全在这支过滤器里：
  *
  * - 页面 / 列表视口变大小 ⇒ 重新摆那条浮条（它在布局外，没有人会替它重排）；
- * - 鼠标进出一行 ⇒ 露出 / 收起那一行的「详情」按钮（Enter 是往祖先那串发的，进的是行里
- *   哪一个孩子也算）；
+ * - 鼠标在视口上移动 / 离开 ⇒ 记下压着哪一行哪一格（悬停底、「详情」露不露、垃圾桶变红）；
+ * - 左键按在行尾某一格上 ⇒ 吃掉（不改选择、不起拖动），松开时还在同一格才算点；
  * - 行上右键 ⇒ 打开这一条的详情页，**且保留上一页的选择**。
  *
  * 【几条踩过的坑】
  *
- * - 认"这一发来自哪一行"靠行控件上的动态属性（`rowPathProperty()`）：同一层里的另一个
- *   孩子是那条浮条，它身上没有这一格，于是自动被排除，不必再写一份"哪些控件算行"的名单；
  * - 右键那一发**必须吃掉、而且 `accept()` 不能省**：Qt 那个"被忽略了就往上冒"的循环判的
- *   是 `res && isAccepted()`，只 `return true` 的话这一发照样会被送到 viewport 上；
+ *   是 `res && isAccepted()`，只 `return true` 的话这一发照样会被送到视图上；
  * - `path` 必须在 `emit` **之前**取出来：接的人会把这一页收掉去开详情页，回来时
- *   `watched` 说不定已经不在了。
+ *   这一行说不定已经不在了。
  */
 
 #include "InstanceFilesPage.hpp"
@@ -29,7 +28,6 @@
 #include <QEvent>
 #include <QListWidget>
 #include <QMouseEvent>
-#include <QAbstractButton>
 #include <QApplication>
 #include <QDrag>
 #include <QFileInfo>
@@ -41,8 +39,10 @@
 #include <QWidget>
 
 bool InstanceFilesPage::eventFilter(QObject *watched, QEvent *event) {
-    if (watched == m_contentHost && event->type() == QEvent::Resize)
+    if (watched == m_contentHost && event->type() == QEvent::Resize) {
         repositionSelectionBar();
+        if (placeCompactStateRow()) applyState();
+    }
     // 列表的 viewport 变大小了 ⇒ 底下那条悬浮操作条要重算位置（见 .hpp 里那段）。
     //
     // NOTE: 那条操作条**不在布局里**（在布局里就成了"列表下面另起一行"，而用户要的是
@@ -55,85 +55,102 @@ bool InstanceFilesPage::eventFilter(QObject *watched, QEvent *event) {
         repositionSelectionBar();
     }
 
-    // ---------- 行控件上那三发 ----------
-    //
-    // 认"这一发来自哪一行"靠行控件上那个**动态属性**（makeRow 里 `setProperty`，名字见
-    // .hpp 里 rowPathProperty）—— 列表底下的另一个孩子是那条悬浮操作条，它身上没有这一格，
-    // 于是同一段代码自动把它排除在外，不必再写一份"哪些控件算行"的名单。
-    if (watched != nullptr && watched->property(rowPathProperty()).isValid()) {
-        auto *rowWidget = static_cast<QWidget *>(watched);
+    // ---------- 行上的鼠标（行是画的，全在视口这一处） ----------
+    if (m_list != nullptr && watched == m_list->viewport()) {
         switch (event->type()) {
-        case QEvent::Enter:
-            // 鼠标进了这一行 ⇒ 露出这一行的「详情」。**进的是行里哪一个孩子也算** —— Qt 的
-            // Enter 是往祖先那一串发的（见 .hpp 里 setRowDetailVisible 那段）。
-            setRowDetailVisible(rowWidget, true);
-            if (m_list != nullptr) m_list->viewport()->update();  // 行底的悬停淡底跟着换
-            break;
-        case QEvent::Leave:
-            setRowDetailVisible(rowWidget, false);
-            if (m_list != nullptr) m_list->viewport()->update();
-            break;
-        case QEvent::MouseButtonPress: {
-            const auto *mouse = static_cast<QMouseEvent *>(event);
-            if (mouse->button() != Qt::RightButton) {
-                break;
-            }
-            // 右键这一发 = 开这一条的详情页，并**保留上一页的选择**。**只认"认得出
-            // 资源"的那些** —— 判据和这一行那格 ⓘ 的可用性逐字相同（`m_resourceTips`，
-            // 见 applyDetailButtonState）。
-            //
-            // 【为什么必须把它吃掉，而不是让视图也看见这一发】
-            // ① 视图收到右键会自己动当前项/选中态（Qt 为了让右键菜单有个目标，会先把
-            // 鼠标底下那一条选中），而这里要保留上一页的选择；
-            // ② 这一页没有右键菜单，放它过去也没有第二个读者。
-            // ⚠ `accept()` 那一句**不能省**：Qt 那个"被忽略了就往上冒"的循环判的是
-            // `res && isAccepted()` —— 事件过滤器只 return true（不 accept）的话，
-            // 这一发照样会被送到 viewport 上（见 .hpp 里 eventFilter 那段）。
-            // ⚠ `path` 必须在 emit **之前**取出来：接的人会把这一页收掉去开详情页，
-            // 回来之后 `watched` 说不定已经不在了。
-            const QString path = watched->property(rowPathProperty()).toString();
-            if (m_batchMode && m_resourceTips.contains(identityPath(path))) {
-                emit detailRequested(path);
+        case QEvent::MouseMove: {
+            const QPoint pos = static_cast<QMouseEvent *>(event)->position().toPoint();
+            const QListWidgetItem *item = m_list->itemAt(pos);
+            setHover(item != nullptr ? item->data(pathRole()).toString() : QString(), actionAt(pos));
+            // 按住一格拖开：不交给视图去拖选 / 起拖动（那一格按下去时本来就没改选择）。
+            if (m_pressAction != RowAction::None) {
+                m_list->viewport()->update();
                 event->accept();
                 return true;
             }
             break;
         }
+        case QEvent::Leave:
+            setHover(QString(), RowAction::None);
+            break;
+        case QEvent::MouseButtonPress: {
+            const auto *mouse = static_cast<QMouseEvent *>(event);
+            const QPoint pos = mouse->position().toPoint();
+            int row = -1;
+            const RowAction action = actionAt(pos, &row);
+            const QListWidgetItem *item = row >= 0 ? m_list->item(row) : nullptr;
+            const QString path = item != nullptr ? item->data(pathRole()).toString() : QString();
+            if (mouse->button() == Qt::RightButton) {
+                // 右键这一发 = 开这一条的详情页，并**保留上一页的选择**。**只认"认得出资源"的
+                // 那些** —— 判据和行尾「详情」那一格逐字相同（`m_resourceTips`）。
+                // 必须吃掉：视图收到右键会先把鼠标底下那一条选中。别的行 / 空白处照旧给右键菜单。
+                if (m_batchMode && !path.isEmpty() && m_resourceTips.contains(identityPath(path))) {
+                    emit detailRequested(path);
+                    event->accept();
+                    return true;
+                }
+                break;
+            }
+            // 「详情」藏着的时候不算一格（只在悬停那一行画）：按在那里就是按在行身上。
+            if (mouse->button() == Qt::LeftButton && action != RowAction::None
+                && (action != RowAction::Detail || rowDetailShown(row))) {
+                if (actionEnabled(item, action)) {
+                    m_pressAction = action;
+                    m_pressActionPath = path;
+                    m_list->viewport()->update(m_list->visualItemRect(item));
+                }
+                // 点不动的那一格也吃掉：原来那颗灰按钮按下去同样什么都不发生（不改选择）。
+                event->accept();
+                return true;
+            }
+            break;
+        }
+        case QEvent::MouseButtonRelease: {
+            if (m_pressAction == RowAction::None) break;
+            const RowAction pressed = m_pressAction;
+            const QString path = m_pressActionPath;
+            m_pressAction = RowAction::None;
+            m_pressActionPath.clear();
+            m_list->viewport()->update();
+            int row = -1;
+            const RowAction now = actionAt(static_cast<QMouseEvent *>(event)->position().toPoint(), &row);
+            const QListWidgetItem *item = row >= 0 ? m_list->item(row) : nullptr;
+            event->accept();
+            // 松开时还在同一行同一格才算点了一下（和真按钮一样：按下后拖出去再松 = 不算）。
+            if (now == pressed && item != nullptr && item->data(pathRole()).toString() == path)
+                triggerRowAction(path, pressed);
+            return true;
+        }
+        case QEvent::MouseButtonDblClick:
+            // 连点两下开关 / 垃圾桶不该顺带「打开」这一条（itemActivated）。
+            if (actionAt(static_cast<QMouseEvent *>(event)->position().toPoint()) != RowAction::None) {
+                event->accept();
+                return true;
+            }
+            break;
         default:
             break;
         }
     }
     // ---------- 拖出 / Ctrl 框选取反 ----------
     {
-        // 认"这一发属于哪一行"：可能是行本身（透明/空白处），也可能是行里的某个孩子
-        // （名字、大小那几格）。孩子身上没有那个动态属性，所以要沿 parent 往上找 ——
-        // 否则整行只有"行控件自己没有孩子"的那一小块能拖，看着就是"拽不动"。
-        QWidget *rowWidget = nullptr;
-        for (QWidget *w = qobject_cast<QWidget *>(watched); w != nullptr; w = w->parentWidget()) {
-            if (w->property(rowPathProperty()).isValid()) {
-                rowWidget = w;
-                break;
-            }
-        }
+        // 按在行尾那几格上的那一发上面已经吃掉了，走到这里的都是按在行身 / 空白处。
         const bool fromViewport = m_list != nullptr && watched == m_list->viewport();
-        if ((fromViewport || rowWidget != nullptr) && m_list != nullptr) {
+        if (fromViewport) {
             switch (event->type()) {
             case QEvent::MouseButtonPress: {
                 const auto *mouse = static_cast<QMouseEvent *>(event);
                 if (mouse->button() != Qt::LeftButton) break;
                 const QPoint pos =
                     m_list->viewport()->mapFromGlobal(mouse->globalPosition().toPoint());
-                const bool onButton = qobject_cast<QAbstractButton *>(watched) != nullptr;
                 QString path;
-                if (rowWidget != nullptr) {
-                    path = rowWidget->property(rowPathProperty()).toString();
-                } else if (const QModelIndex index = m_list->indexAt(pos); index.isValid()) {
+                if (const QModelIndex index = m_list->indexAt(pos); index.isValid()) {
                     if (const QListWidgetItem *item = m_list->item(index.row()))
                         path = item->data(pathRole()).toString();
                 }
                 m_pressViewportPos = pos;
-                m_pressPath = onButton ? QString() : path;
-                m_pressOnRow = !onButton && !path.isEmpty();
+                m_pressPath = path;
+                m_pressOnRow = !path.isEmpty();
                 m_dragStarted = false;
                 m_ctrlDragActive = mouse->modifiers().testFlag(Qt::ControlModifier);
                 if (m_ctrlDragActive && m_list != nullptr) m_list->setAutoScroll(false);
@@ -146,16 +163,13 @@ bool InstanceFilesPage::eventFilter(QObject *watched, QEvent *event) {
                 bool pathSelected = false;
                 for (const QString &selectedPath : m_pressSelection)
                     if (selectedPath == path) pathSelected = true;
-                m_swallowPress = !onButton && pathSelected && (m_batchMode || m_pressSelection.size() > 1)
+                m_swallowPress = pathSelected && (m_batchMode || m_pressSelection.size() > 1)
                     && !(mouse->modifiers() & (Qt::ControlModifier | Qt::ShiftModifier));
                 if (m_swallowPress) {
                     if (QListWidgetItem *pressedItem = m_list->itemAt(pos))
                         m_list->setCurrentItem(pressedItem, QItemSelectionModel::NoUpdate);
                 }
-                    qInfo() << "[drag] press watched="
-                            << (watched != nullptr ? watched->metaObject()->className() : "null")
-                            << "row=" << (rowWidget != nullptr) << "onButton=" << onButton
-                            << "path=" << path << "swallow=" << m_swallowPress;
+                qInfo() << "[drag] press path=" << path << "swallow=" << m_swallowPress;
                 break;
             }
             case QEvent::MouseMove: {
@@ -303,15 +317,9 @@ void InstanceFilesPage::beginFileDrag() {
             << "vp=" << m_list->viewport()->size()
             << "item0=" << (m_list->item(0) != nullptr
                                 ? m_list->visualItemRect(m_list->item(0))
-                                : QRect())
-            << "row0=" << (m_list->itemWidget(m_list->item(0)) != nullptr
-                               ? m_list->itemWidget(m_list->item(0))->geometry()
-                               : QRect())
-            << "row0Vis=" << (m_list->itemWidget(m_list->item(0)) != nullptr
-                                  && m_list->itemWidget(m_list->item(0))->isVisible());
+                                : QRect());
     if (m_list != nullptr) {
-        // 不要 doItemsLayout()：它会按滚动位置 0 重排，把行控件和当前滚动位置错开，
-        // 屏幕上就是“有些行在、有些行空着”。让 Qt 自己按当前滚动位置收敛即可。
+        // 不要 doItemsLayout()：它会按滚动位置 0 重排、把列表跳回顶上。让 Qt 自己按当前滚动位置收敛即可。
         m_list->viewport()->update();
     }
 }

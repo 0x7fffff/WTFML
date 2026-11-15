@@ -18,8 +18,12 @@
  */
 #pragma once
 
+#include "Theme.hpp"
+
+#include <QFontMetrics>
 #include <QLabel>
 #include <QPainter>
+#include <QResizeEvent>
 #include <QString>
 
 class ElidedLabel : public QLabel {
@@ -44,8 +48,36 @@ public:
     }
     Qt::TextElideMode elideMode() const { return m_elideMode; }
 
+    /// 字号随宽度在 [lo, hi] 里挑放得下整段的最大一号（Theme::fitPixelSize），到下限还放不下才省略，
+    /// 那时悬停提示是全名。高度按上限那一号钉死、sizeHint 的宽也按上限量：名字长短不挪下面的版面，
+    /// 窗口拉宽时布局才肯给更宽的一格、字号回得去。宽度一变自己重挑；换了 text() 要调一次 refitFont()。
+    void setFitPixelRange(int hi, int lo) {
+        m_fitHi = hi;
+        m_fitLo = lo;
+        QFont top = font();
+        top.setPixelSize(hi);
+        const QMargins m = contentsMargins();
+        setFixedHeight(qMax(minimumHeight(), m.top() + QFontMetrics(top).height() + m.bottom()));
+        setMinimumWidth(1);  // 不然 QLabel 的 minimumSizeHint 是整段文字宽，布局压不窄它
+        refitFont();
+    }
+    void refitFont() {
+        if (m_fitHi <= 0) return;
+        QFont f = font();
+        const int width = contentsRect().width();
+        f.setPixelSize(Theme::fitPixelSize(f, text(), width, m_fitHi, m_fitLo));
+        if (f != font()) setFont(f);
+        setToolTip(QFontMetrics(f).horizontalAdvance(text()) > width ? text() : QString());
+    }
+
     QSize sizeHint() const override {
-        const QSize full = QLabel::sizeHint();
+        QSize full = QLabel::sizeHint();
+        if (m_fitHi > 0) {
+            QFont top = font();
+            top.setPixelSize(m_fitHi);
+            const QMargins m = contentsMargins();
+            full.setWidth(m.left() + QFontMetrics(top).horizontalAdvance(text()) + m.right());
+        }
         // 宽度上限由 setMaximumWidth() 给。**没设过时它是 QWIDGETSIZE_MAX（16777215），
         // 不是 -1** —— 拿"有没有设小上限"当判据，别拿"是不是负数"。
         const int cap = maximumWidth();
@@ -56,6 +88,11 @@ public:
     }
 
 protected:
+    void resizeEvent(QResizeEvent *event) override {
+        QLabel::resizeEvent(event);
+        if (event->size().width() != event->oldSize().width()) refitFont();
+    }
+
     void paintEvent(QPaintEvent *) override {
         // NOTE: 这里**每次都重算**，不缓存。缓存（"宽度没变就接着用上次那串"）看着是省事，
         // 但底栏那几个格子的宽度是**钉死的**：文字改了宽度也不改，resizeEvent 压根
@@ -71,4 +108,6 @@ protected:
 
 private:
     Qt::TextElideMode m_elideMode = Qt::ElideRight;
+    int m_fitHi = 0;  // 0 = 字号不随宽度变
+    int m_fitLo = 0;
 };

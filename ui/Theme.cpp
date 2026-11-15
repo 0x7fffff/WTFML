@@ -5,12 +5,15 @@
 
 #include "Theme.hpp"
 
+#include "DesignDefaults.hpp"
 #include "Glass.hpp"
 #include "Popups.hpp"
 
 #include <QAbstractItemView>
 #include <QAbstractButton>
 #include <QButtonGroup>
+#include <QCache>
+#include <QFileInfo>
 #include <QLabel>
 #include <QAbstractSpinBox>
 #include <QApplication>
@@ -19,6 +22,7 @@
 #include <QDir>
 #include <QEvent>
 #include <QFontDatabase>
+#include <QFontMetrics>
 #include <QFocusEvent>
 #include <QHBoxLayout>
 #include <QKeyEvent>
@@ -200,6 +204,14 @@ QFont quoteFont(QFont font, QuoteScript script, int pixelSize) {
     font.setBold(false);
     font.setLetterSpacing(QFont::AbsoluteSpacing, 0);
     return font;
+}
+
+int fitPixelSize(QFont font, const QString &text, int width, int hi, int lo) {
+    for (int px = hi; px > lo; --px) {
+        font.setPixelSize(px);
+        if (QFontMetrics(font).horizontalAdvance(text) <= width) return px;
+    }
+    return lo;
 }
 
 QFont handFont(QFont font, HandFont which) {
@@ -670,6 +682,8 @@ public:
     void polish(QWidget *w) override
     {
         QProxyStyle::polish(w);
+        // 设计系统默认生效（列表代理 / 视口透明 / 栈换页 / 文本框去框），见 DesignDefaults.hpp。
+        DesignDefaults::apply(w);
         auto *button = qobject_cast<QPushButton *>(w);
         if (button == nullptr || button->testAttribute(Qt::WA_SetFont)) return;
         QFont font = button->font();
@@ -793,7 +807,10 @@ public:
                 // 实例树（选中带只有卡片那一圈）：分支区那一截不涂。7a 令牌里
                 // 选中底是半透明的，先涂再让代理拿底色「擦」已经擦不掉了，只能从源头不画。
                 const bool cardOnly = w != nullptr && w->property("wtfmlCardSelection").toBool();
-                if (pe == PE_PanelItemViewRow && cardOnly)
+                // 默认行代理自己画内缩圆角块，分支区那一截也不涂（否则块左边多一截方的）。
+                const auto *view = qobject_cast<const QAbstractItemView *>(w);
+                const bool rowBlock = view != nullptr && DesignDefaults::isRowDelegate(view->itemDelegate());
+                if (pe == PE_PanelItemViewRow && (cardOnly || rowBlock))
                     return;
                 p->fillRect(vopt->rect, selectionFill(vopt->palette.color(QPalette::Base)));
                 return;
@@ -876,6 +893,16 @@ public:
                 // 换墨那一套只有一处出处（`selectionPalette()`），和三个手画正文的代理
                 // 读的是同一个函数 —— 两条路上屏幕看到的必须是同一支墨。
                 patched.palette = selectionPalette(patched.palette, /*selected=*/true);
+                QProxyStyle::drawControl(ce, &patched, p, w);
+                return;
+            }
+        }
+        if (ce == CE_HeaderLabel) {
+            if (const auto *header = qstyleoption_cast<const QStyleOptionHeader *>(opt)) {
+                QStyleOptionHeaderV2 patched;
+                if (const auto *v2 = qstyleoption_cast<const QStyleOptionHeaderV2 *>(opt)) patched = *v2;
+                else static_cast<QStyleOptionHeader &>(patched) = *header;
+                DesignDefaults::alignHeaderLabel(&patched, w);
                 QProxyStyle::drawControl(ce, &patched, p, w);
                 return;
             }
@@ -2013,10 +2040,14 @@ QString widgetStyleSheet() {
     // 早先这里单独补过一条 `min-height: inputHeight() - 6`（数字框那 6px 框是基样式画的），
     // 现在框归样式表自己画，那条要是不删就会把数字框的**下限**顶高 2px —— 三样等高的钉子在
     // 它上面破掉。
-    // 表头：不画白底、不描边，字用次要色（工具箱那几张表）。
+    // 表头：不画白底、不描边，字用次要色（工具箱那几张表）。左右 padding 和默认行代理每一格的
+    // 文字内边距是同一个数（DesignDefaults::cellTextInset()），表头字和那一列的字从同一条竖线起。
     qss += QStringLiteral("QHeaderView { background: transparent; border: none; }"
                           "QHeaderView::section { background: transparent; border: none;"
-                          " color: %1; padding: 4px 6px; }").arg(paletteRef("placeholder-text"));
+                          " color: %1; padding: 4px %2px; }"
+                          "QTableCornerButton::section { background: transparent; border: none; }")
+               .arg(paletteRef("placeholder-text"))
+               .arg(DesignDefaults::cellTextInset());
     // **数字框 / 下拉框里面那一格也是 `QLineEdit`** —— 上面那条会连它一起框上，画出来
     // 就是"框里还套着一个框"（自旋框自己已经有一圈边了）。这一条把它按回去。
     // 用**后代**选择器（Qt 的 `>` 子选择器不可靠，后代选择器一定生效）。
@@ -2206,6 +2237,13 @@ QString widgetStyleSheet() {
                "QPushButton:checked, QPushButton[%1=\"neutral\"]:checked { background-color: palette(highlight); color: palette(link); }"
                "QPushButton:disabled, QPushButton[%1=\"neutral\"]:disabled { background-color: palette(light);"
                " color: palette(link-visited); }"
+               // 挂了 neutral 的 QToolButton（「更改图标」浮层里图上字下那几格）与上面胶囊同一档；
+               // 不挂就是原生白底，深色主题下字看不清。
+               "QToolButton[%1=\"neutral\"] { background-color: palette(button); color: palette(button-text);"
+               " border: 1px solid transparent; border-radius: %4px; padding: 6px; }"
+               "QToolButton[%1=\"neutral\"]:hover:enabled { background-color: palette(shadow); }"
+               "QToolButton[%1=\"neutral\"]:pressed:enabled { background-color: palette(midlight); }"
+               "QToolButton[%1=\"neutral\"]:checked { background-color: palette(highlight); color: palette(link); }"
                // 文字按钮：无底强调字；可勾的（页签）平时 ink-2，勾上强调色淡底。
                "QPushButton[%1=\"ghost\"], QPushButton[%1=\"ghost\"][wtfmlTextAction=\"true\"][checkable=\"false\"]:enabled"
                " { background-color: transparent; color: palette(link); }"
@@ -2223,7 +2261,8 @@ QString widgetStyleSheet() {
                "QPushButton[%2=\"%3\"]:hover:enabled { background-color: palette(light); }"
                "QPushButton[%2=\"%3\"]:pressed:enabled { background-color: palette(midlight); }"
                "QPushButton[%2=\"%3\"]:checked { background-color: palette(highlight); }")
-               .arg(kind, QString::fromLatin1(kButtonSizeProperty), QString::fromLatin1(kIconButtonValue));
+               .arg(kind, QString::fromLatin1(kButtonSizeProperty), QString::fromLatin1(kIconButtonValue))
+               .arg(buttonRadius());
     // 输入框 / 下拉 / 数字框：**同一族**（fill-soft 底、不描线、圆角 10、等高）。
     // 焦点按 F1：鼠标点进来只把底提亮一档，不画线；键盘 Tab / Backtab 到达才加 3px 淡环
     // （`wtfmlKeyboardFocus` 由 `ControlFocusVisibility` 挂，见那个过滤器）。
@@ -2261,6 +2300,12 @@ QString widgetStyleSheet() {
         "QLineEdit:disabled, QComboBox:disabled, QAbstractSpinBox:disabled"
         " { background-color: palette(light); color: palette(link-visited);"
         " border-color: transparent; }"
+        // 多行文本框：和输入框同一族（fill-soft 底、透明 3px 边、同圆角），键盘焦点同一圈淡环。
+        // 原生框与视口底由 DesignDefaults 撤掉；自己挂了样式表的（聊天输入、日志）照旧以那份为准。
+        "QPlainTextEdit, QTextEdit { background-color: palette(base); color: palette(text);"
+        " border: 3px solid transparent; border-radius: %1px; padding: 2px 4px; }"
+        "QPlainTextEdit[wtfmlKeyboardFocus=\"true\"]:focus, QTextEdit[wtfmlKeyboardFocus=\"true\"]:focus"
+        " { border-color: palette(highlight); }"
         // 下拉不再有「文字 + ∨」那颗箭头：整块可点（点框内任何位置都会弹），那一格宽度归零。
         "QComboBox::drop-down { width: 0px; border: none; }"
         // ★ 数字框的内容盒再低 3px：`QStyleSheetStyle` 给 `CT_SpinBox` 算尺寸时会在
@@ -2812,6 +2857,26 @@ PartImage partImage(Part part) {
     image.name = it->imageName;
     image.fit = it->fit;
     image.opacity = clampOpacity(it->imageOpacity);
+    return image;
+}
+
+QImage cachedImage(const QString &path) {
+    if (path.isEmpty()) {
+        return {};
+    }
+    const QFileInfo info(path);
+    // `路径|大小|修改时间`：和 `ThemeBackground` 那一串同一个口径，换了一张图时后两位会变。
+    const QString key = path + QLatin1Char('|') + QString::number(info.size()) +
+                        QLatin1Char('|') + QString::number(info.lastModified().toMSecsSinceEpoch());
+    // 按张数封顶：一张 4K 图解码后约 33 MB，留住的是"最近用过的那几张"，不是整个相册。
+    static QCache<QString, QImage> cache(6);
+    if (const QImage *hit = cache.object(key)) {
+        return *hit;
+    }
+    const QImage image(path);
+    if (!image.isNull()) {
+        cache.insert(key, new QImage(image));
+    }
     return image;
 }
 

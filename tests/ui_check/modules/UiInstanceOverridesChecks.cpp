@@ -82,19 +82,17 @@ int UiInstanceOverridesChecks() {
             const auto stackOf = [](const Dlg &d) {
                 return d.findChild<QStackedWidget *>(Dlg::stackName());
             };
-            // NOTE: 剥法是**结构性的**（`qobject_cast<QScrollArea*>` + `widget()`），
-            // 不是"按名字猜" —— 断言要能盯住"这一层真的在、而且里面装的真是那一页"。
-            const auto panelAt = [](QStackedWidget *stack, int index) -> QWidget * {
-                QWidget *page = stack != nullptr ? stack->widget(index) : nullptr;
-                if (auto *scroll = qobject_cast<QScrollArea *>(page)) {
-                    return scroll->widget();
-                }
-                return page;
+            // NOTE: 剥法是**结构性的**（`scrollName()` 那层滚动区 + `widget()`），不是
+            // "按名字猜" —— 断言要能盯住"这一层真的在、而且里面装的真是那一页"。
+            // 页是**第一次切过去才建**的（见 InstanceSettingsDialog::ensurePage()）：堆叠页
+            // 那一格只是先占位的空位，所以认页一律按**名字**找，不按堆叠页里的下标。
+            const auto pageOf = [](const Dlg &d, const QString &key) -> QWidget * {
+                auto *scroll = d.findChild<QScrollArea *>(Dlg::scrollName(key));
+                return scroll != nullptr ? scroll->widget() : nullptr;
             };
-            // 右栏现在露着的那一页的 objectName。
-            const auto currentPanel = [&stackOf, &panelAt](const Dlg &d) {
-                QStackedWidget *stack = stackOf(d);
-                QWidget *page = stack != nullptr ? panelAt(stack, stack->currentIndex()) : nullptr;
+            // 右栏现在露着的那一页的 objectName（键 → 页，`currentPageKey()` 是唯一出处）。
+            const auto currentPanel = [&pageOf](const Dlg &d) {
+                QWidget *page = pageOf(d, d.currentPageKey());
                 return page != nullptr ? page->objectName() : QString();
             };
             // 左栏那条导航是**树**：认人靠 `UserRole` 上那个键（`navItemOf()`），没有行号这一层 ——
@@ -334,18 +332,47 @@ int UiInstanceOverridesChecks() {
                   QStringLiteral("页上共 %1 页 / pageCount %2")
                       .arg(stack->count())
                       .arg(Dlg::pageCount()));
-            QStringList actualPanels;
-            for (int i = 0; i < stack->count(); ++i) {
-                QWidget *page = panelAt(stack, i);
-                actualPanels.append(page != nullptr ? page->objectName() : QString());
+            // 页是第一次切过去才建的 ⇒ 先逐页切一遍，再按名字把面板认回来；
+            // 顺带把**空位**那一层也按同一张键表对一遍（懒建之前先占位的就是它）。
+            // 每一格（懒建之前先占位的空位）都按 pageCount() 那张键表排。
+            QStringList slotOrder;
+            for (int i = 0; i < expectedPanels.size(); ++i) {
+                const QString &key = expectedPanels.at(i);
+                QWidget *slot = i < stack->count() ? stack->widget(i) : nullptr;
+                slotOrder.append(slot != nullptr && slot->objectName() ==
+                                                       QStringLiteral("instanceSettingsSlot-") + key
+                                     ? key
+                                     : QString());
             }
-            QStringList expectedNames;
+            check(slotOrder == expectedPanels,
+                  "★ U0a 堆叠页每一格（懒建之前占位的那一层）也和键表按下标对得上",
+                  slotOrder.join(QLatin1Char('|')));
+            // 每一页**第一次切过去就建出来**，objectName 与 panelName() 对得上。
+            // NOTE: 有几个老页键（`integrity` / `repair` / …）已经并进别的页了：摆过去之后
+            // 右栏停的是**并进去的那一页**，它们自己没有面板 —— 判据按产品自己的答案
+            // （`currentPageKey()`）走，别在测试里抄 `maintenancePageKey()` 那张表。
+            QStringList reachableKeys;
             for (const QString &key : expectedPanels) {
-                expectedNames.append(Dlg::panelName(key));
+                dialog.showPage(key);
+                const QString shown = dialog.currentPageKey();
+                if (!shown.isEmpty() && !reachableKeys.contains(shown)) reachableKeys.append(shown);
             }
-            check(actualPanels == expectedNames,
-                  "★ U0a 堆叠页每一页的 objectName 都和键表按下标对得上",
-                  actualPanels.join(QLatin1Char('|')));
+            QStringList builtPanels;
+            int scrollHit = 0;
+            for (const QString &key : reachableKeys) {
+                QWidget *page = pageOf(dialog, key);
+                if (page == nullptr || page->objectName() != Dlg::panelName(key)) continue;
+                builtPanels.append(page->objectName());
+                auto *scroll = dialog.findChild<QScrollArea *>(Dlg::scrollName(key));
+                scrollHit += (scroll != nullptr && scroll->widget() == page && scroll->widgetResizable())
+                                 ? 1
+                                 : 0;
+            }
+            check(builtPanels.size() == reachableKeys.size() && !reachableKeys.isEmpty(),
+                  "★ U0a 每一页（第一次切过去才建）都建得出来、objectName 与 panelName() 对得上",
+                  QStringLiteral("%1/%2 页").arg(builtPanels.size()).arg(reachableKeys.size()));
+            // 后面几条判的是"定位 / 选中"，先切回概览（这一节开始时停的就是它）。
+            dialog.showPage(Dlg::overviewCategoryKey());
             // 键 → 下标那张表的**唯一出处**就是 stackPageIndexOf()：逐条对上，
             // 以及"钉死那两条在头"。
             int indexHit = 0;
@@ -362,22 +389,11 @@ int UiInstanceOverridesChecks() {
             // 这一条钉的是一条布局约束：滚动区落在**每一页自己**身上，
             // 不能「整页套一层」（那种套法会把左栏那条导航列一起包进去
             // ⇒ 滚右栏的内容时左栏跟着滚走）。左栏不在任何一层里。
-            int scrollHit = 0;
-            for (int i = 0; i < stack->count(); ++i) {
-                auto *scroll = qobject_cast<QScrollArea *>(stack->widget(i));
-                const QString key = expectedPanels.value(i);
-                scrollHit += (scroll != nullptr && scroll->widget() != nullptr &&
-                              scroll->objectName() == Dlg::scrollName(key) &&
-                              scroll->widget()->objectName() == Dlg::panelName(key) &&
-                              scroll->widgetResizable())
-                                 ? 1
-                                 : 0;
-            }
-            check(scrollHit == Dlg::pageCount(),
+            check(scrollHit == reachableKeys.size() && !reachableKeys.isEmpty(),
                   "★ U0a 每一页外面套着**它自己那一层**滚动区（scrollName 与 panelName 一一"
                   "对上、而且是 widgetResizable）—— 滚轮落在右栏就只滚右栏，那个「左边也"
                   "跟着滚」的 bug 就是这一条在挡",
-                  QStringLiteral("对上 %1/%2 页").arg(scrollHit).arg(Dlg::pageCount()));
+                  QStringLiteral("对上 %1/%2 页").arg(scrollHit).arg(reachableKeys.size()));
 
             // 反过来：左栏**不在任何滚动区里**（装进去的话就又变回那一版了）。
             const auto insideScrollArea = [](const QWidget *widget) {
@@ -505,10 +521,10 @@ int UiInstanceOverridesChecks() {
             // 控件**真的落在该落的那一栏里** —— 这是每次重排都最容易错的地方（控件全部
             // 换过一次父容器，而"读值"那一侧一个字没改，落错了不会报错，只会让用户
             // 在「概览」里找不到「实例名」、或者找不到那几颗快捷按钮）。
-            const auto belongsTo = [&stack, &panelAt](const QWidget *widget) -> QString {
+            const auto belongsTo = [&pageOf, &expectedPanels, &dialog](const QWidget *widget) -> QString {
                 for (const QWidget *w = widget; w != nullptr; w = w->parentWidget()) {
-                    for (int i = 0; i < stack->count(); ++i) {
-                        QWidget *page = panelAt(stack, i);
+                    for (const QString &key : expectedPanels) {
+                        QWidget *page = pageOf(dialog, key);
                         if (page != nullptr && w == page) {
                             return page->objectName();
                         }
@@ -846,6 +862,23 @@ int UiInstanceOverridesChecks() {
             const bool clicked = dialog.iconChoice() == VersionIcons::iconValueForKey(iconKeys.at(3));
             check(clicked, "★ U0h 点第 N 颗候选 = 那一档（按钮和它显示的那张图是同一件事）",
                   dialog.iconChoice());
+            // 弹出来时八格等宽（四列对齐），且挂 neutral 那一档（淡底 / 悬停加深 / 勾上强调色淡底），
+            // 不是原生白底（深色主题下浅字落在白底上看不清）。三主题样张：ui_check_review_shots --popups。
+            {
+                dialog.show();
+                changeIconOf(dialog)->click();
+                QApplication::processEvents();
+                bool sameWidth = iconMenuOf(dialog)->isVisible();
+                bool neutral = true;
+                for (int i = 0; i < iconKeys.size(); ++i) {
+                    sameWidth = sameWidth && candidateOf(dialog, i)->width() == candidateOf(dialog, 0)->width();
+                    neutral = neutral && candidateOf(dialog, i)->property("wtfmlButtonKind").toString()
+                                             == Theme::buttonKindKey(Theme::ButtonKind::Neutral);
+                }
+                check(sameWidth && neutral, "★ U0h 图标浮层八格等宽、挂 neutral 选择格那一档");
+                iconMenuOf(dialog)->close();
+                dialog.hide();
+            }
             // 「恢复默认」= 回到**空串**那一档，不是"回到第一个候选"。
             dialog.findChild<QPushButton *>(Dlg::iconResetButtonName())->click();
             bool clearedAll = dialog.iconChoice().isEmpty() && dialog.pickedIconPath().isEmpty();
@@ -934,8 +967,11 @@ int UiInstanceOverridesChecks() {
                       groupButtonOf(dialog)->isEnabled(),
                   "★ U0h 勾上置顶**不动**「分组…」那一格（老家归老家、置顶归置顶）",
                   dialog.chosenGroupId());
-            check(pinOf(dialog)->parentWidget()->toolTip() == Dlg::pinHint(),
-                  "收藏规则通过按需帮助提供，不重复占用页面");
+            // 步骤 133 起提示挂在开关自己身上（makeSettingRow 各行同此惯例），行本身不再挂一份。
+            check(pinOf(dialog)->toolTip() == Dlg::pinHint() &&
+                      pinOf(dialog)->parentWidget()->toolTip().isEmpty(),
+                  "收藏规则通过按需帮助提供，不重复占用页面（只挂在开关上一处）",
+                  pinOf(dialog)->parentWidget()->toolTip());
             pinOf(dialog)->setChecked(false);
             check(!dialog.pinned() && dialog.chosenGroupId() == QStringLiteral("default-vanilla"),
                   "U0h 取消置顶：分组那一格还是原来那一组（两件事各管各的）");
@@ -946,10 +982,11 @@ int UiInstanceOverridesChecks() {
                       !dialog.pinned(),
                   "★ U0h 没有置顶组时勾选框灰掉、并说清为什么（不是「勾得上但什么都不发生」）",
                   pinOf(dialog)->toolTip());
-            // 有置顶组时它是亮的、tooltip 也摘掉（别让上一档那句话留着）。
+            // 有置顶组时它是亮的、那句「没有置顶组」换回收藏规则（别让上一档那句话留着）。
             dialog.setPinned(false, QStringLiteral("default-moddable"));
-            check(pinOf(dialog)->isEnabled() && pinOf(dialog)->toolTip().isEmpty(),
-                  "U0h 有置顶组时勾选框可用、那句「没有置顶组」的解释摘掉");
+            check(pinOf(dialog)->isEnabled() && pinOf(dialog)->toolTip() == Dlg::pinHint(),
+                  "U0h 有置顶组时勾选框可用、那句「没有置顶组」的解释换回收藏规则",
+                  pinOf(dialog)->toolTip());
 
             // ---- 那四行上的字----
             //
@@ -998,6 +1035,11 @@ int UiInstanceOverridesChecks() {
         {
             Dlg dialog(instanceDisplayName, instanceDirName, Dlg::Override(), global, QStringList(),
                        true);
+            // 页是第一次切过去才建的（见 InstanceSettingsDialog::ensurePage()）：这一节要摸
+            // 「启动」那一页上的控件，先切过去把它建出来，再切回**概览** —— 打开对话框停的
+            // 就是概览，这一节里量几何的那些判据都是在那上面量的。
+            dialog.showPage(Dlg::launchCategoryKey());
+            dialog.showPage(Dlg::overviewCategoryKey());
             auto *exportScript = dialog.findChild<QPushButton *>(Dlg::exportScriptButtonName());
             auto *repairFiles = dialog.findChild<QPushButton *>(Dlg::repairFilesButtonName());
             check(exportScript != nullptr && repairFiles != nullptr,
@@ -1153,6 +1195,11 @@ int UiInstanceOverridesChecks() {
                 {QStringLiteral("全屏"), QStringLiteral("fullscreen")}};
             Dlg dialog(instanceDisplayName, instanceDirName, Dlg::Override(), global,
                        QStringList(), true, modes);
+            // 页是第一次切过去才建的（见 InstanceSettingsDialog::ensurePage()）：这一节要摸
+            // 「启动」那一页上的控件，先切过去把它建出来，再切回**概览** —— 打开对话框停的
+            // 就是概览，这一节里量几何的那些判据都是在那上面量的。
+            dialog.showPage(Dlg::launchCategoryKey());
+            dialog.showPage(Dlg::overviewCategoryKey());
             const QStringList fields = {Dlg::javaPathField(),      Dlg::xmxField(),
                                         Dlg::xmsField(),           Dlg::extraJvmArgsField(),
                                         Dlg::windowModeField(),    Dlg::windowWidthField()};
@@ -1299,10 +1346,55 @@ int UiInstanceOverridesChecks() {
                   hintOf(dialog, Dlg::extraJvmArgsField()));
         }
 
+        // ---- U2b 防丢数据：启动页还没建出来时，那三问必须原样回去 ----
+        //
+        // 页是第一次切过去才建的（见 InstanceSettingsDialog::ensurePage()），而写盘那一侧
+        // 读的是 override() / appendJvmArgs() / warnJavaMismatch()。这几问要是"页没建就
+        // 给空"，用户打开设置、只改一个图标，盘上那几项覆盖（Java 路径 / 内存 / 额外参数 /
+        // 窗口）和版本提醒开关就被抹掉了 —— 界面上什么都看不出来，下一次启动才发现。
+        {
+            Dlg::Override current;
+            current.javaPath = QStringLiteral("D:/jdk21/bin/java.exe");
+            current.xmx = 6144;
+            current.xms = 2048;
+            current.extraJvmArgs = QStringLiteral("-XX:+UseG1GC");
+            current.windowMode = QStringLiteral("fullscreen");
+            current.windowWidth = 1600;
+            current.windowHeight = 900;
+            const QStringList append = {QStringLiteral("-Dfoo=bar baz"), QStringLiteral("-Xss2M")};
+            const QList<Dlg::WindowModeChoice> modes = {
+                {QStringLiteral("小窗"), QStringLiteral("windowed")},
+                {QStringLiteral("全屏"), QStringLiteral("fullscreen")}};
+            Dlg dialog(instanceDisplayName, instanceDirName, current, global, append, false, modes);
+            const auto sameAsDisk = [&dialog, &current, &append]() {
+                const Dlg::Override ov = dialog.override();
+                return ov.javaPath == current.javaPath && ov.xmx == current.xmx &&
+                       ov.xms == current.xms && ov.extraJvmArgs == current.extraJvmArgs &&
+                       ov.windowMode == current.windowMode && ov.windowWidth == current.windowWidth &&
+                       ov.windowHeight == current.windowHeight && !ov.autoMemory.has_value() &&
+                       dialog.appendJvmArgs() == append && !dialog.warnJavaMismatch();
+            };
+            // ① 一页都没切：启动页还没建出来。
+            check(sameAsDisk(),
+                  "★ U2b 启动页还没建出来时 override() / appendJvmArgs() / warnJavaMismatch() "
+                  "原样返回盘上那一份（不然改一下图标就把这几项覆盖抹了）",
+                  dialog.appendJvmArgs().join(QLatin1Char('|')));
+            // ② 切过去把页建出来：还是同一份。
+            dialog.showPage(Dlg::launchCategoryKey());
+            check(sameAsDisk(),
+                  "★ U2b 切到启动页（页建出来了）之后那三问还是同一份",
+                  dialog.appendJvmArgs().join(QLatin1Char('|')));
+        }
+
         // ---- U3 逐项切「自定义」：只有那一项进 Override ----
         {
             Dlg dialog(instanceDisplayName, instanceDirName, Dlg::Override(), global,
                        QStringList(), true);
+            // 页是第一次切过去才建的（见 InstanceSettingsDialog::ensurePage()）：这一节要摸
+            // 「启动」那一页上的控件，先切过去把它建出来，再切回**概览** —— 打开对话框停的
+            // 就是概览，这一节里量几何的那些判据都是在那上面量的。
+            dialog.showPage(Dlg::launchCategoryKey());
+            dialog.showPage(Dlg::overviewCategoryKey());
             setChoice(dialog, Dlg::javaPathField(), true);
             setChoice(dialog, Dlg::xmxField(), true);
             setChoice(dialog, Dlg::extraJvmArgsField(), true);
@@ -1330,6 +1422,11 @@ int UiInstanceOverridesChecks() {
         {
             Dlg dialog(instanceDisplayName, instanceDirName, Dlg::Override(), global,
                        QStringList(), true);
+            // 页是第一次切过去才建的（见 InstanceSettingsDialog::ensurePage()）：这一节要摸
+            // 「启动」那一页上的控件，先切过去把它建出来，再切回**概览** —— 打开对话框停的
+            // 就是概览，这一节里量几何的那些判据都是在那上面量的。
+            dialog.showPage(Dlg::launchCategoryKey());
+            dialog.showPage(Dlg::overviewCategoryKey());
             setChoice(dialog, Dlg::javaPathField(), true);
             lineEditOf(dialog, Dlg::javaPathEditName())->setText(QStringLiteral("   "));
             check(!dialog.override().javaPath.has_value(),
@@ -1356,6 +1453,11 @@ int UiInstanceOverridesChecks() {
         {
             Dlg dialog(instanceDisplayName, instanceDirName, Dlg::Override(), global,
                        QStringList(), true);
+            // 页是第一次切过去才建的（见 InstanceSettingsDialog::ensurePage()）：这一节要摸
+            // 「启动」那一页上的控件，先切过去把它建出来，再切回**概览** —— 打开对话框停的
+            // 就是概览，这一节里量几何的那些判据都是在那上面量的。
+            dialog.showPage(Dlg::launchCategoryKey());
+            dialog.showPage(Dlg::overviewCategoryKey());
             auto *maxSpin = dialog.findChild<QSpinBox *>(Dlg::memoryMaxSpinName());
             auto *minSpin = dialog.findChild<QSpinBox *>(Dlg::memoryMinSpinName());
             check(dialog.findChild<QCheckBox *>(QStringLiteral("instanceMemoryAutoCheck")) ==
@@ -1383,6 +1485,9 @@ int UiInstanceOverridesChecks() {
             autoGlobal.autoMemory = true;
             Dlg autoDialog(instanceDisplayName, instanceDirName, Dlg::Override(), autoGlobal,
                            QStringList(), true);
+            // 同上：先把「启动」那一页建出来，再切回概览。
+            autoDialog.showPage(Dlg::launchCategoryKey());
+            autoDialog.showPage(Dlg::overviewCategoryKey());
             auto *autoMaxSpin =
                 autoDialog.findChild<QSpinBox *>(Dlg::memoryMaxSpinName());
             check(autoDialog.effectiveAutoMemory() &&
@@ -1403,6 +1508,11 @@ int UiInstanceOverridesChecks() {
             current.xmx = 2048;   // 这个实例自己钉了最大内存
             current.xms = 16384;  // 而盘上还留着一条比它大的最小内存（遗留值）
             Dlg dialog(instanceDisplayName, instanceDirName, current, global, QStringList(), true);
+            // 页是第一次切过去才建的（见 InstanceSettingsDialog::ensurePage()）：这一节要摸
+            // 「启动」那一页上的控件，先切过去把它建出来，再切回**概览** —— 打开对话框停的
+            // 就是概览，这一节里量几何的那些判据都是在那上面量的。
+            dialog.showPage(Dlg::launchCategoryKey());
+            dialog.showPage(Dlg::overviewCategoryKey());
             const Dlg::Override ov = dialog.override();
             check(ov.xmx.has_value() && *ov.xmx == 2048, "U5b 自定义的最大内存原样读回来",
                   ov.xmx.has_value() ? QString::number(*ov.xmx) : QStringLiteral("<无覆盖>"));
@@ -1425,6 +1535,11 @@ int UiInstanceOverridesChecks() {
             Dlg dialog(instanceDisplayName, instanceDirName, Dlg::Override(), global,
                        QStringList({QStringLiteral("-Xss1M"), QStringLiteral("-Dfoo=bar baz")}),
                        true);
+            // 页是第一次切过去才建的（见 InstanceSettingsDialog::ensurePage()）：这一节要摸
+            // 「启动」那一页上的控件，先切过去把它建出来，再切回**概览** —— 打开对话框停的
+            // 就是概览，这一节里量几何的那些判据都是在那上面量的。
+            dialog.showPage(Dlg::launchCategoryKey());
+            dialog.showPage(Dlg::overviewCategoryKey());
             auto *append = dialog.findChild<QPlainTextEdit *>(Dlg::appendJvmArgsEditName());
             check(append != nullptr &&
                       append->toPlainText() == QStringLiteral("-Xss1M\n-Dfoo=bar baz"),
@@ -1452,6 +1567,11 @@ int UiInstanceOverridesChecks() {
         {
             Dlg dialog(instanceDisplayName, instanceDirName, Dlg::Override(), global,
                        QStringList(), true);
+            // 页是第一次切过去才建的（见 InstanceSettingsDialog::ensurePage()）：这一节要摸
+            // 「启动」那一页上的控件，先切过去把它建出来，再切回**概览** —— 打开对话框停的
+            // 就是概览，这一节里量几何的那些判据都是在那上面量的。
+            dialog.showPage(Dlg::launchCategoryKey());
+            dialog.showPage(Dlg::overviewCategoryKey());
             dialog.showPage(Dlg::launchCategoryKey());
             // 折叠行现在是**一颗 QPushButton**（整行可点、右边写「展开 / 收起」，不带箭头）。
             auto *toggle = dialog.findChild<QAbstractButton *>(Dlg::advancedToggleName());
@@ -1484,6 +1604,11 @@ int UiInstanceOverridesChecks() {
         {
             Dlg dialog(instanceDisplayName, instanceDirName, Dlg::Override(), global,
                        QStringList({QStringLiteral("-Xss1M")}), true);
+            // 页是第一次切过去才建的（见 InstanceSettingsDialog::ensurePage()）：这一节要摸
+            // 「启动」那一页上的控件，先切过去把它建出来，再切回**概览** —— 打开对话框停的
+            // 就是概览，这一节里量几何的那些判据都是在那上面量的。
+            dialog.showPage(Dlg::launchCategoryKey());
+            dialog.showPage(Dlg::overviewCategoryKey());
             dialog.show();
             QApplication::processEvents();
             dialog.showPage(Dlg::launchCategoryKey());
@@ -1492,7 +1617,12 @@ int UiInstanceOverridesChecks() {
             QApplication::processEvents();
             auto *toggle = dialog.findChild<QAbstractButton *>(Dlg::advancedToggleName());
             // 当前那一页外面那层滚动区（剥壳的办法和上面 U0a 那条同一条）。
-            auto *scroll = qobject_cast<QScrollArea *>(dialog.stack()->currentWidget());
+            // NOTE: 懒建之后堆叠页那一格是空位，滚动区套在它肚子里的那一页上（`scrollName()`）。
+            QWidget *current = dialog.stack() != nullptr ? dialog.stack()->currentWidget() : nullptr;
+            auto *scroll = current != nullptr
+                               ? current->findChild<QScrollArea *>(
+                                     Dlg::scrollName(Dlg::launchCategoryKey()))
+                               : nullptr;
             check(scroll != nullptr && scroll->verticalScrollBar() != nullptr,
                   "U7b 前提：「启动」那一页外面套着它自己那层滚动区（下面两条靠它量）");
             const int collapsedHeight = dialog.height();
@@ -1542,6 +1672,11 @@ int UiInstanceOverridesChecks() {
             autoGlobal.autoMemory = true;  // 全局是自动档，而这一行覆盖成手动
             Dlg dialog(instanceDisplayName, instanceDirName, current, autoGlobal,
                        QStringList({QStringLiteral("-Xss1M")}), true);
+            // 页是第一次切过去才建的（见 InstanceSettingsDialog::ensurePage()）：这一节要摸
+            // 「启动」那一页上的控件，先切过去把它建出来，再切回**概览** —— 打开对话框停的
+            // 就是概览，这一节里量几何的那些判据都是在那上面量的。
+            dialog.showPage(Dlg::launchCategoryKey());
+            dialog.showPage(Dlg::overviewCategoryKey());
 
             check(isCustom(dialog, Dlg::javaPathField()) &&
                       !isFollow(dialog, Dlg::javaPathField()),
@@ -1590,6 +1725,11 @@ int UiInstanceOverridesChecks() {
                 g.memoryCapMb = capMb;
                 Dlg dialog(instanceDisplayName, instanceDirName, Dlg::Override(), g, QStringList(),
                            true);
+            // 页是第一次切过去才建的（见 InstanceSettingsDialog::ensurePage()）：这一节要摸
+            // 「启动」那一页上的控件，先切过去把它建出来，再切回**概览** —— 打开对话框停的
+            // 就是概览，这一节里量几何的那些判据都是在那上面量的。
+            dialog.showPage(Dlg::launchCategoryKey());
+            dialog.showPage(Dlg::overviewCategoryKey());
                 setChoice(dialog, Dlg::xmxField(), true);
                 return dialog.findChild<QSpinBox *>(Dlg::memoryMaxSpinName())->maximum();
             };
@@ -1615,6 +1755,11 @@ int UiInstanceOverridesChecks() {
         {
             Dlg dialog(instanceDisplayName, instanceDirName, Dlg::Override(), global,
                        QStringList(), true);
+            // 页是第一次切过去才建的（见 InstanceSettingsDialog::ensurePage()）：这一节要摸
+            // 「启动」那一页上的控件，先切过去把它建出来，再切回**概览** —— 打开对话框停的
+            // 就是概览，这一节里量几何的那些判据都是在那上面量的。
+            dialog.showPage(Dlg::launchCategoryKey());
+            dialog.showPage(Dlg::overviewCategoryKey());
             auto *warn = dialog.findChild<QCheckBox *>(Dlg::warnJavaMismatchCheckName());
             check(warn != nullptr, "U9 提醒勾选框按 objectName 找得回来");
             check(warn != nullptr && warn->isChecked(), "U9 默认**勾上**（缺省就是提醒）");
@@ -1633,6 +1778,8 @@ int UiInstanceOverridesChecks() {
             // 否则用户关掉过一次，下次打开对话框又看到它勾着，等于开关没记住。
             Dlg dialog2(instanceDisplayName, instanceDirName, Dlg::Override(), global,
                         QStringList(), false);
+            // 同上：先把「启动」那一页建出来。
+            dialog2.showPage(Dlg::launchCategoryKey());
             auto *warn2 = dialog2.findChild<QCheckBox *>(Dlg::warnJavaMismatchCheckName());
             check(warn2 != nullptr && !warn2->isChecked(), "U9 传 false 进来时它是没勾的");
             check(!dialog2.warnJavaMismatch(), "U9 访问器跟着是 false");
@@ -1674,6 +1821,11 @@ int UiInstanceOverridesChecks() {
             {
                 Dlg dialog(instanceDisplayName, instanceDirName, Dlg::Override(), winGlobal,
                            QStringList(), true, modes);
+            // 页是第一次切过去才建的（见 InstanceSettingsDialog::ensurePage()）：这一节要摸
+            // 「启动」那一页上的控件，先切过去把它建出来，再切回**概览** —— 打开对话框停的
+            // 就是概览，这一节里量几何的那些判据都是在那上面量的。
+            dialog.showPage(Dlg::launchCategoryKey());
+            dialog.showPage(Dlg::overviewCategoryKey());
                 auto *combo = comboOf(dialog);
                 auto *wSpin = widthOf(dialog);
                 auto *hSpin = heightOf(dialog);
@@ -1742,6 +1894,11 @@ int UiInstanceOverridesChecks() {
             {
                 Dlg dialog(instanceDisplayName, instanceDirName, Dlg::Override(), winGlobal,
                            QStringList(), true, modes);
+            // 页是第一次切过去才建的（见 InstanceSettingsDialog::ensurePage()）：这一节要摸
+            // 「启动」那一页上的控件，先切过去把它建出来，再切回**概览** —— 打开对话框停的
+            // 就是概览，这一节里量几何的那些判据都是在那上面量的。
+            dialog.showPage(Dlg::launchCategoryKey());
+            dialog.showPage(Dlg::overviewCategoryKey());
                 // 几何断言的前提：**得先把这一页摆出来**。两件事缺一不可 ——
                 // · 没 `show()` 过的控件，x()/width() 全是那个 100×30 的默认值；
                 // · 「窗口大小」在「启动」那一页上，而堆叠里**不是当前页的那些页根本不参与
@@ -1783,6 +1940,11 @@ int UiInstanceOverridesChecks() {
             {
                 Dlg dialog(instanceDisplayName, instanceDirName, Dlg::Override(), winGlobal,
                            QStringList(), true, modes);
+            // 页是第一次切过去才建的（见 InstanceSettingsDialog::ensurePage()）：这一节要摸
+            // 「启动」那一页上的控件，先切过去把它建出来，再切回**概览** —— 打开对话框停的
+            // 就是概览，这一节里量几何的那些判据都是在那上面量的。
+            dialog.showPage(Dlg::launchCategoryKey());
+            dialog.showPage(Dlg::overviewCategoryKey());
                 auto *combo = comboOf(dialog);
                 auto *wSpin = widthOf(dialog);
                 auto *hSpin = heightOf(dialog);
@@ -1822,6 +1984,11 @@ int UiInstanceOverridesChecks() {
                 current.windowHeight = 1080;
                 Dlg dialog(instanceDisplayName, instanceDirName, current, winGlobal, QStringList(),
                            true, modes);
+            // 页是第一次切过去才建的（见 InstanceSettingsDialog::ensurePage()）：这一节要摸
+            // 「启动」那一页上的控件，先切过去把它建出来，再切回**概览** —— 打开对话框停的
+            // 就是概览，这一节里量几何的那些判据都是在那上面量的。
+            dialog.showPage(Dlg::launchCategoryKey());
+            dialog.showPage(Dlg::overviewCategoryKey());
                 auto *combo = comboOf(dialog);
                 auto *wSpin = widthOf(dialog);
                 check(isCustom(dialog, Dlg::windowModeField()) &&
@@ -1849,6 +2016,11 @@ int UiInstanceOverridesChecks() {
                 current.windowMode = QStringLiteral("最大窗口");
                 Dlg dialog(instanceDisplayName, instanceDirName, current, winGlobal, QStringList(),
                            true, modes);
+            // 页是第一次切过去才建的（见 InstanceSettingsDialog::ensurePage()）：这一节要摸
+            // 「启动」那一页上的控件，先切过去把它建出来，再切回**概览** —— 打开对话框停的
+            // 就是概览，这一节里量几何的那些判据都是在那上面量的。
+            dialog.showPage(Dlg::launchCategoryKey());
+            dialog.showPage(Dlg::overviewCategoryKey());
                 auto *combo = comboOf(dialog);
                 check(combo != nullptr && combo->currentIndex() == 0 &&
                           !combo->currentData().toString().isEmpty(),
@@ -1863,6 +2035,11 @@ int UiInstanceOverridesChecks() {
             {
                 Dlg dialog(instanceDisplayName, instanceDirName, Dlg::Override(), winGlobal,
                            QStringList(), true);
+            // 页是第一次切过去才建的（见 InstanceSettingsDialog::ensurePage()）：这一节要摸
+            // 「启动」那一页上的控件，先切过去把它建出来，再切回**概览** —— 打开对话框停的
+            // 就是概览，这一节里量几何的那些判据都是在那上面量的。
+            dialog.showPage(Dlg::launchCategoryKey());
+            dialog.showPage(Dlg::overviewCategoryKey());
                 check(comboOf(dialog) == nullptr &&
                           dialog.findChild<QWidget *>(
                               Dlg::choiceRowName(Dlg::windowModeField())) == nullptr,
@@ -1877,6 +2054,11 @@ int UiInstanceOverridesChecks() {
             {
                 Dlg dialog(instanceDisplayName, instanceDirName, Dlg::Override(), winGlobal,
                            QStringList(), true, modes);
+            // 页是第一次切过去才建的（见 InstanceSettingsDialog::ensurePage()）：这一节要摸
+            // 「启动」那一页上的控件，先切过去把它建出来，再切回**概览** —— 打开对话框停的
+            // 就是概览，这一节里量几何的那些判据都是在那上面量的。
+            dialog.showPage(Dlg::launchCategoryKey());
+            dialog.showPage(Dlg::overviewCategoryKey());
                 const QString comboProblem = wheelGuardProblem(comboOf(dialog));
                 const QString widthProblem = wheelGuardProblem(widthOf(dialog));
                 const QString heightProblem = wheelGuardProblem(heightOf(dialog));

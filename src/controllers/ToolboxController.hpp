@@ -35,6 +35,7 @@
 #include <QImage>
 #include <QStringList>
 
+#include "ToolboxPage.hpp"
 #include "tools/FileHash.hpp"
 
 #include <functional>
@@ -86,8 +87,10 @@ public:
     bool resumeDownloadTask(quint64 id);
 
 private:
-    /// 工具页只在首次打开时创建，避免未使用的控件参与主窗口首次布局。
+    /// 工具箱页只在首次打开时创建，避免未使用的控件参与主窗口首次布局。只搭目录页，接页面级信号。
     void ensurePage();
+    /// 某件工具那一片刚搭出来（`ToolboxPage::toolBuilt`）：灌它的下拉表、摆回记住的输入、算初值。
+    void setupTool(ToolboxPage::Tool tool);
     QHash<QString, QImage> m_bannerTextures;
     bool m_bannerTextureLoading = false;
     // ---------- 附魔顺序助手 ----------

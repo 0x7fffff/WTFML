@@ -17,6 +17,10 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFont>
+#include <QFutureWatcher>
+#include <QImage>
+#include <QImageReader>
+#include <QtConcurrent/QtConcurrentRun>
 #include <QFontMetrics>   // 左栏那一列的宽度（见 navListWidth()）
 #include <QGuiApplication>
 #include <QMimeData>
@@ -96,22 +100,30 @@ protected:
 }  // namespace
 
 
-void InstanceSettingsDialog::setupLifecyclePages() {
-    if (m_lifecycleThumbTimer == nullptr) {
-        m_lifecycleThumbTimer = new QTimer(this);
-        m_lifecycleThumbTimer->setSingleShot(true);
-        m_lifecycleThumbTimer->setInterval(0);
-        connect(m_lifecycleThumbTimer, &QTimer::timeout, this,
-                [this] { loadNextLifecycleThumb(); });
+/// 「创作工具 / 维护」那几页里**的一页**。第一次切过去才跑（见 ensurePage()）。
+void InstanceSettingsDialog::buildLifecyclePage(const QString &key) {
+    // 有两页是**从别的页里搬按钮**过来的（见下面那几处 `buttonRow({findChild…})`）：
+    // 那几颗按钮得先在原来那一页里建出来 —— 页是懒建的，没建就是 nullptr，搬过来的是个洞。
+    if (key == QStringLiteral("diagnosis")) {
+        ensurePage(launchCategoryKey());    // 「补全版本文件」在「启动」那一页上
+        ensurePage(overviewCategoryKey());  // 「检查并修复」在概览上
+    } else if (key == QStringLiteral("operationsmenu")) {
+        ensurePage(overviewCategoryKey());  // 快照 / 复制 / 导出 / 删除那四颗都在概览上
     }
-    for (const QString &key : lifecyclePageKeys()) {
+    {
         QWidget *page = addPage(key);
-        auto *layout = qobject_cast<QVBoxLayout *>(page->layout());
+        auto *layout = page != nullptr ? qobject_cast<QVBoxLayout *>(page->layout()) : nullptr;
+        if (layout == nullptr) {
+            return;
+        }
         // Old page keys remain valid for saved navigation and external callers;
         // showPage() redirects them to the consolidated maintenance pages.
         if (key == QStringLiteral("integrity") || key == QStringLiteral("repair") ||
             key == QStringLiteral("export") || key == QStringLiteral("diagnosticsmenu") ||
-            key == QStringLiteral("integritymenu") || key == QStringLiteral("snapshots")) continue;
+            key == QStringLiteral("integritymenu") || key == QStringLiteral("snapshots")) {
+            // 这几页的内容已经并进去了（见上面那句），只留一个空壳占位。
+            return;
+        }
         auto *title = new QLabel(pageText(key), page);
         QFont font = title->font();
         font.setBold(true);
@@ -144,6 +156,10 @@ void InstanceSettingsDialog::setupLifecyclePages() {
             row->setContentsMargins(0, 0, 0, 0);
             row->setSpacing(8);
             layout->addWidget(rowHost);
+            // 宽够时每颗都是 commandWidth；900 宽窗口里三颗排不下（r133 第 6 项），就一起等宽缩到字宽 + 24。
+            int count = 0;
+            for (auto *button : buttons) count += button != nullptr;
+            rowHost->setMaximumWidth(count * commandWidth + qMax(0, count - 1) * row->spacing());
             for (auto *button : buttons) {
                 if (!button) continue;
                 if (auto *previous = button->parentWidget(); previous && previous != page && previous != rowHost)
@@ -155,12 +171,13 @@ void InstanceSettingsDialog::setupLifecyclePages() {
                     button->setToolTip(restoreSnapshotTooltip() + QLatin1Char('\n') + restoreSnapshotHint());
                 if (button->property("wtfmlButtonKind").toString().isEmpty())
                     Theme::markButton(button, Theme::ButtonKind::Neutral);
-                button->setFixedSize(commandWidth, actionButtonHeight());
-                button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-                row->addWidget(button);
+                button->setFixedHeight(actionButtonHeight());
+                button->setMinimumWidth(button->fontMetrics().horizontalAdvance(button->text()) + 24);
+                button->setMaximumWidth(commandWidth);
+                button->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);  // Ignored：按 stretch 等分，不看各自字宽
+                row->addWidget(button, 1);
                 button->show();
             }
-            row->addStretch();
         };
         if (key == QStringLiteral("operationsmenu")) {
             const auto section = [page, layout](const QString &text) {
@@ -180,7 +197,7 @@ void InstanceSettingsDialog::setupLifecyclePages() {
             section(tr("删除实例"));
             buttonRow({findChild<QPushButton *>(deleteButtonName())});
             layout->addStretch(1);
-            continue;
+            return;
         }
         const bool browse = key == QStringLiteral("screenshots") || key == QStringLiteral("replay")
                             || key == QStringLiteral("logs") || key == QStringLiteral("crash")
@@ -216,6 +233,11 @@ void InstanceSettingsDialog::setupLifecyclePages() {
             result->setObjectName(QStringLiteral("instanceLifecycleResult_%1").arg(key));
             layout->addWidget(result);
             auto *list = new LifecycleFileList(page);
+            // 行高一致（每行都是"文件名 + 换行 + 时间 / 大小"两行字，截图那一页还都带同一尺寸的图标）
+            // ⇒ 让控件别再一行一问样式和字形：设计盘点里「日志」页那 97 ms 的重画全花在
+            // `sizeFromContents` → 字体排版上。行代理照旧（`ui/DesignDefaults` 那一层挂在
+            // 控件上，跟行高怎么算没关系）。
+            list->setUniformItemSizes(true);
             list->setSelectionMode(QAbstractItemView::ExtendedSelection);
             list->setDragEnabled(true);
             list->setDragDropMode(QAbstractItemView::DragOnly);
@@ -262,7 +284,7 @@ void InstanceSettingsDialog::setupLifecyclePages() {
                     if (!path.isEmpty()) emit openInstanceFolderRequested(QFileInfo(path).absolutePath());
                 }
             });
-            continue;
+            return;
         }
         if (key == QStringLiteral("worldbackup")) {
             action(tr("返回存档"), [this]() { showPage(QStringLiteral("save")); })
@@ -377,6 +399,10 @@ void InstanceSettingsDialog::setupLifecyclePages() {
                 refreshCheck->setObjectName(QStringLiteral("instanceUpgradeRecheck"));
                 refreshCheck->setAutoDefault(false);
                 Theme::markButton(refreshCheck, Theme::ButtonKind::Neutral);
+                // 点击转成对话框自己的一发信号：接的人在**这一页建出来之前**就 attach 了，
+                // 拿不到这颗按钮（见 .hpp 里 upgradeRecheckRequested()）。
+                connect(refreshCheck, &QPushButton::clicked, this,
+                        &InstanceSettingsDialog::upgradeRecheckRequested);
                 checkRow->addWidget(refreshCheck);
                 assessmentLayout->addLayout(checkRow);
                 auto *mods = new QTreeWidget(assessment);
@@ -387,8 +413,8 @@ void InstanceSettingsDialog::setupLifecyclePages() {
                 mods->setMinimumHeight(80);
                 items->setMinimumHeight(80);
                 mods->header()->setSectionResizeMode(0, QHeaderView::Stretch);
-                mods->header()->setSectionResizeMode(1, QHeaderView::Interactive);
-                mods->setColumnWidth(1, 240);
+                // 状态列按内容宽：钉 240 时窄窗下第一列只剩几十像素，表头「当前模组」都被截掉。
+                mods->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
                 mods->header()->setSectionResizeMode(2, QHeaderView::Stretch);
                 assessmentLayout->addWidget(mods, 1);
                 auto *scope = new QWidget(page);
@@ -437,14 +463,25 @@ void InstanceSettingsDialog::setupLifecyclePages() {
             updateTransferApplyState(key);
         }
         if (key != QStringLiteral("upgrade") && key != QStringLiteral("diagnosis")) layout->addStretch(1);
+        // 调用方（controller）**开页那一刻**就把这些灌进来了，而这一页是第一次切过去才建
+        // 的 —— 存的那些在这儿摆上去（见 replayTransferPage() / setDiagnosisText()）。
+        if (key == QStringLiteral("migration") || key == QStringLiteral("upgrade")) {
+            replayTransferPage(key);
+        }
+        if (key == QStringLiteral("diagnosis") && !m_diagnosisText.isEmpty()) {
+            setDiagnosisText(m_diagnosisText);
+        }
     }
 }
 
 void InstanceSettingsDialog::refreshLifecycleFiles(const QString &key) {
     QElapsedTimer refreshClock;
     refreshClock.start();
-    m_lifecycleThumbQueue.clear();
-    if (m_lifecycleThumbTimer != nullptr) m_lifecycleThumbTimer->stop();
+    // 重列一次 = 新的一代：上一份列表排出去的缩略图回来了也不许往这一份里塞。
+    // 只有截图页在排缩略图，别的页重列不该把截图那几发作废（它们回来照样进缓存）。
+    if (key == QStringLiteral("screenshots")) {
+        ++m_lifecycleThumbGeneration;
+    }
     auto *list = m_lifecycleLists.value(key);
     if (list == nullptr) return;
     list->clear();
@@ -495,14 +532,18 @@ void InstanceSettingsDialog::refreshLifecycleFiles(const QString &key) {
             }
             // 尺寸读不出来也照样试着解一张缩略图（有些 PNG 的头信息坏了，数据还能读）。
             // NOTE: 但"头里写得荒唐"的那一份不在此列 —— 那种读一次就是几个 G。
-            // 缩略图排到事件循环之后解（见 m_lifecycleThumbQueue）。
+            // 缩略图**在后台线程解**（`requestLifecycleThumb()`），这一趟只排请求。
             details << InstanceFilesPage::formatSize(file.size());
             auto *item = new QListWidgetItem(
                 file.fileName() + QLatin1Char('\n') + details.join(QStringLiteral(" / ")),
                 list);
             item->setData(Qt::UserRole, file.absoluteFilePath());
             item->setToolTip(file.absoluteFilePath());
-            m_lifecycleThumbQueue.append(file.absoluteFilePath());
+            // 透明占位图：让这一行的几何**按"有图"算**。图回来只换图标内容，行高不跳。
+            QPixmap placeholder(list->iconSize());
+            placeholder.fill(Qt::transparent);
+            item->setIcon(placeholder);
+            requestLifecycleThumb(file.absoluteFilePath());
             continue;
         }
         details << InstanceFilesPage::formatSize(file.size());
@@ -519,8 +560,6 @@ void InstanceSettingsDialog::refreshLifecycleFiles(const QString &key) {
     // 重列之后选中项可能已经没了（`clear()` 不一定发 currentItemChanged）——
     // 和 InstanceFilesPage::rebuildRows() 一样，收尾再对一次，别让旧的一句留在底下。
     updateLifecycleInfo(key);
-    if (!m_lifecycleThumbQueue.isEmpty() && m_lifecycleThumbTimer != nullptr)
-        m_lifecycleThumbTimer->start();
     if (refreshClock.elapsed() > 60)
         qInfo() << "[UI timing] lifecycle page refresh" << key << files.size() << "files,"
                 << refreshClock.elapsed() << "ms";
@@ -593,19 +632,37 @@ void InstanceSettingsDialog::setLifecycleInfoText(const QString &key, const QStr
 }
 
 void InstanceSettingsDialog::setDiagnosisText(const QString &text) {
+    // 页可能是后建的（见 ensurePage()）：先存着，buildLifecyclePage() 里再摆上去。
+    m_diagnosisText = text;
     if (m_diagnosisReport == nullptr) return;
     m_diagnosisReport->setPlainText(text.isEmpty() ? diagnosisPendingText() : text);
 }
 
 // ---------- 「迁移」/「升级」那两页 ----------
 //
-// 两页的控件是 setupLifecyclePages() 建好的；这一组只负责"把接的人递来的东西摆上去"和
+// 两页的控件是 buildLifecyclePage() 建好的；这一组只负责"把接的人递来的东西摆上去"和
 // "把用户勾了什么读回来"。**不读盘、不算兼容性、也不写盘**。
 
 void InstanceSettingsDialog::setTransferTargets(const QString &key,
                                                 const QList<QPair<QString, QString>> &targets) {
+    m_transferTargetRows.insert(key, targets);
     auto *combo = m_transferTargets.value(key);
-    if (combo == nullptr) return;
+    if (combo == nullptr) {
+        // 页还没建：把"现在选的是哪一项"算出来存着 —— controller 紧接着会读
+        // transferTarget()（见那边 setTransferTargets 之后的那一句）。
+        const QString previous = m_transferTargetId.value(key);
+        QString kept;
+        for (const QPair<QString, QString> &target : targets) {
+            if (target.second == previous) kept = previous;
+        }
+        // 认不出来（或者本来就没选过）就落在下拉框的第 0 项上：升级那一页的第 0 项是
+        // 「请选择目标版本」（空 data），迁移那一页的第 0 项就是第一个目标。
+        if (kept.isEmpty() && key != QStringLiteral("upgrade") && !targets.isEmpty()) {
+            kept = targets.first().second;
+        }
+        m_transferTargetId.insert(key, kept);
+        return;
+    }
     // 这一发**不出声**：灌列表是 controller 在开页时做的，它紧接着会自己算第一份计划；
     // 这里要是发 currentIndexChanged，controller 会在同一次调用里再算一遍（白扫一次盘）。
     const QSignalBlocker blocker(combo);
@@ -617,20 +674,26 @@ void InstanceSettingsDialog::setTransferTargets(const QString &key,
     }
     const int keep = combo->findData(previous);
     if (keep >= 0) combo->setCurrentIndex(keep);
+    m_transferTargetId.insert(key, transferTarget(key));
     updateTransferApplyState(key);
 }
 
 void InstanceSettingsDialog::setTransferPlan(const QString &key, const QString &text) {
+    m_transferPlanText.insert(key, text);
     auto *plan = m_transferPlans.value(key);
     if (plan == nullptr) return;
     plan->setPlainText(text);
 }
 
 void InstanceSettingsDialog::setUpgradeContext(const QString &text) {
+    m_upgradeContextText = text;
     if (auto *label = findChild<QLabel *>(QStringLiteral("instanceUpgradeContext"))) label->setText(text);
 }
 
 void InstanceSettingsDialog::setUpgradeModChecks(const QList<QStringList> &rows, const QString &summary) {
+    // 页可能是后建的（见 ensurePage()）：先存着，那一页建出来时 replayTransferPage() 再摆。
+    m_upgradeModRows = rows;
+    m_upgradeModSummary = summary;
     if (auto *tree = findChild<QTreeWidget *>(QStringLiteral("instanceUpgradeModChecks"))) {
         const int scroll = tree->verticalScrollBar()->value();
         const QString selected = tree->currentItem() ? tree->currentItem()->text(0) : QString();
@@ -767,6 +830,8 @@ int InstanceSettingsDialog::upgradePendingModCount() const {
 void InstanceSettingsDialog::setTransferItems(const QString &key,
                                               const QList<QPair<QString, QString>> &items,
                                               const QStringList &defaultKeys) {
+    m_transferItemRows.insert(key, items);
+    m_transferItemDefaults.insert(key, defaultKeys);
     auto *list = m_transferItems.value(key);
     if (list == nullptr) return;
     // 清空 / 添加都会经 itemChanged，而这里正是一批**程序摆上去的**默认勾选 —— 挡掉这
@@ -784,8 +849,43 @@ void InstanceSettingsDialog::setTransferItems(const QString &key,
 
 QString InstanceSettingsDialog::transferTarget(const QString &key) const {
     auto *combo = m_transferTargets.value(key);
-    if (combo == nullptr || (combo->isEditable() && combo->currentText() != combo->itemText(combo->currentIndex()))) return {};
+    if (combo == nullptr) {
+        // 页还没建（第一次切过去才建）：读存着的那一位，见 setTransferTargets()。
+        return m_transferTargetId.value(key);
+    }
+    if (combo->isEditable() && combo->currentText() != combo->itemText(combo->currentIndex())) return {};
     return combo->currentData().toString();
+}
+
+void InstanceSettingsDialog::replayTransferPage(const QString &key) {
+    // 页刚建出来：把 controller 开页那一刻灌进来的那一份摆上去（顺序照着它当时的先后）。
+    if (m_transferTargetRows.contains(key)) {
+        const QString kept = m_transferTargetId.value(key);
+        setTransferTargets(key, m_transferTargetRows.value(key));
+        auto *combo = m_transferTargets.value(key);
+        if (combo != nullptr) {
+            const int index = combo->findData(kept);
+            if (index >= 0) {
+                // 这一下是**还原**，不是用户换的目标（换目标要发 transferTargetChosen）。
+                const QSignalBlocker blocker(combo);
+                combo->setCurrentIndex(index);
+            }
+            m_transferTargetId.insert(key, transferTarget(key));
+        }
+    }
+    if (m_transferPlanText.contains(key)) {
+        setTransferPlan(key, m_transferPlanText.value(key));
+    }
+    if (m_transferItemRows.contains(key)) {
+        setTransferItems(key, m_transferItemRows.value(key), m_transferItemDefaults.value(key));
+    }
+    if (key == QStringLiteral("upgrade")) {
+        if (!m_upgradeContextText.isEmpty()) setUpgradeContext(m_upgradeContextText);
+        if (!m_upgradeModRows.isEmpty() || !m_upgradeModSummary.isEmpty()) {
+            setUpgradeModChecks(m_upgradeModRows, m_upgradeModSummary);
+        }
+    }
+    updateTransferApplyState(key);
 }
 
 QStringList InstanceSettingsDialog::transferSelectedKeys(const QString &key) const {
@@ -817,26 +917,57 @@ void InstanceSettingsDialog::updateTransferApplyState(const QString &key) {
             inPlace->setEnabled(hasTarget);
     }
 }
-void InstanceSettingsDialog::loadNextLifecycleThumb() {
-    if (m_lifecycleThumbQueue.isEmpty()) return;
-    const QString path = m_lifecycleThumbQueue.takeFirst();
+void InstanceSettingsDialog::requestLifecycleThumb(const QString &path) {
     QListWidget *list = m_lifecycleLists.value(QStringLiteral("screenshots"));
-    if (list != nullptr) {
+    if (list == nullptr || path.isEmpty()) return;
+    const QFileInfo info(path);
+    // `路径|大小|修改时间`：同一个路径换了另一张图时后两位会变。
+    const QString key = path + QLatin1Char('|') + QString::number(info.size()) +
+                        QLatin1Char('|') + QString::number(info.lastModified().toMSecsSinceEpoch());
+    const auto apply = [list, path](const QImage &image) {
+        if (image.isNull()) return;
         for (int row = 0; row < list->count(); ++row) {
             QListWidgetItem *item = list->item(row);
-            if (item == nullptr || item->data(Qt::UserRole).toString() != path) continue;
-            QImageReader reader(path);
-            const QSize pixels = reader.size();
-            if (pixels.isValid() && pixels.width() > 0 && pixels.height() > 0
-                && pixels.width() <= 16384 && pixels.height() <= 16384) {
-                reader.setScaledSize(pixels.scaled(QSize(96, 64), Qt::KeepAspectRatio));
+            if (item != nullptr && item->data(Qt::UserRole).toString() == path) {
+                item->setIcon(QPixmap::fromImage(image));
+                return;
             }
-            const QImage thumb = reader.read();
-            if (!thumb.isNull()) item->setIcon(QPixmap::fromImage(thumb));
-            break;
         }
+    };
+    if (const auto hit = m_lifecycleThumbCache.constFind(key); hit != m_lifecycleThumbCache.constEnd()) {
+        apply(*hit);
+        return;
     }
-    if (!m_lifecycleThumbQueue.isEmpty() && m_lifecycleThumbTimer != nullptr)
-        m_lifecycleThumbTimer->start();
+    const quint64 generation = m_lifecycleThumbGeneration;
+    auto *watcher = new QFutureWatcher<QImage>(this);
+    connect(watcher, &QFutureWatcher<QImage>::finished, this,
+            [this, watcher, key, apply = std::move(apply), generation] {
+        const QImage image = watcher->result();
+        watcher->deleteLater();
+        if (image.isNull()) return;
+        // 缓存按张数封顶：一页几十张 96×64 的缩略图很小，但换实例换文件夹会一直攒。
+        if (m_lifecycleThumbCache.size() >= 512) m_lifecycleThumbCache.clear();
+        m_lifecycleThumbCache.insert(key, image);
+        // 这一页已经重列过 / 换过页：图照样进缓存，只是不再往现在这份列表里塞。
+        if (generation != m_lifecycleThumbGeneration) return;
+        apply(image);
+    });
+    watcher->setFuture(QtConcurrent::run([path] {
+        // 截图也是**盘上的文件**（实例 / 存档跟着分享走的时候能带进来）：头里写得荒唐
+        // 就不解 —— 8K 截图是 33 MP，这里留到 64 MP。解不开就给空图，那一行留着占位图标。
+        constexpr int kMaxSide = 16384;
+        constexpr qint64 kMaxPixels = 64LL * 1024 * 1024;
+        QImageReader reader(path);
+        reader.setAutoTransform(true);
+        const QSize pixels = reader.size();
+        if (pixels.isValid() && pixels.width() > 0 && pixels.height() > 0) {
+            if (pixels.width() > kMaxSide || pixels.height() > kMaxSide ||
+                qint64(pixels.width()) * pixels.height() > kMaxPixels) {
+                return QImage();
+            }
+            reader.setScaledSize(pixels.scaled(QSize(96, 64), Qt::KeepAspectRatio));
+        }
+        return reader.read();
+    }));
 }
 

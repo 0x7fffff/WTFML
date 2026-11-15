@@ -380,7 +380,14 @@ void ResourceSearchController::onResourceVersionsFinished(const QString &request
             // 来看东西的，页上已经有话说了；再点一次这个资源就是重新问一次。
             resourcePage.versions.clear();
             resourcePage.loaded = true;   // 回来过了（回的是"没取到"）
-            m_owner.m_resourcePage->page()->setPlaceholder(problem);
+            // 「重试」= 同一把钥匙再问一次（答复照旧落回这里）。
+            m_owner.m_resourcePage->page()->setFailed(problem, [this] {
+                auto &state = m_owner.m_resourcePage->state();
+                if (!state.open) return;
+                state.loaded = false;
+                m_owner.m_resourcePage->page()->setLoading(MainWindow::tr("正在读版本列表…"));
+                m_owner.m_resourceStore->fetchVersions(state.requestKey, state.projectId, state.source, QString());
+            });
             return;
         }
         resourcePage.versions = versions;

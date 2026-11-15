@@ -78,7 +78,7 @@ struct Plan {
     bool ok = false;
     QString error;        ///< 非空 = 排不出来（层数超了 / 下标不对）
     QStringList steps;    ///< 一步一步（先做底旗，再一层一层叠）
-    QString summary;      ///< 一句总述（`底色 红色 · 3 层 / 6`）
+    QString summary;      ///< 一句总述（`底色 红色 · 3/6 层`）
     QStringList materials;///< 材料清单（`红色羊毛 × 6`、`白色染料 × 2`…）
     QStringList notes;    ///< 要提醒的（连续两层一模一样、材料有特殊物品…）
     /// `/give` 那一行。默认是 **1.13–1.20.4 的 NBT 写法**（`{BlockEntityTag:{Patterns:…}}`）；

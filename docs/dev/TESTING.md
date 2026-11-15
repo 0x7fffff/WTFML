@@ -92,12 +92,13 @@ ctest --preset visual                        # 只跑 visual 标签（完整历�
 
 ```powershell
 ./tools/check-test-modules.ps1      # 测试入口 / 模块归属 / 大小上限
+./tools/check-surface-registry.ps1  # 新对话框 / showPage 页面有没有登记进 sweep 表面清单
 ./tools/check-doc-links.ps1         # 文档相对链接与源码里的 docs 引用
 ./tools/check-i18n.ps1              # 新代码里的中文包没包 tr()（基线见 docs/dev/I18N.md）
 ./tools/test.ps1 -Suite quick
 ```
 
-`check-test-modules.ps1` 即 CTest 的 `wtfml.test-modules`：入口不超过 4000 行、职责模块不超过 5000 行，禁止入口 include `.cpp`，并核对核心用例的归属表。新增用例放进相应模块，不靠抬高阈值堆入口。
+`check-test-modules.ps1` 即 CTest 的 `wtfml.test-modules`：入口不超过 4000 行、职责模块不超过 5000 行，禁止入口 include `.cpp`，并核对核心用例的归属表。新增用例放进相应模块，不靠抬高阈值堆入口。`check-surface-registry.ps1` 即 CTest 的 `wtfml.surface-registry`，判据与豁免写法见「新增测试约定」下面那条。
 
 ## 环境变量
 
@@ -178,7 +179,7 @@ CTest 的两种"排除 visual"选到的数量不同：`ctest -E visual` 按名�
 
 - `tests/core_modules/`：每个用例函数一个 `.cpp`（现有 136 个 `.cpp`，其中 120 个 `*Tests.cpp`），按领域组织成 12 个独立可执行程序：`verify_downloads`、`verify_install`、`verify_instances`、`verify_java`、`verify_accounts`、`verify_resources`、`verify_launch`、`verify_servers`、`verify_activity`、`verify_presets`、`verify_toolbox`、`verify_agent`，对应 CTest 的 `wtfml.core-<域>`。`verify_baseline`（`wtfml.core`）保留原 main 里的基础断言，这些入口的并集覆盖旧核心集合。`verify` 是兼容手动模式，CI 只检查它能链接和启动（`wtfml.core-bootstrap`）。
 - 整份 `verify` 与分片的数量不能相加：每个分片程序各自再跑一遍模块级引导断言，所以核心总量以整份 `verify` 或 ctest 为准（2026-11-05：整份 6457/6457，分片明细见流水）。
-- `tests/ui_check/modules/`（94 个 `.cpp`）：导航、主题、任务、配置编辑、内容页、账号、日志等各自一个编译单元。历史顺序测试仍由 `ui_check` 编排，保留共享窗口和执行顺序；快速专项（`fold-motion`、`ui-refresh`、`install-layout`、`input-widths`、`toolbox-polish`、`armor-trim`、`lifecycle`、`resource-packs`、`theme`、`ui-agent`）独立构建和注册。`ui-bootstrap` 只检查完整驱动能链接、启动和读取图标。
+- `tests/ui_check/modules/`（103 个 `.cpp`）：导航、主题、任务、配置编辑、内容页、账号、日志等各自一个编译单元。历史顺序测试仍由 `ui_check` 编排，保留共享窗口和执行顺序；快速专项（`fold-motion`、`ui-refresh`、`files-rows`、`install-layout`、`input-widths`、`toolbox-polish`、`armor-trim`、`lifecycle`、`resource-packs`、`theme`、`ui-agent`）独立构建和注册。`ui-bootstrap` 只检查完整驱动能链接、启动和读取图标。
 - `tests/mw_check/modules/`（67 个 `.cpp`）：原命名函数、历史界面接线段和快速专项各自独立；下载、预设、更新、Java、模组等专项各有入口，不链接完整主窗口测试驱动。
 - `mw_check` 的夹具头分三层：`SupportCore.hpp`（断言与不碰界面的小工具）、`SupportFakes.hpp`（假外网与预置皮肤夹具）、`Support.hpp`（真窗口那套 UI 夹具与各节入口声明），`Support.cpp` 放共用的非模板实现。跨段变量显式传参，统计计数共享，历史测试顺序不变。三个原始入口保留编排和手动探针。
 - 生产实现依次复用 `wtfml_core_runtime`、`wtfml_ui_runtime`、`wtfml_mw_runtime`，测试程序之间相同实现和 Qt 元对象不重复编译；图标资源在 UI 入口显式初始化。
@@ -226,6 +227,15 @@ CTest 的两种"排除 visual"选到的数量不同：`ctest -E visual` 按名�
 - 已知崩溃保留首次证据、独立复现，不以"重跑直到绿"为验收规则。
 - 新增的 `tests/` 文件要能被 `tools/test-impact.ps1` 的映射认出（否则 `wtfml.test-modules` 会报"没有领域归属"）；新增 `assets/` 或工具脚本要补映射。
 - 新加 `QLineEdit` / `QSpinBox` / 可编辑下拉框：短值调 `InputSizing::shortValue`，长值调 `InputSizing::longValue` 写理由（`ui/InputSizing.hpp`）。`wtfml.input-widths` 在 1280×800 与 900×620 下扫主窗口各页和覆盖层页面，没登记又宽过 420 px 的输入框判失败；`WTFML_INPUT_WIDTH_DUMP=1` 打印每个输入框，`WTFML_INPUT_WIDTH_SHOTS=<目录>` 出前后样张（加 `WTFML_INPUT_WIDTH_BEFORE=1` 撤掉短值登记再拍）。限制：覆盖不到 `PresetManagePage`（`ui_check` 夹具未链接）和表格单元格内的编辑器。
+- 新写 `QDialog` / `ChromeDialog` / `GlassPopover` 子类，或新开一页 `showPage()`：登记进 `tests/ui_check/surface-registry.txt`，让 `wtfml.surface-sweep` 真的扫到。`tools/check-surface-registry.ps1`（CTest `wtfml.surface-registry`，CI 的 repo-rules 也跑）核对两边：代码里的对话框子类、就地建的裸对话框、`overlay->showPage()` 目标都必须在清单里；清单里的表面键也必须在 sweep 里 `record()` 过。判据宁可多报不漏报，确需豁免的在类声明行、构造行或 `showPage()` 调用行尾写 `// surface-registry-ignore: 理由`（理由不能是空的）。
+
+### 表面巡检（sweep）
+
+`wtfml.surface-sweep`（`tests/ui_check/modules/UiSurfaceSweepCheck.cpp`，判据在 `SurfaceScan.hpp`）把 96 个界面表面逐个打开，扫「还长着 Qt 默认样子」的控件。它现在是守卫：计入的残留不为 0 就退出码 1，输出逐条点名表面键、类别、控件类名和 objectName。
+
+例外不另开白名单文件，只写在 `SurfaceScan.hpp` 的 `checkBoxException()`：键是控件 objectName，值是一句理由，扫到记 `exempt`、不计数。加例外等于承认这里就要原生样子，人看过再写。
+
+单跑实测 8–21 秒（验证构建、offscreen，多趟），CTest 超时 180 秒。出样张用 `WTFML_SURFACE_SHOTS=<目录>`；`WTFML_SURFACE_THEME=emerald|ocean` 换主题（判据不随主题变，`WTFML_SURFACE_DEBUG_VIEWS=1` 打印每个视图挂的代理）。
 
 ### 夹具与探针技巧
 

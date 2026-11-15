@@ -327,8 +327,14 @@ void InstanceFilesPage::repositionSelectionBar() {
     if (m_actionPanelEnabled) {
         // Share a row only when both groups fit at the current font/DPI.
         // Narrow windows retain a separate selection row without wrapping controls.
-        const int headerWidth = m_stateButtonsRow->sizeHint().width()
-                              + m_selectionTools->sizeHint().width() + 24;
+        // 按「这一排可能露出的全部胶囊 +「已选 N 项」」量，不按此刻露着的几颗：否则禁用第一项时
+        // 「启用 / 禁用」冒出来就换行，列表整体下跳，指针底下换成别的一行（连点开关会点错）。
+        // 宽度一定，排法就一定。
+        const int pillsWidth = possibleStatePillsWidth();
+        int toolsWidth = m_selectionTools->sizeHint().width();
+        if (m_selectionReopen->isHidden())
+            toolsWidth += m_selectionReopen->sizeHint().width() + m_selectionTools->layout()->spacing();
+        const int headerWidth = pillsWidth + toolsWidth + 24;
         const bool inlineTools = m_contentHost->width() >= headerWidth;
         if (inlineTools != (m_selectionTools->parentWidget() == m_stateRow)) {
             if (inlineTools) {
@@ -377,6 +383,36 @@ void InstanceFilesPage::repositionSelectionBar() {
     m_selectionBar->setGeometry(qMax(0, x), qMax(0, y), width, hint.height());
 }
 
+int InstanceFilesPage::possibleStatePillsWidth() const {
+    const int spacing = m_stateButtonsRow->layout()->spacing();
+    int width = 0;
+    for (int i = 0; i < m_stateButtons.size(); ++i) {
+        const auto filter = static_cast<StateFilter>(i);
+        if (filter == StateFilter::Update && !m_canFilterUpdates) continue;
+        if ((filter == StateFilter::Enabled || filter == StateFilter::Disabled) && !m_canToggle) continue;
+        width += m_stateButtons.at(i)->sizeHint().width() + spacing;
+    }
+    return width;
+}
+
+bool InstanceFilesPage::placeCompactStateRow() {
+    if (!m_compactHeader || !m_batchMode || m_worldLayout) return false;
+    auto *search = qobject_cast<QHBoxLayout *>(m_searchRow->layout());
+    auto *outer = qobject_cast<QVBoxLayout *>(layout());
+    // 搜索框留出它自己 sizeHint 那么宽，剩下的装得下全部胶囊才同排（和模组页计数排同一判据）。
+    const int needed = m_search->sizeHint().width() + search->spacing() + possibleStatePillsWidth() + 24;
+    const bool inlineRow = m_contentHost->width() >= needed;
+    if (inlineRow == (m_stateRow->parentWidget() == m_searchRow)) return false;
+    if (inlineRow) {
+        outer->removeWidget(m_stateRow);
+        search->insertWidget(search->indexOf(m_search) + 1, m_stateRow);
+    } else {
+        search->removeWidget(m_stateRow);
+        outer->insertWidget(outer->indexOf(m_structureRows) + 1, m_stateRow);
+    }
+    return true; // 换了父控件会被藏起来，显隐交给 applyState() 重摆
+}
+
 QPushButton *InstanceFilesPage::selectionButtonAt(int action) const {
     if (action < 0 || action >= m_selectionButtons.size()) {
         return nullptr;
@@ -417,29 +453,8 @@ void InstanceFilesPage::syncSelectedPaths() {
     if (m_list == nullptr || !m_batchMode) {
         return;
     }
-    // 选中背景由行表面绘制；视图的 selectionChanged 不会替 indexWidget 刷新背景。
-    for (int i = 0; i < m_list->count(); ++i) {
-        QListWidgetItem *item = m_list->item(i);
-        if (QWidget *row = m_list->itemWidget(item)) {
-            QPalette palette = Theme::selectionPalette(m_list->palette(), item->isSelected());
-            const QColor background = item->isSelected()
-                ? Theme::selectionFill(m_list->palette().color(QPalette::Base))
-                : m_list->palette().color(QPalette::Base);
-            // 透明子控件擦背景时会读父级调色板，不能只在父级 paintEvent 中画选中底。
-            palette.setColor(QPalette::Base, background);
-            palette.setColor(QPalette::Window, background);
-            palette.setColor(QPalette::Button, background);
-            row->setPalette(palette);
-            for (QToolButton *button : row->findChildren<QToolButton *>()) {
-                QPalette buttonPalette = button->palette();
-                buttonPalette.setColor(QPalette::Base, background);
-                buttonPalette.setColor(QPalette::Window, background);
-                buttonPalette.setColor(QPalette::Button, background);
-                button->setPalette(buttonPalette);
-            }
-            row->update();
-        }
-    }
+    // 选中底和选中墨都由 RowDelegate 按 State_Selected 画；挡着信号重列时视图不一定自己重画。
+    m_list->viewport()->update();
     const QList<QListWidgetItem *> selected = m_list->selectedItems();
     for (QListWidgetItem *item : selected) {
         if (item == nullptr) {

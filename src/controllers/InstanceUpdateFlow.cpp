@@ -13,8 +13,10 @@
 #include "UpgradeHistoryDialog.hpp"
 #include "MainWindowUI.hpp"
 #include "InlineMessage.hpp"
+#include "LoadingState.hpp"
 #include "Theme.hpp"
 #include "controllers/InstanceTransferController.hpp"
+#include "controllers/InstancePagesController.hpp"
 #include "controllers/DownloadCompletionController.hpp"
 #include "controllers/ActivityCenterController.hpp"
 #include "controllers/InstallPageController.hpp"
@@ -93,7 +95,22 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
     auto *tree = dialog->findChild<QTreeWidget *>("instanceUpgradeModChecks");
     auto *plan = dialog->findChild<QPlainTextEdit *>(InstanceSettingsDialog::transferPlanTextName("upgrade"));
     auto *scopes = dialog->findChild<QListWidget *>(InstanceSettingsDialog::transferItemsListName("upgrade"));
-    if (!legacy || !tree || !plan || !scopes) return;
+    if (!legacy || !tree || !plan || !scopes) {
+        // 「升级」那一页是**第一次切过去才建**的（见 InstanceSettingsDialog::ensurePage()），
+        // 开页这一刻这一页还不存在 —— 这一趟先什么都不接，等它真的建出来再接一遍。
+        // 连接挂在一个自毁的小对象上：接上一次就断（同一个对话框只该接一遍）；页一直没建
+        // 就跟着对话框一起没。
+        auto *once = new QObject(dialog);
+        QObject::connect(dialog, &InstanceSettingsDialog::pageBuilt, once,
+                         [owner, dialog, sourceId, once](const QString &key) {
+                             if (key != QStringLiteral("upgrade")) {
+                                 return;
+                             }
+                             once->deleteLater();
+                             InstanceUpdateFlow::attach(owner, dialog, sourceId);
+                         });
+        return;
+    }
     auto *page = legacy->parentWidget();
     auto *layout = qobject_cast<QVBoxLayout *>(page->layout());
     if (!layout) return;
@@ -125,13 +142,20 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
     dialog->setProperty("upgradeRuntimeJavaPath", owner->m_javaSettings->javaPath());
     dialog->setProperty("upgradeRuntimeJavaMajor", 0);
     const auto source = owner->m_versionManager->displayParts(sourceId);
+    // 来源实例的加载器名 / 版本走 `InstancePagesController::loaderName()`，**不读
+    // `source.loaderName`**：那一格只有我们自己的安装器会写，PCL / HMCL 合并出来的实例
+    // （加载器只写在版本 json 的 `libraries` 里）在那儿是空的 —— 于是这一页说「纯原版」、
+    // 默认选中「纯原版」、计划按原版评估模组兼容。
+    QString sourceLoaderVersion;
+    const QString sourceLoader = InstancePagesController::loaderName(
+        source, owner->m_versionManager, &sourceLoaderVersion);
     for (const auto &task : owner->m_activityCenter->tasks()->all()) state->firstTask = qMax(state->firstTask, task.id);
     auto *selectors = new QWidget(page);
     selectors->setObjectName("instanceUpdateSelectors");
     auto *selectorLayout = new QVBoxLayout(selectors);
     selectorLayout->setContentsMargins(16, 12, 16, 12);
     auto *sourceContext = new QLabel(QObject::tr("当前实例：%1\nMinecraft %2 / %3\n\n请选择更新后的游戏与加载器版本。下一步检查现有模组，确认前不会修改实例。")
-        .arg(sourceId, source.realVersion, source.loaderName.isEmpty() ? QObject::tr("纯原版") : source.loaderName), selectors);
+        .arg(sourceId, source.realVersion, sourceLoader.isEmpty() ? QObject::tr("纯原版") : sourceLoader), selectors);
     sourceContext->setWordWrap(true); selectorLayout->addWidget(sourceContext);
     selectorLayout->addSpacing(16);
     auto *row = new QHBoxLayout;
@@ -145,7 +169,7 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
                            QStringLiteral("neoforge"), QStringLiteral("optifine"),
                            QStringLiteral("quilt")})
         loader->addItem(id.isEmpty() ? QObject::tr("纯原版") : id, id);
-    loader->setCurrentIndex(qMax(0, loader->findData(source.loaderName.toLower())));
+    loader->setCurrentIndex(qMax(0, loader->findData(sourceLoader.toLower())));
     auto *loaderVersion = new QComboBox(selectors); loaderVersion->setObjectName("instanceUpdateLoaderVersion");
     row->addWidget(new QLabel(QObject::tr("1. 更新到"), selectors)); row->addWidget(game, 2);
     row->addWidget(loader, 1); row->addWidget(loaderVersion, 1);
@@ -306,8 +330,8 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
     auto pageState = std::make_shared<UpgradePageState::State>();
     pageState->sourceId = sourceId;
     pageState->sourceGameVersion = source.realVersion;
-    pageState->sourceLoaderKey = source.loaderName.toLower();
-    pageState->sourceLoaderVersion = source.loaderVersion;
+    pageState->sourceLoaderKey = sourceLoader.toLower();
+    pageState->sourceLoaderVersion = sourceLoaderVersion;
     pageState->target.instanceName = copyName->text();
     // 来源实例此刻在跑、或被别的作业压着：页面上提前说，不等点确认才报错。
     if (owner->m_launcherManager->isVersionRunning(sourceId)
@@ -337,8 +361,8 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
         TransferPlanner::Inputs inputs;
         inputs.sourceDir = AppPaths::versionDir(sourceId);
         inputs.sourceGameVersion = source.realVersion;
-        inputs.sourceLoaderName = source.loaderName;
-        inputs.sourceLoaderVersion = source.loaderVersion;
+        inputs.sourceLoaderName = sourceLoader;
+        inputs.sourceLoaderVersion = sourceLoaderVersion;
         struct CategoryStats {
             bool ok = false;
             QHash<QString, QPair<int, qint64>> amounts;
@@ -618,8 +642,13 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
         const QString target = state->game.isEmpty() ? QString() : QStringLiteral("@download:") + state->game;
         dialog->setTransferTargets("upgrade", {{state->game, target}});
         if (!target.isEmpty()) {
-            auto *hidden = dialog->findChild<QComboBox *>(InstanceSettingsDialog::transferTargetComboName("upgrade"));
-            const QSignalBlocker block(hidden); hidden->setCurrentIndex(1);
+            // 那一格**可能不在**（页懒建之后它随页走）：找不到就什么都不做 —— 这一发只是
+            // 让旧转移控件跟上新目标，`transferTargetChosen` 那一发才是真正的驱动。
+            if (auto *hidden = dialog->findChild<QComboBox *>(
+                    InstanceSettingsDialog::transferTargetComboName("upgrade"))) {
+                const QSignalBlocker block(hidden);
+                hidden->setCurrentIndex(1);
+            }
         }
         emit dialog->transferTargetChosen("upgrade", target);
         plan->setPlainText(state->game.isEmpty() ? QObject::tr("选择目标后会检查当前实例的模组。")
@@ -631,22 +660,31 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
     const auto requestLoaders = [owner, state, game, loader, loaderVersion, evaluate] {
         if (state->preparing || state->executing) return;
         const QSignalBlocker block(loaderVersion); loaderVersion->clear();
+        // 下拉框里不再放一项「正在获取」：框空着，上面画一行加载态（LoadingState，矮宿主画成一行）。
+        LoadingState::finish(loaderVersion);
         if (loader->currentData().toString().isEmpty()) loaderVersion->addItem(QObject::tr("无需加载器"), QString());
         else if (game->currentIndex() > 0) {
-            loaderVersion->addItem(QObject::tr("正在获取版本…"), QString());
+            LoadingState::begin(loaderVersion, QObject::tr("正在获取版本…"));
             owner->m_versionManager->requestLoaderVersions(game->currentData().toString(), loaderKind(loader->currentData().toString()));
         }
         evaluate();
     };
     QObject::connect(owner->m_versionManager, &VersionManager::loaderVersionsFetched, dialog,
-        [state, game, loader, loaderVersion, evaluate](const QString &version, VersionManager::LoaderKind kind, bool ok,
+        [state, game, loader, loaderVersion, evaluate, requestLoaders](const QString &version, VersionManager::LoaderKind kind, bool ok,
             const LoaderMeta::LoaderVersionList &entries, const QString &problem) {
             if (state->preparing || state->executing) return;
             if (version != game->currentData().toString() || loader->currentData().toString().isEmpty()
                 || kind != loaderKind(loader->currentData().toString())) return;
             const QSignalBlocker block(loaderVersion); loaderVersion->clear();
-            loaderVersion->addItem(ok ? QObject::tr("请选择加载器版本") : QObject::tr("获取失败，点击刷新"), QString());
             loaderVersion->setToolTip(problem);
+            if (!ok) {
+                // 没取到：框上一行「列表没取到 · 重试」，重试 = 按现在的游戏版本与加载器再问一次。
+                LoadingState::fail(loaderVersion, MainWindowUI::loaderVersionFailedText(), requestLoaders);
+                evaluate();
+                return;
+            }
+            LoadingState::finish(loaderVersion);
+            loaderVersion->addItem(QObject::tr("请选择加载器版本"), QString());
             int recommended = -1;
             for (const auto &entry : entries) {
                 loaderVersion->addItem(entry.version + (entry.stable ? QString() : QObject::tr("（测试版）")), entry.version);

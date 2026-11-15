@@ -2,12 +2,14 @@
 #include "controllers/PresetController.hpp"
 #include "presets/PresetCatalog.hpp"
 #include "presets/PresetManifestLoader.hpp"
+#include "LoadingState.hpp"
 #include <QApplication>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QJsonDocument>
 #include <QLabel>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QPushButton>
@@ -120,8 +122,18 @@ int runPresetManifestChecks() {
     a->release.release(); c->release.release();
     page->findChild<QLineEdit *>(QStringLiteral("presetSearchEdit"))->clear();
     list->setCurrentItem(presetRow(list, idC));
+    // 读不出来那句话今天摆在**内容那一格**上（`PresetManagePage::showPresetReadError()` 换成
+    // 了 `LoadingState::fail(m_sectionList, …)`：原因 + 「重试」盖在内容列表上），页面底部那
+    // 一行状态只剩"用户刚做了什么"的反馈。断言跟着出口走，别钉在搬过家的控件上。
+    auto *sections = page->findChild<QListWidget *>(PresetManagePage::sectionListName());
+    const auto readError = [sections] {
+        QWidget *layer = sections != nullptr ? LoadingState::overlay(sections) : nullptr;
+        return layer != nullptr && layer->property("state").toString() == QStringLiteral("error")
+                   ? layer->accessibleName()
+                   : QString();
+    };
     check(pump([&] { return !controller.detailsLoading(); }) && !page->isBusy() && !save->isEnabled() &&
-          create->isEnabled() && page->findChild<QLabel *>(PresetManagePage::statusLabelName())->text().contains(QStringLiteral("fixture read failure")) &&
+          create->isEnabled() && readError().contains(QStringLiteral("fixture read failure")) &&
           page->findChild<QLabel *>(QStringLiteral("presetMetaLabel"))->text().contains(QStringLiteral("无法读取")),
           "failed manifest read reports reason without enabling stale editor");
 

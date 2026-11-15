@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include <QScopeGuard>
 int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStackedWidget * &gameStack, QLineEdit * &installNameEdit, QLabel * &installNameError, QPushButton * &installBtn, QPushButton * &installBackBtn, GlobalJavaSettings * &windowJava, const std::function<void(const QString &)> &pinGlobalJava, const std::function<void()> &unpinGlobalJava) {
     {
         // 用别名而不是 `using VersionManager::LoaderKind`：后者在块作用域里
@@ -292,6 +293,7 @@ int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStac
                 bool contextOk = false;
                 bool tabsOk = false;
                 bool firstPageOk = false;
+                bool headerIconOk = false;
                 bool switchOk = false;
                 int tabsSeen = -1;
                 QString pickerNote;
@@ -317,6 +319,14 @@ int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStac
                         tabsOk &= tabs->item(i)->text().startsWith(categories[i].title);
                     auto *stack = picker->findChild<QStackedWidget *>();
                     firstPageOk = stack != nullptr && stack->currentIndex() == 0;
+                    // 标题图标块不是提问弹框那枚 ⓘ（本仓库 ⓘ 专指「详情 / 说明」）。
+                    InlineMessageBox plain(MessageKind::Question, QString(), QString(), {}, 0, -1);
+                    const auto chipOf = [](QWidget *owner) {
+                        auto *chip = owner->findChild<QLabel *>(QStringLiteral("inlineMessageIcon"),
+                                                                Qt::FindDirectChildrenOnly);
+                        return chip ? chip->pixmap().toImage() : QImage();
+                    };
+                    headerIconOk = !chipOf(box).isNull() && chipOf(box) != chipOf(&plain);
                     // 「四类切换」：点第 2 页签，正文那一层得跟着翻。
                     if (tabs != nullptr && stack != nullptr && tabs->count() > 2) {
                         tabs->setCurrentRow(2);
@@ -331,10 +341,107 @@ int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStac
                         box->close();
                     }
                 };
-                QTimer::singleShot(0, inspectPicker);
+                // 预设数据在**后台读**（`PresetController::requestInstallPickerData()`）：
+                // 步骤 136 起点完那一下弹框立刻出来、右栏挂加载态，数据回来才填。等它填好再验。
+                //
+                // NOTE: 检查不能只在点击之后才排 —— `clickRow()` 自己会转一圈事件循环，
+                // 数据快的时候弹窗就在那一圈里摆上并阻塞在 `execPrompt()` 的嵌套循环里。
+                // 所以先挂一个 10ms 的轮询定时器：它在哪个循环里醒过来都行，一旦看见
+                // 预设弹窗就验一遍并点取消（点完 execPrompt 才返回）。
+                //
+                // 顺手验两件 136 的承诺，都在弹框**摆出来那一刻**（Show）验：那时 execPrompt 的
+                // 嵌套循环还没转，后台那一趟不可能已经填进来 —— 轮询等不到加载态（沙盒里预设
+                // 目录是空的，第一拍之前就读完了），只有这一刻是确定的。
+                // ① 读回来之前「确定选择」是灰的（拿空表确定会把挑好的几类清掉）；
+                // ② 这时再点一下「预设」：不另开、也不重发请求（重发会把这一张的数据作废，
+                //    它就一直停在加载态，下面那个"等它填好"就等不到）。
+                // 等不到时把看到的样子记下来（没弹 / 弹的是别的提示 / 停在加载态），红了好查。
+                bool inspected = false;
+                bool shownLoading = false;
+                bool loadingConfirmEnabled = false;
+                bool secondClicked = false;
+                bool secondClickKeptPrompt = false;
+                bool filledConfirmEnabled = false;
+                QString lastSeen = QStringLiteral("没弹东西");
+                QElapsedTimer pickerClock;
+                struct ShowSpy : QObject {
+                    std::function<void(QObject *)> onShow;
+                    bool eventFilter(QObject *watched, QEvent *event) override {
+                        if (event->type() == QEvent::Show && onShow) onShow(watched);
+                        return false;
+                    }
+                } showSpy;
+                showSpy.onShow = [&](QObject *watched) {
+                    auto *box = qobject_cast<InlineMessageBox *>(watched);
+                    auto *picker = box != nullptr ? box->findChild<PresetInstallPicker *>() : nullptr;
+                    if (picker == nullptr || secondClicked) return;
+                    auto *pickerStack = picker->findChild<QStackedWidget *>();
+                    auto *confirm = box->findChild<QPushButton *>(InlineMessageBox::buttonName(0));
+                    shownLoading = pickerStack != nullptr && pickerStack->count() == 0;
+                    loadingConfirmEnabled = confirm == nullptr || confirm->isEnabled();
+                    secondClicked = true;
+                    // 不转事件循环（这是在 Show 里）：只走一遍产品那条点击路，它应当当场返回。
+                    QMetaObject::invokeMethod(loaderTree, "itemClicked", Qt::DirectConnection,
+                                              Q_ARG(QTreeWidgetItem *, presetRow), Q_ARG(int, 0));
+                    secondClickKeptPrompt = currentPrompt() == box;
+                };
+                qApp->installEventFilter(&showSpy);
+                const auto removeSpy = qScopeGuard([&] { qApp->removeEventFilter(&showSpy); });
+                QTimer inspectPoll;
+                inspectPoll.setInterval(10);
+                QObject::connect(&inspectPoll, &QTimer::timeout, [&] {
+                    if (inspected) return;
+                    InlineMessageBox *box = currentPrompt();
+                    auto *picker = box != nullptr ? box->findChild<PresetInstallPicker *>() : nullptr;
+                    if (picker == nullptr) {
+                        if (box != nullptr) {
+                            const auto *title = box->findChild<QLabel *>(InlineMessageBox::titleLabelName());
+                            lastSeen = QStringLiteral("开着的是别的提示「%1」").arg(title ? title->text() : QString());
+                        }
+                        return;
+                    }
+                    auto *pickerStack = picker->findChild<QStackedWidget *>();
+                    if (pickerStack == nullptr || pickerStack->count() == 0) {
+                        lastSeen = QStringLiteral("预设弹窗停在加载态（%1 ms）").arg(pickerClock.elapsed());
+                        // 兜底得在这里：测试那头正卡在 clickRow → execPrompt 里，外面那个
+                        // pumpUntil 要等这张框关了才轮得到。
+                        if (pickerClock.elapsed() > 5000) {
+                            inspectPoll.stop();
+                            box->close();
+                        }
+                        return;
+                    }
+                    auto *confirm = box->findChild<QPushButton *>(InlineMessageBox::buttonName(0));
+                    filledConfirmEnabled = confirm != nullptr && confirm->isEnabled();
+                    inspected = true;
+                    inspectPoll.stop();
+                    inspectPicker();  // 点取消：execPrompt 这才返回
+                });
+                // 前面几节排下的提示探针（`dismissNextPrompt()` 那一族）会盯 20 秒，抢先把这张框
+                // 点掉（实测 11 ms 就被点了取消）。理由同 PromptAnswerer::start：从这一刻起作废它们。
+                ++g_modalHandlerGeneration;
+                inspectPoll.start();
+                pickerClock.start();
+                auto *overlayHost = window.findChild<OverlayHost *>(OverlayHost::overlayHostName());
+                const auto clickState = [&] {
+                    return QStringLiteral("行灰 %1 / promptOpen %2 / 有提示 %3")
+                        .arg(presetRow != nullptr && presetRow->isDisabled())
+                        .arg(overlayHost != nullptr && overlayHost->promptOpen())
+                        .arg(currentPrompt() != nullptr);
+                };
+                const QString beforeClick = clickState();
                 if (presetRow != nullptr && loaderTree != nullptr) {
                     clickRow(loaderTree, presetRow);
                 }
+                const QString afterClick = clickState();
+                // 弹框开出来过的话这一句早已成立（框在 clickRow 里开、验、关完）；这里只兜"压根没弹"。
+                pumpUntil([&] { return inspected; }, 5000);
+                inspectPoll.stop();
+                if (!inspected) {
+                    pickerNote = QStringLiteral("5 秒内没等到预设弹窗填好：%1（点前 %2；点后 %3）").arg(lastSeen, beforeClick, afterClick);
+                    if (InlineMessageBox *stuck = currentPrompt()) stuck->close();  // 别把后面几段一起挡住
+                }
+                pumpUntil([] { return currentPrompt() == nullptr; }, 5000);
                 check(pickerSeen,
                       "★★ 点「预设」那一行开的是中间那块紧凑弹窗（不是另开一页）",
                       pickerNote);
@@ -344,7 +451,16 @@ int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStac
                       "★★ 预设弹窗包含五类内容和综合预设导航",
                       QStringLiteral("页签 %1").arg(tabsSeen));
                 check(firstPageOk, "★ 弹窗默认停在第一类（游戏设置）");
+                check(headerIconOk, "预设弹窗标题图标块换成拼图，不是提问弹框的 ⓘ");
                 check(switchOk, "★ 点第二个页签，正文跟着翻到第二类");
+                check(shownLoading && !loadingConfirmEnabled,
+                      "★ 预设候选读回来之前「确定选择」是灰的（拿空表确定会把挑好的几类清掉）",
+                      QStringLiteral("摆出来时在加载态 %1 / 「确定」亮着 %2")
+                          .arg(shownLoading).arg(loadingConfirmEnabled));
+                check(inspected && filledConfirmEnabled, "★ 读回来之后「确定选择」亮起来");
+                check(secondClicked && secondClickKeptPrompt && inspected,
+                      "★ 弹窗开着时再点「预设」：不另开一张、也不把这一张的数据作废（照样等得到填好）",
+                      QStringLiteral("再点过 %1 / 还是同一张 %2").arg(secondClicked).arg(secondClickKeptPrompt));
                 const QString presetSubTextAfter =
                     presetRow != nullptr
                         ? presetRow->data(MainWindowUI::loaderTreeKeyColumn(),

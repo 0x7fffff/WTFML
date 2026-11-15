@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "LoadingState.hpp"
 #include <QElapsedTimer>
 #include <QThread>
 #include "controllers/InstanceFileController.hpp"
@@ -529,6 +530,10 @@ void runInstanceFilesPagesTests() {
             const bool invokedA = QMetaObject::invokeMethod(
                 &w, "loadServerList", Qt::DirectConnection,
                 Q_ARG(InstanceSettingsDialog *, &dialog), Q_ARG(QString, idV));
+            // 产品的顺序：开窗那一刻就 `loadServerList()`（页还没建），用户点进「服务器」那一页
+            // 才建 —— 建页时 `replayServerPage()` 要把先到的那一份摆上去。这一下同时钉住那条
+            // 回放：读的时候页还是空的，切过去之后必须已经有了。
+            dialog.showPage(InstanceSettingsDialog::serverPageKey());
             const QString noticeA = dialog.serverNotice() != nullptr
                                         ? dialog.serverNotice()->text()
                                         : QString();
@@ -683,6 +688,9 @@ void runInstanceFilesPagesTests() {
             QMetaObject::invokeMethod(&w, "loadServerList", Qt::DirectConnection,
                                       Q_ARG(InstanceSettingsDialog *, &dialog2),
                                       Q_ARG(QString, idV));
+            // 同上：列表先到、页后建（见 InstanceSettingsDialog::ensurePage()），这里照用户的
+            // 走法进那一页 —— 三行是建页时 `replayServerPage()` 摆上去的。
+            dialog2.showPage(InstanceSettingsDialog::serverPageKey());
             check(dialog2.serverTree() != nullptr &&
                       dialog2.serverTree()->topLevelItemCount() == 3,
                   "★ T20.6 那三台服务器从 servers.dat 里读出来了（自己拼的 NBT 字节过得了"
@@ -873,6 +881,8 @@ void runInstanceFilesPagesTests() {
             QMetaObject::invokeMethod(&w, "loadServerList", Qt::DirectConnection,
                                       Q_ARG(InstanceSettingsDialog *, &dialog3),
                                       Q_ARG(QString, idV));
+            // 同上：进那一页，那两颗按钮和两行才在。
+            dialog3.showPage(InstanceSettingsDialog::serverPageKey());
 
             check(dialog3.serverEditButton() != nullptr &&
                       dialog3.serverEditButton()->objectName() ==
@@ -1113,12 +1123,11 @@ void runInstanceFilesPagesTests() {
             QString promptTitle;
             QStringList promptButtons;
 
-            const auto dbl = [](QWidget *rowWidget) {
-                const QPoint pos(10, rowWidget->height() / 2);
-                QWidget *target = rowWidget->childAt(pos);
-                if (target == nullptr) {
-                    target = rowWidget;
-                }
+            // 合成一发双击，落在视口上那一行的行首（行是代理画的，鼠标底下就是视口本身）。
+            const auto dbl = [](QListWidget *list, QListWidgetItem *item) {
+                QWidget *target = list->viewport();
+                const QRect rect = list->visualItemRect(item);
+                const QPoint pos(rect.x() + 10, rect.center().y());
                 const auto one = [&target, &pos](QEvent::Type type, Qt::MouseButtons buttons) {
                     QMouseEvent event(type, QPointF(pos), QPointF(target->mapToGlobal(pos)),
                                       Qt::LeftButton, buttons, Qt::NoModifier);
@@ -1162,9 +1171,7 @@ void runInstanceFilesPagesTests() {
                         if (one != QStringLiteral("sodium-options.json")) {
                             continue;
                         }
-                        if (QWidget *rowWidget = files->list()->itemWidget(item)) {
-                            dbl(rowWidget);
-                        }
+                        dbl(files->list(), item);
                         return;
                     }
                 };
@@ -1475,11 +1482,12 @@ void runInstanceFilesPagesTests() {
                 }
                 list->setCurrentItem(targetItem);
                 QApplication::processEvents();
-                pendingSeen = info->isVisible() && info->text() == InstanceFilesPage::infoPendingText();
+                // 步骤 126：等的时候字清掉、上面挂一行加载态（LoadingState，过 150ms 才露「正在读取…」）。
+                pendingSeen = info->isVisible() && info->text().isEmpty() && LoadingState::overlay(info) != nullptr;
                 // 那一发合并定时器是 150 ms，读盘还要一会儿 —— 最多等 1.5 秒。
                 QElapsedTimer timer;
                 timer.start();
-                while (timer.elapsed() < 1500 && info->text() == InstanceFilesPage::infoPendingText()) {
+                while (timer.elapsed() < 1500 && LoadingState::overlay(info) != nullptr) {
                     QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
                     QThread::msleep(5);
                 }
@@ -1509,7 +1517,7 @@ void runInstanceFilesPagesTests() {
                   "★ T20.11 原理图那一页有「这一份是什么」那一格，而且**什么都没选的时候藏着**"
                   "（别的页上它压根不开，一个像素都不变）");
             check(pendingSeen,
-                  "★ T20.11 选中一份投影 ⇒ 立即写「正在读取…」（不是空白、也不是上一份的字）");
+                  "★ T20.11 选中一份投影 ⇒ 立即挂上加载态、上一份的字清掉");
             check(infoText.contains(QStringLiteral("真原理图")) &&
                       infoText.contains(QStringLiteral("3 × 1 × 2")) &&
                       infoText.contains(QStringLiteral("3 个方块")) &&
@@ -1517,7 +1525,7 @@ void runInstanceFilesPagesTests() {
                   "★★ T20.11 过一会儿那一格换成真读出来的元数据与方块统计"
                   "（名字 / 尺寸 / 方块数 / 格式）",
                   infoText);
-            check(infoText != InstanceFilesPage::infoPendingText() && !infoText.isEmpty(),
+            check(!infoText.isEmpty(),
                   "★ T20.11 那一格真的被接上了（停在「正在读取…」= 控制器那条连接漏了）");
             check(infoTip.contains(QStringLiteral("minecraft:stone：2")),
                   "★ T20.11 悬停提示里是方块排行（最多的那种真数出来了）", infoTip);
@@ -1948,15 +1956,9 @@ void runInstanceFilesPagesTests() {
                         if (one != QStringLiteral("sodium-options.json")) {
                             continue;
                         }
-                        QWidget *rowWidget = files->list()->itemWidget(item);
-                        if (rowWidget == nullptr) {
-                            return;
-                        }
-                        const QPoint pos(10, rowWidget->height() / 2);
-                        QWidget *target = rowWidget->childAt(pos);
-                        if (target == nullptr) {
-                            target = rowWidget;
-                        }
+                        QWidget *target = files->list()->viewport();
+                        const QRect rect = files->list()->visualItemRect(item);
+                        const QPoint pos(rect.x() + 10, rect.center().y());
                         const auto one_event = [&target, &pos](QEvent::Type type,
                                                                Qt::MouseButtons buttons) {
                             QMouseEvent event(type, QPointF(pos),
@@ -2630,6 +2632,9 @@ void runInstanceFilesPagesTests() {
             const QString modeField = InstanceSettingsDialog::windowModeField();
             const QString sizeField = InstanceSettingsDialog::windowWidthField();
             withPage(idV, [&](InstanceSettingsDialog *page) {
+                // 页是第一次切过去才建的（见 InstanceSettingsDialog::ensurePage()）：窗口模式 /
+                // 窗口大小这两行在「启动」页上，先进这一页再动它们。
+                page->showPage(InstanceSettingsDialog::launchCategoryKey());
                 auto *combo = page->findChild<QComboBox *>(
                     InstanceSettingsDialog::windowModeComboName());
                 comboHasThree = combo != nullptr && combo->count() == 3;
@@ -2686,6 +2691,8 @@ void runInstanceFilesPagesTests() {
             bool reopenPicked = false;
             bool reopenSize = false;
             withPage(idV, [&](InstanceSettingsDialog *page) {
+                // 页是第一次切过去才建的，重开的这一扇也一样：先进「启动」那一页再读。
+                page->showPage(InstanceSettingsDialog::launchCategoryKey());
                 // 档位从单选框变成下拉框之后，"停在「自定义」上"还是同一件事，只是读法
                 // 成了"那个下拉框停在下标 1"（`choiceCustomIndex()`）。
                 auto *modeChoice = page->findChild<QComboBox *>(
@@ -2721,6 +2728,7 @@ void runInstanceFilesPagesTests() {
             // 留着一份"看起来跟全局一样"的副本，以后改全局这个实例就不跟着走了 ——
             // 而用户明明选的是「跟随全局」。
             withPage(idV, [&](InstanceSettingsDialog *page) {
+                page->showPage(InstanceSettingsDialog::launchCategoryKey());
                 setChoice(page, modeField, false);
                 setChoice(page, sizeField, false);
                 QApplication::processEvents();
@@ -2846,7 +2854,15 @@ void runInstanceFilesPagesTests() {
                     // 取最后一个：上一扇页可能还在等 deleteLater，刚开的这扇是最后加进来的子控件。
                     const auto pages = host->findChildren<InstanceSettingsDialog *>();
                     auto *page = pages.isEmpty() ? nullptr : pages.last();
-                    if (page && page->serverTree()->topLevelItemCount() == 2 &&
+                    // 页是第一次切过去才建的（见 InstanceSettingsDialog::ensurePage()）：
+                    // 服务器的表格、那几颗按钮都在那一页上，先照用户的走法切过去。
+                    // 列表是开窗那一刻就 `loadServerList()` 进来的（页还没建），切过去时
+                    // `replayServerPage()` 把它摆上 —— 下面数的就是那两行。
+                    if (page != nullptr) {
+                        page->showPage(InstanceSettingsDialog::serverPageKey());
+                    }
+                    if (page && page->serverTree() != nullptr &&
+                        page->serverTree()->topLevelItemCount() == 2 &&
                         page->findChild<QPushButton *>(QStringLiteral("serverFavorite")) &&
                         page->findChild<QCheckBox *>(QStringLiteral("serverFavoritesOnly"))) {
                         ++visits;

@@ -529,6 +529,68 @@ QWidget *makePageSection(const QString &title, QWidget *parent, QVBoxLayout **la
     return section;
 }
 
+QWidget *makeSettingRow(QWidget *parent, QWidget *title, const QString &desc, QWidget *control, bool below) {
+    auto *row = new QFrame(parent);
+    row->setObjectName(QStringLiteral("wtfmlSettingRow"));
+    const auto paintRow = [row] {  // 行底分隔压到 fill-press 的四成：只提示换行，不画成格子
+        QColor line = Theme::tokens().fillPress;
+        line.setAlphaF(line.alphaF() * 0.4);
+        row->setStyleSheet(QStringLiteral("QFrame#wtfmlSettingRow { border: none; border-bottom: 1px solid %1; }")
+                               .arg(line.name(QColor::HexArgb)));
+    };
+    paintRow();
+    Theme::follow(row, paintRow);
+    auto *line = new QHBoxLayout(row);
+    line->setContentsMargins(0, 12, 0, 12);
+    line->setSpacing(16);
+    auto *text = new QVBoxLayout;
+    text->setContentsMargins(0, 0, 0, 0);
+    text->setSpacing(2);
+    if (title != nullptr) {
+        title->setParent(row);
+        text->addWidget(title, 0, Qt::AlignLeft);
+    }
+    if (!desc.isEmpty()) {
+        auto *hint = new QLabel(desc, row);
+        hint->setObjectName(QStringLiteral("wtfmlSettingRowDesc"));
+        hint->setWordWrap(true);
+        hint->setMaximumWidth(560);
+        hint->setFont(Theme::textFont(hint->font(), Theme::TextRole::Caption));
+        const auto tone = [hint] {
+            QPalette pal = hint->palette();
+            pal.setColor(QPalette::WindowText, Theme::tokens().secondary);
+            hint->setPalette(pal);
+        };
+        tone();
+        Theme::follow(hint, tone);
+        // 带 AlignLeft 的换行标签只拿 sizeHint 那点宽、高度不跟折行长，会被压成一条缝；直接放进竖排又会
+        // 把整列的最大宽压成 560、被摆到中间。⇒ 横排里 + 一截弹簧：限宽、靠左、按宽折行算高。
+        auto *hintRow = new QHBoxLayout;
+        hintRow->setContentsMargins(0, 0, 0, 0);
+        hintRow->addWidget(hint, 1);  // 先把字长到 560，余下的给弹簧
+        hintRow->addStretch(0);
+        text->addLayout(hintRow);
+    }
+    line->addLayout(text, 1);
+    if (control != nullptr && below) {
+        control->setParent(row);
+        text->addSpacing(6);
+        text->addWidget(control);
+    } else if (control != nullptr) {
+        control->setParent(row);
+        line->addWidget(control, 0, Qt::AlignRight | Qt::AlignVCenter);
+    }
+    return row;
+}
+
+QLabel *makeSettingRowTitle(const QString &text, QWidget *parent) {
+    auto *label = new QLabel(text, parent);
+    QFont f = Theme::textFont(label->font(), Theme::TextRole::Body);
+    f.setBold(true);
+    label->setFont(f);
+    return label;
+}
+
 QScrollArea *makePageScroll(QWidget *parent, int bottomMargin, QVBoxLayout **bodyOut) {
     auto *scroll = new Theme::GutterScrollArea(parent);
     scroll->setWidgetResizable(true);

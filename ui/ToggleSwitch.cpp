@@ -42,35 +42,41 @@ void ToggleSwitch::leaveEvent(QEvent *event) {
 
 void ToggleSwitch::paintEvent(QPaintEvent *event) {
     Q_UNUSED(event);
+    QPainter painter(this);
+    paintSwitch(&painter, rect(), palette().color(QPalette::Accent), isChecked(), m_hovered, isDown(),
+                isEnabled());
+}
+
+void ToggleSwitch::paintSwitch(QPainter *painter, const QRect &area, const QColor &accent, bool on,
+                               bool hoveredIn, bool down, bool enabled) {
     // 关 = fill-press 实心轨道（不描边）+ ink-2 圆点 12；开 = 强调色实心 + on-accent 圆点 14；
     // 悬停圆点放大 1.12（关着时轨道压深一点）；按下圆点拉长到 17 宽；禁用整枚 .45。
-    const QRectF box(0.75, 0.75, width() - 1.5, height() - 1.5);
+    const QRectF box(area.x() + 0.75, area.y() + 0.75, area.width() - 1.5, area.height() - 1.5);
     const Theme::Tokens t = Theme::tokens();
-    const QColor accent = palette().color(QPalette::Accent);
-    const bool hovered = m_hovered && isEnabled();
-    const bool on = isChecked();
+    const bool hovered = hoveredIn && enabled;
 
-    QPainter painter(this);
-    painter.setRenderHint(QPainter::Antialiasing, true);
-    if (!isEnabled()) painter.setOpacity(0.45);
+    painter->save();
+    painter->setRenderHint(QPainter::Antialiasing, true);
+    if (!enabled) painter->setOpacity(painter->opacity() * 0.45);
     const qreal radius = box.height() / 2.0;
     if (on) {
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(hovered ? (accent == t.primary ? t.primaryHover : accent.lighter(110)) : accent);
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(hovered ? (accent == t.primary ? t.primaryHover : accent.lighter(110)) : accent);
     } else {
         QColor track = t.fillPress;  // 悬停把同一档压深一点（浅深主题都是加 alpha）
         if (hovered) track.setAlphaF(qMin(1.0, track.alphaF() * 1.6));
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(track);
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(track);
     }
-    painter.drawRoundedRect(box, radius, radius);
+    painter->drawRoundedRect(box, radius, radius);
 
     qreal knob = on ? 14.0 : 12.0;
     if (hovered) knob *= 1.12;
-    const qreal knobWidth = isDown() ? qMax(knob, 17.0) : knob;
-    const qreal inset = (height() - knob) / 2.0;
-    const qreal x = on ? width() - inset - knobWidth : inset;
-    painter.setPen(Qt::NoPen);
-    painter.setBrush(on ? t.onPrimary : t.secondary);
-    painter.drawRoundedRect(QRectF(x, inset, knobWidth, knob), knob / 2.0, knob / 2.0);
+    const qreal knobWidth = down ? qMax(knob, 17.0) : knob;
+    const qreal inset = (area.height() - knob) / 2.0;
+    const qreal x = on ? area.x() + area.width() - inset - knobWidth : area.x() + inset;
+    painter->setPen(Qt::NoPen);
+    painter->setBrush(on ? t.onPrimary : t.secondary);
+    painter->drawRoundedRect(QRectF(x, area.y() + inset, knobWidth, knob), knob / 2.0, knob / 2.0);
+    painter->restore();
 }

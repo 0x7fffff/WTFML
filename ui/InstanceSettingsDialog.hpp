@@ -38,6 +38,7 @@
 #include <QDateTime>
 #include <QHash>
 #include <QIcon>  // ServerRowStatus 里那一枚（服务器图标）
+#include <QImage>  // 截图缩略图缓存（m_lifecycleThumbCache）
 #include <QJsonObject>  // pageChoices() / setPageChoices()（"藏起来的那几页"）
 #include <QList>
 #include <QPair>
@@ -60,6 +61,7 @@ class ConfigFileEditorPage;
 class InstanceFilesPage;
 class MemorySlider;
 
+class ElidedLabel;
 class QCheckBox;
 class QComboBox;
 class QGridLayout;
@@ -999,6 +1001,9 @@ public:
     // / 第一行：图标预览（一张固定边长的图，当前选的是哪一张就画哪一张）+ 名称输入框
     // / （`instanceNameEditName()`，就是「实例名」那一格）。
     static QString iconPreviewName() { return QStringLiteral("instanceIconPreview"); }
+    /// 页眉名字下面那一行（加载器 · 游戏版本，见 `setHeaderMeta()`）。验证工程要读它 ——
+    /// 这一行和主页 / 管理列表是不是同一个加载器名，只有从控件上才问得出来。
+    static QString headerMetaName() { return QStringLiteral("instanceHeaderMeta"); }
     /// 第二行左边那颗「更改图标」——点了在它底下开 @c iconMenuName() 那个浮层。
     static QString changeIconButtonName() { return QStringLiteral("instanceChangeIconButton"); }
     /// 那个浮层本身（**常驻**：构造函数里建好一次，以后每次点按钮只是再弹一遍 —— 见
@@ -1568,6 +1573,11 @@ protected:
     void dropEvent(QDropEvent *event) override;
 
 signals:
+    /// @p key 那一页**刚建出来**（第一次切过去，见 ensurePage()）。
+    ///
+    /// 给"要在某一页的控件上接线"的调用方用：页是懒建的，开页那一刻 `findChild()` 摸到的
+    /// 是空的，只能等这一发。**只在建出来那一次发**，切回来不再发。
+    void pageBuilt(const QString &key);
     void resourcePackPageEntered();
     /// 左栏底部的固定入口；真正启动仍统一交给 MainWindow 的启动链。
     void launchInstanceRequested();
@@ -1745,6 +1755,14 @@ signals:
     void prepareUpgradeTargetRequested(const QString &gameVersion);
     void updateWizardRequested();
     void stopUpgradeQueryRequested();
+
+    /// 用户按了「升级」那一页上的「重新检查」（那颗按钮在页里，见 buildLifecyclePage()）。
+    ///
+    /// NOTE: 转成这一发是因为**页是第一次切过去才建的**：接的人（`UpgradeAssessment`）
+    /// 在开页那一刻就 attach 了，那时那颗按钮还不存在，`findChild()` 摸到的是空的 ——
+    /// 直接接按钮的 `clicked` 会静默接不上（点了什么都不发生）。和 `stopUpgradeQueryRequested`
+    /// 同一个做法：按钮在页里发，接的人在对话框上接。
+    void upgradeRecheckRequested();
 
     /// 用户按了「搬过去…」/「创建升级副本…」。**只发意图，不写盘**：路径闸、运不运
     /// 行、要不要问名字都在 controller 那一层。
@@ -2015,7 +2033,29 @@ private:
 
     /// 往堆叠页里加一页（objectName = `panelName(key)`），返回那一页自己。
     /// **加进去的顺序必须就是 pageCount() 那个顺序**（有一条断言钉着）。
+    ///
+    /// NOTE: 现在只有 ensurePage() 跑 builder 的时候才调它 —— 堆叠页那一格（`addPageSlot()`）
+    /// 在构造里就按 pageCount() 的顺序挖好了，页里的控件是第一次切过去才建的。
     QWidget *addPage(const QString &key);
+
+    /// 在堆叠页里挖一格空位（构造里按 pageCount() 的顺序挖全部 23 格）。
+    ///
+    /// 为什么要空位：堆叠页的下标由 `stackPageIndexOf()` 那张表算，页得**按顺序占位**；
+    /// 而页里的控件是第一次切过去才建的（见 ensurePage()）。空位自己什么都不画。
+    QWidget *addPageSlot(const QString &key);
+
+    /// 堆叠页里 @p key 那一格的空位（认不出来的键回 nullptr）。
+    QWidget *pageSlot(const QString &key) const;
+
+    /// 这一页要是有 builder 还没跑过，就跑一次（跑完从表里删掉，以后再切回来不重建）。
+    /// **懒建的唯一入口就是它**：applyPageKey() 先调它 —— "切到哪一页才建哪一页"只写这一处。
+    void ensurePage(const QString &key);
+
+    /// 把新造出来的这一页上的控件接到「改了就写」那几条线上（watchEditors() 的按页版本）。
+    ///
+    /// NOTE: watchEditors() 是按**类型**扫子控件的，构造末尾那一次只扫得到当时已经建出来的
+    /// 那些。懒建的页在造出来之后必须自己补一遍，否则就是「这一项改了不写盘」。
+    void watchPage(QWidget *page);
 
     /// 在 @p page 里加一张「左名右控件」的两列表格（3:7，和设置页栏内那一层同一套），
     /// 返回那张表格。控件加进它自己的 `formName(key)` 子控件里。
@@ -2117,7 +2157,7 @@ private:
     GlobalValues m_global;
 
     QLabel *m_headerIcon = nullptr;   // 页眉（UI 7b）：图标、名字、元信息
-    QLabel *m_headerTitle = nullptr;
+    ElidedLabel *m_headerTitle = nullptr;
     QLabel *m_headerMeta = nullptr;
 
     // ---------- 左栏那一列 + 右栏堆叠页（见 pinnedPageKeys() 上面那一段）----------
@@ -2131,6 +2171,10 @@ private:
     QHash<QString, QString> m_lifecycleInfoPath;
     QHash<QString, QTimer *> m_lifecycleInfoTimers;
     QHash<QString, std::function<void()>> m_filePageBuilders;
+    /// 页键 → 造这一页的函数（第一次切过去才跑，跑完从表里删掉 —— 见 ensurePage()）。
+    QHash<QString, std::function<void()>> m_pageBuilders;
+    /// 已经建出来的那几页（键）。同一页只建一次。
+    QSet<QString> m_builtPages;
     QHash<QString, QPixmap> m_pendingFileIcons;
     QHash<QString, QString> m_pendingFileResources;
     QStringList m_pendingOutdatedPaths;
@@ -2140,10 +2184,23 @@ private:
     bool m_closing = false;
     bool m_pendingUpdatesChecked = false;
     void ensureFilePage(const QString &key);
-    /// 截图页的缩略图**排到事件循环之后再解**：一页 73 张 PNG 同步读会把点页面的那一下卡住。
-    QStringList m_lifecycleThumbQueue;
-    QTimer *m_lifecycleThumbTimer = nullptr;
-    void loadNextLifecycleThumb();
+    /// 「文件管理」那几页还有没建出来的吗。**「要不要把这一份留给以后补灌」的判据**：
+    /// 有页没建 ⇒ 存着（那一页建出来时会自己补）；全建完了 ⇒ 存的那几份可以扔了。
+    ///
+    /// NOTE: 别再用 `m_filePageBuilders.isEmpty()` 当这个判据 —— 页是懒建的，那个表在
+    /// 打开对话框那一刻是**空的**（一页都没建），意思正好反过来。
+    bool filePagesPending() const;
+    /// 截图页的缩略图在**后台线程**解（`QtConcurrent`），结果按 `路径|大小|修改时间` 缓存：
+    /// 一页几十张 PNG 在界面线程上逐张解（原来是排到事件循环之后），点开截图的
+    /// 那一下和随后几帧都要等它。
+    ///
+    /// 缓存跟着这个对话框走（关掉就没了）：它只在"这一份实例的截图"这一小撮上复用，
+    /// 换一页再回来、点「刷新」再列一遍都不必重解。行高在**没有图的时候**就用
+    /// `setSizeHint()` 钉死，图回来只换图标，行不跳。
+    QHash<QString, QImage> m_lifecycleThumbCache;
+    /// 重列一次就 +1：在途的解码回调按它丢掉（不往新一页里塞旧图）。
+    quint64 m_lifecycleThumbGeneration = 0;
+    void requestLifecycleThumb(const QString &path);
     QPlainTextEdit *m_diagnosisReport = nullptr;
     /// 「迁移」/「升级」那两页（键 → 控件；键就是 `migration` / `upgrade`）。
     QHash<QString, QComboBox *> m_transferTargets;
@@ -2158,8 +2215,19 @@ private:
     /// 可选的窗口档位。它们本来就只是"这一次打开对话框的现场"，不存成员。
     void setupLaunchPage(const GlobalValues &global, const QStringList &appendJvmArgs,
                          bool warnJavaMismatch, const QList<WindowModeChoice> &windowModes);
-    void setupFilePages();
-    void setupLifecyclePages();
+    /// 把构造函数那份「现状」灌进启动页（原构造函数里那一串 setChoiceCustom / setValue）。
+    /// **跟着页走**：这一页第一次切过去才建，值就那时候灌。
+    void applyLaunchValues(const Override &current, const GlobalValues &global);
+    /// 造「文件管理」那八页里的**一页**（第一次切过去才跑，见 ensurePage()）。
+    void buildFilePage(const QString &key);
+    /// 服务器列表那一页（它不走 InstanceFilesPage，单造）。
+    void buildServerPage();
+    /// 造「创作工具 / 维护」那几页里的**一页**（同上）。
+    void buildLifecyclePage(const QString &key);
+    /// 「迁移」/「升级」那两页里，把存着的那一份目标 / 计划 / 范围表摆上去。
+    void replayTransferPage(const QString &key);
+    /// 服务器列表那一页把存着的那一份摆上去（页可能是先收到列表、后建出来的）。
+    void replayServerPage();
     void rebuildNavigationTree();
     void refreshLifecycleFiles(const QString &key);
     void filterLifecycleFiles(const QString &key);
@@ -2184,6 +2252,37 @@ private:
     /// 这个实例现在的目录名（构造时那个 instanceId）。留着是为了"导出启动脚本"那条路
     /// 的默认文件名 —— 它一定是合法文件名（validateDirName 那一关挡过），而显示名不一定。
     QString m_instanceId;
+    /// 构造时那份「现状」（盘上的覆盖）。**启动页还没建出来时 override() 读它** ——
+    /// 没建 = 这一段里用户没碰过它，读回来的就该是盘上那一份。
+    Override m_currentOverride;
+    /// 同上：追加参数与版本提醒那两位（它们不在 Override 里，见各自的 getter）。
+    QStringList m_pendingAppendJvmArgs;
+    bool m_pendingWarnJavaMismatch = true;
+    bool m_launchPageBuilt = false;
+
+    /// 「实例名」那一格接改名那条线没有（`watchPage()` 每建一页都会扫一遍整个对话框，
+    /// 而那一发是 lambda —— `Qt::UniqueConnection` 管不了它，得自己记一笔）。
+    bool m_renameWired = false;
+
+    // ---- 「灌值」先到、页后建的那几页 ----
+    //
+    // 调用方（MainWindow / controller）开页那一刻就把服务器列表、迁移计划这些灌进来，
+    // 而页是第一次切过去才建的。**这些值不会再来第二遍**，所以先存在这儿，页建出来再摆。
+    QList<QPair<QString, QString>> m_serverRows;
+    QString m_serverProblem;
+    bool m_serverListReady = false;
+    QString m_serverJoinText;
+    QString m_serverJoinTipPending;
+    bool m_serverPinging = false;
+    QString m_diagnosisText;
+    QHash<QString, QList<QPair<QString, QString>>> m_transferTargetRows;
+    QHash<QString, QString> m_transferTargetId;
+    QHash<QString, QString> m_transferPlanText;
+    QHash<QString, QList<QPair<QString, QString>>> m_transferItemRows;
+    QHash<QString, QStringList> m_transferItemDefaults;
+    QString m_upgradeContextText;
+    QList<QStringList> m_upgradeModRows;
+    QString m_upgradeModSummary;
 
     // ---- 文件管理那八页（见上面 filePageKeys() / setFileDirs() 那两段）----
     // / 这个实例的目录（setInstanceDir()）：概览页上那排快捷按钮的「版本目录」开的就是它。

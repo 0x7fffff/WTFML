@@ -76,17 +76,32 @@ QSet<QString> MainWindow::installingVersionIds() const {
 }
 
 void MainWindow::refreshInstalledVersions() {
-    QElapsedTimer refreshTimer;
-    refreshTimer.start();
-    // 只扫本地磁盘（.minecraft/versions/<id>/<id>.jar），同步返回，随叫随到。
+    // 同步那条路：改名 / 删实例 / 下载收尾 / 改设置这些"用户刚做完一件事、要立刻看见"的场合
+    // 用。扫的是本地磁盘（.minecraft/versions/<id>/<id>.jar），实例少时是几毫秒。
     //
-    // 识别不出来的版本只在第一次上报：本函数一次会话会被调很多次（构造、版本清单到达、
-    // 下载完成、每勾一下「版本名格式」都会走一遍），每回都报就是刷屏。第一次报过之后
-    // 连扫都不扫了 —— 传 nullptr 时
-    // installedVersions() 走的是不带 out 参数的那条路径。
+    // 版本清单从网络回来那一下（20 份 63 ms、200 份 116 ms）走异步那条：见
+    // `refreshInstalledVersionsAsync()`。
+    ++m_installedRefreshToken;
+    // 识别不出来的版本只在第一次上报：本函数一次会话会被调很多次（构造、下载完成、每勾一下
+    // 「版本名格式」都会走一遍），每回都报就是刷屏。第一次报过之后连扫都不扫了 —— 传
+    // nullptr 时 installedVersions() 走的是不带 out 参数的那条路径。
     QStringList warnings;
     const QStringList installed = m_versionManager->installedVersions(
         m_reportedUnrecognizedVersions ? nullptr : &warnings);
+    applyInstalledVersions(installed, warnings);
+}
+
+void MainWindow::refreshInstalledVersionsAsync() {
+    // **不扫盘、不动界面**：只把请求发出去。结果回来之前下拉框和实例树保持上一次的样子
+    // （`installedVersionsScanned` 的接收端在 MainWindow 构造里接好了）。
+    m_pendingInstalledRefreshToken = ++m_installedRefreshToken;
+    m_versionManager->requestInstalledVersions(!m_reportedUnrecognizedVersions);
+}
+
+void MainWindow::applyInstalledVersions(const QStringList &installed,
+                                        const QStringList &warnings) {
+    QElapsedTimer refreshTimer;
+    refreshTimer.start();
     if (!warnings.isEmpty()) {
         m_reportedUnrecognizedVersions = true;
         for (const QString &warning : warnings) {
@@ -268,8 +283,15 @@ InstanceFilter::Query MainWindow::instanceFilterQuery() const {
 
 InstanceFilter::Facts MainWindow::instanceFilterFacts(const VersionDisplayParts &part) const {
     InstanceFilter::Facts facts;
-    facts.texts = InstanceFilter::textsFor(part, m_settings->versionNameOptions());
-    facts.hasLoader = !part.loaderName.isEmpty();
+    // 加载器名 / 版本走 `instanceLoaderName()`（= `InstancePagesController::loaderName()`），
+    // **不直接读 `part.loaderName`**：那一格只有我们自己的安装器会写，PCL / HMCL 合并出来的
+    // 实例（加载器只写在版本 json 的 `libraries` 里）在那儿是空的。读它的话，「模组」那一档
+    // 筛不出这种实例（它明明带着 Fabric），搜「fabric」也搜不到。
+    QString loaderVersion;
+    const QString loaderName = instanceLoaderName(part, m_versionManager, &loaderVersion);
+    facts.texts = InstanceFilter::textsFor(part, m_settings->versionNameOptions(), loaderName,
+                                           loaderVersion);
+    facts.hasLoader = !loaderName.isEmpty();
     // 「可更新」认的是**实例设置里那趟检查**的结果（键在不在 = 查过没有，见
     // m_instanceOutdatedPaths 那段）。没查过的实例在这一档里筛不出来 —— 那是对的，
     // 谁也没说过它有更新。

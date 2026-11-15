@@ -17,7 +17,7 @@
 | CI 分片与缓存 | `pwsh -File tools/perf-ci.ps1 -Limit 8` | `ci.json` |
 | 发布体积 | `pwsh -File tools/prepare-release-copy.ps1 -BuildDir <静态构建目录>`；`tools/measure-release-size.ps1` | 见 [RELEASE_SIZE.md](perf-notes/RELEASE_SIZE.md) |
 
-`perf-startup.ps1` 开头检查有没有启动器在跑，有就拒绝；它把 `HKCU\Software\WTFML` 导出、换成指向沙盒的最小设置，跑完还原，并对还原后的导出做 SHA256 逐字节比对（`startup.json` 的 `registry.restoredVerbatim`）。`-InstanceMeta` 给每个实例多写一份 `wtfml.meta`；默认夹具没有它，两种夹具的数字不能横向比。
+`perf-startup.ps1` 开头检查有没有启动器在跑，有就拒绝。每次运行都在 `<报告目录>/profile` 建一份验收配置，用 `--acceptance-profile <目录>` 起 exe：设置、游戏目录（夹具造在它的 `game/versions`）、智能体数据都在这一份里，跑完整个删掉，不碰用户注册表（`startup.json` 的 `acceptanceProfile`）。`-InstanceMeta` 给每个实例多写一份 `wtfml.meta`；默认夹具没有它，两种夹具的数字不能横向比。`-Probe` 另带首帧守卫，见「界面交互」那一节。
 
 ## 基线速查表
 
@@ -378,6 +378,11 @@ cmake --build build/perf-probe --parallel 8
 探针在 `src/perf/PerfProbe.cpp`：argv 里带 `--wtfml-perf-probe=<文件>` 才动，否则这个 exe 和普通启动器一样。它按用户点的按钮发动作（`TitleBar::navButton()`、设置页的主题下拉框），不绕业务层。
 
 - 每步量两段：`actionMs`（同步那一截，翻页后的懒加载/列表重建都在里面）和 `repaintMs`（把整窗立刻重画一遍，是上限，真实使用只重画脏的几块）。
+- 首帧守卫：首帧 = `actionMs + repaintMs`；异步才出现的东西（如后台快照到位后才摆的预设弹框）用 `nestedFirstFrameMs`。`waitMs`（等数据）不算首帧。阈值 50 ms，超了又不在 `tools/perf-firstframe-allowlist.txt` 里，探针以非零退出（`firstFrameGuard.failed`），这一趟测量算失败。
+  - 允许名单是 `键<TAB>值` 的纯文本，键 = 探针步骤名，值 = 放行时记录到的参考首帧（不参与判定）；只许删不许加，修好一条删一条。
+  - `scan:` / `theme:` / `tasks:` / `presets:` / `concurrent:` 是故意同步的扫描、换主题重刷或合成负载，`*-wait` 是等待那一半，都不进守卫。
+  - 守卫只认 Release 探针的数。`ui_check_surface_sweep` 的 offscreen `-O0` 数字只能横向比，不拿来判。
+- 100 s 硬收尾：那一刻还没走完就按已有的几步落盘，JSON 里写 `hardFinalized: true`。启动脚本只等 120 s，验收配置到点会关窗，而中途关窗时报告根本不会生成；网络卡在某一步的等待里、或者某一步弹出了提示，都会走到这一档。它只决定收不收尾，不改任何一步的量法。
 - 20 ms 的 `Qt::PreciseTimer` 看门狗记主线程空档：`maxGapMs` 含 20 ms 节拍，`maxStallMs` 是减掉节拍之后的值，`over50ms` 数超过 50 ms 的节拍。看门狗在 `app.exec()` 之前就开始，所以最长空档包含启动期那一段。
 - 步骤：先单独跑一遍本地 Java 扫描（`scan:java`）→ 四个导航页各一次 → 四个主题预设各一次 → 回主页 → 还原主题 → 再进一次设置页（`nav:settings-again`，第一次与第二次的差就是首次 Java 扫描的价）→ 回主页。卡顿归属（`stalls.maxGapFromStep/maxGapAtStep`、`slowSpans` 保存 50 ms 以上的跨度）和采栈见 [MAIN_THREAD_STALLS.md](perf-notes/MAIN_THREAD_STALLS.md)。
 
@@ -520,6 +525,96 @@ pwsh -File tools/perf-startup.ps1 -Probe -Runs 3 -Instances 0 -Exe build/perf-pr
 折算（没有探针，按当时 1000 份预设单趟同步读 2.2–2.5 s 折算，未在弹窗上实测）：旧写法 1000 份时是五趟 ≈ 11 s 的冻结，新写法一趟；20 份时约 220 ms → 44 ms。
 
 验证：`mw_check_preset_install` 新增十项（四类各自只出现自己的、复合预设的子项按父项次序出现在对应类里、缺的那一类不凭空造、未知类别回空、复合项带着父项名字和读回来的 `components`，不再第二次读 manifest）；复跑 `verify` 6182/6182、`verify_presets` 762/762、`ui_check` 3136/3136、`mw_check` 2722/2722。
+
+### 五笔卡界面线程的活挪到后台（2026-11-14）
+
+量法：Release 产品 exe（`verification` preset，ccache 自动套着），`--acceptance-profile <临时目录>`（设置与游戏目录都在里面，不碰真注册表）。夹具 = 20 份实例（版本清单那一条另跑 200 份）+ 一份重实例（60 模组 / 24 张 1920×1080 截图）+ 40 份预设 + 一张 4K JPEG。临时探针打在五处生产代码里（`TEMP-128`，量完已删），只记"这一段在界面线程上花了多久"；每项跑 3 次，表里给的是范围。
+
+| 位置 | 改前（界面线程） | 改后（界面线程） | 改后（后台线程） |
+| --- | ---: | ---: | ---: |
+| 版本清单回来刷新实例，20 份 | 5 ms，扫盘 + 重建都在回调里 | 0 ms 发请求；3 ms 收尾（下一轮事件循环） | — |
+| 同上，200 份 | 31–34 ms | 0 ms 发请求；17 ms 收尾 | 扫盘不在界面线程（差出来的那 14–17 ms） |
+| 安装页「预设」弹框取数据，40 份预设、摘要缓存冷 | 25–26 ms | 0 ms（只发 `CatalogLoader` 请求） | 20–21 ms |
+| 截图页 24 张缩略图解码 | 274–280 ms | 0 ms（只派发） | 40–45 ms（线程池） |
+| `Glass::enabled()` ×2000 | 70–78 ms（35–39 µs/次） | 0 ms（<0.5 µs/次） | — |
+| 同一张 4K 背景图解码 ×5 | 164–210 ms（每次 31–34 ms） | 34–38 ms | —（第一次 34–37 ms，后四次命中缓存） |
+
+版本清单那条的"改前"比 125 那轮加载盘点里的 63 / 116 ms 小：那一份夹具带 `wtfml.meta`、盘是冷的，这里的热盘夹具扫得更快；要看的是"这一次回调还占界面线程多少"，不是绝对值。
+
+五笔改动：
+
+- `VersionManager::requestInstalledVersions()`：扫盘挪进 `QtConcurrent`，结果从 `installedVersionsScanned` 回来。每次请求 +1 一代，旧的（晚到的）直接丢，在途那一发被取消旗叫停；watcher 挂在版本管理器上，析构后不再回调。`MainWindow::refreshInstalledVersionsAsync()` 只在版本清单从网络回来那条路上用，同步入口 `refreshInstalledVersions()` 留给"改名 / 删实例 / 下载收尾"这些要立刻看见的场合。
+- `PresetController::requestInstallPickerData()`：列表走 `Presets::CatalogLoader` 的异步快照（同一份目录的并发请求并进一趟），复合预设的 manifest 也在工作线程里读；安装页点「预设」不再在这一帧读盘，数据回来才摆弹框（布局不动）。
+- 截图页缩略图：`QImageReader` 缩放解码放进 `QtConcurrent`，结果按 `路径|大小|修改时间` 缓存；列表项建出来就挂一张透明占位图，图回来只换内容，行高不跳。表头里"写得荒唐"（>64 MP）的那一份直接不解（原来会整张读一遍）。
+- `Glass::enabled()`：四档判据（用户选的档 + 高对比度 + 系统透明开关 + 系统背板可用）一次读完缓存住；`setMode()` 写完当场失效，系统设置变化由 `install()` 装的过滤器在 `ThemeChange` / `ApplicationPaletteChange` / `ApplicationStateChange` 时失效。
+- 主题背景图：`Theme::cachedImage()` 按 `路径|大小|修改时间` 缓存解码后的 `QImage`（按张数封顶 6 张），`ThemeBackground` 和 `Glass::Backdrop` 都走它；同一张图在换主题那一下只解一次。
+
+验证：`verify_instances` 的 K128 两段（连着发两次只回最新那一发、对象析构后不再回调）、`ui_check_theme`（写设置后 `enabled()` 立刻反映新值，直接写盘 + `invalidateSettingsCache()` 同样生效）；`tools/check-test-modules.ps1` PASS。
+
+### 工具箱按工具懒建（2026-11-14）
+
+改法：`ToolboxPage` 构造只搭表头和目录页；某件工具第一次进才搭那一片（`ensureTool()` → `toolBuilt`），搭完留着。`ToolboxController` 在 `toolBuilt` 里给那一片灌表、恢复记住的输入、算初值。探针新加 `toolbox:tool:<键>`（从目录页点那一格）和 `toolbox:catalog` 两类步骤。
+
+量法：`tools/perf-startup.ps1 -Probe -Instances 0`，看各趟 `run-*-probe.json` 的 `firstFrameMs`。改前和改后背靠背量，但当时另有成员在编译，负载记在表头里。改前那一列的工具页在 `nav:toolbox` 时已经全搭好，只是切过去；改后那一列是第一次进，要现搭。
+
+| 步骤 | 改前（n=3 中位；负载 55–70%，无 cc1plus） | 改后 A（2 趟；负载 51–69%，6–11 个 cc1plus） | 改后 B（1 趟；负载 91–93%，4–5 个 cc1plus） |
+| --- | ---: | ---: | ---: |
+| `nav:toolbox` | 132.8 | 14.0 / 14.8 | 13.6 |
+| `toolbox:tool:anvil` | 9.7 | 18.0 / 25.5 | 17.5 |
+| `toolbox:tool:coord` | 14.8 | 24.5 / 25.2 | 25.2 |
+| `toolbox:tool:beacon` | 24.8 | 43.7 / 48.7 | 48.0 |
+| `toolbox:tool:brewing` | 19.9 | 36.1 / 35.7 | 37.7 |
+| `toolbox:tool:text` | 20.3 | 38.3 / 32.8 | 39.1 |
+| `toolbox:tool:banner` | 17.9 | 46.7 / 45.7 | **55.7** |
+| `toolbox:tool:trim` | 22.5 | **56.5 / 54.6** | **63.1** |
+| `toolbox:tool:download` | 17.8 | 27.0 / 24.4 | 23.9 |
+| `toolbox:tool:server` | 16.2 | 19.6 / 18.9 | 18.7 |
+| `toolbox:tool:hash` | 15.4 | 26.7 / 22.2 | 25.6 |
+| `toolbox:catalog` | 8.9 | 11.2 / 10.5 | 10.4 |
+
+B 比 A 多做了一件事：纹饰页那十二个下拉框改成一个框一次整批插入。负载变了，所以这一项单独省了多少看不出来。
+
+拆开量过一次纹饰页的第一次进：搭这一片本身约 2 ms。搭好以后挪进滚动区那两次重挂父对象，或者先就地搭在滚动区里，样式表都要把整棵子树重新过一遍，都是 25 ms 上下。灌下拉表、显示、布局之后是 30 ms 上下。先就地搭再显示，总数和先搭后挪一样，所以没留那个改法。
+
+纹饰、旗帜两页第一次进时，在编译负载下会超过 50 ms 守卫，守卫会让这一趟以非零退出。空闲重量（2026-11-14，步骤 135；Release 探针，`-Runs 3 -Instances 20 -InstanceMods 60`；两轮分别记到开跑 45% / 37%、跑完 29% / 22% 的 `Win32_Processor.LoadPercentage`，没有 cc1plus、没有别的构建在跑）：`toolbox:tool:trim` 两轮各三趟 55.1 / 52.6 / 53.4 与 57.1 / 57.7 / 58.5 ms（中位 53.4、57.7）都在线上，按任务单进 `tools/perf-firstframe-allowlist.txt`（参考值 57.7，不进判定）；`toolbox:tool:banner` 两轮 42.3 / 39.8 / 39.6 与 41.0 / 38.7 / 40.9 ms（中位 39.8、40.9）在线内，没进名单。要把纹饰页压回线内，可以选空闲时分片预搭（每片 ≤16 ms），或者减少这一页的控件数。
+
+### 实例文件页改成代理画行（2026-11-14，步骤 139）
+
+文件管理八页（`InstanceFilesPage`）原来每一行 `setItemWidget()` 挂一套真控件（图标、名字、小字、开关、三颗工具按钮），进模组页那一下光建 60 行就要几十毫秒。现在行由 `InstanceFilesPage::RowDelegate` 画，数据全在条目上，刷新只换条目、视图不重建（做法见 [LIST_PAINT.md](perf-notes/LIST_PAINT.md)「现行做法」）。
+
+量法：Release 探针（`-DWTFML_PERF_PROBE=ON -DWTFML_BUILD_TESTS=OFF`，严格告警当错误），`pwsh -File tools/perf-startup.ps1 -Probe -Runs 3 -Instances 20 -InstanceMods 60`，改前 = main 187b75f，改后 = 本分支，两边背靠背跑，同一台机器（Ultra 5 225H / 31.5 GB），没有别的启动器在跑。当天在线版本清单最新是 26.3，探针的安装页那段（`install:*`，OptiFine 没有 26.3）在改前改后两个 exe 上都卡到 120 s 不退出，和这一步无关；这次测量在两个 exe 里都临时加了一行"跳过安装页及其后几段"（量完已撤，没有提交），实例页那几步排在它前面，不受影响。CPU 负载（`Win32_Processor.LoadPercentage`）：改前那一趟开跑时 96%，改后那一趟开跑时 35%、跑完 56%。改前那趟负载更高，所以改前数字偏高一些，但改后三次都低于阈值。
+
+| 步骤 | 改前首帧（3 次） | 改后首帧（3 次） | 改前 `files page refresh`（产品日志） |
+| --- | ---: | ---: | ---: |
+| `instance:page:mod` | 102.7 / 68.4 / 67.9 ms | 28.8 / 31.7 / 44.1 ms | 117 ms（60 条） |
+| `instance:page:mod-second` | 91.8 / 60.2 / 63.5 ms | 20.0 / 20.7 / 23.8 ms | 91 ms（60 条） |
+
+首帧 = `actionMs + repaintMs`（守卫口径）。改后 `files page refresh` 那条日志没再出现：它只在一趟刷新超过 40 ms 时才打印。`instance:page:mod` 和 `instance:page:mod-second` 已从 `tools/perf-firstframe-allowlist.txt` 删掉（138、139、140 都合入后名单剩 `instance:open-settings`、`instance:open-settings-again` 2 条；140 的纹饰页在空闲下仍超线，步骤 135 又加回 `toolbox:tool:trim`，见上一节）。
+
+另外：`ui_check_files_rows`（`wtfml.files-rows`）钉住"60 行不建 60 套控件"（空页和 60 行时页面子控件数一样，视口里 0 个）和"点开关真改盘上文件名、刷新后滚动不跳"。
+
+### 实例设置按页懒建、收页不再换父容器（2026-11-14）
+
+量法：探针构建（Release + `-DWTFML_PERF_PROBE=ON`，只编产品），沙盒夹具 = 4 份实例，第一份塞 60 模组 / 12 资源包 / 6 光影 / 5 数据包 / 8 存档 / 24 张截图 / 4000 行 `latest.log` / 24 份 config；改前改后各一趟（同一个夹具、背靠背）。测量时机器上另有两个成员的编译和一个别的探针在跑（负载 60% 上下），绝对值偏高，正式判定要等空闲时重跑；两趟都在 `install:*` 那一段被 100 s 硬收尾截断（`hardFinalized: true`），实例设置那一段之前已经走完。
+
+| 步骤 | 改前 | 改后 |
+| --- | ---: | ---: |
+| `instance:open-settings` | 212.1 | 88.9 |
+| `instance:open-settings-again` | 202.4 | 79.5 |
+| `instance:close` | 131.4 | 10.7 |
+| `instance:close-again` | 92.1 | 9.3 |
+| `instance:page:launch`（第一次切过去，现在含建这一页） | 16.1 | 26.1 |
+| `instance:page:logs` | 15.1 | 14.4 |
+| `instance:page:mod` / `mod-second` | 51.6 / 47.5 | 56.0 / 47.5 |
+
+产品自己的分段日志（`[UI timing]`，两趟的范围）：`settings dialog ctor` 30 → 9–10 ms，`overlay show settings` 113 → 42–49 ms，`settings first idle` 132 → 55–58 ms。
+
+两类改动：
+
+- 页第一次切过去才建（`InstanceSettingsDialog::ensurePage()`）：构造里只按 `pageCount()` 的顺序把堆叠页每一格的空位挖好、建出概览和「备份与操作」（后者要把概览上那几颗维护按钮搬走）。导航、`pageChoices()`、文件目录表这些都不靠"先把页建出来"——左栏那棵树本来就是按 `shownEntryKeys()` 现算的。
+- 收页不换父容器：`OverlayHost::releaseContent()` 原来对每一页都 `setParent(m_parking)`"还回去"，实例设置这一页实测那一段 75 ms（整棵控件树重算继承的样式和调色板）。页自己声明 `wtfmlOverlayDisposesOnClose`（收页后由主人 `deleteLater()`）时只 `hide()`，删除照旧在 `pageClosed()` 那一发里办。
+
+仍然超 50 ms 的是打开那一下（89 ms）：ctor 10 + 覆盖层挂载 49（换父容器 + 首帧铺开）+ 控制器那一段接线（读目录、认可用性、连几十条信号、`filesPage("save")` 那几处取页）；页本身已经不是大头。
 
 ### 列表与选择
 

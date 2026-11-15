@@ -10,6 +10,7 @@
 #include "TaskCenterPanel.hpp"
 #include "AgentPage.hpp"
 #include "Animations.hpp"  // 换页 / 展开折叠 / 上拉面板那几段动效
+#include "DesignDefaults.hpp"
 #include "ElidedLabel.hpp"
 #include "Glass.hpp"
 #include "GlassPopover.hpp"
@@ -135,6 +136,9 @@ protected:
     }
     void enterEvent(QEnterEvent *event) override {
         QAbstractButton::enterEvent(event);
+        // 名字那一格对鼠标透明：它收了省略号时的全名提示由这一整块代出。进门就同步——
+        // 玻璃提示的过滤器在 event() 之前读 toolTip，晚了就落回 Qt 原生提示框。
+        if (auto *name = findChild<QLabel *>(QStringLiteral("homeCurrentName"))) setToolTip(name->toolTip());
         update();
     }
     void leaveEvent(QEvent *event) override {
@@ -803,6 +807,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // 两边本来就是互不相干的数据源（一个是盘上装好的、一个是清单里能下的）。
     tabWidget = new QTabWidget(centralWidget);
     tabWidget->setObjectName(tabWidgetName());
+    // 退出默认换页动效：顶层选项卡自己接 pageAppear（整页停放时不盖幕布，见下面 currentChanged 那段）。
+    DesignDefaults::optOut(tabWidget);
     // QTabWidget 默认把所有页面里最大的 minimumSizeHint 当成自己的下限。下载页那棵
     // 固定行数的版本树会把它顶到 568px，再加标题栏和底栏后整窗被强制到 710px；即使
     // 当前停在主页也缩不下去，只能在上半部留下大块空白。竖直方向忽略这个跨页提示，
@@ -926,31 +932,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         }
     });
 
-    // 内层那三层"换页"走同一条路（"切换页面"不只顶上那四颗）：
-    // * 下载页右栏：游戏 / 模组 / 资源包 / 数据包 / 光影 / 整合包 之间横着换；
-    // * 下载页里"游戏"那一栏自己还有一层（版本树 ↔ 安装页）；
-    // * 设置页右栏：启动 / 游戏 / 提示 / 个性化 / 下载。
-    // 都是 `QStackedWidget`，所以一条 `currentChanged` 就够了（谁换的都算）。
-    //
-    // 底同样不垫色：写回的是这一页祖先们原样那层（磨砂透着），见 `Anim::pageAppear()` 那段。
-    // 这几页是滚动区：抬的会是它们的**视口**（`liftTarget()`，`ui/Animations.cpp` 里那个），滚动区自己那圈框
-    // 留在原地 —— 和顶上那一档同一条规矩（见 `Animations.hpp` 里 `pageAppear()` 那段）。
-    const auto appearOnSwitch = [](QStackedWidget *stack) {
-        if (stack == nullptr) {
-            return;
-        }
-        QObject::connect(stack, &QStackedWidget::currentChanged, stack, [stack](int) {
-            QWidget *page = stack->currentWidget();
-            if (page != nullptr && page->isVisible()) {
-                Anim::pageAppear(page);
-            }
-        });
-    };
-    appearOnSwitch(downloadStack);
-    appearOnSwitch(gameStack);
-    appearOnSwitch(settingsCategoryStack);
-    // 实例页那一层"客户端实例 / 服务端"也走同一条换页动画。
-    appearOnSwitch(instanceModeStack);
+    // 内层那几层换页（下载页右栏、游戏栏、设置页右栏、实例页客户端 / 服务端）不用再接：
+    // 所有 `QStackedWidget` 换页默认就有 `pageAppear()`（`ui/DesignDefaults.hpp`）。
 
     setupBottomBar(bar);
     bar->setFooter(bottomBar);
@@ -1012,16 +995,8 @@ void MainWindowUI::fitHomeQuoteFont() {
     const QMargins m = homeHeroQuote->contentsMargins();
     homeHeroQuote->setFixedHeight(m.top() + line + m.bottom());
     // 放得下整句的最大一号；到下限还放不下就用下限，交给省略号。
-    const int width = homeHeroQuote->contentsRect().width();
-    const QString text = homeHeroQuote->text();
-    int px = lo;
-    for (int candidate = hi; candidate > lo; --candidate) {
-        if (QFontMetrics(Theme::quoteFont(homeHeroQuote->font(), homeQuoteScript, candidate)).horizontalAdvance(text) <=
-            width) {
-            px = candidate;
-            break;
-        }
-    }
+    const int px = Theme::fitPixelSize(Theme::quoteFont(homeHeroQuote->font(), homeQuoteScript, hi),
+                                       homeHeroQuote->text(), homeHeroQuote->contentsRect().width(), hi, lo);
     const QFont font = Theme::quoteFont(homeHeroQuote->font(), homeQuoteScript, px);
     if (homeQuoteScript == Theme::QuoteScript::Kana) {
         // 日文走系统字体链，不算手写体：不挂 wtfmlDisplay（ui_check 按它查手写体有没有漏）。
@@ -1958,12 +1933,14 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             name->setText(item.empty ? QStringLiteral("还没有实例") : item.name);
             name->setMinimumWidth(1);
             // 零实例：「还没有实例」只是一句状态，用普通字阶（16），大标题才是这一屏唯一的手写大字。
+            name->setMinimumHeight(item.empty ? 28 : 52);
             if (item.empty) {
                 name->setFont(Theme::textFont(name->font(), Theme::TextRole::Heading));
             } else {
-                Theme::markDisplay(name, handPx(name->font(), Theme::HandFont::Kai, 40, 3));
+                Theme::markDisplay(name, handPx(name->font(), Theme::HandFont::Kai, kHomeCurrentNameMaxPixelSize, 3));
+                // 长名先收字号，到下限还放不下才收省略号；行高按上限钉死，下面那行和按钮不挪。
+                name->setFitPixelRange(kHomeCurrentNameMaxPixelSize, kHomeCurrentNameMinPixelSize);
             }
-            name->setMinimumHeight(item.empty ? 28 : 52);
             name->setAttribute(Qt::WA_TransparentForMouseEvents);
             followHeroInk(name, false);
             blockColumn->addWidget(name);
@@ -2186,9 +2163,10 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             // 手动加回去：不加的话鼠标一进来名字就被挤出一截省略号。
             if (QLayout *contentLayout = card->layout()) {
                 const int playRoom = play->sizeHint().width() + contentLayout->spacing();
-                card->setFixedWidth(qBound(kHomeTileWidth,
-                                           contentLayout->sizeHint().width() + playRoom,
-                                           kHomeTileMaxWidth));
+                const int want = contentLayout->sizeHint().width() + playRoom;
+                card->setFixedWidth(qBound(kHomeTileWidth, want, kHomeTileMaxWidth));
+                // 到上限、名字收了省略号：悬停给全名（名字那格对鼠标透明，提示挂在卡片上）。
+                if (want > kHomeTileMaxWidth) card->setToolTip(item.name);
             }
             row->addWidget(card);
         }

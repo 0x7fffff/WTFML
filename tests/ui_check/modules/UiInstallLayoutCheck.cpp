@@ -5,6 +5,7 @@
 #include <QDoubleSpinBox>
 #include <QKeyEvent>
 #include "PresetInstallPicker.hpp"
+#include "LoadingState.hpp"
 #include <QJsonArray>
 int UiInstallLayoutCheck(QApplication &app) {
 
@@ -162,9 +163,64 @@ int UiInstallLayoutCheck(QApplication &app) {
             PresetInstallPicker::Category dataCategory; dataCategory.key="dataPacks"; dataCategory.title="数据包";
             PresetInstallPicker::Category shaderCategory; shaderCategory.key="shaderPacks"; shaderCategory.title="光影包";
             picker.setCategories({game,mods,packCategory,dataCategory,shaderCategory});picker.setComposites({{"parent","日常配置",{{"gameSettings","game-child"},{"mods","mod-child"}}}});
+            {
+                // 步骤 133：右栏加载态、综合预设空态、「显示综合预设」是开关。
+                PresetInstallPicker loading;
+                loading.setContext("1.21.1", "Fabric");
+                loading.beginLoading();
+                auto *stack = loading.findChild<QStackedWidget *>();
+                expect(stack && LoadingState::overlay(stack), "preset picker right pane shows the shared loading state while data is pending");
+                // 步骤 136：读不了 ⇒ 出错态 +「重试」，点了再 begin。
+                int retried = 0;
+                loading.failLoading("预设文件夹读不了：X", [&] { ++retried; loading.beginLoading(); });
+                QWidget *layer = stack ? LoadingState::overlay(stack) : nullptr;
+                auto *retry = layer ? layer->findChild<QPushButton *>(LoadingState::retryButtonName()) : nullptr;
+                expect(layer && layer->property("state").toString() == "error" && retry,
+                       "preset picker data failure shows the error state with a retry button");
+                if (retry) retry->click();
+                expect(retried == 1 && LoadingState::overlay(stack) &&
+                           LoadingState::overlay(stack)->property("state").toString() == "loading",
+                       "retry on the preset picker asks again and goes back to loading");
+                loading.setCategories({game, mods});
+                expect(!LoadingState::overlay(stack), "setCategories retires the preset picker loading state");
+                // 步骤 136：兼容检查没查完时，选着那一行的行尾挂一行加载态；查完 / 换一行就撤。
+                auto *modList = loading.findChild<QListWidget *>(PresetInstallPicker::listName(1));
+                const auto checking = [modList](int row) {
+                    return modList && modList->item(row) &&
+                           modList->item(row)->data(LoadingState::rowLoadingRole()).isValid();
+                };
+                if (modList) {
+                    modList->setCurrentRow(1);
+                    loading.setChecking("mods", true);
+                    const qint64 started = modList->item(1)->data(LoadingState::rowLoadingRole()).toLongLong();
+                    expect(checking(1) && !checking(0) && !checking(2) && LoadingState::clockRunning(),
+                           "compatibility check in progress puts the inline loading state on the selected row only");
+                    loading.setStatus("mods", "检查中 1/3", {}, false);
+                    loading.setChecking("mods", true);
+                    expect(checking(1) &&
+                               modList->item(1)->data(LoadingState::rowLoadingRole()).toLongLong() == started,
+                           "progress updates keep the same loading start (no re-gated flicker)");
+                    loading.setChecking("mods", false);
+                    expect(!checking(1), "finished compatibility check retires the row loading state");
+                    loading.setChecking("mods", true);
+                    modList->setCurrentRow(0);
+                    expect(!checking(1) && !checking(0) && loading.selectedId("mods").isEmpty(),
+                           "switching to none drops the previous row's loading state");
+                } else {
+                    expect(false, "preset picker mods list exists");
+                }
+                loading.setComposites({});
+                expect(!loading.findChild<QListWidget *>("presetCompositeList") &&
+                           loading.findChild<QLabel *>(PresetInstallPicker::emptyLabelName(2)) &&
+                           loading.findChild<QPushButton *>(PresetInstallPicker::manageButtonName(2)),
+                       "empty composite page shows an empty state with a manage button instead of an empty list");
+                auto *show = loading.findChild<QCheckBox *>("presetShowComposite1");
+                expect(show && show->property("wtfmlSwitch").toBool(),
+                       "show-composite toggle is a switch on pages that list composite presets");
+            }
             picker.findChild<QListWidget *>("presetCompositeList")->setCurrentRow(0);
             expect(picker.selectedId("gameSettings")=="game-child"&&picker.selectedId("mods")=="mod-child","composite selection maps to independent category parts");
-            picker.findChild<QCheckBox *>("presetCompositePart_mods")->setChecked(false);
+            picker.findChild<QAbstractButton *>("presetCompositePart_mods")->setChecked(false);
             expect(picker.selectedId("mods").isEmpty()&&picker.selectedId("gameSettings")=="game-child","unchecking a composite part leaves other parts selected");
             auto *modChoices = picker.findChild<QListWidget *>(PresetInstallPicker::listName(1));
             expect(modChoices && modChoices->count() == 3 &&
@@ -216,7 +272,7 @@ int UiInstallLayoutCheck(QApplication &app) {
                        "confirmed mod replacement preserves other category sources");
                 auto *source = picker.findChild<QLabel *>("presetSource_mods");
                 expect(source && source->text().contains("建筑辅助"), "summary reflects the final per-category source");
-                picker.findChild<QCheckBox *>("presetCompositePart_gameSettings")->setChecked(false);
+                picker.findChild<QAbstractButton *>("presetCompositePart_gameSettings")->setChecked(false);
                 expect(picker.selectedId("mods") == "mod-other", "unchecking another composite part preserves independently replaced mods");
                 picker.setContext("1.21.1", QString());
                 expect(picker.selectedId("mods").isEmpty() &&
@@ -224,7 +280,7 @@ int UiInstallLayoutCheck(QApplication &app) {
                        "vanilla context clears and disables mod presets");
                 picker.findChild<QListWidget *>("presetCompositeList")->setCurrentRow(0);
                 expect(picker.selectedId("mods").isEmpty() &&
-                       !picker.findChild<QCheckBox *>("presetCompositePart_mods")->isEnabled(),
+                       !picker.findChild<QAbstractButton *>("presetCompositePart_mods")->isEnabled(),
                        "composite preset cannot bypass the mod loader requirement");
 
             }
