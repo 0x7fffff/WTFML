@@ -67,6 +67,9 @@ struct ShotOptions {
     bool loading = false;  ///< `--loading`：只拍加载态（步骤 122）那几张
     bool agentPolish = false;
     bool files = false;  ///< `--files`：只拍实例设置·模组页 60 个模组（步骤 139），文件名 r139-<主题>-*
+    /// `--files --first-disable`：40 个模组全启用 → 禁用第一个，前后各一张（看列表跳不跳），
+    /// 文件名 first-disable-<before|after>-<宽>.png
+    bool firstDisable = false;
 };
 
 /// 颜色块 + 一个字母的小图标（资源行 / 账号行用；产品里那些是真图，这里只要不像空白）。
@@ -422,12 +425,12 @@ int shootFiles(QApplication &app, QMainWindow &window, MainWindowUI &ui, const S
     makeInstanceFixture(root);
     QDir(root + QStringLiteral("/mods")).removeRecursively();
     QDir().mkpath(root + QStringLiteral("/mods"));
-    for (int i = 0; i < 60; ++i) {
+    for (int i = 0; i < (options.firstDisable ? 40 : 60); ++i) {
         QFile file(root + QStringLiteral("/mods/mod-%1-1.%2.%3.jar%4")
                               .arg(QChar(QLatin1Char('a' + i % 26)))
                               .arg(i)
                               .arg(i % 7)
-                              .arg(i % 5 == 1 ? QStringLiteral(".disabled") : QString()));
+                              .arg(i % 5 == 1 && !options.firstDisable ? QStringLiteral(".disabled") : QString()));
         if (file.open(QIODevice::WriteOnly)) file.write(QByteArray(4096 + i * 1531, 'x'));
     }
     using Dlg = InstanceSettingsDialog;
@@ -454,6 +457,26 @@ int shootFiles(QApplication &app, QMainWindow &window, MainWindowUI &ui, const S
     InstanceFilesPage *page = dialog.filesPage(QStringLiteral("mod"));
     QListWidget *list = page != nullptr ? page->list() : nullptr;
     if (list == nullptr) return 1;
+    if (options.firstDisable) {
+        const QString width = QString::number(window.width());
+        const auto report = [&](const char *when) {
+            const auto *tools = page->findChild<QWidget *>(QStringLiteral("modSelectionTools"));
+            std::printf("  %s: list viewport y=%d, selection row y=%d\n", when,
+                        list->viewport()->mapTo(&window, QPoint()).y(),
+                        tools != nullptr ? tools->mapTo(&window, QPoint()).y() : -1);
+        };
+        report("before");
+        saveShot(app, window, options.out, QStringLiteral("first-disable-before-") + width, &saved);
+        const QString first = list->item(0)->data(InstanceFilesPage::pathRole()).toString();
+        QFile::rename(first, first + QStringLiteral(".disabled"));
+        page->refresh();
+        for (int i = 0; i < 4; ++i) app.processEvents();
+        report("after");
+        saveShot(app, window, options.out, QStringLiteral("first-disable-after-") + width, &saved);
+        ui.overlay()->closeOverlay();
+        app.processEvents();
+        return saved == 2 ? 0 : 1;
+    }
     const QString tag = QStringLiteral("r139-") + options.theme + QStringLiteral("-");
     saveShot(app, window, options.out, tag + QStringLiteral("mods"), &saved);
     const auto hoverRow = [&](int row) {
@@ -1242,6 +1265,29 @@ int runPopups(QApplication &app, const ShotOptions &options) {
         savePopupShot(app, window, options.out, QStringLiteral("instance-group-menu"), &saved);
         closePopups();
     }
+    // ---- 实例设置·概览：「更改图标」浮层（勾着第 4 颗「幸运方块」）----
+    {
+        using Dlg = InstanceSettingsDialog;
+        Dlg dialog(QStringLiteral("1.20.1 整合包"), QStringLiteral("1.20.1-Forge"), Dlg::Override(),
+                   Dlg::GlobalValues(), QStringList(), false);
+        dialog.setIcon(VersionIcons::iconValueForKey(VersionIcons::iconCandidateKeys().value(3)), QPixmap(), QPixmap());
+        if (ui.overlay()->showPage(&dialog, QStringLiteral("实例设置"), MainWindowUI::instancesTabIndex())) {
+            dialog.showPage(Dlg::overviewCategoryKey());
+            pump();
+            if (auto *change = dialog.findChild<QPushButton *>(Dlg::changeIconButtonName())) {
+                change->click();
+                // 浮层左缘对齐按钮，按钮贴着页右缘 ⇒ 离屏那张图里会伸出窗口；拍图时往左挪回窗内。
+                if (auto *popup = dialog.findChild<QWidget *>(Dlg::iconMenuName())) {
+                    const int overflow = popup->frameGeometry().right() - window.mapToGlobal(QPoint(window.width() - 16, 0)).x();
+                    if (overflow > 0) popup->move(popup->pos() - QPoint(overflow, 0));
+                }
+                savePopupShot(app, window, options.out, QStringLiteral("instance-icon-popup"), &saved);
+                closePopups();
+            }
+            ui.overlay()->closeOverlay();
+            pump();
+        }
+    }
     std::printf("popups: %d 张\n", saved);
     return saved > 0 ? 0 : 1;
 }
@@ -1494,6 +1540,8 @@ int UiReviewShotsCheck(QApplication &app) {
         } else if (arg == QLatin1String("--files")) {
             options.files = true;
             options.extended = true;
+        } else if (arg == QLatin1String("--first-disable")) {
+            options.firstDisable = true;
         } else if (arg == QLatin1String("--agent-polish")) {
             options.agentPolish = true;
         } else if (arg.startsWith(QLatin1String("--theme="))) {

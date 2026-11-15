@@ -97,6 +97,17 @@ QLabel *overviewSection(const QString &text, QWidget *parent, bool first = false
     return label;
 }
 
+/// 八格统一成最宽那一格的宽度（四列等宽）。弹出前再算一次：字号 / 主题换过之后旧下限会偏。
+void equalizeCandidateWidths(const QList<QToolButton *> &buttons) {
+    int widest = 0;
+    for (QToolButton *button : buttons) {
+        button->setMinimumWidth(0);
+        button->ensurePolished();
+        widest = qMax(widest, button->sizeHint().width());
+    }
+    for (QToolButton *button : buttons) button->setMinimumWidth(widest);
+}
+
 /// 提示里的第一句（到第一个句号）；超过 40 字就不摆，整段留在悬停提示里。
 QString firstSentence(const QString &hint) {
     const int stop = hint.indexOf(QChar(0x3002));
@@ -179,7 +190,10 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
         Theme::markButton(m_changeIconButton, Theme::ButtonKind::Neutral);
         m_changeIconButton->setToolTip(iconHint());
         connect(m_changeIconButton, &QPushButton::clicked, this,
-                [this]() { popUpMenuBelow(m_iconMenu, m_changeIconButton); });
+                [this]() {
+                    equalizeCandidateWidths(m_iconButtons);
+                    popUpMenuBelow(m_iconMenu, m_changeIconButton);
+                });
 
         m_groupButton = new QPushButton(groupButtonText(), this);
         m_groupButton->setObjectName(groupButtonName());
@@ -241,6 +255,8 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
             // 图由 VersionIcons 按同一份候选表解出来（键和画法都只有那一处），这里只管贴。
             button->setIcon(QIcon(VersionIcons::iconCandidateMark(i, kIconCandidateSize)));
             button->setCheckable(true);
+            // 「挑一个」的样子与状态筛选胶囊同一档：淡底、悬停加深、勾上强调色淡底 + 强调字。
+            Theme::markButton(button, Theme::ButtonKind::Neutral);
             // 和设置页那些"点一下换个样子"的按钮同一条：不该抢键盘焦点（抢了之后
             // 键盘上那几下就不再是"在这张浮层上操作"了）。
             button->setFocusPolicy(Qt::NoFocus);
@@ -259,6 +275,7 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
             m_iconButtons.append(button);
             candidates->addWidget(button, i / kIconCandidatesPerRow, i % kIconCandidatesPerRow);
         }
+        equalizeCandidateWidths(m_iconButtons);
         box->addLayout(candidates);
 
         auto *actions = new QHBoxLayout;
