@@ -160,11 +160,16 @@ public:
     void setPressColor(const QColor &color);
     /// 「最大化」那颗显示成「还原」。
     void setRestoreGlyph(bool restore);
+    /// 焦点是用 Tab / Shift+Tab 选来的（品牌标 W 只在这时画焦点框、接回车 / 空格）。
+    /// 窗口一激活 Qt 会把焦点自动交给链上第一个能 Tab 的控件（就是 W），那种焦点不算。
+    bool hasKeyboardFocus() const { return m_keyboardFocus && hasFocus(); }
 
 protected:
     void paintEvent(QPaintEvent *event) override;
     bool event(QEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
+    void focusInEvent(QFocusEvent *event) override;
+    void focusOutEvent(QFocusEvent *event) override;
 
 private:
     Glyph m_glyph;
@@ -179,4 +184,5 @@ private:
     bool m_hovered = false;
     bool m_current = false;
     bool m_restore = false;
+    bool m_keyboardFocus = false;
 };

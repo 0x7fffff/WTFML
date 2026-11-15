@@ -659,6 +659,15 @@ int shootR155(QApplication &app, QMainWindow &window, MainWindowUI &ui, const Sh
     shot(QStringLiteral("home-nav-expanded"));
     shotLogoTip(QStringLiteral("home-nav-expanded-w-tooltip"));
     logo->click();
+    // 窗口激活时焦点自动落到 W：不画框；用 Tab 选中才画。
+    window.activateWindow();
+    pump();
+    std::printf("  激活后 W %s焦点、%s框\n", logo->hasFocus() ? "有" : "没有",
+                static_cast<TitleBarButton *>(logo)->hasKeyboardFocus() ? "画" : "不画");
+    logo->clearFocus();
+    logo->setFocus(Qt::TabFocusReason);
+    shot(QStringLiteral("home-nav-collapsed-w-tab-focus"));
+    logo->clearFocus();
 
     window.resize(kMainWindowMinWidth, kMainWindowMinHeight);
     pump();

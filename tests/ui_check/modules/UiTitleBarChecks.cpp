@@ -145,6 +145,43 @@ int UiTitleBarChecks(QMainWindow &window, MainWindowUI &ui) {
         check(logo->toolTip() == QStringLiteral("展开导航") && logo->accessibleName() == QStringLiteral("展开导航") &&
                   logo->cursor().shape() == Qt::PointingHandCursor,
               "★ 155 收起时 W 提示「展开导航」", logo->toolTip());
+        // ---- 焦点框：窗口激活时 Qt 自动把焦点落到 W（链上第一个能 Tab 的）——不画框、不接键 ----
+        window.activateWindow();
+        QApplication::processEvents();
+        logo->clearFocus();
+        QApplication::processEvents();
+        const QImage noFocusShot = captureWidget(logo);
+        for (const Qt::FocusReason reason : {Qt::ActiveWindowFocusReason, Qt::MouseFocusReason, Qt::OtherFocusReason}) {
+            logo->setFocus(reason);
+            QApplication::processEvents();
+            check(logo->hasFocus() && !static_cast<TitleBarButton *>(logo)->hasKeyboardFocus() &&
+                      captureWidget(logo) == noFocusShot,
+                  QStringLiteral("★ 155 窗口激活 / 鼠标给的焦点（原因 %1）：W 有焦点但不画框").arg(int(reason)),
+                  QStringLiteral("有焦点 %1").arg(logo->hasFocus()));
+            QKeyEvent stray(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+            QKeyEvent strayUp(QEvent::KeyRelease, Qt::Key_Space, Qt::NoModifier);
+            QKeyEvent strayDown(QEvent::KeyPress, Qt::Key_Space, Qt::NoModifier);
+            QApplication::sendEvent(logo, &stray);
+            QApplication::sendEvent(logo, &strayDown);
+            QApplication::sendEvent(logo, &strayUp);
+            QApplication::processEvents();
+            check(rail->isCollapsed(), QStringLiteral("★ 155 自动落上来的焦点（原因 %1）：回车 / 空格不收放导航").arg(int(reason)));
+        }
+        QKeyEvent tab(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier);
+        QApplication::sendEvent(logo, &tab);
+        QApplication::processEvents();
+        check(logo->hasFocus() && static_cast<TitleBarButton *>(logo)->hasKeyboardFocus() &&
+                  captureWidget(logo) != noFocusShot,
+              "★ 155 焦点自动落在 W 上时按 Tab：留在 W、亮出焦点框");
+        logo->clearFocus();
+        QApplication::processEvents();
+        check(!static_cast<TitleBarButton *>(logo)->hasKeyboardFocus() && captureWidget(logo) == noFocusShot,
+              "155 W 失去焦点：框收掉");
+        logo->setFocus(Qt::TabFocusReason);
+        QApplication::processEvents();
+        check(logo->hasFocus() && static_cast<TitleBarButton *>(logo)->hasKeyboardFocus() &&
+                  captureWidget(logo) != noFocusShot,
+              "★ 155 用 Tab 选中 W：画焦点框");
         QKeyEvent enter(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
         QApplication::sendEvent(logo, &enter);
         QApplication::processEvents();

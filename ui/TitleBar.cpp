@@ -269,6 +269,15 @@ void TitleBarButton::setRestoreGlyph(bool restore) {
 }
 
 bool TitleBarButton::event(QEvent *event) {
+    // 焦点是窗口激活时自动落上来的：头一下 Tab / Shift+Tab 就地亮出焦点框（留在 W），不跳过它去下一个。
+    if (event->type() == QEvent::KeyPress && hasFocus() && !m_keyboardFocus) {
+        const int key = static_cast<QKeyEvent *>(event)->key();
+        if (key == Qt::Key_Tab || key == Qt::Key_Backtab) {
+            m_keyboardFocus = true;
+            update();
+            return true;
+        }
+    }
     const bool enter = event->type() == QEvent::HoverEnter;
     if (enter || event->type() == QEvent::HoverLeave) {
         m_hovered = enter;
@@ -285,7 +294,24 @@ bool TitleBarButton::event(QEvent *event) {
     return QAbstractButton::event(event);
 }
 
+void TitleBarButton::focusInEvent(QFocusEvent *event) {
+    QAbstractButton::focusInEvent(event);
+    m_keyboardFocus = event->reason() == Qt::TabFocusReason || event->reason() == Qt::BacktabFocusReason;
+    update();
+}
+
+void TitleBarButton::focusOutEvent(QFocusEvent *event) {
+    QAbstractButton::focusOutEvent(event);
+    m_keyboardFocus = false;
+    update();
+}
+
 void TitleBarButton::keyPressEvent(QKeyEvent *event) {
+    // 窗口激活时自动落到 W 上的焦点不接键：不然一启动按回车 / 空格就把导航收放了。
+    if (!m_keyboardFocus) {
+        event->ignore();
+        return;
+    }
     // 空格 QAbstractButton 自己认；回车也当一次点击（品牌标 W 的收展导航）。
     if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) {
         click();
@@ -318,8 +344,8 @@ void TitleBarButton::paintEvent(QPaintEvent *) {
         gradient.setColorAt(0, ensureGraphicContrast(stops.first, m_ink, under));
         gradient.setColorAt(1, ensureGraphicContrast(stops.second, m_ink, under));
         p.fillPath(brandMarkPath(), gradient);
-        if (hasFocus()) {
-            // 键盘焦点：W 外面一圈主题色细框（只有 Tab 才给它焦点，鼠标点不会出这圈）。
+        if (hasKeyboardFocus()) {
+            // 键盘焦点：W 外面一圈主题色细框。只认 Tab / Shift+Tab 选来的焦点，窗口激活时自动落上来的不画。
             p.resetTransform();
             p.setPen(QPen(Theme::focusRingColor(palette()), 2));
             p.setBrush(Qt::NoBrush);
