@@ -206,10 +206,15 @@ void MainWindow::openHomeInstancePicker() {
                 row.folderPath = folderPath;
                 row.id = part.id;
                 row.title = formatVersionName(part, m_settings->versionNameOptions());
-                const QString loader = instanceLoaderName(part, m_versionManager);
+                // 加载器名和版本走 `instanceLoaderName()`（= `InstancePagesController::loaderName()`）：
+                // `part.loaderName` 只有我们自己的安装器会写，PCL / HMCL 合并出来的实例在那儿是空的
+                // —— 读它的话，这一行写着「Fabric 1.20.1」却搜不到「fabric」。
+                QString loaderVersion;
+                const QString loader = instanceLoaderName(part, m_versionManager, &loaderVersion);
                 row.loaderKey = loaderGroupKey(loader);
-                row.searchKeywords = QStringList{part.customName, part.realVersion, part.loaderName,
-                                                 part.loaderVersion, folder.title}.join(QLatin1Char(' '));
+                row.searchKeywords =
+                    QStringList{part.customName, part.realVersion, loader, loaderVersion,
+                                folder.title}.join(QLatin1Char(' '));
                 // 行尾那一小段（设计稿 .k）：「Fabric 1.21.4」/「原版 1.20.1」。
                 row.subtitle = QStringLiteral("%1 %2")
                                    .arg(loader.isEmpty() ? QStringLiteral("原版") : loader,

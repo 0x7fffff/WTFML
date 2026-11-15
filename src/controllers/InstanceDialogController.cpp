@@ -620,8 +620,13 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                     m_owner->m_versionManager->displayParts(targetId);
                 inputs.gameVersion =
                     parts.realVersion.isEmpty() ? parts.id : parts.realVersion;
-                inputs.loaderName = parts.loaderName;
-                inputs.loaderVersion = parts.loaderVersion;
+                // 加载器名 / 版本走 `InstancePagesController::loaderName()`，**不直接读
+                // `parts.loaderName`**：那一格只有我们自己的安装器会写，合并实例（加载器只写在
+                // 版本 json 的 `libraries` 里）在那儿是空的，诊断那一页会把 Fabric 实例说成原版。
+                QString loaderVersion;
+                inputs.loaderName = InstancePagesController::loaderName(
+                    parts, m_owner->m_versionManager, &loaderVersion);
+                inputs.loaderVersion = loaderVersion;
                 const QJsonObject versionJson =
                     m_owner->m_versionManager->getVersionJson(targetId);
                 inputs.requiredJavaMajor = versionJson.value(QStringLiteral("javaVersion"))
@@ -670,6 +675,11 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     //
     // NOTE: 两条同步确认（`InlineMessage::question` / `getText`）都是嵌套事件循环，所以
     // sourceId / targetId 全都**按值收**再往下走。
+    // 这几处都走 `InstancePagesController::loaderName()`，**不读 `parts.loaderName`**：
+    // 那一格只有我们自己的安装器会写，PCL / HMCL 合并出来的实例（加载器只写在版本 json 的
+    // `libraries` 里）在那儿是空的 —— 于是目标下拉框少一段「 / Fabric」、计划把这趟迁移
+    // 当成「原版 ↔ 原版」评估、目标列表每一条都写「原版」（见 InstanceUpgradeController 里
+    // 同一套写法）。
     const auto transferTargetsFor = [this, &targetId]() {
         QList<QPair<QString, QString>> targets;
         for (const QString &id : m_owner->m_versionManager->installedVersions()) {
@@ -679,7 +689,9 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
             QString label = m_owner->instanceDisplayName(id);
             if (label.isEmpty()) label = id;
             label += QStringLiteral("（%1").arg(gameVersion);
-            if (!parts.loaderName.isEmpty()) label += QStringLiteral(" / %1").arg(parts.loaderName);
+            const QString loaderName =
+                InstancePagesController::loaderName(parts, m_owner->m_versionManager);
+            if (!loaderName.isEmpty()) label += QStringLiteral(" / %1").arg(loaderName);
             label += QStringLiteral("）");
             targets.append(qMakePair(label, id));
         }
@@ -688,14 +700,20 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     const auto buildTransferPlan = [this, &targetId](const QString &key, const QString &otherId) {
         const VersionDisplayParts source = m_owner->m_versionManager->displayParts(targetId);
         const VersionDisplayParts target = m_owner->m_versionManager->displayParts(otherId);
+        QString sourceLoaderVersion;
+        QString targetLoaderVersion;
+        const QString sourceLoader = InstancePagesController::loaderName(
+            source, m_owner->m_versionManager, &sourceLoaderVersion);
+        const QString targetLoader = InstancePagesController::loaderName(
+            target, m_owner->m_versionManager, &targetLoaderVersion);
         TransferPlanner::Inputs inputs;
         inputs.sourceDir = AppPaths::versionDir(targetId);
         inputs.sourceGameVersion = source.realVersion.isEmpty() ? source.id : source.realVersion;
-        inputs.sourceLoaderName = source.loaderName;
-        inputs.sourceLoaderVersion = source.loaderVersion;
+        inputs.sourceLoaderName = sourceLoader;
+        inputs.sourceLoaderVersion = sourceLoaderVersion;
         inputs.targetGameVersion = target.realVersion.isEmpty() ? target.id : target.realVersion;
-        inputs.targetLoaderName = target.loaderName;
-        inputs.targetLoaderVersion = target.loaderVersion;
+        inputs.targetLoaderName = targetLoader;
+        inputs.targetLoaderVersion = targetLoaderVersion;
         inputs.upgrade = key == QStringLiteral("upgrade");
         return TransferPlanner::plan(inputs);
     };
@@ -728,7 +746,10 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 const auto parts = m_owner->m_versionManager->displayParts(entry.second);
                 const QString game = parts.realVersion.isEmpty() ? parts.id : parts.realVersion;
                 prepared.insert(game);
-                entry.first = game + QStringLiteral(" / ") + (parts.loaderName.isEmpty() ? tr("原版") : parts.loaderName + QLatin1Char(' ') + parts.loaderVersion)
+                QString loaderVersion;
+                const QString loaderName = InstancePagesController::loaderName(
+                    parts, m_owner->m_versionManager, &loaderVersion);
+                entry.first = game + QStringLiteral(" / ") + (loaderName.isEmpty() ? tr("原版") : loaderName + QLatin1Char(' ') + loaderVersion)
                     + tr("（核心已准备：%1）").arg(m_owner->instanceDisplayName(entry.second));
             }
             for (const auto &version : m_owner->m_versionManager->availableVersions()) if (!prepared.contains(version))
@@ -751,9 +772,12 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     };
     refreshTransferPage(QStringLiteral("migration"));
     const auto sourceParts = m_owner->m_versionManager->displayParts(targetId);
+    QString sourceLoaderVersion;
+    const QString sourceLoader = InstancePagesController::loaderName(
+        sourceParts, m_owner->m_versionManager, &sourceLoaderVersion);
     dialog.setUpgradeContext(tr("当前实例：%1\nMinecraft %2 / %3 %4")
         .arg(m_owner->instanceDisplayName(targetId), sourceParts.realVersion.isEmpty() ? sourceParts.id : sourceParts.realVersion,
-             sourceParts.loaderName.isEmpty() ? tr("原版") : sourceParts.loaderName, sourceParts.loaderVersion));
+             sourceLoader.isEmpty() ? tr("原版") : sourceLoader, sourceLoaderVersion));
     auto *upgradeStore = new ResourceStore(&dialog);
     upgradeStore->setCurseForgeApiKey(m_owner->m_settings->curseForgeApiKey());
     upgradeStore->setCurseForgeApiBaseOverride(m_owner->m_settings->curseForgeApiBaseOverride());

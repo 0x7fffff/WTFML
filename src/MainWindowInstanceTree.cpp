@@ -283,8 +283,15 @@ InstanceFilter::Query MainWindow::instanceFilterQuery() const {
 
 InstanceFilter::Facts MainWindow::instanceFilterFacts(const VersionDisplayParts &part) const {
     InstanceFilter::Facts facts;
-    facts.texts = InstanceFilter::textsFor(part, m_settings->versionNameOptions());
-    facts.hasLoader = !part.loaderName.isEmpty();
+    // 加载器名 / 版本走 `instanceLoaderName()`（= `InstancePagesController::loaderName()`），
+    // **不直接读 `part.loaderName`**：那一格只有我们自己的安装器会写，PCL / HMCL 合并出来的
+    // 实例（加载器只写在版本 json 的 `libraries` 里）在那儿是空的。读它的话，「模组」那一档
+    // 筛不出这种实例（它明明带着 Fabric），搜「fabric」也搜不到。
+    QString loaderVersion;
+    const QString loaderName = instanceLoaderName(part, m_versionManager, &loaderVersion);
+    facts.texts = InstanceFilter::textsFor(part, m_settings->versionNameOptions(), loaderName,
+                                           loaderVersion);
+    facts.hasLoader = !loaderName.isEmpty();
     // 「可更新」认的是**实例设置里那趟检查**的结果（键在不在 = 查过没有，见
     // m_instanceOutdatedPaths 那段）。没查过的实例在这一档里筛不出来 —— 那是对的，
     // 谁也没说过它有更新。
