@@ -21,7 +21,8 @@ void runInstanceFilterTests() {
                                                QStringLiteral("我的整合包"),
                                                QStringLiteral("1.18.2"), QStringLiteral("Forge"),
                                                QStringLiteral("40.3.12"));
-    const QStringList texts = InstanceFilter::textsFor(pack, options);
+    const QStringList texts = InstanceFilter::textsFor(pack, options, pack.loaderName,
+                                                       pack.loaderVersion);
     check(texts.contains(QStringLiteral("我的整合包-1.18.2-Forge")),
           "ZS1 显示名（按开关拼出来的那一串）在里头 —— 用户是照着屏幕上那一行打的",
           texts.join(QStringLiteral(" | ")));
@@ -35,7 +36,8 @@ void runInstanceFilterTests() {
         VersionNameOptions off = options;
         off.showCustomName = false;
         off.showRealVersion = false;
-        const QStringList still = InstanceFilter::textsFor(pack, off);
+        const QStringList still = InstanceFilter::textsFor(pack, off, pack.loaderName,
+                                                           pack.loaderVersion);
         check(still.contains(QStringLiteral("我的整合包")) && still.contains(QStringLiteral("1.18.2")),
               "ZS1 开关关掉的那两段照样在可比对的串里（显示名里没有 ≠ 搜不到）",
               still.join(QStringLiteral(" | ")));
@@ -44,7 +46,8 @@ void runInstanceFilterTests() {
         // 空字段不许混进去：一个空串会让**任何**关键词都命中（`contains("")` 恒真）。
         const VersionDisplayParts bare = makeParts(QStringLiteral("原版ATT2地图（无模组）"),
                                                    QString(), QString(), QString(), QString());
-        const QStringList bareTexts = InstanceFilter::textsFor(bare, options);
+        const QStringList bareTexts = InstanceFilter::textsFor(bare, options, bare.loaderName,
+                                                               bare.loaderVersion);
         check(!bareTexts.contains(QString()) && bareTexts.size() == 2,
               "ZS1 空字段一个都不放进去（空串会让「搜什么都搜得到」）",
               QStringLiteral("%1 个串：%2").arg(bareTexts.size()).arg(bareTexts.join('/')));
@@ -53,6 +56,33 @@ void runInstanceFilterTests() {
         InstanceFilter::Query query;
         query.text = QStringLiteral("绝对搜不到的一串字");
         check(!InstanceFilter::matches(query, facts), "ZS1 前提成立：这一串确实搜不到");
+    }
+    {
+        // 合并实例（PCL / HMCL 那种）：`VersionDisplayParts::loaderName` 是**空的**，加载器只写在
+        // 版本 json 的 `libraries` 里 —— 名字和版本由调用方判好递进来（`loaderName()` 那一路）。
+        // 这一格钉的是"这一层读的是递进来的那两格，而不是 `parts.loaderName`"。
+        const VersionDisplayParts merged =
+            makeParts(QStringLiteral("我的整合包-1.18.2"), QStringLiteral("我的整合包"),
+                      QStringLiteral("1.18.2"), QString(), QString());
+        const QStringList mergedTexts = InstanceFilter::textsFor(merged, options,
+                                                                QStringLiteral("Fabric"),
+                                                                QStringLiteral("0.16.14"));
+        InstanceFilter::Facts mergedFacts;
+        mergedFacts.texts = mergedTexts;
+        mergedFacts.hasLoader = true;
+        InstanceFilter::Query fabric;
+        fabric.text = QStringLiteral("fabric");
+        InstanceFilter::Query fabricVersion;
+        fabricVersion.text = QStringLiteral("0.16.14");
+        check(mergedTexts.contains(QStringLiteral("Fabric")) &&
+                  InstanceFilter::matches(fabric, mergedFacts) &&
+                  InstanceFilter::matches(fabricVersion, mergedFacts),
+              "ZS1 合并实例：加载器名 / 版本用的是**调用方递进来的**那两格 —— 搜「fabric」搜得到"
+              "（读 `parts.loaderName` 的话这一格恒空，屏幕上写着 Fabric 却搜不出来）",
+              mergedTexts.join(QStringLiteral(" | ")));
+        check(!InstanceFilter::textsFor(merged, options, QString(), QString())
+                   .contains(QStringLiteral("Fabric")),
+              "ZS1 没人递加载器名时它也不会凭空冒出来（这一层不自己回扣版本 json）");
     }
 
     // ---------- ZS2. 分词 ----------

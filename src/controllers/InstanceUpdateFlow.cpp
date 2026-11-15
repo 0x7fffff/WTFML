@@ -16,6 +16,7 @@
 #include "LoadingState.hpp"
 #include "Theme.hpp"
 #include "controllers/InstanceTransferController.hpp"
+#include "controllers/InstancePagesController.hpp"
 #include "controllers/DownloadCompletionController.hpp"
 #include "controllers/ActivityCenterController.hpp"
 #include "controllers/InstallPageController.hpp"
@@ -141,13 +142,20 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
     dialog->setProperty("upgradeRuntimeJavaPath", owner->m_javaSettings->javaPath());
     dialog->setProperty("upgradeRuntimeJavaMajor", 0);
     const auto source = owner->m_versionManager->displayParts(sourceId);
+    // 来源实例的加载器名 / 版本走 `InstancePagesController::loaderName()`，**不读
+    // `source.loaderName`**：那一格只有我们自己的安装器会写，PCL / HMCL 合并出来的实例
+    // （加载器只写在版本 json 的 `libraries` 里）在那儿是空的 —— 于是这一页说「纯原版」、
+    // 默认选中「纯原版」、计划按原版评估模组兼容。
+    QString sourceLoaderVersion;
+    const QString sourceLoader = InstancePagesController::loaderName(
+        source, owner->m_versionManager, &sourceLoaderVersion);
     for (const auto &task : owner->m_activityCenter->tasks()->all()) state->firstTask = qMax(state->firstTask, task.id);
     auto *selectors = new QWidget(page);
     selectors->setObjectName("instanceUpdateSelectors");
     auto *selectorLayout = new QVBoxLayout(selectors);
     selectorLayout->setContentsMargins(16, 12, 16, 12);
     auto *sourceContext = new QLabel(QObject::tr("当前实例：%1\nMinecraft %2 / %3\n\n请选择更新后的游戏与加载器版本。下一步检查现有模组，确认前不会修改实例。")
-        .arg(sourceId, source.realVersion, source.loaderName.isEmpty() ? QObject::tr("纯原版") : source.loaderName), selectors);
+        .arg(sourceId, source.realVersion, sourceLoader.isEmpty() ? QObject::tr("纯原版") : sourceLoader), selectors);
     sourceContext->setWordWrap(true); selectorLayout->addWidget(sourceContext);
     selectorLayout->addSpacing(16);
     auto *row = new QHBoxLayout;
@@ -161,7 +169,7 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
                            QStringLiteral("neoforge"), QStringLiteral("optifine"),
                            QStringLiteral("quilt")})
         loader->addItem(id.isEmpty() ? QObject::tr("纯原版") : id, id);
-    loader->setCurrentIndex(qMax(0, loader->findData(source.loaderName.toLower())));
+    loader->setCurrentIndex(qMax(0, loader->findData(sourceLoader.toLower())));
     auto *loaderVersion = new QComboBox(selectors); loaderVersion->setObjectName("instanceUpdateLoaderVersion");
     row->addWidget(new QLabel(QObject::tr("1. 更新到"), selectors)); row->addWidget(game, 2);
     row->addWidget(loader, 1); row->addWidget(loaderVersion, 1);
@@ -322,8 +330,8 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
     auto pageState = std::make_shared<UpgradePageState::State>();
     pageState->sourceId = sourceId;
     pageState->sourceGameVersion = source.realVersion;
-    pageState->sourceLoaderKey = source.loaderName.toLower();
-    pageState->sourceLoaderVersion = source.loaderVersion;
+    pageState->sourceLoaderKey = sourceLoader.toLower();
+    pageState->sourceLoaderVersion = sourceLoaderVersion;
     pageState->target.instanceName = copyName->text();
     // 来源实例此刻在跑、或被别的作业压着：页面上提前说，不等点确认才报错。
     if (owner->m_launcherManager->isVersionRunning(sourceId)
@@ -353,8 +361,8 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
         TransferPlanner::Inputs inputs;
         inputs.sourceDir = AppPaths::versionDir(sourceId);
         inputs.sourceGameVersion = source.realVersion;
-        inputs.sourceLoaderName = source.loaderName;
-        inputs.sourceLoaderVersion = source.loaderVersion;
+        inputs.sourceLoaderName = sourceLoader;
+        inputs.sourceLoaderVersion = sourceLoaderVersion;
         struct CategoryStats {
             bool ok = false;
             QHash<QString, QPair<int, qint64>> amounts;

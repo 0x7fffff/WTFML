@@ -1,5 +1,6 @@
 #include "UpgradeAssessment.hpp"
 #include "InstanceSettingsDialog.hpp"
+#include "controllers/InstancePagesController.hpp"
 #include "manage/VersionManager.hpp"
 #include "manage/VersionDisplay.hpp"
 #include "manage/InstanceIconLookup.hpp"
@@ -1102,14 +1103,23 @@ void UpgradeAssessment::attach(InstanceSettingsDialog *dialog, VersionManager *v
         state->javaMajor = dialog->property("upgradeRuntimeJavaMajor").toInt();
         if (target.startsWith(QStringLiteral("@download:"))) {
             state->game = target.mid(10);
+            // 加载器名走 `InstancePagesController::loaderName()`，**不读
+            // `displayParts().loaderName`**：那一格只有我们自己的安装器会写，PCL / HMCL 合并出来
+            // 的实例（加载器只写在版本 json 的 `libraries` 里）在那儿是空的 ⇒ 这一趟会按「原版」
+            // 评估模组兼容。写法与 `InstanceUpgradeController.cpp:53/157` 同一套。
+            const auto sourceParts = versions->displayParts(sourceId);
+            const QString sourceLoader =
+                InstancePagesController::loaderName(sourceParts, versions);
             state->loader = dialog->property("modernUpgradeFlow").toBool() ? selectedLoader
-                : versions->displayParts(sourceId).loaderName.toLower();
+                : sourceLoader.toLower();
         }
         else if (!target.isEmpty()) {
             const auto parts = versions->displayParts(target);
             state->game = parts.realVersion.isEmpty() ? parts.id : parts.realVersion;
-            state->loader = parts.loaderName.toLower();
-            if (state->loaderVersion.isEmpty()) state->loaderVersion = parts.loaderVersion;
+            QString targetLoaderVersion;
+            state->loader =
+                InstancePagesController::loaderName(parts, versions, &targetLoaderVersion).toLower();
+            if (state->loaderVersion.isEmpty()) state->loaderVersion = targetLoaderVersion;
         }
         render();
         // 先用**一发批量接口**把 Modrinth 身份、哈希可用的模组问一遍（100 个哈希一发），

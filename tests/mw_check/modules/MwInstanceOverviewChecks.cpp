@@ -470,6 +470,202 @@ int MwInstanceOverviewChecks(const QDir &root, const QDir &versionsDir) {
         check(!QDir(versionsDir.filePath(kId)).exists(),
               "T18b 收拾：这个临时实例的目录删干净了");
     }
+    // T18c：147 的同类残留 —— 升级 / 迁移 / 更新那几页和管理页的筛选、搜索里，
+    // 加载器名一律走 `InstancePagesController::loaderName()`。
+    //
+    // 夹具和 T18b 同一个思路：加载器**只写在版本 json 的 `libraries` 里**
+    // （`net.fabricmc:fabric-loader:0.16.14`），`wtfml.meta` 里没有 `loaderName` 那一格 ——
+    // PCL / HMCL 合并出来的实例大多长这样。这种实例上 `displayParts().loaderName` 是空的，
+    // 于是：迁移/升级的目标下拉框少一段「 / Fabric」、进 `TransferPlanner` 的源加载器是空
+    // （兼容结论按「原版 ↔ 原版」写）、升级页那句「当前实例」写「原版」、新版更新页默认
+    // 选中「纯原版」、管理页「模组」那一档筛不出它、搜「fabric」也搜不到。
+    //
+    // NOTE: 这个实例的目录名故意**不带 fabric**（叫 `T18c-merged`）：搜索那一条要红的正是
+    // "只有加载器那一格能命中"，名字里带着那几个字母的话，撤掉修复也照样搜得到。
+    {
+        const QString kId = QStringLiteral("T18c-merged");
+        const QDir instanceDir(versionsDir.filePath(kId));
+        QDir(versionsDir.filePath(kId)).removeRecursively();  // 上一跑崩在这里留下的残骸
+        makeInstalledVersion(versionsDir, kId);
+        writeFileAt(instanceDir.filePath(kId + QStringLiteral(".json")),
+                    QByteArrayLiteral("{\"id\":\"T18c-merged\","
+                                      "\"mainClass\":\"net.fabricmc.loader.impl.launch.knot.KnotClient\","
+                                      "\"libraries\":[{\"name\":\"net.fabricmc:fabric-loader:0.16.14\"}]}"));
+        check(!QFile::exists(instanceDir.filePath(QStringLiteral("wtfml.meta"))),
+              "T18c 前提：这个实例没有 wtfml.meta（加载器只写在版本 json 的 libraries 里）");
+
+        QString upgradeContext;
+        QString updateSourceText;
+        QString updateLoaderKey;
+        QString migrationPlan;
+        QString mergedTargetLabel;
+        QStringList withLoaderIds;
+        QStringList searchedIds;
+        {
+            MainWindow w;
+            w.show();
+            QApplication::processEvents();
+
+            // ---------- ① 升级页「当前实例」那句 + 新版更新页的来源那一行 / 默认加载器 ----------
+            QMetaObject::invokeMethod(&w, "openInstanceSettings", Qt::DirectConnection,
+                                      Q_ARG(QString, kId));
+            QApplication::processEvents();
+            OverlayHost *host = currentPageOverlay();
+            auto *page = host != nullptr ? host->findChild<InstanceSettingsDialog *>() : nullptr;
+            check(page != nullptr, "T18c 合并实例的实例设置页开出来了");
+            if (page != nullptr) {
+                page->showPage(QStringLiteral("upgrade"));
+                QApplication::processEvents();
+                if (auto *context =
+                        page->findChild<QLabel *>(QStringLiteral("instanceUpgradeContext"))) {
+                    upgradeContext = context->text();
+                }
+                if (auto *selectors = page->findChild<QWidget *>(
+                        QStringLiteral("instanceUpdateSelectors"))) {
+                    for (QLabel *label : selectors->findChildren<QLabel *>()) {
+                        if (label->text().startsWith(QStringLiteral("当前实例："))) {
+                            updateSourceText = label->text();
+                        }
+                    }
+                }
+                if (auto *loaderCombo =
+                        page->findChild<QComboBox *>(QStringLiteral("instanceUpdateLoader"))) {
+                    updateLoaderKey = loaderCombo->currentData().toString();
+                }
+
+                // ---------- ② 进 TransferPlanner 的源加载器 ----------
+                //
+                // 「迁移」那一页是唯一一处**把计划正文露出来**的地方（升级那一页在新版流程里
+                // 由 `InstanceUpdateFlow` 接管，正文不再写旧计划）。目标选 1.20.1（meta 里写着
+                // Forge）：源的游戏版本读不出来（这个实例的 id 就是它的"版本"），所以结论是
+                // 「版本与加载器都不同」，那句话把**源加载器**也写出来了 —— 撤掉修复时那里是
+                // 「原版」。
+                page->showPage(QStringLiteral("migration"));
+                QApplication::processEvents();
+                auto *combo = page->findChild<QComboBox *>(
+                    InstanceSettingsDialog::transferTargetComboName(QStringLiteral("migration")));
+                auto *plan = page->findChild<QPlainTextEdit *>(
+                    InstanceSettingsDialog::transferPlanTextName(QStringLiteral("migration")));
+                if (combo != nullptr) {
+                    const int target = combo->findData(QStringLiteral("1.20.1"));
+                    if (target >= 0) {
+                        combo->setCurrentIndex(target);
+                    }
+                }
+                QApplication::processEvents();
+                if (plan != nullptr) {
+                    QElapsedTimer wait;
+                    wait.start();
+                    while (!plan->toPlainText().contains(QStringLiteral("迁移计划："))
+                           && wait.elapsed() < 5000) {
+                        QApplication::processEvents(QEventLoop::AllEvents, 10);
+                        QThread::msleep(1);
+                    }
+                    migrationPlan = plan->toPlainText();
+                }
+                if (host != nullptr) {
+                    host->closeOverlay();
+                }
+                QApplication::processEvents();
+            }
+
+            // ---------- ③ 管理页：「模组」那一档 + 搜「fabric」 ----------
+            auto *tree = byObjectName<QTreeWidget>(&w, MainWindowUI::instanceListName());
+            auto *search = byObjectName<QLineEdit>(&w, MainWindowUI::instanceSearchName());
+            auto *chipModded = byObjectName<QPushButton>(
+                &w, MainWindowUI::instanceFilterButtonName(
+                        MainWindowUI::InstanceFilterButton::Modded));
+            const auto shownIds = [tree] {
+                QStringList ids;
+                for (QTreeWidgetItem *item : instanceItemsOf(tree)) {
+                    ids << item->data(0, MainWindowUI::instanceIdRole()).toString();
+                }
+                ids.sort();
+                return ids;
+            };
+            if (chipModded != nullptr) {
+                chipModded->click();
+                QApplication::processEvents();
+                withLoaderIds = shownIds();
+                chipModded->click();  // 取消，别把状态留给后面的段
+                QApplication::processEvents();
+            }
+            if (search != nullptr) {
+                search->setText(QStringLiteral("fabric"));
+                QApplication::processEvents();
+                searchedIds = shownIds();
+                search->setText(QString());
+                QApplication::processEvents();
+            }
+        }
+
+        // ---------- ④ 目标下拉框里那一条 label（这个合并实例当**目标**） ----------
+        //
+        // 换个窗开：同一扇窗上「上一页刚收、下一页马上开」这条路上覆盖层自己有一道闸
+        // （`showPage()` 撞上还占着的覆盖层时静默无事发生），而这里量的是 label 怎么拼。
+        {
+            MainWindow w;
+            w.show();
+            QApplication::processEvents();
+            QMetaObject::invokeMethod(&w, "openInstanceSettings", Qt::DirectConnection,
+                                      Q_ARG(QString, QStringLiteral("1.20.1")));
+            QApplication::processEvents();
+            OverlayHost *host = currentPageOverlay();
+            auto *page = host != nullptr ? host->findChild<InstanceSettingsDialog *>() : nullptr;
+            if (page != nullptr) {
+                page->showPage(QStringLiteral("migration"));
+                QApplication::processEvents();
+                if (auto *combo = page->findChild<QComboBox *>(
+                        InstanceSettingsDialog::transferTargetComboName(
+                            QStringLiteral("migration")))) {
+                    const int row = combo->findData(kId);
+                    if (row >= 0) {
+                        mergedTargetLabel = combo->itemText(row);
+                    }
+                }
+                if (host != nullptr) {
+                    host->closeOverlay();
+                }
+                QApplication::processEvents();
+            }
+        }
+
+        check(upgradeContext.contains(QStringLiteral("Fabric 0.16.14")) &&
+                  !upgradeContext.contains(QStringLiteral("原版")),
+              "★ T18c 升级页那句「当前实例」写「Fabric 0.16.14」，不是「原版」"
+              "（读 displayParts().loaderName 的话这一句在合并实例上是「原版」）",
+              upgradeContext);
+        check(!updateSourceText.isEmpty() &&
+                  updateSourceText.contains(QStringLiteral("Fabric")) &&
+                  !updateSourceText.contains(QStringLiteral("纯原版")),
+              "★ T18c 新版更新页那句「当前实例」也写 Fabric，不是「纯原版」", updateSourceText);
+        check(updateLoaderKey == QStringLiteral("fabric"),
+              "★★ T18c 更新页默认选中的加载器是 fabric（不是「纯原版」）—— 下拉框那一位是拿"
+              "源实例的加载器名去 findData 的", updateLoaderKey);
+        check(migrationPlan.contains(QStringLiteral("/ Fabric")),
+              "★★ T18c 进 TransferPlanner 的源加载器是 Fabric（计划正文里那句「源是 … / Fabric」）"
+              "—— 空的话这一趟会按「原版」评估模组兼容",
+              migrationPlan.left(200));
+        check(!migrationPlan.contains(QStringLiteral("源是 T18c-merged / 原版")),
+              "★ T18c 而且不再是「源是 T18c-merged / 原版」", migrationPlan.left(200));
+        check(mergedTargetLabel.contains(QStringLiteral(" / Fabric")) &&
+                  !mergedTargetLabel.contains(QStringLiteral("原版")),
+              "★ T18c 目标下拉框里这一条 label 带着「 / Fabric」（漏了这一段就是读的空加载器）",
+              mergedTargetLabel);
+        check(withLoaderIds.contains(kId),
+              "★★ T18c 管理页「模组」那一档筛得出这个合并实例（判据是加载器名，不是"
+              "wtfml.meta 那一格）", withLoaderIds.join(QLatin1Char('|')));
+        check(searchedIds.contains(kId),
+              "★★ T18c 搜「fabric」搜得到它（可比对的串里那一段加载器名来自 loaderName()）",
+              searchedIds.join(QLatin1Char('|')));
+
+        // 收拾：目录、以及这几个窗顺手种下的分组文件（后面那些段都按"没分过组"数东西）。
+        QDir(versionsDir.filePath(kId)).removeRecursively();
+        QDir().remove(AppPaths::instanceGroupFilePath());
+        QApplication::processEvents();
+        check(!QDir(versionsDir.filePath(kId)).exists(),
+              "T18c 收拾：这个临时实例的目录删干净了");
+    }
     // UG6：维护页里的新版升级页 —— 勾选决定副本要复制哪些类别。
     //
     // 这是"页面 → 请求"那条线唯一能验的地方：页面上的九类勾选必须实时落到
