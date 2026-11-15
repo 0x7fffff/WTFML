@@ -79,6 +79,9 @@ struct ShotOptions {
     /// `--r155`：步骤 155（默认 / 最小窗口、点 W 收放导航、窗口大小「恢复默认」），自己换尺寸，
     /// 不看 `--size`；文件名 r155-<主题>-<宽>x<高>-<页面>-<状态>.png。
     bool r155 = false;
+    /// `--r157`：步骤 157（导航收起时未读失败挂在进度环右上角），960×620 主页收起 + 展开对照 + 角标放大，
+    /// 文件名 r157-<主题>-960x620-*.png。
+    bool r157 = false;
 };
 
 /// 颜色块 + 一个字母的小图标（资源行 / 账号行用；产品里那些是真图，这里只要不像空白）。
@@ -717,6 +720,44 @@ int shootR155(QApplication &app, QMainWindow &window, MainWindowUI &ui, const Sh
     return saved > 0 ? 0 : 1;
 }
 
+/// `--r157`：本机默认窗（960×620）主页，底栏有一件没看过的失败：收起（角标）一张、进度环连角标放大 8 倍一张，
+/// 再在 1024×620 展开导航拍一张对照（标题前红点、无角标）。
+int shootR157(QApplication &app, QMainWindow &window, MainWindowUI &ui, const ShotOptions &options) {
+    int saved = 0;
+    const auto pump = [&app] { for (int i = 0; i < 4; ++i) app.processEvents(); };
+    const auto name = [&](const QString &what) {
+        return QStringLiteral("r157-%1-%2x%3-%4").arg(options.theme).arg(window.width()).arg(window.height()).arg(what);
+    };
+    fillHomeSamples(ui);
+    ui.getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
+    window.resize(960, 620);
+    MainWindowUI::BottomBarTaskSummary failed;
+    failed.hasTask = true;
+    failed.state = TaskCenter::State::Failed;
+    failed.unreadFailure = true;
+    failed.percent = 62;
+    failed.title = QStringLiteral("下载游戏文件");
+    ui.setBottomBarTaskSummary(failed);
+    ui.titleBar()->setCollapsed(true);
+    pump();
+    saveShot(app, window, options.out, name(QStringLiteral("home-nav-collapsed-unread-failure")), &saved);
+    if (QProgressBar *ring = ui.getProgressBar()) {
+        const QRect crop(ring->mapTo(&window, QPoint(0, 0)) - QPoint(10, 10), ring->size() + QSize(20, 20));
+        const QPixmap zoom = window.grab(crop).scaled(crop.size() * 8, Qt::KeepAspectRatio, Qt::FastTransformation);
+        const QString file = QDir(options.out).filePath(name(QStringLiteral("badge-zoom")) + QStringLiteral(".png"));
+        if (zoom.save(file)) ++saved;
+    }
+    // 960 宽窗在 1024 以下，导航是被窗宽强制收起的：展开对照得在 1024 宽拍。
+    window.resize(1024, 620);
+    ui.titleBar()->setCollapsed(false);
+    pump();
+    std::printf("  展开对照：导航 %s，角标 %s\n", ui.titleBar()->isCollapsed() ? "收起" : "展开",
+                window.findChild<QLabel *>(MainWindowUI::taskSummaryBadgeName())->isVisible() ? "露" : "不露");
+    saveShot(app, window, options.out, name(QStringLiteral("home-nav-expanded-unread-failure")), &saved);
+    std::printf("\nr157 shots: %d saved -> %s\n", saved, qPrintable(options.out));
+    return saved == 3 ? 0 : 1;
+}
+
 int shootLoading(QApplication &app, QMainWindow &window, MainWindowUI &ui, const ShotOptions &options) {
     Anim::setEnabled(true);
     int saved = 0;
@@ -890,6 +931,7 @@ int runExtended(QApplication &app, const ShotOptions &options) {
     if (options.files) return shootFiles(app, window, ui, options);
     if (options.r151) return shootR151(app, window, ui, options);
     if (options.r155) return shootR155(app, window, ui, options);
+    if (options.r157) return shootR157(app, window, ui, options);
 
     // ---- 主页：零实例 / 有实例 ----
     ui.getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
@@ -1754,6 +1796,9 @@ int UiReviewShotsCheck(QApplication &app) {
             options.extended = true;
         } else if (arg == QLatin1String("--r155")) {
             options.r155 = true;
+            options.extended = true;
+        } else if (arg == QLatin1String("--r157")) {
+            options.r157 = true;
             options.extended = true;
         } else if (arg == QLatin1String("--first-disable")) {
             options.firstDisable = true;
