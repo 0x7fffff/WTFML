@@ -194,6 +194,10 @@ public:
      */
     QLabel *setLink(const QString &text, const QString &url);
 
+    /// 换掉标题左边图标块里的图标（底色仍按 kind）。弹框说的是某样东西时用它，
+    /// 和 JavaMismatchDialog 的 java 图标同一个做法；空串 = 退回按 kind 取。
+    void setHeaderIcon(const QString &icon);
+
     /// 那一行链接现在指向哪儿。没插过就是空串。
     QString linkUrl() const;
 
