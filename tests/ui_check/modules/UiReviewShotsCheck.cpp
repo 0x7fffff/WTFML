@@ -29,6 +29,7 @@
 #include "AgentViewTypes.hpp"
 #include "agent/AgentSession.hpp"
 #include "OverlayHost.hpp"
+#include "MainWindowPageLayout.hpp"
 #include "Popups.hpp"
 #include "ToolboxPage.hpp"
 #include "ToolboxSamples.hpp"
@@ -75,6 +76,9 @@ struct ShotOptions {
     /// `--r151`：步骤 151 的四处（资源包页查完更新前后 / 预设弹窗标题图标 / 服务器表头 /
     /// 主页窗口按钮），文件名 r151-<主题>-<宽>-*；配 `--background` 拍亮背景图那一档。
     bool r151 = false;
+    /// `--r155`：步骤 155（默认 / 最小窗口、点 W 收放导航、窗口大小「恢复默认」），自己换尺寸，
+    /// 不看 `--size`；文件名 r155-<主题>-<宽>x<高>-<页面>-<状态>.png。
+    bool r155 = false;
 };
 
 /// 颜色块 + 一个字母的小图标（资源行 / 账号行用；产品里那些是真图，这里只要不像空白）。
@@ -615,6 +619,95 @@ int shootR151(QApplication &app, QMainWindow &window, MainWindowUI &ui, const Sh
     return saved == 6 ? 0 : 1;
 }
 
+/// `--r155`：默认窗口主页收起 / 展开（各带 W 的悬停提示）；最小窗口主页（带「窗口加宽后才能展开」提示）、
+/// 工具箱目录与每件工具、设置四个页签顶上；设置·外观「窗口大小」一行可点 / 置灰各一张。
+/// 屏幕要比默认窗口大（offscreen 默认屏 800×600 会把「默认大小」夹小）：配 offscreen 的 configfile 给块大屏。
+bool savePopupShot(QApplication &app, QMainWindow &window, const QString &outDir, const QString &name, int *saved);
+
+int shootR155(QApplication &app, QMainWindow &window, MainWindowUI &ui, const ShotOptions &options) {
+    using namespace MainWindowPageLayout;
+    Popups::install(app);
+    int saved = 0;
+    const auto pump = [&app] { for (int i = 0; i < 4; ++i) app.processEvents(); };
+    const auto name = [&](const QString &what) {
+        return QStringLiteral("r155-%1-%2x%3-%4").arg(options.theme).arg(window.width()).arg(window.height()).arg(what);
+    };
+    const auto shot = [&](const QString &what) {
+        pump();
+        saveShot(app, window, options.out, name(what), &saved);
+    };
+    TitleBar *bar = ui.titleBar();
+    QAbstractButton *logo = bar->logoButton();
+    const auto shotLogoTip = [&](const QString &what) {
+        const QPoint at = logo->rect().center();
+        QHelpEvent help(QEvent::ToolTip, at, logo->mapToGlobal(at));
+        QApplication::sendEvent(logo, &help);
+        std::printf("  W tooltip「%s」\n", qPrintable(Popups::tooltipText()));
+        savePopupShot(app, window, options.out, name(what), &saved);
+        Popups::hideTooltip();
+        pump();
+    };
+
+    fillHomeSamples(ui);
+    ui.getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
+    window.resize(kMainWindowDefaultWidth, kMainWindowDefaultHeight);
+    pump();
+    std::printf("  启动时导航 %s\n", bar->isCollapsed() ? "收起" : "展开");
+    shot(QStringLiteral("home-nav-collapsed"));
+    shotLogoTip(QStringLiteral("home-nav-collapsed-w-tooltip"));
+    logo->click();
+    shot(QStringLiteral("home-nav-expanded"));
+    shotLogoTip(QStringLiteral("home-nav-expanded-w-tooltip"));
+    logo->click();
+
+    window.resize(kMainWindowMinWidth, kMainWindowMinHeight);
+    pump();
+    shot(QStringLiteral("home"));
+    shotLogoTip(QStringLiteral("home-narrow-w-tooltip"));
+
+    ui.openToolboxTab();
+    QWidget *host = ui.toolboxTab();
+    if (host != nullptr && host->layout() != nullptr) {
+        auto *toolbox = new ToolboxPage(host);
+        host->layout()->addWidget(toolbox);
+        wireToolboxSamples(*toolbox);
+        toolbox->showCatalog();
+        shot(QStringLiteral("toolbox-catalog"));
+        for (ToolboxPage::Tool tool : ToolboxPage::tools()) {
+            toolbox->showTool(tool);
+            shot(QStringLiteral("toolbox-%1").arg(ToolboxPage::toolKey(tool)));
+        }
+    }
+
+    ui.getTabWidget()->setCurrentIndex(MainWindowUI::settingsTabIndex());
+    fillSettingsSamples(ui);
+    const QStringList keys = MainWindowUI::settingsCategoryKeys();
+    const auto scrollOf = [&](int index) {
+        return qobject_cast<QScrollArea *>(ui.getSettingsCategoryStack()->widget(index));
+    };
+    for (int i = 0; i < keys.size(); ++i) {
+        ui.getSettingsTabs()->setCurrentIndex(i);
+        if (QScrollArea *scroll = scrollOf(i)) scroll->verticalScrollBar()->setValue(0);
+        shot(QStringLiteral("settings-%1").arg(keys.at(i)));
+    }
+    QPushButton *reset = ui.getWindowSizeResetButton();
+    const int look = keys.indexOf(QStringLiteral("look"));
+    const auto shotSizeRow = [&](const QString &state) {
+        ui.getSettingsTabs()->setCurrentIndex(look);
+        pump();
+        if (QScrollArea *scroll = scrollOf(look); scroll != nullptr && scroll->widget() != nullptr && reset != nullptr)
+            scroll->ensureWidgetVisible(reset, 0, scroll->viewport()->height() / 3);
+        std::printf("  恢复默认 %s（窗 %dx%d）\n", reset != nullptr && reset->isEnabled() ? "可点" : "置灰", window.width(),
+                    window.height());
+        shot(QStringLiteral("settings-window-size-%1").arg(state));
+    };
+    shotSizeRow(QStringLiteral("enabled"));
+    MainWindowUI::resetWindowSize(&window);
+    shotSizeRow(QStringLiteral("disabled"));
+    std::printf("\nr155 shots: %d saved -> %s\n", saved, qPrintable(options.out));
+    return saved > 0 ? 0 : 1;
+}
+
 int shootLoading(QApplication &app, QMainWindow &window, MainWindowUI &ui, const ShotOptions &options) {
     Anim::setEnabled(true);
     int saved = 0;
@@ -787,6 +880,7 @@ int runExtended(QApplication &app, const ShotOptions &options) {
     if (options.loading) return shootLoading(app, window, ui, options);
     if (options.files) return shootFiles(app, window, ui, options);
     if (options.r151) return shootR151(app, window, ui, options);
+    if (options.r155) return shootR155(app, window, ui, options);
 
     // ---- 主页：零实例 / 有实例 ----
     ui.getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
@@ -1648,6 +1742,9 @@ int UiReviewShotsCheck(QApplication &app) {
             options.extended = true;
         } else if (arg == QLatin1String("--r151")) {
             options.r151 = true;
+            options.extended = true;
+        } else if (arg == QLatin1String("--r155")) {
+            options.r155 = true;
             options.extended = true;
         } else if (arg == QLatin1String("--first-disable")) {
             options.firstDisable = true;
