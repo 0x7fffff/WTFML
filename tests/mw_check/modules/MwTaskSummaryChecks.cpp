@@ -231,6 +231,35 @@ int MwTaskSummaryChecks(MainWindow &window) {
                   "AB4 反复重画底栏，那句话一个字都不变（不再有借 / 还这回事）",
                   abStatus->text());
 
+            // ---- ④b 导航收起：标题那颗跟着字藏了，红点改挂到进度环右上角（两颗互斥） ----
+            QLabel *abBadge = window.findChild<QLabel *>(MainWindowUI::taskSummaryBadgeName());
+            TitleBar *abRail = window.ui()->titleBar();
+            const auto badgeShown = [abBadge] { return abBadge != nullptr && abBadge->isVisible(); };
+            check(abBadge != nullptr && abBadge->parentWidget() == abBar, "AB5 进度环上有那颗角标（环的子控件）");
+            abRail->setCollapsed(true);
+            QApplication::processEvents();
+            check(abRail->isCollapsed() && badgeShown() && !abDot->isVisible(),
+                  "★ AB5 收起 + 未读失败：环的右上角挂红点角标，标题那颗不露");
+            check(abBadge != nullptr && abBar->rect().contains(abBadge->geometry()) &&
+                      !abBadge->pixmap().isNull() && abRail->width() == TitleBar::collapsedRailWidth(),
+                  "AB5 角标落在环那 28×28 之内（裁不掉）、画的是那颗点，图标轨宽度不变",
+                  QStringLiteral("轨宽 %1").arg(abRail->width()));
+            abRail->setCollapsed(false);
+            QApplication::processEvents();
+            check(!badgeShown() && abDot->isVisible(), "★ AB5 点 W 展开：角标收掉、标题前那颗红点回来");
+            const QSize abWide = window.size();
+            window.resize(1000, abWide.height());
+            QApplication::processEvents();
+            check(abRail->isCollapsed() && badgeShown() && !abDot->isVisible(),
+                  "★ AB5 窗宽缩过 1024 自动收起：角标顶上，标题那颗不露");
+            window.resize(abWide);
+            QApplication::processEvents();
+            check(!abRail->isCollapsed() && !badgeShown() && abDot->isVisible(),
+                  "AB5 窗宽回到 1024 以上：换回标题那颗");
+            abRail->setCollapsed(true);
+            QApplication::processEvents();
+            check(badgeShown() && !abDot->isVisible(), "AB5 再收起：互斥依旧（角标在、标题那颗不露）");
+
             // ---- ⑤ 打开任务中心：那次失败被「看过」了，红点灭掉；顺手把已完成清掉 ----
             abCell->click();
             ActivityPopover::openAllIn(&window);  // 摘要先弹浮动面板，从「全部任务」进整页
@@ -238,6 +267,10 @@ int MwTaskSummaryChecks(MainWindow &window) {
             check(!abDot->isVisible(),
                   "AB4 打开过任务中心之后那颗红点灭掉（看过了，就不是「没看过」）",
                   abDot->isVisible() ? QStringLiteral("还亮着") : QStringLiteral("灭了"));
+            check(!badgeShown(), "★ AB5 收起时打开任务中心：角标跟着灭（同一个「看过」）");
+            abRail->setCollapsed(false);  // 后面几节量的是展开态
+            QApplication::processEvents();
+            check(!badgeShown() && !abDot->isVisible(), "AB5 看过之后展开：两颗都不亮");
             QWidget *abPanel2 = window.findChild<QWidget *>(MainWindowUI::taskCenterPanelName());
             if (abPanel2 != nullptr) {
                 // ---- 收了尾的那一件：行尾那颗「取消」该**收起来**了 ----

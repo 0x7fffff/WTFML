@@ -960,6 +960,10 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             card->setContentsMargins(collapsed ? QMargins(8, 8, 8, 8) : QMargins(10, 8, 10, 8));
         }
         runStateButton->setVisible(m_runStateActive && !collapsed);
+        m_railCollapsed = collapsed;
+        if (taskFailureBadge != nullptr) {
+            taskFailureBadge->setVisible(collapsed && m_lastTaskSummary.unreadFailure);
+        }
     };
     QObject::connect(bar, &TitleBar::collapsedChanged, bottomBar, applyRailCollapsed);
     applyRailCollapsed(bar->isCollapsed());  // 轨一建好就是图标轨（每次启动都收起），不等第一次切换

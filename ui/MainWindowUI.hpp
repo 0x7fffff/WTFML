@@ -2153,6 +2153,8 @@ public:
     static QString taskExtraLabelName() { return QStringLiteral("taskExtraLabel"); }
     /// 那一颗"还没看过的一次失败"的红点（**收着的时候它也在**，只是布局里占 0 宽）。
     static QString taskSummaryDotName() { return QStringLiteral("taskSummaryDot"); }
+    /// 导航收起时挂在进度环右上角的那颗红点角标（和标题前那颗互斥：收起显它，展开显那颗）。
+    static QString taskSummaryBadgeName() { return QStringLiteral("taskSummaryBadge"); }
 
     /// 任务中心那块面板（`ui/TaskCenterPanel.hpp`）。
     static QString taskCenterPanelName() { return QStringLiteral("taskCenterPanel"); }
@@ -4097,6 +4099,10 @@ private:
     QLabel *taskExtraLabel = nullptr;
     /// 那一格标题左边那颗红点（"用户还没看过的一次失败"）。**藏着的时候不占宽度**。
     QLabel *taskFailureDot = nullptr;
+    /// 导航收起时那颗角标（进度环的子控件，不进布局：不占宽、不会把图标轨撑宽）。
+    QLabel *taskFailureBadge = nullptr;
+    /// 导航轨此刻是不是图标轨（见 setupUi 里 applyRailCollapsed）。
+    bool m_railCollapsed = false;
     QLabel *avatarLabel = nullptr;
     QLabel *accountLabel = nullptr;
     // 账户格那两行是**竖直排列**的（名字在上、登录方式在下），和左上角那格同构。

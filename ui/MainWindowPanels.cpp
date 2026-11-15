@@ -1326,6 +1326,15 @@ void MainWindowUI::setupBottomBar(QWidget *parent) {
     progressBar->setValue(0);
     progressBar->setRing(true);
     progressBar->setFixedSize(28, 28);
+    // 导航收起时任务卡只剩这枚环、标题前那颗红点跟着字藏了：未读失败改挂到环的右上角。
+    // 它是环的子控件、落在环那 28×28 之内 —— 裁不掉，也不进布局（不会把图标轨撑宽）。
+    taskFailureBadge = new QLabel(progressBar);
+    taskFailureBadge->setObjectName(MainWindowUI::taskSummaryBadgeName());
+    taskFailureBadge->setFixedSize(MainWindowUI::taskCenterPanelFailureDotSize(),
+                                   MainWindowUI::taskCenterPanelFailureDotSize());
+    taskFailureBadge->move(progressBar->width() - taskFailureBadge->width(), 0);
+    taskFailureBadge->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    taskFailureBadge->hide();
     taskCard->addWidget(progressBar, 0, Qt::AlignVCenter);
     taskCard->addWidget(taskTextBox, 1);
     taskPercentLabel = new QLabel(taskSummaryButton);
@@ -2210,6 +2219,13 @@ void MainWindowUI::setBottomBarTaskSummary(const BottomBarTaskSummary &summary) 
         } else {
             taskFailureDot->hide();
         }
+    }
+    // 收起时那颗角标：同一个信号、同一颗点，只在图标轨上露（展开时标题前那颗管）。
+    // 未读失败在账本里一定占着这一格（优先级 1，不受「刚完成」时间窗限制），所以环一直在。
+    if (taskFailureBadge != nullptr) {
+        taskFailureBadge->setPixmap(VersionIcons::runStateMark(
+            MainWindowUI::taskCenterPanelFailureDotSize(), folderDangerColor(textPalette)));
+        taskFailureBadge->setVisible(summary.unreadFailure && m_railCollapsed);
     }
 
     // ---------- 右边那句小字（「另有 N 项」） ----------
