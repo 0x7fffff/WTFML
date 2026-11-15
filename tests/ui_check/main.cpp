@@ -143,6 +143,8 @@ int main(int argc, char *argv[]) {
     // 几何只有在真正布局之后才有效
     window.resize(900, 620);
     window.show();
+    // 155 起每次启动导航先收起；这一串历史检查按「用户没收起」写（窄窗照样强制折，放宽就展开）。
+    ui.titleBar()->setCollapsed(false);
     QApplication::processEvents();
     QComboBox *installed = ui.getInstalledVersionCombo();
     QPushButton *startBtn = ui.getStartButton();

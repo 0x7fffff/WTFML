@@ -262,6 +262,7 @@ add_ui_module(ui_check_install_layout modules/UiInstallLayoutCheck.cpp UiInstall
 add_ui_module(ui_check_agent modules/UiAgentCheck.cpp UiAgentCheck)
 add_ui_module(ui_check_toolbox_polish modules/UiToolboxPolishCheck.cpp UiToolboxPolishCheck)
 add_ui_module(ui_check_toolbox_layout modules/UiToolboxLayoutCheck.cpp UiToolboxLayoutCheck)
+add_ui_module(ui_check_window_size modules/UiWindowSizeCheck.cpp UiWindowSizeCheck)
 add_ui_module(ui_check_input_widths modules/UiInputWidthCheck.cpp UiInputWidthCheck)
 # 子页面 / 弹框 / 浮层巡检：计入的残留不为 0 就失败（守卫，见模块文件头）。
 add_ui_module(ui_check_surface_sweep modules/UiSurfaceSweepCheck.cpp UiSurfaceSweepCheck)
@@ -347,6 +348,12 @@ set_tests_properties(wtfml.surface-sweep PROPERTIES
 wtfml_add_test(NAME wtfml.toolbox-layout COMMAND ui_check_toolbox_layout)
 set_tests_properties(wtfml.toolbox-layout PROPERTIES
     LABELS "ui;toolbox"
+    TIMEOUT 120
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
+wtfml_add_test(NAME wtfml.window-size COMMAND ui_check_window_size)
+set_tests_properties(wtfml.window-size PROPERTIES
+    LABELS "ui"
     TIMEOUT 120
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
 )

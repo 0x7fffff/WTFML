@@ -461,6 +461,7 @@ inline QString wheelGuardProblem(QWidget *widget) {
 int UiInstallLayoutCheck(QApplication &app);
 int UiToolboxPolishCheck(QApplication &app);
 int UiToolboxLayoutCheck(QApplication &app);
+int UiWindowSizeCheck(QApplication &app);
 int UiInputWidthCheck(QApplication &app);
 /// 子页面 / 弹框 / 浮层的漏接设计系统巡检：计入的残留不为 0 就失败（守卫）。
 int UiSurfaceSweepCheck(QApplication &app);

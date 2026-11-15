@@ -8,6 +8,7 @@
 #include "ListRowDelegate.hpp"
 #include "MainWindow.hpp"
 #include "MainWindowUI.hpp"
+#include "MainWindowPageLayout.hpp"
 #include "OverlayHost.hpp"
 #include "TaskProgressBar.hpp"
 #include "Theme.hpp"
@@ -567,7 +568,7 @@ inline QImage grabGallery(Gallery &gallery) {
     return image;
 }
 
-/// 依次截：三主题主页 1280×800、暗色 900×620 / 1600×1000、折叠轨、组件总表。
+/// 依次截：三主题主页 1280×800、暗色最小窗口 / 1600×1000、折叠轨、组件总表。
 inline void run(QApplication &app, MainWindow &window, const QString &root) {
     struct Shot { QString file; QString theme; QSize size; bool collapsed; int tab = MainWindowUI::homeTabIndex(); QString page = {}; };
     const int manage = MainWindowUI::instancesTabIndex();
@@ -578,7 +579,7 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         {QStringLiteral("home-dark.png"), QStringLiteral("dark"), {1280, 800}, false},
         {QStringLiteral("home-emerald.png"), QStringLiteral("emerald"), {1280, 800}, false},
         {QStringLiteral("home-ocean.png"), QStringLiteral("ocean"), {1280, 800}, false},
-        {QStringLiteral("home-dark-900x620.png"), QStringLiteral("dark"), {900, 620}, false},
+        {QStringLiteral("home-dark-%1x%2.png").arg(MainWindowPageLayout::kMainWindowMinWidth).arg(MainWindowPageLayout::kMainWindowMinHeight), QStringLiteral("dark"), QSize(MainWindowPageLayout::kMainWindowMinWidth, MainWindowPageLayout::kMainWindowMinHeight), false},
         {QStringLiteral("home-dark-1600x1000.png"), QStringLiteral("dark"), {1600, 1000}, false},
         {QStringLiteral("rail-collapsed-dark.png"), QStringLiteral("dark"), {1280, 800}, true},
         {QStringLiteral("manage-dark.png"), QStringLiteral("dark"), {1280, 800}, false, manage},
@@ -644,13 +645,13 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         // 有实例、实例切换弹层打开、没有实例、账号弹层打开（锚点现在是主页右上那颗胶囊）× 暗 / 冰川碧湖 × 两档尺寸。
         for (const char *state : {"home-A", "home-A-switch", "home-empty", "home-acct-rail"})
             for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("emerald")})
-                for (const QSize size : {QSize(900, 620), QSize(1280, 800)})
+                for (const QSize size : {QSize(MainWindowPageLayout::kMainWindowMinWidth, MainWindowPageLayout::kMainWindowMinHeight), QSize(1280, 800)})
                     list.append({QStringLiteral("r2-%1-%2-%3x%4.png").arg(QLatin1String(state), theme).arg(size.width()).arg(size.height()),
                                  theme, size, false, home, QStringLiteral("r2:") + QLatin1String(state)});
         // r2 智能体页方案 A 对照（设计稿 r2/png/agent-A-*）：对话、空、未配置 API、系统提示、⋯ 菜单、实例下拉。
         for (const char *state : {"chat", "empty", "noapi", "sys", "menu", "inst"})
             for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("emerald")})
-                for (const QSize size : {QSize(900, 620), QSize(1280, 800)})
+                for (const QSize size : {QSize(MainWindowPageLayout::kMainWindowMinWidth, MainWindowPageLayout::kMainWindowMinHeight), QSize(1280, 800)})
                     list.append({QStringLiteral("r2-agent-%1-%2-%3x%4.png").arg(QLatin1String(state), theme).arg(size.width()).arg(size.height()),
                                  theme, size, false, agent, QStringLiteral("r2:agent-") + QLatin1String(state)});
         // r66 账号胶囊回主页右上：已登录 / 已登录弹层开 / 未登录 / 未登录弹层开 × 三主题 × 两档尺寸。
@@ -658,13 +659,13 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         // 点弹层里的「退出登录」，之后的样张都是未登录。
         for (const char *state : {"in", "in-open", "out", "out-open"})
             for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("emerald"), QStringLiteral("ocean")})
-                for (const QSize size : {QSize(1280, 800), QSize(900, 620)})
+                for (const QSize size : {QSize(1280, 800), QSize(MainWindowPageLayout::kMainWindowMinWidth, MainWindowPageLayout::kMainWindowMinHeight)})
                     r66.append({QStringLiteral("r66-%1-%2-%3x%4.png").arg(QLatin1String(state), theme).arg(size.width()).arg(size.height()),
                                 theme, size, false, home, QStringLiteral("r66:") + QLatin1String(state)});
         // r68 主页风景 ↔ 磨砂淡变：主页 → 出主页中途 → 设置 → 回主页中途 → 主页 × 四主题 × 两档尺寸
         // （FILTER=r68-）。中途帧 = 淡变停在一半（kHeroFadeMs / 2）的那一刻。
         for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("emerald"), QStringLiteral("ocean"), QStringLiteral("system")})
-            for (const QSize size : {QSize(900, 620), QSize(1280, 800)})
+            for (const QSize size : {QSize(MainWindowPageLayout::kMainWindowMinWidth, MainWindowPageLayout::kMainWindowMinHeight), QSize(1280, 800)})
                 for (const auto &[step, tab] : {std::pair{"1-home", home}, std::pair{"2-out-mid", home},
                                                 std::pair{"3-settings", MainWindowUI::settingsTabIndex()},
                                                 std::pair{"4-in-mid", MainWindowUI::settingsTabIndex()}, std::pair{"5-home-back", home}})

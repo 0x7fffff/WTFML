@@ -7,9 +7,10 @@
 //     在宽窗里被拉满整行，这一条会把它抓出来。
 // 扫描范围：主窗口各页（实例 / 下载 / 设置各分类 / 智能体 / 工具箱每个工具）、账号与外观、
 // 实例设置各页、新建服务端、服务端设置、存档设置、智能体设置、预设编辑、实例升级等覆盖层页面，
-// 在 1280×800 与 900×620 两种窗口下各扫一遍。
+// 在 1280×800 与最小窗口两种窗口下各扫一遍。
 // 设 WTFML_INPUT_WIDTH_DUMP=1 时把每个输入框打印出来（页面 / 类型 / objectName / 宽度 / 登记）。
 #include "Support.hpp"
+#include "MainWindowPageLayout.hpp"
 
 #include "InputWidthScan.hpp"
 #include "InstanceUpgradePage.hpp"
@@ -143,7 +144,7 @@ int UiInputWidthCheck(QApplication &app) {
     for (const QString &themeId : themes) {
         Theme::setSpec(Theme::presetSpec(themeId));
         Theme::apply(app);
-        for (const QSize size : {QSize(1280, 800), QSize(900, 620)}) {
+        for (const QSize size : {QSize(1280, 800), QSize(MainWindowPageLayout::kMainWindowMinWidth, MainWindowPageLayout::kMainWindowMinHeight)}) {
             const QString tag = QStringLiteral("%1 %2x%3").arg(themeId).arg(size.width()).arg(size.height());
             QMainWindow window;
             MainWindowUI ui(&window);

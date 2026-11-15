@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "MainWindowPageLayout.hpp"
 int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
 
     {
@@ -509,7 +510,7 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
         const QList<SettingsParts::ExpandSection *> sections = page->findChildren<SettingsParts::ExpandSection *>();
         for (auto *section : sections) section->setExpanded(true, false);
 
-        for (const QSize size : {QSize(900, 620), QSize(1280, 800)}) {
+        for (const QSize size : {QSize(MainWindowPageLayout::kMainWindowMinWidth, MainWindowPageLayout::kMainWindowMinHeight), QSize(1280, 800)}) {
             window->resize(size);
             pump();
             QWidget *header = page->findChild<QWidget *>(MainWindowUI::pageHeaderName(QStringLiteral("settings")));

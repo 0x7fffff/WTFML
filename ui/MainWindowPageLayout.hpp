@@ -48,10 +48,13 @@ inline const int kAvatarSize = MainWindowUI::avatarSize();
 /// 「启动游戏」按钮的高度。两行文字仍有足够呼吸空间，但不占掉启动卡近一半高度。
 inline constexpr int kStartButtonMinHeight = 76;
 
-/// 主窗口竖直方向的明确下限。540px 能容纳主页约 368px 的比例角色卡，以及标题栏、
-/// 页面边距和底栏；也不会缩到人物预览被压坏。
+/// 主窗口默认大小（首次启动、设置页「恢复默认」）：1024 宽刚好不触发导航轨的窄窗强制折叠。
+inline constexpr int kMainWindowDefaultWidth = 1024;
+inline constexpr int kMainWindowDefaultHeight = 620;
+/// 主窗口最小大小：工具箱目录页和各工具页、主页在这个大小下整页放得下、不出纵向滚动条，
+/// 设置四个页签没有横向溢出。高度卡在工具箱「旗帜」页：585 起整页放得下（584 差 1px）。
 inline constexpr int kMainWindowMinWidth = 900;
-inline constexpr int kMainWindowMinHeight = 620;
+inline constexpr int kMainWindowMinHeight = 585;
 
 /// 主页立绘画布：宽 = 右栏宽（唯一出处 `MainWindowUI::homeRightColumnWidth()`），高按 SkinViewer
 /// 的人物比例算出来约 322 —— 人高约 270，和设计稿 home.html 那个立绘一样大。窄窗封顶到七成二。

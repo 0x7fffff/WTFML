@@ -598,7 +598,7 @@ void AccountSkinDialog::showEvent(QShowEvent *event) {
 
 void AccountSkinDialog::resizeEvent(QResizeEvent *event) {
     QDialog::resizeEvent(event);
-    // 三档：宽（≥860）账号 | 立绘 | 皮肤披风 三栏；中宽（默认窗 900 逻辑宽就落在这一档）两栏，
+    // 三档：宽（≥860）账号 | 立绘 | 皮肤披风 三栏；中宽（最小窗 900 逻辑宽就落在这一档）两栏，
     // 皮肤 / 披风挪进账号栏下面，立绘独占右栏、随右栏宽放大；再窄（实际到不了，窗口最小宽 900）
     // 才整列上下堆叠。中宽不再整列堆叠：那样右半边空着、披风被挤出窗口要滚动。
     const int w = width();

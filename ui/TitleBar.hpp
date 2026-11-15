@@ -1,12 +1,13 @@
 /**
  * @file TitleBar.hpp
- * @brief 左导航轨：顶上品牌 + 折叠钮，中间五颗导航（线性图标 + 手写体标签），底下挂后台任务与工具箱。
+ * @brief 左导航轨：顶上品牌（点 W 收展），中间五颗导航（线性图标 + 手写体标签），底下挂后台任务与工具箱。
  *
  * 和窗口同一层底（不铺色块），靠选中那一格的淡主题色底分层（不画指示条）；那块底在
  * 两颗之间滑动（≤180 ms，`Anim::enabled()` 关掉就直接跳）。最小化 / 最大化 / 关闭不在轨上，
  * 在 `captionStrip()` 那条透明的条上（摆在右栏最上面，高 40）。
  *
- * 轨宽 208，可折成 64 的图标轨：用户点品牌旁的折叠钮，或窗口宽 < 1024 时自动折。
+ * 轨宽 208，可折成 64 的图标轨：每次启动先是图标轨，用户点品牌标 W 收起 / 展开；窗口宽 < 1024 时强制折，
+ * 这时点 W 不动。
  *
  * 轨上除了按钮和底部挂件没有别的子控件：品牌、导航之间的空白都是画的，`ui/WindowChrome`
  * 把这些空白判成拖窗区（`childAt()` 认不到子控件就是）。
@@ -63,7 +64,8 @@ public:
     QAbstractButton *minimizeButton() const { return m_minimize; }
     QAbstractButton *maximizeButton() const { return m_maximize; }
     QAbstractButton *closeButton() const { return m_close; }
-    QAbstractButton *foldButton() const { return m_fold; }
+    /// 品牌标 W：点它（或 Tab 到它按回车 / 空格）收起 / 展开导航。
+    QAbstractButton *logoButton() const { return m_logo; }
     /// 装着窗口按钮的那条透明条（调用方把它摆进右栏最上面；它也是一条拖窗区）。
     QWidget *captionStrip() const { return m_caption; }
 
@@ -81,7 +83,7 @@ public:
     void setBrandText(const QString &text);
     QString titleText() const;
 
-    /// 用户手动折叠（窄窗自动折叠另算，见 `isCollapsed()`）。
+    /// 用户手动折叠（窄窗自动折叠另算，见 `isCollapsed()`）。默认 true：每次启动导航都收起。
     void setCollapsed(bool collapsed);
     /// 现在是不是图标轨（用户折了，或窗口窄）。
     bool isCollapsed() const { return m_userCollapsed || m_narrow; }
@@ -119,13 +121,12 @@ private:
     QAbstractButton *m_minimize = nullptr;
     QAbstractButton *m_maximize = nullptr;
     QAbstractButton *m_close = nullptr;
-    QAbstractButton *m_fold = nullptr;
     QAbstractButton *m_logo = nullptr;
     QList<QAbstractButton *> m_navButtons;
     int m_currentNav = -1;
     QString m_brand;
     bool m_applyingColors = false;
-    bool m_userCollapsed = false;
+    bool m_userCollapsed = true;
     bool m_narrow = false;
     qreal m_heroOpacity = 0.0;
     bool m_watchingWindow = false;
@@ -140,7 +141,7 @@ class TitleBarButton : public QAbstractButton {
     Q_OBJECT
 
 public:
-    enum class Glyph { Minimize, Maximize, Close, Text, Fold, Logo };
+    enum class Glyph { Minimize, Maximize, Close, Text, Logo };
     enum class NavIcon { None, Home, Instances, Download, Settings, Agent, Toolbox };
 
     TitleBarButton(Glyph glyph, const QColor &hoverColor, const QColor &hoverInk, QWidget *parent = nullptr);
@@ -163,6 +164,7 @@ public:
 protected:
     void paintEvent(QPaintEvent *event) override;
     bool event(QEvent *event) override;
+    void keyPressEvent(QKeyEvent *event) override;
 
 private:
     Glyph m_glyph;

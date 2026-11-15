@@ -16,6 +16,7 @@
 #include <QRegularExpression>
 #include <QFontMetrics>
 #include <QHBoxLayout>
+#include <QKeyEvent>
 #include <QPaintEvent>
 #include <QPainter>
 #include <QPainterPath>
@@ -48,7 +49,6 @@ constexpr int kNavPaddingX = 14;
 constexpr int kBrandHeight = 44;
 constexpr int kBrandGap = 18;
 constexpr int kLogoSize = 26;  // 手写 W 横向撑满这一格（字形本身扁，高约 17）
-constexpr int kFoldSize = 28;
 constexpr int kCaptionHeight = 40;
 constexpr int kWindowButtonWidth = 46;
 constexpr int kWindowButtonsRightMargin = 0;
@@ -212,15 +212,14 @@ TitleBarButton::TitleBarButton(Glyph glyph, const QColor &hoverColor, const QCol
     m_ink = palette().color(QPalette::WindowText);
     if (glyph == Glyph::Minimize || glyph == Glyph::Maximize || glyph == Glyph::Close) {
         setFixedSize(kWindowButtonWidth, kCaptionHeight);
-    } else if (glyph == Glyph::Fold) {
-        setFixedSize(kFoldSize, kFoldSize);
     } else if (glyph == Glyph::Logo) {
         setFixedSize(kLogoSize, kLogoSize);
     }
     // Qt 不会自己产生 HoverEnter/HoverLeave：WA_Hover + mouseTracking 两条缺一不可。
     setAttribute(Qt::WA_Hover, true);
     setMouseTracking(true);
-    setFocusPolicy(Qt::NoFocus);
+    // 只有品牌标 W 进 Tab 序（它是轨上唯一不在别处有键盘入口的开关）；Tab 才给焦点，鼠标点不抢焦点。
+    setFocusPolicy(glyph == Glyph::Logo ? Qt::TabFocus : Qt::NoFocus);
     setCursor(Qt::PointingHandCursor);
     m_hoverAnimation = new QVariantAnimation(this);
     m_hoverAnimation->setDuration(kHoverAnimationMs);
@@ -286,6 +285,15 @@ bool TitleBarButton::event(QEvent *event) {
     return QAbstractButton::event(event);
 }
 
+void TitleBarButton::keyPressEvent(QKeyEvent *event) {
+    // 空格 QAbstractButton 自己认；回车也当一次点击（品牌标 W 的收展导航）。
+    if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) {
+        click();
+        return;
+    }
+    QAbstractButton::keyPressEvent(event);
+}
+
 void TitleBarButton::paintEvent(QPaintEvent *) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, true);
@@ -310,6 +318,13 @@ void TitleBarButton::paintEvent(QPaintEvent *) {
         gradient.setColorAt(0, ensureGraphicContrast(stops.first, m_ink, under));
         gradient.setColorAt(1, ensureGraphicContrast(stops.second, m_ink, under));
         p.fillPath(brandMarkPath(), gradient);
+        if (hasFocus()) {
+            // 键盘焦点：W 外面一圈主题色细框（只有 Tab 才给它焦点，鼠标点不会出这圈）。
+            p.resetTransform();
+            p.setPen(QPen(Theme::focusRingColor(palette()), 2));
+            p.setBrush(Qt::NoBrush);
+            p.drawRoundedRect(QRectF(rect()).adjusted(1, 1, -1, -1), 6, 6);
+        }
         return;
     }
     if (!isEnabled()) p.setOpacity(0.6);
@@ -333,8 +348,7 @@ void TitleBarButton::paintEvent(QPaintEvent *) {
         } else if (m_glyph == Glyph::Minimize || m_glyph == Glyph::Maximize) {
             p.drawRect(rect());
         } else {
-            const qreal radius = m_glyph == Glyph::Fold ? 8 : kRadius;
-            p.drawRoundedRect(QRectF(rect()), radius, radius);
+            p.drawRoundedRect(QRectF(rect()), kRadius, kRadius);
         }
     }
     // 窗口按钮压在用户自定义的亮背景图上时，墨按底下实测的颜色补到 3:1（关闭那颗悬停是红底白字，不动）。
@@ -363,9 +377,6 @@ void TitleBarButton::paintEvent(QPaintEvent *) {
                    QFontMetrics(font()).elidedText(text(), Qt::ElideRight, width() - textLeft - 8));
         return;
     }
-    case Glyph::Fold:
-        VersionIcons::paintLine(p, QStringLiteral("fold"), QRectF(5, 5, 18, 18), ink);
-        return;
     case Glyph::Minimize:
         VersionIcons::paintLine(p, QStringLiteral("min"), QRectF((width() - 16) / 2.0, (height() - 16) / 2.0, 16, 16), ink, 1.4 * 24 / 16);
         return;
@@ -383,7 +394,7 @@ void TitleBarButton::paintEvent(QPaintEvent *) {
 
 TitleBar::TitleBar(QWidget *parent) : QWidget(parent) {
     setObjectName(QStringLiteral("titleBar"));
-    setFixedWidth(kRailWidth);
+    setFixedWidth(kRailMiniWidth);  // 每次启动都从图标轨开始（m_userCollapsed 默认 true）
     setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     m_pillAnimation = new QVariantAnimation(this);
     m_pillAnimation->setDuration(kSlideAnimationMs);
@@ -429,16 +440,12 @@ TitleBar::TitleBar(QWidget *parent) : QWidget(parent) {
     connect(m_maximize, &QAbstractButton::clicked, this, &TitleBar::maximizeRequested);
     connect(m_close, &QAbstractButton::clicked, this, &TitleBar::closeRequested);
 
-    // 品牌行：手写的 W（应用图标，折叠时点它展开）+ 名字（画的）+ 折叠钮。
+    // 品牌行：手写的 W（点它收起 / 展开导航；窄窗强制图标轨时点了不动）+ 名字（画的，不可点）。
     m_logo = new TitleBarButton(TitleBarButton::Glyph::Logo, QColor(), QColor(), this);
     m_logo->setObjectName(QStringLiteral("titleBarLogo"));
     connect(m_logo, &QAbstractButton::clicked, this, [this]() {
-        if (m_userCollapsed && !m_narrow) setCollapsed(false);
+        if (!m_narrow) setCollapsed(!m_userCollapsed);
     });
-    m_fold = new TitleBarButton(TitleBarButton::Glyph::Fold, QColor(), QColor(), this);
-    m_fold->setObjectName(QStringLiteral("titleBarFold"));
-    m_fold->setToolTip(QStringLiteral("收起导航"));
-    connect(m_fold, &QAbstractButton::clicked, this, [this]() { setCollapsed(true); });
 
     m_layout = new QVBoxLayout(this);
     m_layout->setContentsMargins(kRailPadding, kRailTopPadding + kBrandHeight + kBrandGap, kRailPadding, kRailTopPadding);
@@ -448,7 +455,7 @@ TitleBar::TitleBar(QWidget *parent) : QWidget(parent) {
     m_navLayout->setSpacing(kNavSpacing);
     m_layout->addLayout(m_navLayout);
     m_layout->addStretch(1);
-    layoutForWidth(kRailWidth);
+    layoutForWidth(kRailMiniWidth);
     applyColors();
 }
 
@@ -474,11 +481,6 @@ void TitleBar::applyColors() {
     styleCaptionButtons(m_minimize, m_maximize, m_close, m_heroOpacity);
     // 品牌标补对比度时往这一处的字色挪：固定正文色，不随主页换（换页不变色）。
     if (auto *logo = qobject_cast<TitleBarButton *>(m_logo)) logo->setInkColor(t.text);
-    if (auto *button = qobject_cast<TitleBarButton *>(m_fold)) {
-        button->setHoverColors(t.hover, t.secondary);
-        button->setPressColor(t.fillPress);
-        button->setInkColor(t.disabled);
-    }
     for (int i = 0; i < m_navButtons.size(); ++i) {
         if (auto *button = qobject_cast<TitleBarButton *>(m_navButtons.at(i))) {
             button->setHoverColors(t.hover, t.text);
@@ -567,12 +569,11 @@ void TitleBar::layoutForWidth(int w) {
     // 中线对准导航图标：图标轨时导航图标居中，展开时图标中心在 pad + 14 + 10。
     const int logoX = compact ? (w - kLogoSize) / 2 : pad + kNavPaddingX + kNavIconSize / 2 - kLogoSize / 2;
     m_logo->move(logoX, kRailTopPadding + (kBrandHeight - kLogoSize) / 2);
-    const bool expandable = isCollapsed() && !m_narrow;
-    m_logo->setAttribute(Qt::WA_TransparentForMouseEvents, !expandable);
-    m_logo->setCursor(expandable ? Qt::PointingHandCursor : Qt::ArrowCursor);
-    m_logo->setToolTip(expandable ? QStringLiteral("展开导航") : QString());
-    m_fold->move(w - pad - 10 - kFoldSize + 8, kRailTopPadding + (kBrandHeight - kFoldSize) / 2);
-    m_fold->setVisible(!compact);
+    const QString action = isCollapsed() ? QStringLiteral("展开导航") : QStringLiteral("收起导航");
+    m_logo->setCursor(m_narrow ? Qt::ArrowCursor : Qt::PointingHandCursor);
+    m_logo->setToolTip(m_narrow ? QStringLiteral("窗口加宽后才能展开") : action);
+    m_logo->setAccessibleName(action);
+    m_logo->setAccessibleDescription(m_narrow ? QStringLiteral("窗口加宽后才能展开") : QString());
     update();
 }
 
@@ -680,7 +681,7 @@ void TitleBar::paintEvent(QPaintEvent *) {
     p.setFont(brandFont);
     p.setPen(t.text);  // 品牌字不随主页换色：heroInk 与 text 三主题里明暗同档，压在风景上照样读得清
     const int left = m_logo->geometry().right() + 1 + 10;
-    const int right = m_fold->isVisible() ? m_fold->geometry().left() - 4 : width() - kRailPadding;
+    const int right = width() - kRailPadding;
     const QRect textRect(left, kRailTopPadding + 2, right - left, kBrandHeight);
     p.drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft,
                QFontMetrics(brandFont).elidedText(brand, Qt::ElideRight, textRect.width()));

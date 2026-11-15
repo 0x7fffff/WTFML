@@ -64,6 +64,24 @@ using namespace MainWindowPageLayout;
 
 namespace {
 
+/// 盯着主窗口的 Resize / WindowStateChange，一来就调一次 @p changed（「恢复默认」置灰 + 记窗口大小）。
+class WindowSizeWatcher : public QObject {
+public:
+    WindowSizeWatcher(QWidget *window, std::function<void()> changed) : QObject(window), m_changed(std::move(changed)) {
+        window->installEventFilter(this);
+    }
+
+protected:
+    bool eventFilter(QObject *, QEvent *event) override {
+        if (event->type() == QEvent::Resize || event->type() == QEvent::WindowStateChange) m_changed();
+        return false;
+    }
+
+private:
+    std::function<void()> m_changed;
+};
+
+
 /// 实例页「文件夹」浮层的底：`Qt::Popup` 顶层窗，走 `Popups::preparePopup()` + `paintSurface()`。
 class FolderPopupSurface final : public QFrame {
 public:
@@ -749,15 +767,8 @@ void MainWindowUI::openToolboxTab(const QString &key) {
 
 void MainWindowUI::setupUi(QMainWindow *parent) {
     parent->setWindowTitle(QStringLiteral("WTF Minecraft Launcher"));
-    // 默认 = 最小尺寸 900×620，窄于 1024 时导航轨自动折；屏幕放不下仍按可用区缩（不缩到最小值以下）。
-    {
-        QSize size(kMainWindowMinWidth, kMainWindowMinHeight);
-        if (const QScreen *screen = QGuiApplication::primaryScreen()) {
-            const QSize room = screen->availableGeometry().size() * 0.9;
-            size = size.boundedTo(room).expandedTo(QSize(kMainWindowMinWidth, kMainWindowMinHeight));
-        }
-        parent->resize(size);
-    }
+    // 默认 1024×620（MainWindow 随后换成上次记住的大小）；屏幕放不下按可用区缩，不缩到最小值以下。
+    parent->resize(fittedWindowSize(parent, QSize(kMainWindowDefaultWidth, kMainWindowDefaultHeight)));
     parent->setMinimumSize(kMainWindowMinWidth, kMainWindowMinHeight);
 
     parent->setWindowFlags(parent->windowFlags() | Qt::WindowMaximizeButtonHint);
@@ -941,7 +952,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
                          if (button) button->setChecked(index == toolboxTabIndex());
                      });
     // 图标轨：任务卡只剩进度环、实例状态那格收起、工具箱只剩图标（tokens.md 第 7 节）。
-    QObject::connect(bar, &TitleBar::collapsedChanged, bottomBar, [this](bool collapsed) {
+    const auto applyRailCollapsed = [this](bool collapsed) {
         if (auto *text = taskSummaryButton->findChild<QWidget *>(QStringLiteral("taskSummaryText"))) {
             text->setVisible(!collapsed);
         }
@@ -949,7 +960,9 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
             card->setContentsMargins(collapsed ? QMargins(8, 8, 8, 8) : QMargins(10, 8, 10, 8));
         }
         runStateButton->setVisible(m_runStateActive && !collapsed);
-    });
+    };
+    QObject::connect(bar, &TitleBar::collapsedChanged, bottomBar, applyRailCollapsed);
+    applyRailCollapsed(bar->isCollapsed());  // 轨一建好就是图标轨（每次启动都收起），不等第一次切换
     backdrop->setHeroWidget(homeTab);
     // 主页上窗口按钮压在清晰风景上换主页字色：跟着风景层此刻的不透明度渐变（进出主页 250ms 淡变，
     // 主页上开了整页覆盖层时风景收起，也跟着淡回普通字色），不在换页那一刻硬切。品牌标、品牌字不变。
@@ -974,6 +987,44 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     windowChrome = new WindowChrome(parent, bar->captionStrip(), parent);
     windowChrome->addDragStrip(bar);
 
+    // 窗口大小一变：刷新「恢复默认」的置灰，并把该记的大小交给 MainWindow 落盘。
+    new WindowSizeWatcher(parent, [this, parent] {
+        if (windowSizeResetButton != nullptr) windowSizeResetButton->setEnabled(!isDefaultWindowSize(parent));
+        if (m_windowSizeHandler) m_windowSizeHandler();
+    });
+    if (windowSizeResetButton != nullptr) windowSizeResetButton->setEnabled(!isDefaultWindowSize(parent));
+}
+
+QSize MainWindowUI::fittedWindowSize(QSize wanted, QSize available) {
+    if (available.isValid() && !available.isEmpty()) wanted = wanted.boundedTo(available);
+    return wanted.expandedTo(QSize(kMainWindowMinWidth, kMainWindowMinHeight));
+}
+
+QSize MainWindowUI::fittedWindowSize(const QWidget *window, QSize wanted) {
+    const QScreen *screen = window->screen();
+    return fittedWindowSize(wanted, screen != nullptr ? screen->availableGeometry().size() : QSize());
+}
+
+void MainWindowUI::restoreWindowSize(QWidget *window, QSize saved) {
+    if (saved.isEmpty()) saved = QSize(kMainWindowDefaultWidth, kMainWindowDefaultHeight);
+    window->resize(fittedWindowSize(window, saved));
+}
+
+void MainWindowUI::resetWindowSize(QWidget *window) {
+    if (window->isMaximized() || window->isFullScreen()) window->showNormal();
+    const QSize size = fittedWindowSize(window, QSize(kMainWindowDefaultWidth, kMainWindowDefaultHeight));
+    window->resize(size);
+    if (const QScreen *screen = window->screen()) {
+        // move() 摆的是带窗框的外沿：按外沿大小居中（无边框窗两者一样）。
+        QRect frame(QPoint(), size + window->frameGeometry().size() - window->geometry().size());
+        frame.moveCenter(screen->availableGeometry().center());
+        window->move(frame.topLeft());
+    }
+}
+
+bool MainWindowUI::isDefaultWindowSize(const QWidget *window) {
+    return !window->isMaximized() && !window->isFullScreen()
+           && window->size() == fittedWindowSize(window, QSize(kMainWindowDefaultWidth, kMainWindowDefaultHeight));
 }
 
 void MainWindowUI::updateHomeQuoteFont(bool narrow) {

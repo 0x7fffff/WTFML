@@ -25,7 +25,7 @@ function Get-TestImpact([string[]]$Paths, [bool]$ForceFull = $false) {
         'ui-agent' = @('ui-agent')
         'agent-window' = @('main-window-agent')
         runner = @('test-runner', 'test-modules', 'ci-partitions')
-        ui = @('ui-refresh', 'install-layout', 'lifecycle', 'input-widths'); theme = @('theme')
+        ui = @('ui-refresh', 'install-layout', 'lifecycle', 'input-widths', 'window-size'); theme = @('theme')
         'ui-history' = @('ui-bootstrap')
         window = @('main-window', 'window-chrome'); workspace = @('workspace', 'activity-selection')
         java = @('java-manage'); mods = @('mod-action-panel'); upgrade = @('instance-upgrade')
@@ -42,6 +42,7 @@ function Get-TestImpact([string[]]$Paths, [bool]$ForceFull = $false) {
         'tests/mw_check/modules/MwAgentCheck.cpp' = 'agent-window'
         'tests/ui_check/modules/UiLifecycleCheck.cpp' = 'ui'
         'tests/ui_check/modules/UiInputWidthCheck.cpp' = 'ui'
+        'tests/ui_check/modules/UiWindowSizeCheck.cpp' = 'ui'
         'tests/ui_check/modules/UiSurfaceSweepCheck.cpp' = 'ui'
         'tests/ui_check/surface-registry.txt' = 'ui'
         'tests/ui_check/modules/UiUiRefreshCheck.cpp' = 'ui'

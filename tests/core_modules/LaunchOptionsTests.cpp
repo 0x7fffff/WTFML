@@ -126,6 +126,51 @@ void runLaunchOptionsTests(const QString &sandbox) {
         check(QFileInfo::exists(iniPath), "ZD2 沙盒那份 ini 真的写出来了", iniPath);
     }
 
+    section("ZD2b. 启动器主窗口大小：默认没记过、跨实例读回、手改 ini 收拾");
+    {
+        {
+            QSettings raw;
+            raw.remove(QStringLiteral("Launcher/MainWindowWidth"));
+            raw.remove(QStringLiteral("Launcher/MainWindowHeight"));
+            raw.sync();
+        }
+        LauncherSettings fresh;
+        check(fresh.mainWindowSize().isEmpty(), "ZD2b 全新沙盒没记过主窗口大小（界面按默认开）",
+              QStringLiteral("%1x%2").arg(fresh.mainWindowSize().width()).arg(fresh.mainWindowSize().height()));
+        fresh.setMainWindowSize(QSize(1100, 700));
+        LauncherSettings reopened;
+        check(reopened.mainWindowSize() == QSize(1100, 700), "ZD2b 主窗口大小跨实例读得回来",
+              QStringLiteral("%1x%2").arg(reopened.mainWindowSize().width()).arg(reopened.mainWindowSize().height()));
+        check(QSettings().value(QStringLiteral("Launcher/MainWindowWidth")).toInt() == 1100 &&
+                  QSettings().value(QStringLiteral("Launcher/WindowWidth")).toInt() != 1100,
+              "ZD2b 主窗口大小写在 Launcher/MainWindow*，不碰游戏窗口那两项");
+        reopened.setMainWindowSize(QSize(0, 500));
+        check(reopened.mainWindowSize() == QSize(1100, 700), "ZD2b 空尺寸不记（不把记好的值冲掉）");
+        {
+            QSettings raw;
+            raw.setValue(QStringLiteral("Launcher/MainWindowWidth"), 99999);
+            raw.setValue(QStringLiteral("Launcher/MainWindowHeight"), 640);
+            raw.sync();
+        }
+        LauncherSettings huge;
+        check(huge.mainWindowSize() == QSize(LauncherSettings::mainWindowMaxExtent(), 640),
+              "ZD2b 手改成过大的宽度后 load 截到上限",
+              QStringLiteral("%1x%2").arg(huge.mainWindowSize().width()).arg(huge.mainWindowSize().height()));
+        {
+            QSettings raw;
+            raw.setValue(QStringLiteral("Launcher/MainWindowWidth"), QStringLiteral("宽"));
+            raw.setValue(QStringLiteral("Launcher/MainWindowHeight"), -5);
+            raw.sync();
+        }
+        LauncherSettings junk;
+        check(junk.mainWindowSize().isEmpty(), "ZD2b 手改成认不出来 / 负数后当没记过",
+              QStringLiteral("%1x%2").arg(junk.mainWindowSize().width()).arg(junk.mainWindowSize().height()));
+        QSettings raw;
+        raw.remove(QStringLiteral("Launcher/MainWindowWidth"));
+        raw.remove(QStringLiteral("Launcher/MainWindowHeight"));
+        raw.sync();
+    }
+
     section("ZD3. 优先级的持久化字符串：五个值往返 + 认不出来兜 Normal");
     {
         // 这几个串是**持久化格式的一部分**：改掉它们，用户盘上已经存好的值就会被当成

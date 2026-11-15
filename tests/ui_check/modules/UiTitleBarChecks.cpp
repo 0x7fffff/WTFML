@@ -1,6 +1,9 @@
 #include "Support.hpp"
+#include "MainWindowPageLayout.hpp"
+
+#include <QKeyEvent>
 // Z11：自绘外框 + 左导航轨（ui/TitleBar）。这里验接线与摆位：轨在左边、宽 208 / 折叠 64、
-// 窄窗（< 1024）自动折、右栏顶上那条 40 高的窗口按钮条（最小化 / 最大化 / 关闭）、
+// 启动先是图标轨、点品牌标 W 收展（155）、窄窗（< 1024）强制折、右栏顶上那条 40 高的窗口按钮条（最小化 / 最大化 / 关闭）、
 // 导航的颗数与字、点下去发什么信号、品牌字。"系统那条白条到底去掉了没有"是 Win32 那一层
 // 的事（ui/WindowChrome），offscreen 里只验它认领哪些原生消息。
 int UiTitleBarChecks(QMainWindow &window, MainWindowUI &ui) {
@@ -12,11 +15,19 @@ int UiTitleBarChecks(QMainWindow &window, MainWindowUI &ui) {
     check(chrome->strip() == rail->captionStrip(), "Z11 外框认的主拖窗条就是右上那条窗口按钮条");
     check((window.windowFlags() & Qt::WindowMaximizeButtonHint) != 0,
           "★ Z11 主窗口能最大化（设计稿右上是最小化 / 最大化 / 关闭三颗）");
-    check(window.minimumSize() == QSize(900, 620), "★ Z11 主窗口最小 900×620",
+    check(window.minimumSize() == QSize(MainWindowPageLayout::kMainWindowMinWidth, MainWindowPageLayout::kMainWindowMinHeight) &&
+              window.minimumSize() == QSize(900, 585),
+          "★ 155 主窗口最小 900×585",
           QStringLiteral("%1x%2").arg(window.minimumWidth()).arg(window.minimumHeight()));
+    {
+        TitleBar fresh;
+        check(fresh.isCollapsed() && fresh.width() == TitleBar::collapsedRailWidth(),
+              "★ 155 导航轨一建好就是图标轨（每次启动都收起）", QString::number(fresh.width()));
+    }
 
     // ---------- 宽窗：轨展开 208，贴在左边整高 ----------
     window.resize(1280, 800);
+    rail->setCollapsed(false);
     QApplication::processEvents();
 
     // ---------- 手写体只留四处（tokens-r2 §1）：用了手写体的控件都得挂 wtfmlDisplay ----------
@@ -111,27 +122,57 @@ int UiTitleBarChecks(QMainWindow &window, MainWindowUI &ui) {
         QApplication::processEvents();
     }
 
-    // ---------- 折叠：手动折 64，窄窗自动折 ----------
+    // ---------- 折叠：点品牌标 W 收展（155），窄窗强制折、点 W 不动 ----------
     int lastCollapsed = -1;
     const auto collapseSpy = QObject::connect(rail, &TitleBar::collapsedChanged, rail,
                                               [&lastCollapsed](bool c) { lastCollapsed = c ? 1 : 0; });
-    if (QAbstractButton *fold = rail->foldButton()) {
-        check(fold->isVisible(), "Z11 展开时品牌旁有折叠钮");
-        fold->click();
+    QAbstractButton *logo = rail->logoButton();
+    check(window.findChild<QWidget *>(QStringLiteral("titleBarFold")) == nullptr && logo != nullptr &&
+              logo->objectName() == QStringLiteral("titleBarLogo"),
+          "★ 155 品牌旁的收起钮删了，收展只走品牌标 W");
+    if (logo != nullptr) {
+        check(logo->isVisible() && logo->cursor().shape() == Qt::PointingHandCursor &&
+                  logo->toolTip() == QStringLiteral("收起导航") && logo->accessibleName() == QStringLiteral("收起导航") &&
+                  logo->focusPolicy() == Qt::TabFocus,
+              "★ 155 展开时 W：手型光标、提示与无障碍名都是「收起导航」、能 Tab 聚焦",
+              QStringLiteral("提示「%1」名「%2」光标 %3 焦点 %4").arg(logo->toolTip(), logo->accessibleName())
+                  .arg(int(logo->cursor().shape())).arg(int(logo->focusPolicy())));
+        logo->click();
         QApplication::processEvents();
+        check(rail->isCollapsed() && rail->width() == TitleBar::collapsedRailWidth() && TitleBar::collapsedRailWidth() == 64,
+              "★ 155 点 W 折成 64 的图标轨", QString::number(rail->width()));
+        check(lastCollapsed == 1, "Z11 折叠时发 collapsedChanged(true)");
+        check(logo->toolTip() == QStringLiteral("展开导航") && logo->accessibleName() == QStringLiteral("展开导航") &&
+                  logo->cursor().shape() == Qt::PointingHandCursor,
+              "★ 155 收起时 W 提示「展开导航」", logo->toolTip());
+        QKeyEvent enter(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+        QApplication::sendEvent(logo, &enter);
+        QApplication::processEvents();
+        check(!rail->isCollapsed() && rail->width() == TitleBar::railWidth(), "★ 155 W 上按回车展开回 208",
+              QString::number(rail->width()));
+        QKeyEvent spaceDown(QEvent::KeyPress, Qt::Key_Space, Qt::NoModifier);
+        QKeyEvent spaceUp(QEvent::KeyRelease, Qt::Key_Space, Qt::NoModifier);
+        QApplication::sendEvent(logo, &spaceDown);
+        QApplication::sendEvent(logo, &spaceUp);
+        QApplication::processEvents();
+        check(rail->isCollapsed(), "★ 155 W 上按空格再收起");
+        logo->click();
+        QApplication::processEvents();
+        check(!rail->isCollapsed() && rail->width() == TitleBar::railWidth(), "Z11 再点 W 展开回 208");
     }
-    check(rail->isCollapsed() && rail->width() == TitleBar::collapsedRailWidth() && TitleBar::collapsedRailWidth() == 64,
-          "★ Z11 点折叠钮折成 64 的图标轨", QString::number(rail->width()));
-    check(lastCollapsed == 1, "Z11 折叠时发 collapsedChanged(true)");
-    rail->setCollapsed(false);
-    QApplication::processEvents();
-    check(!rail->isCollapsed() && rail->width() == TitleBar::railWidth(), "Z11 再展开回 208");
 
     window.resize(1000, 700);
     QApplication::processEvents();
     check(TitleBar::narrowBreakpoint() == 1024 && rail->isCollapsed() && rail->width() == TitleBar::collapsedRailWidth(),
           "★ Z11 窗口宽 < 1024 时轨自动折叠", QString::number(rail->width()));
-    check(rail->foldButton() == nullptr || !rail->foldButton()->isVisible(), "Z11 图标轨上没有折叠钮");
+    if (logo != nullptr) {
+        logo->click();
+        QApplication::processEvents();
+        check(rail->isCollapsed() && rail->width() == TitleBar::collapsedRailWidth() &&
+                  logo->toolTip() == QStringLiteral("窗口加宽后才能展开") && logo->cursor().shape() == Qt::ArrowCursor,
+              "★ 155 窄窗点 W 不展开，提示「窗口加宽后才能展开」",
+              QStringLiteral("轨 %1 提示「%2」").arg(rail->width()).arg(logo->toolTip()));
+    }
     window.resize(1280, 800);
     QApplication::processEvents();
     check(!rail->isCollapsed() && rail->width() == TitleBar::railWidth(), "★ Z11 窗口放宽回去轨自动展开");

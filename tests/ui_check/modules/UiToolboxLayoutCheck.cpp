@@ -1,7 +1,8 @@
-// 工具箱版式验收：目录页 → 工具页两层、面包屑与切换浮层、十个工具页在 900×620 / 1280×800 / 窄内容宽
+// 工具箱版式验收：目录页 → 工具页两层、面包屑与切换浮层、十个工具页在 最小窗口 / 1280×800 / 窄内容宽
 // 下都不出横向滚动条、不被裁；附魔行四个框同高、窄时折成两行。
 // 设环境变量 WTFML_TOOLBOX_SHOTS=<目录> 时另外出验收图（深色 / 青瓷 × 两种窗口尺寸）。不弹真窗口。
 #include "Support.hpp"
+#include "MainWindowPageLayout.hpp"
 #include "DownloadToolPanel.hpp"
 #include "GlassPopover.hpp"
 #include "ToolboxSamples.hpp"
@@ -115,7 +116,7 @@ int UiToolboxLayoutCheck(QApplication &app) {
                   window.findChild<QPushButton *>(QStringLiteral("toolboxExpandButton")) == nullptr,
               "没有工具箱弹出框，也没有「全部展开为页面」");
 
-        for (const QSize size : {QSize(900, 620), QSize(1280, 800)}) {
+        for (const QSize size : {QSize(MainWindowPageLayout::kMainWindowMinWidth, MainWindowPageLayout::kMainWindowMinHeight), QSize(1280, 800)}) {
             window.resize(size);
             pump();
             const QString sizeText = QStringLiteral("%1x%2").arg(size.width()).arg(size.height());
@@ -130,6 +131,12 @@ int UiToolboxLayoutCheck(QApplication &app) {
             page->showCatalog();
             pump();
             check(page->inCatalog(), "目录页：停在目录");
+            if (auto *catalog = page->findChild<QScrollArea *>(ToolboxPage::catalogName());
+                catalog != nullptr && size == QSize(MainWindowPageLayout::kMainWindowMinWidth, MainWindowPageLayout::kMainWindowMinHeight)) {
+                check(catalog->verticalScrollBar()->maximum() == 0 && catalog->horizontalScrollBar()->maximum() == 0,
+                      QStringLiteral("目录页 %1：没有滚动范围").arg(sizeText),
+                      QStringLiteral("纵 %1 横 %2").arg(catalog->verticalScrollBar()->maximum()).arg(catalog->horizontalScrollBar()->maximum()));
+            }
             int cells = 0;
             QList<int> xs;
             for (ToolboxPage::Tool tool : ToolboxPage::tools()) {
@@ -229,9 +236,8 @@ int UiToolboxLayoutCheck(QApplication &app) {
                           QStringLiteral("%1 > %2").arg(panel ? panel->minimumSizeHint().width() : -1).arg(scroll->viewport()->width()));
                     check(panel != nullptr && noChildClipped(panel, &why),
                           QStringLiteral("%1 %2：没有控件被右侧裁掉").arg(key, sizeText), why);
-                    // 信标 / 彩色文本 / 旗帜：最小窗口下整页放得下，不出纵向滚动条。
-                    if (size == QSize(900, 620) && (tool == ToolboxPage::Tool::Beacon || tool == ToolboxPage::Tool::Text ||
-                                                    tool == ToolboxPage::Tool::Banner)) {
+                    // 每个工具页在最小窗口下整页放得下，不出纵向滚动条（最小高 585 就卡在旗帜页）。
+                    if (size == QSize(MainWindowPageLayout::kMainWindowMinWidth, MainWindowPageLayout::kMainWindowMinHeight)) {
                         check(scroll->verticalScrollBar()->maximum() == 0,
                               QStringLiteral("%1 %2：没有纵向滚动范围").arg(key, sizeText),
                               QStringLiteral("max=%1 viewport=%2 content=%3").arg(scroll->verticalScrollBar()->maximum())

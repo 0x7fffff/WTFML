@@ -1,7 +1,8 @@
-// 设置页验收截图：offscreen 下用 QWidget::grab() 出 深色 / 青瓷 × 900×620 / 1280×800 × 4 个页签，
+// 设置页验收截图：offscreen 下用 QWidget::grab() 出 深色 / 青瓷 × 最小窗口 / 1280×800 × 4 个页签，
 // 另出 stack 态（表单收窄到 560，行上下叠放）和「高级」展开态。不弹真窗口。
 // 用法：QT_QPA_PLATFORM=offscreen ui_check_settings_shots  [输出目录，默认 build/settings-shots]
 #include "Support.hpp"
+#include "MainWindowPageLayout.hpp"
 #include "SettingsPageParts.hpp"
 
 #include <QDir>
@@ -83,7 +84,7 @@ int UiSettingsShotsCheck(QApplication &app) {
             if (window.grab().save(file)) ++saved;
             else std::printf("FAIL save %s\n", qPrintable(file));
         };
-        for (const QSize size : {QSize(900, 620), QSize(1280, 800)}) {
+        for (const QSize size : {QSize(MainWindowPageLayout::kMainWindowMinWidth, MainWindowPageLayout::kMainWindowMinHeight), QSize(1280, 800)}) {
             window.resize(size);
             const QString sizeText = QStringLiteral("%1x%2").arg(size.width()).arg(size.height());
             for (int i = 0; i < keys.size(); ++i) {
@@ -96,7 +97,7 @@ int UiSettingsShotsCheck(QApplication &app) {
                     scroll->verticalScrollBar()->setValue(0);
                 }
             }
-            // 「配色」下拉：闭合态上面已拍；把弹层拉开再拍一张 —— 四字名在 900×620 与
+            // 「配色」下拉：闭合态上面已拍；把弹层拉开再拍一张 —— 四字名在最小窗口与
             // 1280×800 下要整条显示。顺带把「字宽 / 控件宽」印出来，图之外还留一个数。
             tabs->setCurrentIndex(keys.indexOf(QStringLiteral("look")));
             if (auto *preset = page->findChild<QComboBox *>(MainWindowUI::themePresetComboName())) {
@@ -127,7 +128,7 @@ int UiSettingsShotsCheck(QApplication &app) {
             for (auto *section : page->findChildren<SettingsParts::ExpandSection *>()) section->setExpanded(false, false);
         }
         // stack 态：表单收窄到 560（内容宽 < 600），行上下叠放。
-        window.resize(900, 620);
+        window.resize(QSize(MainWindowPageLayout::kMainWindowMinWidth, MainWindowPageLayout::kMainWindowMinHeight));
         for (const QString &key : {QStringLiteral("launch"), QStringLiteral("look")}) {
             tabs->setCurrentIndex(keys.indexOf(key));
             for (auto *form : page->findChildren<QWidget *>(MainWindowUI::settingsFormName(key))) form->setMaximumWidth(560);

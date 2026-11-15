@@ -5,6 +5,7 @@
 // 世界设置的存档文件框、主题细分颜色、实例设置·启动的高级选项。
 // 参数 `--frames`：把逐帧数据整表印出来（调查用）。
 #include "Support.hpp"
+#include "MainWindowPageLayout.hpp"
 #include "SettingsPageParts.hpp"
 #include "ThemeAdvancedEditor.hpp"
 #include "WorldSettingsPage.hpp"
@@ -160,7 +161,7 @@ int UiFoldMotionChecks(QApplication &app) {
         QWidget *page = ui.getTabWidget()->widget(MainWindowUI::settingsTabIndex());
         auto *tabs = ui.getSettingsTabs();
         const QStringList keys = MainWindowUI::settingsCategoryKeys();
-        for (const QSize size : {QSize(1280, 800), QSize(900, 620)}) {
+        for (const QSize size : {QSize(1280, 800), QSize(MainWindowPageLayout::kMainWindowMinWidth, MainWindowPageLayout::kMainWindowMinHeight)}) {
             window.resize(size);
             for (const QString &key : {QStringLiteral("launch"), QStringLiteral("look")}) {
                 const int index = keys.indexOf(key);

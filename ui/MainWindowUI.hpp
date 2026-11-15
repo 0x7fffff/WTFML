@@ -1929,6 +1929,25 @@ public:
     void setToolboxToolHandler(const std::function<void(const QString &key)> &handler) {
         m_toolboxToolHandler = handler;
     }
+
+    // ---------- 主窗口大小（默认 / 最小见 MainWindowPageLayout.hpp 的 kMainWindow*） ----------
+    /// @p wanted 夹在最小尺寸和屏幕可用区 @p available 之间（可用区比最小尺寸还小时取最小尺寸）。
+    static QSize fittedWindowSize(QSize wanted, QSize available);
+    /// 同上，可用区取 @p window 所在的屏幕。
+    static QSize fittedWindowSize(const QWidget *window, QSize wanted);
+    /// 该记住的窗口大小：最大化时是还原后的那个（`normalGeometry()`），不记最大化的大小。
+    static QSize rememberedWindowSize(const QWidget *window) { return window->normalGeometry().size(); }
+    /// 启动时套用上次记住的大小；@p saved 为空 = 没记过，按默认开。
+    static void restoreWindowSize(QWidget *window, QSize saved);
+    /// 「恢复默认」：最大化时先还原，再改成默认大小、在当前屏幕可用区居中。
+    static void resetWindowSize(QWidget *window);
+    /// 已经是默认大小且没最大化（「恢复默认」这时置灰）。
+    static bool isDefaultWindowSize(const QWidget *window);
+    /// 窗口大小一变（改大小、最大化 / 还原）就叫一次 handler（MainWindow 节流落盘 `rememberedWindowSize()`）。
+    void setWindowSizeHandler(const std::function<void()> &handler) { m_windowSizeHandler = handler; }
+    static QString windowSizeResetButtonName() { return QStringLiteral("windowSizeResetButton"); }
+    /// 设置·外观「窗口大小」那一行的「恢复默认」（点了做什么由 MainWindow 接：要顺手存盘）。
+    QPushButton *getWindowSizeResetButton() const { return windowSizeResetButton; }
     /// 切到工具箱选项卡并交给 handler（@p key 见上；空串 = 停在上次那一层，
     /// 已经在工具箱页上再点一次 = 回目录）。导航轨底部那颗按钮、任务中心等入口都走它。
     void openToolboxTab(const QString &key = QString());
@@ -4035,6 +4054,7 @@ private:
     QSpinBox *gameWindowWidthSpin = nullptr;
     QSpinBox *gameWindowHeightSpin = nullptr;
     QLineEdit *titleTextEdit = nullptr;
+    QPushButton *windowSizeResetButton = nullptr;
     QCheckBox *dailyQuoteCheck = nullptr;
     /// 「背景图」那一节的各行控件，按 `ThemeImageRow::partKey` 认（见这一节在头文件里那段）。
     QVector<ThemeImageRow> m_themeImageRows;
@@ -4112,6 +4132,8 @@ private:
     std::function<void(const QString &key)> m_taskCenterRowActivated;
     /// 工具箱选项卡该告诉谁（见 setToolboxToolHandler()）。
     std::function<void(const QString &key)> m_toolboxToolHandler;
+    /// 窗口大小变了该告诉谁（见 setWindowSizeHandler()）。
+    std::function<void()> m_windowSizeHandler;
     /// 「那一行行尾那颗小按钮被点了」该告诉谁（见 setTaskCenterRowActionHandler()）。
     TaskCenter::RowActionHandler m_taskCenterRowAction;
     HomeQuickActionHandler m_homeQuickActionHandler;

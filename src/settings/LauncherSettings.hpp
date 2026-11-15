@@ -8,6 +8,7 @@
 
 #include <QDate>
 #include <QObject>
+#include <QSize>
 #include <QString>
 #include <QStringList>
 #include <QVariantMap>
@@ -403,6 +404,19 @@ public:
     static int titleTextMaxLength() { return 16; }
 
     // ------------------------------------------------------------------
+    // 启动器主窗口的大小（只记大小，不记位置）
+    // ------------------------------------------------------------------
+
+    /// 上次记住的主窗口大小；空（0×0）= 没记过，界面按默认 1024×620 开。
+    /// 读回来已经收拾过（非正数当没记过、过大截到 `mainWindowMaxExtent()`）；夹到最小尺寸和屏幕
+    /// 可用区是界面那一侧的事（MainWindowUI::restoreWindowSize()，最小尺寸只在 ui/ 写一份）。
+    QSize mainWindowSize() const { return m_mainWindowSize; }
+    /// 记下主窗口大小并立刻落盘（调用方传还原后的大小，最大化时也是）。空尺寸不记。
+    void setMainWindowSize(const QSize &size);
+    /// 宽、高各自的上限：盘上的值不可信，比任何屏幕都大的数截到这里。
+    static int mainWindowMaxExtent() { return 16384; }
+
+    // ------------------------------------------------------------------
     // 「启动提醒」（设置页「提示」栏里那一组）
     // ------------------------------------------------------------------
     // 两条都是**启动之前挡一下**的那种确认框：同一份游戏存档被两个进程同时打开，
@@ -499,6 +513,8 @@ private:
     ProcessPriority m_processPriority = ProcessPriority::Normal;
     /// 顶上那行字。**空串是默认档**（= 条上那五个字母），不是"没有名字"。
     QString m_titleText;
+    /// 主窗口大小（见 `mainWindowSize()`）。默认空 = 没记过。
+    QSize m_mainWindowSize;
     /// 两条启动提醒。**默认开**：它们是"挡一下手滑"的，默认关就等于没做。
     bool m_warnDuplicateLaunch = true;
     bool m_warnWorldLoss = true;

@@ -674,6 +674,14 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
     titleTextEdit->setMaxLength(titleTextMaxLength());  // 上限在 ui/ 与 src/ 各写一遍（ui/ 不许 include src/）
     titleTextEdit->setPlaceholderText(TitleBar::defaultBrandText());  // 默认标题直接作占位文字
     addRow(look, QStringLiteral("主页标题"), titleTextEdit);
+    // 「恢复默认」点了做什么在 MainWindow（要顺手存盘）；置灰跟着窗口大小走（setupUi 末尾那个监视器）。
+    windowSizeResetButton = new QPushButton(QStringLiteral("恢复默认"), form);
+    windowSizeResetButton->setObjectName(windowSizeResetButtonName());
+    Theme::markButton(windowSizeResetButton, Theme::ButtonKind::Neutral);
+    addRow(look, QStringLiteral("窗口大小"), windowSizeResetButton, Placement::Natural,
+           QStringLiteral("启动时按上次关闭时的大小打开。"),
+           QStringLiteral("默认 %1×%2，最小 %3×%4。")
+               .arg(kMainWindowDefaultWidth).arg(kMainWindowDefaultHeight).arg(kMainWindowMinWidth).arg(kMainWindowMinHeight));
     {
         auto *colors = new QCheckBox(QStringLiteral("日志颜色显示"), form);
         colors->setObjectName(QStringLiteral("logColorsCheck"));

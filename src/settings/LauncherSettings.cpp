@@ -60,6 +60,9 @@ static constexpr const char kGameWindowHeight[] = "Launcher/WindowHeight";
 static constexpr const char kGameWindowMode[] = "Launcher/WindowMode";
 static constexpr const char kProcessPriority[] = "Launcher/ProcessPriority";
 static constexpr const char kTitleText[] = "Launcher/TitleText";
+// 启动器自己那扇窗的大小（上面 Launcher/WindowWidth 那两项是**游戏**窗口的，别混）。
+static constexpr const char kMainWindowWidth[] = "Launcher/MainWindowWidth";
+static constexpr const char kMainWindowHeight[] = "Launcher/MainWindowHeight";
 static constexpr const char kWarnDuplicateLaunch[] = "Launcher/WarnDuplicateLaunch";
 static constexpr const char kWarnWorldLoss[] = "Launcher/WarnWorldLoss";
 /// 用户自己填的 CurseForge API key（空 = 走那台不要 key 的社区镜像）。
@@ -110,6 +113,13 @@ int clampWindowHeight(int height) {
 /// 而盘上那份是**不可信数据**（用户手改过注册表、或者以后从别处同步过来）。
 QString clampTitleText(const QString &text) {
     return text.trimmed().left(LauncherSettings::titleTextMaxLength());
+}
+
+/// 主窗口大小收拾干净：盘上那份不可信（手改过、别处同步来的）。宽或高不是正数 = 没记过（0×0），
+/// 过大的截到上限；夹到最小尺寸和屏幕可用区在界面那一侧做。
+QSize clampMainWindowSize(const QSize &size) {
+    if (size.isEmpty()) return QSize(0, 0);
+    return size.boundedTo(QSize(LauncherSettings::mainWindowMaxExtent(), LauncherSettings::mainWindowMaxExtent()));
 }
 
 }  // namespace
@@ -377,6 +387,15 @@ void LauncherSettings::setTitleText(const QString &text) {
     save();
 }
 
+void LauncherSettings::setMainWindowSize(const QSize &size) {
+    const QSize cleaned = clampMainWindowSize(size);
+    if (cleaned.isEmpty() || m_mainWindowSize == cleaned) {
+        return;
+    }
+    m_mainWindowSize = cleaned;
+    save();
+}
+
 void LauncherSettings::setWarnDuplicateLaunch(bool warn) {
     if (m_warnDuplicateLaunch == warn) {
         return;
@@ -536,6 +555,9 @@ void LauncherSettings::load() {
     // 顶上那行字也**读回来就收拾**：盘上那一份会被原样画到条上，多长、带不带空格都不该
     // 信它（和宽高那两个数同一个理由）。
     m_titleText = clampTitleText(settings.value(kTitleText, m_titleText).toString());
+    // 主窗口大小同样读回来就收拾（认不出来的值 toInt() 给 0 = 没记过）。
+    m_mainWindowSize = clampMainWindowSize(QSize(settings.value(kMainWindowWidth, m_mainWindowSize.width()).toInt(),
+                                                 settings.value(kMainWindowHeight, m_mainWindowSize.height()).toInt()));
     // 两个提醒开关：默认值同样取当前成员（构造时是 true）。盘上那一份是布尔，
     // 手改成一个不认识的值时 toBool() 给 false —— 那正好等于"用户关掉了"，
     // 不会把一个"看不懂的值"变成弹窗，这个方向是安全的。
@@ -623,6 +645,8 @@ QVariantMap LauncherSettings::persistedValues() const {
     values.insert(QString::fromLatin1(kGameWindowMode), gameWindowModeToken(m_gameWindowMode));
     values.insert(QString::fromLatin1(kProcessPriority), processPriorityKey(m_processPriority));
     values.insert(QString::fromLatin1(kTitleText), clampTitleText(m_titleText));
+    values.insert(QString::fromLatin1(kMainWindowWidth), QVariant(clampMainWindowSize(m_mainWindowSize).width()));
+    values.insert(QString::fromLatin1(kMainWindowHeight), QVariant(clampMainWindowSize(m_mainWindowSize).height()));
     values.insert(QString::fromLatin1(kWarnDuplicateLaunch), QVariant(m_warnDuplicateLaunch));
     values.insert(QString::fromLatin1(kWarnWorldLoss), QVariant(m_warnWorldLoss));
     values.insert(QString::fromLatin1(kCurseForgeApiKey), m_curseForgeApiKey);

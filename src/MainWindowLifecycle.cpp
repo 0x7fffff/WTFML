@@ -22,6 +22,7 @@
 #include "..\ui\InlineMessage.hpp"
 #include "..\ui\MainWindowUI.hpp"
 #include "server/ServerProcess.hpp"
+#include "settings/LauncherSettings.hpp"
 #include "server/ServerRegistry.hpp"
 #include "..\ui\WindowChrome.hpp"
 #include "controllers/AgentController.hpp"
@@ -105,6 +106,9 @@ bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr
 }
 
 void MainWindow::closeEvent(QCloseEvent *event) {
+    // 窗口大小先落盘（节流那一发可能还没到点）；关窗被取消也无妨，值本来就该是这个。
+    if (m_windowSizeSaveTimer != nullptr) m_windowSizeSaveTimer->stop();
+    m_settings->setMainWindowSize(MainWindowUI::rememberedWindowSize(this));
     if (m_presetController && !m_presetController->leaveEditor()) { event->ignore(); return; }
     const QList<LauncherManager::GameSession> games = m_launcherManager->runningGames();
     // 还在跑的那些服务端（键 = serverId，**按名字排序** —— 提示里报出来的名字每次都得是

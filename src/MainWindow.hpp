@@ -3018,6 +3018,8 @@ private:
     /// "刚完成的那一项还在收起态里露着"这件事到期了要重画一次（`taskSummaryRecentWindowMs()`）。
     /// **单发**：每次摆摘要时按"还差多久到期"重新起一次（见 updateBottomBarTaskSummary()）。
     QTimer *m_taskSummaryTimer = nullptr;
+    /// 主窗口改大小后节流落盘（单发 400 ms；关窗时 closeEvent 再补一次）。
+    QTimer *m_windowSizeSaveTimer = nullptr;
     /// 任务详情页那一页。**页对象和这一页上的决定**
     /// 都在控制器里（`src/controllers/TaskDetailController`）：页是**建一次留着**、每次开页
     /// `setTask()` 重摆的那一条规矩也归它管。

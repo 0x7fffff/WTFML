@@ -978,6 +978,20 @@ MainWindow::MainWindow(QWidget *parent)
     // refreshJavaList()）。必须在下面 fetchAvailableVersions() **之前**：
     // 清单请求要不要走镜像就是在这一步交给 VersionManager 的。
     applySettingsToUi();
+    // 主窗口按上次记住的大小开（只记大小不记位置）。改大小节流 400 ms 落盘：进程被直接杀掉
+    // 最多丢最后一次改动；正常关窗 closeEvent 里再补一次。
+    MainWindowUI::restoreWindowSize(this, m_settings->mainWindowSize());
+    m_windowSizeSaveTimer = new QTimer(this);
+    m_windowSizeSaveTimer->setSingleShot(true);
+    m_windowSizeSaveTimer->setInterval(400);
+    connect(m_windowSizeSaveTimer, &QTimer::timeout, this,
+            [this] { m_settings->setMainWindowSize(MainWindowUI::rememberedWindowSize(this)); });
+    m_ui->setWindowSizeHandler([this] { m_windowSizeSaveTimer->start(); });
+    connect(m_ui->getWindowSizeResetButton(), &QPushButton::clicked, this, [this] {
+        MainWindowUI::resetWindowSize(this);
+        m_windowSizeSaveTimer->stop();
+        m_settings->setMainWindowSize(MainWindowUI::rememberedWindowSize(this));
+    });
     // 主页那一行到这一步才决定：盘上关着就什么都不发；开着先显示缓存 / 池 / 兜底，
     // 网络回来再替换（不阻塞首帧）。
     m_dailyQuote->refresh();
