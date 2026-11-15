@@ -2227,6 +2227,13 @@ QString widgetStyleSheet() {
                "QPushButton:checked, QPushButton[%1=\"neutral\"]:checked { background-color: palette(highlight); color: palette(link); }"
                "QPushButton:disabled, QPushButton[%1=\"neutral\"]:disabled { background-color: palette(light);"
                " color: palette(link-visited); }"
+               // 挂了 neutral 的 QToolButton（「更改图标」浮层里图上字下那几格）与上面胶囊同一档；
+               // 不挂就是原生白底，深色主题下字看不清。
+               "QToolButton[%1=\"neutral\"] { background-color: palette(button); color: palette(button-text);"
+               " border: 1px solid transparent; border-radius: %4px; padding: 6px; }"
+               "QToolButton[%1=\"neutral\"]:hover:enabled { background-color: palette(shadow); }"
+               "QToolButton[%1=\"neutral\"]:pressed:enabled { background-color: palette(midlight); }"
+               "QToolButton[%1=\"neutral\"]:checked { background-color: palette(highlight); color: palette(link); }"
                // 文字按钮：无底强调字；可勾的（页签）平时 ink-2，勾上强调色淡底。
                "QPushButton[%1=\"ghost\"], QPushButton[%1=\"ghost\"][wtfmlTextAction=\"true\"][checkable=\"false\"]:enabled"
                " { background-color: transparent; color: palette(link); }"
@@ -2244,7 +2251,8 @@ QString widgetStyleSheet() {
                "QPushButton[%2=\"%3\"]:hover:enabled { background-color: palette(light); }"
                "QPushButton[%2=\"%3\"]:pressed:enabled { background-color: palette(midlight); }"
                "QPushButton[%2=\"%3\"]:checked { background-color: palette(highlight); }")
-               .arg(kind, QString::fromLatin1(kButtonSizeProperty), QString::fromLatin1(kIconButtonValue));
+               .arg(kind, QString::fromLatin1(kButtonSizeProperty), QString::fromLatin1(kIconButtonValue))
+               .arg(buttonRadius());
     // 输入框 / 下拉 / 数字框：**同一族**（fill-soft 底、不描线、圆角 10、等高）。
     // 焦点按 F1：鼠标点进来只把底提亮一档，不画线；键盘 Tab / Backtab 到达才加 3px 淡环
     // （`wtfmlKeyboardFocus` 由 `ControlFocusVisibility` 挂，见那个过滤器）。

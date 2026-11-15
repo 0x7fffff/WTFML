@@ -862,6 +862,23 @@ int UiInstanceOverridesChecks() {
             const bool clicked = dialog.iconChoice() == VersionIcons::iconValueForKey(iconKeys.at(3));
             check(clicked, "★ U0h 点第 N 颗候选 = 那一档（按钮和它显示的那张图是同一件事）",
                   dialog.iconChoice());
+            // 弹出来时八格等宽（四列对齐），且挂 neutral 那一档（淡底 / 悬停加深 / 勾上强调色淡底），
+            // 不是原生白底（深色主题下浅字落在白底上看不清）。三主题样张：ui_check_review_shots --popups。
+            {
+                dialog.show();
+                changeIconOf(dialog)->click();
+                QApplication::processEvents();
+                bool sameWidth = iconMenuOf(dialog)->isVisible();
+                bool neutral = true;
+                for (int i = 0; i < iconKeys.size(); ++i) {
+                    sameWidth = sameWidth && candidateOf(dialog, i)->width() == candidateOf(dialog, 0)->width();
+                    neutral = neutral && candidateOf(dialog, i)->property("wtfmlButtonKind").toString()
+                                             == Theme::buttonKindKey(Theme::ButtonKind::Neutral);
+                }
+                check(sameWidth && neutral, "★ U0h 图标浮层八格等宽、挂 neutral 选择格那一档");
+                iconMenuOf(dialog)->close();
+                dialog.hide();
+            }
             // 「恢复默认」= 回到**空串**那一档，不是"回到第一个候选"。
             dialog.findChild<QPushButton *>(Dlg::iconResetButtonName())->click();
             bool clearedAll = dialog.iconChoice().isEmpty() && dialog.pickedIconPath().isEmpty();
