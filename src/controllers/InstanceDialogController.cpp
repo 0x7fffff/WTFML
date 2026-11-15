@@ -401,9 +401,16 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     dialog.setIcon(parts.icon, defaultInstanceMark(parts, m_owner->m_versionManager, previewSize), localIcon);
     {
         const QString game = parts.realVersion.isEmpty() ? parts.id : parts.realVersion;
-        const QString loader = parts.loaderName.isEmpty()
+        // 加载器名走 `InstancePagesController::loaderName()`，**不直接读 `parts.loaderName`**：
+        // 那一格只有我们自己的安装器会写，PCL / HMCL 合并出来的实例（没有 inheritsFrom、
+        // 加载器只写在版本 json 的 `libraries` 里）在那儿是空的。读它的话，同一个实例在
+        // 主页 / 管理列表 / 上面那张图标上都写着「Fabric 0.16.14」，唯独这一行说「原版」。
+        QString loaderVersion;
+        const QString loaderName = InstancePagesController::loaderName(
+            parts, m_owner->m_versionManager, &loaderVersion);
+        const QString loader = loaderName.isEmpty()
                                    ? tr("原版")
-                                   : (parts.loaderName + QLatin1Char(' ') + parts.loaderVersion).trimmed();
+                                   : (loaderName + QLatin1Char(' ') + loaderVersion).trimmed();
         dialog.setHeaderMeta(loader + QStringLiteral(" · Minecraft ") + game);
     }
 
