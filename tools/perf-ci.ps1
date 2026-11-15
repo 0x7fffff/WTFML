@@ -20,7 +20,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Repo = '0x7fffff/WTFML',
+    [string]$Repo = 'wtfml/WTFML',
     [int]$Limit = 8,
     [string]$OutDir
 )

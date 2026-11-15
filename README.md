@@ -7,7 +7,7 @@
 <p align="center">An elegant, beautiful, all-in-one, modern Minecraft launcher.</p>
 
 <p align="center">
-  <a href="https://github.com/0x7fffff/WTFML/releases/latest"><img src="assets/readme/download-en.svg" alt="Download" height="48"></a>
+  <a href="https://github.com/wtfml/WTFML/releases/latest"><img src="assets/readme/download-en.svg" alt="Download" height="48"></a>
 </p>
 
 <p align="center"><sub>A single exe — download and run, nothing to install. Available for Windows x64.</sub></p>

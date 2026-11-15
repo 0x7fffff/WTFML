@@ -7,7 +7,7 @@
 <p align="center">优雅、美观、一站式的现代 Minecraft 启动器。</p>
 
 <p align="center">
-  <a href="https://github.com/0x7fffff/WTFML/releases/latest"><img src="assets/readme/download-zh.svg" alt="下载最新版" height="48"></a>
+  <a href="https://github.com/wtfml/WTFML/releases/latest"><img src="assets/readme/download-zh.svg" alt="下载最新版" height="48"></a>
 </p>
 
 <p align="center"><sub>单文件 exe，下载即用，不用安装。支持 Windows x64。</sub></p>
