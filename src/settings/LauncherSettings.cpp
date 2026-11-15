@@ -547,7 +547,7 @@ void LauncherSettings::load() {
     // 顶上那行字也**读回来就收拾**：盘上那一份会被原样画到条上，多长、带不带空格都不该
     // 信它（和宽高那两个数同一个理由）。
     m_titleText = clampTitleText(settings.value(kTitleText, m_titleText).toString());
-    // 界面语言：认不出来的值（手改过、旧版本写的）按 `system` 算 —— 归一化在
+    // 界面语言：认不出来的值（手改过、旧版本写的）按默认档 `zh_CN` 算 —— 归一化在
     // `UiLanguage::normalizedSetting()` 那一处，别在这儿写第二份。
     m_language = UiLanguage::normalizedSetting(
         settings.value(kLanguage, m_language).toString());

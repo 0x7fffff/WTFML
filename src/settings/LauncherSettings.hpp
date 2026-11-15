@@ -86,10 +86,10 @@ public:
     // 「这一档该用哪一份界面语言」「翻译从哪儿装」的唯一出处是 `ui/UiLanguage.hpp`
     // —— 这一层只管存取那一个记号，不在这里再判一遍系统语言。
 
-    /// 当前档位（已归一化）。默认 `system`。
+    /// 当前档位（已归一化）。默认 `zh_CN`（不跟随系统，理由见 `ui/UiLanguage.hpp`）。
     QString language() const { return m_language; }
 
-    /// 设置档位并立刻落盘。认不出来的值按 `system` 存。
+    /// 设置档位并立刻落盘。认不出来的值按默认档 `zh_CN` 存。
     void setLanguage(const QString &value);
 
     int homeFavoriteCount() const { return m_homeFavoriteCount; }
@@ -479,7 +479,7 @@ private:
     QString m_lastLaunchedVersion;
     QString m_lastSelectedVersion;
     /// 界面语言档位（`system` / `zh_CN` / `en`）。见上面那一节。
-    QString m_language = QStringLiteral("system");
+    QString m_language = QStringLiteral("zh_CN");
     int m_homeFavoriteCount = 3;
     int m_homeRecentCount = 3;
     QStringList m_folders;

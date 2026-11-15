@@ -24,33 +24,39 @@
 
 namespace UiLanguage {
 
-/// `General/Language` 这一格存什么：`system` / `zh_CN` / `en`。默认 `system`。
+/// `General/Language` 这一格存什么：`system` / `zh_CN` / `en`。默认 `zh_CN`。
+///
+/// 默认不跟随系统：英文只翻了导航五项（第 2、3 期才补全量），英文系统的用户跟随系统就会
+/// 看到半成品。第 2、3 期做完再把 `kDefault` 改回 `kSystem`。
 inline constexpr const char *kSettingsKey = "General/Language";
 inline constexpr const char *kSystem = "system";
 inline constexpr const char *kChinese = "zh_CN";
 inline constexpr const char *kEnglish = "en";
+inline constexpr const char *kDefault = kChinese;
 
-/// 归一化：认不出来的一律当 `system`（存错一个字不该把界面锁在某一档上）。
+/// 归一化：认不出来的一律当默认档 `zh_CN`（存错一个字就落到半成品英文上，方向不对）。
 inline QString normalizedSetting(const QString &raw) {
     const QString value = raw.trimmed();
     if (value.compare(QLatin1String(kChinese), Qt::CaseInsensitive) == 0) return QStringLiteral("zh_CN");
     if (value.compare(QLatin1String(kEnglish), Qt::CaseInsensitive) == 0) return QStringLiteral("en");
-    return QStringLiteral("system");
+    if (value.compare(QLatin1String(kSystem), Qt::CaseInsensitive) == 0) return QStringLiteral("system");
+    return QString::fromLatin1(kDefault);
 }
 
-/// 盘上那一格现在的值（已归一化）。没设过 = `system`。
+/// 盘上那一格现在的值（已归一化）。没设过 = `zh_CN`。
 inline QString readSetting() {
     return normalizedSetting(
-        QSettings().value(QLatin1String(kSettingsKey), QLatin1String(kSystem)).toString());
+        QSettings().value(QLatin1String(kSettingsKey), QLatin1String(kDefault)).toString());
 }
 
 /// 纯函数：这一档到底该用哪一份界面语言。
-/// @param setting `system` / `zh_CN` / `en`（别的值按 `system` 算）。
+/// @param setting `system` / `zh_CN` / `en`（别的值按默认档 `zh_CN` 算）。
 /// @param systemUiLanguages 系统 UI 语言表，通常是 `QLocale::system().uiLanguages()`。
 /// @return `"zh_CN"` 或 `"en"`。
 ///
-/// `system` 的规矩：系统 UI 语言里有中文（含繁体、`zh-HK` 这些）就用 zh_CN，
-/// 否则用 en。空表（系统没报语言）也算「不是中文」。
+/// `system` 只在用户**显式**选了「跟随系统」时才走：系统 UI 语言里有中文（含繁体、
+/// `zh-HK` 这些）就用 zh_CN，否则用 en。空表（系统没报语言）也算「不是中文」。
+/// 没设过那一格时 `readSetting()` 给的是 `zh_CN`，走不到这一支。
 inline QString resolve(const QString &setting, const QStringList &systemUiLanguages) {
     const QString normalized = normalizedSetting(setting);
     if (normalized == QLatin1String(kEnglish)) return QStringLiteral("en");

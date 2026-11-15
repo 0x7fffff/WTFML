@@ -1708,16 +1708,7 @@
 <context>
     <name>GroupDialog</name>
     <message>
-        <source>删除分组不会删除实例，所有实例将归入未分组。
-新建同名分组时将保留原分组内容。</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>分组</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>新建…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1734,11 +1725,6 @@
     </message>
     <message>
         <source>这一组在实例列表里默认展开。点组头也能切换。</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>这一组是收藏组：收藏的实例会同时出现在主页快速启动区和这个组里。
-只能有一个收藏组 —— 勾了这一颗，别的组就不再作为收藏来源。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1768,7 +1754,27 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>恢复默认分组设置…</source>
+        <source>新建分组…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>行尾箭头调整顺序，按住 Shift 直接放到最上 / 最下。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>在实例列表里默认展开这一组。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>只能有一个收藏组 —— 打开这一颗，别的组就不再作为收藏来源。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>删除分组不会删除实例，它们会回到未分组。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>恢复默认分组</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1817,6 +1823,10 @@
     </message>
     <message>
         <source>重命名分组失败</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>未选择分组</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -4878,6 +4888,10 @@ Minecraft %2 / %3 %4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>正在读版本列表…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>这一版的下载信息还没取到。把上面那个游戏版本收起再点开一次，然后重试。</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6820,6 +6834,10 @@ Minecraft %2 / %3 %4</source>
         <translation>Follow system</translation>
     </message>
     <message>
+        <source>（部分翻译）</source>
+        <translation> (partial translation)</translation>
+    </message>
+    <message>
         <source>语言</source>
         <translation>Language</translation>
     </message>
@@ -6917,6 +6935,10 @@ Minecraft %2 / %3 %4</source>
     </message>
     <message>
         <source>无可用版本</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>正在刷新版本列表…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -7367,10 +7389,6 @@ Minecraft %2 / %3 %4</source>
 <context>
     <name>NewServerPage</name>
     <message>
-        <source>正在获取…</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>刷新</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7384,6 +7402,10 @@ Minecraft %2 / %3 %4</source>
     </message>
     <message>
         <source>暂无可用版本</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>正在获取版本…</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -7433,13 +7455,6 @@ Minecraft %2 / %3 %4</source>
     </message>
     <message>
         <source>取随机皮肤失败：%1</source>
-        <translation type="unfinished"></translation>
-    </message>
-</context>
-<context>
-    <name>PresetChoiceDelegate</name>
-    <message>
-        <source> / %1 项</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -7591,6 +7606,10 @@ Minecraft %2 / %3 %4</source>
     </message>
     <message>
         <source>模组预设未全部应用，请查看逐项原因。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>预设文件夹读不了：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -7860,7 +7879,31 @@ Minecraft %2 / %3 %4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>搜索预设</source>
+        <source>正在读取预设…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>已选：</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>：</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>本次应用 &lt;span style=&quot;color:%1; font-weight:500&quot;&gt;%2&lt;/span&gt; 类</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>本次不应用预设</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>缺失 %1 项</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>待确认 %1 项</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -7880,27 +7923,11 @@ Minecraft %2 / %3 %4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>%1 (%2)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>未选择</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>替换%1：%2 → %3</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>本次应用：%1 类</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source> / 缺失 %1 项</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source> / 待确认 %1 项</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -7912,15 +7939,15 @@ Minecraft %2 / %3 %4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>综合预设把几类预设打成一份，一次装好。在「预设管理」里新建，或从实例提取。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>应用其中：</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>替换%1，使用「%2」</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>综合预设 (%1)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source> (%1)</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -8020,10 +8047,6 @@ Minecraft %2 / %3 %4</source>
     </message>
     <message>
         <source>正在读取实例并生成计划…</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>正在读取预设内容…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -8852,10 +8875,6 @@ Minecraft %2 / %3
     </message>
     <message>
         <source>请选择加载器版本</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>获取失败，点击刷新</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -10636,6 +10655,14 @@ Minecraft %2 / %3
         <source>重试</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source> / %1 项</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>搜索预设</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>RequestBudget::ControlGet</name>
@@ -10985,10 +11012,6 @@ Minecraft %2 / %3
     </message>
     <message>
         <source>获取失败，请刷新重试</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>正在获取…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

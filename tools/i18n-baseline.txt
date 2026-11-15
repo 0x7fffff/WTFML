@@ -134,7 +134,7 @@ src/operations/UpgradeHistory.cpp	5
 src/operations/UpgradePageState.cpp	9
 src/operations/UpgradeReport.cpp	21
 src/operations/UpgradeSelection.cpp	15
-src/perf/PerfProbe.cpp	37
+src/perf/PerfProbe.cpp	42
 src/presets/DataPackPreset.cpp	86
 src/presets/GenericFiles.cpp	54
 src/presets/InstalledModInventory.cpp	9
@@ -216,7 +216,7 @@ ui/DownloadToolPanel.hpp	22
 ui/GameLogWindow.cpp	18
 ui/GameRuleNames.cpp	72
 ui/Glass.cpp	7
-ui/GroupDialog.cpp	3
+ui/GroupDialog.cpp	2
 ui/GroupDialog.hpp	3
 ui/GroupListDelegate.cpp	2
 ui/InlineMessage.cpp	10

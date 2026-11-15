@@ -677,7 +677,10 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         languageCombo->addItem(QCoreApplication::translate("MainWindowUI", "跟随系统"),
                                QStringLiteral("system"));
         languageCombo->addItem(QStringLiteral("简体中文"), QStringLiteral("zh_CN"));  // i18n-ignore
-        languageCombo->addItem(QStringLiteral("English"), QStringLiteral("en"));
+        // 英文那一档标「部分翻译」：第 1 期只翻了导航五项，选进来大半还是中文。
+        languageCombo->addItem(QStringLiteral("English") +
+                                   QCoreApplication::translate("MainWindowUI", "（部分翻译）"),
+                               QStringLiteral("en"));
         WheelGuard::install(languageCombo);
         addRow(look, QCoreApplication::translate("MainWindowUI", "语言"), languageCombo,
                Placement::Column);

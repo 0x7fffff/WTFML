@@ -25,8 +25,24 @@ int UiLanguageChecks(MainWindowUI &ui, QTabWidget *tabs) {
           "显式 en 不跟随中文系统");
     check(resolve(QStringLiteral("zh_CN"), {QStringLiteral("en-US")}) == QStringLiteral("zh_CN"),
           "显式 zh_CN 不跟随英文系统");
-    check(resolve(QStringLiteral("乱写"), {QStringLiteral("en-US")}) == QStringLiteral("en"),
-          "认不出来的档位按 system 算");
+    check(resolve(QStringLiteral("乱写"), {QStringLiteral("en-US")}) == QStringLiteral("zh_CN"),
+          "认不出来的档位按默认档 zh_CN 算（不落到半成品英文上）");
+
+    // ---- 1b. 没设过那一格：默认 zh_CN，不看系统语言 ----
+    {
+        QSettings probe;
+        const bool had = probe.contains(QStringLiteral("General/Language"));
+        const QVariant keep = probe.value(QStringLiteral("General/Language"));
+        probe.remove(QStringLiteral("General/Language"));
+        check(UiLanguage::readSetting() == QStringLiteral("zh_CN"),
+              "没设过 General/Language 时读出来是 zh_CN",
+              UiLanguage::readSetting());
+        check(resolve(UiLanguage::readSetting(), {QStringLiteral("en-US")}) == QStringLiteral("zh_CN"),
+              "没设过时即使系统是英文也用中文（第 1 期不跟随系统）");
+        if (had) probe.setValue(QStringLiteral("General/Language"), keep);
+        else probe.remove(QStringLiteral("General/Language"));
+        probe.sync();
+    }
 
     // ---- 2. 中文这一档：导航轨就是源文（没装翻译）----
     check(tabs != nullptr, "选项卡在，能读导航文字");
@@ -53,8 +69,9 @@ int UiLanguageChecks(MainWindowUI &ui, QTabWidget *tabs) {
     check(language != nullptr && language->itemText(0) == QStringLiteral("跟随系统"),
           "中文界面下「跟随系统」写中文", language != nullptr ? language->itemText(0) : QString());
     check(language != nullptr && language->itemText(1) == QStringLiteral("简体中文") &&
-              language->itemText(2) == QStringLiteral("English"),
-          "另外两档各写各自语言的名字（不翻）");
+              language->itemText(2) == QStringLiteral("English（部分翻译）"),
+          "另外两档各写各自语言的名字（不翻），English 标着部分翻译",
+          language != nullptr ? language->itemText(2) : QString());
 
     // ---- 4. 设成 en：读设置 → 解析 → 装翻译 → 新建的界面是英文 ----
     QSettings().setValue(QStringLiteral("General/Language"), QStringLiteral("en"));
@@ -78,6 +95,10 @@ int UiLanguageChecks(MainWindowUI &ui, QTabWidget *tabs) {
         check(englishUi.getLanguageCombo() != nullptr &&
                   englishUi.getLanguageCombo()->itemText(0) == QStringLiteral("Follow system"),
               "英文界面下「跟随系统」跟着翻成 Follow system");
+        check(englishUi.getLanguageCombo() != nullptr &&
+                  englishUi.getLanguageCombo()->itemText(2) == QStringLiteral("English (partial translation)"),
+              "英文界面下 English 那一档的后缀也是英文（前面的空格没丢）",
+              englishUi.getLanguageCombo() != nullptr ? englishUi.getLanguageCombo()->itemText(2) : QString());
         // 图标按**序号**认（见 ui/TitleBar.cpp 的 iconForIndex）：英文下五颗导航照样有图标。
         // 以前按标签文字认，每加一门语言都得去 TitleBar 加一列，漏了就是几个没图标的按钮。
         bool iconsOk = englishUi.titleBar() != nullptr && englishUi.titleBar()->navCount() == 5;
