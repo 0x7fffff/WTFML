@@ -327,8 +327,19 @@ void InstanceFilesPage::repositionSelectionBar() {
     if (m_actionPanelEnabled) {
         // Share a row only when both groups fit at the current font/DPI.
         // Narrow windows retain a separate selection row without wrapping controls.
-        const int headerWidth = m_stateButtonsRow->sizeHint().width()
-                              + m_selectionTools->sizeHint().width() + 24;
+        // 按「这一排可能露出的全部胶囊 +「已选 N 项」」量，不按此刻露着的几颗：否则禁用第一项时
+        // 「启用 / 禁用」冒出来就换行，列表整体下跳，指针底下换成别的一行（连点开关会点错）。
+        // 宽度一定，排法就一定。
+        const int spacing = m_stateButtonsRow->layout()->spacing();
+        int pillsWidth = 0;
+        for (int i = 0; i < m_stateButtons.size(); ++i) {
+            if (static_cast<StateFilter>(i) == StateFilter::Update && !m_canFilterUpdates) continue;
+            pillsWidth += m_stateButtons.at(i)->sizeHint().width() + spacing;
+        }
+        int toolsWidth = m_selectionTools->sizeHint().width();
+        if (m_selectionReopen->isHidden())
+            toolsWidth += m_selectionReopen->sizeHint().width() + m_selectionTools->layout()->spacing();
+        const int headerWidth = pillsWidth + toolsWidth + 24;
         const bool inlineTools = m_contentHost->width() >= headerWidth;
         if (inlineTools != (m_selectionTools->parentWidget() == m_stateRow)) {
             if (inlineTools) {
