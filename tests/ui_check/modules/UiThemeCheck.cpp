@@ -506,7 +506,7 @@ int UiThemeCheck(QApplication &app) {
             const QList<LogoCase> cases{{QStringLiteral("dark"), false}, {QStringLiteral("emerald"), false},
                                         {QStringLiteral("ocean"), false}, {QStringLiteral("dark"), true}};
             const Theme::Spec restore = Theme::current();
-            bool same = true, readable = true, fades = true;
+            bool same = true, readable = true, fades = true, captionReadable = true, captionKept = true;
             for (const LogoCase &c : cases) {
                 Theme::Spec spec = Theme::presetSpec(c.preset);
                 if (c.brightImage) {
@@ -541,6 +541,34 @@ int UiThemeCheck(QApplication &app) {
                 };
                 const QImage home = shoot(MainWindowUI::homeTabIndex());
                 const QList<QColor> homeUnder = backdrop->colorsUnder(logo);  // 主页此刻真正的底（清晰风景）
+                // 主页三颗窗口按钮共用一份墨色：取三颗字形里最实的那一点（最小化那一横落在半像素上，
+                // 单看它会被抗锯齿压淡），叠到每颗按钮底下实测的两端上量对比度。
+                // 亮背景图要过 3:1；默认风景墨色原样是主页字色 heroInk2（补对比度那一步不许动它）。
+                {
+                    QColor core(0, 0, 0, 0);
+                    QList<QColor> under;
+                    for (const char *name : {"titleBarMinimize", "titleBarMaximize", "titleBarClose"}) {
+                        auto *button = window.findChild<QWidget *>(QString::fromLatin1(name));
+                        if (button == nullptr) continue;
+                        QImage img(button->size(), QImage::Format_ARGB32);
+                        img.fill(Qt::transparent);
+                        button->render(&img, QPoint(), QRegion(), QWidget::DrawChildren);
+                        for (int y = 0; y < img.height(); ++y)
+                            for (int x = 0; x < img.width(); ++x)
+                                if (img.pixelColor(x, y).alpha() > core.alpha()) core = img.pixelColor(x, y);
+                        under += backdrop->colorsUnder(button);
+                    }
+                    double low = under.isEmpty() ? 0.0 : 21.0;
+                    for (const QColor &bg : under) low = qMin(low, Glass::contrast(Glass::over(core, bg), bg));
+                    const QColor expected = Theme::tokens().heroInk2;
+                    const bool kept = qAbs(core.red() - expected.red()) <= 2 && qAbs(core.green() - expected.green()) <= 2 &&
+                                      qAbs(core.blue() - expected.blue()) <= 2 && qAbs(core.alpha() - expected.alpha()) <= 3;
+                    if (c.brightImage) captionReadable = captionReadable && low >= 3.0;
+                    else captionKept = captionKept && kept;
+                    std::printf("  窗口按钮 %s%s：墨 %s α%d（主页字色 %s α%d），最差对比度 %.2f\n", qUtf8Printable(c.preset),
+                                c.brightImage ? "+亮背景图" : "", qUtf8Printable(core.name()), core.alpha(),
+                                qUtf8Printable(expected.name()), expected.alpha(), low);
+                }
                 const QImage manage = shoot(MainWindowUI::instancesTabIndex());
                 // 别的页此刻真正的底：W 那一块的磨砂底（风景淡出后只剩它）+ 主页那一份
                 const QList<QColor> under = homeUnder + backdrop->colorsUnderAnyPage(logo);
@@ -585,6 +613,8 @@ int UiThemeCheck(QApplication &app) {
             expect(same, "★ 品牌标 W 在主页和管理页画出来一模一样（三套预设 + 亮背景图）");
             expect(readable, "★ 品牌标 W 在主页风景和别的页磨砂底上都有 3:1（三套预设 + 亮背景图）");
             expect(fades, "窗口按钮墨色按风景不透明度在普通 / 主页字色之间渐变（一半时介于两者）");
+            expect(captionReadable, "★ 亮背景图下主页三颗窗口按钮对实测底色有 3:1");
+            expect(captionKept, "★ 默认风景三套预设下主页窗口按钮墨色仍是主页字色（补对比度不改默认观感）");
         }
         {
             Theme::Spec edited;
