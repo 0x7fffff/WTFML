@@ -4,7 +4,7 @@
 #include <QMainWindow>
 #include <QScreen>
 
-// 155：主窗口默认 1024×620、最小 900×585、每次启动导航收起、记住窗口大小（界面这一侧：夹值、
+// 155：主窗口默认 1024×620、最小 900×590、每次启动导航收起、记住窗口大小（界面这一侧：夹值、
 // 最大化时取还原后的大小、设置·外观「窗口大小 · 恢复默认」的置灰与效果）。落盘那一半在
 // core_modules/LaunchOptionsTests.cpp 的 ZD2b。
 int UiWindowSizeCheck(QApplication &app) {
@@ -15,7 +15,7 @@ int UiWindowSizeCheck(QApplication &app) {
     };
     const QSize def(kMainWindowDefaultWidth, kMainWindowDefaultHeight);
     const QSize min(kMainWindowMinWidth, kMainWindowMinHeight);
-    check(def == QSize(1024, 620) && min == QSize(900, 585), "★ 155 默认 1024×620、最小 900×585",
+    check(def == QSize(1024, 620) && min == QSize(900, 590), "★ 155 默认 1024×620、最小 900×590",
           QStringLiteral("%1x%2 / %3x%4").arg(def.width()).arg(def.height()).arg(min.width()).arg(min.height()));
 
     // ---- 夹值：最小尺寸 ≤ 结果 ≤ 屏幕可用区；可用区比最小还小时最小尺寸说了算 ----
@@ -25,7 +25,7 @@ int UiWindowSizeCheck(QApplication &app) {
     check(MainWindowUI::fittedWindowSize(QSize(5000, 3000), big) == big, "★ 155 记的值比屏幕可用区大：夹到可用区",
           QStringLiteral("%1x%2").arg(MainWindowUI::fittedWindowSize(QSize(5000, 3000), big).width())
               .arg(MainWindowUI::fittedWindowSize(QSize(5000, 3000), big).height()));
-    check(MainWindowUI::fittedWindowSize(QSize(1300, 300), big) == QSize(1300, 585), "155 宽高各夹各的");
+    check(MainWindowUI::fittedWindowSize(QSize(1300, 300), big) == QSize(1300, 590), "155 宽高各夹各的");
     check(MainWindowUI::fittedWindowSize(def, QSize(800, 600)) == QSize(900, 600),
           "155 屏幕比最小尺寸还窄：不缩到最小值以下");
 

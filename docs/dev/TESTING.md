@@ -225,7 +225,7 @@ CTest 的两种"排除 visual"选到的数量不同：`ctest -E visual` 按名�
 - 性能规则：功能断言和性能基线分开。offscreen、调试器、未优化（`-O0`）构建的耗时不代表产品性能；构建/启动/CI 的基线与量法见 [PERFORMANCE.md](PERFORMANCE.md)。规模测量用环境变量开关，只打印、不设耗时断言。
 - 已知崩溃保留首次证据、独立复现，不以"重跑直到绿"为验收规则。
 - 新增的 `tests/` 文件要能被 `tools/test-impact.ps1` 的映射认出（否则 `wtfml.test-modules` 会报"没有领域归属"）；新增 `assets/` 或工具脚本要补映射。
-- 新加 `QLineEdit` / `QSpinBox` / 可编辑下拉框：短值调 `InputSizing::shortValue`，长值调 `InputSizing::longValue` 写理由（`ui/InputSizing.hpp`）。`wtfml.input-widths` 在 1280×800 与最小窗口（`MainWindowPageLayout::kMainWindowMinWidth/Height`，900×585）下扫主窗口各页和覆盖层页面，没登记又宽过 420 px 的输入框判失败；`WTFML_INPUT_WIDTH_DUMP=1` 打印每个输入框，`WTFML_INPUT_WIDTH_SHOTS=<目录>` 出前后样张（加 `WTFML_INPUT_WIDTH_BEFORE=1` 撤掉短值登记再拍）。限制：覆盖不到 `PresetManagePage`（`ui_check` 夹具未链接）和表格单元格内的编辑器。
+- 新加 `QLineEdit` / `QSpinBox` / 可编辑下拉框：短值调 `InputSizing::shortValue`，长值调 `InputSizing::longValue` 写理由（`ui/InputSizing.hpp`）。`wtfml.input-widths` 在 1280×800 与最小窗口（`MainWindowPageLayout::kMainWindowMinWidth/Height`，900×590）下扫主窗口各页和覆盖层页面，没登记又宽过 420 px 的输入框判失败；`WTFML_INPUT_WIDTH_DUMP=1` 打印每个输入框，`WTFML_INPUT_WIDTH_SHOTS=<目录>` 出前后样张（加 `WTFML_INPUT_WIDTH_BEFORE=1` 撤掉短值登记再拍）。限制：覆盖不到 `PresetManagePage`（`ui_check` 夹具未链接）和表格单元格内的编辑器。
 - 新写 `QDialog` / `ChromeDialog` / `GlassPopover` 子类，或新开一页 `showPage()`：登记进 `tests/ui_check/surface-registry.txt`，让 `wtfml.surface-sweep` 真的扫到。`tools/check-surface-registry.ps1`（CTest `wtfml.surface-registry`，CI 的 repo-rules 也跑）核对两边：代码里的对话框子类、就地建的裸对话框、`overlay->showPage()` 目标都必须在清单里；清单里的表面键也必须在 sweep 里 `record()` 过。判据宁可多报不漏报，确需豁免的在类声明行、构造行或 `showPage()` 调用行尾写 `// surface-registry-ignore: 理由`（理由不能是空的）。
 
 ### 表面巡检（sweep）
@@ -287,7 +287,7 @@ build-audit/tools/network_diag/WTFMLNetworkDiag.exe --self-test
 
 ## 设置页验收截图（offscreen，不弹窗）
 
-`ui_check_settings_shots` 在 offscreen 下用 `QWidget::grab()` 出设置页截图：暮色雪山 / 冰川碧湖 × 最小窗口 900×585 / 1280×800 × 4 个页签，另有「个性化」页展开「高级」和表单收窄到 560 的 stack 态；两档尺寸各另拍一张拉开的「配色」下拉弹层（`look-preset-popup-*`），并印出下拉框宽度与最长的预设名宽度，看四字名放不放得下。
+`ui_check_settings_shots` 在 offscreen 下用 `QWidget::grab()` 出设置页截图：暮色雪山 / 冰川碧湖 × 最小窗口 900×590 / 1280×800 × 4 个页签，另有「个性化」页展开「高级」和表单收窄到 560 的 stack 态；两档尺寸各另拍一张拉开的「配色」下拉弹层（`look-preset-popup-*`），并印出下拉框宽度与最长的预设名宽度，看四字名放不放得下。
 
 ```powershell
 cmake --build build/verification-mingw13 --target ui_check_settings_shots

@@ -16,8 +16,8 @@ int UiTitleBarChecks(QMainWindow &window, MainWindowUI &ui) {
     check((window.windowFlags() & Qt::WindowMaximizeButtonHint) != 0,
           "★ Z11 主窗口能最大化（设计稿右上是最小化 / 最大化 / 关闭三颗）");
     check(window.minimumSize() == QSize(MainWindowPageLayout::kMainWindowMinWidth, MainWindowPageLayout::kMainWindowMinHeight) &&
-              window.minimumSize() == QSize(900, 585),
-          "★ 155 主窗口最小 900×585",
+              window.minimumSize() == QSize(900, 590),
+          "★ 155 主窗口最小 900×590",
           QStringLiteral("%1x%2").arg(window.minimumWidth()).arg(window.minimumHeight()));
     {
         TitleBar fresh;

@@ -52,9 +52,9 @@ inline constexpr int kStartButtonMinHeight = 76;
 inline constexpr int kMainWindowDefaultWidth = 1024;
 inline constexpr int kMainWindowDefaultHeight = 620;
 /// 主窗口最小大小：工具箱目录页和各工具页、主页在这个大小下整页放得下、不出纵向滚动条，
-/// 设置四个页签没有横向溢出。高度卡在工具箱「旗帜」页：585 起整页放得下（584 差 1px）。
+/// 设置四个页签没有横向溢出。高度看工具箱「旗帜」页：585 起整页放得下（584 差 1px），再留 5px 给 125% / 150% 缩放取整和字体回退。
 inline constexpr int kMainWindowMinWidth = 900;
-inline constexpr int kMainWindowMinHeight = 585;
+inline constexpr int kMainWindowMinHeight = 590;
 
 /// 主页立绘画布：宽 = 右栏宽（唯一出处 `MainWindowUI::homeRightColumnWidth()`），高按 SkinViewer
 /// 的人物比例算出来约 322 —— 人高约 270，和设计稿 home.html 那个立绘一样大。窄窗封顶到七成二。

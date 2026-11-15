@@ -236,7 +236,7 @@ int UiToolboxLayoutCheck(QApplication &app) {
                           QStringLiteral("%1 > %2").arg(panel ? panel->minimumSizeHint().width() : -1).arg(scroll->viewport()->width()));
                     check(panel != nullptr && noChildClipped(panel, &why),
                           QStringLiteral("%1 %2：没有控件被右侧裁掉").arg(key, sizeText), why);
-                    // 每个工具页在最小窗口下整页放得下，不出纵向滚动条（最小高 585 就卡在旗帜页）。
+                    // 每个工具页在最小窗口下整页放得下，不出纵向滚动条（旗帜页 585 起放得下，最小高 590 留 5px 余量）。
                     if (size == QSize(MainWindowPageLayout::kMainWindowMinWidth, MainWindowPageLayout::kMainWindowMinHeight)) {
                         check(scroll->verticalScrollBar()->maximum() == 0,
                               QStringLiteral("%1 %2：没有纵向滚动范围").arg(key, sizeText),
