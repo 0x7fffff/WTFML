@@ -819,6 +819,11 @@ int MwInstanceGroupsChecks(const QDir &root, const QDir &versionsDir) {
                   "T14 前提：那一行就是「未分组」，它照样挂着齿轮",
                   rest != nullptr ? rest->text(0) : QString());
 pressRowAt(tree, InstanceGroupDelegate::gearGlyphRect(tree->visualItemRect(rest)).center());
+            // 菜单弹出来先让事件循环转一轮（真人从看见菜单到点下去，中间一定转过）：菜单「成为焦点窗」那条排队事件
+            // 要趁它还活着送达。不转就点，那条事件等菜单 DeleteOnClose 销毁后才到、拿到空窗；155 起 W 能接激活焦点、
+            // 应用在 offscreen 下处于激活态，空焦点窗就被当成「切走了应用」，Qt 随手 closeAllPopups 把下一层选单关掉。
+            // 下面只用菜单和 tree 本身，不再碰条目指针，转这一轮不怕重灌树。
+            QApplication::processEvents();
             QWidget *restMenu = tree->findChild<QWidget *>(MainWindowUI::groupMenuName());
             const auto restAction = [restMenu](int action) -> QPushButton * {
                 return restMenu != nullptr
