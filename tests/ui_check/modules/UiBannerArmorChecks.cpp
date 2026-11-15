@@ -96,8 +96,8 @@ int UiBannerArmorChecks() {
                   "★ U40 程序摆层不发信号、也不留撤销点（那是恢复草稿，不是用户动作）");
             check(bannerSignals == 5, "★ U40 程序摆层那一发没有多出来",
                   QString::number(bannerSignals));
-            page.setBannerResult(QStringLiteral("底色 红色 · 1 层 / 6"));
-            check(bannerResult->text() == QStringLiteral("底色 红色 · 1 层 / 6"),
+            page.setBannerResult(QStringLiteral("底色 红色 · 1/6 层"));
+            check(bannerResult->text() == QStringLiteral("底色 红色 · 1/6 层"),
                   "★ U40 结果那一格逐字摆进来（怎么算的不在这一层）");
         }
 
