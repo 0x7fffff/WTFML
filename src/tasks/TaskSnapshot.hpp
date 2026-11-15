@@ -266,12 +266,16 @@ inline TaskSummary collapsedSummary(const QList<TaskSnapshot> &tasks,
                                     const QDateTime &now,
                                     qint64 recentWindowMs) {
     TaskSummary summary;
-    summary.hasFailure = !unreadFailures.isEmpty();
 
     int activeCount = 0;
     for (const TaskSnapshot &task : tasks) {
         if (isActiveState(task.state)) {
             ++activeCount;
+        }
+        // 只认账本里**还在**的那几件失败：截断（pruneFinished）丢掉的老失败号可能还留在未读集合里，
+        // 它在面板里没有行、永远标不成「看过」—— 算它的话红点会挂到重启，而底栏那格也无事可显示。
+        if (task.state == TaskState::Failed && unreadFailures.contains(task.id)) {
+            summary.hasFailure = true;
         }
     }
 

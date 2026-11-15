@@ -161,6 +161,23 @@ void runTaskLedgerTests() {
                   QString::number(read.id));
         }
 
+        // 未读的失败**不受**「刚完成」时间窗限制：过了窗口它照样占着这一格（导航收起时角标挂在它的环上），
+        // 而截断丢掉的老失败号（账本里已经没有这一行）不再点亮红点 —— 那一颗没有任何出口能撤掉。
+        {
+            Tasks::TaskSnapshot failed;
+            failed.id = 7;
+            failed.kind = Tasks::TaskKind::Download;
+            failed.state = Tasks::TaskState::Failed;
+            failed.finishedAt = at(3600);
+            const Tasks::TaskSummary s = Tasks::collapsedSummary({failed}, {7}, now, windowMs);
+            check(s.hasFailure && s.id == 7,
+                  "★ AL3 失败过了时间窗还没看过：红点照亮、这一格仍是它（不回「暂无后台任务」）",
+                  QString::number(s.id));
+            const Tasks::TaskSummary orphan = Tasks::collapsedSummary({}, {7}, now, windowMs);
+            check(!orphan.hasFailure && orphan.id == Tasks::invalidTaskId(),
+                  "★ AL3 未读集合里的号在账本里已经没了（被截断）：不点红点");
+        }
+
         // 「刚完成」只在时间窗里露面，而且**必须有**结束时间戳。
         {
             Tasks::TaskSnapshot done;
