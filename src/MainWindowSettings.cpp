@@ -22,7 +22,6 @@
 
 #include "..\ui\Animations.hpp"
 #include "..\ui\Theme.hpp"
-#include "..\ui\TitleBar.hpp"
 #include "auth/SkinApi.hpp"
 #include "controllers/JavaSettingsController.hpp"
 #include "controllers/LauncherPreferencesController.hpp"
@@ -125,7 +124,6 @@ void MainWindow::applySettingsToUi() {
     const QSignalBlocker blockPriority(m_ui->getProcessPriorityCombo());
     const QSignalBlocker blockWindowWidth(m_ui->getGameWindowWidthSpin());
     const QSignalBlocker blockWindowHeight(m_ui->getGameWindowHeightSpin());
-    const QSignalBlocker blockTitleText(m_ui->getTitleTextEdit());
     const QSignalBlocker blockCustom(m_ui->getVersionNameCustomCheck());
     const QSignalBlocker blockReal(m_ui->getVersionNameRealCheck());
     const QSignalBlocker blockLoader(m_ui->getVersionNameLoaderCheck());
@@ -155,11 +153,7 @@ void MainWindow::applySettingsToUi() {
     m_ui->getExtraJvmArgsEdit()->setPlainText(m_javaSettings->extraJvmArgs());
 
     // ---------- 外观 ----------
-    // 条上那行字有**两个**去处：设置页那一格、还有条自己。同一次调用里一起灌 ——
-    // 分成两处写的话，以后改一处就会出现"框里是用户改过的名字、条上还是默认那五个字母"。
-    // 两边喂的都是盘上那份（空串 = 没改过，条自己会退回 defaultBrandText()）。
-    m_ui->getTitleTextEdit()->setText(m_settings->titleText());
-    m_ui->titleBar()->setBrandText(m_settings->titleText());
+    // NOTE: 条上那行字不归设置管（UI 问题 #3）：它固定是商标 `TitleBar::defaultBrandText()`。
 
     // ---------- 背景图 ----------
     // 那两行控件画的是 `Theme::current()` 里那两块图的样子（**不是** `m_settings` 里的
@@ -531,9 +525,6 @@ void MainWindow::onAnimationsToggled(bool enabled) {
     m_themeSettingsController->setAnimationsEnabled(enabled);
 }
 
-void MainWindow::onTitleTextChanged() {
-    m_themeSettingsController->updateTitleText();
-}
 void MainWindow::syncDownloadSource() {
     m_launcherPreferences->syncDownloadSource();
 }

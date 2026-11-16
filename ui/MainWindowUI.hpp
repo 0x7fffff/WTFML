@@ -2967,8 +2967,6 @@ public:
     static QString gameWindowModeComboName() { return QStringLiteral("gameWindowModeCombo"); }
     static QString gameWindowWidthSpinName() { return QStringLiteral("gameWindowWidthSpin"); }
     static QString gameWindowHeightSpinName() { return QStringLiteral("gameWindowHeightSpin"); }
-    /// 「外观」那一格那个文本框：条上那行字。
-    static QString titleTextEditName() { return QStringLiteral("titleTextEdit"); }
     /// 「宽 × 高」中间那个乘号。它也要有名字：验证工程量这三格的几何时得能取到它。
     static QString gameWindowSizeTimesLabelName() { return QStringLiteral("gameWindowSizeTimes"); }
     /// 「启动选项」那一组里那几个勾选框/数字框的文案。
@@ -3049,17 +3047,6 @@ public:
     static int windowMaxHeight() { return 4320; }
     /// 点上下箭头一下走多少。16 是"拖一下就能从 854 走到 1920 那类常见值"。
     static int windowSizeStep() { return 16; }
-
-    // ---------- 「外观」那格那个文本框的长度上限 ----------
-    // 和 LauncherSettings::titleTextMaxLength() **必须一样**（那边是读盘/写盘时的截断，
-    // 这边是输入框允许打进去的长度）。ui/ 这一侧不许 include src/，所以两份各写一遍，
-    // 验证工程里有一条断言盯着它们相等 —— 和上面「游戏窗口大小的取值范围」同一个约定。
-    // 不一致的症状是"打上去的字自己少了几个"。
-    //
-    // 16 这个数是按**条上留给名字的那点地方**量的：条宽 900 时，名字从最左边画到导航那一组
-    // 左边还剩 260 px 上下，16 个汉字（约 224 px）正好不撞上（Latin 的 16 个字符更窄）。
-    // 再长的名字不会把条撑坏（`TitleBar::paintEvent` 会拿省略号截），但那属于"写了也看不见"。
-    static int titleTextMaxLength() { return 16; }
 
     // ---------- 「背景图」那一节 ----------
     // 一块底一行：四个页面的内容区（`Theme::Part::PageBackground`），铺满整窗。
@@ -3672,7 +3659,6 @@ public:
     QLabel *getGameWindowSizeTimesLabel() const { return gameWindowSizeTimesLabel; }
     QSpinBox *getGameWindowWidthSpin() const { return gameWindowWidthSpin; }
     QSpinBox *getGameWindowHeightSpin() const { return gameWindowHeightSpin; }
-    QLineEdit *getTitleTextEdit() const { return titleTextEdit; }
 
     /// 「背景图」那一节里，**一块底**对应的一组控件（今天只有页面背景这一组）。
     ///
@@ -4055,7 +4041,6 @@ private:
     QLabel *gameWindowSizeTimesLabel = nullptr;
     QSpinBox *gameWindowWidthSpin = nullptr;
     QSpinBox *gameWindowHeightSpin = nullptr;
-    QLineEdit *titleTextEdit = nullptr;
     QPushButton *windowSizeResetButton = nullptr;
     QCheckBox *dailyQuoteCheck = nullptr;
     /// 「背景图」那一节的各行控件，按 `ThemeImageRow::partKey` 认（见这一节在头文件里那段）。

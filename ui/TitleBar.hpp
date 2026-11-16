@@ -58,7 +58,7 @@ public:
     static int navFontPixelSize();
     /// 窗口按钮离窗口右边缘多远。
     static int windowButtonsRightMargin();
-    /// 默认品牌名（设置页「个性化」里可以改）。
+    /// 商标那五个字母（`WTFML`）。**条上画的就是它，不给用户改**（UI 问题 #3）。
     static QString defaultBrandText();
 
     QAbstractButton *minimizeButton() const { return m_minimize; }
@@ -78,10 +78,6 @@ public:
 
     /// 轨底部那一块（后台任务、工具箱）。交进来的控件归轨管。
     void setFooter(QWidget *footer);
-
-    /// 换品牌名；两头空白去掉后为空 = 回默认。
-    void setBrandText(const QString &text);
-    QString titleText() const;
 
     /// 用户手动折叠（窄窗自动折叠另算，见 `isCollapsed()`）。默认 true：每次启动导航都收起。
     void setCollapsed(bool collapsed);
@@ -124,7 +120,6 @@ private:
     QAbstractButton *m_logo = nullptr;
     QList<QAbstractButton *> m_navButtons;
     int m_currentNav = -1;
-    QString m_brand;
     bool m_applyingColors = false;
     bool m_userCollapsed = true;
     bool m_narrow = false;

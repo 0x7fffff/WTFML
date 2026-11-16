@@ -3,7 +3,6 @@
 #include "MainWindowUI.hpp"
 #include "Animations.hpp"
 #include "InlineMessage.hpp"
-#include "TitleBar.hpp"
 #include "ThemeAdvancedEditor.hpp"
 #include "settings/LauncherSettings.hpp"
 #include "util/ThemeImage.hpp"
@@ -397,10 +396,4 @@ void ThemeSettingsController::changeTextOpacity(int value) {
 void ThemeSettingsController::setAnimationsEnabled(bool enabled) {
     Anim::setEnabled(enabled);
     Anim::save();
-}
-
-void ThemeSettingsController::updateTitleText() {
-    if (m_settings == nullptr) return;
-    m_settings->setTitleText(m_ui->getTitleTextEdit()->text());
-    m_ui->titleBar()->setBrandText(m_settings->titleText());
 }

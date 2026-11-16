@@ -416,7 +416,8 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
         gameWindowHeightSpin->setFixedWidth(kWindowSizeSpinWidth + 22);
         WheelGuard::install(gameWindowHeightSpin);
         addRow(windowGroup, QStringLiteral("窗口大小"),
-               hbox(form, {gameWindowWidthSpin, gameWindowSizeTimesLabel, gameWindowHeightSpin}, kWindowSizeRowSpacing),
+               hbox(form, {gameWindowWidthSpin, gameWindowSizeTimesLabel, gameWindowHeightSpin},
+                    kWindowSizeRowSpacing),
                Placement::Natural, QStringLiteral("游戏可能沿用自身保存的尺寸。"),
                QStringLiteral("退出全屏后使用此尺寸。"));
     }
@@ -669,13 +670,9 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
     addImageGroup(Theme::Part::PageBackground, QStringLiteral("背景图"));
 
     // ---------- 外观 ----------
+    // NOTE: 「主页标题」那一格没有了（UI 问题 #3）：条上那行字固定是商标 `TitleBar::defaultBrandText()`，
+    // 不给用户改，也就不留这一项。
     SettingsGroup *look = addGroup(panel, QStringLiteral("外观"));
-    titleTextEdit = new QLineEdit(form);
-    titleTextEdit->setObjectName(titleTextEditName());
-    InputSizing::shortValue(titleTextEdit, titleTextMaxLength(), InputSizing::Script::Han);
-    titleTextEdit->setMaxLength(titleTextMaxLength());  // 上限在 ui/ 与 src/ 各写一遍（ui/ 不许 include src/）
-    titleTextEdit->setPlaceholderText(TitleBar::defaultBrandText());  // 默认标题直接作占位文字
-    addRow(look, QStringLiteral("主页标题"), titleTextEdit);
     // 「恢复默认」点了做什么在 MainWindow（要顺手存盘）；置灰跟着窗口大小走（setupUi 末尾那个监视器）。
     windowSizeResetButton = new QPushButton(QStringLiteral("恢复默认"), form);
     windowSizeResetButton->setObjectName(windowSizeResetButtonName());

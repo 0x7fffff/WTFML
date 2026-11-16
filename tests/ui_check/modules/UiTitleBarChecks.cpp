@@ -86,8 +86,9 @@ int UiTitleBarChecks(QMainWindow &window, MainWindowUI &ui) {
     // ---------- 导航：颗数 / 字 / 摆位 / 点击 ----------
     QTabWidget *tabs = ui.getTabWidget();
     check(tabs != nullptr && !tabs->tabBar()->isVisible(), "★ Z11 标签页自己那条标签栏藏起来了（导航在轨上）");
-    check(TitleBar::defaultBrandText() == QStringLiteral("WTFML") && rail->titleText() == TitleBar::defaultBrandText(),
-          "★ Z11 品牌默认写那五个字母", rail->titleText());
+    check(TitleBar::defaultBrandText() == QStringLiteral("WTFML"),
+          "★ Z11 品牌固定写那五个字母（UI 问题 #3：不给自定义）",
+          TitleBar::defaultBrandText());
     // 五个功能 = 五颗导航；第六个选项卡「工具箱」不上导航（入口是导航轨底部那颗）。
     const int tabCount = tabs != nullptr ? tabs->count() - 1 : -1;
     check(tabCount == 5 && tabs->count() == MainWindowUI::toolboxTabIndex() + 1 && rail->navCount() == tabCount,
@@ -230,24 +231,18 @@ int UiTitleBarChecks(QMainWindow &window, MainWindowUI &ui) {
         check(minimized == 1 && maximized == 1 && closed == 1, "Z11 点「×」只发关闭那一条");
     }
 
-    // ---------- 品牌字 ----------
+    // ---------- 品牌字：固定是商标，跟窗口标题无关、也不给改（UI 问题 #3） ----------
+    // 条上那行字没有"现在写着什么"的 getter 了（牌子固定），所以这里量**画出来的像素**：
+    // 换窗口标题前后一模一样，说明它不从窗口标题、也不从任何设置里来。
+    const QImage brandShot = captureWidget(rail);
     const QString longTitle(300, QLatin1Char('W'));
     window.setWindowTitle(longTitle);
     QApplication::processEvents();
-    check(rail->titleText() == QStringLiteral("WTFML") && rail->width() == TitleBar::railWidth(),
+    check(captureWidget(rail) == brandShot && rail->width() == TitleBar::railWidth(),
           "★ Z11 窗口标题再长，轨上照旧那五个字母、轨宽不变");
     window.setWindowTitle(QStringLiteral("WTF Minecraft Launcher"));
-    const QImage defaultShot = captureWidget(rail);
-    rail->setBrandText(QStringLiteral("自定义的名字"));
     QApplication::processEvents();
-    check(rail->titleText() == QStringLiteral("自定义的名字") && captureWidget(rail) != defaultShot,
-          "★ Z11 setBrandText() 换掉了品牌字并真的重画");
-    rail->setBrandText(QStringLiteral("  空格  "));
-    check(rail->titleText() == QStringLiteral("空格"), "Z11 两头的空白被去掉了");
-    rail->setBrandText(QString());
-    QApplication::processEvents();
-    check(rail->titleText() == TitleBar::defaultBrandText() && captureWidget(rail) == defaultShot,
-          "Z11 清空 = 回到默认，画出来和一开始一模一样");
+    check(captureWidget(rail) == brandShot, "Z11 品牌那行字固定画商标，换窗口标题也不变");
 
     // ---------- 外框认领的原生消息（系统背板那一版只认 WM_NCHITTEST，非客户区交给系统） ----------
     qintptr ncResult = -1;

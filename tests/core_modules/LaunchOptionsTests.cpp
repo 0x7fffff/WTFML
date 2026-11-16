@@ -36,13 +36,7 @@ void runLaunchOptionsTests(const QString &sandbox) {
               QStringLiteral("%1x%2").arg(fresh.gameWindowWidth()).arg(fresh.gameWindowHeight()));
         check(fresh.processPriority() == ProcessPriority::Normal,
               "ZD1 默认优先级是 Normal（不是 High —— 猜高的代价是拖慢用户的机器）");
-        // 顶上那行字：**空串是默认档**（= 条上那五个字母），不是"没有名字"。
-        // 所以这里钉的是"全新沙盒读出来是空的" —— 里面要是被塞了个 "WTFML"，
-        // 用户以后改名字就分不出"我改过"和"我没改过"了（条上那个默认值只有一个出处：
-        // TitleBar::defaultBrandText()，不在这一层抄一份）。
-        check(fresh.titleText().isEmpty(),
-              "ZD1 默认没改过名字（空串 = 条上用默认那五个字母）",
-              QStringLiteral("[%1]").arg(fresh.titleText()));
+        // NOTE: 「条上那行字」那一项在 UI 问题 #3 里撤掉了（商标固定），这一节不再有它的默认值。
     }
 
     section("ZD2. 三项跨实例读得回来；手改 ini 也得兜住");
@@ -51,7 +45,6 @@ void runLaunchOptionsTests(const QString &sandbox) {
         settings.setShowGameLog(true);
         settings.setGameWindowSize(1280, 720);
         settings.setProcessPriority(ProcessPriority::BelowNormal);
-        settings.setTitleText(QStringLiteral("我的启动器"));
 
         // 换个实例读：验的是真落了盘，不是留在成员变量里
         LauncherSettings reopened;
@@ -63,21 +56,6 @@ void runLaunchOptionsTests(const QString &sandbox) {
                   .arg(reopened.gameWindowHeight()));
         check(reopened.processPriority() == ProcessPriority::BelowNormal,
               "ZD2 优先级跨实例读得回来（不是退回 Normal —— 那会让用户以为设置没生效）");
-        check(reopened.titleText() == QStringLiteral("我的启动器"),
-              "ZD2 顶上那行字跨实例读得回来", reopened.titleText());
-
-        // 这一项的两条整理（去空白 / 截长度）在 setter 和 load 两处都要做 —— 因为它会被
-        // **画在条上**：带空格的" WTFML "看着就是没对齐，超长的名字会撞上中间那四颗导航
-        // 按钮。下面三组：setter 侧、load 侧（手改 ini）。
-        settings.setTitleText(QStringLiteral("   两头有空格   "));
-        check(settings.titleText() == QStringLiteral("两头有空格"),
-              "ZD2 setter 去掉两头的空白（名字是从条最左边开始画的）",
-              QStringLiteral("[%1]").arg(settings.titleText()));
-        settings.setTitleText(QString(40, QLatin1Char('W')));
-        check(settings.titleText().size() == LauncherSettings::titleTextMaxLength(),
-              "ZD2 setter 按上限截断",
-              QStringLiteral("%1 个字").arg(settings.titleText().size()));
-        settings.setTitleText(QStringLiteral("我的启动器"));
 
         // 存进去的值也可能是手改的，所以**读回来那一侧也要钳位**：这两个数会原样进游戏
         // 命令行，放一个 0 或者 99999 出去，游戏那边要么当没给、要么拿一个荒唐的窗口。
@@ -86,9 +64,6 @@ void runLaunchOptionsTests(const QString &sandbox) {
             raw.setValue(QStringLiteral("Launcher/WindowWidth"), 100);      // 低于下限
             raw.setValue(QStringLiteral("Launcher/WindowHeight"), 99999);  // 高于上限
             raw.setValue(QStringLiteral("Launcher/ProcessPriority"), QStringLiteral("turbo"));
-            // 顶上那行字：手改成一个又长又带空格的名字（这条会原样画到条上，不能信）。
-            raw.setValue(QStringLiteral("Launcher/TitleText"),
-                         QStringLiteral("   ") + QString(40, QLatin1Char('X')) + QStringLiteral("  "));
             raw.sync();
         }
         LauncherSettings clamped;
@@ -100,12 +75,6 @@ void runLaunchOptionsTests(const QString &sandbox) {
               QString::number(clamped.gameWindowHeight()));
         check(clamped.processPriority() == ProcessPriority::Normal,
               "ZD2 手改成认不出来的优先级后兜到 Normal");
-        check(clamped.titleText() == QString(LauncherSettings::titleTextMaxLength(),
-                                             QLatin1Char('X')),
-              "ZD2 手改的名字读回来先去掉空白、再截到上限",
-              QStringLiteral("[%1] %2 个字")
-                  .arg(clamped.titleText())
-                  .arg(clamped.titleText().size()));
 
         // setter 那一侧同样钳：界面上是 SpinBox 管着，但 setter 不能假设调用方是界面。
         settings.setGameWindowSize(1, 1);
@@ -616,19 +585,19 @@ void runLaunchOptionsTests(const QString &sandbox) {
     // ---------- ZD6. 两份启动器共用同一份全局设置：各改各的，互不覆盖 ----------
     //
     // 场景（计划里 P0-2 那一半）：装在两个目录的启动器各有自己的数据目录、可以同时开着，
-    // 但 `HKCU\Software\WTFML\WTFML` 是同一份。两边启动时各读了一份快照，之后甲只改标题、
+    // 但 `HKCU\Software\WTFML\WTFML` 是同一份。两边启动时各读了一份快照，之后甲只改进程优先级、
     // 乙只改「显示游戏日志」。以前 save() 整份写回 ⇒ 谁后存谁赢，另一项被打回启动时读到
     // 的旧值（用户看到的是"我改的那份没了"）。这里用两个对象造出"两个进程各持一份快照"，
     // 逐项验"对方没动的那一项还在"——两个方向都验，不能只验先写的那一份。
     //
     // NOTE: 这一节靠的是 `LauncherSettings::save()` 只写与 load() 快照不同的项；
-    // 整份写回的话下面第一条就会红（probe 念出来是空串）。
+    // 整份写回的话下面第一条就会红（probe 念出来是 Normal）。
     section("ZD6. 两份启动器共用全局设置：各改各的，谁也不把对方刚改的那一项打回去");
     {
         // 先把这一节用到的那两项摆回默认（前面的节已经写过别的值）。
         {
             LauncherSettings reset;
-            reset.setTitleText(QString());
+            reset.setProcessPriority(ProcessPriority::Normal);
             reset.setShowGameLog(false);
         }
 
@@ -637,32 +606,33 @@ void runLaunchOptionsTests(const QString &sandbox) {
         LauncherSettings first;    // 第一个安装目录里那份启动器
         LauncherSettings second;   // 第二个安装目录里那份启动器
 
-        first.setTitleText(QStringLiteral("甲改的标题"));
+        first.setProcessPriority(ProcessPriority::High);
         second.setShowGameLog(true);
 
         LauncherSettings probe;
-        check(probe.titleText() == QStringLiteral("甲改的标题"),
-              "★★ ZD6 乙保存它那一项时，没有把甲刚改的标题打回去",
-              QStringLiteral("盘上标题=[%1]").arg(probe.titleText()));
+        check(probe.processPriority() == ProcessPriority::High,
+              "★★ ZD6 乙保存它那一项时，没有把甲刚改的优先级打回去",
+              QStringLiteral("盘上优先级=%1").arg(static_cast<int>(probe.processPriority())));
         check(probe.showGameLog(),
               "★★ ZD6 甲保存时也没有把乙那一项打回去（两条对称）");
 
-        // 反方向再来一次：甲改另一项、乙改标题。
-        first.setProcessPriority(ProcessPriority::High);
-        second.setTitleText(QStringLiteral("乙改的标题"));
+        // 反方向再来一次：甲改另一项、乙改优先级。
+        first.setGameWindowSize(1600, 900);
+        second.setProcessPriority(ProcessPriority::BelowNormal);
         LauncherSettings probe2;
-        check(probe2.processPriority() == ProcessPriority::High &&
-                  probe2.titleText() == QStringLiteral("乙改的标题"),
+        check(probe2.gameWindowWidth() == 1600 && probe2.gameWindowHeight() == 900 &&
+                  probe2.processPriority() == ProcessPriority::BelowNormal,
               "★★ ZD6 反方向同样互不覆盖",
-              QStringLiteral("优先级=%1 标题=[%2]")
-                  .arg(static_cast<int>(probe2.processPriority()))
-                  .arg(probe2.titleText()));
+              QStringLiteral("窗口=%1x%2 优先级=%3")
+                  .arg(probe2.gameWindowWidth())
+                  .arg(probe2.gameWindowHeight())
+                  .arg(static_cast<int>(probe2.processPriority())));
 
         // 收尾：这一节写过的三项也摆回默认，别给后面的节留值。
         LauncherSettings cleanup;
-        cleanup.setTitleText(QString());
-        cleanup.setShowGameLog(false);
         cleanup.setProcessPriority(ProcessPriority::Normal);
+        cleanup.setShowGameLog(false);
+        cleanup.setGameWindowSize(854, 480);
     }
 
     section("ZD server favorites: independent persistence and endpoint identity");

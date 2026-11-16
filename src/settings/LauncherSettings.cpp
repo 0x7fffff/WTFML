@@ -59,7 +59,9 @@ static constexpr const char kGameWindowHeight[] = "Launcher/WindowHeight";
 // 另一处静默退回默认档"的典型写法。
 static constexpr const char kGameWindowMode[] = "Launcher/WindowMode";
 static constexpr const char kProcessPriority[] = "Launcher/ProcessPriority";
-static constexpr const char kTitleText[] = "Launcher/TitleText";
+// NOTE: 原先还有一条 `Launcher/TitleText`（条上那行字）。这一项在 UI 问题 #3 里撤掉了：
+// 商标固定，**不再读也不写**。老用户盘上那份值就那么留着（没人读它，界面一律显示 WTFML），
+// 刻意不在 load() 里抹掉它 —— 抹掉是"替用户改盘"，而没有读者时它和不存在没有区别。
 // 启动器自己那扇窗的大小（上面 Launcher/WindowWidth 那两项是**游戏**窗口的，别混）。
 static constexpr const char kMainWindowWidth[] = "Launcher/MainWindowWidth";
 static constexpr const char kMainWindowHeight[] = "Launcher/MainWindowHeight";
@@ -104,15 +106,6 @@ int clampWindowWidth(int width) {
 int clampWindowHeight(int height) {
     return qBound(LauncherSettings::gameWindowMinHeight(), height,
                   LauncherSettings::gameWindowMaxHeight());
-}
-
-/// 把顶上那行字收拾干净：去掉两头的空白，再截到长度上限。
-///
-/// 两头空白要去掉是因为**它会被画在条上**（名字是从条的最左边开始画的，" WTFML " 看着
-/// 就是没对齐）；截断是因为那一格地方是量的（见 MainWindowUI::titleTextMaxLength()），
-/// 而盘上那份是**不可信数据**（用户手改过注册表、或者以后从别处同步过来）。
-QString clampTitleText(const QString &text) {
-    return text.trimmed().left(LauncherSettings::titleTextMaxLength());
 }
 
 /// 主窗口大小收拾干净：盘上那份不可信（手改过、别处同步来的）。宽或高不是正数 = 没记过（0×0），
@@ -377,16 +370,6 @@ void LauncherSettings::setProcessPriority(ProcessPriority priority) {
     save();
 }
 
-void LauncherSettings::setTitleText(const QString &text) {
-    const QString cleaned = clampTitleText(text);
-    // 比的是**收拾过的**那一份：用户接着打一个空格（"名字 " → "名字"）不该白写一次盘。
-    if (m_titleText == cleaned) {
-        return;
-    }
-    m_titleText = cleaned;
-    save();
-}
-
 void LauncherSettings::setMainWindowSize(const QSize &size) {
     const QSize cleaned = clampMainWindowSize(size);
     if (cleaned.isEmpty() || m_mainWindowSize == cleaned) {
@@ -552,9 +535,6 @@ void LauncherSettings::load() {
     }
     m_processPriority = processPriorityFromKey(
         settings.value(kProcessPriority, processPriorityKey(m_processPriority)).toString());
-    // 顶上那行字也**读回来就收拾**：盘上那一份会被原样画到条上，多长、带不带空格都不该
-    // 信它（和宽高那两个数同一个理由）。
-    m_titleText = clampTitleText(settings.value(kTitleText, m_titleText).toString());
     // 主窗口大小同样读回来就收拾（认不出来的值 toInt() 给 0 = 没记过）。
     m_mainWindowSize = clampMainWindowSize(QSize(settings.value(kMainWindowWidth, m_mainWindowSize.width()).toInt(),
                                                  settings.value(kMainWindowHeight, m_mainWindowSize.height()).toInt()));
@@ -644,7 +624,6 @@ QVariantMap LauncherSettings::persistedValues() const {
                   QVariant(clampWindowHeight(m_gameWindowHeight)));
     values.insert(QString::fromLatin1(kGameWindowMode), gameWindowModeToken(m_gameWindowMode));
     values.insert(QString::fromLatin1(kProcessPriority), processPriorityKey(m_processPriority));
-    values.insert(QString::fromLatin1(kTitleText), clampTitleText(m_titleText));
     values.insert(QString::fromLatin1(kMainWindowWidth), QVariant(clampMainWindowSize(m_mainWindowSize).width()));
     values.insert(QString::fromLatin1(kMainWindowHeight), QVariant(clampMainWindowSize(m_mainWindowSize).height()));
     values.insert(QString::fromLatin1(kWarnDuplicateLaunch), QVariant(m_warnDuplicateLaunch));

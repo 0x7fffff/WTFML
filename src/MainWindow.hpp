@@ -1953,10 +1953,6 @@ private:
     void updateGameWindowSizeEnabled();
     /// 「窗口大小」那两个数字框共用这一个槽（和内存那两个 spin 同一套写法）。
     void onGameWindowSizeChanged();
-    /// 「外观」那一格：条上那行字。**边打字边生效也边落盘**（和上面两个不同，理由在
-    /// 接线那一处的 NOTE 里）。落盘的是 `setTitleText()` 归一化过的值，条上画的也是它 ——
-    /// 于是"条上显示的字"和"盘上存着的字"永远是同一个。
-    void onTitleTextChanged();
 
     // ---------- 「背景图」那一节（设置页「个性化」） ----------
     // 主页左栏和页面底各一块、各一行，

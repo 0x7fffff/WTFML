@@ -135,7 +135,7 @@
 #include "TaskCenterPanel.hpp"
 #include "SkinModel.hpp"
 #include "SkinViewer.hpp"
-#include "TitleBar.hpp"  // AI 节：设置页改名字之后条上那行字跟着变（titleText()/setBrandText()）
+#include "TitleBar.hpp"  // AI 节：左上角那行字固定是商标（TitleBar::defaultBrandText()）
 #include "VersionIcons.hpp"
 #include "VersionTreeDelegate.hpp"
 // T27.7：那一格世界设置本身（页面上摆了什么值、那几条规则各是第几行）。
