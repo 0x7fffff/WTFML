@@ -1367,6 +1367,7 @@ QWidget *ToolboxPage::buildHeader() {
     m_headerInner = new QWidget(header);
     m_headerInner->setMaximumWidth(kCatalogMaxWidth + 2 * kHeaderBleed);
     m_headerInner->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    outer->addStretch(1);  // 和内容一样居中
     outer->addWidget(m_headerInner, 1000);
     outer->addStretch(1);
     auto *inner = new QVBoxLayout(m_headerInner);
@@ -1449,6 +1450,7 @@ QWidget *ToolboxPage::buildCatalog() {
         connect(cell, &QPushButton::clicked, this, [this, tool] { showTool(tool); });
         grid->addWidget(cell);
     }
+    row->addStretch(1);  // 宽窗时居中
     row->addWidget(m_catalogBody, 1000);
     row->addStretch(1);
     scroll->setWidget(holder);
@@ -1500,6 +1502,7 @@ QWidget *ToolboxPage::ensureTool(Tool tool) {
     row->setSpacing(0);
     panel->setParent(holder);
     panel->setMaximumWidth(kToolMaxWidth);
+    row->addStretch(1);  // 宽窗时居中
     row->addWidget(panel, 1000);
     row->addStretch(1);
     scroll->setWidget(holder);

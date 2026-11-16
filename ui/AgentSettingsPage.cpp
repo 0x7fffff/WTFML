@@ -76,13 +76,14 @@ AgentSettingsPage::AgentSettingsPage(QWidget *parent) : QDialog(parent) {
     scroll->setWidgetResizable(true);
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     scroll->setFrameShape(QFrame::NoFrame);
-    // 和设置页同一个摆法：两侧留白放在 holder 上，表单最宽 720、贴左（左缘对齐页头「返回」）。
+    // 和设置页同一个摆法：两侧留白放在 holder 上，表单最宽 720、在窗口里居中。
     auto *holder = new QWidget(scroll);
     auto *holderLayout = new QHBoxLayout(holder);
     holderLayout->setContentsMargins(0, 4, 20, 24);
     auto *content = new QWidget(holder);
     content->setMaximumWidth(SettingsParts::kFormMaxWidth);
     content->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    holderLayout->addStretch(1);
     holderLayout->addWidget(content, 1000);
     holderLayout->addStretch(1);
     auto *form = new QVBoxLayout(content);
@@ -284,10 +285,12 @@ AgentSettingsPage::AgentSettingsPage(QWidget *parent) : QDialog(parent) {
     buttons->addStretch(1);
     buttons->addWidget(m_save);
     footerLayout->addLayout(buttons);
-    // 底栏和表单同宽、贴左（宽窗时「保存」落在表单右缘，不跑到窗口最右）。
+    // 底栏和表单同宽、同样居中（宽窗时「保存」落在表单右缘，不跑到窗口最右）。
+    // 右边让出滚动条那一格：表单在视口里居中，视口比页窄这一格。
     footer->setMaximumWidth(SettingsParts::kFormMaxWidth + 20);
     auto *footerRow = new QHBoxLayout;
-    footerRow->setContentsMargins(0, 0, 0, 0);
+    footerRow->setContentsMargins(0, 0, Theme::scrollBarThickness(), 0);
+    footerRow->addStretch(1);
     footerRow->addWidget(footer, 1000);
     footerRow->addStretch(1);
     root->addLayout(footerRow);
