@@ -720,10 +720,10 @@ void ImportController::importModpackOneClick(const QString &zipPath,
             name.isEmpty() ? prepared.pack.name : name);
         const QString conflictPrompt =
             (InstanceFiles::validateDirName(name).isEmpty() && InstanceFiles::isUnfinishedImport(name))
-                ? m_owner->tr("「%1」里是另一个整合包（或另一个版本）上次没装完的文件，不能混进同一个目录。\n\n"
-                              "请换一个新的实例名（versions 下面那个目录名），不会碰原来的半成品。")
+                ? m_owner->tr("「%1」中是另一个整合包（或另一版本）未完成的安装，不能装入同一目录。\n\n"
+                              "请另取一个实例名称，原有文件不受影响。")
                       .arg(name)
-                : m_owner->tr("%1\n\n请换一个新的实例名（versions 下面那个目录名）：").arg(nameProblem);
+                : m_owner->tr("%1\n\n请输入新的实例名称。").arg(nameProblem);
         while (true) {
             bool ok = false;
             const QString input = InlineMessage::getText(
@@ -747,8 +747,8 @@ void ImportController::importModpackOneClick(const QString &zipPath,
         }
     }
     if (verdict == InstanceFiles::ImportNameVerdict::OkResume) {
-        // 下载前命名框已明确告知会接着安装，此处不再二次弹窗确认，仅留日志。
-        m_owner->appendLog(m_owner->tr("接着上次没装完的「%1」继续安装。").arg(name));
+        // 下载前命名框已明确告知会继续安装，此处不再二次弹窗确认，仅留日志。
+        m_owner->appendLog(m_owner->tr("继续安装上次未完成的「%1」。").arg(name));
     }
 
     if (!promptCurseForgeFileIssuesIfNeeded(prepared.pack, name)) {

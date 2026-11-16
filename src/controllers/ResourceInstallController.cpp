@@ -467,11 +467,9 @@ void ResourceInstallController::installNow(ResourceCatalog::Kind kind, const QSt
                 == InstanceFiles::ImportNameVerdict::OkResume;
             const QString promptText =
                 resumePrompt
-                    ? MainWindow::tr("实例叫什么名字？这就是 versions 下面那个目录名，\n"
-                                     "上次没装完的「%1」会接着装，已经下好的文件不会重下。")
+                    ? MainWindow::tr("「%1」上次未安装完成，将继续安装，已下载的文件不再重复下载。")
                           .arg(confirmedName)
-                    : MainWindow::tr("实例叫什么名字？这就是 versions 下面那个目录名，\n"
-                                     "整合包「%1」会直接下载并安装到当前游戏目录。")
+                    : MainWindow::tr("整合包「%1」将安装到当前游戏目录，请确认实例名称。")
                           .arg(titleCopy);
             bool ok = false;
             const QString input = InlineMessage::getText(

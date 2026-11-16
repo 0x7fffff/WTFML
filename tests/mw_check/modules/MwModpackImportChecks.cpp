@@ -583,7 +583,7 @@ int MwModpackImportChecks(const QDir &versionsDir, MainWindow &window, GlobalJav
             if (zipped && probe.javaPath() == QStringLiteral("C:/没有这个目录/java.exe")
                 && !probe.autoSelectJava()) {
                 const int resumeLogsBefore = countOccurrences(
-                    messagesSnapshot(), QStringLiteral("接着上次没装完的「%1」继续安装").arg(kResumeId));
+                    messagesSnapshot(), QStringLiteral("继续安装上次未完成的「%1」").arg(kResumeId));
                 g_modalTitle.clear();
                 dismissNextPrompt();
                 const bool invokedResume = QMetaObject::invokeMethod(
@@ -594,7 +594,7 @@ int MwModpackImportChecks(const QDir &versionsDir, MainWindow &window, GlobalJav
                       "AA14 OkResume 不再弹第二次「接着上次的导入」确认框（直接走到下一步）",
                       g_modalTitle + QStringLiteral(" / ") + g_modalText);
                 check(countOccurrences(messagesSnapshot(),
-                                       QStringLiteral("接着上次没装完的「%1」继续安装").arg(kResumeId))
+                                       QStringLiteral("继续安装上次未完成的「%1」").arg(kResumeId))
                           == resumeLogsBefore + 1,
                       "AA14 OkResume 日志里留下一句继续安装说明");
 
