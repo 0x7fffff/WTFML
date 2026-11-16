@@ -502,10 +502,11 @@ void VersionManager::commitModpackImport(const QList<ModpackImport::FileIssue> &
         extra += QStringLiteral("\n\n") + pack.supportNote;
     }
 
+    const QString displayName = formatVersionName(displayParts(id));
     m_modpackInstall.reset();
     emit versionDownloadFinished(id, true,
                                  tr("整合包「%1」导入好了，实例列表里叫「%2」。%3")
-                                     .arg(pack.name, id, extra));
+                                     .arg(pack.name, displayName.isEmpty() ? id : displayName, extra));
 }
 
 void VersionManager::failModpackImport(const QString &reason) {

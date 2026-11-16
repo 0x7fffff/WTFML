@@ -511,6 +511,8 @@ void ResourceInstallController::installNow(ResourceCatalog::Kind kind, const QSt
         }
     } else {
         if (!modpackPath.isEmpty()) {
+            // 没开起来（撞上上面那道忙闸）：刚登记的那一单作废，留着就是一条永远等不到
+            // 下载的记录。
             owner.m_pendingModpackImports.remove(label);
         }
         if (owner.m_downloadTaskLedger->task() == task) {
