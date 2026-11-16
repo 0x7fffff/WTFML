@@ -32,6 +32,8 @@
 
 #include <QtGlobal>
 
+#include <algorithm>
+
 #ifdef Q_OS_WIN
 #  include <QtGui/qpa/qplatformwindow_p.h>
 #  include <dwmapi.h>
@@ -213,6 +215,30 @@ bool WindowChrome::handleNativeEvent(void *message, qintptr *result) {
         *result = 0;
         return true;
     }
+    case WM_ENTERSIZEMOVE:
+        m_inSizeMove = true;
+        return false;
+    case WM_EXITSIZEMOVE:
+        m_inSizeMove = false;
+        return false;
+    case WM_WINDOWPOSCHANGING: {
+        // 自己拖窗的窗口不要 Win+←/→ 的键盘贴靠（拖动的贴靠在上面已经不会发生）。键盘贴靠不进系统的移动循环、
+        // 也不是跨线程 SetWindowPos（实测 InSendMessageEx 为 0），带的标志位含 0x80000（Qt 自己的 resize、DPI 变化、
+        // 显示隐藏都不带），而且一定改大小。所以：循环外、没最小化、改大小、带这一位 = 贴靠，把大小和位置都按住。
+        // shortcut: 0x80000 是未公开的标志位，在 Win11 实测；换了系统版本若贴靠又出现，来这里重新量标志位。
+        if (!m_ownMove || m_inSizeMove) return false;
+        auto *pos = reinterpret_cast<WINDOWPOS *>(msg->lParam);
+        if ((pos->flags & SWP_NOSIZE) != 0 || (pos->flags & 0x80000) == 0 || IsIconic(msg->hwnd)) return false;
+        pos->flags |= SWP_NOSIZE | SWP_NOMOVE;
+        return false;
+    }
+    case WM_NCLBUTTONDBLCLK:
+        // 双击上 / 下 / 左 / 右边框：系统把窗口纵向（横向）贴满工作区，这也是一种贴靠，吃掉。
+        if (m_ownMove && msg->wParam >= HTLEFT && msg->wParam <= HTBOTTOMRIGHT) {
+            *result = 0;
+            return true;
+        }
+        return false;
     case WM_NCHITTEST: {
         RECT wr{};
         if (GetWindowRect(msg->hwnd, &wr) == FALSE) return false;
@@ -228,6 +254,8 @@ bool WindowChrome::handleNativeEvent(void *message, qintptr *result) {
             }
         }
         // 2) 拖拽区的空白处 = HTCAPTION（系统拖窗、贴边吸附都白拿）；子控件那一格不认。
+        // 自己拖窗的窗口不回 HTCAPTION（那会进系统移动循环、带出贴靠），交还客户区，由 handleBlankPress 搬。
+        if (m_ownMove) return false;
         const QPoint local = hitTestPoint(message);
         QList<QWidget *> strips;
         if (m_strip != nullptr) strips.append(m_strip);
@@ -282,10 +310,17 @@ bool WindowChrome::handleBlankPress(QEvent *event) {
     if (me->button() != Qt::LeftButton || m_window->isFullScreen() || m_window->windowHandle() == nullptr) return false;
     const QPoint global = me->globalPosition().toPoint();
     const QWidget *under = QApplication::widgetAt(global);
-    if (under == nullptr || under->window() != m_window || !isDragBlank(under, m_window)) return false;
-    const bool second = event->type() == QEvent::MouseButtonDblClick ||
-                        (m_blankClock.isValid() && !m_blankClock.hasExpired(QApplication::doubleClickInterval()) &&
-                         (global - m_blankPos).manhattanLength() <= QApplication::startDragDistance());
+    if (under == nullptr || under->window() != m_window) return false;
+    // 自己拖窗时，拖拽区本身（窗口按钮条、导航轨的空白）也算空白：它们不再靠 HTCAPTION 拖。
+    const bool onStrip = m_ownMove && (under == m_strip || std::any_of(m_extraStrips.cbegin(), m_extraStrips.cend(),
+                                                  [under](const QPointer<QWidget> &strip) { return strip.data() == under; }));
+    if (!onStrip && !isDragBlank(under, m_window)) return false;
+    // 双击只在窗口能最大化时有意义；不能最大化的窗口里，第二下照样是一次拖窗的开始。
+    const bool canMaximize = m_window->windowFlags() & Qt::WindowMaximizeButtonHint;
+    const bool second = canMaximize &&
+                        (event->type() == QEvent::MouseButtonDblClick ||
+                         (m_blankClock.isValid() && !m_blankClock.hasExpired(QApplication::doubleClickInterval()) &&
+                          (global - m_blankPos).manhattanLength() <= QApplication::startDragDistance()));
     if (second) {
         m_blankClock.invalidate();
         if (m_window->windowFlags() & Qt::WindowMaximizeButtonHint) {
@@ -295,8 +330,58 @@ bool WindowChrome::handleBlankPress(QEvent *event) {
     }
     m_blankClock.restart();
     m_blankPos = global;
-    m_window->windowHandle()->startSystemMove();
+    if (m_ownMove) {
+        beginOwnMove();
+    } else {
+        m_window->windowHandle()->startSystemMove();
+    }
     return true;
+}
+
+void WindowChrome::beginOwnMove() {
+#ifdef Q_OS_WIN
+    if (!realWindowsPlatform()) {
+        m_window->windowHandle()->startSystemMove();  // offscreen 没有真 HWND 可搬
+        return;
+    }
+    const HWND hwnd = reinterpret_cast<HWND>(m_window->windowHandle()->winId());
+    POINT cursor{};
+    RECT wr{};
+    if (hwnd == nullptr || !GetCursorPos(&cursor) || !GetWindowRect(hwnd, &wr)) return;
+    m_moveOffset = QPoint(wr.left - cursor.x, wr.top - cursor.y);
+    m_moveDpi = GetDpiForWindow(hwnd);
+    if (m_moveTimer == nullptr) {
+        m_moveTimer = new QTimer(this);
+        m_moveTimer->setInterval(8);
+        connect(m_moveTimer, &QTimer::timeout, this, &WindowChrome::stepOwnMove);
+    }
+    m_moveTimer->start();
+#endif
+}
+
+void WindowChrome::stepOwnMove() {
+#ifdef Q_OS_WIN
+    const HWND hwnd = m_window != nullptr && m_window->windowHandle() != nullptr
+                          ? reinterpret_cast<HWND>(m_window->windowHandle()->winId())
+                          : nullptr;
+    // 左键松开（含系统按键互换）、窗口没了、最小化 = 收手。窗口留在松手的地方。
+    const int button = GetSystemMetrics(SM_SWAPBUTTON) != 0 ? VK_RBUTTON : VK_LBUTTON;
+    POINT cursor{};
+    if (hwnd == nullptr || (GetAsyncKeyState(button) & 0x8000) == 0 || IsIconic(hwnd) || !GetCursorPos(&cursor)) {
+        m_moveTimer->stop();
+        return;
+    }
+    // 拖到 DPI 不同的屏上，系统会换窗口大小：偏移按新旧 DPI 之比换算，鼠标还指着窗口里同一个相对位置。
+    const unsigned dpi = GetDpiForWindow(hwnd);
+    if (dpi != m_moveDpi && dpi != 0 && m_moveDpi != 0) {
+        m_moveOffset = m_moveOffset * int(dpi) / int(m_moveDpi);
+        m_moveDpi = dpi;
+    }
+    RECT wr{};
+    if (GetWindowRect(hwnd, &wr) && wr.left == cursor.x + m_moveOffset.x() && wr.top == cursor.y + m_moveOffset.y()) return;
+    SetWindowPos(hwnd, nullptr, cursor.x + m_moveOffset.x(), cursor.y + m_moveOffset.y(), 0, 0,
+                 SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+#endif
 }
 
 bool WindowChrome::eventFilter(QObject *watched, QEvent *event) {

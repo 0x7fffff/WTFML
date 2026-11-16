@@ -989,6 +989,8 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // 右上那条窗口按钮条、导航轨的空白处。
     windowChrome = new WindowChrome(parent, bar->captionStrip(), parent);
     windowChrome->addDragStrip(bar);
+    // 主窗口不要 Windows 的贴靠：拖窗自己搬、不进系统移动循环（见 WindowChrome.hpp【自己拖窗】）。
+    windowChrome->setOwnMove(true);
 
     // 窗口大小一变：刷新「恢复默认」的置灰，并把该记的大小交给 MainWindow 落盘。
     new WindowSizeWatcher(parent, [this, parent] {

@@ -260,6 +260,21 @@ int UiTitleBarChecks(QMainWindow &window, MainWindowUI &ui) {
     qintptr otherResult = -1;
     check(!chromeHandlesPlainMessage(chrome, chromeLeftButtonDownMessage(), &otherResult),
           "Z11 别的原生消息一个字都不碰（只认 WM_NCHITTEST）");
+    // UI问题 #2：主窗口自己拖窗，键盘贴靠（带 0x80000 标志位、改大小）被按住；别的改大小一律放行。
+    {
+        qintptr ignored = 0;
+        const unsigned hold = chromeSwpNoSizeNoMove();
+        check(chrome->ownMove(), "★ UI问题 #2 主窗口的外框是自己拖窗模式");
+        check((chromeWindowPosChangingFlags(chrome, 0x180040) & hold) == hold,
+              "★ UI问题 #2 键盘贴靠的改大小（标志位带 0x80000）被按住：大小和位置都不动");
+        check(chromeWindowPosChangingFlags(chrome, 0x14) == 0x14 && chromeWindowPosChangingFlags(chrome, 0x1001837) == 0x1001837,
+              "UI问题 #2 Qt 自己的 resize / 显示（没有 0x80000）原样放行");
+        chromeHandlesPlainMessage(chrome, chromeEnterSizeMoveMessage(), &ignored);
+        check(chromeWindowPosChangingFlags(chrome, 0x180040) == 0x180040,
+              "UI问题 #2 拖边缩放的模态循环里不拦（拖边照旧能用）");
+        chromeHandlesPlainMessage(chrome, chromeExitSizeMoveMessage(), &ignored);
+        check((chromeWindowPosChangingFlags(chrome, 0x180040) & hold) == hold, "UI问题 #2 缩放循环结束后又拦");
+    }
     {
         GameLogWindow log(QStringLiteral("例外那一扇"));
         check((log.windowFlags() & Qt::FramelessWindowHint) == 0, "★ Z11 「游戏日志」窗照旧带系统标题栏");

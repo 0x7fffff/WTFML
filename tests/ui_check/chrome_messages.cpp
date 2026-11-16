@@ -36,6 +36,24 @@ bool chromeHandlesPlainMessage(WindowChrome *chrome, unsigned message, qintptr *
     return chrome != nullptr && chrome->handleNativeEvent(&msg, result);
 }
 
+unsigned chromeWindowPosChangingFlags(WindowChrome *chrome, unsigned flags) {
+    WINDOWPOS pos{};
+    pos.cx = 640;
+    pos.cy = 480;
+    pos.flags = flags;
+    MSG msg{};
+    msg.message = WM_WINDOWPOSCHANGING;
+    msg.lParam = reinterpret_cast<LPARAM>(&pos);
+    msg.hwnd = nullptr;  // IsIconic(nullptr) 回 FALSE
+    qintptr result = 0;
+    if (chrome != nullptr) chrome->handleNativeEvent(&msg, &result);
+    return pos.flags;
+}
+
+unsigned chromeSwpNoSizeNoMove() { return SWP_NOSIZE | SWP_NOMOVE; }
+unsigned chromeEnterSizeMoveMessage() { return WM_ENTERSIZEMOVE; }
+unsigned chromeExitSizeMoveMessage() { return WM_EXITSIZEMOVE; }
+
 /// 一条和"拖窗"有关、但**不是**我们该认的消息（左键按在非客户区上）。
 /// 常数从这里出，免得调用方为了一个数字去 include `<windows.h>`。
 unsigned chromeLeftButtonDownMessage() {

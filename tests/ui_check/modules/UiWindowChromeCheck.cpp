@@ -210,7 +210,8 @@ void checkRecipes() {
     check(darkest, "WC 背板区间含背后纯黑那一档（浅色亚克力 #878787，不是旧估计的 #b4）");
 }
 
-void checkWindow(const QString &name, QWidget *window, bool cycleByClose = true) {
+/// @p ownMove 自己拖窗的窗口（主窗口）：顶部条和导航轨一格都不回 HTCAPTION（回了就进系统移动循环、带出贴靠）。
+void checkWindow(const QString &name, QWidget *window, bool cycleByClose = true, bool ownMove = false) {
     showQuiet(window);
     scanBlank(name, window);
 
@@ -232,7 +233,15 @@ void checkWindow(const QString &name, QWidget *window, bool cycleByClose = true)
         }
     }
     check(stolen.isEmpty(), QStringLiteral("WC %1 顶部条上的按钮格不被当成标题栏（点得动）").arg(name), stolen.mid(0, 6).join(QLatin1Char(' ')));
-    check(caption >= 5, QStringLiteral("WC %1 顶部条的空白格回 HTCAPTION（拖得动）").arg(name), QString::number(caption));
+    if (ownMove) {
+        check(caption == 0 && stolen.isEmpty(), QStringLiteral("★ UI问题 #2 %1 顶部条没有一格回 HTCAPTION（拖窗自己搬，不进系统移动循环，没有贴靠）").arg(name),
+              QString::number(caption));
+        const int top = chromeNativeHitTest(window, QPoint(window->width() / 2, 0));
+        check(top >= chromeHtTop() && top <= chromeHtTop() + 2, QStringLiteral("UI问题 #2 %1 上沿那一圈仍是缩放边").arg(name),
+              QString::number(top));
+    } else {
+        check(caption >= 5, QStringLiteral("WC %1 顶部条的空白格回 HTCAPTION（拖得动）").arg(name), QString::number(caption));
+    }
     // ---- 3) 没有原生子窗口盖住 ----
     check(chromeNativeChildCount(window) == 0 && chromeNativeMouseReachesWindow(window, QPoint(window->width() / 2, 14)) == 1,
           QStringLiteral("WC %1 没有原生子窗口盖住客户区").arg(name), QString::number(chromeNativeChildCount(window)));
@@ -264,7 +273,7 @@ int UiWindowChromeCheck(QApplication &) {
     MainWindowUI ui(&window);
     window.chrome = ui.chrome();
     window.resize(1100, 760);
-    checkWindow(QStringLiteral("主窗口"), &window, false);
+    checkWindow(QStringLiteral("主窗口"), &window, false, true);
     // 主窗口的五页（主页 / 管理 / 下载 / 设置 / 智能体）各扫一遍。
     if (QTabWidget *tabs = ui.getTabWidget()) {
         for (int i = 1; i < tabs->count(); ++i) {
@@ -275,7 +284,7 @@ int UiWindowChromeCheck(QApplication &) {
         tabs->setCurrentIndex(0);
         settle();
     }
-    // 导航轨：空白格回 HTCAPTION、导航钮不回。
+    // 导航轨：自己拖窗之后一格都不回 HTCAPTION。
     if (chromeNativeAvailable() && ui.titleBar() != nullptr) {
         TitleBar *rail = ui.titleBar();
         int railCaption = 0;
@@ -290,7 +299,7 @@ int UiWindowChromeCheck(QApplication &) {
                 ++railCaption;
             }
         }
-        check(stolen.isEmpty() && railCaption > 0, QStringLiteral("WC 主窗口 导航轨：空白回 HTCAPTION、导航钮不回"),
+        check(stolen.isEmpty() && railCaption == 0, QStringLiteral("★ UI问题 #2 主窗口 导航轨一格都不回 HTCAPTION（没有贴靠）"),
               QStringLiteral("空白 %1 / 误吞 %2").arg(railCaption).arg(stolen.join(QLatin1Char(','))));
     }
     // ---- 6) 主页风景淡入 / 淡出（#68）----
