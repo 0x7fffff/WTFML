@@ -262,6 +262,30 @@ int UiPopupCheck(QApplication &app) {
             expect(scrollers == 0, "弹层上下那两块系统翻页箭头不在了",
                    QStringLiteral("还露着 %1 块").arg(scrollers));
         }
+        // 弹层宽度按**最长那一项**撑开：Qt 只照外面那个下拉框的宽摆弹层，而项里文字左右
+        // 各让出 12px、弹层自己还有 6px 内边距 —— 不撑开就切字，而且不带省略号（任务中心
+        // 那个「全部任务」筛选就是这么被切掉的）。
+        auto *wideCombo = new QComboBox(&host);
+        wideCombo->addItems({QStringLiteral("全部任务"), QStringLiteral("正在进行"),
+                             QStringLiteral("已结束"), QStringLiteral("需要处理")});
+        wideCombo->setFixedWidth(60);  // 比最长那一项窄：模拟被工具栏挤窄的下拉框
+        wideCombo->show();
+        QApplication::processEvents();
+        wideCombo->showPopup();
+        QApplication::processEvents();
+        QWidget *widePopup = wideCombo->view() != nullptr ? wideCombo->view()->window() : nullptr;
+        const int widestRow = wideCombo->view() != nullptr
+                                  ? wideCombo->view()->sizeHintForColumn(0)
+                                  : 0;
+        expect(widePopup != nullptr && widestRow > 0 && widePopup->width() >= widestRow + 12,
+               "弹层宽度按最长那一项撑开（项里左右各让 12px，字不被切）",
+               QStringLiteral("弹层 %1 / 最宽一项 %2 / 下拉框 %3")
+                   .arg(widePopup != nullptr ? widePopup->width() : -1)
+                   .arg(widestRow)
+                   .arg(wideCombo->width()));
+        wideCombo->hidePopup();
+        QApplication::processEvents();
+
         shortCombo->hidePopup();
         QApplication::processEvents();
 

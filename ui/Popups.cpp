@@ -59,6 +59,7 @@ constexpr int kPopupPadding = 6;        // 弹层内边距
 constexpr int kTooltipDelayMs = 500;    // 停 500ms 才出
 constexpr int kTooltipWakeMs = 1000;    // 收起后 1 秒内换到相邻控件：不等，立刻出
 constexpr int kRowHeight = 34;          // 下拉项高
+constexpr int kItemTextInset = 12;      // 项里文字左右各让出多少（paint 里 box 缩 4 + 文字缩 8）
 constexpr int kMaxVisibleItems = 8;     // 最多露 8 项，超出在弹层里滚
 constexpr int kSearchAfterItems = 15;   // 超过这么多项，顶部加搜索框
 constexpr int kThumbFadeMs = 600;       // 细条停 600ms 淡出
@@ -321,8 +322,12 @@ class PopupItemDelegate : public QStyledItemDelegate {
 public:
     explicit PopupItemDelegate(QObject *parent) : QStyledItemDelegate(parent) {}
 
+    /// 项宽 = 基类的文字宽 + 我们自己左右各让出的那 `kItemTextInset`（paint 里先缩 4、
+    /// 文字再缩 8）。少算这一截，弹层按项宽定出来的宽度就比字窄 24px：字被切掉，而且
+    /// **没有省略号**（paint 里是 drawText 直接裁）—— 用户看到的就是"文字被截断"。
     QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override {
-        return QSize(QStyledItemDelegate::sizeHint(option, index).width(), kRowHeight);
+        return QSize(QStyledItemDelegate::sizeHint(option, index).width() + kItemTextInset * 2,
+                     kRowHeight);
     }
 
     void paint(QPainter *painter, const QStyleOptionViewItem &option,
@@ -544,8 +549,21 @@ private:
                 height = totalHeight();
             }
         }
-        if (m_popup->height() != height) {
-            m_popup->resize(m_popup->width(), height);
+        // 宽度：弹层是 Qt 按**外面那个下拉框**的宽摆的（它不看项有多宽），而项的文字左右
+        // 各让出 12px、弹层自己还有 6px 内边距 —— 一行放不下的时候就切字（不带省略号）。
+        // 这里按最宽那一项把弹层撑开，屏幕放不下才收。
+        int width = m_popup->width();
+        const int widestItem = m_view->sizeHintForColumn(0);
+        if (widestItem > 0) {
+            const auto *frame = qobject_cast<QFrame *>(m_popup.data());
+            const int frameWidth = frame != nullptr ? 2 * frame->frameWidth() : 0;
+            width = qMax(width, widestItem + 2 * kPopupPadding + frameWidth);
+            if (QScreen *screen = m_popup->screen()) {
+                width = qMin(width, screen->availableGeometry().width());
+            }
+        }
+        if (m_popup->height() != height || m_popup->width() != width) {
+            m_popup->resize(width, height);
             // 长高之后可能顶出屏幕下沿：Qt 摆位置是在我们改高度**之前**做的，往上挪回来。
             if (QScreen *screen = m_popup->screen()) {
                 const QRect available = screen->availableGeometry();
