@@ -1820,16 +1820,17 @@ void InstanceSettingsDialog::rebuildNavigationTree() {
         item->setToolTip(0, text);
         item->setSizeHint(0, QSize(0, 32));  // 一级二级同一行高；36 时最小窗里左栏要竖着滚
         if (key.isEmpty()) item->setFlags(Qt::ItemIsEnabled);
+        if (parent == nullptr) {
+            // 一级目录（「概览」「启动设置」和四个分组头）同一档：正文字号、加粗、正文色；二级页才是常规字重。
+            QFont f = Theme::textFont(item->font(0), Theme::TextRole::Body);
+            f.setBold(true);
+            item->setFont(0, f);
+        }
         return item;
     };
     const auto group = [&add](QTreeWidgetItem *parent, const QString &text, const QString &id) {
         auto *item = add(parent, text, QString());
         item->setData(0, Qt::UserRole + 1, id);
-        // 分组头：小一号、次要色（设计稿左栏的小节名），叶子才是能点的页。
-        QFont f = Theme::textFont(item->font(0), Theme::TextRole::Caption);
-        f.setBold(true);
-        item->setFont(0, f);
-        item->setForeground(0, Theme::tokens().secondary);
         return item;
     };
     const auto leaf = [&add](QTreeWidgetItem *parent, const QString &key) {
