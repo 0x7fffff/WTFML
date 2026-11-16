@@ -55,6 +55,7 @@
 #include <QCompleter>
 #include <QDir>
 #include <QFontDatabase>
+#include <QFontInfo>
 #include <QFrame>
 #include <QKeyEvent>
 #include <QJsonObject>
@@ -103,6 +104,39 @@ struct ShotOptions {
     /// 一次跑完整张清单；文件名就按官网那一列（look-home-<主题> / install-* / inst-* / …）。
     bool site = false;
 };
+
+/// 截图进程用的字体：系统那份雅黑 + 系统那份等宽。
+///
+/// 离屏平台**不枚举系统字体**（`QFontDatabase::families()` 是空的），而产品里凡是等宽的
+/// 地方都问 `QFontDatabase::systemFont(FixedFont)`（智能体行内代码的 `<code>` 要的是
+/// "monospace"，服务端控制台 / 配置编辑器 / 工具箱哈希同理）。一个等宽字体都没有时，
+/// Qt 会退到某个应用字体 —— 截图里这些行内代码就成了 Dancing Script 手写体。照 msyh.ttc
+/// 的办法把系统那份等宽注册进来之后，`monospace` 能落到 Courier New 上（真启动器用 windows
+/// 平台插件，本来就枚举得到系统字体，不是产品的问题）。
+void installShotFonts(QApplication &app) {
+    const QDir fonts(QDir(qEnvironmentVariable("WINDIR")).filePath(QStringLiteral("Fonts")));
+    const QString msyh = fonts.filePath(QStringLiteral("msyh.ttc"));
+    const int fontId = QFile::exists(msyh) ? QFontDatabase::addApplicationFont(msyh) : -1;
+    const QStringList families = QFontDatabase::applicationFontFamilies(fontId);
+    app.setFont(QFont(families.isEmpty() ? QStringLiteral("Microsoft YaHei UI") : families.first(), 9));
+    // 真启动器用 windows 平台插件时，`systemFont(FixedFont)` 与 `<code>` 的 "monospace"
+    // 都落到 Courier New（实测：字体库里 Courier New 在、Consolas 也在）。这里优先注册
+    // 同一份，截图才和玩家看到的一致；后面的几档只是别的机器上没装 Courier 时的兜底。
+    for (const QString &name : {QStringLiteral("cour.ttf"), QStringLiteral("consola.ttf"),
+                                QStringLiteral("CascadiaMono.ttf"), QStringLiteral("lucon.ttf")}) {
+        const QString path = fonts.filePath(name);
+        if (!QFile::exists(path)) continue;
+        const int id = QFontDatabase::addApplicationFont(path);
+        if (id < 0) continue;
+        const QStringList mono = QFontDatabase::applicationFontFamilies(id);
+        std::printf("  等宽字体：%s（%s）\n", qPrintable(name),
+                    qPrintable(mono.isEmpty() ? QStringLiteral("?") : mono.first()));
+        break;
+    }
+    QFont mono;
+    mono.setFamilies({QStringLiteral("monospace")});
+    std::printf("  monospace 落到：%s\n", qPrintable(QFontInfo(mono).family()));
+}
 
 /// 颜色块 + 一个字母的小图标（资源行 / 账号行用；产品里那些是真图，这里只要不像空白）。
 QPixmap letterMark(const QColor &color, const QString &letter, int size) {
@@ -921,10 +955,7 @@ int runExtended(QApplication &app, const ShotOptions &options) {
     app.setOrganizationName(QStringLiteral("WTFMLReviewShots"));
     app.setApplicationName(QStringLiteral("ReviewShots"));
     app.setStyle(Theme::createStyle());
-    const QString fontPath = QDir(qEnvironmentVariable("WINDIR")).filePath(QStringLiteral("Fonts/msyh.ttc"));
-    const int fontId = QFile::exists(fontPath) ? QFontDatabase::addApplicationFont(fontPath) : -1;
-    const QStringList families = QFontDatabase::applicationFontFamilies(fontId);
-    app.setFont(QFont(families.isEmpty() ? QStringLiteral("Microsoft YaHei UI") : families.first(), 9));
+    installShotFonts(app);
 
     Theme::Spec spec = options.theme == QLatin1String("default") ? Theme::load() : Theme::presetSpec(options.theme);
     if (!options.background.isEmpty()) {
@@ -1799,6 +1830,35 @@ void makeSiteInstanceFixture(const QString &root) {
     QDir().mkpath(root + QStringLiteral("/game"));
 }
 
+/// 下载 › 整合包那一页的资源表：几个常见的包（导入确认框就是从这一页弹出来的）。
+void fillSiteModpackTree(MainWindowUI &ui) {
+    QTreeWidget *tree = ui.getDownloadResourceTree(QStringLiteral("modpack"));
+    if (tree == nullptr) return;
+    tree->clear();
+    const int column = MainWindowUI::versionTreeKeyColumn();
+    const QList<std::tuple<QString, QString, QColor>> packs{
+        {QStringLiteral("Fabulously Optimized"), QStringLiteral("FabulouslyOptimized / 18.4M"),
+         QColor(0x4f, 0x8a, 0xd8)},
+        {QStringLiteral("Create: Above and Beyond"), QStringLiteral("simibubi / 9.2M"),
+         QColor(0xc9, 0x7a, 0x3c)},
+        {QStringLiteral("Better MC [FABRIC]"), QStringLiteral("LunaPixelStudios / 24.1M"),
+         QColor(0x3c, 0x9e, 0x7a)},
+        {QStringLiteral("All the Mods 9"), QStringLiteral("ATMTeam / 31.7M"), QColor(0x7a, 0x5c, 0xc9)},
+        {QStringLiteral("DawnCraft"), QStringLiteral("broot44 / 12.8M"), QColor(0x9e, 0x4b, 0x6a)},
+        {QStringLiteral("RLCraft"), QStringLiteral("Shivaxi / 41.6M"), QColor(0x4b, 0x7a, 0x9e)}};
+    for (int i = 0; i < packs.size(); ++i) {
+        const auto &[name, detail, color] = packs.at(i);
+        auto *hit = new QTreeWidgetItem(tree);
+        hit->setData(column, Qt::UserRole, QStringLiteral("modpack-%1").arg(i + 1));
+        hit->setData(column, MainWindowUI::resourceKindRole(), QStringLiteral("modpack"));
+        hit->setData(column, MainWindowUI::resourceSourceRole(), QStringLiteral("modrinth"));
+        hit->setText(column, name);
+        hit->setData(column, MainWindowUI::rowSubTextRole(), detail);
+        hit->setData(column, MainWindowUI::rowIconRole(),
+                     letterMark(color, name, MainWindowUI::resourceTreeIconSize()));
+    }
+}
+
 /// 服务端那一页的字段表：名字 / 值域照产品那张唯一出处。
 QList<ServerSettingsPage::FieldView> siteServerFields() {
     QList<ServerSettingsPage::FieldView> views;
@@ -1900,7 +1960,7 @@ QJsonObject siteApprovalRequest() {
         {QStringLiteral("target"), QStringLiteral("D:/Games/WTFML/instances/光影与优化-1.21.1/options.txt")},
         {QStringLiteral("summary"), QStringLiteral("修改 2 行：renderDistance 8 → 12，ao false → true。")},
         {QStringLiteral("diff"),
-         QStringLiteral("  renderDistance:8\n- ao:false\n+ renderDistance:12\n+ ao:true")},
+         QStringLiteral("- renderDistance:8\n- ao:false\n+ renderDistance:12\n+ ao:true")},
         {QStringLiteral("backupHint"), QStringLiteral("写之前会把原文件另存为 options.txt.bak。")},
         {QStringLiteral("sessionAllowAvailable"), false},
         {QStringLiteral("egress"),
@@ -1994,11 +2054,10 @@ int runSite(QApplication &app, const ShotOptions &options) {
         std::printf("  %s：「%s」没找到\n", qPrintable(what), qPrintable(needle.left(20)));
     };
 
-    // ---- 主页：三套具名主题各一张（「跟随系统」另拍一张，深浅两态见交回说明）----
+    // ---- 主页：三套具名主题各一张 ----
     ui.getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
     fillSiteHome(ui);
-    for (const QString &id : {QStringLiteral("dark"), QStringLiteral("emerald"), QStringLiteral("ocean"),
-                              QStringLiteral("system")}) {
+    for (const QString &id : {QStringLiteral("dark"), QStringLiteral("emerald"), QStringLiteral("ocean")}) {
         applyTheme(id);
         shot(QStringLiteral("look-home-") + id);
     }
@@ -2202,7 +2261,18 @@ int runSite(QApplication &app, const ShotOptions &options) {
     }
 
     // ---- 导入整合包：检查页（版本 / 加载器 / 文件数 / 装到哪 + 一条冲突提示）----
+    // 真启动器里这颗按钮在下载 › 整合包（和实例页左栏）上，点了之后确认框仍压在**当前那一页**上。
     {
+        ui.getTabWidget()->setCurrentIndex(MainWindowUI::downloadTabIndex());
+        ui.getDownloadCategoryList()->setCurrentRow(MainWindowUI::downloadCategoryModpackIndex());
+        ui.setDownloadHeaderRow(MainWindowUI::downloadCategoryModpackIndex());
+        ui.getDownloadStack()->setCurrentIndex(MainWindowUI::downloadCategoryModpackIndex());
+        fillSiteModpackTree(ui);
+        pump();
+        std::printf("  导入底页：下载 › 整合包，%d 个包\n",
+                    ui.getDownloadResourceTree(QStringLiteral("modpack")) != nullptr
+                        ? ui.getDownloadResourceTree(QStringLiteral("modpack"))->topLevelItemCount()
+                        : -1);
         InlineMessageBox box(
             MessageKind::Question, QStringLiteral("开始导入"),
             QStringLiteral("整合包：Fabulously Optimized 6.1\nMinecraft：1.21.1 + Fabric 0.16.9\n"
@@ -2218,30 +2288,10 @@ int runSite(QApplication &app, const ShotOptions &options) {
                                        ? box.findChild<QLabel *>(InlineMessageBox::titleLabelName())->text()
                                        : QStringLiteral("?")),
                         box.width(), box.height(), box.noteText().size());
+            if (QTreeWidget *packs = ui.getDownloadResourceTree(QStringLiteral("modpack")))
+                std::printf("  pack-import 底页：整合包表可见 %d，%d 行\n", int(packs->isVisible()),
+                            packs->topLevelItemCount());
             shot(QStringLiteral("pack-import"));
-            box.done(1);
-        });
-        ui.overlay()->execPrompt(&box);
-        pump();
-    }
-
-    // ---- 导出整合包：「继续导出吗」那一张（认不出出处的文件会原样进包）----
-    {
-        InlineMessageBox box(
-            MessageKind::Question, QStringLiteral("继续导出吗"),
-            QStringLiteral("3 个文件在 Modrinth 与 CurseForge 都没查到出处：\n"
-                           "mods/optifine-compat-1.0.3.jar\nmods/自定义合成表.jar\nconfig/rare-recipes.json\n\n"
-                           "继续的话，认不出出处的文件会原样打进包里：别人装上照样能用，"
-                           "只是启动器不能替他单独更新或者去重。"),
-            {QStringLiteral("继续导出"), QStringLiteral("取消")}, 0, -1, &window);
-        QTimer::singleShot(200, &box, [&] {
-            pump();
-            std::printf("  导出确认：提示「%s」%dx%d\n",
-                        qPrintable(box.findChild<QLabel *>(InlineMessageBox::titleLabelName()) != nullptr
-                                       ? box.findChild<QLabel *>(InlineMessageBox::titleLabelName())->text()
-                                       : QStringLiteral("?")),
-                        box.width(), box.height());
-            shot(QStringLiteral("pack-export"));
             box.done(1);
         });
         ui.overlay()->execPrompt(&box);
@@ -2355,6 +2405,43 @@ int runSite(QApplication &app, const ShotOptions &options) {
                                   ->count()
                             : -1);
             shot(QStringLiteral("inst-upgrade"));
+
+            // 导出整合包：产品里从实例设置 ›「备份与操作」那颗「导出整合包…」发起，选完文件才出
+            // 这一张确认 —— 底页就是那一页（不是主页 / 设置页）。
+            dialog.showPage(QStringLiteral("operationsmenu"));
+            pump();
+            if (QPushButton *exportButton = dialog.findChild<QPushButton *>(Dlg::exportButtonName())) {
+                const QRect at = inWindow(exportButton);
+                std::printf("  导出底页：实例设置 › 备份与操作，导出钮 (%d,%d) %dx%d，可见 %d\n", at.x(), at.y(),
+                            at.width(), at.height(), int(exportButton->isVisible()));
+            }
+            {
+                InlineMessageBox box(
+                    MessageKind::Question, QStringLiteral("继续导出吗"),
+                    QStringLiteral("3 个文件在 Modrinth 与 CurseForge 都没查到出处：\n"
+                                   "mods/optifine-compat-1.0.3.jar\nmods/自定义合成表.jar\nconfig/rare-recipes.json\n\n"
+                                   "继续的话，认不出出处的文件会原样打进包里：别人装上照样能用，"
+                                   "只是启动器不能替他单独更新或者去重。"),
+                    {QStringLiteral("继续导出"), QStringLiteral("取消")}, 0, -1, &window);
+                QTimer::singleShot(200, &box, [&] {
+                    pump();
+                    std::printf("  导出确认：提示「%s」%dx%d\n",
+                                qPrintable(box.findChild<QLabel *>(InlineMessageBox::titleLabelName()) != nullptr
+                                               ? box.findChild<QLabel *>(InlineMessageBox::titleLabelName())->text()
+                                               : QStringLiteral("?")),
+                                box.width(), box.height());
+                    if (QPushButton *exportButton =
+                            dialog.findChild<QPushButton *>(Dlg::exportButtonName())) {
+                        const QRect at = inWindow(exportButton);
+                        std::printf("  pack-export 底页：导出钮 (%d,%d) %dx%d，可见 %d\n", at.x(), at.y(),
+                                    at.width(), at.height(), int(exportButton->isVisible()));
+                    }
+                    shot(QStringLiteral("pack-export"));
+                    box.done(1);
+                });
+                ui.overlay()->execPrompt(&box);
+                pump();
+            }
 
             ui.overlay()->closeOverlay();
             pump();
@@ -2472,9 +2559,8 @@ int runSite(QApplication &app, const ShotOptions &options) {
             AgentView::Message answer;
             answer.id = QStringLiteral("m2");
             answer.content = QStringLiteral(
-                "先看看 `options.txt` 现在写的是什么。\n\n"
-                "读完发现 `renderDistance:8`、`ao:false`，改这两项就行；写入前会把原文件备份成 "
-                "`options.txt.bak`，点「允许本次」才会动盘。");
+                "先看看 `options.txt` 现在写的是什么。\n"
+                "里面 `renderDistance:8`、`ao:false`，改这两项就行；写入前会备份成 `options.txt.bak`。");
             agent->setMessages({ask, answer});
             AgentView::ToolCard card;
             card.id = QStringLiteral("t1");
@@ -2486,13 +2572,47 @@ int runSite(QApplication &app, const ShotOptions &options) {
             agent->showEmptyState(false);
             agent->showApproval(siteApprovalRequest());
             pump();
+            // 审批卡插在对话流末尾，而 `scrollToLatest()` 是 singleShot(0) 排的：排上那一刻
+            // 布局还没把卡片量完，滚动条最大值是旧的。这里等布局落定后再贴到底，多发几次
+            // 是让最后一行的边距也进来。
+            QScrollArea *scroll = window.findChild<QScrollArea *>(QStringLiteral("agentMessageScroll"));
+            if (scroll != nullptr) {
+                for (int i = 0; i < 4; ++i) {
+                    scroll->verticalScrollBar()->setValue(scroll->verticalScrollBar()->maximum());
+                    pump();
+                }
+            }
             AgentApprovalCard *approval = agent->approvalCard();
+            if (scroll != nullptr) {
+                const QRect viewport = inWindow(scroll->viewport());
+                std::printf("  对话滚动：viewport (%d,%d) %dx%d，滚动 %d/%d\n", viewport.x(), viewport.y(),
+                            viewport.width(), viewport.height(), scroll->verticalScrollBar()->value(),
+                            scroll->verticalScrollBar()->maximum());
+            }
+            if (QWidget *composer = window.findChild<QWidget *>(QStringLiteral("agentComposerRow"))) {
+                const QRect at = inWindow(composer);
+                std::printf("  输入岛：(%d,%d) %dx%d\n", at.x(), at.y(), at.width(), at.height());
+            }
             std::printf("  智能体：审批卡 %s (%d,%d) %dx%d\n",
                         approval != nullptr && approval->isVisible() ? "可见" : "没露",
                         approval != nullptr ? inWindow(approval).x() : -1,
                         approval != nullptr ? inWindow(approval).y() : -1,
                         approval != nullptr ? approval->width() : -1,
                         approval != nullptr ? approval->height() : -1);
+            if (approval != nullptr) {
+                if (auto *preview = approval->findChild<QPlainTextEdit *>(
+                        QStringLiteral("agentEgressPreviewCard"))) {
+                    std::printf("  审批卡 diff 第一行：%s\n",
+                                qPrintable(preview->toPlainText().section(QLatin1Char('\n'), 0, 0)));
+                }
+                for (const char *name : {"agentApprovalDeny", "agentApprovalAllow"}) {
+                    if (auto *button = approval->findChild<QPushButton *>(QString::fromLatin1(name))) {
+                        const QRect at = inWindow(button);
+                        std::printf("  审批钮 %s：(%d,%d) %dx%d，可见 %d\n", name, at.x(), at.y(), at.width(),
+                                    at.height(), int(button->isVisible()));
+                    }
+                }
+            }
             shot(QStringLiteral("agent-confirm"));
             agent->hideApproval();
             pump();
@@ -2615,10 +2735,7 @@ int UiReviewShotsCheck(QApplication &app) {
     app.setOrganizationName(QStringLiteral("WTFMLReviewShots"));
     app.setApplicationName(QStringLiteral("ReviewShots"));
     app.setStyle(Theme::createStyle());
-    const QString fontPath = QDir(qEnvironmentVariable("WINDIR")).filePath(QStringLiteral("Fonts/msyh.ttc"));
-    const int fontId = QFile::exists(fontPath) ? QFontDatabase::addApplicationFont(fontPath) : -1;
-    const QStringList families = QFontDatabase::applicationFontFamilies(fontId);
-    app.setFont(QFont(families.isEmpty() ? QStringLiteral("Microsoft YaHei UI") : families.first(), 9));
+    installShotFonts(app);
 
     ShotOptions options;
     options.out = QDir::current().filePath(QStringLiteral("build/review-shots"));
