@@ -621,7 +621,7 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
 
     // ---------- 背景图（一块底一组） ----------
     // 挑图那一下不是记用户那个路径：文件会被拷进数据目录。这里只摆控件，收图和落盘在 MainWindow。
-    const auto addImageGroup = [&](Theme::Part part, const QString &groupTitle, const QString &scope) {
+    const auto addImageGroup = [&](Theme::Part part, const QString &groupTitle) {
         const QString key = Theme::partKey(part);
         SettingsGroup *group = addGroup(panel, groupTitle);
         ThemeImageRow widgets;
@@ -645,7 +645,10 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         imageLayout->addWidget(buttons);
         imageLayout->addWidget(widgets.state);
         widgets.state->setParent(imageBox);
-        addRow(group, QStringLiteral("图片"), imageBox, Placement::Wide, QStringLiteral("会复制到启动器数据目录。"), scope);
+        // 「图片」这一行不给 ⓘ（UI 问题 #21）：原来那颗 i 的悬停内容是「哪几页铺这张图」，
+        // 删掉之后那一句也不再传进来（`scope` 参数随之取消）。
+        addRow(group, QStringLiteral("图片"), imageBox, Placement::Wide,
+               QStringLiteral("会复制到启动器数据目录。"));
 
         widgets.fit = new QComboBox(form);
         widgets.fit->setObjectName(themeImageFitName(key));
@@ -663,8 +666,7 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         addRow(group, QStringLiteral("不透明度"), sliderWithValue(widgets.opacity, widgets.percent, form));
         m_themeImageRows.append(widgets);
     };
-    addImageGroup(Theme::Part::PageBackground, QStringLiteral("背景图"),
-                  QStringLiteral("主页、管理、下载和设置页，铺满整窗。"));
+    addImageGroup(Theme::Part::PageBackground, QStringLiteral("背景图"));
 
     // ---------- 外观 ----------
     SettingsGroup *look = addGroup(panel, QStringLiteral("外观"));
