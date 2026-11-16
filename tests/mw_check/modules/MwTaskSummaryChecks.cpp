@@ -196,9 +196,9 @@ int MwTaskSummaryChecks(MainWindow &window) {
                           "AB2 在跑的那一项：详情页上能取消、不能重试（面板和详情页读同一份能力位）",
                           QStringLiteral("cancel=%1 retry=%2").arg(rdCancel).arg(rdRetry));
                     check(abOverlay->pageOpen(),
-                          "AB2 查看详情仍留在同一个活动中心工作区（没有叠第二层覆盖页）");
+                          "AB2 查看详情仍留在同一个任务中心工作区（没有叠第二层覆盖页）");
                 }
-                // 活动中心是 OverlayHost 当前那一页；只 close 子控件会留下一个“页面仍开着、
+                // 任务中心是 OverlayHost 当前那一页；只 close 子控件会留下一个“页面仍开着、
                 // 内容已经没了”的半开状态，下一次点底栏只会先执行 evict()，也就不会走
                 // openTaskCenterPanel() 里的 markAllViewed()。按产品的页面出口完整收掉。
                 if (abOverlay != nullptr && abOverlay->pageOpen()) {

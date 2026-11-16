@@ -459,7 +459,7 @@ int UiSurfaceSweepCheck(QApplication &app) {
         QApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     }
 
-    // 底栏中间那格：活动中心浮层 →「全部任务」→ 任务中心整页。
+    // 底栏中间那格：任务中心浮层 →「全部任务」→ 任务中心整页。
     {
         QList<TaskCenter::Item> items;
         TaskCenter::Item running;
@@ -492,7 +492,7 @@ int UiSurfaceSweepCheck(QApplication &app) {
             cell->click();
             pump();
             QWidget *popover = window.findChild<QWidget *>(ActivityPopover::objectNameValue());
-            sweep.record(QStringLiteral("activity-popover"), QStringLiteral("底栏·活动中心浮层"),
+            sweep.record(QStringLiteral("activity-popover"), QStringLiteral("底栏·任务中心浮层"),
                          QStringLiteral("主窗口 → 底栏中间那格「任务」"),
                          QStringLiteral("ui/ActivityPopover.cpp"), QStringLiteral("ui-review-shots"), popover,
                          &window);
@@ -503,7 +503,7 @@ int UiSurfaceSweepCheck(QApplication &app) {
                 for (int i = 0; i < 6; ++i) pump();
                 QWidget *panel = window.findChild<QWidget *>(MainWindowUI::taskCenterPanelName());
                 sweep.record(QStringLiteral("task-center"), QStringLiteral("任务中心（整页）"),
-                             QStringLiteral("底栏任务那格 → 活动中心浮层 → 「全部任务」"),
+                             QStringLiteral("底栏任务那格 → 任务中心浮层 → 「全部任务」"),
                              QStringLiteral("ui/TaskCenterPanel.cpp"), QStringLiteral("ui-review-shots"), panel,
                              &window);
                 ui.overlay()->closeOverlay();

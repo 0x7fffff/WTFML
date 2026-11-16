@@ -1,6 +1,6 @@
 /**
  * @file ActivityPopover.cpp
- * @brief 活动中心浮动面板（见 .hpp）。
+ * @brief 任务中心浮动面板（见 .hpp）。
  */
 #include "ActivityPopover.hpp"
 
@@ -151,7 +151,7 @@ ActivityPopover::ActivityPopover(QWidget *anchor, Handlers handlers)
     // ---------- 标题行：手写体标题 +「全部任务」（筛选 / 搜索 / 历史 / 详情都在整页里） ----------
     auto *header = new QHBoxLayout;
     header->setContentsMargins(2, 0, 0, 0);
-    auto *title = new QLabel(QStringLiteral("活动中心"), this);
+    auto *title = new QLabel(QStringLiteral("任务中心"), this);
     title->setFont(Theme::textFont(title->font(), Theme::TextRole::Heading));
     header->addWidget(title);
     header->addStretch(1);

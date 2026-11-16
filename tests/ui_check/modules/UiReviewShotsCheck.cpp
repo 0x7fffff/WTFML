@@ -420,7 +420,7 @@ QList<MainWindowUI::PanelRow> accountRows(bool signedIn) {
     return rows;
 }
 
-/// 活动中心那两三条任务（一条在跑、一条已完成、一条失败）。
+/// 任务中心那两三条任务（一条在跑、一条已完成、一条失败）。
 QList<TaskCenter::Item> activityItems() {
     QList<TaskCenter::Item> items;
     TaskCenter::Item download;
@@ -1340,7 +1340,7 @@ int runExtended(QApplication &app, const ShotOptions &options) {
         std::printf("  SKIP new-server：表单宿主挂不上\n");
     }
 
-    // ---- 活动中心：两三条任务 ----
+    // ---- 任务中心：两三条任务 ----
     ui.getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
     ui.setTaskCenterContent([] { return activityItems(); }, [] {});
     MainWindowUI::BottomBarTaskSummary summary;
@@ -1350,7 +1350,7 @@ int runExtended(QApplication &app, const ShotOptions &options) {
     summary.extraCount = 2;
     summary.title = QStringLiteral("下载 Sodium 0.6.13");
     ui.setBottomBarTaskSummary(summary);
-    // 「活动中心」的公开入口就是底栏中间那一格（点一下开、再点一下收）。
+    // 「任务中心」的公开入口就是底栏中间那一格（点一下开、再点一下收）。
     if (QPushButton *summaryButton = ui.getTaskSummaryButton()) {
         summaryButton->click();
         pump();
@@ -2216,7 +2216,7 @@ int runSite(QApplication &app, const ShotOptions &options) {
     {
         ui.setTaskCenterContent([] { return siteTaskItems(); }, [] {});
         if (QPushButton *summary = ui.getTaskSummaryButton()) {
-            summary->click();  // 底栏中间那格 → 活动中心浮层
+            summary->click();  // 底栏中间那格 → 任务中心浮层
             pump();
             // 浮层右上那颗「全部任务」才是任务中心整页（ActivityPopover::openAllIn 就是点它）。
             const bool opened = ActivityPopover::openAllIn(&window);

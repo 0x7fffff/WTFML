@@ -172,7 +172,7 @@ bool MainWindow::cancelWouldWork(const Tasks::TaskSnapshot &task) const {
 
 bool MainWindow::retryWouldWork(const Tasks::TaskSnapshot &task) const {
     // 判据本体在账本层的纯函数 `Tasks::retryOffered()`（verify 的 AL 节钉着它那张真值表）——
-    // 这一层只负责把执行器的“现在还能不能重试”喂给活动中心；失败清单属于哪一项由
+    // 这一层只负责把执行器的“现在还能不能重试”喂给任务中心；失败清单属于哪一项由
     // ActivityCenterController 自己持有。
     const bool held = m_versionManager != nullptr && m_versionManager->canRetryDownload();
     return m_activityCenter->retryWouldWork(task, held);

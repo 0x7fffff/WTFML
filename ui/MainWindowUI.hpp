@@ -3863,7 +3863,7 @@ private:
     void openBottomBarPanel(const BottomBarAnchor &anchor);
     /// 开任务中心那一块（整页：筛选 / 搜索 / 历史 / 详情；浮动面板「全部任务」进这里）。
     void openTaskCenterPanel();
-    /// 任务摘要那一格：开 / 收活动中心浮动面板（ui/ActivityPopover，设计稿 panels-tasks）。
+    /// 任务摘要那一格：开 / 收任务中心浮动面板（ui/ActivityPopover，设计稿 panels-tasks）。
     void toggleActivityPopover();
     /// 现在开着的任务中心面板（没开着 = nullptr）。它是个 Qt::Popup 窗口，close() 之后
     /// 要等 deleteLater 才真删 —— 所以同一轮事件处理里还找得到（和 `bottomBarPanelName()`

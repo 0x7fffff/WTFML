@@ -1984,7 +1984,7 @@ void MainWindowUI::openTaskCenterPanel() {
         auto *headerLayout = new QHBoxLayout(header);
         headerLayout->setContentsMargins(0, 0, 0, 0);
         headerLayout->setSpacing(8);
-        auto *title = new QLabel(QStringLiteral("活动中心"), header);
+        auto *title = new QLabel(QStringLiteral("任务中心"), header);
         QFont titleFont = title->font();
         titleFont.setBold(true);
         title->setFont(titleFont);
@@ -2017,7 +2017,7 @@ void MainWindowUI::openTaskCenterPanel() {
         return;
     }
     const auto openNow = [this, runningProvider, runningAction, onOutsidePress]() {
-    QWidget *page = overlayHost->openPage(QStringLiteral("活动中心"));
+    QWidget *page = overlayHost->openPage(QStringLiteral("任务中心"));
     if (page == nullptr) {
         return;
     }

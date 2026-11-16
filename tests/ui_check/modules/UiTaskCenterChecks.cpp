@@ -111,7 +111,7 @@ int UiTaskCenterChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs
                       popover->width() == ActivityPopover::kWidth &&
                       popover->mapToGlobal(QPoint(0, popover->height())).y() <= cell->mapToGlobal(QPoint(0, 0)).y() &&
                       popover->geometry().top() >= 0,
-                  "★ I2 点一下中间那格，弹出 400 宽的活动中心浮动面板，贴在任务摘要上方、整块在窗口里",
+                  "★ I2 点一下中间那格，弹出 400 宽的任务中心浮动面板，贴在任务摘要上方、整块在窗口里",
                   popover ? QStringLiteral("%1×%2 @%3,%4").arg(popover->width()).arg(popover->height())
                                 .arg(popover->x()).arg(popover->y()) : QStringLiteral("没弹"));
             check(popover != nullptr &&
