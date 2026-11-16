@@ -241,8 +241,8 @@ void DownloadCompletionController::onFinished(const QString &versionId, bool suc
                 selectImportedVersion();
             }
             m_owner.updateStartButtonText();
-            // 正在看活动中心浮层（`taskCenterPromptWorkspace` 占着提示位）时把收尾弹窗排进队列，
-            // 等用户关掉活动中心立刻弹出，避免被「已有提示开着」静默吞掉。
+            // 正在看任务中心浮层（`taskCenterPromptWorkspace` 占着提示位）时把收尾弹窗排进队列，
+            // 等用户关掉任务中心立刻弹出，避免被「已有提示开着」静默吞掉。
             const auto showCompletePrompt = [weakOwner = QPointer<MainWindow>(&m_owner), versionId,
                                              errorMessage]() {
                 if (weakOwner.isNull()) {
