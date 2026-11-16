@@ -512,6 +512,17 @@ TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider
     auto *toolbar = new QHBoxLayout(m_toolbar);
     toolbar->setContentsMargins(0, 0, 0, 0);
     toolbar->setSpacing(8);
+    // 「运行中实例」那一栏的开关摆在工具条最前：按下 = 左栏露出来，弹起 = 整栏让给任务列表。
+    // 原来是左栏顶上一颗「收起 / 展开」，收起后那一栏只剩 36 px，按钮被竖着摆到半中间、字也被切。
+    m_collapseRunning = new QPushButton(tr("运行中实例"), m_toolbar);
+    m_collapseRunning->setObjectName(QStringLiteral("taskCenterRunningCollapse"));
+    m_collapseRunning->setCheckable(true);
+    m_collapseRunning->setChecked(true);
+    // 鼠标点击不留下焦点框；Tab 仍可聚焦并用空格切换。
+    m_collapseRunning->setFocusPolicy(Qt::TabFocus);
+    m_collapseRunning->setFixedHeight(36);
+    Theme::markButton(m_collapseRunning, Theme::ButtonKind::Neutral);
+    toolbar->addWidget(m_collapseRunning);
     m_filter = new QComboBox(m_toolbar);
     m_filter->setFixedHeight(36);
     m_filter->setObjectName(QStringLiteral("taskCenterFilter"));
@@ -551,7 +562,7 @@ TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider
     workspace->setContentsMargins(kPanelPadding, kPanelPadding, kPanelPadding, kPanelPadding);
     workspace->setSpacing(kSectionSpacing);
 
-    // 左列：运行中实例。按钮可以把整列收成一条窄边，给任务列表让位置。
+    // 左列：运行中实例。工具条上那颗开关可以把整列收掉，给任务列表让位置。
     m_runningPane = new QWidget(this);
     m_runningPane->setObjectName(QStringLiteral("taskCenterRunningPane"));
     m_runningPane->setFixedWidth(kRunningWidth);
@@ -563,20 +574,6 @@ TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider
     m_runningTitle->setObjectName(QStringLiteral("taskCenterRunningTitle"));
     runningHeader->addWidget(m_runningTitle);
     runningHeader->addStretch(1);
-    // 写「收起 / 展开」两个字，不用 ‹ / › 小箭头（体验反馈 8，tokens-r2 §6）。
-    m_collapseRunning = new QPushButton(tr("收起"), m_runningPane);
-    m_collapseRunning->setObjectName(QStringLiteral("taskCenterRunningCollapse"));
-    m_collapseRunning->setToolTip(tr("收起运行中实例"));
-    m_collapseRunning->setAccessibleName(tr("收起运行中实例"));
-    m_collapseRunning->setCheckable(true);
-    m_collapseRunning->setChecked(true);
-    // 鼠标点击不留下焦点框；Tab 仍可聚焦并用空格切换。
-    m_collapseRunning->setFocusPolicy(Qt::TabFocus);
-    Theme::markButton(m_collapseRunning, Theme::ButtonKind::Ghost);
-    Theme::markIconButton(m_collapseRunning);  // 借图标钮那档紧凑内边距，36 宽的收起态才放得下两个字
-    m_collapseRunning->setFont(Theme::textFont(m_collapseRunning->font(), Theme::TextRole::Caption));
-    m_collapseRunning->setFixedSize(34, 28);
-    runningHeader->addWidget(m_collapseRunning);
     runningLayout->addLayout(runningHeader);
     m_runningScroll = new Theme::GutterScrollArea(m_runningPane);
     m_runningScroll->setFrameShape(QFrame::NoFrame);
@@ -695,7 +692,8 @@ void TaskCenterPanel::applyWorkspaceMode() {
     if (!m_embedded) {
         return;
     }
-    m_runningPane->setVisible(!m_compact);
+    m_runningPane->setVisible(!m_compact && !m_runningCollapsed);
+    m_collapseRunning->setVisible(!m_compact);  // 窄屏那一档没有左栏，开关也不露
     if (!m_compact) {
         m_scroll->show();
         m_detailPane->show();
@@ -729,13 +727,8 @@ void TaskCenterPanel::updateDetailPaneWidth() {
 }
 
 void TaskCenterPanel::applyRunningCollapsed() {
-    if (m_runningTitle != nullptr) {
-        m_runningTitle->setVisible(!m_runningCollapsed);
-    }
-    m_runningScroll->setVisible(!m_runningCollapsed);
-    m_runningPane->setFixedWidth(m_runningCollapsed ? 36 : kRunningWidth);
-    m_collapseRunning->setText(m_runningCollapsed ? tr("展开") : tr("收起"));
-    m_collapseRunning->setToolTip(m_runningCollapsed ? tr("展开运行中实例")
+    m_runningPane->setVisible(!m_runningCollapsed && !(m_embedded && m_compact));
+    m_collapseRunning->setToolTip(m_runningCollapsed ? tr("显示运行中实例")
                                                      : tr("收起运行中实例"));
     m_collapseRunning->setAccessibleName(m_collapseRunning->toolTip());
     // 勾选状态要和这一套对齐，但**不能惊动 toggled**：那一发是"用户点了"的专用通道。
@@ -1150,7 +1143,7 @@ void TaskCenterPanel::rebuildRunning() {
     }
     const QList<TaskCenter::RunningItem> rows =
         m_runningProvider ? m_runningProvider() : QList<TaskCenter::RunningItem>();
-    // 左栏的默认姿态：没有实例在跑的时候，那一栏收成 36 px 的一条（只剩箭头），别让一句
+    // 左栏的默认姿态：没有实例在跑的时候，那一栏整列收掉（工具条上的开关弹起），别让一句
     // 「当前没有运行中的实例」占着 220 px。实例跑起来之后**自动展开**（同一句判据的另一头）。
     // NOTE: 用户亲手点过那颗按钮之后就不再替他做主（`m_runningUserToggled`）——
     // 他展开就是想看着，下一次 rebuild 又收回去等于跟用户抢。
@@ -1159,6 +1152,7 @@ void TaskCenterPanel::rebuildRunning() {
     if (!m_runningUserToggled) {
         setRunningCollapsed(rows.isEmpty(), /*animate=*/false);
     }
+    m_collapseRunning->setText(rows.isEmpty() ? tr("运行中实例") : tr("运行中实例 %1").arg(rows.size()));
     if (rows.isEmpty()) {
         auto *empty = new QLabel(tr("当前没有运行中的实例"), m_runningContent);
         empty->setWordWrap(true);

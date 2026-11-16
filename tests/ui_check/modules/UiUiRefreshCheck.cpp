@@ -243,7 +243,7 @@ int UiUiRefreshCheck(QApplication &app) {
             QStringLiteral("taskCenterRunningCollapse"));
         auto *runningPane = running.findChild<QWidget *>(QStringLiteral("taskCenterRunningPane"));
         expect(runningToggle && runningPane && !runningToggle->isChecked()
-                   && runningPane->width() == 36,
+                   && !runningPane->isVisibleTo(&running),
                "running pane starts collapsed when nothing is running");
         running.resize(1400, 500);
         app.processEvents();
@@ -271,7 +271,7 @@ int UiUiRefreshCheck(QApplication &app) {
         app.processEvents();
         expect(running.findChildren<QWidget *>(QStringLiteral("taskCenterRunningRow")).isEmpty(),
                "finished instance disappears without reopening panel");
-        expect(runningToggle && !runningToggle->isChecked() && runningPane->width() == 36,
+        expect(runningToggle && !runningToggle->isChecked() && !runningPane->isVisibleTo(&running),
                "running pane auto-collapses when the last instance exits");
         running.hide();
         runningItems.append(game);

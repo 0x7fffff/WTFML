@@ -168,9 +168,13 @@ int UiTaskCenterChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs
                           && panel->findChild<QWidget *>(QStringLiteral("taskCenterDetailPane")) !=
                                  nullptr,
                       "I2 任务中心具备运行中实例 / 任务列表 / 上下文详情三列结构");
-                check(panel->findChild<QPushButton *>(
-                              QStringLiteral("taskCenterRunningCollapse")) != nullptr,
-                      "I2 运行中实例列提供收起按钮");
+                // 开关在工具条上，工具条被挂进页头（headerActions()），不在 panel 底下
+                auto *runningToggle = window.findChild<QPushButton *>(
+                    QStringLiteral("taskCenterRunningCollapse"));
+                check(runningToggle != nullptr && runningToggle->parentWidget() != nullptr
+                          && runningToggle->parentWidget()->objectName()
+                                 == QStringLiteral("taskCenterToolbar"),
+                      "I2 运行中实例列的开关在任务中心工具条上");
                 // 行按**行号**找得回来（名字由 taskCenterPanelRowName() 给），两栏接着数：
                 // 第 0 行是「当前工作」那件、第 1 行是「已完成」那件。
                 QLabel *title0 =

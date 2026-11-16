@@ -368,7 +368,8 @@ int MwWorkspaceCheck(QApplication &app) {
         app.processEvents();
         auto *toggle = panel.findChild<QPushButton *>(QStringLiteral("taskCenterRunningCollapse"));
         auto *pane = panel.findChild<QWidget *>(QStringLiteral("taskCenterRunningPane"));
-        check(toggle && pane && !toggle->isChecked() && pane->width() == 36,
+        auto *toolbar = panel.findChild<QWidget *>(QStringLiteral("taskCenterToolbar"));
+        check(toggle && pane && !toggle->isChecked() && !pane->isVisibleTo(&panel),
               "running pane starts collapsed when nothing is running");
         if (toggle && pane) {
             for (int i = 0; i < 4; ++i) {
@@ -376,10 +377,12 @@ int MwWorkspaceCheck(QApplication &app) {
                 app.processEvents();
                 // 开局是收着的 ⇒ 第一下是**展开**（i == 0），第三下又展开。
                 const bool expanded = i % 2 == 0;
-                check(toggle->isChecked() == expanded && pane->width() == (expanded ? 220 : 36),
-                      "toggle selection follows running pane width");
-                check(pane->rect().contains(QRect(toggle->mapTo(pane, QPoint()), toggle->size())),
-                      "running pane toggle stays inside collapsed header");
+                check(toggle->isChecked() == expanded && pane->isVisibleTo(&panel) == expanded &&
+                          (!expanded || pane->width() == 220),
+                      "toggle selection follows running pane visibility");
+                check(toolbar != nullptr && toolbar->isAncestorOf(toggle) && toggle->isVisibleTo(&panel) &&
+                          toggle->width() >= toggle->sizeHint().width(),
+                      "running pane toggle sits in the toolbar with its full text");
             }
         }
         check(fakeNet.notFound == 0, "workspace 的假外网没有收到没路由的请求",
