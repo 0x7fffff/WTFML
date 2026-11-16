@@ -535,6 +535,88 @@ int MwModpackImportChecks(const QDir &versionsDir, MainWindow &window, GlobalJav
             window.seedDownloadInFlightForTest(false);
         }
 
+        // ---- AA14 一键导入续装不再二次确认；指纹冲突改弹命名框 ---------------
+        if (windowJava != nullptr) {
+            QTemporaryDir tempPackDir;
+            const QByteArray manifestBytes = QByteArrayLiteral(R"({
+                "formatVersion": 1,
+                "game": "minecraft",
+                "versionId": "1.0.0",
+                "name": "一键续装假包",
+                "dependencies": {"minecraft": "1.21.4", "neoforge": "21.1.72"},
+                "files": [{"path": "mods/example.jar",
+                           "hashes": {"sha1": "0000000000000000000000000000000000000000"},
+                           "downloads": ["https://example.invalid/example.jar"],
+                           "fileSize": 1234}]
+            })");
+            const QString manifestPath = tempPackDir.filePath(QStringLiteral("modrinth.index.json"));
+            const QString mrpackPath = tempPackDir.filePath(QStringLiteral("oneclick-resume.mrpack"));
+            writeFileAt(manifestPath, manifestBytes);
+            QString zipErr;
+            const bool zipped = ZipUtil::createZip(
+                mrpackPath, {{QStringLiteral("modrinth.index.json"), manifestPath}}, &zipErr);
+            check(zipped, "AA14 前提：测试用 .mrpack 打出来了", zipErr);
+
+            const QString kJava99Id3 = QStringLiteral("1.21.4");
+            writeFileAt(versionsDir.filePath(kJava99Id3 + QLatin1Char('/') + kJava99Id3 +
+                                             QStringLiteral(".json")),
+                        QByteArrayLiteral("{\"id\":\"1.21.4\",\"javaVersion\":"
+                                          "{\"majorVersion\":99}}"));
+            pinGlobalJava(QStringLiteral("C:/没有这个目录/java.exe"));
+            QApplication::processEvents();
+
+            const QString fingerprint = InstanceFiles::importManifestFingerprint(manifestBytes);
+            const QString kResumeId = QStringLiteral("oneclick-resume-half");
+            versionsDir.mkpath(kResumeId);
+            writeFileAt(InstanceFiles::importMarkerPath(kResumeId),
+                        QStringLiteral("{\"startedAt\":\"2026-01-01T00:00:00Z\",\"manifestSha256\":\"%1\"}")
+                            .arg(fingerprint)
+                            .toUtf8());
+
+            const QString kMismatchId = QStringLiteral("oneclick-mismatch-half");
+            versionsDir.mkpath(kMismatchId);
+            writeFileAt(InstanceFiles::importMarkerPath(kMismatchId),
+                        QByteArrayLiteral("{\"startedAt\":\"2026-01-01T00:00:00Z\","
+                                          "\"manifestSha256\":\"0000000000000000000000000000000000000000000000000000000000000000\"}"));
+
+            GlobalJavaSettings probe;
+            if (zipped && probe.javaPath() == QStringLiteral("C:/没有这个目录/java.exe")
+                && !probe.autoSelectJava()) {
+                const int resumeLogsBefore = countOccurrences(
+                    messagesSnapshot(), QStringLiteral("接着上次没装完的「%1」继续安装").arg(kResumeId));
+                g_modalTitle.clear();
+                dismissNextPrompt();
+                const bool invokedResume = QMetaObject::invokeMethod(
+                    &window, "importModpackOneClick", Qt::DirectConnection,
+                    Q_ARG(QString, mrpackPath), Q_ARG(QString, kResumeId));
+                check(invokedResume, "AA14 OkResume 调用接得上");
+                check(g_modalTitle == QStringLiteral("需要 Java 环境"),
+                      "AA14 OkResume 不再弹第二次「接着上次的导入」确认框（直接走到下一步）",
+                      g_modalTitle + QStringLiteral(" / ") + g_modalText);
+                check(countOccurrences(messagesSnapshot(),
+                                       QStringLiteral("接着上次没装完的「%1」继续安装").arg(kResumeId))
+                          == resumeLogsBefore + 1,
+                      "AA14 OkResume 日志里留下一句继续安装说明");
+
+                g_modalTitle.clear();
+                g_modalWasWarning = false;
+                dismissNextPrompt();
+                const bool invokedMismatch = QMetaObject::invokeMethod(
+                    &window, "importModpackOneClick", Qt::DirectConnection,
+                    Q_ARG(QString, mrpackPath), Q_ARG(QString, kMismatchId));
+                check(invokedMismatch, "AA14 指纹冲突调用接得上");
+                check(g_modalTitle == QStringLiteral("换个名字") && !g_modalWasWarning,
+                      "AA14 指纹冲突时不直接报错失败，而是弹命名框让用户换名",
+                      g_modalTitle + QStringLiteral(" / ") + g_modalText);
+            }
+
+            unpinGlobalJava();
+            QApplication::processEvents();
+            QDir(versionsDir.filePath(kJava99Id3)).removeRecursively();
+            QDir(versionsDir.filePath(kResumeId)).removeRecursively();
+            QDir(versionsDir.filePath(kMismatchId)).removeRecursively();
+        }
+
         check(QDir(versionsDir).entryList(QDir::Dirs | QDir::NoDotAndDotDot).size() == dirsBefore,
               "AA 收尾：沙盒里没多出目录（被拦下的导入不在盘上留东西）",
               QString::number(dirsBefore) + QStringLiteral(" → ") +

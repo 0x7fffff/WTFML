@@ -93,6 +93,9 @@ public:
     /// 换一句"现在在干什么"（面板里标题下面那行小字）。
     bool setDetail(TaskId id, const QString &detail);
 
+    /// 更正任务标题与目标标识（例如一键安装续装冲突改名后同步目标实例）。
+    bool setTitleAndTarget(TaskId id, const QString &title, const QString &targetId);
+
     /// 启动那一件任务是**在进程起来之前**记的，那时会话号还不存在 ⇒ 只能事后补这一笔。
     /// `sessionId <= 0` 什么都不做。已经对上过的那一项**不再改口**（一项任务只属于一份
     /// 会话）。**不落盘**（见 `TaskSnapshot::sessionId`）。

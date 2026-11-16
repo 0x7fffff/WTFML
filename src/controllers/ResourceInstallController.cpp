@@ -457,21 +457,33 @@ void ResourceInstallController::installNow(ResourceCatalog::Kind kind, const QSt
     QString confirmedName;
     if (isModpack) {
         const QString titleCopy = displayTitle;
-        confirmedName = ModpackImport::suggestUniqueInstanceName(titleCopy);
+        const ModpackImport::OneClickInstanceName suggested =
+            ModpackImport::suggestOneClickInstanceName(titleCopy);
+        confirmedName = suggested.name;
         while (true) {
+            // 通过 checkImportTargetName 统一校验合法性后再判是否续装，避免非法路径名误查盘。
+            const bool resumePrompt =
+                InstanceFiles::checkImportTargetName(confirmedName, nullptr, QString())
+                == InstanceFiles::ImportNameVerdict::OkResume;
+            const QString promptText =
+                resumePrompt
+                    ? MainWindow::tr("实例叫什么名字？这就是 versions 下面那个目录名，\n"
+                                     "上次没装完的「%1」会接着装，已经下好的文件不会重下。")
+                          .arg(confirmedName)
+                    : MainWindow::tr("实例叫什么名字？这就是 versions 下面那个目录名，\n"
+                                     "整合包「%1」会直接下载并安装到当前游戏目录。")
+                          .arg(titleCopy);
             bool ok = false;
             const QString input = InlineMessage::getText(
-                owner.m_ui->overlay(), MainWindow::tr("安装整合包"),
-                MainWindow::tr("实例叫什么名字？这就是 versions 下面那个目录名，\n"
-                               "整合包「%1」会直接下载并安装到当前游戏目录。")
-                    .arg(titleCopy),
-                confirmedName, &ok);
+                owner.m_ui->overlay(), MainWindow::tr("安装整合包"), promptText, confirmedName, &ok);
             if (!ok) {
                 return;
             }
             confirmedName = input.trimmed();
-            const QString problem = InstanceFiles::validateRenameTarget(confirmedName, QString());
-            if (problem.isEmpty()) {
+            QString problem;
+            // 下载前尚未拿到压缩包清单指纹，传空指纹放行未完成导入以便后续续装或分流。
+            if (InstanceFiles::checkImportTargetName(confirmedName, &problem, QString())
+                != InstanceFiles::ImportNameVerdict::Taken) {
                 break;
             }
             InlineMessage::warning(owner.m_ui->overlay(), MainWindow::tr("换个名字"), problem);

@@ -205,6 +205,22 @@ QString suggestInstanceName(const QString &packName) {
 
 QString suggestUniqueInstanceName(const QString &packName,
                                   const std::function<bool(const QString &)> &isAvailable) {
+    return suggestOneClickInstanceName(
+               packName, [](const QString &) { return false; }, isAvailable)
+        .name;
+}
+
+OneClickInstanceName suggestOneClickInstanceName(
+    const QString &packName,
+    const std::function<bool(const QString &)> &isUnfinished,
+    const std::function<bool(const QString &)> &isAvailable) {
+    const auto unfinished = [&](const QString &candidate) {
+        if (!InstanceFiles::validateDirName(candidate).isEmpty()) {
+            return false;
+        }
+        return isUnfinished ? isUnfinished(candidate)
+                            : InstanceFiles::isUnfinishedImport(candidate);
+    };
     const auto available = [&](const QString &candidate) {
         if (!InstanceFiles::validateDirName(candidate).isEmpty()) {
             return false;
@@ -214,8 +230,12 @@ QString suggestUniqueInstanceName(const QString &packName,
     };
 
     const QString base = suggestInstanceName(packName);
+    if (unfinished(base)) {
+        return {base, true};
+    }
+    // 首个可用空位即止，避免没有冲突时继续探测近万个不存在的后缀目录。
     if (available(base)) {
-        return base;
+        return {base, false};
     }
 
     for (int index = 2; index < 10000; ++index) {
@@ -226,11 +246,14 @@ QString suggestUniqueInstanceName(const QString &packName,
             prefix.chop(1);
         }
         const QString candidate = prefix.isEmpty() ? QObject::tr("整合包%1").arg(suffix) : prefix + suffix;
+        if (unfinished(candidate)) {
+            return {candidate, true};
+        }
         if (available(candidate)) {
-            return candidate;
+            return {candidate, false};
         }
     }
-    return base;
+    return {base, false};
 }
 
 // ---------------------------------------------------------------------------

@@ -388,6 +388,39 @@ void runModpackImportTests(const QString &sandbox) {
                   suffixedMax.length() <= InstanceFiles::kMaxDirNameLength &&
                   InstanceFiles::validateDirName(suffixedMax).isEmpty(),
               "V3b 满 64 字符重名时截短前缀后再拼后缀，仍满足长度与目录名校验", suffixedMax);
+
+        // --- V3c. 一键安装默认名挑选（suggestOneClickInstanceName）--------------
+        {
+            const auto noneUnfinished = [](const QString &) { return false; };
+            const auto allAvailable = [](const QString &) { return true; };
+
+            const auto fresh = ModpackImport::suggestOneClickInstanceName(
+                QStringLiteral("FPS Modpack"), noneUnfinished, allAvailable);
+            check(fresh.name == QStringLiteral("FPS Modpack") && !fresh.resume,
+                  "V3c 无旧目录 → 选原名且不续装", fresh.name);
+
+            const auto resumeBase = ModpackImport::suggestOneClickInstanceName(
+                QStringLiteral("FPS Modpack"),
+                [](const QString &c) { return c.compare(QStringLiteral("FPS Modpack"), Qt::CaseInsensitive) == 0; },
+                [](const QString &c) { return c.compare(QStringLiteral("FPS Modpack"), Qt::CaseInsensitive) != 0; });
+            check(resumeBase.name == QStringLiteral("FPS Modpack") && resumeBase.resume,
+                  "V3c 原名是没装完的 → 选原名且续装", resumeBase.name);
+
+            const auto resumeSecond = ModpackImport::suggestOneClickInstanceName(
+                QStringLiteral("FPS Modpack"),
+                [](const QString &c) { return c.compare(QStringLiteral("FPS Modpack-2"), Qt::CaseInsensitive) == 0; },
+                [](const QString &c) {
+                    return c.compare(QStringLiteral("FPS Modpack"), Qt::CaseInsensitive) != 0
+                           && c.compare(QStringLiteral("FPS Modpack-2"), Qt::CaseInsensitive) != 0;
+                });
+            check(resumeSecond.name == QStringLiteral("FPS Modpack-2") && resumeSecond.resume,
+                  "V3c 原名被正常实例占、-2 是没装完的 → 选 -2 且续装", resumeSecond.name);
+
+            const auto allNormal = ModpackImport::suggestOneClickInstanceName(
+                QStringLiteral("FPS Modpack"), noneUnfinished, checkAvailable);
+            check(allNormal.name == QStringLiteral("FPS Modpack-3") && !allNormal.resume,
+                  "V3c 都被正常实例占 → 选第一个空名字且不续装", allNormal.name);
+        }
     }
 
     // --- V3b. 先试哪条地址：cdn.modrinth.com 排最前 -----------------------------
