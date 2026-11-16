@@ -65,6 +65,8 @@ constexpr int kMaxVisibleItems = 8;     // 最多露 8 项，超出在弹层里�
 constexpr int kSearchAfterItems = 15;   // 超过这么多项，顶部加搜索框
 constexpr int kThumbFadeMs = 600;       // 细条停 600ms 淡出
 constexpr int kFadeEdgePx = 16;         // 上下渐隐那一条的高度
+constexpr int kShadowSpread = 18;       // 浮层阴影向四周铺开的宽度
+constexpr int kShadowDropY = 4;         // 阴影整体下移
 
 // ---------------------------------------------------------------------------
 // 真·透桌面那一档：给浮层自己的 HWND 挂 DWM 瞬态亚克力
@@ -138,6 +140,114 @@ void fadeIn(QWidget *widget, int ms, int risePixels) {
         slide->start(QAbstractAnimation::DeleteWhenStopped);
     }
 }
+
+// ---------------------------------------------------------------------------
+// 浮层阴影：Windows 给 `Qt::Popup` 顶层窗画的原生阴影（`CS_DROPSHADOW`）只会按矩形铺，
+// 圆角外面露出一圈方的。原生那条在 `preparePopup()` 里关掉，换成这里一块跟圆角同形的柔和阴影：
+// 一个点击穿透的透明顶层窗，叠在浮层正后方，跟着它走（位置 / 大小 / 显示 / 隐藏）。
+// ---------------------------------------------------------------------------
+
+class PopupShadow : public QWidget {
+public:
+    PopupShadow()
+        : QWidget(nullptr, Qt::Tool | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint |
+                               Qt::WindowTransparentForInput | Qt::WindowDoesNotAcceptFocus) {
+        setObjectName(QStringLiteral("wtfmlPopupShadow"));
+        setAttribute(Qt::WA_TranslucentBackground, true);
+        setAttribute(Qt::WA_ShowWithoutActivating, true);
+        setAttribute(Qt::WA_TransparentForMouseEvents, true);
+        setFocusPolicy(Qt::NoFocus);
+    }
+
+protected:
+    void paintEvent(QPaintEvent *) override {
+        // 深色页上阴影要更浓才看得出来。
+        const int peak = Theme::tokens().page.lightness() < 128 ? 120 : 52;
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        painter.setCompositionMode(QPainter::CompositionMode_Source);
+        // 阴影本体 = 浮层的矩形整体下移 kShadowDropY；贴边处最浓（大半被浮层盖住），向外按三次方淡出。
+        const QRectF core = QRectF(rect()).adjusted(kShadowSpread, kShadowSpread + kShadowDropY, -kShadowSpread,
+                                                    -kShadowSpread + kShadowDropY);
+        for (int i = kShadowSpread; i >= 0; --i) {
+            const qreal fall = 1.0 - qreal(i) / kShadowSpread;
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(QColor(0, 0, 0, qRound(peak * fall * fall * fall)));
+            const QRectF ring = core.adjusted(-i, -i, i, i);
+            painter.drawRoundedRect(ring, kPopupRadius + i, kPopupRadius + i);
+        }
+    }
+};
+
+/// 挂在浮层上：浮层上屏就把阴影窗叠到它后面，之后跟着挪、跟着缩，藏起来就一起藏。
+class PopupShadowFollower : public QObject {
+public:
+    explicit PopupShadowFollower(QWidget *popup) : QObject(popup), m_popup(popup) {
+        setObjectName(QStringLiteral("wtfmlPopupShadowFollower"));
+        popup->installEventFilter(this);
+    }
+
+    ~PopupShadowFollower() override { delete m_shadow; }
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override {
+        if (watched != m_popup) {
+            return false;
+        }
+        switch (event->type()) {
+        case QEvent::Show:
+            sync();
+            // Qt 在 Show 之后才把浮层摆到最上面：再排一拍把阴影压回它后面。
+            QTimer::singleShot(0, this, [this] { sync(); });
+            break;
+        case QEvent::Move:
+        case QEvent::Resize:
+            if (m_popup->isVisible()) {
+                sync();
+            }
+            break;
+        case QEvent::Hide:
+        case QEvent::Close:
+            if (m_shadow != nullptr) {
+                m_shadow->hide();
+            }
+            break;
+        default:
+            break;
+        }
+        return false;
+    }
+
+private:
+    void sync() {
+        if (m_popup.isNull() || !m_popup->isVisible()) {
+            return;
+        }
+        if (m_shadow == nullptr) {
+            m_shadow = new PopupShadow;
+        }
+        const QRect target = m_popup->geometry().adjusted(-kShadowSpread, -kShadowSpread, kShadowSpread, kShadowSpread);
+        if (m_shadow->geometry() != target) {
+            m_shadow->setGeometry(target);
+        }
+        const bool fresh = !m_shadow->isVisible();
+        if (fresh) {
+            m_shadow->show();
+            fadeIn(m_shadow, kPopupFadeMs, 0);  // 和浮层同一个淡入时长
+        }
+#ifdef Q_OS_WIN
+        // 叠在浮层正后方：插在它后面，不抢焦点、不动位置。
+        const HWND top = reinterpret_cast<HWND>(m_popup->winId());
+        const HWND under = reinterpret_cast<HWND>(m_shadow->winId());
+        if (top != nullptr && under != nullptr) {
+            SetWindowPos(under, top, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        }
+#endif
+    }
+
+    QPointer<QWidget> m_popup;
+    PopupShadow *m_shadow = nullptr;
+};
 
 // ---------------------------------------------------------------------------
 // tooltip：自己画的一条（系统那个黄底方角气泡不再出现）
@@ -794,6 +904,15 @@ void Popups::paintSurface(QPainter &painter, const QRectF &rect, qreal radius) {
 void Popups::preparePopup(QWidget *popup) {
     if (popup == nullptr) {
         return;
+    }
+    // Qt 给没挂这个旗标的 Popup 在 Windows 上注册带 CS_DROPSHADOW 的窗口类（方形阴影），要赶在 HWND 建出来之前关。
+    const bool shadowed = popup->windowType() == Qt::Popup &&
+                          QGuiApplication::platformName() == QLatin1String("windows");
+    if (shadowed && !popup->windowFlags().testFlag(Qt::NoDropShadowWindowHint) && !popup->isVisible()) {
+        popup->setWindowFlag(Qt::NoDropShadowWindowHint, true);
+    }
+    if (shadowed && popup->findChild<QObject *>(QStringLiteral("wtfmlPopupShadowFollower"), Qt::FindDirectChildrenOnly) == nullptr) {
+        new PopupShadowFollower(popup);
     }
     if (!popup->windowFlags().testFlag(Qt::FramelessWindowHint)) {
         // 没上屏之前改旗标都算数（QMenu 在 Polish 时平台窗口已经建了，Qt 会按新旗标重建）；

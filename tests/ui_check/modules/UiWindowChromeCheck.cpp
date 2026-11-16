@@ -25,6 +25,7 @@
 #include "GameLogWindow.hpp"
 #include "Glass.hpp"
 #include "OverlayHost.hpp"
+#include "Popups.hpp"
 #include "SystemBackdrop.hpp"
 
 #include "InstanceUpdateWizard.hpp"
@@ -510,6 +511,31 @@ int UiWindowChromeCheck(QApplication &) {
                   QString::number(chromeNativeFrameActive(&window)));
         }
         checkBackdrop(main, &window, QStringLiteral("撤掉开关"));
+    }
+
+    // ---- UI问题 #1：浮层不用原生阴影（矩形），改由跟圆角同形的阴影窗垫在后面 ----
+    if (chromeNativeAvailable()) {
+        QFrame popup(&window, Qt::Popup);
+        Popups::preparePopup(&popup);
+        check(popup.windowFlags().testFlag(Qt::NoDropShadowWindowHint),
+              "★ UI问题 #1 Qt::Popup 浮层关掉了原生（矩形）阴影");
+        popup.setAttribute(Qt::WA_ShowWithoutActivating, true);
+        popup.setGeometry(-4000, -4000, 200, 120);
+        popup.show();
+        settle();
+        QWidget *shadow = nullptr;
+        for (QWidget *top : QApplication::topLevelWidgets()) {
+            if (top->objectName() == QStringLiteral("wtfmlPopupShadow")) shadow = top;
+        }
+        check(shadow != nullptr && shadow->isVisible() && shadow->geometry().contains(popup.geometry()) &&
+                  shadow->width() > popup.width() && shadow->height() > popup.height(),
+              "★ UI问题 #1 浮层上屏后有一块比它大一圈的阴影窗垫在后面",
+              shadow != nullptr ? QStringLiteral("阴影 %1x%2 / 浮层 %3x%4").arg(shadow->width()).arg(shadow->height())
+                                      .arg(popup.width()).arg(popup.height())
+                                : QStringLiteral("没找到"));
+        popup.hide();
+        settle();
+        check(shadow != nullptr && !shadow->isVisible(), "UI问题 #1 浮层收起，阴影窗跟着收起");
     }
 
     // ---- 原生子窗口的来源：对子控件调 winId() 的后果，和「打开方式」挂的那个 owner ----
