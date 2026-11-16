@@ -5,7 +5,7 @@
 #include <QScreen>
 
 // 155：主窗口默认 1024×620、最小 900×590、每次启动导航收起、记住窗口大小（界面这一侧：夹值、
-// 最大化时取还原后的大小、设置·外观「窗口大小 · 恢复默认」的置灰与效果）。落盘那一半在
+// 设置·外观「窗口大小 · 恢复默认」的置灰与效果）。落盘那一半在
 // core_modules/LaunchOptionsTests.cpp 的 ZD2b。
 int UiWindowSizeCheck(QApplication &app) {
     using namespace MainWindowPageLayout;
@@ -64,21 +64,12 @@ int UiWindowSizeCheck(QApplication &app) {
     if (reset == nullptr) return 0;
     check(reset->isEnabled(), "★ 155 不是默认大小时「恢复默认」可点");
 
-    notified = 0;
-    window.showMaximized();
-    pump();
-    check(window.isMaximized() && notified > 0 && MainWindowUI::rememberedWindowSize(&window) == custom,
-          "★ 155 最大化时记的是还原后的大小（不是最大化的大小）",
-          QStringLiteral("最大化 %1，窗 %2x%3，记 %4x%5").arg(window.isMaximized()).arg(window.width()).arg(window.height())
-              .arg(MainWindowUI::rememberedWindowSize(&window).width()).arg(MainWindowUI::rememberedWindowSize(&window).height()));
-    check(reset->isEnabled(), "155 最大化时「恢复默认」可点");
-
-    // ---- 恢复默认：先还原，再回默认大小、在当前屏幕可用区居中，按钮置灰 ----
+    // ---- 恢复默认：回默认大小、在当前屏幕可用区居中，按钮置灰 ----
     MainWindowUI::resetWindowSize(&window);
     pump();
     const QRect area = window.screen()->availableGeometry();
     const QPoint center = window.frameGeometry().center();
-    check(!window.isMaximized() && window.size() == fittedDefault, "★ 155 恢复默认：还原最大化并回到默认大小",
+    check(!window.isMaximized() && window.size() == fittedDefault, "★ 155 恢复默认：回到默认大小",
           QStringLiteral("最大化 %1，%2x%3").arg(window.isMaximized()).arg(window.width()).arg(window.height()));
     // offscreen 有系统窗框，边距要等平台回报才准（产品窗口是自绘窗框，没有这层）：容差放到窗框宽。
     const int slack = qMax(window.frameGeometry().width() - window.width(),

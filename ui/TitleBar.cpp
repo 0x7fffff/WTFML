@@ -448,7 +448,7 @@ TitleBar::TitleBar(QWidget *parent) : QWidget(parent) {
         layoutForWidth(value.toInt());
     });
 
-    // 右上那条：透明，三颗窗口按钮贴顶贴右（调用方把它摆进右栏顶上）。
+    // 右上那条：透明，两颗窗口按钮（最小化、关闭）贴顶贴右（调用方把它摆进右栏顶上）。
     m_caption = new QWidget(this);
     m_caption->setObjectName(QStringLiteral("titleBarCaption"));
     m_caption->setFixedHeight(kCaptionHeight);
@@ -459,17 +459,12 @@ TitleBar::TitleBar(QWidget *parent) : QWidget(parent) {
     m_minimize = new TitleBarButton(TitleBarButton::Glyph::Minimize, QColor(), QColor(), m_caption);
     m_minimize->setObjectName(QStringLiteral("titleBarMinimize"));
     m_minimize->setToolTip(QStringLiteral("最小化"));
-    m_maximize = new TitleBarButton(TitleBarButton::Glyph::Maximize, QColor(), QColor(), m_caption);
-    m_maximize->setObjectName(QStringLiteral("titleBarMaximize"));
-    m_maximize->setToolTip(QStringLiteral("最大化"));
     m_close = new TitleBarButton(TitleBarButton::Glyph::Close, QColor(), QColor(), m_caption);
     m_close->setObjectName(QStringLiteral("titleBarClose"));
     m_close->setToolTip(QStringLiteral("关闭"));
     captionLayout->addWidget(m_minimize, 0, Qt::AlignTop);
-    captionLayout->addWidget(m_maximize, 0, Qt::AlignTop);
     captionLayout->addWidget(m_close, 0, Qt::AlignTop);
     connect(m_minimize, &QAbstractButton::clicked, this, &TitleBar::minimizeRequested);
-    connect(m_maximize, &QAbstractButton::clicked, this, &TitleBar::maximizeRequested);
     connect(m_close, &QAbstractButton::clicked, this, &TitleBar::closeRequested);
 
     // 品牌行：手写的 W（点它收起 / 展开导航；窄窗强制图标轨时点了不动）+ 名字（画的，不可点）。
@@ -510,7 +505,7 @@ void TitleBar::applyColors() {
     railPalette.setColor(QPalette::Inactive, QPalette::WindowText, t.text);
     setPalette(railPalette);
     setAutoFillBackground(false);
-    styleCaptionButtons(m_minimize, m_maximize, m_close, m_heroOpacity);
+    styleCaptionButtons(m_minimize, nullptr, m_close, m_heroOpacity);
     // 品牌标补对比度时往这一处的字色挪：固定正文色，不随主页换（换页不变色）。
     if (auto *logo = qobject_cast<TitleBarButton *>(m_logo)) logo->setInkColor(t.text);
     for (int i = 0; i < m_navButtons.size(); ++i) {
@@ -549,7 +544,6 @@ void TitleBar::showEvent(QShowEvent *event) {
             m_narrow = narrow;
             applyWidth(false);
         }
-        setMaximized(window()->isMaximized());
     }
 }
 
@@ -563,8 +557,6 @@ bool TitleBar::eventFilter(QObject *watched, QEvent *event) {
                 if (wasCollapsed != isCollapsed()) applyWidth(isVisible());
                 else layoutForWidth(width());
             }
-        } else if (event->type() == QEvent::WindowStateChange) {
-            setMaximized(window()->isMaximized());
         }
     }
     return QWidget::eventFilter(watched, event);
@@ -609,17 +601,10 @@ void TitleBar::layoutForWidth(int w) {
     update();
 }
 
-void TitleBar::setMaximized(bool maximized) {
-    if (auto *button = qobject_cast<TitleBarButton *>(m_maximize)) {
-        button->setRestoreGlyph(maximized);
-        button->setToolTip(maximized ? QStringLiteral("还原") : QStringLiteral("最大化"));
-    }
-}
-
 void TitleBar::setHeroOpacity(qreal opacity) {
     if (m_heroOpacity == opacity) return;
     m_heroOpacity = opacity;
-    styleCaptionButtons(m_minimize, m_maximize, m_close, m_heroOpacity);
+    styleCaptionButtons(m_minimize, nullptr, m_close, m_heroOpacity);
 }
 
 void TitleBar::setNavItems(const QStringList &labels) {

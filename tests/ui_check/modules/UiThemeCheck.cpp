@@ -541,13 +541,13 @@ int UiThemeCheck(QApplication &app) {
                 };
                 const QImage home = shoot(MainWindowUI::homeTabIndex());
                 const QList<QColor> homeUnder = backdrop->colorsUnder(logo);  // 主页此刻真正的底（清晰风景）
-                // 主页三颗窗口按钮共用一份墨色：取三颗字形里最实的那一点（最小化那一横落在半像素上，
+                // 主页两颗窗口按钮共用一份墨色：取两颗字形里最实的那一点（最小化那一横落在半像素上，
                 // 单看它会被抗锯齿压淡），叠到每颗按钮底下实测的两端上量对比度。
                 // 亮背景图要过 3:1；默认风景墨色原样是主页字色 heroInk2（补对比度那一步不许动它）。
                 {
                     QColor core(0, 0, 0, 0);
                     QList<QColor> under;
-                    for (const char *name : {"titleBarMinimize", "titleBarMaximize", "titleBarClose"}) {
+                    for (const char *name : {"titleBarMinimize", "titleBarClose"}) {
                         auto *button = window.findChild<QWidget *>(QString::fromLatin1(name));
                         if (button == nullptr) continue;
                         QImage img(button->size(), QImage::Format_ARGB32);

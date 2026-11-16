@@ -1942,15 +1942,15 @@ public:
     static QSize fittedWindowSize(QSize wanted, QSize available);
     /// 同上，可用区取 @p window 所在的屏幕。
     static QSize fittedWindowSize(const QWidget *window, QSize wanted);
-    /// 该记住的窗口大小：最大化时是还原后的那个（`normalGeometry()`），不记最大化的大小。
+    /// 该记住的窗口大小：取 `normalGeometry()`，最小化期间也是还原后的大小。
     static QSize rememberedWindowSize(const QWidget *window) { return window->normalGeometry().size(); }
     /// 启动时套用上次记住的大小；@p saved 为空 = 没记过，按默认开。
     static void restoreWindowSize(QWidget *window, QSize saved);
-    /// 「恢复默认」：最大化时先还原，再改成默认大小、在当前屏幕可用区居中。
+    /// 「恢复默认」：全屏时先还原，再改成默认大小、在当前屏幕可用区居中。
     static void resetWindowSize(QWidget *window);
-    /// 已经是默认大小且没最大化（「恢复默认」这时置灰）。
+    /// 已经是默认大小且没全屏（「恢复默认」这时置灰）。
     static bool isDefaultWindowSize(const QWidget *window);
-    /// 窗口大小一变（改大小、最大化 / 还原）就叫一次 handler（MainWindow 节流落盘 `rememberedWindowSize()`）。
+    /// 窗口大小一变（改大小、最小化 / 还原）就叫一次 handler（MainWindow 节流落盘 `rememberedWindowSize()`）。
     void setWindowSizeHandler(const std::function<void()> &handler) { m_windowSizeHandler = handler; }
     static QString windowSizeResetButtonName() { return QStringLiteral("windowSizeResetButton"); }
     /// 设置·外观「窗口大小」那一行的「恢复默认」（点了做什么由 MainWindow 接：要顺手存盘）。

@@ -58,12 +58,16 @@ constexpr int kPopupFadeMs = GlassPopover::kFadeMs;       // 150ms：同上，�
 constexpr int kPopupPadding = 6;        // 弹层内边距
 constexpr int kTooltipDelayMs = 500;    // 停 500ms 才出
 constexpr int kTooltipWakeMs = 1000;    // 收起后 1 秒内换到相邻控件：不等，立刻出
+constexpr int kTooltipMaxTextWidth = 420;  // 正文最宽 420：到了就换行，字少时框跟着变窄（框高只随行数走）
+constexpr QPoint kTooltipCursorOffset(14, 22);  // 落在鼠标右下方，错开指针本身
 constexpr int kRowHeight = 34;          // 下拉项高
 constexpr int kItemTextInset = 12;      // 项里文字左右各让出多少（paint 里 box 缩 4 + 文字缩 8）
 constexpr int kMaxVisibleItems = 8;     // 最多露 8 项，超出在弹层里滚
 constexpr int kSearchAfterItems = 15;   // 超过这么多项，顶部加搜索框
 constexpr int kThumbFadeMs = 600;       // 细条停 600ms 淡出
 constexpr int kFadeEdgePx = 16;         // 上下渐隐那一条的高度
+constexpr int kShadowSpread = 18;       // 浮层阴影向四周铺开的宽度
+constexpr int kShadowDropY = 4;         // 阴影整体下移
 
 // ---------------------------------------------------------------------------
 // 真·透桌面那一档：给浮层自己的 HWND 挂 DWM 瞬态亚克力
@@ -139,6 +143,114 @@ void fadeIn(QWidget *widget, int ms, int risePixels) {
 }
 
 // ---------------------------------------------------------------------------
+// 浮层阴影：Windows 给 `Qt::Popup` 顶层窗画的原生阴影（`CS_DROPSHADOW`）只会按矩形铺，
+// 圆角外面露出一圈方的。原生那条在 `preparePopup()` 里关掉，换成这里一块跟圆角同形的柔和阴影：
+// 一个点击穿透的透明顶层窗，叠在浮层正后方，跟着它走（位置 / 大小 / 显示 / 隐藏）。
+// ---------------------------------------------------------------------------
+
+class PopupShadow : public QWidget {
+public:
+    PopupShadow()
+        : QWidget(nullptr, Qt::Tool | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint |
+                               Qt::WindowTransparentForInput | Qt::WindowDoesNotAcceptFocus) {
+        setObjectName(QStringLiteral("wtfmlPopupShadow"));
+        setAttribute(Qt::WA_TranslucentBackground, true);
+        setAttribute(Qt::WA_ShowWithoutActivating, true);
+        setAttribute(Qt::WA_TransparentForMouseEvents, true);
+        setFocusPolicy(Qt::NoFocus);
+    }
+
+protected:
+    void paintEvent(QPaintEvent *) override {
+        // 深色页上阴影要更浓才看得出来。
+        const int peak = Theme::tokens().page.lightness() < 128 ? 120 : 52;
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        painter.setCompositionMode(QPainter::CompositionMode_Source);
+        // 阴影本体 = 浮层的矩形整体下移 kShadowDropY；贴边处最浓（大半被浮层盖住），向外按三次方淡出。
+        const QRectF core = QRectF(rect()).adjusted(kShadowSpread, kShadowSpread + kShadowDropY, -kShadowSpread,
+                                                    -kShadowSpread + kShadowDropY);
+        for (int i = kShadowSpread; i >= 0; --i) {
+            const qreal fall = 1.0 - qreal(i) / kShadowSpread;
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(QColor(0, 0, 0, qRound(peak * fall * fall * fall)));
+            const QRectF ring = core.adjusted(-i, -i, i, i);
+            painter.drawRoundedRect(ring, kPopupRadius + i, kPopupRadius + i);
+        }
+    }
+};
+
+/// 挂在浮层上：浮层上屏就把阴影窗叠到它后面，之后跟着挪、跟着缩，藏起来就一起藏。
+class PopupShadowFollower : public QObject {
+public:
+    explicit PopupShadowFollower(QWidget *popup) : QObject(popup), m_popup(popup) {
+        setObjectName(QStringLiteral("wtfmlPopupShadowFollower"));
+        popup->installEventFilter(this);
+    }
+
+    ~PopupShadowFollower() override { delete m_shadow; }
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override {
+        if (watched != m_popup) {
+            return false;
+        }
+        switch (event->type()) {
+        case QEvent::Show:
+            sync();
+            // Qt 在 Show 之后才把浮层摆到最上面：再排一拍把阴影压回它后面。
+            QTimer::singleShot(0, this, [this] { sync(); });
+            break;
+        case QEvent::Move:
+        case QEvent::Resize:
+            if (m_popup->isVisible()) {
+                sync();
+            }
+            break;
+        case QEvent::Hide:
+        case QEvent::Close:
+            if (m_shadow != nullptr) {
+                m_shadow->hide();
+            }
+            break;
+        default:
+            break;
+        }
+        return false;
+    }
+
+private:
+    void sync() {
+        if (m_popup.isNull() || !m_popup->isVisible()) {
+            return;
+        }
+        if (m_shadow == nullptr) {
+            m_shadow = new PopupShadow;
+        }
+        const QRect target = m_popup->geometry().adjusted(-kShadowSpread, -kShadowSpread, kShadowSpread, kShadowSpread);
+        if (m_shadow->geometry() != target) {
+            m_shadow->setGeometry(target);
+        }
+        const bool fresh = !m_shadow->isVisible();
+        if (fresh) {
+            m_shadow->show();
+            fadeIn(m_shadow, kPopupFadeMs, 0);  // 和浮层同一个淡入时长
+        }
+#ifdef Q_OS_WIN
+        // 叠在浮层正后方：插在它后面，不抢焦点、不动位置。
+        const HWND top = reinterpret_cast<HWND>(m_popup->winId());
+        const HWND under = reinterpret_cast<HWND>(m_shadow->winId());
+        if (top != nullptr && under != nullptr) {
+            SetWindowPos(under, top, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        }
+#endif
+    }
+
+    QPointer<QWidget> m_popup;
+    PopupShadow *m_shadow = nullptr;
+};
+
+// ---------------------------------------------------------------------------
 // tooltip：自己画的一条（系统那个黄底方角气泡不再出现）
 // ---------------------------------------------------------------------------
 
@@ -154,13 +266,16 @@ public:
         setFont(Theme::textFont(font(), Theme::TextRole::Caption));
     }
 
-    void setBody(const QString &text) {
+    /// @p maxWidth 正文最宽多少（已按屏幕可用区收过）；一行放不下就按它换行，放得下的框就跟着文字变窄。
+    void setBody(const QString &text, int maxWidth) {
         m_text = text;
         const QFontMetrics metrics(font());
-        const int limit = 260;  // 一行放不下就折到 260：提示都是短句
-        QRect box = metrics.boundingRect(QRect(0, 0, limit, 4000), Qt::TextWordWrap, text);
-        if (!text.contains(QLatin1Char('\n')) && box.width() < limit) {
-            box.setWidth(metrics.horizontalAdvance(text) + 1);
+        QRect box = metrics.boundingRect(QRect(0, 0, maxWidth, 4000), kBodyFlags, text);
+        if (!text.contains(QLatin1Char('\n'))) {
+            // 一行放得下：框就是这一行的宽；放不下：撑到上限、按它换行（换行后的紧贴宽度比上限窄一个字，
+            // 别把它当成"一行放得下"又撑回整行宽）。
+            const int oneLine = metrics.horizontalAdvance(text) + 1;
+            box.setWidth(oneLine <= maxWidth ? oneLine : maxWidth);
         }
         resize(box.width() + 20, box.height() + 12);  // 内边距 10 / 6
     }
@@ -172,11 +287,12 @@ protected:
         QPainter painter(this);
         Popups::paintSurface(painter, QRectF(rect()), kTooltipRadius);
         painter.setPen(Theme::tokens().text);
-        painter.drawText(rect().adjusted(10, 6, -10, -6),
-                         Qt::AlignLeft | Qt::AlignVCenter | Qt::TextWordWrap, m_text);
+        painter.drawText(rect().adjusted(10, 6, -10, -6), Qt::AlignLeft | Qt::AlignVCenter | kBodyFlags, m_text);
     }
 
 private:
+    // 词边界换行；整段没有空格的（路径、长英文串）也能在任意处断开。
+    static constexpr int kBodyFlags = Qt::TextWordWrap | Qt::TextWrapAnywhere;
     QString m_text;
 };
 
@@ -186,25 +302,27 @@ TooltipBubble *bubble() {
     return instance;
 }
 
-/// 落在锚点正上方（放不下就落下方），再收进屏幕可用区。
-QPoint placeNear(const QSize &size, const QPoint &anchorPoint, const QRect *anchorRect) {
-    QPoint target = anchorPoint + QPoint(0, 18);
-    if (anchorRect != nullptr) {
-        target = QPoint(anchorRect->center().x() - size.width() / 2,
-                        anchorRect->top() - size.height() - 8);
-    }
-    QScreen *screen = QGuiApplication::screenAt(anchorPoint);
+/// 屏幕可用区：鼠标所在那块屏（没有就主屏）。
+QRect tooltipScreenArea(const QPoint &cursor) {
+    QScreen *screen = QGuiApplication::screenAt(cursor);
     if (screen == nullptr) {
         screen = QGuiApplication::primaryScreen();
     }
-    if (screen != nullptr) {
-        const QRect available = screen->availableGeometry();
-        if (anchorRect != nullptr && target.y() < available.top()) {
-            target.setY(anchorRect->bottom() + 8);
-        }
-        target.setX(qBound(available.left() + 4, target.x(), available.right() - size.width() - 4));
-        target.setY(qBound(available.top() + 4, target.y(), available.bottom() - size.height() - 4));
+    return screen != nullptr ? screen->availableGeometry() : QRect(0, 0, 1920, 1080);
+}
+
+/// 落在鼠标右下方；右边放不下翻到鼠标左边，下边放不下翻到鼠标上边，最后收进可用区。
+QPoint placeNearCursor(const QSize &size, const QPoint &cursor) {
+    const QRect available = tooltipScreenArea(cursor);
+    QPoint target = cursor + kTooltipCursorOffset;
+    if (target.x() + size.width() > available.right() - 4) {
+        target.setX(cursor.x() - kTooltipCursorOffset.x() - size.width());
     }
+    if (target.y() + size.height() > available.bottom() - 4) {
+        target.setY(cursor.y() - 8 - size.height());
+    }
+    target.setX(qBound(available.left() + 4, target.x(), qMax(available.left() + 4, available.right() - size.width() - 4)));
+    target.setY(qBound(available.top() + 4, target.y(), qMax(available.top() + 4, available.bottom() - size.height() - 4)));
     return target;
 }
 
@@ -267,6 +385,12 @@ protected:
             Popups::showTooltip(text, help->globalPos(), widget);
             return true;
         }
+        case QEvent::MouseMove:
+            // 提示亮着时跟着鼠标走（只挪位置，文字不变）：停在哪就出现在哪。
+            if (bubble()->isVisible() && watched != bubble() && watched->isWidgetType()) {
+                Popups::moveTooltipTo(QCursor::pos());
+            }
+            return false;
         case QEvent::Leave:
         case QEvent::Hide:
         case QEvent::MouseButtonPress:
@@ -799,6 +923,15 @@ void Popups::preparePopup(QWidget *popup) {
     if (popup == nullptr) {
         return;
     }
+    // Qt 给没挂这个旗标的 Popup 在 Windows 上注册带 CS_DROPSHADOW 的窗口类（方形阴影），要赶在 HWND 建出来之前关。
+    const bool shadowed = popup->windowType() == Qt::Popup &&
+                          QGuiApplication::platformName() == QLatin1String("windows");
+    if (shadowed && !popup->windowFlags().testFlag(Qt::NoDropShadowWindowHint) && !popup->isVisible()) {
+        popup->setWindowFlag(Qt::NoDropShadowWindowHint, true);
+    }
+    if (shadowed && popup->findChild<QObject *>(QStringLiteral("wtfmlPopupShadowFollower"), Qt::FindDirectChildrenOnly) == nullptr) {
+        new PopupShadowFollower(popup);
+    }
     if (!popup->windowFlags().testFlag(Qt::FramelessWindowHint)) {
         // 没上屏之前改旗标都算数（QMenu 在 Polish 时平台窗口已经建了，Qt 会按新旗标重建）；
         // 已经显示出来再改，Qt 要先藏起来销毁重建，弹层会闪没。
@@ -819,18 +952,13 @@ void Popups::preparePopup(QWidget *popup) {
 }
 
 void Popups::showTooltip(const QString &text, const QPoint &globalPos, const QWidget *anchor) {
+    Q_UNUSED(anchor);  // 位置只看鼠标；参数留着，调用方不用跟着改
     if (text.isEmpty()) {
         return;
     }
     TooltipBubble *tip = bubble();
-    tip->setBody(text);
-    QRect anchorRect;
-    const QRect *rect = nullptr;
-    if (anchor != nullptr && anchor->isVisible()) {
-        anchorRect = QRect(anchor->mapToGlobal(QPoint(0, 0)), anchor->size());
-        rect = &anchorRect;
-    }
-    tip->move(placeNear(tip->size(), globalPos, rect));
+    tip->setBody(text, qMin(kTooltipMaxTextWidth, qMax(120, tooltipScreenArea(globalPos).width() - 60)));
+    tip->move(placeNearCursor(tip->size(), globalPos));
     const bool wasVisible = tip->isVisible();
     tip->show();
     tip->raise();
@@ -839,11 +967,22 @@ void Popups::showTooltip(const QString &text, const QPoint &globalPos, const QWi
     }
 }
 
+void Popups::moveTooltipTo(const QPoint &globalPos) {
+    TooltipBubble *tip = bubble();
+    if (tip->isVisible()) {
+        tip->move(placeNearCursor(tip->size(), globalPos));
+    }
+}
+
 void Popups::hideTooltip() {
     TooltipBubble *tip = bubble();
     if (tip->isVisible()) {
         tip->hide();
     }
+}
+
+QRect Popups::tooltipGeometry() {
+    return bubble()->geometry();
 }
 
 QString Popups::tooltipText() {

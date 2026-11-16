@@ -113,6 +113,53 @@ int UiPopupCheck(QApplication &app) {
         host.hide();
     }
 
+    // ---------- ①a UI问题 #10：提示落在鼠标右下方、宽度有上限、字少框就窄 ----------
+    {
+        const QRect area = QGuiApplication::primaryScreen()->availableGeometry();
+        const QPoint mouse = area.topLeft() + QPoint(100, 80);
+        Popups::showTooltip(QStringLiteral("打开文件夹"), mouse, nullptr);
+        QApplication::processEvents();
+        const QRect shortTip = Popups::tooltipGeometry();
+        expect(shortTip.left() > mouse.x() && shortTip.top() > mouse.y() && shortTip.left() - mouse.x() < 40 &&
+                   shortTip.top() - mouse.y() < 40,
+               "UI问题 #10 提示出现在鼠标右下方附近", QStringLiteral("鼠标 %1,%2 提示 %3,%4")
+                   .arg(mouse.x()).arg(mouse.y()).arg(shortTip.left()).arg(shortTip.top()));
+        Popups::showTooltip(QStringLiteral("打开文件夹"), mouse + QPoint(150, 90), nullptr);
+        expect(Popups::tooltipGeometry().topLeft() - shortTip.topLeft() == QPoint(150, 90),
+               "UI问题 #10 鼠标换到别处，提示跟着换位置（不钉在控件上）");
+        Popups::moveTooltipTo(mouse);
+        expect(Popups::tooltipGeometry().topLeft() == shortTip.topLeft(), "UI问题 #10 提示亮着时跟着鼠标走");
+
+        const QString medium = QStringLiteral("打开实例所在的文件夹，里面有存档、模组和配置。");
+        QString longText;
+        for (int i = 0; i < 6; ++i) longText += medium;
+        Popups::showTooltip(medium, mouse, nullptr);
+        const QRect mediumTip = Popups::tooltipGeometry();
+        Popups::showTooltip(longText, mouse, nullptr);
+        const QRect longTip = Popups::tooltipGeometry();
+        expect(shortTip.width() < mediumTip.width() && shortTip.height() == mediumTip.height(),
+               "UI问题 #10 字少框就窄，一行时高度不变",
+               QStringLiteral("短 %1x%2 / 中 %3x%4").arg(shortTip.width()).arg(shortTip.height())
+                   .arg(mediumTip.width()).arg(mediumTip.height()));
+        expect(longTip.width() <= 420 + 20 && longTip.height() > mediumTip.height() * 2 && longTip.width() > 300,
+               "UI问题 #10 长提示宽度到上限就换行（不是又窄又高）",
+               QStringLiteral("长 %1x%2").arg(longTip.width()).arg(longTip.height()));
+        // 整段没有空格也能换行（路径、长英文串）。
+        Popups::showTooltip(QString(200, QLatin1Char('W')), mouse, nullptr);
+        expect(Popups::tooltipGeometry().width() <= 420 + 20 && Popups::tooltipGeometry().height() > mediumTip.height(),
+               "UI问题 #10 没有空格的长串也在宽度上限处断行");
+
+        const QPoint corner = area.bottomRight() - QPoint(6, 6);
+        Popups::showTooltip(longText, corner, nullptr);
+        const QRect cornerTip = Popups::tooltipGeometry();
+        expect(area.contains(cornerTip) && cornerTip.right() < corner.x() && cornerTip.bottom() < corner.y(),
+               "UI问题 #10 鼠标在屏幕右下角：提示翻到鼠标左上方、不出屏", QStringLiteral("提示 %1,%2 %3x%4 / 可用区 %5x%6")
+                   .arg(cornerTip.left()).arg(cornerTip.top()).arg(cornerTip.width()).arg(cornerTip.height())
+                   .arg(area.width()).arg(area.height()));
+        Popups::hideTooltip();
+        QApplication::processEvents();
+    }
+
     // ---------- ①b 500ms 才出、1 秒内换控件立刻出 ----------
     {
         QWidget host;

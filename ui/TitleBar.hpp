@@ -3,7 +3,7 @@
  * @brief 左导航轨：顶上品牌（点 W 收展），中间五颗导航（线性图标 + 手写体标签），底下挂后台任务与工具箱。
  *
  * 和窗口同一层底（不铺色块），靠选中那一格的淡主题色底分层（不画指示条）；那块底在
- * 两颗之间滑动（≤180 ms，`Anim::enabled()` 关掉就直接跳）。最小化 / 最大化 / 关闭不在轨上，
+ * 两颗之间滑动（≤180 ms，`Anim::enabled()` 关掉就直接跳）。最小化 / 关闭不在轨上，
  * 在 `captionStrip()` 那条透明的条上（摆在右栏最上面，高 40）。
  *
  * 轨宽 208，可折成 64 的图标轨：每次启动先是图标轨，用户点品牌标 W 收起 / 展开；窗口宽 < 1024 时强制折，
@@ -42,7 +42,7 @@ public:
     static int narrowBreakpoint();
     /// 右上那条窗口按钮条的高（顶部拖动区高）。
     static int barHeight();
-    /// 三颗窗口按钮（最小化 / 最大化 / 关闭）的配色：主窗口这条和独立窗口自绘的标题条共用一份。
+    /// 窗口按钮（最小化 / 最大化 / 关闭）的配色：主窗口这条（只有最小化和关闭，maximize 传 nullptr）和独立窗口自绘的标题条共用一份。
     /// 传进来的应是 `TitleBarButton`（别的按钮原样跳过）；hero = 往主页压在风景上那一档字色走了多少（0~1）。
     static void styleCaptionButtons(QAbstractButton *minimize, QAbstractButton *maximize,
                                     QAbstractButton *close, qreal hero = 0.0);
@@ -62,7 +62,6 @@ public:
     static QString defaultBrandText();
 
     QAbstractButton *minimizeButton() const { return m_minimize; }
-    QAbstractButton *maximizeButton() const { return m_maximize; }
     QAbstractButton *closeButton() const { return m_close; }
     /// 品牌标 W：点它（或 Tab 到它按回车 / 空格）收起 / 展开导航。
     QAbstractButton *logoButton() const { return m_logo; }
@@ -87,15 +86,12 @@ public:
     void setCollapsed(bool collapsed);
     /// 现在是不是图标轨（用户折了，或窗口窄）。
     bool isCollapsed() const { return m_userCollapsed || m_narrow; }
-    /// 窗口最大化时把「最大化」那颗换成「还原」的样子。
-    void setMaximized(bool maximized);
     /// 主页风景此刻的不透明度（Glass::Backdrop::heroOpacity）：窗口按钮的墨色按它在普通 / 主页字色之间渐变。
     /// 品牌标与品牌字不跟它走，换页不变色。
     void setHeroOpacity(qreal opacity);
 
 signals:
     void minimizeRequested();
-    void maximizeRequested();
     void closeRequested();
     void navRequested(int index);
     /// 根导航已经应用完成（从哪儿来 / 去哪儿 / 是否重点当前页）。
@@ -119,7 +115,6 @@ private:
     QWidget *m_caption = nullptr;
     QWidget *m_footer = nullptr;
     QAbstractButton *m_minimize = nullptr;
-    QAbstractButton *m_maximize = nullptr;
     QAbstractButton *m_close = nullptr;
     QAbstractButton *m_logo = nullptr;
     QList<QAbstractButton *> m_navButtons;
