@@ -100,6 +100,9 @@ struct ShotOptions {
     /// `--r157`：步骤 157（导航收起时未读失败挂在进度环右上角），960×620 主页收起 + 展开对照 + 角标放大，
     /// 文件名 r157-<主题>-960x620-*.png。
     bool r157 = false;
+    /// `--r179c`：步骤 179 UI 问题 C（设置页居中、实例设置最小窗、左栏字重、任务中心运行中开关、W 焦点），
+    /// 自己换尺寸；文件名 r179c-<主题>-<宽>x<高>-<页面>.png。
+    bool r179c = false;
     /// `--site`：步骤 174（官网「功能详解」页候选截图），1120×760、默认暮色雪山，
     /// 一次跑完整张清单；文件名就按官网那一列（look-home-<主题> / install-* / inst-* / …）。
     bool site = false;
@@ -812,6 +815,162 @@ int shootR157(QApplication &app, QMainWindow &window, MainWindowUI &ui, const Sh
     return saved == 3 ? 0 : 1;
 }
 
+QList<TaskCenter::Item> siteTaskItems();
+
+/// `--r179c`：步骤 179 UI 问题 C（#5 #6 #7 #24 #16），自己换尺寸，不看 `--size`；
+/// 文件名 r179c-<主题>-<宽>x<高>-<页面>.png。实例设置每一页顺带打印露着的滚动区里横向 / 纵向可滚多少（#6 判据）。
+int shootR179c(QApplication &app, QMainWindow &window, MainWindowUI &ui, const ShotOptions &options) {
+    int saved = 0;
+    const auto pump = [&app] { for (int i = 0; i < 4; ++i) app.processEvents(); };
+    const auto name = [&](const QString &what) {
+        return QStringLiteral("r179c-%1-%2x%3-%4").arg(options.theme).arg(window.width()).arg(window.height()).arg(what);
+    };
+    const auto shot = [&](const QString &what) {
+        pump();
+        saveShot(app, window, options.out, name(what), &saved);
+    };
+
+    // ---- #5：设置页 / 工具箱 / 智能体设置，默认窗与拉宽 ----
+    fillSettingsSamples(ui);
+    ui.openToolboxTab();
+    ToolboxPage *toolbox = nullptr;
+    if (QWidget *host = ui.toolboxTab(); host != nullptr && host->layout() != nullptr) {
+        toolbox = new ToolboxPage(host);
+        host->layout()->addWidget(toolbox);
+        wireToolboxSamples(*toolbox);
+    }
+    for (const QSize size : {QSize(960, 620), QSize(1600, 800)}) {
+        window.resize(size);
+        ui.getTabWidget()->setCurrentIndex(MainWindowUI::settingsTabIndex());
+        ui.getSettingsTabs()->setCurrentIndex(0);
+        shot(QStringLiteral("settings-launch"));
+        if (toolbox != nullptr) {
+            ui.openToolboxTab();
+            toolbox->showCatalog();
+            shot(QStringLiteral("toolbox-catalog"));
+            toolbox->showTool(ToolboxPage::tools().value(0));
+            shot(QStringLiteral("toolbox-tool"));
+        }
+        AgentSettingsPage agentSettings;
+        AgentView::ProviderDraft draft;
+        draft.id = QStringLiteral("default");
+        draft.name = QStringLiteral("DeepSeek");
+        draft.baseUrl = QStringLiteral("https://api.deepseek.com/v1");
+        draft.model = QStringLiteral("deepseek-chat");
+        agentSettings.setProfile(draft, true, QStringLiteral("credential-manager"));
+        ui.getTabWidget()->setCurrentIndex(MainWindowUI::agentTabIndex());
+        pump();
+        if (ui.overlay()->showPage(&agentSettings, QStringLiteral("API 与模型设置"), MainWindowUI::agentTabIndex())) {
+            shot(QStringLiteral("agent-settings"));
+            ui.overlay()->closeOverlay();
+            pump();
+        }
+    }
+
+    // ---- #6 #7：实例设置每一页，最小窗与默认窗 ----
+    {
+        QTemporaryDir instanceRoot(QDir::current().filePath(QStringLiteral(".review-r179c-XXXXXX")));
+        if (!instanceRoot.isValid()) return 2;
+        const QString root = instanceRoot.path();
+        makeInstanceFixture(root);
+        using Dlg = InstanceSettingsDialog;
+        Dlg::GlobalValues global;
+        global.javaPath = QStringLiteral("C:/Program Files/Java/jdk-21/bin/java.exe");
+        global.xmx = 4096;
+        global.xms = 1024;
+        global.autoMemory = false;
+        Dlg dialog(QStringLiteral("Hyperlands 26.2"), QStringLiteral("Hyperlands-26.2"), Dlg::Override(), global,
+                   QStringList(), false);
+        QHash<QString, QString> dirs;
+        for (const auto &[key, sub] : {std::pair{"mod", "mods"}, std::pair{"resourcepack", "resourcepacks"},
+                                       std::pair{"datapack", "datapacks"}, std::pair{"shader", "shaderpacks"},
+                                       std::pair{"save", "saves"}, std::pair{"logs", "logs"},
+                                       std::pair{"screenshots", "screenshots"}, std::pair{"game", "game"}})
+            dirs.insert(QString::fromLatin1(key), root + QLatin1Char('/') + QString::fromLatin1(sub));
+        dialog.setInstanceDir(root);
+        dialog.setFileDirs(dirs);
+        dialog.setLastLaunch(QDateTime::currentDateTime().addSecs(-3600 * 26));
+        dialog.setIcon(VersionIcons::iconCandidateKeys().value(0), VersionIcons::grassBlock(48));
+        ui.getTabWidget()->setCurrentIndex(MainWindowUI::instancesTabIndex());
+        if (ui.overlay()->showPage(&dialog, QStringLiteral("实例设置"), MainWindowUI::instancesTabIndex())) {
+            const QStringList keys = Dlg::pinnedPageKeys() + Dlg::filePageKeys() + Dlg::lifecyclePageKeys();
+            int overflowPages = 0;
+            for (const QSize size : {QSize(900, 590), QSize(1024, 620)}) {
+                window.resize(size);
+                for (const QString &key : keys) {
+                    dialog.showPage(key);
+                    pump();
+                    if (dialog.currentPageKey() != key) continue;  // 这个实例没有这一页
+                    QStringList horizontal;
+                    QStringList vertical;
+                    for (QAbstractScrollArea *area : dialog.findChildren<QAbstractScrollArea *>()) {
+                        if (!area->isVisible()) continue;
+                        const QString who = area->objectName().isEmpty()
+                                                ? QString::fromLatin1(area->metaObject()->className())
+                                                : area->objectName();
+                        if (area->horizontalScrollBar()->maximum() > 0 && area->horizontalScrollBar()->isVisible())
+                            horizontal << QStringLiteral("%1(+%2)").arg(who).arg(area->horizontalScrollBar()->maximum());
+                        if (area->verticalScrollBar()->maximum() > 0)
+                            vertical << QStringLiteral("%1(+%2)").arg(who).arg(area->verticalScrollBar()->maximum());
+                    }
+                    overflowPages += horizontal.isEmpty() ? 0 : 1;
+                    std::printf("  %dx%d %-16s 横向 %s｜纵向 %s\n", size.width(), size.height(), qPrintable(key),
+                                horizontal.isEmpty() ? "无" : qPrintable(horizontal.join(QLatin1Char(' '))),
+                                vertical.isEmpty() ? "无" : qPrintable(vertical.join(QLatin1Char(' '))));
+                    shot(QStringLiteral("inst-%1").arg(key));
+                }
+            }
+            std::printf("  实例设置：出横向滚动条的页 %d 个\n", overflowPages);
+            ui.overlay()->closeOverlay();
+            pump();
+        }
+    }
+
+    // ---- #24：任务中心，运行中实例那一栏收着 / 露着 ----
+    ui.setTaskCenterContent([] { return siteTaskItems(); }, [] {});
+    for (const QSize size : {QSize(1600, 800), QSize(1024, 620)}) {
+        window.resize(size);
+        ui.getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
+        pump();
+        if (QPushButton *summary = ui.getTaskSummaryButton()) summary->click();
+        pump();
+        ActivityPopover::openAllIn(&window);
+        pump();
+        if (QWidget *popover = window.findChild<QWidget *>(QStringLiteral("activityPopover"));
+            popover != nullptr && popover->isVisible())
+            popover->close();
+        auto *toggle = window.findChild<QPushButton *>(QStringLiteral("taskCenterRunningCollapse"));
+        shot(QStringLiteral("tasks-running-collapsed"));
+        if (toggle != nullptr && toggle->isVisible()) {
+            toggle->click();
+            pump();
+            shot(QStringLiteral("tasks-running-expanded"));
+            toggle->click();
+        }
+        if (ui.overlay() != nullptr && ui.overlay()->isOpen()) ui.overlay()->dismiss();
+        pump();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    }
+
+    // ---- #16：Tab 选中 W ----
+    fillHomeSamples(ui);
+    window.resize(1024, 620);
+    ui.getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
+    QAbstractButton *logo = ui.titleBar()->logoButton();
+    logo->setFocus(Qt::TabFocusReason);
+    shot(QStringLiteral("home-w-tab-focus"));
+    for (const bool focused : {true, false}) {
+        if (!focused) logo->clearFocus();
+        pump();
+        const QRect crop(logo->mapTo(&window, QPoint(0, 0)) - QPoint(12, 12), logo->size() + QSize(24, 24));
+        const QPixmap zoom = window.grab(crop).scaled(crop.size() * 8, Qt::KeepAspectRatio, Qt::FastTransformation);
+        const QString what = focused ? QStringLiteral("w-zoom-tab-focus") : QStringLiteral("w-zoom-no-focus");
+        if (zoom.save(QDir(options.out).filePath(name(what) + QStringLiteral(".png")))) ++saved;
+    }
+    std::printf("\nr179c shots: %d saved -> %s\n", saved, qPrintable(options.out));
+    return saved > 0 ? 0 : 1;
+}
+
 int shootLoading(QApplication &app, QMainWindow &window, MainWindowUI &ui, const ShotOptions &options) {
     Anim::setEnabled(true);
     int saved = 0;
@@ -983,6 +1142,7 @@ int runExtended(QApplication &app, const ShotOptions &options) {
     if (options.r151) return shootR151(app, window, ui, options);
     if (options.r155) return shootR155(app, window, ui, options);
     if (options.r157) return shootR157(app, window, ui, options);
+    if (options.r179c) return shootR179c(app, window, ui, options);
 
     // ---- 主页：零实例 / 有实例 ----
     ui.getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
@@ -2764,6 +2924,9 @@ int UiReviewShotsCheck(QApplication &app) {
             options.extended = true;
         } else if (arg == QLatin1String("--r157")) {
             options.r157 = true;
+            options.extended = true;
+        } else if (arg == QLatin1String("--r179c")) {
+            options.r179c = true;
             options.extended = true;
         } else if (arg == QLatin1String("--site")) {
             options.site = true;
