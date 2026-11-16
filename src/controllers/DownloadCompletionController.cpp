@@ -16,9 +16,14 @@
 #include "OverlayHost.hpp"
 #include "controllers/InstallOccupancy.hpp"
 #include "controllers/ActivityCenterController.hpp"
+#include "controllers/MainWindowViewData.hpp"
 #include "controllers/PresetController.hpp"
 #include "controllers/DownloadTaskLedgerController.hpp"
 #include "manage/VersionManager.hpp"
+
+#include <QTabWidget>
+#include <QTimer>
+#include <QTreeWidget>
 
 DownloadCompletionController::DownloadCompletionController(MainWindow *owner)
     : QObject(owner), m_owner(*owner) {}
@@ -151,6 +156,23 @@ void DownloadCompletionController::onFinished(const QString &versionId, bool suc
                 presetApplyProblem.isEmpty() ? Tasks::TaskStepState::Done : Tasks::TaskStepState::Failed,
                 presetApplyProblem);
     }
+    if (wasImporting && m_owner.m_downloadTaskLedger->task() != Tasks::invalidTaskId()) {
+        const Tasks::TaskId importTaskId = m_owner.m_downloadTaskLedger->task();
+        Tasks::TaskManager *tasks = m_owner.m_activityCenter->tasks();
+        const QList<Tasks::TaskStep> importSteps = tasks->snapshot(importTaskId).steps;
+        if (success) {
+            for (int i = 0; i < importSteps.size(); ++i) {
+                tasks->setStepState(importTaskId, i, Tasks::TaskStepState::Done);
+            }
+            tasks->setDetail(importTaskId, MainWindow::tr("已装好"));
+        } else if (!userCancelled) {
+            for (int i = 0; i < importSteps.size(); ++i) {
+                if (importSteps.at(i).state == Tasks::TaskStepState::Running) {
+                    tasks->setStepState(importTaskId, i, Tasks::TaskStepState::Failed, resultMessage);
+                }
+            }
+        }
+    }
     m_pendingPresets.clear();
     m_pendingInstance.clear();
     m_modsReady = false;
@@ -196,6 +218,18 @@ void DownloadCompletionController::onFinished(const QString &versionId, bool suc
             // 刷新会把下拉框和实例页那张树一起重灌（同一个函数里做的），新实例就在里面。
             m_owner.refreshInstalledVersions();
             QComboBox *combo = m_owner.m_ui->getInstalledVersionCombo();
+            const auto selectImportedVersion = [&]() {
+                if (const int index = combo->findData(versionId); index >= 0) {
+                    combo->setCurrentIndex(index);
+                }
+                m_owner.updateStartButtonText();
+                if (QTreeWidget *tree = m_owner.m_ui->getInstanceList()) {
+                    MainWindowViewData::syncTreeToCombo(combo, tree);
+                    if (QTreeWidgetItem *current = tree->currentItem()) {
+                        tree->scrollToItem(current);
+                    }
+                }
+            };
             // 刷新只"保住原来选中的"，保不住"原来压根没选"：刚导入出来的这个顶上，
             // 省得用户还得自己去列表里找一遍（和下载完成那条路一个口径）。
             // NOTE: 那条口径是**两件事**：不但要"顶上"，还得"原来已经有选中的就别动"
@@ -207,11 +241,29 @@ void DownloadCompletionController::onFinished(const QString &versionId, bool suc
                 }
             }
             m_owner.updateStartButtonText();
-            InlineMessage::information(m_owner.m_ui->overlay(), MainWindow::tr("导入完成"), errorMessage);
+            const int action = InlineMessage::ask(
+                m_owner.m_ui->overlay(), MessageKind::Information, MainWindow::tr("整合包已装好"),
+                errorMessage,
+                {MainWindow::tr("查看实例"), MainWindow::tr("立即启动"), MainWindow::tr("知道了")},
+                0, -1);
+            if (action == 0) {
+                selectImportedVersion();
+                if (QTabWidget *tabs = m_owner.m_ui->getTabWidget()) {
+                    tabs->setCurrentIndex(MainWindowUI::instancesTabIndex());
+                }
+            } else if (action == 1) {
+                selectImportedVersion();
+                if (QTabWidget *tabs = m_owner.m_ui->getTabWidget()) {
+                    tabs->setCurrentIndex(MainWindowUI::homeTabIndex());
+                }
+            }
             // 这次导入的东西要是 GTNH 那种会在首启里跑 MCLib AssetDirector 的包，
             // 趁热把那几十 MB 资源预取掉（体积、写入位置见 docs/features/MODPACK_IMPORT.md）。
             // 放在提示之后：那几个提示是"导入成了"的收尾，先让用户看见它。
             m_owner.maybePrefetchAssetDirector(versionId);
+            if (action == 1) {
+                QTimer::singleShot(0, &m_owner, &MainWindow::onStartButtonClicked);
+            }
         } else if (userCancelled) {
             // 用户自己按的取消：日志照写，但**不弹「导入失败」**（那不是失败）。
             m_owner.appendLog(TextMarks::failed(tr("整合包导入已由用户取消。")));

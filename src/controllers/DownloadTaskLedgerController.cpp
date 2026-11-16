@@ -3,6 +3,7 @@
 #include "MainWindow.hpp"
 #include "controllers/ActivityCenterController.hpp"
 #include "controllers/InstallOccupancy.hpp"
+#include "controllers/MainWindowViewData.hpp"
 #include "tasks/TaskManager.hpp"
 
 namespace {
@@ -104,7 +105,14 @@ void DownloadTaskLedgerController::begin() {
         }
     }
     if (child == Tasks::invalidTaskId()) {
-        m_taskId = m_owner.beginTask(kind, title, target);
+        QList<Tasks::TaskStep> initialSteps;
+        if (active.batch == InstallOccupancy::Batch::Import) {
+            initialSteps = MainWindowViewData::taskStepsFromNames(
+                {MainWindow::tr("安装原版与加载器"), MainWindow::tr("下载整合包文件"),
+                 MainWindow::tr("解压覆盖文件"), MainWindow::tr("校验文件并完成")},
+                0);
+        }
+        m_taskId = m_owner.beginTask(kind, title, target, initialSteps);
     }
     // 这一批就是账本里这个号 —— 收尾时"重试"资格只认它（见 `finishTask()`）。
     m_ownerTaskId = m_taskId;
