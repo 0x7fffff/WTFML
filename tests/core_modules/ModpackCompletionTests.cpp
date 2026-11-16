@@ -180,6 +180,14 @@ void runModpackCompletionTests(const QString &sandbox) {
             check(!QFileInfo::exists(InstanceFiles::importMarkerPath("completion-test")) &&
                       QFileInfo::exists(AppPaths::versionMetaPath("completion-test")),
                   "ZG8 真正补齐后才写成功 meta 并清除未完成标记");
+            QFile metaFile(AppPaths::versionMetaPath("completion-test"));
+            const bool metaOk = metaFile.open(QIODevice::ReadOnly);
+            const QJsonObject metaObj = metaOk ? QJsonDocument::fromJson(metaFile.readAll()).object()
+                                               : QJsonObject();
+            metaFile.close();
+            check(metaObj.value(QStringLiteral("name")).toString() == QStringLiteral("completion-test") &&
+                      (attempt != 2 || !metaObj.value(QStringLiteral("instanceId")).toString().isEmpty()),
+                  "ZG8 导入提交后在 wtfml.meta 中写入自定义实例名 name 和 instanceId");
         }
     }
     {

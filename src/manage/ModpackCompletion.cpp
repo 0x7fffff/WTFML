@@ -213,6 +213,7 @@ bool finish(const QString &instance, QString *error, const Stop &stop) {
     if (!safe(instance, QStringLiteral("wtfml.meta")) || !safe(instance, QStringLiteral("wtfml.import-report.json")))
         return abort(QObject::tr("提交路径不安全"));
     QJsonObject metaFields;
+    metaFields.insert(QStringLiteral("name"), id);
     metaFields.insert(QStringLiteral("realVersion"), proof.value("gameVersion"));
     const auto key = proof.value("loaderKey").toString();
     const QHash<QString, QString> names{{"fabric-loader", "Fabric"}, {"forge", "Forge"}, {"neoforge", "NeoForge"}, {"quilt-loader", "Quilt"}};

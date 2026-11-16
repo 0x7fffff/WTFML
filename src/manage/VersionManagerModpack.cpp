@@ -434,7 +434,13 @@ void VersionManager::commitModpackImport(const QList<ModpackImport::FileIssue> &
     }
 
     // meta 也是安装收尾的凭据；写入成功后才允许移除最后的导入标记。
+    // 写入显示名 `name`（= id），否则 displayParts().customName 为空，实例列表里会退化成
+    // `<realVersion>-<loaderName>`（例如 `1.20.1-Fabric`），与同目录里的加载器版本撞名。
     QJsonObject fields;
+    fields[kDisplayNameField] = id;
+    if (instanceId(id).isEmpty()) {
+        fields[kInstanceIdField] = newInstanceId();
+    }
     fields[QStringLiteral("realVersion")] = pack.gameVersion;
     if (!pack.loaderKey.isEmpty()) {
         LoaderKind kind = LoaderKind::Fabric;
