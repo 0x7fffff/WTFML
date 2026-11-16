@@ -34,6 +34,7 @@
 #include <QScrollArea>
 #include <QListWidget>
 #include <QFontDatabase>
+#include <QClipboard>
 #include "Theme.hpp"
 #include <cstdio>
 
@@ -314,6 +315,33 @@ int runToolFeatureChecks() {
     expect(restored.trimWholeSet() && !restored.findChild<QComboBox *>(ToolboxPage::trimPartComboName())->isEnabled()
         && !restored.findChild<QSpinBox *>(ToolboxPage::trimPiecesSpinName())->isEnabled(),
         "remembered whole-set option restores dependent control presentation");
+    // ---- 坐标换算：粘贴 F3+C 那一行 + 复制成 tp 命令（UI 问题 #19） ----
+    // 这两个入口在 bfeca25 收文案时被删过一次（只剩"往坐标框里 Ctrl+V"那条看不见的路），
+    // 当时没有任何断言守着。这里钉住按钮本身和两条路的效果。
+    {
+        ToolboxPage coordPage;
+        coordPage.showTool(ToolboxPage::Tool::Coord);
+        QString parsed;
+        QObject::connect(&coordPage, &ToolboxPage::teleportParseRequested, &coordPage,
+                         [&parsed](const QString &text) { parsed = text; });
+        const QString command = QStringLiteral(
+            "/execute in minecraft:the_nether run tp @s 123.450000 64.000000 -78.900000 90.000000 0.000000");
+        QGuiApplication::clipboard()->setText(command);
+        auto *paste = coordPage.findChild<QPushButton *>(QStringLiteral("coordPasteTp"));
+        expect(paste != nullptr && paste->isVisibleTo(&coordPage),
+               "coord tool shows a paste-command button");
+        if (paste != nullptr) paste->click();
+        expect(parsed == command,
+               "paste-command reads the clipboard and hands the line to the parser");
+
+        auto *copy = coordPage.findChild<QPushButton *>(QStringLiteral("coordCopyTp"));
+        const QString tp = QStringLiteral("/tp @s 1.00 64.00 -2.00");
+        coordPage.setTeleportCommand(tp);
+        expect(copy != nullptr, "coord tool shows a copy-tp button");
+        if (copy != nullptr) copy->click();
+        expect(QGuiApplication::clipboard()->text() == tp,
+               "copy-tp puts the generated command back on the clipboard");
+    }
     ToolboxPage equipmentPage;
     equipmentPage.showTool(ToolboxPage::Tool::Trim);
     const QStringList armorNames{"皮革","锁链","铁","金","钻石","下界合金","海龟壳"};
