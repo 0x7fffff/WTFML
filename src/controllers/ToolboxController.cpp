@@ -1244,9 +1244,8 @@ void ToolboxController::refreshTrim() {
     QStringList notes;
     QStringList unsupported;
     const QString version = m_page->trimVersion();
-    QMap<QString, int> materials;
     QString error;
-    // 每件选了什么都写在上面那三排下拉框里；结果区只算材料账，不再复述一遍。
+    // 每件选了什么都写在上面那三排下拉框里；结果区只留提示，不列材料账（UI 问题 #18）。
     int equippedCount = 0;
     const auto equipment = m_page->trimEquipment();
     for (int slot = 0; slot < equipment.size(); ++slot) {
@@ -1258,15 +1257,12 @@ void ToolboxController::refreshTrim() {
         if (armor.isEmpty() || !ArmorTrim::armorMaterialFitsPart(selection.armor, slot)) {
             continue;
         }
-        materials[armor]++;
         ++equippedCount;
         if (selection.pattern < 0) {
             continue;
         }
         const auto pattern = ArmorTrim::patternAt(selection.pattern);
         const auto material = ArmorTrim::trimMaterialAt(selection.material);
-        materials[pattern.name + tr("纹饰模板")]++;
-        materials[material.item]++;
         // 目标版本边界：判据在 `ArmorTrim` 里（与旗帜 / 酿造同一套 `GameVersion`）。
         // 已经选好的搭配**不改** —— 只在结果最上面提一句，让人自己换或换目标版本。
         if (!pattern.name.isEmpty() && !ArmorTrim::patternAvailable(selection.pattern, version)) {
@@ -1278,9 +1274,8 @@ void ToolboxController::refreshTrim() {
             const QString name = tr("%1纹饰材料").arg(material.name);
             if (!unsupported.contains(name)) unsupported.append(name);
         }
-        // 提示（哪个版本才有 / 整套要几次）只从判据层拿：
+        // 提示（这枚模板从哪来 / 哪个版本才有 / 模板可以复制）只从判据层拿：
         // 每件各算一条单件计划，只取它那几条 notes，材料账仍按四列合起来算。
-        // NOTE: 模板"从哪来、复制用什么"那句在 `Plan::source` 里，**不进 notes** —— 结果区只留提示（UI 问题 #18）。
         const auto plan = ArmorTrim::plan(selection.armor, slot, selection.pattern,
                                           selection.material, 1);
         if (!plan.ok) {
@@ -1303,19 +1298,20 @@ void ToolboxController::refreshTrim() {
         m_trimPreview->refresh();
         return;
     }
-    QStringList items;
-    for (auto it = materials.cbegin(); it != materials.cend(); ++it) {
-        items.append(tr("%1 × %2").arg(it.key()).arg(it.value()));
+    if (notes.isEmpty() && unsupported.isEmpty()) {
+        m_page->setTrimResult(tr("尚未选择纹饰"));
+        m_trimPreview->refresh();
+        return;
     }
     QString text;
     if (!unsupported.isEmpty()) {
         text = tr("目标版本 %1 里还没有：%2。已保留当前搭配 —— 请调整纹饰 / 材料，"
-                  "或者换一个目标版本。\n\n")
+                  "或者换一个目标版本。")
                    .arg(version, unsupported.join(QStringLiteral("、")));
     }
-    text += tr("材料：") + items.join(QStringLiteral(" / "));
     if (!notes.isEmpty()) {
-        text += tr("\n\n提示：\n");
+        if (!text.isEmpty()) text += QStringLiteral("\n\n");
+        text += tr("提示：\n");
         for (const QString &note : notes) {
             text += tr("• %1\n").arg(note);
         }

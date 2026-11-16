@@ -246,9 +246,8 @@ Plan plan(int armorMaterial, int part, int patternIndex, int trimMaterial, int p
 
     // 一句话把"从哪来"和"再要一枚拿什么换"说完 —— 这两样是用户看这页真正要查的。
     // 模板本身和那七颗钻石不必写：前者就是这一枚，后者谁都备得住。
-    // NOTE: 只进 `source`，不进 `notes` —— 工具箱结果区的「提示」不再列这一句（UI 问题 #18）。
-    result.source = QStringLiteral("这枚%1来自：%2；复制用%3。")
-                        .arg(templateName, pattern.source, pattern.duplicate);
+    result.notes.append(QStringLiteral("这枚%1来自：%2；复制用%3。")
+                            .arg(templateName, pattern.source, pattern.duplicate));
     if (pattern.since != QStringLiteral("1.20")) {
         result.notes.append(QStringLiteral("%1是 Java %2 才加入的 —— 更早的版本里没有这枚模板。")
                                 .arg(templateName, pattern.since));
