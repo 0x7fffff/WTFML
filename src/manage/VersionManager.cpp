@@ -1913,43 +1913,11 @@ VersionDisplayParts VersionManager::displayParts(const QString &versionId) const
     // 走 iconField() 而不是再写一遍字面量（理由同上）。
     parts.icon = readString(iconField());
 
-    // 预留：按实例覆盖全局的显示格式。现在没有任何代码会写它，但读的这一侧先接好，
-    // 以后做"分开实例管理"时只要往 wtfml.meta 里写 "nameFormat" 就能生效。
-    //
-    // 语义是**整份替换**：没写的字段取 VersionNameOptions 的 struct 默认值，而不是取
-    // 全局设置里的值。理由是这个类在数据层，看不见 LauncherSettings，为了一个还没人写的
-    // 字段去建立这条依赖不划算；而且全局那四个开关今天恒等于默认值，两条语义在当前
-    // 完全等价。TODO: 以后真做"逐字段覆盖全局"时，得把全局 options 作为参数传进来。
-    // 四个开关全缺省时不构造 override，免得一个空对象把全局设置顶掉。
-    const QJsonValue nameFormat = meta.value(QLatin1String("nameFormat"));
-    if (nameFormat.isObject()) {
-        const QJsonObject formatObj = nameFormat.toObject();
-        VersionNameOptions overrideOptions;
-        bool anySet = false;
-        const auto readFlag = [&formatObj, &anySet](const char *key, bool &target) {
-            const QJsonValue value = formatObj.value(QLatin1String(key));
-            if (value.isBool()) {
-                target = value.toBool();
-                anySet = true;
-            }
-        };
-        readFlag("showCustomName", overrideOptions.showCustomName);
-        readFlag("showRealVersion", overrideOptions.showRealVersion);
-        readFlag("showLoaderName", overrideOptions.showLoaderName);
-        readFlag("showLoaderVersion", overrideOptions.showLoaderVersion);
-        if (anySet) {
-            parts.nameFormatOverride = overrideOptions;
-        }
-    } else if (!nameFormat.isUndefined() && !nameFormat.isNull()) {
-        qWarning() << "Version metadata field nameFormat is not an object in" << metaPath
-                   << "— ignored";
-    }
-
     // NOTE: 这里刻意**不缓存**。getVersionJson() 能缓存是因为版本 JSON 一旦下载就不再变，
     // 而这个文件会被"重命名"功能改写——缓存就会变成"改了名不生效"的 bug。
     // 开销不是不缓存的理由：调用方 refreshInstalledVersions() 每个已安装版本都要过这里
     // 一遍，而它一次会话会被调很多次且**没有上界** —— 构造函数、版本清单到达、下载完成，
-    // 以及每勾一下「版本名格式」的四个勾选框（onVersionNameOptionChanged）都会重跑。
+    // 以及每装完 / 删掉一个实例都会重跑。
     // 每次每个版本一个 exists() 加（有文件时才有的）几百字节读取；真机上实例数可以到
     // 61 个，也仍然是可忽略的量级 —— 所以别再拿"数量少"当论据，真正的理由是上面那条。
     return parts;

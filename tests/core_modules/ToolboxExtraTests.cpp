@@ -748,14 +748,13 @@ void runToolboxExtraTests() {
         check(ArmorTrim::patternDuplicate(-1).isEmpty(),
               "★ ZAJ5 图案下标越界 ⇒ 复制材料是空串（不编一个方块出来）");
 
+        // 这一句只留在 Plan::source 里：结果区的「提示」不再摆它（UI 问题 #18 删掉材料来源）。
         const ArmorTrim::Plan single = ArmorTrim::plan(4, 1, coast, 0, 1);
-        check(single.notes.join(QStringLiteral(" / ")).contains(QStringLiteral("这枚海岸纹饰模板来自：沉船")),
-              "★★ ZAJ5 单件计划里也写清模板从哪儿来",
-              single.notes.join(QStringLiteral(" / ")));
-        check(single.notes.join(QStringLiteral(" / ")).contains(QStringLiteral("复制用圆石"))
-                  && !single.notes.join(QStringLiteral(" / ")).contains(QStringLiteral("以游戏内配方为准")),
-              "★★ ZAJ5 来源和复制材料写在同一句里，不再留一句「以游戏内配方为准」",
-              single.notes.join(QStringLiteral(" / ")));
+        check(single.source.contains(QStringLiteral("这枚海岸纹饰模板来自：沉船")),
+              "★★ ZAJ5 单件计划里也写清模板从哪儿来", single.source);
+        check(single.source.contains(QStringLiteral("复制用圆石"))
+                  && !single.notes.join(QStringLiteral(" / ")).contains(QStringLiteral("来自：")),
+              "★★ ZAJ5 来源和复制材料写在同一句里，且不进结果区的提示", single.source);
         const ArmorTrim::Plan flowPlan = ArmorTrim::plan(4, 1, flow, 0, 1);
         check(flowPlan.ok
                   && flowPlan.notes.join(QStringLiteral(" / ")).contains(QStringLiteral("1.21")),

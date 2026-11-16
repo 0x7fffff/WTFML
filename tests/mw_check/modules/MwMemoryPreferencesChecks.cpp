@@ -1,5 +1,5 @@
 #include "Support.hpp"
-int MwMemoryPreferencesChecks(const bool settingsWired, const QString &kDecorated, MainWindow &window, QComboBox * &installed, QComboBox * &memoryMode, QLabel * &memoryHint, QSpinBox * &maxSpin, QComboBox * &behaviourCombo, QComboBox * &sourceCombo, QPlainTextEdit * &jvmEdit, SettingsParts::CommitOnFocusOut * &applyJvm, QCheckBox * &loaderCheck, QCheckBox * &loaderVersionCheck, MemorySlider * &maxSlider) {
+int MwMemoryPreferencesChecks(const bool settingsWired, const QString &kDecorated, MainWindow &window, QComboBox * &installed, QComboBox * &memoryMode, QLabel * &memoryHint, QSpinBox * &maxSpin, QComboBox * &behaviourCombo, QComboBox * &sourceCombo, QPlainTextEdit * &jvmEdit, SettingsParts::CommitOnFocusOut * &applyJvm, MemorySlider * &maxSlider) {
     if (settingsWired) {
         // ---- 内存：改一个数就落盘 ----
         // 默认是手动档：条和数字框开窗就能改。这里量的第一件事是"它开窗时确实已经能改"，
@@ -287,24 +287,15 @@ int MwMemoryPreferencesChecks(const bool settingsWired, const QString &kDecorate
         // 那一组静态断言并不存在。这里只钉"下拉框 → 盘"这一跳，以及下面 N 节
         // "盘 → 新窗口的下拉框"那一跳。
 
-        // ---- 版本名格式：改一个开关，两张版本列表立刻重拼 ----
+        // ---- 显示名的拼法是固定的（UI 问题 #14：那一组开关撤掉了）----
+        // 显示名就是 自定义名-实际版本-加载器名（原先是那四个开关的出厂档），加载器版本
+        // 不进显示名；实例列表和下拉框是同一份数据的两种看法，写法必须一致。
         {
             const int at = installed->findData(QStringLiteral("1.20.1"));
             check(installed->itemText(at) == kDecorated,
-                  "改之前带装饰的显示名还在", installed->itemText(at));
-        }
-        loaderCheck->setChecked(false);
-        QApplication::processEvents();
-        {
-            const int at = installed->findData(QStringLiteral("1.20.1"));
-            check(installed->itemText(at) == QStringLiteral("我的整合包-1.20.1"),
-                  "取消「加载器名」后，显示名里立刻没有 -Forge 了", installed->itemText(at));
-            // 归一化：关掉「加载器名」必须连带关掉从属的「加载器版本」，而且要把结果
-            // 回灌到勾选框上 —— 不回灌的话界面上还亮着一个"已经不起作用"的勾。
-            check(!loaderVersionCheck->isChecked(),
-                  "从属的「加载器版本」被连带关掉，并且回灌回了勾选框");
-            // 实例列表和下拉框是同一份数据的两种看法，显示名必须一起变（主页那张
-            // 「版本列表」 去掉之后，实例页右边这张就是唯一的列表看法了）。
+                  "实例下拉框里的显示名是 自定义名-实际版本-加载器名", installed->itemText(at));
+            check(!installed->itemText(at).contains(QStringLiteral("47.2.0")),
+                  "加载器版本不进显示名", installed->itemText(at));
             bool listMatches = false;
             QTreeWidget *instanceListView =
                 byObjectName<QTreeWidget>(&window, MainWindowUI::instanceListName());
@@ -313,24 +304,7 @@ int MwMemoryPreferencesChecks(const bool settingsWired, const QString &kDecorate
                     listMatches = item->text(0) == installed->itemText(at);
                 }
             }
-            check(listMatches, "实例列表里的同一个版本也换成了新名字");
-
-            LauncherSettings probe;
-            QSettings raw;
-            check(!probe.versionNameOptions().showLoaderName &&
-                      raw.value(QStringLiteral("Version/NameShowLoaderName")).toBool() == false,
-                  "这个开关也落了盘（重新打开启动器还是这个档）",
-                  raw.value(QStringLiteral("Version/NameShowLoaderName")).toString());
-        }
-        // 改回来，后面的节（以及将来加在后面的节）才从一个确定的档位出发。
-        loaderCheck->setChecked(true);
-        QApplication::processEvents();
-        {
-            const int at = installed->findData(QStringLiteral("1.20.1"));
-            check(installed->itemText(at) == kDecorated, "勾回来后显示名恢复成带装饰的那个",
-                  installed->itemText(at));
-            // 「加载器版本」不该跟着回来：它能显示的前提是「加载器名」，反过来不成立。
-            check(!loaderVersionCheck->isChecked(), "但「加载器版本」没有跟着被勾上");
+            check(listMatches, "实例列表里的同一个版本写法一致（同一份数据的两种看法）");
         }
 
         // ---- JVM 参数：失焦（committed）才落盘，且去首尾空白 ----

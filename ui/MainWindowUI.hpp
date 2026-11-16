@@ -2974,8 +2974,6 @@ public:
     static QString gameWindowModeComboName() { return QStringLiteral("gameWindowModeCombo"); }
     static QString gameWindowWidthSpinName() { return QStringLiteral("gameWindowWidthSpin"); }
     static QString gameWindowHeightSpinName() { return QStringLiteral("gameWindowHeightSpin"); }
-    /// 「外观」那一格那个文本框：条上那行字。
-    static QString titleTextEditName() { return QStringLiteral("titleTextEdit"); }
     /// 「宽 × 高」中间那个乘号。它也要有名字：验证工程量这三格的几何时得能取到它。
     static QString gameWindowSizeTimesLabelName() { return QStringLiteral("gameWindowSizeTimes"); }
     /// 「启动选项」那一组里那几个勾选框/数字框的文案。
@@ -3003,14 +3001,6 @@ public:
     static QString warnWorldLossRowText() { return QStringLiteral("同一实例已运行时提醒"); }
     static QString warnWorldLossCheckText() {
         return QStringLiteral("同一实例已运行时提醒");
-    }
-    static QString versionNameCustomCheckName() {
-        return QStringLiteral("versionNameCustomCheck");
-    }
-    static QString versionNameRealCheckName() { return QStringLiteral("versionNameRealCheck"); }
-    static QString versionNameLoaderCheckName() { return QStringLiteral("versionNameLoaderCheck"); }
-    static QString versionNameLoaderVersionCheckName() {
-        return QStringLiteral("versionNameLoaderVersionCheck");
     }
 
     // ---------- 内存分配的取值范围 ----------
@@ -3056,17 +3046,17 @@ public:
     static int windowMaxHeight() { return 4320; }
     /// 点上下箭头一下走多少。16 是"拖一下就能从 854 走到 1920 那类常见值"。
     static int windowSizeStep() { return 16; }
-
-    // ---------- 「外观」那格那个文本框的长度上限 ----------
-    // 和 LauncherSettings::titleTextMaxLength() **必须一样**（那边是读盘/写盘时的截断，
-    // 这边是输入框允许打进去的长度）。ui/ 这一侧不许 include src/，所以两份各写一遍，
-    // 验证工程里有一条断言盯着它们相等 —— 和上面「游戏窗口大小的取值范围」同一个约定。
-    // 不一致的症状是"打上去的字自己少了几个"。
-    //
-    // 16 这个数是按**条上留给名字的那点地方**量的：条宽 900 时，名字从最左边画到导航那一组
-    // 左边还剩 260 px 上下，16 个汉字（约 224 px）正好不撞上（Latin 的 16 个字符更窄）。
-    // 再长的名字不会把条撑坏（`TitleBar::paintEvent` 会拿省略号截），但那属于"写了也看不见"。
-    static int titleTextMaxLength() { return 16; }
+    /// 出厂默认的**游戏**窗口大小（不是启动器自己那个窗口，那个见 kMainWindowDefaultWidth）。
+    ///
+    /// 854×480 是原版自己的默认窗口（1.12.2 的 Main 里那对 defaultsTo），`LauncherSettings`
+    /// 那两个成员的初始值也是它。设置页「窗口大小」那一行最右边那颗「恢复默认」回到的就是这两个数。
+    /// 规矩同上面那组范围：ui/ 不许 include src/，所以和 `LauncherSettings` 各写一遍。
+    static int windowDefaultWidth() { return 854; }
+    static int windowDefaultHeight() { return 480; }
+    /// 「窗口大小」那一行最右边那颗「恢复默认」（UI 问题 #11，写法照 155 那颗）。
+    static QString gameWindowSizeResetButtonName() {
+        return QStringLiteral("gameWindowSizeResetButton");
+    }
 
     // ---------- 「背景图」那一节 ----------
     // 一块底一行：四个页面的内容区（`Theme::Part::PageBackground`），铺满整窗。
@@ -3267,7 +3257,7 @@ public:
     /// 有实例异常退出、而且账上那一项还没处理掉时那一行写什么。
     static QString runStateErrorText() { return QStringLiteral("异常退出"); }
     /// 正在启动时那一行：`<实例名>启动中...`。
-    /// @param name 实例名。**不受「版本名格式」那四个开关影响**，由
+    /// @param name 实例名。**不走显示名那一套**，由
     /// MainWindow::launchingStatusName() 走 VersionDisplay::launchStatusName() 算出来
     /// （有自定义名就只用它，没有就是"版本号-加载器名"）—— 这里不碰那个规则。
     ///
@@ -3679,7 +3669,11 @@ public:
     QLabel *getGameWindowSizeTimesLabel() const { return gameWindowSizeTimesLabel; }
     QSpinBox *getGameWindowWidthSpin() const { return gameWindowWidthSpin; }
     QSpinBox *getGameWindowHeightSpin() const { return gameWindowHeightSpin; }
-    QLineEdit *getTitleTextEdit() const { return titleTextEdit; }
+    /// 「窗口大小」那一行最右边那颗「恢复默认」（点了回到 `windowDefaultWidth()` × `windowDefaultHeight()`）。
+    QPushButton *getGameWindowSizeResetButton() const { return gameWindowSizeResetButton; }
+    /// 按**当值**刷新「恢复默认」的置灰：已经是出厂默认、或那一行因为窗口模式（最大化）
+    /// 被灰掉时置灰。改宽高、切窗口模式之后都要调一次（后一条在 MainWindow 那边）。
+    void syncGameWindowSizeResetButton();
 
     /// 「背景图」那一节里，**一块底**对应的一组控件（今天只有页面背景这一组）。
     ///
@@ -3718,11 +3712,6 @@ public:
     QPushButton *getThemeImportButton() const { return themeImportButton; }
     /// 「动效」那个勾。
     QCheckBox *getAnimationsCheck() const { return animationsCheck; }
-
-    QCheckBox *getVersionNameCustomCheck() const { return versionNameCustomCheck; }
-    QCheckBox *getVersionNameRealCheck() const { return versionNameRealCheck; }
-    QCheckBox *getVersionNameLoaderCheck() const { return versionNameLoaderCheck; }
-    QCheckBox *getVersionNameLoaderVersionCheck() const { return versionNameLoaderVersionCheck; }
 
     // 主页右栏那个可拖动旋转的 3D 皮肤预览；说明标签只留作状态/无障碍数据，不显示。
     // 这个控件是**自己画的**（QWidget 子类 + paintEvent，不是标准控件），
@@ -3870,7 +3859,7 @@ private:
     void openBottomBarPanel(const BottomBarAnchor &anchor);
     /// 开任务中心那一块（整页：筛选 / 搜索 / 历史 / 详情；浮动面板「全部任务」进这里）。
     void openTaskCenterPanel();
-    /// 任务摘要那一格：开 / 收活动中心浮动面板（ui/ActivityPopover，设计稿 panels-tasks）。
+    /// 任务摘要那一格：开 / 收任务中心浮动面板（ui/ActivityPopover，设计稿 panels-tasks）。
     void toggleActivityPopover();
     /// 现在开着的任务中心面板（没开着 = nullptr）。它是个 Qt::Popup 窗口，close() 之后
     /// 要等 deleteLater 才真删 —— 所以同一轮事件处理里还找得到（和 `bottomBarPanelName()`
@@ -4062,7 +4051,8 @@ private:
     QLabel *gameWindowSizeTimesLabel = nullptr;
     QSpinBox *gameWindowWidthSpin = nullptr;
     QSpinBox *gameWindowHeightSpin = nullptr;
-    QLineEdit *titleTextEdit = nullptr;
+    /// 「窗口大小」那一行最右边那颗「恢复默认」（`gameWindowSizeResetButtonName()`）。
+    QPushButton *gameWindowSizeResetButton = nullptr;
     QPushButton *windowSizeResetButton = nullptr;
     QCheckBox *dailyQuoteCheck = nullptr;
     /// 「背景图」那一节的各行控件，按 `ThemeImageRow::partKey` 认（见这一节在头文件里那段）。
@@ -4081,10 +4071,6 @@ private:
     QPushButton *themeImportButton = nullptr;
     /// 「动效」那个勾（还是「个性化」栏，摆在「主题」之后）。
     QCheckBox *animationsCheck = nullptr;
-    QCheckBox *versionNameCustomCheck = nullptr;
-    QCheckBox *versionNameRealCheck = nullptr;
-    QCheckBox *versionNameLoaderCheck = nullptr;
-    QCheckBox *versionNameLoaderVersionCheck = nullptr;
     SkinViewer *skinViewer = nullptr;
     QLabel *skinHintLabel = nullptr;
     QPushButton *accountSkinButton = nullptr;

@@ -27,17 +27,6 @@ void LauncherPreferencesController::log(const QString &message) const {
     if (m_host.log) m_host.log(message);
 }
 
-void LauncherPreferencesController::pushVersionNameOptions(const VersionNameOptions &options) {
-    const QSignalBlocker a(m_ui->getVersionNameCustomCheck());
-    const QSignalBlocker b(m_ui->getVersionNameRealCheck());
-    const QSignalBlocker c(m_ui->getVersionNameLoaderCheck());
-    const QSignalBlocker d(m_ui->getVersionNameLoaderVersionCheck());
-    m_ui->getVersionNameCustomCheck()->setChecked(options.showCustomName);
-    m_ui->getVersionNameRealCheck()->setChecked(options.showRealVersion);
-    m_ui->getVersionNameLoaderCheck()->setChecked(options.showLoaderName);
-    m_ui->getVersionNameLoaderVersionCheck()->setChecked(options.showLoaderVersion);
-}
-
 void LauncherPreferencesController::launcherBehaviourChanged() {
     m_settings->setLauncherBehaviour(
         LauncherBehaviour(m_ui->getLauncherBehaviourCombo()->currentData().toInt()));
@@ -173,6 +162,8 @@ void LauncherPreferencesController::updateGameWindowSizeEnabled() {
     m_ui->getGameWindowWidthSpin()->setEnabled(enabled);
     m_ui->getGameWindowHeightSpin()->setEnabled(enabled);
     m_ui->getGameWindowSizeTimesLabel()->setEnabled(enabled);
+    // 「恢复默认」跟着这一行的可用性走：整行灰着（最大化）时它也灰，值已是默认时也灰。
+    m_ui->syncGameWindowSizeResetButton();
 }
 
 void LauncherPreferencesController::syncDownloadSource() {
@@ -226,18 +217,6 @@ void LauncherPreferencesController::syncCatalogCredentials() {
 void LauncherPreferencesController::curseForgeApiKeyEdited() {
     m_settings->setCurseForgeApiKey(m_ui->getCurseForgeApiKeyEdit()->text());
     syncCatalogCredentials();
-}
-
-void LauncherPreferencesController::versionNameOptionChanged() {
-    VersionNameOptions options;
-    options.showCustomName = m_ui->getVersionNameCustomCheck()->isChecked();
-    options.showRealVersion = m_ui->getVersionNameRealCheck()->isChecked();
-    options.showLoaderName = m_ui->getVersionNameLoaderCheck()->isChecked();
-    options.showLoaderVersion = m_ui->getVersionNameLoaderVersionCheck()->isChecked();
-    m_settings->setVersionNameOptions(options);
-    pushVersionNameOptions(m_settings->versionNameOptions());
-    if (m_host.refreshInstalled) m_host.refreshInstalled();
-    if (m_host.refreshAvailable) m_host.refreshAvailable();
 }
 
 void LauncherPreferencesController::applyExtraJvmArgs() {

@@ -1,5 +1,5 @@
 #include "Support.hpp"
-int MwJavaPreferencesChecks(const bool settingsWired, MainWindow &window, QPushButton * &javaManageButton, QLabel * &javaLabel, QCheckBox * &javaWarn, QComboBox * &memoryMode, QLabel * &memoryHint, QSpinBox * &maxSpin, QComboBox * &behaviourCombo, QComboBox * &sourceCombo, QPlainTextEdit * &jvmEdit, QCheckBox * &customCheck, QCheckBox * &realCheck, QCheckBox * &loaderCheck, QCheckBox * &loaderVersionCheck, MemorySlider * &maxSlider) {
+int MwJavaPreferencesChecks(const bool settingsWired, MainWindow &window, QPushButton * &javaManageButton, QLabel * &javaLabel, QCheckBox * &javaWarn, QComboBox * &memoryMode, QLabel * &memoryHint, QSpinBox * &maxSpin, QComboBox * &behaviourCombo, QComboBox * &sourceCombo, QPlainTextEdit * &jvmEdit, MemorySlider * &maxSlider) {
     if (settingsWired) {
         GlobalJavaSettings javaProbe;   // 同一份沙盒 ini 的另一个读者
         LauncherSettings settingsProbe;
@@ -129,22 +129,66 @@ int MwJavaPreferencesChecks(const bool settingsWired, MainWindow &window, QPushB
         check(jvmEdit->toPlainText() == javaProbe.extraJvmArgs(),
               "JVM 参数框的正文就是盘上那串", jvmEdit->toPlainText());
 
-        // ---- 版本名格式 ----
+        // ---- 游戏窗口大小「恢复默认」（UI 问题 #11）----
+        // 置灰与"点一下回到 854×480"的界面那一半在 ui_check 的 Z2 里；这里验的是**落盘**：
+        // 点完之后盘上那两格就是出厂默认，而且按钮自己灰回去。
         {
-            const VersionNameOptions options = settingsProbe.versionNameOptions();
-            check(customCheck->isChecked() == options.showCustomName &&
-                      realCheck->isChecked() == options.showRealVersion &&
-                      loaderCheck->isChecked() == options.showLoaderName &&
-                      loaderVersionCheck->isChecked() == options.showLoaderVersion,
-                  "四个「版本名格式」勾选框和盘上的开关一一对上",
-                  QString("自定义名=%1 版本名=%2 加载器名=%3 加载器版本=%4")
-                      .arg(customCheck->isChecked() ? 1 : 0)
-                      .arg(realCheck->isChecked() ? 1 : 0)
-                      .arg(loaderCheck->isChecked() ? 1 : 0)
-                      .arg(loaderVersionCheck->isChecked() ? 1 : 0));
-            check(customCheck->isChecked() && realCheck->isChecked() &&
-                      loaderCheck->isChecked() && !loaderVersionCheck->isChecked(),
-                  "默认档是 自定义名✓ 版本名✓ 加载器名✓ 加载器版本✗");
+            auto *widthSpin = byObjectName<QSpinBox>(&window, MainWindowUI::gameWindowWidthSpinName());
+            auto *heightSpin = byObjectName<QSpinBox>(&window, MainWindowUI::gameWindowHeightSpinName());
+            auto *resetButton =
+                byObjectName<QPushButton>(&window, MainWindowUI::gameWindowSizeResetButtonName());
+            check(widthSpin != nullptr && heightSpin != nullptr && resetButton != nullptr,
+                  "★ I11 启动页「窗口大小」那一行找得到「恢复默认」");
+            if (widthSpin != nullptr && heightSpin != nullptr && resetButton != nullptr) {
+                widthSpin->setValue(1280);
+                heightSpin->setValue(720);
+                QApplication::processEvents();
+                {
+                    LauncherSettings afterEdit;  // 重新读一遍盘
+                    check(afterEdit.gameWindowWidth() == 1280 && afterEdit.gameWindowHeight() == 720,
+                          "I11 改两个框照旧立刻落盘",
+                          QString("%1×%2").arg(afterEdit.gameWindowWidth()).arg(afterEdit.gameWindowHeight()));
+                }
+                check(resetButton->isEnabled(), "★ I11 不是默认值时「恢复默认」可点");
+                resetButton->click();
+                QApplication::processEvents();
+                {
+                    LauncherSettings afterReset;
+                    check(afterReset.gameWindowWidth() == 854 && afterReset.gameWindowHeight() == 480,
+                          "★★ I11 点「恢复默认」之后盘上是 854×480",
+                          QString("%1×%2").arg(afterReset.gameWindowWidth()).arg(afterReset.gameWindowHeight()));
+                }
+                check(widthSpin->value() == 854 && heightSpin->value() == 480 && !resetButton->isEnabled(),
+                      "★ I11 两个框回到 854×480，按钮自己置灰",
+                      QString("%1×%2 enabled=%3").arg(widthSpin->value()).arg(heightSpin->value())
+                          .arg(resetButton->isEnabled() ? 1 : 0));
+                // 窗口模式 = 最大化：那一行整行不参与启动，按钮跟着灰（改了值也不该亮回来）。
+                auto *modeCombo = byObjectName<QComboBox>(&window, MainWindowUI::gameWindowModeComboName());
+                const int maximizedRow =
+                    modeCombo != nullptr ? modeCombo->findData(int(GameWindowMode::Maximized)) : -1;
+                if (maximizedRow >= 0) {
+                    modeCombo->setCurrentIndex(maximizedRow);
+                    widthSpin->setValue(1280);
+                    QApplication::processEvents();
+                    check(!resetButton->isEnabled(),
+                          "★ I11 「最大化」时那一行灰着，「恢复默认」也就灰着");
+                    // 收回小窗档，别把后面几节留在"最大化"上；值也放回默认。
+                    modeCombo->setCurrentIndex(modeCombo->findData(int(GameWindowMode::Windowed)));
+                    widthSpin->setValue(854);
+                    heightSpin->setValue(480);
+                    QApplication::processEvents();
+                }
+            }
+        }
+
+        // ---- 「版本名格式」那一组已经不在了（UI 问题 #14）----
+        {
+            check(window.findChild<QCheckBox *>(QStringLiteral("versionNameCustomCheck")) == nullptr &&
+                      window.findChild<QCheckBox *>(QStringLiteral("versionNameRealCheck")) == nullptr &&
+                      window.findChild<QCheckBox *>(QStringLiteral("versionNameLoaderCheck")) == nullptr &&
+                      window.findChild<QCheckBox *>(
+                          QStringLiteral("versionNameLoaderVersionCheck")) == nullptr,
+                  "★ 设置页里没有「版本名格式」那四个勾选框了");
         }
 
         // ---- 「设置」页在选项卡里的下标 ----

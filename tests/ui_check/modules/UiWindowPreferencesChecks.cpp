@@ -213,6 +213,48 @@ int UiWindowPreferencesChecks(QTabWidget * &tabs) {
             // 切回「启动」页：这一段后面的节假设设置页停在 Z2 开头那一页上。
             formOfCategory(QStringLiteral("launch"));
         }
+
+        // ---- (e) 「窗口大小 · 恢复默认」（UI 问题 #11）----
+        // 出厂那对数是原版自己的 854×480（`MainWindowUI::windowDefaultWidth/Height()`）。
+        // 置灰的两条判据：已经是默认值；或者那一行因为窗口模式整行灰着（后一条在 mw_check，
+        // 那边才有 MainWindow 按 GameWindowMode 灰/亮这一行的那条线）。
+        {
+            auto *widthSpin = form != nullptr
+                                  ? form->findChild<QSpinBox *>(MainWindowUI::gameWindowWidthSpinName())
+                                  : nullptr;
+            auto *heightSpin = form != nullptr ? form->findChild<QSpinBox *>(
+                                                     MainWindowUI::gameWindowHeightSpinName())
+                                               : nullptr;
+            auto *resetButton =
+                form != nullptr
+                    ? form->findChild<QPushButton *>(MainWindowUI::gameWindowSizeResetButtonName())
+                    : nullptr;
+            check(resetButton != nullptr && resetButton->text() == QStringLiteral("恢复默认"),
+                  "★ I11 「窗口大小」那一行最右边有「恢复默认」",
+                  resetButton != nullptr ? resetButton->text() : QStringLiteral("<null>"));
+            check(MainWindowUI::windowDefaultWidth() == 854 && MainWindowUI::windowDefaultHeight() == 480,
+                  "I11 出厂默认那一对是 854×480",
+                  QString("%1×%2").arg(MainWindowUI::windowDefaultWidth()).arg(MainWindowUI::windowDefaultHeight()));
+            if (resetButton != nullptr && widthSpin != nullptr && heightSpin != nullptr) {
+                // 刚搭好时两个框停在下限（320×240）：不是默认值，按钮该是亮的。
+                check(resetButton->isEnabled(), "★ I11 值不是默认时「恢复默认」可点",
+                      QString("%1×%2").arg(widthSpin->value()).arg(heightSpin->value()));
+                widthSpin->setValue(MainWindowUI::windowDefaultWidth());
+                heightSpin->setValue(MainWindowUI::windowDefaultHeight());
+                QApplication::processEvents();
+                check(!resetButton->isEnabled(), "★★ I11 已经是 854×480：「恢复默认」置灰");
+                heightSpin->setValue(MainWindowUI::windowDefaultHeight() + MainWindowUI::windowSizeStep());
+                QApplication::processEvents();
+                check(resetButton->isEnabled(), "★ I11 改成 854×496 又变回可点");
+                resetButton->click();
+                QApplication::processEvents();
+                check(widthSpin->value() == MainWindowUI::windowDefaultWidth() &&
+                          heightSpin->value() == MainWindowUI::windowDefaultHeight(),
+                      "★★ I11 点「恢复默认」：两个框回到 854×480",
+                      QString("%1×%2").arg(widthSpin->value()).arg(heightSpin->value()));
+                check(!resetButton->isEnabled(), "★ I11 恢复之后按钮自己置灰");
+            }
+        }
     }
     return 0;
 }

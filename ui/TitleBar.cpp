@@ -659,15 +659,6 @@ QAbstractButton *TitleBar::navButton(int index) const {
     return index >= 0 && index < m_navButtons.size() ? m_navButtons.at(index) : nullptr;
 }
 
-void TitleBar::setBrandText(const QString &text) {
-    const QString trimmed = text.trimmed();
-    if (m_brand == trimmed) return;
-    m_brand = trimmed;
-    update();
-}
-
-QString TitleBar::titleText() const { return m_brand.isEmpty() ? defaultBrandText() : m_brand; }
-
 void TitleBar::paintEvent(QPaintEvent *) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, true);
@@ -689,8 +680,9 @@ void TitleBar::paintEvent(QPaintEvent *) {
     }
 
     // 品牌名（西文手写体 30）；图标轨时只剩 W。
+    // NOTE: 固定是商标，不给改（UI 问题 #3）—— 出处只有 `defaultBrandText()` 这一处。
     if (width() < (kRailWidth + kRailMiniWidth) / 2) return;
-    const QString brand = titleText();
+    const QString brand = defaultBrandText();
     if (brand.isEmpty()) return;
     QFont brandFont = Theme::handFont(font(), Theme::HandFont::Script);
     brandFont.setPixelSize(30);

@@ -8,7 +8,7 @@ int MwTaskStressChecks(MainWindow &window) {
     // 包括顺序、活动/已完成两栏的切分，以及终态行上不许再长出「取消」。
     {
         auto *abStress = window.findChild<ActivityCenterController *>();
-        check(abStress != nullptr, "AB6 找得到活动中心");
+        check(abStress != nullptr, "AB6 找得到任务中心");
         if (abStress != nullptr) {
             // 前面几节留下的已完成先清掉；还活着的项记个数，最后一起收。
             abStress->clearFinished();

@@ -12,30 +12,17 @@ int runVersionNameTests(const QString &sandbox) {
     parts.loaderName = loaderName;
     parts.loaderVersion = loaderVersion;
 
-    const VersionNameOptions kStructDefault;  // 自定义名✓ 版本名✓ 加载器名✓ 加载器版本✗
-
-    // 16 行 = 四个布尔的全组合，下标 = c*8 + r*4 + n*2 + v。
-    // 期望值是一张**手写**的表，不是拿另一份实现算出来的 —— 用实现算期望值等于没测。
+    // I1 显示名的拼法是**固定的一份**（UI 问题 #14 删掉了「版本名格式」那四个开关）：
+    // 名称槽 → 实际版本 → 加载器名。加载器版本**不进**显示名 —— 那正是原先四个开关的
+    // 出厂默认（自定义名✓ 实际版本✓ 加载器名✓ 加载器版本✗），所以没改过设置的用户
+    // 看到的字一个都不变。期望值是**手写**的，不是拿另一份实现算出来的。
     struct Table {
         QString customName;
-        QStringList expected;
+        QString expected;
     };
     const QList<Table> tables = {
-        {QString(),
-         {QStringLiteral("1.20.1"), QStringLiteral("1.20.1"), QStringLiteral("1.20.1-Forge"),
-          QStringLiteral("1.20.1-Forge-47.2.0"), QStringLiteral("1.20.1"), QStringLiteral("1.20.1"),
-          QStringLiteral("1.20.1-Forge"), QStringLiteral("1.20.1-Forge-47.2.0"),
-          QStringLiteral("1.20.1"), QStringLiteral("1.20.1"), QStringLiteral("1.20.1-Forge"),
-          QStringLiteral("1.20.1-Forge-47.2.0"), QStringLiteral("1.20.1"), QStringLiteral("1.20.1"),
-          QStringLiteral("1.20.1-Forge"), QStringLiteral("1.20.1-Forge-47.2.0")}},
-        {QStringLiteral("我的整合包"),
-         {QStringLiteral("1.20.1"), QStringLiteral("1.20.1"), QStringLiteral("1.20.1-Forge"),
-          QStringLiteral("1.20.1-Forge-47.2.0"), QStringLiteral("1.20.1"), QStringLiteral("1.20.1"),
-          QStringLiteral("1.20.1-Forge"), QStringLiteral("1.20.1-Forge-47.2.0"),
-          QStringLiteral("我的整合包"), QStringLiteral("我的整合包"), QStringLiteral("我的整合包-Forge"),
-          QStringLiteral("我的整合包-Forge-47.2.0"), QStringLiteral("我的整合包-1.20.1"),
-          QStringLiteral("我的整合包-1.20.1"), QStringLiteral("我的整合包-1.20.1-Forge"),
-          QStringLiteral("我的整合包-1.20.1-Forge-47.2.0")}},
+        {QString(), QStringLiteral("1.20.1-Forge")},
+        {QStringLiteral("我的整合包"), QStringLiteral("我的整合包-1.20.1-Forge")},
     };
 
     for (const Table &table : tables) {
@@ -43,93 +30,61 @@ int runVersionNameTests(const QString &sandbox) {
         p.customName = table.customName;
         const QString label = table.customName.isEmpty() ? QStringLiteral("<无自定义名>")
                                                          : table.customName;
-        // 每个组合单独记一个"拼装畸形"的计数，最后汇成一条断言 —— 32 条独立的
-        // 畸形断言会把输出淹掉，而这里要的信号是"有没有，有哪个"。
-        QStringList malformed;
-        for (int mask = 0; mask < 16; ++mask) {
-            VersionNameOptions opt;
-            opt.showCustomName = (mask & 8) != 0;
-            opt.showRealVersion = (mask & 4) != 0;
-            opt.showLoaderName = (mask & 2) != 0;
-            opt.showLoaderVersion = (mask & 1) != 0;
-
-            const QString got = formatVersionName(p, opt);
-            const QString &want = table.expected.at(mask);
-            check(got == want,
-                  QString("I1 %1 c%2r%3n%4v%5 -> %6")
-                      .arg(label)
-                      .arg(opt.showCustomName ? 1 : 0)
-                      .arg(opt.showRealVersion ? 1 : 0)
-                      .arg(opt.showLoaderName ? 1 : 0)
-                      .arg(opt.showLoaderVersion ? 1 : 0)
-                      .arg(want),
-                  got == want ? QString() : QStringLiteral("实际 ") + got);
-
-            // 畸形 = 空串、或首尾/连续的分隔符。连续 '-' 正是"去重不对称"（Forge 拼成
-            // Forge-Forge）会留下的痕迹，所以这条不能省。
-            if (got.isEmpty() || got.startsWith(QLatin1Char('-')) ||
-                got.endsWith(QLatin1Char('-')) || got.contains(QStringLiteral("--"))) {
-                malformed.append(QStringLiteral("mask%1=%2").arg(mask).arg(got));
-            }
-        }
-        check(malformed.isEmpty(), QString("I1 %1 的 16 种组合都非空、无多余分隔符").arg(label),
-              malformed.join(QStringLiteral(", ")));
+        const QString got = formatVersionName(p);
+        check(got == table.expected, QString("I1 %1 -> %2").arg(label, table.expected),
+              got == table.expected ? QString() : QStringLiteral("实际 ") + got);
+        // 畸形 = 空串、或首尾/连续的分隔符。连续 '-' 正是"去重不对称"（Forge 拼成
+        // Forge-Forge）会留下的痕迹，所以这条不能省。
+        check(!got.isEmpty() && !got.startsWith(QLatin1Char('-')) &&
+                  !got.endsWith(QLatin1Char('-')) && !got.contains(QStringLiteral("--")),
+              QString("I1 %1 拼出来非空、无多余分隔符").arg(label), got);
+        // 加载器版本那一段**不进**显示名（出厂默认就关着它）。
+        check(!got.contains(loaderVersion),
+              QString("I1 %1 里没有加载器版本那一段").arg(label), got);
     }
 
-    // I2 归一化：两条不变式必须自己站得住（真值表里非法格"看起来对"是被
-    // formatVersionName 内部那道归一化救回来的，这里直接验那道归一化本身）。
-    {
-        VersionNameOptions allOff;
-        allOff.showCustomName = false;
-        allOff.showRealVersion = false;
-        allOff.showLoaderName = false;
-        allOff.showLoaderVersion = false;
-        const VersionNameOptions fixed = normalizeVersionNameOptions(allOff);
-        check(fixed.showRealVersion, "I2 自定义名+版本名同关 -> 版本名被强制打开");
-
-        VersionNameOptions versionOnly;
-        versionOnly.showCustomName = false;
-        versionOnly.showRealVersion = false;
-        versionOnly.showLoaderName = false;
-        versionOnly.showLoaderVersion = true;
-        const VersionNameOptions fixed2 = normalizeVersionNameOptions(versionOnly);
-        check(!fixed2.showLoaderVersion, "I2 加载器名关着而加载器版本开着 -> 加载器版本被关掉");
-
-        check(normalizeVersionNameOptions(kStructDefault) == kStructDefault,
-              "I2 合法组合过一遍归一化不变");
-        // 顺序：(a) 打开版本名，(b) 再判加载器。先 (b) 后 (a) 结果一样，但注释里
-        // 写的顺序要和实现一致，所以这里把"两步都生效"的组合也钉一条。
-        VersionNameOptions both;
-        both.showCustomName = false;
-        both.showRealVersion = false;
-        both.showLoaderName = false;
-        both.showLoaderVersion = true;
-        const VersionNameOptions fixed3 = normalizeVersionNameOptions(both);
-        check(fixed3.showRealVersion && !fixed3.showLoaderVersion,
-              "I2 两条不变式同时触发时都生效");
-    }
-
-    // I3 清洗：元数据文件的意义就是让用户手写，手写的内容一律当不可信输入。
+    // I2 名字槽退化成实际版本：没重命名过时只显示版本号本身，不会重复一段。
     {
         VersionDisplayParts p;
         p.id = QStringLiteral("1.20.1");
+        check(formatVersionName(p) == QStringLiteral("1.20.1"),
+              "I2 没有自定义名、没有加载器 -> 就是版本号", formatVersionName(p));
+        p.loaderName = QStringLiteral("Forge");
+        p.loaderVersion = QStringLiteral("47.2.0");
+        check(formatVersionName(p) == QStringLiteral("1.20.1-Forge"),
+              "I2 没有自定义名 -> 版本号-加载器名（加载器版本不出现）", formatVersionName(p));
 
-        VersionNameOptions customOnly;  // 只勾自定义名 —— 这时显示的是名称槽
-        customOnly.showCustomName = true;
-        customOnly.showRealVersion = false;
-        customOnly.showLoaderName = false;
-        customOnly.showLoaderVersion = false;
+        // 名称槽和实际版本是同一个串时只留一份（去重对每一段都生效）。
+        VersionDisplayParts same;
+        same.id = QStringLiteral("1.18.2");
+        same.realVersion = QStringLiteral("1.18.2");
+        same.loaderName = QStringLiteral("Forge");
+        check(formatVersionName(same) == QStringLiteral("1.18.2-Forge"),
+              "I2 realVersion 与目录名相同时不拼出重复段", formatVersionName(same));
+
+        // 加载器名恰好等于版本号时也不重复：
+        VersionDisplayParts dup;
+        dup.id = QStringLiteral("Forge");
+        dup.loaderName = QStringLiteral("Forge");
+        check(formatVersionName(dup) == QStringLiteral("Forge"),
+              "I2 加载器名和版本号相同时只留一份", formatVersionName(dup));
+    }
+
+    // I3 清洗：元数据文件的意义就是让用户手写，手写的内容一律当不可信输入。
+    // 这里把 id 和实际版本留空（只有名称槽有内容），量到的就是"那一段被清洗成什么样"。
+    {
+        VersionDisplayParts p;
 
         p.customName = QStringLiteral("a\nb");
-        check(formatVersionName(p, customOnly) == QStringLiteral("a b"),
-              "I3 名字里的换行被折成空格", formatVersionName(p, customOnly));
+        check(formatVersionName(p) == QStringLiteral("a b"),
+              "I3 名字里的换行被折成空格", formatVersionName(p));
 
         p.customName = QStringLiteral("  padded\tname  ");
-        check(formatVersionName(p, customOnly) == QStringLiteral("padded name"),
-              "I3 首尾空白去掉、制表符折成空格", formatVersionName(p, customOnly));
+        check(formatVersionName(p) == QStringLiteral("padded name"),
+              "I3 首尾空白去掉、制表符折成空格", formatVersionName(p));
 
         p.customName = QString(200, QLatin1Char('x'));
-        const QString truncated = formatVersionName(p, customOnly);
+        const QString truncated = formatVersionName(p);
         check(truncated.size() == 64, "I3 超长名字被截到 64 字符",
               QString::number(truncated.size()));
 
@@ -137,7 +92,7 @@ int runVersionNameTests(const QString &sandbox) {
         // 本身能重新制造一个尾随空格，而那个空格会被拼进显示名里变成 "xxx -1.20.1"。
         // 上面那条 200 个 'x' 的用例永远踩不到这个点，所以必须单独造一条。
         p.customName = QString(63, QLatin1Char('x')) + QLatin1Char(' ') + QString(50, QLatin1Char('y'));
-        const QString cutOnSpace = formatVersionName(p, customOnly);
+        const QString cutOnSpace = formatVersionName(p);
         check(!cutOnSpace.endsWith(QLatin1Char(' ')) &&
                   cutOnSpace.size() == 63,
               "I3 截断点落在空格上时不留尾随空格",
@@ -147,7 +102,7 @@ int runVersionNameTests(const QString &sandbox) {
         // truncate(64) 会留下一个孤立的代理项（画出来是方块）。R16。
         p.customName = QString(63, QLatin1Char('x')) + QChar(0xD83D) + QChar(0xDE00)
                        + QString(10, QLatin1Char('y'));
-        const QString cutSurrogate = formatVersionName(p, customOnly);
+        const QString cutSurrogate = formatVersionName(p);
         check(cutSurrogate.size() == 63 &&
                   !cutSurrogate.at(cutSurrogate.size() - 1).isHighSurrogate(),
               "★★ R16 截断点落在代理对中间时退回一格（不留孤立的代理项）",
@@ -158,20 +113,16 @@ int runVersionNameTests(const QString &sandbox) {
 
         // 截断后拼上其他段，不能出现 " -" 这种带空格的连接
         p.customName = QString(63, QLatin1Char('x')) + QLatin1Char(' ') + QString(50, QLatin1Char('y'));
-        VersionNameOptions twoSegs;
-        twoSegs.showCustomName = true;
-        twoSegs.showRealVersion = true;
-        check(!formatVersionName(p, twoSegs).contains(QStringLiteral(" -")),
+        p.id = QStringLiteral("1.20.1");
+        check(!formatVersionName(p).contains(QStringLiteral(" -")),
               "I3 多段拼接时没有『空格+连字符』这种畸形连接",
-              formatVersionName(p, twoSegs).right(20));
+              formatVersionName(p).right(20));
 
         // id 也要清洗 —— 在线清单和目录名同样不是我们能保证的内容
         VersionDisplayParts q;
         q.id = QStringLiteral("26.2\nsnapshot");
-        VersionNameOptions realOnly;
-        realOnly.showCustomName = false;
-        check(!formatVersionName(q, realOnly).contains(QLatin1Char('\n')),
-              "I3 id 里的换行同样被清掉", formatVersionName(q, realOnly));
+        check(!formatVersionName(q).contains(QLatin1Char('\n')),
+              "I3 id 里的换行同样被清掉", formatVersionName(q));
     }
 
     // I4 displayParts() 读盘。用专门的假版本号，别碰 A~D 节摆在沙盒里的真版本。
@@ -185,7 +136,7 @@ int runVersionNameTests(const QString &sandbox) {
         QFile::remove(metaPath);
         const VersionDisplayParts none = vm.displayParts(versionId);
         check(none.id == versionId && none.customName.isEmpty() && none.loaderName.isEmpty() &&
-                  none.loaderVersion.isEmpty() && !none.nameFormatOverride.has_value(),
+                  none.loaderVersion.isEmpty(),
               "I4 没有 wtfml.meta 时只有 id、其余全空");
 
         const auto writeMeta = [&metaPath](const QByteArray &content) {
@@ -206,9 +157,9 @@ int runVersionNameTests(const QString &sandbox) {
                   full.loaderVersion == QStringLiteral("47.2.0"),
               "I4 三个字段都读出来",
               full.customName + "/" + full.loaderName + "/" + full.loaderVersion);
-        check(formatVersionName(full, kStructDefault) == QStringLiteral("我的整合包-0.0.0-meta-check-Forge"),
-              "I4 默认档位下拼成 自定义名-实际版本-加载器名",
-              formatVersionName(full, kStructDefault));
+        check(formatVersionName(full) == QStringLiteral("我的整合包-0.0.0-meta-check-Forge"),
+              "I4 拼成 自定义名-实际版本-加载器名（加载器版本不出现）",
+              formatVersionName(full));
 
         // realVersion：真实版本必须独立于目录名。上面那条断言同时是**回归断言** ——
         // 没写 realVersion 时参与拼装的仍是 id，与加这个字段之前逐字节一致。
@@ -216,9 +167,9 @@ int runVersionNameTests(const QString &sandbox) {
         const VersionDisplayParts withReal = vm.displayParts(versionId);
         check(withReal.realVersion == QStringLiteral("1.18.2"), "I4 realVersion 读得出来",
               withReal.realVersion);
-        check(formatVersionName(withReal, kStructDefault) == QStringLiteral("1.18.2"),
+        check(formatVersionName(withReal) == QStringLiteral("1.18.2"),
               "I4 只有 realVersion 时，名称槽退化成它而不是目录名",
-              formatVersionName(withReal, kStructDefault));
+              formatVersionName(withReal));
         check(writeMeta(R"({"realVersion":123})"), "I4 能写出类型错的 realVersion");
         check(vm.displayParts(versionId).realVersion.isEmpty(),
               "I4 非字符串的 realVersion 被丢掉");
@@ -245,14 +196,11 @@ int runVersionNameTests(const QString &sandbox) {
         // —— 这些都是**用户盘上真实存在的形状**（老启动器写的、或者别人手改的）。任何
         // "看见 -Forge 就切掉""顺手 trim 一下"的猜测都会让界面上显示的名字**不是盘上那个**，
         // 而且这种改法是静默的：少一个字、多一个空格，没人会收到报错。
-        // 要改格式就走「版本名格式」那四个开关（那是明说的规则），不是在这儿猜。
         check(writeMeta(R"({"name":"  我的整合包  ","realVersion":"1.20.1-Forge",)"
                         R"("loaderName":"NeoForge-Beta","loaderVersion":"21.1.0-beta"})"),
               "I4 能写出带后缀与空白的四个旧字段");
         {
             const VersionDisplayParts legacy = vm.displayParts(versionId);
-            VersionNameOptions allOn;
-            allOn.showLoaderVersion = true;
             check(legacy.realVersion == QStringLiteral("1.20.1-Forge"),
                   "★★ 旧 `realVersion` **原样读**（`1.20.1-Forge` 里的 `-Forge` 不切掉）",
                   legacy.realVersion);
@@ -265,29 +213,15 @@ int runVersionNameTests(const QString &sandbox) {
             check(legacy.customName == QStringLiteral("  我的整合包  "),
                   "★★ 旧 `name` 原样读（**两头那几个空格不许 trim**）",
                   QStringLiteral("[%1]").arg(legacy.customName));
-            const QString shown = formatVersionName(legacy, allOn);
+            const QString shown = formatVersionName(legacy);
             check(shown.contains(QStringLiteral("1.20.1-Forge")) &&
-                      shown.contains(QStringLiteral("NeoForge-Beta")) &&
-                      shown.contains(QStringLiteral("21.1.0-beta")),
-                  "★★ 拼出来的那一串里这三段**逐字可见**（读原样、拼也用它原样）",
+                      shown.contains(QStringLiteral("NeoForge-Beta")),
+                  "★★ 拼出来的那一串里这两段**逐字可见**（读原样、拼也用它原样）",
                   shown);
+            // 加载器版本**不进**显示名（出厂默认那一档就关着它，UI 问题 #14 之后固定成这样）。
+            check(!shown.contains(QStringLiteral("21.1.0-beta")),
+                  "★ 加载器版本不进显示名", shown);
         }
-
-        // nameFormat 预留字段
-        check(writeMeta(R"({"name":"我的整合包","nameFormat":{"showRealVersion":false}})"),
-              "I4 能写出 nameFormat");
-        const VersionDisplayParts withFormat = vm.displayParts(versionId);
-        check(withFormat.nameFormatOverride.has_value() &&
-                  !withFormat.nameFormatOverride->showRealVersion &&
-                  withFormat.nameFormatOverride->showCustomName,
-              "I4 nameFormat 解析成 override，没写的字段取 struct 默认值");
-        check(formatVersionName(withFormat, kStructDefault) == QStringLiteral("我的整合包"),
-              "I4 override 真的盖住了全局默认（全局是显示实际版本的）",
-              formatVersionName(withFormat, kStructDefault));
-
-        check(writeMeta(R"({"nameFormat":"showRealVersion"})"), "I4 能写出类型错的 nameFormat");
-        check(!vm.displayParts(versionId).nameFormatOverride.has_value(),
-              "I4 nameFormat 不是对象时不构造 override");
 
         // 撞名：<id>.json 是既定的版本 JSON 名字，元数据必须是另一个文件。
         // 这条钉的是"wtfml.meta 而不是 wtfml.json"这个决定本身。
@@ -343,23 +277,19 @@ int runVersionNameTests(const QString &sandbox) {
 
         LauncherSettings settings;
         check(settings.lastLaunchedVersion().isEmpty(), "I5 全新沙盒里没有『上次启动的版本』");
-        check(settings.versionNameOptions() == kStructDefault, "I5 全新沙盒里是默认档位");
 
         settings.setLastLaunchedVersion(QStringLiteral("1.20.1"));
-        settings.setVersionNameOptions([] {
-            VersionNameOptions o;
-            o.showLoaderVersion = true;  // 默认关，这里主动打开
-            return o;
-        }());
-        check(settings.versionNameOptions().showLoaderVersion,
-              "I5 setter 打开加载器版本后立即生效");
 
         // 换个实例读：验的是真的落了盘，不是留在成员变量里
         LauncherSettings reopened;
         check(reopened.lastLaunchedVersion() == QStringLiteral("1.20.1"),
               "I5 上次启动的版本跨实例读得回来", reopened.lastLaunchedVersion());
-        check(reopened.versionNameOptions().showLoaderVersion,
-              "I5 四个开关跨实例读得回来");
+        // UI 问题 #14：那四个「版本名格式」键**不再写**（也就不再读）。
+        check(!QSettings().contains(QStringLiteral("Version/NameShowCustom")) &&
+                  !QSettings().contains(QStringLiteral("Version/NameShowReal")) &&
+                  !QSettings().contains(QStringLiteral("Version/NameShowLoaderName")) &&
+                  !QSettings().contains(QStringLiteral("Version/NameShowLoaderVersion")),
+              "I5 「版本名格式」那四个键不再写回盘上");
 
         // 「缺失前置提醒」（界面上那个勾）。它有两件事要钉死：
         // ① 全新沙盒里**默认开着**（用户要的那个弹窗默认就弹）；
@@ -374,29 +304,6 @@ int runVersionNameTests(const QString &sandbox) {
                   "I5 关掉「缺失前置提醒」跨实例读得回来（读的是盘上那个键）");
         }
         reopened.setWarnMissingDependencies(true);  // 写回默认，后面的用例不许看见"关着"
-
-        // 手改注册表/ini 是用户真会干的事，不变式必须在读的那一侧也兜住。
-        // 直接往 ini 里写非法组合，再重新 load —— "手改绕不过不变式"这句话得有测试。
-        {
-            QSettings raw;
-            raw.setValue(QStringLiteral("Version/NameShowCustom"), false);
-            raw.setValue(QStringLiteral("Version/NameShowReal"), false);
-            raw.setValue(QStringLiteral("Version/NameShowLoaderName"), false);
-            raw.setValue(QStringLiteral("Version/NameShowLoaderVersion"), true);
-            raw.sync();
-        }
-        LauncherSettings reloaded;
-        check(reloaded.versionNameOptions().showRealVersion,
-              "I5 手改成『两个都关』后 load 会强制打开版本名");
-        check(!reloaded.versionNameOptions().showLoaderVersion,
-              "I5 手改成『只开加载器版本』后 load 会把它关掉");
-
-        VersionDisplayParts bare;
-        bare.id = QStringLiteral("1.20.1");
-        check(formatVersionName(bare, reloaded.versionNameOptions()) == QStringLiteral("1.20.1"),
-              "I5 手改后的非法档位拼出来仍是版本号，不是空串",
-              formatVersionName(bare, reloaded.versionNameOptions()));
-        settings.save();  // 把合法值写回去，别让这条 ini 停在非法状态
 
         QSettings::setDefaultFormat(QSettings::NativeFormat);
         QDir(settingsDir).removeRecursively();
@@ -417,43 +324,30 @@ int runVersionNameTests(const QString &sandbox) {
         p.realVersion = QStringLiteral("1.18.2");
         p.loaderName = QStringLiteral("Forge");
 
-        VersionNameOptions realOnly;
-        realOnly.showCustomName = false;
-        realOnly.showRealVersion = true;
-        realOnly.showLoaderName = false;
-        realOnly.showLoaderVersion = false;
-
-        check(formatVersionName(p, kStructDefault) == QStringLiteral("我的整合包-1.18.2-Forge"),
-              "I6 默认档位 -> 自定义名-实际版本-加载器名",
-              formatVersionName(p, kStructDefault));
-        check(formatVersionName(p, realOnly) == QStringLiteral("1.18.2"),
-              "I6 只勾版本名 -> 是 realVersion，不是目录名",
-              formatVersionName(p, realOnly));
-        check(!formatVersionName(p, kStructDefault).contains(QStringLiteral("我的目录名")),
-              "I6 realVersion 有值时，目录名不出现在显示名里",
-              formatVersionName(p, kStructDefault));
+        check(formatVersionName(p) == QStringLiteral("我的整合包-1.18.2-Forge"),
+              "I6 自定义名-实际版本-加载器名", formatVersionName(p));
+        check(!formatVersionName(p).contains(QStringLiteral("我的目录名")),
+              "I6 realVersion 有值时，目录名不出现在显示名里", formatVersionName(p));
 
         // 目录名恰好等于 realVersion（1.20.1 这种没改过名的实例是常态）：
-        // 退化路径和显式路径必须给出同一个结果，不能拼出重复段。
+        // 退化路径和显式路径必须给出同一个结果，不能拼出重复段（见 I2）。
         VersionDisplayParts same;
         same.id = QStringLiteral("1.18.2");
         same.realVersion = QStringLiteral("1.18.2");
         same.loaderName = QStringLiteral("Forge");
-        check(formatVersionName(same, kStructDefault) == QStringLiteral("1.18.2-Forge"),
+        check(formatVersionName(same) == QStringLiteral("1.18.2-Forge"),
               "I6 realVersion 与目录名相同时不拼出重复段",
-              formatVersionName(same, kStructDefault));
+              formatVersionName(same));
 
-        // 用户手写的字段一律当不可信输入，realVersion 也要过清洗
+        // 用户手写的字段一律当不可信输入，realVersion 也要过清洗。
+        // id / 自定义名留空 ⇒ 输出就是 realVersion 那一段本身。
         VersionDisplayParts dirty;
-        dirty.id = QStringLiteral("目录名");
         dirty.realVersion = QStringLiteral("  1.18.2\n");
-        check(formatVersionName(dirty, realOnly) == QStringLiteral("1.18.2"),
-              "I6 realVersion 的首尾空白和换行被清掉",
-              formatVersionName(dirty, realOnly));
+        check(formatVersionName(dirty) == QStringLiteral("1.18.2"),
+              "I6 realVersion 的首尾空白和换行被清掉", formatVersionName(dirty));
         dirty.realVersion = QString(200, QLatin1Char('v'));
-        check(formatVersionName(dirty, realOnly).size() == 64,
-              "I6 超长 realVersion 被截到 64 字符",
-              QString::number(formatVersionName(dirty, realOnly).size()));
+        check(formatVersionName(dirty).size() == 64, "I6 超长 realVersion 被截到 64 字符",
+              QString::number(formatVersionName(dirty).size()));
     }
 
     // I7 launchStatusName()：底栏左下角「启动中...」那句里的实例名。
@@ -483,25 +377,13 @@ int runVersionNameTests(const QString &sandbox) {
         check(!launchStatusName(p).contains(QStringLiteral("NeoForge")),
               "I7 有名字时结果里不含加载器名", launchStatusName(p));
 
-        // ③ 「不受名字显示设置影响」：把四个开关摆遍所有组合，这一句都不许变
-        // （拿 formatVersionName() 对照着钉——它在某些档位下**就是**会变）。
-        bool stable = true;
-        bool formatMoves = false;
-        for (int mask = 0; mask < 16; ++mask) {
-            VersionNameOptions o;
-            o.showCustomName = (mask & 1) != 0;
-            o.showRealVersion = (mask & 2) != 0;
-            o.showLoaderName = (mask & 4) != 0;
-            o.showLoaderVersion = (mask & 8) != 0;
-            if (launchStatusName(p) != QStringLiteral("我的整合包")) {
-                stable = false;
-            }
-            if (formatVersionName(p, o) != QStringLiteral("我的整合包")) {
-                formatMoves = true;
-            }
-        }
-        check(stable, "I7 十六种开关组合下「启动中」那句的名字一个字都不变");
-        check(formatMoves, "I7 （对照）formatVersionName() 在同样这些档位下确实会变");
+        // ③ 「不受名字显示设置影响」：这一条现在是**结构上的**——launchStatusName() 的
+        // 签名里连 options 都没有（「版本名格式」那一组设置在 UI 问题 #14 里删掉了），
+        // 所以这里只留"有名字时结果里没有任何别的段"这一条实测。
+        check(launchStatusName(p) == QStringLiteral("我的整合包") &&
+                  !launchStatusName(p).contains(QStringLiteral("1.21.1")) &&
+                  !launchStatusName(p).contains(QStringLiteral("NeoForge")),
+              "I7 有名字时「启动中」那句只有名字（不带版本号 / 加载器）", launchStatusName(p));
 
         // ④ 没有自定义名、也没有加载器名 → 就是版本号
         VersionDisplayParts vanilla;

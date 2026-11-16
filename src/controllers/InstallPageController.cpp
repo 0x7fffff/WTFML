@@ -100,9 +100,9 @@ QString InstallPageController::defaultInstanceName() const {
     // 没选加载器时就是原版号本身 —— 那一份**不写薄 json**（id == 父版本），装出来的就是
     // 原版那个实例。
     //
-    // NOTE: 刻意**不**走 VersionDisplay::formatVersionName()：那是**显示名**的拼法，跟着
-    // 用户在设置页选的"版本名格式"开关走（关掉"实际版本"那一档就会拼出一个不含
-    // 版本号的目录名），而目录名要的是确定、可预期、跟显示开关无关。
+    // NOTE: 刻意**不**走 VersionDisplay::formatVersionName()：那是**显示名**的拼法
+    // （按自定义名 / 加载器名拼，`realVersion` 缺了还会被目录名兜底），而目录名要的是
+    // 确定、可预期、跟显示规则无关。
     if (m_gameVersion.isEmpty()) {
         return QString();
     }

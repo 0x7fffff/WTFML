@@ -25,7 +25,6 @@ public:
                                   VersionManager *versions, ResourceStore *resources,
                                   Host host, QObject *parent = nullptr);
 
-    void pushVersionNameOptions(const VersionNameOptions &options);
     void launcherBehaviourChanged();
     void downloadSourceChanged();
     void downloadConcurrencyChanged();
@@ -47,7 +46,6 @@ public:
     void syncDownloadProxy();
     void syncCatalogCredentials();
     void curseForgeApiKeyEdited();
-    void versionNameOptionChanged();
     void applyExtraJvmArgs();
 
 private:

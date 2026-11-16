@@ -1278,8 +1278,9 @@ void ToolboxController::refreshTrim() {
             const QString name = tr("%1纹饰材料").arg(material.name);
             if (!unsupported.contains(name)) unsupported.append(name);
         }
-        // 提示（这枚模板从哪来 / 哪个版本才有 / 模板可以复制）只从判据层拿：
+        // 提示（哪个版本才有 / 整套要几次）只从判据层拿：
         // 每件各算一条单件计划，只取它那几条 notes，材料账仍按四列合起来算。
+        // NOTE: 模板"从哪来、复制用什么"那句在 `Plan::source` 里，**不进 notes** —— 结果区只留提示（UI 问题 #18）。
         const auto plan = ArmorTrim::plan(selection.armor, slot, selection.pattern,
                                           selection.material, 1);
         if (!plan.ok) {

@@ -279,7 +279,7 @@ void MainWindow::updateBottomBarRunState() {
     m_ui->setRunStateActive(mark != MainWindowUI::RunStateMark::Idle);
 
     if (mark == MainWindowUI::RunStateMark::Launching) {
-        // 黄：正在启动。名字的写法**不看「版本名格式」那四个开关**（见 launchingStatusName()）。
+        // 黄：正在启动。名字的写法不走显示名那一套（见 launchingStatusName()）。
         runStateLabel->setText(MainWindowUI::runStateLaunchingText(launchingStatusName()));
         runStateLabel->setVisible(true);
         // 第二行在这一档**一律不显示**：第一行那句话里已经带着实例名了（判据在

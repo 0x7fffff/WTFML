@@ -205,7 +205,7 @@ void MainWindow::openHomeInstancePicker() {
                 MainWindowUI::HomePickerInstance row;
                 row.folderPath = folderPath;
                 row.id = part.id;
-                row.title = formatVersionName(part, m_settings->versionNameOptions());
+                row.title = formatVersionName(part);
                 // 加载器名和版本走 `instanceLoaderName()`（= `InstancePagesController::loaderName()`）：
                 // `part.loaderName` 只有我们自己的安装器会写，PCL / HMCL 合并出来的实例在那儿是空的
                 // —— 读它的话，这一行写着「Fabric 1.20.1」却搜不到「fabric」。

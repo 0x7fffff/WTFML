@@ -147,10 +147,6 @@ inline constexpr int kWindowSizeSpinWidth = 90;
 /// 「游戏窗口」那一行中间那个「×」。
 inline constexpr int kWindowSizeRowSpacing = 8;
 
-/// 「外观」那一行那个文本框的宽。装得下 `titleTextMaxLength()` 个字（16 个汉字约 224 px）
-/// 就够 —— 再宽就是在暗示"这里可以写很长"，而条上那一格是量的。
-inline constexpr int kTitleTextEditWidth = 220;
-
 /// 一栏：控件本身 + 它自己的竖排布局 + 这一栏那个"面"，右栏还多一个页头。
 struct Column {
     QWidget *widget = nullptr;

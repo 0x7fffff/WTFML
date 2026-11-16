@@ -1,6 +1,6 @@
 /**
  * @file LauncherSettings.hpp
- * @brief 启动器自己的持久化设置：上次启动的版本、版本名格式、启动后行为、下载源。
+ * @brief 启动器自己的持久化设置：上次启动的版本、启动后行为、下载源。
  * @note 和 GlobalJavaSettings 分开：那边是 Java 运行时的配置，这边是启动器界面的状态。
  * 两边都走 QSettings，键名各自带前缀（Java/ 、Version/ 、Launcher/ 、Download/）。
  */
@@ -17,7 +17,6 @@
 #include "../download/DownloadProxy.hpp"
 #include "../download/DownloadSpeedLimit.hpp"
 #include "../launcher/ProcessPriority.hpp"
-#include "../manage/VersionDisplay.hpp"
 #include "GameWindowSettings.hpp"
 
 /**
@@ -128,30 +127,6 @@ public:
 
     /// 覆盖整份自定义名字表并立刻落盘。
     void setFolderNames(const QStringList &names);
-
-    // ------------------------------------------------------------------
-    // 「版本名格式」
-    // ------------------------------------------------------------------
-    // NOTE: 界面入口在设置页「个性化」栏里的「版本名格式」那一行 —— 四个勾选框
-    // （versionNameCustomCheck / RealCheck / LoaderCheck / LoaderVersionCheck，
-    // ui/MainWindowUI.cpp），改动经 MainWindow::onVersionNameOptionChanged() 归一化后落盘。
-    //
-    // 当初留的那条余地仍然有效：这四个布尔也可以改摆成一个"预设档位"的下拉框、由它去
-    // 反写这四个布尔——数据模型就是下面这个 struct，界面想怎么摆都行，别为了界面去改模型。
-    // 归一化由 normalizeVersionNameOptions() 负责，界面只要照它约束勾选即可。
-    // 默认值见 VersionDisplay.hpp 里 VersionNameOptions 的成员初始值。
-    // ------------------------------------------------------------------
-
-    /**
-     * @brief 当前的「版本名格式」开关，已归一化。
-     */
-    VersionNameOptions versionNameOptions() const;
-
-    /**
-     * @brief 设置「版本名格式」开关并立刻落盘。
-     * @param options 原始开关；内部会先 normalizeVersionNameOptions()。
-     */
-    void setVersionNameOptions(const VersionNameOptions &options);
 
     /**
      * @brief 从 QSettings 读回全部设置。构造函数里已经调过一次。
@@ -382,28 +357,6 @@ public:
     static int gameWindowMaxHeight() { return 4320; }
 
     // ------------------------------------------------------------------
-    // 顶上那行字（设置页「个性化」栏里的「外观」那一项， 加的）
-    // ------------------------------------------------------------------
-
-    /// 条上写着的那行字。
-    ///
-    /// **默认是空串** = "没改过"，条上那时候用的是 `TitleBar::defaultBrandText()` 那五个
-    /// 字母 —— 所以这里刻意**不抄一份默认值**：默认值只有条那一个出处（`ui/TitleBar.hpp`），
-    /// 抄一份在这里就会出现"两边都叫默认、改了一边就对不上"。
-    QString titleText() const { return m_titleText; }
-
-    /// 设置条上那行字并立刻落盘。内部先去掉两头的空白、再按 titleTextMaxLength() 截断。
-    void setTitleText(const QString &text);
-
-    /// 这一项的长度上限；load()/save() 都拿它截断（界面那一侧是输入框的 maxLength）。
-    ///
-    /// NOTE: 界面那一份是 MainWindowUI::titleTextMaxLength() —— **必须和这里一样**，
-    /// 理由和上面那对窗口大小一模一样（ui/ 不许 include src/，所以是各写一遍，
-    /// 验证工程里有断言盯着它们相等）。不一样的话症状是"打上去的字自己少了几个"。
-    /// 16 是按条上留给名字的那点地方量的，见 MainWindowUI 那一处的说明。
-    static int titleTextMaxLength() { return 16; }
-
-    // ------------------------------------------------------------------
     // 启动器主窗口的大小（只记大小，不记位置）
     // ------------------------------------------------------------------
 
@@ -485,7 +438,6 @@ private:
     QString m_currentFolder;
     QStringList m_folderNames;
     QStringList m_serverFavorites;
-    VersionNameOptions m_versionNameOptions;
     LauncherBehaviour m_launcherBehaviour = LauncherBehaviour::Unchanged;
     DownloadSource m_downloadSource = DownloadSource::Official;
     /// 同时最多几个下载（见上面那一节）。默认取判据层那个出厂值 —— 别在这儿另写一个 24。
@@ -511,8 +463,6 @@ private:
     int m_gameWindowWidth = 854;
     int m_gameWindowHeight = 480;
     ProcessPriority m_processPriority = ProcessPriority::Normal;
-    /// 顶上那行字。**空串是默认档**（= 条上那五个字母），不是"没有名字"。
-    QString m_titleText;
     /// 主窗口大小（见 `mainWindowSize()`）。默认空 = 没记过。
     QSize m_mainWindowSize;
     /// 两条启动提醒。**默认开**：它们是"挡一下手滑"的，默认关就等于没做。

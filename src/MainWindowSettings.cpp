@@ -5,7 +5,7 @@
  * 【为什么单独一个翻译单元】
  *
  * 这一片只认两样东西：`MainWindowUI` 上那些控件，和"改了这个值要落到哪个键上"——
- * 后者逐项归 `LauncherPreferencesController`（启动器行为、下载、版本名格式）或
+ * 后者逐项归 `LauncherPreferencesController`（启动器行为、下载、游戏窗口）或
  * `ThemeSettingsController`（背景图与配色）。它不碰启动、下载批次、实例树，留在 8000 行的
  * `MainWindow.cpp` 里只会让"改一个开关"变成在整扇窗里翻。类没变，还是 `MainWindow`，
  * 只是实现分在两个 .cpp 里。
@@ -22,7 +22,6 @@
 
 #include "..\ui\Animations.hpp"
 #include "..\ui\Theme.hpp"
-#include "..\ui\TitleBar.hpp"
 #include "auth/SkinApi.hpp"
 #include "controllers/JavaSettingsController.hpp"
 #include "controllers/LauncherPreferencesController.hpp"
@@ -53,7 +52,7 @@ using namespace MainWindowViewData;
 // include src/settings，而 tr() 的文案本来就该和业务逻辑待在一起。
 //
 // 落盘时机逐项不同，这是这块最容易做错的地方，所以每一项都在自己的函数里说清楚：
-// Java / 内存 / 启动后 / 下载源 / 版本名格式 —— 改完立刻存
+// Java / 内存 / 启动后 / 下载源 / 游戏窗口 —— 改完立刻存
 // JVM 参数 —— 点「应用」才存（那是直接进命令行的东西，不能存半条）
 
 /// 「同时最多下几个」那颗下拉框里每一行的文字。
@@ -108,7 +107,7 @@ void MainWindow::applySettingsToUi() {
     SkinApi::setBaseUrlOverride(m_settings->minecraftServicesBaseOverride());
     // 灌值时把信号全挡上：下面这些控件现在反映的是**盘上的值**，不是用户改的。
     // 不挡的话每条 currentIndexChanged/valueChanged 都会触发一遍"保存"，白写几次盘，
-    // 更要紧的是那几条槽里还夹着真动作（改「版本名格式」会重刷实例列表）。
+    // 更要紧的是那几条槽里还夹着真动作（改「窗口模式」会顺手灰/亮那一行）。
     const QSignalBlocker blockBehaviour(m_ui->getLauncherBehaviourCombo());
     const QSignalBlocker blockSource(m_ui->getDownloadSourceCombo());
     const QSignalBlocker blockConcurrency(m_ui->getDownloadConcurrencyCombo());
@@ -125,11 +124,6 @@ void MainWindow::applySettingsToUi() {
     const QSignalBlocker blockPriority(m_ui->getProcessPriorityCombo());
     const QSignalBlocker blockWindowWidth(m_ui->getGameWindowWidthSpin());
     const QSignalBlocker blockWindowHeight(m_ui->getGameWindowHeightSpin());
-    const QSignalBlocker blockTitleText(m_ui->getTitleTextEdit());
-    const QSignalBlocker blockCustom(m_ui->getVersionNameCustomCheck());
-    const QSignalBlocker blockReal(m_ui->getVersionNameRealCheck());
-    const QSignalBlocker blockLoader(m_ui->getVersionNameLoaderCheck());
-    const QSignalBlocker blockLoaderVersion(m_ui->getVersionNameLoaderVersionCheck());
 
     updateJavaPathLabel();
     // 提醒总闸。挡信号：这是"把值画出来"，不挡的话 setChecked 会触发
@@ -155,11 +149,7 @@ void MainWindow::applySettingsToUi() {
     m_ui->getExtraJvmArgsEdit()->setPlainText(m_javaSettings->extraJvmArgs());
 
     // ---------- 外观 ----------
-    // 条上那行字有**两个**去处：设置页那一格、还有条自己。同一次调用里一起灌 ——
-    // 分成两处写的话，以后改一处就会出现"框里是用户改过的名字、条上还是默认那五个字母"。
-    // 两边喂的都是盘上那份（空串 = 没改过，条自己会退回 defaultBrandText()）。
-    m_ui->getTitleTextEdit()->setText(m_settings->titleText());
-    m_ui->titleBar()->setBrandText(m_settings->titleText());
+    // NOTE: 条上那行字不归设置管（UI 问题 #3）：它固定是商标 `TitleBar::defaultBrandText()`。
 
     // ---------- 背景图 ----------
     // 那两行控件画的是 `Theme::current()` 里那两块图的样子（**不是** `m_settings` 里的
@@ -277,8 +267,7 @@ void MainWindow::applySettingsToUi() {
     // 「下载缺前置时提醒」。同一个做法：不在这儿写默认。
     m_ui->getWarnMissingDependenciesCheck()->setChecked(m_settings->warnMissingDependencies());
 
-    // ---------- 版本名格式 ----------
-    pushVersionNameOptionsToUi(m_settings->versionNameOptions());
+    // NOTE: 「版本名格式」那四个勾（UI 问题 #14）撤掉了，这里没有要灌的那一格。
 
     // 下载源得立刻交给发请求的那一层：构造函数里紧接着的
     // fetchAvailableVersions() 就会走它。
@@ -292,10 +281,6 @@ void MainWindow::applySettingsToUi() {
     syncDownloadProxy();
     // CurseForge 那两项同理（虽然要等到导入整合包才用得上）。
     syncCurseForgeSettings();
-}
-
-void MainWindow::pushVersionNameOptionsToUi(const VersionNameOptions &options) {
-    m_launcherPreferences->pushVersionNameOptions(options);
 }
 
 void MainWindow::updateJavaPathLabel() {
@@ -531,9 +516,6 @@ void MainWindow::onAnimationsToggled(bool enabled) {
     m_themeSettingsController->setAnimationsEnabled(enabled);
 }
 
-void MainWindow::onTitleTextChanged() {
-    m_themeSettingsController->updateTitleText();
-}
 void MainWindow::syncDownloadSource() {
     m_launcherPreferences->syncDownloadSource();
 }
@@ -560,10 +542,6 @@ void MainWindow::onCurseForgeApiKeyEdited() {
     if (m_presetController != nullptr) {
         m_presetController->setCurseForgeApiKey(m_settings->curseForgeApiKey());
     }
-}
-
-void MainWindow::onVersionNameOptionChanged() {
-    m_launcherPreferences->versionNameOptionChanged();
 }
 
 void MainWindow::onApplyExtraJvmArgsClicked() {

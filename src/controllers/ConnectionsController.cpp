@@ -854,15 +854,8 @@ void ConnectionsController::setup() {
     // 而它是直接塞进命令行的东西，半条参数会让游戏起不来。改为失焦（或 Ctrl+Enter）即存。
     connect(m_owner->m_ui->getExtraJvmArgsCommit(), &SettingsParts::CommitOnFocusOut::committed, m_owner,
             &MainWindow::onApplyExtraJvmArgsClicked);
-    // 「外观」那一格（条上那行字）：**反着来** —— 边打字边生效、也边落盘。
-    // NOTE: 为什么不跟上面那条 JVM 参数走"点应用才存"：那边怕的是"半条参数进命令行"，
-    // 半条 JVM 参数会让游戏起不来；这里存的只是一行**显示用的**名字，半路的名字
-    // 没有任何副作用，而"打着字就能看见条上变了"正是这一项该有的手感。
-    // 代价是每个字符一次 QSettings 写（最多 titleTextMaxLength() 次），可以接受。
-    connect(m_owner->m_ui->getTitleTextEdit(), &QLineEdit::textChanged, m_owner,
-            &MainWindow::onTitleTextChanged);
     // 「背景图」那一节（主页左栏 / 页面背景）。四颗控件**每改一下都立刻生效、也立刻落盘**
-    // —— 和上面那一格同一个理由：改的是"界面长什么样"，改完看不见效果等于没改。
+    // —— 改的是"界面长什么样"，改完看不见效果等于没改。
     // NOTE: 下标只用来取这一行，**认它是哪一块靠 `partKey`**（见 MainWindowUI::ThemeImageRow）。
     // 越界不崩：`getThemeImageRow()` 给一个空行，那边每一处都判了空。
     for (int i = 0; i < MainWindowUI::themeImageRowCount(); ++i) {
@@ -930,13 +923,6 @@ void ConnectionsController::setup() {
     // 理由写在 m_owner->onCurseForgeApiKeyEdited() 里。
     connect(m_owner->m_ui->getCurseForgeApiKeyEdit(), &QLineEdit::editingFinished, m_owner,
             &MainWindow::onCurseForgeApiKeyEdited);
-    // 四个「版本名格式」勾选框共用一个槽：归一化要同时看四个值。
-    const auto nameOptionChanged = [this] { m_owner->onVersionNameOptionChanged(); };
-    connect(m_owner->m_ui->getVersionNameCustomCheck(), &QCheckBox::toggled, m_owner, nameOptionChanged);
-    connect(m_owner->m_ui->getVersionNameRealCheck(), &QCheckBox::toggled, m_owner, nameOptionChanged);
-    connect(m_owner->m_ui->getVersionNameLoaderCheck(), &QCheckBox::toggled, m_owner, nameOptionChanged);
-    connect(m_owner->m_ui->getVersionNameLoaderVersionCheck(), &QCheckBox::toggled, m_owner,
-            nameOptionChanged);
 
     // 选项卡切换：底栏左下角的显示规则依赖"当前是不是在主页"，切页就得重算；
     // 第一次切到设置页还要顺带扫一遍 Java。

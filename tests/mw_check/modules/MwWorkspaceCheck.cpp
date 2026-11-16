@@ -220,7 +220,7 @@ int MwWorkspaceCheck(QApplication &app) {
             if (activity && details) {
                 const auto task = activity->begin(Tasks::TaskKind::Import, QStringLiteral("Repair probe"), repairId);
                 activity->finish(task, false, QStringLiteral("missing files"), false);
-                host->openPage(QStringLiteral("活动中心"));
+                host->openPage(QStringLiteral("任务中心"));
                 bool sawReport = false;
                 QTimer timeout;
                 timeout.setSingleShot(true);

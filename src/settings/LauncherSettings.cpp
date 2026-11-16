@@ -19,10 +19,9 @@ static constexpr const char kLastLaunched[] = "Version/LastLaunched";
 static constexpr const char kLastSelected[] = "Version/LastSelected";
 static constexpr const char kHomeFavoriteCount[] = "Home/FavoriteCount";
 static constexpr const char kHomeRecentCount[] = "Home/RecentCount";
-static constexpr const char kNameShowCustom[] = "Version/NameShowCustom";
-static constexpr const char kNameShowReal[] = "Version/NameShowReal";
-static constexpr const char kNameShowLoaderName[] = "Version/NameShowLoaderName";
-static constexpr const char kNameShowLoaderVersion[] = "Version/NameShowLoaderVersion";
+// NOTE: 原先还有 `Version/NameShowCustom`…`Version/NameShowLoaderVersion` 四个键
+// （「版本名格式」那四个开关）。UI 问题 #14 删掉了那一组设置，这四个键**不再读也不再写**；
+// 盘上留着的旧值没人看，显示名一律按出厂那一份拼。
 static constexpr const char kAfterLaunch[] = "Launcher/AfterLaunch";
 static constexpr const char kFolders[] = "Launcher/Folders";
 static constexpr const char kCurrentFolder[] = "Launcher/CurrentFolder";
@@ -59,7 +58,9 @@ static constexpr const char kGameWindowHeight[] = "Launcher/WindowHeight";
 // 另一处静默退回默认档"的典型写法。
 static constexpr const char kGameWindowMode[] = "Launcher/WindowMode";
 static constexpr const char kProcessPriority[] = "Launcher/ProcessPriority";
-static constexpr const char kTitleText[] = "Launcher/TitleText";
+// NOTE: 原先还有一条 `Launcher/TitleText`（条上那行字）。这一项在 UI 问题 #3 里撤掉了：
+// 商标固定，**不再读也不写**。老用户盘上那份值就那么留着（没人读它，界面一律显示 WTFML），
+// 刻意不在 load() 里抹掉它 —— 抹掉是"替用户改盘"，而没有读者时它和不存在没有区别。
 // 启动器自己那扇窗的大小（上面 Launcher/WindowWidth 那两项是**游戏**窗口的，别混）。
 static constexpr const char kMainWindowWidth[] = "Launcher/MainWindowWidth";
 static constexpr const char kMainWindowHeight[] = "Launcher/MainWindowHeight";
@@ -104,15 +105,6 @@ int clampWindowWidth(int width) {
 int clampWindowHeight(int height) {
     return qBound(LauncherSettings::gameWindowMinHeight(), height,
                   LauncherSettings::gameWindowMaxHeight());
-}
-
-/// 把顶上那行字收拾干净：去掉两头的空白，再截到长度上限。
-///
-/// 两头空白要去掉是因为**它会被画在条上**（名字是从条的最左边开始画的，" WTFML " 看着
-/// 就是没对齐）；截断是因为那一格地方是量的（见 MainWindowUI::titleTextMaxLength()），
-/// 而盘上那份是**不可信数据**（用户手改过注册表、或者以后从别处同步过来）。
-QString clampTitleText(const QString &text) {
-    return text.trimmed().left(LauncherSettings::titleTextMaxLength());
 }
 
 /// 主窗口大小收拾干净：盘上那份不可信（手改过、别处同步来的）。宽或高不是正数 = 没记过（0×0），
@@ -217,18 +209,6 @@ void LauncherSettings::setFolderNames(const QStringList &names) {
         return;
     }
     m_folderNames = names;
-    save();
-}
-
-VersionNameOptions LauncherSettings::versionNameOptions() const { return m_versionNameOptions; }
-
-void LauncherSettings::setVersionNameOptions(const VersionNameOptions &options) {
-    // 先归一化再比较：传进来一个非法组合、但归一化之后和现值相同时，不该白写一次盘。
-    const VersionNameOptions normalized = normalizeVersionNameOptions(options);
-    if (m_versionNameOptions == normalized) {
-        return;
-    }
-    m_versionNameOptions = normalized;
     save();
 }
 
@@ -374,16 +354,6 @@ void LauncherSettings::setProcessPriority(ProcessPriority priority) {
         return;
     }
     m_processPriority = priority;
-    save();
-}
-
-void LauncherSettings::setTitleText(const QString &text) {
-    const QString cleaned = clampTitleText(text);
-    // 比的是**收拾过的**那一份：用户接着打一个空格（"名字 " → "名字"）不该白写一次盘。
-    if (m_titleText == cleaned) {
-        return;
-    }
-    m_titleText = cleaned;
     save();
 }
 
@@ -552,9 +522,6 @@ void LauncherSettings::load() {
     }
     m_processPriority = processPriorityFromKey(
         settings.value(kProcessPriority, processPriorityKey(m_processPriority)).toString());
-    // 顶上那行字也**读回来就收拾**：盘上那一份会被原样画到条上，多长、带不带空格都不该
-    // 信它（和宽高那两个数同一个理由）。
-    m_titleText = clampTitleText(settings.value(kTitleText, m_titleText).toString());
     // 主窗口大小同样读回来就收拾（认不出来的值 toInt() 给 0 = 没记过）。
     m_mainWindowSize = clampMainWindowSize(QSize(settings.value(kMainWindowWidth, m_mainWindowSize.width()).toInt(),
                                                  settings.value(kMainWindowHeight, m_mainWindowSize.height()).toInt()));
@@ -579,18 +546,9 @@ void LauncherSettings::load() {
     m_minecraftServicesBaseOverride =
         settings.value(kMinecraftServicesBase, m_minecraftServicesBaseOverride).toString().trimmed();
 
-    // 和 GlobalJavaSettings::load() 用 m_xmx 当默认值是同一个写法。取成员而不是新造一个
-    // struct：万一 load() 被调第二次而注册表是空的，值应该留着，而不是被重置回默认。
-    VersionNameOptions options = m_versionNameOptions;
-    options.showCustomName = settings.value(kNameShowCustom, options.showCustomName).toBool();
-    options.showRealVersion = settings.value(kNameShowReal, options.showRealVersion).toBool();
-    options.showLoaderName = settings.value(kNameShowLoaderName, options.showLoaderName).toBool();
-    options.showLoaderVersion =
-        settings.value(kNameShowLoaderVersion, options.showLoaderVersion).toBool();
-
-    // 存进去的值可能是手改的，也可能是以后降级回退留下的。不变式在这里也要兜一遍，
-    // 不能假设盘上的东西是合法的。
-    m_versionNameOptions = normalizeVersionNameOptions(options);
+    // NOTE: 原先这里有「版本名格式」那四个开关（`Version/NameShow*`）。UI 问题 #14 撤掉了
+    // 这一组设置：**不再读**盘上那四个键（老用户存过的值一律按出厂默认算），也不再写它们。
+    // 拼法固定成 `formatVersionName()` 那一份，和没改过设置的用户看到的一样。
 
     // NOTE: 状态要查。QSettings 在没有 organizationName 时，写入是**静默丢弃**的：
     // 注册表路径表整个裹在 `if (!organization.isEmpty())` 里（qsettings_win.cpp:382），
@@ -644,7 +602,6 @@ QVariantMap LauncherSettings::persistedValues() const {
                   QVariant(clampWindowHeight(m_gameWindowHeight)));
     values.insert(QString::fromLatin1(kGameWindowMode), gameWindowModeToken(m_gameWindowMode));
     values.insert(QString::fromLatin1(kProcessPriority), processPriorityKey(m_processPriority));
-    values.insert(QString::fromLatin1(kTitleText), clampTitleText(m_titleText));
     values.insert(QString::fromLatin1(kMainWindowWidth), QVariant(clampMainWindowSize(m_mainWindowSize).width()));
     values.insert(QString::fromLatin1(kMainWindowHeight), QVariant(clampMainWindowSize(m_mainWindowSize).height()));
     values.insert(QString::fromLatin1(kWarnDuplicateLaunch), QVariant(m_warnDuplicateLaunch));
@@ -652,13 +609,6 @@ QVariantMap LauncherSettings::persistedValues() const {
     values.insert(QString::fromLatin1(kCurseForgeApiKey), m_curseForgeApiKey);
     // NOTE: `kCurseForgeApiBase` / `kModrinthApiBase` / 那四个地址覆盖**刻意不在这里** ——
     // 那几个键是验证工程的口子，产品一写就等于把用户自己指的地址抹掉（见 .hpp 里那条 NOTE）。
-    values.insert(QString::fromLatin1(kNameShowCustom),
-                  QVariant(m_versionNameOptions.showCustomName));
-    values.insert(QString::fromLatin1(kNameShowReal), QVariant(m_versionNameOptions.showRealVersion));
-    values.insert(QString::fromLatin1(kNameShowLoaderName),
-                  QVariant(m_versionNameOptions.showLoaderName));
-    values.insert(QString::fromLatin1(kNameShowLoaderVersion),
-                  QVariant(m_versionNameOptions.showLoaderVersion));
     return values;
 }
 

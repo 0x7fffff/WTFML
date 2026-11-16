@@ -73,9 +73,6 @@
 // 主页右栏那个小人怎么画：几何、投影、默认外观、头像裁切全在它里面（纯函数 + 值）。
 #include "..\ui\SkinModel.hpp"
 #include "..\ui\Theme.hpp"
-// 顶上那条自己画的标题栏。这个头单独 include：`MainWindowUI::titleBar()` 只前置
-// 声明了 `class TitleBar`，而"设置页改名字 → 条上立刻跟着变"那两处要调它的 setBrandText()。
-#include "..\ui\TitleBar.hpp"
 // 加载器那棵树底下每一条版本号前面挂的**它自己那个加载器的标志**（见
 // fillLoaderVersionItems()）：那几条是"Fabric 能装哪些版本"，前面顶个草方块会让人
 // 以为是原版号。树的顶层那五条由 MainWindowUI 那边给图标，这里只管子条目。

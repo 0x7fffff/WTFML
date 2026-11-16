@@ -419,10 +419,28 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
         gameWindowHeightSpin->setSuffix(QStringLiteral(" px"));
         gameWindowHeightSpin->setFixedWidth(kWindowSizeSpinWidth + 22);
         WheelGuard::install(gameWindowHeightSpin);
+        // 「恢复默认」（UI 问题 #11）：回到出厂的那一对 854×480。风格、尺寸照 155 那颗
+        // （设置·个性化·外观里的「窗口大小 · 恢复默认」），摆在这一行最右边。
+        gameWindowSizeResetButton = new QPushButton(QStringLiteral("恢复默认"), form);
+        gameWindowSizeResetButton->setObjectName(gameWindowSizeResetButtonName());
+        Theme::markButton(gameWindowSizeResetButton, Theme::ButtonKind::Neutral);
+        // 点一下就把两个框设回默认值。**刻意不挡信号**：这两个框的 valueChanged 就是落盘那条线
+        // （MainWindow::onGameWindowSizeChanged），挡掉就成了"框里变了、盘上没变"。
+        // 一次点两框会写两趟，值是同一个终态，代价可以接受。
+        QObject::connect(gameWindowSizeResetButton, &QPushButton::clicked, gameWindowSizeResetButton, [this] {
+            gameWindowWidthSpin->setValue(windowDefaultWidth());
+            gameWindowHeightSpin->setValue(windowDefaultHeight());
+        });
+        // 值一变就重算置灰。窗口模式（最大化）那一侧由 MainWindow 调 syncGameWindowSizeResetButton()。
+        const auto syncReset = [this](int) { syncGameWindowSizeResetButton(); };
+        QObject::connect(gameWindowWidthSpin, &QSpinBox::valueChanged, gameWindowWidthSpin, syncReset);
+        QObject::connect(gameWindowHeightSpin, &QSpinBox::valueChanged, gameWindowHeightSpin, syncReset);
         addRow(windowGroup, QStringLiteral("窗口大小"),
-               hbox(form, {gameWindowWidthSpin, gameWindowSizeTimesLabel, gameWindowHeightSpin}, kWindowSizeRowSpacing),
+               hbox(form, {gameWindowWidthSpin, gameWindowSizeTimesLabel, gameWindowHeightSpin,
+                           gameWindowSizeResetButton}, kWindowSizeRowSpacing),
                Placement::Natural, QStringLiteral("游戏可能沿用自身保存的尺寸。"),
                QStringLiteral("退出全屏后使用此尺寸。"));
+        syncGameWindowSizeResetButton();
     }
 
     // ---------- 运行与日志 ----------
@@ -625,7 +643,7 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
 
     // ---------- 背景图（一块底一组） ----------
     // 挑图那一下不是记用户那个路径：文件会被拷进数据目录。这里只摆控件，收图和落盘在 MainWindow。
-    const auto addImageGroup = [&](Theme::Part part, const QString &groupTitle, const QString &scope) {
+    const auto addImageGroup = [&](Theme::Part part, const QString &groupTitle) {
         const QString key = Theme::partKey(part);
         SettingsGroup *group = addGroup(panel, groupTitle);
         ThemeImageRow widgets;
@@ -649,7 +667,10 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         imageLayout->addWidget(buttons);
         imageLayout->addWidget(widgets.state);
         widgets.state->setParent(imageBox);
-        addRow(group, QStringLiteral("图片"), imageBox, Placement::Wide, QStringLiteral("会复制到启动器数据目录。"), scope);
+        // 「图片」这一行不给 ⓘ（UI 问题 #21）：原来那颗 i 的悬停内容是「哪几页铺这张图」，
+        // 删掉之后那一句也不再传进来（`scope` 参数随之取消）。
+        addRow(group, QStringLiteral("图片"), imageBox, Placement::Wide,
+               QStringLiteral("会复制到启动器数据目录。"));
 
         widgets.fit = new QComboBox(form);
         widgets.fit->setObjectName(themeImageFitName(key));
@@ -667,17 +688,12 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         addRow(group, QStringLiteral("不透明度"), sliderWithValue(widgets.opacity, widgets.percent, form));
         m_themeImageRows.append(widgets);
     };
-    addImageGroup(Theme::Part::PageBackground, QStringLiteral("背景图"),
-                  QStringLiteral("主页、管理、下载和设置页，铺满整窗。"));
+    addImageGroup(Theme::Part::PageBackground, QStringLiteral("背景图"));
 
     // ---------- 外观 ----------
+    // NOTE: 「主页标题」那一格没有了（UI 问题 #3）：条上那行字固定是商标 `TitleBar::defaultBrandText()`，
+    // 不给用户改，也就不留这一项。
     SettingsGroup *look = addGroup(panel, QStringLiteral("外观"));
-    titleTextEdit = new QLineEdit(form);
-    titleTextEdit->setObjectName(titleTextEditName());
-    InputSizing::shortValue(titleTextEdit, titleTextMaxLength(), InputSizing::Script::Han);
-    titleTextEdit->setMaxLength(titleTextMaxLength());  // 上限在 ui/ 与 src/ 各写一遍（ui/ 不许 include src/）
-    titleTextEdit->setPlaceholderText(TitleBar::defaultBrandText());  // 默认标题直接作占位文字
-    addRow(look, QStringLiteral("主页标题"), titleTextEdit);
     // 「恢复默认」点了做什么在 MainWindow（要顺手存盘）；置灰跟着窗口大小走（setupUi 末尾那个监视器）。
     windowSizeResetButton = new QPushButton(QStringLiteral("恢复默认"), form);
     windowSizeResetButton->setObjectName(windowSizeResetButtonName());
@@ -705,54 +721,8 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         dailyQuoteCheck = quote;
     }
 
-    // ---------- 版本名格式 ----------
-    SettingsGroup *names = addGroup(panel, QStringLiteral("版本名格式"));
-    {
-        auto *box = new QWidget(form);
-        auto *boxLayout = new QVBoxLayout(box);
-        boxLayout->setContentsMargins(0, 0, 0, 0);
-        boxLayout->setSpacing(8);
-        auto *checks = new QWidget(box);
-        auto *checkLayout = new QGridLayout(checks);
-        checkLayout->setContentsMargins(0, 0, 0, 0);
-        checkLayout->setHorizontalSpacing(20);
-        checkLayout->setVerticalSpacing(6);
-        versionNameCustomCheck = new QCheckBox(QStringLiteral("自定义名"), checks);
-        versionNameCustomCheck->setObjectName(versionNameCustomCheckName());
-        versionNameRealCheck = new QCheckBox(QStringLiteral("版本名"), checks);
-        versionNameRealCheck->setObjectName(versionNameRealCheckName());
-        versionNameLoaderCheck = new QCheckBox(QStringLiteral("加载器名"), checks);
-        versionNameLoaderCheck->setObjectName(versionNameLoaderCheckName());
-        versionNameLoaderVersionCheck = new QCheckBox(QStringLiteral("加载器版本"), checks);
-        versionNameLoaderVersionCheck->setObjectName(versionNameLoaderVersionCheckName());
-        checkLayout->addWidget(versionNameCustomCheck, 0, 0);
-        checkLayout->addWidget(versionNameRealCheck, 0, 1);
-        checkLayout->addWidget(versionNameLoaderCheck, 0, 2);
-        checkLayout->addWidget(versionNameLoaderVersionCheck, 0, 3);
-        checkLayout->setColumnStretch(4, 1);
-        boxLayout->addWidget(checks);
-        auto *preview = new QLabel(box);
-        preview->setObjectName(QStringLiteral("versionNameFormatPreview"));
-        preview->setWordWrap(true);
-        const auto updatePreview = [this, preview] {
-            QStringList pieces;
-            if (versionNameCustomCheck->isChecked()) pieces << QStringLiteral("我的世界");
-            if (versionNameRealCheck->isChecked()) pieces << QStringLiteral("1.21.1");
-            if (versionNameLoaderCheck->isChecked()) pieces << QStringLiteral("Fabric");
-            if (versionNameLoaderVersionCheck->isChecked()) pieces << QStringLiteral("0.19.3");
-            preview->setText(QStringLiteral("预览：%1").arg(pieces.isEmpty() ? QStringLiteral("1.21.1")
-                                                                           : pieces.join(QLatin1Char('-'))));
-        };
-        for (auto *check : {versionNameCustomCheck, versionNameRealCheck, versionNameLoaderCheck,
-                            versionNameLoaderVersionCheck})
-            QObject::connect(check, &QCheckBox::toggled, preview, updatePreview);
-        updatePreview();
-        QTimer::singleShot(0, preview, updatePreview);
-        QObject::connect(stack, &QStackedWidget::currentChanged, preview, [updatePreview](int) { updatePreview(); });
-        boxLayout->addWidget(preview);
-        addRow(names, QStringLiteral("显示字段"), box, Placement::Wide, QStringLiteral("不更改实例文件夹名。"));
-    }
-
+    // NOTE: 「版本名格式」那一组（自定义名 / 版本名 / 加载器名 / 加载器版本四个开关）在
+    // UI 问题 #14 里撤掉了：显示名固定按出厂那一份拼（见 manage/VersionDisplay.hpp）。
     // ---------- 动效 ----------
     // 只看这一个勾，不跟随 Windows 的「动画效果」（那一档关掉会让整套动效被静默关掉）。
     SettingsGroup *motion = addGroup(panel, QStringLiteral("动效"));

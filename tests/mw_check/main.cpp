@@ -2940,14 +2940,6 @@ int main(int argc, char *argv[]) {
         byObjectName<QPlainTextEdit>(&window, MainWindowUI::extraJvmArgsEditName());
     // 「全局额外参数」失焦即存：信号源就是失焦那个过滤器。
     SettingsParts::CommitOnFocusOut *applyJvm = window.ui()->getExtraJvmArgsCommit();
-    QCheckBox *customCheck =
-        byObjectName<QCheckBox>(&window, MainWindowUI::versionNameCustomCheckName());
-    QCheckBox *realCheck =
-        byObjectName<QCheckBox>(&window, MainWindowUI::versionNameRealCheckName());
-    QCheckBox *loaderCheck =
-        byObjectName<QCheckBox>(&window, MainWindowUI::versionNameLoaderCheckName());
-    QCheckBox *loaderVersionCheck =
-        byObjectName<QCheckBox>(&window, MainWindowUI::versionNameLoaderVersionCheckName());
     // 「启动选项」那一组（AE 节用）
     QCheckBox *showLogCheck =
         byObjectName<QCheckBox>(&window, MainWindowUI::showGameLogCheckName());
@@ -2962,20 +2954,20 @@ int main(int argc, char *argv[]) {
     // 两个数字框中间那个「×」。它也得跟着灰 —— 灰了两个框却留一个亮着的 × 是那种"看着
     // 像坏了"的界面。
     QLabel *windowSizeTimes = window.findChild<QLabel *>(MainWindowUI::gameWindowSizeTimesLabelName());
-    // 「外观」那一格（AI 节用）
-    QLineEdit *titleEdit = byObjectName<QLineEdit>(&window, MainWindowUI::titleTextEditName());
+    // 「外观」那一组（AI 节用）：那一格在 UI 问题 #3 里撤掉了（商标固定），所以 AI 节量的是
+    // "它不在"。启动页「窗口大小 · 恢复默认」那颗按钮也在这一组里找。
+    QPushButton *gameWindowSizeReset =
+        byObjectName<QPushButton>(&window, MainWindowUI::gameWindowSizeResetButtonName());
     const bool settingsWired = javaManageButton != nullptr && javaLabel != nullptr &&
                                javaWarn != nullptr &&
                                memoryMode != nullptr && memoryHint != nullptr &&
                                maxSpin != nullptr && maxSlider != nullptr &&
                                behaviourCombo != nullptr && sourceCombo != nullptr &&
                                jvmEdit != nullptr && applyJvm != nullptr &&
-                               customCheck != nullptr && realCheck != nullptr &&
-                               loaderCheck != nullptr && loaderVersionCheck != nullptr &&
                                showLogCheck != nullptr && priorityCombo != nullptr &&
                                windowWidthSpin != nullptr && windowHeightSpin != nullptr &&
                                windowModeCombo != nullptr && windowSizeTimes != nullptr &&
-                               titleEdit != nullptr;
+                               gameWindowSizeReset != nullptr;
 
     GlobalJavaSettings *windowJava = window.findChild<GlobalJavaSettings *>();
     const std::function<void(const QString &)> pinGlobalJava = [windowJava](const QString &path) {
@@ -3002,10 +2994,10 @@ int main(int argc, char *argv[]) {
     // GlobalJavaSettings / LauncherSettings），而不是写死 4096 这类字面量：写死只能
     // 证明"我抄对了数字"，拿对照实例才能证明"界面显示的就是盘上存的那个值"。
     check(settingsWired, "设置页那二十个控件都能按 objectName 找回来");
-    if (const int result = MwJavaPreferencesChecks(settingsWired, window, javaManageButton, javaLabel, javaWarn, memoryMode, memoryHint, maxSpin, behaviourCombo, sourceCombo, jvmEdit, customCheck, realCheck, loaderCheck, loaderVersionCheck, maxSlider); result != 0) return result;
+    if (const int result = MwJavaPreferencesChecks(settingsWired, window, javaManageButton, javaLabel, javaWarn, memoryMode, memoryHint, maxSpin, behaviourCombo, sourceCombo, jvmEdit, maxSlider); result != 0) return result;
 
     header("M. 在设置页改东西：立刻落盘、立刻生效");
-    if (const int result = MwMemoryPreferencesChecks(settingsWired, kDecorated, window, installed, memoryMode, memoryHint, maxSpin, behaviourCombo, sourceCombo, jvmEdit, applyJvm, loaderCheck, loaderVersionCheck, maxSlider); result != 0) return result;
+    if (const int result = MwMemoryPreferencesChecks(settingsWired, kDecorated, window, installed, memoryMode, memoryHint, maxSpin, behaviourCombo, sourceCombo, jvmEdit, applyJvm, maxSlider); result != 0) return result;
 
     header("N. 冷启动读盘：手动指定的 Java 和镜像源都读得回来");
     if (const int result = MwJavaSelectionChecks(root); result != 0) return result;
@@ -3489,113 +3481,35 @@ int main(int argc, char *argv[]) {
     header("AH. 底栏那两块上拉面板：正在跑的实例（一行一个会话、带时长）/ 最近登录的三个账户");
     runBottomBarPanelTests();
 
-    header("AI. 设置页「外观」那一格：打进去的字立刻上条、也立刻落盘");
+    header("AI. 左上角那行字固定是商标（UI 问题 #3）");
     // ------------------------------------------------------------------
-    // 这一节接的是用户那句话的后半截：「左上角五个字母默认是这五个，在设置里允许自定义」。
-    //
-    // 判据取两处，缺一不可：
-    // · 条上那句 `titleText()` —— 量的是"屏幕上会画出来的那串"；
-    // · 盘上那个键，由**另一个读盘者**（同一个沙盒 ini 里 new 一个 LauncherSettings）
-    // 念出来。写死字面量只能证明"我抄对了数字"，拿对照实例才能证明"用户敲的东西真的存下来了"。
-    //
-    // NOTE: 这一格是**边打边存**（接的是 `textChanged`，不是"点应用"那一路），所以下面
-    // 每一步之后 `processEvents()` 都不用等什么"应用"按钮 —— 那正是这一节的判据。
+    // 要求：左上角固定写我们的商标，不再允许自定义（自定义会带出字体 / 字号问题）。
+    // 这一节量三件事：那五个字母就是 WTFML；设置页里**没有**那一格输入框了；
+    // 盘上留着老用户那份 `Launcher/TitleText` 也不影响开窗（这一项不再被读）。
     {
         TitleBar *strip = window.ui() != nullptr ? window.ui()->titleBar() : nullptr;
-        if (titleEdit != nullptr && strip != nullptr) {
-
-            // ---- ① 前提：沙盒里没自定义过 ⇒ 条上就是默认那五个字母 ----
-            // 这一条非有不可：没有它，"打完字条上变了"可能是恒真的（比如条根本不看盘上那
-            // 份、每次都自己编一个）。这里同时把"默认长什么样"留下来当对照组。
-            const QString defaultName = TitleBar::defaultBrandText();
-            check(strip->titleText() == defaultName,
-                  "AI1 前提：沙盒里没自定义过 ⇒ 条上写的就是默认那五个字母",
-                  strip->titleText());
-            check(titleEdit->text().isEmpty(),
-                  "AI1 设置页那一格也是空的（空 = 没改过，不是「条上不写字」）",
-                  titleEdit->text());
-
-            // ---- ② 往框里打字 → 条上立刻跟着变，而且真的落盘了 ----
-            const QString myName = QStringLiteral("我的启动器");
-            titleEdit->setText(myName);
-            QApplication::processEvents();
-            check(strip->titleText() == myName,
-                  "AI2 往框里打字，条上那行字立刻跟着变（不用点任何按钮）",
-                  strip->titleText());
-            {
-                LauncherSettings probe;   // 同一份沙盒 ini 的另一个读者
-                check(probe.titleText() == myName,
-                      "AI2 而且另一个读盘者念出来就是它（这一刻已经在盘上了，不是等下才存）",
-                      probe.titleText());
-            }
-
-            // ---- ③ 清空 → 两边都回到"默认"，而**不是**把默认那五个字母存进去 ----
-            // 差别很要紧：存进去的话，以后改默认值（比如产品改名了）就再也跟不动了。
-            titleEdit->clear();
-            QApplication::processEvents();
-            check(strip->titleText() == defaultName,
-                  "AI3 把框清空 ⇒ 条上回到默认那五个字母",
-                  strip->titleText());
-            {
-                LauncherSettings probe;
-                check(probe.titleText().isEmpty(),
-                      "AI3 盘上存的是空串（存成字面量就再也跟不动默认值了）",
-                      probe.titleText());
-            }
-
-            // ---- ④ 条上画的是**落盘那份**，不是框里的原话 ----
-            // 两头带空白的输入：框里留着用户敲的样子（不回头改用户正在打的东西），条上画
-            // 的和盘上存的都是去掉空白之后的。这一条是"接的是原始 text() 还是 titleText()"
-            // 的照妖镜 —— 接错了，条上会多出两个看不见的空格。
-            const QString padded = QStringLiteral(" 名字 ");
-            titleEdit->setText(padded);
-            QApplication::processEvents();
-            check(strip->titleText() == QStringLiteral("名字"),
-                  "AI4 条上画的是落盘那份（两头空白去掉了），不是框里的原话",
-                  strip->titleText());
-            check(titleEdit->text() == padded,
-                  "AI4 框里还是用户敲的那个样子（不回头改用户正在打的东西）",
-                  titleEdit->text());
-            {
-                LauncherSettings probe;
-                check(probe.titleText() == QStringLiteral("名字"),
-                      "AI4 盘上那份也是去掉空白之后的同一个串",
-                      probe.titleText());
-            }
-
-            // ---- ⑤ 上限：框自己就截到 16 个字，于是框 == 盘 == 条 ----
-            // 三处一致才是"同一个数"：框那边是 setMaxLength()、盘那边是 clampTitleText()。
-            const QString longName(20, QLatin1Char('W'));
-            titleEdit->setText(longName);
-            QApplication::processEvents();
-            const QString boxNow = titleEdit->text();
-            check(boxNow.size() == MainWindowUI::titleTextMaxLength(),
-                  "AI4b 框自己就把超长的输入截到上限那么长",
-                  QString("框里 %1 个字，上限 %2")
-                      .arg(boxNow.size())
-                      .arg(MainWindowUI::titleTextMaxLength()));
-            check(strip->titleText() == boxNow,
-                  "AI4b 条上 == 框里（截断只发生在框那一边，这里不该再短一截）",
-                  QString("条=%1 框=%2").arg(strip->titleText(), boxNow));
-            {
-                LauncherSettings probe;
-                check(probe.titleText() == boxNow,
-                      "AI4b 盘上也 == 框里（三处是同一个串）",
-                      QString("盘=%1 框=%2").arg(probe.titleText(), boxNow));
-            }
-
-            // ---- ⑥ 收尾：名字也恢复成默认 ----
-            // 这条纯属收拾干净：整个沙盒从头到尾只有这一节碰过这个名字，但一个被改过的值
-            // 留在那儿，以后谁加了断言就会先撞上它。默认值恰好是"空"，恢复起来一步就到。
-            titleEdit->clear();
-            QApplication::processEvents();
-            {
-                LauncherSettings probe;
-                check(probe.titleText().isEmpty() && strip->titleText() == defaultName,
-                      "AI5 收尾：名字恢复成默认（这一节不留痕迹）",
-                      QString("盘=%1 条=%2").arg(probe.titleText(), strip->titleText()));
-            }
+        check(strip != nullptr, "AI 前提：拿得到顶上那条");
+        check(TitleBar::defaultBrandText() == QStringLiteral("WTFML"),
+              "AI1 商标就是 WTFML 这五个字母", TitleBar::defaultBrandText());
+        check(window.findChild<QLineEdit *>(QStringLiteral("titleTextEdit")) == nullptr,
+              "AI2 设置页里没有「主页标题」那一格输入框了");
+        // 老用户盘上那份自定义值：写一个进去，再开一个窗口，那一格照样不在、窗口照开。
+        {
+            QSettings raw;
+            raw.setValue(QStringLiteral("Launcher/TitleText"), QStringLiteral("我的启动器"));
+            raw.sync();
         }
+        MainWindow withStaleTitle;
+        QApplication::processEvents();
+        TitleBar *staleStrip =
+            withStaleTitle.ui() != nullptr ? withStaleTitle.ui()->titleBar() : nullptr;
+        check(staleStrip != nullptr &&
+                  withStaleTitle.findChild<QLineEdit *>(QStringLiteral("titleTextEdit")) == nullptr,
+              "★ AI3 盘上留着旧的自定义标题时，设置页里照样没有那一格、条照样在");
+        check(!staleStrip->grab().isNull(), "AI3 条照常画得出来（不因为盘上那份旧值而空着）");
+        // 收尾：把那份旧值抹掉，别留给后面的节。
+        QSettings().remove(QStringLiteral("Launcher/TitleText"));
+        QSettings().sync();
     }
 
     header("AJ. 启动前那两条提醒：十秒内重复启动 / 同一实例已经在跑（都要拦得住、放得行）");
