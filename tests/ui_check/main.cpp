@@ -1258,6 +1258,42 @@ int main(int argc, char *argv[]) {
                   .arg(installed->hasFocus())
                   .arg(installed->currentIndex()));
 
+        // 没焦点时那一发滚轮**不能就这么没了**：得转给外面那层滚动区 —— 用户报的就是
+        // 鼠标停在数字框 / 下拉框上时页面滚不动（值不改是对的，页面不滚是错的）。
+        {
+            QWidget scrollHost;
+            auto *area = new QScrollArea(&scrollHost);
+            area->setWidgetResizable(true);
+            auto *content = new QWidget(area);
+            content->setMinimumHeight(1200);
+            auto *spin = new QSpinBox(content);
+            spin->setGeometry(10, 10, 140, 32);
+            spin->setRange(0, 99999);
+            spin->setValue(123);
+            WheelGuard::install(spin);
+            area->setWidget(content);
+            area->resize(240, 160);
+            scrollHost.resize(240, 160);
+            scrollHost.show();
+            QApplication::processEvents();
+            startBtn->setFocus();
+            QApplication::processEvents();
+            QScrollBar *bar = area->verticalScrollBar();
+            const int before = bar->value();
+            QWheelEvent overSpin(QPointF(5, 5), spin->mapToGlobal(QPoint(5, 5)), QPoint(0, 0),
+                                 QPoint(0, -120), Qt::NoButton, Qt::NoModifier,
+                                 Qt::NoScrollPhase, false);
+            QApplication::sendEvent(spin, &overSpin);
+            QApplication::processEvents();
+            check(!spin->hasFocus() && spin->value() == 123 && bar->value() > before,
+                  "鼠标停在没有焦点的数字框上滚轮：值不动，页面照样滚（转给外层滚动区）",
+                  QString("hasFocus=%1 值 %2 / 滚动 %3→%4")
+                      .arg(spin->hasFocus())
+                      .arg(spin->value())
+                      .arg(before)
+                      .arg(bar->value()));
+        }
+
         installed->clear();
         check(installed->currentIndex() < 0, "测试用的条目已清干净");
         installed->hide();
