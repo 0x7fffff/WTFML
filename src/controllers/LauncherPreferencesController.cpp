@@ -173,6 +173,8 @@ void LauncherPreferencesController::updateGameWindowSizeEnabled() {
     m_ui->getGameWindowWidthSpin()->setEnabled(enabled);
     m_ui->getGameWindowHeightSpin()->setEnabled(enabled);
     m_ui->getGameWindowSizeTimesLabel()->setEnabled(enabled);
+    // 「恢复默认」跟着这一行的可用性走：整行灰着（最大化）时它也灰，值已是默认时也灰。
+    m_ui->syncGameWindowSizeResetButton();
 }
 
 void LauncherPreferencesController::syncDownloadSource() {

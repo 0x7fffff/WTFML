@@ -1031,6 +1031,19 @@ bool MainWindowUI::isDefaultWindowSize(const QWidget *window) {
            && window->size() == fittedWindowSize(window, QSize(kMainWindowDefaultWidth, kMainWindowDefaultHeight));
 }
 
+void MainWindowUI::syncGameWindowSizeResetButton() {
+    if (gameWindowSizeResetButton == nullptr || gameWindowWidthSpin == nullptr
+        || gameWindowHeightSpin == nullptr) {
+        return;
+    }
+    // 那一整行被窗口模式灰掉（最大化 / 全屏时那两个数不参与启动）时，这颗也跟着灰：
+    // 亮着一颗按下去什么都不改的钮比灰着更难懂。
+    const bool rowEnabled = gameWindowWidthSpin->isEnabled() && gameWindowHeightSpin->isEnabled();
+    const bool isDefault = gameWindowWidthSpin->value() == windowDefaultWidth()
+                           && gameWindowHeightSpin->value() == windowDefaultHeight();
+    gameWindowSizeResetButton->setEnabled(rowEnabled && !isDefault);
+}
+
 void MainWindowUI::updateHomeQuoteFont(bool narrow) {
     homeQuoteNarrow = narrow;
     fitHomeQuoteFont();

@@ -415,11 +415,28 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
         gameWindowHeightSpin->setSuffix(QStringLiteral(" px"));
         gameWindowHeightSpin->setFixedWidth(kWindowSizeSpinWidth + 22);
         WheelGuard::install(gameWindowHeightSpin);
+        // 「恢复默认」（UI 问题 #11）：回到出厂的那一对 854×480。风格、尺寸照 155 那颗
+        // （设置·个性化·外观里的「窗口大小 · 恢复默认」），摆在这一行最右边。
+        gameWindowSizeResetButton = new QPushButton(QStringLiteral("恢复默认"), form);
+        gameWindowSizeResetButton->setObjectName(gameWindowSizeResetButtonName());
+        Theme::markButton(gameWindowSizeResetButton, Theme::ButtonKind::Neutral);
+        // 点一下就把两个框设回默认值。**刻意不挡信号**：这两个框的 valueChanged 就是落盘那条线
+        // （MainWindow::onGameWindowSizeChanged），挡掉就成了"框里变了、盘上没变"。
+        // 一次点两框会写两趟，值是同一个终态，代价可以接受。
+        QObject::connect(gameWindowSizeResetButton, &QPushButton::clicked, gameWindowSizeResetButton, [this] {
+            gameWindowWidthSpin->setValue(windowDefaultWidth());
+            gameWindowHeightSpin->setValue(windowDefaultHeight());
+        });
+        // 值一变就重算置灰。窗口模式（最大化）那一侧由 MainWindow 调 syncGameWindowSizeResetButton()。
+        const auto syncReset = [this](int) { syncGameWindowSizeResetButton(); };
+        QObject::connect(gameWindowWidthSpin, &QSpinBox::valueChanged, gameWindowWidthSpin, syncReset);
+        QObject::connect(gameWindowHeightSpin, &QSpinBox::valueChanged, gameWindowHeightSpin, syncReset);
         addRow(windowGroup, QStringLiteral("窗口大小"),
-               hbox(form, {gameWindowWidthSpin, gameWindowSizeTimesLabel, gameWindowHeightSpin},
-                    kWindowSizeRowSpacing),
+               hbox(form, {gameWindowWidthSpin, gameWindowSizeTimesLabel, gameWindowHeightSpin,
+                           gameWindowSizeResetButton}, kWindowSizeRowSpacing),
                Placement::Natural, QStringLiteral("游戏可能沿用自身保存的尺寸。"),
                QStringLiteral("退出全屏后使用此尺寸。"));
+        syncGameWindowSizeResetButton();
     }
 
     // ---------- 运行与日志 ----------

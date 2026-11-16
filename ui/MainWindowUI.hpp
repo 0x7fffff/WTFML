@@ -3047,6 +3047,17 @@ public:
     static int windowMaxHeight() { return 4320; }
     /// 点上下箭头一下走多少。16 是"拖一下就能从 854 走到 1920 那类常见值"。
     static int windowSizeStep() { return 16; }
+    /// 出厂默认的**游戏**窗口大小（不是启动器自己那个窗口，那个见 kMainWindowDefaultWidth）。
+    ///
+    /// 854×480 是原版自己的默认窗口（1.12.2 的 Main 里那对 defaultsTo），`LauncherSettings`
+    /// 那两个成员的初始值也是它。设置页「窗口大小」那一行最右边那颗「恢复默认」回到的就是这两个数。
+    /// 规矩同上面那组范围：ui/ 不许 include src/，所以和 `LauncherSettings` 各写一遍。
+    static int windowDefaultWidth() { return 854; }
+    static int windowDefaultHeight() { return 480; }
+    /// 「窗口大小」那一行最右边那颗「恢复默认」（UI 问题 #11，写法照 155 那颗）。
+    static QString gameWindowSizeResetButtonName() {
+        return QStringLiteral("gameWindowSizeResetButton");
+    }
 
     // ---------- 「背景图」那一节 ----------
     // 一块底一行：四个页面的内容区（`Theme::Part::PageBackground`），铺满整窗。
@@ -3659,6 +3670,11 @@ public:
     QLabel *getGameWindowSizeTimesLabel() const { return gameWindowSizeTimesLabel; }
     QSpinBox *getGameWindowWidthSpin() const { return gameWindowWidthSpin; }
     QSpinBox *getGameWindowHeightSpin() const { return gameWindowHeightSpin; }
+    /// 「窗口大小」那一行最右边那颗「恢复默认」（点了回到 `windowDefaultWidth()` × `windowDefaultHeight()`）。
+    QPushButton *getGameWindowSizeResetButton() const { return gameWindowSizeResetButton; }
+    /// 按**当值**刷新「恢复默认」的置灰：已经是出厂默认、或那一行因为窗口模式（最大化）
+    /// 被灰掉时置灰。改宽高、切窗口模式之后都要调一次（后一条在 MainWindow 那边）。
+    void syncGameWindowSizeResetButton();
 
     /// 「背景图」那一节里，**一块底**对应的一组控件（今天只有页面背景这一组）。
     ///
@@ -4041,6 +4057,8 @@ private:
     QLabel *gameWindowSizeTimesLabel = nullptr;
     QSpinBox *gameWindowWidthSpin = nullptr;
     QSpinBox *gameWindowHeightSpin = nullptr;
+    /// 「窗口大小」那一行最右边那颗「恢复默认」（`gameWindowSizeResetButtonName()`）。
+    QPushButton *gameWindowSizeResetButton = nullptr;
     QPushButton *windowSizeResetButton = nullptr;
     QCheckBox *dailyQuoteCheck = nullptr;
     /// 「背景图」那一节的各行控件，按 `ThemeImageRow::partKey` 认（见这一节在头文件里那段）。

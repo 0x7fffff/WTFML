@@ -2962,6 +2962,10 @@ int main(int argc, char *argv[]) {
     // 两个数字框中间那个「×」。它也得跟着灰 —— 灰了两个框却留一个亮着的 × 是那种"看着
     // 像坏了"的界面。
     QLabel *windowSizeTimes = window.findChild<QLabel *>(MainWindowUI::gameWindowSizeTimesLabelName());
+    // 「外观」那一组（AI 节用）：那一格在 UI 问题 #3 里撤掉了（商标固定），所以 AI 节量的是
+    // "它不在"。启动页「窗口大小 · 恢复默认」那颗按钮也在这一组里找。
+    QPushButton *gameWindowSizeReset =
+        byObjectName<QPushButton>(&window, MainWindowUI::gameWindowSizeResetButtonName());
     const bool settingsWired = javaManageButton != nullptr && javaLabel != nullptr &&
                                javaWarn != nullptr &&
                                memoryMode != nullptr && memoryHint != nullptr &&
@@ -2972,7 +2976,8 @@ int main(int argc, char *argv[]) {
                                loaderCheck != nullptr && loaderVersionCheck != nullptr &&
                                showLogCheck != nullptr && priorityCombo != nullptr &&
                                windowWidthSpin != nullptr && windowHeightSpin != nullptr &&
-                               windowModeCombo != nullptr && windowSizeTimes != nullptr;
+                               windowModeCombo != nullptr && windowSizeTimes != nullptr &&
+                               gameWindowSizeReset != nullptr;
 
     GlobalJavaSettings *windowJava = window.findChild<GlobalJavaSettings *>();
     const std::function<void(const QString &)> pinGlobalJava = [windowJava](const QString &path) {
