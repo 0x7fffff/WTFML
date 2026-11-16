@@ -966,6 +966,12 @@ bool OverlayHost::eventFilter(QObject *watched, QEvent *event) {
     if (watched == m_anchor) {
         switch (event->type()) {
         case QEvent::Resize:
+            // 过滤器先于 QTabWidget 自己的 resizeEvent 拿到这一发：当前页那会儿还是旧尺寸，
+            // contentRect() 量出来的是上一次的宽高（拖窗口边时覆盖层一边漏出底下的页、一边伸出窗外）。
+            // 排一次到页面摆完之后再量。
+            QMetaObject::invokeMethod(this, &OverlayHost::relayout, Qt::QueuedConnection);
+            relayout();
+            break;
         case QEvent::Move:
         case QEvent::Show:
             relayout();

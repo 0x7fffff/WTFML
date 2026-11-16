@@ -356,7 +356,8 @@ public:
     static QString pageListName() { return QStringLiteral("instanceSettingsPageList"); }
     /// 左栏那棵导航树的 objectName（界面导航的唯一出处）。
     static QString navigationTreeName() { return QStringLiteral("instanceLifecycleTree"); }
-    static int navigationTreeWidth() { return 208; }
+    /// 左栏那一列的宽：最长的二级页名（「服务器列表」）加缩进放得下就够，多出来的都从右栏扣（UI问题 #6）。
+    static int navigationTreeWidth() { return 152; }
     static QString launchInstanceButtonName() {
         return QStringLiteral("instanceSettingsLaunchInstance");
     }

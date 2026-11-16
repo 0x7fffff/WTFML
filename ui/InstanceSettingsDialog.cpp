@@ -192,7 +192,8 @@ InstanceSettingsDialog::InstanceSettingsDialog(const QString &instanceName,
     m_pendingWarnJavaMismatch = warnJavaMismatch;
 
     auto *outer = new QVBoxLayout(this);
-    outer->setContentsMargins(12, 12, 12, 12);
+    // 左右不再留边：覆盖层自己两侧已经各留了 40，这一页再叠 12 会把右栏挤窄（UI问题 #6）。
+    outer->setContentsMargins(0, 12, 0, 12);
     outer->setSpacing(10);
 
     // UI 7b 页眉（设计稿 instance-*）：图标 + 实例名 + 一行元信息 | 打开目录（扁平）+ 启动实例（这一页唯一的实心钮）。
@@ -605,6 +606,8 @@ QWidget *InstanceSettingsDialog::addPage(const QString &key) {
     scroll->setObjectName(scrollName(key));
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
+    // 横向永远不滚：页面跟着右栏宽度收，控件自己省略 / 换行（UI问题 #6：本该放得下的地方不许出横滑条）。
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
 
     auto *page = new QWidget(scroll);
     page->setObjectName(panelName(key));
@@ -1815,7 +1818,7 @@ void InstanceSettingsDialog::rebuildNavigationTree() {
         item->setText(0, text);
         item->setData(0, Qt::UserRole, key);
         item->setToolTip(0, text);
-        item->setSizeHint(0, QSize(0, key.isEmpty() ? 32 : 36));
+        item->setSizeHint(0, QSize(0, 32));  // 一级二级同一行高；36 时最小窗里左栏要竖着滚
         if (key.isEmpty()) item->setFlags(Qt::ItemIsEnabled);
         return item;
     };
