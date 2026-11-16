@@ -5,6 +5,7 @@
  * 「浮层」在这套界面里只有一种面：磨砂玻璃（`tokens().glass`）+ 1px 亮边（`glassEdge`），
  * 没有硬描边。窗口内的一切浮层都走这里，不再各画各的一块不透明方块：
  * - **tooltip**：自绘（系统那个黄底方角气泡不再出现），停 500ms 出、120ms 淡入上移 2px；
+ *   出现在鼠标右下方并跟着鼠标走，正文最宽 420 到了换行，字少时框跟着变窄；
  *   只给图标按钮和条目用，文字按钮不出提示（按 `text()` 判，见 `TooltipDriver::isTextButton`）。
  * - **下拉弹层**（`QComboBox` 那 67 处全仓一个样）：圆角 14、内边距 6、行高 34、圆角 8，
  *   最多露 8 项，超出在弹层里滚（滚轮 / 拖动 / 键盘），右缘一条 3px 细条**只在滚动时**露
@@ -21,6 +22,8 @@
 #pragma once
 
 #include <QColor>
+#include <QPoint>
+#include <QRect>
 #include <QRectF>
 #include <QString>
 
@@ -44,11 +47,15 @@ void paintSurface(QPainter &painter, const QRectF &rect, qreal radius);
 /// ui_check 的弹层守卫（`PopupWindowGuard`）会把这块窗报成 FAIL。
 void preparePopup(QWidget *popup);
 
-/// 自己弹一条提示（列表代理那种 `QToolTip::showText` 的去处用它）。`anchor` 用来判"贴着谁"。
+/// 自己弹一条提示（列表代理那种 `QToolTip::showText` 的去处用它）。
+/// 落在 @p globalPos（鼠标）右下方，放不下翻到另一侧；`anchor` 不参与定位，只为调用方不用改。
 void showTooltip(const QString &text, const QPoint &globalPos, const QWidget *anchor = nullptr);
+/// 提示正亮着时把它挪到鼠标 @p globalPos 旁（不亮就什么都不做）。
+void moveTooltipTo(const QPoint &globalPos);
 void hideTooltip();
-/// 正在显示的那条（测试用）：文案与它落的全局位置。
+/// 正在显示的那条（测试用）：文案与它落的全局几何。
 QString tooltipText();
+QRect tooltipGeometry();
 bool tooltipVisible();
 
 /// 文字按钮不出提示：`QAbstractButton` 且 `text()` 非空。图标钮（没字）照旧出。
