@@ -152,9 +152,15 @@ int MwMemoryPreferencesChecks(const bool settingsWired, const QString &kDecorate
                   "条上的虚条展示自动值",
                   QString("虚条 %1 / 自动 %2")
                       .arg(maxSlider->autoValueMb()).arg(autoDisplayedXmx));
-            check(maxSlider->valueMb() == manualTargetMb,
-                  "圆圈不跟着自动值走，仍停在开启自动之前的手动位置",
-                  QString("圆圈 %1 / 手动 %2").arg(maxSlider->valueMb()).arg(manualTargetMb));
+            // 圆圈必须落在**虚条的头**（自动值那一格）：停在"上次手动"那个位置时，自动值
+            // 比它小的话圆圈就浮在一段没填的轨道上，用户报的就是"圆圈跟条脱开了"。
+            const QList<int> autoSteps =
+                MemorySlider::valueSteps(maxSpin->minimum(), maxSpin->maximum());
+            const int autoStop =
+                autoSteps.value(MemorySlider::nearestIndex(autoSteps, autoDisplayedXmx), -1);
+            check(maxSlider->valueMb() == autoStop,
+                  "圆圈落在虚条头上（自动值那一格），不浮在没填的轨道上",
+                  QString("圆圈 %1 / 自动应停 %2").arg(maxSlider->valueMb()).arg(autoStop));
             check(memoryHint->text().contains(QStringLiteral("自动分配")) &&
                       memoryHint->text().contains(QStringLiteral("恢复")),
                   "说明文字讲清了这是自动值、以及切回手动会恢复原值",
@@ -180,15 +186,22 @@ int MwMemoryPreferencesChecks(const bool settingsWired, const QString &kDecorate
                       reopenedSpin->value() == reopenedProbe.xmx(),
                   "新窗口里数字框仍禁用、显示自动值",
                   reopenedSpin != nullptr ? QString::number(reopenedSpin->value()) : QString());
+            const QList<int> reopenSteps =
+                reopenedSpin != nullptr
+                    ? MemorySlider::valueSteps(reopenedSpin->minimum(), reopenedSpin->maximum())
+                    : QList<int>();
+            const int reopenStop =
+                reopenSteps.value(MemorySlider::nearestIndex(reopenSteps, reopenedProbe.xmx()), -1);
             check(reopenedSlider != nullptr && !reopenedSlider->isEnabled() &&
                       reopenedSlider->hasAutoValue() &&
                       reopenedSlider->autoValueMb() == reopenedProbe.xmx() &&
-                      reopenedSlider->valueMb() == manualTargetMb,
-                  "新窗口的条也画着自动虚条，圆圈停在手动位置",
+                      reopenedSlider->valueMb() == reopenStop,
+                  "新窗口的条也画着自动虚条，圆圈落在自动值那一格",
                   reopenedSlider != nullptr
-                      ? QString("虚条 %1 / 圆圈 %2")
+                      ? QString("虚条 %1 / 圆圈 %2 / 应停 %3")
                             .arg(reopenedSlider->autoValueMb())
                             .arg(reopenedSlider->valueMb())
+                            .arg(reopenStop)
                       : QString());
         }
 

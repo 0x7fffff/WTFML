@@ -779,6 +779,16 @@ void pageAppear(QWidget *widget) {
     if (lift == nullptr) {
         lift = widget;
     }
+    // 外层那层幕布先收掉：换页这一层是**嵌套**的，进整页时外层那一发定住的是"换页之前
+    // 那一张"。里面这一发一开，外层那张就已经过时了 —— 不收掉的话，外面那一发的剩余时长里
+    // 屏幕上一直是上一页的残影（用户报过：首次进设置切标签，先闪一下旧页才进去）。
+    for (QWidget *ancestor = widget->parentWidget(); ancestor != nullptr;
+         ancestor = ancestor->parentWidget()) {
+        finishPageAppear(ancestor);
+        if (ancestor->isWindow()) {
+            break;
+        }
+    }
     // NOTE: `PageCurtain` 没有 `Q_OBJECT`（这一层不需要信号槽、也不需要 moc），所以这里
     // 够不到它的类型：按**名字**找回来再 `static_cast` —— 那个名字只有这一处会写。
     PageCurtain *curtain = nullptr;

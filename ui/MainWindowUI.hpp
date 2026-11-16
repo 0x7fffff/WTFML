@@ -48,6 +48,8 @@
 // 「最大内存」那一行左半边那根条（见 MemorySlider.hpp 开头那段）。它和上面的对话框头
 // 一样属于 ui/ 自己的东西，不是业务层的。
 #include "MemorySlider.hpp"
+// 没焦点时那一发滚轮要转给外层滚动区（见 WheelGuard 与 WheelForward.hpp）。
+#include "WheelForward.hpp"
 // 任务中心那块面板。这里要它的头只为一件事：`setTaskCenterContent()` 的
 // 参数类型和那个成员指针 —— 面板自己长什么样、怎么弹，全在它的 .cpp 里。
 #include "TaskCenterPanel.hpp"
@@ -130,7 +132,12 @@ protected:
         // 转不出来就原样放行（这个过滤器只挂在下面那几种控件上，正常不会走到）。
         QWidget *widget = qobject_cast<QWidget *>(watched);
         if (widget != nullptr && event->type() == QEvent::Wheel && !widget->hasFocus()) {
-            return true;  // 吃掉：没有焦点就不认滚轮
+            // 吃掉：没有焦点就不认滚轮（改值留给点进来之后）。
+            // 但**不能让它到此为止**：鼠标只是路过这个框时，外面那页还得能滚 —— 先转给
+            // 最近的外层滚动区（见 WheelForward.hpp）。一个滚动区祖先都没有时照旧吞掉：
+            // 页面上没东西可滚，也不能让框在没焦点时改值。
+            WheelForward::toScrollArea(widget, static_cast<QWheelEvent *>(event));
+            return true;
         }
         return QObject::eventFilter(watched, event);
     }

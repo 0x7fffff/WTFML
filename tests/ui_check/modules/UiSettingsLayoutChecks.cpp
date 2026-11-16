@@ -400,16 +400,32 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
                   QString("%1 格").arg(narrow.size()));
         }
 
-        // 自动档展示值：进度条跟着自动值走，圆圈（valueMb）不许跟着动。
+        // 自动档展示值：虚条和圆圈都画在自动值那一格。
+        //
+        // 圆圈停在"上次手动"那个位置时，自动值比它小的话圆圈就浮在一段没填的轨道上，
+        // 看着像圆圈跟条脱开了（用户报的就是这个）。画法这一层钉的是"圆圈画在哪"：
+        // valueMb 停在 4096 与停在 8192 两种画出来必须**一模一样**。
         {
             MemorySlider autoProbe;
             autoProbe.setRangeMb(256, 16384);
+            autoProbe.resize(240, 20);
+            autoProbe.show();
             autoProbe.setValueMb(4096);
             autoProbe.setAutoValueMb(8192);
-            check(autoProbe.valueMb() == 4096 && autoProbe.hasAutoValue() &&
+            QApplication::processEvents();
+            const QImage knobAtManualValue = autoProbe.grab().toImage();
+            autoProbe.setValueMb(8192);
+            QApplication::processEvents();
+            const QImage knobAtAutoValue = autoProbe.grab().toImage();
+            check(!knobAtManualValue.isNull() && knobAtManualValue == knobAtAutoValue,
+                  "自动档的圆圈画在虚条头上（自动值那一格），与 value() 停在哪无关",
+                  QString("两张图 %1 x %2").arg(knobAtManualValue.size().width())
+                      .arg(knobAtManualValue.size().height()));
+            check(autoProbe.valueMb() == 8192 && autoProbe.hasAutoValue() &&
                       autoProbe.autoValueMb() == 8192,
-                  "自动展示值不挪圆圈：valueMb 仍是手动位置，autoValueMb 是自动值",
+                  "valueMb 是调用方自己设的那一格，autoValueMb 是自动值",
                   QString("圆圈 %1 / 自动 %2").arg(autoProbe.valueMb()).arg(autoProbe.autoValueMb()));
+            autoProbe.setValueMb(4096);
             autoProbe.clearAutoValue();
             check(!autoProbe.hasAutoValue() && autoProbe.valueMb() == 4096,
                   "清掉自动展示值之后回到手动画法，圆圈位置不变",

@@ -536,6 +536,36 @@ int UiAnimationsChecks(QApplication &app, QFrame * &bar) {
                       .arg(after.blue()));
         }
 
+        // —— 嵌套换页：外层那一发定住的是"换页之前那一张" ——
+        //
+        // 用户报的：首次进设置页，马上切"启动/提示/个性化/下载"，先闪一下上一页才进去。
+        // 进整页时外层那一发（整页淡入）还在跑，内层栈再换页时那张定格快照就过时了；
+        // 不收掉它，剩下的时长里屏幕上一直是上一页。判据：内层 `pageAppear()` 之后，
+        // 外层那块幕布必须已经不露头。
+        {
+            QWidget nestedHost;
+            nestedHost.resize(200, 120);
+            auto *outerPage = new QWidget(&nestedHost);
+            outerPage->setGeometry(0, 0, 200, 120);
+            auto *innerPage = new QWidget(outerPage);
+            innerPage->setGeometry(0, 0, 200, 120);
+            nestedHost.show();
+            QApplication::processEvents();
+
+            Anim::pageAppear(outerPage);
+            QWidget *outerCurtain = outerPage->findChild<QWidget *>(curtainName);
+            const bool outerRunning = outerCurtain != nullptr && outerCurtain->isVisible();
+
+            Anim::pageAppear(innerPage);
+            const bool outerStillShown = outerCurtain != nullptr && outerCurtain->isVisible();
+            check(outerRunning && !outerStillShown,
+                  "★★ ⑬ 内层换页一开始，外层那块还在跑的幕布就收掉了"
+                  "（不收的话那 250ms 里显示的是上一页的残影）",
+                  QStringLiteral("外层起手 %1 / 内层开始后还露着 %2")
+                      .arg(outerRunning ? QStringLiteral("在跑") : QStringLiteral("没跑"))
+                      .arg(outerStillShown));
+        }
+
         // 长错误提示：正文进滚动区、高度受限，按钮不会被挤出卡片。
         {
             QString longText;

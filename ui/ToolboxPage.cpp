@@ -2141,6 +2141,15 @@ QWidget *ToolboxPage::buildCoordPanel() {
     convert->setObjectName(QStringLiteral("coordConvert"));
     convert->setAutoDefault(false);
     Theme::markButton(convert, Theme::ButtonKind::Primary);
+    // 「粘贴命令」：读剪贴板里 F3+C 那一行，当场认维度 + 坐标再换算。
+    // 原先那一行「从命令读」输入框 + 「认一下」按钮在 bfeca25 收文案时删掉了，只剩"往坐标
+    // 框里 Ctrl+V"这条没人看得出来的暗路（用户报的就是它没了）。
+    auto *pasteCommand = new QPushButton(QStringLiteral("粘贴命令"), panel);
+    pasteCommand->setObjectName(QStringLiteral("coordPasteTp"));
+    pasteCommand->setToolTip(
+        QStringLiteral("读剪贴板里 F3+C 复制的那一行，认出维度和坐标并直接换算。"));
+    pasteCommand->setAutoDefault(false);
+    Theme::markButton(pasteCommand, Theme::ButtonKind::Neutral);
     // 「换算」是这一块唯一的主钮，紧跟在三格坐标后面（同一行、靠右）。
     // 每个轴「字母 + 数字框」成一组，窄时整组折行，不把字母和框拆开。
     const auto axisGroup = [&](const QString &text, QDoubleSpinBox *spin) {
@@ -2155,7 +2164,7 @@ QWidget *ToolboxPage::buildCoordPanel() {
     // 「换算」是这一块唯一的主钮，紧跟在三格坐标后面。
     form.addFlowRow(QStringLiteral("坐标"),
                     {axisGroup(QStringLiteral("X"), m_coordX), axisGroup(QStringLiteral("Y"), m_coordY),
-                     axisGroup(QStringLiteral("Z"), m_coordZ), convert});
+                     axisGroup(QStringLiteral("Z"), m_coordZ), pasteCommand, convert});
 
     // 坐标框直接接受粘贴的 tp 命令（F3+C 复制的那一行）：粘进来的不是数字就交给 controller 认。
     for (QDoubleSpinBox *spin : {m_coordX, m_coordY, m_coordZ}) {
@@ -2195,6 +2204,15 @@ QWidget *ToolboxPage::buildCoordPanel() {
     layout->addWidget(result.card);
     layout->addStretch(1);
 
+    connect(pasteCommand, &QPushButton::clicked, this, [this]() {
+        const QString text = QGuiApplication::clipboard()->text().trimmed();
+        if (text.isEmpty()) {
+            setTeleportParse(false,
+                             QStringLiteral("剪贴板里没有东西。先在游戏里按 F3+C 复制坐标，再点这里。"));
+            return;
+        }
+        emit teleportParseRequested(text);
+    });
     connect(convert, &QPushButton::clicked, this, [this]() {
         emit coordinateRequested(m_coordDimension->currentIndex(), m_coordX->value(),
                                  m_coordY->value(), m_coordZ->value());
