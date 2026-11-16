@@ -50,34 +50,10 @@ QString sanitizeComponent(const QString &raw) {
 
 }  // namespace
 
-VersionNameOptions normalizeVersionNameOptions(VersionNameOptions options) {
-    // 自定义名和版本名不能同时关：都关了名称槽和版本段都没人收，拼出来是空串。
-    // 兜底打开版本名——没有自定义名时名称槽本来就退化成实际版本，所以这正好是
-    // 改动前"就显示版本号"的行为，是最安全的落点。
-    if (!options.showCustomName && !options.showRealVersion) {
-        options.showRealVersion = true;
-    }
-
-    // 加载器版本是加载器名的从属项：用户要求"勾选加载器版本号的前提是显示加载器"。
-    // 前提不成立时关掉从属项，而不是反过来替用户打开前提——那样等于篡改他的勾选。
-    if (options.showLoaderVersion && !options.showLoaderName) {
-        options.showLoaderVersion = false;
-    }
-
-    return options;
-}
-
-QString formatVersionName(const VersionDisplayParts &parts, const VersionNameOptions &globalDefault) {
-    // 归一化放在这里，不能只放在加载设置和 setter 里：那两道都可能被绕过
-    // （手改注册表、以后设置界面直接构造 options、按实例覆盖），而漏过去的后果
-    // 是拼出空串、界面上一块空白。纯函数是最后一个能兜住的地方。
-    const VersionNameOptions options =
-        normalizeVersionNameOptions(parts.nameFormatOverride.value_or(globalDefault));
-
+QString formatVersionName(const VersionDisplayParts &parts) {
     const QString id = sanitizeComponent(parts.id);
     const QString customName = sanitizeComponent(parts.customName);
     const QString loaderName = sanitizeComponent(parts.loaderName);
-    const QString loaderVersion = sanitizeComponent(parts.loaderVersion);
 
     // 实际版本：元数据里写了 "realVersion" 就用它，否则退化成目录名 —— 老实例
     // （没有 wtfml.meta）就这样逐字节不变。
@@ -106,18 +82,12 @@ QString formatVersionName(const VersionDisplayParts &parts, const VersionNameOpt
         chosen.append(text);
     };
 
-    if (options.showCustomName) {
-        appendIfNew(label);
-    }
-    if (options.showRealVersion) {
-        appendIfNew(realVersion);
-    }
-    if (options.showLoaderName) {
-        appendIfNew(loaderName);
-    }
-    if (options.showLoaderVersion) {
-        appendIfNew(loaderVersion);
-    }
+    // 顺序与"出厂默认的那一档"一致：名称槽 → 实际版本 → 加载器名。
+    // 加载器版本（`loaderVersion`）不进显示名 —— 出厂默认就把它关着（UI 问题 #14 之后
+    // 这一档没有开关，拼法固定成这一份，没改过设置的用户看到的字一个都不变）。
+    appendIfNew(label);
+    appendIfNew(realVersion);
+    appendIfNew(loaderName);
 
     return chosen.join(QLatin1Char('-'));
 }

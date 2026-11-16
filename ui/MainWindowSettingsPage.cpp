@@ -717,54 +717,8 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         dailyQuoteCheck = quote;
     }
 
-    // ---------- 版本名格式 ----------
-    SettingsGroup *names = addGroup(panel, QStringLiteral("版本名格式"));
-    {
-        auto *box = new QWidget(form);
-        auto *boxLayout = new QVBoxLayout(box);
-        boxLayout->setContentsMargins(0, 0, 0, 0);
-        boxLayout->setSpacing(8);
-        auto *checks = new QWidget(box);
-        auto *checkLayout = new QGridLayout(checks);
-        checkLayout->setContentsMargins(0, 0, 0, 0);
-        checkLayout->setHorizontalSpacing(20);
-        checkLayout->setVerticalSpacing(6);
-        versionNameCustomCheck = new QCheckBox(QStringLiteral("自定义名"), checks);
-        versionNameCustomCheck->setObjectName(versionNameCustomCheckName());
-        versionNameRealCheck = new QCheckBox(QStringLiteral("版本名"), checks);
-        versionNameRealCheck->setObjectName(versionNameRealCheckName());
-        versionNameLoaderCheck = new QCheckBox(QStringLiteral("加载器名"), checks);
-        versionNameLoaderCheck->setObjectName(versionNameLoaderCheckName());
-        versionNameLoaderVersionCheck = new QCheckBox(QStringLiteral("加载器版本"), checks);
-        versionNameLoaderVersionCheck->setObjectName(versionNameLoaderVersionCheckName());
-        checkLayout->addWidget(versionNameCustomCheck, 0, 0);
-        checkLayout->addWidget(versionNameRealCheck, 0, 1);
-        checkLayout->addWidget(versionNameLoaderCheck, 0, 2);
-        checkLayout->addWidget(versionNameLoaderVersionCheck, 0, 3);
-        checkLayout->setColumnStretch(4, 1);
-        boxLayout->addWidget(checks);
-        auto *preview = new QLabel(box);
-        preview->setObjectName(QStringLiteral("versionNameFormatPreview"));
-        preview->setWordWrap(true);
-        const auto updatePreview = [this, preview] {
-            QStringList pieces;
-            if (versionNameCustomCheck->isChecked()) pieces << QStringLiteral("我的世界");
-            if (versionNameRealCheck->isChecked()) pieces << QStringLiteral("1.21.1");
-            if (versionNameLoaderCheck->isChecked()) pieces << QStringLiteral("Fabric");
-            if (versionNameLoaderVersionCheck->isChecked()) pieces << QStringLiteral("0.19.3");
-            preview->setText(QStringLiteral("预览：%1").arg(pieces.isEmpty() ? QStringLiteral("1.21.1")
-                                                                           : pieces.join(QLatin1Char('-'))));
-        };
-        for (auto *check : {versionNameCustomCheck, versionNameRealCheck, versionNameLoaderCheck,
-                            versionNameLoaderVersionCheck})
-            QObject::connect(check, &QCheckBox::toggled, preview, updatePreview);
-        updatePreview();
-        QTimer::singleShot(0, preview, updatePreview);
-        QObject::connect(stack, &QStackedWidget::currentChanged, preview, [updatePreview](int) { updatePreview(); });
-        boxLayout->addWidget(preview);
-        addRow(names, QStringLiteral("显示字段"), box, Placement::Wide, QStringLiteral("不更改实例文件夹名。"));
-    }
-
+    // NOTE: 「版本名格式」那一组（自定义名 / 版本名 / 加载器名 / 加载器版本四个开关）在
+    // UI 问题 #14 里撤掉了：显示名固定按出厂那一份拼（见 manage/VersionDisplay.hpp）。
     // ---------- 动效 ----------
     // 只看这一个勾，不跟随 Windows 的「动画效果」（那一档关掉会让整套动效被静默关掉）。
     SettingsGroup *motion = addGroup(panel, QStringLiteral("动效"));

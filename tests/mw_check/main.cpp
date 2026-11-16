@@ -2940,14 +2940,6 @@ int main(int argc, char *argv[]) {
         byObjectName<QPlainTextEdit>(&window, MainWindowUI::extraJvmArgsEditName());
     // 「全局额外参数」失焦即存：信号源就是失焦那个过滤器。
     SettingsParts::CommitOnFocusOut *applyJvm = window.ui()->getExtraJvmArgsCommit();
-    QCheckBox *customCheck =
-        byObjectName<QCheckBox>(&window, MainWindowUI::versionNameCustomCheckName());
-    QCheckBox *realCheck =
-        byObjectName<QCheckBox>(&window, MainWindowUI::versionNameRealCheckName());
-    QCheckBox *loaderCheck =
-        byObjectName<QCheckBox>(&window, MainWindowUI::versionNameLoaderCheckName());
-    QCheckBox *loaderVersionCheck =
-        byObjectName<QCheckBox>(&window, MainWindowUI::versionNameLoaderVersionCheckName());
     // 「启动选项」那一组（AE 节用）
     QCheckBox *showLogCheck =
         byObjectName<QCheckBox>(&window, MainWindowUI::showGameLogCheckName());
@@ -2972,8 +2964,6 @@ int main(int argc, char *argv[]) {
                                maxSpin != nullptr && maxSlider != nullptr &&
                                behaviourCombo != nullptr && sourceCombo != nullptr &&
                                jvmEdit != nullptr && applyJvm != nullptr &&
-                               customCheck != nullptr && realCheck != nullptr &&
-                               loaderCheck != nullptr && loaderVersionCheck != nullptr &&
                                showLogCheck != nullptr && priorityCombo != nullptr &&
                                windowWidthSpin != nullptr && windowHeightSpin != nullptr &&
                                windowModeCombo != nullptr && windowSizeTimes != nullptr &&
@@ -3004,10 +2994,10 @@ int main(int argc, char *argv[]) {
     // GlobalJavaSettings / LauncherSettings），而不是写死 4096 这类字面量：写死只能
     // 证明"我抄对了数字"，拿对照实例才能证明"界面显示的就是盘上存的那个值"。
     check(settingsWired, "设置页那二十个控件都能按 objectName 找回来");
-    if (const int result = MwJavaPreferencesChecks(settingsWired, window, javaManageButton, javaLabel, javaWarn, memoryMode, memoryHint, maxSpin, behaviourCombo, sourceCombo, jvmEdit, customCheck, realCheck, loaderCheck, loaderVersionCheck, maxSlider); result != 0) return result;
+    if (const int result = MwJavaPreferencesChecks(settingsWired, window, javaManageButton, javaLabel, javaWarn, memoryMode, memoryHint, maxSpin, behaviourCombo, sourceCombo, jvmEdit, maxSlider); result != 0) return result;
 
     header("M. 在设置页改东西：立刻落盘、立刻生效");
-    if (const int result = MwMemoryPreferencesChecks(settingsWired, kDecorated, window, installed, memoryMode, memoryHint, maxSpin, behaviourCombo, sourceCombo, jvmEdit, applyJvm, loaderCheck, loaderVersionCheck, maxSlider); result != 0) return result;
+    if (const int result = MwMemoryPreferencesChecks(settingsWired, kDecorated, window, installed, memoryMode, memoryHint, maxSpin, behaviourCombo, sourceCombo, jvmEdit, applyJvm, maxSlider); result != 0) return result;
 
     header("N. 冷启动读盘：手动指定的 Java 和镜像源都读得回来");
     if (const int result = MwJavaSelectionChecks(root); result != 0) return result;

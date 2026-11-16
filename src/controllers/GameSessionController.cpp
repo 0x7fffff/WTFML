@@ -451,7 +451,7 @@ QString GameSessionController::launchingInstanceName() const {
 QString GameSessionController::launchingStatusName() const {
     // 和上面 launchingInstanceName() 同一套判据（"只有一份时才报名字"，理由在那边），
     // 只有名字的**写法**不同：走 VersionDisplay::launchStatusName()，也就是
-    // "有自定义名就只用它，没有就是 版本号-加载器名"，与「版本名格式」那四个开关无关。
+    // "有自定义名就只用它，没有就是 版本号-加载器名"，与显示名那一套无关。
     if (m_launchingSessions.size() == 1) {
         const LauncherManager::GameSession game =
             m_launcherManager->session(*m_launchingSessions.constBegin());

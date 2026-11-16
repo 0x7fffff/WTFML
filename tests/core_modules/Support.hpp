@@ -541,7 +541,7 @@ int runVersionManagerFetchFail(QCoreApplication &app);
 int runAssetNamesTests();
 
 // ---------------------------------------------------------------------------
-// I. 版本显示名：formatVersionName / normalizeVersionNameOptions（纯函数）
+// I. 版本显示名：formatVersionName（纯函数，UI 问题 #14 之后拼法固定）
 // + VersionManager::displayParts()（读盘）+ LauncherSettings（读写设置）
 // ---------------------------------------------------------------------------
 // 这一节的意义：显示名是"用户唯一能看见的版本标识"，而拼错了不会崩、只会安静地

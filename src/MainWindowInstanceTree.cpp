@@ -82,8 +82,8 @@ void MainWindow::refreshInstalledVersions() {
     // 版本清单从网络回来那一下（20 份 63 ms、200 份 116 ms）走异步那条：见
     // `refreshInstalledVersionsAsync()`。
     ++m_installedRefreshToken;
-    // 识别不出来的版本只在第一次上报：本函数一次会话会被调很多次（构造、下载完成、每勾一下
-    // 「版本名格式」都会走一遍），每回都报就是刷屏。第一次报过之后连扫都不扫了 —— 传
+    // 识别不出来的版本只在第一次上报：本函数一次会话会被调很多次（构造、下载完成、
+    // 换文件夹都会走一遍），每回都报就是刷屏。第一次报过之后连扫都不扫了 —— 传
     // nullptr 时 installedVersions() 走的是不带 out 参数的那条路径。
     QStringList warnings;
     const QStringList installed = m_versionManager->installedVersions(
@@ -177,7 +177,7 @@ void MainWindow::applyInstalledVersions(const QStringList &installed,
     // 灌之前记下原来的当前实例和它的位置：被删时顺延到同一位置（resolveCurrentInstance()）。
     const QString previousCurrent = selectedVersionId(combo);
     const int previousIndex = combo->currentIndex();
-    fillVersionCombo(combo, parts, m_settings->versionNameOptions());
+    fillVersionCombo(combo, parts);
 
     // 实例页那张树：**扫盘这一段先把原料留好**（见 m_instancePageParts 那段 —— 搜索框每
     // 敲一个字都要重灌树，那一条路不许再扫盘），然后重灌一遍。筛选条件此刻是什么样，
@@ -289,8 +289,7 @@ InstanceFilter::Facts MainWindow::instanceFilterFacts(const VersionDisplayParts 
     // 筛不出这种实例（它明明带着 Fabric），搜「fabric」也搜不到。
     QString loaderVersion;
     const QString loaderName = instanceLoaderName(part, m_versionManager, &loaderVersion);
-    facts.texts = InstanceFilter::textsFor(part, m_settings->versionNameOptions(), loaderName,
-                                           loaderVersion);
+    facts.texts = InstanceFilter::textsFor(part, loaderName, loaderVersion);
     facts.hasLoader = !loaderName.isEmpty();
     // 「可更新」认的是**实例设置里那趟检查**的结果（键在不在 = 查过没有，见
     // m_instanceOutdatedPaths 那段）。没查过的实例在这一档里筛不出来 —— 那是对的，
@@ -395,7 +394,7 @@ void MainWindow::rebuildInstanceTree() {
         rest.parts = ungrouped;
         buckets.append(rest);
     }
-    fillInstanceTree(tree, buckets, m_settings->versionNameOptions(), runningVersionIds(),
+    fillInstanceTree(tree, buckets, runningVersionIds(),
                      m_instancePageMarks, pinnedGroupId, pinnedInstanceIds);
     QHash<QString, VersionDisplayParts> partOf;
     for (const VersionDisplayParts &part : shown) partOf.insert(part.id, part);
@@ -481,15 +480,13 @@ void MainWindow::updateInstanceTreeRunState() {
     QTreeWidget *tree = m_ui->getInstanceList();
     // 挡信号：改的是文字，不该被当成"用户在树里点了什么"（树上的点击会同步到下拉框）。
     const QSignalBlocker blocker(tree);
-    const VersionNameOptions options = m_settings->versionNameOptions();
     QTreeWidgetItemIterator it(tree);
     while (*it != nullptr) {
         const QString id = instanceIdOf(*it);
         if (!id.isEmpty()) {
-            // 重新拼一遍而不是"在旧文本上加减后缀"：加减法要认得旧文本长什么样，
-            // 而显示名本身会随"版本名格式"那一项变（那时 refreshInstalledVersions()
-            // 会整棵重灌，不会走到这里）—— 每回从头拼，两条路的结果就一定一样。
-            QString text = instanceTreeItemText(m_versionManager->displayParts(id), options,
+            // 重新拼一遍而不是"在旧文本上加减后缀"：加减法要认得旧文本长什么样。
+            // 每回从头拼，和整棵重灌（refreshInstalledVersions()）的结果就一定一样。
+            QString text = instanceTreeItemText(m_versionManager->displayParts(id),
                                                 m_launcherManager->isVersionRunning(id));
             if (m_fileOperationOccupancy.contains(id)) {
                 text += tr("（文件操作中）");

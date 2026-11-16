@@ -113,13 +113,11 @@ inline constexpr int kAccountPanelLimit = 3;
 
 QString selectedVersionId(const QComboBox *combo);
 QList<Tasks::TaskStep> taskStepsFromNames(const QStringList &names, int runningIndex);
-void fillVersionCombo(QComboBox *combo, const QList<VersionDisplayParts> &parts,
-                      const VersionNameOptions &options);
+void fillVersionCombo(QComboBox *combo, const QList<VersionDisplayParts> &parts);
 QString instanceIdOf(const QTreeWidgetItem *item);
-QString instanceTreeItemText(const VersionDisplayParts &part, const VersionNameOptions &options,
-                             bool running);
+QString instanceTreeItemText(const VersionDisplayParts &part, bool running);
 void fillInstanceTree(QTreeWidget *tree, const QList<InstanceGroupBucket> &buckets,
-                      const VersionNameOptions &options, const QSet<QString> &runningIds,
+                      const QSet<QString> &runningIds,
                       const QHash<QString, QIcon> &marks, const QString &pinnedGroupId,
                       const QSet<QString> &pinnedInstanceIds);
 void syncTreeToCombo(const QComboBox *combo, QTreeWidget *tree);

@@ -1,5 +1,5 @@
 #include "Support.hpp"
-int MwJavaPreferencesChecks(const bool settingsWired, MainWindow &window, QPushButton * &javaManageButton, QLabel * &javaLabel, QCheckBox * &javaWarn, QComboBox * &memoryMode, QLabel * &memoryHint, QSpinBox * &maxSpin, QComboBox * &behaviourCombo, QComboBox * &sourceCombo, QPlainTextEdit * &jvmEdit, QCheckBox * &customCheck, QCheckBox * &realCheck, QCheckBox * &loaderCheck, QCheckBox * &loaderVersionCheck, MemorySlider * &maxSlider) {
+int MwJavaPreferencesChecks(const bool settingsWired, MainWindow &window, QPushButton * &javaManageButton, QLabel * &javaLabel, QCheckBox * &javaWarn, QComboBox * &memoryMode, QLabel * &memoryHint, QSpinBox * &maxSpin, QComboBox * &behaviourCombo, QComboBox * &sourceCombo, QPlainTextEdit * &jvmEdit, MemorySlider * &maxSlider) {
     if (settingsWired) {
         GlobalJavaSettings javaProbe;   // 同一份沙盒 ini 的另一个读者
         LauncherSettings settingsProbe;
@@ -181,22 +181,14 @@ int MwJavaPreferencesChecks(const bool settingsWired, MainWindow &window, QPushB
             }
         }
 
-        // ---- 版本名格式 ----
+        // ---- 「版本名格式」那一组已经不在了（UI 问题 #14）----
         {
-            const VersionNameOptions options = settingsProbe.versionNameOptions();
-            check(customCheck->isChecked() == options.showCustomName &&
-                      realCheck->isChecked() == options.showRealVersion &&
-                      loaderCheck->isChecked() == options.showLoaderName &&
-                      loaderVersionCheck->isChecked() == options.showLoaderVersion,
-                  "四个「版本名格式」勾选框和盘上的开关一一对上",
-                  QString("自定义名=%1 版本名=%2 加载器名=%3 加载器版本=%4")
-                      .arg(customCheck->isChecked() ? 1 : 0)
-                      .arg(realCheck->isChecked() ? 1 : 0)
-                      .arg(loaderCheck->isChecked() ? 1 : 0)
-                      .arg(loaderVersionCheck->isChecked() ? 1 : 0));
-            check(customCheck->isChecked() && realCheck->isChecked() &&
-                      loaderCheck->isChecked() && !loaderVersionCheck->isChecked(),
-                  "默认档是 自定义名✓ 版本名✓ 加载器名✓ 加载器版本✗");
+            check(window.findChild<QCheckBox *>(QStringLiteral("versionNameCustomCheck")) == nullptr &&
+                      window.findChild<QCheckBox *>(QStringLiteral("versionNameRealCheck")) == nullptr &&
+                      window.findChild<QCheckBox *>(QStringLiteral("versionNameLoaderCheck")) == nullptr &&
+                      window.findChild<QCheckBox *>(
+                          QStringLiteral("versionNameLoaderVersionCheck")) == nullptr,
+                  "★ 设置页里没有「版本名格式」那四个勾选框了");
         }
 
         // ---- 「设置」页在选项卡里的下标 ----

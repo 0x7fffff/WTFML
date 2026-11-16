@@ -923,13 +923,6 @@ void ConnectionsController::setup() {
     // 理由写在 m_owner->onCurseForgeApiKeyEdited() 里。
     connect(m_owner->m_ui->getCurseForgeApiKeyEdit(), &QLineEdit::editingFinished, m_owner,
             &MainWindow::onCurseForgeApiKeyEdited);
-    // 四个「版本名格式」勾选框共用一个槽：归一化要同时看四个值。
-    const auto nameOptionChanged = [this] { m_owner->onVersionNameOptionChanged(); };
-    connect(m_owner->m_ui->getVersionNameCustomCheck(), &QCheckBox::toggled, m_owner, nameOptionChanged);
-    connect(m_owner->m_ui->getVersionNameRealCheck(), &QCheckBox::toggled, m_owner, nameOptionChanged);
-    connect(m_owner->m_ui->getVersionNameLoaderCheck(), &QCheckBox::toggled, m_owner, nameOptionChanged);
-    connect(m_owner->m_ui->getVersionNameLoaderVersionCheck(), &QCheckBox::toggled, m_owner,
-            nameOptionChanged);
 
     // 选项卡切换：底栏左下角的显示规则依赖"当前是不是在主页"，切页就得重算；
     // 第一次切到设置页还要顺带扫一遍 Java。

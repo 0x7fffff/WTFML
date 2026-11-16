@@ -155,10 +155,7 @@ namespace ModpackExport {
 enum class Format;
 struct ExportPlan;
 }  // namespace ModpackExport
-// 「版本名格式」开关的数据模型。这里只按 const 引用传，前置声明就够，
-// 不必为了一个参数类型把 VersionDisplay.hpp 拖进每个 include 了 MainWindow.hpp 的地方。
-struct VersionNameOptions;
-// 一份主题规格（`ui/Theme.hpp`）。同上：`applyThemeSpec()` 只按 const 引用收，
+// 一份主题规格（`ui/Theme.hpp`）。`applyThemeSpec()` 只按 const 引用收，
 // 前置声明就够 —— 不必让每个 include 了 MainWindow.hpp 的地方都拖一份规格的定义
 // （那份定义里还挂着 QHash/QPalette 一串）。
 namespace Theme {
@@ -1776,8 +1773,6 @@ private:
     /// 无值，四种说法。它说的是"设定了什么"，不是"这次启动一定会用哪个" —— 自动档下真正
     /// 挑中的 Java 要到启动那一刻才知道（所以文案写的是"上次使用…"）。
     void updateJavaPathLabel();
-    /// 把归一化之后的「版本名格式」开关回灌到四个勾选框上（内部挡信号）。
-    void pushVersionNameOptionsToUi(const VersionNameOptions &options);
     /// 选项卡切换：底栏左下角要不要显示实例名、以及要不要扫 Java，都在这里收口。
     void onMainTabChanged();
     /// 开「Java 管理」那一页（设置页「启动」栏那颗按钮），打开后在后台重扫一遍盘。
@@ -2031,7 +2026,6 @@ private:
     void exportGameLog(int sessionId);
     void exportGameErrorReport(int sessionId);
 
-    void onVersionNameOptionChanged();
     void onApplyExtraJvmArgsClicked();
     /// 把「下载源」交给真正发请求的那一层（VersionManager → DownloadManager）。
     /// 启动时读盘、用户在设置页改，两条路都走这一句，别各写一遍。
@@ -2153,7 +2147,7 @@ private:
     /// 两份以上时是"N 个实例"。
     ///
     /// 和上面那个 launchingInstanceName() 是**同一件事的两种写法**，差别只有一处：
-    /// 这里**不看「版本名格式」那四个开关**（取版本名；没有就用版本号-加载器名称，
+    /// 这里**不走显示名那一套**（取版本名；没有就用版本号-加载器名称，
     /// 不受名字显示设置影响）。上面那个读的是下拉框里那条文本
     /// （也就是用户设的显示名，中间那格"正在启动 X ..."要的就是它），所以两个都得留着。
     QString launchingStatusName() const;
@@ -2834,7 +2828,7 @@ private:
     /// 筛选那一段（`rebuildInstanceTree()`）只重算分组、重新灌树。
     ///
     /// NOTE: 「什么时候会变」的答案和"哪些事会叫 `refreshInstalledVersions()`"逐字同一句
-    /// —— 安装完、下载完、改名、换文件夹、换「版本名格式」…都走那条路，所以这份缓存
+    /// —— 安装完、下载完、改名、换文件夹…都走那条路，所以这份缓存
     /// 不会比屏幕上那一棵树更旧。
     QList<VersionDisplayParts> m_instancePageParts;
     /// 和上面那份**一一对应**的行首图标（`instanceRowMark()` 的成品）。缓存它是因为算一张

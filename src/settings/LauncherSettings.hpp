@@ -1,6 +1,6 @@
 /**
  * @file LauncherSettings.hpp
- * @brief 启动器自己的持久化设置：上次启动的版本、版本名格式、启动后行为、下载源。
+ * @brief 启动器自己的持久化设置：上次启动的版本、启动后行为、下载源。
  * @note 和 GlobalJavaSettings 分开：那边是 Java 运行时的配置，这边是启动器界面的状态。
  * 两边都走 QSettings，键名各自带前缀（Java/ 、Version/ 、Launcher/ 、Download/）。
  */
@@ -17,7 +17,6 @@
 #include "../download/DownloadProxy.hpp"
 #include "../download/DownloadSpeedLimit.hpp"
 #include "../launcher/ProcessPriority.hpp"
-#include "../manage/VersionDisplay.hpp"
 #include "GameWindowSettings.hpp"
 
 /**
@@ -128,30 +127,6 @@ public:
 
     /// 覆盖整份自定义名字表并立刻落盘。
     void setFolderNames(const QStringList &names);
-
-    // ------------------------------------------------------------------
-    // 「版本名格式」
-    // ------------------------------------------------------------------
-    // NOTE: 界面入口在设置页「个性化」栏里的「版本名格式」那一行 —— 四个勾选框
-    // （versionNameCustomCheck / RealCheck / LoaderCheck / LoaderVersionCheck，
-    // ui/MainWindowUI.cpp），改动经 MainWindow::onVersionNameOptionChanged() 归一化后落盘。
-    //
-    // 当初留的那条余地仍然有效：这四个布尔也可以改摆成一个"预设档位"的下拉框、由它去
-    // 反写这四个布尔——数据模型就是下面这个 struct，界面想怎么摆都行，别为了界面去改模型。
-    // 归一化由 normalizeVersionNameOptions() 负责，界面只要照它约束勾选即可。
-    // 默认值见 VersionDisplay.hpp 里 VersionNameOptions 的成员初始值。
-    // ------------------------------------------------------------------
-
-    /**
-     * @brief 当前的「版本名格式」开关，已归一化。
-     */
-    VersionNameOptions versionNameOptions() const;
-
-    /**
-     * @brief 设置「版本名格式」开关并立刻落盘。
-     * @param options 原始开关；内部会先 normalizeVersionNameOptions()。
-     */
-    void setVersionNameOptions(const VersionNameOptions &options);
 
     /**
      * @brief 从 QSettings 读回全部设置。构造函数里已经调过一次。
@@ -463,7 +438,6 @@ private:
     QString m_currentFolder;
     QStringList m_folderNames;
     QStringList m_serverFavorites;
-    VersionNameOptions m_versionNameOptions;
     LauncherBehaviour m_launcherBehaviour = LauncherBehaviour::Unchanged;
     DownloadSource m_downloadSource = DownloadSource::Official;
     /// 同时最多几个下载（见上面那一节）。默认取判据层那个出厂值 —— 别在这儿另写一个 24。

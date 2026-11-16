@@ -69,7 +69,6 @@ QList<Tasks::TaskStep> taskStepsFromNames(const QStringList &names, int runningI
  * @brief 把一批版本灌进下拉框，并尽量保住用户原来选中的那一项。
  * @param combo 目标下拉框。
  * @param parts 每个版本的显示名组成部分。
- * @param options 全局「版本名格式」开关。
  *
  * 条目文本是 formatVersionName() 拼出来的显示名，版本号存在 Qt::UserRole 里，
  * 两者由 selectedVersionId() / currentText() 分开取。同一个版本在两个下拉框里
@@ -83,8 +82,7 @@ QList<Tasks::TaskStep> taskStepsFromNames(const QStringList &names, int runningI
  * 停在 -1 之后挑哪一个由调用方按 resolveCurrentInstance() 定（有实例必有当前实例，
  * 见 MainWindow::refreshInstalledVersions()）。
  */
-void fillVersionCombo(QComboBox *combo, const QList<VersionDisplayParts> &parts,
-                      const VersionNameOptions &options) {
+void fillVersionCombo(QComboBox *combo, const QList<VersionDisplayParts> &parts) {
     const QString previous = selectedVersionId(combo);
 
     // 重灌过程会发 currentIndexChanged。现在接的这些槽都是幂等的，但先挡上，
@@ -95,7 +93,7 @@ void fillVersionCombo(QComboBox *combo, const QList<VersionDisplayParts> &parts,
         // NOTE: 必须逐条 addItem(显示名, id)。addItems(QStringList) 是**不设**
         // Qt::UserRole 的，用它就等于所有条目的 currentData() 都是无效 QVariant，
         // selectedVersionId() 会一路返回空串 —— 启动按钮就再也启不动任何版本了。
-        combo->addItem(formatVersionName(part, options), part.id);
+        combo->addItem(formatVersionName(part), part.id);
     }
 
     // NOTE: 别指望 QComboBox 自己选中第 0 项。只要下拉框设了非空 placeholderText，
@@ -146,7 +144,6 @@ QString instanceIdOf(const QTreeWidgetItem *item) {
  * @brief 按分组把实例灌进实例页那张树。
  * @param tree 目标树。
  * @param buckets 组（含虚拟的「未分组」，见 InstanceGroupBucket）。
- * @param options 全局「版本名格式」开关。
  * @param runningIds 此刻在跑的那些实例 id（显示名后面那句「（运行中）」）。
  * @param marks 每个实例行前面那个小图标（`id -> QIcon`，由 instanceRowMark() 算好）。
  * 缺一个不画图标，不影响别的（验证工程直接摆一张只有几个键的表也能灌）。
@@ -181,14 +178,13 @@ QString instanceIdOf(const QTreeWidgetItem *item) {
 /// **唯一一处**拼这一行 —— 灌树（fillInstanceTree）和游戏起落时那次局部刷新
 /// （MainWindow::updateInstanceTreeRunState）都走它。分开写的话，游戏起来那一刻
 /// 后缀会跟灌树时那版慢慢漂开。
-QString instanceTreeItemText(const VersionDisplayParts &part, const VersionNameOptions &options,
-                             bool running) {
-    const QString base = formatVersionName(part, options);
+QString instanceTreeItemText(const VersionDisplayParts &part, bool running) {
+    const QString base = formatVersionName(part);
     return running ? base + MainWindowUI::instanceRunningSuffixText() : base;
 }
 
 void fillInstanceTree(QTreeWidget *tree, const QList<InstanceGroupBucket> &buckets,
-                      const VersionNameOptions &options, const QSet<QString> &runningIds,
+                      const QSet<QString> &runningIds,
                       const QHash<QString, QIcon> &marks, const QString &pinnedGroupId,
                       const QSet<QString> &pinnedInstanceIds) {
     const QSignalBlocker blocker(tree);
@@ -232,7 +228,7 @@ void fillInstanceTree(QTreeWidget *tree, const QList<InstanceGroupBucket> &bucke
         QTreeWidgetItem *holder = parent != nullptr ? parent : tree->invisibleRootItem();
         for (const VersionDisplayParts &part : bucket.parts) {
             auto *item = new QTreeWidgetItem(holder);
-            item->setText(0, instanceTreeItemText(part, options, runningIds.contains(part.id)));
+            item->setText(0, instanceTreeItemText(part, runningIds.contains(part.id)));
             item->setData(0, MainWindowUI::instanceIdRole(), part.id);
             item->setToolTip(0, QDir::toNativeSeparators(AppPaths::versionDir(part.id)));
             // 行前面那个小图标（原版草方块 / Forge 铁砧…）。谁画的、怎么认出来的

@@ -19,10 +19,9 @@ static constexpr const char kLastLaunched[] = "Version/LastLaunched";
 static constexpr const char kLastSelected[] = "Version/LastSelected";
 static constexpr const char kHomeFavoriteCount[] = "Home/FavoriteCount";
 static constexpr const char kHomeRecentCount[] = "Home/RecentCount";
-static constexpr const char kNameShowCustom[] = "Version/NameShowCustom";
-static constexpr const char kNameShowReal[] = "Version/NameShowReal";
-static constexpr const char kNameShowLoaderName[] = "Version/NameShowLoaderName";
-static constexpr const char kNameShowLoaderVersion[] = "Version/NameShowLoaderVersion";
+// NOTE: 原先还有 `Version/NameShowCustom`…`Version/NameShowLoaderVersion` 四个键
+// （「版本名格式」那四个开关）。UI 问题 #14 删掉了那一组设置，这四个键**不再读也不再写**；
+// 盘上留着的旧值没人看，显示名一律按出厂那一份拼。
 static constexpr const char kAfterLaunch[] = "Launcher/AfterLaunch";
 static constexpr const char kFolders[] = "Launcher/Folders";
 static constexpr const char kCurrentFolder[] = "Launcher/CurrentFolder";
@@ -210,18 +209,6 @@ void LauncherSettings::setFolderNames(const QStringList &names) {
         return;
     }
     m_folderNames = names;
-    save();
-}
-
-VersionNameOptions LauncherSettings::versionNameOptions() const { return m_versionNameOptions; }
-
-void LauncherSettings::setVersionNameOptions(const VersionNameOptions &options) {
-    // 先归一化再比较：传进来一个非法组合、但归一化之后和现值相同时，不该白写一次盘。
-    const VersionNameOptions normalized = normalizeVersionNameOptions(options);
-    if (m_versionNameOptions == normalized) {
-        return;
-    }
-    m_versionNameOptions = normalized;
     save();
 }
 
@@ -559,18 +546,9 @@ void LauncherSettings::load() {
     m_minecraftServicesBaseOverride =
         settings.value(kMinecraftServicesBase, m_minecraftServicesBaseOverride).toString().trimmed();
 
-    // 和 GlobalJavaSettings::load() 用 m_xmx 当默认值是同一个写法。取成员而不是新造一个
-    // struct：万一 load() 被调第二次而注册表是空的，值应该留着，而不是被重置回默认。
-    VersionNameOptions options = m_versionNameOptions;
-    options.showCustomName = settings.value(kNameShowCustom, options.showCustomName).toBool();
-    options.showRealVersion = settings.value(kNameShowReal, options.showRealVersion).toBool();
-    options.showLoaderName = settings.value(kNameShowLoaderName, options.showLoaderName).toBool();
-    options.showLoaderVersion =
-        settings.value(kNameShowLoaderVersion, options.showLoaderVersion).toBool();
-
-    // 存进去的值可能是手改的，也可能是以后降级回退留下的。不变式在这里也要兜一遍，
-    // 不能假设盘上的东西是合法的。
-    m_versionNameOptions = normalizeVersionNameOptions(options);
+    // NOTE: 原先这里有「版本名格式」那四个开关（`Version/NameShow*`）。UI 问题 #14 撤掉了
+    // 这一组设置：**不再读**盘上那四个键（老用户存过的值一律按出厂默认算），也不再写它们。
+    // 拼法固定成 `formatVersionName()` 那一份，和没改过设置的用户看到的一样。
 
     // NOTE: 状态要查。QSettings 在没有 organizationName 时，写入是**静默丢弃**的：
     // 注册表路径表整个裹在 `if (!organization.isEmpty())` 里（qsettings_win.cpp:382），
@@ -631,13 +609,6 @@ QVariantMap LauncherSettings::persistedValues() const {
     values.insert(QString::fromLatin1(kCurseForgeApiKey), m_curseForgeApiKey);
     // NOTE: `kCurseForgeApiBase` / `kModrinthApiBase` / 那四个地址覆盖**刻意不在这里** ——
     // 那几个键是验证工程的口子，产品一写就等于把用户自己指的地址抹掉（见 .hpp 里那条 NOTE）。
-    values.insert(QString::fromLatin1(kNameShowCustom),
-                  QVariant(m_versionNameOptions.showCustomName));
-    values.insert(QString::fromLatin1(kNameShowReal), QVariant(m_versionNameOptions.showRealVersion));
-    values.insert(QString::fromLatin1(kNameShowLoaderName),
-                  QVariant(m_versionNameOptions.showLoaderName));
-    values.insert(QString::fromLatin1(kNameShowLoaderVersion),
-                  QVariant(m_versionNameOptions.showLoaderVersion));
     return values;
 }
 

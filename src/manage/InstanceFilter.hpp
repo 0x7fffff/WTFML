@@ -128,7 +128,6 @@ inline bool matches(const Query &query, const Facts &facts) {
 /**
  * @brief 一个实例参与比对的那些串 —— **唯一出处**。
  * @param parts 版本显示用的那几段（`VersionManager::displayParts()` 读出来的）。
- * @param options 全局「版本名格式」开关（显示名要按它拼，见 `formatVersionName()`）。
  * @param loaderName 调用方**判好**的加载器名（空串 = 没认出来）。
  * @param loaderVersion 同上，加载器版本（空串 = 没认出来）。
  *
@@ -150,9 +149,9 @@ inline bool matches(const Query &query, const Facts &facts) {
  * NOTE: 空串不往里放（`contains("")` 恒真 ⇒ 一个空串会让**任何**关键词都命中，
  * 那就等于"搜什么都搜得到"）。字段全空时回一个空表：那样只剩筛子生效。
  */
-inline QStringList textsFor(const VersionDisplayParts &parts, const VersionNameOptions &options,
+inline QStringList textsFor(const VersionDisplayParts &parts,
                             const QString &loaderName, const QString &loaderVersion) {
-    const QStringList candidates{formatVersionName(parts, options), parts.id, parts.customName,
+    const QStringList candidates{formatVersionName(parts), parts.id, parts.customName,
                                  parts.realVersion, loaderName, loaderVersion};
     QStringList texts;
     texts.reserve(candidates.size());

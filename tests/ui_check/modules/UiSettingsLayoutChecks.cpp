@@ -104,7 +104,7 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
                   QStringLiteral("行 %1，坏 %2：%3").arg(rows).arg(rowsBad).arg(bad.join(QStringLiteral("、"))));
         }
 
-        // 二十四个设置控件都得能按 objectName 找回来（MainWindow 靠名字取它们，
+        // 设置页这些控件都得能按 objectName 找回来（MainWindow 靠名字取它们，
         // 名字掉了就是"设置项点了没反应"）。
         // NOTE: 这一条是**递归**找的，所以设置页分栏对它没有影响 —— 控件
         // 换了哪一栏、套了几层容器都不管，只要还在设置页底下、名字没丢。真正受分栏
@@ -123,10 +123,6 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
             MainWindowUI::downloadConcurrencyComboName(),
             // CurseForge 的 API key：和「下载源」同一组，可留空。
             MainWindowUI::curseForgeApiKeyEditName(),
-            MainWindowUI::versionNameCustomCheckName(),
-            MainWindowUI::versionNameRealCheckName(),
-            MainWindowUI::versionNameLoaderCheckName(),
-            MainWindowUI::versionNameLoaderVersionCheckName(),
             // 「启动选项」那一组。
             MainWindowUI::showGameLogCheckName(),      MainWindowUI::processPriorityComboName(),
             MainWindowUI::gameWindowWidthSpinName(),   MainWindowUI::gameWindowHeightSpinName(),
@@ -226,7 +222,7 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
         // 这里钉的是**这一组特有的东西** —— 两句文案各自只此一处、行标题是用户点名的
         // 那两个词（「重复启动」/「进度提醒」，提示框上那句小字就是照着它们指路的，
         // 所以这两个词一改，小字就指错地方了）。控件本身能不能找回来在上面那条
-        // "二十四个设置控件"里；勾选状态由 MainWindow 从盘上灌，界面层不自己猜。
+        // 上面那份控件清单里；勾选状态由 MainWindow 从盘上灌，界面层不自己猜。
         {
             auto *duplicate = settingsPage->findChild<QCheckBox *>(
                 MainWindowUI::warnDuplicateLaunchCheckName());
@@ -282,8 +278,8 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
                 ui.getMemoryHint(),                ui.getMemoryMaxSpin(),
                 ui.getMemoryMaxSlider(),           ui.getLauncherBehaviourCombo(),
                 ui.getExtraJvmArgsEdit(),          ui.getDownloadSourceCombo(),
-                ui.getVersionNameCustomCheck(),    ui.getShowGameLogCheck(),
-                ui.getProcessPriorityCombo(),      ui.getGameWindowWidthSpin(),
+                ui.getShowGameLogCheck(),          ui.getProcessPriorityCombo(),
+                ui.getGameWindowWidthSpin(),
                 ui.getGameWindowHeightSpin(),      ui.getWarnDuplicateLaunchCheck(),
                 ui.getWarnWorldLossCheck()};
             int inRow = 0;

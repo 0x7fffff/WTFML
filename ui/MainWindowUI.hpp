@@ -2995,14 +2995,6 @@ public:
     static QString warnWorldLossCheckText() {
         return QStringLiteral("同一实例已运行时提醒");
     }
-    static QString versionNameCustomCheckName() {
-        return QStringLiteral("versionNameCustomCheck");
-    }
-    static QString versionNameRealCheckName() { return QStringLiteral("versionNameRealCheck"); }
-    static QString versionNameLoaderCheckName() { return QStringLiteral("versionNameLoaderCheck"); }
-    static QString versionNameLoaderVersionCheckName() {
-        return QStringLiteral("versionNameLoaderVersionCheck");
-    }
 
     // ---------- 内存分配的取值范围 ----------
     // 和 GlobalJavaSettings 的钳位保持一致（那边 setXmx 最少 256、setXms 最少 128），
@@ -3258,7 +3250,7 @@ public:
     /// 有实例异常退出、而且账上那一项还没处理掉时那一行写什么。
     static QString runStateErrorText() { return QStringLiteral("异常退出"); }
     /// 正在启动时那一行：`<实例名>启动中...`。
-    /// @param name 实例名。**不受「版本名格式」那四个开关影响**，由
+    /// @param name 实例名。**不走显示名那一套**，由
     /// MainWindow::launchingStatusName() 走 VersionDisplay::launchStatusName() 算出来
     /// （有自定义名就只用它，没有就是"版本号-加载器名"）—— 这里不碰那个规则。
     ///
@@ -3714,11 +3706,6 @@ public:
     /// 「动效」那个勾。
     QCheckBox *getAnimationsCheck() const { return animationsCheck; }
 
-    QCheckBox *getVersionNameCustomCheck() const { return versionNameCustomCheck; }
-    QCheckBox *getVersionNameRealCheck() const { return versionNameRealCheck; }
-    QCheckBox *getVersionNameLoaderCheck() const { return versionNameLoaderCheck; }
-    QCheckBox *getVersionNameLoaderVersionCheck() const { return versionNameLoaderVersionCheck; }
-
     // 主页右栏那个可拖动旋转的 3D 皮肤预览；说明标签只留作状态/无障碍数据，不显示。
     // 这个控件是**自己画的**（QWidget 子类 + paintEvent，不是标准控件），
     // 所以它比别处多一层：界面只管把贴图喂进去，贴图从哪来是业务层的事。
@@ -4077,10 +4064,6 @@ private:
     QPushButton *themeImportButton = nullptr;
     /// 「动效」那个勾（还是「个性化」栏，摆在「主题」之后）。
     QCheckBox *animationsCheck = nullptr;
-    QCheckBox *versionNameCustomCheck = nullptr;
-    QCheckBox *versionNameRealCheck = nullptr;
-    QCheckBox *versionNameLoaderCheck = nullptr;
-    QCheckBox *versionNameLoaderVersionCheck = nullptr;
     SkinViewer *skinViewer = nullptr;
     QLabel *skinHintLabel = nullptr;
     QPushButton *accountSkinButton = nullptr;
