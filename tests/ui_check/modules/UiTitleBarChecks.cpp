@@ -13,8 +13,10 @@ int UiTitleBarChecks(QMainWindow &window, MainWindowUI &ui) {
     if (rail == nullptr || chrome == nullptr) return 0;
     // 拖窗区两条：右上那条窗口按钮条（主条）+ 导航轨的空白处（addDragStrip）。
     check(chrome->strip() == rail->captionStrip(), "Z11 外框认的主拖窗条就是右上那条窗口按钮条");
-    check((window.windowFlags() & Qt::WindowMaximizeButtonHint) != 0,
-          "★ Z11 主窗口能最大化（设计稿右上是最小化 / 最大化 / 关闭三颗）");
+    check((window.windowFlags() & Qt::WindowMaximizeButtonHint) == 0,
+          "★ UI问题 #2 主窗口不给最大化（没有 WS_MAXIMIZEBOX：Win+↑、拖到屏顶、双击标题栏都最大化不了）");
+    check(window.findChild<QWidget *>(QStringLiteral("titleBarMaximize")) == nullptr,
+          "★ UI问题 #2 标题栏上没有最大化按钮");
     check(window.minimumSize() == QSize(MainWindowPageLayout::kMainWindowMinWidth, MainWindowPageLayout::kMainWindowMinHeight) &&
               window.minimumSize() == QSize(900, 590),
           "★ 155 主窗口最小 900×590",
@@ -61,23 +63,20 @@ int UiTitleBarChecks(QMainWindow &window, MainWindowUI &ui) {
     // ---------- 右栏顶上那条窗口按钮条 ----------
     QWidget *caption = rail->captionStrip();
     QAbstractButton *minBtn = rail->minimizeButton();
-    QAbstractButton *maxBtn = rail->maximizeButton();
     QAbstractButton *closeBtn = rail->closeButton();
     check(caption != nullptr && caption->height() == TitleBar::barHeight() && TitleBar::barHeight() == 40,
           "★ Z11 顶部拖动区高 40", caption != nullptr ? QString::number(caption->height()) : QString());
-    check(minBtn && maxBtn && closeBtn, "Z11 最小化 / 最大化 / 关闭三颗都找得到");
-    if (caption && minBtn && maxBtn && closeBtn) {
+    check(minBtn && closeBtn, "Z11 最小化 / 关闭两颗都找得到");
+    if (caption && minBtn && closeBtn) {
         const QSize cell(TitleBar::windowButtonWidth(), TitleBar::buttonSize());
-        check(minBtn->size() == cell && maxBtn->size() == cell && closeBtn->size() == cell && cell == QSize(46, 40),
-              "★ Z11 三颗窗口按钮都是 46×40");
+        check(minBtn->size() == cell && closeBtn->size() == cell && cell == QSize(46, 40),
+              "★ Z11 两颗窗口按钮都是 46×40");
         const QPoint closeTopRight = closeBtn->mapTo(&window, closeBtn->rect().topRight());
         check(closeTopRight.y() == 0 && closeTopRight.x() == window.width() - 1,
               "★ Z11 关闭那颗贴在窗口右上角",
               QStringLiteral("%1,%2 / 窗宽 %3").arg(closeTopRight.x()).arg(closeTopRight.y()).arg(window.width()));
-        check(minBtn->geometry().right() + 1 == maxBtn->x() && maxBtn->geometry().right() + 1 == closeBtn->x(),
-              "Z11 最小化、最大化、关闭从左到右一个挨一个");
-        check(minBtn->focusPolicy() == Qt::NoFocus && maxBtn->focusPolicy() == Qt::NoFocus &&
-                  closeBtn->focusPolicy() == Qt::NoFocus,
+        check(minBtn->geometry().right() + 1 == closeBtn->x(), "Z11 最小化、关闭从左到右一个挨一个");
+        check(minBtn->focusPolicy() == Qt::NoFocus && closeBtn->focusPolicy() == Qt::NoFocus,
               "Z11 窗口按钮不抢键盘焦点");
         check(caption->mapTo(&window, QPoint(0, 0)).x() == rail->width(),
               "Z11 按钮条摆在右栏最上面（从轨的右边开始）");
@@ -218,16 +217,13 @@ int UiTitleBarChecks(QMainWindow &window, MainWindowUI &ui) {
     // ---------- 窗口按钮的信号（单独一份轨，不去真的收主窗口） ----------
     {
         TitleBar probe;
-        int minimized = 0, maximized = 0, closed = 0;
+        int minimized = 0, closed = 0;
         QObject::connect(&probe, &TitleBar::minimizeRequested, [&] { ++minimized; });
-        QObject::connect(&probe, &TitleBar::maximizeRequested, [&] { ++maximized; });
         QObject::connect(&probe, &TitleBar::closeRequested, [&] { ++closed; });
         probe.minimizeButton()->click();
-        check(minimized == 1 && maximized == 0 && closed == 0, "Z11 点「—」只发最小化那一条");
-        probe.maximizeButton()->click();
-        check(minimized == 1 && maximized == 1 && closed == 0, "Z11 点「□」只发最大化那一条");
+        check(minimized == 1 && closed == 0, "Z11 点「—」只发最小化那一条");
         probe.closeButton()->click();
-        check(minimized == 1 && maximized == 1 && closed == 1, "Z11 点「×」只发关闭那一条");
+        check(minimized == 1 && closed == 1, "Z11 点「×」只发关闭那一条");
     }
 
     // ---------- 品牌字 ----------

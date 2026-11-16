@@ -771,7 +771,9 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     parent->resize(fittedWindowSize(parent, QSize(kMainWindowDefaultWidth, kMainWindowDefaultHeight)));
     parent->setMinimumSize(kMainWindowMinWidth, kMainWindowMinHeight);
 
-    parent->setWindowFlags(parent->windowFlags() | Qt::WindowMaximizeButtonHint);
+    // 不给最大化：去掉这个标志，系统就没有 WS_MAXIMIZEBOX，Win+↑、拖到屏顶、双击标题栏都不会最大化
+    // （左右半屏贴靠不受影响）。窗口大小只靠拖边缩放，最小尺寸见 kMainWindowMinWidth。
+    parent->setWindowFlags(parent->windowFlags() & ~Qt::WindowMaximizeButtonHint);
 
     // 中央控件就是整窗那一层底（系统背板 / 风景预模糊底 / 纯色，见 ui/Glass.hpp）。
     // 去套娃：底只有这一层，导航轨和页面都直接铺在它上面，不再各自垫面板。
@@ -806,9 +808,6 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // NOTE: 这个类**不是 QObject**（没有 tr()、没有自己的信号槽），所以得写全 `QObject::connect`。
     QObject::connect(bar, &TitleBar::minimizeRequested, parent, &QMainWindow::showMinimized);
     QObject::connect(bar, &TitleBar::closeRequested, parent, &QMainWindow::close);
-    QObject::connect(bar, &TitleBar::maximizeRequested, parent, [parent]() {
-        parent->isMaximized() ? parent->showNormal() : parent->showMaximized();
-    });
 
     // ================= 选项卡：主页 / 管理 / 下载 / 设置 / 智能体 =================
     // 四页各自只放自己那摊控件，都排成左右两栏：左栏是要操作的那点东西
@@ -1015,7 +1014,7 @@ void MainWindowUI::restoreWindowSize(QWidget *window, QSize saved) {
 }
 
 void MainWindowUI::resetWindowSize(QWidget *window) {
-    if (window->isMaximized() || window->isFullScreen()) window->showNormal();
+    if (window->isFullScreen()) window->showNormal();
     const QSize size = fittedWindowSize(window, QSize(kMainWindowDefaultWidth, kMainWindowDefaultHeight));
     window->resize(size);
     if (const QScreen *screen = window->screen()) {
@@ -1027,7 +1026,7 @@ void MainWindowUI::resetWindowSize(QWidget *window) {
 }
 
 bool MainWindowUI::isDefaultWindowSize(const QWidget *window) {
-    return !window->isMaximized() && !window->isFullScreen()
+    return !window->isFullScreen()
            && window->size() == fittedWindowSize(window, QSize(kMainWindowDefaultWidth, kMainWindowDefaultHeight));
 }
 
