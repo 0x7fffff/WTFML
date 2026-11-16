@@ -400,8 +400,10 @@ void JavaSettingsController::refreshMemory() {
     m_ui->getMemoryMaxSpin()->setEnabled(!autoMode);
     m_ui->getMemoryMaxSlider()->setEnabled(!autoMode);
     if (autoMode) {
-        // 把手停在"上次手动档"的位置，进度条（虚条）跟着自动值走 —— 见 MemorySlider.hpp。
-        m_ui->getMemoryMaxSlider()->setValueMb(m_settings->manualXmx());
+        // 把手落在**自动值**（= 虚条的头）上。停在"上次手动档"那个位置的话，自动值比它小
+        // 时圆圈就浮在一段没填的轨道上，看着像圆圈跟条脱开了（用户报的就是这个）。上次手动
+        // 的值写在下面那句说明里（"切回手动分配会恢复 N MB"）。
+        m_ui->getMemoryMaxSlider()->setValueMb(xmx);
         m_ui->getMemoryMaxSlider()->setAutoValueMb(xmx);
     } else {
         m_ui->getMemoryMaxSlider()->clearAutoValue();

@@ -160,13 +160,12 @@ void MemorySlider::paintEvent(QPaintEvent *) {
 
     // 填充到"该到的那一格"：手动档 = 把手中心；自动档 = 自动算出来那一格。
     //
-    // 自动档的**把手留在原地**（= 上次手动档停的位置），只有进度条跟着自动值走：
-    // 用户一眼能看出"自动现在给这么多、我原来手动设的是那么多"。条本身画成半透明的
-    // 虚条，和可拖的手动档区分开：圆圈不跟着自动值走。
-    const qreal centerX = qBound(rail.left(), qreal(handle.center().x()), rail.right());
+    // 自动档的把手**跟着自动值走**（= 虚条的头）：那一格才是现在真正生效的数。
+    // 条本身画成半透明的虚条，和可拖的手动档区分开；上次手动设的值只写在下面那句说明里。
+    const qreal handleX = qBound(rail.left(), qreal(handle.center().x()), rail.right());
     const bool autoMode = m_autoValueMb >= 0;
     const int autoIndex = autoMode ? nearestIndex(m_steps, m_autoValueMb) : -1;
-    qreal fillCenterX = centerX;
+    qreal fillCenterX = handleX;
     if (autoMode && autoIndex >= 0) {
         QStyleOptionSlider autoOption;
         initStyleOption(&autoOption);
@@ -200,14 +199,17 @@ void MemorySlider::paintEvent(QPaintEvent *) {
 
     // 把手：一圈主题色的环，中间透出底色。纯色实心球在深色档下和填充粘成一团、看不出
     // 哪儿是"现在的位置"。
+    //
+    // 自动档画在**虚条的头**上（不是 value() 那一格）：两个数不一致时（有人只改了展示值），
+    // 圆圈浮在一段没填的轨道上就是"圆圈跟条脱开"。
+    const qreal centerX = autoMode ? fillCenterX : handleX;
     const qreal knobDiameter = qMin<qreal>(qreal(height() - 2), 16.0);
     if (knobDiameter >= 8.0) {
         const qreal outer = knobDiameter / 2.0;
         const qreal inner = qMax(1.5, outer - 3.0);
         const QPointF knobCenter(centerX, height() / 2.0);
-        // 自动档下这颗圆**不跟着自动值走**，只当"上次手动的位置"的标记。控件已经
-        // disabled（上面 fill/track 各降过一档 alpha），这里不再额外压淡 —— 再淡一档
-        // 就只剩一个看不清的点，反而不知道圆圈停在哪儿。
+        // 自动档下这颗圆就落在虚条头上。控件已经 disabled（上面 fill/track 各降过一档
+        // alpha），这里不再额外压淡 —— 再淡一档就只剩一个看不清的点。
         //
         // 自动档把外圈**再压深一档**：它正好压在那条半透明的自动虚条上时，原来的
         // 外圈和虚条是同一个色，圆就"看不见"了 —— 用户会以为把手跟着自动值走了。
