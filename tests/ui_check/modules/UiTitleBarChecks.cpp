@@ -172,16 +172,25 @@ int UiTitleBarChecks(QMainWindow &window, MainWindowUI &ui) {
         QApplication::processEvents();
         check(logo->hasFocus() && static_cast<TitleBarButton *>(logo)->hasKeyboardFocus() &&
                   captureWidget(logo) != noFocusShot,
-              "★ 155 焦点自动落在 W 上时按 Tab：留在 W、亮出焦点框");
+              "★ 155 焦点自动落在 W 上时按 Tab：留在 W、亮出焦点下划线");
         logo->clearFocus();
         QApplication::processEvents();
         check(!static_cast<TitleBarButton *>(logo)->hasKeyboardFocus() && captureWidget(logo) == noFocusShot,
-              "155 W 失去焦点：框收掉");
+              "155 W 失去焦点：下划线收掉");
         logo->setFocus(Qt::TabFocusReason);
         QApplication::processEvents();
         check(logo->hasFocus() && static_cast<TitleBarButton *>(logo)->hasKeyboardFocus() &&
                   captureWidget(logo) != noFocusShot,
-              "★ 155 用 Tab 选中 W：画焦点框");
+              "★ 155 用 Tab 选中 W：画焦点下划线");
+        {
+            // UI问题 #16：焦点提示只在 W 底下那一笔，不再框住 W —— 上半格和左右两列与没焦点时一模一样。
+            const QImage focused = captureWidget(logo);
+            const int h = focused.height(), w = focused.width();
+            const bool topSame = focused.copy(0, 0, w, h / 2) == noFocusShot.copy(0, 0, w, h / 2);
+            const bool sidesSame = focused.copy(0, 0, 1, h) == noFocusShot.copy(0, 0, 1, h) &&
+                                   focused.copy(w - 1, 0, 1, h) == noFocusShot.copy(w - 1, 0, 1, h);
+            check(topSame && sidesSame, "UI问题 #16 W 的焦点提示不是框：上半格、左右边缘不变");
+        }
         QKeyEvent enter(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
         QApplication::sendEvent(logo, &enter);
         QApplication::processEvents();

@@ -345,11 +345,17 @@ void TitleBarButton::paintEvent(QPaintEvent *) {
         gradient.setColorAt(1, ensureGraphicContrast(stops.second, m_ink, under));
         p.fillPath(brandMarkPath(), gradient);
         if (hasKeyboardFocus()) {
-            // 键盘焦点：W 外面一圈主题色细框。只认 Tab / Shift+Tab 选来的焦点，窗口激活时自动落上来的不画。
+            // 键盘焦点：W 底下一笔主题色的手写下划线（像签名收笔），不画框。
+            // 只认 Tab / Shift+Tab 选来的焦点，窗口激活时自动落上来的不画。
             p.resetTransform();
-            p.setPen(QPen(Theme::focusRingColor(palette()), 2));
-            p.setBrush(Qt::NoBrush);
-            p.drawRoundedRect(QRectF(rect()).adjusted(1, 1, -1, -1), 6, 6);
+            const qreal bottom = (height() + box.height() * scale) / 2.0;  // 字形下缘（格子上下各留约 4.5）
+            // 两条二次曲线围成一片两头尖、中间约 2 px、右端上挑的笔画（比等粗的线更像笔写的）。
+            const QPointF start(width() * 0.12, bottom + 1.8);
+            const QPointF end(width() * 0.9, bottom + 0.4);
+            QPainterPath swash(start);
+            swash.quadTo(QPointF(width() * 0.5, bottom + 2.4), end);
+            swash.quadTo(QPointF(width() * 0.5, bottom + 6.4), start);
+            p.fillPath(swash, Theme::focusRingColor(palette()));
         }
         return;
     }
