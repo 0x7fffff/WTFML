@@ -409,6 +409,20 @@ bool TaskManager::setDetail(TaskId id, const QString &detail) {
     return true;
 }
 
+bool TaskManager::setTitleAndTarget(TaskId id, const QString &title, const QString &targetId) {
+    TaskSnapshot *task = find(id);
+    if (task == nullptr || !isActiveState(task->state)) {
+        return false;
+    }
+    if (task->title == title && task->targetId == targetId) {
+        return false;
+    }
+    task->title = title;
+    task->targetId = targetId;
+    touch(id, task->parentId == invalidTaskId());
+    return true;
+}
+
 bool TaskManager::setSessionId(TaskId id, int sessionId) {
     // 一项任务只对**一份**会话。已经对上了还要换个号 = 调用方那边把两件事搞混了，
     // 这里不替它改口（改了口之后"这一项说的是哪一次运行"就再也说不清）。

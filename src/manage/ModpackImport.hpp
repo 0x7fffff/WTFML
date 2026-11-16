@@ -478,6 +478,14 @@ bool isSafeRelativePath(const QString &path);
 QString suggestInstanceName(const QString &packName);
 
 /**
+ * @brief 一键安装整合包时推算出的默认实例名及是否属于续装未完成导入。
+ */
+struct OneClickInstanceName {
+    QString name;
+    bool resume = false;
+};
+
+/**
  * @brief 在 suggestInstanceName() 的基础上，遇到重名时自动追加 `-2`、`-3` 后缀，保证返回的实例名可直接落盘。
  * @param packName 整合包名。
  * @param isAvailable 可选重名判据（返回 true 表示名字可用）；为空时默认用当前游戏目录下
@@ -485,6 +493,19 @@ QString suggestInstanceName(const QString &packName);
  */
 QString suggestUniqueInstanceName(const QString &packName,
                                   const std::function<bool(const QString &)> &isAvailable = {});
+
+/**
+ * @brief 为下载页整合包一键安装推算默认实例名：优先续装同名链上未装完的目录，否则挑首个可用空名。
+ * @param packName 整合包名。
+ * @param isUnfinished 可选未完成导入判据（返回 true 表示该目录是上次没装完的半成品）；
+ *        为空时默认用 `InstanceFiles::isUnfinishedImport(candidate)`。
+ * @param isAvailable 可选空名判据（返回 true 表示名字可用）；为空时默认用当前游戏目录下
+ *        `InstanceFiles::validateRenameTarget(candidate, QString()).isEmpty()`。
+ */
+OneClickInstanceName suggestOneClickInstanceName(
+    const QString &packName,
+    const std::function<bool(const QString &)> &isUnfinished = {},
+    const std::function<bool(const QString &)> &isAvailable = {});
 
 /**
  * @brief 清单里给的那几条地址，按"先试哪条"重排一遍：`cdn.modrinth.com` 排最前。

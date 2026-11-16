@@ -711,28 +711,44 @@ void ImportController::importModpackOneClick(const QString &zipPath,
         return;
     }
 
-    const QString name = confirmedInstanceName.trimmed();
+    QString name = confirmedInstanceName.trimmed();
     QString nameProblem;
-    const InstanceFiles::ImportNameVerdict verdict =
+    InstanceFiles::ImportNameVerdict verdict =
         InstanceFiles::checkImportTargetName(name, &nameProblem, prepared.manifestFingerprint);
     if (verdict == InstanceFiles::ImportNameVerdict::Taken) {
-        InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("换个名字"), nameProblem);
-        finishAbortedImportTask(taskId, false, nameProblem);
-        return;
+        QString candidate = ModpackImport::suggestUniqueInstanceName(
+            name.isEmpty() ? prepared.pack.name : name);
+        const QString conflictPrompt =
+            (InstanceFiles::validateDirName(name).isEmpty() && InstanceFiles::isUnfinishedImport(name))
+                ? m_owner->tr("「%1」里是另一个整合包（或另一个版本）上次没装完的文件，不能混进同一个目录。\n\n"
+                              "请换一个新的实例名（versions 下面那个目录名），不会碰原来的半成品。")
+                      .arg(name)
+                : m_owner->tr("%1\n\n请换一个新的实例名（versions 下面那个目录名）：").arg(nameProblem);
+        while (true) {
+            bool ok = false;
+            const QString input = InlineMessage::getText(
+                m_owner->m_ui->overlay(), m_owner->tr("换个名字"), conflictPrompt, candidate, &ok);
+            if (!ok) {
+                finishAbortedImportTask(taskId, true, QString());
+                return;
+            }
+            candidate = input.trimmed();
+            verdict = InstanceFiles::checkImportTargetName(
+                candidate, &nameProblem, prepared.manifestFingerprint);
+            if (verdict != InstanceFiles::ImportNameVerdict::Taken) {
+                name = candidate;
+                break;
+            }
+            InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("换个名字"), nameProblem);
+        }
+        if (taskId != Tasks::invalidTaskId() && m_owner->m_activityCenter != nullptr) {
+            m_owner->m_activityCenter->tasks()->setTitleAndTarget(
+                taskId, m_owner->tr("安装整合包 %1").arg(name), name);
+        }
     }
     if (verdict == InstanceFiles::ImportNameVerdict::OkResume) {
-        const bool resumeAnswer = InlineMessage::question(
-            m_owner->m_ui->overlay(), m_owner->tr("接着上次的导入"),
-            m_owner->tr("versions 下面已经有一个「%1」了，是上一次没下完的导入。\n\n"
-                        "接着往它里面下吗？已经下好的文件会按 sha1 跳过、不会重下，"
-                        "没下成的那几个会重新下。\n\n"
-                        "选「否」会取消本次安装。")
-                .arg(name),
-            m_owner->tr("是"), m_owner->tr("否"), true);
-        if (!resumeAnswer) {
-            finishAbortedImportTask(taskId, true, QString());
-            return;
-        }
+        // 下载前命名框已明确告知会接着安装，此处不再二次弹窗确认，仅留日志。
+        m_owner->appendLog(m_owner->tr("接着上次没装完的「%1」继续安装。").arg(name));
     }
 
     if (!promptCurseForgeFileIssuesIfNeeded(prepared.pack, name)) {
