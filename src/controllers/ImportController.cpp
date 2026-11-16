@@ -7,6 +7,7 @@
 #include "MainWindowUI.hpp"
 #include "OverlayHost.hpp"
 #include "download/ResourceCatalog.hpp"
+#include "controllers/ActivityCenterController.hpp"
 #include "controllers/DownloadTaskLedgerController.hpp"
 #include "launcher/LauncherManager.hpp"
 #include "manage/DroppedResource.hpp"
@@ -18,6 +19,7 @@
 #include "manage/ModpackCompletion.hpp"
 #include "manage/VersionManager.hpp"
 #include "settings/GlobalJavaSettings.hpp"
+#include "tasks/TaskManager.hpp"
 #include "util/AppPaths.hpp"
 #include "util/WriteDirectoryGuard.hpp"
 #include <QDir>
@@ -119,81 +121,73 @@ void ImportController::onImportModpackClicked() {
     m_owner->importModpackFromFile(zipPath);
 }
 
-void ImportController::importModpackFromFile(const QString &zipPath, const QString &namePrefill) {
-    // rar/7z：先让 7-Zip 解到临时目录并压成 zip，再走下面同一条路。
-    QString effectiveZip = zipPath;
+struct ImportController::PreparedModpack {
+    QString effectiveZip;
     QString tempZip;
+    QString sourceZip;
+    QString tempArchive;
+    ModpackImport::ArchiveLayout layout;
+    ModpackImport::Pack pack;
+    QString manifestFingerprint;
+    bool ok = false;
+    QString failureSummary;
+
+    void releaseTempArchive() { tempArchive.clear(); }
+
+    ~PreparedModpack() {
+        if (!tempArchive.isEmpty()) {
+            QFile::remove(tempArchive);
+        }
+        if (!tempZip.isEmpty()) {
+            QFile::remove(tempZip);
+        }
+    }
+};
+
+void ImportController::finishAbortedImportTask(Tasks::TaskId taskId, bool cancelled,
+                                               const QString &reason) {
+    if (taskId == Tasks::invalidTaskId() || m_owner->m_activityCenter == nullptr
+        || !m_owner->m_activityCenter->tasks()->has(taskId)) {
+        return;
+    }
+    Tasks::TaskManager *tasks = m_owner->m_activityCenter->tasks();
+    if (cancelled) {
+        tasks->cancel(taskId);
+        m_owner->m_downloadTaskLedger->clearOwnerIf(taskId);
+        return;
+    }
+    const QList<Tasks::TaskStep> steps = tasks->snapshot(taskId).steps;
+    for (int i = 0; i < steps.size(); ++i) {
+        if (steps.at(i).state == Tasks::TaskStepState::Running) {
+            tasks->setStepState(taskId, i, Tasks::TaskStepState::Failed, reason);
+        }
+    }
+    m_owner->finishTask(taskId, false, reason);
+}
+
+bool ImportController::prepareModpackPackage(const QString &zipPath, PreparedModpack *out) {
+    if (out == nullptr) {
+        return false;
+    }
+    out->effectiveZip = zipPath;
     if (SevenZip::isArchive(zipPath)) {
         m_owner->appendLog(m_owner->tr("正在用 7-Zip 解压 %1…").arg(QFileInfo(zipPath).fileName()));
         QString error;
-        tempZip = SevenZip::toZip(zipPath, &error);
-        if (tempZip.isEmpty()) {
+        out->tempZip = SevenZip::toZip(zipPath, &error);
+        if (out->tempZip.isEmpty()) {
+            out->failureSummary = error.isEmpty() ? m_owner->tr("无法解压这个包。") : error;
             InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("解压失败"),
-                                   error.isEmpty() ? m_owner->tr("无法解压这个包。") : error);
-            return;
+                                   out->failureSummary);
+            return false;
         }
-        effectiveZip = tempZip;
-    }
-    const auto cleanupTemp = qScopeGuard([&tempZip] {
-        if (!tempZip.isEmpty()) QFile::remove(tempZip);
-    });
-    // 拖进来的这一路也得过忙态这道闸。上面那颗「导入整合包…」按钮在忙的
-    // 时候是灰的（`setDownloadUiBusy()`），但主窗口的拖放照收不误（`dropEvent()` 不看
-    // 忙态）。不拦的话：导入 A 的过程中再拖进来一个 B，B 会从问名字那一步一路走到下面
-    // 把「导入」那一档占用改成 B —— A 的 id 被顶掉（A 下完时 `clearFor()` 对不上它，
-    // 连忙态都不收）、任务中心当前那条任务还是 A 的，而两条
-    // 导入同时在往 versions 下面写。判据和按钮那一处**是同一句话**（`m_downloadInFlight`），
-    // 不另立一个。
-    if (m_owner->m_downloadInFlight) {
-        m_owner->appendLog(m_owner->tr("已有下载或导入任务正在进行，%1 没有导入。")
-                               .arg(QFileInfo(effectiveZip).fileName()));
-        InlineMessage::information(m_owner->m_ui->overlay(), m_owner->tr("现在正忙"),
-                                   m_owner->tr("已有下载或导入任务正在进行，等它结束之后再试。"));
-        return;
-    }
-    // 另一条导入流程还没走完（`m_downloadInFlight` 管不到这一段：CurseForge 预览在
-    // 真正开始下载**之前**）。拖放 / 再点一次按钮都会走到这里 —— 两趟同时问名字、
-    // 同时写「导入」那一档占用的后果见头文件里 `m_importFlow` 那段。
-    if (m_importFlow) {
-        m_owner->appendLog(m_owner->tr("已有导入流程正在进行，%1 没有导入。")
-                               .arg(QFileInfo(effectiveZip).fileName()));
-        InlineMessage::information(m_owner->m_ui->overlay(), m_owner->tr("现在正忙"),
-                                   m_owner->tr("另一个整合包还在导入流程里，等它结束之后再试。"));
-        return;
-    }
-    const FlowGuard flowGuard(m_importFlow);
-
-    // 从这一刻到本函数返回，**游戏文件夹那一列灰着**。
-    //
-    // 为什么非要单独举这块牌子：下面 CurseForge 清单是在 `runOffUiThread()` 的嵌套事件
-    // 循环里解析的，那几秒里用户输入照常送回来，而 `setDownloadUiBusy(true)` 还要再往后
-    // （真正开始下载时才置）。这中间切一下游戏文件夹，后面所有 `AppPaths::versionDir()` 就
-    // 落到另一份 .minecraft 里 —— 用户明明选了 A，实例却建在 B，屏幕上什么异常都没有。
-    // 已经有忙态的那一段照样灰着，这里管的是"还没有忙态"的那一段。
-    m_owner->beginFolderSwitchHold();
-    // RAII：本函数所有 early return（含下面那些弹框后返回）都必须把牌子摘掉，
-    // 否则这一列会一直灰到关窗口。
-    const auto folderHold = qScopeGuard([this] { m_owner->endFolderSwitchHold(); });
-
-    if (QFileInfo(effectiveZip).fileName() == QStringLiteral("wtfml.import-report.json")) {
-        repairFromReport(effectiveZip);
-        return;
+        out->effectiveZip = out->tempZip;
     }
 
-    // 先把**条目名**列一遍（不解压任何东西）。这一步代替了以前"按两个固定名字各读一次"：
-    // 多花一个 PowerShell 进程，换来的是能认出没有固定清单的那几种包 —— MultiMC / Prism
-    // 导出的实例、直接压进来的 .minecraft、PCL 那种"里面套一份 .mrpack"的壳。
-    //
-    // NOTE: 动作名是**给用户看的**：Failed 那一路会把 error 原样弹进那个警告框
-    // （「读这个压缩包的时候出错了：…」），所以这里写「读压缩包的条目表」，而不是
-    // ZipUtil 那个通用的默认说法。
     QString error;
     QStringList entries;
     ZipUtil::EntryStatus status = ZipUtil::listEntries(
-        effectiveZip, &entries, &error, m_owner->tr("读压缩包的条目表"));
+        out->effectiveZip, &entries, &error, m_owner->tr("读压缩包的条目表"));
     if (status != ZipUtil::EntryStatus::Ok) {
-        // "里面没有清单"和"这个文件根本打不开"是**两句完全不同的话**：前者多半是选错了
-        // 文件，后者是文件坏了/不是 zip。
         QString text;
         if (status == ZipUtil::EntryStatus::NotAnArchive) {
             text = m_owner->tr("无法打开这个文件：它不是 zip 压缩包（也可能已损坏）。\n\n"
@@ -201,46 +195,39 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
         } else {
             text = m_owner->tr("读这个压缩包的时候出错了：\n%1").arg(error);
         }
-        m_owner->appendLog(m_owner->tr("没有导入 %1。").arg(QFileInfo(effectiveZip).fileName()));
+        out->failureSummary = text;
+        m_owner->appendLog(m_owner->tr("没有导入 %1。").arg(QFileInfo(out->effectiveZip).fileName()));
         InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("这不是整合包"), text);
-        return;
+        return false;
     }
 
-    ModpackImport::ArchiveLayout layout = ModpackImport::detectArchiveLayout(entries);
-    // 真正拿去解压的那一份。PCL 那种壳要先把里面那份 .mrpack 解出来，之后一律用它。
-    QString sourceZip = effectiveZip;
-    // 壳里那一份解出来的临时文件：**只有这一趟提前退出时**才由这个守卫删掉；
-    // 导入真的开始了就交给 m_tempArchives，等 versionDownloadFinished 再删。
-    QString tempArchive;
-    struct TempGuard {
-        QString *slot = nullptr;
-        ~TempGuard() {
-            if (slot != nullptr && !slot->isEmpty()) {
-                QFile::remove(*slot);
-            }
-        }
-        void release() { if (slot != nullptr) slot->clear(); }
-    } tempGuard{&tempArchive};
+    out->layout = ModpackImport::detectArchiveLayout(entries);
+    out->sourceZip = out->effectiveZip;
 
-    if (layout.format == ModpackImport::Format::Wrapper) {
-        tempArchive = AppPaths::modpackCacheDir() + QStringLiteral("/wrapper-") +
-                      QUuid::createUuid().toString(QUuid::WithoutBraces) + QStringLiteral(".mrpack");
-        status = ZipUtil::extractEntryToFile(sourceZip, layout.innerPackEntry, tempArchive, &error,
+    if (out->layout.format == ModpackImport::Format::Wrapper) {
+        QDir().mkpath(AppPaths::modpackCacheDir());
+        out->tempArchive = AppPaths::modpackCacheDir() + QStringLiteral("/wrapper-") +
+                           QUuid::createUuid().toString(QUuid::WithoutBraces) +
+                           QStringLiteral(".mrpack");
+        status = ZipUtil::extractEntryToFile(out->sourceZip, out->layout.innerPackEntry,
+                                             out->tempArchive, &error,
                                              m_owner->tr("解出压缩包里的整合包"));
         if (status != ZipUtil::EntryStatus::Ok) {
+            out->failureSummary = m_owner->tr("这个压缩包里那份 %1 没能解出来：\n%2")
+                                      .arg(out->layout.innerPackEntry, error);
             m_owner->appendLog(m_owner->tr("没有导入 %1：解不出里面的 %2。")
-                                   .arg(QFileInfo(effectiveZip).fileName(), layout.innerPackEntry));
-            InlineMessage::warning(
-                m_owner->m_ui->overlay(), m_owner->tr("导入整合包"),
-                m_owner->tr("这个压缩包里那份 %1 没能解出来：\n%2")
-                    .arg(layout.innerPackEntry, error));
-            return;
+                                   .arg(QFileInfo(out->effectiveZip).fileName(),
+                                        out->layout.innerPackEntry));
+            InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("导入整合包"),
+                                   out->failureSummary);
+            return false;
         }
         m_owner->appendLog(m_owner->tr("「%1」是一个 PCL 打包的整合包，先解出里面的 %2。")
-                               .arg(QFileInfo(effectiveZip).fileName(), layout.innerPackEntry));
+                               .arg(QFileInfo(out->effectiveZip).fileName(),
+                                    out->layout.innerPackEntry));
 
         QStringList innerEntries;
-        status = ZipUtil::listEntries(tempArchive, &innerEntries, &error,
+        status = ZipUtil::listEntries(out->tempArchive, &innerEntries, &error,
                                       m_owner->tr("读压缩包的条目表"));
         const ModpackImport::ArchiveLayout inner =
             status == ZipUtil::EntryStatus::Ok
@@ -249,84 +236,83 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
         if (status != ZipUtil::EntryStatus::Ok ||
             inner.format == ModpackImport::Format::Unknown ||
             inner.format == ModpackImport::Format::Wrapper) {
-            m_owner->appendLog(m_owner->tr("没有导入 %1：里面的 %2 认不出是什么格式。")
-                                   .arg(QFileInfo(effectiveZip).fileName(), layout.innerPackEntry));
-            InlineMessage::warning(
-                m_owner->m_ui->overlay(), m_owner->tr("这不是整合包"),
+            out->failureSummary =
                 status != ZipUtil::EntryStatus::Ok
                     ? m_owner->tr("这个压缩包里那份 %1 打不开：\n%2")
-                          .arg(layout.innerPackEntry, error)
-                    : ModpackImport::unsupportedFormatText(inner.format));
-            return;
+                          .arg(out->layout.innerPackEntry, error)
+                    : ModpackImport::unsupportedFormatText(inner.format);
+            m_owner->appendLog(m_owner->tr("没有导入 %1：里面的 %2 认不出是什么格式。")
+                                   .arg(QFileInfo(out->effectiveZip).fileName(),
+                                        out->layout.innerPackEntry));
+            InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("这不是整合包"),
+                                   out->failureSummary);
+            return false;
         }
         entries = innerEntries;
-        layout = inner;
-        sourceZip = tempArchive;
+        out->layout = inner;
+        out->sourceZip = out->tempArchive;
     }
 
-    const auto refuse = [this, &effectiveZip](const QString &title, const QString &text) {
-        m_owner->appendLog(m_owner->tr("没有导入 %1。").arg(QFileInfo(effectiveZip).fileName()));
+    const auto refuse = [this, out](const QString &title, const QString &text) {
+        out->failureSummary = text;
+        m_owner->appendLog(m_owner->tr("没有导入 %1。").arg(QFileInfo(out->effectiveZip).fileName()));
         InlineMessage::warning(m_owner->m_ui->overlay(), title, text);
     };
 
-    // MultiMC / Prism / .minecraft 这类包的 overridesDir 要等解析之后才知道，形状那两种
-    // 拒绝（服务端 / 存档）也能直接从条目表看出来，且**必须**在解析之前判。
-    if (layout.serverPack) {
+    if (out->layout.serverPack) {
         refuse(m_owner->tr("这不是客户端整合包"),
                m_owner->tr("这个压缩包里是一个服务端包（里面没有客户端要的 config、"
                            "资源包这些，只有服务端启动用的文件）。\n\n"
                            "客户端无法安装它。要开服的话用「新建服务端」，把这份包解到"
                            "服务端目录里。"));
-        return;
+        return false;
     }
-    if (layout.worldSave) {
+    if (out->layout.worldSave) {
         refuse(m_owner->tr("这是一个世界存档"),
                m_owner->tr("这个压缩包里是一个世界存档（里面有 level.dat），不是整合包。\n\n"
                            "存档请放进实例的 saves/ 目录：在「存档」页点「导入存档…」，"
                            "或者直接把压缩包拖到那一页上。"));
-        return;
+        return false;
     }
-    if (layout.modsBundle) {
+    if (out->layout.modsBundle) {
         refuse(m_owner->tr("这不是整合包"),
                m_owner->tr("这个压缩包里只有一堆模组（mods/ 或者几份 .jar），没有整合包清单。\n\n"
                            "它不是整合包，按整合包导进来只会建一个空实例。要用这些模组的话："
                            "在实例的「模组」页点「安装模组…」逐份添加，或者把它解压后把 "
                            "jar 拖到那一页上。"));
-        return;
+        return false;
     }
-    if (layout.format == ModpackImport::Format::Unknown) {
-        refuse(m_owner->tr("这不是整合包"), ModpackImport::unsupportedFormatText(layout.format));
-        return;
+    if (out->layout.format == ModpackImport::Format::Unknown) {
+        refuse(m_owner->tr("这不是整合包"), ModpackImport::unsupportedFormatText(out->layout.format));
+        return false;
     }
 
-    // 按格式读那一份"身份文件"。MultiMC / 懒人包没有清单，身份在 mmc-pack.json /
-    // 版本 json 里 —— 指纹照样对那份字节算。
     QByteArray manifestJson;
     ModpackImport::Result result;
-    if (layout.format == ModpackImport::Format::MultiMC) {
+    if (out->layout.format == ModpackImport::Format::MultiMC) {
         QByteArray mmcJson;
-        status = ZipUtil::readEntry(sourceZip, layout.mmcPackEntry, &mmcJson, &error,
+        status = ZipUtil::readEntry(out->sourceZip, out->layout.mmcPackEntry, &mmcJson, &error,
                                     m_owner->tr("读整合包的 mmc-pack.json"), 4 * 1024 * 1024);
         if (status != ZipUtil::EntryStatus::Ok) {
             refuse(m_owner->tr("导入整合包"),
                    status == ZipUtil::EntryStatus::NotAnArchive
                        ? m_owner->tr("无法打开这个文件：它不是 zip 压缩包（也可能已损坏）。")
                        : m_owner->tr("读这个压缩包里的 mmc-pack.json 时出错了：\n%1").arg(error));
-            return;
+            return false;
         }
         QByteArray instanceCfg;
-        if (!layout.instanceCfgEntry.isEmpty()) {
+        if (!out->layout.instanceCfgEntry.isEmpty()) {
             QString cfgError;
-            // 读不到 instance.cfg **不算失败**：它只提供实例名，名字还有压缩包文件名兜底。
-            ZipUtil::readEntry(sourceZip, layout.instanceCfgEntry, &instanceCfg, &cfgError,
-                               m_owner->tr("读整合包的 instance.cfg"), 1024 * 1024);
+            ZipUtil::readEntry(out->sourceZip, out->layout.instanceCfgEntry, &instanceCfg,
+                               &cfgError, m_owner->tr("读整合包的 instance.cfg"), 1024 * 1024);
         }
         manifestJson = mmcJson;
-        if (ModpackImport::archiveHasEntryPrefix(entries, layout.rootPrefix + QStringLiteral("patches/"))) {
+        if (ModpackImport::archiveHasEntryPrefix(
+                entries, out->layout.rootPrefix + QStringLiteral("patches/"))) {
             QHash<QString, QByteArray> patches, libraries;
             qint64 total = 0;
-            const QString patchPrefix = layout.rootPrefix + QStringLiteral("patches/");
-            const QString libraryPrefix = layout.rootPrefix + QStringLiteral("libraries/");
+            const QString patchPrefix = out->layout.rootPrefix + QStringLiteral("patches/");
+            const QString libraryPrefix = out->layout.rootPrefix + QStringLiteral("libraries/");
             for (const QString &entry : entries) {
                 const bool patch = entry.startsWith(patchPrefix) && entry.endsWith(QLatin1String(".json"));
                 const bool library = entry.startsWith(libraryPrefix) && entry.endsWith(QLatin1String(".jar"));
@@ -334,133 +320,447 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
                 const QString relative = entry.mid(patch ? patchPrefix.size() : libraryPrefix.size());
                 if (relative.contains(QLatin1Char('/')) || !ModpackImport::isSafeRelativePath(relative) ||
                     patches.size() >= 64 || libraries.size() >= 64) {
-                    refuse(m_owner->tr("启动配置不支持"), m_owner->tr("补丁/专用库路径不规范或数量超过限制。")); return;
+                    refuse(m_owner->tr("启动配置不支持"), m_owner->tr("补丁/专用库路径不规范或数量超过限制。"));
+                    return false;
                 }
                 QByteArray bytes;
-                if (ZipUtil::readEntry(sourceZip, entry, &bytes, &error, m_owner->tr("读取启动补丁及专用库"),
+                if (ZipUtil::readEntry(out->sourceZip, entry, &bytes, &error, m_owner->tr("读取启动补丁及专用库"),
                                       patch ? 2 * 1024 * 1024 : 64 * 1024 * 1024) != ZipUtil::EntryStatus::Ok ||
                     (total += bytes.size()) > 128 * 1024 * 1024) {
-                    refuse(m_owner->tr("读取启动配置失败"), error.isEmpty() ? m_owner->tr("启动配置超过大小限制。") : error); return;
+                    refuse(m_owner->tr("读取启动配置失败"), error.isEmpty() ? m_owner->tr("启动配置超过大小限制。") : error);
+                    return false;
                 }
                 if (patch) {
                     const QString uid = relative.left(relative.size() - 5);
-                    if (patches.contains(uid)) { refuse(m_owner->tr("补丁重复"), uid); return; }
+                    if (patches.contains(uid)) {
+                        refuse(m_owner->tr("补丁重复"), uid);
+                        return false;
+                    }
                     patches.insert(uid, bytes);
-                } else libraries.insert(entry, bytes);
+                } else {
+                    libraries.insert(entry, bytes);
+                }
             }
             result = ModpackImport::parsePatchedMultiMCInstance(mmcJson, instanceCfg, patches, libraries,
-                layout.gameDirPrefix, QFileInfo(effectiveZip).completeBaseName());
-            // Resume identity includes executable dependencies, not just mmc-pack.json.
+                out->layout.gameDirPrefix, QFileInfo(out->effectiveZip).completeBaseName());
             QCryptographicHash hash(QCryptographicHash::Sha256);
             hash.addData(mmcJson);
             for (const auto *parts : {&patches, &libraries}) {
-                QStringList keys = parts->keys(); keys.sort();
+                QStringList keys = parts->keys();
+                keys.sort();
                 for (const QString &key : keys) {
-                    hash.addData(key.toUtf8()); hash.addData(QByteArray(1, '\0'));
+                    hash.addData(key.toUtf8());
+                    hash.addData(QByteArray(1, '\0'));
                     hash.addData(QCryptographicHash::hash(parts->value(key), QCryptographicHash::Sha256));
                 }
             }
             manifestJson += hash.result();
         } else {
             result = ModpackImport::parseMultiMCInstance(
-                mmcJson, instanceCfg, layout.gameDirPrefix, QFileInfo(effectiveZip).completeBaseName());
+                mmcJson, instanceCfg, out->layout.gameDirPrefix,
+                QFileInfo(out->effectiveZip).completeBaseName());
         }
-    } else if (layout.format == ModpackImport::Format::GameFolder) {
+    } else if (out->layout.format == ModpackImport::Format::GameFolder) {
         QByteArray versionJson;
-        if (!layout.versionJsonEntry.isEmpty()) {
-            // 版本 json 通常几 KB；给一个上限免得有人把几百 MB 的东西塞成这个文件名。
+        if (!out->layout.versionJsonEntry.isEmpty()) {
             QString jsonError;
-            if (ZipUtil::readEntry(sourceZip, layout.versionJsonEntry, &versionJson, &jsonError,
-                                   m_owner->tr("读整合包的版本 json"),
+            if (ZipUtil::readEntry(out->sourceZip, out->layout.versionJsonEntry, &versionJson,
+                                   &jsonError, m_owner->tr("读整合包的版本 json"),
                                    4 * 1024 * 1024) == ZipUtil::EntryStatus::Ok) {
                 manifestJson = versionJson;
             }
         }
-        result = ModpackImport::parseGameFolderInstance(entries, versionJson, layout.rootPrefix,
-                                                        QFileInfo(effectiveZip).completeBaseName());
-        if (layout.legacyLauncherJar) {
-            // 旧版 Technic / 老式 Forge 包：加载器在 `bin/modpack.jar` 里，不写进版本 json。
-            // 这一层不做推断（见 ArchiveLayout::legacyLauncherJar 的说明），但要在日志里留下
-            // 一句话 —— 否则用户装完点启动，看到的是"找不到类"，而不是"加载器还没装"。
+        result = ModpackImport::parseGameFolderInstance(entries, versionJson, out->layout.rootPrefix,
+                                                        QFileInfo(out->effectiveZip).completeBaseName());
+        if (out->layout.legacyLauncherJar) {
             m_owner->appendLog(m_owner->tr("此整合包包含内置加载器。导入后请在实例中"
                                            "补装加载器，否则游戏无法启动。"));
         }
     } else {
-        status = ZipUtil::readEntry(sourceZip, layout.manifestEntry, &manifestJson, &error,
+        status = ZipUtil::readEntry(out->sourceZip, out->layout.manifestEntry, &manifestJson, &error,
                                     m_owner->tr("读整合包清单"), 16 * 1024 * 1024);
         if (status != ZipUtil::EntryStatus::Ok) {
             refuse(m_owner->tr("导入整合包"),
                    status == ZipUtil::EntryStatus::NotAnArchive
                        ? m_owner->tr("无法打开这个文件：它不是 zip 压缩包（也可能已损坏）。")
                        : m_owner->tr("读这个压缩包里的清单时出错了：\n%1").arg(error));
-            return;
+            return false;
         }
-        // 空 `files` 先放行，**解析完再核一次**：只有压缩包里真有清单说的那一层
-        // （overrides / overrides-1.20.1 …）才算合法的"纯 overrides 包"。这里不能直接
-        // 拒 —— 那份目录名写在清单里，得先解析才知道。
         const bool allowEmpty = true;
-        result = layout.format == ModpackImport::Format::CurseForge
+        result = out->layout.format == ModpackImport::Format::CurseForge
                      ? ModpackImport::parseCurseForgeManifest(manifestJson, allowEmpty)
                      : ModpackImport::parseModrinthIndex(manifestJson, allowEmpty);
     }
 
-    // 解析（纯函数）。清单读不懂、不是 Minecraft 的包、路径不安全、一条文件都没有，
-    // 四种情况的原因都不一样，都由它一句话说清 —— 界面不自己编第二句。
     if (!result.ok) {
+        out->failureSummary = result.problem;
         m_owner->appendLog(m_owner->tr("整合包清单无法解析：%1").arg(result.problem));
         InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("导入整合包"), result.problem);
-        return;
+        return false;
     }
-    ModpackImport::Pack &pack = result.pack;
+    out->pack = result.pack;
 
-    // 零文件的包：清单说"都在这份压缩包里"，那就得真的在里面。这一条是"坏清单被当成
-    // 纯 overrides 包装进去"最后一道闸。
-    if (pack.fileCount() == 0 &&
-        (layout.format == ModpackImport::Format::Modrinth ||
-         layout.format == ModpackImport::Format::CurseForge)) {
-        const QString contentPrefix = layout.rootPrefix + pack.overridesDir;
-        const bool hasClientOverrides = !pack.clientOverridesDir.isEmpty() &&
-            ModpackImport::archiveHasEntryPrefix(entries, layout.rootPrefix + pack.clientOverridesDir);
+    if (out->pack.fileCount() == 0 &&
+        (out->layout.format == ModpackImport::Format::Modrinth ||
+         out->layout.format == ModpackImport::Format::CurseForge)) {
+        const QString contentPrefix = out->layout.rootPrefix + out->pack.overridesDir;
+        const bool hasClientOverrides = !out->pack.clientOverridesDir.isEmpty() &&
+            ModpackImport::archiveHasEntryPrefix(entries, out->layout.rootPrefix + out->pack.clientOverridesDir);
         if (!ModpackImport::archiveHasEntryPrefix(entries, contentPrefix) && !hasClientOverrides) {
             refuse(m_owner->tr("导入整合包"),
                    m_owner->tr("这份整合包的清单里一条文件都没有，压缩包里也没有它说的那一层"
                                "（%1）。\n\n清单可能被改坏了，没有导入。")
-                       .arg(pack.overridesDir));
+                       .arg(out->pack.overridesDir));
+            return false;
+        }
+    }
+
+    if ((out->layout.format == ModpackImport::Format::Modrinth ||
+         out->layout.format == ModpackImport::Format::CurseForge) && !out->layout.rootPrefix.isEmpty()) {
+        out->pack.overridesDir.prepend(out->layout.rootPrefix);
+        if (!out->pack.clientOverridesDir.isEmpty()) {
+            out->pack.clientOverridesDir.prepend(out->layout.rootPrefix);
+        }
+    }
+
+    out->manifestFingerprint = InstanceFiles::importManifestFingerprint(manifestJson);
+
+    const QString loaderProblem =
+        ModpackImport::unsupportedLoaderText(out->pack.loaderKey, out->pack.loaderVersion);
+    if (!loaderProblem.isEmpty()) {
+        out->failureSummary = loaderProblem;
+        m_owner->appendLog(m_owner->tr("未导入 %1：需要 %2，当前启动器无法安装。")
+                               .arg(QFileInfo(out->effectiveZip).fileName(), out->pack.loaderKey));
+        InlineMessage::information(m_owner->m_ui->overlay(), m_owner->tr("无法安装这个整合包"),
+                                   loaderProblem);
+        return false;
+    }
+
+    out->ok = true;
+    return true;
+}
+
+bool ImportController::resolveCurseForgeManifestIfNeeded(ModpackImport::Pack *pack,
+                                                       ModpackImport::Format format,
+                                                       const QString &sourceName,
+                                                       QString *problemOut) {
+    if (format != ModpackImport::Format::CurseForge) {
+        return true;
+    }
+    QString problem;
+    VersionManager *versions = m_owner->m_versionManager;
+    const VersionManager::CurseForgeResolveSettings settings = versions->curseForgeResolveSettings();
+    m_owner->enterSyncWait(m_owner->tr("正在向 CurseForge 换取文件清单..."));
+    runOffUiThread([&] { problem = versions->resolveCurseForgeFiles(pack, settings); });
+    m_owner->leaveSyncWait();
+    if (!problem.isEmpty()) {
+        if (problemOut != nullptr) {
+            *problemOut = problem;
+        }
+        m_owner->appendLog(m_owner->tr("没有导入 %1：%2").arg(sourceName, problem));
+        InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("拿不到文件清单"), problem);
+        return false;
+    }
+    return true;
+}
+
+bool ImportController::promptCurseForgeFileIssuesIfNeeded(const ModpackImport::Pack &pack,
+                                                          const QString &instanceName) {
+    if (pack.fileIssues.isEmpty()) {
+        return true;
+    }
+    QStringList entries;
+    for (const auto &issue : pack.fileIssues) {
+        entries.append(QStringLiteral("%1 — %2").arg(
+            issue.fileName.isEmpty() ? m_owner->tr("文件 %1").arg(issue.ref.fileId)
+                                     : issue.fileName.simplified(),
+            issue.reason.simplified()));
+    }
+    int selected = 0;
+    for (;;) {
+        InlineMessageBox box(MessageKind::Warning, m_owner->tr("有文件需要补齐"),
+            m_owner->tr("选中文件可打开对应网页。可以先安装其余内容，但文件未补齐时不会标记为成功。"
+                "\n补齐位置：%1\n重新导入同一个包和实例名可重新校验。").arg(
+                QDir::toNativeSeparators(AppPaths::versionDir(instanceName))),
+            {m_owner->tr("继续安装其余内容"), m_owner->tr("打开所选文件网页"), m_owner->tr("取消")},
+            2, -1);
+        auto *list = box.setList(entries, selected);
+        const auto updateDetails = [&](int row) {
+            if (row < 0 || row >= pack.fileIssues.size()) return;
+            box.setNote(ModpackInstallReport::description(pack.fileIssues.at(row)));
+            if (auto *label = box.findChild<QLabel *>(InlineMessageBox::noteLabelName()))
+                label->setTextFormat(Qt::PlainText);
+        };
+        updateDetails(selected);
+        QObject::connect(list, &QListWidget::currentRowChanged, &box, updateDetails);
+        m_owner->m_ui->overlay()->execPrompt(&box);
+        selected = box.listRow();
+        if (box.clickedIndex() == 0) return true;
+        if (box.clickedIndex() != 1) return false;
+        if (selected < 0 || selected >= pack.fileIssues.size()) continue;
+        const auto url = ModpackImport::curseForgeFileWebUrl(pack.fileIssues.at(selected));
+        if (!url.isEmpty()) {
+            QDesktopServices::openUrl(QUrl(url));
+        } else {
+            InlineMessage::information(m_owner->m_ui->overlay(), tr("没有文件网页"),
+                tr("平台未提供规范项目网址，无法可靠打开文件页。请按报告中的项目和文件编号手动查找；这不代表文件已下架。"));
+        }
+    }
+}
+
+bool ImportController::resolveInstallerJavaForPack(const ModpackImport::Pack &pack,
+                                                   bool allowInteractivePrompt,
+                                                   QString *installerJavaOut,
+                                                   bool *cancelledOut,
+                                                   QString *reasonOut) {
+    if (cancelledOut != nullptr) {
+        *cancelledOut = false;
+    }
+    QString installerJava = m_owner->m_javaSettings->javaPath();
+    VersionManager::LoaderKind kind = VersionManager::LoaderKind::Fabric;
+    const bool hasLoader =
+        !pack.loaderKey.isEmpty() &&
+        VersionManager::loaderKindForDependencyKey(pack.loaderKey, &kind);
+    if (!hasLoader || kind == VersionManager::LoaderKind::Fabric
+        || kind == VersionManager::LoaderKind::Quilt || !pack.patchedRuntime.isEmpty()) {
+        if (installerJavaOut != nullptr) {
+            *installerJavaOut = installerJava;
+        }
+        return true;
+    }
+
+    int requiredJavaMajor = 0;
+    const QJsonObject gameJson = m_owner->m_versionManager->getVersionJson(pack.gameVersion);
+    if (!gameJson.isEmpty()) {
+        requiredJavaMajor = gameJson["javaVersion"].toObject()["majorVersion"].toInt();
+    }
+    const QString configuredJava = installerJava;
+    QString javaReason;
+    if (m_owner->m_javaSettings->installerJavaFor(requiredJavaMajor, configuredJava, &installerJava,
+                                                  &javaReason)) {
+        if (installerJava != configuredJava) {
+            m_owner->appendLog(m_owner->tr("这个版本要 Java %1，装的时候改用 %2")
+                                   .arg(requiredJavaMajor)
+                                   .arg(installerJava));
+        }
+        if (installerJavaOut != nullptr) {
+            *installerJavaOut = installerJava;
+        }
+        return true;
+    }
+
+    if (!allowInteractivePrompt) {
+        if (reasonOut != nullptr) {
+            *reasonOut = javaReason;
+        }
+        m_owner->appendLog(m_owner->tr("这个版本要的 Java 拿不到：%1").arg(javaReason));
+        InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("Java 版本不够"), javaReason);
+        return false;
+    }
+
+    while (true) {
+        const QString downloadText =
+            requiredJavaMajor > 0 ? m_owner->tr("自动下载 Java %1").arg(requiredJavaMajor) : QString();
+        QStringList buttons;
+        if (!downloadText.isEmpty()) {
+            buttons << downloadText;
+        }
+        const int browseIndex = buttons.size();
+        buttons << m_owner->tr("手动选择 java.exe...") << m_owner->tr("取消");
+        const int choice = InlineMessage::ask(
+            m_owner->m_ui->overlay(), MessageKind::Question, m_owner->tr("需要 Java 环境"),
+            m_owner->tr("安装此整合包的加载器需要合适的 Java，但本机未自动找到可用版本。\n\n%1")
+                .arg(javaReason),
+            buttons, 0, -1);
+        if (!downloadText.isEmpty() && choice == 0) {
+            GlobalJavaSettings *javaStore = m_owner->m_javaSettings;
+            EffectiveJavaSettings io = javaStore->effective();
+            bool ready = false;
+            QString downloadError;
+            m_owner->enterSyncWait(m_owner->tr("正在下载 Java %1 运行时...").arg(requiredJavaMajor));
+            runOffUiThread([&] {
+                ready = javaStore->ensureJavaForVersion(io, requiredJavaMajor, QString(), true,
+                                                        &downloadError, false, true);
+            });
+            m_owner->leaveSyncWait();
+            if (ready && m_owner->m_javaSettings->installerJavaFor(
+                             requiredJavaMajor, io.javaPath, &installerJava, &javaReason)) {
+                if (installerJavaOut != nullptr) {
+                    *installerJavaOut = installerJava;
+                }
+                return true;
+            }
+            if (!downloadError.isEmpty()) {
+                javaReason = downloadError;
+            }
+            continue;
+        }
+        if (choice == browseIndex) {
+            const QString picked = QFileDialog::getOpenFileName(
+                m_owner, m_owner->tr("选择 java.exe"), QString(),
+                m_owner->tr("Java 可执行文件 (java.exe);;所有文件 (*)"));
+            if (picked.isEmpty()) {
+                continue;
+            }
+            if (m_owner->m_javaSettings->installerJavaFor(
+                    requiredJavaMajor, picked, &installerJava, &javaReason)) {
+                if (installerJavaOut != nullptr) {
+                    *installerJavaOut = installerJava;
+                }
+                return true;
+            }
+            InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("Java 版本不匹配"),
+                                   javaReason);
+            continue;
+        }
+        if (cancelledOut != nullptr) {
+            *cancelledOut = true;
+        }
+        if (reasonOut != nullptr) {
+            *reasonOut = javaReason;
+        }
+        return false;
+    }
+}
+
+void ImportController::importModpackOneClick(const QString &zipPath,
+                                             const QString &confirmedInstanceName,
+                                             Tasks::TaskId taskId) {
+    if (m_owner->m_downloadInFlight) {
+        const QString reason = m_owner->tr("已有下载或导入任务正在进行，等它结束之后再试。");
+        m_owner->appendLog(m_owner->tr("已有下载或导入任务正在进行，%1 没有导入。")
+                               .arg(QFileInfo(zipPath).fileName()));
+        finishAbortedImportTask(taskId, false, reason);
+        InlineMessage::information(m_owner->m_ui->overlay(), m_owner->tr("现在正忙"), reason);
+        return;
+    }
+    if (m_importFlow) {
+        const QString reason = m_owner->tr("另一个整合包还在导入流程里，等它结束之后再试。");
+        m_owner->appendLog(m_owner->tr("已有导入流程正在进行，%1 没有导入。")
+                               .arg(QFileInfo(zipPath).fileName()));
+        finishAbortedImportTask(taskId, false, reason);
+        InlineMessage::information(m_owner->m_ui->overlay(), m_owner->tr("现在正忙"), reason);
+        return;
+    }
+    const FlowGuard flowGuard(m_importFlow);
+
+    m_owner->beginFolderSwitchHold();
+    const auto folderHold = qScopeGuard([this] { m_owner->endFolderSwitchHold(); });
+
+    PreparedModpack prepared;
+    if (!prepareModpackPackage(zipPath, &prepared)) {
+        finishAbortedImportTask(taskId, false, prepared.failureSummary);
+        return;
+    }
+
+    QString problem;
+    if (!resolveCurseForgeManifestIfNeeded(&prepared.pack, prepared.layout.format,
+                                           QFileInfo(prepared.effectiveZip).fileName(), &problem)) {
+        finishAbortedImportTask(taskId, false, problem);
+        return;
+    }
+
+    const QString name = confirmedInstanceName.trimmed();
+    QString nameProblem;
+    const InstanceFiles::ImportNameVerdict verdict =
+        InstanceFiles::checkImportTargetName(name, &nameProblem, prepared.manifestFingerprint);
+    if (verdict == InstanceFiles::ImportNameVerdict::Taken) {
+        InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("换个名字"), nameProblem);
+        finishAbortedImportTask(taskId, false, nameProblem);
+        return;
+    }
+    if (verdict == InstanceFiles::ImportNameVerdict::OkResume) {
+        const bool resumeAnswer = InlineMessage::question(
+            m_owner->m_ui->overlay(), m_owner->tr("接着上次的导入"),
+            m_owner->tr("versions 下面已经有一个「%1」了，是上一次没下完的导入。\n\n"
+                        "接着往它里面下吗？已经下好的文件会按 sha1 跳过、不会重下，"
+                        "没下成的那几个会重新下。\n\n"
+                        "选「否」会取消本次安装。")
+                .arg(name),
+            m_owner->tr("是"), m_owner->tr("否"), true);
+        if (!resumeAnswer) {
+            finishAbortedImportTask(taskId, true, QString());
             return;
         }
     }
 
-    if ((layout.format == ModpackImport::Format::Modrinth ||
-         layout.format == ModpackImport::Format::CurseForge) && !layout.rootPrefix.isEmpty()) {
-        pack.overridesDir.prepend(layout.rootPrefix);
-        if (!pack.clientOverridesDir.isEmpty()) pack.clientOverridesDir.prepend(layout.rootPrefix);
-    }
-
-    // 清单指纹（原始字节的 sha256）：问名字那一步拿它判断"同名的那一份是不是同一个包"，
-    // 导入开始后写进 `wtfml.importing` 标记，供下一次同名导入比较。同一个包重新打一次
-    // zip，里面那份清单的字节不变 ⇒ 仍然认得出是同一个包。
-    const QString manifestFingerprint = InstanceFiles::importManifestFingerprint(manifestJson);
-    const ModpackImport::Format format = pack.format;
-
-    // 加载器要不上，在**问名字之前**就拦掉：等问完名字才说装不了，只是白耽误用户。
-    const QString loaderProblem =
-        ModpackImport::unsupportedLoaderText(pack.loaderKey, pack.loaderVersion);
-    if (!loaderProblem.isEmpty()) {
-        m_owner->appendLog(m_owner->tr("未导入 %1：需要 %2，当前启动器无法安装。")
-                      .arg(QFileInfo(effectiveZip).fileName(), pack.loaderKey));
-        InlineMessage::information(m_owner->m_ui->overlay(), m_owner->tr("无法安装这个整合包"), loaderProblem);
+    if (!promptCurseForgeFileIssuesIfNeeded(prepared.pack, name)) {
+        finishAbortedImportTask(taskId, true, QString());
         return;
     }
+
+    QString installerJava;
+    bool javaCancelled = false;
+    QString javaReason;
+    if (!resolveInstallerJavaForPack(prepared.pack, true, &installerJava, &javaCancelled, &javaReason)) {
+        finishAbortedImportTask(taskId, javaCancelled, javaReason);
+        return;
+    }
+
+    if (taskId != Tasks::invalidTaskId() && m_owner->m_activityCenter != nullptr
+        && m_owner->m_activityCenter->tasks()->has(taskId)) {
+        Tasks::TaskManager *tasks = m_owner->m_activityCenter->tasks();
+        tasks->setStepState(taskId, 1, Tasks::TaskStepState::Done);
+        tasks->setStepState(taskId, 2, Tasks::TaskStepState::Running);
+        m_owner->m_downloadTaskLedger->adopt(taskId);
+    }
+
+    m_owner->markOneClickModpack(name);
+    if (!prepared.tempArchive.isEmpty()) {
+        m_tempArchives.insert(name, prepared.tempArchive);
+    }
+    const bool started = applyResolvedModpackImport(
+        prepared.sourceZip, name, prepared.pack, prepared.manifestFingerprint, installerJava);
+    if (started && !prepared.tempArchive.isEmpty()) {
+        prepared.releaseTempArchive();
+    } else if (!started) {
+        m_tempArchives.remove(name);
+        m_owner->takeOneClickModpack(name);
+        if (m_owner->m_downloadTaskLedger->task() == taskId) {
+            m_owner->m_downloadTaskLedger->clear();
+        }
+        finishAbortedImportTask(taskId, false, m_owner->tr("未能启动整合包安装。"));
+    }
+}
+
+void ImportController::importModpackFromFile(const QString &zipPath, const QString &namePrefill) {
+    if (m_owner->m_downloadInFlight) {
+        m_owner->appendLog(m_owner->tr("已有下载或导入任务正在进行，%1 没有导入。")
+                               .arg(QFileInfo(zipPath).fileName()));
+        InlineMessage::information(m_owner->m_ui->overlay(), m_owner->tr("现在正忙"),
+                                   m_owner->tr("已有下载或导入任务正在进行，等它结束之后再试。"));
+        return;
+    }
+    if (m_importFlow) {
+        m_owner->appendLog(m_owner->tr("已有导入流程正在进行，%1 没有导入。")
+                               .arg(QFileInfo(zipPath).fileName()));
+        InlineMessage::information(m_owner->m_ui->overlay(), m_owner->tr("现在正忙"),
+                                   m_owner->tr("另一个整合包还在导入流程里，等它结束之后再试。"));
+        return;
+    }
+    const FlowGuard flowGuard(m_importFlow);
+
+    m_owner->beginFolderSwitchHold();
+    const auto folderHold = qScopeGuard([this] { m_owner->endFolderSwitchHold(); });
+
+    if (QFileInfo(zipPath).fileName() == QStringLiteral("wtfml.import-report.json")) {
+        repairFromReport(zipPath);
+        return;
+    }
+
+    PreparedModpack prepared;
+    if (!prepareModpackPackage(zipPath, &prepared)) {
+        return;
+    }
+    ModpackImport::Pack &pack = prepared.pack;
+    const ModpackImport::Format format = prepared.layout.format;
+    const QString &effectiveZip = prepared.effectiveZip;
+    const QString &sourceZip = prepared.sourceZip;
+    const QString &manifestFingerprint = prepared.manifestFingerprint;
 
     // 名字：先推一个候选（ModpackImport::suggestInstanceName 会把建不出目录的字符换掉、
     // 收长度），用户改不改都行。校验用**数据层那一份**
     // （InstanceFiles::validateRenameTarget），界面绝不自己抄一遍规则。
-    //
-    // 推的那个候选有两种来源：调用方给了 @p namePrefill 就用它
-    // （"拖进来的那个整合包"给的是**文件名**，见 .hpp），没给才按包名推
-    // （「导入整合包…」那颗按钮那一档）。**两路都过同一个清洗** —— 文件名里有
-    // `/` `:` 那些字符的时候，不清洗的话下一步 `checkImportTargetName` 会报
-    // "这个名字不能用"，而用户会觉得"我明明什么都没填"。
     QString name = namePrefill.isEmpty() ? ModpackImport::suggestInstanceName(pack.name)
                                          : ModpackImport::suggestInstanceName(namePrefill);
     while (true) {
@@ -474,7 +774,6 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
             return;
         }
         name = input.trimmed();
-        // currentId 传空串 = "这是个新实例，盘上没有它"（见 checkImportTargetName）。
         QString problem;
         const InstanceFiles::ImportNameVerdict verdict =
             InstanceFiles::checkImportTargetName(name, &problem, manifestFingerprint);
@@ -482,9 +781,6 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
             break;
         }
         if (verdict == InstanceFiles::ImportNameVerdict::OkResume) {
-            // 撞上的是**上次没下完的那一份**（下到一半网断了那种）。这是唯一一条不逼用户
-            // 改名的路：改名重导等于把已经下好的几百 MB 再下一遍。仍然要问一句 ——
-            // 这一步会重新解开包里的 config / 资源包，压在用户改过的文件上。
             const auto resumeAnswer = InlineMessage::question(m_owner->m_ui->overlay(), m_owner->tr("接着上次的导入"),
                 m_owner->tr("versions 下面已经有一个「%1」了，是上一次没下完的导入。\n\n"
                    "接着往它里面下吗？已经下好的文件会按 sha1 跳过、不会重下，"
@@ -494,39 +790,15 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
             if (resumeAnswer) {
                 break;
             }
-            continue;  // 回上面重问名字
+            continue;
         }
-        // 循环重问（和重命名那条路不同，那边是弹一次就要用户自己再点一次）：这里退回
-        // 重来的代价大得多 —— 要从"选文件"重新开始，而选的是哪个包用户未必记得住。
         InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("换个名字"), problem);
     }
 
-    // 这一步只有 CurseForge 需要：那一份清单里**一个下载地址都没有**，只有一串编号
-    // （projectID / fileID），得先问一次接口才换得出来（判据与实测见
-    // ModpackImport.hpp 顶上那段）。放在这里、而不是数据层里，是因为**用户要在点确认
-    // 之前看到真实数字**：这个包要下多少个文件、其中几个作者不许第三方代下 —— 那些数
-    // 只有换完才知道。其他格式这一句立刻返回，不联网。
-    if (format == ModpackImport::Format::CurseForge) {
-        // 等一两发请求（通常一两秒）。底栏那格要顶着"在等什么"，不然用户看到的是
-        // 点完确认之后界面卡住（和启动路径那三段同步等是同一个手法）。
-        // 请求本身挪到工作线程上（`runOffUiThread()`）。网络慢的时候
-        // UI 线程不再被钉住 —— 窗口照常重绘，底栏那句一直看得见。
-        QString problem;
-        VersionManager *versions = m_owner->m_versionManager;
-        const VersionManager::CurseForgeResolveSettings settings =
-            versions->curseForgeResolveSettings();
-        m_owner->enterSyncWait(m_owner->tr("正在向 CurseForge 换取文件清单..."));
-        runOffUiThread([&] { problem = versions->resolveCurseForgeFiles(&pack, settings); });
-        m_owner->leaveSyncWait();
-        if (!problem.isEmpty()) {
-            m_owner->appendLog(m_owner->tr("没有导入 %1：%2").arg(QFileInfo(effectiveZip).fileName(), problem));
-            InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("拿不到文件清单"), problem);
-            return;
-        }
+    if (!resolveCurseForgeManifestIfNeeded(&pack, format, QFileInfo(effectiveZip).fileName(), nullptr)) {
+        return;
     }
 
-    // 确认摘要。点下去就是几百 MB 和十几分钟，这是用户**最后**能反悔的地方，
-    // 所以四件事都要说全：装的是哪个包、基于哪个版本、带什么加载器、装到哪去。
     VersionManager::LoaderKind loaderKind = VersionManager::LoaderKind::Fabric;
     const QString loaderText =
         pack.loaderKey.isEmpty()
@@ -535,10 +807,6 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
                    ? m_owner->tr(" + %1 %2").arg(VersionManager::loaderDisplayName(loaderKind),
                                        pack.loaderVersion)
                    : m_owner->tr(" + %1 %2").arg(pack.loaderKey, pack.loaderVersion));
-    // 判据是 fileCount()（= 要下的 + 还没换成地址的）：CurseForge 那一档走到这里已经换过了
-    // （上面那一发），两者相等；**万一**换完一条都不剩（文件全不可用），这里报出来
-    // 的就是 0 —— 那正是用户该看到的数。**全是 0 的时候要说清那不等于什么都没装**：
-    // 这类包的内容全在压缩包里，接下来要做的是解开它。
     const int downloadCount = pack.fileCount();
     const QString skippedText =
         pack.filesSkipped > 0
@@ -550,8 +818,6 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
                 ? m_owner->tr("要下载的文件：0 个（内容都在压缩包里，直接解进实例）%1").arg(skippedText)
                 : m_owner->tr("当前可自动下载：0 个；另有 %1 个文件需要补齐。").arg(pack.fileIssues.size()))
             : m_owner->tr("要下载的文件：%1 个%2").arg(downloadCount).arg(skippedText);
-    // `supportNote` 是 MultiMC / 懒人包那几种格式自带的说明（导入了什么、没导入什么，
-    // lwjgl3ify 为什么会起不来）—— 必须**在点确认之前**让用户看见。
     const QString noteText =
         pack.supportNote.isEmpty() ? QString()
                                    : QStringLiteral("\n\n") + pack.supportNote;
@@ -564,47 +830,19 @@ void ImportController::importModpackFromFile(const QString &zipPath, const QStri
         m_owner->appendLog(m_owner->tr("已取消导入 %1。").arg(pack.name));
         return;
     }
-    if (!pack.fileIssues.isEmpty()) {
-        QStringList entries;
-        for (const auto &issue : pack.fileIssues) entries.append(QStringLiteral("%1 — %2").arg(
-            issue.fileName.isEmpty() ? m_owner->tr("文件 %1").arg(issue.ref.fileId) : issue.fileName.simplified(),
-            issue.reason.simplified()));
-        int selected = 0;
-        for (;;) {
-            InlineMessageBox box(MessageKind::Warning, m_owner->tr("有文件需要补齐"),
-                m_owner->tr("选中文件可打开对应网页。可以先安装其余内容，但文件未补齐时不会标记为成功。"
-                    "\n补齐位置：%1\n重新导入同一个包和实例名可重新校验。").arg(
-                    QDir::toNativeSeparators(AppPaths::versionDir(name))),
-                {m_owner->tr("继续安装其余内容"), m_owner->tr("打开所选文件网页"), m_owner->tr("取消")}, 2, -1);
-            auto *list = box.setList(entries, selected);
-            const auto updateDetails = [&](int row) {
-                if (row < 0 || row >= pack.fileIssues.size()) return;
-                box.setNote(ModpackInstallReport::description(pack.fileIssues.at(row)));
-                // 元数据来自外部，文件名中的标签也只能当普通文本显示。
-                if (auto *label = box.findChild<QLabel *>(InlineMessageBox::noteLabelName()))
-                    label->setTextFormat(Qt::PlainText);
-            };
-            updateDetails(selected);
-            QObject::connect(list, &QListWidget::currentRowChanged, &box, updateDetails);
-            m_owner->m_ui->overlay()->execPrompt(&box);
-            selected = box.listRow();
-            if (box.clickedIndex() == 0) break;
-            if (box.clickedIndex() != 1) return;
-            if (selected < 0 || selected >= pack.fileIssues.size()) continue;
-            const auto url = ModpackImport::curseForgeFileWebUrl(pack.fileIssues.at(selected));
-            if (!url.isEmpty()) QDesktopServices::openUrl(QUrl(url));
-            else InlineMessage::information(m_owner->m_ui->overlay(), tr("没有文件网页"),
-                tr("平台未提供规范项目网址，无法可靠打开文件页。请按报告中的项目和文件编号手动查找；这不代表文件已下架。"));
-        }
+    if (!promptCurseForgeFileIssuesIfNeeded(pack, name)) {
+        return;
     }
 
-    if (!tempArchive.isEmpty()) m_tempArchives.insert(name, tempArchive);
+    if (!prepared.tempArchive.isEmpty()) {
+        m_tempArchives.insert(name, prepared.tempArchive);
+    }
     const bool started = applyResolvedModpackImport(sourceZip, name, pack, manifestFingerprint);
-    if (started && !tempArchive.isEmpty()) {
-        // 壳里那一份解出来的临时包要留到导入结束（数据层还在读它）。
-        // 谁删：构造函数里接的 versionDownloadFinished（见 .hpp）。
-        tempGuard.release();
-    } else if (!started) m_tempArchives.remove(name);
+    if (started && !prepared.tempArchive.isEmpty()) {
+        prepared.releaseTempArchive();
+    } else if (!started) {
+        m_tempArchives.remove(name);
+    }
 }
 
 void ImportController::openImportReport(const QString &instanceId) {
@@ -761,7 +999,8 @@ bool ImportController::applyModpackImport(const QString &zipPath, const QString 
 bool ImportController::applyResolvedModpackImport(const QString &zipPath,
                                                   const QString &instanceName,
                                                   ModpackImport::Pack pack,
-                                                  const QString &manifestFingerprint) {
+                                                  const QString &manifestFingerprint,
+                                                  const QString &preselectedInstallerJava) {
     const QString loaderProblem =
         ModpackImport::unsupportedLoaderText(pack.loaderKey, pack.loaderVersion);
     if (!loaderProblem.isEmpty()) {
@@ -809,31 +1048,9 @@ bool ImportController::applyResolvedModpackImport(const QString &zipPath,
     // 要的运行环境和"这个版本要的 Java"是同一件事：版本 json 里的 javaVersion。这一段和
     // VersionManager::installLoaderVersion() 里那段是同一件事、同一个判据 —— 拿不到版本 json 就不猜主版本
     // （猜错比不猜更危险）。Fabric 和纯原版那条路一个进程都不起，用不上它。
-    QString installerJava = m_owner->m_javaSettings->javaPath();
-    VersionManager::LoaderKind kind = VersionManager::LoaderKind::Fabric;
-    const bool hasLoader =
-        !pack.loaderKey.isEmpty() &&
-        VersionManager::loaderKindForDependencyKey(pack.loaderKey, &kind);
-    if (hasLoader && kind != VersionManager::LoaderKind::Fabric
-        && kind != VersionManager::LoaderKind::Quilt && pack.patchedRuntime.isEmpty()) {
-        int requiredJavaMajor = 0;
-        const QJsonObject gameJson = m_owner->m_versionManager->getVersionJson(pack.gameVersion);
-        if (!gameJson.isEmpty()) {
-            requiredJavaMajor = gameJson["javaVersion"].toObject()["majorVersion"].toInt();
-        }
-        const QString configuredJava = installerJava;
-        QString javaReason;
-        if (!m_owner->m_javaSettings->installerJavaFor(requiredJavaMajor, configuredJava, &installerJava,
-                                             &javaReason)) {
-            m_owner->appendLog(m_owner->tr("这个版本要的 Java 拿不到：%1").arg(javaReason));
-            InlineMessage::warning(m_owner->m_ui->overlay(), m_owner->tr("Java 版本不够"), javaReason);
-            return false;  // 还没进忙态，直接退出就是干净的状态
-        }
-        if (installerJava != configuredJava) {
-            m_owner->appendLog(m_owner->tr("这个版本要 Java %1，装的时候改用 %2")
-                          .arg(requiredJavaMajor)
-                          .arg(installerJava));
-        }
+    QString installerJava = preselectedInstallerJava;
+    if (installerJava.isEmpty() && !resolveInstallerJavaForPack(pack, false, &installerJava, nullptr, nullptr)) {
+        return false;  // 还没进忙态，直接退出就是干净的状态
     }
 
     // 忙要在**点击这一刻**置上：导入的头两步（拉版本表 / 拉 profile）是异步的，中间那段

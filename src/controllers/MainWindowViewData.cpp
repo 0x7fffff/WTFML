@@ -65,6 +65,14 @@ QList<Tasks::TaskStep> taskStepsFromNames(const QStringList &names, int runningI
     return steps;
 }
 
+QList<Tasks::TaskStep> modpackOneClickSteps() {
+    return taskStepsFromNames(
+        {QObject::tr("下载整合包文件"), QObject::tr("解析清单与检查环境"),
+         QObject::tr("安装原版与加载器"), QObject::tr("下载模组与清单文件"),
+         QObject::tr("解压覆盖文件"), QObject::tr("校验文件并完成")},
+        0);
+}
+
 /**
  * @brief 把一批版本灌进下拉框，并尽量保住用户原来选中的那一项。
  * @param combo 目标下拉框。

@@ -21,6 +21,7 @@
 #include "controllers/DownloadTaskLedgerController.hpp"
 #include "manage/VersionManager.hpp"
 
+#include <QPointer>
 #include <QTabWidget>
 #include <QTimer>
 #include <QTreeWidget>
@@ -235,41 +236,76 @@ void DownloadCompletionController::onFinished(const QString &versionId, bool suc
             // NOTE: 那条口径是**两件事**：不但要"顶上"，还得"原来已经有选中的就别动"
             // —— 用户自己挑的版本比"刚做完的那个"更重要，所以下面那道
             // currentIndex() < 0 的守卫不能省。
-            if (combo->currentIndex() < 0) {
-                if (const int index = combo->findData(versionId); index >= 0) {
-                    combo->setCurrentIndex(index);
-                }
+            const bool oneClickModpack = m_owner.takeOneClickModpack(versionId);
+            if (oneClickModpack || combo->currentIndex() < 0) {
+                selectImportedVersion();
             }
             m_owner.updateStartButtonText();
-            const int action = InlineMessage::ask(
-                m_owner.m_ui->overlay(), MessageKind::Information, MainWindow::tr("整合包已装好"),
-                errorMessage,
-                {MainWindow::tr("查看实例"), MainWindow::tr("立即启动"), MainWindow::tr("知道了")},
-                0, -1);
-            if (action == 0) {
-                selectImportedVersion();
-                if (QTabWidget *tabs = m_owner.m_ui->getTabWidget()) {
-                    tabs->setCurrentIndex(MainWindowUI::instancesTabIndex());
+            // 正在看活动中心浮层（`taskCenterPromptWorkspace` 占着提示位）时把收尾弹窗排进队列，
+            // 等用户关掉活动中心立刻弹出，避免被「已有提示开着」静默吞掉。
+            const auto showCompletePrompt = [weakOwner = QPointer<MainWindow>(&m_owner), versionId,
+                                             errorMessage]() {
+                if (weakOwner.isNull()) {
+                    return;
                 }
-            } else if (action == 1) {
-                selectImportedVersion();
-                if (QTabWidget *tabs = m_owner.m_ui->getTabWidget()) {
-                    tabs->setCurrentIndex(MainWindowUI::homeTabIndex());
+                QComboBox *targetCombo = weakOwner->m_ui->getInstalledVersionCombo();
+                const auto applySelection = [weakOwner, targetCombo, versionId]() {
+                    if (const int index = targetCombo->findData(versionId); index >= 0) {
+                        targetCombo->setCurrentIndex(index);
+                    }
+                    weakOwner->updateStartButtonText();
+                    if (QTreeWidget *tree = weakOwner->m_ui->getInstanceList()) {
+                        MainWindowViewData::syncTreeToCombo(targetCombo, tree);
+                        if (QTreeWidgetItem *current = tree->currentItem()) {
+                            tree->scrollToItem(current);
+                        }
+                    }
+                };
+                const int action = InlineMessage::ask(
+                    weakOwner->m_ui->overlay(), MessageKind::Information,
+                    MainWindow::tr("整合包已装好"), errorMessage,
+                    {MainWindow::tr("查看实例"), MainWindow::tr("立即启动"), MainWindow::tr("知道了")},
+                    0, -1);
+                if (action == 0) {
+                    applySelection();
+                    if (QTabWidget *tabs = weakOwner->m_ui->getTabWidget()) {
+                        tabs->setCurrentIndex(MainWindowUI::instancesTabIndex());
+                    }
+                } else if (action == 1) {
+                    applySelection();
+                    if (QTabWidget *tabs = weakOwner->m_ui->getTabWidget()) {
+                        tabs->setCurrentIndex(MainWindowUI::homeTabIndex());
+                    }
                 }
-            }
-            // 这次导入的东西要是 GTNH 那种会在首启里跑 MCLib AssetDirector 的包，
-            // 趁热把那几十 MB 资源预取掉（体积、写入位置见 docs/features/MODPACK_IMPORT.md）。
-            // 放在提示之后：那几个提示是"导入成了"的收尾，先让用户看见它。
-            m_owner.maybePrefetchAssetDirector(versionId);
-            if (action == 1) {
-                QTimer::singleShot(0, &m_owner, &MainWindow::onStartButtonClicked);
+                // 这次导入的东西要是 GTNH 那种会在首启里跑 MCLib AssetDirector 的包，
+                // 趁热把那几十 MB 资源预取掉（体积、写入位置见 docs/features/MODPACK_IMPORT.md）。
+                // 放在提示之后：那几个提示是"导入成了"的收尾，先让用户看见它。
+                weakOwner->maybePrefetchAssetDirector(versionId);
+                if (action == 1) {
+                    QTimer::singleShot(0, weakOwner.data(), &MainWindow::onStartButtonClicked);
+                }
+            };
+            if (OverlayHost *overlay = m_owner.m_ui->overlay();
+                overlay == nullptr || !overlay->queueNotification(showCompletePrompt)) {
+                showCompletePrompt();
             }
         } else if (userCancelled) {
+            m_owner.takeOneClickModpack(versionId);
             // 用户自己按的取消：日志照写，但**不弹「导入失败」**（那不是失败）。
             m_owner.appendLog(TextMarks::failed(tr("整合包导入已由用户取消。")));
         } else {
+            m_owner.takeOneClickModpack(versionId);
             m_owner.appendLog(TextMarks::failed(tr("整合包没有导入：%1").arg(errorMessage)));
-            InlineMessage::warning(m_owner.m_ui->overlay(), MainWindow::tr("导入失败"), errorMessage);
+            const auto showFailPrompt = [weakOwner = QPointer<MainWindow>(&m_owner), errorMessage]() {
+                if (weakOwner.isNull()) {
+                    return;
+                }
+                InlineMessage::warning(weakOwner->m_ui->overlay(), MainWindow::tr("导入失败"), errorMessage);
+            };
+            if (OverlayHost *overlay = m_owner.m_ui->overlay();
+                overlay == nullptr || !overlay->queueNotification(showFailPrompt)) {
+                showFailPrompt();
+            }
         }
         return;
     }

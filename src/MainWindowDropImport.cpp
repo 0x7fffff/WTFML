@@ -39,6 +39,12 @@ void MainWindow::importModpackFromFile(const QString &zipPath, const QString &na
     m_importController->importModpackFromFile(zipPath, namePrefill);
 }
 
+void MainWindow::importModpackOneClick(const QString &zipPath,
+                                       const QString &confirmedInstanceName,
+                                       Tasks::TaskId taskId) {
+    m_importController->importModpackOneClick(zipPath, confirmedInstanceName, taskId);
+}
+
 bool MainWindow::applyModpackImport(const QString &zipPath, const QString &instanceName,
                                     const QByteArray &manifestJson,
                                     ModpackImport::Format format) {
