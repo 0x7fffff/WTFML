@@ -362,6 +362,32 @@ void runModpackImportTests(const QString &sandbox) {
         }
         check(bad == 0, "V3 推出来的每一个候选名字都过得了 validateRenameTarget()",
               QStringLiteral("坏 %1 个").arg(bad));
+
+        // --- V3b. 重名自动加后缀（suggestUniqueInstanceName）--------------------
+        QSet<QString> existing{QStringLiteral("FPS Modpack"), QStringLiteral("FPS Modpack-2")};
+        const auto checkAvailable = [&existing](const QString &candidate) {
+            for (const QString &taken : existing) {
+                if (taken.compare(candidate, Qt::CaseInsensitive) == 0) {
+                    return false;
+                }
+            }
+            return true;
+        };
+        check(ModpackImport::suggestUniqueInstanceName(QStringLiteral("Clean Pack"), checkAvailable) ==
+                  QStringLiteral("Clean Pack"),
+              "V3b 不重名时原样返回候选名");
+        check(ModpackImport::suggestUniqueInstanceName(QStringLiteral("fps modpack"), checkAvailable) ==
+                  QStringLiteral("fps modpack-3"),
+              "V3b 大小写不敏感判重并递增 -2 / -3 后缀",
+              ModpackImport::suggestUniqueInstanceName(QStringLiteral("fps modpack"), checkAvailable));
+        const QString maxLenName(InstanceFiles::kMaxDirNameLength, QLatin1Char('A'));
+        const QSet<QString> takenMax{maxLenName};
+        const QString suffixedMax = ModpackImport::suggestUniqueInstanceName(
+            maxLenName, [&](const QString &candidate) { return !takenMax.contains(candidate); });
+        check(suffixedMax.endsWith(QStringLiteral("-2")) &&
+                  suffixedMax.length() <= InstanceFiles::kMaxDirNameLength &&
+                  InstanceFiles::validateDirName(suffixedMax).isEmpty(),
+              "V3b 满 64 字符重名时截短前缀后再拼后缀，仍满足长度与目录名校验", suffixedMax);
     }
 
     // --- V3b. 先试哪条地址：cdn.modrinth.com 排最前 -----------------------------

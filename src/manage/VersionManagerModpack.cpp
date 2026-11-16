@@ -164,6 +164,11 @@ void VersionManager::importModpack(const QString &zipPath, const QString &instan
         // 实例那份 json 的 inheritsFrom 指着它，指着一个不存在的版本启动时会报
         // "版本信息缺失"（见继承链那一段的报错）。
         m_modpackInstall.phase = ModpackInstall::Phase::WaitingParentJson;
+        emit modpackImportStageChanged(
+            ModpackStage::LoaderAndVanilla,
+            pack.patchedRuntime.isEmpty()
+                ? tr("正在准备原版 %1...").arg(pack.gameVersion)
+                : tr("正在准备原版 %1 与专用运行库...").arg(pack.gameVersion));
         emit modpackImportMessage(pack.patchedRuntime.isEmpty()
             ? tr("这个整合包没有模组加载器，先把原版 %1 装好...").arg(pack.gameVersion)
             : tr("使用包内启动补丁，先补齐原版 %1，再安装专用运行库...").arg(pack.gameVersion));
@@ -174,6 +179,10 @@ void VersionManager::importModpack(const QString &zipPath, const QString &instan
     }
 
     m_modpackInstall.phase = ModpackInstall::Phase::InstallingLoader;
+    emit modpackImportStageChanged(
+        ModpackStage::LoaderAndVanilla,
+        tr("正在安装 %1 %2 与原版 %3...")
+            .arg(loaderKnown ? loaderDisplayName(kind) : pack.loaderKey, pack.loaderVersion, pack.gameVersion));
     // 钉死版本（最后一个参数）：整合包说装哪个就装哪个。装加载器那条路自己会把原版补齐
     // （它要基于原版才跑得起来），所以这一步不用再管父版本。
     installLoaderVersion(pack.gameVersion, kind, installerJavaPath, pack.loaderVersion);
@@ -250,6 +259,10 @@ void VersionManager::startModpackFiles() {
     const QList<ModpackImport::PackFile> files = m_modpackInstall.pack.files;
     m_modpackInstall.phase = ModpackInstall::Phase::DownloadingFiles;
     m_currentVersionDownloading = id;  // 这一批的"名字"（兜底终态那条路要用）
+    emit modpackImportStageChanged(
+        ModpackStage::ModpackFiles,
+        files.isEmpty() ? tr("无额外模组文件，准备解压覆盖文件...")
+                        : tr("正在下载整合包清单文件（共 %1 个）...").arg(files.size()));
     if (!m_modpackInstall.pack.patchedRuntime.isEmpty()) {
         emit modpackImportMessage(tr("正在补齐专用运行库和客户端文件，完成后解压整合包内容..."));
     } else if (files.isEmpty()) {
@@ -288,6 +301,7 @@ void VersionManager::extractModpackOverrides() {
     }
     const QString id = m_modpackInstall.instanceId;
     m_modpackInstall.phase = ModpackInstall::Phase::ExtractingOverrides;
+    emit modpackImportStageChanged(ModpackStage::ExtractingOverrides, tr("正在解压覆盖文件（config、资源包、光影等）..."));
 
     // 两个前缀一起解，顺序 = 优先级：Modrinth 的规矩是 client-overrides **盖过** overrides，
     // "谁在后谁赢"这一条是格式的一部分，不能调换。
@@ -362,6 +376,7 @@ void VersionManager::finishModpackImport() {
     QString planError;
     const auto core = integrityPlan(id, &planError);
     m_modpackInstall.phase = ModpackInstall::Phase::VerifyingCompletion;
+    emit modpackImportStageChanged(ModpackStage::Verifying, tr("正在校验文件并完成实例写入..."));
     m_modpackOverridesCancelled = std::make_shared<std::atomic_bool>(false);
     m_modpackOverridesFailure.clear();
     const auto cancelled = m_modpackOverridesCancelled;
@@ -434,7 +449,13 @@ void VersionManager::commitModpackImport(const QList<ModpackImport::FileIssue> &
     }
 
     // meta 也是安装收尾的凭据；写入成功后才允许移除最后的导入标记。
+    // 写入显示名 `name`（= id），否则 displayParts().customName 为空，实例列表里会退化成
+    // `<realVersion>-<loaderName>`（例如 `1.20.1-Fabric`），与同目录里的加载器版本撞名。
     QJsonObject fields;
+    fields[kDisplayNameField] = id;
+    if (instanceId(id).isEmpty()) {
+        fields[kInstanceIdField] = newInstanceId();
+    }
     fields[QStringLiteral("realVersion")] = pack.gameVersion;
     if (!pack.loaderKey.isEmpty()) {
         LoaderKind kind = LoaderKind::Fabric;

@@ -519,6 +519,22 @@ int MwModpackImportChecks(const QDir &versionsDir, MainWindow &window, GlobalJav
             check(countOccurrences(messagesSnapshot(), QStringLiteral("正在预取")) == imports,
                   "AA12 不适用时一条“正在预取”的日志都不会写");
         }
+        // ---- AA13 下载页一键导入入口与忙态防重入 -------------------------------
+        {
+            const int startedBefore = countOccurrences(messagesSnapshot(), QStringLiteral("开始导入整合包"));
+            window.seedDownloadInFlightForTest(true);
+            dismissNextPrompt();
+            const bool invoked = QMetaObject::invokeMethod(
+                &window, "importModpackOneClick", Qt::DirectConnection, Q_ARG(QString, kZip),
+                Q_ARG(QString, QStringLiteral("oneclick-busy-test")));
+            check(invoked, "AA13 importModpackOneClick 接得上");
+            check(g_modalTitle == QStringLiteral("现在正忙"),
+                  "AA13 已有任务在跑时拦截一键导入续接", g_modalTitle);
+            check(countOccurrences(messagesSnapshot(), QStringLiteral("开始导入整合包")) == startedBefore,
+                  "AA13 被忙态拦截时一个字节都没开始导");
+            window.seedDownloadInFlightForTest(false);
+        }
+
         check(QDir(versionsDir).entryList(QDir::Dirs | QDir::NoDotAndDotDot).size() == dirsBefore,
               "AA 收尾：沙盒里没多出目录（被拦下的导入不在盘上留东西）",
               QString::number(dirsBefore) + QStringLiteral(" → ") +

@@ -344,6 +344,9 @@ public:
     /// 下载页那四个单选钮对应的加载器。
     enum class LoaderKind { Fabric, Forge, NeoForge, OptiFine, Quilt };
 
+    /// 整合包导入在数据层的推进阶段，供任务中心与进度视图同步分步状态。
+    enum class ModpackStage { LoaderAndVanilla, ModpackFiles, ExtractingOverrides, Verifying };
+
     /// 这个加载器现在接通了没有。**四个都接通了**。
     ///
     /// 为什么四个都能装之后还留着这个函数：它回答的是"勾了这个钮会发生什么"，而界面要据此
@@ -1329,6 +1332,9 @@ signals:
     /// 说的是"整合包"，而中间这几句也要一起进底栏那格状态文字（用户等的是整合包，
     /// 不是加载器）。两条路各自说话，界面按各自的信号名接。
     void modpackImportMessage(const QString &text);
+
+    /// 整合包导入进入下一个关键阶段时发射，界面层据此推进任务中心的步骤列表。
+    void modpackImportStageChanged(ModpackStage stage, const QString &note);
 
     /// 装"一个带名字的实例"中间那几句（正在装原版 / 正在装加载器 / 写实例文件）。
     ///

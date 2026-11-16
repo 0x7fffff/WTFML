@@ -1180,6 +1180,14 @@ private slots:
     /// 文件名是他认得的那一串，包名反而未必。
     void importModpackFromFile(const QString &zipPath, const QString &namePrefill = QString());
 
+    /// 下载页整合包一键安装入口：整合包压缩包已在缓存目录就绪、实例名也已在点击时确认，
+    /// 直接沿用现有的 @p taskId 推进任务中心步骤并进入导入。
+    void importModpackOneClick(const QString &zipPath, const QString &confirmedInstanceName,
+                               Tasks::TaskId taskId = Tasks::invalidTaskId());
+
+    void markOneClickModpack(const QString &instanceId) { m_oneClickModpackIds.insert(instanceId); }
+    bool takeOneClickModpack(const QString &instanceId) { return m_oneClickModpackIds.remove(instanceId); }
+
     // ---------- 拖进来的文件----------
     //
     // 落点规则：实例设置开着时拖入 .jar/.zip 之类，先认是整合包还是资源包等；
@@ -2874,7 +2882,13 @@ private:
     /// **同一个 label** 发一个假失败 —— 双击那一行的第二下正是这样。两半都要，
     /// 少一半就还是会被吃掉。
     /// 顺带的好处：两个整合包前后脚开始下也各自记得住（键不同，take() 各取各的）。
-    QHash<QString, QString> m_pendingModpackImports;
+    struct PendingModpackImport {
+        QString path;
+        QString instanceName;
+        Tasks::TaskId taskId = Tasks::invalidTaskId();
+    };
+    QHash<QString, PendingModpackImport> m_pendingModpackImports;
+    QSet<QString> m_oneClickModpackIds;
     /// 树上每一个资源**完整**的那一条（按 `Hit::iconCacheId()` 存，也就是条目上
     /// `resourceIconIdRole()` 里那串）。
     ///

@@ -52,6 +52,9 @@ void runModpackCompletionTests(const QString &sandbox) {
         manager.setVersionManifestUrlOverride(QUrl::fromLocalFile(root + "/index.json").toString());
         QEventLoop loop;
         bool done = false, success = false; QString message;
+        QList<VersionManager::ModpackStage> stages;
+        QObject::connect(&manager, &VersionManager::modpackImportStageChanged, &loop,
+            [&](VersionManager::ModpackStage stage, const QString &) { stages.append(stage); });
         QObject::connect(&manager, &VersionManager::versionDownloadFinished, &loop,
             [&](const QString &id, bool ok, const QString &text) {
                 if (id != QLatin1String("completion-test")) return;
@@ -63,6 +66,15 @@ void runModpackCompletionTests(const QString &sandbox) {
         });
         loop.exec();
         check(done && success == (attempt == 2), "ZG8 只有补齐且哈希一致时才发成功终态", message);
+        if (attempt == 2) {
+            const QList<VersionManager::ModpackStage> expectedStages{
+                VersionManager::ModpackStage::LoaderAndVanilla,
+                VersionManager::ModpackStage::ModpackFiles,
+                VersionManager::ModpackStage::ExtractingOverrides,
+                VersionManager::ModpackStage::Verifying};
+            check(stages == expectedStages,
+                  "ZG8 导入期间按顺序发出原版加载器/清单文件/解压覆盖/校验收尾四个阶段信号");
+        }
         QFile report(target + QStringLiteral("/wtfml.import-report.json"));
         check(report.open(QIODevice::ReadOnly), "ZG8 每次收尾都有持久报告");
         const auto json = QJsonDocument::fromJson(report.readAll()).object(); report.close();
@@ -180,6 +192,14 @@ void runModpackCompletionTests(const QString &sandbox) {
             check(!QFileInfo::exists(InstanceFiles::importMarkerPath("completion-test")) &&
                       QFileInfo::exists(AppPaths::versionMetaPath("completion-test")),
                   "ZG8 真正补齐后才写成功 meta 并清除未完成标记");
+            QFile metaFile(AppPaths::versionMetaPath("completion-test"));
+            const bool metaOk = metaFile.open(QIODevice::ReadOnly);
+            const QJsonObject metaObj = metaOk ? QJsonDocument::fromJson(metaFile.readAll()).object()
+                                               : QJsonObject();
+            metaFile.close();
+            check(metaObj.value(QStringLiteral("name")).toString() == QStringLiteral("completion-test") &&
+                      (attempt != 2 || !metaObj.value(QStringLiteral("instanceId")).toString().isEmpty()),
+                  "ZG8 导入提交后在 wtfml.meta 中写入自定义实例名 name 和 instanceId");
         }
     }
     {

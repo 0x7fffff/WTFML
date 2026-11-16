@@ -113,6 +113,8 @@ inline constexpr int kAccountPanelLimit = 3;
 
 QString selectedVersionId(const QComboBox *combo);
 QList<Tasks::TaskStep> taskStepsFromNames(const QStringList &names, int runningIndex);
+/// 下载页整合包一键安装任务在任务中心的 6 步清单（初始状态：第 0 步运行中，其余待办）。
+QList<Tasks::TaskStep> modpackOneClickSteps();
 void fillVersionCombo(QComboBox *combo, const QList<VersionDisplayParts> &parts);
 QString instanceIdOf(const QTreeWidgetItem *item);
 QString instanceTreeItemText(const VersionDisplayParts &part, bool running);

@@ -23,6 +23,7 @@
 #include <QJsonObject>
 #include <QString>
 #include <QStringList>
+#include <functional>
 
 namespace ModpackImport {
 
@@ -475,6 +476,15 @@ bool isSafeRelativePath(const QString &path);
  * （`原版ATT2地图（无模组）`），那是用户的实例，不是文件名。
  */
 QString suggestInstanceName(const QString &packName);
+
+/**
+ * @brief 在 suggestInstanceName() 的基础上，遇到重名时自动追加 `-2`、`-3` 后缀，保证返回的实例名可直接落盘。
+ * @param packName 整合包名。
+ * @param isAvailable 可选重名判据（返回 true 表示名字可用）；为空时默认用当前游戏目录下
+ *        `InstanceFiles::validateRenameTarget(candidate, QString()).isEmpty()`。
+ */
+QString suggestUniqueInstanceName(const QString &packName,
+                                  const std::function<bool(const QString &)> &isAvailable = {});
 
 /**
  * @brief 清单里给的那几条地址，按"先试哪条"重排一遍：`cdn.modrinth.com` 排最前。

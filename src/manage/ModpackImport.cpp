@@ -203,6 +203,36 @@ QString suggestInstanceName(const QString &packName) {
     return name;
 }
 
+QString suggestUniqueInstanceName(const QString &packName,
+                                  const std::function<bool(const QString &)> &isAvailable) {
+    const auto available = [&](const QString &candidate) {
+        if (!InstanceFiles::validateDirName(candidate).isEmpty()) {
+            return false;
+        }
+        return isAvailable ? isAvailable(candidate)
+                           : InstanceFiles::validateRenameTarget(candidate, QString()).isEmpty();
+    };
+
+    const QString base = suggestInstanceName(packName);
+    if (available(base)) {
+        return base;
+    }
+
+    for (int index = 2; index < 10000; ++index) {
+        const QString suffix = QStringLiteral("-%1").arg(index);
+        const int maxPrefix = InstanceFiles::kMaxDirNameLength - suffix.length();
+        QString prefix = maxPrefix > 0 ? base.left(maxPrefix).trimmed() : QString();
+        while (prefix.endsWith(QLatin1Char('.')) || prefix.endsWith(QLatin1Char(' '))) {
+            prefix.chop(1);
+        }
+        const QString candidate = prefix.isEmpty() ? QObject::tr("整合包%1").arg(suffix) : prefix + suffix;
+        if (available(candidate)) {
+            return candidate;
+        }
+    }
+    return base;
+}
+
 // ---------------------------------------------------------------------------
 // 压缩包形状：MultiMC / 普通 .minecraft / PCL 包装
 // ---------------------------------------------------------------------------

@@ -1032,6 +1032,45 @@ void ConnectionsController::setup() {
     // 真正要用户做决定的（装完了、失败了）走 versionDownloadFinished 那条弹窗的路。
     connect(m_owner->m_versionManager, &VersionManager::modpackImportMessage, m_owner,
             [this](const QString &text) { m_owner->appendLog(text); });
+    connect(m_owner->m_versionManager, &VersionManager::modpackImportStageChanged, m_owner,
+            [this](VersionManager::ModpackStage stage, const QString &note) {
+                const Tasks::TaskId id = m_owner->m_downloadTaskLedger->task();
+                if (id == Tasks::invalidTaskId()) {
+                    return;
+                }
+                Tasks::TaskManager *tasks = m_owner->m_activityCenter->tasks();
+                const Tasks::TaskSnapshot snap = tasks->snapshot(id);
+                if (snap.steps.isEmpty()) {
+                    return;
+                }
+                // 一键安装带「下载整合包文件 / 解析清单」前两步（共 6 步），本地导入从第 0 步开始（共 4 步）。
+                const int offset = snap.steps.size() >= 6 ? 2 : 0;
+                int active = offset;
+                switch (stage) {
+                case VersionManager::ModpackStage::LoaderAndVanilla:
+                    active = offset;
+                    break;
+                case VersionManager::ModpackStage::ModpackFiles:
+                    active = offset + 1;
+                    break;
+                case VersionManager::ModpackStage::ExtractingOverrides:
+                    active = offset + 2;
+                    break;
+                case VersionManager::ModpackStage::Verifying:
+                    active = offset + 3;
+                    break;
+                }
+                for (int i = 0; i < snap.steps.size(); ++i) {
+                    if (i < active) {
+                        tasks->setStepState(id, i, Tasks::TaskStepState::Done);
+                    } else if (i == active) {
+                        tasks->setStepState(id, i, Tasks::TaskStepState::Running, note);
+                    }
+                }
+                if (!note.isEmpty()) {
+                    tasks->setDetail(id, note);
+                }
+            });
     // 装"一个带名字的实例"中间那几句（正在装原版 / 正在装加载器）同上：只写日志、不弹窗。
     connect(m_owner->m_versionManager, &VersionManager::instanceInstallMessage, m_owner,
             [this](const QString &text) { m_owner->appendLog(text); });

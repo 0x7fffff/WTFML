@@ -482,13 +482,53 @@ void ResourcePageController::onDownloadFinished(const QString &label, bool succe
     // 取消和真失败走的是同一条终态信号，可账本里它们该落成两档。
     const bool userCancelled = !success && m_owner.m_downloadTaskLedger->userCancelInFlight();
 
+    // 整合包那一页下回来的 .mrpack：成功时直接沿用当前任务进入一键导入（不在此提前
+    // finishTask，也不弹"下载完成"）；失败时按常规下载失败收尾并保留待重试记录。
+    if (success && m_owner.m_pendingModpackImports.contains(label)) {
+        const MainWindow::PendingModpackImport pending = m_owner.m_pendingModpackImports.take(label);
+        const bool sameLedgerTask =
+            !m_owner.m_downloadTaskLedger->resourceLabel().isEmpty()
+            && label == m_owner.m_downloadTaskLedger->resourceLabel()
+            && m_owner.m_downloadTaskLedger->task() != Tasks::invalidTaskId();
+        const Tasks::TaskId activeTask =
+            sameLedgerTask ? m_owner.m_downloadTaskLedger->task() : pending.taskId;
+        if (sameLedgerTask) {
+            m_owner.m_downloadTaskLedger->clearTask();
+            m_owner.m_downloadTaskLedger->setResourceLabel(QString());
+            m_owner.m_downloadTaskLedger->clearOwnerIf(activeTask);
+        }
+        if (activeTask != Tasks::invalidTaskId() && m_owner.m_activityCenter->tasks()->has(activeTask)) {
+            Tasks::TaskManager *tasks = m_owner.m_activityCenter->tasks();
+            if (tasks->snapshot(activeTask).steps.isEmpty()) {
+                tasks->setSteps(activeTask, MainWindowViewData::modpackOneClickSteps());
+            }
+            tasks->setStepState(activeTask, 0, Tasks::TaskStepState::Done);
+            tasks->setStepState(activeTask, 1, Tasks::TaskStepState::Running,
+                                tr("整合包文件已下载，正在解析清单…"));
+            tasks->setProgress(activeTask, 0, 0);
+            tasks->setDetail(activeTask, tr("正在解析整合包清单…"));
+        }
+        m_owner.appendLog(TextMarks::done(tr("%1 下好了：%2").arg(label, errorMessage)));
+        QTimer::singleShot(0, this, [this, pending, activeTask] {
+            m_owner.importModpackOneClick(pending.path, pending.instanceName, activeTask);
+        });
+        return;
+    }
+
     if (!m_owner.m_downloadTaskLedger->resourceLabel().isEmpty()
         && label == m_owner.m_downloadTaskLedger->resourceLabel()
         && m_owner.m_downloadTaskLedger->task() != Tasks::invalidTaskId()) {
         const Tasks::TaskId task = m_owner.m_downloadTaskLedger->task();
         m_owner.m_downloadTaskLedger->clearTask();
         m_owner.m_downloadTaskLedger->setResourceLabel(QString());
+        if (!userCancelled && !success && m_owner.m_pendingModpackImports.contains(label)) {
+            m_owner.m_activityCenter->tasks()->setStepState(
+                task, 0, Tasks::TaskStepState::Failed, errorMessage);
+        }
         if (userCancelled) {
+            if (m_owner.m_pendingModpackImports.contains(label)) {
+                m_owner.m_pendingModpackImports.remove(label);
+            }
             m_owner.m_activityCenter->tasks()->cancel(task);
             // 重试资格跟着松开（别的任务收尾时不许把它挪走 —— 见 owner() 那段）。
             m_owner.m_downloadTaskLedger->clearOwnerIf(task);
@@ -509,34 +549,7 @@ void ResourcePageController::onDownloadFinished(const QString &label, bool succe
         return;
     }
 
-    // 整合包那一页下回来的 .mrpack：下完要接着走导入那条路。这一单**只活一次**，所以
-    // 取走一次就用掉了 —— 不清的话，用户手动导入过一个包之后，下一个下完的模组也会顺手
-    // 再触发一次导入。
-    //
-    // NOTE: 按 `label` **只取自己那一单**（不是整根成员一刀切）。不分单的话，任何一次
-    // 下载完成都会把这笔记录读走：整合包还在下、用户又点了个模组，模组先下完就把
-    // 记录吃了 —— 拿半截 .mrpack 去导入，而且整合包真下完时再没人接它。
-    // 用 take() 而不是 value()+remove()：这一单**只活一次**，取走本身就是"用掉了"。
-    //
-    // **只在成功这一支取**：挂在函数开头的话，失败那一发也会把记录吃掉 —— 于是
-    // "整合包下到一半失败 → 点重试 → 下回来了"的结局是：文件在缓存里躺着，导入却永远
-    // 不会开始（界面上那句「已经装进实例里了」也永远等不到）。失败时留着这一单，重试
-    // 成功那一发照样认领得到；用户再也不重试的话，它只是内存里一条记录。
-    const QString pendingModpack = m_owner.m_pendingModpackImports.take(label);
-
     m_owner.appendLog(TextMarks::done(tr("%1 下好了：%2").arg(label, errorMessage)));
-    if (!pendingModpack.isEmpty()) {
-        // 不弹"下载完成"：整合包下回来只是第一步，紧接着那个导入框就是用户的下一步，
-        // 中间夹一个"下好了"等于让他白点一次。
-        //
-        // NOTE: **排到下一轮**再走导入，不能在这里直接调。这个函数是在
-        // DownloadManager 的 allDownloadsFinished 信号栈里被调到的，而导入那条路
-        // 马上就会 beginBatch() 开新的一批 —— 在别人的信号栈里开批次会崩
-        // （取证见 build/tools/crashdump/，VersionManager 里那几处
-        // deferXxxStep 是同一个理由）。
-        QTimer::singleShot(0, this, [this, pendingModpack] { m_owner.importModpackFromFile(pendingModpack); });
-        return;
-    }
     InlineMessage::information(m_owner.m_ui->overlay(), tr("下载完成"),
                              tr("%1 已经装进实例里了。\n\n%2").arg(label, errorMessage));
 }

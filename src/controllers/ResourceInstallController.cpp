@@ -13,6 +13,7 @@
 #include "download/ModDependencies.hpp"
 #include "download/ResourceStore.hpp"
 #include "manage/InstanceFiles.hpp"
+#include "manage/ModpackImport.hpp"
 #include "manage/VersionManager.hpp"
 #include "settings/LauncherSettings.hpp"
 #include "tasks/TaskManager.hpp"
@@ -282,7 +283,10 @@ void ResourceInstallController::installNow(ResourceCatalog::Kind kind, const QSt
     // 这一批算"谁在动盘"。默认是那个实例；用户挑了别处的目录时它必须是空的（那底下没有任何
     // 实例在被写，锁着它等于白挡别人启动）。
     QString busyInstanceId = instanceId;
-    if (!owner.m_settings->downloadAutoIntoInstance() || !cameFromInstance) {
+    if (isModpack) {
+        // 整合包一律自动先缓存到 modpackCacheDir() 再直接安装进当前游戏目录，不再弹“下载到哪个文件夹”。
+        QDir().mkpath(destinationDir);
+    } else if (!owner.m_settings->downloadAutoIntoInstance() || !cameFromInstance) {
         // 这个框是**嵌套事件循环**：开着的这一会儿，网络回信照常派发 —— 也就可能有一发
         // 版本清单插进 `m_resourceVersions`（那张 QHash 一 rehash，调用方递进来的
         // 元素引用就悬空了）。所以 `version` 这一格是**按值**收的（见头文件那一处），
@@ -436,19 +440,57 @@ void ResourceInstallController::installNow(ResourceCatalog::Kind kind, const QSt
     // `DownloadTaskLedgerController::task()` 里了 —— 只问下面那几个谓词的话，这一句会放行，
     // 紧接着 `setTask(beginTask(...))` 把安装那一件顶掉：安装收尾时收的是**这一单**，
     // 它自己永远停在"进行中"（而且下载器那边还会以"已有下载任务"拒掉安装）。
-    if (owner.m_downloadInFlight || owner.m_versionManager->isDownloading()
-        || owner.m_versionManager->isLoaderInstalling()
-        || owner.m_versionManager->isModpackImporting()
-        || owner.m_versionManager->isNamedInstanceInstalling()
-        || (owner.m_serverInstall != nullptr && owner.m_serverInstall->ownsDownloadBatch())) {
+    const auto isBatchBusy = [&owner]() {
+        return owner.m_downloadInFlight || owner.m_versionManager->isDownloading()
+               || owner.m_versionManager->isLoaderInstalling()
+               || owner.m_versionManager->isModpackImporting()
+               || owner.m_versionManager->isNamedInstanceInstalling()
+               || (owner.m_serverInstall != nullptr && owner.m_serverInstall->ownsDownloadBatch());
+    };
+    if (isBatchBusy()) {
         InlineMessage::information(
             owner.m_ui->overlay(), MainWindow::tr("暂时无法操作"),
             MainWindow::tr("已有下载或安装任务正在进行，请结束后再下载这个。"));
         return;
     }
+
+    QString confirmedName;
+    if (isModpack) {
+        const QString titleCopy = displayTitle;
+        confirmedName = ModpackImport::suggestUniqueInstanceName(titleCopy);
+        while (true) {
+            bool ok = false;
+            const QString input = InlineMessage::getText(
+                owner.m_ui->overlay(), MainWindow::tr("安装整合包"),
+                MainWindow::tr("实例叫什么名字？这就是 versions 下面那个目录名，\n"
+                               "整合包「%1」会直接下载并安装到当前游戏目录。")
+                    .arg(titleCopy),
+                confirmedName, &ok);
+            if (!ok) {
+                return;
+            }
+            confirmedName = input.trimmed();
+            const QString problem = InstanceFiles::validateRenameTarget(confirmedName, QString());
+            if (problem.isEmpty()) {
+                break;
+            }
+            InlineMessage::warning(owner.m_ui->overlay(), MainWindow::tr("换个名字"), problem);
+        }
+        if (isBatchBusy()) {
+            InlineMessage::information(
+                owner.m_ui->overlay(), MainWindow::tr("暂时无法操作"),
+                MainWindow::tr("已有下载或安装任务正在进行，请结束后再下载这个。"));
+            return;
+        }
+    }
+
+    const Tasks::TaskId task =
+        isModpack ? owner.beginTask(Tasks::TaskKind::Import,
+                                    MainWindow::tr("安装整合包 %1").arg(confirmedName),
+                                    confirmedName, MainWindowViewData::modpackOneClickSteps())
+                  : owner.beginTask(Tasks::TaskKind::Download, label);
     owner.m_downloadTaskLedger->setResourceLabel(label);
-    owner.m_downloadTaskLedger->setTask(
-        owner.beginTask(Tasks::TaskKind::Download, label));
+    owner.m_downloadTaskLedger->setTask(task);
     // 这一单的登记**必须摆在 `downloadResourceFiles()` 之前**：这批文件**盘上都已经有**时
     // （上次下完了但导入失败 / 被取消，`.mrpack` 还躺在缓存里），`downloadResourceFiles()`
     // 会在它**返回之前**就同步发完 `resourceDownloadFinished(label, true, …)` ——
@@ -456,18 +498,25 @@ void ResourceInstallController::installNow(ResourceCatalog::Kind kind, const QSt
     // 「已经装进实例里了」。而失败那一支**不** take 记录，只有成功那一支才取
     // （见 `onResourceDownloadFinished()` 里那段 ★），所以提前登记不会漏。
     if (!modpackPath.isEmpty()) {
-        owner.m_pendingModpackImports.insert(label, modpackPath);
+        owner.m_pendingModpackImports.insert(label, {modpackPath, confirmedName, task});
     }
     const bool started =
         owner.m_versionManager->downloadResourceFiles(destinationDir, busyInstanceId, label, files);
     if (started) {
-        // 只有真开起来了才算"这一批的主人"（被拒那一发已经在上面那句里收过尾了，
-        // 见 onResourceDownloadFinished()）。
-        owner.m_downloadTaskLedger->setOwner(owner.m_downloadTaskLedger->task());
-        owner.m_activityCenter->tasks()->setProgress(owner.m_downloadTaskLedger->task(), 0, 0);
-    } else if (!modpackPath.isEmpty()) {
-        // 没开起来（撞上上面那道忙闸）：刚登记的那一单作废，留着就是一条永远等不到
-        // 下载的记录。
-        owner.m_pendingModpackImports.remove(label);
+        // 只有真开起来了才算"这一批的主人"（被拒那一发或已命中缓存的同步完成可能在
+        // `downloadResourceFiles()` 返回前已经收过尾并清空 Ledger，故仅在仍是当前任务时更新）。
+        if (owner.m_downloadTaskLedger->task() == task) {
+            owner.m_downloadTaskLedger->setOwner(task);
+            owner.m_activityCenter->tasks()->setProgress(task, 0, 0);
+        }
+    } else {
+        if (!modpackPath.isEmpty()) {
+            owner.m_pendingModpackImports.remove(label);
+        }
+        if (owner.m_downloadTaskLedger->task() == task) {
+            owner.m_downloadTaskLedger->clearTask();
+            owner.m_downloadTaskLedger->setResourceLabel(QString());
+            owner.finishTask(task, false, MainWindow::tr("无法开始下载。"));
+        }
     }
 }

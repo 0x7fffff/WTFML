@@ -4,6 +4,7 @@
 #include "download/ResourceCatalog.hpp"
 #include "manage/ModpackImport.hpp"
 #include "operations/OperationReport.hpp"
+#include "tasks/TaskSnapshot.hpp"
 class MainWindow;
 class QWidget;
 class ImportController final : public QObject {
@@ -13,6 +14,8 @@ public:
     void onImportModpackClicked();
     void openImportReport(const QString &instanceId);
     void importModpackFromFile(const QString &zipPath, const QString &namePrefill);
+    void importModpackOneClick(const QString &zipPath, const QString &confirmedInstanceName,
+                               Tasks::TaskId taskId);
     bool applyModpackImport(const QString &zipPath, const QString &instanceName, const QByteArray &manifestJson, ModpackImport::Format format);
     bool installLocalResourceFile(const QString &versionId, ResourceCatalog::Kind kind, const QString &path, QString *problemOut);
     /// 这一批同类文件里用户按了「取消」：剩下的不再逐个问，直接停。
@@ -23,6 +26,14 @@ public:
     void importDroppedModpack(const QString &zipPath, const QString &namePrefill);
     void handleWindowDrop(const QStringList &paths);
 private:
+    struct PreparedModpack;
+    bool prepareModpackPackage(const QString &zipPath, PreparedModpack *out);
+    bool resolveCurseForgeManifestIfNeeded(ModpackImport::Pack *pack, ModpackImport::Format format,
+                                           const QString &sourceName, QString *problemOut);
+    bool promptCurseForgeFileIssuesIfNeeded(const ModpackImport::Pack &pack, const QString &instanceName);
+    bool resolveInstallerJavaForPack(const ModpackImport::Pack &pack, bool allowInteractivePrompt,
+                                     QString *installerJavaOut, bool *cancelledOut, QString *reasonOut);
+    void finishAbortedImportTask(Tasks::TaskId taskId, bool cancelled, const QString &reason);
     void repairFromReport(const QString &reportPath);
     /// 把 MultiMC 包的原启动补丁留在实例目录（导出时原样带回）。失败只写日志，不影响导入。
     /// 单文件复制也走统一的 `OperationReport`：逐项结果 + 不可覆盖时的原因报告。
@@ -34,7 +45,8 @@ private:
     /// 置忙态、交给数据层。界面上那一半（问名字、确认框）和验证工程那一半都落到这里。
     bool applyResolvedModpackImport(const QString &zipPath, const QString &instanceName,
                                     ModpackImport::Pack pack,
-                                    const QString &manifestFingerprint);
+                                    const QString &manifestFingerprint,
+                                    const QString &preselectedInstallerJava = QString());
     MainWindow *m_owner = nullptr;
     /// 一条导入流程正在走（从读清单到 `applyModpackImport` 返回）。
     ///
