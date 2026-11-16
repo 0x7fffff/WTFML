@@ -85,4 +85,5 @@ int chromeNativeMouseReachesWindow(QWidget *window, const QPoint &local) {
 }
 
 int chromeHtCaption() { return HTCAPTION; }
+int chromeHtTop() { return HTTOP; }
 int chromeHtClient() { return HTCLIENT; }

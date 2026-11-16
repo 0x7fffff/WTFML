@@ -25,7 +25,13 @@
  * 拖拽区（`addDragStrip`）的空白处 = HTCAPTION；拖拽区上有子控件的格子不认。
  *
  * 【窗口里其余的空白处】没有人接的左键按下一路冒泡到窗口，在这里 `startSystemMove()`（系统拖窗，
- * 贴边吸附照常），双击 = 最大化 / 还原。「空白」见 `isDragBlank()`：最深那个控件是纯容器 / 不可选的
+ * 贴边吸附照常），双击 = 最大化 / 还原。
+ *
+ * 【自己拖窗】`setOwnMove(true)`（主窗口用）：不进系统的移动过程。Windows 的贴靠（拖到边 / 角吸成半屏、四分之一屏，
+ * 拖到顶出贴靠布局浮条）都发生在系统接管的那个移动循环里，进去的路有两条：命中测试回 `HTCAPTION`、`startSystemMove()`。
+ * 这个模式两条都不走：拖拽区的命中测试交还客户区，按住空白处改由一个 8 ms 的定时器按鼠标位移 `SetWindowPos`
+ * 搬窗口（只改位置不改大小，跨 DPI 屏时按新旧 DPI 之比换算偏移，窗口不跳位），松手即停，窗口停在松手的地方。
+ * 缩放仍走系统的边框（上沿那一圈、左右下三边），不受影响。「空白」见 `isDragBlank()`：最深那个控件是纯容器 / 不可选的
  * 标签，而且它到窗口那一路上没有设过手形光标的控件。按钮、输入框、列表、滚动条、自绘的可点卡片都不是空白。
  *
  * 【关掉再打开要重贴】关窗口会销毁平台窗口，再 show 时 Show 事件先到、新的平台窗口后建
@@ -43,6 +49,7 @@
 #include <QPointer>
 #include <QtGlobal>
 
+class QTimer;
 class QWidget;
 
 class WindowChrome : public QObject {
@@ -56,6 +63,9 @@ public:
     QWidget *strip() const { return m_strip; }
     /// 再加一条拖拽区（导航轨顶上的品牌那一格）。
     void addDragStrip(QWidget *strip);
+    /// 自己拖窗、不进系统移动过程（见文件头【自己拖窗】）：没有贴靠、没有贴靠布局浮条、拖到顶也不最大化。默认关。
+    void setOwnMove(bool enabled) { m_ownMove = enabled; }
+    bool ownMove() const { return m_ownMove; }
 
     /// 处理一条原生窗口消息（WM_NCHITTEST、WM_DPICHANGED、最大化时的 WM_NCCALCSIZE）。
     /// @return true = 这一条我们回了。
@@ -76,6 +86,8 @@ protected:
 private:
     QPoint hitTestPoint(void *message) const;
     bool handleBlankPress(QEvent *event);
+    void beginOwnMove();
+    void stepOwnMove();
 
     QWidget *m_window = nullptr;
     QWidget *m_strip = nullptr;
@@ -85,4 +97,9 @@ private:
     bool m_retryPending = false;  // 平台窗口还没建好，已排了下一拍重贴
     QElapsedTimer m_blankClock;  // 上一次空白处按下的时刻，认双击用
     QPoint m_blankPos;
+    bool m_ownMove = false;
+    bool m_inSizeMove = false;      // 系统缩放边框的模态循环里（WM_ENTERSIZEMOVE … EXITSIZEMOVE）
+    QTimer *m_moveTimer = nullptr;  // 自己拖窗时每 8 ms 跟一次鼠标
+    QPoint m_moveOffset;            // 窗口左上角 - 鼠标（物理像素）
+    unsigned m_moveDpi = 0;         // 上一拍的窗口 DPI，变了就换算偏移
 };

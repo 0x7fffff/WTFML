@@ -40,4 +40,6 @@ void chromeNativeSendNcActivate(QWidget *window, bool active);
 
 /// HTCAPTION / HTCLIENT 的数值。
 int chromeHtCaption();
+/// HTTOP（HTTOPLEFT、HTTOPRIGHT 紧跟在后面）。
+int chromeHtTop();
 int chromeHtClient();
