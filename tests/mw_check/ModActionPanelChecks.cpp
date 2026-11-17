@@ -29,6 +29,9 @@
 #include <QThread>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QScreen>
+#include <QDrag>
+#include <QMouseEvent>
 #include <cstdio>
 
 int runModActionPanelChecks() {
@@ -113,6 +116,30 @@ int runModActionPanelChecks() {
     auto *list = page.findChild<QListWidget *>();
     auto *panel = page.selectionBar();
     check(list && list->count() == 2, "mod fixture displayed");
+    const QString dragProbe = qEnvironmentVariable("WTFML_MOD_DRAG_PROBE");
+    if (!dragProbe.isEmpty()) {
+        QDir().mkpath(dragProbe);
+        for (int i = 0; i < 50; ++i) {
+            QFile file(dir.filePath(QStringLiteral("Drag-Fixture-%1.jar").arg(i, 2, 10, QLatin1Char('0'))));
+            if (file.open(QIODevice::WriteOnly)) file.write("drag fixture");
+        }
+        page.refresh();
+        page.resize(1100, 740);
+        page.setWindowTitle(QStringLiteral("WTFML Drag Reproduction"));
+        list->selectAll();
+        QEventLoop interaction;
+        QTimer capture;
+        int frames = 0;
+        QObject::connect(&capture, &QTimer::timeout, &page, [&] {
+            if (!page.findChild<QDrag *>() || frames >= 120) return;
+            page.screen()->grabWindow(page.winId()).save(dragProbe + QStringLiteral("/frame-%1.png").arg(frames++, 3, 10, QLatin1Char('0')));
+        });
+        capture.start(40);
+        QTimer::singleShot(120000, &interaction, &QEventLoop::quit);
+        QObject::connect(qApp, &QGuiApplication::lastWindowClosed, &interaction, &QEventLoop::quit);
+        interaction.exec();
+        return 0;
+    }
     check(panel->isHidden(), "no selection hides action panel");
     auto *all = page.findChild<QPushButton *>(InstanceFilesPage::selectionButtonName(InstanceFilesPage::SelectionAction::SelectAll));
     auto *clear = page.findChild<QPushButton *>(InstanceFilesPage::selectionButtonName(InstanceFilesPage::SelectionAction::ClearAll));
@@ -129,6 +156,22 @@ int runModActionPanelChecks() {
     check(selectionChanges == 2 && list->selectedItems().size() == 2 && !panel->isHidden(),
           "invert restores visible selection in one notification");
     QObject::disconnect(selectionConnection);
+    {
+        QWidget *viewport = list->viewport();
+        const QRect row = list->visualItemRect(list->item(0));
+        const QPoint point(row.left() + 80, row.center().y());
+        const QImage before = viewport->grab().toImage();
+        QMouseEvent press(QEvent::MouseButtonPress, point, viewport->mapToGlobal(point),
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(viewport, &press);
+        const QImage held = viewport->grab().toImage();
+        check(before.copy(row) == held.copy(row),
+              "holding a selected row allows viewport paint events and preserves its rendering");
+        QMouseEvent release(QEvent::MouseButtonRelease, point, viewport->mapToGlobal(point),
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        QApplication::sendEvent(viewport, &release);
+        all->click();
+    }
     QStringList inspectedPaths;
     QObject::connect(&page, &InstanceFilesPage::inspectDependenciesRequested, &page,
         [&](const QStringList &paths) { inspectedPaths = paths; });

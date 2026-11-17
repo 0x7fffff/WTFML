@@ -247,7 +247,10 @@ bool InstanceFilesPage::eventFilter(QObject *watched, QEvent *event) {
             default:
                 break;
             }
-            if (m_swallowPress) {
+            // 延迟选择只接管鼠标输入；原生拖放期间仍必须放行 Paint、Resize 等视口事件。
+            if (m_swallowPress && (event->type() == QEvent::MouseButtonPress ||
+                                   event->type() == QEvent::MouseMove ||
+                                   event->type() == QEvent::MouseButtonRelease)) {
                 event->accept();
                 return true;
             }
