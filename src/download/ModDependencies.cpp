@@ -299,8 +299,7 @@ bool resolveDependency(const ResourceCatalog::Dependency &dependency,
         // 空的两种（那一发失败 / 这个项目在这个游戏版本+加载器下没有版本）在这一层分不开
         // —— 分得开的那一位在调用方手上（那一发有没有报错）。**这句话两边都说得通**，
         // 所以就把两边都说清楚，别替另一件下结论。
-        return fail(QStringLiteral("没问到能用的版本（网络没通，或者它在这个游戏版本上没有版"
-                                   "本）。"));
+        return fail(QStringLiteral("无法获取兼容版本，请检查网络连接及目标版本支持情况。"));
     }
 
     const ResourceCatalog::VersionEntry *picked = nullptr;
@@ -314,7 +313,7 @@ bool resolveDependency(const ResourceCatalog::Dependency &dependency,
         if (picked == nullptr) {
             // **不退而求其次挑最新的一条**。作者钉版本往往是因为新旧不兼容，悄悄换一版
             // 装进去，症状是"这几个模组一起不生效"，而那一刻离这里已经很远了。
-            return fail(QStringLiteral("作者钉的那一版（%1）在这个实例的版本下找不到。")
+            return fail(QStringLiteral("指定版本（%1）不在目标实例的兼容版本列表中。")
                             .arg(dependency.versionId));
         }
     } else {
@@ -323,13 +322,13 @@ bool resolveDependency(const ResourceCatalog::Dependency &dependency,
 
     const ResourceCatalog::FileEntry *file = picked->primaryFile();
     if (file == nullptr) {
-        return fail(QStringLiteral("挑出来的那一版（%1）没有文件。").arg(picked->versionNumber));
+        return fail(QStringLiteral("所选版本（%1）未提供文件。").arg(picked->versionNumber));
     }
     if (file->url.isEmpty()) {
         // 作者关掉了第三方分发时，那边写好的那句话比"没有可下载的文件"准确得多
         // （见 FileEntry::unavailableNote 那段），有就用它。
         return fail(file->unavailableNote.isEmpty()
-                        ? QStringLiteral("挑出来的那一版（%1）没有可下载的文件。")
+                        ? QStringLiteral("所选版本（%1）未提供可下载文件。")
                               .arg(picked->versionNumber)
                         : file->unavailableNote);
     }
@@ -358,7 +357,7 @@ Plan buildPlan(const QList<Lookup> &lookups,
         if (answersIt == answers.constEnd()) {
             // 钥匙不在表里 = 那一发没回来（或者回来时没被记下来）。和"它没有版本"分开说。
             plan.unresolved.append(
-                QStringLiteral("%1：没问到版本列表（网络或接口没成）。").arg(label));
+                QStringLiteral("%1：无法获取版本列表。").arg(label));
             continue;
         }
 
@@ -383,12 +382,11 @@ UpdateVerdict judgeUpdate(const InstalledItem &item,
 
     if (item.sha1.isEmpty()) {
         // 认不出来是哪个文件（读不动、或者哈希那一步没成）—— 这一条**不是**"已是最新"。
-        verdict.reason = QStringLiteral("认不出盘上这个文件是哪一版。");
+        verdict.reason = QStringLiteral("无法识别本地文件版本。");
         return verdict;
     }
     if (versions.isEmpty()) {
-        verdict.reason = problem.isEmpty() ? QStringLiteral("没问到版本列表（网络或接口没成）。")
-                                           : problem;
+        verdict.reason = problem.isEmpty() ? QStringLiteral("无法获取版本列表。") : problem;
         return verdict;
     }
 
@@ -407,8 +405,7 @@ UpdateVerdict judgeUpdate(const InstalledItem &item,
     if (found < 0) {
         // 三种情况合成一句（列表筛过、作者删了老版本、用户改过那个 jar），
         // 见头文件里那段 —— 下一步都是"去项目页自己看"。
-        verdict.reason = QStringLiteral("这一版不在列表里（可能不是给这个实例的，或者作者已经删"
-                                        "了它）。");
+        verdict.reason = QStringLiteral("当前文件版本不在兼容版本列表中。");
         return verdict;
     }
 
@@ -431,7 +428,7 @@ UpdateVerdict judgeUpdateAgainstLatest(const InstalledItem &item,
 
     if (item.sha1.isEmpty()) {
         // 和上面那条**逐字同一句话**：认不出来是哪一版，就谈不上"是不是最新的"。
-        verdict.reason = QStringLiteral("认不出盘上这个文件是哪一版。");
+        verdict.reason = QStringLiteral("无法识别本地文件版本。");
         return verdict;
     }
     if (latest.id.isEmpty()) {
@@ -441,8 +438,7 @@ UpdateVerdict judgeUpdateAgainstLatest(const InstalledItem &item,
         // 见 .hpp 里那段：真因不许被吞成"网络没成"）。
         verdict.reason =
             problem.isEmpty()
-                ? QStringLiteral("没查到它能用的版本（这个项目在这个游戏版本/加载器下没有"
-                                 "版本）。")
+                ? QStringLiteral("未找到支持目标游戏版本及加载器的版本。")
                 : problem;
         return verdict;
     }

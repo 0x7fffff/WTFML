@@ -393,11 +393,15 @@ void runUpdateCenterActionTests() {
                 return;
             }
             page->showPage(QStringLiteral("mod"));
-            if (auto *button = page->findChild<QPushButton *>(
-                    InstanceSettingsDialog::checkUpdatesButtonName())) {
-                checkedFound = true;
-                button->click();
-            }
+            page->showPage(QStringLiteral("mod"));
+            checkedFound = true;
+            auto *mods = page->filesPage(QStringLiteral("mod"));
+            check(pumpUntil([mods] { return mods && mods->updateChecked(); }, 20000),
+                  "background update check finishes without navigation");
+            check(currentPageOverlay() == host && host->findChild<InstanceSettingsDialog *>(),
+                  "background result preserves the active instance page");
+            QMetaObject::invokeMethod(page, "updateCenterRequested", Qt::DirectConnection);
+
             if (auto *back = host->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
                 back->click();
             } else {
@@ -413,7 +417,7 @@ void runUpdateCenterActionTests() {
         driver.stop();
         answerer.stop();
 
-        check(checkedFound, "T38.1 实例设置那一页上「检查更新」那颗按钮找到了");
+        check(checkedFound, "T38.1 进入模组页自动检查更新");
         check(updatePaused && updateResumed && originalWhilePaused,
               "T38.1 更新中心实际文件批次归原任务所有，暂停保留原件，继续后沿原完成/回滚接线收尾",
               QString("paused=%1 resumed=%2 original=%3 activity=%4 batches=%5; %6").arg(updatePaused).arg(updateResumed).arg(originalWhilePaused).arg(activity != nullptr).arg(batches != nullptr).arg(pauseObservations.join("; ")));

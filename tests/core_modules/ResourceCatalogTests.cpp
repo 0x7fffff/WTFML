@@ -764,8 +764,8 @@ void runResourceCatalogTests() {
             // ① 答案缺席 = 那一发没回来，和"它没有版本"**不是同一句话**。
             const ModDependencies::Plan none = ModDependencies::buildPlan(missing, {});
             check(none.downloads.isEmpty() && none.unresolved.size() == 1 &&
-                      none.unresolved.first().contains(QStringLiteral("没问到")),
-                  "Z6d 那一发没回来 -> 进「解不开」，理由说的是「没问到」",
+                      none.unresolved.first().contains(QStringLiteral("无法获取版本列表")),
+                  "Z6d 请求未完成时保留正式的版本列表错误说明",
                   none.unresolved.join(QStringLiteral(" | ")));
 
             // ② 有答案：挑出要下的那一条，而且名字用的是接口那份（不是项目号）。

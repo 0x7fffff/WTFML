@@ -1078,41 +1078,16 @@ int UiInstanceOverridesChecks() {
         {
             Dlg dialog(instanceDisplayName, instanceDirName, Dlg::Override(), global, QStringList(),
                        true);
-            auto *checkUpdates = dialog.findChild<QPushButton *>(Dlg::checkUpdatesButtonName());
-            check(checkUpdates != nullptr && checkUpdates->isEnabled() &&
-                      checkUpdates->text() == Dlg::checkUpdatesText(),
-                  "★ U0h3 概览页那颗「检查更新」按 objectName 找得回来、点得动、字是产品那个"
-                  "访问器给的",
-                  checkUpdates != nullptr ? checkUpdates->text() : QString());
-            check(checkUpdates != nullptr &&
-                      checkUpdates->toolTip() == Dlg::checkUpdatesButtonTooltip(),
-                  "★ U0h3 那颗的 tooltip 就是那一份说全的（逐个资源认一遍 + 问版本列表要按"
-                  "这个实例的游戏版本和加载器筛）");
-            check(!Dlg::checkUpdatesButtonTooltip().isEmpty() &&
-                      Dlg::checkUpdatesButtonTooltip().contains(ModDependencies::updateUnknownText()) &&
-                      Dlg::checkUpdatesHint().contains(QStringLiteral("不修改文件")),
-                  "★ U0h3 「说不清」这三个字写在 tooltip 里，而且下面那句明说了**不动盘上的"
-                  "文件** —— 这条路上唯一一句安全承诺（有人把它删成「已经全部检查过了」时"
-                  "这一条得红）",
-                  Dlg::checkUpdatesHint());
+            check(!dialog.findChild<QPushButton *>(Dlg::checkUpdatesButtonName()),
+                  "manual update check is absent");
             int asked = 0;
-            QObject::connect(&dialog, &Dlg::checkUpdatesRequested, &dialog,
-                             [&asked]() { ++asked; });
-            if (checkUpdates != nullptr) {
-                checkUpdates->click();
-            }
-            check(asked == 1,
-                  "★ U0h3 点一下**正好发一条** checkUpdatesRequested（这一层一个请求都不发，"
-                  "认文件 + 问版本列表全在 MainWindow 那边）",
-                  QStringLiteral("发了 %1 条").arg(asked));
-            bool hintFound = false;
-            for (QLabel *label : dialog.findChildren<QLabel *>()) {
-                if (label->text() == Dlg::checkUpdatesHint()) {
-                    hintFound = true;
-                }
-            }
-            check(!hintFound && checkUpdates->parentWidget()->toolTip() == Dlg::checkUpdatesHint(),
-                  "更新说明按需提供，不重复显示常驻说明");
+            QObject::connect(&dialog, &Dlg::checkUpdatesRequested, &dialog, [&asked] { ++asked; });
+            dialog.showPage(QStringLiteral("mod"));
+            QApplication::processEvents();
+            check(asked == 1, "entering mods requests one background check");
+            dialog.showPage(QStringLiteral("mod"));
+            QApplication::processEvents();
+            check(asked == 1, "redisplaying current mod page does not duplicate checks");
             // 界面上的那三个字和判据那一层的 `updateUnknownText()` 必须是**同一个字**：
             // tooltip 里写的是给用户看的承诺（"认不出来的写「说不清」，那不是没问题"），
             // 而屏幕上真正印出来的那一格读的是 ModDependencies 那份（见

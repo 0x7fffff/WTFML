@@ -165,10 +165,13 @@ void runUpdateCheckSameProjectFallbackTests() {
                 return;
             }
             page->showPage(QStringLiteral("mod"));
-            if (auto *button = page->findChild<QPushButton *>(
-                    InstanceSettingsDialog::checkUpdatesButtonName())) {
-                button->click();
-            }
+            auto *mods = page->filesPage(QStringLiteral("mod"));
+            check(pumpUntil([mods] { return mods && mods->updateChecked(); }, 20000),
+                  "background update check finishes without navigation");
+            check(currentPageOverlay() == host && host->findChild<InstanceSettingsDialog *>(),
+                  "background result preserves the active instance page");
+            QMetaObject::invokeMethod(page, "updateCenterRequested", Qt::DirectConnection);
+
             if (auto *back =
                     host->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
                 back->click();

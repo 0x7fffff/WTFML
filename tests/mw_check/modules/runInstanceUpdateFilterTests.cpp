@@ -201,11 +201,15 @@ void runInstanceUpdateFilterTests() {
             }
             // ② 点那颗按钮。**它自己不会阻塞** —— 反查在后台线程上、版本列表那几发是异步的，
             // 结果要等下面那个 pumpUntil 转着事件循环才回来。
-            if (auto *button = page->findChild<QPushButton *>(
-                    InstanceSettingsDialog::checkUpdatesButtonName())) {
-                checkedFound = true;
-                button->click();
-            }
+            page->showPage(QStringLiteral("mod"));
+            checkedFound = true;
+            mods = page->filesPage(QStringLiteral("mod"));
+            check(pumpUntil([mods] { return mods && mods->updateChecked(); }, 20000),
+                  "background update check finishes without navigation");
+            check(currentPageOverlay() == host && host->findChild<InstanceSettingsDialog *>(),
+                  "background result preserves the active instance page");
+            QMetaObject::invokeMethod(page, "updateCenterRequested", Qt::DirectConnection);
+
             // 收页（返回箭头 = reject）。**必须立刻收**（理由见上面那段）：这一层不退出去，
             // 结果回来时那一页开不出来。
             if (auto *back =
@@ -294,7 +298,7 @@ void runInstanceUpdateFilterTests() {
                                   Q_ARG(QString, idV));
         QApplication::processEvents();
 
-        check(checkedFound, "T28.1 概览那一栏那颗「检查更新」找得到（下面就靠它跑一趟）");
+        check(checkedFound, "T28.1 进入模组页自动检查更新");
         check(updateChipHiddenBefore,
               "★★ T28.2 还没查过的时候，「可更新」那一颗**整颗收着**（原话："
               "「没有检查的时候先隐藏可更新按钮」"

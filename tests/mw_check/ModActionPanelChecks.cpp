@@ -2,6 +2,7 @@
 #include "Theme.hpp"
 #include "InstanceFilesPage.hpp"
 #include "Animations.hpp"
+#include "Glass.hpp"
 #include "download/ModDependencies.hpp"
 #include "download/DependencyInspection.hpp"
 #include <QMenu>
@@ -141,14 +142,11 @@ int runModActionPanelChecks() {
     page.findChild<QPushButton *>(QStringLiteral("modMoreActions"))->click();
     check(inspectedPaths.size() == 2 && list->selectedItems().size() == 2,
           "dependency inspection menu forwards selected paths without clearing selection");
-    QStringList checkedPaths;
-    QObject::connect(&page, &InstanceFilesPage::checkSelectedUpdatesRequested, &page,
-                     [&](const QStringList &paths) { checkedPaths = paths; });
-    page.findChild<QPushButton *>(QStringLiteral("modCheckSelectedUpdates"))->click();
-    check(checkedPaths.size() == 2, "update check forwards selected paths only");
+    check(!page.findChild<QPushButton *>(QStringLiteral("modCheckSelectedUpdates")),
+          "manual update check removed from action panel");
     check(list->selectedItems().size() == 2 && !panel->isHidden(), "multi-selection opens panel");
     auto *actionScroll = page.findChild<QScrollArea *>(QStringLiteral("modActionScroll"));
-    check(actionScroll && actionScroll->width() == 240 && list->width() < 760,
+    check(actionScroll && actionScroll->width() == 156 && list->width() < 850,
           "wide layout reserves panel space");
     check(all->parentWidget()->parentWidget() != &page,
           "wide header shares filter and selection tools row");
@@ -180,8 +178,36 @@ int runModActionPanelChecks() {
     check(list->selectedItems().size() == 2, "refresh preserves stable file identities after rename");
     const auto preview = qEnvironmentVariable("WTFML_MOD_PREVIEW_DIR");
     if (!preview.isEmpty()) { QDir().mkpath(preview); page.grab().save(preview + QStringLiteral("/mods-wide.png")); }
+    {
+        const auto previousTheme = Theme::current();
+        Theme::setSpec(Theme::presetSpec(QStringLiteral("emerald")));
+        Theme::apply(*qApp);
+        QApplication::processEvents();
+        const QImage lightIcon = disable->icon().pixmap(18, 18).toImage();
+        Theme::setSpec(Theme::presetSpec(QStringLiteral("dark")));
+        Theme::apply(*qApp);
+        QApplication::processEvents();
+        auto *remove = page.selectionButtonAt(static_cast<int>(InstanceFilesPage::SelectionAction::Delete));
+        const auto fill = [&page](QPushButton *button) {
+            const QPoint at = button->mapTo(&page, QPoint(button->width() / 2, 3));
+            return page.grab().toImage().scaled(page.size()).pixelColor(at);
+        };
+        check(Glass::contrast(remove->palette().color(QPalette::ButtonText), fill(remove)) >= 4.5,
+              "dark-theme delete text has readable contrast against its button surface");
+        check(!enable->isEnabled() && disable->isEnabled() && fill(enable) != fill(disable),
+              "disabled mod action has a distinct surface from available actions in dark theme");
+        check(enable->icon().pixmap(18, 18, QIcon::Disabled).toImage() != enable->icon().pixmap(18, 18).toImage(),
+              "action icons distinguish disabled state after a live theme switch");
+        check(lightIcon != disable->icon().pixmap(18, 18).toImage(), "enabled action icons follow a light-to-dark theme change");
+        if (!preview.isEmpty()) page.grab().save(preview + QStringLiteral("/mods-dark.png"));
+        Theme::setSpec(previousTheme);
+        Theme::apply(*qApp);
+        QApplication::processEvents();
+    }
     page.resize(560, 640); QApplication::processEvents();
-    check(page.width() == 560 && list->width() > 500 && actionScroll->geometry().right() < page.width(), "narrow drawer does not force minimum width");
+    check(page.width() == 560 && list->width() > 450 && actionScroll->width() == 56 && actionScroll->geometry().right() < page.width(), "narrow drawer does not force minimum width");
+    check(enable->text().isEmpty() && !enable->icon().isNull() && !enable->toolTip().isEmpty(),
+          "compact action rail uses labeled icons and preserves selection");
     if (!preview.isEmpty()) page.grab().save(preview + QStringLiteral("/mods-narrow.png"));
     page.resize(560, 420); QApplication::processEvents();
     check(page.height() == 420 && (actionScroll->verticalScrollBar()->maximum() > 0 ||
@@ -284,6 +310,29 @@ int runModActionPanelChecks() {
     // Opt-in real-widget comparison. Keep timing out of pass/fail thresholds:
     // the reference intentionally repeats the old row-by-row notification path.
     const int requestedRows = qEnvironmentVariableIntValue("WTFML_MOD_SELECTION_PROBE_ROWS");
+    {
+        QTemporaryDir marks;
+        QFile file(marks.filePath(QStringLiteral("[物品管理器] jei-26.2-fabric-30.9.0.23-long-filename.jar")));
+        check(file.open(QIODevice::WriteOnly), "create update marker alignment fixture");
+        file.write("fixture"); file.close();
+        InstanceFilesPage markedPage;
+        markedPage.resize(1400, 180); markedPage.show(); markedPage.setDirectory(marks.path());
+        QApplication::processEvents();
+        auto *markedList = markedPage.findChild<QListWidget *>();
+        const QRect name = markedPage.rowGeometry(0).name;
+        const auto capture = [&] { return markedList->viewport()->grab().toImage().scaled(markedList->viewport()->size()); };
+        const QImage plain = capture();
+        markedPage.setUpdateResult({file.fileName()}, true);
+        QApplication::processEvents();
+        const QImage marked = capture();
+        const QRgb background = plain.pixel(name.right() - 1, name.center().y());
+        int overwritten = 0;
+        for (int y = name.top(); y <= name.bottom(); ++y)
+            for (int x = name.left(); x <= name.right(); ++x)
+                if (plain.pixel(x, y) != background && marked.pixel(x, y) != plain.pixel(x, y)) ++overwritten;
+        check(overwritten == 0 && plain != marked, "update glyph appears after filename without overwriting text pixels");
+        if (!preview.isEmpty()) markedPage.grab().save(preview + QStringLiteral("/update-marker.png"));
+    }
     if (requestedRows > 0) {
         const int rows = qBound(10, requestedRows, 2000);
         const QString probeRoot = dir.filePath(QStringLiteral("selection-probe"));

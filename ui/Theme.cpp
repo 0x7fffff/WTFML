@@ -1412,7 +1412,7 @@ QString kindButtonStyleSheet(const QString &kind) {
                          css(primaryPressedFill()), css(t.focus), css(t.subtle), css(t.disabled));
     }
     if (kind == QLatin1String("danger"))
-        return block.arg(css(t.dangerSoft), css(t.danger), css(alpha(t.danger, .22)), css(alpha(t.danger, .28)),
+        return block.arg(css(t.dangerSoft), css(textTone(t.dangerInk, t.danger)), css(alpha(t.danger, .22)), css(alpha(t.danger, .28)),
                          css(t.danger), css(t.hover), css(t.disabled));
     if (kind == QLatin1String("dangerSolid"))
         return block.arg(css(t.dangerSolid), css(t.onDanger), css(t.dangerSolidHover), css(t.dangerSolidPressed),
@@ -1425,7 +1425,14 @@ void syncKindButtonStyle(QWidget *button) {
         return;
     }
     const QString kind = button->property(kButtonKindProperty).toString();
-    const QString sheet = kindButtonStyleSheet(kind);
+    QString sheet = kindButtonStyleSheet(kind);
+    if (button->property("wtfmlModAction").toBool()) {
+        const Tokens t = tokens();
+        QColor border = t.secondary;
+        border.setAlphaF(.38);
+        sheet += QStringLiteral("QPushButton:disabled { background-color: transparent; color: %1; border: 1px dashed %2; }")
+                     .arg(t.disabled.name(QColor::HexArgb), border.name(QColor::HexArgb));
+    }
     if (sheet.isEmpty()) {
         if (button->property(kButtonKindStyledProperty).toBool()) {
             button->setProperty(kButtonKindStyledProperty, false);
@@ -1459,7 +1466,8 @@ void markButton(QWidget *button, ButtonKind kind) {
     syncKindButtonStyle(button);
     // 主动作 / 危险这两档挂过一次 `follow()` 就够了：它读按钮自己身上那个属性，
     // 以后换主题 / 换档都在同一条回调里重算（不受这一趟是哪一档影响）。
-    if ((kind == ButtonKind::Primary || kind == ButtonKind::Danger || kind == ButtonKind::DangerSolid) &&
+    if ((kind == ButtonKind::Primary || kind == ButtonKind::Danger || kind == ButtonKind::DangerSolid ||
+         button->property("wtfmlModAction").toBool()) &&
         !button->property(kButtonKindFollowProperty).toBool()) {
         button->setProperty(kButtonKindFollowProperty, true);
         follow(button, [button]() { syncKindButtonStyle(button); });

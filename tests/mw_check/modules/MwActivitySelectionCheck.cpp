@@ -10,6 +10,15 @@ int MwActivitySelectionCheck() {
             if (!ok) ++failures;
         };
         {
+            ActivityCenterController updates;
+            const auto id = updates.begin(Tasks::TaskKind::Other, QStringLiteral("资源更新检查"));
+            updates.finish(id, false, QStringLiteral("A：这一版不在列表里（可能不是给这个实例的，或者作者已经删了它）。\nB：读取失败"), false);
+            const auto item = updates.item(updates.tasks()->snapshot(id), false, false, false);
+            expect(item.errorSummary == QStringLiteral("更新检查结果可能不完整"), "historical update failures use one concise summary");
+            expect(item.detail.contains(QStringLiteral("A：当前文件版本不在兼容版本列表中。")) &&
+                   item.detail.contains(QStringLiteral("B：读取失败")), "historical update details preserve the first resource and formalise wording");
+        }
+        {
             const QString previous = AppPaths::minecraftDir();
             AppPaths::setMinecraftDir(fixture.filePath(QStringLiteral("repair-root")));
             const QString id = QStringLiteral("RepairTest");

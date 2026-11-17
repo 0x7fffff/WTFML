@@ -294,6 +294,8 @@ TaskCenter::Item ActivityCenterController::item(const Tasks::TaskSnapshot &task,
         // Historical Qt errors remain intact on disk; localise their known UI spelling.
         text.replace(QStringLiteral("Operation canceled"), QStringLiteral("网络请求已中止"), Qt::CaseInsensitive);
         text.replace(QStringLiteral("Operation cancelled"), QStringLiteral("网络请求已中止"), Qt::CaseInsensitive);
+        text.replace(QStringLiteral("这一版不在列表里（可能不是给这个实例的，或者作者已经删了它）。"),
+                     QStringLiteral("当前文件版本不在兼容版本列表中。"));
         return text;
     };
     result.detail = displayText(task.detail);
@@ -308,6 +310,14 @@ TaskCenter::Item ActivityCenterController::item(const Tasks::TaskSnapshot &task,
     result.finishedAt = task.finishedAt;
     result.startedAt = task.startedAt;
     result.errorSummary = displayText(task.errorSummary);
+    if (task.title == tr("资源更新检查") && task.state == Tasks::TaskState::Failed) {
+        const QString summary = tr("更新检查结果可能不完整");
+        if (result.detail.isEmpty()) {
+            result.detail = result.errorSummary.startsWith(summary + QLatin1Char('\n'))
+                ? result.errorSummary.section(QLatin1Char('\n'), 1) : result.errorSummary;
+        }
+        result.errorSummary = summary;
+    }
     if (task.bytesTotal > 0) {
         result.bytesText = tr("已下载 %1 / %2")
                                .arg(InstanceFilesPage::formatSize(task.bytesDone),

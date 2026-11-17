@@ -7,6 +7,7 @@
 #include "Animations.hpp"
 #include "Theme.hpp"
 #include "VersionIcons.hpp"
+#include "UpdateGlyph.hpp"
 
 #include <QApplication>
 #include <QClipboard>
@@ -20,11 +21,105 @@
 #include <QMenu>
 #include <QPushButton>
 #include <QToolButton>
+#include <QPainter>
+#include <QPainterPath>
+#include <QIconEngine>
 #include <QUrl>
 #include <QVBoxLayout>
 
 namespace {
 constexpr int kSelectionBarMargin = 12;
+
+QIcon panelActionIcon(int action, const QColor &color) {
+    if (action == 2) return UpdateGlyph::icon(color);
+    QPixmap pixmap(54, 54);
+    pixmap.setDevicePixelRatio(3);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setPen(QPen(color, 1.6, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    QPainterPath path;
+    switch (action) {
+    case 0:
+        path.moveTo(3, 9); path.lineTo(7, 13); path.lineTo(15, 5);
+        break;
+    case 1:
+        painter.drawEllipse(QRectF(2, 2, 14, 14));
+        path.moveTo(4, 4); path.lineTo(14, 14);
+        break;
+    case 3:
+        painter.drawRoundedRect(QRectF(6, 6, 10, 10), 1.5, 1.5);
+        path.moveTo(3, 12); path.lineTo(2, 12); path.lineTo(2, 2); path.lineTo(12, 2); path.lineTo(12, 3);
+        break;
+    case 4:
+        path.moveTo(9, 6); path.lineTo(9, 3); path.lineTo(2, 3);
+        path.lineTo(2, 15); path.lineTo(9, 15); path.lineTo(9, 12);
+        path.moveTo(6, 9); path.lineTo(16, 9);
+        path.moveTo(12, 5); path.lineTo(16, 9); path.lineTo(12, 13);
+        break;
+    case 5:
+        path.moveTo(2, 5); path.lineTo(16, 5);
+        path.moveTo(6, 5); path.lineTo(6, 2); path.lineTo(12, 2); path.lineTo(12, 5);
+        path.moveTo(4, 5); path.lineTo(5, 16); path.lineTo(13, 16); path.lineTo(14, 5);
+        path.moveTo(7, 8); path.lineTo(7, 13); path.moveTo(11, 8); path.lineTo(11, 13);
+        break;
+    case 7:
+        painter.drawRoundedRect(QRectF(6, 1, 6, 5), 1, 1);
+        painter.drawRoundedRect(QRectF(1, 12, 6, 5), 1, 1);
+        painter.drawRoundedRect(QRectF(11, 12, 6, 5), 1, 1);
+        path.moveTo(9, 6); path.lineTo(9, 9);
+        path.moveTo(4, 12); path.lineTo(4, 9); path.lineTo(14, 9); path.lineTo(14, 12);
+        break;
+    case 8:
+        painter.drawEllipse(QRectF(2, 2, 14, 14));
+        painter.drawEllipse(QRectF(6, 2, 6, 14));
+        path.moveTo(2, 9); path.lineTo(16, 9);
+        break;
+    case 9:
+        path.moveTo(2, 15); path.lineTo(2, 3); path.lineTo(7, 3);
+        path.lineTo(9, 5); path.lineTo(16, 5); path.lineTo(16, 15); path.closeSubpath();
+        break;
+    case 10:
+        painter.drawRoundedRect(QRectF(3, 2, 12, 14), 1, 1);
+        for (int y : {6, 9, 12}) { path.moveTo(6, y); path.lineTo(12, y); }
+        break;
+    case 11:
+        path.moveTo(3, 5); path.lineTo(15, 5);
+        path.moveTo(12, 2); path.lineTo(15, 5); path.lineTo(12, 8);
+        path.moveTo(15, 13); path.lineTo(3, 13);
+        path.moveTo(6, 10); path.lineTo(3, 13); path.lineTo(6, 16);
+        break;
+    default:
+        painter.setBrush(color);
+        for (int x : {3, 9, 15}) painter.drawEllipse(QPointF(x, 9), 0.7, 0.7);
+        break;
+    }
+    painter.drawPath(path);
+    return QIcon(pixmap);
+}
+
+class PanelActionIconEngine final : public QIconEngine {
+public:
+    explicit PanelActionIconEngine(int action) : m_action(action) {}
+    QIconEngine *clone() const override { return new PanelActionIconEngine(m_action); }
+    void paint(QPainter *painter, const QRect &rect, QIcon::Mode mode, QIcon::State state) override {
+        const auto colors = Theme::tokens();
+        const QColor ink = mode == QIcon::Disabled ? colors.disabled
+            : m_action == 5 ? Theme::textTone(colors.dangerInk, colors.danger)
+            : m_action == 2 ? Theme::textTone(colors.accentInk, colors.primary) : colors.text;
+        panelActionIcon(m_action, ink).paint(painter, rect, Qt::AlignCenter, QIcon::Normal, state);
+    }
+    QPixmap pixmap(const QSize &size, QIcon::Mode mode, QIcon::State state) override {
+        QPixmap result(size);
+        result.fill(Qt::transparent);
+        QPainter painter(&result);
+        paint(&painter, QRect(QPoint(), size), mode, state);
+        return result;
+    }
+private:
+    int m_action;
+};
+
 }
 
 void InstanceFilesPage::setActionPanelEnabled(bool enabled) {
@@ -63,17 +158,8 @@ void InstanceFilesPage::setActionPanelEnabled(bool enabled) {
     auto *actions = new QGridLayout;
     actions->setSpacing(8);
     actions->setColumnStretch(0, 1);
-    actions->setColumnStretch(1, 1);
+
     panel->addLayout(actions);
-    auto *check = new QPushButton(tr("检查更新"), m_selectionBar);
-    check->setObjectName(QStringLiteral("modCheckSelectedUpdates"));
-    check->setToolTip(tr("只检查选中的已启用模组，不会直接安装。"));
-    Theme::markButton(check, Theme::ButtonKind::Neutral);
-    actions->addWidget(check, 1, 0);
-    connect(check, &QPushButton::clicked, this, [this] {
-        const auto paths = selectedPathList();
-        if (!paths.isEmpty()) emit checkSelectedUpdatesRequested(paths);
-    });
     auto *tools = new QHBoxLayout(m_selectionTools);
     tools->setContentsMargins(0, 0, 0, 0);
     m_selectionSummary = new QLabel(m_selectionTools);
@@ -95,56 +181,57 @@ void InstanceFilesPage::setActionPanelEnabled(bool enabled) {
             if (action == SelectionAction::ClearAll) button->setText(tr("清除选择"));
         } else if (action == SelectionAction::Disable || action == SelectionAction::Enable) {
             button->setText(action == SelectionAction::Enable ? tr("启用") : tr("禁用"));
-            actions->addWidget(button, 0, action == SelectionAction::Enable ? 0 : 1);
+            actions->addWidget(button, action == SelectionAction::Enable ? 0 : 1, 0);
         } else {
             if (action == SelectionAction::Update) {
                 button->setText(tr("更新"));
-                actions->addWidget(button, 1, 1);
+                actions->addWidget(button, 2, 0);
             }
             if (action == SelectionAction::Delete) {
                 button->setText(tr("删除"));
                 button->setIcon(VersionIcons::actionIcon(VersionIcons::Action::Delete));
-                actions->addWidget(button, 3, 0);
+                actions->addWidget(button, 5, 0);
             }
         }
     }
     for (bool move : {false, true}) {
-        auto *transfer = new QPushButton(move ? tr("移动…") : tr("复制…"), m_selectionBar);
+        auto *transfer = new QPushButton(move ? tr("移动") : tr("复制"), m_selectionBar);
         transfer->setToolTip(move ? tr("移动到其它实例") : tr("复制到其它实例"));
         transfer->setAccessibleName(transfer->toolTip());
         Theme::markButton(transfer, Theme::ButtonKind::Neutral);
-        actions->addWidget(transfer, 2, move ? 1 : 0);
+        actions->addWidget(transfer, move ? 4 : 3, 0);
         connect(transfer, &QPushButton::clicked, this, [this, move] {
             emit transferSelectionRequested(selectedPathList(), move);
         });
     }
-    auto *more = new QPushButton(tr("更多…"), m_selectionBar);
+    auto *more = new QPushButton(tr("更多"), m_selectionBar);
     more->setObjectName(QStringLiteral("modMoreActions"));
     Theme::markButton(more, Theme::ButtonKind::Neutral);
-    actions->addWidget(more, 3, 1);
+    actions->addWidget(more, 6, 0);
     connect(more, &QPushButton::clicked, this, [this, more] {
         const auto paths = selectedPathList();
         QMenu menu(this);
-        auto *inspect = menu.addAction(tr("依赖与冲突"));
+        const auto menuIcon = [](int action) { return panelActionIcon(action, Theme::tokens().text); };
+        auto *inspect = menu.addAction(menuIcon(7), tr("依赖与冲突"));
         inspect->setObjectName(QStringLiteral("modInspectDependencies"));
         inspect->setEnabled(!paths.isEmpty());
         connect(inspect, &QAction::triggered, this, [this, paths] { emit inspectDependenciesRequested(paths); });
         auto *detail = menu.addAction(VersionIcons::actionIcon(VersionIcons::Action::Details), tr("查看详情"));
         detail->setEnabled(paths.size() == 1 && m_resourceTips.contains(identityPath(paths.value(0))));
         connect(detail, &QAction::triggered, this, [this, paths] { emit detailRequested(paths.first()); });
-        auto *website = menu.addAction(tr("打开项目网页"));
+        auto *website = menu.addAction(menuIcon(8), tr("打开项目网页"));
         website->setEnabled(detail->isEnabled());
         connect(website, &QAction::triggered, this, [this, paths] { emit projectWebsiteRequested(paths.first()); });
-        auto *location = menu.addAction(tr("打开文件位置"));
+        auto *location = menu.addAction(menuIcon(9), tr("打开文件位置"));
         connect(location, &QAction::triggered, this, [paths] {
             if (!paths.isEmpty()) QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(paths.first()).absolutePath()));
         });
-        auto *exportList = menu.addAction(tr("复制选中模组清单"));
+        auto *exportList = menu.addAction(menuIcon(10), tr("复制选中模组清单"));
         connect(exportList, &QAction::triggered, this, [paths] {
             QStringList names; for (const auto &path : paths) names.append(QFileInfo(path).fileName());
             QApplication::clipboard()->setText(names.join(QLatin1Char('\n')));
         });
-        auto *invert = menu.addAction(tr("反转每项启用状态"));
+        auto *invert = menu.addAction(menuIcon(11), tr("反转每项启用状态"));
         connect(invert, &QAction::triggered, this, [this] {
             // Snapshot both subsets before either operation refreshes/renames rows.
             const auto disable = selectedTogglePaths(true);
@@ -154,6 +241,17 @@ void InstanceFilesPage::setActionPanelEnabled(bool enabled) {
         });
         menu.exec(more->mapToGlobal(QPoint(0, more->height())));
     });
+    for (int row = 0; row < 7; ++row) {
+        auto *button = qobject_cast<QPushButton *>(actions->itemAtPosition(row, 0)->widget());
+        button->setProperty("actionLabel", button->text());
+        button->setProperty("wtfmlModAction", true);
+        Theme::markButton(button, row == 5 ? Theme::ButtonKind::Danger
+                               : row == 2 ? Theme::ButtonKind::Accent : Theme::ButtonKind::Neutral);
+        button->setAccessibleName(button->text());
+        button->setToolTip(button->text());
+        button->setIcon(QIcon(new PanelActionIconEngine(row)));
+        button->setIconSize(QSize(18, 18));
+    }
     panel->addStretch();
     m_selectionBar->setToolTip(tr("选择仅针对当前筛选结果。删除模组不清理配置。"));
     // Search yields space to the frequently used folder action.
@@ -168,14 +266,14 @@ void InstanceFilesPage::setActionPanelEnabled(bool enabled) {
     header->addWidget(m_openFolder);
     m_openFolder->show();
     m_search->setMinimumWidth(100);
-    auto *headerMore = new QPushButton(tr("更多…"), m_searchRow);
+    auto *headerMore = new QPushButton(tr("更多"), m_searchRow);
     headerMore->setObjectName(QStringLiteral("modHeaderMore"));
     Theme::markButton(headerMore, Theme::ButtonKind::Ghost);
     header->addWidget(headerMore);
     connect(headerMore, &QPushButton::clicked, this, [this, headerMore] {
         QMenu menu(this);
-        menu.addAction(tr("刷新列表"), m_refresh, &QPushButton::click);
-        auto *copy = menu.addAction(tr("复制文件夹路径"));
+        menu.addAction(VersionIcons::actionIcon(VersionIcons::Action::Refresh), tr("刷新列表"), m_refresh, &QPushButton::click);
+        auto *copy = menu.addAction(panelActionIcon(3, Theme::tokens().text), tr("复制文件夹路径"));
         connect(copy, &QAction::triggered, this, [this] {
             QApplication::clipboard()->setText(m_directory);
         });
@@ -305,9 +403,9 @@ void InstanceFilesPage::updateSelectionBar() {
         // 再变一次宽（横滚条跟着出现/消失），那条和里面的字看着就是被拽下去再弹回来。
         if (targetVisible != !m_selectionBar->isHidden()) {
             if (m_contentHost->layout() != nullptr) {
-                const int panelWidth = qMin(240, m_contentHost->width());
+                const int panelWidth = qMin(m_contentHost->width() >= 740 ? 156 : 56, m_contentHost->width());
                 m_contentHost->layout()->setContentsMargins(
-                    0, 0, targetVisible && m_contentHost->width() >= 740 ? panelWidth + 12 : 0, 0);
+                    0, 0, targetVisible ? panelWidth + 12 : 0, 0);
                 m_contentHost->layout()->activate();
             }
             m_selectionBar->setVisible(targetVisible);
@@ -347,11 +445,25 @@ void InstanceFilesPage::repositionSelectionBar() {
             }
             m_selectionTools->show();
         }
-        const int panelWidth = qMin(240, m_contentHost->width());
+        const int panelWidth = qMin(m_contentHost->width() >= 740 ? 156 : 56, m_contentHost->width());
+        const bool compact = m_contentHost->width() < 740;
+        for (auto *button : m_selectionBar->findChildren<QPushButton *>()) {
+            if (!button->property("actionLabel").isValid()) continue;
+            const QString label = button->property("actionLabel").toString();
+            const QString text = compact ? QString() : label;
+            if (button->text() != text) button->setText(text);
+            button->setMinimumWidth(0);
+        }
+        m_selectionCount->setVisible(!compact);
+        m_actionStatus->setVisible(!compact);
+        const auto labels = m_selectionBar->findChildren<QLabel *>();
+        for (auto *label : labels) label->setVisible(!compact);
+        if (auto *panel = qobject_cast<QVBoxLayout *>(m_selectionBar->layout()))
+            panel->setContentsMargins(compact ? 4 : 12, 12, compact ? 4 : 12, 12);
         const bool visible = !m_selectionBar->isHidden();
-        // Narrow windows use a drawer; wide windows reserve space beside the list.
+        // 两种宽度都给列表让位，窄窗只收起按钮文字。
         m_contentHost->layout()->setContentsMargins(0, 0,
-            visible && m_contentHost->width() >= 740 ? panelWidth + 12 : 0, 0);
+            visible ? panelWidth + 12 : 0, 0);
         m_actionScroll->setGeometry(m_contentHost->width() - panelWidth, 0,
                                     panelWidth, m_contentHost->height());
         m_actionScroll->raise();

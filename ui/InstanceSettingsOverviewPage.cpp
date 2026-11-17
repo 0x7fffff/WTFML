@@ -414,46 +414,12 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
         actionCells.append(cell);
     }
 
-    // ---------- 「检查更新」----------
-    //
-    // 「检查更新」：摆在「导出…」下面、快捷方式那排上面：
-    // 它和「导出…」是同一档东西（一颗按钮 + 底下那句解释，点了之后**会出现一个结果**，
-    // 而不是改一格设置就写盘）。
-    //
-    // NOTE: 这一颗**只发信号**（和导出那颗同一个形状）—— "盘上那几十个 jar 是谁、能不能
-    // 更新"这件事要联好几次网（反查 + 每个项目一发版本列表），全在 MainWindow 那边
-    // （见 `checkInstanceUpdates()`）。这一层连一个请求都不发，所以验证工程能单独
-    // 构造它、单独点它。
-    {
-        auto [cell, column] = makeZeroColumn(this);
-        auto *button = new QPushButton(checkUpdatesText(), cell);
-        button->setObjectName(checkUpdatesButtonName());
-        button->setToolTip(checkUpdatesButtonTooltip());
-        // 白（`Neutral`）："检查…"这一档**只读不写** —— 按下去出现的是一个结果，盘上
-        // 一个字都不变（同「打开目录…」「导出…」）。不挂档就会跟着底色吃**绿的那一档**
-        // （见 Theme.hpp 里 `ButtonKind` 那段）。
-        Theme::markButton(button, Theme::ButtonKind::Neutral);
-        connect(button, &QPushButton::clicked, this,
-                [this]() { emit checkUpdatesRequested(); });
-        prepareActionButton(button);
-        column->addWidget(button);
-        cell->setToolTip(checkUpdatesHint());
-        actionCells.append(cell);
-    }
-
     // ---------- 「更新中心」----------
     //
     // 把概览已有的"检查更新"结果做成可操作列表 —— 这一颗就是那一页的**门口**：
     // 上一次查出来的结论还在（`MainWindow` 记着），它不重查、不联网，只是把那份结论摆开。
     //
-    // 为什么**不并进**「检查更新」那一颗（按完直接开页）：那一颗是"我现在要重新查一遍"，
-    // 而这一颗是"我要看/改/退回上次那个结果"——"查一次"要联网几十秒，"看一眼"是零成本。
-    // 合成一颗的话，用户想退回上一次更新时会先被迫等一次网络检查，而那一趟**完全可能失败**
-    // （外网连不上、接口 429），于是"退回去"这件事就进不去了。更新完发现游戏起不来，正是
-    // 最需要它的时候。
-    //
-    // NOTE: 和「检查更新」一样**只发信号** —— 那一页要的结论存在 MainWindow 手里，这一层
-    // 连"有没有查过"都不知道。
+    // 更新中心始终可进入；后台检查失败不影响查看已有结果或回滚。
     {
         auto [cell, column] = makeZeroColumn(this);
         auto *button = new QPushButton(updateCenterText(), cell);

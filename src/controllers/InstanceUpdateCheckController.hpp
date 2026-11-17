@@ -86,4 +86,6 @@ private:
         QThread *thread = nullptr;
     };
     UpdateCheckRun m_updateCheck;
+    QHash<QString, QPointer<InstanceSettingsDialog>> m_pendingChecks;
+    QHash<QString, QString> m_lastIncompleteReports;
 };

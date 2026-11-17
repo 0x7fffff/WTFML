@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "controllers/InstanceUpdateCheckController.hpp"
 void runUpdateCheckSourceFallbackTests() {
     const QString originalDir = AppPaths::minecraftDir();
     QTemporaryDir root;
@@ -187,10 +188,13 @@ void runUpdateCheckSourceFallbackTests() {
                 return;
             }
             page->showPage(QStringLiteral("mod"));
-            if (auto *button = page->findChild<QPushButton *>(
-                    InstanceSettingsDialog::checkUpdatesButtonName())) {
-                button->click();
-            }
+            auto *mods = page->filesPage(QStringLiteral("mod"));
+            check(pumpUntil([mods] { return mods && mods->updateChecked(); }, 20000),
+                  "background update check finishes without navigation");
+            check(currentPageOverlay() == host && host->findChild<InstanceSettingsDialog *>(),
+                  "background result preserves the active instance page");
+            QMetaObject::invokeMethod(page, "updateCenterRequested", Qt::DirectConnection);
+
             if (auto *back =
                     host->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
                 back->click();
@@ -294,6 +298,39 @@ void runUpdateCheckSourceFallbackTests() {
               QString::fromUtf8(batchBody));
     }
 
+    {
+        api.modrinthVersionFilesUpdateReply = QByteArrayLiteral("{}");
+        api.curseForgeVersionListByMod[QString::number(dualModId)] = QByteArrayLiteral("{\"data\":[]}");
+        api.curseForgeVersionListByMod[QString::number(cfOnlyModId)] = QByteArrayLiteral("{\"data\":[]}");
+        MainWindow w;
+        w.show();
+        QApplication::processEvents();
+        auto *activity = w.findChild<ActivityCenterController *>();
+        activity->tasks()->clearFinished();
+        InstanceUpdateCheckController *controller = nullptr;
+        for (auto *child : w.children())
+            if (auto *candidate = dynamic_cast<InstanceUpdateCheckController *>(child)) controller = candidate;
+        QTimer::singleShot(0, [&] {
+            auto *host = currentPageOverlay();
+            auto *page = host ? host->findChild<InstanceSettingsDialog *>() : nullptr;
+            if (!page || !controller) return;
+            page->showPage(QStringLiteral("mod"));
+            auto *mods = page->filesPage(QStringLiteral("mod"));
+            check(activity->tasks()->finished().isEmpty(), "no partial update notification before checking finishes");
+            check(pumpUntil([&] { return mods->updateChecked() && !controller->findChild<QThread *>(); }, 20000),
+                  "all failed resource checks finish before notification");
+            const auto records = activity->tasks()->finished();
+            check(records.size() == 1 && records.first().errorSummary.startsWith(QStringLiteral("更新检查结果可能不完整"))
+                  && records.first().errorSummary.contains(dualTitle) && records.first().errorSummary.contains(cfOnlyTitle),
+                  "multiple unknown resources produce one incomplete-result report with per-resource details");
+            QMetaObject::invokeMethod(page, "checkUpdatesRequested", Qt::DirectConnection);
+            check(pumpUntil([&] { return !controller->findChild<QThread *>(); }, 20000), "repeated background check completes");
+            check(activity->tasks()->finished().size() == 1, "identical incomplete results are not repeatedly notified");
+            host->closeOverlay();
+        });
+        QMetaObject::invokeMethod(&w, "openInstanceSettings", Qt::DirectConnection, Q_ARG(QString, idV));
+        QApplication::processEvents();
+    }
     restoreSettings();
     check(AppPaths::minecraftDir() == originalDir, "T32.9 数据根目录换回来了");
 }

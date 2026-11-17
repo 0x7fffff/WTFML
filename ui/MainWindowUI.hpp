@@ -2484,7 +2484,7 @@ public:
     static QString updateCenterCloseText() { return QStringLiteral("关闭"); }
     /// 没查过（或者这个实例一条能查的都没有）时那一整块：一句大话 + 一句下一步。
     static QString updateCenterEmptyHintText() {
-        return QStringLiteral("请在「实例设置 → 概览」中检查更新。");
+        return QStringLiteral("进入实例模组页后自动检查更新。");
     }
 
     // ------------------------------------------------------------------

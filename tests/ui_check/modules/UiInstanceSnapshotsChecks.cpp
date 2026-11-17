@@ -67,7 +67,7 @@ int UiInstanceSnapshotsChecks() {
                   "「从快照恢复…」和「删除实例」同一档（它把现在这一份整个换掉）",
                   kindOf(create) + QStringLiteral(" / ") + kindOf(restore));
             auto *integrity = byName(Dlg::integrityCheckButtonName());
-            auto *updates = byName(Dlg::checkUpdatesButtonName());
+            auto *updates = byName(Dlg::updateCenterButtonName());
             check(remove != nullptr && kindOf(remove) == kindOf(restore) &&
                       integrity != nullptr && updates != nullptr &&
                       kindOf(integrity) == Theme::buttonKindKey(Theme::ButtonKind::Neutral) &&

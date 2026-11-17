@@ -1,3 +1,4 @@
+#include "ActivityCenterController.hpp"
 #include "InstanceUpdateCheckController.hpp"
 #include "UpdateCenterController.hpp"
 #include "MainWindow.hpp"
@@ -11,6 +12,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QThread>
+#include <QTimer>
 
 InstanceUpdateCheckController::InstanceUpdateCheckController(MainWindow *owner) : QObject(owner), m_owner(*owner) {}
 
@@ -26,7 +28,10 @@ void InstanceUpdateCheckController::checkInstanceUpdates(const QString &instance
         return;
     }
     if (m_updateCheck.thread != nullptr) {
-        m_owner.appendLog(MainWindow::tr("更新检测已经在跑了，等它出结果。"));
+        if (m_updateCheck.instanceId == instanceId && dialog != nullptr)
+            m_updateCheck.dialog = dialog;
+        else if (dialog != nullptr)
+            m_pendingChecks.insert(instanceId, dialog);
         return;
     }
 
@@ -71,8 +76,6 @@ void InstanceUpdateCheckController::checkInstanceUpdates(const QString &instance
         }
     }
     if (paths.isEmpty()) {
-        InlineMessage::information(m_owner.m_ui->overlay(), MainWindow::tr("更新检测"),
-                                 MainWindow::tr("这个实例里没有可以查更新的文件。"));
         return;
     }
 
@@ -120,7 +123,7 @@ void InstanceUpdateCheckController::onUpdateCheckLookupFinished(const InstanceIc
         m_updateCheck.lookupNote = result.problem;
     } else if (result.unreadable > 0) {
         m_updateCheck.lookupNote =
-            MainWindow::tr("有 %1 个文件读不动（多半被别的程序占着），这一批里没有它们。")
+            MainWindow::tr("无法读取 %1 个文件，相关资源未完成检查。")
                 .arg(result.unreadable);
     }
 
@@ -366,6 +369,8 @@ void InstanceUpdateCheckController::onUpdateCheckVersionsFinished(const QString 
 }
 
 void InstanceUpdateCheckController::finishUpdateCheck(QString instanceId) {
+    if (m_updateCheck.instanceId != instanceId || !m_updateCheck.waitingKeys.isEmpty() ||
+        !m_updateCheck.pendingBatchKeys.isEmpty()) return;
     const UpdateCheckRun run = m_updateCheck;
     if (run.thread != nullptr) {
         if (!run.thread->isFinished()) {
@@ -374,6 +379,14 @@ void InstanceUpdateCheckController::finishUpdateCheck(QString instanceId) {
         run.thread->deleteLater();
     }
     m_updateCheck = UpdateCheckRun{};
+    if (!m_pendingChecks.isEmpty()) {
+        const auto pending = m_pendingChecks;
+        m_pendingChecks.clear();
+        QTimer::singleShot(0, this, [this, pending] {
+            for (auto it = pending.cbegin(); it != pending.cend(); ++it)
+                if (it.value()) checkInstanceUpdates(it.key(), it.value(), {});
+        });
+    }
 
     QList<ModDependencies::UpdateVerdict> outdated;
     QList<ModDependencies::UpdateVerdict> unknown;
@@ -465,7 +478,21 @@ void InstanceUpdateCheckController::finishUpdateCheck(QString instanceId) {
     for (const QString &line : lines) {
         m_owner.appendLog(QStringLiteral("  ") + line);
     }
-    // 这是**后台**弄完的事（用户可能早就不看那一页了）：开更新中心但**不驱逐**
-    // 用户正看着的那一页（见 `MainWindow::openPageWhenIdle()`）。
-    m_owner.openPageWhenIdle([this, instanceId] { m_owner.openUpdateCenter(instanceId); });
+    if (!run.lookupNote.isEmpty() || !unknown.isEmpty()) {
+        QStringList problems;
+        if (!run.lookupNote.isEmpty()) problems.append(run.lookupNote);
+        for (const auto &verdict : unknown)
+            problems.append(QStringLiteral("%1：%2").arg(displayName(verdict), verdict.reason));
+        problems.removeDuplicates();
+        problems.sort();
+        const QString details = problems.join(QLatin1Char('\n'));
+        if (m_lastIncompleteReports.value(instanceId) == details) return;
+        m_lastIncompleteReports.insert(instanceId, details);
+        const auto task = m_owner.m_activityCenter->begin(Tasks::TaskKind::Other,
+            MainWindow::tr("资源更新检查"), instanceId);
+        m_owner.m_activityCenter->finish(task, false,
+            MainWindow::tr("更新检查结果可能不完整") + QLatin1Char('\n') + summary + QLatin1Char('\n') + details, false);
+    } else {
+        m_lastIncompleteReports.remove(instanceId);
+    }
 }

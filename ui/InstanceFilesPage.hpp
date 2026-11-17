@@ -301,12 +301,13 @@ public:
     /// @param outdatedPaths **查出来有新版本**的那些条目的绝对路径（= `pathRole()` 那一格，
     /// 禁用着的那条带着 `.disabled`）。这一份是**整份**，不是追加。
     /// @param checked 这个实例查过没有。**「没查过」和「查过、没有」是两件事**：
-    /// 前者选「可更新」时该说"先点一下检查更新"，后者该说"都是最新的"。
+    /// 前者选「可更新」时显示尚无检查结果，后者该说"都是最新的"。
     ///
     /// NOTE: 这一层只认路径 ⇒ 它在"盘上那一条现在叫什么"这件事上跟 refresh() 同一条口径
     /// （两边都是 `pathRole()`），所以禁用/启用之后路径变了、这一条也就不在表里了
     /// —— 那正是对的：改过名之后上一趟查出来的结论本来就不作数了。
     void setUpdateResult(const QStringList &outdatedPaths, bool checked);
+    bool updateChecked() const { return m_updateChecked; }
 
     /// 这一页看哪个目录（绝对路径）。**由调用方算好递进来** —— 目录名是 MC 的约定，
     /// 仓库里已经有唯一一份（src/download/ResourceCatalog::folderForKind），
@@ -763,7 +764,7 @@ public:
     /// 还走得到（下拉框不收空档、也不写条数）。所以这句话现在照旧是"你上别处按一颗
     /// 去"那一路。
     static QString updateNotCheckedText() {
-        return QStringLiteral("尚未检查更新，请先在概览中检查。");
+        return QStringLiteral("尚无更新检查结果。");
     }
     /// 选着「可更新」、查过了、这一页里一条要更新的都没有。
     static QString updateNoneText() {
@@ -820,7 +821,7 @@ signals:
     /// NOTE: 认不出来的那几条**一个字都不会发**（那颗按钮是灰的，按不动）。
     void detailRequested(const QString &path);
 
-    /// 这一页**不自带检查更新的入口**：检查更新只有「概览」那一栏那一颗。
+    /// 进入模组页时由实例设置页发起后台检查。
     /// ⚠ 别加第二个入口：这一层连 AppPaths 都够不着（见文件头那段），而且那颗按钮
     /// 本来就该是纯粹的筛子 —— 点一下筛条件就走网络是两件事挤在一颗按钮上。
     /// 哪一条有新版本由**那一行自己的 ↑**说（见 makeItem 里那个箭头）。

@@ -29,6 +29,7 @@
 #include "Theme.hpp"
 #include "ToggleSwitch.hpp"
 #include "VersionIcons.hpp"
+#include "UpdateGlyph.hpp"
 
 #include <QApplication>
 #include <QCursor>
@@ -225,17 +226,31 @@ public:
         } else if (selected && m_page->m_batchMode) {
             nameInk = Theme::selectionPalette(palette, true).color(QPalette::WindowText);
         }
-        const QString name = item->data(Qt::AccessibleTextRole).toString();
-        const QFontMetrics nameMetrics(nameFont);
-        const QString nameShown = nameMetrics.elidedText(name, Qt::ElideMiddle, g.name.width());
+        QString name = item->data(Qt::AccessibleTextRole).toString();
+        const bool hasUpdate = m_page->m_outdatedPaths.contains(path);
+        const QString updateSuffix = QStringLiteral(" ") + InstanceFilesPage::updateArrowText();
+        if (hasUpdate && name.endsWith(updateSuffix)) name.chop(updateSuffix.size());
+        painter->setFont(nameFont);
+        const QFontMetrics nameMetrics = painter->fontMetrics();
+        const int updateSize = hasUpdate ? 18 : 0;
+        const int updateSpace = hasUpdate ? updateSize + 6 : 0;
+        const QString nameShown = nameMetrics.elidedText(name, Qt::ElideMiddle, qMax(0, g.name.width() - updateSpace));
         if (nameShown != name) {
             m_page->m_elidedNames.insert(path);
         } else {
             m_page->m_elidedNames.remove(path);
         }
-        painter->setFont(nameFont);
         painter->setPen(nameInk);
-        painter->drawText(g.name, Qt::AlignLeft | Qt::AlignVCenter | Qt::TextSingleLine, nameShown);
+        QRect textBounds;
+        const QRect textRect = g.name.adjusted(0, 0, -updateSpace, 0);
+        painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter | Qt::TextSingleLine, nameShown, &textBounds);
+        if (hasUpdate && g.name.width() >= updateSpace) {
+            // 使用这次 drawText 的实际边界，跟随画笔解析后的字体和设备 DPI。
+            const int left = qMin(textBounds.right() + 7, g.name.right() - updateSize + 1);
+            const QRect mark(left,
+                             g.name.center().y() - updateSize / 2 + 1, updateSize, updateSize);
+            UpdateGlyph::icon(nameInk).paint(painter, mark);
+        }
 
         const QFont metaFont = Theme::textFont(option.font, Theme::TextRole::Caption);
         const QFontMetrics metaMetrics(metaFont);

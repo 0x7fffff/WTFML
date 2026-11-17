@@ -791,6 +791,9 @@ void InstanceSettingsDialog::applyPageKey(const QString &requestedKey) {
     //
     // NOTE: 这一发走的是**键**不是行号 ⇒ 左栏那一列怎么变（勾掉一条、可用性变了）都不影响
     // 它：只要有人摆到「服务器列表」那一页上，它就该发。
+    if (key == QStringLiteral("mod") && !alreadyHere) {
+        QTimer::singleShot(0, this, [this] { emit checkUpdatesRequested(); });
+    }
     if (key == serverPageKey() && !alreadyHere) {
         emit serverPageEntered();
     }
