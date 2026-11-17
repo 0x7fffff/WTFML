@@ -33,6 +33,7 @@ PNG、BMP、WebP 等格式的头部信息可能声明超大分辨率，引发解
 | 场景位置 | 图片来源 | 防护上限 |
 | --- | --- | --- |
 | `ResourceStore`（资源图标） | Modrinth / CurseForge | 4096 / 16 MP |
+| `InstanceIconController`（包内图标） | 模组声明、`pack.png`、`icon.png`、`logo.png` | 每张压缩条目 ≤ 1 MiB，4096 / 16 MP；后台缩放至 128 像素 |
 | `ServerPingController` / `ToolboxController`（服务器图标） | 服务器回复的 data URL、本地缓存 | 4096 / 16 MP |
 | `ThemeImage`（用户背景图） | 用户指定的本地文件 | 8192 / 64 MP（源文件 ≤ 32 MB） |
 | 皮肤导入入口 | 用户指定的皮肤文件 | 256×256（源文件 ≤ 16 MB；最终规格仍按 `SkinApi::isAcceptableSkinSize` 判定 64×64 / 64×32） |

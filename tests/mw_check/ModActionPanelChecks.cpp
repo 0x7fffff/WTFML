@@ -7,6 +7,9 @@
 #include <QMenu>
 #include "operations/TransferApply.hpp"
 #include "manage/InstanceIconLookup.hpp"
+#include "util/ZipUtil.hpp"
+#include "util/ImageDecode.hpp"
+#include <QBuffer>
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -41,6 +44,61 @@ int runModActionPanelChecks() {
     // 而且**一个字都不打印**（看起来像崩溃）。系统临时目录永远可用。
     QTemporaryDir dir;
     if (!dir.isValid()) { std::printf("FAIL temporary fixture directory unavailable\n"); return 2; }
+    {
+        QTemporaryDir iconFixtures;
+        if (!iconFixtures.isValid()) return 2;
+        const auto writeIconFixture = [](const QString &path, const QByteArray &bytes) {
+            QFile file(path);
+            return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size();
+        };
+        QImage image(8, 8, QImage::Format_ARGB32);
+        image.fill(Qt::red);
+        QByteArray png;
+        QBuffer buffer(&png);
+        if (!buffer.open(QIODevice::WriteOnly) || !image.save(&buffer, "PNG")) return 2;
+        const QString icon = iconFixtures.filePath(QStringLiteral("embedded.png"));
+        if (!writeIconFixture(icon, png)) return 2;
+        const QString invalidIcon = iconFixtures.filePath(QStringLiteral("invalid.png"));
+        if (!writeIconFixture(invalidIcon, "invalid image")) return 2;
+        QStringList archives;
+        const QList<QPair<QString, QByteArray>> declarations = {
+            {QStringLiteral("fabric.mod.json"), R"({"icon":{"32":"assets/custom.png"}})"},
+            {QStringLiteral("quilt.mod.json"), R"({"quilt_loader":{"metadata":{"icon":"assets/custom.png"}}})"},
+            {QStringLiteral("META-INF/mods.toml"), "[[mods]]\nlogoFile=\"assets/custom.png\"\n"},
+            {QStringLiteral("META-INF/neoforge.mods.toml"), "[[mods]]\nlogoFile='assets/custom.png'\n"},
+            {QStringLiteral("mcmod.info"), R"([{"logoFile":"assets/custom.png"}])"}
+        };
+        int index = 0;
+        for (const auto &declaration : declarations) {
+            const QString manifest = iconFixtures.filePath(QStringLiteral("manifest-%1.json").arg(index));
+            if (!writeIconFixture(manifest, declaration.second)) return 2;
+            const QString archive = iconFixtures.filePath(QStringLiteral("icon-%1.jar.disabled").arg(index++));
+            check(ZipUtil::createZip(archive, {{declaration.first, manifest},
+                  {QStringLiteral("assets/custom.png"), icon}, {QStringLiteral("pack.png"), invalidIcon}}),
+                  "create embedded mod icon fixture with different fallback");
+            archives.append(archive);
+        }
+        const QString pack = iconFixtures.filePath(QStringLiteral("texture.zip"));
+        check(ZipUtil::createZip(pack, {{QStringLiteral("pack.png"), icon}}), "create pack icon fixture");
+        archives.append(pack);
+        const auto icons = ZipUtil::readIconsBatch(archives);
+        for (const auto &archive : archives) {
+            check(icons.value(archive) == png && !ImageDecode::decode(icons.value(archive)).isNull(),
+                  "embedded mod and pack icons read without network including disabled archives");
+        }
+        check(ZipUtil::readIconsBatch({iconFixtures.filePath(QStringLiteral("missing.zip"))}).isEmpty(),
+              "unreadable archive allows network fallback");
+        const QString corrupt = iconFixtures.filePath(QStringLiteral("corrupt.zip"));
+        check(ZipUtil::createZip(corrupt, {{QStringLiteral("pack.png"), invalidIcon}}), "create invalid image fixture");
+        const auto corruptBytes = ZipUtil::readIconsBatch({corrupt});
+        check(ImageDecode::decode(corruptBytes.value(corrupt)).isNull(), "invalid embedded image allows network fallback");
+        const QString large = iconFixtures.filePath(QStringLiteral("large.png"));
+        if (!writeIconFixture(large, QByteArray(1024 * 1024 + 1, 'x'))) return 2;
+        const QString oversized = iconFixtures.filePath(QStringLiteral("oversized.zip"));
+        check(ZipUtil::createZip(oversized, {{QStringLiteral("pack.png"), large}}), "create oversized icon fixture");
+        check(ZipUtil::readIconsBatch({oversized}).isEmpty(), "oversized embedded icon rejected before decode");
+        for (const auto &archive : archives) QFile::remove(archive);
+    }
     for (const auto &name : {QStringLiteral("Sodium.jar"), QStringLiteral("Iris.jar.disabled")}) {
         QFile file(dir.filePath(name));
         if (!file.open(QIODevice::WriteOnly) || file.write("fixture") < 0) return 1;

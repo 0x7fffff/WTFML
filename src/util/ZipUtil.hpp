@@ -18,6 +18,8 @@
 #include <QStringList>
 
 namespace ZipUtil {
+/// 批量读取包内图标；结果以归档路径索引。每张限制 1 MiB，不解压到磁盘。
+QHash<QString, QByteArray> readIconsBatch(const QStringList &archives);
 struct ArchiveMetadata {
     QHash<QString, QByteArray> entries;
     QHash<QString, QString> entryProblems;

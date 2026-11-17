@@ -15,7 +15,7 @@ class LauncherSettings;
 class ResourceStore;
 class QThread;
 
-/// 「文件管理」那几页里那些**资源文件**的图标反查，连同它的会话缓存。
+/// 文件管理先读取包内图标，再反查资源身份并补充缺失图标；缓存按文件内容签名区分。
 ///
 /// 要求：「模组和资源包等都有一个图标，把图标显示出来」。盘上那个文件名**不是
 /// 身份**（用户改过名、各家起名不一样），所以"这是哪个资源"只能按**文件内容**反查
@@ -178,6 +178,8 @@ private:
     /// 几十个 jar 要重新读一遍（几百 MB），而且那几秒里图标是占位图。值**可以是空
     /// pixmap**（见 m_instanceIconMissing 那段）。
     QHash<QString, QPixmap> m_instanceFileIcons;
+    /// 网络回调不得覆盖这些包内图标；禁用改名共用同一把文件钥匙。
+    QSet<QString> m_embeddedIconKeys;
     /// 问过了、**没有**图标的那一批（同一把钥匙）。存它只为一件事：别把同一个文件问第二遍。
     ///
     /// 只有"这一趟**完整跑完**了"才会往里写（`Result::problem` 空，见

@@ -5,6 +5,8 @@
 #include "manage/InstanceFiles.hpp"
 #include "settings/LauncherSettings.hpp"
 #include "util/AppPaths.hpp"
+#include "util/ZipUtil.hpp"
+#include "util/ImageDecode.hpp"
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFileInfo>
@@ -157,6 +159,23 @@ void InstanceIconController::startInstanceFileIconLookup() {
     // 里带过去的，中间不过 QVariant（`InstanceIconLookup::Result` 里那两层容器要按
     // Q_DECLARE_METATYPE 一层层登记才对，漏一层就是**静默**收不到，见 ServerPing 里那条）。
     m_instanceIconThread = QThread::create([this, missing, options]() {
+        // 先发布本地图标，再反查身份；读取和图片解码都留在后台线程。
+        for (qsizetype offset = 0; offset < missing.size(); offset += 16) {
+            const auto bytes = ZipUtil::readIconsBatch(missing.mid(offset, 16));
+            QHash<QString, QImage> images;
+            for (auto it = bytes.cbegin(); it != bytes.cend(); ++it) {
+                const auto image = ImageDecode::decode(it.value());
+                if (!image.isNull()) images.insert(instanceIconCacheKey(it.key()),
+                    image.scaled(128, 128, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            }
+            QMetaObject::invokeMethod(this, [this, images]() {
+                for (auto it = images.cbegin(); it != images.cend(); ++it) {
+                    m_embeddedIconKeys.insert(it.key());
+                    m_instanceFileIcons.insert(it.key(), QPixmap::fromImage(it.value()));
+                }
+                pushInstanceFileIcons();
+            }, Qt::QueuedConnection);
+        }
         const InstanceIconLookup::Result result = InstanceIconLookup::lookup(missing, options);
         QMetaObject::invokeMethod(
             this, [this, result]() { onInstanceIconLookupFinished(result); }, Qt::QueuedConnection);
@@ -207,7 +226,7 @@ void InstanceIconController::onInstanceIconLookupFinished(const InstanceIconLook
         m_host.rememberHit(iconKey, hit);
         // 已经在问 / 已经在缓存里的话 requestIcon() 自己会处理（可能**同步**就把 iconReady
         // 发出来了 —— 那时候上面那一行必须先写完，见它那条 NOTE）。
-        iconRequests.append(hit);
+        if (!m_embeddedIconKeys.contains(instanceIconCacheKey(found.path))) iconRequests.append(hit);
     }
 
     // ---------- ② 没认出来的那一批 ----------
@@ -342,6 +361,7 @@ void InstanceIconController::rememberResourceIcon(const QString &iconKey, const 
         return;
     }
     for (const QString &path : filePaths) {
+        if (m_embeddedIconKeys.contains(instanceIconCacheKey(path))) continue;
         // 空的也存 —— 它记的是"这一条问过了、没有"（见 m_instanceIconMissing 那段）。
         m_instanceFileIcons.insert(instanceIconCacheKey(path), icon);
     }

@@ -398,7 +398,41 @@ try {
    try {
     $zip=[IO.Compression.ZipFile]::OpenRead($archivePath.ioPath)
     foreach($name in $inputData.entries) {
-     $entry=$zip.GetEntry($name); if($null -eq $entry){continue}
+     $entry=$null
+     if($name -eq '@wtfml-icon') {
+      $candidates=[Collections.Generic.List[string]]::new()
+      foreach($meta in @('fabric.mod.json','quilt.mod.json','mcmod.info','META-INF/neoforge.mods.toml','META-INF/mods.toml')) {
+       $declaration=$zip.GetEntry($meta)
+       if(!$declaration -or $declaration.Length -gt 1048576){continue}
+       $reader=$null
+       try {
+        $reader=[IO.StreamReader]::new($declaration.Open())
+        $chars=New-Object char[] 1048577; $length=$reader.ReadBlock($chars,0,$chars.Length)
+        if($length -gt 1048576){continue}; $text=[string]::new($chars,0,$length)
+        if($meta.EndsWith('.toml')) {
+         foreach($match in [regex]::Matches($text,'(?m)^\s*logoFile\s*=\s*["'']([^"'']+)["'']')) {$candidates.Add($match.Groups[1].Value)}
+        } else {
+         $json=ConvertFrom-Json -InputObject $text
+         $values=@()
+         if($meta -eq 'fabric.mod.json') {$values=@($json.icon)}
+         elseif($meta -eq 'quilt.mod.json') {$values=@($json.quilt_loader.metadata.icon)}
+         else {if($json.modList){$json=$json.modList}; foreach($mod in $json){$values+=@($mod.logoFile)}}
+         foreach($value in $values) {
+          if($value -is [string]) {$candidates.Add($value)}
+          elseif($value) {foreach($property in ($value.PSObject.Properties | Sort-Object {[int]$_.Name} -Descending)) {if($property.Value -is [string]){$candidates.Add($property.Value)}}}
+         }
+        }
+       } catch {} finally {if($reader){$reader.Dispose()}}
+      }
+      $candidates.Add('pack.png'); $candidates.Add('icon.png'); $candidates.Add('logo.png')
+      foreach($candidate in $candidates) {
+       $candidate=$candidate.Replace('\','/').TrimStart('/')
+       if($candidate.Split('/') -contains '..'){continue}
+       $entry=$zip.GetEntry($candidate)
+       if($entry -and $entry.Length -le 1048576){break}; $entry=$null
+      }
+     } else {$entry=$zip.GetEntry($name)}
+     if($null -eq $entry){continue}
      $stream=$null; $memory=$null
      try {
       if($entry.Length -gt 1048576){throw '声明超过 1 MiB 限制'}
@@ -441,6 +475,16 @@ try {
             if (problems.contains(name)) metadata.entryProblems.insert(name, problems.value(name).toString());
         }
         result.insert(path, metadata);
+    }
+    return result;
+}
+
+QHash<QString, QByteArray> ZipUtil::readIconsBatch(const QStringList &archives) {
+    QHash<QString, QByteArray> result;
+    const auto metadata = readMetadataBatch(archives, {QStringLiteral("@wtfml-icon")});
+    for (auto it = metadata.cbegin(); it != metadata.cend(); ++it) {
+        const auto bytes = it.value().entries.value(QStringLiteral("@wtfml-icon"));
+        if (!bytes.isEmpty()) result.insert(it.key(), bytes);
     }
     return result;
 }

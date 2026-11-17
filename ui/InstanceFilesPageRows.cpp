@@ -92,7 +92,7 @@ QPixmap scaleToIconSlot(const QPixmap &icon) {
     return icon.scaled(slot, slot, Qt::KeepAspectRatio, Qt::SmoothTransformation);
 }
 
-/// 目录**自己带着的那张小图**：`<目录>/icon.png`。没有、读不出来就是空 pixmap。
+/// 目录自带的 icon.png；未压缩的资源包、数据包也读取 pack.png。
 ///
 /// NOTE: 那条文件名是**游戏的约定**，不是我们发明的：大小写按它写的 `icon.png` 认
 /// （Windows 上不区分，别的系统上区分，照原样写最保险）。
@@ -100,7 +100,8 @@ QPixmap scaleToIconSlot(const QPixmap &icon) {
 /// 目录里有那张图就画。多一道判断就多一处"哪些目录算数"的规则要跟着游戏版本改。
 /// NOTE: 只有**目录**才看这个（见 iconForPath 里 `isDir` 那个闸）：文件自己有哈希那条路。
 QPixmap directoryThumbnail(const QString &dirPath) {
-    const QString candidate = dirPath + QStringLiteral("/icon.png");
+    QString candidate = dirPath + QStringLiteral("/icon.png");
+    if (!QFileInfo::exists(candidate)) candidate = dirPath + QStringLiteral("/pack.png");
     if (!QFileInfo::exists(candidate)) {
         return QPixmap();
     }
