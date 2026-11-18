@@ -96,6 +96,7 @@ class DailyQuoteController;
 class InstanceIconController;
 class QTreeWidget;  // 下载页那几张资源表（只用指针和引用，所以前置声明够）
 class QTreeWidgetItem;
+class QNetworkAccessManager;
 class QThread;  // 图标反查那一趟（见 m_instanceIconThread），同上只按指针持有
 // onPlayerSkinChanged 收到的两张贴图。**只用 const 引用传**（图是
 // PlayerSkinController 那边载好发过来的），所以前置声明够 —— 定义在 MainWindow.cpp 里
@@ -2338,6 +2339,14 @@ private:
     /// 那一栏的第二层里（和「游戏」的安装页同一个形状，`downloadServerFormIndex()`）。
     /// 所以这里做的是"切到下载页 → 翻到服务端那一栏 → 停在表单那一层"。
     void openNewServerPage();
+    /// 从游戏安装页点「服务端」直接打开同一版本的服务端安装页；无对应服务端时退回列表并提示。
+    void openServerPageForGameVersion(const QString &gameVersion);
+    void showNewServerForm(const QString &selected, bool fromDownload);
+    void startServerVersionProbe(const QString &version, const QString &url,
+                                 const QString &fallbackUrl, int generation);
+    void fallbackToServerVersionList(const QString &title, const QString &message,
+                                     bool isWarning = false);
+    void cancelPendingServerVersionProbe();
     /// 表单上那颗「创建」真按下去之后那一截（`NewServerPage::accepted` 的接收端）：
     /// 建目录、写 `.wtfml-server`、切到「管理 → 服务端」、接着排安装那一趟。
     void createServerFromNewServerPage();
@@ -2716,6 +2725,12 @@ private:
     /// 「新建服务端」那张表单（懒建一次、之后复用）。它嵌在「下载 → 服务端」那一栏的
     /// 第二层里（`MainWindowUI::getServerFormHost()`），**不是**浮在覆盖层上的独立一页。
     NewServerPage *m_newServerPage = nullptr;
+    QNetworkAccessManager *m_serverProbeNetwork = nullptr;
+    QPointer<QObject> m_serverProbeRequest;
+    int m_serverProbeGeneration = 0;
+    QHash<QString, bool> m_serverAvailabilityCache;
+    QHash<QString, QJsonObject> m_probedServerVersionJsons;
+    bool m_suppressGameInstallServerJump = false;
     /// 服务端安装那四段的驱动（构造里建一次，和 `m_versionManager` 一样常驻）。
     ///
     /// 它拿的是 `VersionManager` 手上**那一份**下载器（`setDownloadManager()` —— 理由见

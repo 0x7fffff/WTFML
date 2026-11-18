@@ -501,6 +501,30 @@ int UiDownloadCategoriesChecks(MainWindowUI &ui, QStackedWidget * &gameStack, QW
             check(afterClick == 2 && chip0 != nullptr && chip0->isChecked() && chip2 != nullptr && !chip2->isChecked(),
                   "点 chip 翻分类、列表翻回「游戏」那颗 chip 跟着亮（两边是同一份状态）",
                   QString::number(afterClick));
+
+            const auto visibleChips = [&]() {
+                QList<int> visible;
+                for (int i = 0; i < texts.size(); ++i) {
+                    if (auto *chip = chipRow->findChild<QPushButton *>(MainWindowUI::downloadCategoryChipName(i))) {
+                        if (!chip->isHidden()) visible.append(i);
+                    }
+                }
+                return visible;
+            };
+            const QList<int> onlyGameAndServer = {
+                MainWindowUI::downloadCategoryGameIndex(),
+                MainWindowUI::downloadCategoryServerIndex(),
+            };
+            if (gameStack != nullptr) {
+                gameStack->setCurrentIndex(MainWindowUI::downloadGameInstallIndex());
+                QApplication::processEvents();
+                check(visibleChips() == onlyGameAndServer,
+                      "进入游戏版本安装页后，顶部只保留「游戏」和「服务端」两颗分类 chip");
+                gameStack->setCurrentIndex(MainWindowUI::downloadGameTreeIndex());
+                QApplication::processEvents();
+                check(visibleChips().size() == texts.size(),
+                      "退回游戏版本列表后，7 个顶部分类 chip 全部恢复");
+            }
         }
         // 高度贴着那几条，不是被拉满整条左栏 —— 五个两三个字的条目撑成一整列空白，
         // 看着像坏了（还容易让人以为底下有东西没显示出来）。

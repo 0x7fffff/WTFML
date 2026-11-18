@@ -286,7 +286,9 @@ struct FakeNetwork {
                     R"({"id":"26.3","type":"snapshot","url":"%1/versions/26.3.json",)"
                     R"("time":"2026-03-01T10:00:00+00:00","releaseTime":"2026-03-01T10:00:00+00:00"},)"
                     R"({"id":"1.20.1","type":"release","url":"%1/versions/1.20.1.json",)"
-                    R"("time":"2023-06-12T10:00:00+00:00","releaseTime":"2023-06-12T10:00:00+00:00"}])")
+                    R"("time":"2023-06-12T10:00:00+00:00","releaseTime":"2023-06-12T10:00:00+00:00"},)"
+                    R"({"id":"1.2.4","type":"release","url":"%1/versions/1.2.4.json",)"
+                    R"("time":"2012-03-22T10:00:00+00:00","releaseTime":"2012-03-22T10:00:00+00:00"}])")
                     .arg(base());
             send(200, QStringLiteral(R"({"latest":{"release":"1.21.4","snapshot":"26.3"},)"
                                      R"("versions":%1})")
@@ -298,11 +300,19 @@ struct FakeNetwork {
             path.endsWith(QLatin1String(".json"))) {
             const QString id =
                 path.mid(10, path.size() - 10 - 5);  // 去掉 `/versions/` 和 `.json`
-            send(200, QStringLiteral(R"({"id":"%1","type":"release",)"
+            const bool hasServer = id != QLatin1String("1.2.4") &&
+                                   !id.startsWith(QLatin1String("a")) &&
+                                   !id.startsWith(QLatin1String("b"));
+            const QString downloads =
+                hasServer
+                    ? QStringLiteral(R"("downloads":{"server":{"url":"%1/server/%2.jar","sha1":"0000","size":1024}},)")
+                          .arg(base(), id)
+                    : QStringLiteral(R"("downloads":{},)");
+            send(200, QStringLiteral(R"({"id":"%1","type":"release",%2)"
                                      R"("mainClass":"net.minecraft.client.main.Main",)"
                                      R"("assets":"1.20","libraries":[],)"
                                      R"("arguments":{"game":[],"jvm":[]}})")
-                          .arg(id)
+                          .arg(id, downloads)
                           .toUtf8());
             return;
         }
