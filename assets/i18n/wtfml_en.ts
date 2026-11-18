@@ -18588,6 +18588,209 @@ So there is no import. (Fabric / Forge / NeoForge / OptiFine can be installed di
         </message>
     </context>
     <context>
+        <name>ServerPropertiesForm</name>
+        <message>
+            <source>服务器简介</source>
+            <translation>Server introduction</translation>
+        </message>
+        <message>
+            <source>服务器列表中的显示文字</source>
+            <translation>Display text in server list</translation>
+        </message>
+        <message>
+            <source>端口</source>
+            <translation>Port</translation>
+        </message>
+        <message>
+            <source>玩家连接使用的端口；需在路由器上转发</source>
+            <translation>The port used by players to connect; needs to be forwarded on the router</translation>
+        </message>
+        <message>
+            <source>最多在线人数</source>
+            <translation>Maximum number of people online</translation>
+        </message>
+        <message>
+            <source>同时在线人数上限，超出者无法加入</source>
+            <translation>The maximum number of people online at the same time, those who exceed the limit will not be able to join.</translation>
+        </message>
+        <message>
+            <source>难度</source>
+            <translation>Difficulty</translation>
+        </message>
+        <message>
+            <source>影响怪物伤害与饥饿消耗速度</source>
+            <translation>Affects monster damage and hunger consumption speed</translation>
+        </message>
+        <message>
+            <source>和平</source>
+            <translation>Peace</translation>
+        </message>
+        <message>
+            <source>简单</source>
+            <translation>Simple</translation>
+        </message>
+        <message>
+            <source>普通</source>
+            <translation>Ordinary</translation>
+        </message>
+        <message>
+            <source>困难</source>
+            <translation>Difficulty</translation>
+        </message>
+        <message>
+            <source>默认游戏模式</source>
+            <translation>Default game mode</translation>
+        </message>
+        <message>
+            <source>新玩家首次加入时的游戏模式</source>
+            <translation>Game mode when new players join for the first time</translation>
+        </message>
+        <message>
+            <source>生存</source>
+            <translation>Survive</translation>
+        </message>
+        <message>
+            <source>创造</source>
+            <translation>Create</translation>
+        </message>
+        <message>
+            <source>冒险</source>
+            <translation>Adventure</translation>
+        </message>
+        <message>
+            <source>旁观</source>
+            <translation>Watch</translation>
+        </message>
+        <message>
+            <source>极限模式</source>
+            <translation>Extreme mode</translation>
+        </message>
+        <message>
+            <source>开启后死亡一次即无法再进入该世界</source>
+            <translation>If you die once after opening it, you will no longer be able to enter the world.</translation>
+        </message>
+        <message>
+            <source>世界目录名</source>
+            <translation>World directory name</translation>
+        </message>
+        <message>
+            <source>世界数据所在的文件夹；修改等同于切换世界</source>
+            <translation>The folder where the world data is located; modification is equivalent to switching worlds</translation>
+        </message>
+        <message>
+            <source>地图种子</source>
+            <translation>Map seed</translation>
+        </message>
+        <message>
+            <source>仅在世界首次生成时使用；已有世界修改无效</source>
+            <translation>Only used when the world is first generated; modifications to existing worlds are invalid</translation>
+        </message>
+        <message>
+            <source>资源包地址</source>
+            <translation>Resource package address</translation>
+        </message>
+        <message>
+            <source>玩家可访问的 http(s) 链接；本机路径对其他玩家无效</source>
+            <translation>Player-accessible http(s) links; local paths are not valid for other players</translation>
+        </message>
+        <message>
+            <source>资源包 SHA-1</source>
+            <translation>Resource package SHA-1</translation>
+        </message>
+        <message>
+            <source>该 zip 的 SHA-1；可用右侧按钮从本地 zip 计算</source>
+            <translation>SHA-1 of this zip; calculated from the local zip using the button on the right</translation>
+        </message>
+        <message>
+            <source>正版验证</source>
+            <translation>Genuine verification</translation>
+        </message>
+        <message>
+            <source>开启后仅允许正版账号加入；关闭后玩家可冒用他人名称</source>
+            <translation>After turning it on, only genuine accounts are allowed to join; after turning it off, players can impersonate other people's names.</translation>
+        </message>
+        <message>
+            <source>白名单</source>
+            <translation>Whitelist</translation>
+        </message>
+        <message>
+            <source>仅允许白名单中的玩家加入，可在「玩家 → 白名单」中管理</source>
+            <translation>Only players in the whitelist are allowed to join, which can be managed in "Players → Whitelist"</translation>
+        </message>
+        <message>
+            <source>玩家互相伤害</source>
+            <translation>Players hurt each other</translation>
+        </message>
+        <message>
+            <source>关闭后玩家之间无法互相伤害（怪物不受影响）</source>
+            <translation>After closing, players cannot harm each other (monsters are not affected)</translation>
+        </message>
+        <message>
+            <source>允许飞行</source>
+            <translation>Allowed to fly</translation>
+        </message>
+        <message>
+            <source>关闭时，被判定为飞行的玩家会被踢出</source>
+            <translation>When turned off, players judged to be flying will be kicked out</translation>
+        </message>
+        <message>
+            <source>允许去下界</source>
+            <translation>Allowed to go to the Nether</translation>
+        </message>
+        <message>
+            <source>关闭后下界传送门无法使用</source>
+            <translation>The nether portal cannot be used after it is closed.</translation>
+        </message>
+        <message>
+            <source>刷怪</source>
+            <translation>Spawn monsters</translation>
+        </message>
+        <message>
+            <source>关闭后世界不生成怪物（和平难度下同样不生成）</source>
+            <translation>After closing, no monsters will be generated in the world (no monsters will be generated in the peaceful difficulty either)</translation>
+        </message>
+        <message>
+            <source>允许命令方块</source>
+            <translation>Allow command blocks</translation>
+        </message>
+        <message>
+            <source>是否允许使用命令方块与命令方块矿车</source>
+            <translation>Whether to allow the use of command blocks and command block minecarts</translation>
+        </message>
+        <message>
+            <source>出生点保护半径</source>
+            <translation>Spawn point protection radius</translation>
+        </message>
+        <message>
+            <source>出生点周围的保护半径；非管理员无法破坏（0 = 关闭）</source>
+            <translation>Protection radius around spawn point; cannot be destroyed by non-admins (0 = off)</translation>
+        </message>
+        <message>
+            <source>视距</source>
+            <translation>Sight distance</translation>
+        </message>
+        <message>
+            <source>玩家可视距离；增大将显著增加内存与带宽占用</source>
+            <translation>Player visual distance; increasing will significantly increase memory and bandwidth usage</translation>
+        </message>
+        <message>
+            <source>模拟距离</source>
+            <translation>Simulated distance</translation>
+        </message>
+        <message>
+            <source>该距离内的生物与方块会进行模拟</source>
+            <translation>Mobs and blocks within this distance will be simulated</translation>
+        </message>
+        <message>
+            <source>挂机踢出（分钟）</source>
+            <translation>Kick out (minutes)</translation>
+        </message>
+        <message>
+            <source>玩家无操作多久后被踢出；0 = 不踢出</source>
+            <translation>How long the player will be kicked out after inactivity; 0 = not kicked out</translation>
+        </message>
+    </context>
+    <context>
         <name>ServerRun::ServerProcess</name>
         <message>
             <source>服务端进程没起来（%1 起不来？看看 Java 那一项配得对不对）。</source>

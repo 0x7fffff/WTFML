@@ -154,7 +154,6 @@ src/server/ServerInstallRun.hpp	15
 src/server/ServerModel.hpp	8
 src/server/ServerPlayers.cpp	10
 src/server/ServerPortCheck.hpp	3
-src/server/ServerPropertiesForm.cpp	51
 src/server/ServerRegistry.cpp	26
 src/server/ServerResourcePack.cpp	16
 src/server/ServerRestart.cpp	5
