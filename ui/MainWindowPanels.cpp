@@ -1435,11 +1435,11 @@ void MainWindowUI::setupBottomBar(QWidget *parent) {
     // 但不放进可见布局。工具箱入口在导航轨底部。
     accountButton->hide();
 
-    toolboxButton = new RailNavButton(QStringLiteral("工具箱"), bottomBar);
+    toolboxButton = new RailNavButton(QCoreApplication::translate("MainWindowPanels", "工具箱"), bottomBar);
     toolboxButton->setObjectName(toolboxButtonName());
     toolboxButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     toolboxButton->setCursor(Qt::PointingHandCursor);
-    toolboxButton->setToolTip(QStringLiteral("工具箱"));
+    toolboxButton->setToolTip(QCoreApplication::translate("MainWindowPanels", "工具箱"));
     toolboxButton->setCheckable(true);
     toolboxButton->setAttribute(Qt::WA_Hover, true);
     {
@@ -2316,3 +2316,4 @@ void MainWindowUI::setRunPanelAvailable(bool available) {
     // 点不动的格子不该再挂着"点一下向上展开实例列表"（鼠标都到不了它身上，也弹不出来）。
     runStateButton->setToolTip(available ? MainWindowUI::bottomBarRunPanelTip() : QString());
 }
+

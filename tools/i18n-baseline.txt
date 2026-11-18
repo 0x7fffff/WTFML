@@ -189,7 +189,6 @@ src/util/DirectorySessionLock.hpp	6
 src/util/DownloadDiagnostics.cpp	1
 src/util/ErrorReport.cpp	28
 src/util/FileAssociations.cpp	13
-src/util/HomeGreeting.cpp	8
 src/util/NbtTree.cpp	35
 src/util/NbtUtil.cpp	20
 src/util/SecretProtector.cpp	4
@@ -233,10 +232,9 @@ ui/JavaMismatchDialog.cpp	3
 ui/ListRowDelegate.cpp	1
 ui/MainWindowDownloadPage.cpp	11
 ui/MainWindowHomePopovers.cpp	10
-ui/MainWindowPanels.cpp	29
+ui/MainWindowPanels.cpp	27
 ui/MainWindowSettingsPage.cpp	95
-ui/MainWindowUI.cpp	24
-ui/MainWindowUI.hpp	276
+ui/MainWindowUI.cpp	20
 ui/NewServerPage.cpp	9
 ui/NewServerPage.hpp	1
 ui/OverlayHost.hpp	1
@@ -261,7 +259,6 @@ ui/TaskCenterPanel.cpp	3
 ui/TaskDetailPage.hpp	1
 ui/Theme.cpp	30
 ui/TitleBar.cpp	7
-ui/ToolboxPage.cpp	180
 ui/ToolboxPage.hpp	1
 ui/UpdateCenterPage.cpp	1
 ui/UpdateCenterPage.hpp	1

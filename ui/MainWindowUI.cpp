@@ -844,7 +844,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         auto *toolboxLayout = new QVBoxLayout(toolboxHost);
         toolboxLayout->setContentsMargins(0, 0, 0, 0);
         toolboxLayout->setSpacing(0);
-        tabWidget->addTab(toolboxHost, QStringLiteral("工具箱"));
+        tabWidget->addTab(toolboxHost, QCoreApplication::translate("MainWindowUI", "工具箱"));
     }
     tabWidget->setCurrentIndex(homeTabIndex());
     mainLayout->addWidget(tabWidget, 1);
@@ -1069,7 +1069,7 @@ QWidget *MainWindowUI::setupHomePage() {
         // 问候语由 MainWindow::updateHomeGreeting() 灌（规则在 src/util/HomeGreeting）；
         // 灌之前先写「欢迎来到 WTFML」，不留空。
         auto *welcome = new HomeGreetingLabel(home.left.widget);
-        welcome->setGreeting(QStringLiteral("欢迎来到 WTFML"), QString());
+        welcome->setGreeting(QCoreApplication::translate("MainWindowUI", "欢迎来到 WTFML"), QString());
         welcome->setObjectName(homeHeroTitleName());
         welcome->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
         welcome->setContentsMargins(kHomeHeroInset, 0, 0, 0);
@@ -1930,7 +1930,7 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             }
             auto *name = new ElidedLabel(block);
             name->setObjectName(QStringLiteral("homeCurrentName"));
-            name->setText(item.empty ? QStringLiteral("还没有实例") : item.name);
+            name->setText(item.empty ? QCoreApplication::translate("MainWindowUI", "还没有实例") : item.name);
             name->setMinimumWidth(1);
             // 零实例：「还没有实例」只是一句状态，用普通字阶（16），大标题才是这一屏唯一的手写大字。
             name->setMinimumHeight(item.empty ? 28 : 52);
@@ -2244,7 +2244,7 @@ void MainWindowUI::syncHomeLaunchButton() {
         icon = QStringLiteral("download");
     } else {
         mode = QStringLiteral("download");
-        text = QStringLiteral("下载游戏");
+        text = QCoreApplication::translate("MainWindowUI", "下载游戏");
         icon = QStringLiteral("download");
     }
     launch->setProperty("wtfmlLaunchMode", mode);
@@ -2254,3 +2254,4 @@ void MainWindowUI::syncHomeLaunchButton() {
     launch->setIcon(QIcon(VersionIcons::line(icon, side, Theme::tokens().onPrimary, 2.0)));
     launch->setIconSize(QSize(side, side));
 }
+
