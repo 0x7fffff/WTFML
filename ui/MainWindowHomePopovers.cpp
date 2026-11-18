@@ -9,7 +9,9 @@
 
 #include "ElidedLabel.hpp"
 #include "GlassPopover.hpp"
+#include "InlineMessage.hpp"
 #include "MainWindowPageLayout.hpp"
+#include "OverlayHost.hpp"
 #include "Theme.hpp"
 #include "VersionIcons.hpp"
 
@@ -23,6 +25,7 @@
 #include <QPainterPath>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QSignalBlocker>
 #include <QStyledItemDelegate>
 #include <QTabWidget>
 #include <QTimer>
@@ -126,6 +129,7 @@ constexpr int kPickerWidth = 320;
 constexpr int kPickerRowHeight = 34;
 constexpr int kPickerHeadHeight = 28;
 constexpr int kPickerRecentLimit = 5;
+constexpr int kDownloadPickerListHeight = 6 * kPickerRowHeight;
 constexpr int kRoleId = Qt::UserRole;
 constexpr int kRoleFolder = Qt::UserRole + 1;
 constexpr int kRoleKind = Qt::UserRole + 2;    ///< 0 = 小节标题，1 = 实例
@@ -193,18 +197,14 @@ public:
     }
 };
 
-/// 实例切换弹层：顶上搜索，下面「最近」（最多 5 个）+「全部 · N」，最底一行「新建实例」「管理全部实例」。
-/// 盖在启动区实例名那一块上展开（左上角对齐那一块、向外扩 6），下面放不下就收高度、列表滚动。
-class HomeInstancePicker final : public GlassPopover {
+class InstancePickerList final : public QWidget {
 public:
-    HomeInstancePicker(QWidget *anchor, const QList<MainWindowUI::HomePickerInstance> &instances,
-                       std::function<void(const QString &, const QString &)> onPick,
-                       std::function<void()> onNew, std::function<void()> onManage)
-        : GlassPopover(anchor), m_instances(instances), m_onPick(std::move(onPick)) {
-        setObjectName(MainWindowUI::homeInstancePickerName());
+    InstancePickerList(const QList<MainWindowUI::HomePickerInstance> &instances, QWidget *parent,
+                       bool confirmSelection = false)
+        : QWidget(parent), m_instances(instances), m_confirmSelection(confirmSelection) {
         auto *box = new QVBoxLayout(this);
-        box->setContentsMargins(6, 6, 6, 6);
-        box->setSpacing(0);
+        box->setContentsMargins(0, 0, 0, 0);
+        box->setSpacing(4);
         m_search = new QLineEdit(this);
         m_search->setObjectName(QStringLiteral("homePickerSearch"));
         m_search->setPlaceholderText(QStringLiteral("搜索实例"));
@@ -212,7 +212,6 @@ public:
         m_search->setFixedHeight(34);
         addSearchIcon(m_search);
         box->addWidget(m_search);
-        box->addSpacing(4);
         m_list = new QListWidget(this);
         m_list->setObjectName(QStringLiteral("homePickerInstanceList"));
         m_list->setFrameShape(QFrame::NoFrame);
@@ -230,7 +229,128 @@ public:
         m_empty->setMinimumHeight(64);
         setInk(m_empty, Theme::tokens().secondary);
         m_empty->hide();
-        box->addWidget(m_empty);
+        box->addWidget(m_empty, 1);
+
+        if (m_confirmSelection) {
+            for (const auto &instance : m_instances) {
+                if (instance.current) {
+                    m_selectedId = instance.id;
+                    break;
+                }
+            }
+            QObject::connect(m_list, &QListWidget::currentItemChanged, this,
+                             [this](QListWidgetItem *item) {
+                m_selectedId = item == nullptr ? QString() : item->data(kRoleId).toString();
+                if (onSelectionChanged) onSelectionChanged();
+            });
+        } else {
+            QObject::connect(m_list, &QListWidget::itemClicked, this,
+                             [this](QListWidgetItem *item) { activate(item); });
+        }
+        QObject::connect(m_search, &QLineEdit::textChanged, this, [this]() { rebuild(); });
+        QObject::connect(m_search, &QLineEdit::returnPressed, this, [this]() {
+            if (m_confirmSelection) {
+                activate(m_list->currentItem());
+            } else {
+                activate(firstInstance());
+            }
+        });
+        QObject::connect(m_list, &QListWidget::itemActivated, this,
+                         [this](QListWidgetItem *item) { activate(item); });
+        m_search->installEventFilter(this);
+        rebuild();
+    }
+
+    void focusSearch() { m_search->setFocus(Qt::PopupFocusReason); }
+    QString selectedId() const { return m_selectedId; }
+    int contentHeight() const {
+        int height = m_search->height() + layout()->spacing();
+        if (m_list->isHidden()) return height + m_empty->minimumHeight();
+        for (int row = 0; row < m_list->count(); ++row) height += m_list->sizeHintForRow(row);
+        return height;
+    }
+
+    MainWindowUI::HomePickerInstanceHandler onActivate;
+    std::function<void()> onSelectionChanged;
+    std::function<void()> onRebuilt;
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override {
+        if (watched == m_search && event->type() == QEvent::KeyPress &&
+            static_cast<QKeyEvent *>(event)->key() == Qt::Key_Down) {
+            if (auto *item = m_list->currentItem() != nullptr ? m_list->currentItem() : firstInstance()) {
+                m_list->setCurrentItem(item);
+                m_list->setFocus();
+                return true;
+            }
+        }
+        return QWidget::eventFilter(watched, event);
+    }
+
+private:
+    QListWidgetItem *firstInstance() const {
+        for (int row = 0; row < m_list->count(); ++row) {
+            if (m_list->item(row)->data(kRoleKind).toInt() == 1) return m_list->item(row);
+        }
+        return nullptr;
+    }
+
+    bool matches(const MainWindowUI::HomePickerInstance &instance, const QStringList &terms) const {
+        QString haystack = instance.title + QLatin1Char(' ') + instance.subtitle + QLatin1Char(' ') + instance.id
+                           + QLatin1Char(' ') + instance.loaderKey + QLatin1Char(' ') + instance.folderPath
+                           + QLatin1Char(' ') + instance.searchKeywords;
+        if (instance.loaderKey.isEmpty()) haystack += QStringLiteral(" 原版 纯净 vanilla 无加载器");
+        else haystack += QStringLiteral(" 模组 modded");
+        if (instance.favorite) haystack += QStringLiteral(" 收藏 置顶 favorite starred");
+        if (instance.recent) haystack += QStringLiteral(" 最近 上次游玩 recent played");
+        return std::all_of(terms.cbegin(), terms.cend(),
+                           [&haystack](const QString &term) { return haystack.contains(term, Qt::CaseInsensitive); });
+    }
+    void addHead(const QString &text) {
+        auto *item = new QListWidgetItem(text, m_list);
+        item->setFlags(Qt::NoItemFlags);
+        item->setData(kRoleKind, 0);
+    }
+    void addRow(const MainWindowUI::HomePickerInstance &instance) {
+        auto *item = new QListWidgetItem(instance.icon, instance.title, m_list);
+        item->setData(kRoleKind, 1);
+        item->setData(kRoleId, instance.id);
+        item->setData(kRoleFolder, instance.folderPath);
+        item->setData(kRoleCurrent, instance.current && !m_confirmSelection);
+        item->setData(kRoleSub, instance.subtitle);
+        item->setToolTip(instance.title);
+    }
+    void rebuild();
+    void activate(QListWidgetItem *item) {
+        if (!isVisible() || item == nullptr || item->data(kRoleKind).toInt() != 1 || !onActivate) return;
+        onActivate(item->data(kRoleFolder).toString(), item->data(kRoleId).toString());
+    }
+
+    QList<MainWindowUI::HomePickerInstance> m_instances;
+    bool m_confirmSelection;
+    QString m_selectedId;
+    QLineEdit *m_search = nullptr;
+    QListWidget *m_list = nullptr;
+    QLabel *m_empty = nullptr;
+};
+
+class HomeInstancePicker final : public GlassPopover {
+public:
+    HomeInstancePicker(QWidget *anchor, const QList<MainWindowUI::HomePickerInstance> &instances,
+                       MainWindowUI::HomePickerInstanceHandler onPick,
+                       std::function<void()> onNew, std::function<void()> onManage)
+        : GlassPopover(anchor) {
+        setObjectName(MainWindowUI::homeInstancePickerName());
+        auto *box = new QVBoxLayout(this);
+        box->setContentsMargins(6, 6, 6, 6);
+        box->setSpacing(0);
+        m_content = new InstancePickerList(instances, this);
+        box->addWidget(m_content, 1);
+        m_content->onActivate = [this, onPick = std::move(onPick)](const QString &folder, const QString &id) {
+            close();
+            if (onPick) onPick(folder, id);
+        };
+        m_content->onRebuilt = [this]() { if (isVisible()) place(); };
         // 底部一行：上面一道细线（设计稿 .foot box-shadow 0 -1px 0 line）。
         auto *line = new QWidget(this);
         line->setFixedHeight(1);
@@ -270,18 +390,8 @@ public:
         footButton(QStringLiteral("homePickerManage"), QStringLiteral("管理全部实例"), QString(), std::move(onManage));
         box->addLayout(foot);
 
-        QObject::connect(m_search, &QLineEdit::textChanged, this, [this]() { rebuild(); });
-        QObject::connect(m_search, &QLineEdit::returnPressed, this, [this]() {
-            for (int i = 0; i < m_list->count(); ++i)
-                if (m_list->item(i)->data(kRoleKind).toInt() == 1) return pick(m_list->item(i));
-        });
-        QObject::connect(m_list, &QListWidget::itemClicked, this, [this](QListWidgetItem *item) { pick(item); });
-        QObject::connect(m_list, &QListWidget::itemActivated, this, [this](QListWidgetItem *item) { pick(item); });
-        rebuild();
         markAnchorOpen(anchor, true);
     }
-
-    void focusSearch() { m_search->setFocus(Qt::PopupFocusReason); }
 
 protected:
     void closeEvent(QCloseEvent *e) override {
@@ -296,61 +406,26 @@ protected:
         const int top = qMax(48, a.y() - 6);
         const int x = qBound(8, a.x() - 6, qMax(8, host->width() - width - 8));
         // 想要的高 = 搜索 + 列表全部行 + 底栏；下面放不下就收到窗底留 16。
-        int listHeight = 0;
-        for (int i = 0; i < m_list->count(); ++i) listHeight += m_list->sizeHintForRow(i);
-        if (m_list->count() == 0) listHeight = 0;
         const QMargins m = layout()->contentsMargins();
-        const int chrome = m.top() + m.bottom() + 34 + 4 + 6 + 1 + 6 + 32 + (m_empty->isVisible() ? m_empty->minimumHeight() : 0);
-        const int wanted = chrome + listHeight + 2;
+        const int chrome = m.top() + m.bottom() + 6 + 1 + 6 + 32;
+        const int wanted = chrome + m_content->contentHeight() + 2;
         const int height = qMax(160, qMin(wanted, host->height() - top - 16));
         setGeometry(x, top, width, height);
         raise();
     }
     void showEvent(QShowEvent *e) override {
         GlassPopover::showEvent(e);
-        QTimer::singleShot(0, this, [this]() { focusSearch(); });
-    }
-    void keyPressEvent(QKeyEvent *e) override {
-        // 搜索框里按 ↓ 进列表（Esc 由 GlassPopover 收）。
-        if (e->key() == Qt::Key_Down && m_search->hasFocus() && m_list->count() > 0) {
-            for (int i = 0; i < m_list->count(); ++i)
-                if (m_list->item(i)->data(kRoleKind).toInt() == 1) {
-                    m_list->setCurrentRow(i);
-                    break;
-                }
-            m_list->setFocus();
-            return;
-        }
-        GlassPopover::keyPressEvent(e);
+        QTimer::singleShot(0, this, [this]() { m_content->focusSearch(); });
     }
 
 private:
-    bool matches(const MainWindowUI::HomePickerInstance &instance, const QStringList &terms) const {
-        QString haystack = instance.title + QLatin1Char(' ') + instance.subtitle + QLatin1Char(' ') + instance.id
-                           + QLatin1Char(' ') + instance.loaderKey + QLatin1Char(' ') + instance.folderPath
-                           + QLatin1Char(' ') + instance.searchKeywords;
-        if (instance.loaderKey.isEmpty()) haystack += QStringLiteral(" 原版 纯净 vanilla 无加载器");
-        else haystack += QStringLiteral(" 模组 modded");
-        if (instance.favorite) haystack += QStringLiteral(" 收藏 置顶 favorite starred");
-        if (instance.recent) haystack += QStringLiteral(" 最近 上次游玩 recent played");
-        return std::all_of(terms.cbegin(), terms.cend(),
-                           [&haystack](const QString &term) { return haystack.contains(term, Qt::CaseInsensitive); });
-    }
-    void addHead(const QString &text) {
-        auto *item = new QListWidgetItem(text, m_list);
-        item->setFlags(Qt::NoItemFlags);
-        item->setData(kRoleKind, 0);
-    }
-    void addRow(const MainWindowUI::HomePickerInstance &instance) {
-        auto *item = new QListWidgetItem(instance.icon, instance.title, m_list);
-        item->setData(kRoleKind, 1);
-        item->setData(kRoleId, instance.id);
-        item->setData(kRoleFolder, instance.folderPath);
-        item->setData(kRoleCurrent, instance.current);
-        item->setData(kRoleSub, instance.subtitle);
-        item->setToolTip(instance.title);  // 名字在 320 宽的一行里会收省略号，悬停给全名
-    }
-    void rebuild() {
+    InstancePickerList *m_content = nullptr;
+};
+
+void InstancePickerList::rebuild() {
+    const QString previousId = m_selectedId;
+    {
+        const QSignalBlocker blocker(m_list);
         m_list->clear();
         const QStringList terms =
             m_search->text().trimmed().split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
@@ -372,27 +447,24 @@ private:
             addHead(QStringLiteral("全部 · %1").arg(m_instances.size()));
             for (const auto &instance : m_instances) addRow(instance);
         }
-        bool any = false;
-        for (int i = 0; i < m_list->count() && !any; ++i) any = m_list->item(i)->data(kRoleKind).toInt() == 1;
+        m_selectedId.clear();
+        if (m_confirmSelection && !previousId.isEmpty()) {
+            for (int row = 0; row < m_list->count(); ++row) {
+                auto *item = m_list->item(row);
+                if (item->data(kRoleId).toString() == previousId) {
+                    m_list->setCurrentItem(item);
+                    m_selectedId = previousId;
+                    break;
+                }
+            }
+        }
+        const bool any = firstInstance() != nullptr;
         m_empty->setVisible(!any);
         m_list->setVisible(any);
-        if (isVisible()) place();
     }
-    void pick(QListWidgetItem *item) {
-        if (item == nullptr || item->data(kRoleKind).toInt() != 1) return;
-        const QString folder = item->data(kRoleFolder).toString();
-        const QString id = item->data(kRoleId).toString();
-        auto fn = m_onPick;
-        close();
-        if (fn) fn(folder, id);
-    }
-
-    QList<MainWindowUI::HomePickerInstance> m_instances;
-    std::function<void(const QString &, const QString &)> m_onPick;
-    QLineEdit *m_search = nullptr;
-    QListWidget *m_list = nullptr;
-    QLabel *m_empty = nullptr;
-};
+    if (onSelectionChanged) onSelectionChanged();
+    if (onRebuilt) onRebuilt();
+}
 
 // ---------------------------------------------------------------------------
 // 账号弹层（设计稿 .acpop）
@@ -556,6 +628,24 @@ T *openPopover(QWidget *anchor, const QString &name) {
 }
 
 }  // namespace
+
+QString MainWindowUI::chooseResourceDownloadInstance(const QList<HomePickerInstance> &instances) {
+    InlineMessageBox box(MessageKind::Question, QStringLiteral("下载到哪个实例"),
+                         QStringLiteral("请选择当前游戏目录中的目标实例。"),
+                         {QStringLiteral("下载"), QStringLiteral("取消")}, -1, -1);
+    box.setObjectName(resourceDownloadInstancePickerName());
+    auto *content = new InstancePickerList(instances, &box, true);
+    content->setFixedHeight(34 + 4 + kDownloadPickerListHeight);
+    box.setContent(content);
+    auto *download = box.buttonAt(0);
+    content->onSelectionChanged = [content, download]() {
+        download->setEnabled(!content->selectedId().isEmpty());
+    };
+    content->onSelectionChanged();
+    content->onActivate = [download](const QString &, const QString &) { download->click(); };
+    overlay()->execPrompt(&box);
+    return box.clickedIndex() == 0 ? content->selectedId() : QString();
+}
 
 void MainWindowUI::openHomeInstancePicker(const QList<HomePickerFolder> &folders,
                                           const QList<HomePickerInstance> &instances,

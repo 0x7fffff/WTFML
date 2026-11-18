@@ -16,6 +16,8 @@
 
 #include "util/AppPaths.hpp"
 
+#include <limits>
+
 namespace LaunchHistory {
 
 QDateTime lastStartedAt(const QList<Record> &records, const QString &instanceId) {
@@ -39,8 +41,88 @@ QString formatTag() {
 
 /// 那一层的名字（`{"format": …, "records": [...]}`）。
 const char *kRecordsKey = "records";
+const char *kPlayTimesKey = "playTimes";
+
+QJsonObject readHistoryObject(const QString &path) {
+    QFile file(path);
+    return file.open(QIODevice::ReadOnly) ? QJsonDocument::fromJson(file.readAll()).object()
+                                          : QJsonObject();
+}
+
+bool writeHistoryObject(const QString &path, const QJsonObject &root) {
+    const QFileInfo info(path);
+    if (!info.absoluteDir().exists() && !QDir().mkpath(info.absolutePath())) {
+        return false;
+    }
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        return false;
+    }
+    const QByteArray bytes = QJsonDocument(root).toJson(QJsonDocument::Indented);
+    if (file.write(bytes) != bytes.size()) {
+        file.cancelWriting();
+        return false;
+    }
+    return file.commit();
+}
 
 }  // namespace
+
+void PlayTimeCounter::start(int sessionId, qint64 tickMs) {
+    if (m_sessions.isEmpty()) m_startedAtMs = tickMs;
+    m_sessions.insert(sessionId);
+}
+
+bool PlayTimeCounter::finish(int sessionId, qint64 tickMs) {
+    const qint64 total = totalMs(tickMs);
+    const qint64 current = currentMs(tickMs);
+    if (!m_sessions.remove(sessionId) || !m_sessions.isEmpty()) return false;
+    m_completed = {total, current};
+    return true;
+}
+
+qint64 PlayTimeCounter::currentMs(qint64 tickMs) const {
+    return m_sessions.isEmpty() ? 0 : qMax<qint64>(0, tickMs - m_startedAtMs);
+}
+
+qint64 PlayTimeCounter::totalMs(qint64 tickMs) const {
+    const qint64 room = std::numeric_limits<qint64>::max() - m_completed.totalMs;
+    return m_completed.totalMs + qMin(room, currentMs(tickMs));
+}
+
+PlayTime loadPlayTime(const QString &path, const QString &stableInstanceId) {
+    if (stableInstanceId.isEmpty()) return {};
+    const QJsonObject root = readHistoryObject(path);
+    if (root.value(QStringLiteral("format")).toString() != formatTag()) return {};
+    const QJsonObject entry = root.value(QLatin1String(kPlayTimesKey)).toObject()
+                                  .value(stableInstanceId).toObject();
+    const qint64 total = qMax<qint64>(0, entry.value(QStringLiteral("totalMs")).toInteger());
+    const qint64 last = entry.value(QStringLiteral("lastMs")).toInteger(-1);
+    return {total, last >= 0 && last <= total ? last : -1};
+}
+
+bool savePlayTime(const QString &path, const QString &stableInstanceId, const PlayTime &playTime) {
+    if (stableInstanceId.isEmpty() || !WriteDirectoryGuard::acquire(path)) return false;
+    QJsonObject root = readHistoryObject(path);
+    if (root.value(QStringLiteral("format")).toString() != formatTag()) {
+        if (QFileInfo::exists(path)) return false;
+        root.insert(QStringLiteral("format"), formatTag());
+        root.insert(QLatin1String(kRecordsKey), QJsonArray());
+    }
+    QJsonObject playTimes = root.value(QLatin1String(kPlayTimesKey)).toObject();
+    playTimes.insert(stableInstanceId, QJsonObject{
+        {QStringLiteral("totalMs"), playTime.totalMs}, {QStringLiteral("lastMs"), playTime.lastMs}});
+    root.insert(QLatin1String(kPlayTimesKey), playTimes);
+    return writeHistoryObject(path, root);
+}
+
+QString playTimeText(qint64 milliseconds) {
+    if (milliseconds < 0) return {};
+    const qint64 seconds = milliseconds / 1000;
+    return QStringLiteral("%1:%2:%3").arg(seconds / 3600)
+        .arg(seconds / 60 % 60, 2, 10, QLatin1Char('0'))
+        .arg(seconds % 60, 2, 10, QLatin1Char('0'));
+}
 
 QString historyPath() {
     return AppPaths::minecraftDir() + QStringLiteral("/wtfml.history");
@@ -101,7 +183,7 @@ Target targetFromKey(const QString &key) {
     return Target::None;
 }
 
-QByteArray toJson(const QList<Record> &records) {
+static QJsonArray recordsArray(const QList<Record> &records) {
     QJsonArray array;
     for (const Record &record : records) {
         QJsonObject item;
@@ -126,9 +208,13 @@ QByteArray toJson(const QList<Record> &records) {
         item.insert(QStringLiteral("result"), resultKey(record.result));
         array.append(item);
     }
+    return array;
+}
+
+QByteArray toJson(const QList<Record> &records) {
     QJsonObject root;
     root.insert(QStringLiteral("format"), formatTag());
-    root.insert(QLatin1String(kRecordsKey), array);
+    root.insert(QLatin1String(kRecordsKey), recordsArray(records));
     return QJsonDocument(root).toJson(QJsonDocument::Indented);
 }
 
@@ -188,22 +274,11 @@ QList<Record> load(const QString &path) {
 
 bool save(const QString &path, const QList<Record> &records) {
     if (!WriteDirectoryGuard::acquire(path)) return false;
-    const QFileInfo info(path);
-    if (!info.absoluteDir().exists() && !QDir().mkpath(info.absolutePath())) {
-        return false;
-    }
-    // QSaveFile：写侧走临时文件 + 原子改名（和任务账本同一套）。这份文件是"每启动一次就
-    // 重写一遍"的小文件，写到一半断电最多丢掉这一次。
-    QSaveFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        return false;
-    }
-    const QByteArray bytes = toJson(records);
-    if (file.write(bytes) != bytes.size()) {
-        file.cancelWriting();
-        return false;
-    }
-    return file.commit();
+    QJsonObject root = readHistoryObject(path);
+    if (root.value(QStringLiteral("format")).toString() != formatTag()) root = QJsonObject();
+    root.insert(QStringLiteral("format"), formatTag());
+    root.insert(QLatin1String(kRecordsKey), recordsArray(records));
+    return writeHistoryObject(path, root);
 }
 
 QList<Record> prepend(const QList<Record> &records, const Record &record) {

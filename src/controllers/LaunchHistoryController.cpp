@@ -13,13 +13,17 @@
 
 #include "LaunchHistoryController.hpp"
 
+#include "manage/InstanceGroupStore.hpp"
 #include "manage/ServerListFile.hpp"
+#include "manage/VersionManager.hpp"
 #include "util/NbtUtil.hpp"
 
 #include <QDateTime>
 #include <QDir>
 
-LaunchHistoryController::LaunchHistoryController(QObject *parent) : QObject(parent) {}
+LaunchHistoryController::LaunchHistoryController(QObject *parent) : QObject(parent) {
+    m_playTimeClock.start();
+}
 
 LaunchHistory::Result LaunchHistoryController::resultFor(bool crashed, bool neverStarted) {
     // 判据的**唯一出处**在这儿，两个读者都走它：产品那一侧（onGameFinished 里现算的两个
@@ -117,4 +121,74 @@ void LaunchHistoryController::recordFinish(qint64 startedAtMs, LaunchHistory::Re
         emit changed();
         return;
     }
+}
+
+void LaunchHistoryController::startPlayTime(int sessionId, const QString &versionId,
+                                           VersionManager &versions, InstanceGroupStore &groups) {
+    if (m_playTimeSessions.contains(sessionId)) return;
+    const qint64 tickMs = m_playTimeClock.elapsed();
+    const QString path = LaunchHistory::historyPath();
+    QString stableId = versions.instanceId(versionId);
+    const bool needsId = stableId.isEmpty();
+    if (needsId) {
+        stableId = versions.ensureInstanceId(versionId);
+        if (stableId.isEmpty()) {
+            emit logMessage(tr("无法记录「%1」的游玩时长：实例 ID 写不进去。").arg(versionId));
+            return;
+        }
+    }
+
+    const PlayTimeKey key{path, stableId};
+    auto counter = m_playTimeCounters.find(key);
+    if (counter == m_playTimeCounters.end()) {
+        const auto completed = LaunchHistory::loadPlayTime(path, stableId);
+        counter = m_playTimeCounters.insert(key, LaunchHistory::PlayTimeCounter(completed));
+    }
+    counter->start(sessionId, tickMs);
+    m_playTimeSessions.insert(sessionId, key);
+
+    QString groupError;
+    if (needsId && !groups.rekey(versionId, stableId, &groupError)) {
+        emit logMessage(tr("无法迁移「%1」的分组归属：%2").arg(versionId, groupError));
+    }
+}
+
+void LaunchHistoryController::finishPlayTime(int sessionId) {
+    finishPlayTime(sessionId, m_playTimeClock.elapsed());
+}
+
+void LaunchHistoryController::finishAllPlayTimes() {
+    const qint64 tickMs = m_playTimeClock.elapsed();
+    const auto sessionIds = m_playTimeSessions.keys();
+    for (const int sessionId : sessionIds) finishPlayTime(sessionId, tickMs);
+}
+
+void LaunchHistoryController::finishPlayTime(int sessionId, qint64 tickMs) {
+    const auto session = m_playTimeSessions.find(sessionId);
+    if (session == m_playTimeSessions.end()) return;
+    const auto [path, stableId] = session.value();
+    m_playTimeSessions.erase(session);
+    auto counter = m_playTimeCounters.find({path, stableId});
+    if (counter == m_playTimeCounters.end() || !counter->finish(sessionId, tickMs)) return;
+    if (!LaunchHistory::savePlayTime(path, stableId, counter->completed())) {
+        emit logMessage(tr("无法保存游玩时长：%1 写不进去。").arg(QDir::toNativeSeparators(path)));
+    }
+}
+
+LaunchHistory::PlayTime LaunchHistoryController::completedPlayTime(const QString &stableInstanceId) const {
+    if (stableInstanceId.isEmpty()) return {};
+    const QString path = LaunchHistory::historyPath();
+    const auto counter = m_playTimeCounters.constFind({path, stableInstanceId});
+    if (counter != m_playTimeCounters.cend()) return counter->completed();
+    return LaunchHistory::loadPlayTime(path, stableInstanceId);
+}
+
+std::optional<LaunchHistoryController::RunningPlayTime>
+LaunchHistoryController::runningPlayTime(int sessionId) const {
+    const auto session = m_playTimeSessions.constFind(sessionId);
+    if (session == m_playTimeSessions.cend()) return std::nullopt;
+    const auto counter = m_playTimeCounters.constFind(session.value());
+    if (counter == m_playTimeCounters.cend()) return std::nullopt;
+    const qint64 tickMs = m_playTimeClock.elapsed();
+    return RunningPlayTime{counter->currentMs(tickMs), counter->totalMs(tickMs)};
 }

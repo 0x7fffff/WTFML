@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QStringList>
 #include <functional>
 
 class OverlayHost;
@@ -30,6 +31,16 @@ public:
     bool removeUnasked(const QString &path, QString *problem = nullptr);
     void toggleMany(const QStringList &paths, bool disable);
     void removeMany(const QStringList &paths);
+
+    enum class LifecycleAction { Copy, Move, Remove };
+    struct LifecycleResult {
+        qsizetype done = 0;
+        QString problem;
+    };
+
+    /// @brief 对已获确认的批次先整体校验；执行时遇到首个失败即停止，不覆盖目标。
+    LifecycleResult applyLifecycleBatch(LifecycleAction action, const QString &sourceRoot,
+                                        const QStringList &paths, const QString &destination = {});
 
 private:
     void log(const QString &text) const;

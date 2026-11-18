@@ -209,7 +209,7 @@ void InstanceSettingsDialog::buildFilePage(const QString &key) {
             // 的键 —— 而这一页没有"恢复默认"（模组下次启动会重写一份默认的，但那要等它
             // 启动，而且不保证每个模组都这么干）。要删，那颗「打开文件夹」就在上面。
             files->setCanToggle(fileKeyCanToggle(key));
-            files->setCanDelete(key != QStringLiteral("save") && key != QStringLiteral("config"));
+            files->setCanDelete(!isSave && !isConfig && key != QStringLiteral("schematic"));
             // **只有存档那一页**行尾有那支笔，而且只有那一页的目录行会去
             // 算真的大小/时间（见 InstanceFilesPage::setCanEdit()——两件事是一套的）。
             files->setCanEdit(isSave);
@@ -319,6 +319,8 @@ void InstanceSettingsDialog::buildFilePage(const QString &key) {
             if (m_pageAvailable.contains(key) && !m_pageAvailable.value(key))
                 files->setUnavailable(pageUnavailableText(key));
             m_filesPages.insert(key, files);
+            if (key == QStringLiteral("schematic"))
+                addLifecycleBatchActions(key, files->list(), target);
             target->addWidget(files, 1);
             if (!batch && !isSave && key != QStringLiteral("schematic") && key != QStringLiteral("structure")) {
                 files->setToolTip(filesHint(key));

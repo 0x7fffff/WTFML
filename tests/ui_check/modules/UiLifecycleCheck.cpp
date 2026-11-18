@@ -64,6 +64,16 @@ int UiLifecycleCheck(QApplication &app) {
                 }
             }
         }
+        const QString schematicsDir = scratch.filePath(QStringLiteral("schematics"));
+        dirs.insert(QStringLiteral("schematic"), schematicsDir);
+        expect(QDir().mkpath(schematicsDir + QStringLiteral("/not-a-file.schem")),
+               "create schematic batch fixtures");
+        for (const QString &name : {QStringLiteral("first.litematic"), QStringLiteral("second.schem"),
+                                    QStringLiteral("notes.txt")}) {
+            QFile file(QDir(schematicsDir).filePath(name));
+            expect(file.open(QIODevice::WriteOnly) && file.write("test") == 4,
+                   "write schematic batch fixture");
+        }
         dialog.setFileDirs(dirs);
         dialog.resize(1100, 720);
         dialog.show();
@@ -352,6 +362,90 @@ int UiLifecycleCheck(QApplication &app) {
                    "no matches has an explicit result message");
             search->clear();
             expect(visibleCount() == 2, "clearing search restores files");
+        }
+        {
+            using Action = Dlg::LifecycleBatchAction;
+            expect(Dlg::pageText(QStringLiteral("replay")) == QStringLiteral("回放"),
+                   "replay page uses its Chinese name");
+            QString requestedPage;
+            QStringList requestedPaths;
+            Action requestedAction = Action::Remove;
+            int requests = 0;
+            bool clearedAtRequest = false;
+            QListWidget *list = nullptr;
+            const auto connection = QObject::connect(&dialog, &Dlg::lifecycleBatchRequested, &dialog,
+                [&](const QString &key, const QStringList &paths, Action action) {
+                    requestedPage = key;
+                    requestedPaths = paths;
+                    requestedAction = action;
+                    clearedAtRequest = list && list->selectedItems().isEmpty();
+                    ++requests;
+                });
+            for (const QString &key : {QStringLiteral("screenshots"), QStringLiteral("schematic"),
+                                       QStringLiteral("replay")}) {
+                dialog.showPage(key);
+                const auto button = [&](const QString &name) {
+                    return dialog.findChild<QPushButton *>(
+                        QStringLiteral("instanceLifecycleBatch%1_%2").arg(name, key));
+                };
+                if (key == QStringLiteral("schematic")) {
+                    auto *page = dialog.filesPage(key);
+                    list = page ? page->list() : nullptr;
+                    expect(page && !page->batchMode() && !page->findChild<QWidget *>(QStringLiteral("modActionScroll")),
+                           "schematics do not use the mod sidebar");
+                } else {
+                    list = dialog.findChild<QListWidget *>(QStringLiteral("instanceLifecycleFiles_%1").arg(key));
+                }
+                auto *all = button(QStringLiteral("All"));
+                auto *invert = button(QStringLiteral("Invert"));
+                auto *clear = button(QStringLiteral("Clear"));
+                auto *copy = button(QStringLiteral("Copy"));
+                auto *move = button(QStringLiteral("Move"));
+                auto *remove = button(QStringLiteral("Remove"));
+                expect(list && all && invert && clear && copy && move && remove,
+                       "all batch actions exist on the supported page");
+                if (!list || !all || !invert || !clear || !copy || !move || !remove) continue;
+                app.processEvents();
+                expect(list->selectionMode() == QAbstractItemView::ExtendedSelection && !remove->isEnabled(),
+                       "extended selection starts empty and cannot delete");
+                all->click();
+                expect(list->selectedItems().size() == 2, "select all excludes folders and unsupported files");
+                invert->click();
+                expect(list->selectedItems().isEmpty(), "invert from all deselects every file");
+                auto *search = dialog.findChild<QLineEdit *>(QStringLiteral("instanceLifecycleSearch_%1").arg(key));
+                if (search) {
+                    search->setText(QStringLiteral("Alpha"));
+                    app.processEvents();
+                    invert->click();
+                    expect(list->selectedItems().size() == 1 && !list->selectedItems().first()->isHidden(),
+                           "invert and batch actions are scoped to the visible search result");
+                    copy->click();
+                    expect(clearedAtRequest && requestedPage == key && requestedAction == Action::Copy
+                               && requestedPaths.size() == 1 && requestedPaths.first().contains(QStringLiteral("Alpha"))
+                               && !copy->isEnabled(),
+                           "copy sends only visible paths and clears before a refused operation");
+                    search->clear();
+                    app.processEvents();
+                }
+                all->click();
+                clear->click();
+                expect(list->selectedItems().isEmpty(), "clear deselects every file");
+                all->click();
+                const int before = requests;
+                move->click();
+                expect(requests == before + 1 && clearedAtRequest && requestedPage == key
+                           && requestedAction == Action::Move && requestedPaths.size() == 2,
+                       "move sends the batch and clears even without a successful refresh");
+                all->click();
+                remove->click();
+                expect(requests == before + 2 && clearedAtRequest && requestedAction == Action::Remove
+                           && requestedPaths.size() == 2 && !remove->isEnabled(),
+                       "delete also clears the batch immediately");
+            }
+            QObject::disconnect(connection);
+            for (const QString &key : {QStringLiteral("logs"), QStringLiteral("crash"), QStringLiteral("structure")})
+                expect(!dialog.findChild<QWidget *>(QStringLiteral("instanceLifecycleBatch_%1").arg(key)),
+                       "other lifecycle lists do not gain write actions");
         }
         {
             const QString folder = scratch.path() + QStringLiteral("/mixed-mods");

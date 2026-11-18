@@ -1521,29 +1521,8 @@ private:
     // 那边头文件第一段。这里留下的只有 `installResourceVersion()` 一条薄壳 ——
     // 详情页与搜索页按名字叫它。
     //
-    // NOTE: 下面这几条**留在这里**，因为它们不是这一趟的私事：
-    // `dependencyInstanceId()` / `downloadCameFromInstance()` 是"要装进哪个实例"的
-    // 唯一出处（详情页和下拉框都要读），`dependencyTargetFor()` 更新检测那一趟也在用。
-
-    /// "这一版要装进哪个实例" —— **这一句话的唯一出处**。
-    ///
-    /// 两条来路，按优先级：
-    /// ① 下载页顶上那个「已安装版本」下拉框（在下载页里点一行、或从实例设置点「下载新
-    /// 模组」切过去的那一趟，`continueOpenDownloadCategory()` 会替用户把它选上）；
-    /// ② 资源详情页记着的来路实例 `m_resourcePage.instanceId` —— 用户从**实例设置 → 模组
-    /// → 点名字**进详情页那一趟走的是它（`openFileResourcePage()` 把实例 id 递了进去，
-    /// 但没碰过下拉框）。没有②的话，那一条路上既查不了前置、装的时候还会撞
-    /// 「没有选中实例」。
-    /// 两条都没有 = 不知道，返回空（调用方按空处理）。
-    QString dependencyInstanceId() const;
-
-    /// "这一趟下载是从**某个实例**里点进来的吗" —— 只决定 `ResourceInstallController::installNow()`
-    /// 要不要弹那个"存哪儿"的框（见 LauncherSettings 里 `downloadAutoIntoInstance` 那一节，
-    /// 那里是这一支判据**唯一**的语义出处）。
-    ///
-    /// 两条来路（见实现里的注释）：① 从实例设置点「下载新模组」切到下载页
-    /// （`m_downloadReturn`）；② 资源详情页是从实例点进来的（`m_resourcePage`）。
-    bool downloadCameFromInstance() const;
+    /// 资源下载目标的初始选择：详情页的来路、下载页的来路、主页当前实例。
+    QString resourceDownloadDefaultInstanceId() const;
 
     /// "这个前置要装进哪个实例"：游戏版本 + 加载器 + 来源（`ModDependencies::Target`）。
     /// 加载器名走 `instanceLoaderName()`（PCL 那类合并实例只有它能读出来，见那一处）。
@@ -2328,6 +2307,7 @@ private:
     /// 主页启动区那块「名字 + 版本」点开的实例切换弹层（搜索 / 最近 / 全部）。只负责切当前实例，
     /// 管理动作在弹层底部那颗「管理全部实例」后面。
     void openHomeInstancePicker();
+    QList<MainWindowUI::HomePickerInstance> currentFolderInstancePickerRows(const QString &currentId) const;
     /// 实例页那张树重灌一遍 —— **搜索与筛选走的就是这一条**。
     ///
     /// 它和 `refreshInstalledVersions()` 是两条路：后者要**扫盘**（每个实例读一次
@@ -2927,9 +2907,8 @@ private:
     /// 这一次进下载页是**从哪个实例的设置页**点进来的（空着 = 不是从那儿来的）。
     ///
     /// 三件事读它：① 左栏顶上那颗「返回实例设置」回哪儿（连归哪颗根页、滚到哪儿都在这
-    /// 一份里，见 `NavigationReturn`）；② 从这一栏点下载时要不要弹 explorer 选保存位置
-    /// （按「下载新模组就自动放进当前实例文件夹」那条设置，见
-    /// `ResourceInstallController::installNow()`）；③ 从这一栏点开一个资源的详情页时
+    /// 一份里，见 `NavigationReturn`）；② 从这一栏点下载时默认选择哪个实例；
+    /// ③ 从这一栏点开一个资源的详情页时
     /// 拿它当"当前实例"（chip 预选 + 加载器排前面）。
     ///
     /// NOTE: 它和 `m_instanceReturn` 是**两个位子**，不是一回事：这一份活到用户按

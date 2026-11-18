@@ -28,6 +28,7 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QIcon>
+#include <QItemSelectionModel>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
@@ -97,8 +98,115 @@ protected:
         viewport()->update();
     }
 };
+
+QStringList lifecycleBatchSuffixes(const QString &key) {
+    if (key == QStringLiteral("screenshots"))
+        return {QStringLiteral("png"), QStringLiteral("jpg"), QStringLiteral("jpeg")};
+    if (key == QStringLiteral("replay")) return {QStringLiteral("mcpr")};
+    if (key == QStringLiteral("schematic"))
+        return {QStringLiteral("litematic"), QStringLiteral("schematic"),
+                QStringLiteral("schem"), QStringLiteral("nbt")};
+    return {};
+}
 }  // namespace
 
+bool InstanceSettingsDialog::isLifecycleBatchFile(const QString &key, const QString &path) {
+    return lifecycleBatchSuffixes(key).contains(QFileInfo(path).suffix(), Qt::CaseInsensitive);
+}
+
+void InstanceSettingsDialog::addLifecycleBatchActions(const QString &key, QListWidget *list,
+                                                       QVBoxLayout *layout, QLineEdit *search) {
+    list->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    auto *toolbar = new QWidget;
+    toolbar->setObjectName(QStringLiteral("instanceLifecycleBatch_%1").arg(key));
+    auto *rows = new QGridLayout(toolbar);
+    rows->setContentsMargins(0, 0, 0, 0);
+    rows->setColumnStretch(4, 1);
+    const auto button = [toolbar, rows, &key](const QString &name, const QString &text, int row, int column) {
+        auto *result = new QPushButton(text, toolbar);
+        result->setObjectName(QStringLiteral("instanceLifecycleBatch%1_%2").arg(name, key));
+        result->setAutoDefault(false);
+        Theme::markButton(result, Theme::ButtonKind::Neutral);
+        rows->addWidget(result, row, column);
+        return result;
+    };
+    auto *all = button(QStringLiteral("All"), tr("全选"), 0, 0);
+    auto *invert = button(QStringLiteral("Invert"), tr("反选"), 0, 1);
+    auto *clear = button(QStringLiteral("Clear"), tr("清除选择"), 0, 2);
+    auto *copy = button(QStringLiteral("Copy"), tr("复制到…"), 1, 0);
+    auto *move = button(QStringLiteral("Move"), tr("移动到…"), 1, 1);
+    auto *remove = button(QStringLiteral("Remove"), tr("删除"), 1, 2);
+    Theme::markButton(remove, Theme::ButtonKind::Danger);
+    auto *count = new QLabel(toolbar);
+    rows->addWidget(count, 0, 3);
+    layout->addWidget(toolbar);
+
+    const auto eligible = [key](const QListWidgetItem *item) {
+        return !item->isHidden() && item->flags().testFlag(Qt::ItemIsSelectable)
+            && !item->data(InstanceFilesPage::isDirRole()).toBool()
+            && isLifecycleBatchFile(key, item->data(InstanceFilesPage::pathRole()).toString());
+    };
+    const auto selectedPaths = [list, eligible] {
+        QStringList paths;
+        for (const auto *item : list->selectedItems()) {
+            if (eligible(item))
+                paths.append(item->data(InstanceFilesPage::pathRole()).toString());
+        }
+        return paths;
+    };
+    const auto update = [list, eligible, selectedPaths, all, invert, clear, copy, move, remove, count] {
+        bool any = false;
+        for (int row = 0; row < list->count() && !any; ++row) any = eligible(list->item(row));
+        const qsizetype selected = selectedPaths().size();
+        all->setEnabled(any);
+        invert->setEnabled(any);
+        clear->setEnabled(list->selectionModel()->hasSelection());
+        for (auto *action : {copy, move, remove}) action->setEnabled(selected > 0);
+        count->setText(tr("已选 %1 项").arg(selected));
+    };
+    const auto select = [list, eligible](bool reverse) {
+        QItemSelection selection;
+        for (int row = 0; row < list->count(); ++row) {
+            const auto *item = list->item(row);
+            if (eligible(item) && (!reverse || !item->isSelected())) {
+                const auto index = list->model()->index(row, 0);
+                selection.append(QItemSelectionRange(index));
+            }
+        }
+        list->selectionModel()->select(selection, QItemSelectionModel::ClearAndSelect);
+    };
+    connect(all, &QPushButton::clicked, toolbar, [select] { select(false); });
+    connect(invert, &QPushButton::clicked, toolbar, [select] { select(true); });
+    connect(clear, &QPushButton::clicked, list, &QListWidget::clearSelection);
+    const auto request = [this, key, list, selectedPaths](LifecycleBatchAction action) {
+        const auto paths = selectedPaths();
+        if (paths.isEmpty()) return;
+        list->clearSelection();
+        emit lifecycleBatchRequested(key, paths, action);
+    };
+    connect(copy, &QPushButton::clicked, toolbar, [request] { request(LifecycleBatchAction::Copy); });
+    connect(move, &QPushButton::clicked, toolbar, [request] { request(LifecycleBatchAction::Move); });
+    connect(remove, &QPushButton::clicked, toolbar, [request] { request(LifecycleBatchAction::Remove); });
+
+    auto *updateTimer = new QTimer(toolbar);
+    updateTimer->setSingleShot(true);
+    connect(updateTimer, &QTimer::timeout, toolbar, update);
+    const auto scheduleUpdate = [updateTimer] { updateTimer->start(0); };
+    connect(list, &QListWidget::itemSelectionChanged, toolbar, update);
+    connect(list->model(), &QAbstractItemModel::rowsInserted, toolbar, scheduleUpdate);
+    connect(list->model(), &QAbstractItemModel::rowsRemoved, toolbar, scheduleUpdate);
+    connect(list->model(), &QAbstractItemModel::modelReset, toolbar, scheduleUpdate);
+    if (search) connect(search, &QLineEdit::textChanged, toolbar, scheduleUpdate);
+    update();
+}
+
+void InstanceSettingsDialog::refreshLifecycleBatchFiles(const QString &key) {
+    if (key == QStringLiteral("schematic")) {
+        if (auto *files = m_filesPages.value(key)) files->refresh();
+    } else {
+        refreshLifecycleFiles(key);
+    }
+}
 
 /// 「创作工具 / 维护」那几页里**的一页**。第一次切过去才跑（见 ensurePage()）。
 void InstanceSettingsDialog::buildLifecyclePage(const QString &key) {
@@ -245,6 +353,8 @@ void InstanceSettingsDialog::buildLifecyclePage(const QString &key) {
             list->setObjectName(QStringLiteral("instanceLifecycleFiles_%1").arg(key));
             list->setIconSize(QSize(96, 64));
             list->setContextMenuPolicy(Qt::CustomContextMenu);
+            const bool batch = !lifecycleBatchSuffixes(key).isEmpty();
+            if (batch) addLifecycleBatchActions(key, list, layout, search);
             layout->addWidget(list, 1);
             m_lifecycleLists.insert(key, list);
             if (key == QStringLiteral("replay") || key == QStringLiteral("structure")) {
@@ -271,9 +381,14 @@ void InstanceSettingsDialog::buildLifecyclePage(const QString &key) {
                 m_lifecycleInfoTimers.insert(key, timer);
                 connect(list, &QListWidget::currentItemChanged, this,
                         [this, key] { updateLifecycleInfo(key); });
+                if (batch) connect(list, &QListWidget::itemSelectionChanged, this,
+                                   [this, key] { updateLifecycleInfo(key); });
             }
             connect(search, &QLineEdit::textChanged, this,
-                    [this, key] { filterLifecycleFiles(key); });
+                    [this, key, list, batch] {
+                        if (batch) list->clearSelection();
+                        filterLifecycleFiles(key);
+                    });
             connect(list, &QListWidget::itemActivated, this, [this](QListWidgetItem *item) {
                 const QString path = item->data(Qt::UserRole).toString();
                 if (!path.isEmpty()) emit openInstanceFileRequested(path);
@@ -503,8 +618,8 @@ void InstanceSettingsDialog::refreshLifecycleFiles(const QString &key) {
             }
         } else {
             QStringList filters;
-            if (key == QStringLiteral("screenshots")) filters = {QStringLiteral("*.png"), QStringLiteral("*.jpg"), QStringLiteral("*.jpeg")};
-            if (key == QStringLiteral("replay")) filters = {QStringLiteral("*.mcpr")};
+            for (const QString &suffix : lifecycleBatchSuffixes(key))
+                filters.append(QStringLiteral("*.") + suffix);
             files = QDir(root).entryInfoList(filters, QDir::Files, QDir::Time);
         }
     }
@@ -598,8 +713,14 @@ void InstanceSettingsDialog::updateLifecycleInfo(const QString &key) {
     if (label == nullptr) return;
     auto *list = m_lifecycleLists.value(key);
     QString path;
-    if (list != nullptr && list->currentItem() != nullptr) {
-        path = list->currentItem()->data(Qt::UserRole).toString();
+    if (list != nullptr) {
+        if (key == QStringLiteral("replay")) {
+            const auto selected = list->selectedItems();
+            if (selected.size() == 1 && !selected.first()->isHidden())
+                path = selected.first()->data(Qt::UserRole).toString();
+        } else if (list->currentItem() != nullptr) {
+            path = list->currentItem()->data(Qt::UserRole).toString();
+        }
     }
     if (path.isEmpty()) {
         // 没选中 / 只选中了「暂无文件」那一格 ⇒ 那一格整颗收起来，别摆个空行。

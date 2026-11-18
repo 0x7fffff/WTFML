@@ -1741,6 +1741,10 @@ public:
                                 const HomePickerInstanceHandler &instanceHandler);
     void closeHomeInstancePicker();
     bool homeInstancePickerOpen() const;
+    static QString resourceDownloadInstancePickerName() {
+        return QStringLiteral("resourceDownloadInstancePicker");
+    }
+    QString chooseResourceDownloadInstance(const QList<HomePickerInstance> &instances);
     /// 当前实例在不在跑：启动区主按钮在「启动游戏」/「停止游戏」之间换（MainWindow 每次重画底栏时给）。
     void setHomeLaunchRunning(bool running);
     static QString bottomBarName() { return QStringLiteral("bottomBar"); }
@@ -1879,6 +1883,7 @@ public:
         bool checked = false;
         /// 账号弹层：整行就是一颗按钮（「添加账号」「管理账号与皮肤」「登录」），点了按动作 0 回报。
         bool menuItem = false;
+        std::function<QString()> liveSubtitle;
     };
     /// 「点开面板时去哪要这几行」和「行里的按钮被点了」。那个 bool：true = 右边那块
     /// （账号），false = 左边那块（实例）。动作回调里的 key 就是那一行的 PanelRow::key
@@ -2924,23 +2929,16 @@ public:
     /// 输入框里的占位文字（空着的时候显示那一句）。
     static QString curseForgeApiKeyPlaceholder() { return QStringLiteral("留空使用社区镜像"); }
 
-    // ---------- 「下载新模组时直接放进当前实例」（在「下载」栏里） ----------
-    // 语义的**唯一出处**是 LauncherSettings 里那一节。这里只有形状：
-    // 一个勾选框 + 一句话说清"勾上是什么、不勾是什么"。
-    //
-    // NOTE: 那一句话必须把**两种进入方式**都写出来 —— 这一项的名字（"放进当前实例"）只说得
-    // 清勾上的那一半，而它真正在管的是"要不要弹保存框"，那件事还得看用户是从哪儿点
-    // 进来的。只写一半的话，用户会以为不勾就"什么都不下"。
     static QString downloadAutoIntoInstanceCheckName() {
         return QStringLiteral("downloadAutoIntoInstanceCheck");
     }
     /// 这一行的行标题（左列那一格）。
     static QString downloadAutoIntoInstanceRowText() {
-        return QStringLiteral("直接存入当前实例");
+        return QStringLiteral("内置目标实例选择器");
     }
     /// 勾选框自己的文字。
     static QString downloadAutoIntoInstanceCheckText() {
-        return QStringLiteral("直接存入当前实例");
+        return downloadAutoIntoInstanceRowText();
     }
     // ---------- 「下载缺前置时提醒」（也在「下载」栏里） ----------
     // 语义的**唯一出处**是 LauncherSettings 里那一节。这里只有形状。

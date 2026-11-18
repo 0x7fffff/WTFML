@@ -5,11 +5,9 @@
  *
  * 【为什么单独一个翻译单元】
  *
- * 这四条回答的是同一个问题——"点「装上前置」的那一下，目标到底是什么"。它们被
- * `ResourceInstallController` 那一趟异步检查读，判断结果会直接决定问回来的是谁的前置：
+ * 这些函数提供资源下载的初始选择，以及按实际选中的实例检查前置所需的数据：
  *
- * - `dependencyInstanceId()`：页面开着的实例优先，否则用下载页顶上那个下拉框；
- * - `downloadCameFromInstance()`：这一条是不是从某个实例追过来的（决定装完回哪儿）；
+ * - `resourceDownloadDefaultInstanceId()`：优先用来路，找不到来路再用主页当前实例；
  * - `dependencyTargetFor()`：游戏版本 / 加载器从**那个实例自己**的 meta 读，不读页面上的
  *   chip；加载器名要归一成小写那一套，否则接口不报错、只是筛不出东西；
  * - `installedModKeys()`：`mods/` 里认出来的那些，"认过没有"与"认出几个"是两件事。
@@ -35,31 +33,14 @@
 
 using namespace MainWindowViewData;
 
-QString MainWindow::dependencyInstanceId() const {
-    // ① 资源详情页**正开着**、而且它记着来路实例 ⇒ 用它。
-    // 那一格是"这一版是给哪个实例的"最具体的一句：用户就是站在那个实例的页面上点的
-    // 这一版（`InstanceFiles` 那条路，见 `openFileResourcePage()`；`Download` 那条路
-    // 递进来的本来就是下拉框里那一个，两份值一样）。
-    // NOTE: 判据带上 `open`，是为了不让**关掉那一页之后**残留的旧值去顶替下拉框 ——
-    // 用户关掉详情页、回到下载页直接下另一个模组时，目标该是下拉框上那一个。
-    // （异步那一趟不受影响：`ResourceInstallController::finishDependencyCheck()` 把实例**显式传下去**了。）
+QString MainWindow::resourceDownloadDefaultInstanceId() const {
     if (m_resourcePage->state().open && !m_resourcePage->state().instanceId.isEmpty()) {
         return m_resourcePage->state().instanceId;
     }
-    // ② 下载页顶上那个「已安装版本」下拉框。
-    return selectedVersionId(m_ui->getInstalledVersionCombo());
-}
-
-bool MainWindow::downloadCameFromInstance() const {
-    // ① 从实例设置点「下载新模组」切到下载页那一条（`m_downloadReturn` —— 就是那
-    // 颗「← 返回实例设置」用的同一份来路）。
     if (m_downloadReturn.valid()) {
-        return true;
+        return m_downloadReturn.instanceId;
     }
-    // ② 资源详情页是从某个实例点进来的（实例设置 → 模组 → 点名字，见
-    // `openInstanceFileResource()`）。那一条路不经过下载页，所以上面那一位是空的 ——
-    // 而用户站在**那个实例**的模组列表里点进来的这一版，意思就是"装进它"。
-    return m_resourcePage->state().open && !m_resourcePage->state().instanceId.isEmpty();
+    return selectedVersionId(m_ui->getInstalledVersionCombo());
 }
 
 ModDependencies::Target MainWindow::dependencyTargetFor(const QString &instanceId,

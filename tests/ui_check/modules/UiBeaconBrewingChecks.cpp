@@ -8,7 +8,7 @@ int UiBeaconBrewingChecks() {
     // ------------------------------------------------------------------
     {
         ToolboxPage page;
-        check(ToolboxPage::tools().size() == 10,
+        check(ToolboxPage::tools().size() == 9,
               "★★ U39 工具箱那张表在 U39 之后又加了两件（这里只认「信标 / 酿造确实在表里」）",
               QString::number(ToolboxPage::tools().size()));
 
@@ -18,7 +18,7 @@ int UiBeaconBrewingChecks() {
                 ++cells;
             }
         }
-        check(cells == 10, "★ U39 目录页有十格（每件工具一格，高速下载也在里面）",
+        check(cells == 9, "★ U39 目录页有九格（每件工具一格，高速下载也在里面）",
               QString::number(cells));
 
         // 工具页第一次进才搭：先进酿造、信标这两片，下面才认得到它们的控件。

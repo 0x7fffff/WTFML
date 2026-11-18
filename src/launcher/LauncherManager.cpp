@@ -1261,6 +1261,7 @@ int LauncherManager::startGame(const QStringList &arguments, const EffectiveJava
     // 所以下面这两笔只可能落在**活着**的会话上。
     m_sessions[sessionId].info.processId = static_cast<qint64>(process->processId());
     m_sessions[sessionId].info.startedAtMs = QDateTime::currentMSecsSinceEpoch();
+    emit gameStarted(sessionId);
     emit processOutput(sessionId, tr("游戏已启动（进程ID：%1）").arg(process->processId()));
     return sessionId;
 }

@@ -12,7 +12,12 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QScopeGuard>
+#include <QSet>
 #include <QSaveFile>
+#ifdef Q_OS_WIN
+#include <qt_windows.h>
+#endif
 
 #include <utility>
 
@@ -22,6 +27,24 @@ namespace {
 /// （见 [[wtfml-junction-facts]]），只判那头会把 junction 漏成一个普通文件夹。
 bool isLinkEntry(const QFileInfo &info) {
     return info.isSymLink() || info.isJunction();
+}
+
+bool plainLifecyclePath(const QString &path) {
+    if (!QDir::isAbsolutePath(path) || QDir::cleanPath(path) != path) return false;
+    for (QString cursor = path;;) {
+        const QFileInfo info(cursor);
+        if (!info.exists() || isLinkEntry(info)) return false;
+#ifdef Q_OS_WIN
+        const auto native = QDir::toNativeSeparators(cursor);
+        const DWORD attributes = GetFileAttributesW(reinterpret_cast<LPCWSTR>(native.utf16()));
+        if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_REPARSE_POINT)) return false;
+#endif
+        if (QDir(cursor).isRoot()) return true;
+        if (!InstanceFiles::validatePathSegment(info.fileName()).isEmpty()) return false;
+        const QString parent = info.absolutePath();
+        if (parent == cursor) return false;
+        cursor = parent;
+    }
 }
 
 /// 单条删除那一问。★ ：链接**不能**按文件夹写 —— `removeUnasked()` 对目录走
@@ -331,4 +354,127 @@ void InstanceFileController::removeMany(const QStringList &paths) {
         InlineMessage::warning(m_overlay, tr("删除失败"),
                                tr("%1 项删除失败：\n\n%2")
                                    .arg(failed).arg(problems.join(QStringLiteral("\n"))));
+}
+
+InstanceFileController::LifecycleResult InstanceFileController::applyLifecycleBatch(
+    LifecycleAction action, const QString &sourceRoot, const QStringList &paths, const QString &destination) {
+    LifecycleResult result;
+    const bool transferring = action != LifecycleAction::Remove;
+    const auto invalidSource = [](const QString &path) {
+        return tr("源文件无效、不在列表目录内或经过链接：%1").arg(QDir::toNativeSeparators(path));
+    };
+    if (paths.isEmpty() || paths.size() > 128) {
+        result.problem = tr("每批可操作 1 至 128 个文件。");
+        return result;
+    }
+    if (!QFileInfo(sourceRoot).isDir() || !plainLifecyclePath(sourceRoot)) {
+        result.problem = tr("列表目录不存在或经过链接，未改动任何文件。");
+        return result;
+    }
+    if (transferring && (!QFileInfo(destination).isDir() || !plainLifecyclePath(destination)
+                         || InstanceFiles::canonicalPath(sourceRoot).compare(
+                                InstanceFiles::canonicalPath(destination), Qt::CaseInsensitive) == 0)) {
+        result.problem = tr("请选择另一个已存在且不经过链接的目标文件夹。");
+        return result;
+    }
+
+    QStringList affected;
+    QStringList targets;
+    QSet<QString> names;
+    qint64 bytes = 0;
+    constexpr qint64 copyLimit = 512LL * 1024 * 1024;
+    const auto sourceAllowed = [&sourceRoot](const QString &path) {
+        const QFileInfo info(path);
+        return info.isFile() && info.absolutePath() == sourceRoot && plainLifecyclePath(path);
+    };
+    const auto targetOccupied = [](const QString &path) {
+        const QFileInfo info(path);
+        return info.exists() || isLinkEntry(info);
+    };
+    for (const QString &rawPath : paths) {
+        const QString path = QDir::fromNativeSeparators(rawPath);
+        const QFileInfo info(path);
+        const QString name = info.fileName();
+        if (!sourceAllowed(path) || names.contains(name.toCaseFolded())) {
+            result.problem = invalidSource(path);
+            return result;
+        }
+        names.insert(name.toCaseFolded());
+        affected.append(path);
+        if (transferring) {
+            const QString target = QDir(destination).filePath(name);
+            if (targetOccupied(target)) {
+                result.problem = tr("目标已存在，不覆盖同名文件：%1").arg(QDir::toNativeSeparators(target));
+                return result;
+            }
+            targets.append(target);
+        }
+        if (action == LifecycleAction::Copy) {
+            const qint64 size = info.size();
+            if (size > copyLimit - bytes) {
+                result.problem = tr("每批最多复制 512 MiB。请减少所选文件，或在资源管理器中复制大文件。");
+                return result;
+            }
+            bytes += size;
+        }
+    }
+    QStringList guardedPaths = affected;
+    if (transferring) {
+        guardedPaths.append(targets);
+        const QDir resolved(InstanceFiles::canonicalPath(destination));
+        if (resolved.path() != destination) {
+            for (const QString &target : targets)
+                guardedPaths.append(resolved.filePath(QFileInfo(target).fileName()));
+        }
+    }
+    result.problem = firstRefusal(guardedPaths);
+    if (!result.problem.isEmpty()) return result;
+    if (!WriteDirectoryGuard::acquire(sourceRoot, &result.problem)
+        || (transferring && !WriteDirectoryGuard::acquire(destination, &result.problem))) return result;
+
+    const auto ids = beginFileOperation(guardedPaths);
+    const auto release = qScopeGuard([this, &ids] { endFileOperation(ids); });
+    for (qsizetype index = 0; index < affected.size(); ++index) {
+        const QString &path = affected.at(index);
+        if (!sourceAllowed(path)) {
+            result.problem = invalidSource(path);
+            break;
+        }
+        if (transferring) {
+            const QString &target = targets.at(index);
+            if (!plainLifecyclePath(destination) || targetOccupied(target)) {
+                result.problem = tr("目标目录或同名项发生变化，未继续操作：%1").arg(QDir::toNativeSeparators(target));
+                break;
+            }
+            if (action == LifecycleAction::Copy) {
+                QFile source(path);
+                if (!source.copy(target)) {
+                    result.problem = tr("无法复制「%1」：%2").arg(QFileInfo(path).fileName(), source.errorString());
+                    break;
+                }
+            } else {
+#ifdef Q_OS_WIN
+                const QString from = QDir::toNativeSeparators(path);
+                const QString to = QDir::toNativeSeparators(target);
+                if (!MoveFileExW(reinterpret_cast<LPCWSTR>(from.utf16()),
+                                 reinterpret_cast<LPCWSTR>(to.utf16()), 0)) {
+                    const DWORD error = GetLastError();
+                    result.problem = error == ERROR_NOT_SAME_DEVICE
+                        ? tr("仅支持同卷移动。跨盘请先复制，核对目标文件后再处理原件。")
+                        : tr("无法移动「%1」（Windows 错误 %2）。原文件未移除。")
+                              .arg(QFileInfo(path).fileName()).arg(error);
+                    break;
+                }
+#else
+                result.problem = tr("此平台不支持安全移动。");
+                break;
+#endif
+            }
+        } else if (!moveToRecycleBin(path, &result.problem)) {
+            result.problem = tr("无法将「%1」移入回收站：%2").arg(QFileInfo(path).fileName(), result.problem);
+            break;
+        }
+        ++result.done;
+    }
+    return result;
 }

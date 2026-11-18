@@ -44,7 +44,9 @@
 #include "controllers/ActivityCenterController.hpp"
 #include "controllers/InstancePagesController.hpp"
 #include "controllers/InstanceEditorController.hpp"
+#include "controllers/InstanceFileController.hpp"
 #include "controllers/InstanceIconController.hpp"
+#include "controllers/LaunchController.hpp"
 #include "controllers/LaunchHistoryController.hpp"
 #include "launcher/LauncherManager.hpp"
 #include "manage/FolderManager.hpp"
@@ -60,7 +62,8 @@
 #include "schematic/SchematicInfo.hpp"
 
 namespace {
-void showSchematicDetails(OverlayHost *overlay, QWidget *parent, const QString &path) {
+void showSchematicDetails(OverlayHost *overlay, QWidget *parent, const QString &path,
+                          const QString &assetsRoot, const QString &assetIndexId) {
     ChromeDialog detail(parent, true);
     detail.setObjectName(QStringLiteral("schematicDetailsDialog"));
     detail.setWindowTitle(QObject::tr("方块统计"));
@@ -70,12 +73,12 @@ void showSchematicDetails(OverlayHost *overlay, QWidget *parent, const QString &
     summary->setWordWrap(true);
     layout->addWidget(summary);
     auto *search = new QLineEdit(&detail);
-    search->setPlaceholderText(QObject::tr("搜索方块 ID，例如 minecraft:stone"));
+    search->setPlaceholderText(QObject::tr("搜索中文名或方块 ID，例如石头 / minecraft:stone"));
     search->setClearButtonEnabled(true);
     layout->addWidget(search);
     auto *table = new QTableWidget(0, 2, &detail);
     table->setObjectName(QStringLiteral("schematicBlockCounts"));
-    table->setHorizontalHeaderLabels({QObject::tr("方块 ID"), QObject::tr("数量")});
+    table->setHorizontalHeaderLabels({QObject::tr("方块"), QObject::tr("数量")});
     table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
     table->verticalHeader()->hide();
@@ -88,7 +91,7 @@ void showSchematicDetails(OverlayHost *overlay, QWidget *parent, const QString &
     copy->setEnabled(false);
     QObject::connect(close, &QPushButton::clicked, &detail, &QDialog::reject);
     QObject::connect(copy, &QPushButton::clicked, &detail, [table] {
-        QStringList lines{QStringLiteral("方块 ID\t数量")};
+        QStringList lines{QStringLiteral("方块\t数量")};
         for (int row = 0; row < table->rowCount(); ++row)
             if (!table->isRowHidden(row)) lines.append(table->item(row, 0)->text() + '\t' + table->item(row, 1)->text());
         QApplication::clipboard()->setText(lines.join('\n'));
@@ -99,10 +102,11 @@ void showSchematicDetails(OverlayHost *overlay, QWidget *parent, const QString &
     });
     layout->addWidget(buttons);
     search->setEnabled(false);
-    auto *watcher = new QFutureWatcher<SchematicInfo::Info>(&detail);
-    QObject::connect(watcher, &QFutureWatcher<SchematicInfo::Info>::finished, &detail,
+    using Details = std::pair<SchematicInfo::Info, QJsonObject>;
+    auto *watcher = new QFutureWatcher<Details>(&detail);
+    QObject::connect(watcher, &QFutureWatcher<Details>::finished, &detail,
         [watcher, summary, table, search, copy] {
-            const auto info = watcher->result();
+            const auto [info, language] = watcher->result();
             watcher->deleteLater();
             if (!info.ok || !info.countsComplete) {
                 summary->setText(QObject::tr("无法给出完整方块清单：%1").arg(
@@ -114,7 +118,9 @@ void showSchematicDetails(OverlayHost *overlay, QWidget *parent, const QString &
             table->setRowCount(info.blocks.size());
             for (int row = 0; row < info.blocks.size(); ++row) {
                 const auto &block = info.blocks.at(row);
-                table->setItem(row, 0, new QTableWidgetItem(block.id));
+                const QString name = SchematicInfo::chineseBlockName(language, block.id);
+                table->setItem(row, 0, new QTableWidgetItem(
+                    name.isEmpty() ? block.id : QStringLiteral("%1 (%2)").arg(name, block.id)));
                 auto *count = new QTableWidgetItem;
                 count->setData(Qt::DisplayRole, QVariant::fromValue(block.count));
                 count->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);  // 数字列右对齐，表头跟着它
@@ -125,7 +131,9 @@ void showSchematicDetails(OverlayHost *overlay, QWidget *parent, const QString &
             search->setEnabled(true);
             copy->setEnabled(true);
         });
-    watcher->setFuture(QtConcurrent::run([path] { return SchematicInfo::read(path); }));
+    watcher->setFuture(QtConcurrent::run([path, assetsRoot, assetIndexId] {
+        return Details{SchematicInfo::read(path), SchematicInfo::loadChineseBlockNames(assetsRoot, assetIndexId)};
+    }));
     overlay->execPrompt(&detail, false);
 }
 }
@@ -379,6 +387,10 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     session->setParent(dialogPtr);
     InstanceSettingsDialog &dialog = *dialogPtr;
     dialog.setLastLaunch(LaunchHistory::lastStartedAt(m_owner->m_launchHistory->records(), versionId));
+    const auto playTime = m_owner->m_launchHistory->completedPlayTime(
+        m_owner->m_versionManager->instanceId(versionId));
+    dialog.setPlayTime(LaunchHistory::playTimeText(playTime.totalMs),
+                       LaunchHistory::playTimeText(playTime.lastMs));
     connect(&dialog, &InstanceSettingsDialog::launchInstanceRequested, m_owner,
             [this, versionId]() {
                 QComboBox *combo = m_owner->m_ui->getInstalledVersionCombo();
@@ -512,8 +524,11 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
             if (!schematics->property("wtfmlSchematicInfoWired").toBool()) {
                 schematics->setProperty("wtfmlSchematicInfoWired", true);
                 connect(schematics, &InstanceFilesPage::infoDetailsRequested, schematics,
-                    [this](const QString &path) {
-                        showSchematicDetails(m_owner->m_ui->overlay(), m_owner, path);
+                    [this, &targetId](const QString &path) {
+                        const auto version = m_owner->m_versionManager->getVersionJson(targetId);
+                        const QString indexId = version.value(QStringLiteral("assetIndex")).toObject()
+                            .value(QStringLiteral("id")).toString(version.value(QStringLiteral("assets")).toString());
+                        showSchematicDetails(m_owner->m_ui->overlay(), m_owner, path, AppPaths::assetsDir(), indexId);
                     });
                 connect(
                     schematics, &InstanceFilesPage::infoRequested, schematics,
@@ -573,6 +588,64 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     // 不是这个栈上的引用变量本身。C++ 捕获引用变量时捕获的本来就是被引用的对象。
     std::function<void(const QString &)> &refreshInstanceDirs = session->refreshInstanceDirs;
     refreshInstanceDirs(targetId);
+
+    connect(&dialog, &InstanceSettingsDialog::lifecycleBatchRequested, &dialog,
+            [this, &dialog, &targetId](const QString &key, const QStringList &paths,
+                                      InstanceSettingsDialog::LifecycleBatchAction requested) {
+        using Request = InstanceSettingsDialog::LifecycleBatchAction;
+        using Action = InstanceFileController::LifecycleAction;
+        if (paths.isEmpty()) return;
+        for (const QString &path : paths)
+            if (!InstanceSettingsDialog::isLifecycleBatchFile(key, path)) return;
+
+        const QPointer<InstanceSettingsDialog> liveDialog(&dialog);
+        const QString sourceId = targetId;
+        const QString dataRoot = AppPaths::minecraftDir();
+        const QString replayRoot = AppPaths::replayRecordingsDir();
+        const bool replay = key == QStringLiteral("replay");
+        const QString root = replay ? replayRoot : InstancePagesController::fileDirs(sourceId).value(key);
+        const Action action = requested == Request::Copy ? Action::Copy
+                            : requested == Request::Move ? Action::Move : Action::Remove;
+        const QString title = action == Action::Copy ? tr("复制文件")
+                            : action == Action::Move ? tr("移动文件") : tr("删除文件");
+        auto *overlay = m_owner->m_ui->overlay();
+        QString destination;
+        if (action != Action::Remove) {
+            destination = QFileDialog::getExistingDirectory(&dialog, title, root,
+                QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
+            if (!liveDialog || destination.isEmpty()) return;
+            destination = QDir::fromNativeSeparators(destination);
+        }
+        if (action == Action::Remove || action == Action::Move) {
+            const QString locations = action == Action::Remove
+                ? tr("将「%1」中的 %2 个所选文件移入回收站？")
+                      .arg(QDir::toNativeSeparators(root)).arg(paths.size())
+                : tr("将「%1」中的 %2 个所选文件移动到「%3」？\n仅支持同卷移动，不覆盖同名文件。")
+                      .arg(QDir::toNativeSeparators(root)).arg(paths.size()).arg(QDir::toNativeSeparators(destination));
+            const QString question = replay ? tr("回放目录由当前游戏目录内的实例共用。\n\n") + locations : locations;
+            if (!InlineMessage::question(overlay, title, question,
+                    action == Action::Remove ? tr("删除") : tr("移动"), tr("取消"), false, true)) return;
+        }
+        if (!liveDialog) return;
+        if (targetId != sourceId || AppPaths::minecraftDir() != dataRoot) {
+            InlineMessage::warning(overlay, title, tr("当前实例或游戏目录已切换，未改动文件。"));
+            return;
+        }
+        if ((replay || InstanceFiles::pathIsSameOrInside(replayRoot, destination))
+            && (!m_owner->runningVersionIds().isEmpty() || m_owner->m_launchController->isStarting())) {
+            InlineMessage::warning(overlay, title, tr("回放目录由多个实例共用，请退出正在运行的游戏后再操作。"));
+            return;
+        }
+        const auto result = m_owner->m_instanceFileController->applyLifecycleBatch(action, root, paths, destination);
+        if (!liveDialog) return;
+        liveDialog->refreshLifecycleBatchFiles(key);
+        const QString summary = tr("%1：完成 %2 / %3 项。").arg(title).arg(result.done).arg(paths.size());
+        m_owner->appendLog(summary);
+        if (result.problem.isEmpty())
+            InlineMessage::information(overlay, title, summary);
+        else
+            InlineMessage::warning(overlay, title, summary + QStringLiteral("\n\n") + result.problem);
+    });
 
     // 「Replay」和「结构」那两页，选中一行之后底下
     // 那一格要说这一条是什么（录了多久 / 多大的结构 / 和这个实例的版本兼不兼容）。

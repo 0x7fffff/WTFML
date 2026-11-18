@@ -12,6 +12,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
+#include <QJsonDocument>
 #include <QLocale>
 #include <QRegularExpression>
 #include <QStringList>
@@ -21,6 +22,7 @@
 
 #include "util/NbtTree.hpp"
 #include "util/ZipUtil.hpp"
+#include "download/AssetNames.hpp"
 
 namespace SchematicInfo {
 namespace {
@@ -732,6 +734,32 @@ QString summaryText(const Info &info, const QString &targetGameVersion) {
         }
     }
     return text;
+}
+
+QJsonObject loadChineseBlockNames(const QString &assetsRoot, const QString &indexId) {
+    if (assetsRoot.isEmpty() || !AssetNames::isSafeIndexId(indexId)) return {};
+    const auto readObject = [&assetsRoot](const QString &path, qint64 limit) {
+        if (!InstanceFiles::pathIsSameOrInside(assetsRoot, path)) return QJsonObject();
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly) || file.size() > limit) return QJsonObject();
+        const QByteArray bytes = file.read(limit + 1);
+        return bytes.size() <= limit ? QJsonDocument::fromJson(bytes).object() : QJsonObject();
+    };
+    const auto index = readObject(assetsRoot + QStringLiteral("/indexes/%1.json").arg(indexId), 32 * 1024 * 1024);
+    const QString hash = index.value(QStringLiteral("objects")).toObject()
+        .value(QStringLiteral("minecraft/lang/zh_cn.json")).toObject().value(QStringLiteral("hash")).toString();
+    if (!AssetNames::isSha1Hex(hash)) return {};
+    return readObject(assetsRoot + QStringLiteral("/objects/%1/%2").arg(hash.left(2), hash), 8 * 1024 * 1024);
+}
+
+QString chineseBlockName(const QJsonObject &language, const QString &blockId) {
+    const qsizetype separator = blockId.indexOf(QLatin1Char(':'));
+    const QString nameSpace = separator < 0 ? QStringLiteral("minecraft") : blockId.left(separator);
+    QString path = blockId.mid(separator + 1);
+    path.replace(QLatin1Char('/'), QLatin1Char('.'));
+    const QString name = language.value(QStringLiteral("block.%1.%2").arg(nameSpace, path)).toString();
+    return name.size() <= 256 && !name.contains(QLatin1Char('\n')) && !name.contains(QLatin1Char('\r'))
+        && !name.contains(QLatin1Char('\t')) ? name : QString();
 }
 
 QString topBlocksText(const Info &info) {

@@ -734,6 +734,10 @@ MainWindow::MainWindow(QWidget *parent)
             &MainWindow::updateHomeRecent);
     connect(m_launchHistory, &LaunchHistoryController::logMessage, this,
             [this](const QString &text) { appendLog(text); });
+    connect(m_launcherManager, &LauncherManager::gameStarted, this, [this](int sessionId) {
+        m_launchHistory->startPlayTime(sessionId, m_launcherManager->session(sessionId).versionId,
+                                       *m_versionManager, *m_groupStore);
+    });
     m_gameSessionController = new GameSessionController(
         m_launcherManager, m_settings, m_versionManager, m_launchHistory, m_ui,
         GameSessionController::Host{
@@ -1142,7 +1146,14 @@ MainWindow::MainWindow(QWidget *parent)
                 m_launcherManager->runningGames(), m_versionManager,
                 // 图标那一档颜色 = 底栏那几行字的墨色（画的图标不带自己的颜色）。
                 m_ui->getBottomBar()->palette().color(QPalette::WindowText),
-                QDateTime::currentMSecsSinceEpoch());
+                QDateTime::currentMSecsSinceEpoch(),
+                [history = QPointer<LaunchHistoryController>(m_launchHistory)](int sessionId) {
+                    if (!history) return QString();
+                    const auto time = history->runningPlayTime(sessionId);
+                    if (!time) return QString();
+                    return tr("本次 %1 · 累计 %2").arg(LaunchHistory::playTimeText(time->currentMs),
+                                                      LaunchHistory::playTimeText(time->totalMs));
+                });
         },
         [this](bool account, const QString &key, int action) {
             onBottomBarPanelAction(account, key, action);

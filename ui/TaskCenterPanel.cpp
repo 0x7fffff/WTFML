@@ -1180,6 +1180,17 @@ void TaskCenterPanel::rebuildRunning() {
             auto *subtitle = new ElidedLabel(card);
             subtitle->setText(item.subtitle);
             applyMutedFont(subtitle, -1);
+            if (item.liveSubtitle) {
+                subtitle->setToolTip(item.subtitle);
+                auto *timer = new QTimer(subtitle);
+                connect(timer, &QTimer::timeout, subtitle, [subtitle, provider = item.liveSubtitle] {
+                    if (!subtitle->isVisible()) return;
+                    const QString text = provider();
+                    subtitle->setText(text);
+                    subtitle->setToolTip(text);
+                });
+                timer->start(1000);
+            }
             texts->addWidget(subtitle);
         }
         head->addLayout(texts, 1);

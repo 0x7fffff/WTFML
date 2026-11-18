@@ -8,6 +8,7 @@
 #include "ArmorTrimPreview.hpp"
 #include "DownloadToolPanel.hpp"
 #include "GlassPopover.hpp"
+#include "MotdText.hpp"
 
 #include <QApplication>
 #include <QCheckBox>
@@ -24,6 +25,7 @@
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QHideEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -42,6 +44,8 @@
 #include <QSignalBlocker>
 #include <QStackedWidget>
 #include <QStyledItemDelegate>
+#include <QTextBlock>
+#include <QTextEdit>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <functional>
@@ -1281,7 +1285,7 @@ QString ToolboxPage::toolKey(Tool tool) {
 
 ToolboxPage::Tool ToolboxPage::toolFromKey(const QString &key, bool *ok) {
     for (const ToolInfo &info : kToolInfos) {
-        if (key == QLatin1String(info.key)) {
+        if (info.tool != Tool::Hash && key == QLatin1String(info.key)) {
             if (ok != nullptr) {
                 *ok = true;
             }
@@ -1305,7 +1309,7 @@ QString ToolboxPage::toolSummary(Tool tool) {
 QList<ToolboxPage::Tool> ToolboxPage::tools() {
     QList<Tool> list;
     for (const ToolInfo &info : kToolInfos) {
-        list.append(info.tool);
+        if (info.tool != Tool::Hash) list.append(info.tool);
     }
     return list;
 }
@@ -1465,6 +1469,7 @@ void ToolboxPage::syncHeader() {
 }
 
 void ToolboxPage::showCatalog() {
+    if (!m_inCatalog && m_current == Tool::Server) clearServerResults();
     GlassPopover::closeAllIn(window());
     m_inCatalog = true;
     m_levels->setCurrentIndex(0);
@@ -1514,6 +1519,7 @@ QWidget *ToolboxPage::ensureTool(Tool tool) {
 }
 
 void ToolboxPage::showTool(Tool tool) {
+    if (!m_inCatalog && m_current == Tool::Server && tool != Tool::Server) clearServerResults();
     QWidget *page = ensureTool(tool);
     m_current = tool;
     m_inCatalog = false;
@@ -1523,6 +1529,11 @@ void ToolboxPage::showTool(Tool tool) {
     // 目录格、切换浮层、程序里调 `showTool()` 都只走到这里，所以"换了哪一件"必须从这里发出去 ——
     // 纹饰那一片要借它去读预览资源，高速下载那一片要借它统计缓存。
     emit toolShown(m_current);
+}
+
+void ToolboxPage::hideEvent(QHideEvent *event) {
+    QWidget::hideEvent(event);
+    if (!m_inCatalog && m_current == Tool::Server) clearServerResults();
 }
 
 void ToolboxPage::openSwitchPopover() {
@@ -1790,8 +1801,6 @@ QWidget *ToolboxPage::buildTextPanel() {
     layout->setSpacing(8);
 
 
-    // 输入区：一块柔和面板装原文 + 色码 / 格式两排 + 自定颜色 + 转换按钮。
-    // 左边输入面板，右边预览 + 输出（整页在 900×620 下不出纵向滚动条）。
     auto *textBody = new QHBoxLayout;
     textBody->setContentsMargins(0, 0, 0, 0);
     textBody->setSpacing(14);
@@ -1801,19 +1810,13 @@ QWidget *ToolboxPage::buildTextPanel() {
     auto *inputCard = new SoftPanel(panel);
     auto *inputBox = inputCard->box();
     inputBox->setSpacing(10);
-    m_textSource = new QPlainTextEdit(inputCard);
-    m_textSource->setObjectName(QStringLiteral("textSource"));
-    m_textSource->setPlaceholderText(QStringLiteral("欢迎来到 §b服务器§r！"));
-    m_textSource->setFixedHeight(96);
-    m_textSource->setFrameShape(QFrame::NoFrame);
-    m_textSource->setStyleSheet(QStringLiteral(
-        "QPlainTextEdit { background-color: palette(base); border: 1px solid palette(base); border-radius: %1px;"
-        " padding: 4px 6px; }"
-        "QPlainTextEdit:focus { border-color: palette(link); }").arg(Theme::controlRadius()));
-    connect(m_textSource, &QPlainTextEdit::textChanged, this, [this]() {
-        emit textSourceChanged(m_textSource->toPlainText());
-    });
-    inputBox->addWidget(m_textSource);
+    inputBox->addWidget(makePanelCaption(inputCard, QStringLiteral("编辑预览")));
+    m_textPreview = new QTextEdit(inputCard);
+    m_textPreview->setObjectName(QStringLiteral("textPreview"));
+    m_textPreview->setAcceptRichText(false);
+    m_textPreview->setPlaceholderText(QStringLiteral("输入或粘贴文本，再为选中文字设置颜色和格式。"));
+    m_textPreview->setFixedHeight(96);
+    connect(m_textPreview, &QTextEdit::textChanged, this, &ToolboxPage::textPreviewEdited);
 
     // 色码 + 字形那两排（按钮全部由 controller 喂进来的表生成 —— 十六色那张表在
     // `TextFormat` 里，这一页不另抄一份）。
@@ -1842,17 +1845,14 @@ QWidget *ToolboxPage::buildTextPanel() {
     connect(m_textHex, &QLineEdit::returnPressed, this,
             [this]() { emit textHexColorRequested(m_textHex->text().trimmed()); });
 
-    auto *fromJson = new QPushButton(QStringLiteral("从 JSON 读回来"), inputCard);
+    auto *fromJson = new QPushButton(QStringLiteral("应用 JSON"), inputCard);
     fromJson->setObjectName(QStringLiteral("textFromJson"));
     fromJson->setToolTip(QStringLiteral("把下面 JSON 里的内容读回原文。"));
     Theme::markButton(fromJson, Theme::ButtonKind::Ghost);
-    auto *toJson = new QPushButton(QStringLiteral("从原文生成"), inputCard);
-    toJson->setObjectName(QStringLiteral("textFromSource"));
-    Theme::markButton(toJson, Theme::ButtonKind::Ghost);
     auto *clear = new QPushButton(QStringLiteral("清空"), inputCard);
     clear->setObjectName(QStringLiteral("textClear"));
     Theme::markButton(clear, Theme::ButtonKind::Ghost);
-    for (QPushButton *b : {fromJson, toJson, clear}) b->setAutoDefault(false);
+    for (QPushButton *button : {fromJson, clear}) button->setAutoDefault(false);
     // 左：自定颜色；右：次要的三颗转换动作成一组。
     auto *textActions = new QVBoxLayout;
     textActions->setSpacing(8);
@@ -1863,11 +1863,12 @@ QWidget *ToolboxPage::buildTextPanel() {
     customGroup->addStretch(1);
     auto *convertGroup = new QHBoxLayout;
     convertGroup->setSpacing(8);
-    for (QWidget *w : QList<QWidget *>{fromJson, toJson, clear}) convertGroup->addWidget(w);
+    convertGroup->addWidget(clear);
     convertGroup->addStretch(1);
     textActions->addLayout(customGroup);
     textActions->addLayout(convertGroup);
     inputBox->addLayout(textActions);
+    inputBox->addWidget(m_textPreview);
 
     m_textNotice = makeMutedLabel(inputCard, QStringLiteral("textNotice"));
     m_textNotice->hide();
@@ -1875,39 +1876,14 @@ QWidget *ToolboxPage::buildTextPanel() {
     inputBox->addStretch(1);
     textBody->addWidget(inputCard, 6);
 
-    {
-        QFrame *card = makeSectionCard(panel);
-        auto *cardBox = static_cast<QVBoxLayout *>(card->layout());
-        // 小标题与预览同一行：整页在最小窗口下放得下。
-        auto *previewRow = new QHBoxLayout;
-        previewRow->setContentsMargins(0, 0, 0, 0);
-        previewRow->setSpacing(12);
-        auto *previewCaption = makePanelCaption(card, QStringLiteral("预览"));
-        previewRow->addWidget(previewCaption, 0, Qt::AlignTop);
-        cardBox->addLayout(previewRow);
-        m_textPreview = new QLabel(card);
-        m_textPreview->setObjectName(QStringLiteral("textPreview"));
-        m_textPreview->setTextFormat(Qt::RichText);
-        m_textPreview->setWordWrap(true);
-        m_textPreview->setTextInteractionFlags(Qt::TextSelectableByMouse);
-        m_textPreview->setAlignment(Qt::AlignTop | Qt::AlignLeft);
-        m_textPreview->setMinimumHeight(28);
-        QFont big = m_textPreview->font();
-        big.setPixelSize(Theme::textSize(Theme::TextRole::Heading));  // 预览要读得清：取小节档 16
-        m_textPreview->setFont(big);
-        previewRow->addWidget(m_textPreview, 1);
-        textRight->addWidget(card);
-    }
-
-    // 输出：一张卡，分段切换四种写法（用途只写在分段的提示里），一次只显示一块，复制钮拷当前这一块。
+    // 源码区：§ 文本即时同步，JSON 由用户确认应用，MOTD 只读。
     const struct {
         const char *objectName;
         const char *title;
         const char *tooltip;
     } kOutputs[] = {
-        {"textLegacy", "§ 写法", "带 § 码的文本，/give、书与笔、命令里都用它。"},
+        {"textSource", "§ 源码", "输入或粘贴 § 文本，同步更新预览。"},
         {"textJson", "JSON", "命令里的 text 字段、物品名称用它。"},
-        {"textTellraw", "tellraw", "整条命令，直接粘进聊天栏。"},
         {"textMotd", "motd", "整行写进 server.properties，非 ASCII 已转成 \\uXXXX。"},
     };
     QFrame *outCard = makeSectionCard(panel);
@@ -1934,12 +1910,15 @@ QWidget *ToolboxPage::buildTextPanel() {
         box->setMaximumHeight(QWIDGETSIZE_MAX);  // 高度跟着卡片，不钉三行
         box->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
         outStack->addWidget(box);
-        if (qstrcmp(spec.objectName, "textLegacy") == 0) {
-            m_textLegacy = box;
+        if (qstrcmp(spec.objectName, "textSource") == 0) {
+            m_textSource = box;
+            m_textSource->setReadOnly(false);
+            connect(m_textSource, &QPlainTextEdit::textChanged, this, [this] {
+                emit textSourceChanged(m_textSource->toPlainText());
+            });
         } else if (qstrcmp(spec.objectName, "textJson") == 0) {
             m_textJson = box;
-        } else if (qstrcmp(spec.objectName, "textTellraw") == 0) {
-            m_textTellraw = box;
+            m_textJson->setReadOnly(false);
         } else {
             m_textMotd = box;
         }
@@ -1956,6 +1935,11 @@ QWidget *ToolboxPage::buildTextPanel() {
     outHead->addWidget(copy);
     outBox->addLayout(outHead);
     outBox->addWidget(outStack, 1);
+    outBox->addWidget(fromJson, 0, Qt::AlignRight);
+    fromJson->hide();
+    connect(outStack, &QStackedWidget::currentChanged, fromJson, [outStack, fromJson, this] {
+        fromJson->setVisible(outStack->currentWidget() == m_textJson);
+    });
     textRight->addWidget(outCard, 1);
     textBody->addLayout(textRight, 5);
     layout->addLayout(textBody);
@@ -1967,9 +1951,7 @@ QWidget *ToolboxPage::buildTextPanel() {
 
     connect(fromJson, &QPushButton::clicked, this,
             [this]() { emit textJsonRequested(m_textJson->toPlainText()); });
-    connect(toJson, &QPushButton::clicked, this,
-            [this]() { emit textSourceChanged(m_textSource->toPlainText()); });
-    connect(clear, &QPushButton::clicked, this, [this]() { m_textSource->clear(); });
+    connect(clear, &QPushButton::clicked, m_textPreview, &QTextEdit::clear);
     return panel;
 }
 
@@ -2043,11 +2025,29 @@ void ToolboxPage::setTextPalette(const QList<PaletteEntry> &entries) {
             styleRow->addWidget(button);
         }
         const QString code = entry.code;
-        connect(button, &QPushButton::clicked, this, [this, code]() {
-            // 插在光标处（不是在末尾）：用户改的往往是中间那一段。
-            if (m_textSource != nullptr) {
-                m_textSource->insertPlainText(QStringLiteral("§%1").arg(code));
+        connect(button, &QPushButton::clicked, this, [this, entry, code] {
+            if (entry.isColor) {
+                applyTextPreviewColor(QColor(entry.rgbHex), QStringLiteral("§%1").arg(code));
+                return;
             }
+            QTextCharFormat format;
+            const QTextCharFormat current = m_textPreview->currentCharFormat();
+            if (code == QStringLiteral("l")) format.setFontWeight(current.fontWeight() >= QFont::Bold ? QFont::Normal : QFont::Bold);
+            if (code == QStringLiteral("o")) format.setFontItalic(!current.fontItalic());
+            if (code == QStringLiteral("n")) format.setFontUnderline(!current.fontUnderline());
+            if (code == QStringLiteral("m")) format.setFontStrikeOut(!current.fontStrikeOut());
+            if (code == QStringLiteral("k")) format.setProperty(QTextFormat::UserProperty + 1, !current.boolProperty(QTextFormat::UserProperty + 1));
+            if (code == QStringLiteral("r")) {
+                format.setForeground(m_textPreview->palette().brush(QPalette::Text));
+                format.setProperty(QTextFormat::UserProperty, QStringLiteral(""));
+                format.setProperty(QTextFormat::UserProperty + 1, false);
+                format.setFontWeight(QFont::Normal);
+                format.setFontItalic(false);
+                format.setFontUnderline(false);
+                format.setFontStrikeOut(false);
+            }
+            m_textPreview->mergeCurrentCharFormat(format);
+            m_textPreview->setFocus();
         });
     }
     const auto caption = [this](const QString &text) {
@@ -2065,19 +2065,65 @@ void ToolboxPage::setTextPalette(const QList<PaletteEntry> &entries) {
 
 void ToolboxPage::setTextPreview(const QString &html) {
     if (m_textPreview != nullptr) {
-        m_textPreview->setText(html);
+        const QSignalBlocker blocker(m_textPreview);
+        m_textPreview->setHtml(html);
     }
 }
 
-void ToolboxPage::setTextOutputs(const QString &legacy, const QString &json, const QString &tellraw) {
-    if (m_textLegacy != nullptr) {
-        m_textLegacy->setPlainText(legacy);
+void ToolboxPage::setTextPreviewRuns(const QList<TextRun> &runs) {
+    if (m_textPreview == nullptr) return;
+    const QSignalBlocker blocker(m_textPreview);
+    m_textPreview->clear();
+    QTextCursor cursor(m_textPreview->document());
+    for (const TextRun &run : runs) {
+        QTextCharFormat format;
+        if (run.color.isValid()) format.setForeground(run.color);
+        format.setProperty(QTextFormat::UserProperty, run.colorCode);
+        format.setProperty(QTextFormat::UserProperty + 1, run.obfuscated);
+        format.setFontWeight(run.bold ? QFont::Bold : QFont::Normal);
+        format.setFontItalic(run.italic);
+        format.setFontUnderline(run.underline);
+        format.setFontStrikeOut(run.strike);
+        cursor.insertText(run.text, format);
     }
-    if (m_textJson != nullptr) {
+}
+
+QList<ToolboxPage::TextRun> ToolboxPage::textPreviewRuns() const {
+    QList<TextRun> runs;
+    if (m_textPreview == nullptr) return runs;
+    for (QTextBlock block = m_textPreview->document()->begin(); block.isValid(); block = block.next()) {
+        if (block != m_textPreview->document()->begin()) {
+            TextRun newline;
+            newline.text = QStringLiteral("\n");
+            runs.append(newline);
+        }
+        for (auto fragment = block.begin(); !fragment.atEnd(); ++fragment) {
+            const QTextFragment text = fragment.fragment();
+            const QTextCharFormat format = text.charFormat();
+            runs.append({text.text(), format.stringProperty(QTextFormat::UserProperty), {},
+                         format.fontWeight() >= QFont::Bold, format.fontItalic(), format.fontUnderline(),
+                         format.fontStrikeOut(), format.boolProperty(QTextFormat::UserProperty + 1)});
+        }
+    }
+    return runs;
+}
+
+void ToolboxPage::applyTextPreviewColor(const QColor &color, const QString &code) {
+    if (m_textPreview == nullptr) return;
+    QTextCharFormat format;
+    format.setForeground(MotdText::readableOn(color, m_textPreview->palette().color(QPalette::Base)));
+    format.setProperty(QTextFormat::UserProperty, code);
+    m_textPreview->mergeCurrentCharFormat(format);
+    m_textPreview->setFocus();
+}
+
+void ToolboxPage::setTextOutputs(const QString &legacy, const QString &json) {
+    if (m_textSource != nullptr && !legacy.isNull() && m_textSource->toPlainText() != legacy) {
+        const QSignalBlocker blocker(m_textSource);
+        m_textSource->setPlainText(legacy);
+    }
+    if (m_textJson != nullptr && m_textJson->toPlainText() != json) {
         m_textJson->setPlainText(json);
-    }
-    if (m_textTellraw != nullptr) {
-        m_textTellraw->setPlainText(tellraw);
     }
 }
 
@@ -2344,6 +2390,16 @@ QWidget *ToolboxPage::buildServerPanel() {
     card->box()->addLayout(body);
     card->hide();  // 没有结果不画
     layout->addWidget(card);
+    auto *history = new SoftPanel(panel);
+    history->box()->addWidget(makePanelCaption(history, QStringLiteral("本次检测记录")));
+    m_serverHistory = new QListWidget(history);
+    m_serverHistory->setObjectName(QStringLiteral("serverHistory"));
+    m_serverHistory->setUniformItemSizes(true);
+    m_serverHistory->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_serverHistory->setFixedHeight(112);
+    history->box()->addWidget(m_serverHistory);
+    history->hide();
+    layout->addWidget(history);
     layout->addStretch(1);
 
     connect(m_serverCheck, &QPushButton::clicked, this,
@@ -2422,6 +2478,40 @@ void ToolboxPage::setServerView(const ServerView &view) {
     }
     m_serverResult->setText(html);
     m_serverResult->parentWidget()->show();
+    const QString key = view.addressKey.isEmpty() ? view.address.trimmed().toCaseFolded() : view.addressKey;
+    if (m_serverHistory == nullptr || key.isEmpty()) return;
+    constexpr int historyLimit = 20;
+    const QString result = view.ok ? view.latency : !view.kind.isEmpty() ? view.kind
+                          : view.timedOut ? QStringLiteral("超时") : QStringLiteral("检测失败");
+    const QString label = QStringLiteral("%1 · %2").arg(view.address, result);
+    QListWidgetItem *entry = nullptr;
+    for (int row = 0; row < m_serverHistory->count(); ++row) {
+        if (m_serverHistory->item(row)->data(Qt::UserRole).toString() == key) {
+            entry = m_serverHistory->item(row);
+            break;
+        }
+    }
+    if (entry == nullptr) {
+        if (m_serverHistory->count() >= historyLimit) delete m_serverHistory->takeItem(0);
+        entry = new QListWidgetItem(m_serverHistory);
+        entry->setData(Qt::UserRole, key);
+    }
+    entry->setText(label);
+    entry->setToolTip(label);
+    m_serverHistory->parentWidget()->show();
+    m_serverHistory->scrollToItem(entry);
+}
+
+void ToolboxPage::clearServerResults() {
+    if (m_serverResult != nullptr) {
+        m_serverResult->clear();
+        m_serverResult->parentWidget()->hide();
+    }
+    if (m_serverHistory != nullptr) {
+        m_serverHistory->clear();
+        m_serverHistory->parentWidget()->hide();
+    }
+    emit serverToolExited();
 }
 
 void ToolboxPage::setServerBusy(bool busy) {

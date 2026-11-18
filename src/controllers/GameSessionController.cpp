@@ -304,6 +304,7 @@ void GameSessionController::openGameLogForSession(int sessionId) {
 }
 
 void GameSessionController::onGameFinished(int sessionId, int exitCode, QProcess::ExitStatus exitStatus) {
+    m_launchHistory->finishPlayTime(sessionId);
     // 必须在任何“是否异常”的判断之前取走：QProcess::kill() 在 Windows 上通常表现为
     // CrashExit / 非零退出码，但从任务中心主动点“停止游戏”不是一次意外崩溃。
     const bool userStopped = m_userStoppedSessions.remove(sessionId);

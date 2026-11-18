@@ -41,6 +41,7 @@
 #include <QCloseEvent>
 
 MainWindow::~MainWindow() {
+    m_launchHistory->finishAllPlayTimes();
     if (m_agentController) m_agentController->shutdown();
     if (m_downloadBatches) m_downloadBatches->shutdown();
     // 日志窗**没有父窗口**（理由见 GameSessionController::ensureGameLogWindow() 那段），
@@ -254,6 +255,7 @@ void MainWindow::closeEvent(QCloseEvent *event) {
     if (!games.isEmpty()) {
         // 顺序要紧：**先**把进程交出去（脱离所有权 + 断信号），再让窗口关掉 —— 关窗口之后
         // 紧接着就是析构链，交出去那一步必须在那之前做完（见 LauncherManager::detachRunningGame）。
+        m_launchHistory->finishAllPlayTimes();
         m_launcherManager->detachRunningGame();
         appendLog(tr("已关掉启动器，游戏继续在跑。"));
     }

@@ -872,7 +872,7 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
     downloadAutoIntoInstanceCheck = new QCheckBox(downloadAutoIntoInstanceCheckText(), form);
     downloadAutoIntoInstanceCheck->setObjectName(downloadAutoIntoInstanceCheckName());
     addSwitch(files, downloadAutoIntoInstanceCheck, downloadAutoIntoInstanceRowText(),
-              QStringLiteral("仅限从实例设置发起的下载。"));
+              QStringLiteral("下载资源时选择目标实例；关闭后改用系统文件夹选择。"));
     panel.layout->addStretch(1);
 }
 

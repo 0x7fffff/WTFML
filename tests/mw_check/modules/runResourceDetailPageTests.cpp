@@ -390,13 +390,11 @@ void runResourceDetailPageTests() {
                   "ZJ5 「全部」点回去又是整份（筛的是「摆出来的那一份」，不是把清单删了）",
                   QStringLiteral("%1 组 %2 条").arg(page->groupCount()).arg(page->versionRowCount()));
 
-            // ---- ZJ6. 点某一版：走到「装进哪个实例」那条路 ----
-            // 先把这个前提摆平：**没选实例**。这一条的凭据就是那句提醒 —— 钥匙认错了
-            // （比如拿行号当 id）时 installResourceVersion 根本不会被调用，一个框都不弹。
+            // ---- ZJ6. 点某一版：没有主页默认值也能打开目标选择器 ----
             installed->setCurrentIndex(-1);
             QApplication::processEvents();
             check(installed->currentIndex() < 0,
-                  "ZJ6 前提：现在没选实例（下面那句提醒才是确定的）",
+                  "ZJ6 前提：主页没有选中的实例",
                   QString::number(installed->currentIndex()));
             QTreeWidgetItem *g1 = list == nullptr ? nullptr : list->topLevelItem(1);
             QTreeWidgetItem *target = g1 == nullptr ? nullptr : g1->child(0);
@@ -415,12 +413,11 @@ void runResourceDetailPageTests() {
                 dismissNextPrompt();
                 clickRow(list, targetRect.center());
                 QApplication::processEvents();
-                check(g_modalTitle == QStringLiteral("没有选中实例"),
-                      "ZJ6 点某一版 = 走到「装进哪个实例」那条路（这一版真的被认出来了）"
-                      "—— 钥匙对不上时它会静静地什么都不做",
+                check(g_modalTitle == QStringLiteral("下载到哪个实例"),
+                      "ZJ6 点版本行打开内置目标选择器，取消不启动安装",
                       g_modalTitle + QStringLiteral(" / ") + g_modalText);
                 check(overlay->pageOpen(),
-                      "ZJ6 那句提醒是**叠在这一页上**的，收掉之后底下那一页还在"
+                      "ZJ6 选择器是叠在详情页上的，取消后详情页还在"
                       "（不是把用户踢回列表）");
             }
 

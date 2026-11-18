@@ -1,6 +1,7 @@
 #include "Support.hpp"
 #include "LoadingState.hpp"
 #include <QElapsedTimer>
+#include <QProcess>
 #include <QThread>
 #include "controllers/InstanceFileController.hpp"
 void runInstanceFilesPagesTests() {
@@ -150,6 +151,102 @@ void runInstanceFilesPagesTests() {
                   && problem.contains(QStringLiteral("正在运行")),
               "★★ T20.10 正在运行的实例拒绝删除文件，并说清原因", problem);
         check(QFileInfo::exists(guarded), "★★★ T20.10 拒绝之后文件仍在原处");
+    }
+
+    header("T20.10 生命周期文件批量操作只改临时夹具");
+    {
+        const QString source = root.filePath(QStringLiteral("lifecycle-batch/source"));
+        const QString target = root.filePath(QStringLiteral("lifecycle-batch/target"));
+        const QString first = QDir(source).filePath(QStringLiteral("first.png"));
+        const QString second = QDir(source).filePath(QStringLiteral("second.png"));
+        const QString firstTarget = QDir(target).filePath(QStringLiteral("first.png"));
+        const QString secondTarget = QDir(target).filePath(QStringLiteral("second.png"));
+        const QString outsider = root.filePath(QStringLiteral("lifecycle-batch/outside.png"));
+        writeFileAt(first, QByteArrayLiteral("FIRST"));
+        writeFileAt(second, QByteArrayLiteral("SECOND"));
+        writeFileAt(outsider, QByteArrayLiteral("OUTSIDE"));
+        check(QDir().mkpath(target), "create isolated lifecycle batch target");
+        const auto contents = [](const QString &path) {
+            QFile file(path);
+            return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+        };
+
+        bool refuseTarget = false;
+        bool insertConflict = false;
+        QSet<QString> busy;
+        const QString canonicalTarget = InstanceFiles::canonicalPath(target);
+        const auto under = [](const QString &directory, const QString &path) {
+            return QFileInfo(path).absolutePath().compare(directory, Qt::CaseInsensitive) == 0;
+        };
+        InstanceFileController controller(nullptr, InstanceFileController::Host{
+            {},
+            [&](const QString &path) {
+                return refuseTarget && under(canonicalTarget, path) ? QStringLiteral("目标正被占用") : QString();
+            },
+            [&](const QString &path) {
+                return under(source, path) ? QStringLiteral("source") : QStringLiteral("target");
+            },
+            [&](const QString &id, bool active) {
+                if (active) busy.insert(id);
+                else busy.remove(id);
+                if (active && insertConflict && id == QStringLiteral("target"))
+                    writeFileAt(secondTarget, QByteArrayLiteral("CONCURRENT"));
+            }});
+        using Action = InstanceFileController::LifecycleAction;
+        auto result = controller.applyLifecycleBatch(Action::Remove, source, {first, outsider});
+        check(result.done == 0 && !result.problem.isEmpty() && contents(first) == "FIRST"
+                  && contents(outsider) == "OUTSIDE",
+              "delete rejects out-of-directory paths before touching any member of the batch");
+        result = controller.applyLifecycleBatch(Action::Move, source, {first, first}, target);
+        check(result.done == 0 && !result.problem.isEmpty() && !QFileInfo::exists(firstTarget),
+              "move rejects duplicate source paths");
+        result = controller.applyLifecycleBatch(Action::Copy, source, {first}, source);
+        check(result.done == 0 && !result.problem.isEmpty() && contents(first) == "FIRST",
+              "copy rejects the source directory as a destination");
+        const QString folder = QDir(source).filePath(QStringLiteral("nested.png"));
+        check(QDir().mkpath(folder), "create directory disguised as a screenshot");
+        result = controller.applyLifecycleBatch(Action::Remove, source, {folder});
+        check(result.done == 0 && !result.problem.isEmpty() && QDir(folder).exists(),
+              "batch deletion never recurses into a directory");
+        writeFileAt(secondTarget, QByteArrayLiteral("KEEP"));
+        result = controller.applyLifecycleBatch(Action::Move, source, {first, second}, target);
+        check(result.done == 0 && !result.problem.isEmpty() && contents(first) == "FIRST"
+                  && !QFileInfo::exists(firstTarget) && contents(secondTarget) == "KEEP",
+              "a known target collision stops the whole batch without overwriting");
+        check(QFile::remove(secondTarget), "remove the isolated collision fixture");
+        refuseTarget = true;
+        result = controller.applyLifecycleBatch(Action::Copy, source, {first}, target);
+        check(result.done == 0 && result.problem == QStringLiteral("目标正被占用") && busy.isEmpty(),
+              "the destination instance guard runs before writes");
+        refuseTarget = false;
+        result = controller.applyLifecycleBatch(Action::Copy, source, {first}, target);
+        check(result.done == 1 && result.problem.isEmpty() && contents(firstTarget) == "FIRST"
+                  && contents(first) == "FIRST" && busy.isEmpty(),
+              "copy preserves the original and releases busy state");
+        check(QFile::remove(firstTarget), "remove the isolated copy before the move test");
+#ifdef Q_OS_WIN
+        if (!qEnvironmentVariableIsSet("WTFML_SKIP_JUNCTION")) {
+            const QString alias = root.filePath(QStringLiteral("lifecycle-batch/target-link"));
+            const bool madeAlias = QProcess::execute(QStringLiteral("cmd"),
+                {QStringLiteral("/c"), QStringLiteral("mklink"), QStringLiteral("/J"),
+                 QDir::toNativeSeparators(alias), QDir::toNativeSeparators(target)}) == 0;
+            if (madeAlias) {
+                result = controller.applyLifecycleBatch(Action::Move, source, {first}, alias);
+                check(result.done == 0 && !result.problem.isEmpty() && contents(first) == "FIRST"
+                          && !QFileInfo::exists(firstTarget),
+                      "move refuses a junction destination before writing to its target");
+                check(QDir().rmdir(alias), "remove only the isolated junction");
+            } else {
+                printf("SKIP: could not create isolated lifecycle batch junction\n");
+            }
+        }
+        insertConflict = true;
+        result = controller.applyLifecycleBatch(Action::Move, source, {first, second}, target);
+        check(result.done == 1 && !result.problem.isEmpty() && !QFileInfo::exists(first)
+                  && contents(firstTarget) == "FIRST" && contents(second) == "SECOND"
+                  && contents(secondTarget) == "CONCURRENT" && busy.isEmpty(),
+              "move stops on a late conflict, keeps unprocessed sources and reports completed files");
+#endif
     }
 
     TokenStore::clear(TokenStore::microsoftKey());

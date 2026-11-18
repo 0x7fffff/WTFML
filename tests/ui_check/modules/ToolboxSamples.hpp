@@ -46,8 +46,7 @@ inline void fillToolboxSamples(ToolboxPage &page, ToolboxPage::Tool tool) {
         page.setTextSource(QStringLiteral("欢迎来到 §b服务器§r！"));
         page.setTextPreview(QStringLiteral("欢迎来到 <span style=\"color:#55ffff\">服务器</span>！"));
         page.setTextOutputs(QStringLiteral("欢迎来到 §b服务器§r！"),
-                            QStringLiteral("{\"text\":\"欢迎来到 \",\"extra\":[{\"text\":\"服务器\",\"color\":\"aqua\"},{\"text\":\"！\",\"color\":\"white\"}]}"),
-                            QStringLiteral("/tellraw @a {\"text\":\"欢迎来到 \",\"extra\":[{\"text\":\"服务器\",\"color\":\"aqua\"},{\"text\":\"！\",\"color\":\"white\"}]}"));
+                            QStringLiteral("{\"text\":\"欢迎来到 \",\"extra\":[{\"text\":\"服务器\",\"color\":\"aqua\"},{\"text\":\"！\",\"color\":\"white\"}]}"));
         break;
     }
     case Tool::Coord:

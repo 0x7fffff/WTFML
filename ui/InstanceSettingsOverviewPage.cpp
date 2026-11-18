@@ -173,6 +173,10 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
         // 行高只够第一行 —— 屏幕上就只剩「最后启动：」。
         m_lastLaunchLabel->setWordWrap(false);
         setLastLaunch(QDateTime());
+        m_playTimeLabel = new QLabel(this);
+        m_playTimeLabel->setObjectName(QStringLiteral("instancePlayTime"));
+        m_playTimeLabel->setPalette(m_lastLaunchLabel->palette());
+        setPlayTime(QStringLiteral("0:00:00"), QString());
 
         grid->addWidget(overviewSection(tr("基本"), this, true), row++, 0, 1, 2);
         grid->addWidget(MainWindowPageLayout::makeSettingRow(this, MainWindowPageLayout::makeSettingRowTitle(instanceNameText(), this), QString(), m_instanceNameEdit),
@@ -352,6 +356,8 @@ void InstanceSettingsDialog::setupOverviewPage(const QString &instanceId) {
                         row++, 0, 1, 2);
         // 「最后启动」那一行：时间当标题，口径说明在悬停提示里（setLastLaunch 写的）。
         grid->addWidget(MainWindowPageLayout::makeSettingRow(this, m_lastLaunchLabel, QString(), nullptr), row++, 0, 1, 2);
+        grid->addWidget(MainWindowPageLayout::makeSettingRow(this, m_playTimeLabel, QString(), nullptr),
+                        row++, 0, 1, 2);
     }
 
     // ---------- 五颗「对整个实例动手」的按钮（一张三列网格）----------

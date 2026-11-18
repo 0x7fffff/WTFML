@@ -147,7 +147,7 @@ int UiToolboxLayoutCheck(QApplication &app) {
                     check(cell->width() >= 240 - 1 || xs.size() == 1, "目录格不窄于 240", QString::number(cell->width()));
                 }
             }
-            check(cells == 10, "目录页：十个工具一格不少", QString::number(cells));
+            check(cells == 9, "目录页：九个工具一格不少", QString::number(cells));
             check(xs.size() >= 2 && xs.size() <= 4, "目录页：自适应成多列", QString::number(xs.size()));
             check(page->findChild<QCheckBox *>(QStringLiteral("toolboxRememberInputs")) != nullptr &&
                       page->findChild<QCheckBox *>(QStringLiteral("toolboxRememberInputs"))->isVisible(),
@@ -268,8 +268,8 @@ int UiToolboxLayoutCheck(QApplication &app) {
             QWidget *popover = window.findChild<QWidget *>(ToolboxPage::switchPopoverName());
             check(popover != nullptr && popover->isVisible() && popover->width() == 236, "点工具名弹出切换浮层（宽 236）", sizeText);
             check(popover != nullptr && popover->findChild<QListWidget *>() != nullptr &&
-                      popover->findChild<QListWidget *>()->count() == 10,
-                  "切换浮层列出十个工具");
+                      popover->findChild<QListWidget *>()->count() == 9,
+                  "切换浮层列出九个工具");
             shot(QStringLiteral("switch"));
             if (auto *list = popover != nullptr ? popover->findChild<QListWidget *>() : nullptr) {
                 list->itemClicked(list->item(1));

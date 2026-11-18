@@ -52,6 +52,7 @@
 #pragma once
 
 #include <QList>
+#include <QJsonObject>
 #include <QString>
 
 namespace SchematicInfo {
@@ -123,5 +124,9 @@ QString summaryText(const Info &info, const QString &targetGameVersion);
 
 /// 悬停提示里的方块排行（"最多的是哪几种"）。空串 = 没有统计。
 QString topBlocksText(const Info &info);
+
+/// 从现有游戏资源查中文语言文件；没有本地资源时返回空表，不下载。
+QJsonObject loadChineseBlockNames(const QString &assetsRoot, const QString &indexId);
+QString chineseBlockName(const QJsonObject &language, const QString &blockId);
 
 }  // namespace SchematicInfo

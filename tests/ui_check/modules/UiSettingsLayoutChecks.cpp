@@ -160,13 +160,6 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
                   "刚搭好时框里是空的（值由 MainWindow 从盘上灌，界面层不自己猜）",
                   cfKey->text());
         }
-        // 「下载新模组」那颗勾选框。要求：「在设置里加一个选项 …… 勾选->
-        // 下载新模组就自动放进当前实例文件夹，直接在下载界面下的照样弹explorer选择保存位置，
-        // 不勾选->不论是在哪里进入的下载页都弹explorer选择保存位置」。
-        //
-        // 界面层这里只钉三件**界面层管得着**的：它在不在、默认是不是勾上（用户要的默认是
-        // 勾上）、以及那两行字是不是把两种情形都说清了。「勾上之后到底问不问」是 MainWindow
-        // 那边算的（见 ），这里量不了。
         if (auto *autoCheck = ui.getDownloadAutoIntoInstanceCheck()) {
             // **界面层不自己猜**（和上面 CurseForge 那一格同一条规矩）：刚搭好时是**没勾**的，
             // 值由 MainWindow 从盘上灌（见 applySettingsToUi）。"默认勾上"是**设置那一层**的
@@ -178,9 +171,10 @@ int UiSettingsLayoutChecks(MainWindowUI &ui, QTabWidget * &tabs) {
                       !autoCheck->text().isEmpty(),
                   "那一格的字（勾上管的是哪一件事）", autoCheck->text());
             const QString hint = autoCheck->accessibleDescription();
-            check(hint.contains(QStringLiteral("实例")), "按需帮助写明仅限从实例设置发起的下载", hint);
+            check(hint.contains(QStringLiteral("目标实例")) && hint.contains(QStringLiteral("系统文件夹")),
+                  "按需帮助写明开启和关闭时各用哪种选择器", hint);
         } else {
-            check(false, "找得到「下载新模组」那颗勾选框");
+            check(false, "找得到「内置目标实例选择器」那颗勾选框");
         }
 
         // 「同时最多下几个」那颗下拉框。界面层这里只钉一件**界面层管得着**

@@ -177,6 +177,17 @@ public:
             subtitlePalette.setColor(QPalette::WindowText,
                                      subtitlePalette.color(QPalette::PlaceholderText));
             subtitle->setPalette(subtitlePalette);
+            if (row.liveSubtitle) {
+                subtitle->setToolTip(row.subtitle);
+                auto *timer = new QTimer(subtitle);
+                connect(timer, &QTimer::timeout, subtitle, [subtitle, provider = row.liveSubtitle] {
+                    if (!subtitle->isVisible()) return;
+                    const QString text = provider();
+                    subtitle->setText(text);
+                    subtitle->setToolTip(text);
+                });
+                timer->start(1000);
+            }
             texts->addWidget(subtitle);
         }
 
@@ -1936,6 +1947,7 @@ void MainWindowUI::openTaskCenterPanel() {
             item.icon = row.icon;
             item.title = row.title;
             item.subtitle = row.subtitle;
+            item.liveSubtitle = row.liveSubtitle;
             for (int i = 0; i < row.actions.size(); ++i) {
                 const PanelAction &source = row.actions.at(i);
                 TaskCenter::RunningAction action;
