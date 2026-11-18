@@ -4,6 +4,7 @@
  */
 
 #include "AgentController.hpp"
+#include <QCoreApplication>
 
 #include "agent/AgentPaths.hpp"
 #include "util/AppPaths.hpp"
@@ -172,7 +173,7 @@ AgentController::AgentController(AgentPage *page, OverlayHost *overlay, QObject 
     }
     if (m_profile.id.isEmpty()) {
         m_profile.id = QStringLiteral("default");
-        m_profile.name = QStringLiteral("默认模型服务");
+        m_profile.name = QCoreApplication::translate("AgentController", "默认模型服务");
         m_profile.baseUrl = QStringLiteral("https://api.openai.com/v1");
         m_profile.model = QStringLiteral("gpt-4o-mini");
     }
@@ -222,7 +223,7 @@ AgentController::AgentController(AgentPage *page, OverlayHost *overlay, QObject 
         AgentView::ToolCard card;
         card.id = call.id;
         card.title = call.name;
-        card.summary = QStringLiteral("参数已接收");
+        card.summary = QCoreApplication::translate("AgentController", "参数已接收");
         card.detail = QString::fromUtf8(
             QJsonDocument(call.arguments).toJson(QJsonDocument::Indented));
         card.status = AgentView::ToolCardStatus::Running;
@@ -236,7 +237,7 @@ AgentController::AgentController(AgentPage *page, OverlayHost *overlay, QObject 
                     if (m_autoNoticeShownFor != host) {
                         m_autoNoticeShownFor = host;
                         m_page->showNotice(
-                            QStringLiteral("本次自动读取的日志/元数据可能发送给当前模型服务：%1")
+                            QCoreApplication::translate("AgentController", "本次自动读取的日志/元数据可能发送给当前模型服务：%1")
                                 .arg(host));
                     }
                 }
@@ -335,7 +336,7 @@ void AgentController::refreshApiState() {
     QString status;
     if (!m_profile.isValid()) {
         m_configured = false;
-        status = QStringLiteral("API 未配置");
+        status = QCoreApplication::translate("AgentController", "API 未配置");
     } else {
         QString problem;
         const bool valid = AgentProviderAdapters::validateProfile(m_profile, &problem);
@@ -343,20 +344,20 @@ void AgentController::refreshApiState() {
         const bool keyOk = !key.isEmpty() || m_profile.authMode == QLatin1String("none");
         m_configured = valid && keyOk;
         if (!valid) {
-            status = QStringLiteral("配置无效：%1").arg(problem);
+            status = QCoreApplication::translate("AgentController", "配置无效：%1").arg(problem);
         } else if (!keyOk) {
-            status = QStringLiteral("API 未配置（缺少 API Key）");
+            status = QCoreApplication::translate("AgentController", "API 未配置（缺少 API Key）");
         } else if (m_profile.authMode == QLatin1String("none")) {
-            status = QStringLiteral("本地服务（无认证）");
+            status = QCoreApplication::translate("AgentController", "本地服务（无认证）");
         } else {
-            status = QStringLiteral("API 已配置");
+            status = QCoreApplication::translate("AgentController", "API 已配置");
         }
     }
     if (m_page != nullptr) {
         m_page->setConfigured(m_configured, status);
         const QString modelLabel =
             m_profile.isValid() ? QStringLiteral("%1 · %2").arg(m_profile.name, m_profile.model)
-                                : QStringLiteral("未配置模型");
+                                : QCoreApplication::translate("AgentController", "未配置模型");
         m_page->setModelLabel(modelLabel);
     }
 }
@@ -428,7 +429,7 @@ void AgentController::selectSession(const QString &sessionId) {
         m_session.pendingApproval = {};
         m_store.save(m_session, false, nullptr);
         if (m_page != nullptr) {
-            m_page->showNotice(QStringLiteral("上次未完成的审批已作废；需要重新请求并确认。"));
+            m_page->showNotice(QCoreApplication::translate("AgentController", "上次未完成的审批已作废；需要重新请求并确认。"));
         }
     }
     m_savePending = false;
@@ -455,8 +456,8 @@ void AgentController::updateHeader() {
 void AgentController::updateConfiguredState() {
     refreshApiState();
     if (m_page != nullptr) {
-        m_page->setConfigured(m_configured, m_configured ? QStringLiteral("API 已配置")
-                                                        : QStringLiteral("API 未配置"));
+        m_page->setConfigured(m_configured, m_configured ? QCoreApplication::translate("AgentController", "API 已配置")
+                                                        : QCoreApplication::translate("AgentController", "API 未配置"));
     }
 }
 
@@ -508,7 +509,7 @@ QString AgentController::configurationProblem() const {
         return problem;
     }
     if (currentApiKey().isEmpty() && m_profile.authMode != QLatin1String("none")) {
-        return QStringLiteral("没有可用的 API Key，请先在设置里配置。");
+        return QCoreApplication::translate("AgentController", "没有可用的 API Key，请先在设置里配置。");
     }
     return {};
 }
@@ -579,13 +580,13 @@ void AgentController::onSend(const QString &text) {
     const AgentRedaction::Result redacted = AgentRedaction::redact(trimmed);
     if (redacted.containsCredentials()) {
         if (m_page != nullptr) {
-            m_page->showNotice(QStringLiteral("检测到疑似凭据（%1），已在本机遮挡后再发送。")
-                                   .arg(redacted.kinds.join(QStringLiteral("、"))));
+            m_page->showNotice(QCoreApplication::translate("AgentController", "检测到疑似凭据（%1），已在本机遮挡后再发送。")
+                                   .arg(redacted.kinds.join(QCoreApplication::translate("AgentController", "、"))));
         }
     }
     const QString content = redacted.text;
     if (content.trimmed().isEmpty()) {
-        if (m_page != nullptr) m_page->showNotice(QStringLiteral("消息只包含凭据，已取消发送。"));
+        if (m_page != nullptr) m_page->showNotice(QCoreApplication::translate("AgentController", "消息只包含凭据，已取消发送。"));
         return;
     }
 
@@ -596,7 +597,7 @@ void AgentController::onSend(const QString &text) {
     user.status = Agent::MessageStatus::Complete;
     user.createdAt = QDateTime::currentDateTimeUtc();
     m_session.messages.append(user);
-    if (m_session.meta.title.isEmpty() || m_session.meta.title == QStringLiteral("新对话")) {
+    if (m_session.meta.title.isEmpty() || m_session.meta.title == QCoreApplication::translate("AgentController", "新对话")) {
         m_session.meta.title = AgentSessionTitle::fromMessage(content);
     }
     m_session.meta.provider = QJsonObject{{QStringLiteral("profileId"), m_profile.id},
@@ -627,7 +628,7 @@ void AgentController::onStop() {
     flushSave(true);
     if (m_page != nullptr) {
         m_page->setStreaming(false);
-        m_page->showNotice(QStringLiteral("已停止生成，已保留收到的部分。"));
+        m_page->showNotice(QCoreApplication::translate("AgentController", "已停止生成，已保留收到的部分。"));
     }
     refreshSessions();
 }
@@ -655,7 +656,7 @@ void AgentController::onRename(const QString &sessionId, const QString &title) {
         return;
     }
     if (m_session.meta.id == sessionId) {
-        m_session.meta.title = title.simplified().isEmpty() ? QStringLiteral("新对话")
+        m_session.meta.title = title.simplified().isEmpty() ? QCoreApplication::translate("AgentController", "新对话")
                                                             : title.simplified().left(80);
         if (m_page != nullptr) m_page->setTitle(m_session.meta.title);
     }
@@ -675,17 +676,16 @@ void AgentController::onPin(const QString &sessionId, bool pinned) {
 void AgentController::onDelete(const QString &sessionId) {
     if (sessionId.isEmpty()) return;
     const int choice = InlineMessage::ask(
-        m_overlay, MessageKind::Question, QStringLiteral("删除会话"),
-        QStringLiteral("只会删除会话正文、恢复快照和本会话 artifacts；"
-                       "文件维护备份会保留。确定删除吗？"),
-        QStringList{QStringLiteral("删除"), QStringLiteral("取消")}, 1, 0);
+        m_overlay, MessageKind::Question, QCoreApplication::translate("AgentController", "删除会话"),
+        QCoreApplication::translate("AgentController", "只会删除会话正文、恢复快照和本会话 artifacts；" "文件维护备份会保留。确定删除吗？"),
+        QStringList{QCoreApplication::translate("AgentController", "删除"), QCoreApplication::translate("AgentController", "取消")}, 1, 0);
     if (choice != 0) return;
 
     if (m_session.meta.id == sessionId && m_loop->busy()) {
         m_loop->cancel();
         if (m_toolEngine != nullptr && m_toolEngine->committing()) {
             if (m_page != nullptr) {
-                m_page->showNotice(QStringLiteral("文件正在提交，无法安全停止，暂不删除会话。"));
+                m_page->showNotice(QCoreApplication::translate("AgentController", "文件正在提交，无法安全停止，暂不删除会话。"));
             }
             return;
         }
@@ -708,7 +708,7 @@ void AgentController::onDelete(const QString &sessionId) {
             m_page->setSessions({});
             m_page->setCurrentSession(QString());
             m_page->clearMessages();
-            m_page->setTitle(QStringLiteral("新对话"));
+            m_page->setTitle(QCoreApplication::translate("AgentController", "新对话"));
         }
     } else {
         selectSession(metas.constFirst().id);
@@ -732,8 +732,8 @@ void AgentController::onEncryptToggled(bool encrypted) {
     }
     if (m_page != nullptr) {
         m_page->setEncryptionChecked(encrypted);
-        m_page->showNotice(encrypted ? QStringLiteral("本会话已加密存储（绑定当前 Windows 用户）")
-                                     : QStringLiteral("本会话已改回明文存储"));
+        m_page->showNotice(encrypted ? QCoreApplication::translate("AgentController", "本会话已加密存储（绑定当前 Windows 用户）")
+                                     : QCoreApplication::translate("AgentController", "本会话已改回明文存储"));
     }
     refreshSessions();
 }
@@ -793,14 +793,14 @@ AgentToolContext AgentController::toolContext(QString *problem) {
     context.providerHost = QUrl(m_profile.baseUrl).host();
     context.strictEgress = AgentSettings::strictEgress();
     if (context.sessionId.isEmpty()) {
-        if (problem != nullptr) *problem = QStringLiteral("先新建会话再使用文件工具。");
+        if (problem != nullptr) *problem = QCoreApplication::translate("AgentController", "先新建会话再使用文件工具。");
         return context;
     }
     const AgentInstanceInfo current = homeInstance();
     if (!m_session.meta.instanceLock.isValid()) {
         if (!current.isValid() || !current.exists) {
             if (problem != nullptr) {
-                *problem = QStringLiteral("NeedsInstanceLock：先在主页选择一个实例；不会自动挑一个。");
+                *problem = QCoreApplication::translate("AgentController", "NeedsInstanceLock：先在主页选择一个实例；不会自动挑一个。");
             }
             return context;
         }
@@ -812,18 +812,18 @@ AgentToolContext AgentController::toolContext(QString *problem) {
         QString saveProblem;
         if (!m_store.save(m_session, true, &saveProblem)) {
             m_session.meta.instanceLock = {};
-            if (problem != nullptr) *problem = QStringLiteral("实例锁定写盘失败：%1").arg(saveProblem);
+            if (problem != nullptr) *problem = QCoreApplication::translate("AgentController", "实例锁定写盘失败：%1").arg(saveProblem);
             return context;
         }
         if (m_page != nullptr) {
-            m_page->showNotice(QStringLiteral("本会话已锁定实例：%1").arg(current.name));
+            m_page->showNotice(QCoreApplication::translate("AgentController", "本会话已锁定实例：%1").arg(current.name));
         }
         refreshSessions();
         updateInstanceChip();
     }
     if (!AgentInstanceLocks::isUsable(m_session.meta.instanceLock, lockedInstance())) {
         if (problem != nullptr) {
-            *problem = QStringLiteral("InstanceUnavailable：锁定实例不在当前游戏目录或已被删除。");
+            *problem = QCoreApplication::translate("AgentController", "InstanceUnavailable：锁定实例不在当前游戏目录或已被删除。");
         }
         return context;
     }
@@ -832,7 +832,7 @@ AgentToolContext AgentController::toolContext(QString *problem) {
     context.gameRootId = m_session.meta.instanceLock.gameRootId;
     context.rootPath = m_useTestInstance ? m_testRootPath : AppPaths::versionDir(context.instanceId);
     if (!QFileInfo::exists(context.rootPath)) {
-        if (problem != nullptr) *problem = QStringLiteral("InstanceUnavailable：锁定实例目录不存在。");
+        if (problem != nullptr) *problem = QCoreApplication::translate("AgentController", "InstanceUnavailable：锁定实例目录不存在。");
     }
     return context;
 }
@@ -874,7 +874,7 @@ void AgentController::onInstanceMenuRequested() {
 void AgentController::onInstanceChosen(const QString &instanceId) {
     if (m_page == nullptr) return;
     if (m_loop->busy() || !m_session.pendingApproval.isEmpty()) {
-        m_page->showNotice(QStringLiteral("有待确认或执行中的操作，暂不能切换实例。"));
+        m_page->showNotice(QCoreApplication::translate("AgentController", "有待确认或执行中的操作，暂不能切换实例。"));
         return;
     }
     const AgentInstanceLock old = m_session.meta.instanceLock;
@@ -884,16 +884,16 @@ void AgentController::onInstanceChosen(const QString &instanceId) {
         for (const AgentInstanceInfo &info : instances())
             if (info.id == instanceId) target = info;
         if (!target.isValid() || !target.exists) {
-            m_page->showNotice(QStringLiteral("实例「%1」已不在当前游戏目录。").arg(instanceId));
+            m_page->showNotice(QCoreApplication::translate("AgentController", "实例「%1」已不在当前游戏目录。").arg(instanceId));
             return;
         }
     }
     // 已关联过实例、对话里也有了内容：旧实例上的证据和计划不再适用，建议另开会话（D8：切换须显式确认）。
     if (old.isValid() && !m_session.messages.isEmpty() && m_overlay != nullptr) {
         const int choice = InlineMessage::ask(
-            m_overlay, MessageKind::Question, QStringLiteral("切换实例"),
-            QStringLiteral("本会话的记录属于「%1」，切换后旧计划作废，建议新建会话。").arg(old.name),
-            QStringList{QStringLiteral("新建会话"), QStringLiteral("在本会话切换"), QStringLiteral("取消")}, 2, 0);
+            m_overlay, MessageKind::Question, QCoreApplication::translate("AgentController", "切换实例"),
+            QCoreApplication::translate("AgentController", "本会话的记录属于「%1」，切换后旧计划作废，建议新建会话。").arg(old.name),
+            QStringList{QCoreApplication::translate("AgentController", "新建会话"), QCoreApplication::translate("AgentController", "在本会话切换"), QCoreApplication::translate("AgentController", "取消")}, 2, 0);
         if (choice == 0) onNewSession();
         else if (choice != 1) return;
     }
@@ -919,8 +919,8 @@ void AgentController::onInstanceChosen(const QString &instanceId) {
     flushSave(true);
     refreshSessions();
     updateHeader();
-    m_page->showNotice(target.isValid() ? QStringLiteral("本会话已关联实例：%1").arg(target.name)
-                                        : QStringLiteral("本会话改为跟随主页实例"));
+    m_page->showNotice(target.isValid() ? QCoreApplication::translate("AgentController", "本会话已关联实例：%1").arg(target.name)
+                                        : QCoreApplication::translate("AgentController", "本会话改为跟随主页实例"));
 }
 
 void AgentController::onExport(const QString &sessionId) {
@@ -928,25 +928,25 @@ void AgentController::onExport(const QString &sessionId) {
     AgentSession session = m_session;
     QString problem;
     if (session.meta.id != sessionId && !m_store.load(sessionId, &session, &problem)) {
-        InlineMessage::warning(m_overlay, QStringLiteral("导出失败"), problem);
+        InlineMessage::warning(m_overlay, QCoreApplication::translate("AgentController", "导出失败"), problem);
         return;
     }
-    QString name = session.meta.title.isEmpty() ? QStringLiteral("新对话") : session.meta.title;
+    QString name = session.meta.title.isEmpty() ? QCoreApplication::translate("AgentController", "新对话") : session.meta.title;
     name.replace(QRegularExpression(QStringLiteral(R"([\\/:*?"<>|])")), QStringLiteral("_"));
     const QString path = QFileDialog::getSaveFileName(
-        m_page->window(), QStringLiteral("导出会话"),
+        m_page->window(), QCoreApplication::translate("AgentController", "导出会话"),
         QDir(QStandardPaths::writableLocation(QStandardPaths::DesktopLocation)).filePath(name + QStringLiteral(".md")),
-        QStringLiteral("Markdown (*.md);;所有文件 (*)"));
+        QCoreApplication::translate("AgentController", "Markdown (*.md);;所有文件 (*)"));
     if (path.isEmpty()) return;
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly) ||
         file.write(AgentSessionExport::toMarkdown(session).toUtf8()) < 0 || !file.commit()) {
-        InlineMessage::warning(m_overlay, QStringLiteral("导出失败"),
-                               QStringLiteral("无法写入 %1：%2。请换一个位置再试。")
+        InlineMessage::warning(m_overlay, QCoreApplication::translate("AgentController", "导出失败"),
+                               QCoreApplication::translate("AgentController", "无法写入 %1：%2。请换一个位置再试。")
                                    .arg(QDir::toNativeSeparators(path), file.errorString()));
         return;
     }
-    m_page->showNotice(QStringLiteral("会话已导出：%1").arg(QDir::toNativeSeparators(path)));
+    m_page->showNotice(QCoreApplication::translate("AgentController", "会话已导出：%1").arg(QDir::toNativeSeparators(path)));
 }
 
 void AgentController::onApproval(bool approved) {
@@ -1010,7 +1010,7 @@ void AgentController::openSettings() {
                                        ? QStringLiteral("dpapi-fallback")
                                        : QStringLiteral("credential-manager"));
         m_settingsPage->setStrictEgress(AgentSettings::strictEgress());
-        m_overlay->showPage(m_settingsPage, QStringLiteral("API 与模型设置"));
+        m_overlay->showPage(m_settingsPage, QCoreApplication::translate("AgentController", "API 与模型设置"));
         return;
     }
     auto *page = new AgentSettingsPage(nullptr);
@@ -1026,9 +1026,9 @@ void AgentController::openSettings() {
     connect(page, &AgentSettingsPage::deleteProfileRequested, this,
             &AgentController::onSettingsDeleteProfile);
     connect(page, &AgentSettingsPage::clearKeyRequestedSignal, this, [page] {
-        page->setStatus(QStringLiteral("保存后清除；不会再回显旧 Key。"));
+        page->setStatus(QCoreApplication::translate("AgentController", "保存后清除；不会再回显旧 Key。"));
     });
-    if (!m_overlay->showPage(page, QStringLiteral("API 与模型设置"))) {
+    if (!m_overlay->showPage(page, QCoreApplication::translate("AgentController", "API 与模型设置"))) {
         page->deleteLater();
         m_settingsPage = nullptr;
     }
@@ -1076,7 +1076,7 @@ void AgentController::onSettingsSave() {
     m_profile = profile;
     refreshApiState();
     refreshSessions();
-    page->setStatus(QStringLiteral("已保存。"), false);
+    page->setStatus(QCoreApplication::translate("AgentController", "已保存。"), false);
     page->accept();
 }
 
@@ -1095,12 +1095,12 @@ void AgentController::onSettingsTest() {
         key = AgentSecretStore::read(profile.id).secret;
     }
     if (key.isEmpty() && profile.authMode != QLatin1String("none")) {
-        page->setTestResult(QStringLiteral("没有可用的 API Key；先填写或保存后再测试。"), false);
+        page->setTestResult(QCoreApplication::translate("AgentController", "没有可用的 API Key；先填写或保存后再测试。"), false);
         return;
     }
     const QString requestId = QStringLiteral("test-") +
                               QUuid::createUuid().toString(QUuid::WithoutBraces);
-    page->setTestResult(QStringLiteral("正在测试连接…"), true);
+    page->setTestResult(QCoreApplication::translate("AgentController", "正在测试连接…"), true);
     connect(m_client, &AgentModelClient::connectionTested, page,
             [page, requestId](const QString &id, bool ok, int status, const QString &summary) {
                 if (id != requestId) return;
@@ -1122,10 +1122,9 @@ void AgentController::onSettingsTest() {
 void AgentController::onSettingsDeleteProfile() {
     if (m_overlay == nullptr) return;
     const int choice = InlineMessage::ask(
-        m_overlay, MessageKind::Question, QStringLiteral("删除模型配置"),
-        QStringLiteral("会删除这份模型配置和它保存的 API 密钥。"
-                       "会话本身保留。确定吗？"),
-        QStringList{QStringLiteral("删除"), QStringLiteral("取消")}, 1, 0);
+        m_overlay, MessageKind::Question, QCoreApplication::translate("AgentController", "删除模型配置"),
+        QCoreApplication::translate("AgentController", "会删除这份模型配置和它保存的 API 密钥。" "会话本身保留。确定吗？"),
+        QStringList{QCoreApplication::translate("AgentController", "删除"), QCoreApplication::translate("AgentController", "取消")}, 1, 0);
     if (choice != 0) return;
     QString problem;
     if (!AgentSecretStore::clear(m_profile.id, &problem) ||
@@ -1139,7 +1138,7 @@ void AgentController::onSettingsDeleteProfile() {
     if (m_settingsPage != nullptr) {
         const AgentSecretStore::ReadResult secret = AgentSecretStore::read(m_profile.id);
         m_settingsPage->setProfile(viewProfile(m_profile), secret.ok, QString());
-        m_settingsPage->setStatus(QStringLiteral("配置已删除。"), false);
+        m_settingsPage->setStatus(QCoreApplication::translate("AgentController", "配置已删除。"), false);
         m_settingsPage->accept();
     }
 }

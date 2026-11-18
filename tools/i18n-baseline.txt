@@ -23,7 +23,6 @@ src/auth/AccountStore.cpp	37
 src/auth/AuthManager.cpp	19
 src/auth/TokenStore.cpp	15
 src/controllers/ActivityCenterController.cpp	2
-src/controllers/AgentController.cpp	62
 src/controllers/ArmorTrimPreviewController.cpp	3
 src/controllers/BackupController.cpp	17
 src/controllers/ConnectionsController.cpp	1
@@ -67,7 +66,6 @@ src/download/DownloadManager.cpp	7
 src/download/DownloadManagerRecovery.cpp	3
 src/download/DownloadManagerSegmented.cpp	1
 src/download/DownloadProxy.hpp	10
-src/download/ModDependencies.cpp	70
 src/download/ResourceStore.cpp	28
 src/download/ResumableDownload.cpp	6
 src/download/ServerInstall.hpp	33

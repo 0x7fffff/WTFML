@@ -119,6 +119,209 @@
         </message>
     </context>
     <context>
+        <name>AgentController</name>
+        <message>
+            <source>默认模型服务</source>
+            <translation>Default model service</translation>
+        </message>
+        <message>
+            <source>参数已接收</source>
+            <translation>Parameters received</translation>
+        </message>
+        <message>
+            <source>本次自动读取的日志/元数据可能发送给当前模型服务：%1</source>
+            <translation>The log/metadata automatically read this time may be sent to the current model service: %1</translation>
+        </message>
+        <message>
+            <source>API 未配置</source>
+            <translation>API not configured</translation>
+        </message>
+        <message>
+            <source>配置无效：%1</source>
+            <translation>Invalid configuration: %1</translation>
+        </message>
+        <message>
+            <source>API 未配置（缺少 API Key）</source>
+            <translation>API not configured (missing API Key)</translation>
+        </message>
+        <message>
+            <source>本地服务（无认证）</source>
+            <translation>Local service (no certification)</translation>
+        </message>
+        <message>
+            <source>API 已配置</source>
+            <translation>API configured</translation>
+        </message>
+        <message>
+            <source>未配置模型</source>
+            <translation>Model not configured</translation>
+        </message>
+        <message>
+            <source>上次未完成的审批已作废；需要重新请求并确认。</source>
+            <translation>The last unfinished approval has been invalidated; it needs to be requested and confirmed again.</translation>
+        </message>
+        <message>
+            <source>没有可用的 API Key，请先在设置里配置。</source>
+            <translation>There is no API Key available, please configure it in settings first.</translation>
+        </message>
+        <message>
+            <source>检测到疑似凭据（%1），已在本机遮挡后再发送。</source>
+            <translation>Suspected credentials (%1) were detected and were blocked by the machine before sending.</translation>
+        </message>
+        <message>
+            <source>、</source>
+            <translation>,</translation>
+        </message>
+        <message>
+            <source>消息只包含凭据，已取消发送。</source>
+            <translation>The message contained only credentials and was canceled.</translation>
+        </message>
+        <message>
+            <source>新对话</source>
+            <translation>New conversation</translation>
+        </message>
+        <message>
+            <source>已停止生成，已保留收到的部分。</source>
+            <translation>Generation stopped, received portion retained.</translation>
+        </message>
+        <message>
+            <source>删除会话</source>
+            <translation>Delete session</translation>
+        </message>
+        <message>
+            <source>只会删除会话正文、恢复快照和本会话 artifacts；文件维护备份会保留。确定删除吗？</source>
+            <translation>Only the session body, recovery snapshots, and this session artifacts are deleted; file maintenance backups are retained. Are you sure to delete?</translation>
+        </message>
+        <message>
+            <source>删除</source>
+            <translation>Delete</translation>
+        </message>
+        <message>
+            <source>取消</source>
+            <translation>Cancel</translation>
+        </message>
+        <message>
+            <source>文件正在提交，无法安全停止，暂不删除会话。</source>
+            <translation>The file is being submitted and cannot be stopped safely. The session will not be deleted yet.</translation>
+        </message>
+        <message>
+            <source>本会话已加密存储（绑定当前 Windows 用户）</source>
+            <translation>This session is stored encrypted (bound to the current Windows user)</translation>
+        </message>
+        <message>
+            <source>本会话已改回明文存储</source>
+            <translation>This session has been changed back to clear text storage</translation>
+        </message>
+        <message>
+            <source>先新建会话再使用文件工具。</source>
+            <translation>Create a new session first and then use the file tool.</translation>
+        </message>
+        <message>
+            <source>NeedsInstanceLock：先在主页选择一个实例；不会自动挑一个。</source>
+            <translation>NeedsInstanceLock: First select an instance on the homepage; one will not be automatically selected.</translation>
+        </message>
+        <message>
+            <source>实例锁定写盘失败：%1</source>
+            <translation>Instance lock disk write failed: %1</translation>
+        </message>
+        <message>
+            <source>本会话已锁定实例：%1</source>
+            <translation>Instance locked for this session: %1</translation>
+        </message>
+        <message>
+            <source>InstanceUnavailable：锁定实例不在当前游戏目录或已被删除。</source>
+            <translation>InstanceUnavailable: The locked instance is not in the current game directory or has been deleted.</translation>
+        </message>
+        <message>
+            <source>InstanceUnavailable：锁定实例目录不存在。</source>
+            <translation>InstanceUnavailable: The locked instance directory does not exist.</translation>
+        </message>
+        <message>
+            <source>有待确认或执行中的操作，暂不能切换实例。</source>
+            <translation>Instances cannot be switched temporarily for operations that are pending confirmation or are being executed.</translation>
+        </message>
+        <message>
+            <source>实例「%1」已不在当前游戏目录。</source>
+            <translation>Instance "%1" is no longer in the current game directory.</translation>
+        </message>
+        <message>
+            <source>切换实例</source>
+            <translation>Switch instance</translation>
+        </message>
+        <message>
+            <source>本会话的记录属于「%1」，切换后旧计划作废，建议新建会话。</source>
+            <translation>The record of this session belongs to "%1". The old plan will be invalidated after the switch. It is recommended to create a new session.</translation>
+        </message>
+        <message>
+            <source>新建会话</source>
+            <translation>New session</translation>
+        </message>
+        <message>
+            <source>在本会话切换</source>
+            <translation>Switch in this session</translation>
+        </message>
+        <message>
+            <source>本会话已关联实例：%1</source>
+            <translation>This session has associated instances: %1</translation>
+        </message>
+        <message>
+            <source>本会话改为跟随主页实例</source>
+            <translation>This session is changed to follow the home page instance</translation>
+        </message>
+        <message>
+            <source>导出失败</source>
+            <translation>Export failed</translation>
+        </message>
+        <message>
+            <source>导出会话</source>
+            <translation>Export session</translation>
+        </message>
+        <message>
+            <source>Markdown (*.md);;所有文件 (*)</source>
+            <translation>Markdown (*.md);;All files (*)</translation>
+        </message>
+        <message>
+            <source>无法写入 %1：%2。请换一个位置再试。</source>
+            <translation>Unable to write to %1: %2. Please try again in a different position.</translation>
+        </message>
+        <message>
+            <source>会话已导出：%1</source>
+            <translation>Session exported: %1</translation>
+        </message>
+        <message>
+            <source>API 与模型设置</source>
+            <translation>API and model settings</translation>
+        </message>
+        <message>
+            <source>保存后清除；不会再回显旧 Key。</source>
+            <translation>Clear after saving; the old Key will not be echoed again.</translation>
+        </message>
+        <message>
+            <source>已保存。</source>
+            <translation>Saved.</translation>
+        </message>
+        <message>
+            <source>没有可用的 API Key；先填写或保存后再测试。</source>
+            <translation>No API Key available; fill it out or save before testing.</translation>
+        </message>
+        <message>
+            <source>正在测试连接…</source>
+            <translation>Testing connection…</translation>
+        </message>
+        <message>
+            <source>删除模型配置</source>
+            <translation>Delete model configuration</translation>
+        </message>
+        <message>
+            <source>会删除这份模型配置和它保存的 API 密钥。会话本身保留。确定吗？</source>
+            <translation>This model configuration and its saved API keys will be deleted. The session itself is preserved. Are you sure?</translation>
+        </message>
+        <message>
+            <source>配置已删除。</source>
+            <translation>Configuration has been deleted.</translation>
+        </message>
+    </context>
+    <context>
         <name>AgentPage</name>
         <message>
             <source>会话</source>
@@ -11794,6 +11997,290 @@ It will not restart automatically when stopped manually or exited normally.</tra
         <message>
             <source>正在启动 %1 ...</source>
             <translation>Starting %1 ...</translation>
+        </message>
+    </context>
+    <context>
+        <name>ModDependencies</name>
+        <message>
+            <source>未提供项目号</source>
+            <translation>No project number provided</translation>
+        </message>
+        <message>
+            <source>必需</source>
+            <translation>Required</translation>
+        </message>
+        <message>
+            <source>可选</source>
+            <translation>Optional</translation>
+        </message>
+        <message>
+            <source>不兼容</source>
+            <translation>Not compatible</translation>
+        </message>
+        <message>
+            <source>已内嵌</source>
+            <translation>Embedded</translation>
+        </message>
+        <message>
+            <source>类型未知</source>
+            <translation>Unknown type</translation>
+        </message>
+        <message>
+            <source>，固定版本 %1</source>
+            <translation>, fixed version %1</translation>
+        </message>
+        <message>
+            <source>需确认：%1 未在%2中找到，不等于确定未安装。此步骤不会自动补装依赖。</source>
+            <translation>Need to confirm: %1 is not found in %2, which does not mean it is not installed. This step will not automatically reinstall dependencies.</translation>
+        </message>
+        <message>
+            <source>需确认：%1 已识别项目，但版本号未知。</source>
+            <translation>Needing confirmation: %1 Project identified, but version number unknown.</translation>
+        </message>
+        <message>
+            <source>版本不符：%1 与%2版本不一致。</source>
+            <translation>Version mismatch: %1 and %2 versions are inconsistent.</translation>
+        </message>
+        <message>
+            <source>冲突提示：已识别清单中存在 %1。</source>
+            <translation>Conflict tip: %1 exists in the recognized list.</translation>
+        </message>
+        <message>
+            <source>需确认：%1 的已安装版本未知，无法判断是否命中冲突。</source>
+            <translation>Need to confirm: The installed version of %1 is unknown, and it is impossible to determine whether there is a hit conflict.</translation>
+        </message>
+        <message>
+            <source>需确认：依赖字段不完整，不能自动判定兼容。</source>
+            <translation>Need to confirm: The dependent fields are incomplete and compatibility cannot be automatically determined.</translation>
+        </message>
+        <message>
+            <source>未知（未取得当前版本资料）</source>
+            <translation>Unknown (no current version information has been obtained)</translation>
+        </message>
+        <message>
+            <source>版本：%1 → %2</source>
+            <translation>Version: %1 → %2</translation>
+        </message>
+        <message>
+            <source>依赖：目标版本未提供依赖资料，不能判断变化。</source>
+            <translation>Dependencies: The target version does not provide dependency information, so changes cannot be determined.</translation>
+        </message>
+        <message>
+            <source>需确认：依赖字段缺失、类型未知或项目重复，部分差异无法确定。</source>
+            <translation>Need to confirm: dependent fields are missing, types are unknown, or items are duplicated, and some differences cannot be determined.</translation>
+        </message>
+        <message>
+            <source>当前依赖资料未知，以下仅列目标要求，不标为新增或移除。</source>
+            <translation>The current dependency information is unknown. Only the target requirements are listed below and are not marked as new or removed.</translation>
+        </message>
+        <message>
+            <source>目标要求：</source>
+            <translation>Goal requirements:</translation>
+        </message>
+        <message>
+            <source>新增依赖：</source>
+            <translation>Add new dependencies:</translation>
+        </message>
+        <message>
+            <source>依赖变化：%1 → %2</source>
+            <translation>Dependency changes: %1 → %2</translation>
+        </message>
+        <message>
+            <source>本次更新后的已识别清单</source>
+            <translation>The identified list after this update</translation>
+        </message>
+        <message>
+            <source>移除声明：</source>
+            <translation>Removal statement:</translation>
+        </message>
+        <message>
+            <source>依赖声明未变化。</source>
+            <translation>The dependency declaration has not changed.</translation>
+        </message>
+        <message>
+            <source>移除声明不删除现有模组；此预览不是完整依赖求解或启动兼容保证。</source>
+            <translation>Removal statements do not delete existing mods; this preview is not a full dependency solution or launch compatibility guarantee.</translation>
+        </message>
+        <message>
+            <source>选中 %1 项 / 已识别启用文件 %2 项 / 未识别启用文件 %3 项</source>
+            <translation>Select %1 item / Recognized activation file %2 item / Unrecognized activation file %3 item</translation>
+        </message>
+        <message>
+            <source>重复启用：%1（%2）。不自动选定版本或删除文件。</source>
+            <translation>Repeat enabled: %1 (%2). Does not automatically select versions or delete files.</translation>
+        </message>
+        <message>
+            <source>（已禁用）</source>
+            <translation>(disabled)</translation>
+        </message>
+        <message>
+            <source>当前版本或依赖资料未知。可先检查更新，再回来查看；未知不等于没有依赖。</source>
+            <translation>The current version or dependencies are unknown. You can check for updates first and then come back to check; unknown does not mean no dependencies.</translation>
+        </message>
+        <message>
+            <source>当前版本：%1</source>
+            <translation>Current version: %1</translation>
+        </message>
+        <message>
+            <source>该版本明确声明无依赖。</source>
+            <translation>This version explicitly states no dependencies.</translation>
+        </message>
+        <message>
+            <source>当前未启用，仅展示缓存声明，不纳入运行依赖/冲突判断。</source>
+            <translation>Currently not enabled, only cache declarations are displayed and runtime dependency/conflict judgments are not included.</translation>
+        </message>
+        <message>
+            <source>声明：</source>
+            <translation>Statement:</translation>
+        </message>
+        <message>
+            <source>需确认：依赖声明重复，不作完整兼容判断。</source>
+            <translation>Need to confirm: The dependency statement is repeated and no complete compatibility judgment is made.</translation>
+        </message>
+        <message>
+            <source>当前已识别启用清单</source>
+            <translation>Currently recognized enablement list</translation>
+        </message>
+        <message>
+            <source>
+仅根据有效缓存和已识别资料判断；未识别项目仍需自行确认。不是完整求解器，不保证可启动，也不会修改文件。</source>
+            <translation>Only based on valid cache and identified data; unidentified items still need to be confirmed by yourself. It is not a full solver, is not guaranteed to be startable, and does not modify files.</translation>
+        </message>
+        <message>
+            <source>没问到能用的版本（网络没通，或者它在这个游戏版本上没有版本）。</source>
+            <translation>I didn't ask about the available version (the network is not connected, or it doesn't have a version on this version of the game).</translation>
+        </message>
+        <message>
+            <source>作者钉的那一版（%1）在这个实例的版本下找不到。</source>
+            <translation>The version pinned by the author (%1) cannot be found under the version of this instance.</translation>
+        </message>
+        <message>
+            <source>挑出来的那一版（%1）没有文件。</source>
+            <translation>The version picked out (%1) has no files.</translation>
+        </message>
+        <message>
+            <source>挑出来的那一版（%1）没有可下载的文件。</source>
+            <translation>The version picked out (%1) has no downloadable files.</translation>
+        </message>
+        <message>
+            <source>%1：没问到版本列表（网络或接口没成）。</source>
+            <translation>%1: No version list asked (network or interface failed).</translation>
+        </message>
+        <message>
+            <source>%1：%2</source>
+            <translation>%1:%2</translation>
+        </message>
+        <message>
+            <source>认不出盘上这个文件是哪一版。</source>
+            <translation>I can't identify which version of this file on the disk it is.</translation>
+        </message>
+        <message>
+            <source>没问到版本列表（网络或接口没成）。</source>
+            <translation>Didn't ask about the version list (network or interface failed).</translation>
+        </message>
+        <message>
+            <source>这一版不在列表里（可能不是给这个实例的，或者作者已经删了它）。</source>
+            <translation>This version is not in the list (perhaps it is not for this instance, or the author has deleted it).</translation>
+        </message>
+        <message>
+            <source>没查到它能用的版本（这个项目在这个游戏版本/加载器下没有版本）。</source>
+            <translation>No available version was found (this project does not have a version under this game version/loader).</translation>
+        </message>
+        <message>
+            <source>还有 %1 个未列出…</source>
+            <translation>There are %1 more not listed…</translation>
+        </message>
+        <message>
+            <source>此光影包缺失必要的前置：</source>
+            <translation>This light and shadow package is missing necessary prerequisites:</translation>
+        </message>
+        <message>
+            <source>此模组缺失必要的前置：</source>
+            <translation>This module is missing necessary prerequisites:</translation>
+        </message>
+        <message>
+            <source>还有前置没装</source>
+            <translation>And the front part is not installed yet</translation>
+        </message>
+        <message>
+            <source>%1
+
+%2
+
+要一起下载吗？</source>
+            <translation>%1
+
+%2
+
+ Do you want to download them together?</translation>
+        </message>
+        <message>
+            <source>%1（还没看过这个实例里装了什么，不知道你有没有）：
+
+%2
+
+要一起下载吗？</source>
+            <translation>%1 (I haven’t seen what is installed in this instance, I don’t know if you have it): 
+
+%2
+
+ Do you want to download it together?</translation>
+        </message>
+        <message>
+            <source>可以在设置中关闭此提示（设置 → 提示 →「检查前置模组」）。</source>
+            <translation>This prompt can be turned off in settings (Settings → Prompts → "Check pre-modules").</translation>
+        </message>
+        <message>
+            <source>一起下载</source>
+            <translation>Download together</translation>
+        </message>
+        <message>
+            <source>只下这个</source>
+            <translation>Only place this one</translation>
+        </message>
+        <message>
+            <source>有几个前置没找到能装的版本：
+
+%1
+
+部分依赖下载失败，其余文件已完成。可在项目主页手动下载。</source>
+            <translation>There are several pre-installed versions that cannot be found: 
+
+%1
+
+ Some dependencies failed to download, and the remaining files have been completed. It can be downloaded manually from the project homepage.</translation>
+        </message>
+        <message>
+            <source>正在查询 %1 个前置模组的可用版本…</source>
+            <translation>Querying available versions of %1 front-end modules...</translation>
+        </message>
+        <message>
+            <source>这一版要装的前置：%1</source>
+            <translation>Prerequisites to be installed in this version: %1</translation>
+        </message>
+        <message>
+            <source>、</source>
+            <translation>,</translation>
+        </message>
+        <message>
+            <source>这一版要 %1 个前置模组（名字没取到）。</source>
+            <translation>This version requires %1 pre-modules (names not found).</translation>
+        </message>
+        <message>
+            <source>已是最新</source>
+            <translation>Already the latest</translation>
+        </message>
+        <message>
+            <source>有新版本</source>
+            <translation>There is a new version</translation>
+        </message>
+        <message>
+            <source>无法确认</source>
+            <translation>Unable to confirm</translation>
+        </message>
+        <message>
+            <source>检查了 %1 个资源，%2 个有新版本。</source>
+            <translation>%1 resources checked, %2 have new versions.</translation>
         </message>
     </context>
     <context>
