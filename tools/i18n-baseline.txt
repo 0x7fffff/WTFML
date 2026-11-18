@@ -122,8 +122,6 @@ src/manage/VersionManagerModpack.cpp	8
 src/manage/WorldMap.cpp	1
 src/net/HttpClient.cpp	2
 src/operations/OperationReport.cpp	31
-src/operations/TransferApply.cpp	37
-src/operations/TransferPlanner.cpp	50
 src/operations/UpgradeHistory.cpp	5
 src/operations/UpgradePageState.cpp	9
 src/operations/UpgradeReport.cpp	21

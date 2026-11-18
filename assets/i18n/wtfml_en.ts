@@ -20472,6 +20472,311 @@ The changes you made yourself will not be retained.</translation>
         </message>
     </context>
     <context>
+        <name>TransferApply</name>
+        <message>
+            <source>源或目标目录不可用、包含链接，或互相嵌套。</source>
+            <translation>The source or target directory is unavailable, contains links, or is nested within each other.</translation>
+        </message>
+        <message>
+            <source>：</source>
+            <translation>:</translation>
+        </message>
+        <message>
+            <source>不是源实例 mods 中的普通文件</source>
+            <translation>Not an ordinary file in source instance mods</translation>
+        </message>
+        <message>
+            <source>跳过同名文件</source>
+            <translation>Skip files with the same name</translation>
+        </message>
+        <message>
+            <source>复制</source>
+            <translation>Copy</translation>
+        </message>
+        <message>
+            <source>无法打开文件或创建临时文件</source>
+            <translation>Unable to open file or create temporary file</translation>
+        </message>
+        <message>
+            <source>读取或写入失败</source>
+            <translation>Read or write failed</translation>
+        </message>
+        <message>
+            <source>校验</source>
+            <translation>Check</translation>
+        </message>
+        <message>
+            <source>校验失败或来源在处理期间发生变化</source>
+            <translation>Verification failed or the source changed during processing</translation>
+        </message>
+        <message>
+            <source>目标已变化或无法提交文件（未覆盖）</source>
+            <translation>Target has changed or file cannot be submitted (not covered)</translation>
+        </message>
+        <message>
+            <source>已复制</source>
+            <translation>Copied</translation>
+        </message>
+        <message>
+            <source>副本已验证，但未能删除来源；已保留两份</source>
+            <translation>Copy verified, but source failed to be removed; two copies retained</translation>
+        </message>
+        <message>
+            <source>完成</source>
+            <translation>Finish</translation>
+        </message>
+        <message>
+            <source>已达到 600 秒截止时间。</source>
+            <translation>The 600 second cutoff has been reached.</translation>
+        </message>
+        <message>
+            <source>复制了 %1 个文件（%2）</source>
+            <translation>%1 files copied (%2)</translation>
+        </message>
+        <message>
+            <source>跳过 %1 个（目标里已经有同名的，没有覆盖）</source>
+            <translation>Skip %1 items (the target already has the same name and is not overwritten)</translation>
+        </message>
+        <message>
+            <source>失败 %1 个</source>
+            <translation>%1 failed</translation>
+        </message>
+        <message>
+            <source>，</source>
+            <translation>,</translation>
+        </message>
+        <message>
+            <source>。</source>
+            <translation>.</translation>
+        </message>
+        <message>
+            <source>
+
+没搬成的：</source>
+            <translation>Not moved:</translation>
+        </message>
+        <message>
+            <source>
+• …还有 %1 个</source>
+            <translation>• …and %1 more</translation>
+        </message>
+        <message>
+            <source>没有给全源实例和目标实例的目录。</source>
+            <translation>There is no directory for the full source instance and target instance.</translation>
+        </message>
+        <message>
+            <source>找不到源实例目录：%1</source>
+            <translation>Source instance directory not found: %1</translation>
+        </message>
+        <message>
+            <source>找不到目标实例目录：%1</source>
+            <translation>Target instance directory not found: %1</translation>
+        </message>
+        <message>
+            <source>源实例和目标实例是同一份（或互相嵌套），本次未移动任何文件。</source>
+            <translation>The source instance and the target instance are the same (or nested in each other), and no files have been moved this time.</translation>
+        </message>
+        <message>
+            <source>校验：看过 %1 个文件，缺 %2 个</source>
+            <translation>Verification: Viewed %1 files, missing %2 files</translation>
+        </message>
+        <message>
+            <source>；另有 %1 个目标里原有的同名文件大小不同（按规矩没有覆盖）</source>
+            <translation>;There are also %1 original files with the same name in different targets (not overwritten according to the rules)</translation>
+        </message>
+        <message>
+            <source>
+
+没在目标里找到的：</source>
+            <translation>Was not found in the target:</translation>
+        </message>
+        <message>
+            <source>
+
+大小不同的（原来是目标里就有的）：</source>
+            <translation>With different sizes (originally included in the target):</translation>
+        </message>
+    </context>
+    <context>
+        <name>TransferPlanner</name>
+        <message>
+            <source>%1 个文件 / %2</source>
+            <translation>%1 files / %2</translation>
+        </message>
+        <message>
+            <source>一致</source>
+            <translation>Consistent</translation>
+        </message>
+        <message>
+            <source>游戏版本不同</source>
+            <translation>Different game versions</translation>
+        </message>
+        <message>
+            <source>加载器不同</source>
+            <translation>Loaders are different</translation>
+        </message>
+        <message>
+            <source>版本与加载器都不同</source>
+            <translation>Versions and loaders are different</translation>
+        </message>
+        <message>
+            <source>认不出来</source>
+            <translation>Can't recognize</translation>
+        </message>
+        <message>
+            <source>原版</source>
+            <translation>Original</translation>
+        </message>
+        <message>
+            <source>目标版本（%1 / %2）与源一致：模组与配置可以原样搬过去。</source>
+            <translation>The target version (%1 / %2) is consistent with the source: modules and configurations can be moved over unchanged.</translation>
+        </message>
+        <message>
+            <source>目标版本是 %1，源是 %2 —— 模组与部分配置可能不兼容，所以「模组」默认不勾选。</source>
+            <translation>The target version is %1, the source is %2 - the module may be incompatible with some configurations, so "Module" is not checked by default.</translation>
+        </message>
+        <message>
+            <source>目标加载器是 %1，源是 %2（游戏版本都是 %3）—— 模组与加载器相关配置可能不兼容，所以「模组」默认不勾选。</source>
+            <translation>The target loader is %1 and the source is %2 (the game versions are all %3) - the module and loader related configurations may be incompatible, so "Module" is not checked by default.</translation>
+        </message>
+        <message>
+            <source>目标版本是 %1 / %2，源是 %3 / %4 —— 模组与部分配置可能不兼容，所以「模组」默认不勾选。</source>
+            <translation>The target version is %1 / %2, the source is %3 / %4 - the module may be incompatible with some configurations, so "Module" is not checked by default.</translation>
+        </message>
+        <message>
+            <source>有一边的游戏版本或加载器读不出来 —— 不做猜测：「模组」默认不勾选，请自己判断要不要原样搬过去。</source>
+            <translation>There is a game version or loader that cannot be read - no guesswork: "Mods" is not checked by default, please make your own judgment whether to move it over as is.</translation>
+        </message>
+        <message>
+            <source>升级副本计划：%1</source>
+            <translation>Upgrade copy plan: %1</translation>
+        </message>
+        <message>
+            <source>迁移计划：%1</source>
+            <translation>Migration plan: %1</translation>
+        </message>
+        <message>
+            <source>%1 / 默认搬 %2 项（%3）</source>
+            <translation>%1 / Move %2 items by default (%3)</translation>
+        </message>
+        <message>
+            <source>以下是这次升级副本里要搬的内容：</source>
+            <translation>The following is the content that will be moved in this upgraded copy:</translation>
+        </message>
+        <message>
+            <source>以下是这次迁移里要搬的内容：</source>
+            <translation>The following is what will be moved in this migration:</translation>
+        </message>
+        <message>
+            <source>• %1：这一份实例里没有</source>
+            <translation>• %1: None in this instance</translation>
+        </message>
+        <message>
+            <source>%1 %2（%3）</source>
+            <translation>%1 %2 (%3)</translation>
+        </message>
+        <message>
+            <source>日志、截图、崩溃报告只是记录，默认不搬（想搬就手动勾上）。</source>
+            <translation>Logs, screenshots, and crash reports are only recorded and are not moved by default (check them manually if you want to move them).</translation>
+        </message>
+        <message>
+            <source>迁移只增加文件、不删除、不覆盖目标里已有的同名文件；两边的游戏都必须先关掉。</source>
+            <translation>Migration only adds files, does not delete or overwrite existing files with the same name in the target; both games must be closed first.</translation>
+        </message>
+        <message>
+            <source>将创建一份升级副本，并把选中的 %1 项（%2）搬进去。</source>
+            <translation>An upgraded copy will be created and the selected %1 items (%2) will be moved into it.</translation>
+        </message>
+        <message>
+            <source>将把选中的 %1 项（%2）搬进目标实例。</source>
+            <translation>The selected %1 items (%2) will be moved into the target instance.</translation>
+        </message>
+        <message>
+            <source>
+
+只增加文件，不删除、不覆盖目标里已有的同名文件。</source>
+            <translation>Only adds files, does not delete or overwrite existing files with the same name in the target.</translation>
+        </message>
+        <message>
+            <source>
+
+兼容性结论：%1</source>
+            <translation>Compatibility conclusion: %1</translation>
+        </message>
+        <message>
+            <source>找不到源实例目录：%1</source>
+            <translation>Source instance directory not found: %1</translation>
+        </message>
+        <message>
+            <source>（没有给）</source>
+            <translation>(not given)</translation>
+        </message>
+        <message>
+            <source>加载器小版本不同（源 %1 / 目标 %2），一般没问题，起不来时先看它。</source>
+            <translation>The loader minor version is different (source %1 / target %2), generally no problem, just look at it first if you can't get it up.</translation>
+        </message>
+        <message>
+            <source>存档</source>
+            <translation>Archive</translation>
+        </message>
+        <message>
+            <source>模组</source>
+            <translation>Module</translation>
+        </message>
+        <message>
+            <source>模组配置</source>
+            <translation>Module configuration</translation>
+        </message>
+        <message>
+            <source>默认配置</source>
+            <translation>Default configuration</translation>
+        </message>
+        <message>
+            <source>资源包</source>
+            <translation>Resource pack</translation>
+        </message>
+        <message>
+            <source>光影包</source>
+            <translation>Light and shadow package</translation>
+        </message>
+        <message>
+            <source>游戏设置</source>
+            <translation>Game settings</translation>
+        </message>
+        <message>
+            <source>服务器列表</source>
+            <translation>Server list</translation>
+        </message>
+        <message>
+            <source>结构文件</source>
+            <translation>Structure file</translation>
+        </message>
+        <message>
+            <source>截图</source>
+            <translation>Screenshot</translation>
+        </message>
+        <message>
+            <source>日志</source>
+            <translation>Log</translation>
+        </message>
+        <message>
+            <source>崩溃报告</source>
+            <translation>Crash report</translation>
+        </message>
+        <message>
+            <source>目标版本 / 加载器与源不一致，模组可能起不来；确认要原样搬过去再自己勾上。</source>
+            <translation>The target version/loader is inconsistent with the source, and the module may not be launched; make sure to move it as it is and then hook it up yourself.</translation>
+        </message>
+        <message>
+            <source>只是记录，默认不搬。</source>
+            <translation>It is just recorded and not moved by default.</translation>
+        </message>
+        <message>
+            <source>认不出目标版本：这一项是否兼容不确定，要不要搬请自己判断。</source>
+            <translation>The target version cannot be recognized: I am not sure whether this item is compatible. Please make your own judgment whether you want to move it or not.</translation>
+        </message>
+    </context>
+    <context>
         <name>UpdateCenterController</name>
         <message>
             <source>这个整合包带自定义启动配置</source>
