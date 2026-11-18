@@ -170,7 +170,8 @@ CTest 的两种"排除 visual"选到的数量不同：`ctest -E visual` 按名�
 - 更新控制器：构建应用，跑更新专项和基础 UI 专项，不跑无关的核心/主窗口大用例。
 - 模组、网络、预设、Java、工具箱等按关联选专项；"只改一个文件"不是漏掉关联测试的理由。
 - 共用主窗口、设置/网络/工具基础层、构建配置、未知路径：退回全部非 visual 测试。
-- 模块到分片：`app` → `ci-app`；`core` / `core-*` / `runner` → `ci-core`；`ui`、`ui-history`、`theme`、`resources`、`toolbox`、`ui-agent` → `ci-ui`；`window`、`agent-window`、`workspace`、`java`、`mods`、`upgrade`、`network`、`presets`、`toolbox` → `ci-integration`。
+- 模块到分片：`app` → `ci-app`；`core` / `core-*` / `runner` → `ci-core`；`ui`、`ui-history`、`theme`、`popups`、`resources`、`toolbox`、`ui-agent` → `ci-ui`；`window`、`agent-window`、`workspace`、`java`、`mods`、`upgrade`、`network`、`presets`、`toolbox` → `ci-integration`。
+- 浮层实现或用例改动选中 `wtfml.popups` 和 `wtfml.popups-scale`；两档均检查靠屏幕右缘、有滚动条的下拉弹层是否留足最长选项的宽度。
 
 测试源码已物理拆分，专项不依赖编译/链接完整的 `ui_check` 或 `mw_check`。CTest 注册同时生成 `test-targets.txt`，运行器先选测试，再按归属构建独立目标；脚本类测试无需构建 C++。
 

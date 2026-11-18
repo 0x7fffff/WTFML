@@ -48,6 +48,11 @@ try {
     Check ($upgradeTest.modules.Count -eq 1 -and $upgradeTest.modules[0] -eq 'upgrade') 'editing an upgrade assertion file does not select unrelated production modules'
     $themeTest = Get-TestImpact @('tests/ui_check/modules/UiThemeCheck.cpp')
     Check ($themeTest.modules.Count -eq 1 -and $themeTest.modules[0] -eq 'theme') 'editing a theme assertion file selects only the theme executable'
+    foreach ($path in 'ui/Popups.cpp', 'tests/ui_check/modules/UiPopupCheck.cpp') {
+        $popupImpact = Get-TestImpact @($path)
+        Check (-not $popupImpact.full -and 'ci-ui' -in $popupImpact.suites -and
+               'popups' -in $popupImpact.tests -and 'popups-scale' -in $popupImpact.tests) "editing $path selects popup checks at both scales"
+    }
     $windowTest = Get-TestImpact @('tests/mw_check/modules/MwMemoryPreferencesChecks.cpp')
     Check ($windowTest.modules.Count -eq 1 -and $windowTest.modules[0] -eq 'window') 'historical main-window assertion changes retain their integration owner'
     foreach ($controller in @('ResourceSearchController', 'InstanceUpdateCheckController')) {
