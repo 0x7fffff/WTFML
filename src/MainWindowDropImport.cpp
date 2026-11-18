@@ -16,11 +16,9 @@
  */
 
 #include "MainWindow.hpp"
-#include "util/FileAssociations.hpp"
 #include "../ui/SchematicInfoDialog.hpp"
 #include "../ui/InlineMessage.hpp"
 #include <QFileInfo>
-#include <QSettings>
 
 #include "..\ui\InstanceSettingsDialog.hpp"
 #include "controllers/ImportController.hpp"
@@ -30,6 +28,17 @@
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QMimeData>
+
+namespace {
+/// 原理图/结构文件：拖进来和命令行带进来都是"打开摘要看一眼"，不装进实例。
+bool isSchematicFile(const QString &path) {
+    const QFileInfo info(path);
+    if (!info.isFile()) return false;
+    const QString extension = QLatin1Char('.') + info.suffix().toLower();
+    return extension == QLatin1String(".nbt") || extension == QLatin1String(".litematic")
+        || extension == QLatin1String(".schematic") || extension == QLatin1String(".schem");
+}
+}  // namespace
 
 void MainWindow::onImportModpackClicked() {
     m_importController->onImportModpackClicked();
@@ -67,7 +76,19 @@ void MainWindow::importDroppedModpack(const QString &zipPath, const QString &nam
 }
 
 void MainWindow::handleWindowDrop(const QStringList &paths) {
-    m_importController->handleWindowDrop(paths);
+    // 原理图/结构文件是**看一眼**，不是装进某个实例：和命令行带进来那一路同一个入口。
+    // 其余几类才交给导入控制器（它要问"装到哪个实例"）。
+    QStringList installables;
+    for (const QString &path : paths) {
+        if (isSchematicFile(path)) {
+            openExternalFile(path);
+        } else {
+            installables.append(path);
+        }
+    }
+    if (!installables.isEmpty()) {
+        m_importController->handleWindowDrop(installables);
+    }
 }
 
 void MainWindow::dragEnterEvent(QDragEnterEvent *event) {
@@ -101,33 +122,12 @@ void MainWindow::dropEvent(QDropEvent *event) {
 }
 
 void MainWindow::openExternalFile(const QString &path) {
-    const QString extension = QLatin1Char('.') + QFileInfo(path).suffix().toLower();
-    if (extension == QLatin1String(".nbt") || extension == QLatin1String(".litematic")
-        || extension == QLatin1String(".schematic") || extension == QLatin1String(".schem")) {
+    if (isSchematicFile(path)) {
         SchematicInfoDialog dialog(path, this);
         dialog.exec();
         return;
     }
     handleWindowDrop({path});
-}
-
-void MainWindow::offerFileAssociations(bool force) {
-    QSettings settings;
-    if (!force && settings.value(QStringLiteral("Associations/Asked"), false).toBool()) return;
-    settings.setValue(QStringLiteral("Associations/Asked"), true);
-    if (!InlineMessage::question(
-            m_ui->overlay(), tr("文件关联"),
-            tr("要把 MC 独有的文件交给本启动器打开吗？\n\n"
-               "· .nbt / .litematic / .schematic / .schem / .mrpack：设为默认（双击就打开）\n"
-               "· .jar / .zip：只加进「打开方式」列表，不改默认\n\n"
-               "以后可以在系统设置里改回来。"),
-            tr("设为默认"), tr("跳过"), false)) {
-        return;
-    }
-    QStringList errors;
-    const int done = FileAssociations::registerMcDefaults(&errors);
-    appendLog(tr("文件关联：已设置 %1 个默认打开方式。").arg(done));
-    for (const QString &error : errors) appendLog(tr("文件关联失败：%1").arg(error));
 }
 
 

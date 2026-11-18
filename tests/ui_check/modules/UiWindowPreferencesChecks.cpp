@@ -5,7 +5,7 @@ int UiWindowPreferencesChecks(QTabWidget * &tabs) {
         // （两个数字框）。控件的存在性和"落在右列"已经在 L / E2b 两节验过了，这里验的是
         // **这一组特有的东西**：文案、取值范围、以及那两个数字框的几何。
         //
-        // NOTE: 游戏窗口、运行与日志、文件关联都在「启动」页（游戏页已并入启动），
+        // NOTE: 游戏窗口、运行与日志都在「启动」页（游戏页已并入启动），
         // 控件在不在、几何对不对都按那一页的表单量。
         QWidget *settingsPage = tabs->widget(MainWindowUI::settingsTabIndex());
         tabs->setCurrentIndex(MainWindowUI::settingsTabIndex());
@@ -28,6 +28,18 @@ int UiWindowPreferencesChecks(QTabWidget * &tabs) {
         QWidget *form = panelScroll != nullptr ? panelScroll->widget() : nullptr;
         check(form != nullptr, "Z2 前提：找得到「启动」页那张设置表单");
         QWidget *launchForm = form;
+
+        // 「文件关联」那一组已经撤了（issue #21：不再注册系统关联，拖入文件时选实例）。
+        {
+            int associationRows = 0;
+            if (launchForm != nullptr) {
+                for (const QLabel *label : launchForm->findChildren<QLabel *>())
+                    if (label->text().contains(QStringLiteral("文件关联"))) ++associationRows;
+            }
+            check(associationRows == 0,
+                  "Z2 「启动」页不再有「文件关联」那一组",
+                  QString::number(associationRows));
+        }
 
         // ---- (a) 「显示游戏日志」：这句话是要求，别被改写 ----
         {
