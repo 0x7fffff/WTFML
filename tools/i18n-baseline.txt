@@ -95,7 +95,6 @@ src/manage/InstanceFiles.cpp	18
 src/manage/InstanceGroupStore.cpp	7
 src/manage/InstanceMetaFile.cpp	10
 src/manage/ManualRecovery.cpp	7
-src/manage/ModpackImport.cpp	45
 src/manage/ModpackInstallReport.cpp	1
 src/manage/MultiMCPatchImport.cpp	43
 src/manage/OfflineSkin.cpp	5

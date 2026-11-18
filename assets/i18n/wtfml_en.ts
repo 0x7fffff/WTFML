@@ -14799,6 +14799,97 @@ It will not restart automatically when stopped manually or exited normally.</tra
         </message>
     </context>
     <context>
+        <name>ModpackImport</name>
+        <message>
+            <source>这个整合包要「%1」%2，而整合包导入这条路只认得 fabric-loader / forge / neoforge / quilt-loader 四个加载器键。
+
+所以没有导入。（安装页里能直接装 Fabric / Forge / NeoForge / OptiFine，那是另一条路；OptiFine 在整合包的依赖表里没有对应的键。）</source>
+            <translation>This integration package requires "%1" %2, and the integration package import path only recognizes four loader keys: fabric-loader / forge / neoforge / quilt-loader. 
+
+So there is no import. (Fabric / Forge / NeoForge / OptiFine can be installed directly in the installation page, but that is another way; OptiFine does not have a corresponding key in the dependency table of the integration package.)</translation>
+        </message>
+        <message>
+            <source>这个压缩包里没有整合包清单，认不出它是什么格式。
+
+认得的是这几种：Modrinth 格式（根目录有一份 modrinth.index.json）、CurseForge 格式（有一份 manifest.json）、MultiMC / Prism 导出的实例（有一份 mmc-pack.json）、以及直接把 .minecraft 文件夹压进来的懒人包（里面有 mods/、config/ 或 options.txt）。
+
+都对不上的话，它多半只是一个普通的压缩包 —— 比如资源包、光影包，或者只放了几份说明文件的合集。</source>
+            <translation>There is no integrated package list in this compressed package, and I cannot recognize its format. 
+
+ recognizes these types: Modrinth format (there is a copy of modrinth.index.json in the root directory), CurseForge format (there is a copy of manifest.json), MultiMC / Prism exported examples (there is a copy of mmc-pack.json), and lazy packages that directly compress the .minecraft folder (with mods/, config/ or options.txt in it). If 
+
+ doesn't match, it's probably just an ordinary compressed package - such as a resource package, a light and shadow package, or a collection of just a few description files.</translation>
+        </message>
+        <message>
+            <source>这个 MultiMC / Prism 实例的 mmc-pack.json 里没有 components，认不出它要哪个 Minecraft 版本。</source>
+            <translation>There are no components in the mmc-pack.json of this MultiMC / Prism instance, so I can't identify which version of Minecraft it requires.</translation>
+        </message>
+        <message>
+            <source>这是一个 MultiMC / Prism 的实例导出（有 mmc-pack.json），但里面没写它基于哪个 Minecraft 版本（components 里没有 net.minecraft），无法安装。</source>
+            <translation>This is an instance export of MultiMC / Prism (with mmc-pack.json), but it does not say which version of Minecraft it is based on (there is no net.minecraft in the components), so it cannot be installed.</translation>
+        </message>
+        <message>
+            <source>这个 MultiMC / Prism 包依赖自定义启动组件：%1。
+
+目前不能转换它的 patches、专用库和 JVM 参数，因此没有导入，避免生成无法启动的实例。GTNH Java 17+ 的 lwjgl3ify 包请暂用 Prism 导入；这不影响普通标准格式整合包。</source>
+            <translation>This MultiMC / Prism package relies on a custom startup component: %1. 
+
+ Currently its patches, private libraries and JVM parameters cannot be converted and therefore are not imported to avoid generating unstartable instances. Please temporarily use Prism to import the lwjgl3ify package of GTNH Java 17+; this does not affect the normal standard format integration package.</translation>
+        </message>
+        <message>
+            <source>、</source>
+            <translation>,</translation>
+        </message>
+        <message>
+            <source>这个包是从 MultiMC / Prism 导出的实例。导入的是它 .minecraft 里的内容（mods、config、资源包这些）；MultiMC 自己的 patches/、libraries/ 和启动设置没有一起导入。</source>
+            <translation>This package is an instance exported from MultiMC/Prism. What is imported is the content in its .minecraft (mods, config, resource packs, etc.); MultiMC's own patches/, libraries/ and startup settings are not imported together.</translation>
+        </message>
+        <message>
+            <source>这个 .minecraft 里有 %1 个版本，但没有版本 json 能说明该导入哪一个（目录名里也看不出带加载器的那一个）。
+
+没有导入 —— 猜一个装出来多半进不去游戏。把带加载器的那个版本目录（连着里面的 json）单独打包，或者换 Modrinth / CurseForge 格式。</source>
+            <translation>There are %1 versions in this .minecraft, but there is no version json to indicate which one to import (the one with the loader cannot be seen in the directory name). 
+
+ is not imported - guess if you pretend it, you will probably not be able to enter the game. Package the version directory with the loader (with the json inside) separately, or change it to Modrinth / CurseForge format.</translation>
+        </message>
+        <message>
+            <source>认得出这是一个 .minecraft 目录（里面有 mods/ 或 config/），但推不出它基于哪个 Minecraft 版本：versions/ 里没有版本 json，目录名里也看不出来。
+
+没有导入 —— 猜一个版本装出来多半进不去游戏。可以把 versions/ 里那份 json 一起打包再导入，或者换 Modrinth / CurseForge 格式。</source>
+            <translation>I can recognize that this is a .minecraft directory (there are mods/ or config/ in it), but I can’t tell which Minecraft version it is based on: there is no version json in versions/, and it can’t be seen in the directory name. 
+
+ is not imported - guess if you install a version, you will probably not be able to enter the game. You can package the json in versions/ and import it together, or change it to Modrinth / CurseForge format.</translation>
+        </message>
+        <message>
+            <source>这个包自带 versions/，导入时没有用它 —— 启动器会按包里的版本信息重新装一份原版和加载器，再把 mods、config 这些解进实例里。</source>
+            <translation>This package comes with versions/, which is not used when importing - the launcher will reinstall the original version and loader according to the version information in the package, and then extract the mods and config into the instance.</translation>
+        </message>
+        <message>
+            <source>压缩包里那份 %1 不是整合包清单（缺少 formatVersion 或者 files）。</source>
+            <translation>The %1 in the compressed package is not a package manifest (missing formatVersion or files).</translation>
+        </message>
+        <message>
+            <source>这份整合包的依赖表里没写它基于哪个 Minecraft 版本（dependencies.minecraft），无法安装。</source>
+            <translation>The dependency list of this integration package does not indicate which Minecraft version it is based on (dependencies.minecraft), so it cannot be installed.</translation>
+        </message>
+        <message>
+            <source>这份整合包的文件清单是空的（一条要下载的文件都没有），没有导入。</source>
+            <translation>The file list of this integration package is empty (there is no file to be downloaded) and it is not imported.</translation>
+        </message>
+        <message>
+            <source>压缩包里那份 %1 不是整合包清单（缺少 manifestVersion 或者 files）。</source>
+            <translation>The %1 in the compressed package is not a package manifest (missing manifestVersion or files).</translation>
+        </message>
+        <message>
+            <source>这份整合包的清单里没写它基于哪个 Minecraft 版本（minecraft.version），无法安装。</source>
+            <translation>The list of this modpack does not state which version of Minecraft (minecraft.version) it is based on, so it cannot be installed.</translation>
+        </message>
+        <message>
+            <source>这份整合包的文件清单里有 %1 条，但没有一条写着能用的 projectID / fileID。清单可能被改坏了，没有导入。</source>
+            <translation>There are %1 items in the file list of this integration package, but none of them contain usable projectID / fileID. The manifest may have been corrupted and not imported.</translation>
+        </message>
+    </context>
+    <context>
         <name>NbtTree</name>
         <message>
             <source>%1 个字节</source>
@@ -19712,26 +19803,6 @@ Recovery records are retained in %3, please check manually.</translation>
             <translation>Failed to obtain some file information from the Internet.</translation>
         </message>
         <message>
-            <source>这个整合包要「%1」%2，而整合包导入这条路只认得 fabric-loader / forge / neoforge / quilt-loader 四个加载器键。
-
-所以没有导入。（安装页里能直接装 Fabric / Forge / NeoForge / OptiFine，那是另一条路；OptiFine 在整合包的依赖表里没有对应的键。）</source>
-            <translation>This integration package requires "%1" %2, and the integration package import path only recognizes four loader keys: fabric-loader / forge / neoforge / quilt-loader. 
-
-So there is no import. (Fabric / Forge / NeoForge / OptiFine can be installed directly in the installation page, but that is another way; OptiFine does not have a corresponding key in the dependency table of the integration package.)</translation>
-        </message>
-        <message>
-            <source>这个压缩包里没有整合包清单，认不出它是什么格式。
-
-认得的是这几种：Modrinth 格式（根目录有一份 modrinth.index.json）、CurseForge 格式（有一份 manifest.json）、MultiMC / Prism 导出的实例（有一份 mmc-pack.json）、以及直接把 .minecraft 文件夹压进来的懒人包（里面有 mods/、config/ 或 options.txt）。
-
-都对不上的话，它多半只是一个普通的压缩包 —— 比如资源包、光影包，或者只放了几份说明文件的合集。</source>
-            <translation>There is no integrated package list in this compressed package, and I cannot recognize its format. 
-
- recognizes these types: Modrinth format (there is a copy of modrinth.index.json in the root directory), CurseForge format (there is a copy of manifest.json), MultiMC / Prism exported examples (there is a copy of mmc-pack.json), and lazy packages that directly compress the .minecraft folder (with mods/, config/ or options.txt in it). If 
-
- doesn't match, it's probably just an ordinary compressed package - such as a resource package, a light and shadow package, or a collection of just a few description files.</translation>
-        </message>
-        <message>
             <source>整合包</source>
             <translation>Integrated package</translation>
         </message>
@@ -19784,10 +19855,6 @@ So there is no import. (Fabric / Forge / NeoForge / OptiFine can be installed di
             <translation>This mmc-pack.json cannot be parsed (%1). This file may be corrupted.</translation>
         </message>
         <message>
-            <source>这个 MultiMC / Prism 实例的 mmc-pack.json 里没有 components，认不出它要哪个 Minecraft 版本。</source>
-            <translation>There are no components in the mmc-pack.json of this MultiMC / Prism instance, so I can't identify which version of Minecraft it requires.</translation>
-        </message>
-        <message>
             <source>mmc-pack.json 有重复组件 %1，无法确定启动配置，没有导入。</source>
             <translation>Mmc-pack.json has duplicate components %1, the startup configuration cannot be determined, and there is no import.</translation>
         </message>
@@ -19800,56 +19867,16 @@ So there is no import. (Fabric / Forge / NeoForge / OptiFine can be installed di
             <translation>This instance declares multiple loaders at the same time, which is not supported yet and is not imported.</translation>
         </message>
         <message>
-            <source>这是一个 MultiMC / Prism 的实例导出（有 mmc-pack.json），但里面没写它基于哪个 Minecraft 版本（components 里没有 net.minecraft），无法安装。</source>
-            <translation>This is an instance export of MultiMC / Prism (with mmc-pack.json), but it does not say which version of Minecraft it is based on (there is no net.minecraft in the components), so it cannot be installed.</translation>
-        </message>
-        <message>
-            <source>这个 MultiMC / Prism 包依赖自定义启动组件：%1。
-
-目前不能转换它的 patches、专用库和 JVM 参数，因此没有导入，避免生成无法启动的实例。GTNH Java 17+ 的 lwjgl3ify 包请暂用 Prism 导入；这不影响普通标准格式整合包。</source>
-            <translation>This MultiMC / Prism package relies on a custom startup component: %1. 
-
- Currently its patches, private libraries and JVM parameters cannot be converted and therefore are not imported to avoid generating unstartable instances. Please temporarily use Prism to import the lwjgl3ify package of GTNH Java 17+; this does not affect the normal standard format integration package.</translation>
-        </message>
-        <message>
-            <source>这个包是从 MultiMC / Prism 导出的实例。导入的是它 .minecraft 里的内容（mods、config、资源包这些）；MultiMC 自己的 patches/、libraries/ 和启动设置没有一起导入。</source>
-            <translation>This package is an instance exported from MultiMC/Prism. What is imported is the content in its .minecraft (mods, config, resource packs, etc.); MultiMC's own patches/, libraries/ and startup settings are not imported together.</translation>
-        </message>
-        <message>
             <source>这个游戏目录包含多个候选实例，无法确定要导入哪一个。请分别打包后导入。</source>
             <translation>This game directory contains multiple candidate instances and it is impossible to determine which one to import. Please package them separately and import them.</translation>
-        </message>
-        <message>
-            <source>这个 .minecraft 里有 %1 个版本，但没有版本 json 能说明该导入哪一个（目录名里也看不出带加载器的那一个）。
-
-没有导入 —— 猜一个装出来多半进不去游戏。把带加载器的那个版本目录（连着里面的 json）单独打包，或者换 Modrinth / CurseForge 格式。</source>
-            <translation>There are %1 versions in this .minecraft, but there is no version json to indicate which one to import (the one with the loader cannot be seen in the directory name). 
-
- is not imported - guess if you pretend it, you will probably not be able to enter the game. Package the version directory with the loader (with the json inside) separately, or change it to Modrinth / CurseForge format.</translation>
-        </message>
-        <message>
-            <source>认得出这是一个 .minecraft 目录（里面有 mods/ 或 config/），但推不出它基于哪个 Minecraft 版本：versions/ 里没有版本 json，目录名里也看不出来。
-
-没有导入 —— 猜一个版本装出来多半进不去游戏。可以把 versions/ 里那份 json 一起打包再导入，或者换 Modrinth / CurseForge 格式。</source>
-            <translation>I can recognize that this is a .minecraft directory (there are mods/ or config/ in it), but I can’t tell which Minecraft version it is based on: there is no version json in versions/, and it can’t be seen in the directory name. 
-
- is not imported - guess if you install a version, you will probably not be able to enter the game. You can package the json in versions/ and import it together, or change it to Modrinth / CurseForge format.</translation>
         </message>
         <message>
             <source>认出了加载器，但包里没有明确的加载器版本。请提供完整版本 JSON，不能用最新版代替。</source>
             <translation>The loader is recognized, but there is no explicit loader version in the package. Please provide the full version of JSON and cannot replace it with the latest version.</translation>
         </message>
         <message>
-            <source>这个包自带 versions/，导入时没有用它 —— 启动器会按包里的版本信息重新装一份原版和加载器，再把 mods、config 这些解进实例里。</source>
-            <translation>This package comes with versions/, which is not used when importing - the launcher will reinstall the original version and loader according to the version information in the package, and then extract the mods and config into the instance.</translation>
-        </message>
-        <message>
             <source>整合包清单无法解析（%1）。这个文件可能已损坏。</source>
             <translation>Modpack manifest cannot be parsed (%1). This file may be corrupted.</translation>
-        </message>
-        <message>
-            <source>压缩包里那份 %1 不是整合包清单（缺少 formatVersion 或者 files）。</source>
-            <translation>The %1 in the compressed package is not a package manifest (missing formatVersion or files).</translation>
         </message>
         <message>
             <source>这份 %1 里没写它是哪个游戏的整合包，无法安装。</source>
@@ -19858,10 +19885,6 @@ So there is no import. (Fabric / Forge / NeoForge / OptiFine can be installed di
         <message>
             <source>这不是 Minecraft 的整合包：清单里写的是「%1」。</source>
             <translation>This is not a modpack for Minecraft: the listing says "%1".</translation>
-        </message>
-        <message>
-            <source>这份整合包的依赖表里没写它基于哪个 Minecraft 版本（dependencies.minecraft），无法安装。</source>
-            <translation>The dependency list of this integration package does not indicate which Minecraft version it is based on (dependencies.minecraft), so it cannot be installed.</translation>
         </message>
         <message>
             <source>这个整合包的文件清单里有一条不能用的路径：
@@ -19874,24 +19897,8 @@ So there is no import. (Fabric / Forge / NeoForge / OptiFine can be installed di
  (The path cannot go outside the instance directory, and a certain paragraph is not allowed to end with a dot or a space - Windows will eat those characters quietly, and the written name will be different from what is written in the list.) So the entire package is not imported.</translation>
         </message>
         <message>
-            <source>这份整合包的文件清单是空的（一条要下载的文件都没有），没有导入。</source>
-            <translation>The file list of this integration package is empty (there is no file to be downloaded) and it is not imported.</translation>
-        </message>
-        <message>
-            <source>压缩包里那份 %1 不是整合包清单（缺少 manifestVersion 或者 files）。</source>
-            <translation>The %1 in the compressed package is not a package manifest (missing manifestVersion or files).</translation>
-        </message>
-        <message>
             <source>这不是 Minecraft 的整合包：清单里写的类型是「%1」。</source>
             <translation>This is not a modpack for Minecraft: the type listed in the manifest is "%1".</translation>
-        </message>
-        <message>
-            <source>这份整合包的清单里没写它基于哪个 Minecraft 版本（minecraft.version），无法安装。</source>
-            <translation>The list of this modpack does not state which version of Minecraft (minecraft.version) it is based on, so it cannot be installed.</translation>
-        </message>
-        <message>
-            <source>这份整合包的文件清单里有 %1 条，但没有一条写着能用的 projectID / fileID。清单可能被改坏了，没有导入。</source>
-            <translation>There are %1 items in the file list of this integration package, but none of them contain usable projectID / fileID. The manifest may have been corrupted and not imported.</translation>
         </message>
         <message>
             <source>CurseForge 的接口回的话里没有文件表。</source>
