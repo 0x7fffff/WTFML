@@ -9,6 +9,7 @@
 #include <QMutexLocker>
 #include <QDir>
 #include <QDirIterator>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -245,11 +246,39 @@ QString findJavaInEnvironment(int requiredMajor = -1) {
  *
  * NOTE: 这里会遍历整个 Program Files，比较慢，因此只在更便宜的候选源
  * （已配置路径、本地运行时、环境变量、PATH）都没命中时才会走到。
+ *
+ * NOTE: 这一路**只留一道时间预算**（kMaxMs）。它跑在界面线程上，递归扫的是一棵我们控制
+ * 不了深浅的树；只要有一处成环的重解析点、几万个条目，或者一个爬不动的目录，这个循环就
+ * 会一直转下去 —— 2026-11-18 ci-core 那次就卡在这儿十几分钟（`=== E. Java 运行时选择`
+ * 之后一个字都没有，直到阶段的 900 s 上限把进程杀掉）。
+ *
+ * NOTE: 迭代器**不带 nameFilter**（不写 `java.exe`）。带过滤时 `next()` 要扫到下一个
+ * java.exe 才返回，中间几万个目录全在那一次调用里过去，预算检查根本轮不到 —— 而"目录树
+ * 太大 / 爬不动"恰恰是最主要的卡法。现在每取一条目录项之前都查一次预算，名字在这里自己
+ * 比（`QDirIterator` 在 `QDir::Files` 下仍会递归所有子目录，只是不把目录本身交出来）。
+ *
+ * NOTE: 20 s 只是"永远卡住"的上限。正常机器扫完远碰不到它（本机三个根扫完 < 1 s），所以
+ * 磁盘慢、机器上装了好几个 Java 都不会因此被提前放弃；真扫满 20 s 才当"没找到"，调用方
+ * 照常走"本机没有这个 Java"那条路（报错，或者去下载）。
+ *
+ * 限制：预算是在两条目录项之间检查的，单个 `QDirIterator::next()` 内部被卡住（网络盘、
+ * 挂起的重解析点）时这里看不到 —— 那种情况得把搜索挪到工作线程，靠这个循环拦不住。
  */
 QString findJavaInCommonLocations(int requiredMajor = -1) {
+    constexpr qint64 kMaxMs = 20000;  ///< 整个兜底扫描的耗时上限（三个根目录共用）
+
     const QStringList rootDirs = {qEnvironmentVariable("ProgramFiles"),
                                   qEnvironmentVariable("ProgramFiles(x86)"),
                                   qEnvironmentVariable("ProgramW6432")};
+
+    // 三个根目录共用一份预算：Program Files 和 Program Files (x86) 经常指到同一棵树。
+    QElapsedTimer clock;
+    clock.start();
+    const auto giveUp = [&] {
+        qWarning() << "扫描 Program Files 找 Java 用了" << clock.elapsed()
+                   << "ms 还没扫完，放弃这条兜底路径";
+        return QString();
+    };
 
     for (const QString &rootDirPath : rootDirs) {
         if (rootDirPath.isEmpty()) {
@@ -260,10 +289,17 @@ QString findJavaInCommonLocations(int requiredMajor = -1) {
             continue;
         }
 
-        QDirIterator it(rootDir.absolutePath(), QStringList() << "java.exe", QDir::Files,
+        QDirIterator it(rootDir.absolutePath(), QDir::Files | QDir::NoDotAndDotDot,
                         QDirIterator::Subdirectories);
         while (it.hasNext()) {
-            QString candidate = it.next();
+            // 先查预算再取值：不带 nameFilter 这一条才有意义（见函数头那条 NOTE）。
+            if (clock.elapsed() > kMaxMs) {
+                return giveUp();
+            }
+            const QString candidate = it.next();
+            if (it.fileName().compare(QStringLiteral("java.exe"), Qt::CaseInsensitive) != 0) {
+                continue;
+            }
             if (candidate.contains("Java", Qt::CaseInsensitive) ||
                 candidate.contains("jdk", Qt::CaseInsensitive) ||
                 candidate.contains("jre", Qt::CaseInsensitive) ||
