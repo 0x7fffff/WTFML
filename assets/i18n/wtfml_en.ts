@@ -17758,6 +17758,241 @@ Itemized list: %2
         </message>
     </context>
     <context>
+        <name>WorldFiles</name>
+        <message>
+            <source>读不了 %1（%2）</source>
+            <translation>Unable to read %1 (%2)</translation>
+        </message>
+        <message>
+            <source>建不出目录 %1</source>
+            <translation>Unable to create directory %1</translation>
+        </message>
+        <message>
+            <source>写不进 %1（%2）</source>
+            <translation>Unable to write %1 (%2)</translation>
+        </message>
+        <message>
+            <source>已取消</source>
+            <translation>Canceled</translation>
+        </message>
+        <message>
+            <source>发布不了 %1（%2）</source>
+            <translation>Unable to publish %1 (%2)</translation>
+        </message>
+        <message>
+            <source>导入世界已取消或超时。</source>
+            <translation>Importing the world was canceled or timed out.</translation>
+        </message>
+        <message>
+            <source>世界包含链接，未开始导入。</source>
+            <translation>The world contains links and the import has not started.</translation>
+        </message>
+        <message>
+            <source>世界里有不是普通文件的内容：%1</source>
+            <translation>There are contents in the world that are not ordinary files: %1</translation>
+        </message>
+        <message>
+            <source>%1：%2</source>
+            <translation>%1:%2</translation>
+        </message>
+        <message>
+            <source>文件复制失败：%1（原因：%2）</source>
+            <translation>File copy failed: %1 (reason: %2)</translation>
+        </message>
+        <message>
+            <source>%1：暂存副本不完整</source>
+            <translation>%1: The temporary copy is incomplete</translation>
+        </message>
+        <message>
+            <source>有文件没能复制到暂存副本。</source>
+            <translation>There are files that could not be copied to the staging copy.</translation>
+        </message>
+        <message>
+            <source>没有指定要导入哪一个世界。</source>
+            <translation>It is not specified which world to import.</translation>
+        </message>
+        <message>
+            <source>不知道要导入到哪个实例里去。</source>
+            <translation>I don't know which instance to import into.</translation>
+        </message>
+        <message>
+            <source>「%1」不是一个目录。</source>
+            <translation>"%1" is not a directory.</translation>
+        </message>
+        <message>
+            <source>「%1」里面没有 level.dat，看起来不是一个世界存档（是不是选错了上一层的文件夹？）</source>
+            <translation>There is no level.dat in "%1", and it does not look like a world archive (did you select the wrong folder on the upper level?)</translation>
+        </message>
+        <message>
+            <source>这个实例里还没有 saves 文件夹（先启动一次游戏，或者手动建一个）。</source>
+            <translation>There is no saves folder in this instance yet (start the game first, or create one manually).</translation>
+        </message>
+        <message>
+            <source>已经有一个叫「%1」的世界了，按选择跳过了这一份。</source>
+            <translation>There is already a world called "%1". Press Select to skip this one.</translation>
+        </message>
+        <message>
+            <source>这个实例里已经有一个叫「%1」的世界了，换个名字再导入。</source>
+            <translation>There is already a world called "%1" in this example. Change the name and import it again.</translation>
+        </message>
+        <message>
+            <source>不能把世界导入到它自己或其子目录中。</source>
+            <translation>A world cannot be imported into itself or its subdirectories.</translation>
+        </message>
+        <message>
+            <source>无法创建世界导入暂存目录：%1</source>
+            <translation>Unable to create world import staging directory: %1</translation>
+        </message>
+        <message>
+            <source>无法创建世界导入暂存目录。</source>
+            <translation>Unable to create world import staging directory.</translation>
+        </message>
+        <message>
+            <source>无法安全计算世界大小，未开始导入。</source>
+            <translation>Unable to safely calculate world size, import not started.</translation>
+        </message>
+        <message>
+            <source>目标磁盘不可写或可用空间不足，未开始导入世界（需要至少 %1 字节，含安全余量）。</source>
+            <translation>The destination disk is not writable or has insufficient free space, and the world import has not started (requires at least %1 bytes, including safety margin).</translation>
+        </message>
+        <message>
+            <source>导入「%1」的时候有些文件没拷成。</source>
+            <translation>Some files were not copied when importing "%1".</translation>
+        </message>
+        <message>
+            <source>导入已取消、超时或源世界在复制期间发生变化，未发布存档。</source>
+            <translation>The import was canceled, timed out, or the source world changed during copying and the archive was not published.</translation>
+        </message>
+        <message>
+            <source>无法发布导入的世界，目标可能已被其它程序创建，未覆盖。</source>
+            <translation>The imported world cannot be published. The target may have been created by other programs and not overwritten.</translation>
+        </message>
+        <message>
+            <source>没有指定要改哪一个世界。</source>
+            <translation>There is no specific world to change.</translation>
+        </message>
+        <message>
+            <source>「%1」已经不在盘上了。</source>
+            <translation>"%1" is no longer on the disk.</translation>
+        </message>
+        <message>
+            <source>这个存档文件夹里已经有一个叫「%1」的世界了。</source>
+            <translation>There is already a world called "%1" in this save folder.</translation>
+        </message>
+        <message>
+            <source>重命名失败，存档文件可能正被其他程序占用。</source>
+            <translation>Rename failed. The archive file may be occupied by another program.</translation>
+        </message>
+        <message>
+            <source>和平</source>
+            <translation>Peace</translation>
+        </message>
+        <message>
+            <source>简单</source>
+            <translation>Simple</translation>
+        </message>
+        <message>
+            <source>普通</source>
+            <translation>Ordinary</translation>
+        </message>
+        <message>
+            <source>困难</source>
+            <translation>Difficulty</translation>
+        </message>
+        <message>
+            <source>规则「%1」没写进去。</source>
+            <translation>The rule "%1" is not written.</translation>
+        </message>
+        <message>
+            <source>世界名没写进去（那一格在盘上不是文字）。</source>
+            <translation>The world name is not written in (that space is not text on the disk).</translation>
+        </message>
+        <message>
+            <source>「允许作弊」没写进去（盘上那一格不是 0/1 那种数）。</source>
+            <translation>"Cheating is allowed" is not written in (the space on the board is not a number like 0/1).</translation>
+        </message>
+        <message>
+            <source>「极限模式」没写进去（盘上那一格不是 0/1 那种数）。</source>
+            <translation>"Extreme Mode" is not written in (the space on the disk is not a number like 0/1).</translation>
+        </message>
+        <message>
+            <source>「难度」没写进去（盘上那一格不是 0/1/2/3 那种数）。</source>
+            <translation>"Difficulty" is not written in (the space on the board is not a number like 0/1/2/3).</translation>
+        </message>
+        <message>
+            <source>没有指定是哪一个世界。</source>
+            <translation>Which world is not specified.</translation>
+        </message>
+        <message>
+            <source>这个存档里没有 level.dat，它不是一个世界（或已损坏）。</source>
+            <translation>There is no level.dat in this archive, it is not a world (or is corrupted).</translation>
+        </message>
+        <message>
+            <source>读不动 level.dat：%1</source>
+            <translation>Unable to read level.dat: %1</translation>
+        </message>
+        <message>
+            <source>level.dat 没能完整读取：%1</source>
+            <translation>Level.dat could not be read completely: %1</translation>
+        </message>
+        <message>
+            <source>无法解压 level.dat（它可能已损坏）：%1</source>
+            <translation>Unable to unpack level.dat (it may be corrupt): %1</translation>
+        </message>
+        <message>
+            <source>解出来的临时文件读不动：%1</source>
+            <translation>The extracted temporary file cannot be read: %1</translation>
+        </message>
+        <message>
+            <source>level.dat 里的内容无法解析（这个存档可能已损坏）：%1</source>
+            <translation>The content in level.dat cannot be parsed (the archive may be damaged): %1</translation>
+        </message>
+        <message>
+            <source>level.dat 的根不是一张表（这个存档可能已损坏）。</source>
+            <translation>The root of level.dat is not a table (this archive may be corrupted).</translation>
+        </message>
+        <message>
+            <source>读取期间 level.dat 已变化或无法重读，请重新打开世界设置。</source>
+            <translation>Level.dat has changed during reading or cannot be reread, please reopen world settings.</translation>
+        </message>
+        <message>
+            <source>没有指定要写哪一个世界。</source>
+            <translation>There is no specific world to write about.</translation>
+        </message>
+        <message>
+            <source>这个存档里没有 level.dat —— 不往一个不存在的世界里写。</source>
+            <translation>There is no level.dat in this archive - you are not writing to a world that does not exist.</translation>
+        </message>
+        <message>
+            <source>建不出临时文件：%1</source>
+            <translation>Unable to create temporary file: %1</translation>
+        </message>
+        <message>
+            <source>临时文件没写全（盘满了？）</source>
+            <translation>The temporary file is not completely written (the disk is full?)</translation>
+        </message>
+        <message>
+            <source>压缩 level.dat 失败了：%1</source>
+            <translation>Compression of level.dat failed: %1</translation>
+        </message>
+        <message>
+            <source>写不进 level.dat：%1</source>
+            <translation>Unable to write level.dat: %1</translation>
+        </message>
+        <message>
+            <source>压好的那一份没能落到 level.dat 上（盘满了？）</source>
+            <translation>The pressed portion failed to fall on level.dat (the disk is full?)</translation>
+        </message>
+        <message>
+            <source>level.dat 已被其它程序修改或无法读取，未覆盖；请重新打开世界设置。</source>
+            <translation>Level.dat has been modified by other programs or cannot be read and is not overwritten; please reopen world settings.</translation>
+        </message>
+        <message>
+            <source>换掉 level.dat 失败了：%1</source>
+            <translation>Failed to replace level.dat: %1</translation>
+        </message>
+    </context>
+    <context>
         <name>WorldSettingsPage</name>
         <message>
             <source>改这个存档的文件夹名。游戏的世界列表里显示的也是它。</source>

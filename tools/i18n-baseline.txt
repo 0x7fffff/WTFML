@@ -123,7 +123,6 @@ src/manage/VersionManagerExport.cpp	10
 src/manage/VersionManagerInternals.hpp	2
 src/manage/VersionManagerLoaderInstall.cpp	45
 src/manage/VersionManagerModpack.cpp	8
-src/manage/WorldFiles.cpp	70
 src/manage/WorldMap.cpp	1
 src/net/HttpClient.cpp	2
 src/operations/InstanceUpgrade.cpp	138
