@@ -27,6 +27,7 @@
 
 #include "../net/ControlGet.hpp"
 #include "../util/AppPaths.hpp"
+#include "../util/SettingsSyncRetry.hpp"
 #include "../util/WriteDirectoryGuard.hpp"
 
 namespace {
@@ -868,42 +869,53 @@ QVariantMap GlobalJavaSettings::persistedValues() const {
 
 void GlobalJavaSettings::save() const {
     const QVariantMap now = persistedValues();
-    QSettings settings;
-
-    // 自动档算出来的 Xmx/Xms 是"会自己变的"：另一扇窗可能在我们算完之后把档位切回手动，
-    // 并把用户要的那一对写回盘。这时再把自动值写下去，就是拿自动值盖掉手动现场
-    // （症状：切回手动后内存显示成自动算的那个数 —— 2026-11-04 mw_check 那条间歇失败）。
-    //
-    // 判据：**本对象上一次保存时是自动档**（`m_persisted`）而**现在盘上是手动档** ——
-    // 说明档位是别人改的，这两格不归我们写。刚由手动切自动的那一发 `wasAuto` 还是假，
-    // 不受影响（那一发要写的正是 ManualXmx / ManualXms 与 MemoryAuto）。
-    const bool staleAutoWriter =
-        m_persisted.value(QString::fromLatin1(kMemoryAuto)).toBool()
-        && !settings.value(QString::fromLatin1(kMemoryAuto), false).toBool();
-
-    bool wroteAnything = false;
+    QVariantMap changed;
     for (auto it = now.cbegin(); it != now.cend(); ++it) {
-        // 只写本进程真改过的那几项；没动过的一项都不碰盘（那一项可能是另一份启动器
-        // 刚改过的，见 .hpp 里那条 NOTE）。
-        if (m_persisted.value(it.key()) == it.value()) {
-            continue;
+        if (m_persisted.value(it.key()) != it.value()) {
+            changed.insert(it.key(), it.value());
         }
-        if (staleAutoWriter
-            && (it.key() == QLatin1String(kXmx) || it.key() == QLatin1String(kXms))) {
-            continue;
-        }
-        settings.setValue(it.key(), it.value());
-        wroteAnything = true;
     }
-    if (!wroteAnything) {
+    if (changed.isEmpty()) {
         return;
     }
-    // QSettings 析构时会 sync()；这里保持原来的"函数返回即落盘"。
-    settings.sync();
-    if (settings.status() != QSettings::NoError) {
+
+    // 走 SettingsSyncRetry：理由和 LauncherSettings::save() 那条一样（Windows 上一次
+    // AccessError 就把这一次改动丢了），重试只落在这一批改过的键上。
+    QString fileName;
+    int attempts = 0;
+    bool wroteAnything = false;
+    const bool ok = SettingsSyncRetry::write(
+        [&](QSettings &settings) {
+            // 自动档算出来的 Xmx/Xms 是"会自己变的"：另一扇窗可能在我们算完之后把档位
+            // 切回手动，并把用户要的那一对写回盘。这时再把自动值写下去，就是拿自动值
+            // 盖掉手动现场（症状：切回手动后内存显示成自动算的那个数 —— 2026-11-04
+            // mw_check 那条间歇失败）。
+            //
+            // 判据：**本对象上一次保存时是自动档**（`m_persisted`）而**现在盘上是手动档**
+            // —— 说明档位是别人改的，这两格不归我们写。刚由手动切自动的那一发 `wasAuto`
+            // 还是假，不受影响（那一发要写的正是 ManualXmx / ManualXms 与 MemoryAuto）。
+            // 每次尝试都重新读盘：重试发生在几十毫秒之后，那时盘上的档位可能已经变了。
+            const bool staleAutoWriter =
+                m_persisted.value(QString::fromLatin1(kMemoryAuto)).toBool()
+                && !settings.value(QString::fromLatin1(kMemoryAuto), false).toBool();
+            wroteAnything = false;
+            for (auto it = changed.cbegin(); it != changed.cend(); ++it) {
+                if (staleAutoWriter
+                    && (it.key() == QLatin1String(kXmx) || it.key() == QLatin1String(kXms))) {
+                    continue;
+                }
+                settings.setValue(it.key(), it.value());
+                wroteAnything = true;
+            }
+        },
+        &fileName, &attempts);
+    if (!ok) {
         // 和 LauncherSettings::save() 同一条：失败时基线不推进，下一次保存会重试。
-        qWarning() << "GlobalJavaSettings: 写入 Java 设置失败，未推进已保存基线："
-                   << settings.fileName();
+        qWarning() << "GlobalJavaSettings: 写入 Java 设置失败（已试" << attempts
+                   << "次），未推进已保存基线：" << fileName;
+        return;
+    }
+    if (!wroteAnything) {
         return;
     }
     m_persisted = now;

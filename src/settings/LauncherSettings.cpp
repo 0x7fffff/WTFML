@@ -6,6 +6,7 @@
 
 #include "LauncherSettings.hpp"
 #include "util/ServerPing.hpp"
+#include "util/SettingsSyncRetry.hpp"
 #include <QHostAddress>
 
 #include <QDebug>
@@ -613,31 +614,43 @@ QVariantMap LauncherSettings::persistedValues() const {
 
 void LauncherSettings::save() const {
     const QVariantMap now = persistedValues();
-    QSettings settings;
-    bool wroteAnything = false;
+    QVariantMap changed;
     for (auto it = now.cbegin(); it != now.cend(); ++it) {
         // **只写本进程真改过的那几项**。和 m_persisted 一样的不碰盘 —— 那一项可能是
         // 另一份启动器刚改过的（全局设置按机器共用，见 .hpp 里那条 NOTE）。
         if (m_persisted.value(it.key()) == it.value()) {
             continue;
         }
-        settings.setValue(it.key(), it.value());
-        wroteAnything = true;
+        changed.insert(it.key(), it.value());
     }
-    // 一项都没变：不写、不 sync。`setXxx()` 里已经挡了一层"和成员相同就不 save"，
-    // 这里是第二道 —— 挡住"值本来就和盘上一样、但调用方还是叫了一趟 save()"。
-    if (!wroteAnything) {
+    // 一项都没变：不写、不 sync。`setXxx()` 里已经挡了一层"和成员相同就不 save"，这里是
+    // 第二道 —— 挡住"值本来就和盘上一样、但调用方还是叫了一趟 save()"。
+    if (changed.isEmpty()) {
         return;
     }
 
     // 立刻落盘。这几项都是"关掉启动器之前必须记住"的状态，不像 GlobalJavaSettings
     // 那样攒到下载 Java 时才写一次；启动器被强杀也不该丢掉上次启动的版本。
-    settings.sync();
-    if (settings.status() != QSettings::NoError) {
-        // 基线不推进：下一次改同一项（或者用户再点一次）会重试。把“写失败”当成
-        // “已经写进去”才是更糟的那一种 —— 用户以为设置生效了，重启又变回去。
-        qWarning() << "LauncherSettings: 写入设置失败，未推进已保存基线："
-                   << settings.fileName();
+    //
+    // 走 SettingsSyncRetry（和 TokenStore / AccountStore 同一条路）：QSettings::sync()
+    // 在 Windows 上做 rename，装了杀毒/管家的机器上会被过滤驱动短暂占住几毫秒、报
+    // AccessError。只试一次的话这一次改动就没了，之后读回来还是旧值 —— 用户看到的是
+    // "改了设置，过一会儿又变回去了"。重试只在这一批键上做，每次尝试都新建 QSettings
+    // 重新读写，最终文件内容只取决于最后一次成功的那次。
+    QString fileName;
+    int attempts = 0;
+    const bool ok = SettingsSyncRetry::write(
+        [&changed](QSettings &settings) {
+            for (auto it = changed.cbegin(); it != changed.cend(); ++it) {
+                settings.setValue(it.key(), it.value());
+            }
+        },
+        &fileName, &attempts);
+    if (!ok) {
+        // 基线不推进：下一次改同一项（或者用户再点一次）会重试。把"写失败"当成
+        // "已经写进去"才是更糟的那一种 —— 用户以为设置生效了，重启又变回去。
+        qWarning() << "LauncherSettings: 写入设置失败（已试" << attempts
+                   << "次），未推进已保存基线：" << fileName;
         return;
     }
     m_persisted = now;

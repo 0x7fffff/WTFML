@@ -136,6 +136,11 @@ public:
     /**
      * @brief 把这一趟**改过的**那几项写进 QSettings 并 sync()，立刻落盘。
      *
+     * 写盘走 `SettingsSyncRetry`（和 TokenStore / AccountStore 同一条路）：Windows 上
+     * QSettings 落盘要靠 rename 覆盖目标文件，杀毒/管家之类的过滤驱动会短暂占住它、
+     * 报一次 AccessError。只试一次的话这一次改动就丢了（重启后设置又变回去），所以
+     * 这里最多试 4 次、间隔 5/20/50 ms；4 次都失败才放弃，并留一条日志。
+     *
      * NOTE: 它**不再整份写回**。全局设置那一棵注册表（`HKCU\Software\WTFML\WTFML`）是按
      * 机器共用的：装在两个不同目录的启动器各有自己的数据目录、可以同时开着，但盘上这份
      * 设置是同一份。整份写回的后果是"最后存的那一份赢"—— 甲只改了标题，乙只改了内存，

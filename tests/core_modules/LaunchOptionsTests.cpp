@@ -1,6 +1,9 @@
 #include "Support.hpp"
 #include "util/MemoryBudget.hpp"
 
+#include <QElapsedTimer>
+#include <QThread>
+
 void runLaunchOptionsTests(const QString &sandbox) {
     const QString metaDir = QStringLiteral(REPO_ROOT_PATH) + "/tests/meta";
     const QString settingsDir = sandbox + "/wtfml-launch-options-settings";
@@ -662,6 +665,76 @@ void runLaunchOptionsTests(const QString &sandbox) {
         check(!settings.setServerFavorite(QStringLiteral("write-failure.example.com"), true) &&
               !settings.isServerFavorite(QStringLiteral("write-failure.example.com")),
               "failed favorite persistence is rejected without claiming saved state");
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir);
+    }
+
+    // ---------- ZD7. 落盘瞬时失败要重试，这一次改动不能丢 ----------
+    //
+    // 病根：QSettings::sync() 在 Windows 上靠 rename 覆盖目标文件，杀毒/管家那类过滤
+    // 驱动会把它占住几毫秒、报一次 AccessError。以前 save() 只 sync() 一次，撞上就
+    // return —— 这一次改动没落盘，之后读回来还是旧值（用户看到"改了设置，过一会儿
+    // 又变回去了"）。现在走 SettingsSyncRetry：最多 4 次、间隔 5/20/50 ms。
+    //
+    // 造"瞬时"的办法和上面那条"写不进去"一样：在 ini 的那个路径上摆一个同名**目录**
+    // （rename 到目录上必然失败），几毫秒后由另一个线程把这个目录删掉 —— 第 2 次（或
+    // 第 3 次）尝试就能成，正好是杀毒软件松手那一刻的形状。留的余量是整个 75 ms 退避，
+    // 只要那个线程在 75 ms 内跑起来就一定成。
+    section("ZD7. 落盘瞬时失败会重试：一次 save() 就能把这次改动写进去");
+    {
+        const QString transient = settingsDir + QStringLiteral("/transient");
+        QDir().mkpath(transient + QStringLiteral("/WTFML/WTFML.ini"));
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, transient);
+
+        // 非 Qt 线程里碰 QtCore 会留下转储（见 CopyInstanceAndWorldTests 里那条），用 QThread。
+        QThread *release = QThread::create([transient] {
+            QThread::msleep(10);
+            QDir(transient + QStringLiteral("/WTFML/WTFML.ini")).removeRecursively();
+        });
+        release->start();
+
+        const QString value = QStringLiteral("ZD7-瞬时失败");
+        LauncherSettings settings;
+        settings.setLastLaunchedVersion(value);
+        release->wait();
+        delete release;
+
+        // 换一份对象读盘：验的是真落了盘，不是留在成员里。
+        LauncherSettings reopened;
+        check(reopened.lastLaunchedVersion() == value,
+              "ZD7 第 1 次落盘失败后重试成功，这一次改动没丢", reopened.lastLaunchedVersion());
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir);
+    }
+
+    // ---------- ZD8. 一路失败：不假装写成功，下次改动把上一个值一起补上 ----------
+    //
+    // 这条钉的是另半边：4 次都失败时**基线不推进**。用户下一次改任意一项，那一发 save()
+    // 会连同上次没写进去的那一项一起写 —— 这就是"过一会儿又变回去了"能自愈的那条路。
+    section("ZD8. 写盘一直失败：不推进基线，下一次改动能把上次的值补进去");
+    {
+        const QString dead = settingsDir + QStringLiteral("/dead");
+        QDir().mkpath(dead + QStringLiteral("/WTFML/WTFML.ini"));
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, dead);
+
+        LauncherSettings settings;
+        QElapsedTimer clock;
+        clock.start();
+        settings.setLastLaunchedVersion(QStringLiteral("ZD8-没落盘"));
+        const qint64 elapsed = clock.elapsed();
+        check(LauncherSettings().lastLaunchedVersion() != QStringLiteral("ZD8-没落盘"),
+              "ZD8 一直写不进去时不会假装成功（重新读盘还是空的）");
+        // 4 次尝试的退避是 5+20+50 = 75 ms；只试一次的实现是几毫秒。
+        check(elapsed >= 60,
+              "ZD8 失败前确实重试了（4 次尝试、退避共 75 ms）",
+              QStringLiteral("%1 ms").arg(elapsed));
+
+        // 松手之后改另一项：上一次没写进去的那一项跟着这一发一起落盘。
+        QDir(dead + QStringLiteral("/WTFML/WTFML.ini")).removeRecursively();
+        settings.setShowGameLog(true);
+        LauncherSettings reopened;
+        check(reopened.lastLaunchedVersion() == QStringLiteral("ZD8-没落盘") &&
+                  reopened.showGameLog(),
+              "ZD8 下一次保存把上次失败的那一项补进去了（基线没有推进）",
+              reopened.lastLaunchedVersion());
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDir);
     }
 
