@@ -53,9 +53,7 @@ inline QString readSetting() {
 /// @param systemUiLanguages 系统 UI 语言表，通常是 `QLocale::system().uiLanguages()`。
 /// @return `"zh_CN"` 或 `"en"`。
 ///
-/// `system` 只在用户**显式**选了「跟随系统」时才走：系统 UI 语言里有中文（含繁体、
-/// `zh-HK` 这些）就用 zh_CN，否则用 en。空表（系统没报语言）也算「不是中文」。
-/// 没设过那一格时 `readSetting()` 给的是 `system`。
+/// `system` 跟随系统 UI 语言表。有中文（含繁体、`zh-HK` 等）时用 `zh_CN`，否则用 `en`。
 inline QString resolve(const QString &setting, const QStringList &systemUiLanguages) {
     const QString normalized = normalizedSetting(setting);
     if (normalized == QLatin1String(kEnglish)) return QStringLiteral("en");

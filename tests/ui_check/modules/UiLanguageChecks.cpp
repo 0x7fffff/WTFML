@@ -6,6 +6,7 @@
 #include "TitleBar.hpp"
 #include "UiLanguage.hpp"
 #include "WorldSettingsPage.hpp"
+#include "settings/LauncherSettings.hpp"
 
 #include <QLocale>
 #include <QSettings>
@@ -33,7 +34,7 @@ int UiLanguageChecks(MainWindowUI &ui, QTabWidget *tabs) {
     check(resolve(QStringLiteral("乱写"), {QStringLiteral("en-US")}) == QStringLiteral("en"),
           "认不出来的档位按默认档算：跟随英文系统");
 
-    // ---- 1b. 没设过那一格：默认 zh_CN，不看系统语言 ----
+    // ---- 1b. 首次启动与设置页共用语言默认值 ----
     {
         QSettings probe;
         const bool had = probe.contains(QStringLiteral("General/Language"));
@@ -44,6 +45,11 @@ int UiLanguageChecks(MainWindowUI &ui, QTabWidget *tabs) {
               UiLanguage::readSetting());
         check(resolve(UiLanguage::readSetting(), {QStringLiteral("en-US")}) == QStringLiteral("en"),
               "没设过时跟随系统：英文系统用英文");
+        check(LauncherSettings().language() == UiLanguage::readSetting(),
+              "没设过语言时启动器设置与首次启动使用同一档位");
+        probe.setValue(QStringLiteral("General/Language"), QStringLiteral("zh_CN"));
+        check(LauncherSettings().language() == QStringLiteral("zh_CN"),
+              "启动器设置保留用户显式选择的简体中文");
         if (had) probe.setValue(QStringLiteral("General/Language"), keep);
         else probe.remove(QStringLiteral("General/Language"));
         probe.sync();
