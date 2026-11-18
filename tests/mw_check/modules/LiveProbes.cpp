@@ -157,42 +157,17 @@ int runLiveProbeMode(int argc, char *argv[]) {
         return (listed && hasConfig) ? 0 : 1;
     }
 
-// ---------- assoc-live：注册表写入自检（只写测试子键） ----------
+// ---------- assoc-live：旧版文件关联清理自检（只写 WTFML 测试子键） ----------
 // mw_check.exe assoc-live
     if (argc >= 2 && QString::fromLocal8Bit(argv[1]) == QLatin1String("assoc-live")) {
-        const QString root = QStringLiteral("HKEY_CURRENT_USER\\Software\\Classes\\WTFMLSelfTest");
+        const QString root =
+            QStringLiteral("HKEY_CURRENT_USER\\Software\\WTFMLSelfTestClasses\\assoc-live");
         qputenv("WTFML_ASSOC_CLASSES_ROOT", root.toUtf8());
-        QSettings clean(root, QSettings::NativeFormat);
-        clean.remove(QString());
-        clean.sync();
-        QStringList errors;
-        const int done = FileAssociations::registerMcDefaults(&errors);
-        std::printf("%s 三个 MC 后缀设默认：%d 个%s\n", done == 3 ? "PASS" : "FAIL", done,
-                    errors.isEmpty() ? "" : qPrintable(errors.join(QStringLiteral("; "))));
-        bool allDefault = true;
-        for (const QString &ext : FileAssociations::mcOnlyExtensions())
-            allDefault = allDefault && FileAssociations::isDefaultFor(ext);
-        std::printf("%s isDefaultFor 逐项确认\n", allDefault ? "PASS" : "FAIL");
-        QString jarError;
-        const bool jarOpenWith = FileAssociations::registerOpenWith(QStringLiteral(".jar"), &jarError);
-        QSettings probe(root, QSettings::NativeFormat);
-        const bool jarCandidate =
-            probe.contains(QStringLiteral(".jar/OpenWithProgids/WTFMLjar"));
-        const bool jarDefaultUntouched = !FileAssociations::isDefaultFor(QStringLiteral(".jar"));
-        std::printf("%s .jar 只进「打开方式」、默认未改（候选=%d 默认=%d）%s\n",
-                    (jarOpenWith && jarCandidate && jarDefaultUntouched) ? "PASS" : "FAIL",
-                    jarCandidate, jarDefaultUntouched ? 1 : 0, qPrintable(jarError));
-        QString zipError;
-        const bool zipOpenWith = FileAssociations::registerOpenWith(QStringLiteral(".zip"), &zipError);
-        const bool zipDefaultUntouched = !FileAssociations::isDefaultFor(QStringLiteral(".zip"));
-        std::printf("%s .zip 同样不改默认%s\n", (zipOpenWith && zipDefaultUntouched) ? "PASS" : "FAIL",
-                    qPrintable(zipError));
-        const bool refused = !FileAssociations::registerDefault(QStringLiteral(".zip"), nullptr);
-        std::printf("%s 拒绝把 .zip 设默认\n", refused ? "PASS" : "FAIL");
-        clean.remove(QString());
-        clean.sync();
-        return (done == 3 && allDefault && jarOpenWith && jarCandidate && jarDefaultUntouched
-                && zipOpenWith && zipDefaultUntouched && refused) ? 0 : 1;
+        const QString report = FileAssociations::runSelfTest();
+        std::printf("%s 只清本程序注册的关联、别人的留着、重复跑无副作用\n",
+                    report.isEmpty() ? "PASS" : "FAIL");
+        if (!report.isEmpty()) std::printf("%s\n", qPrintable(report));
+        return report.isEmpty() ? 0 : 1;
     }
 
 // ---------- export-instance：普通实例导出 + 自检能否被重新识别 ----------

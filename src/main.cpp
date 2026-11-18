@@ -151,8 +151,8 @@ int main(int argc, char *argv[]) {
     installFileLog();
 
     TimingApplication app(argc, argv);
-    // 自检钩子：验证工程用不到注册表写权限（受限令牌），所以由产品进程自己跑一遍，
-    // 只写 WTFML_ASSOC_CLASSES_ROOT 指的那个测试子键。
+    // 自检钩子：只动 WTFML_ASSOC_CLASSES_ROOT 指的那个测试子键，没设就拒绝跑（不碰真实
+    // HKCU\Software\Classes）。清理逻辑和启动时那一趟是同一份。
     if (app.arguments().contains(QStringLiteral("--assoc-self-test"))) {
         const QString report = FileAssociations::runSelfTest();
         QString output = qEnvironmentVariable("WTFML_ASSOC_TEST_OUT");
@@ -199,6 +199,22 @@ int main(int argc, char *argv[]) {
     if (!StartupAcceptance::configure(&acceptance, &acceptanceProblem)) {
         qCritical().noquote() << acceptanceProblem;
         return 2;
+    }
+
+    // 旧版本把 `.nbt` / `.litematic` / `.schematic` / `.schem` / `.mrpack` 设成了默认打开方式，
+    // 并把 `.jar` / `.zip` 挂进「打开方式」候选。现在不注册关联了，启动时把本程序写下的那几条
+    // 清掉：只认 ProgID 是本程序的那几个键/值，别的程序和用户自己设的默认值一律不动。
+    // 验收档不碰真实的 HKCU\Software\Classes：要连清理一起验，就把 WTFML_ASSOC_CLASSES_ROOT
+    // 指到临时子键（和自检同一条缝）。
+    if (!acceptance.enabled() || !qEnvironmentVariableIsEmpty("WTFML_ASSOC_CLASSES_ROOT")) {
+        QStringList associationProblems;
+        const int removed = FileAssociations::cleanupLegacyAssociations(&associationProblems);
+        if (removed > 0) {
+            qInfo() << "[WTFML] 清掉了旧版注册的文件关联" << removed << "项";
+        }
+        for (const QString &problem : associationProblems) {
+            qWarning().noquote() << "[WTFML] 清理旧版文件关联时出错：" << problem;
+        }
     }
 
     DirectorySessionLock::enabled = true;
@@ -275,10 +291,6 @@ int main(int argc, char *argv[]) {
         if (!externalFile.isEmpty()) {
             const QString file = externalFile;
             QTimer::singleShot(0, &window, [&window, file] { window.openExternalFile(file); });
-        } else if (app.arguments().contains(QStringLiteral("--acceptance-profile"))) {
-            // 验收档会自己关窗，别在这里挂一个要人点的问句。
-        } else {
-            QTimer::singleShot(0, &window, [&window] { window.offerFileAssociations(); });
         }
     }
 

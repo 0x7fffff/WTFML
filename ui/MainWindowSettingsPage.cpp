@@ -460,15 +460,6 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
     addRow(runGroup, QStringLiteral("进程优先级"), processPriorityCombo, Placement::Column,
            QStringLiteral("高于「正常」可能拖慢其他程序。"));
 
-    // ---------- 文件关联 ----------
-    SettingsGroup *files = addGroup(panel, QStringLiteral("文件关联"));
-    fileAssociationsButton = new QPushButton(QStringLiteral("设置…"), form);
-    fileAssociationsButton->setObjectName(fileAssociationsButtonName());
-    Theme::markButton(fileAssociationsButton, Theme::ButtonKind::Neutral);
-    addRow(files, QStringLiteral("用本启动器打开"), fileAssociationsButton, Placement::Natural,
-           QStringLiteral(".nbt · .litematic · .schematic · .mrpack"),
-           QStringLiteral(".jar / .zip 只进「打开方式」列表，不改默认。"));
-
     // ---------- 高级：JVM 参数 ----------
     auto *advanced = new ExpandSection(QStringLiteral("高级"), form);
     advanced->setObjectName(QStringLiteral("settingsAdvanced-launch"));

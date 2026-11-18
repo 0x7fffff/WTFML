@@ -42,10 +42,11 @@ int UiToggleChecks(InstanceSettingsDialog &dialog, const QString &modsDir) {
                   !hasToggle(QStringLiteral("schematic")) && !hasToggle(QStringLiteral("save")),
               "★ U10d 数据包 / 原理图 / 存档**没有**「启用·禁用」（改了名也不会生效，"
               "给了反而是骗人）");
+        // 原理图那一页没有行尾垃圾桶（bcfb57fc 起改走底下的批量操作栏）；存档那一页没有
+        // 删除（那是用户手里唯一那份，启动器没有副本）。
         check(hasDelete(QStringLiteral("mod")) && hasDelete(QStringLiteral("datapack")) &&
-                  hasDelete(QStringLiteral("schematic")) &&
-                  !hasDelete(QStringLiteral("save")),
-              "★ U10d 存档那一页**没有删除**（那是用户手里唯一那份，启动器没有副本）");
+                  !hasDelete(QStringLiteral("schematic")) && !hasDelete(QStringLiteral("save")),
+              "★ U10d 存档与原理图那一页没有行尾删除（原理图走批量操作栏）");
 
         // 存档只列文件夹：saves/我的世界/level.dat 不该占一行。
         showPage(dialog, QStringLiteral("save"));

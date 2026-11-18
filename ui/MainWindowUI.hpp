@@ -2864,8 +2864,6 @@ public:
         return QStringLiteral("settingsForm-") + key;
     }
     static QString javaManageButtonName() { return QStringLiteral("javaManageButton"); }
-    /// 设置页「文件关联…」那颗按钮。
-    static QString fileAssociationsButtonName() { return QStringLiteral("fileAssociationsButton"); }
     /// 「这一层现在用的是哪个 Java」。和那颗按钮**不是一回事**：按钮是"去哪儿改"，
     /// 这一行是"现在是什么"（「自动：上次用的是 …」/「手动指定：…」）。
     static QString javaPathLabelName() { return QStringLiteral("javaPathLabel"); }
@@ -3398,7 +3396,6 @@ public:
     QPushButton *getHomeInstanceSelectButton() const { return homeInstanceSelectButton; }
     QPushButton *getAccountSkinSettingsButton() const { return accountSkinSettingsButton; }
     QPushButton *getAddFolderButton() const { return addFolderButton; }
-    QPushButton *getFileAssociationsButton() const { return fileAssociationsButton; }
     // 实例页左边那张列表：一行一个「游戏文件夹」，选中的那一份就是启动器当前用的
     // .minecraft。右边那张**树**是它下面扫出来的实例（按分组归好）。
     QListWidget *getFolderList() const { return folderList; }
@@ -4015,7 +4012,6 @@ private:
     QPushButton *downloadImportModpackButton = nullptr;
     /// 「Java 管理…」那颗按钮（见 javaManageButtonName()）。
     QPushButton *javaManageButton = nullptr;
-    QPushButton *fileAssociationsButton = nullptr;
     QLabel *javaPathLabel = nullptr;
     QCheckBox *javaWarnMismatchCheck = nullptr;
     QLabel *memoryHint = nullptr;

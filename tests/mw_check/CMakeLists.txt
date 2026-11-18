@@ -550,7 +550,8 @@ endif()
 # AuthManager.cpp 落盘走 DPAPI，验证工程也编译它，所以同样要链 crypt32。
 # 后面三个是 ImageDecode.cpp 要的（起 COM / SHCreateMemStream / WIC 本体），
 # 见主工程 CMakeLists.txt 里同一段。
-target_link_libraries(wtfml_mw_runtime PRIVATE crypt32 ole32 shlwapi windowscodecs dwmapi)
+# advapi32 / shell32 是 FileAssociations.cpp 的注册表读写与 SHChangeNotify。
+target_link_libraries(wtfml_mw_runtime PRIVATE crypt32 advapi32 ole32 shlwapi windowscodecs dwmapi shell32)
 
 
 # Production code is shared by independently buildable test executables.

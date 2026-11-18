@@ -24,11 +24,21 @@ void runDroppedFileTests() {
     QDir().mkpath(root.path() + QStringLiteral("/assets"));
 
     const QString idV = QStringLiteral("1.95.1");
+    // 第二个实例：用来证明「用户选了哪一行就装进哪一个」，而不是"盘上只有一个，装进去就算对"。
+    const QString idOther = QStringLiteral("1.95.2-另一个");
     const QDir versionsDir(root.path() + QStringLiteral("/versions"));
     makeInstalledVersion(versionsDir, idV);
+    makeInstalledVersion(versionsDir, idOther);
+    VersionManager probeVersions;
+    const QStringList installedIds = probeVersions.installedVersions(nullptr);
+    const int rowV = installedIds.indexOf(idV);
+    const int rowOther = installedIds.indexOf(idOther);
     // 「上次启动的是它」——「装到哪个实例」那一问的**预选**就是照这一格算的（下拉框里当前
     // 选中的那一个）。不写这一格的话预选是空的，那一条断言就成了"恒真"。
     rememberLastVersion(idV);
+    check(rowV >= 0 && rowOther >= 0 && rowV != rowOther,
+          "T30.0 前提：盘上两个实例都在「装到哪个实例」的候选里，而且不是同一行",
+          installedIds.join(QLatin1Char(' ')));
     // 「模组」那一页要**用得上**才会列出来（判据是 instanceModsUsable()：有加载器 **或**
     // mods/ 里有 jar）—— 这里给个 mods/ 目录 + 一个 jar，让那一页真的在。
     const QString modsDir = root.path() + QStringLiteral("/versions/") + idV +
@@ -36,6 +46,7 @@ void runDroppedFileTests() {
     writeFileAt(modsDir + QStringLiteral("/本来就有的.jar"), "原本就在的那一个");
     // 另外三类各建一个目录，好让"落点对不对"有个确凿的判据（`folderForKind` 那三个名字）。
     const QString instanceDir = root.path() + QStringLiteral("/versions/") + idV;
+    const QString otherInstanceDir = root.path() + QStringLiteral("/versions/") + idOther;
 
     // 拖进来的东西：两个模组 + 一个资源包 + 一个认不出来的。
     const QString work = root.path() + QStringLiteral("/drop-src");
@@ -43,6 +54,7 @@ void runDroppedFileTests() {
     const QString modB = work + QStringLiteral("/第二个模组.jar");
     const QString respack = work + QStringLiteral("/一个资源包.zip");
     const QString notRes = work + QStringLiteral("/说明.txt");
+    const QString structure = work + QStringLiteral("/一个结构.nbt");
     writeFileAt(modA, "A");
     writeFileAt(modB, "B");
     // 资源包那一份必须是**真的** zip：认类型要读压缩包的条目表（`pack.mcmeta` + `assets/`，
@@ -61,6 +73,7 @@ void runDroppedFileTests() {
                                work + QStringLiteral("/包源/assets/minecraft/lang/zh_cn.json")}}),
           "T30.0 造出一个**真的**资源包 zip（pack.mcmeta + assets/）");
     writeFileAt(notRes, "这不是能装进实例的东西");
+    writeFileAt(structure, "不是真的 NBT：这里只验「拖进来会打开预览」，验解析在别的段里");
     // 同名冲突那一档：盘上已经有一个 `早就有的.jar`，拖进来的那个和它同名、内容不同。
     const QString sameName = work + QStringLiteral("/本来就有的.jar");
     writeFileAt(sameName, "新拖进来的那一份");
@@ -335,9 +348,9 @@ void runDroppedFileTests() {
         // 预选那一格：**有**预选的话，它必须是下拉框里当前选中的那一个实例（用户多半就想
         // 装给他刚点开的那一份）。下拉框这一刻没选中东西时（沙盒里没有"上次启动"记录）
         // 一行都不选 —— 那也是对的，所以判据写成"要么没选，要么选的就是那一个"。
-        check(listRow < 0 || (comboSelection == idV && listRow == 0),
+        check(listRow < 0 || (comboSelection == idV && listRow == rowV),
               "★ T30.11 有预选的话，预选的就是下拉框里当前那一个实例",
-              QStringLiteral("combo=%1 row=%2").arg(comboSelection).arg(listRow));
+              QStringLiteral("combo=%1 row=%2 expected=%3").arg(comboSelection).arg(listRow).arg(rowV));
         check(!exists(instanceDir + QStringLiteral("/mods/第四个模组.jar")),
               "★★ T30.11 一行都没选中就点「确定」⇒ **什么都没装**（不替用户挑第 0 行）");
 
@@ -352,10 +365,10 @@ void runDroppedFileTests() {
             }
             ++answered;
             if (answered == 1) {
-                // 第一条：那张"装到哪个实例"的列表 —— 挑**最后一个**（证明用的是选中的
-                // 那一行，而不是第 0 行），再点「确定」。
+                // 第一条：那张"装到哪个实例"的列表 —— 挑**第二个实例那一行**（不是第 0 行，
+                // 也不是 idV 那一行），再点「确定」。
                 if (auto *list = box->listWidget()) {
-                    list->setCurrentRow(list->count() - 1);
+                    list->setCurrentRow(rowOther);
                 }
                 clickPromptButton(0);
                 return;
@@ -373,11 +386,34 @@ void runDroppedFileTests() {
               "T30.12 这一档弹的是**两条**：先那张列表，后一条「装好了」（第二条是在第一条"
               "答完之后才弹的 —— 只排一发的写法会挂在这儿）",
               QString::number(answered));
-        check(exists(instanceDir + QStringLiteral("/mods/第四个模组.jar")),
-              "★★ T30.12 选中一行再点「确定」⇒ 真的装进**那一个**实例（沙盒里只有这一个，"
-              "所以落点就是它）");
+        check(exists(otherInstanceDir + QStringLiteral("/mods/第四个模组.jar")) &&
+                  !exists(instanceDir + QStringLiteral("/mods/第四个模组.jar")),
+              "★★ T30.12 选中哪一行就装进**哪一个**实例（选的不是预选那个，落点跟着选的那一行走）",
+              QStringLiteral("other=%1 self=%2")
+                  .arg(exists(otherInstanceDir + QStringLiteral("/mods/第四个模组.jar")))
+                  .arg(exists(instanceDir + QStringLiteral("/mods/第四个模组.jar"))));
         check(!g_modalTitle.isEmpty(),
               "T30.12 装完之后还报了信（别让用户对着列表发呆）", g_modalTitle);
+
+        // ---- (j) 原理图拖进来：打开预览，不问"装到哪个实例" ----
+        //
+        // `SchematicInfoDialog::exec()` 卡在自己的嵌套循环里，所以下一拍找它、关它
+        // （和上面那些弹框同一个手法）。
+        bool schematicShown = false;
+        QTimer::singleShot(0, &w, [&] {
+            auto *dialog = w.findChild<QWidget *>(QStringLiteral("schematicInfoDialog"));
+            if (dialog != nullptr) {
+                schematicShown = true;
+                dialog->close();
+            }
+        });
+        dropFilesOn(&w, {structure});
+        QApplication::processEvents();
+        check(schematicShown,
+              "★★ T30.15 `.nbt` 拖进主窗口 ⇒ 打开结构预览，不弹「装到哪个实例」");
+        check(!exists(instanceDir + QStringLiteral("/schematic/一个结构.nbt")) &&
+                  !exists(instanceDir + QStringLiteral("/schematics/一个结构.nbt")),
+              "T30.15 原理图没有被当成能装进实例的文件");
 
         // ---- (i) 收尾：把这一节拖进去的东西清掉，免得影响后面几节对目录的计数 ----
         //
@@ -400,17 +436,22 @@ void runDroppedFileTests() {
         ++g_modalHandlerGeneration;
         const QString modsPath = instanceDir + QStringLiteral("/mods");
         const QString packsPath = instanceDir + QStringLiteral("/resourcepacks");
+        const QString otherModsPath = otherInstanceDir + QStringLiteral("/mods");
         const bool modsGone = removeDirSoon(modsPath);
         const bool packsGone = removeDirSoon(packsPath);
+        const bool otherModsGone = removeDirSoon(otherModsPath);
         removeDirSoon(work);
         const QStringList modsLeft =
             QDir(modsPath).entryList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot);
         const QStringList packsLeft =
             QDir(packsPath).entryList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot);
-        check(modsGone && packsGone,
+        const QStringList otherModsLeft =
+            QDir(otherModsPath).entryList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot);
+        check(modsGone && packsGone && otherModsGone,
               "T30.13 收尾：这一节拖进去的那几个文件都清掉了",
-              QStringLiteral("mods 剩=[%1] resourcepacks 剩=[%2]")
-                  .arg(modsLeft.join(QLatin1Char('|')), packsLeft.join(QLatin1Char('|'))));
+              QStringLiteral("mods 剩=[%1] resourcepacks 剩=[%2] 另一个实例 mods 剩=[%3]")
+                  .arg(modsLeft.join(QLatin1Char('|')), packsLeft.join(QLatin1Char('|')),
+                       otherModsLeft.join(QLatin1Char('|'))));
     }
 
     restore();

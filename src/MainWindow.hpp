@@ -1211,8 +1211,6 @@ public:
     void handleWindowDrop(const QStringList &paths);
     /// 关联/命令行带进来的文件：原理图类打开摘要，其余按拖入处理。
     void openExternalFile(const QString &path);
-    /// 第一次启动问一次要不要把 MC 独有后缀关联到本启动器（只写 HKCU）。
-    void offerFileAssociations(bool force = false);
 private slots:
 
     /// 把一个本地文件装进 @p versionId 这个实例的 @p kind 那一类目录里（没有目录就建）。

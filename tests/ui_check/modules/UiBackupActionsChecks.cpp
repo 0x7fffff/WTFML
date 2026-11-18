@@ -63,22 +63,25 @@ int UiBackupActionsChecks() {
                   "（一颗是整个存档的压缩包、一颗只是 level.dat 那个文件）",
                   backupOne != nullptr ? backupOne->toolTip() : QStringLiteral("<没找到>"));
 
-            // 次序：重命名 → 打开文件夹 → 立即备份 → 恢复备份… → 打开备份目录 → 删除世界。
-            // 三颗新的夹在"打开文件夹"和"删除"中间：前面那几颗是"这个存档叫什么 / 在哪儿"，
-            // 中间这三颗是"留一份 / 换回去 / 去看备份"，最后才是"删掉"。
+            // 两排：上排是"动这个存档"（重命名 / 立即备份 / 恢复备份…），下排是"去哪儿找"
+            // （打开文件夹 / 打开备份目录）和最右的「删除世界」。
             const auto orderOf = [](QWidget *w) {
                 const QPoint p = w->mapToGlobal(QPoint(0, 0));
                 return QPoint(p.x(), p.y());
             };
             const bool ordered = rename != nullptr && openFolder != nullptr && remove != nullptr
-                                 && orderOf(rename).x() < orderOf(openFolder).x()
-                                 && orderOf(openFolder).x() < orderOf(fullBackup).x()
+                                 && orderOf(rename).y() == orderOf(fullBackup).y()
+                                 && orderOf(fullBackup).y() == orderOf(restore).y()
+                                 && orderOf(rename).x() < orderOf(fullBackup).x()
                                  && orderOf(fullBackup).x() < orderOf(restore).x()
-                                 && orderOf(restore).x() < orderOf(backupFolder).x()
-                                 && orderOf(backupFolder).x() < orderOf(remove).x();
+                                 && orderOf(openFolder).y() == orderOf(backupFolder).y()
+                                 && orderOf(backupFolder).y() == orderOf(remove).y()
+                                 && orderOf(openFolder).x() < orderOf(backupFolder).x()
+                                 && orderOf(backupFolder).x() < orderOf(remove).x()
+                                 && orderOf(rename).y() < orderOf(openFolder).y();
             check(ordered,
-                  "★ U30.1 三颗新按钮夹在「打开文件夹」和「删除世界」中间（留一份 / 换回去 / "
-                  "去看备份 是一档，删掉是另一档）",
+                  "★ U30.1 三颗新按钮和「重命名」同一排，排在「打开文件夹 / 打开备份目录 / "
+                  "删除世界」那一排上面",
                   QStringLiteral("x: %1 %2 %3 %4 %5 %6")
                       .arg(fullBackup->mapToGlobal(QPoint(0, 0)).x())
                       .arg(restore->mapToGlobal(QPoint(0, 0)).x())
@@ -94,10 +97,10 @@ int UiBackupActionsChecks() {
                                        : Theme::buttonKindKey(Theme::ButtonKind::Accent);
             };
             const QString neutral = Theme::buttonKindKey(Theme::ButtonKind::Neutral);
-            const QString ghost = Theme::buttonKindKey(Theme::ButtonKind::Ghost);
+            const QString accent = Theme::buttonKindKey(Theme::ButtonKind::Accent);
             const QString danger = Theme::buttonKindKey(Theme::ButtonKind::Danger);
-            check(kindOf(fullBackup) == neutral && kindOf(backupFolder) == ghost,
-                  "U30.1 「立即备份」保留一般性按钮，「打开备份目录」降为低频 Ghost",
+            check(kindOf(fullBackup) == neutral && kindOf(backupFolder) == accent,
+                  "U30.1 「立即备份」保留一般性按钮，「打开备份目录」和「打开文件夹」同档",
                   kindOf(fullBackup) + QStringLiteral(" / ") + kindOf(backupFolder));
             // 「恢复备份…」是红的：它把**这个存档现在这一份**整个换掉。`Danger` 那一档的
             // 界定是"删了就拿不回来"，点名的几条里就有"还原"（见 Theme.hpp 里 ButtonKind
