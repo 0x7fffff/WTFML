@@ -35,6 +35,7 @@
 #pragma once
 
 #include <QDialog>
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QHash>
 #include <QIcon>  // ServerRowStatus 里那一枚（服务器图标）
@@ -248,7 +249,7 @@ public:
         return {overviewCategoryKey(), launchCategoryKey()};
     }
     static QStringList pinnedPageTexts() {
-        return {QStringLiteral("概览"), QStringLiteral("启动")};
+        return {QCoreApplication::translate("InstanceSettingsDialog", "概览"), QCoreApplication::translate("InstanceSettingsDialog", "启动")};
     }
 
     /// **能勾、能关**的那几页的键，顺序是"存档 服务器列表 资源包 数据包 …模组…光影…原理图"
@@ -264,9 +265,9 @@ public:
                 QStringLiteral("schematic")};
     }
     static QStringList optionalPageTexts() {
-        return {QStringLiteral("存档"), QStringLiteral("服务器列表"), QStringLiteral("资源包"),
-                QStringLiteral("数据包"), QStringLiteral("模组"),   QStringLiteral("光影包"),
-                QStringLiteral("结构/原理图")};
+        return {QCoreApplication::translate("InstanceSettingsDialog", "存档"), QCoreApplication::translate("InstanceSettingsDialog", "服务器列表"), QCoreApplication::translate("InstanceSettingsDialog", "资源包"),
+                QCoreApplication::translate("InstanceSettingsDialog", "数据包"), QCoreApplication::translate("InstanceSettingsDialog", "模组"),   QCoreApplication::translate("InstanceSettingsDialog", "光影包"),
+                QCoreApplication::translate("InstanceSettingsDialog", "结构/原理图")};
     }
 
     /// 第 @p key 那一页在界面上叫什么（**唯一出处**：左栏那一条的字、勾选框上的字、
@@ -287,9 +288,9 @@ public:
                 QStringLiteral("config"), QStringLiteral("save"),   QStringLiteral("server")};
     }
     static QStringList filePageTexts() {
-        return {QStringLiteral("模组"),   QStringLiteral("资源包"),
-                QStringLiteral("数据包"), QStringLiteral("光影包"), QStringLiteral("结构/原理图"),
-                QStringLiteral("配置文件"), QStringLiteral("存档"), QStringLiteral("服务器列表")};
+        return {QCoreApplication::translate("InstanceSettingsDialog", "模组"),   QCoreApplication::translate("InstanceSettingsDialog", "资源包"),
+                QCoreApplication::translate("InstanceSettingsDialog", "数据包"), QCoreApplication::translate("InstanceSettingsDialog", "光影包"), QCoreApplication::translate("InstanceSettingsDialog", "结构/原理图"),
+                QCoreApplication::translate("InstanceSettingsDialog", "配置文件"), QCoreApplication::translate("InstanceSettingsDialog", "存档"), QCoreApplication::translate("InstanceSettingsDialog", "服务器列表")};
     }
 
     /// 「配置文件」那一页的键。
@@ -321,12 +322,12 @@ public:
                 QStringLiteral("integritymenu"), QStringLiteral("diagnosticsmenu"), QStringLiteral("operationsmenu")};
     }
     static QStringList lifecyclePageTexts() {
-        return {QStringLiteral("世界备份"), QStringLiteral("截图"), QStringLiteral("Replay"),
-                QStringLiteral("结构"), QStringLiteral("完整性检查"), QStringLiteral("实例修复"),
-                QStringLiteral("日志"), QStringLiteral("崩溃报告"), QStringLiteral("检查与诊断"),
-                QStringLiteral("快照与恢复"), QStringLiteral("导出整合包"),
-                QStringLiteral("实例迁移"), QStringLiteral("版本升级"),
-                QStringLiteral("检查与修复"), QStringLiteral("诊断"), QStringLiteral("备份与操作")};
+        return {QCoreApplication::translate("InstanceSettingsDialog", "世界备份"), QCoreApplication::translate("InstanceSettingsDialog", "截图"), QStringLiteral("Replay"),
+                QCoreApplication::translate("InstanceSettingsDialog", "结构"), QCoreApplication::translate("InstanceSettingsDialog", "完整性检查"), QCoreApplication::translate("InstanceSettingsDialog", "实例修复"),
+                QCoreApplication::translate("InstanceSettingsDialog", "日志"), QCoreApplication::translate("InstanceSettingsDialog", "崩溃报告"), QCoreApplication::translate("InstanceSettingsDialog", "检查与诊断"),
+                QCoreApplication::translate("InstanceSettingsDialog", "快照与恢复"), QCoreApplication::translate("InstanceSettingsDialog", "导出整合包"),
+                QCoreApplication::translate("InstanceSettingsDialog", "实例迁移"), QCoreApplication::translate("InstanceSettingsDialog", "版本升级"),
+                QCoreApplication::translate("InstanceSettingsDialog", "检查与修复"), QCoreApplication::translate("InstanceSettingsDialog", "诊断"), QCoreApplication::translate("InstanceSettingsDialog", "备份与操作")};
     }
     static int pageCount() { return filePageFirstIndex() + filePageKeys().size() + lifecyclePageKeys().size(); }
 
@@ -363,9 +364,9 @@ public:
     /// 概览那一页最大的那颗按钮。**不带 `▶`**：那一格默认界面字体里没有，第一次画出来
     /// 要付一次 277 ms 的字体回退（见 `ui/TextMarks.hpp` 头注释）；这颗按钮本身就是
     /// 那一页唯一的主动作，不缺一个三角来说明它。
-    static QString launchInstanceText() { return QStringLiteral("启动实例"); }
+    static QString launchInstanceText() { return QCoreApplication::translate("InstanceSettingsDialog", "启动实例"); }
     static QString launchInstanceHint() {
-        return QStringLiteral("从实例设置的任意页面启动当前实例");
+        return QCoreApplication::translate("InstanceSettingsDialog", "从实例设置的任意页面启动当前实例");
     }
     static QString stackName() { return QStringLiteral("instanceSettingsStack"); }
     /// 堆叠页里某一页的 objectName（@param key 见 pinnedPageKeys() / filePageKeys()）。
@@ -688,7 +689,7 @@ public:
         return QStringLiteral("instanceLifecycleInfo_%1").arg(key);
     }
     /// 还没算出来时那一格摆的字（验证工程也拿它当"正在读"的判据）。
-    static QString lifecycleInfoPendingText() { return QStringLiteral("正在读取…"); }
+    static QString lifecycleInfoPendingText() { return QCoreApplication::translate("InstanceSettingsDialog", "正在读取…"); }
 
     /// 把 @p key 那一页的信息摆出来。
     /// @param path 这个答案讲的是**哪一条**（就是 `lifecycleFileInfoRequested()` 递出去的）。
@@ -698,7 +699,7 @@ public:
     static QString diagnosisReportName() { return QStringLiteral("instanceDiagnosisReport"); }
     static QString diagnosisRefreshButtonName() { return QStringLiteral("instanceDiagnosisRefresh"); }
     /// 还没算出来时摆的那一句（验证工程也拿它当"接没接上"的判据）。
-    static QString diagnosisPendingText() { return QStringLiteral("正在检查…"); }
+    static QString diagnosisPendingText() { return QCoreApplication::translate("InstanceSettingsDialog", "正在检查…"); }
     void setDiagnosisText(const QString &text);
 
     // ---------- 「迁移」与「升级」那两页 ----------
@@ -991,7 +992,7 @@ public:
     /// 别的几项改的都是它的启动参数 —— 先看清改的是哪一个，再谈别的。打开对话框默认停在
     /// 「概览」，所以它还是第一眼看到的那一格。
     static QString instanceNameEditName() { return QStringLiteral("instanceNameEdit"); }
-    static QString instanceNameText() { return QStringLiteral("实例名"); }
+    static QString instanceNameText() { return QCoreApplication::translate("InstanceSettingsDialog", "实例名"); }
 
     // ---- 概览栏那四行（见上面 setIcon 那一段）----
     //
@@ -1036,7 +1037,7 @@ public:
     /// 概览页那颗「检查更新」的 objectName；验证工程拿它找那颗按钮。
     static QString checkUpdatesButtonName() { return QStringLiteral("instanceCheckUpdatesButton"); }
     /// 那颗按钮上的字（**唯一出处**）。
-    static QString checkUpdatesText() { return QStringLiteral("检查更新"); }
+    static QString checkUpdatesText() { return QCoreApplication::translate("InstanceSettingsDialog", "检查更新"); }
     /// 那一格下面那句解释。
     ///
     /// 这一句要写出「更新检测」这四个字的含义，同时得把**我们能说什么**讲清楚：
@@ -1045,11 +1046,11 @@ public:
     /// 那句话不是失败，是"这一条我没法判"。**别把这句话写成"已经全部检查过了"**：
     /// 用户会以为"说不清"的那几条也是"没问题"。
     static QString checkUpdatesHint() {
-        return QStringLiteral("检查资源更新，不修改文件。");
+        return QCoreApplication::translate("InstanceSettingsDialog", "检查资源更新，不修改文件。");
     }
     /// 那颗按钮的 tooltip（**说全的那一份**）。
     static QString checkUpdatesButtonTooltip() {
-        return QStringLiteral("按当前游戏版本和加载器检查资源更新；无法识别的标为「无法确认」。");
+        return QCoreApplication::translate("InstanceSettingsDialog", "按当前游戏版本和加载器检查资源更新；无法识别的标为「无法确认」。");
     }
     /// 概览页那颗「更新中心」的 objectName。
     ///
@@ -1058,14 +1059,14 @@ public:
     /// 它也是「撤销上一次更新」唯一进得去的地方，所以那一颗按钮**不许**被"必须联网"
     /// 卡住（更新完了发现游戏起不来，正是要退回去的那一刻）。
     static QString updateCenterButtonName() { return QStringLiteral("instanceUpdateCenterButton"); }
-    static QString updateCenterText() { return QStringLiteral("更新中心"); }
+    static QString updateCenterText() { return QCoreApplication::translate("InstanceSettingsDialog", "更新中心"); }
     /// 那一格下面那句解释。
     static QString updateCenterHint() {
-        return QStringLiteral("查看检查结果、更新资源或撤销上次更新。");
+        return QCoreApplication::translate("InstanceSettingsDialog", "查看检查结果、更新资源或撤销上次更新。");
     }
     /// 那颗按钮的 tooltip（**说全的那一份**）。
     static QString updateCenterButtonTooltip() {
-        return QStringLiteral("支持更新、忽略版本、固定版本和撤销上次更新。");
+        return QCoreApplication::translate("InstanceSettingsDialog", "支持更新、忽略版本、固定版本和撤销上次更新。");
     }
 
     // ---- 「复制实例」----
@@ -1074,7 +1075,7 @@ public:
     // / 概览页第五行那颗「复制实例」的 objectName。
     static QString copyButtonName() { return QStringLiteral("instanceCopyButton"); }
     /// 那颗按钮上的字（**唯一出处**）。
-    static QString copyText() { return QStringLiteral("复制实例"); }
+    static QString copyText() { return QCoreApplication::translate("InstanceSettingsDialog", "复制实例"); }
 
     /// 那一格下面那句解释。
     ///
@@ -1083,7 +1084,7 @@ public:
     /// VersionManager::copyInstance 那段）。不说清的话，用户会以为挑中的目录就是副本
     /// 本身的位置，然后在一个自己没料到的层级里找它。
     static QString copyHint() {
-        return QStringLiteral("复制模组、存档和配置，创建独立实例。");
+        return QCoreApplication::translate("InstanceSettingsDialog", "复制模组、存档和配置，创建独立实例。");
     }
 
     /// 那颗按钮的 tooltip（**说全的那一份**）。
@@ -1091,7 +1092,7 @@ public:
     /// NOTE: 最后那句"先关掉游戏"是真的会拦（MainWindow::copyInstanceTo() 里第二道闸）。
     /// 界面不该在明着教用户做一件会被拦住的事。
     static QString copyButtonTooltip() {
-        return QStringLiteral("选择目标游戏目录和副本名称。复制保留原实例，运行中的实例不能复制。");
+        return QCoreApplication::translate("InstanceSettingsDialog", "选择目标游戏目录和副本名称。复制保留原实例，运行中的实例不能复制。");
     }
 
     // ---- 「删除实例」----
@@ -1106,7 +1107,7 @@ public:
     // / 概览页那一颗「删除实例」的 objectName。
     static QString deleteButtonName() { return QStringLiteral("instanceDeleteButton"); }
     /// 那颗按钮上的字（**唯一出处**）。
-    static QString deleteText() { return QStringLiteral("删除实例"); }
+    static QString deleteText() { return QCoreApplication::translate("InstanceSettingsDialog", "删除实例"); }
     /// 那一格下面那句解释。
     ///
     /// 这句话里**必须带"回收站"**：这一颗归在"危险"那一档（所以它是红的）—— 颜色只是
@@ -1114,11 +1115,11 @@ public:
     /// 但它**不是**永久删除：删掉的那一整目录会进回收站，所以字也得这么说，不然用户要么
     /// 以为没法挽回、要么以为回收站永远替他留着。
     static QString deleteHint() {
-        return QStringLiteral("删除实例目录，文件移入回收站。");
+        return QCoreApplication::translate("InstanceSettingsDialog", "删除实例目录，文件移入回收站。");
     }
     /// 那颗按钮的 tooltip（**说全的那一份**）。
     static QString deleteButtonTooltip() {
-        return QStringLiteral("删除实例目录，文件移入回收站。运行或安装期间不可删除；清空回收站后无法恢复。");
+        return QCoreApplication::translate("InstanceSettingsDialog", "删除实例目录，文件移入回收站。运行或安装期间不可删除；清空回收站后无法恢复。");
     }
 
     // ---- 存档那一页顶上那两颗----
@@ -1127,15 +1128,15 @@ public:
     // NOTE: 这两句和上面那些 `xxxText()` 一样是**唯一出处** —— 那一页照 setDownloadText()
     // 的约定按"文字空不空"决定露不露，所以字写在这儿、别的几页不接。
     // / 存档页顶上那颗「导入世界」。
-    static QString importWorldText() { return QStringLiteral("导入世界"); }
+    static QString importWorldText() { return QCoreApplication::translate("InstanceSettingsDialog", "导入世界"); }
     static QString importWorldTip() {
-        return QStringLiteral("导入本地世界文件夹。");
+        return QCoreApplication::translate("InstanceSettingsDialog", "导入本地世界文件夹。");
     }
     /// 存档页顶上那颗「批量编辑」。**它是个占位** —— 点下去只会说一句
     /// 「还没做」。字和提示都照实写，不假装它能用。
-    static QString batchEditWorldsText() { return QStringLiteral("批量编辑"); }
+    static QString batchEditWorldsText() { return QCoreApplication::translate("InstanceSettingsDialog", "批量编辑"); }
     static QString batchEditWorldsTip() {
-        return QStringLiteral("批量编辑存档（暂不可用）。");
+        return QCoreApplication::translate("InstanceSettingsDialog", "批量编辑存档（暂不可用）。");
     }
 
     // ---- 启动栏那两颗「动作」按钮（导出启动脚本 / 补全版本文件）----
@@ -1148,14 +1149,14 @@ public:
     /// 「补全版本文件」（校验并补齐这个实例的文件）。
     static QString repairFilesButtonName() { return QStringLiteral("instanceRepairFilesButton"); }
     /// 两颗按钮上的字（= 它们的行名，也是这两件事的**唯一名字**）。
-    static QString exportScriptText() { return QStringLiteral("导出启动脚本"); }
-    static QString repairFilesText() { return QStringLiteral("补全版本文件"); }
+    static QString exportScriptText() { return QCoreApplication::translate("InstanceSettingsDialog", "导出启动脚本"); }
+    static QString repairFilesText() { return QCoreApplication::translate("InstanceSettingsDialog", "补全版本文件"); }
     /// 两颗按钮的 tooltip，以及那一行下面那句合起来的说明。
     static QString exportScriptHint() {
-        return QStringLiteral("导出独立启动脚本。正版脚本不保存令牌，运行时需提供 WTFML_MC_ACCESS_TOKEN。");
+        return QCoreApplication::translate("InstanceSettingsDialog", "导出独立启动脚本。正版脚本不保存令牌，运行时需提供 WTFML_MC_ACCESS_TOKEN。");
     }
     static QString repairFilesHint() {
-        return QStringLiteral("校验并补齐客户端、库和资源；下载或安装期间不可执行。");
+        return QCoreApplication::translate("InstanceSettingsDialog", "校验并补齐客户端、库和资源；下载或安装期间不可执行。");
     }
     /// 两颗按钮下面那一句。**两句都要留着**：上面那一颗带着"导出的脚本里有令牌"这句
     /// 安全警告，光放 tooltip 里会有人一辈子看不到。
@@ -1163,12 +1164,12 @@ public:
 
     // ---- 概览栏那颗「检查并修复」----
     static QString integrityCheckButtonName() { return QStringLiteral("instanceIntegrityCheckButton"); }
-    static QString integrityCheckText() { return QStringLiteral("检查并修复"); }
+    static QString integrityCheckText() { return QCoreApplication::translate("InstanceSettingsDialog", "检查并修复"); }
     static QString integrityCheckHint() {
-        return QStringLiteral("只读检查缺失或损坏文件，确认后修复。");
+        return QCoreApplication::translate("InstanceSettingsDialog", "只读检查缺失或损坏文件，确认后修复。");
     }
     static QString integrityCheckTooltip() {
-        return QStringLiteral("后台扫描，完成后显示检查报告。");
+        return QCoreApplication::translate("InstanceSettingsDialog", "后台扫描，完成后显示检查报告。");
     }
 
     // ---- 概览栏那两颗「快照」----
@@ -1180,21 +1181,21 @@ public:
     // 整合包）。同一个实例上再来一颗叫「备份」的，用户分不清哪一颗是"我自己要回去用的"。
     // 快照 = 给我自己还原用的那一份（默认排除能重新下回来的 assets / libraries）。
     static QString createSnapshotButtonName() { return QStringLiteral("instanceSnapshotButton"); }
-    static QString createSnapshotText() { return QStringLiteral("创建快照…"); }
+    static QString createSnapshotText() { return QCoreApplication::translate("InstanceSettingsDialog", "创建快照…"); }
     /// 那一格下面那句解释。**要点名默认排除的是什么** —— 那是用户唯一需要知道的分岔。
     static QString createSnapshotHint() {
-        return QStringLiteral("备份模组、配置和存档，可选择是否包含游戏库和资源。");
+        return QCoreApplication::translate("InstanceSettingsDialog", "备份模组、配置和存档，可选择是否包含游戏库和资源。");
     }
     static QString createSnapshotTooltip() {
-        return QStringLiteral("后台创建快照，保存到启动器的实例备份目录。");
+        return QCoreApplication::translate("InstanceSettingsDialog", "后台创建快照，保存到启动器的实例备份目录。");
     }
     static QString restoreSnapshotButtonName() { return QStringLiteral("instanceRestoreSnapshotButton"); }
-    static QString restoreSnapshotText() { return QStringLiteral("从快照恢复…"); }
+    static QString restoreSnapshotText() { return QCoreApplication::translate("InstanceSettingsDialog", "从快照恢复…"); }
     static QString restoreSnapshotHint() {
-        return QStringLiteral("还原前自动备份当前实例，还原后校验文件。");
+        return QCoreApplication::translate("InstanceSettingsDialog", "还原前自动备份当前实例，还原后校验文件。");
     }
     static QString restoreSnapshotTooltip() {
-        return QStringLiteral("还原将覆盖当前实例文件。");
+        return QCoreApplication::translate("InstanceSettingsDialog", "还原将覆盖当前实例文件。");
     }
 
     // ---- 文件管理那八页的文案与 objectName----
@@ -1218,8 +1219,8 @@ public:
     /// 只在目录存在或相关模组可识别时**优先展示**，其他项收在"更多目录"里
     /// —— 它是那两段之间的**唯一开关**。一条"现在没有的"都没有时，**它自己也不摆**
     /// （不摆一颗按下去什么都不变的按钮）。
-    static QString shortcutMoreText() { return QStringLiteral("更多目录…"); }
-    static QString shortcutMoreLessText() { return QStringLiteral("收起更多目录"); }
+    static QString shortcutMoreText() { return QCoreApplication::translate("InstanceSettingsDialog", "更多目录…"); }
+    static QString shortcutMoreLessText() { return QCoreApplication::translate("InstanceSettingsDialog", "收起更多目录"); }
     static QString shortcutMoreButtonName() { return QStringLiteral("instanceShortcutMore"); }
 
     /// 这一排里**现在真有东西**的那几个键（`shortcutPathKeys()` 里的值）。
@@ -1311,7 +1312,7 @@ public:
     static QString configUpButtonName() {
         return QStringLiteral("instanceConfigUpButton");
     }
-    static QString configUpText() { return QStringLiteral("上一级"); }
+    static QString configUpText() { return QCoreApplication::translate("InstanceSettingsDialog", "上一级"); }
 
     static QString serverTreeName() { return QStringLiteral("instanceServerTree"); }
     static QString serverNoticeName() { return QStringLiteral("instanceServerNotice"); }
@@ -1330,65 +1331,65 @@ public:
     static QString serverJoinButtonName() {
         return QStringLiteral("instanceServerJoinButton");
     }
-    static QString serverRefreshText() { return QStringLiteral("刷新"); }
+    static QString serverRefreshText() { return QCoreApplication::translate("InstanceSettingsDialog", "刷新"); }
     /// 「编辑」：改**选中的那一台**的名字和地址。
     ///
     /// NOTE: 没选中一条时它是**灰的**（见 updateServerSelectionActions()）—— "编辑哪一台"
     /// 这个问题只有一个答案，而那个答案就是选中那一行。
-    static QString serverEditText() { return QStringLiteral("编辑"); }
+    static QString serverEditText() { return QCoreApplication::translate("InstanceSettingsDialog", "编辑"); }
     static QString serverEditTip() {
-        return QStringLiteral("编辑所选服务器的名称和地址。");
+        return QCoreApplication::translate("InstanceSettingsDialog", "编辑所选服务器的名称和地址。");
     }
     /// 「添加」：往列表里加一台服务器。
     ///
     /// NOTE: 和「编辑」不同，它**不跟着选中走** —— 要加的那一台还没出现在表里，没有
     /// "先选中"这一步，所以它**常亮**（连一条都没有的时候尤其要能按）。
-    static QString serverAddText() { return QStringLiteral("添加"); }
+    static QString serverAddText() { return QCoreApplication::translate("InstanceSettingsDialog", "添加"); }
     static QString serverAddTip() {
-        return QStringLiteral("添加服务器；地址必填，名称可选。");
+        return QCoreApplication::translate("InstanceSettingsDialog", "添加服务器；地址必填，名称可选。");
     }
     /// 「删除」：把选中那一台从列表里拿掉。
     ///
     /// NOTE: 它是这一页上唯一一颗**真会从盘上拿掉东西**的键，所以
     /// ① 没选中一条时灰着（同「编辑」）；② 按下去还有一道问话（`InlineMessage::question`
     /// 的 destructive 那一档，在 MainWindow 里）—— 这一层只发一条信号。
-    static QString serverDeleteText() { return QStringLiteral("删除"); }
+    static QString serverDeleteText() { return QCoreApplication::translate("InstanceSettingsDialog", "删除"); }
     static QString serverDeleteTip() {
-        return QStringLiteral("从服务器列表中移除所选项。");
+        return QCoreApplication::translate("InstanceSettingsDialog", "从服务器列表中移除所选项。");
     }
     /// 「加入服务器」（**临时占位**，见 setServerJoinText()）。
-    static QString serverJoinText() { return QStringLiteral("加入服务器"); }
+    static QString serverJoinText() { return QCoreApplication::translate("InstanceSettingsDialog", "加入服务器"); }
     static QString serverJoinTip() {
-        return QStringLiteral("启动游戏并加入所选服务器，需要游戏支持快速加入。");
+        return QCoreApplication::translate("InstanceSettingsDialog", "启动游戏并加入所选服务器，需要游戏支持快速加入。");
     }
     /// 「编辑」「删除」「加入」三颗在**没选中一条**时按不动 —— 悬停提示里说清为什么。
     /// （「添加」也在这一组旁边，但它不跟着选中走，见 `serverAddText()` 那条 NOTE。）
     static QString serverSelectFirstHint() {
-        return QStringLiteral("请先选择服务器。");
+        return QCoreApplication::translate("InstanceSettingsDialog", "请先选择服务器。");
     }
     /// 「刷新」正在重读 + 重测的时候那颗按钮上的字。
-    static QString serverPingingText() { return QStringLiteral("刷新中…"); }
+    static QString serverPingingText() { return QCoreApplication::translate("InstanceSettingsDialog", "刷新中…"); }
     /// 还没测过的那一格写什么（**不是空着**：空着和"测了没通"在屏幕上是同一个样子）。
-    static QString serverUntestedText() { return QStringLiteral("还没测"); }
+    static QString serverUntestedText() { return QCoreApplication::translate("InstanceSettingsDialog", "还没测"); }
     /// 超时那一档在界面上**就写这两个字**，不加别的解释。
     ///
     /// NOTE: 和 `Status::timedOut` 那一位配着用 —— 那一位才是判据，这一句只是写出来的字。
     /// 那一格窄（`ResizeToContents`），而「它没答话」和「网络不通」这两个理由对这个
     /// 格子的读者（想点进去玩的人）是同一件事：现在连不上。
-    static QString serverTimeoutText() { return QStringLiteral("超时"); }
+    static QString serverTimeoutText() { return QCoreApplication::translate("InstanceSettingsDialog", "超时"); }
     /// 地址那一格悬停提示里那句**告诉用户右键能复制**的话。
     ///
     /// NOTE: 唯一出处。那一格显示的是**遮过的**地址（`m-.h-.c-`），所以这句话还得说清
     /// "复制到的是完整的那个" —— 不然用户看到 `m-.h-.c-`、复制出来却是一长串，
     /// 会以为我们复制错了东西。
     static QString serverAddressCopyHint() {
-        return QStringLiteral("右键复制完整的地址");
+        return QCoreApplication::translate("InstanceSettingsDialog", "右键复制完整的地址");
     }
     // NOTE: 状态那一格**不加任何前缀**（连「上次：」都不行）—— 缓存里那一份和当场
     // 测出来那一份写的是同一句字。要在界面上给这一格加前缀，等于重新发明一句不该出现的话。
-    static QString serverNameColumnText() { return QStringLiteral("名称"); }
-    static QString serverAddressColumnText() { return QStringLiteral("地址"); }
-    static QString serverStatusColumnText() { return QStringLiteral("状态"); }
+    static QString serverNameColumnText() { return QCoreApplication::translate("InstanceSettingsDialog", "名称"); }
+    static QString serverAddressColumnText() { return QCoreApplication::translate("InstanceSettingsDialog", "地址"); }
+    static QString serverStatusColumnText() { return QCoreApplication::translate("InstanceSettingsDialog", "状态"); }
 
     /// 地址那一栏显示的**遮过的**写法。**唯一出处**（完整地址只在悬停提示里给）。
     ///
@@ -1404,9 +1405,9 @@ public:
     /// NOTE: 认不出来（空串、光一个方括号）就**原样回**，不猜也不报错：这一格只是个显示，
     /// 真正的"这个地址能不能用"由 ServerPing::splitAddress 说了算。
     static QString maskedServerAddress(const QString &address);
-    static QString serverEmptyText() { return QStringLiteral("暂无服务器"); }
+    static QString serverEmptyText() { return QCoreApplication::translate("InstanceSettingsDialog", "暂无服务器"); }
     /// 服务器名字那一格是空的的时候顶上什么字。servers.dat 里的 name 真能是空串。
-    static QString unnamedMark() { return QStringLiteral("（无名）"); }
+    static QString unnamedMark() { return QCoreApplication::translate("InstanceSettingsDialog", "（无名）"); }
 
     /// 「光影包」那一页用不上时那句话（唯一出处，验证工程也按它核对）。
     static QString shaderUnavailableText();
@@ -1430,23 +1431,23 @@ public:
         return QStringLiteral("instanceSettingsShowPage-") + key;
     }
     /// 那一小块的字（**它的行名**）。
-    static QString showPagesLabelText() { return QStringLiteral("显示哪些页"); }
+    static QString showPagesLabelText() { return QCoreApplication::translate("InstanceSettingsDialog", "显示哪些页"); }
     /// 可用那几条的 tooltip（"勾上左边那一列里就有这一页…"）。
     static QString pageShownHint();
 
     /// 第二行右边那颗按钮上的字（**唯一出处**：它是打开那个浮层的按钮，也是这一项的
     /// 名字 —— 概览这一栏没有单独的行名）。
-    static QString groupButtonText() { return QStringLiteral("分组…"); }
+    static QString groupButtonText() { return QCoreApplication::translate("InstanceSettingsDialog", "分组…"); }
     /// 第三行那个勾选框上的字。它说的是"在收藏组中另留一条快捷入口"，
     /// **不是把实例搬过去**。
-    static QString pinCheckText() { return QStringLiteral("加入收藏"); }
+    static QString pinCheckText() { return QCoreApplication::translate("InstanceSettingsDialog", "加入收藏"); }
     /// 「更改图标」/「导出…」两颗按钮上的字。
-    static QString changeIconText() { return QStringLiteral("更改图标"); }
+    static QString changeIconText() { return QCoreApplication::translate("InstanceSettingsDialog", "更改图标"); }
     /// 实例操作 → 导出页的主动作。
-    static QString exportText() { return QStringLiteral("导出整合包…"); }
+    static QString exportText() { return QCoreApplication::translate("InstanceSettingsDialog", "导出整合包…"); }
     /// 浮层里那两个动作按钮上的字。
-    static QString iconPickText() { return QStringLiteral("选一张图片…"); }
-    static QString iconResetText() { return QStringLiteral("恢复默认"); }
+    static QString iconPickText() { return QCoreApplication::translate("InstanceSettingsDialog", "选一张图片…"); }
+    static QString iconResetText() { return QCoreApplication::translate("InstanceSettingsDialog", "恢复默认"); }
     /// 八个内置候选在界面上叫什么（顺序与 VersionIcons::iconCandidateKeys() 一一对应；
     /// 后四个故意同一个字：加载器名在设置页 / 安装页里就叫这个）。
     static QStringList iconCandidateTexts();
@@ -1455,14 +1456,14 @@ public:
     static QString ungroupedGroupText();
     /// 「更改图标」那个浮层下面那句话。
     static QString iconHint() {
-        return QStringLiteral("选择实例图标。");
+        return QCoreApplication::translate("InstanceSettingsDialog", "选择实例图标。");
     }
     /// 勾选框下面那句话：两边各摆一条，说明白"原组那份不动"。
     ///
     /// NOTE: 它得说清三件事：勾上之后**哪儿多出一条**、**原来那份不动**、取消勾选之后
     /// 哪一条没了 —— 少说中间那一件，用户就会以为勾上等于"搬家"。
     static QString pinHint() {
-        return QStringLiteral("添加到收藏，原分组不变。主页按显示数量和最近启动时间展示。");
+        return QCoreApplication::translate("InstanceSettingsDialog", "添加到收藏，原分组不变。主页按显示数量和最近启动时间展示。");
     }
     /// 第四行那颗按钮下面那句话（**看得见的那一行**，短）。
     ///
@@ -1470,16 +1471,15 @@ public:
     /// 长了会把整页的 sizeHint 顶起来 —— 页面上那条 E5 断言钉的就是它），而 tooltip
     /// 该说全（.mrpack / .zip 的区别、认不出来的东西会怎样）。所以拆成两个函数。
     static QString exportHint() {
-        return QStringLiteral("导出为 Modrinth 或 CurseForge 整合包，包含可识别的资源清单和配置。"
-                              "保留完整用户数据请使用快照。");
+        return QCoreApplication::translate("InstanceSettingsDialog", "导出为 Modrinth 或 CurseForge 整合包，包含可识别的资源清单和配置。" "保留完整用户数据请使用快照。");
     }
     /// 那颗按钮的 tooltip（**说全的那一份**）。
     static QString exportButtonTooltip() {
-        return QStringLiteral("支持 Modrinth（.mrpack）和 CurseForge（.zip）。不含存档和截图。");
+        return QCoreApplication::translate("InstanceSettingsDialog", "支持 Modrinth（.mrpack）和 CurseForge（.zip）。不含存档和截图。");
     }
     /// 那一格下面那句解释（**唯一一处**说清"改这里 = 改磁盘上的目录名"）。
     static QString instanceNameHint() {
-        return QStringLiteral("重命名实例目录及核心文件。");
+        return QCoreApplication::translate("InstanceSettingsDialog", "重命名实例目录及核心文件。");
     }
     static QString advancedToggleName() { return QStringLiteral("instanceAdvancedToggle"); }
     static QString advancedBoxName() { return QStringLiteral("instanceAdvancedBox"); }
@@ -1523,26 +1523,26 @@ public:
     void setInstanceName(const QString &name);
 
     /// 档位下拉框里那两项的文字。**这两句是产品文案**，验证工程按它们核对而不是自己拼。
-    static QString followText() { return QStringLiteral("跟随全局"); }
-    static QString customText() { return QStringLiteral("自定义"); }
+    static QString followText() { return QCoreApplication::translate("InstanceSettingsDialog", "跟随全局"); }
+    static QString customText() { return QCoreApplication::translate("InstanceSettingsDialog", "自定义"); }
     /// 「跟随全局（当前 %1）」。@param current 全局那一项的值的可读写法。
     static QString followHint(const QString &current) {
-        return QStringLiteral("跟随全局（当前 %1）").arg(current);
+        return QCoreApplication::translate("InstanceSettingsDialog", "跟随全局（当前 %1）").arg(current);
     }
     /// 自动档下两行内存数字框的提示（也是它们被禁用的原因）。
     static QString memoryAutoDisabledHint() {
-        return QStringLiteral("自动分配内存时，手动设置不生效。");
+        return QCoreApplication::translate("InstanceSettingsDialog", "自动分配内存时，手动设置不生效。");
     }
     /// 高级选项那个折叠按钮上的字。默认折叠 —— 里面两项都是"改错了会让游戏起不来"
     /// 的东西，不该一打开对话框就摆在眼前。
-    static QString advancedToggleText() { return QStringLiteral("高级选项"); }
+    static QString advancedToggleText() { return QCoreApplication::translate("InstanceSettingsDialog", "高级选项"); }
 
     /// 追加参数那行提示的正文（也是"一条一行"这条约定的唯一出处）。
     ///
     /// NOTE: 「之后」那两个字**不许写成 `**之后**`** —— 这一页上没有任何一处设过
     /// `setTextFormat(Qt::MarkdownText)`，星号会原样画在用户眼前（全项目同一条）。
     static QString appendJvmArgsHint() {
-        return QStringLiteral("每行一条，追加在全局参数之后；相同参数以最后一项为准。");
+        return QCoreApplication::translate("InstanceSettingsDialog", "每行一条，追加在全局参数之后；相同参数以最后一项为准。");
     }
 
 protected:

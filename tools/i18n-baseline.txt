@@ -221,7 +221,6 @@ ui/GroupListDelegate.cpp	2
 ui/InlineMessage.cpp	10
 ui/InstanceFilesPage.hpp	41
 ui/InstanceSettingsDialog.cpp	2
-ui/InstanceSettingsDialog.hpp	107
 ui/InstanceSettingsLaunchPage.cpp	2
 ui/InstanceSettingsServers.cpp	6
 ui/InstanceUpgradePage.cpp	25
@@ -233,7 +232,6 @@ ui/ListRowDelegate.cpp	1
 ui/MainWindowDownloadPage.cpp	11
 ui/MainWindowHomePopovers.cpp	10
 ui/MainWindowPanels.cpp	27
-ui/MainWindowSettingsPage.cpp	95
 ui/MainWindowUI.cpp	20
 ui/NewServerPage.cpp	9
 ui/NewServerPage.hpp	1

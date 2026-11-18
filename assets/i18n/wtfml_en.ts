@@ -3329,8 +3329,380 @@ The corresponding records in the game servers.dat will be removed together.</tra
             <translation>Return to file management</translation>
         </message>
         <message>
+            <source>概览</source>
+            <translation>Overview</translation>
+        </message>
+        <message>
+            <source>启动</source>
+            <translation>Start up</translation>
+        </message>
+        <message>
+            <source>存档</source>
+            <translation>Archive</translation>
+        </message>
+        <message>
+            <source>服务器列表</source>
+            <translation>Server list</translation>
+        </message>
+        <message>
+            <source>资源包</source>
+            <translation>Resource pack</translation>
+        </message>
+        <message>
+            <source>数据包</source>
+            <translation>Packet</translation>
+        </message>
+        <message>
+            <source>模组</source>
+            <translation>Module</translation>
+        </message>
+        <message>
+            <source>光影包</source>
+            <translation>Light and shadow package</translation>
+        </message>
+        <message>
+            <source>结构/原理图</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>配置文件</source>
+            <translation>Configuration file</translation>
+        </message>
+        <message>
             <source>世界备份</source>
             <translation>World backup</translation>
+        </message>
+        <message>
+            <source>截图</source>
+            <translation>Screenshot</translation>
+        </message>
+        <message>
+            <source>结构</source>
+            <translation>Structure</translation>
+        </message>
+        <message>
+            <source>完整性检查</source>
+            <translation>Integrity check</translation>
+        </message>
+        <message>
+            <source>实例修复</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>检查与诊断</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>快照与恢复</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>导出整合包</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>实例迁移</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>版本升级</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>检查与修复</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>诊断</source>
+            <translation>Diagnosis</translation>
+        </message>
+        <message>
+            <source>备份与操作</source>
+            <translation>Backup and Operation</translation>
+        </message>
+        <message>
+            <source>启动实例</source>
+            <translation>Start an instance</translation>
+        </message>
+        <message>
+            <source>从实例设置的任意页面启动当前实例</source>
+            <translation>Launch the current instance from any page in the instance settings</translation>
+        </message>
+        <message>
+            <source>正在读取…</source>
+            <translation>Reading…</translation>
+        </message>
+        <message>
+            <source>正在检查…</source>
+            <translation>Checking…</translation>
+        </message>
+        <message>
+            <source>实例名</source>
+            <translation>Instance name</translation>
+        </message>
+        <message>
+            <source>检查更新</source>
+            <translation>Check for updates</translation>
+        </message>
+        <message>
+            <source>检查资源更新，不修改文件。</source>
+            <translation>Checks for resource updates without modifying files.</translation>
+        </message>
+        <message>
+            <source>按当前游戏版本和加载器检查资源更新；无法识别的标为「无法确认」。</source>
+            <translation>Check resource updates according to the current game version and loader; unrecognized ones are marked as "Unconfirmed".</translation>
+        </message>
+        <message>
+            <source>更新中心</source>
+            <translation>Update center</translation>
+        </message>
+        <message>
+            <source>查看检查结果、更新资源或撤销上次更新。</source>
+            <translation>View check results, update resources, or undo the last update.</translation>
+        </message>
+        <message>
+            <source>支持更新、忽略版本、固定版本和撤销上次更新。</source>
+            <translation>Supports update, ignore version, pin version and undo last update.</translation>
+        </message>
+        <message>
+            <source>复制实例</source>
+            <translation>Copy instance</translation>
+        </message>
+        <message>
+            <source>复制模组、存档和配置，创建独立实例。</source>
+            <translation>Copy modules, saves and configurations to create independent instances.</translation>
+        </message>
+        <message>
+            <source>选择目标游戏目录和副本名称。复制保留原实例，运行中的实例不能复制。</source>
+            <translation>Select the target game directory and copy name. Copying retains the original instance, and running instances cannot be copied.</translation>
+        </message>
+        <message>
+            <source>删除实例目录，文件移入回收站。</source>
+            <translation>Delete the instance directory and move the files to the Recycle Bin.</translation>
+        </message>
+        <message>
+            <source>删除实例目录，文件移入回收站。运行或安装期间不可删除；清空回收站后无法恢复。</source>
+            <translation>Delete the instance directory and move the files to the Recycle Bin. It cannot be deleted during operation or installation; it cannot be restored after emptying the Recycle Bin.</translation>
+        </message>
+        <message>
+            <source>导入世界</source>
+            <translation>Import world</translation>
+        </message>
+        <message>
+            <source>导入本地世界文件夹。</source>
+            <translation>Import the local world folder.</translation>
+        </message>
+        <message>
+            <source>批量编辑</source>
+            <translation>Batch editing</translation>
+        </message>
+        <message>
+            <source>批量编辑存档（暂不可用）。</source>
+            <translation>Batch edit archives (not available yet).</translation>
+        </message>
+        <message>
+            <source>导出启动脚本</source>
+            <translation>Export startup script</translation>
+        </message>
+        <message>
+            <source>补全版本文件</source>
+            <translation>Completion version file</translation>
+        </message>
+        <message>
+            <source>导出独立启动脚本。正版脚本不保存令牌，运行时需提供 WTFML_MC_ACCESS_TOKEN。</source>
+            <translation>Export standalone startup script. Genuine scripts do not save tokens and need to provide WTFML_MC_ACCESS_TOKEN when running.</translation>
+        </message>
+        <message>
+            <source>校验并补齐客户端、库和资源；下载或安装期间不可执行。</source>
+            <translation>Verify and complete clients, libraries, and resources; not executable during download or installation.</translation>
+        </message>
+        <message>
+            <source>检查并修复</source>
+            <translation>Check and fix</translation>
+        </message>
+        <message>
+            <source>只读检查缺失或损坏文件，确认后修复。</source>
+            <translation>Read-only checks for missing or damaged files and fixes them after confirmation.</translation>
+        </message>
+        <message>
+            <source>后台扫描，完成后显示检查报告。</source>
+            <translation>Scan in the background and display the inspection report after completion.</translation>
+        </message>
+        <message>
+            <source>创建快照…</source>
+            <translation>Create snapshot…</translation>
+        </message>
+        <message>
+            <source>备份模组、配置和存档，可选择是否包含游戏库和资源。</source>
+            <translation>Backup mods, configurations and saves, optionally with or without game libraries and assets.</translation>
+        </message>
+        <message>
+            <source>后台创建快照，保存到启动器的实例备份目录。</source>
+            <translation>Create a snapshot in the background and save it to the instance backup directory of the launcher.</translation>
+        </message>
+        <message>
+            <source>从快照恢复…</source>
+            <translation>Restore from snapshot…</translation>
+        </message>
+        <message>
+            <source>还原前自动备份当前实例，还原后校验文件。</source>
+            <translation>Automatically back up the current instance before restoring and verify the files after restoring.</translation>
+        </message>
+        <message>
+            <source>还原将覆盖当前实例文件。</source>
+            <translation>Restore will overwrite the current instance files.</translation>
+        </message>
+        <message>
+            <source>更多目录…</source>
+            <translation>More catalog…</translation>
+        </message>
+        <message>
+            <source>收起更多目录</source>
+            <translation>Close more catalogs</translation>
+        </message>
+        <message>
+            <source>上一级</source>
+            <translation>Previous level</translation>
+        </message>
+        <message>
+            <source>编辑</source>
+            <translation>Edit</translation>
+        </message>
+        <message>
+            <source>编辑所选服务器的名称和地址。</source>
+            <translation>Edit the name and address of the selected server.</translation>
+        </message>
+        <message>
+            <source>添加</source>
+            <translation>Add to</translation>
+        </message>
+        <message>
+            <source>添加服务器；地址必填，名称可选。</source>
+            <translation>Add a server; address is required, name is optional.</translation>
+        </message>
+        <message>
+            <source>删除</source>
+            <translation>Delete</translation>
+        </message>
+        <message>
+            <source>从服务器列表中移除所选项。</source>
+            <translation>Removes the selected item from the server list.</translation>
+        </message>
+        <message>
+            <source>加入服务器</source>
+            <translation>Join server</translation>
+        </message>
+        <message>
+            <source>启动游戏并加入所选服务器，需要游戏支持快速加入。</source>
+            <translation>Start the game and join the selected server. The game needs to support quick join.</translation>
+        </message>
+        <message>
+            <source>请先选择服务器。</source>
+            <translation>Please select a server first.</translation>
+        </message>
+        <message>
+            <source>刷新中…</source>
+            <translation>Refreshing…</translation>
+        </message>
+        <message>
+            <source>还没测</source>
+            <translation>Not tested yet</translation>
+        </message>
+        <message>
+            <source>超时</source>
+            <translation>Time out</translation>
+        </message>
+        <message>
+            <source>右键复制完整的地址</source>
+            <translation>Right click and copy the complete address</translation>
+        </message>
+        <message>
+            <source>名称</source>
+            <translation>Name</translation>
+        </message>
+        <message>
+            <source>地址</source>
+            <translation>Address</translation>
+        </message>
+        <message>
+            <source>暂无服务器</source>
+            <translation>No server yet</translation>
+        </message>
+        <message>
+            <source>（无名）</source>
+            <translation>(nameless)</translation>
+        </message>
+        <message>
+            <source>显示哪些页</source>
+            <translation>Which pages to show</translation>
+        </message>
+        <message>
+            <source>分组…</source>
+            <translation>Group…</translation>
+        </message>
+        <message>
+            <source>加入收藏</source>
+            <translation>Add to favorites</translation>
+        </message>
+        <message>
+            <source>更改图标</source>
+            <translation>Change icon</translation>
+        </message>
+        <message>
+            <source>导出整合包…</source>
+            <translation>Export integration package…</translation>
+        </message>
+        <message>
+            <source>选一张图片…</source>
+            <translation>Choose a picture…</translation>
+        </message>
+        <message>
+            <source>恢复默认</source>
+            <translation>Restore default</translation>
+        </message>
+        <message>
+            <source>选择实例图标。</source>
+            <translation>Select the instance icon.</translation>
+        </message>
+        <message>
+            <source>添加到收藏，原分组不变。主页按显示数量和最近启动时间展示。</source>
+            <translation>Added to favorites, original group remains unchanged. The home page is displayed by number of displays and last launch time.</translation>
+        </message>
+        <message>
+            <source>导出为 Modrinth 或 CurseForge 整合包，包含可识别的资源清单和配置。保留完整用户数据请使用快照。</source>
+            <translation>Export as a Modrinth or CurseForge modpack with recognizable asset manifest and configuration. Please use snapshots to retain complete user data.</translation>
+        </message>
+        <message>
+            <source>支持 Modrinth（.mrpack）和 CurseForge（.zip）。不含存档和截图。</source>
+            <translation>Supports Modrinth (.mrpack) and CurseForge (.zip). Does not include archives and screenshots.</translation>
+        </message>
+        <message>
+            <source>重命名实例目录及核心文件。</source>
+            <translation>Rename the instance directory and core files.</translation>
+        </message>
+        <message>
+            <source>跟随全局</source>
+            <translation>Follow the big picture</translation>
+        </message>
+        <message>
+            <source>自定义</source>
+            <translation>Customize</translation>
+        </message>
+        <message>
+            <source>跟随全局（当前 %1）</source>
+            <translation>Follow global (currently %1)</translation>
+        </message>
+        <message>
+            <source>自动分配内存时，手动设置不生效。</source>
+            <translation>When automatically allocating memory, manual settings do not take effect.</translation>
+        </message>
+        <message>
+            <source>高级选项</source>
+            <translation>Advanced options</translation>
+        </message>
+        <message>
+            <source>每行一条，追加在全局参数之后；相同参数以最后一项为准。</source>
+            <translation>One per line, appended after the global parameters; for the same parameters, the last one shall prevail.</translation>
         </message>
         <message>
             <source>仅看收藏</source>
@@ -7021,6 +7393,377 @@ Are you sure to delete?</translation>
         <message>
             <source>工具箱</source>
             <translation>Toolbox</translation>
+        </message>
+    </context>
+    <context>
+        <name>MainWindowSettingsPage</name>
+        <message>
+            <source>搜索设置</source>
+            <translation>Search settings</translation>
+        </message>
+        <message>
+            <source>运行时</source>
+            <translation>Runtime</translation>
+        </message>
+        <message>
+            <source>Java 管理…</source>
+            <translation>Java management…</translation>
+        </message>
+        <message>
+            <source>点击打开 Java 管理</source>
+            <translation>Click to open Java Management</translation>
+        </message>
+        <message>
+            <source>Java 版本</source>
+            <translation>Java version</translation>
+        </message>
+        <message>
+            <source>自动选择符合游戏版本要求的 Java；可在实例设置中单独指定。</source>
+            <translation>Automatically selects Java that matches game version requirements; can be specified separately in instance settings.</translation>
+        </message>
+        <message>
+            <source>内存</source>
+            <translation>Memory</translation>
+        </message>
+        <message>
+            <source>自动分配</source>
+            <translation>Automatic allocation</translation>
+        </message>
+        <message>
+            <source>手动分配</source>
+            <translation>Manual allocation</translation>
+        </message>
+        <message>
+            <source>分配方式</source>
+            <translation>Distribution method</translation>
+        </message>
+        <message>
+            <source>正在读取系统内存…</source>
+            <translation>Reading system memory...</translation>
+        </message>
+        <message>
+            <source>最大内存</source>
+            <translation>Maximum memory</translation>
+        </message>
+        <message>
+            <source>游戏窗口</source>
+            <translation>Game window</translation>
+        </message>
+        <message>
+            <source>窗口模式</source>
+            <translation>Window mode</translation>
+        </message>
+        <message>
+            <source>窗口大小</source>
+            <translation>Window size</translation>
+        </message>
+        <message>
+            <source>游戏可能沿用自身保存的尺寸。</source>
+            <translation>The game may inherit its own saved dimensions.</translation>
+        </message>
+        <message>
+            <source>退出全屏后使用此尺寸。</source>
+            <translation>Use this size after exiting full screen.</translation>
+        </message>
+        <message>
+            <source>运行与日志</source>
+            <translation>Operation and log</translation>
+        </message>
+        <message>
+            <source>启动后</source>
+            <translation>After startup</translation>
+        </message>
+        <message>
+            <source>收起仅隐藏窗口，游戏不受影响。</source>
+            <translation>Collapse only hides the window, the game will not be affected.</translation>
+        </message>
+        <message>
+            <source>关闭后仍写入日志文件。</source>
+            <translation>Still writing to the log file after shutdown.</translation>
+        </message>
+        <message>
+            <source>进程优先级</source>
+            <translation>Process priority</translation>
+        </message>
+        <message>
+            <source>高于「正常」可能拖慢其他程序。</source>
+            <translation>Higher than "normal" may slow down other processes.</translation>
+        </message>
+        <message>
+            <source>文件关联</source>
+            <translation>File association</translation>
+        </message>
+        <message>
+            <source>设置…</source>
+            <translation>Set up…</translation>
+        </message>
+        <message>
+            <source>用本启动器打开</source>
+            <translation>Open with this launcher</translation>
+        </message>
+        <message>
+            <source>.jar / .zip 只进「打开方式」列表，不改默认。</source>
+            <translation>.jar / .zip only enters the "Open with" list and does not change the default.</translation>
+        </message>
+        <message>
+            <source>高级</source>
+            <translation>Advanced</translation>
+        </message>
+        <message>
+            <source>JVM 参数</source>
+            <translation>JVM parameters</translation>
+        </message>
+        <message>
+            <source>全局额外参数</source>
+            <translation>Global extra parameters</translation>
+        </message>
+        <message>
+            <source>实例参数优先于全局。</source>
+            <translation>Instance parameters take precedence over globals.</translation>
+        </message>
+        <message>
+            <source>启动前</source>
+            <translation>Before starting</translation>
+        </message>
+        <message>
+            <source>关闭后版本不符可能启动失败。</source>
+            <translation>If the version does not match after shutdown, the startup may fail.</translation>
+        </message>
+        <message>
+            <source>10 秒内再次启动同一实例时询问。</source>
+            <translation>Asked when starting the same instance again within 10 seconds.</translation>
+        </message>
+        <message>
+            <source>同时运行可能损坏存档。</source>
+            <translation>Running them simultaneously may corrupt the archive.</translation>
+        </message>
+        <message>
+            <source>下载时</source>
+            <translation>When downloading</translation>
+        </message>
+        <message>
+            <source>关闭后模组可能因缺前置无法运行。</source>
+            <translation>After closing, the module may not be able to run due to lack of front-end.</translation>
+        </message>
+        <message>
+            <source>主题</source>
+            <translation>Theme</translation>
+        </message>
+        <message>
+            <source>可选择固定主题或跟随系统。</source>
+            <translation>You can choose to fix the topic or follow the system.</translation>
+        </message>
+        <message>
+            <source>磨砂效果</source>
+            <translation>Frosted effect</translation>
+        </message>
+        <message>
+            <source>关闭可降低显卡占用。</source>
+            <translation>Turn it off to reduce graphics card usage.</translation>
+        </message>
+        <message>
+            <source>材质</source>
+            <translation>Material</translation>
+        </message>
+        <message>
+            <source>亚克力、云母需 Windows 11。</source>
+            <translation>Acrylic and mica require Windows 11.</translation>
+        </message>
+        <message>
+            <source>着色强度</source>
+            <translation>Tinting intensity</translation>
+        </message>
+        <message>
+            <source>过淡时自动加深以保证可读。</source>
+            <translation>When too light, it will automatically darken to ensure readability.</translation>
+        </message>
+        <message>
+            <source>模糊强度</source>
+            <translation>Blur intensity</translation>
+        </message>
+        <message>
+            <source>仅风景底可调。</source>
+            <translation>Only the landscape bottom is adjustable.</translation>
+        </message>
+        <message>
+            <source>图片</source>
+            <translation>Picture</translation>
+        </message>
+        <message>
+            <source>会复制到启动器数据目录。</source>
+            <translation>Will be copied to the launcher data directory.</translation>
+        </message>
+        <message>
+            <source>摆放方式</source>
+            <translation>Placement</translation>
+        </message>
+        <message>
+            <source>不透明度</source>
+            <translation>Opacity</translation>
+        </message>
+        <message>
+            <source>背景图</source>
+            <translation>Background image</translation>
+        </message>
+        <message>
+            <source>主页、管理、下载和设置页，铺满整窗。</source>
+            <translation>The home page, management, download and settings pages cover the entire window.</translation>
+        </message>
+        <message>
+            <source>外观</source>
+            <translation>Appearance</translation>
+        </message>
+        <message>
+            <source>简体中文</source>
+            <translation>Simplified Chinese</translation>
+        </message>
+        <message>
+            <source>主页标题</source>
+            <translation>Home page title</translation>
+        </message>
+        <message>
+            <source>日志颜色显示</source>
+            <translation>Log color display</translation>
+        </message>
+        <message>
+            <source>日志颜色</source>
+            <translation>Log color</translation>
+        </message>
+        <message>
+            <source>对新日志窗口生效。</source>
+            <translation>Effective for new log windows.</translation>
+        </message>
+        <message>
+            <source>每日一言</source>
+            <translation>A word a day</translation>
+        </message>
+        <message>
+            <source>每天向 hitokoto 和 ZenQuotes（zenquotes.io）取一句，不带个人信息；关闭后不请求。</source>
+            <translation>Get a quote every day from hitokoto and ZenQuotes (zenquotes.io) without personal information; no requests after closing.</translation>
+        </message>
+        <message>
+            <source>版本名格式</source>
+            <translation>Version name format</translation>
+        </message>
+        <message>
+            <source>自定义名</source>
+            <translation>Custom name</translation>
+        </message>
+        <message>
+            <source>版本名</source>
+            <translation>Version name</translation>
+        </message>
+        <message>
+            <source>加载器名</source>
+            <translation>Loader name</translation>
+        </message>
+        <message>
+            <source>加载器版本</source>
+            <translation>Loader version</translation>
+        </message>
+        <message>
+            <source>我的世界</source>
+            <translation>Minecraft</translation>
+        </message>
+        <message>
+            <source>预览：%1</source>
+            <translation>Preview: %1</translation>
+        </message>
+        <message>
+            <source>显示字段</source>
+            <translation>Show fields</translation>
+        </message>
+        <message>
+            <source>不更改实例文件夹名。</source>
+            <translation>The instance folder name is not changed.</translation>
+        </message>
+        <message>
+            <source>动效</source>
+            <translation>Animation</translation>
+        </message>
+        <message>
+            <source>系统开启「减少动画」时自动关闭。</source>
+            <translation>The system automatically turns off "Reduce Animation" when it is turned on.</translation>
+        </message>
+        <message>
+            <source>主页快速启动</source>
+            <translation>Home page quick launch</translation>
+        </message>
+        <message>
+            <source> 个</source>
+            <translation>Indivual</translation>
+        </message>
+        <message>
+            <source>隐藏</source>
+            <translation>Hide</translation>
+        </message>
+        <message>
+            <source>收藏</source>
+            <translation>Collect</translation>
+        </message>
+        <message>
+            <source>上次游玩</source>
+            <translation>Last time played</translation>
+        </message>
+        <message>
+            <source>主题（高级）</source>
+            <translation>Themes (Advanced)</translation>
+        </message>
+        <message>
+            <source>自定义错误、警告和成功状态的颜色；「跟随预设」恢复主题配色。</source>
+            <translation>Customize the colors of error, warning and success status; "Follow Default" restores the theme color.</translation>
+        </message>
+        <message>
+            <source>高级配色</source>
+            <translation>Advanced color matching</translation>
+        </message>
+        <message>
+            <source>导出不含图片，仅保存路径。</source>
+            <translation>The export does not contain images, only the paths are saved.</translation>
+        </message>
+        <message>
+            <source>恢复全部默认包含背景设置。</source>
+            <translation>Restore all default settings including background.</translation>
+        </message>
+        <message>
+            <source>下载源</source>
+            <translation>Download source</translation>
+        </message>
+        <message>
+            <source>来源</source>
+            <translation>Source</translation>
+        </message>
+        <message>
+            <source>优先源速度缓慢时，自动改用另一个源。</source>
+            <translation>When the priority source is slow, another source is automatically used.</translation>
+        </message>
+        <message>
+            <source>镜像服务由 BMCLAPI 提供。</source>
+            <translation>The mirror service is provided by BMCLAPI.</translation>
+        </message>
+        <message>
+            <source>调低可减少限流与超时。</source>
+            <translation>Turn it down to reduce throttling and timeouts.</translation>
+        </message>
+        <message>
+            <source>不含工具箱直链下载。</source>
+            <translation>Direct link download of toolbox is not included.</translation>
+        </message>
+        <message>
+            <source>对之后发起的请求生效。</source>
+            <translation>It will be effective for subsequent requests.</translation>
+        </message>
+        <message>
+            <source>API 密钥：约 60 个字符，明文显示便于核对</source>
+            <translation>API key: about 60 characters, displayed in clear text for easy verification</translation>
+        </message>
+        <message>
+            <source>下载的文件</source>
+            <translation>Downloaded files</translation>
+        </message>
+        <message>
+            <source>仅限从实例设置发起的下载。</source>
+            <translation>Only downloads initiated from instance settings.</translation>
         </message>
     </context>
     <context>
