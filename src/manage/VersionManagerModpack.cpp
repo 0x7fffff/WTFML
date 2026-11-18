@@ -21,6 +21,7 @@
  */
 
 #include "VersionManager.hpp"
+#include <QCoreApplication>
 #include "VersionManagerInternals.hpp"
 
 #include <QDateTime>
@@ -140,9 +141,7 @@ void VersionManager::importModpack(const QString &zipPath, const QString &instan
         pack.declaredFileCount != 0 && (!pack.pendingRefs.isEmpty() || pack.fileIssues.isEmpty())) {
         emit versionDownloadFinished(
             instanceId, false,
-            tr("这个 CurseForge 整合包的文件清单没有换成下载地址：那种清单里只有编号，"
-               "要先问一次 CurseForge 的接口才换得出来。没有导入，再试一次；一直这样的话，"
-               "在设置页「下载」栏里填一份自己的 CurseForge API key。"));
+            tr("这个 CurseForge 整合包的文件清单没有换成下载地址：那种清单里只有编号，要先问一次 CurseForge 的接口才换得出来。没有导入，再试一次；一直这样的话，在设置页「下载」栏里填一份自己的 CurseForge API key。"));
         return;
     }
 
@@ -238,8 +237,7 @@ void VersionManager::startModpackFiles() {
         return;
     }
     if (!writeVersionJson(id, AppPaths::versionDir(id), json, &error)) {
-        failModpackImport(tr("实例的版本文件没能写进 %1：%2\n\n（这份文件是启动器认这个实例的"
-                             "凭据，写不进去就等于没导入。）")
+        failModpackImport(tr("实例的版本文件没能写进 %1：%2\n\n（这份文件是启动器认这个实例的凭据，写不进去就等于没导入。）")
                               .arg(AppPaths::versionDir(id), error));
         return;
     }
@@ -334,8 +332,7 @@ void VersionManager::extractModpackOverrides() {
             return;
         }
         if (!result->ok) {
-            failModpackImport(tr("整合包里的覆盖文件没能解开：%1\n\n（清单里那些文件已经下好在 %2 "
-                                 "里了，缺的是 config、资源包、光影这些。）")
+            failModpackImport(tr("整合包里的覆盖文件没能解开：%1\n\n（清单里那些文件已经下好在 %2 里了，缺的是 config、资源包、光影这些。）")
                                   .arg(result->error, destination));
             return;
         }
@@ -415,8 +412,7 @@ void VersionManager::commitModpackImport(const QList<ModpackImport::FileIssue> &
         // 必须在写 meta、移除 importing 标记之前终止，否则缺文件也会变成正常实例。
         QStringList details;
         for (const auto &issue : issues) details.append(ModpackInstallReport::description(issue));
-        failModpackImport(tr("整合包仍不完整，已下载文件和覆盖内容均保留，没有标记为安装成功。\n\n%1"
-            "\n\n逐项清单：%2\n补齐后可在报告中点击“完成安装”；缺少有效安装凭据的旧安装仍需原包同名继续导入。")
+        failModpackImport(tr("整合包仍不完整，已下载文件和覆盖内容均保留，没有标记为安装成功。\n\n%1\n\n逐项清单：%2\n补齐后可在报告中点击“完成安装”；缺少有效安装凭据的旧安装仍需原包同名继续导入。")
             .arg(details.join(QStringLiteral("\n\n")),
                  QDir::toNativeSeparators(AppPaths::versionDir(id) + QStringLiteral("/wtfml.import-report.json"))));
         return;
@@ -427,8 +423,7 @@ void VersionManager::commitModpackImport(const QList<ModpackImport::FileIssue> &
     // 撞过两次（见 InstanceFiles.hpp 里 recognized() 那段），所以这里宁可多问一句。
     const InstanceFiles::Resolved resolved = InstanceFiles::resolveInstance(id);
     if (!resolved.recognized()) {
-        failModpackImport(tr("文件已全部安装，但 %1 未被识别为实例（版本 json 有误？）——"
-                             "列表中将看不到它。整个目录位于 %2；请删除该目录后重新导入。")
+        failModpackImport(tr("文件已全部安装，但 %1 未被识别为实例（版本 json 有误？）——列表中将看不到它。整个目录位于 %2；请删除该目录后重新导入。")
                               .arg(id, AppPaths::versionDir(id)));
         return;
     }
@@ -464,8 +459,7 @@ void VersionManager::commitModpackImport(const QList<ModpackImport::FileIssue> &
     // 变成"进了游戏才发现少个 mod"。
     QString extra;
     if (skipped > 0) {
-        extra += tr("（清单里有 %1 个文件按包里的说明跳过了：只给服务端用、没有下载地址、"
-                    "或者它自己是一个要单独装的整合包）")
+        extra += tr("（清单里有 %1 个文件按包里的说明跳过了：只给服务端用、没有下载地址、或者它自己是一个要单独装的整合包）")
                      .arg(skipped);
     }
     if (extracted > 0) {
@@ -638,8 +632,7 @@ bool VersionManager::writeNamedInstanceJson() {
 
     QString error;
     if (!writeVersionJson(id, AppPaths::versionDir(id), json, &error)) {
-        failNamedInstance(tr("实例的版本文件没能写进 %1：%2\n\n（这份文件是启动器认这个实例的"
-                             "凭据，写不进去就等于没装成。）")
+        failNamedInstance(tr("实例的版本文件没能写进 %1：%2\n\n（这份文件是启动器认这个实例的凭据，写不进去就等于没装成。）")
                               .arg(AppPaths::versionDir(id), error));
         return false;
     }

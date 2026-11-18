@@ -7,6 +7,7 @@
  */
 
 #include "controllers/ServerRunController.hpp"
+#include <QCoreApplication>
 
 #include "InlineMessage.hpp"
 #include "MainWindow.hpp"
@@ -49,8 +50,7 @@ void ServerRunController::start(const QString &serverId, bool automatic) {
         } else {
             InlineMessage::information(
                 m_owner.m_ui->overlay(), MainWindow::tr("暂时不能启动"),
-                MainWindow::tr("它的世界正在备份或还原，请完成后再启动 —— 否则会读写到"
-                   "一半新、一半旧的存档。"));
+                MainWindow::tr("它的世界正在备份或还原，请完成后再启动 —— 否则会读写到一半新、一半旧的存档。"));
         }
         return;
     }
@@ -231,7 +231,6 @@ void ServerRunController::onExited(const QString &serverId, int exitCode) {
     // 弹窗 —— 用户点了启动之后常常就去干别的了，不弹一下他看不见。
     InlineMessage::warning(
         m_owner.m_ui->overlay(), MainWindow::tr("这个服务端退出了"),
-        MainWindow::tr("「%1」%2。\n\n控制台里最后那几行写着它退出之前在说什么 ——"
-           "右键这一行点「打开控制台」就能看见。")
+        MainWindow::tr("「%1」%2。\n\n控制台里最后那几行写着它退出之前在说什么 ——右键这一行点「打开控制台」就能看见。")
             .arg(shown, exitReason));
 }

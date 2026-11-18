@@ -1,4 +1,5 @@
 #include "InlineMessage.hpp"
+#include <QCoreApplication>
 #include "OverlayHost.hpp"
 #include "DirectDownloadController.hpp"
 #include "ActivityCenterController.hpp"
@@ -199,7 +200,7 @@ void DirectDownloadController::startJob(Tasks::TaskId id, const DirectDownloadRe
         const auto target = validated.path;
         const auto guard = [target, original] {
             return DownloadCheckpoint::fingerprint(target) == original ? QString()
-                : QStringLiteral("目标已被外部修改，请重新预览；未覆盖。");
+                : QCoreApplication::translate("DirectDownloadController", "目标已被外部修改，请重新预览；未覆盖。");
         };
         if (!guard().isEmpty()) { finish(false, guard()); return; }
         m_download->setCommitGuard(guard);

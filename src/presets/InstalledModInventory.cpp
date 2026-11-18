@@ -1,4 +1,5 @@
 #include "InstalledModInventory.hpp"
+#include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDir>
 #include <QElapsedTimer>
@@ -16,9 +17,9 @@ InstalledModInventory scanInstalledMods(const QString &root, const std::atomic_b
     const QString modsPath = QDir(root).filePath(QStringLiteral("mods"));
     if (!QDir::isAbsolutePath(root) || !QFileInfo(root).isDir() || QFileInfo(root).isSymLink() || QFileInfo(root).isJunction()
         || QFileInfo(modsPath).isSymLink() || QFileInfo(modsPath).isJunction())
-        return fail(QStringLiteral("实例或模组目录不安全，未读取已安装模组。"));
+        return fail(QCoreApplication::translate("InstalledModInventory", "实例或模组目录不安全，未读取已安装模组。"));
     if (QFileInfo(modsPath).exists() && !QFileInfo(modsPath).isDir())
-        return fail(QStringLiteral("模组路径不是目录，未允许安装。"));
+        return fail(QCoreApplication::translate("InstalledModInventory", "模组路径不是目录，未允许安装。"));
     QJsonArray records;
     const QString auditPath = QDir(root).filePath(QStringLiteral("wtfml.preset-mod-install.json"));
     QFile audit(auditPath);
@@ -37,16 +38,16 @@ InstalledModInventory scanInstalledMods(const QString &root, const std::atomic_b
     const auto entries = QDir(modsPath).entryInfoList(QDir::Files | QDir::NoDotAndDotDot, QDir::Name);
     for (const auto &entry : entries) {
         if (entry.suffix().compare(QStringLiteral("jar"), Qt::CaseInsensitive) != 0) continue;
-        if (result.files.size() >= 10000) return fail(QStringLiteral("已安装模组超过安全扫描上限（10000 项）。"));
-        if (entry.isSymLink() || entry.isJunction()) return fail(QStringLiteral("模组文件是目录链接，未允许安装：%1").arg(entry.fileName()));
+        if (result.files.size() >= 10000) return fail(QCoreApplication::translate("InstalledModInventory", "已安装模组超过安全扫描上限（10000 项）。"));
+        if (entry.isSymLink() || entry.isJunction()) return fail(QCoreApplication::translate("InstalledModInventory", "模组文件是目录链接，未允许安装：%1").arg(entry.fileName()));
         QFile file(entry.absoluteFilePath());
-        if (!file.open(QIODevice::ReadOnly)) return fail(QStringLiteral("无法读取已安装模组：%1").arg(entry.fileName()));
+        if (!file.open(QIODevice::ReadOnly)) return fail(QCoreApplication::translate("InstalledModInventory", "无法读取已安装模组：%1").arg(entry.fileName()));
         QCryptographicHash hash(QCryptographicHash::Sha1);
         while (!file.atEnd()) {
             if ((cancel && cancel->load(std::memory_order_relaxed)) || timer.elapsed() > 600000)
-                return fail(QStringLiteral("已安装模组扫描已取消或超时。"));
+                return fail(QCoreApplication::translate("InstalledModInventory", "已安装模组扫描已取消或超时。"));
             const auto bytes = file.read(1024 * 1024);
-            if (bytes.isEmpty()) return fail(QStringLiteral("读取已安装模组失败：%1").arg(entry.fileName()));
+            if (bytes.isEmpty()) return fail(QCoreApplication::translate("InstalledModInventory", "读取已安装模组失败：%1").arg(entry.fileName()));
             hash.addData(bytes);
         }
         InstalledModFile found;
@@ -59,14 +60,14 @@ InstalledModInventory scanInstalledMods(const QString &root, const std::atomic_b
             if (key.startsWith(QStringLiteral("modrinth:")) || key.startsWith(QStringLiteral("curseforge:"))) {
                 if (!found.projectKey.isEmpty() && (found.projectKey != key
                     || (!found.versionId.isEmpty() && !version.isEmpty() && found.versionId != version)))
-                    return fail(QStringLiteral("模组安装记录的身份相互冲突：%1").arg(entry.fileName()));
+                    return fail(QCoreApplication::translate("InstalledModInventory", "模组安装记录的身份相互冲突：%1").arg(entry.fileName()));
                 found.projectKey = key;
                 if (!version.isEmpty()) found.versionId = version;
             }
         }
         result.files.append(found);
     }
-    if (cancel && cancel->load(std::memory_order_relaxed)) return fail(QStringLiteral("已安装模组扫描已取消。"));
+    if (cancel && cancel->load(std::memory_order_relaxed)) return fail(QCoreApplication::translate("InstalledModInventory", "已安装模组扫描已取消。"));
     return result;
 }
 

@@ -1,4 +1,5 @@
 #include "FileOperationRecoveryController.hpp"
+#include <QCoreApplication>
 
 #include "InlineMessage.hpp"
 #include "OverlayHost.hpp"
@@ -58,32 +59,32 @@ OperationReport::Entry entry(const QString &path, OperationReport::EntryState st
 bool copyFileAtomically(const QString &source, const QString &target, QString *problem) {
     QFile in(source);
     if (!in.open(QIODevice::ReadOnly)) {
-        if (problem) *problem = QStringLiteral("读不了 %1（%2）").arg(source, in.errorString());
+        if (problem) *problem = QCoreApplication::translate("FileOperationRecoveryController", "读不了 %1（%2）").arg(source, in.errorString());
         return false;
     }
     const QFileInfo info(target);
     if (!QDir().mkpath(info.absolutePath())) {
-        if (problem) *problem = QStringLiteral("建不出目录 %1").arg(info.absolutePath());
+        if (problem) *problem = QCoreApplication::translate("FileOperationRecoveryController", "建不出目录 %1").arg(info.absolutePath());
         return false;
     }
     QSaveFile out(target);
     if (!out.open(QIODevice::WriteOnly)) {
-        if (problem) *problem = QStringLiteral("写不进 %1（%2）").arg(target, out.errorString());
+        if (problem) *problem = QCoreApplication::translate("FileOperationRecoveryController", "写不进 %1（%2）").arg(target, out.errorString());
         return false;
     }
     while (!in.atEnd()) {
         const QByteArray chunk = in.read(1 << 20);
         if (chunk.isEmpty()) {
-            if (problem) *problem = QStringLiteral("读不了 %1（%2）").arg(source, in.errorString());
+            if (problem) *problem = QCoreApplication::translate("FileOperationRecoveryController", "读不了 %1（%2）").arg(source, in.errorString());
             return false;
         }
         if (out.write(chunk) != chunk.size()) {
-            if (problem) *problem = QStringLiteral("写不进 %1（%2）").arg(target, out.errorString());
+            if (problem) *problem = QCoreApplication::translate("FileOperationRecoveryController", "写不进 %1（%2）").arg(target, out.errorString());
             return false;
         }
     }
     if (!out.commit()) {
-        if (problem) *problem = QStringLiteral("发布不了 %1（%2）").arg(target, out.errorString());
+        if (problem) *problem = QCoreApplication::translate("FileOperationRecoveryController", "发布不了 %1（%2）").arg(target, out.errorString());
         return false;
     }
     return true;
@@ -103,7 +104,7 @@ bool FileOperationRecoveryController::registerReport(const OperationReport::Repo
                                                      QString *problem) {
     if (report.id.isEmpty()
         || (report.entries.isEmpty() && report.totalFiles <= 0)) {
-        if (problem) *problem = QStringLiteral("报告没有编号或没有任何条目，未登记。");
+        if (problem) *problem = QCoreApplication::translate("FileOperationRecoveryController", "报告没有编号或没有任何条目，未登记。");
         return false;
     }
     const QString dataRoot = contextString(report.context, kContextDataRoot).isEmpty()
@@ -121,7 +122,7 @@ bool FileOperationRecoveryController::registerReport(const OperationReport::Repo
     // 上一次会话留下的、已经没有报告在用的暂存，这里顺手收掉（只碰本模块自己的目录名）。
     cleanupStaleStaging(dataRoot);
     m_jobs.insert(saved.id, Job{path, dataRoot, saved});
-    log(QStringLiteral("已登记可续的文件操作：%1（%2）").arg(saved.title, path));
+    log(QCoreApplication::translate("FileOperationRecoveryController", "已登记可续的文件操作：%1（%2）").arg(saved.title, path));
     return true;
 }
 
@@ -160,7 +161,7 @@ QString FileOperationRecoveryController::writeFailureReport(const QString &token
     if (path.isEmpty()) {
         return QString();
     }
-    log(QStringLiteral("未能完成全部文件操作，原因报告：%1").arg(path));
+    log(QCoreApplication::translate("FileOperationRecoveryController", "未能完成全部文件操作，原因报告：%1").arg(path));
     return path;
 }
 
@@ -298,7 +299,7 @@ bool FileOperationRecoveryController::resumeWorldImport(const Job &job, Tasks::T
                               : OperationReport::EntryState::Failed,
                     result.problem));
                 for (const QString &failure : result.failures) {
-                    const int split = failure.indexOf(QStringLiteral("："));
+                    const int split = failure.indexOf(QCoreApplication::translate("FileOperationRecoveryController", "："));
                     report->entries.append(entry(
                         split > 0 ? failure.left(split) : failure,
                         OperationReport::EntryState::Failed,
@@ -360,7 +361,7 @@ bool FileOperationRecoveryController::resumeTransfer(const Job &job, Tasks::Task
                 report->entries.clear();
                 auto recordedKeys = QSet<QString>();
                 for (const auto &line : result.failures) {
-                    const int split = line.indexOf(QStringLiteral("："));
+                    const int split = line.indexOf(QCoreApplication::translate("FileOperationRecoveryController", "："));
                     const QString key = split > 0 ? line.left(split) : line;
                     if (recordedKeys.contains(key)) continue;
                     recordedKeys.insert(key);
@@ -421,7 +422,7 @@ bool FileOperationRecoveryController::resumeFileCopy(const Job &job, Tasks::Task
                 return QString();
             }
             if (policy == OperationReport::ConflictPolicy::Cancel) {
-                return QStringLiteral("目标已经存在，按当时选择的「取消」没有覆盖。");
+                return QCoreApplication::translate("FileOperationRecoveryController", "目标已经存在，按当时选择的「取消」没有覆盖。");
             }
         }
         QString problem;

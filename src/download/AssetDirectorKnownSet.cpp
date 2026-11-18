@@ -1,4 +1,5 @@
 #include "AssetDirectorKnownSet.hpp"
+#include <QCoreApplication>
 
 #include "../download/DownloadManager.hpp"
 
@@ -52,22 +53,22 @@ bool officialUrl(const QString &text) {
 
 bool fileRef(const QJsonValue &value, const QString &field, FileRef *out, QString *error) {
     if (!value.isObject()) {
-        *error = QStringLiteral("%1 不是对象。").arg(field);
+        *error = QCoreApplication::translate("AssetDirectorKnownSet", "%1 不是对象。").arg(field);
         return false;
     }
     const QJsonObject object = value.toObject();
     out->url = object.value(QStringLiteral("url")).toString();
     out->size = static_cast<qint64>(object.value(QStringLiteral("size")).toDouble(-1));
     if (!officialUrl(out->url)) {
-        *error = QStringLiteral("%1 的地址不是 Mojang 官方 HTTPS 地址。").arg(field);
+        *error = QCoreApplication::translate("AssetDirectorKnownSet", "%1 的地址不是 Mojang 官方 HTTPS 地址。").arg(field);
         return false;
     }
     if (!sha1Valid(object.value(QStringLiteral("sha1")).toString(), &out->sha1)) {
-        *error = QStringLiteral("%1 的 SHA-1 不是 40 位十六进制。").arg(field);
+        *error = QCoreApplication::translate("AssetDirectorKnownSet", "%1 的 SHA-1 不是 40 位十六进制。").arg(field);
         return false;
     }
     if (out->size <= 0 || out->size > kMaxJsonBytes) {
-        *error = QStringLiteral("%1 的字节数不合法。").arg(field);
+        *error = QCoreApplication::translate("AssetDirectorKnownSet", "%1 的字节数不合法。").arg(field);
         return false;
     }
     return true;
@@ -95,103 +96,103 @@ bool parse(const QByteArray &json, Manifest *out, QString *error) {
         return false;
     };
     if (out == nullptr) {
-        return fail(QStringLiteral("没有给出清单结果。"));
+        return fail(QCoreApplication::translate("AssetDirectorKnownSet", "没有给出清单结果。"));
     }
     out->sets.clear();
     if (json.isEmpty() || json.size() > kMaxManifestBytes) {
-        return fail(QStringLiteral("已知集合清单为空或过大。"));
+        return fail(QCoreApplication::translate("AssetDirectorKnownSet", "已知集合清单为空或过大。"));
     }
     QJsonParseError parseError{};
     const QJsonDocument document = QJsonDocument::fromJson(json, &parseError);
     if (!document.isObject()) {
-        return fail(QStringLiteral("已知集合清单不是 JSON 对象（%1）。").arg(parseError.errorString()));
+        return fail(QCoreApplication::translate("AssetDirectorKnownSet", "已知集合清单不是 JSON 对象（%1）。").arg(parseError.errorString()));
     }
     const QJsonObject root = document.object();
     if (root.value(QStringLiteral("formatVersion")).toInt(-1) != kFormatVersion) {
-        return fail(QStringLiteral("不认识的已知集合清单格式版本。"));
+        return fail(QCoreApplication::translate("AssetDirectorKnownSet", "不认识的已知集合清单格式版本。"));
     }
     const QJsonValue setsValue = root.value(QStringLiteral("knownSets"));
     if (!setsValue.isArray() || setsValue.toArray().isEmpty() || setsValue.toArray().size() > kMaxSets) {
-        return fail(QStringLiteral("已知集合清单里没有可用的条目。"));
+        return fail(QCoreApplication::translate("AssetDirectorKnownSet", "已知集合清单里没有可用的条目。"));
     }
     QSet<QString> ids;
     QSet<QString> hashes;
     for (const QJsonValue &entry : setsValue.toArray()) {
         if (!entry.isObject()) {
-            return fail(QStringLiteral("已知集合条目不是对象。"));
+            return fail(QCoreApplication::translate("AssetDirectorKnownSet", "已知集合条目不是对象。"));
         }
         const QJsonObject object = entry.toObject();
         Set set;
         set.id = object.value(QStringLiteral("id")).toString();
         static const QRegularExpression idPattern(QStringLiteral("^[a-z0-9][a-z0-9._-]{0,63}$"));
         if (!idPattern.match(set.id).hasMatch() || ids.contains(set.id)) {
-            return fail(QStringLiteral("已知集合的 id 不合法或重复：%1").arg(set.id));
+            return fail(QCoreApplication::translate("AssetDirectorKnownSet", "已知集合的 id 不合法或重复：%1").arg(set.id));
         }
         ids.insert(set.id);
         set.note = object.value(QStringLiteral("note")).toString().left(200);
         set.minecraftVersion = object.value(QStringLiteral("minecraftVersion")).toString();
         static const QRegularExpression versionPattern(QStringLiteral("^[0-9A-Za-z._-]{1,32}$"));
         if (!versionPattern.match(set.minecraftVersion).hasMatch()) {
-            return fail(QStringLiteral("%1 的 MC 版本不合法。").arg(set.id));
+            return fail(QCoreApplication::translate("AssetDirectorKnownSet", "%1 的 MC 版本不合法。").arg(set.id));
         }
         const QJsonValue patternsValue = object.value(QStringLiteral("consumerPatterns"));
         if (!patternsValue.isArray() || patternsValue.toArray().isEmpty()
             || patternsValue.toArray().size() > kMaxPatternsPerSet) {
-            return fail(QStringLiteral("%1 没有可用的消费者匹配规则。").arg(set.id));
+            return fail(QCoreApplication::translate("AssetDirectorKnownSet", "%1 没有可用的消费者匹配规则。").arg(set.id));
         }
         for (const QJsonValue &patternValue : patternsValue.toArray()) {
             const QString pattern = patternValue.toString();
             if (pattern.isEmpty() || pattern.size() > kMaxPatternLength) {
-                return fail(QStringLiteral("%1 的消费者匹配规则不合法。").arg(set.id));
+                return fail(QCoreApplication::translate("AssetDirectorKnownSet", "%1 的消费者匹配规则不合法。").arg(set.id));
             }
             const QRegularExpression expression(pattern);
             if (!expression.isValid()) {
-                return fail(QStringLiteral("%1 的消费者匹配规则无效。").arg(set.id));
+                return fail(QCoreApplication::translate("AssetDirectorKnownSet", "%1 的消费者匹配规则无效。").arg(set.id));
             }
             set.consumerPatterns.append(pattern);
         }
-        if (!fileRef(object.value(QStringLiteral("versionJson")), QStringLiteral("%1 的版本 JSON").arg(set.id),
+        if (!fileRef(object.value(QStringLiteral("versionJson")), QCoreApplication::translate("AssetDirectorKnownSet", "%1 的版本 JSON").arg(set.id),
                      &set.versionJson, error)) {
             return false;
         }
         const QJsonValue indexValue = object.value(QStringLiteral("assetIndex"));
         if (!indexValue.isObject()) {
-            return fail(QStringLiteral("%1 没有资源索引。").arg(set.id));
+            return fail(QCoreApplication::translate("AssetDirectorKnownSet", "%1 没有资源索引。").arg(set.id));
         }
         set.assetIndexId = indexValue.toObject().value(QStringLiteral("id")).toString();
         static const QRegularExpression indexIdPattern(QStringLiteral("^[0-9A-Za-z._-]{1,64}$"));
         if (!indexIdPattern.match(set.assetIndexId).hasMatch()) {
-            return fail(QStringLiteral("%1 的资源索引 id 不合法。").arg(set.id));
+            return fail(QCoreApplication::translate("AssetDirectorKnownSet", "%1 的资源索引 id 不合法。").arg(set.id));
         }
-        if (!fileRef(indexValue, QStringLiteral("%1 的资源索引").arg(set.id), &set.assetIndex, error)) {
+        if (!fileRef(indexValue, QCoreApplication::translate("AssetDirectorKnownSet", "%1 的资源索引").arg(set.id), &set.assetIndex, error)) {
             return false;
         }
         const QJsonValue objectsValue = object.value(QStringLiteral("objects"));
         if (!objectsValue.isArray() || objectsValue.toArray().isEmpty()
             || objectsValue.toArray().size() > kMaxObjectsPerSet) {
-            return fail(QStringLiteral("%1 的对象列表为空或过大。").arg(set.id));
+            return fail(QCoreApplication::translate("AssetDirectorKnownSet", "%1 的对象列表为空或过大。").arg(set.id));
         }
         QSet<QString> setHashes;
         qint64 sum = 0;
         for (const QJsonValue &objectValue : objectsValue.toArray()) {
             if (!objectValue.isObject()) {
-                return fail(QStringLiteral("%1 的对象条目不是对象。").arg(set.id));
+                return fail(QCoreApplication::translate("AssetDirectorKnownSet", "%1 的对象条目不是对象。").arg(set.id));
             }
             const QJsonObject item = objectValue.toObject();
             Object one;
             one.name = item.value(QStringLiteral("name")).toString();
             one.size = static_cast<qint64>(item.value(QStringLiteral("size")).toDouble(-1));
             if (!objectNameValid(one.name)) {
-                return fail(QStringLiteral("%1 里有不合法的对象名。").arg(set.id));
+                return fail(QCoreApplication::translate("AssetDirectorKnownSet", "%1 里有不合法的对象名。").arg(set.id));
             }
             if (!sha1Valid(item.value(QStringLiteral("hash")).toString(), &one.hash)) {
-                return fail(QStringLiteral("%1 里 %2 的哈希不是 40 位十六进制。").arg(set.id, one.name));
+                return fail(QCoreApplication::translate("AssetDirectorKnownSet", "%1 里 %2 的哈希不是 40 位十六进制。").arg(set.id, one.name));
             }
             if (one.size <= 0 || one.size > kMaxObjectBytes) {
-                return fail(QStringLiteral("%1 里 %2 的字节数不合法。").arg(set.id, one.name));
+                return fail(QCoreApplication::translate("AssetDirectorKnownSet", "%1 里 %2 的字节数不合法。").arg(set.id, one.name));
             }
             if (setHashes.contains(one.hash)) {
-                return fail(QStringLiteral("%1 里同一个哈希出现了两次。").arg(set.id));
+                return fail(QCoreApplication::translate("AssetDirectorKnownSet", "%1 里同一个哈希出现了两次。").arg(set.id));
             }
             setHashes.insert(one.hash);
             hashes.insert(one.hash);
@@ -202,7 +203,7 @@ bool parse(const QByteArray &json, Manifest *out, QString *error) {
         // 而"少算的字节数"正是上限判据要用的那一格。
         const double declared = object.value(QStringLiteral("totalBytes")).toDouble(-1);
         if (declared != static_cast<double>(sum)) {
-            return fail(QStringLiteral("%1 的总字节数和对象列表对不上。").arg(set.id));
+            return fail(QCoreApplication::translate("AssetDirectorKnownSet", "%1 的总字节数和对象列表对不上。").arg(set.id));
         }
         set.totalBytes = sum;
         out->sets.append(set);
@@ -260,7 +261,7 @@ Plan plan(const Set &set, const QString &assetsRoot, const Validator &valid) {
     result.objects = static_cast<int>(set.objects.size());
     result.bytesTotal = set.totalBytes;
     if (set.totalBytes > kMaxKnownSetBytes) {
-        result.refusal = QStringLiteral("这套已知集合有 %1 MiB，超过了允许自动下载的上限 %2 MiB。")
+        result.refusal = QCoreApplication::translate("AssetDirectorKnownSet", "这套已知集合有 %1 MiB，超过了允许自动下载的上限 %2 MiB。")
                              .arg(set.totalBytes / (1024.0 * 1024.0), 0, 'f', 1)
                              .arg(kMaxKnownSetBytes / (1024 * 1024));
         return result;

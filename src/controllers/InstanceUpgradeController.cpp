@@ -1,4 +1,5 @@
 #include "InstanceTransferController.hpp"
+#include <QCoreApplication>
 #include "InstancePagesController.hpp"
 #include "InlineMessage.hpp"
 #include "OverlayHost.hpp"
@@ -36,8 +37,7 @@ void InstanceTransferController::upgradeInPlace(QString sourceId, QString target
     }
     const QString game = AppPaths::minecraftDir();
     if (sourceId.compare(m_versions->instanceGameVersion(sourceId), Qt::CaseInsensitive) == 0) {
-        fail(tr("当前目录名是共享的原版版本号。为避免后续安装器把它当基础核心重新写入，"
-                "请先复制为自定义名称的独立实例，再执行原地升级。"));
+        fail(tr("当前目录名是共享的原版版本号。为避免后续安装器把它当基础核心重新写入，请先复制为自定义名称的独立实例，再执行原地升级。"));
         return;
     }
     const QString dependent = InstanceUpgrade::dependentInstanceProblem(game, sourceId);
@@ -77,8 +77,7 @@ void InstanceTransferController::upgradeInPlace(QString sourceId, QString target
         core.keepOldMods = reviewedKeptMods;
     } else if (contextChanged && QFileInfo(AppPaths::versionDir(sourceId) + "/mods").isDir()) {
         const int choice = InlineMessage::ask(m_overlay, MessageKind::Question, tr("旧模组处理"),
-            tr("游戏版本或加载器将变化，旧模组尚未验证适配。\n\n"
-               "建议先禁用旧模组（文件保留，后缀改为 .disabled）。保留启用状态可能导致游戏无法启动。"),
+            tr("游戏版本或加载器将变化，旧模组尚未验证适配。\n\n建议先禁用旧模组（文件保留，后缀改为 .disabled）。保留启用状态可能导致游戏无法启动。"),
             {tr("禁用旧模组"), tr("保持原状"), tr("取消升级")}, 0, -1, false);
         if (choice != 0 && choice != 1) {
             if (whenSettled) whenSettled(false, true);
@@ -90,10 +89,7 @@ void InstanceTransferController::upgradeInPlace(QString sourceId, QString target
         core.disableOldMods = false;
     }
     if (!InlineMessage::question(m_overlay, tr("原地升级"),
-        tr("将「%1」的核心替换为 %2 / %3。\n\n存档、截图、配置及其它用户文件全部保留，"
-           "不导入目标实例的用户文件。先创建并逐文件校验完整快照，再替换；"
-           "原目录另行保留，可用「回滚原地升级」恢复。\n\n以磁盘内容为准：未保存的设置请先取消并保存，"
-           "替换后会关闭当前设置页。这不会自动适配或下载模组。继续吗？")
+        tr("将「%1」的核心替换为 %2 / %3。\n\n存档、截图、配置及其它用户文件全部保留，不导入目标实例的用户文件。先创建并逐文件校验完整快照，再替换；原目录另行保留，可用「回滚原地升级」恢复。\n\n以磁盘内容为准：未保存的设置请先取消并保存，替换后会关闭当前设置页。这不会自动适配或下载模组。继续吗？")
             .arg(displayName(sourceId), core.gameVersion, core.loaderName.isEmpty() ? tr("原版") : core.loaderName),
         tr("备份并升级"), tr("取消"), false, true)) {
         if (whenSettled) whenSettled(false, true);
@@ -207,8 +203,7 @@ void InstanceTransferController::rollbackUpgrade(QString sourceId,
     // Most recent retained transaction; after rolling it back the preceding one remains available.
     const InstanceUpgrade::Request request{game, sourceId, ids.first(), displayName(sourceId), -1, {}, {}};
     if (!InlineMessage::question(m_overlay, tr("回滚原地升级"),
-        tr("恢复「%1」最近一次原地升级前的完整目录。\n\n当前版本也会另行保留，不删除文件。"
-           "升级之后的新存档进度不会合并到旧目录；如需保留，可从事务目录中的 replaced 取回。")
+        tr("恢复「%1」最近一次原地升级前的完整目录。\n\n当前版本也会另行保留，不删除文件。升级之后的新存档进度不会合并到旧目录；如需保留，可从事务目录中的 replaced 取回。")
             .arg(displayName(sourceId)), tr("恢复原实例"), tr("取消"), false, true)) {
         if (whenDone) whenDone(false, {});
         return;
@@ -316,7 +311,7 @@ void InstanceTransferController::runUpgradeJob(const InstanceUpgrade::Request &r
                 detail = tr("已完成。禁用旧模组 %1 个。恢复材料：%2")
                              .arg(result.disabledMods).arg(InstanceUpgrade::transactionDir(request));
                 if (!result.changes.isEmpty()) {
-                    detail += QStringLiteral("\n文件变更：\n") + result.changes.join("\n");
+                    detail += QCoreApplication::translate("InstanceUpgradeController", "\n文件变更：\n") + result.changes.join("\n");
                 }
             }
             if (cancelled && detail.isEmpty()) {
@@ -396,7 +391,7 @@ void InstanceTransferController::runUpgradeJob(const InstanceUpgrade::Request &r
         } catch (...) {
             InstanceUpgrade::Result result;
             result.requiresReload = true;
-            result.problem = QStringLiteral("升级工作发生异常；恢复检查：")
+            result.problem = QCoreApplication::translate("InstanceUpgradeController", "升级工作发生异常；恢复检查：")
                 + InstanceUpgrade::recoverInterrupted(request.gameDir).join('\n');
             return result;
         }

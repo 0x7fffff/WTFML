@@ -4,6 +4,7 @@
  */
 
 #include "OfflineSkin.hpp"
+#include <QCoreApplication>
 
 #include <QDir>
 #include <QFile>
@@ -75,13 +76,13 @@ bool save(const QString &uuid, const QImage &image, const QString &variant, QStr
     const QString path = skinPathFor(uuid);
     if (path.isEmpty()) {
         if (errorOut != nullptr) {
-            *errorOut = QStringLiteral("认不出这个账号的 uuid，没法按账号存皮肤。");
+            *errorOut = QCoreApplication::translate("OfflineSkin", "认不出这个账号的 uuid，没法按账号存皮肤。");
         }
         return false;
     }
     if (image.isNull()) {
         if (errorOut != nullptr) {
-            *errorOut = QStringLiteral("这张图读不出来。");
+            *errorOut = QCoreApplication::translate("OfflineSkin", "这张图读不出来。");
         }
         return false;
     }
@@ -91,7 +92,7 @@ bool save(const QString &uuid, const QImage &image, const QString &variant, QStr
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly)) {
         if (errorOut != nullptr) {
-            *errorOut = QStringLiteral("写不进「%1」：%2").arg(path, file.errorString());
+            *errorOut = QCoreApplication::translate("OfflineSkin", "写不进「%1」：%2").arg(path, file.errorString());
         }
         return false;
     }
@@ -100,13 +101,13 @@ bool save(const QString &uuid, const QImage &image, const QString &variant, QStr
     if (!image.save(&file, "PNG")) {
         file.cancelWriting();
         if (errorOut != nullptr) {
-            *errorOut = QStringLiteral("这张图存不成 PNG：%1").arg(file.errorString());
+            *errorOut = QCoreApplication::translate("OfflineSkin", "这张图存不成 PNG：%1").arg(file.errorString());
         }
         return false;
     }
     if (!file.commit()) {
         if (errorOut != nullptr) {
-            *errorOut = QStringLiteral("皮肤图没写完整：%1").arg(file.errorString());
+            *errorOut = QCoreApplication::translate("OfflineSkin", "皮肤图没写完整：%1").arg(file.errorString());
         }
         return false;
     }

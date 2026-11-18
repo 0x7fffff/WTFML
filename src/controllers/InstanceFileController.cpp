@@ -1,4 +1,5 @@
 #include "InstanceFileController.hpp"
+#include <QCoreApplication>
 
 #include "InlineMessage.hpp"
 #include "InstanceFilesPage.hpp"
@@ -98,8 +99,7 @@ bool InstanceFileController::toggleUnchecked(const QString &path, QString *probl
     QString lockProblem;
     if (!WriteDirectoryGuard::acquire(path, &lockProblem)) return fail(lockProblem);
     if (info.isDir())
-        return fail(tr("「%1」是一个文件夹，不能启用 / 禁用。\n\n"
-                       "（把一个文件夹改了名，它里面的东西会一起从游戏眼里消失。）")
+        return fail(tr("「%1」是一个文件夹，不能启用 / 禁用。\n\n（把一个文件夹改了名，它里面的东西会一起从游戏眼里消失。）")
                         .arg(QDir::toNativeSeparators(path)));
     const QString suffix = InstanceFilesPage::disabledSuffix();
     const QString target = info.fileName().endsWith(suffix, Qt::CaseInsensitive)
@@ -293,8 +293,7 @@ void InstanceFileController::removeMany(const QStringList &paths) {
                                        text += tr("%1 个是链接（只删链接本身，指向的东西不动）")
                                                    .arg(linkCount);
                                    }
-                                   return text + tr("。它们会进回收站，"
-                                                    "要恢复可以从那里找回来。");
+                                   return text + tr("。它们会进回收站，要恢复可以从那里找回来。");
                                }())));
     if (InlineMessage::ask(m_overlay, MessageKind::Question, tr("删除文件"), question,
                            {tr("删除"), tr("取消")}, 1, 0) != 0) return;

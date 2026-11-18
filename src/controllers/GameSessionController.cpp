@@ -1,4 +1,5 @@
 #include "GameSessionController.hpp"
+#include <QCoreApplication>
 #include "util/SecretRedactor.hpp"
 
 #include "GameLogWindow.hpp"
@@ -471,13 +472,10 @@ bool GameSessionController::confirmStopGame(const QString &displayName, int sess
     // （"一次停几份"这件事问话里要说清），不是因为还有人在用。
     const QString text =
         sessions > 1
-            ? tr("「%1」正在运行（共 %2 个游戏进程，这一下全部停止）。\n\n停止会"
-                 "直接结束游戏进程 —— 游戏不会存档，没保存的进度会丢。\n"
-                 "要停止它吗？")
+            ? tr("「%1」正在运行（共 %2 个游戏进程，这一下全部停止）。\n\n停止会直接结束游戏进程 —— 游戏不会存档，没保存的进度会丢。\n要停止它吗？")
                   .arg(displayName)
                   .arg(sessions)
-            : tr("「%1」正在运行。\n\n停止会直接结束游戏进程 —— 游戏不会存档，"
-                 "没保存的进度会丢。\n要停止它吗？")
+            : tr("「%1」正在运行。\n\n停止会直接结束游戏进程 —— 游戏不会存档，没保存的进度会丢。\n要停止它吗？")
                   .arg(displayName);
     // 内嵌提示（不再另开一个窗）。默认那一边照旧是**取消**（下标 1），
     // 「停止游戏」是那一档里的危险动作（下标 0）。

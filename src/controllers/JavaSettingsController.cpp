@@ -1,4 +1,5 @@
 #include "controllers/JavaSettingsController.hpp"
+#include <QCoreApplication>
 
 #include "controllers/JavaRuntimeController.hpp"
 #include "InlineMessage.hpp"
@@ -53,8 +54,7 @@ JavaSettingsController::JavaSettingsController(MainWindowUI *ui, GlobalJavaSetti
             log(tr("Java %1 运行时下载失败").arg(major));
             if (!batch && m_page != nullptr && m_page->isVisible())
                 InlineMessage::warning(m_ui->overlay(), tr("Java 运行时下载失败"),
-                    tr("没能下到 Java %1。多半是网络不通（下载走的是 Adoptium）。\n"
-                       "可以自己装一个，再回来按「检测已有 Java」；或者去「实例设置…」里把某一份现成的 Java 指过去。")
+                    tr("没能下到 Java %1。多半是网络不通（下载走的是 Adoptium）。\n可以自己装一个，再回来按「检测已有 Java」；或者去「实例设置…」里把某一份现成的 Java 指过去。")
                         .arg(major));
         }
     });
@@ -63,8 +63,7 @@ JavaSettingsController::JavaSettingsController(MainWindowUI *ui, GlobalJavaSetti
         if (cancelled) log(tr("Java 下载队列已停止；当前下载完成后没有再开始下一份。"));
         if (batch && failCount > 0 && m_page != nullptr && m_page->isVisible())
             InlineMessage::warning(m_ui->overlay(), tr("有些 Java 没下成"),
-                tr("下好了 %1 份，有 %2 份没下成。多半是网络不通（下载走的是 Adoptium）。\n"
-                   "可以隔一会儿再点一次，或者自己装好之后按「检测已有 Java」。")
+                tr("下好了 %1 份，有 %2 份没下成。多半是网络不通（下载走的是 Adoptium）。\n可以隔一会儿再点一次，或者自己装好之后按「检测已有 Java」。")
                     .arg(okCount).arg(failCount));
     });
 
@@ -270,8 +269,7 @@ void JavaSettingsController::setManualJava(const QString &path) {
         log(tr("手动指定的 Java 不在了：%1").arg(QDir::toNativeSeparators(info.filePath())));
         InlineMessage::warning(
             m_ui->overlay(), tr("没选到 java.exe"),
-            tr("这条路线上没有那个文件：\n%1\n\n"
-               "要选的是 Java 安装目录下 bin 里的 java.exe。")
+            tr("这条路线上没有那个文件：\n%1\n\n要选的是 Java 安装目录下 bin 里的 java.exe。")
                 .arg(QDir::toNativeSeparators(info.filePath())));
         return;
     }
@@ -293,10 +291,7 @@ void JavaSettingsController::setManualJava(const QString &path) {
                             .arg(QDir::toNativeSeparators(absolute)));
                     InlineMessage::warning(
                         m_ui->overlay(), tr("这不是一份能用的 Java"),
-                        tr("没能认出 %1 的主版本。\n\n"
-                           "如果它确实是一份 Java，请选它 bin 目录下的 java.exe；"
-                           "如果它装在别的盘上，启动器不认识也没关系 —— 这一条路就是为它留的，"
-                           "只是它得真的能跑起来。")
+                        tr("没能认出 %1 的主版本。\n\n如果它确实是一份 Java，请选它 bin 目录下的 java.exe；如果它装在别的盘上，启动器不认识也没关系 —— 这一条路就是为它留的，只是它得真的能跑起来。")
                             .arg(QDir::toNativeSeparators(absolute)));
                     return;
                 }
@@ -411,14 +406,11 @@ void JavaSettingsController::refreshMemory() {
     QString hint;
     if (autoMode) {
         if (usage.totalMb <= 0) {
-            hint = tr("自动分配：读不到系统内存，先用内置值 %1 MB。切回「手动分配」"
-                      "会恢复你上次手动设的 %2 MB。")
+            hint = tr("自动分配：读不到系统内存，先用内置值 %1 MB。切回「手动分配」会恢复你上次手动设的 %2 MB。")
                        .arg(xmx)
                        .arg(m_settings->manualXmx());
         } else {
-            hint = tr("自动分配：系统总内存 %1、当前可用 %2；自动给到最大内存 %3 MB"
-                      "（最小内存 %4 MB）。这个数会随系统可用内存自动更新；切回「手动分配」"
-                      "会恢复你上次手动设的 %5 MB。")
+            hint = tr("自动分配：系统总内存 %1、当前可用 %2；自动给到最大内存 %3 MB（最小内存 %4 MB）。这个数会随系统可用内存自动更新；切回「手动分配」会恢复你上次手动设的 %5 MB。")
                        .arg(memoryText(usage.totalMb), memoryText(usage.availableMb))
                        .arg(xmx)
                        .arg(m_settings->xms())

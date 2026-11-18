@@ -1,4 +1,5 @@
 #include "InstanceUpdateCheckController.hpp"
+#include <QCoreApplication>
 #include "UpdateCenterController.hpp"
 #include "MainWindow.hpp"
 #include "MainWindowUI.hpp"
@@ -449,7 +450,7 @@ void InstanceUpdateCheckController::finishUpdateCheck(QString instanceId) {
                               verdict.latestVersionNumber));
     }
     for (const ModDependencies::UpdateVerdict &verdict : unknown) {
-        lines.append(QStringLiteral("• %1 —— %2：%3")
+        lines.append(QCoreApplication::translate("InstanceUpdateCheckController", "• %1 —— %2：%3")
                          .arg(displayName(verdict), ModDependencies::updateUnknownText(),
                               verdict.reason));
     }

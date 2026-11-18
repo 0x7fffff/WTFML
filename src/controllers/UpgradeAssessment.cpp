@@ -1,4 +1,5 @@
 #include "UpgradeAssessment.hpp"
+#include <QCoreApplication>
 #include "InstanceSettingsDialog.hpp"
 #include "controllers/InstancePagesController.hpp"
 #include "manage/VersionManager.hpp"
@@ -490,7 +491,7 @@ Scan scan(const QString &root, const QString &sourceId, const QString &cache, co
             if (mod.declarations.isEmpty()) {
                 Declaration declaration;
                 declaration.loader = QStringLiteral("forge");
-                declaration.basis = QStringLiteral("旧 Forge 注解");
+                declaration.basis = QCoreApplication::translate("UpgradeAssessment", "旧 Forge 注解");
                 declaration.problem = QObject::tr("读不到模组条目表，旧 Forge 注解无法检查：%1")
                                           .arg(nestedProblem);
                 mod.declarations.append(declaration);
@@ -546,7 +547,7 @@ Scan scan(const QString &root, const QString &sourceId, const QString &cache, co
                 annotationFound = true;
                 Declaration declaration;
                 declaration.loader = QStringLiteral("forge");
-                declaration.basis = QStringLiteral("旧 Forge @Mod 注解 / acceptedMinecraftVersions");
+                declaration.basis = QCoreApplication::translate("UpgradeAssessment", "旧 Forge @Mod 注解 / acceptedMinecraftVersions");
                 declaration.game = accepted;
                 declaration.problem = rangeProblem;
                 mod.declarations.append(declaration);
@@ -555,7 +556,7 @@ Scan scan(const QString &root, const QString &sourceId, const QString &cache, co
             if (!annotationFound) {
                 Declaration declaration;
                 declaration.loader = QStringLiteral("forge");
-                declaration.basis = QStringLiteral("旧 Forge 注解");
+                declaration.basis = QCoreApplication::translate("UpgradeAssessment", "旧 Forge 注解");
                 declaration.problem = classes.size() > take
                     ? QObject::tr("旧 Forge 注解未完整扫描（候选 %1 个，只看了 %2 个）")
                           .arg(classes.size()).arg(take)
@@ -627,7 +628,7 @@ Scan scan(const QString &root, const QString &sourceId, const QString &cache, co
                 parsed.name = QFileInfo(nested.first).fileName();
                 if (record.entries.contains(QStringLiteral("fabric.mod.json"))) {
                     addFabricDeclaration(parsed, record.entries.value(QStringLiteral("fabric.mod.json")),
-                                         QStringLiteral("嵌套 fabric.mod.json"));
+                                         QCoreApplication::translate("UpgradeAssessment", "嵌套 fabric.mod.json"));
                 }
                 if (record.entries.contains(QStringLiteral("quilt.mod.json"))) {
                     addQuiltDeclaration(parsed, record.entries.value(QStringLiteral("quilt.mod.json")));
@@ -643,7 +644,7 @@ Scan scan(const QString &root, const QString &sourceId, const QString &cache, co
                     declaration.loader = entry.contains(QStringLiteral("neoforge"))
                         ? QStringLiteral("neoforge") : QStringLiteral("forge");
                     declaration.game = requirements.game;
-                    declaration.basis = QStringLiteral("嵌套 ") + entry;
+                    declaration.basis = QCoreApplication::translate("UpgradeAssessment", "嵌套 ") + entry;
                     declaration.problem = requirements.problem;
                     parsed.declarations.append(declaration);
                 }
@@ -680,8 +681,7 @@ Scan scan(const QString &root, const QString &sourceId, const QString &cache, co
             }
         }
     }
-    result.note += QObject::tr("仅检查顶层启用 JAR；按包内声明判断 Minecraft 范围，加载器版本、Java "
-                               "和前置在本轮由适配替换再核对。嵌套 JAR 只随父 JAR 替换，不单独替换。");
+    result.note += QObject::tr("仅检查顶层启用 JAR；按包内声明判断 Minecraft 范围，加载器版本、Java 和前置在本轮由适配替换再核对。嵌套 JAR 只随父 JAR 替换，不单独替换。");
     return result;
 }
 struct State {
@@ -860,7 +860,7 @@ void UpgradeAssessment::attach(InstanceSettingsDialog *dialog, VersionManager *v
             const QString platform = state->platform.value(mod.path, mod.identified ? QObject::tr("平台项目已识别，等待查询")
                 : mod.identityProblem.isEmpty() ? QObject::tr("未识别平台项目（无有效识别记录）") : mod.identityProblem);
             const QString filename = QFileInfo(mod.path).fileName();
-            const QString title = mod.name == filename ? mod.name : mod.name + QStringLiteral("（%1）").arg(filename);
+            const QString title = mod.name == filename ? mod.name : mod.name + QCoreApplication::translate("UpgradeAssessment", "（%1）").arg(filename);
             QString replacementLabel;
             QString replacementDefault;
             if (mod.replacementAvailable) {
@@ -904,7 +904,7 @@ void UpgradeAssessment::attach(InstanceSettingsDialog *dialog, VersionManager *v
                 && local != QObject::tr("本地声明不支持")
                 && local != QObject::tr("本地明确排除此版本")
                 && local != QObject::tr("目标不使用模组加载器")) {
-                unknownMods.append(QStringLiteral("%1：%2（%3）").arg(filename, local, basis));
+                unknownMods.append(QCoreApplication::translate("UpgradeAssessment", "%1：%2（%3）").arg(filename, local, basis));
             }
             const bool knownUnsupported =
                 local == QObject::tr("本地声明不支持")

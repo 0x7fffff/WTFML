@@ -314,8 +314,7 @@ void DownloadCompletionController::onFinished(const QString &versionId, bool suc
             // 最该做的事是"再核一遍盘上那些、把缺的补上"，不是"把这份清单重下一遍"。
             const bool retry = InlineMessage::question(
                 m_owner.m_ui->overlay(), MainWindow::tr("首启资源没预取完"),
-                MainWindow::tr("「%1」的 GTNH 首启资源没能全部拿到。\n\n%2\n\n"
-                   "不影响启动。游戏首次运行时将自动下载所需资源。是否重试？")
+                MainWindow::tr("「%1」的 GTNH 首启资源没能全部拿到。\n\n%2\n\n不影响启动。游戏首次运行时将自动下载所需资源。是否重试？")
                     .arg(displayName, errorMessage),
                 MainWindow::tr("重试"), MainWindow::tr("完成"), true);
             if (retry) {

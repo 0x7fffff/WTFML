@@ -9,6 +9,7 @@
  */
 
 #include "server/ServerRegistry.hpp"
+#include <QCoreApplication>
 #include "server/ServerWriteGuard.hpp"
 
 #include <QDir>
@@ -162,7 +163,7 @@ bool ensureRoot(QString *problemOut) {
         return true;
     }
     if (problemOut != nullptr) {
-        *problemOut = QStringLiteral("建不了服务端目录：%1").arg(QDir::toNativeSeparators(root));
+        *problemOut = QCoreApplication::translate("ServerRegistry", "建不了服务端目录：%1").arg(QDir::toNativeSeparators(root));
     }
     return false;
 }
@@ -190,7 +191,7 @@ Entry describe(const QString &serverId, QString *problemOut) {
 
     if (!QDir(entry.dirPath).exists()) {
         entry.name = serverId;
-        entry.note = QStringLiteral("目录不在了");
+        entry.note = QCoreApplication::translate("ServerRegistry", "目录不在了");
         if (problemOut != nullptr) {
             *problemOut = entry.note;
         }
@@ -223,7 +224,7 @@ Entry describe(const QString &serverId, QString *problemOut) {
         // `.wtfml-server` 说得清，见 `ServerModel::inferFlavorFromPaths()` 那段）。
         entry.flavor = ServerModel::inferFlavorFromPaths(relPaths);
         entry.flavorKnown = false;
-        notes.append(QStringLiteral("这一档是从目录里的文件反推的（%1），点一下确认")
+        notes.append(QCoreApplication::translate("ServerRegistry", "这一档是从目录里的文件反推的（%1），点一下确认")
                          .arg(ServerInstall::flavorName(entry.flavor)));
     }
 
@@ -233,7 +234,7 @@ Entry describe(const QString &serverId, QString *problemOut) {
     entry.installed =
         installedFor(entry.flavor, rootFiles, forgeArgs, &missing);
     if (!entry.installed) {
-        notes.append(QStringLiteral("安装不完整：缺少 %1").arg(missing));
+        notes.append(QCoreApplication::translate("ServerRegistry", "安装不完整：缺少 %1").arg(missing));
     }
 
     // 4) 那两个配置文件（都是可选的，缺了不算毛病）。
@@ -241,7 +242,7 @@ Entry describe(const QString &serverId, QString *problemOut) {
     entry.port = ServerModel::serverPortOf(props);
     entry.eulaAccepted = readEula(serverId);
 
-    entry.note = notes.join(QStringLiteral("；"));
+    entry.note = notes.join(QCoreApplication::translate("ServerRegistry", "；"));
     if (problemOut != nullptr) {
         *problemOut = entry.note;
     }
@@ -275,7 +276,7 @@ ServerModel::Info readMeta(const QString &serverId, QString *problemOut) {
     }
     if (!file.open(QIODevice::ReadOnly)) {
         if (problemOut != nullptr) {
-            *problemOut = QStringLiteral("读不了 %1").arg(ServerModel::formatTag());
+            *problemOut = QCoreApplication::translate("ServerRegistry", "读不了 %1").arg(ServerModel::formatTag());
         }
         return ServerModel::Info{};
     }
@@ -285,7 +286,7 @@ ServerModel::Info readMeta(const QString &serverId, QString *problemOut) {
     if (file.size() > 4 * 1024 * 1024) {
         file.close();
         if (problemOut != nullptr) {
-            *problemOut = QStringLiteral("%1 大得不像一份记录（%2 字节），已按读不懂处理")
+            *problemOut = QCoreApplication::translate("ServerRegistry", "%1 大得不像一份记录（%2 字节），已按读不懂处理")
                               .arg(ServerModel::formatTag())
                               .arg(file.size());
         }
@@ -298,8 +299,7 @@ ServerModel::Info readMeta(const QString &serverId, QString *problemOut) {
     if (!ok && problemOut != nullptr) {
         // "文件在、但读不懂"这件事**必须说出来**（别当成"这个服务端什么设置都没有"）——
         // 和 `UpdatePolicy::load()` 里那句同源。
-        *problemOut = QStringLiteral("这份服务端记录无法解析（%1），已按没有记录处理"
-                                     "；重新安装一次或手动修正后即可恢复")
+        *problemOut = QCoreApplication::translate("ServerRegistry", "这份服务端记录无法解析（%1），已按没有记录处理；重新安装一次或手动修正后即可恢复")
                           .arg(ServerModel::formatTag());
     }
     return info;
@@ -313,7 +313,7 @@ bool writeMeta(const QString &serverId, const ServerModel::Info &info, QString *
     const QString dir = AppPaths::serverDir(serverId);
     if (!QDir().mkpath(dir)) {
         if (problemOut != nullptr) {
-            *problemOut = QStringLiteral("建不了服务端目录：%1")
+            *problemOut = QCoreApplication::translate("ServerRegistry", "建不了服务端目录：%1")
                               .arg(QDir::toNativeSeparators(dir));
         }
         return false;
@@ -321,7 +321,7 @@ bool writeMeta(const QString &serverId, const ServerModel::Info &info, QString *
     QSaveFile file(AppPaths::serverMetaPath(serverId));
     if (!file.open(QIODevice::WriteOnly)) {
         if (problemOut != nullptr) {
-            *problemOut = QStringLiteral("写不了 %1：%2")
+            *problemOut = QCoreApplication::translate("ServerRegistry", "写不了 %1：%2")
                               .arg(ServerModel::formatTag(), file.errorString());
         }
         return false;
@@ -359,7 +359,7 @@ bool writeMeta(const QString &serverId, const ServerModel::Info &info, QString *
     const QByteArray bytes = QJsonDocument(merged).toJson(QJsonDocument::Indented);
     if (file.write(bytes) != bytes.size() || !file.commit()) {
         if (problemOut != nullptr) {
-            *problemOut = QStringLiteral("写 %1 没落盘：%2")
+            *problemOut = QCoreApplication::translate("ServerRegistry", "写 %1 没落盘：%2")
                               .arg(ServerModel::formatTag(), file.errorString());
         }
         return false;
@@ -376,7 +376,7 @@ bool setRestartOnCrash(const QString &serverId, bool on, QString *problemOut) {
     ServerModel::Info info = readMeta(serverId, &readProblem);
     if (!readProblem.isEmpty()) {
         if (problemOut != nullptr) {
-            *problemOut = QStringLiteral("%1。这一项没有改 —— 照这份空记录写回去会把它顶掉。")
+            *problemOut = QCoreApplication::translate("ServerRegistry", "%1。这一项没有改 —— 照这份空记录写回去会把它顶掉。")
                               .arg(readProblem);
         }
         return false;
@@ -457,7 +457,7 @@ bool createServer(const QString &serverId, const ServerModel::Info &info, QStrin
     if (!writableServer(serverId, problemOut)) return false;
     if (serverId.isEmpty()) {
         if (problemOut != nullptr) {
-            *problemOut = QStringLiteral("要给这个服务端起个名字");
+            *problemOut = QCoreApplication::translate("ServerRegistry", "要给这个服务端起个名字");
         }
         return false;
     }
@@ -481,7 +481,7 @@ bool removeServer(const QString &serverId, QString *problemOut) {
         || serverId.contains(QLatin1Char('\\')) || serverId == QLatin1String(".")
         || serverId == QLatin1String("..")) {
         if (problemOut != nullptr) {
-            *problemOut = QStringLiteral("这个名字不能删");
+            *problemOut = QCoreApplication::translate("ServerRegistry", "这个名字不能删");
         }
         return false;
     }
@@ -492,7 +492,7 @@ bool removeServer(const QString &serverId, QString *problemOut) {
     // 闸二：解出来的路径必须**严格在根目录底下**（防止 `serverId` 里塞了 `..` 之类）。
     if (!isStrictlyInside(rootDir(), dir)) {
         if (problemOut != nullptr) {
-            *problemOut = QStringLiteral("这个路径不在服务端目录底下，没动它");
+            *problemOut = QCoreApplication::translate("ServerRegistry", "这个路径不在服务端目录底下，没动它");
         }
         return false;
     }
@@ -501,7 +501,7 @@ bool removeServer(const QString &serverId, QString *problemOut) {
     QString recycleProblem;
     if (!moveToRecycleBin(dir, &recycleProblem)) {
         if (problemOut != nullptr) {
-            *problemOut = QStringLiteral("无法删除：%1\n%2")
+            *problemOut = QCoreApplication::translate("ServerRegistry", "无法删除：%1\n%2")
                               .arg(QDir::toNativeSeparators(dir), recycleProblem);
         }
         return false;
@@ -539,7 +539,7 @@ bool acceptEula(const QString &serverId, QString *problemOut) {
     const QString dir = AppPaths::serverDir(serverId);
     if (!QDir(dir).exists() && !QDir().mkpath(dir)) {
         if (problemOut != nullptr) {
-            *problemOut = QStringLiteral("建不了服务端目录：%1")
+            *problemOut = QCoreApplication::translate("ServerRegistry", "建不了服务端目录：%1")
                               .arg(QDir::toNativeSeparators(dir));
         }
         return false;
@@ -547,19 +547,19 @@ bool acceptEula(const QString &serverId, QString *problemOut) {
     QSaveFile file(eulaPath(serverId));
     if (!file.open(QIODevice::WriteOnly)) {
         if (problemOut != nullptr) {
-            *problemOut = QStringLiteral("写不了 eula.txt：%1").arg(file.errorString());
+            *problemOut = QCoreApplication::translate("ServerRegistry", "写不了 eula.txt：%1").arg(file.errorString());
         }
         return false;
     }
     const auto bytes = ServerModel::eulaFileText(true).toUtf8();
     if (file.write(bytes) != bytes.size()) {
         file.cancelWriting();
-        if (problemOut) *problemOut = QStringLiteral("eula.txt 写入不完整，原文件未替换。");
+        if (problemOut) *problemOut = QCoreApplication::translate("ServerRegistry", "eula.txt 写入不完整，原文件未替换。");
         return false;
     }
     if (!file.commit()) {
         if (problemOut != nullptr) {
-            *problemOut = QStringLiteral("eula.txt 没落盘：%1").arg(file.errorString());
+            *problemOut = QCoreApplication::translate("ServerRegistry", "eula.txt 没落盘：%1").arg(file.errorString());
         }
         return false;
     }
@@ -576,7 +576,7 @@ ServerModel::Properties readProperties(const QString &serverId, QString *problem
     }
     if (!file.open(QIODevice::ReadOnly)) {
         if (problemOut != nullptr) {
-            *problemOut = QStringLiteral("读不了 server.properties：%1").arg(file.errorString());
+            *problemOut = QCoreApplication::translate("ServerRegistry", "读不了 server.properties：%1").arg(file.errorString());
         }
         return ServerModel::Properties{};
     }
@@ -597,7 +597,7 @@ bool writeProperties(const QString &serverId, const ServerModel::Properties &pro
     const QString dir = AppPaths::serverDir(serverId);
     if (!QDir(dir).exists() && !QDir().mkpath(dir)) {
         if (problemOut != nullptr) {
-            *problemOut = QStringLiteral("建不了服务端目录：%1")
+            *problemOut = QCoreApplication::translate("ServerRegistry", "建不了服务端目录：%1")
                               .arg(QDir::toNativeSeparators(dir));
         }
         return false;
@@ -605,7 +605,7 @@ bool writeProperties(const QString &serverId, const ServerModel::Properties &pro
     QSaveFile file(propertiesPath(serverId));
     if (!file.open(QIODevice::WriteOnly)) {
         if (problemOut != nullptr) {
-            *problemOut = QStringLiteral("写不了 server.properties：%1").arg(file.errorString());
+            *problemOut = QCoreApplication::translate("ServerRegistry", "写不了 server.properties：%1").arg(file.errorString());
         }
         return false;
     }
@@ -615,12 +615,12 @@ bool writeProperties(const QString &serverId, const ServerModel::Properties &pro
     const auto bytes = properties.toString().toUtf8();
     if (file.write(bytes) != bytes.size()) {
         file.cancelWriting();
-        if (problemOut) *problemOut = QStringLiteral("server.properties 写入不完整，原文件未替换。");
+        if (problemOut) *problemOut = QCoreApplication::translate("ServerRegistry", "server.properties 写入不完整，原文件未替换。");
         return false;
     }
     if (!file.commit()) {
         if (problemOut != nullptr) {
-            *problemOut = QStringLiteral("server.properties 没落盘：%1").arg(file.errorString());
+            *problemOut = QCoreApplication::translate("ServerRegistry", "server.properties 没落盘：%1").arg(file.errorString());
         }
         return false;
     }

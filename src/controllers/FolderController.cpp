@@ -1,4 +1,5 @@
 #include "FolderController.hpp"
+#include <QCoreApplication>
 
 #include "InlineMessage.hpp"
 #include "MainWindowUI.hpp"
@@ -45,9 +46,7 @@ void FolderController::removeFromList(const QString &folder) {
                 .arg(QDir::toNativeSeparators(folder)));
         return;
     }
-    QString question = tr("「%1」会从上面这个列表里移除。\n\n"
-                          "文件夹本身和里面的文件都不会被删掉 —— 这一步只动启动器的列表，"
-                          "盘上一个字节都不动。")
+    QString question = tr("「%1」会从上面这个列表里移除。\n\n文件夹本身和里面的文件都不会被删掉 —— 这一步只动启动器的列表，盘上一个字节都不动。")
                            .arg(QDir::toNativeSeparators(folder));
     if (m_folders->currentFolder() == folder) {
         question += tr("\n\n它是启动器当前在用的那一份，移除之后改用「%1」。")
@@ -89,9 +88,7 @@ void FolderController::rename(const QString &path) {
     const QString shown = m_host.title ? m_host.title(path) : QFileInfo(path).fileName();
     const QString input = InlineMessage::getText(
         m_ui->overlay(), tr("重命名游戏目录"),
-        tr("新名字（现在显示的是「%1」）。\n"
-           "它只用在启动器的这个列表上，磁盘上的目录名一个字都不动；\n"
-           "清空这一行就恢复默认的名字。")
+        tr("新名字（现在显示的是「%1」）。\n它只用在启动器的这个列表上，磁盘上的目录名一个字都不动；\n清空这一行就恢复默认的名字。")
             .arg(shown), custom, &ok);
     if (!ok) return;
     const QString name = input.trimmed();
@@ -137,10 +134,7 @@ void FolderController::removeFromDisk(const QString &path) {
                                tr("游戏正在运行，请退出游戏后再删除此目录。"));
         return;
     }
-    QString question = tr("「%1」这个文件夹和里面的全部文件都会被删掉"
-                          "（会进回收站，可以从那里还原）。\n\n"
-                          "存档、截图、自己放的模组都在这份目录里。\n"
-                          "若仅从列表中移除请使用「移除」操作，磁盘文件将予以保留。")
+    QString question = tr("「%1」这个文件夹和里面的全部文件都会被删掉（会进回收站，可以从那里还原）。\n\n存档、截图、自己放的模组都在这份目录里。\n若仅从列表中移除请使用「移除」操作，磁盘文件将予以保留。")
                            .arg(QDir::toNativeSeparators(path));
     if (m_folders->currentFolder() == path) {
         question += tr("\n\n它是启动器当前在用的那一份，删掉之后改用「%1」。")

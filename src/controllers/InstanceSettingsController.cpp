@@ -1,4 +1,5 @@
 #include "controllers/InstanceSettingsController.hpp"
+#include <QCoreApplication>
 
 #include "controllers/InstanceMaintenanceController.hpp"
 #include "util/AppPaths.hpp"
@@ -44,8 +45,7 @@ bool writeInstanceIcon(const QString &versionId, const QString &sourcePath, QStr
     const QImage source(sourcePath);
     if (source.isNull()) {
         if (errorOut != nullptr) {
-            *errorOut = QObject::tr("读不出这张图：%1\n\n"
-                                    "（它可能不是图片格式，也可能已经不在那儿了。）")
+            *errorOut = QObject::tr("读不出这张图：%1\n\n（它可能不是图片格式，也可能已经不在那儿了。）")
                             .arg(QDir::toNativeSeparators(sourcePath));
         }
         return false;

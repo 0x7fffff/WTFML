@@ -21,6 +21,7 @@
  */
 
 #include "controllers/UpdateCenterController.hpp"
+#include <QCoreApplication>
 #include "manage/InstanceFiles.hpp"
 
 #include "MainWindow.hpp"
@@ -219,8 +220,7 @@ void UpdateCenterController::onUpdateRequested(const QStringList &paths) {
             if (customLaunch
                 && !InlineMessage::question(
                     m_owner.m_ui->overlay(), tr("这个整合包带自定义启动配置"),
-                    tr("更新选中的模组可能让它的启动配置（主类 / JVM 参数 / 专用库）对不上，"
-                       "更新后可能起不来。建议先备份实例。仍然继续吗？"),
+                    tr("更新选中的模组可能让它的启动配置（主类 / JVM 参数 / 专用库）对不上，更新后可能起不来。建议先备份实例。仍然继续吗？"),
                     tr("仍要继续"), tr("取消"), false)) {
                 return;
             }
@@ -263,8 +263,7 @@ void UpdateCenterController::onIgnoreToggled(const QString &path, bool ignored) 
             // 拼不出"要换成哪一版"就**不许记这一条**：记下去的是"忽略某一版"，而那一版是谁
             // 都不知道 —— 那样记出来的记录永远对不上任何一次检测（等于一颗点了没反应的按钮）。
             InlineMessage::warning(m_owner.m_ui->overlay(), MainWindow::tr("无法忽略这一条"),
-                                   MainWindow::tr("没有查出可记录的版本（多半是本次检测结果已经"
-                                                  "过期）。请重新点「检查更新」再试。"));
+                                   MainWindow::tr("没有查出可记录的版本（多半是本次检测结果已经过期）。请重新点「检查更新」再试。"));
             return;
         }
     }
@@ -307,8 +306,7 @@ void UpdateCenterController::onPinToggled(const QString &path, bool pinned) {
         }
         if (sha1.isEmpty()) {
             InlineMessage::warning(m_owner.m_ui->overlay(), MainWindow::tr("固定不了这一条"),
-                                   MainWindow::tr("无法读取这份文件的内容（或上次检测未算出它的 SHA-1），"
-                                                  "因此不能固定这一版。"));
+                                   MainWindow::tr("无法读取这份文件的内容（或上次检测未算出它的 SHA-1），因此不能固定这一版。"));
             return;
         }
     }
@@ -340,10 +338,7 @@ void UpdateCenterController::onUndoRequested() {
     // 问一次再动手：这一下**会覆盖盘上现在的文件**（用户可能已经在游戏里玩了半天、
     // 自己换过东西）。撤销不是一个"点错了也没事"的动作。
     const QString text =
-        MainWindow::tr("把「%1」退回上一次更新之前：\n\n"
-                       "• 换回去 %2 个文件\n"
-                       "• 删掉那次更新新添的 %3 个文件\n\n"
-                       "这一趟更新之后你自己改过的东西会一起被改回去。")
+        MainWindow::tr("把「%1」退回上一次更新之前：\n\n• 换回去 %2 个文件\n• 删掉那次更新新添的 %3 个文件\n\n这一趟更新之后你自己改过的东西会一起被改回去。")
             .arg(m_owner.instanceDisplayName(instanceId))
             .arg(snapshot.fileCount())
             .arg(snapshot.addedCount());
@@ -368,8 +363,7 @@ void UpdateCenterController::onUndoRequested() {
         // 并且**留着回滚点**（下一次再按还能把没退回去的那几条退回来）。
         InlineMessage::warning(
             m_owner.m_ui->overlay(), MainWindow::tr("没能全退回去"),
-            MainWindow::tr("换回去 %1 个、删掉 %2 个，有 %3 个没能动。\n\n%4\n\n"
-                           "回滚点留着，可以再按一次。")
+            MainWindow::tr("换回去 %1 个、删掉 %2 个，有 %3 个没能动。\n\n%4\n\n回滚点留着，可以再按一次。")
                 .arg(result.restored)
                 .arg(result.removed)
                 .arg(result.failed)

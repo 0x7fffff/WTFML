@@ -1,4 +1,5 @@
 #include "server/ServerContent.hpp"
+#include <QCoreApplication>
 
 #include <QDir>
 #include <QFileInfo>
@@ -10,7 +11,7 @@ int kindCount() {
 }
 
 QString kindTitle(Kind kind) {
-    return kind == Kind::Datapacks ? QStringLiteral("数据包") : QStringLiteral("模组");
+    return kind == Kind::Datapacks ? QCoreApplication::translate("ServerContent", "数据包") : QCoreApplication::translate("ServerContent", "模组");
 }
 
 QString folderName(Kind kind) {

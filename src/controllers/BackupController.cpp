@@ -1,4 +1,5 @@
 #include "BackupController.hpp"
+#include <QCoreApplication>
 #include "manage/BackupFiles.hpp"
 
 #include "ActivityCenterController.hpp"
@@ -127,9 +128,7 @@ void BackupController::inspectRecovery() {
     const bool canSwap = item.problem.isEmpty() && QFileInfo(item.retained).isDir()
                          && (!QFileInfo::exists(item.target) || QFileInfo(item.target).isDir());
     const QString text = item.problem.isEmpty()
-        ? tr("当前目录：\n%1\n\n还原前目录：\n%2\n\n标记已检查只归档日志，两份数据均保留，"
-             "不会删除任何一份。\n点「用旧目录替换」会换成还原前目录，换下来的当前目录留在旁边，"
-             "并登记一条可退回的恢复记录。")
+        ? tr("当前目录：\n%1\n\n还原前目录：\n%2\n\n标记已检查只归档日志，两份数据均保留，不会删除任何一份。\n点「用旧目录替换」会换成还原前目录，换下来的当前目录留在旁边，并登记一条可退回的恢复记录。")
               .arg(QDir::toNativeSeparators(item.target), QDir::toNativeSeparators(item.retained))
         : item.problem + tr("\n\n日志：%1").arg(QDir::toNativeSeparators(item.journal));
     QStringList buttons{tr("打开所在目录")};
@@ -162,15 +161,12 @@ void BackupController::inspectRecovery() {
         };
         if (inUse()) {
             InlineMessage::information(m_overlay, tr("暂时无法操作"),
-                                       tr("这一份正在运行，或者正被复制 / 备份 / 还原 / 安装占用。"
-                                          "请等它结束后再替换。"));
+                                       tr("这一份正在运行，或者正被复制 / 备份 / 还原 / 安装占用。请等它结束后再替换。"));
             return;
         }
         if (!InlineMessage::question(
                 m_overlay, tr("用旧目录替换"),
-                tr("将用这份旧目录替换当前目录：\n\n旧目录：\n%1\n\n当前目录：\n%2\n\n"
-                   "被替换下来的当前目录会原样保留在旁边，两份都不删除；这一步会先登记一条"
-                   "可退回的恢复记录。")
+                tr("将用这份旧目录替换当前目录：\n\n旧目录：\n%1\n\n当前目录：\n%2\n\n被替换下来的当前目录会原样保留在旁边，两份都不删除；这一步会先登记一条可退回的恢复记录。")
                     .arg(QDir::toNativeSeparators(item.retained),
                          QDir::toNativeSeparators(item.target)),
                 tr("替换"), tr("取消"), false, true)) {
@@ -269,18 +265,14 @@ void BackupController::pickZip(BackupFiles::Kind kind, const QString &label, con
         if (!rejected.isEmpty()) {
             InlineMessage::information(
                 m_overlay, tr("没有能还原的备份"),
-                tr("备份目录里有 %1 个名字对得上的压缩包，但包里那份清单说的不是%2"
-                   "备份元数据无效或非本启动器生成。\n\n"
-                   "为了不把不相干的东西解到你的目录里，它们一个都没有列出来：\n%3\n\n"
-                   "备份放在这儿：%4")
+                tr("备份目录里有 %1 个名字对得上的压缩包，但包里那份清单说的不是%2备份元数据无效或非本启动器生成。\n\n为了不把不相干的东西解到你的目录里，它们一个都没有列出来：\n%3\n\n备份放在这儿：%4")
                     .arg(QString::number(rejected.size()), what,
                          rejected.join(QLatin1Char('\n')), QDir::toNativeSeparators(dir)));
             return;
         }
         InlineMessage::information(
             m_overlay, tr("还没有备份"),
-            tr("%1还没有备份过，所以没有能还原的东西。\n\n备份放在这儿：%2\n"
-               "（在这一页上先做一份备份，再来还原。）")
+            tr("%1还没有备份过，所以没有能还原的东西。\n\n备份放在这儿：%2\n（在这一页上先做一份备份，再来还原。）")
                 .arg(what, QDir::toNativeSeparators(dir)));
         return;
     }
@@ -382,9 +374,7 @@ void BackupController::restoreWorld(const QString &worldDir, InstanceSettingsDia
     const QPointer<BackupController> alive(this);
     if (!InlineMessage::question(
             m_overlay, tr("恢复备份"),
-            tr("「%1」现在的文件会被备份里那一份整个换掉。\n\n"
-               "还原之前会自动给现在这一份留一份安全快照，所以这一步是能退回来的。\n\n"
-               "要还原的是这一份：\n%2")
+            tr("「%1」现在的文件会被备份里那一份整个换掉。\n\n还原之前会自动给现在这一份留一份安全快照，所以这一步是能退回来的。\n\n要还原的是这一份：\n%2")
                 .arg(worldName, QDir::toNativeSeparators(zip)),
             tr("还原"), tr("取消"), false, true)) {
         return;
@@ -418,22 +408,19 @@ void BackupController::snapshotInstance(const QString &versionId) {
     }
     if (m_host.isBeingModified && m_host.isBeingModified(versionId)) {
         InlineMessage::information(m_overlay, tr("暂时无法操作"),
-                                   tr("「%1」正在安装、导入或检查，请完成后再做快照 —— "
-                                      "要打包的正是正在被修改的文件。")
+                                   tr("「%1」正在安装、导入或检查，请完成后再做快照 —— 要打包的正是正在被修改的文件。")
                                        .arg(displayName(versionId)));
         return;
     }
     if (m_host.isRunning && m_host.isRunning(versionId)) {
         InlineMessage::information(m_overlay, tr("暂时无法操作"),
-                                   tr("「%1」正在运行。先关掉游戏再做快照 —— 游戏开着的时候"
-                                      "存档、日志这些文件一直在变。")
+                                   tr("「%1」正在运行。先关掉游戏再做快照 —— 游戏开着的时候存档、日志这些文件一直在变。")
                                        .arg(displayName(versionId)));
         return;
     }
     const int picked = InlineMessage::ask(
         m_overlay, MessageKind::Question, tr("创建快照"),
-        tr("快照会把「%1」整个目录打成一个压缩包，需要时可整体还原。\n\n"
-           "默认不打包 assets 和 libraries：这两部分能重新下载，通常有几百 MB 到几个 GB。")
+        tr("快照会把「%1」整个目录打成一个压缩包，需要时可整体还原。\n\n默认不打包 assets 和 libraries：这两部分能重新下载，通常有几百 MB 到几个 GB。")
             .arg(displayName(versionId)),
         {tr("创建快照"), tr("完整快照（含可重新下载的部分）"), tr("取消")}, 0, -1, false);
     if (picked != 0 && picked != 1) return;
@@ -444,8 +431,7 @@ void BackupController::snapshotInstance(const QString &versionId) {
         || (m_host.isBeingModified && m_host.isBeingModified(versionId))
         || (m_host.isRunning && m_host.isRunning(versionId))) {
         InlineMessage::information(m_overlay, tr("暂时无法操作"),
-                                   tr("刚才有另一项操作开始了（复制 / 备份 / 还原 / 安装 / 游戏启动）。"
-                                      "等它完成后再做快照。"));
+                                   tr("刚才有另一项操作开始了（复制 / 备份 / 还原 / 安装 / 游戏启动）。等它完成后再做快照。"));
         return;
     }
     const bool complete = picked == 1;
@@ -515,9 +501,7 @@ void BackupController::restoreInstance(const QString &versionId, InstanceSetting
     const QPointer<BackupController> alive(this);
     if (!InlineMessage::question(
             m_overlay, tr("从快照恢复"),
-            tr("「%1」现在的文件会被快照里那一份整个换掉 —— 模组、配置、存档全算。\n\n"
-               "还原之前会自动给现在这一份留一份安全快照，所以这一步是能退回来的。\n\n"
-               "要还原的是这一份：\n%2")
+            tr("「%1」现在的文件会被快照里那一份整个换掉 —— 模组、配置、存档全算。\n\n还原之前会自动给现在这一份留一份安全快照，所以这一步是能退回来的。\n\n要还原的是这一份：\n%2")
                 .arg(displayName(versionId), QDir::toNativeSeparators(zip)),
             tr("还原"), tr("取消"), false, true)) {
         return;

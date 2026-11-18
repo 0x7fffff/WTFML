@@ -4,6 +4,7 @@
  */
 
 #include "DroppedResource.hpp"
+#include <QCoreApplication>
 
 #include <QFileInfo>
 
@@ -67,8 +68,8 @@ DroppedResource::Result DroppedResource::classify(const QString &path) {
     if (!info.isFile()) {
         // 拖进来的可能是个目录（有人习惯拖文件夹）或者干脆是不存在的东西。两种都算
         // "认不出来"，但**理由不一样**，detail 里说清楚。
-        result.detail = info.isDir() ? QStringLiteral("那是一个文件夹，不是文件")
-                                     : QStringLiteral("找不到这份文件");
+        result.detail = info.isDir() ? QCoreApplication::translate("DroppedResource", "那是一个文件夹，不是文件")
+                                     : QCoreApplication::translate("DroppedResource", "找不到这份文件");
         return result;
     }
 
@@ -77,7 +78,7 @@ DroppedResource::Result DroppedResource::classify(const QString &path) {
         // 见 .hpp 第 1 条：jar 只有一个意思，连盘都不用读。
         result.known = true;
         result.kind = ResourceCatalog::Kind::Mod;
-        result.detail = QStringLiteral("后缀是 .jar");
+        result.detail = QCoreApplication::translate("DroppedResource", "后缀是 .jar");
         return result;
     }
     // rar/7z：本机装了 7-Zip 就按整合包接（导入时先解压再走 zip 那条路）。
@@ -85,16 +86,16 @@ DroppedResource::Result DroppedResource::classify(const QString &path) {
         if (SevenZip::available()) {
             result.known = true;
             result.kind = ResourceCatalog::Kind::Modpack;
-            result.detail = QStringLiteral("需要 7-Zip 解压后导入");
+            result.detail = QCoreApplication::translate("DroppedResource", "需要 7-Zip 解压后导入");
         } else {
-            result.detail = QStringLiteral("需要 7-Zip 才能解压，本机没找到 7z.exe");
+            result.detail = QCoreApplication::translate("DroppedResource", "需要 7-Zip 才能解压，本机没找到 7z.exe");
         }
         return result;
     }
     if (suffix != QLatin1String("zip") && suffix != QLatin1String("mrpack")) {
         result.detail = suffix.isEmpty()
-                            ? QStringLiteral("它没有后缀名，认不出是哪一类")
-                            : QStringLiteral("`.%1` 不是能装进来的东西").arg(suffix);
+                            ? QCoreApplication::translate("DroppedResource", "它没有后缀名，认不出是哪一类")
+                            : QCoreApplication::translate("DroppedResource", "`.%1` 不是能装进来的东西").arg(suffix);
         return result;
     }
 
@@ -102,13 +103,13 @@ DroppedResource::Result DroppedResource::classify(const QString &path) {
     QStringList entries;
     QString error;
     const ZipUtil::EntryStatus status =
-        ZipUtil::listEntries(path, &entries, &error, QStringLiteral("读这个压缩包"));
+        ZipUtil::listEntries(path, &entries, &error, QCoreApplication::translate("DroppedResource", "读这个压缩包"));
     if (status == ZipUtil::EntryStatus::NotAnArchive) {
-        result.detail = QStringLiteral("无法打开：不是 zip 压缩包，或文件已损坏");
+        result.detail = QCoreApplication::translate("DroppedResource", "无法打开：不是 zip 压缩包，或文件已损坏");
         return result;
     }
     if (status != ZipUtil::EntryStatus::Ok) {
-        result.detail = error.isEmpty() ? QStringLiteral("它读不动") : error;
+        result.detail = error.isEmpty() ? QCoreApplication::translate("DroppedResource", "它读不动") : error;
         return result;
     }
 
@@ -142,13 +143,13 @@ DroppedResource::Result DroppedResource::classify(const QString &path) {
         if (hasSegment(folded, QStringLiteral("assets"))) {
             result.known = true;
             result.kind = ResourceCatalog::Kind::ResourcePack;
-            result.detail = QStringLiteral("里面有 pack.mcmeta 和 assets/");
+            result.detail = QCoreApplication::translate("DroppedResource", "里面有 pack.mcmeta 和 assets/");
             return result;
         }
         if (hasSegment(folded, QStringLiteral("data"))) {
             result.known = true;
             result.kind = ResourceCatalog::Kind::DataPack;
-            result.detail = QStringLiteral("里面有 pack.mcmeta 和 data/");
+            result.detail = QCoreApplication::translate("DroppedResource", "里面有 pack.mcmeta 和 data/");
             return result;
         }
     }
@@ -158,7 +159,7 @@ DroppedResource::Result DroppedResource::classify(const QString &path) {
     if (hasSegment(folded, QStringLiteral("shaders"))) {
         result.known = true;
         result.kind = ResourceCatalog::Kind::Shader;
-        result.detail = QStringLiteral("里面有 shaders/");
+        result.detail = QCoreApplication::translate("DroppedResource", "里面有 shaders/");
         return result;
     }
 
@@ -169,9 +170,8 @@ DroppedResource::Result DroppedResource::classify(const QString &path) {
         return result;
     }
     result.detail = entries.isEmpty()
-                        ? QStringLiteral("这个压缩包是空的")
-                        : QStringLiteral("里面既没有整合包清单、也没有 pack.mcmeta 或 shaders/，"
-                                         "认不出是哪一类");
+                        ? QCoreApplication::translate("DroppedResource", "这个压缩包是空的")
+                        : QCoreApplication::translate("DroppedResource", "里面既没有整合包清单、也没有 pack.mcmeta 或 shaders/，认不出是哪一类");
     return result;
 }
 

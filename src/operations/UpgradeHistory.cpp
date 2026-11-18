@@ -3,6 +3,7 @@
  * @brief 见头文件：每个实例一份的升级历史（追加、限量、原子写、读不懂不覆盖）。
  */
 #include "UpgradeHistory.hpp"
+#include <QCoreApplication>
 
 #include <QDir>
 #include <QFile>
@@ -89,20 +90,20 @@ QList<Entry> read(const QString &instanceDir, QString *problem) {
     }
     if (!file.open(QIODevice::ReadOnly)) {
         if (problem != nullptr) {
-            *problem = QStringLiteral("读不了升级历史：%1").arg(file.errorString());
+            *problem = QCoreApplication::translate("UpgradeHistory", "读不了升级历史：%1").arg(file.errorString());
         }
         return {};
     }
     if (file.size() > 4 * 1024 * 1024) {
         if (problem != nullptr) {
-            *problem = QStringLiteral("升级历史大得不像一份记录，按读不懂处理。");
+            *problem = QCoreApplication::translate("UpgradeHistory", "升级历史大得不像一份记录，按读不懂处理。");
         }
         return {};
     }
     const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
     if (!document.isObject()) {
         if (problem != nullptr) {
-            *problem = QStringLiteral("升级历史读不懂（不是 JSON 对象）。");
+            *problem = QCoreApplication::translate("UpgradeHistory", "升级历史读不懂（不是 JSON 对象）。");
         }
         return {};
     }
@@ -127,7 +128,7 @@ bool append(const QString &instanceDir, const Entry &entry, QString *problem) {
         existing = read(instanceDir, &readProblem);
         if (!readProblem.isEmpty()) {
             if (problem != nullptr) {
-                *problem = readProblem + QStringLiteral("。这一条没有写进去。");
+                *problem = readProblem + QCoreApplication::translate("UpgradeHistory", "。这一条没有写进去。");
             }
             return false;
         }
@@ -151,7 +152,7 @@ bool append(const QString &instanceDir, const Entry &entry, QString *problem) {
     const QByteArray bytes = QJsonDocument(root).toJson(QJsonDocument::Indented);
     if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() || !file.commit()) {
         if (problem != nullptr) {
-            *problem = QStringLiteral("升级历史写不进去：%1").arg(file.errorString());
+            *problem = QCoreApplication::translate("UpgradeHistory", "升级历史写不进去：%1").arg(file.errorString());
         }
         return false;
     }

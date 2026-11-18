@@ -4,6 +4,7 @@
  */
 
 #include "manage/BackupFiles.hpp"
+#include <QCoreApplication>
 
 #include <QCryptographicHash>
 #include <QDir>
@@ -45,7 +46,7 @@ const char *kKindInstance = "instance";
 /// 插在前缀和时间戳中间）。**一处定义**：`nameIsSafety()`（认人）与
 /// `sortBackupsNewestFirst()`（排序）都得认它 —— 两边各写一份的话，哪天这个记号变了，
 /// 会变成"排在前面"和"认成安全的"两件事。
-const QString kSafetyMark = QStringLiteral("恢复前-");
+const QString kSafetyMark = QCoreApplication::translate("BackupFiles", "恢复前-");
 
 /// 还原之前对着空闲空间判"放不放得下"时，在清单里那些字节之外再留的**固定**余量。
 /// 宁可留大一点：留多了什么也没浪费（还原完就还回去了），留少了就是"判够了、解到一半
@@ -358,7 +359,7 @@ QString backupFileName(const QString &label, const QDateTime &at, bool safety) {
         // 「恢复前」夹在中间而不是放在尾巴上：这一份是**自动**做出来的，摆前面一点是为了
         // 在按名字排序的列表里一眼看得见（它的时间戳和用户点的那一份几乎一样，只看时间
         // 排不出先后）。
-        name += QStringLiteral("恢复前-");
+        name += QCoreApplication::translate("BackupFiles", "恢复前-");
     }
     name += at.toString(QStringLiteral("yyyy-MM-dd-HHmmss"));
     name += QStringLiteral(".zip");
@@ -801,8 +802,7 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
     // 会替换这个路径，拼错一层就会动到别人的东西。
     if (QFileInfo(target).fileName().compare(manifest.root, Qt::CaseInsensitive) != 0) {
         result.stage = RestoreResult::Stage::ReadManifest;
-        result.problem = QObject::tr("这份备份里记的落点（%1）不是一个能找到的目录名，"
-                                     "为了不动到别的东西，这一份没有解开。")
+        result.problem = QObject::tr("这份备份里记的落点（%1）不是一个能找到的目录名，为了不动到别的东西，这一份没有解开。")
                              .arg(manifest.root);
         return result;
     }
@@ -821,9 +821,7 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
         const qint64 needed = restoreSpaceNeeded(manifest);
         if (!hasRoomFor(free, needed)) {
             result.stage = RestoreResult::Stage::Space;
-            result.problem = QObject::tr("这块盘放不下这一份备份：解开大约要 %1，只剩 %2。"
-                                         "\n清一清空间、或者把它还原到别的盘上再试。"
-                                         "\n现在盘上原有的东西一个字节都没动。")
+            result.problem = QObject::tr("这块盘放不下这一份备份：解开大约要 %1，只剩 %2。\n清一清空间、或者把它还原到别的盘上再试。\n现在盘上原有的东西一个字节都没动。")
                                  .arg(QLocale().formattedDataSize(needed),
                                       QLocale().formattedDataSize(free));
             return result;
@@ -849,13 +847,7 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
         const QString link = firstLinkInside(target);
         if (!link.isEmpty()) {
             result.stage = RestoreResult::Stage::SafetySnapshot;
-            result.problem = QObject::tr("这个目录里有链接：%1\n\n"
-                                         "还原会把链接本身换成备份里的普通目录（链接指向的内容"
-                                         "不会丢），而「这里是个链接」这件事还原不回来 —— "
-                                         "还原前的安全快照同样不含链接。\n\n"
-                                         "为了不动你的链接，这一份没有解开；现在盘上原有的东西"
-                                         "一个字节都没动。要接着还原的话，先把那个链接挪走，"
-                                         "或者删掉整个目录再还原。")
+            result.problem = QObject::tr("这个目录里有链接：%1\n\n还原会把链接本身换成备份里的普通目录（链接指向的内容不会丢），而「这里是个链接」这件事还原不回来 —— 还原前的安全快照同样不含链接。\n\n为了不动你的链接，这一份没有解开；现在盘上原有的东西一个字节都没动。要接着还原的话，先把那个链接挪走，或者删掉整个目录再还原。")
                                  .arg(QDir::toNativeSeparators(link));
             return result;
         }
@@ -906,8 +898,7 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
                 const QList<FileRecord> present = collectFiles(target, QStringList(), &probeProblem);
                 if (!probeProblem.isEmpty() || !present.isEmpty()) {
                     result.stage = RestoreResult::Stage::SafetySnapshot;
-                    result.problem = QObject::tr("没能在还原之前给「现在这一份」做安全快照：%1"
-                                                 "\n为了不让你丢东西，这个目录没有被改动。")
+                    result.problem = QObject::tr("没能在还原之前给「现在这一份」做安全快照：%1\n为了不让你丢东西，这个目录没有被改动。")
                                          .arg(snapshot.problem);
                     return result;
                 }
@@ -988,8 +979,7 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
     result.ok = result.mismatched == 0;
     if (!result.ok) {
         result.stage = RestoreResult::Stage::Verify;
-        QString message = QObject::tr("备份解开了，但解出来的文件和清单里记的对不上"
-                                      "（%1 / %2 个）。")
+        QString message = QObject::tr("备份解开了，但解出来的文件和清单里记的对不上（%1 / %2 个）。")
                               .arg(result.mismatched)
                               .arg(result.checked);
         if (!result.safetyZip.isEmpty()) {

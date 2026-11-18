@@ -1,4 +1,5 @@
 #include "manage/ManualRecovery.hpp"
+#include <QCoreApplication>
 
 #include "manage/InstanceFiles.hpp"
 #include "manage/RecoveryReview.hpp"
@@ -91,8 +92,7 @@ Result swapDirectories(const Request &request) {
 
     // ---------- ② 运行状态：调用方填的那一位 + 数据目录会话锁 ----------
     if (request.inUse) {
-        return refuse(QObject::tr("这一份正在运行，或者正被复制 / 备份 / 还原 / 安装占用。"
-                                  "等它停下来再来换，一个目录都没动。"));
+        return refuse(QObject::tr("这一份正在运行，或者正被复制 / 备份 / 还原 / 安装占用。等它停下来再来换，一个目录都没动。"));
     }
     QString lockProblem;
     if (!DirectorySessionLock::acquire(root, &lockProblem)) {
@@ -125,24 +125,21 @@ Result swapDirectories(const Request &request) {
             // 另一条记录把这一份旧目录当成自己的 `retained`：换走它会让那一条在启动时
             // 变成"目标和旧目录均缺失"。先让人把那条处理掉。
             if (itemRetained == replacement) {
-                return refuse(QObject::tr("这一份旧目录还登记在另一条恢复记录里（目标是 %1）。\n"
-                                          "请先处理那一条，再来替换这份目录。")
+                return refuse(QObject::tr("这一份旧目录还登记在另一条恢复记录里（目标是 %1）。\n请先处理那一条，再来替换这份目录。")
                                   .arg(QDir::toNativeSeparators(itemTarget)));
             }
             continue;
         }
         ++recordsForTarget;
         if (itemRetained != replacement) {
-            return refuse(QObject::tr("这个目录另有一条还没处理完的恢复记录，它记的旧目录在：\n%1\n\n"
-                                      "请先用那一条替换（或先标记已检查），再来替换这一份。")
+            return refuse(QObject::tr("这个目录另有一条还没处理完的恢复记录，它记的旧目录在：\n%1\n\n请先用那一条替换（或先标记已检查），再来替换这一份。")
                               .arg(QDir::toNativeSeparators(item.retained)));
         }
         journalPath = path;
         reusingRecord = true;
     }
     if (recordsForTarget > 1) {
-        return refuse(QObject::tr("同一个目录上有不止一条恢复记录，顺序不敢替用户定；"
-                                  "请先在「中断恢复检查」里逐条核对，未换任何目录。"));
+        return refuse(QObject::tr("同一个目录上有不止一条恢复记录，顺序不敢替用户定；请先在「中断恢复检查」里逐条核对，未换任何目录。"));
     }
     if (journalPath.isEmpty()) {
         journalPath = QDir(journalDir).filePath(token + QStringLiteral(".json"));
@@ -201,9 +198,7 @@ Result swapDirectories(const Request &request) {
             return refuse(QObject::tr("选中的旧目录替换失败，当前目录已放回原位；两份均未删除。"));
         }
         result.retainedPath = retained;
-        return refuse(QObject::tr("选中的旧目录替换失败，当前目录也未能放回原位。\n\n"
-                                  "两份均完整保留：当前目录在 %1，选中的旧目录在 %2。\n"
-                                  "恢复记录保留在 %3，请人工检查。")
+        return refuse(QObject::tr("选中的旧目录替换失败，当前目录也未能放回原位。\n\n两份均完整保留：当前目录在 %1，选中的旧目录在 %2。\n恢复记录保留在 %3，请人工检查。")
                           .arg(QDir::toNativeSeparators(retained),
                                QDir::toNativeSeparators(replacement),
                                QDir::toNativeSeparators(journalPath)));
@@ -216,8 +211,7 @@ Result swapDirectories(const Request &request) {
     if (!RestoreJournal::write(journalPath, journal)) {
         // 数据已经换好了，只是记录还停在「prepared」。启动恢复碰到"目标在、旧目录也在"
         // 只会提示人工检查，不会删任何一边 —— 这句话要让用户看见，但不该把成功说成失败。
-        result.notes.append(QObject::tr("恢复记录没能更新成「已发布」；下次启动会把它列为待检查事务。"
-                                        "两份目录都已保留。"));
+        result.notes.append(QObject::tr("恢复记录没能更新成「已发布」；下次启动会把它列为待检查事务。两份目录都已保留。"));
     }
     return result;
 }

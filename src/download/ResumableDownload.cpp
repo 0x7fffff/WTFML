@@ -1,4 +1,5 @@
 #include "ResumableDownload.hpp"
+#include <QCoreApplication>
 #include "../net/RequestBudget.hpp"
 #include "DownloadManager.hpp"
 #include "DownloadRetryPolicy.hpp"
@@ -163,9 +164,7 @@ void ResumableDownload::start(const QUrl &url, const QString &target, const QStr
                 if (!m_partsRetryPending) {
                     m_partsRetryPending = true;
                     if (DownloadDiag::enabled()) {
-                        DownloadDiag::line(QStringLiteral("resumable part failed, will retry missing "
-                                                          "parts only after this batch settles: %1 "
-                                                          "(complete=%2/%3)")
+                        DownloadDiag::line(QStringLiteral("resumable part failed, will retry missing parts only after this batch settles: %1 (complete=%2/%3)")
                                                .arg(error)
                                                .arg(m_complete.size())
                                                .arg(m_count));
@@ -220,8 +219,7 @@ void ResumableDownload::start(const QUrl &url, const QString &target, const QStr
         });
     });
     if (DownloadDiag::enabled()) {
-        DownloadDiag::line(QStringLiteral("resumable start url=%1 target=%2 sha1=%3 size=%4 "
-                                          "overwrite=%5 cache=%6")
+        DownloadDiag::line(QStringLiteral("resumable start url=%1 target=%2 sha1=%3 size=%4 overwrite=%5 cache=%6")
                                .arg(DownloadDiag::safeUrl(m_url),
                                     QDir::toNativeSeparators(m_target),
                                     m_sha1.isEmpty() ? QStringLiteral("-") : m_sha1)
@@ -305,9 +303,7 @@ void ResumableDownload::probe(int attempt) {
         const auto effectiveUrl = reply->url();
         reply->deleteLater();
         if (DownloadDiag::enabled()) {
-            DownloadDiag::line(QStringLiteral("probe reply attempt=%1 status=%2 error=%3(%4) "
-                                              "contentRange=%5 etag=%6 probeBytes=%7 "
-                                              "effectiveUrl=%8 unsupportedFlag=%9")
+            DownloadDiag::line(QStringLiteral("probe reply attempt=%1 status=%2 error=%3(%4) contentRange=%5 etag=%6 probeBytes=%7 effectiveUrl=%8 unsupportedFlag=%9")
                                    .arg(attempt)
                                    .arg(status > 0 ? QString::number(status) : QStringLiteral("-"))
                                    .arg(QString::number(int(code)), reason)
@@ -347,8 +343,7 @@ void ResumableDownload::probe(int attempt) {
             }
             if (delay >= 0) {
                 if (DownloadDiag::enabled()) {
-                    DownloadDiag::line(QStringLiteral("probe transient retry attempt=%1 delay=%2ms "
-                                                      "retryAfter=%3")
+                    DownloadDiag::line(QStringLiteral("probe transient retry attempt=%1 delay=%2ms retryAfter=%3")
                                            .arg(attempt + 1)
                                            .arg(delay)
                                            .arg(retryAfter.isEmpty()
@@ -370,8 +365,7 @@ void ResumableDownload::probe(int attempt) {
         const qint64 total = match.captured(1).toLongLong(&valid);
         if (status != 206 || !valid || data.size() != 1 || total <= 0) {
             if (DownloadDiag::enabled()) {
-                DownloadDiag::line(QStringLiteral("probe -> single: invalid probe response "
-                                                  "status=%1 total=%2 probeBytes=%3")
+                DownloadDiag::line(QStringLiteral("probe -> single: invalid probe response status=%1 total=%2 probeBytes=%3")
                                        .arg(status)
                                        .arg(valid ? QString::number(total) : QStringLiteral("-"))
                                        .arg(data.size()));
@@ -399,8 +393,7 @@ void ResumableDownload::probe(int attempt) {
         if (total < kMinimumBytes || total > kMaximumBytes ||
             (m_etag.isEmpty() && m_sha1.isEmpty())) {
             if (DownloadDiag::enabled()) {
-                DownloadDiag::line(QStringLiteral("probe -> single: unsafe for ranges total=%1 "
-                                                  "etag=%2 sha1=%3")
+                DownloadDiag::line(QStringLiteral("probe -> single: unsafe for ranges total=%1 etag=%2 sha1=%3")
                                        .arg(total)
                                        .arg(m_etag.isEmpty() ? QStringLiteral("-")
                                                              : QString::fromLatin1(m_etag),
@@ -422,8 +415,7 @@ void ResumableDownload::probe(int attempt) {
         }
         m_count = int((total + m_partSize - 1) / m_partSize);
         if (DownloadDiag::enabled()) {
-            DownloadDiag::line(QStringLiteral("probe -> parts total=%1 partSize=%2 parts=%3 "
-                                              "etag=%4 effectiveUrl=%5")
+            DownloadDiag::line(QStringLiteral("probe -> parts total=%1 partSize=%2 parts=%3 etag=%4 effectiveUrl=%5")
                                    .arg(total)
                                    .arg(m_partSize)
                                    .arg(m_count)
@@ -518,8 +510,7 @@ void ResumableDownload::downloadParts() {
         m_rateTimer->start();
     }
     if (DownloadDiag::enabled()) {
-        DownloadDiag::line(QStringLiteral("resumable parts: missing=%1/%2 partSize=%3 total=%4 "
-                                          "url=%5")
+        DownloadDiag::line(QStringLiteral("resumable parts: missing=%1/%2 partSize=%3 total=%4 url=%5")
                                .arg(m_count - m_complete.size())
                                .arg(m_count)
                                .arg(m_partSize)
@@ -590,8 +581,7 @@ void ResumableDownload::maybeCompareSources() {
     });
     QTimer::singleShot(6000, reply, [reply] { if (!reply->isFinished()) reply->abort(); });
     if (DownloadDiag::enabled()) {
-        DownloadDiag::line(QStringLiteral("resumable source comparison start currentBps=%1 "
-                                          "windowMs=%2 complete=%3/%4 fallback=%5")
+        DownloadDiag::line(QStringLiteral("resumable source comparison start currentBps=%1 windowMs=%2 complete=%3/%4 fallback=%5")
                                .arg(rate)
                                .arg(window)
                                .arg(m_complete.size())
@@ -607,8 +597,7 @@ void ResumableDownload::maybeCompareSources() {
         const bool switchSource =
             sampled && SlowSourcePolicy::better(rate, *bytes, qMax<qint64>(1, clock->elapsed()));
         if (DownloadDiag::enabled()) {
-            DownloadDiag::line(QStringLiteral("resumable source comparison: status=%1 bytes=%2 "
-                                              "elapsedMs=%3 currentBps=%4 switch=%5")
+            DownloadDiag::line(QStringLiteral("resumable source comparison: status=%1 bytes=%2 elapsedMs=%3 currentBps=%4 switch=%5")
                                    .arg(status > 0 ? QString::number(status) : QStringLiteral("-"))
                                    .arg(*bytes)
                                    .arg(clock->elapsed())
@@ -660,8 +649,7 @@ void ResumableDownload::switchToFallback() {
 
 void ResumableDownload::startSingle() {
     if (DownloadDiag::enabled()) {
-        DownloadDiag::line(QStringLiteral("resumable -> single (reason in previous probe line) "
-                                          "url=%1 target=%2")
+        DownloadDiag::line(QStringLiteral("resumable -> single (reason in previous probe line) url=%1 target=%2")
                                .arg(DownloadDiag::safeUrl(m_url),
                                     QDir::toNativeSeparators(m_target)));
     }
@@ -703,27 +691,27 @@ void ResumableDownload::assemble() {
         for (auto it = complete.cbegin(); it != complete.cend(); ++it) {
             const QString path = QDir(cache).filePath(QStringLiteral("part-%1.bin").arg(it.key()));
             QFile part(path);
-            if (QFileInfo(path).isSymLink() || !part.open(QIODevice::ReadOnly)) { *result = QStringLiteral("续传分段不可读。"); return; }
+            if (QFileInfo(path).isSymLink() || !part.open(QIODevice::ReadOnly)) { *result = QCoreApplication::translate("ResumableDownload", "续传分段不可读。"); return; }
             QCryptographicHash hash(QCryptographicHash::Sha256);
             while (!part.atEnd()) {
                 if (token->loadRelaxed()) return;
                 const auto data = part.read(64 * 1024);
-                if (data.isEmpty() || output.write(data) != data.size()) { *result = QStringLiteral("无法合并分段。"); return; }
+                if (data.isEmpty() || output.write(data) != data.size()) { *result = QCoreApplication::translate("ResumableDownload", "无法合并分段。"); return; }
                 if (prefix.size() < 4) prefix += data.left(4 - prefix.size());
                 hash.addData(data); whole.addData(data); written += data.size();
             }
-            if (QString::fromLatin1(hash.result().toHex()) != it.value()) { *result = QStringLiteral("续传缓存已经改变，请重试以重新下载损坏分段。"); return; }
+            if (QString::fromLatin1(hash.result().toHex()) != it.value()) { *result = QCoreApplication::translate("ResumableDownload", "续传缓存已经改变，请重试以重新下载损坏分段。"); return; }
         }
         if (written != total || (!expectedHash.isEmpty() && QString::fromLatin1(whole.result().toHex()).compare(expectedHash, Qt::CaseInsensitive))) {
-            *result = QStringLiteral("合并后的大小或 SHA-1 校验失败。"); return;
+            *result = QCoreApplication::translate("ResumableDownload", "合并后的大小或 SHA-1 校验失败。"); return;
         }
         const auto ext = QFileInfo(target).suffix().toLower();
         if ((ext == QStringLiteral("jar") || ext == QStringLiteral("zip")) && expectedHash.isEmpty() &&
             !ZipMagic::looksLikeZipHead(prefix)) {
-            *result = QStringLiteral("下载内容不是有效的 ZIP/JAR 文件。"); return;
+            *result = QCoreApplication::translate("ResumableDownload", "下载内容不是有效的 ZIP/JAR 文件。"); return;
         }
         if (token->loadRelaxed()) return;
-        if (!overwrite && (QFileInfo::exists(target) || QFileInfo(target).isSymLink())) { *result = QStringLiteral("目标文件已出现，未覆盖。"); return; }
+        if (!overwrite && (QFileInfo::exists(target) || QFileInfo(target).isSymLink())) { *result = QCoreApplication::translate("ResumableDownload", "目标文件已出现，未覆盖。"); return; }
         if (commitGuard) { *result = commitGuard(); if (!result->isEmpty()) return; }
         // 取消和原子提交只有一个能获准：接受取消后绝不再替换旧目标。
         if (!token->testAndSetOrdered(0, 2)) return;

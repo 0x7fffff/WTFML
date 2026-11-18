@@ -6,6 +6,7 @@
  */
 
 #include "RandomSkinStore.hpp"
+#include <QCoreApplication>
 
 #include <QDebug>
 #include <QDir>
@@ -66,7 +67,7 @@ QStringList RandomSkinStore::parseTextureHashes(const QByteArray &body, QString 
     const QJsonDocument doc = QJsonDocument::fromJson(body, &parseError);
     if (doc.isNull() || !doc.isObject()) {
         if (errorOut != nullptr) {
-            *errorOut = QStringLiteral("解不出皮肤列表（不是一份 JSON 对象：%1）")
+            *errorOut = QCoreApplication::translate("RandomSkinStore", "解不出皮肤列表（不是一份 JSON 对象：%1）")
                             .arg(parseError.errorString());
         }
         return {};
@@ -76,7 +77,7 @@ QStringList RandomSkinStore::parseTextureHashes(const QByteArray &body, QString 
         // 200 但不是这个形状：多半是接口变了。说清楚比"拿到 0 张"强 —— 后者会被当成
         // "这个库里现在一张皮肤都没有"，而那是另一回事。
         if (errorOut != nullptr) {
-            *errorOut = QStringLiteral("皮肤列表里没有 %1 这一项（接口形状变了？）")
+            *errorOut = QCoreApplication::translate("RandomSkinStore", "皮肤列表里没有 %1 这一项（接口形状变了？）")
                             .arg(kSkinsField);
         }
         return {};
@@ -105,7 +106,7 @@ QStringList RandomSkinStore::parseTextureHashes(const QByteArray &body, QString 
         hashes.append(hash);
     }
     if (hashes.isEmpty() && errorOut != nullptr) {
-        *errorOut = QStringLiteral("皮肤列表里一条能用的贴图都没有（共 %1 项）").arg(skins.size());
+        *errorOut = QCoreApplication::translate("RandomSkinStore", "皮肤列表里一条能用的贴图都没有（共 %1 项）").arg(skins.size());
     }
     return hashes;
 }
@@ -154,13 +155,13 @@ bool RandomSkinStore::saveChosenSkinUrl(const QString &uuid, const QString &skin
     const QString path = chosenPathFor(uuid);
     if (path.isEmpty()) {
         if (errorOut != nullptr) {
-            *errorOut = QStringLiteral("认不出这个账号的 uuid，随机皮肤没法记下来。");
+            *errorOut = QCoreApplication::translate("RandomSkinStore", "认不出这个账号的 uuid，随机皮肤没法记下来。");
         }
         return false;
     }
     if (!QDir().mkpath(AppPaths::skinsDir())) {
         if (errorOut != nullptr) {
-            *errorOut = QStringLiteral("无法创建目录 %1。")
+            *errorOut = QCoreApplication::translate("RandomSkinStore", "无法创建目录 %1。")
                             .arg(QDir::toNativeSeparators(AppPaths::skinsDir()));
         }
         return false;
@@ -169,7 +170,7 @@ bool RandomSkinStore::saveChosenSkinUrl(const QString &uuid, const QString &skin
     if (!file.open(QIODevice::WriteOnly) ||
         file.write(skinUrl.toUtf8() + QByteArrayLiteral("\n")) < 0 || !file.commit()) {
         if (errorOut != nullptr) {
-            *errorOut = QStringLiteral("随机皮肤存不下来：%1")
+            *errorOut = QCoreApplication::translate("RandomSkinStore", "随机皮肤存不下来：%1")
                             .arg(QDir::toNativeSeparators(path));
         }
         return false;
@@ -194,7 +195,7 @@ bool RandomSkinStore::fetchRandomSkin() {
             // 不管是发出去的还是没发出去的，这一趟到此为止 —— 先放开闸，后面的刷新才能再问。
             m_inFlight = false;
             if (reply == nullptr) {
-                emit failed(QStringLiteral("取随机皮肤列表失败：%1").arg(jobError));
+                emit failed(QCoreApplication::translate("RandomSkinStore", "取随机皮肤列表失败：%1").arg(jobError));
                 return;
             }
             const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
@@ -203,7 +204,7 @@ bool RandomSkinStore::fetchRandomSkin() {
             const bool ok = reply->error() == QNetworkReply::NoError;
 
             if (!ok) {
-                emit failed(QStringLiteral("取随机皮肤列表失败（HTTP %1）：%2")
+                emit failed(QCoreApplication::translate("RandomSkinStore", "取随机皮肤列表失败（HTTP %1）：%2")
                                 .arg(status)
                                 .arg(networkError));
                 return;
@@ -220,7 +221,7 @@ bool RandomSkinStore::fetchRandomSkin() {
             const QString url = PlayerSkinStore::textureUrlForHash(hash);
             if (url.isEmpty()) {
                 // parseTextureHashes() 已经按同一把尺子筛过一遍，理论上到不了这儿。
-                emit failed(QStringLiteral("挑中的贴图哈希拼不出地址：%1").arg(hash));
+                emit failed(QCoreApplication::translate("RandomSkinStore", "挑中的贴图哈希拼不出地址：%1").arg(hash));
                 return;
             }
             emit skinReady(url);

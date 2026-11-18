@@ -5,6 +5,7 @@
  */
 
 #include "FolderManager.hpp"
+#include <QCoreApplication>
 #include <QThread>
 
 #include <QDebug>
@@ -280,8 +281,7 @@ bool moveToRecycleBin(const QString &path, QString *error) {
     if (GetVolumePathNameW(wide.c_str(), volume, MAX_PATH + 1) != 0) {
         const UINT type = GetDriveTypeW(volume);
         if (type == DRIVE_REMOTE || type == DRIVE_CDROM || type == DRIVE_NO_ROOT_DIR) {
-            return fail(FolderManager::tr("「%1」在 %2 上，那里没有回收站。\n\n"
-                                          "为了不永久删掉，这一项没有动。")
+            return fail(FolderManager::tr("「%1」在 %2 上，那里没有回收站。\n\n为了不永久删掉，这一项没有动。")
                             .arg(target, QString::fromWCharArray(volume)));
         }
     }
@@ -316,15 +316,11 @@ bool moveToRecycleBin(const QString &path, QString *error) {
             CloseHandle(probe);
         }
         if (probeError == ERROR_ACCESS_DENIED) {
-            return fail(FolderManager::tr("「%1」的权限不允许删除：这一项（或者它所在的目录）"
-                                          "上面挂了拒绝删除的 ACL。\n\n"
-                                          "在「属性 → 安全 → 高级」里找到那条拒绝项去掉，"
-                                          "或者用管理员身份重试。这一项没有动。")
+            return fail(FolderManager::tr("「%1」的权限不允许删除：这一项（或者它所在的目录）上面挂了拒绝删除的 ACL。\n\n在「属性 → 安全 → 高级」里找到那条拒绝项去掉，或者用管理员身份重试。这一项没有动。")
                             .arg(QDir::toNativeSeparators(target)));
         }
         if (probeError == ERROR_SHARING_VIOLATION || probeError == ERROR_LOCK_VIOLATION) {
-            return fail(FolderManager::tr("「%1」正被别的程序占着（多半是游戏还开着）。\n\n"
-                                          "把它关掉再试。这一项没有动。")
+            return fail(FolderManager::tr("「%1」正被别的程序占着（多半是游戏还开着）。\n\n把它关掉再试。这一项没有动。")
                             .arg(QDir::toNativeSeparators(target)));
         }
     }
@@ -340,8 +336,7 @@ bool moveToRecycleBin(const QString &path, QString *error) {
 
     ComApartment com;
     if (!com.usable()) {
-        return fail(FolderManager::tr("这台机器上起不了回收站那一套组件，为了不永久删掉，"
-                                      "「%1」没有动。")
+        return fail(FolderManager::tr("这台机器上起不了回收站那一套组件，为了不永久删掉，「%1」没有动。")
                         .arg(QDir::toNativeSeparators(target)));
     }
 
@@ -376,14 +371,11 @@ bool moveToRecycleBin(const QString &path, QString *error) {
     operation->Release();
 
     if (FAILED(hr)) {
-        return fail(FolderManager::tr("无法将「%1」移入回收站：%2\n\n"
-                                      "（原因可能是回收站不可用、空间不足，或其中的文件正被"
-                                      "其他程序占用；请先关闭游戏再试。）")
+        return fail(FolderManager::tr("无法将「%1」移入回收站：%2\n\n（原因可能是回收站不可用、空间不足，或其中的文件正被其他程序占用；请先关闭游戏再试。）")
                         .arg(QDir::toNativeSeparators(target), systemMessage(hr)));
     }
     if (aborted != FALSE) {
-        return fail(FolderManager::tr("「%1」移进回收站的过程被打断了，盘上可能剩了一部分 —— "
-                                      "看一眼回收站和原目录再决定下一步。")
+        return fail(FolderManager::tr("「%1」移进回收站的过程被打断了，盘上可能剩了一部分 —— 看一眼回收站和原目录再决定下一步。")
                         .arg(QDir::toNativeSeparators(target)));
     }
     if (QFileInfo::exists(target)) {
@@ -413,7 +405,7 @@ bool copyTreeWithoutFollowingLinks(const QString &from, const QString &to,
                                    const std::function<bool()> &cancelled, QString *problemOut) {
     if (problemOut) problemOut->clear();
     const auto failCopy = [&](const QString &reason) {
-        if (problemOut) *problemOut = QStringLiteral("%1 → %2：%3").arg(from, to, reason);
+        if (problemOut) *problemOut = QCoreApplication::translate("FolderManager", "%1 → %2：%3").arg(from, to, reason);
         return false;
     };
     if (cancelled && cancelled()) return false;
@@ -422,16 +414,16 @@ bool copyTreeWithoutFollowingLinks(const QString &from, const QString &to,
         // 链接照拷的话，会在新位置复制出**那一头**的一整棵 —— 用户挂到别的盘上的东西
         // 会被无声无息地抄一份进来（可能几百 GB）。所以这里直接判失败，不是"跳过"。
         qWarning() << "copyTreeWithoutFollowingLinks: refusing to follow a link:" << from;
-        return failCopy(QStringLiteral("源路径包含链接"));
+        return failCopy(QCoreApplication::translate("FolderManager", "源路径包含链接"));
     }
     if (source.isDir()) {
         if (QFileInfo::exists(to)) {
             qWarning() << "copyTreeWithoutFollowingLinks: target already exists:" << to;
-            return failCopy(QStringLiteral("目标目录已存在"));
+            return failCopy(QCoreApplication::translate("FolderManager", "目标目录已存在"));
         }
         if (!QDir().mkpath(to)) {
             qWarning() << "copyTreeWithoutFollowingLinks: cannot create directory" << to;
-            return failCopy(QStringLiteral("无法创建目标目录"));
+            return failCopy(QCoreApplication::translate("FolderManager", "无法创建目标目录"));
         }
         const QFileInfoList entries = QDir(from).entryInfoList(
             QDir::Files | QDir::Dirs | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot);
@@ -447,13 +439,13 @@ bool copyTreeWithoutFollowingLinks(const QString &from, const QString &to,
         // 既不是目录也不是文件：设备文件、坏掉的链接、或者这一瞬间被别的东西拿走了。
         // 报失败而不是跳过 —— 拷出来的一份"少了点东西"是最难发现的那种坏。
         qWarning() << "copyTreeWithoutFollowingLinks: cannot copy a non-file entry:" << from;
-        return failCopy(QStringLiteral("源路径不是普通文件"));
+        return failCopy(QCoreApplication::translate("FolderManager", "源路径不是普通文件"));
     }
     if (QFileInfo::exists(to)) {
         // QFile::copy() 遇到已存在的目标**直接返回 false**（Qt 不肯覆盖），所以这一句
         // 其实只是把"为什么会失败"说清楚一点，真正挡住覆盖的是 copy() 自己。
         qWarning() << "copyTreeWithoutFollowingLinks: target already exists:" << to;
-        return failCopy(QStringLiteral("目标文件已存在"));
+        return failCopy(QCoreApplication::translate("FolderManager", "目标文件已存在"));
     }
     // 先写**同目录**的临时名，再改名发布（和 `operations/TransferApply.cpp` 里那份
     // 单文件拷贝同一规矩）：直接往 to 上写，进程被杀 / 盘满 / 杀软扫描中断时盘上会留下
@@ -468,7 +460,7 @@ bool copyTreeWithoutFollowingLinks(const QString &from, const QString &to,
         if (!staged.rename(to)) {
             const QString reason = staged.errorString();
             QFile::remove(staging);
-            return failCopy(QStringLiteral("无法发布完整临时文件：%1").arg(reason));
+            return failCopy(QCoreApplication::translate("FolderManager", "无法发布完整临时文件：%1").arg(reason));
         }
         return true;
     };
@@ -477,7 +469,7 @@ bool copyTreeWithoutFollowingLinks(const QString &from, const QString &to,
         if (!input.open(QIODevice::ReadOnly) ||
             !output.open(QIODevice::WriteOnly | QIODevice::NewOnly)) {
             QFile::remove(staging);
-            return failCopy(QStringLiteral("无法打开源或临时文件：%1；%2").arg(input.errorString(), output.errorString()));
+            return failCopy(QCoreApplication::translate("FolderManager", "无法打开源或临时文件：%1；%2").arg(input.errorString(), output.errorString()));
         }
         while (!input.atEnd()) {
             if (cancelled()) {
@@ -487,17 +479,17 @@ bool copyTreeWithoutFollowingLinks(const QString &from, const QString &to,
             }
             const auto bytes = input.read(1024 * 1024);
             if (bytes.isEmpty() || output.write(bytes) != bytes.size()) {
-                const QString reason = QStringLiteral("%1；%2").arg(input.errorString(), output.errorString());
+                const QString reason = QCoreApplication::translate("FolderManager", "%1；%2").arg(input.errorString(), output.errorString());
                 output.close();
                 QFile::remove(staging);
-                return failCopy(QStringLiteral("分块读写失败：%1").arg(reason));
+                return failCopy(QCoreApplication::translate("FolderManager", "分块读写失败：%1").arg(reason));
             }
         }
         if (input.error() != QFile::NoError || !output.flush() || cancelled()) {
-            const QString reason = QStringLiteral("%1；%2").arg(input.errorString(), output.errorString());
+            const QString reason = QCoreApplication::translate("FolderManager", "%1；%2").arg(input.errorString(), output.errorString());
             output.close();
             QFile::remove(staging);
-            return failCopy(QStringLiteral("刷新临时文件失败或操作取消：%1").arg(reason));
+            return failCopy(QCoreApplication::translate("FolderManager", "刷新临时文件失败或操作取消：%1").arg(reason));
         }
         output.setPermissions(input.permissions());
         output.close();
@@ -508,7 +500,7 @@ bool copyTreeWithoutFollowingLinks(const QString &from, const QString &to,
         const QString reason = input.errorString();
         qWarning() << "copyTreeWithoutFollowingLinks: cannot copy" << from << "to" << to;
         QFile::remove(staging);
-        return failCopy(QStringLiteral("文件复制失败：%1").arg(reason));
+        return failCopy(QCoreApplication::translate("FolderManager", "文件复制失败：%1").arg(reason));
     }
     return publish();
 }
@@ -775,8 +767,7 @@ bool FolderManager::deleteFolder(const QString &path, QString *error) {
             if (error != nullptr) {
                 // 失败原因照实说：移到一半失败时目录是**半截**的（前面那些已经进了回收站），
                 // 而用户需要知道现在盘上和回收站里到底是什么状态。
-                *error = tr("「%1」没能整个移进回收站：%2\n\n"
-                            "已经移走的那部分在回收站里，可以还原。")
+                *error = tr("「%1」没能整个移进回收站：%2\n\n已经移走的那部分在回收站里，可以还原。")
                              .arg(QDir::toNativeSeparators(target), recycleProblem);
             }
             return false;

@@ -21,6 +21,7 @@
  */
 
 #include "VersionManager.hpp"
+#include <QCoreApplication>
 #include "util/StorageAvailability.hpp"
 #include "util/WriteDirectoryGuard.hpp"
 #include "../download/AssetDirectorKnownSet.hpp"
@@ -205,8 +206,7 @@ QStringList scanInstalledVersions(const std::atomic_bool *cancelled, QStringList
                 if (InstanceFiles::isUnfinishedImport(versionDir)) {
                     if (warnings != nullptr) {
                         warnings->append(
-                            VersionManager::tr("目录 %1 是上一次没导完的整合包（没有顶层 jar），先不列在启动列表里；"
-                                               "重新导入同一个整合包、用同一个名字就能接着下。")
+                            VersionManager::tr("目录 %1 是上一次没导完的整合包（没有顶层 jar），先不列在启动列表里；重新导入同一个整合包、用同一个名字就能接着下。")
                                 .arg(versionDir));
                     }
                     continue;
@@ -222,7 +222,7 @@ QStringList scanInstalledVersions(const std::atomic_bool *cancelled, QStringList
                 warnings->append(VersionManager::tr("目录 %1 里有 %2 个 jar（%3），认不出哪个是客户端，已忽略。")
                                      .arg(versionDir)
                                      .arg(resolved.jarCandidates.size())
-                                     .arg(resolved.jarCandidates.join(QStringLiteral("、"))));
+                                     .arg(resolved.jarCandidates.join(QCoreApplication::translate("VersionManager", "、"))));
             }
         }
     }
@@ -1265,8 +1265,7 @@ QString VersionManager::inheritanceProblem(const QString &versionId) const {
             return QString();
         }
         if (seen.contains(parentId)) {
-            return tr("版本「%1」的继承链接成环了（指回 %2），没法确定它到底基于什么。\n"
-                      "这个版本的 json 是被改坏过的，建议删掉重装。")
+            return tr("版本「%1」的继承链接成环了（指回 %2），没法确定它到底基于什么。\n这个版本的 json 是被改坏过的，建议删掉重装。")
                 .arg(versionId, parentId);
         }
         seen.insert(parentId);
@@ -1276,8 +1275,7 @@ QString VersionManager::inheritanceProblem(const QString &versionId) const {
             // 这句话必须点明"要去装原版"，而不是套用那句"请重新下载该版本" —— 用户照
             // 后者做，下载的还是这个加载器版本（它的 json 本来就不含原版那份东西），
             // 于是问题原样复现。
-            return tr("版本「%1」基于「%2」，但本机没有安装「%2」，启动不了。\n"
-                      "请先安装原版「%2」，再启动这个版本。")
+            return tr("版本「%1」基于「%2」，但本机没有安装「%2」，启动不了。\n请先安装原版「%2」，再启动这个版本。")
                 .arg(versionId, parentId);
         }
     }
@@ -1408,9 +1406,7 @@ bool VersionManager::renameInstance(const QString &oldId, const QString &newName
     {
         const QFileInfo oldDirInfo(oldDir);
         if (oldDirInfo.isJunction() || oldDirInfo.isSymLink()) {
-            return fail(tr("「%1」本身是一个链接（它指向另一个目录）。\n\n"
-                           "给链接改名会动到它指向的那一边，所以这里不做。"
-                           "请到那个目录上直接改名，或者先把它换成普通文件夹。")
+            return fail(tr("「%1」本身是一个链接（它指向另一个目录）。\n\n给链接改名会动到它指向的那一边，所以这里不做。请到那个目录上直接改名，或者先把它换成普通文件夹。")
                             .arg(QDir::toNativeSeparators(oldDir)));
         }
     }
@@ -1586,8 +1582,7 @@ bool VersionManager::copyInstanceFrom(const QString &sourceDir, const QString &s
     // 顺序就是这么写的），列出来的东西里包含它刚造出来的那个 `versions/` ⇒ 每层再往深
     // 一层、每层重抄整个实例（mods / saves / assets…），直到路径长度或盘容量撑爆为止。
     if (InstanceFiles::pathIsSameOrInside(sourceDir, target)) {
-        return fail(tr("不能把「%1」复制到它自己里面去（%2 就是这一份实例自己的目录，"
-                       "或者是它底下的一个子目录）。换一个游戏文件夹再试。")
+        return fail(tr("不能把「%1」复制到它自己里面去（%2 就是这一份实例自己的目录，或者是它底下的一个子目录）。换一个游戏文件夹再试。")
                         .arg(name, QDir::toNativeSeparators(target)));
     }
 
@@ -1718,8 +1713,7 @@ bool VersionManager::copyInstanceFrom(const QString &sourceDir, const QString &s
     // 发布前再问一次盘：慢盘上拷了几分钟，这个名字可能已经被用户或另一份启动器占用了。
     // 那时只清暂存，绝不碰对方那个目录。
     if (QFileInfo::exists(destDir)) {
-        return fail(tr("复制完成时，游戏目录中已存在名为「%1」的实例；"
-                       "本次未发布。%2")
+        return fail(tr("复制完成时，游戏目录中已存在名为「%1」的实例；本次未发布。%2")
                         .arg(name, removePartial()));
     }
     if (!QDir().rename(stagingDir, destDir)) {
@@ -1764,8 +1758,7 @@ bool VersionManager::deleteInstance(const QString &versionId, QString *errorOut)
     QString recycleProblem;
     if (!moveToRecycleBin(dir, &recycleProblem)) {
         if (errorOut != nullptr) {
-            *errorOut = tr("没能把 %1 整个删掉：%2\n"
-                           "已经移进回收站的那部分可以还原。")
+            *errorOut = tr("没能把 %1 整个删掉：%2\n已经移进回收站的那部分可以还原。")
                             .arg(QDir::toNativeSeparators(dir), recycleProblem);
         }
         return false;
@@ -2164,8 +2157,7 @@ void VersionManager::onAllDownloadsFinished(bool success) {
             }
             prefetchMessage =
                 stats.failed > 0
-                    ? tr("%1 个文件未能下载；已下载的文件保留在 %2，下次预取会跳过校验通过的部分。"
-                         "游戏首次启动时 AssetDirector 会继续下载。\n%3")
+                    ? tr("%1 个文件未能下载；已下载的文件保留在 %2，下次预取会跳过校验通过的部分。游戏首次启动时 AssetDirector 会继续下载。\n%3")
                           .arg(stats.failed)
                           .arg(QDir::toNativeSeparators(
                               AssetDirectorKnownSet::overlayDir(AppPaths::assetsDir())))
@@ -2366,9 +2358,7 @@ void VersionManager::onAllDownloadsFinished(bool success) {
                 // 所以 `isUnfinishedImport()` 认得出这个目录 ⇒ 同一个包、同一个名字
                 // 再导入一次就走 OkResume，已经下好的按 sha1 跳过。
                 failModpackImport(
-                    tr("整合包中有 %1 个文件未能下载，安装未完成。\n%2\n\n已下载的文件保留在 %3 "
-                       "中；使用同一个整合包、同一个实例名再导入一次即可继续下载"
-                       "（已下载的文件按 sha1 跳过）。")
+                    tr("整合包中有 %1 个文件未能下载，安装未完成。\n%2\n\n已下载的文件保留在 %3 中；使用同一个整合包、同一个实例名再导入一次即可继续下载（已下载的文件按 sha1 跳过）。")
                         .arg(stats.failed)
                         .arg(message, AppPaths::versionDir(m_modpackInstall.instanceId)));
                 return;

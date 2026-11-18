@@ -13,6 +13,7 @@
  */
 
 #include "controllers/ServerSettingsPageController.hpp"
+#include <QCoreApplication>
 
 #include "InlineMessage.hpp"
 #include "MainWindow.hpp"
@@ -246,8 +247,7 @@ void ServerSettingsPageController::refresh() {
     page->setBackupRows(rows);
     page->setBackupNote(
         worldDir.isEmpty()
-            ? MainWindow::tr("level-name 无效，无法确定世界目录。"
-                             "请在「常用设置」中填写有效的世界目录名。")
+            ? MainWindow::tr("level-name 无效，无法确定世界目录。请在「常用设置」中填写有效的世界目录名。")
             : MainWindow::tr("世界目录：%1\n备份目录：%2")
                   .arg(QDir::toNativeSeparators(worldDir),
                        QDir::toNativeSeparators(backupDir)));
@@ -330,9 +330,7 @@ void ServerSettingsPageController::save() {
         // 写一半再报错，用户看着的是"保存了"而盘上是半份 —— 宁可让他把那一格改对再来。
         InlineMessage::warning(
             m_owner.m_ui->overlay(), MainWindow::tr("有几项改不了"),
-            MainWindow::tr("这几项的值不正确，所以本次没有写入任何内容：\n%1\n\n"
-                           "把这几项改对（表单里的格子、或者「原始文本」里那一行），"
-                           "再按一次保存。")
+            MainWindow::tr("这几项的值不正确，所以本次没有写入任何内容：\n%1\n\n把这几项改对（表单里的格子、或者「原始文本」里那一行），再按一次保存。")
                 .arg(result.rejected.join(QStringLiteral("\n"))));
         return;
     }

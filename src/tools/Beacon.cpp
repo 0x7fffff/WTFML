@@ -237,8 +237,7 @@ QString sharedBaseText(int level, int beaconCount) {
             .arg(beaconCount);
     }
     const QString each =
-        QCoreApplication::translate("Beacon", "每颗信标另需 %1 块黑曜石 + %2 颗下界之星 + %3 块玻璃"
-                       "（合成表：底下 3 块黑曜石、中间一颗下界之星、四周 5 块玻璃）。")
+        QCoreApplication::translate("Beacon", "每颗信标另需 %1 块黑曜石 + %2 颗下界之星 + %3 块玻璃（合成表：底下 3 块黑曜石、中间一颗下界之星、四周 5 块玻璃）。")
             .arg(kObsidianPerBeacon)
             .arg(kStarPerBeacon)
             .arg(kGlassPerBeacon);
@@ -247,9 +246,7 @@ QString sharedBaseText(int level, int beaconCount) {
     }
     const Layout layout = compactLayout(level, beaconCount);
     const int separate = beaconCount * totalBlocks(level);
-    QString text = QCoreApplication::translate("Beacon", "%1 颗信标挨着摆（%2 × %3 的一团）能共用底座："
-                                  "%4 级只要 %5 块，各盖一座则要 %6 块 —— 共用的是重叠的那些方块，"
-                                  "不是「一颗信标一座金字塔」。")
+    QString text = QCoreApplication::translate("Beacon", "%1 颗信标挨着摆（%2 × %3 的一团）能共用底座：%4 级只要 %5 块，各盖一座则要 %6 块 —— 共用的是重叠的那些方块，不是「一颗信标一座金字塔」。")
                        .arg(beaconCount)
                        .arg(layout.width)
                        .arg(layout.depth)

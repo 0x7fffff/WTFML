@@ -8,6 +8,7 @@
  */
 
 #include "controllers/InstallPageController.hpp"
+#include <QCoreApplication>
 
 #include "InlineMessage.hpp"
 #include "MainWindow.hpp"
@@ -789,9 +790,9 @@ void InstallPageController::openPresetPicker() {
                 continue;
             }
             const QString name = result.name.isEmpty() ? result.projectId : result.name;
-            QString line = QStringLiteral("%1（%2）").arg(name, stateText);
+            QString line = QCoreApplication::translate("InstallPageController", "%1（%2）").arg(name, stateText);
             if (!result.detail.isEmpty()) {
-                line += QStringLiteral("：%1").arg(result.detail);
+                line += QCoreApplication::translate("InstallPageController", "：%1").arg(result.detail);
             }
             line += result.required ? MainWindow::tr("【必要项】") : MainWindow::tr("【可选项】");
             out.append(line);

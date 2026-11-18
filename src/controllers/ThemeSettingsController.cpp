@@ -1,4 +1,5 @@
 #include "controllers/ThemeSettingsController.hpp"
+#include <QCoreApplication>
 
 #include "MainWindowUI.hpp"
 #include "Animations.hpp"
@@ -303,8 +304,7 @@ void ThemeSettingsController::resetSemantic() {
 void ThemeSettingsController::resetAll() {
     if (!InlineMessage::question(
             m_ui->overlay(), tr("恢复全部默认"),
-            tr("配色、区域与控件覆盖、文字不透明度、语义色和背景图，都会回到出厂那一份。\n"
-               "你自己改的那些不会留着。"),
+            tr("配色、区域与控件覆盖、文字不透明度、语义色和背景图，都会回到出厂那一份。\n你自己改的那些不会留着。"),
             tr("恢复"), tr("取消"), false, true)) return;
     for (int i = 0; i < MainWindowUI::themeImageRowCount(); ++i) {
         const QString key = m_ui->getThemeImageRow(i).partKey;

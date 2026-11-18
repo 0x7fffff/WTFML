@@ -1,4 +1,5 @@
 #include "ModpackExportController.hpp"
+#include <QCoreApplication>
 #include "TextMarks.hpp"
 
 #include "InlineMessage.hpp"
@@ -100,8 +101,7 @@ void ModpackExportController::exportPack(const QString &versionId,
     if (m_host.isBeingModified && m_host.isBeingModified(versionId)) {
         InlineMessage::information(
             m_overlay, tr("暂时无法操作"),
-            tr("「%1」正在安装、导入或检查，请完成后再导出 —— "
-               "打包要读取的正是正在被修改的文件。")
+            tr("「%1」正在安装、导入或检查，请完成后再导出 —— 打包要读取的正是正在被修改的文件。")
                 .arg(displayName(versionId)));
         return;
     }
@@ -121,12 +121,7 @@ void ModpackExportController::exportPack(const QString &versionId,
         log(tr("导出失败：读不出 %1 基于哪个原版").arg(versionId));
         InlineMessage::warning(
             m_overlay, tr("读不出这个实例基于哪个原版"),
-            tr("整合包清单里必须写清楚「基于哪个原版游戏」，而这一份读不出来 —— 要么本地"
-               "没有一处写着它（wtfml.meta 里没有 realVersion，版本 json 里没有 clientVersion、"
-               "也顺不出指得到原版的 inheritsFrom 链），要么写着的那个不是一个真能装出来的"
-               "版本号（自己改过的名字就属于这种：清单里记着它，别人那边却没有这个版本可装）。\n\n"
-               "未检测到有效版本标识，可能被手动修改或格式已过时"
-               "的话，建议重装一份再导出。"));
+            tr("整合包清单里必须写清楚「基于哪个原版游戏」，而这一份读不出来 —— 要么本地没有一处写着它（wtfml.meta 里没有 realVersion，版本 json 里没有 clientVersion、也顺不出指得到原版的 inheritsFrom 链），要么写着的那个不是一个真能装出来的版本号（自己改过的名字就属于这种：清单里记着它，别人那边却没有这个版本可装）。\n\n未检测到有效版本标识，可能被手动修改或格式已过时的话，建议重装一份再导出。"));
         return;
     }
     QString loaderKey;
@@ -225,15 +220,13 @@ void ModpackExportController::continueExport(const ModpackExport::ExportPlan &pl
     QStringList reasons;
     if (plan.lookupFailed) reasons.append(plan.lookupProblem);
     if (!ModpackExport::reimportable(plan.spec)) {
-        reasons.append(tr("一个资源都没认出来 —— 这样的包里没有任何一条能自动下载的条目，我们自己的"
-                          "「导入整合包…」会直接判它无效。"));
+        reasons.append(tr("一个资源都没认出来 —— 这样的包里没有任何一条能自动下载的条目，我们自己的「导入整合包…」会直接判它无效。"));
     }
     if (!reasons.isEmpty()) {
         setTaskDetail(tr("等你确认：清单里有些东西认不出出处。"));
         const int choice = InlineMessage::ask(
             m_overlay, MessageKind::Question, tr("继续导出吗"),
-            tr("%1\n\n继续的话，认不出出处的文件会原样打进包里：别人装上照样能用，"
-               "只是启动器不能替他单独更新或者去重。")
+            tr("%1\n\n继续的话，认不出出处的文件会原样打进包里：别人装上照样能用，只是启动器不能替他单独更新或者去重。")
                 .arg(reasons.join(QStringLiteral("\n\n"))),
             {tr("继续导出"), tr("取消")}, 1, -1);
         if (choice != 0) {
@@ -299,26 +292,22 @@ void ModpackExportController::continueExport(const ModpackExport::ExportPlan &pl
                 const QString shown = QDir::toNativeSeparators(targetPath);
                 log(TextMarks::done(tr("整合包已导出：%1").arg(shown)));
                 QStringList lines{tr("已经写到：\n%1").arg(shown)};
-                lines.append(tr("问过 %1 个文件，认出来 %2 个（写进清单，装的人那边自己去下）；"
-                                "其余 %3 个原样打进了包里（模组本体、配置、资源包都在）。")
+                lines.append(tr("问过 %1 个文件，认出来 %2 个（写进清单，装的人那边自己去下）；其余 %3 个原样打进了包里（模组本体、配置、资源包都在）。")
                                  .arg(plan.queried).arg(plan.matched).arg(plan.overrides.size()));
                 if (plan.notDistributable > 0)
                     lines.append(tr("其中 %1 个的作者关掉了第三方分发 —— 它们只能跟着包走。")
                                      .arg(plan.notDistributable));
                 if (plan.keptLocalState > 0)
-                    lines.append(tr("其中 %1 个是你改过名字（或者禁用着）的 —— 它们也原样进包，"
-                                    "名字和状态都照你盘上那样留着，装的人那边不会被改回启用。")
+                    lines.append(tr("其中 %1 个是你改过名字（或者禁用着）的 —— 它们也原样进包，名字和状态都照你盘上那样留着，装的人那边不会被改回启用。")
                                      .arg(plan.keptLocalState));
                 if (plan.notDistributableUnknown > 0)
-                    lines.append(tr("另外 %1 个没能问出能不能分发（CurseForge 的回复里没有这一项）—— "
-                                    "它们也原样进了包，装的人照样能用，只是不能替他单独更新或者去重。")
+                    lines.append(tr("另外 %1 个没能问出能不能分发（CurseForge 的回复里没有这一项）—— 它们也原样进了包，装的人照样能用，只是不能替他单独更新或者去重。")
                                      .arg(plan.notDistributableUnknown));
                 if (!plan.hashFailures.isEmpty())
                     lines.append(tr("有 %1 个文件连哈希都没算出来（读取失败），它们也原样进了包。")
                                      .arg(plan.hashFailures.size()));
                 if (!plan.collect.skippedDirs.isEmpty())
-                    lines.append(tr("没进包：%1（共 %2 个文件）。存档和截图是你自己的东西，"
-                                    "打进包里会盖掉收包那个人的。")
+                    lines.append(tr("没进包：%1（共 %2 个文件）。存档和截图是你自己的东西，打进包里会盖掉收包那个人的。")
                                      .arg(plan.collect.skippedDirs.join(tr("、")),
                                           QString::number(plan.collect.skippedFileCount)));
                 lines.append(tr("这是 %1 的包：别人在启动器里用「导入整合包…」即可导入安装。")

@@ -1,4 +1,5 @@
 #include "ConnectionsController.hpp"
+#include <QCoreApplication>
 #include "MainWindow.hpp"
 #include "controllers/ResourceInstallController.hpp"
 #include "Animations.hpp"

@@ -4,6 +4,7 @@
  */
 
 #include "server/ServerResourcePack.hpp"
+#include <QCoreApplication>
 
 #include <QFileInfo>
 
@@ -48,7 +49,7 @@ EntriesCheck checkEntries(const QStringList &entries) {
         names.append(normalized(entry));
     }
     if (names.isEmpty()) {
-        result.problem = QStringLiteral("这个压缩包是空的 —— 里面一个条目都没有。");
+        result.problem = QCoreApplication::translate("ServerResourcePack", "这个压缩包是空的 —— 里面一个条目都没有。");
         return result;
     }
 
@@ -67,18 +68,14 @@ EntriesCheck checkEntries(const QStringList &entries) {
     if (!result.hasPackMeta && nestedMeta) {
         // 最常见的一种错：把整个文件夹一起压了。游戏只认最外层那一份。
         result.problem =
-            QStringLiteral("pack.mcmeta 被套在一个文件夹里 —— 游戏只认压缩包最外层的"
-                           "那一份。把包里的东西重新压到最外层再试。");
+            QCoreApplication::translate("ServerResourcePack", "pack.mcmeta 被套在一个文件夹里 —— 游戏只认压缩包最外层的那一份。把包里的东西重新压到最外层再试。");
         return result;
     }
     if (!result.hasPackMeta) {
         if (result.looksLikeDataPack) {
-            result.problem = QStringLiteral("这里面是 data/ 而不是 assets/ —— 它像是数据包，"
-                                            "不是资源包。服务端资源包要选改了客户端贴图/声音"
-                                            "的那一份。");
+            result.problem = QCoreApplication::translate("ServerResourcePack", "这里面是 data/ 而不是 assets/ —— 它像是数据包，不是资源包。服务端资源包要选改了客户端贴图/声音的那一份。");
         } else {
-            result.problem = QStringLiteral("里面没有 pack.mcmeta —— 这不像是资源包。"
-                                            "资源包解开来最外层一定有一份 pack.mcmeta。");
+            result.problem = QCoreApplication::translate("ServerResourcePack", "里面没有 pack.mcmeta —— 这不像是资源包。资源包解开来最外层一定有一份 pack.mcmeta。");
         }
         return result;
     }
@@ -95,7 +92,7 @@ Inspect inspect(const QString &zipPath) {
     Inspect result;
     const QFileInfo info(zipPath);
     if (!info.exists() || !info.isFile()) {
-        result.problem = QStringLiteral("找不到这个文件 —— 它可能已经被移走或者改名了。");
+        result.problem = QCoreApplication::translate("ServerResourcePack", "找不到这个文件 —— 它可能已经被移走或者改名了。");
         return result;
     }
 
@@ -103,14 +100,13 @@ Inspect inspect(const QString &zipPath) {
     QStringList entries;
     QString error;
     const ZipUtil::EntryStatus status =
-        ZipUtil::listEntries(zipPath, &entries, &error, QStringLiteral("读这个资源包"));
+        ZipUtil::listEntries(zipPath, &entries, &error, QCoreApplication::translate("ServerResourcePack", "读这个资源包"));
     if (status == ZipUtil::EntryStatus::NotAnArchive) {
-        result.problem = QStringLiteral("这不是一个 zip 压缩包（或文件已损坏）："
-                                        "资源包要选 .zip 那一份。");
+        result.problem = QCoreApplication::translate("ServerResourcePack", "这不是一个 zip 压缩包（或文件已损坏）：资源包要选 .zip 那一份。");
         return result;
     }
     if (status != ZipUtil::EntryStatus::Ok) {
-        result.problem = error.isEmpty() ? QStringLiteral("读不出这个压缩包的条目表。") : error;
+        result.problem = error.isEmpty() ? QCoreApplication::translate("ServerResourcePack", "读不出这个压缩包的条目表。") : error;
         return result;
     }
 
@@ -130,7 +126,7 @@ Inspect inspect(const QString &zipPath) {
     const FileHash::Result hash =
         FileHash::digestOfFile(zipPath, FileHash::Algorithm::Sha1);
     if (!hash.ok) {
-        result.problem = QStringLiteral("算不出这个文件的 SHA-1：%1").arg(hash.error);
+        result.problem = QCoreApplication::translate("ServerResourcePack", "算不出这个文件的 SHA-1：%1").arg(hash.error);
         return result;
     }
     result.ok = true;
@@ -141,9 +137,9 @@ Inspect inspect(const QString &zipPath) {
 
 QString fileCountText(const Inspect &inspect) {
     if (inspect.fileCount <= 0) {
-        return QStringLiteral("包里没有文件");
+        return QCoreApplication::translate("ServerResourcePack", "包里没有文件");
     }
-    return QStringLiteral("%1 个文件").arg(inspect.fileCount);
+    return QCoreApplication::translate("ServerResourcePack", "%1 个文件").arg(inspect.fileCount);
 }
 
 }  // namespace ServerResourcePack

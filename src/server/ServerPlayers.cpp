@@ -4,6 +4,7 @@
  */
 
 #include "server/ServerPlayers.hpp"
+#include <QCoreApplication>
 
 #include <QCryptographicHash>
 #include <QJsonArray>
@@ -75,13 +76,13 @@ QString fileName(List list) {
 QString title(List list) {
     switch (list) {
     case List::Whitelist:
-        return QStringLiteral("白名单");
+        return QCoreApplication::translate("ServerPlayers", "白名单");
     case List::Ops:
-        return QStringLiteral("管理员");
+        return QCoreApplication::translate("ServerPlayers", "管理员");
     case List::BannedPlayers:
-        return QStringLiteral("封禁的玩家");
+        return QCoreApplication::translate("ServerPlayers", "封禁的玩家");
     case List::BannedIps:
-        return QStringLiteral("封禁的 IP");
+        return QCoreApplication::translate("ServerPlayers", "封禁的 IP");
     }
     return QString();
 }
@@ -96,13 +97,13 @@ Content parse(List list, const QByteArray &json) {
     const QJsonDocument document = QJsonDocument::fromJson(json, &error);
     if (error.error != QJsonParseError::NoError) {
         content.ok = false;
-        content.problem = QStringLiteral("%1 无法解析（%2）；没有改动它。")
+        content.problem = QCoreApplication::translate("ServerPlayers", "%1 无法解析（%2）；没有改动它。")
                               .arg(fileName(list), error.errorString());
         return content;
     }
     if (!document.isArray()) {
         content.ok = false;
-        content.problem = QStringLiteral("%1 不是一个数组 —— 没有改动它。").arg(fileName(list));
+        content.problem = QCoreApplication::translate("ServerPlayers", "%1 不是一个数组 —— 没有改动它。").arg(fileName(list));
         return content;
     }
     const QJsonArray array = document.array();
@@ -244,17 +245,17 @@ bool isExpired(const Entry &entry, const QDateTime &now) {
 QString expiryText(const Entry &entry, const QDateTime &now) {
     const QString expires = entry.expires.trimmed();
     if (expires.isEmpty() || expires.compare(QStringLiteral("forever"), Qt::CaseInsensitive) == 0) {
-        return QStringLiteral("永久");
+        return QCoreApplication::translate("ServerPlayers", "永久");
     }
     const QDateTime moment = parseMoment(expires);
     if (!moment.isValid()) {
-        return QStringLiteral("到 %1").arg(expires);
+        return QCoreApplication::translate("ServerPlayers", "到 %1").arg(expires);
     }
     if (moment < now) {
-        return QStringLiteral("已经过期（%1）")
+        return QCoreApplication::translate("ServerPlayers", "已经过期（%1）")
             .arg(moment.toString(QStringLiteral("yyyy-MM-dd HH:mm")));
     }
-    return QStringLiteral("到 %1").arg(moment.toString(QStringLiteral("yyyy-MM-dd HH:mm")));
+    return QCoreApplication::translate("ServerPlayers", "到 %1").arg(moment.toString(QStringLiteral("yyyy-MM-dd HH:mm")));
 }
 
 }  // namespace ServerPlayers

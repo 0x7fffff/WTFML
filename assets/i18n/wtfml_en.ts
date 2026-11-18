@@ -1795,6 +1795,10 @@ Delete it again and it will no longer exist (it is no longer in the list); click
             <translation>Loading armor textures and palettes in the background...</translation>
         </message>
         <message>
+            <source>资源缓存校验失败，请重新下载。</source>
+            <translation>Resource cache verification failed, please download again.</translation>
+        </message>
+        <message>
             <source>已取消资源读取。</source>
             <translation>Resource read canceled.</translation>
         </message>
@@ -1880,6 +1884,117 @@ Please confirm that you have permission to use these game assets and read the Mi
         <message>
             <source>皮革覆盖纹理缺失。</source>
             <translation>The leather overlay texture is missing.</translation>
+        </message>
+    </context>
+    <context>
+        <name>AssetDirectorKnownSet</name>
+        <message>
+            <source>%1 不是对象。</source>
+            <translation>%1 is not an object.</translation>
+        </message>
+        <message>
+            <source>%1 的地址不是 Mojang 官方 HTTPS 地址。</source>
+            <translation>The address for %1 is not an official Mojang HTTPS address.</translation>
+        </message>
+        <message>
+            <source>%1 的 SHA-1 不是 40 位十六进制。</source>
+            <translation>SHA-1 for %1 is not 40-digit hexadecimal.</translation>
+        </message>
+        <message>
+            <source>%1 的字节数不合法。</source>
+            <translation>The number of bytes in %1 is illegal.</translation>
+        </message>
+        <message>
+            <source>没有给出清单结果。</source>
+            <translation>No listing results were given.</translation>
+        </message>
+        <message>
+            <source>已知集合清单为空或过大。</source>
+            <translation>The collection list is known to be empty or too large.</translation>
+        </message>
+        <message>
+            <source>已知集合清单不是 JSON 对象（%1）。</source>
+            <translation>The collection list is known to not be a JSON object (%1).</translation>
+        </message>
+        <message>
+            <source>不认识的已知集合清单格式版本。</source>
+            <translation>Unrecognized version of known collection manifest format.</translation>
+        </message>
+        <message>
+            <source>已知集合清单里没有可用的条目。</source>
+            <translation>There are no available entries in the known collection list.</translation>
+        </message>
+        <message>
+            <source>已知集合条目不是对象。</source>
+            <translation>It is known that the collection entry is not an object.</translation>
+        </message>
+        <message>
+            <source>已知集合的 id 不合法或重复：%1</source>
+            <translation>The id of the known collection is invalid or duplicated: %1</translation>
+        </message>
+        <message>
+            <source>%1 的 MC 版本不合法。</source>
+            <translation>The MC version of %1 is illegal.</translation>
+        </message>
+        <message>
+            <source>%1 没有可用的消费者匹配规则。</source>
+            <translation>%1 No consumer matching rules available.</translation>
+        </message>
+        <message>
+            <source>%1 的消费者匹配规则不合法。</source>
+            <translation>The consumer matching rule for %1 is illegal.</translation>
+        </message>
+        <message>
+            <source>%1 的消费者匹配规则无效。</source>
+            <translation>The consumer matching rule for %1 is invalid.</translation>
+        </message>
+        <message>
+            <source>%1 的版本 JSON</source>
+            <translation>Version JSON of %1</translation>
+        </message>
+        <message>
+            <source>%1 没有资源索引。</source>
+            <translation>%1 has no resource index.</translation>
+        </message>
+        <message>
+            <source>%1 的资源索引 id 不合法。</source>
+            <translation>The resource index id of %1 is illegal.</translation>
+        </message>
+        <message>
+            <source>%1 的资源索引</source>
+            <translation>Resource index for %1</translation>
+        </message>
+        <message>
+            <source>%1 的对象列表为空或过大。</source>
+            <translation>The object list for %1 is empty or too large.</translation>
+        </message>
+        <message>
+            <source>%1 的对象条目不是对象。</source>
+            <translation>The object entry for %1 is not an object.</translation>
+        </message>
+        <message>
+            <source>%1 里有不合法的对象名。</source>
+            <translation>There is an illegal object name in %1.</translation>
+        </message>
+        <message>
+            <source>%1 里 %2 的哈希不是 40 位十六进制。</source>
+            <translation>The hash of %2 in %1 is not 40-digit hexadecimal.</translation>
+        </message>
+        <message>
+            <source>%1 里 %2 的字节数不合法。</source>
+            <translation>The number of bytes in %1 in %1 is illegal.</translation>
+        </message>
+        <message>
+            <source>%1 里同一个哈希出现了两次。</source>
+            <translation>The same hash appears twice in %1.</translation>
+        </message>
+        <message>
+            <source>%1 的总字节数和对象列表对不上。</source>
+            <translation>The total number of bytes in %1 does not match the object list.</translation>
+        </message>
+        <message>
+            <source>这套已知集合有 %1 MiB，超过了允许自动下载的上限 %2 MiB。</source>
+            <translation>This known collection is %1 MiB in size, exceeding the limit of %2 MiB allowed for automatic downloads.</translation>
         </message>
     </context>
     <context>
@@ -2504,6 +2619,13 @@ What you want to restore is this one:
         <message>
             <source>%1：已取消。</source>
             <translation>%1: Canceled.</translation>
+        </message>
+    </context>
+    <context>
+        <name>BackupFiles</name>
+        <message>
+            <source>恢复前-</source>
+            <translation>Before recovery -</translation>
         </message>
     </context>
     <context>
@@ -3400,6 +3522,57 @@ What you want to restore is this one:
         </message>
     </context>
     <context>
+        <name>CoordConvert</name>
+        <message>
+            <source>主世界</source>
+            <translation>Main world</translation>
+        </message>
+        <message>
+            <source>下界</source>
+            <translation>Nether</translation>
+        </message>
+        <message>
+            <source>末地</source>
+            <translation>End</translation>
+        </message>
+        <message>
+            <source>未知维度</source>
+            <translation>Unknown dimensions</translation>
+        </message>
+        <message>
+            <source>这一格是空的：把游戏里 F3+C 复制的那一条粘进来。</source>
+            <translation>This space is empty: paste in the one copied by F3+C in the game.</translation>
+        </message>
+        <message>
+            <source>这条 `execute` 看不懂：只认 `execute in &lt;维度&gt; run &lt;命令&gt;` 这一种。</source>
+            <translation>This `execute` cannot be understood: only `execute in &lt;dimension&gt; run &lt;command&gt;` is recognized.</translation>
+        </message>
+        <message>
+            <source>维度认不出来：`%1`。</source>
+            <translation>Dimension not recognized: `%1`.</translation>
+        </message>
+        <message>
+            <source>`execute in &lt;维度&gt;` 后面缺一个 `run`。</source>
+            <translation>`execute in &lt;dimension&gt;` is missing a `run` after it.</translation>
+        </message>
+        <message>
+            <source>这条命令里没有 `tp`：只认传送命令（F3+C 复制出来的就是一条）。</source>
+            <translation>There is no `tp` in this command: only the transfer command is recognized (the one copied by F3+C).</translation>
+        </message>
+        <message>
+            <source>三个坐标不全：读到的只有 %1 个数。</source>
+            <translation>Three coordinates are incomplete: only %1 numbers are read.</translation>
+        </message>
+        <message>
+            <source>`%1` 不是一个数。</source>
+            <translation>`%1` is not a number.</translation>
+        </message>
+        <message>
+            <source>这三个数里有 `~` / `^`（相对坐标）：它说的是「从这里往前几格」，得先知道你现在站在哪儿才能算 —— 先站到你那一点再复制一次。</source>
+            <translation>Among these three numbers are `~` / `^` (relative coordinates): it says "a few squares ahead from here". You must first know where you are standing before you can calculate it - first stand at your point and then copy it again.</translation>
+        </message>
+    </context>
+    <context>
         <name>CrashReportController</name>
         <message>
             <source>游戏异常退出</source>
@@ -3478,6 +3651,57 @@ What you want to restore is this one:
             <translation>The game has not written a crash report under %1. 
 
  This will not be included when the game is forced to end halfway through, or when the game has not reached the stage where you can write a report.</translation>
+        </message>
+    </context>
+    <context>
+        <name>DefaultSkin</name>
+        <message>
+            <source>建不出皮肤缓存目录 %1。</source>
+            <translation>The skin cache directory %1 cannot be created.</translation>
+        </message>
+        <message>
+            <source>写不了 %1：%2</source>
+            <translation>Unable to write %1: %2</translation>
+        </message>
+        <message>
+            <source>写 %1 失败：%2</source>
+            <translation>Writing %1 failed: %2</translation>
+        </message>
+        <message>
+            <source>认不出这个名字对应的 uuid。</source>
+            <translation>The uuid corresponding to this name is not recognized.</translation>
+        </message>
+        <message>
+            <source>没有选中任何已安装版本。</source>
+            <translation>No installed version is selected.</translation>
+        </message>
+        <message>
+            <source>这个版本的客户端 JAR 不在（%1）。</source>
+            <translation>This version of the client JAR is not available (%1).</translation>
+        </message>
+        <message>
+            <source>读客户端 JAR 里的贴图</source>
+            <translation>Read textures in client JAR</translation>
+        </message>
+        <message>
+            <source>客户端 JAR 里那条贴图不是一张 PNG（%1）。</source>
+            <translation>The texture in the client JAR is not a PNG (%1).</translation>
+        </message>
+        <message>
+            <source>拼不出这个账号的缓存路径。</source>
+            <translation>I can't figure out the cache path for this account.</translation>
+        </message>
+        <message>
+            <source>无法打开这个版本的客户端 JAR（不是 zip 压缩包，或文件已损坏）：%1。</source>
+            <translation>Unable to open this version of the client JAR (not a zip archive, or the file is corrupted): %1.</translation>
+        </message>
+        <message>
+            <source>读 %1 里的贴图失败。</source>
+            <translation>Failed to read the texture in %1.</translation>
+        </message>
+        <message>
+            <source>客户端 JAR 里没有 %1。</source>
+            <translation>There is no %1 in the client JAR.</translation>
         </message>
     </context>
     <context>
@@ -3601,6 +3825,10 @@ What you want to restore is this one:
         <message>
             <source>恢复记录不可用或被占用，原件已保留；本次下载不提供暂停和跨重启恢复。</source>
             <translation>The recovery record is unavailable or occupied, and the original has been retained; this download does not provide pause and cross-restart recovery.</translation>
+        </message>
+        <message>
+            <source>目标已被外部修改，请重新预览；未覆盖。</source>
+            <translation>The target has been modified externally, please preview again; not overwritten.</translation>
         </message>
         <message>
             <source>%1 / %2 / %3</source>
@@ -3841,6 +4069,26 @@ The instance is ready, but some presets could not be applied:
             <translation>The resource index number in this version.json cannot be used as a file name, and no resources are downloaded.</translation>
         </message>
         <message>
+            <source>sha1 对不上（期望 %1，实际 %2）</source>
+            <translation>Sha1 does not match (expected %1, actual %2)</translation>
+        </message>
+        <message>
+            <source>不是合法的 JSON：%1</source>
+            <translation>Not valid JSON: %1</translation>
+        </message>
+        <message>
+            <source>里面写的版本号是「%1」，取的是「%2」</source>
+            <translation>The version number written inside is "%1", and the version number is "%2"</translation>
+        </message>
+        <message>
+            <source>（没有这个字段）</source>
+            <translation>(There is no such field)</translation>
+        </message>
+        <message>
+            <source>下载已取消或任务已失效</source>
+            <translation>Download canceled or task expired</translation>
+        </message>
+        <message>
             <source>下载仍在收尾，请稍后继续。</source>
             <translation>The download is still being completed, please continue later.</translation>
         </message>
@@ -3855,6 +4103,24 @@ The instance is ready, but some presets could not be applied:
         <message>
             <source>恢复记录不可读或被占用，原件已保留。</source>
             <translation>The recovery record is unreadable or occupied, the original has been retained.</translation>
+        </message>
+    </context>
+    <context>
+        <name>DownloadManagerRecovery</name>
+        <message>
+            <source>下载期间目标已变化，未覆盖，请重新预览：%1</source>
+            <translation>The target has changed during downloading and is not covered. Please preview again: %1</translation>
+        </message>
+        <message>
+            <source>目标已被外部修改，未覆盖：%1</source>
+            <translation>Target has been externally modified and not overwritten: %1</translation>
+        </message>
+    </context>
+    <context>
+        <name>DownloadManagerSegmented</name>
+        <message>
+            <source>分段下载失败</source>
+            <translation>Partial download failed</translation>
         </message>
     </context>
     <context>
@@ -3940,7 +4206,145 @@ The instance is ready, but some presets could not be applied:
         </message>
     </context>
     <context>
+        <name>DroppedResource</name>
+        <message>
+            <source>那是一个文件夹，不是文件</source>
+            <translation>That's a folder, not a file</translation>
+        </message>
+        <message>
+            <source>找不到这份文件</source>
+            <translation>This document cannot be found</translation>
+        </message>
+        <message>
+            <source>后缀是 .jar</source>
+            <translation>The suffix is ​​.jar</translation>
+        </message>
+        <message>
+            <source>需要 7-Zip 解压后导入</source>
+            <translation>Requires 7-Zip to unzip and import</translation>
+        </message>
+        <message>
+            <source>需要 7-Zip 才能解压，本机没找到 7z.exe</source>
+            <translation>7-Zip is required to decompress, 7z.exe is not found on this machine.</translation>
+        </message>
+        <message>
+            <source>它没有后缀名，认不出是哪一类</source>
+            <translation>It has no suffix, so I can’t tell which category it is.</translation>
+        </message>
+        <message>
+            <source>`.%1` 不是能装进来的东西</source>
+            <translation>`.%1` is not something that can be put in</translation>
+        </message>
+        <message>
+            <source>读这个压缩包</source>
+            <translation>Read this zip file</translation>
+        </message>
+        <message>
+            <source>无法打开：不是 zip 压缩包，或文件已损坏</source>
+            <translation>Unable to open: Not a zip archive, or the file is corrupted</translation>
+        </message>
+        <message>
+            <source>它读不动</source>
+            <translation>It can't be read</translation>
+        </message>
+        <message>
+            <source>里面有 pack.mcmeta 和 assets/</source>
+            <translation>There are pack.mcmeta and assets/</translation>
+        </message>
+        <message>
+            <source>里面有 pack.mcmeta 和 data/</source>
+            <translation>There are pack.mcmeta and data/</translation>
+        </message>
+        <message>
+            <source>里面有 shaders/</source>
+            <translation>There are shaders/</translation>
+        </message>
+        <message>
+            <source>这个压缩包是空的</source>
+            <translation>This compressed package is empty</translation>
+        </message>
+        <message>
+            <source>里面既没有整合包清单、也没有 pack.mcmeta 或 shaders/，认不出是哪一类</source>
+            <translation>There is no integration package list, pack.mcmeta or shaders/, and I can’t identify which category it is.</translation>
+        </message>
+    </context>
+    <context>
+        <name>FileHash</name>
+        <message>
+            <source>打不开这个文件：%1</source>
+            <translation>Unable to open this file: %1</translation>
+        </message>
+        <message>
+            <source>已取消</source>
+            <translation>Canceled</translation>
+        </message>
+        <message>
+            <source>读这个文件读失败了：%1</source>
+            <translation>Failed to read this file: %1</translation>
+        </message>
+        <message>
+            <source>这一格里没有十六进制的字符。</source>
+            <translation>There are no hexadecimal characters in this field.</translation>
+        </message>
+        <message>
+            <source>`%1` 不是十六进制的字符。</source>
+            <translation>`%1` is not a hexadecimal character.</translation>
+        </message>
+        <message>
+            <source>长度对不上：这一串有 %1 位，SHA-256 是 64 位、SHA-1 是 40 位、MD5 是 32 位。</source>
+            <translation>The lengths don’t match: this string has %1 bits, SHA-256 is 64 bits, SHA-1 is 40 bits, and MD5 is 32 bits.</translation>
+        </message>
+        <message>
+            <source>写的算法和长度对不上：标的是 %1（%2 位），实际是 %3 位。</source>
+            <translation>The written algorithm and the length do not match: the mark is %1 (%2 bits), but the actual number is %3 bits.</translation>
+        </message>
+        <message>
+            <source>没有已知值可比。</source>
+            <translation>There is no known value to compare with.</translation>
+        </message>
+        <message>
+            <source>一致。</source>
+            <translation>Consistent.</translation>
+        </message>
+        <message>
+            <source>不一致：算出来的是 %1。</source>
+            <translation>Inconsistency: calculated as %1.</translation>
+        </message>
+        <message>
+            <source>（没算出来）</source>
+            <translation>(didn’t calculate it)</translation>
+        </message>
+    </context>
+    <context>
         <name>FileOperationRecoveryController</name>
+        <message>
+            <source>读不了 %1（%2）</source>
+            <translation>Unable to read %1 (%2)</translation>
+        </message>
+        <message>
+            <source>建不出目录 %1</source>
+            <translation>Unable to create directory %1</translation>
+        </message>
+        <message>
+            <source>写不进 %1（%2）</source>
+            <translation>Unable to write %1 (%2)</translation>
+        </message>
+        <message>
+            <source>发布不了 %1（%2）</source>
+            <translation>Unable to publish %1 (%2)</translation>
+        </message>
+        <message>
+            <source>报告没有编号或没有任何条目，未登记。</source>
+            <translation>The report has no number or any entries and is not registered.</translation>
+        </message>
+        <message>
+            <source>已登记可续的文件操作：%1（%2）</source>
+            <translation>Registered and renewable file operations: %1 (%2)</translation>
+        </message>
+        <message>
+            <source>未能完成全部文件操作，原因报告：%1</source>
+            <translation>Unable to complete all file operations, reason reported: %1</translation>
+        </message>
         <message>
             <source>继续未完成操作</source>
             <translation>Continue unfinished operations</translation>
@@ -3990,12 +4394,20 @@ The instance is ready, but some presets could not be applied:
             <translation>There is not enough information in the report to import into this world (source/destination/name is missing).</translation>
         </message>
         <message>
+            <source>：</source>
+            <translation>:</translation>
+        </message>
+        <message>
             <source>报告里没有足够信息继续迁移（源 / 目标 / 勾选项缺失）。</source>
             <translation>There is not enough information in the report to proceed with the migration (source/destination/check boxes are missing).</translation>
         </message>
         <message>
             <source>报告里没有足够信息重新复制这个文件（源 / 目标缺失）。</source>
             <translation>There is not enough information in the report to re-copy this file (source/destination missing).</translation>
+        </message>
+        <message>
+            <source>目标已经存在，按当时选择的「取消」没有覆盖。</source>
+            <translation>The target already exists, and pressing "Cancel" selected at the time will not overwrite it.</translation>
         </message>
         <message>
             <source>续做结果没能写回报告：%1</source>
@@ -4244,6 +4656,54 @@ In order not to delete it permanently, "%2" was not moved.</translation>
         <message>
             <source>这个平台没有回收站，「%1」没有动。</source>
             <translation>There is no recycle bin on this platform, and "%1" has not been moved.</translation>
+        </message>
+        <message>
+            <source>%1 → %2：%3</source>
+            <translation>%1 → %2: %3</translation>
+        </message>
+        <message>
+            <source>源路径包含链接</source>
+            <translation>Source path contains link</translation>
+        </message>
+        <message>
+            <source>目标目录已存在</source>
+            <translation>The target directory already exists</translation>
+        </message>
+        <message>
+            <source>无法创建目标目录</source>
+            <translation>Unable to create target directory</translation>
+        </message>
+        <message>
+            <source>源路径不是普通文件</source>
+            <translation>The source path is not an ordinary file</translation>
+        </message>
+        <message>
+            <source>目标文件已存在</source>
+            <translation>The target file already exists</translation>
+        </message>
+        <message>
+            <source>无法发布完整临时文件：%1</source>
+            <translation>Unable to publish full temporary file: %1</translation>
+        </message>
+        <message>
+            <source>无法打开源或临时文件：%1；%2</source>
+            <translation>Unable to open source or temporary file: %1; %2</translation>
+        </message>
+        <message>
+            <source>%1；%2</source>
+            <translation>%1;%2</translation>
+        </message>
+        <message>
+            <source>分块读写失败：%1</source>
+            <translation>Blocked read and write failed: %1</translation>
+        </message>
+        <message>
+            <source>刷新临时文件失败或操作取消：%1</source>
+            <translation>Failed to refresh temporary files or the operation was canceled: %1</translation>
+        </message>
+        <message>
+            <source>文件复制失败：%1</source>
+            <translation>File copy failed: %1</translation>
         </message>
         <message>
             <source>名字里不能有换行。</source>
@@ -5613,6 +6073,10 @@ Save or discard the changes, then drop the files again.</translation>
             <source>已安装到「%1」。</source>
             <translation>Installed in "%1".</translation>
         </message>
+        <message>
+            <source>保存包身份</source>
+            <translation>Save package identity</translation>
+        </message>
     </context>
     <context>
         <name>InlineMessageBox</name>
@@ -5623,6 +6087,56 @@ Save or discard the changes, then drop the files again.</translation>
         <message>
             <source>关闭</source>
             <translation>Closure</translation>
+        </message>
+    </context>
+    <context>
+        <name>InstallPageController</name>
+        <message>
+            <source>%1（%2）</source>
+            <translation>%1(%2)</translation>
+        </message>
+        <message>
+            <source>：%1</source>
+            <translation>:%1</translation>
+        </message>
+    </context>
+    <context>
+        <name>InstalledModInventory</name>
+        <message>
+            <source>实例或模组目录不安全，未读取已安装模组。</source>
+            <translation>The instance or module directory is not secure and the installed modules were not read.</translation>
+        </message>
+        <message>
+            <source>模组路径不是目录，未允许安装。</source>
+            <translation>The module path is not a directory and installation is not allowed.</translation>
+        </message>
+        <message>
+            <source>已安装模组超过安全扫描上限（10000 项）。</source>
+            <translation>The number of installed modules exceeds the security scan limit (10,000 items).</translation>
+        </message>
+        <message>
+            <source>模组文件是目录链接，未允许安装：%1</source>
+            <translation>The module file is a directory link and is not allowed to be installed: %1</translation>
+        </message>
+        <message>
+            <source>无法读取已安装模组：%1</source>
+            <translation>Unable to read installed modules: %1</translation>
+        </message>
+        <message>
+            <source>已安装模组扫描已取消或超时。</source>
+            <translation>Scan for installed modules was canceled or timed out.</translation>
+        </message>
+        <message>
+            <source>读取已安装模组失败：%1</source>
+            <translation>Failed to read installed modules: %1</translation>
+        </message>
+        <message>
+            <source>模组安装记录的身份相互冲突：%1</source>
+            <translation>Module installation records have conflicting identities: %1</translation>
+        </message>
+        <message>
+            <source>已安装模组扫描已取消。</source>
+            <translation>Scan of installed modules has been cancelled.</translation>
         </message>
     </context>
     <context>
@@ -6566,6 +7080,41 @@ Discard changes?</translation>
         </message>
     </context>
     <context>
+        <name>InstanceExport</name>
+        <message>
+            <source>找不到实例目录：%1</source>
+            <translation>Instance directory not found: %1</translation>
+        </message>
+        <message>
+            <source>认不出这个实例的原版版本号，无法写 mmc-pack.json。</source>
+            <translation>The original version number of this instance cannot be recognized and mmc-pack.json cannot be written.</translation>
+        </message>
+        <message>
+            <source>建不了临时目录。</source>
+            <translation>The temporary directory cannot be created.</translation>
+        </message>
+        <message>
+            <source>写不了 mmc-pack.json。</source>
+            <translation>Unable to write mmc-pack.json.</translation>
+        </message>
+        <message>
+            <source>写不了 instance.cfg。</source>
+            <translation>Unable to write instance.cfg.</translation>
+        </message>
+        <message>
+            <source>打包失败。</source>
+            <translation>Packaging failed.</translation>
+        </message>
+        <message>
+            <source>这个实例带自定义启动配置（改过主类或 JVM 参数，例如 lwjgl3ify 一类）：导出的包在 Prism/MultiMC 里能识别，但对方启动器不会带上这些配置，可能无法正常启动。建议仍然用原整合包分发。</source>
+            <translation>This example has customized startup configuration (changed main class or JVM parameters, such as lwjgl3ify): the exported package can be recognized in Prism/MultiMC, but the other party's launcher will not carry these configurations and may not start normally. It is recommended to still use the original integration package for distribution.</translation>
+        </message>
+        <message>
+            <source>这个实例超过 1 GB：导出会花较长时间，对方导入也要再解压一遍，大型整合包在别的启动器上还可能因为内存/Java 版本不同而跑不起来。</source>
+            <translation>This instance exceeds 1 GB: Exporting will take a long time, and importing from the other party will need to be decompressed again. Large integration packages may not run on other launchers due to different memory/Java versions.</translation>
+        </message>
+    </context>
+    <context>
         <name>InstanceFileController</name>
         <message>
             <source>改动失败</source>
@@ -6702,6 +7251,73 @@ Discard changes?</translation>
             <translation>%1 item deletion failed: 
 
 %2</translation>
+        </message>
+    </context>
+    <context>
+        <name>InstanceFiles</name>
+        <message>
+            <source>名字不能是空的。</source>
+            <translation>Name cannot be empty.</translation>
+        </message>
+        <message>
+            <source>名字里不能有 &lt; &gt; : " / \ | ? * 这些字符，也不能有制表符、换行这类控制字符。</source>
+            <translation>The name cannot contain characters such as &lt; &gt; : " / \ | ? * , nor can it contain control characters such as tabs and newlines.</translation>
+        </message>
+        <message>
+            <source>“.” 和 “..” 是目录自己的名字，不能拿来用。</source>
+            <translation>"." and ".." are the names of the directories themselves and cannot be used.</translation>
+        </message>
+        <message>
+            <source>名字不能以点或空格结尾（Windows 会把它悄悄去掉）。</source>
+            <translation>The name cannot end with a period or a space (Windows will silently remove this).</translation>
+        </message>
+        <message>
+            <source>“%1”是 Windows 的保留设备名（CON/PRN/AUX/NUL/COM1-9/LPT1-9），建不出目录来。</source>
+            <translation>"%1" is a reserved device name of Windows (CON/PRN/AUX/NUL/COM1-9/LPT1-9), and the directory cannot be created.</translation>
+        </message>
+        <message>
+            <source>文件名太长了，最多 %1 个字符（现在 %2 个）。</source>
+            <translation>Filename is too long, maximum %1 characters (now %2).</translation>
+        </message>
+        <message>
+            <source>名字太长了，最多 %1 个字符（现在 %2 个）。</source>
+            <translation>Name is too long, maximum %1 characters (currently %2).</translation>
+        </message>
+        <message>
+            <source>「%1」里是上一次没导完的另一个整合包（那一份的清单和这一份对不上）。
+
+换一个名字导入不会碰它，已经下好的那些还留在原处。要接着导上一次那一份，请取消这一步，重新选中上一次那个整合包文件。</source>
+            <translation>"%1" contains another integration package that was not completed last time (the list of that one does not match this one). 
+
+ Importing with a different name will not touch it, and those that have been downloaded will remain in place. To continue importing the last copy, please cancel this step and re-select the last integration package file.</translation>
+        </message>
+        <message>
+            <source>新名字和现在一样，没有改动的必要。</source>
+            <translation>The new name is the same as now and there is no need to change it.</translation>
+        </message>
+        <message>
+            <source>已经有一个叫“%1”的实例了，换一个名字。</source>
+            <translation>There is already an instance called "%1", change the name.</translation>
+        </message>
+        <message>
+            <source>读客户端 JAR 里的主类</source>
+            <translation>Read the main class in the client JAR</translation>
+        </message>
+        <message>
+            <source>缓存备份没有搬：%1 → %2 里有一个不能当目录名用。</source>
+            <translation>The cache backup is not moved: %1 → %2, one of them cannot be used as a directory name.</translation>
+        </message>
+        <message>
+            <source>缓存备份没有搬：%1 不是一个普通目录。</source>
+            <translation>The cache backup was not moved: %1 is not an ordinary directory.</translation>
+        </message>
+        <message>
+            <source>缓存备份没有搬：%1 里已经有另一个格子叫「%2」，旧的那一份留在原处。</source>
+            <translation>The cache backup has not been moved: there is already another grid called "%2" in %1, and the old copy remains in place.</translation>
+        </message>
+        <message>
+            <source>缓存备份没有搬：%1 改不成 %2（可能有别的程序正开着它）。</source>
+            <translation>The cache backup has not been moved: %1 cannot be changed to %2 (there may be other programs running it).</translation>
         </message>
     </context>
     <context>
@@ -7017,6 +7633,26 @@ Discard changes?</translation>
     <context>
         <name>InstanceGroupStore</name>
         <message>
+            <source>收藏</source>
+            <translation>Collect</translation>
+        </message>
+        <message>
+            <source>可安装mod</source>
+            <translation>Installable mods</translation>
+        </message>
+        <message>
+            <source>原版</source>
+            <translation>Original</translation>
+        </message>
+        <message>
+            <source>快照版</source>
+            <translation>Snapshot version</translation>
+        </message>
+        <message>
+            <source>远古版</source>
+            <translation>Ancient version</translation>
+        </message>
+        <message>
             <source>%1 打不开，这次的改动没有保存。</source>
             <translation>%1 cannot be opened, this change was not saved.</translation>
         </message>
@@ -7031,6 +7667,10 @@ Discard changes?</translation>
         <message>
             <source>%1 是更新版本的启动器写的（格式版本 %2），这一版无法解析，没有改动它。</source>
             <translation>%1 was written for a newer version of the launcher (format version %2), which cannot be parsed by this version and has not been changed.</translation>
+        </message>
+        <message>
+            <source>置顶</source>
+            <translation>Pin to top</translation>
         </message>
         <message>
             <source>内部错误：没有指定要改哪个分组的展开状态。</source>
@@ -7090,6 +7730,33 @@ Discard changes?</translation>
         <message>
             <source>有 %1 个文件读不动（多半被别的程序占着），这一批里没有它们的图标。</source>
             <translation>There are %1 files that cannot be read (mostly occupied by other programs), and there are no icons for them in this batch.</translation>
+        </message>
+    </context>
+    <context>
+        <name>InstanceMaintenanceController</name>
+        <message>
+            <source>这个存档里没有 level.dat。</source>
+            <translation>There is no level.dat in this archive.</translation>
+        </message>
+        <message>
+            <source>建不出备份目录：%1</source>
+            <translation>Unable to create backup directory: %1</translation>
+        </message>
+        <message>
+            <source>没能把 level.dat 抄到 %1（磁盘满了？还是那个文件打不开？）</source>
+            <translation>Failed to copy level.dat to %1 (the disk is full? Or the file cannot be opened?)</translation>
+        </message>
+        <message>
+            <source>存档备份没有搬：%1 不是一个普通目录。</source>
+            <translation>The archive backup was not moved: %1 is not an ordinary directory.</translation>
+        </message>
+        <message>
+            <source>存档备份没有搬：%1 已经存在，旧的那一份留在原处。</source>
+            <translation>The archive backup has not been moved: %1 already exists, and the old copy remains where it is.</translation>
+        </message>
+        <message>
+            <source>存档备份没有搬：%1 改不成 %2（可能有别的程序正开着它）。</source>
+            <translation>The archive backup has not been moved: %1 cannot be changed to %2 (there may be other programs running it).</translation>
         </message>
     </context>
     <context>
@@ -8231,6 +8898,10 @@ Please select a valid game directory.</translation>
             <translation>The archive is being imported in the background, please do not modify the source world.</translation>
         </message>
         <message>
+            <source>：</source>
+            <translation>:</translation>
+        </message>
+        <message>
             <source>导入世界已取消：%1（已拷好的暂存保留，可继续）</source>
             <translation>Importing the world has been canceled: %1 (The copied files are temporarily saved and can be continued)</translation>
         </message>
@@ -8526,6 +9197,13 @@ The current version will also be retained separately and the file will not be de
             <source>
 完整快照：%1</source>
             <translation>Full snapshot: %1</translation>
+        </message>
+    </context>
+    <context>
+        <name>InstanceUpdateCheckController</name>
+        <message>
+            <source>• %1 —— %2：%3</source>
+            <translation>• %1 - %2: %3</translation>
         </message>
     </context>
     <context>
@@ -9060,6 +9738,19 @@ The current version will also be retained separately and the file will not be de
         <message>
             <source>升级恢复需要处理：%1；%2</source>
             <translation>Upgrade recovery needs to be processed: %1; %2</translation>
+        </message>
+    </context>
+    <context>
+        <name>InstanceUpgradeController</name>
+        <message>
+            <source>
+文件变更：
+</source>
+            <translation>File changes:</translation>
+        </message>
+        <message>
+            <source>升级工作发生异常；恢复检查：</source>
+            <translation>An exception occurred during the upgrade work; recovery check:</translation>
         </message>
     </context>
     <context>
@@ -14890,6 +15581,251 @@ So there is no import. (Fabric / Forge / NeoForge / OptiFine can be installed di
         </message>
     </context>
     <context>
+        <name>ModpackInstallReport</name>
+        <message>
+            <source>%1
+项目 %2 / 文件 %3 / %4
+%5%6</source>
+            <translation>%1
+Project %2 / File %3 / %4
+%5%6</translation>
+        </message>
+    </context>
+    <context>
+        <name>ModrinthCompatibility</name>
+        <message>
+            <source>平台正在限流（大约还要 %1 秒），暂时无法确认。</source>
+            <translation>The platform is currently throttling (about %1 seconds away) and cannot be confirmed at the moment.</translation>
+        </message>
+        <message>
+            <source>版本信息不完整，暂时无法确认；没有将其判断为缺失。</source>
+            <translation>The version information is incomplete and cannot be confirmed at the moment; it is not judged as missing.</translation>
+        </message>
+        <message>
+            <source>平台没有兼容当前游戏、加载器和发布筛选的发行版。</source>
+            <translation>The platform does not have a release that is compatible with the current game, loader, and release filters.</translation>
+        </message>
+        <message>
+            <source>平台认不出来。</source>
+            <translation>The platform is not recognized.</translation>
+        </message>
+        <message>
+            <source>查询中断，暂时无法确认。</source>
+            <translation>The query is interrupted and cannot be confirmed at the moment.</translation>
+        </message>
+        <message>
+            <source>查询超时，暂时无法确认。</source>
+            <translation>The query has timed out and cannot be confirmed at the moment.</translation>
+        </message>
+        <message>
+            <source>查询失败：%1</source>
+            <translation>Query failed: %1</translation>
+        </message>
+        <message>
+            <source>Modrinth 上没有这个项目。</source>
+            <translation>This item is not available on Modrinth.</translation>
+        </message>
+        <message>
+            <source>Modrinth 限流了，暂时无法确认，稍后再试。</source>
+            <translation>Modrinth has limited the current flow and cannot confirm it at the moment. Please try again later.</translation>
+        </message>
+        <message>
+            <source>接口返回 HTTP %1，暂时无法确认。</source>
+            <translation>The interface returns HTTP %1, which cannot be confirmed at the moment.</translation>
+        </message>
+        <message>
+            <source>接口返回的内容看不懂，暂时无法确认。</source>
+            <translation>The content returned by the interface is incomprehensible and cannot be confirmed at the moment.</translation>
+        </message>
+        <message>
+            <source>Modrinth 上没有兼容 %1%2 的发行版。</source>
+            <translation>There is no distribution compatible with %1%2 on Modrinth.</translation>
+        </message>
+        <message>
+            <source>这个版本</source>
+            <translation>This version</translation>
+        </message>
+        <message>
+            <source>没有配置 CurseForge 接口，暂时无法确认。</source>
+            <translation>The CurseForge interface is not configured and cannot be confirmed at the moment.</translation>
+        </message>
+        <message>
+            <source>CurseForge 上没有这个项目。</source>
+            <translation>This project is not available on CurseForge.</translation>
+        </message>
+        <message>
+            <source>CurseForge 限流了，暂时无法确认，稍后再试。</source>
+            <translation>CurseForge has limited traffic and cannot confirm it at the moment. Please try again later.</translation>
+        </message>
+        <message>
+            <source>接口没有返回文件清单，暂时无法确认。</source>
+            <translation>The interface did not return the file list and cannot be confirmed at the moment.</translation>
+        </message>
+        <message>
+            <source>CurseForge 上没有兼容 %1%2 的发行版。</source>
+            <translation>There is no distribution compatible with %1%2 on CurseForge.</translation>
+        </message>
+    </context>
+    <context>
+        <name>MultiMCPatchImport</name>
+        <message>
+            <source>不支持的 MultiMC 清单格式。</source>
+            <translation>Unsupported MultiMC manifest format.</translation>
+        </message>
+        <message>
+            <source>组件数量不合法。</source>
+            <translation>The number of components is illegal.</translation>
+        </message>
+        <message>
+            <source>组件不是对象。</source>
+            <translation>Components are not objects.</translation>
+        </message>
+        <message>
+            <source>组件重复或缺少本地启动补丁：%1</source>
+            <translation>Duplicate component or missing local startup patch: %1</translation>
+        </message>
+        <message>
+            <source>补丁 JSON 损坏：%1</source>
+            <translation>Patch JSON corruption: %1</translation>
+        </message>
+        <message>
+            <source>补丁身份或版本与清单不一致：%1</source>
+            <translation>Patch identity or version inconsistent with manifest: %1</translation>
+        </message>
+        <message>
+            <source>补丁顺序无效。</source>
+            <translation>Invalid patch order.</translation>
+        </message>
+        <message>
+            <source>尚不支持补丁字段 %1，未忽略它。</source>
+            <translation>The patch field %1 is not supported yet and is not ignored.</translation>
+        </message>
+        <message>
+            <source>%1（字段 %2，未忽略它。）</source>
+            <translation>%1 (Field %2, it is not ignored.)</translation>
+        </message>
+        <message>
+            <source>不能同时导入多个加载器。</source>
+            <translation>Multiple loaders cannot be imported at the same time.</translation>
+        </message>
+        <message>
+            <source>没有 Minecraft 组件。</source>
+            <translation>No Minecraft components.</translation>
+        </message>
+        <message>
+            <source>组件依赖字段不是数组。</source>
+            <translation>Component dependency fields are not arrays.</translation>
+        </message>
+        <message>
+            <source>补丁组件依赖冲突：%1</source>
+            <translation>Patch component dependency conflict: %1</translation>
+        </message>
+        <message>
+            <source>客户端来源缺少 HTTPS 或 SHA-1。</source>
+            <translation>Client origin is missing HTTPS or SHA-1.</translation>
+        </message>
+        <message>
+            <source>客户端必须来自 Mojang 官方文件源。</source>
+            <translation>The client must come from the official Mojang documentation source.</translation>
+        </message>
+        <message>
+            <source>Java 版本声明无效。</source>
+            <translation>The Java version declaration is invalid.</translation>
+        </message>
+        <message>
+            <source>Java 版本列表为空。</source>
+            <translation>Java version list is empty.</translation>
+        </message>
+        <message>
+            <source>补丁之间的 Java 要求没有交集。</source>
+            <translation>There is no overlap in Java requirements between patches.</translation>
+        </message>
+        <message>
+            <source>补丁包含暂不支持或不安全的 JVM 参数，没有执行。</source>
+            <translation>The patch contains unsupported or unsafe JVM parameters and is not implemented.</translation>
+        </message>
+        <message>
+            <source>Tweaker 字段无效。</source>
+            <translation>Tweaker field is invalid.</translation>
+        </message>
+        <message>
+            <source>Tweaker 类名无效。</source>
+            <translation>Tweaker class name is invalid.</translation>
+        </message>
+        <message>
+            <source>库清单无效。</source>
+            <translation>The library list is invalid.</translation>
+        </message>
+        <message>
+            <source>库清单过大或损坏。</source>
+            <translation>The library list is too large or corrupt.</translation>
+        </message>
+        <message>
+            <source>无效 Maven 坐标：%1</source>
+            <translation>Invalid Maven coordinates: %1</translation>
+        </message>
+        <message>
+            <source>库路径不安全：%1</source>
+            <translation>Unsafe library path: %1</translation>
+        </message>
+        <message>
+            <source>包内专用库缺失或超过大小限制：%1</source>
+            <translation>The special library in the package is missing or exceeds the size limit: %1</translation>
+        </message>
+        <message>
+            <source>专用库缺少安全地址或 SHA-1：%1</source>
+            <translation>Private library is missing security address or SHA-1: %1</translation>
+        </message>
+        <message>
+            <source>Native 库没有可校验的 classifier 清单。</source>
+            <translation>The Native library does not have a verifiable list of classifiers.</translation>
+        </message>
+        <message>
+            <source>Native 库校验信息缺失。</source>
+            <translation>Native library verification information is missing.</translation>
+        </message>
+        <message>
+            <source>Native 库路径无效。</source>
+            <translation>Native library path is invalid.</translation>
+        </message>
+        <message>
+            <source>Maven 仓库地址不安全。</source>
+            <translation>The Maven repository address is not secure.</translation>
+        </message>
+        <message>
+            <source>补丁缺少完整主类、官方客户端或资源索引。</source>
+            <translation>The patch is missing the full main class, official client, or resource index.</translation>
+        </message>
+        <message>
+            <source>资源索引缺少安全来源或校验。</source>
+            <translation>The resource index is missing security origin or validation.</translation>
+        </message>
+        <message>
+            <source>已转换包内声明式启动补丁、专用库、Java 要求和 JVM 参数；不执行来源启动器或前后置命令。</source>
+            <translation>Converted in-package declarative launch patches, private libraries, Java requirements, and JVM parameters; no source launcher or pre- and post-commands are executed.</translation>
+        </message>
+        <message>
+            <source>包内库路径或校验不安全。</source>
+            <translation>The library path or verification in the package is unsafe.</translation>
+        </message>
+        <message>
+            <source>已有同名专用库内容不同，未覆盖：%1</source>
+            <translation>There is already a special library with the same name that has different contents and is not covered: %1</translation>
+        </message>
+        <message>
+            <source>无法安全创建专用库目录。</source>
+            <translation>Unable to safely create a private library directory.</translation>
+        </message>
+        <message>
+            <source>专用库保存失败：%1</source>
+            <translation>Special library failed to save: %1</translation>
+        </message>
+        <message>
+            <source>保存包身份</source>
+            <translation>Save package identity</translation>
+        </message>
+    </context>
+    <context>
         <name>NbtTree</name>
         <message>
             <source>%1 个字节</source>
@@ -15012,6 +15948,136 @@ So there is no import. (Fabric / Forge / NeoForge / OptiFine can be installed di
         </message>
     </context>
     <context>
+        <name>OfflineSkin</name>
+        <message>
+            <source>认不出这个账号的 uuid，没法按账号存皮肤。</source>
+            <translation>The uuid of this account cannot be recognized, and the skin cannot be saved by account.</translation>
+        </message>
+        <message>
+            <source>这张图读不出来。</source>
+            <translation>This picture cannot be read.</translation>
+        </message>
+        <message>
+            <source>写不进「%1」：%2</source>
+            <translation>Unable to write "%1": %2</translation>
+        </message>
+        <message>
+            <source>这张图存不成 PNG：%1</source>
+            <translation>This image cannot be saved as PNG: %1</translation>
+        </message>
+        <message>
+            <source>皮肤图没写完整：%1</source>
+            <translation>The skin picture is not complete: %1</translation>
+        </message>
+    </context>
+    <context>
+        <name>OperationReport</name>
+        <message>
+            <source>取消</source>
+            <translation>Cancel</translation>
+        </message>
+        <message>
+            <source>跳过已有项</source>
+            <translation>Skip existing items</translation>
+        </message>
+        <message>
+            <source>覆盖</source>
+            <translation>Cover</translation>
+        </message>
+        <message>
+            <source>共 %1 项：完成 %2、跳过 %3、失败 %4</source>
+            <translation>Total %1 items: completed %2, skipped %3, failed %4</translation>
+        </message>
+        <message>
+            <source>；未完成 %1</source>
+            <translation>;Unfinished %1</translation>
+        </message>
+        <message>
+            <source>；本次未收尾</source>
+            <translation>;This time it is not finished yet</translation>
+        </message>
+        <message>
+            <source>操作：%1</source>
+            <translation>Operation: %1</translation>
+        </message>
+        <message>
+            <source>报告：%1</source>
+            <translation>Report: %1</translation>
+        </message>
+        <message>
+            <source>目标：%1</source>
+            <translation>Target: %1</translation>
+        </message>
+        <message>
+            <source>原因：%1</source>
+            <translation>Reason: %1</translation>
+        </message>
+        <message>
+            <source>结果：%1</source>
+            <translation>Result: %1</translation>
+        </message>
+        <message>
+            <source>暂存：%1（继续时会复用它，不会重新拷一遍）</source>
+            <translation>Temporary storage: %1 (it will be reused when continuing and will not be copied again)</translation>
+        </message>
+        <message>
+            <source>- %1：%2</source>
+            <translation>- %1: %2</translation>
+        </message>
+        <message>
+            <source>（%1）</source>
+            <translation>(%1)</translation>
+        </message>
+        <message>
+            <source>- …（还有 %1 项未列出）</source>
+            <translation>- …(%1 more items not listed)</translation>
+        </message>
+        <message>
+            <source>未完成项：</source>
+            <translation>Unfinished items:</translation>
+        </message>
+        <message>
+            <source>可以这样处理：关掉占用这些文件的程序（游戏、服务端、杀毒扫描）后，在任务中心对这一项按「继续未完成操作」；已经做完的项会跳过，不会重拷贝。如果仍然失败，请把这份报告和启动器日志一起提供。</source>
+            <translation>It can be handled like this: after closing the programs that occupy these files (games, servers, anti-virus scans), click "Continue Unfinished Operations" on this item in the task center; items that have already been completed will be skipped and will not be copied again. If it still fails, please provide this report with the launcher log.</translation>
+        </message>
+        <message>
+            <source>报告编号或条目数不合法，未写入报告。</source>
+            <translation>The report number or number of entries is invalid and the report is not written.</translation>
+        </message>
+        <message>
+            <source>报告附带参数过大，未写入报告。</source>
+            <translation>The parameters attached to the report are too large and are not written into the report.</translation>
+        </message>
+        <message>
+            <source>报告正文超过上限，未写入报告。</source>
+            <translation>The report text exceeds the upper limit and is not written into the report.</translation>
+        </message>
+        <message>
+            <source>建不出报告目录：%1</source>
+            <translation>Unable to create report directory: %1</translation>
+        </message>
+        <message>
+            <source>写不进报告：%1（%2）</source>
+            <translation>Unable to write report: %1 (%2)</translation>
+        </message>
+        <message>
+            <source>写不进失败说明：%1</source>
+            <translation>Failed to write failure description: %1</translation>
+        </message>
+        <message>
+            <source>读不到报告：%1</source>
+            <translation>Unable to read report: %1</translation>
+        </message>
+        <message>
+            <source>报告超过 %1 字节上限，未采用。</source>
+            <translation>Report exceeded %1 byte limit, not taken.</translation>
+        </message>
+        <message>
+            <source>报告格式不认识或内容越界，未采用。</source>
+            <translation>The report format was not recognized or the content was out of bounds, so it was not adopted.</translation>
+        </message>
+    </context>
+    <context>
         <name>OptionValueDelegate</name>
         <message>
             <source>关闭</source>
@@ -15062,6 +16128,172 @@ So there is no import. (Fabric / Forge / NeoForge / OptiFine can be installed di
         <message>
             <source>取随机皮肤失败：%1</source>
             <translation>Failed to get random skin: %1</translation>
+        </message>
+    </context>
+    <context>
+        <name>PlayerSkinStore</name>
+        <message>
+            <source>档案不是合法的 JSON：%1</source>
+            <translation>File is not valid JSON: %1</translation>
+        </message>
+        <message>
+            <source>档案里没有 textures 那一条（没设过皮肤的账号？官方换协议了？）</source>
+            <translation>There is no entry for textures in the file (haven’t set up an account with skins? Has the official changed the agreement?)</translation>
+        </message>
+        <message>
+            <source>textures 那一段不是合法的 base64</source>
+            <translation>That section of textures is not legal base64</translation>
+        </message>
+        <message>
+            <source>textures 解出来不是合法的 JSON：%1</source>
+            <translation>Textures is not a legal JSON: %1</translation>
+        </message>
+        <message>
+            <source>档案里没有 SKIN.url</source>
+            <translation>SKIN.url is not in the file</translation>
+        </message>
+        <message>
+            <source>uuid 认不出来，不存档案</source>
+            <translation>Uuid is not recognized and the file cannot be saved.</translation>
+        </message>
+        <message>
+            <source>档案里没有皮肤，不存</source>
+            <translation>There is no skin in the file, it is not saved.</translation>
+        </message>
+        <message>
+            <source>无法创建目录 %1。</source>
+            <translation>Unable to create directory %1.</translation>
+        </message>
+        <message>
+            <source>无法写入 %1。</source>
+            <translation>Unable to write to %1.</translation>
+        </message>
+        <message>
+            <source>写入 %1 失败。</source>
+            <translation>Writing to %1 failed.</translation>
+        </message>
+        <message>
+            <source>取档案失败：%1</source>
+            <translation>Failed to retrieve file: %1</translation>
+        </message>
+        <message>
+            <source>官方查不到这个玩家的档案（204），沿用上次的外观</source>
+            <translation>The official profile of this player cannot be found (204), so the last appearance will be used.</translation>
+        </message>
+        <message>
+            <source>官方限流了（429），一分钟后再说，这段时间沿用上次的外观</source>
+            <translation>The official current limit is (429). We will talk about it in one minute. During this period, we will keep the same appearance as last time.</translation>
+        </message>
+        <message>
+            <source>取档案失败（HTTP %1）：%2</source>
+            <translation>Failed to retrieve file (HTTP %1): %2</translation>
+        </message>
+        <message>
+            <source>贴图地址不可用：%1</source>
+            <translation>The sticker address is unavailable: %1</translation>
+        </message>
+        <message>
+            <source>下贴图失败：%1</source>
+            <translation>Failed to download image: %1</translation>
+        </message>
+        <message>
+            <source>贴图不是一张 64 宽的皮肤 PNG（%1 字节）</source>
+            <translation>The texture is not a 64-wide skin PNG (%1 bytes)</translation>
+        </message>
+        <message>
+            <source>贴图存不下来：%1</source>
+            <translation>The texture cannot be saved: %1</translation>
+        </message>
+    </context>
+    <context>
+        <name>PresetCompatibility</name>
+        <message>
+            <source>原版</source>
+            <translation>Original</translation>
+        </message>
+        <message>
+            <source>没有模组引用要检查。</source>
+            <translation>There are no module references to check.</translation>
+        </message>
+        <message>
+            <source>检查中 %1/%2</source>
+            <translation>Checking %1/%2</translation>
+        </message>
+        <message>
+            <source>已确认缺失 %1</source>
+            <translation>Confirmed missing %1</translation>
+        </message>
+        <message>
+            <source>暂无法确认 %1</source>
+            <translation>Unable to confirm %1</translation>
+        </message>
+        <message>
+            <source>引用无法识别 %1</source>
+            <translation>Unrecognized reference %1</translation>
+        </message>
+        <message>
+            <source>全部匹配（%1）</source>
+            <translation>Match all (%1)</translation>
+        </message>
+        <message>
+            <source>缺失 %1</source>
+            <translation>Missing %1</translation>
+        </message>
+        <message>
+            <source>必要项缺失 %1</source>
+            <translation>Required items are missing %1</translation>
+        </message>
+        <message>
+            <source>，</source>
+            <translation>,</translation>
+        </message>
+        <message>
+            <source>。</source>
+            <translation>.</translation>
+        </message>
+        <message>
+            <source>平台认不出来（只能是 Modrinth 或 CurseForge）。</source>
+            <translation>The platform is not recognized (can only be Modrinth or CurseForge).</translation>
+        </message>
+        <message>
+            <source>这一条没有项目 id。</source>
+            <translation>This item has no project id.</translation>
+        </message>
+        <message>
+            <source>这一项钉的是 %1，这次装的是 %2。</source>
+            <translation>This item is nailed to %1, and this time it is installed to %2.</translation>
+        </message>
+        <message>
+            <source>（未指定）</source>
+            <translation>(not specified)</translation>
+        </message>
+        <message>
+            <source>本轮检查已到截止时间，暂时无法确认；请重试未完成项。</source>
+            <translation>This round of inspection has reached the deadline and cannot be confirmed yet; please try again for unfinished items.</translation>
+        </message>
+        <message>
+            <source>引用不完整。</source>
+            <translation>The citation is incomplete.</translation>
+        </message>
+        <message>
+            <source>缓存结论。</source>
+            <translation>Caching conclusions.</translation>
+        </message>
+        <message>
+            <source>（缓存结论）</source>
+            <translation>(cached conclusion)</translation>
+        </message>
+        <message>
+            <source>这次没有可用的平台查询，暂时无法确认。</source>
+            <translation>There is no available platform query this time and cannot be confirmed at the moment.</translation>
+        </message>
+        <message>
+            <source>不知道这次要装哪个游戏版本，暂时无法确认。</source>
+            <translation>I don’t know which game version to install this time, so I can’t confirm it yet.</translation>
+        </message>
+        <message>
+            <source>查询超时（%1 秒），暂时无法确认。</source>
+            <translation>The query timed out (%1 seconds) and cannot be confirmed at the moment.</translation>
         </message>
     </context>
     <context>
@@ -15835,6 +17067,29 @@ Not supported by this preset category: %1.</translation>
         </message>
     </context>
     <context>
+        <name>PresetExecutionReport</name>
+        <message>
+            <source>没有可读的预设执行报告，或报告过大；请重新预览。</source>
+            <translation>There is no readable default execution report, or the report is too large; please preview again.</translation>
+        </message>
+        <message>
+            <source>执行报告与当前预设 / 实例不符，或报告已损坏；请重新预览，未自动继续。</source>
+            <translation>The execution report does not match the current preset/instance, or the report is corrupted; please preview again, it does not continue automatically.</translation>
+        </message>
+        <message>
+            <source>执行报告的逐项状态无效，未自动继续。</source>
+            <translation>The itemized status of the execution report is invalid and did not continue automatically.</translation>
+        </message>
+        <message>
+            <source>执行报告缺少预设段状态，未自动继续。</source>
+            <translation>The execution report is missing the preset segment status and does not continue automatically.</translation>
+        </message>
+        <message>
+            <source>无法保存预设执行报告；已写入内容保留，请检查磁盘与权限。</source>
+            <translation>Unable to save the default execution report; the written content is retained, please check the disk and permissions.</translation>
+        </message>
+    </context>
+    <context>
         <name>PresetInstallPicker</name>
         <message>
             <source>替换</source>
@@ -16449,6 +17704,21 @@ Not supported by this preset category: %1.</translation>
         </message>
     </context>
     <context>
+        <name>PresetModInstaller</name>
+        <message>
+            <source>已安装模组的识别缓存与安装记录冲突，未允许安装。</source>
+            <translation>The identification cache of the installed module conflicts with the installation record, and the installation is not allowed.</translation>
+        </message>
+        <message>
+            <source>：</source>
+            <translation>:</translation>
+        </message>
+        <message>
+            <source>、</source>
+            <translation>,</translation>
+        </message>
+    </context>
+    <context>
         <name>PresetModReview</name>
         <message>
             <source>确认模组预设</source>
@@ -16939,6 +18209,152 @@ Not supported by this preset category: %1.</translation>
         <message>
             <source>未绑定</source>
             <translation>Unbound</translation>
+        </message>
+    </context>
+    <context>
+        <name>PresetStore</name>
+        <message>
+            <source>：</source>
+            <translation>:</translation>
+        </message>
+        <message>
+            <source>这一份的类别和内容对不上（模组引用只属于「模组」这一类）</source>
+            <translation>The category and content of this one do not match (module references only belong to the "module" category)</translation>
+        </message>
+        <message>
+            <source>这一份的类别和内容对不上（里面有一段不属于这一类）</source>
+            <translation>The category and content of this one do not match (there is a paragraph that does not fall into this category)</translation>
+        </message>
+        <message>
+            <source>这个 id 不是一份预设（预设目录名只能是 UUID）</source>
+            <translation>This id is not a default (the default directory name can only be UUID)</translation>
+        </message>
+        <message>
+            <source>拼出来的路径跑到预设目录外面去了</source>
+            <translation>The spelled out path went outside the default directory.</translation>
+        </message>
+        <message>
+            <source>已经不在了</source>
+            <translation>No longer here</translation>
+        </message>
+        <message>
+            <source>不存在（那个目录里没有这一份）</source>
+            <translation>Does not exist (this copy does not exist in that directory)</translation>
+        </message>
+        <message>
+            <source>打不开</source>
+            <translation>Can't open</translation>
+        </message>
+        <message>
+            <source>清单超过 16 MiB，未读取</source>
+            <translation>Manifest exceeds 16 MiB and has not been read</translation>
+        </message>
+        <message>
+            <source>读取清单失败或清单过大</source>
+            <translation>Failed to read the list or the list is too large</translation>
+        </message>
+        <message>
+            <source>JSON字节位置 %1：%2</source>
+            <translation>JSON byte position %1: %2</translation>
+        </message>
+        <message>
+            <source>读不回来（不是合法 JSON、不是我们写的格式、版本比这个启动器新、或者缺了 id / 名字）</source>
+            <translation>Cannot be read back (not legal JSON, not the format we wrote, the version is newer than this launcher, or the id/name is missing)</translation>
+        </message>
+        <message>
+            <source>记的 id 是「%1」，和目录名对不上</source>
+            <translation>The recorded id is "%1", which does not match the directory name.</translation>
+        </message>
+        <message>
+            <source> 副本</source>
+            <translation>Copy</translation>
+        </message>
+    </context>
+    <context>
+        <name>PresetWorkspace</name>
+        <message>
+            <source>无法读取文件：%1</source>
+            <translation>Unable to read file: %1</translation>
+        </message>
+        <message>
+            <source>资源目标路径不安全。</source>
+            <translation>The resource target path is unsafe.</translation>
+        </message>
+        <message>
+            <source>已有资源文件与待保存内容不一致，原文件保留。</source>
+            <translation>The existing resource file is inconsistent with the content to be saved, and the original file is retained.</translation>
+        </message>
+        <message>
+            <source>无法创建预设文件目录。</source>
+            <translation>Unable to create preset file directory.</translation>
+        </message>
+        <message>
+            <source>预设标识无效。</source>
+            <translation>The default ID is invalid.</translation>
+        </message>
+        <message>
+            <source>请填写预设名称。</source>
+            <translation>Please fill in the default name.</translation>
+        </message>
+        <message>
+            <source>未命名预设</source>
+            <translation>Unnamed preset</translation>
+        </message>
+        <message>
+            <source>预设目录包含不安全的路径。</source>
+            <translation>The default directory contains unsafe paths.</translation>
+        </message>
+        <message>
+            <source>预设内容无效。</source>
+            <translation>The default content is invalid.</translation>
+        </message>
+        <message>
+            <source>预设条目格式无效。</source>
+            <translation>The default entry format is invalid.</translation>
+        </message>
+        <message>
+            <source>设置键不能为空或重复；按键请放在按键页，数值中不能含换行。</source>
+            <translation>The setting keys cannot be empty or repeated; please place the keys on the key page, and the values ​​cannot contain line breaks.</translation>
+        </message>
+        <message>
+            <source>请选择模组来源并填写唯一的项目 ID。</source>
+            <translation>Please select a mod source and fill in a unique project ID.</translation>
+        </message>
+        <message>
+            <source>至少添加并启用一项内容后才能保存为预设。</source>
+            <translation>You must add and enable at least one item before saving as a preset.</translation>
+        </message>
+        <message>
+            <source>无法读取资源文件：%1</source>
+            <translation>Unable to read resource file: %1</translation>
+        </message>
+        <message>
+            <source>资源文件校验失败。</source>
+            <translation>Resource file verification failed.</translation>
+        </message>
+        <message>
+            <source>资源文件路径无效。</source>
+            <translation>The resource file path is invalid.</translation>
+        </message>
+        <message>
+            <source>预设资源来源目录无效。</source>
+            <translation>The default resource source directory is invalid.</translation>
+        </message>
+        <message>
+            <source>无法读取图标。</source>
+            <translation>Unable to read icon.</translation>
+        </message>
+        <message>
+            <source>综合预设保存失败，原预设保留。</source>
+            <translation>The comprehensive preset failed to save, and the original preset is retained.</translation>
+        </message>
+        <message>
+            <source>保存失败，原预设保留。</source>
+            <translation>Failed to save, original preset retained.</translation>
+        </message>
+        <message>
+            <source>预设已保存，但列表顺序未能写入。</source>
+            <translation>The preset was saved, but the list order could not be written.</translation>
         </message>
     </context>
     <context>
@@ -20361,6 +21777,45 @@ Recovery records are retained in %3, please check manually.</translation>
         </message>
     </context>
     <context>
+        <name>RandomSkinStore</name>
+        <message>
+            <source>解不出皮肤列表（不是一份 JSON 对象：%1）</source>
+            <translation>Unable to resolve skin list (not a JSON object: %1)</translation>
+        </message>
+        <message>
+            <source>皮肤列表里没有 %1 这一项（接口形状变了？）</source>
+            <translation>There is no item %1 in the skin list (has the interface shape changed?)</translation>
+        </message>
+        <message>
+            <source>皮肤列表里一条能用的贴图都没有（共 %1 项）</source>
+            <translation>There is no usable texture in the skin list (total %1 items)</translation>
+        </message>
+        <message>
+            <source>认不出这个账号的 uuid，随机皮肤没法记下来。</source>
+            <translation>The uuid of this account cannot be recognized, and the random skin cannot be remembered.</translation>
+        </message>
+        <message>
+            <source>无法创建目录 %1。</source>
+            <translation>Unable to create directory %1.</translation>
+        </message>
+        <message>
+            <source>随机皮肤存不下来：%1</source>
+            <translation>Random skin cannot be saved: %1</translation>
+        </message>
+        <message>
+            <source>取随机皮肤列表失败：%1</source>
+            <translation>Failed to get random skin list: %1</translation>
+        </message>
+        <message>
+            <source>取随机皮肤列表失败（HTTP %1）：%2</source>
+            <translation>Failed to get random skin list (HTTP %1): %2</translation>
+        </message>
+        <message>
+            <source>挑中的贴图哈希拼不出地址：%1</source>
+            <translation>The selected texture hash cannot spell out the address: %1</translation>
+        </message>
+    </context>
+    <context>
         <name>ReplayInfo</name>
         <message>
             <source>文件不存在</source>
@@ -21008,6 +22463,97 @@ Recovery records are retained in %3, please check manually.</translation>
         </message>
     </context>
     <context>
+        <name>ResourceStore</name>
+        <message>
+            <source>%1失败：%2</source>
+            <translation>%1 failed: %2</translation>
+        </message>
+        <message>
+            <source>读取版本列表</source>
+            <translation>Read version list</translation>
+        </message>
+        <message>
+            <source>版本列表无法解析（接口返回的不是一份版本清单）</source>
+            <translation>The version list cannot be parsed (the interface returns not a version list)</translation>
+        </message>
+        <message>
+            <source>
+
+公共接口连接受限。可在设置页「下载」中配置个人 CurseForge API Key。</source>
+            <translation>Public interface connection is restricted. A personal CurseForge API Key can be configured in the "Download" settings page.</translation>
+        </message>
+        <message>
+            <source>
+
+CurseForge API Key 无效或已过期，请重新配置。</source>
+            <translation>CurseForge API Key is invalid or expired, please reconfigure it.</translation>
+        </message>
+        <message>
+            <source>%1失败（HTTP %2）：%3%4</source>
+            <translation>%1 failed (HTTP %2): %3%4</translation>
+        </message>
+        <message>
+            <source>%1失败（HTTP %2）%3</source>
+            <translation>%1 failed (HTTP %2) %3</translation>
+        </message>
+        <message>
+            <source>%1失败：%2%3</source>
+            <translation>%1 failed: %2%3</translation>
+        </message>
+        <message>
+            <source>搜索</source>
+            <translation>Search</translation>
+        </message>
+        <message>
+            <source>文件身份查询包含无效 SHA-1。</source>
+            <translation>File identity query contains invalid SHA-1.</translation>
+        </message>
+        <message>
+            <source>单批文件身份查询超过 100 项。</source>
+            <translation>There are more than 100 document identity queries in a single batch.</translation>
+        </message>
+        <message>
+            <source>识别已安装模组</source>
+            <translation>Identify installed modules</translation>
+        </message>
+        <message>
+            <source>模组哈希查询响应不是有效对象。</source>
+            <translation>The module hash query response is not a valid object.</translation>
+        </message>
+        <message>
+            <source>部分模组身份响应缺少项目/发行版，或文件哈希不符；未采信这些条目。</source>
+            <translation>Some mod identity responses were missing projects/releases, or had mismatched file hashes; these entries were not honored.</translation>
+        </message>
+        <message>
+            <source>同一文件哈希返回了相互冲突的项目或发行版，未采信。</source>
+            <translation>The same file hash returned conflicting projects or releases and was not accepted.</translation>
+        </message>
+        <message>
+            <source>读取精确前置版本</source>
+            <translation>Read exact forward version</translation>
+        </message>
+        <message>
+            <source>精确前置版本响应缺少项目身份或发行版 ID 不匹配。</source>
+            <translation>Exact build response is missing project identity or release ID mismatch.</translation>
+        </message>
+        <message>
+            <source>CurseForge 文件 ID 无效。</source>
+            <translation>CurseForge file ID is invalid.</translation>
+        </message>
+        <message>
+            <source>读取精确前置文件</source>
+            <translation>Read exact prefix file</translation>
+        </message>
+        <message>
+            <source>精确前置文件响应缺少项目身份或文件 ID 不匹配。</source>
+            <translation>Exact prefile response is missing project identity or file ID mismatch.</translation>
+        </message>
+        <message>
+            <source>读取资源信息</source>
+            <translation>Read resource information</translation>
+        </message>
+    </context>
+    <context>
         <name>ResumableDownload</name>
         <message>
             <source>正在提交完整文件，请等待保存结束。</source>
@@ -21070,6 +22616,30 @@ Recovery records are retained in %3, please check manually.</translation>
             <translation>All segments are ready and are being merged, verified and saved in the background...</translation>
         </message>
         <message>
+            <source>续传分段不可读。</source>
+            <translation>The resume segment is unreadable.</translation>
+        </message>
+        <message>
+            <source>无法合并分段。</source>
+            <translation>Unable to merge segments.</translation>
+        </message>
+        <message>
+            <source>续传缓存已经改变，请重试以重新下载损坏分段。</source>
+            <translation>The resuming cache has changed, please try again to re-download the damaged segment.</translation>
+        </message>
+        <message>
+            <source>合并后的大小或 SHA-1 校验失败。</source>
+            <translation>Merged size or SHA-1 check failed.</translation>
+        </message>
+        <message>
+            <source>下载内容不是有效的 ZIP/JAR 文件。</source>
+            <translation>The download is not a valid ZIP/JAR file.</translation>
+        </message>
+        <message>
+            <source>目标文件已出现，未覆盖。</source>
+            <translation>The target file appears and is not overwritten.</translation>
+        </message>
+        <message>
             <source>下载长时间没有任何进展，已停止。请检查网络后重试。</source>
             <translation>The download has stopped without any progress for a long time. Please check the network and try again.</translation>
         </message>
@@ -21083,6 +22653,126 @@ Recovery records are retained in %3, please check manually.</translation>
         <message>
             <source>%1 条</source>
             <translation>%1 lines</translation>
+        </message>
+    </context>
+    <context>
+        <name>SchematicInfo</name>
+        <message>
+            <source>这份投影里没有 Regions 那一格，读不出内容。</source>
+            <translation>There is no Regions box in this projection, so the content cannot be read.</translation>
+        </message>
+        <message>
+            <source>这份原理图里没有 Palette 那一格，读不出内容。</source>
+            <translation>There is no Palette box in this schematic, so the content cannot be read.</translation>
+        </message>
+        <message>
+            <source>这份结构文件里没有 palette 那一格，读不出内容。</source>
+            <translation>There is no palette in this structure file, so the content cannot be read.</translation>
+        </message>
+        <message>
+            <source>找不到这个文件。</source>
+            <translation>The file cannot be found.</translation>
+        </message>
+        <message>
+            <source>这个文件是空的。</source>
+            <translation>This file is empty.</translation>
+        </message>
+        <message>
+            <source>这份文件太大了（%1 MB），这一页不展开读。</source>
+            <translation>This file is too large (%1 MB) and this page cannot be read.</translation>
+        </message>
+        <message>
+            <source>打不开这个文件：%1</source>
+            <translation>Unable to open this file: %1</translation>
+        </message>
+        <message>
+            <source>解压这一步腾不出临时目录。</source>
+            <translation>This step of decompression does not free up the temporary directory.</translation>
+        </message>
+        <message>
+            <source>这份文件是 gzip 包着的，但解不开：%1</source>
+            <translation>This file is gzip wrapped but cannot be unpacked: %1</translation>
+        </message>
+        <message>
+            <source>解压内容为空，文件可能损坏或下载未完成。</source>
+            <translation>The decompressed content is empty, the file may be damaged or the download is incomplete.</translation>
+        </message>
+        <message>
+            <source>解压之后太大了（超过 %1 MB），这一页不展开读。</source>
+            <translation>After decompression, it is too large (more than %1 MB) and this page will not be expanded for reading.</translation>
+        </message>
+        <message>
+            <source>解压出来的临时文件打不开。</source>
+            <translation>The decompressed temporary file cannot be opened.</translation>
+        </message>
+        <message>
+            <source>Litematica 投影</source>
+            <translation>Litematica projection</translation>
+        </message>
+        <message>
+            <source>Sponge 原理图</source>
+            <translation>Sponge schematic</translation>
+        </message>
+        <message>
+            <source>原版结构</source>
+            <translation>Original structure</translation>
+        </message>
+        <message>
+            <source>不认识</source>
+            <translation>Don't know</translation>
+        </message>
+        <message>
+            <source>这份文件不是能读懂的 NBT：%1</source>
+            <translation>This document cannot be read NBT: %1</translation>
+        </message>
+        <message>
+            <source>这份文件的根不是复合标签，不是结构 / 原理图。</source>
+            <translation>The root of this document is not a composite tag, not a structure/schematic.</translation>
+        </message>
+        <message>
+            <source>认不出这是什么结构 / 原理图（没有 Regions、Palette、palette 这几格）。</source>
+            <translation>I don’t recognize what kind of structure/schematic diagram this is (there are no Regions, Palette, and Palette boxes).</translation>
+        </message>
+        <message>
+            <source>数据版本 %1</source>
+            <translation>Data version %1</translation>
+        </message>
+        <message>
+            <source>这份文件来自 %1，这个实例是 %2 —— 版本不一样，可能有方块兼容问题（也可能没事，进游戏再看）。</source>
+            <translation>This file comes from %1, this example is %2 - the versions are different, there may be block compatibility issues (it may be fine, enter the game and check again).</translation>
+        </message>
+        <message>
+            <source>「%1」</source>
+            <translation>"%1"</translation>
+        </message>
+        <message>
+            <source>作者 %1</source>
+            <translation>Author %1</translation>
+        </message>
+        <message>
+            <source>%1 种方块</source>
+            <translation>%1 types of blocks</translation>
+        </message>
+        <message>
+            <source>%1 个方块</source>
+            <translation>%1 blocks</translation>
+        </message>
+        <message>
+            <source>%1（数据版本 %2）</source>
+            <translation>%1 (data version %2)</translation>
+        </message>
+        <message>
+            <source>
+（这份文件的方块表没解出来，只读到元数据）</source>
+            <translation>(The block table of this file has not been solved, only the metadata has been read)</translation>
+        </message>
+        <message>
+            <source>最多的方块：</source>
+            <translation>Most blocks:</translation>
+        </message>
+        <message>
+            <source>  %1：%2</source>
+            <translation>%1:%2</translation>
         </message>
     </context>
     <context>
@@ -21358,6 +23048,124 @@ Please close the program occupying the port, or change the port in "Common Setti
         </message>
     </context>
     <context>
+        <name>ServerContent</name>
+        <message>
+            <source>数据包</source>
+            <translation>Packet</translation>
+        </message>
+        <message>
+            <source>模组</source>
+            <translation>Module</translation>
+        </message>
+    </context>
+    <context>
+        <name>ServerInstall</name>
+        <message>
+            <source>原版（Vanilla）</source>
+            <translation>Original version (Vanilla)</translation>
+        </message>
+        <message>
+            <source>Mojang 官方服务端，什么都不改</source>
+            <translation>Mojang official server, nothing changed</translation>
+        </message>
+        <message>
+            <source>原版端的高性能分支，插件服务端里最常用的那一档</source>
+            <translation>The high-performance branch of the original version, the most commonly used one in the plug-in server</translation>
+        </message>
+        <message>
+            <source>Paper 的下游，玩法开关比 Paper 多</source>
+            <translation>Downstream of Paper, there are more gameplay switches than Paper</translation>
+        </message>
+        <message>
+            <source>轻量加载器，模组偏原版风格的小改</source>
+            <translation>Lightweight loader, a slight modification of the module to the original style</translation>
+        </message>
+        <message>
+            <source>老牌模组加载器，1.20.1 及更早的服务端模组大多在它上面</source>
+            <translation>Old-fashioned module loader, most of the server-side modules 1.20.1 and earlier are on it</translation>
+        </message>
+        <message>
+            <source>Forge 分家出来的那支，1.20.2 起的服务端模组主流</source>
+            <translation>The branch of Forge, the mainstream server module starting from 1.20.2</translation>
+        </message>
+        <message>
+            <source>Fabric 的分支，模组基本通用，服务端侧用得少</source>
+            <translation>A branch of Fabric, the modules are basically universal and are rarely used on the server side.</translation>
+        </message>
+        <message>
+            <source>插件服务端的老底子，官方不发成品，得现编一份</source>
+            <translation>The old foundation of the plug-in server, the official does not release the finished product, you have to make a copy now</translation>
+        </message>
+        <message>
+            <source>下载后即为服务端，可直接运行</source>
+            <translation>After downloading, it becomes the server and can be run directly.</translation>
+        </message>
+        <message>
+            <source>下载的是安装器，需在安装目录中运行一次</source>
+            <translation>The installer is downloaded and needs to be run once in the installation directory.</translation>
+        </message>
+        <message>
+            <source>官方不提供成品，需用其构建工具现场编译（需要几分钟并联网）</source>
+            <translation>The official does not provide finished products, and needs to be compiled on-site using its construction tools (it takes a few minutes to connect to the Internet)</translation>
+        </message>
+        <message>
+            <source>请选择游戏版本</source>
+            <translation>Please select game version</translation>
+        </message>
+        <message>
+            <source>它是版本 json 里的一部分，地址跟着当前游戏版本走（见 vanillaServerDownload）</source>
+            <translation>It is part of the version json, and the address follows the current game version (see vanillaServerDownload)</translation>
+        </message>
+        <message>
+            <source>下载地址要先取构建列表（见 paperBuildsUrl / paperBuildsFromJson），取回来那条里才有地址和校验值</source>
+            <translation>To download the address, you must first get the build list (see paperBuildsUrl / paperBuildsFromJson), and only the address and check value will be found in that entry.</translation>
+        </message>
+        <message>
+            <source>没给构建号 ⇒ 下的是最新那条</source>
+            <translation>No build number is given ⇒ The one downloaded is the latest one</translation>
+        </message>
+        <message>
+            <source>请选择 Fabric 加载器版本</source>
+            <translation>Please select a Fabric loader version</translation>
+        </message>
+        <message>
+            <source>这一档的地址里必须带安装器版本（少一段就是 404）</source>
+            <translation>The address of this file must contain the installer version (less than one paragraph is 404)</translation>
+        </message>
+        <message>
+            <source>下载的是启动器而非服务端：首次运行会自动下载依赖库（需要联网），之后为纯本地运行</source>
+            <translation>What is downloaded is the launcher rather than the server: the first run will automatically download the dependent library (requires an Internet connection), and then it will run purely locally.</translation>
+        </message>
+        <message>
+            <source>请选择 NeoForge 版本</source>
+            <translation>Please select NeoForge version</translation>
+        </message>
+        <message>
+            <source>请选择 Forge 版本</source>
+            <translation>Please select a Forge version</translation>
+        </message>
+        <message>
+            <source>装完的入口不是 jar，是它生成的两张参数文件；启动时我们不跑它的 run.bat，直接自己拼这条命令</source>
+            <translation>The installed entry is not a jar, but two parameter files generated by it; we do not run its run.bat when starting, but directly spell this command ourselves.</translation>
+        </message>
+        <message>
+            <source>请选择 Quilt 安装器版本</source>
+            <translation>Please select a Quilt installer version</translation>
+        </message>
+        <message>
+            <source>装的时候带 --download-server，原版 server.jar 由安装器下好；Quilt 那份 quilt-server-launch.jar 只是个壳，第一次跑不联网</source>
+            <translation>When installing, use --download-server. The original server.jar is downloaded by the installer; Quilt's quilt-server-launch.jar is just a shell and cannot be connected to the Internet for the first time.</translation>
+        </message>
+        <message>
+            <source>编完的 jar 在 BuildTools 那个子目录里，要搬上来；它的名字带自己的后缀（spigot-&lt;版本&gt;-R0.1-SNAPSHOT.jar），扫到哪个算哪个（见 pickSpigotJar），启动参数拿它现拼</source>
+            <translation>The compiled jar is in the subdirectory of BuildTools and needs to be moved up; its name has its own suffix (spigot-&lt;version&gt;-R0.1-SNAPSHOT.jar), whichever one is scanned counts (see pickSpigotJar), ​​and the startup parameters are spelled out with it</translation>
+        </message>
+        <message>
+            <source>不认识的类型</source>
+            <translation>Unknown type</translation>
+        </message>
+    </context>
+    <context>
         <name>ServerInstallController</name>
         <message>
             <source>这一档要跑它的安装器，而安装器是一个 Java 程序 —— 没找到能用的 Java。去「设置 → 启动 → Java 管理」里选一个，或者先把游戏跑起来一次让它自己挑。</source>
@@ -21605,6 +23413,13 @@ Please close the program occupying the port, or change the port in "Common Setti
         </message>
     </context>
     <context>
+        <name>ServerManagementActions</name>
+        <message>
+            <source>、</source>
+            <translation>,</translation>
+        </message>
+    </context>
+    <context>
         <name>ServerPing</name>
         <message>
             <source>SRV 查询超时</source>
@@ -21709,6 +23524,45 @@ Please close the program occupying the port, or change the port in "Common Setti
         <message>
             <source>服务器答的不是一段 JSON</source>
             <translation>The server response is not valid JSON.</translation>
+        </message>
+    </context>
+    <context>
+        <name>ServerPlayers</name>
+        <message>
+            <source>白名单</source>
+            <translation>Whitelist</translation>
+        </message>
+        <message>
+            <source>管理员</source>
+            <translation>Administrator</translation>
+        </message>
+        <message>
+            <source>封禁的玩家</source>
+            <translation>Banned player</translation>
+        </message>
+        <message>
+            <source>封禁的 IP</source>
+            <translation>Banned IP</translation>
+        </message>
+        <message>
+            <source>%1 无法解析（%2）；没有改动它。</source>
+            <translation>%1 cannot be parsed (%2); it was not modified.</translation>
+        </message>
+        <message>
+            <source>%1 不是一个数组 —— 没有改动它。</source>
+            <translation>%1 is not an array - it is not modified.</translation>
+        </message>
+        <message>
+            <source>永久</source>
+            <translation>Permanent</translation>
+        </message>
+        <message>
+            <source>到 %1</source>
+            <translation>To %1</translation>
+        </message>
+        <message>
+            <source>已经过期（%1）</source>
+            <translation>Expired (%1)</translation>
         </message>
     </context>
     <context>
@@ -21915,6 +23769,169 @@ Please close the program occupying the port, or change the port in "Common Setti
         </message>
     </context>
     <context>
+        <name>ServerRegistry</name>
+        <message>
+            <source>建不了服务端目录：%1</source>
+            <translation>Unable to create server directory: %1</translation>
+        </message>
+        <message>
+            <source>目录不在了</source>
+            <translation>Directory no longer exists</translation>
+        </message>
+        <message>
+            <source>这一档是从目录里的文件反推的（%1），点一下确认</source>
+            <translation>This file is inferred from the files in the directory (%1), click to confirm</translation>
+        </message>
+        <message>
+            <source>安装不完整：缺少 %1</source>
+            <translation>Incomplete installation: missing %1</translation>
+        </message>
+        <message>
+            <source>；</source>
+            <translation>;</translation>
+        </message>
+        <message>
+            <source>读不了 %1</source>
+            <translation>Unable to read %1</translation>
+        </message>
+        <message>
+            <source>%1 大得不像一份记录（%2 字节），已按读不懂处理</source>
+            <translation>%1 is too large to be a record (%2 bytes) and has been treated as unreadable</translation>
+        </message>
+        <message>
+            <source>这份服务端记录无法解析（%1），已按没有记录处理；重新安装一次或手动修正后即可恢复</source>
+            <translation>This server record cannot be parsed (%1) and has been processed as no record; it can be restored after reinstalling or manually correcting it.</translation>
+        </message>
+        <message>
+            <source>写不了 %1：%2</source>
+            <translation>Unable to write %1: %2</translation>
+        </message>
+        <message>
+            <source>写 %1 没落盘：%2</source>
+            <translation>Write %1 Decline disk: %2</translation>
+        </message>
+        <message>
+            <source>%1。这一项没有改 —— 照这份空记录写回去会把它顶掉。</source>
+            <translation>%1. This entry has not been changed - writing it back as this empty record will override it.</translation>
+        </message>
+        <message>
+            <source>要给这个服务端起个名字</source>
+            <translation>Give this server a name</translation>
+        </message>
+        <message>
+            <source>这个名字不能删</source>
+            <translation>This name cannot be deleted</translation>
+        </message>
+        <message>
+            <source>这个路径不在服务端目录底下，没动它</source>
+            <translation>This path is not under the server directory, so it is not touched.</translation>
+        </message>
+        <message>
+            <source>无法删除：%1
+%2</source>
+            <translation>Unable to delete: %1
+%2</translation>
+        </message>
+        <message>
+            <source>写不了 eula.txt：%1</source>
+            <translation>Unable to write eula.txt: %1</translation>
+        </message>
+        <message>
+            <source>eula.txt 写入不完整，原文件未替换。</source>
+            <translation>Eula.txt was written incompletely and the original file was not replaced.</translation>
+        </message>
+        <message>
+            <source>eula.txt 没落盘：%1</source>
+            <translation>Eula.txt Lost disk: %1</translation>
+        </message>
+        <message>
+            <source>读不了 server.properties：%1</source>
+            <translation>Unable to read server.properties: %1</translation>
+        </message>
+        <message>
+            <source>写不了 server.properties：%1</source>
+            <translation>Unable to write server.properties: %1</translation>
+        </message>
+        <message>
+            <source>server.properties 写入不完整，原文件未替换。</source>
+            <translation>The writing of server.properties is incomplete and the original file is not replaced.</translation>
+        </message>
+        <message>
+            <source>server.properties 没落盘：%1</source>
+            <translation>Server.properties lost disk: %1</translation>
+        </message>
+    </context>
+    <context>
+        <name>ServerResourcePack</name>
+        <message>
+            <source>这个压缩包是空的 —— 里面一个条目都没有。</source>
+            <translation>The archive is empty - there are not a single entry in it.</translation>
+        </message>
+        <message>
+            <source>pack.mcmeta 被套在一个文件夹里 —— 游戏只认压缩包最外层的那一份。把包里的东西重新压到最外层再试。</source>
+            <translation>Pack.mcmeta is contained in a folder - the game only recognizes the outermost copy of the compressed package. Push the contents of the bag back to the outermost layer and try again.</translation>
+        </message>
+        <message>
+            <source>这里面是 data/ 而不是 assets/ —— 它像是数据包，不是资源包。服务端资源包要选改了客户端贴图/声音的那一份。</source>
+            <translation>It's data/ instead of assets/ - it's like a data bundle, not an asset bundle. For the server-side resource package, select the one with the client-side textures/sounds modified.</translation>
+        </message>
+        <message>
+            <source>里面没有 pack.mcmeta —— 这不像是资源包。资源包解开来最外层一定有一份 pack.mcmeta。</source>
+            <translation>There's no pack.mcmeta in it - it's not like a resource pack. There must be a pack.mcmeta in the outermost layer after unpacking the resource pack.</translation>
+        </message>
+        <message>
+            <source>找不到这个文件 —— 它可能已经被移走或者改名了。</source>
+            <translation>The file cannot be found - it may have been moved or renamed.</translation>
+        </message>
+        <message>
+            <source>读这个资源包</source>
+            <translation>Read this resource pack</translation>
+        </message>
+        <message>
+            <source>这不是一个 zip 压缩包（或文件已损坏）：资源包要选 .zip 那一份。</source>
+            <translation>This is not a zip archive (or the file is corrupted): choose the .zip version of the resource package.</translation>
+        </message>
+        <message>
+            <source>读不出这个压缩包的条目表。</source>
+            <translation>The entry table of this compressed package cannot be read.</translation>
+        </message>
+        <message>
+            <source>算不出这个文件的 SHA-1：%1</source>
+            <translation>Unable to calculate SHA-1 for this file: %1</translation>
+        </message>
+        <message>
+            <source>包里没有文件</source>
+            <translation>There are no files in the package</translation>
+        </message>
+        <message>
+            <source>%1 个文件</source>
+            <translation>%1 files</translation>
+        </message>
+    </context>
+    <context>
+        <name>ServerRestart</name>
+        <message>
+            <source>你自己停的</source>
+            <translation>You stopped it yourself</translation>
+        </message>
+        <message>
+            <source>正常退出</source>
+            <translation>Exit normally</translation>
+        </message>
+        <message>
+            <source>异常退出</source>
+            <translation>Quit unexpectedly</translation>
+        </message>
+        <message>
+            <source>已经连着自动重启 %1 次都没起来，这一次不再自动重启。</source>
+            <translation>It has been automatically restarted %1 times without getting up. This time it will no longer automatically restart.</translation>
+        </message>
+        <message>
+            <source>异常退出，%1 秒后自动重启（第 %2 次，最多连着 %3 次）。</source>
+            <translation>Abnormal exit, automatic restart after %1 seconds (%2 times, up to %3 times in succession.</translation>
+        </message>
+    </context>
+    <context>
         <name>ServerRun::ServerProcess</name>
         <message>
             <source>服务端进程没起来（%1 起不来？看看 Java 那一项配得对不对）。</source>
@@ -21935,6 +23952,37 @@ Please close the program occupying the port, or change the port in "Common Setti
         <message>
             <source>服务端使用的 Java 版本过旧，已停止失败的启动；请选择匹配的 Java 后重试。</source>
             <translation>The Java version used by the server is too old and failed startup has stopped; please select the matching Java and try again.</translation>
+        </message>
+    </context>
+    <context>
+        <name>ServerSettingsController</name>
+        <message>
+            <source>无法确认原属性文件，请重新加载后再保存；未覆盖。</source>
+            <translation>Unable to confirm original properties file, please reload and save; not overwritten.</translation>
+        </message>
+        <message>
+            <source>server.properties 已被服务端或其它程序修改，请重新加载后再编辑；未覆盖。</source>
+            <translation>Server.properties has been modified by the server or other programs, please reload before editing; it has not been overwritten.</translation>
+        </message>
+        <message>
+            <source>•「%1」：%2</source>
+            <translation>•「%1」：%2</translation>
+        </message>
+        <message>
+            <source>找不到这个服务端的目录。</source>
+            <translation>The server directory cannot be found.</translation>
+        </message>
+        <message>
+            <source>%1 打不开：%2</source>
+            <translation>%1 Can't open: %2</translation>
+        </message>
+        <message>
+            <source>%1 写不进去：%2</source>
+            <translation>%1 Unable to write: %2</translation>
+        </message>
+        <message>
+            <source>玩家名单写入不完整，原文件未替换。</source>
+            <translation>The player list was written incompletely and the original file was not replaced.</translation>
         </message>
     </context>
     <context>
@@ -21969,6 +24017,13 @@ Please close the program occupying the port, or change the port in "Common Setti
         <message>
             <source>获取失败或无可用版本，请刷新重试</source>
             <translation>Failed to obtain or no available version, please refresh and try again.</translation>
+        </message>
+    </context>
+    <context>
+        <name>ServerWorkspaceController</name>
+        <message>
+            <source>服务端安装记录缺失，无法确定启动参数。请检查启动文件，或通过启动器重新创建服务端。</source>
+            <translation>The server installation record is missing and the startup parameters cannot be determined. Please check the startup file or recreate the server through the launcher.</translation>
         </message>
     </context>
     <context>
@@ -24434,6 +26489,56 @@ The changes you made yourself will not be retained.</translation>
         </message>
     </context>
     <context>
+        <name>UpgradeAssessment</name>
+        <message>
+            <source>旧 Forge 注解</source>
+            <translation>Old Forge annotations</translation>
+        </message>
+        <message>
+            <source>旧 Forge @Mod 注解 / acceptedMinecraftVersions</source>
+            <translation>Old Forge @Mod annotations / acceptedMinecraftVersions</translation>
+        </message>
+        <message>
+            <source>嵌套 fabric.mod.json</source>
+            <translation>Nested fabric.mod.json</translation>
+        </message>
+        <message>
+            <source>嵌套 </source>
+            <translation>Nested</translation>
+        </message>
+        <message>
+            <source>（%1）</source>
+            <translation>(%1)</translation>
+        </message>
+        <message>
+            <source>%1：%2（%3）</source>
+            <translation>%1: %2 (%3)</translation>
+        </message>
+    </context>
+    <context>
+        <name>UpgradeHistory</name>
+        <message>
+            <source>读不了升级历史：%1</source>
+            <translation>Unable to read upgrade history: %1</translation>
+        </message>
+        <message>
+            <source>升级历史大得不像一份记录，按读不懂处理。</source>
+            <translation>The upgrade history is too large to be a record and is treated as incomprehensible.</translation>
+        </message>
+        <message>
+            <source>升级历史读不懂（不是 JSON 对象）。</source>
+            <translation>The upgrade history cannot be read (it is not a JSON object).</translation>
+        </message>
+        <message>
+            <source>。这一条没有写进去。</source>
+            <translation>. This item was not included.</translation>
+        </message>
+        <message>
+            <source>升级历史写不进去：%1</source>
+            <translation>Upgrade history cannot be written: %1</translation>
+        </message>
+    </context>
+    <context>
         <name>UpgradeHistoryDialog</name>
         <message>
             <source>更新记录</source>
@@ -24532,6 +26637,116 @@ The changes you made yourself will not be retained.</translation>
         </message>
     </context>
     <context>
+        <name>UpgradePageState</name>
+        <message>
+            <source>先把目标版本和加载器选全。</source>
+            <translation>First select the target version and loader.</translation>
+        </message>
+        <message>
+            <source>这个实例正在运行或被别的操作占用，等它停下来再升级。</source>
+            <translation>This instance is running or occupied by other operations. Wait until it stops before upgrading.</translation>
+        </message>
+        <message>
+            <source>新实例的名字不能空着。</source>
+            <translation>The name of the new instance cannot be left empty.</translation>
+        </message>
+        <message>
+            <source>这个名字已经有一个实例在用了，换一个。</source>
+            <translation>There is already an instance of this name in use, change it.</translation>
+        </message>
+        <message>
+            <source>至少选一类要迁移的内容。</source>
+            <translation>Select at least one category of content to migrate.</translation>
+        </message>
+        <message>
+            <source>勾了 Mod 配置却没勾 Mod 文件 —— 配置归属不能按文件名猜：要么把 Mod 一起搬，要么别搬配置。</source>
+            <translation>Mod configuration is checked but Mod file is not checked - the configuration ownership cannot be guessed based on the file name: either move the Mod together, or do not move the configuration.</translation>
+        </message>
+        <message>
+            <source>先做一次兼容性检查，再确认迁移。</source>
+            <translation>Do a compatibility check first and then confirm the migration.</translation>
+        </message>
+        <message>
+            <source>目标或选择改过了，需要重新检查一次。</source>
+            <translation>The target or choice has been changed and needs to be rechecked.</translation>
+        </message>
+    </context>
+    <context>
+        <name>UpgradeReport</name>
+        <message>
+            <source>正常兼容</source>
+            <translation>Normally compatible</translation>
+        </message>
+        <message>
+            <source>无法确认</source>
+            <translation>Unable to confirm</translation>
+        </message>
+        <message>
+            <source>检查失败</source>
+            <translation>Check failed</translation>
+        </message>
+        <message>
+            <source>不兼容</source>
+            <translation>Not compatible</translation>
+        </message>
+        <message>
+            <source>缺前置</source>
+            <translation>Missing prefix</translation>
+        </message>
+        <message>
+            <source>尚不支持</source>
+            <translation>Not supported yet</translation>
+        </message>
+        <message>
+            <source>无法解析</source>
+            <translation>Unable to parse</translation>
+        </message>
+        <message>
+            <source>无法确定</source>
+            <translation>Unable to determine</translation>
+        </message>
+        <message>
+            <source>不支持</source>
+            <translation>Not supported</translation>
+        </message>
+        <message>
+            <source>明确排除</source>
+            <translation>Expressly excluded</translation>
+        </message>
+        <message>
+            <source>不满足</source>
+            <translation>Dissatisfied</translation>
+        </message>
+        <message>
+            <source>缺少必要</source>
+            <translation>Lack of necessity</translation>
+        </message>
+        <message>
+            <source>缺少目标加载器声明</source>
+            <translation>Missing target loader declaration</translation>
+        </message>
+        <message>
+            <source>失败</source>
+            <translation>Fail</translation>
+        </message>
+        <message>
+            <source>读取失败</source>
+            <translation>Read failed</translation>
+        </message>
+        <message>
+            <source>查询失败</source>
+            <translation>Query failed</translation>
+        </message>
+        <message>
+            <source>已确认兼容</source>
+            <translation>Confirmed to be compatible</translation>
+        </message>
+        <message>
+            <source>一致</source>
+            <translation>Consistent</translation>
+        </message>
+    </context>
+    <context>
         <name>UpgradeReportDialog</name>
         <message>
             <source>兼容性报告</source>
@@ -24571,6 +26786,144 @@ The changes you made yourself will not be retained.</translation>
         </message>
     </context>
     <context>
+        <name>UpgradeSelection</name>
+        <message>
+            <source>游戏存档</source>
+            <translation>Game save</translation>
+        </message>
+        <message>
+            <source>Mod 文件</source>
+            <translation>Mod file</translation>
+        </message>
+        <message>
+            <source>Mod 配置</source>
+            <translation>Mod configuration</translation>
+        </message>
+        <message>
+            <source>游戏设置</source>
+            <translation>Game settings</translation>
+        </message>
+        <message>
+            <source>资源包</source>
+            <translation>Resource pack</translation>
+        </message>
+        <message>
+            <source>光影包</source>
+            <translation>Light and shadow package</translation>
+        </message>
+        <message>
+            <source>截图</source>
+            <translation>Screenshot</translation>
+        </message>
+        <message>
+            <source>原理图</source>
+            <translation>Schematic diagram</translation>
+        </message>
+        <message>
+            <source>服务器列表</source>
+            <translation>Server list</translation>
+        </message>
+        <message>
+            <source>这一份里没有可迁移的内容。</source>
+            <translation>There is nothing transferable in this one.</translation>
+        </message>
+        <message>
+            <source>没有勾选 Mod 文件，却要搬 Mod 配置 —— 这些配置在新实例里可能对不上任何模组。</source>
+            <translation>The Mod file is not checked, but the Mod configuration needs to be moved - these configurations may not match any module in the new instance.</translation>
+        </message>
+        <message>
+            <source>搬了游戏设置却没搬资源包 —— 设置里的资源包启用列表可能指向新实例里不存在的包。</source>
+            <translation>The game settings are moved but the resource packages are not moved - the resource package enablement list in the settings may point to packages that do not exist in the new instance.</translation>
+        </message>
+        <message>
+            <source>光影包只在装了对应渲染器时才会生效；新实例不会替你装渲染器。</source>
+            <translation>The light and shadow package will only take effect when the corresponding renderer is installed; new instances will not install the renderer for you.</translation>
+        </message>
+    </context>
+    <context>
+        <name>VersionIntegrity</name>
+        <message>
+            <source>客户端</source>
+            <translation>Client</translation>
+        </message>
+        <message>
+            <source>库</source>
+            <translation>Library</translation>
+        </message>
+        <message>
+            <source>资源索引</source>
+            <translation>Resource index</translation>
+        </message>
+        <message>
+            <source>资源对象</source>
+            <translation>Resource object</translation>
+        </message>
+        <message>
+            <source>其它</source>
+            <translation>Other</translation>
+        </message>
+        <message>
+            <source>完好</source>
+            <translation>Intact</translation>
+        </message>
+        <message>
+            <source>缺少文件</source>
+            <translation>Missing file</translation>
+        </message>
+        <message>
+            <source>0 字节（下载写了一半留下的）</source>
+            <translation>0 bytes (half written after downloading)</translation>
+        </message>
+        <message>
+            <source>大小 %1 字节，应为 %2</source>
+            <translation>Size %1 bytes, should be %2</translation>
+        </message>
+        <message>
+            <source>校验不过（内容与 sha1 对不上）</source>
+            <translation>The verification fails (the content does not match sha1)</translation>
+        </message>
+        <message>
+            <source>读不动（打不开或读出错）</source>
+            <translation>Unable to read (cannot open or read error)</translation>
+        </message>
+        <message>
+            <source>未知</source>
+            <translation>Unknown</translation>
+        </message>
+        <message>
+            <source>%1 个文件都完好</source>
+            <translation>%1 files are intact</translation>
+        </message>
+        <message>
+            <source>%1 个文件里 %2 个要修：缺 %3 个、坏 %4 个</source>
+            <translation>%1 of %1 files need to be repaired: %3 missing, %4 bad</translation>
+        </message>
+        <message>
+            <source>资源对象 %1</source>
+            <translation>Resource Object %1</translation>
+        </message>
+        <message>
+            <source>客户端 jar</source>
+            <translation>Client jar</translation>
+        </message>
+        <message>
+            <source>资源索引 %1</source>
+            <translation>Resource Index %1</translation>
+        </message>
+        <message>
+            <source>实例「%1」完整性检查</source>
+            <translation>Instance "%1" integrity check</translation>
+        </message>
+        <message>
+            <source>%1（%2 个要修）</source>
+            <translation>%1 (%2 need to be repaired)</translation>
+        </message>
+        <message>
+            <source>  %1：%2</source>
+            <translation>%1:%2</translation>
+        </message>
+    </context>
+    <context>
         <name>VersionManager</name>
         <message>
             <source>目录 %1 是上一次没导完的整合包（没有顶层 jar），先不列在启动列表里；重新导入同一个整合包、用同一个名字就能接着下。</source>
@@ -24579,6 +26932,10 @@ The changes you made yourself will not be retained.</translation>
         <message>
             <source>目录 %1 里有 %2 个 jar（%3），认不出哪个是客户端，已忽略。</source>
             <translation>There are %2 jars (%3) in the directory %1. We cannot identify which one is the client and have ignored it.</translation>
+        </message>
+        <message>
+            <source>、</source>
+            <translation>,</translation>
         </message>
         <message>
             <source>未知异常</source>
@@ -25912,6 +28269,13 @@ Itemized list: %2
         <message>
             <source>换掉 level.dat 失败了：%1</source>
             <translation>Failed to replace level.dat: %1</translation>
+        </message>
+    </context>
+    <context>
+        <name>WorldMap</name>
+        <message>
+            <source>这个世界的目录不在了。</source>
+            <translation>The catalog of this world is gone.</translation>
         </message>
     </context>
     <context>

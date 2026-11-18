@@ -1,4 +1,5 @@
 #include "controllers/ArmorTrimPreviewController.hpp"
+#include <QCoreApplication>
 #include "ToolboxPage.hpp"
 #include "ArmorTrimScene.hpp"
 #include "InlineMessage.hpp"
@@ -192,7 +193,7 @@ void ArmorTrimPreviewController::load(const QStringList &archives,bool verifyCac
                     hash.addData(chunk);
                 }
                 if(!valid || QString::fromLatin1(hash.result().toHex())!=kSha1) {
-                    result->error=QStringLiteral("资源缓存校验失败，请重新下载。"); continue;
+                    result->error=QCoreApplication::translate("ArmorTrimPreviewController", "资源缓存校验失败，请重新下载。"); continue;
                 }
             }
             *result=ArmorTrimAssets::load(archive);
@@ -225,9 +226,7 @@ void ArmorTrimPreviewController::download() {
     // 「不出现独立窗口」：这一问和别处一样开在内容区中间（宽度只有一套，见 OverlayHost）。
     // EULA 那一行是**可点的链接**，点了由这里开浏览器 —— 光摆一串网址没人会去读。
     InlineMessageBox question(MessageKind::Question,tr("下载预览资源"),
-        tr("将从 Mojang 官方下载 Java 1.21.4 客户端压缩包（27.0 MiB），校验后仅在内存读取预览纹理。\n"
-           "缓存保存在游戏目录 cache/preview-resources；不安装实例、不执行 JAR、不下载依赖库。\n\n"
-           "请确认你有权使用这些游戏资源，并阅读 Minecraft EULA。用户下载不代表获得额外的分发授权。"),
+        tr("将从 Mojang 官方下载 Java 1.21.4 客户端压缩包（27.0 MiB），校验后仅在内存读取预览纹理。\n缓存保存在游戏目录 cache/preview-resources；不安装实例、不执行 JAR、不下载依赖库。\n\n请确认你有权使用这些游戏资源，并阅读 Minecraft EULA。用户下载不代表获得额外的分发授权。"),
         QStringList{tr("确认并下载"),tr("取消")},-1,-1);
     question.setLink(tr("打开 Minecraft EULA"),QStringLiteral("https://www.minecraft.net/eula"));
     connect(&question,&InlineMessageBox::linkActivated,this,[this](const QString &url) {

@@ -4,6 +4,7 @@
  */
 
 #include "ModrinthCompatibility.hpp"
+#include <QCoreApplication>
 #include "download/ResourceCatalog.hpp"
 #include "net/ControlGet.hpp"
 
@@ -61,7 +62,7 @@ QString projectPath(const QString &projectId) {
 QString throttleText(qint64 untilMs) {
     const qint64 leftMs = untilMs - QDateTime::currentMSecsSinceEpoch();
     const qint64 seconds = qMax<qint64>(1, (leftMs + 999) / 1000);
-    return QStringLiteral("平台正在限流（大约还要 %1 秒），暂时无法确认。").arg(seconds);
+    return QCoreApplication::translate("ModrinthCompatibility", "平台正在限流（大约还要 %1 秒），暂时无法确认。").arg(seconds);
 }
 
 CompatibilityState classifyVersions(const QList<ResourceCatalog::VersionEntry> &versions,
@@ -78,8 +79,8 @@ CompatibilityState classifyVersions(const QList<ResourceCatalog::VersionEntry> &
             !loaders.contains(normalizeCompatibilityLoader(context.loader))) continue;
         return CompatibilityState::Matched;
     }
-    *detail = unknown ? QStringLiteral("版本信息不完整，暂时无法确认；没有将其判断为缺失。")
-        : QStringLiteral("平台没有兼容当前游戏、加载器和发布筛选的发行版。");
+    *detail = unknown ? QCoreApplication::translate("ModrinthCompatibility", "版本信息不完整，暂时无法确认；没有将其判断为缺失。")
+        : QCoreApplication::translate("ModrinthCompatibility", "平台没有兼容当前游戏、加载器和发布筛选的发行版。");
     return unknown ? CompatibilityState::Unknown : CompatibilityState::Missing;
 }
 
@@ -138,7 +139,7 @@ CompatibilityProvider::Cancel PlatformCompatibilityProvider::queryCancelable(
     } else if (platform == QLatin1String("curseforge")) {
         queryCurseForge(reference, context, reply, 0, state);
     } else {
-        reply(CompatibilityState::Invalid, QStringLiteral("平台认不出来。"));
+        reply(CompatibilityState::Invalid, QCoreApplication::translate("ModrinthCompatibility", "平台认不出来。"));
     }
     return [state] {
         state->cancelled = true;
@@ -188,7 +189,7 @@ void PlatformCompatibilityProvider::queryModrinth(const ModReference &reference,
             // —— 重发要用的那个 QNAM 多半正在析构。
             if (networkReply == nullptr) {
                 reply(CompatibilityState::Unknown,
-                      jobError.isEmpty() ? QStringLiteral("查询中断，暂时无法确认。") : jobError);
+                      jobError.isEmpty() ? QCoreApplication::translate("ModrinthCompatibility", "查询中断，暂时无法确认。") : jobError);
                 return;
             }
             // （回复由 ControlGet 收尾统一 deleteLater，这里不碰它的生命周期。）
@@ -207,18 +208,18 @@ void PlatformCompatibilityProvider::queryModrinth(const ModReference &reference,
             };
             if (networkReply->property(RequestBudget::kDeadlineExpiredProperty).toBool()) {
                 // 超时不在这一层重试：检查器那一层有总时限，再挂一轮只会拖长。
-                reply(CompatibilityState::Unknown, QStringLiteral("查询超时，暂时无法确认。"));
+                reply(CompatibilityState::Unknown, QCoreApplication::translate("ModrinthCompatibility", "查询超时，暂时无法确认。"));
                 return;
             }
             const int status =
                 networkReply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             if (networkReply->error() != QNetworkReply::NoError && status == 0) {
                 // 连 HTTP 响应都没拿到：网络层的事，**不是**缺失。
-                retryOrUnknown(QStringLiteral("查询失败：%1").arg(networkReply->errorString()));
+                retryOrUnknown(QCoreApplication::translate("ModrinthCompatibility", "查询失败：%1").arg(networkReply->errorString()));
                 return;
             }
             if (status == 404) {
-                reply(CompatibilityState::Missing, QStringLiteral("Modrinth 上没有这个项目。"));
+                reply(CompatibilityState::Missing, QCoreApplication::translate("ModrinthCompatibility", "Modrinth 上没有这个项目。"));
                 return;
             }
             if (status == 429) {
@@ -227,30 +228,30 @@ void PlatformCompatibilityProvider::queryModrinth(const ModReference &reference,
                 m_modrinthThrottledUntilMs =
                     QDateTime::currentMSecsSinceEpoch() + kThrottleWindowMs;
                 reply(CompatibilityState::Unknown,
-                      QStringLiteral("Modrinth 限流了，暂时无法确认，稍后再试。"));
+                      QCoreApplication::translate("ModrinthCompatibility", "Modrinth 限流了，暂时无法确认，稍后再试。"));
                 return;
             }
             if (status == 408 || status >= 500) {
-                retryOrUnknown(QStringLiteral("接口返回 HTTP %1，暂时无法确认。").arg(status));
+                retryOrUnknown(QCoreApplication::translate("ModrinthCompatibility", "接口返回 HTTP %1，暂时无法确认。").arg(status));
                 return;
             }
             if (status < 200 || status >= 300) {
                 reply(CompatibilityState::Unknown,
-                      QStringLiteral("接口返回 HTTP %1，暂时无法确认。").arg(status));
+                      QCoreApplication::translate("ModrinthCompatibility", "接口返回 HTTP %1，暂时无法确认。").arg(status));
                 return;
             }
             QJsonParseError error{};
             const QJsonDocument document = QJsonDocument::fromJson(networkReply->readAll(), &error);
             if (error.error != QJsonParseError::NoError || !document.isArray()) {
                 reply(CompatibilityState::Unknown,
-                      QStringLiteral("接口返回的内容看不懂，暂时无法确认。"));
+                      QCoreApplication::translate("ModrinthCompatibility", "接口返回的内容看不懂，暂时无法确认。"));
                 return;
             }
             const QJsonArray versions = document.array();
             if (versions.isEmpty()) {
                 reply(CompatibilityState::Missing,
-                      QStringLiteral("Modrinth 上没有兼容 %1%2 的发行版。")
-                          .arg(context.gameVersion.isEmpty() ? QStringLiteral("这个版本")
+                      QCoreApplication::translate("ModrinthCompatibility", "Modrinth 上没有兼容 %1%2 的发行版。")
+                          .arg(context.gameVersion.isEmpty() ? QCoreApplication::translate("ModrinthCompatibility", "这个版本")
                                                              : context.gameVersion,
                                context.loader.isEmpty()
                                    ? QString()
@@ -273,7 +274,7 @@ void PlatformCompatibilityProvider::queryCurseForge(const ModReference &referenc
     if (state->cancelled) return;
     if (!m_curseForgeAvailable) {
         reply(CompatibilityState::Unknown,
-              QStringLiteral("没有配置 CurseForge 接口，暂时无法确认。"));
+              QCoreApplication::translate("ModrinthCompatibility", "没有配置 CurseForge 接口，暂时无法确认。"));
         return;
     }
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
@@ -307,7 +308,7 @@ void PlatformCompatibilityProvider::queryCurseForge(const ModReference &referenc
             if (state->cancelled) return;
             if (networkReply == nullptr) {
                 reply(CompatibilityState::Unknown,
-                      jobError.isEmpty() ? QStringLiteral("查询中断，暂时无法确认。") : jobError);
+                      jobError.isEmpty() ? QCoreApplication::translate("ModrinthCompatibility", "查询中断，暂时无法确认。") : jobError);
                 return;
             }
             const auto retryOrUnknown = [this, reply, context, reference, attempt, state](
@@ -323,52 +324,52 @@ void PlatformCompatibilityProvider::queryCurseForge(const ModReference &referenc
                 reply(CompatibilityState::Unknown, why);
             };
             if (networkReply->property(RequestBudget::kDeadlineExpiredProperty).toBool()) {
-                reply(CompatibilityState::Unknown, QStringLiteral("查询超时，暂时无法确认。"));
+                reply(CompatibilityState::Unknown, QCoreApplication::translate("ModrinthCompatibility", "查询超时，暂时无法确认。"));
                 return;
             }
             const int status =
                 networkReply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             if (networkReply->error() != QNetworkReply::NoError && status == 0) {
-                retryOrUnknown(QStringLiteral("查询失败：%1").arg(networkReply->errorString()));
+                retryOrUnknown(QCoreApplication::translate("ModrinthCompatibility", "查询失败：%1").arg(networkReply->errorString()));
                 return;
             }
             if (status == 404) {
-                reply(CompatibilityState::Missing, QStringLiteral("CurseForge 上没有这个项目。"));
+                reply(CompatibilityState::Missing, QCoreApplication::translate("ModrinthCompatibility", "CurseForge 上没有这个项目。"));
                 return;
             }
             if (status == 429) {
                 m_curseForgeThrottledUntilMs =
                     QDateTime::currentMSecsSinceEpoch() + kThrottleWindowMs;
                 reply(CompatibilityState::Unknown,
-                      QStringLiteral("CurseForge 限流了，暂时无法确认，稍后再试。"));
+                      QCoreApplication::translate("ModrinthCompatibility", "CurseForge 限流了，暂时无法确认，稍后再试。"));
                 return;
             }
             if (status == 408 || status >= 500) {
-                retryOrUnknown(QStringLiteral("接口返回 HTTP %1，暂时无法确认。").arg(status));
+                retryOrUnknown(QCoreApplication::translate("ModrinthCompatibility", "接口返回 HTTP %1，暂时无法确认。").arg(status));
                 return;
             }
             if (status < 200 || status >= 300) {
                 reply(CompatibilityState::Unknown,
-                      QStringLiteral("接口返回 HTTP %1，暂时无法确认。").arg(status));
+                      QCoreApplication::translate("ModrinthCompatibility", "接口返回 HTTP %1，暂时无法确认。").arg(status));
                 return;
             }
             QJsonParseError error{};
             const QJsonDocument document = QJsonDocument::fromJson(networkReply->readAll(), &error);
             if (error.error != QJsonParseError::NoError || !document.isObject()) {
                 reply(CompatibilityState::Unknown,
-                      QStringLiteral("接口返回的内容看不懂，暂时无法确认。"));
+                      QCoreApplication::translate("ModrinthCompatibility", "接口返回的内容看不懂，暂时无法确认。"));
                 return;
             }
             if (!document.object().value(QStringLiteral("data")).isArray()) {
                 reply(CompatibilityState::Unknown,
-                      QStringLiteral("接口没有返回文件清单，暂时无法确认。"));
+                      QCoreApplication::translate("ModrinthCompatibility", "接口没有返回文件清单，暂时无法确认。"));
                 return;
             }
             const QJsonArray files = document.object().value(QStringLiteral("data")).toArray();
             if (files.isEmpty()) {
                 reply(CompatibilityState::Missing,
-                      QStringLiteral("CurseForge 上没有兼容 %1%2 的发行版。")
-                          .arg(context.gameVersion.isEmpty() ? QStringLiteral("这个版本")
+                      QCoreApplication::translate("ModrinthCompatibility", "CurseForge 上没有兼容 %1%2 的发行版。")
+                          .arg(context.gameVersion.isEmpty() ? QCoreApplication::translate("ModrinthCompatibility", "这个版本")
                                                              : context.gameVersion,
                                context.loader.isEmpty()
                                    ? QString()

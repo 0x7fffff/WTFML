@@ -4,6 +4,7 @@
  */
 
 #include "server/ServerRestart.hpp"
+#include <QCoreApplication>
 
 #include <QtGlobal>
 
@@ -24,11 +25,11 @@ bool isAbnormal(Why why) {
 QString whyName(Why why) {
     switch (why) {
     case Why::UserStop:
-        return QStringLiteral("你自己停的");
+        return QCoreApplication::translate("ServerRestart", "你自己停的");
     case Why::CleanExit:
-        return QStringLiteral("正常退出");
+        return QCoreApplication::translate("ServerRestart", "正常退出");
     case Why::Crash:
-        return QStringLiteral("异常退出");
+        return QCoreApplication::translate("ServerRestart", "异常退出");
     }
     return QString();
 }
@@ -65,13 +66,13 @@ Decision decide(const Policy &policy, Why why, int attemptsUsed) {
         return decision;
     }
     if (attemptsUsed >= normalized.maxAttempts) {
-        decision.note = QStringLiteral("已经连着自动重启 %1 次都没起来，这一次不再自动重启。")
+        decision.note = QCoreApplication::translate("ServerRestart", "已经连着自动重启 %1 次都没起来，这一次不再自动重启。")
                             .arg(normalized.maxAttempts);
         return decision;
     }
     decision.restart = true;
     decision.delaySeconds = delaySeconds(attemptsUsed + 1);
-    decision.note = QStringLiteral("异常退出，%1 秒后自动重启（第 %2 次，最多连着 %3 次）。")
+    decision.note = QCoreApplication::translate("ServerRestart", "异常退出，%1 秒后自动重启（第 %2 次，最多连着 %3 次）。")
                         .arg(QString::number(decision.delaySeconds),
                              QString::number(attemptsUsed + 1),
                              QString::number(normalized.maxAttempts));

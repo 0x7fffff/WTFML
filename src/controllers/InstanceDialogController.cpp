@@ -1,4 +1,5 @@
 #include "controllers/PresetController.hpp"
+#include <QCoreApplication>
 #include <QElapsedTimer>
 #include "InstanceDialogController.hpp"
 #include "UpgradeAssessment.hpp"
@@ -977,10 +978,8 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                         upgrade ? Tasks::TaskKind::Install : Tasks::TaskKind::Other);
                     caps.canCancel = false;
                     caps.cancelBlockedReason = upgrade
-                        ? tr("升级副本要先整棵复制、再逐文件搬并校验；中途停下会留下半份副本，"
-                             "这一项不支持取消。")
-                        : tr("迁移是一边搬一边记账的；中途停下会留下半搬的文件，"
-                             "这一项不支持取消（可以重新执行，已经搬过去的会跳过）。");
+                        ? tr("升级副本要先整棵复制、再逐文件搬并校验；中途停下会留下半份副本，这一项不支持取消。")
+                        : tr("迁移是一边搬一边记账的；中途停下会留下半搬的文件，这一项不支持取消（可以重新执行，已经搬过去的会跳过）。");
                     ledger->setCapabilities(taskId, caps);
                 }
                 const auto finishTask = [this, taskId](bool success, const QString &summary) {
@@ -1260,9 +1259,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                                 tr("「%1」要不要放进主页的快速启动区？").arg(entryName),
                                 {tr("保留原入口"), tr("创建新入口"), tr("不加入")}, 0, -1,
                                 false,
-                                tr("快速启动区显示的就是收藏的那几份；「保留原入口」保持"
-                                   "现在的样子，「不加入」会把原来那一条也收起来（以后随时"
-                                   "能再加回来）。"));
+                                tr("快速启动区显示的就是收藏的那几份；「保留原入口」保持现在的样子，「不加入」会把原来那一条也收起来（以后随时能再加回来）。"));
                             if (launchChoice == 1) {
                                 m_owner->pinInstance(entryId);
                             } else if (launchChoice == 2) {
@@ -2043,8 +2040,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                         m_owner->installingVersionIds().contains(instanceId)) {
                         InlineMessage::warning(
                             m_owner->m_ui->overlay(), tr("删除世界"),
-                            tr("「%1」正在被另一项操作占用（安装、导入、复制、备份或还原），"
-                               "等它结束之后再删这个世界。")
+                            tr("「%1」正在被另一项操作占用（安装、导入、复制、备份或还原），等它结束之后再删这个世界。")
                                 .arg(m_owner->instanceDisplayName(instanceId)));
                         return;
                     }
@@ -2052,8 +2048,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                     // 用户几百 MB 的游玩记录删掉（和 `m_owner->deleteInstanceFile()` 一个方向）。
                     if (!InlineMessage::question(
                             m_owner->m_ui->overlay(), tr("删除世界"),
-                            tr("把「%1」连同里面的东西一起删掉？它们会进回收站，"
-                               "要恢复可以从那里找回来。")
+                            tr("把「%1」连同里面的东西一起删掉？它们会进回收站，要恢复可以从那里找回来。")
                                 .arg(worldName),
                             tr("删除"), tr("取消"), /*defaultYes=*/false,
                             /*destructive=*/true)) {

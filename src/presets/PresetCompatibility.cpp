@@ -4,6 +4,7 @@
  */
 
 #include "PresetCompatibility.hpp"
+#include <QCoreApplication>
 #include <utility>
 
 #include <QDateTime>
@@ -18,7 +19,7 @@ namespace Presets {
 QString normalizeCompatibilityLoader(const QString &raw) {
     const QString value = raw.trimmed().toLower();
     if (value.isEmpty() || value == QLatin1String("vanilla") || value == QLatin1String("none") ||
-        value == QLatin1String("original") || value == QStringLiteral("原版")) {
+        value == QLatin1String("original") || value == QCoreApplication::translate("PresetCompatibility", "原版")) {
         return QString();
     }
     // `neo forge` / `neo-forge` / `neoforge` 是同一个东西的三种写法。别的新写法不猜。
@@ -60,39 +61,39 @@ QString compatibilityStateKey(CompatibilityState state) {
 
 QString CompatibilitySummary::text() const {
     if (total == 0) {
-        return QStringLiteral("没有模组引用要检查。");
+        return QCoreApplication::translate("PresetCompatibility", "没有模组引用要检查。");
     }
     QStringList parts;
     if (pending > 0) {
-        parts.append(QStringLiteral("检查中 %1/%2").arg(finished()).arg(total));
+        parts.append(QCoreApplication::translate("PresetCompatibility", "检查中 %1/%2").arg(finished()).arg(total));
         // 查的过程中也把**已经确认**的那几档说出来：用户不必等全部跑完才知道缺东西。
         if (missing > 0) {
-            parts.append(QStringLiteral("已确认缺失 %1").arg(missing));
+            parts.append(QCoreApplication::translate("PresetCompatibility", "已确认缺失 %1").arg(missing));
         }
         if (unknown > 0) {
-            parts.append(QStringLiteral("暂无法确认 %1").arg(unknown));
+            parts.append(QCoreApplication::translate("PresetCompatibility", "暂无法确认 %1").arg(unknown));
         }
         if (invalid > 0) {
-            parts.append(QStringLiteral("引用无法识别 %1").arg(invalid));
+            parts.append(QCoreApplication::translate("PresetCompatibility", "引用无法识别 %1").arg(invalid));
         }
     } else if (missing == 0 && unknown == 0 && invalid == 0) {
-        parts.append(QStringLiteral("全部匹配（%1）").arg(matched));
+        parts.append(QCoreApplication::translate("PresetCompatibility", "全部匹配（%1）").arg(matched));
     } else {
         // 「缺失」与「暂无法确认」**分开说**（验收：API 失败不算缺失）。
         if (missing > 0) {
-            parts.append(QStringLiteral("缺失 %1").arg(missing));
+            parts.append(QCoreApplication::translate("PresetCompatibility", "缺失 %1").arg(missing));
         }
         if (unknown > 0) {
-            parts.append(QStringLiteral("暂无法确认 %1").arg(unknown));
+            parts.append(QCoreApplication::translate("PresetCompatibility", "暂无法确认 %1").arg(unknown));
         }
         if (invalid > 0) {
-            parts.append(QStringLiteral("引用无法识别 %1").arg(invalid));
+            parts.append(QCoreApplication::translate("PresetCompatibility", "引用无法识别 %1").arg(invalid));
         }
     }
     if (requiredMissing > 0) {
-        parts.append(QStringLiteral("必要项缺失 %1").arg(requiredMissing));
+        parts.append(QCoreApplication::translate("PresetCompatibility", "必要项缺失 %1").arg(requiredMissing));
     }
-    return parts.join(QStringLiteral("，")) + QStringLiteral("。");
+    return parts.join(QCoreApplication::translate("PresetCompatibility", "，")) + QCoreApplication::translate("PresetCompatibility", "。");
 }
 
 CompatibilityState localCompatibilityCheck(const ModReference &reference,
@@ -106,17 +107,17 @@ CompatibilityState localCompatibilityCheck(const ModReference &reference,
     };
     if (normalizeModPlatform(reference.platform).isEmpty()) {
         return report(CompatibilityState::Invalid,
-                      QStringLiteral("平台认不出来（只能是 Modrinth 或 CurseForge）。"));
+                      QCoreApplication::translate("PresetCompatibility", "平台认不出来（只能是 Modrinth 或 CurseForge）。"));
     }
     if (reference.projectId.isEmpty()) {
-        return report(CompatibilityState::Invalid, QStringLiteral("这一条没有项目 id。"));
+        return report(CompatibilityState::Invalid, QCoreApplication::translate("PresetCompatibility", "这一条没有项目 id。"));
     }
     if (!reference.gameVersion.isEmpty() &&
         reference.gameVersion.compare(context.gameVersion.trimmed(), Qt::CaseInsensitive) != 0) {
         return report(CompatibilityState::Missing,
-                      QStringLiteral("这一项钉的是 %1，这次装的是 %2。")
+                      QCoreApplication::translate("PresetCompatibility", "这一项钉的是 %1，这次装的是 %2。")
                           .arg(reference.gameVersion,
-                               context.gameVersion.isEmpty() ? QStringLiteral("（未指定）")
+                               context.gameVersion.isEmpty() ? QCoreApplication::translate("PresetCompatibility", "（未指定）")
                                                             : context.gameVersion));
     }
     if (!reference.loader.isEmpty()) {
@@ -124,9 +125,9 @@ CompatibilityState localCompatibilityCheck(const ModReference &reference,
         const QString have = normalizeCompatibilityLoader(context.loader);
         if (want != have) {
             return report(CompatibilityState::Missing,
-                          QStringLiteral("这一项钉的是 %1，这次装的是 %2。")
+                          QCoreApplication::translate("PresetCompatibility", "这一项钉的是 %1，这次装的是 %2。")
                               .arg(reference.loader,
-                                   context.loader.isEmpty() ? QStringLiteral("原版")
+                                   context.loader.isEmpty() ? QCoreApplication::translate("PresetCompatibility", "原版")
                                                             : context.loader));
         }
     }
@@ -236,7 +237,7 @@ void CompatibilityChecker::start(const QList<ModReference> &references,
         for (auto &item : m_items) {
             if (item.state != CompatibilityState::Pending && item.state != CompatibilityState::Checking) continue;
             item.state = CompatibilityState::Unknown;
-            item.detail = QStringLiteral("本轮检查已到截止时间，暂时无法确认；请重试未完成项。");
+            item.detail = QCoreApplication::translate("PresetCompatibility", "本轮检查已到截止时间，暂时无法确认；请重试未完成项。");
         }
         emitUpdate();
         finishIfDone();
@@ -257,7 +258,7 @@ void CompatibilityChecker::resolveLocalAndQueue(const QList<ModReference> &refer
             item.reference = reference;
             item.required = reference.required;
             item.state = CompatibilityState::Invalid;
-            item.detail = localDetail.isEmpty() ? QStringLiteral("引用不完整。") : localDetail;
+            item.detail = localDetail.isEmpty() ? QCoreApplication::translate("PresetCompatibility", "引用不完整。") : localDetail;
             m_items.append(item);
             continue;
         }
@@ -290,8 +291,8 @@ void CompatibilityChecker::resolveLocalAndQueue(const QList<ModReference> &refer
                 !stale) {
                 item.state = entry.state;
                 item.detail = entry.detail.isEmpty()
-                                  ? QStringLiteral("缓存结论。")
-                                  : entry.detail + QStringLiteral("（缓存结论）");
+                                  ? QCoreApplication::translate("PresetCompatibility", "缓存结论。")
+                                  : entry.detail + QCoreApplication::translate("PresetCompatibility", "（缓存结论）");
                 item.fromCache = true;
             }
         }
@@ -301,10 +302,10 @@ void CompatibilityChecker::resolveLocalAndQueue(const QList<ModReference> &refer
                 // 没有查询实现（测试替身没装 / 这一趟不联网）：如实报"暂时无法确认"，
                 // 不谎报缺失，也不把弹窗挂住。
                 item.state = CompatibilityState::Unknown;
-                item.detail = QStringLiteral("这次没有可用的平台查询，暂时无法确认。");
+                item.detail = QCoreApplication::translate("PresetCompatibility", "这次没有可用的平台查询，暂时无法确认。");
             } else if (context.gameVersion.trimmed().isEmpty()) {
                 item.state = CompatibilityState::Unknown;
-                item.detail = QStringLiteral("不知道这次要装哪个游戏版本，暂时无法确认。");
+                item.detail = QCoreApplication::translate("PresetCompatibility", "不知道这次要装哪个游戏版本，暂时无法确认。");
             } else {
                 item.queued = true;
                 m_queue.enqueue(static_cast<int>(m_items.size()));
@@ -350,7 +351,7 @@ void CompatibilityChecker::beginQuery(int index) {
         const auto cancel = m_cancellations.take(queryId);
         if (cancel) cancel();
         applyResult(index, CompatibilityState::Unknown,
-                    QStringLiteral("查询超时（%1 秒），暂时无法确认。")
+                    QCoreApplication::translate("PresetCompatibility", "查询超时（%1 秒），暂时无法确认。")
                         .arg(std::max(1, m_options.timeoutMs / 1000)),
                     false);
     });

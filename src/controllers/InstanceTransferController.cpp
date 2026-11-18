@@ -1,4 +1,5 @@
 #include "InstanceTransferController.hpp"
+#include <QCoreApplication>
 
 #include "InlineMessage.hpp"
 #include "launcher/LauncherManager.hpp"
@@ -376,8 +377,7 @@ void InstanceTransferController::importWorldInBackground(
     if (QFileInfo::exists(savesDir + QLatin1Char('/') + name.trimmed())) {
         const int choice = InlineMessage::ask(
             m_overlay, MessageKind::Question, tr("已经有一个同名的世界"),
-            tr("这个实例里已经有一个叫「%1」的世界了。\n\n"
-               "「跳过已有项」不会动那一份，也不会再拷一遍。")
+            tr("这个实例里已经有一个叫「%1」的世界了。\n\n「跳过已有项」不会动那一份，也不会再拷一遍。")
                 .arg(name.trimmed()),
             {tr("取消"), tr("跳过已有项")}, 0, -1, false);
         if (choice != 1) {
@@ -471,7 +471,7 @@ void InstanceTransferController::importWorldInBackground(
                                  : OperationReport::EntryState::Failed),
                 result.problem});
             for (const QString &failure : result.failures) {
-                const int split = failure.indexOf(QStringLiteral("："));
+                const int split = failure.indexOf(QCoreApplication::translate("InstanceTransferController", "："));
                 report.entries.append(OperationReport::Entry{
                     split > 0 ? failure.left(split) : failure, 0,
                     OperationReport::EntryState::Failed,
@@ -590,8 +590,7 @@ void InstanceTransferController::deleteWorldInBackground(
     if (m_host.isBeingModified && m_host.isBeingModified(instanceId)) {
         const QString who =
             m_host.displayName ? m_host.displayName(instanceId) : instanceId;
-        reject(tr("「%1」正在被另一项操作占用（安装、导入、复制、备份或还原），"
-                  "等它结束之后再删这个世界。")
+        reject(tr("「%1」正在被另一项操作占用（安装、导入、复制、备份或还原），等它结束之后再删这个世界。")
                    .arg(who));
         return;
     }
@@ -677,8 +676,7 @@ bool InstanceTransferController::renameWorld(const QString &instanceId,
     // 收尾却照样报成功 —— 一份看着成功、其实是残的备份比失败更糟。
     if (m_host.isBeingModified && m_host.isBeingModified(instanceId)) {
         InlineMessage::warning(m_overlay, tr("重命名世界"),
-                               tr("「%1」正在被另一项操作占用（安装、导入、复制、备份或还原），"
-                                  "等它结束之后再改这个世界。")
+                               tr("「%1」正在被另一项操作占用（安装、导入、复制、备份或还原），等它结束之后再改这个世界。")
                                    .arg(displayName(instanceId)));
         return false;
     }

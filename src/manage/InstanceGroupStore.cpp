@@ -5,6 +5,7 @@
  */
 
 #include "InstanceGroupStore.hpp"
+#include <QCoreApplication>
 
 #include <QDebug>
 #include <QDir>
@@ -83,15 +84,15 @@ QString InstanceGroupStore::defaultGroupId(DefaultKind kind) {
 QString InstanceGroupStore::defaultGroupName(DefaultKind kind) {
     switch (kind) {
     case DefaultKind::Pinned:
-        return QStringLiteral("收藏");
+        return QCoreApplication::translate("InstanceGroupStore", "收藏");
     case DefaultKind::Moddable:
-        return QStringLiteral("可安装mod");
+        return QCoreApplication::translate("InstanceGroupStore", "可安装mod");
     case DefaultKind::Vanilla:
-        return QStringLiteral("原版");
+        return QCoreApplication::translate("InstanceGroupStore", "原版");
     case DefaultKind::Snapshot:
-        return QStringLiteral("快照版");
+        return QCoreApplication::translate("InstanceGroupStore", "快照版");
     case DefaultKind::Old:
-        return QStringLiteral("远古版");
+        return QCoreApplication::translate("InstanceGroupStore", "远古版");
     }
     return QString();
 }
@@ -239,8 +240,8 @@ QList<InstanceGroupStore::Group> InstanceGroupStore::groups() const {
         group.name = name.isEmpty() ? id : name;
         // 默认收藏组的旧默认名是“置顶”。只迁移这个稳定 id 且仍使用旧默认名的条目；
         // 用户自己改过的组名原样保留。下一次写盘时会自然保存成新名字。
-        if (id == kDefaultIdPinned && group.name == QStringLiteral("置顶")) {
-            group.name = QStringLiteral("收藏");
+        if (id == kDefaultIdPinned && group.name == QCoreApplication::translate("InstanceGroupStore", "置顶")) {
+            group.name = QCoreApplication::translate("InstanceGroupStore", "收藏");
         }
         // **缺省是展开**（toBool 的缺省值）：没有这一格的老文件按展开读，保持界面上
         // 组一律展开的样子。

@@ -1,4 +1,5 @@
 #include "controllers/ResourceInstallController.hpp"
+#include <QCoreApplication>
 
 #include <QDir>
 #include <QFileDialog>
@@ -352,8 +353,7 @@ void ResourceInstallController::installNow(ResourceCatalog::Kind kind, const QSt
         && version.loaders.first().compare(instanceLoader, Qt::CaseInsensitive) != 0) {
         const auto answer = InlineMessage::question(owner.m_ui->overlay(),
             MainWindow::tr("加载器对不上"),
-            MainWindow::tr("这个实例是 %1 %2，而这一版是给 %3 用的。\n\n"
-                           "版本不兼容，安装后游戏可能无法启动。是否继续安装？")
+            MainWindow::tr("这个实例是 %1 %2，而这一版是给 %3 用的。\n\n版本不兼容，安装后游戏可能无法启动。是否继续安装？")
                 .arg(instanceLoader, instanceLoaderVersion, version.loaders.first()),
             MainWindow::tr("是"), MainWindow::tr("否"), false);
         if (!answer) {
