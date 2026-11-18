@@ -1982,7 +1982,7 @@ Please confirm that you have permission to use these game assets and read the Mi
         </message>
         <message>
             <source>%1 里 %2 的字节数不合法。</source>
-            <translation>The number of bytes in %1 in %1 is illegal.</translation>
+            <translation>Invalid byte count for %2 in %1.</translation>
         </message>
         <message>
             <source>%1 里同一个哈希出现了两次。</source>
@@ -16094,7 +16094,7 @@ Project %2 / File %3 / %4
         </message>
         <message>
             <source>读 %1 读到一半出错了（%2）</source>
-            <translation>Reading %1 An error occurred while reading %1 (%2)</translation>
+            <translation>Could not finish reading %1 (%2)</translation>
         </message>
         <message>
             <source>servers.dat 有 %1 MB，超过 %2 MB 的上限，没有读</source>
@@ -27243,7 +27243,7 @@ The changes you made yourself will not be retained.</translation>
         </message>
         <message>
             <source>%1 个文件里 %2 个要修：缺 %3 个、坏 %4 个</source>
-            <translation>%1 of %1 files need to be repaired: %3 missing, %4 bad</translation>
+            <translation>%2 of %1 files need repair: %3 missing, %4 damaged</translation>
         </message>
         <message>
             <source>资源对象 %1</source>
