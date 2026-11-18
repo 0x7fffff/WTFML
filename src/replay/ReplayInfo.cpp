@@ -8,6 +8,7 @@
 #include "tools/FileHash.hpp"
 #include "util/ZipUtil.hpp"
 
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -53,16 +54,16 @@ Info read(const QString &path) {
     Info info;
     const QFileInfo file(path);
     if (!file.exists() || !file.isFile()) {
-        info.problem = QStringLiteral("文件不存在");
+        info.problem = QCoreApplication::translate("ReplayInfo", "文件不存在");
         return info;
     }
     info.fileBytes = file.size();
     if (info.fileBytes <= 0) {
-        info.problem = QStringLiteral("文件是空的");
+        info.problem = QCoreApplication::translate("ReplayInfo", "文件是空的");
         return info;
     }
     if (info.fileBytes > kMaxArchiveBytes) {
-        info.problem = QStringLiteral("文件太大，不像是 Replay 录像");
+        info.problem = QCoreApplication::translate("ReplayInfo", "文件太大，不像是 Replay 录像");
         return info;
     }
 
@@ -70,32 +71,33 @@ Info read(const QString &path) {
     QString error;
     const ZipUtil::EntryStatus status =
         ZipUtil::readEntry(path, QStringLiteral("metaData.json"), &bytes, &error,
-                           QStringLiteral("读 Replay 元数据"));
+                           QCoreApplication::translate("ReplayInfo", "读 Replay 元数据"));
     switch (status) {
     case ZipUtil::EntryStatus::Ok:
         break;
     case ZipUtil::EntryStatus::NotFound:
-        info.problem = QStringLiteral("压缩包里没有 metaData.json，不是 Replay 录像");
+        info.problem = QCoreApplication::translate("ReplayInfo", "压缩包里没有 metaData.json，不是 Replay 录像");
         return info;
     case ZipUtil::EntryStatus::NotAnArchive:
-        info.problem = QStringLiteral("打不开这个压缩包，不是 Replay 录像");
+        info.problem = QCoreApplication::translate("ReplayInfo", "打不开这个压缩包，不是 Replay 录像");
         return info;
     case ZipUtil::EntryStatus::Failed:
-        info.problem = error.isEmpty() ? QStringLiteral("读压缩包失败") : error;
+        info.problem = error.isEmpty() ? QCoreApplication::translate("ReplayInfo", "读压缩包失败") : error;
         return info;
     }
 
     QJsonParseError parseError;
     const QJsonDocument document = QJsonDocument::fromJson(bytes, &parseError);
     if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
-        info.problem = QStringLiteral("metaData.json 无法解析（%1）").arg(parseError.errorString());
+        info.problem = QCoreApplication::translate("ReplayInfo", "metaData.json 无法解析（%1）")
+                           .arg(parseError.errorString());
         return info;
     }
     const QJsonObject object = document.object();
     // 有这一格才算 Replay：别的 zip 里也可能恰好有一份叫 metaData.json 的清单。
     if (!object.contains(QStringLiteral("mcversion"))
         && !object.contains(QStringLiteral("fileFormat"))) {
-        info.problem = QStringLiteral("metaData.json 里没有 Replay 的版本信息");
+        info.problem = QCoreApplication::translate("ReplayInfo", "metaData.json 里没有 Replay 的版本信息");
         return info;
     }
 
@@ -121,21 +123,22 @@ Info read(const QString &path) {
 
 QString durationText(qint64 ms) {
     if (ms < 0) return QString();
-    if (ms < 1000) return QStringLiteral("不足 1 秒");
+    if (ms < 1000) return QCoreApplication::translate("ReplayInfo", "不足 1 秒");
     const qint64 totalSeconds = ms / 1000;
     if (totalSeconds < 60) {
-        return QStringLiteral("%1 秒").arg(totalSeconds);
+        return QCoreApplication::translate("ReplayInfo", "%1 秒").arg(totalSeconds);
     }
     const qint64 minutes = totalSeconds / 60;
     const qint64 seconds = totalSeconds % 60;
     if (minutes < 60) {
-        return seconds == 0 ? QStringLiteral("%1 分").arg(minutes)
-                            : QStringLiteral("%1 分 %2 秒").arg(minutes).arg(seconds);
+        return seconds == 0 ? QCoreApplication::translate("ReplayInfo", "%1 分").arg(minutes)
+                            : QCoreApplication::translate("ReplayInfo", "%1 分 %2 秒").arg(minutes).arg(seconds);
     }
     const qint64 hours = minutes / 60;
     const qint64 restMinutes = minutes % 60;
-    return restMinutes == 0 ? QStringLiteral("%1 小时").arg(hours)
-                            : QStringLiteral("%1 小时 %2 分").arg(hours).arg(restMinutes);
+    return restMinutes == 0
+               ? QCoreApplication::translate("ReplayInfo", "%1 小时").arg(hours)
+               : QCoreApplication::translate("ReplayInfo", "%1 小时 %2 分").arg(hours).arg(restMinutes);
 }
 
 QString dateTimeText(qint64 ms) {
@@ -151,13 +154,13 @@ QString summaryText(const Info &info) {
     if (!duration.isEmpty()) parts << duration;
     if (!info.mcVersion.isEmpty()) parts << info.mcVersion;
     if (info.singleplayer) {
-        parts << QStringLiteral("单人");
+        parts << QCoreApplication::translate("ReplayInfo", "单人");
     } else {
         parts << (info.serverName.isEmpty()
-                      ? QStringLiteral("多人")
-                      : QStringLiteral("多人（%1）").arg(info.serverName));
+                      ? QCoreApplication::translate("ReplayInfo", "多人")
+                      : QCoreApplication::translate("ReplayInfo", "多人（%1）").arg(info.serverName));
     }
-    if (info.playerCount > 0) parts << QStringLiteral("%1 位玩家").arg(info.playerCount);
+    if (info.playerCount > 0) parts << QCoreApplication::translate("ReplayInfo", "%1 位玩家").arg(info.playerCount);
     if (!info.generator.isEmpty()) parts << info.generator;
     return parts.join(QStringLiteral(" / "));
 }
@@ -168,9 +171,9 @@ QString detailText(const Info &info) {
     const QString summary = summaryText(info);
     if (!summary.isEmpty()) lines << summary;
     const QString date = dateTimeText(info.dateMs);
-    if (!date.isEmpty()) lines << QStringLiteral("录制时间：%1").arg(date);
+    if (!date.isEmpty()) lines << QCoreApplication::translate("ReplayInfo", "录制时间：%1").arg(date);
     if (info.fileBytes > 0) {
-        lines << QStringLiteral("文件大小：%1").arg(FileHash::fileSizeText(info.fileBytes));
+        lines << QCoreApplication::translate("ReplayInfo", "文件大小：%1").arg(FileHash::fileSizeText(info.fileBytes));
     }
     return lines.join(QLatin1Char('\n'));
 }

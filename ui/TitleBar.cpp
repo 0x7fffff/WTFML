@@ -423,13 +423,13 @@ TitleBar::TitleBar(QWidget *parent) : QWidget(parent) {
     captionLayout->addStretch(1);
     m_minimize = new TitleBarButton(TitleBarButton::Glyph::Minimize, QColor(), QColor(), m_caption);
     m_minimize->setObjectName(QStringLiteral("titleBarMinimize"));
-    m_minimize->setToolTip(QStringLiteral("最小化"));
+    m_minimize->setToolTip(tr("最小化"));
     m_maximize = new TitleBarButton(TitleBarButton::Glyph::Maximize, QColor(), QColor(), m_caption);
     m_maximize->setObjectName(QStringLiteral("titleBarMaximize"));
-    m_maximize->setToolTip(QStringLiteral("最大化"));
+    m_maximize->setToolTip(tr("最大化"));
     m_close = new TitleBarButton(TitleBarButton::Glyph::Close, QColor(), QColor(), m_caption);
     m_close->setObjectName(QStringLiteral("titleBarClose"));
-    m_close->setToolTip(QStringLiteral("关闭"));
+    m_close->setToolTip(tr("关闭"));
     captionLayout->addWidget(m_minimize, 0, Qt::AlignTop);
     captionLayout->addWidget(m_maximize, 0, Qt::AlignTop);
     captionLayout->addWidget(m_close, 0, Qt::AlignTop);
@@ -445,7 +445,7 @@ TitleBar::TitleBar(QWidget *parent) : QWidget(parent) {
     });
     m_fold = new TitleBarButton(TitleBarButton::Glyph::Fold, QColor(), QColor(), this);
     m_fold->setObjectName(QStringLiteral("titleBarFold"));
-    m_fold->setToolTip(QStringLiteral("收起导航"));
+    m_fold->setToolTip(tr("收起导航"));
     connect(m_fold, &QAbstractButton::clicked, this, [this]() { setCollapsed(true); });
 
     m_layout = new QVBoxLayout(this);
@@ -578,7 +578,7 @@ void TitleBar::layoutForWidth(int w) {
     const bool expandable = isCollapsed() && !m_narrow;
     m_logo->setAttribute(Qt::WA_TransparentForMouseEvents, !expandable);
     m_logo->setCursor(expandable ? Qt::PointingHandCursor : Qt::ArrowCursor);
-    m_logo->setToolTip(expandable ? QStringLiteral("展开导航") : QString());
+    m_logo->setToolTip(expandable ? tr("展开导航") : QString());
     m_fold->move(w - pad - 10 - kFoldSize + 8, kRailTopPadding + (kBrandHeight - kFoldSize) / 2);
     m_fold->setVisible(!compact);
     update();
@@ -587,7 +587,7 @@ void TitleBar::layoutForWidth(int w) {
 void TitleBar::setMaximized(bool maximized) {
     if (auto *button = qobject_cast<TitleBarButton *>(m_maximize)) {
         button->setRestoreGlyph(maximized);
-        button->setToolTip(maximized ? QStringLiteral("还原") : QStringLiteral("最大化"));
+        button->setToolTip(maximized ? tr("还原") : tr("最大化"));
     }
 }
 

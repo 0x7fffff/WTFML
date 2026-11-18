@@ -371,7 +371,7 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     // 自己撑开 —— 这一行是"另起一段"，不和上面那四格的标签对齐。
     rulesRow->addWidget(rulesLabel);
     m_ruleFilter = new QLineEdit(m_fileBody);
-    InputSizing::longValue(m_ruleFilter, "搜索框：筛选规则名，关键词长度不定");
+    InputSizing::longValue(m_ruleFilter, "搜索框：筛选规则名，关键词长度不定");  // i18n-ignore
     m_ruleFilter->setObjectName(ruleFilterName());
     m_ruleFilter->setPlaceholderText(ruleFilterPlaceholder());
     m_ruleFilter->setClearButtonEnabled(true);
@@ -541,76 +541,72 @@ QString WorldSettingsPage::bodyName() {
 }
 
 QString WorldSettingsPage::backText() {
-    return QStringLiteral("返回");
+    return tr("返回");
 }
 QString WorldSettingsPage::saveText() {
-    return QStringLiteral("保存");
+    return tr("保存");
 }
 QString WorldSettingsPage::backupText() {
-    return QStringLiteral("创建备份");
+    return tr("创建备份");
 }
 QString WorldSettingsPage::openFolderText() {
-    return QStringLiteral("打开文件夹");
+    return tr("打开文件夹");
 }
 QString WorldSettingsPage::fullBackupText() {
-    return QStringLiteral("立即备份");
+    return tr("立即备份");
 }
 QString WorldSettingsPage::restoreBackupText() {
-    return QStringLiteral("恢复备份…");
+    return tr("恢复备份…");
 }
 QString WorldSettingsPage::openBackupFolderText() {
-    return QStringLiteral("打开备份目录");
+    return tr("打开备份目录");
 }
 QString WorldSettingsPage::renameText() {
-    return QStringLiteral("重命名…");
+    return tr("重命名…");
 }
 QString WorldSettingsPage::deleteText() {
-    return QStringLiteral("删除世界…");
+    return tr("删除世界…");
 }
 QString WorldSettingsPage::ruleFilterPlaceholder() {
-    return QStringLiteral("搜索规则");
+    return tr("搜索规则");
 }
 QString WorldSettingsPage::fileToggleText() {
-    return QStringLiteral("修改存档文件");
+    return tr("修改存档文件");
 }
 QString WorldSettingsPage::rulesSectionText() {
-    return QStringLiteral("世界设置（游戏规则）");
+    return tr("世界设置（游戏规则）");
 }
 QString WorldSettingsPage::noMatchText() {
-    return QStringLiteral("未找到匹配的规则");
+    return tr("未找到匹配的规则");
 }
 QString WorldSettingsPage::emptyRulesText() {
-    return QStringLiteral("无法读取游戏规则");
+    return tr("无法读取游戏规则");
 }
 QString WorldSettingsPage::rulesSourceHint(bool hasRules) {
     // 这一段是"这一列是怎么来的"的说明书 —— 不然用户会以为**屏幕上每一条**都是他这个世界里本来就有的。
     if (hasRules) {
-        return QStringLiteral("未写入存档的规则显示默认值，仅保存修改过的规则。");
+        return tr("未写入存档的规则显示默认值，仅保存修改过的规则。");
     }
-    return QStringLiteral("这个存档里还没有「游戏规则」那一格（工具做出来的、还没进过的档"
-                          "常常是这样）—— 下面每一条摆的都是游戏的默认值，改过哪一条才会"
-                          "把哪一条写进存档。");
+    return tr("这个存档里还没有「游戏规则」那一格（工具做出来的、还没进过的档常常是这样）—— 下面每一条摆的都是游戏的默认值，改过哪一条才会把哪一条写进存档。");
 }
 QString WorldSettingsPage::defaultedHintText() {
-    return QStringLiteral("这个存档里没有这一项：屏幕上显示的是游戏默认值，"
-                          "修改后才会写入。");
+    return tr("这个存档里没有这一项：屏幕上显示的是游戏默认值，修改后才会写入。");
 }
 QString WorldSettingsPage::notGzippedText() {
     // 同上：`**不是**` 那两个星号会原样画在屏幕上，改成「不是」。
-    return QStringLiteral("注意：盘上这份 level.dat「不是」gzip 包着的（正常存档都是）。"
-                          "我们按原样写回，不改它的形状。");
+    return tr("注意：盘上这份 level.dat「不是」gzip 包着的（正常存档都是）。我们按原样写回，不改它的形状。");
 }
 
 QString WorldSettingsPage::difficultyOptionText(int difficulty) {
     switch (difficulty) {
     case 0:
-        return QStringLiteral("和平");
+        return tr("和平");
     case 1:
-        return QStringLiteral("简单");
+        return tr("简单");
     case 2:
-        return QStringLiteral("普通");
+        return tr("普通");
     case 3:
-        return QStringLiteral("困难");
+        return tr("困难");
     default:
         return QString();
     }
@@ -954,7 +950,7 @@ void WorldSettingsPage::rebuildRuleRows(bool harvestFromRows) {
             auto *edit = new QLineEdit(row);
             edit->setObjectName(ruleEditorName());
             if (rule.kind == Kind::Int) InputSizing::shortValue(edit, 19);  // 最多 18 位整数加负号
-            else InputSizing::longValue(edit, "游戏规则的文本值：长度不定");
+            else InputSizing::longValue(edit, "游戏规则的文本值：长度不定");  // i18n-ignore
             edit->setToolTip(ruleTip);
             if (rule.kind == Kind::Int) {
                 // 只能填整数：**在这里挡住**比"存下去再由游戏报错"好 —— 游戏那边对一个
@@ -1067,8 +1063,7 @@ void WorldSettingsPage::refreshSaveEnabled() {
     }
     m_save->setEnabled(ok);
     m_save->setToolTip(ok ? QString()
-                          : tr("有一条规则的值是空的，或不是整数；请改好后再保存"
-                               "（游戏读到坏值会静悄悄按默认值来）。"));
+                          : tr("有一条规则的值是空的，或不是整数；请改好后再保存（游戏读到坏值会静悄悄按默认值来）。"));
 }
 
 WorldSettingsPage::WorldView WorldSettingsPage::editedView() const {
@@ -1151,8 +1146,7 @@ WorldSettingsPage::Delta WorldSettingsPage::deltaFromOpened() const {
 
 void WorldSettingsPage::refreshNote() {
     if (m_unreadable) {
-        m_note->setText(tr("%1\n这个世界现在只能看和备份：无法读取存档内容，"
-                           "所以不会写入任何内容。")
+        m_note->setText(tr("%1\n这个世界现在只能看和备份：无法读取存档内容，所以不会写入任何内容。")
                             .arg(m_unreadableReason));
         return;
     }

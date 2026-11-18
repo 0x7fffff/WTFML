@@ -26,7 +26,7 @@ QString describeActual(int actualMajor, const QString &actualVersionText) {
     if (text.isEmpty()) {
         return QStringLiteral("Java %1").arg(actualMajor);
     }
-    return QStringLiteral("Java %1（%2）").arg(actualMajor).arg(text);
+    return JavaMismatchDialog::tr("Java %1（%2）").arg(actualMajor).arg(text);
 }
 
 }  // namespace
@@ -34,10 +34,7 @@ QString describeActual(int actualMajor, const QString &actualVersionText) {
 QString JavaMismatchDialog::messageText(const QString &instanceName, int expectedMajor,
                                         int actualMajor, const QString &actualVersionText,
                                         const QString &javaPath) {
-    return QStringLiteral(
-               "实例「%1」在「实例设置…」里指定了 %2，而这个版本要求 Java %3。\n\n"
-               "Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本。\n\n"
-               "%4")
+    return tr("实例「%1」在「实例设置…」里指定了 %2，而这个版本要求 Java %3。\n\nJava 版本不匹配，启动可能失败。建议切换为推荐的兼容版本。\n\n%4")
         .arg(instanceName, describeActual(actualMajor, actualVersionText),
              QString::number(expectedMajor), javaPath);
 }

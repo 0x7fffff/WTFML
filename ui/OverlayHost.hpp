@@ -351,7 +351,7 @@ QWidget *promptCardWidget() const { return m_promptCard; }
 
     /// 返回箭头的字。**带箭头的**（左上角有返回箭头），后面缀一个「返回」
     /// 是为了不作猜谜 —— 光一个 ← 在桌面软件里并不通用。
-    static QString backButtonText() { return QStringLiteral("返回"); }
+    static QString backButtonText() { return tr("返回"); }
 
     /// 提示卡片的宽度。**唯一出处** —— 所有提示一样宽，只有高矮随字数走，
     /// 不允许出现尺寸不一样的弹窗。

@@ -31,7 +31,7 @@ QString UpgradeReportDialog::summaryName() { return QStringLiteral("upgradeRepor
 
 UpgradeReportDialog::UpgradeReportDialog(QWidget *parent) : ChromeDialog(parent, true) {
     setObjectName(QStringLiteral("upgradeReportDialog"));
-    setWindowTitle(QStringLiteral("兼容性报告"));
+    setWindowTitle(tr("兼容性报告"));
     resize(720, 520);
     auto *root = new QVBoxLayout(body());
     root->setContentsMargins(16, 14, 16, 14);
@@ -40,15 +40,15 @@ UpgradeReportDialog::UpgradeReportDialog(QWidget *parent) : ChromeDialog(parent,
     auto *tools = new QHBoxLayout;
     m_search = new QLineEdit(this);
     m_search->setObjectName(searchName());
-    m_search->setPlaceholderText(QStringLiteral("搜索模组名或依据"));
+    m_search->setPlaceholderText(tr("搜索模组名或依据"));
     m_search->setClearButtonEnabled(true);
     m_bucket = new QComboBox(this);
     m_bucket->setObjectName(bucketFilterName());
-    m_bucket->addItem(QStringLiteral("全部"), -1);
+    m_bucket->addItem(tr("全部"), -1);
     for (const UpgradeReport::Bucket bucket : UpgradeReport::buckets()) {
         m_bucket->addItem(UpgradeReport::bucketTitle(bucket), int(bucket));
     }
-    m_showCompatible = new QCheckBox(QStringLiteral("显示正常兼容项"), this);
+    m_showCompatible = new QCheckBox(tr("显示正常兼容项"), this);
     m_showCompatible->setObjectName(showCompatibleName());
     m_showCompatible->setChecked(false);
     tools->addWidget(m_search, 1);
@@ -58,7 +58,7 @@ UpgradeReportDialog::UpgradeReportDialog(QWidget *parent) : ChromeDialog(parent,
 
     m_tree = new QTreeWidget(this);
     m_tree->setObjectName(treeName());
-    m_tree->setHeaderLabels({QStringLiteral("项目"), QStringLiteral("依据")});
+    m_tree->setHeaderLabels({tr("项目"), tr("依据")});
     m_tree->setRootIsDecorated(true);
     m_tree->setFrameShape(QFrame::NoFrame);  // 不描框：列表那块淡底自己就是边界
     m_tree->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
@@ -70,7 +70,7 @@ UpgradeReportDialog::UpgradeReportDialog(QWidget *parent) : ChromeDialog(parent,
     m_summary->setWordWrap(true);
     root->addWidget(m_summary);
 
-    auto *close = new QPushButton(QStringLiteral("关闭"), this);
+    auto *close = new QPushButton(tr("关闭"), this);
     Theme::markButton(close, Theme::ButtonKind::Neutral);
     root->addWidget(close, 0, Qt::AlignRight);
     connect(close, &QPushButton::clicked, this, &QDialog::accept);
@@ -127,9 +127,9 @@ void UpgradeReportDialog::refresh() {
 
     const int unresolved = UpgradeReport::unresolvedRequired(m_rows);
     if (unresolved > 0) {
-        m_summary->setText(QStringLiteral("还有 %1 项必要内容需要处理。").arg(unresolved));
+        m_summary->setText(tr("还有 %1 项必要内容需要处理。").arg(unresolved));
     } else {
-        m_summary->setText(QStringLiteral("必要内容都已经明确处理。"));
+        m_summary->setText(tr("必要内容都已经明确处理。"));
     }
 }
 

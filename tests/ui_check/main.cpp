@@ -62,6 +62,13 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
+    if (app.arguments().contains(QStringLiteral("--language-check"))) {
+        QMainWindow window;
+        MainWindowUI ui(&window);
+        UiLanguageChecks(ui, ui.getTabWidget());
+        return g_fail == 0 ? 0 : 1;
+    }
+
     if (app.arguments().contains(QStringLiteral("--install-layout-check"))) { return UiInstallLayoutCheck(app); }
     if (app.arguments().contains(QStringLiteral("--armor-trim-check"))) return runArmorTrimChecks(app);
 

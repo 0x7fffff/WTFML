@@ -261,9 +261,7 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
             names.append(group.name);
         }
         const bool answer = InlineMessage::question(OverlayHost::forWidget(this), tr("恢复默认分组设置"),
-            tr("现在的分组会被换成这 %1 个默认分组：%2。\n\n"
-               "自己建的分组会消失，里面的实例不会被删，会按版本类型回到默认分组或未分组。\n\n"
-               "确定要恢复吗？")
+            tr("现在的分组会被换成这 %1 个默认分组：%2。\n\n自己建的分组会消失，里面的实例不会被删，会按版本类型回到默认分组或未分组。\n\n确定要恢复吗？")
                 .arg(names.size())
                 .arg(names.join(tr("、"))), tr("是"), tr("否"), false,
                 /*destructive=*/true);

@@ -138,7 +138,7 @@ public:
     explicit UpdateCenterPage(QWidget *parent = nullptr);
 
     /// 这一页的标题（`OverlayHost::showPage` 顶上那一条写的字）。
-    static QString windowTitle() { return QStringLiteral("更新中心"); }
+    static QString windowTitle() { return tr("更新中心"); }
 
     /// 摆一份（**每次开页都重新喂一遍**：同一页对象会被复用，见 MainWindow 那边）。
     /// 用户勾过的那些**留着**（这一页被重喂多半是因为他刚点了忽略/固定，勾选掉了的话

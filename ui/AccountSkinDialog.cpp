@@ -54,7 +54,10 @@ constexpr int kOfflineRole = Qt::UserRole + 3;
 constexpr int kSavedRole = Qt::UserRole + 4;
 
 /// 去掉「（当前）」「（离线）」两头的括号，拿来做徽标和副标题（同一份文案，不另起一句）。
-QString bare(const QString &mark) { return mark.mid(1, mark.size() - 2); }
+QString bare(const QString &mark) {
+    const QString trimmed = mark.trimmed();
+    return trimmed.mid(1, trimmed.size() - 2);
+}
 
 QFont pixelFont(QFont font, int px, QFont::Weight weight = QFont::Normal) {
     font.setPixelSize(px);
@@ -114,16 +117,16 @@ public:
 
         painter->setFont(nameFont);
         painter->setPen(t.text);
-        const int badgeRoom = current ? 52 : 0;
+        const QFont badgeFont = pixelFont(option.font, Theme::textSize(Theme::TextRole::Caption), QFont::DemiBold);
+        const QString badge = current ? bare(AccountSkinDialog::currentMark()) : QString();
+        const int badgeWidth = current ? QFontMetrics(badgeFont).horizontalAdvance(badge) + 16 : 0;
+        const int badgeRoom = current ? qMax(52, badgeWidth + 8) : 0;
         const QString shownName = nm.elidedText(name, Qt::ElideRight, qMax(0, textRight - textLeft - badgeRoom));
         painter->drawText(QRect(textLeft, blockTop, textRight - textLeft, nm.height()),
                           Qt::AlignLeft | Qt::AlignVCenter, shownName);
         if (current) {
-            const QFont badgeFont = pixelFont(option.font, Theme::textSize(Theme::TextRole::Caption), QFont::DemiBold);
-            const QString badge = bare(AccountSkinDialog::currentMark());
-            const int bw = QFontMetrics(badgeFont).horizontalAdvance(badge) + 16;
             const QRectF pill(textLeft + nm.horizontalAdvance(shownName) + 8,
-                              blockTop + (nm.height() - 18) / 2.0, bw, 18);
+                              blockTop + (nm.height() - 18) / 2.0, badgeWidth, 18);
             painter->setPen(Qt::NoPen);
             painter->setBrush(t.accentSoft2);
             painter->drawRoundedRect(pill, 9, 9);
@@ -133,11 +136,11 @@ public:
         }
 
         QString sub = offline ? bare(AccountSkinDialog::offlineMark())
-                              : MainWindowUI::accountTypeOnlineText();
+                              : AccountSkinDialog::tr("正版");
         const QDateTime savedAt = QDateTime::fromString(index.data(kSavedRole).toString(), Qt::ISODate);
         if (!offline && savedAt.isValid()) {
-            sub += QStringLiteral(" · ") +
-                   QStringLiteral("登录取自 %1").arg(savedAt.toLocalTime().toString(QStringLiteral("M 月 d 日")));
+            const QString date = savedAt.toLocalTime().toString(AccountSkinDialog::tr("M 月 d 日"));
+            sub += QStringLiteral(" · ") + AccountSkinDialog::tr("登录取自 %1").arg(date);
         }
         painter->setFont(subFont);
         painter->setPen(t.secondary);
@@ -301,9 +304,9 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
         auto *kindLayout = new QHBoxLayout(kindSegment);
         kindLayout->setContentsMargins(3, 3, 3, 3);
         kindLayout->setSpacing(2);
-        m_onlineKindButton = new QPushButton(QStringLiteral("正版"), kindSegment);
+        m_onlineKindButton = new QPushButton(tr("正版"), kindSegment);
         m_onlineKindButton->setObjectName(onlineKindButtonName());
-        m_offlineKindButton = new QPushButton(QStringLiteral("离线"), kindSegment);
+        m_offlineKindButton = new QPushButton(tr("离线"), kindSegment);
         m_offlineKindButton->setObjectName(offlineKindButtonName());
         kindLayout->addWidget(m_onlineKindButton);
         kindLayout->addWidget(m_offlineKindButton);
@@ -392,7 +395,7 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_offlineNameEdit->setPlaceholderText(offlineNamePlaceholder());
     // 名字最多 16 个字符（AccountStore::validateOfflineName），框只留这么长，「添加」紧跟在后面。
     InputSizing::shortValue(m_offlineNameEdit, 16, InputSizing::Script::Han);
-    m_addOfflineButton = new QPushButton(QStringLiteral("添加"), m_offlineRow);
+    m_addOfflineButton = new QPushButton(tr("添加"), m_offlineRow);
     m_addOfflineButton->setObjectName(addOfflineButtonName());
     m_addOfflineButton->setToolTip(addOfflineButtonText());
     m_addOfflineButton->setAccessibleName(addOfflineButtonText());

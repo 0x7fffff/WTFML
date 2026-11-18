@@ -5,6 +5,7 @@
 
 #include "tools/Beacon.hpp"
 
+#include <QCoreApplication>
 #include <QList>
 
 namespace Beacon {
@@ -13,10 +14,10 @@ namespace {
 
 /// 效果的解锁表：第 i 项是"到第 i+1 级才出现的那一批"。
 const char *const kUnlockedByLevel[][2] = {
-    {"速度", "急迫"},
-    {"抗性提升", "跳跃提升"},
-    {"力量", nullptr},
-    {"再生", nullptr},
+    {QT_TRANSLATE_NOOP("Beacon", "速度"), QT_TRANSLATE_NOOP("Beacon", "急迫")},
+    {QT_TRANSLATE_NOOP("Beacon", "抗性提升"), QT_TRANSLATE_NOOP("Beacon", "跳跃提升")},
+    {QT_TRANSLATE_NOOP("Beacon", "力量"), nullptr},
+    {QT_TRANSLATE_NOOP("Beacon", "再生"), nullptr},
 };
 
 }  // namespace
@@ -57,7 +58,7 @@ QStringList effectNames() {
     QStringList names;
     for (const auto &tier : kUnlockedByLevel) {
         for (const char *name : tier) {
-            if (name != nullptr) names.append(QString::fromUtf8(name));
+            if (name != nullptr) names.append(QCoreApplication::translate("Beacon", name));
         }
     }
     return names;
@@ -77,11 +78,11 @@ struct MaterialInfo {
 
 // 次序必须与 `Material` 的整数值一一对应。
 const MaterialInfo kMaterials[] = {
-    {"铁块", "铁锭"},
-    {"金块", "金锭"},
-    {"钻石块", "钻石"},
-    {"绿宝石块", "绿宝石"},
-    {"下界合金块", "下界合金锭"},
+    {QT_TRANSLATE_NOOP("Beacon", "铁块"), QT_TRANSLATE_NOOP("Beacon", "铁锭")},
+    {QT_TRANSLATE_NOOP("Beacon", "金块"), QT_TRANSLATE_NOOP("Beacon", "金锭")},
+    {QT_TRANSLATE_NOOP("Beacon", "钻石块"), QT_TRANSLATE_NOOP("Beacon", "钻石")},
+    {QT_TRANSLATE_NOOP("Beacon", "绿宝石块"), QT_TRANSLATE_NOOP("Beacon", "绿宝石")},
+    {QT_TRANSLATE_NOOP("Beacon", "下界合金块"), QT_TRANSLATE_NOOP("Beacon", "下界合金锭")},
 };
 
 constexpr int kMaterialCount = int(sizeof(kMaterials) / sizeof(kMaterials[0]));
@@ -90,18 +91,18 @@ constexpr int kMaterialCount = int(sizeof(kMaterials) / sizeof(kMaterials[0]));
 
 QStringList materialNames() {
     QStringList names;
-    for (const MaterialInfo &info : kMaterials) names.append(QString::fromUtf8(info.block));
+    for (const MaterialInfo &info : kMaterials) names.append(QCoreApplication::translate("Beacon", info.block));
     return names;
 }
 
 bool isValidMaterial(int index) { return index >= 0 && index < kMaterialCount; }
 
 QString blockName(int index) {
-    return isValidMaterial(index) ? QString::fromUtf8(kMaterials[index].block) : QString();
+    return isValidMaterial(index) ? QCoreApplication::translate("Beacon", kMaterials[index].block) : QString();
 }
 
 QString unitName(int index) {
-    return isValidMaterial(index) ? QString::fromUtf8(kMaterials[index].unit) : QString();
+    return isValidMaterial(index) ? QCoreApplication::translate("Beacon", kMaterials[index].unit) : QString();
 }
 
 QString materialName(int index) { return blockName(index); }
@@ -115,10 +116,10 @@ int unitsForBlocks(int index, int blocks) {
 
 QString materialText(int index, int blocks) {
     if (!isValidMaterial(index)) {
-        return QStringLiteral("认不出这种底座方块（%1）。").arg(index);
+        return QCoreApplication::translate("Beacon", "认不出这种底座方块（%1）。").arg(index);
     }
     if (blocks <= 0) return QString();
-    return QStringLiteral("%1 块%2 = %3 个%4（每块 %5 个）")
+    return QCoreApplication::translate("Beacon", "%1 块%2 = %3 个%4（每块 %5 个）")
         .arg(blocks)
         .arg(blockName(index))
         .arg(unitsForBlocks(index, blocks))
@@ -228,15 +229,15 @@ int sharedBaseBlocks(int level, int beaconCount) {
 
 QString sharedBaseText(int level, int beaconCount) {
     if (!isValidLevel(level)) {
-        return QStringLiteral("信标等级只有 1 – 4 级（%1 不是一个真的等级）。").arg(level);
+        return QCoreApplication::translate("Beacon", "信标等级只有 1 – 4 级（%1 不是一个真的等级）。").arg(level);
     }
     if (beaconCount < 1 || beaconCount > maxBeaconCount()) {
-        return QStringLiteral("信标颗数只能算 1 – %1 颗（%2 颗超出范围）。")
+        return QCoreApplication::translate("Beacon", "信标颗数只能算 1 – %1 颗（%2 颗超出范围）。")
             .arg(maxBeaconCount())
             .arg(beaconCount);
     }
     const QString each =
-        QStringLiteral("每颗信标另需 %1 块黑曜石 + %2 颗下界之星 + %3 块玻璃"
+        QCoreApplication::translate("Beacon", "每颗信标另需 %1 块黑曜石 + %2 颗下界之星 + %3 块玻璃"
                        "（合成表：底下 3 块黑曜石、中间一颗下界之星、四周 5 块玻璃）。")
             .arg(kObsidianPerBeacon)
             .arg(kStarPerBeacon)
@@ -246,7 +247,7 @@ QString sharedBaseText(int level, int beaconCount) {
     }
     const Layout layout = compactLayout(level, beaconCount);
     const int separate = beaconCount * totalBlocks(level);
-    QString text = QStringLiteral("%1 颗信标挨着摆（%2 × %3 的一团）能共用底座："
+    QString text = QCoreApplication::translate("Beacon", "%1 颗信标挨着摆（%2 × %3 的一团）能共用底座："
                                   "%4 级只要 %5 块，各盖一座则要 %6 块 —— 共用的是重叠的那些方块，"
                                   "不是「一颗信标一座金字塔」。")
                        .arg(beaconCount)
@@ -256,7 +257,7 @@ QString sharedBaseText(int level, int beaconCount) {
                        .arg(layout.blocks)
                        .arg(separate);
     text += each;
-    text += QStringLiteral("%1 颗一共 %2 块黑曜石、%1 颗下界之星、%3 块玻璃。")
+    text += QCoreApplication::translate("Beacon", "%1 颗一共 %2 块黑曜石、%1 颗下界之星、%3 块玻璃。")
                 .arg(beaconCount)
                 .arg(beaconCount * kObsidianPerBeacon)
                 .arg(beaconCount * kGlassPerBeacon);
@@ -268,7 +269,7 @@ QStringList effectsForLevel(int level) {
     if (!isValidLevel(level)) return names;
     for (int tier = 0; tier < level; ++tier) {
         for (const char *name : kUnlockedByLevel[tier]) {
-            if (name != nullptr) names.append(QString::fromUtf8(name));
+            if (name != nullptr) names.append(QCoreApplication::translate("Beacon", name));
         }
     }
     return names;
@@ -276,9 +277,9 @@ QStringList effectsForLevel(int level) {
 
 QString summaryText(int level) {
     if (!isValidLevel(level)) {
-        return QStringLiteral("信标等级只有 1 – 4 级（%1 不是一个真的等级）。").arg(level);
+        return QCoreApplication::translate("Beacon", "信标等级只有 1 – 4 级（%1 不是一个真的等级）。").arg(level);
     }
-    return QStringLiteral("%1 级信标：范围 %2 格，底座共 %3 块。")
+    return QCoreApplication::translate("Beacon", "%1 级信标：范围 %2 格，底座共 %3 块。")
         .arg(level)
         .arg(effectRange(level))
         .arg(totalBlocks(level));
@@ -286,37 +287,37 @@ QString summaryText(int level) {
 
 QString detailText(int fromLevel, int level) {
     if (!isValidLevel(level)) {
-        return QStringLiteral("信标等级只有 1 – 4 级（%1 不是一个真的等级）。").arg(level);
+        return QCoreApplication::translate("Beacon", "信标等级只有 1 – 4 级（%1 不是一个真的等级）。").arg(level);
     }
     if (fromLevel < 0 || fromLevel > maxLevel()) {
-        return QStringLiteral("「现在已有几级」只能是 0 – 4（%1 越界了）。").arg(fromLevel);
+        return QCoreApplication::translate("Beacon", "「现在已有几级」只能是 0 – 4（%1 越界了）。").arg(fromLevel);
     }
 
     QStringList lines;
     lines << summaryText(level);
     // 说的是**从下面数第 level 层**（搭到这一级时新铺的那一层，也是最大的那一层）——
     // 不是"最上面那一层"：最上面永远是 3 × 3。
-    lines << QStringLiteral("• 第 %1 层：%2 × %2 = %3 块（最上面那层固定 3 × 3）")
+    lines << QCoreApplication::translate("Beacon", "• 第 %1 层：%2 × %2 = %3 块（最上面那层固定 3 × 3）")
                  .arg(level)
                  .arg(2 * level + 1)
                  .arg(layerBlocks(level));
     if (fromLevel > 0 && fromLevel < level) {
-        lines << QStringLiteral("• 你现在是 %1 级：再补 %2 块")
+        lines << QCoreApplication::translate("Beacon", "• 你现在是 %1 级：再补 %2 块")
                      .arg(fromLevel)
                      .arg(blocksToAdd(fromLevel, level));
     } else if (fromLevel == level) {
-        lines << QStringLiteral("• 你现在是 %1 级：不需要再加方块").arg(level);
+        lines << QCoreApplication::translate("Beacon", "• 你现在是 %1 级：不需要再加方块").arg(level);
     } else if (fromLevel > level) {
-        lines << QStringLiteral("• 你现在是 %1 级，高于目标；降级要自己拆").arg(fromLevel);
+        lines << QCoreApplication::translate("Beacon", "• 你现在是 %1 级，高于目标；降级要自己拆").arg(fromLevel);
     }
-    lines << QStringLiteral("• 效果：%1").arg(effectsForLevel(level).join(QStringLiteral("、")));
+    lines << QCoreApplication::translate("Beacon", "• 效果：%1").arg(effectsForLevel(level).join(QCoreApplication::translate("Beacon", "、")));
     if (level < maxLevel()) {
-        lines << QStringLiteral("• 升到 %1 级：再加 %2 块，范围 %3 格")
+        lines << QCoreApplication::translate("Beacon", "• 升到 %1 级：再加 %2 块，范围 %3 格")
                      .arg(level + 1)
                      .arg(layerBlocks(level + 1))
                      .arg(effectRange(level + 1));
     }
-    lines << QStringLiteral("• 信标放在金字塔正中间，上方留出天空（可用玻璃）");
+    lines << QCoreApplication::translate("Beacon", "• 信标放在金字塔正中间，上方留出天空（可用玻璃）");
     return lines.join(QLatin1Char('\n'));
 }
 

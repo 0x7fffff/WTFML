@@ -68,11 +68,6 @@ constexpr int kPanelRowActionSpacing = 4;
 /// 和「选择」就会错开几个像素，看着像没对齐的表格。
 constexpr int kPanelActionTextWidth = 56;
 
-/// 「一行都没有」时面板里写的那个字。正常情况下左面板会自己给一行"现在没有实例在跑"
-/// （那是 MainWindow 的事，它知道该怎么说话）；这一句兜的是**没装回调**那种情况
-/// （setBottomBarPanelContent() 没被调过），空白一块比一句话更难查。
-constexpr const char kPanelEmptyText[] = "（没有可显示的内容）";
-
 /**
  * @brief 面板里行尾那几颗动作按钮的外观。
  *
@@ -297,7 +292,7 @@ public:
         if (rows.isEmpty()) {
             // 兜底：没装回调（或回调给了空列表）时面板里不留一块空白。
             MainWindowUI::PanelRow empty;
-            empty.title = QString::fromUtf8(kPanelEmptyText);
+            empty.title = QCoreApplication::translate("MainWindowPanels", "（没有可显示的内容）");
             empty.placeholder = true;
             box->addWidget(new BottomBarPanelRowWidget(empty, 0, dispatch, alignRight, this));
             return;
@@ -509,7 +504,7 @@ void applyBottomBarButtonStyle(QPushButton *button, const QPalette &barPalette) 
     // 行高按「带中文的一行」量：主字体缺中文时回落字体那一行会比 fm.height() 高。
     const auto lineHeight = [](const QFont &font) {
         const QFontMetrics fm(font);
-        return qMax(fm.height(), fm.boundingRect(QRect(), Qt::AlignLeft, QStringLiteral("实例 Ag")).height());
+        return qMax(fm.height(), fm.boundingRect(QRect(), Qt::AlignLeft, QStringLiteral("实例 Ag")).height()); // i18n-ignore
     };
     const int minHeight =
         button->objectName() == MainWindowUI::runStateButtonName()
@@ -638,11 +633,8 @@ public:
         Theme::markIconButton(gear);
         gear->setCursor(Qt::PointingHandCursor);
         gear->setToolTip(row.assistant
-                             ? QCoreApplication::translate(
-                                   "MainWindowUI", "这一份的更多操作（自带的那一份移不掉、"
-                                                   "也删不掉）")
-                             : QCoreApplication::translate("MainWindowUI",
-                                                           "这一份的更多操作"));
+                             ? QCoreApplication::translate("MainWindowUI", "这一份的更多操作（自带的那一份移不掉、也删不掉）")
+                             : QCoreApplication::translate("MainWindowUI", "这一份的更多操作"));
         applyPanelActionStyle(gear, palette(), false);
         // 点的是**哪一行**靠这里捕下来的值认（不认"第几行"）。菜单弹出来到用户点某一项
         // 之间隔着看两眼的时间，这中间列表是会变的（见 FolderRow::path 那段 NOTE）。
@@ -765,8 +757,7 @@ public:
             button->setStyleSheet(folderActionStyle(a, menuPalette));
             button->setEnabled(!protectedFolder);
             button->setToolTip(protectedFolder
-                                   ? QCoreApplication::translate(
-                                         "MainWindowUI", "默认游戏目录，此项操作不可用")
+                                   ? QCoreApplication::translate("MainWindowUI", "默认游戏目录，此项操作不可用")
                                    : MainWindowUI::folderActionTooltip(a));
             button->setCursor(Qt::PointingHandCursor);
             QObject::connect(button, &QPushButton::clicked, button,
@@ -980,10 +971,8 @@ public:
             // 而"什么都没做"和"点了没反应"在用户眼里是一回事。
             button->setEnabled(!row.containsSelected);
             button->setToolTip(row.containsSelected
-                                   ? QCoreApplication::translate("MainWindowUI",
-                                                                 "选中的实例已经在这一组里了")
-                                   : QCoreApplication::translate("MainWindowUI",
-                                                                 "把这个实例放到这一组里"));
+                                   ? QCoreApplication::translate("MainWindowUI", "选中的实例已经在这一组里了")
+                                   : QCoreApplication::translate("MainWindowUI", "把这个实例放到这一组里"));
             button->setCursor(Qt::PointingHandCursor);
             const QString groupId = row.groupId;
             QObject::connect(button, &QPushButton::clicked, button,
@@ -1517,23 +1506,17 @@ QString MainWindowUI::folderActionText(int action) {
 QString MainWindowUI::folderActionTooltip(int action) {
     switch (action) {
     case FolderActionRefresh:
-        return QCoreApplication::translate("MainWindowUI",
-                                           "重新扫一遍这个文件夹（里面多了或少了一个版本，"
-                                           "按一下就能看到）");
+        return QCoreApplication::translate("MainWindowUI", "重新扫一遍这个文件夹（里面多了或少了一个版本，按一下就能看到）");
     case FolderActionRename:
         // 这句是用户最容易误会的一步：「重命名」听起来像要把磁盘上的目录改个名，
         // 而它改的只是一个**显示用的名字**。所以正文里把"目录名不动"写死。
-        return QCoreApplication::translate("MainWindowUI",
-                                           "只改列表上显示的名字，磁盘上的目录名不动");
+        return QCoreApplication::translate("MainWindowUI", "只改列表上显示的名字，磁盘上的目录名不动");
     case FolderActionOpen:
-        return QCoreApplication::translate("MainWindowUI",
-                                           "用文件资源管理器打开这个文件夹");
+        return QCoreApplication::translate("MainWindowUI", "用文件资源管理器打开这个文件夹");
     case FolderActionRemove:
-        return QCoreApplication::translate("MainWindowUI",
-                                           "仅从列表中移除，保留本地文件。");
+        return QCoreApplication::translate("MainWindowUI", "仅从列表中移除，保留本地文件。");
     case FolderActionDelete:
-        return QCoreApplication::translate("MainWindowUI",
-                                           "从磁盘永久删除文件夹及所有内容。");
+        return QCoreApplication::translate("MainWindowUI", "从磁盘永久删除文件夹及所有内容。");
     }
     return QString();
 }
@@ -1625,34 +1608,24 @@ QString MainWindowUI::groupActionTooltip(int action, const GroupRow &row) {
     switch (action) {
     case GroupActionMoveInto:
         if (!row.hasSelection) {
-            return QCoreApplication::translate("MainWindowUI",
-                                               "请先在列表中选中实例，再选择分组。");
+            return QCoreApplication::translate("MainWindowUI", "请先在列表中选中实例，再选择分组。");
         }
-        return QCoreApplication::translate(
-            "MainWindowUI", "把选中的实例放进一个组（会离开原来的组）");
+        return QCoreApplication::translate("MainWindowUI", "把选中的实例放进一个组（会离开原来的组）");
     case GroupActionClearMembers:
         if (row.memberCount <= 0) {
             return QCoreApplication::translate("MainWindowUI", "分组内暂无实例");
         }
-        return QCoreApplication::translate("MainWindowUI",
-                                           "这一组里的 %1 个实例会回到未分组"
-                                           "（组留着，实例一个都不删）")
+        return QCoreApplication::translate("MainWindowUI", "这一组里的 %1 个实例会回到未分组（组留着，实例一个都不删）")
             .arg(row.memberCount);
     case GroupActionRename:
-        return QCoreApplication::translate("MainWindowUI",
-                                           "给这一组换个名字（只改名字，组里的实例不动）");
+        return QCoreApplication::translate("MainWindowUI", "给这一组换个名字（只改名字，组里的实例不动）");
     case GroupActionToggleExpand:
         // 这一步同时是"默认"和"当前"：树每次重灌都按它画（所以点完那一下，收着的组
         // 不会在下次刷新时自己弹开）。
-        return row.expanded ? QCoreApplication::translate("MainWindowUI",
-                                                          "这一组现在画成展开的。"
-                                                          "点一下改成默认收起")
-                            : QCoreApplication::translate("MainWindowUI",
-                                                          "这一组现在画成收着的。"
-                                                          "点一下改成默认展开");
+        return row.expanded ? QCoreApplication::translate("MainWindowUI", "这一组现在画成展开的。点一下改成默认收起")
+                            : QCoreApplication::translate("MainWindowUI", "这一组现在画成收着的。点一下改成默认展开");
     case GroupActionDelete:
-        return QCoreApplication::translate("MainWindowUI",
-                                           "删除分组后，其中 %1 个实例将移至未分组，实例本身不会被删除。")
+        return QCoreApplication::translate("MainWindowUI", "删除分组后，其中 %1 个实例将移至未分组，实例本身不会被删除。")
             .arg(row.memberCount);
     }
     return QString();
@@ -1975,14 +1948,14 @@ void MainWindowUI::openTaskCenterPanel() {
         auto *headerLayout = new QHBoxLayout(header);
         headerLayout->setContentsMargins(0, 0, 0, 0);
         headerLayout->setSpacing(8);
-        auto *title = new QLabel(QStringLiteral("活动中心"), header);
+        auto *title = new QLabel(QCoreApplication::translate("MainWindowPanels", "活动中心"), header);
         QFont titleFont = title->font();
         titleFont.setBold(true);
         title->setFont(titleFont);
         headerLayout->addWidget(title);
         headerLayout->addStretch(1);
         if (QWidget *actions = panel->headerActions()) headerLayout->addWidget(actions);
-        auto *closeButton = new QPushButton(QStringLiteral("关闭"), header);
+        auto *closeButton = new QPushButton(QCoreApplication::translate("MainWindowPanels", "关闭"), header);
         closeButton->setObjectName(QStringLiteral("taskCenterPromptClose"));
         Theme::markButton(closeButton, Theme::ButtonKind::Neutral);
         closeButton->setCursor(Qt::PointingHandCursor);
@@ -2008,7 +1981,7 @@ void MainWindowUI::openTaskCenterPanel() {
         return;
     }
     const auto openNow = [this, runningProvider, runningAction, onOutsidePress]() {
-    QWidget *page = overlayHost->openPage(QStringLiteral("活动中心"));
+    QWidget *page = overlayHost->openPage(QCoreApplication::translate("MainWindowPanels", "活动中心"));
     if (page == nullptr) {
         return;
     }
@@ -2316,4 +2289,5 @@ void MainWindowUI::setRunPanelAvailable(bool available) {
     // 点不动的格子不该再挂着"点一下向上展开实例列表"（鼠标都到不了它身上，也弹不出来）。
     runStateButton->setToolTip(available ? MainWindowUI::bottomBarRunPanelTip() : QString());
 }
+
 

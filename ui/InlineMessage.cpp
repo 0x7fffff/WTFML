@@ -549,7 +549,7 @@ int ask(OverlayHost *host, MessageKind kind, const QString &title, const QString
     if (host == nullptr) {
         // 没有覆盖层可摆（构造中途、或者验证工程单独测某个控件）。**不许静默吞掉** ——
         // "该说的话没说"是最难查的那一类故障。写一行日志，调用方照旧拿到"什么都没选"。
-        qWarning("InlineMessage: 没有 OverlayHost，这条提示没有显示（%s）", qUtf8Printable(title));
+        qWarning("InlineMessage: 没有 OverlayHost，这条提示没有显示（%s）", qUtf8Printable(title));  // i18n-ignore
         return -1;
     }
     if (host->promptOpen()) {
@@ -574,7 +574,7 @@ int ask(OverlayHost *host, MessageKind kind, const QString &title, const QString
         }
         // 不许静默吞掉：调用方拿到的是"什么都没选"，而那和"用户按了 Esc"分不开 ——
         // 所以至少要在日志里留下痕迹，不然"那条下载失败的消息去哪了"没法查。
-        qWarning("InlineMessage: 已经有一条提示开着，这一条没有显示（%s）",
+        qWarning("InlineMessage: 已经有一条提示开着，这一条没有显示（%s）",  // i18n-ignore
                  qUtf8Printable(title));
         return -1;
     }
@@ -615,13 +615,13 @@ QString getText(OverlayHost *host, const QString &title, const QString &label,
     if (host == nullptr) {
         // 和 ask() 一样**不许静默吞掉**：调用方会拿到空串 + ok=false（= "用户取消了"），
         // 于是"那个名字改没改"这种事在界面上就是"什么也没发生" —— 只有日志能说清为什么。
-        qWarning("InlineMessage: 没有 OverlayHost，这个「问一句名字」没有显示（%s）",
+        qWarning("InlineMessage: 没有 OverlayHost，这个「问一句名字」没有显示（%s）",  // i18n-ignore
                  qUtf8Printable(title));
         return QString();
     }
     if (host->promptOpen()) {
         // 提示叠提示不做（见 OverlayHost::openPrompt 里那段）。理由同 ask()。
-        qWarning("InlineMessage: 已经有一条提示开着，这个「问一句名字」没有显示（%s）",
+        qWarning("InlineMessage: 已经有一条提示开着，这个「问一句名字」没有显示（%s）",  // i18n-ignore
                  qUtf8Printable(title));
         return QString();
     }
@@ -650,16 +650,16 @@ bool pickFromList(OverlayHost *host, const QString &title, const QString &text,
     if (items.isEmpty()) {
         // 见 .hpp：一行都没有的列表框长得和"有东西可挑"一模一样，**不弹**。
         // 这一路也写一行日志 —— 调用方本该自己先判空，走到这儿说明那一处漏了。
-        qWarning("InlineMessage: 清单是空的，这个「挑一个」没有显示（%s）", qUtf8Printable(title));
+        qWarning("InlineMessage: 清单是空的，这个「挑一个」没有显示（%s）", qUtf8Printable(title));  // i18n-ignore
         return false;
     }
     if (host == nullptr) {
-        qWarning("InlineMessage: 没有 OverlayHost，这个「挑一个」没有显示（%s）",
+        qWarning("InlineMessage: 没有 OverlayHost，这个「挑一个」没有显示（%s）",  // i18n-ignore
                  qUtf8Printable(title));
         return false;
     }
     if (host->promptOpen()) {
-        qWarning("InlineMessage: 已经有一条提示开着，这个「挑一个」没有显示（%s）",
+        qWarning("InlineMessage: 已经有一条提示开着，这个「挑一个」没有显示（%s）",  // i18n-ignore
                  qUtf8Printable(title));
         return false;
     }
@@ -705,12 +705,12 @@ QColor pickColor(OverlayHost *host, const QString &title, const QString &text,
     if (host == nullptr) {
         // 和上面那几条一样**不许静默吞掉**：调用方拿到一个无效色（= "用户取消了"），
         // 于是"我点了一下颜色没变"在日志里才有线索。
-        qWarning("InlineMessage: 没有 OverlayHost，这个「挑一个颜色」没有显示（%s）",
+        qWarning("InlineMessage: 没有 OverlayHost，这个「挑一个颜色」没有显示（%s）",  // i18n-ignore
                  qUtf8Printable(title));
         return QColor();
     }
     if (host->promptOpen()) {
-        qWarning("InlineMessage: 已经有一条提示开着，这个「挑一个颜色」没有显示（%s）",
+        qWarning("InlineMessage: 已经有一条提示开着，这个「挑一个颜色」没有显示（%s）",  // i18n-ignore
                  qUtf8Printable(title));
         return QColor();
     }
@@ -770,8 +770,7 @@ QColor pickColor(OverlayHost *host, const QString &title, const QString &text,
 
     box.setContent(content);
     // 这一行小字要在 execPrompt **之前**补（见 setNote() 那段）。
-    box.setNote(QObject::tr("色号可以手打：`#rrggbb`（六位）或 `#aarrggbb`（八位，带透明度），"
-                            "也可以不带 `#`。"));
+    box.setNote(QObject::tr("色号可以手打：`#rrggbb`（六位）或 `#aarrggbb`（八位，带透明度），也可以不带 `#`。"));
 
     // 现在这一格认不认得出一个色 —— **唯一出处**：预览块和「确定」那颗按钮都靠它。
     QPushButton *accept = box.buttonAt(0);

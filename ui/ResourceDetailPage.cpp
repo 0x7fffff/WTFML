@@ -414,7 +414,7 @@ QString ResourceDetailPage::showSnapshotsCheckBoxName() {
 QString ResourceDetailPage::modSettingsButtonName() {
     return QStringLiteral("resourceDetailModSettings");
 }
-QString ResourceDetailPage::modSettingsText() { return QStringLiteral("模组设置"); }
+QString ResourceDetailPage::modSettingsText() { return tr("模组设置"); }
 QString ResourceDetailPage::dependenciesLabelName() {
     return QStringLiteral("resourceDetailDependencies");
 }

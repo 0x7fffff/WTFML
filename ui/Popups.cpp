@@ -787,7 +787,7 @@ void Popups::preparePopup(QWidget *popup) {
         if (!popup->isVisible()) {
             popup->setWindowFlag(Qt::FramelessWindowHint, true);
         } else {
-            qWarning("Popups::preparePopup: %s(%s) 显示后才补无边框，四角会露黑",
+            qWarning("Popups::preparePopup: %s(%s) 显示后才补无边框，四角会露黑",  // i18n-ignore
                      popup->metaObject()->className(), qPrintable(popup->objectName()));
         }
     }

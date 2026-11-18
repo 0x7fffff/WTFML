@@ -35,7 +35,7 @@ AgentToolCard::AgentToolCard(const AgentView::ToolCard &card, QWidget *parent)
     header->addWidget(m_summary, 1);
     m_toggle = new QToolButton(this);
     m_toggle->setObjectName(QStringLiteral("agentToolToggle"));
-    m_toggle->setText(QStringLiteral("详情"));
+    m_toggle->setText(tr("详情"));
     m_toggle->setCheckable(true);
     m_toggle->setAutoRaise(true);
     header->addWidget(m_toggle);
@@ -62,10 +62,10 @@ void AgentToolCard::refresh() {
     m_summary->setText(m_card.summary);
     QString status;
     switch (m_card.status) {
-    case AgentView::ToolCardStatus::Pending: status = QStringLiteral("待执行"); break;
-    case AgentView::ToolCardStatus::Running: status = QStringLiteral("执行中…"); break;
-    case AgentView::ToolCardStatus::Done: status = QStringLiteral("已完成"); break;
-    case AgentView::ToolCardStatus::Error: status = QStringLiteral("失败"); break;
+    case AgentView::ToolCardStatus::Pending: status = tr("待执行"); break;
+    case AgentView::ToolCardStatus::Running: status = tr("执行中…"); break;
+    case AgentView::ToolCardStatus::Done: status = tr("已完成"); break;
+    case AgentView::ToolCardStatus::Error: status = tr("失败"); break;
     }
     const QString suffix = status.isEmpty() ? QString() : QStringLiteral(" · ") + status;
     if (!suffix.isEmpty() && !m_summary->text().endsWith(suffix)) {

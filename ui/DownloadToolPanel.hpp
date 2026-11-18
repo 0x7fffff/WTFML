@@ -1,4 +1,5 @@
 #pragma once
+#include <QCoreApplication>
 #include <QFileDialog>
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -32,11 +33,11 @@ public:
         layout->setContentsMargins(0, 0, 0, 0);
         layout->setSpacing(6);
 
-        layout->addWidget(caption(QStringLiteral("下载地址")));
+        layout->addWidget(caption(QCoreApplication::translate("DownloadToolPanel", "下载地址")));
         url = new QLineEdit(this);
         url->setObjectName(QStringLiteral("downloadToolUrl"));
         url->setPlaceholderText(QStringLiteral("https://"));
-        InputSizing::longValue(url, "下载网址：长度不定");
+        InputSizing::longValue(url, "下载网址：长度不定");  // i18n-ignore
         layout->addWidget(url);
         layout->addSpacing(8);
 
@@ -47,26 +48,27 @@ public:
         row->setSpacing(8);
         directory = new QLineEdit(QStandardPaths::writableLocation(QStandardPaths::DownloadLocation), directoryRow);
         directory->setObjectName(QStringLiteral("downloadToolDirectory"));
-        InputSizing::longValue(directory, "保存目录：路径深度不定");
-        browse = new QPushButton(QStringLiteral("浏览"), directoryRow);
+        InputSizing::longValue(directory, "保存目录：路径深度不定");  // i18n-ignore
+        browse = new QPushButton(QCoreApplication::translate("DownloadToolPanel", "浏览"), directoryRow);
         browse->setObjectName(QStringLiteral("downloadToolBrowse"));
         Theme::markButton(browse, Theme::ButtonKind::Neutral);
         row->addWidget(directory, 1);
         row->addWidget(browse);
         connect(browse, &QPushButton::clicked, this, [this] {
-            const QString picked = QFileDialog::getExistingDirectory(this, QStringLiteral("保存目录"), directory->text());
+            const QString picked = QFileDialog::getExistingDirectory(
+                this, QCoreApplication::translate("DownloadToolPanel", "保存目录"), directory->text());
             if (!picked.isEmpty()) directory->setText(picked);
         });
         name = new QLineEdit(this);
         name->setObjectName(QStringLiteral("downloadToolFileName"));
-        name->setPlaceholderText(QStringLiteral("留空使用链接中的文件名"));
-        InputSizing::longValue(name, "文件名：整合包、模组文件名常带版本号，可到 80 字符");
+        name->setPlaceholderText(QCoreApplication::translate("DownloadToolPanel", "留空使用链接中的文件名"));
+        InputSizing::longValue(name, "文件名：整合包、模组文件名常带版本号，可到 80 字符");  // i18n-ignore
         m_pathGrid = new QGridLayout;
         m_pathGrid->setContentsMargins(0, 0, 0, 0);
         m_pathGrid->setHorizontalSpacing(8);
         m_pathGrid->setVerticalSpacing(6);
-        m_directoryCaption = caption(QStringLiteral("保存目录"));
-        m_nameCaption = caption(QStringLiteral("文件名"));
+        m_directoryCaption = caption(QCoreApplication::translate("DownloadToolPanel", "保存目录"));
+        m_nameCaption = caption(QCoreApplication::translate("DownloadToolPanel", "文件名"));
         m_directoryRow = directoryRow;
         layout->addLayout(m_pathGrid);
         arrangePathRow(false);
@@ -75,8 +77,8 @@ public:
         auto *buttons = new QHBoxLayout;
         buttons->setSpacing(8);
         buttons->addStretch();
-        stop = new QPushButton(QStringLiteral("取消下载"), this);
-        start = new QPushButton(QStringLiteral("开始下载"), this);
+        stop = new QPushButton(QCoreApplication::translate("DownloadToolPanel", "取消下载"), this);
+        start = new QPushButton(QCoreApplication::translate("DownloadToolPanel", "开始下载"), this);
         start->setObjectName(QStringLiteral("downloadToolStart"));
         stop->setObjectName(QStringLiteral("downloadToolCancel"));
         Theme::markButton(start, Theme::ButtonKind::Primary);
@@ -130,7 +132,7 @@ public:
         // 缓存：小标题 + 闲置用量；一行上限与三个整理动作；一句说明。
         auto *cacheHeader = new QHBoxLayout;
         cacheHeader->setSpacing(12);
-        auto *cacheTitle = new QLabel(QStringLiteral("缓存"), this);
+        auto *cacheTitle = new QLabel(QCoreApplication::translate("DownloadToolPanel", "缓存"), this);
         QFont titleFont = QApplication::font();
         titleFont.setPixelSize(15);
         titleFont.setWeight(QFont::DemiBold);
@@ -149,25 +151,28 @@ public:
         cacheLimit->setObjectName(QStringLiteral("downloadCacheLimit"));
         cacheLimit->setRange(128, 65536);
         cacheLimit->setValue(2048);
-        cacheLimit->setSuffix(QStringLiteral(" MiB 上限"));
+        cacheLimit->setSuffix(QCoreApplication::translate("DownloadToolPanel", " MiB 上限"));
         cacheLimit->setButtonSymbols(QAbstractSpinBox::NoButtons);
         // 数字 + 单位一起居中：右对齐时那 33px 余量全落在左边，看起来像"左空 48、右空 15"
         // （走查 j07）。QSS 里四边对称的 3px 边 + 8px padding 保证居中之后两边一样宽。
         cacheLimit->setAlignment(Qt::AlignCenter);
         cacheLimit->setFixedWidth(150);
         cacheRow->addWidget(cacheLimit);
-        const struct { const char *text; const char *tip; bool danger; } kActions[] = {
-            {"按上限整理", "按最旧优先整理闲置缓存。", false},
-            {"清理过期", "清理 30 天未更新的缓存。", false},
-            {"清空闲置缓存…", "只删未被任务使用的分段和续传记录。", true},
+        const struct { QString text; QString tip; bool danger; } actions[] = {
+            {QCoreApplication::translate("DownloadToolPanel", "按上限整理"),
+             QCoreApplication::translate("DownloadToolPanel", "按最旧优先整理闲置缓存。"), false},
+            {QCoreApplication::translate("DownloadToolPanel", "清理过期"),
+             QCoreApplication::translate("DownloadToolPanel", "清理 30 天未更新的缓存。"), false},
+            {QCoreApplication::translate("DownloadToolPanel", "清空闲置缓存…"),
+             QCoreApplication::translate("DownloadToolPanel", "只删未被任务使用的分段和续传记录。"), true},
         };
         for (int index = 0; index < 3; ++index) {
-            auto *button = new QPushButton(QString::fromUtf8(kActions[index].text), this);
+            auto *button = new QPushButton(actions[index].text, this);
             const int action = index + 1;
             button->setObjectName(QStringLiteral("downloadCacheAction%1").arg(action));
-            button->setToolTip(QString::fromUtf8(kActions[index].tip));
-            Theme::markButton(button, kActions[index].danger ? Theme::ButtonKind::Ghost : Theme::ButtonKind::Neutral);
-            if (kActions[index].danger) {
+            button->setToolTip(actions[index].tip);
+            Theme::markButton(button, actions[index].danger ? Theme::ButtonKind::Ghost : Theme::ButtonKind::Neutral);
+            if (actions[index].danger) {
                 button->setStyleSheet(QStringLiteral("QPushButton { color: %1; }").arg(Theme::tokens().danger.name()));
                 Theme::follow(button, [button] {
                     button->setStyleSheet(QStringLiteral("QPushButton { color: %1; }").arg(Theme::tokens().danger.name()));
@@ -179,14 +184,17 @@ public:
         }
         cacheRow->addStretch(1);
         layout->addLayout(cacheRow);
-        auto *cacheHint = caption(QStringLiteral("过期 = 30 天未更新；不影响进行中的下载。"));
+        auto *cacheHint = caption(
+            QCoreApplication::translate("DownloadToolPanel", "过期 = 30 天未更新；不影响进行中的下载。"));
+        cacheHint->setWordWrap(true);
         layout->addWidget(cacheHint);
         layout->addStretch(1);
         setBusy(false);
     }
     void setBusy(bool busy) {
         start->setEnabled(true);
-        start->setText(busy ? QStringLiteral("加入队列") : QStringLiteral("开始下载"));
+        start->setText(busy ? QCoreApplication::translate("DownloadToolPanel", "加入队列")
+                            : QCoreApplication::translate("DownloadToolPanel", "开始下载"));
         stop->setEnabled(busy);
         browse->setEnabled(true);
         for (auto *field : {url, directory, name}) field->setEnabled(true);

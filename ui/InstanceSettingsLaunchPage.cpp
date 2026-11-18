@@ -113,7 +113,7 @@ void InstanceSettingsDialog::setupLaunchPage(const GlobalValues &global, const Q
         auto *choiceRow = choiceRowOf(javaPathField());
         m_javaPathEdit = new QLineEdit(cell);
         m_javaPathEdit->setObjectName(javaPathEditName());
-        InputSizing::longValue(m_javaPathEdit, "java.exe 路径：深度不定");
+            InputSizing::longValue(m_javaPathEdit, "java.exe 路径：深度不定");  // i18n-ignore
         m_javaPathEdit->setPlaceholderText(tr("java.exe 的完整路径"));
 
         auto *browse = new QPushButton(tr("浏览…"), cell);
@@ -401,7 +401,7 @@ void InstanceSettingsDialog::setupLaunchPage(const GlobalValues &global, const Q
             auto *choiceRow = choiceRowOf(extraJvmArgsField());
             m_extraJvmArgsEdit = new QLineEdit(cell);
             m_extraJvmArgsEdit->setObjectName(extraJvmArgsEditName());
-            InputSizing::longValue(m_extraJvmArgsEdit, "JVM 参数：一串参数，长度不定");
+            InputSizing::longValue(m_extraJvmArgsEdit, "JVM 参数：一串参数，长度不定");  // i18n-ignore
             m_extraJvmArgsEdit->setPlaceholderText(QStringLiteral("-XX:+UseG1GC"));
             choiceRow->addWidget(m_extraJvmArgsEdit, 1);
         }

@@ -156,55 +156,53 @@ public:
     static QString closeButtonName() { return QStringLiteral("accountSkinCloseButton"); }
 
     // ---------- 产品文案 ----------
-    static QString windowTitle() { return QStringLiteral("账号与外观"); }
-    static QString accountSectionTitle() { return QStringLiteral("账号"); }
-    static QString looksSectionTitle() { return QStringLiteral("外观预览"); }
-    static QString capeSectionTitle() { return QStringLiteral("披风"); }
-    static QString loginButtonText() { return QStringLiteral("登录新账号…"); }
-    static QString switchButtonText() { return QStringLiteral("切换到所选"); }
-    static QString removeButtonText() { return QStringLiteral("删除所选"); }
-    static QString refreshButtonText() { return QStringLiteral("刷新外观"); }
-    static QString uploadButtonText() { return QStringLiteral("上传皮肤…"); }
+    static QString windowTitle() { return tr("账号与外观"); }
+    static QString accountSectionTitle() { return tr("账号"); }
+    static QString looksSectionTitle() { return tr("外观预览"); }
+    static QString capeSectionTitle() { return tr("披风"); }
+    static QString loginButtonText() { return tr("登录新账号…"); }
+    static QString switchButtonText() { return tr("切换到所选"); }
+    static QString removeButtonText() { return tr("删除所选"); }
+    static QString refreshButtonText() { return tr("刷新外观"); }
+    static QString uploadButtonText() { return tr("上传皮肤…"); }
     /// 离线账号那一颗（见 `setOfflineSkinState()`）。用词和图片选择框/Coding plan 里那句
     /// 「换一张」一致 —— 它换的只是**启动器里**显示的那张，不是游戏里那张脸。
-    static QString offlineSkinButtonText() { return QStringLiteral("换一张…"); }
-    static QString offlineSkinResetButtonText() { return QStringLiteral("恢复默认外观"); }
+    static QString offlineSkinButtonText() { return tr("换一张…"); }
+    static QString offlineSkinResetButtonText() { return tr("恢复默认外观"); }
     static QString offlineSkinButtonToolTip() {
-        return QStringLiteral(
-            "选一张 PNG（64×64 或 64×32）作为这个离线账号在启动器里的外观。"
-            "只影响启动器预览，游戏内皮肤由游戏自己决定。");
+        return tr("选一张 PNG（64×64 或 64×32）作为这个离线账号在启动器里的外观。只影响启动器预览，游戏内皮肤由游戏自己决定。");
     }
     static QString offlineSkinResetButtonToolTip() {
-        return QStringLiteral("撤掉自己挑的那张，回到按这个账号算出来的 / 随机挑的那一张。");
+        return tr("撤掉自己挑的那张，回到按这个账号算出来的 / 随机挑的那一张。");
     }
-    static QString applyCapeButtonText() { return QStringLiteral("显示所选披风"); }
-    static QString hideCapeButtonText() { return QStringLiteral("不显示披风"); }
-    static QString closeButtonText() { return QStringLiteral("关闭"); }
-    static QString variantClassicText() { return QStringLiteral("经典（Steve）"); }
-    static QString variantSlimText() { return QStringLiteral("纤细（Alex）"); }
+    static QString applyCapeButtonText() { return tr("显示所选披风"); }
+    static QString hideCapeButtonText() { return tr("不显示披风"); }
+    static QString closeButtonText() { return tr("关闭"); }
+    static QString variantClassicText() { return tr("经典（Steve）"); }
+    static QString variantSlimText() { return tr("纤细（Alex）"); }
     /// 模型下拉框里那一项对应的 variant 值（**小写**，就是传给官方那个）。
     static QString variantClassicValue() { return QStringLiteral("classic"); }
     static QString variantSlimValue() { return QStringLiteral("slim"); }
     /// 当前账号那一条后面的标记。
-    static QString currentMark() { return QStringLiteral("（当前）"); }
+    static QString currentMark() { return tr("（当前）"); }
     /// 离线账号那一条后面的标记（和「（当前）」可以同时出现）。
-    static QString offlineMark() { return QStringLiteral("（离线）"); }
-    static QString offlineNamePlaceholder() { return QStringLiteral("离线账号的名字"); }
-    static QString addOfflineButtonText() { return QStringLiteral("添加离线账号"); }
+    static QString offlineMark() { return tr("（离线）"); }
+    static QString offlineNamePlaceholder() { return tr("离线账号的名字"); }
+    static QString addOfflineButtonText() { return tr("添加离线账号"); }
     /// 离线账号那一行的 tooltip —— 它没有"什么时候登录取自"这回事，得说清它是哪一种。
     static QString offlineRowTooltip() {
-        return QStringLiteral("离线账号不校验在线凭据，直接以此名称启动游戏。");
+        return tr("离线账号不校验在线凭据，直接以此名称启动游戏。");
     }
     /// 当前身份那一句，离线那一档。和 identityText() 是**两句不同的话** —— 离线账号
     /// 不是"正版登录"，这两个词在用户那里是完全不同的两件事，不能混用一句。
     /// @param name 离线账号的名字。
     static QString offlineIdentityText(const QString &name) {
-        return QStringLiteral("已登录为「%1」（离线登录）").arg(name);
+        return tr("已登录为「%1」（离线登录）").arg(name);
     }
     /// 未登录时页头副题那一句。账号列表空着时整块收起、不再摆占位行，状态只在这里说一次。
-    static QString notLoggedInNote() { return QStringLiteral("未登录"); }
+    static QString notLoggedInNote() { return tr("未登录"); }
     static QString loginHintNote() {
-        return QStringLiteral("微软账号通过浏览器登录；离线账号直接输入玩家名称。");
+        return tr("微软账号通过浏览器登录；离线账号直接输入玩家名称。");
     }
     /// 当前身份那一句。**只在这一种情况下用**：当前账号是个正版（微软）账号。
     /// 另外两种（当前是离线账号 / 没登录）各自有专门那句，见 offlineIdentityText() /
@@ -216,7 +214,7 @@ public:
     /// notLoggedInNote()）。
     /// @param name 账号名。
     static QString identityText(const QString &name) {
-        return QStringLiteral("已登录为「%1」（正版登录）").arg(name);
+        return tr("已登录为「%1」（正版登录）").arg(name);
     }
 
 signals:

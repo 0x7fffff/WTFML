@@ -10,6 +10,8 @@
 #include "controllers/DownloadCompletionController.hpp"
 #include "TextMarks.hpp"
 
+#include <QCoreApplication>
+
 #include "InlineMessage.hpp"
 #include "MainWindow.hpp"
 #include "MainWindowUI.hpp"
@@ -138,8 +140,8 @@ void DownloadCompletionController::onFinished(const QString &versionId, bool suc
                 resultMessage = errorMessage + QStringLiteral("\n\n") +
                                 applied.join(QLatin1Char('\n'));
             } else {
-                resultMessage = errorMessage + QStringLiteral("\n\n实例可用，预设部分应用：\n") +
-                                (applied + failed).join(QLatin1Char('\n'));
+                resultMessage = QCoreApplication::translate("DownloadCompletionController", "%1\n\n实例可用，预设部分应用：\n%2")
+                                    .arg(errorMessage, (applied + failed).join(QLatin1Char('\n')));
             }
         }
     }

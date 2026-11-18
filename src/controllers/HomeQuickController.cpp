@@ -1,5 +1,6 @@
 #include "HomeQuickController.hpp"
 
+#include <QCoreApplication>
 #include <QHash>
 #include <QObject>
 
@@ -38,7 +39,8 @@ HomeQuickController::Rows HomeQuickController::build(
         item.detail = instance.version;
         if (item.recent) {
             const LaunchHistory::Record record = latestByInstance.value(instance.id);
-            item.detail += QStringLiteral("\n上次启动：") + LaunchHistory::whenText(record.startedAt);
+            item.detail += QLatin1Char('\n') + QCoreApplication::translate("LaunchHistory", "上次游玩 %1")
+                .arg(LaunchHistory::whenText(record.startedAt));
             const QString played = LaunchHistory::durationText(record.durationSeconds);
             if (!played.isEmpty()) {
                 item.detail += item.detail.isEmpty() ? played : QStringLiteral(" / ") + played;

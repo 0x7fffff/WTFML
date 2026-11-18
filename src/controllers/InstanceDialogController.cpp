@@ -88,7 +88,8 @@ void showSchematicDetails(OverlayHost *overlay, QWidget *parent, const QString &
     copy->setEnabled(false);
     QObject::connect(close, &QPushButton::clicked, &detail, &QDialog::reject);
     QObject::connect(copy, &QPushButton::clicked, &detail, [table] {
-        QStringList lines{QStringLiteral("方块 ID\t数量")};
+        QStringList lines{table->horizontalHeaderItem(0)->text() + QLatin1Char('\t') +
+                          table->horizontalHeaderItem(1)->text()};
         for (int row = 0; row < table->rowCount(); ++row)
             if (!table->isRowHidden(row)) lines.append(table->item(row, 0)->text() + '\t' + table->item(row, 1)->text());
         QApplication::clipboard()->setText(lines.join('\n'));
@@ -531,7 +532,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                         if (!info.ok) {
                             // 读失败也占着这一格（用户刚点的那一行，总得听到一句为什么）。
                             schematics->setInfoText(
-                                path, QStringLiteral("读不出来：%1").arg(info.problem));
+                                path, tr("读不出来：%1").arg(info.problem));
                             return;
                         }
                         schematics->setInfoText(path,
@@ -587,7 +588,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                     const ReplayInfo::Info info = ReplayInfo::read(path);
                     if (!info.ok) {
                         dialog.setLifecycleInfoText(
-                            key, path, QStringLiteral("读不出来：%1").arg(info.problem));
+                            key, path, tr("读不出来：%1").arg(info.problem));
                         return;
                     }
                     dialog.setLifecycleInfoText(key, path, ReplayInfo::summaryText(info),
@@ -604,7 +605,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 const SchematicInfo::Info info = SchematicInfo::read(path);
                 if (!info.ok) {
                     dialog.setLifecycleInfoText(
-                        key, path, QStringLiteral("读不出来：%1").arg(info.problem));
+                        key, path, tr("读不出来：%1").arg(info.problem));
                     return;
                 }
                 dialog.setLifecycleInfoText(key, path,
@@ -689,11 +690,10 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
             const QString gameVersion = parts.realVersion.isEmpty() ? parts.id : parts.realVersion;
             QString label = m_owner->instanceDisplayName(id);
             if (label.isEmpty()) label = id;
-            label += QStringLiteral("（%1").arg(gameVersion);
             const QString loaderName =
                 InstancePagesController::loaderName(parts, m_owner->m_versionManager);
-            if (!loaderName.isEmpty()) label += QStringLiteral(" / %1").arg(loaderName);
-            label += QStringLiteral("）");
+            label = loaderName.isEmpty() ? tr("%1（%2）").arg(label, gameVersion)
+                                         : tr("%1（%2 / %3）").arg(label, gameVersion, loaderName);
             targets.append(qMakePair(label, id));
         }
         return targets;
@@ -726,7 +726,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 if (!item.exists) continue;  // 没有的东西不摆勾选框（正文里已经说了「没有」）
                 QString label = item.label;
                 if (item.fileCount > 0) {
-                    label += QStringLiteral(" / %1 个文件 / %2")
+                    label += tr(" / %1 个文件 / %2")
                                  .arg(item.fileCount)
                                  .arg(FileHash::fileSizeText(item.bytes));
                 }

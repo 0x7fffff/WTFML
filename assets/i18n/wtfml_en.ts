@@ -4,6 +4,130 @@
     <context>
         <name>AccountSkinDialog</name>
         <message>
+            <source>正版</source>
+            <translation>Microsoft</translation>
+        </message>
+        <message>
+            <source>M 月 d 日</source>
+            <translation>MMM d</translation>
+        </message>
+        <message>
+            <source>离线</source>
+            <translation>Offline</translation>
+        </message>
+        <message>
+            <source>添加</source>
+            <translation>Add</translation>
+        </message>
+        <message>
+            <source>账号与外观</source>
+            <translation>Accounts &amp; appearance</translation>
+        </message>
+        <message>
+            <source>账号</source>
+            <translation>Accounts</translation>
+        </message>
+        <message>
+            <source>外观预览</source>
+            <translation>Appearance preview</translation>
+        </message>
+        <message>
+            <source>披风</source>
+            <translation>Capes</translation>
+        </message>
+        <message>
+            <source>登录新账号…</source>
+            <translation>Sign in with Microsoft…</translation>
+        </message>
+        <message>
+            <source>切换到所选</source>
+            <translation>Use this account</translation>
+        </message>
+        <message>
+            <source>删除所选</source>
+            <translation>Remove selected account</translation>
+        </message>
+        <message>
+            <source>刷新外观</source>
+            <translation>Refresh appearance</translation>
+        </message>
+        <message>
+            <source>上传皮肤…</source>
+            <translation>Upload skin…</translation>
+        </message>
+        <message>
+            <source>换一张…</source>
+            <translation>Choose skin…</translation>
+        </message>
+        <message>
+            <source>恢复默认外观</source>
+            <translation>Restore default appearance</translation>
+        </message>
+        <message>
+            <source>选一张 PNG（64×64 或 64×32）作为这个离线账号在启动器里的外观。只影响启动器预览，游戏内皮肤由游戏自己决定。</source>
+            <translation>Choose a 64×64 or 64×32 PNG for this offline account's launcher preview. This does not change the in-game skin.</translation>
+        </message>
+        <message>
+            <source>撤掉自己挑的那张，回到按这个账号算出来的 / 随机挑的那一张。</source>
+            <translation>Remove the custom skin and restore the default skin assigned to this account.</translation>
+        </message>
+        <message>
+            <source>显示所选披风</source>
+            <translation>Show selected cape</translation>
+        </message>
+        <message>
+            <source>不显示披风</source>
+            <translation>Hide cape</translation>
+        </message>
+        <message>
+            <source>关闭</source>
+            <translation>Close</translation>
+        </message>
+        <message>
+            <source>经典（Steve）</source>
+            <translation>Classic (Steve)</translation>
+        </message>
+        <message>
+            <source>纤细（Alex）</source>
+            <translation>Slim (Alex)</translation>
+        </message>
+        <message>
+            <source>（当前）</source>
+            <translation> (Current)</translation>
+        </message>
+        <message>
+            <source>（离线）</source>
+            <translation> (Offline)</translation>
+        </message>
+        <message>
+            <source>离线账号的名字</source>
+            <translation>Offline account name</translation>
+        </message>
+        <message>
+            <source>添加离线账号</source>
+            <translation>Add offline account</translation>
+        </message>
+        <message>
+            <source>离线账号不校验在线凭据，直接以此名称启动游戏。</source>
+            <translation>Offline accounts launch the game with this name without verifying online credentials.</translation>
+        </message>
+        <message>
+            <source>已登录为「%1」（离线登录）</source>
+            <translation>Signed in as %1 (offline)</translation>
+        </message>
+        <message>
+            <source>未登录</source>
+            <translation>Not signed in</translation>
+        </message>
+        <message>
+            <source>微软账号通过浏览器登录；离线账号直接输入玩家名称。</source>
+            <translation>Sign in to a Microsoft account in your browser, or enter a player name for an offline account.</translation>
+        </message>
+        <message>
+            <source>已登录为「%1」（正版登录）</source>
+            <translation>Signed in as %1 (Microsoft)</translation>
+        </message>
+        <message>
             <source>皮肤</source>
             <translation>Skin</translation>
         </message>
@@ -183,6 +307,10 @@ Delete it again and it will no longer exist (it is no longer in the list); click
             <source>完整性检查在后台只读扫描，不会改动任何文件；它停不了，跑完会统一报结果。</source>
             <translation>The integrity check is a read-only scan in the background and will not change any files; it cannot be stopped and the results will be reported uniformly after running.</translation>
         </message>
+        <message>
+            <source>网络请求已中止</source>
+            <translation>Network request canceled</translation>
+        </message>
     </context>
     <context>
         <name>ActivityPopover</name>
@@ -237,6 +365,40 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         <message>
             <source>重试</source>
             <translation>Try again</translation>
+        </message>
+    </context>
+    <context>
+        <name>AgentApprovalCard</name>
+        <message>
+            <source>本会话允许此目录</source>
+            <translation>Allow this folder for this session</translation>
+        </message>
+        <message>
+            <source>允许本次</source>
+            <translation>Allow once</translation>
+        </message>
+        <message>
+            <source>拒绝</source>
+            <translation>Deny</translation>
+        </message>
+        <message>
+            <source>需要确认：%1</source>
+            <translation>Approval required: %1</translation>
+        </message>
+        <message>
+            <source>目标：%1</source>
+            <translation>Target: %1</translation>
+        </message>
+        <message>
+            <source>外发：%1 · %2</source>
+            <translation>External transfer: %1 · %2</translation>
+        </message>
+    </context>
+    <context>
+        <name>AgentComposer</name>
+        <message>
+            <source>描述你遇到的问题…</source>
+            <translation>Describe the issue you’re having…</translation>
         </message>
     </context>
     <context>
@@ -443,6 +605,45 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
     </context>
     <context>
+        <name>AgentMessageView</name>
+        <message>
+            <source>思考过程</source>
+            <translation>Reasoning</translation>
+        </message>
+        <message>
+            <source>重试</source>
+            <translation>Retry</translation>
+        </message>
+        <message>
+            <source>你</source>
+            <translation>You</translation>
+        </message>
+        <message>
+            <source>助手</source>
+            <translation>Assistant</translation>
+        </message>
+        <message>
+            <source>正在生成…</source>
+            <translation>Generating…</translation>
+        </message>
+        <message>
+            <source>已中断</source>
+            <translation>Interrupted</translation>
+        </message>
+        <message>
+            <source>失败</source>
+            <translation>Failed</translation>
+        </message>
+        <message>
+            <source>等待工具…</source>
+            <translation>Waiting for tool…</translation>
+        </message>
+        <message>
+            <source>等待确认…</source>
+            <translation>Waiting for approval…</translation>
+        </message>
+    </context>
+    <context>
         <name>AgentPage</name>
         <message>
             <source>会话</source>
@@ -603,6 +804,29 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         <message>
             <source>删除</source>
             <translation>Delete</translation>
+        </message>
+    </context>
+    <context>
+        <name>AgentSecretEdit</name>
+        <message>
+            <source>显示密钥</source>
+            <translation>Show key</translation>
+        </message>
+        <message>
+            <source>遮住密钥</source>
+            <translation>Hide key</translation>
+        </message>
+        <message>
+            <source>显示密钥（失焦后自动遮住）</source>
+            <translation>Show key (hidden when focus leaves the field)</translation>
+        </message>
+        <message>
+            <source>已保存（留空不修改）</source>
+            <translation>Saved (leave blank to keep)</translation>
+        </message>
+        <message>
+            <source>尚未保存 API Key</source>
+            <translation>No API key saved</translation>
         </message>
     </context>
     <context>
@@ -901,6 +1125,29 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
     </context>
     <context>
+        <name>AgentToolCard</name>
+        <message>
+            <source>详情</source>
+            <translation>Details</translation>
+        </message>
+        <message>
+            <source>待执行</source>
+            <translation>Pending</translation>
+        </message>
+        <message>
+            <source>执行中…</source>
+            <translation>Running…</translation>
+        </message>
+        <message>
+            <source>已完成</source>
+            <translation>Completed</translation>
+        </message>
+        <message>
+            <source>失败</source>
+            <translation>Failed</translation>
+        </message>
+    </context>
+    <context>
         <name>AnvilPlanner</name>
         <message>
             <source>保护</source>
@@ -1175,7 +1422,7 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>树脂质</source>
-            <translation>Resinous</translation>
+            <translation>Resin</translation>
         </message>
         <message>
             <source>树脂砖</source>
@@ -1335,23 +1582,23 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>涡流</source>
-            <translation>Vortex</translation>
+            <translation>Flow</translation>
         </message>
         <message>
             <source>试炼密室（不祥宝库）</source>
-            <translation>Trial Chamber (Ominous Treasure House)</translation>
+            <translation>Trial chamber (ominous vault)</translation>
         </message>
         <message>
             <source>旋风棒</source>
-            <translation>Cyclone Stick</translation>
+            <translation>Breeze Rod</translation>
         </message>
         <message>
             <source>镶铆</source>
-            <translation>Riveted</translation>
+            <translation>Bolt</translation>
         </message>
         <message>
             <source>试炼密室（宝库）</source>
-            <translation>Trial Chamber (Treasure House)</translation>
+            <translation>Trial chamber (vault)</translation>
         </message>
         <message>
             <source>铜块</source>
@@ -1618,6 +1865,21 @@ Please confirm that you have permission to use these game assets and read the Mi
         <message>
             <source>资源：%1 / 拖动旋转，滚轮缩放</source>
             <translation>Resources: %1 / Drag to rotate, wheel to zoom</translation>
+        </message>
+    </context>
+    <context>
+        <name>ArmorTrimScene</name>
+        <message>
+            <source>当前盔甲与部位组合不支持预览。</source>
+            <translation>A preview is unavailable for this armor and slot combination.</translation>
+        </message>
+        <message>
+            <source>当前资源缺少所选盔甲、图案或调色板。请换用包含此图案的客户端（涡流/镶铆需要 1.21；树脂质需要 1.21.4）。</source>
+            <translation>These assets lack the selected armor, pattern, or palette. Use a client that includes it. Flow and Bolt require 1.21, and Resin requires 1.21.4.</translation>
+        </message>
+        <message>
+            <source>皮革覆盖纹理缺失。</source>
+            <translation>The leather overlay texture is missing.</translation>
         </message>
     </context>
     <context>
@@ -2300,7 +2562,7 @@ What you want to restore is this one:
         </message>
         <message>
             <source>涡流</source>
-            <translation>Vortex</translation>
+            <translation>Flow</translation>
         </message>
         <message>
             <source>地球</source>
@@ -2600,6 +2862,141 @@ What you want to restore is this one:
         </message>
     </context>
     <context>
+        <name>Beacon</name>
+        <message>
+            <source>速度</source>
+            <translation>Speed</translation>
+        </message>
+        <message>
+            <source>急迫</source>
+            <translation>Haste</translation>
+        </message>
+        <message>
+            <source>抗性提升</source>
+            <translation>Resistance</translation>
+        </message>
+        <message>
+            <source>跳跃提升</source>
+            <translation>Jump Boost</translation>
+        </message>
+        <message>
+            <source>力量</source>
+            <translation>Strength</translation>
+        </message>
+        <message>
+            <source>再生</source>
+            <translation>Regeneration</translation>
+        </message>
+        <message>
+            <source>铁块</source>
+            <translation>Block of Iron</translation>
+        </message>
+        <message>
+            <source>铁锭</source>
+            <translation>Iron Ingot</translation>
+        </message>
+        <message>
+            <source>金块</source>
+            <translation>Block of Gold</translation>
+        </message>
+        <message>
+            <source>金锭</source>
+            <translation>Gold Ingot</translation>
+        </message>
+        <message>
+            <source>钻石块</source>
+            <translation>Block of Diamond</translation>
+        </message>
+        <message>
+            <source>钻石</source>
+            <translation>Diamond</translation>
+        </message>
+        <message>
+            <source>绿宝石块</source>
+            <translation>Block of Emerald</translation>
+        </message>
+        <message>
+            <source>绿宝石</source>
+            <translation>Emerald</translation>
+        </message>
+        <message>
+            <source>下界合金块</source>
+            <translation>Block of Netherite</translation>
+        </message>
+        <message>
+            <source>下界合金锭</source>
+            <translation>Netherite Ingot</translation>
+        </message>
+        <message>
+            <source>认不出这种底座方块（%1）。</source>
+            <translation>Unknown base material (%1).</translation>
+        </message>
+        <message>
+            <source>%1 块%2 = %3 个%4（每块 %5 个）</source>
+            <translation>%1 × %2 = %3 × %4 (%5 per block)</translation>
+        </message>
+        <message>
+            <source>信标等级只有 1 – 4 级（%1 不是一个真的等级）。</source>
+            <translation>Beacon levels range from 1 to 4. %1 is out of range.</translation>
+        </message>
+        <message>
+            <source>信标颗数只能算 1 – %1 颗（%2 颗超出范围）。</source>
+            <translation>Enter 1 to %1 beacons. %2 is out of range.</translation>
+        </message>
+        <message>
+            <source>每颗信标另需 %1 块黑曜石 + %2 颗下界之星 + %3 块玻璃（合成表：底下 3 块黑曜石、中间一颗下界之星、四周 5 块玻璃）。</source>
+            <translation>Each beacon also requires %1 Obsidian + %2 Nether Star + %3 Glass. Place the Obsidian in the bottom row, the Nether Star in the center, and the Glass in the other slots.</translation>
+        </message>
+        <message>
+            <source>%1 颗信标挨着摆（%2 × %3 的一团）能共用底座：%4 级只要 %5 块，各盖一座则要 %6 块 —— 共用的是重叠的那些方块，不是「一颗信标一座金字塔」。</source>
+            <translation>%1 beacons can share a base in a %2 × %3 layout. At level %4, a shared base uses %5 blocks; separate bases use %6.</translation>
+        </message>
+        <message>
+            <source>%1 颗一共 %2 块黑曜石、%1 颗下界之星、%3 块玻璃。</source>
+            <translation>Total for %1 beacons: %2 Obsidian, %1 Nether Stars, and %3 Glass.</translation>
+        </message>
+        <message>
+            <source>%1 级信标：范围 %2 格，底座共 %3 块。</source>
+            <translation>Level %1 beacon: %2-block range, %3 base blocks.</translation>
+        </message>
+        <message>
+            <source>「现在已有几级」只能是 0 – 4（%1 越界了）。</source>
+            <translation>Current level must be between 0 and 4. %1 is out of range.</translation>
+        </message>
+        <message>
+            <source>• 第 %1 层：%2 × %2 = %3 块（最上面那层固定 3 × 3）</source>
+            <translation>• Layer %1: %2 × %2 = %3 blocks (the top layer is always 3 × 3)</translation>
+        </message>
+        <message>
+            <source>• 你现在是 %1 级：再补 %2 块</source>
+            <translation>• Current level: %1. Add %2 blocks.</translation>
+        </message>
+        <message>
+            <source>• 你现在是 %1 级：不需要再加方块</source>
+            <translation>• Current level: %1. No more blocks needed.</translation>
+        </message>
+        <message>
+            <source>• 你现在是 %1 级，高于目标；降级要自己拆</source>
+            <translation>• Current level: %1, above the target. Remove blocks manually to downgrade.</translation>
+        </message>
+        <message>
+            <source>• 效果：%1</source>
+            <translation>• Effects: %1</translation>
+        </message>
+        <message>
+            <source>、</source>
+            <translation>, </translation>
+        </message>
+        <message>
+            <source>• 升到 %1 级：再加 %2 块，范围 %3 格</source>
+            <translation>• To reach level %1, add %2 blocks. Range: %3 blocks.</translation>
+        </message>
+        <message>
+            <source>• 信标放在金字塔正中间，上方留出天空（可用玻璃）</source>
+            <translation>• Place the beacon at the center of the pyramid with a clear path to the sky. Glass is allowed.</translation>
+        </message>
+    </context>
+    <context>
         <name>Brewing</name>
         <message>
             <source>迅捷</source>
@@ -2883,6 +3280,33 @@ What you want to restore is this one:
         <message>
             <source>还原</source>
             <translation>Reduction</translation>
+        </message>
+    </context>
+    <context>
+        <name>ConfigEntries</name>
+        <message>
+            <source>布尔</source>
+            <translation>Boolean</translation>
+        </message>
+        <message>
+            <source>数字</source>
+            <translation>Number</translation>
+        </message>
+        <message>
+            <source>字符串</source>
+            <translation>String</translation>
+        </message>
+        <message>
+            <source>数组</source>
+            <translation>Array</translation>
+        </message>
+        <message>
+            <source>对象</source>
+            <translation>Object</translation>
+        </message>
+        <message>
+            <source>未识别</source>
+            <translation>Unknown</translation>
         </message>
     </context>
     <context>
@@ -3384,6 +3808,16 @@ What you want to restore is this one:
             <source>版本 %1 下载失败：%2</source>
             <translation>Version %1 download failed: %2</translation>
         </message>
+        <message>
+            <source>%1
+
+实例可用，预设部分应用：
+%2</source>
+            <translation>%1
+
+The instance is ready, but some presets could not be applied:
+%2</translation>
+        </message>
     </context>
     <context>
         <name>DownloadFilterController</name>
@@ -3432,6 +3866,77 @@ What you want to restore is this one:
         <message>
             <source>网络请求超时，请检查网络后重试。</source>
             <translation>The network request timed out, please check the network and try again.</translation>
+        </message>
+    </context>
+    <context>
+        <name>DownloadToolPanel</name>
+        <message>
+            <source>下载地址</source>
+            <translation>Download URL</translation>
+        </message>
+        <message>
+            <source>浏览</source>
+            <translation>Browse</translation>
+        </message>
+        <message>
+            <source>保存目录</source>
+            <translation>Save folder</translation>
+        </message>
+        <message>
+            <source>留空使用链接中的文件名</source>
+            <translation>Leave blank to use the filename from the URL</translation>
+        </message>
+        <message>
+            <source>文件名</source>
+            <translation>Filename</translation>
+        </message>
+        <message>
+            <source>取消下载</source>
+            <translation>Cancel download</translation>
+        </message>
+        <message>
+            <source>开始下载</source>
+            <translation>Start download</translation>
+        </message>
+        <message>
+            <source>缓存</source>
+            <translation>Cache</translation>
+        </message>
+        <message>
+            <source> MiB 上限</source>
+            <translation> MiB limit</translation>
+        </message>
+        <message>
+            <source>按上限整理</source>
+            <translation>Trim to limit</translation>
+        </message>
+        <message>
+            <source>按最旧优先整理闲置缓存。</source>
+            <translation>Removes the oldest unused entries first to meet the cache limit.</translation>
+        </message>
+        <message>
+            <source>清理过期</source>
+            <translation>Clear expired</translation>
+        </message>
+        <message>
+            <source>清理 30 天未更新的缓存。</source>
+            <translation>Removes cache entries that have not been updated in 30 days.</translation>
+        </message>
+        <message>
+            <source>清空闲置缓存…</source>
+            <translation>Clear idle cache…</translation>
+        </message>
+        <message>
+            <source>只删未被任务使用的分段和续传记录。</source>
+            <translation>Removes only chunks and resume data that no download task is using.</translation>
+        </message>
+        <message>
+            <source>过期 = 30 天未更新；不影响进行中的下载。</source>
+            <translation>Entries expire after 30 days without updates. Active downloads are unaffected.</translation>
+        </message>
+        <message>
+            <source>加入队列</source>
+            <translation>Add to queue</translation>
         </message>
     </context>
     <context>
@@ -4334,6 +4839,37 @@ Want to stop it?</translation>
         </message>
     </context>
     <context>
+        <name>Glass</name>
+        <message>
+            <source>亚克力</source>
+            <translation>Acrylic</translation>
+        </message>
+        <message>
+            <source>云母</source>
+            <translation>Mica</translation>
+        </message>
+        <message>
+            <source>风景底</source>
+            <translation>Scenic background</translation>
+        </message>
+        <message>
+            <source>纯色</source>
+            <translation>Solid color</translation>
+        </message>
+        <message>
+            <source>系统开着高对比度，用纯色。</source>
+            <translation>High contrast is enabled in Windows. Using a solid color.</translation>
+        </message>
+        <message>
+            <source>系统关了透明效果，用纯色。</source>
+            <translation>Transparency effects are disabled in Windows. Using a solid color.</translation>
+        </message>
+        <message>
+            <source>需要 Windows 11 22H2 或更新，已改用风景底。</source>
+            <translation>This effect requires Windows 11 22H2 or later. Using the scenic background.</translation>
+        </message>
+    </context>
+    <context>
         <name>GroupDialog</name>
         <message>
             <source>分组</source>
@@ -4462,6 +4998,29 @@ Are you sure you want to restore?</translation>
         <message>
             <source>未选择分组</source>
             <translation>No group selected</translation>
+        </message>
+        <message>
+            <source>分组设置</source>
+            <translation>Group settings</translation>
+        </message>
+        <message>
+            <source>设为收藏组</source>
+            <translation>Set as favorites group</translation>
+        </message>
+        <message>
+            <source>收藏的实例会同时显示在这个组和主页快速启动区。</source>
+            <translation>Favorited instances appear in this group and in Quick Launch on Home.</translation>
+        </message>
+    </context>
+    <context>
+        <name>GroupListDelegate</name>
+        <message>
+            <source>上移这一组（按住 Shift 直接放到最上面）</source>
+            <translation>Move this group up (hold Shift to move it to the top)</translation>
+        </message>
+        <message>
+            <source>下移这一组（按住 Shift 直接放到最下面）</source>
+            <translation>Move this group down (hold Shift to move it to the bottom)</translation>
         </message>
     </context>
     <context>
@@ -4636,6 +5195,423 @@ Check size against SHA-1; run for up to 900 seconds, can be canceled at any time
         <message>
             <source>已取消或超时，未改变安装状态。</source>
             <translation>Canceled or timed out, the installation status has not changed.</translation>
+        </message>
+        <message>
+            <source>另一个整合包还在导入流程里，等它结束之后再试。</source>
+            <translation>Another modpack import is in progress. Wait for it to finish, then try again.</translation>
+        </message>
+        <message>
+            <source>选择整合包</source>
+            <translation>Select modpack</translation>
+        </message>
+        <message>
+            <source>整合包 (*.zip *.mrpack *.rar *.7z);;继续补齐报告 (wtfml.import-report.json);;所有文件 (*)</source>
+            <translation>Modpacks (*.zip *.mrpack *.rar *.7z);;Import recovery report (wtfml.import-report.json);;All files (*)</translation>
+        </message>
+        <message>
+            <source>解压失败</source>
+            <translation>Extraction failed</translation>
+        </message>
+        <message>
+            <source>无法解压这个包。</source>
+            <translation>Could not extract this archive.</translation>
+        </message>
+        <message>
+            <source>已有下载或导入任务正在进行，等它结束之后再试。</source>
+            <translation>A download or import is already in progress. Wait for it to finish, then try again.</translation>
+        </message>
+        <message>
+            <source>读压缩包的条目表</source>
+            <translation>Read archive entries</translation>
+        </message>
+        <message>
+            <source>无法打开这个文件：它不是 zip 压缩包（也可能已损坏）。
+
+整合包得是 zip：Modrinth 的 .mrpack 也是 zip，只是换了个后缀。</source>
+            <translation>Could not open this file. It is not a ZIP archive or may be corrupt.
+
+Modpacks must use the ZIP format. Modrinth .mrpack files are ZIP archives with a different extension.</translation>
+        </message>
+        <message>
+            <source>读这个压缩包的时候出错了：
+%1</source>
+            <translation>Could not read the archive:
+%1</translation>
+        </message>
+        <message>
+            <source>这不是整合包</source>
+            <translation>Not a modpack</translation>
+        </message>
+        <message>
+            <source>解出压缩包里的整合包</source>
+            <translation>Extract the modpack from the archive</translation>
+        </message>
+        <message>
+            <source>导入整合包</source>
+            <translation>Import modpack</translation>
+        </message>
+        <message>
+            <source>这个压缩包里那份 %1 没能解出来：
+%2</source>
+            <translation>Could not extract %1 from the archive:
+%2</translation>
+        </message>
+        <message>
+            <source>这个压缩包里那份 %1 打不开：
+%2</source>
+            <translation>Could not open %1 inside the archive:
+%2</translation>
+        </message>
+        <message>
+            <source>这不是客户端整合包</source>
+            <translation>Not a client modpack</translation>
+        </message>
+        <message>
+            <source>这个压缩包里是一个服务端包（里面没有客户端要的 config、资源包这些，只有服务端启动用的文件）。
+
+客户端无法安装它。要开服的话用「新建服务端」，把这份包解到服务端目录里。</source>
+            <translation>This is a server pack. It contains startup files for a server, not the configs, resource packs, or other files a client needs.
+
+It cannot be installed as a client modpack. To host it, create a new server and extract the pack into the server directory.</translation>
+        </message>
+        <message>
+            <source>这是一个世界存档</source>
+            <translation>This is a world save</translation>
+        </message>
+        <message>
+            <source>这个压缩包里是一个世界存档（里面有 level.dat），不是整合包。
+
+存档请放进实例的 saves/ 目录：在「存档」页点「导入存档…」，或者直接把压缩包拖到那一页上。</source>
+            <translation>This archive contains a world save (it has a level.dat file), not a modpack.
+
+Import it into the instance's saves/ folder: choose Import World… on the Worlds page, or drag the archive onto that page.</translation>
+        </message>
+        <message>
+            <source>这个压缩包里只有一堆模组（mods/ 或者几份 .jar），没有整合包清单。
+
+它不是整合包，按整合包导进来只会建一个空实例。要用这些模组的话：在实例的「模组」页点「安装模组…」逐份添加，或者把它解压后把 jar 拖到那一页上。</source>
+            <translation>This archive contains only mods (a mods/ folder or .jar files) and has no modpack manifest.
+
+Importing it as a modpack would create an empty instance. Use Install Mods… on the instance's Mods page to add them individually, or extract the archive and drag the .jar files onto that page.</translation>
+        </message>
+        <message>
+            <source>读整合包的 mmc-pack.json</source>
+            <translation>Read the modpack's mmc-pack.json</translation>
+        </message>
+        <message>
+            <source>无法打开这个文件：它不是 zip 压缩包（也可能已损坏）。</source>
+            <translation>Could not open this file. It is not a ZIP archive or may be corrupt.</translation>
+        </message>
+        <message>
+            <source>读这个压缩包里的 mmc-pack.json 时出错了：
+%1</source>
+            <translation>Could not read mmc-pack.json in the archive:
+%1</translation>
+        </message>
+        <message>
+            <source>读整合包的 instance.cfg</source>
+            <translation>Read the modpack's instance.cfg</translation>
+        </message>
+        <message>
+            <source>启动配置不支持</source>
+            <translation>Unsupported launch configuration</translation>
+        </message>
+        <message>
+            <source>补丁/专用库路径不规范或数量超过限制。</source>
+            <translation>A patch or custom library path is invalid, or there are too many entries.</translation>
+        </message>
+        <message>
+            <source>读取启动补丁及专用库</source>
+            <translation>Read launch patches and custom libraries</translation>
+        </message>
+        <message>
+            <source>读取启动配置失败</source>
+            <translation>Could not read launch configuration</translation>
+        </message>
+        <message>
+            <source>启动配置超过大小限制。</source>
+            <translation>The launch configuration exceeds the size limit.</translation>
+        </message>
+        <message>
+            <source>补丁重复</source>
+            <translation>Duplicate patch</translation>
+        </message>
+        <message>
+            <source>读整合包的版本 json</source>
+            <translation>Read the modpack version JSON</translation>
+        </message>
+        <message>
+            <source>读整合包清单</source>
+            <translation>Read the modpack manifest</translation>
+        </message>
+        <message>
+            <source>读这个压缩包里的清单时出错了：
+%1</source>
+            <translation>Could not read the manifest in the archive:
+%1</translation>
+        </message>
+        <message>
+            <source>这份整合包的清单里一条文件都没有，压缩包里也没有它说的那一层（%1）。
+
+清单可能被改坏了，没有导入。</source>
+            <translation>The manifest lists no files, and the archive does not contain the folder it references (%1).
+
+The manifest may be damaged. The modpack was not imported.</translation>
+        </message>
+        <message>
+            <source>无法安装这个整合包</source>
+            <translation>Cannot install this modpack</translation>
+        </message>
+        <message>
+            <source>实例叫什么名字？这就是 versions 下面那个目录名，
+整合包「%1」的东西会装进它里面。</source>
+            <translation>Enter a name for the instance. It will be used as the folder name under versions, where the contents of "%1" will be installed.</translation>
+        </message>
+        <message>
+            <source>接着上次的导入</source>
+            <translation>Resume previous import</translation>
+        </message>
+        <message>
+            <source>versions 下面已经有一个「%1」了，是上一次没下完的导入。
+
+接着往它里面下吗？已经下好的文件会按 sha1 跳过、不会重下，没下成的那几个会重新下。
+
+选「否」就换个名字重新导入 —— 那样已经下好的那些要重下一遍。</source>
+            <translation>An unfinished import named "%1" already exists under versions.
+
+Resume the download in that folder? Files that pass SHA-1 verification will be kept, and failed downloads will be retried.
+
+Choose No to start a new import under a different name. That will download all files again.</translation>
+        </message>
+        <message>
+            <source>是</source>
+            <translation>Yes</translation>
+        </message>
+        <message>
+            <source>否</source>
+            <translation>No</translation>
+        </message>
+        <message>
+            <source>换个名字</source>
+            <translation>Choose a different name</translation>
+        </message>
+        <message>
+            <source>正在向 CurseForge 换取文件清单...</source>
+            <translation>Fetching the file list from CurseForge…</translation>
+        </message>
+        <message>
+            <source>拿不到文件清单</source>
+            <translation>Could not get file list</translation>
+        </message>
+        <message>
+            <source>（纯原版，没有模组加载器）</source>
+            <translation> (Vanilla, no mod loader)</translation>
+        </message>
+        <message>
+            <source>（另有 %1 个按包里的说明跳过）</source>
+            <translation> (%1 skipped according to the manifest)</translation>
+        </message>
+        <message>
+            <source>要下载的文件：0 个（内容都在压缩包里，直接解进实例）%1</source>
+            <translation>Files to download: 0 (all contents will be extracted from the archive)%1</translation>
+        </message>
+        <message>
+            <source>当前可自动下载：0 个；另有 %1 个文件需要补齐。</source>
+            <translation>Files available for automatic download: 0. Missing files to add manually: %1.</translation>
+        </message>
+        <message>
+            <source>要下载的文件：%1 个%2</source>
+            <translation>Files to download: %1%2</translation>
+        </message>
+        <message>
+            <source>开始导入</source>
+            <translation>Start import</translation>
+        </message>
+        <message>
+            <source>整合包：%1
+Minecraft：%2%3
+%4
+装到：%5%6
+
+开始导入吗？</source>
+            <translation>Modpack: %1
+Minecraft: %2%3
+%4
+Install to: %5%6
+
+Start the import?</translation>
+        </message>
+        <message>
+            <source>有文件需要补齐</source>
+            <translation>Some files are missing</translation>
+        </message>
+        <message>
+            <source>选中文件可打开对应网页。可以先安装其余内容，但文件未补齐时不会标记为成功。
+补齐位置：%1
+重新导入同一个包和实例名可重新校验。</source>
+            <translation>Select a file to open its web page. You can install the remaining contents now, but installation stays incomplete until the missing files are added.
+Add missing files here: %1
+Reimport the same pack under the same instance name to verify the files again.</translation>
+        </message>
+        <message>
+            <source>继续安装其余内容</source>
+            <translation>Install remaining contents</translation>
+        </message>
+        <message>
+            <source>打开所选文件网页</source>
+            <translation>Open selected file page</translation>
+        </message>
+        <message>
+            <source>Java 版本不够</source>
+            <translation>Required Java version unavailable</translation>
+        </message>
+        <message>
+            <source>这一类不能直接放进实例目录。</source>
+            <translation>Files of this type cannot be installed directly into the instance directory.</translation>
+        </message>
+        <message>
+            <source>已经有一个同名的</source>
+            <translation>An item with this name already exists</translation>
+        </message>
+        <message>
+            <source>%1 里已经有一个「%2」了。
+
+「跳过已有项」保留现在那一份、不装这一份；「取消」会停掉这一批剩下的文件。</source>
+            <translation>"%2" already exists in %1.
+
+Choose Skip existing items to keep the current file without installing this one. Choose Cancel to stop processing the remaining files.</translation>
+        </message>
+        <message>
+            <source>跳过已有项</source>
+            <translation>Skip existing items</translation>
+        </message>
+        <message>
+            <source>盖掉</source>
+            <translation>Replace</translation>
+        </message>
+        <message>
+            <source>建不出 %1。</source>
+            <translation>Could not create %1.</translation>
+        </message>
+        <message>
+            <source>建不出目录。</source>
+            <translation>Could not create the folder.</translation>
+        </message>
+        <message>
+            <source>写不进 %1：%2</source>
+            <translation>Could not write to %1: %2</translation>
+        </message>
+        <message>
+            <source>读不了拖进来的那一份 %1。</source>
+            <translation>Could not read the dropped file %1.</translation>
+        </message>
+        <message>
+            <source>读不了源文件。</source>
+            <translation>Could not read the source file.</translation>
+        </message>
+        <message>
+            <source>读不了拖进来的那一份 %1（%2）。</source>
+            <translation>Could not read the dropped file %1 (%2).</translation>
+        </message>
+        <message>
+            <source>复制不过去：%1 → %2（%3）</source>
+            <translation>Could not copy %1 to %2 (%3)</translation>
+        </message>
+        <message>
+            <source>复制文件：%1</source>
+            <translation>Copy file: %1</translation>
+        </message>
+        <message>
+            <source>先处理一下没保存的改动</source>
+            <translation>Unsaved changes</translation>
+        </message>
+        <message>
+            <source>这个实例的设置里还有没保存的改动，现在不能离开这一页。
+
+先把它处理掉（存下来或者丢掉），再拖一次。</source>
+            <translation>This instance has unsaved settings, so you cannot leave this page yet.
+
+Save or discard the changes, then drop the files again.</translation>
+        </message>
+        <message>
+            <source>%1（%2）</source>
+            <translation>%1 (%2)</translation>
+        </message>
+        <message>
+            <source>认不出来</source>
+            <translation>Unrecognized file</translation>
+        </message>
+        <message>
+            <source>%1 个%2</source>
+            <translation>%1 × %2</translation>
+        </message>
+        <message>
+            <source>装进这个实例</source>
+            <translation>Install in this instance</translation>
+        </message>
+        <message>
+            <source>将在此实例中安装 %1，是否继续？</source>
+            <translation>Install %1 in this instance?</translation>
+        </message>
+        <message>
+            <source>继续</source>
+            <translation>Continue</translation>
+        </message>
+        <message>
+            <source>不装</source>
+            <translation>Skip</translation>
+        </message>
+        <message>
+            <source>未能完成的文件操作原因报告：%1</source>
+            <translation>Report for failed file operations: %1</translation>
+        </message>
+        <message>
+            <source>有几个没装进去</source>
+            <translation>Some files could not be installed</translation>
+        </message>
+        <message>
+            <source>拖进来的东西认不出来</source>
+            <translation>Unrecognized dropped files</translation>
+        </message>
+        <message>
+            <source>下面这几个不是能装进实例的东西：
+
+%1</source>
+            <translation>These files cannot be installed in an instance:
+
+%1</translation>
+        </message>
+        <message>
+            <source>选择目标游戏目录</source>
+            <translation>Select target game directory</translation>
+        </message>
+        <message>
+            <source>换不到那个文件夹</source>
+            <translation>Could not switch directories</translation>
+        </message>
+        <message>
+            <source>设置游戏目录「%1」失败，整合包导入取消。</source>
+            <translation>Could not set the game directory to "%1". The modpack import was canceled.</translation>
+        </message>
+        <message>
+            <source>还没有实例</source>
+            <translation>No instances installed</translation>
+        </message>
+        <message>
+            <source>盘上还没有装好的实例，先把文件拖到某个实例的设置页里，或者先装一个。</source>
+            <translation>No instances are installed yet. Install one first, or drop the files directly onto an existing instance's settings page.</translation>
+        </message>
+        <message>
+            <source>装到哪个实例里</source>
+            <translation>Select an instance</translation>
+        </message>
+        <message>
+            <source>这几个文件装进哪一个实例？</source>
+            <translation>Which instance should these files be installed in?</translation>
+        </message>
+        <message>
+            <source>已安装到「%1」。</source>
+            <translation>Installed in "%1".</translation>
         </message>
     </context>
     <context>
@@ -5179,6 +6155,22 @@ The corresponding records in the game servers.dat will be removed together.</tra
             <source>（无名）</source>
             <translation>(nameless)</translation>
         </message>
+        <message>
+            <source>读不出来：%1</source>
+            <translation>Could not read: %1</translation>
+        </message>
+        <message>
+            <source>%1（%2）</source>
+            <translation>%1 (%2)</translation>
+        </message>
+        <message>
+            <source>%1（%2 / %3）</source>
+            <translation>%1 (%2 / %3)</translation>
+        </message>
+        <message>
+            <source> / %1 个文件 / %2</source>
+            <translation> / Files: %1 / %2</translation>
+        </message>
     </context>
     <context>
         <name>InstanceEditorController</name>
@@ -5233,6 +6225,344 @@ The corresponding records in the game servers.dat will be removed together.</tra
         <message>
             <source>已保存资源包启用顺序：%1</source>
             <translation>Saved resource pack activation sequence: %1</translation>
+        </message>
+        <message>
+            <source>检测到旧版资源包标识，暂不自动转换，请在游戏中调整。</source>
+            <translation>This instance uses legacy resource pack IDs. Adjust the packs in Minecraft; the launcher will not convert the IDs automatically.</translation>
+        </message>
+        <message>
+            <source>未确认此版本的资源包标识格式；首版支持 1.20+ 正式版或已有 file/ 标识的实例。</source>
+            <translation>Could not verify the resource pack ID format. The editor supports Minecraft 1.20+ releases or instances that already use file/ IDs.</translation>
+        </message>
+        <message>
+            <source>%1（%2）</source>
+            <translation>%1 (%2)</translation>
+        </message>
+        <message>
+            <source>打不开这个文件</source>
+            <translation>Could not open file</translation>
+        </message>
+        <message>
+            <source>读不完这个文件</source>
+            <translation>Could not read the entire file</translation>
+        </message>
+        <message>
+            <source>这个实例正开着游戏</source>
+            <translation>This instance is running</translation>
+        </message>
+        <message>
+            <source>%1
+
+游戏里那份配置是它自己读进去的，它退出（或者你在游戏里改一次设置）的时候会整份写回来，现在存下去的东西会被它盖掉。
+
+先把游戏关掉，再回来改。</source>
+            <translation>%1
+
+Minecraft has already loaded this configuration. It can overwrite your changes when you quit or change a setting in-game.
+
+Close the game before editing the file.</translation>
+        </message>
+        <message>
+            <source>盘上那个文件没有了</source>
+            <translation>File is missing</translation>
+        </message>
+        <message>
+            <source>%1
+
+打开它的时候它还在，现在盘上已经没有了（被删掉、或者你把它挪走了）。
+
+现在存下去，它会照你框里这一份重新建出来。</source>
+            <translation>%1
+
+The file was moved or deleted after you opened it.
+
+Saving now will recreate it with the contents of the editor.</translation>
+        </message>
+        <message>
+            <source>重新写出来</source>
+            <translation>Recreate file</translation>
+        </message>
+        <message>
+            <source>盘上那份被人改过了</source>
+            <translation>File changed on disk</translation>
+        </message>
+        <message>
+            <source>%1
+
+这份文件在你打开之后被别的东西改过（多半是游戏退出时写回，也可能是另一个编辑器）。现在存下去，改它的那一次就没有了。</source>
+            <translation>%1
+
+This file changed after you opened it. Minecraft may have written it when quitting, or another editor may have changed it. Saving now will overwrite those changes.</translation>
+        </message>
+        <message>
+            <source>盖掉它</source>
+            <translation>Overwrite</translation>
+        </message>
+        <message>
+            <source>读盘上那一份</source>
+            <translation>Reload from disk</translation>
+        </message>
+        <message>
+            <source>点击「重新载入」将放弃当前修改并读取磁盘最新内容。</source>
+            <translation>Reloading from disk discards your changes and opens the latest version of the file.</translation>
+        </message>
+        <message>
+            <source>这个数据目录已被另一份启动器占用</source>
+            <translation>This data directory is in use by another launcher window</translation>
+        </message>
+        <message>
+            <source>保存之前没能读到原来那一份</source>
+            <translation>Could not read the original file</translation>
+        </message>
+        <message>
+            <source>%1
+
+读它读不完（%2），所以这一次没有存 —— 直接写下去的话，它原来是什么样就再也找不回来了。</source>
+            <translation>%1
+
+Could not read the entire original file (%2). Nothing was saved. Overwriting it now would make the original contents unrecoverable.</translation>
+        </message>
+        <message>
+            <source>保存之前没能留下原来那一份</source>
+            <translation>Could not back up the original file</translation>
+        </message>
+        <message>
+            <source>%1
+
+没能往这里写一份备份（%2）：
+%3
+
+所以这一次没有存 —— 这一页改错了此操作不可撤销，请确认是否覆盖。</source>
+            <translation>%1
+
+Could not write the backup (%2) to:
+%3
+
+Nothing was saved because the original could not be backed up.</translation>
+        </message>
+        <message>
+            <source>保存失败</source>
+            <translation>Save failed</translation>
+        </message>
+        <message>
+            <source>暂无历史版本</source>
+            <translation>No version history</translation>
+        </message>
+        <message>
+            <source>这个配置文件没有可用的备份。保存修改前会自动保留原内容。</source>
+            <translation>No backups are available for this configuration file. The original contents are backed up automatically before saving changes.</translation>
+        </message>
+        <message>
+            <source>%1 / %2 字节
+%3</source>
+            <translation>%1 / %2 bytes
+%3</translation>
+        </message>
+        <message>
+            <source>配置历史版本</source>
+            <translation>Configuration version history</translation>
+        </message>
+        <message>
+            <source>原文件：%1
+
+从新到旧排列。选择后仅载入编辑器，确认内容再保存；取消不会改动正文或磁盘。</source>
+            <translation>Original file: %1
+
+Versions are listed newest first. Open a version in the editor, then review it before saving. Canceling leaves the editor and the file unchanged.</translation>
+        </message>
+        <message>
+            <source>载入编辑器</source>
+            <translation>Open in editor</translation>
+        </message>
+        <message>
+            <source>取消</source>
+            <translation>Cancel</translation>
+        </message>
+        <message>
+            <source>找不到原来那一份了</source>
+            <translation>Original backup not found</translation>
+        </message>
+        <message>
+            <source>这个文件的备份不在了（%1）。</source>
+            <translation>The backup for this file is missing (%1).</translation>
+        </message>
+        <message>
+            <source>备份已不可用</source>
+            <translation>Backup no longer available</translation>
+        </message>
+        <message>
+            <source>这份历史版本已被移除或不再位于有效的备份目录中，请重新选择。</source>
+            <translation>This version was removed or is no longer in a valid backup directory. Select another version.</translation>
+        </message>
+        <message>
+            <source>打不开备份里的那一份</source>
+            <translation>Could not open backup</translation>
+        </message>
+        <message>
+            <source>备份太大，未载入</source>
+            <translation>Backup too large</translation>
+        </message>
+        <message>
+            <source>这份备份超过文本编辑上限，请通过文件管理器查看：
+%1</source>
+            <translation>This backup exceeds the text editor's size limit. Open it in File Explorer:
+%1</translation>
+        </message>
+        <message>
+            <source>读不完备份里的那一份</source>
+            <translation>Could not read the entire backup</translation>
+        </message>
+        <message>
+            <source>备份文件不是 UTF-8</source>
+            <translation>Backup is not UTF-8</translation>
+        </message>
+        <message>
+            <source>%1
+
+该文件的部分字节不是 UTF-8，放入此编辑框（仅支持 UTF-8）会损坏其中的文字。若要使用它，请直接用该文件替换：
+%2</source>
+            <translation>%1
+
+Part of this file is not UTF-8. Opening it in this UTF-8 editor would corrupt the text. To restore it, use the backup file directly:
+%2</translation>
+        </message>
+        <message>
+            <source>改过的东西还没存</source>
+            <translation>Unsaved changes</translation>
+        </message>
+        <message>
+            <source>「%1」上改的那几格还没写下去。现在就返回的话，改的那些就没了。</source>
+            <translation>Your changes to "%1" have not been saved. Going back now will discard them.</translation>
+        </message>
+        <message>
+            <source>返回并丢掉</source>
+            <translation>Go back and discard</translation>
+        </message>
+        <message>
+            <source>留下来继续改</source>
+            <translation>Keep editing</translation>
+        </message>
+        <message>
+            <source>「%1」所在的实例还开着游戏。
+
+游戏里那份存档是它自己读进去的，它退出（或者你在游戏里存一次档）的时候会整份写回来，现在写下去的东西会被它盖掉。
+
+先把游戏关掉，再回来改。</source>
+            <translation>Minecraft is still running the instance for "%1".
+
+The game has already loaded this world and may overwrite your changes when you quit or save in-game.
+
+Close the game before editing the world.</translation>
+        </message>
+        <message>
+            <source>这个存档不见了</source>
+            <translation>World save is missing</translation>
+        </message>
+        <message>
+            <source>%1
+
+之前还在，现在磁盘上已没有它，本次未写入任何内容。</source>
+            <translation>%1
+
+The world save is no longer on disk. Nothing was written.</translation>
+        </message>
+        <message>
+            <source>「%1」的 level.dat 在你打开这一页之后被改过（游戏在跑？别的工具？）。
+
+现在存下去，改它的那一次就没有了。
+
+（仅应用已修改的配置项。）</source>
+            <translation>The level.dat file for "%1" changed after you opened this page. Minecraft or another tool may have updated it.
+
+Saving now will overwrite the latest values for the settings you edited. Other settings will be left unchanged.</translation>
+        </message>
+        <message>
+            <source>照样存下去</source>
+            <translation>Save anyway</translation>
+        </message>
+        <message>
+            <source>读不出这个存档了</source>
+            <translation>Could not read world save</translation>
+        </message>
+        <message>
+            <source>「%1」的存档内容读不出来：
+
+%2
+
+所以这一次没有存 —— 我们不会在一份读不出来的存档上写东西。</source>
+            <translation>Could not read the world save for "%1":
+
+%2
+
+Nothing was saved because the world could not be read.</translation>
+        </message>
+        <message>
+            <source>这一项改不了</source>
+            <translation>Could not change this setting</translation>
+        </message>
+        <message>
+            <source>「%1」
+
+%2
+
+所以这一次没有存，盘上那份原样没动。</source>
+            <translation>"%1"
+
+%2
+
+Nothing was saved. The file on disk is unchanged.</translation>
+        </message>
+        <message>
+            <source>这一条规则改不了</source>
+            <translation>Could not change this game rule</translation>
+        </message>
+        <message>
+            <source>「%1」
+
+%2
+
+所以这一次没有存。</source>
+            <translation>"%1"
+
+%2
+
+Nothing was saved.</translation>
+        </message>
+        <message>
+            <source>「%1」
+
+%2</source>
+            <translation>"%1"
+
+%2</translation>
+        </message>
+        <message>
+            <source>改过还没保存</source>
+            <translation>Unsaved changes</translation>
+        </message>
+        <message>
+            <source>这个文件刚才改的地方还没写到盘上，离开就会丢掉这些改动。
+
+要丢掉吗？</source>
+            <translation>Your changes to this file have not been saved. Leaving now will discard them.
+
+Discard changes?</translation>
+        </message>
+        <message>
+            <source>丢掉改动</source>
+            <translation>Discard changes</translation>
+        </message>
+        <message>
+            <source>留在这儿</source>
+            <translation>Keep editing</translation>
+        </message>
+        <message>
+            <source>这个世界的游戏规则 / 那几格刚才改的地方还没写下去，关掉就丢了。
+
+要丢掉吗？</source>
+            <translation>Your changes to this world's settings or game rules have not been saved. Closing this page will discard them.
+
+Discard changes?</translation>
         </message>
     </context>
     <context>
@@ -6697,6 +8027,38 @@ The corresponding records in the game servers.dat will be removed together.</tra
             <source> 等</source>
             <translation>Wait</translation>
         </message>
+        <message>
+            <source>启动设置</source>
+            <translation>Launch settings</translation>
+        </message>
+        <message>
+            <source>原理图</source>
+            <translation>Schematics</translation>
+        </message>
+        <message>
+            <source>没连上</source>
+            <translation>Couldn't connect</translation>
+        </message>
+        <message>
+            <source>连不上</source>
+            <translation>Couldn't connect</translation>
+        </message>
+        <message>
+            <source>%1/%2 人</source>
+            <translation>Players: %1/%2</translation>
+        </message>
+        <message>
+            <source>%1 人</source>
+            <translation>Players: %1</translation>
+        </message>
+        <message>
+            <source>在线</source>
+            <translation>Online</translation>
+        </message>
+        <message>
+            <source>、</source>
+            <translation>, </translation>
+        </message>
     </context>
     <context>
         <name>InstanceTransferController</name>
@@ -7863,6 +9225,17 @@ The current version will also be retained separately and the file will not be de
         </message>
     </context>
     <context>
+        <name>IntegrityReportPage</name>
+        <message>
+            <source>「%1」%2</source>
+            <translation>“%1” — %2</translation>
+        </message>
+        <message>
+            <source>完整性检查</source>
+            <translation>Integrity check</translation>
+        </message>
+    </context>
+    <context>
         <name>JavaManageDialog</name>
         <message>
             <source>Java %1：</source>
@@ -7970,6 +9343,22 @@ The current version will also be retained separately and the file will not be de
         <message>
             <source>暂不启动，可先安装该 Java 或修改实例设置。</source>
             <translation>If you do not want to start it yet, you can install the Java or modify the instance settings first.</translation>
+        </message>
+        <message>
+            <source>Java %1（%2）</source>
+            <translation>Java %1 (%2)</translation>
+        </message>
+        <message>
+            <source>实例「%1」在「实例设置…」里指定了 %2，而这个版本要求 Java %3。
+
+Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本。
+
+%4</source>
+            <translation>Instance "%1" is configured to use %2 in Instance settings, but this Minecraft version requires Java %3.
+
+The Java version mismatch may prevent the game from launching. We recommend switching to the compatible version.
+
+%4</translation>
         </message>
     </context>
     <context>
@@ -8127,6 +9516,10 @@ If it is indeed a copy of Java, please select java.exe in its bin directory; if 
             <source>实例指定的 Java 版本不符时：不再提醒，直接按它指定的 Java 启动。</source>
             <translation>When the Java version specified by the instance does not match: No more prompts, just start the Java version specified by it.</translation>
         </message>
+        <message>
+            <source>未知</source>
+            <translation>Unknown</translation>
+        </message>
     </context>
     <context>
         <name>KeyCapture</name>
@@ -8137,6 +9530,290 @@ If it is indeed a copy of Java, please select java.exe in its bin directory; if 
         <message>
             <source>请按键…</source>
             <translation>Please press the button...</translation>
+        </message>
+    </context>
+    <context>
+        <name>LaunchController</name>
+        <message>
+            <source>已经有一个相同的运行中游戏进程了！</source>
+            <translation>This game session is already running</translation>
+        </message>
+        <message>
+            <source>「%1」刚刚才启动过一次，那一份现在还在跑。
+
+再启动一份会开出第二个一模一样的游戏进程：同一个账号、同一个实例，两份游戏开着同一份存档。</source>
+            <translation>"%1" was just launched and is still running.
+
+Launching again starts a second game process with the same account and instance. Both processes will use the same world saves.</translation>
+        </message>
+        <message>
+            <source>取消</source>
+            <translation>Cancel</translation>
+        </message>
+        <message>
+            <source>仍要启动</source>
+            <translation>Launch anyway</translation>
+        </message>
+        <message>
+            <source>可以在设置中关闭此提示（设置 → 提示 →「重复启动时确认」）。</source>
+            <translation>To turn off this prompt, go to Settings → Hint → Confirm on repeat boot.</translation>
+        </message>
+        <message>
+            <source>进入单人世界可能会丢失进度</source>
+            <translation>Opening a singleplayer world may overwrite progress</translation>
+        </message>
+        <message>
+            <source>「%1」现在还有一份在跑。
+
+两份游戏同时打开同一份存档时，后保存（或者后退出）的那一份会盖掉另一份的进度 —— 存档可能回退，也可能坏掉。</source>
+            <translation>Another session of "%1" is still running.
+
+If two sessions open the same world at once, the last one to save or exit can overwrite the other session's progress. This can roll back or corrupt the save.</translation>
+        </message>
+        <message>
+            <source>可以在设置中关闭此提示（设置 → 提示 →「同一实例已运行时提醒」）。</source>
+            <translation>To turn off this alert, go to Settings → Hint → Alert when the same instance is already running.</translation>
+        </message>
+        <message>
+            <source>未选择版本</source>
+            <translation>No version selected</translation>
+        </message>
+        <message>
+            <source>请先在「已安装版本」下拉框中选择一个版本。</source>
+            <translation>Select a version from the Installed Versions list first.</translation>
+        </message>
+        <message>
+            <source>游戏目录不可用</source>
+            <translation>Game directory unavailable</translation>
+        </message>
+        <message>
+            <source>游戏目录所在的磁盘当前不可用：
+%1
+
+如果是移动硬盘或网络盘，接好之后再点启动；也可以在「设置」中更换游戏目录。</source>
+            <translation>The drive containing the game directory is unavailable:
+%1
+
+Reconnect the external drive or network drive before launching, or select a different game directory in Settings.</translation>
+        </message>
+        <message>
+            <source>这个实例正忙</source>
+            <translation>Instance is busy</translation>
+        </message>
+        <message>
+            <source>「%1」正在被另一项操作占用（安装、导入、复制、备份或还原），请等它结束后再启动。
+
+别的实例不受影响，可以直接启动。</source>
+            <translation>"%1" is being installed, imported, copied, backed up, or restored. Wait for that operation to finish before launching.
+
+Other instances can still be launched.</translation>
+        </message>
+        <message>
+            <source>这个实例还没装完</source>
+            <translation>Instance installation is incomplete</translation>
+        </message>
+        <message>
+            <source>「%1」是上一次没导完的整合包，文件不齐，启动会崩在缺库上。
+
+重新导入同一个整合包、用同一个名字，就能接着上次下好的部分往下装。</source>
+            <translation>"%1" is from an unfinished modpack import. Launching it now would fail because libraries are missing.
+
+Import the same modpack under the same name to resume using the files already downloaded.</translation>
+        </message>
+        <message>
+            <source>启动 %1</source>
+            <translation>Launch %1</translation>
+        </message>
+        <message>
+            <source>校验登录状态</source>
+            <translation>Verify sign-in</translation>
+        </message>
+        <message>
+            <source>检查启动文件</source>
+            <translation>Check launch files</translation>
+        </message>
+        <message>
+            <source>准备 Java 运行环境</source>
+            <translation>Prepare Java runtime</translation>
+        </message>
+        <message>
+            <source>等待游戏启动</source>
+            <translation>Wait for game to start</translation>
+        </message>
+        <message>
+            <source>完成</source>
+            <translation>Done</translation>
+        </message>
+        <message>
+            <source>正在校验登录状态...</source>
+            <translation>Verifying sign-in…</translation>
+        </message>
+        <message>
+            <source>登录缺失</source>
+            <translation>Sign-in required</translation>
+        </message>
+        <message>
+            <source>请先登录微软账号，或在「账号与外观…」中添加离线账号。</source>
+            <translation>Sign in with a Microsoft account or add an offline account under Accounts &amp; appearance.</translation>
+        </message>
+        <message>
+            <source>%1
+
+请重新登录微软账号，或在「账号与外观…」中添加离线账号。</source>
+            <translation>%1
+
+Sign in to your Microsoft account again or add an offline account under Accounts &amp; appearance.</translation>
+        </message>
+        <message>
+            <source>离线账号，无需联网登录</source>
+            <translation>Offline account: online sign-in is not required</translation>
+        </message>
+        <message>
+            <source>版本信息缺失</source>
+            <translation>Version information is missing</translation>
+        </message>
+        <message>
+            <source>找不到版本 %1 的 version.json，无法确定所需的 Java 版本。
+请先选中该版本并点击"下载"重新获取版本信息。</source>
+            <translation>Could not find version.json for %1, so the required Java version is unknown.
+Select the version and click Download to get its version information again.</translation>
+        </message>
+        <message>
+            <source>版本不完整</source>
+            <translation>Incomplete version</translation>
+        </message>
+        <message>
+            <source>正在准备游戏文件...</source>
+            <translation>Preparing game files…</translation>
+        </message>
+        <message>
+            <source>无法启动</source>
+            <translation>Could not launch</translation>
+        </message>
+        <message>
+            <source>准备 natives 失败，游戏起不来：
+
+%1</source>
+            <translation>Could not prepare the native libraries:
+
+%1</translation>
+        </message>
+        <message>
+            <source>启动前检查没通过，游戏起不来：
+
+%1</source>
+            <translation>Pre-launch checks failed:
+
+%1</translation>
+        </message>
+        <message>
+            <source>内存可能不够</source>
+            <translation>Available memory may be too low</translation>
+        </message>
+        <message>
+            <source>这个实例要 %1 MB 堆内存（已开着的实例合计 %3 MB），而系统当前可用物理内存约 %2 MB。
+
+可用物理内存不足，启动可能导致卡顿。建议关闭不必要的应用程序，或到设置里把内存调小。仍然继续吗？</source>
+            <translation>This instance requests %1 MB of heap memory. Running instances already use a combined allocation of %3 MB, and about %2 MB of physical memory is available.
+
+Launching with low available memory can cause slowdowns. Close unused apps or lower the memory allocation in Settings. Launch anyway?</translation>
+        </message>
+        <message>
+            <source>正在准备 Java 运行时...</source>
+            <translation>Preparing Java runtime…</translation>
+        </message>
+        <message>
+            <source>Java 运行时缺失</source>
+            <translation>Java runtime unavailable</translation>
+        </message>
+        <message>
+            <source>「%1」指定的 Java 用不了（路径不存在，或者主版本不是 %2）。
+可以在「实例设置…」里改这个实例的 Java 路径，或者把它切回「跟随全局」。</source>
+            <translation>The Java runtime configured for "%1" is unavailable: its path is missing or its major version is not %2.
+Choose a different Java path in Instance Settings, or use the global Java setting.</translation>
+        </message>
+        <message>
+            <source>找不到或无法下载 Java %1，请手动指定 Java 路径。</source>
+            <translation>Could not find or download Java %1. Select a Java path manually.</translation>
+        </message>
+        <message>
+            <source>账号被切换了</source>
+            <translation>Account changed</translation>
+        </message>
+        <message>
+            <source>准备 Java 运行环境的时候账号从「%1」换成了「%2」。
+这一次没有启动 —— 不然游戏会带着另一个账号的身份配原来那个账号的登录令牌起来，联机时会被服务器拒绝。
+
+请再点一次启动。</source>
+            <translation>The account changed from "%1" to "%2" while Java was being prepared.
+The game was not launched because its sign-in token no longer matches the selected account. Multiplayer servers would reject the connection.
+
+Click Launch again.</translation>
+        </message>
+        <message>
+            <source>实例设置写入失败</source>
+            <translation>Could not save instance settings</translation>
+        </message>
+        <message>
+            <source>找到了匹配的 Java（%1），但没能把它记到实例「%2」的设置里：
+%3
+
+没有启动。你可以在「实例设置…」里手动指定这条路径。</source>
+            <translation>Found a compatible Java runtime (%1), but could not save it in the settings for "%2":
+%3
+
+The game was not launched. You can set the Java path manually in Instance Settings.</translation>
+        </message>
+    </context>
+    <context>
+        <name>LaunchHistory</name>
+        <message>
+            <source>上次游玩 %1</source>
+            <translation>Last played: %1</translation>
+        </message>
+        <message>
+            <source>昨天 %1</source>
+            <translation>Yesterday at %1</translation>
+        </message>
+        <message>
+            <source>前天 %1</source>
+            <translation>Two days ago at %1</translation>
+        </message>
+        <message>
+            <source>单人世界：%1</source>
+            <translation>Singleplayer world: %1</translation>
+        </message>
+        <message>
+            <source>服务器：%1</source>
+            <translation>Server: %1</translation>
+        </message>
+        <message>
+            <source>（上次是异常退出）</source>
+            <translation> (previous session ended unexpectedly)</translation>
+        </message>
+        <message>
+            <source>（还在玩）</source>
+            <translation> (still running)</translation>
+        </message>
+        <message>
+            <source>（上次没起来）</source>
+            <translation> (previous launch failed)</translation>
+        </message>
+        <message>
+            <source>玩了不到 1 分钟</source>
+            <translation>Played for less than 1 min</translation>
+        </message>
+        <message>
+            <source>玩了 %1 分钟</source>
+            <translation>Played for %1 min</translation>
+        </message>
+        <message>
+            <source>玩了 %1 小时</source>
+            <translation>Played for %1 hr</translation>
+        </message>
+        <message>
+            <source>玩了 %1 小时 %2 分</source>
+            <translation>Played for %1 hr %2 min</translation>
         </message>
     </context>
     <context>
@@ -8288,6 +9965,13 @@ If it is indeed a copy of Java, please select java.exe in its bin directory; if 
         <message>
             <source>（空）</source>
             <translation>(null)</translation>
+        </message>
+    </context>
+    <context>
+        <name>ListRowDelegate</name>
+        <message>
+            <source>启动</source>
+            <translation>Play</translation>
         </message>
     </context>
     <context>
@@ -10716,6 +12400,18 @@ Are you sure to delete?</translation>
     <context>
         <name>MainWindowPanels</name>
         <message>
+            <source>（没有可显示的内容）</source>
+            <translation>Nothing to display</translation>
+        </message>
+        <message>
+            <source>活动中心</source>
+            <translation>Activity center</translation>
+        </message>
+        <message>
+            <source>关闭</source>
+            <translation>Close</translation>
+        </message>
+        <message>
             <source>工具箱</source>
             <translation>Toolbox</translation>
         </message>
@@ -11094,6 +12790,70 @@ Are you sure to delete?</translation>
     <context>
         <name>MainWindowUI</name>
         <message>
+            <source>启动游戏</source>
+            <translation>Play</translation>
+        </message>
+        <message>
+            <source>当前</source>
+            <translation>Current</translation>
+        </message>
+        <message>
+            <source>账号</source>
+            <translation>Account</translation>
+        </message>
+        <message>
+            <source>导入平台整合包或可识别的本地压缩包。</source>
+            <translation>Import a platform modpack or a supported local archive.</translation>
+        </message>
+        <message>
+            <source>切换实例：%1</source>
+            <translation>Switch instance: %1</translation>
+        </message>
+        <message>
+            <source>当前实例</source>
+            <translation>Current instance</translation>
+        </message>
+        <message>
+            <source>启动 %1</source>
+            <translation>Play %1</translation>
+        </message>
+        <message>
+            <source>停止游戏</source>
+            <translation>Stop game</translation>
+        </message>
+        <message>
+            <source>安装中 %1%</source>
+            <translation>Installing: %1%</translation>
+        </message>
+        <message>
+            <source>安装中</source>
+            <translation>Installing</translation>
+        </message>
+        <message>
+            <source>搜索实例</source>
+            <translation>Search instances</translation>
+        </message>
+        <message>
+            <source>没有符合的实例</source>
+            <translation>No matching instances</translation>
+        </message>
+        <message>
+            <source>新建实例</source>
+            <translation>New instance</translation>
+        </message>
+        <message>
+            <source>管理全部实例</source>
+            <translation>Manage all instances</translation>
+        </message>
+        <message>
+            <source>最近</source>
+            <translation>Recent</translation>
+        </message>
+        <message>
+            <source>全部 · %1</source>
+            <translation>All · %1</translation>
+        </message>
+        <message>
             <source>这一份的更多操作（自带的那一份移不掉、也删不掉）</source>
             <translation>More operations on this copy (the one that comes with it cannot be moved or deleted)</translation>
         </message>
@@ -11216,10 +12976,6 @@ Are you sure to delete?</translation>
         <message>
             <source>跟随系统</source>
             <translation>Follow system</translation>
-        </message>
-        <message>
-            <source>（部分翻译）</source>
-            <translation> (partial translation)</translation>
         </message>
         <message>
             <source>语言</source>
@@ -12421,6 +14177,42 @@ It will not restart automatically when stopped manually or exited normally.</tra
             <source>正在启动 %1 ...</source>
             <translation>Starting %1 ...</translation>
         </message>
+        <message>
+            <source>下载源</source>
+            <translation>Download source</translation>
+        </message>
+        <message>
+            <source>下载源 · %1</source>
+            <translation>Download source · %1</translation>
+        </message>
+        <message>
+            <source>优先源速度缓慢时，自动改用另一个源。</source>
+            <translation>Automatically switches to another source if the preferred source is slow.</translation>
+        </message>
+        <message>
+            <source>全部</source>
+            <translation>All</translation>
+        </message>
+        <message>
+            <source>正式版</source>
+            <translation>Releases</translation>
+        </message>
+        <message>
+            <source>快照</source>
+            <translation>Snapshots</translation>
+        </message>
+        <message>
+            <source>远古版</source>
+            <translation>Old versions</translation>
+        </message>
+        <message>
+            <source>暂无可用版本，请刷新重试。</source>
+            <translation>No versions available. Refresh to try again.</translation>
+        </message>
+        <message>
+            <source>%1 个版本</source>
+            <translation>Versions: %1</translation>
+        </message>
     </context>
     <context>
         <name>ModDependencies</name>
@@ -12997,6 +14789,14 @@ It will not restart automatically when stopped manually or exited normally.</tra
             <source>导出完成</source>
             <translation>Export completed</translation>
         </message>
+        <message>
+            <source>正在后台分析整合包…（%1/%2）%3</source>
+            <translation>Analyzing modpack… (%1/%2) %3</translation>
+        </message>
+        <message>
+            <source>、</source>
+            <translation>, </translation>
+        </message>
     </context>
     <context>
         <name>NbtTree</name>
@@ -13079,6 +14879,46 @@ It will not restart automatically when stopped manually or exited normally.</tra
             <source>正在获取版本…</source>
             <translation>Getting version...</translation>
         </message>
+        <message>
+            <source>名称</source>
+            <translation>Name</translation>
+        </message>
+        <message>
+            <source>会当成这个服务端的目录名</source>
+            <translation>Used as the server folder name</translation>
+        </message>
+        <message>
+            <source>服务端根目录下面以它的名字命名的那个目录</source>
+            <translation>This folder is named after the server and is inside the server root.</translation>
+        </message>
+        <message>
+            <source>服务端</source>
+            <translation>Server</translation>
+        </message>
+        <message>
+            <source>游戏版本</source>
+            <translation>Game version</translation>
+        </message>
+        <message>
+            <source>构建号</source>
+            <translation>Build number</translation>
+        </message>
+        <message>
+            <source>内存上限</source>
+            <translation>Memory limit</translation>
+        </message>
+        <message>
+            <source>创建</source>
+            <translation>Create</translation>
+        </message>
+        <message>
+            <source>先给它起个名字，目录名是照着名字来的。</source>
+            <translation>Enter a server name to set the folder name.</translation>
+        </message>
+        <message>
+            <source>新建服务端</source>
+            <translation>Create server</translation>
+        </message>
     </context>
     <context>
         <name>OptionValueDelegate</name>
@@ -13104,6 +14944,10 @@ It will not restart automatically when stopped manually or exited normally.</tra
         <message>
             <source>未保存的改动会丢失。</source>
             <translation>Unsaved changes will be lost.</translation>
+        </message>
+        <message>
+            <source>返回</source>
+            <translation>Back</translation>
         </message>
     </context>
     <context>
@@ -13399,6 +15243,378 @@ It will not restart automatically when stopped manually or exited normally.</tra
             <source>%1 个模组在 Modrinth 和 CurseForge 上都没认出来（可能手工改过、或者没传到任何一个平台），请在模组页补充 —— 那一页可以勾「只看没认出来的」先挑它们出来，或者点「移除没认出来的」整批删掉；也可以在概览中暂时禁用模组部分。</source>
             <translation>%1 modules are not recognized on Modrinth and CurseForge (maybe they have been modified manually or not uploaded to any platform). Please add them on the module page - on that page, you can check "See only unrecognized ones" to select them first, or click "Remove unrecognized ones" to delete them in batches; you can also temporarily disable the module part in the overview.</translation>
         </message>
+        <message>
+            <source>游戏设置</source>
+            <translation>Game settings</translation>
+        </message>
+        <message>
+            <source>原版按键</source>
+            <translation>Vanilla key bindings</translation>
+        </message>
+        <message>
+            <source>服务器列表</source>
+            <translation>Server list</translation>
+        </message>
+        <message>
+            <source>MaLiLib 热键</source>
+            <translation>MaLiLib hotkeys</translation>
+        </message>
+        <message>
+            <source>通用文件组</source>
+            <translation>Generic file group</translation>
+        </message>
+        <message>
+            <source>自定义</source>
+            <translation>Custom</translation>
+        </message>
+        <message>
+            <source>数据包</source>
+            <translation>Data packs</translation>
+        </message>
+        <message>
+            <source>配置文件 config/</source>
+            <translation>Configuration files (config/)</translation>
+        </message>
+        <message>
+            <source>默认配置 defaultconfigs/</source>
+            <translation>Default configs (defaultconfigs/)</translation>
+        </message>
+        <message>
+            <source>资源包</source>
+            <translation>Resource packs</translation>
+        </message>
+        <message>
+            <source>光影包</source>
+            <translation>Shader packs</translation>
+        </message>
+        <message>
+            <source>旧版（未分类）</source>
+            <translation>Legacy (uncategorized)</translation>
+        </message>
+        <message>
+            <source>全部</source>
+            <translation>All</translation>
+        </message>
+        <message>
+            <source>旧版预设没写类别，九样都能收。</source>
+            <translation>Uncategorized legacy presets can capture all nine content types.</translation>
+        </message>
+        <message>
+            <source>「游戏设置」预设不收资源包 / 光影包。</source>
+            <translation>Game settings presets do not include resource packs or shader packs.</translation>
+        </message>
+        <message>
+            <source>仅提取资源包。</source>
+            <translation>Capture resource packs only.</translation>
+        </message>
+        <message>
+            <source>仅提取光影包。</source>
+            <translation>Capture shader packs only.</translation>
+        </message>
+        <message>
+            <source>模组预设请使用“编辑模组清单”添加平台项目，当前不从实例提取本地 JAR。</source>
+            <translation>Use Edit mod list to add projects to a mod preset. Local JAR files are not captured.</translation>
+        </message>
+        <message>
+            <source>数据包按存档应用；目标中没有同名存档时标记为「待应用」。</source>
+            <translation>Data packs are applied per world. If the target has no world with the same name, the pack is marked pending.</translation>
+        </message>
+        <message>
+            <source>基础设置</source>
+            <translation>Basic settings</translation>
+        </message>
+        <message>
+            <source>标准按键</source>
+            <translation>Standard key bindings</translation>
+        </message>
+        <message>
+            <source>MaLiLib 值</source>
+            <translation>MaLiLib values</translation>
+        </message>
+        <message>
+            <source>最后修改：%1</source>
+            <translation>Last modified: %1</translation>
+        </message>
+        <message>
+            <source>请选择预设类别。</source>
+            <translation>Select a preset category.</translation>
+        </message>
+        <message>
+            <source>没能建出新的一份（预设目录写不进去）。</source>
+            <translation>Could not create the preset: the preset folder is not writable.</translation>
+        </message>
+        <message>
+            <source>建好了。在右边改名字和说明，然后从实例提取内容。</source>
+            <translation>Preset created. Edit its name and description on the right, then capture content from an instance.</translation>
+        </message>
+        <message>
+            <source>复制失败：这一份读不回来，或者新目录建不出来。</source>
+            <translation>Could not copy the preset: the source could not be read or the destination folder could not be created.</translation>
+        </message>
+        <message>
+            <source>这一份读不出来：%1</source>
+            <translation>Could not read this preset: %1</translation>
+        </message>
+        <message>
+            <source>名字不能空着。</source>
+            <translation>Enter a name.</translation>
+        </message>
+        <message>
+            <source>没有要保存的改动。</source>
+            <translation>No changes to save.</translation>
+        </message>
+        <message>
+            <source>保存失败：无法写入预设文件。</source>
+            <translation>Could not save: the preset file could not be written.</translation>
+        </message>
+        <message>
+            <source>保存了。</source>
+            <translation>Saved.</translation>
+        </message>
+        <message>
+            <source>删除失败：无法删除预设目录。</source>
+            <translation>Could not delete the preset folder.</translation>
+        </message>
+        <message>
+            <source>删掉了「%1」。</source>
+            <translation>Removed "%1".</translation>
+        </message>
+        <message>
+            <source>综合预设和旧版混合预设不设默认：默认只对四类预设生效。</source>
+            <translation>Composite and mixed legacy presets cannot be set as defaults. Defaults only apply to the four preset categories.</translation>
+        </message>
+        <message>
+            <source>设置默认预设失败：该预设已不存在。</source>
+            <translation>Could not set the default: the preset no longer exists.</translation>
+        </message>
+        <message>
+            <source>游戏设置 %1 项</source>
+            <translation>Game settings: %1</translation>
+        </message>
+        <message>
+            <source>按键 %1 项</source>
+            <translation>Key bindings: %1</translation>
+        </message>
+        <message>
+            <source>服务器 %1 个</source>
+            <translation>Servers: %1</translation>
+        </message>
+        <message>
+            <source>config %1 个</source>
+            <translation>config files: %1</translation>
+        </message>
+        <message>
+            <source>defaultconfigs %1 个</source>
+            <translation>defaultconfigs files: %1</translation>
+        </message>
+        <message>
+            <source>资源包 %1 个</source>
+            <translation>Resource packs: %1</translation>
+        </message>
+        <message>
+            <source>光影包 %1 个</source>
+            <translation>Shader packs: %1</translation>
+        </message>
+        <message>
+            <source>MaLiLib 热键 %1 格</source>
+            <translation>MaLiLib hotkeys: %1</translation>
+        </message>
+        <message>
+            <source>MaLiLib 值 %1 格</source>
+            <translation>MaLiLib values: %1</translation>
+        </message>
+        <message>
+            <source>数据包 %1 个（%2 个存档）</source>
+            <translation>Data packs: %1 (worlds: %2)</translation>
+        </message>
+        <message>
+            <source>没有收到任何内容。</source>
+            <translation>No content was captured.</translation>
+        </message>
+        <message>
+            <source>已提取：%1。</source>
+            <translation>Captured: %1.</translation>
+        </message>
+        <message>
+            <source>，</source>
+            <translation>, </translation>
+        </message>
+        <message>
+            <source>
+未提取：%1</source>
+            <translation>
+Not captured: %1</translation>
+        </message>
+        <message>
+            <source>；</source>
+            <translation>; </translation>
+        </message>
+        <message>
+            <source>提取失败：%1</source>
+            <translation>Capture failed: %1</translation>
+        </message>
+        <message>
+            <source>这个实例没有认得出平台身份的模组：安装记录里没有它们，或者文件已经被换过。模组类预设没有收进任何东西。</source>
+            <translation>No mods in this instance could be matched to a platform project. Install records may be missing or the files may have been replaced. No mods were captured.</translation>
+        </message>
+        <message>
+            <source>提取到了内容，但这一份预设写不进去。</source>
+            <translation>Content was captured, but the preset could not be saved.</translation>
+        </message>
+        <message>
+            <source>收到 %1 条平台模组引用</source>
+            <translation>Mod project references captured: %1</translation>
+        </message>
+        <message>
+            <source>（这次新增 %1 条）</source>
+            <translation> (%1 new)</translation>
+        </message>
+        <message>
+            <source>；另有 %1 件认不出身份 —— 在「预设编辑器 → 从本地模组导入」里会按指纹再认一次，也可以在模组页手动补充。</source>
+            <translation>; unrecognized mods: %1. Import local mods in the preset editor to try fingerprint matching again, or add them manually on the Mods page.</translation>
+        </message>
+        <message>
+            <source>。</source>
+            <translation>.</translation>
+        </message>
+        <message>
+            <source>未选择任何项。</source>
+            <translation>Nothing was selected.</translation>
+        </message>
+        <message>
+            <source>这类预设不收录：%1。</source>
+            <translation>This preset category does not support: %1.</translation>
+        </message>
+        <message>
+            <source>、</source>
+            <translation>, </translation>
+        </message>
+        <message>
+            <source>
+这一类预设不收：%1。</source>
+            <translation>
+Not supported by this preset category: %1.</translation>
+        </message>
+        <message>
+            <source>这个实例没有认得出平台身份的模组：安装记录里没有它们，或者文件已经被换过；新预设没有创建。</source>
+            <translation>No mods in this instance could be matched to a platform project. Install records may be missing or the files may have been replaced. No preset was created.</translation>
+        </message>
+        <message>
+            <source>预设目录写不进去，新预设没有建。</source>
+            <translation>The preset folder is not writable. No preset was created.</translation>
+        </message>
+        <message>
+            <source>未选择任何项，新预设没有创建。</source>
+            <translation>Nothing was selected. No preset was created.</translation>
+        </message>
+        <message>
+            <source>这类预设不收录：%1；新预设没有创建。</source>
+            <translation>This preset category does not support %1. No preset was created.</translation>
+        </message>
+        <message>
+            <source>没有收到任何内容，新预设没有创建。</source>
+            <translation>No content was captured. No preset was created.</translation>
+        </message>
+        <message>
+            <source>（%1）</source>
+            <translation> (%1)</translation>
+        </message>
+        <message>
+            <source>%1 段，会动 %2 项</source>
+            <translation>Sections: %1; affected items: %2</translation>
+        </message>
+        <message>
+            <source>，%1 段做不了</source>
+            <translation>; blocked sections: %1</translation>
+        </message>
+        <message>
+            <source>，%1 段要留意</source>
+            <translation>; sections needing attention: %1</translation>
+        </message>
+        <message>
+            <source>做不了%1</source>
+            <translation>Blocked%1</translation>
+        </message>
+        <message>
+            <source>跳过</source>
+            <translation>Skipped</translation>
+        </message>
+        <message>
+            <source>没做成%1</source>
+            <translation>Failed%1</translation>
+        </message>
+        <message>
+            <source>没有变化</source>
+            <translation>No changes</translation>
+        </message>
+        <message>
+            <source>写入 %1</source>
+            <translation>Written: %1</translation>
+        </message>
+        <message>
+            <source>新增 %1</source>
+            <translation>Added: %1</translation>
+        </message>
+        <message>
+            <source>删掉 %1</source>
+            <translation>Removed: %1</translation>
+        </message>
+        <message>
+            <source>待应用 %1</source>
+            <translation>Pending: %1</translation>
+        </message>
+        <message>
+            <source>跳过 %1</source>
+            <translation>Skipped: %1</translation>
+        </message>
+        <message>
+            <source>%1：%2；写入 %3 项 %4</source>
+            <translation>%1: %2; items written: %3 %4</translation>
+        </message>
+        <message>
+            <source>键位冲突：%1 ← %2</source>
+            <translation>Key binding conflict: %1 ← %2</translation>
+        </message>
+        <message>
+            <source>没有选中有效的预设。</source>
+            <translation>No valid preset is selected.</translation>
+        </message>
+        <message>
+            <source>这一份预设读不出来：%1</source>
+            <translation>Could not read this preset: %1.</translation>
+        </message>
+        <message>
+            <source>预设读不出来：%1</source>
+            <translation>Could not read the preset: %1</translation>
+        </message>
+        <message>
+            <source>预设里有一段是「覆盖」，需要先确认计划才能应用（可以在实例页 →「预设」那一档里看计划并确认）。</source>
+            <translation>This preset contains a Replace section. Review and confirm the plan on the instance's Presets tab before applying it.</translation>
+        </message>
+        <message>
+            <source>本次操作未完成。</source>
+            <translation>The operation did not complete.</translation>
+        </message>
+        <message>
+            <source>本次操作未完成：%1</source>
+            <translation>The operation did not complete: %1</translation>
+        </message>
+        <message>
+            <source>实例预设「%1」已应用：写入 %2 项</source>
+            <translation>Applied instance preset "%1". Items written: %2</translation>
+        </message>
+        <message>
+            <source>、删掉 %1 项</source>
+            <translation>; removed: %1</translation>
+        </message>
+        <message>
+            <source>，%1 段没做成（管理页里可以看详情）</source>
+            <translation>; failed sections: %1 (see the preset manager for details)</translation>
+        </message>
+        <message>
+            <source>；备份在 %1</source>
+            <translation>; backup: %1</translation>
+        </message>
     </context>
     <context>
         <name>PresetEditorPage</name>
@@ -13518,6 +15734,14 @@ It will not restart automatically when stopped manually or exited normally.</tra
             <source>压缩包 (*.zip)</source>
             <translation>Compressed package (*.zip)</translation>
         </message>
+        <message>
+            <source>游戏设置</source>
+            <translation>Game settings</translation>
+        </message>
+        <message>
+            <source>光影包</source>
+            <translation>Shader packs</translation>
+        </message>
     </context>
     <context>
         <name>PresetInstallPicker</name>
@@ -13620,6 +15844,22 @@ It will not restart automatically when stopped manually or exited normally.</tra
         <message>
             <source>替换%1，使用「%2」</source>
             <translation>Instead of %1, use "%2"</translation>
+        </message>
+        <message>
+            <source>、</source>
+            <translation>, </translation>
+        </message>
+        <message>
+            <source>不使用</source>
+            <translation>None</translation>
+        </message>
+        <message>
+            <source>管理预设</source>
+            <translation>Manage presets</translation>
+        </message>
+        <message>
+            <source>兼容性详情</source>
+            <translation>Compatibility details</translation>
         </message>
     </context>
     <context>
@@ -14121,19 +16361,19 @@ It will not restart automatically when stopped manually or exited normally.</tra
         <name>PresetModReview</name>
         <message>
             <source>确认模组预设</source>
-            <translation>Confirm module defaults</translation>
+            <translation>Confirm mod preset</translation>
         </message>
         <message>
             <source>替代项目仅本次有效，需重新检查必要前置。</source>
-            <translation>The replacement item is only valid this time, and the necessary prerequisites need to be rechecked.</translation>
+            <translation>Replacements apply to this installation. Required dependencies will be checked again.</translation>
         </message>
         <message>
             <source>可选前置（不会自动加入）：%1</source>
-            <translation>Optional prefix (not automatically added): %1</translation>
+            <translation>Optional dependencies (not added automatically): %1</translation>
         </message>
         <message>
             <source>模组</source>
-            <translation>Module</translation>
+            <translation>Mod</translation>
         </message>
         <message>
             <source>版本</source>
@@ -14141,11 +16381,11 @@ It will not restart automatically when stopped manually or exited normally.</tra
         </message>
         <message>
             <source>状态</source>
-            <translation>State</translation>
+            <translation>Status</translation>
         </message>
         <message>
             <source>文件</source>
-            <translation>Document</translation>
+            <translation>File</translation>
         </message>
         <message>
             <source>大小</source>
@@ -14153,11 +16393,11 @@ It will not restart automatically when stopped manually or exited normally.</tra
         </message>
         <message>
             <source>替代项目</source>
-            <translation>Alternative items</translation>
+            <translation>Replacement project</translation>
         </message>
         <message>
             <source>（必要前置）</source>
-            <translation>(necessary prefix)</translation>
+            <translation> (required dependency)</translation>
         </message>
         <message>
             <source>下载后校验 SHA-1：%1</source>
@@ -14165,7 +16405,7 @@ It will not restart automatically when stopped manually or exited normally.</tra
         </message>
         <message>
             <source>格式：modrinth:项目ID 或 curseforge:数字ID</source>
-            <translation>Format: modrinth: project ID or curseforge: numeric ID</translation>
+            <translation>Format: modrinth:projectID or curseforge:numericID</translation>
         </message>
         <message>
             <source>确认安装</source>
@@ -14177,15 +16417,19 @@ It will not restart automatically when stopped manually or exited normally.</tra
         </message>
         <message>
             <source>检查替代</source>
-            <translation>Check for alternatives</translation>
+            <translation>Check replacements</translation>
         </message>
         <message>
             <source>替代项目格式无效，或与原项目相同。</source>
-            <translation>The replacement item has an invalid format or is the same as the original item.</translation>
+            <translation>Enter a valid replacement project ID different from the original.</translation>
         </message>
         <message>
             <source>必要项尚未解决，请提供替代项目，或取消后修正预设 / 重试查询。</source>
-            <translation>The required item has not been resolved, please provide an alternative item, or cancel and correct the default/retry the query.</translation>
+            <translation>Some required projects are still missing. Provide replacements, or cancel to edit the preset or retry the lookup.</translation>
+        </message>
+        <message>
+            <source>、</source>
+            <translation>, </translation>
         </message>
     </context>
     <context>
@@ -14231,48 +16475,48 @@ It will not restart automatically when stopped manually or exited normally.</tra
             <translation>Image quality</translation>
         </message>
         <message>
-            <source>0|流畅</source>
-            <translation>0|Smooth</translation>
+            <source>流畅</source>
+            <translation>Fast</translation>
         </message>
         <message>
-            <source>1|高品质</source>
-            <translation>1|High quality</translation>
+            <source>高品质</source>
+            <translation>Fancy</translation>
         </message>
         <message>
-            <source>2|极佳</source>
-            <translation>2|Excellent</translation>
+            <source>极佳</source>
+            <translation>Fabulous!</translation>
         </message>
         <message>
             <source>粒子效果</source>
             <translation>Particle effects</translation>
         </message>
         <message>
-            <source>0|全部</source>
-            <translation>0|All</translation>
+            <source>全部</source>
+            <translation>All</translation>
         </message>
         <message>
-            <source>1|减少</source>
-            <translation>1|Reduce</translation>
+            <source>减少</source>
+            <translation>Decreased</translation>
         </message>
         <message>
-            <source>2|最少</source>
-            <translation>2|Minimum</translation>
+            <source>最少</source>
+            <translation>Minimal</translation>
         </message>
         <message>
             <source>云</source>
             <translation>Cloud</translation>
         </message>
         <message>
-            <source>false|关闭</source>
-            <translation>False|Close</translation>
+            <source>关闭</source>
+            <translation>Off</translation>
         </message>
         <message>
-            <source>fast|快速</source>
-            <translation>Fast|fast</translation>
+            <source>快速</source>
+            <translation>Fast</translation>
         </message>
         <message>
-            <source>true|精细</source>
-            <translation>True|fine</translation>
+            <source>精细</source>
+            <translation>Fancy</translation>
         </message>
         <message>
             <source>实体阴影</source>
@@ -14307,12 +16551,12 @@ It will not restart automatically when stopped manually or exited normally.</tra
             <translation>Stealth mode</translation>
         </message>
         <message>
-            <source>false|按住</source>
-            <translation>False|Press and hold</translation>
+            <source>按住</source>
+            <translation>Hold</translation>
         </message>
         <message>
-            <source>true|切换</source>
-            <translation>True|toggle</translation>
+            <source>切换</source>
+            <translation>Toggle</translation>
         </message>
         <message>
             <source>疾跑方式</source>
@@ -14323,12 +16567,12 @@ It will not restart automatically when stopped manually or exited normally.</tra
             <translation>Main hand</translation>
         </message>
         <message>
-            <source>right|右手</source>
-            <translation>Right|right hand</translation>
+            <source>右手</source>
+            <translation>Right</translation>
         </message>
         <message>
-            <source>left|左手</source>
-            <translation>Left|left hand</translation>
+            <source>左手</source>
+            <translation>Left</translation>
         </message>
         <message>
             <source>失去焦点时暂停</source>
@@ -14371,16 +16615,16 @@ It will not restart automatically when stopped manually or exited normally.</tra
             <translation>Chat</translation>
         </message>
         <message>
-            <source>0|显示</source>
-            <translation>0|Display</translation>
+            <source>显示</source>
+            <translation>Shown</translation>
         </message>
         <message>
-            <source>1|仅命令</source>
-            <translation>1|Command only</translation>
+            <source>仅命令</source>
+            <translation>Commands only</translation>
         </message>
         <message>
-            <source>2|隐藏</source>
-            <translation>2|Hide</translation>
+            <source>隐藏</source>
+            <translation>Hidden</translation>
         </message>
         <message>
             <source>聊天颜色</source>
@@ -14403,116 +16647,116 @@ It will not restart automatically when stopped manually or exited normally.</tra
             <translation>Chat zoom</translation>
         </message>
         <message>
-            <source>master|主音量</source>
-            <translation>Master|master volume</translation>
+            <source>主音量</source>
+            <translation>Master volume</translation>
         </message>
         <message>
-            <source>music|音乐</source>
-            <translation>Music|music</translation>
+            <source>音乐</source>
+            <translation>Music</translation>
         </message>
         <message>
-            <source>record|唱片</source>
-            <translation>Record|record</translation>
+            <source>唱片</source>
+            <translation>Jukebox and note blocks</translation>
         </message>
         <message>
-            <source>weather|天气</source>
-            <translation>Weather|weather</translation>
+            <source>天气</source>
+            <translation>Weather</translation>
         </message>
         <message>
-            <source>block|方块</source>
-            <translation>Block|block</translation>
+            <source>方块</source>
+            <translation>Blocks</translation>
         </message>
         <message>
-            <source>hostile|敌对生物</source>
-            <translation>Hostile|hostile creature</translation>
+            <source>敌对生物</source>
+            <translation>Hostile creatures</translation>
         </message>
         <message>
-            <source>neutral|友好生物</source>
-            <translation>Neutral|friendly creature</translation>
+            <source>友好生物</source>
+            <translation>Friendly creatures</translation>
         </message>
         <message>
-            <source>player|玩家</source>
-            <translation>Player|player</translation>
+            <source>玩家</source>
+            <translation>Players</translation>
         </message>
         <message>
-            <source>ambient|环境</source>
-            <translation>Ambient|environment</translation>
+            <source>环境</source>
+            <translation>Ambient and environment</translation>
         </message>
         <message>
-            <source>voice|语音</source>
-            <translation>Voice|voice</translation>
+            <source>语音</source>
+            <translation>Voice</translation>
         </message>
         <message>
             <source>声音</source>
             <translation>Sound</translation>
         </message>
         <message>
-            <source>forward|前进|w</source>
-            <translation>Forward|forward|w</translation>
+            <source>前进</source>
+            <translation>Move forward</translation>
         </message>
         <message>
-            <source>back|后退|s</source>
-            <translation>Back|Back|s</translation>
+            <source>后退</source>
+            <translation>Move backward</translation>
         </message>
         <message>
-            <source>left|左移|a</source>
-            <translation>Left|shift left|a</translation>
+            <source>左移</source>
+            <translation>Strafe left</translation>
         </message>
         <message>
-            <source>right|右移|d</source>
-            <translation>Right|shift right|d</translation>
+            <source>右移</source>
+            <translation>Strafe right</translation>
         </message>
         <message>
-            <source>jump|跳跃|space</source>
-            <translation>Jump|jump|space</translation>
+            <source>跳跃</source>
+            <translation>Jump</translation>
         </message>
         <message>
-            <source>sneak|潜行|left.shift</source>
-            <translation>Sneak|sneak|left.shift</translation>
+            <source>潜行</source>
+            <translation>Sneak</translation>
         </message>
         <message>
-            <source>sprint|疾跑|left.control</source>
-            <translation>Sprint|sprint|left.control</translation>
+            <source>疾跑</source>
+            <translation>Sprint</translation>
         </message>
         <message>
-            <source>inventory|物品栏|e</source>
-            <translation>Inventory|item|e</translation>
+            <source>物品栏</source>
+            <translation>Open inventory</translation>
         </message>
         <message>
-            <source>drop|丢弃物品|q</source>
-            <translation>Drop|Drop items|q</translation>
+            <source>丢弃物品</source>
+            <translation>Drop item</translation>
         </message>
         <message>
-            <source>swapOffhand|交换副手物品|f</source>
-            <translation>SwapOffhand|Swap off-hand items|f</translation>
+            <source>交换副手物品</source>
+            <translation>Swap item with offhand</translation>
         </message>
         <message>
-            <source>chat|打开聊天|t</source>
-            <translation>Chat|Open chat|t</translation>
+            <source>打开聊天</source>
+            <translation>Open chat</translation>
         </message>
         <message>
-            <source>command|输入命令|slash</source>
-            <translation>Command|Enter command|slash</translation>
+            <source>输入命令</source>
+            <translation>Open command</translation>
         </message>
         <message>
-            <source>playerlist|玩家列表|tab</source>
-            <translation>Playerlist|player list|tab</translation>
+            <source>玩家列表</source>
+            <translation>List players</translation>
         </message>
         <message>
-            <source>togglePerspective|切换视角|f5</source>
-            <translation>TogglePerspective|Switch perspective|f5</translation>
+            <source>切换视角</source>
+            <translation>Toggle perspective</translation>
         </message>
         <message>
-            <source>screenshot|截图|f2</source>
-            <translation>Screenshot|screenshot|f2</translation>
+            <source>截图</source>
+            <translation>Take screenshot</translation>
         </message>
         <message>
-            <source>fullscreen|切换全屏|f11</source>
-            <translation>Fullscreen|toggle full screen|f11</translation>
+            <source>切换全屏</source>
+            <translation>Toggle fullscreen</translation>
         </message>
         <message>
-            <source>advancements|进度|l</source>
-            <translation>Advancements|progress|l</translation>
+            <source>进度</source>
+            <translation>Advancements</translation>
         </message>
         <message>
             <source>按键</source>
@@ -14572,6 +16816,38 @@ It will not restart automatically when stopped manually or exited normally.</tra
         <message>
             <source>设置键不能为空或重复，键和值不能含换行，键不能含冒号。</source>
             <translation>The setting key cannot be empty or repeated, the key and value cannot contain newlines, and the key cannot contain colon.</translation>
+        </message>
+        <message>
+            <source>空格</source>
+            <translation>Space</translation>
+        </message>
+        <message>
+            <source>左 Shift</source>
+            <translation>Left Shift</translation>
+        </message>
+        <message>
+            <source>左 Ctrl</source>
+            <translation>Left Ctrl</translation>
+        </message>
+        <message>
+            <source>左 Alt</source>
+            <translation>Left Alt</translation>
+        </message>
+        <message>
+            <source>鼠标左键</source>
+            <translation>Left mouse button</translation>
+        </message>
+        <message>
+            <source>鼠标右键</source>
+            <translation>Right mouse button</translation>
+        </message>
+        <message>
+            <source>鼠标中键</source>
+            <translation>Middle mouse button</translation>
+        </message>
+        <message>
+            <source>未绑定</source>
+            <translation>Unbound</translation>
         </message>
     </context>
     <context>
@@ -18078,6 +20354,93 @@ So there is no import. (Fabric / Forge / NeoForge / OptiFine can be installed di
         </message>
     </context>
     <context>
+        <name>ReplayInfo</name>
+        <message>
+            <source>文件不存在</source>
+            <translation>File not found</translation>
+        </message>
+        <message>
+            <source>文件是空的</source>
+            <translation>The file is empty</translation>
+        </message>
+        <message>
+            <source>文件太大，不像是 Replay 录像</source>
+            <translation>The file is too large to be a ReplayMod recording</translation>
+        </message>
+        <message>
+            <source>读 Replay 元数据</source>
+            <translation>Read replay metadata</translation>
+        </message>
+        <message>
+            <source>压缩包里没有 metaData.json，不是 Replay 录像</source>
+            <translation>The archive is missing metaData.json and is not a ReplayMod recording</translation>
+        </message>
+        <message>
+            <source>打不开这个压缩包，不是 Replay 录像</source>
+            <translation>Could not open the archive. It is not a valid ReplayMod recording.</translation>
+        </message>
+        <message>
+            <source>读压缩包失败</source>
+            <translation>Could not read the archive</translation>
+        </message>
+        <message>
+            <source>metaData.json 无法解析（%1）</source>
+            <translation>Could not parse metaData.json (%1)</translation>
+        </message>
+        <message>
+            <source>metaData.json 里没有 Replay 的版本信息</source>
+            <translation>metaData.json does not contain replay version information</translation>
+        </message>
+        <message>
+            <source>不足 1 秒</source>
+            <translation>Less than 1 second</translation>
+        </message>
+        <message>
+            <source>%1 秒</source>
+            <translation>%1 s</translation>
+        </message>
+        <message>
+            <source>%1 分</source>
+            <translation>%1 min</translation>
+        </message>
+        <message>
+            <source>%1 分 %2 秒</source>
+            <translation>%1 min %2 s</translation>
+        </message>
+        <message>
+            <source>%1 小时</source>
+            <translation>%1 hr</translation>
+        </message>
+        <message>
+            <source>%1 小时 %2 分</source>
+            <translation>%1 hr %2 min</translation>
+        </message>
+        <message>
+            <source>单人</source>
+            <translation>Singleplayer</translation>
+        </message>
+        <message>
+            <source>多人</source>
+            <translation>Multiplayer</translation>
+        </message>
+        <message>
+            <source>多人（%1）</source>
+            <translation>Multiplayer (%1)</translation>
+        </message>
+        <message>
+            <source>%1 位玩家</source>
+            <translation>Players: %1</translation>
+        </message>
+        <message>
+            <source>录制时间：%1</source>
+            <translation>Recorded: %1</translation>
+        </message>
+        <message>
+            <source>文件大小：%1</source>
+            <translation>File size: %1</translation>
+        </message>
+    </context>
+    <context>
         <name>RequestBudget::ControlGet</name>
         <message>
             <source>等待网络请求超时。</source>
@@ -18501,6 +20864,10 @@ So there is no import. (Fabric / Forge / NeoForge / OptiFine can be installed di
             <source>这个资源一个版本都没发过</source>
             <translation>Not a single version of this resource has been released.</translation>
         </message>
+        <message>
+            <source>模组设置</source>
+            <translation>Mod settings</translation>
+        </message>
     </context>
     <context>
         <name>ResourcePackPage</name>
@@ -18698,6 +21065,32 @@ So there is no import. (Fabric / Forge / NeoForge / OptiFine can be installed di
         <message>
             <source>下载长时间没有任何进展，已停止。请检查网络后重试。</source>
             <translation>The download has stopped without any progress for a long time. Please check the network and try again.</translation>
+        </message>
+    </context>
+    <context>
+        <name>RuntimeOutputModel</name>
+        <message>
+            <source>全部</source>
+            <translation>All</translation>
+        </message>
+        <message>
+            <source>%1 条</source>
+            <translation>%1 lines</translation>
+        </message>
+    </context>
+    <context>
+        <name>SchematicInfoDialog</name>
+        <message>
+            <source>原理图信息</source>
+            <translation>Schematic information</translation>
+        </message>
+        <message>
+            <source>大小：%1 MB</source>
+            <translation>Size: %1 MB</translation>
+        </message>
+        <message>
+            <source>关闭</source>
+            <translation>Close</translation>
         </message>
     </context>
     <context>
@@ -18952,6 +21345,10 @@ Please close the program occupying the port, or change the port in "Common Setti
             <source>在这个控制台里找…（大小写不分）</source>
             <translation>Find... in this console (case-insensitive)</translation>
         </message>
+        <message>
+            <source>服务端控制台</source>
+            <translation>Server console</translation>
+        </message>
     </context>
     <context>
         <name>ServerListController</name>
@@ -18970,6 +21367,204 @@ Please close the program occupying the port, or change the port in "Common Setti
         <message>
             <source>已删服务器：%1（%2）</source>
             <translation>Deleted server: %1 (%2)</translation>
+        </message>
+    </context>
+    <context>
+        <name>ServerListFile</name>
+        <message>
+            <source>读不了 %1：%2</source>
+            <translation>Could not read %1: %2</translation>
+        </message>
+        <message>
+            <source>读 %1 读到一半出错了（%2）</source>
+            <translation>An error occurred while reading %1 (%2)</translation>
+        </message>
+        <message>
+            <source>建不出临时文件：%1</source>
+            <translation>Could not create a temporary file: %1</translation>
+        </message>
+        <message>
+            <source>临时文件没写全（盘满了？）</source>
+            <translation>Could not finish writing the temporary file. The disk may be full.</translation>
+        </message>
+        <message>
+            <source>压缩 servers.dat 失败了：%1</source>
+            <translation>Could not compress servers.dat: %1</translation>
+        </message>
+        <message>
+            <source>写不进 servers.dat：%1</source>
+            <translation>Could not write to servers.dat: %1</translation>
+        </message>
+        <message>
+            <source>压好的那一份没能落到 servers.dat 上（盘满了？）</source>
+            <translation>Could not save the compressed data to servers.dat. The disk may be full.</translation>
+        </message>
+        <message>
+            <source>换掉 servers.dat 失败了：%1</source>
+            <translation>Could not replace servers.dat: %1</translation>
+        </message>
+        <message>
+            <source>这个实例还没有 servers.dat —— 游戏里加过一台之后它才会出现。</source>
+            <translation>This instance does not have a servers.dat file yet. Minecraft creates it when you add a server in-game.</translation>
+        </message>
+        <message>
+            <source>servers.dat 里找不到地址是「%1」的那一条 —— 是不是游戏里改过了？</source>
+            <translation>No entry in servers.dat matches the address '%1'. Was it changed in-game?</translation>
+        </message>
+        <message>
+            <source>这个地址在 servers.dat 里出现了 %1 次，认不准是哪一条，没有动它。</source>
+            <translation>This address appears %1 times in servers.dat. No changes were made because the entry could not be identified.</translation>
+        </message>
+        <message>
+            <source>servers.dat 那个位置上是个文件夹，没有动它。</source>
+            <translation>There is a folder at the servers.dat path. No changes were made.</translation>
+        </message>
+        <message>
+            <source>servers.dat 有 %1 MB，太大了，没有动它。</source>
+            <translation>servers.dat is too large (%1 MB). No changes were made.</translation>
+        </message>
+        <message>
+            <source>servers.dat 读不动：gzip 解不开</source>
+            <translation>Could not read servers.dat: gzip decompression failed</translation>
+        </message>
+        <message>
+            <source>servers.dat 读不动：%1</source>
+            <translation>Could not read servers.dat: %1</translation>
+        </message>
+        <message>
+            <source>servers.dat 里那一格 servers 不是一张服务器表，没有动它。</source>
+            <translation>The 'servers' field in servers.dat is not a server list. No changes were made.</translation>
+        </message>
+        <message>
+            <source>没有指定要改哪个 servers.dat。</source>
+            <translation>No servers.dat file was specified for editing.</translation>
+        </message>
+        <message>
+            <source>地址不能是空的 —— 没有地址，这一行在游戏里是一条点不动的空气。</source>
+            <translation>Enter a server address. Minecraft cannot connect to an entry without one.</translation>
+        </message>
+        <message>
+            <source>servers.dat 里「ip」那一格不是字符串，没有改。</source>
+            <translation>The 'ip' field in servers.dat is not a string. No changes were made.</translation>
+        </message>
+        <message>
+            <source>servers.dat 里「name」那一格不是字符串，没有改。</source>
+            <translation>The 'name' field in servers.dat is not a string. No changes were made.</translation>
+        </message>
+        <message>
+            <source>没有指定要加到哪个 servers.dat。</source>
+            <translation>No servers.dat file was specified for the new entry.</translation>
+        </message>
+        <message>
+            <source>没有指定要从哪个 servers.dat 里删。</source>
+            <translation>No servers.dat file was specified for removing the entry.</translation>
+        </message>
+    </context>
+    <context>
+        <name>ServerPing</name>
+        <message>
+            <source>SRV 查询超时</source>
+            <translation>SRV lookup timed out</translation>
+        </message>
+        <message>
+            <source>没有 SRV 记录</source>
+            <translation>No SRV record found</translation>
+        </message>
+        <message>
+            <source>SRV 查询失败</source>
+            <translation>SRV lookup failed</translation>
+        </message>
+        <message>
+            <source>没有能用的 SRV 记录</source>
+            <translation>No usable SRV records found</translation>
+        </message>
+        <message>
+            <source>通了</source>
+            <translation>Reachable</translation>
+        </message>
+        <message>
+            <source>地址看不懂</source>
+            <translation>Invalid address</translation>
+        </message>
+        <message>
+            <source>找不到主机</source>
+            <translation>Host not found</translation>
+        </message>
+        <message>
+            <source>连接被拒</source>
+            <translation>Connection refused</translation>
+        </message>
+        <message>
+            <source>网络不通</source>
+            <translation>Network unreachable</translation>
+        </message>
+        <message>
+            <source>没有回话</source>
+            <translation>No response</translation>
+        </message>
+        <message>
+            <source>连接断了</source>
+            <translation>Connection lost</translation>
+        </message>
+        <message>
+            <source>应答看不懂</source>
+            <translation>Invalid response</translation>
+        </message>
+        <message>
+            <source>其余</source>
+            <translation>Other</translation>
+        </message>
+        <message>
+            <source>连接被拒绝</source>
+            <translation>Connection refused</translation>
+        </message>
+        <message>
+            <source>连接超时</source>
+            <translation>Connection timed out</translation>
+        </message>
+        <message>
+            <source>连接已断开</source>
+            <translation>Connection closed</translation>
+        </message>
+        <message>
+            <source>连接受限</source>
+            <translation>Connection restricted</translation>
+        </message>
+        <message>
+            <source>连接失败</source>
+            <translation>Connection failed</translation>
+        </message>
+        <message>
+            <source>这个地址看不懂（要写成 主机名:端口，不写端口就是 25565）</source>
+            <translation>Invalid server address. Use hostname:port. The default port is 25565.</translation>
+        </message>
+        <message>
+            <source>发不出去（连接刚建立就断了）</source>
+            <translation>Could not send the request because the connection closed immediately.</translation>
+        </message>
+        <message>
+            <source>服务器答的包看不懂（长度不对）</source>
+            <translation>The server returned a packet with an invalid length.</translation>
+        </message>
+        <message>
+            <source>服务器答的包看不懂（开头不是一个长度）</source>
+            <translation>The server returned a packet without a valid length prefix.</translation>
+        </message>
+        <message>
+            <source>超时（连上了，但服务器没有回答）</source>
+            <translation>Connected, but the server did not respond in time.</translation>
+        </message>
+        <message>
+            <source>服务器答的不是状态包</source>
+            <translation>The server did not return a status packet.</translation>
+        </message>
+        <message>
+            <source>服务器答的包看不懂（正文长度不对）</source>
+            <translation>The server returned a packet with an invalid payload length.</translation>
+        </message>
+        <message>
+            <source>服务器答的不是一段 JSON</source>
+            <translation>The server response is not valid JSON.</translation>
         </message>
     </context>
     <context>
@@ -19212,6 +21807,10 @@ Please close the program occupying the port, or change the port in "Common Setti
             <source>请先保存或放弃修改</source>
             <translation>Please save or discard changes first</translation>
         </message>
+        <message>
+            <source>服务端设置</source>
+            <translation>Server settings</translation>
+        </message>
     </context>
     <context>
         <name>ServerVersionPicker</name>
@@ -19226,6 +21825,17 @@ Please close the program occupying the port, or change the port in "Common Setti
         <message>
             <source>获取失败或无可用版本，请刷新重试</source>
             <translation>Failed to obtain or no available version, please refresh and try again.</translation>
+        </message>
+    </context>
+    <context>
+        <name>SettingsParts</name>
+        <message>
+            <source>说明</source>
+            <translation>Information</translation>
+        </message>
+        <message>
+            <source>已保存</source>
+            <translation>Saved</translation>
         </message>
     </context>
     <context>
@@ -19273,6 +21883,61 @@ Please close the program occupying the port, or change the port in "Common Setti
         <message>
             <source>上传皮肤失败</source>
             <translation>Failed to upload skin</translation>
+        </message>
+    </context>
+    <context>
+        <name>SkinModel</name>
+        <message>
+            <source>右侧</source>
+            <translation>Right side</translation>
+        </message>
+        <message>
+            <source>正面</source>
+            <translation>Front</translation>
+        </message>
+        <message>
+            <source>左侧</source>
+            <translation>Left side</translation>
+        </message>
+        <message>
+            <source>背面</source>
+            <translation>Back</translation>
+        </message>
+        <message>
+            <source>顶面</source>
+            <translation>Top surface</translation>
+        </message>
+        <message>
+            <source>底面</source>
+            <translation>Bottom</translation>
+        </message>
+        <message>
+            <source>头</source>
+            <translation>Head</translation>
+        </message>
+        <message>
+            <source>身体</source>
+            <translation>Body</translation>
+        </message>
+        <message>
+            <source>右臂</source>
+            <translation>Right arm</translation>
+        </message>
+        <message>
+            <source>左臂</source>
+            <translation>Left arm</translation>
+        </message>
+        <message>
+            <source>右腿</source>
+            <translation>Right leg</translation>
+        </message>
+        <message>
+            <source>左腿</source>
+            <translation>Left leg</translation>
+        </message>
+        <message>
+            <source>披风</source>
+            <translation>Cloak</translation>
         </message>
     </context>
     <context>
@@ -19743,6 +22408,18 @@ Please close the program occupying the port, or change the port in "Common Setti
             <source>打开崩溃报告目录</source>
             <translation>Open the crash report directory</translation>
         </message>
+        <message>
+            <source>拖动调整等待顺序；不会打断运行中的任务。</source>
+            <translation>Drag to reorder queued tasks without interrupting running tasks.</translation>
+        </message>
+        <message>
+            <source>在等待队列中上移</source>
+            <translation>Move up in the queue</translation>
+        </message>
+        <message>
+            <source>在等待队列中下移</source>
+            <translation>Move down in the queue</translation>
+        </message>
     </context>
     <context>
         <name>TaskDetailController</name>
@@ -19793,12 +22470,123 @@ Please close the program occupying the port, or change the port in "Common Setti
             <source>暂停下载</source>
             <translation>Pause download</translation>
         </message>
+        <message>
+            <source>任务详情</source>
+            <translation>Task details</translation>
+        </message>
     </context>
     <context>
         <name>TaskVisuals</name>
         <message>
             <source>更多…</source>
             <translation>More…</translation>
+        </message>
+    </context>
+    <context>
+        <name>Theme</name>
+        <message>
+            <source>标题栏</source>
+            <translation>Title bar</translation>
+        </message>
+        <message>
+            <source>底栏</source>
+            <translation>Bottom bar</translation>
+        </message>
+        <message>
+            <source>浮层面板</source>
+            <translation>Overlay panel</translation>
+        </message>
+        <message>
+            <source>卡片</source>
+            <translation>Card</translation>
+        </message>
+        <message>
+            <source>四周变暗</source>
+            <translation>Dimmed backdrop</translation>
+        </message>
+        <message>
+            <source>页面背景</source>
+            <translation>Page background</translation>
+        </message>
+        <message>
+            <source>铺满（裁剪）</source>
+            <translation>Fill (crop)</translation>
+        </message>
+        <message>
+            <source>完整放下</source>
+            <translation>Fit</translation>
+        </message>
+        <message>
+            <source>拉伸铺满</source>
+            <translation>Stretch</translation>
+        </message>
+        <message>
+            <source>平铺</source>
+            <translation>Tile</translation>
+        </message>
+        <message>
+            <source>内容区底色</source>
+            <translation>Content background</translation>
+        </message>
+        <message>
+            <source>输入框/列表底色</source>
+            <translation>Input and list background</translation>
+        </message>
+        <message>
+            <source>隔行底色</source>
+            <translation>Alternating row background</translation>
+        </message>
+        <message>
+            <source>输入框/列表里的字</source>
+            <translation>Input and list text</translation>
+        </message>
+        <message>
+            <source>正文</source>
+            <translation>Body text</translation>
+        </message>
+        <message>
+            <source>按钮底色</source>
+            <translation>Button background</translation>
+        </message>
+        <message>
+            <source>按钮上的字</source>
+            <translation>Button text</translation>
+        </message>
+        <message>
+            <source>选中/悬停</source>
+            <translation>Selection and hover</translation>
+        </message>
+        <message>
+            <source>选中那一块上的字</source>
+            <translation>Selected text</translation>
+        </message>
+        <message>
+            <source>次要文字</source>
+            <translation>Secondary text</translation>
+        </message>
+        <message>
+            <source>分隔线</source>
+            <translation>Divider</translation>
+        </message>
+        <message>
+            <source>冰川碧湖</source>
+            <translation>Glacial Lake</translation>
+        </message>
+        <message>
+            <source>暮色雪山</source>
+            <translation>Alpine Twilight</translation>
+        </message>
+        <message>
+            <source>落日海崖</source>
+            <translation>Coastal Sunset</translation>
+        </message>
+        <message>
+            <source>跟随系统</source>
+            <translation>Follow system</translation>
+        </message>
+        <message>
+            <source>里面认不出任何一项主题设置（没有 preset / accent / roles / parts / semantic 中的任何一条）</source>
+            <translation>No recognized theme settings. Expected at least one of preset, accent, roles, parts, or semantic.</translation>
         </message>
     </context>
     <context>
@@ -20021,6 +22809,33 @@ The changes you made yourself will not be retained.</translation>
 %1</source>
             <translation>The colors are all laid out, but these background images cannot be found on this machine (there are only paths in the theme file, not images): 
 %1</translation>
+        </message>
+    </context>
+    <context>
+        <name>TitleBar</name>
+        <message>
+            <source>最小化</source>
+            <translation>Minimize</translation>
+        </message>
+        <message>
+            <source>最大化</source>
+            <translation>Maximize</translation>
+        </message>
+        <message>
+            <source>关闭</source>
+            <translation>Close</translation>
+        </message>
+        <message>
+            <source>收起导航</source>
+            <translation>Collapse navigation</translation>
+        </message>
+        <message>
+            <source>展开导航</source>
+            <translation>Expand navigation</translation>
+        </message>
+        <message>
+            <source>还原</source>
+            <translation>Restore</translation>
         </message>
     </context>
     <context>
@@ -21058,6 +23873,10 @@ The changes you made yourself will not be retained.</translation>
             <source>不限版本</source>
             <translation>No version limit</translation>
         </message>
+        <message>
+            <source>工具箱</source>
+            <translation>Toolbox</translation>
+        </message>
     </context>
     <context>
         <name>TransferApply</name>
@@ -21384,6 +24203,17 @@ The changes you made yourself will not be retained.</translation>
         </message>
     </context>
     <context>
+        <name>UpdateCenterPage</name>
+        <message>
+            <source>「%1」%2</source>
+            <translation>“%1” — %2</translation>
+        </message>
+        <message>
+            <source>更新中心</source>
+            <translation>Update center</translation>
+        </message>
+    </context>
+    <context>
         <name>UpgradeHistoryDialog</name>
         <message>
             <source>更新记录</source>
@@ -21479,6 +24309,45 @@ The changes you made yourself will not be retained.</translation>
         <message>
             <source>：%1</source>
             <translation>:%1</translation>
+        </message>
+    </context>
+    <context>
+        <name>UpgradeReportDialog</name>
+        <message>
+            <source>兼容性报告</source>
+            <translation>Compatibility report</translation>
+        </message>
+        <message>
+            <source>搜索模组名或依据</source>
+            <translation>Search mod names or reasons</translation>
+        </message>
+        <message>
+            <source>全部</source>
+            <translation>All</translation>
+        </message>
+        <message>
+            <source>显示正常兼容项</source>
+            <translation>Show compatible items</translation>
+        </message>
+        <message>
+            <source>项目</source>
+            <translation>Item</translation>
+        </message>
+        <message>
+            <source>依据</source>
+            <translation>Reason</translation>
+        </message>
+        <message>
+            <source>关闭</source>
+            <translation>Close</translation>
+        </message>
+        <message>
+            <source>还有 %1 项必要内容需要处理。</source>
+            <translation>Required items remaining: %1.</translation>
+        </message>
+        <message>
+            <source>必要内容都已经明确处理。</source>
+            <translation>All required items have been addressed.</translation>
         </message>
     </context>
     <context>
@@ -22827,6 +25696,94 @@ Itemized list: %2
     </context>
     <context>
         <name>WorldSettingsPage</name>
+        <message>
+            <source>返回</source>
+            <translation>Back</translation>
+        </message>
+        <message>
+            <source>保存</source>
+            <translation>Save</translation>
+        </message>
+        <message>
+            <source>创建备份</source>
+            <translation>Back up level.dat</translation>
+        </message>
+        <message>
+            <source>打开文件夹</source>
+            <translation>Open folder</translation>
+        </message>
+        <message>
+            <source>立即备份</source>
+            <translation>Back up world now</translation>
+        </message>
+        <message>
+            <source>恢复备份…</source>
+            <translation>Restore backup…</translation>
+        </message>
+        <message>
+            <source>打开备份目录</source>
+            <translation>Open backup folder</translation>
+        </message>
+        <message>
+            <source>重命名…</source>
+            <translation>Rename…</translation>
+        </message>
+        <message>
+            <source>删除世界…</source>
+            <translation>Delete world…</translation>
+        </message>
+        <message>
+            <source>搜索规则</source>
+            <translation>Search rules</translation>
+        </message>
+        <message>
+            <source>修改存档文件</source>
+            <translation>Edit save file</translation>
+        </message>
+        <message>
+            <source>世界设置（游戏规则）</source>
+            <translation>Game rules</translation>
+        </message>
+        <message>
+            <source>未找到匹配的规则</source>
+            <translation>No matching rules</translation>
+        </message>
+        <message>
+            <source>无法读取游戏规则</source>
+            <translation>Could not read game rules</translation>
+        </message>
+        <message>
+            <source>未写入存档的规则显示默认值，仅保存修改过的规则。</source>
+            <translation>Rules not stored in this world save show their default values. Only changed rules are saved.</translation>
+        </message>
+        <message>
+            <source>这个存档里还没有「游戏规则」那一格（工具做出来的、还没进过的档常常是这样）—— 下面每一条摆的都是游戏的默认值，改过哪一条才会把哪一条写进存档。</source>
+            <translation>This world save contains no game rules. This is common for worlds created with external tools that have never been opened in Minecraft. The rules below show their defaults. Only changed rules are saved.</translation>
+        </message>
+        <message>
+            <source>这个存档里没有这一项：屏幕上显示的是游戏默认值，修改后才会写入。</source>
+            <translation>This setting is not stored in the world save. The game default is shown and will only be saved if you change it.</translation>
+        </message>
+        <message>
+            <source>注意：盘上这份 level.dat「不是」gzip 包着的（正常存档都是）。我们按原样写回，不改它的形状。</source>
+            <translation>This level.dat is not gzip-compressed, unlike most world saves. Saving will keep the original file format.</translation>
+        </message>
+        <message>
+            <source>和平</source>
+            <translation>Peaceful</translation>
+        </message>
+        <message>
+            <source>简单</source>
+            <translation>Easy</translation>
+        </message>
+        <message>
+            <source>普通</source>
+            <translation>Normal</translation>
+        </message>
+        <message>
+            <source>困难</source>
+            <translation>Hard</translation>
+        </message>
         <message>
             <source>改这个存档的文件夹名。游戏的世界列表里显示的也是它。</source>
             <translation>Change the folder name of this archive. It is also shown in the game's world list.</translation>

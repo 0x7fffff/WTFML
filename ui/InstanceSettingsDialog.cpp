@@ -678,8 +678,8 @@ int InstanceSettingsDialog::navListWidth(const QListWidget *list) {
 }
 
 QString InstanceSettingsDialog::pageText(const QString &key) {
-    if (key == QStringLiteral("launch")) return QStringLiteral("启动设置");
-    if (key == QStringLiteral("schematic")) return QStringLiteral("原理图");
+    if (key == QStringLiteral("launch")) return tr("启动设置");
+    if (key == QStringLiteral("schematic")) return tr("原理图");
     const int lifecycleIndex = lifecyclePageKeys().indexOf(key);
     if (lifecycleIndex >= 0) return lifecyclePageTexts().value(lifecycleIndex);
     // 两张按下标对齐的表各查一遍（键表是**身份**，别拿文字去反查）。

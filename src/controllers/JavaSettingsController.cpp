@@ -27,7 +27,7 @@
 
 namespace {
 QString memoryText(qint64 mb) {
-    if (mb <= 0) return QStringLiteral("未知");
+    if (mb <= 0) return JavaSettingsController::tr("未知");
     if (mb >= 1024) return QStringLiteral("%1 GB").arg(QString::number(double(mb) / 1024.0, 'f', 1));
     return QStringLiteral("%1 MB").arg(mb);
 }

@@ -70,7 +70,7 @@ public:
     bool offers(const QPushButton *button) const;
 
     /// 这一页的标题（`OverlayHost::showPage` 顶上那一条写的字）。
-    static QString windowTitle() { return QStringLiteral("任务详情"); }
+    static QString windowTitle() { return tr("任务详情"); }
 
     /// 摆一项任务。**每次开页都重新喂一遍**（同一页对象会被复用，见 MainWindow 那边）。
     ///

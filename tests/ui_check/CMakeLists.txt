@@ -307,6 +307,11 @@ set_tests_properties(wtfml.ui-agent PROPERTIES
 )
 wtfml_add_test(NAME wtfml.ui COMMAND ui_check)
 wtfml_add_test(NAME wtfml.ui-bootstrap COMMAND ui_check --bootstrap-check)
+if(WTFML_I18N)
+    wtfml_add_test(NAME wtfml.ui-language COMMAND ui_check --language-check)
+    set_tests_properties(wtfml.ui-language PROPERTIES LABELS "ui;i18n" TIMEOUT 30
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}")
+endif()
 set_tests_properties(wtfml.ui-bootstrap PROPERTIES LABELS "ui;compile" TIMEOUT 30
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}")
 wtfml_add_test(NAME wtfml.ui-refresh COMMAND ui_check_ui_refresh)

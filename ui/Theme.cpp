@@ -457,19 +457,19 @@ struct PartInfo {
 /// NOTE: 最后那一位（出厂字色是不是白墨）在 `partLightInk()` 里另有一张表 —— 它只有标题栏
 /// 用得到，塞进这一张只会让上面五行都跟着多一个恒假的字段。
 const PartInfo kPartInfos[] = {
-    {"titleBar", "标题栏", 105, QPalette::Window, false, true},
-    {"bottomBar", "底栏", 105, QPalette::Window, false, false},
-    {"panel", "浮层面板", 112, QPalette::Window, false, false},
-    {"card", "卡片", 0, QPalette::Base, false, false},
-    {"scrim", "四周变暗", 0, QPalette::Window, true, false},
+    {"titleBar", QT_TRANSLATE_NOOP("Theme", "标题栏"), 105, QPalette::Window, false, true},
+    {"bottomBar", QT_TRANSLATE_NOOP("Theme", "底栏"), 105, QPalette::Window, false, false},
+    {"panel", QT_TRANSLATE_NOOP("Theme", "浮层面板"), 112, QPalette::Window, false, false},
+    {"card", QT_TRANSLATE_NOOP("Theme", "卡片"), 0, QPalette::Base, false, false},
+    {"scrim", QT_TRANSLATE_NOOP("Theme", "四周变暗"), 0, QPalette::Window, true, false},
     // 这一块的 `from` / `shade` 只是"万一有人给它设了个底色"时的兜底算法（今天没有任何
     // 调用点取它的底）—— 它真正的底是 `QTabWidget` 自己画的那一层，**不在调色板里**
     // （见 `partHasBackground()` 那段）。加这一项是为了能单独铺一张图。没设图时它一个
     // 像素都不改。
-    {"pageBackground", "页面背景", 0, QPalette::Window, false, false},
+    {"pageBackground", QT_TRANSLATE_NOOP("Theme", "页面背景"), 0, QPalette::Window, false, false},
 };
 static_assert(sizeof(kPartInfos) / sizeof(kPartInfos[0]) == static_cast<size_t>(partCount()),
-              "kPartInfos 和 Part 的项数对不上 —— 加一块骨架时两处都要动");
+              "kPartInfos 和 Part 的项数对不上 —— 加一块骨架时两处都要动");  // i18n-ignore
 
 /// 一张图的摆法表（顺序 = `ImageFit` 的枚举顺序）。
 struct ImageFitInfo {
@@ -478,14 +478,14 @@ struct ImageFitInfo {
 };
 
 const ImageFitInfo kImageFitInfos[] = {
-    {"cover", "铺满（裁剪）"},
-    {"contain", "完整放下"},
-    {"stretch", "拉伸铺满"},
-    {"tile", "平铺"},
+    {"cover", QT_TRANSLATE_NOOP("Theme", "铺满（裁剪）")},
+    {"contain", QT_TRANSLATE_NOOP("Theme", "完整放下")},
+    {"stretch", QT_TRANSLATE_NOOP("Theme", "拉伸铺满")},
+    {"tile", QT_TRANSLATE_NOOP("Theme", "平铺")},
 };
 static_assert(sizeof(kImageFitInfos) / sizeof(kImageFitInfos[0]) ==
                   static_cast<size_t>(imageFitCount()),
-              "kImageFitInfos 和 ImageFit 的项数对不上 —— 加一种摆法时两处都要动");
+              "kImageFitInfos 和 ImageFit 的项数对不上 —— 加一种摆法时两处都要动");  // i18n-ignore
 
 /// 四周变暗那一层的出厂色。**与 `OverlayHost::scrimColor()` 的字面量一字不差**：
 /// 半透明黑，盖在什么底色上都成立。
@@ -563,20 +563,20 @@ struct RoleInfo {
 };
 
 const RoleInfo kRoleInfos[] = {
-    {"window", "内容区底色", QPalette::Window},
-    {"base", "输入框/列表底色", QPalette::Base},
-    {"alternateBase", "隔行底色", QPalette::AlternateBase},
-    {"text", "输入框/列表里的字", QPalette::Text},
-    {"windowText", "正文", QPalette::WindowText},
-    {"button", "按钮底色", QPalette::Button},
-    {"buttonText", "按钮上的字", QPalette::ButtonText},
-    {"highlight", "选中/悬停", QPalette::Highlight},
-    {"highlightedText", "选中那一块上的字", QPalette::HighlightedText},
-    {"placeholderText", "次要文字", QPalette::PlaceholderText},
-    {"mid", "分隔线", QPalette::Mid},
+    {"window", QT_TRANSLATE_NOOP("Theme", "内容区底色"), QPalette::Window},
+    {"base", QT_TRANSLATE_NOOP("Theme", "输入框/列表底色"), QPalette::Base},
+    {"alternateBase", QT_TRANSLATE_NOOP("Theme", "隔行底色"), QPalette::AlternateBase},
+    {"text", QT_TRANSLATE_NOOP("Theme", "输入框/列表里的字"), QPalette::Text},
+    {"windowText", QT_TRANSLATE_NOOP("Theme", "正文"), QPalette::WindowText},
+    {"button", QT_TRANSLATE_NOOP("Theme", "按钮底色"), QPalette::Button},
+    {"buttonText", QT_TRANSLATE_NOOP("Theme", "按钮上的字"), QPalette::ButtonText},
+    {"highlight", QT_TRANSLATE_NOOP("Theme", "选中/悬停"), QPalette::Highlight},
+    {"highlightedText", QT_TRANSLATE_NOOP("Theme", "选中那一块上的字"), QPalette::HighlightedText},
+    {"placeholderText", QT_TRANSLATE_NOOP("Theme", "次要文字"), QPalette::PlaceholderText},
+    {"mid", QT_TRANSLATE_NOOP("Theme", "分隔线"), QPalette::Mid},
 };
 static_assert(sizeof(kRoleInfos) / sizeof(kRoleInfos[0]) == static_cast<size_t>(roleCount()),
-              "kRoleInfos 和 Role 的项数对不上 —— 加一个角色时两处都要动");
+              "kRoleInfos 和 Role 的项数对不上 —— 加一个角色时两处都要动");  // i18n-ignore
 
 /// 文字不透明度落在哪几个角色上。**只有带字的角色**：`Highlight` 那种是"一块底"，
 /// 跟着变淡的话选中那一块就淡了，那不是"文字透明度"。
@@ -924,7 +924,9 @@ QString partKey(Part part) {
 
 QString partName(Part part) {
     const int index = static_cast<int>(part);
-    return index >= 0 && index < partCount() ? QString::fromUtf8(kPartInfos[index].name) : QString();
+    return index >= 0 && index < partCount()
+               ? QCoreApplication::translate("Theme", kPartInfos[index].name)
+               : QString();
 }
 
 bool partFromKey(const QString &key, Part *out) {
@@ -948,7 +950,7 @@ QString imageFitKey(ImageFit fit) {
 QString imageFitName(ImageFit fit) {
     const int index = static_cast<int>(fit);
     return index >= 0 && index < imageFitCount()
-               ? QString::fromUtf8(kImageFitInfos[index].name)
+               ? QCoreApplication::translate("Theme", kImageFitInfos[index].name)
                : QString();
 }
 
@@ -976,7 +978,9 @@ QString roleKey(Role role) {
 
 QString roleName(Role role) {
     const int index = static_cast<int>(role);
-    return index >= 0 && index < roleCount() ? QString::fromUtf8(kRoleInfos[index].name) : QString();
+    return index >= 0 && index < roleCount()
+               ? QCoreApplication::translate("Theme", kRoleInfos[index].name)
+               : QString();
 }
 
 bool roleFromKey(const QString &key, Role *out) {
@@ -2418,10 +2422,12 @@ QString presetName(const QString &id) {
     // 显示名照着各自那张内置风景起（`assets/scenes/`）：dark = 暮色雪山（麦克唐纳湖的暮光雪山），
     // emerald = 冰川碧湖（梦莲湖），ocean = 落日海崖（雷斯岬）。只换显示名，内部 id 与顺序不动 ——
     // 盘上存的是 id，老设置照常读回。
-    if (id == QLatin1String("light") || id == QLatin1String("emerald")) return QStringLiteral("冰川碧湖");
-    if (id == QLatin1String("dark")) return QStringLiteral("暮色雪山");
-    if (id == QLatin1String("ocean")) return QStringLiteral("落日海崖");
-    return QStringLiteral("跟随系统");
+    if (id == QLatin1String("light") || id == QLatin1String("emerald")) {
+        return QCoreApplication::translate("Theme", "冰川碧湖");
+    }
+    if (id == QLatin1String("dark")) return QCoreApplication::translate("Theme", "暮色雪山");
+    if (id == QLatin1String("ocean")) return QCoreApplication::translate("Theme", "落日海崖");
+    return QCoreApplication::translate("Theme", "跟随系统");
 }
 
 bool isPresetId(const QString &id) {
@@ -3297,8 +3303,7 @@ bool specFromJson(const QJsonObject &json, Spec *out, QString *error) {
         }
     }
     if (!recognised) {
-        return fail(QStringLiteral("里面认不出任何一项主题设置（没有 preset / accent / "
-                                   "roles / parts / semantic 中的任何一条）"));
+        return fail(QCoreApplication::translate("Theme", "里面认不出任何一项主题设置（没有 preset / accent / roles / parts / semantic 中的任何一条）"));
     }
 
     Spec spec = defaultSpec();  // 从出厂那一份出发：**缺的那几项就是出厂**，不是"没有"

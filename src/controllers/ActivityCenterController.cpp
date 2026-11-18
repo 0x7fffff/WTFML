@@ -292,8 +292,9 @@ TaskCenter::Item ActivityCenterController::item(const Tasks::TaskSnapshot &task,
     result.title = task.title;
     const auto displayText = [](QString text) {
         // Historical Qt errors remain intact on disk; localise their known UI spelling.
-        text.replace(QStringLiteral("Operation canceled"), QStringLiteral("网络请求已中止"), Qt::CaseInsensitive);
-        text.replace(QStringLiteral("Operation cancelled"), QStringLiteral("网络请求已中止"), Qt::CaseInsensitive);
+        const QString canceled = tr("网络请求已中止");
+        text.replace(QStringLiteral("Operation canceled"), canceled, Qt::CaseInsensitive);
+        text.replace(QStringLiteral("Operation cancelled"), canceled, Qt::CaseInsensitive);
         return text;
     };
     result.detail = displayText(task.detail);

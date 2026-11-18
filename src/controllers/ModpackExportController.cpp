@@ -172,7 +172,7 @@ void ModpackExportController::exportPack(const QString &versionId,
             throttle->start();
             QMetaObject::invokeMethod(self.data(), [self, done, total, current] {
                 if (!self) return;
-                const QString text = self->tr("正在后台分析整合包…（%1/%2）%3")
+                const QString text = ModpackExportController::tr("正在后台分析整合包…（%1/%2）%3")
                                          .arg(done).arg(total)
                                          .arg(current.isEmpty()
                                                   ? QString()
@@ -319,7 +319,7 @@ void ModpackExportController::continueExport(const ModpackExport::ExportPlan &pl
                 if (!plan.collect.skippedDirs.isEmpty())
                     lines.append(tr("没进包：%1（共 %2 个文件）。存档和截图是你自己的东西，"
                                     "打进包里会盖掉收包那个人的。")
-                                     .arg(plan.collect.skippedDirs.join(QStringLiteral("、")),
+                                     .arg(plan.collect.skippedDirs.join(tr("、")),
                                           QString::number(plan.collect.skippedFileCount)));
                 lines.append(tr("这是 %1 的包：别人在启动器里用「导入整合包…」即可导入安装。")
                                  .arg(format == ModpackExport::Format::CurseForge

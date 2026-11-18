@@ -1,6 +1,11 @@
 #include "Support.hpp"
+#include "OverlayHost.hpp"
+#include "PresetModReview.hpp"
+#include "PresetOptionCatalog.hpp"
+#include "Theme.hpp"
 #include "TitleBar.hpp"
 #include "UiLanguage.hpp"
+#include "WorldSettingsPage.hpp"
 
 #include <QLocale>
 #include <QSettings>
@@ -25,8 +30,8 @@ int UiLanguageChecks(MainWindowUI &ui, QTabWidget *tabs) {
           "显式 en 不跟随中文系统");
     check(resolve(QStringLiteral("zh_CN"), {QStringLiteral("en-US")}) == QStringLiteral("zh_CN"),
           "显式 zh_CN 不跟随英文系统");
-    check(resolve(QStringLiteral("乱写"), {QStringLiteral("en-US")}) == QStringLiteral("zh_CN"),
-          "认不出来的档位按默认档 zh_CN 算（不落到半成品英文上）");
+    check(resolve(QStringLiteral("乱写"), {QStringLiteral("en-US")}) == QStringLiteral("en"),
+          "认不出来的档位按默认档算：跟随英文系统");
 
     // ---- 1b. 没设过那一格：默认 zh_CN，不看系统语言 ----
     {
@@ -34,11 +39,11 @@ int UiLanguageChecks(MainWindowUI &ui, QTabWidget *tabs) {
         const bool had = probe.contains(QStringLiteral("General/Language"));
         const QVariant keep = probe.value(QStringLiteral("General/Language"));
         probe.remove(QStringLiteral("General/Language"));
-        check(UiLanguage::readSetting() == QStringLiteral("zh_CN"),
-              "没设过 General/Language 时读出来是 zh_CN",
+        check(UiLanguage::readSetting() == QStringLiteral("system"),
+              "没设过 General/Language 时读出来是跟随系统",
               UiLanguage::readSetting());
-        check(resolve(UiLanguage::readSetting(), {QStringLiteral("en-US")}) == QStringLiteral("zh_CN"),
-              "没设过时即使系统是英文也用中文（第 1 期不跟随系统）");
+        check(resolve(UiLanguage::readSetting(), {QStringLiteral("en-US")}) == QStringLiteral("en"),
+              "没设过时跟随系统：英文系统用英文");
         if (had) probe.setValue(QStringLiteral("General/Language"), keep);
         else probe.remove(QStringLiteral("General/Language"));
         probe.sync();
@@ -69,8 +74,8 @@ int UiLanguageChecks(MainWindowUI &ui, QTabWidget *tabs) {
     check(language != nullptr && language->itemText(0) == QStringLiteral("跟随系统"),
           "中文界面下「跟随系统」写中文", language != nullptr ? language->itemText(0) : QString());
     check(language != nullptr && language->itemText(1) == QStringLiteral("简体中文") &&
-              language->itemText(2) == QStringLiteral("English（部分翻译）"),
-          "另外两档各写各自语言的名字（不翻），English 标着部分翻译",
+              language->itemText(2) == QStringLiteral("English"),
+          "另外两档各写各自语言的名字（不翻）",
           language != nullptr ? language->itemText(2) : QString());
 
     // ---- 4. 设成 en：读设置 → 解析 → 装翻译 → 新建的界面是英文 ----
@@ -96,8 +101,8 @@ int UiLanguageChecks(MainWindowUI &ui, QTabWidget *tabs) {
                   englishUi.getLanguageCombo()->itemText(0) == QStringLiteral("Follow system"),
               "英文界面下「跟随系统」跟着翻成 Follow system");
         check(englishUi.getLanguageCombo() != nullptr &&
-                  englishUi.getLanguageCombo()->itemText(2) == QStringLiteral("English (partial translation)"),
-              "英文界面下 English 那一档的后缀也是英文（前面的空格没丢）",
+                  englishUi.getLanguageCombo()->itemText(2) == QStringLiteral("English"),
+              "英文界面下 English 那一档仍写作 English",
               englishUi.getLanguageCombo() != nullptr ? englishUi.getLanguageCombo()->itemText(2) : QString());
         // 图标按**序号**认（见 ui/TitleBar.cpp 的 iconForIndex）：英文下五颗导航照样有图标。
         // 以前按标签文字认，每加一门语言都得去 TitleBar 加一列，漏了就是几个没图标的按钮。
@@ -114,6 +119,41 @@ int UiLanguageChecks(MainWindowUI &ui, QTabWidget *tabs) {
         }
         check(iconsOk, "英文界面下五个导航按钮都有图标（按序号认，不认标签文字）",
               iconDetail.join(QLatin1Char('/')));
+
+        MainWindowUI::HomeQuickItem instance;
+        instance.name = QStringLiteral("Example instance");
+        instance.key = QStringLiteral("example");
+        englishUi.setHomeQuickRows({instance}, {}, {});
+        auto *launch = englishWindow.findChild<QPushButton *>(QStringLiteral("homeCurrentLaunch"));
+        check(launch != nullptr && launch->text() == QStringLiteral("Play"), "英文主页启动按钮显示 Play");
+        englishUi.setHomeLaunchRunning(true);
+        check(launch != nullptr && launch->text() == QStringLiteral("Stop game"), "英文主页运行时显示 Stop game");
+
+        check(OverlayHost::backButtonText() == QStringLiteral("Back"), "英文内嵌页面显示 Back");
+        check(Theme::presetName(QStringLiteral("dark")) == QStringLiteral("Alpine Twilight"),
+              "英文主题下拉框显示本地化预设名");
+        check(PresetModReview::tr("确认模组预设") == QStringLiteral("Confirm mod preset"),
+              "英文模组预设确认框使用自身翻译上下文");
+        const auto *clouds = PresetOptionCatalog::find(QStringLiteral("renderClouds"));
+        const auto *forward = PresetOptionCatalog::find(QStringLiteral("key_key.forward"));
+        check(clouds != nullptr && clouds->choices.size() == 3 &&
+                  QString::fromLatin1(clouds->choices[0].value) == QStringLiteral("false") &&
+                  QString::fromLatin1(clouds->choices[1].value) == QStringLiteral("fast") &&
+                  QString::fromLatin1(clouds->choices[2].value) == QStringLiteral("true") &&
+                  forward != nullptr && forward->initial == QStringLiteral("key.keyboard.w"),
+              "英文预设保留 Minecraft 配置值和按键标识");
+        check(QCoreApplication::translate("PresetOptionCatalog", "精细") == QStringLiteral("Fancy"),
+              "英文预设翻译云效果选项");
+
+        WorldSettingsPage world;
+        auto *difficulty = world.findChild<QComboBox *>(WorldSettingsPage::difficultyName());
+        const QStringList labels{QStringLiteral("Peaceful"), QStringLiteral("Easy"),
+                                 QStringLiteral("Normal"), QStringLiteral("Hard")};
+        QStringList options;
+        if (difficulty != nullptr) {
+            for (int index = 0; index < difficulty->count(); ++index) options << difficulty->itemText(index);
+        }
+        check(options == labels, "英文世界难度使用 Minecraft 原版术语", options.join(QLatin1Char('/')));
     }
     qApp->removeTranslator(&translator);
 
@@ -122,3 +162,5 @@ int UiLanguageChecks(MainWindowUI &ui, QTabWidget *tabs) {
     QSettings().sync();
     return 0;
 }
+
+

@@ -115,7 +115,7 @@ void ListRowDelegate::paint(QPainter *painter, const QStyleOptionViewItem &optio
         QFont f = option.font;
         f.setWeight(QFont::Medium);
         painter->setFont(f);
-        const QString text = QStringLiteral("启动");
+        const QString text = tr("启动");
         const int textW = painter->fontMetrics().horizontalAdvance(text);
         const int iconW = 14;
         const int startX = launch.center().x() - (iconW + 6 + textW) / 2;

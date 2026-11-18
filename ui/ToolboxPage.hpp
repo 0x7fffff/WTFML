@@ -74,7 +74,7 @@ public:
     /// 一枚 24×24 线稿图标。**不是位图资源** —— 现画，颜色由调用方给。
     static QIcon toolIcon(Tool tool, const QColor &ink);
     /// 页头那个「工具箱」。
-    static QString pageTitle() { return QStringLiteral("工具箱"); }
+    static QString pageTitle() { return tr("工具箱"); }
 
     /// 验证工程认控件用的名字：目录页里那一格 / 工具页（滚动区）/ 工具面板本体。
     static QString toolCellName(Tool tool);

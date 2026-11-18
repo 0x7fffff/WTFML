@@ -207,7 +207,7 @@ public:
         box->setSpacing(0);
         m_search = new QLineEdit(this);
         m_search->setObjectName(QStringLiteral("homePickerSearch"));
-        m_search->setPlaceholderText(QStringLiteral("搜索实例"));
+        m_search->setPlaceholderText(QCoreApplication::translate("MainWindowUI", "搜索实例"));
         m_search->setClearButtonEnabled(true);
         m_search->setFixedHeight(34);
         addSearchIcon(m_search);
@@ -224,7 +224,7 @@ public:
                                              "QListWidget::item { background: transparent; border: none; }"));
         m_list->viewport()->setAutoFillBackground(false);
         box->addWidget(m_list, 1);
-        m_empty = popLabel(QStringLiteral("没有符合的实例"), 13, QFont::Normal, this);
+        m_empty = popLabel(QCoreApplication::translate("MainWindowUI", "没有符合的实例"), 13, QFont::Normal, this);
         m_empty->setObjectName(QStringLiteral("homePickerEmpty"));
         m_empty->setAlignment(Qt::AlignCenter);
         m_empty->setMinimumHeight(64);
@@ -265,9 +265,9 @@ public:
             foot->addWidget(b);
             return b;
         };
-        footButton(QStringLiteral("homePickerNew"), QStringLiteral("新建实例"), QStringLiteral("plus"), std::move(onNew));
+        footButton(QStringLiteral("homePickerNew"), QCoreApplication::translate("MainWindowUI", "新建实例"), QStringLiteral("plus"), std::move(onNew));
         foot->addStretch(1);
-        footButton(QStringLiteral("homePickerManage"), QStringLiteral("管理全部实例"), QString(), std::move(onManage));
+        footButton(QStringLiteral("homePickerManage"), QCoreApplication::translate("MainWindowUI", "管理全部实例"), QString(), std::move(onManage));
         box->addLayout(foot);
 
         QObject::connect(m_search, &QLineEdit::textChanged, this, [this]() { rebuild(); });
@@ -329,10 +329,10 @@ private:
         QString haystack = instance.title + QLatin1Char(' ') + instance.subtitle + QLatin1Char(' ') + instance.id
                            + QLatin1Char(' ') + instance.loaderKey + QLatin1Char(' ') + instance.folderPath
                            + QLatin1Char(' ') + instance.searchKeywords;
-        if (instance.loaderKey.isEmpty()) haystack += QStringLiteral(" 原版 纯净 vanilla 无加载器");
-        else haystack += QStringLiteral(" 模组 modded");
-        if (instance.favorite) haystack += QStringLiteral(" 收藏 置顶 favorite starred");
-        if (instance.recent) haystack += QStringLiteral(" 最近 上次游玩 recent played");
+        if (instance.loaderKey.isEmpty()) haystack += QStringLiteral(" 原版 纯净 vanilla 无加载器"); // i18n-ignore
+        else haystack += QStringLiteral(" 模组 modded"); // i18n-ignore
+        if (instance.favorite) haystack += QStringLiteral(" 收藏 置顶 favorite starred"); // i18n-ignore
+        if (instance.recent) haystack += QStringLiteral(" 最近 上次游玩 recent played"); // i18n-ignore
         return std::all_of(terms.cbegin(), terms.cend(),
                            [&haystack](const QString &term) { return haystack.contains(term, Qt::CaseInsensitive); });
     }
@@ -366,10 +366,10 @@ private:
                              [](const auto &a, const auto &b) { return a.recentRank < b.recentRank; });
             if (recent.size() > kPickerRecentLimit) recent = recent.mid(0, kPickerRecentLimit);
             if (!recent.isEmpty()) {
-                addHead(QStringLiteral("最近"));
+                addHead(QCoreApplication::translate("MainWindowUI", "最近"));
                 for (const auto &instance : recent) addRow(instance);
             }
-            addHead(QStringLiteral("全部 · %1").arg(m_instances.size()));
+            addHead(QCoreApplication::translate("MainWindowUI", "全部 · %1").arg(m_instances.size()));
             for (const auto &instance : m_instances) addRow(instance);
         }
         bool any = false;
