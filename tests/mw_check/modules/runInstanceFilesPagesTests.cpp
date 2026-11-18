@@ -2,7 +2,11 @@
 #include "LoadingState.hpp"
 #include <QElapsedTimer>
 #include <QProcess>
+#include <QScrollBar>
 #include <QThread>
+#ifdef Q_OS_WIN
+#include <qt_windows.h>  // T20.13：占住一份假截图（允许读写共享、不允许删除共享）
+#endif
 #include "controllers/InstanceFileController.hpp"
 void runInstanceFilesPagesTests() {
     const QString originalDir = AppPaths::minecraftDir();
@@ -3026,6 +3030,244 @@ void runInstanceFilesPagesTests() {
             check(QFileInfo::exists(guarded + QStringLiteral(".disabled")),
                   "★ T20.10b 正常路径确实改成了 .disabled");
             QFile::remove(guarded + QStringLiteral(".disabled"));
+        }
+
+        // ---------- T20.13 截图页批量删除：确认框写出文件名，删完保住滚动与选择 ----------
+        //
+        // 这一节走真实产品那条路（实例设置 → 截图 / 回放 → 工具条「删除」→ 确认框 →
+        // 移入回收站 → 重列）：确认框里那几句话是 `InstanceDialogController` 拼的，只测
+        // 对话框那一层（ui_check）碰不到它。回收站只碰临时数据根里的假截图。
+        {
+            const QString shotDir = AppPaths::versionDir(idB) + QStringLiteral("/screenshots");
+            QDir(shotDir).removeRecursively();
+            check(QDir().mkpath(shotDir), "T20.13 截图夹具目录建出来了");
+            QStringList shotNames;
+            for (int index = 1; index <= 25; ++index) {
+                const QString name =
+                    QStringLiteral("shot-%1.png").arg(index, 2, 10, QLatin1Char('0'));
+                writeFileAt(shotDir + QLatin1Char('/') + name, QByteArrayLiteral("fake-png"));
+                shotNames.append(name);
+            }
+            // 搜索过滤要挡掉的那一份：名字里不带 `shot`，搜 `shot-` 时只有它被挡住
+            // （筛选是"只留匹配项"，按整条路径匹配）。
+            const QString filteredName = QStringLiteral("suppressed.png");
+            writeFileAt(shotDir + QLatin1Char('/') + filteredName, QByteArrayLiteral("fake-png"));
+            const QString replayDir = AppPaths::replayRecordingsDir();
+            QDir(replayDir).removeRecursively();
+            check(QDir().mkpath(replayDir), "T20.13 回放夹具目录建出来了");
+            writeFileAt(replayDir + QStringLiteral("/replay-test.mcpr"), QByteArrayLiteral("fake-mcpr"));
+
+            QString replayText;      // 回放页那一问的正文
+            QString singleText;      // 只选 1 份那一问的正文
+            QStringList sevenLines;  // 选 7 份那一问的正文，按行拆开
+            QString promptTitle;
+            QStringList promptButtons;
+            bool singleKept = false;
+            bool sevenKept = false;
+            bool deletedGone = false;
+            bool deleteLeftNothingSelected = false;
+            bool failedKept = false;
+            bool scrollKept = false;
+            bool filterKept = false;
+            bool actionsReenabled = false;
+            bool scrollable = false;
+            int scrollBefore = 0;
+            int barValue = -1;
+            int barMax = -1;
+            QString fixtureProblem;
+
+            // 一条脚本答完这一节会弹的全部提示：三个确认框各点「取消」，后两个确认框
+            // 点「删除」、随后那句结果提示点「确定」。
+            PromptAnswerer answerer({1, 1, 1, 0, 0, 0, 0});
+            answerer.start();
+            QTimer::singleShot(0, [&] {
+                OverlayHost *host = currentPageOverlay();
+                // 取最后一个：上一扇页可能还在等 `deleteLater()`，刚开的这扇是最后加进来的子控件。
+                const auto pages =
+                    host != nullptr ? host->findChildren<InstanceSettingsDialog *>()
+                                    : QList<InstanceSettingsDialog *>();
+                auto *page = pages.isEmpty() ? nullptr : pages.last();
+                if (page == nullptr) {
+                    fixtureProblem = QStringLiteral("实例设置页没开起来");
+                    return;
+                }
+                const auto buttonFor = [page](const QString &name, const QString &key) {
+                    return page->findChild<QPushButton *>(
+                        QStringLiteral("instanceLifecycleBatch%1_%2").arg(name, key));
+                };
+                const auto rowOf = [](QListWidget *list, const QString &name) {
+                    for (int row = 0; list != nullptr && row < list->count(); ++row) {
+                        if (QFileInfo(list->item(row)->data(Qt::UserRole).toString()).fileName() == name)
+                            return row;
+                    }
+                    return -1;
+                };
+                const auto selectOnly = [&](QListWidget *list, const QStringList &wanted) {
+                    if (list == nullptr) return;
+                    list->clearSelection();
+                    for (const QString &name : wanted) {
+                        const int row = rowOf(list, name);
+                        if (row >= 0) list->item(row)->setSelected(true);
+                    }
+                    QApplication::processEvents();
+                };
+
+                // ① 回放页：前面那句「目录共用」照旧，后面写文件名。
+                page->showPage(QStringLiteral("replay"));
+                QApplication::processEvents();
+                auto *replayList = page->findChild<QListWidget *>(
+                    QStringLiteral("instanceLifecycleFiles_replay"));
+                auto *replayRemove = buttonFor(QStringLiteral("Remove"), QStringLiteral("replay"));
+                if (replayList == nullptr || replayRemove == nullptr
+                    || rowOf(replayList, QStringLiteral("replay-test.mcpr")) < 0) {
+                    fixtureProblem = QStringLiteral("回放页没列出测试录像");
+                } else {
+                    selectOnly(replayList, {QStringLiteral("replay-test.mcpr")});
+                    replayRemove->click();  // 确认框 → 取消
+                }
+
+                // ② 截图页：只选一份。
+                page->showPage(QStringLiteral("screenshots"));
+                QApplication::processEvents();
+                auto *list = page->findChild<QListWidget *>(
+                    QStringLiteral("instanceLifecycleFiles_screenshots"));
+                // 这一页刚摆上来，QListView 的延后排版还没轮到：不排这一下，行高和滚动范围
+                // 都还是 0（量"滚动位置"的断言会量到 0 上）。
+                if (list != nullptr) list->doItemsLayout();
+                QApplication::processEvents();
+                auto *remove = buttonFor(QStringLiteral("Remove"), QStringLiteral("screenshots"));
+                auto *search = page->findChild<QLineEdit *>(
+                    QStringLiteral("instanceLifecycleSearch_screenshots"));
+                if (list == nullptr || remove == nullptr) {
+                    fixtureProblem = QStringLiteral("截图页的列表或「删除」不见了");
+                    return;
+                }
+                selectOnly(list, {shotNames.value(0)});
+                remove->click();  // 确认框 → 取消
+                singleKept = list->selectedItems().size() == 1;
+
+                // ③ 七份：列出前 5 个，剩下 2 个收成一行。
+                selectOnly(list, shotNames.mid(0, 7));
+                remove->click();  // 确认框 → 取消
+                sevenKept = list->selectedItems().size() == 7;
+
+                // ④ 真的删一份：滚动位置要回来，删掉的那一行不能顺手去选别人。
+                if (search != nullptr) {
+                    search->setText(QStringLiteral("shot-"));  // 只挡住 suppressed.png（目录名 screenshots 里没有这个连字符）
+                    QApplication::processEvents();
+                }
+                selectOnly(list, {shotNames.value(1)});
+                QScrollBar *bar = list->verticalScrollBar();
+                // QListWidget 默认按**行**滚（`ScrollPerItem`），这个数是行号不是像素。
+                scrollable = bar != nullptr && bar->maximum() >= 4;
+                if (scrollable) {
+                    bar->setValue(bar->maximum() - 2);
+                    scrollBefore = bar->value();
+                }
+                scrollable = scrollable && scrollBefore > 0 && scrollBefore < bar->maximum();
+                remove->click();  // 确认 → 删除，随后那句结果提示 → 确定
+                QApplication::processEvents();
+                deletedGone = rowOf(list, shotNames.value(1)) < 0
+                              && !QFileInfo::exists(shotDir + QLatin1Char('/') + shotNames.value(1));
+                deleteLeftNothingSelected = list->selectedItems().isEmpty();
+                if (bar != nullptr) {
+                    barValue = bar->value();
+                    barMax = bar->maximum();
+                }
+                scrollKept = scrollable && bar->maximum() >= scrollBefore
+                             && bar->value() == scrollBefore;
+                const int hiddenRow = rowOf(list, filteredName);
+                filterKept = search != nullptr && search->text() == QStringLiteral("shot-")
+                             && hiddenRow >= 0 && list->item(hiddenRow)->isHidden();
+
+                // ⑤ 删不动的那一份：仍然在盘上、而且仍然选着。
+                selectOnly(list, {shotNames.value(2)});  // shot-03
+#ifdef Q_OS_WIN
+                const QString held = shotDir + QLatin1Char('/') + shotNames.value(2);
+                const HANDLE lock = CreateFileW(
+                    reinterpret_cast<LPCWSTR>(QDir::toNativeSeparators(held).utf16()),
+                    GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                    OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+                if (lock == INVALID_HANDLE_VALUE) {
+                    fixtureProblem = QStringLiteral("占不住那份截图，删除失败的分支没演到");
+                } else {
+                    const int beforeFailure = bar != nullptr ? bar->value() : 0;
+                    remove->click();  // 确认 → 删除（失败），结果提示 → 确定
+                    QApplication::processEvents();
+                    const int keptRow = rowOf(list, shotNames.value(2));
+                    failedKept = keptRow >= 0 && QFileInfo::exists(held)
+                                 && list->selectedItems().size() == 1
+                                 && list->selectedItems().first() == list->item(keptRow);
+                    scrollKept = scrollKept && bar != nullptr
+                                 && bar->maximum() >= beforeFailure
+                                 && bar->value() == beforeFailure;
+                    CloseHandle(lock);
+                }
+#else
+                // 回收站那一套是 Win32 的；别的平台上这一档（"删不动"）造不出来。
+                failedKept = true;
+#endif
+                actionsReenabled = remove->isEnabled();
+
+                // 提示都答完了，把这一节量到的东西取出来。
+                replayText = answerer.answered.value(0).text;
+                promptTitle = answerer.answered.value(1).title;
+                promptButtons = answerer.answered.value(1).buttons;
+                singleText = answerer.answered.value(1).text;
+                sevenLines = answerer.answered.value(2).text.split(QLatin1Char('\n'));
+
+                if (auto *back = host->findChild<QPushButton *>(OverlayHost::overlayBackButtonName()))
+                    back->click();
+            });
+            QMetaObject::invokeMethod(&w, "openInstanceSettings", Qt::DirectConnection,
+                                      Q_ARG(QString, idB));
+            QApplication::processEvents();
+            answerer.stop();
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+
+            check(replayText
+                      == QStringLiteral("回放目录由当前游戏目录内的实例共用。\n\n"
+                                        "将「replay-test.mcpr」移入回收站？"),
+                  "★★ T20.13 回放页那一问：前面那句「目录共用」照旧，后面写出文件名", replayText);
+            check(promptTitle == QStringLiteral("删除文件")
+                      && promptButtons == QStringList{QStringLiteral("删除"), QStringLiteral("取消")},
+                  "★ T20.13 删除这一问的标题和两颗按钮没变",
+                  promptTitle + QStringLiteral(" | ") + promptButtons.join(QLatin1Char('/')));
+            check(singleText == QStringLiteral("将「shot-01.png」移入回收站？"),
+                  "★★ T20.13 只选 1 个文件时确认框里写出文件名（不是「目录里 1 个文件」）",
+                  singleText);
+            const bool firstLineOk =
+                sevenLines.value(0) == QStringLiteral("将以下 7 个文件移入回收站？");
+            QStringList listed;
+            for (int index = 2; index < 7 && index < sevenLines.size(); ++index)
+                listed.append(sevenLines.at(index));
+            QStringList uniqueListed = listed;
+            uniqueListed.removeDuplicates();
+            bool listedOk = sevenLines.size() == 8 && sevenLines.value(1).isEmpty()
+                            && listed.size() == 5 && uniqueListed.size() == 5
+                            && sevenLines.value(7) == QStringLiteral("另有 2 个文件");
+            for (const QString &name : listed)
+                listedOk = listedOk && shotNames.contains(name) && name.endsWith(QStringLiteral(".png"));
+            check(firstLineOk && listedOk,
+                  "★★ T20.13 选 7 个文件时列 5 个、末尾一句「另有 2 个文件」",
+                  sevenLines.join(QLatin1Char('|')));
+            check(singleKept && sevenKept,
+                  "★★ T20.13 确认框上点「取消」之后原来的选择还在（旧写法这一下就清空了）",
+                  QStringLiteral("1 个：%1，7 个：%2").arg(singleKept).arg(sevenKept));
+            check(deletedGone && deleteLeftNothingSelected,
+                  "★★ T20.13 删掉的那一行没了，而且没有顺手去选别的行");
+            check(scrollKept,
+                  "★★ T20.13 删完之后竖向滚动条回到原来的位置（列表短了就夹到最大值）",
+                  QStringLiteral("之前 %1，之后 %2 / 最大 %3")
+                      .arg(scrollBefore).arg(barValue).arg(barMax));
+            check(failedKept,
+                  "★★ T20.13 移入回收站失败的那一项还在盘上、而且仍然选着");
+            check(filterKept, "★ T20.13 重列之后搜索框和它挡掉的那几行照旧");
+            check(actionsReenabled, "★ T20.13 一次请求收尾之后工具条又点得动了");
+            if (!fixtureProblem.isEmpty()) check(false, "T20.13 夹具没跑起来", fixtureProblem);
+
+            QDir(shotDir).removeRecursively();
+            QFile::remove(replayDir + QStringLiteral("/replay-test.mcpr"));
         }
     }
 

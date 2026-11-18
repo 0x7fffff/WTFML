@@ -617,11 +617,30 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
             destination = QDir::fromNativeSeparators(destination);
         }
         if (action == Action::Remove || action == Action::Move) {
-            const QString locations = action == Action::Remove
-                ? tr("将「%1」中的 %2 个所选文件移入回收站？")
-                      .arg(QDir::toNativeSeparators(root)).arg(paths.size())
-                : tr("将「%1」中的 %2 个所选文件移动到「%3」？\n仅支持同卷移动，不覆盖同名文件。")
-                      .arg(QDir::toNativeSeparators(root)).arg(paths.size()).arg(QDir::toNativeSeparators(destination));
+            // 删除这一问要把**文件名**摆出来：用户在批量列表里勾了几条，确认框里得能逐条
+            // 核对删的是哪几份（只说"目录里 N 个文件"时，同名 / 名字相近的一勾错也看不出来）。
+            // 选得多时只列前 5 个，剩下的用一行数量收口，免得确认框被文件名顶出屏幕。
+            QString locations;
+            if (action == Action::Remove) {
+                QStringList names;
+                names.reserve(paths.size());
+                for (const QString &path : paths) names.append(QFileInfo(path).fileName());
+                if (names.size() == 1) {
+                    locations = tr("将「%1」移入回收站？").arg(names.first());
+                } else {
+                    constexpr qsizetype kListed = 5;
+                    QStringList lines{tr("将以下 %1 个文件移入回收站？").arg(names.size()), QString()};
+                    for (qsizetype index = 0; index < names.size() && index < kListed; ++index)
+                        lines.append(names.at(index));
+                    if (names.size() > kListed)
+                        lines.append(tr("另有 %1 个文件").arg(names.size() - kListed));
+                    locations = lines.join(QLatin1Char('\n'));
+                }
+            } else {
+                locations = tr("将「%1」中的 %2 个所选文件移动到「%3」？\n仅支持同卷移动，不覆盖同名文件。")
+                                .arg(QDir::toNativeSeparators(root)).arg(paths.size())
+                                .arg(QDir::toNativeSeparators(destination));
+            }
             const QString question = replay ? tr("回放目录由当前游戏目录内的实例共用。\n\n") + locations : locations;
             if (!InlineMessage::question(overlay, title, question,
                     action == Action::Remove ? tr("删除") : tr("移动"), tr("取消"), false, true)) return;
