@@ -222,6 +222,46 @@ bool stripLinksBelow(const QString &root, QString *problem) {
     return true;
 }
 
+/// 把 @p root 这一棵（**含 root 自己**）的 `FILE_ATTRIBUTE_READONLY` 摘掉，别的属性一个都不碰。
+///
+/// NOTE: 为什么回收站那一趟需要这一步。shell 把一件只读文件/一棵含着只读文件的目录搬进
+/// 回收站时会回 `COPYENGINE_E_ACCESS_DENIED_SRC`（0x80270021，"源访问被拒绝"）—— 只读位
+/// 挡住的正是它删条目那一步，树里其余部分一件问题都没有。拿到的句子却是"回收站不可用 /
+/// 空间不足 / 被别的程序占着"，方向完全是错的。资源管理器碰到只读文件会先弹一句"确实要
+/// 删除吗"，确认之后它自己摘只读位再删；这里没有"问一句"的机会（用户点的就是删除），
+/// 所以摘位这件事由我们做。
+///
+/// NOTE: **只在第一次真的失败之后才调用**（和 `removeFileAllowingReadOnly()` 同一条约定）：
+/// 一次就成功的那一趟一个属性都不碰，进回收站的那一份还是只读的。
+///
+/// @return 真的摘掉了几件。0 = 这一棵里没有只读的东西，重试没有意义。
+int clearReadOnlyBelow(const QString &root) {
+    const QFileInfo info(root);
+    if (!info.exists() && !info.isSymLink()) {
+        return 0;
+    }
+    if (isLinkToElsewhere(info)) {
+        return 0;  // 链接在搬之前就剥掉了（stripLinksBelow），这里绝不跟进去
+    }
+    const QString path = info.absoluteFilePath();
+    const std::wstring wide = QDir::toNativeSeparators(path).toStdWString();
+    int cleared = 0;
+    const DWORD attributes = GetFileAttributesW(wide.c_str());
+    if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_READONLY) != 0 &&
+        SetFileAttributesW(wide.c_str(), attributes & ~FILE_ATTRIBUTE_READONLY) != 0) {
+        ++cleared;
+    }
+    if (info.isDir()) {
+        const QDir dir(path);
+        const QStringList entries =
+            dir.entryList(QDir::AllEntries | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot);
+        for (const QString &entry : entries) {
+            cleared += clearReadOnlyBelow(dir.absoluteFilePath(entry));
+        }
+    }
+    return cleared;
+}
+
 }  // namespace
 #endif
 
@@ -345,35 +385,54 @@ bool moveToRecycleBin(const QString &path, QString *error) {
                         .arg(QDir::toNativeSeparators(target)));
     }
 
-    IFileOperation *operation = nullptr;
-    HRESULT hr = CoCreateInstance(CLSID_FileOperation, nullptr, CLSCTX_ALL, IID_IFileOperation,
-                                  reinterpret_cast<void **>(&operation));
-    if (FAILED(hr) || operation == nullptr) {
-        if (operation != nullptr) operation->Release();
+    // 抽成 lambda 是为了"只读文件挡路时再试一次"（见下面那一段）。
+    bool opened = false;  // CoCreateInstance 过了没有：没过就不能报"移不进去"，那是另一句话
+    const auto recycleOnce = [&wide, &opened](BOOL *abortedOut) -> HRESULT {
+        IFileOperation *operation = nullptr;
+        HRESULT result = CoCreateInstance(CLSID_FileOperation, nullptr, CLSCTX_ALL,
+                                          IID_IFileOperation, reinterpret_cast<void **>(&operation));
+        if (FAILED(result) || operation == nullptr) {
+            if (operation != nullptr) operation->Release();
+            return result;
+        }
+        opened = true;
+        // FOFX_EARLYFAILURE：碰到第一个删不动的就停，尽量少动 —— 回收站那一趟默认会跳过
+        // 失败项继续搬，最后只给一句"有的没成功"，用户已经分不清哪些进了回收站。
+        result = operation->SetOperationFlags(FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT
+                                              | FOF_NOERRORUI | FOFX_EARLYFAILURE
+                                              | FOFX_RECYCLEONDELETE);
+        IShellItem *item = nullptr;
+        if (SUCCEEDED(result)) {
+            result = SHCreateItemFromParsingName(wide.c_str(), nullptr, IID_IShellItem,
+                                                 reinterpret_cast<void **>(&item));
+        }
+        if (SUCCEEDED(result) && item != nullptr) {
+            result = operation->DeleteItem(item, nullptr);
+        }
+        if (SUCCEEDED(result)) {
+            result = operation->PerformOperations();
+        }
+        BOOL aborted = FALSE;
+        operation->GetAnyOperationsAborted(&aborted);
+        if (item != nullptr) item->Release();
+        operation->Release();
+        if (abortedOut != nullptr) *abortedOut = aborted;
+        return result;
+    };
+
+    BOOL aborted = FALSE;
+    HRESULT hr = recycleOnce(&aborted);
+    if (!opened) {
         return fail(FolderManager::tr("打不开回收站：%1\n\n为了不永久删掉，「%2」没有动。")
                         .arg(systemMessage(hr), QDir::toNativeSeparators(target)));
     }
-
-    // FOFX_EARLYFAILURE：碰到第一个删不动的就停，尽量少动 —— 回收站那一趟默认会跳过
-    // 失败项继续搬，最后只给一句"有的没成功"，用户已经分不清哪些进了回收站。
-    hr = operation->SetOperationFlags(FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT
-                                      | FOF_NOERRORUI | FOFX_EARLYFAILURE
-                                      | FOFX_RECYCLEONDELETE);
-    IShellItem *item = nullptr;
-    if (SUCCEEDED(hr)) {
-        hr = SHCreateItemFromParsingName(wide.c_str(), nullptr, IID_IShellItem,
-                                         reinterpret_cast<void **>(&item));
+    if (FAILED(hr)) {
+        // 树里有只读文件/目录：shell 不肯替我们摘只读位，这一趟回的是"源访问被拒绝"。
+        // 摘掉只读位再试一次（理由见 clearReadOnlyBelow()；一次就成功的那趟一个属性都不碰）。
+        if (clearReadOnlyBelow(target) > 0) {
+            hr = recycleOnce(&aborted);
+        }
     }
-    if (SUCCEEDED(hr) && item != nullptr) {
-        hr = operation->DeleteItem(item, nullptr);
-    }
-    if (SUCCEEDED(hr)) {
-        hr = operation->PerformOperations();
-    }
-    BOOL aborted = FALSE;
-    operation->GetAnyOperationsAborted(&aborted);
-    if (item != nullptr) item->Release();
-    operation->Release();
 
     if (FAILED(hr)) {
         return fail(FolderManager::tr("无法将「%1」移入回收站：%2\n\n"
