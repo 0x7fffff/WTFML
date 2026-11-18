@@ -4,6 +4,7 @@
  * （这个文件里没有 QNetworkAccessManager，将来也不会加 —— 发请求是 ResourceStore 的事）。
  */
 #include "ResourceCatalog.hpp"
+#include <QCoreApplication>
 #include <cmath>
 
 #include "manage/ModpackImport.hpp"  // curseForgeApiBase() —— CurseForge 那张接口根地址的唯一出处
@@ -75,7 +76,7 @@ QStringList stringList(const QJsonValue &value) {
 /// 读不懂 JSON 时统一的那句话。带上 QJsonParseError 的位置 —— 报"解析失败"等于没报，
 /// 而这句是要显示给用户的，得让他能判断"是网络中间被劫持了"还是"接口变了"。
 QString unreadableText(const QJsonParseError &error) {
-    return QStringLiteral("接口返回的数据无法解析（第 %1 个字节：%2）")
+    return QCoreApplication::translate("ResourceCatalog", "接口返回的数据无法解析（第 %1 个字节：%2）")
         .arg(error.offset)
         .arg(error.errorString());
 }
@@ -105,7 +106,7 @@ QString curseForgeApiRoot(const QString &apiBase) {
 QList<FilterOption> filterOptions(const QList<QPair<QString, QString>> &pairs) {
     QList<FilterOption> out;
     out.reserve(pairs.size() + 1);
-    out.append(FilterOption{QString(), QStringLiteral("全部")});
+    out.append(FilterOption{QString(), QCoreApplication::translate("ResourceCatalog", "全部")});
     for (const QPair<QString, QString> &pair : pairs) {
         out.append(FilterOption{pair.first, pair.second});
     }
@@ -340,15 +341,15 @@ QString folderForKind(Kind kind) {
 QString kindLabel(Kind kind) {
     switch (kind) {
     case Kind::Mod:
-        return QStringLiteral("模组");
+        return QCoreApplication::translate("ResourceCatalog", "模组");
     case Kind::Modpack:
-        return QStringLiteral("整合包");
+        return QCoreApplication::translate("ResourceCatalog", "整合包");
     case Kind::DataPack:
-        return QStringLiteral("数据包");
+        return QCoreApplication::translate("ResourceCatalog", "数据包");
     case Kind::Shader:
-        return QStringLiteral("光影");
+        return QCoreApplication::translate("ResourceCatalog", "光影");
     case Kind::ResourcePack:
-        return QStringLiteral("资源包");
+        return QCoreApplication::translate("ResourceCatalog", "资源包");
     }
     return QString();
 }
@@ -423,56 +424,56 @@ QList<FilterOption> categoryOptions(Source source, Kind kind) {
         switch (kind) {
         case Kind::Mod:
             return filterOptions({
-                {QStringLiteral("6814"), QStringLiteral("优化")},
-                {QStringLiteral("421"), QStringLiteral("前置库")},
-                {QStringLiteral("434"), QStringLiteral("装备武器")},
-                {QStringLiteral("424"), QStringLiteral("装饰外观")},
-                {QStringLiteral("422"), QStringLiteral("冒险")},
-                {QStringLiteral("419"), QStringLiteral("魔法")},
-                {QStringLiteral("412"), QStringLiteral("科技")},
-                {QStringLiteral("406"), QStringLiteral("世界生成")},
-                {QStringLiteral("408"), QStringLiteral("矿物资源")},
-                {QStringLiteral("407"), QStringLiteral("生物群系")},
-                {QStringLiteral("411"), QStringLiteral("生物")},
-                {QStringLiteral("409"), QStringLiteral("结构")},
-                {QStringLiteral("436"), QStringLiteral("食物")},
-                {QStringLiteral("420"), QStringLiteral("存储")},
-                {QStringLiteral("4558"), QStringLiteral("红石")},
-                {QStringLiteral("5191"), QStringLiteral("实用与体验")},
-                {QStringLiteral("435"), QStringLiteral("服务端")},
-                {QStringLiteral("423"), QStringLiteral("地图与信息")},
-                {QStringLiteral("6821"), QStringLiteral("修复")},
-                {QStringLiteral("425"), QStringLiteral("杂项")},
+                {QStringLiteral("6814"), QCoreApplication::translate("ResourceCatalog", "优化")},
+                {QStringLiteral("421"), QCoreApplication::translate("ResourceCatalog", "前置库")},
+                {QStringLiteral("434"), QCoreApplication::translate("ResourceCatalog", "装备武器")},
+                {QStringLiteral("424"), QCoreApplication::translate("ResourceCatalog", "装饰外观")},
+                {QStringLiteral("422"), QCoreApplication::translate("ResourceCatalog", "冒险")},
+                {QStringLiteral("419"), QCoreApplication::translate("ResourceCatalog", "魔法")},
+                {QStringLiteral("412"), QCoreApplication::translate("ResourceCatalog", "科技")},
+                {QStringLiteral("406"), QCoreApplication::translate("ResourceCatalog", "世界生成")},
+                {QStringLiteral("408"), QCoreApplication::translate("ResourceCatalog", "矿物资源")},
+                {QStringLiteral("407"), QCoreApplication::translate("ResourceCatalog", "生物群系")},
+                {QStringLiteral("411"), QCoreApplication::translate("ResourceCatalog", "生物")},
+                {QStringLiteral("409"), QCoreApplication::translate("ResourceCatalog", "结构")},
+                {QStringLiteral("436"), QCoreApplication::translate("ResourceCatalog", "食物")},
+                {QStringLiteral("420"), QCoreApplication::translate("ResourceCatalog", "存储")},
+                {QStringLiteral("4558"), QCoreApplication::translate("ResourceCatalog", "红石")},
+                {QStringLiteral("5191"), QCoreApplication::translate("ResourceCatalog", "实用与体验")},
+                {QStringLiteral("435"), QCoreApplication::translate("ResourceCatalog", "服务端")},
+                {QStringLiteral("423"), QCoreApplication::translate("ResourceCatalog", "地图与信息")},
+                {QStringLiteral("6821"), QCoreApplication::translate("ResourceCatalog", "修复")},
+                {QStringLiteral("425"), QCoreApplication::translate("ResourceCatalog", "杂项")},
             });
         case Kind::Modpack:
             return filterOptions({
-                {QStringLiteral("4472"), QStringLiteral("科技")},
-                {QStringLiteral("4473"), QStringLiteral("魔法")},
-                {QStringLiteral("4475"), QStringLiteral("冒险与 RPG")},
-                {QStringLiteral("4476"), QStringLiteral("探索")},
-                {QStringLiteral("4478"), QStringLiteral("任务")},
-                {QStringLiteral("4736"), QStringLiteral("空岛")},
-                {QStringLiteral("4483"), QStringLiteral("战斗与 PvP")},
-                {QStringLiteral("4477"), QStringLiteral("小游戏")},
-                {QStringLiteral("4484"), QStringLiteral("多人")},
-                {QStringLiteral("5128"), QStringLiteral("原版增强")},
-                {QStringLiteral("4479"), QStringLiteral("硬核")},
-                {QStringLiteral("9243"), QStringLiteral("专家")},
-                {QStringLiteral("7418"), QStringLiteral("恐怖")},
-                {QStringLiteral("4481"), QStringLiteral("轻量")},
-                {QStringLiteral("4482"), QStringLiteral("大型")},
-                {QStringLiteral("4474"), QStringLiteral("科幻")},
+                {QStringLiteral("4472"), QCoreApplication::translate("ResourceCatalog", "科技")},
+                {QStringLiteral("4473"), QCoreApplication::translate("ResourceCatalog", "魔法")},
+                {QStringLiteral("4475"), QCoreApplication::translate("ResourceCatalog", "冒险与 RPG")},
+                {QStringLiteral("4476"), QCoreApplication::translate("ResourceCatalog", "探索")},
+                {QStringLiteral("4478"), QCoreApplication::translate("ResourceCatalog", "任务")},
+                {QStringLiteral("4736"), QCoreApplication::translate("ResourceCatalog", "空岛")},
+                {QStringLiteral("4483"), QCoreApplication::translate("ResourceCatalog", "战斗与 PvP")},
+                {QStringLiteral("4477"), QCoreApplication::translate("ResourceCatalog", "小游戏")},
+                {QStringLiteral("4484"), QCoreApplication::translate("ResourceCatalog", "多人")},
+                {QStringLiteral("5128"), QCoreApplication::translate("ResourceCatalog", "原版增强")},
+                {QStringLiteral("4479"), QCoreApplication::translate("ResourceCatalog", "硬核")},
+                {QStringLiteral("9243"), QCoreApplication::translate("ResourceCatalog", "专家")},
+                {QStringLiteral("7418"), QCoreApplication::translate("ResourceCatalog", "恐怖")},
+                {QStringLiteral("4481"), QCoreApplication::translate("ResourceCatalog", "轻量")},
+                {QStringLiteral("4482"), QCoreApplication::translate("ResourceCatalog", "大型")},
+                {QStringLiteral("4474"), QCoreApplication::translate("ResourceCatalog", "科幻")},
             });
         case Kind::DataPack:
             return filterOptions({
-                {QStringLiteral("6946"), QStringLiteral("模组支持")},
-                {QStringLiteral("6951"), QStringLiteral("科技")},
-                {QStringLiteral("6952"), QStringLiteral("魔法")},
-                {QStringLiteral("6948"), QStringLiteral("冒险")},
-                {QStringLiteral("6950"), QStringLiteral("前置库")},
-                {QStringLiteral("6953"), QStringLiteral("实用")},
-                {QStringLiteral("6949"), QStringLiteral("奇幻")},
-                {QStringLiteral("6947"), QStringLiteral("杂项")},
+                {QStringLiteral("6946"), QCoreApplication::translate("ResourceCatalog", "模组支持")},
+                {QStringLiteral("6951"), QCoreApplication::translate("ResourceCatalog", "科技")},
+                {QStringLiteral("6952"), QCoreApplication::translate("ResourceCatalog", "魔法")},
+                {QStringLiteral("6948"), QCoreApplication::translate("ResourceCatalog", "冒险")},
+                {QStringLiteral("6950"), QCoreApplication::translate("ResourceCatalog", "前置库")},
+                {QStringLiteral("6953"), QCoreApplication::translate("ResourceCatalog", "实用")},
+                {QStringLiteral("6949"), QCoreApplication::translate("ResourceCatalog", "奇幻")},
+                {QStringLiteral("6947"), QCoreApplication::translate("ResourceCatalog", "杂项")},
             });
         case Kind::ResourcePack:
             return filterOptions({
@@ -481,21 +482,21 @@ QList<FilterOption> categoryOptions(Source source, Kind kind) {
                 {QStringLiteral("395"), QStringLiteral("64x")},
                 {QStringLiteral("396"), QStringLiteral("128x")},
                 {QStringLiteral("397"), QStringLiteral("256x")},
-                {QStringLiteral("398"), QStringLiteral("512x 及以上")},
-                {QStringLiteral("403"), QStringLiteral("传统")},
-                {QStringLiteral("401"), QStringLiteral("现代")},
-                {QStringLiteral("402"), QStringLiteral("中世纪")},
-                {QStringLiteral("400"), QStringLiteral("写实")},
-                {QStringLiteral("404"), QStringLiteral("动画")},
-                {QStringLiteral("4465"), QStringLiteral("模组支持")},
-                {QStringLiteral("5244"), QStringLiteral("字体")},
-                {QStringLiteral("405"), QStringLiteral("杂项")},
+                {QStringLiteral("398"), QCoreApplication::translate("ResourceCatalog", "512x 及以上")},
+                {QStringLiteral("403"), QCoreApplication::translate("ResourceCatalog", "传统")},
+                {QStringLiteral("401"), QCoreApplication::translate("ResourceCatalog", "现代")},
+                {QStringLiteral("402"), QCoreApplication::translate("ResourceCatalog", "中世纪")},
+                {QStringLiteral("400"), QCoreApplication::translate("ResourceCatalog", "写实")},
+                {QStringLiteral("404"), QCoreApplication::translate("ResourceCatalog", "动画")},
+                {QStringLiteral("4465"), QCoreApplication::translate("ResourceCatalog", "模组支持")},
+                {QStringLiteral("5244"), QCoreApplication::translate("ResourceCatalog", "字体")},
+                {QStringLiteral("405"), QCoreApplication::translate("ResourceCatalog", "杂项")},
             });
         case Kind::Shader:
             return filterOptions({
-                {QStringLiteral("6553"), QStringLiteral("写实")},
-                {QStringLiteral("6554"), QStringLiteral("奇幻")},
-                {QStringLiteral("6555"), QStringLiteral("原版风")},
+                {QStringLiteral("6553"), QCoreApplication::translate("ResourceCatalog", "写实")},
+                {QStringLiteral("6554"), QCoreApplication::translate("ResourceCatalog", "奇幻")},
+                {QStringLiteral("6555"), QCoreApplication::translate("ResourceCatalog", "原版风")},
             });
         }
         return QList<FilterOption>();
@@ -507,37 +508,37 @@ QList<FilterOption> categoryOptions(Source source, Kind kind) {
     switch (kind) {
     case Kind::Mod:
         return filterOptions({
-            {QStringLiteral("optimization"), QStringLiteral("优化")},
-            {QStringLiteral("library"), QStringLiteral("前置库")},
-            {QStringLiteral("equipment"), QStringLiteral("装备")},
-            {QStringLiteral("decoration"), QStringLiteral("装饰")},
-            {QStringLiteral("adventure"), QStringLiteral("冒险")},
-            {QStringLiteral("magic"), QStringLiteral("魔法")},
-            {QStringLiteral("technology"), QStringLiteral("科技")},
-            {QStringLiteral("worldgen"), QStringLiteral("世界生成")},
-            {QStringLiteral("mobs"), QStringLiteral("生物")},
-            {QStringLiteral("food"), QStringLiteral("食物")},
-            {QStringLiteral("storage"), QStringLiteral("存储")},
-            {QStringLiteral("transportation"), QStringLiteral("运输")},
-            {QStringLiteral("game-mechanics"), QStringLiteral("游戏机制")},
-            {QStringLiteral("management"), QStringLiteral("管理")},
-            {QStringLiteral("minigame"), QStringLiteral("小游戏")},
-            {QStringLiteral("social"), QStringLiteral("社交")},
-            {QStringLiteral("utility"), QStringLiteral("实用")},
-            {QStringLiteral("cursed"), QStringLiteral("诅咒")},
+            {QStringLiteral("optimization"), QCoreApplication::translate("ResourceCatalog", "优化")},
+            {QStringLiteral("library"), QCoreApplication::translate("ResourceCatalog", "前置库")},
+            {QStringLiteral("equipment"), QCoreApplication::translate("ResourceCatalog", "装备")},
+            {QStringLiteral("decoration"), QCoreApplication::translate("ResourceCatalog", "装饰")},
+            {QStringLiteral("adventure"), QCoreApplication::translate("ResourceCatalog", "冒险")},
+            {QStringLiteral("magic"), QCoreApplication::translate("ResourceCatalog", "魔法")},
+            {QStringLiteral("technology"), QCoreApplication::translate("ResourceCatalog", "科技")},
+            {QStringLiteral("worldgen"), QCoreApplication::translate("ResourceCatalog", "世界生成")},
+            {QStringLiteral("mobs"), QCoreApplication::translate("ResourceCatalog", "生物")},
+            {QStringLiteral("food"), QCoreApplication::translate("ResourceCatalog", "食物")},
+            {QStringLiteral("storage"), QCoreApplication::translate("ResourceCatalog", "存储")},
+            {QStringLiteral("transportation"), QCoreApplication::translate("ResourceCatalog", "运输")},
+            {QStringLiteral("game-mechanics"), QCoreApplication::translate("ResourceCatalog", "游戏机制")},
+            {QStringLiteral("management"), QCoreApplication::translate("ResourceCatalog", "管理")},
+            {QStringLiteral("minigame"), QCoreApplication::translate("ResourceCatalog", "小游戏")},
+            {QStringLiteral("social"), QCoreApplication::translate("ResourceCatalog", "社交")},
+            {QStringLiteral("utility"), QCoreApplication::translate("ResourceCatalog", "实用")},
+            {QStringLiteral("cursed"), QCoreApplication::translate("ResourceCatalog", "诅咒")},
         });
     case Kind::Modpack:
         return filterOptions({
-            {QStringLiteral("optimization"), QStringLiteral("优化")},
-            {QStringLiteral("technology"), QStringLiteral("科技")},
-            {QStringLiteral("magic"), QStringLiteral("魔法")},
-            {QStringLiteral("adventure"), QStringLiteral("冒险")},
-            {QStringLiteral("quests"), QStringLiteral("任务")},
-            {QStringLiteral("combat"), QStringLiteral("战斗")},
-            {QStringLiteral("multiplayer"), QStringLiteral("多人")},
-            {QStringLiteral("challenging"), QStringLiteral("挑战")},
-            {QStringLiteral("kitchen-sink"), QStringLiteral("大杂烩")},
-            {QStringLiteral("lightweight"), QStringLiteral("轻量")},
+            {QStringLiteral("optimization"), QCoreApplication::translate("ResourceCatalog", "优化")},
+            {QStringLiteral("technology"), QCoreApplication::translate("ResourceCatalog", "科技")},
+            {QStringLiteral("magic"), QCoreApplication::translate("ResourceCatalog", "魔法")},
+            {QStringLiteral("adventure"), QCoreApplication::translate("ResourceCatalog", "冒险")},
+            {QStringLiteral("quests"), QCoreApplication::translate("ResourceCatalog", "任务")},
+            {QStringLiteral("combat"), QCoreApplication::translate("ResourceCatalog", "战斗")},
+            {QStringLiteral("multiplayer"), QCoreApplication::translate("ResourceCatalog", "多人")},
+            {QStringLiteral("challenging"), QCoreApplication::translate("ResourceCatalog", "挑战")},
+            {QStringLiteral("kitchen-sink"), QCoreApplication::translate("ResourceCatalog", "大杂烩")},
+            {QStringLiteral("lightweight"), QCoreApplication::translate("ResourceCatalog", "轻量")},
         });
     case Kind::DataPack:
         // **空表**：Modrinth 的分类表里根本没有 datapack 这一档（实测 `/v2/tag/category`
@@ -551,32 +552,32 @@ QList<FilterOption> categoryOptions(Source source, Kind kind) {
             {QStringLiteral("64x"), QStringLiteral("64x")},
             {QStringLiteral("128x"), QStringLiteral("128x")},
             {QStringLiteral("256x"), QStringLiteral("256x")},
-            {QStringLiteral("512x+"), QStringLiteral("512x 及以上")},
-            {QStringLiteral("realistic"), QStringLiteral("写实")},
-            {QStringLiteral("simplistic"), QStringLiteral("简约")},
-            {QStringLiteral("themed"), QStringLiteral("主题")},
-            {QStringLiteral("vanilla-like"), QStringLiteral("原版风")},
-            {QStringLiteral("decoration"), QStringLiteral("装饰")},
-            {QStringLiteral("modded"), QStringLiteral("模组支持")},
-            {QStringLiteral("tweaks"), QStringLiteral("微调")},
-            {QStringLiteral("cursed"), QStringLiteral("诅咒")},
+            {QStringLiteral("512x+"), QCoreApplication::translate("ResourceCatalog", "512x 及以上")},
+            {QStringLiteral("realistic"), QCoreApplication::translate("ResourceCatalog", "写实")},
+            {QStringLiteral("simplistic"), QCoreApplication::translate("ResourceCatalog", "简约")},
+            {QStringLiteral("themed"), QCoreApplication::translate("ResourceCatalog", "主题")},
+            {QStringLiteral("vanilla-like"), QCoreApplication::translate("ResourceCatalog", "原版风")},
+            {QStringLiteral("decoration"), QCoreApplication::translate("ResourceCatalog", "装饰")},
+            {QStringLiteral("modded"), QCoreApplication::translate("ResourceCatalog", "模组支持")},
+            {QStringLiteral("tweaks"), QCoreApplication::translate("ResourceCatalog", "微调")},
+            {QStringLiteral("cursed"), QCoreApplication::translate("ResourceCatalog", "诅咒")},
         });
     case Kind::Shader:
         return filterOptions({
-            {QStringLiteral("realistic"), QStringLiteral("写实")},
-            {QStringLiteral("semi-realistic"), QStringLiteral("半写实")},
-            {QStringLiteral("fantasy"), QStringLiteral("奇幻")},
-            {QStringLiteral("cartoon"), QStringLiteral("卡通")},
-            {QStringLiteral("vanilla-like"), QStringLiteral("原版风")},
-            {QStringLiteral("potato"), QStringLiteral("极低配")},
-            {QStringLiteral("path-tracing"), QStringLiteral("光追")},
-            {QStringLiteral("pbr"), QStringLiteral("PBR 材质")},
-            {QStringLiteral("colored-lighting"), QStringLiteral("彩色光照")},
-            {QStringLiteral("reflections"), QStringLiteral("反射")},
-            {QStringLiteral("shadows"), QStringLiteral("阴影")},
-            {QStringLiteral("atmosphere"), QStringLiteral("大气")},
-            {QStringLiteral("foliage"), QStringLiteral("植被")},
-            {QStringLiteral("bloom"), QStringLiteral("泛光")},
+            {QStringLiteral("realistic"), QCoreApplication::translate("ResourceCatalog", "写实")},
+            {QStringLiteral("semi-realistic"), QCoreApplication::translate("ResourceCatalog", "半写实")},
+            {QStringLiteral("fantasy"), QCoreApplication::translate("ResourceCatalog", "奇幻")},
+            {QStringLiteral("cartoon"), QCoreApplication::translate("ResourceCatalog", "卡通")},
+            {QStringLiteral("vanilla-like"), QCoreApplication::translate("ResourceCatalog", "原版风")},
+            {QStringLiteral("potato"), QCoreApplication::translate("ResourceCatalog", "极低配")},
+            {QStringLiteral("path-tracing"), QCoreApplication::translate("ResourceCatalog", "光追")},
+            {QStringLiteral("pbr"), QCoreApplication::translate("ResourceCatalog", "PBR 材质")},
+            {QStringLiteral("colored-lighting"), QCoreApplication::translate("ResourceCatalog", "彩色光照")},
+            {QStringLiteral("reflections"), QCoreApplication::translate("ResourceCatalog", "反射")},
+            {QStringLiteral("shadows"), QCoreApplication::translate("ResourceCatalog", "阴影")},
+            {QStringLiteral("atmosphere"), QCoreApplication::translate("ResourceCatalog", "大气")},
+            {QStringLiteral("foliage"), QCoreApplication::translate("ResourceCatalog", "植被")},
+            {QStringLiteral("bloom"), QCoreApplication::translate("ResourceCatalog", "泛光")},
         });
     }
     return QList<FilterOption>();
@@ -732,8 +733,8 @@ SearchResult parseSearch(const QByteArray &json) {
         // 把接口自己的那句话带出去 —— 它比"搜索失败"有用得多。
         const QString description = root.value(QStringLiteral("description")).toString();
         result.problem = description.isEmpty()
-                             ? QStringLiteral("这不是一份搜索结果（里面没有 hits）")
-                             : QStringLiteral("接口说：%1").arg(description);
+                             ? QCoreApplication::translate("ResourceCatalog", "这不是一份搜索结果（里面没有 hits）")
+                             : QCoreApplication::translate("ResourceCatalog", "接口说：%1").arg(description);
         return result;
     }
 
@@ -788,8 +789,8 @@ SearchResult parseCurseForgeSearch(const QByteArray &json) {
         // 两条都带出去：接口自己的那句话优先，没有就如实说形状不对。
         const QString apiError = root.value(QStringLiteral("error")).toString();
         result.problem = !apiError.isEmpty()
-                             ? QStringLiteral("接口说：%1").arg(apiError)
-                             : QStringLiteral("这不是一份搜索结果（里面没有 data）");
+                             ? QCoreApplication::translate("ResourceCatalog", "接口说：%1").arg(apiError)
+                             : QCoreApplication::translate("ResourceCatalog", "这不是一份搜索结果（里面没有 data）");
         return result;
     }
 
@@ -1182,13 +1183,13 @@ QString formatDownloads(qint64 downloads) {
     // 单位只在这里换一次。界面上列表那一行、详情、以及将来别处显示的下载量都读它，
     // 否则"1234567 次"和"123 万次"会在同一个界面上各说各的。
     if (downloads >= 100000000) {
-        return QStringLiteral("%1 亿").arg(downloads / 100000000.0, 0, 'f', 1);
+        return QCoreApplication::translate("ResourceCatalog", "%1 亿").arg(downloads / 100000000.0, 0, 'f', 1);
     }
     if (downloads >= 10000) {
         // NOTE: 9999.95 万 ~ 1 亿 那一小段（不到一千万分之一的值）四舍五入后会显示成
         // 「10000.0 万」。数字是对的，只是单位没跟着进位 —— 换个单位要再切一刀，
         // 为一个这么窄的窗口不值当，先留着。
-        return QStringLiteral("%1 万").arg(downloads / 10000.0, 0, 'f', 1);
+        return QCoreApplication::translate("ResourceCatalog", "%1 万").arg(downloads / 10000.0, 0, 'f', 1);
     }
     return QString::number(downloads);
 }
@@ -1259,30 +1260,30 @@ QString relativeTimeText(const QString &isoTime, const QDateTime &now) {
         return QString();
     }
     if (seconds < 60) {
-        return QStringLiteral("刚刚");
+        return QCoreApplication::translate("ResourceCatalog", "刚刚");
     }
     if (seconds < 3600) {
-        return QStringLiteral("%1 分钟前").arg(seconds / 60);
+        return QCoreApplication::translate("ResourceCatalog", "%1 分钟前").arg(seconds / 60);
     }
     if (seconds < 86400) {
-        return QStringLiteral("%1 小时前").arg(seconds / 3600);
+        return QCoreApplication::translate("ResourceCatalog", "%1 小时前").arg(seconds / 3600);
     }
     const qint64 days = seconds / 86400;
     if (days < 30) {
-        return QStringLiteral("%1 天前").arg(days);
+        return QCoreApplication::translate("ResourceCatalog", "%1 天前").arg(days);
     }
     if (days < 365) {
-        return QStringLiteral("%1 个月前").arg(days / 30);
+        return QCoreApplication::translate("ResourceCatalog", "%1 个月前").arg(days / 30);
     }
-    return QStringLiteral("%1 年前").arg(days / 365);
+    return QCoreApplication::translate("ResourceCatalog", "%1 年前").arg(days / 365);
 }
 
 QString releaseChannelNote(const QString &versionType) {
     if (versionType == QStringLiteral("beta")) {
-        return QStringLiteral("测试版");
+        return QCoreApplication::translate("ResourceCatalog", "测试版");
     }
     if (versionType == QStringLiteral("alpha")) {
-        return QStringLiteral("早期测试版");
+        return QCoreApplication::translate("ResourceCatalog", "早期测试版");
     }
     // release 和"认不出来"都回空串：正式版是绝大多数，那三个字不是信息；认不出来的
     // 更不该编一个（见头文件）。
@@ -1339,11 +1340,11 @@ QString versionRowSubText(const VersionEntry &version) {
     }
     // 下载量：0 = 接口没给这一栏（见 VersionEntry::downloads），那一截省掉。
     if (version.downloads > 0) {
-        bits.append(QStringLiteral("下载 %1次").arg(formatDownloads(version.downloads)));
+        bits.append(QCoreApplication::translate("ResourceCatalog", "下载 %1次").arg(formatDownloads(version.downloads)));
     }
     const QString updated = relativeTimeText(version.datePublished);
     if (!updated.isEmpty()) {
-        bits.append(QStringLiteral("更新于 %1").arg(updated));
+        bits.append(QCoreApplication::translate("ResourceCatalog", "更新于 %1").arg(updated));
     }
     const QString channel = releaseChannelNote(version.versionType);
     if (!channel.isEmpty()) {
@@ -1397,11 +1398,11 @@ QString hitMetaLine(const Hit &hit) {
     }
     // 下载量：0 = 接口没给这一栏（见 Hit::downloads），那一截省掉 —— 不写"下载 0 次"。
     if (hit.downloads > 0) {
-        bits.append(QStringLiteral("下载 %1次").arg(formatDownloads(hit.downloads)));
+        bits.append(QCoreApplication::translate("ResourceCatalog", "下载 %1次").arg(formatDownloads(hit.downloads)));
     }
     const QString updated = relativeTimeText(hit.updatedIso);
     if (!updated.isEmpty()) {
-        bits.append(QStringLiteral("更新于 %1").arg(updated));
+        bits.append(QCoreApplication::translate("ResourceCatalog", "更新于 %1").arg(updated));
     }
     // 来源总在：这一行是"这一条是从哪一家来的"，而图标和版本列表都跟着它走。
     bits.append(sourceLabel(hit.source));
@@ -1410,7 +1411,7 @@ QString hitMetaLine(const Hit &hit) {
 
 QString VersionGroup::title() const {
     if (loader.isEmpty() && gameVersion.isEmpty()) {
-        return QStringLiteral("其它版本");
+        return QCoreApplication::translate("ResourceCatalog", "其它版本");
     }
     if (loader.isEmpty()) {
         return gameVersion;
@@ -1847,8 +1848,8 @@ static QList<VersionEntry> parseCurseForgeDocument(const QJsonDocument &document
             fileId, fileName, object.value(QStringLiteral("downloadUrl")).toString());
         if (file.url.isEmpty()) {
             file.unavailableNote = explicitlyUnavailable
-                ? QStringLiteral("文件不可用，请前往项目主页查看。")
-                : QStringLiteral("下载地址未公开，请在项目主页确认或手动补齐。");
+                ? QCoreApplication::translate("ResourceCatalog", "文件不可用，请前往项目主页查看。")
+                : QCoreApplication::translate("ResourceCatalog", "下载地址未公开，请在项目主页确认或手动补齐。");
         }
         entry.files.append(file);
 

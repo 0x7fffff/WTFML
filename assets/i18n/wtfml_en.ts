@@ -6592,6 +6592,489 @@ The current version will also be retained separately and the file will not be de
         </message>
     </context>
     <context>
+        <name>InstanceUpgrade</name>
+        <message>
+            <source>%1（PID %2）</source>
+            <translation>%1 (PID %2)</translation>
+        </message>
+        <message>
+            <source>、</source>
+            <translation>,</translation>
+        </message>
+        <message>
+            <source>无法保留原目录，未替换实例（Windows 错误 %1）。</source>
+            <translation>Unable to preserve original directory, instance not replaced (Windows error %1).</translation>
+        </message>
+        <message>
+            <source> 请先关闭占用实例文件的程序：%1，然后重试。原实例和完整快照均保留。</source>
+            <translation>Please close the program occupying the instance file: %1 and try again. Both the original instance and the full snapshot are retained.</translation>
+        </message>
+        <message>
+            <source>无法保留原目录，未替换实例。</source>
+            <translation>The original directory cannot be retained and the instance is not replaced.</translation>
+        </message>
+        <message>
+            <source>升级事务的游戏目录、实例名或事务编号无效。</source>
+            <translation>The upgrade transaction's game directory, instance name, or transaction number is invalid.</translation>
+        </message>
+        <message>
+            <source>升级路径包含链接，无法保证完整快照和安全回滚：%1</source>
+            <translation>The upgrade path contains links, full snapshots and safe rollbacks are not guaranteed: %1</translation>
+        </message>
+        <message>
+            <source>要复制的类别路径不合法：%1</source>
+            <translation>Illegal category path to copy: %1</translation>
+        </message>
+        <message>
+            <source>目录含链接或不可读内容，未执行原地升级：%1</source>
+            <translation>The directory contains links or unreadable content, and in-place upgrade is not performed: %1</translation>
+        </message>
+        <message>
+            <source>不是普通文件，无法制作完整快照：%1</source>
+            <translation>Not an ordinary file, cannot make a complete snapshot: %1</translation>
+        </message>
+        <message>
+            <source>副本文件数 %1，预期 %2</source>
+            <translation>Number of replica files %1, expected %2</translation>
+        </message>
+        <message>
+            <source>副本不一致：%1（预期 %2；大小 %3/%4）</source>
+            <translation>Inconsistent copy: %1 (expected %2; size %3/%4)</translation>
+        </message>
+        <message>
+            <source>无法安全检查实例引用关系。</source>
+            <translation>Instance reference relationships cannot be safely checked.</translation>
+        </message>
+        <message>
+            <source>实例 %1 通过目录链接使用此核心，请改用升级副本。</source>
+            <translation>Instance %1 uses this core via directory link, please use an upgraded copy instead.</translation>
+        </message>
+        <message>
+            <source>无法核实 %1 的核心引用，未执行原地替换。</source>
+            <translation>Unable to verify core reference for %1, no in-place substitution performed.</translation>
+        </message>
+        <message>
+            <source>实例 %1 的 %2 引用了此核心。请改用升级副本，避免影响其它实例。</source>
+            <translation>The instance %1 of %2 references this core. Please use an upgraded copy instead to avoid affecting other instances.</translation>
+        </message>
+        <message>
+            <source>文件不存在或是链接：%1</source>
+            <translation>File does not exist or link: %1</translation>
+        </message>
+        <message>
+            <source>文件大小不符：%1（期望 %2，实际 %3）</source>
+            <translation>File size mismatch: %1 (expected %2, actual %3)</translation>
+        </message>
+        <message>
+            <source>读不了：%1</source>
+            <translation>Unable to read: %1</translation>
+        </message>
+        <message>
+            <source>SHA-1 不符：%1（期望 %2，实际 %3）</source>
+            <translation>SHA-1 mismatch: %1 (expected %2, actual %3)</translation>
+        </message>
+        <message>
+            <source>同名模组已存在且内容不同，未覆盖：%1</source>
+            <translation>The module with the same name already exists and the content is different, not covered: %1</translation>
+        </message>
+        <message>
+            <source>无法写入适配模组：%1</source>
+            <translation>Unable to write adaptation module: %1</translation>
+        </message>
+        <message>
+            <source>适配模组写入失败：%1</source>
+            <translation>Adaptation module writing failed: %1</translation>
+        </message>
+        <message>
+            <source>适配模组提交后校验失败：%1</source>
+            <translation>Verification failed after submission of the adaptation module: %1</translation>
+        </message>
+        <message>
+            <source>嵌套 JAR 随父 JAR 一起替换，不单独列出或替换。</source>
+            <translation>Nested JARs are replaced along with the parent JAR and are not listed or replaced separately.</translation>
+        </message>
+        <message>
+            <source>无法写入文件变更日志，本次更新未发布。</source>
+            <translation>Unable to write to file change log, this update is not published.</translation>
+        </message>
+        <message>
+            <source>无法读取原实例设置，未继续升级。</source>
+            <translation>The original instance settings could not be read and the upgrade did not continue.</translation>
+        </message>
+        <message>
+            <source>原实例设置的格式版本比这个启动器新，未继续升级。</source>
+            <translation>The format version set by the original instance is newer than this launcher and has not been upgraded.</translation>
+        </message>
+        <message>
+            <source>目标客户端文件未通过校验，原实例未改变。</source>
+            <translation>The target client file fails the verification and the original instance remains unchanged.</translation>
+        </message>
+        <message>
+            <source>旧版本信息文件名不安全，原实例未改变。</source>
+            <translation>The old version information file name is unsafe and the original instance has not changed.</translation>
+        </message>
+        <message>
+            <source>旧版本信息包含不安全的客户端文件名，原实例未改变。</source>
+            <translation>The old version information contains insecure client file names and the original instance has not been changed.</translation>
+        </message>
+        <message>
+            <source>无法清理暂存副本中的旧客户端文件，原实例未改变。</source>
+            <translation>Unable to clean up old client files in the staging copy, the original instance remains unchanged.</translation>
+        </message>
+        <message>
+            <source>无法清理暂存副本中的旧版本信息，原实例未改变。</source>
+            <translation>The old version information in the temporary copy cannot be cleared, and the original instance remains unchanged.</translation>
+        </message>
+        <message>
+            <source>无法准备新核心或设置，原实例未改变。</source>
+            <translation>Unable to prepare new core or settings, original instance unchanged.</translation>
+        </message>
+        <message>
+            <source>无法写入原实例设置，原实例未改变：%1</source>
+            <translation>Unable to write original instance settings, original instance has not changed: %1</translation>
+        </message>
+        <message>
+            <source>目标客户端在复制期间发生变化，未发布新版本。</source>
+            <translation>The target client changed during replication and no new version was released.</translation>
+        </message>
+        <message>
+            <source>无法清理暂存副本中的旧原生库，原实例未改变。</source>
+            <translation>Unable to clean up the old native library in the staging copy, the original instance remains unchanged.</translation>
+        </message>
+        <message>
+            <source>候选模组目录不可用，本次更新未发布。</source>
+            <translation>The candidate mod catalog is unavailable and this update has not been released.</translation>
+        </message>
+        <message>
+            <source>无法创建候选模组目录，本次更新未发布。</source>
+            <translation>Unable to create candidate module directory, this update has not been released.</translation>
+        </message>
+        <message>
+            <source>适配模组文件名不安全，本次更新未发布：%1</source>
+            <translation>The adapter module file name is unsafe and this update has not been released: %1</translation>
+        </message>
+        <message>
+            <source>适配模组未通过校验，整趟更新已回滚：%1</source>
+            <translation>The adaptation module failed the verification and the entire update has been rolled back: %1</translation>
+        </message>
+        <message>
+            <source>要替换的旧模组是链接，未动它：%1</source>
+            <translation>The old mod to be replaced is Link, it is untouched: %1</translation>
+        </message>
+        <message>
+            <source>无法移除旧模组，本次更新未发布：%1</source>
+            <translation>Unable to remove old mods, this update has not been released: %1</translation>
+        </message>
+        <message>
+            <source>适配模组写入失败，整趟更新已回滚：%1</source>
+            <translation>The writing of the adaptation module failed and the entire update has been rolled back: %1</translation>
+        </message>
+        <message>
+            <source>无法禁用尚未验证兼容性的旧模组，原实例未改变。</source>
+            <translation>Old mods that have not yet been verified for compatibility cannot be disabled, and the original instance remains unchanged.</translation>
+        </message>
+        <message>
+            <source>目标核心、客户端文件或暂存路径无效，未执行原地升级。</source>
+            <translation>The target core, client file, or staging path is invalid and an in-place upgrade was not performed.</translation>
+        </message>
+        <message>
+            <source>已取消准备。</source>
+            <translation>Preparation canceled.</translation>
+        </message>
+        <message>
+            <source>原实例是空的。</source>
+            <translation>The original instance is empty.</translation>
+        </message>
+        <message>
+            <source>实例大小溢出，未开始准备。</source>
+            <translation>Instance size overflowed, preparation not started.</translation>
+        </message>
+        <message>
+            <source>空间不足以准备副本和完整快照，原实例未改变。</source>
+            <translation>Insufficient space to prepare a copy and full snapshot, the original instance is unchanged.</translation>
+        </message>
+        <message>
+            <source>无法完整复制用户文件，原实例未改变。
+%1</source>
+            <translation>Unable to completely copy the user file, the original instance is unchanged. 
+%1</translation>
+        </message>
+        <message>
+            <source>用户文件副本未通过完整校验，原实例未改变。
+%1</source>
+            <translation>The user file copy did not pass complete verification and the original instance remained unchanged. 
+%1</translation>
+        </message>
+        <message>
+            <source>升级事务正在使用，未修改实例。</source>
+            <translation>The upgrade transaction is in use and the instance has not been modified.</translation>
+        </message>
+        <message>
+            <source>副本的源实例或目标目录不安全，未复制任何文件。</source>
+            <translation>The source instance or destination directory for the copy is not secure and no files were copied.</translation>
+        </message>
+        <message>
+            <source>源实例不在这次事务的游戏目录里，未复制任何文件。</source>
+            <translation>The source instance is not in the game directory of this transaction and no files were copied.</translation>
+        </message>
+        <message>
+            <source>目标实例名已经存在，未覆盖任何文件。</source>
+            <translation>The target instance name already exists and no files were overwritten.</translation>
+        </message>
+        <message>
+            <source>目标核心或客户端文件无效，未执行副本更新。</source>
+            <translation>The target core or client file is invalid and no replica update was performed.</translation>
+        </message>
+        <message>
+            <source>已取消复制。</source>
+            <translation>Copy canceled.</translation>
+        </message>
+        <message>
+            <source>源实例是空的。</source>
+            <translation>The source instance is empty.</translation>
+        </message>
+        <message>
+            <source>实例大小溢出，未开始复制。</source>
+            <translation>Instance size overflowed and replication did not start.</translation>
+        </message>
+        <message>
+            <source>空间不足以复制更新副本（只需一份用户文件的体积），未复制任何文件。</source>
+            <translation>Not enough space to make an updated copy (just one user file size), no files were copied.</translation>
+        </message>
+        <message>
+            <source>更新副本复制失败，原实例未改变。</source>
+            <translation>The update copy fails and the original instance remains unchanged.</translation>
+        </message>
+        <message>
+            <source>更新副本未通过完整校验，原实例未改变。</source>
+            <translation>The updated copy did not pass complete verification and the original instance remained unchanged.</translation>
+        </message>
+        <message>
+            <source>已取消，更新副本未发布。</source>
+            <translation>Canceled, updated copy not published.</translation>
+        </message>
+        <message>
+            <source>更新副本没有文件。</source>
+            <translation>The updated copy has no files.</translation>
+        </message>
+        <message>
+            <source>更新副本在准备期间发生变化，未发布。</source>
+            <translation>The updated copy was changed during preparation and has not been published.</translation>
+        </message>
+        <message>
+            <source>无法写入副本事务记录，未发布。</source>
+            <translation>Unable to write replica transaction record, not published.</translation>
+        </message>
+        <message>
+            <source>已取消发布。</source>
+            <translation>Unpublished.</translation>
+        </message>
+        <message>
+            <source>目标实例名在复制期间被创建，未覆盖。</source>
+            <translation>The target instance name is created during replication and is not overwritten.</translation>
+        </message>
+        <message>
+            <source>无法发布更新副本，原实例未改变。</source>
+            <translation>Unable to publish an updated copy, the original instance is unchanged.</translation>
+        </message>
+        <message>
+            <source>副本已发布，但事务记录未能更新；没有删除任何文件。</source>
+            <translation>The replica was published, but the transaction record failed to update; no files were deleted.</translation>
+        </message>
+        <message>
+            <source>更新副本发布后校验失败，已保留在被拒绝目录：</source>
+            <translation>After the update copy is released, the verification fails and is retained in the rejected directory:</translation>
+        </message>
+        <message>
+            <source>更新副本发布后校验失败，且自动撤回失败；请手动检查：</source>
+            <translation>After the updated copy is released, the verification fails and the automatic withdrawal fails; please check manually:</translation>
+        </message>
+        <message>
+            <source>副本事务正在使用，未修改实例。</source>
+            <translation>The replica transaction is in use and the instance is not modified.</translation>
+        </message>
+        <message>
+            <source>已取消，当前实例未移动。</source>
+            <translation>Canceled, the current instance has not been moved.</translation>
+        </message>
+        <message>
+            <source>找不到这次升级保留的原目录，没有执行回滚。</source>
+            <translation>The original directory reserved for this upgrade could not be found and no rollback was performed.</translation>
+        </message>
+        <message>
+            <source>快照位置不符合本次事务，未移动当前实例。</source>
+            <translation>The snapshot location does not match this transaction and the current instance has not been moved.</translation>
+        </message>
+        <message>
+            <source>保留的原目录未通过快照清单校验；未移动当前实例，请使用完整 ZIP 快照恢复。%1</source>
+            <translation>The retained original directory does not pass the snapshot list verification; the current instance has not been moved, please use a full ZIP snapshot to restore. %1</translation>
+        </message>
+        <message>
+            <source>回滚保存位置已有文件，未覆盖：%1</source>
+            <translation>There is already a file in the rollback save location and it is not overwritten: %1</translation>
+        </message>
+        <message>
+            <source>无法记录回滚阶段，未移动实例文件。</source>
+            <translation>Unable to log rollback phase, instance files were not moved.</translation>
+        </message>
+        <message>
+            <source>无法暂存当前版本，未覆盖或删除任何文件。</source>
+            <translation>The current version cannot be staged, no files have been overwritten or deleted.</translation>
+        </message>
+        <message>
+            <source>原目录未能恢复，恢复材料保留在 %1。%2</source>
+            <translation>The original directory could not be restored, and the restored materials remain in %1. %2</translation>
+        </message>
+        <message>
+            <source>当前版本也保留在 replaced 目录中。</source>
+            <translation>The current version is also kept in the replaced directory.</translation>
+        </message>
+        <message>
+            <source>原实例已恢复，但回滚记录未能更新；没有删除恢复材料。</source>
+            <translation>The original instance has been restored, but the rollback record cannot be updated; the recovery material has not been deleted.</translation>
+        </message>
+        <message>
+            <source>原实例、暂存版本或事务目录状态不正确，未替换实例。</source>
+            <translation>The original instance, staging version, or transaction directory status is incorrect and the instance has not been replaced.</translation>
+        </message>
+        <message>
+            <source>已取消，原实例未改变。</source>
+            <translation>Canceled, the original instance has not changed.</translation>
+        </message>
+        <message>
+            <source>暂存版本的核心 JSON 缺失或实例名不匹配，未替换。</source>
+            <translation>The core JSON of the staging version is missing or the instance name does not match and is not replaced.</translation>
+        </message>
+        <message>
+            <source>暂存版本没有文件。</source>
+            <translation>The staging version has no files.</translation>
+        </message>
+        <message>
+            <source>原实例在准备期间发生了变化，未替换实例。</source>
+            <translation>The original instance was changed during preparation and the instance was not replaced.</translation>
+        </message>
+        <message>
+            <source>实例大小超出可安全计算的范围。</source>
+            <translation>The instance size exceeds what can be safely calculated.</translation>
+        </message>
+        <message>
+            <source>无法确认有足够空间制作并校验完整快照，未替换实例。</source>
+            <translation>Unable to confirm that there is enough space to take and verify a full snapshot, the instance was not replaced.</translation>
+        </message>
+        <message>
+            <source>原地升级前完整实例快照（不排除 assets、libraries 或用户文件）</source>
+            <translation>Full instance snapshot before in-place upgrade (does not exclude assets, libraries, or user files)</translation>
+        </message>
+        <message>
+            <source>快照名称已存在或是链接，未覆盖。</source>
+            <translation>The snapshot name already exists or is a link and has not been overwritten.</translation>
+        </message>
+        <message>
+            <source>完整快照校验失败，或原实例在备份期间发生变化，未替换。%1</source>
+            <translation>The full snapshot verification failed, or the original instance changed during the backup and was not replaced. %1</translation>
+        </message>
+        <message>
+            <source>已取消，快照保留，原实例未改变。</source>
+            <translation>Canceled, the snapshot is retained and the original instance remains unchanged.</translation>
+        </message>
+        <message>
+            <source>（%1：%2）</source>
+            <translation>(%1:%2)</translation>
+        </message>
+        <message>
+            <source>快照解压</source>
+            <translation>Snapshot decompression</translation>
+        </message>
+        <message>
+            <source>原实例与快照</source>
+            <translation>Original instance and snapshot</translation>
+        </message>
+        <message>
+            <source>原实例与准备清单</source>
+            <translation>Original example and preparation list</translation>
+        </message>
+        <message>
+            <source>暂存版本在准备期间发生变化，未替换。%1</source>
+            <translation>The staging version changed during staging and has not been replaced. %1</translation>
+        </message>
+        <message>
+            <source>无法写入升级事务记录，未替换实例。</source>
+            <translation>Unable to write upgrade transaction record, instance was not replaced.</translation>
+        </message>
+        <message>
+            <source> 原实例已自动恢复。</source>
+            <translation>The original instance has been automatically restored.</translation>
+        </message>
+        <message>
+            <source> 回滚未完成：%1</source>
+            <translation>Rollback not completed: %1</translation>
+        </message>
+        <message>
+            <source>无法记录原目录位置。</source>
+            <translation>The original directory location cannot be recorded.</translation>
+        </message>
+        <message>
+            <source>发布新版本中断或失败。</source>
+            <translation>Publishing new versions breaks or fails.</translation>
+        </message>
+        <message>
+            <source>已取消发布后的校验。</source>
+            <translation>Post-publish verification has been cancelled.</translation>
+        </message>
+        <message>
+            <source>发布后的实例校验失败。%1</source>
+            <translation>The instance verification failed after publishing. %1</translation>
+        </message>
+        <message>
+            <source>无法记录升级完成状态。</source>
+            <translation>Unable to log upgrade completion status.</translation>
+        </message>
+        <message>
+            <source>升级事务目录是链接，未自动恢复。</source>
+            <translation>The upgrade transaction directory is a link and is not automatically restored.</translation>
+        </message>
+        <message>
+            <source>已清理未登记的升级暂存：%1</source>
+            <translation>Cleaned up unregistered upgrade cache: %1</translation>
+        </message>
+        <message>
+            <source>升级事务 %1（实例 %2）找不到匹配的游戏根指纹，未自动恢复；请使用完整 ZIP 快照%3恢复。</source>
+            <translation>Upgrade transaction %1 (instance %2) cannot find a matching game root fingerprint and is not automatically restored; please use the full ZIP snapshot %3 to restore.</translation>
+        </message>
+        <message>
+            <source>上次的更新副本已发布（事务记录未更新），已清理暂存：%1</source>
+            <translation>The last updated copy has been published (the transaction record has not been updated), and the temporary cache has been cleaned: %1</translation>
+        </message>
+        <message>
+            <source>已清理未发布的更新副本暂存：%1%2</source>
+            <translation>Cleaned unpublished update copy staging: %1%2</translation>
+        </message>
+        <message>
+            <source>（暂存未能删除，请手动检查）</source>
+            <translation>(The temporary storage cannot be deleted, please check manually)</translation>
+        </message>
+        <message>
+            <source>更新副本发布后校验失败，材料保留在：%1</source>
+            <translation>Verification failed after the updated copy was released, and the material was retained at: %1</translation>
+        </message>
+        <message>
+            <source>已清理副本升级记录：%1</source>
+            <translation>Cleaned copy upgrade records: %1</translation>
+        </message>
+        <message>
+            <source>已清理未发布的升级暂存：%1</source>
+            <translation>Cleaned up unreleased upgrade staging: %1</translation>
+        </message>
+        <message>
+            <source>中断的升级已恢复原实例：%1</source>
+            <translation>Interrupted upgrade has restored the original instance: %1</translation>
+        </message>
+        <message>
+            <source>升级恢复需要处理：%1；%2</source>
+            <translation>Upgrade recovery needs to be processed: %1; %2</translation>
+        </message>
+    </context>
+    <context>
         <name>InstanceUpgradePage</name>
         <message>
             <source>整个世界目录，原样复制</source>
@@ -16696,6 +17179,385 @@ So there is no import. (Fabric / Forge / NeoForge / OptiFine can be installed di
         </message>
     </context>
     <context>
+        <name>ResourceCatalog</name>
+        <message>
+            <source>接口返回的数据无法解析（第 %1 个字节：%2）</source>
+            <translation>The data returned by the interface cannot be parsed (%1th byte: %2)</translation>
+        </message>
+        <message>
+            <source>全部</source>
+            <translation>All</translation>
+        </message>
+        <message>
+            <source>模组</source>
+            <translation>Module</translation>
+        </message>
+        <message>
+            <source>整合包</source>
+            <translation>Integrated package</translation>
+        </message>
+        <message>
+            <source>数据包</source>
+            <translation>Packet</translation>
+        </message>
+        <message>
+            <source>光影</source>
+            <translation>Light and shadow</translation>
+        </message>
+        <message>
+            <source>资源包</source>
+            <translation>Resource pack</translation>
+        </message>
+        <message>
+            <source>优化</source>
+            <translation>Optimization</translation>
+        </message>
+        <message>
+            <source>前置库</source>
+            <translation>Pre-library</translation>
+        </message>
+        <message>
+            <source>装备武器</source>
+            <translation>Equip weapons</translation>
+        </message>
+        <message>
+            <source>装饰外观</source>
+            <translation>Decorative appearance</translation>
+        </message>
+        <message>
+            <source>冒险</source>
+            <translation>Adventure</translation>
+        </message>
+        <message>
+            <source>魔法</source>
+            <translation>Magic</translation>
+        </message>
+        <message>
+            <source>科技</source>
+            <translation>Science and technology</translation>
+        </message>
+        <message>
+            <source>世界生成</source>
+            <translation>World generation</translation>
+        </message>
+        <message>
+            <source>矿物资源</source>
+            <translation>Mineral resources</translation>
+        </message>
+        <message>
+            <source>生物群系</source>
+            <translation>Biomes</translation>
+        </message>
+        <message>
+            <source>生物</source>
+            <translation>Biology</translation>
+        </message>
+        <message>
+            <source>结构</source>
+            <translation>Structure</translation>
+        </message>
+        <message>
+            <source>食物</source>
+            <translation>Food</translation>
+        </message>
+        <message>
+            <source>存储</source>
+            <translation>Storage</translation>
+        </message>
+        <message>
+            <source>红石</source>
+            <translation>Red stone</translation>
+        </message>
+        <message>
+            <source>实用与体验</source>
+            <translation>Practicality and experience</translation>
+        </message>
+        <message>
+            <source>服务端</source>
+            <translation>Server</translation>
+        </message>
+        <message>
+            <source>地图与信息</source>
+            <translation>Maps and information</translation>
+        </message>
+        <message>
+            <source>修复</source>
+            <translation>Repair</translation>
+        </message>
+        <message>
+            <source>杂项</source>
+            <translation>Miscellaneous</translation>
+        </message>
+        <message>
+            <source>冒险与 RPG</source>
+            <translation>Adventure &amp; RPG</translation>
+        </message>
+        <message>
+            <source>探索</source>
+            <translation>Explore</translation>
+        </message>
+        <message>
+            <source>任务</source>
+            <translation>Task</translation>
+        </message>
+        <message>
+            <source>空岛</source>
+            <translation>Sky island</translation>
+        </message>
+        <message>
+            <source>战斗与 PvP</source>
+            <translation>Combat and PvP</translation>
+        </message>
+        <message>
+            <source>小游戏</source>
+            <translation>Mini games</translation>
+        </message>
+        <message>
+            <source>多人</source>
+            <translation>Multiple people</translation>
+        </message>
+        <message>
+            <source>原版增强</source>
+            <translation>Original enhancement</translation>
+        </message>
+        <message>
+            <source>硬核</source>
+            <translation>Hardcore</translation>
+        </message>
+        <message>
+            <source>专家</source>
+            <translation>Expert</translation>
+        </message>
+        <message>
+            <source>恐怖</source>
+            <translation>Fear</translation>
+        </message>
+        <message>
+            <source>轻量</source>
+            <translation>Lightweight</translation>
+        </message>
+        <message>
+            <source>大型</source>
+            <translation>Large</translation>
+        </message>
+        <message>
+            <source>科幻</source>
+            <translation>Science fiction</translation>
+        </message>
+        <message>
+            <source>模组支持</source>
+            <translation>Mod support</translation>
+        </message>
+        <message>
+            <source>实用</source>
+            <translation>Practical</translation>
+        </message>
+        <message>
+            <source>奇幻</source>
+            <translation>Fantasy</translation>
+        </message>
+        <message>
+            <source>512x 及以上</source>
+            <translation>512x and above</translation>
+        </message>
+        <message>
+            <source>传统</source>
+            <translation>Tradition</translation>
+        </message>
+        <message>
+            <source>现代</source>
+            <translation>Modern</translation>
+        </message>
+        <message>
+            <source>中世纪</source>
+            <translation>Middle Ages</translation>
+        </message>
+        <message>
+            <source>写实</source>
+            <translation>Realistic</translation>
+        </message>
+        <message>
+            <source>动画</source>
+            <translation>Animation</translation>
+        </message>
+        <message>
+            <source>字体</source>
+            <translation>Font</translation>
+        </message>
+        <message>
+            <source>原版风</source>
+            <translation>Original style</translation>
+        </message>
+        <message>
+            <source>装备</source>
+            <translation>Equipment</translation>
+        </message>
+        <message>
+            <source>装饰</source>
+            <translation>Decorate</translation>
+        </message>
+        <message>
+            <source>运输</source>
+            <translation>Transportation</translation>
+        </message>
+        <message>
+            <source>游戏机制</source>
+            <translation>Game mechanics</translation>
+        </message>
+        <message>
+            <source>管理</source>
+            <translation>Manage</translation>
+        </message>
+        <message>
+            <source>社交</source>
+            <translation>Social contact</translation>
+        </message>
+        <message>
+            <source>诅咒</source>
+            <translation>Curse</translation>
+        </message>
+        <message>
+            <source>战斗</source>
+            <translation>Fighting</translation>
+        </message>
+        <message>
+            <source>挑战</source>
+            <translation>Challenge</translation>
+        </message>
+        <message>
+            <source>大杂烩</source>
+            <translation>Hodgepodge</translation>
+        </message>
+        <message>
+            <source>简约</source>
+            <translation>Simple</translation>
+        </message>
+        <message>
+            <source>主题</source>
+            <translation>Theme</translation>
+        </message>
+        <message>
+            <source>微调</source>
+            <translation>Fine-tuning</translation>
+        </message>
+        <message>
+            <source>半写实</source>
+            <translation>Semi-realistic</translation>
+        </message>
+        <message>
+            <source>卡通</source>
+            <translation>Cartoon</translation>
+        </message>
+        <message>
+            <source>极低配</source>
+            <translation>Very low configuration</translation>
+        </message>
+        <message>
+            <source>光追</source>
+            <translation>Light chasing</translation>
+        </message>
+        <message>
+            <source>PBR 材质</source>
+            <translation>PBR material</translation>
+        </message>
+        <message>
+            <source>彩色光照</source>
+            <translation>Colored lighting</translation>
+        </message>
+        <message>
+            <source>反射</source>
+            <translation>Reflection</translation>
+        </message>
+        <message>
+            <source>阴影</source>
+            <translation>Shadow</translation>
+        </message>
+        <message>
+            <source>大气</source>
+            <translation>Atmosphere</translation>
+        </message>
+        <message>
+            <source>植被</source>
+            <translation>Vegetation</translation>
+        </message>
+        <message>
+            <source>泛光</source>
+            <translation>Floodlight</translation>
+        </message>
+        <message>
+            <source>这不是一份搜索结果（里面没有 hits）</source>
+            <translation>This is not a search result (there are no hits in it)</translation>
+        </message>
+        <message>
+            <source>接口说：%1</source>
+            <translation>The interface says: %1</translation>
+        </message>
+        <message>
+            <source>这不是一份搜索结果（里面没有 data）</source>
+            <translation>This is not a search result (there is no data in it)</translation>
+        </message>
+        <message>
+            <source>%1 亿</source>
+            <translation>%1 billion</translation>
+        </message>
+        <message>
+            <source>%1 万</source>
+            <translation>%1 million</translation>
+        </message>
+        <message>
+            <source>刚刚</source>
+            <translation>Just</translation>
+        </message>
+        <message>
+            <source>%1 分钟前</source>
+            <translation>%1 minutes ago</translation>
+        </message>
+        <message>
+            <source>%1 小时前</source>
+            <translation>%1 hours ago</translation>
+        </message>
+        <message>
+            <source>%1 天前</source>
+            <translation>%1 days ago</translation>
+        </message>
+        <message>
+            <source>%1 个月前</source>
+            <translation>%1 months ago</translation>
+        </message>
+        <message>
+            <source>%1 年前</source>
+            <translation>%1 years ago</translation>
+        </message>
+        <message>
+            <source>测试版</source>
+            <translation>Beta version</translation>
+        </message>
+        <message>
+            <source>早期测试版</source>
+            <translation>Early beta</translation>
+        </message>
+        <message>
+            <source>下载 %1次</source>
+            <translation>Downloaded %1 times</translation>
+        </message>
+        <message>
+            <source>更新于 %1</source>
+            <translation>Updated on %1</translation>
+        </message>
+        <message>
+            <source>其它版本</source>
+            <translation>Other versions</translation>
+        </message>
+        <message>
+            <source>文件不可用，请前往项目主页查看。</source>
+            <translation>The file is unavailable, please go to the project homepage to view it.</translation>
+        </message>
+        <message>
+            <source>下载地址未公开，请在项目主页确认或手动补齐。</source>
+            <translation>The download address is not public, please confirm it on the project homepage or fill it in manually.</translation>
+        </message>
+    </context>
+    <context>
         <name>ResourceDetailPage</name>
         <message>
             <source>资源详情</source>
@@ -17145,6 +18007,329 @@ So there is no import. (Fabric / Forge / NeoForge / OptiFine can be installed di
         <message>
             <source>上传皮肤失败</source>
             <translation>Failed to upload skin</translation>
+        </message>
+    </context>
+    <context>
+        <name>StartupDiagnosis</name>
+        <message>
+            <source>问题</source>
+            <translation>Question</translation>
+        </message>
+        <message>
+            <source>提醒</source>
+            <translation>Remind</translation>
+        </message>
+        <message>
+            <source>信息</source>
+            <translation>Information</translation>
+        </message>
+        <message>
+            <source>正常</source>
+            <translation>Normal</translation>
+        </message>
+        <message>
+            <source>%1 个问题</source>
+            <translation>%1 questions</translation>
+        </message>
+        <message>
+            <source>%1 条提醒</source>
+            <translation>%1 reminders</translation>
+        </message>
+        <message>
+            <source>启动诊断：发现 %1</source>
+            <translation>Start Diagnostics: Found %1</translation>
+        </message>
+        <message>
+            <source>、</source>
+            <translation>,</translation>
+        </message>
+        <message>
+            <source>启动诊断：没有发现明显问题</source>
+            <translation>Startup diagnostics: No obvious problems found</translation>
+        </message>
+        <message>
+            <source>【%1】%2</source>
+            <translation>[%1]%2</translation>
+        </message>
+        <message>
+            <source>实例：%1（%2）</source>
+            <translation>Example: %1 (%2)</translation>
+        </message>
+        <message>
+            <source>实例：%1</source>
+            <translation>Example: %1</translation>
+        </message>
+        <message>
+            <source>这个实例没有指向任何游戏版本</source>
+            <translation>This instance does not point to any game version</translation>
+        </message>
+        <message>
+            <source>实例目录里读不到可以启动的版本信息。</source>
+            <translation>The version information that can be started cannot be read in the instance directory.</translation>
+        </message>
+        <message>
+            <source>在实例设置里重新确认版本，或者重新安装这个实例。</source>
+            <translation>Reconfirm the version in the instance settings, or reinstall the instance.</translation>
+        </message>
+        <message>
+            <source>读不出这个实例真正的游戏版本</source>
+            <translation>Can't read the real game version of this instance</translation>
+        </message>
+        <message>
+            <source>版本记录里没有 realVersion，界面上只能显示目录名。</source>
+            <translation>There is no realVersion in the version record, and only the directory name can be displayed on the interface.</translation>
+        </message>
+        <message>
+            <source>检查版本 json 是否完整（「完整性检查」那一页可以扫）。</source>
+            <translation>Check whether the version json is complete (you can scan the "Integrity Check" page).</translation>
+        </message>
+        <message>
+            <source>没有模组加载器，却有 %1 个启用的模组</source>
+            <translation>No mod loader, but %1 enabled mods</translation>
+        </message>
+        <message>
+            <source>mods/ 里躺着 %1 个 .jar，但这个实例是原版（没有 Fabric / Forge / NeoForge / Quilt），游戏不会读它们。</source>
+            <translation>There are %1 .jars lying around in mods/, but this instance is vanilla (no Fabric / Forge / NeoForge / Quilt) and the game won't read them.</translation>
+        </message>
+        <message>
+            <source>在这个版本上装一个模组加载器，或者把 mods/ 里那些 jar 移走。</source>
+            <translation>Install a mod loader on this version, or move the jars in mods/.</translation>
+        </message>
+        <message>
+            <source>原版实例（没有模组加载器）</source>
+            <translation>Vanilla instance (without mod loader)</translation>
+        </message>
+        <message>
+            <source>加载器：%1%2</source>
+            <translation>Loader: %1%2</translation>
+        </message>
+        <message>
+            <source>没有预先指定 Java，启动时自动挑</source>
+            <translation>Java is not specified in advance and is automatically selected at startup.</translation>
+        </message>
+        <message>
+            <source>这个版本要 Java %1。</source>
+            <translation>This version requires Java %1.</translation>
+        </message>
+        <message>
+            <source>版本 json 里没写要哪个 Java，启动时按游戏版本推断。</source>
+            <translation>The version json does not say which Java is required, it is inferred according to the game version at startup.</translation>
+        </message>
+        <message>
+            <source>如果本机没有匹配的 Java，第一次启动会先下载一份运行时。</source>
+            <translation>If the machine does not have matching Java, a runtime will be downloaded for the first time.</translation>
+        </message>
+        <message>
+            <source>Java 选的是「手动指定」，但路径是空的</source>
+            <translation>Java selected "Manually Specify", but the path is empty</translation>
+        </message>
+        <message>
+            <source>手动档下启动器不会自己去挑 Java。</source>
+            <translation>In manual mode, the launcher will not select Java by itself.</translation>
+        </message>
+        <message>
+            <source>在「启动设置」里填一个 java.exe，或者切回「自动」。</source>
+            <translation>Fill in a java.exe in "Startup Settings", or switch back to "Automatic".</translation>
+        </message>
+        <message>
+            <source>指定的 Java 用不了</source>
+            <translation>The specified Java cannot be used</translation>
+        </message>
+        <message>
+            <source>路径：%1</source>
+            <translation>Path: %1</translation>
+        </message>
+        <message>
+            <source>把路径改成一个真实存在的 java.exe（或 JDK/JRE 目录），或者切回自动。</source>
+            <translation>Change the path to a real java.exe (or JDK/JRE directory), or switch back to automatic.</translation>
+        </message>
+        <message>
+            <source>已指定 Java</source>
+            <translation>Java specified</translation>
+        </message>
+        <message>
+            <source>这个版本要 Java %1；诊断不启动 JVM，具体主版本以启动日志为准。</source>
+            <translation>This version requires Java %1; the diagnosis does not start the JVM. The specific main version is subject to the startup log.</translation>
+        </message>
+        <message>
+            <source>自动</source>
+            <translation>Automatic</translation>
+        </message>
+        <message>
+            <source>机器共 %1 MB</source>
+            <translation>Machine total %1 MB</translation>
+        </message>
+        <message>
+            <source>分给游戏的内存超过了机器总内存</source>
+            <translation>The memory allocated to the game exceeds the total memory of the machine</translation>
+        </message>
+        <message>
+            <source>把 Xmx 调小到机器内存以内；分得比物理内存还大，JVM 起来后很可能在分配堆的时候就失败。</source>
+            <translation>Reduce the size of Xmx to within the machine memory; if the allocation is larger than the physical memory, the JVM is likely to fail when allocating the heap after it is started.</translation>
+        </message>
+        <message>
+            <source>分给游戏的内存偏多</source>
+            <translation>Too much memory allocated to games</translation>
+        </message>
+        <message>
+            <source>留一点给系统和其他程序，尤其模组整合包还要加载资源。</source>
+            <translation>Leave some space for the system and other programs, especially module integration packages to load resources.</translation>
+        </message>
+        <message>
+            <source>内存分配</source>
+            <translation>Memory allocation</translation>
+        </message>
+        <message>
+            <source>分给游戏的内存偏小（%1 MB）</source>
+            <translation>The memory allocated to the game is too small (%1 MB)</translation>
+        </message>
+        <message>
+            <source>模组整合包很容易 OutOfMemoryError；原版 1.20 起也建议至少 1024 MB。</source>
+            <translation>Mod packs are prone to OutOfMemoryError; vanilla 1.20 onwards also recommends at least 1024 MB.</translation>
+        </message>
+        <message>
+            <source>读不到这台机器的物理内存</source>
+            <translation>Unable to read the physical memory of this machine</translation>
+        </message>
+        <message>
+            <source>内存那一栏只报了配置值，没法判断相对大小。</source>
+            <translation>The memory column only reports the configuration value, and the relative size cannot be determined.</translation>
+        </message>
+        <message>
+            <source>这个实例没有 mods 目录</source>
+            <translation>This instance does not have a mods directory</translation>
+        </message>
+        <message>
+            <source>第一次往里面放模组时目录会自动建出来。</source>
+            <translation>The directory will be created automatically the first time you put a module into it.</translation>
+        </message>
+        <message>
+            <source>已启用 %1 个模组</source>
+            <translation>%1 modules enabled</translation>
+        </message>
+        <message>
+            <source>mods/ 里没有启用的模组</source>
+            <translation>There are no enabled mods in mods/</translation>
+        </message>
+        <message>
+            <source>…还有 %1 个</source>
+            <translation>…and %1 more</translation>
+        </message>
+        <message>
+            <source>有 %1 个模组处于禁用状态</source>
+            <translation>%1 mods are disabled</translation>
+        </message>
+        <message>
+            <source>它们在盘上叫 `*.jar.disabled`，游戏不会加载。</source>
+            <translation>They are called `*.jar.disabled` on the disk and the game will not load.</translation>
+        </message>
+        <message>
+            <source>没有崩溃报告</source>
+            <translation>No crash report</translation>
+        </message>
+        <message>
+            <source>文件：%1</source>
+            <translation>File: %1</translation>
+        </message>
+        <message>
+            <source>完整内容在「崩溃报告」那一页。</source>
+            <translation>The complete content is on the "Crash Report" page.</translation>
+        </message>
+        <message>
+            <source>最近一份崩溃报告是内存不足（OutOfMemoryError）</source>
+            <translation>The most recent crash report was out of memory (OutOfMemoryError)</translation>
+        </message>
+        <message>
+            <source>把 Xmx 调大（先确认机器真的有空闲内存），或者减少同时加载的模组。</source>
+            <translation>Increase Xmx (make sure the machine really has free memory first), or reduce the number of modules loaded at the same time.</translation>
+        </message>
+        <message>
+            <source>最近一份崩溃报告是 Java 版本不对（UnsupportedClassVersionError）</source>
+            <translation>The most recent crash report was an incorrect Java version (UnsupportedClassVersionError)</translation>
+        </message>
+        <message>
+            <source>这个崩溃说明有东西是用比当前 Java 更新的版本编译的；换一个更新的 Java 再试。</source>
+            <translation>This crash indicates that something was compiled with a newer version of Java than your current version; try again with a newer version of Java.</translation>
+        </message>
+        <message>
+            <source>最近一份崩溃报告里是缺类异常</source>
+            <translation>The most recent crash report contained a missing class exception.</translation>
+        </message>
+        <message>
+            <source>多半是模组依赖没装齐，或者装了一个给别的游戏版本编的模组；看报告里那个类名属于哪个模组。</source>
+            <translation>Most likely, the module dependencies are not installed properly, or a module compiled for another game version is installed; see which module the class name in the report belongs to.</translation>
+        </message>
+        <message>
+            <source>最近一份崩溃报告发生在模组注入阶段（Mixin）</source>
+            <translation>The most recent crash report occurred during the module injection phase (Mixin)</translation>
+        </message>
+        <message>
+            <source>报告里通常会点名一个模组；先单独移走它再启动，确认是不是它引起的。</source>
+            <translation>A module is usually named in the report; remove it individually and then enable it to see if it is the cause.</translation>
+        </message>
+        <message>
+            <source>最近一份崩溃报告：%1</source>
+            <translation>Last crash report: %1</translation>
+        </message>
+        <message>
+            <source>还没有启动日志</source>
+            <translation>No startup log yet</translation>
+        </message>
+        <message>
+            <source>这个启动器还没在这个数据目录里启动过游戏。</source>
+            <translation>This launcher has not yet launched a game in this data directory.</translation>
+        </message>
+        <message>
+            <source>启动日志里出现 UnsupportedClassVersionError（Java 太旧）</source>
+            <translation>UnsupportedClassVersionError (Java is too old) appears in the startup log</translation>
+        </message>
+        <message>
+            <source>换一个更新的 Java；具体要哪个版本查版本 json 或模组说明。</source>
+            <translation>Change to a newer Java; check the version json or module description for the specific version.</translation>
+        </message>
+        <message>
+            <source>日志末尾没有 [Game Error] 那一行。</source>
+            <translation>There is no [Game Error] line at the end of the log.</translation>
+        </message>
+        <message>
+            <source>上一次游戏以退出码 %1 结束</source>
+            <translation>The last game ended with exit code %1</translation>
+        </message>
+        <message>
+            <source>「日志」那一页有完整输出；崩溃报告能对上同一个时间的话，「崩溃报告」那一页有现场。</source>
+            <translation>The "Log" page has complete output; if the crash report can match the same time, the "Crash Report" page has the scene.</translation>
+        </message>
+        <message>
+            <source>上一次游戏正常退出（退出码 0）</source>
+            <translation>The last time the game exited normally (exit code 0)</translation>
+        </message>
+        <message>
+            <source>启动日志里有错误，但没有看到退出码</source>
+            <translation>There are errors in the startup log, but I don’t see the exit code.</translation>
+        </message>
+        <message>
+            <source>可能是启动还没走完；「日志」那一页看最后几行。</source>
+            <translation>It may be that the startup has not finished yet; look at the last few lines on the "Log" page.</translation>
+        </message>
+        <message>
+            <source>启动日志里没有看到游戏退出记录</source>
+            <translation>There is no game exit record in the startup log.</translation>
+        </message>
+        <message>
+            <source>可能是这次启动器启动之后还没启动过游戏。</source>
+            <translation>It may be that the game has not been launched since the launcher was launched this time.</translation>
+        </message>
+        <message>
+            <source>启动日志里出现 OutOfMemoryError</source>
+            <translation>OutOfMemoryError appears in startup log</translation>
+        </message>
+        <message>
+            <source>游戏在运行中内存不够了（不一定留下一份崩溃报告）。</source>
+            <translation>The game runs out of memory while running (not necessarily leaving a crash report).</translation>
+        </message>
+        <message>
+            <source>把 Xmx 调大，或者关掉一些模组再试。</source>
+            <translation>Turn up the Xmx, or turn off some mods and try again.</translation>
         </message>
     </context>
     <context>

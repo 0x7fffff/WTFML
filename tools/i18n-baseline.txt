@@ -60,7 +60,6 @@ src/controllers/ToolboxController.cpp	34
 src/controllers/UpdateCenterController.cpp	7
 src/controllers/UpgradeAssessment.cpp	8
 src/diag/GameExitDiagnosis.cpp	37
-src/diagnose/StartupDiagnosis.cpp	92
 src/download/AssetDirectorKnownSet.cpp	27
 src/download/AssetDirectorKnownSetData.cpp	1
 src/download/DirectDownloadRequest.hpp	5
@@ -69,7 +68,6 @@ src/download/DownloadManagerRecovery.cpp	3
 src/download/DownloadManagerSegmented.cpp	1
 src/download/DownloadProxy.hpp	10
 src/download/ModDependencies.cpp	70
-src/download/ResourceCatalog.cpp	135
 src/download/ResourceStore.cpp	28
 src/download/ResumableDownload.cpp	6
 src/download/ServerInstall.hpp	33
@@ -125,7 +123,6 @@ src/manage/VersionManagerLoaderInstall.cpp	45
 src/manage/VersionManagerModpack.cpp	8
 src/manage/WorldMap.cpp	1
 src/net/HttpClient.cpp	2
-src/operations/InstanceUpgrade.cpp	138
 src/operations/OperationReport.cpp	31
 src/operations/TransferApply.cpp	37
 src/operations/TransferPlanner.cpp	50

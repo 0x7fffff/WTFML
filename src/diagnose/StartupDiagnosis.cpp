@@ -2,6 +2,7 @@
  */
 
 #include "diagnose/StartupDiagnosis.hpp"
+#include <QCoreApplication>
 
 #include <algorithm>
 #include <QDateTime>
@@ -164,10 +165,10 @@ LogScan scanLog(const QString &logPath) {
 
 QString severityName(Severity severity) {
     switch (severity) {
-    case Severity::Problem: return QStringLiteral("问题");
-    case Severity::Warning: return QStringLiteral("提醒");
-    case Severity::Info: return QStringLiteral("信息");
-    case Severity::Ok: return QStringLiteral("正常");
+    case Severity::Problem: return QCoreApplication::translate("StartupDiagnosis", "问题");
+    case Severity::Warning: return QCoreApplication::translate("StartupDiagnosis", "提醒");
+    case Severity::Info: return QCoreApplication::translate("StartupDiagnosis", "信息");
+    case Severity::Ok: return QCoreApplication::translate("StartupDiagnosis", "正常");
     }
     return QString();
 }
@@ -175,11 +176,11 @@ QString severityName(Severity severity) {
 QString Report::headline() const {
     if (problems > 0 || warnings > 0) {
         QStringList parts;
-        if (problems > 0) parts << QStringLiteral("%1 个问题").arg(problems);
-        if (warnings > 0) parts << QStringLiteral("%1 条提醒").arg(warnings);
-        return QStringLiteral("启动诊断：发现 %1").arg(parts.join(QStringLiteral("、")));
+        if (problems > 0) parts << QCoreApplication::translate("StartupDiagnosis", "%1 个问题").arg(problems);
+        if (warnings > 0) parts << QCoreApplication::translate("StartupDiagnosis", "%1 条提醒").arg(warnings);
+        return QCoreApplication::translate("StartupDiagnosis", "启动诊断：发现 %1").arg(parts.join(QCoreApplication::translate("StartupDiagnosis", "、")));
     }
-    return QStringLiteral("启动诊断：没有发现明显问题");
+    return QCoreApplication::translate("StartupDiagnosis", "启动诊断：没有发现明显问题");
 }
 
 QString Report::toText() const {
@@ -188,7 +189,7 @@ QString Report::toText() const {
     if (!instanceLine.isEmpty()) lines << instanceLine;
     for (const Finding &finding : findings) {
         lines << QString();
-        lines << QStringLiteral("【%1】%2").arg(severityName(finding.severity), finding.title);
+        lines << QCoreApplication::translate("StartupDiagnosis", "【%1】%2").arg(severityName(finding.severity), finding.title);
         if (!finding.detail.isEmpty()) {
             const QStringList detailLines = finding.detail.split(QLatin1Char('\n'));
             for (const QString &line : detailLines) {
@@ -216,8 +217,8 @@ Report analyze(const Inputs &inputs) {
     }
     if (!where.isEmpty()) {
         report.instanceLine = where.size() >= 2
-                                  ? QStringLiteral("实例：%1（%2）").arg(where.at(0), where.at(1))
-                                  : QStringLiteral("实例：%1").arg(where.at(0));
+                                  ? QCoreApplication::translate("StartupDiagnosis", "实例：%1（%2）").arg(where.at(0), where.at(1))
+                                  : QCoreApplication::translate("StartupDiagnosis", "实例：%1").arg(where.at(0));
     }
 
     const ModScan mods = scanMods(inputs.modsDir);
@@ -225,14 +226,14 @@ Report analyze(const Inputs &inputs) {
     // ---------- 1. 版本与加载器 ----------
     if (inputs.versionId.isEmpty()) {
         appendFinding(&report, Severity::Problem,
-                      QStringLiteral("这个实例没有指向任何游戏版本"),
-                      QStringLiteral("实例目录里读不到可以启动的版本信息。"),
-                      QStringLiteral("在实例设置里重新确认版本，或者重新安装这个实例。"));
+                      QCoreApplication::translate("StartupDiagnosis", "这个实例没有指向任何游戏版本"),
+                      QCoreApplication::translate("StartupDiagnosis", "实例目录里读不到可以启动的版本信息。"),
+                      QCoreApplication::translate("StartupDiagnosis", "在实例设置里重新确认版本，或者重新安装这个实例。"));
     } else if (inputs.gameVersion.isEmpty()) {
         appendFinding(&report, Severity::Warning,
-                      QStringLiteral("读不出这个实例真正的游戏版本"),
-                      QStringLiteral("版本记录里没有 realVersion，界面上只能显示目录名。"),
-                      QStringLiteral("检查版本 json 是否完整（「完整性检查」那一页可以扫）。"));
+                      QCoreApplication::translate("StartupDiagnosis", "读不出这个实例真正的游戏版本"),
+                      QCoreApplication::translate("StartupDiagnosis", "版本记录里没有 realVersion，界面上只能显示目录名。"),
+                      QCoreApplication::translate("StartupDiagnosis", "检查版本 json 是否完整（「完整性检查」那一页可以扫）。"));
     }
     if (inputs.loaderName.isEmpty()) {
         if (inputs.versionId.isEmpty()) {
@@ -240,17 +241,16 @@ Report analyze(const Inputs &inputs) {
         } else if (mods.enabled.size() > 0) {
             appendFinding(
                 &report, Severity::Problem,
-                QStringLiteral("没有模组加载器，却有 %1 个启用的模组").arg(mods.enabled.size()),
-                QStringLiteral("mods/ 里躺着 %1 个 .jar，但这个实例是原版（没有 Fabric / Forge / "
-                               "NeoForge / Quilt），游戏不会读它们。")
+                QCoreApplication::translate("StartupDiagnosis", "没有模组加载器，却有 %1 个启用的模组").arg(mods.enabled.size()),
+                QCoreApplication::translate("StartupDiagnosis", "mods/ 里躺着 %1 个 .jar，但这个实例是原版（没有 Fabric / Forge / " "NeoForge / Quilt），游戏不会读它们。")
                     .arg(mods.enabled.size()),
-                QStringLiteral("在这个版本上装一个模组加载器，或者把 mods/ 里那些 jar 移走。"));
+                QCoreApplication::translate("StartupDiagnosis", "在这个版本上装一个模组加载器，或者把 mods/ 里那些 jar 移走。"));
         } else {
-            appendFinding(&report, Severity::Ok, QStringLiteral("原版实例（没有模组加载器）"));
+            appendFinding(&report, Severity::Ok, QCoreApplication::translate("StartupDiagnosis", "原版实例（没有模组加载器）"));
         }
     } else {
         appendFinding(&report, Severity::Ok,
-                      QStringLiteral("加载器：%1%2").arg(
+                      QCoreApplication::translate("StartupDiagnosis", "加载器：%1%2").arg(
                           inputs.loaderName,
                           inputs.loaderVersion.isEmpty()
                               ? QString()
@@ -261,31 +261,30 @@ Report analyze(const Inputs &inputs) {
     if (inputs.configuredJavaPath.isEmpty()) {
         if (inputs.autoSelectJava) {
             appendFinding(
-                &report, Severity::Info, QStringLiteral("没有预先指定 Java，启动时自动挑"),
+                &report, Severity::Info, QCoreApplication::translate("StartupDiagnosis", "没有预先指定 Java，启动时自动挑"),
                 inputs.requiredJavaMajor > 0
-                    ? QStringLiteral("这个版本要 Java %1。").arg(inputs.requiredJavaMajor)
-                    : QStringLiteral("版本 json 里没写要哪个 Java，启动时按游戏版本推断。"),
-                QStringLiteral("如果本机没有匹配的 Java，第一次启动会先下载一份运行时。"));
+                    ? QCoreApplication::translate("StartupDiagnosis", "这个版本要 Java %1。").arg(inputs.requiredJavaMajor)
+                    : QCoreApplication::translate("StartupDiagnosis", "版本 json 里没写要哪个 Java，启动时按游戏版本推断。"),
+                QCoreApplication::translate("StartupDiagnosis", "如果本机没有匹配的 Java，第一次启动会先下载一份运行时。"));
         } else {
             appendFinding(&report, Severity::Problem,
-                          QStringLiteral("Java 选的是「手动指定」，但路径是空的"),
-                          QStringLiteral("手动档下启动器不会自己去挑 Java。"),
-                          QStringLiteral("在「启动设置」里填一个 java.exe，或者切回「自动」。"));
+                          QCoreApplication::translate("StartupDiagnosis", "Java 选的是「手动指定」，但路径是空的"),
+                          QCoreApplication::translate("StartupDiagnosis", "手动档下启动器不会自己去挑 Java。"),
+                          QCoreApplication::translate("StartupDiagnosis", "在「启动设置」里填一个 java.exe，或者切回「自动」。"));
         }
     } else {
         const QString executable = javaExecutableOf(inputs.configuredJavaPath);
         if (executable.isEmpty() || !QFileInfo::exists(executable)) {
             appendFinding(&report, Severity::Problem,
-                          QStringLiteral("指定的 Java 用不了"),
-                          QStringLiteral("路径：%1").arg(inputs.configuredJavaPath),
-                          QStringLiteral("把路径改成一个真实存在的 java.exe（或 JDK/JRE 目录），"
-                                         "或者切回自动。"));
+                          QCoreApplication::translate("StartupDiagnosis", "指定的 Java 用不了"),
+                          QCoreApplication::translate("StartupDiagnosis", "路径：%1").arg(inputs.configuredJavaPath),
+                          QCoreApplication::translate("StartupDiagnosis", "把路径改成一个真实存在的 java.exe（或 JDK/JRE 目录），" "或者切回自动。"));
         } else {
             appendFinding(
-                &report, Severity::Ok, QStringLiteral("已指定 Java"),
-                QStringLiteral("路径：%1").arg(executable),
+                &report, Severity::Ok, QCoreApplication::translate("StartupDiagnosis", "已指定 Java"),
+                QCoreApplication::translate("StartupDiagnosis", "路径：%1").arg(executable),
                 inputs.requiredJavaMajor > 0
-                    ? QStringLiteral("这个版本要 Java %1；诊断不启动 JVM，具体主版本以启动日志为准。")
+                    ? QCoreApplication::translate("StartupDiagnosis", "这个版本要 Java %1；诊断不启动 JVM，具体主版本以启动日志为准。")
                           .arg(inputs.requiredJavaMajor)
                     : QString());
         }
@@ -296,9 +295,9 @@ Report analyze(const Inputs &inputs) {
         QStringList memoryParts;
         if (inputs.xmxMb > 0) memoryParts << QStringLiteral("Xmx %1 MB").arg(inputs.xmxMb);
         if (inputs.xmsMb > 0) memoryParts << QStringLiteral("Xms %1 MB").arg(inputs.xmsMb);
-        if (inputs.autoMemory) memoryParts << QStringLiteral("自动");
+        if (inputs.autoMemory) memoryParts << QCoreApplication::translate("StartupDiagnosis", "自动");
         if (inputs.systemTotalMb > 0) {
-            memoryParts << QStringLiteral("机器共 %1 MB").arg(inputs.systemTotalMb);
+            memoryParts << QCoreApplication::translate("StartupDiagnosis", "机器共 %1 MB").arg(inputs.systemTotalMb);
         }
         const QString memoryDetail = memoryParts.join(QStringLiteral(" / "));
 
@@ -306,56 +305,54 @@ Report analyze(const Inputs &inputs) {
             && inputs.xmxMb > inputs.systemTotalMb) {
             appendFinding(
                 &report, Severity::Problem,
-                QStringLiteral("分给游戏的内存超过了机器总内存"),
+                QCoreApplication::translate("StartupDiagnosis", "分给游戏的内存超过了机器总内存"),
                 memoryDetail,
-                QStringLiteral("把 Xmx 调小到机器内存以内；分得比物理内存还大，JVM 起来后"
-                               "很可能在分配堆的时候就失败。"));
+                QCoreApplication::translate("StartupDiagnosis", "把 Xmx 调小到机器内存以内；分得比物理内存还大，JVM 起来后" "很可能在分配堆的时候就失败。"));
         } else if (inputs.xmxMb > 0 && inputs.systemTotalMb > 0
                    && inputs.xmxMb > inputs.systemTotalMb * 4 / 5) {
             appendFinding(&report, Severity::Warning,
-                          QStringLiteral("分给游戏的内存偏多"),
+                          QCoreApplication::translate("StartupDiagnosis", "分给游戏的内存偏多"),
                           memoryDetail,
-                          QStringLiteral("留一点给系统和其他程序，尤其模组整合包还要加载资源。"));
+                          QCoreApplication::translate("StartupDiagnosis", "留一点给系统和其他程序，尤其模组整合包还要加载资源。"));
         } else if (inputs.xmxMb > 0) {
-            appendFinding(&report, Severity::Info, QStringLiteral("内存分配"), memoryDetail);
+            appendFinding(&report, Severity::Info, QCoreApplication::translate("StartupDiagnosis", "内存分配"), memoryDetail);
         }
         if (inputs.xmxMb > 0 && inputs.xmxMb < 512) {
             appendFinding(&report, Severity::Warning,
-                          QStringLiteral("分给游戏的内存偏小（%1 MB）").arg(inputs.xmxMb),
+                          QCoreApplication::translate("StartupDiagnosis", "分给游戏的内存偏小（%1 MB）").arg(inputs.xmxMb),
                           memoryDetail,
-                          QStringLiteral("模组整合包很容易 OutOfMemoryError；原版 1.20 起"
-                                         "也建议至少 1024 MB。"));
+                          QCoreApplication::translate("StartupDiagnosis", "模组整合包很容易 OutOfMemoryError；原版 1.20 起" "也建议至少 1024 MB。"));
         }
         if (inputs.systemTotalMb <= 0) {
             appendFinding(&report, Severity::Info,
-                          QStringLiteral("读不到这台机器的物理内存"),
-                          QStringLiteral("内存那一栏只报了配置值，没法判断相对大小。"));
+                          QCoreApplication::translate("StartupDiagnosis", "读不到这台机器的物理内存"),
+                          QCoreApplication::translate("StartupDiagnosis", "内存那一栏只报了配置值，没法判断相对大小。"));
         }
     }
 
     // ---------- 4. mods/ ----------
     if (!inputs.modsDir.isEmpty() && !QDir(inputs.modsDir).exists()) {
         appendFinding(&report, Severity::Info,
-                      QStringLiteral("这个实例没有 mods 目录"),
-                      QStringLiteral("路径：%1").arg(inputs.modsDir),
-                      QStringLiteral("第一次往里面放模组时目录会自动建出来。"));
+                      QCoreApplication::translate("StartupDiagnosis", "这个实例没有 mods 目录"),
+                      QCoreApplication::translate("StartupDiagnosis", "路径：%1").arg(inputs.modsDir),
+                      QCoreApplication::translate("StartupDiagnosis", "第一次往里面放模组时目录会自动建出来。"));
     } else if (mods.enabled.size() > 0 && !inputs.loaderName.isEmpty()) {
         appendFinding(&report, Severity::Ok,
-                      QStringLiteral("已启用 %1 个模组").arg(mods.enabled.size()),
+                      QCoreApplication::translate("StartupDiagnosis", "已启用 %1 个模组").arg(mods.enabled.size()),
                       inputs.modsDir);
     } else if (!inputs.loaderName.isEmpty() && mods.enabled.isEmpty()) {
-        appendFinding(&report, Severity::Info, QStringLiteral("mods/ 里没有启用的模组"),
+        appendFinding(&report, Severity::Info, QCoreApplication::translate("StartupDiagnosis", "mods/ 里没有启用的模组"),
                       inputs.modsDir.isEmpty() ? QString() : inputs.modsDir);
     }
     if (mods.disabled.size() > 0) {
         QStringList listed = mods.disabled.mid(0, kDisabledNameLimit);
         if (mods.disabled.size() > kDisabledNameLimit) {
-            listed << QStringLiteral("…还有 %1 个").arg(mods.disabled.size() - kDisabledNameLimit);
+            listed << QCoreApplication::translate("StartupDiagnosis", "…还有 %1 个").arg(mods.disabled.size() - kDisabledNameLimit);
         }
         appendFinding(&report, Severity::Info,
-                      QStringLiteral("有 %1 个模组处于禁用状态").arg(mods.disabled.size()),
-                      listed.join(QStringLiteral("、")),
-                      QStringLiteral("它们在盘上叫 `*.jar.disabled`，游戏不会加载。"));
+                      QCoreApplication::translate("StartupDiagnosis", "有 %1 个模组处于禁用状态").arg(mods.disabled.size()),
+                      listed.join(QCoreApplication::translate("StartupDiagnosis", "、")),
+                      QCoreApplication::translate("StartupDiagnosis", "它们在盘上叫 `*.jar.disabled`，游戏不会加载。"));
     }
 
     bool javaVersionProblemSeen = false;
@@ -363,51 +360,47 @@ Report analyze(const Inputs &inputs) {
     {
         const CrashScan crash = newestCrash(inputs.crashDir);
         if (crash.path.isEmpty()) {
-            appendFinding(&report, Severity::Info, QStringLiteral("没有崩溃报告"));
+            appendFinding(&report, Severity::Info, QCoreApplication::translate("StartupDiagnosis", "没有崩溃报告"));
         } else {
             const QString description = crashLine(crash.text, QStringLiteral("Description:"));
             const QString time = crashLine(crash.text, QStringLiteral("Time:"));
             QStringList detail;
-            detail << QStringLiteral("文件：%1").arg(crash.name);
+            detail << QCoreApplication::translate("StartupDiagnosis", "文件：%1").arg(crash.name);
             if (!time.isEmpty()) detail << time;
             if (!description.isEmpty()) detail << description;
             const QString where = detail.join(QLatin1Char('\n'));
-            const QString hint = QStringLiteral("完整内容在「崩溃报告」那一页。");
+            const QString hint = QCoreApplication::translate("StartupDiagnosis", "完整内容在「崩溃报告」那一页。");
 
             if (crash.text.contains(QStringLiteral("java.lang.OutOfMemoryError"))) {
                 outOfMemorySeen = true;
                 appendFinding(&report, Severity::Warning,
-                              QStringLiteral("最近一份崩溃报告是内存不足（OutOfMemoryError）"),
+                              QCoreApplication::translate("StartupDiagnosis", "最近一份崩溃报告是内存不足（OutOfMemoryError）"),
                               where,
-                              QStringLiteral("把 Xmx 调大（先确认机器真的有空闲内存），"
-                                             "或者减少同时加载的模组。"));
+                              QCoreApplication::translate("StartupDiagnosis", "把 Xmx 调大（先确认机器真的有空闲内存），" "或者减少同时加载的模组。"));
             } else if (crash.text.contains(QStringLiteral("UnsupportedClassVersionError"))) {
                 javaVersionProblemSeen = true;
                 appendFinding(
                     &report, Severity::Problem,
-                    QStringLiteral("最近一份崩溃报告是 Java 版本不对（UnsupportedClassVersionError）"),
+                    QCoreApplication::translate("StartupDiagnosis", "最近一份崩溃报告是 Java 版本不对（UnsupportedClassVersionError）"),
                     where,
-                    QStringLiteral("这个崩溃说明有东西是用比当前 Java 更新的版本编译的；"
-                                   "换一个更新的 Java 再试。"));
+                    QCoreApplication::translate("StartupDiagnosis", "这个崩溃说明有东西是用比当前 Java 更新的版本编译的；" "换一个更新的 Java 再试。"));
             } else if (crash.text.contains(QStringLiteral("NoClassDefFoundError"))
                        || crash.text.contains(QStringLiteral("ClassNotFoundException"))) {
                 appendFinding(&report, Severity::Warning,
-                              QStringLiteral("最近一份崩溃报告里是缺类异常"),
+                              QCoreApplication::translate("StartupDiagnosis", "最近一份崩溃报告里是缺类异常"),
                               where,
-                              QStringLiteral("多半是模组依赖没装齐，或者装了一个给别的游戏版本"
-                                             "编的模组；看报告里那个类名属于哪个模组。"));
+                              QCoreApplication::translate("StartupDiagnosis", "多半是模组依赖没装齐，或者装了一个给别的游戏版本" "编的模组；看报告里那个类名属于哪个模组。"));
             } else if (crash.text.contains(QStringLiteral("Mixin"))
                        && (crash.text.contains(QStringLiteral("InjectionError"))
                            || crash.text.contains(QStringLiteral("Apply"))
                            || crash.text.contains(QStringLiteral("apply")))) {
                 appendFinding(&report, Severity::Warning,
-                              QStringLiteral("最近一份崩溃报告发生在模组注入阶段（Mixin）"),
+                              QCoreApplication::translate("StartupDiagnosis", "最近一份崩溃报告发生在模组注入阶段（Mixin）"),
                               where,
-                              QStringLiteral("报告里通常会点名一个模组；先单独移走它再启动，"
-                                             "确认是不是它引起的。"));
+                              QCoreApplication::translate("StartupDiagnosis", "报告里通常会点名一个模组；先单独移走它再启动，" "确认是不是它引起的。"));
             } else {
                 appendFinding(&report, Severity::Info,
-                              QStringLiteral("最近一份崩溃报告：%1").arg(crash.name),
+                              QCoreApplication::translate("StartupDiagnosis", "最近一份崩溃报告：%1").arg(crash.name),
                               where, hint);
             }
         }
@@ -418,45 +411,44 @@ Report analyze(const Inputs &inputs) {
         const LogScan log = scanLog(inputs.logPath);
         if (!log.exists) {
             appendFinding(&report, Severity::Info,
-                          QStringLiteral("还没有启动日志"),
-                          QStringLiteral("这个启动器还没在这个数据目录里启动过游戏。"));
+                          QCoreApplication::translate("StartupDiagnosis", "还没有启动日志"),
+                          QCoreApplication::translate("StartupDiagnosis", "这个启动器还没在这个数据目录里启动过游戏。"));
         } else if (log.hasUnsupportedClassVersion && !javaVersionProblemSeen) {
             javaVersionProblemSeen = true;
             appendFinding(
                 &report, Severity::Problem,
-                QStringLiteral("启动日志里出现 UnsupportedClassVersionError（Java 太旧）"),
+                QCoreApplication::translate("StartupDiagnosis", "启动日志里出现 UnsupportedClassVersionError（Java 太旧）"),
                 log.lastGameError,
-                QStringLiteral("换一个更新的 Java；具体要哪个版本查版本 json 或模组说明。"));
+                QCoreApplication::translate("StartupDiagnosis", "换一个更新的 Java；具体要哪个版本查版本 json 或模组说明。"));
         }
         if (log.exists) {
             if (log.hasExitCode && log.exitCode != 0) {
                 QString detail = log.lastGameError;
-                if (detail.isEmpty()) detail = QStringLiteral("日志末尾没有 [Game Error] 那一行。");
+                if (detail.isEmpty()) detail = QCoreApplication::translate("StartupDiagnosis", "日志末尾没有 [Game Error] 那一行。");
                 appendFinding(
                     &report, Severity::Warning,
-                    QStringLiteral("上一次游戏以退出码 %1 结束").arg(log.exitCode), detail,
-                    QStringLiteral("「日志」那一页有完整输出；崩溃报告能对上同一个时间的话，"
-                                   "「崩溃报告」那一页有现场。"));
+                    QCoreApplication::translate("StartupDiagnosis", "上一次游戏以退出码 %1 结束").arg(log.exitCode), detail,
+                    QCoreApplication::translate("StartupDiagnosis", "「日志」那一页有完整输出；崩溃报告能对上同一个时间的话，" "「崩溃报告」那一页有现场。"));
             } else if (log.hasExitCode) {
                 appendFinding(&report, Severity::Ok,
-                              QStringLiteral("上一次游戏正常退出（退出码 0）"),
+                              QCoreApplication::translate("StartupDiagnosis", "上一次游戏正常退出（退出码 0）"),
                               log.lastGameError.isEmpty() ? QString() : log.lastGameError);
             } else if (!log.lastGameError.isEmpty()) {
                 appendFinding(&report, Severity::Warning,
-                              QStringLiteral("启动日志里有错误，但没有看到退出码"),
+                              QCoreApplication::translate("StartupDiagnosis", "启动日志里有错误，但没有看到退出码"),
                               log.lastGameError,
-                              QStringLiteral("可能是启动还没走完；「日志」那一页看最后几行。"));
+                              QCoreApplication::translate("StartupDiagnosis", "可能是启动还没走完；「日志」那一页看最后几行。"));
             } else {
                 appendFinding(&report, Severity::Info,
-                              QStringLiteral("启动日志里没有看到游戏退出记录"),
-                              QStringLiteral("可能是这次启动器启动之后还没启动过游戏。"));
+                              QCoreApplication::translate("StartupDiagnosis", "启动日志里没有看到游戏退出记录"),
+                              QCoreApplication::translate("StartupDiagnosis", "可能是这次启动器启动之后还没启动过游戏。"));
             }
         }
         if (log.hasOutOfMemory && !outOfMemorySeen) {
             appendFinding(&report, Severity::Warning,
-                          QStringLiteral("启动日志里出现 OutOfMemoryError"),
-                          QStringLiteral("游戏在运行中内存不够了（不一定留下一份崩溃报告）。"),
-                          QStringLiteral("把 Xmx 调大，或者关掉一些模组再试。"));
+                          QCoreApplication::translate("StartupDiagnosis", "启动日志里出现 OutOfMemoryError"),
+                          QCoreApplication::translate("StartupDiagnosis", "游戏在运行中内存不够了（不一定留下一份崩溃报告）。"),
+                          QCoreApplication::translate("StartupDiagnosis", "把 Xmx 调大，或者关掉一些模组再试。"));
         }
     }
 
