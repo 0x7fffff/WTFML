@@ -675,6 +675,18 @@ QString VersionManager::instanceGameVersion(const QString &instanceId) {
         }
     }
 
+    // ③b 链上某一份 json 自己写着 `id`，且那个 id 认得出是游戏版本。
+    //
+    // 薄 json（目录名 `1.20.1-T35`，文件里 `id` 写 `1.20.1`）只有这一格说得出口：
+    // 目录名不是版本号、`inheritsFrom` 也没有。只在 `usable()` 认它时才采用 ——
+    // 合并过的实例 json 里 `id` 往往是用户起的名字，不能当版本号。
+    for (const QJsonObject &json : chainJsons) {
+        const QString declared = json.value(QStringLiteral("id")).toString().trimmed();
+        if (usable(declared)) {
+            return declared;
+        }
+    }
+
     // ④ 再兜一层：链的末端那个 **id**。薄 json 走的正是这里 —— 它的 inheritsFrom 最后
     // 指到原版那一份，而原版那份目录名就是版本号。
     if (usable(last)) {
