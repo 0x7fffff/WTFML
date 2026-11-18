@@ -571,10 +571,24 @@ int UiUiRefreshCheck(QApplication &app) {
         MainWindowUI::HomeQuickItem quick;
         quick.key = QStringLiteral("preview"); quick.name = QStringLiteral("Preview");
         quick.detail = QStringLiteral("Minecraft 1.21.1\nLast played today");
-        ui.setHomeQuickRows({quick}, {quick}, {quick});
+        MainWindowUI::HomeQuickItem longCard = quick;
+        longCard.current = true;
+        longCard.name = QStringLiteral("一个名称很长的整合包，用于检查主页卡片的显示宽度");
+        longCard.detail = QStringLiteral("Minecraft 1.21.11-pre-release-with-a-long-version-name / NeoForge 21.11.0");
+        ui.setHomeQuickRows({quick}, {longCard}, {quick});
         settle();
         auto *launchCard = home->findChild<QWidget *>(QStringLiteral("homeCurrentInstanceCard"));
         const int normalHeight = launchCard ? launchCard->height() : 0;
+        auto *launchButton = home->findChild<QPushButton *>(QStringLiteral("homeCurrentLaunch"));
+        ui.setHomeLaunchRunning(true);
+        expect(launchButton && launchButton->property("wtfmlLaunchMode").toString() == QStringLiteral("stop") &&
+                   launchButton->text() == QStringLiteral("停止游戏") && launchButton->iconSize() == QSize(20, 20) &&
+                   launchButton->icon().pixmap(QSize(20, 20), 1.0).toImage() ==
+                       VersionIcons::power(20, Theme::tokens().onPrimary).toImage(),
+               "the running home instance uses the power icon without changing its stop action");
+        ui.setHomeLaunchRunning(false);
+        expect(launchButton && launchButton->property("wtfmlLaunchMode").toString() == QStringLiteral("launch"),
+               "the home button returns to the launch action when the game stops");
         // 实例切换是浮在页上的毛玻璃弹层：开着时启动区一像素都不动，也不起换页那层幕布。
         ui.openHomeInstancePicker({}, {instance}, {}, {});
         settle();
@@ -600,6 +614,38 @@ int UiUiRefreshCheck(QApplication &app) {
             auto *card = favSection ? favSection->findChild<QPushButton *>(QStringLiteral("homeQuickCard_preview"))
                                     : nullptr;
             expect(card != nullptr, "favorite page exposes the preview quick card");
+            if (card) {
+                auto *version = card->findChild<QLabel *>(QStringLiteral("homeQuickTileVersion"));
+                auto *badge = card->findChild<QLabel *>(QStringLiteral("homeQuickCurrentBadge"));
+                auto *play = card->findChild<QPushButton *>(QStringLiteral("homeQuickPlay"));
+                expect(version && badge && play && version->property("elideMode").isValid() &&
+                           card->toolTip().contains(longCard.name) && card->toolTip().contains(version->text()),
+                       "long quick card labels elide and expose the full name and version");
+                if (version && badge && play) {
+                    card->setAttribute(Qt::WA_UnderMouse, false);
+                    QEvent leave(QEvent::Leave);
+                    QApplication::sendEvent(card, &leave);
+                    card->clearFocus();
+                    app.processEvents();
+                    const QRect idleVersion = version->geometry();
+                    const QRect idleBadge = badge->geometry();
+                    card->setAttribute(Qt::WA_UnderMouse, true);
+                    QEnterEvent enter(QPointF(1, 1), QPointF(1, 1), card->mapToGlobal(QPoint(1, 1)));
+                    QApplication::sendEvent(card, &enter);
+                    app.processEvents();
+                    expect(!play->isHidden() && version->geometry() == idleVersion && badge->geometry() == idleBadge,
+                           "revealing the play button keeps the version and current badge in place");
+                    card->setDown(true);
+                    app.processEvents();
+                    expect(version->geometry() == idleVersion && badge->geometry() == idleBadge &&
+                               version->geometry().right() < play->geometry().left() &&
+                               badge->geometry().right() < play->geometry().left(),
+                           "pressing the selected quick card keeps both labels clear of the play button");
+                    card->setDown(false);
+                    card->setAttribute(Qt::WA_UnderMouse, false);
+                    QApplication::sendEvent(card, &leave);
+                }
+            }
             expect(preview.findChild<QWidget *>(QStringLiteral("homeQuickPopup")) == nullptr,
                    "the strip has no per-card popup any more");
         }
