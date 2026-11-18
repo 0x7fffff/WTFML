@@ -2245,7 +2245,7 @@ int runSite(QApplication &app, const ShotOptions &options) {
             Theme::apply(app);
             pump();
             const MainWindowUI::ThemeImageRow &row = ui.getThemeImageRow(0);
-            if (row.state != nullptr) row.state->setText(QStringLiteral("现在铺的是：暮色雪山.jpg"));
+            if (row.state != nullptr) row.state->setText(QStringLiteral("当前图片：暮色雪山.jpg"));
             if (row.fit != nullptr) row.fit->setEnabled(true);
             if (row.opacity != nullptr) {
                 row.opacity->setEnabled(true);

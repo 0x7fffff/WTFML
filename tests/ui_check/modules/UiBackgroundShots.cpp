@@ -125,7 +125,7 @@ int UiBackgroundShots(QApplication &app) {
         Theme::setSpec(spec);
         Theme::apply(app);
         // 设置页那几格照产品刷一遍（产品里是 ThemeSettingsController::refresh()：
-        // 配色下拉认 presetId、背景图那一行写「现在铺的是：…」并亮起三样控件）。
+        // 配色下拉认 presetId、背景图那一行写「当前图片：…」并亮起三样控件）。
         if (QComboBox *combo = ui.getThemePresetCombo()) {
             const QSignalBlocker block(combo);
             const int index = combo->findData(spec.presetId);
@@ -134,7 +134,7 @@ int UiBackgroundShots(QApplication &app) {
         {
             const MainWindowUI::ThemeImageRow &row = ui.getThemeImageRow(0);
             if (row.state != nullptr) {
-                row.state->setText(QStringLiteral("现在铺的是：%1").arg(style.imageName));
+                row.state->setText(QStringLiteral("当前图片：%1").arg(style.imageName));
                 const int fitIndex = row.fit->findData(Theme::imageFitKey(style.fit));
                 if (fitIndex >= 0) row.fit->setCurrentIndex(fitIndex);
                 row.opacity->setValue(style.imageOpacity);

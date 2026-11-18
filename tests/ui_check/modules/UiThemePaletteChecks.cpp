@@ -634,7 +634,7 @@ int UiThemePaletteChecks(QApplication &app, QTabWidget * &tabs, QFrame * &bar) {
             Theme::PartStyle style;
             style.imagePath = QStringLiteral("C:/tmp/pic.png");
             // 用户挑的那张原来叫什么（盘上那份叫 `card.png`，是槽位名）——设置页那一行
-            // 「现在铺的是：…」写的就是这一位，所以它必须跟着图一起存回来。
+            // 「当前图片：…」写的就是这一位，所以它必须跟着图一起存回来。
             style.imageName = QStringLiteral("我挑的那张.png");
             style.fit = Theme::ImageFit::Tile;
             style.imageOpacity = 45;
