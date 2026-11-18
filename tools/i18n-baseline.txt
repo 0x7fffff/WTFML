@@ -147,7 +147,6 @@ src/presets/ServerListPreset.cpp	10
 src/presets/VanillaOptions.cpp	1
 src/replay/ReplayInfo.cpp	21
 src/schematic/SchematicInfo.cpp	33
-src/server/ServerCheck.hpp	45
 src/server/ServerContent.cpp	2
 src/server/ServerInstallController.cpp	35
 src/server/ServerInstallRun.hpp	15

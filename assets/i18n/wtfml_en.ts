@@ -18469,6 +18469,159 @@ So there is no import. (Fabric / Forge / NeoForge / OptiFine can be installed di
         </message>
     </context>
     <context>
+        <name>ServerCheck</name>
+        <message>
+            <source>要处理</source>
+            <translation>To be processed</translation>
+        </message>
+        <message>
+            <source>提醒</source>
+            <translation>Remind</translation>
+        </message>
+        <message>
+            <source>说明</source>
+            <translation>Illustrate</translation>
+        </message>
+        <message>
+            <source>没有发现问题 —— 入口文件齐、配置文件的值都对、端口也没人占。</source>
+            <translation>No problems were found - the entry files were all in order, the values ​​in the configuration files were correct, and no one occupied the port.</translation>
+        </message>
+        <message>
+            <source>%1 项要处理</source>
+            <translation>%1 items to process</translation>
+        </message>
+        <message>
+            <source>%1 项提醒</source>
+            <translation>%1 reminders</translation>
+        </message>
+        <message>
+            <source>%1 项说明</source>
+            <translation>%1 description</translation>
+        </message>
+        <message>
+            <source>入口文件不在这个目录里。</source>
+            <translation>The entry file is not in this directory.</translation>
+        </message>
+        <message>
+            <source>
+点「修复（重新安装）」下载缺失文件。</source>
+            <translation>Click "Repair (Reinstall)" to download the missing files.</translation>
+        </message>
+        <message>
+            <source>这个服务端尚未安装完成</source>
+            <translation>This server has not been installed yet</translation>
+        </message>
+        <message>
+            <source>服务端安装记录缺失</source>
+            <translation>Server installation record is missing</translation>
+        </message>
+        <message>
+            <source>无法确定安装类型与重装参数。请检查启动文件，或通过启动器重新创建服务端。</source>
+            <translation>Unable to determine installation type and reinstallation parameters. Please check the startup file or recreate the server through the launcher.</translation>
+        </message>
+        <message>
+            <source>无法根据安装记录生成启动命令</source>
+            <translation>Unable to generate startup command based on installation record</translation>
+        </message>
+        <message>
+            <source>安装记录缺少启动所需的版本信息。</source>
+            <translation>The installation record is missing version information required for startup.</translation>
+        </message>
+        <message>
+            <source>
+点「修复（重新安装）」按记录的来源完整重装。</source>
+            <translation>Click "Repair (Reinstall)" to completely reinstall from the recorded source.</translation>
+        </message>
+        <message>
+            <source>尚未接受 Minecraft 最终用户许可协议</source>
+            <translation>The Minecraft End User License Agreement has not been accepted</translation>
+        </message>
+        <message>
+            <source>首次启动前需阅读并接受协议，确认后将更新 eula.txt。</source>
+            <translation>You need to read and accept the agreement before starting it for the first time, and eula.txt will be updated after confirmation.</translation>
+        </message>
+        <message>
+            <source>「%1」的值无效</source>
+            <translation>The value of '%1' is invalid</translation>
+        </message>
+        <message>
+            <source>当前值：%1。%2
+可恢复默认值，或在「常用设置」中修改。</source>
+            <translation>Current value: %1. %2
+ can restore the default value or modify it in "Common Settings".</translation>
+        </message>
+        <message>
+            <source>（空的）</source>
+            <translation>(empty)</translation>
+        </message>
+        <message>
+            <source>端口 %1 已被占用</source>
+            <translation>Port %1 is already occupied</translation>
+        </message>
+        <message>
+            <source>端口冲突将导致服务端启动失败。
+请关闭占用端口的程序，或在「常用设置」中更换端口。</source>
+            <translation>Port conflicts will cause the server to fail to start. 
+Please close the program occupying the port, or change the port in "Common Settings".</translation>
+        </message>
+        <message>
+            <source>配置包含重复键：%1</source>
+            <translation>Configuration contains duplicate keys: %1</translation>
+        </message>
+        <message>
+            <source>、</source>
+            <translation>,</translation>
+        </message>
+        <message>
+            <source>重复键以最后一项为准。可在「原始文本」中移除重复项。</source>
+            <translation>Duplicate keys are subject to the last item. Duplicates can be removed in the Original Text.</translation>
+        </message>
+        <message>
+            <source>世界尚无备份</source>
+            <translation>The world has no backup yet</translation>
+        </message>
+        <message>
+            <source>世界数据无法通过重新下载恢复。建议在「世界备份」中选择「立即备份」。</source>
+            <translation>World data cannot be restored by re-downloading. It is recommended to select "Backup Now" in "World Backup".</translation>
+        </message>
+        <message>
+            <source>世界「%1」尚未生成</source>
+            <translation>The world "%1" has not been generated yet</translation>
+        </message>
+        <message>
+            <source>世界目录将在首次启动时生成。</source>
+            <translation>The world catalog will be generated on first launch.</translation>
+        </message>
+        <message>
+            <source>世界「%1」已存在</source>
+            <translation>The world "%1" already exists</translation>
+        </message>
+        <message>
+            <source>目录：%1/%2。</source>
+            <translation>Directory: %1/%2.</translation>
+        </message>
+        <message>
+            <source>，大小 %1 MB</source>
+            <translation>, size %1 MB</translation>
+        </message>
+        <message>
+            <source>已安装 %1 个模组或插件</source>
+            <translation>%1 mods or plugins installed</translation>
+        </message>
+        <message>
+            <source>新增或更改模组后需重启服务端。</source>
+            <translation>After adding or changing a module, you need to restart the server.</translation>
+        </message>
+        <message>
+            <source>配置包含 %1 项未提供表单编辑的设置</source>
+            <translation>Configuration contains %1 settings that do not provide form editing</translation>
+        </message>
+        <message>
+            <source>以下设置（%1）可在「原始文本」中编辑。保存表单时将保留其原值。</source>
+            <translation>The following settings (%1) can be edited in Original Text. The original values ​​will be retained when the form is saved.</translation>
+        </message>
+    </context>
+    <context>
         <name>ServerConsoleController</name>
         <message>
             <source>这一条没有送到服务端（它已经不在跑了）。</source>
