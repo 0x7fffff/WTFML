@@ -38,9 +38,11 @@
 #include <QPainter>
 #include <QPixmap>
 #include <QPlainTextEdit>
+#include <QPointer>
 #include <QPushButton>
 #include <QScreen>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QSignalBlocker>
 #include <QSize>
 #include <QUrl>
@@ -56,6 +58,7 @@
 #include <QSet>
 #include <QImageReader>
 #include <QVBoxLayout>
+#include <memory>
 #include <utility>
 #include <algorithm>
 #include <functional>
@@ -154,7 +157,15 @@ void InstanceSettingsDialog::addLifecycleBatchActions(const QString &key, QListW
         }
         return paths;
     };
-    const auto update = [list, eligible, selectedPaths, all, invert, clear, copy, move, remove, count] {
+    // 这一发请求还在跑没跑完。确认框（`InlineMessage::question`）、落盘和重列全在
+    // `lifecycleBatchRequested` 那一发的**嵌套事件循环**里，那期间工具条整排灰着：
+    // 后面再点一次「删除」点不动，同一批不会被发第二遍。旧写法是发请求前先
+    // `list->clearSelection()`，靠"选择没了 ⇒ 这三颗按不动"来防重复提交 —— 代价是用户
+    // 在确认框上点「取消」时，原来的选择也一起没了（issue #26 那条 bug）。
+    auto pending = std::make_shared<bool>(false);
+    const auto update = [list, eligible, selectedPaths, all, invert, clear, copy, move, remove, count,
+                         pending] {
+        if (*pending) return;  // 在飞：按钮的可用性由 request() 说了算，别在这里抢回来
         bool any = false;
         for (int row = 0; row < list->count() && !any; ++row) any = eligible(list->item(row));
         const qsizetype selected = selectedPaths().size();
@@ -178,11 +189,22 @@ void InstanceSettingsDialog::addLifecycleBatchActions(const QString &key, QListW
     connect(all, &QPushButton::clicked, toolbar, [select] { select(false); });
     connect(invert, &QPushButton::clicked, toolbar, [select] { select(true); });
     connect(clear, &QPushButton::clicked, list, &QListWidget::clearSelection);
-    const auto request = [this, key, list, selectedPaths](LifecycleBatchAction action) {
+    // NOTE: 选择**不在这里清**。清掉之后用户在确认框上点「取消」，那一批选择就回不来了
+    // （见 issue #26）；要防的是"请求在飞时再点一次"，那件事交给下面这一整排禁用。
+    const auto request = [this, key, toolbar, selectedPaths, pending, all, invert, clear, copy,
+                          move, remove, update](LifecycleBatchAction action) {
+        const QPointer<QWidget> alive(toolbar);
+        if (*pending) return;
         const auto paths = selectedPaths();
         if (paths.isEmpty()) return;
-        list->clearSelection();
+        *pending = true;
+        for (auto *button : {all, invert, clear, copy, move, remove}) button->setEnabled(false);
         emit lifecycleBatchRequested(key, paths, action);
+        // 这一发可能在嵌套事件循环里把整页收了（用户切实例 / 关窗）：那样工具条已经跟着
+        // 销毁，收尾这两句不能再碰它。
+        if (!alive) return;
+        *pending = false;
+        update();
     };
     connect(copy, &QPushButton::clicked, toolbar, [request] { request(LifecycleBatchAction::Copy); });
     connect(move, &QPushButton::clicked, toolbar, [request] { request(LifecycleBatchAction::Move); });
@@ -599,6 +621,14 @@ void InstanceSettingsDialog::refreshLifecycleFiles(const QString &key) {
     }
     auto *list = m_lifecycleLists.value(key);
     if (list == nullptr) return;
+    // 重列整张表会把滚动位置和选择一起抹掉。删掉的那几条本来就不该再出现；**留在盘上的**
+    // （移入回收站失败的那几项、复制 / 移动之后原件还在的那些）按路径选回去，用户眼前
+    // 那份滚动位置也放回来（列表变短就夹到新的最大值以内）。
+    QScrollBar *scroll = list->verticalScrollBar();
+    const int scrollBefore = scroll != nullptr ? scroll->value() : 0;
+    QSet<QString> selectedBefore;
+    for (const auto *item : list->selectedItems())
+        selectedBefore.insert(item->data(Qt::UserRole).toString());
     list->clear();
     const QString root = m_fileDirs.value(key == QStringLiteral("structure") || key == QStringLiteral("worldbackup")
                                              ? QStringLiteral("save") : key);
@@ -672,6 +702,25 @@ void InstanceSettingsDialog::refreshLifecycleFiles(const QString &key) {
         item->setFlags(Qt::NoItemFlags);
     }
     filterLifecycleFiles(key);
+    // 按**路径**把选择还回去：只认新表里真有的、而且没被搜索挡住的那些；删掉的不会
+    // 顺带"补"成别的行（不按行号回退）。
+    if (!selectedBefore.isEmpty()) {
+        for (int row = 0; row < list->count(); ++row) {
+            auto *item = list->item(row);
+            if (item->isHidden() || !item->flags().testFlag(Qt::ItemIsSelectable)) continue;
+            if (selectedBefore.contains(item->data(Qt::UserRole).toString())) item->setSelected(true);
+        }
+    }
+    if (scroll != nullptr && scrollBefore > 0) {
+        // 立刻放一次（表短了就先夹住），再在事件循环里放一次：QListView 的滚动范围要等
+        // 它自己排完版才是新那一份（offscreen 下尤其明显）。这句先排一次版，别让下面的
+        // 夹取读到上一份表的旧最大值。停在顶上（0）时没有要还的位置，不排这一趟版。
+        list->doItemsLayout();
+        scroll->setValue(qMin(scrollBefore, scroll->maximum()));
+        QTimer::singleShot(0, list, [scroll, scrollBefore] {
+            scroll->setValue(qMin(scrollBefore, scroll->maximum()));
+        });
+    }
     // 重列之后选中项可能已经没了（`clear()` 不一定发 currentItemChanged）——
     // 和 InstanceFilesPage::rebuildRows() 一样，收尾再对一次，别让旧的一句留在底下。
     updateLifecycleInfo(key);

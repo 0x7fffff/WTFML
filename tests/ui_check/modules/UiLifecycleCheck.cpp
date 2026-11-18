@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include <QScrollBar>
 int UiLifecycleCheck(QApplication &app) {
 
         if (app.arguments().contains(QStringLiteral("--lifecycle-preview"))) {
@@ -371,23 +372,41 @@ int UiLifecycleCheck(QApplication &app) {
             QStringList requestedPaths;
             Action requestedAction = Action::Remove;
             int requests = 0;
-            bool clearedAtRequest = false;
+            qsizetype selectedAtRequest = -1;
+            bool blockedAtRequest = false;
+            bool reclickBlocked = false;
             QListWidget *list = nullptr;
+            // 旧断言钉的是"发请求前先把选择清掉"。那层保护本来是防"提示框的嵌套事件循环里
+            // 再点一次「删除」，同一批发两遍"，代价却是用户点「取消」时选择也一起没了
+            // （issue #26）。现在改成请求在飞时整排工具条灰着，选择留着，所以这一组
+            // 断言量的是：发出去那一刻选择还在、按钮按不动、再点也发不出第二发。
+            const auto buttonFor = [&dialog](const QString &name, const QString &pageKey) {
+                return dialog.findChild<QPushButton *>(
+                    QStringLiteral("instanceLifecycleBatch%1_%2").arg(name, pageKey));
+            };
             const auto connection = QObject::connect(&dialog, &Dlg::lifecycleBatchRequested, &dialog,
                 [&](const QString &key, const QStringList &paths, Action action) {
                     requestedPage = key;
                     requestedPaths = paths;
                     requestedAction = action;
-                    clearedAtRequest = list && list->selectedItems().isEmpty();
+                    selectedAtRequest = list ? list->selectedItems().size() : -1;
+                    blockedAtRequest = true;
+                    for (const QString &name : {QStringLiteral("All"), QStringLiteral("Invert"),
+                                                QStringLiteral("Clear"), QStringLiteral("Copy"),
+                                                QStringLiteral("Move"), QStringLiteral("Remove")}) {
+                        auto *control = buttonFor(name, key);
+                        blockedAtRequest = blockedAtRequest && control != nullptr && !control->isEnabled();
+                    }
+                    // 在飞的时候再点一次「删除」：灰着，发不出去第二发。
+                    const int prior = requests;
+                    if (auto *again = buttonFor(QStringLiteral("Remove"), key)) again->click();
+                    reclickBlocked = requests == prior;
                     ++requests;
                 });
             for (const QString &key : {QStringLiteral("screenshots"), QStringLiteral("schematic"),
                                        QStringLiteral("replay")}) {
                 dialog.showPage(key);
-                const auto button = [&](const QString &name) {
-                    return dialog.findChild<QPushButton *>(
-                        QStringLiteral("instanceLifecycleBatch%1_%2").arg(name, key));
-                };
+                const auto button = [&](const QString &name) { return buttonFor(name, key); };
                 if (key == QStringLiteral("schematic")) {
                     auto *page = dialog.filesPage(key);
                     list = page ? page->list() : nullptr;
@@ -420,10 +439,12 @@ int UiLifecycleCheck(QApplication &app) {
                     expect(list->selectedItems().size() == 1 && !list->selectedItems().first()->isHidden(),
                            "invert and batch actions are scoped to the visible search result");
                     copy->click();
-                    expect(clearedAtRequest && requestedPage == key && requestedAction == Action::Copy
-                               && requestedPaths.size() == 1 && requestedPaths.first().contains(QStringLiteral("Alpha"))
-                               && !copy->isEnabled(),
-                           "copy sends only visible paths and clears before a refused operation");
+                    expect(blockedAtRequest && reclickBlocked && selectedAtRequest == 1
+                               && requestedPage == key && requestedAction == Action::Copy
+                               && requestedPaths.size() == 1 && requestedPaths.first().contains(QStringLiteral("Alpha")),
+                           "copy sends only visible paths and blocks the toolbar while the request is in flight");
+                    expect(list->selectedItems().size() == 1 && copy->isEnabled(),
+                           "a request that never refreshes keeps the selection (the cancel path)");
                     search->clear();
                     app.processEvents();
                 }
@@ -433,19 +454,98 @@ int UiLifecycleCheck(QApplication &app) {
                 all->click();
                 const int before = requests;
                 move->click();
-                expect(requests == before + 1 && clearedAtRequest && requestedPage == key
+                expect(requests == before + 1 && blockedAtRequest && reclickBlocked
+                           && selectedAtRequest == 2 && requestedPage == key
                            && requestedAction == Action::Move && requestedPaths.size() == 2,
-                       "move sends the batch and clears even without a successful refresh");
+                       "move sends the batch and blocks the toolbar while the request is in flight");
+                expect(list->selectedItems().size() == 2,
+                       "move keeps the selection when the refresh never happens");
                 all->click();
                 remove->click();
-                expect(requests == before + 2 && clearedAtRequest && requestedAction == Action::Remove
-                           && requestedPaths.size() == 2 && !remove->isEnabled(),
-                       "delete also clears the batch immediately");
+                expect(requests == before + 2 && blockedAtRequest && reclickBlocked
+                           && selectedAtRequest == 2 && requestedAction == Action::Remove
+                           && requestedPaths.size() == 2,
+                       "delete blocks the toolbar and keeps the selection until the request returns");
+                expect(list->selectedItems().size() == 2 && remove->isEnabled(),
+                       "delete leaves the selection alone when nothing was deleted");
+                list->clearSelection();
             }
             QObject::disconnect(connection);
             for (const QString &key : {QStringLiteral("logs"), QStringLiteral("crash"), QStringLiteral("structure")})
                 expect(!dialog.findChild<QWidget *>(QStringLiteral("instanceLifecycleBatch_%1").arg(key)),
                        "other lifecycle lists do not gain write actions");
+        }
+        {
+            // 重列之后滚动位置和选择（issue #26）。夹具本来只有两张截图，先补到能滚起来。
+            const QString shotDir = dirs.value(QStringLiteral("screenshots"));
+            QStringList extras;
+            for (int index = 0; index < 22; ++index) {
+                const QString path =
+                    shotDir + QStringLiteral("/Extra-%1.png").arg(index, 2, 10, QLatin1Char('0'));
+                QImage image(16, 16, QImage::Format_RGB32);
+                image.fill(Qt::blue);
+                expect(image.save(path), "write extra screenshot fixture");
+                extras.append(path);
+            }
+            dialog.showPage(QStringLiteral("screenshots"));
+            dialog.refreshLifecycleBatchFiles(QStringLiteral("screenshots"));
+            app.processEvents();
+            auto *list = dialog.findChild<QListWidget *>(QStringLiteral("instanceLifecycleFiles_screenshots"));
+            auto *search = dialog.findChild<QLineEdit *>(QStringLiteral("instanceLifecycleSearch_screenshots"));
+            expect(list && search && list->count() == 24, "extra screenshots are listed");
+            if (list && search) {
+                search->setText(QStringLiteral("Extra"));
+                app.processEvents();
+                const auto rowOf = [list](const QString &name) {
+                    for (int row = 0; row < list->count(); ++row) {
+                        if (QFileInfo(list->item(row)->data(Qt::UserRole).toString()).fileName() == name)
+                            return row;
+                    }
+                    return -1;
+                };
+                const int keepRow = rowOf(QStringLiteral("Extra-03.png"));
+                const int goneRow = rowOf(QStringLiteral("Extra-04.png"));
+                const int hiddenRow = rowOf(QStringLiteral("Alpha-2026.png"));
+                list->clearSelection();
+                if (keepRow >= 0) list->item(keepRow)->setSelected(true);
+                if (goneRow >= 0) list->item(goneRow)->setSelected(true);
+                app.processEvents();
+                QScrollBar *bar = list->verticalScrollBar();
+                // QListWidget 默认按**行**滚（`ScrollPerItem`），所以这个数是行号，不是像素。
+                const bool scrollable = bar != nullptr && bar->maximum() >= 4;
+                expect(scrollable, "the screenshot list is tall enough to scroll");
+                const int before = scrollable ? bar->maximum() - 2 : 0;
+                if (bar) bar->setValue(before);
+                expect(scrollable && before > 0 && bar->value() == before,
+                       "scroll position moved away from the top");
+                // 一份从盘上没了（成功的删除），另一份仍在（移入回收站失败的那一项）。
+                expect(QFile::remove(extras.value(4)), "remove one selected screenshot");
+                dialog.refreshLifecycleBatchFiles(QStringLiteral("screenshots"));
+                app.processEvents();
+                const auto selected = list->selectedItems();
+                expect(selected.size() == 1
+                           && QFileInfo(selected.first()->data(Qt::UserRole).toString()).fileName()
+                                  == QStringLiteral("Extra-03.png"),
+                       "refresh keeps the surviving selection and does not pick another row");
+                expect(hiddenRow >= 0 && list->item(hiddenRow)->isHidden()
+                           && search->text() == QStringLiteral("Extra"),
+                       "refresh keeps the search filter and the hidden rows");
+                expect(bar != nullptr && bar->maximum() >= before && bar->value() == before,
+                       "refresh restores the vertical scroll position");
+                // 列表缩到一屏装得下：旧的位置夹到新的最大值以内，不停在旧的数上。
+                for (int index = 0; index < extras.size(); ++index)
+                    if (index != 3) QFile::remove(extras.at(index));
+                dialog.refreshLifecycleBatchFiles(QStringLiteral("screenshots"));
+                app.processEvents();
+                expect(bar != nullptr && bar->value() == 0 && bar->maximum() == 0,
+                       "a shorter list clamps the restored scroll position to the new maximum");
+                // 收尾：补出来的那几张删掉、搜索清掉，后面的用例还看得到原来那两张。
+                QFile::remove(extras.value(3));
+                search->clear();
+                dialog.refreshLifecycleBatchFiles(QStringLiteral("screenshots"));
+                app.processEvents();
+                expect(list->count() == 2, "the screenshot fixture is back to its original two files");
+            }
         }
         {
             const QString folder = scratch.path() + QStringLiteral("/mixed-mods");
