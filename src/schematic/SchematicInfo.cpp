@@ -716,7 +716,7 @@ QString summaryText(const Info &info, const QString &targetGameVersion) {
     }
     QString text = parts.join(QStringLiteral(" / "));
     if (!info.countsComplete) {
-        text += QStringLiteral("\n（这份文件的方块表没解出来，只读到元数据）");
+        text += QStringLiteral("\n未能解析方块数据，仅显示元数据。");
     }
     const QString compatibility = compatibilityText(info, targetGameVersion);
     if (!compatibility.isEmpty()) {

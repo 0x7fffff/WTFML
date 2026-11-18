@@ -6,6 +6,7 @@
 #include "InputSizing.hpp"
 
 #include "Animations.hpp"
+#include "ElidedLabel.hpp"
 #include "Glass.hpp"
 #include "MemorySlider.hpp"
 #include "SettingsPageParts.hpp"
@@ -655,9 +656,10 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         widgets.clear->setObjectName(themeImageClearName(key));
         Theme::markButton(widgets.clear, Theme::ButtonKind::Neutral);
         widgets.clear->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-        widgets.state = new QLabel(themeImageNoneText(), form);  // 现在铺的是哪一张（MainWindow 灌）
+        widgets.state = new ElidedLabel(form);
+        widgets.state->setText(themeImageNoneText());
         widgets.state->setObjectName(themeImageStateName(key));
-        widgets.state->setWordWrap(true);
+        widgets.state->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
         auto *imageBox = new QWidget(form);
         auto *imageLayout = new QVBoxLayout(imageBox);
         imageLayout->setContentsMargins(0, 0, 0, 0);

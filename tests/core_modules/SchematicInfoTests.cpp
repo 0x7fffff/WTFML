@@ -395,7 +395,7 @@ void runSchematicInfoTests() {
               QStringLiteral("ok=%1 完整=%2 数=%3")
                   .arg(noData.ok).arg(noData.countsComplete).arg(noData.blockCount));
         const QString noDataSummary = SchematicInfo::summaryText(noData, QString());
-        check(noDataSummary.contains(QStringLiteral("没解出来")),
+        check(noDataSummary.contains(QStringLiteral("未能解析方块数据，仅显示元数据")),
               "★ SG6 那种情况那一行字要**明说**只读到元数据", noDataSummary);
     }
 

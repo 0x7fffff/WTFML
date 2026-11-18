@@ -102,7 +102,7 @@ void ThemeSettingsController::chooseImage(int index) {
     Theme::Part part;
     if (row.choose == nullptr || !Theme::partFromKey(row.partKey, &part)) return;
     const QString picked = QFileDialog::getOpenFileName(
-        m_dialogParent, tr("挑一张背景图"),
+        m_dialogParent, tr("选择背景图"),
         QStandardPaths::writableLocation(QStandardPaths::PicturesLocation),
         tr("图片 (*.png *.jpg *.jpeg *.bmp *.webp *.gif);;所有文件 (*)"));
     if (picked.isEmpty()) return;
@@ -218,10 +218,10 @@ void ThemeSettingsController::refreshImages() {
         }
         row.opacity->setValue(image.opacity);
         row.percent->setText(MainWindowUI::themeImagePercentText(image.opacity));
-        row.state->setText(has ? tr("现在铺的是：%1").arg(
-                                     image.name.isEmpty() ? QFileInfo(image.path).fileName()
-                                                          : image.name)
-                               : MainWindowUI::themeImageNoneText());
+        const QString name = image.name.isEmpty() ? QFileInfo(image.path).fileName() : image.name;
+        const QString imageText = has ? tr("当前图片：%1").arg(name) : MainWindowUI::themeImageNoneText();
+        row.state->setText(imageText);
+        row.state->setToolTip(has ? imageText : QString());
         row.fit->setEnabled(has);
         row.opacity->setEnabled(has);
         row.percent->setEnabled(has);
