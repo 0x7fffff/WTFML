@@ -5,6 +5,7 @@
  */
 
 #include "JavaManageDialog.hpp"
+#include <QCoreApplication>
 #include "Theme.hpp"   // 「重新检测」那一颗的身份（一般性）
 
 #include <QFont>
@@ -43,12 +44,12 @@ QList<int> JavaManageDialog::managedMajors() {
 }
 
 QString JavaManageDialog::rowLabelText(int major) {
-    return QStringLiteral("Java %1：").arg(major);
+    return QCoreApplication::translate("JavaManageDialog", "Java %1：").arg(major);
 }
 
 QString JavaManageDialog::pathText(const QString &javaPath) {
     const QString trimmed = javaPath.trimmed();
-    return trimmed.isEmpty() ? QStringLiteral("缺失") : trimmed;
+    return trimmed.isEmpty() ? QCoreApplication::translate("JavaManageDialog", "缺失") : trimmed;
 }
 
 QString JavaManageDialog::rowText(int major, const QString &javaPath) {
@@ -56,40 +57,39 @@ QString JavaManageDialog::rowText(int major, const QString &javaPath) {
 }
 
 QString JavaManageDialog::rowButtonText(bool installed) {
-    return installed ? QStringLiteral("重新下载") : QStringLiteral("下载");
+    return installed ? QCoreApplication::translate("JavaManageDialog", "重新下载") : QCoreApplication::translate("JavaManageDialog", "下载");
 }
 
 QString JavaManageDialog::downloadAllText() {
-    return QStringLiteral("下载所有缺少的 Java");
+    return QCoreApplication::translate("JavaManageDialog", "下载所有缺少的 Java");
 }
 
 QString JavaManageDialog::detectText() {
-    return QStringLiteral("检测已有 Java");
+    return QCoreApplication::translate("JavaManageDialog", "检测已有 Java");
 }
 
 QString JavaManageDialog::manualText() {
-    return QStringLiteral("手动指定 java.exe…");
+    return QCoreApplication::translate("JavaManageDialog", "手动指定 java.exe…");
 }
 
 QString JavaManageDialog::autoRowText() {
-    return QStringLiteral("自动（按版本挑选）");
+    return QCoreApplication::translate("JavaManageDialog", "自动（按版本挑选）");
 }
 
 QString JavaManageDialog::useButtonText() {
-    return QStringLiteral("选用");
+    return QCoreApplication::translate("JavaManageDialog", "选用");
 }
 
 QString JavaManageDialog::usedMarkText() {
-    return QStringLiteral("（当前）");
+    return QCoreApplication::translate("JavaManageDialog", "（当前）");
 }
 
 QString JavaManageDialog::hintText() {
-    return QStringLiteral(
-        "下载 Adoptium 运行时至 java/<版本> 目录，不影响系统环境。");
+    return QCoreApplication::translate("JavaManageDialog", "下载 Adoptium 运行时至 java/<版本> 目录，不影响系统环境。");
 }
 
 QString JavaManageDialog::titleText() const {
-    return QStringLiteral("Java 管理");
+    return QCoreApplication::translate("JavaManageDialog", "Java 管理");
 }
 
 JavaManageDialog::JavaManageDialog(QWidget *parent) : QDialog(parent) {
@@ -125,7 +125,7 @@ JavaManageDialog::JavaManageDialog(QWidget *parent) : QDialog(parent) {
     m_autoUse = new QPushButton(useButtonText(), this);
     m_autoUse->setObjectName(autoUseButtonName());
     m_autoUse->setAutoDefault(false);
-    m_autoUse->setToolTip(QStringLiteral("不钉死任何一份，启动时按版本要求自己挑。"));
+    m_autoUse->setToolTip(QCoreApplication::translate("JavaManageDialog", "不钉死任何一份，启动时按版本要求自己挑。"));
     grid->addWidget(m_autoUse, 0, 1, Qt::AlignTop);
     connect(m_autoUse, &QPushButton::clicked, this, &JavaManageDialog::useAutoRequested);
 
@@ -143,7 +143,7 @@ JavaManageDialog::JavaManageDialog(QWidget *parent) : QDialog(parent) {
         entry.use->setObjectName(useButtonName(major));
         entry.use->setAutoDefault(false);
         entry.use->setToolTip(
-            QStringLiteral("把「全局」这一层钉死成 Java %1 这一份。").arg(major));
+            QCoreApplication::translate("JavaManageDialog", "把「全局」这一层钉死成 Java %1 这一份。").arg(major));
         grid->addWidget(entry.use, row, 1, Qt::AlignTop);
         // 按**值**接主版本号（不是按下标去翻 m_rows）：行序将来再怎么挪，
         // 这一颗点下去说的还是它自己那一行。
@@ -173,20 +173,20 @@ JavaManageDialog::JavaManageDialog(QWidget *parent) : QDialog(parent) {
     m_downloadAll->setObjectName(downloadAllButtonName());
     m_downloadAll->setAutoDefault(false);
     m_downloadAll->setToolTip(
-        QStringLiteral("把上面写着「缺失」的那些一次下完。已经有的那些不动。"));
+        QCoreApplication::translate("JavaManageDialog", "把上面写着「缺失」的那些一次下完。已经有的那些不动。"));
     m_detect = new QPushButton(detectText(), this);
     m_detect->setObjectName(detectButtonName());
     // 「重新检测」= 重扫一遍（一般性）；上面那些「选用」「下载」都是确认性。
     Theme::markButton(m_detect, Theme::ButtonKind::Neutral);
     m_detect->setAutoDefault(false);
-    m_detect->setToolTip(QStringLiteral("重新扫描本机已安装的 Java。"));
+    m_detect->setToolTip(QCoreApplication::translate("JavaManageDialog", "重新扫描本机已安装的 Java。"));
     // 「手动指定」和「检测」一样是一般性动作：它不改上面那几行，只是换一条外面不认识的
     // 路径。装在别处的那一份（另一个盘上的 JDK、GraalVM）只有这一条路进来。
     m_manual = new QPushButton(manualText(), this);
     m_manual->setObjectName(manualButtonName());
     Theme::markButton(m_manual, Theme::ButtonKind::Neutral);
     m_manual->setAutoDefault(false);
-    m_manual->setToolTip(QStringLiteral("手动选择本地 java.exe 文件。"));
+    m_manual->setToolTip(QCoreApplication::translate("JavaManageDialog", "手动选择本地 java.exe 文件。"));
     actions->addWidget(m_downloadAll);
     actions->addWidget(m_detect);
     actions->addWidget(m_manual);
@@ -228,8 +228,8 @@ void JavaManageDialog::setRuntime(int major, const QString &javaPath) {
     // 有权利知道这一下是要**覆盖**掉现有的那份。
     entry.button->setToolTip(
         entry.installed
-            ? QStringLiteral("重新下一份 Java %1 覆盖掉这一份（比如它已经打不开了）。").arg(major)
-            : QStringLiteral("下载并安装 Java %1。").arg(major));
+            ? QCoreApplication::translate("JavaManageDialog", "重新下一份 Java %1 覆盖掉这一份（比如它已经打不开了）。").arg(major)
+            : QCoreApplication::translate("JavaManageDialog", "下载并安装 Java %1。").arg(major));
     // 「选用」在没装的那几行上是**藏起来**的，不是画灰 —— 灰按钮的位置上写着一个
     // "现在不能按"，而这一行压根没有可选的路径，那不是"暂时不行"，是"还没有"。
     // （这也是这一层别处的取向：挪不动的那一侧不画。）

@@ -84,6 +84,7 @@
 #pragma once
 
 #include <QDateTime>
+#include <QCoreApplication>
 #include <QHash>
 #include <QList>
 #include <QPointer>
@@ -198,15 +199,15 @@ public:
     /// NOTE: 唯一出处。写的是「世界」而不是「这一页选中的那一条」—— 这一颗只有存档
     /// 那一页接得起（别的几页上那一条是模组 / 资源包，`--quickPlaySingleplayer`
     /// 对它们没有意义）。真要给别的页也用，这两句得先改名。
-    static QString joinText() { return QStringLiteral("加入选中的世界"); }
+    static QString joinText() { return QCoreApplication::translate("InstanceFilesPage", "加入选中的世界"); }
     static QString joinTip() {
-        return QStringLiteral("启动游戏并进入所选世界，需要游戏支持快速加入。");
+        return QCoreApplication::translate("InstanceFilesPage", "启动游戏并进入所选世界，需要游戏支持快速加入。");
     }
 
     /// 「加入选中的世界」那颗**没选中一条世界**时的悬停提示。**唯一出处**（刷新 / 验证
     /// 工程都按它核对）。
     static QString joinSelectFirstHint() {
-        return QStringLiteral("请先选择存档。");
+        return QCoreApplication::translate("InstanceFilesPage", "请先选择存档。");
     }
 
     /// 顶上那颗「批量编辑」。**是占位** ——
@@ -353,13 +354,13 @@ public:
     void setStructureSources(const QList<StructureSource> &sources);
 
     /// 那一排「存档」的排头（**唯一出处**：界面和验证工程都读它）。
-    static QString structureWorldTitle() { return QStringLiteral("存档"); }
+    static QString structureWorldTitle() { return QCoreApplication::translate("InstanceFilesPage", "存档"); }
     /// 那一排「投影」的排头。
-    static QString structureSchematicTitle() { return QStringLiteral("投影"); }
+    static QString structureSchematicTitle() { return QCoreApplication::translate("InstanceFilesPage", "投影"); }
     /// 「投影」那一排下拉框里那一行的字（这一排只有一个来源：那个文件夹本身）。
-    static QString structureSchematicText() { return QStringLiteral("原理图文件夹"); }
+    static QString structureSchematicText() { return QCoreApplication::translate("InstanceFilesPage", "原理图文件夹"); }
     /// 一个来源一行都没有时，下拉框里那**一行灰字**。
-    static QString structureNoneText() { return QStringLiteral("无可用的结构"); }
+    static QString structureNoneText() { return QCoreApplication::translate("InstanceFilesPage", "无可用的结构"); }
     /// 第 row 排那个下拉框的 objectName（验证工程按它找控件，**不解析文字**）。
     static QString structureComboName(int row) {
         return QStringLiteral("instanceFilesStructureCombo%1").arg(row);
@@ -402,7 +403,7 @@ public:
 
     static QString infoLabelName() { return QStringLiteral("instanceFilesInfoLabel"); }
     /// 发出请求到接的人回来之间，那一格挂的加载态写这句（读一份 gzip NBT 要几百毫秒）。
-    static QString infoPendingText() { return QStringLiteral("正在读取…"); }
+    static QString infoPendingText() { return QCoreApplication::translate("InstanceFilesPage", "正在读取…"); }
 
     /// 重新列一遍目录。切到这一页时、以及 MainWindow 动过盘之后都会调它。
     void refresh();
@@ -556,7 +557,7 @@ public:
     /// 只认 `.jar` 结尾，所以这么改一定扫不到；而用户自己一眼看得出原来是什么文件。
     static QString disabledSuffix() { return QStringLiteral(".disabled"); }
     /// 界面上那条被禁用的条目叫什么（原名 + 这四个字）。
-    static QString disabledMark() { return QStringLiteral("（已禁用）"); }
+    static QString disabledMark() { return QCoreApplication::translate("InstanceFilesPage", "（已禁用）"); }
 
     /// 为什么非要有这么一层：禁用 / 启用**只是改了个名字**（`X.jar` ⇄ `X.jar.disabled`），
     /// 盘上那份内容一个字节都没动，大小和修改时间也一样（改名不动这两个）。所以"这一条
@@ -660,43 +661,43 @@ public:
     static QString batchButtonName() { return QStringLiteral("instanceFilesBatchButton"); }
     static QString joinButtonName() { return QStringLiteral("instanceFilesJoinButton"); }
 
-    static QString refreshText() { return QStringLiteral("刷新"); }
-    static QString openFolderText() { return QStringLiteral("打开文件夹"); }
-    static QString toggleOnText() { return QStringLiteral("禁用"); }
-    static QString toggleOffText() { return QStringLiteral("启用"); }
-    static QString deleteText() { return QStringLiteral("删除"); }
+    static QString refreshText() { return QCoreApplication::translate("InstanceFilesPage", "刷新"); }
+    static QString openFolderText() { return QCoreApplication::translate("InstanceFilesPage", "打开文件夹"); }
+    static QString toggleOnText() { return QCoreApplication::translate("InstanceFilesPage", "禁用"); }
+    static QString toggleOffText() { return QCoreApplication::translate("InstanceFilesPage", "启用"); }
+    static QString deleteText() { return QCoreApplication::translate("InstanceFilesPage", "删除"); }
     /// 行尾那支笔。和 deleteText() 一样**只活在 text() / 悬停提示里**（图标是画的，
     /// QToolButton 默认不画文字）—— 验证工程按它认那一格是干什么的。
-    static QString editText() { return QStringLiteral("编辑"); }
+    static QString editText() { return QCoreApplication::translate("InstanceFilesPage", "编辑"); }
     /// 行尾那颗「详情」（同上：字形是画的，文字只活在 `text()` / 悬停提示里）。
-    static QString detailText() { return QStringLiteral("详情"); }
+    static QString detailText() { return QCoreApplication::translate("InstanceFilesPage", "详情"); }
     /// 目录行的「大小 / 时间」还没算出来的那一格写什么（见 fillDirectoryStats()）。
-    static QString statsPendingText() { return QStringLiteral("正在统计…"); }
+    static QString statsPendingText() { return QCoreApplication::translate("InstanceFilesPage", "正在统计…"); }
 
     // ---------- 搜索 / 筛选那两排上的字----------
     //
     // 和上面那几串一样**只活在这儿**：下拉框那四格、搜索框的灰字、以及"筛完一条不剩"
     // 那三句话都由这一组说了算，验证工程也按它们核对（写死两份的话，改了字有一处对不上
     // 就是一条假绿）。
-    static QString searchPlaceholder() { return QStringLiteral("搜索"); }
-    static QString stateLabelText() { return QStringLiteral("显示"); }
+    static QString searchPlaceholder() { return QCoreApplication::translate("InstanceFilesPage", "搜索"); }
+    static QString stateLabelText() { return QCoreApplication::translate("InstanceFilesPage", "显示"); }
     /// 那一栏里四格各写什么。**顺序就是下拉框里的顺序**（见 .cpp 构造那段）。
     static QString stateFilterText(StateFilter filter) {
         switch (filter) {
         case StateFilter::Enabled:
-            return QStringLiteral("启用");
+            return QCoreApplication::translate("InstanceFilesPage", "启用");
         case StateFilter::Disabled:
-            return QStringLiteral("禁用");
+            return QCoreApplication::translate("InstanceFilesPage", "禁用");
         case StateFilter::Update:
-            return QStringLiteral("可更新");
+            return QCoreApplication::translate("InstanceFilesPage", "可更新");
         case StateFilter::All:
             break;
         }
-        return QStringLiteral("全部");
+        return QCoreApplication::translate("InstanceFilesPage", "全部");
     }
     /// 筛完一条都不剩时那句（搜索词或状态把这一页筛空了）。**和"目录本来就是空的"那句
     /// 是两回事**（见 m_emptyText）：这一句底下那一排筛选还露着，用户正要靠它改回来。
-    static QString noMatchText() { return QStringLiteral("没有符合条件的条目。"); }
+    static QString noMatchText() { return QCoreApplication::translate("InstanceFilesPage", "没有符合条件的条目。"); }
 
     // ---------- 批量管理那两处的字----------
 
@@ -707,25 +708,25 @@ public:
     }
     /// 那条悬浮操作条最左边那句。
     static QString selectionCountText(int count) {
-        return QStringLiteral("已选择 %1 个文件").arg(count);
+        return QCoreApplication::translate("InstanceFilesPage", "已选择 %1 个文件").arg(count);
     }
     /// 那七颗按钮上写的字。**顺序 = SelectionAction 那七档**。
     static QString selectionActionText(SelectionAction action) {
         switch (action) {
         case SelectionAction::Update:
-            return QStringLiteral("更新");
+            return QCoreApplication::translate("InstanceFilesPage", "更新");
         case SelectionAction::Disable:
-            return QStringLiteral("禁用");
+            return QCoreApplication::translate("InstanceFilesPage", "禁用");
         case SelectionAction::Enable:
-            return QStringLiteral("启用");
+            return QCoreApplication::translate("InstanceFilesPage", "启用");
         case SelectionAction::SelectAll:
-            return QStringLiteral("全选");
+            return QCoreApplication::translate("InstanceFilesPage", "全选");
         case SelectionAction::InvertAll:
-            return QStringLiteral("反选");
+            return QCoreApplication::translate("InstanceFilesPage", "反选");
         case SelectionAction::ClearAll:
-            return QStringLiteral("取消");
+            return QCoreApplication::translate("InstanceFilesPage", "取消");
         case SelectionAction::Delete:
-            return QStringLiteral("删除");
+            return QCoreApplication::translate("InstanceFilesPage", "删除");
         case SelectionAction::Count:
             break;
         }
@@ -733,23 +734,23 @@ public:
     }
     /// 「更新」那一颗的悬停提示（灰着的时候也说得出为什么灰 —— 那三条灰化规则）。
     static QString selectionUpdateTip() {
-        return QStringLiteral("更新选中的可更新项。");
+        return QCoreApplication::translate("InstanceFilesPage", "更新选中的可更新项。");
     }
     /// 「禁用 / 启用」两颗的悬停提示。@param disable 这一颗是「禁用」还是「启用」。
     static QString selectionToggleTip(bool disable) {
-        return disable ? QStringLiteral("禁用选中项，保留原文件。")
-                       : QStringLiteral("启用选中项。");
+        return disable ? QCoreApplication::translate("InstanceFilesPage", "禁用选中项，保留原文件。")
+                       : QCoreApplication::translate("InstanceFilesPage", "启用选中项。");
     }
     /// 「全选 / 反选 / 取消」三颗的悬停提示。三句话说的是同一件事的另一面：**只算当前
     /// 筛出来的那些行**（看不见的那些不参与）。
     static QString selectionPickTip(SelectionAction action) {
         switch (action) {
         case SelectionAction::SelectAll:
-            return QStringLiteral("选中当前筛出来的全部条目。");
+            return QCoreApplication::translate("InstanceFilesPage", "选中当前筛出来的全部条目。");
         case SelectionAction::InvertAll:
-            return QStringLiteral("反选当前列表。");
+            return QCoreApplication::translate("InstanceFilesPage", "反选当前列表。");
         case SelectionAction::ClearAll:
-            return QStringLiteral("清空选择。");
+            return QCoreApplication::translate("InstanceFilesPage", "清空选择。");
         default:
             break;
         }
@@ -763,14 +764,14 @@ public:
     /// 还走得到（下拉框不收空档、也不写条数）。所以这句话现在照旧是"你上别处按一颗
     /// 去"那一路。
     static QString updateNotCheckedText() {
-        return QStringLiteral("尚未检查更新，请先在概览中检查。");
+        return QCoreApplication::translate("InstanceFilesPage", "尚未检查更新，请先在概览中检查。");
     }
     /// 选着「可更新」、查过了、这一页里一条要更新的都没有。
     static QString updateNoneText() {
-        return QStringLiteral("暂无可用更新");
+        return QCoreApplication::translate("InstanceFilesPage", "暂无可用更新");
     }
     /// 目录不存在 / 是空的时候那一句（每一页都可以自己盖掉，见 setEmptyText）。
-    static QString emptyText() { return QStringLiteral("文件夹为空"); }
+    static QString emptyText() { return QCoreApplication::translate("InstanceFilesPage", "文件夹为空"); }
 
     // ---------- 「这一页现在停在哪儿」（★★ ）----------
     //

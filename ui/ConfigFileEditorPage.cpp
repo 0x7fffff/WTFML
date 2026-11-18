@@ -6,6 +6,7 @@
  * （本文件里唯一一处自己画的控件），以及 Esc 那一颗得在这一层接住的原因。
  */
 #include "ConfigFileEditorPage.hpp"
+#include <QCoreApplication>
 
 #include <QDir>
 #include <QFontDatabase>
@@ -299,7 +300,7 @@ ConfigFileEditorPage::ConfigFileEditorPage(QWidget *parent) : QWidget(parent) {
     m_index = new QTreeWidget(m_indexPanel);
     m_index->setObjectName(indexTreeName());
     m_index->setColumnCount(2);
-    m_index->setHeaderLabels({QStringLiteral("条目"), QStringLiteral("值")});
+    m_index->setHeaderLabels({QCoreApplication::translate("ConfigFileEditorPage", "条目"), QCoreApplication::translate("ConfigFileEditorPage", "值")});
     m_index->setRootIsDecorated(true);
     // 一行一个键，行高一致 ⇒ 让视图按第一行算高度就够了（长列表上省一大笔）。
     m_index->setUniformRowHeights(true);
@@ -496,7 +497,7 @@ void ConfigFileEditorPage::markSaved() {
     // 写回去了）。
     m_restoredFrom.clear();
     m_note->setText(savedPrefix() + QTime::currentTime().toString(QStringLiteral("HH:mm:ss")) +
-                    QStringLiteral("）"));
+                    QCoreApplication::translate("ConfigFileEditorPage", "）"));
 }
 
 void ConfigFileEditorPage::refreshNote() {
@@ -519,7 +520,7 @@ void ConfigFileEditorPage::refreshNote() {
     // 取回来那一份得**说明白**：框里的内容和刚打开时不一样了，而盘上还是旧的。不说的话，
     // 用户会以为"还原"已经落盘了（那是这一页唯一一处"正文变了但盘上没变"的情形）。
     if (!m_restoredFrom.isEmpty()) {
-        m_note->setText(restoredPrefix() + m_restoredFrom + QStringLiteral("）") +
+        m_note->setText(restoredPrefix() + m_restoredFrom + QCoreApplication::translate("ConfigFileEditorPage", "）") +
                         tr("，按「保存」才写回盘上。"));
         return;
     }
@@ -597,12 +598,12 @@ int ConfigFileEditorPage::rebuildIndex() {
         QStringList tip;
         tip << entry.path;
         if (!entry.range.isEmpty()) {
-            tip << QStringLiteral("范围：") + entry.range;
+            tip << QCoreApplication::translate("ConfigFileEditorPage", "范围：") + entry.range;
         }
         if (!entry.note.isEmpty()) {
             tip << entry.note;
         }
-        tip << QStringLiteral("%1 / 第 %2 行")
+        tip << QCoreApplication::translate("ConfigFileEditorPage", "%1 / 第 %2 行")
                    .arg(ConfigEntries::kindName(entry.kind))
                    .arg(entry.line + 1);
         leaf->setToolTip(0, tip.join(QLatin1Char('\n')));
@@ -809,16 +810,16 @@ int ConfigFileEditorPage::valueBeginRole() { return Qt::UserRole + 20; }
 int ConfigFileEditorPage::valueEndRole() { return Qt::UserRole + 21; }
 int ConfigFileEditorPage::entryPathRole() { return Qt::UserRole + 22; }
 
-QString ConfigFileEditorPage::backText() { return QStringLiteral("返回"); }
-QString ConfigFileEditorPage::saveText() { return QStringLiteral("保存"); }
-QString ConfigFileEditorPage::openFolderText() { return QStringLiteral("打开文件夹"); }
-QString ConfigFileEditorPage::indexToggleText() { return QStringLiteral("条目"); }
-QString ConfigFileEditorPage::indexFilterPlaceholder() { return QStringLiteral("在条目里找…"); }
-QString ConfigFileEditorPage::restoreText() { return QStringLiteral("还原上一次"); }
-QString ConfigFileEditorPage::restoredPrefix() { return QStringLiteral("已恢复上次保存前的内容（"); }
-QString ConfigFileEditorPage::indexEmptyHint() { return QStringLiteral("这份文件里没认出设置项"); }
-QString ConfigFileEditorPage::readOnlyPrefix() { return QStringLiteral("只读："); }
+QString ConfigFileEditorPage::backText() { return QCoreApplication::translate("ConfigFileEditorPage", "返回"); }
+QString ConfigFileEditorPage::saveText() { return QCoreApplication::translate("ConfigFileEditorPage", "保存"); }
+QString ConfigFileEditorPage::openFolderText() { return QCoreApplication::translate("ConfigFileEditorPage", "打开文件夹"); }
+QString ConfigFileEditorPage::indexToggleText() { return QCoreApplication::translate("ConfigFileEditorPage", "条目"); }
+QString ConfigFileEditorPage::indexFilterPlaceholder() { return QCoreApplication::translate("ConfigFileEditorPage", "在条目里找…"); }
+QString ConfigFileEditorPage::restoreText() { return QCoreApplication::translate("ConfigFileEditorPage", "还原上一次"); }
+QString ConfigFileEditorPage::restoredPrefix() { return QCoreApplication::translate("ConfigFileEditorPage", "已恢复上次保存前的内容（"); }
+QString ConfigFileEditorPage::indexEmptyHint() { return QCoreApplication::translate("ConfigFileEditorPage", "这份文件里没认出设置项"); }
+QString ConfigFileEditorPage::readOnlyPrefix() { return QCoreApplication::translate("ConfigFileEditorPage", "只读："); }
 QString ConfigFileEditorPage::hintText() {
-    return QStringLiteral("改完点「保存」写到盘上。原来是什么行尾、有没有 BOM，都不动。");
+    return QCoreApplication::translate("ConfigFileEditorPage", "改完点「保存」写到盘上。原来是什么行尾、有没有 BOM，都不动。");
 }
-QString ConfigFileEditorPage::savedPrefix() { return QStringLiteral("已保存（"); }
+QString ConfigFileEditorPage::savedPrefix() { return QCoreApplication::translate("ConfigFileEditorPage", "已保存（"); }

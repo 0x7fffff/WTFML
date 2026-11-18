@@ -200,7 +200,6 @@ src/util/ZipUtil.cpp	52
 src/util/ZipUtil.hpp	3
 ui/AccountSkinDialog.cpp	5
 ui/AccountSkinDialog.hpp	28
-ui/ActivityPopover.cpp	13
 ui/AgentApprovalCard.cpp	6
 ui/AgentComposer.cpp	1
 ui/AgentMessageView.cpp	9
@@ -208,23 +207,17 @@ ui/AgentSecretEdit.cpp	6
 ui/AgentToolCard.cpp	5
 ui/ArmorTrimScene.hpp	3
 ui/ConfigEntries.cpp	6
-ui/ConfigFileEditorPage.cpp	17
 ui/DownloadToolPanel.hpp	22
-ui/GameLogWindow.cpp	18
-ui/GameRuleNames.cpp	72
 ui/Glass.cpp	7
 ui/GroupDialog.cpp	2
 ui/GroupDialog.hpp	3
 ui/GroupListDelegate.cpp	2
 ui/InlineMessage.cpp	10
-ui/InstanceFilesPage.hpp	41
 ui/InstanceSettingsDialog.cpp	2
 ui/InstanceSettingsLaunchPage.cpp	2
 ui/InstanceSettingsServers.cpp	6
-ui/InstanceUpgradePage.cpp	25
 ui/IntegrityReportPage.cpp	1
 ui/IntegrityReportPage.hpp	1
-ui/JavaManageDialog.cpp	19
 ui/JavaMismatchDialog.cpp	3
 ui/ListRowDelegate.cpp	1
 ui/MainWindowDownloadPage.cpp	11
@@ -244,7 +237,6 @@ ui/PresetOptionsEditor.cpp	8
 ui/ResourceDetailPage.cpp	1
 ui/RuntimeOutputModel.cpp	2
 ui/SchematicInfoDialog.cpp	3
-ui/ServerConsolePage.cpp	13
 ui/ServerConsolePage.hpp	1
 ui/ServerSettingsPage.hpp	1
 ui/SettingsPageParts.cpp	3
@@ -256,6 +248,5 @@ ui/TitleBar.cpp	7
 ui/ToolboxPage.hpp	1
 ui/UpdateCenterPage.cpp	1
 ui/UpdateCenterPage.hpp	1
-ui/UpgradeHistoryDialog.cpp	22
 ui/UpgradeReportDialog.cpp	9
 ui/WorldSettingsPage.cpp	30

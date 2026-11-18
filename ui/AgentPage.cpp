@@ -4,6 +4,7 @@
  */
 
 #include "AgentPage.hpp"
+#include <QCoreApplication>
 
 #include "AgentApprovalCard.hpp"
 #include "AgentComposer.hpp"
@@ -406,12 +407,12 @@ AgentPage::AgentPage(QWidget *parent)
 
     auto *sideHead = new QHBoxLayout;
     sideHead->setContentsMargins(10, 0, 2, 0);
-    auto *sideTitle = new QLabel(QStringLiteral("会话"), m_sidebar);
+    auto *sideTitle = new QLabel(QCoreApplication::translate("AgentPage", "会话"), m_sidebar);
     sideTitle->setObjectName(QStringLiteral("agentSidebarTitle"));
     sideTitle->setFont(pxFont(sideTitle->font(), 16, QFont::DemiBold));
     sideHead->addWidget(sideTitle, 1);
     m_newSession = iconButton(m_sidebar, QStringLiteral("agentNewSessionButton"), QStringLiteral("plus"),
-                              QStringLiteral("新建对话"), 32, 18);
+                              QCoreApplication::translate("AgentPage", "新建对话"), 32, 18);
     sideHead->addWidget(m_newSession);
     auto *sideHeadBox = new QWidget(m_sidebar);
     sideHeadBox->setFixedHeight(36);
@@ -421,7 +422,7 @@ AgentPage::AgentPage(QWidget *parent)
 
     m_search = new QLineEdit(m_sidebar);
     m_search->setObjectName(QStringLiteral("agentSessionSearch"));
-    m_search->setPlaceholderText(QStringLiteral("搜索会话"));
+    m_search->setPlaceholderText(QCoreApplication::translate("AgentPage", "搜索会话"));
     m_search->setClearButtonEnabled(true);
     m_search->setFixedHeight(34);
     {
@@ -468,17 +469,17 @@ AgentPage::AgentPage(QWidget *parent)
     headerLayout->setSpacing(6);
     // 长标题装不下时收省略号，不让「实例」胶囊压住半个字。
     m_title = new ElidedLabel(header);
-    m_title->setText(QStringLiteral("新对话"));
+    m_title->setText(QCoreApplication::translate("AgentPage", "新对话"));
     m_title->setObjectName(QStringLiteral("agentSessionTitle"));
     m_title->setFont(pxFont(m_title->font(), 16, QFont::DemiBold));
     m_title->setMinimumWidth(0);
     m_title->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-    m_title->setToolTip(QStringLiteral("点击重命名"));
+    m_title->setToolTip(QCoreApplication::translate("AgentPage", "点击重命名"));
     m_title->setMouseTracking(true);  // 指针只在字上变成 I 形，点字才进编辑
     m_title->installEventFilter(this);
     headerLayout->addWidget(m_title, 1);
 
-    m_apiWarn = new QPushButton(QStringLiteral("API 未配置"), header);
+    m_apiWarn = new QPushButton(QCoreApplication::translate("AgentPage", "API 未配置"), header);
     m_apiWarn->setObjectName(QStringLiteral("agentApiWarnChip"));
     m_apiWarn->setFont(pxFont(m_apiWarn->font(), 13, QFont::Medium));
     styleCapsule(
@@ -503,8 +504,8 @@ AgentPage::AgentPage(QWidget *parent)
     // 「实例」下拉胶囊：左半「实例」淡字，右半当前值；整块是一颗按钮（两颗字不接鼠标）。
     m_instanceChip = new QPushButton(header);
     m_instanceChip->setObjectName(QStringLiteral("agentInstanceLockChip"));
-    m_instanceChip->setAccessibleName(QStringLiteral("实例"));
-    m_instanceChip->setToolTip(QStringLiteral("选择本会话关联的实例"));
+    m_instanceChip->setAccessibleName(QCoreApplication::translate("AgentPage", "实例"));
+    m_instanceChip->setToolTip(QCoreApplication::translate("AgentPage", "选择本会话关联的实例"));
     styleCapsule(
         m_instanceChip, 32, [] { return Theme::tokens().hover; }, [] { return Theme::tokens().subtle; },
         [] { return Theme::tokens().text; });
@@ -512,10 +513,10 @@ AgentPage::AgentPage(QWidget *parent)
         auto *row = new QHBoxLayout(m_instanceChip);
         row->setContentsMargins(12, 0, 12, 0);
         row->setSpacing(8);
-        auto *lbl = new QLabel(QStringLiteral("实例"), m_instanceChip);
+        auto *lbl = new QLabel(QCoreApplication::translate("AgentPage", "实例"), m_instanceChip);
         lbl->setAttribute(Qt::WA_TransparentForMouseEvents);
         lbl->setFont(pxFont(lbl->font(), 13.5));
-        m_instanceValue = new QLabel(QStringLiteral("无"), m_instanceChip);
+        m_instanceValue = new QLabel(QCoreApplication::translate("AgentPage", "无"), m_instanceChip);
         m_instanceValue->setObjectName(QStringLiteral("agentInstanceValue"));
         m_instanceValue->setAttribute(Qt::WA_TransparentForMouseEvents);
         m_instanceValue->setFont(pxFont(m_instanceValue->font(), 13.5, QFont::Medium));
@@ -534,10 +535,10 @@ AgentPage::AgentPage(QWidget *parent)
     setInstanceChip(m_instanceValue->text(), false);
 
     m_moreButton = iconButton(header, QStringLiteral("agentMoreButton"), QStringLiteral("more"),
-                              QStringLiteral("更多"), 36, 20);
+                              QCoreApplication::translate("AgentPage", "更多"), 36, 20);
     headerLayout->addWidget(m_moreButton);
     m_settingsButton = iconButton(header, QStringLiteral("agentApiSettingsButton"), QStringLiteral("gear"),
-                                  QStringLiteral("API 设置"), 36, 19);
+                                  QCoreApplication::translate("AgentPage", "API 设置"), 36, 19);
     headerLayout->addWidget(m_settingsButton);
     chatLayout->addWidget(header);
 
@@ -545,13 +546,13 @@ AgentPage::AgentPage(QWidget *parent)
     {
         auto *menu = new PopMenu(this, QStringLiteral("agentMoreMenu"), 248);
         m_moreMenu = menu;
-        m_renameAction = menu->addRow(QStringLiteral("agentRenameAction"), QStringLiteral("edit"), QStringLiteral("重命名"));
-        m_pinAction = menu->addRow(QStringLiteral("agentPinAction"), QStringLiteral("star"), QStringLiteral("固定"));
+        m_renameAction = menu->addRow(QStringLiteral("agentRenameAction"), QStringLiteral("edit"), QCoreApplication::translate("AgentPage", "重命名"));
+        m_pinAction = menu->addRow(QStringLiteral("agentPinAction"), QStringLiteral("star"), QCoreApplication::translate("AgentPage", "固定"));
         // 加密存储：一行（图标 + 字 + 开关）+ 下面一行小字说副作用。整行点哪儿都是拨开关。
-        auto *encryptRow = menu->addRow(QStringLiteral("agentEncryptRow"), QStringLiteral("lock"), QStringLiteral("加密存储"));
-        m_encryptCheck = new QCheckBox(QStringLiteral("加密存储"), encryptRow);
+        auto *encryptRow = menu->addRow(QStringLiteral("agentEncryptRow"), QStringLiteral("lock"), QCoreApplication::translate("AgentPage", "加密存储"));
+        m_encryptCheck = new QCheckBox(QCoreApplication::translate("AgentPage", "加密存储"), encryptRow);
         m_encryptCheck->setObjectName(QStringLiteral("agentEncryptSessionCheck"));
-        m_encryptCheck->setAccessibleName(QStringLiteral("加密存储"));
+        m_encryptCheck->setAccessibleName(QCoreApplication::translate("AgentPage", "加密存储"));
         Theme::markSwitch(m_encryptCheck);
         {
             auto *h = new QHBoxLayout(encryptRow);
@@ -560,7 +561,7 @@ AgentPage::AgentPage(QWidget *parent)
             h->addWidget(m_encryptCheck);
         }
         connect(encryptRow, &QPushButton::clicked, m_encryptCheck, &QCheckBox::toggle);
-        auto *encryptNote = new QLabel(QStringLiteral("标题和时间仍为明文。"), menu);
+        auto *encryptNote = new QLabel(QCoreApplication::translate("AgentPage", "标题和时间仍为明文。"), menu);
         encryptNote->setObjectName(QStringLiteral("agentEncryptNote"));
         encryptNote->setFont(pxFont(encryptNote->font(), 12.5));
         // 和上面那行的字左缘对齐：行内边距 12 + 图标 18 + Qt 图标与字之间的 4。
@@ -568,10 +569,10 @@ AgentPage::AgentPage(QWidget *parent)
         setInk(encryptNote, Theme::tokens().secondary);
         Theme::follow(encryptNote, [encryptNote] { setInk(encryptNote, Theme::tokens().secondary); });
         menu->layout()->addWidget(encryptNote);
-        m_exportAction = menu->addRow(QStringLiteral("agentExportAction"), QStringLiteral("export"), QStringLiteral("导出…"));
+        m_exportAction = menu->addRow(QStringLiteral("agentExportAction"), QStringLiteral("export"), QCoreApplication::translate("AgentPage", "导出…"));
         menu->addDivider();
         m_deleteAction = menu->addRow(QStringLiteral("agentDeleteAction"), QStringLiteral("trash"),
-                                      QStringLiteral("删除会话"), false, true);
+                                      QCoreApplication::translate("AgentPage", "删除会话"), false, true);
         menu->installEventFilter(this);
         const auto closeThen = [this](std::function<void()> fn) {
             return [this, fn] {
@@ -628,7 +629,7 @@ AgentPage::AgentPage(QWidget *parent)
         m_emptyText->setFont(pxFont(m_emptyText->font(), 13));
         m_emptyText->setForegroundRole(QPalette::PlaceholderText);
         v->addWidget(m_emptyText);
-        m_emptyAction = new QPushButton(QStringLiteral("配置 API"), m_emptyState);
+        m_emptyAction = new QPushButton(QCoreApplication::translate("AgentPage", "配置 API"), m_emptyState);
         m_emptyAction->setObjectName(QStringLiteral("agentEmptyConfigureButton"));
         m_emptyAction->setCursor(Qt::PointingHandCursor);
         Theme::markButton(m_emptyAction, Theme::ButtonKind::Primary);
@@ -686,7 +687,7 @@ AgentPage::AgentPage(QWidget *parent)
     auto *composerBar = new QHBoxLayout;
     composerBar->setContentsMargins(0, 0, 0, 0);
     composerBar->setSpacing(6);
-    m_keyHint = new QLabel(QStringLiteral("Enter 发送 · Shift+Enter 换行"), composerRow);
+    m_keyHint = new QLabel(QCoreApplication::translate("AgentPage", "Enter 发送 · Shift+Enter 换行"), composerRow);
     m_keyHint->setObjectName(QStringLiteral("agentComposerHint"));
     m_keyHint->setFont(pxFont(m_keyHint->font(), 12.5));
     m_keyHint->setForegroundRole(QPalette::PlaceholderText);
@@ -696,10 +697,10 @@ AgentPage::AgentPage(QWidget *parent)
     m_send->setObjectName(QStringLiteral("agentSendButton"));
     m_send->setDefault(true);
     m_send->setEnabled(false);
-    markRoundButton(m_send, QStringLiteral("send"), QStringLiteral("发送"), Theme::ButtonKind::Primary);
+    markRoundButton(m_send, QStringLiteral("send"), QCoreApplication::translate("AgentPage", "发送"), Theme::ButtonKind::Primary);
     m_stop = new QPushButton(composerRow);
     m_stop->setObjectName(QStringLiteral("agentStopButton"));
-    markRoundButton(m_stop, QStringLiteral("stop"), QStringLiteral("停止"), Theme::ButtonKind::Neutral);
+    markRoundButton(m_stop, QStringLiteral("stop"), QCoreApplication::translate("AgentPage", "停止"), Theme::ButtonKind::Neutral);
     m_stop->setEnabled(false);
     m_stop->hide();
     composerBar->addWidget(m_send);
@@ -761,7 +762,7 @@ AgentPage::AgentPage(QWidget *parent)
         }
     });
     connect(m_encryptCheck, &QCheckBox::toggled, this, &AgentPage::encryptToggled);
-    setConfigured(false, QStringLiteral("API 未配置"));
+    setConfigured(false, QCoreApplication::translate("AgentPage", "API 未配置"));
 }
 
 int AgentPage::sidebarWidth() { return 236; }
@@ -770,16 +771,16 @@ int AgentPage::sidebarNarrowWidth() { return 216; }
 QString AgentPage::relativeTime(const QDateTime &when, const QDateTime &now) {
     if (!when.isValid()) return QString();
     const qint64 seconds = when.secsTo(now);
-    if (seconds < 60) return QStringLiteral("刚刚");
-    if (seconds < 3600) return QStringLiteral("%1 分钟前").arg(seconds / 60);
-    if (seconds < 86400) return QStringLiteral("%1 小时前").arg(seconds / 3600);
-    if (seconds < 7 * 86400) return QStringLiteral("%1 天前").arg(seconds / 86400);
+    if (seconds < 60) return QCoreApplication::translate("AgentPage", "刚刚");
+    if (seconds < 3600) return QCoreApplication::translate("AgentPage", "%1 分钟前").arg(seconds / 60);
+    if (seconds < 86400) return QCoreApplication::translate("AgentPage", "%1 小时前").arg(seconds / 3600);
+    if (seconds < 7 * 86400) return QCoreApplication::translate("AgentPage", "%1 天前").arg(seconds / 86400);
     return when.toLocalTime().toString(QStringLiteral("yyyy-MM-dd"));
 }
 
 void AgentPage::rebuildSessionRow(QListWidgetItem *item, const AgentView::SessionMeta &meta) {
     if (item == nullptr) return;
-    const QString title = meta.title.isEmpty() ? QStringLiteral("新对话") : meta.title;
+    const QString title = meta.title.isEmpty() ? QCoreApplication::translate("AgentPage", "新对话") : meta.title;
     item->setText(title);
     item->setData(kTimeRole, relativeTime(meta.updatedAt, QDateTime::currentDateTimeUtc()));
     item->setData(Qt::UserRole, meta.id);
@@ -798,7 +799,7 @@ void AgentPage::setSessions(const QList<AgentView::SessionMeta> &sessions) {
         const int g = meta.pinned ? 0 : (meta.updatedAt.toLocalTime().date() == today ? 1 : 2);
         groups[g].append(meta);
     }
-    const QString titles[3] = {QStringLiteral("固定"), QStringLiteral("今天"), QStringLiteral("更早")};
+    const QString titles[3] = {QCoreApplication::translate("AgentPage", "固定"), QCoreApplication::translate("AgentPage", "今天"), QCoreApplication::translate("AgentPage", "更早")};
     for (int g = 0; g < 3; ++g) {
         if (groups[g].isEmpty()) continue;
         auto *header = new QListWidgetItem(titles[g]);
@@ -838,13 +839,13 @@ void AgentPage::setCurrentSession(const QString &sessionId) {
         }
     }
     const AgentView::SessionMeta meta = m_metaById.value(sessionId);
-    m_title->setText(meta.isValid() ? meta.title : QStringLiteral("新对话"));
+    m_title->setText(meta.isValid() ? meta.title : QCoreApplication::translate("AgentPage", "新对话"));
     setEncryptionChecked(meta.isValid() && meta.encrypted);
     showNotice(QString());
 }
 
 void AgentPage::setTitle(const QString &title) {
-    m_title->setText(title.isEmpty() ? QStringLiteral("新对话") : title);
+    m_title->setText(title.isEmpty() ? QCoreApplication::translate("AgentPage", "新对话") : title);
 }
 
 void AgentPage::insertStreamWidget(QWidget *widget) {
@@ -958,8 +959,8 @@ void AgentPage::setConfigured(bool configured, const QString &statusText) {
     if (!statusText.isEmpty()) m_statusText = statusText;
     // 未配置：顶上一颗警示胶囊（点了开 API 设置），空状态换成「先配置 API」，输入岛停用。
     m_apiWarn->setVisible(!configured);
-    m_apiWarn->setText(m_statusText.startsWith(QStringLiteral("配置无效")) ? QStringLiteral("API 配置无效")
-                                                                        : QStringLiteral("API 未配置"));
+    m_apiWarn->setText(m_statusText.startsWith(QCoreApplication::translate("AgentPage", "配置无效")) ? QCoreApplication::translate("AgentPage", "API 配置无效")
+                                                                        : QCoreApplication::translate("AgentPage", "API 未配置"));
     m_apiWarn->setToolTip(m_statusText);
     m_composer->setReadOnly(!configured);
     // 没配好就不摆输入岛：一块打不了字的框 + 灰掉的发送钮只会让人以为坏了；空状态那颗「配置 API」就是唯一入口。
@@ -972,7 +973,7 @@ void AgentPage::setConfigured(bool configured, const QString &statusText) {
 
 void AgentPage::setModelLabel(const QString &label) {
     m_modelLabel = label;
-    QStringList tip{QStringLiteral("API 设置")};
+    QStringList tip{QCoreApplication::translate("AgentPage", "API 设置")};
     if (m_configured && !label.isEmpty()) tip << label;
     m_settingsButton->setToolTip(tip.join(QStringLiteral(" · ")));
 }
@@ -1000,9 +1001,9 @@ void AgentPage::showInstanceMenu(const QList<AgentView::InstanceOption> &instanc
         };
     };
     QPushButton *follow = menu->addRow(QStringLiteral("agentInstanceFollowHome"), QStringLiteral("home"),
-                                       QStringLiteral("跟随主页"), lockedId.isEmpty());
+                                       QCoreApplication::translate("AgentPage", "跟随主页"), lockedId.isEmpty());
     connect(follow, &QPushButton::clicked, this, pick(QString()));
-    if (!instances.isEmpty()) menu->addHead(QStringLiteral("实例"));
+    if (!instances.isEmpty()) menu->addHead(QCoreApplication::translate("AgentPage", "实例"));
     for (int i = 0; i < instances.size(); ++i) {
         const AgentView::InstanceOption &option = instances.at(i);
         QPushButton *row = menu->addRow(QStringLiteral("agentInstanceOption%1").arg(i), QString(), option.name,
@@ -1018,8 +1019,8 @@ void AgentPage::openMoreMenu() {
     const bool has = !m_currentSessionId.isEmpty();
     for (QPushButton *b : {m_renameAction, m_pinAction, m_exportAction, m_deleteAction}) b->setEnabled(has);
     m_encryptCheck->parentWidget()->setEnabled(has);
-    m_pinAction->setText(m_metaById.value(m_currentSessionId).pinned ? QStringLiteral("取消固定")
-                                                                     : QStringLiteral("固定"));
+    m_pinAction->setText(m_metaById.value(m_currentSessionId).pinned ? QCoreApplication::translate("AgentPage", "取消固定")
+                                                                     : QCoreApplication::translate("AgentPage", "固定"));
     markOpen(m_moreButton, true);
     static_cast<PopMenu *>(m_moreMenu)->popBelow(m_moreButton);
 }
@@ -1043,12 +1044,12 @@ void AgentPage::showEmptyState(bool empty) { m_emptyState->setVisible(empty); }
 void AgentPage::updateEmptyState() {
     const bool empty = m_views.isEmpty() && m_toolCards.isEmpty() && m_approvalCard == nullptr;
     m_emptyState->setVisible(empty);
-    m_emptyTitle->setText(m_configured ? QStringLiteral("有什么想问的？") : QStringLiteral("先配置 API"));
-    m_emptyText->setText(m_configured ? QStringLiteral("可查看关联实例的文件；写入文件前会先征得确认。")
-                                      : QStringLiteral("填写服务地址和密钥后即可开始对话。"));
+    m_emptyTitle->setText(m_configured ? QCoreApplication::translate("AgentPage", "有什么想问的？") : QCoreApplication::translate("AgentPage", "先配置 API"));
+    m_emptyText->setText(m_configured ? QCoreApplication::translate("AgentPage", "可查看关联实例的文件；写入文件前会先征得确认。")
+                                      : QCoreApplication::translate("AgentPage", "填写服务地址和密钥后即可开始对话。"));
     m_emptyAction->setVisible(!m_configured);
-    if (!m_configured) m_composer->setPlaceholderText(QStringLiteral("配置 API 后可输入"));
-    else m_composer->setPlaceholderText(empty ? QStringLiteral("描述你遇到的问题…") : QStringLiteral("继续追问…"));
+    if (!m_configured) m_composer->setPlaceholderText(QCoreApplication::translate("AgentPage", "配置 API 后可输入"));
+    else m_composer->setPlaceholderText(empty ? QCoreApplication::translate("AgentPage", "描述你遇到的问题…") : QCoreApplication::translate("AgentPage", "继续追问…"));
 }
 
 void AgentPage::updateComposerHint() {
@@ -1133,7 +1134,7 @@ void AgentPage::beginTitleRename() {
             slot->deleteLater();
         });
     edit->setObjectName(QStringLiteral("agentTitleRenameEdit"));
-    edit->setAccessibleName(QStringLiteral("会话标题"));
+    edit->setAccessibleName(QCoreApplication::translate("AgentPage", "会话标题"));
     edit->setFont(m_title->font());
     edit->setFixedHeight(32);
     edit->setMinimumWidth(0);
@@ -1166,7 +1167,7 @@ void AgentPage::beginListRename(QListWidgetItem *item) {
             }
         });
     edit->setObjectName(QStringLiteral("agentSessionRenameEdit"));
-    edit->setAccessibleName(QStringLiteral("会话标题"));
+    edit->setAccessibleName(QCoreApplication::translate("AgentPage", "会话标题"));
     edit->setFont(pxFont(m_sessionList->font(), 14));
     edit->setGeometry(cell);
     edit->show();
@@ -1181,11 +1182,11 @@ void AgentPage::showSessionMenu(const QPoint &position) {
     if (!meta.isValid()) return;
     QMenu menu(this);
     menu.setObjectName(QStringLiteral("agentSessionMenu"));
-    QAction *rename = menu.addAction(QStringLiteral("重命名"));
-    QAction *pin = menu.addAction(meta.pinned ? QStringLiteral("取消固定") : QStringLiteral("固定"));
-    QAction *exportAction = menu.addAction(QStringLiteral("导出…"));
+    QAction *rename = menu.addAction(QCoreApplication::translate("AgentPage", "重命名"));
+    QAction *pin = menu.addAction(meta.pinned ? QCoreApplication::translate("AgentPage", "取消固定") : QCoreApplication::translate("AgentPage", "固定"));
+    QAction *exportAction = menu.addAction(QCoreApplication::translate("AgentPage", "导出…"));
     menu.addSeparator();
-    QAction *remove = menu.addAction(QStringLiteral("删除"));
+    QAction *remove = menu.addAction(QCoreApplication::translate("AgentPage", "删除"));
     QAction *chosen = menu.exec(m_sessionList->viewport()->mapToGlobal(position));
     // 右键按下就把那一行选上了，可打开的仍是原会话：菜单收起后把选中放回当前会话那一行
     // （切换会话只认左键单击 itemClicked，这里改选中不会触发切换）。

@@ -4,6 +4,7 @@
  */
 
 #include "InstanceUpgradePage.hpp"
+#include <QCoreApplication>
 #include "InputSizing.hpp"
 
 #include <QComboBox>
@@ -34,15 +35,15 @@ QLabel *mutedLabel(QWidget *parent, const QString &objectName) {
 }
 
 QString categoryDescription(const QString &key) {
-    if (key == QStringLiteral("saves")) return QStringLiteral("整个世界目录，原样复制");
-    if (key == QStringLiteral("mods")) return QStringLiteral("按兼容性结果替换或跳过");
-    if (key == QStringLiteral("config")) return QStringLiteral("config 与 defaultconfigs");
-    if (key == QStringLiteral("options")) return QStringLiteral("键位、视频、声音");
-    if (key == QStringLiteral("resourcepacks")) return QStringLiteral("文件与启用顺序");
-    if (key == QStringLiteral("shaderpacks")) return QStringLiteral("需要渲染器才生效");
-    if (key == QStringLiteral("screenshots")) return QStringLiteral("作为普通文件复制");
-    if (key == QStringLiteral("schematics")) return QStringLiteral("structures 等结构文件");
-    if (key == QStringLiteral("servers")) return QStringLiteral("servers.dat 里的条目");
+    if (key == QStringLiteral("saves")) return QCoreApplication::translate("InstanceUpgradePage", "整个世界目录，原样复制");
+    if (key == QStringLiteral("mods")) return QCoreApplication::translate("InstanceUpgradePage", "按兼容性结果替换或跳过");
+    if (key == QStringLiteral("config")) return QCoreApplication::translate("InstanceUpgradePage", "config 与 defaultconfigs");
+    if (key == QStringLiteral("options")) return QCoreApplication::translate("InstanceUpgradePage", "键位、视频、声音");
+    if (key == QStringLiteral("resourcepacks")) return QCoreApplication::translate("InstanceUpgradePage", "文件与启用顺序");
+    if (key == QStringLiteral("shaderpacks")) return QCoreApplication::translate("InstanceUpgradePage", "需要渲染器才生效");
+    if (key == QStringLiteral("screenshots")) return QCoreApplication::translate("InstanceUpgradePage", "作为普通文件复制");
+    if (key == QStringLiteral("schematics")) return QCoreApplication::translate("InstanceUpgradePage", "structures 等结构文件");
+    if (key == QStringLiteral("servers")) return QCoreApplication::translate("InstanceUpgradePage", "servers.dat 里的条目");
     return QString();
 }
 
@@ -98,7 +99,7 @@ InstanceUpgradePage::InstanceUpgradePage(QWidget *parent) : QWidget(parent) {
         layout->setContentsMargins(14, 12, 14, 12);
         layout->setSpacing(6);
         auto *tag = mutedLabel(source, QStringLiteral("upgradeSourceTag"));
-        tag->setText(QStringLiteral("来源实例"));
+        tag->setText(QCoreApplication::translate("InstanceUpgradePage", "来源实例"));
         layout->addWidget(tag);
         m_sourceName = new QLabel(source);
         m_sourceName->setObjectName(sourceNameLabelName());
@@ -117,7 +118,7 @@ InstanceUpgradePage::InstanceUpgradePage(QWidget *parent) : QWidget(parent) {
         layout->setContentsMargins(14, 12, 14, 12);
         layout->setSpacing(8);
         auto *tag = mutedLabel(target, QStringLiteral("upgradeTargetTag"));
-        tag->setText(QStringLiteral("目标实例"));
+        tag->setText(QCoreApplication::translate("InstanceUpgradePage", "目标实例"));
         layout->addWidget(tag);
         m_targetVersion = new QComboBox(target);
         m_targetVersion->setObjectName(targetVersionName());
@@ -131,7 +132,7 @@ InstanceUpgradePage::InstanceUpgradePage(QWidget *parent) : QWidget(parent) {
         layout->addWidget(m_targetLoaderVersion);
         m_instanceName = new QLineEdit(target);
         m_instanceName->setObjectName(instanceNameEditName());
-        m_instanceName->setPlaceholderText(QStringLiteral("新实例的名字"));
+        m_instanceName->setPlaceholderText(QCoreApplication::translate("InstanceUpgradePage", "新实例的名字"));
         InputSizing::shortValue(m_instanceName, InputSizing::kNameChars, InputSizing::Script::Han);
         layout->addWidget(m_instanceName);
         layout->addStretch();
@@ -143,10 +144,10 @@ InstanceUpgradePage::InstanceUpgradePage(QWidget *parent) : QWidget(parent) {
     {
         auto *row = new QHBoxLayout;
         row->setSpacing(8);
-        m_report = new QPushButton(QStringLiteral("兼容性报告…"), this);
+        m_report = new QPushButton(QCoreApplication::translate("InstanceUpgradePage", "兼容性报告…"), this);
         m_report->setObjectName(reportButtonName());
         Theme::markButton(m_report, Theme::ButtonKind::Neutral);
-        m_history = new QPushButton(QStringLiteral("更新记录…"), this);
+        m_history = new QPushButton(QCoreApplication::translate("InstanceUpgradePage", "更新记录…"), this);
         m_history->setObjectName(historyButtonName());
         Theme::markButton(m_history, Theme::ButtonKind::Neutral);
         row->addWidget(m_report);
@@ -196,7 +197,7 @@ InstanceUpgradePage::InstanceUpgradePage(QWidget *parent) : QWidget(parent) {
         m_summary = new QLabel(this);
         m_summary->setObjectName(summaryLabelName());
         m_blocker = mutedLabel(this, blockerLabelName());
-        m_preview = new QPushButton(QStringLiteral("预览并确认迁移"), this);
+        m_preview = new QPushButton(QCoreApplication::translate("InstanceUpgradePage", "预览并确认迁移"), this);
         m_preview->setObjectName(previewButtonName());
         Theme::markButton(m_preview, Theme::ButtonKind::Primary);
         row->addWidget(m_summary);
@@ -331,14 +332,14 @@ void InstanceUpgradePage::setCategoryLinks(const QHash<QString, int> &links) {
         }
         QString text = note->text();
         // 去掉上一次追加的那一段，再按这次的数量接上。
-        const QString suffix = QStringLiteral(" · 含 %1 个链接");
-        const int at = text.indexOf(QStringLiteral(" · 含 "));
+        const QString suffix = QCoreApplication::translate("InstanceUpgradePage", " · 含 %1 个链接");
+        const int at = text.indexOf(QCoreApplication::translate("InstanceUpgradePage", " · 含 "));
         if (at >= 0) {
             text = text.left(at);
         }
         const int count = links.value(category.key);
         if (count > 0) {
-            text += suffix.arg(count) + QStringLiteral("（不会跟随）");
+            text += suffix.arg(count) + QCoreApplication::translate("InstanceUpgradePage", "（不会跟随）");
         }
         note->setText(text);
     }
@@ -357,9 +358,9 @@ void InstanceUpgradePage::setCategoryAmounts(
         if (amounts.contains(category.key)) {
             const auto amount = amounts.value(category.key);
             if (amount.first <= 0) {
-                text += QStringLiteral(" · 没有");
+                text += QCoreApplication::translate("InstanceUpgradePage", " · 没有");
             } else {
-                text += QStringLiteral(" · %1 个 · %2")
+                text += QCoreApplication::translate("InstanceUpgradePage", " · %1 个 · %2")
                             .arg(amount.first)
                             .arg(humanBytes(amount.second));
             }
@@ -371,8 +372,8 @@ void InstanceUpgradePage::setCategoryAmounts(
 
 void InstanceUpgradePage::rebuildSummary() {
     const int count = m_state.selection.state.ordered().size();
-    QString summary = count > 0 ? QStringLiteral("已选 %1 类").arg(count)
-                                : QStringLiteral("还没选要迁移的内容");
+    QString summary = count > 0 ? QCoreApplication::translate("InstanceUpgradePage", "已选 %1 类").arg(count)
+                                : QCoreApplication::translate("InstanceUpgradePage", "还没选要迁移的内容");
     if (!m_categoryAmounts.isEmpty()) {
         int files = 0;
         qint64 bytes = 0;
@@ -382,15 +383,15 @@ void InstanceUpgradePage::rebuildSummary() {
             bytes += amount.second;
         }
         if (files > 0) {
-            summary += QStringLiteral(" · %1 个文件 · %2").arg(files).arg(humanBytes(bytes));
+            summary += QCoreApplication::translate("InstanceUpgradePage", " · %1 个文件 · %2").arg(files).arg(humanBytes(bytes));
         }
     } else if (m_amountFiles > 0) {
-        summary += QStringLiteral(" · %1 个文件 · %2")
+        summary += QCoreApplication::translate("InstanceUpgradePage", " · %1 个文件 · %2")
                        .arg(m_amountFiles)
                        .arg(humanBytes(m_amountBytes));
     }
     if (m_checkPending) {
-        summary += QStringLiteral(" · 正在检查兼容性…");
+        summary += QCoreApplication::translate("InstanceUpgradePage", " · 正在检查兼容性…");
     }
     m_summary->setText(summary);
     if (m_preview != nullptr) {

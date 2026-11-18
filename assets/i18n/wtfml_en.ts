@@ -64,6 +64,61 @@
         </message>
     </context>
     <context>
+        <name>ActivityPopover</name>
+        <message>
+            <source>活动中心</source>
+            <translation>Activity center</translation>
+        </message>
+        <message>
+            <source>全部任务</source>
+            <translation>All tasks</translation>
+        </message>
+        <message>
+            <source>整页查看：筛选、搜索、历史与详情</source>
+            <translation>Full page view: filter, search, history and details</translation>
+        </message>
+        <message>
+            <source>暂无进行中的任务</source>
+            <translation>No tasks in progress</translation>
+        </message>
+        <message>
+            <source>等待中</source>
+            <translation>Waiting</translation>
+        </message>
+        <message>
+            <source>第 %1 个</source>
+            <translation>%1th</translation>
+        </message>
+        <message>
+            <source>上移</source>
+            <translation>Move up</translation>
+        </message>
+        <message>
+            <source>下移</source>
+            <translation>Move down</translation>
+        </message>
+        <message>
+            <source>移出队列</source>
+            <translation>Remove from queue</translation>
+        </message>
+        <message>
+            <source>清除</source>
+            <translation>Clear</translation>
+        </message>
+        <message>
+            <source>清除已结束记录，不影响下载好的文件</source>
+            <translation>Clear completed records without affecting downloaded files</translation>
+        </message>
+        <message>
+            <source>已结束</source>
+            <translation>Ended</translation>
+        </message>
+        <message>
+            <source>重试</source>
+            <translation>Try again</translation>
+        </message>
+    </context>
+    <context>
         <name>AgentPage</name>
         <message>
             <source>会话</source>
@@ -1301,8 +1356,20 @@ What you want to restore is this one:
             <translation>Select the backup of this file by time; after loading, you need to click Save to write it back.</translation>
         </message>
         <message>
+            <source>条目</source>
+            <translation>Entry</translation>
+        </message>
+        <message>
+            <source>值</source>
+            <translation>Value</translation>
+        </message>
+        <message>
             <source>（这个文件是空的）</source>
             <translation>(This file is empty)</translation>
+        </message>
+        <message>
+            <source>）</source>
+            <translation>)</translation>
         </message>
         <message>
             <source>文件不是 UTF-8 编码，保存会把内容弄坏，只能查看。</source>
@@ -1313,8 +1380,52 @@ What you want to restore is this one:
             <translation>This file is too large (%1 MB is the upper limit given here) and cannot be modified.</translation>
         </message>
         <message>
-            <source>，按「保存」才写回盘上。</source>
-            <translation>, click "Save" to write it back to disk.</translation>
+            <source>范围：</source>
+            <translation>Scope:</translation>
+        </message>
+        <message>
+            <source>%1 / 第 %2 行</source>
+            <translation>%1 / Line %2</translation>
+        </message>
+        <message>
+            <source>返回</source>
+            <translation>Return</translation>
+        </message>
+        <message>
+            <source>保存</source>
+            <translation>Save</translation>
+        </message>
+        <message>
+            <source>打开文件夹</source>
+            <translation>Open folder</translation>
+        </message>
+        <message>
+            <source>在条目里找…</source>
+            <translation>Find in the entry…</translation>
+        </message>
+        <message>
+            <source>还原上一次</source>
+            <translation>Restore last time</translation>
+        </message>
+        <message>
+            <source>已恢复上次保存前的内容（</source>
+            <translation>Restored content before last save (</translation>
+        </message>
+        <message>
+            <source>这份文件里没认出设置项</source>
+            <translation>The setting item was not recognized in this document</translation>
+        </message>
+        <message>
+            <source>只读：</source>
+            <translation>Read only:</translation>
+        </message>
+        <message>
+            <source>改完点「保存」写到盘上。原来是什么行尾、有没有 BOM，都不动。</source>
+            <translation>After making changes, click "Save" to save the changes to disk. It turns out that the end of the line, whether there is a BOM or not, doesn't move.</translation>
+        </message>
+        <message>
+            <source>已保存（</source>
+            <translation>Saved (</translation>
         </message>
     </context>
     <context>
@@ -2159,6 +2270,329 @@ The part that has been moved is in the Recycle Bin and can be restored.</transla
         <message>
             <source>游戏日志 — %1</source>
             <translation>Game Log — %1</translation>
+        </message>
+        <message>
+            <source>这里是这一份游戏自己的输出，和日志文件里的是同一份。关掉这个窗口不会停游戏。</source>
+            <translation>Here is the output of the game itself, the same one as in the log file. Closing this window will not stop the game.</translation>
+        </message>
+        <message>
+            <source>窗口最多保留 %1 行，更早的 %2 行已经丢弃。</source>
+            <translation>The window retains at most %1 rows, older %2 rows have been discarded.</translation>
+        </message>
+        <message>
+            <source>清空</source>
+            <translation>Clear</translation>
+        </message>
+        <message>
+            <source>导出日志…</source>
+            <translation>Export log…</translation>
+        </message>
+        <message>
+            <source>导出错误报告…</source>
+            <translation>Export error report…</translation>
+        </message>
+        <message>
+            <source>把全部游戏输出存成文本文件（含被筛掉的几档，最多 %1 行）。</source>
+            <translation>Save all game output as a text file (including the filtered files, up to %1 lines).</translation>
+        </message>
+        <message>
+            <source>存一份可以直接发给别人的报告：启动器版本、系统、这个实例、退出码，加上错误那几行和完整日志。</source>
+            <translation>Save a report that can be sent directly to others: launcher version, system, this instance, exit code, plus the error lines and the complete log.</translation>
+        </message>
+        <message>
+            <source>还没有输出…</source>
+            <translation>No output yet…</translation>
+        </message>
+        <message>
+            <source>当前筛选下没有日志，勾选上方对应的级别即可显示。</source>
+            <translation>There are no logs under the current filter. Check the corresponding level above to display them.</translation>
+        </message>
+        <message>
+            <source>在这里面找…（不区分大小写；与上方的级别筛选同时生效）</source>
+            <translation>Find here... (not case sensitive; takes effect at the same time as the level filter above)</translation>
+        </message>
+        <message>
+            <source>没有匹配的日志。换个关键词，或清空搜索框。</source>
+            <translation>No matching logs. Change the keyword or clear the search box.</translation>
+        </message>
+        <message>
+            <source>只看包含这一串的行；导出仍是整份日志。</source>
+            <translation>Only look at the lines containing this string; the export will still be the entire log.</translation>
+        </message>
+        <message>
+            <source>点一下就不显示这一档。数字是日志记录数（崩栈续行不重复计算）。窗口最多保留 %1 行文本。</source>
+            <translation>Click once to avoid displaying this file. The number is the number of log records (crash and continuation lines are not counted again). The window can hold at most %1 lines of text.</translation>
+        </message>
+        <message>
+            <source>只影响显示，日志一行都不会少（最多留 %1 行）。</source>
+            <translation>It only affects the display, and no log line will be missing (up to %1 lines will be left).</translation>
+        </message>
+    </context>
+    <context>
+        <name>GameRuleNames</name>
+        <message>
+            <source>允许进入下界</source>
+            <translation>Allowed to enter the Nether</translation>
+        </message>
+        <message>
+            <source>允许火在远离玩家处蔓延</source>
+            <translation>Allows fire to spread far away from the player</translation>
+        </message>
+        <message>
+            <source>进度通知</source>
+            <translation>Progress notification</translation>
+        </message>
+        <message>
+            <source>在方块交互爆炸中，一些方块不会掉落战利品</source>
+            <translation>In block interactive explosions, some blocks do not drop loot</translation>
+        </message>
+        <message>
+            <source>广播命令方块输出</source>
+            <translation>Broadcast command block output</translation>
+        </message>
+        <message>
+            <source>启用命令方块</source>
+            <translation>Enable command blocks</translation>
+        </message>
+        <message>
+            <source>命令修改方块数量限制</source>
+            <translation>Command to modify the limit on the number of blocks</translation>
+        </message>
+        <message>
+            <source>禁用鞘翅移动检测</source>
+            <translation>Disable elytra movement detection</translation>
+        </message>
+        <message>
+            <source>禁用玩家移动检测</source>
+            <translation>Disable player movement detection</translation>
+        </message>
+        <message>
+            <source>禁用袭击</source>
+            <translation>Disable raid</translation>
+        </message>
+        <message>
+            <source>游戏内时间流逝</source>
+            <translation>In-game time passes</translation>
+        </message>
+        <message>
+            <source>非生物实体掉落</source>
+            <translation>Dropped by non-living entities</translation>
+        </message>
+        <message>
+            <source>火焰蔓延</source>
+            <translation>Flame spread</translation>
+        </message>
+        <message>
+            <source>立即重生</source>
+            <translation>Reborn immediately</translation>
+        </message>
+        <message>
+            <source>生成幻翼</source>
+            <translation>Generate phantoms</translation>
+        </message>
+        <message>
+            <source>合成需要配方</source>
+            <translation>Synthesis requires recipe</translation>
+        </message>
+        <message>
+            <source>生物战利品掉落</source>
+            <translation>Creature loot drops</translation>
+        </message>
+        <message>
+            <source>生成生物</source>
+            <translation>Spawn creatures</translation>
+        </message>
+        <message>
+            <source>生成灾厄巡逻队</source>
+            <translation>Spawn the Illager Patrol</translation>
+        </message>
+        <message>
+            <source>方块掉落</source>
+            <translation>Blocks falling</translation>
+        </message>
+        <message>
+            <source>生成流浪商人</source>
+            <translation>Generate wandering merchant</translation>
+        </message>
+        <message>
+            <source>藤蔓蔓延</source>
+            <translation>Vines spreading</translation>
+        </message>
+        <message>
+            <source>生成监守者</source>
+            <translation>Generate guardian</translation>
+        </message>
+        <message>
+            <source>天气更替</source>
+            <translation>Weather changes</translation>
+        </message>
+        <message>
+            <source>溺水伤害</source>
+            <translation>Drowning injury</translation>
+        </message>
+        <message>
+            <source>掷出的末影珍珠在死亡时消失</source>
+            <translation>Throwed ender pearls disappear on death</translation>
+        </message>
+        <message>
+            <source>被骑乘的实体能否使用传送门</source>
+            <translation>Can mounted entities use portals?</translation>
+        </message>
+        <message>
+            <source>摔落伤害</source>
+            <translation>Fall damage</translation>
+        </message>
+        <message>
+            <source>火焰伤害</source>
+            <translation>Fire damage</translation>
+        </message>
+        <message>
+            <source>宽恕死亡玩家</source>
+            <translation>Forgive dead players</translation>
+        </message>
+        <message>
+            <source>冰冻伤害</source>
+            <translation>Freeze damage</translation>
+        </message>
+        <message>
+            <source>全局声音事件</source>
+            <translation>Global sound events</translation>
+        </message>
+        <message>
+            <source>死亡后保留物品栏</source>
+            <translation>Keep inventory after death</translation>
+        </message>
+        <message>
+            <source>允许流动熔岩转化为熔岩源</source>
+            <translation>Allows flowing lava to be converted into a lava source</translation>
+        </message>
+        <message>
+            <source>启用玩家定位栏</source>
+            <translation>Enable player location bar</translation>
+        </message>
+        <message>
+            <source>通告管理员命令</source>
+            <translation>Notify administrator command</translation>
+        </message>
+        <message>
+            <source>命令连锁执行数量限制</source>
+            <translation>Limit on the number of command chain executions</translation>
+        </message>
+        <message>
+            <source>命令上下文数量限制</source>
+            <translation>Command context limit</translation>
+        </message>
+        <message>
+            <source>实体挤压上限</source>
+            <translation>Entity extrusion upper limit</translation>
+        </message>
+        <message>
+            <source>矿车最大速度</source>
+            <translation>Minecart maximum speed</translation>
+        </message>
+        <message>
+            <source>在生物爆炸中，一些方块不会掉落战利品</source>
+            <translation>Some blocks do not drop loot during mob explosions</translation>
+        </message>
+        <message>
+            <source>允许破坏性生物行为</source>
+            <translation>Allow destructive biological behavior</translation>
+        </message>
+        <message>
+            <source>生命值自然恢复</source>
+            <translation>HP naturally recovers</translation>
+        </message>
+        <message>
+            <source>创造模式下玩家在下界传送门中等待的时间</source>
+            <translation>How long players wait in Nether portals in creative mode</translation>
+        </message>
+        <message>
+            <source>非创造模式下玩家在下界传送门中等待的时间</source>
+            <translation>The time players wait in the nether portal in non-creative mode</translation>
+        </message>
+        <message>
+            <source>入睡占比</source>
+            <translation>Fall asleep ratio</translation>
+        </message>
+        <message>
+            <source>弹射物能否破坏方块</source>
+            <translation>Can projectiles break blocks?</translation>
+        </message>
+        <message>
+            <source>启用PvP</source>
+            <translation>Enable PvP</translation>
+        </message>
+        <message>
+            <source>随机刻速率</source>
+            <translation>Random tick rate</translation>
+        </message>
+        <message>
+            <source>简化调试信息</source>
+            <translation>Simplified debugging information</translation>
+        </message>
+        <message>
+            <source>发送命令反馈</source>
+            <translation>Send command feedback</translation>
+        </message>
+        <message>
+            <source>显示死亡消息</source>
+            <translation>Show death message</translation>
+        </message>
+        <message>
+            <source>积雪厚度</source>
+            <translation>Snow thickness</translation>
+        </message>
+        <message>
+            <source>出生区块半径</source>
+            <translation>Birth block radius</translation>
+        </message>
+        <message>
+            <source>生成怪物</source>
+            <translation>Spawn monsters</translation>
+        </message>
+        <message>
+            <source>重生点半径</source>
+            <translation>Spawn point radius</translation>
+        </message>
+        <message>
+            <source>启用刷怪笼方块</source>
+            <translation>Enable monster spawner blocks</translation>
+        </message>
+        <message>
+            <source>允许旁观者生成地形</source>
+            <translation>Allow spectators to generate terrain</translation>
+        </message>
+        <message>
+            <source>允许TNT被点燃并爆炸</source>
+            <translation>Allows TNT to be ignited and explode</translation>
+        </message>
+        <message>
+            <source>在TNT爆炸中，一些方块不会掉落战利品</source>
+            <translation>Some blocks do not drop loot during TNT explosions</translation>
+        </message>
+        <message>
+            <source>无差别愤怒</source>
+            <translation>Indiscriminate anger</translation>
+        </message>
+        <message>
+            <source>允许流动水转化为水源</source>
+            <translation>Allows flowing water to be converted into water source</translation>
+        </message>
+        <message>
+            <source>启用袭击</source>
+            <translation>Enable raid</translation>
+        </message>
+        <message>
+            <source>启用鞘翅移动检测</source>
+            <translation>Enable elytra movement detection</translation>
+        </message>
+        <message>
+            <source>启用玩家移动检测</source>
+            <translation>Enable player movement detection</translation>
+        </message>
+        <message>
+            <source>火焰蔓延半径</source>
+            <translation>Flame spread radius</translation>
         </message>
     </context>
     <context>
@@ -3372,8 +3806,132 @@ The corresponding records in the game servers.dat will be removed together.</tra
             <translation>Disable</translation>
         </message>
         <message>
+            <source>加入选中的世界</source>
+            <translation>Join selected world</translation>
+        </message>
+        <message>
+            <source>启动游戏并进入所选世界，需要游戏支持快速加入。</source>
+            <translation>Start the game and enter the selected world. The game needs to support quick join.</translation>
+        </message>
+        <message>
+            <source>请先选择存档。</source>
+            <translation>Please select archive first.</translation>
+        </message>
+        <message>
+            <source>存档</source>
+            <translation>Archive</translation>
+        </message>
+        <message>
+            <source>投影</source>
+            <translation>Projection</translation>
+        </message>
+        <message>
+            <source>原理图文件夹</source>
+            <translation>Schematic folder</translation>
+        </message>
+        <message>
+            <source>无可用的结构</source>
+            <translation>No structure available</translation>
+        </message>
+        <message>
+            <source>正在读取…</source>
+            <translation>Reading…</translation>
+        </message>
+        <message>
+            <source>（已禁用）</source>
+            <translation>(disabled)</translation>
+        </message>
+        <message>
+            <source>刷新</source>
+            <translation>Refresh</translation>
+        </message>
+        <message>
+            <source>编辑</source>
+            <translation>Edit</translation>
+        </message>
+        <message>
+            <source>详情</source>
+            <translation>Details</translation>
+        </message>
+        <message>
+            <source>正在统计…</source>
+            <translation>Counting...</translation>
+        </message>
+        <message>
+            <source>搜索</source>
+            <translation>Search</translation>
+        </message>
+        <message>
+            <source>显示</source>
+            <translation>Show</translation>
+        </message>
+        <message>
+            <source>可更新</source>
+            <translation>Updatable</translation>
+        </message>
+        <message>
+            <source>全部</source>
+            <translation>All</translation>
+        </message>
+        <message>
+            <source>没有符合条件的条目。</source>
+            <translation>There are no matching entries.</translation>
+        </message>
+        <message>
+            <source>已选择 %1 个文件</source>
+            <translation>%1 files selected</translation>
+        </message>
+        <message>
             <source>更新</source>
             <translation>Renew</translation>
+        </message>
+        <message>
+            <source>全选</source>
+            <translation>Select all</translation>
+        </message>
+        <message>
+            <source>反选</source>
+            <translation>Counter-election</translation>
+        </message>
+        <message>
+            <source>取消</source>
+            <translation>Cancel</translation>
+        </message>
+        <message>
+            <source>更新选中的可更新项。</source>
+            <translation>Update selected updateable items.</translation>
+        </message>
+        <message>
+            <source>禁用选中项，保留原文件。</source>
+            <translation>Disable selected items and retain the original file.</translation>
+        </message>
+        <message>
+            <source>启用选中项。</source>
+            <translation>Enable selected items.</translation>
+        </message>
+        <message>
+            <source>选中当前筛出来的全部条目。</source>
+            <translation>Select all currently filtered entries.</translation>
+        </message>
+        <message>
+            <source>反选当前列表。</source>
+            <translation>Inverts the current list.</translation>
+        </message>
+        <message>
+            <source>清空选择。</source>
+            <translation>Clear selection.</translation>
+        </message>
+        <message>
+            <source>尚未检查更新，请先在概览中检查。</source>
+            <translation>Haven't checked for updates yet, please check in the overview first.</translation>
+        </message>
+        <message>
+            <source>暂无可用更新</source>
+            <translation>No updates available yet</translation>
+        </message>
+        <message>
+            <source>文件夹为空</source>
+            <translation>Folder is empty</translation>
         </message>
         <message>
             <source>删除</source>
@@ -5011,8 +5569,104 @@ The current version will also be retained separately and the file will not be de
     <context>
         <name>InstanceUpgradePage</name>
         <message>
+            <source>整个世界目录，原样复制</source>
+            <translation>The entire world directory, copied as it is</translation>
+        </message>
+        <message>
+            <source>按兼容性结果替换或跳过</source>
+            <translation>Replace or skip by compatibility results</translation>
+        </message>
+        <message>
+            <source>config 与 defaultconfigs</source>
+            <translation>Config and defaultconfigs</translation>
+        </message>
+        <message>
+            <source>键位、视频、声音</source>
+            <translation>Keyboard, video, sound</translation>
+        </message>
+        <message>
+            <source>文件与启用顺序</source>
+            <translation>Files and activation sequence</translation>
+        </message>
+        <message>
+            <source>需要渲染器才生效</source>
+            <translation>Requires a renderer to take effect</translation>
+        </message>
+        <message>
+            <source>作为普通文件复制</source>
+            <translation>Copy as normal file</translation>
+        </message>
+        <message>
+            <source>structures 等结构文件</source>
+            <translation>Structures and other structure files</translation>
+        </message>
+        <message>
+            <source>servers.dat 里的条目</source>
+            <translation>Entries in servers.dat</translation>
+        </message>
+        <message>
+            <source>来源实例</source>
+            <translation>Source instance</translation>
+        </message>
+        <message>
+            <source>目标实例</source>
+            <translation>Target instance</translation>
+        </message>
+        <message>
+            <source>新实例的名字</source>
+            <translation>The name of the new instance</translation>
+        </message>
+        <message>
+            <source>兼容性报告…</source>
+            <translation>Compatibility report…</translation>
+        </message>
+        <message>
+            <source>更新记录…</source>
+            <translation>Update record…</translation>
+        </message>
+        <message>
+            <source>预览并确认迁移</source>
+            <translation>Preview and confirm migration</translation>
+        </message>
+        <message>
             <source>正在检查兼容性，请稍候…</source>
             <translation>Checking compatibility, please wait...</translation>
+        </message>
+        <message>
+            <source> · 含 %1 个链接</source>
+            <translation>· Contains %1 links</translation>
+        </message>
+        <message>
+            <source> · 含 </source>
+            <translation>· Contains</translation>
+        </message>
+        <message>
+            <source>（不会跟随）</source>
+            <translation>(will not follow)</translation>
+        </message>
+        <message>
+            <source> · 没有</source>
+            <translation>· No</translation>
+        </message>
+        <message>
+            <source> · %1 个 · %2</source>
+            <translation>· %1 · %2</translation>
+        </message>
+        <message>
+            <source>已选 %1 类</source>
+            <translation>Selected %1 class</translation>
+        </message>
+        <message>
+            <source>还没选要迁移的内容</source>
+            <translation>You haven’t selected the content you want to migrate yet.</translation>
+        </message>
+        <message>
+            <source> · %1 个文件 · %2</source>
+            <translation>· %1 files · %2</translation>
+        </message>
+        <message>
+            <source> · 正在检查兼容性…</source>
+            <translation>· Checking compatibility…</translation>
         </message>
     </context>
     <context>
@@ -5072,6 +5726,85 @@ The current version will also be retained separately and the file will not be de
         <message>
             <source>完整性检查报告已经复制到剪贴板。</source>
             <translation>The integrity check report has been copied to the clipboard.</translation>
+        </message>
+    </context>
+    <context>
+        <name>JavaManageDialog</name>
+        <message>
+            <source>Java %1：</source>
+            <translation>Java %1:</translation>
+        </message>
+        <message>
+            <source>缺失</source>
+            <translation>Missing</translation>
+        </message>
+        <message>
+            <source>重新下载</source>
+            <translation>Download again</translation>
+        </message>
+        <message>
+            <source>下载</source>
+            <translation>Download</translation>
+        </message>
+        <message>
+            <source>下载所有缺少的 Java</source>
+            <translation>Download any missing Java</translation>
+        </message>
+        <message>
+            <source>检测已有 Java</source>
+            <translation>Detect existing Java</translation>
+        </message>
+        <message>
+            <source>手动指定 java.exe…</source>
+            <translation>Manually specify java.exe…</translation>
+        </message>
+        <message>
+            <source>自动（按版本挑选）</source>
+            <translation>Automatic (pick by version)</translation>
+        </message>
+        <message>
+            <source>选用</source>
+            <translation>Select</translation>
+        </message>
+        <message>
+            <source>（当前）</source>
+            <translation>(current)</translation>
+        </message>
+        <message>
+            <source>下载 Adoptium 运行时至 java/&lt;版本&gt; 目录，不影响系统环境。</source>
+            <translation>Download the Adoptium runtime to the java/&lt;version&gt; directory without affecting the system environment.</translation>
+        </message>
+        <message>
+            <source>Java 管理</source>
+            <translation>Java management</translation>
+        </message>
+        <message>
+            <source>不钉死任何一份，启动时按版本要求自己挑。</source>
+            <translation>Don’t crucify any copy, just pick your own version according to the version requirements when starting.</translation>
+        </message>
+        <message>
+            <source>把「全局」这一层钉死成 Java %1 这一份。</source>
+            <translation>Nail the "global" layer into Java %1.</translation>
+        </message>
+        <message>
+            <source>把上面写着「缺失」的那些一次下完。已经有的那些不动。</source>
+            <translation>Download the ones with "missing" written on them all at once. Those that are already there do not move.</translation>
+        </message>
+        <message>
+            <source>重新扫描本机已安装的 Java。</source>
+            <translation>Rescan the machine for installed Java.</translation>
+        </message>
+        <message>
+            <source>手动选择本地 java.exe 文件。</source>
+            <translation>Manually select the local java.exe file.</translation>
+        </message>
+        <message>
+            <source>重新下一份 Java %1 覆盖掉这一份（比如它已经打不开了）。</source>
+            <translation>Create a new copy of Java %1 to overwrite this one (for example, it can no longer be opened).</translation>
+        </message>
+        <message>
+            <source>下载并安装 Java %1。</source>
+            <translation>Download and install Java %1.</translation>
         </message>
     </context>
     <context>
@@ -11702,6 +12435,13 @@ It will not restart automatically when stopped manually or exited normally.</tra
         </message>
     </context>
     <context>
+        <name>QCoreApplication</name>
+        <message>
+            <source>，按「保存」才写回盘上。</source>
+            <translation>, click "Save" to write it back to disk.</translation>
+        </message>
+    </context>
+    <context>
         <name>QObject</name>
         <message>
             <source>%1：%2</source>
@@ -14157,6 +14897,61 @@ So there is no import. (Fabric / Forge / NeoForge / OptiFine can be installed di
         </message>
     </context>
     <context>
+        <name>ServerConsolePage</name>
+        <message>
+            <source>搜索框：筛选日志行，关键词长度不定</source>
+            <translation>Search box: filter log lines, keyword length is variable</translation>
+        </message>
+        <message>
+            <source>只筛选当前显示的行；「导出日志…」仍导出完整日志。</source>
+            <translation>Only the currently displayed rows are filtered; "Export Log..." still exports the complete log.</translation>
+        </message>
+        <message>
+            <source>只影响显示，日志本身一行都不会少。</source>
+            <translation>It only affects the display, and the log itself will not lose a single line.</translation>
+        </message>
+        <message>
+            <source>导出日志…</source>
+            <translation>Export log…</translation>
+        </message>
+        <message>
+            <source>把控制台全部输出存成文本文件（含被搜掉的行）。</source>
+            <translation>Save all output from the console into a text file (including the searched lines).</translation>
+        </message>
+        <message>
+            <source>命令输入：像聊天框一样整行</source>
+            <translation>Command input: full line like chat box</translation>
+        </message>
+        <message>
+            <source>往这个服务端敲一条命令（比如 say 大家好），回车发送</source>
+            <translation>Type a command into this server (for example, say hello everyone) and press Enter to send.</translation>
+        </message>
+        <message>
+            <source>不等待保存就强制结束进程，可能丢失存档。</source>
+            <translation>If you force the process to end without waiting for saving, you may lose the archive.</translation>
+        </message>
+        <message>
+            <source>让它自己存盘、收尾，然后退出（推荐）。</source>
+            <translation>Let it save, wrap up, and exit (recommended).</translation>
+        </message>
+        <message>
+            <source>还没有输出（服务端尚未产生日志）</source>
+            <translation>There is no output yet (the server has not yet generated logs)</translation>
+        </message>
+        <message>
+            <source>当前筛选下没有日志。</source>
+            <translation>There are no logs under the current filter.</translation>
+        </message>
+        <message>
+            <source>没有匹配的日志。换个关键词，或清空搜索框。</source>
+            <translation>No matching logs. Change the keyword or clear the search box.</translation>
+        </message>
+        <message>
+            <source>在这个控制台里找…（大小写不分）</source>
+            <translation>Find... in this console (case-insensitive)</translation>
+        </message>
+    </context>
+    <context>
         <name>ServerListController</name>
         <message>
             <source>（无名）</source>
@@ -15753,6 +16548,104 @@ The changes you made yourself will not be retained.</translation>
         <message>
             <source>取消</source>
             <translation>Cancel</translation>
+        </message>
+    </context>
+    <context>
+        <name>UpgradeHistoryDialog</name>
+        <message>
+            <source>更新记录</source>
+            <translation>Update record</translation>
+        </message>
+        <message>
+            <source>时间</source>
+            <translation>Time</translation>
+        </message>
+        <message>
+            <source>版本</source>
+            <translation>Version</translation>
+        </message>
+        <message>
+            <source>结果</source>
+            <translation>Result</translation>
+        </message>
+        <message>
+            <source>这个实例还没有升级记录。</source>
+            <translation>This instance has no upgrade records yet.</translation>
+        </message>
+        <message>
+            <source>回滚上次原地升级…</source>
+            <translation>Rolling back the last in-place upgrade...</translation>
+        </message>
+        <message>
+            <source>关闭</source>
+            <translation>Closure</translation>
+        </message>
+        <message>
+            <source>事务：%1
+</source>
+            <translation>Transaction: %1</translation>
+        </message>
+        <message>
+            <source>来源：%1（%2）
+</source>
+            <translation>Source: %1 (%2)</translation>
+        </message>
+        <message>
+            <source>目标：%1（%2）
+</source>
+            <translation>Target: %1 (%2)</translation>
+        </message>
+        <message>
+            <source>类别：%1
+</source>
+            <translation>Category: %1</translation>
+        </message>
+        <message>
+            <source>（原地升级）</source>
+            <translation>(In-place upgrade)</translation>
+        </message>
+        <message>
+            <source>、</source>
+            <translation>,</translation>
+        </message>
+        <message>
+            <source>文件：复制 %1 / 跳过 %2 / 失败 %3
+</source>
+            <translation>File: Copy %1 / Skip %2 / Fail %3</translation>
+        </message>
+        <message>
+            <source>快照：没有（副本模式以源实例为回滚材料）
+</source>
+            <translation>Snapshot: None (copy mode uses the source instance as rollback material)</translation>
+        </message>
+        <message>
+            <source>快照：%1%2
+</source>
+            <translation>Snapshot: %1%2</translation>
+        </message>
+        <message>
+            <source>（可恢复）</source>
+            <translation>(recoverable)</translation>
+        </message>
+        <message>
+            <source>说明：%1</source>
+            <translation>Description: %1</translation>
+        </message>
+        <message>
+            <source>成功</source>
+            <translation>Success</translation>
+        </message>
+        <message>
+            <source>已取消</source>
+            <translation>Canceled</translation>
+        </message>
+        <message>
+            <source>失败</source>
+            <translation>Fail</translation>
+        </message>
+        <message>
+            <source>：%1</source>
+            <translation>:%1</translation>
         </message>
     </context>
     <context>
