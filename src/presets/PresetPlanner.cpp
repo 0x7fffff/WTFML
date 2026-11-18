@@ -39,16 +39,16 @@ namespace {
 
 /// 这一层的提示语都在同一个上下文里（和 `VanillaOptions` / `ServerListPreset` /
 /// `GenericFiles` 同一个名字）。
-QString plannerText(const char *source) { return QCoreApplication::translate("Presets", source); }
+[[maybe_unused]] QString plannerText(const char *source) { return QCoreApplication::translate("Presets", source); }
 
 /// 一段「覆盖」还没被点头时那一行下面那句话。
 QString confirmReason(SectionKind kind) {
     switch (kind) {
     case SectionKind::VanillaOptions:
     case SectionKind::VanillaKeys:
-        return plannerText("「覆盖」会把目标上这一类的设置整个换成预设里那些，需要先确认。");
+        return QCoreApplication::translate("Presets", "「覆盖」会把目标上这一类的设置整个换成预设里那些，需要先确认。");
     case SectionKind::ServerList:
-        return plannerText("「覆盖」会拿掉目标上对不上的服务器条目，需要先确认。");
+        return QCoreApplication::translate("Presets", "「覆盖」会拿掉目标上对不上的服务器条目，需要先确认。");
     case SectionKind::GenericFiles:
         return plannerText("「覆盖」会把目标上同名的那几份换成预设里的（多出来的文件不动），"
                            "需要先确认。");
@@ -60,7 +60,7 @@ QString confirmReason(SectionKind kind) {
     case SectionKind::Custom:
         break;
     }
-    return plannerText("「覆盖」会改动目标上已有的东西，需要先确认。");
+    return QCoreApplication::translate("Presets", "「覆盖」会改动目标上已有的东西，需要先确认。");
 }
 
 /// 这一段的种类这一版还认不认识（`Custom` 那一档是用户自己塞进来的、没有任何适配器接手
@@ -74,7 +74,7 @@ bool plannerKnowsKind(SectionKind kind) {
 QString unknownKindReason(SectionKind kind) {
     // 把**盘上那个词**写进理由里（`sectionKindKey()` 那一套，不翻译）：用户看见"custom"
     // 才知道去预设里删哪一段，跟他说"不认识的种类"他只能猜。
-    return plannerText("这一段的种类（%1）这一版的启动器不认识，这一段这一趟不动。")
+    return QCoreApplication::translate("Presets", "这一段的种类（%1）这一版的启动器不认识，这一段这一趟不动。")
         .arg(sectionKindKey(kind));
 }
 
@@ -98,7 +98,7 @@ void planOptionsRow(const PlanRequest &request, const PresetSection &section, Ap
     const OptionsFile source = optionsFromSections({section}, &readable);
     if (!readable) {
         row->blocked = true;
-        row->problem = plannerText("这一段读不回来（载荷不是这一层认得的那样），这一趟不动它。");
+        row->problem = QCoreApplication::translate("Presets", "这一段读不回来（载荷不是这一层认得的那样），这一趟不动它。");
         return;
     }
 
@@ -173,7 +173,7 @@ void planGenericFilesRow(const PlanRequest &request, const PresetSection &sectio
     if (!idSays && items.isEmpty()) {
         row->blocked = true;
         row->problem =
-            plannerText("这一段说不清是哪个文件组（id 不认得、载荷又是空的），这一趟不动它。");
+            QCoreApplication::translate("Presets", "这一段说不清是哪个文件组（id 不认得、载荷又是空的），这一趟不动它。");
         return;
     }
     if (idSays && !items.isEmpty()) {
@@ -182,7 +182,7 @@ void planGenericFilesRow(const PlanRequest &request, const PresetSection &sectio
         FileGroup fromPaths = FileGroup::Config;
         if (fileGroupOfPath(items.at(0).relativePath, &fromPaths) && fromPaths != group) {
             row->blocked = true;
-            row->problem = plannerText("这一段的身份（%1）和它的内容（%2）对不上，这一趟不动它。")
+            row->problem = QCoreApplication::translate("Presets", "这一段的身份（%1）和它的内容（%2）对不上，这一趟不动它。")
                                .arg(fileGroupDirName(group), fileGroupDirName(fromPaths));
             return;
         }
@@ -191,7 +191,7 @@ void planGenericFilesRow(const PlanRequest &request, const PresetSection &sectio
         // 没有源根就数不出"目标上缺哪几份"。★ 这一档**不许**当成"没有东西要拷"（那会让
         // 用户以为预设里那几份配置是空的）。
         row->blocked = true;
-        row->problem = plannerText("没有给出预设那一侧的文件根（files/），数不出这一组缺哪几份。");
+        row->problem = QCoreApplication::translate("Presets", "没有给出预设那一侧的文件根（files/），数不出这一组缺哪几份。");
         return;
     }
 
@@ -260,7 +260,7 @@ void planMalilibRow(const PlanRequest &request, const PresetSection &section, Ap
 /// 落一段数据包的计划（世界在不在那边说的是两件事）。
 void planDataPackRow(const PlanRequest &request, const PresetSection &section, ApplyPlanRow *row) {
     if (row->title.isEmpty()) {
-        row->title = plannerText("数据包");
+        row->title = QCoreApplication::translate("Presets", "数据包");
     }
     if (!request.target.supportsDataPacks) {
         row->blocked = true;
@@ -278,7 +278,7 @@ void planDataPackRow(const PlanRequest &request, const PresetSection &section, A
     if (request.presetFilesRoot.trimmed().isEmpty() && !items.isEmpty()) {
         row->blocked = true;
         row->problem =
-            plannerText("没有给出预设那一侧的文件根（files/），不知道这些数据包从哪儿拷。");
+            QCoreApplication::translate("Presets", "没有给出预设那一侧的文件根（files/），不知道这些数据包从哪儿拷。");
         return;
     }
     const DataPackPlan plan =
@@ -303,15 +303,15 @@ void planDataPackRow(const PlanRequest &request, const PresetSection &section, A
 QString applyPlanVerb(ApplyMode mode) {
     switch (mode) {
     case ApplyMode::Merge:
-        return plannerText("合并");
+        return QCoreApplication::translate("Presets", "合并");
     case ApplyMode::Replace:
-        return plannerText("覆盖");
+        return QCoreApplication::translate("Presets", "覆盖");
     case ApplyMode::Append:
-        return plannerText("追加");
+        return QCoreApplication::translate("Presets", "追加");
     case ApplyMode::CopyIfMissing:
-        return plannerText("缺了才拷");
+        return QCoreApplication::translate("Presets", "缺了才拷");
     case ApplyMode::Skip:
-        return plannerText("跳过");
+        return QCoreApplication::translate("Presets", "跳过");
     }
     return QString();
 }
@@ -323,26 +323,26 @@ QString applyPlanUnit(SectionKind kind) {
     case SectionKind::VanillaOptions:
     case SectionKind::VanillaKeys:
     case SectionKind::MalilibKeys:
-        return plannerText("项");
+        return QCoreApplication::translate("Presets", "项");
     // 服务器条目、配置文件、资源包都是"一个东西"，说「个」（「服务器列表 追加 3 个」）。
     case SectionKind::ServerList:
     case SectionKind::GenericFiles:
     case SectionKind::Custom:
         // `Custom` 这一档唯一有适配器接手的是数据包（`dataPackHandlesSection()`）；
         // 别的 `Custom` 段落 `blocked`，量词用不上。
-        return plannerText("个");
+        return QCoreApplication::translate("Presets", "个");
     }
-    return plannerText("项");
+    return QCoreApplication::translate("Presets", "项");
 }
 
 QString applyPlanRowText(const ApplyPlanRow &row) {
     if (row.blocked) {
-        return plannerText("做不了");
+        return QCoreApplication::translate("Presets", "做不了");
     }
 
     // 这一档我们做不了主 ⇒ 这一行只说得出口这一件事（`count` 那一趟必然是 0）。
     if (row.needsChoice > 0) {
-        return plannerText("要你选 %1 %2")
+        return QCoreApplication::translate("Presets", "要你选 %1 %2")
             .arg(row.needsChoice)
             .arg(applyPlanUnit(row.kind));
     }
@@ -359,34 +359,34 @@ QString applyPlanRowText(const ApplyPlanRow &row) {
         parts.append(applyPlanVerb(row.mode));
     } else if (row.deferred > 0) {
         // 全是"目标上没有那个世界"的：这一行只说得出口"它们先记着"。
-        parts.append(plannerText("待应用 %1 %2").arg(row.deferred).arg(unit));
+        parts.append(QCoreApplication::translate("Presets", "待应用 %1 %2").arg(row.deferred).arg(unit));
     }
 
     if (!parts.isEmpty()) {
         if (row.removed > 0) {
-            parts.append(plannerText("删掉 %1 %2").arg(row.removed).arg(unit));
+            parts.append(QCoreApplication::translate("Presets", "删掉 %1 %2").arg(row.removed).arg(unit));
         }
         if (row.conflictCount > 0) {
-            parts.append(plannerText("冲突 %1 项").arg(row.conflictCount));
+            parts.append(QCoreApplication::translate("Presets", "冲突 %1 项").arg(row.conflictCount));
         }
         if (row.deferred > 0 && row.count > 0) {
             // 只在这一行已经有"部署"那半截时补一句；全待应用的那种上面已经说过了。
-            parts.append(plannerText("待应用 %1 %2").arg(row.deferred).arg(unit));
+            parts.append(QCoreApplication::translate("Presets", "待应用 %1 %2").arg(row.deferred).arg(unit));
         }
         if (row.skipped > 0) {
-            parts.append(plannerText("跳过 %1 %2").arg(row.skipped).arg(unit));
+            parts.append(QCoreApplication::translate("Presets", "跳过 %1 %2").arg(row.skipped).arg(unit));
         }
-        return parts.join(plannerText("，"));
+        return parts.join(QCoreApplication::translate("Presets", "，"));
     }
 
     // 会动的、要删的、有冲突的都没有 ⇒ 这一行要么是"跳过"，要么是"没什么可动的"。
     if (row.skipped > 0) {
-        return plannerText("跳过 %1 %2").arg(row.skipped).arg(unit);
+        return QCoreApplication::translate("Presets", "跳过 %1 %2").arg(row.skipped).arg(unit);
     }
     if (row.mode == ApplyMode::Skip) {
         return applyPlanVerb(ApplyMode::Skip);
     }
-    return plannerText("不动");
+    return QCoreApplication::translate("Presets", "不动");
 }
 
 // ---------------------------------------------------------------------------
@@ -442,7 +442,7 @@ ApplyPlan planPresetApplication(const PlanRequest &request) {
     ApplyPlan plan;
 
     if (request.target.instanceRoot.trimmed().isEmpty()) {
-        plan.problem = plannerText("没有指定目标实例，算不出这一趟要做什么。");
+        plan.problem = QCoreApplication::translate("Presets", "没有指定目标实例，算不出这一趟要做什么。");
         return plan;
     }
 
@@ -480,7 +480,7 @@ ApplyPlan planPresetApplication(const PlanRequest &request) {
             // 四张分派表都不认 —— 那说明"认识的种类"和"有人接手的种类"对不上了（加适配器
             // 时漏改一处）。落 `blocked` 而不是崩：这一趟少一段，用户看得见。
             row.blocked = true;
-            row.problem = plannerText("这一段没有任何适配器接手，这一趟不动它。");
+            row.problem = QCoreApplication::translate("Presets", "这一段没有任何适配器接手，这一趟不动它。");
         }
 
         if (!row.blocked && row.mode == ApplyMode::Skip) {

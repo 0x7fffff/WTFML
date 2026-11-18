@@ -31,7 +31,7 @@ namespace Presets {
 
 namespace {
 
-QString applyText(const char *source) { return QCoreApplication::translate("Presets", source); }
+[[maybe_unused]] QString applyText(const char *source) { return QCoreApplication::translate("Presets", source); }
 
 /// `options.txt` 的读取上限（同 `PresetCapture.cpp`）：真机上几十 KB，超过这个数不猜。
 constexpr qint64 kOptionsMaxBytes = 32LL * 1024 * 1024;
@@ -40,12 +40,12 @@ constexpr qint64 kOptionsMaxBytes = 32LL * 1024 * 1024;
 bool readWholeFile(const QString &path, QByteArray *out, QString *problem) {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
-        *problem = applyText("读不动「%1」：%2").arg(path, file.errorString());
+        *problem = QCoreApplication::translate("Presets", "读不动「%1」：%2").arg(path, file.errorString());
         return false;
     }
     *out = file.readAll();
     if (file.error() != QFileDevice::NoError) {
-        *problem = applyText("读「%1」读到一半出错了：%2").arg(path, file.errorString());
+        *problem = QCoreApplication::translate("Presets", "读「%1」读到一半出错了：%2").arg(path, file.errorString());
         return false;
     }
     return true;
@@ -55,16 +55,16 @@ bool readWholeFile(const QString &path, QByteArray *out, QString *problem) {
 bool writeWholeFile(const QString &path, const QByteArray &bytes, QString *problem) {
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly)) {
-        *problem = applyText("写不动「%1」：%2").arg(path, file.errorString());
+        *problem = QCoreApplication::translate("Presets", "写不动「%1」：%2").arg(path, file.errorString());
         return false;
     }
     if (file.write(bytes) != bytes.size()) {
-        *problem = applyText("写「%1」写到一半出错了：%2").arg(path, file.errorString());
+        *problem = QCoreApplication::translate("Presets", "写「%1」写到一半出错了：%2").arg(path, file.errorString());
         file.cancelWriting();
         return false;
     }
     if (!file.commit()) {
-        *problem = applyText("「%1」替换失败：%2").arg(path, file.errorString());
+        *problem = QCoreApplication::translate("Presets", "「%1」替换失败：%2").arg(path, file.errorString());
         return false;
     }
     return true;
@@ -117,12 +117,12 @@ bool backupOne(const QString &instanceRoot, const QString &backupDir, const QStr
     const QString target = backupDir + QLatin1Char('/') + relative;
     const QString parent = QFileInfo(target).absolutePath();
     if (!QDir().mkpath(parent)) {
-        *problem = applyText("建不了备份目录「%1」。").arg(parent);
+        *problem = QCoreApplication::translate("Presets", "建不了备份目录「%1」。").arg(parent);
         return false;
     }
     QString copyProblem;
     if (!copyTreeWithoutFollowingLinks(source, target, {}, &copyProblem)) {
-        *problem = applyText("备份「%1」失败，本次未写入任何内容：%2").arg(relative, copyProblem);
+        *problem = QCoreApplication::translate("Presets", "备份「%1」失败，本次未写入任何内容：%2").arg(relative, copyProblem);
         return false;
     }
     return true;
@@ -131,19 +131,19 @@ bool backupOne(const QString &instanceRoot, const QString &backupDir, const QStr
 QString fallbackSectionTitle(SectionKind kind) {
     switch (kind) {
     case SectionKind::VanillaOptions:
-        return applyText("游戏设置");
+        return QCoreApplication::translate("Presets", "游戏设置");
     case SectionKind::VanillaKeys:
-        return applyText("原版按键");
+        return QCoreApplication::translate("Presets", "原版按键");
     case SectionKind::ServerList:
-        return applyText("服务器列表");
+        return QCoreApplication::translate("Presets", "服务器列表");
     case SectionKind::MalilibKeys:
-        return applyText("MaLiLib 热键");
+        return QCoreApplication::translate("Presets", "MaLiLib 热键");
     case SectionKind::GenericFiles:
-        return applyText("配置文件");
+        return QCoreApplication::translate("Presets", "配置文件");
     case SectionKind::Custom:
         break;
     }
-    return applyText("未知内容");
+    return QCoreApplication::translate("Presets", "未知内容");
 }
 
 PresetApplyRow rowFromPlan(const ApplyPlanRow &planRow) {
@@ -173,7 +173,7 @@ TargetSnapshot readTargetSnapshot(const QString &instanceRoot, QString *problemO
     snapshot.instanceRoot = instanceRoot;
     if (instanceRoot.trimmed().isEmpty()) {
         if (problemOut != nullptr) {
-            *problemOut = applyText("没有指定目标实例。");
+            *problemOut = QCoreApplication::translate("Presets", "没有指定目标实例。");
         }
         return snapshot;
     }
@@ -184,7 +184,7 @@ TargetSnapshot readTargetSnapshot(const QString &instanceRoot, QString *problemO
     if (optionsInfo.exists()) {
         if (!optionsInfo.isFile()) {
             if (problemOut != nullptr) {
-                *problemOut = applyText("「%1」不是一份普通文件，不敢拿预设去改它。")
+                *problemOut = QCoreApplication::translate("Presets", "「%1」不是一份普通文件，不敢拿预设去改它。")
                                   .arg(optionsPath);
             }
             return snapshot;
@@ -245,12 +245,12 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
     const auto finish = [&]() { checkpoint(true); return result; };
 
     if (!isValidPresetId(manifest.id)) {
-        result.problem = applyText("这份预设的 id 不合法，没法应用。");
+        result.problem = QCoreApplication::translate("Presets", "这份预设的 id 不合法，没法应用。");
         return finish();
     }
     if (request.instanceRoot.trimmed().isEmpty() ||
         !QFileInfo(request.instanceRoot).isDir()) {
-        result.problem = applyText("这个实例的目录不在，没法把预设落到它上面。");
+        result.problem = QCoreApplication::translate("Presets", "这个实例的目录不在，没法把预设落到它上面。");
         return finish();
     }
 
@@ -270,7 +270,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
         for (int i = manifest.sections.size() - 1; i >= 0; --i)
             if (done.contains(manifest.sections[i].id)) manifest.sections.removeAt(i);
         if (manifest.sections.isEmpty()) {
-            result.ok = true; result.details.append(applyText("没有未完成的预设段；待应用数据包仍等待目标世界。"));
+            result.ok = true; result.details.append(QCoreApplication::translate("Presets", "没有未完成的预设段；待应用数据包仍等待目标世界。"));
             return finish();
         }
     }
@@ -553,7 +553,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
             const OptionsFile source = optionsFromSections({section}, &readable);
             if (!readable) {
                 row.blocked = true;
-                row.problem = applyText("这一段读不回来（载荷不是这一层认得的那样），这一趟不动它。");
+                row.problem = QCoreApplication::translate("Presets", "这一段读不回来（载荷不是这一层认得的那样），这一趟不动它。");
                 result.rows.append(row); checkpoint(false);
                 continue;
             }
@@ -580,7 +580,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
             row.removed = applied.report.removed;
             row.skippedItems = applied.report.skipped;
             for (const OptionsConflict &conflict : applied.report.conflicts) {
-                row.details.append(applyText("按键「%1」被 %2 个动作抢着用。")
+                row.details.append(QCoreApplication::translate("Presets", "按键「%1」被 %2 个动作抢着用。")
                                        .arg(conflict.binding)
                                        .arg(conflict.claimedBy()));
             }
@@ -607,7 +607,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
             row.removed = applied.removed;
             row.skippedItems = applied.skipped;
             if (applied.skipped > 0) {
-                row.details.append(applyText("这几台已经在列表里了：%1")
+                row.details.append(QCoreApplication::translate("Presets", "这几台已经在列表里了：%1")
                                        .arg(applied.skippedAddresses.join(QStringLiteral("、"))));
             }
             result.rows.append(row); checkpoint(false);
@@ -627,14 +627,14 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
             if (!fileGroupFromSectionId(section.id, &group)) {
                 if (items.isEmpty()) {
                     row.blocked = true;
-                    row.problem = applyText("认不出这一段是哪一组文件，这一趟不动它。");
+                    row.problem = QCoreApplication::translate("Presets", "认不出这一段是哪一组文件，这一趟不动它。");
                     result.rows.append(row); checkpoint(false);
                     continue;
                 }
                 // 路径自己说了算（`fileGroupOfPath()` 已经有那一口；这里按第一项推）。
                 if (!fileGroupOfPath(items.at(0).relativePath, &group)) {
                     row.blocked = true;
-                    row.problem = applyText("这一段里的路径不属于那四个文件组，这一趟不动它。");
+                    row.problem = QCoreApplication::translate("Presets", "这一段里的路径不属于那四个文件组，这一趟不动它。");
                     result.rows.append(row); checkpoint(false);
                     continue;
                 }
@@ -653,7 +653,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
                 row.details.append(one);
             }
             if (applied.needsChoice > 0) {
-                row.details.append(applyText("这一档下这一组里有 %1 项做不了主，没有动。")
+                row.details.append(QCoreApplication::translate("Presets", "这一档下这一组里有 %1 项做不了主，没有动。")
                                        .arg(applied.needsChoice));
             }
             if (applied.ok && group == FileGroup::ResourcePacks &&
@@ -667,7 +667,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
 
         if (dataPackHandlesSection(section)) {
             if (row.title.isEmpty()) {
-                row.title = applyText("数据包");
+                row.title = QCoreApplication::translate("Presets", "数据包");
             }
             if (!request.supportsDataPacks) {
                 row.blocked = true;
@@ -717,7 +717,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
             row.skippedItems = applied.skipped;
             row.details.append(applied.details);
             if (applied.typeMismatch > 0) {
-                row.details.append(applyText("有 %1 格因为类型对不上被拒绝转换。")
+                row.details.append(QCoreApplication::translate("Presets", "有 %1 格因为类型对不上被拒绝转换。")
                                        .arg(applied.typeMismatch));
             }
             result.rows.append(row); checkpoint(false);
@@ -725,7 +725,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
         }
 
         row.blocked = true;
-        row.problem = applyText("这一段没有任何适配器接手，这一趟不动它。");
+        row.problem = QCoreApplication::translate("Presets", "这一段没有任何适配器接手，这一趟不动它。");
         result.rows.append(row); checkpoint(false);
     }
 
@@ -780,7 +780,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
                 row.ok = false;
                 row.blocked = true;
                 row.problem = order.problem.isEmpty()
-                                  ? applyText("资源包的启用顺序没有写进去。")
+                                  ? QCoreApplication::translate("Presets", "资源包的启用顺序没有写进去。")
                                   : order.problem;
             }
         }

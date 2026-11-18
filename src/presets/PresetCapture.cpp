@@ -32,7 +32,7 @@ namespace Presets {
 
 namespace {
 
-QString captureText(const char *source) { return QCoreApplication::translate("Presets", source); }
+[[maybe_unused]] QString captureText(const char *source) { return QCoreApplication::translate("Presets", source); }
 
 /// `options.txt` 的这个上限只是"别整块读进内存"的闸：真机上它是几十 KB。超过这个数
 /// 我们不去猜它是不是坏文件，直接报给用户（宁可不收，也不收一半）。
@@ -42,12 +42,12 @@ constexpr qint64 kOptionsMaxBytes = 32LL * 1024 * 1024;
 bool readWholeFile(const QString &path, QByteArray *out, QString *problem) {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
-        *problem = captureText("读不动「%1」：%2").arg(path, file.errorString());
+        *problem = QCoreApplication::translate("Presets", "读不动「%1」：%2").arg(path, file.errorString());
         return false;
     }
     *out = file.readAll();
     if (file.error() != QFileDevice::NoError) {
-        *problem = captureText("读「%1」读到一半出错了：%2").arg(path, file.errorString());
+        *problem = QCoreApplication::translate("Presets", "读「%1」读到一半出错了：%2").arg(path, file.errorString());
         return false;
     }
     return true;
@@ -56,13 +56,13 @@ bool readWholeFile(const QString &path, QByteArray *out, QString *problem) {
 QString groupDisplayName(FileGroup group) {
     switch (group) {
     case FileGroup::Config:
-        return captureText("配置文件（config/）");
+        return QCoreApplication::translate("Presets", "配置文件（config/）");
     case FileGroup::DefaultConfigs:
-        return captureText("默认配置（defaultconfigs/）");
+        return QCoreApplication::translate("Presets", "默认配置（defaultconfigs/）");
     case FileGroup::ResourcePacks:
-        return captureText("资源包（resourcepacks/）");
+        return QCoreApplication::translate("Presets", "资源包（resourcepacks/）");
     case FileGroup::ShaderPacks:
-        return captureText("光影包（shaderpacks/）");
+        return QCoreApplication::translate("Presets", "光影包（shaderpacks/）");
     }
     return QString();
 }
@@ -74,16 +74,16 @@ bool captureFileGroup(const CaptureRequest &request, FileGroup group,
     QStringList refused;
     QString why;
     if (!scanFileGroup(request.instanceRoot, group, &items, &refused, &why)) {
-        report->problems.append(captureText("%1 读不了：%2")
+        report->problems.append(QCoreApplication::translate("Presets", "%1 读不了：%2")
                                     .arg(groupDisplayName(group), why));
         return false;
     }
     for (const QString &one : refused) {
-        report->problems.append(captureText("%1 里有东西没收：%2")
+        report->problems.append(QCoreApplication::translate("Presets", "%1 里有东西没收：%2")
                                     .arg(groupDisplayName(group), one));
     }
     if (items.isEmpty()) {
-        report->notes.append(captureText("%1 里是空的。").arg(groupDisplayName(group)));
+        report->notes.append(QCoreApplication::translate("Presets", "%1 里是空的。").arg(groupDisplayName(group)));
         return false;
     }
 
@@ -93,7 +93,7 @@ bool captureFileGroup(const CaptureRequest &request, FileGroup group,
     const GenericReport extracted =
         extractFileGroup(request.instanceRoot, request.presetFilesRoot, group);
     if (!extracted.ok) {
-        report->problems.append(captureText("%1 没收成：%2")
+        report->problems.append(QCoreApplication::translate("Presets", "%1 没收成：%2")
                                     .arg(groupDisplayName(group), extracted.problem));
         return false;
     }
@@ -102,7 +102,7 @@ bool captureFileGroup(const CaptureRequest &request, FileGroup group,
     QString sectionWhy;
     if (!sectionsFromFileGroup(group, items, ApplyMode::CopyIfMissing, &made,
                                              &sectionWhy)) {
-        report->problems.append(captureText("%1 没收成：%2")
+        report->problems.append(QCoreApplication::translate("Presets", "%1 没收成：%2")
                                     .arg(groupDisplayName(group), sectionWhy));
         return false;
     }
@@ -131,11 +131,11 @@ CaptureReport captureFromInstance(const CaptureRequest &request) {
 
     if (request.instanceRoot.trimmed().isEmpty() ||
         !QFileInfo(request.instanceRoot).isDir()) {
-        report.problem = captureText("这个实例的目录不在，没法从它收预设。");
+        report.problem = QCoreApplication::translate("Presets", "这个实例的目录不在，没法从它收预设。");
         return report;
     }
     if (request.presetFilesRoot.trimmed().isEmpty()) {
-        report.problem = captureText("没有指定这份预设的 files 目录。");
+        report.problem = QCoreApplication::translate("Presets", "没有指定这份预设的 files 目录。");
         return report;
     }
     // 这一趟会往预设库里那一份的 `files/` 底下写东西（下面第一件事就是建目录）。
@@ -149,14 +149,14 @@ CaptureReport captureFromInstance(const CaptureRequest &request) {
         }
     }
     if (!QDir().mkpath(request.presetFilesRoot)) {
-        report.problem = captureText("建不了预设的文件目录：%1").arg(request.presetFilesRoot);
+        report.problem = QCoreApplication::translate("Presets", "建不了预设的文件目录：%1").arg(request.presetFilesRoot);
         return report;
     }
     if (request.selection.isEmpty()) {
         // 一样都没勾：这是一趟"什么都不做"，不是失败。调用方不该把这一趟当成"收成了
         // 一份空预设"存下去 —— 空段表和"一份新预设"在界面上是两件事。
         report.ok = true;
-        report.notes.append(captureText("这一趟没有勾任何内容。"));
+        report.notes.append(QCoreApplication::translate("Presets", "这一趟没有勾任何内容。"));
         return report;
     }
 
@@ -170,7 +170,7 @@ CaptureReport captureFromInstance(const CaptureRequest &request) {
             report.notes.append(captureText("实例里还没有 options.txt（游戏还没跑过），"
                                             "游戏设置和按键这一趟没有可收的。"));
         } else if (!info.isFile()) {
-            report.problems.append(captureText("「%1」不是一份普通文件，这一趟没收游戏设置。")
+            report.problems.append(QCoreApplication::translate("Presets", "「%1」不是一份普通文件，这一趟没收游戏设置。")
                                        .arg(path));
         } else if (info.size() > kOptionsMaxBytes) {
             report.problems.append(captureText("「%1」大到不像是 options.txt（%2 字节），"
@@ -203,10 +203,10 @@ CaptureReport captureFromInstance(const CaptureRequest &request) {
                     report.sections.append(section);
                 }
                 if (report.optionKeys == 0 && request.selection.vanillaOptions) {
-                    report.notes.append(captureText("options.txt 里没有可收的游戏设置。"));
+                    report.notes.append(QCoreApplication::translate("Presets", "options.txt 里没有可收的游戏设置。"));
                 }
                 if (report.keybindings == 0 && request.selection.vanillaKeys) {
-                    report.notes.append(captureText("options.txt 里没有可收的按键。"));
+                    report.notes.append(QCoreApplication::translate("Presets", "options.txt 里没有可收的按键。"));
                 }
             }
         }
@@ -221,13 +221,13 @@ CaptureReport captureFromInstance(const CaptureRequest &request) {
         QString why;
         const NbtUtil::Status status = ServerListFile::read(path, &entries, &why);
         if (status == NbtUtil::Status::Missing) {
-            report.notes.append(captureText("实例里还没有服务器列表（servers.dat）。"));
+            report.notes.append(QCoreApplication::translate("Presets", "实例里还没有服务器列表（servers.dat）。"));
         } else if (status == NbtUtil::Status::Unreadable) {
-            report.problems.append(captureText("服务器列表读不动：%1").arg(why));
+            report.problems.append(QCoreApplication::translate("Presets", "服务器列表读不动：%1").arg(why));
         } else if (entries.isEmpty()) {
             // 盘上有一份好好的、但一条都没有 —— 收一段空段下来没有意义（应用"追加 0 条"
             // 什么都不做）。这是"这一样是空的"，不是错误。
-            report.notes.append(captureText("服务器列表里一条都没有。"));
+            report.notes.append(QCoreApplication::translate("Presets", "服务器列表里一条都没有。"));
         } else {
             report.sections.append(sectionsFromServerList(entries, ApplyMode::Append));
             report.servers += static_cast<int>(entries.size());
@@ -251,12 +251,12 @@ CaptureReport captureFromInstance(const CaptureRequest &request) {
             const ResourcePackOrderState state = readResourcePackOrderState(request.instanceRoot);
             PresetSection &section = report.sections[before];
             if (!state.problem.isEmpty()) {
-                report.problems.append(captureText("资源包的启用顺序没读到：%1").arg(state.problem));
+                report.problems.append(QCoreApplication::translate("Presets", "资源包的启用顺序没读到：%1").arg(state.problem));
             } else if (!state.hasList) {
                 report.notes.append(captureText("实例的 options.txt 里还没有资源包列表，"
                                                 "这一份只收文件、不带启用状态。"));
             } else if (annotateResourcePackSection(section, state)) {
-                report.notes.append(captureText("资源包的启用顺序也收进来了（%1 个开着）。")
+                report.notes.append(QCoreApplication::translate("Presets", "资源包的启用顺序也收进来了（%1 个开着）。")
                                         .arg(state.enabledOrder.size()));
             }
         }
@@ -279,7 +279,7 @@ CaptureReport captureFromInstance(const CaptureRequest &request) {
         extract.mode = ApplyMode::Merge;
         const MalilibExtractReport malilib = extractMalilibSections(extract);
         if (!malilib.ok) {
-            report.problems.append(captureText("MaLiLib 那一族没收成：%1").arg(malilib.problem));
+            report.problems.append(QCoreApplication::translate("Presets", "MaLiLib 那一族没收成：%1").arg(malilib.problem));
         } else {
             report.sections.append(malilib.sections);
             report.malilibFiles += malilib.files;
@@ -287,7 +287,7 @@ CaptureReport captureFromInstance(const CaptureRequest &request) {
             report.malilibValues += malilib.values;
             report.problems.append(malilib.skipped);
             if (malilib.files == 0) {
-                report.notes.append(captureText("config/ 底下没认出 MaLiLib 那一族配置。"));
+                report.notes.append(QCoreApplication::translate("Presets", "config/ 底下没认出 MaLiLib 那一族配置。"));
             }
         }
     }
@@ -299,7 +299,7 @@ CaptureReport captureFromInstance(const CaptureRequest &request) {
         const DataPackCaptureReport packs =
             captureDataPacks(request.instanceRoot, request.presetFilesRoot);
         if (!packs.ok) {
-            report.problems.append(captureText("数据包没收成：%1").arg(packs.problem));
+            report.problems.append(QCoreApplication::translate("Presets", "数据包没收成：%1").arg(packs.problem));
         } else {
             report.sections.append(packs.sections);
             report.dataPackItems += packs.packs;
@@ -314,7 +314,7 @@ CaptureReport captureFromInstance(const CaptureRequest &request) {
     // ------------------------------------------------------------------
     if (report.sections.isEmpty()) {
         report.problem = report.problems.isEmpty()
-                             ? captureText("勾了的那几样都没有收到东西，这一趟没有可存的内容。")
+                             ? QCoreApplication::translate("Presets", "勾了的那几样都没有收到东西，这一趟没有可存的内容。")
                              : report.problems.first();
         return report;
     }

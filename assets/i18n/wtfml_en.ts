@@ -13223,6 +13223,1058 @@ It will not restart automatically when stopped manually or exited normally.</tra
             <source>「覆盖」会把目标上这一类的设置整个换成预设里那些，需要先确认过才动手。</source>
             <translation>"Overwrite" will replace all settings of this type on the target with those in the default, and you need to confirm them before proceeding.</translation>
         </message>
+        <message>
+            <source>「%1」不是一份普通文件，待应用清单读不出来。</source>
+            <translation>"%1" is not an ordinary file and cannot be read in the pending application list.</translation>
+        </message>
+        <message>
+            <source>读不动待应用清单「%1」：%2</source>
+            <translation>Unable to read pending application list "%1": %2</translation>
+        </message>
+        <message>
+            <source>读待应用清单「%1」读到一半出错了：%2</source>
+            <translation>An error occurred while reading the pending application list "%1": %2</translation>
+        </message>
+        <message>
+            <source>待应用清单「%1」不是一份能读的 JSON，这一趟没有动它。</source>
+            <translation>The pending application list "%1" is not a readable JSON, so it was not touched this time.</translation>
+        </message>
+        <message>
+            <source>待应用清单「%1」的格式不是这一版认得的那样，这一趟没有动它。</source>
+            <translation>The format of the pending application list "%1" is not what this version recognizes, so it was not touched this time.</translation>
+        </message>
+        <message>
+            <source>待应用清单「%1」里的 `worlds` 不是数组，这一趟没有动它。</source>
+            <translation>The `worlds` in the pending application list "%1" is not an array, so it is not touched this time.</translation>
+        </message>
+        <message>
+            <source>写不动待应用清单「%1」：%2</source>
+            <translation>Unable to write pending application list "%1": %2</translation>
+        </message>
+        <message>
+            <source>写待应用清单「%1」写到一半出错了：%2</source>
+            <translation>An error occurred while writing the list of pending applications "%1": %2</translation>
+        </message>
+        <message>
+            <source>待应用清单「%1」替换失败：%2</source>
+            <translation>To-be-applied list "%1" replacement failed: %2</translation>
+        </message>
+        <message>
+            <source>「%1」是一根链接，没有动它。</source>
+            <translation>"%1" is a link and has not been touched.</translation>
+        </message>
+        <message>
+            <source>删不掉「%1」。</source>
+            <translation>"%1" cannot be deleted.</translation>
+        </message>
+        <message>
+            <source>删不掉目录「%1」。</source>
+            <translation>The directory "%1" cannot be deleted.</translation>
+        </message>
+        <message>
+            <source>登记文件本身是一根链接</source>
+            <translation>The registration document itself is a link</translation>
+        </message>
+        <message>
+            <source>写不下换包登记「%1」：%2</source>
+            <translation>Unable to write package replacement registration "%1": %2</translation>
+        </message>
+        <message>
+            <source>写换包登记「%1」写到一半出错了：%2</source>
+            <translation>When writing the package replacement registration "%1", an error occurred halfway through writing: %2</translation>
+        </message>
+        <message>
+            <source>换包登记「%1」替换失败：%2</source>
+            <translation>Package replacement registration "%1" replacement failed: %2</translation>
+        </message>
+        <message>
+            <source>登记文件读不动</source>
+            <translation>Registration file cannot be read</translation>
+        </message>
+        <message>
+            <source>登记文件读到一半出错</source>
+            <translation>An error occurred while reading the registration file halfway.</translation>
+        </message>
+        <message>
+            <source>登记文件不是能读的 JSON</source>
+            <translation>Registration file is not readable JSON</translation>
+        </message>
+        <message>
+            <source>登记的格式不是这一版认得的</source>
+            <translation>The registration format is not recognized by this edition.</translation>
+        </message>
+        <message>
+            <source>登记点名的那一项是一根链接</source>
+            <translation>The item for registering the roll call is a link</translation>
+        </message>
+        <message>
+            <source>登记里的名字或状态对不上</source>
+            <translation>The name or status in the registration does not match</translation>
+        </message>
+        <message>
+            <source>原件放不回原位</source>
+            <translation>The original cannot be put back to its original place</translation>
+        </message>
+        <message>
+            <source>目标和旧内容同时都在或同时都不在</source>
+            <translation>Both the target and the old content are present at the same time or neither is present at the same time</translation>
+        </message>
+        <message>
+            <source>目标和旧内容的实际状态与登记不符</source>
+            <translation>The actual status of the target and old content does not match the registration</translation>
+        </message>
+        <message>
+            <source>目标和暂存的实际状态与登记不符</source>
+            <translation>The actual status of the target and staging does not match the registration</translation>
+        </message>
+        <message>
+            <source>登记里的目标名不能当目录名</source>
+            <translation>The target name in the registration cannot be used as the directory name</translation>
+        </message>
+        <message>
+            <source>登记文件名与它自称的目标对不上</source>
+            <translation>The registered file name does not match its purported target.</translation>
+        </message>
+        <message>
+            <source>建不了目录「%1」。</source>
+            <translation>The directory "%1" cannot be created.</translation>
+        </message>
+        <message>
+            <source>拷不进去「%1」：%2</source>
+            <translation>Unable to copy "%1": %2</translation>
+        </message>
+        <message>
+            <source>换不掉目标上已有的「%1」（它可能正被占用）。</source>
+            <translation>The existing "%1" on the target cannot be replaced (it may be occupied).</translation>
+        </message>
+        <message>
+            <source>换包登记写不下去，这一趟没有换「%1」：%2</source>
+            <translation>I can’t write the package replacement registration. There is no replacement “%1” this time: %2</translation>
+        </message>
+        <message>
+            <source>发布失败，原内容未能归位，仍完整保留在：%1</source>
+            <translation>Publishing failed, the original content could not be returned and is still intact at: %1</translation>
+        </message>
+        <message>
+            <source>发布失败，新内容仍完整保留在暂存里：%1</source>
+            <translation>Publish failed, new content is still intact in the temporary cache: %1</translation>
+        </message>
+        <message>
+            <source>这一段不是数据包那一段。</source>
+            <translation>This section is not the section of the data packet.</translation>
+        </message>
+        <message>
+            <source>数据包这一段里有不是对象的一项。</source>
+            <translation>There is an item in this section of the data packet that is not an object.</translation>
+        </message>
+        <message>
+            <source>「%1」不是 saves/&lt;世界&gt;/datapacks/&lt;包&gt; 这种路径。</source>
+            <translation>"%1" is not a path like saves/&lt;world&gt;/datapacks/&lt;package&gt;.</translation>
+        </message>
+        <message>
+            <source>「%1」的世界名和它自己的路径对不上。</source>
+            <translation>The world name of "%1" does not match its own path.</translation>
+        </message>
+        <message>
+            <source>数据包</source>
+            <translation>Packet</translation>
+        </message>
+        <message>
+            <source>这个实例的目录不在，没法收数据包。</source>
+            <translation>The directory of this instance is not there and the data packet cannot be received.</translation>
+        </message>
+        <message>
+            <source>没有指定这份预设的 files 目录。</source>
+            <translation>No default files directory was specified.</translation>
+        </message>
+        <message>
+            <source>这个实例还没有存档（saves/），数据包这一趟没有可收的。</source>
+            <translation>This instance has not been archived (saves/), and there are no data packets to receive this time.</translation>
+        </message>
+        <message>
+            <source>「%1」是一根链接，没有跟着它走。</source>
+            <translation>"%1" is a link and is not followed.</translation>
+        </message>
+        <message>
+            <source>「%1」不是一个目录，没有扫它。</source>
+            <translation>"%1" is not a directory and has not been scanned.</translation>
+        </message>
+        <message>
+            <source>存档「%1」是一根链接，没有跟着它走。</source>
+            <translation>The archive "%1" is a link and is not followed.</translation>
+        </message>
+        <message>
+            <source>存档名「%1」不能当目录名，这一趟没有碰它。</source>
+            <translation>The archive name "%1" cannot be used as a directory name, so I didn't touch it this time.</translation>
+        </message>
+        <message>
+            <source>存档「%1」的 datapacks/ 是一根链接，没有动它。</source>
+            <translation>The datapacks/ of the archive "%1" is a link and has not been touched.</translation>
+        </message>
+        <message>
+            <source>存档「%1」的 datapacks 不是一个目录，没有动它。</source>
+            <translation>The datapacks of the archive "%1" are not a directory and have not been touched.</translation>
+        </message>
+        <message>
+            <source>「%1」里的「%2」是一根链接，没有收它。</source>
+            <translation>The "%2" in "%1" is a link and has not been closed.</translation>
+        </message>
+        <message>
+            <source>「%1」里有一项名字不能当文件名（%2），没有收它。</source>
+            <translation>There is a name in "%1" that cannot be used as a file name (%2), so it is not accepted.</translation>
+        </message>
+        <message>
+            <source>「%1」没收进来：%2</source>
+            <translation>"%1" was confiscated: %2</translation>
+        </message>
+        <message>
+            <source>存档里的 datapacks/ 都是空的。</source>
+            <translation>Datapacks/ in the archive are all empty.</translation>
+        </message>
+        <message>
+            <source>saves/ 底下没有哪个存档带 datapacks/。</source>
+            <translation>There are no archives under saves/ with datapacks/.</translation>
+        </message>
+        <message>
+            <source>收了 %1 个存档里的 %2 个数据包。</source>
+            <translation>Received %2 packets from %1 archives.</translation>
+        </message>
+        <message>
+            <source>没有指定目标实例，算不出数据包这一趟要做什么。</source>
+            <translation>Without specifying a target instance, there is no way to figure out what the packet is doing on this trip.</translation>
+        </message>
+        <message>
+            <source>预设里的数据包项「%1」形状不对。</source>
+            <translation>The packet item "%1" in the default shape is wrong.</translation>
+        </message>
+        <message>
+            <source>目标上的存档「%1」是一根链接（或者 `saves/` 这一层是），没有往里写。</source>
+            <translation>The archive "%1" on the target is a link (or `saves/` at this level) and is not written into it.</translation>
+        </message>
+        <message>
+            <source>目标上的「saves/%1」不是个目录，没有往里写。</source>
+            <translation>"saves/%1" on the target is not a directory, and nothing is written into it.</translation>
+        </message>
+        <message>
+            <source>目标实例的目录不在，没法把数据包落下去。</source>
+            <translation>The directory of the target instance is not there and the data packet cannot be dropped.</translation>
+        </message>
+        <message>
+            <source>没有给出预设那一侧的文件根（files/），拷不到数据包。</source>
+            <translation>The file root (files/) on the default side is not given, and the data package cannot be copied.</translation>
+        </message>
+        <message>
+            <source>「覆盖」还没有确认过，这一趟没有动数据包。</source>
+            <translation>The "coverage" has not been confirmed yet, and no data packets have been touched this time.</translation>
+        </message>
+        <message>
+            <source>预设里那一份「%1」不在（files/ 底下找不到）。</source>
+            <translation>The default copy "%1" is not there (cannot be found under files/).</translation>
+        </message>
+        <message>
+            <source>预设里那一份「%1」是一根链接，没有跟着它走。</source>
+            <translation>By default, the "%1" is a link and is not followed.</translation>
+        </message>
+        <message>
+            <source>预设里「%1」的路上有一层是链接，没有跟着它走。</source>
+            <translation>By default, there is a link on the road to "%1", so I don't follow it.</translation>
+        </message>
+        <message>
+            <source>目标上的「%1」是一根链接，没有动它。</source>
+            <translation>The "%1" on the target is a link and has not been touched.</translation>
+        </message>
+        <message>
+            <source>目标上的「%1」是一根链接（或者它上面一层是），没有往里写。</source>
+            <translation>The "%1" on the target is a link (or one layer above it) and is not written inside.</translation>
+        </message>
+        <message>
+            <source>目标上已经有 %1 个同名数据包，这一档没有动它们。</source>
+            <translation>There are already %1 packets with the same name on the target, and they are not touched by this file.</translation>
+        </message>
+        <message>
+            <source>读不了「%1」：%2</source>
+            <translation>Unable to read "%1": %2</translation>
+        </message>
+        <message>
+            <source>写不进「%1」：%2</source>
+            <translation>Unable to write "%1": %2</translation>
+        </message>
+        <message>
+            <source>读「%1」读到一半出错了：%2</source>
+            <translation>An error occurred while reading "%1": %2</translation>
+        </message>
+        <message>
+            <source>写「%1」写到一半出错了：%2</source>
+            <translation>I made an error halfway through writing "%1": %2</translation>
+        </message>
+        <message>
+            <source>换掉「%1」失败了：%2</source>
+            <translation>Failed to replace "%1": %2</translation>
+        </message>
+        <message>
+            <source>「%1」里夹着一根链接（%2），没有跟着它走。</source>
+            <translation>There is a link (%2) in "%1", but I didn't follow it.</translation>
+        </message>
+        <message>
+            <source>「%1」落到这一组目录外面去了（链接？），没有动它。</source>
+            <translation>"%1" fell outside this group of directories (link?) and was not touched.</translation>
+        </message>
+        <message>
+            <source>要写进去的「%1」在这一组目录外面，没有动它。</source>
+            <translation>The "%1" to be written is outside this group of directories and has not been touched.</translation>
+        </message>
+        <message>
+            <source>建不出目录「%1」，没有接着拷。</source>
+            <translation>The directory "%1" cannot be created and the copy is not continued.</translation>
+        </message>
+        <message>
+            <source>「%1」是一根链接（符号链接 / junction），没有跟着它走。</source>
+            <translation>"%1" is a link (symbolic link/junction) and is not followed.</translation>
+        </message>
+        <message>
+            <source>目标上的「%1」是一根链接，没有往它里面写。</source>
+            <translation>The "%1" on the target is a link and is not written into it.</translation>
+        </message>
+        <message>
+            <source>「%1」不在了（预设里说有这一项）。</source>
+            <translation>"%1" is no longer available (it is said to be present by default).</translation>
+        </message>
+        <message>
+            <source>建不出「%1」那一层目录，没有接着拷。</source>
+            <translation>The directory level "%1" cannot be created, and the copy is not continued.</translation>
+        </message>
+        <message>
+            <source>这一项的路径是空的。</source>
+            <translation>The path for this item is empty.</translation>
+        </message>
+        <message>
+            <source>「%1」不是一条相对路径。</source>
+            <translation>"%1" is not a relative path.</translation>
+        </message>
+        <message>
+            <source>「%1」里那一段「%2」不能这么叫：%3</source>
+            <translation>The paragraph "%2" in "%1" cannot be called this: %3</translation>
+        </message>
+        <message>
+            <source>没有指定要扫哪个目录。</source>
+            <translation>There is no specified directory to scan.</translation>
+        </message>
+        <message>
+            <source>「%1」是一根链接（符号链接 / junction），没有扫它。</source>
+            <translation>"%1" is a link (symbolic link/junction), and it was not scanned.</translation>
+        </message>
+        <message>
+            <source>「%1」那个位置上不是个目录，没有扫它。</source>
+            <translation>"%1" is not a directory, so I didn't scan it.</translation>
+        </message>
+        <message>
+            <source>：是一根链接（符号链接 / junction），没有跟着它走。</source>
+            <translation>: It is a link (symbolic link/junction) and is not followed.</translation>
+        </message>
+        <message>
+            <source>覆盖</source>
+            <translation>Cover</translation>
+        </message>
+        <message>
+            <source>缺了才拷</source>
+            <translation>Only copy if missing</translation>
+        </message>
+        <message>
+            <source>跳过</source>
+            <translation>Jump over</translation>
+        </message>
+        <message>
+            <source>要你选</source>
+            <translation>I want you to choose</translation>
+        </message>
+        <message>
+            <source>这一段里有一项的路径不能用（%1），整段都没有动。</source>
+            <translation>One path in this section cannot be used (%1), and the entire section is not moved.</translation>
+        </message>
+        <message>
+            <source>同名的那一份换成预设里的（目标上多出来的文件不动）。</source>
+            <translation>The copy with the same name is replaced with the one in the default (extra files on the target remain unchanged).</translation>
+        </message>
+        <message>
+            <source>「%1」不属于这一层管的任何一个目录，整段都没有动。</source>
+            <translation>"%1" does not belong to any directory in this layer of management, and the entire section has not been moved.</translation>
+        </message>
+        <message>
+            <source>目标上已经有这一份了。</source>
+            <translation>The target already has this share.</translation>
+        </message>
+        <message>
+            <source>目标上缺的那几份拷进去（已经有的一个都不动）。</source>
+            <translation>Copy in the missing copies of the target (don't touch any of the existing ones).</translation>
+        </message>
+        <message>
+            <source>这一趟不动。</source>
+            <translation>Not moving this time.</translation>
+        </message>
+        <message>
+            <source>这一项只有复制和覆盖两种做法（我们认不出它的结构）。</source>
+            <translation>There are only two ways to copy and overwrite this item (we don't recognize its structure).</translation>
+        </message>
+        <message>
+            <source>没有指定要落到哪个实例上。</source>
+            <translation>It is not specified which instance it falls on.</translation>
+        </message>
+        <message>
+            <source>没有指定要把这一组收到哪儿去。</source>
+            <translation>It was not specified where this group would be received.</translation>
+        </message>
+        <message>
+            <source>「%1」不属于这一组（%2）。</source>
+            <translation>"%1" does not belong to this group (%2).</translation>
+        </message>
+        <message>
+            <source>这一段不归通用文件组这一层管。</source>
+            <translation>This section is not managed by the general file group.</translation>
+        </message>
+        <message>
+            <source>通用文件组那一段里第 %1 项不是一个对象。</source>
+            <translation>Item %1 in the general file group section is not an object.</translation>
+        </message>
+        <message>
+            <source>通用文件组那一段里第 %1 项的路径不能用：%2</source>
+            <translation>The path of item %1 in the general file group section cannot be used: %2</translation>
+        </message>
+        <message>
+            <source>空值</source>
+            <translation>Null value</translation>
+        </message>
+        <message>
+            <source>开关</source>
+            <translation>Switch</translation>
+        </message>
+        <message>
+            <source>数字</source>
+            <translation>Number</translation>
+        </message>
+        <message>
+            <source>字符串</source>
+            <translation>String</translation>
+        </message>
+        <message>
+            <source>数组</source>
+            <translation>Array</translation>
+        </message>
+        <message>
+            <source>对象</source>
+            <translation>Object</translation>
+        </message>
+        <message>
+            <source>没有这一项</source>
+            <translation>There is no such item</translation>
+        </message>
+        <message>
+            <source>「%1」：目标上「%2」那一大格是个%3，不是一大格，这一格没动。</source>
+            <translation>"%1": The big square on the target "%2" is %3, not a big square, and this square is not moved.</translation>
+        </message>
+        <message>
+            <source>「%1」：这一项的载荷里没有值，跳过。</source>
+            <translation>"%1": There is no value in the payload of this item, so skip it.</translation>
+        </message>
+        <message>
+            <source>「%1」：目标上还没有这一项（模组版本不一样？），跳过。</source>
+            <translation>"%1": This item does not exist on the target (the module version is different?), skip it.</translation>
+        </message>
+        <message>
+            <source>「%1」：目标上是%2、预设里是%3 —— 类型对不上，这一项没动。</source>
+            <translation>"%1": The target is %2, and the default is %3 - the type does not match, so this item is not moved.</translation>
+        </message>
+        <message>
+            <source>这一份不是有效的 JSON（%1，第 %2 个字节那儿）。</source>
+            <translation>This one is not valid JSON (%1, byte %2 there).</translation>
+        </message>
+        <message>
+            <source>这一份的顶层不是一个对象 —— 不是 MaLiLib 那一族的样子。</source>
+            <translation>The top level of this one is not an object - not in the MaLiLib family.</translation>
+        </message>
+        <message>
+            <source>这一份不像 MaLiLib 那一族（没有一格热键），不认它。</source>
+            <translation>This one is not like the MaLiLib family (it doesn’t have a hotkey), so I don’t recognize it.</translation>
+        </message>
+        <message>
+            <source>模组名是空的。</source>
+            <translation>The module name is empty.</translation>
+        </message>
+        <message>
+            <source>这个模组名当不了文件名：%1</source>
+            <translation>This module name cannot be used as a file name: %1</translation>
+        </message>
+        <message>
+            <source>「%1」：%2</source>
+            <translation>「%1」：%2</translation>
+        </message>
+        <message>
+            <source>%1 的配置</source>
+            <translation>Configuration of %1</translation>
+        </message>
+        <message>
+            <source>%1 的热键</source>
+            <translation>Hotkeys for %1</translation>
+        </message>
+        <message>
+            <source>这一段（%1）不归 MaLiLib 这一层管。</source>
+            <translation>This section (%1) is not managed by MaLiLib.</translation>
+        </message>
+        <message>
+            <source>MaLiLib 那一段里第 %1 项不是一个对象。</source>
+            <translation>Item %1 in that section of MaLiLib is not an object.</translation>
+        </message>
+        <message>
+            <source>MaLiLib 那一段里第 %1 项的模组名不能用：%2</source>
+            <translation>The module name of item %1 in the section of MaLiLib cannot be used: %2</translation>
+        </message>
+        <message>
+            <source>MaLiLib 那一段里第 %1 项的 type（%2）认不出来。</source>
+            <translation>The type (%2) of item %1 in the section of MaLiLib cannot be recognized.</translation>
+        </message>
+        <message>
+            <source>MaLiLib 那一段里第 %1 项的 keys 不是一张表。</source>
+            <translation>The keys of item %1 in that section of MaLiLib are not a table.</translation>
+        </message>
+        <message>
+            <source>MaLiLib 那一段里第 %1 项的 extra 不是一格对象。</source>
+            <translation>The extra item %1 in that section of MaLiLib is not a grid object.</translation>
+        </message>
+        <message>
+            <source>没给实例目录，读不了目标上的配置。</source>
+            <translation>If the instance directory is not given, the configuration on the target cannot be read.</translation>
+        </message>
+        <message>
+            <source>「%1」这一条路上有链接目录（junction / 符号链接），不动它。</source>
+            <translation>There is a link directory (junction / symbolic link) on the path "%1", so don't touch it.</translation>
+        </message>
+        <message>
+            <source>「覆盖」会把目标上其余的热键整个解绑，需要先确认过才动手。</source>
+            <translation>"Overwrite" will completely unbind the rest of the hotkeys on the target and needs to be confirmed before proceeding.</translation>
+        </message>
+        <message>
+            <source>有一条没有模组名，整段跳过。</source>
+            <translation>There is a section without a module name, so the entire section is skipped.</translation>
+        </message>
+        <message>
+            <source>「%1」那一份没动：%2</source>
+            <translation>"%1" The portion remains untouched: %2</translation>
+        </message>
+        <message>
+            <source>「%1」：这一格这一趟没归上号，算没动。</source>
+            <translation>"%1": This square is not numbered this time, so it is not moved.</translation>
+        </message>
+        <message>
+            <source>「%1」这一条路上有链接目录（junction / 符号链接），没有写到那儿。</source>
+            <translation>There is a link directory (junction / symbolic link) on the path "%1", but it is not written there.</translation>
+        </message>
+        <message>
+            <source>建不了「%1」这个目录，写到这一份就停下了。</source>
+            <translation>The directory "%1" cannot be created and stops writing at this point.</translation>
+        </message>
+        <message>
+            <source>没给实例目录，收不了 MaLiLib 那一族。</source>
+            <translation>Without an instance directory, the MaLiLib family cannot be included.</translation>
+        </message>
+        <message>
+            <source>「%1」不在这一份实例里。</source>
+            <translation>"%1" is not included in this instance.</translation>
+        </message>
+        <message>
+            <source>「%1」这一份里没有可收的东西，跳过了。</source>
+            <translation>"%1" There is nothing to collect in this portion, so I skipped it.</translation>
+        </message>
+        <message>
+            <source>平台没有给出任何可用的版本。</source>
+            <translation>The platform does not give any available versions.</translation>
+        </message>
+        <message>
+            <source>这一版没有可下载的文件。</source>
+            <translation>There are no downloadable files for this version.</translation>
+        </message>
+        <message>
+            <source>这一版的文件没有下载地址。</source>
+            <translation>There is no download link for this version of the file.</translation>
+        </message>
+        <message>
+            <source>版本列表里没有能装进这个实例的发行版。</source>
+            <translation>There is no distribution in the version list that can fit this instance.</translation>
+        </message>
+        <message>
+            <source>版本列表里没有匹配「%1」的发行版。</source>
+            <translation>There is no release matching "%1" in the version list.</translation>
+        </message>
+        <message>
+            <source>前置链超过 %1 层，没有继续往下展开。</source>
+            <translation>The preceding chain exceeds the %1 level and does not continue to expand.</translation>
+        </message>
+        <message>
+            <source>这一条引用认不出来（平台或项目号是空的）。</source>
+            <translation>This reference is not recognized (the platform or project number is empty).</translation>
+        </message>
+        <message>
+            <source>已安装发行版不兼容目标游戏版本或加载器，未自动替换。</source>
+            <translation>The installed distribution is incompatible with the target game version or loader and was not automatically replaced.</translation>
+        </message>
+        <message>
+            <source>还没问到这一个必要前置的版本列表。</source>
+            <translation>I haven't asked about the list of necessary pre-installed versions yet.</translation>
+        </message>
+        <message>
+            <source>还没问到平台：这一条现在不能下。</source>
+            <translation>Haven't asked about the platform yet: This item cannot be downloaded now.</translation>
+        </message>
+        <message>
+            <source>还没轮到问平台。</source>
+            <translation>It’s not my turn to ask about the platform yet.</translation>
+        </message>
+        <message>
+            <source>问平台没成（网络或接口没有回答）。</source>
+            <translation>Asking the platform failed (the network or interface did not answer).</translation>
+        </message>
+        <message>
+            <source>本次替代：%1 → %2。</source>
+            <translation>This substitution: %1 → %2.</translation>
+        </message>
+        <message>
+            <source>按你确认换成了「%1」，见它在表上那一行。</source>
+            <translation>Press Confirm to change it to "%1" and see the row it is on the table.</translation>
+        </message>
+        <message>
+            <source>这一版声明和「%1」不兼容，没有把它排进这一趟。</source>
+            <translation>This version states that it is incompatible with "%1" and has not been included in this trip.</translation>
+        </message>
+        <message>
+            <source>「%1」和「%2」不能一起装。</source>
+            <translation>"%1" and "%2" cannot be installed together.</translation>
+        </message>
+        <message>
+            <source>必要前置缺少有效的项目 / 发行版身份，未允许安装。</source>
+            <translation>Required prerequisite is missing a valid project/release identity and is not allowed to be installed.</translation>
+        </message>
+        <message>
+            <source>必要前置只提供发行版 ID（%1），尚无法确认所属项目，未允许安装。</source>
+            <translation>The necessary prerequisite only provides the release ID (%1). The project cannot be confirmed yet and the installation is not allowed.</translation>
+        </message>
+        <message>
+            <source>「%1」存在互不相容的精确前置版本要求：%2。</source>
+            <translation>'%1' has incompatible exact pre-version requirements: %2.</translation>
+        </message>
+        <message>
+            <source>已安装「%1」，但发行版身份未知，无法确认所需版本 %2。</source>
+            <translation>'%1' is installed, but the distribution identity is unknown and the required version %2 cannot be confirmed.</translation>
+        </message>
+        <message>
+            <source>已安装「%1」的版本 %2，不满足所需版本 %3；需确认替换。</source>
+            <translation>Version %2 of "%1" has been installed, which does not meet the required version %3; confirmation of replacement is required.</translation>
+        </message>
+        <message>
+            <source>必要前置「%1」未解决：%2</source>
+            <translation>Required prefix "%1" is not resolved: %2</translation>
+        </message>
+        <message>
+            <source>精确前置约束循环变化，无法生成稳定计划；未允许安装。</source>
+            <translation>The precise forward constraints change cyclically and a stable plan cannot be generated; installation is not allowed.</translation>
+        </message>
+        <message>
+            <source>读不动刚下下来的文件「%1」：%2</source>
+            <translation>The file "%1" just downloaded cannot be read: %2</translation>
+        </message>
+        <message>
+            <source>大小对不上：期望 %1 字节，实际 %2 字节。</source>
+            <translation>Size mismatch: expected %1 bytes, actual %2 bytes.</translation>
+        </message>
+        <message>
+            <source>sha1 对不上：期望 %1，实际 %2。</source>
+            <translation>Sha1 does not match: expected %1, actual %2.</translation>
+        </message>
+        <message>
+            <source>平台没有给出这个文件的 sha1，只对过大小。</source>
+            <translation>The platform does not give the sha1 of this file, only the size.</translation>
+        </message>
+        <message>
+            <source>下载</source>
+            <translation>Download</translation>
+        </message>
+        <message>
+            <source>已经在实例里</source>
+            <translation>Already in the instance</translation>
+        </message>
+        <message>
+            <source>缺失</source>
+            <translation>Missing</translation>
+        </message>
+        <message>
+            <source>暂无法确认</source>
+            <translation>Unable to confirm yet</translation>
+        </message>
+        <message>
+            <source>不兼容</source>
+            <translation>Not compatible</translation>
+        </message>
+        <message>
+            <source>等你确认替代项目</source>
+            <translation>Waiting for your confirmation of alternative items</translation>
+        </message>
+        <message>
+            <source>做不了</source>
+            <translation>Can't do it</translation>
+        </message>
+        <message>
+            <source>下载 %1 个</source>
+            <translation>Download %1</translation>
+        </message>
+        <message>
+            <source>已经在实例里 %1 个</source>
+            <translation>Already %1 in the instance</translation>
+        </message>
+        <message>
+            <source>缺失 %1 个</source>
+            <translation>%1 missing</translation>
+        </message>
+        <message>
+            <source>暂无法确认 %1 个</source>
+            <translation>Unable to confirm %1</translation>
+        </message>
+        <message>
+            <source>不兼容 %1 个</source>
+            <translation>Not compatible with %1</translation>
+        </message>
+        <message>
+            <source>等你确认替代项目 %1 个</source>
+            <translation>Waiting for your confirmation of %1 replacement items</translation>
+        </message>
+        <message>
+            <source>做不了 %1 个</source>
+            <translation>Can't do %1</translation>
+        </message>
+        <message>
+            <source>其中必要项失败 %1 个</source>
+            <translation>%1 of required items failed</translation>
+        </message>
+        <message>
+            <source>没有要动的东西。</source>
+            <translation>Nothing to move.</translation>
+        </message>
+        <message>
+            <source>，</source>
+            <translation>,</translation>
+        </message>
+        <message>
+            <source>。</source>
+            <translation>.</translation>
+        </message>
+        <message>
+            <source>按你确认换成了「%1」。</source>
+            <translation>Press your confirmation button to change it to "%1".</translation>
+        </message>
+        <message>
+            <source>这几个有替代项目，换不换要你点头：%1。</source>
+            <translation>There are alternative projects for these, please nod whether to change them: %1.</translation>
+        </message>
+        <message>
+            <source>、</source>
+            <translation>,</translation>
+        </message>
+        <message>
+            <source>实例可用，预设部分应用。</source>
+            <translation>Instances available, presets partially applied.</translation>
+        </message>
+        <message>
+            <source>读不动「%1」：%2</source>
+            <translation>Unable to read "%1": %2</translation>
+        </message>
+        <message>
+            <source>写不动「%1」：%2</source>
+            <translation>Can't write "%1": %2</translation>
+        </message>
+        <message>
+            <source>「%1」替换失败：%2</source>
+            <translation>"%1" replacement failed: %2</translation>
+        </message>
+        <message>
+            <source>建不了备份目录「%1」。</source>
+            <translation>The backup directory "%1" cannot be created.</translation>
+        </message>
+        <message>
+            <source>备份「%1」失败，本次未写入任何内容：%2</source>
+            <translation>Backup "%1" failed, no content was written this time: %2</translation>
+        </message>
+        <message>
+            <source>游戏设置</source>
+            <translation>Game settings</translation>
+        </message>
+        <message>
+            <source>原版按键</source>
+            <translation>Original buttons</translation>
+        </message>
+        <message>
+            <source>服务器列表</source>
+            <translation>Server list</translation>
+        </message>
+        <message>
+            <source>MaLiLib 热键</source>
+            <translation>MaLiLib hotkeys</translation>
+        </message>
+        <message>
+            <source>配置文件</source>
+            <translation>Configuration file</translation>
+        </message>
+        <message>
+            <source>未知内容</source>
+            <translation>Unknown content</translation>
+        </message>
+        <message>
+            <source>没有指定目标实例。</source>
+            <translation>No target instance specified.</translation>
+        </message>
+        <message>
+            <source>「%1」不是一份普通文件，不敢拿预设去改它。</source>
+            <translation>"%1" is not an ordinary document, and you don't dare to change it with the default.</translation>
+        </message>
+        <message>
+            <source>这份预设的 id 不合法，没法应用。</source>
+            <translation>This default id is illegal and cannot be applied.</translation>
+        </message>
+        <message>
+            <source>这个实例的目录不在，没法把预设落到它上面。</source>
+            <translation>The directory for this instance is not there, so I can't drop the preset onto it.</translation>
+        </message>
+        <message>
+            <source>没有未完成的预设段；待应用数据包仍等待目标世界。</source>
+            <translation>There are no outstanding preset segments; pending application packets are still waiting for the target world.</translation>
+        </message>
+        <message>
+            <source>这一段读不回来（载荷不是这一层认得的那样），这一趟不动它。</source>
+            <translation>This section cannot be read back (the payload is not what this layer recognizes), and it cannot be moved this time.</translation>
+        </message>
+        <message>
+            <source>按键「%1」被 %2 个动作抢着用。</source>
+            <translation>The key "%1" is occupied by %2 actions.</translation>
+        </message>
+        <message>
+            <source>这几台已经在列表里了：%1</source>
+            <translation>These units are already in the list: %1</translation>
+        </message>
+        <message>
+            <source>认不出这一段是哪一组文件，这一趟不动它。</source>
+            <translation>I don’t recognize which group of files this section belongs to, so I won’t touch it this time.</translation>
+        </message>
+        <message>
+            <source>这一段里的路径不属于那四个文件组，这一趟不动它。</source>
+            <translation>The path in this section does not belong to those four file groups, so it will not be touched this time.</translation>
+        </message>
+        <message>
+            <source>这一档下这一组里有 %1 项做不了主，没有动。</source>
+            <translation>At this level, there are %1 items in this group that cannot be decided and are not moved.</translation>
+        </message>
+        <message>
+            <source>有 %1 格因为类型对不上被拒绝转换。</source>
+            <translation>There are %1 cells that are rejected for conversion because their types do not match.</translation>
+        </message>
+        <message>
+            <source>这一段没有任何适配器接手，这一趟不动它。</source>
+            <translation>There is no adapter taking over this section, so this trip won't move it.</translation>
+        </message>
+        <message>
+            <source>资源包的启用顺序没有写进去。</source>
+            <translation>The activation sequence of resource packages is not written.</translation>
+        </message>
+        <message>
+            <source>配置文件（config/）</source>
+            <translation>Configuration file (config/)</translation>
+        </message>
+        <message>
+            <source>默认配置（defaultconfigs/）</source>
+            <translation>Default configuration (defaultconfigs/)</translation>
+        </message>
+        <message>
+            <source>资源包（resourcepacks/）</source>
+            <translation>Resource packs (resourcepacks/)</translation>
+        </message>
+        <message>
+            <source>光影包（shaderpacks/）</source>
+            <translation>Shaderpacks/</translation>
+        </message>
+        <message>
+            <source>%1 读不了：%2</source>
+            <translation>%1 Unable to read: %2</translation>
+        </message>
+        <message>
+            <source>%1 里有东西没收：%2</source>
+            <translation>There is something confiscated in %1: %2</translation>
+        </message>
+        <message>
+            <source>%1 里是空的。</source>
+            <translation>%1 is empty.</translation>
+        </message>
+        <message>
+            <source>%1 没收成：%2</source>
+            <translation>%1 Forfeited income: %2</translation>
+        </message>
+        <message>
+            <source>这个实例的目录不在，没法从它收预设。</source>
+            <translation>The directory for this instance is not there and the presets cannot be collected from it.</translation>
+        </message>
+        <message>
+            <source>建不了预设的文件目录：%1</source>
+            <translation>Unable to create default file directory: %1</translation>
+        </message>
+        <message>
+            <source>这一趟没有勾任何内容。</source>
+            <translation>Nothing ticked off this trip.</translation>
+        </message>
+        <message>
+            <source>「%1」不是一份普通文件，这一趟没收游戏设置。</source>
+            <translation>"%1" is not an ordinary file, and the game settings are confiscated this time.</translation>
+        </message>
+        <message>
+            <source>options.txt 里没有可收的游戏设置。</source>
+            <translation>There are no game settings to collect in options.txt.</translation>
+        </message>
+        <message>
+            <source>options.txt 里没有可收的按键。</source>
+            <translation>There are no retractable buttons in options.txt.</translation>
+        </message>
+        <message>
+            <source>实例里还没有服务器列表（servers.dat）。</source>
+            <translation>There is no server list (servers.dat) in the instance yet.</translation>
+        </message>
+        <message>
+            <source>服务器列表读不动：%1</source>
+            <translation>The server list cannot be read: %1</translation>
+        </message>
+        <message>
+            <source>服务器列表里一条都没有。</source>
+            <translation>There is nothing in the server list.</translation>
+        </message>
+        <message>
+            <source>资源包的启用顺序没读到：%1</source>
+            <translation>The activation sequence of resource packages has not been read: %1</translation>
+        </message>
+        <message>
+            <source>资源包的启用顺序也收进来了（%1 个开着）。</source>
+            <translation>The activation order of resource packs is also included (%1 are open).</translation>
+        </message>
+        <message>
+            <source>MaLiLib 那一族没收成：%1</source>
+            <translation>MaLiLib That family has no income: %1</translation>
+        </message>
+        <message>
+            <source>config/ 底下没认出 MaLiLib 那一族配置。</source>
+            <translation>The MaLiLib family configuration is not recognized under config/.</translation>
+        </message>
+        <message>
+            <source>数据包没收成：%1</source>
+            <translation>Data packet not received: %1</translation>
+        </message>
+        <message>
+            <source>勾了的那几样都没有收到东西，这一趟没有可存的内容。</source>
+            <translation>I haven't received anything from the items I checked, so there is nothing to save this time.</translation>
+        </message>
+        <message>
+            <source>「覆盖」会把目标上这一类的设置整个换成预设里那些，需要先确认。</source>
+            <translation>"Overwrite" will replace all settings of this type on the target with those in the default, which needs to be confirmed first.</translation>
+        </message>
+        <message>
+            <source>「覆盖」会拿掉目标上对不上的服务器条目，需要先确认。</source>
+            <translation>"Overwrite" will remove server entries that do not match the target and need to be confirmed first.</translation>
+        </message>
+        <message>
+            <source>「覆盖」会改动目标上已有的东西，需要先确认。</source>
+            <translation>"Overwrite" will change the existing things on the target and needs to be confirmed first.</translation>
+        </message>
+        <message>
+            <source>这一段的种类（%1）这一版的启动器不认识，这一段这一趟不动。</source>
+            <translation>The type of this section (%1) is not recognized by this version of the launcher, and this section does not move this time.</translation>
+        </message>
+        <message>
+            <source>这一段说不清是哪个文件组（id 不认得、载荷又是空的），这一趟不动它。</source>
+            <translation>This section cannot tell which file group it is (the id is not recognized, and the payload is empty), so it cannot be moved this time.</translation>
+        </message>
+        <message>
+            <source>这一段的身份（%1）和它的内容（%2）对不上，这一趟不动它。</source>
+            <translation>The identity of this paragraph (%1) does not match its content (%2), so it will not be touched this time.</translation>
+        </message>
+        <message>
+            <source>没有给出预设那一侧的文件根（files/），数不出这一组缺哪几份。</source>
+            <translation>The file root (files/) on the default side is not given, and it is impossible to count the missing copies of this group.</translation>
+        </message>
+        <message>
+            <source>没有给出预设那一侧的文件根（files/），不知道这些数据包从哪儿拷。</source>
+            <translation>The file root (files/) on the default side is not given, so I don’t know where these data packets are copied from.</translation>
+        </message>
+        <message>
+            <source>合并</source>
+            <translation>Merge</translation>
+        </message>
+        <message>
+            <source>追加</source>
+            <translation>Append</translation>
+        </message>
+        <message>
+            <source>项</source>
+            <translation>Item</translation>
+        </message>
+        <message>
+            <source>个</source>
+            <translation>Indivual</translation>
+        </message>
+        <message>
+            <source>要你选 %1 %2</source>
+            <translation>I want you to choose %1 %2</translation>
+        </message>
+        <message>
+            <source>待应用 %1 %2</source>
+            <translation>To be applied %1 %2</translation>
+        </message>
+        <message>
+            <source>删掉 %1 %2</source>
+            <translation>Delete %1 %2</translation>
+        </message>
+        <message>
+            <source>冲突 %1 项</source>
+            <translation>Conflicting %1 items</translation>
+        </message>
+        <message>
+            <source>跳过 %1 %2</source>
+            <translation>Skip %1 %2</translation>
+        </message>
+        <message>
+            <source>不动</source>
+            <translation>Not moving</translation>
+        </message>
+        <message>
+            <source>没有指定目标实例，算不出这一趟要做什么。</source>
+            <translation>Without specifying a target instance, there is no way to figure out what to do on this trip.</translation>
+        </message>
+        <message>
+            <source>没有指定实例目录。</source>
+            <translation>No instance directory specified.</translation>
+        </message>
+        <message>
+            <source>没有指定实例目录，没法把资源包的启用顺序写回去。</source>
+            <translation>Without specifying the instance directory, the activation sequence of resource packages cannot be written back.</translation>
+        </message>
+        <message>
+            <source>这一份预设的资源包项上没有启用信息，只部署、不启用。</source>
+            <translation>There is no activation information on this default resource package item. It is only deployed but not activated.</translation>
+        </message>
+        <message>
+            <source>「%1」没有出现在目标的 resourcepacks/ 里，没有启用它。</source>
+            <translation>"%1" does not appear in the target's resourcepacks/ and is not enabled.</translation>
+        </message>
+        <message>
+            <source>资源包的启用顺序已经和预设一致，没有改写 options.txt。</source>
+            <translation>The activation order of resource packages has been consistent with the default, and options.txt has not been rewritten.</translation>
+        </message>
+        <message>
+            <source>已按预设启用 %1 个资源包（顺序按提取时的那一份）。</source>
+            <translation>%1 resource packs have been enabled by default (in order of which one was extracted).</translation>
+        </message>
+        <message>
+            <source>按预设关掉了 %1 个资源包。</source>
+            <translation>%1 resource packs are turned off by default.</translation>
+        </message>
     </context>
     <context>
         <name>Presets::PresetModInstaller</name>
