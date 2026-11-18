@@ -5,6 +5,7 @@
  * 「为什么不能照直觉改」。
  */
 #include "NbtUtil.hpp"
+#include <QCoreApplication>
 
 #include <QByteArray>
 #include <QDir>
@@ -106,10 +107,10 @@ public:
 private:
     bool need(qint64 count) {
         if (count < 0) {
-            return fail(QStringLiteral("文件里有个长度是负数"));
+            return fail(QCoreApplication::translate("NbtUtil", "文件里有个长度是负数"));
         }
         if (count > remaining()) {
-            return fail(QStringLiteral("文件读到第 %1 个字节就断了").arg(m_pos));
+            return fail(QCoreApplication::translate("NbtUtil", "文件读到第 %1 个字节就断了").arg(m_pos));
         }
         return true;
     }
@@ -231,10 +232,10 @@ bool skipPayload(Cursor &cursor, quint8 type, int depth);
  */
 bool skipListElements(Cursor &cursor, quint8 elementType, qint32 count, int depth) {
     if (depth >= kMaxDepth) {
-        return cursor.fail(QStringLiteral("NBT 嵌套超过 %1 层").arg(kMaxDepth));
+        return cursor.fail(QCoreApplication::translate("NbtUtil", "NBT 嵌套超过 %1 层").arg(kMaxDepth));
     }
     if (count > cursor.remaining()) {
-        return cursor.fail(QStringLiteral("列表说有 %1 个元素，剩下的字节装不下").arg(count));
+        return cursor.fail(QCoreApplication::translate("NbtUtil", "列表说有 %1 个元素，剩下的字节装不下").arg(count));
     }
     for (qint32 i = 0; i < count; ++i) {
         if (!skipPayload(cursor, elementType, depth + 1)) {
@@ -289,7 +290,7 @@ bool skipPayload(Cursor &cursor, quint8 type, int depth) {
     }
     case kTagCompound: {
         if (depth >= kMaxDepth) {
-            return cursor.fail(QStringLiteral("NBT 嵌套超过 %1 层").arg(kMaxDepth));
+            return cursor.fail(QCoreApplication::translate("NbtUtil", "NBT 嵌套超过 %1 层").arg(kMaxDepth));
         }
         for (;;) {
             const quint8 inner = cursor.readU8();
@@ -317,7 +318,7 @@ bool skipPayload(Cursor &cursor, quint8 type, int depth) {
         return cursor.skipRaw(static_cast<qint64>(count) * 8);
     }
     default:
-        return cursor.fail(QStringLiteral("不认识的标签类型 %1").arg(type));
+        return cursor.fail(QCoreApplication::translate("NbtUtil", "不认识的标签类型 %1").arg(type));
     }
 }
 
@@ -381,12 +382,12 @@ bool readServerListTag(Cursor &cursor, QList<ServerEntry> *out, QString *problem
     // 比硬跳过、然后交出一个空列表更接近事实（空列表会显示成「一个服务器都没有」，
     // 而这句是假话）。
     if (elementType != kTagCompound) {
-        *problem = QStringLiteral("servers 列表里装的不是 TAG_Compound（元素类型是 %1）")
+        *problem = QCoreApplication::translate("NbtUtil", "servers 列表里装的不是 TAG_Compound（元素类型是 %1）")
                        .arg(elementType);
         return false;
     }
     if (count > cursor.remaining()) {
-        *problem = QStringLiteral("servers 说有 %1 条，剩下的字节装不下").arg(count);
+        *problem = QCoreApplication::translate("NbtUtil", "servers 说有 %1 条，剩下的字节装不下").arg(count);
         return false;
     }
     for (qint32 i = 0; i < count; ++i) {
@@ -407,11 +408,11 @@ bool readServers(const QByteArray &bytes, QList<ServerEntry> *out, QString *prob
     Cursor cursor(bytes);
     const quint8 rootType = cursor.readU8();
     if (!cursor.ok()) {
-        *problem = QStringLiteral("文件是空的，连一个标签都没有");
+        *problem = QCoreApplication::translate("NbtUtil", "文件是空的，连一个标签都没有");
         return false;
     }
     if (rootType != kTagCompound) {
-        *problem = QStringLiteral("根标签的类型是 %1，不是 TAG_Compound（这看起来不是一份 NBT）")
+        *problem = QCoreApplication::translate("NbtUtil", "根标签的类型是 %1，不是 TAG_Compound（这看起来不是一份 NBT）")
                        .arg(rootType);
         return false;
     }
@@ -439,7 +440,7 @@ bool readServers(const QByteArray &bytes, QList<ServerEntry> *out, QString *prob
         }
         if (tagName == QLatin1String("servers")) {
             if (type != kTagList) {
-                *problem = QStringLiteral("servers 那一格的类型是 %1，不是 TAG_List").arg(type);
+                *problem = QCoreApplication::translate("NbtUtil", "servers 那一格的类型是 %1，不是 TAG_List").arg(type);
                 return false;
             }
             return readServerListTag(cursor, out, problem);
@@ -461,19 +462,19 @@ bool looksGzipped(const QByteArray &bytes) {
 bool readWholeFile(const QString &path, QByteArray *out, QString *problem) {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
-        *problem = QStringLiteral("打不开 %1（%2）").arg(path, file.errorString());
+        *problem = QCoreApplication::translate("NbtUtil", "打不开 %1（%2）").arg(path, file.errorString());
         return false;
     }
     const qint64 size = file.size();
     if (size > kMaxFileSize) {
-        *problem = QStringLiteral("%1 有 %2 MB，超过 %3 MB 的上限，没有读")
+        *problem = QCoreApplication::translate("NbtUtil", "%1 有 %2 MB，超过 %3 MB 的上限，没有读")
                        .arg(path, QString::number(size / (1024.0 * 1024.0), 'f', 1))
                        .arg(kMaxFileSize / (1024 * 1024));
         return false;
     }
     *out = file.readAll();
     if (file.error() != QFileDevice::NoError) {
-        *problem = QStringLiteral("读 %1 读到一半出错了（%2）").arg(path, file.errorString());
+        *problem = QCoreApplication::translate("NbtUtil", "读 %1 读到一半出错了（%2）").arg(path, file.errorString());
         return false;
     }
     return true;
@@ -498,7 +499,7 @@ Status readServerList(const QString &datPath, QList<ServerEntry> *out, QString *
     // 临时文件）。这里这一道是为了让问题在还没有任何内存被占住的时候就显出来。
     if (info.size() > kMaxFileSize) {
         if (problemOut != nullptr) {
-            *problemOut = QStringLiteral("servers.dat 有 %1 MB，超过 %2 MB 的上限，没有读")
+            *problemOut = QCoreApplication::translate("NbtUtil", "servers.dat 有 %1 MB，超过 %2 MB 的上限，没有读")
                               .arg(QString::number(info.size() / (1024.0 * 1024.0), 'f', 1))
                               .arg(kMaxFileSize / (1024 * 1024));
         }
@@ -521,7 +522,7 @@ Status readServerList(const QString &datPath, QList<ServerEntry> *out, QString *
         QTemporaryDir tempDir(QDir::tempPath() + QStringLiteral("/wtfml-nbt-XXXXXX"));
         if (!tempDir.isValid()) {
             if (problemOut != nullptr) {
-                *problemOut = QStringLiteral("建不出临时目录（%1）").arg(tempDir.errorString());
+                *problemOut = QCoreApplication::translate("NbtUtil", "建不出临时目录（%1）").arg(tempDir.errorString());
             }
             return Status::Unreadable;
         }
@@ -534,8 +535,8 @@ Status readServerList(const QString &datPath, QList<ServerEntry> *out, QString *
                 // 自己就带着「解压」两个字（解压超时 / 解压没跑起来），前面再冠一个
                 // 「解压失败」就成了「解压失败：解压超时」这种自己跟自己绕的话。
                 *problemOut = error.isEmpty()
-                                  ? QStringLiteral("servers.dat 读不动：gzip 解不开")
-                                  : QStringLiteral("servers.dat 读不动：%1").arg(error);
+                                  ? QCoreApplication::translate("NbtUtil", "servers.dat 读不动：gzip 解不开")
+                                  : QCoreApplication::translate("NbtUtil", "servers.dat 读不动：%1").arg(error);
             }
             return Status::Unreadable;
         }
@@ -546,7 +547,7 @@ Status readServerList(const QString &datPath, QList<ServerEntry> *out, QString *
         const QFileInfo decompressed(target);
         if (decompressed.size() > kMaxFileSize) {
             if (problemOut != nullptr) {
-                *problemOut = QStringLiteral("servers.dat 解压出来有 %1 MB，超过 %2 MB 的上限")
+                *problemOut = QCoreApplication::translate("NbtUtil", "servers.dat 解压出来有 %1 MB，超过 %2 MB 的上限")
                                   .arg(QString::number(decompressed.size() / (1024.0 * 1024.0), 'f', 1))
                                   .arg(kMaxFileSize / (1024 * 1024));
             }
@@ -561,7 +562,7 @@ Status readServerList(const QString &datPath, QList<ServerEntry> *out, QString *
         }
         if (bytes.isEmpty()) {
             if (problemOut != nullptr) {
-                *problemOut = QStringLiteral("servers.dat 解压出来是空的（这份 gzip 多半是坏的或者没下完）");
+                *problemOut = QCoreApplication::translate("NbtUtil", "servers.dat 解压出来是空的（这份 gzip 多半是坏的或者没下完）");
             }
             return Status::Unreadable;
         }

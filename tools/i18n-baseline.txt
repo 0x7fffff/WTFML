@@ -19,7 +19,7 @@ src/agent/AgentSseParser.cpp	2
 src/agent/AgentToolRegistry.cpp	20
 src/agent/AgentWinPath.cpp	22
 src/agent/OpenAiCompatibleClient.cpp	28
-src/auth/AuthManager.cpp	19
+src/auth/AuthManager.cpp	9
 src/auth/TokenStore.cpp	15
 src/controllers/ConnectionsController.cpp	1
 src/controllers/InstanceEditorController.cpp	13
@@ -56,7 +56,6 @@ src/manage/InstanceMetaFile.cpp	10
 src/manage/OwnedStaging.hpp	1
 src/manage/PlayerSkinStore.cpp	1
 src/manage/RecoveryReview.hpp	6
-src/manage/ResourcePackOptions.hpp	14
 src/manage/VersionManager.hpp	1
 src/manage/VersionManagerExport.cpp	10
 src/manage/VersionManagerInternals.hpp	2
@@ -72,12 +71,11 @@ src/presets/PresetPreviewLoader.hpp	1
 src/presets/PresetWriteLock.hpp	1
 src/presets/ResourcePackPreset.cpp	4
 src/presets/ServerListPreset.cpp	10
-src/server/ServerInstallRun.hpp	15
 src/server/ServerModel.hpp	8
 src/server/ServerPortCheck.hpp	3
 src/server/ServerRun.hpp	8
 src/server/ServerWriteGuard.hpp	2
-src/settings/GlobalJavaSettings.cpp	19
+src/settings/GlobalJavaSettings.cpp	6
 src/settings/LauncherSettings.cpp	2
 src/tools/ArmorTrimAssets.hpp	5
 src/tools/BannerDesign.hpp	7
@@ -88,10 +86,8 @@ src/tools/TextFormat.cpp	23
 src/util/DailyQuote.cpp	41
 src/util/DirectorySessionLock.hpp	6
 src/util/DownloadDiagnostics.cpp	1
-src/util/ErrorReport.cpp	28
 src/util/FileAssociations.cpp	13
 src/util/NbtTree.cpp	35
-src/util/NbtUtil.cpp	20
 src/util/SecretProtector.cpp	4
 src/util/SevenZip.cpp	6
 src/util/StartupAcceptance.hpp	1

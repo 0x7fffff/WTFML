@@ -2088,6 +2088,10 @@ Take the App ID (client ID) of this application and submit the application at ht
             <translation>&lt;html&gt;&lt;body&gt;&lt;h1&gt;Invalid login callback&lt;/h1&gt;&lt;p&gt;%1&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
         </message>
         <message>
+            <source>这一趟登录换了账号但没换到底，已把盘上的微软令牌一并清掉（下次启动不会再拿它续成别人的登录）。</source>
+            <translation>I changed my account this time, but I didn’t change it to the end. The Microsoft token on the disk was cleared (it will not be used to renew someone else’s login next time).</translation>
+        </message>
+        <message>
             <source>换取微软令牌失败</source>
             <translation>Failed to exchange for Microsoft token</translation>
         </message>
@@ -4269,6 +4273,109 @@ The instance is ready, but some presets could not be applied:
         </message>
     </context>
     <context>
+        <name>ErrorReport</name>
+        <message>
+            <source>：</source>
+            <translation>:</translation>
+        </message>
+        <message>
+            <source>WTFML 错误报告</source>
+            <translation>WTFML error reporting</translation>
+        </message>
+        <message>
+            <source>生成时间</source>
+            <translation>Generation time</translation>
+        </message>
+        <message>
+            <source>启动器版本</source>
+            <translation>Launcher version</translation>
+        </message>
+        <message>
+            <source>系统</source>
+            <translation>System</translation>
+        </message>
+        <message>
+            <source>实例</source>
+            <translation>Example</translation>
+        </message>
+        <message>
+            <source>实例 id</source>
+            <translation>Instance id</translation>
+        </message>
+        <message>
+            <source>账号</source>
+            <translation>Account</translation>
+        </message>
+        <message>
+            <source>加载器</source>
+            <translation>Loader</translation>
+        </message>
+        <message>
+            <source>内存</source>
+            <translation>Memory</translation>
+        </message>
+        <message>
+            <source>进程 ID</source>
+            <translation>Process ID</translation>
+        </message>
+        <message>
+            <source>启动时间</source>
+            <translation>Start time</translation>
+        </message>
+        <message>
+            <source>退出码</source>
+            <translation>Exit code</translation>
+        </message>
+        <message>
+            <source>%1（异常终止）</source>
+            <translation>%1 (abnormal termination)</translation>
+        </message>
+        <message>
+            <source>（导出时游戏还在运行）</source>
+            <translation>(The game is still running when exporting)</translation>
+        </message>
+        <message>
+            <source>可能的原因（按规则判的，不是猜的）</source>
+            <translation>Possible reasons (judged according to rules, not guesswork)</translation>
+        </message>
+        <message>
+            <source>错误与致命（末尾 %1 行 / 原始共 %2 行）</source>
+            <translation>Errors and Fatal (last %1 lines / original total %2 lines)</translation>
+        </message>
+        <message>
+            <source>错误与致命（原始共 %1 行；正文已经被日志行数上限挤掉）</source>
+            <translation>Error and fatal (original total of %1 lines; the text has been squeezed out by the maximum number of log lines)</translation>
+        </message>
+        <message>
+            <source>错误与致命（共 %1 行）</source>
+            <translation>Errors and fatals (%1 lines total)</translation>
+        </message>
+        <message>
+            <source>（这一段里现在一行都没有：较早的几行已被日志行数上限挤掉，原始共 %1 行。）</source>
+            <translation>(There is now no line in this paragraph: the earlier lines have been squeezed out by the maximum number of log lines, leaving a total of %1 lines.)</translation>
+        </message>
+        <message>
+            <source>（这一段里一行都没有：本次没有 ERROR 及以上的输出。日志本身在下面。）</source>
+            <translation>(Not a single line in this paragraph: no ERROR and above output this time. The log itself is below.)</translation>
+        </message>
+        <message>
+            <source>日志末尾（最近 %1 行 / 原始共 %2 行；完整日志没有导出）</source>
+            <translation>End of log (most recent %1 lines / original total %2 lines; full log not exported)</translation>
+        </message>
+        <message>
+            <source>完整日志（共 %1 行）</source>
+            <translation>Full log (%1 lines total</translation>
+        </message>
+        <message>
+            <source>错误报告-%1%2.txt</source>
+            <translation>Error report-%1%2.txt</translation>
+        </message>
+        <message>
+            <source>日志-%1%2.log</source>
+            <translation>Log-%1%2.log</translation>
+        </message>
+    </context>
+    <context>
         <name>FileHash</name>
         <message>
             <source>打不开这个文件：%1</source>
@@ -5327,6 +5434,57 @@ Want to stop it?</translation>
         <message>
             <source>需要 Windows 11 22H2 或更新，已改用风景底。</source>
             <translation>This effect requires Windows 11 22H2 or later. Using the scenic background.</translation>
+        </message>
+    </context>
+    <context>
+        <name>GlobalJavaSettings</name>
+        <message>
+            <source>（zip:</source>
+            <translation>(zip:</translation>
+        </message>
+        <message>
+            <source>）</source>
+            <translation>)</translation>
+        </message>
+        <message>
+            <source>这个版本要 Java %1，而「设置」里选的那份是 Java %2，本机也没有更合适的（扫到的最高是 Java %3）。
+
+先装一个 Java %1，或者到「设置」里把路径指过去。</source>
+            <translation>This version requires Java %1, and the one selected in "Settings" is Java %2, and there is no more suitable one for this machine (the highest one scanned is Java %3). 
+
+First install a Java %1, or go to "Settings" and point the path there.</translation>
+        </message>
+        <message>
+            <source>认不出来</source>
+            <translation>Can't recognize</translation>
+        </message>
+        <message>
+            <source>没有</source>
+            <translation>No</translation>
+        </message>
+        <message>
+            <source>Java 选的是「手动指定」，而</source>
+            <translation>Java chooses "manual specification", and</translation>
+        </message>
+        <message>
+            <source>还没指定路径</source>
+            <translation>No path specified yet</translation>
+        </message>
+        <message>
+            <source> 的主版本不是 </source>
+            <translation>The main version of is not</translation>
+        </message>
+        <message>
+            <source> —— 不自动更换，直接失败。</source>
+            <translation>—— Without automatic replacement, it will directly fail.</translation>
+        </message>
+        <message>
+            <source>这台机器上没有 Java %1，且当前不允许下载运行时。</source>
+            <translation>Java %1 is not available on this machine and downloading the runtime is not currently allowed.</translation>
+        </message>
+        <message>
+            <source>找不到也下载不到 Java %1。</source>
+            <translation>Java %1 cannot be found or downloaded.</translation>
         </message>
     </context>
     <context>
@@ -15885,6 +16043,85 @@ Project %2 / File %3 / %4
         </message>
     </context>
     <context>
+        <name>NbtUtil</name>
+        <message>
+            <source>文件里有个长度是负数</source>
+            <translation>There is a length in the file that is a negative number</translation>
+        </message>
+        <message>
+            <source>文件读到第 %1 个字节就断了</source>
+            <translation>The file is broken after reading the %1 byte</translation>
+        </message>
+        <message>
+            <source>NBT 嵌套超过 %1 层</source>
+            <translation>NBT nested beyond %1 levels</translation>
+        </message>
+        <message>
+            <source>列表说有 %1 个元素，剩下的字节装不下</source>
+            <translation>The list says there are %1 elements, and the remaining bytes cannot fit in it.</translation>
+        </message>
+        <message>
+            <source>不认识的标签类型 %1</source>
+            <translation>Unrecognized tag type %1</translation>
+        </message>
+        <message>
+            <source>servers 列表里装的不是 TAG_Compound（元素类型是 %1）</source>
+            <translation>The servers list is not filled with TAG_Compound (the element type is %1)</translation>
+        </message>
+        <message>
+            <source>servers 说有 %1 条，剩下的字节装不下</source>
+            <translation>The servers say there are %1 items and the remaining bytes cannot be loaded.</translation>
+        </message>
+        <message>
+            <source>文件是空的，连一个标签都没有</source>
+            <translation>The file is empty, not even a tag</translation>
+        </message>
+        <message>
+            <source>根标签的类型是 %1，不是 TAG_Compound（这看起来不是一份 NBT）</source>
+            <translation>The root tag is of type %1, not TAG_Compound (this does not appear to be an NBT)</translation>
+        </message>
+        <message>
+            <source>servers 那一格的类型是 %1，不是 TAG_List</source>
+            <translation>The type of servers is %1, not TAG_List</translation>
+        </message>
+        <message>
+            <source>打不开 %1（%2）</source>
+            <translation>Unable to open %1 (%2)</translation>
+        </message>
+        <message>
+            <source>%1 有 %2 MB，超过 %3 MB 的上限，没有读</source>
+            <translation>%1 has %2 MB, exceeds %3 MB limit, no reads</translation>
+        </message>
+        <message>
+            <source>读 %1 读到一半出错了（%2）</source>
+            <translation>Reading %1 An error occurred while reading %1 (%2)</translation>
+        </message>
+        <message>
+            <source>servers.dat 有 %1 MB，超过 %2 MB 的上限，没有读</source>
+            <translation>Servers.dat has %1 MB, exceeds %2 MB limit, no reads</translation>
+        </message>
+        <message>
+            <source>建不出临时目录（%1）</source>
+            <translation>Unable to create temporary directory (%1)</translation>
+        </message>
+        <message>
+            <source>servers.dat 读不动：gzip 解不开</source>
+            <translation>Servers.dat cannot be read: gzip cannot be decoded</translation>
+        </message>
+        <message>
+            <source>servers.dat 读不动：%1</source>
+            <translation>Servers.dat cannot be read: %1</translation>
+        </message>
+        <message>
+            <source>servers.dat 解压出来有 %1 MB，超过 %2 MB 的上限</source>
+            <translation>Servers.dat is decompressed and contains %1 MB, which exceeds the upper limit of %2 MB.</translation>
+        </message>
+        <message>
+            <source>servers.dat 解压出来是空的（这份 gzip 多半是坏的或者没下完）</source>
+            <translation>Servers.dat is empty when decompressed (this gzip is probably broken or not downloaded completely)</translation>
+        </message>
+    </context>
+    <context>
         <name>NewServerPage</name>
         <message>
             <source>刷新</source>
@@ -22332,6 +22569,65 @@ Recovery records are retained in %3, please check manually.</translation>
         </message>
     </context>
     <context>
+        <name>ResourcePackOptions</name>
+        <message>
+            <source>options.txt 超过 1 MiB，未开放编辑。</source>
+            <translation>Options.txt exceeds 1 MiB and is not open for editing.</translation>
+        </message>
+        <message>
+            <source>resourcePacks 不是有效的 JSON 数组，未改写原文件。</source>
+            <translation>ResourcePacks is not a valid JSON array, the original file was not overwritten.</translation>
+        </message>
+        <message>
+            <source>资源包列表包含空值、重复项或非文本项，未开放编辑。</source>
+            <translation>The resource pack list contains empty values, duplicates, or non-text items and is not open for editing.</translation>
+        </message>
+        <message>
+            <source>资源包标识包含不支持的路径，未开放编辑。</source>
+            <translation>The resource package identifier contains an unsupported path and is not open for editing.</translation>
+        </message>
+        <message>
+            <source>内置或模组注入资源包必须保留，且不能改变它们彼此的顺序。</source>
+            <translation>Built-in or mod-injected resource packs must be preserved, and their order relative to each other cannot be changed.</translation>
+        </message>
+        <message>
+            <source>资源包名单包含无效标识或重复项。</source>
+            <translation>Resource pack manifest contains invalid identifiers or duplicates.</translation>
+        </message>
+        <message>
+            <source>options.txt 不是普通文件，未开放编辑。</source>
+            <translation>Options.txt is not an ordinary file and is not open for editing.</translation>
+        </message>
+        <message>
+            <source>无法锁定 options.txt：可能有其他操作正在使用，或目录不可写。</source>
+            <translation>Unable to lock options.txt: There may be other operations in use, or the directory is not writable.</translation>
+        </message>
+        <message>
+            <source>options.txt 已被外部修改；本次没有覆盖，请刷新后重新操作。</source>
+            <translation>Options.txt has been modified externally; it is not overwritten this time, please refresh and try again.</translation>
+        </message>
+        <message>
+            <source>待启用的资源包已不存在，请刷新后重试。</source>
+            <translation>The resource package to be activated no longer exists, please refresh and try again.</translation>
+        </message>
+        <message>
+            <source>无法创建资源包设置备份目录，未保存。</source>
+            <translation>Unable to create resource package settings backup directory, not saved.</translation>
+        </message>
+        <message>
+            <source>无法完整保存原 options.txt 的备份，未修改原文件。</source>
+            <translation>The backup of the original options.txt cannot be saved completely, and the original file has not been modified.</translation>
+        </message>
+        <message>
+            <source>保存期间 options.txt 发生变化，未覆盖原文件。</source>
+            <translation>Options.txt changed during saving and the original file was not overwritten.</translation>
+        </message>
+        <message>
+            <source>资源包设置保存失败，原文件未被完整替换。</source>
+            <translation>The resource package settings failed to be saved and the original file was not completely replaced.</translation>
+        </message>
+    </context>
+    <context>
         <name>ResourcePackPage</name>
         <message>
             <source>搜索可用资源包名称或描述</source>
@@ -23300,6 +23596,57 @@ Please close the program occupying the port, or change the port in "Common Setti
         <message>
             <source>已停止。已下载的文件保留在目录中，再点「修复」将继续使用。</source>
             <translation>Stopped. The downloaded file remains in the directory and will continue to be used if you click "Repair" again.</translation>
+        </message>
+    </context>
+    <context>
+        <name>ServerInstallRun</name>
+        <message>
+            <source>这一档官方不发成品，要用它的 BuildTools 现编一份 —— 那一步要几分钟、要联网、还要求本机装着 git，这一版还没接。先装另外七档里的一个吧。</source>
+            <translation>This file does not officially release the finished product, and you have to use its BuildTools to compile a copy now - that step takes a few minutes, requires an Internet connection, and requires git to be installed on the local machine. This version has not yet been accepted. Install one of the other seven gears first.</translation>
+        </message>
+        <message>
+            <source>取原版版本信息</source>
+            <translation>Get original version information</translation>
+        </message>
+        <message>
+            <source>取 Paper 构建列表</source>
+            <translation>Get Paper to build the list</translation>
+        </message>
+        <message>
+            <source>拿到的原版版本信息无法解析（不是一份 JSON）。</source>
+            <translation>The original version information obtained cannot be parsed (it is not a JSON).</translation>
+        </message>
+        <message>
+            <source>官方没给这个版本发过服务端（原版服务端从 1.2.5 才有）。换一个版本，或者挑 Paper / Fabric 那几档。</source>
+            <translation>The official has not released a server for this version (the original server is only available from 1.2.5). Change to another version, or choose Paper / Fabric.</translation>
+        </message>
+        <message>
+            <source>拿到的 Paper 构建列表无法解析（不是一份 JSON 数组）。</source>
+            <translation>The Paper build list obtained cannot be parsed (not a JSON array).</translation>
+        </message>
+        <message>
+            <source>Paper 没给这个游戏版本发过构建。换一个版本试试。</source>
+            <translation>Paper has not shipped a build for this version of the game. Try another version.</translation>
+        </message>
+        <message>
+            <source>构建 #%1（稳定档）</source>
+            <translation>Build #%1 (stable)</translation>
+        </message>
+        <message>
+            <source>构建 #%1（上游没标稳定档，这就是最新那条）</source>
+            <translation>Build #%1 (the upstream does not mark the stable file, this is the latest one)</translation>
+        </message>
+        <message>
+            <source>下载 %1</source>
+            <translation>Download %1</translation>
+        </message>
+        <message>
+            <source>跑安装器</source>
+            <translation>Run the installer</translation>
+        </message>
+        <message>
+            <source>核对安装结果</source>
+            <translation>Check the installation results</translation>
         </message>
     </context>
     <context>

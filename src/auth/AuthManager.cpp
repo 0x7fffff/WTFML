@@ -236,8 +236,7 @@ bool AuthManager::loginMicrosoft() {
             // 走 loginFailed 而不是自己憋着：界面就是靠它把几个按钮放回可点状态的。
             // NOTE: 这句**不许点名某个按钮**：用户手上看到的文案会变，
             // 这里只说下一步做什么。
-            emit loginFailed(tr("登录没有完成（等了 %1 分钟，浏览器那头一直没回来）。\n"
-                                "再试一次，或者检查一下网络和代理设置。")
+            emit loginFailed(tr("登录没有完成（等了 %1 分钟，浏览器那头一直没回来）。\n再试一次，或者检查一下网络和代理设置。")
                                  .arg(kLoginTimeoutMinutes));
         });
     }
@@ -389,8 +388,7 @@ QString AuthManager::oauthErrorText(const QString &code, const QString &descript
     // 见头文件那条 NOTE：这张 refresh_token 属于**另一个应用**，换不出来是必然的，
     // 重试没有意义。说清"只能重新登录"，别让用户去查网络或者账号。
     if (description.contains(QStringLiteral("AADSTS70000"), Qt::CaseInsensitive)) {
-        return tr("%1：这份登录凭据是另一个应用签发的，当前这个应用换不了它（AADSTS70000）。\n"
-                  "重新登录一次就会作废旧的、存下新的，重试没有用。")
+        return tr("%1：这份登录凭据是另一个应用签发的，当前这个应用换不了它（AADSTS70000）。\n重新登录一次就会作废旧的、存下新的，重试没有用。")
             .arg(what);
     }
 
@@ -409,11 +407,9 @@ QString AuthManager::xstsErrorMessage(qint64 xerr) {
         case 2148916227LL:
             return tr("该微软账号已被 Xbox Live 封禁，请更换账号登录。");
         case 2148916233LL:
-            return tr("该微软账号尚未注册 Xbox 档案，无法获取 Minecraft 令牌。\n"
-                      "请用同一账号在 xbox.com 登录一次（会提示创建档案），然后重试。");
+            return tr("该微软账号尚未注册 Xbox 档案，无法获取 Minecraft 令牌。\n请用同一账号在 xbox.com 登录一次（会提示创建档案），然后重试。");
         case 2148916235LL:
-            return tr("该微软账号所在国家或地区不支持 Xbox Live。\n"
-                      "请更换账号，或修改账号的国家或地区设置。");
+            return tr("该微软账号所在国家或地区不支持 Xbox Live。\n请更换账号，或修改账号的国家或地区设置。");
         case 2148916236LL:
         case 2148916237LL:
             return tr("该微软账号需先在 Xbox 官网完成成人验证后才能登录。");
@@ -432,10 +428,7 @@ QString AuthManager::appRegistrationHint(const QString &bodyMessage) {
         return QString();
     }
 
-    return tr("这个 Azure 应用还没有被 Mojang 批准调用 Minecraft 接口，所以换不出 Minecraft 令牌。\n"
-              "账号本身没问题（Xbox Live 认证和 XSTS 授权都过了），不用换账号、也不用重登。\n"
-              "拿这个应用的 App ID（客户端 ID）到 https://aka.ms/mce-reviewappid 提交申请，"
-              "批准之后同一个账户就能登录。");
+    return tr("这个 Azure 应用还没有被 Mojang 批准调用 Minecraft 接口，所以换不出 Minecraft 令牌。\n账号本身没问题（Xbox Live 认证和 XSTS 授权都过了），不用换账号、也不用重登。\n拿这个应用的 App ID（客户端 ID）到 https://aka.ms/mce-reviewappid 提交申请，批准之后同一个账户就能登录。");
 }
 
 void AuthManager::handleNewConnection() {
@@ -655,8 +648,7 @@ void AuthManager::processCallbackRequest(QTcpSocket *socket, const QByteArray &r
             TokenStore::clear(TokenStore::microsoftKey());
             m_microsoftTokenOverwritten = false;
             qWarning().noquote()
-                << "这一趟登录换了账号但没换到底，已把盘上的微软令牌一并清掉（下次启动不会"
-                   "再拿它续成别人的登录）。";
+                << QCoreApplication::translate("AuthManager", "这一趟登录换了账号但没换到底，已把盘上的微软令牌一并清掉（下次启动不会再拿它续成别人的登录）。");
         }
         const QString activeAfterFailure = AccountStore::activeUuid();
         if (!AccountStore::isOffline(activeAfterFailure)) {
@@ -987,8 +979,7 @@ bool AuthManager::fetchPlayerProfile(const QString &mcToken, QString *name, QStr
     // 404 在这一步的意思很具体：令牌是好的，但这个账户没买过 Minecraft（或者买游戏的是
     // 另一个账户）。这条要单独说 —— 否则用户看到的是"登录失败"，会以为是密码或者网络问题。
     if (result.status == 404) {
-        *errorMessage = tr("该微软账号未购买 Minecraft，无法获取游戏档案。\n"
-                           "请更换已购买游戏的账号登录。");
+        *errorMessage = tr("该微软账号未购买 Minecraft，无法获取游戏档案。\n请更换已购买游戏的账号登录。");
         return false;
     }
     if (!result.ok()) {

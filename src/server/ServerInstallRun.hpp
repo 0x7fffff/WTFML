@@ -34,6 +34,7 @@
 #pragma once
 
 #include <QByteArray>
+#include <QCoreApplication>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -65,9 +66,7 @@ inline bool flavorSupported(ServerInstall::Flavor flavor) {
 /// 为什么没接。**空 = 接好了**（给用户看的那句话，界面照抄，别自己另写）。
 inline QString unsupportedReason(ServerInstall::Flavor flavor) {
     if (flavor == ServerInstall::Flavor::Spigot) {
-        return QStringLiteral("这一档官方不发成品，要用它的 BuildTools 现编一份 —— 那一步要几分"
-                              "钟、要联网、还要求本机装着 git，这一版还没接。先装另外七档里的"
-                              "一个吧。");
+        return QCoreApplication::translate("ServerInstallRun", "这一档官方不发成品，要用它的 BuildTools 现编一份 —— 那一步要几分钟、要联网、还要求本机装着 git，这一版还没接。先装另外七档里的一个吧。");
     }
     return QString();
 }
@@ -109,12 +108,12 @@ inline Need needFor(const ServerInstall::Request &request, const ServerInstall::
     case ServerInstall::Flavor::Vanilla:
         // 「先看本地、本地没有再去要」这一句就是这一档的 label。
         need.kind = Metadata::VersionJson;
-        need.label = QStringLiteral("取原版版本信息");
+        need.label = QCoreApplication::translate("ServerInstallRun", "取原版版本信息");
         return need;
     case ServerInstall::Flavor::Paper:
         need.kind = Metadata::PaperBuilds;
         need.url = ServerInstall::paperBuildsUrl(request.gameVersion);
-        need.label = QStringLiteral("取 Paper 构建列表");
+        need.label = QCoreApplication::translate("ServerInstallRun", "取 Paper 构建列表");
         return need;
     default:
         // 其余五档的地址在 `planFor()` 里就拼好了（Purpur / Fabric / Forge / NeoForge / Quilt），
@@ -160,15 +159,14 @@ inline Fill fillDownloads(const ServerInstall::Request &request, const ServerIns
         QJsonParseError error;
         const QJsonDocument document = QJsonDocument::fromJson(payload, &error);
         if (error.error != QJsonParseError::NoError || !document.isObject()) {
-            fill.problem = QStringLiteral("拿到的原版版本信息无法解析（不是一份 JSON）。");
+            fill.problem = QCoreApplication::translate("ServerInstallRun", "拿到的原版版本信息无法解析（不是一份 JSON）。");
             return fill;
         }
         const ServerInstall::Download jar = ServerInstall::vanillaServerDownload(document.object());
         if (!jar.ok()) {
             // 远古版本（1.2.5 之前）官方就没发过服务端 jar —— 这不是"下载失败"，是"这一档
             // 在这个版本上不存在"，所以这句得说清楚，别让用户以为是网络的事。
-            fill.problem = QStringLiteral("官方没给这个版本发过服务端（原版服务端从 1.2.5 才有）。"
-                                          "换一个版本，或者挑 Paper / Fabric 那几档。");
+            fill.problem = QCoreApplication::translate("ServerInstallRun", "官方没给这个版本发过服务端（原版服务端从 1.2.5 才有）。换一个版本，或者挑 Paper / Fabric 那几档。");
             return fill;
         }
         fill.plan.downloads = QList<ServerInstall::Download>{jar};
@@ -179,13 +177,13 @@ inline Fill fillDownloads(const ServerInstall::Request &request, const ServerIns
         QJsonParseError error;
         const QJsonDocument document = QJsonDocument::fromJson(payload, &error);
         if (error.error != QJsonParseError::NoError || !document.isArray()) {
-            fill.problem = QStringLiteral("拿到的 Paper 构建列表无法解析（不是一份 JSON 数组）。");
+            fill.problem = QCoreApplication::translate("ServerInstallRun", "拿到的 Paper 构建列表无法解析（不是一份 JSON 数组）。");
             return fill;
         }
         const QList<ServerInstall::Build> builds =
             ServerInstall::paperBuildsFromJson(document.array());
         if (builds.isEmpty()) {
-            fill.problem = QStringLiteral("Paper 没给这个游戏版本发过构建。换一个版本试试。");
+            fill.problem = QCoreApplication::translate("ServerInstallRun", "Paper 没给这个游戏版本发过构建。换一个版本试试。");
             return fill;
         }
         // 稳定档优先，但没有稳定档时退回最新那条（见 `pickPaperBuild`）—— 退回这件事要
@@ -199,8 +197,8 @@ inline Fill fillDownloads(const ServerInstall::Request &request, const ServerIns
         fill.plan.downloads = QList<ServerInstall::Download>{jar};
         fill.ok = true;
         fill.detail = ServerInstall::paperBuildIsStable(build)
-                          ? QStringLiteral("构建 #%1（稳定档）").arg(build.number)
-                          : QStringLiteral("构建 #%1（上游没标稳定档，这就是最新那条）")
+                          ? QCoreApplication::translate("ServerInstallRun", "构建 #%1（稳定档）").arg(build.number)
+                          : QCoreApplication::translate("ServerInstallRun", "构建 #%1（上游没标稳定档，这就是最新那条）")
                                 .arg(build.number);
         return fill;
     }
@@ -262,12 +260,12 @@ inline QStringList stepNames(const ServerInstall::Request &request,
         steps.append(need.label);
     }
     for (const ServerInstall::Download &download : plan.downloads) {
-        steps.append(QStringLiteral("下载 %1").arg(download.fileName));
+        steps.append(QCoreApplication::translate("ServerInstallRun", "下载 %1").arg(download.fileName));
     }
     if (!installerJarName(plan).isEmpty()) {
-        steps.append(QStringLiteral("跑安装器"));
+        steps.append(QCoreApplication::translate("ServerInstallRun", "跑安装器"));
     }
-    steps.append(QStringLiteral("核对安装结果"));
+    steps.append(QCoreApplication::translate("ServerInstallRun", "核对安装结果"));
     return steps;
 }
 
