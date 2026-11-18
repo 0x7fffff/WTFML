@@ -214,23 +214,18 @@ Plan plan(int baseColorIndex, const QList<Layer> &layers, const QString &version
     }
 
     const QString baseName = colorName(baseColorIndex);
-    const QString baseBanner = QStringLiteral("%1旗帜").arg(baseName);
-
     MaterialList materials;
-    materials.add(QStringLiteral("%1羊毛").arg(baseName), 6);
-    materials.add(QStringLiteral("木棍"), 1);
-
-    result.steps.append(
-        QStringLiteral("先做一面%1：6 块%2羊毛 + 1 根木棍").arg(baseBanner, baseName));
 
     QString previousKey;
     QStringList newerPatterns;  // 1.21 才加的那几种（同一图案只提醒一次）
     for (int index = 0; index < layers.size(); ++index) {
         const PatternInfo pattern = patternAt(layers[index].patternIndex);
         const QString dye = dyeName(layers[index].colorIndex);
+        const QString banner = index == 0 ? QStringLiteral("%1空白旗帜").arg(baseName)
+                                          : QStringLiteral("上一层的旗帜");
         result.steps.append(QStringLiteral("第 %1 层：织布机里放%2 + %3 + %4%5 → 叠出「%6」")
                                 .arg(index + 1)
-                                .arg(baseBanner, dye, pattern.name, pattern.item)
+                                .arg(banner, dye, pattern.name, pattern.item)
                                 .arg(pattern.name));
         materials.add(dye, 1);
         materials.add(pattern.item, 1);
