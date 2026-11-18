@@ -21358,6 +21358,143 @@ Please close the program occupying the port, or change the port in "Common Setti
         </message>
     </context>
     <context>
+        <name>ServerInstallController</name>
+        <message>
+            <source>这一档要跑它的安装器，而安装器是一个 Java 程序 —— 没找到能用的 Java。去「设置 → 启动 → Java 管理」里选一个，或者先把游戏跑起来一次让它自己挑。</source>
+            <translation>This file needs to run its installer, and the installer is a Java program - no Java can be found. Go to "Settings → Startup → Java Management" to choose one, or run the game first and let it choose by itself.</translation>
+        </message>
+        <message>
+            <source>%1失败：%2</source>
+            <translation>%1 failed: %2</translation>
+        </message>
+        <message>
+            <source>服务端安装器已达到总截止（%1 秒），半成品保留，请检查网络后修复。</source>
+            <translation>The server installer has reached the total deadline (%1 seconds), and the work in progress is reserved. Please check the network and fix it.</translation>
+        </message>
+        <message>
+            <source>服务端安装器连续 %1 秒无输出，可能卡在内部下载；保留文件并重启安装器一次。</source>
+            <translation>The server installer has no output for %1 seconds and may be stuck in internal download; keep the file and restart the installer once.</translation>
+        </message>
+        <message>
+            <source>服务端安装器重试后仍连续 %1 秒无输出，已停止；半成品保留。
+%2</source>
+            <translation>The server installer still has no output for %1 seconds after retrying and has been stopped; the semi-finished product is retained. 
+%2</translation>
+        </message>
+        <message>
+            <source>已有服务端正在安装，请结束后再试。</source>
+            <translation>The server is already being installed, please try again after completion.</translation>
+        </message>
+        <message>
+            <source>下载器未初始化，无法安装（程序内部错误）。</source>
+            <translation>The downloader is not initialized and cannot be installed (internal program error).</translation>
+        </message>
+        <message>
+            <source>已有下载任务正在进行（或刚排入队列），请结束后再安装这个服务端。</source>
+            <translation>There is already a download task in progress (or has just been queued), please finish it before installing this server.</translation>
+        </message>
+        <message>
+            <source>建不出服务端目录：%1</source>
+            <translation>Unable to create server directory: %1</translation>
+        </message>
+        <message>
+            <source>开始装服务端「%1」（%2 %3）</source>
+            <translation>Start installing the server "%1" (%2 %3)</translation>
+        </message>
+        <message>
+            <source>核对安装结果</source>
+            <translation>Check the installation results</translation>
+        </message>
+        <message>
+            <source>本地没有 %1 的版本信息，去版本清单里问一条。</source>
+            <translation>There is no local version information for %1. Please go to the version list and ask.</translation>
+        </message>
+        <message>
+            <source>取 %1 </source>
+            <translation>Take %1</translation>
+        </message>
+        <message>
+            <source>取 %1 失败了：%2</source>
+            <translation>Failed to retrieve %1: %2</translation>
+        </message>
+        <message>
+            <source>取版本清单</source>
+            <translation>Get version list</translation>
+        </message>
+        <message>
+            <source>取版本清单失败了：%1</source>
+            <translation>Failed to get version list: %1</translation>
+        </message>
+        <message>
+            <source>版本清单里没有 %1 这个版本。</source>
+            <translation>There is no version %1 in the version list.</translation>
+        </message>
+        <message>
+            <source>取 %1 的版本信息 </source>
+            <translation>Get the version information of %1</translation>
+        </message>
+        <message>
+            <source>取 %1 的版本信息失败了：%2</source>
+            <translation>Failed to get version information of %1: %2</translation>
+        </message>
+        <message>
+            <source>等版本信息的这会儿，已经有别的下载开始了。等那一批结束再装这个服务端。</source>
+            <translation>While waiting for the version information, other downloads have already started. Wait until that batch is finished before installing the server.</translation>
+        </message>
+        <message>
+            <source>下 %1</source>
+            <translation>Next %1</translation>
+        </message>
+        <message>
+            <source>未下载</source>
+            <translation>Not downloaded</translation>
+        </message>
+        <message>
+            <source>%1 未能下载：%2</source>
+            <translation>%1 Failed to download: %2</translation>
+        </message>
+        <message>
+            <source>原因不明</source>
+            <translation>Unknown reason</translation>
+        </message>
+        <message>
+            <source>服务端配置在下载期间已变化，请重新预览；未执行安装器。</source>
+            <translation>The server configuration has changed during download, please preview again; the installer has not been executed.</translation>
+        </message>
+        <message>
+            <source>要跑的安装器 %1 不在目录里（上一步没下成）。</source>
+            <translation>The installer %1 to be run is not in the directory (the previous step was not downloaded).</translation>
+        </message>
+        <message>
+            <source>安装器起不来：%1</source>
+            <translation>The installer cannot start: %1</translation>
+        </message>
+        <message>
+            <source>跑安装器：%1 %2</source>
+            <translation>Run the installer: %1 %2</translation>
+        </message>
+        <message>
+            <source>安装器退出码是 %1，没装成。</source>
+            <translation>The installer exit code is %1 and the installation failed.</translation>
+        </message>
+        <message>
+            <source>安装校验失败：%1</source>
+            <translation>Installation verification failed: %1</translation>
+        </message>
+        <message>
+            <source>缺的东西说不清</source>
+            <translation>I can’t explain what I’m missing.</translation>
+        </message>
+        <message>
+            <source>「%1」安装完成。</source>
+            <translation>"%1" installation completed.</translation>
+        </message>
+        <message>
+            <source>已停止。已下载的文件保留在目录中，再点「修复」将继续使用。</source>
+            <translation>Stopped. The downloaded file remains in the directory and will continue to be used if you click "Repair" again.</translation>
+        </message>
+    </context>
+    <context>
         <name>ServerListController</name>
         <message>
             <source>（无名）</source>
@@ -22848,6 +22985,22 @@ The changes you made yourself will not be retained.</translation>
     <context>
         <name>ToolboxController</name>
         <message>
+            <source>（没有附魔）</source>
+            <translation>(no enchantment)</translation>
+        </message>
+        <message>
+            <source>%1 的书</source>
+            <translation>%1's book</translation>
+        </message>
+        <message>
+            <source>%1 的装备</source>
+            <translation>%1's equipment</translation>
+        </message>
+        <message>
+            <source>&lt;span style='opacity:0.6'&gt;（这里还没有字）&lt;/span&gt;</source>
+            <translation>&lt;span style='opacity:0.6'&gt; (no words here yet) &lt;/span&gt;</translation>
+        </message>
+        <message>
             <source>第 %1 层 / %2玻璃 → %3</source>
             <translation>Layer %1 / %2Glass → %3</translation>
         </message>
@@ -22862,6 +23015,10 @@ The changes you made yourself will not be retained.</translation>
         <message>
             <source>材料：%1</source>
             <translation>Material: %1</translation>
+        </message>
+        <message>
+            <source>、</source>
+            <translation>,</translation>
         </message>
         <message>
             <source>未放置染色玻璃：白色光柱。</source>
@@ -22904,6 +23061,10 @@ The changes you made yourself will not be retained.</translation>
             <translation>The custom color should be written as `#RRGGBB`, a six-digit hexadecimal number, such as `#ff8800` (games do not recognize abbreviations such as `#f80`).</translation>
         </message>
         <message>
+            <source>%1（%2，上限 %3 级）</source>
+            <translation>%1 (%2, upper limit %3 level)</translation>
+        </message>
+        <message>
             <source>还没有东西要合</source>
             <translation>Nothing to match yet</translation>
         </message>
@@ -22912,8 +23073,36 @@ The changes you made yourself will not be retained.</translation>
             <translation>First add a line or two to the table: choose an enchantment and write its level.</translation>
         </message>
         <message>
+            <source>第 %1 步的合并产物（%2）</source>
+            <translation>The combined product of step %1 (%2)</translation>
+        </message>
+        <message>
+            <source>（无法识别的一件）</source>
+            <translation>(unrecognizable piece)</translation>
+        </message>
+        <message>
+            <source>第 %1 步：左槽 %2 + 右槽 %3 → %4（代价 %5 级</source>
+            <translation>Step %1: left slot %2 + right slot %3 → %4 (cost %5 level</translation>
+        </message>
+        <message>
+            <source>，其中先前工作惩罚 %1</source>
+            <translation>, where the previous work penalty %1</translation>
+        </message>
+        <message>
+            <source>，含不兼容 +%1</source>
+            <translation>, including incompatible +%1</translation>
+        </message>
+        <message>
             <source>第 %1 步：「%2」与目标已有的附魔互斥，这一步无法合入；目标保留原有附魔（铁砧仍按每条互斥 +1 级）。若要保留这一条，请把它所在的一件放到左槽先合。</source>
             <translation>Step %1: "%2" is mutually exclusive with the target's existing enchantments, and this step cannot be combined; the target retains its original enchantments (the anvil is still mutually exclusive +1 level per item). If you want to keep this one, please put the piece it is on to the left slot and close it first.</translation>
+        </message>
+        <message>
+            <source> 的书</source>
+            <translation>Book</translation>
+        </message>
+        <message>
+            <source> 的装备</source>
+            <translation>Equipment</translation>
         </message>
         <message>
             <source>只有一件，无需合并；改名需要 %1 级。</source>
@@ -22974,6 +23163,26 @@ The changes you made yourself will not be retained.</translation>
         <message>
             <source>以下组件未解析：%1。它们需要游戏内的服务器或语言文件才能确定，此处不做推测。</source>
             <translation>The following components were not resolved: %1. They require in-game server or language files to determine, no speculation is made here.</translation>
+        </message>
+        <message>
+            <source>%1：%2</source>
+            <translation>%1:%2</translation>
+        </message>
+        <message>
+            <source>%1 里这一格：%2</source>
+            <translation>%1 In this space: %2</translation>
+        </message>
+        <message>
+            <source>%1：末地不按比例算（两边坐标之间没有 8:1 那种关系）。</source>
+            <translation>%1: The end is not proportional (there is no 8:1 relationship between the coordinates on both sides).</translation>
+        </message>
+        <message>
+            <source>区块：(x %1, z %2)（x %3、z %4）</source>
+            <translation>Block: (x %1, z %2) (x %3, z %4)</translation>
+        </message>
+        <message>
+            <source>区域文件：%1</source>
+            <translation>Zone file: %1</translation>
         </message>
         <message>
             <source>认出来了：%1</source>
@@ -23104,6 +23313,10 @@ The changes you made yourself will not be retained.</translation>
 
 </source>
             <translation>%2 is not yet available in target version %1 - this potion requires Java %3 and above.</translation>
+        </message>
+        <message>
+            <source>药水</source>
+            <translation>Potion</translation>
         </message>
         <message>
             <source>目标版本 %1 不支持：%2。已保留图层，请调整设计或目标版本。

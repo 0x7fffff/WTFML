@@ -14,6 +14,7 @@
  */
 
 #include "ServerInstallController.hpp"
+#include <QCoreApplication>
 #include <QTimer>
 #include "server/ServerWriteGuard.hpp"
 
@@ -47,14 +48,13 @@ constexpr int kInstallerTailChars = 1200;
 /// 跑安装器那条路的失败措辞：**没有 java** 和 **java 跑了但退出码不是 0** 是两件不同的事，
 /// 两句得分开写（前者用户要去「设置 → 启动 → Java 管理」看一眼，后者要看安装器自己说了什么）。
 QString javaMissingMessage() {
-    return QStringLiteral("这一档要跑它的安装器，而安装器是一个 Java 程序 —— 没找到能用的 Java。"
-                          "去「设置 → 启动 → Java 管理」里选一个，或者先把游戏跑起来一次让它自己挑。");
+    return QCoreApplication::translate("ServerInstallController", "这一档要跑它的安装器，而安装器是一个 Java 程序 —— 没找到能用的 Java。去「设置 → 启动 → Java 管理」里选一个，或者先把游戏跑起来一次让它自己挑。");
 }
 
 /// 没有回复（排队到点 / 被掐 / 管理器先没）时的失败措辞：`what` 是"取 xxx"，
 /// 拼出来是「取 xxx失败：等待网络请求超时。」—— 和以前超时走"网络错误"那条路一个收场。
 QString unansweredText(const QString &what, const QString &jobError) {
-    return QStringLiteral("%1失败：%2").arg(what, jobError);
+    return QCoreApplication::translate("ServerInstallController", "%1失败：%2").arg(what, jobError);
 }
 
 }  // namespace
@@ -68,14 +68,14 @@ ServerInstallController::ServerInstallController(QObject *parent) : QObject(pare
     connect(m_installerWatchdog, &QTimer::timeout, this, [this] {
         if (!m_running || m_cancelling || !m_process || m_process->state() == QProcess::NotRunning) return;
         if (m_installerTotal.elapsed() >= m_installerTotalMs) {
-            fail(QStringLiteral("服务端安装器已达到总截止（%1 秒），半成品保留，请检查网络后修复。").arg(m_installerTotalMs / 1000)); return;
+            fail(QCoreApplication::translate("ServerInstallController", "服务端安装器已达到总截止（%1 秒），半成品保留，请检查网络后修复。").arg(m_installerTotalMs / 1000)); return;
         }
         if (m_installerProgress.elapsed() < m_installerSilentMs || m_installerRestartPending) return;
         if (m_installerRetries == 0) {
             ++m_installerRetries; m_installerRestartPending = true;
-            emit message(QStringLiteral("服务端安装器连续 %1 秒无输出，可能卡在内部下载；保留文件并重启安装器一次。").arg(m_installerSilentMs / 1000));
+            emit message(QCoreApplication::translate("ServerInstallController", "服务端安装器连续 %1 秒无输出，可能卡在内部下载；保留文件并重启安装器一次。").arg(m_installerSilentMs / 1000));
             m_process->kill();
-        } else fail(QStringLiteral("服务端安装器重试后仍连续 %1 秒无输出，已停止；半成品保留。\n%2").arg(m_installerSilentMs / 1000).arg(m_installerTail));
+        } else fail(QCoreApplication::translate("ServerInstallController", "服务端安装器重试后仍连续 %1 秒无输出，已停止；半成品保留。\n%2").arg(m_installerSilentMs / 1000).arg(m_installerTail));
     });
 }
 
@@ -94,7 +94,7 @@ void ServerInstallController::start(const ServerInstall::Request &request,
                                     const QString &serverId, const QString &javaPath,
                                     const ServerInstall::Plan *resolved) {
     if (m_running) {
-        emit finished(Outcome::Failed, QStringLiteral("已有服务端正在安装，请结束后再试。"));
+        emit finished(Outcome::Failed, QCoreApplication::translate("ServerInstallController", "已有服务端正在安装，请结束后再试。"));
         return;
     }
     m_installerRetries = 0; m_installerRestartPending = false; m_installerTotal.invalidate();
@@ -108,7 +108,7 @@ void ServerInstallController::start(const ServerInstall::Request &request,
         return;
     }
     if (m_downloads == nullptr) {
-        emit finished(Outcome::Failed, QStringLiteral("下载器未初始化，无法安装（程序内部错误）。"));
+        emit finished(Outcome::Failed, QCoreApplication::translate("ServerInstallController", "下载器未初始化，无法安装（程序内部错误）。"));
         return;
     }
 
@@ -121,7 +121,7 @@ void ServerInstallController::start(const ServerInstall::Request &request,
     // 它身上），同时开两批会让两边的收尾互相算错 —— 所以忙的时候**拒掉**，并说清楚。
     if (m_downloads->isBusy()) {
         emit finished(Outcome::Failed,
-                      QStringLiteral("已有下载任务正在进行（或刚排入队列），请结束后再安装这个服务端。"));
+                      QCoreApplication::translate("ServerInstallController", "已有下载任务正在进行（或刚排入队列），请结束后再安装这个服务端。"));
         return;
     }
 
@@ -141,11 +141,11 @@ void ServerInstallController::start(const ServerInstall::Request &request,
     if (!QDir().mkpath(m_dir)) {
         m_running = false;
         emit finished(Outcome::Failed,
-                      QStringLiteral("建不出服务端目录：%1").arg(QDir::toNativeSeparators(m_dir)));
+                      QCoreApplication::translate("ServerInstallController", "建不出服务端目录：%1").arg(QDir::toNativeSeparators(m_dir)));
         return;
     }
 
-    emit message(QStringLiteral("开始装服务端「%1」（%2 %3）")
+    emit message(QCoreApplication::translate("ServerInstallController", "开始装服务端「%1」（%2 %3）")
                      .arg(serverId, ServerInstall::flavorName(request.flavor),
                           request.gameVersion));
 
@@ -153,9 +153,9 @@ void ServerInstallController::start(const ServerInstall::Request &request,
     // 完整那几项 —— 分两次发是**故意的**：取元数据那一步在纸面上还不知道要下几个文件。
     const Need need = ServerInstallRun::needFor(m_request, m_plan);
     if (need.ok()) {
-        emit stepsChanged(QStringList{need.label, QStringLiteral("核对安装结果")}, 0);
+        emit stepsChanged(QStringList{need.label, QCoreApplication::translate("ServerInstallController", "核对安装结果")}, 0);
     } else {
-        emit stepsChanged(QStringList{QStringLiteral("核对安装结果")}, 0);
+        emit stepsChanged(QStringList{QCoreApplication::translate("ServerInstallController", "核对安装结果")}, 0);
     }
 
     if (resolved) {
@@ -249,14 +249,14 @@ void ServerInstallController::beginResolve() {
                 return;
             }
         }
-        emit message(QStringLiteral("本地没有 %1 的版本信息，去版本清单里问一条。")
+        emit message(QCoreApplication::translate("ServerInstallController", "本地没有 %1 的版本信息，去版本清单里问一条。")
                          .arg(m_request.gameVersion));
         fetchVersionJson();
         return;
     }
 
     // Paper：那份构建列表。
-    const QString what = QStringLiteral("取 %1 ").arg(need.url);
+    const QString what = QCoreApplication::translate("ServerInstallController", "取 %1 ").arg(need.url);
     QNetworkRequest request{QUrl(need.url)};
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                          QNetworkRequest::NoLessSafeRedirectPolicy);
@@ -272,7 +272,7 @@ void ServerInstallController::beginResolve() {
             const QString problem =
                 reply->error() == QNetworkReply::NoError
                     ? QString()
-                    : QStringLiteral("取 %1 失败了：%2").arg(reply->url().toString(), reply->errorString());
+                    : QCoreApplication::translate("ServerInstallController", "取 %1 失败了：%2").arg(reply->url().toString(), reply->errorString());
             reply->deleteLater();
             if (m_cancelling) {
                 return;  // 取消那条路自己会收尾，这里什么都不做
@@ -300,7 +300,7 @@ void ServerInstallController::onVersionManifest(QNetworkReply *reply, const QStr
         if (m_cancelling) {
             return;
         }
-        fail(unansweredText(QStringLiteral("取版本清单"), jobError));
+        fail(unansweredText(QCoreApplication::translate("ServerInstallController", "取版本清单"), jobError));
         return;
     }
     const QByteArray payload = reply->readAll();
@@ -325,7 +325,7 @@ void ServerInstallController::onVersionManifest(QNetworkReply *reply, const QStr
                 });
             return;
         }
-        fail(QStringLiteral("取版本清单失败了：%1").arg(networkProblem));
+        fail(QCoreApplication::translate("ServerInstallController", "取版本清单失败了：%1").arg(networkProblem));
         return;
     }
 
@@ -342,7 +342,7 @@ void ServerInstallController::onVersionManifest(QNetworkReply *reply, const QStr
         }
     }
     if (officialUrl.isEmpty()) {
-        fail(QStringLiteral("版本清单里没有 %1 这个版本。").arg(m_request.gameVersion));
+        fail(QCoreApplication::translate("ServerInstallController", "版本清单里没有 %1 这个版本。").arg(m_request.gameVersion));
         return;
     }
 
@@ -351,7 +351,7 @@ void ServerInstallController::onVersionManifest(QNetworkReply *reply, const QStr
                             ? DownloadManager::mirrorVersionJsonUrl(m_request.gameVersion)
                             : officialUrl;
     QNetworkRequest request{QUrl(url)};
-    const QString what = QStringLiteral("取 %1 的版本信息 ").arg(m_request.gameVersion);
+    const QString what = QCoreApplication::translate("ServerInstallController", "取 %1 的版本信息 ").arg(m_request.gameVersion);
     m_metadataReply = RequestBudget::ControlGet::start(
         this, m_network, request, HttpClient::kDefaultTimeoutMs,
         [this, what](QNetworkReply *inner, const QString &jobError) {
@@ -364,7 +364,7 @@ void ServerInstallController::onVersionManifest(QNetworkReply *reply, const QStr
             const QString problem =
                 inner->error() == QNetworkReply::NoError
                     ? QString()
-                    : QStringLiteral("取 %1 的版本信息失败了：%2")
+                    : QCoreApplication::translate("ServerInstallController", "取 %1 的版本信息失败了：%2")
                           .arg(m_request.gameVersion, inner->errorString());
             inner->deleteLater();
             if (m_cancelling) {
@@ -422,7 +422,7 @@ void ServerInstallController::beginDownloads() {
     // `endBatch()`），别人的那一批于是永远等不到 `allDownloadsFinished`：任务中心那一行
     // 停在「进行中」，取消也取消不掉（收尾信号已经不会来了）。
     if (m_downloads->isBusy()) {
-        fail(QStringLiteral("等版本信息的这会儿，已经有别的下载开始了。等那一批结束再装这个服务端。"));
+        fail(QCoreApplication::translate("ServerInstallController", "等版本信息的这会儿，已经有别的下载开始了。等那一批结束再装这个服务端。"));
         return;
     }
 
@@ -446,7 +446,7 @@ void ServerInstallController::beginDownloads() {
     for (const ServerInstall::Download &download : m_plan.downloads) {
         const QString path = m_dir + QLatin1Char('/') + download.fileName;
         m_downloadNames.insert(download.fileName);
-        emit message(QStringLiteral("下 %1").arg(download.fileName));
+        emit message(QCoreApplication::translate("ServerInstallController", "下 %1").arg(download.fileName));
         // 校验值：`DownloadManager` 手上只有 sha1 这一栏。上游给 sha256 的那两条（Paper /
         // Purpur）本来也没有 sha1，所以那两条按"比一比大小"过 —— 和资源下载那边同一条口径。
         m_downloads->downloadFile(download.url, path, download.sha1, download.size,
@@ -473,7 +473,7 @@ void ServerInstallController::onDownloadFinished(const QString &fileName, bool s
     ++m_downloaded;
     // 步骤表里那几格"下载 X"是挨着排的，起点是 `m_stepIndex`（取元数据那一格之后）。
     emit stepChanged(m_stepIndex + m_downloaded - 1, success,
-                     success ? QString() : QStringLiteral("未下载"));
+                     success ? QString() : QCoreApplication::translate("ServerInstallController", "未下载"));
     if (m_downloaded < m_plan.downloads.size()) {
         return;
     }
@@ -481,9 +481,9 @@ void ServerInstallController::onDownloadFinished(const QString &fileName, bool s
     m_batchOwned = false;
 
     if (!m_failedDownload.isEmpty()) {
-        fail(QStringLiteral("%1 未能下载：%2")
+        fail(QCoreApplication::translate("ServerInstallController", "%1 未能下载：%2")
                  .arg(m_failedDownload,
-                      m_failedDownloadReason.isEmpty() ? QStringLiteral("原因不明")
+                      m_failedDownloadReason.isEmpty() ? QCoreApplication::translate("ServerInstallController", "原因不明")
                                                        : m_failedDownloadReason));
         return;
     }
@@ -501,7 +501,7 @@ void ServerInstallController::beginInstaller() {
     }
     for (auto it = m_downloadOriginals.begin(); it != m_downloadOriginals.end(); ++it) {
         if (DownloadCheckpoint::fingerprint(it.key()) != it.value().toObject()) {
-            fail(QStringLiteral("服务端配置在下载期间已变化，请重新预览；未执行安装器。")); return;
+            fail(QCoreApplication::translate("ServerInstallController", "服务端配置在下载期间已变化，请重新预览；未执行安装器。")); return;
         }
     }
     const QString jarName = ServerInstallRun::installerJarName(m_plan);
@@ -516,7 +516,7 @@ void ServerInstallController::beginInstaller() {
 
     const QString jarPath = m_dir + QLatin1Char('/') + jarName;
     if (!QFileInfo::exists(jarPath)) {
-        fail(QStringLiteral("要跑的安装器 %1 不在目录里（上一步没下成）。").arg(jarName));
+        fail(QCoreApplication::translate("ServerInstallController", "要跑的安装器 %1 不在目录里（上一步没下成）。").arg(jarName));
         return;
     }
 
@@ -538,12 +538,12 @@ void ServerInstallController::beginInstaller() {
             return;
         }
         if (code == QProcess::FailedToStart) {
-            fail(QStringLiteral("安装器起不来：%1").arg(m_javaPath) +
+            fail(QCoreApplication::translate("ServerInstallController", "安装器起不来：%1").arg(m_javaPath) +
                  ProcessPathLimit::tooLongHint({m_javaPath, m_dir}));
         }
     });
 
-    emit message(QStringLiteral("跑安装器：%1 %2")
+    emit message(QCoreApplication::translate("ServerInstallController", "跑安装器：%1 %2")
                      .arg(QFileInfo(m_javaPath).fileName(),
                           ServerInstallRun::toolCommand(m_plan, jarPath).join(QLatin1Char(' '))));
     m_process->start();
@@ -574,7 +574,7 @@ void ServerInstallController::onInstallerFinished(int exitCode) {
     }
     m_installerWatchdog->stop();
     if (exitCode != 0) {
-        QString problem = QStringLiteral("安装器退出码是 %1，没装成。").arg(exitCode);
+        QString problem = QCoreApplication::translate("ServerInstallController", "安装器退出码是 %1，没装成。").arg(exitCode);
         const QString tail = m_installerTail.trimmed();
         if (!tail.isEmpty()) {
             problem += QLatin1Char('\n') + tail.right(600);
@@ -599,12 +599,12 @@ void ServerInstallController::verifyInstall() {
     // 另判一遍，就会出现"任务中心说装好了、列表那一行还写着未安装"，而两边都没报错。
     const ServerRegistry::Entry entry = ServerRegistry::describe(m_serverId, nullptr);
     if (!entry.installed) {
-        fail(QStringLiteral("安装校验失败：%1")
-                 .arg(entry.note.isEmpty() ? QStringLiteral("缺的东西说不清") : entry.note));
+        fail(QCoreApplication::translate("ServerInstallController", "安装校验失败：%1")
+                 .arg(entry.note.isEmpty() ? QCoreApplication::translate("ServerInstallController", "缺的东西说不清") : entry.note));
         return;
     }
     emit stepChanged(m_stepIndex, true, QString());
-    emit message(QStringLiteral("「%1」安装完成。").arg(m_serverId));
+    emit message(QCoreApplication::translate("ServerInstallController", "「%1」安装完成。").arg(m_serverId));
     finishWith(Outcome::Succeeded, QString());
 }
 
@@ -654,7 +654,7 @@ void ServerInstallController::cancel() {
         return;
     }
     m_cancelling = true;
-    emit message(QStringLiteral("已停止。已下载的文件保留在目录中，再点「修复」将继续使用。"));
+    emit message(QCoreApplication::translate("ServerInstallController", "已停止。已下载的文件保留在目录中，再点「修复」将继续使用。"));
     // 在飞的回复 / 排着队的作业一起掐掉（`cancelBatch()` 那四个动作见它自己的说明）。
     // 判据是**这一批是不是我们开的**，不是"下载器现在忙不忙"。下载器是共用的：
     // 安装器那一段（可能好几分钟）里就是空闲的，而用户完全可能已经开了一批新的 ——

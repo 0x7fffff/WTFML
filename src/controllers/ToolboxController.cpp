@@ -4,6 +4,7 @@
  */
 
 #include "controllers/ToolboxController.hpp"
+#include <QCoreApplication>
 #include "controllers/ArmorTrimPreviewController.hpp"
 #include "controllers/DirectDownloadController.hpp"
 #include "controllers/ToolboxInputState.hpp"
@@ -57,8 +58,8 @@ QString unitText(const QMap<QString, int> &enchantments, bool isBook) {
     for (auto it = enchantments.constBegin(); it != enchantments.constEnd(); ++it) {
         parts.append(enchantmentText(it.key(), it.value()));
     }
-    const QString body = parts.isEmpty() ? QStringLiteral("（没有附魔）") : parts.join(QStringLiteral(" + "));
-    return isBook ? QStringLiteral("%1 的书").arg(body) : QStringLiteral("%1 的装备").arg(body);
+    const QString body = parts.isEmpty() ? QCoreApplication::translate("ToolboxController", "（没有附魔）") : parts.join(QStringLiteral(" + "));
+    return isBook ? QCoreApplication::translate("ToolboxController", "%1 的书").arg(body) : QCoreApplication::translate("ToolboxController", "%1 的装备").arg(body);
 }
 
 /// 文本生成器那三种输出里那一段/几段的 HTML（预览那一格画的）。
@@ -107,7 +108,7 @@ QString segmentsToHtml(const QList<TextFormat::Segment> &segments, const QColor 
         html.append(QStringLiteral("<span style='%1'>%2</span>")
                         .arg(styles.join(QChar(';')), segment.text.toHtmlEscaped()));
     }
-    return html.isEmpty() ? QStringLiteral("<span style='opacity:0.6'>（这里还没有字）</span>")
+    return html.isEmpty() ? QCoreApplication::translate("ToolboxController", "<span style='opacity:0.6'>（这里还没有字）</span>")
                           : html;
 }
 
@@ -183,7 +184,7 @@ void ToolboxController::ensurePage() {
             const int count = glass.count(color);
             if (count > 0) materials.append(tr("%1玻璃 × %2").arg(Banner::colorName(color)).arg(count));
         }
-        if (!materials.isEmpty()) rows.append(tr("材料：%1").arg(materials.join(QStringLiteral("、"))));
+        if (!materials.isEmpty()) rows.append(tr("材料：%1").arg(materials.join(QCoreApplication::translate("ToolboxController", "、"))));
         if (glass.isEmpty()) rows.prepend(tr("未放置染色玻璃：白色光柱。"));
         m_page->setBeamResult(result.segments, result.ok ? rows.join(QLatin1Char('\n')) : result.error);
     });
@@ -236,8 +237,7 @@ void ToolboxController::ensurePage() {
         quint32 rgb = 0;
         if (!TextFormat::parseHexColor(hex, &rgb)) {
             // 不猜：三位缩写、写错位数都直接说清楚要什么形状。
-            m_page->setTextNotice(tr("自定颜色要写成 `#RRGGBB` 那种六位十六进制，"
-                                     "比如 `#ff8800`（`#f80` 这种缩写游戏那边不认）。"));
+            m_page->setTextNotice(tr("自定颜色要写成 `#RRGGBB` 那种六位十六进制，比如 `#ff8800`（`#f80` 这种缩写游戏那边不认）。"));
             return;
         }
         m_page->insertTextAtCursor(TextFormat::legacyHexColor(rgb));
@@ -290,7 +290,7 @@ void ToolboxController::setupTool(ToolboxPage::Tool tool) {
     case Tool::Anvil: {
         QList<QPair<QString, QString>> enchantments;
         for (const Anvil::EnchantInfo &info : Anvil::enchantmentTable()) {
-            enchantments.append({info.id, QStringLiteral("%1（%2，上限 %3 级）")
+            enchantments.append({info.id, QCoreApplication::translate("ToolboxController", "%1（%2，上限 %3 级）")
                                             .arg(info.name, info.english)
                                             .arg(info.maxLevel)});
         }
@@ -542,41 +542,39 @@ void ToolboxController::runAnvilPlan() {
         const int node = target ? step.targetNode : step.sacrificeNode;
         if (node >= 0 && node - units.size() < plan.steps.size()) {
             const Anvil::Step &produced = plan.steps.at(node - units.size());
-            return QStringLiteral("第 %1 步的合并产物（%2）")
+            return QCoreApplication::translate("ToolboxController", "第 %1 步的合并产物（%2）")
                 .arg(node - units.size() + 1)
                 .arg(unitText(produced.result, produced.resultIsBook));
         }
-        return QStringLiteral("（无法识别的一件）");
+        return QCoreApplication::translate("ToolboxController", "（无法识别的一件）");
     };
     int stepNumber = 0;
     for (const Anvil::Step &step : plan.steps) {
         ++stepNumber;
-        QString line = QStringLiteral("第 %1 步：左槽 %2 + 右槽 %3 → %4（代价 %5 级")
+        QString line = QCoreApplication::translate("ToolboxController", "第 %1 步：左槽 %2 + 右槽 %3 → %4（代价 %5 级")
                            .arg(stepNumber)
                            .arg(nodeText(step, true), nodeText(step, false),
                                 unitText(step.result, step.resultIsBook))
                            .arg(step.cost.total);
         if (step.cost.penalties > 0) {
-            line.append(QStringLiteral("，其中先前工作惩罚 %1").arg(step.cost.penalties));
+            line.append(QCoreApplication::translate("ToolboxController", "，其中先前工作惩罚 %1").arg(step.cost.penalties));
         }
         if (step.cost.incompatible > 0) {
-            line.append(QStringLiteral("，含不兼容 +%1").arg(step.cost.incompatible));
+            line.append(QCoreApplication::translate("ToolboxController", "，含不兼容 +%1").arg(step.cost.incompatible));
         }
         line.append(QChar(')'));
         view.steps.append(line);
         // 互斥顶掉的那几条**点名说清楚**：不解释的话，用户会以为那一条悄悄丢了
         // （代价里那 +1 是照旧的，所以要说明"合不上来但还是要多花一级"）。
         for (auto it = step.cost.dropped.constBegin(); it != step.cost.dropped.constEnd(); ++it) {
-            view.notes.append(tr("第 %1 步：「%2」与目标已有的附魔互斥，这一步无法合入；"
-                                 "目标保留原有附魔（铁砧仍按每条互斥 +1 级）。"
-                                 "若要保留这一条，请把它所在的一件放到左槽先合。")
+            view.notes.append(tr("第 %1 步：「%2」与目标已有的附魔互斥，这一步无法合入；目标保留原有附魔（铁砧仍按每条互斥 +1 级）。若要保留这一条，请把它所在的一件放到左槽先合。")
                                   .arg(stepNumber)
                                   .arg(enchantmentText(it.key(), it.value())));
         }
     }
     const QString finalText = unitText(plan.finalEnchantments, plan.finalIsBook)
-                                  .replace(QStringLiteral(" 的书"), QString())
-                                  .replace(QStringLiteral(" 的装备"), QString());
+                                  .replace(QCoreApplication::translate("ToolboxController", " 的书"), QString())
+                                  .replace(QCoreApplication::translate("ToolboxController", " 的装备"), QString());
     view.summary = plan.steps.isEmpty()
                        ? (plan.renameCost > 0
                               ? tr("只有一件，无需合并；改名需要 %1 级。").arg(plan.renameCost)
@@ -588,12 +586,10 @@ void ToolboxController::runAnvilPlan() {
     view.anyTooExpensive = plan.anyTooExpensive;
     if (plan.approximate) {
         // 搜索额度到顶：这一条仍然照常给，但不能说它是最省的那条。
-        view.notes.append(tr("★ 材料组合太多，这次没有穷举完所有次序 —— 这一条是**近似**最优；"
-                             "想拿到确定的最优解请减少材料件数。"));
+        view.notes.append(tr("★ 材料组合太多，这次没有穷举完所有次序 —— 这一条是**近似**最优；想拿到确定的最优解请减少材料件数。"));
     }
     if (plan.anyTooExpensive) {
-        view.notes.append(tr("★ 计划中有一步的代价超过 39 级；生存模式下铁砧会拒绝该步骤"
-                             "（创造模式不受限制）。请调整顺序，或先降低部分材料的先前工作惩罚。"));
+        view.notes.append(tr("★ 计划中有一步的代价超过 39 级；生存模式下铁砧会拒绝该步骤（创造模式不受限制）。请调整顺序，或先降低部分材料的先前工作惩罚。"));
     }
     if (!plan.unused.isEmpty()) {
         QStringList leftover;
@@ -603,7 +599,7 @@ void ToolboxController::runAnvilPlan() {
             }
         }
         view.notes.append(tr("这些材料用不上：%1（加入后也无法提升，材料不必全部使用）。")
-                              .arg(leftover.join(QStringLiteral("、"))));
+                              .arg(leftover.join(QCoreApplication::translate("ToolboxController", "、"))));
     }
     if (plan.finalPenalty > 0) {
         view.notes.append(tr("合并后该件的先前工作惩罚为 %1（相当于在铁砧上使用过 %2 次）。")
@@ -613,13 +609,11 @@ void ToolboxController::runAnvilPlan() {
     // 改名那 1 级只花在**一次**操作上：某一步顺手改，或者合完单独改一次。
     if (plan.renameCost > 0) {
         if (plan.renameStep >= 0 && plan.renameStep < plan.steps.size()) {
-            view.notes.append(tr("第 %1 步合并时会同时改名，总代价多 1 级"
-                                 "（这一步本身按 %2 级计；一条计划只改一次名）。")
+            view.notes.append(tr("第 %1 步合并时会同时改名，总代价多 1 级（这一步本身按 %2 级计；一条计划只改一次名）。")
                                   .arg(plan.renameStep + 1)
                                   .arg(plan.steps.at(plan.renameStep).cost.total));
         } else {
-            view.notes.append(tr("合并完成后再单独改名：%1 级（单独改名 = 该件先前工作惩罚 + 1，"
-                                 "上限 39；单独改名不会再提高该惩罚）。")
+            view.notes.append(tr("合并完成后再单独改名：%1 级（单独改名 = 该件先前工作惩罚 + 1，上限 39；单独改名不会再提高该惩罚）。")
                                   .arg(plan.renameCost));
         }
     }
@@ -662,9 +656,8 @@ void ToolboxController::loadTextFromJson(const QString &json) {
     }
     // 认不出来的那几种组件**不猜**（`translate` 要查语言文件、`score` 要游戏在跑、
     // `selector` 要挑实体 —— 都不是这一层能算的）。把名字列出来，用户自己知道少读了什么。
-    m_page->setTextNotice(tr("以下组件未解析：%1。它们需要游戏内的服务器或语言文件才能确定，"
-                             "此处不做推测。")
-                              .arg(parsed.unsupported.join(QStringLiteral("、"))));
+    m_page->setTextNotice(tr("以下组件未解析：%1。它们需要游戏内的服务器或语言文件才能确定，此处不做推测。")
+                              .arg(parsed.unsupported.join(QCoreApplication::translate("ToolboxController", "、"))));
 }
 
 // ---------------------------------------------------------------------------
@@ -677,11 +670,11 @@ void ToolboxController::convertCoordinates(int dimensionIndex, double x, double 
     QStringList rows;
     const auto show = [&](CoordConvert::Dimension to) {
         const CoordConvert::Position converted = CoordConvert::convert(from, to, position);
-        rows.append(QStringLiteral("%1：%2")
+        rows.append(QCoreApplication::translate("ToolboxController", "%1：%2")
                         .arg(CoordConvert::dimensionText(to),
                              CoordConvert::positionText(converted)));
     };
-    rows.append(QStringLiteral("%1 里这一格：%2")
+    rows.append(QCoreApplication::translate("ToolboxController", "%1 里这一格：%2")
                     .arg(CoordConvert::dimensionText(from), CoordConvert::positionText(position)));
     for (CoordConvert::Dimension to :
          {CoordConvert::Dimension::Overworld, CoordConvert::Dimension::Nether,
@@ -692,7 +685,7 @@ void ToolboxController::convertCoordinates(int dimensionIndex, double x, double 
         if (CoordConvert::convertible(from, to)) {
             show(to);
         } else {
-            rows.append(QStringLiteral("%1：末地不按比例算（两边坐标之间没有 8:1 那种关系）。")
+            rows.append(QCoreApplication::translate("ToolboxController", "%1：末地不按比例算（两边坐标之间没有 8:1 那种关系）。")
                             .arg(CoordConvert::dimensionText(to)));
         }
     }
@@ -700,13 +693,13 @@ void ToolboxController::convertCoordinates(int dimensionIndex, double x, double 
     // 但区块是**每个维度各自**的 —— 这里给的是"手上这组坐标在它自己那个维度里的格子"）。
     const int chunkX = CoordConvert::blockToChunk(CoordConvert::floorToInt(position.x));
     const int chunkZ = CoordConvert::blockToChunk(CoordConvert::floorToInt(position.z));
-    rows.append(QStringLiteral("区块：(x %1, z %2)（x %3、z %4）")
+    rows.append(QCoreApplication::translate("ToolboxController", "区块：(x %1, z %2)（x %3、z %4）")
                     .arg(chunkX)
                     .arg(chunkZ)
                     .arg(CoordConvert::blockRangeText(chunkX), CoordConvert::blockRangeText(chunkZ)));
     const int regionX = CoordConvert::chunkToRegion(chunkX);
     const int regionZ = CoordConvert::chunkToRegion(chunkZ);
-    rows.append(QStringLiteral("区域文件：%1")
+    rows.append(QCoreApplication::translate("ToolboxController", "区域文件：%1")
                     .arg(CoordConvert::regionFileName(regionX, regionZ)));
     m_page->setCoordinateRows(rows);
 }
@@ -880,8 +873,7 @@ void ToolboxController::runHash(const QString &path, int algorithmIndex, const Q
                     view.verdict = verdict.text;
                     // 已知值点的是**另一档**算法：比出来的"不一样"没有意义，得说清楚。
                     if (want.hasAlgorithm && want.algorithm != algorithm) {
-                        view.verdict = tr("这一串是按 %1 算的，和上面选的 %2 不是一档 —— "
-                                          "换个算法再算一遍。")
+                        view.verdict = tr("这一串是按 %1 算的，和上面选的 %2 不是一档 —— 换个算法再算一遍。")
                                            .arg(FileHash::algorithmName(want.algorithm),
                                                 FileHash::algorithmName(algorithm));
                         view.matches = false;
@@ -1126,8 +1118,7 @@ void ToolboxController::onHashFileChanged(const QString &path) {
         }
         const QString name = QFileInfo(path).fileName();
         m_page->setHashStaleNote(
-            now.ok ? tr("「%1」在算完之后变过（大小 / 修改时间对不上）—— 清单里那一串不是它"
-                       "现在的摘要了，重新算一遍。")
+            now.ok ? tr("「%1」在算完之后变过（大小 / 修改时间对不上）—— 清单里那一串不是它现在的摘要了，重新算一遍。")
                          .arg(name)
                    : tr("「%1」在算完之后被移走或删掉了 —— 清单里那一串不是它现在的样子。")
                          .arg(name));
@@ -1197,7 +1188,7 @@ void ToolboxController::refreshBrewing(int potionIndex, bool extended, bool leve
         && !Brewing::available(potionIndex, version)) {
         prefix = tr("目标版本 %1 里还没有%2 —— 这种药水要 Java %3 起才有。\n\n")
                      .arg(version,
-                          Brewing::potionAt(potionIndex).name + QStringLiteral("药水"),
+                          Brewing::potionAt(potionIndex).name + QCoreApplication::translate("ToolboxController", "药水"),
                           Brewing::potionSince(potionIndex));
     }
     m_page->setBrewingResult(prefix + plan.detailText());
@@ -1226,7 +1217,7 @@ void ToolboxController::refreshBanner(int baseColor, const QStringList &layers) 
     for (const auto &layer : parsed) {
         if (!BannerDesign::available(layer.patternIndex, version)) unsupported.append(Banner::patternAt(layer.patternIndex).name);
     }
-    m_page->setBannerResult((unsupported.isEmpty() ? QString() : tr("目标版本 %1 不支持：%2。已保留图层，请调整设计或目标版本。\n\n").arg(version, unsupported.join(QStringLiteral("、")))) + plan.detailText());
+    m_page->setBannerResult((unsupported.isEmpty() ? QString() : tr("目标版本 %1 不支持：%2。已保留图层，请调整设计或目标版本。\n\n").arg(version, unsupported.join(QCoreApplication::translate("ToolboxController", "、")))) + plan.detailText());
     m_page->setBannerCommand(plan.ok && unsupported.isEmpty() ? plan.command : QString());
     QString notice;
     const auto image = plan.ok ? BannerRender::compose(baseColor, parsed, m_bannerTextures, &notice) : QImage();
@@ -1308,9 +1299,8 @@ void ToolboxController::refreshTrim() {
     }
     QString text;
     if (!unsupported.isEmpty()) {
-        text = tr("目标版本 %1 里还没有：%2。已保留当前搭配 —— 请调整纹饰 / 材料，"
-                  "或者换一个目标版本。\n\n")
-                   .arg(version, unsupported.join(QStringLiteral("、")));
+        text = tr("目标版本 %1 里还没有：%2。已保留当前搭配 —— 请调整纹饰 / 材料，或者换一个目标版本。\n\n")
+                   .arg(version, unsupported.join(QCoreApplication::translate("ToolboxController", "、")));
     }
     text += tr("材料：") + items.join(QStringLiteral(" / "));
     if (!notes.isEmpty()) {

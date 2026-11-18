@@ -50,7 +50,6 @@ src/controllers/ServerSettingsController.cpp	9
 src/controllers/ServerSettingsPageController.cpp	3
 src/controllers/ServerWorkspaceController.cpp	2
 src/controllers/ThemeSettingsController.cpp	1
-src/controllers/ToolboxController.cpp	34
 src/controllers/UpdateCenterController.cpp	7
 src/controllers/UpgradeAssessment.cpp	8
 src/download/AssetDirectorKnownSet.cpp	27
@@ -108,7 +107,6 @@ src/manage/VersionManager.cpp	12
 src/manage/VersionManager.hpp	1
 src/manage/VersionManagerExport.cpp	10
 src/manage/VersionManagerInternals.hpp	2
-src/manage/VersionManagerLoaderInstall.cpp	45
 src/manage/VersionManagerModpack.cpp	8
 src/manage/WorldMap.cpp	1
 src/net/HttpClient.cpp	2
@@ -138,7 +136,6 @@ src/presets/ServerListPreset.cpp	10
 src/presets/VanillaOptions.cpp	1
 src/schematic/SchematicInfo.cpp	33
 src/server/ServerContent.cpp	2
-src/server/ServerInstallController.cpp	35
 src/server/ServerInstallRun.hpp	15
 src/server/ServerModel.hpp	8
 src/server/ServerPlayers.cpp	10
