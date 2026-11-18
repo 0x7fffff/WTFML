@@ -516,7 +516,27 @@ int MwDownloadNavigationChecks(MainWindow &window) {
                           "★★ Y2e.3 无对应服务端的版本（1.2.4）点「服务端」退回服务端版本列表并给出提示",
                           QStringLiteral("title=「%1」 text=「%2」").arg(g_modalTitle, g_modalText));
 
-                    // 还原状态供后续章节使用
+                    // 还原状态供后续章节使用（等 1.2.4 的加载器拉取全部回落，避免后续 Y6 操控 loaderTree 时撞上晚到的异步重建）
+                    if (auto *loaderTree =
+                            byObjectName<QTreeWidget>(&window, MainWindowUI::loaderTreeName())) {
+                        pumpUntil(
+                            [&]() {
+                                for (int i = 0; i < loaderTree->topLevelItemCount(); ++i) {
+                                    QTreeWidgetItem *top = loaderTree->topLevelItem(i);
+                                    if (top == nullptr) {
+                                        continue;
+                                    }
+                                    for (int j = 0; j < top->childCount(); ++j) {
+                                        if (top->child(j)->text(MainWindowUI::loaderTreeKeyColumn()) ==
+                                            MainWindowUI::loaderVersionFetchingText()) {
+                                            return false;
+                                        }
+                                    }
+                                }
+                                return true;
+                            },
+                            3000);
+                    }
                     categoryList->setCurrentRow(gameIndex);
                     gameStack->setCurrentIndex(MainWindowUI::downloadGameTreeIndex());
                     serverStack->setCurrentIndex(MainWindowUI::downloadServerListIndex());
