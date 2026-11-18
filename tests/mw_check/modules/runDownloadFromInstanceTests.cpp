@@ -54,8 +54,11 @@ void runDownloadFromInstanceTests() {
     const QString instanceLoader = QStringLiteral("Fabric");
     const QDir versionsDir(root.path() + QStringLiteral("/versions"));
     makeInstalledVersion(versionsDir, idV);
+    // `realVersion` 必须写上：这一节在离线 CI 上也跑，不能靠"目录名长得像版本号"
+    // 的兜底（在线清单非空时那条兜底不生效，测出来的就是空版本）。
     makeVersionMeta(versionsDir, idV,
-                    QByteArrayLiteral("{\"loaderName\":\"Fabric\",\"loaderVersion\":\"0.15.11\"}"));
+                    QByteArrayLiteral("{\"realVersion\":\"1.96.1\",\"loaderName\":\"Fabric\","
+                                      "\"loaderVersion\":\"0.15.11\"}"));
     rememberLastVersion(idV);
 
     TokenStore::clear(TokenStore::microsoftKey());
