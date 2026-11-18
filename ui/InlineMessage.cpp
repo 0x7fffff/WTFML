@@ -165,8 +165,10 @@ InlineMessageBox::InlineMessageBox(MessageKind kind, const QString &title, const
     // 一颗都没给 = "就说一句"，补一颗「确定」。**默认按钮也是它**（回车 = 知道了我走了）。
     const QStringList labels = buttons.isEmpty() ? QStringList{tr("确定")} : buttons;
     QPushButton *defaultButton = nullptr;
+    QList<QPushButton *> actions;
     for (int i = 0; i < labels.size(); ++i) {
         auto *button = new QPushButton(labels.at(i), row);
+        actions.append(button);
         button->setObjectName(buttonName(i));
         // 三档颜色按**位置**分，不按文字（"取消"这三个字认不得 —— 按钮表是调用方给的，
         // 上面那张世界编辑菜单里就有四颗都叫"做什么"的）：
@@ -196,6 +198,15 @@ InlineMessageBox::InlineMessageBox(MessageKind kind, const QString &title, const
     }
     if (defaultButton != nullptr) {
         rowLayout->addWidget(defaultButton);
+    }
+    if (destructiveIndex >= 0 && destructiveIndex < actions.size() && actions.size() > 1) {
+        int actionWidth = 0;
+        for (QPushButton *button : actions) {
+            actionWidth = qMax(actionWidth, button->sizeHint().width());
+        }
+        for (QPushButton *button : actions) {
+            button->setFixedWidth(actionWidth);
+        }
     }
     layout->addWidget(row);
     relinkTabOrder();

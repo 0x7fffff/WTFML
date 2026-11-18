@@ -62,7 +62,7 @@ public:
      * @param buttons 按钮文字，从左到右。空的话补一颗「确定」。
      * @param defaultIndex 默认按钮的下标（回车打的那一颗）。**-1 = 没有默认按钮** ——
      * "别让一次误按回车就把事办了"那种场合用它（比如「停止游戏」）。
-     * @param destructiveIndex 危险动作那一颗（停止游戏 / 删除）—— 只影响配色。**-1 = 没有**。
+     * @param destructiveIndex 危险动作那一颗（停止游戏 / 删除）使用危险色，同排按钮等宽。**-1 = 没有**。
      * @param parent 父控件（覆盖层会重新认领它，这里给不给都不影响它是子控件）。
      */
     InlineMessageBox(MessageKind kind, const QString &title, const QString &text,
