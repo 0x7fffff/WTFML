@@ -46,6 +46,9 @@ WTFML 是 C++23 + Qt 6 Widgets 写的 Minecraft 启动器，目前只有 Windows
 - 提交信息用中文，一句话说清这次做了什么，一个提交只做一件事。
 - 不提交日志、`.dmp`、`.bak`、`.orig`、`.rej`、`.stackdump`、`.tmp`、临时导出物和构建产物（`build*/` 等）。
 - 不提交 `.tongxi/` 或其他个人 agent 的工作目录；不提交密钥、令牌、`dev-login.json`、`credential.json`。
+- 改动先推到 `dev`（直接推送或向 `dev` 提 PR），不直接推 `main`。
+- `dev` 上 CI 通过、测试完成后，再把 `main` 快进到 `dev`（`git merge --ff-only dev`）；发版标签只打在 `main` 上。
+- 紧急修复如果直接改了 `main`，随即把 `main` 合回 `dev`。
 - 不 force push，不改写已推送的历史。
 
 ## 验证规则
