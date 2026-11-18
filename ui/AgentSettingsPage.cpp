@@ -4,6 +4,7 @@
  */
 
 #include "AgentSettingsPage.hpp"
+#include <QCoreApplication>
 #include "InputSizing.hpp"
 
 #include "AgentSecretEdit.hpp"
@@ -65,7 +66,7 @@ QWidget *fieldWithNote(QWidget *parent, QWidget *field, QLabel *note, QWidget *t
 
 AgentSettingsPage::AgentSettingsPage(QWidget *parent) : QDialog(parent) {
     setObjectName(QStringLiteral("agentSettingsPage"));
-    setWindowTitle(QStringLiteral("API 与模型设置"));
+    setWindowTitle(QCoreApplication::translate("AgentSettingsPage", "API 与模型设置"));
     setModal(true);
     resize(560, 680);
 
@@ -108,40 +109,40 @@ AgentSettingsPage::AgentSettingsPage(QWidget *parent) : QDialog(parent) {
     };
 
     // ---------- 模型服务 ----------
-    SettingsGroup *service = addGroup(QStringLiteral("模型服务"));
+    SettingsGroup *service = addGroup(QCoreApplication::translate("AgentSettingsPage", "模型服务"));
     m_provider = new QComboBox(content);
     m_provider->setObjectName(QStringLiteral("agentProviderCombo"));
-    m_provider->addItem(QStringLiteral("OpenAI 兼容接口"), QStringLiteral("openai-compatible"));
-    row(service, QStringLiteral("服务类型"), m_provider, Placement::Column, QString(),
-        QStringLiteral("DeepSeek、通义、Kimi、Ollama 等大多数服务都提供这种接口。"));
+    m_provider->addItem(QCoreApplication::translate("AgentSettingsPage", "OpenAI 兼容接口"), QStringLiteral("openai-compatible"));
+    row(service, QCoreApplication::translate("AgentSettingsPage", "服务类型"), m_provider, Placement::Column, QString(),
+        QCoreApplication::translate("AgentSettingsPage", "DeepSeek、通义、Kimi、Ollama 等大多数服务都提供这种接口。"));
 
     m_name = new QLineEdit(content);
     m_name->setObjectName(QStringLiteral("agentProfileNameEdit"));
-    m_name->setPlaceholderText(QStringLiteral("默认模型服务"));
+    m_name->setPlaceholderText(QCoreApplication::translate("AgentSettingsPage", "默认模型服务"));
     InputSizing::shortValue(m_name, InputSizing::kNameChars, InputSizing::Script::Han);
-    row(service, QStringLiteral("配置名称"), m_name, Placement::Column);
+    row(service, QCoreApplication::translate("AgentSettingsPage", "配置名称"), m_name, Placement::Column);
 
     m_baseUrl = new QLineEdit(content);
     m_baseUrl->setObjectName(QStringLiteral("agentBaseUrlEdit"));
-    m_baseUrl->setPlaceholderText(QStringLiteral("例如 https://api.example.com/v1"));
-    InputSizing::longValue(m_baseUrl, "网址：路径长度不定");
+    m_baseUrl->setPlaceholderText(QCoreApplication::translate("AgentSettingsPage", "例如 https://api.example.com/v1"));
+    InputSizing::longValue(m_baseUrl, QCoreApplication::translate("AgentSettingsPage", "网址：路径长度不定"));
     m_urlPreview = captionLabel(content, QStringLiteral("agentFinalUrlPreview"));
     m_urlPreview->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    row(service, QStringLiteral("接口地址"), fieldWithNote(content, m_baseUrl, m_urlPreview), Placement::Wide);
+    row(service, QCoreApplication::translate("AgentSettingsPage", "接口地址"), fieldWithNote(content, m_baseUrl, m_urlPreview), Placement::Wide);
 
     m_model = new QLineEdit(content);
     m_model->setObjectName(QStringLiteral("agentModelEdit"));
-    m_model->setPlaceholderText(QStringLiteral("例如 deepseek-chat"));
+    m_model->setPlaceholderText(QCoreApplication::translate("AgentSettingsPage", "例如 deepseek-chat"));
     InputSizing::shortValue(m_model, 40);  // 模型 ID 如 deepseek-chat、claude-sonnet-4-5-20250929
-    row(service, QStringLiteral("模型"), m_model, Placement::Column, QString(),
-        QStringLiteral("服务商文档里的模型 ID，大小写要一致。"));
+    row(service, QCoreApplication::translate("AgentSettingsPage", "模型"), m_model, Placement::Column, QString(),
+        QCoreApplication::translate("AgentSettingsPage", "服务商文档里的模型 ID，大小写要一致。"));
 
     // API Key 和地址、模型同组：三样都是从服务商那里抄来的。
     m_secret = new AgentSecretEdit(content);
     m_secret->lineEdit()->setObjectName(QStringLiteral("agentApiKeyEdit"));
     m_secret->revealButton()->setObjectName(QStringLiteral("agentApiKeyRevealButton"));
     m_storage = captionLabel(content, QStringLiteral("agentStorageStatus"));
-    m_clearKeyButton = new QPushButton(QStringLiteral("清除已存密钥"), content);
+    m_clearKeyButton = new QPushButton(QCoreApplication::translate("AgentSettingsPage", "清除已存密钥"), content);
     m_clearKeyButton->setObjectName(QStringLiteral("agentClearKeyButton"));
     m_clearKeyButton->setCursor(Qt::PointingHandCursor);
     Theme::markButton(m_clearKeyButton, Theme::ButtonKind::Ghost);
@@ -149,7 +150,7 @@ AgentSettingsPage::AgentSettingsPage(QWidget *parent) : QDialog(parent) {
         Placement::Wide);
 
     // ---------- 生成 ----------
-    SettingsGroup *generation = addGroup(QStringLiteral("生成"));
+    SettingsGroup *generation = addGroup(QCoreApplication::translate("AgentSettingsPage", "生成"));
     // 这一组四个数字框同宽（按上下文长度上限 10000000 的 8 位钉），左右沿都对齐。
     constexpr int kGenerationDigits = 8;
     m_contextWindow = new QSpinBox(content);
@@ -158,16 +159,16 @@ AgentSettingsPage::AgentSettingsPage(QWidget *parent) : QDialog(parent) {
     m_contextWindow->setRange(1024, 10000000);
     m_contextWindow->setSingleStep(1024);
     m_contextWindow->setValue(32768);
-    row(generation, QStringLiteral("上下文长度"), m_contextWindow, Placement::Natural, QString(),
-        QStringLiteral("模型一次最多能读多少 token，按服务商写的填；填大了会被服务商拒绝。"));
+    row(generation, QCoreApplication::translate("AgentSettingsPage", "上下文长度"), m_contextWindow, Placement::Natural, QString(),
+        QCoreApplication::translate("AgentSettingsPage", "模型一次最多能读多少 token，按服务商写的填；填大了会被服务商拒绝。"));
 
     m_maxOutput = new QSpinBox(content);
     InputSizing::shortValue(m_maxOutput, kGenerationDigits);
     m_maxOutput->setObjectName(QStringLiteral("agentMaxOutputSpin"));
     m_maxOutput->setRange(1, 1000000);
     m_maxOutput->setValue(4096);
-    row(generation, QStringLiteral("单次最多输出"), m_maxOutput, Placement::Natural, QString(),
-        QStringLiteral("一条回答最多多少 token。"));
+    row(generation, QCoreApplication::translate("AgentSettingsPage", "单次最多输出"), m_maxOutput, Placement::Natural, QString(),
+        QCoreApplication::translate("AgentSettingsPage", "一条回答最多多少 token。"));
 
     m_temperature = new QDoubleSpinBox(content);
     InputSizing::shortValue(m_temperature, kGenerationDigits);
@@ -175,86 +176,86 @@ AgentSettingsPage::AgentSettingsPage(QWidget *parent) : QDialog(parent) {
     m_temperature->setRange(0.0, 2.0);
     m_temperature->setSingleStep(0.1);
     m_temperature->setValue(0.7);
-    row(generation, QStringLiteral("温度"), m_temperature, Placement::Natural, QString(),
-        QStringLiteral("越低回答越稳定，越高越发散。排查问题建议 0.3~0.7。"));
+    row(generation, QCoreApplication::translate("AgentSettingsPage", "温度"), m_temperature, Placement::Natural, QString(),
+        QCoreApplication::translate("AgentSettingsPage", "越低回答越稳定，越高越发散。排查问题建议 0.3~0.7。"));
 
     m_timeout = new QSpinBox(content);
     InputSizing::shortValue(m_timeout, kGenerationDigits);
     m_timeout->setObjectName(QStringLiteral("agentTimeoutSpin"));
     m_timeout->setRange(5, 600);
     m_timeout->setValue(120);
-    m_timeout->setSuffix(QStringLiteral(" 秒"));
-    row(generation, QStringLiteral("等待超时"), m_timeout, Placement::Natural);
+    m_timeout->setSuffix(QCoreApplication::translate("AgentSettingsPage", " 秒"));
+    row(generation, QCoreApplication::translate("AgentSettingsPage", "等待超时"), m_timeout, Placement::Natural);
 
     // ---------- 连接 ----------
-    SettingsGroup *connection = addGroup(QStringLiteral("连接"));
+    SettingsGroup *connection = addGroup(QCoreApplication::translate("AgentSettingsPage", "连接"));
     m_deployment = new QComboBox(content);
     m_deployment->setObjectName(QStringLiteral("agentDeploymentCombo"));
-    m_deployment->addItem(QStringLiteral("云端服务"), QStringLiteral("cloud"));
-    m_deployment->addItem(QStringLiteral("本机服务"), QStringLiteral("local"));
-    row(connection, QStringLiteral("服务在哪"), m_deployment, Placement::Column,
-        QStringLiteral("云端：对话会发给第三方服务商。本机：只在这台电脑上处理。"));
+    m_deployment->addItem(QCoreApplication::translate("AgentSettingsPage", "云端服务"), QStringLiteral("cloud"));
+    m_deployment->addItem(QCoreApplication::translate("AgentSettingsPage", "本机服务"), QStringLiteral("local"));
+    row(connection, QCoreApplication::translate("AgentSettingsPage", "服务在哪"), m_deployment, Placement::Column,
+        QCoreApplication::translate("AgentSettingsPage", "云端：对话会发给第三方服务商。本机：只在这台电脑上处理。"));
 
     m_localHttp = toggle("agentLocalHttpCheck", false);
-    row(connection, QStringLiteral("允许本机 HTTP"), m_localHttp, Placement::Natural,
-        QStringLiteral("只对 127.0.0.1、localhost 生效；本机跑的模型服务常用。"));
+    row(connection, QCoreApplication::translate("AgentSettingsPage", "允许本机 HTTP"), m_localHttp, Placement::Natural,
+        QCoreApplication::translate("AgentSettingsPage", "只对 127.0.0.1、localhost 生效；本机跑的模型服务常用。"));
 
     // ---------- 隐私 ----------
-    SettingsGroup *privacy = addGroup(QStringLiteral("隐私"));
+    SettingsGroup *privacy = addGroup(QCoreApplication::translate("AgentSettingsPage", "隐私"));
     m_strict = toggle("agentEgressStrictCheck", false);
-    row(privacy, QStringLiteral("严格模式"), m_strict, Placement::Natural,
-        QStringLiteral("不自动读取任何日志和文件，每次发送前先给你看要发出去的内容。"));
+    row(privacy, QCoreApplication::translate("AgentSettingsPage", "严格模式"), m_strict, Placement::Natural,
+        QCoreApplication::translate("AgentSettingsPage", "不自动读取任何日志和文件，每次发送前先给你看要发出去的内容。"));
     m_privacy = captionLabel(content, QStringLiteral("agentPrivacyText"));
-    row(privacy, QStringLiteral("会发出去什么"), m_privacy, Placement::Wide);
+    row(privacy, QCoreApplication::translate("AgentSettingsPage", "会发出去什么"), m_privacy, Placement::Wide);
 
     // ---------- 高级：协议适配（默认收起） ----------
-    m_advanced = new ExpandSection(QStringLiteral("高级"), content);
+    m_advanced = new ExpandSection(QCoreApplication::translate("AgentSettingsPage", "高级"), content);
     m_advanced->setObjectName(QStringLiteral("agentAdvancedGroup"));
     form->addWidget(m_advanced);
-    auto *protocol = new SettingsGroup(QStringLiteral("协议适配"), m_advanced);
+    auto *protocol = new SettingsGroup(QCoreApplication::translate("AgentSettingsPage", "协议适配"), m_advanced);
     m_advanced->bodyLayout()->addWidget(protocol);
     m_authMode = new QComboBox(content);
     m_authMode->setObjectName(QStringLiteral("agentAuthModeCombo"));
-    m_authMode->addItem(QStringLiteral("Bearer 令牌"), QStringLiteral("bearer"));
-    m_authMode->addItem(QStringLiteral("api-key 请求头"), QStringLiteral("api-key-header"));
-    m_authMode->addItem(QStringLiteral("不认证（仅本机）"), QStringLiteral("none"));
-    row(protocol, QStringLiteral("认证方式"), m_authMode, Placement::Column, QString(),
-        QStringLiteral("大多数服务用 Bearer；Azure 一类用 api-key 请求头。"));
+    m_authMode->addItem(QCoreApplication::translate("AgentSettingsPage", "Bearer 令牌"), QStringLiteral("bearer"));
+    m_authMode->addItem(QCoreApplication::translate("AgentSettingsPage", "api-key 请求头"), QStringLiteral("api-key-header"));
+    m_authMode->addItem(QCoreApplication::translate("AgentSettingsPage", "不认证（仅本机）"), QStringLiteral("none"));
+    row(protocol, QCoreApplication::translate("AgentSettingsPage", "认证方式"), m_authMode, Placement::Column, QString(),
+        QCoreApplication::translate("AgentSettingsPage", "大多数服务用 Bearer；Azure 一类用 api-key 请求头。"));
     m_stream = toggle("agentStreamCheck", true);
-    row(protocol, QStringLiteral("边生成边显示"), m_stream, Placement::Natural, QString(),
-        QStringLiteral("流式输出（SSE）。服务不支持时关掉。"));
+    row(protocol, QCoreApplication::translate("AgentSettingsPage", "边生成边显示"), m_stream, Placement::Natural, QString(),
+        QCoreApplication::translate("AgentSettingsPage", "流式输出（SSE）。服务不支持时关掉。"));
     m_maxTokensField = new QComboBox(content);
     m_maxTokensField->setObjectName(QStringLiteral("agentMaxTokensFieldCombo"));
     m_maxTokensField->addItem(QStringLiteral("max_tokens"), QStringLiteral("max_tokens"));
     m_maxTokensField->addItem(QStringLiteral("max_completion_tokens"), QStringLiteral("max_completion_tokens"));
-    row(protocol, QStringLiteral("输出上限字段"), m_maxTokensField, Placement::Column, QString(),
-        QStringLiteral("新版 OpenAI 推理模型要用 max_completion_tokens。"));
+    row(protocol, QCoreApplication::translate("AgentSettingsPage", "输出上限字段"), m_maxTokensField, Placement::Column, QString(),
+        QCoreApplication::translate("AgentSettingsPage", "新版 OpenAI 推理模型要用 max_completion_tokens。"));
     m_systemRole = new QComboBox(content);
     m_systemRole->setObjectName(QStringLiteral("agentSystemRoleCombo"));
     m_systemRole->addItem(QStringLiteral("system"), QStringLiteral("system"));
     m_systemRole->addItem(QStringLiteral("developer"), QStringLiteral("developer"));
-    row(protocol, QStringLiteral("系统提示角色"), m_systemRole, Placement::Column);
+    row(protocol, QCoreApplication::translate("AgentSettingsPage", "系统提示角色"), m_systemRole, Placement::Column);
     m_reasoningEcho = new QComboBox(content);
     m_reasoningEcho->setObjectName(QStringLiteral("agentReasoningEchoCombo"));
-    m_reasoningEcho->addItem(QStringLiteral("只显示"), QStringLiteral("display-only"));
-    m_reasoningEcho->addItem(QStringLiteral("回传给后续请求"), QStringLiteral("send-back"));
-    row(protocol, QStringLiteral("思考过程"), m_reasoningEcho, Placement::Column, QString(),
-        QStringLiteral("模型返回的思考过程要不要带进下一轮请求。"));
+    m_reasoningEcho->addItem(QCoreApplication::translate("AgentSettingsPage", "只显示"), QStringLiteral("display-only"));
+    m_reasoningEcho->addItem(QCoreApplication::translate("AgentSettingsPage", "回传给后续请求"), QStringLiteral("send-back"));
+    row(protocol, QCoreApplication::translate("AgentSettingsPage", "思考过程"), m_reasoningEcho, Placement::Column, QString(),
+        QCoreApplication::translate("AgentSettingsPage", "模型返回的思考过程要不要带进下一轮请求。"));
     m_sendTemperature = toggle("agentSendTemperatureCheck", true);
-    row(protocol, QStringLiteral("发送温度参数"), m_sendTemperature, Placement::Natural, QString(),
-        QStringLiteral("有些推理模型不接受 temperature，报错时关掉。"));
+    row(protocol, QCoreApplication::translate("AgentSettingsPage", "发送温度参数"), m_sendTemperature, Placement::Natural, QString(),
+        QCoreApplication::translate("AgentSettingsPage", "有些推理模型不接受 temperature，报错时关掉。"));
     m_sendToolChoice = toggle("agentSendToolChoiceCheck", true);
-    row(protocol, QStringLiteral("发送工具选择参数"), m_sendToolChoice, Placement::Natural, QString(),
-        QStringLiteral("有些服务不接受 tool_choice，报错时关掉。"));
+    row(protocol, QCoreApplication::translate("AgentSettingsPage", "发送工具选择参数"), m_sendToolChoice, Placement::Natural, QString(),
+        QCoreApplication::translate("AgentSettingsPage", "有些服务不接受 tool_choice，报错时关掉。"));
 
     // ---------- 删除配置：危险操作单独一组，不和「保存」挤在一行 ----------
-    SettingsGroup *manage = addGroup(QStringLiteral("这份配置"));
-    m_deleteProfile = new QPushButton(QStringLiteral("删除"), content);
+    SettingsGroup *manage = addGroup(QCoreApplication::translate("AgentSettingsPage", "这份配置"));
+    m_deleteProfile = new QPushButton(QCoreApplication::translate("AgentSettingsPage", "删除"), content);
     m_deleteProfile->setObjectName(QStringLiteral("agentDeleteProfileButton"));
     m_deleteProfile->setCursor(Qt::PointingHandCursor);
     Theme::markButton(m_deleteProfile, Theme::ButtonKind::Danger);
-    row(manage, QStringLiteral("删除这份配置"), m_deleteProfile, Placement::Natural,
-        QStringLiteral("连同已存的密钥一起删掉；会话记录保留。"));
+    row(manage, QCoreApplication::translate("AgentSettingsPage", "删除这份配置"), m_deleteProfile, Placement::Natural,
+        QCoreApplication::translate("AgentSettingsPage", "连同已存的密钥一起删掉；会话记录保留。"));
     form->addStretch(1);
 
     // ---------- 底栏：测试结果 + 状态 + 测试连接 / 保存 ----------
@@ -272,10 +273,10 @@ AgentSettingsPage::AgentSettingsPage(QWidget *parent) : QDialog(parent) {
     auto *buttons = new QHBoxLayout;
     buttons->setContentsMargins(0, 0, 0, 0);
     buttons->setSpacing(10);
-    m_test = new QPushButton(QStringLiteral("测试连接"), footer);
+    m_test = new QPushButton(QCoreApplication::translate("AgentSettingsPage", "测试连接"), footer);
     m_test->setObjectName(QStringLiteral("agentTestConnectionButton"));
     Theme::markButton(m_test, Theme::ButtonKind::Neutral);
-    m_save = new QPushButton(QStringLiteral("保存"), footer);
+    m_save = new QPushButton(QCoreApplication::translate("AgentSettingsPage", "保存"), footer);
     m_save->setObjectName(QStringLiteral("agentSaveButton"));
     m_save->setDefault(true);
     Theme::markButton(m_save, Theme::ButtonKind::Primary);
@@ -300,9 +301,9 @@ AgentSettingsPage::AgentSettingsPage(QWidget *parent) : QDialog(parent) {
         m_clearKey = true;
         m_secret->clear();
         m_secret->setStoredKey(false);
-        m_storage->setText(QStringLiteral("点「保存」后清除已存密钥。"));
+        m_storage->setText(QCoreApplication::translate("AgentSettingsPage", "点「保存」后清除已存密钥。"));
         m_clearKeyButton->hide();
-        setStatus(QStringLiteral("点了保存后才会真正清除已存凭据。"));
+        setStatus(QCoreApplication::translate("AgentSettingsPage", "点了保存后才会真正清除已存凭据。"));
         emit clearKeyRequestedSignal();
     });
     connect(m_secret, &AgentSecretEdit::textChanged, this, [this] {
@@ -321,10 +322,10 @@ void AgentSettingsPage::updateKeyNote() {
     // 再说「还没保存密钥，填好后点保存」会让人以为非填不可。
     if (m_clearKey || m_secret->hasStoredKey()) return;
     const bool none = m_authMode->currentData().toString() == QLatin1String("none");
-    m_storage->setText(none ? QStringLiteral("认证方式是「不认证」，用不到 API Key，留空即可。")
-                            : QStringLiteral("还没保存密钥。填好后点「保存」。"));
-    m_secret->lineEdit()->setPlaceholderText(none ? QStringLiteral("不认证，可留空")
-                                                  : QStringLiteral("尚未保存 API Key"));
+    m_storage->setText(none ? QCoreApplication::translate("AgentSettingsPage", "认证方式是「不认证」，用不到 API Key，留空即可。")
+                            : QCoreApplication::translate("AgentSettingsPage", "还没保存密钥。填好后点「保存」。"));
+    m_secret->lineEdit()->setPlaceholderText(none ? QCoreApplication::translate("AgentSettingsPage", "不认证，可留空")
+                                                  : QCoreApplication::translate("AgentSettingsPage", "尚未保存 API Key"));
 }
 
 void AgentSettingsPage::updatePrivacyText() {
@@ -335,20 +336,18 @@ void AgentSettingsPage::updatePrivacyText() {
     // 边界照 docs/features/AGENT.md §5.6.2（D11）：标准模式自动读脱敏日志 / 最新崩溃报告 / 关联实例的版本信息，
     // 其余文件逐次确认；严格模式把自动那一列也改成逐次确认。凭据两种模式都不发。
     const QString what = m_strict->isChecked()
-        ? QStringLiteral("只发送你输入的文字。日志、崩溃报告和任何文件都要你逐次同意后才读取，发送前会先给你看内容。")
-        : QStringLiteral("你输入的文字，以及关联实例的日志末尾、最新一份崩溃报告和版本信息（都会先去掉账号信息）。"
-                         "配置文件和其他文件，读取前会先问你。");
+        ? QCoreApplication::translate("AgentSettingsPage", "只发送你输入的文字。日志、崩溃报告和任何文件都要你逐次同意后才读取，发送前会先给你看内容。")
+        : QCoreApplication::translate("AgentSettingsPage", "你输入的文字，以及关联实例的日志末尾、最新一份崩溃报告和版本信息（都会先去掉账号信息）。" "配置文件和其他文件，读取前会先问你。");
     m_privacy->setText(what + QLatin1Char('\n') +
-                       QStringLiteral("账号令牌、API 密钥这类凭据永远不会发送。云端服务商怎么保存对话由服务商决定；"
-                                      "WTFML 自己不收集使用数据。"));
+                       QCoreApplication::translate("AgentSettingsPage", "账号令牌、API 密钥这类凭据永远不会发送。云端服务商怎么保存对话由服务商决定；" "WTFML 自己不收集使用数据。"));
 }
 
 void AgentSettingsPage::updateUrlPreview() {
     QString base = m_baseUrl->text().trimmed();
     while (base.endsWith(QLatin1Char('/'))) base.chop(1);
     m_urlPreview->setText(base.isEmpty()
-                              ? QStringLiteral("填服务商给的地址，一般以 /v1 结尾；实际请求发到 <地址>/chat/completions")
-                              : QStringLiteral("实际请求发到 %1/chat/completions").arg(base));
+                              ? QCoreApplication::translate("AgentSettingsPage", "填服务商给的地址，一般以 /v1 结尾；实际请求发到 <地址>/chat/completions")
+                              : QCoreApplication::translate("AgentSettingsPage", "实际请求发到 %1/chat/completions").arg(base));
 }
 
 void AgentSettingsPage::setProfile(const AgentView::ProviderDraft &profile, bool hasStoredKey,
@@ -375,9 +374,9 @@ void AgentSettingsPage::setProfile(const AgentView::ProviderDraft &profile, bool
     m_clearKey = false;
     m_storage->setText(hasStoredKey
                            ? (storageBackend == QLatin1String("dpapi-fallback")
-                                  ? QStringLiteral("已加密保存在本机，只有当前 Windows 账户能读；不会显示出来。")
-                                  : QStringLiteral("已保存在 Windows 凭据管理器，只有当前账户能读；不会显示出来。"))
-                           : QStringLiteral("还没保存密钥。填好后点「保存」。"));
+                                  ? QCoreApplication::translate("AgentSettingsPage", "已加密保存在本机，只有当前 Windows 账户能读；不会显示出来。")
+                                  : QCoreApplication::translate("AgentSettingsPage", "已保存在 Windows 凭据管理器，只有当前账户能读；不会显示出来。"))
+                           : QCoreApplication::translate("AgentSettingsPage", "还没保存密钥。填好后点「保存」。"));
     m_clearKeyButton->setVisible(hasStoredKey);
     updateKeyNote();
     updateUrlPreview();
@@ -386,7 +385,7 @@ void AgentSettingsPage::setProfile(const AgentView::ProviderDraft &profile, bool
 AgentView::ProviderDraft AgentSettingsPage::profile() const {
     AgentView::ProviderDraft profile;
     profile.id = m_profileId.isEmpty() ? QStringLiteral("default") : m_profileId;
-    profile.name = m_name->text().trimmed().isEmpty() ? QStringLiteral("默认模型服务")
+    profile.name = m_name->text().trimmed().isEmpty() ? QCoreApplication::translate("AgentSettingsPage", "默认模型服务")
                                                       : m_name->text().trimmed();
     profile.baseUrl = m_baseUrl->text().trimmed();
     profile.model = m_model->text().trimmed();

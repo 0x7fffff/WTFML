@@ -64,6 +64,464 @@
         </message>
     </context>
     <context>
+        <name>AgentPage</name>
+        <message>
+            <source>会话</source>
+            <translation>Session</translation>
+        </message>
+        <message>
+            <source>新建对话</source>
+            <translation>New conversation</translation>
+        </message>
+        <message>
+            <source>搜索会话</source>
+            <translation>Search session</translation>
+        </message>
+        <message>
+            <source>新对话</source>
+            <translation>New conversation</translation>
+        </message>
+        <message>
+            <source>点击重命名</source>
+            <translation>Click to rename</translation>
+        </message>
+        <message>
+            <source>API 未配置</source>
+            <translation>API not configured</translation>
+        </message>
+        <message>
+            <source>实例</source>
+            <translation>Example</translation>
+        </message>
+        <message>
+            <source>选择本会话关联的实例</source>
+            <translation>Select the instance associated with this session</translation>
+        </message>
+        <message>
+            <source>无</source>
+            <translation>None</translation>
+        </message>
+        <message>
+            <source>更多</source>
+            <translation>More</translation>
+        </message>
+        <message>
+            <source>API 设置</source>
+            <translation>API settings</translation>
+        </message>
+        <message>
+            <source>重命名</source>
+            <translation>Rename</translation>
+        </message>
+        <message>
+            <source>固定</source>
+            <translation>Fixed</translation>
+        </message>
+        <message>
+            <source>加密存储</source>
+            <translation>Encrypted storage</translation>
+        </message>
+        <message>
+            <source>标题和时间仍为明文。</source>
+            <translation>The title and time remain in clear text.</translation>
+        </message>
+        <message>
+            <source>导出…</source>
+            <translation>Export…</translation>
+        </message>
+        <message>
+            <source>删除会话</source>
+            <translation>Delete session</translation>
+        </message>
+        <message>
+            <source>配置 API</source>
+            <translation>Configuration API</translation>
+        </message>
+        <message>
+            <source>Enter 发送 · Shift+Enter 换行</source>
+            <translation>Enter to send · Shift+Enter to wrap</translation>
+        </message>
+        <message>
+            <source>发送</source>
+            <translation>Send</translation>
+        </message>
+        <message>
+            <source>停止</source>
+            <translation>Stop</translation>
+        </message>
+        <message>
+            <source>刚刚</source>
+            <translation>Just</translation>
+        </message>
+        <message>
+            <source>%1 分钟前</source>
+            <translation>%1 minutes ago</translation>
+        </message>
+        <message>
+            <source>%1 小时前</source>
+            <translation>%1 hours ago</translation>
+        </message>
+        <message>
+            <source>%1 天前</source>
+            <translation>%1 days ago</translation>
+        </message>
+        <message>
+            <source>今天</source>
+            <translation>Today</translation>
+        </message>
+        <message>
+            <source>更早</source>
+            <translation>Earlier</translation>
+        </message>
+        <message>
+            <source>配置无效</source>
+            <translation>Invalid configuration</translation>
+        </message>
+        <message>
+            <source>API 配置无效</source>
+            <translation>Invalid API configuration</translation>
+        </message>
+        <message>
+            <source>跟随主页</source>
+            <translation>Follow the home page</translation>
+        </message>
+        <message>
+            <source>取消固定</source>
+            <translation>Unpin</translation>
+        </message>
+        <message>
+            <source>有什么想问的？</source>
+            <translation>Have something to ask?</translation>
+        </message>
+        <message>
+            <source>先配置 API</source>
+            <translation>Configure the API first</translation>
+        </message>
+        <message>
+            <source>可查看关联实例的文件；写入文件前会先征得确认。</source>
+            <translation>Files associated with the instance can be viewed; confirmation is sought before writing to the file.</translation>
+        </message>
+        <message>
+            <source>填写服务地址和密钥后即可开始对话。</source>
+            <translation>Once you fill in your service address and key, you can start a conversation.</translation>
+        </message>
+        <message>
+            <source>配置 API 后可输入</source>
+            <translation>After configuring the API, you can enter</translation>
+        </message>
+        <message>
+            <source>描述你遇到的问题…</source>
+            <translation>Describe the problem you encountered...</translation>
+        </message>
+        <message>
+            <source>继续追问…</source>
+            <translation>Keep asking...</translation>
+        </message>
+        <message>
+            <source>会话标题</source>
+            <translation>Session title</translation>
+        </message>
+        <message>
+            <source>删除</source>
+            <translation>Delete</translation>
+        </message>
+    </context>
+    <context>
+        <name>AgentSettingsPage</name>
+        <message>
+            <source>API 与模型设置</source>
+            <translation>API and model settings</translation>
+        </message>
+        <message>
+            <source>模型服务</source>
+            <translation>Model service</translation>
+        </message>
+        <message>
+            <source>OpenAI 兼容接口</source>
+            <translation>OpenAI compatible interface</translation>
+        </message>
+        <message>
+            <source>服务类型</source>
+            <translation>Service type</translation>
+        </message>
+        <message>
+            <source>DeepSeek、通义、Kimi、Ollama 等大多数服务都提供这种接口。</source>
+            <translation>Most services such as DeepSeek, Tongyi, Kimi, Ollama, etc. provide this interface.</translation>
+        </message>
+        <message>
+            <source>默认模型服务</source>
+            <translation>Default model service</translation>
+        </message>
+        <message>
+            <source>配置名称</source>
+            <translation>Configuration name</translation>
+        </message>
+        <message>
+            <source>例如 https://api.example.com/v1</source>
+            <translation>For example https://api.example.com/v1</translation>
+        </message>
+        <message>
+            <source>网址：路径长度不定</source>
+            <translation>URL: Path length is variable</translation>
+        </message>
+        <message>
+            <source>接口地址</source>
+            <translation>Interface address</translation>
+        </message>
+        <message>
+            <source>例如 deepseek-chat</source>
+            <translation>For example deepseek-chat</translation>
+        </message>
+        <message>
+            <source>模型</source>
+            <translation>Model</translation>
+        </message>
+        <message>
+            <source>服务商文档里的模型 ID，大小写要一致。</source>
+            <translation>The model ID in the service provider document must be in the same case.</translation>
+        </message>
+        <message>
+            <source>清除已存密钥</source>
+            <translation>Clear saved keys</translation>
+        </message>
+        <message>
+            <source>生成</source>
+            <translation>Generate</translation>
+        </message>
+        <message>
+            <source>上下文长度</source>
+            <translation>Context length</translation>
+        </message>
+        <message>
+            <source>模型一次最多能读多少 token，按服务商写的填；填大了会被服务商拒绝。</source>
+            <translation>The maximum number of tokens that the model can read at one time is filled in according to what the service provider writes; if it is too large, it will be rejected by the service provider.</translation>
+        </message>
+        <message>
+            <source>单次最多输出</source>
+            <translation>Maximum output at a time</translation>
+        </message>
+        <message>
+            <source>一条回答最多多少 token。</source>
+            <translation>How many tokens can an answer have at most?</translation>
+        </message>
+        <message>
+            <source>温度</source>
+            <translation>Temperature</translation>
+        </message>
+        <message>
+            <source>越低回答越稳定，越高越发散。排查问题建议 0.3~0.7。</source>
+            <translation>The lower the answer, the more stable it is, and the higher the answer, the more divergent it is. Suggestions for troubleshooting are 0.3~0.7.</translation>
+        </message>
+        <message>
+            <source> 秒</source>
+            <translation>Second</translation>
+        </message>
+        <message>
+            <source>等待超时</source>
+            <translation>Wait timeout</translation>
+        </message>
+        <message>
+            <source>连接</source>
+            <translation>Connect</translation>
+        </message>
+        <message>
+            <source>云端服务</source>
+            <translation>Cloud services</translation>
+        </message>
+        <message>
+            <source>本机服务</source>
+            <translation>Native service</translation>
+        </message>
+        <message>
+            <source>服务在哪</source>
+            <translation>Where is the service</translation>
+        </message>
+        <message>
+            <source>云端：对话会发给第三方服务商。本机：只在这台电脑上处理。</source>
+            <translation>Cloud: Conversations are sent to third-party service providers. Local: Processed on this computer only.</translation>
+        </message>
+        <message>
+            <source>允许本机 HTTP</source>
+            <translation>Allow native HTTP</translation>
+        </message>
+        <message>
+            <source>只对 127.0.0.1、localhost 生效；本机跑的模型服务常用。</source>
+            <translation>Only effective for 127.0.0.1 and localhost; commonly used for model services running locally.</translation>
+        </message>
+        <message>
+            <source>隐私</source>
+            <translation>Privacy</translation>
+        </message>
+        <message>
+            <source>严格模式</source>
+            <translation>Strict mode</translation>
+        </message>
+        <message>
+            <source>不自动读取任何日志和文件，每次发送前先给你看要发出去的内容。</source>
+            <translation>No logs or files are automatically read, and the content to be sent is shown to you before each sending.</translation>
+        </message>
+        <message>
+            <source>会发出去什么</source>
+            <translation>What will be sent out?</translation>
+        </message>
+        <message>
+            <source>高级</source>
+            <translation>Advanced</translation>
+        </message>
+        <message>
+            <source>协议适配</source>
+            <translation>Protocol adaptation</translation>
+        </message>
+        <message>
+            <source>Bearer 令牌</source>
+            <translation>Bearer token</translation>
+        </message>
+        <message>
+            <source>api-key 请求头</source>
+            <translation>Api-key request header</translation>
+        </message>
+        <message>
+            <source>不认证（仅本机）</source>
+            <translation>No authentication (this machine only)</translation>
+        </message>
+        <message>
+            <source>认证方式</source>
+            <translation>Authentication method</translation>
+        </message>
+        <message>
+            <source>大多数服务用 Bearer；Azure 一类用 api-key 请求头。</source>
+            <translation>Most services use Bearer; Azure uses the api-key request header.</translation>
+        </message>
+        <message>
+            <source>边生成边显示</source>
+            <translation>Display while generating</translation>
+        </message>
+        <message>
+            <source>流式输出（SSE）。服务不支持时关掉。</source>
+            <translation>Streaming output (SSE). Shut down the service if it is not supported.</translation>
+        </message>
+        <message>
+            <source>输出上限字段</source>
+            <translation>Output upper limit field</translation>
+        </message>
+        <message>
+            <source>新版 OpenAI 推理模型要用 max_completion_tokens。</source>
+            <translation>The new version of OpenAI inference model uses max_completion_tokens.</translation>
+        </message>
+        <message>
+            <source>系统提示角色</source>
+            <translation>System prompts role</translation>
+        </message>
+        <message>
+            <source>只显示</source>
+            <translation>Show only</translation>
+        </message>
+        <message>
+            <source>回传给后续请求</source>
+            <translation>Posted back to subsequent requests</translation>
+        </message>
+        <message>
+            <source>思考过程</source>
+            <translation>Thought process</translation>
+        </message>
+        <message>
+            <source>模型返回的思考过程要不要带进下一轮请求。</source>
+            <translation>Whether the thinking process of model return should be carried into the next round of requests.</translation>
+        </message>
+        <message>
+            <source>发送温度参数</source>
+            <translation>Send temperature parameters</translation>
+        </message>
+        <message>
+            <source>有些推理模型不接受 temperature，报错时关掉。</source>
+            <translation>Some inference models do not accept temperature and will be turned off when an error is reported.</translation>
+        </message>
+        <message>
+            <source>发送工具选择参数</source>
+            <translation>Send tool selection parameters</translation>
+        </message>
+        <message>
+            <source>有些服务不接受 tool_choice，报错时关掉。</source>
+            <translation>Some services do not accept tool_choice and will be shut down when an error is reported.</translation>
+        </message>
+        <message>
+            <source>这份配置</source>
+            <translation>This configuration</translation>
+        </message>
+        <message>
+            <source>删除</source>
+            <translation>Delete</translation>
+        </message>
+        <message>
+            <source>删除这份配置</source>
+            <translation>Delete this configuration</translation>
+        </message>
+        <message>
+            <source>连同已存的密钥一起删掉；会话记录保留。</source>
+            <translation>Deleted together with existing keys; session records retained.</translation>
+        </message>
+        <message>
+            <source>测试连接</source>
+            <translation>Test connection</translation>
+        </message>
+        <message>
+            <source>保存</source>
+            <translation>Save</translation>
+        </message>
+        <message>
+            <source>点「保存」后清除已存密钥。</source>
+            <translation>Click "Save" to clear the saved keys.</translation>
+        </message>
+        <message>
+            <source>点了保存后才会真正清除已存凭据。</source>
+            <translation>The saved credentials will not be cleared until you click Save.</translation>
+        </message>
+        <message>
+            <source>认证方式是「不认证」，用不到 API Key，留空即可。</source>
+            <translation>The authentication method is "No Authentication" and the API Key is not used, so just leave it blank.</translation>
+        </message>
+        <message>
+            <source>还没保存密钥。填好后点「保存」。</source>
+            <translation>The key has not been saved yet. After filling in, click "Save".</translation>
+        </message>
+        <message>
+            <source>不认证，可留空</source>
+            <translation>Not authenticated, can be left blank</translation>
+        </message>
+        <message>
+            <source>尚未保存 API Key</source>
+            <translation>API Key not saved yet</translation>
+        </message>
+        <message>
+            <source>只发送你输入的文字。日志、崩溃报告和任何文件都要你逐次同意后才读取，发送前会先给你看内容。</source>
+            <translation>Only the text you type is sent. Logs, crash reports, and any files require your consent one at a time before being read, and the content will be shown to you before being sent.</translation>
+        </message>
+        <message>
+            <source>你输入的文字，以及关联实例的日志末尾、最新一份崩溃报告和版本信息（都会先去掉账号信息）。配置文件和其他文件，读取前会先问你。</source>
+            <translation>The text you enter, as well as the end of the log of the associated instance, the latest crash report and version information (the account information will be removed first). Configuration files and other files will be asked before reading.</translation>
+        </message>
+        <message>
+            <source>账号令牌、API 密钥这类凭据永远不会发送。云端服务商怎么保存对话由服务商决定；WTFML 自己不收集使用数据。</source>
+            <translation>Credentials such as account tokens and API keys are never sent. How the cloud service provider saves the conversation is up to the service provider; WTFML itself does not collect usage data.</translation>
+        </message>
+        <message>
+            <source>填服务商给的地址，一般以 /v1 结尾；实际请求发到 &lt;地址&gt;/chat/completions</source>
+            <translation>Fill in the address given by the service provider, usually ending with /v1; the actual request is sent to &lt;address&gt;/chat/completions</translation>
+        </message>
+        <message>
+            <source>实际请求发到 %1/chat/completions</source>
+            <translation>The actual request is sent to %1/chat/completions</translation>
+        </message>
+        <message>
+            <source>已加密保存在本机，只有当前 Windows 账户能读；不会显示出来。</source>
+            <translation>It is encrypted and saved locally and can only be read by the current Windows account; it will not be displayed.</translation>
+        </message>
+        <message>
+            <source>已保存在 Windows 凭据管理器，只有当前账户能读；不会显示出来。</source>
+            <translation>Saved in Windows Credential Manager, only the current account can read it; it will not be displayed.</translation>
+        </message>
+    </context>
+    <context>
         <name>ArmorTrimPreview</name>
         <message>
             <source>拖动旋转 / 滚轮缩放 / 双击复位</source>
@@ -3362,7 +3820,7 @@ The corresponding records in the game servers.dat will be removed together.</tra
         </message>
         <message>
             <source>结构/原理图</source>
-            <translation type="unfinished" />
+            <translation>Structure/schematic diagram</translation>
         </message>
         <message>
             <source>配置文件</source>
@@ -3386,31 +3844,31 @@ The corresponding records in the game servers.dat will be removed together.</tra
         </message>
         <message>
             <source>实例修复</source>
-            <translation type="unfinished" />
+            <translation>Instance repair</translation>
         </message>
         <message>
             <source>检查与诊断</source>
-            <translation type="unfinished" />
+            <translation>Examination and Diagnosis</translation>
         </message>
         <message>
             <source>快照与恢复</source>
-            <translation type="unfinished" />
+            <translation>Snapshot and recovery</translation>
         </message>
         <message>
             <source>导出整合包</source>
-            <translation type="unfinished" />
+            <translation>Export integration package</translation>
         </message>
         <message>
             <source>实例迁移</source>
-            <translation type="unfinished" />
+            <translation>Instance migration</translation>
         </message>
         <message>
             <source>版本升级</source>
-            <translation type="unfinished" />
+            <translation>Version upgrade</translation>
         </message>
         <message>
             <source>检查与修复</source>
-            <translation type="unfinished" />
+            <translation>Inspect and repair</translation>
         </message>
         <message>
             <source>诊断</source>
@@ -10052,6 +10510,190 @@ It will not restart automatically when stopped manually or exited normally.</tra
             <translation>Apply to instance</translation>
         </message>
         <message>
+            <source>实例预设</source>
+            <translation>Instance preset</translation>
+        </message>
+        <message>
+            <source>建一份空预设；建好之后在编辑页里填内容。</source>
+            <translation>Create an empty preset; fill in the content on the edit page after creating it.</translation>
+        </message>
+        <message>
+            <source>保存</source>
+            <translation>Save</translation>
+        </message>
+        <message>
+            <source>概览</source>
+            <translation>Overview</translation>
+        </message>
+        <message>
+            <source>应用</source>
+            <translation>Application</translation>
+        </message>
+        <message>
+            <source>预设名称</source>
+            <translation>Default name</translation>
+        </message>
+        <message>
+            <source>说明（可选）</source>
+            <translation>Description (optional)</translation>
+        </message>
+        <message>
+            <source>预设说明：一两句话，长度不定</source>
+            <translation>Default description: one or two sentences, variable length</translation>
+        </message>
+        <message>
+            <source>复制</source>
+            <translation>Copy</translation>
+        </message>
+        <message>
+            <source>复制一份，内容和文件原样保留。</source>
+            <translation>Make one copy, keeping the contents and files intact.</translation>
+        </message>
+        <message>
+            <source>设为默认</source>
+            <translation>Set as default</translation>
+        </message>
+        <message>
+            <source>安装实例时优先选中这一份。</source>
+            <translation>When installing an instance, select this one first.</translation>
+        </message>
+        <message>
+            <source>删除</source>
+            <translation>Delete</translation>
+        </message>
+        <message>
+            <source>连这一份的目录一起删掉，删掉的东西会进回收站，可以从那里还原。</source>
+            <translation>If you delete this directory as well, the deleted items will go to the Recycle Bin and can be restored from there.</translation>
+        </message>
+        <message>
+            <source>上移</source>
+            <translation>Move up</translation>
+        </message>
+        <message>
+            <source>下移</source>
+            <translation>Move down</translation>
+        </message>
+        <message>
+            <source>游戏设置</source>
+            <translation>Game settings</translation>
+        </message>
+        <message>
+            <source>基础设置</source>
+            <translation>Basic settings</translation>
+        </message>
+        <message>
+            <source>FOV、界面缩放、语言、音量、渲染距离等。</source>
+            <translation>FOV, interface zoom, language, volume, rendering distance, etc.</translation>
+        </message>
+        <message>
+            <source>标准按键</source>
+            <translation>Standard buttons</translation>
+        </message>
+        <message>
+            <source>options.txt 里的 key_*。</source>
+            <translation>Key_* in options.txt.</translation>
+        </message>
+        <message>
+            <source>服务器</source>
+            <translation>Server</translation>
+        </message>
+        <message>
+            <source>服务器列表</source>
+            <translation>Server list</translation>
+        </message>
+        <message>
+            <source>servers.dat；追加到目标实例，已有地址不重复。</source>
+            <translation>Servers.dat; append to the target instance, existing addresses will not be repeated.</translation>
+        </message>
+        <message>
+            <source>配置文件</source>
+            <translation>Configuration file</translation>
+        </message>
+        <message>
+            <source>整份按「缺了才拷」落下去，不会盖掉目标上已经有的同名项。</source>
+            <translation>If you click "Copy if missing" to drop the entire copy, it will not overwrite the items with the same name that already exist on the target.</translation>
+        </message>
+        <message>
+            <source>新实例第一次启动时模组会照它生成配置。</source>
+            <translation>The module will generate the configuration according to the new instance when it is started for the first time.</translation>
+        </message>
+        <message>
+            <source>资源包 / 光影</source>
+            <translation>Resource Pack/Light and Shadow</translation>
+        </message>
+        <message>
+            <source>资源包</source>
+            <translation>Resource pack</translation>
+        </message>
+        <message>
+            <source>resourcepacks/；这一档动辄几十上百 MB，默认不收。</source>
+            <translation>Resourcepacks/; This file can easily be tens or hundreds of MB, and is not included by default.</translation>
+        </message>
+        <message>
+            <source>光影包</source>
+            <translation>Light and shadow package</translation>
+        </message>
+        <message>
+            <source>shaderpacks/；同上，默认不收。</source>
+            <translation>Shaderpacks/; Same as above, not included by default.</translation>
+        </message>
+        <message>
+            <source>热键</source>
+            <translation>Hotkey</translation>
+        </message>
+        <message>
+            <source>按结构认这一族，一个模组一段；默认只收绑好的热键。</source>
+            <translation>This family is identified according to the structure, one module and one section; by default, only the bound hotkeys are included.</translation>
+        </message>
+        <message>
+            <source>连值一起收</source>
+            <translation>Receive together with value</translation>
+        </message>
+        <message>
+            <source>把开关和别的值也收进来。</source>
+            <translation>Include switches and other values ​​as well.</translation>
+        </message>
+        <message>
+            <source>数据包</source>
+            <translation>Packet</translation>
+        </message>
+        <message>
+            <source>存档数据包</source>
+            <translation>Archived packets</translation>
+        </message>
+        <message>
+            <source>saves/&lt;世界&gt;/datapacks/；目标实例没有该存档时先记为「待应用」。</source>
+            <translation>Saves/&lt;world&gt;/datapacks/; if the target instance does not have the archive, it will be recorded as "to be applied".</translation>
+        </message>
+        <message>
+            <source>来源实例</source>
+            <translation>Source instance</translation>
+        </message>
+        <message>
+            <source>更新当前预设</source>
+            <translation>Update current preset</translation>
+        </message>
+        <message>
+            <source>收进来的那几段替换掉这一份里同名的那几段；这一份里别的段原样留着。</source>
+            <translation>The paragraphs that are included replace the paragraphs with the same name in this copy; the other paragraphs in this copy are left intact.</translation>
+        </message>
+        <message>
+            <source>新预设名称（可选）</source>
+            <translation>New preset name (optional)</translation>
+        </message>
+        <message>
+            <source>提取为新预设</source>
+            <translation>Extract as new preset</translation>
+        </message>
+        <message>
+            <source>目标实例</source>
+            <translation>Target instance</translation>
+        </message>
+        <message>
+            <source>查看更改和冲突，不写入实例。</source>
+            <translation>View changes and conflicts without writing to the instance.</translation>
+        </message>
+        <message>
             <source>执行报告</source>
             <translation>Executive report</translation>
         </message>
@@ -10064,8 +10706,25 @@ It will not restart automatically when stopped manually or exited normally.</tra
             <translation>Click again to continue unfinished</translation>
         </message>
         <message>
+            <source>（默认）</source>
+            <translation>(default)</translation>
+        </message>
+        <message>
+            <source>类别：%1</source>
+            <translation>Category: %1</translation>
+        </message>
+        <message>
+            <source>
+%1 段</source>
+            <translation>%1 segment</translation>
+        </message>
+        <message>
             <source>读不出来</source>
             <translation>Can't read</translation>
+        </message>
+        <message>
+            <source>读不出来：%1</source>
+            <translation>Unable to read: %1</translation>
         </message>
         <message>
             <source>还没有预设</source>
@@ -10088,8 +10747,28 @@ It will not restart automatically when stopped manually or exited normally.</tra
             <translation>All</translation>
         </message>
         <message>
+            <source>%1 段</source>
+            <translation>%1 segment</translation>
+        </message>
+        <message>
             <source>暂无内容</source>
             <translation>No content yet</translation>
+        </message>
+        <message>
+            <source>%1 / %2 / %3 项</source>
+            <translation>%1 / %2 / %3 items</translation>
+        </message>
+        <message>
+            <source>（%1）</source>
+            <translation>(%1)</translation>
+        </message>
+        <message>
+            <source>%1（%2）</source>
+            <translation>%1(%2)</translation>
+        </message>
+        <message>
+            <source>（正在运行）</source>
+            <translation>(running)</translation>
         </message>
         <message>
             <source>取消预览</source>
@@ -10112,6 +10791,50 @@ It will not restart automatically when stopped manually or exited normally.</tra
             <translation>Reading instance and generating plan...</translation>
         </message>
         <message>
+            <source>无法计算本次要执行的步骤。</source>
+            <translation>Unable to calculate the steps to be performed this time.</translation>
+        </message>
+        <message>
+            <source>键位冲突：%1</source>
+            <translation>Key conflict: %1</translation>
+        </message>
+        <message>
+            <source>有「覆盖」段：点「应用」之后还要再点一次确认。</source>
+            <translation>There is an "Override" section: After clicking "Apply", you have to click again to confirm.</translation>
+        </message>
+        <message>
+            <source>本次没有可应用的内容。</source>
+            <translation>There is nothing to apply at this time.</translation>
+        </message>
+        <message>
+            <source>有「覆盖」段，尚未确认；再点一次「应用」即按覆盖执行。</source>
+            <translation>There is an "Overwrite" section that has not yet been confirmed; click "Apply" again to press overwrite execution.</translation>
+        </message>
+        <message>
+            <source>点「应用」确认覆盖（会先备份）。</source>
+            <translation>Click "Apply" to confirm overwriting (it will be backed up first).</translation>
+        </message>
+        <message>
+            <source>%1：%2</source>
+            <translation>%1:%2</translation>
+        </message>
+        <message>
+            <source>备份：%1</source>
+            <translation>Backup: %1</translation>
+        </message>
+        <message>
+            <source>还原时把这一份里的文件按原路径拷回实例目录。</source>
+            <translation>When restoring, copy the files in this copy back to the instance directory according to the original path.</translation>
+        </message>
+        <message>
+            <source>应用完成。</source>
+            <translation>The application is completed.</translation>
+        </message>
+        <message>
+            <source>应用没有全部完成，看上面哪一段没做成。</source>
+            <translation>The application is not fully completed, so it depends on which section above is not completed.</translation>
+        </message>
+        <message>
             <source>正在读取预设…</source>
             <translation>Loading presets…</translation>
         </message>
@@ -10122,6 +10845,22 @@ It will not restart automatically when stopped manually or exited normally.</tra
         <message>
             <source>这一份读不出来：%1</source>
             <translation>This one cannot be read: %1</translation>
+        </message>
+        <message>
+            <source>综合预设和旧版混合预设不设默认：默认只对四类预设生效。</source>
+            <translation>There are no defaults for comprehensive presets and legacy hybrid presets: the default only takes effect for four types of presets.</translation>
+        </message>
+        <message>
+            <source>取消默认</source>
+            <translation>Cancel default</translation>
+        </message>
+        <message>
+            <source>再点一次确认删除</source>
+            <translation>Click again to confirm deletion</translation>
+        </message>
+        <message>
+            <source>再点一次确认覆盖</source>
+            <translation>Click again to confirm coverage</translation>
         </message>
         <message>
             <source>未选择预设</source>
