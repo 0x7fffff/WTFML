@@ -242,9 +242,13 @@ int UiDailyQuoteCheck(QApplication &app) {
             const QString shown = ui.homeHeroTitleShown();
             const QString where = QStringLiteral("%1x%2").arg(size.width()).arg(size.height());
             const int room = title->contentsRect().width();
-            check(shown.startsWith(QStringLiteral("晚上好 This")) && shown.endsWith(QStringLiteral("…")) &&
+            // 字体度量随机器/字号档走：1280 宽下这个名字可能正好装得下（那时不该画省略号），
+            // 装不下才截成"只截名字、问候留着、省略号收尾"；两种结果都不许越界。
+            const bool truncated = shown.endsWith(QStringLiteral("…"));
+            check(shown.startsWith(QStringLiteral("晚上好 This")) &&
+                      (truncated || shown == QStringLiteral("晚上好 ") + longName) &&
                       ui.homeHeroTitleShownWidth() <= room,
-                  QStringLiteral("HG-UI5 %1：长名字只截名字，问候留着、省略号收尾，整句装得下").arg(where),
+                  QStringLiteral("HG-UI5 %1：长名字装不下才截名字，问候留着、整句不越界").arg(where),
                   QStringLiteral("%1（%2 / %3 px）")
                       .arg(shown)
                       .arg(ui.homeHeroTitleShownWidth())
