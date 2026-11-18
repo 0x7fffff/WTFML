@@ -549,6 +549,16 @@ void ConnectionsController::setup() {
                 // 摆在这儿是**唯一**一处 —— 翻类有两条路（点条目、页头那颗刷新切过去），
                 // 两条最后都会走到 `currentRowChanged` 上，各写一遍迟早会有一边漏。
                 m_owner->m_ui->setDownloadHeaderRow(row);
+                if (row == MainWindowUI::downloadCategoryServerIndex()
+                    && !m_owner->m_suppressGameInstallServerJump) {
+                    QStackedWidget *gameStack = m_owner->m_ui->getGameStack();
+                    if (gameStack != nullptr
+                        && gameStack->currentIndex() == MainWindowUI::downloadGameInstallIndex()
+                        && !m_owner->m_installPage->gameVersion().isEmpty()) {
+                        m_owner->openServerPageForGameVersion(m_owner->m_installPage->gameVersion());
+                        return;
+                    }
+                }
                 const QStringList keys = MainWindowUI::downloadCategoryKeys();
                 ResourceCatalog::Kind kind = ResourceCatalog::Kind::Mod;
                 if (row >= 0 && row < keys.size()
@@ -556,6 +566,20 @@ void ConnectionsController::setup() {
                     m_owner->ensureResourcePageLoaded(kind);
                 }
             });
+    if (QStackedWidget *serverStack = m_owner->m_ui->getServerStack()) {
+        connect(serverStack, &QStackedWidget::currentChanged, m_owner, [this](int index) {
+            if (index != MainWindowUI::downloadServerFormIndex()) {
+                m_owner->cancelPendingServerVersionProbe();
+            }
+        });
+    }
+    if (QStackedWidget *downloadStack = m_owner->m_ui->getDownloadStack()) {
+        connect(downloadStack, &QStackedWidget::currentChanged, m_owner, [this](int index) {
+            if (index != MainWindowUI::downloadCategoryServerIndex()) {
+                m_owner->cancelPendingServerVersionProbe();
+            }
+        });
+    }
     // 左栏顶上那颗「← 返回实例设置」。**整个下载页一颗**，摆在左栏顶上
     // —— 所以这里不是一圈循环，就接一次。
     //
@@ -1097,7 +1121,8 @@ void ConnectionsController::setup() {
     // 原版那一档的地址在版本 json 的 `downloads.server` 里 —— 盘上已经有这个版本的客户端时
     // 一个网络请求都不用发（"先装了客户端、再开一个同版本的服务端"是最常见的那条路）。
     m_owner->m_serverInstall->setLocalVersionJson([this](const QString &versionId) {
-        return m_owner->m_versionManager->getVersionJson(versionId);
+        const QJsonObject local = m_owner->m_versionManager->getVersionJson(versionId);
+        return !local.isEmpty() ? local : m_owner->m_probedServerVersionJsons.value(versionId);
     });
     connect(m_owner->m_serverInstall, &ServerInstallRun::ServerInstallController::message, m_owner,
             [this](const QString &text) { m_owner->appendLog(text); });

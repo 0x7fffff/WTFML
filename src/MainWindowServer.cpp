@@ -28,6 +28,7 @@
 #include "MainWindow.hpp"
 
 #include "..\ui\InlineMessage.hpp"
+#include "..\ui\LoadingState.hpp"
 #include "..\ui\VersionIcons.hpp"
 #include "..\ui\OverlayHost.hpp"
 #include "..\ui\Theme.hpp"
@@ -39,7 +40,10 @@
 #include "controllers/ServerSettingsPageController.hpp"
 #include "controllers/ServerVersionPicker.hpp"
 #include "controllers/ServerWorkspaceController.hpp"
+#include "download/DownloadManager.hpp"
 #include "download/ServerInstall.hpp"
+#include "net/ControlGet.hpp"
+#include "net/HttpClient.hpp"
 #include "server/ServerInstallRun.hpp"
 #include "server/ServerModel.hpp"
 #include "server/ServerProcess.hpp"
@@ -50,10 +54,16 @@
 #include "util/AppPaths.hpp"
 
 #include <QDesktopServices>
-#include <QLayout>
 #include <QDir>
+#include <QJsonDocument>
+#include <QJsonParseError>
+#include <QLayout>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QProcess>
 #include <QPushButton>
+#include <QScopedValueRollback>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QUrl>
@@ -158,11 +168,28 @@ void MainWindow::openNewServerPage() {
         : QString();
     // 管理入口没有选过游戏版本，先回列表；不能借用主页实例的版本跳过这一步。
     if (selected.isEmpty()) {
+        cancelPendingServerVersionProbe();
         m_ui->getTabWidget()->setCurrentIndex(MainWindowUI::downloadTabIndex());
-        m_ui->getDownloadCategoryList()->setCurrentRow(MainWindowUI::downloadCategoryServerIndex());
+        {
+            const QScopedValueRollback<bool> suppress(m_suppressGameInstallServerJump, true);
+            m_ui->getDownloadCategoryList()->setCurrentRow(MainWindowUI::downloadCategoryServerIndex());
+        }
         stack->setCurrentIndex(MainWindowUI::downloadServerListIndex());
         return;
     }
+    showNewServerForm(selected, fromDownload);
+}
+
+void MainWindow::showNewServerForm(const QString &selected, bool fromDownload) {
+    if (m_ui == nullptr) {
+        return;
+    }
+    QWidget *formHost = m_ui->getServerFormHost();
+    QStackedWidget *stack = m_ui->getServerStack();
+    if (formHost == nullptr || stack == nullptr || formHost->layout() == nullptr) {
+        return;
+    }
+    cancelPendingServerVersionProbe();
     if (m_newServerPage == nullptr) {
         // 它**不是**单独开的一页：和「下载 → 游戏」那张安装页一样，就住在服务端那一栏的
         // 第二层里（产品要求"服务端下载和游戏下载一个样，不要搞独立的新界面"）。
@@ -237,6 +264,7 @@ void MainWindow::openNewServerPage() {
     }
     if (QListWidget *categories = m_ui->getDownloadCategoryList()) {
         if (categories->currentRow() != MainWindowUI::downloadCategoryServerIndex()) {
+            const QScopedValueRollback<bool> suppress(m_suppressGameInstallServerJump, true);
             categories->setCurrentRow(MainWindowUI::downloadCategoryServerIndex());
         }
     }
@@ -245,6 +273,209 @@ void MainWindow::openNewServerPage() {
         name->setFocus();
         name->selectAll();
     }
+}
+
+void MainWindow::cancelPendingServerVersionProbe() {
+    ++m_serverProbeGeneration;
+    const bool wasProbing = m_serverProbeRequest != nullptr;
+    delete m_serverProbeRequest.data();
+    m_serverProbeRequest = nullptr;
+    if (m_ui != nullptr && m_ui->getServerFormHost() != nullptr) {
+        LoadingState::finish(m_ui->getServerFormHost());
+    }
+    if (wasProbing && m_ui != nullptr && m_ui->getServerStack() != nullptr &&
+        m_ui->getServerStack()->currentIndex() == MainWindowUI::downloadServerFormIndex()) {
+        m_ui->getServerStack()->setCurrentIndex(MainWindowUI::downloadServerListIndex());
+    }
+}
+
+void MainWindow::fallbackToServerVersionList(const QString &title, const QString &message,
+                                             bool isWarning) {
+    cancelPendingServerVersionProbe();
+    if (m_ui == nullptr) {
+        return;
+    }
+    if (QTabWidget *tabs = m_ui->getTabWidget()) {
+        const int tab = MainWindowUI::downloadTabIndex();
+        if (tab >= 0 && tab < tabs->count()) {
+            tabs->setCurrentIndex(tab);
+        }
+    }
+    if (QListWidget *categories = m_ui->getDownloadCategoryList()) {
+        if (categories->currentRow() != MainWindowUI::downloadCategoryServerIndex()) {
+            const QScopedValueRollback<bool> suppress(m_suppressGameInstallServerJump, true);
+            categories->setCurrentRow(MainWindowUI::downloadCategoryServerIndex());
+        }
+    }
+    if (QStackedWidget *stack = m_ui->getServerStack()) {
+        stack->setCurrentIndex(MainWindowUI::downloadServerListIndex());
+    }
+    if (m_newServerPage != nullptr) {
+        m_newServerPage->show();
+    }
+    appendLog(message);
+    if (m_ui->overlay() != nullptr) {
+        if (isWarning) {
+            InlineMessage::warning(m_ui->overlay(), title, message);
+        } else {
+            InlineMessage::information(m_ui->overlay(), title, message);
+        }
+    }
+}
+
+void MainWindow::openServerPageForGameVersion(const QString &gameVersion) {
+    if (m_ui == nullptr) {
+        return;
+    }
+    const QString version = gameVersion.trimmed();
+    QStackedWidget *stack = m_ui->getServerStack();
+    QWidget *formHost = m_ui->getServerFormHost();
+    if (version.isEmpty() || stack == nullptr || formHost == nullptr || formHost->layout() == nullptr) {
+        return;
+    }
+    cancelPendingServerVersionProbe();
+
+    // Already on the server form for this exact version: preserve user edits.
+    if (m_newServerPage != nullptr &&
+        stack->currentIndex() == MainWindowUI::downloadServerFormIndex() &&
+        m_newServerPage->gameVersion() == version) {
+        m_newServerPage->show();
+        return;
+    }
+
+    const QJsonObject localJson = m_versionManager->getVersionJson(version);
+    if (!localJson.isEmpty()) {
+        if (ServerInstall::vanillaServerDownload(localJson).ok()) {
+            m_serverAvailabilityCache.insert(version, true);
+            showNewServerForm(version, true);
+            return;
+        }
+        if (localJson.contains(QStringLiteral("downloads"))) {
+            m_serverAvailabilityCache.insert(version, false);
+            fallbackToServerVersionList(
+                tr("暂无对应服务端"),
+                tr("版本 %1 没有对应的服务端，已返回服务端版本列表。").arg(version));
+            return;
+        }
+    }
+
+    if (m_serverAvailabilityCache.contains(version)) {
+        if (m_serverAvailabilityCache.value(version)) {
+            showNewServerForm(version, true);
+            return;
+        }
+        fallbackToServerVersionList(
+            tr("暂无对应服务端"),
+            tr("版本 %1 没有对应的服务端，已返回服务端版本列表。").arg(version));
+        return;
+    }
+
+    QString officialUrl;
+    if (DownloadManager *downloads = m_versionManager->downloads()) {
+        for (const MinecraftVersion &entry : downloads->getAvailableVersions()) {
+            if (entry.id == version) {
+                officialUrl = entry.url;
+                break;
+            }
+        }
+    }
+    if (officialUrl.isEmpty()) {
+        fallbackToServerVersionList(
+            tr("暂无对应服务端"),
+            tr("版本 %1 没有对应的服务端，已返回服务端版本列表。").arg(version));
+        return;
+    }
+
+    if (m_serverProbeNetwork == nullptr) {
+        m_serverProbeNetwork = new QNetworkAccessManager(this);
+    }
+    const int generation = ++m_serverProbeGeneration;
+    if (m_newServerPage != nullptr) {
+        m_newServerPage->hide();
+    }
+    m_ui->setServerFormIntro(tr("将安装 %1 服务端").arg(version));
+    stack->setCurrentIndex(MainWindowUI::downloadServerFormIndex());
+    LoadingState::begin(formHost, tr("正在检查 %1 服务端…").arg(version));
+
+    const QUrl parsedOfficial(officialUrl);
+    const bool isLocalTest = parsedOfficial.host() == QLatin1String("127.0.0.1") ||
+                             parsedOfficial.host() == QLatin1String("localhost");
+    DownloadManager *downloads = m_versionManager->downloads();
+    const bool useMirrorFirst =
+        !isLocalTest && downloads != nullptr && downloads->mirrorPreferred();
+    const QString firstUrl =
+        useMirrorFirst ? DownloadManager::mirrorVersionJsonUrl(version) : officialUrl;
+    const QString fallbackUrl = useMirrorFirst ? officialUrl : QString();
+    startServerVersionProbe(version, firstUrl, fallbackUrl, generation);
+}
+
+void MainWindow::startServerVersionProbe(const QString &version, const QString &url,
+                                         const QString &fallbackUrl, int generation) {
+    if (m_serverProbeNetwork == nullptr || generation != m_serverProbeGeneration) {
+        return;
+    }
+    QNetworkRequest request{QUrl(url)};
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         QNetworkRequest::NoLessSafeRedirectPolicy);
+    m_serverProbeRequest = RequestBudget::ControlGet::start(
+        this, m_serverProbeNetwork, request, HttpClient::kDefaultTimeoutMs,
+        [this, version, fallbackUrl, generation](QNetworkReply *reply, const QString &jobError) {
+            if (generation != m_serverProbeGeneration) {
+                if (reply != nullptr) {
+                    reply->deleteLater();
+                }
+                return;
+            }
+            m_serverProbeRequest = nullptr;
+            QByteArray payload;
+            QString errorText = jobError;
+            bool ok = false;
+            if (reply != nullptr) {
+                ok = reply->error() == QNetworkReply::NoError;
+                if (ok) {
+                    payload = reply->readAll();
+                } else {
+                    errorText = reply->errorString();
+                }
+                reply->deleteLater();
+            }
+            if (!ok) {
+                if (!fallbackUrl.isEmpty()) {
+                    startServerVersionProbe(version, fallbackUrl, QString(), generation);
+                    return;
+                }
+                fallbackToServerVersionList(
+                    tr("无法确认服务端"),
+                    tr("未能获取 %1 的版本信息：%2").arg(version, errorText),
+                    /*isWarning=*/true);
+                return;
+            }
+            QJsonParseError parseError;
+            const QJsonDocument doc = QJsonDocument::fromJson(payload, &parseError);
+            if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+                if (!fallbackUrl.isEmpty()) {
+                    startServerVersionProbe(version, fallbackUrl, QString(), generation);
+                    return;
+                }
+                fallbackToServerVersionList(
+                    tr("无法确认服务端"),
+                    tr("未能解析 %1 的版本信息。").arg(version),
+                    /*isWarning=*/true);
+                return;
+            }
+            const QJsonObject obj = doc.object();
+            m_probedServerVersionJsons.insert(version, obj);
+            const bool hasServer = ServerInstall::vanillaServerDownload(obj).ok();
+            m_serverAvailabilityCache.insert(version, hasServer);
+            if (!hasServer) {
+                fallbackToServerVersionList(
+                    tr("暂无对应服务端"),
+                    tr("版本 %1 没有对应的服务端，已返回服务端版本列表。").arg(version));
+                return;
+            }
+            LoadingState::finish(m_ui->getServerFormHost());
+            showNewServerForm(version, true);
+        });
 }
 
 void MainWindow::createServerFromNewServerPage() {
@@ -300,6 +531,7 @@ void MainWindow::createServerFromNewServerPage() {
 }
 
 void MainWindow::leaveNewServerPage() {
+    cancelPendingServerVersionProbe();
     if (m_ui == nullptr) {
         return;
     }

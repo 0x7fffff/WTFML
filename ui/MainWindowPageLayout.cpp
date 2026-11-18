@@ -474,7 +474,8 @@ void addHint(QWidget *box, const QString &text, QWidget *parent) {
 /// 判据读的是堆叠页**此刻**的下标，所以"先翻分类、后翻内层"哪一发先到、
 /// 或者中间多来一发，结果都一样。
 void syncDownloadHeaderVisibility(QWidget *header, QStackedWidget *downloadStack,
-                                  QStackedWidget *gameStack, QStackedWidget *serverStack) {
+                                  QStackedWidget *gameStack, QStackedWidget *serverStack,
+                                  QWidget *categoryChips) {
     if (header == nullptr || downloadStack == nullptr || gameStack == nullptr) {
         return;
     }
@@ -485,6 +486,18 @@ void syncDownloadHeaderVisibility(QWidget *header, QStackedWidget *downloadStack
          downloadStack->currentIndex() == MainWindowUI::downloadCategoryServerIndex() &&
          serverStack->currentIndex() == MainWindowUI::downloadServerFormIndex());
     header->setVisible(!onInstallPage);
+    if (categoryChips != nullptr) {
+        const int count = MainWindowUI::downloadCategoryTexts().size();
+        for (int i = 0; i < count; ++i) {
+            if (auto *chip = categoryChips->findChild<QPushButton *>(
+                    MainWindowUI::downloadCategoryChipName(i))) {
+                const bool keepOnInstall =
+                    i == MainWindowUI::downloadCategoryGameIndex() ||
+                    i == MainWindowUI::downloadCategoryServerIndex();
+                chip->setVisible(!onInstallPage || keepOnInstall);
+            }
+        }
+    }
 }
 }
 

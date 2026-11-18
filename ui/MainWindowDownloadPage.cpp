@@ -241,12 +241,14 @@ QWidget *MainWindowUI::setupDownloadPage() {
         // NOTE: 每一发都只传 `int`，判据自己读三个堆叠页的 currentIndex()，不依赖信号里
         // 的下标（外面那一发给的是分类下标，里面那两发是层下标，含义不一样）。
         const auto syncHeader = [header = downloadHeader, downloadStack = downloadStack,
-                                 gameStack = gameStack, serverStack = serverStack](int) {
-            syncDownloadHeaderVisibility(header, downloadStack, gameStack, serverStack);
+                                 gameStack = gameStack, serverStack = serverStack,
+                                 chipRow = chipRow](int) {
+            syncDownloadHeaderVisibility(header, downloadStack, gameStack, serverStack, chipRow);
         };
         for (QStackedWidget *stack : {downloadStack, gameStack, serverStack}) {
             QObject::connect(stack, &QStackedWidget::currentChanged, stack, syncHeader);
         }
+        syncHeader(0);
 
         // 打开下载页时停在「游戏」。
         downloadCategoryList->setCurrentRow(downloadCategoryGameIndex());

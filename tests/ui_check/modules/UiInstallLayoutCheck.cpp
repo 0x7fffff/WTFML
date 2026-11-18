@@ -26,6 +26,39 @@ int UiInstallLayoutCheck(QApplication &app) {
             printf("%s %s\n", ok ? "PASS" : "FAIL", label);
             if (!ok) ++failures;
         };
+        {
+            QWidget *chipRow = window.findChild<QWidget *>(MainWindowUI::downloadCategoryChipsName());
+            const int totalChips = MainWindowUI::downloadCategoryTexts().size();
+            const auto visibleChipIndices = [&] {
+                QList<int> shown;
+                for (int i = 0; i < totalChips; ++i) {
+                    if (auto *chip = chipRow ? chipRow->findChild<QPushButton *>(
+                                                   MainWindowUI::downloadCategoryChipName(i))
+                                             : nullptr) {
+                        if (!chip->isHidden()) shown.append(i);
+                    }
+                }
+                return shown;
+            };
+            const QList<int> installOnly = {MainWindowUI::downloadCategoryGameIndex(),
+                                            MainWindowUI::downloadCategoryServerIndex()};
+            expect(visibleChipIndices() == installOnly,
+                   "game install page shows only game and server top category chips");
+            ui.getGameStack()->setCurrentIndex(MainWindowUI::downloadGameTreeIndex());
+            expect(visibleChipIndices().size() == totalChips,
+                   "returning to game version list restores all seven top category chips");
+            ui.getDownloadStack()->setCurrentIndex(MainWindowUI::downloadCategoryServerIndex());
+            ui.getServerStack()->setCurrentIndex(MainWindowUI::downloadServerFormIndex());
+            expect(visibleChipIndices() == installOnly,
+                   "server install form shows only game and server top category chips");
+            ui.getServerStack()->setCurrentIndex(MainWindowUI::downloadServerListIndex());
+            expect(visibleChipIndices().size() == totalChips,
+                   "returning to server version list restores all seven top category chips");
+            ui.getDownloadStack()->setCurrentIndex(MainWindowUI::downloadCategoryGameIndex());
+            ui.getGameStack()->setCurrentIndex(MainWindowUI::downloadGameInstallIndex());
+            expect(visibleChipIndices() == installOnly,
+                   "re-entering game install page hides resource category chips again");
+        }
         auto *tree = ui.getLoaderTree();
         int visibleRows = 0;
         for (int i = 0; i < tree->topLevelItemCount(); ++i) {

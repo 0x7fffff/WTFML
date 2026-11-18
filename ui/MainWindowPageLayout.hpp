@@ -262,5 +262,6 @@ QScrollArea *makePageScroll(QWidget *parent, int bottomMargin,
                             QVBoxLayout **bodyOut = nullptr);
 
 void syncDownloadHeaderVisibility(QWidget *header, QStackedWidget *downloadStack,
-                                  QStackedWidget *gameStack, QStackedWidget *serverStack);
+                                  QStackedWidget *gameStack, QStackedWidget *serverStack,
+                                  QWidget *categoryChips = nullptr);
 }

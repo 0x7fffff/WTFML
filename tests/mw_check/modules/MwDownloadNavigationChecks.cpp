@@ -392,6 +392,161 @@ int MwDownloadNavigationChecks(MainWindow &window) {
             check(categoryList->currentRow() == gameIndex &&
                       stack->currentIndex() == gameIndex,
                   "Y2 段收尾：停在「游戏」那一页（后面几节拿窗口当开局那个样子用）");
+
+            // ---- Y2e. 进入版本安装页后顶部分类只留「游戏/服务端」、点「服务端」直达同版本服务端、无服务端退回列表并提示 ----
+            {
+                auto *tabs = byObjectName<QTabWidget>(&window, MainWindowUI::tabWidgetName());
+                auto *gameStack = window.findChild<QStackedWidget *>(MainWindowUI::downloadGameStackName());
+                auto *serverStack = window.findChild<QStackedWidget *>(MainWindowUI::downloadServerStackName());
+                auto *installBackBtn = byObjectName<QPushButton>(&window, MainWindowUI::installBackButtonName());
+                auto *serverBackBtn = byObjectName<QPushButton>(&window, MainWindowUI::downloadServerBackButtonName());
+                auto *chipRow = window.findChild<QWidget *>(MainWindowUI::downloadCategoryChipsName());
+                auto *chip0 = chipRow ? chipRow->findChild<QPushButton *>(MainWindowUI::downloadCategoryChipName(0)) : nullptr;
+                auto *chip1 = chipRow ? chipRow->findChild<QPushButton *>(MainWindowUI::downloadCategoryChipName(1)) : nullptr;
+                const int tabBefore = tabs != nullptr ? tabs->currentIndex() : 0;
+                const auto visibleChipIndices = [&]() {
+                    QList<int> shown;
+                    for (int i = 0; i < keys.size(); ++i) {
+                        if (auto *chip = chipRow ? chipRow->findChild<QPushButton *>(MainWindowUI::downloadCategoryChipName(i)) : nullptr) {
+                            if (!chip->isHidden()) shown.append(i);
+                        }
+                    }
+                    return shown;
+                };
+                const QList<int> onlyTwo = {
+                    MainWindowUI::downloadCategoryGameIndex(),
+                    MainWindowUI::downloadCategoryServerIndex(),
+                };
+                if (tabs != nullptr) {
+                    tabs->setCurrentIndex(MainWindowUI::downloadTabIndex());
+                    QApplication::processEvents();
+                }
+                check(gameStack != nullptr && serverStack != nullptr &&
+                          installBackBtn != nullptr && serverBackBtn != nullptr &&
+                          chip0 != nullptr && chip1 != nullptr,
+                      "Y2e 前提：下载页安装层、服务端层与顶部分类 chip 都找得到");
+                if (gameStack != nullptr && serverStack != nullptr &&
+                    installBackBtn != nullptr && serverBackBtn != nullptr &&
+                    chip0 != nullptr && chip1 != nullptr) {
+                    const QString targetVersion = QStringLiteral("26.3");
+                    QMetaObject::invokeMethod(&window, "openInstallPage", Qt::DirectConnection,
+                                              Q_ARG(QString, targetVersion));
+                    QApplication::processEvents();
+                    check(gameStack->currentIndex() == MainWindowUI::downloadGameInstallIndex() &&
+                              visibleChipIndices() == onlyTwo,
+                          "★★ Y2e.1 进入 26.3 安装页后顶部只显示「游戏」和「服务端」两项");
+
+                    // 点「游戏」chip：维持现状（仍停在 26.3 安装页）
+                    chip0->click();
+                    QApplication::processEvents();
+                    check(categoryList->currentRow() == MainWindowUI::downloadCategoryGameIndex() &&
+                              gameStack->currentIndex() == MainWindowUI::downloadGameInstallIndex() &&
+                              visibleChipIndices() == onlyTwo,
+                          "★ Y2e.4 在安装页点「游戏」维持现状");
+
+                    // 点「服务端」chip：直接打开 26.3 的服务端下载页，不回服务端版本列表
+                    chip1->click();
+                    const bool reachedServerForm = pumpUntil(
+                        [&]() {
+                            auto *page = byObjectName<NewServerPage>(&window, MainWindowUI::newServerPageName());
+                            return categoryList->currentRow() == MainWindowUI::downloadCategoryServerIndex() &&
+                                   serverStack->currentIndex() == MainWindowUI::downloadServerFormIndex() &&
+                                   page != nullptr && !page->isHidden();
+                        },
+                        5000);
+                    auto *serverPage = byObjectName<NewServerPage>(&window, MainWindowUI::newServerPageName());
+                    auto *serverVerEdit = serverPage
+                        ? serverPage->findChild<QLineEdit *>(MainWindowUI::newServerGameVersionEditName())
+                        : nullptr;
+                    auto *serverIntro = window.findChild<QLabel *>(QStringLiteral("serverFormIntroLabel"));
+                    check(reachedServerForm &&
+                              serverVerEdit != nullptr && serverVerEdit->text() == targetVersion &&
+                              serverVerEdit->isReadOnly() &&
+                              serverIntro != nullptr && serverIntro->text().contains(targetVersion) &&
+                              visibleChipIndices() == onlyTwo,
+                          "★★ Y2e.2 在安装页点「服务端」直接打开同一版本 26.3 的服务端下载页，顶部仍只有两项",
+                          serverVerEdit != nullptr ? serverVerEdit->text() : QStringLiteral("<null>"));
+
+                    // 从服务端表单点「游戏」回到游戏安装页，再点「← 返回版本列表」恢复 7 个分类
+                    chip0->click();
+                    QApplication::processEvents();
+                    check(categoryList->currentRow() == MainWindowUI::downloadCategoryGameIndex() &&
+                              gameStack->currentIndex() == MainWindowUI::downloadGameInstallIndex() &&
+                              visibleChipIndices() == onlyTwo,
+                          "★ Y2e.4 从同版本服务端切回「游戏」回到游戏安装页");
+
+                    installBackBtn->click();
+                    QApplication::processEvents();
+                    check(gameStack->currentIndex() == MainWindowUI::downloadGameTreeIndex() &&
+                              visibleChipIndices().size() == keys.size(),
+                          "★★ Y2e.1 点游戏安装页「← 返回版本列表」后 7 个分类全部恢复");
+
+                    // 从服务端表单点「← 返回版本列表」也会退回服务端版本列表并恢复 7 个分类
+                    QMetaObject::invokeMethod(&window, "openInstallPage", Qt::DirectConnection,
+                                              Q_ARG(QString, targetVersion));
+                    QApplication::processEvents();
+                    chip1->click();
+                    pumpUntil(
+                        [&]() { return serverStack->currentIndex() == MainWindowUI::downloadServerFormIndex(); },
+                        5000);
+                    serverBackBtn->click();
+                    QApplication::processEvents();
+                    check(serverStack->currentIndex() == MainWindowUI::downloadServerListIndex() &&
+                              visibleChipIndices().size() == keys.size(),
+                          "★★ Y2e.2b 在服务端页点「← 返回版本列表」退回服务端版本列表并恢复 7 个分类");
+
+                    // 没有对应服务端的版本（1.2.4）：点「服务端」退回服务端版本列表并给出一句提示
+                    categoryList->setCurrentRow(MainWindowUI::downloadCategoryGameIndex());
+                    QApplication::processEvents();
+                    QMetaObject::invokeMethod(&window, "openInstallPage", Qt::DirectConnection,
+                                              Q_ARG(QString, QStringLiteral("1.2.4")));
+                    QApplication::processEvents();
+                    answerNextPrompt(0);
+                    chip1->click();
+                    const bool fellBackToList = pumpUntil(
+                        [&]() {
+                            return categoryList->currentRow() == MainWindowUI::downloadCategoryServerIndex() &&
+                                   serverStack->currentIndex() == MainWindowUI::downloadServerListIndex() &&
+                                   !g_modalText.isEmpty();
+                        },
+                        5000);
+                    check(fellBackToList &&
+                              g_modalText.contains(QStringLiteral("1.2.4")) &&
+                              visibleChipIndices().size() == keys.size(),
+                          "★★ Y2e.3 无对应服务端的版本（1.2.4）点「服务端」退回服务端版本列表并给出提示",
+                          QStringLiteral("title=「%1」 text=「%2」").arg(g_modalTitle, g_modalText));
+
+                    // 还原状态供后续章节使用（等 1.2.4 的加载器拉取全部回落，避免后续 Y6 操控 loaderTree 时撞上晚到的异步重建）
+                    if (auto *loaderTree =
+                            byObjectName<QTreeWidget>(&window, MainWindowUI::loaderTreeName())) {
+                        pumpUntil(
+                            [&]() {
+                                for (int i = 0; i < loaderTree->topLevelItemCount(); ++i) {
+                                    QTreeWidgetItem *top = loaderTree->topLevelItem(i);
+                                    if (top == nullptr) {
+                                        continue;
+                                    }
+                                    for (int j = 0; j < top->childCount(); ++j) {
+                                        if (top->child(j)->text(MainWindowUI::loaderTreeKeyColumn()) ==
+                                            MainWindowUI::loaderVersionFetchingText()) {
+                                            return false;
+                                        }
+                                    }
+                                }
+                                return true;
+                            },
+                            3000);
+                    }
+                    categoryList->setCurrentRow(gameIndex);
+                    gameStack->setCurrentIndex(MainWindowUI::downloadGameTreeIndex());
+                    serverStack->setCurrentIndex(MainWindowUI::downloadServerListIndex());
+                    QApplication::processEvents();
+                }
+                if (tabs != nullptr && tabBefore >= 0 && tabBefore < tabs->count()) {
+                    tabs->setCurrentIndex(tabBefore);
+                    QApplication::processEvents();
+                }
+            }
         }
     }
     return 0;
