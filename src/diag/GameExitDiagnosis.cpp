@@ -8,6 +8,7 @@
  */
 
 #include "GameExitDiagnosis.hpp"
+#include <QCoreApplication>
 
 namespace {
 
@@ -22,17 +23,17 @@ struct ExitCodeName {
 };
 
 constexpr ExitCodeName kExitCodeNames[] = {
-    {-1073741819, "内存访问冲突"},           // 0xC0000005 STATUS_ACCESS_VIOLATION
-    {-1073741818, "内存分页失败"},           // 0xC0000006 STATUS_IN_PAGE_ERROR
-    {-1073741795, "非法指令"},               // 0xC000001D STATUS_ILLEGAL_INSTRUCTION
-    {-1073741676, "整数除以零"},             // 0xC0000094 STATUS_INTEGER_DIVIDE_BY_ZERO
-    {-1073741571, "栈溢出"},                 // 0xC00000FD STATUS_STACK_OVERFLOW
-    {-1073741515, "缺一个系统 DLL"},         // 0xC0000135 STATUS_DLL_NOT_FOUND
-    {-1073741511, "DLL 里的入口点找不到"},   // 0xC0000139 STATUS_ENTRYPOINT_NOT_FOUND
-    {-1073741502, "DLL 初始化失败"},         // 0xC0000142 STATUS_DLL_INIT_FAILED
-    {-1073740940, "堆损坏"},                 // 0xC0000374 STATUS_HEAP_CORRUPTION
-    {-1073740791, "栈上的缓冲区写越界"},     // 0xC0000409 STATUS_STACK_BUFFER_OVERRUN
-    {-2147483645, "断点"},                   // 0x80000003 STATUS_BREAKPOINT
+    {-1073741819, QT_TRANSLATE_NOOP("GameExitDiagnosis", "内存访问冲突")},           // 0xC0000005 STATUS_ACCESS_VIOLATION
+    {-1073741818, QT_TRANSLATE_NOOP("GameExitDiagnosis", "内存分页失败")},           // 0xC0000006 STATUS_IN_PAGE_ERROR
+    {-1073741795, QT_TRANSLATE_NOOP("GameExitDiagnosis", "非法指令")},               // 0xC000001D STATUS_ILLEGAL_INSTRUCTION
+    {-1073741676, QT_TRANSLATE_NOOP("GameExitDiagnosis", "整数除以零")},             // 0xC0000094 STATUS_INTEGER_DIVIDE_BY_ZERO
+    {-1073741571, QT_TRANSLATE_NOOP("GameExitDiagnosis", "栈溢出")},                 // 0xC00000FD STATUS_STACK_OVERFLOW
+    {-1073741515, QT_TRANSLATE_NOOP("GameExitDiagnosis", "缺一个系统 DLL")},         // 0xC0000135 STATUS_DLL_NOT_FOUND
+    {-1073741511, QT_TRANSLATE_NOOP("GameExitDiagnosis", "DLL 里的入口点找不到")},   // 0xC0000139 STATUS_ENTRYPOINT_NOT_FOUND
+    {-1073741502, QT_TRANSLATE_NOOP("GameExitDiagnosis", "DLL 初始化失败")},         // 0xC0000142 STATUS_DLL_INIT_FAILED
+    {-1073740940, QT_TRANSLATE_NOOP("GameExitDiagnosis", "堆损坏")},                 // 0xC0000374 STATUS_HEAP_CORRUPTION
+    {-1073740791, QT_TRANSLATE_NOOP("GameExitDiagnosis", "栈上的缓冲区写越界")},     // 0xC0000409 STATUS_STACK_BUFFER_OVERRUN
+    {-2147483645, QT_TRANSLATE_NOOP("GameExitDiagnosis", "断点")},                   // 0x80000003 STATUS_BREAKPOINT
 };
 
 const char *nameForExitCode(int code) {
@@ -103,7 +104,7 @@ QString exitDescription(int exitCode) {
     const QString hex = QString::number(static_cast<quint32>(exitCode), 16)
                             .rightJustified(8, QLatin1Char('0'))
                             .toUpper();
-    return QStringLiteral("0x%1（%2）").arg(hex, QString::fromUtf8(name));
+    return QCoreApplication::translate("GameExitDiagnosis", "0x%1（%2）").arg(hex, QCoreApplication::translate("GameExitDiagnosis", name));
 }
 
 QString summary(const Facts &facts) {
@@ -111,13 +112,13 @@ QString summary(const Facts &facts) {
     if (facts.crashed) {
         // 「崩溃」这一档不问退出码的正负：`QProcess` 报的 CrashExit 已经是"不是它自己走的"，
         // 哪怕码看起来像个普通数字（比如 -1）也照崩溃说 —— 那是这一次退出最要紧的性质。
-        return where.isEmpty() ? QStringLiteral("游戏崩溃退出（%1）。").arg(exitDescription(facts.exitCode))
-                               : QStringLiteral("「%1」崩溃退出（%2）。")
+        return where.isEmpty() ? QCoreApplication::translate("GameExitDiagnosis", "游戏崩溃退出（%1）。").arg(exitDescription(facts.exitCode))
+                               : QCoreApplication::translate("GameExitDiagnosis", "「%1」崩溃退出（%2）。")
                                      .arg(where, exitDescription(facts.exitCode));
     }
     return where.isEmpty()
-               ? QStringLiteral("游戏以非 0 退出码结束（%1）。").arg(exitDescription(facts.exitCode))
-               : QStringLiteral("「%1」以非 0 退出码结束（%2）。")
+               ? QCoreApplication::translate("GameExitDiagnosis", "游戏以非 0 退出码结束（%1）。").arg(exitDescription(facts.exitCode))
+               : QCoreApplication::translate("GameExitDiagnosis", "「%1」以非 0 退出码结束（%2）。")
                      .arg(where, exitDescription(facts.exitCode));
 }
 
@@ -134,12 +135,12 @@ QStringList hints(const Facts &facts) {
     // "没测出来"，那时候说"版本不匹配"就是猜。
     if (facts.requiredJavaMajor > 0 && facts.usedJavaMajor > 0
         && facts.requiredJavaMajor != facts.usedJavaMajor) {
-        QString text = QStringLiteral("「%1」要求 Java %2，本次实际使用的是 Java %3。")
+        QString text = QCoreApplication::translate("GameExitDiagnosis", "「%1」要求 Java %2，本次实际使用的是 Java %3。")
                            .arg(where)
                            .arg(facts.requiredJavaMajor)
                            .arg(facts.usedJavaMajor);
         if (!facts.javaPath.isEmpty()) {
-            text += QStringLiteral("（%1）").arg(facts.javaPath);
+            text += QCoreApplication::translate("GameExitDiagnosis", "（%1）").arg(facts.javaPath);
         }
         say(text);
     }
@@ -147,14 +148,11 @@ QStringList hints(const Facts &facts) {
     // ② 内存。**超过物理内存**和**接近打满**分开说：前者是"一定分不到"，后者是"抢起来会不够"。
     if (facts.xmxMb > 0 && facts.totalMemoryMb > 0) {
         if (static_cast<qint64>(facts.xmxMb) > facts.totalMemoryMb) {
-            say(QStringLiteral("给游戏分了 %1 MB 堆内存，而这台机器总共只有 %2 MB —— JVM 会因为"
-                               "分配不到内存起不来、或者跑一半被系统杀掉。可以在「设置 → 启动」"
-                               "里把它调小。")
+            say(QCoreApplication::translate("GameExitDiagnosis", "给游戏分了 %1 MB 堆内存，而这台机器总共只有 %2 MB —— JVM 会因为" "分配不到内存起不来、或者跑一半被系统杀掉。可以在「设置 → 启动」" "里把它调小。")
                     .arg(facts.xmxMb)
                     .arg(facts.totalMemoryMb));
         } else if (static_cast<qint64>(facts.xmxMb) * 4 > facts.totalMemoryMb * 3) {
-            say(QStringLiteral("给游戏分了 %1 MB 堆内存，占了这台机器 %2 MB 的四分之三以上 —— "
-                               "系统和其他程序一起抢的时候容易不够用。")
+            say(QCoreApplication::translate("GameExitDiagnosis", "给游戏分了 %1 MB 堆内存，占了这台机器 %2 MB 的四分之三以上 —— " "系统和其他程序一起抢的时候容易不够用。")
                     .arg(facts.xmxMb)
                     .arg(facts.totalMemoryMb));
         }
@@ -163,35 +161,31 @@ QStringList hints(const Facts &facts) {
     // ③ 日志里那句 OutOfMemoryError。**比上面那条更硬**：上面是"看着悬"，这一条是
     // "JVM 自己说了"。两条会一起出现，用两句话分别说清"为什么"和"依据"。
     if (facts.sawOutOfMemory) {
-        say(QStringLiteral("日志里有 OutOfMemoryError —— 这一次是真的把分给它的内存用完了。"));
+        say(QCoreApplication::translate("GameExitDiagnosis", "日志里有 OutOfMemoryError —— 这一次是真的把分给它的内存用完了。"));
     }
 
     // ④ 缺前置的模组。依据是**加载器自己打的那句话**（`logShowsMissingDependency()`），
     // 不是我们按清单猜的 —— 退出这一刻去联网问一遍每个模组的前置，用户只会看到启动器
     // 卡在那里。所以这里**不报个数**：我们手上确实没有那个数。
     if (facts.sawMissingDependency) {
-        say(QStringLiteral("日志里写着有模组的前置没装 —— 在「文件」那一页点「检查更新」"
-                           "能看到缺的是哪一个。"));
+        say(QCoreApplication::translate("GameExitDiagnosis", "日志里写着有模组的前置没装 —— 在「文件」那一页点「检查更新」" "能看到缺的是哪一个。"));
     }
 
     // ⑤ 崩的方式。坏内存 / 坏栈 / 坏指令这一档，在**装了模组加载器**时才指向模组；原版也崩
     // 的话更可能是驱动 / 杀软那一类，口风就不一样。
     if (facts.crashed && isMemoryFault(facts.exitCode)) {
         if (facts.loaderName.isEmpty()) {
-            say(QStringLiteral("崩在「坏内存」那一类上（%1）—— 原版环境里这多半是本机的驱动"
-                               "或者安全软件插手了游戏进程。")
+            say(QCoreApplication::translate("GameExitDiagnosis", "崩在「坏内存」那一类上（%1）—— 原版环境里这多半是本机的驱动" "或者安全软件插手了游戏进程。")
                     .arg(exitDescription(facts.exitCode)));
         } else {
-            say(QStringLiteral("崩在「坏内存」那一类上（%1）—— 模组（或者它没装上的前置）和"
-                               "这个游戏版本对不上时，最常见的症状就是这个。")
+            say(QCoreApplication::translate("GameExitDiagnosis", "崩在「坏内存」那一类上（%1）—— 模组（或者它没装上的前置）和" "这个游戏版本对不上时，最常见的症状就是这个。")
                     .arg(exitDescription(facts.exitCode)));
         }
     }
 
     // ⑥ 加载期就死了：这不是"游戏跑到一半崩了"，是"进程压根没起来"，两者的排查方向差很远。
     if (isLoadFailure(facts.exitCode)) {
-        say(QStringLiteral("进程在加载阶段就死了（%1）—— 常见于系统缺一个运行库（比如 VC++ "
-                           "运行库），或者安全软件把加载器要的一个文件拦掉了。")
+        say(QCoreApplication::translate("GameExitDiagnosis", "进程在加载阶段就死了（%1）—— 常见于系统缺一个运行库（比如 VC++ " "运行库），或者安全软件把加载器要的一个文件拦掉了。")
                 .arg(exitDescription(facts.exitCode)));
     }
 
@@ -207,8 +201,7 @@ QStringList hints(const Facts &facts) {
         // **ERROR 及以上**（Error / Fatal，出处 `GameLogWindow::logTextFrom(Error)` 和
         // `sessionLogTailErrors()`）—— 日志里只有 WARN 时它也会照说不误，玩家照着
         // "WARN 也没有"去排除，把真正的线索漏掉。文案跟着判据写。
-        say(QStringLiteral("日志里一条 ERROR/Fatal 都没有 —— 这多半不是崩溃，是游戏自己退出的"
-                           "（比如点了退出，或者这个存档已经在别的地方开着）。"));
+        say(QCoreApplication::translate("GameExitDiagnosis", "日志里一条 ERROR/Fatal 都没有 —— 这多半不是崩溃，是游戏自己退出的" "（比如点了退出，或者这个存档已经在别的地方开着）。"));
     }
 
     // ⑧ 压根没拿到输出。放在最后：它是"上面那些结论的依据缺一块"的说明，不是原因本身。
@@ -216,9 +209,7 @@ QStringList hints(const Facts &facts) {
         // 这句**不能**把原因归到「显示游戏日志」那个开关上 ——
         // 进程输出另有一份和窗无关的底账（`GameSessionController::sessionLogTail`），
         // 开关关着也照样收得到。真的一行都没有，那是游戏自己没打到能收的地方。
-        say(QStringLiteral("本次没有收到游戏的输出：进程启动后没有任何输出。"
-                           "多半是 JVM 尚未初始化就退出了，请先确认「设置 → 启动」中的 "
-                           "Java 是否正确、内存是否设置过高。"));
+        say(QCoreApplication::translate("GameExitDiagnosis", "本次没有收到游戏的输出：进程启动后没有任何输出。" "多半是 JVM 尚未初始化就退出了，请先确认「设置 → 启动」中的 " "Java 是否正确、内存是否设置过高。"));
     }
 
     return out;

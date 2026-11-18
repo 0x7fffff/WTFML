@@ -58,7 +58,6 @@ src/controllers/ThemeSettingsController.cpp	1
 src/controllers/ToolboxController.cpp	34
 src/controllers/UpdateCenterController.cpp	7
 src/controllers/UpgradeAssessment.cpp	8
-src/diag/GameExitDiagnosis.cpp	37
 src/download/AssetDirectorKnownSet.cpp	27
 src/download/AssetDirectorKnownSetData.cpp	1
 src/download/DirectDownloadRequest.hpp	5

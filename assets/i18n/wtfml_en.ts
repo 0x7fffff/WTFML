@@ -3645,6 +3645,117 @@ The part that has been moved is in the Recycle Bin and can be restored.</transla
         </message>
     </context>
     <context>
+        <name>GameExitDiagnosis</name>
+        <message>
+            <source>内存访问冲突</source>
+            <translation>Memory access violation</translation>
+        </message>
+        <message>
+            <source>内存分页失败</source>
+            <translation>Memory paging failed</translation>
+        </message>
+        <message>
+            <source>非法指令</source>
+            <translation>Illegal instruction</translation>
+        </message>
+        <message>
+            <source>整数除以零</source>
+            <translation>Divide an integer by zero</translation>
+        </message>
+        <message>
+            <source>栈溢出</source>
+            <translation>Stack overflow</translation>
+        </message>
+        <message>
+            <source>缺一个系统 DLL</source>
+            <translation>Missing a system DLL</translation>
+        </message>
+        <message>
+            <source>DLL 里的入口点找不到</source>
+            <translation>The entry point in the DLL cannot be found</translation>
+        </message>
+        <message>
+            <source>DLL 初始化失败</source>
+            <translation>DLL initialization failed</translation>
+        </message>
+        <message>
+            <source>堆损坏</source>
+            <translation>Heap corruption</translation>
+        </message>
+        <message>
+            <source>栈上的缓冲区写越界</source>
+            <translation>Buffer write out of bounds on stack</translation>
+        </message>
+        <message>
+            <source>断点</source>
+            <translation>Breakpoint</translation>
+        </message>
+        <message>
+            <source>0x%1（%2）</source>
+            <translation>0x%1 (%2)</translation>
+        </message>
+        <message>
+            <source>游戏崩溃退出（%1）。</source>
+            <translation>The game crashed and exited (%1).</translation>
+        </message>
+        <message>
+            <source>「%1」崩溃退出（%2）。</source>
+            <translation>"%1" crashes and exits (%2).</translation>
+        </message>
+        <message>
+            <source>游戏以非 0 退出码结束（%1）。</source>
+            <translation>The game ended with a non-0 exit code (%1).</translation>
+        </message>
+        <message>
+            <source>「%1」以非 0 退出码结束（%2）。</source>
+            <translation>"%1" ends with a non-zero exit code (%2).</translation>
+        </message>
+        <message>
+            <source>「%1」要求 Java %2，本次实际使用的是 Java %3。</source>
+            <translation>"%1" requires Java %2. This time, Java %3 is actually used.</translation>
+        </message>
+        <message>
+            <source>（%1）</source>
+            <translation>(%1)</translation>
+        </message>
+        <message>
+            <source>给游戏分了 %1 MB 堆内存，而这台机器总共只有 %2 MB —— JVM 会因为分配不到内存起不来、或者跑一半被系统杀掉。可以在「设置 → 启动」里把它调小。</source>
+            <translation>The game is allocated %1 MB of heap memory, but this machine only has a total of %2 MB - the JVM will not be able to start because it cannot allocate memory, or it will be killed by the system in the middle of the run. You can turn it down in "Settings → Startup".</translation>
+        </message>
+        <message>
+            <source>给游戏分了 %1 MB 堆内存，占了这台机器 %2 MB 的四分之三以上 —— 系统和其他程序一起抢的时候容易不够用。</source>
+            <translation>%1 MB of heap memory is allocated to the game, accounting for more than three-quarters of %2 MB of this machine - it is easy to run out when the system and other programs compete for it.</translation>
+        </message>
+        <message>
+            <source>日志里有 OutOfMemoryError —— 这一次是真的把分给它的内存用完了。</source>
+            <translation>There is an OutOfMemoryError in the log - this time it actually ran out of memory allocated to it.</translation>
+        </message>
+        <message>
+            <source>日志里写着有模组的前置没装 —— 在「文件」那一页点「检查更新」能看到缺的是哪一个。</source>
+            <translation>The log states that the module's prerequisite is not installed - click "Check for Updates" on the "File" page to see which one is missing.</translation>
+        </message>
+        <message>
+            <source>崩在「坏内存」那一类上（%1）—— 原版环境里这多半是本机的驱动或者安全软件插手了游戏进程。</source>
+            <translation>Crash in the "bad memory" category (%1) - In the original environment, this is probably because the local driver or security software interferes with the game process.</translation>
+        </message>
+        <message>
+            <source>崩在「坏内存」那一类上（%1）—— 模组（或者它没装上的前置）和这个游戏版本对不上时，最常见的症状就是这个。</source>
+            <translation>Crashes in the "Bad Memory" category (%1) - This is the most common symptom when a module (or its missing prerequisite) does not match the version of the game.</translation>
+        </message>
+        <message>
+            <source>进程在加载阶段就死了（%1）—— 常见于系统缺一个运行库（比如 VC++ 运行库），或者安全软件把加载器要的一个文件拦掉了。</source>
+            <translation>The process dies during the loading phase (%1) - Commonly caused by the system missing a runtime library (such as the VC++ runtime library), or the security software blocking a file requested by the loader.</translation>
+        </message>
+        <message>
+            <source>日志里一条 ERROR/Fatal 都没有 —— 这多半不是崩溃，是游戏自己退出的（比如点了退出，或者这个存档已经在别的地方开着）。</source>
+            <translation>There is no ERROR/Fatal in the log - this is probably not a crash, but the game itself exited (such as clicking exit, or the save file is already open elsewhere).</translation>
+        </message>
+        <message>
+            <source>本次没有收到游戏的输出：进程启动后没有任何输出。多半是 JVM 尚未初始化就退出了，请先确认「设置 → 启动」中的 Java 是否正确、内存是否设置过高。</source>
+            <translation>No output from the game was received this time: there was no output after the process started. Most likely, the JVM exited before it was initialized. Please first confirm whether the Java in "Settings → Startup" is correct and whether the memory setting is too high.</translation>
+        </message>
+    </context>
+    <context>
         <name>GameLogWindow</name>
         <message>
             <source>游戏日志</source>
