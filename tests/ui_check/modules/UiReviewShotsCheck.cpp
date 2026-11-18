@@ -1709,6 +1709,22 @@ int runPopups(QApplication &app, const ShotOptions &options) {
     ui.setFolderRows({{QStringLiteral("D:/Games/.minecraft"), QStringLiteral("官方启动器"), QStringLiteral("D:/Games/.minecraft"), false, true},
                       {QStringLiteral("E:/MC/modpacks"), QStringLiteral("整合包"), QStringLiteral("E:/MC/modpacks"), false, false}});
     pump();
+    // 三个标签各一张：路径行写法统一，「导入整合包…」只在预设标签收起（issue #18）。
+    {
+        const QString base = QStringLiteral("D:\\Games\\Minecraft\\Instances\\Season Five Survival Server Network\\.minecraft");
+        ui.setInstanceFolderText(QStringLiteral("%1（12 个实例）").arg(base));
+        ui.setServerFolderText(QStringLiteral("%1\\Servers（2 个服务端）").arg(base));
+        ui.setPresetSubtitle(QStringLiteral("%1\\wtfml-presets（5 份预设）").arg(base));
+        const std::pair<MainWindowUI::InstanceMode, const char *> tabs[] = {
+            {MainWindowUI::InstanceMode::Client, "instance-tab-client"},
+            {MainWindowUI::InstanceMode::Server, "instance-tab-server"},
+            {MainWindowUI::InstanceMode::Preset, "instance-tab-preset"}};
+        for (const auto &[mode, name] : tabs) {
+            ui.setInstanceMode(mode);
+            saveShot(app, window, options.out, QString::fromLatin1(name), &saved);
+        }
+        ui.setInstanceMode(MainWindowUI::InstanceMode::Client);
+    }
     if (auto *pill = window.findChild<QPushButton *>(MainWindowUI::instanceFolderPillName())) {
         pill->click();
         savePopupShot(app, window, options.out, QStringLiteral("instance-folder-popup"), &saved);

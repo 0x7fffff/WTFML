@@ -39,7 +39,7 @@ int UiServerModeChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs
               "U34.0 前提：模式行那三颗 chip / 换页容器 / 服务端那棵树 / 空状态那句 / "
               "「新建服务端…」/ 预设那一页的宿主都按 objectName 找得到");
         if (modeThere) {
-            // ---------- ① 三颗 chip：文字、能亮/能灭、初始停在「客户端实例」 ----------
+            // ---------- ① 三颗 chip：文字、能亮/能灭、初始停在「客户端」 ----------
             check(clientChip->isCheckable() && serverChip->isCheckable() &&
                       presetChip->isCheckable() &&
                       clientChip->text() == MainWindowUI::instanceModeText(
@@ -48,7 +48,7 @@ int UiServerModeChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs
                                                 MainWindowUI::InstanceMode::Server) &&
                       presetChip->text() == MainWindowUI::instanceModeText(
                                                 MainWindowUI::InstanceMode::Preset),
-                  "★ U34.1 三颗模式 chip 的文字逐字是约定的「客户端实例 / 服务端 / 预设」，"
+                  "★ U34.1 三颗模式 chip 的文字逐字是约定的「客户端 / 服务端 / 预设」，"
                   "而且都是「能亮/能灭」的那一档（它们要的是「正停在哪一边」这个状态）",
                   QStringLiteral("%1 / %2 / %3")
                       .arg(clientChip->text(), serverChip->text(), presetChip->text()));
@@ -58,7 +58,7 @@ int UiServerModeChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs
             check(modeStack->count() == 3 && modeStack->currentIndex() == 0 &&
                       clientChip->isChecked() && !serverChip->isChecked() &&
                       !presetChip->isChecked(),
-                  "★★ U34.2 起手停在「客户端实例」：换页容器的第 0 页 + 左边那颗勾着、"
+                  "★★ U34.2 起手停在「客户端」：换页容器的第 0 页 + 左边那颗勾着、"
                   "另外两颗没勾",
                   QStringLiteral("页数=%1 停在第%2页").arg(modeStack->count())
                       .arg(modeStack->currentIndex()));
@@ -87,6 +87,40 @@ int UiServerModeChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs
             check(modeStack->currentIndex() == 0 && clientChip->isChecked() &&
                       !serverChip->isChecked() && !presetChip->isChecked(),
                   "★ U34.2 切回客户端：又回到第 0 页、勾也换回来");
+
+            // ---------- ②b 路径行与「导入整合包…」按三个标签显隐（issue #18）----------
+            {
+                QLabel *pathLine = ui.getInstanceFolderLabel();
+                QPushButton *importButton = ui.getImportModpackButton();
+                ui.setInstanceFolderText(QStringLiteral("C:\\MC（2 个实例）"));
+                ui.setServerFolderText(QStringLiteral("C:\\MC\\Servers（1 个服务端）"));
+                ui.setPresetSubtitle(QStringLiteral("C:\\Presets（3 份预设）"));
+                struct Expect {
+                    MainWindowUI::InstanceMode mode;
+                    const char *text;
+                    bool importVisible;
+                } const expects[] = {
+                    {MainWindowUI::InstanceMode::Client, "C:\\MC（2 个实例）", true},
+                    {MainWindowUI::InstanceMode::Server, "C:\\MC\\Servers（1 个服务端）", true},
+                    {MainWindowUI::InstanceMode::Preset, "C:\\Presets（3 份预设）", false},
+                    {MainWindowUI::InstanceMode::Client, "C:\\MC（2 个实例）", true},
+                };
+                for (const Expect &e : expects) {
+                    ui.setInstanceMode(e.mode);
+                    QApplication::processEvents();
+                    const QString want = QString::fromUtf8(e.text);
+                    check(pathLine != nullptr && importButton != nullptr &&
+                              !pathLine->isHidden() && pathLine->text() == want &&
+                              pathLine->toolTip() == want &&
+                              !importButton->isHidden() == e.importVisible,
+                          "★★ U34.2b 三个标签下路径行都在、写法统一（无「当前文件夹：」前缀），"
+                          "「导入整合包…」只在预设标签收起",
+                          QStringLiteral("模式=%1 路径行=%2 导入按钮显示=%3")
+                              .arg(static_cast<int>(e.mode))
+                              .arg(pathLine != nullptr ? pathLine->text() : QStringLiteral("<无>"))
+                              .arg(importButton != nullptr && !importButton->isHidden() ? 1 : 0));
+                }
+            }
 
             // ---------- ③ 那一行摆在哪：和换页容器同栏、在它上面 ----------
             //

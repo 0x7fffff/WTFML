@@ -1414,10 +1414,20 @@ QWidget *MainWindowUI::setupInstancePage() {
     fillPageHeader(instance.right, instancePageTitle(), QString());
     // 设计稿 page-title：一级页标题用 Display 档（26px 手写体 Light）。
     Theme::markDisplay(instance.right.title, Theme::textFont(instance.right.title->font(), Theme::TextRole::Display));
+    // 路径行：换成 ElidedLabel（QLabel 折行会把最小宽度下的长路径折成两行），中间省略，
+    // 全文放进提示。
+    {
+        auto *elided = new ElidedLabel(instance.right.header);
+        elided->setElideMode(Qt::ElideMiddle);
+        markTextRole(elided, Theme::secondaryTextRoleValue());
+        elided->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+        instance.right.header->layout()->replaceWidget(instance.right.subtitle, elided);
+        delete instance.right.subtitle;
+        instance.right.subtitle = elided;
+    }
     instanceFolderLabel = instance.right.subtitle;
     instanceFolderLabel->setObjectName(MainWindowUI::instanceFolderLabelName());
-    // 它就是这一页的状态栏那一行，**不跟着"文字空不空"收起来**（文字由 MainWindow 灌，
-    // 界面这边不知道盘上有几份）。
+    // 三个标签下都有这一行，文字由 MainWindow 灌（界面这边不知道盘上有几份）。
     instanceFolderLabel->setVisible(true);
     // 右上角那颗页面级操作：「分组设置…」（它管的是**分组清单本身**，不是选中的那一个
     // 实例 —— 见下面那段，那是 就定下的语义）。
@@ -1427,9 +1437,8 @@ QWidget *MainWindowUI::setupInstancePage() {
     Theme::markButton(groupInstanceButton, Theme::ButtonKind::Neutral);
     instance.right.actions->addWidget(groupInstanceButton);
     // 设计稿 manage.html：没有左栏。标题右边一颗「游戏文件夹」胶囊，点开是文件夹列表浮层
-    // （原左栏的 folderList / 添加文件夹… 原样搬进去，数据流不变）；说明行收进胶囊的悬停提示。
+    // （原左栏的 folderList / 添加文件夹… 原样搬进去，数据流不变）；标题下保留路径行。
     instance.left.widget->setVisible(false);
-    instanceFolderLabel->setVisible(false);
     auto *folderPill = new QPushButton(instance.right.header);
     folderPill->setObjectName(instanceFolderPillName());
     folderPill->setCursor(Qt::PointingHandCursor);
@@ -1881,20 +1890,30 @@ QWidget *MainWindowUI::setupInstancePage() {
 /// 「游戏」那一页是版本树 + 安装页；其余几页在下面那段循环里搭（搜索框 + 三层树）。
 
 
+void MainWindowUI::showInstanceFolderText() {
+    if (instanceFolderLabel == nullptr) return;
+    const QString &text = instanceMode == InstanceMode::Preset   ? presetSubtitleText
+                          : instanceMode == InstanceMode::Server ? serverFolderText
+                                                                 : instanceFolderText;
+    instanceFolderLabel->setText(text);
+    instanceFolderLabel->setToolTip(text);  // 路径被省略时，提示里是全文
+}
+
 void MainWindowUI::setInstanceFolderText(const QString &text) {
     instanceFolderText = text;
-    if (instanceFolderLabel != nullptr && instanceMode != InstanceMode::Preset) {
-        instanceFolderLabel->setText(text);
-    }
+    showInstanceFolderText();
     if (tabWidget != nullptr)
         if (auto *pill = tabWidget->findChild<QPushButton *>(instanceFolderPillName())) pill->setToolTip(text);
 }
 
+void MainWindowUI::setServerFolderText(const QString &text) {
+    serverFolderText = text;
+    showInstanceFolderText();
+}
+
 void MainWindowUI::setPresetSubtitle(const QString &text) {
     presetSubtitleText = text;
-    if (instanceFolderLabel != nullptr && instanceMode == InstanceMode::Preset) {
-        instanceFolderLabel->setText(text);
-    }
+    showInstanceFolderText();
 }
 
 void MainWindowUI::setServerFormIntro(const QString &text) {
@@ -1923,15 +1942,11 @@ void MainWindowUI::setInstanceMode(InstanceMode mode) {
             title->setText(mode==InstanceMode::Preset ? QStringLiteral("预设") : QStringLiteral("实例"));
     }
     if (groupInstanceButton) groupInstanceButton->setVisible(mode != InstanceMode::Preset);
+    // 导入整合包只在客户端 / 服务端标签露面，预设标签收起。
+    if (importModpackButton) importModpackButton->setVisible(mode != InstanceMode::Preset);
     instanceMode = mode;
-    // 页头那句副标题**一直都有**（"这一页列的是什么"）：换档只是换一句话。
-    // 预设和实例同属当前游戏文件夹，所以两份底稿说的都是这个文件夹。
-    if (instanceFolderLabel) {
-        // 实例 / 服务端：路径与数量收进文件夹胶囊的悬停提示；预设页那句说明仍在标题下。
-        instanceFolderLabel->setVisible(mode == InstanceMode::Preset);
-        instanceFolderLabel->setText(mode == InstanceMode::Preset ? presetSubtitleText
-                                                                  : instanceFolderText);
-    }
+    // 页头路径行三个标签都有：换档只是换一份底稿。
+    showInstanceFolderText();
     for (int i = 0; i < instanceModeButtons.size(); ++i) {
         if (instanceModeButtons.at(i) != nullptr) {
             instanceModeButtons.at(i)->setChecked(i == index);

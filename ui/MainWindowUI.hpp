@@ -1182,7 +1182,7 @@ public:
     static QString instanceModeText(InstanceMode mode) {
         switch (mode) {
         case InstanceMode::Client:
-            return QStringLiteral("客户端实例");
+            return QStringLiteral("客户端");
         case InstanceMode::Server:
             return QStringLiteral("服务端");
         case InstanceMode::Preset:
@@ -3512,9 +3512,13 @@ public:
     /// 传越界的值什么都不做（宁可停在上一档，也不要切到一页不存在的页上）。
     void setInstanceMode(InstanceMode mode);
 
-    /// 实例页页头那句副标题（「当前文件夹：…（N 个实例）」）。灌数据那条路走这里：
-    /// 普通模式立刻写进页头，预设模式先记着，切回客户端实例时再写（见 `setInstanceMode`）。
+    /// 实例页路径行（「<游戏目录>（N 个实例）」）。灌数据那条路走这里：
+    /// 只在客户端标签写进页头，其余标签先记着，切回来时再写（见 `setInstanceMode`）。
     void setInstanceFolderText(const QString &text);
+    /// 服务端标签的路径行（「<服务端目录>（N 个服务端）」）。
+    void setServerFolderText(const QString &text);
+    /// 按 `instanceMode` 挑那一份底稿写进路径行（文字与提示同源）。
+    void showInstanceFolderText();
     /// 预设那一档的副标题（「N 份预设」）。只在预设模式写进页头；其余时候先记着。
     void setPresetSubtitle(const QString &text);
 
@@ -3907,6 +3911,7 @@ private:
     /// 页头那句副标题的两份底稿（普通档 = 文件夹 + 实例数；预设档 = 预设数）。
     /// 两份都留着，换档只是换着写，切换回来不用等外面重灌一遍。
     QString instanceFolderText;
+    QString serverFolderText;
     QString presetSubtitleText;
     /// 现在停在哪一档（`setInstanceMode()` 写；上面那两份底稿按它挑一份写进页头）。
     InstanceMode instanceMode = InstanceMode::Client;

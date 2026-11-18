@@ -552,11 +552,10 @@ void PresetController::pushListAndSelect(const QString &selectId) {
 
 void PresetController::pushCatalog(const Presets::CatalogSnapshot &snapshot, const QString &selectId) {
     const auto &summaries = snapshot.presets;
-    // 页头那句和实例页那句同一个形状（「当前文件夹：…（N 个实例）」）：预设跟着这个
-    // 文件夹走，页头上说的是同一份路径、换了个后缀。
+    // 页头路径行和实例页同一个形状：「<预设目录>（N 份预设）」。
     if (m_host.presetSubtitle) {
-        m_host.presetSubtitle(tr("当前文件夹：%1（%2 份预设）")
-                                  .arg(QDir::toNativeSeparators(AppPaths::minecraftDir()))
+        m_host.presetSubtitle(tr("%1（%2 份预设）")
+                                  .arg(QDir::toNativeSeparators(presetsRoot()))
                                   .arg(summaries.size()));
     }
     m_catalogNames.clear();
