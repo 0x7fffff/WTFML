@@ -63,7 +63,7 @@ const ToolInfo kToolInfos[] = {
     {ToolboxPage::Tool::Anvil, "anvil", "附魔助手", "算最省等级的合并顺序"},
     {ToolboxPage::Tool::Coord, "coord", "坐标换算", "主世界与下界坐标互换"},
     {ToolboxPage::Tool::Beacon, "beacon", "信标计算", "底座方块与效果范围"},
-    {ToolboxPage::Tool::Brewing, "brewing", "酿造助手", "药水的酿造步骤"},
+    {ToolboxPage::Tool::Brewing, "brewing", "酿造助手", "从水瓶起的配方与效果"},
     {ToolboxPage::Tool::Text, "text", "彩色文本", "§ 文本与 JSON 互转"},
     {ToolboxPage::Tool::Banner, "banner", "旗帜设计", "叠图案，算织布机步骤"},
     {ToolboxPage::Tool::Trim, "trim", "纹饰搭配", "盔甲纹饰与材料搭配"},
@@ -3003,7 +3003,7 @@ QWidget *ToolboxPage::buildBrewingPanel() {
     form.addRow(QStringLiteral("加料"), {m_brewingExtended, m_brewingLevel2})->setSpacing(24);
     layout->addLayout(form.grid);
 
-    ResultBox result = makeResultBox(panel, QStringLiteral("步骤"), brewingResultName());
+    ResultBox result = makeResultBox(panel, QStringLiteral("结果"), brewingResultName());
     m_brewingResult = result.headline;
     setReport(m_brewingResult, QString());
     layout->addWidget(result.card);

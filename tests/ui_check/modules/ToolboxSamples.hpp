@@ -93,10 +93,14 @@ inline void fillToolboxSamples(ToolboxPage &page, ToolboxPage::Tool tool) {
                                           "材料：白色玻璃 × 2、橙色玻璃 × 2、蓝色玻璃 × 1"));
         break;
     case Tool::Brewing:
-        page.setBrewingPotions({QStringLiteral("迅捷药水"), QStringLiteral("力量药水"), QStringLiteral("治疗药水")});
+        page.setBrewingPotions({QStringLiteral("迅捷"), QStringLiteral("力量"), QStringLiteral("治疗")});
         page.setBrewingForms({QStringLiteral("普通"), QStringLiteral("喷溅型"), QStringLiteral("滞留型")});
         page.setBrewingVersions({QString(), QStringLiteral("1.21"), QStringLiteral("1.20")});
-        page.setBrewingResult(QStringLiteral("1 步：水瓶 + 下界疣 → 粗制\n2 步：粗制 + 糖 → 迅捷"));
+        page.setBrewingResult(QStringLiteral(
+            "产出：喷溅型迅捷药水 × 6 瓶（酿 2 次）\n效果：迅捷 I · 3:00\n"
+            "步骤（共 3 步）：\n1. 水瓶 + 下界疣 → 粗制的药水\n2. 粗制的药水 + 糖 → 迅捷药水\n"
+            "3. 迅捷药水 + 火药 → 喷溅型迅捷药水\n"
+            "材料：水瓶 × 6、下界疣 × 2、糖 × 2、火药 × 2、烈焰粉（燃料） × 1（1 个烈焰粉可酿 20 次）"));
         break;
     case Tool::Banner:
         page.setBannerColors({QStringLiteral("白色"), QStringLiteral("橙色"), QStringLiteral("品红色"), QStringLiteral("黑色")},

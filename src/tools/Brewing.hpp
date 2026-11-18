@@ -20,6 +20,11 @@
  * 滞留时前面会先自动补一步火药）。
  * * 不是每一种药水都有延长 / II 级版本（抗火、夜视、隐身这些没有 II 级）—— 表里那两位
  * 标记说了算，界面不该自己再猜一份。
+ *
+ * 【时长和瞬间效果】
+ *
+ * 表里每种药水记着基础时长、红石延长后的时长、荧石升级后的时长；治疗和伤害是瞬间效果，
+ * 只写说明、不写时长。喷溅 / 滞留和普通用同一份结果格式，形态只改名字与末尾那几步材料。
  */
 
 #pragma once
@@ -54,6 +59,16 @@ struct PotionInfo {
     /// 这一种药水从哪一版起才有（`1.21`）。表里绝大多数是空串 = 各版本都有；
     /// 1.21 加的那四瓶（盘丝 / 蓄风 / 渗浆 / 虫蚀）写 `1.21`。
     QString since;
+    /// 基础持续时间（秒）。瞬间药水（治疗 / 伤害）为 0，说明写在 `instantEffect` 里。
+    int baseSeconds = 0;
+    /// 红石粉延长之后持续几秒；0 = 没有延长版本。
+    int extendedSeconds = 0;
+    /// 荧石粉升级之后持续几秒；0 = 没有强化版本。
+    int strongSeconds = 0;
+    /// 瞬间效果的说明（I 级），如「恢复 4 点生命值」；空 = 不是瞬间药水。
+    QString instantEffect;
+    /// 瞬间效果升到 II 级时的说明，如「恢复 8 点生命值」。
+    QString instantEffectStrong;
 };
 
 /// @p level 的中文写法：2 → 「II」、4 → 「IV」，其它照数字写（`levelText(0)` 空串）。
@@ -79,13 +94,20 @@ bool available(int index, const QString &version);
 struct Plan {
     bool ok = false;
     QString error;       ///< 非空 = 做不了（这种药水没有延长版本…）
-    QStringList steps;   ///< 每一步一行
-    QString summary;     ///< 一句总述（`一共 4 步 · 产出：滞留型迅捷药水（延长）`）
+    QStringList steps;   ///< 每一步一行，写成「水瓶 + 地狱疣 → 粗制的药水」
+    /// 一句总述（`产出：迅捷药水 × 6 瓶（酿 2 次）`）。
+    QString summary;
+    /// 效果摘要：药水名、等级与持续时间（`迅捷 I · 3:00`）；
+    /// 瞬间药水写说明、不写持续时间（`治疗 II · 瞬间恢复 8 点生命值`）。
+    QString effect;
+    /// 这瓶直接从水瓶酿（不经粗制的药水）。界面要把它单独标出来。
+    bool directFromWater = false;
     int bottles = 1;     ///< 要几瓶（一次酿造最多 3 瓶）
     int operations = 1;  ///< 一共要酿几次 = `ceil(bottles / 3)`
-    /// 材料合计（每种材料一行：`糖 × 2`）。同一步里的材料按**次数**累加。
+    /// 材料合计（每种材料一行：`糖 × 2`）。同一步里的材料按**次数**累加；
+    /// 第一行是水瓶（按瓶数），最后一行是烈焰粉燃料（1 个够酿 20 次）。
     QStringList materials;
-    /// 整份明细（总述 + 每一步 + 材料与燃料）。界面上那个结果框直接摆它。
+    /// 整份明细（产出 + 效果 + 步骤 + 材料）。界面上那个结果框直接摆它。
     QString detailText() const;
 };
 

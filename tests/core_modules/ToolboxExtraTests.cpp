@@ -176,20 +176,35 @@ void runToolboxExtraTests() {
     // ---------- ZAI3. 酿造路线 ----------
     {
         const Brewing::Plan simple = Brewing::plan(0, false, false, Brewing::Form::Normal);
-        check(simple.ok && simple.steps.size() == 3
-                  && simple.steps.at(0).contains(QStringLiteral("水瓶"))
-                  && simple.steps.at(1).contains(QStringLiteral("下界疣"))
-                  && simple.steps.at(2).contains(QStringLiteral("糖"))
-                  && simple.summary.contains(QStringLiteral("迅捷药水")),
-              "★★ ZAI3 迅捷：水瓶 → 粗制的药水 → 加糖（一共三步）",
-              simple.detailText().left(100));
-        check(simple.summary.contains(QStringLiteral("3 步")),
-              "★ ZAI3 总述里写的是步数", simple.summary);
+        check(simple.ok && simple.steps.size() == 2
+                  && simple.steps.at(0) == QStringLiteral("水瓶 + 下界疣 → 粗制的药水")
+                  && simple.steps.at(1) == QStringLiteral("粗制的药水 + 糖 → 迅捷药水")
+                  && simple.summary.contains(QStringLiteral("迅捷药水"))
+                  && simple.effect == QStringLiteral("迅捷 I · 3:00"),
+              "★★ ZAI3 迅捷：从水瓶起步，水瓶 → 粗制的药水 → 加糖（一共两步），不带做瓶装水那一步",
+              simple.detailText().left(140));
+        check(!simple.detailText().contains(QStringLiteral("玻璃瓶"))
+                  && !simple.detailText().contains(QStringLiteral("装水")),
+              "★★ ZAI3 明细里不再出现玻璃瓶 / 装水（默认输入就是水瓶）",
+              simple.detailText());
+        check(simple.materials.contains(QStringLiteral("水瓶 × 1"))
+                  && simple.materials.contains(QStringLiteral("下界疣 × 1"))
+                  && simple.materials.contains(QStringLiteral("糖 × 1")),
+              "★★ ZAI3 材料清单是名称 + 数量（水瓶 / 下界疣 / 糖各 1）",
+              simple.materials.join(QStringLiteral("、")));
+        check(simple.detailText().contains(QStringLiteral("步骤（共 2 步）："))
+                  && simple.detailText().contains(QStringLiteral("效果：迅捷 I · 3:00"))
+                  && simple.detailText().contains(QStringLiteral("材料：水瓶 × 1、下界疣 × 1")),
+              "★★ ZAI3 明细按「产出 / 效果 / 步骤 / 材料」四段摆", simple.detailText());
 
         const Brewing::Plan extended = Brewing::plan(0, true, false, Brewing::Form::Normal);
-        check(extended.ok && extended.steps.last().contains(QStringLiteral("红石"))
-                  && extended.summary.contains(QStringLiteral("（延长）")),
-              "★ ZAI3 延时：最后一步加红石粉，名字带「（延长）」", extended.summary);
+        check(extended.ok
+                  && extended.steps.last()
+                         == QStringLiteral("迅捷药水 + 红石粉 → 迅捷药水（延长）")
+                  && extended.summary.contains(QStringLiteral("（延长）"))
+                  && extended.effect == QStringLiteral("迅捷 I · 8:00"),
+              "★ ZAI3 延时：最后一步加红石粉（配方写法），名字带「（延长）」，时长 8:00",
+              extended.summary + QStringLiteral(" / ") + extended.effect);
 
         const Brewing::Plan both = Brewing::plan(0, true, true, Brewing::Form::Normal);
         check(!both.ok && both.error.contains(QStringLiteral("二选一")),
@@ -206,15 +221,21 @@ void runToolboxExtraTests() {
               "★ ZAI3 抗火没有 II 级 ⇒ 说清楚", noLevel2.error);
 
         const Brewing::Plan splash = Brewing::plan(0, false, false, Brewing::Form::Splash);
-        check(splash.ok && splash.steps.last().contains(QStringLiteral("火药"))
-                  && splash.summary.contains(QStringLiteral("喷溅型")),
-              "★ ZAI3 喷溅型：最后加火药", splash.summary);
+        check(splash.ok
+                  && splash.steps.last()
+                         == QStringLiteral("迅捷药水 + 火药 → 喷溅型迅捷药水")
+                  && splash.summary.contains(QStringLiteral("喷溅型"))
+                  && splash.effect == simple.effect,
+              "★ ZAI3 喷溅型：最后加火药；效果行与普通同格式、时长不变",
+              splash.summary + QStringLiteral(" / ") + splash.effect);
 
         const Brewing::Plan lingering = Brewing::plan(0, false, false, Brewing::Form::Lingering);
         check(lingering.ok && lingering.steps.size() >= 2
                   && lingering.steps.at(lingering.steps.size() - 2).contains(QStringLiteral("火药"))
                   && lingering.steps.last().contains(QStringLiteral("龙息"))
-                  && lingering.summary.contains(QStringLiteral("滞留型")),
+                  && lingering.steps.last().endsWith(QStringLiteral("滞留型迅捷药水"))
+                  && lingering.summary.contains(QStringLiteral("滞留型"))
+                  && lingering.effect == simple.effect,
               "★★ ZAI3 滞留型：先火药（喷溅）再龙息 —— 龙息不能直接加在普通药水上",
               lingering.steps.join(QStringLiteral(" / ")));
     }
@@ -232,21 +253,32 @@ void runToolboxExtraTests() {
         if (invisibility >= 0) {
             const Brewing::Plan plan = Brewing::plan(invisibility, false, false,
                                                      Brewing::Form::Normal);
-            check(plan.ok && plan.steps.size() == 4
-                      && plan.steps.at(1).contains(QStringLiteral("下界疣"))
-                      && plan.steps.at(2).contains(QStringLiteral("金胡萝卜"))
-                      && plan.steps.at(3).contains(QStringLiteral("发酵蜘蛛眼")),
+            check(plan.ok && plan.steps.size() == 3
+                      && plan.steps.at(0).contains(QStringLiteral("下界疣"))
+                      && plan.steps.at(1).contains(QStringLiteral("金胡萝卜"))
+                      && plan.steps.at(2).contains(QStringLiteral("发酵蜘蛛眼")),
                   "★★ ZAI4 隐身要把前驱那条链补全：粗制的药水 → 夜视 → 隐身",
                   plan.steps.join(QStringLiteral(" / ")));
         }
         if (weakness >= 0) {
             const Brewing::Plan plan =
                 Brewing::plan(weakness, false, false, Brewing::Form::Normal);
-            check(plan.ok && plan.steps.size() == 2
-                      && plan.steps.at(1).contains(QStringLiteral("发酵蜘蛛眼"))
-                      && !plan.steps.join(QStringLiteral(" ")).contains(QStringLiteral("下界疣")),
+            check(plan.ok && plan.steps.size() == 1
+                      && plan.steps.at(0) == QStringLiteral("水瓶 + 发酵蜘蛛眼 → 虚弱药水")
+                      && !plan.steps.join(QStringLiteral(" ")).contains(QStringLiteral("下界疣"))
+                      && plan.directFromWater,
                   "★★ ZAI4 虚弱从水瓶直接做（不需要下界疣那一步）",
                   plan.steps.join(QStringLiteral(" / ")));
+            check(plan.detailText().contains(QStringLiteral("特殊路径"))
+                      && plan.effect == QStringLiteral("虚弱 I · 1:30"),
+                  "★★ ZAI4 水瓶直出的路线单独标出来，效果行照常写等级与时长",
+                  plan.detailText().left(160));
+            check(plan.materials.contains(QStringLiteral("水瓶 × 1"))
+                      && plan.materials.contains(QStringLiteral("发酵蜘蛛眼 × 1"))
+                      && !plan.materials.join(QStringLiteral(" "))
+                              .contains(QStringLiteral("下界疣")),
+                  "★★ ZAI4 虚弱的材料只有水瓶和发酵蜘蛛眼（不补下界疣）",
+                  plan.materials.join(QStringLiteral("、")));
         }
 
         const Brewing::Plan bad = Brewing::plan(-1, false, false, Brewing::Form::Normal);
@@ -280,12 +312,30 @@ void runToolboxExtraTests() {
                   && six.materials.contains(QStringLiteral("下界疣 × 2")),
               "★★ ZAI3b 材料按次数备（糖 × 2、下界疣 × 2）",
               six.materials.join(QStringLiteral("、")));
-        check(six.detailText().contains(QStringLiteral("一共酿 2 次"))
-                  && six.detailText().contains(QStringLiteral("玻璃瓶 6 个"))
-                  && six.detailText().contains(QStringLiteral("烈焰粉燃料：酿 2 次 ⇒ 1 个")),
-              "★★ ZAI3b 明细里写清次数、瓶子数与燃料用量", six.detailText().right(160));
+        check(six.materials.contains(QStringLiteral("水瓶 × 6")),
+              "★★ ZAI3b 水瓶按瓶数备（6 瓶 ⇒ 水瓶 × 6）",
+              six.materials.join(QStringLiteral("、")));
+        check(six.detailText().contains(QStringLiteral("6 瓶（酿 2 次）"))
+                  && six.detailText().contains(QStringLiteral("材料：水瓶 × 6"))
+                  && six.detailText().contains(
+                         QStringLiteral("烈焰粉（燃料） × 1（1 个烈焰粉可酿 20 次）"))
+                  && !six.detailText().contains(QStringLiteral("玻璃瓶")),
+              "★★ ZAI3b 明细里写清瓶数、酿造次数与燃料用量（不再列玻璃瓶）",
+              six.detailText().left(200));
         check(six.summary.contains(QStringLiteral("6 瓶（酿 2 次）")),
-              "★ ZAI3b 总述里也带上瓶数", six.summary);
+              "★ ZAI3b 总述里也带上产物的瓶数", six.summary);
+
+        // 力量药水的材料本身就是烈焰粉：材料一行是配方，燃料另起一行，两笔不能混。
+        const int strength = Brewing::potionNames().indexOf(QStringLiteral("力量"));
+        if (strength >= 0) {
+            const Brewing::Plan strengthPlan =
+                Brewing::plan(strength, false, false, Brewing::Form::Normal);
+            check(strengthPlan.materials.contains(QStringLiteral("烈焰粉 × 1"))
+                      && strengthPlan.materials.contains(
+                             QStringLiteral("烈焰粉（燃料） × 1（1 个烈焰粉可酿 20 次）")),
+                  "★★ ZAI3b 力量药水：配方里的烈焰粉与燃料那笔分开写",
+                  strengthPlan.materials.join(QStringLiteral("、")));
+        }
 
         const Brewing::Plan lingeringSix =
             Brewing::plan(0, false, false, Brewing::Form::Lingering, 6);
@@ -319,6 +369,8 @@ void runToolboxExtraTests() {
         check(slownessIv.ok && slownessIv.summary.contains(QStringLiteral("IV"))
                   && slownessIv.steps.last().contains(QStringLiteral("IV")),
               "★★ ZAI3b 迟缓升一级之后名字与步骤都写 IV", slownessIv.summary);
+        check(slownessIv.effect == QStringLiteral("迟缓 IV · 0:20"),
+              "★★ ZAI3b 迟缓 IV 的效果行写等级与时长（0:20）", slownessIv.effect);
         check(Brewing::levelText(0).isEmpty() && Brewing::levelText(2) == QStringLiteral("II")
                   && Brewing::levelText(4) == QStringLiteral("IV"),
               "ZAI3b 等级写法（0 = 空、2 = II、4 = IV）");
@@ -357,15 +409,17 @@ void runToolboxExtraTests() {
         if (weaving >= 0) {
             const Brewing::Plan plan =
                 Brewing::plan(weaving, false, false, Brewing::Form::Normal, 4);
-            check(plan.ok && plan.steps.size() == 3
-                      && plan.steps.at(1).contains(QStringLiteral("下界疣"))
-                      && plan.steps.at(2).contains(QStringLiteral("蜘蛛网"))
-                      && plan.summary.contains(QStringLiteral("盘丝药水")),
-                  "★★ ZAI5 盘丝：水瓶 → 粗制的药水 → 加蜘蛛网（一共三步）",
+            check(plan.ok && plan.steps.size() == 2
+                      && plan.steps.at(0).contains(QStringLiteral("下界疣"))
+                      && plan.steps.at(1).contains(QStringLiteral("蜘蛛网"))
+                      && plan.summary.contains(QStringLiteral("盘丝药水"))
+                      && plan.effect == QStringLiteral("盘丝 I · 3:00"),
+                  "★★ ZAI5 盘丝：水瓶 → 粗制的药水 → 加蜘蛛网（一共两步）",
                   plan.steps.join(QStringLiteral(" / ")));
             check(plan.materials.contains(QStringLiteral("蜘蛛网 × 2"))
-                      && plan.materials.contains(QStringLiteral("下界疣 × 2")),
-                  "★★ ZAI5 要 4 瓶 ⇒ 酿 2 次，蜘蛛网与下界疣各备 2 份",
+                      && plan.materials.contains(QStringLiteral("下界疣 × 2"))
+                      && plan.materials.contains(QStringLiteral("水瓶 × 4")),
+                  "★★ ZAI5 要 4 瓶 ⇒ 酿 2 次，蜘蛛网与下界疣各备 2 份、水瓶 4 个",
                   plan.materials.join(QStringLiteral("、")));
         }
 
@@ -404,6 +458,118 @@ void runToolboxExtraTests() {
                   && GameVersion::versions() == BannerDesign::versions(),
               "★ ZAI5 版本表只有一份（旗帜那一页拿的就是它；1.20.5 是图案写法的分界，"
               "1.21.4 这一档是给树脂质用的）");
+    }
+
+    // ---------- ZAI6. 酿造：从水瓶起步，材料 / 步骤 / 产物摘要三者对齐 ----------
+    {
+        const int swift = 0;
+        const int weakness = Brewing::potionNames().indexOf(QStringLiteral("虚弱"));
+        const auto hasMaterial = [](const Brewing::Plan &plan, const QString &line) {
+            return plan.materials.contains(line);
+        };
+
+        // 普通路径（迅捷）。
+        {
+            const Brewing::Plan p = Brewing::plan(swift, false, false, Brewing::Form::Normal, 3);
+            check(p.ok
+                      && p.steps == QStringList{QStringLiteral("水瓶 + 下界疣 → 粗制的药水"),
+                                                QStringLiteral("粗制的药水 + 糖 → 迅捷药水")}
+                      && hasMaterial(p, QStringLiteral("水瓶 × 3"))
+                      && hasMaterial(p, QStringLiteral("下界疣 × 1"))
+                      && hasMaterial(p, QStringLiteral("糖 × 1"))
+                      && p.summary == QStringLiteral("产出：迅捷药水 × 3 瓶（酿 1 次）")
+                      && p.effect == QStringLiteral("迅捷 I · 3:00")
+                      && p.detailText().contains(p.summary)
+                      && p.detailText().contains(QStringLiteral("效果：") + p.effect),
+                  "★★ ZAI6 普通路径（迅捷）：材料 / 步骤 / 产出与效果一致", p.detailText());
+        }
+
+        // 特殊路径（虚弱：水瓶直出）。
+        if (weakness >= 0) {
+            const Brewing::Plan p = Brewing::plan(weakness, false, false, Brewing::Form::Normal, 3);
+            check(p.ok && p.steps == QStringList{QStringLiteral("水瓶 + 发酵蜘蛛眼 → 虚弱药水")}
+                      && p.directFromWater && hasMaterial(p, QStringLiteral("水瓶 × 3"))
+                      && hasMaterial(p, QStringLiteral("发酵蜘蛛眼 × 1"))
+                      && p.summary == QStringLiteral("产出：虚弱药水 × 3 瓶（酿 1 次）")
+                      && p.effect == QStringLiteral("虚弱 I · 1:30")
+                      && p.detailText().contains(QStringLiteral("特殊路径"))
+                      && !p.detailText().contains(QStringLiteral("下界疣")),
+                  "★★ ZAI6 特殊路径（虚弱）：直接从水瓶酿，不套粗制的药水那一步", p.detailText());
+        }
+
+        // 延长（红石）。
+        {
+            const Brewing::Plan p = Brewing::plan(swift, true, false, Brewing::Form::Normal, 1);
+            check(p.ok
+                      && p.steps.last()
+                             == QStringLiteral("迅捷药水 + 红石粉 → 迅捷药水（延长）")
+                      && hasMaterial(p, QStringLiteral("红石粉 × 1"))
+                      && p.summary == QStringLiteral("产出：迅捷药水（延长） × 1 瓶（酿 1 次）")
+                      && p.effect == QStringLiteral("迅捷 I · 8:00"),
+                  "★★ ZAI6 延长（红石）：材料多一行红石粉，效果时长 8:00", p.detailText());
+        }
+
+        // 增强（荧石）。
+        {
+            const Brewing::Plan p = Brewing::plan(swift, false, true, Brewing::Form::Normal, 1);
+            check(p.ok
+                      && p.steps.last() == QStringLiteral("迅捷药水 + 荧石粉 → 迅捷药水 II")
+                      && hasMaterial(p, QStringLiteral("荧石粉 × 1"))
+                      && p.summary == QStringLiteral("产出：迅捷药水 II × 1 瓶（酿 1 次）")
+                      && p.effect == QStringLiteral("迅捷 II · 1:30"),
+                  "★★ ZAI6 增强（荧石）：等级 II、时长 1:30", p.detailText());
+        }
+
+        // 喷溅（火药）。
+        {
+            const Brewing::Plan p = Brewing::plan(swift, false, false, Brewing::Form::Splash, 1);
+            check(p.ok
+                      && p.steps.last() == QStringLiteral("迅捷药水 + 火药 → 喷溅型迅捷药水")
+                      && hasMaterial(p, QStringLiteral("火药 × 1"))
+                      && p.summary == QStringLiteral("产出：喷溅型迅捷药水 × 1 瓶（酿 1 次）")
+                      && p.effect == QStringLiteral("迅捷 I · 3:00"),
+                  "★★ ZAI6 喷溅（火药）：结果格式与普通一致", p.detailText());
+        }
+
+        // 滞留（龙息）。
+        {
+            const Brewing::Plan p = Brewing::plan(swift, false, false, Brewing::Form::Lingering, 1);
+            check(p.ok
+                      && p.steps.at(p.steps.size() - 2)
+                             == QStringLiteral("迅捷药水 + 火药 → 喷溅型迅捷药水")
+                      && p.steps.last()
+                             == QStringLiteral("喷溅型迅捷药水 + 龙息 → 滞留型迅捷药水")
+                      && hasMaterial(p, QStringLiteral("火药 × 1"))
+                      && hasMaterial(p, QStringLiteral("龙息 × 1"))
+                      && p.summary == QStringLiteral("产出：滞留型迅捷药水 × 1 瓶（酿 1 次）")
+                      && p.effect == QStringLiteral("迅捷 I · 3:00"),
+                  "★★ ZAI6 滞留（龙息）：先火药再龙息，结果格式与普通一致", p.detailText());
+        }
+
+        // 瞬间效果（治疗 / 伤害）：写说明，不写持续时间。
+        {
+            const int healing = Brewing::potionNames().indexOf(QStringLiteral("治疗"));
+            const int harming = Brewing::potionNames().indexOf(QStringLiteral("伤害"));
+            if (healing >= 0) {
+                const Brewing::Plan one =
+                    Brewing::plan(healing, false, false, Brewing::Form::Normal);
+                const Brewing::Plan two =
+                    Brewing::plan(healing, false, true, Brewing::Form::Normal);
+                check(one.effect == QStringLiteral("治疗 I · 瞬间恢复 4 点生命值")
+                          && two.effect == QStringLiteral("治疗 II · 瞬间恢复 8 点生命值")
+                          && !one.effect.contains(QLatin1Char(':'))
+                          && !two.effect.contains(QLatin1Char(':')),
+                      "★★ ZAI6 治疗是瞬间效果：写说明、不写持续时间",
+                      one.effect + QStringLiteral(" / ") + two.effect);
+            }
+            if (harming >= 0) {
+                const Brewing::Plan one =
+                    Brewing::plan(harming, false, false, Brewing::Form::Normal);
+                check(one.effect == QStringLiteral("伤害 I · 瞬间造成 6 点伤害")
+                          && !one.effect.contains(QLatin1Char(':')),
+                      "★★ ZAI6 伤害是瞬间效果：写说明、不写持续时间", one.effect);
+            }
+        }
     }
 
     // ---------- ZAJ0. 旗帜：图案表与十六色 ----------
