@@ -61,7 +61,6 @@ src/download/DownloadManagerSegmented.cpp	1
 src/download/DownloadProxy.hpp	10
 src/download/ResourceStore.cpp	28
 src/download/ResumableDownload.cpp	6
-src/download/ServerInstall.hpp	33
 src/download/StreamedFile.hpp	1
 src/download/VersionCategory.hpp	4
 src/launcher/AsciiPathAlias.cpp	7
@@ -95,7 +94,6 @@ src/manage/InstanceGroupStore.cpp	7
 src/manage/InstanceMetaFile.cpp	10
 src/manage/ManualRecovery.cpp	7
 src/manage/ModpackInstallReport.cpp	1
-src/manage/MultiMCPatchImport.cpp	43
 src/manage/OfflineSkin.cpp	5
 src/manage/OwnedStaging.hpp	1
 src/manage/PlayerSkinStore.cpp	21
@@ -134,7 +132,6 @@ src/presets/PresetWriteLock.hpp	1
 src/presets/ResourcePackPreset.cpp	4
 src/presets/ServerListPreset.cpp	10
 src/presets/VanillaOptions.cpp	1
-src/schematic/SchematicInfo.cpp	33
 src/server/ServerContent.cpp	2
 src/server/ServerInstallRun.hpp	15
 src/server/ServerModel.hpp	8
