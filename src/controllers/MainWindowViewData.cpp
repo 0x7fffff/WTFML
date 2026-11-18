@@ -850,7 +850,8 @@ QString homeGroupIdOf(const InstanceGroupStore *groups, const QString &key,
 /// 关的也就是**这一份**会话。那一行是谁由 `PanelRow::key` 带着（= 会话号，见下面那一段）。
 QList<MainWindowUI::PanelRow> runningGamePanelRows(const QList<LauncherManager::GameSession> &games,
                                                    const VersionManager *versions, const QColor &ink,
-                                                   qint64 nowMs) {
+                                                   qint64 nowMs,
+                                                   const std::function<QString(int)> &playTimeText) {
     QList<MainWindowUI::PanelRow> rows;
     rows.reserve(games.size());
     // 一份都没在跑：摆一句说明（**不是**空白面板 —— 用户点开是想知道"有没有在跑"，
@@ -869,9 +870,14 @@ QList<MainWindowUI::PanelRow> runningGamePanelRows(const QList<LauncherManager::
         row.icon = instanceRowMark(versions->displayParts(game.versionId), versions,
                                    MainWindowUI::bottomBarPanelIconSize());
         row.title = game.displayName;
-        // 那句"跑了多久"在产品侧唯一的一处算它（MainWindowUI::runningDurationText()）——
-        // 放那边是为了让四档话术都能在验证工程里直接量（"已经跑了 3 天"那一档等不出来）。
-        row.subtitle = MainWindowUI::runningDurationText(game.startedAtMs, nowMs);
+        row.subtitle = playTimeText(game.sessionId);
+        if (row.subtitle.isEmpty()) {
+            row.subtitle = MainWindowUI::runningDurationText(game.startedAtMs, nowMs);
+        } else {
+            row.liveSubtitle = [playTimeText, sessionId = game.sessionId] {
+                return playTimeText(sessionId);
+            };
+        }
         row.actions = runningPanelActions(ink);
         // 这一行是谁 = 那一份会话的编号（回来时按它认人，**不按"第几行"**：面板开着的时候
         // 哪个实例先结束是它自己的事，按行号认会关错游戏）。

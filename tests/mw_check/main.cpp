@@ -1051,6 +1051,12 @@ int main(int argc, char *argv[]) {
             if (box == nullptr) {
                 return;
             }
+            if (box->objectName() == MainWindowUI::resourceDownloadInstancePickerName()) {
+                auto *download = box->buttonAt(0);
+                if (download->isEnabled()) download->click();
+                else box->reject();
+                return;
+            }
             recordPrompt(box);
             std::printf("        [弹窗] 「%s」\n", qPrintable(g_modalTitle));
             std::fflush(stdout);
@@ -1136,18 +1142,7 @@ int main(int argc, char *argv[]) {
             }
         }
         //
-        // 【为什么这一下走实例设置那颗「下载」而不是直接 setCurrentRow()】
-        //
-        // 点第三层那一下会走到 `ResourceInstallController::installNow()`，那里有一支：
-        // **这一次不是从实例设置点进来的**（`m_downloadReturn` 空）就弹一个
-        // 「下载到哪个文件夹」的**原生**目录框（见 LauncherSettings 里
-        // downloadAutoIntoInstance 那一节 —— 那是产品本来的行为，不是要绕开的错）。
-        // 原生框一开，这一节后面那套"泵事件循环 + 点掉提示"就再也拿不回控制权：
-        // 第一跑挂在 `QFileDialog::getExistingDirectory()` 里面出不来（gdb 的栈就是它），
-        // 而那个框不是 InlineMessageBox、`currentPrompt()` 根本看不见它。
-        // 所以这里**按用户那条路进来**：实例设置 → 模组页顶上那颗「下载新模组」，
-        // `openDownloadCategory()` 会把来路（`m_downloadReturn`）登记上 —— 于是下面点
-        // 版本时直接落进这个实例的 mods/，不再问存哪儿。这和 T25.2 走的是同一颗键。
+        // 从实例设置的下载按钮进入，目标选择器会预选这一节的试装实例。
         bool openedSettings = false;
         bool clickedDownload = false;
         const auto openDownloadFromInstance = [&] {
@@ -1175,8 +1170,6 @@ int main(int argc, char *argv[]) {
               "从实例设置里点开「下载新模组」那颗键（这一路会把「装进哪个实例」记下来）",
               QString("实例设置=%1 下载键=%2").arg(yesNo(openedSettings), yesNo(clickedDownload)));
         if (!clickedDownload) {
-            // 没点着那颗键就往下走的话，第三步会弹出「下载到哪个文件夹」那个原生框，
-            // 这一节会**一直挂在那儿**（它收不掉）。宁可当场报环境没搭起来。
             std::printf("!! 没点着「下载」那颗键（上面那条红了），这一节到此为止\n");
             return 3;
         }

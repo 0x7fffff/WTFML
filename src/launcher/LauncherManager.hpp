@@ -257,6 +257,8 @@ public:
     static bool commandDeclaresUtf8Output(const QStringList &arguments);
 
 signals:
+    void gameStarted(int sessionId);
+
     /// 某份会话的游戏输出（stdout）。
     /// @param sessionId 哪一份会话。**startGame() 失败那几条路也会带号发出来**
     /// （那时进程根本没起来），界面据此把报错挂到实例名上，所以别假定

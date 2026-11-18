@@ -8,8 +8,8 @@ int UiBannerArmorChecks() {
     // ------------------------------------------------------------------
     {
         ToolboxPage page;
-        check(ToolboxPage::tools().size() == 10,
-              "★★ U40 工具箱那张表现在是十件（加上旗帜设计 / 纹饰搭配）",
+        check(ToolboxPage::tools().size() == 9,
+              "★★ U40 工具箱保留旗帜设计与纹饰搭配，不显示 SHA 校验",
               QString::number(ToolboxPage::tools().size()));
 
         int cells = 0;
@@ -18,7 +18,7 @@ int UiBannerArmorChecks() {
                 ++cells;
             }
         }
-        check(cells == 10, "★ U40 目录页有十格（每件工具一格，高速下载也在里面）",
+        check(cells == 9, "★ U40 目录页有九格（每件工具一格，高速下载也在里面）",
               QString::number(cells));
 
         // 工具页第一次进才搭：先进纹饰、旗帜这两片，下面才认得到它们的控件。

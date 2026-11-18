@@ -1,6 +1,7 @@
 #include "Support.hpp"
 #include "ThemeAdvancedEditor.hpp"
 #include "Glass.hpp"
+#include "InlineMessage.hpp"
 #include "TitleBar.hpp"
 #include <QToolButton>
 #include <QSpinBox>
@@ -90,6 +91,27 @@ int UiThemeCheck(QApplication &app) {
         for (const QString &id : {QStringLiteral("emerald"), QStringLiteral("ocean"), QStringLiteral("dark")}) {
             Theme::setSpec(Theme::presetSpec(id));
             Theme::apply(app);
+            {
+                InlineMessageBox box(MessageKind::Question, QStringLiteral("删除原理图"), QStringLiteral("删除选中的原理图？"),
+                                     {QStringLiteral("删除"), QStringLiteral("取消删除")}, 1, 0);
+                box.show();
+                app.processEvents();
+                auto *remove = box.findChild<QPushButton *>(InlineMessageBox::buttonName(0));
+                auto *cancel = box.findChild<QPushButton *>(InlineMessageBox::buttonName(1));
+                expect(remove && cancel && remove->size() == cancel->size() &&
+                           remove->width() >= qMax(remove->sizeHint().width(), cancel->sizeHint().width()),
+                       "destructive confirmation actions have equal sizes and fit both labels");
+                if (remove && cancel) {
+                    expect(!remove->isDefault() && cancel->isDefault() && remove->x() < cancel->x() &&
+                               remove->property("wtfmlButtonKind").toString() == Theme::buttonKindKey(Theme::ButtonKind::Danger),
+                           "destructive action stays red and cancel stays the rightmost default action");
+                    cancel->click();
+                    expect(box.clickedIndex() == 1, "cancel retains its action index");
+                    box.show();
+                    remove->click();
+                    expect(box.clickedIndex() == 0, "delete retains its action index");
+                }
+            }
             expect(app.font().pixelSize() == 14, "application body text uses the shared 14 px scale");
             QFont bold = app.font(); bold.setBold(true);
             expect(Theme::textFont(bold, Theme::TextRole::Caption).pixelSize() == 13 &&

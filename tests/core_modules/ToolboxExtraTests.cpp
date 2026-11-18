@@ -668,13 +668,15 @@ void runToolboxExtraTests() {
         layers.append({Banner::patternIndexById(QStringLiteral("field_masoned")), 15});  // 黑砖墙纹
         const Banner::Plan plan = Banner::plan(14, layers);  // 红底
         check(plan.ok, "ZAJ1 两层的计划算得出来", plan.error);
-        check(plan.steps.size() == 3 && plan.steps.first().contains(QStringLiteral("红色羊毛"))
-                  && plan.steps.at(1).contains(QStringLiteral("白色染料"))
-                  && plan.steps.at(2).contains(QStringLiteral("黑色染料")),
-              "★★ ZAJ1 先做底旗、再按列表从上往下逐层叠（次序不许乱）",
+        check(plan.steps.size() == 2 && plan.steps.first().contains(QStringLiteral("红色空白旗帜"))
+                  && plan.steps.first().contains(QStringLiteral("白色染料"))
+                  && plan.steps.last().contains(QStringLiteral("上一层的旗帜"))
+                  && plan.steps.last().contains(QStringLiteral("黑色染料")),
+              "★★ ZAJ1 使用已有空白旗帜，按列表次序逐层叠加",
               plan.steps.join(QStringLiteral(" / ")));
-        check(plan.materials.contains(QStringLiteral("红色羊毛 × 6"))
+        check(plan.materials.size() == 4
                   && plan.materials.contains(QStringLiteral("白色染料 × 1"))
+                  && plan.materials.contains(QStringLiteral("黑色染料 × 1"))
                   && plan.materials.contains(QStringLiteral("砖块 × 1"))
                   && plan.materials.contains(QStringLiteral("旗帜图案 × 1")),
               "★★ ZAJ1 材料按种类合并成「× N」，特殊材料用图案表里那件东西",
@@ -732,9 +734,10 @@ void runToolboxExtraTests() {
               duplicate.notes.join(QStringLiteral(" / ")));
 
         const Banner::Plan noLayers = Banner::plan(3, {});
-        check(noLayers.ok && noLayers.materials.contains(QStringLiteral("淡蓝色羊毛 × 6"))
+        check(noLayers.ok && noLayers.materials.isEmpty() && noLayers.steps.isEmpty()
+                  && noLayers.summary.contains(QStringLiteral("底色 淡蓝色 · 0/6 层"))
                   && noLayers.command == QStringLiteral("/give @p minecraft:light_blue_banner"),
-              "★ ZAJ2 一层都没加 ⇒ 就是一面纯色旗（材料只有羊毛和木棍）", noLayers.command);
+              "★ ZAJ2 纯色旗保留底色和指令，不列任何叠层材料或步骤", noLayers.command);
 
         QList<Banner::Layer> badPattern;
         badPattern.append({-1, 0});

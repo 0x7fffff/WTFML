@@ -2,6 +2,7 @@
 
 #include <QDir>
 #include <QFileDialog>
+#include <QScopedValueRollback>
 #include <QSet>
 #include <QStringList>
 
@@ -23,18 +24,74 @@
 
 ResourceInstallController::ResourceInstallController(MainWindow *owner) : QObject(owner), m_owner(*owner) {}
 
-void ResourceInstallController::install(ResourceCatalog::Kind kind, const QString &displayTitle,
+std::optional<ResourceInstallController::InstallTarget>
+ResourceInstallController::selectTarget(ResourceCatalog::Kind kind) {
+    MainWindow &owner = m_owner;
+    if (kind == ResourceCatalog::Kind::Modpack) {
+        return InstallTarget{AppPaths::modpackCacheDir(), {}, {}};
+    }
+
+    const QString folder = ResourceCatalog::folderForKind(kind);
+    if (folder.isEmpty()) {
+        return std::nullopt;
+    }
+    const QString defaultId = owner.resourceDownloadDefaultInstanceId();
+    const QDir versionsDir(AppPaths::versionsDir());
+    if (owner.m_settings->downloadAutoIntoInstance()) {
+        const QString selectedId = owner.m_ui->chooseResourceDownloadInstance(
+            owner.currentFolderInstancePickerRows(defaultId));
+        if (selectedId.isEmpty()) {
+            return std::nullopt;
+        }
+        const QString instanceDir = versionsDir.filePath(selectedId);
+        return InstallTarget{QDir(instanceDir).filePath(folder), selectedId, instanceDir};
+    }
+
+    const QString instanceDir = defaultId.isEmpty() ? QString() : versionsDir.filePath(defaultId);
+    const QString defaultDir = instanceDir.isEmpty() ? AppPaths::minecraftDir()
+                                                     : QDir(instanceDir).filePath(folder);
+    const QString chosen = QFileDialog::getExistingDirectory(
+        &owner, MainWindow::tr("下载到哪个文件夹"), defaultDir);
+    if (chosen.isEmpty()) {
+        return std::nullopt;
+    }
+    if (!instanceDir.isEmpty() && QDir(chosen) == QDir(defaultDir)) {
+        return InstallTarget{chosen, defaultId, instanceDir};
+    }
+    return InstallTarget{chosen, {}, {}};
+}
+
+bool ResourceInstallController::targetStillAvailable(const InstallTarget &target) {
+    if (target.instanceId.isEmpty()
+        || (QDir(AppPaths::versionDir(target.instanceId)) == QDir(target.instanceDirectory)
+            && QDir(target.instanceDirectory).exists())) {
+        return true;
+    }
+    InlineMessage::warning(m_owner.m_ui->overlay(), MainWindow::tr("目标实例已不可用"),
+                           MainWindow::tr("游戏目录已切换或该实例已移除，请重新选择下载目标。"));
+    return false;
+}
+
+void ResourceInstallController::install(ResourceCatalog::Kind kind, QString displayTitle,
                                         ResourceCatalog::VersionEntry version,
                                         ResourceCatalog::Source source) {
+    if (m_installing || m_check.active) {
+        return;
+    }
+    const QScopedValueRollback installing(m_installing, true);
     MainWindow &owner = m_owner;
+    const auto destination = selectTarget(kind);
+    if (!destination || !targetStillAvailable(*destination)) {
+        return;
+    }
+    const QString &instanceId = destination->instanceId;
     // 判据：这一版声明的必装前置里，**目标实例还缺哪几个**（`ModDependencies` 那边算，
     // 纯函数）。一条不缺就走下面那一句 —— 那时候**一个请求都不多发**。
     //
     // NOTE: 资源包 / 数据包**不看**：它们那一版列的是 `minecraft` / `datapack`（游戏本体），
     // 那和"前置"不是一回事；整合包更不用 —— 它的依赖在清单里，本来就是整个包一起装。
     if ((kind == ResourceCatalog::Kind::Mod || kind == ResourceCatalog::Kind::Shader) &&
-        owner.m_settings->warnMissingDependencies() && !m_check.active) {
-        const QString instanceId = owner.dependencyInstanceId();
+        !instanceId.isEmpty() && owner.m_settings->warnMissingDependencies()) {
         // 光影的**豁免**：这个实例已经能跑光影了（加载器是 OptiFine，或者
         // mods/ 里已经有 iris / oculus / optifine）⇒ 整段跳过。
         // 理由：Modrinth 上光影项目声明的前置就是 `iris`（OptiFine 那一支还有的写
@@ -43,26 +100,27 @@ void ResourceInstallController::install(ResourceCatalog::Kind kind, const QStrin
         // （整段词匹配那一条也在它里面，不在这儿再写一遍）。
         const bool shaderAlreadyUsable =
             kind == ResourceCatalog::Kind::Shader && owner.instanceShaderUsable(instanceId);
-        if (!instanceId.isEmpty() && !shaderAlreadyUsable) {
+        if (!shaderAlreadyUsable) {
             const ModDependencies::Target target = owner.dependencyTargetFor(instanceId, source);
             bool installedKnown = false;
             const QSet<QString> installed = owner.installedModKeys(instanceId, &installedKnown);
             const QList<ModDependencies::Lookup> missing =
                 ModDependencies::missingRequiredDependencies(version, installed, target);
             if (!missing.isEmpty()) {
-                startDependencyCheck(kind, displayTitle, version, target, missing, installedKnown);
+                startDependencyCheck(kind, displayTitle, version, *destination, target, missing, installedKnown);
                 return;
             }
         }
         // 设置里关着 / 不知道装进哪个实例 / 光影已经能用 / 没有缺的：交给下面那一句，
         // 它的判断和话术一个字都不变（关掉 = 只下他点的那一版）。
     }
-    installNow(kind, displayTitle, version, {});
+    installNow(kind, displayTitle, version, {}, *destination);
 }
 
 void ResourceInstallController::startDependencyCheck(ResourceCatalog::Kind kind,
                                                      const QString &displayTitle,
                                                      const ResourceCatalog::VersionEntry &version,
+                                                     const InstallTarget &destination,
                                                      const ModDependencies::Target &target,
                                                      const QList<ModDependencies::Lookup> &missing,
                                                      bool installedKnown) {
@@ -72,7 +130,7 @@ void ResourceInstallController::startDependencyCheck(ResourceCatalog::Kind kind,
     m_check.kind = kind;
     m_check.title = displayTitle;
     m_check.version = version;
-    m_check.instanceId = target.instanceId;
+    m_check.destination = destination;
     m_check.target = target;
     m_check.missing = missing;
     // "这个实例的 mods 到底认过没有"（见 installedModKeys 的 known 出参）—— 它只决定
@@ -158,8 +216,12 @@ void ResourceInstallController::onVersionsFinished(
 
 void ResourceInstallController::finishDependencyCheck() {
     MainWindow &owner = m_owner;
-    DependencyCheck check = m_check;
+    const QScopedValueRollback installing(m_installing, true);
+    DependencyCheck check = std::move(m_check);
     m_check.active = false;
+    if (!targetStillAvailable(check.destination)) {
+        return;
+    }
 
     const bool installedKnown = check.installedKnown;
 
@@ -222,84 +284,20 @@ void ResourceInstallController::finishDependencyCheck() {
         }
     }
 
-    // `check.instanceId` 显式传下去：这一趟是从一轮网络往返**之后**回到这里的，那期间
-    // 用户完全可能把详情页收掉（于是 `m_resourcePage.open` 落了、`dependencyInstanceId()`
-    // 只能退回下拉框）。检查时算的是哪个实例，就得装进哪个实例。
-    installNow(check.kind, check.title, check.version, extras, check.instanceId);
+    installNow(check.kind, check.title, check.version, extras, check.destination);
 }
 
 void ResourceInstallController::installNow(ResourceCatalog::Kind kind, const QString &displayTitle,
-                                          ResourceCatalog::VersionEntry version,
+                                          const ResourceCatalog::VersionEntry &version,
                                           const QList<ModDependencies::Resolved> &extras,
-                                          const QString &forcedInstanceId) {
+                                          const InstallTarget &target) {
     MainWindow &owner = m_owner;
     const bool isModpack = kind == ResourceCatalog::Kind::Modpack;
-
-    // 目标实例：**优先用调用方递进来的**（前置检查那一趟回来时，页面可能已经关了，而
-    // 那一趟在 `m_check.instanceId` 里记着它当时算的是哪个实例 —— 现算会算错），
-    // 其次是 `dependencyInstanceId()`（见那一处的两条来路）。整合包那一路不用它 ——
-    // 下回来的是 .mrpack，接着走导入，实例名是在那条路上问出来的。
-    const QString instanceId =
-        isModpack ? QString()
-                  : (forcedInstanceId.isEmpty() ? owner.dependencyInstanceId() : forcedInstanceId);
-    // "这一趟是从某个实例里点进来的吗" —— 只决定要不要弹"存哪儿"那个框（见 LauncherSettings
-    // 里 downloadAutoIntoInstance 那一节）。调用方点名了实例也算。
-    const bool cameFromInstance = !forcedInstanceId.isEmpty() || owner.downloadCameFromInstance();
-    if (!isModpack && instanceId.isEmpty()) {
-        InlineMessage::warning(owner.m_ui->overlay(), MainWindow::tr("没有选中实例"),
-                             MainWindow::tr("请先选择目标实例，再选择安装版本。"));
-        return;
-    }
-
-    // 下到哪儿去。实例那几类是 `<实例目录>/<子目录>`（mods / datapacks / resourcepacks /
-    // shaderpacks）；整合包走缓存目录 —— 它不能进 versions/（那底下每一个子目录都会被当成
-    // 一个实例）。
-    const QString folder = ResourceCatalog::folderForKind(kind);
-    const QString defaultDir = isModpack
-                                   ? AppPaths::modpackCacheDir()
-                                   : AppPaths::versionDir(instanceId) +
-                                         QLatin1Char('/') + folder;
-    if (!isModpack && folder.isEmpty()) {
-        return;  // folderForKind 说了"这一类不走这条安装路"，而它又不是整合包
-    }
-
-    // **要不要问一句"存哪儿"**（要求见 LauncherSettings 里那一节，
-    // 那里是这一支判据唯一的语义出处）。判据就一条：
-    //
-    // 弹框 = 设置里没勾 或者 这一栏不是从实例设置里点进来的
-    //
-    // "是不是从实例设置里点进来的"读的是 `m_downloadReturn` —— 和那颗
-    // 「← 返回实例设置」用的是**同一个值**，因为它俩说的本来就是同一件事（这一栏是从哪个
-    // 实例来的）。不另开一个布尔：两个值一旦分开，"露着返回键、却弹了保存框"这种事迟早会
-    // 出现。
-    //
-    // NOTE: 这一支是**在哪里下载**那一层唯一的岔路，所以它写在"算落点"这一句上，而不是
-    // 写在按钮那一路：详情页里点一行、下载页里双击一行、文件管理里点名字进详情页再
-    // 点一行 —— 三条路都会走到这儿，分流只有一处才不会有哪一条路漏掉。
-    // NOTE: 用户在下载页里待久了之后（比如从实例 A 点进来、又自己把「已安装版本」换成 B），
-    // 这一位还是非空、于是不再问。这是**刻意的**：那时候落点仍然是"当前实例"（下拉框
-    // 里那一个），而这一项勾选框上写的就是"直接放进当前实例"。
-    QString destinationDir = defaultDir;
-    // 这一批算"谁在动盘"。默认是那个实例；用户挑了别处的目录时它必须是空的（那底下没有任何
-    // 实例在被写，锁着它等于白挡别人启动）。
-    QString busyInstanceId = instanceId;
+    const QString &instanceId = target.instanceId;
+    const QString &destinationDir = target.directory;
     if (isModpack) {
         // 整合包一律自动先缓存到 modpackCacheDir() 再直接安装进当前游戏目录，不再弹“下载到哪个文件夹”。
         QDir().mkpath(destinationDir);
-    } else if (!owner.m_settings->downloadAutoIntoInstance() || !cameFromInstance) {
-        // 这个框是**嵌套事件循环**：开着的这一会儿，网络回信照常派发 —— 也就可能有一发
-        // 版本清单插进 `m_resourceVersions`（那张 QHash 一 rehash，调用方递进来的
-        // 元素引用就悬空了）。所以 `version` 这一格是**按值**收的（见头文件那一处），
-        // 下面 `version.primaryFile()` 读的是自己手里这份拷贝，容器怎么变都不关它的事。
-        const QString chosen = QFileDialog::getExistingDirectory(
-            &owner, MainWindow::tr("下载到哪个文件夹"), defaultDir);
-        if (chosen.isEmpty()) {
-            return;  // 用户取消 = 这一版不下（一个字都不写盘）
-        }
-        destinationDir = chosen;
-        if (QDir(destinationDir) != QDir(defaultDir)) {
-            busyInstanceId.clear();
-        }
     }
 
     const ResourceCatalog::FileEntry *file = version.primaryFile();
@@ -336,7 +334,7 @@ void ResourceInstallController::installNow(ResourceCatalog::Kind kind, const QSt
     // 不收的话，给一个 Forge 实例装资源包/数据包会**每次都弹一次**「加载器对不上」，
     // 而那句话（"这一版是给 minecraft 用的"）本身就说不通 —— 那种框弹多了，用户就
     // 再也不看这类提醒了，真正该拦的那一次也跟着一起被忽略。
-    const bool loaderMatters = kind == ResourceCatalog::Kind::Mod;
+    const bool loaderMatters = kind == ResourceCatalog::Kind::Mod && !instanceId.isEmpty();
     // 判据刻意做得**窄**（只拦"知道实例是什么加载器、且这一版只列了另一种"这一种）：
     // · 不是模组（资源包 / 数据包 / 光影 / 整合包）→ 放行；
     // · 认不出实例的加载器（纯原版，或者 json 里没写）→ 放行；
@@ -344,15 +342,17 @@ void ResourceInstallController::installNow(ResourceCatalog::Kind kind, const QSt
     // · 纯原版实例 + 一个带加载器的模组 → 也放行（认不出来的和纯原版在这里分不开，
     // 宁可漏拦也不要拦住一个本来装得上的）。
     // 拦下来的是**问一句**，不是禁止 —— 坚持"就要这么装"就照装。
-    const VersionDisplayParts parts = owner.m_versionManager->displayParts(instanceId);
     // 加载器名走 instanceLoaderName()，**不是** `parts.loaderName`：后者只有我们自己的
     // 安装器会写，PCL 那类合并实例读出来是空的 —— 于是这道闸
     // 对它们**恒不放行**，"加载器对不上"那句话一次都弹不出来（它最该拦的那一对恰好就
     // 在这些实例上）。理由同 instanceModsUsable() 那段。
     QString instanceLoaderVersion;
     const QString instanceLoader =
-        MainWindowViewData::instanceLoaderName(parts, owner.m_versionManager, &instanceLoaderVersion);
-    if (loaderMatters && !instanceLoader.isEmpty() && version.loaders.size() == 1
+        loaderMatters ? MainWindowViewData::instanceLoaderName(
+                            owner.m_versionManager->displayParts(instanceId),
+                            owner.m_versionManager, &instanceLoaderVersion)
+                      : QString();
+    if (!instanceLoader.isEmpty() && version.loaders.size() == 1
         && version.loaders.first().compare(instanceLoader, Qt::CaseInsensitive) != 0) {
         const auto answer = InlineMessage::question(owner.m_ui->overlay(),
             MainWindow::tr("加载器对不上"),
@@ -380,16 +380,11 @@ void ResourceInstallController::installNow(ResourceCatalog::Kind kind, const QSt
     // 所以每一条前置自己带 `dir`（`ResourceFile::dir` 那条路本来就是给"一批里跨目录"
     // 准备的，更新中心那一批在用）。只有实例里才有 mods 这个落点；整合包那一类不查
     // 前置（见 install()），这里的空串走不到。
-    const QString dependencyDir =
-        instanceId.isEmpty() ? QString()
-                             : AppPaths::versionDir(instanceId) + QLatin1String("/mods");
-    if (!extras.isEmpty() && !dependencyDir.isEmpty()) {
-        // 前置要写进这个实例的 mods/，那么"谁在动盘"就是它 —— 哪怕主文件被用户挑到了
-        // 别的目录（那一路上面把 busyInstanceId 清掉了，因为挑的目录底下没有实例）。
-        // 不补这一句的话：往实例的 mods/ 里写文件的同时用户能启动游戏，JVM 读到的
-        // 可能是半截 jar。
-        busyInstanceId = instanceId;
+    if (!targetStillAvailable(target)) {
+        return;
     }
+    const QString dependencyDir =
+        extras.isEmpty() ? QString() : QDir(target.instanceDirectory).filePath(QStringLiteral("mods"));
     for (const ModDependencies::Resolved &extra : extras) {
         if (extra.file.url.isEmpty() || extra.file.filename.isEmpty()) {
             continue; // 走不到（resolveDependency 已经挡过一道），挡第二道不费什么
@@ -423,7 +418,7 @@ void ResourceInstallController::installNow(ResourceCatalog::Kind kind, const QSt
                             .arg(extras.size())
                             .arg(QDir::toNativeSeparators(dependencyDir)));
     }
-    // busyInstanceId 传空的有两路：整合包下到缓存里（盘上没有任何实例在被写），以及用户
+    // instanceId 传空的有两路：整合包下到缓存里（盘上没有任何实例在被写），以及用户
     // 自己挑了实例之外的目录那一路 —— 两路都不该锁住谁（见上面算落点那一段）。
     //
     // 这一批也要在任务中心里**看得见**（状态、进度、取消、失败后的重试）——
@@ -511,7 +506,7 @@ void ResourceInstallController::installNow(ResourceCatalog::Kind kind, const QSt
         owner.m_pendingModpackImports.insert(label, {modpackPath, confirmedName, task});
     }
     const bool started =
-        owner.m_versionManager->downloadResourceFiles(destinationDir, busyInstanceId, label, files);
+        owner.m_versionManager->downloadResourceFiles(destinationDir, instanceId, label, files);
     if (started) {
         // 只有真开起来了才算"这一批的主人"（被拒那一发或已命中缓存的同步完成可能在
         // `downloadResourceFiles()` 返回前已经收过尾并清空 Ledger，故仅在仍是当前任务时更新）。

@@ -144,19 +144,19 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     root->setContentsMargins(0, 0, 0, 0);
     root->setSpacing(8);
 
-    // ---------- 顶上那一排：返回 | 标题 | 右边三颗 ----------
+    // ---------- 首行：返回与世界名称 ----------
     auto *top = new QHBoxLayout;
     top->setContentsMargins(0, 0, 0, 0);
     top->setSpacing(8);
     m_back = new QPushButton(backText(), this);
     m_back->setObjectName(backButtonName());
-    // 「← 返回」和「打开文件夹」是往回走 / 开个窗（一般性）。
     Theme::markButton(m_back, Theme::ButtonKind::Neutral);
     connect(m_back, &QPushButton::clicked, this, &WorldSettingsPage::backRequested);
     top->addWidget(m_back);
 
     m_title = new ElidedLabel(this);
     m_title->setObjectName(titleLabelName());
+    m_title->setMinimumWidth(1);
     // 标题里是**存档文件夹 + 世界名**，两头都有用的信息 ⇒ 从中间省略
     // （和文件管理那几页的行名同一条理由，见 ElidedLabel::setElideMode 的 NOTE）。
     static_cast<ElidedLabel *>(m_title)->setElideMode(Qt::ElideMiddle);
@@ -166,6 +166,7 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
         m_title->setFont(titleFont);
     }
     top->addWidget(m_title, 1);
+    root->addLayout(top);
 
     // ---------- 这个世界能做的三件事 ----------
     //
@@ -174,6 +175,9 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     auto *actions = new QHBoxLayout;
     actions->setContentsMargins(0, 0, 0, 0);
     actions->setSpacing(8);
+    auto *folders = new QHBoxLayout;
+    folders->setContentsMargins(0, 0, 0, 0);
+    folders->setSpacing(8);
 
     m_rename = new QPushButton(renameText(), this);
     m_rename->setObjectName(renameButtonName());
@@ -184,10 +188,10 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
 
     m_openFolder = new QPushButton(openFolderText(), this);
     m_openFolder->setObjectName(openFolderButtonName());
-    Theme::markButton(m_openFolder, Theme::ButtonKind::Ghost);
+    Theme::markButton(m_openFolder, Theme::ButtonKind::Accent);
     connect(m_openFolder, &QPushButton::clicked, this,
             [this] { emit openFolderRequested(); });
-    actions->addWidget(m_openFolder);
+    folders->addWidget(m_openFolder);
 
     // ---------- 整份存档的备份 / 还原 / 打开备份目录 ----------
     //
@@ -221,10 +225,10 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     m_backupFolder = new QPushButton(openBackupFolderText(), this);
     m_backupFolder->setObjectName(backupFolderButtonName());
     m_backupFolder->setToolTip(tr("打开存档备份目录。"));
-    Theme::markButton(m_backupFolder, Theme::ButtonKind::Ghost);
+    Theme::markButton(m_backupFolder, Theme::ButtonKind::Accent);
     connect(m_backupFolder, &QPushButton::clicked, this,
             [this] { emit openBackupFolderRequested(); });
-    actions->addWidget(m_backupFolder);
+    folders->addWidget(m_backupFolder);
 
     m_delete = new QPushButton(deleteText(), this);
     m_delete->setObjectName(deleteButtonName());
@@ -233,10 +237,12 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     // 存档目录（里面的 region 是几十上百 MB 的游玩记录，删了拿不回来）。
     Theme::markButton(m_delete, Theme::ButtonKind::Danger);
     connect(m_delete, &QPushButton::clicked, this, &WorldSettingsPage::deleteRequested);
-    actions->addWidget(m_delete);
-
     actions->addStretch(1);
+    folders->addStretch(1);
+    folders->addWidget(m_delete);
     root->addLayout(actions);
+    root->addLayout(folders);
+    setTabOrder({m_back, m_rename, m_fullBackup, m_restore, m_openFolder, m_backupFolder, m_delete});
 
     m_backup = new QPushButton(backupText(), this);
     m_backup->setObjectName(backupButtonName());
@@ -253,8 +259,6 @@ WorldSettingsPage::WorldSettingsPage(QWidget *parent) : QWidget(parent) {
     // 的写入 —— 和右边那颗「备份」（多出一份）正好一红一黑。
     Theme::markButton(m_save, Theme::ButtonKind::Danger);
     connect(m_save, &QPushButton::clicked, this, &WorldSettingsPage::saveRequested);
-
-    root->addLayout(top);
 
     // ---------- 正文（"读不出来"那一档整块藏起来）----------
     m_body = new QWidget(this);

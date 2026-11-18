@@ -3,6 +3,7 @@
 
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QFontMetrics>
 #include <QGraphicsOpacityEffect>
 #include <QHelpEvent>
 #include <QPushButton>
@@ -334,6 +335,31 @@ int UiPopupCheck(QApplication &app) {
         QApplication::processEvents();
 
         shortCombo->hidePopup();
+        QApplication::processEvents();
+
+        QWidget edgeHost;
+        auto *edgeCombo = makeCombo(&edgeHost, 12);
+        const QString longOption = QStringLiteral("这是横向空间不足时仍应完整显示的选项");
+        const int lastRow = edgeCombo->count() - 1;
+        edgeCombo->setItemText(lastRow, longOption);
+        edgeCombo->setFixedWidth(60);
+        edgeHost.resize(60, 40);
+        const QRect screenArea = host.screen()->availableGeometry();
+        edgeHost.move(screenArea.right() - edgeHost.width() + 1, screenArea.top() + 50);
+        edgeHost.show();
+        QApplication::processEvents();
+        edgeCombo->showPopup();
+        QApplication::processEvents();
+        auto *edgeView = edgeCombo->view();
+        const QRect lastOption = edgeView->visualRect(edgeCombo->model()->index(lastRow, edgeCombo->modelColumn()));
+        const int required = QFontMetrics(Theme::textFont(edgeView->font(), Theme::TextRole::Body))
+                                 .horizontalAdvance(longOption) + 24;
+        expect(edgeView->isVisible() && screenArea.contains(edgeView->window()->frameGeometry()) &&
+                   edgeView->verticalScrollBar()->maximum() > 0 && lastOption.width() >= required,
+               "屏幕右侧有滚动条的弹层仍完整显示最长项",
+               QStringLiteral("行宽 %1 / 所需 %2 / 弹层右缘 %3 / 屏幕右缘 %4")
+                   .arg(lastOption.width()).arg(required).arg(edgeView->window()->frameGeometry().right()).arg(screenArea.right()));
+        edgeCombo->hidePopup();
         QApplication::processEvents();
 
         // 长列表：顶上多一条搜索框，键入只留匹配项。

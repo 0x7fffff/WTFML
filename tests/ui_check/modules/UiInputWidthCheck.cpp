@@ -19,6 +19,7 @@
 #include "ThemeAdvancedEditor.hpp"
 
 #include <QDir>
+#include <QAbstractItemView>
 #include <QFontDatabase>
 #include <QMainWindow>
 #include <QScrollArea>
@@ -291,7 +292,8 @@ int UiInputWidthCheck(QApplication &app) {
 
             // ---- 单独的 QWidget 页：放进一个与内容区同宽的容器 ----
             const int contentW = size.width() - 120;
-            const auto standalone = [&](QWidget *page, const QString &surface) {
+            const auto standalone = [&](QWidget *page, const QString &surface,
+                                        const std::function<void()> &after = {}) {
                 QWidget host;
                 auto *layout = new QVBoxLayout(&host);
                 layout->setContentsMargins(0, 0, 0, 0);
@@ -300,6 +302,7 @@ int UiInputWidthCheck(QApplication &app) {
                 host.show();
                 pump();
                 scanSurface(&host, surface, tag, &counters, &host);
+                if (after) after();
             };
             {
                 auto *page = new InstanceUpgradePage;
@@ -316,7 +319,32 @@ int UiInputWidthCheck(QApplication &app) {
                               {QStringLiteral("commandBlockOutput"), QStringLiteral("true"), WorldSettingsPage::Kind::Bool, true}};
                 page->setWorld(view);
                 page->setFileEditingOpen(true);
-                standalone(page, QStringLiteral("存档设置"));
+                standalone(page, QStringLiteral("存档设置"), [&] {
+                    const auto *back = page->findChild<QPushButton *>(WorldSettingsPage::backButtonName());
+                    const auto *rename = page->findChild<QPushButton *>(WorldSettingsPage::renameButtonName());
+                    const auto *openFolder = page->findChild<QPushButton *>(WorldSettingsPage::openFolderButtonName());
+                    const auto *backupFolder = page->findChild<QPushButton *>(WorldSettingsPage::backupFolderButtonName());
+                    check(back && rename && openFolder && backupFolder && back->y() < rename->y() &&
+                              rename->y() < openFolder->y() && openFolder->y() == backupFolder->y() &&
+                              backupFolder->geometry().right() < page->width(),
+                          "存档设置：返回与世界名在首行，目录操作另成一组且不越界", tag);
+                    auto *difficulty = page->findChild<QComboBox *>(WorldSettingsPage::difficultyName());
+                    check(difficulty && difficulty->count() == 4, "存档设置：难度有四个选项", tag);
+                    if (!difficulty) return;
+                    difficulty->showPopup();
+                    pump();
+                    QAbstractItemView *popup = difficulty->view();
+                    const QFontMetrics metrics(Theme::textFont(popup->font(), Theme::TextRole::Body));
+                    for (int i = 0; i < difficulty->count(); ++i) {
+                        const QString label = difficulty->itemText(i);
+                        const int rowWidth = popup->visualRect(difficulty->model()->index(i, difficulty->modelColumn())).width();
+                        check(popup->isVisible() && rowWidth >= metrics.horizontalAdvance(label) + 24,
+                              "存档设置：难度选项容纳完整文字与两侧留白",
+                              QStringLiteral("%1 %2（行宽 %3）").arg(tag, label).arg(rowWidth));
+                    }
+                    difficulty->hidePopup();
+                    pump();
+                });
             }
             {
                 auto *page = new ThemeAdvancedEditor;

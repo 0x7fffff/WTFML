@@ -77,9 +77,9 @@ struct Layer {
 struct Plan {
     bool ok = false;
     QString error;        ///< 非空 = 排不出来（层数超了 / 下标不对）
-    QStringList steps;    ///< 一步一步（先做底旗，再一层一层叠）
+    QStringList steps;    ///< 从空白底旗开始逐层叠加图案
     QString summary;      ///< 一句总述（`底色 红色 · 3/6 层`）
-    QStringList materials;///< 材料清单（`红色羊毛 × 6`、`白色染料 × 2`…）
+    QStringList materials;///< 图案材料清单（`白色染料 × 2`…）
     QStringList notes;    ///< 要提醒的（连续两层一模一样、材料有特殊物品…）
     /// `/give` 那一行。默认是 **1.13–1.20.4 的 NBT 写法**（`{BlockEntityTag:{Patterns:…}}`）；
     /// 目标版本 >= 1.20.5 时换成**物品组件**写法（`[minecraft:banner_patterns=[…]]`）——

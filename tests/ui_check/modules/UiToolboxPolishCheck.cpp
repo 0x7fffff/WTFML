@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include <QTextEdit>
 int UiToolboxPolishCheck(QApplication &app) {
 
         const int fontId = QFontDatabase::addApplicationFont(QDir(qEnvironmentVariable("WINDIR")).filePath(QStringLiteral("Fonts/msyh.ttc")));
@@ -91,6 +92,35 @@ int UiToolboxPolishCheck(QApplication &app) {
         page.setServerView(noCountsView);
         expect(serverResult != nullptr && serverResult->text().contains(QStringLiteral("在线")),
                "server card shows the 在线 line when the count is known");
+        auto *history = page.findChild<QListWidget *>(QStringLiteral("serverHistory"));
+        expect(history != nullptr && history->count() == 1, "checking the same server updates one row");
+        for (int index = 0; index < 21; ++index) {
+            noCountsView.address = QStringLiteral("server-%1.test").arg(index);
+            page.setServerView(noCountsView);
+        }
+        expect(history && history->count() == 20 && history->item(0)->text().startsWith(QStringLiteral("server-1.test")),
+               "server history caps at 20 and removes the oldest address first");
+        page.showCatalog();
+        expect(history && history->count() == 0, "leaving the server tool clears history");
+        bool hasHashKey = true;
+        ToolboxPage::toolFromKey(QStringLiteral("hash"), &hasHashKey);
+        expect(!hasHashKey && !ToolboxPage::tools().contains(ToolboxPage::Tool::Hash),
+               "file hashing is absent from the toolbox catalog and switcher");
+        page.showTool(ToolboxPage::Tool::Text);
+        auto *editor = page.findChild<QTextEdit *>(QStringLiteral("textPreview"));
+        auto *source = page.findChild<QPlainTextEdit *>(QStringLiteral("textSource"));
+        expect(editor && source && !editor->isReadOnly() && !source->isReadOnly(),
+               "both preview and source accept direct editing");
+        ToolboxPage::TextRun run;
+        run.text = QStringLiteral("彩色测试");
+        run.color = QColor(Qt::red);
+        run.colorCode = QStringLiteral("§c");
+        run.bold = true;
+        page.setTextPreviewRuns({run});
+        const auto runs = page.textPreviewRuns();
+        expect(runs.size() == 1 && runs.first().text == run.text && runs.first().bold &&
+                   runs.first().colorCode == run.colorCode,
+               "editing preview preserves the Minecraft color code and formatting");
         QImage preview(900, 750, QImage::Format_ARGB32_Premultiplied);
         preview.fill(Qt::white);
         QPainter painter(&preview); painter.setFont(app.font());

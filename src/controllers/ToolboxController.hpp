@@ -97,6 +97,7 @@ private:
     void runAnvilPlan();
     // ---------- 文本生成器 ----------
     void refreshText();
+    void refreshTextFromPreview();
     void loadTextFromJson(const QString &json);
     // ---------- 坐标换算 ----------
     void convertCoordinates(int dimensionIndex, double x, double y, double z);

@@ -39,8 +39,7 @@ static constexpr const char kDownloadSpeedLimit[] = "Download/SpeedLimitBytes";
 // `host:port` 另存一格原串。同一个前缀：它也是"下载怎么走"。
 static constexpr const char kProxyMode[] = "Download/ProxyMode";
 static constexpr const char kProxyManual[] = "Download/ProxyManual";
-// 「下载新模组时直接放进当前实例」（设置页「下载」栏那一项）。
-// 和上面那条同一个前缀：它也是"下下来的东西往哪儿去"这一件事。
+// 保留原设置键，让已关闭内置落点的用户继续使用系统文件夹选择。
 static constexpr const char kDownloadAutoIntoInstance[] = "Download/AutoIntoInstance";
 // 「下载缺前置时提醒」（设置页「下载」栏那一项）。同一个前缀：它管的也是
 // "点下载那一刻多问一句"这一类的事。

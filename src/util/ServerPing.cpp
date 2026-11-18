@@ -939,17 +939,20 @@ void Pinger::start(const QStringList &addresses) {
                 if (m_generation.loadAcquire() != generation) {
                     break;
                 }
-                emit oneFinished(i, status);
+                QMetaObject::invokeMethod(this, [this, generation, i, status] {
+                    if (m_generation.loadAcquire() == generation) emit oneFinished(i, status);
+                }, Qt::QueuedConnection);
             }
             // `deref()` 是 `--i != 0`（**还有人在**）—— 所以"最后一条"是**回假**那一条。
             // 反着写的代价见上面 `live` 那一段。
             if (!live->deref()) {
                 // 收尾也只收自己那一趟：上一趟的"最后一条"晚到时，新一趟可能正跑着，
                 // 这时候清零 / 发 allFinished 会把新一趟的忙态和结果一起打掉。
-                if (m_generation.loadAcquire() == generation) {
+                QMetaObject::invokeMethod(this, [this, generation] {
+                    if (m_generation.loadAcquire() != generation) return;
                     m_running.storeRelease(0);
                     emit allFinished();
-                }
+                }, Qt::QueuedConnection);
             }
         });
         thread->setParent(this);

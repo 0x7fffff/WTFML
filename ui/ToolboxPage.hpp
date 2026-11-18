@@ -1,8 +1,8 @@
 /**
  * @file ToolboxPage.hpp
  * @brief 工具箱页：主窗口的第六个选项卡，导航轨底部「工具箱」进来。目录页 → 工具页两层。
- * @note 十件工具：附魔助手、坐标换算、信标计算、酿造助手、彩色文本、旗帜设计、纹饰搭配、
- * 高速下载、延迟测试、SHA 校验。
+ * @note 九件工具：附魔助手、坐标换算、信标计算、酿造助手、彩色文本、旗帜设计、纹饰搭配、
+ * 高速下载、延迟测试。
  *
  * 【两层】目录页是自适应网格（每格图标 + 名称 + 一句用途），点一格进工具页；工具页页头是
  * 面包屑「工具箱 / 附魔助手」：「工具箱」点了回目录，工具名点了弹浮层（`GlassPopover`）直接
@@ -47,6 +47,7 @@ class QListWidget;
 class QPlainTextEdit;
 class QPushButton;
 class QSpinBox;
+class QTextEdit;
 class QStackedWidget;
 class QScrollArea;
 class QPushButton;
@@ -200,9 +201,22 @@ public:
     void setTextSource(const QString &text);
     /// 预览那一块（富文本 HTML；颜色和字形都由 controller 算好）。
     void setTextPreview(const QString &html);
-    /// 三种输出：`§` 写法、JSON 组件、`/tellraw` 命令。
-    void setTextOutputs(const QString &legacy, const QString &json, const QString &tellraw);
-    /// 第四种：`server.properties` 那一整行 `motd=…`（controller 已经把非 ASCII 转成
+    struct TextRun {
+        QString text;
+        QString colorCode;
+        QColor color;
+        bool bold = false;
+        bool italic = false;
+        bool underline = false;
+        bool strike = false;
+        bool obfuscated = false;
+    };
+    void setTextPreviewRuns(const QList<TextRun> &runs);
+    QList<TextRun> textPreviewRuns() const;
+    void applyTextPreviewColor(const QColor &color, const QString &code);
+    /// 源码区：`§` 写法、JSON 组件。空指针语义的 QString 保留现有 § 输入。
+    void setTextOutputs(const QString &legacy, const QString &json);
+    /// `server.properties` 那一整行 `motd=…`（controller 已经把非 ASCII 转成
     /// `\uXXXX` 了 —— 按 ISO-8859-1 读也不会坏）。
     void setTextMotd(const QString &motd);
     /// 在原文那个光标处插一段（「插自定颜色」那颗按的：`§x§R§R§G§G§B§B` 是 controller
@@ -241,6 +255,7 @@ public:
         /// 这一次的结论分类（`ServerPing::kindName()`；没问成时看它就知道是哪一类问题）。
         QString kind;
         QString address;       ///< 问的是哪个地址（回显一遍，免得用户看错行）
+        QString addressKey;
         QString motd;          ///< 那一行彩色 MOTD 的 HTML（这一页把它当富文本画）
         QString version;       ///< 版本名
         QString players;       ///< `3 / 20`
@@ -248,6 +263,7 @@ public:
         QPixmap icon;          ///< 服务器图标（64×64；没有就是空的）
     };
     void setServerView(const ServerView &view);
+    void clearServerResults();
     /// 「在线」那一格的字：`7 / 20`、`7`、或者**空串**（服务器没报在线人数）。
     ///
     /// **唯一出处** —— controller 摆 `ServerView::players` 和验证工程都看它。
@@ -416,6 +432,7 @@ signals:
     void anvilPlanRequested();
     // ---- 文本生成器 ----
     void textSourceChanged(const QString &text);
+    void textPreviewEdited();
     void textJsonRequested(const QString &json);  ///< 用户点了「从 JSON 读回来」
     /// 用户在自定颜色那一格敲了 `#RRGGBB`、点了「插进去」：controller 验一下、算成
     /// `§x…` 再调 `insertTextAtCursor()`。
@@ -427,6 +444,7 @@ signals:
     // ---- 服务器在线检测 ----
     void serverCheckRequested(const QString &address);
     void serverCheckCancelRequested();
+    void serverToolExited();
     // ---- 文件哈希校验 ----
     void hashRequested(const QString &path, int algorithmIndex, const QString &expected);
     void hashCancelRequested();
@@ -445,6 +463,7 @@ signals:
                        int pieces, bool wholeSet);
 
 protected:
+    void hideEvent(QHideEvent *event) override;
     /// 拖一个文件进来（只对「SHA 校验」这一片有意义 —— 别的工具不吃文件）。
     /// 判据见 .cpp：当前不是哈希那一片、或者拖进来的不是本地文件，就原样交给基类。
     void dragEnterEvent(QDragEnterEvent *event) override;
@@ -508,10 +527,8 @@ private:
 
     // 二、文本生成器
     QPlainTextEdit *m_textSource = nullptr;
-    QLabel *m_textPreview = nullptr;
-    QPlainTextEdit *m_textLegacy = nullptr;
+    QTextEdit *m_textPreview = nullptr;
     QPlainTextEdit *m_textJson = nullptr;
-    QPlainTextEdit *m_textTellraw = nullptr;
     QPlainTextEdit *m_textMotd = nullptr;
     QLineEdit *m_textHex = nullptr;
     QLabel *m_textNotice = nullptr;
@@ -533,6 +550,7 @@ private:
     QPushButton *m_serverCancel = nullptr;
     QLabel *m_serverIcon = nullptr;
     QLabel *m_serverResult = nullptr;
+    QListWidget *m_serverHistory = nullptr;
 
     // 五、文件哈希校验
     QLineEdit *m_hashPath = nullptr;

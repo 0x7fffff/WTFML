@@ -26,9 +26,36 @@
 
 #include <QDateTime>
 #include <QList>
+#include <QSet>
 #include <QString>
 
 namespace LaunchHistory {
+
+struct PlayTime {
+    qint64 totalMs = 0;
+    qint64 lastMs = -1;
+};
+
+/// 同一实例从首个进程启动到最后一个进程结束，合计一次连续游玩。
+class PlayTimeCounter {
+public:
+    explicit PlayTimeCounter(PlayTime completed = {}) : m_completed(completed) {}
+
+    void start(int sessionId, qint64 tickMs);
+    bool finish(int sessionId, qint64 tickMs);
+    qint64 currentMs(qint64 tickMs) const;
+    qint64 totalMs(qint64 tickMs) const;
+    PlayTime completed() const { return m_completed; }
+
+private:
+    PlayTime m_completed;
+    QSet<int> m_sessions;
+    qint64 m_startedAtMs = 0;
+};
+
+PlayTime loadPlayTime(const QString &path, const QString &stableInstanceId);
+bool savePlayTime(const QString &path, const QString &stableInstanceId, const PlayTime &playTime);
+QString playTimeText(qint64 milliseconds);
 
 /// 这一趟最后怎么样了。**记的是事实**，不是"我们打算怎么样"。
 enum class Result {

@@ -1,4 +1,7 @@
 #include "Support.hpp"
+#include "controllers/ResourceInstallController.hpp"
+
+#include <QFileDialog>
 void runDownloadFromInstanceTests() {
     // 那项设置**存在盘上的名字**。字面量在这儿写一遍（`LauncherSettings` 那边那个常量在
     // 匿名命名空间里，外面看不见）—— 这一节要的就是"盘上那个键"，写出来反而更清楚。
@@ -73,7 +76,7 @@ void runDownloadFromInstanceTests() {
     {
         LauncherSettings settings;
         check(settings.downloadAutoIntoInstance(),
-              "T25.1 「下载新模组直接放进当前实例」**默认是开的**（用户要的默认）");
+              "T25.1 内置目标实例选择器默认开启");
         // 来回一趟：写进去读得回来（这两条真红了的话，上面那条默认值是假绿 ——
         // 一个永远回 true 的读法也能让"默认勾上"看着过）。
         settings.setDownloadAutoIntoInstance(false);
@@ -191,6 +194,35 @@ void runDownloadFromInstanceTests() {
               "T25.4 「已安装版本」选到的是**那个实例**（下来的东西落进它）",
               installed == nullptr ? QStringLiteral("<没有这一格>")
                                    : installed->currentData().toString());
+
+        if (auto *toggle = ui->getDownloadAutoIntoInstanceCheck()) {
+            const bool dialogsWereNonNative = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+            QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
+            const QString expectedDir = AppPaths::versionDir(idV) + QStringLiteral("/mods");
+            QDir().mkpath(expectedDir);
+            toggle->setChecked(false);
+            bool usedFolderDialog = false;
+            ++g_modalHandlerGeneration;
+            QTimer::singleShot(0, &w, [&] {
+                for (auto *dialog : w.findChildren<QFileDialog *>()) {
+                    if (dialog->isVisible()) {
+                        usedFolderDialog = dialog->fileMode() == QFileDialog::Directory
+                                           && dialog->directory() == QDir(expectedDir);
+                        dialog->reject();
+                        return;
+                    }
+                }
+                if (auto *box = currentPrompt()) box->reject();
+            });
+            ResourceInstallController installer(&w);
+            installer.install(ResourceCatalog::Kind::Mod, QStringLiteral("T25"), {},
+                              ResourceCatalog::Source::Modrinth);
+            toggle->setChecked(true);
+            QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, dialogsWereNonNative);
+            check(usedFolderDialog, "T25.4 关闭开关改走系统文件夹选择，初始目录来自原实例");
+        } else {
+            check(false, "T25.4 找得到内置目标实例选择开关");
+        }
 
         // ---------- ④b 筛子也替用户填成那个实例的版本和加载器 ----------
         //

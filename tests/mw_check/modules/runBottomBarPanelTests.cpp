@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "manage/InstanceMetaFile.hpp"
 void runBottomBarPanelTests() {
     const QString originalDir = AppPaths::minecraftDir();
     QTemporaryDir root;
@@ -295,15 +296,23 @@ void runBottomBarPanelTests() {
         AppPaths::setMinecraftDir(originalDir);
         return;
     }
+    const auto stableIdFor = [](const QString &versionId) {
+        return InstanceMetaFile::read(AppPaths::versionMetaPath(versionId))
+            .value(QStringLiteral("instanceId")).toString();
+    };
+    const QString releaseStableId = stableIdFor(releaseId);
+    const QString oldStableId = stableIdFor(oldId);
+    const QString playTimePath = LaunchHistory::historyPath();
+    check(!releaseStableId.isEmpty() && !oldStableId.isEmpty() && releaseStableId != oldStableId,
+          "AH1 客户端进程启动后为两份实例各自保留稳定 ID");
 
     // ---- AH2 左面板：一行一个会话 ----
     {
         // 先让底栏**重画一次**再断言"点得开"。
         //
         // NOTE: 这一步是必须的：AH1 那三份会话是**直接调 manager->startGame() 起的**，
-        // 绕过了 MainWindow 这条启动路 —— MainWindow 只连了 LauncherManager 的
-        // processOutput / processError / gameFinished 三条信号（见 setupConnections()），
-        // **没有「会话开始了」这一条**。所以"有会话在跑"这件事本身不会让底栏重画，
+        // 绕过了 MainWindow 这条启动路；会话开始信号记游玩时长，不刷新底栏。
+        // 所以"有会话在跑"这件事本身不会让底栏重画，
         // 左下那一格的点开状态还停在"上一回算出来的那一档"。AH6 那条要量的正是
         // "产品算出来了没有"，所以这里得先走一遍真路（扳机见 repaintBottomBar()，
         // 它一行状态都不改）。
@@ -334,15 +343,19 @@ void runBottomBarPanelTests() {
             check(panel->findChild<QLabel *>(MainWindowUI::bottomBarPanelRowTitleName(3)) ==
                       nullptr,
                   "AH2 不会有第四行（行数按 runningGames() 来，不是写死的）");
-            const QString fresh = MainWindowUI::runningDurationText(
-                QDateTime::currentMSecsSinceEpoch(), QDateTime::currentMSecsSinceEpoch());
-            check(rowSubtitle(panel, 0) == rowSubtitle(panel, 1) &&
-                      rowSubtitle(panel, 0) == rowSubtitle(panel, 2) &&
-                      rowSubtitle(panel, 0) == fresh,
-                  "AH2 每一行都写了这一份跑了多久（用户要的「有时长」）",
-                  QStringLiteral("[%1] [%2] [%3] 期望 [%4]")
-                      .arg(rowSubtitle(panel, 0), rowSubtitle(panel, 1), rowSubtitle(panel, 2),
-                           fresh));
+            const auto showsPlayTime = [&rowSubtitle, panel](int row) {
+                const QString text = rowSubtitle(panel, row);
+                return text.startsWith(QStringLiteral("本次 ")) && text.contains(QStringLiteral(" · 累计 "));
+            };
+            check(showsPlayTime(0) && showsPlayTime(1) && showsPlayTime(2),
+                  "AH2 每个会话都显示对应实例的本次和累计游玩时长");
+            const QString initialPlayTime = rowSubtitle(panel, 0);
+            const QPointer<QWidget> watchedPanel(panel);
+            check(pumpUntil([&] {
+                      const QString text = rowSubtitle(watchedPanel.data(), 0);
+                      return !text.isEmpty() && text != initialPlayTime;
+                  }, 2500),
+                  "AH2 面板不用重新打开便会刷新游玩时长");
             // 行首那个方块按**分类**给：正式版（草方块）和远古版（土块）不是同一张图，
             // 而同一类的两份是同一张。分类那一套判据和产品是同一个出处（VersionCategory）。
             check(!rowIcon(panel, 0).isNull() && !rowIcon(panel, 2).isNull() &&
@@ -517,6 +530,8 @@ void runBottomBarPanelTests() {
         const bool gone = pumpUntil([&manager, s1] { return manager->session(s1).sessionId == 0; },
                                     5000);
         check(gone, "AH4 那一份真的从会话表里收掉了（不是只 kill 了进程）");
+        check(LaunchHistory::loadPlayTime(playTimePath, releaseStableId).lastMs == -1,
+              "AH4 同实例还有一个进程在跑时不结算");
 
         QPushButton *power = rowAction(panel, 1, 0);
         check(power != nullptr, "AH4 面板上那一行的电源还在（面板不会自己重画，这是快照）");
@@ -539,6 +554,10 @@ void runBottomBarPanelTests() {
                       .arg(manager->session(s3).sessionId));
             check(manager->runningGames().size() == 1,
                   "AH4 现在只剩一份在跑", QString::number(manager->runningGames().size()));
+            const auto playTime = LaunchHistory::loadPlayTime(playTimePath, releaseStableId);
+            check(playTime.lastMs > 0 && playTime.totalMs == playTime.lastMs &&
+                      LaunchHistory::loadPlayTime(playTimePath, oldStableId).lastMs == -1,
+                  "AH4 最后一份同实例进程退出才落盘，另一个实例独立计时");
         }
     }
 

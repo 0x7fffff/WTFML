@@ -152,14 +152,13 @@ void MainWindow::updateHomeRecent() {
     m_ui->setHomeQuickRows(rows.current, rows.favorites, rows.recent);
 }
 
-void MainWindow::openHomeInstancePicker() {
-    if (m_ui == nullptr || m_folderManager == nullptr || m_versionManager == nullptr) {
-        return;
-    }
-
-    const QString currentFolder = m_folderManager->currentFolder();
-    QList<MainWindowUI::HomePickerFolder> folders;
+QList<MainWindowUI::HomePickerInstance> MainWindow::currentFolderInstancePickerRows(const QString &currentId) const {
     QList<MainWindowUI::HomePickerInstance> instances;
+    if (m_folderManager == nullptr || m_versionManager == nullptr) {
+        return instances;
+    }
+    const QString folderPath = m_folderManager->currentFolder();
+    const QString title = folderTitle(folderPath);
 
     // 最近启动的名次（记录新的在前）：弹层「最近」那一段按它排。
     QHash<QString, int> recentRank;
@@ -169,7 +168,41 @@ void MainWindow::openHomeInstancePicker() {
             recentRank.insert(record.instanceId, int(recentRank.size()));
         }
     }
+
+    instances.reserve(m_instancePageParts.size());
+    for (const VersionDisplayParts &part : m_instancePageParts) {
+        MainWindowUI::HomePickerInstance row;
+        row.folderPath = folderPath;
+        row.id = part.id;
+        row.title = formatVersionName(part);
+        QString loaderVersion;
+        const QString loader = instanceLoaderName(part, m_versionManager, &loaderVersion);
+        row.loaderKey = loaderGroupKey(loader);
+        row.searchKeywords =
+            QStringList{part.customName, part.realVersion, loader, loaderVersion, title}.join(QLatin1Char(' '));
+        row.subtitle = QStringLiteral("%1 %2")
+                           .arg(loader.isEmpty() ? QStringLiteral("原版") : loader,
+                                part.realVersion.isEmpty() ? part.id : part.realVersion)
+                           .trimmed();
+        row.icon = m_instancePageMarks.value(part.id);
+        row.favorite = m_groupStore != nullptr && m_groupStore->isPinned(instanceKey(part.id));
+        row.recentRank = recentRank.value(part.id, -1);
+        row.recent = row.recentRank >= 0;
+        row.current = part.id == currentId;
+        instances.append(row);
+    }
+    return instances;
+}
+
+void MainWindow::openHomeInstancePicker() {
+    if (m_ui == nullptr || m_folderManager == nullptr || m_versionManager == nullptr) {
+        return;
+    }
+
+    const QString currentFolder = m_folderManager->currentFolder();
     const QString currentId = selectedVersionId(m_ui->getInstalledVersionCombo());
+    QList<MainWindowUI::HomePickerFolder> folders;
+    QList<MainWindowUI::HomePickerInstance> instances;
 
     const auto loaderFromId = [](const QString &id) {
         const QString lower = id.toLower();
@@ -201,33 +234,7 @@ void MainWindow::openHomeInstancePicker() {
             continue;
         }
         if (folder.current) {
-            for (const VersionDisplayParts &part : m_instancePageParts) {
-                MainWindowUI::HomePickerInstance row;
-                row.folderPath = folderPath;
-                row.id = part.id;
-                row.title = formatVersionName(part);
-                // 加载器名和版本走 `instanceLoaderName()`（= `InstancePagesController::loaderName()`）：
-                // `part.loaderName` 只有我们自己的安装器会写，PCL / HMCL 合并出来的实例在那儿是空的
-                // —— 读它的话，这一行写着「Fabric 1.20.1」却搜不到「fabric」。
-                QString loaderVersion;
-                const QString loader = instanceLoaderName(part, m_versionManager, &loaderVersion);
-                row.loaderKey = loaderGroupKey(loader);
-                row.searchKeywords =
-                    QStringList{part.customName, part.realVersion, loader, loaderVersion,
-                                folder.title}.join(QLatin1Char(' '));
-                // 行尾那一小段（设计稿 .k）：「Fabric 1.21.4」/「原版 1.20.1」。
-                row.subtitle = QStringLiteral("%1 %2")
-                                   .arg(loader.isEmpty() ? QStringLiteral("原版") : loader,
-                                        part.realVersion.isEmpty() ? part.id : part.realVersion)
-                                   .trimmed();
-                row.icon = m_instancePageMarks.value(part.id);
-                row.favorite = m_groupStore != nullptr
-                               && m_groupStore->isPinned(instanceKey(part.id));
-                row.recentRank = recentRank.value(part.id, -1);
-                row.recent = row.recentRank >= 0;
-                row.current = part.id == currentId;
-                instances.append(row);
-            }
+            instances.append(currentFolderInstancePickerRows(currentId));
             continue;
         }
 

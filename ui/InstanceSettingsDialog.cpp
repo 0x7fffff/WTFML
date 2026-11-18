@@ -1527,6 +1527,13 @@ void InstanceSettingsDialog::setLastLaunch(const QDateTime &at) {
     m_lastLaunchLabel->setToolTip(tr("以成功创建游戏进程的时间为准，不代表进入世界的时间。"));
 }
 
+void InstanceSettingsDialog::setPlayTime(const QString &total, const QString &last) {
+    if (m_playTimeLabel == nullptr) return;
+    m_playTimeLabel->setText(tr("累计游玩：%1 · 上次：%2").arg(total, last.isEmpty() ? tr("未记录") : last));
+    m_playTimeLabel->setToolTip(tr("按本地客户端进程运行时间计，格式为小时:分钟:秒。"
+                                  "同一实例多开时，重叠的时间只计一次。"));
+}
+
 void InstanceSettingsDialog::setIcon(const QString &icon, const QPixmap &defaultMark,
                                      const QPixmap &localMark) {
     m_iconChoice = icon;

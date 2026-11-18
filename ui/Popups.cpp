@@ -446,12 +446,10 @@ class PopupItemDelegate : public QStyledItemDelegate {
 public:
     explicit PopupItemDelegate(QObject *parent) : QStyledItemDelegate(parent) {}
 
-    /// 项宽 = 基类的文字宽 + 我们自己左右各让出的那 `kItemTextInset`（paint 里先缩 4、
-    /// 文字再缩 8）。少算这一截，弹层按项宽定出来的宽度就比字窄 24px：字被切掉，而且
-    /// **没有省略号**（paint 里是 drawText 直接裁）—— 用户看到的就是"文字被截断"。
     QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override {
-        return QSize(QStyledItemDelegate::sizeHint(option, index).width() + kItemTextInset * 2,
-                     kRowHeight);
+        const QFontMetrics metrics(Theme::textFont(option.font, Theme::TextRole::Body));
+        const int textWidth = metrics.horizontalAdvance(index.data(Qt::DisplayRole).toString());
+        return QSize(textWidth + 2 * kItemTextInset, kRowHeight);
     }
 
     void paint(QPainter *painter, const QStyleOptionViewItem &option,
@@ -522,7 +520,6 @@ public:
         if (watched == m_view) {
             if (event->type() == QEvent::Show) {
                 decoratePopup();
-                fadeIn(m_view->window(), kPopupFadeMs, 4);  // 150ms 淡入 + 下移 4px（和窗口里那些浮层同一个时长）
             }
             return false;
         }
@@ -537,8 +534,14 @@ public:
             // `updateScrollers()`：当场藏一次不够，排到下一拍再藏一次。
             hideScrollers();
             QTimer::singleShot(0, this, [this] {
+                if (m_popup.isNull() || !m_popup->isVisible()) return;
                 hideScrollers();
                 fitPopup();
+                const QScreen *screen = m_combo->screen();
+                const int rise = screen != nullptr
+                    ? qBound(0, screen->availableGeometry().bottom() - m_popup->frameGeometry().bottom(), 4)
+                    : 4;
+                fadeIn(m_popup.data(), kPopupFadeMs, rise);
             });
         } else if (event->type() == QEvent::Paint) {
             // 先铺那一层磨砂玻璃，再让弹层自己把项画上去（容器自身被样式表清成透明）。
@@ -653,6 +656,8 @@ private:
             }
         }
         const int rows = qBound(1, qMin(visible, kMaxVisibleItems), kMaxVisibleItems);
+        const QScreen *screen = m_combo->screen();
+        const QRect available = screen != nullptr ? screen->availableGeometry() : QRect();
         m_view->setFixedHeight(rows * kRowHeight);
         auto *layout = qobject_cast<QBoxLayout *>(m_popup->layout());
         const auto totalHeight = [this, layout] {
@@ -665,8 +670,8 @@ private:
         };
         int height = totalHeight();
         // 屏幕放不下：只收视图那一截，弹层本身不许越出可用区。
-        if (QScreen *screen = m_popup->screen()) {
-            const int allowed = qMax(kRowHeight, screen->availableGeometry().height());
+        if (available.isValid()) {
+            const int allowed = qMax(kRowHeight, available.height());
             if (height > allowed && rows > 1) {
                 const int viewHeight = qMax(kRowHeight, m_view->height() - (height - allowed));
                 m_view->setFixedHeight(viewHeight);
@@ -681,22 +686,21 @@ private:
         if (widestItem > 0) {
             const auto *frame = qobject_cast<QFrame *>(m_popup.data());
             const int frameWidth = frame != nullptr ? 2 * frame->frameWidth() : 0;
-            width = qMax(width, widestItem + 2 * kPopupPadding + frameWidth);
-            if (QScreen *screen = m_popup->screen()) {
-                width = qMin(width, screen->availableGeometry().width());
-            }
+            const int scrollWidth = visible > m_view->height() / kRowHeight
+                ? m_view->verticalScrollBar()->sizeHint().width() : 0;
+            width = qMax(width, widestItem + 2 * kPopupPadding + frameWidth + scrollWidth);
         }
+        if (available.isValid()) width = qMin(width, available.width());
         if (m_popup->height() != height || m_popup->width() != width) {
             m_popup->resize(width, height);
-            // 长高之后可能顶出屏幕下沿：Qt 摆位置是在我们改高度**之前**做的，往上挪回来。
-            if (QScreen *screen = m_popup->screen()) {
-                const QRect available = screen->availableGeometry();
-                const QRect frame = m_popup->frameGeometry();
-                if (frame.bottom() > available.bottom()) {
-                    m_popup->move(frame.x(),
-                                  qMax(available.top(), available.bottom() - frame.height() + 1));
-                }
-            }
+        }
+        if (available.isValid()) {
+            const QRect frame = m_popup->frameGeometry();
+            const int left = qBound(available.left(), frame.left(),
+                                    qMax(available.left(), available.right() - frame.width() + 1));
+            const int top = qBound(available.top(), frame.top(),
+                                   qMax(available.top(), available.bottom() - frame.height() + 1));
+            if (frame.topLeft() != QPoint(left, top)) m_popup->move(left, top);
         }
         m_fitting = false;
     }

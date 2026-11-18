@@ -12,7 +12,7 @@
  *
  * 【这一趟的形状（顺序不能换）】
  *
- * ① 点下载 → `install()` 先看这一版声明的必装前置里还缺哪几个；
+ * ① 点下载 → `install()` 确定落点，再看目标实例还缺哪些必装前置；
  * ② 一条不缺 → 连一个请求都不多发；
  * ③ 有缺的 → 问一次"这几个号叫什么"，再逐条问"它有哪些版本"（筛的是**目标实例**的
  *    游戏版本 + 加载器）；
@@ -28,22 +28,17 @@
  *   那底下每一个子目录都会被当成一个实例）；
  * · **前置的落点按模组算**：前置永远是模组（光影的前置是 iris 之类），不能跟着主文件的
  *   目录走 —— 跟着进 `shaderpacks/` 的话游戏不加载它，光影仍不可用而界面说装好了；
- * · **问不问「存哪儿」**：设置里没勾 **或** 这一栏不是从实例里点进来的。两条来路读的是
- *   同一份来路（`m_downloadReturn`），和「← 返回实例设置」那颗按钮同一个出处 ——
- *   不另开一个布尔，否则"露着返回键、却弹了保存框"迟早会出现；
- * · **谁在动盘**：默认是那个实例；用户挑了别处的目录时必须清空（那底下没有任何实例在
- *   被写，锁着它等于白挡别人启动）；
+ * · **选目标**：内置实例选择器或系统文件夹选择，整合包仍走原有的缓存和新建实例流程；
+ * · **谁在动盘**：只有已确定的实例目标才记实例占用、检查加载器和前置；
  * · **加载器对不上**：只管模组，判据刻意做得窄（见实现里那五条）；
  * · **任务号必须在 `downloadResourceFiles()` 之前建**：盘上都已经有的时候那一批会
  *   **同步**收尾，先建号才认领得到那一条终态。
  *
  * 【边界】
  *
- * · 在：上面这些判断、那几次网络问话、`QFileDialog` 那一问、`downloadResourceFiles()`
+ * · 在：选择落点、那几次网络问话、`downloadResourceFiles()`
  *   那一发、整合包待导入表的登记与作废。
- * · 不在：下载本身（`VersionManager`）、下载收尾（`DownloadCompletionController`）、
- *   "这一版要装进哪个实例"那一条判据（`MainWindow::dependencyInstanceId()` ——
- *   详情页和下拉框都要用它，不是这一层的私事）。
+ * · 不在：下载本身（`VersionManager`）、下载收尾（`DownloadCompletionController`）。
  */
 
 #pragma once
@@ -53,6 +48,7 @@
 #include <QObject>
 #include <QSet>
 #include <QString>
+#include <optional>
 
 #include "download/ModDependencies.hpp"
 #include "download/ResourceCatalog.hpp"
@@ -63,28 +59,9 @@ class ResourceInstallController final : public QObject {
 public:
     explicit ResourceInstallController(MainWindow *owner);
 
-    /// 点下"下载这一版"之后的第一站（原来叫 `MainWindow::installResourceVersion()`）：
-    /// 缺前置就去问前置（`startDependencyCheck`），不缺就直接下。
-    void install(ResourceCatalog::Kind kind, const QString &displayTitle,
+    /// 标题和版本按值收，选目标时的嵌套事件循环可能关闭详情页或刷新版本清单。
+    void install(ResourceCatalog::Kind kind, QString displayTitle,
                  ResourceCatalog::VersionEntry version, ResourceCatalog::Source source);
-
-    /// 真正下那一段（`install()` 的后半截，也是前置检查回来之后的落点）。
-    ///
-    /// @param extras 一起下的前置（`Plan::downloads`；空表 = 只下主模组）。
-    /// @param forcedInstanceId **这一趟就是给这个实例下的**（空 = 现算，见
-    /// `MainWindow::dependencyInstanceId()`）。只有一条来路会点名它：前置检查回来那一趟 ——
-    /// 那时已经过了一轮网络往返，那一页可能已经被用户收掉了，现算会算成别的实例。
-    /// 非空还带一个副作用：**不再弹"存哪儿"那个框**（这一趟的落点是点名定死的）。
-    ///
-    /// @note `version` 按值收：这一趟里会开嵌套事件循环（"存哪儿"那个框），期间可能
-    /// 有一发版本清单插进调用方那张 `QHash`，递引用进来会悬空。
-    ///
-    /// @note 实例文件页那颗「更新」（悬浮条上那一颗）**不走这儿** —— 它是一批一起下，见
-    /// `MainWindow::updateInstanceFiles()` 里那段（`downloadResourceFiles()` 一次只收一批）。
-    void installNow(ResourceCatalog::Kind kind, const QString &displayTitle,
-                    ResourceCatalog::VersionEntry version,
-                    const QList<ModDependencies::Resolved> &extras,
-                    const QString &forcedInstanceId = QString());
 
     /// 名字那一发回来了（`ResourceStore::projectsFinished`）。
     void onProjectsFinished(const QString &requestKey, const QList<ResourceCatalog::Hit> &hits,
@@ -95,6 +72,18 @@ public:
                             const QString &problem);
 
 private:
+    struct InstallTarget {
+        QString directory;
+        QString instanceId;
+        QString instanceDirectory;
+    };
+
+    std::optional<InstallTarget> selectTarget(ResourceCatalog::Kind kind);
+    bool targetStillAvailable(const InstallTarget &target);
+    void installNow(ResourceCatalog::Kind kind, const QString &displayTitle,
+                    const ResourceCatalog::VersionEntry &version,
+                    const QList<ModDependencies::Resolved> &extras, const InstallTarget &target);
+
     /// 正在跑的这一趟前置检查（**只有一趟**：用户连点两下"下载"时第二下不该再起一趟 ——
     /// 两趟会各问一遍、各弹一个框，而第一趟已经弹着的那个框正转着嵌套事件循环）。
     struct DependencyCheck {
@@ -102,7 +91,7 @@ private:
         ResourceCatalog::Kind kind = ResourceCatalog::Kind::Mod;
         QString title;
         ResourceCatalog::VersionEntry version;
-        QString instanceId;
+        InstallTarget destination;
         ModDependencies::Target target;
         /// 还缺的那些（`missingRequiredDependencies()` 的结果，顺序原样）。
         QList<ModDependencies::Lookup> missing;
@@ -132,11 +121,13 @@ private:
     /// 起一趟前置检查：问名字 → 逐条问版本 → `finishDependencyCheck()`。
     void startDependencyCheck(ResourceCatalog::Kind kind, const QString &displayTitle,
                               const ResourceCatalog::VersionEntry &version,
+                              const InstallTarget &destination,
                               const ModDependencies::Target &target,
                               const QList<ModDependencies::Lookup> &missing, bool installedKnown);
     /// 全问完了：算 Plan、弹框、按用户那一按继续装（或者只装主模组）。
     void finishDependencyCheck();
 
     MainWindow &m_owner;
+    bool m_installing = false;
     DependencyCheck m_check;
 };

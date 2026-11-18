@@ -60,6 +60,23 @@ void runSchematicInfoTests() {
         return;
     }
     const QString root = dir.path();
+    {
+        const auto assets = root + QStringLiteral("/assets");
+        const QString hash(40, QLatin1Char('a'));
+        QDir().mkpath(assets + QStringLiteral("/indexes"));
+        QDir().mkpath(assets + QStringLiteral("/objects/aa"));
+        writeFileAt(assets + QStringLiteral("/indexes/current.json"),
+                    QStringLiteral("{\"objects\":{\"minecraft/lang/zh_cn.json\":{\"hash\":\"%1\"}}}").arg(hash).toUtf8());
+        writeFileAt(assets + QStringLiteral("/objects/aa/") + hash,
+                    QStringLiteral("{\"block.minecraft.stone\":\"石头\",\"block.example.blue.metal\":\"蓝色金属\"}").toUtf8());
+        const auto names = SchematicInfo::loadChineseBlockNames(assets, QStringLiteral("current"));
+        check(SchematicInfo::chineseBlockName(names, QStringLiteral("minecraft:stone")) == QStringLiteral("石头") &&
+                  SchematicInfo::chineseBlockName(names, QStringLiteral("example:blue/metal")) == QStringLiteral("蓝色金属") &&
+                  SchematicInfo::chineseBlockName(names, QStringLiteral("missing:rock")).isEmpty(),
+              "原理图材料从本地语言资源取中文名，未知方块由界面保留 ID");
+        check(SchematicInfo::loadChineseBlockNames(assets, QStringLiteral("../outside")).isEmpty(),
+              "非法资源索引号不会读到资源目录之外");
+    }
     const auto namedEntry = [&](const QString &name) {
         NbtTree::Node entry = compoundNode();
         addField(&entry, QStringLiteral("Name"), stringNode(name));
@@ -395,7 +412,7 @@ void runSchematicInfoTests() {
               QStringLiteral("ok=%1 完整=%2 数=%3")
                   .arg(noData.ok).arg(noData.countsComplete).arg(noData.blockCount));
         const QString noDataSummary = SchematicInfo::summaryText(noData, QString());
-        check(noDataSummary.contains(QStringLiteral("没解出来")),
+        check(noDataSummary.contains(QStringLiteral("未能解析方块数据，仅显示元数据")),
               "★ SG6 那种情况那一行字要**明说**只读到元数据", noDataSummary);
     }
 

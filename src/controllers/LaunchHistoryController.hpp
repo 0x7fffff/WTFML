@@ -33,9 +33,16 @@
 #include "launcher/QuickPlay.hpp"  // QuickPlay::Target（recordStart 的入参，得看见定义）
 #include "manage/LaunchHistory.hpp"
 
+#include <QElapsedTimer>
+#include <QHash>
 #include <QList>
 #include <QObject>
 #include <QString>
+#include <optional>
+#include <utility>
+
+class InstanceGroupStore;
+class VersionManager;
 
 class LaunchHistoryController final : public QObject {
     Q_OBJECT
@@ -87,6 +94,18 @@ public:
     /// （见 `MainWindow::onGameFinished()` 那段 NOTE），追回"启动那一刻记的那一条"只有它。
     void recordFinish(qint64 startedAtMs, LaunchHistory::Result result, qint64 finishedAtMs);
 
+    struct RunningPlayTime {
+        qint64 currentMs;
+        qint64 totalMs;
+    };
+
+    void startPlayTime(int sessionId, const QString &versionId, VersionManager &versions,
+                       InstanceGroupStore &groups);
+    void finishPlayTime(int sessionId);
+    void finishAllPlayTimes();
+    LaunchHistory::PlayTime completedPlayTime(const QString &stableInstanceId) const;
+    std::optional<RunningPlayTime> runningPlayTime(int sessionId) const;
+
 signals:
     /// 账本动了（读回来 / 记了一条 / 改了一条的结局）。**只在真的动了的那三条路上发** ——
     /// 结局没对上任何一条（`recordFinish()` 空转）那一趟不发，因为什么都没变。
@@ -98,5 +117,11 @@ signals:
     void logMessage(const QString &text);
 
 private:
+    using PlayTimeKey = std::pair<QString, QString>;
+    void finishPlayTime(int sessionId, qint64 tickMs);
+
     QList<LaunchHistory::Record> m_records;
+    QElapsedTimer m_playTimeClock;
+    QHash<int, PlayTimeKey> m_playTimeSessions;
+    QHash<PlayTimeKey, LaunchHistory::PlayTimeCounter> m_playTimeCounters;
 };

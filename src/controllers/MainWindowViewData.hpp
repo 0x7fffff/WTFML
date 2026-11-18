@@ -36,6 +36,8 @@
 #include <QString>
 #include <QTreeWidget>
 
+#include <functional>
+
 #include "auth/AccountStore.hpp"
 #include "launcher/LauncherManager.hpp"
 #include "controllers/InstancePagesController.hpp"
@@ -149,7 +151,8 @@ QString homeGroupIdOf(const InstanceGroupStore *groups, const QString &key,
                       const QSet<QString> &knownGroupIds);
 QList<MainWindowUI::PanelRow> runningGamePanelRows(const QList<LauncherManager::GameSession> &games,
                                                   const VersionManager *versions,
-                                                  const QColor &ink, qint64 nowMs);
+                                                  const QColor &ink, qint64 nowMs,
+                                                  const std::function<QString(int)> &playTimeText);
 QList<MainWindowUI::PanelRow> recentAccountPanelRows(const QList<SavedAccount> &accounts, int limit,
                                                      const QHash<QString, QPixmap> &faces);
 

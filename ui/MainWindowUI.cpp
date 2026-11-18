@@ -2193,8 +2193,9 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             nameRow->addStretch(1);
             identity->addLayout(nameRow);
             // ElidedLabel：QLabel 装不下是硬裁，版本串过长要收省略号；全名给卡片的提示。
+            const QString subtitle = homeTileSubtitle(item.detail);
             auto *sub = new ElidedLabel(card);
-            sub->setText(homeTileSubtitle(item.detail));
+            sub->setText(subtitle);
             sub->setObjectName(QStringLiteral("homeQuickTileVersion"));
             QFont subFont = sub->font();
             subFont.setPixelSize(Theme::textSize(Theme::TextRole::Caption));
@@ -2228,18 +2229,12 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             QObject::connect(card, &QPushButton::clicked, card, [this, key = item.key]() {
                 if (m_homeQuickActionHandler) m_homeQuickActionHandler(key, HomeQuickAction::Select);
             });
-            // 宽度按**内容**量：封面 + 名字（+「当前」）+ 播放钮。不能指望 QPushButton 的
-            // sizeHint —— 那个按 text / icon 算，不认它身上这套布局，量出来总是缩到下限。
-            // 播放钮平时是收着的（悬停才露）：收着时也留着那一格（retainSizeWhenHidden），
-            // 名字的可用宽度才不随悬停 / 按下 / 焦点变，鼠标一进来也不会被挤出省略号。
-            // （以前是手动加 `play->sizeHint().width()`：那是 QPushButton 按图标算的 17，
-            // 它实际钉死 30 宽，每次少算 13，名字刚好放下的卡片一悬停就收成省略号。）
-            if (QLayout *contentLayout = card->layout()) {
-                const int want = contentLayout->sizeHint().width();
-                card->setFixedWidth(qBound(kHomeTileWidth, want, kHomeTileMaxWidth));
-                // 到上限、名字收了省略号：悬停给全名（名字那格对鼠标透明，提示挂在卡片上）。
-                if (want > kHomeTileMaxWidth) card->setToolTip(item.name);
-            }
+            // 宽度按**内容**量：封面 + 名字（+「当前」）+ 播放钮。播放钮平时收着（悬停才露），
+            // 收着时也留那一格（retainSizeWhenHidden），名字的可用宽度才不随悬停 / 按下 / 焦点变。
+            // （以前手动加 `play->sizeHint().width()`：QPushButton 按图标算的是 17，它实际钉死
+            // 30 宽，每次少算 13，名字刚好放下的卡片一悬停就收成省略号 —— issue #41。）
+            card->setFixedWidth(qBound(kHomeTileWidth, content->sizeHint().width(), kHomeTileMaxWidth));
+            card->setToolTip(subtitle.isEmpty() ? item.name : item.name + QLatin1Char('\n') + subtitle);
             row->addWidget(card);
         }
     };
@@ -2309,7 +2304,7 @@ void MainWindowUI::syncHomeLaunchButton() {
     if (!empty) {
         mode = m_homeLaunchRunning ? QStringLiteral("stop") : QStringLiteral("launch");
         text = m_homeLaunchRunning ? QStringLiteral("停止游戏") : QStringLiteral("启动游戏");
-        icon = m_homeLaunchRunning ? QStringLiteral("stop") : QStringLiteral("play");
+        icon = m_homeLaunchRunning ? QStringLiteral("power") : QStringLiteral("play");
     } else if (installing) {
         mode = QStringLiteral("installing");
         text = task.percent >= 0 ? QStringLiteral("安装中 %1%").arg(task.percent) : QStringLiteral("安装中");
@@ -2323,6 +2318,8 @@ void MainWindowUI::syncHomeLaunchButton() {
     launch->setText(text);
     launch->setAccessibleName(text);
     const int side = icon == QStringLiteral("play") ? 18 : 20;
-    launch->setIcon(QIcon(VersionIcons::line(icon, side, Theme::tokens().onPrimary, 2.0)));
+    const QColor ink = Theme::tokens().onPrimary;
+    launch->setIcon(QIcon(icon == QStringLiteral("power") ? VersionIcons::power(side, ink)
+                                                         : VersionIcons::line(icon, side, ink, 2.0)));
     launch->setIconSize(QSize(side, side));
 }

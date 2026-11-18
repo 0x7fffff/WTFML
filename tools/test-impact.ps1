@@ -26,6 +26,7 @@ function Get-TestImpact([string[]]$Paths, [bool]$ForceFull = $false) {
         'agent-window' = @('main-window-agent')
         runner = @('test-runner', 'test-modules', 'ci-partitions')
         ui = @('ui-refresh', 'install-layout', 'lifecycle', 'input-widths', 'window-size'); theme = @('theme')
+        popups = @('popups', 'popups-scale')
         'ui-history' = @('ui-bootstrap')
         window = @('main-window', 'window-chrome'); workspace = @('workspace', 'activity-selection')
         java = @('java-manage'); mods = @('mod-action-panel'); upgrade = @('instance-upgrade')
@@ -42,6 +43,7 @@ function Get-TestImpact([string[]]$Paths, [bool]$ForceFull = $false) {
         'tests/mw_check/modules/MwAgentCheck.cpp' = 'agent-window'
         'tests/ui_check/modules/UiLifecycleCheck.cpp' = 'ui'
         'tests/ui_check/modules/UiInputWidthCheck.cpp' = 'ui'
+        'tests/ui_check/modules/UiPopupCheck.cpp' = 'popups'
         'tests/ui_check/modules/UiWindowSizeCheck.cpp' = 'ui'
         'tests/ui_check/modules/UiSurfaceSweepCheck.cpp' = 'ui'
         'tests/ui_check/surface-registry.txt' = 'ui'
@@ -108,6 +110,7 @@ function Get-TestImpact([string[]]$Paths, [bool]$ForceFull = $false) {
             '^(tools/.*\.ps1|tests/test_runner/)' { @('runner'); break }
             '^ui/Agent' { @('ui-agent'); break }
             '^src/controllers/AgentController' { @('agent-window','window'); break }
+            '^ui/Popups\.(cpp|hpp)$' { @('ui','theme','window','popups'); break }
             '^ui/' { @('ui','theme','window'); break }
             default { @() }
         }
@@ -121,7 +124,7 @@ function Get-TestImpact([string[]]$Paths, [bool]$ForceFull = $false) {
     $suites = [Collections.Generic.List[string]]::new()
     if ($modules.Contains('app')) { $suites.Add('ci-app') }
     if (@($modules | Where-Object { $_ -eq 'core' -or $_ -like 'core-*' -or $_ -eq 'runner' }).Count) { $suites.Add('ci-core') }
-    if (@($modules | Where-Object { $_ -in @('ui','ui-history','theme','resources','toolbox','ui-agent') }).Count) { $suites.Add('ci-ui') }
+    if (@($modules | Where-Object { $_ -in @('ui','ui-history','theme','resources','toolbox','ui-agent','popups') }).Count) { $suites.Add('ci-ui') }
     if (@($modules | Where-Object { $_ -in @('window','agent-window','workspace','java','mods','upgrade','network','presets','toolbox') }).Count) { $suites.Add('ci-integration') }
     [pscustomobject]@{ full = $all; modules = @($modules | Sort-Object); tests = $tests; suites = @($suites.ToArray());
         reasons = @($reasons.ToArray()); paths = @($Paths); testMap = $catalog }

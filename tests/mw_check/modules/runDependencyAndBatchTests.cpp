@@ -1,5 +1,7 @@
 #include "Support.hpp"
 #include "ui_check/modules/UiInstanceFilesTestHelpers.hpp"
+
+#include <algorithm>
 void runDependencyAndBatchTests() {
     // 那两项设置在盘上的名字。和 T25 一个规矩：这一节量的是"盘上那个键"，
     // 而 `LauncherSettings` 里那两个常量在匿名命名空间里、外面看不见，所以字面量写这儿。
@@ -52,9 +54,13 @@ void runDependencyAndBatchTests() {
 
     // ---------- 夹具：一个实例（Fabric）+ 两个模组文件 ----------
     const QString idV = QStringLiteral("1.95.1");
+    const QString alternateId = QStringLiteral("1.95.2");
     const QDir versionsDir(root.path() + QStringLiteral("/versions"));
     makeInstalledVersion(versionsDir, idV);
     makeVersionMeta(versionsDir, idV,
+                    QByteArrayLiteral("{\"loaderName\":\"Fabric\",\"loaderVersion\":\"0.15.11\"}"));
+    makeInstalledVersion(versionsDir, alternateId);
+    makeVersionMeta(versionsDir, alternateId,
                     QByteArrayLiteral("{\"loaderName\":\"Fabric\",\"loaderVersion\":\"0.15.11\"}"));
     const QString dirV = AppPaths::versionDir(idV);
 
@@ -260,10 +266,38 @@ void runDependencyAndBatchTests() {
             // 摆上去就返回），所以量它的动作自己排一发 0 毫秒定时器 —— 产品的定时器
             // 排在前面，等它开完页才轮到这一发。
             //
-            // 「一起下载」那一趟的按钮脚本是 `{1, 0}`：第 1 条提示（前置）点右边那颗
+            // 确认下载目标后，「一起下载」那一趟的按钮脚本是 `{1, 0}`：第 1 条提示（前置）点右边那颗
             // 「一起下载」，第 2 条（下载失败 —— 这一节那两份文件都指向假服务器，
             // 404 是必然的）点「确定」。第二趟（开关关掉）只会弹后者。
+            auto *installed = w.ui()->getInstalledVersionCombo();
+            installed->setCurrentIndex(installed->findData(idV));
             PromptAnswerer answerer(expectDepPrompt ? QList<int>{1, 0} : QList<int>{0});
+            QTimer pickerAnswerer;
+            QObject::connect(&pickerAnswerer, &QTimer::timeout, [&] {
+                auto *box = currentPrompt();
+                if (box == nullptr) return;
+                pickerAnswerer.stop();
+                const bool isPicker = box->objectName() == MainWindowUI::resourceDownloadInstancePickerName();
+                auto *search = box->findChild<QLineEdit *>(QStringLiteral("homePickerSearch"));
+                auto *list = box->findChild<QListWidget *>(QStringLiteral("homePickerInstanceList"));
+                check(isPicker && list != nullptr && list->currentItem() != nullptr
+                          && list->currentItem()->data(Qt::UserRole).toString() == idV,
+                      tag + QStringLiteral("：内置选择器默认选中详情页所属实例"));
+                answerer.start();
+                if (!isPicker) return;
+                if (!expectDepPrompt && search != nullptr && list != nullptr) {
+                    search->setText(alternateId);
+                    check(list->count() == 1 && list->item(0)->data(Qt::UserRole).toString() == alternateId
+                              && !box->buttonAt(0)->isEnabled(),
+                          tag + QStringLiteral("：搜索能找到另一个实例，隐藏的原目标不能确认"));
+                    list->setCurrentRow(0);
+                }
+                if (box->buttonAt(0)->isEnabled()) {
+                    box->buttonAt(0)->click();
+                } else {
+                    box->reject();
+                }
+            });
             QTimer::singleShot(0, [&, overlay] {
                 auto *detail = w.findChild<ResourceDetailPage *>();
                 if (detail != nullptr && overlay->pageOpen()) {
@@ -279,8 +313,9 @@ void runDependencyAndBatchTests() {
                             row = group->child(0);
                         }
                     }
-                    answerer.start();
                     if (list != nullptr && row != nullptr) {
+                        ++g_modalHandlerGeneration;
+                        pickerAnswerer.start(20);
                         list->scrollToItem(row);
                         clickDetailTreeRow(list, list->visualItemRect(row).center());
                         r.rowClicked = true;
@@ -415,7 +450,7 @@ void runDependencyAndBatchTests() {
         }
         check(landedInInstance,
               "★★ T31.1 而且下进的是**这个实例的 mods/**（日志里那行带着它的绝对路径），"
-              "前置也落在同一个目录 —— 用户原话「点击下载新模组就自动放进当前实例文件夹」",
+              "前置也落在同一个目录",
               destNative);
 
         // ================= 第二趟：设置里关掉之后 =================
@@ -443,6 +478,12 @@ void runDependencyAndBatchTests() {
                                                     : QStringLiteral("关着")));
         }
         PassResult off = runPass(QStringLiteral("T31.2"), false, 1);
+        const QString alternateMods =
+            QDir::toNativeSeparators(AppPaths::versionDir(alternateId) + QStringLiteral("/mods"));
+        check(std::any_of(off.newLogs.cbegin(), off.newLogs.cend(), [&](const QString &line) {
+                  return line.contains(QStringLiteral("正在下载")) && line.contains(alternateMods);
+              }) && w.ui()->getInstalledVersionCombo()->currentData().toString() == idV,
+              "T31.2 改选只修改本次安装落点，主页当前实例不变");
         // 「关掉 = 什么都不装」：那一发问名字的请求**压根没发**。这是这条路上唯一一次
         // "要不要一起下"的问句，它没发出去就说明整段被跳过了（不是"问了但没下"）。
         bool askedDepProjectOff = false;

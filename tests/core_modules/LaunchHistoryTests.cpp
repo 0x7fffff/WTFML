@@ -161,6 +161,48 @@ void runLaunchHistoryTests() {
           capped.last().instanceId);
     check(LaunchHistory::prepend({}, fresh).size() == 1, "ZR4 空账上加一条就是一条");
 
+    {
+        const QString playPath = work + QStringLiteral("/wtfml.history");
+        const QString stableId = QStringLiteral("023e2000-bcb6-4495-94f2-36a3f28d4020");
+        const QString otherId = QStringLiteral("023e2000-bcb6-4495-94f2-36a3f28d4021");
+        check(LaunchHistory::save(playPath, {plain}) &&
+                  LaunchHistory::loadPlayTime(playPath, stableId).lastMs == -1,
+              "ZR8 旧启动账本可读，不从历史记录倒推累计");
+
+        LaunchHistory::PlayTimeCounter counter;
+        counter.start(1, 1000);
+        counter.start(2, 2000);
+        check(counter.currentMs(2500) == 1500 && counter.totalMs(2500) == 1500,
+              "ZR8 同实例多开时，本次和累计都只计重叠时间一次");
+        check(!counter.finish(1, 3000) && counter.completed().lastMs == -1 &&
+                  counter.currentMs(3500) == 2500,
+              "ZR8 部分进程退出不结算，也不重置本次起点");
+        check(counter.finish(2, 4000) && !counter.finish(2, 5000) &&
+                  counter.completed().totalMs == 3000 && counter.completed().lastMs == 3000,
+              "ZR8 最后一个进程退出才结算并集，重复退出不重复累计");
+        check(LaunchHistory::savePlayTime(playPath, stableId, counter.completed()) &&
+                  LaunchHistory::load(playPath).size() == 1 &&
+                  LaunchHistory::save(playPath, capped),
+              "ZR8 维护累计与滚动最近记录互不覆盖");
+
+        LaunchHistory::PlayTimeCounter restarted(LaunchHistory::loadPlayTime(playPath, stableId));
+        restarted.start(1, 500);
+        check(restarted.currentMs(999) == 499 && restarted.totalMs(999) == 3499 &&
+                  restarted.finish(1, 1400) && restarted.completed().totalMs == 3900 &&
+                  restarted.completed().lastMs == 900,
+              "ZR8 重启后继续累计，非重叠期间不计，毫秒不丢");
+        check(LaunchHistory::savePlayTime(playPath, stableId, restarted.completed()) &&
+                  LaunchHistory::savePlayTime(playPath, otherId, {600, 600}) &&
+                  LaunchHistory::loadPlayTime(playPath, stableId).totalMs == 3900 &&
+                  LaunchHistory::loadPlayTime(playPath, stableId).lastMs == 900 &&
+                  LaunchHistory::loadPlayTime(playPath, otherId).totalMs == 600 &&
+                  LaunchHistory::load(playPath).size() == LaunchHistory::historyLimit(),
+              "ZR8 累计和上次按稳定实例 ID 分开存，独立于最近 20 条");
+        check(LaunchHistory::playTimeText(-1).isEmpty() &&
+                  LaunchHistory::playTimeText(90061000) == QStringLiteral("25:01:01"),
+              "ZR8 未记录与跨天时长的显示正确");
+    }
+
     // ---------- ZR5. 「上一次」那一条是哪一条 ----------
     // 顺序故意乱的：账上那个列表按**写入顺序**排，而"最新"要按**时间**认。
     QList<LaunchHistory::Record> shuffled;

@@ -61,56 +61,6 @@ QString unitText(const QMap<QString, int> &enchantments, bool isBook) {
     return isBook ? QStringLiteral("%1 的书").arg(body) : QStringLiteral("%1 的装备").arg(body);
 }
 
-/// 文本生成器那三种输出里那一段/几段的 HTML（预览那一格画的）。
-///
-/// 颜色走 `MotdText::readableOn()`：游戏那边底色是黑的，服务器配的 `§f` 白字直接搬到
-/// 我们的浅底上等于没画。这一页是"看一眼长什么样"，所以浅底上读不清的那些**压暗到读得清**
-/// —— 和服务器列表里那条 MOTD 是同一套做法（同一个函数，唯一出处）。
-QString segmentsToHtml(const QList<TextFormat::Segment> &segments, const QColor &background) {
-    QString html;
-    for (const TextFormat::Segment &segment : segments) {
-        if (segment.text.isEmpty()) {
-            continue;
-        }
-        // 自定色和那十六个一样，先按"在浅底上还读不读得清"压一档；没写过颜色才用正文色。
-        const bool hasColor = segment.style.hasCustomColor
-                              || segment.style.color != TextFormat::Color::Default;
-        QColor color = QColor::fromRgb(TextFormat::styleRgb(segment.style));
-        if (hasColor) {
-            color = MotdText::readableOn(color, background);
-        } else {
-            color = background.lightness() < 128 ? QColor(Qt::white) : QColor(Qt::black);
-        }
-        QStringList styles;
-        styles.append(QStringLiteral("color:%1").arg(color.name()));
-        if (segment.style.bold) {
-            styles.append(QStringLiteral("font-weight:bold"));
-        }
-        if (segment.style.italic) {
-            styles.append(QStringLiteral("font-style:italic"));
-        }
-        QStringList decoration;
-        if (segment.style.underline) {
-            decoration.append(QStringLiteral("underline"));
-        }
-        if (segment.style.strikethrough) {
-            decoration.append(QStringLiteral("line-through"));
-        }
-        if (!decoration.isEmpty()) {
-            styles.append(QStringLiteral("text-decoration:%1").arg(decoration.join(QChar(' '))));
-        }
-        // 乱码那一档：游戏里那一段字会跳。**我们照原字画**（跳字在预览里只会让人看不出
-        // 自己敲了什么），所以只把这件事在样式上带一笔颜色，不改字。
-        if (segment.style.obfuscated) {
-            styles.append(QStringLiteral("opacity:0.75"));
-        }
-        html.append(QStringLiteral("<span style='%1'>%2</span>")
-                        .arg(styles.join(QChar(';')), segment.text.toHtmlEscaped()));
-    }
-    return html.isEmpty() ? QStringLiteral("<span style='opacity:0.6'>（这里还没有字）</span>")
-                          : html;
-}
-
 /// 服务器 MOTD 那一行的 HTML（`§` 码 → 带色的 span；两行封顶，和游戏里一样）。
 QString motdHtml(const QString &raw, const QColor &background) {
     const QVector<MotdPiece> pieces = MotdText::parse(raw, 2);
@@ -230,6 +180,7 @@ void ToolboxController::ensurePage() {
     // ---------- 工具箱里那几件的信号 ----------
     connect(m_page, &ToolboxPage::anvilPlanRequested, this, [this]() { runAnvilPlan(); });
     connect(m_page, &ToolboxPage::textSourceChanged, this, [this]() { refreshText(); });
+    connect(m_page, &ToolboxPage::textPreviewEdited, this, &ToolboxController::refreshTextFromPreview);
     connect(m_page, &ToolboxPage::textJsonRequested, this,
             [this](const QString &json) { loadTextFromJson(json); });
     connect(m_page, &ToolboxPage::textHexColorRequested, this, [this](const QString &hex) {
@@ -240,7 +191,7 @@ void ToolboxController::ensurePage() {
                                      "比如 `#ff8800`（`#f80` 这种缩写游戏那边不认）。"));
             return;
         }
-        m_page->insertTextAtCursor(TextFormat::legacyHexColor(rgb));
+        m_page->applyTextPreviewColor(QColor::fromRgb(rgb), TextFormat::legacyHexColor(rgb));
         m_page->setTextNotice(QString());
     });
     connect(m_page, &ToolboxPage::coordinateRequested, this,
@@ -257,6 +208,7 @@ void ToolboxController::ensurePage() {
             [this](const QString &address) { checkServer(address); });
     connect(m_page, &ToolboxPage::serverCheckCancelRequested, this,
             [this]() { cancelServerCheck(); });
+    connect(m_page, &ToolboxPage::serverToolExited, this, &ToolboxController::cancelServerCheck);
     connect(m_page, &ToolboxPage::hashRequested, this,
             [this](const QString &path, int algorithm, const QString &expected) {
                 runHash(path, algorithm, expected);
@@ -640,9 +592,44 @@ void ToolboxController::refreshText() {
     const QString raw = m_page->textSource();
     const QList<TextFormat::Segment> segments = TextFormat::parseLegacy(raw);
     const QColor background = m_page->palette().color(QPalette::Base);
-    m_page->setTextPreview(segmentsToHtml(segments, background));
-    m_page->setTextOutputs(TextFormat::toLegacy(segments), TextFormat::toJsonText(segments),
-                           TextFormat::toTellrawCommand(segments));
+    QList<ToolboxPage::TextRun> runs;
+    runs.reserve(segments.size());
+    for (const auto &segment : segments) {
+        const auto &style = segment.style;
+        QString code;
+        if (style.hasCustomColor) code = TextFormat::legacyHexColor(style.customRgb);
+        else if (const QChar named = TextFormat::codeForColor(style.color); !named.isNull()) code = QStringLiteral("§%1").arg(named);
+        const QColor color = code.isEmpty() ? QColor() :
+            MotdText::readableOn(QColor::fromRgb(TextFormat::styleRgb(style)), background);
+        runs.append({segment.text, code, color, style.bold, style.italic, style.underline,
+                     style.strikethrough, style.obfuscated});
+    }
+    m_page->setTextPreviewRuns(runs);
+    m_page->setTextOutputs(QString(), TextFormat::toJsonText(segments));
+    m_page->setTextMotd(TextFormat::toMotd(segments));
+    m_page->setTextNotice(QString());
+}
+
+void ToolboxController::refreshTextFromPreview() {
+    QList<TextFormat::Segment> segments;
+    for (const auto &run : m_page->textPreviewRuns()) {
+        TextFormat::Style style;
+        if (run.colorCode.startsWith(QStringLiteral("§x"))) {
+            QString hex = run.colorCode.mid(2);
+            hex.remove(QChar(u'§'));
+            style.hasCustomColor = TextFormat::parseHexColor(hex, &style.customRgb);
+        } else if (run.colorCode.size() == 2) {
+            style.color = TextFormat::colorFromCode(run.colorCode.at(1));
+        }
+        style.bold = run.bold;
+        style.italic = run.italic;
+        style.underline = run.underline;
+        style.strikethrough = run.strike;
+        style.obfuscated = run.obfuscated;
+        segments.append({run.text, style});
+    }
+    const QString legacy = TextFormat::toLegacy(segments);
+    m_page->setTextOutputs(legacy.isNull() ? QStringLiteral("") : legacy, TextFormat::toJsonText(segments));
     m_page->setTextMotd(TextFormat::toMotd(segments));
     m_page->setTextNotice(QString());
 }
@@ -771,7 +758,7 @@ void ToolboxController::checkServer(const QString &address) {
         m_pinger = new ServerPing::Pinger(this);
         connect(m_pinger, &ServerPing::Pinger::oneFinished, this,
                 [this](int index, const ServerPing::Status &status) {
-                    if (index != 0) {
+                    if (index != 0 || m_serverAddress.isEmpty()) {
                         return;  // 一次只问一台
                     }
                     ToolboxPage::ServerView view;
@@ -781,6 +768,11 @@ void ToolboxController::checkServer(const QString &address) {
                     view.kind = ServerPing::kindName(status.kind);
                     view.error = status.ok ? QString() : status.error;
                     view.address = m_serverAddress;
+                    const auto address = ServerPing::splitAddress(m_serverAddress);
+                    if (address.valid) {
+                        view.addressKey = address.host.toCaseFolded() + QLatin1Char(':') +
+                            (address.portExplicit ? QString::number(address.port) : QStringLiteral("auto"));
+                    }
                     if (status.ok) {
                         const QColor background = m_page->palette().color(QPalette::Base);
                         view.motd = motdHtml(status.motdRaw, background);
@@ -812,6 +804,7 @@ void ToolboxController::checkServer(const QString &address) {
 }
 
 void ToolboxController::cancelServerCheck() {
+    m_serverAddress.clear();
     if (m_pinger != nullptr) {
         m_pinger->abort();  // 手上那一台会问完（同步的 socket 掐不断），后面的不再问
     }

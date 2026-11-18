@@ -150,6 +150,7 @@ struct RunningItem {
     QString title;
     QString subtitle;
     QList<RunningAction> actions;
+    std::function<QString()> liveSubtitle;
 };
 
 using RunningProvider = std::function<QList<RunningItem>()>;

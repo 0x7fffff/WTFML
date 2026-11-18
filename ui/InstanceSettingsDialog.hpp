@@ -321,7 +321,7 @@ public:
                 QStringLiteral("integritymenu"), QStringLiteral("diagnosticsmenu"), QStringLiteral("operationsmenu")};
     }
     static QStringList lifecyclePageTexts() {
-        return {QStringLiteral("世界备份"), QStringLiteral("截图"), QStringLiteral("Replay"),
+        return {QStringLiteral("世界备份"), QStringLiteral("截图"), QStringLiteral("回放"),
                 QStringLiteral("结构"), QStringLiteral("完整性检查"), QStringLiteral("实例修复"),
                 QStringLiteral("日志"), QStringLiteral("崩溃报告"), QStringLiteral("检查与诊断"),
                 QStringLiteral("快照与恢复"), QStringLiteral("导出整合包"),
@@ -691,6 +691,10 @@ public:
     /// 还没算出来时那一格摆的字（验证工程也拿它当"正在读"的判据）。
     static QString lifecycleInfoPendingText() { return QStringLiteral("正在读取…"); }
 
+    enum class LifecycleBatchAction { Copy, Move, Remove };
+    static bool isLifecycleBatchFile(const QString &key, const QString &path);
+    void refreshLifecycleBatchFiles(const QString &key);
+
     /// 把 @p key 那一页的信息摆出来。
     /// @param path 这个答案讲的是**哪一条**（就是 `lifecycleFileInfoRequested()` 递出去的）。
     void setLifecycleInfoText(const QString &key, const QString &path, const QString &text,
@@ -847,6 +851,7 @@ public:
     /// NOTE: 三张图都由调用方解好，这一层不碰盘 —— 它只在用户**刚挑了一张新图**的时候
     /// 读那个路径（那一下它手上只有一条路径，见 pickedIconPath()）。
     void setLastLaunch(const QDateTime &at);
+    void setPlayTime(const QString &total, const QString &last);
     void setIcon(const QString &icon, const QPixmap &defaultMark,
                  const QPixmap &localMark = QPixmap());
 
@@ -1743,6 +1748,7 @@ signals:
     /// `setLifecycleInfoText(key, path, …)` 递回来。**这一层不读盘**（它连
     /// `AppPaths` 都够不着），所以选不中 / 空目录时它一个字都不发。
     void lifecycleFileInfoRequested(const QString &key, const QString &path);
+    void lifecycleBatchRequested(const QString &key, const QStringList &paths, LifecycleBatchAction action);
 
     void diagnosisRequested();
 
@@ -2225,6 +2231,8 @@ private:
     void buildServerPage();
     /// 造「创作工具 / 维护」那几页里的**一页**（同上）。
     void buildLifecyclePage(const QString &key);
+    void addLifecycleBatchActions(const QString &key, QListWidget *list, QVBoxLayout *layout,
+                                  QLineEdit *search = nullptr);
     /// 「迁移」/「升级」那两页里，把存着的那一份目标 / 计划 / 范围表摆上去。
     void replayTransferPage(const QString &key);
     /// 服务器列表那一页把存着的那一份摆上去（页可能是先收到列表、后建出来的）。
@@ -2372,6 +2380,7 @@ private:
     /// 那一张预览。边长固定（见 .cpp 里 kIconPreviewSize）—— 换图时整行不该跟着跳。
     QLabel *m_iconPreview = nullptr;
     QLabel *m_lastLaunchLabel = nullptr;
+    QLabel *m_playTimeLabel = nullptr;
     /// 八颗候选按钮，下标与 VersionIcons::iconCandidateKeys() 一一对应。
     QList<QToolButton *> m_iconButtons;
     /// 「更改图标」那颗按钮，以及它底下那个**常驻**浮层（见 .cpp 里那段 NOTE）。
