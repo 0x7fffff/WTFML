@@ -141,6 +141,9 @@ void MainWindow::refreshServerList() {
     if (QLabel *empty = m_ui->getServerEmptyLabel()) {
         empty->setVisible(entries.isEmpty());
     }
+    m_ui->setServerFolderText(tr("%1（%2 个服务端）")
+                                  .arg(QDir::toNativeSeparators(ServerRegistry::rootDir()))
+                                  .arg(entries.size()));
 }
 
 void MainWindow::openNewServerPage() {

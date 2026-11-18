@@ -437,7 +437,7 @@ void MainWindow::rebuildInstanceTree() {
     // installed.size() 的话，正在装的那一个会让这句话比树上多一个，看着像漏画了。
     // 筛着的时候两个数**都要**：只报筛出来的那个数，用户会以为自己的实例没了。
     const QString root = AppPaths::minecraftDir();
-    QString folderText = tr("当前文件夹：%1").arg(QDir::toNativeSeparators(root));
+    QString folderText = QDir::toNativeSeparators(root);
     if (!QDir(root).exists()) {
         folderText += tr("（这个目录不在盘上了）");
     } else {
