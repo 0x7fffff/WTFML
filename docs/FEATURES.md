@@ -207,6 +207,7 @@
   安装器/提交不可暂停，重启不自动运行 Java。范围与真机记录见 [恢复验收](archive/ACCEPTANCE_LOG.md)。
   具体范围与验证见 [下载恢复](features/HIGH_SPEED_DOWNLOAD.md)。
 - 服务端安装支持原版、Paper、Purpur、Fabric、Quilt、Forge、NeoForge、Spigot（BuildTools）；服务端使用独立工作目录，首次启动需明确同意 EULA。
+- **资源详情页的游戏版本**：顶排只有「全部」和按大版本归好的组（`1.21`、`1.20`，取版本号前两段）；预发布与新式快照归入所属版本，折不出所属版本的（周快照、旧测试版）放最后一组「其他」。细版本默认收起，点开一组才在第二排露出，同一时刻最多展开一组。展开、收起、换组都不改变已选的版本，筛选仍按选中的那个具体版本。两排都折行，窗口窄或宽都不出横向滚动条。分组规则在 `ResourceCatalog::gameVersionSeriesOf()`。
 
 详细策略与验收参见 [HIGH_SPEED_DOWNLOAD.md](features/HIGH_SPEED_DOWNLOAD.md)。
 

@@ -352,6 +352,16 @@ QStringList gameVersionChoices(const QStringList &declaredGameVersions, bool sho
 QString gameVersionAfterToggle(const QStringList &declaredGameVersions, bool showSnapshots,
                                const QString &current);
 
+/// 游戏版本落在哪个**大版本组**里（详情页那一排 chip 的第一层）：取版本号前两段，
+/// `1.21.4` → `1.21`、`1.21` → `1.21`、`1.7.10` → `1.7`、`26.1.1` → `26.1`。
+///
+/// 预发布与新式快照先折到所属版本再取组：`1.21.4-pre3` → `1.21`、`26.2-rc1` → `26.2`、
+/// `26.2-snapshot-1` → `26.2`。没有所属版本可归的（老式周快照 `24w14a`、`b1.7.3`、
+/// 愚人节版）回**空串**，调用方把它们放进最后一组「其他」。
+///
+/// 只用来分组摆放：chip 的 key 仍是原样的游戏版本号，筛选走 `versionsForGameVersion()`。
+QString gameVersionSeriesOf(const QString &version);
+
 /// 兜底那个图标地址（`https://cdn.modrinth.com/data/{id}/icon.png`）。
 ///
 /// 实测更正：**它不是"每个项目都有"的那一条**，只是**老项目的别名**。

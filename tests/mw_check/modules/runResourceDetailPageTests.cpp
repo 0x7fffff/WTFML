@@ -292,6 +292,24 @@ void runResourceDetailPageTests() {
                   "ZJ4 中间那一排是「全部」+ 这一行声明过的两档，而且停在「全部」上"
                   "（这两档是**搜索响应里就带着的**，为它不用多发一条请求）",
                   chipKeys.join(QStringLiteral("|")));
+            // 顶排按大版本分组（issue #20）：两档各归一个组，默认都收起。
+            QStringList groupNames;
+            for (int i = 0; i < page->chipGroupButtons().size(); ++i) {
+                groupNames.append(page->chipGroupNameAt(i));
+            }
+            groupNames.sort();
+            check(groupNames == QStringList({QStringLiteral("1.20"), QStringLiteral("1.21")}) &&
+                      page->expandedChipGroup().isEmpty(),
+                  "★ ZJ4 顶排是「全部」+ 1.21 / 1.20 两个大版本组，默认都收起（细版本要点开才露）",
+                  groupNames.join(QStringLiteral("|")));
+            const auto groupButtonOf = [&page](const QString &name) -> QPushButton * {
+                for (int i = 0; i < page->chipGroupButtons().size(); ++i) {
+                    if (page->chipGroupNameAt(i) == name) {
+                        return page->chipGroupButtons().at(i);
+                    }
+                }
+                return nullptr;
+            };
 
             // 版本清单：开页那一发回来之后才有东西。
             const bool loaded = pumpUntil([page] { return page->versionRowCount() == 3; }, 10000);
@@ -343,9 +361,25 @@ void runResourceDetailPageTests() {
             const int chip121 = chipIndexOf(QStringLiteral("1.21.1"));
             check(chip121 > 0, "ZJ5 找得到「1.21.1」那一颗（0 号恒是「全部」）");
             if (chip121 > 0) {
+                // 用户的路径：先点开 1.21 这一组，再点里面的 1.21.1。
+                QPushButton *group121 = groupButtonOf(QStringLiteral("1.21"));
+                check(group121 != nullptr && !chips.at(chip121)->isVisibleTo(page),
+                      "★ ZJ5 点开之前 1.21.1 是收着的（隐藏）");
+                if (group121 != nullptr) {
+                    group121->click();
+                    QApplication::processEvents();
+                }
+                check(page->expandedChipGroup() == QStringLiteral("1.21") &&
+                          chips.at(chip121)->isVisibleTo(page) &&
+                          page->currentChip().isEmpty() && page->groupCount() == 2,
+                      "★ ZJ5 点开 1.21 组：1.21.1 露出来；只是展开，不筛（仍是整份两组）");
                 chips.at(chip121)->click();
             }
             QApplication::processEvents();
+            check(page->expandedChipGroup() == QStringLiteral("1.21") &&
+                      page->chipGroupButtons().size() == 2 &&
+                      groupButtonOf(QStringLiteral("1.21"))->isChecked(),
+                  "ZJ5 选了 1.21.1：1.21 组保持展开、组按钮亮着");
             check(api.requests.size() == requestsBeforeChip,
                   "ZJ5 点 chip **一个请求都不发**（在这一排上筛，就是拿已经在手里的清单筛一遍，"
                   "不是按这一档再问一次接口）",
@@ -364,6 +398,10 @@ void runResourceDetailPageTests() {
                       page->groupTitleAt(0) == QStringLiteral("Forge 1.20.1"),
                   "ZJ5 换一档换一份（1.20.1 那一条只落在它自己那一档下）",
                   QStringLiteral("%1 组 %2 条").arg(page->groupCount()).arg(page->versionRowCount()));
+            check(page->expandedChipGroup() == QStringLiteral("1.20") &&
+                      groupButtonOf(QStringLiteral("1.20"))->isChecked() &&
+                      !groupButtonOf(QStringLiteral("1.21"))->isChecked(),
+                  "ZJ5 换到 1.20.1：展开的组与亮着的组按钮都跟到 1.20");
 
             // ---- ZJ5b. 前置名字**问不着**的时候，不许原地重发（R3）----
             //

@@ -71,7 +71,8 @@ void ResourcePageController::setup() {
 }
 
 void ResourcePageController::applyChips(const QStringList &declaredGameVersions,
-                                        bool showSnapshots, const QString &wanted) {
+                                        bool showSnapshots, const QString &wanted,
+                                        bool keepExpanded) {
     if (m_page == nullptr) {
         return;
     }
@@ -86,9 +87,12 @@ void ResourcePageController::applyChips(const QStringList &declaredGameVersions,
         ResourceDetail::Chip chip;
         chip.key = gameVersion;
         chip.text = gameVersion;
+        // 大版本组：`1.21.4` → 「1.21」；快照与预发布跟着所属版本走，归不进去的放「其他」。
+        const QString series = ResourceCatalog::gameVersionSeriesOf(gameVersion);
+        chip.group = series.isEmpty() ? tr("其他") : series;
         chips.append(chip);
     }
-    m_page->setChips(chips, wanted);
+    m_page->setChips(chips, wanted, keepExpanded);
 }
 
 bool ResourcePageController::open(const QString &iconKey, const QString &kindKey,
@@ -286,7 +290,7 @@ void ResourcePageController::onShowSnapshotsChanged(bool showSnapshots) {
     // 那条线上甩回「全部」。换算的规则只有一处，见 ResourceCatalog::gameVersionAfterToggle。
     const QString wanted = ResourceCatalog::gameVersionAfterToggle(
         m_state.declaredGameVersions, showSnapshots, m_state.chip);
-    applyChips(m_state.declaredGameVersions, showSnapshots, wanted);
+    applyChips(m_state.declaredGameVersions, showSnapshots, wanted, /*keepExpanded=*/true);
     // 按着的是哪一颗**以页面为准**：换算出来的那一颗要是表里没有（对不上），`setChips`
     // 会把它纠正成「全部」，这儿跟着抄回来 —— 两个状态各说各的才是真出问题的地方。
     m_state.chip = m_page->currentChip();

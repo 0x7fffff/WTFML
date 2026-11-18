@@ -152,8 +152,9 @@ public:
 
 private:
     /// 把那一排 chip 摆成「这一份声明表 + 这一档（折 / 不折）」该有的样子。
+    /// 细版本按 `gameVersionSeriesOf()` 归到大版本组；@p keepExpanded 见 `ResourceDetailPage::setChips()`。
     void applyChips(const QStringList &declaredGameVersions, bool showSnapshots,
-                    const QString &wanted);
+                    const QString &wanted, bool keepExpanded = false);
     /// 摆 chip 与版本列表中间那一行（"这一版要装的前置"）。
     void updateDependencies();
 

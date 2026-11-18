@@ -1006,6 +1006,15 @@ QString majorGameVersionOf(const QString &version) {
     return shape.stem;
 }
 
+QString gameVersionSeriesOf(const QString &version) {
+    const QString stem = majorGameVersionOf(version.trimmed());
+    // 折完不是纯数字加点（周快照、b1.7.3、1.RV 这类）= 没有大版本可归。
+    if (!isPlainVersionStem(stem)) {
+        return QString();
+    }
+    return stem.section(QLatin1Char('.'), 0, 1);
+}
+
 QStringList gameVersionChoices(const QStringList &declaredGameVersions, bool showSnapshots) {
     QStringList out;
     out.reserve(declaredGameVersions.size());
