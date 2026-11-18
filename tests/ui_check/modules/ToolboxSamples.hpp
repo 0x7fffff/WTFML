@@ -97,10 +97,9 @@ inline void fillToolboxSamples(ToolboxPage &page, ToolboxPage::Tool tool) {
         page.setBrewingForms({QStringLiteral("普通"), QStringLiteral("喷溅型"), QStringLiteral("滞留型")});
         page.setBrewingVersions({QString(), QStringLiteral("1.21"), QStringLiteral("1.20")});
         page.setBrewingResult(QStringLiteral(
-            "产出：喷溅型迅捷药水 × 6 瓶（酿 2 次）\n效果：迅捷 I · 3:00\n"
-            "步骤（共 3 步）：\n1. 水瓶 + 下界疣 → 粗制的药水\n2. 粗制的药水 + 糖 → 迅捷药水\n"
-            "3. 迅捷药水 + 火药 → 喷溅型迅捷药水\n"
-            "材料：水瓶 × 6、下界疣 × 2、糖 × 2、火药 × 2、烈焰粉（燃料） × 1（1 个烈焰粉可酿 20 次）"));
+            "产出：迅捷药水 × 1 瓶（酿 1 次）\n效果：迅捷 I · 3:00\n"
+            "步骤（共 2 步）：\n1. 水瓶 + 下界疣 → 粗制的药水\n2. 粗制的药水 + 糖 → 迅捷药水\n"
+            "材料：水瓶 × 1、下界疣 × 1、糖 × 1、烈焰粉（燃料） × 1（1 个烈焰粉可酿 20 次）"));
         break;
     case Tool::Banner:
         page.setBannerColors({QStringLiteral("白色"), QStringLiteral("橙色"), QStringLiteral("品红色"), QStringLiteral("黑色")},

@@ -88,17 +88,22 @@ QString nameWithModifiers(const QString &name, bool extended, bool level2, Form 
 }
 
 /// 效果那一行：药水名 + 等级 + 时长；瞬间药水改写说明、不带时长。
-QString effectText(const PotionInfo &info, bool extended, bool level2) {
+/// 滞留型的时长是普通 / 喷溅的四分之一（效果云每周期只给那么久），秒数向下取整。
+QString effectText(const PotionInfo &info, bool extended, bool level2, Form form) {
     const int level = level2 ? info.upgradedLevel : 1;
     QString text = QStringLiteral("%1 %2").arg(info.name, levelText(level));
     if (!info.instantEffect.isEmpty()) {
+        if (form == Form::Lingering) {
+            return text + QStringLiteral(" · 瞬间，效果云内周期生效");
+        }
         const QString note =
             level2 && !info.instantEffectStrong.isEmpty() ? info.instantEffectStrong
                                                           : info.instantEffect;
         return text + QStringLiteral(" · 瞬间") + note;
     }
-    const int seconds = level2 ? info.strongSeconds
-                               : extended ? info.extendedSeconds : info.baseSeconds;
+    int seconds = level2 ? info.strongSeconds
+                         : extended ? info.extendedSeconds : info.baseSeconds;
+    if (form == Form::Lingering) seconds /= 4;
     return text + QStringLiteral(" · ") + durationText(seconds);
 }
 
@@ -320,7 +325,7 @@ Plan plan(int potionIndex, bool extended, bool level2, Form form, int bottles) {
 
     result.ok = true;
     result.directFromWater = target.fromWater;
-    result.effect = effectText(target, extended, level2);
+    result.effect = effectText(target, extended, level2, form);
     result.summary = QStringLiteral("产出：%1 × %2 瓶（酿 %3 次）")
                          .arg(nameWithModifiers(target.name, extended, level2, form,
                                                 target.upgradedLevel))

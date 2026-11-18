@@ -235,7 +235,7 @@ void runToolboxExtraTests() {
                   && lingering.steps.last().contains(QStringLiteral("龙息"))
                   && lingering.steps.last().endsWith(QStringLiteral("滞留型迅捷药水"))
                   && lingering.summary.contains(QStringLiteral("滞留型"))
-                  && lingering.effect == simple.effect,
+                  && lingering.effect == QStringLiteral("迅捷 I · 0:45"),
               "★★ ZAI3 滞留型：先火药（喷溅）再龙息 —— 龙息不能直接加在普通药水上",
               lingering.steps.join(QStringLiteral(" / ")));
     }
@@ -542,8 +542,8 @@ void runToolboxExtraTests() {
                       && hasMaterial(p, QStringLiteral("火药 × 1"))
                       && hasMaterial(p, QStringLiteral("龙息 × 1"))
                       && p.summary == QStringLiteral("产出：滞留型迅捷药水 × 1 瓶（酿 1 次）")
-                      && p.effect == QStringLiteral("迅捷 I · 3:00"),
-                  "★★ ZAI6 滞留（龙息）：先火药再龙息，结果格式与普通一致", p.detailText());
+                      && p.effect == QStringLiteral("迅捷 I · 0:45"),
+                  "★★ ZAI6 滞留（龙息）：先火药再龙息，效果时长按四分之一（0:45）", p.detailText());
         }
 
         // 瞬间效果（治疗 / 伤害）：写说明，不写持续时间。
@@ -569,6 +569,57 @@ void runToolboxExtraTests() {
                           && !one.effect.contains(QLatin1Char(':')),
                       "★★ ZAI6 伤害是瞬间效果：写说明、不写持续时间", one.effect);
             }
+        }
+    }
+
+    // ---------- ZAI7. 酿造：滞留型的效果时长按普通型四分之一 ----------
+    {
+        const int swift = 0;
+        const Brewing::Plan base = Brewing::plan(swift, false, false, Brewing::Form::Lingering, 1);
+        const Brewing::Plan extended =
+            Brewing::plan(swift, true, false, Brewing::Form::Lingering, 1);
+        const Brewing::Plan level2 =
+            Brewing::plan(swift, false, true, Brewing::Form::Lingering, 1);
+        check(base.effect == QStringLiteral("迅捷 I · 0:45")
+                  && extended.effect == QStringLiteral("迅捷 I · 2:00")
+                  && level2.effect == QStringLiteral("迅捷 II · 0:22"),
+              "★★ ZAI7 滞留迅捷：3:00 → 0:45、延长 8:00 → 2:00、II 1:30 → 0:22（向下取整）",
+              base.effect + QStringLiteral(" / ") + extended.effect + QStringLiteral(" / ")
+                  + level2.effect);
+        check(base.detailText().contains(QStringLiteral("效果：迅捷 I · 0:45")),
+              "★★ ZAI7 明细里摆的就是这四分之一时长", base.detailText().left(120));
+
+        const int turtle = Brewing::potionNames().indexOf(QStringLiteral("海龟大师"));
+        if (turtle >= 0) {
+            const Brewing::Plan p =
+                Brewing::plan(turtle, false, false, Brewing::Form::Lingering);
+            check(p.effect == QStringLiteral("海龟大师 I · 0:05"),
+                  "★★ ZAI7 滞留海龟大师：0:20 → 0:05", p.effect);
+        }
+
+        const int poison = Brewing::potionNames().indexOf(QStringLiteral("中毒"));
+        if (poison >= 0) {
+            const Brewing::Plan p =
+                Brewing::plan(poison, false, false, Brewing::Form::Lingering);
+            check(p.effect == QStringLiteral("中毒 I · 0:11"),
+                  "★★ ZAI7 滞留中毒：0:45 → 0:11（11.25 秒向下取整）", p.effect);
+        }
+
+        const int healing = Brewing::potionNames().indexOf(QStringLiteral("治疗"));
+        if (healing >= 0) {
+            const Brewing::Plan normal =
+                Brewing::plan(healing, false, true, Brewing::Form::Normal);
+            const Brewing::Plan splash =
+                Brewing::plan(healing, false, true, Brewing::Form::Splash);
+            const Brewing::Plan lingering =
+                Brewing::plan(healing, false, true, Brewing::Form::Lingering);
+            check(normal.effect == QStringLiteral("治疗 II · 瞬间恢复 8 点生命值")
+                      && splash.effect == QStringLiteral("治疗 II · 瞬间恢复 8 点生命值")
+                      && lingering.effect
+                             == QStringLiteral("治疗 II · 瞬间，效果云内周期生效"),
+                  "★★ ZAI7 滞留治疗 II：换成「瞬间，效果云内周期生效」，普通 / 喷溅仍是原说明",
+                  normal.effect + QStringLiteral(" / ") + splash.effect + QStringLiteral(" / ")
+                      + lingering.effect);
         }
     }
 
