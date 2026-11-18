@@ -63,29 +63,26 @@ int UiBackupActionsChecks() {
                   "（一颗是整个存档的压缩包、一颗只是 level.dat 那个文件）",
                   backupOne != nullptr ? backupOne->toolTip() : QStringLiteral("<没找到>"));
 
-            // 次序：重命名 → 打开文件夹 → 立即备份 → 恢复备份… → 打开备份目录 → 删除世界。
-            // 三颗新的夹在"打开文件夹"和"删除"中间：前面那几颗是"这个存档叫什么 / 在哪儿"，
-            // 中间这三颗是"留一份 / 换回去 / 去看备份"，最后才是"删掉"。
-            const auto orderOf = [](QWidget *w) {
-                const QPoint p = w->mapToGlobal(QPoint(0, 0));
-                return QPoint(p.x(), p.y());
-            };
-            const bool ordered = rename != nullptr && openFolder != nullptr && remove != nullptr
-                                 && orderOf(rename).x() < orderOf(openFolder).x()
-                                 && orderOf(openFolder).x() < orderOf(fullBackup).x()
-                                 && orderOf(fullBackup).x() < orderOf(restore).x()
-                                 && orderOf(restore).x() < orderOf(backupFolder).x()
-                                 && orderOf(backupFolder).x() < orderOf(remove).x();
-            check(ordered,
-                  "★ U30.1 三颗新按钮夹在「打开文件夹」和「删除世界」中间（留一份 / 换回去 / "
-                  "去看备份 是一档，删掉是另一档）",
-                  QStringLiteral("x: %1 %2 %3 %4 %5 %6")
-                      .arg(fullBackup->mapToGlobal(QPoint(0, 0)).x())
-                      .arg(restore->mapToGlobal(QPoint(0, 0)).x())
-                      .arg(backupFolder->mapToGlobal(QPoint(0, 0)).x())
-                      .arg(openFolder->mapToGlobal(QPoint(0, 0)).x())
-                      .arg(rename->mapToGlobal(QPoint(0, 0)).x())
-                      .arg(remove->mapToGlobal(QPoint(0, 0)).x()));
+            // 次序（453a074f 起分组排）：首行是「← 返回」与世界名，下面两排才是操作 ——
+            //   第二排：重命名 → 立即备份 → 恢复备份…（"叫它什么 / 留一份 / 换回去"）
+            //   第三排：打开文件夹 → 打开备份目录 → 删除世界（"在哪儿 / 备份在哪儿 / 删掉"，
+            //          删除压在最后、贴着右边缘）
+            // 分组是同事那一次的意图：同一次提交里 `UiInputWidthCheck` 钉的也是这个版式。
+            const auto gx = [](QWidget *w) { return w == nullptr ? -1 : w->mapToGlobal(QPoint(0, 0)).x(); };
+            const auto gy = [](QWidget *w) { return w == nullptr ? -1 : w->mapToGlobal(QPoint(0, 0)).y(); };
+            const bool rowsFound = rename != nullptr && fullBackup != nullptr && restore != nullptr &&
+                                   openFolder != nullptr && backupFolder != nullptr && remove != nullptr;
+            check(rowsFound && gy(rename) == gy(fullBackup) && gy(fullBackup) == gy(restore) &&
+                      gy(openFolder) == gy(backupFolder) && gy(backupFolder) == gy(remove) &&
+                      gy(rename) < gy(openFolder) && gx(rename) < gx(fullBackup) &&
+                      gx(fullBackup) < gx(restore) && gx(openFolder) < gx(backupFolder) &&
+                      gx(backupFolder) < gx(remove),
+                  "★ U30.1 操作分两排：重命名 / 立即备份 / 恢复备份… 一排，打开文件夹 / "
+                  "打开备份目录 / 删除世界 另一排（在下面，删除在最右）",
+                  QStringLiteral("y 重命名 %1 / 打开文件夹 %2；x %3 %4 %5 | %6 %7 %8")
+                      .arg(gy(rename)).arg(gy(openFolder))
+                      .arg(gx(fullBackup)).arg(gx(restore)).arg(gx(rename))
+                      .arg(gx(openFolder)).arg(gx(backupFolder)).arg(gx(remove)));
 
             // ---- 颜色那一档（`Theme::ButtonKind` 的分法就是唯一出处）----
             const auto kindOf = [](QPushButton *button) {
@@ -94,11 +91,16 @@ int UiBackupActionsChecks() {
                                        : Theme::buttonKindKey(Theme::ButtonKind::Accent);
             };
             const QString neutral = Theme::buttonKindKey(Theme::ButtonKind::Neutral);
-            const QString ghost = Theme::buttonKindKey(Theme::ButtonKind::Ghost);
+            const QString accent = Theme::buttonKindKey(Theme::ButtonKind::Accent);
             const QString danger = Theme::buttonKindKey(Theme::ButtonKind::Danger);
-            check(kindOf(fullBackup) == neutral && kindOf(backupFolder) == ghost,
-                  "U30.1 「立即备份」保留一般性按钮，「打开备份目录」降为低频 Ghost",
-                  kindOf(fullBackup) + QStringLiteral(" / ") + kindOf(backupFolder));
+            // 档位照 453a074f 的实现：两颗「打开…」是确认性的 Accent，「立即备份」是一般性
+            // 的 Neutral（视觉分层由同事定，这里只钉住"改没改过"）。
+            const QString openFolderKind = openFolder != nullptr ? kindOf(openFolder) : QString();
+            check(kindOf(fullBackup) == neutral && openFolderKind == accent &&
+                      kindOf(backupFolder) == accent,
+                  "U30.1 「立即备份」是一般性按钮，两颗「打开…」是确认性 Accent",
+                  kindOf(fullBackup) + QStringLiteral(" / ") + openFolderKind +
+                      QStringLiteral(" / ") + kindOf(backupFolder));
             // 「恢复备份…」是红的：它把**这个存档现在这一份**整个换掉。`Danger` 那一档的
             // 界定是"删了就拿不回来"，点名的几条里就有"还原"（见 Theme.hpp 里 ButtonKind
             // 那段）；还原之前自动留的那一份是兜底，不等于这一步没风险。
