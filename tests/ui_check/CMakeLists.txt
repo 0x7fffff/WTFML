@@ -237,6 +237,9 @@ endif()
 target_link_libraries(ui_check PRIVATE ui_legacy_cases)
 if(WTFML_COMPACT_TEST_RUNNERS)
  add_executable(ui_check_modules modules/ModuleMain.cpp)
+if(COMMAND wtfml_embed_translations)
+    wtfml_embed_translations(ui_check_modules)
+endif()
  target_link_libraries(ui_check_modules PRIVATE wtfml_ui_fixture)
  target_include_directories(ui_check_modules PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
  target_compile_definitions(ui_check_modules PRIVATE WTFML_COMPACT_RUNNER)
@@ -445,5 +448,6 @@ set_tests_properties(wtfml.ui PROPERTIES
 
 get_property(WTFML_UI_TESTS DIRECTORY PROPERTY TESTS)
 set_property(TEST ${WTFML_UI_TESTS} APPEND PROPERTY LABELS ci-ui)
+
 
 

@@ -5416,8 +5416,8 @@ Want to stop it?</translation>
             <translation>Mica</translation>
         </message>
         <message>
-            <source>风景底</source>
-            <translation>Scenic background</translation>
+            <source>风景</source>
+            <translation>Scene</translation>
         </message>
         <message>
             <source>纯色</source>

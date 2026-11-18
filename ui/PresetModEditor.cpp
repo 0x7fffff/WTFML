@@ -63,11 +63,12 @@ PresetModEditor::PresetModEditor(const QList<Entry> &entries, QWidget *parent) :
         QCoreApplication::translate("PresetModEditor", "限定游戏版本"),
         QCoreApplication::translate("PresetModEditor", "限定加载器"),
     });
-    m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setAlternatingRowColors(false);
-    m_table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     m_table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    m_table->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
+    m_table->horizontalHeader()->setSectionResizeMode(5, QHeaderView::ResizeToContents);
     m_table->verticalHeader()->hide();  // 行号没有用处（顺序不影响安装），和预设选项表一样不显示
     layout->addWidget(m_table, 1);
     for (const auto &entry : entries) append(entry);
@@ -211,3 +212,4 @@ void PresetModEditor::applyUnknownFilter() {
     for (int row = 0; row < m_table->rowCount(); ++row)
         m_table->setRowHidden(row, only && !unrecognizedRow(row));
 }
+

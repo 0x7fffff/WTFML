@@ -276,10 +276,15 @@ QString modeName(Mode mode) {
     switch (mode) {
     case Mode::Acrylic: return QCoreApplication::translate("Glass", "亚克力");
     case Mode::Mica: return QCoreApplication::translate("Glass", "云母");
-    case Mode::Scene: return QCoreApplication::translate("Glass", "风景底");
+    case Mode::Scene: return QCoreApplication::translate("Glass", "风景");
     case Mode::Solid: return QCoreApplication::translate("Glass", "纯色");
     }
     return QString();
+}
+
+QString modeShortName(Mode mode) {
+    if (mode == Mode::Scene) return QCoreApplication::translate("Glass", "风景");
+    return modeName(mode);
 }
 
 Mode factoryMode(int threadCount, bool legacyGlassOff) {
@@ -880,3 +885,4 @@ void Backdrop::paintEvent(QPaintEvent *) {
 }
 
 }  // namespace Glass
+

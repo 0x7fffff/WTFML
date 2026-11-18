@@ -17,6 +17,7 @@
 //
 // 采样口径见 `SurfaceScan.hpp`。
 #include "Support.hpp"
+#include "UiLanguage.hpp"
 #include "SurfaceScan.hpp"
 
 #include "AccountSkinDialog.hpp"
@@ -65,6 +66,7 @@
 #include <QLabel>
 #include <QMainWindow>
 #include <QSettings>
+#include <QTranslator>
 #include <QStackedWidget>
 #include <QTableView>
 #include <QTableWidget>
@@ -222,6 +224,12 @@ void fillInstanceTree(MainWindowUI &ui);
 
 int UiSurfaceSweepCheck(QApplication &app) {
     Anim::setEnabled(false);
+    // WTFML_SURFACE_LANGUAGE=en：英文样本巡检（样张与中文一一对应）。
+    static QTranslator surfaceTranslator;
+    if (qEnvironmentVariable("WTFML_SURFACE_LANGUAGE") == QLatin1String("en") &&
+        UiLanguage::loadEnglish(&surfaceTranslator)) {
+        app.installTranslator(&surfaceTranslator);
+    }
     QTemporaryDir settingsDir(QDir::current().filePath(QStringLiteral(".surface-sweep-XXXXXX")));
     if (!settingsDir.isValid()) return 2;
     QSettings::setDefaultFormat(QSettings::IniFormat);
@@ -1356,3 +1364,5 @@ void fillInstanceTree(MainWindowUI &ui) {
 }
 
 }  // namespace
+
+

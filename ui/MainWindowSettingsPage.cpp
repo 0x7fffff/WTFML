@@ -526,7 +526,7 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         segLayout->setSpacing(2);
         QList<QPushButton *> segments;
         for (Glass::Mode m : {Glass::Mode::Acrylic, Glass::Mode::Mica, Glass::Mode::Scene}) {
-            auto *segment = new QPushButton(Glass::modeName(m), material);
+            auto *segment = new QPushButton(Glass::modeShortName(m), material);
             segment->setProperty("glassMode", int(m));
             segLayout->addWidget(segment);
             segments.append(segment);
@@ -949,4 +949,5 @@ QString MainWindowUI::themeSemanticText(int index) {
         return QString();
     }
 }
+
 
