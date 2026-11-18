@@ -4,6 +4,7 @@
  */
 
 #include "tools/Brewing.hpp"
+#include <QCoreApplication>
 #include "tools/GameVersion.hpp"
 
 #include <QHash>
@@ -28,45 +29,45 @@ struct Recipe {
 };
 
 const Recipe kRecipes[] = {
-    {"迅捷", "糖", -1, false, true, true},
-    {"跳跃", "兔子脚", -1, false, true, true},
-    {"治疗", "闪烁的西瓜片", -1, false, false, true},
-    {"伤害", "发酵蜘蛛眼", 2, false, false, true},
-    {"中毒", "蜘蛛眼", -1, false, true, true},
-    {"力量", "烈焰粉", -1, false, true, true},
+    {QT_TRANSLATE_NOOP("Brewing", "迅捷"), QT_TRANSLATE_NOOP("Brewing", "糖"), -1, false, true, true},
+    {QT_TRANSLATE_NOOP("Brewing", "跳跃"), QT_TRANSLATE_NOOP("Brewing", "兔子脚"), -1, false, true, true},
+    {QT_TRANSLATE_NOOP("Brewing", "治疗"), QT_TRANSLATE_NOOP("Brewing", "闪烁的西瓜片"), -1, false, false, true},
+    {QT_TRANSLATE_NOOP("Brewing", "伤害"), QT_TRANSLATE_NOOP("Brewing", "发酵蜘蛛眼"), 2, false, false, true},
+    {QT_TRANSLATE_NOOP("Brewing", "中毒"), QT_TRANSLATE_NOOP("Brewing", "蜘蛛眼"), -1, false, true, true},
+    {QT_TRANSLATE_NOOP("Brewing", "力量"), QT_TRANSLATE_NOOP("Brewing", "烈焰粉"), -1, false, true, true},
     // 再生能加红石延长（1:30 → 3:00），荧石粉升 II —— 之前那张表把它标成了「不能延长」。
-    {"再生", "恶魂之泪", -1, false, true, true},
-    {"抗火", "岩浆膏", -1, false, true, false},
-    {"水肺", "河豚", -1, false, true, false},
-    {"夜视", "金胡萝卜", -1, false, true, false},
-    {"隐身", "发酵蜘蛛眼", 9, false, true, false},
+    {QT_TRANSLATE_NOOP("Brewing", "再生"), QT_TRANSLATE_NOOP("Brewing", "恶魂之泪"), -1, false, true, true},
+    {QT_TRANSLATE_NOOP("Brewing", "抗火"), QT_TRANSLATE_NOOP("Brewing", "岩浆膏"), -1, false, true, false},
+    {QT_TRANSLATE_NOOP("Brewing", "水肺"), QT_TRANSLATE_NOOP("Brewing", "河豚"), -1, false, true, false},
+    {QT_TRANSLATE_NOOP("Brewing", "夜视"), QT_TRANSLATE_NOOP("Brewing", "金胡萝卜"), -1, false, true, false},
+    {QT_TRANSLATE_NOOP("Brewing", "隐身"), QT_TRANSLATE_NOOP("Brewing", "发酵蜘蛛眼"), 9, false, true, false},
     // 荧石粉给的是**迟缓 IV**（不是 II）—— 这是唯一一种升级跳两级的药水。
-    {"迟缓", "发酵蜘蛛眼", 0, false, true, true, 4},
-    {"缓降", "幻翼膜", -1, true, true, false},
-    {"虚弱", "发酵蜘蛛眼", -1, true, true, false},
-    {"海龟大师", "海龟壳", -1, false, true, true},
+    {QT_TRANSLATE_NOOP("Brewing", "迟缓"), QT_TRANSLATE_NOOP("Brewing", "发酵蜘蛛眼"), 0, false, true, true, 4},
+    {QT_TRANSLATE_NOOP("Brewing", "缓降"), QT_TRANSLATE_NOOP("Brewing", "幻翼膜"), -1, true, true, false},
+    {QT_TRANSLATE_NOOP("Brewing", "虚弱"), QT_TRANSLATE_NOOP("Brewing", "发酵蜘蛛眼"), -1, true, true, false},
+    {QT_TRANSLATE_NOOP("Brewing", "海龟大师"), QT_TRANSLATE_NOOP("Brewing", "海龟壳"), -1, false, true, true},
     // 1.21 加的四瓶：都从**粗制的药水**来（不是水瓶直做），也没有延长 / II 级版本。
     // 材料名照 `zh_cn.json`：旋风棒 / 蜘蛛网 / 黏液块 / 石头。
-    {"盘丝", "蜘蛛网", -1, false, false, false, 2, "1.21"},
-    {"蓄风", "旋风棒", -1, false, false, false, 2, "1.21"},
-    {"渗浆", "黏液块", -1, false, false, false, 2, "1.21"},
-    {"虫蚀", "石头", -1, false, false, false, 2, "1.21"},
+    {QT_TRANSLATE_NOOP("Brewing", "盘丝"), QT_TRANSLATE_NOOP("Brewing", "蜘蛛网"), -1, false, false, false, 2, "1.21"},
+    {QT_TRANSLATE_NOOP("Brewing", "蓄风"), QT_TRANSLATE_NOOP("Brewing", "旋风棒"), -1, false, false, false, 2, "1.21"},
+    {QT_TRANSLATE_NOOP("Brewing", "渗浆"), QT_TRANSLATE_NOOP("Brewing", "黏液块"), -1, false, false, false, 2, "1.21"},
+    {QT_TRANSLATE_NOOP("Brewing", "虫蚀"), QT_TRANSLATE_NOOP("Brewing", "石头"), -1, false, false, false, 2, "1.21"},
 };
 
 int recipeCount() { return int(sizeof(kRecipes) / sizeof(kRecipes[0])); }
 
-QString potionText(const QString &name) { return name + QStringLiteral("药水"); }
+QString potionText(const QString &name) { return name + QCoreApplication::translate("Brewing", "药水"); }
 
 QString nameWithModifiers(const QString &name, bool extended, bool level2, Form form,
                           int upgradedLevel) {
     QString prefix;
     switch (form) {
-    case Form::Splash: prefix = QStringLiteral("喷溅型"); break;
-    case Form::Lingering: prefix = QStringLiteral("滞留型"); break;
+    case Form::Splash: prefix = QCoreApplication::translate("Brewing", "喷溅型"); break;
+    case Form::Lingering: prefix = QCoreApplication::translate("Brewing", "滞留型"); break;
     case Form::Normal: break;
     }
     QString text = prefix + potionText(name);
-    if (extended) text += QStringLiteral("（延长）");
+    if (extended) text += QCoreApplication::translate("Brewing", "（延长）");
     if (level2) text += QLatin1Char(' ') + levelText(upgradedLevel > 0 ? upgradedLevel : 2);
     return text;
 }
@@ -77,9 +78,9 @@ int formCount() { return 3; }
 
 QString formName(Form form) {
     switch (form) {
-    case Form::Normal: return QStringLiteral("普通");
-    case Form::Splash: return QStringLiteral("喷溅型");
-    case Form::Lingering: return QStringLiteral("滞留型");
+    case Form::Normal: return QCoreApplication::translate("Brewing", "普通");
+    case Form::Splash: return QCoreApplication::translate("Brewing", "喷溅型");
+    case Form::Lingering: return QCoreApplication::translate("Brewing", "滞留型");
     }
     return QString();
 }
@@ -114,8 +115,8 @@ PotionInfo potionAt(int index) {
     PotionInfo info;
     if (index < 0 || index >= recipeCount()) return info;
     const Recipe &recipe = kRecipes[index];
-    info.name = QString::fromUtf8(recipe.name);
-    info.ingredient = QString::fromUtf8(recipe.ingredient);
+    info.name = QCoreApplication::translate("Brewing", recipe.name);
+    info.ingredient = QCoreApplication::translate("Brewing", recipe.ingredient);
     info.parent = recipe.parent;
     info.fromWater = recipe.fromWater;
     info.extendable = recipe.extendable;
@@ -127,7 +128,7 @@ PotionInfo potionAt(int index) {
 
 QStringList potionNames() {
     QStringList names;
-    for (const Recipe &recipe : kRecipes) names.append(QString::fromUtf8(recipe.name));
+    for (const Recipe &recipe : kRecipes) names.append(QCoreApplication::translate("Brewing", recipe.name));
     return names;
 }
 
@@ -154,17 +155,17 @@ QString Plan::detailText() const {
         lines << QStringLiteral("%1. %2").arg(i + 1).arg(steps.at(i));
     }
     lines << QString();
-    lines << QStringLiteral("• 要 %1 瓶：一共酿 %2 次（一次最多 %3 瓶）")
+    lines << QCoreApplication::translate("Brewing", "• 要 %1 瓶：一共酿 %2 次（一次最多 %3 瓶）")
                  .arg(bottles)
                  .arg(operations)
                  .arg(maxBottlesPerOperation());
     if (!materials.isEmpty()) {
-        lines << QStringLiteral("• 材料合计（每一步按 %1 次备料）：%2")
+        lines << QCoreApplication::translate("Brewing", "• 材料合计（每一步按 %1 次备料）：%2")
                      .arg(operations)
-                     .arg(materials.join(QStringLiteral("、")));
+                     .arg(materials.join(QCoreApplication::translate("Brewing", "、")));
     }
-    lines << QStringLiteral("• 玻璃瓶 %1 个（装水用）。").arg(bottles);
-    lines << QStringLiteral("• 烈焰粉燃料：酿 %1 次 ⇒ %2 个（1 个烈焰粉够 20 次酿造）。")
+    lines << QCoreApplication::translate("Brewing", "• 玻璃瓶 %1 个（装水用）。").arg(bottles);
+    lines << QCoreApplication::translate("Brewing", "• 烈焰粉燃料：酿 %1 次 ⇒ %2 个（1 个烈焰粉够 20 次酿造）。")
                  .arg(operations)
                  .arg(blazePowderFor(operations));
     return lines.join(QLatin1Char('\n'));
@@ -173,31 +174,30 @@ QString Plan::detailText() const {
 Plan plan(int potionIndex, bool extended, bool level2, Form form, int bottles) {
     Plan result;
     if (potionIndex < 0 || potionIndex >= recipeCount()) {
-        result.error = QStringLiteral("认不出这种药水（下标越界）。");
+        result.error = QCoreApplication::translate("Brewing", "认不出这种药水（下标越界）。");
         return result;
     }
     if (extended && level2) {
-        result.error = QStringLiteral("红石粉（延长）和荧石粉（升一级）在游戏里是二选一："
-                                      "后加的那一样会把先加的冲掉。");
+        result.error = QCoreApplication::translate("Brewing", "红石粉（延长）和荧石粉（升一级）在游戏里是二选一：" "后加的那一样会把先加的冲掉。");
         return result;
     }
     const PotionInfo target = potionAt(potionIndex);
     if (extended && !target.extendable) {
-        result.error = QStringLiteral("%1没有延长版本（游戏里不能给它加红石粉）。")
+        result.error = QCoreApplication::translate("Brewing", "%1没有延长版本（游戏里不能给它加红石粉）。")
                            .arg(potionText(target.name));
         return result;
     }
     if (level2 && !target.upgradable) {
-        result.error = QStringLiteral("%1没有强化版本（游戏里不能给它加荧石粉）。")
+        result.error = QCoreApplication::translate("Brewing", "%1没有强化版本（游戏里不能给它加荧石粉）。")
                            .arg(potionText(target.name));
         return result;
     }
     if (int(form) < 0 || int(form) >= formCount()) {
-        result.error = QStringLiteral("认不出这种形态（下标越界）。");
+        result.error = QCoreApplication::translate("Brewing", "认不出这种形态（下标越界）。");
         return result;
     }
     if (bottles < 1 || bottles > maxBottles()) {
-        result.error = QStringLiteral("瓶数只能是 1 – %1（%2 不在这个范围里）。")
+        result.error = QCoreApplication::translate("Brewing", "瓶数只能是 1 – %1（%2 不在这个范围里）。")
                            .arg(maxBottles())
                            .arg(bottles);
         return result;
@@ -224,21 +224,21 @@ Plan plan(int potionIndex, bool extended, bool level2, Form form, int bottles) {
         cursor = potionAt(cursor).parent;
     }
 
-    result.steps << QStringLiteral("玻璃瓶装水 → 水瓶（要几瓶就摆几瓶，一次最多 %1 瓶）")
+    result.steps << QCoreApplication::translate("Brewing", "玻璃瓶装水 → 水瓶（要几瓶就摆几瓶，一次最多 %1 瓶）")
                         .arg(maxBottlesPerOperation());
     bool first = true;
     for (int index : chain) {
         const PotionInfo info = potionAt(index);
         const QString produced = potionText(info.name);
         if (first && info.fromWater) {
-            result.steps << QStringLiteral("水瓶 + %1 → %2").arg(info.ingredient, produced);
+            result.steps << QCoreApplication::translate("Brewing", "水瓶 + %1 → %2").arg(info.ingredient, produced);
             addIngredient(info.ingredient);
         } else {
             if (first) {
-                result.steps << QStringLiteral("水瓶 + 下界疣 → 粗制的药水");
-                addIngredient(QStringLiteral("下界疣"));
+                result.steps << QCoreApplication::translate("Brewing", "水瓶 + 下界疣 → 粗制的药水");
+                addIngredient(QCoreApplication::translate("Brewing", "下界疣"));
             }
-            const QString source = first ? QStringLiteral("粗制的药水")
+            const QString source = first ? QCoreApplication::translate("Brewing", "粗制的药水")
                                          : potionText(potionAt(info.parent).name);
             result.steps << QStringLiteral("%1 + %2 → %3").arg(source, info.ingredient, produced);
             addIngredient(info.ingredient);
@@ -248,26 +248,26 @@ Plan plan(int potionIndex, bool extended, bool level2, Form form, int bottles) {
 
     // ---------- 后处理 ----------
     if (extended) {
-        result.steps << QStringLiteral("红石粉 → 时长延长");
-        addIngredient(QStringLiteral("红石粉"));
+        result.steps << QCoreApplication::translate("Brewing", "红石粉 → 时长延长");
+        addIngredient(QCoreApplication::translate("Brewing", "红石粉"));
     }
     if (level2) {
-        result.steps << QStringLiteral("荧石粉 → 等级提升到 %1")
+        result.steps << QCoreApplication::translate("Brewing", "荧石粉 → 等级提升到 %1")
                             .arg(levelText(target.upgradedLevel));
-        addIngredient(QStringLiteral("荧石粉"));
+        addIngredient(QCoreApplication::translate("Brewing", "荧石粉"));
     }
     switch (form) {
     case Form::Normal: break;
     case Form::Splash:
-        result.steps << QStringLiteral("火药 → 喷溅型");
-        addIngredient(QStringLiteral("火药"));
+        result.steps << QCoreApplication::translate("Brewing", "火药 → 喷溅型");
+        addIngredient(QCoreApplication::translate("Brewing", "火药"));
         break;
     case Form::Lingering:
         // 龙息只能加在喷溅药水上：顺序里先把火药补上，再上龙息。
-        result.steps << QStringLiteral("火药 → 喷溅型");
-        result.steps << QStringLiteral("龙息 → 滞留型");
-        addIngredient(QStringLiteral("火药"));
-        addIngredient(QStringLiteral("龙息"));
+        result.steps << QCoreApplication::translate("Brewing", "火药 → 喷溅型");
+        result.steps << QCoreApplication::translate("Brewing", "龙息 → 滞留型");
+        addIngredient(QCoreApplication::translate("Brewing", "火药"));
+        addIngredient(QCoreApplication::translate("Brewing", "龙息"));
         break;
     }
 
@@ -279,12 +279,12 @@ Plan plan(int potionIndex, bool extended, bool level2, Form form, int bottles) {
     }
 
     result.ok = true;
-    result.summary = QStringLiteral("一共 %1 步 / 产出：%2")
+    result.summary = QCoreApplication::translate("Brewing", "一共 %1 步 / 产出：%2")
                          .arg(result.steps.size())
                          .arg(nameWithModifiers(target.name, extended, level2, form,
                                                 target.upgradedLevel));
     if (bottles != 1) {
-        result.summary += QStringLiteral(" / %1 瓶（酿 %2 次）")
+        result.summary += QCoreApplication::translate("Brewing", " / %1 瓶（酿 %2 次）")
                               .arg(bottles)
                               .arg(result.operations);
     }

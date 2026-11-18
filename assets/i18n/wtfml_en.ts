@@ -577,6 +577,409 @@
         </message>
     </context>
     <context>
+        <name>ArmorTrim</name>
+        <message>
+            <source>紫水晶质</source>
+            <translation>Amethyst</translation>
+        </message>
+        <message>
+            <source>紫水晶碎片</source>
+            <translation>Amethyst Shard</translation>
+        </message>
+        <message>
+            <source>铜质</source>
+            <translation>Copper</translation>
+        </message>
+        <message>
+            <source>铜锭</source>
+            <translation>Copper ingot</translation>
+        </message>
+        <message>
+            <source>钻石质</source>
+            <translation>Diamond quality</translation>
+        </message>
+        <message>
+            <source>钻石</source>
+            <translation>Diamond</translation>
+        </message>
+        <message>
+            <source>绿宝石质</source>
+            <translation>Emerald</translation>
+        </message>
+        <message>
+            <source>绿宝石</source>
+            <translation>Emerald</translation>
+        </message>
+        <message>
+            <source>金质</source>
+            <translation>Gold</translation>
+        </message>
+        <message>
+            <source>金锭</source>
+            <translation>Gold ingot</translation>
+        </message>
+        <message>
+            <source>铁质</source>
+            <translation>Iron</translation>
+        </message>
+        <message>
+            <source>铁锭</source>
+            <translation>Iron ingot</translation>
+        </message>
+        <message>
+            <source>青金石质</source>
+            <translation>Lapis lazuli</translation>
+        </message>
+        <message>
+            <source>青金石</source>
+            <translation>Lapis lazuli</translation>
+        </message>
+        <message>
+            <source>下界合金质</source>
+            <translation>Netherite</translation>
+        </message>
+        <message>
+            <source>下界合金锭</source>
+            <translation>Netherite Ingot</translation>
+        </message>
+        <message>
+            <source>石英质</source>
+            <translation>Quartz</translation>
+        </message>
+        <message>
+            <source>石英</source>
+            <translation>Quartz</translation>
+        </message>
+        <message>
+            <source>红石质</source>
+            <translation>Red stone</translation>
+        </message>
+        <message>
+            <source>红石粉</source>
+            <translation>Redstone powder</translation>
+        </message>
+        <message>
+            <source>树脂质</source>
+            <translation>Resinous</translation>
+        </message>
+        <message>
+            <source>树脂砖</source>
+            <translation>Resin brick</translation>
+        </message>
+        <message>
+            <source>海岸</source>
+            <translation>Coastal</translation>
+        </message>
+        <message>
+            <source>沉船（藏宝箱）</source>
+            <translation>Shipwreck (Treasure Chest)</translation>
+        </message>
+        <message>
+            <source>圆石</source>
+            <translation>Round stone</translation>
+        </message>
+        <message>
+            <source>哨兵</source>
+            <translation>Sentinel</translation>
+        </message>
+        <message>
+            <source>掠夺者前哨站</source>
+            <translation>Predator Outpost</translation>
+        </message>
+        <message>
+            <source>沙丘</source>
+            <translation>Dune</translation>
+        </message>
+        <message>
+            <source>沙漠神殿</source>
+            <translation>Desert temple</translation>
+        </message>
+        <message>
+            <source>砂岩</source>
+            <translation>Sandstone</translation>
+        </message>
+        <message>
+            <source>荒野</source>
+            <translation>Wilderness</translation>
+        </message>
+        <message>
+            <source>丛林神庙</source>
+            <translation>Jungle Temple</translation>
+        </message>
+        <message>
+            <source>苔石</source>
+            <translation>Moss stone</translation>
+        </message>
+        <message>
+            <source>监守</source>
+            <translation>Guard</translation>
+        </message>
+        <message>
+            <source>远古城市</source>
+            <translation>Ancient city</translation>
+        </message>
+        <message>
+            <source>深板岩圆石</source>
+            <translation>Dark slate cobblestone</translation>
+        </message>
+        <message>
+            <source>眼眸</source>
+            <translation>Eyes</translation>
+        </message>
+        <message>
+            <source>要塞</source>
+            <translation>Fortress</translation>
+        </message>
+        <message>
+            <source>末地石</source>
+            <translation>End stone</translation>
+        </message>
+        <message>
+            <source>恼鬼</source>
+            <translation>Angry ghost</translation>
+        </message>
+        <message>
+            <source>林地府邸</source>
+            <translation>Woodland mansion</translation>
+        </message>
+        <message>
+            <source>潮汐</source>
+            <translation>Tidal</translation>
+        </message>
+        <message>
+            <source>远古守卫者（击杀掉落）</source>
+            <translation>Ancient Guardian (dropped by killing)</translation>
+        </message>
+        <message>
+            <source>海晶石</source>
+            <translation>Prismarine</translation>
+        </message>
+        <message>
+            <source>猪鼻</source>
+            <translation>Pig snout</translation>
+        </message>
+        <message>
+            <source>堡垒遗迹</source>
+            <translation>Fortress ruins</translation>
+        </message>
+        <message>
+            <source>黑石</source>
+            <translation>Black stone</translation>
+        </message>
+        <message>
+            <source>肋骨</source>
+            <translation>Rib cage</translation>
+        </message>
+        <message>
+            <source>下界要塞</source>
+            <translation>Nether Fortress</translation>
+        </message>
+        <message>
+            <source>下界岩</source>
+            <translation>Netherrock</translation>
+        </message>
+        <message>
+            <source>尖塔</source>
+            <translation>Minaret</translation>
+        </message>
+        <message>
+            <source>末地城</source>
+            <translation>End city</translation>
+        </message>
+        <message>
+            <source>紫珀块</source>
+            <translation>Purple amber block</translation>
+        </message>
+        <message>
+            <source>向导</source>
+            <translation>Wizard</translation>
+        </message>
+        <message>
+            <source>古迹废墟（可疑的沙砾）</source>
+            <translation>Ancient ruins (suspicious gravel)</translation>
+        </message>
+        <message>
+            <source>陶瓦</source>
+            <translation>Terracotta</translation>
+        </message>
+        <message>
+            <source>塑造</source>
+            <translation>Shape</translation>
+        </message>
+        <message>
+            <source>幽静</source>
+            <translation>Quiet</translation>
+        </message>
+        <message>
+            <source>牧民</source>
+            <translation>Herdsmen</translation>
+        </message>
+        <message>
+            <source>雇主</source>
+            <translation>Employer</translation>
+        </message>
+        <message>
+            <source>涡流</source>
+            <translation>Vortex</translation>
+        </message>
+        <message>
+            <source>试炼密室（不祥宝库）</source>
+            <translation>Trial Chamber (Ominous Treasure House)</translation>
+        </message>
+        <message>
+            <source>旋风棒</source>
+            <translation>Cyclone Stick</translation>
+        </message>
+        <message>
+            <source>镶铆</source>
+            <translation>Riveted</translation>
+        </message>
+        <message>
+            <source>试炼密室（宝库）</source>
+            <translation>Trial Chamber (Treasure House)</translation>
+        </message>
+        <message>
+            <source>铜块</source>
+            <translation>Copper block</translation>
+        </message>
+        <message>
+            <source>头盔</source>
+            <translation>Helmet</translation>
+        </message>
+        <message>
+            <source>胸甲</source>
+            <translation>Breastplate</translation>
+        </message>
+        <message>
+            <source>护腿</source>
+            <translation>Leggings</translation>
+        </message>
+        <message>
+            <source>靴子</source>
+            <translation>Boots</translation>
+        </message>
+        <message>
+            <source>皮革</source>
+            <translation>Leather</translation>
+        </message>
+        <message>
+            <source>锁链</source>
+            <translation>Chain</translation>
+        </message>
+        <message>
+            <source>铁</source>
+            <translation>Iron</translation>
+        </message>
+        <message>
+            <source>金</source>
+            <translation>Gold</translation>
+        </message>
+        <message>
+            <source>下界合金</source>
+            <translation>Netherite</translation>
+        </message>
+        <message>
+            <source>海龟壳</source>
+            <translation>Turtle shell</translation>
+        </message>
+        <message>
+            <source>盔甲材质认不出来（下标 %1）。</source>
+            <translation>The armor material is unrecognizable (subscript %1).</translation>
+        </message>
+        <message>
+            <source>纹饰图案认不出来（下标 %1）。</source>
+            <translation>The decorative pattern is unrecognizable (subscript %1).</translation>
+        </message>
+        <message>
+            <source>纹饰材料认不出来（下标 %1）。</source>
+            <translation>The decorative material is unrecognizable (subscript %1).</translation>
+        </message>
+        <message>
+            <source>海龟壳只有头盔那一件 —— 没有整套。</source>
+            <translation>The turtle shell only comes with the helmet - not the entire set.</translation>
+        </message>
+        <message>
+            <source>部位认不出来（下标 %1）。</source>
+            <translation>Part not recognized (subscript %1).</translation>
+        </message>
+        <message>
+            <source>做几件只能是 1–4 件（你给了 %1）。</source>
+            <translation>The number of pieces to make can only be 1–4 pieces (you gave %1).</translation>
+        </message>
+        <message>
+            <source>海龟壳只有头盔那一件 —— 没有%1。</source>
+            <translation>The only turtle shell is the helmet - no %1.</translation>
+        </message>
+        <message>
+            <source>%1纹饰模板</source>
+            <translation>%1Decoration template</translation>
+        </message>
+        <message>
+            <source>这枚%1来自：%2；复制用%3。</source>
+            <translation>This %1 comes from: %2; use %3 to copy.</translation>
+        </message>
+        <message>
+            <source>%1是 Java %2 才加入的 —— 更早的版本里没有这枚模板。</source>
+            <translation>%1 was only added to Java %2 - earlier versions did not have this template.</translation>
+        </message>
+        <message>
+            <source>「%1」是 Java %2 才加入的纹饰材料 —— 更早的版本里没有。</source>
+            <translation>"%1" is a decorative material added only in Java %2 - it is not available in earlier versions.</translation>
+        </message>
+        <message>
+            <source>%1四件套</source>
+            <translation>%1Four piece set</translation>
+        </message>
+        <message>
+            <source>去锻造台，把%1 + %2 + 每件盔甲各摆一次（一共四次）</source>
+            <translation>Go to the forging bench and place %1 + %2 + each piece of armor once (four times in total)</translation>
+        </message>
+        <message>
+            <source>%1 + %2 + %3 → 「%2 / %4纹饰的%3」</source>
+            <translation>%1 + %2 + %3 → "%2 / %4 Decorated %3"</translation>
+        </message>
+        <message>
+            <source>整套需要 %1 次锻造，模板和材料各 %1 份。</source>
+            <translation>The complete set requires %1 forgings and requires %1 templates and materials.</translation>
+        </message>
+        <message>
+            <source>%1 / %2纹饰的%3</source>
+            <translation>%1 / %2 Decorated %3</translation>
+        </message>
+        <message>
+            <source>去锻造台：把%1 + %2 + %3 摆进去</source>
+            <translation>Go to the forging table: put %1 + %2 + %3 in it</translation>
+        </message>
+        <message>
+            <source>一次锻造消耗 1 个模板、1 份材料、1 件%1 → 「%2 / %3纹饰的%1」</source>
+            <translation>One forging consumes 1 template, 1 material, and 1 piece %1 → "%2 / %3decorated %1"</translation>
+        </message>
+        <message>
+            <source>模板每打一件消耗一个：%1 件共需 %1 个。</source>
+            <translation>Each template consumes one: %1 pieces, a total of %1 are required.</translation>
+        </message>
+        <message>
+            <source>%1 / %2纹饰的%3 × %4</source>
+            <translation>%1 / %2 decorated %3 × %4</translation>
+        </message>
+        <message>
+            <source>排不出来。</source>
+            <translation>Can't be discharged.</translation>
+        </message>
+        <message>
+            <source>一步一步：</source>
+            <translation>Step by step:</translation>
+        </message>
+        <message>
+            <source>材料清单：</source>
+            <translation>Material list:</translation>
+        </message>
+        <message>
+            <source>（%1）</source>
+            <translation>(%1)</translation>
+        </message>
+    </context>
+    <context>
         <name>ArmorTrimPreview</name>
         <message>
             <source>拖动旋转 / 滚轮缩放 / 双击复位</source>
@@ -1324,6 +1727,628 @@ What you want to restore is this one:
         <message>
             <source>%1：已取消。</source>
             <translation>%1: Canceled.</translation>
+        </message>
+    </context>
+    <context>
+        <name>Banner</name>
+        <message>
+            <source>边框</source>
+            <translation>Frame</translation>
+        </message>
+        <message>
+            <source>砖块</source>
+            <translation>Bricks</translation>
+        </message>
+        <message>
+            <source>波纹边框</source>
+            <translation>Corrugated border</translation>
+        </message>
+        <message>
+            <source>藤蔓</source>
+            <translation>Vine</translation>
+        </message>
+        <message>
+            <source>圆形</source>
+            <translation>Round</translation>
+        </message>
+        <message>
+            <source>旗帜图案</source>
+            <translation>Flag pattern</translation>
+        </message>
+        <message>
+            <source>苦力怕</source>
+            <translation>Creeper</translation>
+        </message>
+        <message>
+            <source>苦力怕头颅</source>
+            <translation>Creeper Head</translation>
+        </message>
+        <message>
+            <source>十字</source>
+            <translation>Cross</translation>
+        </message>
+        <message>
+            <source>卷曲边框</source>
+            <translation>Curl border</translation>
+        </message>
+        <message>
+            <source>砖墙纹</source>
+            <translation>Brick wall pattern</translation>
+        </message>
+        <message>
+            <source>花朵</source>
+            <translation>Flowers</translation>
+        </message>
+        <message>
+            <source>滨菊</source>
+            <translation>Binju</translation>
+        </message>
+        <message>
+            <source>涡流</source>
+            <translation>Vortex</translation>
+        </message>
+        <message>
+            <source>地球</source>
+            <translation>Earth</translation>
+        </message>
+        <message>
+            <source>橡树树苗</source>
+            <translation>Oak sapling</translation>
+        </message>
+        <message>
+            <source>渐变</source>
+            <translation>Gradient</translation>
+        </message>
+        <message>
+            <source>上渐变</source>
+            <translation>Upper gradient</translation>
+        </message>
+        <message>
+            <source>狂风</source>
+            <translation>Strong wind</translation>
+        </message>
+        <message>
+            <source>上半</source>
+            <translation>First half</translation>
+        </message>
+        <message>
+            <source>下半</source>
+            <translation>Second half</translation>
+        </message>
+        <message>
+            <source>左半</source>
+            <translation>Left half</translation>
+        </message>
+        <message>
+            <source>右半</source>
+            <translation>Right half</translation>
+        </message>
+        <message>
+            <source>Mojang 标志</source>
+            <translation>Mojang logo</translation>
+        </message>
+        <message>
+            <source>附魔金苹果</source>
+            <translation>Enchanted Golden Apple</translation>
+        </message>
+        <message>
+            <source>猪灵</source>
+            <translation>Piglin</translation>
+        </message>
+        <message>
+            <source>菱形</source>
+            <translation>Diamond</translation>
+        </message>
+        <message>
+            <source>骷髅</source>
+            <translation>Skeleton</translation>
+        </message>
+        <message>
+            <source>凋灵骷髅头颅</source>
+            <translation>Wither Skull</translation>
+        </message>
+        <message>
+            <source>猪鼻</source>
+            <translation>Pig snout</translation>
+        </message>
+        <message>
+            <source>金胡萝卜</source>
+            <translation>Golden carrot</translation>
+        </message>
+        <message>
+            <source>正十字</source>
+            <translation>Right Cross</translation>
+        </message>
+        <message>
+            <source>底横条</source>
+            <translation>Bottom horizontal strip</translation>
+        </message>
+        <message>
+            <source>中竖条</source>
+            <translation>Middle vertical bar</translation>
+        </message>
+        <message>
+            <source>左下斜条</source>
+            <translation>Lower left diagonal bar</translation>
+        </message>
+        <message>
+            <source>右下斜条</source>
+            <translation>Lower right diagonal bar</translation>
+        </message>
+        <message>
+            <source>左侧竖条</source>
+            <translation>Left vertical bar</translation>
+        </message>
+        <message>
+            <source>中横条</source>
+            <translation>Middle horizontal bar</translation>
+        </message>
+        <message>
+            <source>右侧竖条</source>
+            <translation>Right vertical bar</translation>
+        </message>
+        <message>
+            <source>细横条</source>
+            <translation>Thin horizontal strips</translation>
+        </message>
+        <message>
+            <source>顶横条</source>
+            <translation>Top horizontal bar</translation>
+        </message>
+        <message>
+            <source>左下角</source>
+            <translation>Lower left corner</translation>
+        </message>
+        <message>
+            <source>右下角</source>
+            <translation>Lower right corner</translation>
+        </message>
+        <message>
+            <source>左上角</source>
+            <translation>Upper left corner</translation>
+        </message>
+        <message>
+            <source>右上角</source>
+            <translation>Upper right corner</translation>
+        </message>
+        <message>
+            <source>神秘图案</source>
+            <translation>Mysterious pattern</translation>
+        </message>
+        <message>
+            <source>底三角</source>
+            <translation>Bottom triangle</translation>
+        </message>
+        <message>
+            <source>顶三角</source>
+            <translation>Top triangle</translation>
+        </message>
+        <message>
+            <source>底双三角</source>
+            <translation>Bottom double triangle</translation>
+        </message>
+        <message>
+            <source>顶双三角</source>
+            <translation>Top double triangle</translation>
+        </message>
+        <message>
+            <source>左斜条</source>
+            <translation>Left diagonal bar</translation>
+        </message>
+        <message>
+            <source>右斜条</source>
+            <translation>Right diagonal bar</translation>
+        </message>
+        <message>
+            <source>左上斜条</source>
+            <translation>Upper left diagonal bar</translation>
+        </message>
+        <message>
+            <source>右上斜条</source>
+            <translation>Upper right diagonal bar</translation>
+        </message>
+        <message>
+            <source>白色</source>
+            <translation>White</translation>
+        </message>
+        <message>
+            <source>橙色</source>
+            <translation>Orange color</translation>
+        </message>
+        <message>
+            <source>品红色</source>
+            <translation>Magenta</translation>
+        </message>
+        <message>
+            <source>淡蓝色</source>
+            <translation>Light blue</translation>
+        </message>
+        <message>
+            <source>黄色</source>
+            <translation>Yellow</translation>
+        </message>
+        <message>
+            <source>黄绿色</source>
+            <translation>Yellow-green</translation>
+        </message>
+        <message>
+            <source>粉红色</source>
+            <translation>Pink</translation>
+        </message>
+        <message>
+            <source>灰色</source>
+            <translation>Grey</translation>
+        </message>
+        <message>
+            <source>淡灰色</source>
+            <translation>Light gray</translation>
+        </message>
+        <message>
+            <source>青色</source>
+            <translation>Blue</translation>
+        </message>
+        <message>
+            <source>紫色</source>
+            <translation>Purple</translation>
+        </message>
+        <message>
+            <source>蓝色</source>
+            <translation>Blue</translation>
+        </message>
+        <message>
+            <source>棕色</source>
+            <translation>Brown</translation>
+        </message>
+        <message>
+            <source>绿色</source>
+            <translation>Green</translation>
+        </message>
+        <message>
+            <source>红色</source>
+            <translation>Red</translation>
+        </message>
+        <message>
+            <source>黑色</source>
+            <translation>Black</translation>
+        </message>
+        <message>
+            <source>%1染料</source>
+            <translation>%1Dye</translation>
+        </message>
+        <message>
+            <source>底色认不出来（下标 %1）—— 十六色里挑一个。</source>
+            <translation>The background color is unrecognizable (subscript %1) - choose one of the sixteen colors.</translation>
+        </message>
+        <message>
+            <source>原版织布机最多叠 %1 层（你现在排了 %2 层）—— 去掉几层再来。</source>
+            <translation>The original loom stacks up to %1 layers (you now have %2 layers) - remove a few layers and start again.</translation>
+        </message>
+        <message>
+            <source>第 %1 层的图案认不出来（下标 %2）。</source>
+            <translation>The pattern on layer %1 is not recognized (subscript %2).</translation>
+        </message>
+        <message>
+            <source>第 %1 层的颜色认不出来（下标 %2）。</source>
+            <translation>The color of layer %1 is unrecognizable (subscript %2).</translation>
+        </message>
+        <message>
+            <source>%1旗帜</source>
+            <translation>%1Flag</translation>
+        </message>
+        <message>
+            <source>%1羊毛</source>
+            <translation>%1wool</translation>
+        </message>
+        <message>
+            <source>木棍</source>
+            <translation>Stick</translation>
+        </message>
+        <message>
+            <source>先做一面%1：6 块%2羊毛 + 1 根木棍</source>
+            <translation>First make one side %1: 6 pieces of %2 wool + 1 wooden stick</translation>
+        </message>
+        <message>
+            <source>第 %1 层：织布机里放%2 + %3 + %4%5 → 叠出「%6」</source>
+            <translation>Layer %1: Place %2 + %3 + %4%5 in the loom → Stack out "%6"</translation>
+        </message>
+        <message>
+            <source>「%1」是 %2 起才加的图案 —— 更早的版本里织布机里找不到这一样。</source>
+            <translation>"%1" is a pattern added since %2 - it was not found in the loom in earlier versions.</translation>
+        </message>
+        <message>
+            <source>第 %1 层和第 %2 层完全一样 —— 画面上等于只叠了一层。</source>
+            <translation>The %1 layer is exactly the same as the %2 layer - there is only one layer on the screen.</translation>
+        </message>
+        <message>
+            <source>底色 %1 · %2/%3 层</source>
+            <translation>Background %1 · %2/%3 layer</translation>
+        </message>
+        <message>
+            <source>排不出来。</source>
+            <translation>Can't be discharged.</translation>
+        </message>
+        <message>
+            <source>一步一步：</source>
+            <translation>Step by step:</translation>
+        </message>
+        <message>
+            <source>材料清单：</source>
+            <translation>Material list:</translation>
+        </message>
+        <message>
+            <source>（%1）</source>
+            <translation>(%1)</translation>
+        </message>
+        <message>
+            <source>指令（1.13–1.20.4 的 NBT 写法；1.20.5 起换成了组件写法，这一版不出）：</source>
+            <translation>Instructions (NBT writing method in 1.13–1.20.4; changed to component writing method from 1.20.5 onwards, this version will not be published):</translation>
+        </message>
+    </context>
+    <context>
+        <name>Brewing</name>
+        <message>
+            <source>迅捷</source>
+            <translation>Swift</translation>
+        </message>
+        <message>
+            <source>糖</source>
+            <translation>Sugar</translation>
+        </message>
+        <message>
+            <source>跳跃</source>
+            <translation>Jump</translation>
+        </message>
+        <message>
+            <source>兔子脚</source>
+            <translation>Rabbit foot</translation>
+        </message>
+        <message>
+            <source>治疗</source>
+            <translation>Treat</translation>
+        </message>
+        <message>
+            <source>闪烁的西瓜片</source>
+            <translation>Flashing watermelon slices</translation>
+        </message>
+        <message>
+            <source>伤害</source>
+            <translation>Harm</translation>
+        </message>
+        <message>
+            <source>发酵蜘蛛眼</source>
+            <translation>Fermented spider eyes</translation>
+        </message>
+        <message>
+            <source>中毒</source>
+            <translation>Poisoned</translation>
+        </message>
+        <message>
+            <source>蜘蛛眼</source>
+            <translation>Spider eyes</translation>
+        </message>
+        <message>
+            <source>力量</source>
+            <translation>Strength</translation>
+        </message>
+        <message>
+            <source>烈焰粉</source>
+            <translation>Blaze powder</translation>
+        </message>
+        <message>
+            <source>再生</source>
+            <translation>Regeneration</translation>
+        </message>
+        <message>
+            <source>恶魂之泪</source>
+            <translation>Ghast's Tears</translation>
+        </message>
+        <message>
+            <source>抗火</source>
+            <translation>Fire resistant</translation>
+        </message>
+        <message>
+            <source>岩浆膏</source>
+            <translation>Magma paste</translation>
+        </message>
+        <message>
+            <source>水肺</source>
+            <translation>Scuba</translation>
+        </message>
+        <message>
+            <source>河豚</source>
+            <translation>Puffer fish</translation>
+        </message>
+        <message>
+            <source>夜视</source>
+            <translation>Night vision</translation>
+        </message>
+        <message>
+            <source>金胡萝卜</source>
+            <translation>Golden carrot</translation>
+        </message>
+        <message>
+            <source>隐身</source>
+            <translation>Stealth</translation>
+        </message>
+        <message>
+            <source>迟缓</source>
+            <translation>Slow</translation>
+        </message>
+        <message>
+            <source>缓降</source>
+            <translation>Slow down</translation>
+        </message>
+        <message>
+            <source>幻翼膜</source>
+            <translation>Phantom membrane</translation>
+        </message>
+        <message>
+            <source>虚弱</source>
+            <translation>Weak</translation>
+        </message>
+        <message>
+            <source>海龟大师</source>
+            <translation>Turtle master</translation>
+        </message>
+        <message>
+            <source>海龟壳</source>
+            <translation>Turtle shell</translation>
+        </message>
+        <message>
+            <source>盘丝</source>
+            <translation>Pansi</translation>
+        </message>
+        <message>
+            <source>蜘蛛网</source>
+            <translation>Spider web</translation>
+        </message>
+        <message>
+            <source>蓄风</source>
+            <translation>Gather the wind</translation>
+        </message>
+        <message>
+            <source>旋风棒</source>
+            <translation>Cyclone Stick</translation>
+        </message>
+        <message>
+            <source>渗浆</source>
+            <translation>Slurry</translation>
+        </message>
+        <message>
+            <source>黏液块</source>
+            <translation>Slime clumps</translation>
+        </message>
+        <message>
+            <source>虫蚀</source>
+            <translation>Insect erosion</translation>
+        </message>
+        <message>
+            <source>石头</source>
+            <translation>Stone</translation>
+        </message>
+        <message>
+            <source>药水</source>
+            <translation>Potion</translation>
+        </message>
+        <message>
+            <source>喷溅型</source>
+            <translation>Splash type</translation>
+        </message>
+        <message>
+            <source>滞留型</source>
+            <translation>Retention type</translation>
+        </message>
+        <message>
+            <source>（延长）</source>
+            <translation>(extend)</translation>
+        </message>
+        <message>
+            <source>普通</source>
+            <translation>Ordinary</translation>
+        </message>
+        <message>
+            <source>• 要 %1 瓶：一共酿 %2 次（一次最多 %3 瓶）</source>
+            <translation>• %1 bottles required: brew %2 times in total (maximum %3 bottles at one time)</translation>
+        </message>
+        <message>
+            <source>• 材料合计（每一步按 %1 次备料）：%2</source>
+            <translation>• Total materials (prepared %1 times per step): %2</translation>
+        </message>
+        <message>
+            <source>、</source>
+            <translation>,</translation>
+        </message>
+        <message>
+            <source>• 玻璃瓶 %1 个（装水用）。</source>
+            <translation>• Glass bottles %1 (for water).</translation>
+        </message>
+        <message>
+            <source>• 烈焰粉燃料：酿 %1 次 ⇒ %2 个（1 个烈焰粉够 20 次酿造）。</source>
+            <translation>• Blaze Powder Fuel: Brew %1 times ⇒ %2 (1 blaze powder is enough for 20 brews).</translation>
+        </message>
+        <message>
+            <source>认不出这种药水（下标越界）。</source>
+            <translation>I don't recognize this potion (the subscript is out of bounds).</translation>
+        </message>
+        <message>
+            <source>红石粉（延长）和荧石粉（升一级）在游戏里是二选一：后加的那一样会把先加的冲掉。</source>
+            <translation>Redstone powder (extend) and glowstone powder (upgrade) are two choices in the game: the one added later will wash out the one added first.</translation>
+        </message>
+        <message>
+            <source>%1没有延长版本（游戏里不能给它加红石粉）。</source>
+            <translation>%1There is no extended version (redstone dust cannot be added to it in the game).</translation>
+        </message>
+        <message>
+            <source>%1没有强化版本（游戏里不能给它加荧石粉）。</source>
+            <translation>%1There is no enhanced version (you cannot add glowstone powder to it in the game).</translation>
+        </message>
+        <message>
+            <source>认不出这种形态（下标越界）。</source>
+            <translation>This form is not recognized (the subscript is out of bounds).</translation>
+        </message>
+        <message>
+            <source>瓶数只能是 1 – %1（%2 不在这个范围里）。</source>
+            <translation>The number of bottles can only be 1 – %1 (%2 is not in this range).</translation>
+        </message>
+        <message>
+            <source>玻璃瓶装水 → 水瓶（要几瓶就摆几瓶，一次最多 %1 瓶）</source>
+            <translation>Glass bottled water → water bottles (put as many bottles as you want, up to %1 bottles at a time)</translation>
+        </message>
+        <message>
+            <source>水瓶 + %1 → %2</source>
+            <translation>Water bottle + %1 → %2</translation>
+        </message>
+        <message>
+            <source>水瓶 + 下界疣 → 粗制的药水</source>
+            <translation>Water Bottle + Nether Wart → Crude Potion</translation>
+        </message>
+        <message>
+            <source>下界疣</source>
+            <translation>Nether wart</translation>
+        </message>
+        <message>
+            <source>粗制的药水</source>
+            <translation>Crude potion</translation>
+        </message>
+        <message>
+            <source>红石粉 → 时长延长</source>
+            <translation>Redstone Dust → Duration extended</translation>
+        </message>
+        <message>
+            <source>红石粉</source>
+            <translation>Redstone powder</translation>
+        </message>
+        <message>
+            <source>荧石粉 → 等级提升到 %1</source>
+            <translation>Glowstone powder → Level increased to %1</translation>
+        </message>
+        <message>
+            <source>荧石粉</source>
+            <translation>Glowstone powder</translation>
+        </message>
+        <message>
+            <source>火药 → 喷溅型</source>
+            <translation>Gunpowder → Splash type</translation>
+        </message>
+        <message>
+            <source>火药</source>
+            <translation>Gunpowder</translation>
+        </message>
+        <message>
+            <source>龙息 → 滞留型</source>
+            <translation>Dragon's Breath → Lingering Type</translation>
+        </message>
+        <message>
+            <source>龙息</source>
+            <translation>Dragon breath</translation>
+        </message>
+        <message>
+            <source>一共 %1 步 / 产出：%2</source>
+            <translation>Total %1 steps / output: %2</translation>
+        </message>
+        <message>
+            <source> / %1 瓶（酿 %2 次）</source>
+            <translation>/ %1 bottles (brewed %2 times)</translation>
         </message>
     </context>
     <context>

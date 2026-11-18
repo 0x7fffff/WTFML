@@ -171,15 +171,12 @@ src/server/ServerWriteGuard.hpp	2
 src/settings/GlobalJavaSettings.cpp	19
 src/settings/LauncherSettings.cpp	2
 src/tools/AnvilPlanner.cpp	47
-src/tools/ArmorTrim.cpp	112
 src/tools/ArmorTrimAssets.hpp	5
-src/tools/Banner.cpp	126
 src/tools/BannerDesign.hpp	7
 src/tools/BannerRender.hpp	1
 src/tools/BannerTextures.hpp	3
 src/tools/Beacon.cpp	38
 src/tools/BeaconBeam.hpp	2
-src/tools/Brewing.cpp	74
 src/tools/CoordConvert.cpp	13
 src/tools/FileHash.cpp	12
 src/tools/TextFormat.cpp	23
