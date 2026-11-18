@@ -230,18 +230,30 @@ int UiDailyQuoteCheck(QApplication &app) {
         check(title->text() == QStringLiteral("晚上好 Alex"), "HG-UI4 换账号后标题跟着换名字",
               title->text());
         auto *pill = window.findChild<QWidget *>(MainWindowUI::accountSkinButtonName());
-        const QString longName = QStringLiteral("ThisIsAVeryLongName_16");
         for (const QSize size : {QSize(1280, 800), QSize(900, 620)}) {
             window.resize(size);
             ui.setHomeHeroTitle(QStringLiteral("晚上好 Steve"), QStringLiteral("Steve"));
             for (int i = 0; i < 4; ++i) app.processEvents();
             const int shortWidth = title->width();
             const int lineHeight = title->height();
+            // 可用宽度先量：大标题的宽度交给布局（Ignored），不随文字长短变，所以下面
+            // 按它定名字该有多长。
+            const int room = title->contentsRect().width();
+            // 名字要长到**确实装不下**。名字那一段按整段英文换成 Dancing Script（1.2 倍
+            // 字号、字距 0），"ThisIsAVeryLongName_16" 在 60 px 下连问候语一共 792 px，
+            // 而 1280x800 这一栏的可用宽度是 892 px —— 写死的一串装得下，"必须截"的断言
+            // 就跟着字体度量翻脸（HG-UI5 2026-11-18 就是这么红的）。这里按实测字宽把名字
+            // 接到可用宽度的两倍，任何字体度量下都一定溢出。
+            QString longName = QStringLiteral("ThisIsAVeryLongName_16");
+            const QFont nameFont = ui.homeHeroTitleNameFont();
+            while (QFontMetrics(nameFont).horizontalAdvance(longName) < room * 2 &&
+                   longName.size() < 512) {
+                longName += QStringLiteral("ThisIsAVeryLongName_16");
+            }
             ui.setHomeHeroTitle(QStringLiteral("晚上好 ") + longName, longName);
             for (int i = 0; i < 4; ++i) app.processEvents();
             const QString shown = ui.homeHeroTitleShown();
             const QString where = QStringLiteral("%1x%2").arg(size.width()).arg(size.height());
-            const int room = title->contentsRect().width();
             check(shown.startsWith(QStringLiteral("晚上好 This")) && shown.endsWith(QStringLiteral("…")) &&
                       ui.homeHeroTitleShownWidth() <= room,
                   QStringLiteral("HG-UI5 %1：长名字只截名字，问候留着、省略号收尾，整句装得下").arg(where),
