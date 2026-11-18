@@ -283,7 +283,7 @@ int main(int argc, char *argv[]) {
         // "Forge 那条上画着 NeoForge 的狐狸"，图标这东西没人会去逐条核对，只能靠这条钉住。
         const int iconSize = MainWindowUI::versionTreeIconSize();
         bool iconsWired = loaderTree != nullptr &&
-                          loaderTree->topLevelItemCount() == 6;
+                          loaderTree->topLevelItemCount() == 7;
         for (int i = 0; loaderTree != nullptr && i < loaderTree->topLevelItemCount(); ++i) {
             QTreeWidgetItem *row = loaderTree->topLevelItem(i);
             const int id = row->data(MainWindowUI::loaderTreeKeyColumn(), Qt::UserRole).toInt();
@@ -295,10 +295,10 @@ int main(int argc, char *argv[]) {
                          icon.pixmap(iconSize, iconSize).toImage() ==
                              VersionIcons::loaderMark(id, iconSize).toImage();
         }
-        check(iconsWired, "四条加载器上各是自己那个加载器的标志（图标和下标一一对应，没串行）",
+        check(iconsWired, "五条加载器上各是自己那个加载器的标志（图标和下标一一对应，没串行）",
               QStringLiteral("size=%1").arg(iconSize));
         const QIcon noneIcon =
-            loaderTree != nullptr && loaderTree->topLevelItemCount() == 6
+            loaderTree != nullptr && loaderTree->topLevelItemCount() == 7
                 ? loaderTree->topLevelItem(MainWindowUI::modLoaderNoneIndex() + 1)
                       ->icon(MainWindowUI::loaderTreeKeyColumn())
                 : QIcon();
@@ -586,13 +586,11 @@ int main(int argc, char *argv[]) {
 
     if (const int result = UiVersionTreeGeometryChecks(window, versionTree); result != 0) return result;
 
-    // ---- 四个加载器的标志 ----
-    // 要求："对应的 forge neo... 也加上其标志"。四张图要**互不相同** ——
-    // 全画成同一张（或者第二个开始全是草方块）在界面上就是"四个钮长得一样"，
-    // 而那正是这功能要解决的问题。
+    // ---- 五个加载器的标志 ----
+    // 五张图要**互不相同**（且不同于草方块），全画成同一张就等于没加标志。
     {
         QVector<QImage> marks;
-        for (int i = 0; i < 4; ++i) {
+        for (int i = 0; i < 5; ++i) {
             marks.append(VersionIcons::loaderMark(i, MainWindowUI::versionTreeIconSize())
                              .toImage());
         }
@@ -600,14 +598,16 @@ int main(int argc, char *argv[]) {
         for (const QImage &image : marks) {
             allNonNull = allNonNull && !image.isNull() && image.width() > 0;
         }
-        check(allNonNull, "四个加载器各有一张标志图（大小不为零）");
+        check(allNonNull, "五个加载器各有一张标志图（大小不为零）");
         bool allDistinct = true;
         for (int i = 0; i < marks.size(); ++i) {
             for (int j = i + 1; j < marks.size(); ++j) {
                 allDistinct = allDistinct && marks.at(i) != marks.at(j);
             }
         }
-        check(allDistinct, "四张标志互不相同（四个钮长得一样就等于没加）");
+        check(allDistinct, "五张标志互不相同（加载器标志不能混用）");
+        check(marks.at(4) != VersionIcons::grassBlock(MainWindowUI::versionTreeIconSize()).toImage(),
+              "Quilt 标志不是兜底草方块");
         check(VersionIcons::loaderMark(99, 18).toImage() == VersionIcons::grassBlock(18).toImage(),
               "不认识的加载器下标退回草方块（总比画个空白强）");
         check(VersionIcons::chevron(true, 12, Qt::black).toImage() !=
@@ -1163,11 +1163,11 @@ int main(int argc, char *argv[]) {
     // 那棵树刚搭好时**一个子条目都没有**：版本列表要点开某一条加载器才去拉
     // （拉的过程和结果都由 MainWindow 灌，见 mw_check 那几节）。
     {
-        bool noChildren = loaderTree != nullptr && loaderTree->topLevelItemCount() == 6;
+        bool noChildren = loaderTree != nullptr && loaderTree->topLevelItemCount() == 7;
         for (int i = 0; loaderTree != nullptr && i < loaderTree->topLevelItemCount(); ++i) {
             noChildren = noChildren && loaderTree->topLevelItem(i)->childCount() == 0;
         }
-        check(noChildren, "开局六条（五条加载器 + 预设行）底下都是空的"
+        check(noChildren, "开局七条（五条加载器 + 预设行 + 隐藏的不装行）底下都是空的"
                           "（版本列表要点开那条才去拉）");
     }
     // 两个占位串必须**都非空**：空串会让 QComboBox 在往空模型里插第一批数据时
@@ -1201,11 +1201,11 @@ int main(int argc, char *argv[]) {
         // 六条都点得动：这一组里没有"灰着不让人点"的条目 —— 用户点到哪条
         // 就是改用哪条（本启动器一次只装一个加载器，"不兼容"说的是不能同时装，
         // 不是这一条点不得）。「预设」那一行点它开的是弹窗（P1），一样要可点。
-        bool allEnabled = loaderTree != nullptr && loaderTree->topLevelItemCount() == 6;
+        bool allEnabled = loaderTree != nullptr && loaderTree->topLevelItemCount() == 7;
         for (int i = 0; loaderTree != nullptr && i < loaderTree->topLevelItemCount(); ++i) {
             allEnabled = allEnabled && loaderTree->topLevelItem(i)->flags().testFlag(Qt::ItemIsEnabled);
         }
-        check(allEnabled, "六条顶层条目一律可点（没有灰着的那一条）");
+        check(allEnabled, "七条顶层条目一律可点（没有灰着的那一条）");
     }
 
     std::printf("===== E2. 滚轮防护（行为验证） =====\n");

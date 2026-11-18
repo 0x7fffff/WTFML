@@ -286,7 +286,7 @@ static QString loaderDisplayNameForEvidenceKey(const QString &key) {
         return VersionManager::loaderDisplayName(Kind::OptiFine);
     }
     if (key == ModpackImport::quiltLoaderKey()) {
-        return QStringLiteral("Quilt");
+        return VersionManager::loaderDisplayName(Kind::Quilt);
     }
     return QString();
 }

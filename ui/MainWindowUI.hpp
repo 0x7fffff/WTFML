@@ -169,44 +169,45 @@ public:
 
     // ---------- 安装页那份「模组加载器」（一棵树，和上一页的版本树同一个模式） ----------
     //
-    // 「选中哪一条」决定「安装」装什么（0..3 = 加载器，见 VersionManager::loaderKindFromIndex），
+    // 「选中哪一条」决定「安装」装什么（0..4 = 加载器，见 VersionManager::loaderKindFromIndex），
     // 而那一个「不装」选项是**默认选中的**，它代表装纯原版那条路。
     //
     // NOTE: 这一组是**一棵树**，和上一页的版本选择同一个模式：
-    // · 顶层五条 = 四个加载器 + 「不装（纯原版）」，前面各挂自己那个标志；
+    // · 顶层六条 = 五个加载器 + 「不装（纯原版）」，前面各挂自己那个标志；
     // · 点一条加载器 → 它**展开**，底下先摆那两档、再列出它能装的版本；
     // · 点一个版本 → 那一列**收起来**，选中的版本号写回这条的第二行小字。
-    // 下标、文案、那五条的顺序都是固定的；展开在**同一行下面**，和版本树那边长得一样。
+    // 下标、文案、那几条的顺序都是固定的；展开在**同一行下面**，和版本树那边长得一样。
     //
-    // / 那五条在**代码里**叫什么，顺序就是界面上从上到下的顺序。
+    // / 那几条在**代码里**叫什么，顺序就是界面上从上到下的顺序。
     // /
     // / NOTE: 树里的条目不是 QObject、没有 objectName —— 所以这已经不是"控件的名字"了。
     // / 它现在只剩三个用处：①给"第 i 条是哪个加载器"这件事一个写得出来的称呼
-    // / （注释、日志、验证工程的失败信息里用）；②条数（5 = 四个加载器 + 一个「不装」）；
+    // / （注释、日志、验证工程的失败信息里用）；②条数（6 = 五个加载器 + 一个「不装」）；
     // / ③和下面那张文案表**一一对应**的那条约束（多一条少一条，界面上就会有条目
     // / 既没称呼也对不上字）。身份仍然只认下标，见 loaderTreeName() 那一段。
     // /
-    // / NOTE: 「不装」排在四个加载器**后面**（不是最前面）是刻意的：这样下标 0..3 和
+    // / NOTE: 「不装」排在五个加载器**后面**（不是最前面）是刻意的：这样下标 0..4 和
     // / VersionManager::LoaderKind 的枚举顺序一一对应，中间那层翻译
     // / （loaderKindFromIndex）就少一个"顺序对不上、勾了 A 装成 B"的机会。
     static QStringList modLoaderOptionNames() {
         return {QStringLiteral("modLoaderFabric"), QStringLiteral("modLoaderForge"),
                 QStringLiteral("modLoaderNeoForge"), QStringLiteral("modLoaderOptiFine"),
-                QStringLiteral("modLoaderNone")};
+                QStringLiteral("modLoaderQuilt"), QStringLiteral("modLoaderNone")};
     }
-    /// 界面上那五条**写出来的字**（树是照这张表摆的），和上面那张表**一一对应**，
+    /// 界面上那六条**写出来的字**（树是照这张表摆的），和上面那张表**一一对应**，
     /// 顺序不能各排各的。
     ///
     /// NOTE: 这是**显示内容**（将来要跟着语言/产品文案走），不是身份标识 —— 选中的是
     /// 哪一条看下标（见 loaderTreeName() 那一段），核文案时才比这张表。
     static QStringList modLoaderOptionTexts() {
         return {QStringLiteral("Fabric"), QStringLiteral("Forge"), QStringLiteral("NeoForge"),
-                QStringLiteral("OptiFine"), QStringLiteral("不装（纯原版）")};
+                QStringLiteral("OptiFine"), QStringLiteral("Quilt"),
+                QStringLiteral("不装（纯原版）")};
     }
     /// 「不装（纯原版）」那一条在两张表里的下标。加载器那一组现在是一棵树（见下面
     /// buildTwoColumnPage 里那段），选中它就是"回到装纯原版"—— 初始选中的也是它。
     /// 写死数字的地方一律用这个函数。
-    static int modLoaderNoneIndex() { return 4; }
+    static int modLoaderNoneIndex() { return 5; }
     static QString modLoaderLabelText() { return QStringLiteral("模组加载器"); }
     /// 那棵树自己的 objectName。**条目没有 objectName**（QTreeWidgetItem 不是 QObject）——
     /// 认一条的身份看它 `Qt::UserRole`：顶层是 modLoaderOptionNames() 里的下标（整数），

@@ -23,7 +23,9 @@
 
 #include <QByteArray>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonParseError>
 #include <QJsonValue>
 #include <QList>
 #include <QLatin1Char>
@@ -785,6 +787,27 @@ inline LoaderPick pickQuiltLoader(const QJsonArray &list, LoaderChannel channel)
         }
     }
     return LoaderPick{};
+}
+
+/// 判断 Fabric / Quilt `/versions/loader/<mc>` 的回复是不是“该游戏版本不被支持”
+/// （而不是网络/服务故障）：
+/// - Fabric 对不支持的版本（如 1.12.2）返回 HTTP 400 + `[]`；
+/// - Quilt 对不支持的版本（如 1.12.2 / 1.14）返回 HTTP 404 + `{"code":"not_found",...}`。
+inline bool isUnsupportedGameVersionMetaReply(bool isQuilt, int httpStatus,
+                                              const QByteArray &body) {
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(body, &parseError);
+    if (parseError.error != QJsonParseError::NoError) {
+        return false;
+    }
+    if (doc.isArray()) {
+        return doc.array().isEmpty() &&
+               (httpStatus == 0 || httpStatus == 200 || httpStatus == 400 || httpStatus == 404);
+    }
+    if (isQuilt && httpStatus == 404 && doc.isObject()) {
+        return doc.object().value(QStringLiteral("code")).toString() == QLatin1String("not_found");
+    }
+    return false;
 }
 
 /// NeoForge 装出来的版本目录名。

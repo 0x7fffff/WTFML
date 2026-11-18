@@ -199,6 +199,7 @@ int main(int argc, char *argv[]) {
         if (loader == QLatin1String("fabric")) kind = VersionManager::LoaderKind::Fabric;
         else if (loader == QLatin1String("forge")) kind = VersionManager::LoaderKind::Forge;
         else if (loader == QLatin1String("neoforge")) kind = VersionManager::LoaderKind::NeoForge;
+        else if (loader == QLatin1String("quilt")) kind = VersionManager::LoaderKind::Quilt;
         else return 2;
         if (!QDir().mkpath(root)) return 2;
         AppPaths::setMinecraftDir(root);

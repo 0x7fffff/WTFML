@@ -121,9 +121,11 @@ return runVersionManagerBatch(app, sandbox);
                 kind = VersionManager::LoaderKind::NeoForge;
             } else if (word == QLatin1String("optifine")) {
                 kind = VersionManager::LoaderKind::OptiFine;
+            } else if (word == QLatin1String("quilt")) {
+                kind = VersionManager::LoaderKind::Quilt;
             } else {
                 out() << "不认识的加载器「" << word
-                      << "」。用法：loader-install <游戏版本> [fabric|forge|neoforge|optifine]\n";
+                      << "」。用法：loader-install <游戏版本> [fabric|forge|neoforge|optifine|quilt]\n";
                 out().flush();
                 return 2;
             }

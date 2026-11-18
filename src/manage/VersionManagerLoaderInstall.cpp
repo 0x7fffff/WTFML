@@ -125,17 +125,18 @@ QString VersionManager::loaderDisplayName(LoaderKind kind) {
     return QString();
 }
 
-int VersionManager::loaderKindCount() { return 4; }
+int VersionManager::loaderKindCount() { return 5; }
 
 bool VersionManager::loaderKindFromIndex(int index, LoaderKind *out) {
-    // 顺序**就是** MainWindowUI::modLoaderOptionNames() 的顺序（那张表里下标 0..3 是四个
+    // 顺序**就是** MainWindowUI::modLoaderOptionNames() 的顺序（那张表里下标 0..4 是五个
     // 加载器）。界面上摆控件的顺序和这里翻译的顺序对不上时不会报错，只会"勾了 Fabric
-    // 装出 Forge" —— 所以这张表只有这一处翻译，而且 verify 里按四个名字逐项对过
+    // 装出 Forge" —— 所以这张表只有这一处翻译，而且 verify 里按五个名字逐项对过
     // （名字取的是界面那两张表，不是这里抄的第二份字面量）。
     static const LoaderKind kOrder[] = {LoaderKind::Fabric, LoaderKind::Forge,
-                                        LoaderKind::NeoForge, LoaderKind::OptiFine};
+                                        LoaderKind::NeoForge, LoaderKind::OptiFine,
+                                        LoaderKind::Quilt};
     constexpr int kCount = static_cast<int>(sizeof(kOrder) / sizeof(kOrder[0]));
-    static_assert(kCount == 4, "加载器多了一个/少了一个，界面那两张表也要跟着改");
+    static_assert(kCount == 5, "加载器多了一个/少了一个，界面那两张表也要跟着改");
     if (index < 0 || index >= kCount) {
         return false;
     }
@@ -299,11 +300,20 @@ void VersionManager::onLoaderVersionsReply(LoaderKind kind, QNetworkReply *reply
     const bool fromMirror = slot->fromMirror;
     slot->reply = nullptr;
 
+    // 先判设备开没开再读：超时回来的那条已经不 open，readAll() 会往 stderr 甩 warning。
+    const int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QByteArray body = reply->isOpen() ? reply->readAll() : QByteArray();
+
+    // Fabric 对不支持的游戏版本回 HTTP 400 + `[]`，Quilt 回 HTTP 404 + `{"code":"not_found"}`：
+    // 二者都是"该版本确实没有可用加载器"，按空列表（success=true）交回，而不是报网络错误。
+    if ((kind == LoaderKind::Fabric || kind == LoaderKind::Quilt) &&
+        LoaderMeta::isUnsupportedGameVersionMetaReply(kind == LoaderKind::Quilt, httpStatus, body)) {
+        emit loaderVersionsFetched(gameVersion, kind, true, LoaderMeta::LoaderVersionList(),
+                                   QString());
+        return;
+    }
+
     if (reply->error() != QNetworkReply::NoError) {
-        // 先判错误**再读**：超时回来的那条 `QNetworkReply` 已经不 open 了，
-        // `readAll()` 会往 stderr 甩一句 `QIODevice::read (QNetworkReplyHttpImpl): device
-        // not open`；日志里看着像另一处坏掉了，其实这一发本来就是要走下面的报错/换镜像。
-        // 下面成功那一支再取 body。
         // 官方那条**连不上**时往镜像退一次（只 NeoForge，理由见
         // loaderVersionsMirrorFallback()）。判"连不上"用的是下载那条路同一个
         // transientReply()：超时 / 连接被掐 / HTTP/2 断流都算，404、证书不对、
@@ -326,9 +336,6 @@ void VersionManager::onLoaderVersionsReply(LoaderKind kind, QNetworkReply *reply
                      reply->property(RequestBudget::kDeadlineExpiredProperty).toBool() ? tr("请求超时") : reply->errorString()));
         return;
     }
-
-    // 不 open 就当空 body（见上面那一段注）：正常成功回来时它是 open 的。
-    const QByteArray body = reply->isOpen() ? reply->readAll() : QByteArray();
 
     const LoaderVersionParse parsed = parseLoaderVersions(kind, gameVersion, body, fromMirror);
     if (!parsed.error.isEmpty()) {
@@ -536,6 +543,8 @@ void VersionManager::onFabricLoaderListReply(QNetworkReply *reply, const QString
     // 读之前先看设备开没开：超时/掐断回来的那条已经不 open，readAll() 会甩
     // `QIODevice::read ... device not open`。
     // **仍然不拿 error() 当门**（理由见下面那条 ★★ 400 带正文的坑）。
+    const int httpStatus =
+        reply != nullptr ? reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() : 0;
     const QByteArray body = reply != nullptr && reply->isOpen() ? reply->readAll() : QByteArray();
     QJsonParseError parseError;
     const QJsonDocument doc = QJsonDocument::fromJson(body, &parseError);
@@ -543,12 +552,17 @@ void VersionManager::onFabricLoaderListReply(QNetworkReply *reply, const QString
     // 不能拿 `reply->error()` 当第一道门。
     //
     // Fabric 的接口遇到它**从没支持过**的游戏版本（1.12.2）回的是 `HTTP 400`、
-    // **正文带着一个 `[]`**；Qt 把 400 记进 `reply->error()`，若照
-    // `error != NoError` 判断，用户拿到的是「检查网络后重试」——
+    // **正文带着一个 `[]`**；Quilt 回的是 `HTTP 404`、`{"code":"not_found",...}`。
+    // 若照 `error != NoError` 判断，用户拿到的是「检查网络后重试」——
     // 一个**永远不可能成功**的版本被报成网络抖动，连点多少次都是同一句话。
-    // 正文读得出来就说明这一趟传输是通的，
-    // 该走的是下面那条「列表是空的 ⇒ 这个版本还没支持」。
+    // 正文读得出来就说明这一趟传输是通的，该走的是「这个版本还没支持」。
     if (!doc.isArray()) {
+        if (m_loaderInstall.kind == LoaderKind::Quilt &&
+            LoaderMeta::isUnsupportedGameVersionMetaReply(true, httpStatus, body)) {
+            failLoaderInstall(tr("%1 还没有支持 %2 的加载器（拿到的列表是空的）。")
+                                  .arg(m_loaderInstall.loaderName, m_loaderInstall.gameVersion));
+            return;
+        }
         failLoaderInstall(tr("拿不到 %1 的加载器列表（%2）。检查网络后重试。")
                               .arg(m_loaderInstall.gameVersion, replyReason(reply, jobError)));
         return;

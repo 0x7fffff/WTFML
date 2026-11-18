@@ -34,7 +34,7 @@ int UiInstallLayoutCheck(QApplication &app) {
             if (row->data(0, Qt::UserRole).toInt() == MainWindowUI::modLoaderNoneIndex())
                 expect(row->isHidden(), "vanilla sentinel is not a duplicate visible option");
         }
-        expect(visibleRows == 5, "four loaders and one preset entry are visible");
+        expect(visibleRows == 6, "five loaders and one preset entry are visible");
         const QIcon themedGear = VersionIcons::actionIcon(VersionIcons::Action::Settings);
         const QIcon themedDetails = VersionIcons::actionIcon(VersionIcons::Action::Details);
         const QIcon themedDelete = VersionIcons::actionIcon(VersionIcons::Action::Delete);
@@ -88,10 +88,11 @@ int UiInstallLayoutCheck(QApplication &app) {
                        VersionTreeDelegate::arrowRect(tree->visualItemRect(row)).x() == arrowBefore.x(),
                    "scrollbar appearance preserves text width and arrow/clear positions");
             scroll->verticalScrollBar()->setValue(scroll->verticalScrollBar()->maximum());
-            tree->scrollToItem(tree->topLevelItem(4));
+            QTreeWidgetItem *lastVisibleItem = tree->topLevelItem(MainWindowUI::modLoaderNoneIndex());
+            tree->scrollToItem(lastVisibleItem);
             for (int pass = 0; pass < 5; ++pass) app.processEvents();
             expect(scroll->mapFromGlobal(button->mapToGlobal(QPoint())) == origin, "expansion and scrolling do not move the action");
-            const QPoint last = scroll->mapFromGlobal(tree->viewport()->mapToGlobal(tree->visualItemRect(tree->topLevelItem(4)).bottomLeft()));
+            const QPoint last = scroll->mapFromGlobal(tree->viewport()->mapToGlobal(tree->visualItemRect(lastVisibleItem).bottomLeft()));
             printf("layout last=%d action=%d outer=%d/%d tree=%d/%d\n", last.y(), origin.y(),
                    scroll->verticalScrollBar()->value(), scroll->verticalScrollBar()->maximum(),
                    tree->verticalScrollBar()->value(), tree->verticalScrollBar()->maximum());

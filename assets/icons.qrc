@@ -17,6 +17,7 @@
         <file alias="loader/forge.png">loader/forge.png</file>
         <file alias="loader/neoforge.png">loader/neoforge.png</file>
         <file alias="loader/optifine.png">loader/optifine.png</file>
+        <file alias="loader/quilt.png">loader/quilt.png</file>
         <file alias="scenes/dark.jpg">scenes/dark.jpg</file>
         <file alias="scenes/emerald.jpg">scenes/emerald.jpg</file>
         <file alias="scenes/ocean.jpg">scenes/ocean.jpg</file>

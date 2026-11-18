@@ -149,15 +149,15 @@ QPixmap scaledBlock(const QImage &img, int size) {
 // assets/icons.qrc 编进来 —— 哪张图是从哪儿取的、怎么拼的，见 loader/README.md。
 //
 // 顺序就是 MainWindowUI::modLoaderOptionNames() 那个顺序
-// （0 Fabric / 1 Forge / 2 NeoForge / 3 OptiFine）。它和 iconCandidateKeys() 后四个
-// 键也必须是同一个顺序（实例图标候选取的就是这几个），改了那边这里要跟着改 ——
-// 对不上的症状是"勾了 Forge 前面画着狐狸"，不报错，只是难看。
+// （0 Fabric / 1 Forge / 2 NeoForge / 3 OptiFine / 4 Quilt）。前四个与 iconCandidateKeys()
+// 后四个键同序（实例图标候选表保持八项不变）。
 // ---------------------------------------------------------------------------
-const char *const kLoaderLogoFiles[4] = {
+const char *const kLoaderLogoFiles[5] = {
     ":/assets/loader/fabric.png",
     ":/assets/loader/forge.png",
     ":/assets/loader/neoforge.png",
     ":/assets/loader/optifine.png",
+    ":/assets/loader/quilt.png",
 };
 
 /// 一张加载器标志缩到 @p size 见方。
@@ -379,7 +379,7 @@ QPixmap VersionIcons::loaderMark(int index, int size) {
         return QPixmap();
     }
     // 「不装（纯原版）」和越界的下标都是草方块 —— 那两条路装出来的就是原版。
-    if (index < 0 || index > 3) {
+    if (index < 0 || index > 4) {
         return grassBlock(size);
     }
     // 深色主题下 Forge 那把深色铁砧按文字色重描（见上面 kForgeIndex 那段）。颜色进缓存键：

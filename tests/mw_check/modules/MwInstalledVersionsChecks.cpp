@@ -37,13 +37,19 @@ int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStac
         check(optifineIndex >= 0 && optifineIndex != forgeIndex && optifineIndex != noneIndex,
               "OptiFine 也在表里，而且是另一条（改点它那条要有个落点）",
               QString::number(optifineIndex));
+        const int quiltIndex = texts.indexOf(QStringLiteral("Quilt"));
+        check(quiltIndex == 4 &&
+                  texts.mid(0, 4) == QStringList({QStringLiteral("Fabric"), QStringLiteral("Forge"),
+                                                  QStringLiteral("NeoForge"), QStringLiteral("OptiFine")}),
+              "Y1 现有四种加载器顺序不变（0..3），Quilt 排在第 4 位",
+              texts.join(QLatin1Char(',')));
         check(names.size() == texts.size() && names.size() == kindCount + 1,
-              "那组钮 = 四个加载器 + 一个「不装（纯原版）」",
+              "那组钮 = 五个加载器 + 一个「不装（纯原版）」",
               QString("names=%1 texts=%2 loaders=%3")
                   .arg(names.size())
                   .arg(texts.size())
                   .arg(kindCount));
-        check(noneIndex == kindCount, "「不装」正好排在四个加载器后面（下标 == 加载器个数）",
+        check(noneIndex == kindCount, "「不装」正好排在五个加载器后面（下标 == 加载器个数）",
               QString("%1 vs %2").arg(noneIndex).arg(kindCount));
         int matched = 0;
         for (int i = 0; i < kindCount; ++i) {
@@ -56,7 +62,7 @@ int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStac
         check(matched == kindCount, "第 i 个钮上写的就是 VersionManager 认的那个加载器（同序同名）",
               QString("%1/%2 对上").arg(matched).arg(kindCount));
         // 「不装」**不能**翻成任何一个加载器。翻得成的话，"勾着「不装」点下载"就成了一次
-        // 没人点过头的加载器安装 —— 这条是那第五个选项存在的全部意义。
+        // 没人点过头的加载器安装 —— 这条是那第 6 个选项存在的全部意义。
         LoaderKind noneKind = LoaderKind::Fabric;
         check(!VersionManager::loaderKindFromIndex(noneIndex, &noneKind),
               "「不装」翻不成加载器", VersionManager::loaderDisplayName(noneKind));
@@ -66,8 +72,9 @@ int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStac
         check(VersionManager::loaderInstallSupported(LoaderKind::Fabric) &&
                   VersionManager::loaderInstallSupported(LoaderKind::Forge) &&
                   VersionManager::loaderInstallSupported(LoaderKind::NeoForge) &&
-                  VersionManager::loaderInstallSupported(LoaderKind::OptiFine),
-              "四个加载器都接通了（OptiFine 也能装）");
+                  VersionManager::loaderInstallSupported(LoaderKind::OptiFine) &&
+                  VersionManager::loaderInstallSupported(LoaderKind::Quilt),
+              "五个加载器都接通了（含 Quilt）");
 
         // Y2. 真窗口上那棵加载器树：五条顶层条目、每条的身份就是下标、**点一下真的会
         // 改掉"要装哪一个"**（要求："做成和上一页的版本选择相同的模式，点击以后
@@ -933,6 +940,59 @@ int MwInstalledVersionsChecks(const QDir &versionsDir, MainWindow &window, QStac
                       QStringLiteral("小字=「%1」 名字=%2")
                           .arg(rowSubText(betaRow))
                           .arg(installNameEdit->text()));
+
+                // Y2e. Quilt 接入安装页：支持版本可选、其余四条置灰互斥、不支持版本显示「无可用版本」。
+                QTreeWidgetItem *quiltRow = rows.at(quiltIndex);
+                const LoaderMeta::LoaderVersionList quiltVersions{
+                    LoaderMeta::LoaderVersionEntry{QStringLiteral("0.27.0-beta.1"), false},
+                    LoaderMeta::LoaderVersionEntry{QStringLiteral("0.26.4"), true}};
+                QMetaObject::invokeMethod(&window, "onLoaderVersionsFetched", Qt::DirectConnection,
+                                          Q_ARG(QString, kPickedId), Q_ARG(int, quiltIndex),
+                                          Q_ARG(bool, true),
+                                          Q_ARG(LoaderMeta::LoaderVersionList, quiltVersions),
+                                          Q_ARG(QString, QString()));
+                QApplication::processEvents();
+                check(quiltRow->childCount() == 4 &&
+                          childText(quiltRow, 2) == QStringLiteral("0.27.0-beta.1") &&
+                          childText(quiltRow, 3) == QStringLiteral("0.26.4"),
+                      "Y2e Quilt 兼容版本列表灌入（两档 + 2 个版本）",
+                      QString::number(quiltRow->childCount()));
+                clickRow(loaderTree, quiltRow);
+                clickRow(loaderTree, quiltRow->child(3));
+                check(!quiltRow->isExpanded() && rowSubText(quiltRow) == QStringLiteral("0.26.4") &&
+                          installNameEdit->text() ==
+                              kPickedId + QStringLiteral("-Quilt_0.26.4"),
+                      "Y2e 选中 Quilt 0.26.4：行收起、小字写版本号、默认名拼成 <mc>-Quilt_0.26.4",
+                      installNameEdit->text());
+                const QString wantQuiltConflict = MainWindowUI::loaderConflictText(
+                    VersionManager::loaderDisplayName(LoaderKind::Quilt));
+                int quiltDisabledOthers = 0;
+                for (int i = 0; i < rows.size(); ++i) {
+                    if (!VersionManager::loaderKindFromIndex(i, nullptr) || i == quiltIndex) continue;
+                    if (rows.at(i)->isDisabled() && rowSubText(rows.at(i)) == wantQuiltConflict) {
+                        ++quiltDisabledOthers;
+                    }
+                }
+                check(quiltDisabledOthers == kindCount - 1,
+                      "Y2e 选中 Quilt 后，其余四条加载器写「与 Quilt 不兼容」并禁用",
+                      QString("%1/%2").arg(quiltDisabledOthers).arg(kindCount - 1));
+                clickRow(loaderTree, rows.at(noneIndex));
+                QMetaObject::invokeMethod(&window, "onLoaderVersionsFetched", Qt::DirectConnection,
+                                          Q_ARG(QString, kPickedId), Q_ARG(int, quiltIndex),
+                                          Q_ARG(bool, true),
+                                          Q_ARG(LoaderMeta::LoaderVersionList, LoaderMeta::LoaderVersionList()),
+                                          Q_ARG(QString, QString()));
+                QApplication::processEvents();
+                check(quiltRow->childCount() == 1 &&
+                          childText(quiltRow, 0) == MainWindowUI::loaderVersionUnavailableText() &&
+                          quiltRow->child(0)->isDisabled(),
+                      "Y2e Quilt 不兼容游戏版本：仅显示灰色的「无可用版本」",
+                      childText(quiltRow, 0));
+                clickRow(loaderTree, quiltRow);
+                clickRow(loaderTree, quiltRow->child(0));
+                check(rowSubText(quiltRow).isEmpty() && !installNameEdit->text().contains(QStringLiteral("Quilt")),
+                      "Y2e 点击「无可用版本」不会选中 Quilt");
+                if (quiltRow->isExpanded()) clickRow(loaderTree, quiltRow);
             }
             // 翻回原来那一页（后面几节拿窗口当"开局那个样子"用）。
             if (downloadTabs != nullptr) {
