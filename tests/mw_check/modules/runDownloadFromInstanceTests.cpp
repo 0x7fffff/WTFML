@@ -50,14 +50,19 @@ void runDownloadFromInstanceTests() {
     // 填成对应版本和加载器"，要求「点击下载新模组/...后自动在搜索框里填入对应的版本
     // 和加载器」）走的就是这两份值 —— 一个报不出东西的实例量不出来（填出来是空的，和
     // "接线断了"长得一模一样）。
-    const QString idV = QStringLiteral("1.96.1");
+    // 版本号**必须是清单里真有的**那一个，`1.96.1` 这种凭空写的不行：`instanceGameVersion()`
+    // 的每一格都要过 `isKnownGameVersion()` —— 在线清单**已经拉到**时它只认清单里的 id，
+    // 清单**还没到**（离线第一趟）才退回"长得像版本号"的放宽判据。凭空写的版本号于是
+    // 只在开发机（清单没到手）绿，CI（网络好、清单先到）稳定红：版本筛子取不到游戏版本、
+    // `currentText()` 是空的。`1.20.1` 是清单里真有的正式版，两种情形都成立。
+    // 出处和判据见 `VersionManager::instanceGameVersion()`；同一个坑先前在
+    // `runInstanceFileResourceTests.cpp` 里踩过。
+    const QString idV = QStringLiteral("1.20.1");
     const QString instanceLoader = QStringLiteral("Fabric");
     const QDir versionsDir(root.path() + QStringLiteral("/versions"));
     makeInstalledVersion(versionsDir, idV);
-    // `realVersion` 必须写上：这一节在离线 CI 上也跑，不能靠"目录名长得像版本号"
-    // 的兜底（在线清单非空时那条兜底不生效，测出来的就是空版本）。
     makeVersionMeta(versionsDir, idV,
-                    QByteArrayLiteral("{\"realVersion\":\"1.96.1\",\"loaderName\":\"Fabric\","
+                    QByteArrayLiteral("{\"realVersion\":\"1.20.1\",\"loaderName\":\"Fabric\","
                                       "\"loaderVersion\":\"0.15.11\"}"));
     rememberLastVersion(idV);
 
