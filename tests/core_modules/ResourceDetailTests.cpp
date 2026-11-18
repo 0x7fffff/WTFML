@@ -571,6 +571,89 @@ void runResourceDetailTests() {
                   ResourceCatalog::majorGameVersionOf(QStringLiteral("24w14a"))),
               "Z8h 「折不动」的判据：折完还是快照");
 
+        // ---- issue #20：大版本组（详情页 chip 第一层）----
+        // 规则：取版本号前两段；预发布与新式快照先折到所属版本再取；折不出的回空串（= 「其他」组）。
+        {
+            const QList<QPair<QString, QString>> cases = {
+                {QStringLiteral("1.21.4"), QStringLiteral("1.21")},
+                {QStringLiteral("1.21"), QStringLiteral("1.21")},
+                {QStringLiteral("1.7.10"), QStringLiteral("1.7")},
+                {QStringLiteral("1.20.1"), QStringLiteral("1.20")},
+                {QStringLiteral("26.1.1"), QStringLiteral("26.1")},
+                {QStringLiteral("26.2"), QStringLiteral("26.2")},
+                // 预发布 / 候选 / 新式快照 / 空格式预览版：跟着所属版本走。
+                {QStringLiteral("1.21.4-pre3"), QStringLiteral("1.21")},
+                {QStringLiteral("1.21-rc1"), QStringLiteral("1.21")},
+                {QStringLiteral("26.2-rc1"), QStringLiteral("26.2")},
+                {QStringLiteral("26.2-snapshot-1"), QStringLiteral("26.2")},
+                {QStringLiteral("1.14.2 Pre-Release 4"), QStringLiteral("1.14")},
+                // 折不出所属版本的：老式周快照、旧测试版、愚人节版、空串。
+                {QStringLiteral("24w14a"), QString()},
+                {QStringLiteral("b1.7.3"), QString()},
+                {QStringLiteral("1.RV-Pre1"), QString()},
+                {QStringLiteral("20w14infinite"), QString()},
+                {QString(), QString()},
+            };
+            QString wrong;
+            for (const auto &pair : cases) {
+                const QString got = ResourceCatalog::gameVersionSeriesOf(pair.first);
+                if (got != pair.second && wrong.isEmpty()) {
+                    wrong = QStringLiteral("%1 → 「%2」（要 「%3」）").arg(pair.first, got, pair.second);
+                }
+            }
+            check(wrong.isEmpty(),
+                  "★★ Z8h gameVersionSeriesOf：前两段归组，预发布/快照跟所属版本，折不出的回空串", wrong);
+            // 声明表走一遍：组按出现先后（新的在前）、组内保持原序。
+            const QStringList declared = {QStringLiteral("1.20.1"), QStringLiteral("1.21.1"),
+                                          QStringLiteral("1.21.4"), QStringLiteral("1.21.4-pre3"),
+                                          QStringLiteral("24w14a")};
+            // 顶排的 key 表：新的在前，「其他」永远最后。
+            const QStringList withSnap = ResourceCatalog::gameVersionSeriesChoices(declared, true);
+            check(withSnap == QStringList({QStringLiteral("1.21"), QStringLiteral("1.20"),
+                                           ResourceCatalog::otherSeriesKey()}),
+                  "★★ Z8h 顶排大版本表（勾快照）：1.21、1.20，24w14a 归最后的「其他」",
+                  withSnap.join(QLatin1Char(' ')));
+            const QStringList noSnap = ResourceCatalog::gameVersionSeriesChoices(declared, false);
+            check(noSnap == QStringList({QStringLiteral("1.21"), QStringLiteral("1.20")}),
+                  "Z8h 不勾快照：折不出大版本的周快照不摆，「其他」随之消失",
+                  noSnap.join(QLatin1Char(' ')));
+            // 按大版本筛：声明过该大版本任一细版本的留下，不看它落在哪个组。
+            const auto entry = [](const QString &id, const QStringList &versions) {
+                ResourceCatalog::VersionEntry e;
+                e.id = id;
+                e.gameVersions = versions;
+                return e;
+            };
+            const QList<ResourceCatalog::VersionEntry> entries = {
+                entry(QStringLiteral("a"), {QStringLiteral("1.21.1")}),
+                entry(QStringLiteral("b"), {QStringLiteral("1.20.1"), QStringLiteral("1.21.4")}),
+                entry(QStringLiteral("c"), {QStringLiteral("1.20.6")}),
+                entry(QStringLiteral("d"), {QStringLiteral("1.21.2-pre1")}),
+                entry(QStringLiteral("e"), {QStringLiteral("24w14a")}),
+                entry(QStringLiteral("f"), {QStringLiteral("b1.7.3")}),
+            };
+            const auto ids = [](const QList<ResourceCatalog::VersionEntry> &list) {
+                QStringList out;
+                for (const auto &e : list) out.append(e.id);
+                return out.join(QLatin1Char(','));
+            };
+            check(ids(ResourceCatalog::versionsForSeries(entries, QString(), false)) == "a,b,c,d,e,f",
+                  "★★ Z8h 按大版本筛：空串 = 不筛");
+            check(ids(ResourceCatalog::versionsForSeries(entries, QStringLiteral("1.21"), false)) ==
+                      "a,b,d",
+                  "★★ Z8h 按 1.21 筛：1.21.1、跨 1.20/1.21 的那条、1.21.2-pre1 都在，1.20.6 不在",
+                  ids(ResourceCatalog::versionsForSeries(entries, QStringLiteral("1.21"), false)));
+            check(ids(ResourceCatalog::versionsForSeries(entries, QStringLiteral("1.20"), false)) ==
+                      "b,c",
+                  "Z8h 按 1.20 筛：跨档的那条两边都在");
+            check(ids(ResourceCatalog::versionsForSeries(entries, ResourceCatalog::otherSeriesKey(),
+                                                         true)) == "e,f",
+                  "Z8h 勾快照时「其他」= 周快照和旧测试版");
+            check(ids(ResourceCatalog::versionsForSeries(entries, ResourceCatalog::otherSeriesKey(),
+                                                         false)) == "f",
+                  "Z8h 不勾快照时周快照不参与「其他」");
+        }
+
         // ---- ：真清单说了算 ----
         //
         // 上面那几颗是**手写**的，而手写的永远只覆盖得到"作者想得到的写法" —— 新式快照号

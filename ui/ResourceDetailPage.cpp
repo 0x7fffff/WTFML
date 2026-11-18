@@ -24,6 +24,7 @@
 #include <QVBoxLayout>
 
 #include "Animations.hpp"
+#include "FlowLayout.hpp"
 #include "LoadingState.hpp"
 #include "MainWindowUI.hpp"
 #include "RowActivation.hpp"
@@ -39,9 +40,8 @@ constexpr int kPageWidth = 820;
 constexpr int kPageHeight = 560;
 /// 头卡上那个图标多大（正方形）。PCL 那一页也是这么大一圈。
 constexpr int kIconSize = 64;
-/// chip 那一行的高。**比 chip 本体高**：横向滚动条出现时要占掉十几像素，
-/// 不留余量的话那一条会把 chip 吃掉半截。
-constexpr int kChipRowHeight = 40;
+/// chip 之间的横竖间距（折行后两行之间也是这个值）。
+constexpr int kChipRowSpacing = 6;
 
 /// 这条标签**现在会画出来的字**（截断之后的那一串）。paintEvent 和验证工程读的那个读数
 /// 都走这一份 —— 两处各算一遍的话，"量到的那串"和"屏幕上的那串"迟早不是一回事。
@@ -290,41 +290,28 @@ ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
 
     // ---------- 那一排游戏版本 chip ----------
     //
-    // 套一层横向滚动区：一个资源能用到的游戏版本可能十几个（加上「全部」），一行放不下。
-    // **不能让整页跟着变宽** —— 那会让底下的版本列表也一起变宽、页面底下多出横向滚动条。
-    // 这里只让这一排自己滚。
-    auto *chipScroll = new QScrollArea(this);
-    chipScroll->setFrameShape(QFrame::NoFrame);
-    chipScroll->setWidgetResizable(true);
-    chipScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    chipScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    chipScroll->setFixedHeight(kChipRowHeight);
-    chipScroll->setObjectName(chipRowName() + QStringLiteral("Scroll"));
-    m_chipRow = new QWidget(chipScroll);
+    // chip 是大版本组（1.21、1.20……），数量有限，但窄窗口下一行也可能放不下：用折行布局
+    // 往下折，**不出横向滚动条**，页面宽度也不会被 chip 顶开。
+    m_chipRow = new QWidget(this);
     m_chipRow->setObjectName(chipRowName());
-    auto *chipLayout = new QHBoxLayout(m_chipRow);
-    chipLayout->setContentsMargins(0, 0, 0, 0);
-    chipLayout->setSpacing(6);
-    chipLayout->addStretch(1);
-    chipScroll->setWidget(m_chipRow);
-    chipScroll->viewport()->setAutoFillBackground(false);
-    m_chipRow->setAutoFillBackground(false);
+    m_chipRow->setLayout(new FlowLayout(kChipRowSpacing, kChipRowSpacing));
     // 那一排 chip 的**右边**挂着「显示快照版」，而且它和那一排是同一件事（见
-    // ResourceDetailPage.hpp 里那段）：放在滚动区**外面**，
-    // 版本多的资源横向滚起来时这颗勾选框不会跟着滚走。
+    // ResourceDetailPage.hpp 里那段）：放在 chip 区**外面**、贴着第一行，
+    // chip 折出第二行第三行时它不跟着挪。
     auto *chipLine = new QHBoxLayout;
     chipLine->setContentsMargins(0, 0, 0, 0);
     chipLine->setSpacing(8);
-    chipLine->addWidget(chipScroll, 1);
+    chipLine->addWidget(m_chipRow, 1, Qt::AlignTop);
 
     m_showSnapshots = new QCheckBox(tr("显示快照版"), this);
     m_showSnapshots->setObjectName(showSnapshotsCheckBoxName());
     // 鼠标提示里点明快捷键。
     m_showSnapshots->setToolTip(tr("按 Alt 键也能切换"));
     m_showSnapshots->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    m_showSnapshots->setMinimumHeight(Theme::chipHeight());  // 和第一行 chip 同高，文字才对齐
     connect(m_showSnapshots, &QCheckBox::toggled, this,
             [this](bool checked) { emit showSnapshotsChanged(checked); });
-    chipLine->addWidget(m_showSnapshots, 0, Qt::AlignVCenter);
+    chipLine->addWidget(m_showSnapshots, 0, Qt::AlignTop);
 
     // 与「显示快照版」复用同一槽位，仅实例模组详情可见并可操作。
     m_modSettings = new QPushButton(modSettingsText(), this);
@@ -338,7 +325,7 @@ ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
         if (m_modSettingsShown) emit modSettingsRequested();
     });
     m_modSettings->hide();
-    chipLine->addWidget(m_modSettings, 0, Qt::AlignVCenter);
+    chipLine->addWidget(m_modSettings, 0, Qt::AlignTop);
     outer->addLayout(chipLine);
 
     // ---------- chip 那一排与版本列表中间那一行----------
@@ -482,7 +469,7 @@ void ResourceDetailPage::setChips(const QList<Chip> &chips, const QString &prese
 }
 
 void ResourceDetailPage::rebuildChips() {
-    auto *layout = qobject_cast<QHBoxLayout *>(m_chipRow->layout());
+    QLayout *layout = m_chipRow->layout();
     if (layout == nullptr) {
         return;
     }
@@ -502,8 +489,7 @@ void ResourceDetailPage::rebuildChips() {
         // 身份挂属性上（和 rowKeyRole 那条同一个理由：文字是给人看的，会随文案改）。
         button->setProperty("chipKey", chip.key);
         connect(button, &QPushButton::clicked, this, [this, button] { onChipClicked(button); });
-        // 插在最后那个 stretch 之前（构造时摆了一个，整排靠左）。
-        layout->insertWidget(layout->count() - 1, button);
+        layout->addWidget(button);
         m_chipButtons.append(button);
     }
 }
@@ -629,10 +615,12 @@ void ResourceDetailPage::fillGroups(const QList<Group> &groups) {
                 item->setToolTip(0, row.tooltip);
             }
         }
-        // 组头一律**展开**：用户点进这一页就是想看版本，先收着等于让他再点十几下。
+        // 组头默认**收起**，点标题行才展开；只有调用方标了 `expanded` 的（从实例进来、
+        // 细版本正好是实例版本的那几组）才摊开。
         // NOTE: 换一颗 chip 会把整份列表重建（分组的算法在业务层），展开状态也就跟着复位 ——
-        // 这是有意接受的（要留住它得按组名记一份，而组名会随 chip 改）。
-        groupItem->setExpanded(true);
+        // 这是有意接受的（要留住它得按组名记一份，而组名会随 chip 改）。用户自己点开、收起
+        // 一个组不触发重建，也不改变顶排选中的大版本。
+        groupItem->setExpanded(group.expanded);
     }
 }
 

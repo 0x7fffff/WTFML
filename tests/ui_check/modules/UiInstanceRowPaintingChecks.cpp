@@ -230,6 +230,105 @@ int UiInstanceRowPaintingChecks() {
               "（不是那个界面上没人按着的 key）",
               QStringLiteral("currentChip = 「%1」").arg(page.currentChip()));
 
+        // ---- c1b) 顶排是大版本组，下面的文件分组默认收起（issue #20）----
+        //
+        // 顶排只有「全部」和各个大版本（key 就是大版本号，「其他」放最后）；点一颗 = 按这个
+        // 大版本筛（筛的是业务层的事，这一页只发 key）；展开、收起下面的文件分组不动选中的那一颗。
+        {
+            QList<ResourceDetail::Chip> series;
+            series.append({QString(), QStringLiteral("全部")});
+            series.append({QStringLiteral("1.21"), QStringLiteral("1.21")});
+            series.append({QStringLiteral("1.20"), QStringLiteral("1.20")});
+            series.append({QStringLiteral("other"), QStringLiteral("其他")});
+            page.setChips(series, QString());
+            QApplication::processEvents();
+            check(page.chips().size() == 4 && page.chipKeyAt(1) == QStringLiteral("1.21") &&
+                      page.chipTextAt(3) == QStringLiteral("其他") &&
+                      page.chipKeyAt(3) == QStringLiteral("other") && page.currentChip().isEmpty(),
+                  "★★ Z14c 顶排只有「全部」+ 大版本组（1.21 / 1.20）+ 最后的「其他」，没有细版本",
+                  QString::number(page.chips().size()));
+            const int firedBefore = chipFired.size();
+            page.chips().at(1)->click();
+            check(chipFired.size() == firedBefore + 1 && chipFired.last() == QStringLiteral("1.21") &&
+                      page.currentChip() == QStringLiteral("1.21") && page.chips().at(1)->isChecked() &&
+                      !page.chips().at(0)->isChecked(),
+                  "★★ Z14c 点 1.21 = 发 key=1.21，选中的组高亮（互斥）",
+                  chipFired.join(QLatin1Char(',')));
+
+            // 下面的文件分组：默认收起，展开 / 收起都不改顶排。
+            QList<ResourceDetail::Group> fileGroups;
+            for (const QString &title : {QStringLiteral("Fabric 1.21.4"), QStringLiteral("Fabric 1.21.1"),
+                                         QStringLiteral("NeoForge 1.21.1")}) {
+                ResourceDetail::Group group;
+                group.title = title;
+                ResourceDetail::Row row;
+                row.key = title;
+                row.title = QStringLiteral("1.0");
+                group.rows.append(row);
+                fileGroups.append(group);
+            }
+            page.setGroups(fileGroups);
+            check(page.groupCount() == 3 && !page.groupExpandedAt(0) && !page.groupExpandedAt(1) &&
+                      !page.groupExpandedAt(2),
+                  "★★ Z14c 文件分组默认全部收起");
+            page.versionList()->topLevelItem(1)->setExpanded(true);
+            check(page.groupExpandedAt(1) && !page.groupExpandedAt(0) &&
+                      page.currentChip() == QStringLiteral("1.21") && page.chips().at(1)->isChecked() &&
+                      chipFired.size() == firedBefore + 1,
+                  "★★ Z14c 展开一个文件分组：顶排选中的 1.21 不变、不发 chipChanged");
+            page.versionList()->topLevelItem(1)->setExpanded(false);
+            check(!page.groupExpandedAt(1) && page.currentChip() == QStringLiteral("1.21") &&
+                      page.chips().at(1)->isChecked() && chipFired.size() == firedBefore + 1,
+                  "★★ Z14c 再收起：筛选条件仍不变");
+
+            // 预选落在某个大版本上：按下去的是那一颗，不发信号。
+            page.setChips(series, QStringLiteral("1.20"));
+            check(page.currentChip() == QStringLiteral("1.20") && page.chips().at(2)->isChecked() &&
+                      chipFired.size() == firedBefore + 1,
+                  "Z14c 预选 1.20：那一颗按下，开页那一下不发信号");
+
+            // 窄页面 + 很多大版本：折行，不出横向滚动条，每一颗都完整落在页面里。
+            QList<ResourceDetail::Chip> many;
+            many.append({QString(), QStringLiteral("全部")});
+            for (int minor = 21; minor >= 1; --minor) {
+                const QString key = QStringLiteral("1.%1").arg(minor);
+                many.append({key, key});
+            }
+            page.setChips(many, QString());
+            QApplication::processEvents();
+            auto *chipRow = page.findChild<QWidget *>(ResourceDetailPage::chipRowName());
+            bool allInside = chipRow != nullptr;
+            int maxBottom = 0;
+            for (QPushButton *button : page.chips()) {
+                allInside = allInside && chipRow != nullptr &&
+                            button->geometry().right() <= chipRow->width() &&
+                            button->geometry().left() >= 0;
+                maxBottom = qMax(maxBottom, button->geometry().bottom());
+            }
+            check(chipRow != nullptr && chipRow->findChildren<QAbstractScrollArea *>().isEmpty() &&
+                      allInside && maxBottom > page.chips().first()->geometry().bottom(),
+                  "★★ Z14c 22 颗 chip 在 360 宽的页面里折成多行：每颗都完整落在页内、chip 区里没有滚动区",
+                  QStringLiteral("顶排宽 %1 / 最低一颗下沿 %2")
+                      .arg(chipRow != nullptr ? chipRow->width() : -1)
+                      .arg(maxBottom));
+            // 窗口拉宽：同一份表排得下更多，仍然没有滚动区，也不再折行。
+            page.resize(1400, 560);
+            QApplication::processEvents();
+            int wideMaxBottom = 0;
+            for (QPushButton *button : page.chips()) {
+                wideMaxBottom = qMax(wideMaxBottom, button->geometry().bottom());
+            }
+            check(chipRow != nullptr && chipRow->findChildren<QAbstractScrollArea *>().isEmpty() &&
+                      chipRow->width() > 900 && wideMaxBottom < maxBottom,
+                  "Z14c 拉宽到 1400 后顶排跟着变宽、行数变少，仍没有滚动区",
+                  QString::number(chipRow != nullptr ? chipRow->width() : -1));
+            page.resize(360, 560);
+            QApplication::processEvents();
+            // 还回原样，后面几节照旧用三颗那一份。
+            page.setChips(chips, QString());
+            page.setGroups({});
+        }
+
         // ---- c2) chip 那一排右边那颗「显示快照版」勾选框 ----
         //
         // 要求：「就是点开具体的页面（上次的那张图的那个页面里，上方右侧放一个勾选框，
@@ -249,24 +348,18 @@ int UiInstanceRowPaintingChecks() {
               "★ Z14 鼠标提示里点明「按 Alt 键也能切换」（用户原话「鼠标悬停里提到这点」）",
               snapBox != nullptr ? snapBox->toolTip() : QString());
 
-        // 位置：在那一排 chip 的**右边**，而且在那个横向滚动区**外面**。放里面的话窗口一窄、
-        // 版本一多，这颗勾就跟着 chip 一起滚出视野 —— 而它是"默认不勾"的那一颗，用户得找得到。
+        // 位置：在那一排 chip 的**右边**，而且在 chip 区**外面**。放里面的话 chip 折行时
+        // 这颗勾会跟着被挤走 —— 而它是"默认不勾"的那一颗，用户得找得到。
         {
-            auto *chipRowWidget = page.findChild<QWidget *>(ResourceDetailPage::chipRowName());
-            auto *chipScroll =
-                chipRowWidget != nullptr
-                    ? qobject_cast<QScrollArea *>(chipRowWidget->parentWidget()->parentWidget())
-                    : nullptr;
-            check(chipScroll != nullptr && snapBox != nullptr &&
-                      !chipScroll->isAncestorOf(snapBox) &&
+            auto *chipArea = page.findChild<QWidget *>(ResourceDetailPage::chipRowName());
+            check(chipArea != nullptr && snapBox != nullptr && !chipArea->isAncestorOf(snapBox) &&
                       snapBox->mapTo(&page, QPoint()).x() >=
-                          chipScroll->mapTo(&page, QPoint()).x() + chipScroll->width(),
-                  "★★ Z14 那颗勾选框在那一排 chip 的**右边**、并且不在那个横向滚动区里"
-                  "（跟着滚走的话它一半时候都在视野外）",
-                  chipScroll == nullptr
-                      ? QStringLiteral("没找到 chip 那个滚动区")
-                      : QStringLiteral("滚动区右边缘 %1 / 勾左边 %2")
-                            .arg(chipScroll->mapTo(&page, QPoint()).x() + chipScroll->width())
+                          chipArea->mapTo(&page, QPoint()).x() + chipArea->width(),
+                  "★★ Z14 那颗勾选框在那一排 chip 的**右边**、并且不在 chip 区里",
+                  chipArea == nullptr
+                      ? QStringLiteral("没找到 chip 区")
+                      : QStringLiteral("chip 区右边缘 %1 / 勾左边 %2")
+                            .arg(chipArea->mapTo(&page, QPoint()).x() + chipArea->width())
                             .arg(snapBox->mapTo(&page, QPoint()).x()));
         }
 
@@ -485,9 +578,25 @@ int UiInstanceRowPaintingChecks() {
         rowOld.subText = QStringLiteral("Fabric · 1.7.3+1.21-fabric.jar");
         rowOld.channel = 0;
         older.rows.append(rowOld);
+        // 默认收起（issue #20）；这一节后面要点行、点组头，所以这两组显式摊开。
+        stable.expanded = true;
+        older.expanded = true;
         groups.append(stable);
         groups.append(older);
 
+        // 先按默认摆一遍：组头没标 expanded 就是**收起**的。
+        {
+            QList<ResourceDetail::Group> collapsed = groups;
+            collapsed[0].expanded = false;
+            collapsed[1].expanded = false;
+            page.setGroups(collapsed);
+            check(page.groupCount() == 2 && !page.groupExpandedAt(0) && !page.groupExpandedAt(1),
+                  "★★ Z14 组头默认**收起**（点标题行才展开）");
+            collapsed[1].expanded = true;
+            page.setGroups(collapsed);
+            check(!page.groupExpandedAt(0) && page.groupExpandedAt(1),
+                  "★★ Z14 只有标了 expanded 的那一组摊开，其余收起");
+        }
         page.setGroups(groups);
         QTreeWidget *list = page.versionList();
         check(page.groupCount() == 2 && page.versionRowCount() == 3,
@@ -497,7 +606,7 @@ int UiInstanceRowPaintingChecks() {
               "Z14 组头写的就是 MainWindow 给的那两截（这一页不自己拼）",
               QStringLiteral("%1 / %2").arg(page.groupTitleAt(0), page.groupTitleAt(1)));
         check(page.groupExpandedAt(0) && page.groupExpandedAt(1),
-              "Z14 组头一律**展开**（点进这一页就是想看版本，先收着等于让他再点十几下）");
+              "Z14 标了 expanded 的组头摊开");
         check(page.placeholderText().isEmpty(),
               "Z14 摆上真内容之后那句说明就撤了（不是叠在列表上）");
         auto *delegate = qobject_cast<VersionTreeDelegate *>(list->itemDelegate());

@@ -136,6 +136,9 @@ void runInstanceFileResourceTests() {
         "\"game_versions\":[\"1.20.1\"],\"loaders\":[\"neoforge\"]},"
         "{\"id\":\"VFAB\",\"version_number\":\"9.0.0-fab\",\"date_published\":\"2026-09-01T00:00:00Z\","
         "\"game_versions\":[\"1.20.1\"],\"loaders\":[\"fabric\"]},"
+        // 1.20（不是 1.20.1）：同属 1.20 大版本但细版本不是实例那个 ⇒ 这一组默认收着。
+        "{\"id\":\"VMID\",\"version_number\":\"8.0.0-fab\",\"date_published\":\"2026-01-01T00:00:00Z\","
+        "\"game_versions\":[\"1.20\"],\"loaders\":[\"fabric\"]},"
         "{\"id\":\"VOLD\",\"version_number\":\"1.0.0-fab\",\"date_published\":\"2025-01-01T00:00:00Z\","
         "\"game_versions\":[\"1.21.1\"],\"loaders\":[\"fabric\"]}]");
     // CurseForge 那一支也要**答得上话**（每一趟都会发那一发）：空结果、没有未匹配的。
@@ -368,6 +371,7 @@ void runInstanceFileResourceTests() {
             int versionRows = -1;
             int groups = -1;
             QString firstGroupTitle;
+            QList<bool> expanded;               // 每个文件分组摊没摊开
         };
         // 补，要求：「上一步中，点击下载界面返回后应该退回到实例设置而
         // 不是实例列表」。**按了返回之后落在哪儿**，只能在**再往下一层**里量 —— 返回
@@ -447,6 +451,9 @@ void runInstanceFileResourceTests() {
                 probe.versionRows = detail->versionRowCount();
                 probe.groups = detail->groupCount();
                 probe.firstGroupTitle = detail->groupTitleAt(0);
+                for (int g = 0; g < detail->groupCount(); ++g) {
+                    probe.expanded.append(detail->groupExpandedAt(g));
+                }
             }
             // 收这一页（= 用户按返回）之后，**紧接着**排下一发去量"退回到哪儿了"。
             QTimer::singleShot(0, [&inspectReturn] { inspectReturn(); });
@@ -496,15 +503,22 @@ void runInstanceFileResourceTests() {
         check(probe.chipCount == 3, "★★ T24.5 前提：chip 那一排是**这个资源声明过的那几档**"
                                     "（全部 + 声明表里那两个版本号）",
               QStringLiteral("一共 %1 颗").arg(probe.chipCount));
-        check(!probe.chip.isEmpty() && probe.chip == idV,
-              "★★ T24.5 从某个实例点进来 ⇒ chip **自动选到那个实例的游戏版本**"
-              "（用户原话「点开某个模组等的时候将版本自动选到当前实例对应的那个」）",
+        check(!probe.chip.isEmpty() && probe.chip == ResourceCatalog::gameVersionSeriesOf(idV),
+              "★★ T24.5 从某个实例点进来 ⇒ 顶排**自动选到那个实例游戏版本所在的大版本**"
+              "（实例 1.20.1 ⇒ 选中 1.20；用户原话「点开某个模组等的时候将版本自动选到当前实例对应的那个」）",
               QStringLiteral("按着：%1 ｜ 实例报：%2")
                   .arg(probe.chip.isEmpty() ? QStringLiteral("(全部)") : probe.chip, idV));
-        check(probe.versionRows == 2 && probe.groups == 2,
-              "★★ T24.5 底下剩的**只有适用于那个版本的**（用户原话「展示为对应版本适用的」）"
-              "—— 夹具里那条只支持 1.21.1 的必须已经被筛掉，不然「筛」这件事等于没发生",
+        check(probe.versionRows == 3 && probe.groups == 3,
+              "★★ T24.5 底下剩的**只有属于这个大版本的**（用户原话「展示为对应版本适用的」）"
+              "—— 夹具里那条只支持 1.21.1 的必须已经被筛掉（1.20 那一档下三组三条）",
               QStringLiteral("行数：%1 组数：%2").arg(probe.versionRows).arg(probe.groups));
+        check(probe.expanded == QList<bool>({true, true, false}),
+              "★★ T24.5 文件分组默认收着，**只有细版本正好是实例那个版本（1.20.1）的两组摊开**，"
+              "同属 1.20 的「Fabric 1.20」仍收着",
+              QStringLiteral("展开状态：%1 %2 %3")
+                  .arg(probe.expanded.value(0))
+                  .arg(probe.expanded.value(1))
+                  .arg(probe.expanded.value(2)));
         check(probe.firstGroupTitle == instanceLoader + QLatin1Char(' ') + idV,
               "★★ T24.5 而**实例那个加载器的那一组排在最前**（用户原话「对应的模组加载器的版本"
               "放在前面」）—— 夹具里同一个游戏版本下 neoforge 排在 fabric **后面**，所以这一条"

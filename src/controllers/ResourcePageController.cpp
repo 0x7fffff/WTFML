@@ -77,15 +77,17 @@ void ResourcePageController::applyChips(const QStringList &declaredGameVersions,
     }
     // 第一颗是「全部」（key 空串 = 不筛）。其余每一颗的 key **和文字是同一串** ——
     // 这一排上没有"显示名"这回事（游戏版本号本身就是用户在界面上要找的那个东西）。
+    // 顶排摆的是**大版本组**（1.21、1.20……，最后一个「其他」），点一个 = 按这个大版本筛，
+    // 具体到哪个细版本由下面那些文件分组的标题说。组的算法见 gameVersionSeriesOf。
     QList<ResourceDetail::Chip> chips;
     ResourceDetail::Chip all;
     all.text = tr("全部");
     chips.append(all);
-    for (const QString &gameVersion :
-         ResourceCatalog::gameVersionChoices(declaredGameVersions, showSnapshots)) {
+    for (const QString &series :
+         ResourceCatalog::gameVersionSeriesChoices(declaredGameVersions, showSnapshots)) {
         ResourceDetail::Chip chip;
-        chip.key = gameVersion;
-        chip.text = gameVersion;
+        chip.key = series;
+        chip.text = series == ResourceCatalog::otherSeriesKey() ? tr("其他") : series;
         chips.append(chip);
     }
     m_page->setChips(chips, wanted);
@@ -181,16 +183,18 @@ bool ResourcePageController::open(const QString &iconKey, const QString &kindKey
     m_state.instanceId = instanceId;
     m_state.preferredLoader.clear();
     QString wantedChip;
+    m_state.preselectedGameVersion.clear();
     if (!instanceId.isEmpty()) {
         m_state.preferredLoader = loaderGroupKey(
             instanceLoaderName(m_owner.m_versionManager->displayParts(instanceId), m_owner.m_versionManager, nullptr));
-        // 换算走 `gameVersionAfterToggle()`（那一份规则只有那一处，别自己比大版本）：实例报
-        // 的是**原样**那个版本号（可能是 26.2-rc1），而 chip 那一排这会儿是**折过**的那一份
-        // （不勾「显示快照版」）—— 换算不出来（这个资源压根没声明过那个版本）回空串，
-        // 于是停在「全部」那颗上，和用户自己点了一颗表里没有的 chip 是同一个结果。
-        wantedChip = ResourceCatalog::gameVersionAfterToggle(
-            hit->gameVersions, m_state.showSnapshots,
-            m_owner.m_versionManager->instanceGameVersion(instanceId));
+        // 顶排预选到实例版本的**大版本**（`1.20.1` → `1.20`）。这个资源压根没声明那个大版本
+        // （顶排没有那一颗）时，setChips 会纠正成「全部」，和用户自己点了一颗表里没有的 chip 一样。
+        m_state.preselectedGameVersion = m_owner.m_versionManager->instanceGameVersion(instanceId);
+        const QString series =
+            ResourceCatalog::gameVersionSeriesOf(m_state.preselectedGameVersion);
+        wantedChip = series.isEmpty() && !m_state.preselectedGameVersion.isEmpty()
+                         ? ResourceCatalog::otherSeriesKey()
+                         : series;
     }
     applyChips(hit->gameVersions, m_state.showSnapshots, wantedChip);
     // 按着的是哪一颗**以页面为准**（和 onResourcePageShowSnapshotsChanged 里那一句逐字
@@ -281,12 +285,10 @@ void ResourcePageController::onShowSnapshotsChanged(bool showSnapshots) {
         return;
     }
     m_state.showSnapshots = showSnapshots;
-    // chip 那一排整个换一份（折与不折是两份不一样的表），现在按着的那一颗**换算成同一个
-    // 大版本在另一档里的说法**（26.2-rc1 ↔ 26.2）—— 勾这一下不该把用户从他正在看的
-    // 那条线上甩回「全部」。换算的规则只有一处，见 ResourceCatalog::gameVersionAfterToggle。
-    const QString wanted = ResourceCatalog::gameVersionAfterToggle(
-        m_state.declaredGameVersions, showSnapshots, m_state.chip);
-    applyChips(m_state.declaredGameVersions, showSnapshots, wanted);
+    // chip 那一排整个换一份（折与不折是两份不一样的表）。顶排的 key 是大版本，26.2-rc1 和
+    // 26.2 同属 `26.2`，所以按着的那一颗原样保留；那一组在另一档里没有了（只声明过周快照的
+    // 「其他」）就由 setChips 纠正成「全部」。
+    applyChips(m_state.declaredGameVersions, showSnapshots, m_state.chip);
     // 按着的是哪一颗**以页面为准**：换算出来的那一颗要是表里没有（对不上），`setChips`
     // 会把它纠正成「全部」，这儿跟着抄回来 —— 两个状态各说各的才是真出问题的地方。
     m_state.chip = m_page->currentChip();
@@ -317,8 +319,21 @@ void ResourcePageController::fillGroups() {
     // 筛（看的是这一版**声明过**的每一个游戏版本，不是它落在哪个组里 —— 那条规矩和它的
     // 坑都在 versionsForGameVersion 的注释里），再按「游戏版本 + 加载器」分组。
     // 两步**分开**：合并了就是上面那条坑（筛 1.20.1 会漏掉一半支持它的版本）。
-    const QList<ResourceCatalog::VersionEntry> filtered = ResourceCatalog::versionsForGameVersion(
+    const QList<ResourceCatalog::VersionEntry> filtered = ResourceCatalog::versionsForSeries(
         m_state.versions, m_state.chip, m_state.showSnapshots);
+    // 从实例进来时：声明过实例那个细版本的组摊开，其余组收起。看的是组里条目声明过的版本，
+    // 不是组头写的那个（一条同时支持 1.20.1 / 1.20.2 的文件落在 1.20.2 那一组）。
+    const QString pre = m_state.preselectedGameVersion;
+    const QString preFolded = ResourceCatalog::majorGameVersionOf(pre);
+    const auto declaresPreselected = [&](const ResourceCatalog::VersionEntry &entry) {
+        for (const QString &declared : entry.gameVersions) {
+            if (declared == pre ||
+                (!m_state.showSnapshots && ResourceCatalog::majorGameVersionOf(declared) == preFolded)) {
+                return true;
+            }
+        }
+        return false;
+    };
     QList<ResourceDetail::Group> groups;
     // 第三个参数 = 从实例进来时那个实例的加载器（**小写**，见 loaderGroupKey）：同一个游戏
     // 版本里把它的组排到前面（要求「对应的模组加载器的版本放在前面」）。不是从实例
@@ -332,6 +347,9 @@ void ResourcePageController::fillGroups() {
         // 版本）」那种后缀：每一组都挂一句一样的话，那一句就不是信息了。
         out.title = group.title();
         for (const ResourceCatalog::VersionEntry &entry : group.versions) {
+            if (!pre.isEmpty() && declaresPreselected(entry)) {
+                out.expanded = true;
+            }
             if (!hasTopmost) {
                 topmost = entry;
                 hasTopmost = true;

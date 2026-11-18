@@ -209,6 +209,7 @@
   安装器/提交不可暂停，重启不自动运行 Java。范围与真机记录见 [恢复验收](archive/ACCEPTANCE_LOG.md)。
   具体范围与验证见 [下载恢复](features/HIGH_SPEED_DOWNLOAD.md)。
 - 服务端安装支持原版、Paper、Purpur、Fabric、Quilt、Forge、NeoForge、Spigot（BuildTools）；服务端使用独立工作目录，首次启动需明确同意 EULA。
+- **资源详情页的版本筛选**：顶排是「全部」和大版本（`1.21`、`1.20`，取版本号前两段，新的在前）；预发布与新式快照归入所属版本，折不出所属版本的（周快照、旧测试版）放最后一组「其他」。点一个大版本即按它筛，选中的高亮。下面的文件分组（如「Fabric 1.21.4」）默认全部收起，点标题行展开；展开、收起不改变顶排选中的大版本。从实例进来时顶排预选实例版本所在的大版本（1.20.1 → 1.20），并只展开声明过实例那个细版本的分组。顶排折行，窗口窄或宽都不出横向滚动条。分组规则在 `ResourceCatalog::gameVersionSeriesOf()`，筛选在 `versionsForSeries()`。
 
 详细策略与验收参见 [HIGH_SPEED_DOWNLOAD.md](features/HIGH_SPEED_DOWNLOAD.md)。
 

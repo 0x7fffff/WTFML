@@ -72,7 +72,7 @@ struct Header {
     QString nameToCopy;
 };
 
-/// 那一排游戏版本 chip 里的一颗。**key 才是身份**（文字只是给人看的）。
+/// 那一排大版本 chip 里的一颗（「全部」、1.21、1.20……、「其他」）。**key 才是身份**（文字只是给人看的）。
 struct Chip {
     QString key;  ///< 空串 = 「全部」（不筛）
     QString text; ///< 按钮上那行字
@@ -98,6 +98,8 @@ struct Group {
     /// 一个字都不拼（"哪几个版本算一组"是业务层的事，见 ResourceCatalog::groupVersions）。
     QString title;
     QList<Row> rows;
+    /// 开页时是否摊开。默认收起。
+    bool expanded = false;
 };
 
 }  // namespace ResourceDetail
@@ -119,8 +121,9 @@ public:
     /// 那一格留白（**留着同样大的位置**，不然图回来的时候整张卡会往左跳一下）。
     void setIcon(const QPixmap &icon);
 
-    /// 那一排游戏版本 chip。`preselectedKey` 是要**按下去**的那一个（空 = 「全部」）。
-    /// 表是 MainWindow 给的（`ResourceCatalog::gameVersionChoices()` 那一份），这一页不自己算。
+    /// 顶排的大版本 chip（「全部」、1.21、1.20……、「其他」）。`preselectedKey` 是要**按下去**的
+    /// 那一个（空 = 「全部」）。表是 MainWindow 给的（`ResourceCatalog::gameVersionSeriesChoices()`
+    /// 那一份），这一页不自己算。两排以上时折行，不出横向滚动条。
     void setChips(const QList<ResourceDetail::Chip> &chips, const QString &preselectedKey);
 
     /// 现在按下去的是哪一个的 **key**（「全部」= 空串）。验证工程和 MainWindow 都读它。
