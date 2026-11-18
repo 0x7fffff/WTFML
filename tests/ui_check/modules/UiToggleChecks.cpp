@@ -42,10 +42,22 @@ int UiToggleChecks(InstanceSettingsDialog &dialog, const QString &modsDir) {
                   !hasToggle(QStringLiteral("schematic")) && !hasToggle(QStringLiteral("save")),
               "★ U10d 数据包 / 原理图 / 存档**没有**「启用·禁用」（改了名也不会生效，"
               "给了反而是骗人）");
+        // 原理图的删除挪进了批量工具条（`ui/InstanceSettingsFilePages.cpp` 里 `setCanDelete()`
+        // 那一句与 `ui/InstanceSettingsLifecycle.cpp` 的 `lifecycleBatchSuffixes()`）：行尾
+        // 没有垃圾桶，选中之后用工具条上那颗「删除」。存档仍然没有删除入口 —— 那是用户
+        // 手里唯一那份，启动器没有副本。
         check(hasDelete(QStringLiteral("mod")) && hasDelete(QStringLiteral("datapack")) &&
-                  hasDelete(QStringLiteral("schematic")) &&
-                  !hasDelete(QStringLiteral("save")),
-              "★ U10d 存档那一页**没有删除**（那是用户手里唯一那份，启动器没有副本）");
+                  !hasDelete(QStringLiteral("schematic")) && !hasDelete(QStringLiteral("save")),
+              "★ U10d 行内删除只在模组 / 数据包上：存档与原理图都没有（后者的删除在批量工具条上）");
+        {
+            InstanceFilesPage *schematics = dialog.filesPage(QStringLiteral("schematic"));
+            auto *batchRemove = dialog.findChild<QPushButton *>(
+                QStringLiteral("instanceLifecycleBatchRemove_schematic"));
+            if (schematics != nullptr) schematics->list()->clearSelection();
+            check(batchRemove != nullptr && !batchRemove->isEnabled(),
+                  "★ U10d 原理图的删除在批量工具条上（没选中时不可点；选中之后的启用与"
+                  "只处理选中项由 wtfml.lifecycle 钉）");
+        }
 
         // 存档只列文件夹：saves/我的世界/level.dat 不该占一行。
         showPage(dialog, QStringLiteral("save"));
