@@ -19,7 +19,6 @@ src/agent/AgentSseParser.cpp	2
 src/agent/AgentToolRegistry.cpp	20
 src/agent/AgentWinPath.cpp	22
 src/agent/OpenAiCompatibleClient.cpp	28
-src/auth/AccountStore.cpp	37
 src/auth/AuthManager.cpp	19
 src/auth/TokenStore.cpp	15
 src/controllers/ActivityCenterController.cpp	2

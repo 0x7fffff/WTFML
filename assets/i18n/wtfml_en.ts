@@ -29,6 +29,127 @@
         </message>
     </context>
     <context>
+        <name>AccountStore</name>
+        <message>
+            <source>已保存的账号列表读不出来：盘上那一格在，但解不开（Windows 账户环境变更或迁移设备之后会这样）。现在写回去会把列表里其它账号一起抹掉，所以这次没有保存。想重新开始的话，先删掉那个键再试。</source>
+            <translation>The saved account list cannot be read: the space on the disk is there but cannot be opened (this happens after the Windows account environment is changed or the device is migrated). Writing it back now will erase other accounts in the list, so it is not saved this time. If you want to start over, delete that key and try again.</translation>
+        </message>
+        <message>
+            <source>切到离线账号之前，没能把当前账号收进列表：</source>
+            <translation>Before switching to the offline account, the current account could not be included in the list:</translation>
+        </message>
+        <message>
+            <source>没能先把当前登录的账号保存下来（%1），所以这次没有切换。
+
+现在还是登录着原来那个账号；盘上那份登录凭据一个字节都没动。</source>
+            <translation>I failed to save the currently logged in account first (%1), so there was no switch this time. 
+
+ I am still logged in with the original account; not a single byte of the login credentials on the disk has been changed.</translation>
+        </message>
+        <message>
+            <source>切到离线账号失败（清活动槽）：</source>
+            <translation>Failed to switch to offline account (clear activity slot):</translation>
+        </message>
+        <message>
+            <source>没能把现在登录着的状态从盘上清掉（%1），所以这次没有切过去。
+
+再点一次它试试；一直不行的话，可能是这台机器上的启动器配置写不进去。</source>
+            <translation>The currently logged-in status could not be cleared from the disk (%1), so I did not switch to it this time. 
+
+Click it again and try; if it still doesn’t work, it may be that the launcher configuration on this machine cannot be written.</translation>
+        </message>
+        <message>
+            <source>没能把「当前账号」记到盘上（%1）。</source>
+            <translation>Failed to write "current account" to disk (%1).</translation>
+        </message>
+        <message>
+            <source>切到离线账号失败（写 QSettings）：</source>
+            <translation>Failed to switch to offline account (write QSettings):</translation>
+        </message>
+        <message>
+            <source>这个账号已经保存在列表里了，但%1
+
+再点一次它试试；一直不行的话，可能是这台机器上的启动器配置写不进去。</source>
+            <translation>This account has been saved in the list, but %1
+
+ try clicking it again; if it still doesn't work, it may be that the launcher configuration on this machine cannot be written.</translation>
+        </message>
+        <message>
+            <source>盘上没有可保存的登录凭据。</source>
+            <translation>There are no login credentials to save on disk.</translation>
+        </message>
+        <message>
+            <source>微软令牌不完整，这份登录凭据没法保存。</source>
+            <translation>The Microsoft token is incomplete and the login credentials cannot be saved.</translation>
+        </message>
+        <message>
+            <source>当前账号记不下来（QSettings 状态异常）：</source>
+            <translation>The current account cannot be remembered (QSettings status is abnormal):</translation>
+        </message>
+        <message>
+            <source>这个账号不在已保存的列表里。</source>
+            <translation>This account is not in the saved list.</translation>
+        </message>
+        <message>
+            <source>这个账号保存的登录凭据不完整，请重新登录一次。</source>
+            <translation>The saved login credentials for this account are incomplete, please log in again.</translation>
+        </message>
+        <message>
+            <source>切换账号时没能把新的启动令牌写下去，而且原来那份刷新令牌也放不回去了（%1）。
+
+现在盘上的登录状态对不上，请在这台机器上重新登录一次。</source>
+            <translation>When switching accounts, I failed to write down the new activation token, and the original refresh token cannot be put back (%1). 
+
+The current login status on the disk does not match. Please log in again on this machine.</translation>
+        </message>
+        <message>
+            <source>
+
+已经退回原来的账号，盘上的登录状态没有变。</source>
+            <translation>Has been returned to the original account, and the login status on the disk has not changed.</translation>
+        </message>
+        <message>
+            <source>删掉当前账号后，盘上的登录状态没能清干净：</source>
+            <translation>After deleting the current account, the login status on the disk cannot be cleared:</translation>
+        </message>
+        <message>
+            <source>账号已经从列表里删掉了，但盘上那份登录状态没能清干净（%1）。
+
+再删一次不会有了（列表里已经没有它）；点一次「登出」把它们清掉即可。</source>
+            <translation>The account has been deleted from the list, but the login status on the disk has not been cleared (%1). 
+
+Delete it again and it will no longer exist (it is no longer in the list); click "Logout" once to clear them.</translation>
+        </message>
+        <message>
+            <source>删掉了当前账号，已一并清除盘上的登录状态。</source>
+            <translation>The current account has been deleted and the login status on the disk has been cleared.</translation>
+        </message>
+        <message>
+            <source>登出之前，没能把当前账号收进列表：</source>
+            <translation>Before logging out, the current account could not be included in the list:</translation>
+        </message>
+        <message>
+            <source>退出登录：盘上的登录状态没能清干净：</source>
+            <translation>Log out: The login status on the disk cannot be cleared:</translation>
+        </message>
+        <message>
+            <source>已退出登录（账号仍然留在已保存的列表里）。</source>
+            <translation>Logged out (the account remains in the saved list).</translation>
+        </message>
+        <message>
+            <source>离线账号得有个名字。</source>
+            <translation>The offline account must have a name.</translation>
+        </message>
+        <message>
+            <source>离线账号的名字最多 16 个字符。</source>
+            <translation>Offline account names can be up to 16 characters long.</translation>
+        </message>
+        <message>
+            <source>离线账号的名字里不能有空格或控制字符。</source>
+            <translation>Offline account names cannot contain spaces or control characters.</translation>
+        </message>
+    </context>
+    <context>
         <name>ActivityCenterController</name>
         <message>
             <source>等待执行；可拖动手柄调整同队列内的顺序。</source>
