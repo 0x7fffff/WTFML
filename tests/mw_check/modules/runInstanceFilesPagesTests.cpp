@@ -3095,9 +3095,13 @@ void runInstanceFilesPagesTests() {
                     return page->findChild<QPushButton *>(
                         QStringLiteral("instanceLifecycleBatch%1_%2").arg(name, key));
                 };
+                // 行号只当"当下这一份列表"的坐标用，按文件名现找：列表按修改时间倒序排，
+                // 重列之后同一份文件的行号就变了，旧行号一律不能用（`item()` 越界是空）。
                 const auto rowOf = [](QListWidget *list, const QString &name) {
                     for (int row = 0; list != nullptr && row < list->count(); ++row) {
-                        if (QFileInfo(list->item(row)->data(Qt::UserRole).toString()).fileName() == name)
+                        auto *item = list->item(row);
+                        if (item != nullptr
+                            && QFileInfo(item->data(Qt::UserRole).toString()).fileName() == name)
                             return row;
                     }
                     return -1;

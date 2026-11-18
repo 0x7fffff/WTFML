@@ -487,6 +487,22 @@ int UiLifecycleCheck(QApplication &app) {
                 expect(image.save(path), "write extra screenshot fixture");
                 extras.append(path);
             }
+            // 列表按**修改时间倒序**排（`InstanceSettingsLifecycle.cpp` 里那句 sort）。行号
+            // 因此取决于时间戳：同一份夹具在不同机器上排出来不一样。旧写法把行号算在重列
+            // 之前、重列之后照着用，换个排法就取到别的行、越界直接解引用空指针。这里把
+            // 时间戳钉死成刚才崩掉的那种排法：Alpha 排最后一行，删掉一张之后它已经越界。
+            const auto setModified = [](const QString &path, const QDateTime &stamp) {
+                QFile file(path);
+                if (!file.open(QIODevice::ReadWrite)) return false;
+                const bool ok = file.setFileTime(stamp, QFileDevice::FileModificationTime);
+                file.close();
+                return ok;
+            };
+            const QDateTime now = QDateTime::currentDateTime();
+            for (const QString &path : extras)
+                expect(setModified(path, now.addSecs(-3600)), "age the extra screenshot fixture");
+            expect(setModified(shotDir + QStringLiteral("/Alpha-2026.png"), now.addSecs(-7200)),
+                   "make Alpha the oldest screenshot so it sorts to the last row");
             dialog.showPage(QStringLiteral("screenshots"));
             dialog.refreshLifecycleBatchFiles(QStringLiteral("screenshots"));
             app.processEvents();
@@ -498,17 +514,20 @@ int UiLifecycleCheck(QApplication &app) {
                 app.processEvents();
                 const auto rowOf = [list](const QString &name) {
                     for (int row = 0; row < list->count(); ++row) {
-                        if (QFileInfo(list->item(row)->data(Qt::UserRole).toString()).fileName() == name)
+                        auto *item = list->item(row);
+                        if (item != nullptr
+                            && QFileInfo(item->data(Qt::UserRole).toString()).fileName() == name)
                             return row;
                     }
                     return -1;
                 };
+                expect(rowOf(QStringLiteral("Alpha-2026.png")) == list->count() - 1,
+                       "the fixture puts Alpha on the last row, the order that used to crash");
                 const int keepRow = rowOf(QStringLiteral("Extra-03.png"));
                 const int goneRow = rowOf(QStringLiteral("Extra-04.png"));
-                const int hiddenRow = rowOf(QStringLiteral("Alpha-2026.png"));
                 list->clearSelection();
-                if (keepRow >= 0) list->item(keepRow)->setSelected(true);
-                if (goneRow >= 0) list->item(goneRow)->setSelected(true);
+                if (auto *item = keepRow >= 0 ? list->item(keepRow) : nullptr) item->setSelected(true);
+                if (auto *item = goneRow >= 0 ? list->item(goneRow) : nullptr) item->setSelected(true);
                 app.processEvents();
                 QScrollBar *bar = list->verticalScrollBar();
                 // QListWidget 默认按**行**滚（`ScrollPerItem`），所以这个数是行号，不是像素。
@@ -527,7 +546,11 @@ int UiLifecycleCheck(QApplication &app) {
                            && QFileInfo(selected.first()->data(Qt::UserRole).toString()).fileName()
                                   == QStringLiteral("Extra-03.png"),
                        "refresh keeps the surviving selection and does not pick another row");
-                expect(hiddenRow >= 0 && list->item(hiddenRow)->isHidden()
+                // 重列把旧 item 全 `clear()` 掉了，旧行号一律作废：按文件名重找 Alpha 那一行，
+                // 找不到就是断言失败，不许拿 `item()` 的空指针去解引用。
+                const int alphaRow = rowOf(QStringLiteral("Alpha-2026.png"));
+                auto *alphaItem = alphaRow >= 0 ? list->item(alphaRow) : nullptr;
+                expect(alphaItem != nullptr && alphaItem->isHidden()
                            && search->text() == QStringLiteral("Extra"),
                        "refresh keeps the search filter and the hidden rows");
                 expect(bar != nullptr && bar->maximum() >= before && bar->value() == before,
