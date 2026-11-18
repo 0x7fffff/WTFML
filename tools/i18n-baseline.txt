@@ -164,7 +164,6 @@ src/server/ServerRun.hpp	8
 src/server/ServerWriteGuard.hpp	2
 src/settings/GlobalJavaSettings.cpp	19
 src/settings/LauncherSettings.cpp	2
-src/tools/AnvilPlanner.cpp	47
 src/tools/ArmorTrimAssets.hpp	5
 src/tools/BannerDesign.hpp	7
 src/tools/BannerRender.hpp	1

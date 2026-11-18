@@ -780,6 +780,197 @@
         </message>
     </context>
     <context>
+        <name>AnvilPlanner</name>
+        <message>
+            <source>保护</source>
+            <translation>Protect</translation>
+        </message>
+        <message>
+            <source>火焰保护</source>
+            <translation>Flame protection</translation>
+        </message>
+        <message>
+            <source>摔落保护</source>
+            <translation>Drop protection</translation>
+        </message>
+        <message>
+            <source>爆炸保护</source>
+            <translation>Explosion protection</translation>
+        </message>
+        <message>
+            <source>弹射物保护</source>
+            <translation>Projectile protection</translation>
+        </message>
+        <message>
+            <source>荆棘</source>
+            <translation>Thorns</translation>
+        </message>
+        <message>
+            <source>水下呼吸</source>
+            <translation>Breathing underwater</translation>
+        </message>
+        <message>
+            <source>深海探索者</source>
+            <translation>Deep sea explorer</translation>
+        </message>
+        <message>
+            <source>水下速掘</source>
+            <translation>Underwater rapid digging</translation>
+        </message>
+        <message>
+            <source>锋利</source>
+            <translation>Sharp</translation>
+        </message>
+        <message>
+            <source>亡灵杀手</source>
+            <translation>Undead Killer</translation>
+        </message>
+        <message>
+            <source>节肢杀手</source>
+            <translation>Arthropod killer</translation>
+        </message>
+        <message>
+            <source>击退</source>
+            <translation>Repel</translation>
+        </message>
+        <message>
+            <source>火焰附加</source>
+            <translation>Fire add-on</translation>
+        </message>
+        <message>
+            <source>抢夺</source>
+            <translation>Snatch</translation>
+        </message>
+        <message>
+            <source>横扫之刃</source>
+            <translation>Sweeping Blade</translation>
+        </message>
+        <message>
+            <source>效率</source>
+            <translation>Efficiency</translation>
+        </message>
+        <message>
+            <source>精准采集</source>
+            <translation>Accurate collection</translation>
+        </message>
+        <message>
+            <source>耐久</source>
+            <translation>Durable</translation>
+        </message>
+        <message>
+            <source>时运</source>
+            <translation>Fortune</translation>
+        </message>
+        <message>
+            <source>力量</source>
+            <translation>Strength</translation>
+        </message>
+        <message>
+            <source>冲击</source>
+            <translation>Impact</translation>
+        </message>
+        <message>
+            <source>火矢</source>
+            <translation>Fire arrow</translation>
+        </message>
+        <message>
+            <source>无限</source>
+            <translation>Unlimited</translation>
+        </message>
+        <message>
+            <source>海之眷顾</source>
+            <translation>The favor of the sea</translation>
+        </message>
+        <message>
+            <source>饵钓</source>
+            <translation>Bait fishing</translation>
+        </message>
+        <message>
+            <source>冰霜行者</source>
+            <translation>Frost Walker</translation>
+        </message>
+        <message>
+            <source>经验修补</source>
+            <translation>Experience patching</translation>
+        </message>
+        <message>
+            <source>绑定诅咒</source>
+            <translation>Binding curse</translation>
+        </message>
+        <message>
+            <source>消失诅咒</source>
+            <translation>Disappearing curse</translation>
+        </message>
+        <message>
+            <source>穿刺</source>
+            <translation>Puncture</translation>
+        </message>
+        <message>
+            <source>激流</source>
+            <translation>Rapids</translation>
+        </message>
+        <message>
+            <source>忠诚</source>
+            <translation>Loyalty</translation>
+        </message>
+        <message>
+            <source>引雷</source>
+            <translation>Draw thunder</translation>
+        </message>
+        <message>
+            <source>多重射击</source>
+            <translation>Multi shot</translation>
+        </message>
+        <message>
+            <source>穿透</source>
+            <translation>Penetrate</translation>
+        </message>
+        <message>
+            <source>快速装填</source>
+            <translation>Quick reload</translation>
+        </message>
+        <message>
+            <source>灵魂疾行</source>
+            <translation>The soul rushes</translation>
+        </message>
+        <message>
+            <source>迅捷潜行</source>
+            <translation>Swift Stealth</translation>
+        </message>
+        <message>
+            <source>风爆</source>
+            <translation>Wind blast</translation>
+        </message>
+        <message>
+            <source>密度</source>
+            <translation>Density</translation>
+        </message>
+        <message>
+            <source>破甲</source>
+            <translation>Armor piercing</translation>
+        </message>
+        <message>
+            <source>尚未添加任何物品，请先添加。</source>
+            <translation>No items have been added yet, please add them first.</translation>
+        </message>
+        <message>
+            <source>一次最多算 %1 件（再多要穷举的次序就太多了）。</source>
+            <translation>At most %1 items are counted at one time (any more would be too many to exhaustively list).</translation>
+        </message>
+        <message>
+            <source>这几条附魔不在表里，算不了：%1。</source>
+            <translation>These enchantments are not in the table and cannot be counted: %1.</translation>
+        </message>
+        <message>
+            <source>、</source>
+            <translation>,</translation>
+        </message>
+        <message>
+            <source>算不出计划来（这一组东西可能会有互斥的附魔）。</source>
+            <translation>Can't figure it out (this group of things may have mutually exclusive enchantments).</translation>
+        </message>
+    </context>
+    <context>
         <name>ArmorTrim</name>
         <message>
             <source>紫水晶质</source>

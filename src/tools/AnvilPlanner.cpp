@@ -3,6 +3,7 @@
  * @brief AnvilPlanner 的实现（这套规矩的出处与"不做什么"在 .hpp 开头那一段）。
  */
 #include "AnvilPlanner.hpp"
+#include <QCoreApplication>
 
 #include <QSet>
 
@@ -35,57 +36,57 @@ struct TableEntry {
 };
 
 const TableEntry kTable[] = {
-    {"protection", "保护", "Protection", 4, 1, 1,
+    {"protection", QT_TRANSLATE_NOOP("AnvilPlanner", "保护"), "Protection", 4, 1, 1,
      "fire_protection,blast_protection,projectile_protection"},
-    {"fire_protection", "火焰保护", "Fire Protection", 4, 2, 1,
+    {"fire_protection", QT_TRANSLATE_NOOP("AnvilPlanner", "火焰保护"), "Fire Protection", 4, 2, 1,
      "protection,blast_protection,projectile_protection"},
-    {"feather_falling", "摔落保护", "Feather Falling", 4, 2, 1, ""},
-    {"blast_protection", "爆炸保护", "Blast Protection", 4, 4, 2,
+    {"feather_falling", QT_TRANSLATE_NOOP("AnvilPlanner", "摔落保护"), "Feather Falling", 4, 2, 1, ""},
+    {"blast_protection", QT_TRANSLATE_NOOP("AnvilPlanner", "爆炸保护"), "Blast Protection", 4, 4, 2,
      "protection,fire_protection,projectile_protection"},
-    {"projectile_protection", "弹射物保护", "Projectile Protection", 4, 2, 1,
+    {"projectile_protection", QT_TRANSLATE_NOOP("AnvilPlanner", "弹射物保护"), "Projectile Protection", 4, 2, 1,
      "protection,fire_protection,blast_protection"},
-    {"thorns", "荆棘", "Thorns", 3, 8, 4, ""},
-    {"respiration", "水下呼吸", "Respiration", 3, 4, 2, ""},
-    {"depth_strider", "深海探索者", "Depth Strider", 3, 4, 2, "frost_walker"},
-    {"aqua_affinity", "水下速掘", "Aqua Affinity", 1, 4, 2, ""},
-    {"sharpness", "锋利", "Sharpness", 5, 1, 1,
+    {"thorns", QT_TRANSLATE_NOOP("AnvilPlanner", "荆棘"), "Thorns", 3, 8, 4, ""},
+    {"respiration", QT_TRANSLATE_NOOP("AnvilPlanner", "水下呼吸"), "Respiration", 3, 4, 2, ""},
+    {"depth_strider", QT_TRANSLATE_NOOP("AnvilPlanner", "深海探索者"), "Depth Strider", 3, 4, 2, "frost_walker"},
+    {"aqua_affinity", QT_TRANSLATE_NOOP("AnvilPlanner", "水下速掘"), "Aqua Affinity", 1, 4, 2, ""},
+    {"sharpness", QT_TRANSLATE_NOOP("AnvilPlanner", "锋利"), "Sharpness", 5, 1, 1,
      "smite,bane_of_arthropods,impaling,density,breach"},
-    {"smite", "亡灵杀手", "Smite", 5, 2, 1,
+    {"smite", QT_TRANSLATE_NOOP("AnvilPlanner", "亡灵杀手"), "Smite", 5, 2, 1,
      "sharpness,bane_of_arthropods,impaling,density,breach"},
-    {"bane_of_arthropods", "节肢杀手", "Bane of Arthropods", 5, 2, 1,
+    {"bane_of_arthropods", QT_TRANSLATE_NOOP("AnvilPlanner", "节肢杀手"), "Bane of Arthropods", 5, 2, 1,
      "sharpness,smite,impaling,density,breach"},
-    {"knockback", "击退", "Knockback", 2, 2, 1, ""},
-    {"fire_aspect", "火焰附加", "Fire Aspect", 2, 4, 2, ""},
-    {"looting", "抢夺", "Looting", 3, 4, 2, ""},
-    {"sweeping_edge", "横扫之刃", "Sweeping Edge", 3, 4, 2, ""},
-    {"efficiency", "效率", "Efficiency", 5, 1, 1, ""},
-    {"silk_touch", "精准采集", "Silk Touch", 1, 8, 4, "fortune"},
-    {"unbreaking", "耐久", "Unbreaking", 3, 2, 1, ""},
-    {"fortune", "时运", "Fortune", 3, 4, 2, "silk_touch"},
-    {"power", "力量", "Power", 5, 1, 1, ""},
-    {"punch", "冲击", "Punch", 2, 4, 2, ""},
-    {"flame", "火矢", "Flame", 1, 4, 2, ""},
-    {"infinity", "无限", "Infinity", 1, 8, 4, "mending"},
-    {"luck_of_the_sea", "海之眷顾", "Luck of the Sea", 3, 4, 2, ""},
-    {"lure", "饵钓", "Lure", 3, 4, 2, ""},
-    {"frost_walker", "冰霜行者", "Frost Walker", 2, 4, 2, "depth_strider"},
-    {"mending", "经验修补", "Mending", 1, 4, 2, "infinity"},
-    {"binding_curse", "绑定诅咒", "Curse of Binding", 1, 8, 4, ""},
-    {"vanishing_curse", "消失诅咒", "Curse of Vanishing", 1, 8, 4, ""},
-    {"impaling", "穿刺", "Impaling", 5, 4, 2,
+    {"knockback", QT_TRANSLATE_NOOP("AnvilPlanner", "击退"), "Knockback", 2, 2, 1, ""},
+    {"fire_aspect", QT_TRANSLATE_NOOP("AnvilPlanner", "火焰附加"), "Fire Aspect", 2, 4, 2, ""},
+    {"looting", QT_TRANSLATE_NOOP("AnvilPlanner", "抢夺"), "Looting", 3, 4, 2, ""},
+    {"sweeping_edge", QT_TRANSLATE_NOOP("AnvilPlanner", "横扫之刃"), "Sweeping Edge", 3, 4, 2, ""},
+    {"efficiency", QT_TRANSLATE_NOOP("AnvilPlanner", "效率"), "Efficiency", 5, 1, 1, ""},
+    {"silk_touch", QT_TRANSLATE_NOOP("AnvilPlanner", "精准采集"), "Silk Touch", 1, 8, 4, "fortune"},
+    {"unbreaking", QT_TRANSLATE_NOOP("AnvilPlanner", "耐久"), "Unbreaking", 3, 2, 1, ""},
+    {"fortune", QT_TRANSLATE_NOOP("AnvilPlanner", "时运"), "Fortune", 3, 4, 2, "silk_touch"},
+    {"power", QT_TRANSLATE_NOOP("AnvilPlanner", "力量"), "Power", 5, 1, 1, ""},
+    {"punch", QT_TRANSLATE_NOOP("AnvilPlanner", "冲击"), "Punch", 2, 4, 2, ""},
+    {"flame", QT_TRANSLATE_NOOP("AnvilPlanner", "火矢"), "Flame", 1, 4, 2, ""},
+    {"infinity", QT_TRANSLATE_NOOP("AnvilPlanner", "无限"), "Infinity", 1, 8, 4, "mending"},
+    {"luck_of_the_sea", QT_TRANSLATE_NOOP("AnvilPlanner", "海之眷顾"), "Luck of the Sea", 3, 4, 2, ""},
+    {"lure", QT_TRANSLATE_NOOP("AnvilPlanner", "饵钓"), "Lure", 3, 4, 2, ""},
+    {"frost_walker", QT_TRANSLATE_NOOP("AnvilPlanner", "冰霜行者"), "Frost Walker", 2, 4, 2, "depth_strider"},
+    {"mending", QT_TRANSLATE_NOOP("AnvilPlanner", "经验修补"), "Mending", 1, 4, 2, "infinity"},
+    {"binding_curse", QT_TRANSLATE_NOOP("AnvilPlanner", "绑定诅咒"), "Curse of Binding", 1, 8, 4, ""},
+    {"vanishing_curse", QT_TRANSLATE_NOOP("AnvilPlanner", "消失诅咒"), "Curse of Vanishing", 1, 8, 4, ""},
+    {"impaling", QT_TRANSLATE_NOOP("AnvilPlanner", "穿刺"), "Impaling", 5, 4, 2,
      "sharpness,smite,bane_of_arthropods,density,breach"},
-    {"riptide", "激流", "Riptide", 3, 4, 2, "loyalty,channeling"},
-    {"loyalty", "忠诚", "Loyalty", 3, 2, 1, "riptide"},
-    {"channeling", "引雷", "Channeling", 1, 8, 4, "riptide"},
-    {"multishot", "多重射击", "Multishot", 1, 4, 2, "piercing"},
-    {"piercing", "穿透", "Piercing", 4, 1, 1, "multishot"},
-    {"quick_charge", "快速装填", "Quick Charge", 3, 2, 1, ""},
-    {"soul_speed", "灵魂疾行", "Soul Speed", 3, 8, 4, ""},
-    {"swift_sneak", "迅捷潜行", "Swift Sneak", 3, 8, 4, ""},
-    {"wind_burst", "风爆", "Wind Burst", 3, 4, 2, ""},
-    {"density", "密度", "Density", 5, 2, 1,
+    {"riptide", QT_TRANSLATE_NOOP("AnvilPlanner", "激流"), "Riptide", 3, 4, 2, "loyalty,channeling"},
+    {"loyalty", QT_TRANSLATE_NOOP("AnvilPlanner", "忠诚"), "Loyalty", 3, 2, 1, "riptide"},
+    {"channeling", QT_TRANSLATE_NOOP("AnvilPlanner", "引雷"), "Channeling", 1, 8, 4, "riptide"},
+    {"multishot", QT_TRANSLATE_NOOP("AnvilPlanner", "多重射击"), "Multishot", 1, 4, 2, "piercing"},
+    {"piercing", QT_TRANSLATE_NOOP("AnvilPlanner", "穿透"), "Piercing", 4, 1, 1, "multishot"},
+    {"quick_charge", QT_TRANSLATE_NOOP("AnvilPlanner", "快速装填"), "Quick Charge", 3, 2, 1, ""},
+    {"soul_speed", QT_TRANSLATE_NOOP("AnvilPlanner", "灵魂疾行"), "Soul Speed", 3, 8, 4, ""},
+    {"swift_sneak", QT_TRANSLATE_NOOP("AnvilPlanner", "迅捷潜行"), "Swift Sneak", 3, 8, 4, ""},
+    {"wind_burst", QT_TRANSLATE_NOOP("AnvilPlanner", "风爆"), "Wind Burst", 3, 4, 2, ""},
+    {"density", QT_TRANSLATE_NOOP("AnvilPlanner", "密度"), "Density", 5, 2, 1,
      "sharpness,smite,bane_of_arthropods,impaling,breach"},
-    {"breach", "破甲", "Breach", 4, 4, 2,
+    {"breach", QT_TRANSLATE_NOOP("AnvilPlanner", "破甲"), "Breach", 4, 4, 2,
      "sharpness,smite,bane_of_arthropods,impaling,density"},
 };
 
@@ -94,7 +95,7 @@ QList<EnchantInfo> buildTable() {
     for (const TableEntry &entry : kTable) {
         EnchantInfo info;
         info.id = QString::fromLatin1(entry.id);
-        info.name = QString::fromUtf8(entry.name);
+        info.name = QCoreApplication::translate("AnvilPlanner", entry.name);
         info.english = QString::fromLatin1(entry.english);
         info.maxLevel = entry.maxLevel;
         info.itemMultiplier = entry.itemMultiplier;
@@ -277,11 +278,11 @@ MergeCost mergeCost(const Unit &target, const Unit &sacrifice) {
 Plan plan(const QList<Unit> &units, bool includeRename) {
     Plan plan;
     if (units.isEmpty()) {
-        plan.error = QStringLiteral("尚未添加任何物品，请先添加。");
+        plan.error = QCoreApplication::translate("AnvilPlanner", "尚未添加任何物品，请先添加。");
         return plan;
     }
     if (units.size() > kMaxUnits) {
-        plan.error = QStringLiteral("一次最多算 %1 件（再多要穷举的次序就太多了）。").arg(kMaxUnits);
+        plan.error = QCoreApplication::translate("AnvilPlanner", "一次最多算 %1 件（再多要穷举的次序就太多了）。").arg(kMaxUnits);
         return plan;
     }
     // ---------- 先把表里没有的那几条拦下来（宁可不算，也不给一条基于猜测的计划）----------
@@ -294,7 +295,7 @@ Plan plan(const QList<Unit> &units, bool includeRename) {
         }
     }
     if (!unknown.isEmpty()) {
-        plan.error = QStringLiteral("这几条附魔不在表里，算不了：%1。").arg(unknown.join(QStringLiteral("、")));
+        plan.error = QCoreApplication::translate("AnvilPlanner", "这几条附魔不在表里，算不了：%1。").arg(unknown.join(QCoreApplication::translate("AnvilPlanner", "、")));
         return plan;
     }
 
@@ -423,7 +424,7 @@ Plan plan(const QList<Unit> &units, bool includeRename) {
 
     const QList<State> &finalStates = best[size_t(total - 1)];
     if (finalStates.isEmpty()) {
-        plan.error = QStringLiteral("算不出计划来（这一组东西可能会有互斥的附魔）。");
+        plan.error = QCoreApplication::translate("AnvilPlanner", "算不出计划来（这一组东西可能会有互斥的附魔）。");
         return plan;
     }
 
