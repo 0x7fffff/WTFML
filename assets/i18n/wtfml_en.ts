@@ -11038,6 +11038,353 @@ It will not restart automatically when stopped manually or exited normally.</tra
         </message>
     </context>
     <context>
+        <name>PresetOptionCatalog</name>
+        <message>
+            <source>视角</source>
+            <translation>Perspective</translation>
+        </message>
+        <message>
+            <source>画面</source>
+            <translation>Picture</translation>
+        </message>
+        <message>
+            <source>界面尺寸</source>
+            <translation>Interface size</translation>
+        </message>
+        <message>
+            <source>渲染距离</source>
+            <translation>Rendering distance</translation>
+        </message>
+        <message>
+            <source>模拟距离</source>
+            <translation>Simulated distance</translation>
+        </message>
+        <message>
+            <source>帧率上限</source>
+            <translation>Frame rate cap</translation>
+        </message>
+        <message>
+            <source>亮度</source>
+            <translation>Brightness</translation>
+        </message>
+        <message>
+            <source>垂直同步</source>
+            <translation>Vertical sync</translation>
+        </message>
+        <message>
+            <source>全屏</source>
+            <translation>Full screen</translation>
+        </message>
+        <message>
+            <source>画质</source>
+            <translation>Image quality</translation>
+        </message>
+        <message>
+            <source>0|流畅</source>
+            <translation>0|Smooth</translation>
+        </message>
+        <message>
+            <source>1|高品质</source>
+            <translation>1|High quality</translation>
+        </message>
+        <message>
+            <source>2|极佳</source>
+            <translation>2|Excellent</translation>
+        </message>
+        <message>
+            <source>粒子效果</source>
+            <translation>Particle effects</translation>
+        </message>
+        <message>
+            <source>0|全部</source>
+            <translation>0|All</translation>
+        </message>
+        <message>
+            <source>1|减少</source>
+            <translation>1|Reduce</translation>
+        </message>
+        <message>
+            <source>2|最少</source>
+            <translation>2|Minimum</translation>
+        </message>
+        <message>
+            <source>云</source>
+            <translation>Cloud</translation>
+        </message>
+        <message>
+            <source>false|关闭</source>
+            <translation>False|Close</translation>
+        </message>
+        <message>
+            <source>fast|快速</source>
+            <translation>Fast|fast</translation>
+        </message>
+        <message>
+            <source>true|精细</source>
+            <translation>True|fine</translation>
+        </message>
+        <message>
+            <source>实体阴影</source>
+            <translation>Solid shadow</translation>
+        </message>
+        <message>
+            <source>视角摇晃</source>
+            <translation>Angle of view shakes</translation>
+        </message>
+        <message>
+            <source>自动跳跃</source>
+            <translation>Automatic jump</translation>
+        </message>
+        <message>
+            <source>操作</source>
+            <translation>Operate</translation>
+        </message>
+        <message>
+            <source>鼠标灵敏度</source>
+            <translation>Mouse sensitivity</translation>
+        </message>
+        <message>
+            <source>反转鼠标</source>
+            <translation>Invert mouse</translation>
+        </message>
+        <message>
+            <source>原始鼠标输入</source>
+            <translation>Raw mouse input</translation>
+        </message>
+        <message>
+            <source>潜行方式</source>
+            <translation>Stealth mode</translation>
+        </message>
+        <message>
+            <source>false|按住</source>
+            <translation>False|Press and hold</translation>
+        </message>
+        <message>
+            <source>true|切换</source>
+            <translation>True|toggle</translation>
+        </message>
+        <message>
+            <source>疾跑方式</source>
+            <translation>Sprint style</translation>
+        </message>
+        <message>
+            <source>主手</source>
+            <translation>Main hand</translation>
+        </message>
+        <message>
+            <source>right|右手</source>
+            <translation>Right|right hand</translation>
+        </message>
+        <message>
+            <source>left|左手</source>
+            <translation>Left|left hand</translation>
+        </message>
+        <message>
+            <source>失去焦点时暂停</source>
+            <translation>Pause when focus is lost</translation>
+        </message>
+        <message>
+            <source>字幕</source>
+            <translation>Subtitle</translation>
+        </message>
+        <message>
+            <source>辅助功能</source>
+            <translation>Accessibility</translation>
+        </message>
+        <message>
+            <source>高对比度</source>
+            <translation>High contrast</translation>
+        </message>
+        <message>
+            <source>隐藏闪电闪光</source>
+            <translation>Hidden lightning flash</translation>
+        </message>
+        <message>
+            <source>屏幕扭曲效果</source>
+            <translation>Screen distortion effect</translation>
+        </message>
+        <message>
+            <source>视角变化效果</source>
+            <translation>Perspective change effect</translation>
+        </message>
+        <message>
+            <source>黑暗效果</source>
+            <translation>Dark effect</translation>
+        </message>
+        <message>
+            <source>聊天显示</source>
+            <translation>Chat display</translation>
+        </message>
+        <message>
+            <source>聊天</source>
+            <translation>Chat</translation>
+        </message>
+        <message>
+            <source>0|显示</source>
+            <translation>0|Display</translation>
+        </message>
+        <message>
+            <source>1|仅命令</source>
+            <translation>1|Command only</translation>
+        </message>
+        <message>
+            <source>2|隐藏</source>
+            <translation>2|Hide</translation>
+        </message>
+        <message>
+            <source>聊天颜色</source>
+            <translation>Chat color</translation>
+        </message>
+        <message>
+            <source>聊天链接</source>
+            <translation>Chat link</translation>
+        </message>
+        <message>
+            <source>打开链接前确认</source>
+            <translation>Confirm before opening link</translation>
+        </message>
+        <message>
+            <source>聊天不透明度</source>
+            <translation>Chat opacity</translation>
+        </message>
+        <message>
+            <source>聊天缩放</source>
+            <translation>Chat zoom</translation>
+        </message>
+        <message>
+            <source>master|主音量</source>
+            <translation>Master|master volume</translation>
+        </message>
+        <message>
+            <source>music|音乐</source>
+            <translation>Music|music</translation>
+        </message>
+        <message>
+            <source>record|唱片</source>
+            <translation>Record|record</translation>
+        </message>
+        <message>
+            <source>weather|天气</source>
+            <translation>Weather|weather</translation>
+        </message>
+        <message>
+            <source>block|方块</source>
+            <translation>Block|block</translation>
+        </message>
+        <message>
+            <source>hostile|敌对生物</source>
+            <translation>Hostile|hostile creature</translation>
+        </message>
+        <message>
+            <source>neutral|友好生物</source>
+            <translation>Neutral|friendly creature</translation>
+        </message>
+        <message>
+            <source>player|玩家</source>
+            <translation>Player|player</translation>
+        </message>
+        <message>
+            <source>ambient|环境</source>
+            <translation>Ambient|environment</translation>
+        </message>
+        <message>
+            <source>voice|语音</source>
+            <translation>Voice|voice</translation>
+        </message>
+        <message>
+            <source>声音</source>
+            <translation>Sound</translation>
+        </message>
+        <message>
+            <source>forward|前进|w</source>
+            <translation>Forward|forward|w</translation>
+        </message>
+        <message>
+            <source>back|后退|s</source>
+            <translation>Back|Back|s</translation>
+        </message>
+        <message>
+            <source>left|左移|a</source>
+            <translation>Left|shift left|a</translation>
+        </message>
+        <message>
+            <source>right|右移|d</source>
+            <translation>Right|shift right|d</translation>
+        </message>
+        <message>
+            <source>jump|跳跃|space</source>
+            <translation>Jump|jump|space</translation>
+        </message>
+        <message>
+            <source>sneak|潜行|left.shift</source>
+            <translation>Sneak|sneak|left.shift</translation>
+        </message>
+        <message>
+            <source>sprint|疾跑|left.control</source>
+            <translation>Sprint|sprint|left.control</translation>
+        </message>
+        <message>
+            <source>inventory|物品栏|e</source>
+            <translation>Inventory|item|e</translation>
+        </message>
+        <message>
+            <source>drop|丢弃物品|q</source>
+            <translation>Drop|Drop items|q</translation>
+        </message>
+        <message>
+            <source>swapOffhand|交换副手物品|f</source>
+            <translation>SwapOffhand|Swap off-hand items|f</translation>
+        </message>
+        <message>
+            <source>chat|打开聊天|t</source>
+            <translation>Chat|Open chat|t</translation>
+        </message>
+        <message>
+            <source>command|输入命令|slash</source>
+            <translation>Command|Enter command|slash</translation>
+        </message>
+        <message>
+            <source>playerlist|玩家列表|tab</source>
+            <translation>Playerlist|player list|tab</translation>
+        </message>
+        <message>
+            <source>togglePerspective|切换视角|f5</source>
+            <translation>TogglePerspective|Switch perspective|f5</translation>
+        </message>
+        <message>
+            <source>screenshot|截图|f2</source>
+            <translation>Screenshot|screenshot|f2</translation>
+        </message>
+        <message>
+            <source>fullscreen|切换全屏|f11</source>
+            <translation>Fullscreen|toggle full screen|f11</translation>
+        </message>
+        <message>
+            <source>advancements|进度|l</source>
+            <translation>Advancements|progress|l</translation>
+        </message>
+        <message>
+            <source>按键</source>
+            <translation>Button</translation>
+        </message>
+        <message>
+            <source>攻击 / 破坏</source>
+            <translation>Attack / Destroy</translation>
+        </message>
+        <message>
+            <source>使用 / 放置</source>
+            <translation>Use/place</translation>
+        </message>
+        <message>
+            <source>选取方块</source>
+            <translation>Select box</translation>
+        </message>
+        <message>
+            <source>快捷栏 </source>
+            <translation>Shortcut bar</translation>
+        </message>
+    </context>
+    <context>
         <name>PresetOptionsEditor</name>
         <message>
             <source>编辑游戏设置预设</source>

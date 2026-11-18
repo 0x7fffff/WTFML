@@ -204,9 +204,7 @@ ui/ActivityPopover.cpp	13
 ui/AgentApprovalCard.cpp	6
 ui/AgentComposer.cpp	1
 ui/AgentMessageView.cpp	9
-ui/AgentPage.cpp	57
 ui/AgentSecretEdit.cpp	6
-ui/AgentSettingsPage.cpp	77
 ui/AgentToolCard.cpp	5
 ui/ArmorTrimScene.hpp	3
 ui/ConfigEntries.cpp	6
@@ -240,10 +238,8 @@ ui/Popups.cpp	1
 ui/PresetEditorPage.cpp	6
 ui/PresetInstallPicker.cpp	1
 ui/PresetInstallPicker.hpp	3
-ui/PresetManagePage.cpp	86
 ui/PresetModEditor.cpp	3
 ui/PresetModReview.cpp	2
-ui/PresetOptionCatalog.hpp	121
 ui/PresetOptionsEditor.cpp	8
 ui/ResourceDetailPage.cpp	1
 ui/RuntimeOutputModel.cpp	2
