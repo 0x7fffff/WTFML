@@ -1560,8 +1560,7 @@ QString chipStyleSheet(const QPalette &palette) {
     // 内容盒 = chipHeight − 上下 1px 边 − 上下 2px padding。
     return QStringLiteral("QPushButton { border: 1px solid transparent; border-radius: %1px; padding: 2px 14px;"
                           " background-color: %2; color: %3; min-height: %9px; max-height: %9px; }"
-                          "QPushButton:hover:!checked, QPushButton[chipExpanded=\"true\"]:!checked"
-                          " { background-color: %4; color: %5; }"
+                          "QPushButton:hover:!checked { background-color: %4; color: %5; }"
                           "QPushButton:pressed:!checked { background-color: %6; color: %5; }"
                           "QPushButton:checked { background-color: %7; color: %8; }"
                           "QPushButton:disabled { color: %10; background: transparent; }")

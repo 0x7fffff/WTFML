@@ -72,14 +72,10 @@ struct Header {
     QString nameToCopy;
 };
 
-/// 那一排游戏版本 chip 里的一颗。**key 才是身份**（文字只是给人看的）。
+/// 那一排大版本 chip 里的一颗（「全部」、1.21、1.20……、「其他」）。**key 才是身份**（文字只是给人看的）。
 struct Chip {
     QString key;  ///< 空串 = 「全部」（不筛）
     QString text; ///< 按钮上那行字
-    /// 它归在哪个大版本组（`1.21`、`其他`），组名同时是组按钮上的字和组的身份。
-    /// 空串 = 不分组，直接摆在顶排（「全部」就是这样）。分组规则由调用方按
-    /// `ResourceCatalog::gameVersionSeriesOf()` 给，这一页不自己算。
-    QString group = {};
 };
 
 /// 版本列表里的一行（= 某一个具体版本）。
@@ -102,6 +98,8 @@ struct Group {
     /// 一个字都不拼（"哪几个版本算一组"是业务层的事，见 ResourceCatalog::groupVersions）。
     QString title;
     QList<Row> rows;
+    /// 开页时是否摊开。默认收起。
+    bool expanded = false;
 };
 
 }  // namespace ResourceDetail
@@ -123,20 +121,10 @@ public:
     /// 那一格留白（**留着同样大的位置**，不然图回来的时候整张卡会往左跳一下）。
     void setIcon(const QPixmap &icon);
 
-    /// 那一排游戏版本 chip。`preselectedKey` 是要**按下去**的那一个（空 = 「全部」）。
-    /// 表是 MainWindow 给的（`ResourceCatalog::gameVersionChoices()` 那一份），这一页不自己算。
-    ///
-    /// 两层摆法：顶排是「全部」加各个大版本组按钮（`Chip::group`），第二排是**展开的那一组**
-    /// 的细版本，同一时刻最多展开一组，默认全部收起。按着的那颗细版本所在的组随之展开，
-    /// 展开、收起与换组都不改变 `currentChip()`。两排都折行，不出横向滚动条。
-    ///
-    /// `keepExpanded`：按着的是「全部」时是否沿用重摆之前手动展开的那一组（拨「显示快照版」
-    /// 重摆这一排时传 true；换一个资源时用默认的 false，一律收起）。
-    void setChips(const QList<ResourceDetail::Chip> &chips, const QString &preselectedKey,
-                  bool keepExpanded = false);
-
-    /// 现在展开的是哪一组（组名；都收着 = 空串）。
-    QString expandedChipGroup() const { return m_expandedGroup; }
+    /// 顶排的大版本 chip（「全部」、1.21、1.20……、「其他」）。`preselectedKey` 是要**按下去**的
+    /// 那一个（空 = 「全部」）。表是 MainWindow 给的（`ResourceCatalog::gameVersionSeriesChoices()`
+    /// 那一份），这一页不自己算。两排以上时折行，不出横向滚动条。
+    void setChips(const QList<ResourceDetail::Chip> &chips, const QString &preselectedKey);
 
     /// 现在按下去的是哪一个的 **key**（「全部」= 空串）。验证工程和 MainWindow 都读它。
     QString currentChip() const;
@@ -205,10 +193,6 @@ public:
     static QString chipRowName();
     /// chip 那颗按钮的 objectName 是「前缀 + 下标」（0 起）。
     static QString chipButtonNamePrefix();
-    /// 大版本组按钮的 objectName 是「前缀 + 下标」（0 起，按顶排出现的先后）。
-    static QString chipGroupButtonNamePrefix();
-    /// 第二排（展开那一组的细版本）。
-    static QString chipSubRowName();
     static QString showSnapshotsCheckBoxName();
     /// 右上角「模组设置」入口（见 setModSettingsSlot；默认收起）。
     static QString modSettingsButtonName();
@@ -226,11 +210,7 @@ public:
     static int rowKeyRole();
 
     // ---------- 验证工程用的读数（产品侧不用）----------
-    /// 所有细版本 chip（含「全部」和被收起而隐藏的），顺序同 `setChips()` 收到的表。
     QList<QPushButton *> chips() const;
-    /// 顶排的大版本组按钮；组名见 `chipGroupNameAt()`。
-    QList<QPushButton *> chipGroupButtons() const { return m_groupButtons; }
-    QString chipGroupNameAt(int index) const;
     QTreeWidget *versionList() const;
     /// 组头的条数。**摆着说明时是 1** —— 那条说明自己是一条顶层条目（代理把顶层画成
     /// 粗体，和下载页那四张表里「没取到」那句是同一个形状），读它之前先看
@@ -274,10 +254,6 @@ signals:
 private:
     void rebuildChips();
     void applyChipChecked(const QString &key);
-    /// 按 `m_expandedGroup` 与当前选中重刷两排：细版本显隐、组按钮的选中态与箭头。
-    void refreshChipGroups();
-    void onGroupClicked(QPushButton *button);
-    QString groupOfKey(const QString &key) const;
     void fillGroups(const QList<ResourceDetail::Group> &groups);
     void showPlaceholder(const QString &text);
     void onChipClicked(QPushButton *button);
@@ -302,9 +278,7 @@ private:
     QPushButton *m_open = nullptr;
     QPushButton *m_mcmod = nullptr;
     QPushButton *m_copyName = nullptr;
-    QWidget *m_chipArea = nullptr;    ///< 两排 chip 的容器
-    QWidget *m_chipRow = nullptr;     ///< 顶排：「全部」+ 大版本组按钮
-    QWidget *m_chipSubRow = nullptr;  ///< 第二排：展开那一组的细版本
+    QWidget *m_chipRow = nullptr;
     /// chip 那一排和版本列表中间那一行（见 setDependencies）。**收着的时候不占高度**
     /// （setDependencies 传空串时整个 hide 掉）。
     QLabel *m_dependencies = nullptr;
@@ -318,8 +292,6 @@ private:
     ResourceDetail::Header m_header;
     QList<ResourceDetail::Chip> m_chips;
     QList<QPushButton *> m_chipButtons;
-    QList<QPushButton *> m_groupButtons;
-    QString m_expandedGroup;
     QString m_currentChip;
     QString m_placeholder;
 };

@@ -290,37 +290,25 @@ ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
 
     // ---------- 那一排游戏版本 chip ----------
     //
-    // 两排：顶排是「全部」加各个大版本组，第二排是展开那一组的细版本（默认收起）。
-    // 两排都用折行布局，一个资源的版本再多也只是多折几行，**不出横向滚动条**，
-    // 页面宽度也不会被 chip 顶开。
-    m_chipArea = new QWidget(this);
-    m_chipArea->setObjectName(chipRowName() + QStringLiteral("Area"));
-    auto *areaLayout = new QVBoxLayout(m_chipArea);
-    areaLayout->setContentsMargins(0, 0, 0, 0);
-    areaLayout->setSpacing(kChipRowSpacing);
-    m_chipRow = new QWidget(m_chipArea);
+    // chip 是大版本组（1.21、1.20……），数量有限，但窄窗口下一行也可能放不下：用折行布局
+    // 往下折，**不出横向滚动条**，页面宽度也不会被 chip 顶开。
+    m_chipRow = new QWidget(this);
     m_chipRow->setObjectName(chipRowName());
     m_chipRow->setLayout(new FlowLayout(kChipRowSpacing, kChipRowSpacing));
-    m_chipSubRow = new QWidget(m_chipArea);
-    m_chipSubRow->setObjectName(chipSubRowName());
-    m_chipSubRow->setLayout(new FlowLayout(kChipRowSpacing, kChipRowSpacing));
-    m_chipSubRow->hide();
-    areaLayout->addWidget(m_chipRow);
-    areaLayout->addWidget(m_chipSubRow);
     // 那一排 chip 的**右边**挂着「显示快照版」，而且它和那一排是同一件事（见
-    // ResourceDetailPage.hpp 里那段）：放在 chip 区**外面**、贴着顶排，
+    // ResourceDetailPage.hpp 里那段）：放在 chip 区**外面**、贴着第一行，
     // chip 折出第二行第三行时它不跟着挪。
     auto *chipLine = new QHBoxLayout;
     chipLine->setContentsMargins(0, 0, 0, 0);
     chipLine->setSpacing(8);
-    chipLine->addWidget(m_chipArea, 1, Qt::AlignTop);
+    chipLine->addWidget(m_chipRow, 1, Qt::AlignTop);
 
     m_showSnapshots = new QCheckBox(tr("显示快照版"), this);
     m_showSnapshots->setObjectName(showSnapshotsCheckBoxName());
     // 鼠标提示里点明快捷键。
     m_showSnapshots->setToolTip(tr("按 Alt 键也能切换"));
     m_showSnapshots->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-    m_showSnapshots->setMinimumHeight(Theme::chipHeight());  // 和顶排 chip 同高，文字才对齐
+    m_showSnapshots->setMinimumHeight(Theme::chipHeight());  // 和第一行 chip 同高，文字才对齐
     connect(m_showSnapshots, &QCheckBox::toggled, this,
             [this](bool checked) { emit showSnapshotsChanged(checked); });
     chipLine->addWidget(m_showSnapshots, 0, Qt::AlignTop);
@@ -404,10 +392,6 @@ QString ResourceDetailPage::copyNameButtonName() {
     return QStringLiteral("resourceDetailCopyName");
 }
 QString ResourceDetailPage::chipRowName() { return QStringLiteral("resourceDetailChips"); }
-QString ResourceDetailPage::chipSubRowName() { return QStringLiteral("resourceDetailChipSubRow"); }
-QString ResourceDetailPage::chipGroupButtonNamePrefix() {
-    return QStringLiteral("resourceDetailChipGroup");
-}
 QString ResourceDetailPage::chipButtonNamePrefix() {
     return QStringLiteral("resourceDetailChip");
 }
@@ -474,8 +458,7 @@ QString ResourceDetailPage::descriptionToolTip() const { return m_description->t
 
 // ---------- chip ----------
 
-void ResourceDetailPage::setChips(const QList<Chip> &chips, const QString &preselectedKey,
-                                  bool keepExpanded) {
+void ResourceDetailPage::setChips(const QList<Chip> &chips, const QString &preselectedKey) {
     m_chips = chips;
     rebuildChips();
     // 默认按哪一颗由调用方说（它知道用户在下载页选的是哪个游戏版本）——
@@ -483,115 +466,32 @@ void ResourceDetailPage::setChips(const QList<Chip> &chips, const QString &prese
     // 而调用方摆好 chip 之后本来就要自己 setGroups()（那才是第一份内容）。
     m_currentChip = preselectedKey;
     applyChipChecked(preselectedKey);
-    // 展开哪一组：按着的那颗所在的组一定展开（不然选中的版本看不见）；其余默认收起。
-    // 只有调用方要求保留时（拨「显示快照版」重摆这一排）才沿用上次手动展开的那一组。
-    const QString selected = groupOfKey(m_currentChip);
-    if (!selected.isEmpty()) {
-        m_expandedGroup = selected;
-    } else if (!keepExpanded) {
-        m_expandedGroup.clear();
-    }
-    refreshChipGroups();
 }
 
 void ResourceDetailPage::rebuildChips() {
-    auto *topLayout = m_chipRow->layout();
-    auto *subLayout = m_chipSubRow->layout();
-    if (topLayout == nullptr || subLayout == nullptr) {
+    QLayout *layout = m_chipRow->layout();
+    if (layout == nullptr) {
         return;
     }
     // 整排重建（和实例设置页里那几行同一个做法）：**当场 delete，不 deleteLater** ——
     // 名字按下标给，按名字找控件的验证工程会先撞上悬着的旧那颗。
-    qDeleteAll(m_chipButtons);
+    for (QPushButton *button : m_chipButtons) {
+        delete button;
+    }
     m_chipButtons.clear();
-    qDeleteAll(m_groupButtons);
-    m_groupButtons.clear();
-    QStringList seenGroups;
     for (int i = 0; i < m_chips.size(); ++i) {
         const Chip &chip = m_chips.at(i);
-        QWidget *parent = chip.group.isEmpty() ? m_chipRow : m_chipSubRow;
-        auto *button = new QPushButton(chip.text, parent);
+        auto *button = new QPushButton(chip.text, m_chipRow);
         button->setObjectName(chipButtonNamePrefix() + QString::number(i));
         button->setCheckable(true);
         // 高度、圆角外观、换主题重挂三件事一起（见上面那段）。
         Theme::markChipButton(button);
         // 身份挂属性上（和 rowKeyRole 那条同一个理由：文字是给人看的，会随文案改）。
         button->setProperty("chipKey", chip.key);
-        button->setProperty("chipGroup", chip.group);
         connect(button, &QPushButton::clicked, this, [this, button] { onChipClicked(button); });
-        (chip.group.isEmpty() ? topLayout : subLayout)->addWidget(button);
+        layout->addWidget(button);
         m_chipButtons.append(button);
-        // 组按钮摆在这一组第一颗细版本出现的位置，顶排的先后和接口给的新旧次序一致。
-        if (!chip.group.isEmpty() && !seenGroups.contains(chip.group)) {
-            seenGroups.append(chip.group);
-            auto *groupButton = new QPushButton(chip.group, m_chipRow);
-            groupButton->setObjectName(chipGroupButtonNamePrefix() +
-                                       QString::number(m_groupButtons.size()));
-            groupButton->setCheckable(true);
-            Theme::markChipButton(groupButton);
-            groupButton->setProperty("chipGroup", chip.group);
-            connect(groupButton, &QPushButton::clicked, this,
-                    [this, groupButton] { onGroupClicked(groupButton); });
-            topLayout->addWidget(groupButton);
-            m_groupButtons.append(groupButton);
-        }
     }
-}
-
-QString ResourceDetailPage::groupOfKey(const QString &key) const {
-    if (key.isEmpty()) {
-        return QString();
-    }
-    for (const Chip &chip : m_chips) {
-        if (chip.key == key) {
-            return chip.group;
-        }
-    }
-    return QString();
-}
-
-void ResourceDetailPage::refreshChipGroups() {
-    const QString selectedGroup = groupOfKey(m_currentChip);
-    // 展开的那一组要真有这个组，没有就当都收着。
-    bool exists = false;
-    for (QPushButton *groupButton : m_groupButtons) {
-        exists = exists || groupButton->property("chipGroup").toString() == m_expandedGroup;
-    }
-    if (!exists) {
-        m_expandedGroup.clear();
-    }
-    // 细版本只在自己那一组展开时露出来；显隐不动选中态，所以收起、展开、换组都不改筛选。
-    for (QPushButton *button : m_chipButtons) {
-        const QString group = button->property("chipGroup").toString();
-        if (!group.isEmpty()) {
-            button->setVisible(group == m_expandedGroup);
-        }
-    }
-    m_chipSubRow->setVisible(!m_expandedGroup.isEmpty());
-    // 组按钮：按下（强调色）= 按着的版本在这一组里；展开着的那一组底色加深（chipExpanded，
-    // 样式在 Theme::chipStyleSheet）。全应用不画小三角，展开与否靠第二排在不在、底色深不深看。
-    for (QPushButton *groupButton : m_groupButtons) {
-        const QString group = groupButton->property("chipGroup").toString();
-        groupButton->setChecked(group == selectedGroup);
-        groupButton->setProperty("chipExpanded", group == m_expandedGroup);
-        groupButton->style()->unpolish(groupButton);
-        groupButton->style()->polish(groupButton);
-    }
-}
-
-void ResourceDetailPage::onGroupClicked(QPushButton *button) {
-    if (button == nullptr) {
-        return;
-    }
-    const QString group = button->property("chipGroup").toString();
-    m_expandedGroup = group == m_expandedGroup ? QString() : group;
-    refreshChipGroups();
-}
-
-QString ResourceDetailPage::chipGroupNameAt(int index) const {
-    return index >= 0 && index < m_groupButtons.size()
-               ? m_groupButtons.at(index)->property("chipGroup").toString()
-               : QString();
 }
 
 void ResourceDetailPage::onChipClicked(QPushButton *button) {
@@ -607,11 +507,6 @@ void ResourceDetailPage::onChipClicked(QPushButton *button) {
     }
     m_currentChip = key;
     applyChipChecked(key);
-    // 按下的细版本所在的组随之展开（程序点一颗被收起的 chip 时也一样，不让选中项藏起来）。
-    if (const QString group = groupOfKey(key); !group.isEmpty()) {
-        m_expandedGroup = group;
-    }
-    refreshChipGroups();
     emit chipChanged(key);
 }
 
@@ -720,10 +615,12 @@ void ResourceDetailPage::fillGroups(const QList<Group> &groups) {
                 item->setToolTip(0, row.tooltip);
             }
         }
-        // 组头一律**展开**：用户点进这一页就是想看版本，先收着等于让他再点十几下。
+        // 组头默认**收起**，点标题行才展开；只有调用方标了 `expanded` 的（从实例进来、
+        // 细版本正好是实例版本的那几组）才摊开。
         // NOTE: 换一颗 chip 会把整份列表重建（分组的算法在业务层），展开状态也就跟着复位 ——
-        // 这是有意接受的（要留住它得按组名记一份，而组名会随 chip 改）。
-        groupItem->setExpanded(true);
+        // 这是有意接受的（要留住它得按组名记一份，而组名会随 chip 改）。用户自己点开、收起
+        // 一个组不触发重建，也不改变顶排选中的大版本。
+        groupItem->setExpanded(group.expanded);
     }
 }
 

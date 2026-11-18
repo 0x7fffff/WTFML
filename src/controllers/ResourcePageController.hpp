@@ -84,6 +84,9 @@ public:
         /// 上面那个实例的加载器，**换算成小写那一套**（`VersionGroup::loader` 的写法，
         /// 见 ResourceCatalog::groupVersions 的 preferredLoader）。
         QString preferredLoader;
+        /// 从实例进来时那个实例的**原样**游戏版本（`1.20.1`，空 = 没有预选）。顶排 chip 预选到它
+        /// 的大版本（`1.20`），下面只把细版本正好是它的那几组展开，其余组默认收起。
+        QString preselectedGameVersion;
         /// 开页时接口给的那一串**声明过的游戏版本**（`Hit::gameVersions`，旧的在前）。
         ///
         /// 留着它只为一件事：勾「显示快照版」那一下要把 chip 那一排整个换一份，而那时候
@@ -152,9 +155,8 @@ public:
 
 private:
     /// 把那一排 chip 摆成「这一份声明表 + 这一档（折 / 不折）」该有的样子。
-    /// 细版本按 `gameVersionSeriesOf()` 归到大版本组；@p keepExpanded 见 `ResourceDetailPage::setChips()`。
     void applyChips(const QStringList &declaredGameVersions, bool showSnapshots,
-                    const QString &wanted, bool keepExpanded = false);
+                    const QString &wanted);
     /// 摆 chip 与版本列表中间那一行（"这一版要装的前置"）。
     void updateDependencies();
 

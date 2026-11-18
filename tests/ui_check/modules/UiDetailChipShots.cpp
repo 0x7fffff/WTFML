@@ -1,7 +1,6 @@
-// issue #20 的离屏样张：资源详情页顶部那一排游戏版本 chip，按大版本分组前后的样子。
-// 同一份源码在改前改后都能编（分组字段与组按钮按有没有来探测），所以改前图和改后图是同一个摆法。
-// 主题暮色雪山（dark）。用法：QT_QPA_PLATFORM=offscreen ui_check_detail_chip_shots <输出目录>
-// （紧凑运行器：ui_check_modules ui_check_detail_chip_shots <输出目录>）。输出 <前缀>-<场景>.png，前缀取第二个路径参数后面的词，缺省 shot。
+// issue #20 的离屏样张：资源详情页顶排的大版本 chip 与下面默认收起的文件分组。
+// 主题暮色雪山（dark）。用法：QT_QPA_PLATFORM=offscreen ui_check_detail_chip_shots <输出目录> [前缀]
+// （紧凑运行器：ui_check_modules ui_check_detail_chip_shots <输出目录> [前缀]）。输出 <前缀>-<宽度>-<场景>.png，前缀缺省 shot。
 // 不进 ctest：只出图，不做断言。
 #include "Support.hpp"
 
@@ -24,51 +23,30 @@ void pump(int ms) {
     loop.exec();
 }
 
-// 改前的 Chip 没有 group 字段：有就填，没有就什么都不做。
-template <class C>
-auto assignGroup(C &chip, const QString &group, int) -> decltype(chip.group = group, void()) {
-    chip.group = group;
-}
-template <class C>
-void assignGroup(C &, const QString &, long) {}
-
-// 一个热门模组常见的声明表：1.8 到 26.x，再夹几条快照与预发布。
+// 一个热门模组常见的大版本表：26.x 到 1.7，再加最后的「其他」。
 QList<ResourceDetail::Chip> makeChips() {
-    const QStringList versions{
-        QStringLiteral("26.2"),      QStringLiteral("26.1.1"),   QStringLiteral("26.1"),
-        QStringLiteral("1.21.8"),    QStringLiteral("1.21.7"),   QStringLiteral("1.21.5"),
-        QStringLiteral("1.21.4"),    QStringLiteral("1.21.1"),   QStringLiteral("1.21"),
-        QStringLiteral("1.20.6"),    QStringLiteral("1.20.4"),   QStringLiteral("1.20.2"),
-        QStringLiteral("1.20.1"),    QStringLiteral("1.19.4"),   QStringLiteral("1.19.2"),
-        QStringLiteral("1.18.2"),    QStringLiteral("1.17.1"),   QStringLiteral("1.16.5"),
-        QStringLiteral("1.15.2"),    QStringLiteral("1.14.4"),   QStringLiteral("1.12.2"),
-        QStringLiteral("1.10.2"),    QStringLiteral("1.8.9"),    QStringLiteral("1.7.10"),
-        QStringLiteral("24w14a")};
     QList<ResourceDetail::Chip> chips;
     ResourceDetail::Chip all;
     all.text = QStringLiteral("全部");
     chips.append(all);
-    for (const QString &version : versions) {
+    for (const QString &series :
+         {QStringLiteral("26.2"), QStringLiteral("26.1"), QStringLiteral("1.21"), QStringLiteral("1.20"),
+          QStringLiteral("1.19"), QStringLiteral("1.18"), QStringLiteral("1.17"), QStringLiteral("1.16"),
+          QStringLiteral("1.15"), QStringLiteral("1.14"), QStringLiteral("1.12"), QStringLiteral("1.10"),
+          QStringLiteral("1.8"), QStringLiteral("1.7")}) {
         ResourceDetail::Chip chip;
-        chip.key = version;
-        chip.text = version;
-        const bool plain = version.at(0).isDigit() && !version.contains(QLatin1Char('w'));
-        assignGroup(chip, plain ? version.section(QLatin1Char('.'), 0, 1) : QStringLiteral("其他"), 0);
+        chip.key = series;
+        chip.text = series;
         chips.append(chip);
     }
+    ResourceDetail::Chip other;
+    other.key = QStringLiteral("other");
+    other.text = QStringLiteral("其他");
+    chips.append(other);
     return chips;
 }
 
-void clickGroup(ResourceDetailPage &page, int index) {
-    // 名字写字面量：改前的页面没有 chipGroupButtonNamePrefix()，找不到按钮就什么都不点。
-    if (auto *button = page.findChild<QPushButton *>(QStringLiteral("resourceDetailChipGroup") +
-                                                     QString::number(index))) {
-        button->click();
-    }
-}
-
 }  // namespace
-
 int UiDetailChipShots(QApplication &app) {
     const QString fontPath = QDir(qEnvironmentVariable("WINDIR")).filePath(QStringLiteral("Fonts/msyh.ttc"));
     const int fontId = QFile::exists(fontPath) ? QFontDatabase::addApplicationFont(fontPath) : -1;
@@ -93,11 +71,21 @@ int UiDetailChipShots(QApplication &app) {
         if (w->grab().save(QDir(out).filePath(QStringLiteral("%1-%2.png").arg(prefix, name)))) ++saved;
     };
 
-    // 版本列表里放几行，让整页看着像真的详情页。
-    const auto fillList = [](ResourceDetailPage &page) {
+    // 三个场景：默认（全部）、点 1.21（下面只剩 1.21 的文件分组，全收起）、从实例进来预选 1.20.1
+    // （顶排选 1.20，只有细版本正好是 1.20.1 的两组摊开）。
+    const auto fillList = [](ResourceDetailPage &page, const QString &scene) {
         QList<ResourceDetail::Group> groups;
-        for (const QString &title : {QStringLiteral("Fabric 1.21.4"), QStringLiteral("Fabric 1.21.1"),
-                                     QStringLiteral("NeoForge 1.21.1")}) {
+        const QStringList titles =
+            scene == QLatin1String("all")
+                ? QStringList{QStringLiteral("Fabric 26.2"), QStringLiteral("NeoForge 26.2"),
+                              QStringLiteral("Fabric 1.21.4"), QStringLiteral("Fabric 1.21.1"),
+                              QStringLiteral("NeoForge 1.21.1"), QStringLiteral("Fabric 1.20.1")}
+            : scene == QLatin1String("series121")
+                ? QStringList{QStringLiteral("Fabric 1.21.4"), QStringLiteral("Fabric 1.21.1"),
+                              QStringLiteral("NeoForge 1.21.1")}
+                : QStringList{QStringLiteral("NeoForge 1.20.1"), QStringLiteral("Fabric 1.20.1"),
+                              QStringLiteral("Fabric 1.20")};
+        for (const QString &title : titles) {
             ResourceDetail::Group group;
             group.title = title;
             for (int i = 0; i < 2; ++i) {
@@ -107,6 +95,7 @@ int UiDetailChipShots(QApplication &app) {
                 row.subText = QStringLiteral("下载 120 万次, 更新于 3 天前");
                 group.rows.append(row);
             }
+            group.expanded = scene == QLatin1String("preselected") && title.endsWith(QLatin1String("1.20.1"));
             groups.append(group);
         }
         page.setGroups(groups);
@@ -114,24 +103,21 @@ int UiDetailChipShots(QApplication &app) {
 
     // width = 详情页拿到的内容区宽度：窗口最小 900 时约 640，拉宽时约 1200。
     for (const int width : {640, 1200}) {
-        for (const QString &scene : {QStringLiteral("default"), QStringLiteral("expanded"),
-                                     QStringLiteral("selected")}) {
+        for (const QString &scene : {QStringLiteral("all"), QStringLiteral("series121"),
+                                     QStringLiteral("preselected")}) {
             ResourceDetailPage page;
             ResourceDetail::Header header;
             header.title = QStringLiteral("钠");
             header.description = QStringLiteral("现代化的渲染引擎，大幅提升帧率");
             header.metaLine = QStringLiteral("Fabric / NeoForge / 下载 2.31 亿次 / Modrinth");
             page.setHeader(header);
-            page.setChips(makeChips(),
-                          scene == QLatin1String("selected") ? QStringLiteral("1.20.1") : QString());
-            fillList(page);
+            page.setChips(makeChips(), scene == QLatin1String("series121")   ? QStringLiteral("1.21")
+                                       : scene == QLatin1String("preselected") ? QStringLiteral("1.20")
+                                                                               : QString());
+            fillList(page, scene);
             page.resize(width, 640);
             page.show();
             pump(60);
-            if (scene == QLatin1String("expanded")) {
-                clickGroup(page, 2);  // 顶排组的先后：26.2、26.1、1.21……
-                pump(60);
-            }
             save(&page, QStringLiteral("%1-%2").arg(width).arg(scene));
         }
     }

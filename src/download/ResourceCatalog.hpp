@@ -359,8 +359,15 @@ QString gameVersionAfterToggle(const QStringList &declaredGameVersions, bool sho
 /// `26.2-snapshot-1` → `26.2`。没有所属版本可归的（老式周快照 `24w14a`、`b1.7.3`、
 /// 愚人节版）回**空串**，调用方把它们放进最后一组「其他」。
 ///
-/// 只用来分组摆放：chip 的 key 仍是原样的游戏版本号，筛选走 `versionsForGameVersion()`。
+/// 详情页顶排 chip 的 key 就是这个大版本（`1.21`）；折不出的那一组用 `otherSeriesKey()`。
 QString gameVersionSeriesOf(const QString &version);
+
+/// 「其他」组的 key（不会和 `1.21` 这种纯数字大版本撞）。
+QString otherSeriesKey();
+
+/// 顶排那一排 chip 的 key 表（**新的在前**）：@p declaredGameVersions 经 `gameVersionChoices()`
+/// 之后按大版本去重，折不出大版本的并成最后一个 `otherSeriesKey()`。
+QStringList gameVersionSeriesChoices(const QStringList &declaredGameVersions, bool showSnapshots);
 
 /// 兜底那个图标地址（`https://cdn.modrinth.com/data/{id}/icon.png`）。
 ///
@@ -577,6 +584,13 @@ QString versionRowSubText(const VersionEntry &version);
 /// 而那一排 chip 本身看着是对的。
 QList<VersionEntry> versionsForGameVersion(const QList<VersionEntry> &versions,
                                            const QString &gameVersion, bool showSnapshots);
+
+/// 按大版本筛（详情页顶排 chip 现在筛的是它）：保留声明过**该大版本任一细版本**的那些，
+/// 同样看 `gameVersions` 而不是它落在哪个组里。@p series 空串 = 不筛；`otherSeriesKey()` =
+/// 声明里有折不出大版本的版本（旧测试版等）。不勾「显示快照版」时折不出大版本的周快照
+/// 不参与匹配（和 `gameVersionChoices()` 一致，否则「其他」会圈进只声明了 `24w14a` 的版本）。
+QList<VersionEntry> versionsForSeries(const QList<VersionEntry> &versions, const QString &series,
+                                      bool showSnapshots);
 
 /// 详情页头卡上那行元信息：「Fabric / NeoForge · 下载 2.31 亿次 · 更新于 5 天前 · Modrinth」。
 ///

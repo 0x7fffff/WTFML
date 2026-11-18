@@ -1015,6 +1015,25 @@ QString gameVersionSeriesOf(const QString &version) {
     return stem.section(QLatin1Char('.'), 0, 1);
 }
 
+QString otherSeriesKey() { return QStringLiteral("other"); }
+
+QStringList gameVersionSeriesChoices(const QStringList &declaredGameVersions, bool showSnapshots) {
+    QStringList out;
+    bool hasOther = false;
+    for (const QString &version : gameVersionChoices(declaredGameVersions, showSnapshots)) {
+        const QString series = gameVersionSeriesOf(version);
+        if (series.isEmpty()) {
+            hasOther = true;
+        } else if (!out.contains(series)) {
+            out.append(series);
+        }
+    }
+    if (hasOther) {
+        out.append(otherSeriesKey());  // 「其他」永远在最后
+    }
+    return out;
+}
+
 QStringList gameVersionChoices(const QStringList &declaredGameVersions, bool showSnapshots) {
     QStringList out;
     out.reserve(declaredGameVersions.size());
@@ -1386,6 +1405,28 @@ QList<VersionEntry> versionsForGameVersion(const QList<VersionEntry> &versions,
                     out.append(version);
                     break;
                 }
+            }
+        }
+    }
+    return out;
+}
+
+QList<VersionEntry> versionsForSeries(const QList<VersionEntry> &versions, const QString &series,
+                                      bool showSnapshots) {
+    if (series.isEmpty()) {
+        return versions;
+    }
+    QList<VersionEntry> out;
+    for (const VersionEntry &version : versions) {
+        for (const QString &declared : version.gameVersions) {
+            // 不勾时折不出大版本的周快照不算（它们不在顶排的任何一组里）。
+            if (!showSnapshots && isSnapshotGameVersion(majorGameVersionOf(declared))) {
+                continue;
+            }
+            const QString own = gameVersionSeriesOf(declared);
+            if ((own.isEmpty() ? otherSeriesKey() : own) == series) {
+                out.append(version);
+                break;
             }
         }
     }

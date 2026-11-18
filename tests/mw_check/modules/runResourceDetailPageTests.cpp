@@ -86,6 +86,18 @@ void runResourceDetailPageTests() {
     {
         MainWindow w;
         w.show();
+        // 取证用：设了 WTFML_DETAIL_SHOT_DIR 就把窗口缩到最小尺寸 900×590，并在下面 ZJ5 的几个
+        // 节点各存一张整窗截图（真 MainWindow、离屏）。不设就什么都不变。
+        const QString detailShotDir = qEnvironmentVariable("WTFML_DETAIL_SHOT_DIR");
+        if (!detailShotDir.isEmpty()) {
+            QDir().mkpath(detailShotDir);
+            w.resize(900, 590);
+        }
+        const auto saveDetailShot = [&w, detailShotDir](const QString &name) {
+            if (!detailShotDir.isEmpty()) {
+                w.grab().save(QDir(detailShotDir).filePath(name + QStringLiteral(".png")));
+            }
+        };
         QApplication::processEvents();
 
         MainWindowUI *ui = w.ui();
@@ -286,43 +298,26 @@ void runResourceDetailPageTests() {
             };
             check(chips.size() == 3 && page->chipKeyAt(0).isEmpty() &&
                       page->chipTextAt(0) == QStringLiteral("全部") &&
-                      chipKeys.contains(QStringLiteral("1.21.1")) &&
-                      chipKeys.contains(QStringLiteral("1.20.1")) &&
+                      chipKeys == QStringList({QString(), QStringLiteral("1.21"),
+                                               QStringLiteral("1.20")}) &&
                       page->currentChip().isEmpty(),
-                  "ZJ4 中间那一排是「全部」+ 这一行声明过的两档，而且停在「全部」上"
-                  "（这两档是**搜索响应里就带着的**，为它不用多发一条请求）",
+                  "★ ZJ4 顶排是「全部」+ 这一行声明过的两个**大版本**（1.21、1.20，不是 1.21.1 "
+                  "这种细版本），而且停在「全部」上（这两档是**搜索响应里就带着的**，为它不用多发一条请求）",
                   chipKeys.join(QStringLiteral("|")));
-            // 顶排按大版本分组（issue #20）：两档各归一个组，默认都收起。
-            QStringList groupNames;
-            for (int i = 0; i < page->chipGroupButtons().size(); ++i) {
-                groupNames.append(page->chipGroupNameAt(i));
-            }
-            groupNames.sort();
-            check(groupNames == QStringList({QStringLiteral("1.20"), QStringLiteral("1.21")}) &&
-                      page->expandedChipGroup().isEmpty(),
-                  "★ ZJ4 顶排是「全部」+ 1.21 / 1.20 两个大版本组，默认都收起（细版本要点开才露）",
-                  groupNames.join(QStringLiteral("|")));
-            const auto groupButtonOf = [&page](const QString &name) -> QPushButton * {
-                for (int i = 0; i < page->chipGroupButtons().size(); ++i) {
-                    if (page->chipGroupNameAt(i) == name) {
-                        return page->chipGroupButtons().at(i);
-                    }
-                }
-                return nullptr;
-            };
 
             // 版本清单：开页那一发回来之后才有东西。
             const bool loaded = pumpUntil([page] { return page->versionRowCount() == 3; }, 10000);
             check(loaded, "ZJ4 版本清单回来了并摆上了（三条）",
                   QString::number(page->versionRowCount()));
+            saveDetailShot(QStringLiteral("detail-all"));
             check(page->placeholderText().isEmpty(),
                   "ZJ4 回来之后那句「正在读版本列表…」撤掉了（留着的话用户会以为一直在读）",
                   page->placeholderText());
             check(page->groupCount() == 2 &&
                       page->groupTitleAt(0) == QStringLiteral("Forge 1.21.1") &&
                       page->groupTitleAt(1) == QStringLiteral("Forge 1.20.1") &&
-                      page->groupExpandedAt(0) && page->groupExpandedAt(1),
-                  "ZJ4 按「加载器 + 游戏版本」分成两组、新的在前，两组都是摊开的",
+                      !page->groupExpandedAt(0) && !page->groupExpandedAt(1),
+                  "★★ ZJ4 按「加载器 + 游戏版本」分成两组、新的在前，**默认两组都收着**（点标题行才展开）",
                   page->groupTitleAt(0) + QStringLiteral(" / ") + page->groupTitleAt(1));
             check(api.requests.size() == requestsBeforeOpen + 1 &&
                       api.lastRequest().contains(QStringLiteral("/v1/mods/1546263/files")) &&
@@ -358,50 +353,47 @@ void runResourceDetailPageTests() {
 
             // ---- ZJ5. 点一颗 chip：本地筛，一个请求都不发 ----
             const int requestsBeforeChip = api.requests.size();
-            const int chip121 = chipIndexOf(QStringLiteral("1.21.1"));
-            check(chip121 > 0, "ZJ5 找得到「1.21.1」那一颗（0 号恒是「全部」）");
+            const int chip121 = chipIndexOf(QStringLiteral("1.21"));
+            check(chip121 > 0, "ZJ5 找得到「1.21」那一颗（0 号恒是「全部」）");
             if (chip121 > 0) {
-                // 用户的路径：先点开 1.21 这一组，再点里面的 1.21.1。
-                QPushButton *group121 = groupButtonOf(QStringLiteral("1.21"));
-                check(group121 != nullptr && !chips.at(chip121)->isVisibleTo(page),
-                      "★ ZJ5 点开之前 1.21.1 是收着的（隐藏）");
-                if (group121 != nullptr) {
-                    group121->click();
-                    QApplication::processEvents();
-                }
-                check(page->expandedChipGroup() == QStringLiteral("1.21") &&
-                          chips.at(chip121)->isVisibleTo(page) &&
-                          page->currentChip().isEmpty() && page->groupCount() == 2,
-                      "★ ZJ5 点开 1.21 组：1.21.1 露出来；只是展开，不筛（仍是整份两组）");
                 chips.at(chip121)->click();
             }
             QApplication::processEvents();
-            check(page->expandedChipGroup() == QStringLiteral("1.21") &&
-                      page->chipGroupButtons().size() == 2 &&
-                      groupButtonOf(QStringLiteral("1.21"))->isChecked(),
-                  "ZJ5 选了 1.21.1：1.21 组保持展开、组按钮亮着");
             check(api.requests.size() == requestsBeforeChip,
                   "ZJ5 点 chip **一个请求都不发**（在这一排上筛，就是拿已经在手里的清单筛一遍，"
                   "不是按这一档再问一次接口）",
                   api.lastRequest());
-            check(page->currentChip() == QStringLiteral("1.21.1") && page->groupCount() == 1 &&
-                      page->versionRowCount() == 2 &&
+            check(page->currentChip() == QStringLiteral("1.21") && page->chips().at(chip121)->isChecked() &&
+                      page->groupCount() == 1 && page->versionRowCount() == 2 &&
                       page->groupTitleAt(0) == QStringLiteral("Forge 1.21.1"),
-                  "ZJ5 筛完只剩那一组两条",
+                  "★★ ZJ5 点 1.21：按这个大版本筛，下面只剩属于 1.21 的那一个文件分组（两条）",
                   QStringLiteral("%1 组 %2 条").arg(page->groupCount()).arg(page->versionRowCount()));
-            const int chip120 = chipIndexOf(QStringLiteral("1.20.1"));
+            check(!page->groupExpandedAt(0),
+                  "★ ZJ5 筛出来的文件分组仍是收着的（不是从实例进来的，没有预选版本）");
+            saveDetailShot(QStringLiteral("detail-series121"));
+            // 展开、收起那个文件分组：顶排选中的大版本不变、也不重新筛。
+            if (list != nullptr && list->topLevelItem(0) != nullptr) {
+                list->topLevelItem(0)->setExpanded(true);
+                QApplication::processEvents();
+                check(page->groupExpandedAt(0) && page->currentChip() == QStringLiteral("1.21") &&
+                          page->chips().at(chip121)->isChecked() && page->groupCount() == 1,
+                      "★★ ZJ5 展开文件分组：选中的 1.21 不变");
+                saveDetailShot(QStringLiteral("detail-series121-expanded"));
+                list->topLevelItem(0)->setExpanded(false);
+                QApplication::processEvents();
+                check(!page->groupExpandedAt(0) && page->currentChip() == QStringLiteral("1.21") &&
+                          page->groupCount() == 1,
+                      "★★ ZJ5 再收起：筛选条件仍不变");
+            }
+            const int chip120 = chipIndexOf(QStringLiteral("1.20"));
             if (chip120 > 0) {
                 chips.at(chip120)->click();
             }
             QApplication::processEvents();
             check(page->groupCount() == 1 && page->versionRowCount() == 1 &&
                       page->groupTitleAt(0) == QStringLiteral("Forge 1.20.1"),
-                  "ZJ5 换一档换一份（1.20.1 那一条只落在它自己那一档下）",
+                  "ZJ5 换一档换一份（1.20.1 那一条只落在 1.20 这一档下）",
                   QStringLiteral("%1 组 %2 条").arg(page->groupCount()).arg(page->versionRowCount()));
-            check(page->expandedChipGroup() == QStringLiteral("1.20") &&
-                      groupButtonOf(QStringLiteral("1.20"))->isChecked() &&
-                      !groupButtonOf(QStringLiteral("1.21"))->isChecked(),
-                  "ZJ5 换到 1.20.1：展开的组与亮着的组按钮都跟到 1.20");
 
             // ---- ZJ5b. 前置名字**问不着**的时候，不许原地重发（R3）----
             //
@@ -436,6 +428,9 @@ void runResourceDetailPageTests() {
                   QString::number(installed->currentIndex()));
             QTreeWidgetItem *g1 = list == nullptr ? nullptr : list->topLevelItem(1);
             QTreeWidgetItem *target = g1 == nullptr ? nullptr : g1->child(0);
+            if (g1 != nullptr) {
+                g1->setExpanded(true);  // 文件分组默认收着，点行之前先摊开
+            }
             if (list != nullptr && target != nullptr) {
                 list->scrollToItem(target);
             }
@@ -529,8 +524,8 @@ void runResourceDetailPageTests() {
             // 不一样的表），而用户正按着的那一颗要**换算到新表上**（还在就留着、只在那一档里
             // 就换成同一个大版本的说法）—— 换算错了的症状是"整排 chip 都不亮、列表却少了一半"。
             //
-            // 第二行这条线（1.21.1 + 1.21.2-pre1）是**唯一**一条带快照的：不勾 ⇒ 快照折进
-            // 1.21.2 那一颗（两颗版本 chip），勾上 ⇒ 1.21.2-pre1 自己一颗（还是两颗）。
+            // 第二行这条线（1.21.1 + 1.21.2-pre1）是**唯一**一条带快照的：顶排的 key 是大版本，
+            // 快照和正式版同属 1.21，所以拨这颗勾顶排不变、按着的 1.21 不动。
             // NOTE: 每一次拨动之后 chip 那些按钮**是新的**（setChips 把它们整个重建），所以
             // 下面一律按 key 现找现点，不留下任何一颗旧的按钮指针。
             if (page != nullptr && overlay->pageOpen()) {
@@ -573,10 +568,9 @@ void runResourceDetailPageTests() {
                                        page->modSettingsButton()->isVisible()
                                    ? QStringLiteral("是")
                                    : QStringLiteral("不是")));
-                check(chipKeys() == QStringList({QString(), QStringLiteral("1.21.2"),
-                                                 QStringLiteral("1.21.1")}),
-                      "★ ZJ9 不勾时这一排是「全部」+ 折出来的 1.21.2 + 1.21.1"
-                      "（`1.21.2-pre1` 那颗**不许**露在这一档里 —— 露了就等于没折）",
+                check(chipKeys() == QStringList({QString(), QStringLiteral("1.21")}),
+                      "★ ZJ9 不勾时顶排是「全部」+ 1.21（`1.21.1` 和 `1.21.2-pre1` 同属 1.21 这一组，"
+                      "快照不单独占一颗）",
                       chipKeys().join(QStringLiteral("|")));
                 // 版本清单：这一页开的那一发回来之后才有东西。
                 const bool loaded =
@@ -585,28 +579,26 @@ void runResourceDetailPageTests() {
                       QString::number(page->versionRowCount()));
                 const int requestsBefore = api.requests.size();
 
-                // ① 先落在**两档都有**的那一颗上（1.21.1）。
-                check(clickChip(QStringLiteral("1.21.1")), "ZJ9 找得到「1.21.1」那一颗");
+                // ① 先落在 1.21 这一组上（这一档有两条）。
+                check(clickChip(QStringLiteral("1.21")), "ZJ9 找得到「1.21」那一颗");
                 QApplication::processEvents();
-                check(page->currentChip() == QStringLiteral("1.21.1") &&
+                check(page->currentChip() == QStringLiteral("1.21") &&
                           page->versionRowCount() == 2,
-                      "ZJ9 前提：停在 1.21.1 上（这一版有两条）",
+                      "ZJ9 前提：停在 1.21 上（这一档有两条）",
                       QStringLiteral("%1 条").arg(page->versionRowCount()));
 
-                // ② 拨上：chip 那一排换一份，**按着的那一颗不动**（新表里也有它）。
+                // ② 拨上：顶排的 key 是大版本，快照与正式版同属一组 ⇒ 那一排不变、按着的那一颗不动，
+                // 列表重算后还是那两条。
                 if (box != nullptr) {
                     box->click();
                 }
                 QApplication::processEvents();
                 check(box != nullptr && box->isChecked() &&
-                          chipKeys() == QStringList({QString(), QStringLiteral("1.21.2-pre1"),
-                                                     QStringLiteral("1.21.1")}),
-                      "★★ ZJ9 勾上之后每一颗声明过的各一颗（1.21.2-pre1 自己一颗、1.21.2 那颗没了）",
-                      chipKeys().join(QStringLiteral("|")));
-                check(page->currentChip() == QStringLiteral("1.21.1") &&
+                          chipKeys() == QStringList({QString(), QStringLiteral("1.21")}) &&
+                          page->currentChip() == QStringLiteral("1.21") &&
                           page->versionRowCount() == 2,
-                      "★★ ZJ9 而按着的还是 1.21.1、列表还是那两条（他被留在他正看着的那条线上，"
-                      "列表也**重算**过了）",
+                      "★★ ZJ9 勾上之后顶排还是 1.21（快照归入所属大版本），按着的还是 1.21、"
+                      "列表还是那两条（他留在他正看着的那条线上，列表也**重算**过了）",
                       QStringLiteral("chip 「%1」/ %2 条")
                           .arg(page->currentChip())
                           .arg(page->versionRowCount()));
@@ -614,39 +606,18 @@ void runResourceDetailPageTests() {
                       "★ ZJ9 拨这颗勾**一个请求都不发**（折与不折是拿已经在手里的那份清单算的）",
                       api.lastRequest());
 
-                // ③ 拨回去：那一排摆回折过的那一份，按着的还是 1.21.1（来回两下都对）。
+                // ③ 拨回去：同样不变（来回两下都对）。
                 if (box != nullptr) {
                     box->click();
                 }
                 QApplication::processEvents();
                 check(box != nullptr && !box->isChecked() &&
-                          chipKeys() == QStringList({QString(), QStringLiteral("1.21.2"),
-                                                     QStringLiteral("1.21.1")}) &&
-                          page->currentChip() == QStringLiteral("1.21.1") &&
+                          chipKeys() == QStringList({QString(), QStringLiteral("1.21")}) &&
+                          page->currentChip() == QStringLiteral("1.21") &&
                           page->versionRowCount() == 2,
-                      "ZJ9 再拨回去又折成一颗 1.21.2，按着的还是 1.21.1",
+                      "ZJ9 再拨回去，按着的还是 1.21",
                       chipKeys().join(QStringLiteral("|")));
 
-                // ④ 站在**折出来的**那一颗上（1.21.2 —— 这一档下一条文件都没有）再勾上：
-                // 他该落到这条线里那颗快照上（1.21.2-pre1），而不是被甩回「全部」。
-                check(clickChip(QStringLiteral("1.21.2")), "ZJ9 找得到折出来的「1.21.2」那一颗");
-                QApplication::processEvents();
-                check(page->currentChip() == QStringLiteral("1.21.2") &&
-                          page->versionRowCount() == 0 &&
-                          page->placeholderText() ==
-                              QStringLiteral("这个游戏版本上没有可下载的版本。"),
-                      "★ ZJ9 前提：1.21.2 那一档下什么都没有，而且那句说明**不是**"
-                      "「这个资源一个版本都没发过」（两种**空**不是同一句话）",
-                      page->placeholderText());
-                if (box != nullptr) {
-                    box->click();
-                }
-                QApplication::processEvents();
-                check(chipKeys().contains(QStringLiteral("1.21.2-pre1")) &&
-                          page->currentChip() == QStringLiteral("1.21.2-pre1"),
-                      "★★ ZJ9 站在折出来的那一颗上勾上 = 落到这条线里那颗快照上"
-                      "（1.21.2-pre1），不是被甩回「全部」",
-                      page->currentChip());
                 // 收尾摆回不勾那一档（这一页是**建一次留着**的，下一次读它的人看到的该是
                 // 默认那一档）。
                 if (box != nullptr) {
@@ -666,18 +637,18 @@ void runResourceDetailPageTests() {
             // ② 再点回「下载」⇒ 原来那一页连"按着哪颗 chip、列表几条"一起回来；
             // ③ 站在「下载」上再点一下「下载」⇒ 回到这个功能的首页（那一层收掉）。
             if (page != nullptr && overlay->pageOpen()) {
-                // 摆一个**说得出口的前提**：站到「1.21.1」那一颗上（这一版有两条）。上面
+                // 摆一个**说得出口的前提**：站到「1.21」那一颗上（这一档有两条）。上面
                 // ZJ9 收尾那一下把它留在了折出来的 1.21.2 上（那一档下一条都没有）—— 照那个
                 // 状态量"回来时一样不少"，两边都是"空"，量不出区别来。
                 for (int i = 0; i < page->chips().size(); ++i) {
-                    if (page->chipKeyAt(i) == QStringLiteral("1.21.1")) {
+                    if (page->chipKeyAt(i) == QStringLiteral("1.21")) {
                         page->chips().at(i)->click();
                     }
                 }
                 QApplication::processEvents();
-                check(page->currentChip() == QStringLiteral("1.21.1") &&
+                check(page->currentChip() == QStringLiteral("1.21") &&
                           page->versionRowCount() == 2,
-                      "ZJ10 前提：站到「1.21.1」那一颗上（这一版有两条）",
+                      "ZJ10 前提：站到「1.21」那一颗上（这一档有两条）",
                       QStringLiteral("%1 条").arg(page->versionRowCount()));
                 QTabWidget *navTabs = w.ui() == nullptr ? nullptr : w.ui()->getTabWidget();
                 TitleBar *strip = w.ui() == nullptr ? nullptr : w.ui()->titleBar();
@@ -706,7 +677,7 @@ void runResourceDetailPageTests() {
                     check(navTabs->currentWidget() != nullptr && navTabs->currentWidget()->isEnabled(),
                           "★ ZJ10 收着的时候底下那一页是活的（收起来的层没盖住任何东西）");
                     check(page->titleText() == secondTitle &&
-                              page->currentChip() == QStringLiteral("1.21.1") &&
+                              page->currentChip() == QStringLiteral("1.21") &&
                               page->versionRowCount() == 2,
                           "★ ZJ10 收着的是**原来那一页**（连按着哪颗 chip、列表几条都在）",
                           QStringLiteral("「%1」/ chip 「%2」/ %3 条")
@@ -723,8 +694,8 @@ void runResourceDetailPageTests() {
                           QStringLiteral("tab %1 / parked %2")
                               .arg(navTabs->currentIndex())
                               .arg(overlay->parked()));
-                    check(page->currentChip() == QStringLiteral("1.21.1") &&
-                              page->versionRowCount() == 2 && page->chips().size() == 3,
+                    check(page->currentChip() == QStringLiteral("1.21") &&
+                              page->versionRowCount() == 2 && page->chips().size() == 2,
                           "★ ZJ10 回来时那一页的状态一样不少（chip 还是按着的那一颗、列表还是"
                           "那两条、那一排还是折过的那一份 —— 一个请求都不发）",
                           QStringLiteral("chip 「%1」/ %2 条")
@@ -788,9 +759,9 @@ void runResourceDetailPageTests() {
             QApplication::processEvents();
         }
         watchdog7.stop();
-        check(secondTitle == QStringLiteral("第二个模组") && secondChips == 3,
-              "ZJ7 点第二行开的是第二行那一页（名字对得上，chip 是它声明的那两档 +「全部」"
-              "—— 那条快照不勾时折成一颗，所以还是两颗版本 chip）",
+        check(secondTitle == QStringLiteral("第二个模组") && secondChips == 2,
+              "ZJ7 点第二行开的是第二行那一页（名字对得上，顶排是「全部」+ 它声明的 1.21 一个大版本"
+              "—— 1.21.1 和 1.21.2-pre1 同属 1.21；第一行那页是 3 颗，认错行就会是 3）",
               secondTitle + QStringLiteral(" / chip ")
                   + QString::number(secondChips));
         check(!overlay->isOpen(), "ZJ7 收干净了");
