@@ -49,10 +49,10 @@ int UiInstallFormLayoutChecks(MainWindowUI &ui, QLineEdit * &installNameEdit, QL
               "那棵树自己不画边框（四周已经是那张卡片，再套一圈就是框套框）",
               loaderTree != nullptr ? QString::number(int(loaderTree->frameShape()))
                                     : QStringLiteral("<null>"));
-        // 树的高度是**按现在展开了几条**算出来的（收着的时候 = 四条加载器 + 预设行，
-        // 共五行；「不装（纯原版）」只留内部状态、不画成重复选项）。
+        // 树的高度是**按现在展开了几条**算出来的（收着的时候 = 五条加载器 + 预设行，
+        // 共六行；「不装（纯原版）」只留内部状态、不画成重复选项）。
         // 写死成"铺满整页"的话，收着的时候底下空一大片、安装按钮还被顶到窗口最底下。
-        const int expectedRows = 5;  // 刚搭好时五行全收着（见上面那节）
+        const int expectedRows = 6;  // 刚搭好时六行全收着（见上面那节）
         check(!rTree.isNull() &&
                   rTree.height() >= expectedRows * MainWindowUI::versionTreeRowHeight() &&
                   rTree.height() <= expectedRows * MainWindowUI::versionTreeRowHeight() +

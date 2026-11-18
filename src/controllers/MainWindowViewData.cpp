@@ -677,10 +677,6 @@ QString loaderGroupKey(const QString &loaderName) {
 /// 就是照它排的），抄一遍就会在某次加加载器时慢慢漂开。
 /// NOTE: 认不出来的加载器名（用户手写的别的名字、或者以后新加的加载器）也是草方块 ——
 /// 和 loaderMark() 越界那条一个规矩：认不出来就画原版。
-/// **Quilt 就是这一档**：`instanceLoaderName()` 认得出来（版本 json 里
-/// `org.quiltmc:quilt-loader` 那条），而 MainWindowUI 那四颗加载器钮里没有它 ⇒ 画草
-/// 方块。我们自己的安装器不装 Quilt，这一档只从 json 那一路进得来，
-/// 要给它一个标志就加一颗加载器钮 —— 别在这儿另画一张图。
 QPixmap defaultInstanceMark(const VersionDisplayParts &part, const VersionManager *versions,
                             int size) {
     // 加载器名和版本分类**一次问齐**（`instanceTraits()` 共用一次 meta 读）。分开问两遍

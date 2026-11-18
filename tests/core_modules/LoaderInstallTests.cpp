@@ -135,8 +135,8 @@ void runLoaderInstallTests() {
 
     // --- V4. 界面下标 -> 加载器 -------------------------------------------------
     {
-        check(VersionManager::loaderKindCount() == 4,
-              "V4 四个加载器（界面那组钮里 0..3 是它们，第 4 个是「不装」）",
+        check(VersionManager::loaderKindCount() == 5,
+              "V4 五个加载器（界面那组钮里 0..4 是它们，第 5 个是「不装」）",
               QString::number(VersionManager::loaderKindCount()));
 
         struct Expect {
@@ -149,16 +149,26 @@ void runLoaderInstallTests() {
             {1, VersionManager::LoaderKind::Forge, "Forge"},
             {2, VersionManager::LoaderKind::NeoForge, "NeoForge"},
             {3, VersionManager::LoaderKind::OptiFine, "OptiFine"},
+            {4, VersionManager::LoaderKind::Quilt, "Quilt"},
         };
         for (const Expect &e : expects) {
             // 故意先填一个别的：翻译失败时**不许**动这个变量（调用方可能还指望旧的）。
             VersionManager::LoaderKind kind = VersionManager::LoaderKind::OptiFine;
             const bool ok = VersionManager::loaderKindFromIndex(e.index, &kind);
             check(ok && kind == e.kind &&
-                      VersionManager::loaderDisplayName(kind) == QLatin1String(e.name),
-                  QString("V4 下标 %1 -> %2").arg(e.index).arg(QLatin1String(e.name)),
+                      VersionManager::loaderDisplayName(kind) == QLatin1String(e.name) &&
+                      VersionManager::loaderIndexForKind(e.kind) == e.index,
+                  QString("V4 下标 %1 <-> %2（互为反函数）").arg(e.index).arg(QLatin1String(e.name)),
                   VersionManager::loaderDisplayName(kind));
         }
+
+        // 现有四种加载器下标稳定不变，不因新增 Quilt 而错位。
+        check(VersionManager::loaderIndexForKind(VersionManager::LoaderKind::Fabric) == 0 &&
+                  VersionManager::loaderIndexForKind(VersionManager::LoaderKind::Forge) == 1 &&
+                  VersionManager::loaderIndexForKind(VersionManager::LoaderKind::NeoForge) == 2 &&
+                  VersionManager::loaderIndexForKind(VersionManager::LoaderKind::OptiFine) == 3 &&
+                  VersionManager::loaderIndexForKind(VersionManager::LoaderKind::Quilt) == 4,
+              "V4 现有四种加载器的选择下标保持 0..3 不错位，Quilt 落在下标 4");
 
         VersionManager::LoaderKind keep = VersionManager::LoaderKind::NeoForge;
         check(!VersionManager::loaderKindFromIndex(-1, &keep) &&
@@ -166,20 +176,19 @@ void runLoaderInstallTests() {
               "V4 -1（一个都没勾）翻不出来，而且没动传进去的那个变量");
         check(!VersionManager::loaderKindFromIndex(VersionManager::loaderKindCount(), &keep) &&
                   keep == VersionManager::LoaderKind::NeoForge,
-              "V4 下标 4（界面上的「不装」）翻不出来 —— 它是「装纯原版」，不是加载器");
+              "V4 下标 5（界面上的「不装」）翻不出来 —— 它是「装纯原版」，不是加载器");
         check(!VersionManager::loaderKindFromIndex(99, &keep),
               "V4 越界下标翻不出来（界面表和枚举表对不上时宁可什么都不装）");
         check(VersionManager::loaderKindFromIndex(0, nullptr),
               "V4 out 允许传 nullptr（只想问「这个下标认不认」）");
 
-        // 四个都接通了（OptiFine 是 接上的，走的是第三条路：**无界面入口 +
-        // 换 APPDATA + 对着临时目录装**）。界面靠它决定"点了下载弹哪一种话"，数据层也靠
-        // 它拦一道 —— 挡反了的症状是"用户勾着某个加载器，装出来一个纯原版"。
+        // 五个都接通了（OptiFine 走外部安装器，Quilt 走与 Fabric 共用的 profile + 库路径）。
         check(VersionManager::loaderInstallSupported(VersionManager::LoaderKind::Fabric) &&
                   VersionManager::loaderInstallSupported(VersionManager::LoaderKind::Forge) &&
                   VersionManager::loaderInstallSupported(VersionManager::LoaderKind::NeoForge) &&
-                  VersionManager::loaderInstallSupported(VersionManager::LoaderKind::OptiFine),
-              "V4 四个加载器都接通了");
+                  VersionManager::loaderInstallSupported(VersionManager::LoaderKind::OptiFine) &&
+                  VersionManager::loaderInstallSupported(VersionManager::LoaderKind::Quilt),
+              "V4 五个加载器都接通了");
 
         // 显示名不能空：它既写进 wtfml.meta 的 loaderName，也是弹窗里的主语。
         for (int i = 0; i < VersionManager::loaderKindCount(); ++i) {
@@ -2169,6 +2178,39 @@ void runLoaderInstallTests() {
         check(LoaderMeta::checkFabricProfile(profile, QStringLiteral("1.21.1")).ok()
                   && !LoaderMeta::checkFabricProfile(profile, QStringLiteral("1.20.1")).ok(),
               "V9 Quilt profile 复用同一套 id/父版本检查");
+
+        // 重复版本号与混合测试版/正式版的解析排序（兼容版本 1.20.1 形态）
+        const QJsonArray dupAndMixed{quiltEntry(QStringLiteral("0.27.0-beta.1")),
+                                     quiltEntry(QStringLiteral("0.26.4")),
+                                     quiltEntry(QStringLiteral("0.26.4")),
+                                     quiltEntry(QStringLiteral("0.26.3")),
+                                     quiltEntry(QString())};
+        const auto mixedList = LoaderMeta::listQuiltLoaderVersions(dupAndMixed);
+        check(mixedList.size() == 3 &&
+                  mixedList.at(0).version == QStringLiteral("0.27.0-beta.1") && !mixedList.at(0).stable &&
+                  mixedList.at(1).version == QStringLiteral("0.26.4") && mixedList.at(1).stable &&
+                  mixedList.at(2).version == QStringLiteral("0.26.3") && mixedList.at(2).stable,
+              "V9 Quilt 列表去重、过滤空串、区分稳定版与测试版并按新到旧排序");
+        const auto mixedStable = LoaderMeta::pickQuiltLoader(dupAndMixed, LoaderMeta::LoaderChannel::Stable);
+        const auto mixedNewest = LoaderMeta::pickQuiltLoader(dupAndMixed, LoaderMeta::LoaderChannel::Newest);
+        check(mixedStable.ok() && mixedStable.version == QStringLiteral("0.26.4") && mixedStable.stable &&
+                  mixedNewest.ok() && mixedNewest.version == QStringLiteral("0.27.0-beta.1") && !mixedNewest.stable,
+              "V9 Quilt 稳定档跳过顶部 beta 选 0.26.4，最新档选 0.27.0-beta.1");
+
+        // 不兼容的游戏版本：Quilt meta 回 HTTP 404 + {"code":"not_found"}，Fabric 回 HTTP 400 + []
+        check(LoaderMeta::listQuiltLoaderVersions(QJsonArray()).isEmpty() &&
+                  !LoaderMeta::pickQuiltLoader(QJsonArray(), LoaderMeta::LoaderChannel::Newest).ok(),
+              "V9 Quilt 空列表时不兼容版本解析为空且挑不出版本");
+        const QByteArray quiltNotFoundBody =
+            QByteArrayLiteral("{\"code\":\"not_found\",\"message\":\"File with such name does not exist.\",\"status\":404}");
+        check(LoaderMeta::isUnsupportedGameVersionMetaReply(true, 404, quiltNotFoundBody) &&
+                  LoaderMeta::isUnsupportedGameVersionMetaReply(true, 200, QByteArrayLiteral("[]")) &&
+                  LoaderMeta::isUnsupportedGameVersionMetaReply(false, 400, QByteArrayLiteral("[]")),
+              "V9 Quilt 404 not_found 与 Fabric 400 [] 判为「游戏版本不支持」而非网络失败");
+        check(!LoaderMeta::isUnsupportedGameVersionMetaReply(true, 500, quiltNotFoundBody) &&
+                  !LoaderMeta::isUnsupportedGameVersionMetaReply(true, 404, QByteArrayLiteral("<html>404</html>")) &&
+                  !LoaderMeta::isUnsupportedGameVersionMetaReply(true, 404, QByteArray()),
+              "V9 500 / HTML 错误页 / 空正文不被误判为版本不支持");
     }
 }
 

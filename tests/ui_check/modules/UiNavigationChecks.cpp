@@ -81,13 +81,17 @@ int UiNavigationChecks(QMainWindow &window, MainWindowUI &ui, QComboBox * &insta
         // 点开某一条才出现的版本号，用户要的"和上一页的版本选择相同的模式"）。
         {
             const QStringList texts = MainWindowUI::modLoaderOptionTexts();
-            // 这张表是"给五条起名"的前提：多一条少一条，树上就会有一条既没名字也对不上字
+            // 这张表是"给六条起名"的前提：多一条少一条，树上就会有一条既没名字也对不上字
             // （而那种错不会报错，只会装错加载器）。
-            check(texts.size() == 5,
-                  "那张表是 5 条（四个加载器 + 一个「不装（纯原版）」）",
+            check(texts.size() == 6,
+                  "那张表是 6 条（五个加载器 + 一个「不装（纯原版）」）",
                   QString("texts=%1").arg(texts.size()));
+            check(texts.mid(0, 4) == QStringList({QStringLiteral("Fabric"), QStringLiteral("Forge"),
+                                                  QStringLiteral("NeoForge"), QStringLiteral("OptiFine")}) &&
+                      texts.at(4) == QStringLiteral("Quilt"),
+                  "现有四种加载器顺序不变，Quilt 追加在第 5 格");
             check(QSet<QString>(texts.begin(), texts.end()).size() == texts.size(),
-                  "五段文案互不相同");
+                  "六段文案互不相同");
             check(loaderTree != nullptr &&
                       loaderTree->objectName() == MainWindowUI::loaderTreeName(),
                   "加载器树找得回来（按 objectName）",
@@ -129,16 +133,16 @@ int UiNavigationChecks(QMainWindow &window, MainWindowUI &ui, QComboBox * &insta
                 check(!item->icon(MainWindowUI::loaderTreeKeyColumn()).isNull(),
                       QString("第 %1 条前面挂着标志（%2）").arg(i).arg(texts.value(i)));
             }
-            // 第 4 条是「不装」：四个加载器占 0..3 是有讲究的（见上）。树上它是第 5 行
+            // 第 5 条是「不装」：五个加载器占 0..4 是有讲究的（见上）。树上它是第 6 行
             // （「预设」那一行插在它前面）。
-            check(loaderTree != nullptr && loaderTree->topLevelItemCount() == 6 &&
-                      loaderTree->topLevelItem(5)->text(MainWindowUI::loaderTreeKeyColumn()) ==
+            check(loaderTree != nullptr && loaderTree->topLevelItemCount() == 7 &&
+                      loaderTree->topLevelItem(6)->text(MainWindowUI::loaderTreeKeyColumn()) ==
                           QStringLiteral("不装（纯原版）") &&
-                      MainWindowUI::modLoaderNoneIndex() == 4,
-                  "第 4 条是「不装（纯原版）」（0..3 留给四个加载器；树下标的映射没动，"
+                      MainWindowUI::modLoaderNoneIndex() == 5,
+                  "第 5 条是「不装（纯原版）」（0..4 留给五个加载器；树下标的映射没动，"
                   "只是树上多了一行预设）",
-                  loaderTree != nullptr && loaderTree->topLevelItemCount() == 6
-                      ? loaderTree->topLevelItem(5)->text(MainWindowUI::loaderTreeKeyColumn())
+                  loaderTree != nullptr && loaderTree->topLevelItemCount() == 7
+                      ? loaderTree->topLevelItem(6)->text(MainWindowUI::loaderTreeKeyColumn())
                       : QStringLiteral("<缺>"));
             // 那条「预设」行：字 / 身份 / 小字（「未选择」）三样。
             {

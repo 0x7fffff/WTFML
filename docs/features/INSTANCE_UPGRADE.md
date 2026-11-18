@@ -38,7 +38,7 @@
 
 ## 3. 声明覆盖扩展（2.1.4）
 
-- **Quilt**：作为目标加载器可选择/安装/升级（meta `v3/versions/loader/<mc>` 的 profile + 库，与 Fabric 同一条路径，没有启动器安装器进程）。安装页仍只有 Fabric / Forge / NeoForge / OptiFine 四行，Quilt 通过实例更新和整合包导入准备/升级。Quilt 目标下，有 `quilt.mod.json` 的模组按 `depends[minecraft]`、`depends[quilt_loader]`、`depends[java]` 检查；只有 `fabric.mod.json` 的按 Fabric 声明检查（Quilt 能加载 Fabric 模组），但不拿 fabricloader 范围去卡 Quilt 加载器版本。
+- **Quilt**：作为目标加载器可在安装页选择，也可通过实例更新和整合包导入准备/升级（meta `v3/versions/loader/<mc>` 的 profile + 库，与 Fabric 同一条路径，没有启动器安装器进程）。Quilt 目标下，有 `quilt.mod.json` 的模组按 `depends[minecraft]`、`depends[quilt_loader]`、`depends[java]` 检查；只有 `fabric.mod.json` 的按 Fabric 声明检查（Quilt 能加载 Fabric 模组），但不拿 fabricloader 范围去卡 Quilt 加载器版本。
 - **旧 Forge**：先读 `mcmod.info` 的 `acceptedMinecraftVersions`；没有现代声明时读 class 常量池里的 `@Mod` 注解（有界：每 JAR 最多 3 个 class、整轮预算）。读不动、没有范围或被预算截断一律记**未知**，逐项强制选择，原因写进行内依据和日志。
 - **加载器具体版本**：声明里带 `fabricloader` / `forge` / `neoforge` / `quilt_loader` 范围时与目标加载器版本比较；不满足标"加载器版本不满足"，读不动记未知。
 - **Java**：声明里带 `java` 范围时与**当前配置的 Java 主版本**比较（向导打开时探测一次，不拿游戏最低要求代替）；不满足标"需要 Java …"，读不动/探测不到记未知。
