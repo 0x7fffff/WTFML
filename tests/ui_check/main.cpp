@@ -3207,6 +3207,30 @@ int main(int argc, char *argv[]) {
             check(recent != nullptr && used + 100 < recent->width(),
                   "★★ U31b 实例带**不把剩下的宽度分给卡片**（右边空着就空着）",
                   QStringLiteral("两张卡 %1 / 这一排 %2").arg(used).arg(recent ? recent->width() : -1));
+            // issue #41：悬停 ⇒ ▶ 露出来，名字的可用宽度不能被它挤小（平时就给它留着那一格）。
+            bool hoverKeepsName = wideCards.size() == 2;
+            QStringList hoverDetail;
+            for (QPushButton *card : wideCards) {
+                card->setAttribute(Qt::WA_UnderMouse, true);
+                const QPoint c(card->width() / 2, card->height() / 2);
+                QEnterEvent enter(c, c, card->mapToGlobal(c));
+                QApplication::sendEvent(card, &enter);
+                QApplication::processEvents();
+                QLabel *name = nullptr;
+                for (QLabel *label : card->findChildren<QLabel *>())
+                    if (label->text().startsWith(QStringLiteral("1.2"))) name = label;
+                QWidget *play = card->findChild<QWidget *>(QStringLiteral("homeQuickPlay"));
+                const int needed = name == nullptr ? -1 : name->fontMetrics().horizontalAdvance(name->text());
+                hoverKeepsName = hoverKeepsName && name != nullptr && play != nullptr && play->isVisible() &&
+                                 name->width() >= needed;
+                hoverDetail << QStringLiteral("名字 %1（要 %2）").arg(name ? name->width() : -1).arg(needed);
+                card->setAttribute(Qt::WA_UnderMouse, false);
+                QEvent leave(QEvent::Leave);
+                QApplication::sendEvent(card, &leave);
+            }
+            check(hoverKeepsName,
+                  "★★ issue #41 悬停（▶ 露出来）时名字整句仍放得下：▶ 那一格平时就留着，不是悬停才抢宽度",
+                  hoverDetail.join(QStringLiteral("；")));
             window.resize(before);
             QApplication::processEvents();
         }
