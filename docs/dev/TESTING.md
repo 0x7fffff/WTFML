@@ -273,7 +273,7 @@ CTest 名：`wtfml.core-agent`、`wtfml.ui-agent`、`wtfml.main-window-agent`（
 - Stage 1A 覆盖：SSE、适配、会话、加密、凭据、上下文、Loop、技能、Markdown。
 - Stage 1B 覆盖：路径攻击矩阵与句柄级校验、外发边界表、审批矩阵、artifact 分离、实例锁、维护备份生命周期、文件工具引擎、Loop 工具调用/审批/拒绝回灌、UI 工具卡/审批卡；本地假服务器验证 400 错误体保留，工具线上名不含点号。
 - junction 夹具建不出来时输出 `SKIP`，不计入通过。
-- 计数见 [TEST_RUN_HISTORY.md](../archive/TEST_RUN_HISTORY.md)；真机验收清单见 [Stage 1A](../features/AGENT_STAGE1A.md) / [Stage 1B](../features/AGENT_STAGE1B.md)。G1A 人工审查除网络错误外通过；G1B 首轮人工发现脱敏只命中精确字段名、凭据文件识别过窄、artifact 可取回未脱敏内容等隐私问题，G1B 未通过，记录见 [ACCEPTANCE_LOG.md](../archive/ACCEPTANCE_LOG.md)。
+- 计数见 [TEST_RUN_HISTORY.md](../archive/TEST_RUN_HISTORY.md)；待人工测试项见 [Stage 1A](../features/AGENT_STAGE1A.md) / [Stage 1B](../features/AGENT_STAGE1B.md)。G1B 的脱敏/凭据文件/artifact 三项已在代码里修复，仍需复测 R1–R4、R6、R7 与 W4/W5、A1、P4、P5；网络错误单独延后。记录见 [ACCEPTANCE_LOG.md](../archive/ACCEPTANCE_LOG.md)。
 
 ## network-diag 在本机怎么跑
 

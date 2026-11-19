@@ -19,9 +19,9 @@
 
 | 文档 | 内容 |
 | --- | --- |
-| [AGENT.md](features/AGENT.md) | 智能体（Agent）设计与开发计划原稿 |
-| [AGENT_STAGE1A.md](features/AGENT_STAGE1A.md) | 智能体 Stage 1A 实现与验收：Provider + Loop + 会话 + 基础聊天 UI（无工具对话） |
-| [AGENT_STAGE1B.md](features/AGENT_STAGE1B.md) | 智能体 Stage 1B 实现与验收：受控文件工具、审批、D11 外发策略、实例锁定、维护备份 |
+| [AGENT.md](features/AGENT.md) | 智能体（Agent）现行设计：聊天、受控文件工具、审批、外发与脱敏、存储 |
+| [AGENT_STAGE1A.md](features/AGENT_STAGE1A.md) | 智能体 Stage 1A：Provider、会话、基础聊天 UI、盘上格式与待测网络错误 |
+| [AGENT_STAGE1B.md](features/AGENT_STAGE1B.md) | 智能体 Stage 1B：受控文件工具、审批、D11 外发、实例锁定、维护备份与待测项 |
 | [DAILY_QUOTE.md](features/DAILY_QUOTE.md) | 主页「每日一言」：句子从哪三个站来、按日期定语种、限长与回退、字体选择、开关与隐私 |
 | [DIRECTORY_SESSION_LOCK.md](features/DIRECTORY_SESSION_LOCK.md) | 同一数据目录只允许一个窗口：锁的实现、目录/文件被占用、写入口审计、复制实例先暂存后发布、破坏性操作矩阵 |
 | [HIGH_SPEED_DOWNLOAD.md](features/HIGH_SPEED_DOWNLOAD.md) | 高速下载：暂停/显式继续/跨进程恢复、分段与限速、本机文件复用、速度与剩余时间 |
@@ -30,7 +30,7 @@
 | [INSTANCE_UPGRADE.md](features/INSTANCE_UPGRADE.md) | 实例版本更新：向导、模组适配替换/声明覆盖、两种模组判断分开显示、原地升级与回滚的数据保护 |
 | [UPGRADE_ACCEPTANCE.md](features/UPGRADE_ACCEPTANCE.md) | U8 真机验收清单：1000×750 布局、兼容性弹窗、ACL/占用/空间、取消重入中断、历史回滚 |
 | [MANUAL_RECOVERY.md](features/MANUAL_RECOVERY.md) | 人工恢复目录：用旧目录替换当前目录的入口、事务登记、运行状态检查 |
-| [SECURITY_BOUNDARIES.md](features/SECURITY_BOUNDARIES.md) | 外部输入变成盘上路径/解码的边界盘点：会变成路径的名字、按声明尺寸分配的图片、`powershell.exe` 解析 |
+| [SECURITY_BOUNDARIES.md](features/SECURITY_BOUNDARIES.md) | 外部输入路径/图片/脚本边界，以及智能体网络、凭据、外发脱敏、文件工具与备份边界 |
 
 ## dev/ 开发者手册
 
