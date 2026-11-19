@@ -19,6 +19,7 @@
 #include "ToggleSwitch.hpp"
 
 #include <QCheckBox>
+#include <QElapsedTimer>
 #include <QComboBox>
 #include <QGroupBox>
 #include <QKeyEvent>
@@ -320,6 +321,32 @@ int UiAgentCheck() {
     check(!AgentMarkdown::toHtml(QStringLiteral("<img src=x onerror=1>"))
                .contains(QStringLiteral("<img")),
           "智能体 UI：不生成远程 img");
+
+    // 性能基线：2000 条消息一次性摆进对话流（Stage 4 记录，见 perf-notes）。
+    {
+        QList<AgentView::Message> many;
+        for (int i = 0; i < 2000; ++i) {
+            AgentView::Message message;
+            message.id = QStringLiteral("perf-%1").arg(i);
+            message.user = (i % 2 == 0);
+            message.content = QStringLiteral("第 %1 条：启动失败，日志里说缺少前置模组。").arg(i);
+            message.status = AgentView::MessageStatus::Complete;
+            many.append(message);
+        }
+        QElapsedTimer timer;
+        timer.start();
+        page->setMessages(many);
+        QApplication::processEvents();
+        const qint64 elapsed = timer.elapsed();
+        std::printf("[perf] agent-page-2000-messages=%lldms\n", static_cast<long long>(elapsed));
+        std::fflush(stdout);
+        check(elapsed < 8000, "智能体 UI：2000 条消息渲染在 8 秒内",
+              QStringLiteral("%1ms").arg(elapsed));
+        check(page->findChildren<AgentMessageView *>().size() >= 2,
+              "智能体 UI：大量消息里最后几条仍在");
+        page->clearMessages();
+        QApplication::processEvents();
+    }
 
     AgentView::ToolCard toolCard;
     toolCard.id = QStringLiteral("call-1");

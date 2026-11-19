@@ -11,7 +11,7 @@
 | Stage 2B：维护工作流 + 启动器工具 | 已实现 | `verify_agent` / `ui-agent` / `main-window-agent` | G2B 待人工验收 | [AGENT_STAGE2B](AGENT_STAGE2B.md) |
 | Stage 2A：stdio MCP | 已实现 | `verify_agent` / `ui-agent` / `main-window-agent` | G2A 待人工验收 | [AGENT_STAGE2A](AGENT_STAGE2A.md) |
 | Stage 3：联网与固定诊断命令 | 已实现（资源工具与 HTTP MCP 未做） | `verify_agent` / `ui-agent` / `main-window-agent` | G3 待人工验收 | [AGENT_STAGE3](AGENT_STAGE3.md) |
-| Stage 4：收口与发布 | 未开始 | — | G4 未开始 | §14 |
+| Stage 4：收口与发布 | 已实现（自动化回归/性能基线/发布检查/文档） | `verify_agent` / `ui_check_agent` / `mw_check_agent` + core/window/network/ci-ui | G4 待人工验收 | [AGENT_STAGE4](AGENT_STAGE4.md) |
 
 关联文档：[产品边界与现有约定](../FEATURES.md)、[安全边界](SECURITY_BOUNDARIES.md)、[测试与验证](../dev/TESTING.md)、[性能基线与测量](../dev/PERFORMANCE.md)、[注释规范](../dev/COMMENT_STYLE.md)、[未完成工作总表](../ROADMAP.md)、[Stage 3/4 验收清单](AGENT_STAGE3_4_ACCEPTANCE.md)。
 
@@ -755,7 +755,7 @@ Collect → Analyze → Plan → AwaitPlanApproval → ExecuteStep* → Verify �
 | Stage 2B | 已实现 | G2B：人工验收待做 | 范围、边界、待测项见 [AGENT_STAGE2B](AGENT_STAGE2B.md) |
 | Stage 2A | 已实现 | G2A：MCP 单独验收待做 | 范围、确认闸、待测项见 [AGENT_STAGE2A](AGENT_STAGE2A.md) |
 | Stage 3 | 已实现（联网 + 固定诊断命令；资源工具/HTTP MCP 未做） | G3：人工验收待做 | 范围与边界见 [AGENT_STAGE3](AGENT_STAGE3.md) |
-| Stage 4 | 未开始（约 5–8 工作日） | G4 | 见下 |
+| Stage 4 | 已实现（收口项；真机项待做） | G4：人工验收待做 | 见 [AGENT_STAGE4](AGENT_STAGE4.md) |
 
 G1B 通过前不得写成已通过；未完成的真机项：真实路径/junction/长路径、真实文件竞争/占用、高 DPI/读屏。
 
@@ -806,14 +806,16 @@ Stage 3 完成判据：私网/环回/重定向/超大响应/坏 content-type 全
 
 ### Stage 4：收口与发布（约 5–8 个工作日）
 
-- [ ] 完整回归（core/ui/mw/network/visual 按影响面）。
+**当前状态：自动化回归、性能基线、发布检查脚本与文档收口已完成；真机/实网/高 DPI/读屏/换用户等人工项待做。** 结果见 [AGENT_STAGE4](AGENT_STAGE4.md)，性能数字见 [AGENT_STAGE4](../dev/perf-notes/AGENT_STAGE4.md)。
+
+- [x] 完整回归（core 15/15、window 3/3、network 6/6、ci-ui 23/23；visual 未跑）。
 - [ ] 真机/实网/高 DPI/读屏/长路径/中文路径/受限权限验收。
 - [ ] Credential Manager 主路径、DPAPI 后备、整会话加密/换用户失败、备份生命周期验收。
 - [ ] D11 外发范围验收：自动白名单、确认预览、凭据硬阻断、本地/云差异。
-- [ ] 性能测量：首开智能体页、流式刷新、长会话滚动、加密会话读写、工具大输出。
+- [x] 性能测量：核心层 2000 条会话读写/加密/上下文裁剪/token 估算；智能体页 2000 条消息重摆（数字见 perf-notes）。
 - [ ] 文档：`FEATURES.md`、`docs/dev/TESTING.md`、`ROADMAP.md`、`SECURITY_BOUNDARIES.md` 增补；本文状态改为已实现/验收记录。
-- [ ] 发布检查：无明文 key、无测试假端点、无调试后门、无未使用的危险开关；任意命令高风险授权默认关闭；MCP 确认闸可用。
-- [ ] 验收门 G4：发布负责人确认；未通过不上发布物。
+- [x] 发布检查：`tools/check-agent-release.ps1` PASS（明文密钥/假端点/`command.run`/审批闸调用点/危险开关默认值）。
+- [ ] 验收门 G4：发布负责人确认；未通过不上发布物。真机项清单见 [AGENT_STAGE3_4_ACCEPTANCE](AGENT_STAGE3_4_ACCEPTANCE.md)。
 
 ### 14.1 依赖关系
 
@@ -932,6 +934,6 @@ D1–D11 已确认，内容见 §2。
 | **G2A** | Stage 2 MCP 单独验收：确认闸、身份变化复核、工具审批、进程清理 | 2A 已实现，人工验收待做；清单见 [AGENT_STAGE2A](AGENT_STAGE2A.md) §7 |
 | **G2B** | Stage 2 工作流：真实临时实例"发现 → 计划 → 批准 → 执行 → 验证 → 回退"；诊断字段白名单复核 | 2B 已实现，人工验收待做；清单见 [AGENT_STAGE2B](AGENT_STAGE2B.md) §6 |
 | **G3** | Stage 3 网络/命令安全审查：pinned-IP/无代理、固定诊断命令、高风险授权（若批准） | 3 已实现，人工验收待做；清单见 [AGENT_STAGE3_4_ACCEPTANCE](AGENT_STAGE3_4_ACCEPTANCE.md) |
-| **G4** | 发布验收：全量回归、真机/实网、备份/加密/外发范围、发布检查 | 未开始 |
+| **G4** | 发布验收：全量回归、真机/实网、备份/加密/外发范围、发布检查 | 自动化与发布检查已完成，真机项待做；见 [AGENT_STAGE4](AGENT_STAGE4.md) |
 
 每个阶段结束按 G1A–G4 做人工验收；未验收的计划项不写成"已完成"。
