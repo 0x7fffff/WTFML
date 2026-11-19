@@ -19,7 +19,7 @@
 
 | 文档 | 内容 |
 | --- | --- |
-| [AGENT.md](features/AGENT.md) | 智能体（Agent）现行设计：聊天、受控文件工具、审批、外发与脱敏、存储 |
+| [AGENT.md](features/AGENT.md) | 智能体（Agent）现行实现 + Stage 2–4 阶段计划：聊天、工具、审批、外发脱敏、存储、MCP 与工作流 |
 | [AGENT_STAGE1A.md](features/AGENT_STAGE1A.md) | 智能体 Stage 1A：Provider、会话、基础聊天 UI、盘上格式与待测网络错误 |
 | [AGENT_STAGE1B.md](features/AGENT_STAGE1B.md) | 智能体 Stage 1B：受控文件工具、审批、D11 外发、实例锁定、维护备份与待测项 |
 | [DAILY_QUOTE.md](features/DAILY_QUOTE.md) | 主页「每日一言」：句子从哪三个站来、按日期定语种、限长与回退、字体选择、开关与隐私 |
