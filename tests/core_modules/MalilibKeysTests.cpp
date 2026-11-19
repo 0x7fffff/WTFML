@@ -460,7 +460,7 @@ void runMalilibKeysTests() {
         check(mismatch.report.ok && mismatch.report.typeMismatch == 1 &&
                   mismatch.report.written == 0 && !mismatch.files.at(0).changed &&
                   !mismatch.report.details.isEmpty() &&
-                  mismatch.report.details.at(0).contains(QStringLiteral("类型对不上")),
+                  mismatch.report.details.at(0).contains(QStringLiteral("类型不匹配")),
               "★★★ PF5「类型变化时拒绝转换」：目标上那一格是开关、预设里是个字符串 ⇒ 这一项"
               "**没动**，而且理由说给用户听（原样能显示）",
               mismatch.report.details.join(QStringLiteral(" / ")));
@@ -471,7 +471,7 @@ void runMalilibKeysTests() {
         check(absent.report.ok && absent.report.skipped == 1 && absent.report.written == 0 &&
                   absent.report.typeMismatch == 0 && !absent.files.at(0).changed &&
                   !absent.report.details.isEmpty() &&
-                  absent.report.details.at(0).contains(QStringLiteral("还没有这一项")),
+                  absent.report.details.at(0).contains(QStringLiteral("目标中缺少")),
               "★★★ PF5「目标字段缺失时跳过并报告」：值那一档**不凭空造一格**（热键才造 —— "
               "搬热键本来就是这一层的用处，而一个值在目标上没有多半是模组版本不一样）",
               absent.report.details.join(QStringLiteral(" / ")));

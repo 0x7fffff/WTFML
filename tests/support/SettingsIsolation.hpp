@@ -74,10 +74,25 @@ inline bool settingsAreIsolated(const QString &sandboxRoot, QString *why) {
     return true;
 }
 
+/// 测试的界面语言一律钉 `zh_CN`。
+///
+/// 为什么必须钉：CI 的 Windows 是英文区域，产品默认 `system` —— 跟随系统的话这一份
+/// 沙盒在 CI 上会解析成 en，几千条中文断言会一起变红（那不是在测产品，是在测机器）。
+/// 由 `requireIsolatedSettings()` 统一调用，所以每个入口只要用了那道守卫就自动钉住；
+/// 想验英文界面的用例自己装 `QTranslator`（见 tests/ui_check/modules/UiLanguageChecks.cpp）。
+inline void pinTestUiLanguage() {
+    QSettings settings;
+    settings.setValue(QStringLiteral("General/Language"), QStringLiteral("zh_CN"));
+    settings.sync();
+}
+
 /// 每个测试入口的守卫：不隔离就退出（97），不打折、不静默。
 inline void requireIsolatedSettings(const QString &sandboxRoot, const char *who) {
     QString why;
-    if (settingsAreIsolated(sandboxRoot, &why)) return;
+    if (settingsAreIsolated(sandboxRoot, &why)) {
+        pinTestUiLanguage();
+        return;
+    }
     std::fprintf(stderr,
                  "\n[settings-isolation] %s 的 QSettings 没有隔离，这一趟不跑：\n  %s\n"
                  "  （真实用户设置 = %s；测试一律 QSettings::setDefaultFormat(IniFormat) + "

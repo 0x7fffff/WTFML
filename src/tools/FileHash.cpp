@@ -3,6 +3,7 @@
  * @brief FileHash 的实现（那几条规矩在 .hpp 开头那一段）。
  */
 #include "FileHash.hpp"
+#include <QCoreApplication>
 
 #include <QCryptographicHash>
 #include <QFile>
@@ -147,7 +148,7 @@ Result digestOfFile(const QString &path, Algorithm algorithm, const ProgressFn &
     Result result;
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
-        result.error = QStringLiteral("打不开这个文件：%1").arg(file.errorString());
+        result.error = QCoreApplication::translate("FileHash", "无法打开文件：%1").arg(file.errorString());
         return result;
     }
     const qint64 total = file.size();
@@ -157,12 +158,12 @@ Result digestOfFile(const QString &path, Algorithm algorithm, const ProgressFn &
     buffer.resize(kChunkBytes);
     while (!file.atEnd()) {
         if (cancelled && cancelled()) {
-            result.error = QStringLiteral("已取消");
+            result.error = QCoreApplication::translate("FileHash", "已取消");
             return result;
         }
         const qint64 read = file.read(buffer.data(), buffer.size());
         if (read < 0) {
-            result.error = QStringLiteral("读这个文件读失败了：%1").arg(file.errorString());
+            result.error = QCoreApplication::translate("FileHash", "读这个文件读失败了：%1").arg(file.errorString());
             return result;
         }
         if (read == 0) {
@@ -212,12 +213,12 @@ Expected parseExpected(const QString &text) {
     }
     const QString hex = normalizeHex(body);
     if (hex.isEmpty()) {
-        expected.error = QStringLiteral("这一格里没有十六进制的字符。");
+        expected.error = QCoreApplication::translate("FileHash", "请输入十六进制摘要。");
         return expected;
     }
     for (const QChar ch : hex) {
         if (!((ch >= QChar('0') && ch <= QChar('9')) || (ch >= QChar('a') && ch <= QChar('f')))) {
-            expected.error = QStringLiteral("`%1` 不是十六进制的字符。").arg(ch);
+            expected.error = QCoreApplication::translate("FileHash", "`%1` 不是十六进制的字符。").arg(ch);
             return expected;
         }
     }
@@ -232,13 +233,12 @@ Expected parseExpected(const QString &text) {
         }
     }
     if (!lengthKnown) {
-        expected.error = QStringLiteral("长度对不上：这一串有 %1 位，SHA-256 是 64 位、SHA-1 是 40 位、"
-                                        "MD5 是 32 位。")
+        expected.error = QCoreApplication::translate("FileHash", "摘要有 %1 个字符。SHA-256、SHA-1 和 MD5 分别要求 64、40 和 32 个十六进制字符。")
                              .arg(hex.size());
         return expected;
     }
     if (expected.hasAlgorithm && expected.algorithm != byLength) {
-        expected.error = QStringLiteral("写的算法和长度对不上：标的是 %1（%2 位），实际是 %3 位。")
+        expected.error = QCoreApplication::translate("FileHash", "摘要长度与所选算法不匹配。%1 要求 %2 个字符，实际为 %3 个。")
                              .arg(algorithmName(expected.algorithm))
                              .arg(hexLength(expected.algorithm))
                              .arg(hex.size());
@@ -257,17 +257,17 @@ Verdict compare(const QString &actualHex, const Expected &expected) {
     verdict.expectedAlgorithm = expected.algorithm;
     verdict.expectedHasAlgorithm = expected.hasAlgorithm;
     if (!expected.valid) {
-        verdict.text = expected.error.isEmpty() ? QStringLiteral("没有已知值可比。") : expected.error;
+        verdict.text = expected.error.isEmpty() ? QCoreApplication::translate("FileHash", "没有已知值可比。") : expected.error;
         return verdict;
     }
     verdict.valid = true;
     const QString actual = normalizeHex(actualHex);
     verdict.matches = (actual == expected.hex);
     if (verdict.matches) {
-        verdict.text = QStringLiteral("一致。");
+        verdict.text = QCoreApplication::translate("FileHash", "一致。");
     } else {
-        verdict.text = QStringLiteral("不一致：算出来的是 %1。").arg(actual.isEmpty()
-                                                                       ? QStringLiteral("（没算出来）")
+        verdict.text = QCoreApplication::translate("FileHash", "不一致：算出来的是 %1。").arg(actual.isEmpty()
+                                                                       ? QCoreApplication::translate("FileHash", "（没算出来）")
                                                                        : actual);
     }
     return verdict;

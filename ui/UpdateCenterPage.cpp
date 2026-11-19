@@ -180,8 +180,7 @@ void UpdateCenterPage::refreshSelectionUi() {
 }
 
 void UpdateCenterPage::rebuild() {
-    m_summaryLabel->setText(QStringLiteral("「%1」%2")
-                                .arg(m_report.instanceName, m_report.summary));
+    m_summaryLabel->setText(tr("「%1」%2").arg(m_report.instanceName, m_report.summary));
 
     // ---------- 「没有结论」那一块 ----------
     const bool hasError = !m_report.error.isEmpty();

@@ -58,7 +58,7 @@ public:
     explicit NewServerPage(QWidget *parent = nullptr);
 
     /// 覆盖层页眉上那行字（`OverlayHost::showPage` 的标题）。
-    static QString windowTitle() { return QStringLiteral("新建服务端"); }
+    static QString windowTitle() { return tr("新建服务端"); }
 
     /// 摆那八档（**每次开页都重新喂**：同一页对象会被复用）。@p defaultToken 是起手停在哪一档。
     void setFlavors(const QList<FlavorOption> &flavors, const QString &defaultToken);

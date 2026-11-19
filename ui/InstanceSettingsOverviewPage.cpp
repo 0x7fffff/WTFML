@@ -11,6 +11,7 @@
  */
 
 #include "MainWindowPageLayout.hpp"
+#include <QCoreApplication>
 #include "InstanceSettingsDialog.hpp"
 #include "InputSizing.hpp"
 #include "ResourcePackPage.hpp"

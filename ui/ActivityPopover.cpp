@@ -3,6 +3,7 @@
  * @brief 任务中心浮动面板（见 .hpp）。
  */
 #include "ActivityPopover.hpp"
+#include <QCoreApplication>
 
 #include "Theme.hpp"
 #include "VersionIcons.hpp"
@@ -151,12 +152,12 @@ ActivityPopover::ActivityPopover(QWidget *anchor, Handlers handlers)
     // ---------- 标题行：手写体标题 +「全部任务」（筛选 / 搜索 / 历史 / 详情都在整页里） ----------
     auto *header = new QHBoxLayout;
     header->setContentsMargins(2, 0, 0, 0);
-    auto *title = new QLabel(QStringLiteral("任务中心"), this);
+    auto *title = new QLabel(QCoreApplication::translate("ActivityPopover", "任务中心"), this);
     title->setFont(Theme::textFont(title->font(), Theme::TextRole::Heading));
     header->addWidget(title);
     header->addStretch(1);
-    auto *openAll = textButton(QStringLiteral("全部任务"), openAllButtonName(), this);
-    openAll->setToolTip(QStringLiteral("整页查看：筛选、搜索、历史与详情"));
+    auto *openAll = textButton(QCoreApplication::translate("ActivityPopover", "全部任务"), openAllButtonName(), this);
+    openAll->setToolTip(QCoreApplication::translate("ActivityPopover", "整页查看：筛选、搜索、历史与详情"));
     connect(openAll, &QPushButton::clicked, this, [this] {
         const auto fn = m_handlers.openAll;
         close();
@@ -236,7 +237,7 @@ void ActivityPopover::rebuild() {
     };
 
     if (items.isEmpty()) {
-        auto *empty = textLabel(QStringLiteral("暂无进行中的任务"), m_body, Theme::TextRole::Body, t.secondary);
+        auto *empty = textLabel(QCoreApplication::translate("ActivityPopover", "暂无进行中的任务"), m_body, Theme::TextRole::Body, t.secondary);
         empty->setAlignment(Qt::AlignCenter);
         empty->setMinimumHeight(64);
         m_bodyLayout->addWidget(empty);
@@ -285,7 +286,7 @@ void ActivityPopover::rebuild() {
 
     // ---------- 等待中：上移 / 下移 / 移除（拖动排序在整页里） ----------
     if (!queued.isEmpty()) {
-        m_bodyLayout->addWidget(sectionHeader(QStringLiteral("等待中"), nullptr));
+        m_bodyLayout->addWidget(sectionHeader(QCoreApplication::translate("ActivityPopover", "等待中"), nullptr));
         for (int i = 0; i < queued.size(); ++i) {
             const Item &item = queued.at(i);
             auto *row = new ClickRow(activate(item.key), m_body);
@@ -296,21 +297,21 @@ void ActivityPopover::rebuild() {
             auto *col = new QVBoxLayout;
             col->setSpacing(0);
             col->addWidget(elidedTitle(item.title, row, textWidth - 40));
-            col->addWidget(textLabel(QStringLiteral("第 %1 个").arg(i + 1), row, Theme::TextRole::Caption, t.secondary));
+            col->addWidget(textLabel(QCoreApplication::translate("ActivityPopover", "第 %1 个").arg(i + 1), row, Theme::TextRole::Caption, t.secondary));
             layout->addLayout(col, 1);
             const bool movable = !item.queueGroup.isEmpty();
             if (movable) {
-                auto *upButton = iconButton(QStringLiteral("up"), QStringLiteral("上移"), partName(QStringLiteral("MoveUp"), item.key), row);
+                auto *upButton = iconButton(QStringLiteral("up"), QCoreApplication::translate("ActivityPopover", "上移"), partName(QStringLiteral("MoveUp"), item.key), row);
                 upButton->setEnabled(i > 0);
                 connect(upButton, &QPushButton::clicked, this, act(item.key, TaskCenter::RowAction::MoveUp));
                 layout->addWidget(upButton);
-                auto *downButton = iconButton(QStringLiteral("down"), QStringLiteral("下移"), partName(QStringLiteral("MoveDown"), item.key), row);
+                auto *downButton = iconButton(QStringLiteral("down"), QCoreApplication::translate("ActivityPopover", "下移"), partName(QStringLiteral("MoveDown"), item.key), row);
                 downButton->setEnabled(i + 1 < queued.size());
                 connect(downButton, &QPushButton::clicked, this, act(item.key, TaskCenter::RowAction::MoveDown));
                 layout->addWidget(downButton);
             }
             if (item.capabilities.cancel) {
-                auto *remove = iconButton(QStringLiteral("close"), QStringLiteral("移出队列"), partName(QStringLiteral("Remove"), item.key), row);
+                auto *remove = iconButton(QStringLiteral("close"), QCoreApplication::translate("ActivityPopover", "移出队列"), partName(QStringLiteral("Remove"), item.key), row);
                 connect(remove, &QPushButton::clicked, this, act(item.key, TaskCenter::RowAction::Cancel));
                 layout->addWidget(remove);
             }
@@ -323,14 +324,14 @@ void ActivityPopover::rebuild() {
     if (!finished.isEmpty()) {
         QPushButton *clear = nullptr;
         if (m_handlers.clearFinished) {
-            clear = textButton(QStringLiteral("清除"), clearButtonName(), m_body);
-            clear->setToolTip(QStringLiteral("清除已结束记录，不影响下载好的文件"));
+            clear = textButton(QCoreApplication::translate("ActivityPopover", "清除"), clearButtonName(), m_body);
+            clear->setToolTip(QCoreApplication::translate("ActivityPopover", "清除已结束记录，不影响下载好的文件"));
             connect(clear, &QPushButton::clicked, this, [this] {
                 if (m_handlers.clearFinished) m_handlers.clearFinished();
                 refresh();
             });
         }
-        m_bodyLayout->addWidget(sectionHeader(QStringLiteral("已结束"), clear));
+        m_bodyLayout->addWidget(sectionHeader(QCoreApplication::translate("ActivityPopover", "已结束"), clear));
         for (int i = 0; i < finished.size() && i < kFinishedLimit; ++i) {
             const Item &item = finished.at(i);
             if (item.unreadFailure) unreadShown.append(item.key);
@@ -351,7 +352,7 @@ void ActivityPopover::rebuild() {
             col->addWidget(noteLabel);
             layout->addLayout(col, 1);
             if (item.capabilities.retry) {
-                auto *retry = textButton(QStringLiteral("重试"), partName(QStringLiteral("Retry"), item.key), row);
+                auto *retry = textButton(QCoreApplication::translate("ActivityPopover", "重试"), partName(QStringLiteral("Retry"), item.key), row);
                 connect(retry, &QPushButton::clicked, this, act(item.key, TaskCenter::RowAction::Retry));
                 layout->addWidget(retry);
             }

@@ -55,7 +55,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Check doc links, repo layout and surface registry
+      - name: Check doc links, repo layout, surface registry and i18n guard
         shell: pwsh
         run: |
           ./tools/check-doc-links.ps1
@@ -63,6 +63,10 @@ jobs:
           ./tools/check-repo-layout.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./tools/check-surface-registry.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # 界面中文必须包在 tr() 里才翻得出来；基线见 tools/i18n-baseline.txt
+          ./tools/check-i18n.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   verify:
     needs: plan

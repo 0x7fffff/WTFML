@@ -182,9 +182,7 @@ QString optifineExportProblem(const QString &version) {
     const QString shown =
         version.trimmed().isEmpty() ? QString() : QStringLiteral(" %1").arg(version.trimmed());
     return QObject::tr(
-               "这个实例是 OptiFine%1 装的。两种整合包格式的清单里都没有 OptiFine 那一格"
-               "（依赖表只认 minecraft / forge / neoforge / fabric-loader / quilt-loader），"
-               "写不出一个别的启动器能照着重装的包 —— 所以没有导出。")
+               "此实例使用 OptiFine%1。当前整合包清单格式无法记录 OptiFine 依赖，导出已取消。")
         .arg(shown);
 }
 
@@ -202,7 +200,7 @@ QString loaderKeyExportProblem(const QString &key, const QString &version) {
     }
     const QString shown =
         version.trimmed().isEmpty() ? QString() : QStringLiteral(" %1").arg(version.trimmed());
-    return QObject::tr("这个实例的加载器是「%1」（%2），本启动器不认识它，不敢往外导。")
+    return QObject::tr("不支持导出使用「%1」（%2）加载器的整合包。")
         .arg(key, shown.trimmed().isEmpty() ? QObject::tr("没有版本号") : shown.trimmed());
 }
 
@@ -402,9 +400,7 @@ bool loaderEvidenceFromJson(const QJsonObject &json, QString *keyOut, QString *v
             // 宁可明说导不了，也不要拿 FML 那个 4.x 顶上去：清单里那一格是"别人照着装的
             // 版本号"，写错的话收包的人装出来的是另一个 NeoForge。
             *problemOut = QObject::tr(
-                "这个实例是 NeoForge 装的，但读不出是哪一版 —— 这份 json 里没有 "
-                "--fml.neoForgeVersion，而 fancymodloader 那个版本号（4.x）和 neoforge-<版本> "
-                "不是同一个号，填进清单就是错的。");
+                "无法确定实例的 NeoForge 版本。版本文件缺少 --fml.neoForgeVersion，不能用 FML 版本号替代。");
             return true;
         }
         return fill(ModpackImport::neoforgeLoaderKey(), neoForgeVersion);
@@ -593,7 +589,7 @@ QString VersionManager::instanceLoaderInfo(const QString &instanceId, QString *k
         if (key.isEmpty()) {
             // 上面已经把 OptiFine 那一档拦掉了，走到这里说明那张表里多了一个还没有键的
             // 加载器（新加 LoaderKind 忘了接这里）—— 如实报，别当成纯原版往下导。
-            return tr("这个实例的加载器是「%1」，但它还没有对应的整合包写法，没有导出。")
+            return tr("当前导出格式不支持加载器「%1」，导出已取消。")
                 .arg(metaName);
         }
         if (keyOut != nullptr) {
@@ -604,10 +600,7 @@ QString VersionManager::instanceLoaderInfo(const QString &instanceId, QString *k
         }
         return QString();
     }
-    return tr("这个实例的 wtfml.meta 里写着加载器「%1」，本启动器不认识这个名字，不敢往外导 ——"
-              "把一个装了几百个模组的实例导成纯原版包，用户装回来会发现模组都在、游戏起不来，"
-              "而包看上去是好的。要导出的话，把 wtfml.meta 里的 loaderName 改成 Fabric / Forge / "
-              "NeoForge 之一。")
+    return tr("实例的 wtfml.meta 声明了未知加载器「%1」，导出已取消。若实例实际使用 Fabric、Forge 或 NeoForge，请将 loaderName 改为相应名称后重试。")
         .arg(metaName);
 }
 
@@ -979,14 +972,14 @@ QString VersionManager::writePackArchive(const ModpackExport::ExportPlan &plan,
     if (plan.instanceDir.trimmed().isEmpty()) {
         // 认不出来的那些文件只有相对路径，取不出盘上那一份 —— 硬打出来的包会缺东西，而
         // zip 本身是好的。这是调用方的编程错误，如实报（别打出一个看着像整合包的残包）。
-        return tr("内部错误：这份导出计划里没有实例目录，认不出信息的那些文件取不出来。");
+        return tr("导出计划缺少实例目录，无法读取来源未知的文件。");
     }
 
     // 清单先写进一个临时目录 —— 打包那一步只认盘上的文件（ZipUtil::createZip 就是照
     // "东西已经在盘上"设计的）。
     QTemporaryDir staging;
     if (!staging.isValid()) {
-        return tr("建不了临时目录，没法准备整合包的内容：%1").arg(staging.errorString());
+        return tr("无法创建临时目录以准备整合包：%1").arg(staging.errorString());
     }
     const QString manifestPath =
         QDir(staging.path()).absoluteFilePath(ModpackExport::indexFileName(plan.spec.format));
@@ -1039,8 +1032,7 @@ QString VersionManager::writePackArchive(const ModpackExport::ExportPlan &plan,
     if (hadTarget) {
         if (!QFile::rename(targetZip, backupPath)) {
             // 挪不开就**一个字节都不动**：新包留在 .part 上，把它的位置说出来。
-            return tr("盘上原来那份 %1 挪不开（它可能正被别的程序占着），没有替换它。\n"
-                      "新打好的包在：%2")
+            return tr("无法移走原文件 %1，已保留原文件。\n新整合包位于 %2。")
                 .arg(QDir::toNativeSeparators(targetZip),
                      QDir::toNativeSeparators(partPath));
         }
@@ -1049,11 +1041,11 @@ QString VersionManager::writePackArchive(const ModpackExport::ExportPlan &plan,
         if (hadTarget && !QFile::rename(backupPath, targetZip)) {
             // 放不回去是**真的坏消息**（原来那份在 .bak 上），所以这句话必须说清它还在。
             qWarning() << "Cannot restore the replaced pack archive:" << backupPath << targetZip;
-            return tr("整合包打好了，但没能放到 %1，而原来那份也放不回去了 —— 它还在 %2。")
+            return tr("整合包已生成，但无法替换 %1，也无法恢复原文件。原文件位于 %2。")
                 .arg(QDir::toNativeSeparators(targetZip),
                      QDir::toNativeSeparators(backupPath));
         }
-        return tr("整合包打好了，但没能放到 %1（它可能正被别的程序占着）。\n它现在在：%2")
+        return tr("整合包已生成，但无法写入 %1。请检查目标是否被占用。\n新整合包位于 %2。")
             .arg(QDir::toNativeSeparators(targetZip), QDir::toNativeSeparators(partPath));
     }
     if (hadTarget) {

@@ -330,10 +330,11 @@ int MwFolderSwitchingChecks(const QDir &root, MainWindow &window) {
                     QApplication::processEvents();
                     check(g_modalTitle == QStringLiteral("从列表里移除文件夹"),
                           "P+ 点下去弹的是「从列表里移除文件夹」的确认框", g_modalTitle);
-                    check(g_modalText.contains(QStringLiteral("都不会被删掉")) &&
-                              g_modalText.contains(QStringLiteral("盘上一个字节都不动")),
+                    check(g_modalText.contains(QStringLiteral("从启动器列表中移除")) &&
+                              g_modalText.contains(QStringLiteral("目录和其中的文件将保留")),
                           "P+ 确认框把「只动列表、盘上文件不动」写死了", g_modalText);
-                    check(g_modalText.contains(QStringLiteral("改用")),
+                    check(g_modalText.contains(QStringLiteral("将使用「")) &&
+                              g_modalText.contains(QDir::toNativeSeparators(AppPaths::defaultMinecraftDir())),
                           "P+ 它正是在用的那一份 → 确认框说了移除之后改用哪一份", g_modalText);
                     check(!g_modalWasWarning, "P+ 这一步是提示框不是警告框（它不危险）");
                     check(folderListView->count() == 1, "P+ 列表里只剩自带那份了",
@@ -830,7 +831,7 @@ int MwFolderSwitchingChecks(const QDir &root, MainWindow &window) {
                 QWidget *openGoneMenu = openMenuOf(gearOf(vanishedTitle));
                 clickAction(openGoneMenu, MainWindowUI::FolderActionOpen);
                 check(g_modalTitle == QStringLiteral("打开游戏目录") &&
-                          g_modalText.contains(QStringLiteral("不在盘上")),
+                          g_modalText.contains(QStringLiteral("找不到")),
                       "P2 对着一个不在盘上的目录按「打开」：弹一句照实的，不静默什么都不做",
                       g_modalTitle + QStringLiteral(" / ") + g_modalText);
 

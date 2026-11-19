@@ -752,7 +752,7 @@ void runCopyInstanceAndWorldTests() {
               "★★ ZJ5 目标就是源实例目录自己拒绝（判据比的是规范化之后的真路径）");
         // 注意别把整个句子当成一截 —— 实例名是插在中间那句里的（「不能把「X」复制到它自己
         // 里面去」），所以只挑不被名字隔开的那半截来比。
-        check(error.contains(QStringLiteral("复制到它自己里面去")),
+        check(error.contains(QStringLiteral("目录相同，或位于该目录内")),
               "ZJ5 而且原因说的是这话", error);
         check(!existsAt(srcDir + QStringLiteral("/versions")),
               "★★ ZJ5 拒绝之后**源实例目录里没多出任何东西**（多出一个 "
@@ -793,7 +793,7 @@ void runCopyInstanceAndWorldTests() {
                   QFileInfo(aliasDir).canonicalFilePath());
             check(!vm.copyInstance(srcId, aliasDir, QStringLiteral("别名副本"), &error),
                   "★★ ZJ5 目标是**指着源实例目录的 junction** 也拒（判的是它真指着哪儿）", error);
-            check(error.contains(QStringLiteral("复制到它自己里面去")),
+            check(error.contains(QStringLiteral("目录相同，或位于该目录内")),
                   "★ ZJ5 而且拒的是那一道闸，不是「跑下去撞了墙才失败」", error);
             check(!existsAt(srcDir + QStringLiteral("/versions")),
                   "★★ ZJ5 拒绝之后源实例目录里还是没多出东西来（假绿的出处就在这一格）");

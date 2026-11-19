@@ -120,8 +120,7 @@ void MainWindow::closeEvent(QCloseEvent *event) {
     if (m_launchController->isStarting()) {
         const int choice = InlineMessage::ask(
             m_ui->overlay(), MessageKind::Question, tr("正在启动"),
-            tr("启动器正在启动游戏（校验登录、准备 Java 运行时）。\n\n"
-               "现在关掉会取消这次启动，游戏不会开起来。\n要现在关掉吗？"),
+            tr("正在校验登录并准备 Java。退出启动器将取消本次启动。\n\n确认退出？"),
             QStringList{tr("取消启动并关闭"), tr("继续启动")}, 1, 0);
         if (choice < 0) {
             // `ask()` 回 -1 不是"用户选了继续启动"，而是**这一问根本没被摆出来**
@@ -167,11 +166,9 @@ void MainWindow::closeEvent(QCloseEvent *event) {
         }
         const QString text =
             games.size() == 1
-                ? tr("游戏「%1」还在运行。\n\n关掉启动器不会关掉游戏 —— 它会继续跑，"
-                     "存档、联机都照常。\n要现在关掉启动器吗？")
+                ? tr("「%1」仍在运行。关闭启动器后，游戏、存档和联机会继续运行。\n\n确认关闭启动器？")
                       .arg(names.first())
-                : tr("还有 %1 个游戏在运行：%2。\n\n关掉启动器不会关掉游戏 —— "
-                     "它们会继续跑，存档、联机都照常。\n要现在关掉启动器吗？")
+                : tr("仍有 %1 个游戏在运行：%2。\n\n关闭启动器后，这些游戏会继续运行。确认关闭启动器？")
                       .arg(games.size())
                       .arg(names.join(QStringLiteral("、")));
         // 按钮文字自己写：启动器没装 Qt 的中文翻译，标准按钮在界面上是英文的 Yes/No。
@@ -207,13 +204,9 @@ void MainWindow::closeEvent(QCloseEvent *event) {
         }
         const QString text =
             serverIds.size() == 1
-                ? tr("服务端「%1」正在运行。\n\n关闭启动器时如何处理？\n"
-                     "「停止服务端」将等待其保存后退出（可能需要一段时间）；"
-                     "「保持后台运行」将在关闭启动器后继续运行。")
+                ? tr("服务端「%1」仍在运行。\n\n可选择保存并停止服务端，或关闭启动器后让它在后台继续运行。")
                       .arg(names.first())
-                : tr("还有 %1 个服务端在运行：%2。\n\n关闭启动器时如何处理？\n"
-                     "「停止服务端」将等待它们保存后退出（可能需要一段时间）；"
-                     "「保持后台运行」将在关闭启动器后继续运行。")
+                : tr("仍有 %1 个服务端在运行：%2。\n\n可选择保存并停止服务端，或让它们在后台继续运行。")
                       .arg(serverIds.size())
                       .arg(names.join(QStringLiteral("、")));
         // 默认那一边是**保持后台运行**（下标 1）：和游戏那一条同理 —— 不主动动别人的
@@ -239,8 +232,7 @@ void MainWindow::closeEvent(QCloseEvent *event) {
             if (notStopped.isEmpty()) {
                 appendLog(tr("已关掉启动器，服务端已经停下来。"));
             } else {
-                appendLog(tr("已关掉启动器，但服务端没能正常停下来：%1。"
-                             "最后那一小段存档可能没来得及写完。")
+                appendLog(tr("启动器已关闭，但服务端 %1 未正常停止。最近的存档修改可能未保存。")
                               .arg(notStopped.join(QStringLiteral("、"))));
             }
         } else {

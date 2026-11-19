@@ -62,6 +62,13 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
+    if (app.arguments().contains(QStringLiteral("--language-check"))) {
+        QMainWindow window;
+        MainWindowUI ui(&window);
+        UiLanguageChecks(ui, ui.getTabWidget());
+        return g_fail == 0 ? 0 : 1;
+    }
+
     if (app.arguments().contains(QStringLiteral("--install-layout-check"))) { return UiInstallLayoutCheck(app); }
     if (app.arguments().contains(QStringLiteral("--armor-trim-check"))) return runArmorTrimChecks(app);
 
@@ -204,6 +211,7 @@ int main(int argc, char *argv[]) {
     check(tabs != nullptr, "主窗口里有选项卡控件");
 
     if (const int result = UiNavigationChecks(window, ui, installed, startBtn, gameStack, versionTree, installNameEdit, installBtn, installBackBtn, loaderTree, folderList, instanceList, instanceFolderLabel, tabs); result != 0) return result;
+    if (const int result = UiLanguageChecks(ui, tabs); result != 0) return result;
 
     std::printf("===== B. 分组归属 =====\n");
     // 往上找最近的那个 QGroupBox：下拉框和按钮是不是同一组，看的就得是这个。
@@ -3376,8 +3384,8 @@ int main(int argc, char *argv[]) {
         check(notice != nullptr && notice->isHidden(),
               "★★ U41 那句提醒平时收着（算完没事的话页面上看不见它）");
         if (notice != nullptr) {
-            page.setHashStaleNote(QStringLiteral("这个文件在算完之后变过 —— 再算一遍。"));
-            check(!notice->isHidden() && notice->text().contains(QStringLiteral("再算一遍")),
+            page.setHashStaleNote(QStringLiteral("文件在计算后发生变化（文件大小或修改时间不同）。请重新计算摘要。"));
+            check(!notice->isHidden() && notice->text().contains(QStringLiteral("重新计算")),
                   "★★ U41 文件变过 ⇒ 那句话露出来");
             page.setHashStaleNote(QString());
             check(notice->isHidden() && notice->text().isEmpty(),

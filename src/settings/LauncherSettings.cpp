@@ -5,6 +5,7 @@
  */
 
 #include "LauncherSettings.hpp"
+#include "../ui/UiLanguage.hpp"
 #include "util/ServerPing.hpp"
 #include "util/SettingsSyncRetry.hpp"
 #include <QHostAddress>
@@ -357,6 +358,13 @@ void LauncherSettings::setProcessPriority(ProcessPriority priority) {
     save();
 }
 
+void LauncherSettings::setLanguage(const QString &value) {
+    const QString normalized = UiLanguage::normalizedSetting(value);
+    if (m_language == normalized) return;
+    m_language = normalized;
+    save();
+}
+
 void LauncherSettings::setMainWindowSize(const QSize &size) {
     const QSize cleaned = clampMainWindowSize(size);
     if (cleaned.isEmpty() || m_mainWindowSize == cleaned) {
@@ -525,6 +533,7 @@ void LauncherSettings::load() {
     // 主窗口大小同样读回来就收拾（认不出来的值 toInt() 给 0 = 没记过）。
     m_mainWindowSize = clampMainWindowSize(QSize(settings.value(kMainWindowWidth, m_mainWindowSize.width()).toInt(),
                                                  settings.value(kMainWindowHeight, m_mainWindowSize.height()).toInt()));
+    m_language = UiLanguage::readSetting();
     // 两个提醒开关：默认值同样取当前成员（构造时是 true）。盘上那一份是布尔，
     // 手改成一个不认识的值时 toBool() 给 false —— 那正好等于"用户关掉了"，
     // 不会把一个"看不懂的值"变成弹窗，这个方向是安全的。
@@ -604,6 +613,7 @@ QVariantMap LauncherSettings::persistedValues() const {
     values.insert(QString::fromLatin1(kProcessPriority), processPriorityKey(m_processPriority));
     values.insert(QString::fromLatin1(kMainWindowWidth), QVariant(clampMainWindowSize(m_mainWindowSize).width()));
     values.insert(QString::fromLatin1(kMainWindowHeight), QVariant(clampMainWindowSize(m_mainWindowSize).height()));
+    values.insert(QString::fromLatin1(UiLanguage::kSettingsKey), UiLanguage::normalizedSetting(m_language));
     values.insert(QString::fromLatin1(kWarnDuplicateLaunch), QVariant(m_warnDuplicateLaunch));
     values.insert(QString::fromLatin1(kWarnWorldLoss), QVariant(m_warnWorldLoss));
     values.insert(QString::fromLatin1(kCurseForgeApiKey), m_curseForgeApiKey);

@@ -5,6 +5,7 @@
  */
 
 #include "ErrorReport.hpp"
+#include <QCoreApplication>
 #include "SecretRedactor.hpp"
 
 #include <QStringList>
@@ -13,7 +14,7 @@
 namespace {
 
 QString field(const QString &name, const QString &value) {
-    return name + QStringLiteral("：") + value;
+    return name + QCoreApplication::translate("ErrorReport", "：") + value;
 }
 
 /// 文件名里不许出现的那些字符（Windows 那一套；换成一个下划线）。
@@ -59,51 +60,51 @@ QString systemDescription() {
 
 QString header(const Facts &facts, const QDateTime &now) {
     QStringList lines;
-    lines.append(QStringLiteral("WTFML 错误报告"));
-    lines.append(field(QStringLiteral("生成时间"),
+    lines.append(QCoreApplication::translate("ErrorReport", "WTFML 错误报告"));
+    lines.append(field(QCoreApplication::translate("ErrorReport", "生成时间"),
                        now.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))));
     if (!facts.launcherVersion.isEmpty()) {
-        lines.append(field(QStringLiteral("启动器版本"), facts.launcherVersion));
+        lines.append(field(QCoreApplication::translate("ErrorReport", "启动器版本"), facts.launcherVersion));
     }
     if (!facts.systemDescription.isEmpty()) {
-        lines.append(field(QStringLiteral("系统"), facts.systemDescription));
+        lines.append(field(QCoreApplication::translate("ErrorReport", "系统"), facts.systemDescription));
     }
     if (!facts.instanceName.isEmpty()) {
-        lines.append(field(QStringLiteral("实例"), facts.instanceName));
+        lines.append(field(QCoreApplication::translate("ErrorReport", "实例"), facts.instanceName));
     }
     if (!facts.instanceId.isEmpty()) {
-        lines.append(field(QStringLiteral("实例 id"), facts.instanceId));
+        lines.append(field(QCoreApplication::translate("ErrorReport", "实例 id"), facts.instanceId));
     }
     if (!facts.accountName.isEmpty()) {
-        lines.append(field(QStringLiteral("账号"), facts.accountName));
+        lines.append(field(QCoreApplication::translate("ErrorReport", "账号"), facts.accountName));
     }
     // 加载器 / Java / 内存这三行只有「游戏异常退出」那一项会填（要求收的就是这几样）。
     // 空着一律不写 —— 那一路手上确实没有这些值，编一个填上去最误导人。
     if (!facts.loaderVersion.isEmpty()) {
-        lines.append(field(QStringLiteral("加载器"), facts.loaderVersion));
+        lines.append(field(QCoreApplication::translate("ErrorReport", "加载器"), facts.loaderVersion));
     }
     if (!facts.javaVersion.isEmpty()) {
         lines.append(field(QStringLiteral("Java"), facts.javaVersion));
     }
     if (!facts.memoryArgs.isEmpty()) {
-        lines.append(field(QStringLiteral("内存"), facts.memoryArgs));
+        lines.append(field(QCoreApplication::translate("ErrorReport", "内存"), facts.memoryArgs));
     }
     if (facts.processId > 0) {
-        lines.append(field(QStringLiteral("进程 ID"), QString::number(facts.processId)));
+        lines.append(field(QCoreApplication::translate("ErrorReport", "进程 ID"), QString::number(facts.processId)));
     }
     if (facts.startedAt.isValid()) {
-        lines.append(field(QStringLiteral("启动时间"),
+        lines.append(field(QCoreApplication::translate("ErrorReport", "启动时间"),
                            facts.startedAt.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))));
     }
     // 退出那一行只在**真的收到过**的时候写。游戏还在跑的时候编一个"退出码：0"出来
     // 是最坏的一种假话：看报告的人会照着它去排除"崩溃"这个方向。
     if (facts.finished) {
-        lines.append(field(QStringLiteral("退出码"),
+        lines.append(field(QCoreApplication::translate("ErrorReport", "退出码"),
                            facts.crashed
-                               ? QStringLiteral("%1（异常终止）").arg(facts.exitCode)
+                               ? QCoreApplication::translate("ErrorReport", "%1（异常终止）").arg(facts.exitCode)
                                : QString::number(facts.exitCode)));
     } else {
-        lines.append(field(QStringLiteral("退出码"), QStringLiteral("（导出时游戏还在运行）")));
+        lines.append(field(QCoreApplication::translate("ErrorReport", "退出码"), QCoreApplication::translate("ErrorReport", "（导出时游戏还在运行）")));
     }
     return lines.join(QLatin1Char('\n'));
 }
@@ -120,7 +121,7 @@ QString text(const Facts &facts, const QDateTime &now, const QString &errors, co
     // 而不是几百行日志。一句都没有时这一节整个不写 —— "暂时无法判断"那种话写上去，
     // 看的人会以为我们判过一轮然后放弃了。
     if (!facts.hints.isEmpty()) {
-        out += sectionDivider(QStringLiteral("可能的原因（按规则判的，不是猜的）"));
+        out += sectionDivider(QCoreApplication::translate("ErrorReport", "可能原因"));
         out += QLatin1Char('\n');
         for (const QString &hint : facts.hints) {
             out += QStringLiteral("• ") + hint + QLatin1Char('\n');
@@ -130,26 +131,24 @@ QString text(const Facts &facts, const QDateTime &now, const QString &errors, co
 
     const QString errorTitle =
         facts.errorTruncated && !errors.isEmpty()
-            ? QStringLiteral("错误与致命（末尾 %1 行 / 原始共 %2 行）")
+            ? QCoreApplication::translate("ErrorReport", "错误与致命（末尾 %1 行 / 原始共 %2 行）")
                   .arg(lineCountOf(errors))
                   .arg(facts.errorLines)
             : (facts.errorTruncated
                    // 被挤掉的那些**全是**错误行（再没有别的错误行留在窗里）：不写这一档，
                    // 标题就只能退回「共 0 行」，而下面那句"这一趟没有 ERROR 以上的输出"
                    // 和事实正好相反。
-                   ? QStringLiteral("错误与致命（原始共 %1 行；正文已经被日志行数上限挤掉）")
+                   ? QCoreApplication::translate("ErrorReport", "错误与致命（原始共 %1 行；正文已经被日志行数上限挤掉）")
                          .arg(facts.errorLines)
-                   : QStringLiteral("错误与致命（共 %1 行）").arg(facts.errorLines));
+                   : QCoreApplication::translate("ErrorReport", "错误与致命（共 %1 行）").arg(facts.errorLines));
     out += sectionDivider(errorTitle);
     out += QLatin1Char('\n');
     if (errors.isEmpty()) {
         // 照样写上那一段（理由见 .hpp）：空着的话看的人分不清"没出错"和"导出漏了"。
         out += facts.errorTruncated
-                   ? QStringLiteral("（这一段里现在一行都没有：较早的几行已被日志行数上限"
-                                    "挤掉，原始共 %1 行。）")
+                   ? QCoreApplication::translate("ErrorReport", "（这一段里现在一行都没有：较早的几行已被日志行数上限挤掉，原始共 %1 行。）")
                          .arg(facts.errorLines)
-                   : QStringLiteral("（这一段里一行都没有：本次没有 ERROR 及以上的输出。日志本身"
-                                    "在下面。）");
+                   : QCoreApplication::translate("ErrorReport", "（这一段里一行都没有：本次没有 ERROR 及以上的输出。日志本身在下面。）");
         out += QLatin1Char('\n');
     } else {
         out += errors;
@@ -164,10 +163,10 @@ QString text(const Facts &facts, const QDateTime &now, const QString &errors, co
     // 同上：只留了末尾一截时不能再叫「完整日志」—— 那份文件**不是**完整的。
     const QString logTitle =
         facts.logTruncated && !log.isEmpty()
-            ? QStringLiteral("日志末尾（最近 %1 行 / 原始共 %2 行；完整日志没有导出）")
+            ? QCoreApplication::translate("ErrorReport", "日志末尾（最近 %1 行 / 原始共 %2 行；完整日志没有导出）")
                   .arg(lineCountOf(log))
                   .arg(facts.totalLines)
-            : QStringLiteral("完整日志（共 %1 行）").arg(facts.totalLines);
+            : QCoreApplication::translate("ErrorReport", "完整日志（共 %1 行）").arg(facts.totalLines);
     out += sectionDivider(logTitle);
     out += QLatin1Char('\n');
     out += log;
@@ -180,13 +179,13 @@ QString text(const Facts &facts, const QDateTime &now, const QString &errors, co
 QString suggestedFileName(const QString &instanceName, const QDateTime &now) {
     const QString name = sanitizeForFileName(instanceName);
     const QString middle = name.isEmpty() ? QString() : name + QLatin1Char('-');
-    return QStringLiteral("错误报告-%1%2.txt").arg(middle, stampForName(now));
+    return QCoreApplication::translate("ErrorReport", "错误报告-%1%2.txt").arg(middle, stampForName(now));
 }
 
 QString suggestedLogFileName(const QString &instanceName, const QDateTime &now) {
     const QString name = sanitizeForFileName(instanceName);
     const QString middle = name.isEmpty() ? QString() : name + QLatin1Char('-');
-    return QStringLiteral("日志-%1%2.log").arg(middle, stampForName(now));
+    return QCoreApplication::translate("ErrorReport", "日志-%1%2.log").arg(middle, stampForName(now));
 }
 
 }  // namespace ErrorReport

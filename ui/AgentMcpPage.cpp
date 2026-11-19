@@ -211,6 +211,7 @@ bool AgentMcpPage::editDraft(QWidget *parent, const QString &title,
                              AgentView::McpServerDraft *draft) {
     if (draft == nullptr) return false;
     QDialog dialog(parent);
+    dialog.setObjectName(QStringLiteral("agentMcpEditDialog"));
     dialog.setWindowTitle(title);
     dialog.setModal(true);
     auto *layout = new QVBoxLayout(&dialog);
@@ -222,6 +223,7 @@ bool AgentMcpPage::editDraft(QWidget *parent, const QString &title,
     command->setPlaceholderText(QStringLiteral("绝对路径，例如 C:\\Servers\\mcp\\server.exe"));
     auto *arguments = new QPlainTextEdit(draft->arguments, &dialog);
     arguments->setObjectName(QStringLiteral("agentMcpArgumentsEdit"));
+    arguments->setFrameShape(QFrame::NoFrame);
     arguments->setMaximumHeight(90);
     arguments->setPlaceholderText(QStringLiteral("一行一个参数，不经过 shell"));
     auto *workingDirectory = new QLineEdit(draft->workingDirectory, &dialog);
@@ -231,6 +233,7 @@ bool AgentMcpPage::editDraft(QWidget *parent, const QString &title,
     environment->setPlaceholderText(QStringLiteral("要透传的环境变量名，逗号分隔（只记名字）"));
     auto *enabled = new QCheckBox(QStringLiteral("启用这个服务器"), &dialog);
     enabled->setObjectName(QStringLiteral("agentMcpEnabledEdit"));
+    Theme::markSwitch(enabled);
     enabled->setChecked(draft->enabled);
     form->addRow(QStringLiteral("名称"), name);
     form->addRow(QStringLiteral("可执行文件"), command);

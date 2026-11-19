@@ -148,17 +148,17 @@ NewServerPage::NewServerPage(QWidget *parent) : QDialog(parent) {
     auto *identityLayout = new QVBoxLayout(identity);
     identityLayout->setContentsMargins(0, 0, 0, 0);
     identityLayout->setSpacing(6);
-    identityLayout->addWidget(new QLabel(QStringLiteral("名称"), identity));
+    identityLayout->addWidget(new QLabel(tr("名称"), identity));
     m_nameEdit = new QLineEdit(identity);
     m_nameEdit->setObjectName(MainWindowUI::newServerNameEditName());
-    m_nameEdit->setPlaceholderText(QStringLiteral("会当成这个服务端的目录名"));
+    m_nameEdit->setPlaceholderText(tr("会当成这个服务端的目录名"));
     InputSizing::shortValue(m_nameEdit, InputSizing::kNameChars, InputSizing::Script::Han);
     identityLayout->addWidget(m_nameEdit);
     m_targetDirLabel = makeMutedLabel(identity, MainWindowUI::newServerTargetDirName());
     m_targetDirLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     // 路径可能很长：**不许**参与横向度量（同一条规矩，和摘要那一句一样）。
     m_targetDirLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-    m_targetDirLabel->setToolTip(QStringLiteral("服务端根目录下面以它的名字命名的那个目录"));
+    m_targetDirLabel->setToolTip(tr("服务端根目录下面以它的名字命名的那个目录"));
     // 没有路径可写（名字还空着）时整行不占位：空着的一行会把名称框和下面的「服务端」撑开 20 多 px。
     m_targetDirLabel->hide();
     identityLayout->addWidget(m_targetDirLabel);
@@ -176,7 +176,7 @@ NewServerPage::NewServerPage(QWidget *parent) : QDialog(parent) {
 
     // ---------- 服务端：整页唯一的一张卡片 ----------
     QVBoxLayout *serverCardLayout = nullptr;
-    auto *serverCard = makeSectionCard(QStringLiteral("服务端"), body, &serverCardLayout);
+    auto *serverCard = makeSectionCard(tr("服务端"), body, &serverCardLayout);
     // 卡片本身没有底色，左右不留内边距：小标题、端类别、各行与上面的名称框、顶上的返回行同一条左缘。
     serverCardLayout->setContentsMargins(0, 16, 0, 18);
     // 端类别是**一排行**（不是下拉框）：和安装页那张「模组加载器」卡片同一个形状 ——
@@ -190,7 +190,7 @@ NewServerPage::NewServerPage(QWidget *parent) : QDialog(parent) {
     m_flavorList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_flavorList->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     serverCardLayout->addWidget(m_flavorList);
-    serverCardLayout->addWidget(makeRow(serverCard, QStringLiteral("游戏版本"), &m_gameVersionEdit,
+    serverCardLayout->addWidget(makeRow(serverCard, tr("游戏版本"), &m_gameVersionEdit,
                                         MainWindowUI::newServerGameVersionEditName()));
     InputSizing::shortValue(m_gameVersionEdit, 20);  // 1.21.4、24w14potato 这一类版本号
     auto versionRow = [this, serverCard](const QString &title, const QString &name,
@@ -220,7 +220,7 @@ NewServerPage::NewServerPage(QWidget *parent) : QDialog(parent) {
     m_installerRow = versionRow(tr("安装器版本"), MainWindowUI::newServerInstallerEditName(),
                                 &m_installerCombo, &m_installerEdit);
     serverCardLayout->addWidget(m_installerRow);
-    m_buildRow = makeRow(serverCard, QStringLiteral("构建号"), &m_buildEdit,
+    m_buildRow = makeRow(serverCard, tr("构建号"), &m_buildEdit,
                          MainWindowUI::newServerBuildEditName());
     InputSizing::shortValue(m_buildEdit, 12);  // 构建号是几位数字
     serverCardLayout->addWidget(m_buildRow);
@@ -232,7 +232,7 @@ NewServerPage::NewServerPage(QWidget *parent) : QDialog(parent) {
         m_memorySpin->setValue(2048);
         m_memorySpin->setSuffix(QStringLiteral(" MB"));
         serverCardLayout->addWidget(
-            makeControlRow(serverCard, QStringLiteral("内存上限"), m_memorySpin, false));
+            makeControlRow(serverCard, tr("内存上限"), m_memorySpin, false));
     }
     bodyLayout->addWidget(serverCard);
 
@@ -240,7 +240,7 @@ NewServerPage::NewServerPage(QWidget *parent) : QDialog(parent) {
     bodyLayout->addStretch(1);
 
     // ---------- 底下那颗「创建」（浮在正中间）----------
-    m_createButton = new QPushButton(QStringLiteral("创建"), content);
+    m_createButton = new QPushButton(tr("创建"), content);
     m_createButton->setObjectName(MainWindowUI::newServerCreateButtonName());
     m_createButton->setAutoDefault(false);
     m_createButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
@@ -316,7 +316,7 @@ void NewServerPage::setTargetDir(const QString &dir) {
     m_targetDirLabel->setText(dir);
     m_targetDirLabel->setVisible(!dir.isEmpty());
     m_targetDirLabel->setToolTip(dir.isEmpty()
-                                     ? QStringLiteral("先给它起个名字，目录名是照着名字来的。")
+                                     ? tr("服务端名称将用作目录名称。")
                                      : dir);
 }
 

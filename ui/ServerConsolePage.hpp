@@ -51,7 +51,7 @@ public:
     explicit ServerConsolePage(QWidget *parent = nullptr);
 
     /// 覆盖层页眉上那行字（`OverlayHost::showPage()` 的标题）。
-    static QString windowTitle() { return QStringLiteral("服务端控制台"); }
+    static QString windowTitle() { return tr("服务端控制台"); }
 
     /// 顶上那行大字：这个控制台说的是**哪一个**服务端（显示名，不是目录名）。
     void setServerName(const QString &name);

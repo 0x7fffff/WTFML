@@ -202,7 +202,7 @@ void MainWindow::finishUpdateBatch(bool success, const QString &errorMessage) {
                             .arg(instanceDisplayName(run.instanceId))
                             .arg(run.succeeded.size())
                             .arg(run.failedSteps)
-                      : tr("更新「%1」没跑完：%2").arg(instanceDisplayName(run.instanceId), errorMessage));
+                      : tr("「%1」的更新未完成：%2").arg(instanceDisplayName(run.instanceId), errorMessage));
     // 「不只显示总数」：**逐个资源**写进去（日志里那一行一行就是每个资源的结果）。
     for (const QString &line : run.lines) {
         appendLog(QStringLiteral("  ") + line);

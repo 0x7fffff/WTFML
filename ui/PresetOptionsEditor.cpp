@@ -1,4 +1,5 @@
 #include "PresetOptionsEditor.hpp"
+#include <QCoreApplication>
 #include "DesignDefaults.hpp"
 #include "Theme.hpp"
 #include <QComboBox>
@@ -24,10 +25,17 @@
 namespace {
 using namespace PresetOptionCatalog;
 QString keyLabel(QString value) {
-    const QHash<QString, QString> names{{"key.keyboard.space", "空格"}, {"key.keyboard.left.shift", "左 Shift"},
-        {"key.keyboard.left.control", "左 Ctrl"}, {"key.keyboard.left.alt", "左 Alt"},
-        {"key.keyboard.tab", "Tab"}, {"key.mouse.left", "鼠标左键"}, {"key.mouse.right", "鼠标右键"},
-        {"key.mouse.middle", "鼠标中键"}, {"key.keyboard.unknown", "未绑定"}};
+    const QHash<QString, QString> names{
+        {"key.keyboard.space", QCoreApplication::translate("PresetOptionsEditor", "空格")},
+        {"key.keyboard.left.shift", QCoreApplication::translate("PresetOptionsEditor", "左 Shift")},
+        {"key.keyboard.left.control", QCoreApplication::translate("PresetOptionsEditor", "左 Ctrl")},
+        {"key.keyboard.left.alt", QCoreApplication::translate("PresetOptionsEditor", "左 Alt")},
+        {"key.keyboard.tab", "Tab"},
+        {"key.mouse.left", QCoreApplication::translate("PresetOptionsEditor", "鼠标左键")},
+        {"key.mouse.right", QCoreApplication::translate("PresetOptionsEditor", "鼠标右键")},
+        {"key.mouse.middle", QCoreApplication::translate("PresetOptionsEditor", "鼠标中键")},
+        {"key.keyboard.unknown", QCoreApplication::translate("PresetOptionsEditor", "未绑定")},
+    };
     if (names.contains(value)) return names.value(value);
     if (value.startsWith("key.keyboard.")) return value.mid(13).toUpper();
     return value;
@@ -37,9 +45,9 @@ public:
     KeyCapture(QWidget *parent) : QPushButton(parent) {
         setAutoDefault(false);
         Theme::markButton(this, Theme::ButtonKind::Neutral);
-        setToolTip(tr("点击后按下键盘或鼠标按键；Esc 取消，退格清除"));
+        setToolTip(QCoreApplication::translate("KeyCapture", "点击后按下键盘或鼠标按键；Esc 取消，退格清除"));
         connect(this, &QPushButton::clicked, this, [this] {
-            armed = true; setText(tr("请按键…")); setFocus();
+            armed = true; setText(QCoreApplication::translate("KeyCapture", "请按键…")); setFocus();
         });
     }
     void setValue(const QString &value) { current = value; setText(keyLabel(value)); }
@@ -116,10 +124,13 @@ public:
             if (spec->kind == Kind::Key) return new KeyCapture(parent);
             if (spec->kind == Kind::Boolean || spec->kind == Kind::Choice) {
                 auto *combo = new QComboBox(parent);
-                if (spec->kind == Kind::Boolean) { combo->addItem(tr("关闭"), "false"); combo->addItem(tr("开启"), "true"); }
-                else for (const auto &choice : spec->choices) {
-                    const int separator = choice.indexOf('|');
-                    combo->addItem(choice.mid(separator + 1), choice.left(separator));
+                if (spec->kind == Kind::Boolean) {
+                    combo->addItem(QCoreApplication::translate("OptionValueDelegate", "关闭"), "false");
+                    combo->addItem(QCoreApplication::translate("OptionValueDelegate", "开启"), "true");
+                } else {
+                    for (const auto &choice : spec->choices) {
+                        combo->addItem(choice.label, QString::fromLatin1(choice.value));
+                    }
                 }
                 return combo;
             }
@@ -133,8 +144,8 @@ public:
             spin->setRange(int(spec->minimum), int(spec->maximum));
             spin->setKeyboardTracking(false);
             if (spec->key == "fov") spin->setSuffix("°");
-            if (spec->key == "guiScale") spin->setSpecialValueText(tr("自动"));
-            if (spec->key.endsWith("Distance")) spin->setSuffix(tr(" 区块"));
+            if (spec->key == "guiScale") spin->setSpecialValueText(QCoreApplication::translate("OptionValueDelegate", "自动"));
+            if (spec->key.endsWith("Distance")) spin->setSuffix(QCoreApplication::translate("OptionValueDelegate", " 区块"));
             if (spec->key == "maxFps") { spin->setSuffix(" FPS"); }
             return spin;
         }
@@ -177,16 +188,22 @@ protected:
 }
 
 PresetOptionsEditor::PresetOptionsEditor(const QList<Entry> &entries, QWidget *parent, Mode mode) : QDialog(parent) {
-    setWindowTitle(tr("编辑游戏设置预设")); resize(600, 440);
+    setWindowTitle(QCoreApplication::translate("PresetOptionsEditor", "编辑游戏设置预设")); resize(600, 440);
     auto *layout = new QVBoxLayout(this);
     auto *search = new QLineEdit(this);
     search->setObjectName("presetOptionsSearch");
-    search->setPlaceholderText(mode == Mode::Keys ? tr("搜索操作或按键") : tr("搜索设置"));
+    search->setPlaceholderText(mode == Mode::Keys
+        ? QCoreApplication::translate("PresetOptionsEditor", "搜索操作或按键")
+        : QCoreApplication::translate("PresetOptionsEditor", "搜索设置"));
     search->setClearButtonEnabled(true);
     layout->addWidget(search);
     m_table = new QTableWidget(0, 2, this);
     m_table->setObjectName(QStringLiteral("presetOptionsEditorTable"));
-    m_table->setHorizontalHeaderLabels({tr("纳入预设"), mode == Mode::Keys ? tr("按键") : tr("设置值")});
+    m_table->setHorizontalHeaderLabels({
+        QCoreApplication::translate("PresetOptionsEditor", "纳入预设"),
+        mode == Mode::Keys ? QCoreApplication::translate("PresetOptionsEditor", "按键")
+                           : QCoreApplication::translate("PresetOptionsEditor", "设置值"),
+    });
     m_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
     m_table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     m_table->verticalHeader()->hide();
@@ -219,8 +236,10 @@ PresetOptionsEditor::PresetOptionsEditor(const QList<Entry> &entries, QWidget *p
     // 不用标准钮（QDialogButtonBox::Save/Cancel/…）：它的字在 LanguageChange 时会被 Qt 刷回自带的英文，
     // 装没装 Qt 中文翻译都一样不稳。自己 addButton(字, 角色)，accepted/rejected 照常发。
     auto *buttons = new QDialogButtonBox(this);
-    QPushButton *saveButton = buttons->addButton(tr("保存"), QDialogButtonBox::AcceptRole);
-    QPushButton *cancelButton = buttons->addButton(tr("取消"), QDialogButtonBox::RejectRole);
+    QPushButton *saveButton = buttons->addButton(
+        QCoreApplication::translate("PresetOptionsEditor", "保存"), QDialogButtonBox::AcceptRole);
+    QPushButton *cancelButton = buttons->addButton(
+        QCoreApplication::translate("PresetOptionsEditor", "取消"), QDialogButtonBox::RejectRole);
     saveButton->setAutoDefault(false);
     cancelButton->setAutoDefault(false);
     Theme::markButton(saveButton, Theme::ButtonKind::Primary);
@@ -233,7 +252,7 @@ PresetOptionsEditor::PresetOptionsEditor(const QList<Entry> &entries, QWidget *p
             if (entry.key.isEmpty() || entry.key.contains(QLatin1Char(':')) || entry.key.contains(QLatin1Char('\n')) ||
                 entry.key.contains(QLatin1Char('\r')) || entry.value.contains(QLatin1Char('\n')) ||
                 entry.value.contains(QLatin1Char('\r')) || keys.contains(entry.key)) {
-                problem->setText(tr("设置键不能为空或重复，键和值不能含换行，键不能含冒号。")); return;
+                problem->setText(QCoreApplication::translate("PresetOptionsEditor", "设置键不能为空或重复，键和值不能含换行，键不能含冒号。")); return;
             }
             keys.insert(entry.key);
         }

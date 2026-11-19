@@ -14,7 +14,7 @@ int MwLoginCompletionChecks() {
         // 这些码比 INT_MAX 还大（2148916233），收成 int 就是负数、一律走兜底 —— 这一条
         // 就是钉这个（写成 int 的话，下面第一条会以"兜底那句里带着码"的方式挂掉）。
         check(AuthManager::xstsErrorMessage(2148916233LL)
-                  .contains(QStringLiteral("尚未注册 Xbox")),
+                  .contains(QStringLiteral("尚未创建 Xbox 档案")),
               "2148916233（没注册过 Xbox 账户）给的是那条该怎么办，不是兜底",
               AuthManager::xstsErrorMessage(2148916233LL));
         check(AuthManager::xstsErrorMessage(2148916238LL).contains(QStringLiteral("家庭组")),
@@ -36,8 +36,8 @@ int MwLoginCompletionChecks() {
               "403 的正文认得出是「应用没被批准」，并给出申请入口",
               AuthManager::appRegistrationHint(appRegBody));
         check(AuthManager::appRegistrationHint(QStringLiteral("invalid app REGISTRATION"))
-                  .contains(QStringLiteral("App ID")),
-              "大小写不敏感，并且说清拿什么去申请（App ID ）",
+                  .contains(QStringLiteral("应用程序（客户端）ID")),
+              "大小写不敏感，并指出需要提交应用程序（客户端）ID",
               AuthManager::appRegistrationHint(QStringLiteral("invalid app REGISTRATION")));
         check(AuthManager::appRegistrationHint(QStringLiteral("some other failure")).isEmpty(),
               "别的错误正文不认（给空串，调用方走通用那套）",
@@ -105,7 +105,7 @@ int MwLoginCompletionChecks() {
             QString reason;
             const QString token = probe.loadSavedToken(&reason);
             check(token.isEmpty(), "没登录过时拿不到启动令牌", token);
-            check(reason.contains(QStringLiteral("还没有登录过")),
+            check(reason.contains(QStringLiteral("未找到完整的登录信息")),
                   "空令牌旁边带着原因（不是只有一句「请先登录」）", reason);
             check(!probe.loggedIn(), "没登录过时 loggedIn() 是 false");
             check(probe.playerName() == QStringLiteral("Player"),

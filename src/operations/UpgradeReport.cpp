@@ -3,6 +3,7 @@
  * @brief 见头文件：分组、折叠、搜索与"必要项未处理"的计数。
  */
 #include "UpgradeReport.hpp"
+#include <QCoreApplication>
 
 namespace UpgradeReport {
 
@@ -14,15 +15,15 @@ QList<Bucket> buckets() {
 QString bucketTitle(Bucket bucket) {
     switch (bucket) {
     case Bucket::Compatible:
-        return QStringLiteral("正常兼容");
+        return QCoreApplication::translate("UpgradeReport", "正常兼容");
     case Bucket::Unknown:
-        return QStringLiteral("无法确认");
+        return QCoreApplication::translate("UpgradeReport", "无法确认");
     case Bucket::Failed:
-        return QStringLiteral("检查失败");
+        return QCoreApplication::translate("UpgradeReport", "检查失败");
     case Bucket::Incompatible:
-        return QStringLiteral("不兼容");
+        return QCoreApplication::translate("UpgradeReport", "不兼容");
     case Bucket::MissingDependency:
-        return QStringLiteral("缺前置");
+        return QCoreApplication::translate("UpgradeReport", "缺前置");
     }
     return QString();
 }
@@ -66,25 +67,25 @@ QList<Row> filtered(const QList<Row> &rows, const QString &query, bool hasOnly, 
 Bucket bucketForStateText(const QString &state, const QString &basis) {
     const QString text = state + QLatin1Char('\n') + basis;
     // "说不清"比"说不行"更弱：语法不支持 / 范围无法确定这类先归未知，别被下面的关键词捡走。
-    if (text.contains(QStringLiteral("尚不支持")) || text.contains(QStringLiteral("无法解析"))
-        || text.contains(QStringLiteral("无法确定")) || text.contains(QStringLiteral("无法确认"))) {
+    if (text.contains(QCoreApplication::translate("UpgradeReport", "尚不支持")) || text.contains(QCoreApplication::translate("UpgradeReport", "无法解析"))
+        || text.contains(QCoreApplication::translate("UpgradeReport", "无法确定")) || text.contains(QCoreApplication::translate("UpgradeReport", "无法确认"))) {
         return Bucket::Unknown;
     }
     // 先判"明确不行"：这类话一出现，别的关键词都只是解释。
-    if (text.contains(QStringLiteral("不支持")) || text.contains(QStringLiteral("明确排除"))
-        || text.contains(QStringLiteral("不满足")) || text.contains(QStringLiteral("不兼容"))) {
+    if (text.contains(QCoreApplication::translate("UpgradeReport", "不支持")) || text.contains(QCoreApplication::translate("UpgradeReport", "明确排除"))
+        || text.contains(QCoreApplication::translate("UpgradeReport", "不满足")) || text.contains(QCoreApplication::translate("UpgradeReport", "不兼容"))) {
         return Bucket::Incompatible;
     }
     // "缺前置"是另一种明确不行：缺的是别的东西，不是这个模组本身不兼容。
-    if (text.contains(QStringLiteral("缺前置")) || text.contains(QStringLiteral("缺少必要"))
-        || text.contains(QStringLiteral("缺少目标加载器声明"))) {
+    if (text.contains(QCoreApplication::translate("UpgradeReport", "缺前置")) || text.contains(QCoreApplication::translate("UpgradeReport", "缺少必要"))
+        || text.contains(QCoreApplication::translate("UpgradeReport", "缺少目标加载器声明"))) {
         return Bucket::MissingDependency;
     }
-    if (text.contains(QStringLiteral("失败")) || text.contains(QStringLiteral("读取失败"))
-        || text.contains(QStringLiteral("查询失败"))) {
+    if (text.contains(QCoreApplication::translate("UpgradeReport", "失败")) || text.contains(QCoreApplication::translate("UpgradeReport", "读取失败"))
+        || text.contains(QCoreApplication::translate("UpgradeReport", "查询失败"))) {
         return Bucket::Failed;
     }
-    if (text.contains(QStringLiteral("已确认兼容")) || text.contains(QStringLiteral("一致"))) {
+    if (text.contains(QCoreApplication::translate("UpgradeReport", "已确认兼容")) || text.contains(QCoreApplication::translate("UpgradeReport", "一致"))) {
         return Bucket::Compatible;
     }
     return Bucket::Unknown;

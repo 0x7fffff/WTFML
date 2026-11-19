@@ -29,7 +29,7 @@ void JavaRuntimeController::detectInstalled() {
         return;
     }
     setBusy(true);
-    emit statusChanged(tr("正在检测本机已安装的 Java..."));
+    emit statusChanged(tr("正在检测本机的 Java…"));
 
     auto *watcher = new QFutureWatcher<QMap<int, QString>>(this);
     connect(watcher, &QFutureWatcher<QMap<int, QString>>::finished, this, [this, watcher] {
@@ -92,7 +92,7 @@ void JavaRuntimeController::startNextDownload() {
     }
 
     const int major = m_pendingMajors.takeFirst();
-    emit statusChanged(tr("正在下载 Java %1 运行时（界面可以继续使用）...").arg(major));
+    emit statusChanged(tr("正在后台下载 Java %1 运行时…").arg(major));
 
     auto *watcher = new QFutureWatcher<DownloadResult>(this);
     connect(watcher, &QFutureWatcher<DownloadResult>::finished, this, [this, watcher] {

@@ -13,7 +13,7 @@ int UiIntegrityReportChecks() {
             client.name = QStringLiteral("客户端");
             client.corrupt = 1;
             client.rows.append({QStringLiteral("客户端 jar"),
-                                QStringLiteral("校验不过（内容与 sha1 对不上）"),
+                                QStringLiteral("SHA-1 校验失败"),
                                 QStringLiteral("D:/mc/versions/1.20.1/1.20.1.jar")});
             dirty.groups.append(client);
 
@@ -196,7 +196,7 @@ int UiIntegrityReportChecks() {
         {
             IntegrityReportPage::Report failed;
             failed.instanceName = QStringLiteral("1.20.1");
-            failed.error = QStringLiteral("读不出这个实例的 version.json，没法知道它该有哪些文件。");
+            failed.error = QStringLiteral("无法读取实例的 version.json，无法列出所需文件。");
             failed.summary = failed.error;
             page.setReport(failed);
             QApplication::processEvents();

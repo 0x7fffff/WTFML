@@ -4,6 +4,7 @@
  */
 
 #include "VersionIntegrity.hpp"
+#include <QCoreApplication>
 
 #include <QDir>
 #include <QFile>
@@ -20,15 +21,15 @@ namespace VersionIntegrity {
 QString groupName(Group group) {
     switch (group) {
     case Group::ClientJar:
-        return QStringLiteral("客户端");
+        return QCoreApplication::translate("VersionIntegrity", "客户端");
     case Group::Libraries:
-        return QStringLiteral("库");
+        return QCoreApplication::translate("VersionIntegrity", "库");
     case Group::AssetIndex:
-        return QStringLiteral("资源索引");
+        return QCoreApplication::translate("VersionIntegrity", "资源索引");
     case Group::AssetObjects:
-        return QStringLiteral("资源对象");
+        return QCoreApplication::translate("VersionIntegrity", "资源对象");
     }
-    return QStringLiteral("其它");
+    return QCoreApplication::translate("VersionIntegrity", "其它");
 }
 
 QList<Group> allGroups() {
@@ -45,19 +46,19 @@ QString Verdict::detail() const {
     // 落回"未知错误"就白体检了。
     switch (status) {
     case Status::Ok:
-        return QStringLiteral("完好");
+        return QCoreApplication::translate("VersionIntegrity", "完好");
     case Status::Missing:
-        return QStringLiteral("缺少文件");
+        return QCoreApplication::translate("VersionIntegrity", "缺少文件");
     case Status::Empty:
-        return QStringLiteral("0 字节（下载写了一半留下的）");
+        return QCoreApplication::translate("VersionIntegrity", "0 字节（下载写了一半留下的）");
     case Status::WrongSize:
-        return QStringLiteral("大小 %1 字节，应为 %2").arg(actualSize).arg(expectedSize);
+        return QCoreApplication::translate("VersionIntegrity", "大小 %1 字节，应为 %2").arg(actualSize).arg(expectedSize);
     case Status::WrongSha1:
-        return QStringLiteral("校验不过（内容与 sha1 对不上）");
+        return QCoreApplication::translate("VersionIntegrity", "SHA-1 校验失败");
     case Status::Unreadable:
-        return QStringLiteral("读不动（打不开或读出错）");
+        return QCoreApplication::translate("VersionIntegrity", "文件无法打开或读取失败");
     }
-    return QStringLiteral("未知");
+    return QCoreApplication::translate("VersionIntegrity", "未知");
 }
 
 int Report::missing() const {
@@ -93,9 +94,9 @@ QString Report::summary() const {
         return error;
     }
     if (problems.isEmpty()) {
-        return QStringLiteral("%1 个文件都完好").arg(checked);
+        return QCoreApplication::translate("VersionIntegrity", "%1 个文件都完好").arg(checked);
     }
-    return QStringLiteral("%1 个文件里 %2 个要修：缺 %3 个、坏 %4 个")
+    return QCoreApplication::translate("VersionIntegrity", "%1 个文件里 %2 个要修：缺 %3 个、坏 %4 个")
         .arg(checked)
         .arg(problems.size())
         .arg(missing())
@@ -156,7 +157,7 @@ void appendAssetObjects(QList<ExpectedFile> &files, const QJsonObject &objects) 
         }
         // 落点和装配侧同一条规矩：objects/<hash 前两位>/<hash>。文件名就是 sha1，所以
         // 没有"名字对不上"这一档 —— label 用逻辑名，人认得出是哪个资源。
-        files.append({QStringLiteral("资源对象 %1").arg(it.key()),
+        files.append({QCoreApplication::translate("VersionIntegrity", "资源对象 %1").arg(it.key()),
                       AppPaths::assetsDir() + QStringLiteral("/objects/") + hash.left(2)
                           + QLatin1Char('/') + hash,
                       // 判据里**故意**不带 sha1：见头文件里"资源对象不做哈希"那一段。
@@ -181,7 +182,7 @@ QList<ExpectedFile> plan(const QJsonObject &mergedJson, const QString &versionId
         mergedJson.value(QStringLiteral("downloads")).toObject().value(QStringLiteral("client"))
             .toObject();
     if (!client.isEmpty()) {
-        files.append({QStringLiteral("客户端 jar"),
+        files.append({QCoreApplication::translate("VersionIntegrity", "客户端 jar"),
                       InstanceFiles::jarPath(versionId),
                       client.value(QStringLiteral("sha1")).toString(),
                       client.value(QStringLiteral("size")).toVariant().toLongLong(),
@@ -201,7 +202,7 @@ QList<ExpectedFile> plan(const QJsonObject &mergedJson, const QString &versionId
     // ③ 资源索引那个 json。url / id 有一个是空的时候装配侧一句都不下（downloadAssets()
     // 开头那条早退），所以这里也不列 —— 列了就是无中生有的一条"缺文件"。
     if (!assetIndex.id.isEmpty() && !assetIndex.url.isEmpty()) {
-        files.append({QStringLiteral("资源索引 %1").arg(assetIndex.id),
+        files.append({QCoreApplication::translate("VersionIntegrity", "资源索引 %1").arg(assetIndex.id),
                       AppPaths::assetsDir() + QStringLiteral("/indexes/") + assetIndex.id
                           + QStringLiteral(".json"),
                       assetIndex.sha1, assetIndex.size, Group::AssetIndex});
@@ -272,7 +273,7 @@ QString plainReport(const Report &report, const QString &instanceName) {
     // 行尾统一用 \n（不走 QTextStream 的本地行尾）：这一份是往剪贴板/GitHub issue 里贴的，
     // 在两台机器之间传的时候别掺进 \r 去。
     QStringList lines;
-    lines << QStringLiteral("实例「%1」完整性检查").arg(instanceName);
+    lines << QCoreApplication::translate("VersionIntegrity", "实例「%1」完整性检查").arg(instanceName);
     // summary() 自己会把 error 原样回出来，所以这一行就把"没跑起来"说清楚了。
     lines << report.summary();
     if (!report.error.isEmpty()) {
@@ -280,9 +281,9 @@ QString plainReport(const Report &report, const QString &instanceName) {
     }
     for (Group group : allGroups()) {
         const QList<Verdict> problems = report.problemsInGroup(group);
-        lines << QStringLiteral("%1（%2 个要修）").arg(groupName(group)).arg(problems.size());
+        lines << QCoreApplication::translate("VersionIntegrity", "%1（%2 个要修）").arg(groupName(group)).arg(problems.size());
         for (const Verdict &v : problems) {
-            lines << QStringLiteral("  %1：%2").arg(v.label, v.detail());
+            lines << QCoreApplication::translate("VersionIntegrity", "  %1：%2").arg(v.label, v.detail());
             lines << QStringLiteral("    %1").arg(v.path);
         }
     }

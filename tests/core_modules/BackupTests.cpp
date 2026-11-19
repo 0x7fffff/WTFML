@@ -358,7 +358,7 @@ void runBackupTests() {
     bool junkOk = true;
     QString junkProblem;
     BackupFiles::readManifest(work + QStringLiteral("/别人的包.txt"), &junkOk, &junkProblem);
-    check(!junkOk && junkProblem.contains(QStringLiteral("不是一个压缩包")),
+    check(!junkOk && junkProblem.contains(QStringLiteral("无法作为压缩包打开")),
           "ZQ3 拿一个根本不是压缩包的文件来 → 说的是「打不开」", junkProblem);
 
     // 打不成的那几路：一个半成品都不许留在盘上。
@@ -666,7 +666,7 @@ void runBackupTests() {
         writeFileAt(instanceDir + QStringLiteral("/options.txt"), QByteArrayLiteral("fov:90"));
         const BackupFiles::RestoreResult blocked = BackupFiles::restoreBackup(snapZip, work);
         check(!blocked.ok && blocked.stage == BackupFiles::RestoreResult::Stage::SafetySnapshot &&
-                  blocked.problem.contains(QStringLiteral("没有被改动")),
+                  blocked.problem.contains(QStringLiteral("原有内容已保留")),
               "★★ ZQ5 安全快照做不出来时当场停下，并且**明确说这个目录没被动过**",
               blocked.problem);
         check(readAll(instanceDir + QStringLiteral("/options.txt")) == QByteArrayLiteral("fov:90") &&
@@ -840,7 +840,7 @@ void runBackupTests() {
               "ZQ8 手搓一个「清单说要 1 PB」的包", hugeZipError);
         const BackupFiles::RestoreResult noRoom = BackupFiles::restoreBackup(hugeZip, hugeParent);
         check(!noRoom.ok && noRoom.stage == BackupFiles::RestoreResult::Stage::Space &&
-                  noRoom.problem.contains(QStringLiteral("放不下")),
+                  noRoom.problem.contains(QStringLiteral("目标磁盘空间不足")),
               "★★ ZQ8 空地那块盘放不下 → 在**动盘之前**就停下，而且话说得明白", noRoom.problem);
         check(!QFileInfo::exists(hugeParent + QStringLiteral("/大实例")),
               "★★ ZQ8 停下时那地上**什么都没建**"

@@ -3,6 +3,7 @@
  * @brief ResourceStore 的实现。发请求、认钥匙、把正文交给 ResourceCatalog 那一层去读。
  */
 #include "ResourceStore.hpp"
+#include <QCoreApplication>
 
 #include <QDateTime>
 #include <QDir>
@@ -145,7 +146,7 @@ bool okStatus(int status) { return status >= 200 && status < 300; }
 /// "等待网络请求超时。"这类）。CurseForge 那段"填一份 key"的提示不往这里加：
 /// 这话说的是"这一发没轮到/被掐了"，不是"那个接口不给你"。
 QString unansweredText(const QString &what, const QString &jobError) {
-    return QStringLiteral("%1失败：%2").arg(what, jobError);
+    return QCoreApplication::translate("ResourceStore", "%1失败：%2").arg(what, jobError);
 }
 
 ResourceStore::ResourceStore(QObject *parent)
@@ -222,7 +223,7 @@ void ResourceStore::fetchLatestVersions(const QString &requestKey, const QString
                 if (it == m_latestRuns.end() || it->generation != generation) {
                     return;
                 }
-                const QString what = QStringLiteral("读取版本列表");
+                const QString what = QCoreApplication::translate("ResourceStore", "读取版本列表");
                 QHash<QString, ResourceCatalog::VersionEntry> part;
                 bool ok = false;
                 if (reply == nullptr) {
@@ -239,7 +240,7 @@ void ResourceStore::fetchLatestVersions(const QString &requestKey, const QString
                         // "这一批没问到" —— 一条都不许当成"已是最新"（见 .hpp 里那条 NOTE）。
                         const QJsonDocument document = QJsonDocument::fromJson(answer);
                         if (!document.isObject()) {
-                            it->problem = QStringLiteral("版本列表无法解析（接口返回的不是一份版本清单）");
+                            it->problem = QCoreApplication::translate("ResourceStore", "版本列表无法解析（接口返回的不是一份版本清单）");
                         } else {
                             part = ResourceCatalog::parseVersionFilesUpdate(answer);
                             ok = true;
@@ -299,21 +300,21 @@ QString ResourceStore::failureText(QNetworkReply *reply, const QByteArray &body,
     QString hint;
     if (source == ResourceCatalog::Source::CurseForge) {
         hint = !hasKey
-                   ? QStringLiteral("\n\n公共接口连接受限。可在设置页「下载」中配置个人 CurseForge API Key。")
-                   : QStringLiteral("\n\nCurseForge API Key 无效或已过期，请重新配置。");
+                   ? QCoreApplication::translate("ResourceStore", "\n\n公共接口连接受限。可在设置页「下载」中配置个人 CurseForge API Key。")
+                   : QCoreApplication::translate("ResourceStore", "\n\nCurseForge API Key 无效或已过期，请重新配置。");
     }
 
     if (status > 0) {
         if (!description.isEmpty()) {
-            return QStringLiteral("%1失败（HTTP %2）：%3%4")
+            return QCoreApplication::translate("ResourceStore", "%1失败（HTTP %2）：%3%4")
                 .arg(what)
                 .arg(status)
                 .arg(description, hint);
         }
-        return QStringLiteral("%1失败（HTTP %2）%3").arg(what).arg(status).arg(hint);
+        return QCoreApplication::translate("ResourceStore", "%1失败（HTTP %2）%3").arg(what).arg(status).arg(hint);
     }
     // 压根没连上（断网、DNS、超时）。errorString() 是 Qt 给的那句英文，带上比不带强。
-    return QStringLiteral("%1失败：%2%3").arg(what, reply->errorString(), hint);
+    return QCoreApplication::translate("ResourceStore", "%1失败：%2%3").arg(what, reply->errorString(), hint);
 }
 
 void ResourceStore::search(const QString &requestKey, ResourceCatalog::Kind kind,
@@ -349,7 +350,7 @@ void ResourceStore::search(const QString &requestKey, ResourceCatalog::Kind kind
             ResourceCatalog::SearchResult result;
             if (reply == nullptr) {
                 // 排队到点 / 被掐 / 管理器先没：这一发没成，得让界面收场（不能一直转圈）。
-                result.problem = unansweredText(QStringLiteral("搜索"), jobError);
+                result.problem = unansweredText(QCoreApplication::translate("ResourceStore", "搜索"), jobError);
                 emit searchFinished(requestKey, result);
                 return;
             }
@@ -359,7 +360,7 @@ void ResourceStore::search(const QString &requestKey, ResourceCatalog::Kind kind
 
             if (status == HttpClient::kStatusTooManyRequests) {
                 // 429 说的不是"请求哪儿写错了"，是"你问得太勤了"，得跟用户这么说（唯一出处）。
-                result.problem = HttpClient::throttledText(QStringLiteral("搜索"));
+                result.problem = HttpClient::throttledText(QCoreApplication::translate("ResourceStore", "搜索"));
             } else if (okStatus(status)) {
                 // 2xx 才交给解析器。它读不懂时会自己报「接口返回的数据读不懂」——
                 // 那是对的：拿到 200 却读不出 hits，问题就在正文上。
@@ -367,7 +368,7 @@ void ResourceStore::search(const QString &requestKey, ResourceCatalog::Kind kind
                              ? ResourceCatalog::parseCurseForgeSearch(body)
                              : ResourceCatalog::parseSearch(body);
             } else {
-                result.problem = failureText(reply, body, QStringLiteral("搜索"), source,
+                result.problem = failureText(reply, body, QCoreApplication::translate("ResourceStore", "搜索"), source,
                                              !m_curseForgeApiKey.isEmpty());
             }
             emit searchFinished(requestKey, result);
@@ -381,12 +382,12 @@ void ResourceStore::fetchModrinthFiles(const QString &requestKey, const QStringL
     const QRegularExpression hashPattern(QStringLiteral("^[0-9a-fA-F]{40}$"));
     for (const auto &sha : sha1s) {
         if (!hashPattern.match(sha).hasMatch()) {
-            emit modrinthFilesFinished(requestKey, {}, {}, QStringLiteral("文件身份查询包含无效 SHA-1。")); return;
+            emit modrinthFilesFinished(requestKey, {}, {}, QCoreApplication::translate("ResourceStore", "文件身份查询包含无效 SHA-1。")); return;
         }
         requested.insert(sha.toLower());
     }
     if (requested.size() > 100) {
-        emit modrinthFilesFinished(requestKey, {}, {}, QStringLiteral("单批文件身份查询超过 100 项。")); return;
+        emit modrinthFilesFinished(requestKey, {}, {}, QCoreApplication::translate("ResourceStore", "单批文件身份查询超过 100 项。")); return;
     }
     if (requested.isEmpty()) { emit modrinthFilesFinished(requestKey, {}, {}, {}); return; }
     QString base = m_modrinthApiBaseOverride.isEmpty()
@@ -401,16 +402,16 @@ void ResourceStore::fetchModrinthFiles(const QString &requestKey, const QStringL
         [this, requestKey, requested](QNetworkReply *reply, const QString &jobError) {
         m_replies.remove(requestKey);
         if (reply == nullptr) {
-            emit modrinthFilesFinished(requestKey, {}, {}, unansweredText(QStringLiteral("识别已安装模组"), jobError));
+            emit modrinthFilesFinished(requestKey, {}, {}, unansweredText(QCoreApplication::translate("ResourceStore", "识别已安装模组"), jobError));
             return;
         }
         const auto body = reply->readAll();
         if (!okStatus(statusOf(reply))) {
-            emit modrinthFilesFinished(requestKey, {}, {}, failureText(reply, body, QStringLiteral("识别已安装模组"))); return;
+            emit modrinthFilesFinished(requestKey, {}, {}, failureText(reply, body, QCoreApplication::translate("ResourceStore", "识别已安装模组"))); return;
         }
         const auto document = QJsonDocument::fromJson(body);
         if (!document.isObject()) {
-            emit modrinthFilesFinished(requestKey, {}, {}, QStringLiteral("模组哈希查询响应不是有效对象。")); return;
+            emit modrinthFilesFinished(requestKey, {}, {}, QCoreApplication::translate("ResourceStore", "模组哈希查询响应不是有效对象。")); return;
         }
         QHash<QString, QString> projects;
         QHash<QString, ResourceCatalog::VersionEntry> versions;
@@ -427,14 +428,14 @@ void ResourceStore::fetchModrinthFiles(const QString &requestKey, const QStringL
             if (parsed.size() == 1) for (const auto &file : parsed.first().files)
                 if (file.sha1.compare(sha, Qt::CaseInsensitive) == 0) matched = true;
             if (project.isEmpty() || parsed.size() != 1 || parsed.first().id.isEmpty() || !matched) {
-                problem = QStringLiteral("部分模组身份响应缺少项目/发行版，或文件哈希不符；未采信这些条目。");
+                problem = QCoreApplication::translate("ResourceStore", "部分模组身份响应缺少项目/发行版，或文件哈希不符；未采信这些条目。");
                 continue;
             }
             if (projects.contains(sha) && (projects.value(sha) != project || versions.value(sha).id != parsed.first().id)) {
                 projects.remove(sha);
                 versions.remove(sha);
                 ambiguous.insert(sha);
-                problem = QStringLiteral("同一文件哈希返回了相互冲突的项目或发行版，未采信。");
+                problem = QCoreApplication::translate("ResourceStore", "同一文件哈希返回了相互冲突的项目或发行版，未采信。");
                 continue;
             }
             projects.insert(sha, project);
@@ -459,13 +460,13 @@ void ResourceStore::fetchModrinthVersion(const QString &requestKey, const QStrin
         m_replies.remove(requestKey);
         if (reply == nullptr) {
             emit modrinthVersionFinished(requestKey, {}, {},
-                unansweredText(QStringLiteral("读取精确前置版本"), jobError));
+                unansweredText(QCoreApplication::translate("ResourceStore", "读取精确前置版本"), jobError));
             return;
         }
         const QByteArray body = reply->readAll();
         if (!okStatus(statusOf(reply))) {
             emit modrinthVersionFinished(requestKey, {}, {},
-                failureText(reply, body, QStringLiteral("读取精确前置版本")));
+                failureText(reply, body, QCoreApplication::translate("ResourceStore", "读取精确前置版本")));
             return;
         }
         const auto document = QJsonDocument::fromJson(body);
@@ -474,7 +475,7 @@ void ResourceStore::fetchModrinthVersion(const QString &requestKey, const QStrin
         const auto parsed = ResourceCatalog::parseVersions(QJsonDocument(QJsonArray{object}).toJson());
         if (!document.isObject() || project.isEmpty() || parsed.size() != 1 || parsed.first().id != versionId) {
             emit modrinthVersionFinished(requestKey, {}, {},
-                QStringLiteral("精确前置版本响应缺少项目身份或发行版 ID 不匹配。"));
+                QCoreApplication::translate("ResourceStore", "精确前置版本响应缺少项目身份或发行版 ID 不匹配。"));
             return;
         }
         emit modrinthVersionFinished(requestKey, project, parsed.first(), {});
@@ -486,7 +487,7 @@ void ResourceStore::fetchCurseForgeVersion(const QString &requestKey, const QStr
     bool valid = false;
     const qint64 id = fileId.toLongLong(&valid);
     if (!valid || id <= 0 || id > 9007199254740991LL || QString::number(id) != fileId) {
-        emit curseForgeVersionFinished(requestKey, {}, {}, QStringLiteral("CurseForge 文件 ID 无效。"));
+        emit curseForgeVersionFinished(requestKey, {}, {}, QCoreApplication::translate("ResourceStore", "CurseForge 文件 ID 无效。"));
         return;
     }
     delete m_replies.take(requestKey);
@@ -499,13 +500,13 @@ void ResourceStore::fetchCurseForgeVersion(const QString &requestKey, const QStr
         m_replies.remove(requestKey);
         if (reply == nullptr) {
             emit curseForgeVersionFinished(requestKey, {}, {},
-                unansweredText(QStringLiteral("读取精确前置文件"), jobError));
+                unansweredText(QCoreApplication::translate("ResourceStore", "读取精确前置文件"), jobError));
             return;
         }
         const auto body = reply->readAll();
         if (!okStatus(statusOf(reply))) {
             emit curseForgeVersionFinished(requestKey, {}, {}, failureText(reply, body,
-                QStringLiteral("读取精确前置文件"), ResourceCatalog::Source::CurseForge, !m_curseForgeApiKey.isEmpty()));
+                QCoreApplication::translate("ResourceStore", "读取精确前置文件"), ResourceCatalog::Source::CurseForge, !m_curseForgeApiKey.isEmpty()));
             return;
         }
         const auto document = QJsonDocument::fromJson(body);
@@ -513,7 +514,7 @@ void ResourceStore::fetchCurseForgeVersion(const QString &requestKey, const QStr
         const auto parsed = ResourceCatalog::parseCurseForgeVersions(body);
         const qint64 project = data.size() == 1 ? data.first().toObject().value(QStringLiteral("modId")).toInteger(-1) : -1;
         if (project <= 0 || project > 9007199254740991LL || parsed.size() != 1 || parsed.first().id != fileId) {
-            emit curseForgeVersionFinished(requestKey, {}, {}, QStringLiteral("精确前置文件响应缺少项目身份或文件 ID 不匹配。"));
+            emit curseForgeVersionFinished(requestKey, {}, {}, QCoreApplication::translate("ResourceStore", "精确前置文件响应缺少项目身份或文件 ID 不匹配。"));
             return;
         }
         emit curseForgeVersionFinished(requestKey, QString::number(project), parsed.first(), {});
@@ -538,7 +539,7 @@ void ResourceStore::fetchVersions(const QString &requestKey, const QString &proj
         [this, requestKey, source](QNetworkReply *reply, const QString &jobError) {
         m_replies.remove(requestKey);
 
-        const QString what = QStringLiteral("读取版本列表");
+        const QString what = QCoreApplication::translate("ResourceStore", "读取版本列表");
         if (reply == nullptr) {
             emit versionsFinished(requestKey, QList<ResourceCatalog::VersionEntry>(),
                                   unansweredText(what, jobError));
@@ -576,7 +577,7 @@ void ResourceStore::fetchVersions(const QString &requestKey, const QString &proj
                 : document.isArray();
         if (!looksLikeList) {
             emit versionsFinished(requestKey, QList<ResourceCatalog::VersionEntry>(),
-                                  QStringLiteral("版本列表无法解析（接口返回的不是一份版本清单）"));
+                                  QCoreApplication::translate("ResourceStore", "版本列表无法解析（接口返回的不是一份版本清单）"));
             return;
         }
         emit versionsFinished(requestKey, ResourceCatalog::parseVersions(body), QString());
@@ -603,7 +604,7 @@ void ResourceStore::fetchProjects(const QString &requestKey, const QStringList &
     const RequestBudget::ControlGet::Completion completion =
         [this, requestKey, source](QNetworkReply *reply, const QString &jobError) {
         m_replies.remove(requestKey);
-        const QString what = QStringLiteral("读取资源信息");
+        const QString what = QCoreApplication::translate("ResourceStore", "读取资源信息");
 
         if (reply == nullptr) {
             emit projectsFinished(requestKey, QList<ResourceCatalog::Hit>(),

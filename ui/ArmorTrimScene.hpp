@@ -1,5 +1,6 @@
 #pragma once
 #include "SkinModel.hpp"
+#include <QCoreApplication>
 #include <QHash>
 #include <QPainter>
 
@@ -14,7 +15,8 @@ inline Result build(const QHash<QString,QImage> &images, const QString &armor, i
     const bool trimmed=!pattern.isEmpty();
     if (armor.isEmpty() || (trimmed && material.isEmpty()) || part < 0 || part > 3
         || (armor == QStringLiteral("turtle") && (wholeSet || part != 0))) {
-        result.error = QStringLiteral("当前盔甲与部位组合不支持预览。"); return result;
+        result.error = QCoreApplication::translate("ArmorTrimScene", "当前盔甲与部位组合不支持预览。");
+        return result;
     }
     auto boxes = SkinModel::playerCuboids(false);
     // Empty support canvas: a mannequin would hide the inside of hollow armor.
@@ -39,7 +41,7 @@ inline Result build(const QHash<QString,QImage> &images, const QString &armor, i
         if (base.size() != QSize(64,32) || (trimmed && (keys.size() != QSize(8,1)
             || palette.size() != QSize(8,1) || patternImage.size() != QSize(64,32)))) {
             result.scene = {};
-            result.error = QStringLiteral("当前资源缺少所选盔甲、图案或调色板。请换用包含此图案的客户端（涡流/镶铆需要 1.21；树脂质需要 1.21.4）。");
+            result.error = QCoreApplication::translate("ArmorTrimScene", "当前资源缺少所选盔甲、图案或调色板。请换用包含此图案的客户端（涡流/镶铆需要 1.21；树脂质需要 1.21.4）。");
             return result;
         }
         if (armor == QStringLiteral("leather")) {
@@ -52,7 +54,11 @@ inline Result build(const QHash<QString,QImage> &images, const QString &armor, i
                 }
             }
             const auto overlay = images.value(baseKey + QStringLiteral("_overlay"));
-            if (overlay.isNull()) { result.scene={}; result.error=QStringLiteral("皮革覆盖纹理缺失。"); return result; }
+            if (overlay.isNull()) {
+                result.scene = {};
+                result.error = QCoreApplication::translate("ArmorTrimScene", "皮革覆盖纹理缺失。");
+                return result;
+            }
             QPainter composite(&base); composite.drawImage(0,0,overlay);
         }
         // Palette substitution without a dependency on core tools (ui/ never includes src/).

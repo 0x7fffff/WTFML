@@ -119,7 +119,7 @@ void IntegrityReportPage::rebuild() {
     // ---------- 总述那一句 ----------
     // error 非空时总述就是那句 error 本身（`summary` 那一栏由翻译点填成同一句），所以这里
     // 只把实例名拼在前面，让用户一眼看清说的是哪个实例。
-    m_summaryLabel->setText(QStringLiteral("「%1」%2").arg(m_report.instanceName, m_report.summary));
+    m_summaryLabel->setText(tr("「%1」%2").arg(m_report.instanceName, m_report.summary));
 
     // ---------- 出错那一块 ----------
     const bool hasError = !m_report.error.isEmpty();

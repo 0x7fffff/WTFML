@@ -214,8 +214,8 @@ void PresetController::captureForEditor(const QString &instanceId) {
     const QString curseForgeKey = m_presetApiKey;
     const QString curseForgeBase =
         m_versions ? m_versions->curseForgeResolveSettings().apiBaseOverride : QString();
-    const QString modrinthFailedText = tr("Modrinth 那一侧没问成：%1");
-    const QString curseForgeFailedText = tr("CurseForge 那一侧没问成：%1");
+    const QString modrinthFailedText = tr("查询 Modrinth 失败：%1");
+    const QString curseForgeFailedText = tr("查询 CurseForge 失败：%1");
     auto *watcher = new QFutureWatcher<EditorCapture>(this);
     if (m_page) {
         m_page->setBusy(true);
@@ -264,10 +264,7 @@ void PresetController::captureForEditor(const QString &instanceId) {
                 QStringList notes = capture.report.problems;
                 if (unresolved)
                     notes.prepend(
-                        tr("%1 个模组在 Modrinth 和 CurseForge 上都没认出来（可能手工改过、"
-                           "或者没传到任何一个平台），请在模组页补充 —— 那一页可以勾"
-                           "「只看没认出来的」先挑它们出来，或者点「移除没认出来的」整批删掉；"
-                           "也可以在概览中暂时禁用模组部分。")
+                        tr("Modrinth 和 CurseForge 均未识别 %1 个模组。可在模组页筛选来源未知的项目，补充或移除它们，也可在概览中停用模组部分。")
                             .arg(unresolved));
                 notes.append(capture.lookupProblems);
                 m_editor->showProblem(notes.join('\n'));

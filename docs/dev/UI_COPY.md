@@ -96,8 +96,22 @@
 | **加载器** | Loader | 指代各类模组加载程序（Forge、NeoForge、Fabric、Quilt）。界面中统一使用短名。 | 默认不展开写「模组加载器」，严禁使用「ModLoader」「Mod 加载器」 |
 | **整合包** | Modpack | 指代打包分发的模组包（如 CurseForge 整合包、Modrinth 整合包）。 | 严禁使用「模组包」「Modpack」「modpack」 |
 | **模组预设** | Mod Preset | 指代对模组组合清单及配置项的投影定义文件；在预设管理页内部上下文明确时可简称为「预设」。 | 严禁简写为「配置预设」或与游戏预设混淆 |
+| **微软登录** | Microsoft sign-in | 登录入口和提示使用全称，账号类型标签使用 Microsoft。 | Genuine login |
+| **世界存档** | Worlds / world save | 列表页用 Worlds，读写、备份等文件操作用 world save。压缩归档用 archive。 | Archive（指游戏世界时） |
+| **模组、数据包、光影包、原理图** | Mod, Datapack, Shaderpack, Schematic | 文件类别页和列表标题用复数，单项和修饰语按上下文用单数。 | Module、Packet、Light and shadow package、Schematic diagram |
+| **启用、禁用** | Enable / Disable，Enabled / Disabled | 按钮用动词，状态和统计标签用 Enabled 或 Disabled。 | Activating（指已启用时） |
+| **日志、报告** | Log / Logs，Report / Reports | 单份记录用单数，页面集合、目录和导出选项按实际数量选用单复数。 | — |
 | **工具箱** | Toolbox | 启动器内置的辅助工具集合页面。各工具统一使用规范短名（附魔助手、彩色文本、坐标换算、延迟测试、SHA 校验、信标计算、酿造助手、旗帜设计、纹饰搭配、高速下载）。 | 严禁叫「常用工具」「实用工具」「辅助工具」，各工具禁止使用带有「生成器」「检测」的长名称 |
 | **智能体** | Agent | 启动器内置的 AI 维护与对话交互功能。导航与页面标题统一叫「智能体」，对话流中助手的角色标签统一叫「助手」。 | 严禁在界面用户可见文案中直接暴露英文「Agent」或叫「AI 机器人」 |
+
+### Minecraft 原版名称
+
+附魔、状态效果、药水、方块与物品、盔甲纹饰、旗帜图案及世界规则的中英对照见
+[Minecraft 原版术语表](../../assets/i18n/minecraft_terms.csv)。术语表使用 Java 版 26.3 客户端的美式英语
+和该游戏安装缓存的简体中文资源，注记列记录游戏中的语言键。遇到版本差异时，按功能所针对的游戏版本核对该键。
+
+「力量」在弓的魔咒中用 `Power`，在状态效果中用 `Strength`。「摔落缓冲」用 `Feather Falling`。
+酿造助手使用完整物品名，如「神龟药水 / Potion of the Turtle Master」。
 
 ### 待主脑裁定的术语冲突项
 

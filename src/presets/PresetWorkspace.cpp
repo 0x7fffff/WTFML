@@ -1,4 +1,5 @@
 #include "PresetWorkspace.hpp"
+#include <QCoreApplication>
 #include "util/WriteDirectoryGuard.hpp"
 #include "DataPackPreset.hpp"
 #include "GenericFiles.hpp"
@@ -52,11 +53,11 @@ namespace {
 bool copyFile(const QString &source, const QString &target, QString *problem) {
     QFile input(source);
     if (QFileInfo(source).isSymLink() || !input.open(QIODevice::ReadOnly)) {
-        *problem = QStringLiteral("无法读取文件：%1").arg(source);
+        *problem = QCoreApplication::translate("PresetWorkspace", "无法读取文件：%1").arg(source);
         return false;
     }
     if (!DownloadCheckpoint::safePath(target)) {
-        *problem = QStringLiteral("资源目标路径不安全。");
+        *problem = QCoreApplication::translate("PresetWorkspace", "资源目标路径不安全。");
         return false;
     }
     if (QFileInfo::exists(target)) {
@@ -67,11 +68,11 @@ bool copyFile(const QString &source, const QString &target, QString *problem) {
         if (existing.open(QIODevice::ReadOnly) && a.addData(&input) && b.addData(&existing) &&
             a.result() == b.result())
             return true;
-        *problem = QStringLiteral("已有资源文件与待保存内容不一致，原文件保留。");
+        *problem = QCoreApplication::translate("PresetWorkspace", "已有资源文件与待保存内容不一致，原文件保留。");
         return false;
     }
     if (!QDir().mkpath(QFileInfo(target).absolutePath())) {
-        *problem = QStringLiteral("无法创建预设文件目录。");
+        *problem = QCoreApplication::translate("PresetWorkspace", "无法创建预设文件目录。");
         return false;
     }
     QSaveFile output(target);
@@ -102,16 +103,16 @@ EditorSaveResult saveEditorDocument(const QString &root, const QJsonObject &inpu
     auto state = input;
     const auto id = state.value("id").toString();
     if (!isValidPresetId(id)) {
-        result.problem = QStringLiteral("预设标识无效。");
+        result.problem = QCoreApplication::translate("PresetWorkspace", "预设标识无效。");
         return result;
     }
     QString name = cleanDisplayName(state.value("name").toString());
     if (name.isEmpty()) {
         if (!draft) {
-            result.problem = QStringLiteral("请填写预设名称。");
+            result.problem = QCoreApplication::translate("PresetWorkspace", "请填写预设名称。");
             return result;
         }
-        name = QStringLiteral("未命名预设");
+        name = QCoreApplication::translate("PresetWorkspace", "未命名预设");
     }
     state["name"] = name;
     PresetManifest manifest;
@@ -121,7 +122,7 @@ EditorSaveResult saveEditorDocument(const QString &root, const QJsonObject &inpu
     manifest.updatedAt = manifest.createdAt;
     const auto destinationRoot = draft ? root + "/drafts" : root;
     if (!DownloadCheckpoint::safePath(presetDir(destinationRoot, id))) {
-        result.problem = QStringLiteral("预设目录包含不安全的路径。");
+        result.problem = QCoreApplication::translate("PresetWorkspace", "预设目录包含不安全的路径。");
         return result;
     }
     if(!WriteDirectoryGuard::acquire(presetDir(destinationRoot,id),&result.problem))return result;
@@ -161,14 +162,14 @@ EditorSaveResult saveEditorDocument(const QString &root, const QJsonObject &inpu
     }
     for (const auto &value : normalized) {
         if (!value.isObject()) {
-            result.problem = QStringLiteral("预设内容无效。");
+            result.problem = QCoreApplication::translate("PresetWorkspace", "预设内容无效。");
             return result;
         }
         auto json = value.toObject();
         bool valid = false;
         auto section = sectionFromJson(json, &valid);
         if (!valid) {
-            result.problem = QStringLiteral("预设条目格式无效。");
+            result.problem = QCoreApplication::translate("PresetWorkspace", "预设条目格式无效。");
             return result;
         }
         const auto part = editorSectionPart(section);
@@ -184,8 +185,7 @@ EditorSaveResult saveEditorDocument(const QString &root, const QJsonObject &inpu
                     key.contains('\r') || val.contains('\n') || val.contains('\r') ||
                     keys.contains(key) || !object.value("value").isString() ||
                     ((section.kind == SectionKind::VanillaKeys) != key.startsWith("key_"))) {
-                    result.problem = QStringLiteral(
-                        "设置键不能为空或重复；按键请放在按键页，数值中不能含换行。");
+                    result.problem = QCoreApplication::translate("PresetWorkspace", "设置键不能为空或重复；按键请放在按键页，数值中不能含换行。");
                     return result;
                 }
                 keys.insert(key);
@@ -205,7 +205,7 @@ EditorSaveResult saveEditorDocument(const QString &root, const QJsonObject &inpu
         if (!draft && on("mods") &&
             (ref.platform.isEmpty() || ref.projectId.trimmed().isEmpty() ||
              identities.contains(key))) {
-            result.problem = QStringLiteral("请选择模组来源并填写唯一的项目 ID。");
+            result.problem = QCoreApplication::translate("PresetWorkspace", "请选择模组来源并填写唯一的项目 ID。");
             return result;
         }
         identities.insert(key);
@@ -216,7 +216,7 @@ EditorSaveResult saveEditorDocument(const QString &root, const QJsonObject &inpu
         activeParts.insert("mods");
     }
     if (!draft && activeParts.isEmpty()) {
-        result.problem = QStringLiteral("至少添加并启用一项内容后才能保存为预设。");
+        result.problem = QCoreApplication::translate("PresetWorkspace", "至少添加并启用一项内容后才能保存为预设。");
         return result;
     }
     manifest.category = activeParts.size() == 1 ? presetCategoryFromKey(*activeParts.begin())
@@ -233,19 +233,19 @@ EditorSaveResult saveEditorDocument(const QString &root, const QJsonObject &inpu
             if (!source.isEmpty()) {
                 QFile file(source);
                 if (QFileInfo(source).isSymLink() || !file.open(QIODevice::ReadOnly)) {
-                    result.problem = QStringLiteral("无法读取资源文件：%1").arg(source);
+                    result.problem = QCoreApplication::translate("PresetWorkspace", "无法读取资源文件：%1").arg(source);
                     return result;
                 }
                 QCryptographicHash hash(QCryptographicHash::Sha256);
                 if (!hash.addData(&file)) {
-                    result.problem = QStringLiteral("资源文件校验失败。");
+                    result.problem = QCoreApplication::translate("PresetWorkspace", "资源文件校验失败。");
                     return result;
                 }
                 relative = QFileInfo(relative).path() + "/" +
                            QString::fromLatin1(hash.result().toHex().left(12)) + "-" +
                            QFileInfo(relative).fileName();
                 if (!isSafeRelativePath(relative)) {
-                    result.problem = QStringLiteral("资源文件路径无效。");
+                    result.problem = QCoreApplication::translate("PresetWorkspace", "资源文件路径无效。");
                     return result;
                 }
                 if (!copyFile(source, filesDir(destinationRoot, id) + "/" + relative,
@@ -257,7 +257,7 @@ EditorSaveResult saveEditorDocument(const QString &root, const QJsonObject &inpu
                 item.remove("_source");
             } else if (!relative.isEmpty()) {
                 if (!isSafeRelativePath(relative)) {
-                    result.problem = QStringLiteral("资源文件路径无效。");
+                    result.problem = QCoreApplication::translate("PresetWorkspace", "资源文件路径无效。");
                     return result;
                 }
                 QString origin = state.value("_filesRoot").toString(filesDir(root, id));
@@ -265,7 +265,7 @@ EditorSaveResult saveEditorDocument(const QString &root, const QJsonObject &inpu
                 const auto candidate = QDir(origin).absolutePath();
                 if (!candidate.startsWith(base, Qt::CaseInsensitive) ||
                     !DownloadCheckpoint::safePath(origin)) {
-                    result.problem = QStringLiteral("预设资源来源目录无效。");
+                    result.problem = QCoreApplication::translate("PresetWorkspace", "预设资源来源目录无效。");
                     return result;
                 }
                 if (origin != filesDir(destinationRoot, id)) {
@@ -298,7 +298,7 @@ EditorSaveResult saveEditorDocument(const QString &root, const QJsonObject &inpu
     if (!icon.isEmpty() && QFileInfo::exists(icon)) {
         QFile file(icon);
         if (!file.open(QIODevice::ReadOnly)) {
-            result.problem = QStringLiteral("无法读取图标。");
+            result.problem = QCoreApplication::translate("PresetWorkspace", "无法读取图标。");
             return result;
         }
         QCryptographicHash hash(QCryptographicHash::Sha256);
@@ -360,7 +360,7 @@ EditorSaveResult saveEditorDocument(const QString &root, const QJsonObject &inpu
                     }
                 }
             if (!saveNewManifest(root, child)) {
-                result.problem = QStringLiteral("综合预设保存失败，原预设保留。");
+                result.problem = QCoreApplication::translate("PresetWorkspace", "综合预设保存失败，原预设保留。");
                 discardCreated();
                 return result;
             }
@@ -370,14 +370,14 @@ EditorSaveResult saveEditorDocument(const QString &root, const QJsonObject &inpu
     state["components"] = components;
     manifest.editorState = state;
     if (!saveManifest(destinationRoot, manifest)) {
-        result.problem = QStringLiteral("保存失败，原预设保留。");
+        result.problem = QCoreApplication::translate("PresetWorkspace", "保存失败，原预设保留。");
         discardCreated();
         return result;
     }
     bool indexOk = false;
     auto index = loadIndex(destinationRoot, &indexOk);
     if (indexOk && !index.contains(id) && !saveIndex(destinationRoot, appendToIndex(index, id))) {
-        result.problem = QStringLiteral("预设已保存，但列表顺序未能写入。");
+        result.problem = QCoreApplication::translate("PresetWorkspace", "预设已保存，但列表顺序未能写入。");
         if (!draft) sweepOrphanComponents(destinationRoot);
         return result;
     }

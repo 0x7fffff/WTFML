@@ -230,9 +230,17 @@ list(FILTER _cases EXCLUDE REGEX "/Ui[^/]*Check\\.cpp$")
 add_library(ui_legacy_cases STATIC ${_cases})
 target_link_libraries(ui_legacy_cases PUBLIC wtfml_ui_fixture)
 add_executable(ui_check main.cpp)
+# 「English 界面下导航轨是英文」那几条要看真的 .qm，所以这一份 exe 也带一份资源
+# （和产品同一个生成物，见顶层 CMakeLists 里 wtfml_embed_translations）。
+if(COMMAND wtfml_embed_translations)
+    wtfml_embed_translations(ui_check)
+endif()
 target_link_libraries(ui_check PRIVATE ui_legacy_cases)
 if(WTFML_COMPACT_TEST_RUNNERS)
  add_executable(ui_check_modules modules/ModuleMain.cpp)
+ if(COMMAND wtfml_embed_translations)
+  wtfml_embed_translations(ui_check_modules)
+ endif()
  target_link_libraries(ui_check_modules PRIVATE wtfml_ui_fixture)
  target_include_directories(ui_check_modules PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
  target_compile_definitions(ui_check_modules PRIVATE WTFML_COMPACT_RUNNER)
@@ -267,6 +275,9 @@ add_ui_module(ui_check_window_size modules/UiWindowSizeCheck.cpp UiWindowSizeChe
 add_ui_module(ui_check_input_widths modules/UiInputWidthCheck.cpp UiInputWidthCheck)
 # 子页面 / 弹框 / 浮层巡检：计入的残留不为 0 就失败（守卫，见模块文件头）。
 add_ui_module(ui_check_surface_sweep modules/UiSurfaceSweepCheck.cpp UiSurfaceSweepCheck)
+if(NOT WTFML_COMPACT_TEST_RUNNERS AND COMMAND wtfml_embed_translations)
+ wtfml_embed_translations(ui_check_surface_sweep)
+endif()
 add_ui_module(ui_check_resource_packs modules/UiResourcePacksCheck.cpp UiResourcePacksCheck)
 add_ui_module(ui_check_lifecycle modules/UiLifecycleCheck.cpp UiLifecycleCheck)
 add_ui_module(ui_check_ui_refresh modules/UiUiRefreshCheck.cpp UiUiRefreshCheck)
@@ -305,6 +316,11 @@ set_tests_properties(wtfml.ui-agent PROPERTIES
 )
 wtfml_add_test(NAME wtfml.ui COMMAND ui_check)
 wtfml_add_test(NAME wtfml.ui-bootstrap COMMAND ui_check --bootstrap-check)
+if(WTFML_I18N)
+    wtfml_add_test(NAME wtfml.ui-language COMMAND ui_check --language-check)
+    set_tests_properties(wtfml.ui-language PROPERTIES LABELS "ui;i18n" TIMEOUT 30
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}")
+endif()
 set_tests_properties(wtfml.ui-bootstrap PROPERTIES LABELS "ui;compile" TIMEOUT 30
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}")
 wtfml_add_test(NAME wtfml.ui-refresh COMMAND ui_check_ui_refresh)
@@ -444,5 +460,6 @@ set_tests_properties(wtfml.ui PROPERTIES
 
 get_property(WTFML_UI_TESTS DIRECTORY PROPERTY TESTS)
 set_property(TEST ${WTFML_UI_TESTS} APPEND PROPERTY LABELS ci-ui)
+
 
 

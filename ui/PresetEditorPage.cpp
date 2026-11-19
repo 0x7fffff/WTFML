@@ -1,4 +1,5 @@
 #include "PresetEditorPage.hpp"
+#include <QCoreApplication>
 #include "InputSizing.hpp"
 #include "InlineMessage.hpp"
 #include "OverlayHost.hpp"
@@ -26,8 +27,6 @@
 
 namespace {
 const QStringList parts{"gameSettings", "mods", "resourcePacks", "dataPacks", "shaderPacks"};
-const QStringList titles{QStringLiteral("游戏设置"), QStringLiteral("模组"),
-                         QStringLiteral("资源包"), QStringLiteral("数据包"), QStringLiteral("光影包")};
 QPushButton *button(const QString &text, QWidget *parent, QVBoxLayout *layout,
                     Theme::ButtonKind kind = Theme::ButtonKind::Neutral) {
     auto *b = new QPushButton(text, parent);
@@ -83,15 +82,22 @@ PresetEditorPage::PresetEditorPage(const QJsonObject &document, QWidget *parent)
     m_navigation->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_navigation->setFont(Theme::textFont(m_navigation->font(), Theme::TextRole::Body));
     m_navigation->addItems(
-        {tr("概览"), tr("游戏选项"), tr("按键"), tr("模组"), tr("资源包"), tr("数据包")});
+        {
+            QCoreApplication::translate("PresetEditorPage", "概览"),
+            QCoreApplication::translate("PresetEditorPage", "游戏选项"),
+            QCoreApplication::translate("PresetEditorPage", "按键"),
+            QCoreApplication::translate("PresetEditorPage", "模组"),
+            QCoreApplication::translate("PresetEditorPage", "资源包"),
+            QCoreApplication::translate("PresetEditorPage", "数据包"),
+        });
     side->addWidget(m_navigation, 1);
-    auto *draft = button(tr("保存为草稿"), left, side);
+    auto *draft = button(QCoreApplication::translate("PresetEditorPage", "保存为草稿"), left, side);
     draft->setObjectName("presetEditorSaveDraft");
-    auto *save = button(tr("保存为预设"), left, side, Theme::ButtonKind::Primary);
+    auto *save = button(QCoreApplication::translate("PresetEditorPage", "保存为预设"), left, side, Theme::ButtonKind::Primary);
     save->setObjectName("presetEditorPublish");
-    auto *restore = button(tr("恢复到上次"), left, side);
+    auto *restore = button(QCoreApplication::translate("PresetEditorPage", "恢复到上次"), left, side);
     restore->setObjectName("presetEditorRestore");
-    auto *clear = button(tr("全部清空"), left, side, Theme::ButtonKind::Danger);
+    auto *clear = button(QCoreApplication::translate("PresetEditorPage", "全部清空"), left, side, Theme::ButtonKind::Danger);
     clear->setObjectName("presetEditorClear");
     connect(draft, &QPushButton::clicked, this, [this] {
         if (saveRequested)
@@ -102,11 +108,11 @@ PresetEditorPage::PresetEditorPage(const QJsonObject &document, QWidget *parent)
             saveRequested(false);
     });
     connect(restore, &QPushButton::clicked, this, [this] {
-        if (!isDirty() || (confirmReset && confirmReset(tr("丢弃未保存的修改？"))))
+        if (!isDirty() || (confirmReset && confirmReset(QCoreApplication::translate("PresetEditorPage", "丢弃未保存的修改？"))))
             setDocument(m_original);
     });
     connect(clear, &QPushButton::clicked, this, [this] {
-        if ((!confirmReset || !confirmReset(tr("清空各部分内容？名称和图标保留。"))))
+        if ((!confirmReset || !confirmReset(QCoreApplication::translate("PresetEditorPage", "清空各部分内容？名称和图标保留。"))))
             return;
         auto state = this->document();
         state["sections"] = QJsonArray();
@@ -148,30 +154,37 @@ void PresetEditorPage::rebuildPages(const QJsonObject &state) {
     m_base = state;
     auto *overview = new QWidget(m_pages);
     auto *layout = new QVBoxLayout(overview);
-    layout->addWidget(new QLabel(tr("名称"), overview));
+    layout->addWidget(new QLabel(QCoreApplication::translate("PresetEditorPage", "名称"), overview));
     m_name = new QLineEdit(state.value("name").toString(), overview);
     m_name->setObjectName("presetEditorName");
     InputSizing::shortValue(m_name, InputSizing::kNameChars, InputSizing::Script::Han);
     layout->addWidget(m_name);
-    layout->addWidget(new QLabel(tr("图标"), overview));
+    layout->addWidget(new QLabel(QCoreApplication::translate("PresetEditorPage", "图标"), overview));
     auto *iconRow = new QHBoxLayout;
     m_icon = new QLineEdit(state.value("icon").toString(), overview);
     m_icon->setReadOnly(true);
     m_icon->setObjectName("presetEditorIcon");
-    InputSizing::longValue(m_icon, "只读：图标文件路径，旁边是「选择图片」");
+    InputSizing::longValue(m_icon, "只读：图标文件路径，旁边是「选择图片」");  // i18n-ignore
     iconRow->addWidget(m_icon, 1);
-    auto *choose = new QPushButton(tr("选择图片"), overview);
+    auto *choose = new QPushButton(QCoreApplication::translate("PresetEditorPage", "选择图片"), overview);
     Theme::markButton(choose, Theme::ButtonKind::Neutral);
     iconRow->addWidget(choose);
     layout->addLayout(iconRow);
     connect(choose, &QPushButton::clicked, this, [this] {
         auto path =
-            QFileDialog::getOpenFileName(this, tr("选择图标"), {}, tr("图片 (*.png *.jpg *.webp)"));
+            QFileDialog::getOpenFileName(this, QCoreApplication::translate("PresetEditorPage", "选择图标"), {}, QCoreApplication::translate("PresetEditorPage", "图片 (*.png *.jpg *.webp)"));
         if (!path.isEmpty())
             m_icon->setText(path);
     });
-    layout->addWidget(new QLabel(tr("启用部分"), overview));
+    layout->addWidget(new QLabel(QCoreApplication::translate("PresetEditorPage", "启用部分"), overview));
     const auto enabled = state.value("enabledParts").toObject();
+    const QStringList titles{
+        QCoreApplication::translate("PresetEditorPage", "游戏设置"),
+        QCoreApplication::translate("PresetEditorPage", "模组"),
+        QCoreApplication::translate("PresetEditorPage", "资源包"),
+        QCoreApplication::translate("PresetEditorPage", "数据包"),
+        QCoreApplication::translate("PresetEditorPage", "光影包"),
+    };
     for (int i = 0; i < parts.size(); ++i) {
         auto *check = new QCheckBox(titles[i], overview);
         check->setObjectName("presetEditorEnabled_" + parts[i]);
@@ -218,7 +231,7 @@ void PresetEditorPage::rebuildPages(const QJsonObject &state) {
         auto *table = new QTableWidget(0, 2, page);
         m_packs[part] = table;
         table->setObjectName("presetEditorFiles_" + part);
-        table->setHorizontalHeaderLabels({tr("文件"), tr("启用")});
+        table->setHorizontalHeaderLabels({QCoreApplication::translate("PresetEditorPage", "文件"), QCoreApplication::translate("PresetEditorPage", "启用")});
         table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
         table->setSelectionBehavior(QAbstractItemView::SelectRows);
         table->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -236,7 +249,7 @@ void PresetEditorPage::rebuildPages(const QJsonObject &state) {
                                  return a.value("priority").toInt() > b.value("priority").toInt();
                              });
         if (part != "resourcePacks") table->hideColumn(1);
-        table->horizontalHeaderItem(0)->setToolTip(tr("资源包列表上方优先。"));
+        table->horizontalHeaderItem(0)->setToolTip(QCoreApplication::translate("PresetEditorPage", "资源包列表上方优先。"));
         for (const auto &item : fileItems) {
             const int row = table->rowCount();
             table->insertRow(row);
@@ -259,14 +272,14 @@ void PresetEditorPage::rebuildPages(const QJsonObject &state) {
             actions->addWidget(b);
             connect(b, &QPushButton::clicked, this, action);
         };
-        add(tr("添加"), [this, part] { addPack(part); });
-        add(tr("移除"), [table] {
+        add(QCoreApplication::translate("PresetEditorPage", "添加"), [this, part] { addPack(part); });
+        add(QCoreApplication::translate("PresetEditorPage", "移除"), [table] {
             for (int i = table->rowCount() - 1; i >= 0; --i)
                 if (table->selectionModel()->isRowSelected(i, {}))
                     table->removeRow(i);
         });
         for (int delta : {-1, 1})
-            add(delta < 0 ? tr("上移") : tr("下移"), [table, delta] {
+            add(delta < 0 ? QCoreApplication::translate("PresetEditorPage", "上移") : QCoreApplication::translate("PresetEditorPage", "下移"), [table, delta] {
                 int row = table->currentRow(), next = row + delta;
                 if (row < 0 || next < 0 || next >= table->rowCount())
                     return;
@@ -287,7 +300,9 @@ void PresetEditorPage::addPack(const QString &part) {
     if (part == "dataPacks") {
         bool ok = false;
         // 本页是覆盖页：问名字用同一层里的提示卡，不另开带系统标题栏的 QInputDialog。
-        world = InlineMessage::getText(OverlayHost::forWidget(this), tr("目标存档"), tr("存档文件夹名称"),
+        world = InlineMessage::getText(
+            OverlayHost::forWidget(this), QCoreApplication::translate("PresetEditorPage", "目标存档"),
+            QCoreApplication::translate("PresetEditorPage", "存档文件夹名称"),
                                        QString(), &ok)
                     .trimmed();
         if (!ok || world.isEmpty() || world.contains('/') || world.contains('\\') ||
@@ -295,7 +310,7 @@ void PresetEditorPage::addPack(const QString &part) {
             return;
     }
     const auto paths =
-        QFileDialog::getOpenFileNames(this, tr("添加文件"), {}, tr("压缩包 (*.zip)"));
+        QFileDialog::getOpenFileNames(this, QCoreApplication::translate("PresetEditorPage", "添加文件"), {}, QCoreApplication::translate("PresetEditorPage", "压缩包 (*.zip)"));
     auto *table = m_packs.value(part);
     for (const auto &path : paths) {
         const int row = table->rowCount();

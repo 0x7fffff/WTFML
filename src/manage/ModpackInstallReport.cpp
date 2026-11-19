@@ -1,4 +1,5 @@
 #include "ModpackInstallReport.hpp"
+#include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
@@ -223,7 +224,7 @@ QString description(const ModpackImport::FileIssue &issue) {
     if (issue.ref.projectId <= 0 || issue.ref.fileId <= 0)
         return QStringLiteral("%1\n%2\n%3").arg(issue.fileName, issue.reason, issue.path);
     const auto url = page(issue);
-    return QStringLiteral("%1\n项目 %2 / 文件 %3 / %4\n%5%6")
+    return QCoreApplication::translate("ModpackInstallReport", "%1\n项目 %2 / 文件 %3 / %4\n%5%6")
         .arg(issue.fileName.isEmpty() ? QObject::tr("文件名未知") : issue.fileName)
         .arg(issue.ref.projectId).arg(issue.ref.fileId).arg(issue.reason,
             url.isEmpty() ? QObject::tr("未取得规范网页地址；请按编号手动查找（不代表文件下架）") : url,

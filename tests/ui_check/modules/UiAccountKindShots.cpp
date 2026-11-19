@@ -44,7 +44,7 @@ int UiAccountKindShots(QApplication &app) {
     QDir().mkpath(out);
     // 与 AuthManager::loginConfigurationError() 没配应用 ID 那一句相同（UI 测试库不链认证后端）。
     const QString unavailable =
-        QStringLiteral("这个版本暂时不能登录正版账号，可以先用离线账号进游戏。已保存的账号不会丢失。");
+        QStringLiteral("此版本未配置微软登录。已保存的账号仍会保留，可使用离线账号进入游戏。");
     const auto settle = [&app] {
         for (int i = 0; i < 12; ++i) app.processEvents();
     };

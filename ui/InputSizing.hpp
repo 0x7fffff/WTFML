@@ -74,9 +74,15 @@ inline void shortValue(QWidget *widget, int maxChars, Script script = Script::La
 }
 
 /// 本来就长的值（路径、网址、JVM 参数、命令、哈希、搜索词）：保持拉伸，reason 写一句理由。
+inline void longValue(QWidget *widget, const QString &reason) {
+    widget->setProperty(kKindProp, QStringLiteral("long"));
+    widget->setProperty(kReasonProp, reason);
+}
+
 inline void longValue(QWidget *widget, const char *reason) {
     widget->setProperty(kKindProp, QStringLiteral("long"));
     widget->setProperty(kReasonProp, QString::fromUtf8(reason));
 }
 
 }  // namespace InputSizing
+

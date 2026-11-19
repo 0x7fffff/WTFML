@@ -31,6 +31,7 @@
 #pragma once
 
 #include <QList>
+#include <QCoreApplication>
 #include <QString>
 #include <QStringList>
 
@@ -49,11 +50,11 @@ enum class Severity {
 inline QString severityName(Severity severity) {
     switch (severity) {
     case Severity::Problem:
-        return QStringLiteral("要处理");
+        return QCoreApplication::translate("ServerCheck", "要处理");
     case Severity::Warning:
-        return QStringLiteral("提醒");
+        return QCoreApplication::translate("ServerCheck", "提醒");
     case Severity::Info:
-        return QStringLiteral("说明");
+        return QCoreApplication::translate("ServerCheck", "说明");
     }
     return QString();
 }
@@ -155,7 +156,7 @@ QString summaryText(const QList<Finding> &findings);
 // ---------------------------------------------------------------------------
 
 inline QString allGoodText() {
-    return QStringLiteral("没有发现问题 —— 入口文件齐、配置文件的值都对、端口也没人占。");
+    return QCoreApplication::translate("ServerCheck", "启动入口、配置和端口检查均通过。");
 }
 
 inline QString summaryText(const QList<Finding> &findings) {
@@ -180,13 +181,13 @@ inline QString summaryText(const QList<Finding> &findings) {
     }
     QStringList parts;
     if (problems > 0) {
-        parts.append(QStringLiteral("%1 项要处理").arg(problems));
+        parts.append(QCoreApplication::translate("ServerCheck", "%1 项要处理").arg(problems));
     }
     if (warnings > 0) {
-        parts.append(QStringLiteral("%1 项提醒").arg(warnings));
+        parts.append(QCoreApplication::translate("ServerCheck", "%1 项提醒").arg(warnings));
     }
     if (infos > 0) {
-        parts.append(QStringLiteral("%1 项说明").arg(infos));
+        parts.append(QCoreApplication::translate("ServerCheck", "%1 项说明").arg(infos));
     }
     return parts.join(QStringLiteral(" / "));
 }
@@ -198,45 +199,42 @@ inline QList<Finding> inspect(const Facts &facts) {
     if (!facts.installed) {
         QString detail = facts.installedNote;
         if (detail.isEmpty()) {
-            detail = QStringLiteral("入口文件不在这个目录里。");
+            detail = QCoreApplication::translate("ServerCheck", "入口文件不在这个目录里。");
         }
-        detail += QStringLiteral("\n点「修复（重新安装）」下载缺失文件。");
-        findings.append(Finding{Severity::Problem, QStringLiteral("这个服务端尚未安装完成"), detail,
+        detail += QCoreApplication::translate("ServerCheck", "\n点「修复（重新安装）」下载缺失文件。");
+        findings.append(Finding{Severity::Problem, QCoreApplication::translate("ServerCheck", "这个服务端尚未安装完成"), detail,
                                 Action::Reinstall});
     } else {
         // 装好了才有"记的那一份说不说得清"这一说（没装好那一条已经把话说了）。
         if (!facts.metaKnown) {
             findings.append(Finding{
-                Severity::Warning, QStringLiteral("服务端安装记录缺失"),
-                QStringLiteral("无法确定安装类型与重装参数。请检查启动文件，"
-                               "或通过启动器重新创建服务端。"),
+                Severity::Warning, QCoreApplication::translate("ServerCheck", "服务端安装记录缺失"),
+                QCoreApplication::translate("ServerCheck", "无法确定安装类型与重装参数。请检查启动文件，" "或通过启动器重新创建服务端。"),
                 Action::None});
         } else if (!facts.launchable) {
             findings.append(Finding{
-                Severity::Problem, QStringLiteral("无法根据安装记录生成启动命令"),
+                Severity::Problem, QCoreApplication::translate("ServerCheck", "无法根据安装记录生成启动命令"),
                 (facts.launchProblem.isEmpty()
-                     ? QStringLiteral("安装记录缺少启动所需的版本信息。")
+                     ? QCoreApplication::translate("ServerCheck", "安装记录缺少启动所需的版本信息。")
                      : facts.launchProblem)
-                    + QStringLiteral("\n点「修复（重新安装）」按记录的来源完整重装。"),
+                    + QCoreApplication::translate("ServerCheck", "\n点「修复（重新安装）」按记录的来源完整重装。"),
                 Action::Reinstall});
         }
     }
 
     if (facts.installed && !facts.eulaAccepted) {
         findings.append(Finding{
-            Severity::Problem, QStringLiteral("尚未接受 Minecraft 最终用户许可协议"),
-            QStringLiteral("首次启动前需阅读并接受协议，"
-                           "确认后将更新 eula.txt。"),
+            Severity::Problem, QCoreApplication::translate("ServerCheck", "尚未接受 Minecraft 最终用户许可协议"),
+            QCoreApplication::translate("ServerCheck", "首次启动前需阅读并接受协议，" "确认后将更新 eula.txt。"),
             Action::AcceptEula});
     }
 
     for (const ServerPropertiesForm::ValueProblem &problem : facts.valueProblems) {
         findings.append(Finding{
             Severity::Problem,
-            QStringLiteral("「%1」的值无效").arg(problem.label),
-            QStringLiteral("当前值：%1。%2\n可恢复默认值，"
-                           "或在「常用设置」中修改。")
-                .arg(problem.value.isEmpty() ? QStringLiteral("（空的）") : problem.value,
+            QCoreApplication::translate("ServerCheck", "「%1」的值无效").arg(problem.label),
+            QCoreApplication::translate("ServerCheck", "当前值：%1。%2\n可恢复默认值，" "或在「常用设置」中修改。")
+                .arg(problem.value.isEmpty() ? QCoreApplication::translate("ServerCheck", "（空的）") : problem.value,
                      problem.problem),
             Action::FixValues});
     }
@@ -246,9 +244,8 @@ inline QList<Finding> inspect(const Facts &facts) {
     if (facts.installed && !facts.running && facts.port > 0
         && facts.portState == ServerPortCheck::State::InUse) {
         findings.append(Finding{
-            Severity::Problem, QStringLiteral("端口 %1 已被占用").arg(facts.port),
-            QStringLiteral("端口冲突将导致服务端启动失败。\n"
-                           "请关闭占用端口的程序，或在「常用设置」中更换端口。"),
+            Severity::Problem, QCoreApplication::translate("ServerCheck", "端口 %1 已被占用").arg(facts.port),
+            QCoreApplication::translate("ServerCheck", "端口冲突将导致服务端启动失败。\n" "请关闭占用端口的程序，或在「常用设置」中更换端口。"),
             Action::OpenSettings});
     }
 
@@ -256,18 +253,15 @@ inline QList<Finding> inspect(const Facts &facts) {
     if (!facts.duplicateKeys.isEmpty()) {
         findings.append(Finding{
             Severity::Warning,
-            QStringLiteral("配置包含重复键：%1")
-                .arg(facts.duplicateKeys.join(QStringLiteral("、"))),
-            QStringLiteral("重复键以最后一项为准。"
-                           "可在「原始文本」中移除重复项。"),
+            QCoreApplication::translate("ServerCheck", "配置包含重复键：%1")
+                .arg(facts.duplicateKeys.join(QCoreApplication::translate("ServerCheck", "、"))),
+            QCoreApplication::translate("ServerCheck", "重复键以最后一项为准。" "可在「原始文本」中移除重复项。"),
             Action::None});
     }
     if (facts.installed && facts.worldBackupCount <= 0 && facts.worldExists) {
         findings.append(Finding{
-            Severity::Warning, QStringLiteral("世界尚无备份"),
-            QStringLiteral("世界数据无法通过重新下载恢复。"
-                           "建议在「世界备份」中选择"
-                           "「立即备份」。"),
+            Severity::Warning, QCoreApplication::translate("ServerCheck", "世界尚无备份"),
+            QCoreApplication::translate("ServerCheck", "世界数据无法通过重新下载恢复。" "建议在「世界备份」中选择" "「立即备份」。"),
             Action::OpenBackups});
     }
 
@@ -276,16 +270,16 @@ inline QList<Finding> inspect(const Facts &facts) {
         // 新装的、还没跑过的服务端就是这样：世界要等它第一次起来才生成。
         findings.append(Finding{
             Severity::Info,
-            QStringLiteral("世界「%1」尚未生成").arg(facts.worldName),
-            QStringLiteral("世界目录将在首次启动时生成。"),
+            QCoreApplication::translate("ServerCheck", "世界「%1」尚未生成").arg(facts.worldName),
+            QCoreApplication::translate("ServerCheck", "世界目录将在首次启动时生成。"),
             Action::None});
     } else if (facts.installed && facts.worldExists) {
         findings.append(Finding{
-            Severity::Info, QStringLiteral("世界「%1」已存在").arg(facts.worldName),
-            QStringLiteral("目录：%1/%2。")
+            Severity::Info, QCoreApplication::translate("ServerCheck", "世界「%1」已存在").arg(facts.worldName),
+            QCoreApplication::translate("ServerCheck", "目录：%1/%2。")
                 .arg(facts.worldName,
                      facts.worldBytes > 0
-                         ? QStringLiteral("，大小 %1 MB")
+                         ? QCoreApplication::translate("ServerCheck", "，大小 %1 MB")
                                .arg(QString::number(double(facts.worldBytes) / (1024.0 * 1024.0),
                                                     'f', 1))
                          : QString()),
@@ -294,18 +288,17 @@ inline QList<Finding> inspect(const Facts &facts) {
     if (facts.modCount > 0) {
         findings.append(Finding{
             Severity::Info,
-            QStringLiteral("已安装 %1 个模组或插件").arg(facts.modCount),
-            QStringLiteral("新增或更改模组后需重启服务端。"),
+            QCoreApplication::translate("ServerCheck", "已安装 %1 个模组或插件").arg(facts.modCount),
+            QCoreApplication::translate("ServerCheck", "新增或更改模组后需重启服务端。"),
             Action::None});
     }
     if (!facts.unknownKeys.isEmpty()) {
         findings.append(Finding{
             Severity::Info,
-            QStringLiteral("配置包含 %1 项未提供表单编辑的设置")
+            QCoreApplication::translate("ServerCheck", "配置包含 %1 项未提供表单编辑的设置")
                 .arg(facts.unknownKeys.size()),
-            QStringLiteral("以下设置（%1）可在「原始文本」中编辑。"
-                           "保存表单时将保留其原值。")
-                .arg(facts.unknownKeys.mid(0, 6).join(QStringLiteral("、"))),
+            QCoreApplication::translate("ServerCheck", "以下设置（%1）可在「原始文本」中编辑。" "保存表单时将保留其原值。")
+                .arg(facts.unknownKeys.mid(0, 6).join(QCoreApplication::translate("ServerCheck", "、"))),
             Action::None});
     }
     return findings;

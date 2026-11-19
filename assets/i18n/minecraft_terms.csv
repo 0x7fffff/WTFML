@@ -1,0 +1,340 @@
+Term [zh-CN],Term [en-US],Concept Subject,Concept Note
+紫水晶碎片,Amethyst Shard,方块与物品,item.minecraft.amethyst_shard
+旗帜图案,Banner Pattern,方块与物品,item.minecraft.creeper_banner_pattern
+黑石,Blackstone,方块与物品,block.minecraft.blackstone
+烈焰粉,Blaze Powder,方块与物品,item.minecraft.blaze_powder
+铜块,Block of Copper,方块与物品,block.minecraft.copper_block
+钻石块,Block of Diamond,方块与物品,block.minecraft.diamond_block
+绿宝石块,Block of Emerald,方块与物品,block.minecraft.emerald_block
+金块,Block of Gold,方块与物品,block.minecraft.gold_block
+铁块,Block of Iron,方块与物品,block.minecraft.iron_block
+下界合金块,Block of Netherite,方块与物品,block.minecraft.netherite_block
+旋风棒,Breeze Rod,方块与物品,item.minecraft.breeze_rod
+锁链,Chain,方块与物品,block.minecraft.chain
+深板岩圆石,Cobbled Deepslate,方块与物品,block.minecraft.cobbled_deepslate
+圆石,Cobblestone,方块与物品,block.minecraft.cobblestone
+蜘蛛网,Cobweb,方块与物品,block.minecraft.cobweb
+铜锭,Copper Ingot,方块与物品,item.minecraft.copper_ingot
+钻石,Diamond,方块与物品,item.minecraft.diamond
+龙息,Dragon's Breath,方块与物品,item.minecraft.dragon_breath
+绿宝石,Emerald,方块与物品,item.minecraft.emerald
+附魔金苹果,Enchanted Golden Apple,方块与物品,item.minecraft.enchanted_golden_apple
+末地石,End Stone,方块与物品,block.minecraft.end_stone
+恶魂之泪,Ghast Tear,方块与物品,item.minecraft.ghast_tear
+闪烁的西瓜片,Glistering Melon Slice,方块与物品,item.minecraft.glistering_melon_slice
+荧石粉,Glowstone Dust,方块与物品,item.minecraft.glowstone_dust
+金锭,Gold Ingot,方块与物品,item.minecraft.gold_ingot
+金胡萝卜,Golden Carrot,方块与物品,item.minecraft.golden_carrot
+火药,Gunpowder,方块与物品,item.minecraft.gunpowder
+铁锭,Iron Ingot,方块与物品,item.minecraft.iron_ingot
+青金石,Lapis Lazuli,方块与物品,item.minecraft.lapis_lazuli
+皮革,Leather,方块与物品,item.minecraft.leather
+岩浆膏,Magma Cream,方块与物品,item.minecraft.magma_cream
+苔石,Mossy Cobblestone,方块与物品,block.minecraft.mossy_cobblestone
+下界疣,Nether Wart,方块与物品,block.minecraft.nether_wart
+下界合金锭,Netherite Ingot,方块与物品,item.minecraft.netherite_ingot
+下界岩,Netherrack,方块与物品,block.minecraft.netherrack
+橡树树苗,Oak Sapling,方块与物品,block.minecraft.oak_sapling
+滨菊,Oxeye Daisy,方块与物品,block.minecraft.oxeye_daisy
+幻翼膜,Phantom Membrane,方块与物品,item.minecraft.phantom_membrane
+药水,Potion,方块与物品,item.minecraft.potion
+海晶石,Prismarine,方块与物品,block.minecraft.prismarine
+河豚,Pufferfish,方块与物品,item.minecraft.pufferfish
+紫珀块,Purpur Block,方块与物品,block.minecraft.purpur_block
+兔子脚,Rabbit's Foot,方块与物品,item.minecraft.rabbit_foot
+红石粉,Redstone Dust,方块与物品,item.minecraft.redstone
+树脂砖,Resin Brick,方块与物品,item.minecraft.resin_brick
+砂岩,Sandstone,方块与物品,block.minecraft.sandstone
+黏液块,Slime Block,方块与物品,block.minecraft.slime_block
+蜘蛛眼,Spider Eye,方块与物品,item.minecraft.spider_eye
+木棍,Stick,方块与物品,item.minecraft.stick
+石头,Stone,方块与物品,block.minecraft.stone
+糖,Sugar,方块与物品,item.minecraft.sugar
+陶瓦,Terracotta,方块与物品,block.minecraft.terracotta
+海龟壳,Turtle Shell,方块与物品,item.minecraft.turtle_helmet
+藤蔓,Vines,方块与物品,block.minecraft.vine
+凋灵骷髅头颅,Wither Skeleton Skull,方块与物品,block.minecraft.wither_skeleton_skull
+苦力怕盾徽,Creeper Charge,旗帜图案,item.minecraft.creeper_banner_pattern.desc
+涡流,Flow,旗帜图案,item.minecraft.flow_banner_pattern.desc
+花朵盾徽,Flower Charge,旗帜图案,item.minecraft.flower_banner_pattern.desc
+地球,Globe,旗帜图案,item.minecraft.globe_banner_pattern.desc
+旋风,Guster,旗帜图案,item.minecraft.guster_banner_pattern.desc
+头颅盾徽,Skull Charge,旗帜图案,item.minecraft.skull_banner_pattern.desc
+猪鼻,Snout,旗帜图案,item.minecraft.piglin_banner_pattern.desc
+Mojang徽标,Thing,旗帜图案,item.minecraft.mojang_banner_pattern.desc
+底白横条,White Base,旗帜图案,block.minecraft.banner.stripe_bottom.white
+右底白方,White Base Dexter Canton,旗帜图案,block.minecraft.banner.square_bottom_left.white
+白色自下渐淡,White Base Gradient,旗帜图案,block.minecraft.banner.gradient_up.white
+白色底波纹,White Base Indented,旗帜图案,block.minecraft.banner.triangles_bottom.white
+左底白方,White Base Sinister Canton,旗帜图案,block.minecraft.banner.square_bottom_right.white
+右白斜条,White Bend,旗帜图案,block.minecraft.banner.stripe_downright.white
+左白斜条,White Bend Sinister,旗帜图案,block.minecraft.banner.stripe_downleft.white
+白色方框边,White Bordure,旗帜图案,block.minecraft.banner.border.white
+白色波纹边,White Bordure Indented,旗帜图案,block.minecraft.banner.curly_border.white
+底白三角,White Chevron,旗帜图案,block.minecraft.banner.triangle_bottom.white
+顶白横条,White Chief,旗帜图案,block.minecraft.banner.stripe_top.white
+右顶白方,White Chief Dexter Canton,旗帜图案,block.minecraft.banner.square_top_left.white
+白色顶波纹,White Chief Indented,旗帜图案,block.minecraft.banner.triangles_top.white
+左顶白方,White Chief Sinister Canton,旗帜图案,block.minecraft.banner.square_top_right.white
+白色苦力怕盾徽,White Creeper Charge,旗帜图案,block.minecraft.banner.creeper.white
+白正十字,White Cross,旗帜图案,block.minecraft.banner.straight_cross.white
+中白横条,White Fess,旗帜图案,block.minecraft.banner.stripe_middle.white
+白色砖纹,White Field Masoned,旗帜图案,block.minecraft.banner.bricks.white
+白色涡流,White Flow,旗帜图案,block.minecraft.banner.flow.white
+白色花朵盾徽,White Flower Charge,旗帜图案,block.minecraft.banner.flower.white
+白色地球,White Globe,旗帜图案,block.minecraft.banner.globe.white
+白色自上渐淡,White Gradient,旗帜图案,block.minecraft.banner.gradient.white
+白色旋风,White Guster,旗帜图案,block.minecraft.banner.guster.white
+顶白三角,White Inverted Chevron,旗帜图案,block.minecraft.banner.triangle_top.white
+白色菱形,White Lozenge,旗帜图案,block.minecraft.banner.rhombus.white
+中白竖条,White Pale,旗帜图案,block.minecraft.banner.stripe_center.white
+右白竖条,White Pale Dexter,旗帜图案,block.minecraft.banner.stripe_left.white
+左白竖条,White Pale Sinister,旗帜图案,block.minecraft.banner.stripe_right.white
+白竖条纹,White Paly,旗帜图案,block.minecraft.banner.small_stripes.white
+白色左上三角,White Per Bend,旗帜图案,block.minecraft.banner.diagonal_right.white
+白色右下三角,White Per Bend Inverted,旗帜图案,block.minecraft.banner.diagonal_up_left.white
+白色右上三角,White Per Bend Sinister,旗帜图案,block.minecraft.banner.diagonal_left.white
+白色左下三角,White Per Bend Sinister Inverted,旗帜图案,block.minecraft.banner.diagonal_up_right.white
+白色上半方形,White Per Fess,旗帜图案,block.minecraft.banner.half_horizontal.white
+白色下半方形,White Per Fess Inverted,旗帜图案,block.minecraft.banner.half_horizontal_bottom.white
+白色右半方形,White Per Pale,旗帜图案,block.minecraft.banner.half_vertical.white
+白色左半方形,White Per Pale Inverted,旗帜图案,block.minecraft.banner.half_vertical_right.white
+白色圆形,White Roundel,旗帜图案,block.minecraft.banner.circle.white
+白斜十字,White Saltire,旗帜图案,block.minecraft.banner.cross.white
+白色头颅盾徽,White Skull Charge,旗帜图案,block.minecraft.banner.skull.white
+白色猪鼻,White Snout,旗帜图案,block.minecraft.banner.piglin.white
+白色Mojang徽标,White Thing,旗帜图案,block.minecraft.banner.mojang.white
+黑色,Black,染色,color.minecraft.black
+蓝色,Blue,染色,color.minecraft.blue
+棕色,Brown,染色,color.minecraft.brown
+青色,Cyan,染色,color.minecraft.cyan
+灰色,Gray,染色,color.minecraft.gray
+绿色,Green,染色,color.minecraft.green
+淡蓝色,Light Blue,染色,color.minecraft.light_blue
+淡灰色,Light Gray,染色,color.minecraft.light_gray
+黄绿色,Lime,染色,color.minecraft.lime
+品红色,Magenta,染色,color.minecraft.magenta
+橙色,Orange,染色,color.minecraft.orange
+粉红色,Pink,染色,color.minecraft.pink
+紫色,Purple,染色,color.minecraft.purple
+红色,Red,染色,color.minecraft.red
+白色,White,染色,color.minecraft.white
+黄色,Yellow,染色,color.minecraft.yellow
+冒险,Adventure,游戏模式,selectWorld.gameMode.adventure
+创造,Creative,游戏模式,selectWorld.gameMode.creative
+旁观,Spectator,游戏模式,selectWorld.gameMode.spectator
+生存,Survival,游戏模式,selectWorld.gameMode.survival
+游戏内时间流逝,Advance time of day,游戏规则,gamerule.doDaylightCycle
+允许破坏性生物行为,Allow destructive mob actions,游戏规则,gamerule.mobGriefing
+允许进入下界,Allow Nether,游戏规则,gamerule.allowEnteringNetherUsingPortals
+允许旁观者生成地形,Allow spectators to generate terrain,游戏规则,gamerule.spectatorsGenerateChunks
+允许TNT被点燃并爆炸,Allow TNT to be activated and to explode,游戏规则,gamerule.tntExplodes
+进度通知,Announce advancements,游戏规则,gamerule.announceAdvancements
+通告管理员命令,Broadcast admin commands,游戏规则,gamerule.logAdminCommands
+广播命令方块输出,Broadcast command block output,游戏规则,gamerule.commandBlockOutput
+命令连锁执行数量限制,Command chain size limit,游戏规则,gamerule.maxCommandChainLength
+命令上下文数量限制,Command context limit,游戏规则,gamerule.maxCommandForkCount
+命令修改方块数量限制,Command modification block limit,游戏规则,gamerule.commandModificationBlockLimit
+溺水伤害,Deal drowning damage,游戏规则,gamerule.drowningDamage
+摔落伤害,Deal fall damage,游戏规则,gamerule.fallDamage
+火焰伤害,Deal fire damage,游戏规则,gamerule.fireDamage
+冰冻伤害,Deal freeze damage,游戏规则,gamerule.freezeDamage
+禁用鞘翅移动检测,Disable elytra movement check,游戏规则,gamerule.disableElytraMovementCheck
+禁用玩家移动检测,Disable player movement check,游戏规则,gamerule.disablePlayerMovementCheck
+禁用袭击,Disable raids,游戏规则,gamerule.disableRaids
+启用鞘翅移动检测,Do elytra movement check,游戏规则,gamerule.minecraft.elytra_movement_check
+启用玩家移动检测,Do player movement check,游戏规则,gamerule.minecraft.player_movement_check
+启用袭击,Do raids,游戏规则,gamerule.minecraft.raids
+方块掉落,Drop blocks,游戏规则,gamerule.doTileDrops
+非生物实体掉落,Drop entity equipment,游戏规则,gamerule.doEntityDrops
+生物战利品掉落,Drop mob loot,游戏规则,gamerule.doMobLoot
+启用命令方块,Enable Command Blocks,游戏规则,gamerule.commandBlocksEnabled
+启用玩家定位栏,Enable player Locator Bar,游戏规则,gamerule.locatorBar
+启用PvP,Enable pvp,游戏规则,gamerule.pvp
+启用刷怪笼方块,Enable Spawner Blocks,游戏规则,gamerule.spawnerBlocksEnabled
+被骑乘的实体能否使用传送门,Entities with passengers can use portals,游戏规则,gamerule.entitiesWithPassengersCanUsePortals
+实体挤压上限,Entity cramming threshold,游戏规则,gamerule.maxEntityCramming
+火焰蔓延半径,Fire spread radius,游戏规则,gamerule.minecraft.fire_spread_radius_around_player
+宽恕死亡玩家,Forgive dead players,游戏规则,gamerule.forgiveDeadPlayers
+全局声音事件,Global sound events,游戏规则,gamerule.globalSoundEvents
+在方块交互爆炸中，一些方块不会掉落战利品,"In block interaction explosions, some blocks won't drop their loot",游戏规则,gamerule.blockExplosionDropDecay
+在生物爆炸中，一些方块不会掉落战利品,"In mob explosions, some blocks won't drop their loot",游戏规则,gamerule.mobExplosionDropDecay
+在TNT爆炸中，一些方块不会掉落战利品,"In TNT explosions, some blocks won't drop their loot",游戏规则,gamerule.tntExplosionDropDecay
+死亡后保留物品栏,Keep inventory after death,游戏规则,gamerule.keepInventory
+允许流动熔岩转化为熔岩源,Lava converts to source,游戏规则,gamerule.lavaSourceConversion
+矿车最大速度,Minecart max speed,游戏规则,gamerule.minecartMaxSpeed
+创造模式下玩家在下界传送门中等待的时间,Player's Nether Portal delay in creative mode,游戏规则,gamerule.playersNetherPortalCreativeDelay
+非创造模式下玩家在下界传送门中等待的时间,Player's Nether Portal delay in non-creative mode,游戏规则,gamerule.playersNetherPortalDefaultDelay
+弹射物能否破坏方块,Projectiles can break blocks,游戏规则,gamerule.projectilesCanBreakBlocks
+随机刻速率,Random tick speed rate,游戏规则,gamerule.randomTickSpeed
+简化调试信息,Reduce debug info,游戏规则,gamerule.reducedDebugInfo
+生命值自然恢复,Regenerate health,游戏规则,gamerule.naturalRegeneration
+合成需要配方,Require recipe for crafting,游戏规则,gamerule.doLimitedCrafting
+立即重生,Respawn immediately,游戏规则,gamerule.doImmediateRespawn
+重生点半径,Respawn location radius,游戏规则,gamerule.spawnRadius
+发送命令反馈,Send command feedback,游戏规则,gamerule.sendCommandFeedback
+显示死亡消息,Show death messages,游戏规则,gamerule.showDeathMessages
+入睡占比,Sleep percentage,游戏规则,gamerule.playersSleepingPercentage
+积雪厚度,Snow accumulation height,游戏规则,gamerule.snowAccumulationHeight
+出生区块半径,Spawn chunk radius,游戏规则,gamerule.spawnChunkRadius
+生成生物,Spawn mobs,游戏规则,gamerule.doMobSpawning
+生成怪物,Spawn Monsters,游戏规则,gamerule.spawnMonsters
+生成幻翼,Spawn phantoms,游戏规则,gamerule.doInsomnia
+生成灾厄巡逻队,Spawn pillager patrols,游戏规则,gamerule.doPatrolSpawning
+生成流浪商人,Spawn Wandering Traders,游戏规则,gamerule.doTraderSpawning
+生成监守者,Spawn Wardens,游戏规则,gamerule.doWardenSpawning
+掷出的末影珍珠在死亡时消失,Thrown Ender Pearls vanish on death,游戏规则,gamerule.enderPearlsVanishOnDeath
+允许火在远离玩家处蔓延,Tick fire away from players,游戏规则,gamerule.allowFireTicksAwayFromPlayer
+无差别愤怒,Universal anger,游戏规则,gamerule.universalAnger
+火焰蔓延,Update fire,游戏规则,gamerule.doFireTick
+天气更替,Update weather,游戏规则,gamerule.doWeatherCycle
+藤蔓蔓延,Vines spread,游戏规则,gamerule.doVinesSpread
+允许流动水转化为水源,Water converts to source,游戏规则,gamerule.waterSourceConversion
+简单,Easy,游戏难度,options.difficulty.easy
+困难,Hard,游戏难度,options.difficulty.hard
+普通,Normal,游戏难度,options.difficulty.normal
+和平,Peaceful,游戏难度,options.difficulty.peaceful
+急迫,Haste,状态效果,effect.minecraft.haste
+跳跃提升,Jump Boost,状态效果,effect.minecraft.jump_boost
+生命恢复,Regeneration,状态效果,effect.minecraft.regeneration（旧写法：再生）
+抗性提升,Resistance,状态效果,effect.minecraft.resistance
+迅捷,Speed,状态效果,effect.minecraft.speed（旧写法：速度）
+力量,Strength,状态效果,effect.minecraft.strength
+远古守卫者,Elder Guardian,生物,entity.minecraft.elder_guardian
+森林,Forest,生物群系,biome.minecraft.forest
+下界荒地,Nether Wastes,生物群系,biome.minecraft.nether_wastes
+平原,Plains,生物群系,biome.minecraft.plains
+末地,The End,生物群系,biome.minecraft.the_end
+镶铆盔甲纹饰,Bolt Armor Trim,盔甲纹饰,trim_pattern.minecraft.bolt
+海岸盔甲纹饰,Coast Armor Trim,盔甲纹饰,trim_pattern.minecraft.coast
+沙丘盔甲纹饰,Dune Armor Trim,盔甲纹饰,trim_pattern.minecraft.dune
+眼眸盔甲纹饰,Eye Armor Trim,盔甲纹饰,trim_pattern.minecraft.eye
+涡流盔甲纹饰,Flow Armor Trim,盔甲纹饰,trim_pattern.minecraft.flow
+雇主盔甲纹饰,Host Armor Trim,盔甲纹饰,trim_pattern.minecraft.host
+牧民盔甲纹饰,Raiser Armor Trim,盔甲纹饰,trim_pattern.minecraft.raiser
+肋骨盔甲纹饰,Rib Armor Trim,盔甲纹饰,trim_pattern.minecraft.rib
+哨兵盔甲纹饰,Sentry Armor Trim,盔甲纹饰,trim_pattern.minecraft.sentry
+塑造盔甲纹饰,Shaper Armor Trim,盔甲纹饰,trim_pattern.minecraft.shaper
+幽静盔甲纹饰,Silence Armor Trim,盔甲纹饰,trim_pattern.minecraft.silence
+猪鼻盔甲纹饰,Snout Armor Trim,盔甲纹饰,trim_pattern.minecraft.snout
+尖塔盔甲纹饰,Spire Armor Trim,盔甲纹饰,trim_pattern.minecraft.spire
+潮汐盔甲纹饰,Tide Armor Trim,盔甲纹饰,trim_pattern.minecraft.tide
+恼鬼盔甲纹饰,Vex Armor Trim,盔甲纹饰,trim_pattern.minecraft.vex
+监守盔甲纹饰,Ward Armor Trim,盔甲纹饰,trim_pattern.minecraft.ward
+向导盔甲纹饰,Wayfinder Armor Trim,盔甲纹饰,trim_pattern.minecraft.wayfinder
+荒野盔甲纹饰,Wild Armor Trim,盔甲纹饰,trim_pattern.minecraft.wild
+紫水晶质,Amethyst Material,盔甲纹饰材料,trim_material.minecraft.amethyst
+铜质,Copper Material,盔甲纹饰材料,trim_material.minecraft.copper
+钻石质,Diamond Material,盔甲纹饰材料,trim_material.minecraft.diamond
+绿宝石质,Emerald Material,盔甲纹饰材料,trim_material.minecraft.emerald
+金质,Gold Material,盔甲纹饰材料,trim_material.minecraft.gold
+铁质,Iron Material,盔甲纹饰材料,trim_material.minecraft.iron
+青金石质,Lapis Material,盔甲纹饰材料,trim_material.minecraft.lapis
+下界合金质,Netherite Material,盔甲纹饰材料,trim_material.minecraft.netherite
+石英质,Quartz Material,盔甲纹饰材料,trim_material.minecraft.quartz
+红石质,Redstone Material,盔甲纹饰材料,trim_material.minecraft.redstone
+树脂质,Resin Material,盔甲纹饰材料,trim_material.minecraft.resin
+粗制的药水,Awkward Potion,药水,item.minecraft.potion.effect.awkward
+滞留型抗火药水,Lingering Potion of Fire Resistance,药水,item.minecraft.lingering_potion.effect.fire_resistance
+滞留型伤害药水,Lingering Potion of Harming,药水,item.minecraft.lingering_potion.effect.harming
+滞留型治疗药水,Lingering Potion of Healing,药水,item.minecraft.lingering_potion.effect.healing
+滞留型虫蚀药水,Lingering Potion of Infestation,药水,item.minecraft.lingering_potion.effect.infested
+滞留型隐身药水,Lingering Potion of Invisibility,药水,item.minecraft.lingering_potion.effect.invisibility
+滞留型跳跃药水,Lingering Potion of Leaping,药水,item.minecraft.lingering_potion.effect.leaping
+滞留型夜视药水,Lingering Potion of Night Vision,药水,item.minecraft.lingering_potion.effect.night_vision
+滞留型渗浆药水,Lingering Potion of Oozing,药水,item.minecraft.lingering_potion.effect.oozing
+滞留型剧毒药水,Lingering Potion of Poison,药水,item.minecraft.lingering_potion.effect.poison
+滞留型再生药水,Lingering Potion of Regeneration,药水,item.minecraft.lingering_potion.effect.regeneration
+滞留型缓降药水,Lingering Potion of Slow Falling,药水,item.minecraft.lingering_potion.effect.slow_falling
+滞留型迟缓药水,Lingering Potion of Slowness,药水,item.minecraft.lingering_potion.effect.slowness
+滞留型力量药水,Lingering Potion of Strength,药水,item.minecraft.lingering_potion.effect.strength
+滞留型迅捷药水,Lingering Potion of Swiftness,药水,item.minecraft.lingering_potion.effect.swiftness
+滞留型神龟药水,Lingering Potion of the Turtle Master,药水,item.minecraft.lingering_potion.effect.turtle_master
+滞留型水肺药水,Lingering Potion of Water Breathing,药水,item.minecraft.lingering_potion.effect.water_breathing
+滞留型虚弱药水,Lingering Potion of Weakness,药水,item.minecraft.lingering_potion.effect.weakness
+滞留型盘丝药水,Lingering Potion of Weaving,药水,item.minecraft.lingering_potion.effect.weaving
+滞留型蓄风药水,Lingering Potion of Wind Charging,药水,item.minecraft.lingering_potion.effect.wind_charged
+平凡的药水,Mundane Potion,药水,item.minecraft.potion.effect.mundane
+抗火药水,Potion of Fire Resistance,药水,item.minecraft.potion.effect.fire_resistance（旧写法：抗火）
+伤害药水,Potion of Harming,药水,item.minecraft.potion.effect.harming（旧写法：伤害）
+治疗药水,Potion of Healing,药水,item.minecraft.potion.effect.healing（旧写法：治疗）
+虫蚀药水,Potion of Infestation,药水,item.minecraft.potion.effect.infested（旧写法：虫蚀）
+隐身药水,Potion of Invisibility,药水,item.minecraft.potion.effect.invisibility（旧写法：隐身）
+跳跃药水,Potion of Leaping,药水,item.minecraft.potion.effect.leaping（旧写法：跳跃）
+夜视药水,Potion of Night Vision,药水,item.minecraft.potion.effect.night_vision（旧写法：夜视）
+渗浆药水,Potion of Oozing,药水,item.minecraft.potion.effect.oozing（旧写法：渗浆）
+剧毒药水,Potion of Poison,药水,item.minecraft.potion.effect.poison（旧写法：中毒）
+再生药水,Potion of Regeneration,药水,item.minecraft.potion.effect.regeneration（旧写法：再生）
+缓降药水,Potion of Slow Falling,药水,item.minecraft.potion.effect.slow_falling（旧写法：缓降）
+迟缓药水,Potion of Slowness,药水,item.minecraft.potion.effect.slowness（旧写法：迟缓）
+力量药水,Potion of Strength,药水,item.minecraft.potion.effect.strength（旧写法：力量）
+迅捷药水,Potion of Swiftness,药水,item.minecraft.potion.effect.swiftness（旧写法：迅捷）
+神龟药水,Potion of the Turtle Master,药水,item.minecraft.potion.effect.turtle_master（旧写法：海龟大师）
+水肺药水,Potion of Water Breathing,药水,item.minecraft.potion.effect.water_breathing（旧写法：水肺）
+虚弱药水,Potion of Weakness,药水,item.minecraft.potion.effect.weakness（旧写法：虚弱）
+盘丝药水,Potion of Weaving,药水,item.minecraft.potion.effect.weaving（旧写法：盘丝）
+蓄风药水,Potion of Wind Charging,药水,item.minecraft.potion.effect.wind_charged（旧写法：蓄风）
+喷溅型抗火药水,Splash Potion of Fire Resistance,药水,item.minecraft.splash_potion.effect.fire_resistance
+喷溅型伤害药水,Splash Potion of Harming,药水,item.minecraft.splash_potion.effect.harming
+喷溅型治疗药水,Splash Potion of Healing,药水,item.minecraft.splash_potion.effect.healing
+喷溅型虫蚀药水,Splash Potion of Infestation,药水,item.minecraft.splash_potion.effect.infested
+喷溅型隐身药水,Splash Potion of Invisibility,药水,item.minecraft.splash_potion.effect.invisibility
+喷溅型跳跃药水,Splash Potion of Leaping,药水,item.minecraft.splash_potion.effect.leaping
+喷溅型夜视药水,Splash Potion of Night Vision,药水,item.minecraft.splash_potion.effect.night_vision
+喷溅型渗浆药水,Splash Potion of Oozing,药水,item.minecraft.splash_potion.effect.oozing
+喷溅型剧毒药水,Splash Potion of Poison,药水,item.minecraft.splash_potion.effect.poison
+喷溅型再生药水,Splash Potion of Regeneration,药水,item.minecraft.splash_potion.effect.regeneration
+喷溅型缓降药水,Splash Potion of Slow Falling,药水,item.minecraft.splash_potion.effect.slow_falling
+喷溅型迟缓药水,Splash Potion of Slowness,药水,item.minecraft.splash_potion.effect.slowness
+喷溅型力量药水,Splash Potion of Strength,药水,item.minecraft.splash_potion.effect.strength
+喷溅型迅捷药水,Splash Potion of Swiftness,药水,item.minecraft.splash_potion.effect.swiftness
+喷溅型神龟药水,Splash Potion of the Turtle Master,药水,item.minecraft.splash_potion.effect.turtle_master
+喷溅型水肺药水,Splash Potion of Water Breathing,药水,item.minecraft.splash_potion.effect.water_breathing
+喷溅型虚弱药水,Splash Potion of Weakness,药水,item.minecraft.splash_potion.effect.weakness
+喷溅型盘丝药水,Splash Potion of Weaving,药水,item.minecraft.splash_potion.effect.weaving
+喷溅型蓄风药水,Splash Potion of Wind Charging,药水,item.minecraft.splash_potion.effect.wind_charged
+浓稠的药水,Thick Potion,药水,item.minecraft.potion.effect.thick
+水瓶,Water Bottle,药水,item.minecraft.potion.effect.water
+水下速掘,Aqua Affinity,魔咒,enchantment.minecraft.aqua_affinity
+节肢杀手,Bane of Arthropods,魔咒,enchantment.minecraft.bane_of_arthropods
+爆炸保护,Blast Protection,魔咒,enchantment.minecraft.blast_protection
+破甲,Breach,魔咒,enchantment.minecraft.breach
+引雷,Channeling,魔咒,enchantment.minecraft.channeling
+绑定诅咒,Curse of Binding,魔咒,enchantment.minecraft.binding_curse
+消失诅咒,Curse of Vanishing,魔咒,enchantment.minecraft.vanishing_curse
+致密,Density,魔咒,enchantment.minecraft.density（旧写法：密度）
+深海探索者,Depth Strider,魔咒,enchantment.minecraft.depth_strider
+效率,Efficiency,魔咒,enchantment.minecraft.efficiency
+摔落缓冲,Feather Falling,魔咒,enchantment.minecraft.feather_falling（旧写法：摔落保护）
+火焰附加,Fire Aspect,魔咒,enchantment.minecraft.fire_aspect
+火焰保护,Fire Protection,魔咒,enchantment.minecraft.fire_protection
+火矢,Flame,魔咒,enchantment.minecraft.flame
+时运,Fortune,魔咒,enchantment.minecraft.fortune
+冰霜行者,Frost Walker,魔咒,enchantment.minecraft.frost_walker
+穿刺,Impaling,魔咒,enchantment.minecraft.impaling
+无限,Infinity,魔咒,enchantment.minecraft.infinity
+击退,Knockback,魔咒,enchantment.minecraft.knockback
+抢夺,Looting,魔咒,enchantment.minecraft.looting
+忠诚,Loyalty,魔咒,enchantment.minecraft.loyalty
+海之眷顾,Luck of the Sea,魔咒,enchantment.minecraft.luck_of_the_sea
+突进,Lunge,魔咒,enchantment.minecraft.lunge
+饵钓,Lure,魔咒,enchantment.minecraft.lure
+经验修补,Mending,魔咒,enchantment.minecraft.mending
+多重射击,Multishot,魔咒,enchantment.minecraft.multishot
+穿透,Piercing,魔咒,enchantment.minecraft.piercing
+力量,Power,魔咒,enchantment.minecraft.power
+弹射物保护,Projectile Protection,魔咒,enchantment.minecraft.projectile_protection
+保护,Protection,魔咒,enchantment.minecraft.protection
+冲击,Punch,魔咒,enchantment.minecraft.punch
+快速装填,Quick Charge,魔咒,enchantment.minecraft.quick_charge
+水下呼吸,Respiration,魔咒,enchantment.minecraft.respiration
+激流,Riptide,魔咒,enchantment.minecraft.riptide
+锋利,Sharpness,魔咒,enchantment.minecraft.sharpness
+精准采集,Silk Touch,魔咒,enchantment.minecraft.silk_touch
+亡灵杀手,Smite,魔咒,enchantment.minecraft.smite
+灵魂疾行,Soul Speed,魔咒,enchantment.minecraft.soul_speed
+横扫之刃,Sweeping Edge,魔咒,enchantment.minecraft.sweeping_edge
+迅捷潜行,Swift Sneak,魔咒,enchantment.minecraft.swift_sneak
+荆棘,Thorns,魔咒,enchantment.minecraft.thorns
+耐久,Unbreaking,魔咒,enchantment.minecraft.unbreaking
+风爆,Wind Burst,魔咒,enchantment.minecraft.wind_burst

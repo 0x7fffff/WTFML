@@ -269,12 +269,12 @@ inline bool copyTreeInto(const QString &from, const QString &to) {
 /// InstallPageController::fillLoaderVersionItems），这时候话要说成"退回去了"。
 inline QString pickChannelDetail(LoaderMeta::LoaderChannel channel, bool stable) {
     if (channel == LoaderMeta::LoaderChannel::Newest) {
-        return QObject::tr("最新那一档，连测试版一起算");
+        return QObject::tr("最新版本（含测试版）");
     }
     if (stable) {
-        return QObject::tr("稳定那一档，上游自己标着正式版的那个");
+        return QObject::tr("最新稳定版");
     }
-    return QObject::tr("稳定那一档，可上游一条正式版都没有，退回了最新的那个");
+    return QObject::tr("未找到稳定版，已选择最新版本");
 }
 
 /// CurseForge 那台接口没成时给用户的那条**出路**。
@@ -285,11 +285,9 @@ inline QString pickChannelDetail(LoaderMeta::LoaderChannel channel, bool stable)
 /// 一句把用户引到死路上的话。
 inline QString curseForgeKeyHint(bool hasKey) {
     if (hasKey) {
-        return QObject::tr("设置里那份 CurseForge API key 可能不对、或者已经失效了，可以换一份。");
+        return QObject::tr("CurseForge API 密钥无效或已失效。请在下载设置中检查密钥。");
     }
-    return QObject::tr("网络本身没问题的话，多半是那台公共接口的事了 —— 可以在设置页「下载」"
-                       "栏里填一份自己的 CurseForge API key（免费申请），填了就改走官方接口。"
-                       "现在这一发走的是别人搭的一台社区镜像，它可能限流、也可能哪天就停了。");
+    return QObject::tr("社区镜像请求失败。请稍后重试，或在「设置 → 下载」中填写自己的 CurseForge API 密钥以使用官方接口。");
 }
 
 /// 实例 `mods/` 下的 jar **文件名**（不含路径）。首启资源预取认消费者只看这一层：

@@ -563,7 +563,7 @@ int UiAgentCheck() {
     settings.setStrictEgress(true);
     check(settings.strictEgress(), "设置页：严格模式可切换");
     check(privacy != nullptr && privacy->wordWrap() && standardText.contains(QStringLiteral("崩溃报告")) &&
-              privacy->text() != standardText && privacy->text().contains(QStringLiteral("逐次同意")) &&
+              privacy->text() != standardText && privacy->text().contains(QStringLiteral("逐次确认")) &&
               privacy->text().contains(QStringLiteral("永远不会发送")),
           "设置页：隐私说明换行显示，随严格模式切换写明会发出去什么", privacy != nullptr ? privacy->text() : QString());
     bool noCodename = true;

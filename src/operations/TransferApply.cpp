@@ -4,6 +4,7 @@
  */
 
 #include "operations/TransferApply.hpp"
+#include <QCoreApplication>
 
 #include <QDir>
 #include <QFile>
@@ -45,7 +46,7 @@ ModTransferResult transferMods(const QString &sourceRoot, const QString &targetR
         (QFileInfo::exists(targetMods) && !ordinaryDir(targetMods)) ||
         !QDir().mkpath(targetMods) || !ordinaryDir(targetMods)) {
         result.failed = paths.size();
-        result.problems.append(QStringLiteral("源或目标目录不可用、包含链接，或互相嵌套。"));
+        result.problems.append(QCoreApplication::translate("TransferApply", "源或目标目录不可用、包含链接，或互相嵌套。"));
         return result;
     }
     int completed = 0;
@@ -53,29 +54,29 @@ ModTransferResult transferMods(const QString &sourceRoot, const QString &targetR
         if (stopped()) { result.cancelled = true; break; }
         const QFileInfo source(path);
         const auto report = [&](const QString &phase) {
-            if (progress) progress(completed, paths.size(), phase + QStringLiteral("：") + source.fileName());
+            if (progress) progress(completed, paths.size(), phase + QCoreApplication::translate("TransferApply", "：") + source.fileName());
         };
         const auto fail = [&](const QString &reason) {
             ++result.failed;
-            if (result.problems.size() < 8) result.problems.append(source.fileName() + QStringLiteral("：") + reason);
+            if (result.problems.size() < 8) result.problems.append(source.fileName() + QCoreApplication::translate("TransferApply", "：") + reason);
         };
         if (!source.isFile() || source.isSymLink() || source.isJunction() ||
             source.absolutePath() != QDir(sourceMods).absolutePath()) {
-            fail(QStringLiteral("不是源实例 mods 中的普通文件")); ++completed; continue;
+            fail(QCoreApplication::translate("TransferApply", "不是源实例 mods 中的普通文件")); ++completed; continue;
         }
         const QString target = QDir(targetMods).filePath(source.fileName());
         const QString suffix = QStringLiteral(".disabled");
         const QString counterpart = target.endsWith(suffix, Qt::CaseInsensitive)
             ? target.left(target.size() - suffix.size()) : target + suffix;
         if (QFileInfo::exists(target) || QFileInfo(target).isSymLink() || QFileInfo::exists(counterpart)) {
-            ++result.skipped; ++completed; report(QStringLiteral("跳过同名文件")); continue;
+            ++result.skipped; ++completed; report(QCoreApplication::translate("TransferApply", "跳过同名文件")); continue;
         }
-        report(QStringLiteral("复制"));
+        report(QCoreApplication::translate("TransferApply", "复制"));
         const auto stamp = FileHash::stampOf(path);
         QFile input(path);
         QTemporaryFile staging(QDir(targetMods).filePath(QStringLiteral(".wtfml-transfer-XXXXXX")));
         if (!input.open(QIODevice::ReadOnly) || !staging.open()) {
-            fail(QStringLiteral("无法打开文件或创建临时文件")); ++completed; continue;
+            fail(QCoreApplication::translate("TransferApply", "无法打开文件或创建临时文件")); ++completed; continue;
         }
         QCryptographicHash copiedHash(QCryptographicHash::Sha256);
         bool writeOk = true;
@@ -84,27 +85,27 @@ ModTransferResult transferMods(const QString &sourceRoot, const QString &targetR
             const QByteArray chunk = input.read(256 * 1024);
             if (chunk.isEmpty() || staging.write(chunk) != chunk.size()) { writeOk = false; break; }
             copiedHash.addData(chunk);
-            if (elapsed.elapsed() - reportedAt >= 100) { report(QStringLiteral("复制")); reportedAt = elapsed.elapsed(); }
+            if (elapsed.elapsed() - reportedAt >= 100) { report(QCoreApplication::translate("TransferApply", "复制")); reportedAt = elapsed.elapsed(); }
         }
         input.close();
         if (stopped()) { result.cancelled = true; break; }
-        if (!writeOk || !staging.flush()) { fail(QStringLiteral("读取或写入失败")); ++completed; continue; }
+        if (!writeOk || !staging.flush()) { fail(QCoreApplication::translate("TransferApply", "读取或写入失败")); ++completed; continue; }
         staging.close();
-        report(QStringLiteral("校验"));
+        report(QCoreApplication::translate("TransferApply", "校验"));
         const auto sourceHash = FileHash::digestOfFile(path, FileHash::Algorithm::Sha256, {}, stopped);
         const auto targetHash = FileHash::digestOfFile(staging.fileName(), FileHash::Algorithm::Sha256, {}, stopped);
         if (stopped()) { result.cancelled = true; break; }
         const QString copiedHex = QString::fromLatin1(copiedHash.result().toHex());
         if (!sourceHash.ok || !targetHash.ok || sourceHash.hex != copiedHex || targetHash.hex != copiedHex ||
             !FileHash::sameStamp(stamp, FileHash::stampOf(path))) {
-            fail(QStringLiteral("校验失败或来源在处理期间发生变化")); ++completed; continue;
+            fail(QCoreApplication::translate("TransferApply", "校验失败或来源在处理期间发生变化")); ++completed; continue;
         }
         // QFile::rename never replaces an existing destination. Recheck directory
         // links before publishing; staging remains auto-removable on all failures.
         if (!ordinaryDir(sourceRoot) || !ordinaryDir(targetRoot) || !ordinaryDir(sourceMods) ||
             !ordinaryDir(targetMods) || QFileInfo::exists(counterpart) ||
             !staging.rename(target)) {
-            fail(QStringLiteral("目标已变化或无法提交文件（未覆盖）")); ++completed; continue;
+            fail(QCoreApplication::translate("TransferApply", "目标已变化或无法提交文件（未覆盖）")); ++completed; continue;
         }
         staging.setAutoRemove(false);
         ++result.copied;
@@ -113,15 +114,15 @@ ModTransferResult transferMods(const QString &sourceRoot, const QString &targetR
         // 瞬间账上 `copied` 已经是 1、进度却还停在上一条（界面少记一个）。
         // 移动删源是另一件事（没删掉时来源原样保留），它的成败不影响这条文件已复制。
         ++completed;
-        report(QStringLiteral("已复制"));
+        report(QCoreApplication::translate("TransferApply", "已复制"));
         if (move) {
             if (stopped()) { result.cancelled = true; break; }
             if (FileHash::sameStamp(stamp, FileHash::stampOf(path)) && QFile::remove(path)) ++result.moved;
-            else fail(QStringLiteral("副本已验证，但未能删除来源；已保留两份"));
+            else fail(QCoreApplication::translate("TransferApply", "副本已验证，但未能删除来源；已保留两份"));
         }
-        report(QStringLiteral("完成"));
+        report(QCoreApplication::translate("TransferApply", "完成"));
     }
-    if (elapsed.elapsed() >= 600000) result.problems.append(QStringLiteral("已达到 600 秒截止时间。"));
+    if (elapsed.elapsed() >= 600000) result.problems.append(QCoreApplication::translate("TransferApply", "已达到 600 秒截止时间。"));
     return result;
 }
 
@@ -276,23 +277,23 @@ void checkTree(const QString &sourceDir, const QString &targetDir, VerifySummary
 QString Result::text() const {
     if (!ok) return problem;
     QStringList parts;
-    parts << QStringLiteral("复制了 %1 个文件（%2）")
+    parts << QCoreApplication::translate("TransferApply", "复制了 %1 个文件（%2）")
                  .arg(copiedFiles)
                  .arg(FileHash::fileSizeText(copiedBytes));
     if (skippedFiles > 0) {
-        parts << QStringLiteral("跳过 %1 个（目标里已经有同名的，没有覆盖）").arg(skippedFiles);
+        parts << QCoreApplication::translate("TransferApply", "跳过 %1 个（目标里已经有同名的，没有覆盖）").arg(skippedFiles);
     }
     if (failedFiles > 0) {
-        parts << QStringLiteral("失败 %1 个").arg(failedFiles);
+        parts << QCoreApplication::translate("TransferApply", "失败 %1 个").arg(failedFiles);
     }
-    QString text = parts.join(QStringLiteral("，")) + QStringLiteral("。");
+    QString text = parts.join(QCoreApplication::translate("TransferApply", "，")) + QCoreApplication::translate("TransferApply", "。");
     if (!failures.isEmpty()) {
-        text += QStringLiteral("\n\n没搬成的：");
+        text += QCoreApplication::translate("TransferApply", "\n\n没搬成的：");
         for (const QString &failure : failures) {
             text += QStringLiteral("\n• %1").arg(QDir::toNativeSeparators(failure));
         }
         if (failedFiles > failures.size()) {
-            text += QStringLiteral("\n• …还有 %1 个").arg(failedFiles - failures.size());
+            text += QCoreApplication::translate("TransferApply", "\n• …还有 %1 个").arg(failedFiles - failures.size());
         }
     }
     return text;
@@ -306,16 +307,16 @@ Result apply(const QString &sourceDir, const QString &targetDir,
     const QString source = sourceDir.trimmed();
     const QString target = targetDir.trimmed();
     if (source.isEmpty() || target.isEmpty()) {
-        result.problem = QStringLiteral("没有给全源实例和目标实例的目录。");
+        result.problem = QCoreApplication::translate("TransferApply", "没有给全源实例和目标实例的目录。");
         return result;
     }
     if (!QDir(source).exists()) {
-        result.problem = QStringLiteral("找不到源实例目录：%1")
+        result.problem = QCoreApplication::translate("TransferApply", "找不到源实例目录：%1")
                              .arg(QDir::toNativeSeparators(source));
         return result;
     }
     if (!QDir(target).exists()) {
-        result.problem = QStringLiteral("找不到目标实例目录：%1")
+        result.problem = QCoreApplication::translate("TransferApply", "找不到目标实例目录：%1")
                              .arg(QDir::toNativeSeparators(target));
         return result;
     }
@@ -326,7 +327,7 @@ Result apply(const QString &sourceDir, const QString &targetDir,
     // 当目标"）。双向各问一次：往源里面搬 = 自己抄自己，往源外面搬进它的祖先也一样危险。
     if (InstanceFiles::pathIsSameOrInside(source, target)
         || InstanceFiles::pathIsSameOrInside(target, source)) {
-        result.problem = QStringLiteral("源实例和目标实例是同一份（或互相嵌套），本次未移动任何文件。");
+        result.problem = QCoreApplication::translate("TransferApply", "源实例和目标实例是同一份（或互相嵌套），本次未移动任何文件。");
         return result;
     }
 
@@ -369,28 +370,28 @@ Result apply(const QString &sourceDir, const QString &targetDir,
 
 QString VerifySummary::text() const {
     if (!ok) return problem;
-    QString head = QStringLiteral("校验：看过 %1 个文件，缺 %2 个").arg(checkedFiles).arg(missingFiles);
+    QString head = QCoreApplication::translate("TransferApply", "校验：看过 %1 个文件，缺 %2 个").arg(checkedFiles).arg(missingFiles);
     if (sizeMismatchFiles > 0) {
-        head += QStringLiteral("；另有 %1 个目标里原有的同名文件大小不同（按规矩没有覆盖）")
+        head += QCoreApplication::translate("TransferApply", "；另有 %1 个目标里原有的同名文件大小不同（按规矩没有覆盖）")
                     .arg(sizeMismatchFiles);
     }
-    head += QStringLiteral("。");
+    head += QCoreApplication::translate("TransferApply", "。");
     if (!missing.isEmpty()) {
-        head += QStringLiteral("\n\n没在目标里找到的：");
+        head += QCoreApplication::translate("TransferApply", "\n\n没在目标里找到的：");
         for (const QString &path : missing) {
             head += QStringLiteral("\n• %1").arg(QDir::toNativeSeparators(path));
         }
         if (missingFiles > missing.size()) {
-            head += QStringLiteral("\n• …还有 %1 个").arg(missingFiles - missing.size());
+            head += QCoreApplication::translate("TransferApply", "\n• …还有 %1 个").arg(missingFiles - missing.size());
         }
     }
     if (!mismatched.isEmpty()) {
-        head += QStringLiteral("\n\n大小不同的（原来是目标里就有的）：");
+        head += QCoreApplication::translate("TransferApply", "\n\n大小不同的（原来是目标里就有的）：");
         for (const QString &path : mismatched) {
             head += QStringLiteral("\n• %1").arg(QDir::toNativeSeparators(path));
         }
         if (sizeMismatchFiles > mismatched.size()) {
-            head += QStringLiteral("\n• …还有 %1 个").arg(sizeMismatchFiles - mismatched.size());
+            head += QCoreApplication::translate("TransferApply", "\n• …还有 %1 个").arg(sizeMismatchFiles - mismatched.size());
         }
     }
     return head;
@@ -403,16 +404,16 @@ VerifySummary verify(const QString &sourceDir, const QString &targetDir,
     const QString source = sourceDir.trimmed();
     const QString target = targetDir.trimmed();
     if (source.isEmpty() || target.isEmpty()) {
-        summary.problem = QStringLiteral("没有给全源实例和目标实例的目录。");
+        summary.problem = QCoreApplication::translate("TransferApply", "没有给全源实例和目标实例的目录。");
         return summary;
     }
     if (!QDir(source).exists()) {
-        summary.problem = QStringLiteral("找不到源实例目录：%1")
+        summary.problem = QCoreApplication::translate("TransferApply", "找不到源实例目录：%1")
                               .arg(QDir::toNativeSeparators(source));
         return summary;
     }
     if (!QDir(target).exists()) {
-        summary.problem = QStringLiteral("找不到目标实例目录：%1")
+        summary.problem = QCoreApplication::translate("TransferApply", "找不到目标实例目录：%1")
                               .arg(QDir::toNativeSeparators(target));
         return summary;
     }

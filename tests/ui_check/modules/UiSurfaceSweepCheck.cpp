@@ -17,10 +17,12 @@
 //
 // 采样口径见 `SurfaceScan.hpp`。
 #include "Support.hpp"
+#include "UiLanguage.hpp"
 #include "SurfaceScan.hpp"
 
 #include "AccountSkinDialog.hpp"
 #include "ActivityPopover.hpp"
+#include "AgentMcpPage.hpp"
 #include "AgentSettingsPage.hpp"
 #include "ChromeDialog.hpp"
 #include "ConfigFileEditorPage.hpp"
@@ -65,6 +67,7 @@
 #include <QLabel>
 #include <QMainWindow>
 #include <QSettings>
+#include <QTranslator>
 #include <QStackedWidget>
 #include <QTableView>
 #include <QTableWidget>
@@ -222,6 +225,13 @@ void fillInstanceTree(MainWindowUI &ui);
 
 int UiSurfaceSweepCheck(QApplication &app) {
     Anim::setEnabled(false);
+    // WTFML_SURFACE_LANGUAGE=en：英文样本巡检（样张与中文一一对应）。
+    QTranslator surfaceTranslator;
+    if (qEnvironmentVariable("WTFML_SURFACE_LANGUAGE") == QLatin1String(UiLanguage::kEnglish) &&
+        (!UiLanguage::loadEnglish(&surfaceTranslator) || !app.installTranslator(&surfaceTranslator))) {
+        qCritical("WTFML_SURFACE_LANGUAGE=en requires an English translation resource");
+        return 2;
+    }
     QTemporaryDir settingsDir(QDir::current().filePath(QStringLiteral(".surface-sweep-XXXXXX")));
     if (!settingsDir.isValid()) return 2;
     QSettings::setDefaultFormat(QSettings::IniFormat);
@@ -685,6 +695,25 @@ int UiSurfaceSweepCheck(QApplication &app) {
                       QStringLiteral("主窗口 → 智能体 → 右上「设置」"),
                       QStringLiteral("ui/AgentSettingsPage.cpp"), QStringLiteral("input-widths / ui-review-shots"),
                       &page, QStringLiteral("API 与模型设置"));
+    }
+    {
+        AgentMcpPage page;
+        overlayDialog(QStringLiteral("agent-mcp"), QStringLiteral("MCP 服务器"),
+                      QStringLiteral("主窗口 → 智能体 → MCP 服务器"),
+                      QStringLiteral("ui/AgentMcpPage.cpp"), QString(), &page,
+                      QStringLiteral("MCP 服务器"));
+
+        AgentView::McpServerDraft draft;
+        QTimer::singleShot(0, &window, [&]() {
+            auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+            const bool isEditor = dialog != nullptr
+                && dialog->objectName() == QStringLiteral("agentMcpEditDialog");
+            sweep.record(QStringLiteral("agent-mcp-edit"), QStringLiteral("编辑 MCP 服务器"),
+                         QStringLiteral("MCP 服务器 → 编辑"), QStringLiteral("ui/AgentMcpPage.cpp"),
+                         QString(), isEditor ? dialog : nullptr);
+            if (dialog != nullptr) dialog->reject();
+        });
+        AgentMcpPage::editDraft(&window, QStringLiteral("编辑 MCP 服务器"), &draft);
     }
     {
         PresetEditorPage page(QJsonObject{{QStringLiteral("name"), QStringLiteral("性能整合包")},
@@ -1356,3 +1385,5 @@ void fillInstanceTree(MainWindowUI &ui) {
 }
 
 }  // namespace
+
+

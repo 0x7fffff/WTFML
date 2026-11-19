@@ -4,6 +4,7 @@
  * @note 持久化键和内存自动分配规则见 .hpp。
  */
 #include "GlobalJavaSettings.hpp"
+#include <QCoreApplication>
 
 #include <QMutex>
 #include <QMutexLocker>
@@ -409,7 +410,7 @@ bool extractZipWithPowerShell(const QString &zipFile, const QString &targetDir) 
         // 压缩包坏了、路径太长……）。不读 stderr 的话，用户看到的只有
         // 后面那句"找不到也下载不到 Java"。
         qWarning().noquote() << "解压 Java 运行时失败：" << stdErr.trimmed()
-                             << "（zip:" << zipFile << "）";
+                             << QCoreApplication::translate("GlobalJavaSettings", "（zip:") << zipFile << QCoreApplication::translate("GlobalJavaSettings", "）");
     }
     Q_UNUSED(stdOut);
     return ok;
@@ -684,38 +685,32 @@ bool downloadJavaRuntime(const QString &destinationDir, const QString &component
     if (component == "java-runtime-epsilon") {
         // Java 25 —— Minecraft 26.1 及以后要求该运行时
         urls = {QUrl("https://download.oracle.com/java/25/latest/jdk-25_windows-x64_bin.zip"),
-                QUrl("https://download.bell-sw.com/java/25.0.2+12/"
-                     "bellsoft-jdk25.0.2+12-windows-amd64.zip")};
+                QUrl("https://download.bell-sw.com/java/25.0.2+12/bellsoft-jdk25.0.2+12-windows-amd64.zip")};
     } else if (component == "java-runtime-delta") {
         // Java 21 —— Minecraft 1.20.5 及以后
         urls = {
-            QUrl("https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.4+7/"
-                 "OpenJDK21U-jre_x64_windows_hotspot_21.0.4_7.zip"),
+            QUrl("https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.4+7/OpenJDK21U-jre_x64_windows_hotspot_21.0.4_7.zip"),
             QUrl("https://download.bell-sw.com/java/21.0.4+7/bellsoft-jre21.0.4+7-win-amd64.zip")};
     } else if (component == "java-runtime-beta" || component == "java-runtime-gamma") {
         // Java 17 —— 1.18~1.20.4（beta 是 1.18，gamma 是 1.19~1.20.4）
         urls = {
-            QUrl("https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.12+7/"
-                 "OpenJDK17U-jre_x64_windows_hotspot_17.0.12_7.zip"),
+            QUrl("https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.12+7/OpenJDK17U-jre_x64_windows_hotspot_17.0.12_7.zip"),
             QUrl(
                 "https://download.bell-sw.com/java/17.0.12+7/bellsoft-jre17.0.12+7-win-amd64.zip")};
     } else if (component == "java-runtime-alpha") {
         // Java 16 —— 1.17（只有它用 16，是 Mojang 那张表里唯一一个 16 档）
         urls = {
-            QUrl("https://github.com/adoptium/temurin16-binaries/releases/download/"
-                 "jdk-16.0.2+7/OpenJDK16U-jre_x64_windows_hotspot_16.0.2_7.zip"),
+            QUrl("https://github.com/adoptium/temurin16-binaries/releases/download/jdk-16.0.2+7/OpenJDK16U-jre_x64_windows_hotspot_16.0.2_7.zip"),
             QUrl("https://download.bell-sw.com/java/16.0.2+7/bellsoft-jre16.0.2+7-win-amd64.zip")};
     } else if (component == "jre-legacy") {
         // Java 8
         urls = {
-            QUrl("https://github.com/adoptium/temurin8-binaries/releases/download/jdk8u422-b05/"
-                 "OpenJDK8U-jre_x64_windows_hotspot_8u422b05.zip"),
+            QUrl("https://github.com/adoptium/temurin8-binaries/releases/download/jdk8u422-b05/OpenJDK8U-jre_x64_windows_hotspot_8u422b05.zip"),
             QUrl("https://download.bell-sw.com/java/8u422+5/bellsoft-jre8u422+5-win-amd64.zip")};
     } else {
         // Default to Java 21
         urls = {
-            QUrl("https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.4+7/"
-                 "OpenJDK21U-jre_x64_windows_hotspot_21.0.4_7.zip"),
+            QUrl("https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.4+7/OpenJDK21U-jre_x64_windows_hotspot_21.0.4_7.zip"),
             QUrl("https://download.bell-sw.com/java/21.0.4+7/bellsoft-jre21.0.4+7-win-amd64.zip")};
     }
 
@@ -1174,13 +1169,11 @@ bool GlobalJavaSettings::installerJavaFor(int requiredMajor, const QString &conf
                    << configuredPath << "highest local:" << highest;
         if (reasonOut != nullptr) {
             *reasonOut =
-                QStringLiteral("这个版本要 Java %1，而「设置」里选的那份是 Java %2，本机也没有"
-                               "更合适的（扫到的最高是 Java %3）。\n\n"
-                               "先装一个 Java %1，或者到「设置」里把路径指过去。")
+                QCoreApplication::translate("GlobalJavaSettings", "此版本需要 Java %1，当前使用 Java %2，检测到的最高版本为 Java %3。\n\n请安装 Java %1，或在设置中指定 Java 路径。")
                     .arg(requiredMajor)
                     .arg(configuredMajor > 0 ? QString::number(configuredMajor)
-                                             : QStringLiteral("认不出来"))
-                    .arg(highest > 0 ? QString::number(highest) : QStringLiteral("没有"));
+                                             : QCoreApplication::translate("GlobalJavaSettings", "版本未知"))
+                    .arg(highest > 0 ? QString::number(highest) : QCoreApplication::translate("GlobalJavaSettings", "没有"));
         }
         return false;
     }
@@ -1408,11 +1401,11 @@ bool GlobalJavaSettings::ensureJavaForVersion(
     // 只会得到 UnsupportedClassVersionError，而且看不出是启动器换的。报错好过猜。
     if (!allowAutoSelect) {
         const QString reason =
-            QStringLiteral("Java 选的是「手动指定」，而")
-            + (io.javaPath.isEmpty() ? QStringLiteral("还没指定路径")
-                                     : io.javaPath + QStringLiteral(" 的主版本不是 ")
+            QCoreApplication::translate("GlobalJavaSettings", "当前设置为手动指定 Java，")
+            + (io.javaPath.isEmpty() ? QCoreApplication::translate("GlobalJavaSettings", "未指定路径")
+                                     : io.javaPath + QCoreApplication::translate("GlobalJavaSettings", " 的主版本不是 ")
                                            + QString::number(majorVersion))
-            + QStringLiteral(" —— 不自动更换，直接失败。");
+            + QCoreApplication::translate("GlobalJavaSettings", "，未找到兼容版本时取消启动。");
         qWarning() << reason;
         return fail(reason);
     }
@@ -1452,7 +1445,7 @@ bool GlobalJavaSettings::ensureJavaForVersion(
     // 这一道放在两个下载分支**共同的前面**，所以不存在"跳过 Mojang 又落到 Adoptium"的缺口。
     if (!allowDownload) {
         qDebug() << "Download disabled for Java" << majorVersion << "- local scan only";
-        return fail(QStringLiteral("这台机器上没有 Java %1，且当前不允许下载运行时。")
+        return fail(QCoreApplication::translate("GlobalJavaSettings", "这台机器上没有 Java %1，且当前不允许下载运行时。")
                         .arg(majorVersion));
     }
 
@@ -1483,7 +1476,7 @@ bool GlobalJavaSettings::ensureJavaForVersion(
     }
 
     qDebug() << "Failed to obtain Java version" << majorVersion;
-    return fail(QStringLiteral("找不到也下载不到 Java %1。").arg(majorVersion));
+    return fail(QCoreApplication::translate("GlobalJavaSettings", "找不到也下载不到 Java %1。").arg(majorVersion));
 }
 
 

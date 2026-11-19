@@ -4,6 +4,7 @@
  */
 
 #include "operations/TransferPlanner.hpp"
+#include <QCoreApplication>
 
 #include <QDir>
 #include <QFileInfo>
@@ -57,7 +58,7 @@ TreeSize measure(const QString &absolutePath, bool isDirectory) {
 }
 
 QString joinSize(int files, qint64 bytes) {
-    return QStringLiteral("%1 个文件 / %2").arg(files).arg(FileHash::fileSizeText(bytes));
+    return QCoreApplication::translate("TransferPlanner", "%1 个文件 / %2").arg(files).arg(FileHash::fileSizeText(bytes));
 }
 
 }  // namespace
@@ -79,11 +80,11 @@ Compatibility compatibility(const QString &sourceGameVersion, const QString &sou
 
 QString compatibilityName(Compatibility compatibility) {
     switch (compatibility) {
-    case Compatibility::Same: return QStringLiteral("一致");
-    case Compatibility::GameVersionDiffers: return QStringLiteral("游戏版本不同");
-    case Compatibility::LoaderDiffers: return QStringLiteral("加载器不同");
-    case Compatibility::BothDiffer: return QStringLiteral("版本与加载器都不同");
-    case Compatibility::Unknown: return QStringLiteral("认不出来");
+    case Compatibility::Same: return QCoreApplication::translate("TransferPlanner", "一致");
+    case Compatibility::GameVersionDiffers: return QCoreApplication::translate("TransferPlanner", "游戏版本不同");
+    case Compatibility::LoaderDiffers: return QCoreApplication::translate("TransferPlanner", "加载器不同");
+    case Compatibility::BothDiffer: return QCoreApplication::translate("TransferPlanner", "版本与加载器都不同");
+    case Compatibility::Unknown: return QCoreApplication::translate("TransferPlanner", "未知");
     }
     return QString();
 }
@@ -92,28 +93,24 @@ QString compatibilityText(Compatibility compatibility, const QString &sourceGame
                           const QString &sourceLoaderName, const QString &targetGameVersion,
                           const QString &targetLoaderName) {
     const auto loaderWord = [](const QString &name) {
-        return name.isEmpty() ? QStringLiteral("原版") : name;
+        return name.isEmpty() ? QCoreApplication::translate("TransferPlanner", "原版") : name;
     };
     switch (compatibility) {
     case Compatibility::Same:
-        return QStringLiteral("目标版本（%1 / %2）与源一致：模组与配置可以原样搬过去。")
+        return QCoreApplication::translate("TransferPlanner", "目标版本（%1 / %2）与源一致：模组与配置可以原样搬过去。")
             .arg(sourceGameVersion, loaderWord(sourceLoaderName));
     case Compatibility::GameVersionDiffers:
-        return QStringLiteral("目标版本是 %1，源是 %2 —— 模组与部分配置可能不兼容，"
-                              "所以「模组」默认不勾选。")
+        return QCoreApplication::translate("TransferPlanner", "目标游戏版本为 %1，源版本为 %2。模组和部分配置可能不兼容，默认不迁移模组。")
             .arg(targetGameVersion, sourceGameVersion);
     case Compatibility::LoaderDiffers:
-        return QStringLiteral("目标加载器是 %1，源是 %2（游戏版本都是 %3）—— "
-                              "模组与加载器相关配置可能不兼容，所以「模组」默认不勾选。")
+        return QCoreApplication::translate("TransferPlanner", "源加载器为 %2，目标加载器为 %1，游戏版本均为 %3。模组和相关配置可能不兼容，默认不迁移模组。")
             .arg(loaderWord(targetLoaderName), loaderWord(sourceLoaderName), sourceGameVersion);
     case Compatibility::BothDiffer:
-        return QStringLiteral("目标版本是 %1 / %2，源是 %3 / %4 —— 模组与部分配置可能不兼容，"
-                              "所以「模组」默认不勾选。")
+        return QCoreApplication::translate("TransferPlanner", "目标版本和加载器为 %1 / %2，源配置为 %3 / %4。模组和部分配置可能不兼容，默认不迁移模组。")
             .arg(targetGameVersion, loaderWord(targetLoaderName), sourceGameVersion,
                  loaderWord(sourceLoaderName));
     case Compatibility::Unknown:
-        return QStringLiteral("有一边的游戏版本或加载器读不出来 —— 不做猜测："
-                              "「模组」默认不勾选，请自己判断要不要原样搬过去。");
+        return QCoreApplication::translate("TransferPlanner", "无法识别源或目标的游戏版本或加载器。默认不迁移模组，可确认兼容性后手动勾选。");
     }
     return QString();
 }
@@ -151,11 +148,11 @@ QString Plan::headline() const {
     if (!ok) return problem;
     const int count = defaultSelectedKeys().size();
     const QString prefix =
-        upgrade ? QStringLiteral("升级副本计划：%1").arg(compatibilityName(compatibility))
-                : QStringLiteral("迁移计划：%1").arg(compatibilityName(compatibility));
+        upgrade ? QCoreApplication::translate("TransferPlanner", "升级副本计划：%1").arg(compatibilityName(compatibility))
+                : QCoreApplication::translate("TransferPlanner", "迁移计划：%1").arg(compatibilityName(compatibility));
     const qint64 bytes = selectedBytes(defaultSelectedKeys());
     const int files = selectedFileCount(defaultSelectedKeys());
-    return QStringLiteral("%1 / 默认搬 %2 项（%3）").arg(prefix).arg(count).arg(joinSize(files, bytes));
+    return QCoreApplication::translate("TransferPlanner", "%1 / 默认搬 %2 项（%3）").arg(prefix).arg(count).arg(joinSize(files, bytes));
 }
 
 QString Plan::detailText() const {
@@ -164,24 +161,23 @@ QString Plan::detailText() const {
     lines << headline();
     lines << compatibilitySentence;
     lines << QString();
-    lines << (upgrade ? QStringLiteral("以下是这次升级副本里要搬的内容：")
-                      : QStringLiteral("以下是这次迁移里要搬的内容："));
+    lines << (upgrade ? QCoreApplication::translate("TransferPlanner", "将复制以下内容到升级副本：")
+                      : QCoreApplication::translate("TransferPlanner", "本次迁移包括："));
     for (const Item &item : items) {
         if (!item.exists) {
-            lines << QStringLiteral("• %1：这一份实例里没有").arg(item.label);
+            lines << QCoreApplication::translate("TransferPlanner", "• %1：这一份实例里没有").arg(item.label);
             continue;
         }
         // 勾选框记号：`☑` / `☐` 默认界面字体里没有（首次排版约 280 ms 的字体回退），
         // 换成同一份字体里有的 `■` / `□`（见 `ui/TextMarks.hpp` 头注释）。
-        lines << QStringLiteral("%1 %2（%3）")
+        lines << QCoreApplication::translate("TransferPlanner", "%1 %2（%3）")
                      .arg(item.defaultSelected ? TextMarks::checked() : TextMarks::unchecked(),
                           item.label, joinSize(item.fileCount, item.bytes));
         if (!item.note.isEmpty()) lines << QStringLiteral("    %1").arg(item.note);
     }
     lines << QString();
-    lines << QStringLiteral("日志、截图、崩溃报告只是记录，默认不搬（想搬就手动勾上）。");
-    lines << QStringLiteral("迁移只增加文件、不删除、不覆盖目标里已有的同名文件；"
-                            "两边的游戏都必须先关掉。");
+    lines << QCoreApplication::translate("TransferPlanner", "日志、截图和崩溃报告默认不迁移，可手动选择。");
+    lines << QCoreApplication::translate("TransferPlanner", "迁移只增加文件、不删除、不覆盖目标里已有的同名文件；" "两边的游戏都必须先关掉。");
     return lines.join(QLatin1Char('\n'));
 }
 
@@ -189,13 +185,13 @@ QString Plan::confirmText(const QStringList &keys) const {
     const int files = selectedFileCount(keys);
     const qint64 bytes = selectedBytes(keys);
     QString text = upgrade
-                       ? QStringLiteral("将创建一份升级副本，并把选中的 %1 项（%2）搬进去。")
+                       ? QCoreApplication::translate("TransferPlanner", "将创建一份升级副本，并把选中的 %1 项（%2）搬进去。")
                              .arg(QString::number(keys.size()), joinSize(files, bytes))
-                       : QStringLiteral("将把选中的 %1 项（%2）搬进目标实例。")
+                       : QCoreApplication::translate("TransferPlanner", "将把选中的 %1 项（%2）搬进目标实例。")
                              .arg(QString::number(keys.size()), joinSize(files, bytes));
-    text += QStringLiteral("\n\n只增加文件，不删除、不覆盖目标里已有的同名文件。");
+    text += QCoreApplication::translate("TransferPlanner", "\n\n只增加文件，不删除、不覆盖目标里已有的同名文件。");
     if (compatibility != Compatibility::Same) {
-        text += QStringLiteral("\n\n兼容性结论：%1").arg(compatibilityName(compatibility));
+        text += QCoreApplication::translate("TransferPlanner", "\n\n兼容性结论：%1").arg(compatibilityName(compatibility));
     }
     return text;
 }
@@ -206,8 +202,8 @@ Plan plan(const Inputs &inputs) {
 
     const QString sourceDir = inputs.sourceDir.trimmed();
     if (sourceDir.isEmpty() || !QDir(sourceDir).exists()) {
-        result.problem = QStringLiteral("找不到源实例目录：%1").arg(
-            sourceDir.isEmpty() ? QStringLiteral("（没有给）") : QDir::toNativeSeparators(sourceDir));
+        result.problem = QCoreApplication::translate("TransferPlanner", "找不到源实例目录：%1").arg(
+            sourceDir.isEmpty() ? QCoreApplication::translate("TransferPlanner", "（没有给）") : QDir::toNativeSeparators(sourceDir));
         return result;
     }
 
@@ -221,7 +217,7 @@ Plan plan(const Inputs &inputs) {
         && !inputs.targetLoaderVersion.isEmpty()
         && inputs.sourceLoaderVersion != inputs.targetLoaderVersion) {
         result.compatibilitySentence +=
-            QStringLiteral("加载器小版本不同（源 %1 / 目标 %2），一般没问题，起不来时先看它。")
+            QCoreApplication::translate("TransferPlanner", "加载器小版本不同（源 %1 / 目标 %2），一般没问题，起不来时先看它。")
                 .arg(inputs.sourceLoaderVersion, inputs.targetLoaderVersion);
     }
 
@@ -233,24 +229,24 @@ Plan plan(const Inputs &inputs) {
     };
     // 顺序就是界面上的顺序：先把"真的在玩的东西"摆前面，记录类垫底。
     static const Row rows[] = {
-        {"saves", "存档", "saves", true},
-        {"mods", "模组", "mods", true},
-        {"config", "模组配置", "config", true},
-        {"defaultconfigs", "默认配置", "defaultconfigs", true},
-        {"resourcepacks", "资源包", "resourcepacks", true},
-        {"shaderpacks", "光影包", "shaderpacks", true},
-        {"options", "游戏设置", "options.txt", false},
-        {"servers", "服务器列表", "servers.dat", false},
-        {"structure", "结构文件", "structures", true},
-        {"screenshots", "截图", "screenshots", true},
-        {"logs", "日志", "logs", true},
-        {"crashreports", "崩溃报告", "crash-reports", true},
+        {"saves", QT_TRANSLATE_NOOP("TransferPlanner", "存档"), "saves", true},
+        {"mods", QT_TRANSLATE_NOOP("TransferPlanner", "模组"), "mods", true},
+        {"config", QT_TRANSLATE_NOOP("TransferPlanner", "模组配置"), "config", true},
+        {"defaultconfigs", QT_TRANSLATE_NOOP("TransferPlanner", "默认配置"), "defaultconfigs", true},
+        {"resourcepacks", QT_TRANSLATE_NOOP("TransferPlanner", "资源包"), "resourcepacks", true},
+        {"shaderpacks", QT_TRANSLATE_NOOP("TransferPlanner", "光影包"), "shaderpacks", true},
+        {"options", QT_TRANSLATE_NOOP("TransferPlanner", "游戏设置"), "options.txt", false},
+        {"servers", QT_TRANSLATE_NOOP("TransferPlanner", "服务器列表"), "servers.dat", false},
+        {"structure", QT_TRANSLATE_NOOP("TransferPlanner", "结构文件"), "structures", true},
+        {"screenshots", QT_TRANSLATE_NOOP("TransferPlanner", "截图"), "screenshots", true},
+        {"logs", QT_TRANSLATE_NOOP("TransferPlanner", "日志"), "logs", true},
+        {"crashreports", QT_TRANSLATE_NOOP("TransferPlanner", "崩溃报告"), "crash-reports", true},
     };
 
     for (const Row &row : rows) {
         Item item;
         item.key = QString::fromLatin1(row.key);
-        item.label = QString::fromUtf8(row.label);
+        item.label = QCoreApplication::translate("TransferPlanner", row.label);
         item.relativePath = QString::fromLatin1(row.relativePath);
         item.isDirectory = row.isDirectory;
         const QString absolutePath = sourceDir + QLatin1Char('/') + item.relativePath;
@@ -270,14 +266,12 @@ Plan plan(const Inputs &inputs) {
         }
         if (item.key == QStringLiteral("mods") && item.exists
             && result.compatibility != Compatibility::Same) {
-            item.note = QStringLiteral("目标版本 / 加载器与源不一致，模组可能起不来；"
-                                       "确认要原样搬过去再自己勾上。");
+            item.note = QCoreApplication::translate("TransferPlanner", "目标版本 / 加载器与源不一致，模组可能起不来；" "确认要原样搬过去再自己勾上。");
         } else if (neverDefaultSelected(item.key) && item.exists) {
-            item.note = QStringLiteral("只是记录，默认不搬。");
+            item.note = QCoreApplication::translate("TransferPlanner", "这些文件用于记录，默认不迁移。");
         } else if (result.compatibility == Compatibility::Unknown && item.exists
                    && item.key != QStringLiteral("saves")) {
-            item.note = QStringLiteral("认不出目标版本：这一项是否兼容不确定，"
-                                       "要不要搬请自己判断。");
+            item.note = QCoreApplication::translate("TransferPlanner", "无法识别目标版本。确认兼容性后再选择是否迁移。");
         }
         result.items.append(item);
     }

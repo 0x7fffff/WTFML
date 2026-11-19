@@ -172,7 +172,17 @@ Tasks::TaskId ActivityCenterController::begin(Tasks::TaskKind kind, const QStrin
 }
 
 bool ActivityCenterController::bindSession(Tasks::TaskId id, int sessionId) {
-    return m_tasks.setSessionId(id, sessionId);
+    if (!m_tasks.setSessionId(id, sessionId)) {
+        return false;
+    }
+    const auto task = m_tasks.snapshot(id);
+    if (task.kind == Tasks::TaskKind::Launch) {
+        auto capabilities = task.capabilities;
+        capabilities.canCancel = true;
+        capabilities.cancelBlockedReason.clear();
+        m_tasks.setCapabilities(id, capabilities);
+    }
+    return true;
 }
 
 void ActivityCenterController::finish(Tasks::TaskId id, bool success,
@@ -292,10 +302,11 @@ TaskCenter::Item ActivityCenterController::item(const Tasks::TaskSnapshot &task,
     result.title = task.title;
     const auto displayText = [](QString text) {
         // Historical Qt errors remain intact on disk; localise their known UI spelling.
-        text.replace(QStringLiteral("Operation canceled"), QStringLiteral("网络请求已中止"), Qt::CaseInsensitive);
-        text.replace(QStringLiteral("Operation cancelled"), QStringLiteral("网络请求已中止"), Qt::CaseInsensitive);
+        const QString canceled = tr("网络请求已中止");
+        text.replace(QStringLiteral("Operation canceled"), canceled, Qt::CaseInsensitive);
+        text.replace(QStringLiteral("Operation cancelled"), canceled, Qt::CaseInsensitive);
         text.replace(QStringLiteral("这一版不在列表里（可能不是给这个实例的，或者作者已经删了它）。"),
-                     QStringLiteral("当前文件版本不在兼容版本列表中。"));
+                     tr("当前文件版本不在兼容版本列表中。"));
         return text;
     };
     result.detail = displayText(task.detail);
@@ -352,7 +363,7 @@ TaskCenter::Item ActivityCenterController::item(const Tasks::TaskSnapshot &task,
     result.cancelBlockedReason = task.capabilities.cancelBlockedReason;
     if (Tasks::isActiveState(task.state) && !result.capabilities.cancel
         && result.cancelBlockedReason.isEmpty() && task.capabilities.canCancel) {
-        result.cancelBlockedReason = tr("当前这一步停不得（停下来会留下半成品），等它走完这一段再取消。");
+        result.cancelBlockedReason = tr("当前步骤无法安全中止。请在此步骤完成后取消。");
     }
 
     result.steps.reserve(task.steps.size());
@@ -415,11 +426,11 @@ Tasks::TaskCapabilities ActivityCenterController::defaultCapabilities(Tasks::Tas
         caps.canCancel = true;
         break;
     case Tasks::TaskKind::Launch:
-        caps.cancelBlockedReason = tr("启动已经开始，要停下来请关掉游戏窗口。");
+        caps.cancelBlockedReason = tr("游戏进程启动后可取消此任务。");
         break;
     case Tasks::TaskKind::Export:
         caps.cancelBlockedReason =
-            tr("导出会把整理好的文件打成一个压缩包，中途停止会留下不完整的包；这一项不支持取消。");
+            tr("导出正在生成压缩包。为避免留下不完整的文件，压缩阶段无法取消。");
         break;
     case Tasks::TaskKind::Backup:
         caps.cancelBlockedReason = tr("这一项正在发布结果，发布过程中不能取消。");

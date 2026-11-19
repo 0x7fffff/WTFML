@@ -3,6 +3,7 @@
  * @brief CoordConvert 的实现（那些规矩在 .hpp 开头那一段）。
  */
 #include "CoordConvert.hpp"
+#include <QCoreApplication>
 
 #include <QRegularExpression>
 #include <QStringList>
@@ -82,15 +83,15 @@ QString dimensionId(Dimension dimension) {
 QString dimensionText(Dimension dimension) {
     switch (dimension) {
     case Dimension::Overworld:
-        return QStringLiteral("主世界");
+        return QCoreApplication::translate("CoordConvert", "主世界");
     case Dimension::Nether:
-        return QStringLiteral("下界");
+        return QCoreApplication::translate("CoordConvert", "下界");
     case Dimension::End:
-        return QStringLiteral("末地");
+        return QCoreApplication::translate("CoordConvert", "末地");
     case Dimension::Unknown:
         break;
     }
-    return QStringLiteral("未知维度");
+    return QCoreApplication::translate("CoordConvert", "未知维度");
 }
 
 bool convertible(Dimension from, Dimension to) {
@@ -154,7 +155,7 @@ ParsedTp parseTeleportCommand(const QString &text) {
     ParsedTp result;
     QString line = text.trimmed();
     if (line.isEmpty()) {
-        result.error = QStringLiteral("这一格是空的：把游戏里 F3+C 复制的那一条粘进来。");
+        result.error = QCoreApplication::translate("CoordConvert", "请粘贴在游戏中按 F3+C 复制的坐标命令。");
         return result;
     }
     if (line.startsWith(QChar('/'))) {
@@ -166,19 +167,19 @@ ParsedTp parseTeleportCommand(const QString &text) {
     QStringList tokens = line.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
     if (!tokens.isEmpty() && tokens.first().compare(QLatin1String("execute"), Qt::CaseInsensitive) == 0) {
         if (tokens.size() < 4 || tokens.at(1).compare(QLatin1String("in"), Qt::CaseInsensitive) != 0) {
-            result.error = QStringLiteral("这条 `execute` 看不懂：只认 `execute in <维度> run <命令>` 这一种。");
+            result.error = QCoreApplication::translate("CoordConvert", "仅支持格式为 `execute in <维度> run <命令>` 的 `execute` 命令。");
             return result;
         }
         result.dimension = dimensionFromId(tokens.at(2));
         result.hasDimension = result.dimension != Dimension::Unknown;
         if (!result.hasDimension) {
-            result.error = QStringLiteral("维度认不出来：`%1`。").arg(tokens.at(2));
+            result.error = QCoreApplication::translate("CoordConvert", "无法识别维度：`%1`。").arg(tokens.at(2));
             return result;
         }
         // 后面必须跟着 `run`
         int index = 3;
         if (tokens.at(index).compare(QLatin1String("run"), Qt::CaseInsensitive) != 0) {
-            result.error = QStringLiteral("`execute in <维度>` 后面缺一个 `run`。");
+            result.error = QCoreApplication::translate("CoordConvert", "`execute in <维度>` 后面缺一个 `run`。");
             return result;
         }
         tokens = tokens.mid(index + 1);
@@ -186,7 +187,7 @@ ParsedTp parseTeleportCommand(const QString &text) {
 
     // ---------- `tp` 那一段 ----------
     if (tokens.isEmpty() || tokens.first().compare(QLatin1String("tp"), Qt::CaseInsensitive) != 0) {
-        result.error = QStringLiteral("这条命令里没有 `tp`：只认传送命令（F3+C 复制出来的就是一条）。");
+        result.error = QCoreApplication::translate("CoordConvert", "这条命令里没有 `tp`：只认传送命令（F3+C 复制出来的就是一条）。");
         return result;
     }
     tokens.removeFirst();
@@ -198,7 +199,7 @@ ParsedTp parseTeleportCommand(const QString &text) {
 
     const int coordinateCount = qMin(3, int(tokens.size()));
     if (coordinateCount < 3) {
-        result.error = QStringLiteral("三个坐标不全：读到的只有 %1 个数。").arg(tokens.size());
+        result.error = QCoreApplication::translate("CoordConvert", "三个坐标不全：读到的只有 %1 个数。").arg(tokens.size());
         return result;
     }
 
@@ -210,13 +211,12 @@ ParsedTp parseTeleportCommand(const QString &text) {
             continue;
         }
         if (!toDouble(token, &values[index])) {
-            result.error = QStringLiteral("`%1` 不是一个数。").arg(token);
+            result.error = QCoreApplication::translate("CoordConvert", "`%1` 不是一个数。").arg(token);
             return result;
         }
     }
     if (result.relative) {
-        result.error = QStringLiteral("这三个数里有 `~` / `^`（相对坐标）：它说的是「从这里往前几格」，"
-                                      "得先知道你现在站在哪儿才能算 —— 先站到你那一点再复制一次。");
+        result.error = QCoreApplication::translate("CoordConvert", "输入含 `~` 或 `^` 相对坐标。请站到目标位置后复制绝对坐标。");
         return result;
     }
     result.position = Position{values[0], values[1], values[2]};

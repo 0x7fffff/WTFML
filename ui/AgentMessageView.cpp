@@ -45,7 +45,7 @@ AgentMessageView::AgentMessageView(const AgentView::Message &message, QWidget *p
 
     m_reasoningToggle = new QToolButton(this);
     m_reasoningToggle->setObjectName(QStringLiteral("agentReasoningToggle"));
-    m_reasoningToggle->setText(QStringLiteral("思考过程"));
+    m_reasoningToggle->setText(tr("思考过程"));
     m_reasoningToggle->setCheckable(true);
     m_reasoningToggle->setChecked(false);
     m_reasoningToggle->setToolButtonStyle(Qt::ToolButtonTextOnly);
@@ -78,7 +78,7 @@ AgentMessageView::AgentMessageView(const AgentView::Message &message, QWidget *p
     m_status->setForegroundRole(QPalette::PlaceholderText);
     footer->addWidget(m_status);
     footer->addStretch(1);
-    m_retry = new QPushButton(QStringLiteral("重试"), this);
+    m_retry = new QPushButton(tr("重试"), this);
     m_retry->setObjectName(QStringLiteral("agentRetryButton"));
     m_retry->hide();
     footer->addWidget(m_retry);
@@ -97,7 +97,7 @@ void AgentMessageView::setMessage(const AgentView::Message &message) {
 
 void AgentMessageView::refresh() {
     const bool user = m_message.user;
-    m_role->setText(user ? QStringLiteral("你") : QStringLiteral("助手"));
+    m_role->setText(user ? tr("你") : tr("助手"));
     setAccessibleName(m_role->text());
     m_body->setText(AgentMarkdown::toHtml(m_message.content));
     if (user) {
@@ -114,11 +114,11 @@ void AgentMessageView::refresh() {
 
     QString status;
     switch (m_message.status) {
-    case AgentView::MessageStatus::Streaming: status = QStringLiteral("正在生成…"); break;
-    case AgentView::MessageStatus::Interrupted: status = QStringLiteral("已中断"); break;
-    case AgentView::MessageStatus::Error: status = QStringLiteral("失败"); break;
-    case AgentView::MessageStatus::ToolPending: status = QStringLiteral("等待工具…"); break;
-    case AgentView::MessageStatus::AwaitingApproval: status = QStringLiteral("等待确认…"); break;
+    case AgentView::MessageStatus::Streaming: status = tr("正在生成…"); break;
+    case AgentView::MessageStatus::Interrupted: status = tr("已中断"); break;
+    case AgentView::MessageStatus::Error: status = tr("失败"); break;
+    case AgentView::MessageStatus::ToolPending: status = tr("等待工具…"); break;
+    case AgentView::MessageStatus::AwaitingApproval: status = tr("等待确认…"); break;
     case AgentView::MessageStatus::Complete: status.clear(); break;
     }
     if (!m_message.errorText.isEmpty()) {

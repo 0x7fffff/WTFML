@@ -152,7 +152,7 @@ void runTransferPlannerTests() {
         const TransferPlanner::Item *mods3 = itemOf(plan3, QStringLiteral("mods"));
         check(mods3 != nullptr && !mods3->defaultSelected,
               "★★ TR2 认不出来时模组默认不勾", mods3 == nullptr ? QString() : mods3->note);
-        check(plan3.compatibilitySentence.contains(QStringLiteral("不做猜测")),
+        check(plan3.compatibilitySentence.contains(QStringLiteral("默认不迁移模组")),
               "TR2 那一句明说「不做猜测」", plan3.compatibilitySentence);
 
         TransferPlanner::Inputs patch = baseInputs();

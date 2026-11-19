@@ -4,6 +4,7 @@
  */
 
 #include "ModDependencies.hpp"
+#include <QCoreApplication>
 #include "DependencyInspection.hpp"
 
 namespace ModDependencies {
@@ -16,13 +17,13 @@ bool knownDependencyType(const QString &type) {
 
 QString dependencyLabel(const ResourceCatalog::Dependency &d, const QHash<QString, QString> &names) {
     QString label = names.value(d.projectId, d.projectId);
-    if (label.isEmpty()) label = QStringLiteral("未提供项目号");
-    const QString type = d.type == QStringLiteral("required") ? QStringLiteral("必需")
-        : d.type == QStringLiteral("optional") ? QStringLiteral("可选")
-        : d.type == QStringLiteral("incompatible") ? QStringLiteral("不兼容")
-        : d.type == QStringLiteral("embedded") ? QStringLiteral("已内嵌") : QStringLiteral("类型未知");
+    if (label.isEmpty()) label = QCoreApplication::translate("ModDependencies", "未提供项目号");
+    const QString type = d.type == QStringLiteral("required") ? QCoreApplication::translate("ModDependencies", "必需")
+        : d.type == QStringLiteral("optional") ? QCoreApplication::translate("ModDependencies", "可选")
+        : d.type == QStringLiteral("incompatible") ? QCoreApplication::translate("ModDependencies", "不兼容")
+        : d.type == QStringLiteral("embedded") ? QCoreApplication::translate("ModDependencies", "已内嵌") : QCoreApplication::translate("ModDependencies", "类型未知");
     return label + QStringLiteral(" [%1%2]").arg(type,
-        d.versionId.isEmpty() ? QString() : QStringLiteral("，固定版本 %1").arg(d.versionId));
+        d.versionId.isEmpty() ? QString() : QCoreApplication::translate("ModDependencies", "，固定版本 %1").arg(d.versionId));
 }
 
 QStringList dependencyWarnings(const ResourceCatalog::Dependency &d,
@@ -32,19 +33,19 @@ QStringList dependencyWarnings(const ResourceCatalog::Dependency &d,
     const QString label = dependencyLabel(d, names);
     if (d.required()) {
         if (d.projectId.isEmpty() || !versions.contains(d.projectId))
-            lines.append(QStringLiteral("需确认：%1 未在%2中找到，不等于确定未安装。此步骤不会自动补装依赖。").arg(label, scope));
+            lines.append(QCoreApplication::translate("ModDependencies", "需确认：%1 未在%2中找到，不等于确定未安装。此步骤不会自动补装依赖。").arg(label, scope));
         else if (!d.versionId.isEmpty() && versions.value(d.projectId).isEmpty())
-            lines.append(QStringLiteral("需确认：%1 已识别项目，但版本号未知。").arg(label));
+            lines.append(QCoreApplication::translate("ModDependencies", "需确认：%1 已识别项目，但版本号未知。").arg(label));
         else if (!d.versionId.isEmpty() && versions.value(d.projectId) != d.versionId)
-            lines.append(QStringLiteral("版本不符：%1 与%2版本不一致。").arg(label, scope));
+            lines.append(QCoreApplication::translate("ModDependencies", "版本不符：%1 与%2版本不一致。").arg(label, scope));
     } else if (d.type == QStringLiteral("incompatible") && versions.contains(d.projectId)) {
         const auto installed = versions.value(d.projectId);
         if (d.versionId.isEmpty() || installed == d.versionId)
-            lines.append(QStringLiteral("冲突提示：已识别清单中存在 %1。").arg(label));
+            lines.append(QCoreApplication::translate("ModDependencies", "冲突提示：已识别清单中存在 %1。").arg(label));
         else if (installed.isEmpty())
-            lines.append(QStringLiteral("需确认：%1 的已安装版本未知，无法判断是否命中冲突。").arg(label));
+            lines.append(QCoreApplication::translate("ModDependencies", "需确认：%1 的已安装版本未知，无法判断是否命中冲突。").arg(label));
     } else if (!knownDependencyType(d.type) || d.projectId.isEmpty()) {
-        lines.append(QStringLiteral("需确认：依赖字段不完整，不能自动判定兼容。"));
+        lines.append(QCoreApplication::translate("ModDependencies", "需确认：依赖字段不完整，不能自动判定兼容。"));
     }
     return lines;
 }
@@ -55,13 +56,13 @@ QString updateDifferenceText(const ResourceCatalog::VersionEntry &current,
                              const QHash<QString, QString> &plannedVersions,
                              const QHash<QString, QString> &projectNames) {
     const auto versionName = [](const ResourceCatalog::VersionEntry &v) {
-        return v.id.isEmpty() ? QStringLiteral("未知（未取得当前版本资料）")
+        return v.id.isEmpty() ? QCoreApplication::translate("ModDependencies", "未知（未取得当前版本资料）")
             : !v.versionNumber.isEmpty() ? v.versionNumber : !v.name.isEmpty() ? v.name : v.id;
     };
     const auto depName = [&](const ResourceCatalog::Dependency &d) { return dependencyLabel(d, projectNames); };
-    QStringList lines{QStringLiteral("版本：%1 → %2").arg(versionName(current), versionName(target))};
+    QStringList lines{QCoreApplication::translate("ModDependencies", "版本：%1 → %2").arg(versionName(current), versionName(target))};
     if (!target.dependencyMetadataKnown) {
-        lines.append(QStringLiteral("依赖：目标版本未提供依赖资料，不能判断变化。"));
+        lines.append(QCoreApplication::translate("ModDependencies", "依赖：目标版本未提供依赖资料，不能判断变化。"));
         return lines.join(QLatin1Char('\n'));
     }
     const auto key = [](const ResourceCatalog::Dependency &d) {
@@ -78,30 +79,30 @@ QString updateDifferenceText(const ResourceCatalog::VersionEntry &current,
         if (!knownDependencyType(d.type) || (d.projectId.isEmpty() && d.versionId.isEmpty()) || newKeys.contains(key(d))) complete = false;
         newKeys.insert(key(d));
     }
-    if (!complete) lines.append(QStringLiteral("需确认：依赖字段缺失、类型未知或项目重复，部分差异无法确定。"));
+    if (!complete) lines.append(QCoreApplication::translate("ModDependencies", "需确认：依赖字段缺失、类型未知或项目重复，部分差异无法确定。"));
     for (const auto &d : current.dependencies) before.insert(key(d), d);
     QSet<QString> seen;
     bool changes = false;
     if (!current.dependencyMetadataKnown)
-        lines.append(QStringLiteral("当前依赖资料未知，以下仅列目标要求，不标为新增或移除。"));
+        lines.append(QCoreApplication::translate("ModDependencies", "当前依赖资料未知，以下仅列目标要求，不标为新增或移除。"));
     for (const auto &d : target.dependencies) {
         seen.insert(key(d));
         const auto old = before.constFind(key(d));
-        if (!current.dependencyMetadataKnown) lines.append(QStringLiteral("目标要求：") + depName(d));
-        else if (old == before.cend()) { lines.append(QStringLiteral("新增依赖：") + depName(d)); changes = true; }
+        if (!current.dependencyMetadataKnown) lines.append(QCoreApplication::translate("ModDependencies", "目标要求：") + depName(d));
+        else if (old == before.cend()) { lines.append(QCoreApplication::translate("ModDependencies", "新增依赖：") + depName(d)); changes = true; }
         else if (old->type != d.type || old->versionId != d.versionId) {
-            lines.append(QStringLiteral("依赖变化：%1 → %2").arg(depName(*old), depName(d))); changes = true;
+            lines.append(QCoreApplication::translate("ModDependencies", "依赖变化：%1 → %2").arg(depName(*old), depName(d))); changes = true;
         }
-        lines.append(dependencyWarnings(d, plannedVersions, projectNames, QStringLiteral("本次更新后的已识别清单")));
+        lines.append(dependencyWarnings(d, plannedVersions, projectNames, QCoreApplication::translate("ModDependencies", "本次更新后的已识别清单")));
     }
     if (current.dependencyMetadataKnown) {
         QStringList removed;
         for (auto it = before.cbegin(); it != before.cend(); ++it)
-            if (!seen.contains(it.key())) removed.append(QStringLiteral("移除声明：") + depName(it.value()));
+            if (!seen.contains(it.key())) removed.append(QCoreApplication::translate("ModDependencies", "移除声明：") + depName(it.value()));
         removed.sort(); lines.append(removed);
-        if (complete && !changes && removed.isEmpty()) lines.append(QStringLiteral("依赖声明未变化。"));
+        if (complete && !changes && removed.isEmpty()) lines.append(QCoreApplication::translate("ModDependencies", "依赖声明未变化。"));
     }
-    lines.append(QStringLiteral("移除声明不删除现有模组；此预览不是完整依赖求解或启动兼容保证。"));
+    lines.append(QCoreApplication::translate("ModDependencies", "移除声明不删除现有模组；此预览不是完整依赖求解或启动兼容保证。"));
     return lines.join(QLatin1Char('\n'));
 }
 
@@ -124,39 +125,39 @@ QString inspectInstalledDependencies(const QList<InstalledItem> &selected,
         ++recognized;
         projectFiles[projectKey(item)].append(QString(item.path).replace(QLatin1Char('\\'), QLatin1Char('/')).section(QLatin1Char('/'), -1));
     }
-    QStringList lines{QStringLiteral("选中 %1 项 / 已识别启用文件 %2 项 / 未识别启用文件 %3 项")
+    QStringList lines{QCoreApplication::translate("ModDependencies", "选中 %1 项 / 已识别启用文件 %2 项 / 未识别启用文件 %3 项")
         .arg(selected.size()).arg(recognized).arg(unknown)};
     QStringList duplicates;
     for (auto it = projectFiles.cbegin(); it != projectFiles.cend(); ++it)
-        if (it.value().size() > 1) duplicates.append(QStringLiteral("重复启用：%1（%2）。不自动选定版本或删除文件。")
+        if (it.value().size() > 1) duplicates.append(QCoreApplication::translate("ModDependencies", "重复启用：%1（%2）。不自动选定版本或删除文件。")
             .arg(it.key(), it.value().join(QStringLiteral(" / "))));
     duplicates.sort(); lines.append(duplicates);
     for (const auto &item : selected) {
-        lines.append(QStringLiteral("\n%1%2").arg(fileName(item), disabled(item) ? QStringLiteral("（已禁用）") : QString()));
+        lines.append(QStringLiteral("\n%1%2").arg(fileName(item), disabled(item) ? QCoreApplication::translate("ModDependencies", "（已禁用）") : QString()));
         const auto &version = item.currentVersion;
         if (version.id.isEmpty() || !version.dependencyMetadataKnown) {
-            lines.append(QStringLiteral("当前版本或依赖资料未知。可先检查更新，再回来查看；未知不等于没有依赖。"));
+            lines.append(QCoreApplication::translate("ModDependencies", "当前版本或依赖资料未知。可先检查更新，再回来查看；未知不等于没有依赖。"));
             continue;
         }
-        lines.append(QStringLiteral("当前版本：%1").arg(!version.versionNumber.isEmpty() ? version.versionNumber : version.id));
-        if (version.dependencies.isEmpty()) lines.append(QStringLiteral("该版本明确声明无依赖。"));
+        lines.append(QCoreApplication::translate("ModDependencies", "当前版本：%1").arg(!version.versionNumber.isEmpty() ? version.versionNumber : version.id));
+        if (version.dependencies.isEmpty()) lines.append(QCoreApplication::translate("ModDependencies", "该版本明确声明无依赖。"));
         QHash<QString, QString> versions, names;
         for (const auto &known : inventory) {
             if (disabled(known) || known.source != item.source || known.projectId.isEmpty()) continue;
             versions.insert(known.projectId, projectFiles.value(projectKey(known)).size() > 1 ? QString() : known.currentVersion.id);
             names.insert(known.projectId, fileName(known));
         }
-        if (disabled(item)) lines.append(QStringLiteral("当前未启用，仅展示缓存声明，不纳入运行依赖/冲突判断。"));
+        if (disabled(item)) lines.append(QCoreApplication::translate("ModDependencies", "当前未启用，仅展示缓存声明，不纳入运行依赖/冲突判断。"));
         QSet<QString> declared;
         for (const auto &dep : version.dependencies) {
-            lines.append(QStringLiteral("声明：") + dependencyLabel(dep, names));
+            lines.append(QCoreApplication::translate("ModDependencies", "声明：") + dependencyLabel(dep, names));
             const auto key = dep.projectId + QLatin1Char('|') + dep.versionId;
-            if (declared.contains(key)) lines.append(QStringLiteral("需确认：依赖声明重复，不作完整兼容判断。"));
+            if (declared.contains(key)) lines.append(QCoreApplication::translate("ModDependencies", "需确认：依赖声明重复，不作完整兼容判断。"));
             declared.insert(key);
-            if (!disabled(item)) lines.append(dependencyWarnings(dep, versions, names, QStringLiteral("当前已识别启用清单")));
+            if (!disabled(item)) lines.append(dependencyWarnings(dep, versions, names, QCoreApplication::translate("ModDependencies", "当前已识别启用清单")));
         }
     }
-    lines.append(QStringLiteral("\n仅根据有效缓存和已识别资料判断；未识别项目仍需自行确认。不是完整求解器，不保证可启动，也不会修改文件。"));
+    lines.append(QCoreApplication::translate("ModDependencies", "\n仅根据有效缓存和已识别资料判断；未识别项目仍需自行确认。不是完整求解器，不保证可启动，也不会修改文件。"));
     return lines.join(QLatin1Char('\n'));
 }
 
@@ -299,7 +300,7 @@ bool resolveDependency(const ResourceCatalog::Dependency &dependency,
         // 空的两种（那一发失败 / 这个项目在这个游戏版本+加载器下没有版本）在这一层分不开
         // —— 分得开的那一位在调用方手上（那一发有没有报错）。**这句话两边都说得通**，
         // 所以就把两边都说清楚，别替另一件下结论。
-        return fail(QStringLiteral("无法获取兼容版本，请检查网络连接及目标版本支持情况。"));
+        return fail(QCoreApplication::translate("ModDependencies", "无法获取兼容版本，请检查网络连接及目标版本支持情况。"));
     }
 
     const ResourceCatalog::VersionEntry *picked = nullptr;
@@ -313,7 +314,7 @@ bool resolveDependency(const ResourceCatalog::Dependency &dependency,
         if (picked == nullptr) {
             // **不退而求其次挑最新的一条**。作者钉版本往往是因为新旧不兼容，悄悄换一版
             // 装进去，症状是"这几个模组一起不生效"，而那一刻离这里已经很远了。
-            return fail(QStringLiteral("指定版本（%1）不在目标实例的兼容版本列表中。")
+            return fail(QCoreApplication::translate("ModDependencies", "指定版本（%1）不在目标实例的兼容版本列表中。")
                             .arg(dependency.versionId));
         }
     } else {
@@ -322,13 +323,13 @@ bool resolveDependency(const ResourceCatalog::Dependency &dependency,
 
     const ResourceCatalog::FileEntry *file = picked->primaryFile();
     if (file == nullptr) {
-        return fail(QStringLiteral("所选版本（%1）未提供文件。").arg(picked->versionNumber));
+        return fail(QCoreApplication::translate("ModDependencies", "所选版本（%1）未提供文件。").arg(picked->versionNumber));
     }
     if (file->url.isEmpty()) {
         // 作者关掉了第三方分发时，那边写好的那句话比"没有可下载的文件"准确得多
         // （见 FileEntry::unavailableNote 那段），有就用它。
         return fail(file->unavailableNote.isEmpty()
-                        ? QStringLiteral("所选版本（%1）未提供可下载文件。")
+                        ? QCoreApplication::translate("ModDependencies", "所选版本（%1）未提供可下载文件。")
                               .arg(picked->versionNumber)
                         : file->unavailableNote);
     }
@@ -357,14 +358,14 @@ Plan buildPlan(const QList<Lookup> &lookups,
         if (answersIt == answers.constEnd()) {
             // 钥匙不在表里 = 那一发没回来（或者回来时没被记下来）。和"它没有版本"分开说。
             plan.unresolved.append(
-                QStringLiteral("%1：无法获取版本列表。").arg(label));
+                QCoreApplication::translate("ModDependencies", "%1：无法获取版本列表。").arg(label));
             continue;
         }
 
         Resolved resolved;
         QString why;
         if (!resolveDependency(lookup.dependency, answersIt.value(), &resolved, &why)) {
-            plan.unresolved.append(QStringLiteral("%1：%2").arg(label, why));
+            plan.unresolved.append(QCoreApplication::translate("ModDependencies", "%1：%2").arg(label, why));
             continue;
         }
         resolved.title = label;
@@ -382,11 +383,11 @@ UpdateVerdict judgeUpdate(const InstalledItem &item,
 
     if (item.sha1.isEmpty()) {
         // 认不出来是哪个文件（读不动、或者哈希那一步没成）—— 这一条**不是**"已是最新"。
-        verdict.reason = QStringLiteral("无法识别本地文件版本。");
+        verdict.reason = QCoreApplication::translate("ModDependencies", "无法识别本地文件版本。");
         return verdict;
     }
     if (versions.isEmpty()) {
-        verdict.reason = problem.isEmpty() ? QStringLiteral("无法获取版本列表。") : problem;
+        verdict.reason = problem.isEmpty() ? QCoreApplication::translate("ModDependencies", "无法获取版本列表。") : problem;
         return verdict;
     }
 
@@ -405,7 +406,7 @@ UpdateVerdict judgeUpdate(const InstalledItem &item,
     if (found < 0) {
         // 三种情况合成一句（列表筛过、作者删了老版本、用户改过那个 jar），
         // 见头文件里那段 —— 下一步都是"去项目页自己看"。
-        verdict.reason = QStringLiteral("当前文件版本不在兼容版本列表中。");
+        verdict.reason = QCoreApplication::translate("ModDependencies", "当前文件版本不在兼容版本列表中。");
         return verdict;
     }
 
@@ -428,7 +429,7 @@ UpdateVerdict judgeUpdateAgainstLatest(const InstalledItem &item,
 
     if (item.sha1.isEmpty()) {
         // 和上面那条**逐字同一句话**：认不出来是哪一版，就谈不上"是不是最新的"。
-        verdict.reason = QStringLiteral("无法识别本地文件版本。");
+        verdict.reason = QCoreApplication::translate("ModDependencies", "无法识别本地文件版本。");
         return verdict;
     }
     if (latest.id.isEmpty()) {
@@ -438,7 +439,7 @@ UpdateVerdict judgeUpdateAgainstLatest(const InstalledItem &item,
         // 见 .hpp 里那段：真因不许被吞成"网络没成"）。
         verdict.reason =
             problem.isEmpty()
-                ? QStringLiteral("未找到支持目标游戏版本及加载器的版本。")
+                ? QCoreApplication::translate("ModDependencies", "未找到支持目标游戏版本及加载器的版本。")
                 : problem;
         return verdict;
     }
@@ -505,24 +506,24 @@ QString dependencyNameLines(const QStringList &names) {
         lines.append(QStringLiteral("- ") + names.at(i));
     }
     // 这一行**不带短横**：它不是名单里的一条，是一句"后面还有"。
-    lines.append(QStringLiteral("还有 %1 个未列出…").arg(names.size() - kKeepWhenTruncated));
+    lines.append(QCoreApplication::translate("ModDependencies", "还有 %1 个未列出…").arg(names.size() - kKeepWhenTruncated));
     return lines.join(QLatin1Char('\n'));
 }
 
 }  // namespace
 
 QString dependencyPromptHead(ResourceCatalog::Kind kind) {
-    return kind == ResourceCatalog::Kind::Shader ? QStringLiteral("此光影包缺失必要的前置：")
-                                                 : QStringLiteral("此模组缺失必要的前置：");
+    return kind == ResourceCatalog::Kind::Shader ? QCoreApplication::translate("ModDependencies", "此光影包缺失必要的前置：")
+                                                 : QCoreApplication::translate("ModDependencies", "此模组缺失必要的前置：");
 }
 
-QString dependencyPromptTitle() { return QStringLiteral("还有前置没装"); }
+QString dependencyPromptTitle() { return QCoreApplication::translate("ModDependencies", "还有前置没装"); }
 
 QString dependencyPromptText(ResourceCatalog::Kind kind, const QStringList &names) {
     if (names.isEmpty()) {
         return QString();
     }
-    return QStringLiteral("%1\n\n%2\n\n要一起下载吗？")
+    return QCoreApplication::translate("ModDependencies", "%1\n\n%2\n\n要一起下载吗？")
         .arg(dependencyPromptHead(kind), dependencyNameLines(names));
 }
 
@@ -530,32 +531,30 @@ QString dependencyPromptUnknownText(ResourceCatalog::Kind kind, const QStringLis
     if (names.isEmpty()) {
         return QString();
     }
-    return QStringLiteral("%1（还没看过这个实例里装了什么，不知道你有没有）：\n\n%2\n\n"
-                          "要一起下载吗？")
+    return QCoreApplication::translate("ModDependencies", "%1\n\n%2\n\n尚未核对实例中已安装的依赖。确认一并下载？")
         .arg(dependencyPromptHead(kind), dependencyNameLines(names));
 }
 
 QString dependencyPromptNoteText() {
     // 那一行灰字。**唯一出处**：界面（InlineMessage::ask 的 note）和验证工程都读它。
     // 写法照「提示」栏里那两条（重复启动 / 进度提醒）—— 都是"提醒本身 + 去哪儿关"。
-    return QStringLiteral("可以在设置中关闭此提示（设置 → 提示 →「检查前置模组」）。");
+    return QCoreApplication::translate("ModDependencies", "可以在设置中关闭此提示（设置 → 提示 →「检查前置模组」）。");
 }
 
-QString dependencyAllButtonText() { return QStringLiteral("一起下载"); }
+QString dependencyAllButtonText() { return QCoreApplication::translate("ModDependencies", "一起下载"); }
 
-QString dependencyOnlyThisButtonText() { return QStringLiteral("只下这个"); }
+QString dependencyOnlyThisButtonText() { return QCoreApplication::translate("ModDependencies", "只下这个"); }
 
 QString unresolvedNoteText(const QStringList &lines) {
     if (lines.isEmpty()) {
         return QString();
     }
-    return QStringLiteral("有几个前置没找到能装的版本：\n\n%1\n\n"
-                          "部分依赖下载失败，其余文件已完成。可在项目主页手动下载。")
+    return QCoreApplication::translate("ModDependencies", "以下依赖缺少兼容版本：\n\n%1\n\n其余文件已下载。可在对应项目页面查找并手动安装依赖。")
         .arg(lines.join(QLatin1Char('\n')));
 }
 
 QString dependencyLookupLogText(int count) {
-    return QStringLiteral("正在查询 %1 个前置模组的可用版本…").arg(count);
+    return QCoreApplication::translate("ModDependencies", "正在查询 %1 个前置模组的可用版本…").arg(count);
 }
 
 QString detailPrerequisiteText(const QStringList &names) {
@@ -564,24 +563,24 @@ QString detailPrerequisiteText(const QStringList &names) {
     }
     // 顿号连起来。**不截断**：前置一般就一两条，真遇上十条的（那种"全家桶"整合包里的
     // 核心模组）也该照实列全 —— 截断省下的那点宽度换来的是"还有一个是谁"。
-    return QStringLiteral("这一版要装的前置：%1").arg(names.join(QStringLiteral("、")));
+    return QCoreApplication::translate("ModDependencies", "这一版要装的前置：%1").arg(names.join(QCoreApplication::translate("ModDependencies", "、")));
 }
 
 QString detailPrerequisiteCountText(int count) {
     if (count <= 0) {
         return QString();
     }
-    return QStringLiteral("这一版要 %1 个前置模组（名字没取到）。").arg(count);
+    return QCoreApplication::translate("ModDependencies", "这一版要 %1 个前置模组（名字没取到）。").arg(count);
 }
 
-QString updateUpToDateText() { return QStringLiteral("已是最新"); }
+QString updateUpToDateText() { return QCoreApplication::translate("ModDependencies", "已是最新"); }
 
-QString updateOutdatedText() { return QStringLiteral("有新版本"); }
+QString updateOutdatedText() { return QCoreApplication::translate("ModDependencies", "有新版本"); }
 
-QString updateUnknownText() { return QStringLiteral("无法确认"); }
+QString updateUnknownText() { return QCoreApplication::translate("ModDependencies", "无法确认"); }
 
 QString updateSummaryText(int checked, int outdated) {
-    return QStringLiteral("检查了 %1 个资源，%2 个有新版本。").arg(checked).arg(outdated);
+    return QCoreApplication::translate("ModDependencies", "检查了 %1 个资源，%2 个有新版本。").arg(checked).arg(outdated);
 }
 
 }  // namespace ModDependencies

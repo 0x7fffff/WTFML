@@ -115,14 +115,14 @@ void runGameExitDiagnosisTests() {
     overMemory.totalMemoryMb = 32768;
     const QStringList overHints = GameExitDiagnosis::hints(overMemory);
     check(overHints.size() == 1 && overHints.first().contains(QStringLiteral("65536"))
-              && overHints.first().contains(QStringLiteral("总共只有 32768 MB")),
+              && overHints.first().contains(QStringLiteral("设备总内存为 32768 MB")),
           "★ ZP5 ②要的比机器有的还多 ⇒ 一定分不到",
           overHints.join(QStringLiteral(" | ")));
     GameExitDiagnosis::Facts nearMemory = base;
     nearMemory.xmxMb = 28672;   // 32768 的 7/8
     nearMemory.totalMemoryMb = 32768;
     const QStringList nearHints = GameExitDiagnosis::hints(nearMemory);
-    check(nearHints.size() == 1 && nearHints.first().contains(QStringLiteral("四分之三以上")),
+    check(nearHints.size() == 1 && nearHints.first().contains(QStringLiteral("四分之三")),
           "ZP5 ②占了四分之三以上 ⇒ 另一句（口风不一样）",
           nearHints.join(QStringLiteral(" | ")));
     // 边界：判据是 `xmx * 4 > 总内存 * 3`，所以**正好四分之三不算**"以上"（那一侧是开的）。
@@ -151,7 +151,7 @@ void runGameExitDiagnosisTests() {
     missing.logCaptured = true;
     const QStringList missingHints = GameExitDiagnosis::hints(missing);
     check(missingHints.size() == 1
-              && missingHints.first().contains(QStringLiteral("前置没装"))
+              && missingHints.first().contains(QStringLiteral("缺少模组依赖"))
               && missingHints.first().contains(QStringLiteral("检查更新")),
           "★ ZP5 ④缺前置那一条 (指向「检查更新」)",
           missingHints.join(QStringLiteral(" | ")));
@@ -193,12 +193,12 @@ void runGameExitDiagnosisTests() {
     quietExit.logCaptured = true;
     quietExit.errorLineCount = 0;
     const QStringList quietHints = GameExitDiagnosis::hints(quietExit);
-    check(quietHints.size() == 1 && quietHints.first().contains(QStringLiteral("自己退出")),
+    check(quietHints.size() == 1 && quietHints.first().contains(QStringLiteral("是否正常退出")),
           "★ ZP5 ⑦自己退出那一档", quietHints.join(QStringLiteral(" | ")));
     GameExitDiagnosis::Facts quietNoLog = quietExit;
     quietNoLog.logCaptured = false;
     check(GameExitDiagnosis::hints(quietNoLog).size() == 1
-              && GameExitDiagnosis::hints(quietNoLog).first().contains(QStringLiteral("没有收到")),
+              && GameExitDiagnosis::hints(quietNoLog).first().contains(QStringLiteral("未生成日志")),
           "★ ZP5 ⑦没拿到日志时**不说**「自己退出」，改说「没收到输出」",
           GameExitDiagnosis::hints(quietNoLog).join(QStringLiteral(" | ")));
 
@@ -208,7 +208,7 @@ void runGameExitDiagnosisTests() {
     nothing.exitCode = -1;   // 认不出来的码
     nothing.logCaptured = false;
     check(GameExitDiagnosis::hints(nothing).size() == 1
-              && GameExitDiagnosis::hints(nothing).first().contains(QStringLiteral("没有收到")),
+              && GameExitDiagnosis::hints(nothing).first().contains(QStringLiteral("未生成日志")),
           "ZP5 ⑧跑到这儿至少会有一句「没收到输出」");
 
     // 全都有的时候：条数 = 那几条都在，而且**不重复**。

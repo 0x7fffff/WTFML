@@ -37,6 +37,8 @@ new-server | NewServerPage | 新建服务端
 server-settings | ServerSettingsPage | 服务端设置
 server-console | ServerConsolePage | 服务端控制台
 agent-settings | AgentSettingsPage | API 与模型设置
+agent-mcp | AgentMcpPage | MCP 服务器
+agent-mcp-edit | QDialog#agentMcpEditDialog | 编辑 MCP 服务器
 preset-editor | PresetEditorPage | 预设编辑器
 preset-manage | PresetManagePage | 预设管理
 preset-mod-review | PresetModReview | 预设·模组确认（应用前）

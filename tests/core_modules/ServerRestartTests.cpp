@@ -93,7 +93,7 @@ void runServerRestartTests() {
         const ServerRestart::Decision exhausted =
             ServerRestart::decide(policy, ServerRestart::Why::Crash, 3);
         check(!exhausted.restart && exhausted.delaySeconds == 0
-                  && exhausted.note.contains(QStringLiteral("不再自动重启")),
+                  && exhausted.note.contains(QStringLiteral("已停止自动重启")),
               "★★ ZAF3 连着重启满 3 次 ⇒ 收手，而且那句话必须说出来"
               "（不然用户会一直等它自己起来）",
               exhausted.note);

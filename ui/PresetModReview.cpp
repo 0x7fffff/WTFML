@@ -22,7 +22,7 @@ PresetModReview::PresetModReview(const Presets::ModInstallPlan &plan, QWidget *p
     auto *hint = new QLabel(tr("替代项目仅本次有效，需重新检查必要前置。"), this);
     hint->setWordWrap(true); layout->addWidget(hint);
     if (!plan.optionalDependencyKeys.isEmpty()) {
-        auto *optional = new QLabel(tr("可选前置（不会自动加入）：%1").arg(plan.optionalDependencyKeys.join(QStringLiteral("、"))), this);
+        auto *optional = new QLabel(tr("可选前置（不会自动加入）：%1").arg(plan.optionalDependencyKeys.join(tr("、"))), this);
         optional->setWordWrap(true); layout->addWidget(optional);
     }
     m_rows = new QTreeWidget(this);
@@ -31,7 +31,7 @@ PresetModReview::PresetModReview(const Presets::ModInstallPlan &plan, QWidget *p
     m_rows->setRootIsDecorated(false); m_rows->setUniformRowHeights(true);
     bool hasReplacementInput = false;
     for (const auto &row : plan.rows) {
-        const QString title = (row.replacesKeys.isEmpty() ? QString() : row.replacesKeys.join(QStringLiteral("、")) + QStringLiteral(" → "))
+        const QString title = (row.replacesKeys.isEmpty() ? QString() : row.replacesKeys.join(tr("、")) + QStringLiteral(" → "))
             + row.title + (row.fromDependency ? tr("（必要前置）") : QString());
         const QString release = row.version.versionNumber.isEmpty() ? row.version.id
             : row.version.versionNumber + QStringLiteral(" / ") + row.version.id;

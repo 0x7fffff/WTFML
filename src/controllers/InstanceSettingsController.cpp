@@ -1,4 +1,5 @@
 #include "controllers/InstanceSettingsController.hpp"
+#include <QCoreApplication>
 
 #include "controllers/InstanceMaintenanceController.hpp"
 #include "util/AppPaths.hpp"
@@ -44,8 +45,7 @@ bool writeInstanceIcon(const QString &versionId, const QString &sourcePath, QStr
     const QImage source(sourcePath);
     if (source.isNull()) {
         if (errorOut != nullptr) {
-            *errorOut = QObject::tr("读不出这张图：%1\n\n"
-                                    "（它可能不是图片格式，也可能已经不在那儿了。）")
+            *errorOut = QObject::tr("无法读取图片：%1\n\n请确认文件存在且格式受支持。")
                             .arg(QDir::toNativeSeparators(sourcePath));
         }
         return false;
@@ -58,14 +58,14 @@ bool writeInstanceIcon(const QString &versionId, const QString &sourcePath, QStr
     QSaveFile file(AppPaths::versionIconPath(versionId));
     if (!file.open(QIODevice::WriteOnly)) {
         if (errorOut != nullptr) {
-            *errorOut = QObject::tr("图标写不进去：%1").arg(file.errorString());
+            *errorOut = QObject::tr("无法保存图标：%1").arg(file.errorString());
         }
         return false;
     }
     // QSaveFile 的 commit() 失败时自己会把临时文件撤掉，所以这两句之间不用再清理一遍。
     if (!source.save(&file, "PNG") || !file.commit()) {
         if (errorOut != nullptr) {
-            *errorOut = QObject::tr("图标没能放到 %1：%2")
+            *errorOut = QObject::tr("无法将图标写入 %1：%2")
                             .arg(QDir::toNativeSeparators(AppPaths::versionIconPath(versionId)),
                                  file.errorString());
         }

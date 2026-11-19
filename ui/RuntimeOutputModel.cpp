@@ -5,6 +5,7 @@
 
 #include "RuntimeOutputModel.hpp"
 
+#include <QCoreApplication>
 #include <algorithm>
 
 namespace {
@@ -296,9 +297,9 @@ QVector<int> RuntimeOutputModel::lineLimitChoices() {
 QString RuntimeOutputModel::lineLimitText(int limit) {
     // 数字**写全**（直接写数字，不做 1k/2k 缩写）。
     if (limit <= 0) {
-        return QStringLiteral("全部");
+        return QCoreApplication::translate("RuntimeOutputModel", "全部");
     }
-    return QStringLiteral("%1 条").arg(limit);
+    return QCoreApplication::translate("RuntimeOutputModel", "%1 条").arg(limit);
 }
 
 int RuntimeOutputModel::lineLimitOfIndex(int index) {

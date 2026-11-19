@@ -1,5 +1,6 @@
 // Maintenance/creation pages, file inspection and transfer/upgrade presentation.
 #include "InstanceSettingsDialog.hpp"
+#include <QCoreApplication>
 #include "ResourcePackPage.hpp"
 #include "WheelSafeComboBox.hpp"
 

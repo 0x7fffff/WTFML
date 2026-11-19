@@ -1,4 +1,5 @@
 #include "PresetExecutionReport.hpp"
+#include <QCoreApplication>
 #include "manage/InstanceFiles.hpp"
 #include <QCryptographicHash>
 #include <QDir>
@@ -21,7 +22,7 @@ QJsonObject readPresetExecutionReport(const QString &root, const PresetManifest 
     const auto path = presetExecutionReportPath(root);
     QFile file(path);
     if (QFileInfo(path).isSymLink() || !file.open(QIODevice::ReadOnly) || file.size() > 4 * 1024 * 1024) {
-        if (problem) *problem = QStringLiteral("没有可读的预设执行报告，或报告过大；请重新预览。");
+        if (problem) *problem = QCoreApplication::translate("PresetExecutionReport", "没有可读的预设执行报告，或报告过大；请重新预览。");
         return {};
     }
     const auto document = QJsonDocument::fromJson(file.readAll());
@@ -30,7 +31,7 @@ QJsonObject readPresetExecutionReport(const QString &root, const PresetManifest 
         object.value("presetId").toString() != manifest.id || object.value("manifestSha256").toString() != fingerprint(manifest) ||
         object.value("targetRoot").toString() != InstanceFiles::canonicalPath(root) ||
         !object.value("rows").isArray() || object.value("rows").toArray().size() > 10000) {
-        if (problem) *problem = QStringLiteral("执行报告与当前预设 / 实例不符，或报告已损坏；请重新预览，未自动继续。");
+        if (problem) *problem = QCoreApplication::translate("PresetExecutionReport", "执行报告与当前预设 / 实例不符，或报告已损坏；请重新预览，未自动继续。");
         return {};
     }
     QSet<QString> expected, found;
@@ -40,13 +41,13 @@ QJsonObject readPresetExecutionReport(const QString &root, const PresetManifest 
         const auto row = value.toObject(); const auto id = row.value("sectionId").toString();
         if (!value.isObject() || !expected.contains(id) || found.contains(id) ||
             !states.contains(row.value("state").toString())) {
-            if (problem) *problem = QStringLiteral("执行报告的逐项状态无效，未自动继续。");
+            if (problem) *problem = QCoreApplication::translate("PresetExecutionReport", "执行报告的逐项状态无效，未自动继续。");
             return {};
         }
         found.insert(id);
     }
     if (found != expected) {
-        if (problem) *problem = QStringLiteral("执行报告缺少预设段状态，未自动继续。");
+        if (problem) *problem = QCoreApplication::translate("PresetExecutionReport", "执行报告缺少预设段状态，未自动继续。");
         return {};
     }
     return object;
@@ -81,7 +82,7 @@ bool writePresetExecutionReport(const QString &root, const PresetManifest &manif
     QSaveFile file(path);
     if (bytes.size() > 4 * 1024 * 1024 || QFileInfo(path).isSymLink() ||
         !file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() || !file.commit()) {
-        if (problem) *problem = QStringLiteral("无法保存预设执行报告；已写入内容保留，请检查磁盘与权限。");
+        if (problem) *problem = QCoreApplication::translate("PresetExecutionReport", "无法保存预设执行报告；已写入内容保留，请检查磁盘与权限。");
         return false;
     }
     return true;

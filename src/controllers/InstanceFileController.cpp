@@ -1,4 +1,5 @@
 #include "InstanceFileController.hpp"
+#include <QCoreApplication>
 
 #include "InlineMessage.hpp"
 #include "InstanceFilesPage.hpp"
@@ -117,12 +118,11 @@ bool InstanceFileController::toggleUnchecked(const QString &path, QString *probl
     };
     const QFileInfo info(path);
     if (!info.exists())
-        return fail(tr("「%1」现在不在盘上。").arg(QDir::toNativeSeparators(path)));
+        return fail(tr("找不到「%1」。").arg(QDir::toNativeSeparators(path)));
     QString lockProblem;
     if (!WriteDirectoryGuard::acquire(path, &lockProblem)) return fail(lockProblem);
     if (info.isDir())
-        return fail(tr("「%1」是一个文件夹，不能启用 / 禁用。\n\n"
-                       "（把一个文件夹改了名，它里面的东西会一起从游戏眼里消失。）")
+        return fail(tr("「%1」是一个文件夹，不能启用 / 禁用。\n\n（把一个文件夹改了名，它里面的东西会一起从游戏眼里消失。）")
                         .arg(QDir::toNativeSeparators(path)));
     const QString suffix = InstanceFilesPage::disabledSuffix();
     const QString target = info.fileName().endsWith(suffix, Qt::CaseInsensitive)
@@ -131,7 +131,7 @@ bool InstanceFileController::toggleUnchecked(const QString &path, QString *probl
         return fail(tr("目标「%1」已存在。请先重命名或删除现有项目。")
                         .arg(QDir::toNativeSeparators(target)));
     if (!QFile::rename(path, target))
-        return fail(tr("重命名「%1」失败。文件可能被占用，请退出游戏后重试。")
+        return fail(tr("无法重命名「%1」。请关闭占用文件的程序后重试。")
                         .arg(QDir::toNativeSeparators(path)));
     log(target.endsWith(suffix, Qt::CaseInsensitive)
             ? tr("禁用文件：%1").arg(QDir::toNativeSeparators(path))
@@ -143,7 +143,7 @@ bool InstanceFileController::remove(const QString &path) {
     const QFileInfo info(path);
     if (!info.exists()) {
         InlineMessage::warning(m_overlay, tr("删除失败"),
-                               tr("「%1」现在不在盘上。").arg(QDir::toNativeSeparators(path)));
+                               tr("找不到「%1」。").arg(QDir::toNativeSeparators(path)));
         return false;
     }
     if (const QString why = firstRefusal({path}); !why.isEmpty()) {
@@ -183,7 +183,7 @@ bool InstanceFileController::removeUnchecked(const QString &path, QString *probl
     };
     const QFileInfo info(path);
     if (!info.exists())
-        return fail(tr("「%1」现在不在盘上。").arg(QDir::toNativeSeparators(path)));
+        return fail(tr("找不到「%1」。").arg(QDir::toNativeSeparators(path)));
     QString lockProblem;
     if (!WriteDirectoryGuard::acquire(path, &lockProblem)) return fail(lockProblem);
     // 进**回收站**：文件页上的东西（模组、资源包、存档里的一份文件）都是用户自己攒的，
@@ -193,7 +193,7 @@ bool InstanceFileController::removeUnchecked(const QString &path, QString *probl
     // 原因由 `moveToRecycleBin()` 给全（权限 / 被占着 / 回收站本身），这里只包一层
     // 「是哪一件」—— 不再替它补一句「先把游戏关掉再试」：权限不够的时候那句话是错的。
     if (!moveToRecycleBin(path, &recycleProblem))
-        return fail(tr("没能把「%1」移进回收站。\n\n%2")
+        return fail(tr("无法将「%1」移入回收站。\n\n%2")
                         .arg(QDir::toNativeSeparators(path), recycleProblem));
     log(tr("删除文件：%1").arg(QDir::toNativeSeparators(path)));
     return true;
@@ -246,7 +246,7 @@ void InstanceFileController::toggleMany(const QStringList &paths, bool disable) 
         if (path.endsWith(suffix, Qt::CaseInsensitive) == disable) {
             entries.append(OperationReport::Entry{
                 QFileInfo(path).fileName(), QFileInfo(path).size(),
-                OperationReport::EntryState::Skipped, QObject::tr("本来就已是目标状态")});
+                OperationReport::EntryState::Skipped, QObject::tr("已是目标状态")});
             continue;
         }
         QString problem;
@@ -271,7 +271,7 @@ void InstanceFileController::toggleMany(const QStringList &paths, bool disable) 
     log(tr("%1：动了 %2 个文件。").arg(disable ? tr("批量禁用") : tr("批量启用")).arg(changed));
     if (failed > 0)
         InlineMessage::warning(m_overlay, tr("改动失败"),
-                               tr("有 %1 个文件没能改动。\n\n%2")
+                               tr("有 %1 个文件修改失败。\n\n%2")
                                    .arg(failed).arg(problems.join(QStringLiteral("\n"))));
 }
 
@@ -316,8 +316,7 @@ void InstanceFileController::removeMany(const QStringList &paths) {
                                        text += tr("%1 个是链接（只删链接本身，指向的东西不动）")
                                                    .arg(linkCount);
                                    }
-                                   return text + tr("。它们会进回收站，"
-                                                    "要恢复可以从那里找回来。");
+                                   return text + tr("。它们会进回收站，要恢复可以从那里找回来。");
                                }())));
     if (InlineMessage::ask(m_overlay, MessageKind::Question, tr("删除文件"), question,
                            {tr("删除"), tr("取消")}, 1, 0) != 0) return;

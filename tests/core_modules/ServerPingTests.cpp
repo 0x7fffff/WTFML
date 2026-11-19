@@ -554,7 +554,7 @@ void runServerPingTests() {
         // 地址看不懂那一档**一个字节都不往网上发**：不这么写的话，用户把地址打错了会得到
         // "这台服务器连不上"，而真正的原因（这行地址本身是坏的）一个字都看不见。
         const ServerPing::Status broken = ServerPing::ping(QStringLiteral("127.0.0.1:0"));
-        check(!broken.ok && broken.error.contains(QStringLiteral("看不懂")),
+        check(!broken.ok && broken.error.contains(QStringLiteral("地址格式无效")),
               "ZH7 地址看不懂 = 直接说地址有问题", broken.error);
     }
 
@@ -629,7 +629,7 @@ void runServerPingTests() {
         const ServerPing::Status oversized =
             ServerPing::ping(QStringLiteral("127.0.0.1:%1").arg(huge.port));
         const qint64 hugeMs = hugeWall.elapsed();
-        check(!oversized.ok && oversized.error.contains(QStringLiteral("长度不对")),
+        check(!oversized.ok && oversized.error.contains(QStringLiteral("响应长度无效")),
               "ZH9 长度前缀说这个包有 4 MiB = 「长度不对」",
               QStringLiteral("「%1」").arg(oversized.error));
         check(hugeMs < 1500,
@@ -652,7 +652,7 @@ void runServerPingTests() {
         shortBody.startAndWait();
         const ServerPing::Status truncated =
             ServerPing::ping(QStringLiteral("127.0.0.1:%1").arg(shortBody.port));
-        check(!truncated.ok && truncated.error.contains(QStringLiteral("正文长度不对")),
+        check(!truncated.ok && truncated.error.contains(QStringLiteral("正文长度无效")),
               "ZH9 包是收全了，但里面说正文有 9999 字节 = 「正文长度不对」",
               QStringLiteral("「%1」").arg(truncated.error));
         waitFakeServer(shortBody);

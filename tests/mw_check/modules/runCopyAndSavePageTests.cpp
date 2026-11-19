@@ -200,7 +200,7 @@ void runCopyAndSavePageTests() {
                                   Q_RETURN_ARG(bool, ok), Q_ARG(QString, id),
                                   Q_ARG(QString, elsewhere.path()), Q_ARG(QString, QString()));
         check(!ok, "T27.3 空名字 → 拒绝");
-        check(g_modalText.contains(QStringLiteral("得有个名字")), "T27.3 空名字那句话直接明了",
+        check(g_modalText.contains(QStringLiteral("副本得有个名字")), "T27.3 空名字那句话直接明了",
               g_modalText);
 
         // ---- ★ 目标落在**源实例目录自己里面** → 拒绝（ 补的第四道闸）----
@@ -1173,7 +1173,7 @@ void runCopyAndSavePageTests() {
                     dirtyAsks = answerer.answered;
                 }
                 check(dirtyAsks.size() == 1 &&
-                          askTitle(dirtyAsks, 0) == QStringLiteral("改过的东西还没存"),
+                          askTitle(dirtyAsks, 0) == QStringLiteral("有未保存的更改"),
                       "★★ T27.7 改过还没存就按返回 ⇒ 必须问一句（不许悄悄丢掉）",
                       dirtyAsks.isEmpty() ? QStringLiteral("<一句都没问>") : askTitle(dirtyAsks, 0));
                 check(askButtons(dirtyAsks, 0) ==
@@ -1359,7 +1359,7 @@ void runCopyAndSavePageTests() {
                           world->titleLabel()->text());
                     // 那一句小字 = **原因原文** + "只能看和备份"（`refreshNote()` 那一档）。
                     // 量的是"原因真的搬到页里来了"（原来它在打开之前那一问的正文里）。
-                    check(world->noteLabel()->text().contains(QStringLiteral("不认识的标签类型")) &&
+                    check(world->noteLabel()->text().contains(QStringLiteral("标签类型 110")) &&
                               world->noteLabel()->text().contains(QStringLiteral("备份")),
                           "★ T27.7 读不动的原因摆在页里（用户拿去搜、拿去问人都要它），"
                           "而且说明了这一档只能看和备份",

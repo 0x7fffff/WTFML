@@ -244,7 +244,7 @@ QStringList InstanceSettingsDialog::serverStatusLines(const ServerRowStatus &sta
         // `timedOut` 这一位（盘上只存了这一位，见 ServerStatusCache::Entry），而下面
         // 那一支拿得到 `error` 那句全话。
         if (status.fromCache) {
-            return {status.timedOut ? serverTimeoutText() : QStringLiteral("没连上")};
+            return {status.timedOut ? serverTimeoutText() : tr("没连上")};
         }
         // 超时那一档**只写两个字**。判据是
         // `Status::timedOut` 那一位，不是这句 error 的前缀 —— 「网络不通」和「它连上了却
@@ -256,7 +256,7 @@ QStringList InstanceSettingsDialog::serverStatusLines(const ServerRowStatus &sta
         // 其余没通的**理由来自 ServerPing**（中文，见那边的 connectionErrorText）。真要是
         // 空的也别留一格空白 —— 那就是"看着像没测过"。没通这一档**只有一行**：那句话本来
         // 就长（「没有回应（对面没开，或者端口不对）」），拆成两行反而更难读。
-        return {status.error.isEmpty() ? QStringLiteral("连不上") : status.error};
+        return {status.error.isEmpty() ? tr("连接失败") : status.error};
     }
     // 通了就是两行：第一行延迟、第二行几个人。人**不并进第一行**（那是另一件事，而且这一格
     // 窄）—— 在线延迟和人数就是这两行。
@@ -267,15 +267,15 @@ QStringList InstanceSettingsDialog::serverStatusLines(const ServerRowStatus &sta
         lines.append(QStringLiteral("%1 ms").arg(status.latencyMs));
     }
     if (status.playersOnline >= 0 && status.playersMax >= 0) {
-        lines.append(QStringLiteral("%1/%2 人").arg(status.playersOnline).arg(status.playersMax));
+        lines.append(tr("%1/%2 人").arg(status.playersOnline).arg(status.playersMax));
     } else if (status.playersOnline >= 0) {
-        lines.append(QStringLiteral("%1 人").arg(status.playersOnline));
+        lines.append(tr("%1 人").arg(status.playersOnline));
     }
     if (lines.isEmpty()) {
         // 通了、但一个数都没量到。**这一档生产里到不了**（ok 为真时 latencyMs 必然是量过的，
         // 见 ServerPing.cpp），可这一格里空着一行和"还没测"在屏幕上是同一个样子 —— 留一句
         // 兜底「在线」。
-        lines.append(QStringLiteral("在线"));
+        lines.append(tr("在线"));
     }
     // 通了这一档**两处（缓存 / 当场）写的是同一份字**，没有任何前缀可加（见上面那段）。
     return lines;
@@ -304,7 +304,7 @@ QString InstanceSettingsDialog::serverStatusTooltip(const ServerRowStatus &statu
     }
     if (!names.isEmpty()) {
         QString line =
-            tr("在线：%1").arg(names.mid(0, kMaxTooltipPlayers).join(QStringLiteral("、")));
+            tr("在线：%1").arg(names.mid(0, kMaxTooltipPlayers).join(tr("、")));
         // 还有没列出来的：名单本身更长，或者服务器只给了其中一段（在线人数 > 名单）。
         if (names.size() > kMaxTooltipPlayers || status.playersOnline > names.size()) {
             line += tr(" 等");

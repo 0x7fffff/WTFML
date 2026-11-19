@@ -113,7 +113,7 @@ void runGameCrashTests() {
             check(crash.errorSummary.contains(QStringLiteral("模组")),
                   "★ T34.1 装了加载器 ⇒ 崩在坏内存上那句话指向模组（不是「驱动」）",
                   crash.errorSummary);
-            check(crash.errorSummary.contains(QStringLiteral("没有收到游戏的输出")),
+            check(crash.errorSummary.contains(QStringLiteral("未生成日志")),
                   "★ T34.1 这一趟没有日志窗 ⇒ 明说少一份依据（而不是假装日志干净）");
         }
 
@@ -203,7 +203,7 @@ void runGameCrashTests() {
               QString::number(crashTasks().size()));
         if (crashTasks().size() == baseline + 4) {
             const Tasks::TaskSnapshot added = newCrash(beforeTalkative);
-            check(!added.errorSummary.contains(QStringLiteral("没有收到游戏的输出")),
+            check(!added.errorSummary.contains(QStringLiteral("未生成日志")),
                   "★★ T34.6 进程输出有底账（和日志窗无关）⇒ 不再说「一行都没收到」",
                   added.errorSummary);
         }

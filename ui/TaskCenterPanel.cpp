@@ -11,6 +11,7 @@
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QApplication>
+#include <QCoreApplication>
 #include <QPointer>
 #include <QHash>
 #include <QSignalBlocker>
@@ -53,7 +54,8 @@ constexpr char taskMime[] = "application/x-wtfml-queued-task";
 class TaskDragHandle final : public QLabel {
 public:
     TaskDragHandle(const QString &key, const QString &group, QWidget *parent) : QLabel(QStringLiteral("⠿"), parent), m_payload((key + '\n' + group).toUtf8()) {
-        setCursor(Qt::OpenHandCursor); setToolTip(QStringLiteral("拖动调整等待顺序；不会打断运行中的任务。"));
+        setCursor(Qt::OpenHandCursor);
+        setToolTip(QCoreApplication::translate("TaskCenterPanel", "拖动调整等待顺序；不会打断运行中的任务。"));
         setObjectName(QStringLiteral("taskDragHandle_%1").arg(key)); setFixedWidth(24);
     }
 protected:
@@ -186,7 +188,8 @@ public:
                 auto *button = new QPushButton(delta < 0 ? QStringLiteral("↑") : QStringLiteral("↓"), this);
                 button->setObjectName(QStringLiteral("taskQueue%1_%2").arg(delta < 0 ? "Up" : "Down", item.key));
                 button->setFixedWidth(28); button->setAutoDefault(false);
-                button->setToolTip(delta < 0 ? QStringLiteral("在等待队列中上移") : QStringLiteral("在等待队列中下移"));
+                button->setToolTip(delta < 0 ? QCoreApplication::translate("TaskCenterPanel", "在等待队列中上移")
+                                             : QCoreApplication::translate("TaskCenterPanel", "在等待队列中下移"));
                 Theme::markButton(button, Theme::ButtonKind::Ghost);
                 connect(button, &QPushButton::clicked, this, [onRowAction, key = item.key, delta] {
                     if (onRowAction) onRowAction(key, delta < 0 ? TaskCenter::RowAction::MoveUp : TaskCenter::RowAction::MoveDown);
@@ -301,7 +304,7 @@ public:
             if (current >= 0) {
                 auto *step = new QLabel(this);
                 step->setObjectName(MainWindowUI::taskCenterPanelRowStepName(index, 0));
-                step->setText(TaskCenterPanel::tr("第 %1 / %2 步 · %3")
+                step->setText(QCoreApplication::translate("TaskCenterPanel", "第 %1 / %2 步 · %3")
                                   .arg(current + 1).arg(item.steps.size()).arg(item.steps.at(current).name));
                 applyMutedFont(step, -1);
                 column->addWidget(step);
@@ -526,12 +529,15 @@ TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider
     m_filter = new QComboBox(m_toolbar);
     m_filter->setFixedHeight(36);
     m_filter->setObjectName(QStringLiteral("taskCenterFilter"));
-    m_filter->addItems({tr("全部任务"), tr("正在进行"), tr("已结束"), tr("需要处理")});
-    m_filter->setAccessibleName(tr("筛选任务状态"));
+    m_filter->addItems({QCoreApplication::translate("TaskCenterPanel", "全部任务"),
+                        QCoreApplication::translate("TaskCenterPanel", "正在进行"),
+                        QCoreApplication::translate("TaskCenterPanel", "已结束"),
+                        QCoreApplication::translate("TaskCenterPanel", "需要处理")});
+    m_filter->setAccessibleName(QCoreApplication::translate("TaskCenterPanel", "筛选任务状态"));
     toolbar->addWidget(m_filter);
     m_search = new QLineEdit(m_toolbar);
     m_search->setObjectName(QStringLiteral("taskCenterSearch"));
-    m_search->setPlaceholderText(tr("搜索任务"));
+    m_search->setPlaceholderText(QCoreApplication::translate("TaskCenterPanel", "搜索任务"));
     m_search->setClearButtonEnabled(true);
     m_search->setMinimumWidth(0);
     m_search->setMaximumWidth(240);
@@ -539,7 +545,7 @@ TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider
     toolbar->addWidget(m_search, 1);
     m_clearFinished = new QPushButton(MainWindowUI::taskCenterPanelClearText(), m_toolbar);
     m_clearFinished->setObjectName(MainWindowUI::taskCenterPanelClearButtonName());
-    m_clearFinished->setToolTip(tr("清除全部已结束记录，不影响进行中的任务与下载文件。"));
+    m_clearFinished->setToolTip(QCoreApplication::translate("TaskCenterPanel", "清除全部已结束记录，不影响进行中的任务与下载文件。"));
     m_clearFinished->setVisible(bool(m_onClear));
     m_clearFinished->setFixedHeight(36);
     Theme::markButton(m_clearFinished, Theme::ButtonKind::Neutral);
@@ -997,7 +1003,9 @@ void TaskCenterPanel::rebuild() {
 
     if (active.isEmpty() && finished.isEmpty()) {
         // 一项都没有：面板里留一句话，不留一大块空白（和底栏那两块面板的空态一个路数）。
-        auto *empty = new QLabel(items.isEmpty() ? MainWindowUI::taskCenterPanelEmptyText() : tr("没有符合筛选条件的任务"), m_content);
+        auto *empty = new QLabel(items.isEmpty() ? MainWindowUI::taskCenterPanelEmptyText()
+                                                 : QCoreApplication::translate("TaskCenterPanel", "没有符合筛选条件的任务"),
+                                 m_content);
         empty->setObjectName(MainWindowUI::taskCenterPanelEmptyLabelName());
         applyMutedFont(empty, 0);
         layout->addWidget(empty);
@@ -1293,18 +1301,19 @@ void TaskCenterPanel::rebuildDetail(const QList<TaskCenter::Item> &items) {
                 ++attention;
             }
         }
-        auto *title = new QLabel(tr("任务概览"), column);
+        auto *title = new QLabel(QCoreApplication::translate("TaskCenterPanel", "任务概览"), column);
         Theme::markDisplay(title, Theme::textFont(title->font(), Theme::TextRole::Display));
         box->addWidget(title);
         box->addSpacing(6);
         // 三行「图标 + 名字 + 右侧数」；text() 仍是「需要处理：n」那一句（读屏 / 验证工程认它）。
         const struct { QString word; int count; const char *glyph; QColor color; } lines[] = {
-            {tr("正在进行"), active, "dots", accent},
-            {tr("已完成"), done, "okc", Theme::textTone(t.okInk, t.ok)},
-            {tr("需要处理"), attention, "warn", attention > 0 ? danger : muted},
+            {QCoreApplication::translate("TaskCenterPanel", "正在进行"), active, "dots", accent},
+            {QCoreApplication::translate("TaskCenterPanel", "已完成"), done, "okc", Theme::textTone(t.okInk, t.ok)},
+            {QCoreApplication::translate("TaskCenterPanel", "需要处理"), attention, "warn", attention > 0 ? danger : muted},
         };
         for (int i = 0; i < 3; ++i) {
-            auto *label = new TaskVisuals::GlyphLabel(tr("%1：%2").arg(lines[i].word).arg(lines[i].count), column);
+            auto *label = new TaskVisuals::GlyphLabel(
+                QCoreApplication::translate("TaskCenterPanel", "%1：%2").arg(lines[i].word).arg(lines[i].count), column);
             label->shown = lines[i].word;
             label->note = QString::number(lines[i].count);
             label->noteColor = palette().color(QPalette::WindowText);
@@ -1324,7 +1333,7 @@ void TaskCenterPanel::rebuildDetail(const QList<TaskCenter::Item> &items) {
     const TaskCenter::Item &item = *selected;
     m_detailContent->setProperty("taskKey", item.key);
     if (m_embedded && m_compact) {
-        auto *back = new QPushButton(tr("← 返回任务列表"), column);
+        auto *back = new QPushButton(QCoreApplication::translate("TaskCenterPanel", "← 返回任务列表"), column);
         back->setObjectName(QStringLiteral("taskCenterCompactBack"));
         Theme::markButton(back, Theme::ButtonKind::Ghost);
         connect(back, &QPushButton::clicked, back, [this]() {
@@ -1434,7 +1443,7 @@ void TaskCenterPanel::rebuildDetail(const QList<TaskCenter::Item> &items) {
     }
     // ---------- 执行流程：图标 + 名字 + 右侧注，行间细线，正在跑那一行浅底 ----------
     if (!item.steps.isEmpty()) {
-        auto *heading = sectionTitle(tr("执行流程"));
+        auto *heading = sectionTitle(QCoreApplication::translate("TaskCenterPanel", "执行流程"));
         heading->setObjectName(QStringLiteral("taskCenterFlowHeading"));
         box->addWidget(heading);
         auto *steps = new QVBoxLayout;
@@ -1543,15 +1552,15 @@ void TaskCenterPanel::rebuildDetail(const QList<TaskCenter::Item> &items) {
         if (primaryCandidate && primary == nullptr) primary = button;
         else secondaries.append(button);
     };
-    offer(item.capabilities.retry, tr("重试"), TaskCenter::RowAction::Retry, true);
-    offer(item.capabilities.exportReport, tr("导出错误报告"), TaskCenter::RowAction::ExportReport, true);
-    offer(item.capabilities.recover, tr("继续未完成操作"), TaskCenter::RowAction::Recover, true);
-    offer(item.capabilities.repairImport, tr("补齐文件"), TaskCenter::RowAction::RepairImport, true);
-    offer(item.capabilities.cancel, tr("取消任务"), TaskCenter::RowAction::Cancel, false);
-    offer(item.capabilities.pause, tr("暂停下载"), TaskCenter::RowAction::Pause, false);
-    offer(item.capabilities.openTarget, tr("打开目标位置"), TaskCenter::RowAction::OpenTarget, false);
-    offer(item.capabilities.openLog, tr("打开日志"), TaskCenter::RowAction::OpenLog, false);
-    offer(item.capabilities.openCrashDir, tr("打开崩溃报告目录"), TaskCenter::RowAction::OpenCrashDir, false);
+    offer(item.capabilities.retry, QCoreApplication::translate("TaskCenterPanel", "重试"), TaskCenter::RowAction::Retry, true);
+    offer(item.capabilities.exportReport, QCoreApplication::translate("TaskCenterPanel", "导出错误报告"), TaskCenter::RowAction::ExportReport, true);
+    offer(item.capabilities.recover, QCoreApplication::translate("TaskCenterPanel", "继续未完成操作"), TaskCenter::RowAction::Recover, true);
+    offer(item.capabilities.repairImport, QCoreApplication::translate("TaskCenterPanel", "补齐文件"), TaskCenter::RowAction::RepairImport, true);
+    offer(item.capabilities.cancel, QCoreApplication::translate("TaskCenterPanel", "取消任务"), TaskCenter::RowAction::Cancel, false);
+    offer(item.capabilities.pause, QCoreApplication::translate("TaskCenterPanel", "暂停下载"), TaskCenter::RowAction::Pause, false);
+    offer(item.capabilities.openTarget, QCoreApplication::translate("TaskCenterPanel", "打开目标位置"), TaskCenter::RowAction::OpenTarget, false);
+    offer(item.capabilities.openLog, QCoreApplication::translate("TaskCenterPanel", "打开日志"), TaskCenter::RowAction::OpenLog, false);
+    offer(item.capabilities.openCrashDir, QCoreApplication::translate("TaskCenterPanel", "打开崩溃报告目录"), TaskCenter::RowAction::OpenCrashDir, false);
     if (primary == nullptr && secondaries.isEmpty()) {
         delete actionsBar;
         return;

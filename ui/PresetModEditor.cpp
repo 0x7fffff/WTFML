@@ -1,4 +1,5 @@
 #include "PresetModEditor.hpp"
+#include <QCoreApplication>
 #include "InputSizing.hpp"
 #include "Theme.hpp"
 #include <QCheckBox>
@@ -34,19 +35,19 @@ bool normalizeProject(QString *platform, QString *id) {
 }
 
 PresetModEditor::PresetModEditor(const QList<Entry> &entries, QWidget *parent) : QDialog(parent) {
-    setWindowTitle(tr("编辑模组预设"));
+    setWindowTitle(QCoreApplication::translate("PresetModEditor", "编辑模组预设"));
     resize(760, 440);
     auto *layout = new QVBoxLayout(this);
-    auto *hint = new QLabel(tr("版本和加载器留空时跟随实例；标为必要的模组失败会中止安装。"), this);
+    auto *hint = new QLabel(QCoreApplication::translate("PresetModEditor", "版本和加载器留空时跟随实例；标为必要的模组失败会中止安装。"), this);
     hint->setWordWrap(true);
     layout->addWidget(hint);
     auto *quickRow = new QHBoxLayout;
     auto *link = new QLineEdit(this);
     link->setObjectName(QStringLiteral("presetModQuickAdd"));
-    InputSizing::longValue(link, "Modrinth 链接：网址长度不定");
-    link->setPlaceholderText(tr("Modrinth 链接或项目 ID，例如 https://modrinth.com/mod/sodium"));
+    InputSizing::longValue(link, "Modrinth 链接：网址长度不定");  // i18n-ignore
+    link->setPlaceholderText(QCoreApplication::translate("PresetModEditor", "Modrinth 链接或项目 ID，例如 https://modrinth.com/mod/sodium"));
     link->setClearButtonEnabled(true);
-    auto *quickAdd = new QPushButton(tr("添加"), this);
+    auto *quickAdd = new QPushButton(QCoreApplication::translate("PresetModEditor", "添加"), this);
     quickAdd->setObjectName(QStringLiteral("presetModQuickAddButton"));
     quickAdd->setAutoDefault(false);
     Theme::markButton(quickAdd, Theme::ButtonKind::Primary);
@@ -54,33 +55,39 @@ PresetModEditor::PresetModEditor(const QList<Entry> &entries, QWidget *parent) :
     layout->addLayout(quickRow);
     m_table = new QTableWidget(0, 6, this);
     m_table->setObjectName(QStringLiteral("presetModEditorTable"));
-    m_table->setHorizontalHeaderLabels({tr("平台"), tr("项目 ID"), tr("显示名称"), tr("必要"), tr("限定游戏版本"), tr("限定加载器")});
-    m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    m_table->setHorizontalHeaderLabels({
+        QCoreApplication::translate("PresetModEditor", "平台"),
+        QCoreApplication::translate("PresetModEditor", "项目 ID"),
+        QCoreApplication::translate("PresetModEditor", "显示名称"),
+        QCoreApplication::translate("PresetModEditor", "必要"),
+        QCoreApplication::translate("PresetModEditor", "限定游戏版本"),
+        QCoreApplication::translate("PresetModEditor", "限定加载器"),
+    });
+    m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setAlternatingRowColors(false);
-    m_table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     m_table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    m_table->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
+    m_table->horizontalHeader()->setSectionResizeMode(5, QHeaderView::ResizeToContents);
     m_table->verticalHeader()->hide();  // 行号没有用处（顺序不影响安装），和预设选项表一样不显示
     layout->addWidget(m_table, 1);
     for (const auto &entry : entries) append(entry);
     auto *actions = new QHBoxLayout;
-    auto *add = new QPushButton(tr("添加模组"), this);
-    auto *remove = new QPushButton(tr("移除选中"), this);
+    auto *add = new QPushButton(QCoreApplication::translate("PresetModEditor", "添加模组"), this);
+    auto *remove = new QPushButton(QCoreApplication::translate("PresetModEditor", "移除选中"), this);
     add->setAutoDefault(false); remove->setAutoDefault(false);
     Theme::markButton(add, Theme::ButtonKind::Neutral);
     Theme::markButton(remove, Theme::ButtonKind::Neutral);
     // 提取实例时两个平台都没认出来的那些行：平台那格停在「未知来源（请选择）」。这两件
     // 是给人工收拾它们用的 —— 先把它们挑出来看，再逐条补或者整批删掉。
-    auto *onlyUnknown = new QCheckBox(tr("只看没认出来的"), this);
+    auto *onlyUnknown = new QCheckBox(QCoreApplication::translate("PresetModEditor", "仅显示未识别项"), this);
     onlyUnknown->setObjectName(QStringLiteral("presetModOnlyUnknown"));
-    onlyUnknown->setToolTip(tr("只留下平台那格还是「未知来源（请选择）」的行；藏起来不等于删掉，"
-                               "取消勾选就都回来。"));
+    onlyUnknown->setToolTip(QCoreApplication::translate("PresetModEditor", "仅显示平台为「未知来源（请选择）」的条目。取消筛选可显示全部条目。"));
     m_onlyUnknown = onlyUnknown;
-    auto *removeUnknown = new QPushButton(tr("移除没认出来的"), this);
+    auto *removeUnknown = new QPushButton(QCoreApplication::translate("PresetModEditor", "移除未识别项"), this);
     removeUnknown->setObjectName(QStringLiteral("presetModRemoveUnknown"));
     removeUnknown->setAutoDefault(false);
-    removeUnknown->setToolTip(tr("把平台那格还是「未知来源（请选择）」的行一次删掉；"
-                                 "整个编辑点「取消」仍然能撤回。"));
+    removeUnknown->setToolTip(QCoreApplication::translate("PresetModEditor", "移除平台为「未知来源（请选择）」的所有条目。选择「取消」可撤回本次编辑。"));
     Theme::markButton(removeUnknown, Theme::ButtonKind::Neutral);
     actions->addWidget(add); actions->addWidget(remove); actions->addStretch();
     actions->addWidget(onlyUnknown); actions->addWidget(removeUnknown);
@@ -96,9 +103,9 @@ PresetModEditor::PresetModEditor(const QList<Entry> &entries, QWidget *parent) :
         }
         applyUnknownFilter();
         m_problem->setText(removed > 0
-                               ? tr("已移除 %1 行没认出平台的（整个编辑点「取消」仍然能撤回）。")
+                               ? QCoreApplication::translate("PresetModEditor", "已移除 %1 条来源未知的记录。选择「取消」可撤回本次编辑。")
                                      .arg(removed)
-                               : tr("没有没认出来的行。"));
+                               : QCoreApplication::translate("PresetModEditor", "没有未识别的模组。"));
     });
     connect(add, &QPushButton::clicked, this, [this] {
         append({QStringLiteral("modrinth"), {}, {}, {}, {}, true});
@@ -114,7 +121,7 @@ PresetModEditor::PresetModEditor(const QList<Entry> &entries, QWidget *parent) :
         QString platform = QStringLiteral("modrinth"), id = link->text().trimmed();
         if (!normalizeProject(&platform, &id) ||
             !QRegularExpression(QStringLiteral("^[A-Za-z0-9_-]+$")).match(id).hasMatch()) {
-            m_problem->setText(tr("请输入 Modrinth 链接或项目 ID；CurseForge 只能填数字 ID。"));
+            m_problem->setText(QCoreApplication::translate("PresetModEditor", "请输入 Modrinth 链接或项目 ID；CurseForge 只能填数字 ID。"));
             link->setFocus(); return;
         }
         for (int row = 0; row < m_table->rowCount(); ++row) {
@@ -123,7 +130,7 @@ PresetModEditor::PresetModEditor(const QList<Entry> &entries, QWidget *parent) :
                 // 这一行可能正被「只看没认出来的」藏着 —— 先放开筛选，才真能定位到它。
                 if (m_onlyUnknown->isChecked()) m_onlyUnknown->setChecked(false);
                 m_table->selectRow(row); m_table->scrollToItem(m_table->item(row, 1));
-                m_problem->setText(tr("这个模组已经在清单中，已定位到该行。")); return;
+                m_problem->setText(QCoreApplication::translate("PresetModEditor", "这个模组已经在清单中，已定位到该行。")); return;
             }
         }
         append({platform, id, id, {}, {}, true});
@@ -136,8 +143,10 @@ PresetModEditor::PresetModEditor(const QList<Entry> &entries, QWidget *parent) :
     // 不用标准钮（QDialogButtonBox::Save/Cancel/…）：它的字在 LanguageChange 时会被 Qt 刷回自带的英文，
     // 装没装 Qt 中文翻译都一样不稳。自己 addButton(字, 角色)，accepted/rejected 照常发。
     auto *buttons = new QDialogButtonBox(this);
-    QPushButton *saveButton = buttons->addButton(tr("保存"), QDialogButtonBox::AcceptRole);
-    QPushButton *cancelButton = buttons->addButton(tr("取消"), QDialogButtonBox::RejectRole);
+    QPushButton *saveButton = buttons->addButton(
+        QCoreApplication::translate("PresetModEditor", "保存"), QDialogButtonBox::AcceptRole);
+    QPushButton *cancelButton = buttons->addButton(
+        QCoreApplication::translate("PresetModEditor", "取消"), QDialogButtonBox::RejectRole);
     saveButton->setAutoDefault(false);
     cancelButton->setAutoDefault(false);
     Theme::markButton(saveButton, Theme::ButtonKind::Primary);
@@ -152,7 +161,7 @@ PresetModEditor::PresetModEditor(const QList<Entry> &entries, QWidget *parent) :
             const auto pattern = entry.platform == QStringLiteral("curseforge") ? QStringLiteral("^[0-9]+$") : QStringLiteral("^[A-Za-z0-9_-]+$");
             if ((entry.platform != QStringLiteral("modrinth") && entry.platform != QStringLiteral("curseforge")) ||
                 !QRegularExpression(pattern).match(entry.projectId).hasMatch() || seen.contains(key)) {
-                m_problem->setText(tr("第 %1 行：项目 ID 为空、格式错误或重复。").arg(row + 1));
+                m_problem->setText(QCoreApplication::translate("PresetModEditor", "第 %1 行：项目 ID 为空、格式错误或重复。").arg(row + 1));
                 m_table->setCurrentCell(row, 1); m_table->scrollToItem(m_table->item(row, 1)); return;
             }
             seen.insert(key);
@@ -167,7 +176,10 @@ void PresetModEditor::append(const Entry &entry) {
     platform->addItem(QStringLiteral("Modrinth"), QStringLiteral("modrinth"));
     platform->addItem(QStringLiteral("CurseForge"), QStringLiteral("curseforge"));
     int index = platform->findData(entry.platform);
-    if (index < 0) { platform->addItem(tr("未知来源（请选择）"), entry.platform); index = platform->count() - 1; }
+    if (index < 0) {
+        platform->addItem(QCoreApplication::translate("PresetModEditor", "未知来源（请选择）"), entry.platform);
+        index = platform->count() - 1;
+    }
     platform->setCurrentIndex(index);
     m_table->setCellWidget(row, 0, platform);
     for (const auto &pair : {qMakePair(1, entry.projectId), qMakePair(2, entry.name), qMakePair(4, entry.gameVersion), qMakePair(5, entry.loader)})
@@ -200,3 +212,4 @@ void PresetModEditor::applyUnknownFilter() {
     for (int row = 0; row < m_table->rowCount(); ++row)
         m_table->setRowHidden(row, only && !unrecognizedRow(row));
 }
+

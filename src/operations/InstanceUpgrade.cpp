@@ -1,4 +1,5 @@
 #include "InstanceUpgrade.hpp"
+#include <QCoreApplication>
 #include "UpgradeHistory.hpp"
 #include "UpgradeOptions.hpp"
 
@@ -76,12 +77,12 @@ QString directoryLockOwners(const QString &source) {
     if (list(session, &needed, &count, owners, &reason) != ERROR_SUCCESS) return {};
     QStringList labels;
     for (UINT i = 0; i < count; ++i) {
-        labels.append(QStringLiteral("%1（PID %2）")
+        labels.append(QCoreApplication::translate("InstanceUpgrade", "%1（PID %2）")
             .arg(QString::fromWCharArray(owners[i].strAppName))
             .arg(owners[i].Process.dwProcessId));
     }
     labels.removeDuplicates();
-    return labels.join(QStringLiteral("、"));
+    return labels.join(QCoreApplication::translate("InstanceUpgrade", "、"));
 }
 #endif
 bool retainDirectory(const QString &source, const QString &target, QString *problem) {
@@ -107,16 +108,16 @@ bool retainDirectory(const QString &source, const QString &target, QString *prob
         // worker must still report persistent denial and leave the source intact.
         QThread::msleep(50);
     } while (true);
-    *problem = QStringLiteral("无法保留原目录，未替换实例（Windows 错误 %1）。").arg(error);
+    *problem = QCoreApplication::translate("InstanceUpgrade", "无法保留原目录，未替换实例（Windows 错误 %1）。").arg(error);
     if (error == ERROR_ACCESS_DENIED || error == ERROR_SHARING_VIOLATION || error == ERROR_LOCK_VIOLATION) {
         const QString owners = directoryLockOwners(source);
         if (!owners.isEmpty())
-            *problem += QStringLiteral(" 请先关闭占用实例文件的程序：%1，然后重试。原实例和完整快照均保留。").arg(owners);
+            *problem += QCoreApplication::translate("InstanceUpgrade", " 请先关闭占用实例文件的程序：%1，然后重试。原实例和完整快照均保留。").arg(owners);
     }
     return false;
 #else
     if (QDir().rename(source, target)) return true;
-    *problem = QStringLiteral("无法保留原目录，未替换实例。");
+    *problem = QCoreApplication::translate("InstanceUpgrade", "无法保留原目录，未替换实例。");
     return false;
 #endif
 }
@@ -128,7 +129,7 @@ QString validate(const Request &r) {
     if (!QDir::isAbsolutePath(r.gameDir) || !QFileInfo(r.gameDir).isDir()
         || !InstanceFiles::validateDirName(r.instanceId).isEmpty()
         || !QRegularExpression("^[A-Za-z0-9-]{1,80}$").match(r.transactionId).hasMatch())
-        return QStringLiteral("升级事务的游戏目录、实例名或事务编号无效。");
+        return QCoreApplication::translate("InstanceUpgrade", "升级事务的游戏目录、实例名或事务编号无效。");
     const QStringList paths{r.gameDir, QDir(r.gameDir).filePath("versions"),
         QDir(r.gameDir).filePath("cache"), QDir(r.gameDir).filePath("cache/instance-upgrades"),
         QDir(r.gameDir).filePath("cache/backups"), QDir(r.gameDir).filePath("cache/backups/instances"),
@@ -136,13 +137,13 @@ QString validate(const Request &r) {
         originalDir(r), candidateDir(r), transactionDir(r) + "/original",
         transactionDir(r) + "/replaced", journalPath(r)};
     for (const auto &path : paths)
-        if (redirected(path)) return QStringLiteral("升级路径包含链接，无法保证完整快照和安全回滚：%1").arg(path);
+        if (redirected(path)) return QCoreApplication::translate("InstanceUpgrade", "升级路径包含链接，无法保证完整快照和安全回滚：%1").arg(path);
     // 副本模式的"只复制这几条"必须是单层相对名：不能让 `../` 或绝对路径从调用方漏进来。
     for (const QString &root : r.copyRoots) {
         if (root.isEmpty() || root.contains(QLatin1Char('/')) || root.contains(QLatin1Char('\\'))
             || root == QStringLiteral(".") || root == QStringLiteral("..")
             || QDir::isAbsolutePath(root)) {
-            return QStringLiteral("要复制的类别路径不合法：%1").arg(root);
+            return QCoreApplication::translate("InstanceUpgrade", "要复制的类别路径不合法：%1").arg(root);
         }
     }
     return {};
@@ -154,13 +155,13 @@ QString checkTree(const QString &root) {
         const QString path = stack.takeLast();
         const QFileInfo info(path);
         if (redirected(path) || !info.isReadable())
-            return QStringLiteral("目录含链接或不可读内容，未执行原地升级：%1").arg(path);
+            return QCoreApplication::translate("InstanceUpgrade", "目录含链接或不可读内容，未执行原地升级：%1").arg(path);
         if (info.isDir()) {
             const auto entries = QDir(path).entryInfoList(QDir::AllEntries | QDir::Hidden
                 | QDir::System | QDir::NoDotAndDotDot, QDir::NoSort);
             for (const auto &entry : entries) stack.append(entry.absoluteFilePath());
         } else if (!info.isFile()) {
-            return QStringLiteral("不是普通文件，无法制作完整快照：%1").arg(path);
+            return QCoreApplication::translate("InstanceUpgrade", "不是普通文件，无法制作完整快照：%1").arg(path);
         }
     }
     return {};
@@ -267,13 +268,13 @@ bool sameFiles(const QString &root, const QList<BackupFiles::FileRecord> &expect
     const auto actual = BackupFiles::collectFiles(root, {}, &problem, cancelled);
     if (!problem.isEmpty() || actual.size() != expected.size()) {
         if (reason) *reason = problem.isEmpty()
-            ? QStringLiteral("副本文件数 %1，预期 %2").arg(actual.size()).arg(expected.size()) : problem;
+            ? QCoreApplication::translate("InstanceUpgrade", "副本文件数 %1，预期 %2").arg(actual.size()).arg(expected.size()) : problem;
         return false;
     }
     for (qsizetype i = 0; i < actual.size(); ++i)
         if (actual[i].path != expected[i].path || actual[i].size != expected[i].size
             || actual[i].sha1 != expected[i].sha1) {
-            if (reason) *reason = QStringLiteral("副本不一致：%1（预期 %2；大小 %3/%4）")
+            if (reason) *reason = QCoreApplication::translate("InstanceUpgrade", "副本不一致：%1（预期 %2；大小 %3/%4）")
                 .arg(actual[i].path, expected[i].path).arg(actual[i].size).arg(expected[i].size);
             return false;
         }
@@ -333,25 +334,25 @@ QString candidateDir(const Request &r) {
 
 QString dependentInstanceProblem(const QString &gameDir, const QString &instanceId) {
     if (!QDir::isAbsolutePath(gameDir) || !InstanceFiles::validateDirName(instanceId).isEmpty())
-        return QStringLiteral("无法安全检查实例引用关系。");
+        return QCoreApplication::translate("InstanceUpgrade", "无法安全检查实例引用关系。");
     const QDir versions(QDir(gameDir).filePath("versions"));
     const QString original = versions.filePath(instanceId);
     for (const auto &entry : versions.entryInfoList(QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot)) {
         if (entry.fileName().compare(instanceId, Qt::CaseInsensitive) == 0) continue;
         if (redirected(entry.absoluteFilePath())
             && InstanceFiles::pathIsSameOrInside(original, entry.absoluteFilePath()))
-            return QStringLiteral("实例 %1 通过目录链接使用此核心，请改用升级副本。").arg(entry.fileName());
+            return QCoreApplication::translate("InstanceUpgrade", "实例 %1 通过目录链接使用此核心，请改用升级副本。").arg(entry.fileName());
         const QDir profile(entry.absoluteFilePath());
         for (const auto &name : profile.entryList({"*.json"}, QDir::Files | QDir::Hidden)) {
             QFile f(profile.filePath(name));
             if (!f.open(QIODevice::ReadOnly) || f.size() > 16 * 1024 * 1024)
-                return QStringLiteral("无法核实 %1 的核心引用，未执行原地替换。").arg(entry.fileName());
+                return QCoreApplication::translate("InstanceUpgrade", "无法核实 %1 的核心引用，未执行原地替换。").arg(entry.fileName());
             const auto document = QJsonDocument::fromJson(f.readAll());
             if (!document.isObject()) continue; // Non-profile JSON is not an inheritance edge.
             const auto json = document.object();
             for (const QString &field : {QStringLiteral("inheritsFrom"), QStringLiteral("jar")}) {
                 if (json.value(field).toString().compare(instanceId, Qt::CaseInsensitive) == 0)
-                    return QStringLiteral("实例 %1 的 %2 引用了此核心。请改用升级副本，避免影响其它实例。")
+                    return QCoreApplication::translate("InstanceUpgrade", "实例 %1 的 %2 引用了此核心。请改用升级副本，避免影响其它实例。")
                         .arg(entry.fileName(), field);
             }
         }
@@ -370,12 +371,12 @@ bool verifyFileDigest(const QString &path, qint64 expectedSize, const QString &e
                       QString *problem) {
     const QFileInfo info(path);
     if (!info.isFile() || info.isSymLink() || info.isJunction()) {
-        if (problem != nullptr) *problem = QStringLiteral("文件不存在或是链接：%1").arg(path);
+        if (problem != nullptr) *problem = QCoreApplication::translate("InstanceUpgrade", "文件不存在或是链接：%1").arg(path);
         return false;
     }
     if (expectedSize >= 0 && info.size() != expectedSize) {
         if (problem != nullptr) {
-            *problem = QStringLiteral("文件大小不符：%1（期望 %2，实际 %3）")
+            *problem = QCoreApplication::translate("InstanceUpgrade", "文件大小不符：%1（期望 %2，实际 %3）")
                            .arg(QFileInfo(path).fileName()).arg(expectedSize).arg(info.size());
         }
         return false;
@@ -385,7 +386,7 @@ bool verifyFileDigest(const QString &path, qint64 expectedSize, const QString &e
     }
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
-        if (problem != nullptr) *problem = QStringLiteral("读不了：%1").arg(path);
+        if (problem != nullptr) *problem = QCoreApplication::translate("InstanceUpgrade", "读不了：%1").arg(path);
         return false;
     }
     QCryptographicHash hash(QCryptographicHash::Sha1);
@@ -397,7 +398,7 @@ bool verifyFileDigest(const QString &path, qint64 expectedSize, const QString &e
     const QString actual = QString::fromLatin1(hash.result().toHex());
     if (actual.compare(expectedSha1.trimmed(), Qt::CaseInsensitive) != 0) {
         if (problem != nullptr) {
-            *problem = QStringLiteral("SHA-1 不符：%1（期望 %2，实际 %3）")
+            *problem = QCoreApplication::translate("InstanceUpgrade", "SHA-1 不符：%1（期望 %2，实际 %3）")
                            .arg(QFileInfo(path).fileName(), expectedSha1, actual);
         }
         return false;
@@ -414,7 +415,7 @@ bool copyReplacementIntoCandidate(const ModReplacement &one, const QString &mods
             return true;
         }
         if (problem != nullptr) {
-            *problem = QStringLiteral("同名模组已存在且内容不同，未覆盖：%1").arg(one.fileName);
+            *problem = QCoreApplication::translate("InstanceUpgrade", "同名模组已存在且内容不同，未覆盖：%1").arg(one.fileName);
         }
         return false;
     }
@@ -422,7 +423,7 @@ bool copyReplacementIntoCandidate(const ModReplacement &one, const QString &mods
     QSaveFile output(target);
     if (!input.open(QIODevice::ReadOnly) || !output.open(QIODevice::WriteOnly)) {
         if (problem != nullptr) {
-            *problem = QStringLiteral("无法写入适配模组：%1").arg(one.fileName);
+            *problem = QCoreApplication::translate("InstanceUpgrade", "无法写入适配模组：%1").arg(one.fileName);
         }
         return false;
     }
@@ -431,14 +432,14 @@ bool copyReplacementIntoCandidate(const ModReplacement &one, const QString &mods
         if (chunk.isEmpty() || output.write(chunk) != chunk.size()) {
             output.cancelWriting();
             if (problem != nullptr) {
-                *problem = QStringLiteral("适配模组写入失败：%1").arg(one.fileName);
+                *problem = QCoreApplication::translate("InstanceUpgrade", "适配模组写入失败：%1").arg(one.fileName);
             }
             return false;
         }
     }
     if (!output.commit() || !verifyFileDigest(target, one.size, one.sha1, problem)) {
         if (problem != nullptr && problem->isEmpty()) {
-            *problem = QStringLiteral("适配模组提交后校验失败：%1").arg(one.fileName);
+            *problem = QCoreApplication::translate("InstanceUpgrade", "适配模组提交后校验失败：%1").arg(one.fileName);
         }
         return false;
     }
@@ -491,7 +492,7 @@ bool writeUpdateChangeLog(const Request &r, const Core &core, const QString &can
         {QStringLiteral("disabledMods"), result->disabledMods},
         {QStringLiteral("changes"), changes},
         {QStringLiteral("nestedNote"),
-         QStringLiteral("嵌套 JAR 随父 JAR 一起替换，不单独列出或替换。")},
+         QCoreApplication::translate("InstanceUpgrade", "嵌套 JAR 随父 JAR 一起替换，不单独列出或替换。")},
     });
     while (runs.size() > 20) runs.removeFirst();
     const QByteArray bytes = QJsonDocument(QJsonObject{
@@ -501,7 +502,7 @@ bool writeUpdateChangeLog(const Request &r, const Core &core, const QString &can
     }).toJson(QJsonDocument::Indented);
     QSaveFile out(path);
     if (!out.open(QIODevice::WriteOnly) || out.write(bytes) != bytes.size() || !out.commit()) {
-        result->problem = QStringLiteral("无法写入文件变更日志，本次更新未发布。");
+        result->problem = QCoreApplication::translate("InstanceUpgrade", "无法写入文件变更日志，本次更新未发布。");
         return false;
     }
     return true;
@@ -518,10 +519,10 @@ bool applyCoreToCandidate(const Request &r, const Core &core, const QString &can
     InstanceMetaFile::Status metaStatus = InstanceMetaFile::Status::Missing;
     InstanceMetaFile::read(metaPath, &metaStatus);
     if (metaStatus == InstanceMetaFile::Status::Unreadable) {
-        result->problem = QStringLiteral("无法读取原实例设置，未继续升级。"); return false;
+        result->problem = QCoreApplication::translate("InstanceUpgrade", "无法读取原实例设置，未继续升级。"); return false;
     }
     if (metaStatus == InstanceMetaFile::Status::BadVersion) {
-        result->problem = QStringLiteral("原实例设置的格式版本比这个启动器新，未继续升级。"); return false;
+        result->problem = QCoreApplication::translate("InstanceUpgrade", "原实例设置的格式版本比这个启动器新，未继续升级。"); return false;
     }
     auto json = core.mergedJson;
     json.insert("id", r.instanceId);
@@ -538,7 +539,7 @@ bool applyCoreToCandidate(const Request &r, const Core &core, const QString &can
     const QString expected = json.value("downloads").toObject().value("client").toObject().value("sha1").toString();
     if (!jar.open(QIODevice::ReadOnly) || !hash.addData(&jar)
         || (!expected.isEmpty() && QString::fromLatin1(hash.result().toHex()).compare(expected, Qt::CaseInsensitive) != 0)) {
-        result->problem = QStringLiteral("目标客户端文件未通过校验，原实例未改变。"); return false;
+        result->problem = QCoreApplication::translate("InstanceUpgrade", "目标客户端文件未通过校验，原实例未改变。"); return false;
     }
     jar.close();
     // Remove the previous core's jar/json pair before writing the new one.
@@ -558,7 +559,7 @@ bool applyCoreToCandidate(const Request &r, const Core &core, const QString &can
     // unrelated jar.
     const QString oldJsonName = InstanceFiles::jsonName(r.instanceId);
     if (oldJsonName.contains('/') || oldJsonName.contains('\\') || oldJsonName.contains(':')) {
-        result->problem = QStringLiteral("旧版本信息文件名不安全，原实例未改变。"); return false;
+        result->problem = QCoreApplication::translate("InstanceUpgrade", "旧版本信息文件名不安全，原实例未改变。"); return false;
     }
     const QString newJarName = r.instanceId + QStringLiteral(".jar");
     const QString newJsonName = r.instanceId + QStringLiteral(".json");
@@ -575,43 +576,43 @@ bool applyCoreToCandidate(const Request &r, const Core &core, const QString &can
     for (const QString &name : staleJars) {
         if (name.contains('/') || name.contains('\\') || name.contains(':')
             || !InstanceFiles::validateDirName(name).isEmpty()) {
-            result->problem = QStringLiteral("旧版本信息包含不安全的客户端文件名，原实例未改变。");
+            result->problem = QCoreApplication::translate("InstanceUpgrade", "旧版本信息包含不安全的客户端文件名，原实例未改变。");
             return false;
         }
         if (name.isEmpty() || name.compare(newJarName, Qt::CaseInsensitive) == 0) continue;
         const QString stale = candidate + '/' + name;
         if (QFileInfo::exists(stale) && !QFile::remove(stale)) {
-            result->problem = QStringLiteral("无法清理暂存副本中的旧客户端文件，原实例未改变。");
+            result->problem = QCoreApplication::translate("InstanceUpgrade", "无法清理暂存副本中的旧客户端文件，原实例未改变。");
             return false;
         }
     }
     if (oldJsonName.compare(newJsonName, Qt::CaseInsensitive) != 0) {
         const QString stale = candidate + '/' + oldJsonName;
         if (QFileInfo::exists(stale) && !QFile::remove(stale)) {
-            result->problem = QStringLiteral("无法清理暂存副本中的旧版本信息，原实例未改变。");
+            result->problem = QCoreApplication::translate("InstanceUpgrade", "无法清理暂存副本中的旧版本信息，原实例未改变。");
             return false;
         }
     }
     const QString client = candidate + '/' + r.instanceId + ".jar";
     if ((QFileInfo::exists(client) && !QFile::remove(client)) || !QFile::copy(core.clientJar, client)
         || !saveObject(candidate + '/' + r.instanceId + ".json", json)) {
-        result->problem = QStringLiteral("无法准备新核心或设置，原实例未改变。"); return false;
+        result->problem = QCoreApplication::translate("InstanceUpgrade", "无法准备新核心或设置，原实例未改变。"); return false;
     }
     QString metaProblem;
     if (!InstanceMetaFile::mergeWrite(metaPath, metaFields, &metaProblem)) {
-        result->problem = QStringLiteral("无法写入原实例设置，原实例未改变：%1").arg(metaProblem);
+        result->problem = QCoreApplication::translate("InstanceUpgrade", "无法写入原实例设置，原实例未改变：%1").arg(metaProblem);
         return false;
     }
     QFile copiedJar(client);
     QCryptographicHash copiedHash(QCryptographicHash::Sha1);
     if (!copiedJar.open(QIODevice::ReadOnly) || !copiedHash.addData(&copiedJar)
         || copiedHash.result() != hash.result()) {
-        result->problem = QStringLiteral("目标客户端在复制期间发生变化，未发布新版本。"); return false;
+        result->problem = QCoreApplication::translate("InstanceUpgrade", "目标客户端在复制期间发生变化，未发布新版本。"); return false;
     }
     copiedJar.close();
     const QString natives = candidate + "/natives";
     if (QFileInfo::exists(natives) && !removeTreeWithoutFollowingLinks(natives)) {
-        result->problem = QStringLiteral("无法清理暂存副本中的旧原生库，原实例未改变。"); return false;
+        result->problem = QCoreApplication::translate("InstanceUpgrade", "无法清理暂存副本中的旧原生库，原实例未改变。"); return false;
     }
     // ---------- 2.1.3 平台适配版替换 ----------
     // 全部落在**候选目录**里：任何一步失败都让整趟回滚，源实例/原目录不受影响。
@@ -619,11 +620,11 @@ bool applyCoreToCandidate(const Request &r, const Core &core, const QString &can
     if (!core.replacements.isEmpty()) {
         const QString modsPath = candidate + QStringLiteral("/mods");
         if (redirected(modsPath) || (QFileInfo::exists(modsPath) && !QFileInfo(modsPath).isDir())) {
-            result->problem = QStringLiteral("候选模组目录不可用，本次更新未发布。");
+            result->problem = QCoreApplication::translate("InstanceUpgrade", "候选模组目录不可用，本次更新未发布。");
             return false;
         }
         if (!QFileInfo::exists(modsPath) && !QDir().mkpath(modsPath)) {
-            result->problem = QStringLiteral("无法创建候选模组目录，本次更新未发布。");
+            result->problem = QCoreApplication::translate("InstanceUpgrade", "无法创建候选模组目录，本次更新未发布。");
             return false;
         }
         for (const ModReplacement &one : core.replacements) {
@@ -635,30 +636,30 @@ bool applyCoreToCandidate(const Request &r, const Core &core, const QString &can
                     && (one.replaces != QFileInfo(one.replaces).fileName()
                         || one.replaces.contains(QLatin1Char('\\'))
                         || one.replaces.contains(QLatin1Char(':'))))) {
-                result->problem = QStringLiteral("适配模组文件名不安全，本次更新未发布：%1")
+                result->problem = QCoreApplication::translate("InstanceUpgrade", "适配模组文件名不安全，本次更新未发布：%1")
                                       .arg(one.fileName);
                 return false;
             }
             QString problem;
             if (!verifyFileDigest(one.stagedPath, one.size, one.sha1, &problem)) {
-                result->problem = QStringLiteral("适配模组未通过校验，整趟更新已回滚：%1")
+                result->problem = QCoreApplication::translate("InstanceUpgrade", "适配模组未通过校验，整趟更新已回滚：%1")
                                       .arg(problem);
                 return false;
             }
             if (!one.replaces.isEmpty()) {
                 const QString oldPath = QDir(modsPath).filePath(one.replaces);
                 if (redirected(oldPath)) {
-                    result->problem = QStringLiteral("要替换的旧模组是链接，未动它：%1").arg(one.replaces);
+                    result->problem = QCoreApplication::translate("InstanceUpgrade", "要替换的旧模组是链接，未动它：%1").arg(one.replaces);
                     return false;
                 }
                 if (QFileInfo::exists(oldPath) && !QFile::remove(oldPath)) {
-                    result->problem = QStringLiteral("无法移除旧模组，本次更新未发布：%1")
+                    result->problem = QCoreApplication::translate("InstanceUpgrade", "无法移除旧模组，本次更新未发布：%1")
                                           .arg(one.replaces);
                     return false;
                 }
             }
             if (!copyReplacementIntoCandidate(one, modsPath, &problem)) {
-                result->problem = QStringLiteral("适配模组写入失败，整趟更新已回滚：%1").arg(problem);
+                result->problem = QCoreApplication::translate("InstanceUpgrade", "适配模组写入失败，整趟更新已回滚：%1").arg(problem);
                 return false;
             }
             replacementNames.insert(one.fileName);
@@ -680,7 +681,7 @@ bool applyCoreToCandidate(const Request &r, const Core &core, const QString &can
               const QString relative = QDir(candidate + "/mods").relativeFilePath(path);
               if (core.keepOldMods.contains(relative) || replacementNames.contains(relative)) continue;
             if (QFileInfo::exists(path + ".disabled") || !QFile::rename(path, path + ".disabled")) {
-                result->problem = QStringLiteral("无法禁用尚未验证兼容性的旧模组，原实例未改变。"); return false;
+                result->problem = QCoreApplication::translate("InstanceUpgrade", "无法禁用尚未验证兼容性的旧模组，原实例未改变。"); return false;
             }
             ++result->disabledMods;
         }
@@ -758,7 +759,7 @@ static Result prepareAndCommitImpl(Request r, const Core &core, const std::funct
     if (core.mergedJson.value("mainClass").toString().isEmpty() || core.gameVersion.isEmpty()
         || !QDir::isAbsolutePath(core.clientJar) || !QFileInfo(core.clientJar).isFile()
         || redirected(core.clientJar) || QFileInfo::exists(candidateDir(r))) {
-        result.problem = QStringLiteral("目标核心、客户端文件或暂存路径无效，未执行原地升级。"); return result;
+        result.problem = QCoreApplication::translate("InstanceUpgrade", "目标核心、客户端文件或暂存路径无效，未执行原地升级。"); return result;
     }
     if (progress) progress(Stage::Checking);
     const QString original = originalDir(r), candidate = candidateDir(r);
@@ -768,18 +769,18 @@ static Result prepareAndCommitImpl(Request r, const Core &core, const std::funct
     const auto files = BackupFiles::collectFiles(original, {}, &problem, cancelled);
     if (cancelled && cancelled()) {
         result.cancelled = true;
-        result.problem = QStringLiteral("已取消准备。");
+        result.problem = QCoreApplication::translate("InstanceUpgrade", "已取消准备。");
         return result;
     }
     if (!problem.isEmpty() || files.isEmpty()) {
-        result.problem = problem.isEmpty() ? QStringLiteral("原实例是空的。") : problem; return result;
+        result.problem = problem.isEmpty() ? QCoreApplication::translate("InstanceUpgrade", "原实例是空的。") : problem; return result;
     }
     r.originalFingerprint = fingerprint(files);
     result.copiedFiles = files.size();
     qint64 size = 0;
     for (const auto &file : files) {
         if (file.size < 0 || size > std::numeric_limits<qint64>::max() - file.size) {
-            result.problem = QStringLiteral("实例大小溢出，未开始准备。"); return result;
+            result.problem = QCoreApplication::translate("InstanceUpgrade", "实例大小溢出，未开始准备。"); return result;
         }
         size += file.size;
     }
@@ -787,26 +788,26 @@ static Result prepareAndCommitImpl(Request r, const Core &core, const std::funct
     if (available < 0 || size > (std::numeric_limits<qint64>::max() - 32 * 1024 * 1024) / 3
         || available < size * 3 + 32 * 1024 * 1024
         || (r.spaceBudgetBytes >= 0 && r.spaceBudgetBytes < size * 3 + 32 * 1024 * 1024)) {
-        result.problem = QStringLiteral("空间不足以准备副本和完整快照，原实例未改变。"); return result;
+        result.problem = QCoreApplication::translate("InstanceUpgrade", "空间不足以准备副本和完整快照，原实例未改变。"); return result;
     }
-    if (cancelled && cancelled()) { result.cancelled = true; result.problem = QStringLiteral("已取消准备。"); return result; }
+    if (cancelled && cancelled()) { result.cancelled = true; result.problem = QCoreApplication::translate("InstanceUpgrade", "已取消准备。"); return result; }
     QString copyProblem;
     if (!copyTreeWithoutFollowingLinks(original, candidate, cancelled, &copyProblem)) {
         if (cancelled && cancelled()) {
             result.cancelled = true;
-            result.problem = QStringLiteral("已取消准备。");
+            result.problem = QCoreApplication::translate("InstanceUpgrade", "已取消准备。");
         } else {
-            result.problem = QStringLiteral("无法完整复制用户文件，原实例未改变。\n%1").arg(copyProblem);
+            result.problem = QCoreApplication::translate("InstanceUpgrade", "无法完整复制用户文件，原实例未改变。\n%1").arg(copyProblem);
         }
         return result;
     }
-    if (cancelled && cancelled()) { result.cancelled = true; result.problem = QStringLiteral("已取消准备。"); return result; }
+    if (cancelled && cancelled()) { result.cancelled = true; result.problem = QCoreApplication::translate("InstanceUpgrade", "已取消准备。"); return result; }
     if (!sameFiles(candidate, files, cancelled, &copyProblem)) {
         if (cancelled && cancelled()) {
             result.cancelled = true;
-            result.problem = QStringLiteral("已取消准备。");
+            result.problem = QCoreApplication::translate("InstanceUpgrade", "已取消准备。");
         } else {
-            result.problem = QStringLiteral("用户文件副本未通过完整校验，原实例未改变。\n%1").arg(copyProblem);
+            result.problem = QCoreApplication::translate("InstanceUpgrade", "用户文件副本未通过完整校验，原实例未改变。\n%1").arg(copyProblem);
         }
         return result;
     }
@@ -832,7 +833,7 @@ Result prepareAndCommit(Request r, const Core &core, const std::function<void(St
     QLockFile lock(transactionDir(r) + QStringLiteral(".lock"));
     lock.setStaleLockTime(0);
     if (!lock.tryLock()) {
-        Result result; result.problem = QStringLiteral("升级事务正在使用，未修改实例。"); return result;
+        Result result; result.problem = QCoreApplication::translate("InstanceUpgrade", "升级事务正在使用，未修改实例。"); return result;
     }
     const QString startedAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
     const auto result = prepareAndCommitImpl(r, core, progress, cancelled);
@@ -868,23 +869,23 @@ static Result prepareCopyAndCommitImpl(Request r, const Core &core, const QStrin
         || !QFileInfo(sourceDir).isDir() || redirected(sourceDir)
         || InstanceFiles::pathIsSameOrInside(original, sourceDir)
         || InstanceFiles::pathIsSameOrInside(candidate, sourceDir)) {
-        result.problem = QStringLiteral("副本的源实例或目标目录不安全，未复制任何文件。");
+        result.problem = QCoreApplication::translate("InstanceUpgrade", "副本的源实例或目标目录不安全，未复制任何文件。");
         return result;
     }
     // 第一版不允许"跨游戏根"复制：源实例必须在这次事务的游戏目录里。
     // 跨根要同时处理两个根的锁、空间、路径与历史归属，不能只改一个路径字符串。
     if (!InstanceFiles::pathIsSameOrInside(r.gameDir, sourceDir)) {
-        result.problem = QStringLiteral("源实例不在这次事务的游戏目录里，未复制任何文件。");
+        result.problem = QCoreApplication::translate("InstanceUpgrade", "源实例不在当前游戏目录中，未复制文件。");
         return result;
     }
     if (QFileInfo::exists(original) || QFileInfo::exists(candidate)) {
-        result.problem = QStringLiteral("目标实例名已经存在，未覆盖任何文件。");
+        result.problem = QCoreApplication::translate("InstanceUpgrade", "目标实例名已经存在，未覆盖任何文件。");
         return result;
     }
     if (core.mergedJson.value("mainClass").toString().isEmpty() || core.gameVersion.isEmpty()
         || !QDir::isAbsolutePath(core.clientJar) || !QFileInfo(core.clientJar).isFile()
         || redirected(core.clientJar)) {
-        result.problem = QStringLiteral("目标核心或客户端文件无效，未执行副本更新。");
+        result.problem = QCoreApplication::translate("InstanceUpgrade", "目标核心或客户端文件无效，未执行副本更新。");
         return result;
     }
     if (progress) progress(Stage::Checking);
@@ -892,9 +893,9 @@ static Result prepareCopyAndCommitImpl(Request r, const Core &core, const QStrin
     if (!result.problem.isEmpty()) return result;
     QString problem;
     const auto files = BackupFiles::collectFiles(sourceDir, {}, &problem, cancelled);
-    if (stopped()) return cancelResult(QStringLiteral("已取消复制。"));
+    if (stopped()) return cancelResult(QCoreApplication::translate("InstanceUpgrade", "已取消复制。"));
     if (!problem.isEmpty() || files.isEmpty()) {
-        result.problem = problem.isEmpty() ? QStringLiteral("源实例是空的。") : problem;
+        result.problem = problem.isEmpty() ? QCoreApplication::translate("InstanceUpgrade", "源实例是空的。") : problem;
         return result;
     }
     r.originalFingerprint = fingerprint(files);
@@ -915,7 +916,7 @@ static Result prepareCopyAndCommitImpl(Request r, const Core &core, const QStrin
     result.skippedFiles = files.size() - selected.size();
     for (const auto &file : selected) {
         if (file.size < 0 || size > std::numeric_limits<qint64>::max() - file.size) {
-            result.problem = QStringLiteral("实例大小溢出，未开始复制。");
+            result.problem = QCoreApplication::translate("InstanceUpgrade", "实例大小溢出，未开始复制。");
             return result;
         }
         size += file.size;
@@ -927,10 +928,10 @@ static Result prepareCopyAndCommitImpl(Request r, const Core &core, const QStrin
         ? qMin(available, r.spaceBudgetBytes) : available;
     if (available < 0 || size > std::numeric_limits<qint64>::max() - margin
         || budget < size + margin) {
-        result.problem = QStringLiteral("空间不足以复制更新副本（只需一份用户文件的体积），未复制任何文件。");
+        result.problem = QCoreApplication::translate("InstanceUpgrade", "空间不足以复制更新副本（只需一份用户文件的体积），未复制任何文件。");
         return result;
     }
-    if (stopped()) return cancelResult(QStringLiteral("已取消复制。"));
+    if (stopped()) return cancelResult(QCoreApplication::translate("InstanceUpgrade", "已取消复制。"));
     if (progress) progress(Stage::Copy);
     const auto copySelected = [&]() -> bool {
         if (r.copyRoots.isEmpty()) {
@@ -952,14 +953,14 @@ static Result prepareCopyAndCommitImpl(Request r, const Core &core, const QStrin
         return true;
     };
     if (!copySelected()) {
-        if (stopped()) return cancelResult(QStringLiteral("已取消复制。"));
-        result.problem = QStringLiteral("更新副本复制失败，原实例未改变。");
+        if (stopped()) return cancelResult(QCoreApplication::translate("InstanceUpgrade", "已取消复制。"));
+        result.problem = QCoreApplication::translate("InstanceUpgrade", "更新副本复制失败，原实例未改变。");
         return result;
     }
     // 只校验真的复制了的那一份；一条都没选时跳过（候选目录里此刻只有核心文件，稍后写入）。
     if (!selected.isEmpty() && !sameFiles(candidate, selected, cancelled)) {
-        if (stopped()) return cancelResult(QStringLiteral("已取消复制。"));
-        result.problem = QStringLiteral("更新副本未通过完整校验，原实例未改变。");
+        if (stopped()) return cancelResult(QCoreApplication::translate("InstanceUpgrade", "已取消复制。"));
+        result.problem = QCoreApplication::translate("InstanceUpgrade", "更新副本未通过完整校验，原实例未改变。");
         return result;
     }
     // U4：资源包启用列表按"真的迁入了哪些包"重建（只在 options / resourcepacks 参与这次复制时做）。
@@ -989,34 +990,34 @@ static Result prepareCopyAndCommitImpl(Request r, const Core &core, const QStrin
         }
     }
     if (!applyCoreToCandidate(r, core, candidate, &result)) return result;
-    if (stopped()) return cancelResult(QStringLiteral("已取消，更新副本未发布。"));
+    if (stopped()) return cancelResult(QCoreApplication::translate("InstanceUpgrade", "已取消，更新副本未发布。"));
     const int disabled = result.disabledMods;
     const auto newFiles = BackupFiles::collectFiles(candidate, {}, &problem, cancelled);
-    if (stopped()) return cancelResult(QStringLiteral("已取消，更新副本未发布。"));
+    if (stopped()) return cancelResult(QCoreApplication::translate("InstanceUpgrade", "已取消，更新副本未发布。"));
     if (!problem.isEmpty() || newFiles.isEmpty()) {
-        result.problem = problem.isEmpty() ? QStringLiteral("更新副本没有文件。") : problem;
+        result.problem = problem.isEmpty() ? QCoreApplication::translate("InstanceUpgrade", "更新副本没有文件。") : problem;
         return result;
     }
     result.problem = checkTree(candidate);
     if (result.problem.isEmpty() && !sameFiles(candidate, newFiles, cancelled)) {
-        result.problem = stopped() ? QString() : QStringLiteral("更新副本在准备期间发生变化，未发布。");
-        if (result.problem.isEmpty()) return cancelResult(QStringLiteral("已取消，更新副本未发布。"));
+        result.problem = stopped() ? QString() : QCoreApplication::translate("InstanceUpgrade", "更新副本在准备期间发生变化，未发布。");
+        if (result.problem.isEmpty()) return cancelResult(QCoreApplication::translate("InstanceUpgrade", "已取消，更新副本未发布。"));
         return result;
     }
     if (!result.problem.isEmpty()) return result;
     const QString journalState = QStringLiteral("copy_prepared");
     if (!writeJournal(r, journalState, QString())) {
-        result.problem = QStringLiteral("无法写入副本事务记录，未发布。");
+        result.problem = QCoreApplication::translate("InstanceUpgrade", "无法写入副本事务记录，未发布。");
         return result;
     }
     if (progress) progress(Stage::Publish);
-    if (stopped()) return cancelResult(QStringLiteral("已取消发布。"));
+    if (stopped()) return cancelResult(QCoreApplication::translate("InstanceUpgrade", "已取消发布。"));
     if (QFileInfo::exists(original)) {
-        result.problem = QStringLiteral("目标实例名在复制期间被创建，未覆盖。");
+        result.problem = QCoreApplication::translate("InstanceUpgrade", "目标实例名在复制期间被创建，未覆盖。");
         return result;
     }
     if (!QDir().rename(candidate, original)) {
-        result.problem = QStringLiteral("无法发布更新副本，原实例未改变。");
+        result.problem = QCoreApplication::translate("InstanceUpgrade", "无法发布更新副本，原实例未改变。");
         return result;
     }
     if (progress) progress(Stage::Verify);
@@ -1025,7 +1026,7 @@ static Result prepareCopyAndCommitImpl(Request r, const Core &core, const QStrin
         result.requiresReload = true;
         result.ok = writeJournal(r, QStringLiteral("committed"), QString());
         if (!result.ok) {
-            result.problem = QStringLiteral("副本已发布，但事务记录未能更新；没有删除任何文件。");
+            result.problem = QCoreApplication::translate("InstanceUpgrade", "副本已发布，但事务记录未能更新；没有删除任何文件。");
         }
         if (progress && result.ok) progress(Stage::Done);
         return result;
@@ -1036,10 +1037,10 @@ static Result prepareCopyAndCommitImpl(Request r, const Core &core, const QStrin
     result.requiresReload = true;
     if (!QFileInfo::exists(rejected) && QDir().rename(original, rejected)
         && writeJournal(r, QStringLiteral("copy_rejected"), QString())) {
-        result.problem = QStringLiteral("更新副本发布后校验失败，已保留在被拒绝目录：")
+        result.problem = QCoreApplication::translate("InstanceUpgrade", "更新副本发布后校验失败，已保留在被拒绝目录：")
             + rejected;
     } else {
-        result.problem = QStringLiteral("更新副本发布后校验失败，且自动撤回失败；请手动检查：")
+        result.problem = QCoreApplication::translate("InstanceUpgrade", "升级副本校验失败，自动撤回也未完成。请检查以下内容：")
             + original;
     }
     return result;
@@ -1060,7 +1061,7 @@ Result prepareCopyAndCommit(Request r, const Core &core, const QString &sourceDi
     QLockFile lock(transactionDir(r) + QStringLiteral(".lock"));
     lock.setStaleLockTime(0);
     if (!lock.tryLock()) {
-        Result result; result.problem = QStringLiteral("副本事务正在使用，未修改实例。"); return result;
+        Result result; result.problem = QCoreApplication::translate("InstanceUpgrade", "副本事务正在使用，未修改实例。"); return result;
     }
     const QString startedAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
     const auto result = prepareCopyAndCommitImpl(r, core, sourceDir, progress, cancelled);
@@ -1086,7 +1087,7 @@ static Result rollbackImpl(const Request &r, bool verifyRetained,
     const auto stopped = [&] { return cancelled && cancelled(); };
     const auto stopResult = [&] {
         result.cancelled = true;
-        result.problem = QStringLiteral("已取消，当前实例未移动。");
+        result.problem = QCoreApplication::translate("InstanceUpgrade", "已取消，当前实例未移动。");
         return result;
     };
     result.problem = validate(r);
@@ -1096,7 +1097,7 @@ static Result rollbackImpl(const Request &r, bool verifyRetained,
     const QString displaced = transactionDir(r) + "/replaced";
     const QString original = originalDir(r);
     if (journal.isEmpty() || !QFileInfo(retained).isDir()) {
-        result.problem = QStringLiteral("找不到这次升级保留的原目录，没有执行回滚。");
+        result.problem = QCoreApplication::translate("InstanceUpgrade", "未找到升级前的实例目录，未执行回滚。");
         return result;
     }
     result.snapshotZip = journal.value("snapshotZip").toString();
@@ -1112,7 +1113,7 @@ static Result rollbackImpl(const Request &r, bool verifyRetained,
         if (!result.problem.isEmpty()) return result;
         const QString expectedFolder = QDir(r.gameDir).filePath("cache/backups/instances");
         if (redirected(result.snapshotZip) || QDir(QFileInfo(result.snapshotZip).absolutePath()) != QDir(expectedFolder)) {
-            result.problem = QStringLiteral("快照位置不符合本次事务，未移动当前实例。"); return result;
+            result.problem = QCoreApplication::translate("InstanceUpgrade", "快照位置不符合本次事务，未移动当前实例。"); return result;
         }
         bool ok = false;
         QString problem;
@@ -1120,7 +1121,7 @@ static Result rollbackImpl(const Request &r, bool verifyRetained,
         const QString treeProblem = checkTree(retained);
         if (!ok || !manifest.complete || !manifest.excluded.isEmpty() || manifest.root != r.instanceId
             || manifest.kind != BackupFiles::Kind::Instance || !treeProblem.isEmpty()) {
-            result.problem = QStringLiteral("保留的原目录未通过快照清单校验；未移动当前实例，请使用完整 ZIP 快照恢复。%1")
+            result.problem = QCoreApplication::translate("InstanceUpgrade", "保留的原目录未通过快照清单校验；未移动当前实例，请使用完整 ZIP 快照恢复。%1")
                                  .arg(problem.isEmpty() ? treeProblem : problem);
             return result;
         }
@@ -1128,37 +1129,37 @@ static Result rollbackImpl(const Request &r, bool verifyRetained,
         QString verifyProblem;
         if (!sameFiles(retained, manifest.files, cancelled, &verifyProblem)) {
             if (stopped()) return stopResult();
-            result.problem = QStringLiteral("保留的原目录未通过快照清单校验；未移动当前实例，请使用完整 ZIP 快照恢复。%1")
+            result.problem = QCoreApplication::translate("InstanceUpgrade", "保留的原目录未通过快照清单校验；未移动当前实例，请使用完整 ZIP 快照恢复。%1")
                                  .arg(verifyProblem);
             return result;
         }
     }
     const bool hadCurrent = QFileInfo::exists(original);
     if (hadCurrent && QFileInfo::exists(displaced)) {
-        result.problem = QStringLiteral("回滚保存位置已有文件，未覆盖：%1").arg(displaced);
+        result.problem = QCoreApplication::translate("InstanceUpgrade", "回滚保存位置已有文件，未覆盖：%1").arg(displaced);
         return result;
     }
     // 最后这一小段（写阶段记录 + 两三次同卷改名）是**故意不可取消**的临界区：
     // 停在中间会把"当前版本"和"保留的原目录"两边都留在半路。
     if (stopped()) return stopResult();
     if (!writeJournal(r, "rollback_pending", result.snapshotZip)) {
-        result.problem = QStringLiteral("无法记录回滚阶段，未移动实例文件。");
+        result.problem = QCoreApplication::translate("InstanceUpgrade", "无法记录回滚阶段，未移动实例文件。");
         return result;
     }
     if (hadCurrent && !QDir().rename(original, displaced)) {
-        result.problem = QStringLiteral("无法暂存当前版本，未覆盖或删除任何文件。");
+        result.problem = QCoreApplication::translate("InstanceUpgrade", "无法暂存当前版本，未覆盖或删除任何文件。");
         return result;
     }
     if (!QDir().rename(retained, original)) {
         const bool putBack = !hadCurrent || QDir().rename(displaced, original);
-        result.problem = QStringLiteral("原目录未能恢复，恢复材料保留在 %1。%2")
-            .arg(retained, putBack ? QString() : QStringLiteral("当前版本也保留在 replaced 目录中。"));
+        result.problem = QCoreApplication::translate("InstanceUpgrade", "原目录未能恢复，恢复材料保留在 %1。%2")
+            .arg(retained, putBack ? QString() : QCoreApplication::translate("InstanceUpgrade", "当前版本也保留在 replaced 目录中。"));
         return result;
     }
     result.rolledBack = true;
     result.rollbackAvailable = false;
     result.ok = writeJournal(r, "rolled_back", result.snapshotZip);
-    if (!result.ok) result.problem = QStringLiteral("原实例已恢复，但回滚记录未能更新；没有删除恢复材料。");
+    if (!result.ok) result.problem = QCoreApplication::translate("InstanceUpgrade", "原实例已恢复，但回滚记录未能更新；没有删除恢复材料。");
     return result;
 }
 
@@ -1181,7 +1182,7 @@ static Result commitPreparedImpl(const Request &r, const std::function<void(Stag
     const QString original = originalDir(r), candidate = candidateDir(r);
     if (QFileInfo::exists(journalPath(r)) || !QFileInfo(original).isDir()
         || !QFileInfo(candidate).isDir() || QFileInfo::exists(transactionDir(r) + "/original")) {
-        result.problem = QStringLiteral("原实例、暂存版本或事务目录状态不正确，未替换实例。");
+        result.problem = QCoreApplication::translate("InstanceUpgrade", "原实例、暂存版本或事务目录状态不正确，未替换实例。");
         return result;
     }
     for (const auto &root : {original, candidate}) {
@@ -1191,14 +1192,14 @@ static Result commitPreparedImpl(const Request &r, const std::function<void(Stag
         // 用户按了取消要等整棵树扫完才有反应 —— 而这时候还什么都没动。
         if (stopped()) {
             result.cancelled = true;
-            result.problem = QStringLiteral("已取消，原实例未改变。");
+            result.problem = QCoreApplication::translate("InstanceUpgrade", "已取消，原实例未改变。");
             return result;
         }
     }
     QFile version(candidate + '/' + r.instanceId + ".json");
     if (!version.open(QIODevice::ReadOnly) || version.size() > 16 * 1024 * 1024
         || QJsonDocument::fromJson(version.readAll()).object().value("id").toString() != r.instanceId) {
-        result.problem = QStringLiteral("暂存版本的核心 JSON 缺失或实例名不匹配，未替换。");
+        result.problem = QCoreApplication::translate("InstanceUpgrade", "暂存版本的核心 JSON 缺失或实例名不匹配，未替换。");
         return result;
     }
     version.close();
@@ -1206,26 +1207,26 @@ static Result commitPreparedImpl(const Request &r, const std::function<void(Stag
     const auto newFiles = BackupFiles::collectFiles(candidate, {}, &problem, cancelled);
     if (stopped()) {
         result.cancelled = true;
-        result.problem = QStringLiteral("已取消，原实例未改变。");
+        result.problem = QCoreApplication::translate("InstanceUpgrade", "已取消，原实例未改变。");
         return result;
     }
     if (!problem.isEmpty() || newFiles.isEmpty()) {
-        result.problem = problem.isEmpty() ? QStringLiteral("暂存版本没有文件。") : problem;
+        result.problem = problem.isEmpty() ? QCoreApplication::translate("InstanceUpgrade", "暂存版本没有文件。") : problem;
         return result;
     }
     const auto oldFiles = BackupFiles::collectFiles(original, {}, &problem, cancelled);
     if (stopped()) {
         result.cancelled = true;
-        result.problem = QStringLiteral("已取消，原实例未改变。");
+        result.problem = QCoreApplication::translate("InstanceUpgrade", "已取消，原实例未改变。");
         return result;
     }
     if (!r.originalFingerprint.isEmpty() && fingerprint(oldFiles) != r.originalFingerprint) {
-        result.problem = QStringLiteral("原实例在准备期间发生了变化，未替换实例。"); return result;
+        result.problem = QCoreApplication::translate("InstanceUpgrade", "原实例在准备期间发生了变化，未替换实例。"); return result;
     }
     qint64 oldBytes = 0;
     for (const auto &file : oldFiles) {
         if (file.size < 0 || file.size > (std::numeric_limits<qint64>::max() / 2 - oldBytes)) {
-            result.problem = QStringLiteral("实例大小超出可安全计算的范围。"); return result;
+            result.problem = QCoreApplication::translate("InstanceUpgrade", "实例大小超出可安全计算的范围。"); return result;
         }
         oldBytes += file.size;
     }
@@ -1236,10 +1237,10 @@ static Result commitPreparedImpl(const Request &r, const std::function<void(Stag
     if (!problem.isEmpty() || oldFiles.isEmpty() || !storage.isReady()
         || available < 0 || oldBytes > (std::numeric_limits<qint64>::max() - margin) / 2
         || available < oldBytes * 2 + margin) {
-        result.problem = problem.isEmpty() ? QStringLiteral("无法确认有足够空间制作并校验完整快照，未替换实例。") : problem;
+        result.problem = problem.isEmpty() ? QCoreApplication::translate("InstanceUpgrade", "无法确认有足够空间制作并校验完整快照，未替换实例。") : problem;
         return result;
     }
-    if (stopped()) { result.cancelled = true; result.problem = QStringLiteral("已取消，原实例未改变。"); return result; }
+    if (stopped()) { result.cancelled = true; result.problem = QCoreApplication::translate("InstanceUpgrade", "已取消，原实例未改变。"); return result; }
     report(Stage::Snapshot);
     BackupFiles::Manifest manifest;
     manifest.kind = BackupFiles::Kind::Instance;
@@ -1251,11 +1252,11 @@ static Result commitPreparedImpl(const Request &r, const std::function<void(Stag
     manifest.sourceInstanceName = r.label.isEmpty() ? r.instanceId : r.label;
     manifest.complete = true;
     manifest.safety = true;
-    manifest.scope = {QStringLiteral("原地升级前完整实例快照（不排除 assets、libraries 或用户文件）")};
+    manifest.scope = {QCoreApplication::translate("InstanceUpgrade", "原地升级前完整实例快照（不排除 assets、libraries 或用户文件）")};
     QString zip = QDir(r.gameDir).filePath("cache/backups/instances/")
         + BackupFiles::backupFileName(manifest.label, QDateTime::currentDateTime(), true)
               .chopped(4) + '-' + r.transactionId + ".zip";
-    if (QFileInfo::exists(zip) || redirected(zip)) { result.problem = QStringLiteral("快照名称已存在或是链接，未覆盖。"); return result; }
+    if (QFileInfo::exists(zip) || redirected(zip)) { result.problem = QCoreApplication::translate("InstanceUpgrade", "快照名称已存在或是链接，未覆盖。"); return result; }
     const auto snapshot = BackupFiles::writeBackup(manifest, original, zip, cancelled);
     if (!snapshot.ok) {
         result.cancelled = stopped(); // Snapshot phase has not moved the original directory.
@@ -1270,12 +1271,12 @@ static Result commitPreparedImpl(const Request &r, const std::function<void(Stag
     {
         QTemporaryDir verify(transactionDir(r) + "/verify-XXXXXX");
         if (!verify.isValid() || !ZipUtil::extractArchives({zip}, verify.path(), {}, &problem)) {
-            result.problem = QStringLiteral("完整快照校验失败，或原实例在备份期间发生变化，未替换。%1").arg(problem);
+            result.problem = QCoreApplication::translate("InstanceUpgrade", "完整快照校验失败，或原实例在备份期间发生变化，未替换。%1").arg(problem);
             return result;
         }
         if (stopped()) {
             result.cancelled = true;
-            result.problem = QStringLiteral("已取消，快照保留，原实例未改变。");
+            result.problem = QCoreApplication::translate("InstanceUpgrade", "已取消，快照保留，原实例未改变。");
             return result;
         }
         QString snapshotProblem;
@@ -1284,24 +1285,24 @@ static Result commitPreparedImpl(const Request &r, const std::function<void(Stag
                                         const QString &label) {
             QString reason;
             if (sameFiles(root, expected, cancelled, &reason)) return true;
-            snapshotProblem = QStringLiteral("（%1：%2）").arg(label, reason);
+            snapshotProblem = QCoreApplication::translate("InstanceUpgrade", "（%1：%2）").arg(label, reason);
             return false;
         };
         if (!sameAsSnapshot(verify.path() + '/' + r.instanceId, snapshot.manifest.files,
-                            QStringLiteral("快照解压"))
-            || !sameAsSnapshot(original, snapshot.manifest.files, QStringLiteral("原实例与快照"))
-            || !sameAsSnapshot(original, oldFiles, QStringLiteral("原实例与准备清单"))) {
+                            QCoreApplication::translate("InstanceUpgrade", "快照解压"))
+            || !sameAsSnapshot(original, snapshot.manifest.files, QCoreApplication::translate("InstanceUpgrade", "原实例与快照"))
+            || !sameAsSnapshot(original, oldFiles, QCoreApplication::translate("InstanceUpgrade", "原实例与准备清单"))) {
             if (stopped()) {
                 result.cancelled = true;
-                result.problem = QStringLiteral("已取消，快照保留，原实例未改变。");
+                result.problem = QCoreApplication::translate("InstanceUpgrade", "已取消，快照保留，原实例未改变。");
                 return result;
             }
-            result.problem = QStringLiteral("完整快照校验失败，或原实例在备份期间发生变化，未替换。%1")
+            result.problem = QCoreApplication::translate("InstanceUpgrade", "完整快照校验失败，或原实例在备份期间发生变化，未替换。%1")
                                  .arg(snapshotProblem);
             return result;
         }
     }
-    if (stopped()) { result.cancelled = true; result.problem = QStringLiteral("已取消，快照保留，原实例未改变。"); return result; }
+    if (stopped()) { result.cancelled = true; result.problem = QCoreApplication::translate("InstanceUpgrade", "已取消，快照保留，原实例未改变。"); return result; }
     result.problem = checkTree(original);
     if (result.problem.isEmpty()) result.problem = checkTree(candidate);
     QString stagedProblem;
@@ -1310,14 +1311,14 @@ static Result commitPreparedImpl(const Request &r, const std::function<void(Stag
     if (!result.problem.isEmpty() || !stagedSame) {
         if (stopped()) {
             result.cancelled = true;
-            result.problem = QStringLiteral("已取消，原实例未改变。");
+            result.problem = QCoreApplication::translate("InstanceUpgrade", "已取消，原实例未改变。");
         } else if (!stagedProblem.isEmpty()) {
-            result.problem = QStringLiteral("暂存版本在准备期间发生变化，未替换。%1").arg(stagedProblem);
+            result.problem = QCoreApplication::translate("InstanceUpgrade", "暂存版本在准备期间发生变化，未替换。%1").arg(stagedProblem);
         }
         return result;
     }
     if (!writeJournal(r, "prepared", zip)) {
-        result.problem = QStringLiteral("无法写入升级事务记录，未替换实例。"); return result;
+        result.problem = QCoreApplication::translate("InstanceUpgrade", "无法写入升级事务记录，未替换实例。"); return result;
     }
     const auto failAndRestore = [&](const QString &reason) {
         result.requiresReload = true;
@@ -1326,8 +1327,8 @@ static Result commitPreparedImpl(const Request &r, const std::function<void(Stag
         result.rollbackAvailable = recovery.rollbackAvailable;
         // 只有确认恢复了原实例才可显示“取消”。恢复失败必须保持失败终态。
         if (!recovery.ok || !recovery.rolledBack) result.cancelled = false;
-        result.problem = reason + (recovery.rolledBack ? QStringLiteral(" 原实例已自动恢复。")
-            : QStringLiteral(" 回滚未完成：%1").arg(recovery.problem));
+        result.problem = reason + (recovery.rolledBack ? QCoreApplication::translate("InstanceUpgrade", " 原实例已自动恢复。")
+            : QCoreApplication::translate("InstanceUpgrade", " 回滚未完成：%1").arg(recovery.problem));
         return result;
     };
     report(Stage::RetainOriginal);
@@ -1335,19 +1336,19 @@ static Result commitPreparedImpl(const Request &r, const std::function<void(Stag
     if (!result.problem.isEmpty()) return result;
     if (!retainDirectory(original, transactionDir(r) + "/original", &result.problem)) return result;
     if (!writeJournal(r, "original_retained", zip))
-        return failAndRestore(QStringLiteral("无法记录原目录位置。"));
+        return failAndRestore(QCoreApplication::translate("InstanceUpgrade", "无法记录原目录位置。"));
     report(Stage::Publish);
     if (stopped()) {
         // 取消落在"已经把原目录收起来、还没换上新版本"这一小段：自动恢复再报取消。
         result.cancelled = true;
-        return failAndRestore(QStringLiteral("已取消发布。"));
+        return failAndRestore(QCoreApplication::translate("InstanceUpgrade", "已取消发布。"));
     }
     if (!QDir().rename(candidate, original))
-        return failAndRestore(QStringLiteral("发布新版本中断或失败。"));
+        return failAndRestore(QCoreApplication::translate("InstanceUpgrade", "发布新版本中断或失败。"));
     report(Stage::Verify);
     if (stopped()) {
         result.cancelled = true;
-        return failAndRestore(QStringLiteral("已取消发布后的校验。"));
+        return failAndRestore(QCoreApplication::translate("InstanceUpgrade", "已取消发布后的校验。"));
     }
     const QString publishTreeProblem = checkTree(original);
     QString publishProblem;
@@ -1355,11 +1356,11 @@ static Result commitPreparedImpl(const Request &r, const std::function<void(Stag
                              && sameFiles(original, newFiles, cancelled, &publishProblem);
     if (!publishTreeProblem.isEmpty() || !publishSame) {
         if (stopped()) result.cancelled = true;
-        return failAndRestore(QStringLiteral("发布后的实例校验失败。%1")
+        return failAndRestore(QCoreApplication::translate("InstanceUpgrade", "发布后的实例校验失败。%1")
                                   .arg(publishTreeProblem.isEmpty() ? publishProblem : publishTreeProblem));
     }
     if (!writeJournal(r, "committed", zip))
-        return failAndRestore(QStringLiteral("无法记录升级完成状态。"));
+        return failAndRestore(QCoreApplication::translate("InstanceUpgrade", "无法记录升级完成状态。"));
     result.ok = true;
     result.rollbackAvailable = true;
     report(Stage::Done);
@@ -1393,7 +1394,7 @@ QStringList recoverInterrupted(const QString &gameDir) {
     QString problem;
     if (!DirectorySessionLock::acquire(gameDir, &problem)) return {problem};
     const QDir root(QDir(gameDir).filePath("cache/instance-upgrades"));
-    if (redirected(root.absolutePath())) return {QStringLiteral("升级事务目录是链接，未自动恢复。")};
+    if (redirected(root.absolutePath())) return {QCoreApplication::translate("InstanceUpgrade", "升级事务目录是链接，未自动恢复。")};
     for (const auto &id : root.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
         QLockFile lock(root.filePath(id + QStringLiteral(".lock")));
         lock.setStaleLockTime(0);
@@ -1410,7 +1411,7 @@ QStringList recoverInterrupted(const QString &gameDir) {
             if (shaped && !QFileInfo(txn + "/original").isDir()
                 && !QFileInfo(txn + "/replaced").isDir() && stagingIsStale(txn)
                 && removeTreeWithoutFollowingLinks(txn))
-                messages.append(QStringLiteral("已清理未登记的升级暂存：%1").arg(id));
+                messages.append(QCoreApplication::translate("InstanceUpgrade", "已清理未登记的升级暂存：%1").arg(id));
             continue;
         }
         if (!f.open(QIODevice::ReadOnly) || f.size() > 64 * 1024) continue;
@@ -1425,8 +1426,7 @@ QStringList recoverInterrupted(const QString &gameDir) {
                 && json.value("transactionId").toString() == id) {
                 const QString snapshot = json.value("snapshotZip").toString();
                 messages.append(
-                    QStringLiteral("升级事务 %1（实例 %2）找不到匹配的游戏根指纹，未自动恢复；"
-                                   "请使用完整 ZIP 快照%3恢复。")
+                    QCoreApplication::translate("InstanceUpgrade", "升级事务 %1（实例 %2）找不到匹配的游戏根指纹，未自动恢复；" "请使用完整 ZIP 快照%3恢复。")
                         .arg(id, json.value("instanceId").toString(),
                              snapshot.isEmpty()
                                  ? QString()
@@ -1441,13 +1441,13 @@ QStringList recoverInterrupted(const QString &gameDir) {
             const bool published = QFileInfo(originalDir(r)).isDir();
             const bool cleaned = removeTreeWithoutFollowingLinks(transactionDir(r));
             messages.append(published
-                ? QStringLiteral("上次的更新副本已发布（事务记录未更新），已清理暂存：%1").arg(r.instanceId)
-                : QStringLiteral("已清理未发布的更新副本暂存：%1%2")
-                      .arg(r.instanceId, cleaned ? QString() : QStringLiteral("（暂存未能删除，请手动检查）")));
+                ? QCoreApplication::translate("InstanceUpgrade", "上次的更新副本已发布（事务记录未更新），已清理暂存：%1").arg(r.instanceId)
+                : QCoreApplication::translate("InstanceUpgrade", "已清理未发布的更新副本暂存：%1%2")
+                      .arg(r.instanceId, cleaned ? QString() : QCoreApplication::translate("InstanceUpgrade", "（未能删除暂存文件，需检查）")));
             continue;
         }
         if (state == QLatin1String("copy_rejected")) {
-            messages.append(QStringLiteral("更新副本发布后校验失败，材料保留在：%1")
+            messages.append(QCoreApplication::translate("InstanceUpgrade", "更新副本发布后校验失败，材料保留在：%1")
                                 .arg(transactionDir(r) + QStringLiteral("/rejected")));
             continue;
         }
@@ -1456,7 +1456,7 @@ QStringList recoverInterrupted(const QString &gameDir) {
             && !QFileInfo(transactionDir(r) + "/replaced").isDir()) {
             // 副本模式那次已成功提交：没有回滚材料，事务目录只剩一份记录，不必再留。
             if (removeTreeWithoutFollowingLinks(transactionDir(r))) {
-                messages.append(QStringLiteral("已清理副本升级记录：%1").arg(r.instanceId));
+                messages.append(QCoreApplication::translate("InstanceUpgrade", "已清理副本升级记录：%1").arg(r.instanceId));
             }
             continue;
         }
@@ -1467,13 +1467,13 @@ QStringList recoverInterrupted(const QString &gameDir) {
             // (`prepared` with an original/ directory can only mean the crash hit
             // between the rename and the journal update — that one must roll back.)
             if (removeTreeWithoutFollowingLinks(transactionDir(r)))
-                messages.append(QStringLiteral("已清理未发布的升级暂存：%1").arg(r.instanceId));
+                messages.append(QCoreApplication::translate("InstanceUpgrade", "已清理未发布的升级暂存：%1").arg(r.instanceId));
             continue;
         }
         if (!QFileInfo(transactionDir(r) + "/original").isDir()) continue;
         const auto result = rollbackImpl(r, false);
-        messages.append(result.rolledBack ? QStringLiteral("中断的升级已恢复原实例：%1").arg(r.instanceId)
-            : QStringLiteral("升级恢复需要处理：%1；%2").arg(r.instanceId, result.problem));
+        messages.append(result.rolledBack ? QCoreApplication::translate("InstanceUpgrade", "中断的升级已恢复原实例：%1").arg(r.instanceId)
+            : QCoreApplication::translate("InstanceUpgrade", "升级恢复需要处理：%1；%2").arg(r.instanceId, result.problem));
     }
     return messages;
 }

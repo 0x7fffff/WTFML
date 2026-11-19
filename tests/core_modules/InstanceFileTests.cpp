@@ -314,7 +314,7 @@ int runInstanceFileTests(const QString &sandbox) {
                   InstanceFiles::ImportNameVerdict::Taken,
               "★★ N5 同名但是另一个整合包 ⇒ 不算「接着上次」（两个包的文件会混进一个目录）");
         check(problem.contains(QStringLiteral("另一个整合包")) &&
-                  problem.contains(QStringLiteral("换一个名字")),
+                  problem.contains(QStringLiteral("使用其他实例名称")),
               "N5 那句话说得清是另一个包、并给出两条出路", problem);
         check(InstanceFiles::checkImportTargetName(
                   marked, &problem, InstanceFiles::importManifestFingerprint(manifestB)) ==
@@ -386,7 +386,7 @@ int runInstanceFileTests(const QString &sandbox) {
         const QStringList takenProblems = InstanceFiles::migrateInstanceCacheDirs(
             takenOld, takenNew, {configRoot}, &movedTaken);
         check(movedTaken == 0 && takenProblems.size() == 1 &&
-                  takenProblems.value(0).contains(QStringLiteral("已经有另一个格子")),
+                  takenProblems.value(0).contains(QStringLiteral("旧备份保留")),
               "★ N6 目标格子已经有东西 ⇒ 不合并、说清楚", takenProblems.join(QStringLiteral(" / ")));
         check(readAll(configRoot + "/" + takenOld + "/20261020-120000/old.txt") ==
                       QStringLiteral("old") &&

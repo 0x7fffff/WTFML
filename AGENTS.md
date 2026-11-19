@@ -61,4 +61,5 @@ WTFML 是 C++23 + Qt 6 Widgets 写的 Minecraft 启动器，目前只有 Windows
 
 - 改了 `src/`、`ui/`、`tests/` 里的代码：先跑相关套件 `pwsh tools/test.ps1 …`，用法见 [docs/dev/TESTING.md](docs/dev/TESTING.md)；新增用例按那里的约定放。
 - 改了文档、移动了文件：跑 `pwsh tools/check-doc-links.ps1` 和 `pwsh tools/check-repo-layout.ps1`，两个都要 PASS。
+- 改了 `src/` 或 `ui/` 里的界面文案：跑 `pwsh tools/check-i18n.ps1`。新写的中文要包 `tr()` / `QCoreApplication::translate()`，确不翻的行尾标 `// i18n-ignore`，流程见 [docs/dev/I18N.md](docs/dev/I18N.md)。
 - 交付时写清跑了什么、结果如何；没跑的写没跑，别写成通过。

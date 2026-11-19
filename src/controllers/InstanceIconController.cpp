@@ -150,7 +150,7 @@ void InstanceIconController::startInstanceFileIconLookup() {
     // 的事实，不是"最后一次请求"的事实。
     m_instanceIconRunPaths = missing;
     m_instanceIconRunVersionId = m_instanceIcons.versionId;
-    m_host.log(tr("正在认「%1」里的资源图标（%2 个文件）...")
+    m_host.log(tr("正在读取「%1」的资源图标（%2 个文件）…")
                    .arg(m_host.displayName(m_instanceIcons.versionId))
                    .arg(missing.size()));
     // `QThread::create` 那个重载收一个函数对象（Qt 5.10 起），省掉"再写一个 QThread 子类
@@ -283,7 +283,7 @@ void InstanceIconController::onInstanceIconLookupFinished(const InstanceIconLook
         m_host.log(tr("有几个资源的图标地址没取到：%1").arg(result.iconProblem));
     }
     if (result.unreadable > 0) {
-        m_host.log(tr("有 %1 个文件读不动（多半被别的程序占着），这一批里没有它们的图标。")
+        m_host.log(tr("无法读取 %1 个文件，已跳过这些文件的图标。")
                        .arg(result.unreadable));
     }
     pushInstanceFileIcons();

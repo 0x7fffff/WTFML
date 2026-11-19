@@ -538,7 +538,7 @@ void runLoaderInheritanceTests(const QString &sandbox) {
             const QJsonObject chainMerged = vmChain.getVersionJson(QStringLiteral("U段-链0"));
             check(!chainMerged.isEmpty(), "U5 链太长时也会返回（不挂死）");
             const QString chainProblem = vmChain.inheritanceProblem(QStringLiteral("U段-链0"));
-            check(!chainProblem.isEmpty() && chainProblem.contains(QStringLiteral("长")),
+            check(!chainProblem.isEmpty() && chainProblem.contains(QStringLiteral("继承链超出")),
                   "U5 超过 maxDepth 的链 -> inheritanceProblem 说链太长", chainProblem);
             check(vmChain.inheritanceProblem(QStringLiteral("U段-链%1").arg(chainLength - 1)).isEmpty(),
                   "U5 链尾自己没问题（对照，说明上面那条不是因为别的原因）");

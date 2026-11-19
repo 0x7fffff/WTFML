@@ -25,6 +25,8 @@
  */
 #include "ConfigEntries.hpp"
 
+#include <QCoreApplication>
+
 namespace {
 
 /// 空白（**不含 `\n`** —— 换行在这一层是一个"这一行结束了"的信号，不是空白）。
@@ -729,17 +731,17 @@ int ConfigEntries::maxEntries() {
 QString ConfigEntries::kindName(Kind kind) {
     switch (kind) {
     case Kind::Bool:
-        return QStringLiteral("布尔");
+        return QCoreApplication::translate("ConfigEntries", "布尔");
     case Kind::Number:
-        return QStringLiteral("数字");
+        return QCoreApplication::translate("ConfigEntries", "数字");
     case Kind::String:
-        return QStringLiteral("字符串");
+        return QCoreApplication::translate("ConfigEntries", "字符串");
     case Kind::Array:
-        return QStringLiteral("数组");
+        return QCoreApplication::translate("ConfigEntries", "数组");
     case Kind::Object:
-        return QStringLiteral("对象");
+        return QCoreApplication::translate("ConfigEntries", "对象");
     case Kind::Other:
         break;
     }
-    return QStringLiteral("未识别");
+    return QCoreApplication::translate("ConfigEntries", "未识别");
 }

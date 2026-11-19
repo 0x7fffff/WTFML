@@ -92,7 +92,7 @@ void IntegrityController::submit(const QString &versionId, const BusyFacts &busy
                                  tr("检查「%1」的文件").arg(displayName(versionId)),
                                  versionId, steps);
     m_activity->tasks()->setProgress(m_taskId, 0, qint64(files.size()));
-    log(tr("开始检查「%1」的文件（%2 个）...").arg(displayName(versionId)).arg(files.size()));
+    log(tr("正在检查「%1」的文件（%2 个）…").arg(displayName(versionId)).arg(files.size()));
     m_scanVersionId = versionId;
     m_abort.storeRelaxed(0);
     if (m_thread != nullptr) {

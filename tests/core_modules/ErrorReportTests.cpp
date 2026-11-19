@@ -262,7 +262,7 @@ void runErrorReportTests() {
         ErrorReport::text(crash, now, QStringLiteral("[21:03:11] 炸了\n"),
                           QStringLiteral("[21:03:10] 起\n"));
     check(withHints.contains(
-              ErrorReport::sectionDivider(QStringLiteral("可能的原因（按规则判的，不是猜的）"))),
+              ErrorReport::sectionDivider(QStringLiteral("可能原因"))),
           "★ ZI4 有提示时才有那一节");
     check(withHints.indexOf(QStringLiteral("可能的原因")) < withHints.indexOf(QStringLiteral("错误与致命")),
           "★ ZI4 那一节排在错误摘录**前面**");
@@ -270,7 +270,7 @@ void runErrorReportTests() {
           "ZI4 逐条写成「· 那句话」");
     crash.hints = QStringList();
     check(!ErrorReport::text(crash, now, QStringLiteral("x\n"), QStringLiteral("y\n"))
-               .contains(QStringLiteral("可能的原因")),
+               .contains(QStringLiteral("可能原因")),
           "★ ZI4 一句提示都没有时那一节整个不写");
 }
 

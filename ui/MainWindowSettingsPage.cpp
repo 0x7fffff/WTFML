@@ -3,6 +3,7 @@
 // 输入失焦或回车即存，右上淡出「已保存」；少用项收进每页底部「高级」展开行。
 // 部件在 SettingsPageParts.*；这里只摆控件。
 #include "MainWindowUI.hpp"
+#include <QCoreApplication>
 #include "InputSizing.hpp"
 
 #include "Animations.hpp"
@@ -226,7 +227,7 @@ void MainWindowUI::setupSettingsPage(QWidget *page) {
 
     auto *search = new QLineEdit(headInner);
     search->setObjectName(settingsSearchEditName());
-    search->setPlaceholderText(QStringLiteral("搜索设置"));
+    search->setPlaceholderText(QCoreApplication::translate("MainWindowSettingsPage", "搜索设置"));
     search->setClearButtonEnabled(true);
     search->setMinimumWidth(120);
     search->setMaximumWidth(240);
@@ -326,8 +327,8 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
     QWidget *form = panel.form;
 
     // ---------- 运行时 ----------
-    SettingsGroup *runtime = addGroup(panel, QStringLiteral("运行时"));
-    javaManageButton = textButton(QStringLiteral("Java 管理…"), form);
+    SettingsGroup *runtime = addGroup(panel, QCoreApplication::translate("MainWindowSettingsPage", "运行时"));
+    javaManageButton = textButton(QCoreApplication::translate("MainWindowSettingsPage", "Java 管理…"), form);
     javaManageButton->setObjectName(javaManageButtonName());
     runtime->setHeaderAction(javaManageButton);
     javaPathLabel = new QLabel(form);
@@ -338,22 +339,22 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
     javaPathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     javaPathLabel->setProperty("wtfmlFieldLabel", true);
     javaPathLabel->setCursor(Qt::PointingHandCursor);
-    javaPathLabel->setToolTip(QStringLiteral("点击打开 Java 管理"));
+    javaPathLabel->setToolTip(QCoreApplication::translate("MainWindowSettingsPage", "点击打开 Java 管理"));
     javaPathLabel->installEventFilter(new LabelClickToButton(javaPathLabel, javaManageButton));
     // 全局这一层挑中的 Java 对不上时直接报错，不替用户换也不问；实例层单独钉的 Java 对不上时会弹框问
     // 要不要改用匹配的（开关在「提示」页）。
-    addRow(runtime, QStringLiteral("Java 版本"), javaPathLabel, Placement::Wide, QString(),
-           QStringLiteral("自动选择符合游戏版本要求的 Java；可在实例设置中单独指定。"));
+    addRow(runtime, QCoreApplication::translate("MainWindowSettingsPage", "Java 版本"), javaPathLabel, Placement::Wide, QString(),
+           QCoreApplication::translate("MainWindowSettingsPage", "自动选择符合游戏版本要求的 Java；可在实例设置中单独指定。"));
 
     // ---------- 内存 ----------
-    SettingsGroup *memory = addGroup(panel, QStringLiteral("内存"));
+    SettingsGroup *memory = addGroup(panel, QCoreApplication::translate("MainWindowSettingsPage", "内存"));
     memoryModeCombo = new QComboBox(form);
     memoryModeCombo->setObjectName(memoryModeComboName());
-    memoryModeCombo->addItem(QStringLiteral("自动分配"), true);
-    memoryModeCombo->addItem(QStringLiteral("手动分配"), false);
+    memoryModeCombo->addItem(QCoreApplication::translate("MainWindowSettingsPage", "自动分配"), true);
+    memoryModeCombo->addItem(QCoreApplication::translate("MainWindowSettingsPage", "手动分配"), false);
     memoryModeCombo->setCurrentIndex(1);
     WheelGuard::install(memoryModeCombo);
-    addRow(memory, QStringLiteral("分配方式"), memoryModeCombo);
+    addRow(memory, QCoreApplication::translate("MainWindowSettingsPage", "分配方式"), memoryModeCombo);
     {
         // 「最大内存」= 一根条 + 一个数字框（条是主入口，框用来打精确值）。
         auto *box = new QWidget(form);
@@ -383,7 +384,7 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
         // 文字由 MainWindow 填（系统总内存 / 可用 / 当前用量）；先给占位，免得空标签把行高压成 0。
         // 说明可能长到一行放不下：换行显示整句，不用省略号截掉。
         auto *hint = new QLabel(box);
-        hint->setText(QStringLiteral("正在读取系统内存…"));
+        hint->setText(QCoreApplication::translate("MainWindowSettingsPage", "正在读取系统内存…"));
         hint->setWordWrap(true);
         QFont hintFont = hint->font();
         hintFont.setPixelSize(Theme::textSize(Theme::TextRole::Caption));
@@ -393,16 +394,16 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
         hint->setObjectName(memoryHintName());
         boxLayout->addWidget(hint);
         memoryHint = hint;
-        addRow(memory, QStringLiteral("最大内存"), box, Placement::Wide);
+        addRow(memory, QCoreApplication::translate("MainWindowSettingsPage", "最大内存"), box, Placement::Wide);
     }
     // 「最小内存」（-Xms）不在界面上：值照旧存在设置里（默认 1024 MB，命令行照发）。
 
     // ---------- 游戏窗口 ----------
-    SettingsGroup *windowGroup = addGroup(panel, QStringLiteral("游戏窗口"));
+    SettingsGroup *windowGroup = addGroup(panel, QCoreApplication::translate("MainWindowSettingsPage", "游戏窗口"));
     gameWindowModeCombo = new QComboBox(form);
     gameWindowModeCombo->setObjectName(gameWindowModeComboName());
     WheelGuard::install(gameWindowModeCombo);
-    addRow(windowGroup, QStringLiteral("窗口模式"), gameWindowModeCombo);
+    addRow(windowGroup, QCoreApplication::translate("MainWindowSettingsPage", "窗口模式"), gameWindowModeCombo);
     {
         gameWindowWidthSpin = new QSpinBox(form);
         gameWindowWidthSpin->setObjectName(gameWindowWidthSpinName());
@@ -422,7 +423,7 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
         WheelGuard::install(gameWindowHeightSpin);
         // 「恢复默认」（UI 问题 #11）：回到出厂的那一对 854×480。风格、尺寸照 155 那颗
         // （设置·个性化·外观里的「窗口大小 · 恢复默认」），摆在这一行最右边。
-        gameWindowSizeResetButton = new QPushButton(QStringLiteral("恢复默认"), form);
+        gameWindowSizeResetButton = new QPushButton(QCoreApplication::translate("MainWindowSettingsPage", "恢复默认"), form);
         gameWindowSizeResetButton->setObjectName(gameWindowSizeResetButtonName());
         Theme::markButton(gameWindowSizeResetButton, Theme::ButtonKind::Neutral);
         // 点一下就把两个框设回默认值。**刻意不挡信号**：这两个框的 valueChanged 就是落盘那条线
@@ -436,35 +437,35 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
         const auto syncReset = [this](int) { syncGameWindowSizeResetButton(); };
         QObject::connect(gameWindowWidthSpin, &QSpinBox::valueChanged, gameWindowWidthSpin, syncReset);
         QObject::connect(gameWindowHeightSpin, &QSpinBox::valueChanged, gameWindowHeightSpin, syncReset);
-        addRow(windowGroup, QStringLiteral("窗口大小"),
+        addRow(windowGroup, QCoreApplication::translate("MainWindowSettingsPage", "窗口大小"),
                hbox(form, {gameWindowWidthSpin, gameWindowSizeTimesLabel, gameWindowHeightSpin,
                            gameWindowSizeResetButton}, kWindowSizeRowSpacing),
-               Placement::Natural, QStringLiteral("游戏可能沿用自身保存的尺寸。"),
-               QStringLiteral("退出全屏后使用此尺寸。"));
+               Placement::Natural, QCoreApplication::translate("MainWindowSettingsPage", "游戏可能沿用自身保存的尺寸。"),
+               QCoreApplication::translate("MainWindowSettingsPage", "退出全屏后使用此尺寸。"));
         syncGameWindowSizeResetButton();
     }
 
     // ---------- 运行与日志 ----------
-    SettingsGroup *runGroup = addGroup(panel, QStringLiteral("运行与日志"));
+    SettingsGroup *runGroup = addGroup(panel, QCoreApplication::translate("MainWindowSettingsPage", "运行与日志"));
     launcherBehaviourCombo = new QComboBox(form);
     launcherBehaviourCombo->setObjectName(launcherBehaviourComboName());
     WheelGuard::install(launcherBehaviourCombo);
-    addRow(runGroup, QStringLiteral("启动后"), launcherBehaviourCombo, Placement::Column,
-           QStringLiteral("收起仅隐藏窗口，游戏不受影响。"));
+    addRow(runGroup, QCoreApplication::translate("MainWindowSettingsPage", "启动后"), launcherBehaviourCombo, Placement::Column,
+           QCoreApplication::translate("MainWindowSettingsPage", "收起仅隐藏窗口，游戏不受影响。"));
     showGameLogCheck = new QCheckBox(showGameLogCheckText(), form);
     showGameLogCheck->setObjectName(showGameLogCheckName());
-    addSwitch(runGroup, showGameLogCheck, showGameLogRowText(), QStringLiteral("关闭后仍写入日志文件。"));
+    addSwitch(runGroup, showGameLogCheck, showGameLogRowText(), QCoreApplication::translate("MainWindowSettingsPage", "关闭后仍写入日志文件。"));
     processPriorityCombo = new QComboBox(form);
     processPriorityCombo->setObjectName(processPriorityComboName());
     WheelGuard::install(processPriorityCombo);
-    addRow(runGroup, QStringLiteral("进程优先级"), processPriorityCombo, Placement::Column,
-           QStringLiteral("高于「正常」可能拖慢其他程序。"));
+    addRow(runGroup, QCoreApplication::translate("MainWindowSettingsPage", "进程优先级"), processPriorityCombo, Placement::Column,
+           QCoreApplication::translate("MainWindowSettingsPage", "提高进程优先级可能影响其他程序。"));
 
     // ---------- 高级：JVM 参数 ----------
-    auto *advanced = new ExpandSection(QStringLiteral("高级"), form);
+    auto *advanced = new ExpandSection(QCoreApplication::translate("MainWindowSettingsPage", "高级"), form);
     advanced->setObjectName(QStringLiteral("settingsAdvanced-launch"));
     panel.layout->addWidget(advanced);
-    SettingsGroup *jvm = new SettingsGroup(QStringLiteral("JVM 参数"), advanced);
+    SettingsGroup *jvm = new SettingsGroup(QCoreApplication::translate("MainWindowSettingsPage", "JVM 参数"), advanced);
     advanced->bodyLayout()->addWidget(jvm);
     extraJvmArgsEdit = new QPlainTextEdit(form);
     extraJvmArgsEdit->setObjectName(extraJvmArgsEditName());
@@ -478,8 +479,8 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
     }
     // 失焦（或 Ctrl+Enter）即存：边打字边存会把半条参数写进命令行。
     extraJvmArgsCommit = new SettingsParts::CommitOnFocusOut(extraJvmArgsEdit);
-    addRow(jvm, QStringLiteral("全局额外参数"), extraJvmArgsEdit, Placement::Wide,
-           QStringLiteral("实例参数优先于全局。"));
+    addRow(jvm, QCoreApplication::translate("MainWindowSettingsPage", "全局额外参数"), extraJvmArgsEdit, Placement::Wide,
+           QCoreApplication::translate("MainWindowSettingsPage", "实例参数优先于全局。"));
     panel.layout->addStretch(1);
 }
 
@@ -489,23 +490,23 @@ void MainWindowUI::setupSettingsWarnPanel(QStackedWidget *stack) {
 
     // 前三条都挡在「点启动之后、游戏起来之前」：挡的是同一份存档被两个进程同时打开，事后无法补救，
     // 所以默认都开。勾选状态由 MainWindow 从盘上灌。
-    SettingsGroup *launch = addGroup(panel, QStringLiteral("启动前"));
+    SettingsGroup *launch = addGroup(panel, QCoreApplication::translate("MainWindowSettingsPage", "启动前"));
     javaWarnMismatchCheck = new QCheckBox(javaWarnMismatchRowText(), form);
     javaWarnMismatchCheck->setObjectName(javaWarnMismatchCheckName());
-    addSwitch(launch, javaWarnMismatchCheck, javaWarnMismatchRowText(), QStringLiteral("关闭后版本不符可能启动失败。"));
+    addSwitch(launch, javaWarnMismatchCheck, javaWarnMismatchRowText(), QCoreApplication::translate("MainWindowSettingsPage", "停用提醒后，Java 与游戏版本不兼容时仍可能启动失败。"));
     warnDuplicateLaunchCheck = new QCheckBox(warnDuplicateLaunchCheckText(), form);
     warnDuplicateLaunchCheck->setObjectName(warnDuplicateLaunchCheckName());
     addSwitch(launch, warnDuplicateLaunchCheck, warnDuplicateLaunchRowText(),
-              QStringLiteral("10 秒内再次启动同一实例时询问。"));
+              QCoreApplication::translate("MainWindowSettingsPage", "10 秒内再次启动同一实例时询问。"));
     warnWorldLossCheck = new QCheckBox(warnWorldLossCheckText(), form);
     warnWorldLossCheck->setObjectName(warnWorldLossCheckName());
-    addSwitch(launch, warnWorldLossCheck, warnWorldLossRowText(), QStringLiteral("同时运行可能损坏存档。"));
+    addSwitch(launch, warnWorldLossCheck, warnWorldLossRowText(), QCoreApplication::translate("MainWindowSettingsPage", "同时运行可能损坏存档。"));
 
-    SettingsGroup *download = addGroup(panel, QStringLiteral("下载时"));
+    SettingsGroup *download = addGroup(panel, QCoreApplication::translate("MainWindowSettingsPage", "下载时"));
     warnMissingDependenciesCheck = new QCheckBox(warnMissingDependenciesCheckText(), form);
     warnMissingDependenciesCheck->setObjectName(warnMissingDependenciesCheckName());
     addSwitch(download, warnMissingDependenciesCheck, warnMissingDependenciesRowText(),
-              QStringLiteral("关闭后模组可能因缺前置无法运行。"));
+              QCoreApplication::translate("MainWindowSettingsPage", "关闭依赖检查后，安装的模组可能因缺少依赖而无法运行。"));
     panel.layout->addStretch(1);
 }
 
@@ -515,18 +516,18 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
 
     // ---------- 主题 ----------
     // 这里只搭控件。改完立刻生效也立刻落盘（改规格 → 落盘 → Theme::apply()）在 MainWindow::applyThemeSpec()。
-    SettingsGroup *theme = addGroup(panel, QStringLiteral("主题"));
+    SettingsGroup *theme = addGroup(panel, QCoreApplication::translate("MainWindowSettingsPage", "主题"));
     themePresetCombo = new QComboBox(form);
     themePresetCombo->setObjectName(themePresetComboName());
     for (const QString &id : Theme::presetIds()) themePresetCombo->addItem(Theme::presetName(id), id);
     addRow(theme, themePresetRowText(), themePresetCombo, Placement::Column, QString(),
-           QStringLiteral("可选择固定主题或跟随系统。"));
+           QCoreApplication::translate("MainWindowSettingsPage", "可选择固定主题或跟随系统。"));
     {
         // 磨砂：总开关 + 材质（亚克力 / 云母 / 风景底）+ 两条强度。关掉 = 纯色令牌。
-        auto *glass = new QCheckBox(QStringLiteral("磨砂效果"), form);
+        auto *glass = new QCheckBox(QCoreApplication::translate("MainWindowSettingsPage", "磨砂效果"), form);
         glass->setObjectName(glassEffectCheckName());
         glass->setChecked(Glass::mode() != Glass::Mode::Solid);
-        addSwitch(theme, glass, QStringLiteral("磨砂效果"), QStringLiteral("关闭可降低显卡占用。"));
+        addSwitch(theme, glass, QCoreApplication::translate("MainWindowSettingsPage", "磨砂效果"), QCoreApplication::translate("MainWindowSettingsPage", "关闭可降低显卡占用。"));
 
         auto *materialBox = new QWidget(form);
         auto *materialLayout = new QVBoxLayout(materialBox);
@@ -539,7 +540,7 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         segLayout->setSpacing(2);
         QList<QPushButton *> segments;
         for (Glass::Mode m : {Glass::Mode::Acrylic, Glass::Mode::Mica, Glass::Mode::Scene}) {
-            auto *segment = new QPushButton(Glass::modeName(m), material);
+            auto *segment = new QPushButton(Glass::modeShortName(m), material);
             segment->setProperty("glassMode", int(m));
             segLayout->addWidget(segment);
             segments.append(segment);
@@ -580,7 +581,7 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         Theme::follow(reason, refreshReason);
         materialLayout->addWidget(material);
         materialLayout->addWidget(reason);
-        addRow(theme, QStringLiteral("材质"), materialBox, Placement::Column, QStringLiteral("亚克力、云母需 Windows 11。"));
+        addRow(theme, QCoreApplication::translate("MainWindowSettingsPage", "材质"), materialBox, Placement::Column, QCoreApplication::translate("MainWindowSettingsPage", "亚克力、云母需 Windows 11。"));
     }
     {
         // 着色 / 模糊强度：拖完才存（拖的过程中不重建）。
@@ -605,10 +606,10 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
                              [valueLabel](int v) { valueLabel->setText(themePercentText(v)); });
             addRow(theme, label, sliderWithValue(slider, valueLabel, form), Placement::Column, help, tip);
         };
-        addStrength(QStringLiteral("着色强度"), QStringLiteral("backdropTintSlider"), Glass::tintStrength(),
-                    [](int v) { Glass::setTintStrength(v); }, QStringLiteral("过淡时自动加深以保证可读。"), QString());
-        addStrength(QStringLiteral("模糊强度"), QStringLiteral("backdropBlurSlider"), Glass::blurStrength(),
-                    [](int v) { Glass::setBlurStrength(v); }, QString(), QStringLiteral("仅风景底可调。"));
+        addStrength(QCoreApplication::translate("MainWindowSettingsPage", "着色强度"), QStringLiteral("backdropTintSlider"), Glass::tintStrength(),
+                    [](int v) { Glass::setTintStrength(v); }, QCoreApplication::translate("MainWindowSettingsPage", "过淡时自动加深以保证可读。"), QString());
+        addStrength(QCoreApplication::translate("MainWindowSettingsPage", "模糊强度"), QStringLiteral("backdropBlurSlider"), Glass::blurStrength(),
+                    [](int v) { Glass::setBlurStrength(v); }, QString(), QCoreApplication::translate("MainWindowSettingsPage", "仅风景底可调。"));
     }
     {
         // 主题色（标题栏 / 选中标记 / 主要操作按钮）：色块 + 恢复默认。
@@ -662,8 +663,8 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         widgets.state->setParent(imageBox);
         // 「图片」这一行不给 ⓘ（UI 问题 #21）：原来那颗 i 的悬停内容是「哪几页铺这张图」，
         // 删掉之后那一句也不再传进来（`scope` 参数随之取消）。
-        addRow(group, QStringLiteral("图片"), imageBox, Placement::Wide,
-               QStringLiteral("会复制到启动器数据目录。"));
+        addRow(group, QCoreApplication::translate("MainWindowSettingsPage", "图片"), imageBox, Placement::Wide,
+               QCoreApplication::translate("MainWindowSettingsPage", "会复制到启动器数据目录。"));
 
         widgets.fit = new QComboBox(form);
         widgets.fit->setObjectName(themeImageFitName(key));
@@ -671,46 +672,57 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
             const auto fit = static_cast<Theme::ImageFit>(i);
             widgets.fit->addItem(Theme::imageFitName(fit), Theme::imageFitKey(fit));
         }
-        addRow(group, QStringLiteral("摆放方式"), widgets.fit);
+        addRow(group, QCoreApplication::translate("MainWindowSettingsPage", "窗口布局"), widgets.fit);
         widgets.opacity = new QSlider(Qt::Horizontal, form);
         widgets.opacity->setObjectName(themeImageOpacityName(key));
         widgets.opacity->setRange(0, 100);
         widgets.opacity->setValue(100);
         widgets.percent = new QLabel(themeImagePercentText(100), form);
         widgets.percent->setObjectName(themeImagePercentName(key));
-        addRow(group, QStringLiteral("不透明度"), sliderWithValue(widgets.opacity, widgets.percent, form));
+        addRow(group, QCoreApplication::translate("MainWindowSettingsPage", "不透明度"), sliderWithValue(widgets.opacity, widgets.percent, form));
         m_themeImageRows.append(widgets);
     };
-    addImageGroup(Theme::Part::PageBackground, QStringLiteral("背景图"));
+    addImageGroup(Theme::Part::PageBackground, QCoreApplication::translate("MainWindowSettingsPage", "背景图"));
 
     // ---------- 外观 ----------
     // NOTE: 「主页标题」那一格没有了（UI 问题 #3）：条上那行字固定是商标 `TitleBar::defaultBrandText()`，
     // 不给用户改，也就不留这一项。
-    SettingsGroup *look = addGroup(panel, QStringLiteral("外观"));
+    SettingsGroup *look = addGroup(panel, QCoreApplication::translate("MainWindowSettingsPage", "外观"));
     // 「恢复默认」点了做什么在 MainWindow（要顺手存盘）；置灰跟着窗口大小走（setupUi 末尾那个监视器）。
-    windowSizeResetButton = new QPushButton(QStringLiteral("恢复默认"), form);
+    windowSizeResetButton = new QPushButton(QCoreApplication::translate("MainWindowSettingsPage", "恢复默认"), form);
     windowSizeResetButton->setObjectName(windowSizeResetButtonName());
     Theme::markButton(windowSizeResetButton, Theme::ButtonKind::Neutral);
-    addRow(look, QStringLiteral("窗口大小"), windowSizeResetButton, Placement::Natural,
-           QStringLiteral("启动时按上次关闭时的大小打开。"),
-           QStringLiteral("默认 %1×%2，最小 %3×%4。")
+    addRow(look, QCoreApplication::translate("MainWindowSettingsPage", "窗口大小"), windowSizeResetButton, Placement::Natural,
+           QCoreApplication::translate("MainWindowSettingsPage", "启动时按上次关闭时的大小打开。"),
+           QCoreApplication::translate("MainWindowSettingsPage", "默认 %1×%2，最小 %3×%4。")
                .arg(kMainWindowDefaultWidth).arg(kMainWindowDefaultHeight).arg(kMainWindowMinWidth).arg(kMainWindowMinHeight));
     {
-        auto *colors = new QCheckBox(QStringLiteral("日志颜色显示"), form);
+        // 切换界面语言后，重启以重建界面控件。
+        languageCombo = new QComboBox(form);
+        languageCombo->setObjectName(languageComboName());
+        languageCombo->addItem(QCoreApplication::translate("MainWindowUI", "跟随系统"),
+                               QStringLiteral("system"));
+        languageCombo->addItem(QStringLiteral("简体中文"), QStringLiteral("zh_CN"));  // i18n-ignore
+        languageCombo->addItem(QStringLiteral("English"), QStringLiteral("en"));
+        WheelGuard::install(languageCombo);
+        addRow(look, QCoreApplication::translate("MainWindowUI", "语言"), languageCombo,
+               Placement::Column);
+    }
+    {
+        auto *colors = new QCheckBox(QCoreApplication::translate("MainWindowSettingsPage", "日志颜色显示"), form);
         colors->setObjectName(QStringLiteral("logColorsCheck"));
         colors->setChecked(QSettings().value(QStringLiteral("Look/LogColors"), true).toBool());
         QObject::connect(colors, &QCheckBox::toggled, colors,
                          [](bool enabled) { QSettings().setValue(QStringLiteral("Look/LogColors"), enabled); });
-        addSwitch(look, colors, QStringLiteral("日志颜色"), QStringLiteral("对新日志窗口生效。"));
+        addSwitch(look, colors, QCoreApplication::translate("MainWindowSettingsPage", "日志颜色"), QCoreApplication::translate("MainWindowSettingsPage", "对新日志窗口生效。"));
     }
     {
         // 「每日一言」：默认开。checked 状态由 MainWindow 灌（值在 LauncherSettings，
         // 和上面「日志颜色」那种自己落盘的不一样 —— 它还要驱动主页那一行）。
-        auto *quote = new QCheckBox(QStringLiteral("每日一言"), form);
+        auto *quote = new QCheckBox(QCoreApplication::translate("MainWindowSettingsPage", "每日一言"), form);
         quote->setObjectName(dailyQuoteCheckName());
-        addSwitch(look, quote, QStringLiteral("每日一言"),
-                  QStringLiteral("每天向 hitokoto 和 ZenQuotes（zenquotes.io）取一句，不带个人信息；"
-                                 "关闭后不请求。"));
+        addSwitch(look, quote, QCoreApplication::translate("MainWindowSettingsPage", "每日一言"),
+                  QCoreApplication::translate("MainWindowSettingsPage", "每天向 hitokoto 和 ZenQuotes（zenquotes.io）取一句，不带个人信息；" "关闭后不请求。"));
         dailyQuoteCheck = quote;
     }
 
@@ -718,32 +730,32 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
     // UI 问题 #14 里撤掉了：显示名固定按出厂那一份拼（见 manage/VersionDisplay.hpp）。
     // ---------- 动效 ----------
     // 只看这一个勾，不跟随 Windows 的「动画效果」（那一档关掉会让整套动效被静默关掉）。
-    SettingsGroup *motion = addGroup(panel, QStringLiteral("动效"));
+    SettingsGroup *motion = addGroup(panel, QCoreApplication::translate("MainWindowSettingsPage", "动效"));
     animationsCheck = new QCheckBox(animationsCheckText(), form);
     animationsCheck->setObjectName(animationsCheckName());
-    addSwitch(motion, animationsCheck, animationsCheckText(), QStringLiteral("系统开启「减少动画」时自动关闭。"));
+    addSwitch(motion, animationsCheck, animationsCheckText(), QCoreApplication::translate("MainWindowSettingsPage", "系统开启「减少动画」时自动关闭。"));
 
     // ---------- 主页快速启动 ----------
-    SettingsGroup *quick = addGroup(panel, QStringLiteral("主页快速启动"));
+    SettingsGroup *quick = addGroup(panel, QCoreApplication::translate("MainWindowSettingsPage", "主页快速启动"));
     const auto addCount = [&](const QString &label, const QString &name, QSpinBox **out) {
         auto *spin = new QSpinBox(form);
         spin->setObjectName(name);
         spin->setRange(0, 5);
-        spin->setSuffix(QStringLiteral(" 个"));
-        spin->setSpecialValueText(QStringLiteral("隐藏"));  // 0 直接显示「隐藏」
+        spin->setSuffix(QCoreApplication::translate("MainWindowSettingsPage", " 个"));
+        spin->setSpecialValueText(QCoreApplication::translate("MainWindowSettingsPage", "隐藏"));  // 0 直接显示「隐藏」
         WheelGuard::install(spin);
         // 0–5 的小整数：「− 值 +」步进器（值仍在这颗 QSpinBox 上，范围 / valueChanged / 持久化不动）。
         addRow(quick, label, Theme::makeNumberStepper(form, spin, 72), Placement::Natural);
         *out = spin;
     };
-    addCount(QStringLiteral("收藏"), homeFavoriteCountSpinName(), &homeFavoriteCountSpin);
-    addCount(QStringLiteral("上次游玩"), homeRecentCountSpinName(), &homeRecentCountSpin);
+    addCount(QCoreApplication::translate("MainWindowSettingsPage", "收藏"), homeFavoriteCountSpinName(), &homeFavoriteCountSpin);
+    addCount(QCoreApplication::translate("MainWindowSettingsPage", "上次游玩"), homeRecentCountSpinName(), &homeRecentCountSpin);
 
     // ---------- 高级：语义色 · 高级配色 · 整份主题 ----------
-    auto *advanced = new ExpandSection(QStringLiteral("高级"), form);
+    auto *advanced = new ExpandSection(QCoreApplication::translate("MainWindowSettingsPage", "高级"), form);
     advanced->setObjectName(QStringLiteral("settingsAdvanced-look"));
     panel.layout->addWidget(advanced);
-    SettingsGroup *advancedGroup = new SettingsGroup(QStringLiteral("主题（高级）"), advanced);
+    SettingsGroup *advancedGroup = new SettingsGroup(QCoreApplication::translate("MainWindowSettingsPage", "主题（高级）"), advanced);
     advanced->bodyLayout()->addWidget(advancedGroup);
     {
         // 语义色（危险 / 警告 / 正常 / 报错）：两行两列，窄窗下形状不变。
@@ -777,10 +789,10 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         boxLayout->addWidget(themeSemanticResetButton, 0, Qt::AlignTop);
         boxLayout->addStretch(1);
         addRow(advancedGroup, themeSemanticRowText(), box, Placement::Wide, QString(),
-               QStringLiteral("自定义错误、警告和成功状态的颜色；「跟随预设」恢复主题配色。"));
+               QCoreApplication::translate("MainWindowSettingsPage", "自定义错误、警告和成功状态的颜色；「跟随预设」恢复主题配色。"));
     }
     m_themeAdvancedEditor = new ThemeAdvancedEditor(form);
-    addRow(advancedGroup, QStringLiteral("高级配色"), m_themeAdvancedEditor, Placement::Wide);
+    addRow(advancedGroup, QCoreApplication::translate("MainWindowSettingsPage", "高级配色"), m_themeAdvancedEditor, Placement::Wide);
     {
         themeResetAllButton = new QPushButton(themeResetAllText(), form);
         themeResetAllButton->setObjectName(themeResetAllButtonName());
@@ -795,8 +807,8 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         static_cast<QHBoxLayout *>(buttons->layout())->addStretch(1);
         for (QPushButton *button : {themeResetAllButton, themeExportButton, themeImportButton})
             button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-        addRow(advancedGroup, themeFileRowText(), buttons, Placement::Wide, QStringLiteral("导出不含图片，仅保存路径。"),
-               QStringLiteral("恢复全部默认包含背景设置。"));
+        addRow(advancedGroup, themeFileRowText(), buttons, Placement::Wide, QCoreApplication::translate("MainWindowSettingsPage", "导出不含图片，仅保存路径。"),
+               QCoreApplication::translate("MainWindowSettingsPage", "恢复全部默认包含背景设置。"));
     }
 
     // Tab 顺序：主题那一段从上到下、从左到右钉住（以后中间插控件，默认顺序会变，这一串不会）。
@@ -817,23 +829,23 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
 
     // ---------- 下载源 ----------
     // 各档位的表在 src/ 里（唯一出处），这里只有框没有项，项和选中档由 MainWindow 灌。
-    SettingsGroup *source = addGroup(panel, QStringLiteral("下载源"));
+    SettingsGroup *source = addGroup(panel, QCoreApplication::translate("MainWindowSettingsPage", "下载源"));
     downloadSourceCombo = new QComboBox(form);
     downloadSourceCombo->setObjectName(downloadSourceComboName());
     WheelGuard::install(downloadSourceCombo);
-    addRow(source, QStringLiteral("来源"), downloadSourceCombo, Placement::Column,
-           QStringLiteral("优先源速度缓慢时，自动改用另一个源。"),
-           QStringLiteral("镜像服务由 BMCLAPI 提供。"));
+    addRow(source, QCoreApplication::translate("MainWindowSettingsPage", "来源"), downloadSourceCombo, Placement::Column,
+           QCoreApplication::translate("MainWindowSettingsPage", "优先源速度缓慢时，自动改用另一个源。"),
+           QCoreApplication::translate("MainWindowSettingsPage", "镜像服务由 BMCLAPI 提供。"));
     downloadConcurrencyCombo = new QComboBox(form);
     downloadConcurrencyCombo->setObjectName(downloadConcurrencyComboName());
     WheelGuard::install(downloadConcurrencyCombo);
     addRow(source, downloadConcurrencyRowText(), downloadConcurrencyCombo, Placement::Column,
-           QStringLiteral("调低可减少限流与超时。"));
+           QCoreApplication::translate("MainWindowSettingsPage", "调低可减少限流与超时。"));
     downloadSpeedLimitCombo = new QComboBox(form);
     downloadSpeedLimitCombo->setObjectName(downloadSpeedLimitComboName());
     WheelGuard::install(downloadSpeedLimitCombo);
     addRow(source, downloadSpeedLimitRowText(), downloadSpeedLimitCombo, Placement::Column,
-           QStringLiteral("不含工具箱直链下载。"));
+           QCoreApplication::translate("MainWindowSettingsPage", "不含工具箱直链下载。"));
     {
         // 代理：三档由 DownloadProxy.hpp 定；手动地址那一格只在「手动」档露出来（开关与回填由 MainWindow 管）。
         auto *box = new QWidget(form);
@@ -849,21 +861,21 @@ void MainWindowUI::setupSettingsDownloadPanel(QStackedWidget *stack) {
         downloadProxyManualEdit->setPlaceholderText(QStringLiteral("127.0.0.1:7890"));
         downloadProxyManualEdit->setVisible(false);
         boxLayout->addWidget(downloadProxyManualEdit);
-        addRow(source, downloadProxyRowText(), box, Placement::Column, QStringLiteral("对之后发起的请求生效。"));
+        addRow(source, downloadProxyRowText(), box, Placement::Column, QCoreApplication::translate("MainWindowSettingsPage", "对之后发起的请求生效。"));
     }
     // CurseForge API key：明文显示（贴错了要能一眼看见；它本来就明文躺在配置里），可以留空（走社区镜像）。
     curseForgeApiKeyEdit = new QLineEdit(form);
     curseForgeApiKeyEdit->setObjectName(curseForgeApiKeyEditName());
-    InputSizing::longValue(curseForgeApiKeyEdit, "API 密钥：约 60 个字符，明文显示便于核对");
+    InputSizing::longValue(curseForgeApiKeyEdit, QCoreApplication::translate("MainWindowSettingsPage", "API 密钥：约 60 个字符，明文显示便于核对"));
     curseForgeApiKeyEdit->setPlaceholderText(curseForgeApiKeyPlaceholder());
     addRow(source, curseForgeApiKeyRowText(), curseForgeApiKeyEdit);
 
     // ---------- 下载的文件 ----------
-    SettingsGroup *files = addGroup(panel, QStringLiteral("下载的文件"));
+    SettingsGroup *files = addGroup(panel, QCoreApplication::translate("MainWindowSettingsPage", "下载的文件"));
     downloadAutoIntoInstanceCheck = new QCheckBox(downloadAutoIntoInstanceCheckText(), form);
     downloadAutoIntoInstanceCheck->setObjectName(downloadAutoIntoInstanceCheckName());
     addSwitch(files, downloadAutoIntoInstanceCheck, downloadAutoIntoInstanceRowText(),
-              QStringLiteral("下载资源时选择目标实例；关闭后改用系统文件夹选择。"));
+              QCoreApplication::translate("MainWindowSettingsPage", "下载资源时选择目标实例；关闭后改用系统文件夹选择。"));
     panel.layout->addStretch(1);
 }
 
@@ -910,3 +922,5 @@ QString MainWindowUI::themeSemanticText(int index) {
         return QString();
     }
 }
+
+
