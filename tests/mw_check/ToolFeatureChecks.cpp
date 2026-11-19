@@ -304,7 +304,6 @@ int runToolFeatureChecks() {
     restored.setEnchantmentChoices({{QStringLiteral("sharpness"), QStringLiteral("锋利")}});
     int requests = 0;
     QObject::connect(&restored, &ToolboxPage::serverCheckRequested, &restored, [&](const QString &) { ++requests; });
-    QObject::connect(&restored, &ToolboxPage::hashRequested, &restored, [&](const QString &, int, const QString &) { ++requests; });
     expect(ToolboxInputState::restore(&restored, remembered) && restored.bannerBaseColor() == 4
         && restored.bannerVersion() == QStringLiteral("1.20.4") && restored.bannerLayers() == QStringList{red, blue}
         && restored.coordinate(0) == -123.5 && requests == 0, "tool inputs restore without starting network or file jobs");

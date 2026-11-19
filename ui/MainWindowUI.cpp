@@ -845,7 +845,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     // D1：智能体**放最后**；启动默认仍停在主页（下面 setCurrentIndex(homeTabIndex())）。
     tabWidget->addTab(agentPage, QStringLiteral("智能体"));
     // 工具箱：第六个选项卡，**不上顶上那条导航**（入口是导航轨底部那颗「工具箱」，见 setupBottomBar）。
-    // 页本身由 ToolboxController 首次打开时挂进来（避免没用过工具箱的人白搭十片控件）。
+    // 页本身由 ToolboxController 首次打开时挂进来（避免没用过工具箱的人白搭九片控件）。
     {
         auto *toolboxHost = new ThemeBackground(Theme::Part::PageBackground, tabWidget);
         toolboxHost->setObjectName(toolboxTabName());

@@ -22,7 +22,6 @@
 #include "tools/BannerTextures.hpp"
 #include "tools/Brewing.hpp"
 #include "tools/CoordConvert.hpp"
-#include "tools/FileHash.hpp"
 #include "tools/GameVersion.hpp"
 #include "tools/TextFormat.hpp"
 #include "util/ImageDecode.hpp"
@@ -30,13 +29,9 @@
 
 #include <QBoxLayout>
 #include <QColor>
-#include <QDir>
-#include <QFileInfo>
 #include <QFileDialog>
-#include <QFileSystemWatcher>
 #include <QMetaObject>
 #include <QPalette>
-#include <QSaveFile>
 #include <QThread>
 
 #include <algorithm>
@@ -117,10 +112,6 @@ void ToolboxController::ensurePage() {
         if (tool == ToolboxPage::Tool::Trim) m_trimPreview->ensureLocal();
         if (tool == ToolboxPage::Tool::Download) m_directDownload->panelShown();
     });
-    // 算完哈希之后盯着那个文件：它一变，屏幕上那串摘要就不再是"它现在的摘要"。
-    m_hashWatcher = new QFileSystemWatcher(this);
-    connect(m_hashWatcher, &QFileSystemWatcher::fileChanged, this,
-            [this](const QString &path) { onHashFileChanged(path); });
     connect(m_page, &ToolboxPage::beamRequested, this, [this](const QList<int> &glass) {
         const auto result = BeaconBeam::calculate(glass);
         QStringList rows;
@@ -209,15 +200,6 @@ void ToolboxController::ensurePage() {
     connect(m_page, &ToolboxPage::serverCheckCancelRequested, this,
             [this]() { cancelServerCheck(); });
     connect(m_page, &ToolboxPage::serverToolExited, this, &ToolboxController::cancelServerCheck);
-    connect(m_page, &ToolboxPage::hashRequested, this,
-            [this](const QString &path, int algorithm, const QString &expected) {
-                runHash(path, algorithm, expected);
-            });
-    connect(m_page, &ToolboxPage::hashCancelRequested, this, [this]() { cancelHash(); });
-    connect(m_page, &ToolboxPage::hashBatchRequested, this,
-            [this](const QStringList &paths, int algorithm) { runHashBatch(paths, algorithm); });
-    connect(m_page, &ToolboxPage::hashExportRequested, this,
-            [this](const QString &path, const QString &text) { exportHashBatch(path, text); });
     connect(m_page, &ToolboxPage::beaconRequested, this,
             [this](int fromLevel, int level, int materialIndex, int beaconCount) {
                 refreshBeacon(fromLevel, level, materialIndex, beaconCount);
@@ -275,14 +257,6 @@ void ToolboxController::setupTool(ToolboxPage::Tool tool) {
         break;
     case Tool::Server:
         break;
-    case Tool::Hash: {
-        QStringList algorithms;
-        for (FileHash::Algorithm algorithm : FileHash::algorithms()) {
-            algorithms.append(FileHash::algorithmName(algorithm));
-        }
-        m_page->setAlgorithmChoices(algorithms);
-        break;
-    }
     case Tool::Beacon: {
         QStringList beamNames;
         for (int i = 0; i < Banner::colorCount(); ++i) beamNames.append(Banner::colorName(i));
@@ -385,15 +359,10 @@ bool ToolboxController::resumeDownloadTask(quint64 id) { return m_directDownload
 void ToolboxController::shutdown() {
     if (m_trimPreview != nullptr) m_trimPreview->shutdown();
     m_directDownload->shutdown();
-    m_hashAbort.storeRelaxed(1);
-    if (m_hashThread != nullptr) {
-        m_hashThread->wait();
-    }
-    // 指针可能已经被放掉了（见两处算哈希的收尾），而那条线程还在最后几条
-    // 指令里。析构 QObject 会把子对象连同一条仍在跑的线程一起删掉 ⇒ qFatal。按子对象
-    // 兜一遍底，保证收手时它们都已经退出。
+    // 旗帜贴图那条后台线程跑着的时候析构 QObject 会把子对象连同仍在跑的线程一起删掉
+    // ⇒ qFatal。按子对象兜一遍底，保证收手时它们都已经退出。
     for (QThread *thread : findChildren<QThread *>()) {
-        if (thread != m_hashThread) thread->wait();
+        thread->wait();
     }
     if (m_pinger != nullptr) {
         m_pinger->abort();
@@ -812,348 +781,7 @@ void ToolboxController::cancelServerCheck() {
 }
 
 // ---------------------------------------------------------------------------
-// 五、文件哈希校验
-// ---------------------------------------------------------------------------
-
-void ToolboxController::runHash(const QString &path, int algorithmIndex, const QString &expected) {
-    if (path.isEmpty()) {
-        InlineMessage::information(m_overlay, tr("先选一个文件"),
-                                   tr("把文件拖到这一页上，或者点「选一个…」。"));
-        return;
-    }
-    if (m_hashThread != nullptr) {
-        return;  // 已经有一条线程在算了（页面上那颗按钮这会儿也按不动）
-    }
-    const QList<FileHash::Algorithm> algorithms = FileHash::algorithms();
-    if (algorithmIndex < 0 || algorithmIndex >= algorithms.size()) {
-        algorithmIndex = 0;
-    }
-    const FileHash::Algorithm algorithm = algorithms.at(algorithmIndex);
-    const FileHash::Expected want = FileHash::parseExpected(expected);
-    m_hashAbort.storeRelaxed(0);
-    m_page->setHashBusy(true);
-    m_page->setHashStaleNote(QString());  // 新的一趟开始 ⇒ 上一趟那句"文件变过"收起来
-    // 单文件那一趟开始，批量那本"盯着谁"的账也作废（屏幕上换成了这一次的结果）。
-    if (m_hashWatcher != nullptr) {
-        for (auto it = m_hashBatchStamps.constBegin(); it != m_hashBatchStamps.constEnd(); ++it) {
-            m_hashWatcher->removePath(it.key());
-        }
-    }
-    m_hashBatchStamps.clear();
-    if (m_host.log) {
-        m_host.log(tr("算哈希：%1（%2）").arg(path, FileHash::algorithmName(algorithm)));
-    }
-
-    m_hashThread = QThread::create([this, path, algorithm, want] {
-        const auto progress = [this](qint64 done, qint64 total) {
-            QMetaObject::invokeMethod(
-                this,
-                [this, done, total] {
-                    if (m_page != nullptr) {
-                        m_page->setHashProgress(done, total);
-                    }
-                },
-                Qt::QueuedConnection);
-        };
-        const auto cancelled = [this]() { return m_hashAbort.loadRelaxed() != 0; };
-        const FileHash::Result result = FileHash::digestOfFile(path, algorithm, progress, cancelled);
-        QMetaObject::invokeMethod(
-            this,
-            [this, path, result, algorithm, want] {
-                ToolboxPage::HashView view;
-                view.ok = result.ok;
-                view.error = result.error;
-                view.algorithm = FileHash::algorithmName(algorithm);
-                view.hex = result.hex;
-                view.sizeText = FileHash::fileSizeText(result.bytes);
-                if (result.ok && want.valid) {
-                    const FileHash::Verdict verdict = FileHash::compare(result.hex, want);
-                    view.hasVerdict = true;
-                    view.matches = verdict.matches;
-                    view.verdict = verdict.text;
-                    // 已知值点的是**另一档**算法：比出来的"不一样"没有意义，得说清楚。
-                    if (want.hasAlgorithm && want.algorithm != algorithm) {
-                        view.verdict = tr("这一串是按 %1 算的，和上面选的 %2 不是一档 —— "
-                                          "换个算法再算一遍。")
-                                           .arg(FileHash::algorithmName(want.algorithm),
-                                                FileHash::algorithmName(algorithm));
-                        view.matches = false;
-                    }
-                }
-                m_page->setHashView(view);
-                m_page->setHashBusy(false);
-                // 算成了就记下"这一刻文件长什么样"，并盯着它（文件变化使结果失效）。
-                if (m_hashWatcher != nullptr && !m_hashWatchedPath.isEmpty()) {
-                    m_hashWatcher->removePath(m_hashWatchedPath);
-                }
-                m_hashWatched = false;
-                m_hashWatchedPath.clear();
-                if (result.ok) {
-                    const FileHash::Stamp stamp = FileHash::stampOf(path);
-                    if (stamp.ok) {
-                        m_hashWatchedPath = path;
-                        m_hashWatchedBytes = stamp.bytes;
-                        m_hashWatchedModifiedMs = stamp.lastModifiedMs;
-                        m_hashWatched = true;
-                        if (m_hashWatcher != nullptr) {
-                            m_hashWatcher->addPath(path);
-                        }
-                    }
-                }
-                if (m_host.log) {
-                    m_host.log(result.ok
-                                   ? tr("哈希：%1 = %2").arg(path, result.hex)
-                                   : tr("哈希没算成：%1（%2）").arg(path, result.error));
-                }
-                // 线程自己收掉（这一趟结束了，下一趟要的是一条新的）。
-                // **只放指针、不 deleteLater**。这一句跑的时候那条 QThread 还在
-                // `run()` 的尾巴上（`invokeMethod` 投完就返回）；对一条仍在跑的线程调
-                // deleteLater() 会让 Qt 处理 DeferredDelete 时
-                // `qFatal("QThread: Destroyed while thread is still running")`。
-                // 线程对象自己接好了 finished → deleteLater（见下面创建处）。
-                if (m_hashThread != nullptr) {
-                    m_hashThread = nullptr;
-                }
-            },
-            Qt::QueuedConnection);
-    });
-    m_hashThread->setParent(this);
-    // 自己收自己；清指针排在删除之前（理由同单文件那一趟）。
-    connect(m_hashThread, &QThread::finished, this, [this, thread = m_hashThread] {
-        if (m_hashThread == thread) m_hashThread = nullptr;
-    });
-    connect(m_hashThread, &QThread::finished, m_hashThread, &QObject::deleteLater);
-    m_hashThread->start();
-}
-
-void ToolboxController::cancelHash() {
-    m_hashAbort.storeRelaxed(1);
-}
-
-void ToolboxController::runHashBatch(const QStringList &paths, int algorithmIndex) {
-    if (paths.isEmpty() || m_hashThread != nullptr) {
-        return;
-    }
-    const QList<FileHash::Algorithm> algorithms = FileHash::algorithms();
-    if (algorithmIndex < 0 || algorithmIndex >= algorithms.size()) {
-        algorithmIndex = 0;
-    }
-    const FileHash::Algorithm algorithm = algorithms.at(algorithmIndex);
-    m_hashAbort.storeRelaxed(0);
-    m_page->setHashBusy(true);
-    m_page->setHashStaleNote(QString());
-    // 上一趟（单文件或批量）盯着的那几个都作废 —— 屏幕上马上要换成这一次的清单。
-    if (m_hashWatcher != nullptr) {
-        if (!m_hashWatchedPath.isEmpty()) {
-            m_hashWatcher->removePath(m_hashWatchedPath);
-        }
-        for (auto it = m_hashBatchStamps.constBegin(); it != m_hashBatchStamps.constEnd(); ++it) {
-            m_hashWatcher->removePath(it.key());
-        }
-    }
-    m_hashWatched = false;
-    m_hashWatchedPath.clear();
-    m_hashBatchStamps.clear();
-    if (m_host.log) {
-        m_host.log(tr("批量算哈希：%1 个文件（%2）")
-                       .arg(paths.size())
-                       .arg(FileHash::algorithmName(algorithm)));
-    }
-
-    m_hashThread = QThread::create([this, paths, algorithm] {
-        QList<ToolboxPage::HashBatchRow> rows;
-        QHash<QString, FileHash::Stamp> stamps;
-        int failed = 0;
-        bool aborted = false;
-        for (int index = 0; index < paths.size(); ++index) {
-            if (m_hashAbort.loadRelaxed() != 0) {
-                aborted = true;
-                break;
-            }
-            const QString path = paths.at(index);
-            const QString name = QFileInfo(path).fileName();
-            QMetaObject::invokeMethod(
-                this,
-                [this, index, count = paths.size(), name] {
-                    if (m_page != nullptr) {
-                        m_page->setHashProgressNote(tr("第 %1 / %2 个：%3")
-                                                        .arg(index + 1)
-                                                        .arg(count)
-                                                        .arg(name));
-                    }
-                },
-                Qt::QueuedConnection);
-            const auto progress = [this](qint64 done, qint64 total) {
-                QMetaObject::invokeMethod(
-                    this,
-                    [this, done, total] {
-                        if (m_page != nullptr) {
-                            m_page->setHashProgress(done, total);
-                        }
-                    },
-                    Qt::QueuedConnection);
-            };
-            const auto cancelled = [this]() { return m_hashAbort.loadRelaxed() != 0; };
-            const FileHash::Result result =
-                FileHash::digestOfFile(path, algorithm, progress, cancelled);
-            ToolboxPage::HashBatchRow row;
-            row.path = path;
-            row.name = name;
-            row.ok = result.ok;
-            row.hex = result.hex;
-            row.error = result.error;
-            row.sizeText = FileHash::fileSizeText(result.bytes);
-            if (result.ok) {
-                const FileHash::Stamp stamp = FileHash::stampOf(path);
-                if (stamp.ok) {
-                    stamps.insert(path, stamp);
-                }
-            } else {
-                ++failed;
-            }
-            rows.append(row);
-            if (!result.ok && m_hashAbort.loadRelaxed() != 0) {
-                aborted = true;
-                break;
-            }
-        }
-        QMetaObject::invokeMethod(
-            this,
-            [this, rows, stamps, failed, aborted, algorithm] {
-                int okCount = 0;
-                for (const ToolboxPage::HashBatchRow &row : rows) {
-                    if (row.ok) {
-                        ++okCount;
-                    }
-                }
-                QString summary = tr("共 %1 个文件 / %2")
-                                      .arg(rows.size())
-                                      .arg(FileHash::algorithmName(algorithm));
-                if (aborted) {
-                    summary += tr(" / 停下了，后面那几个没算");
-                }
-                if (failed > 0) {
-                    summary += tr(" / %1 个没算成").arg(failed);
-                }
-                if (okCount == 0) {
-                    summary += tr(" / 一个都没算成");
-                }
-                m_page->setHashBatchView(rows, summary);
-                m_page->setHashBusy(false);
-                // 算成功的那些逐个盯着（文件变化使结果失效，批量这一档也一样）。
-                m_hashBatchStamps = stamps;
-                if (m_hashWatcher != nullptr) {
-                    for (auto it = m_hashBatchStamps.constBegin();
-                         it != m_hashBatchStamps.constEnd(); ++it) {
-                        m_hashWatcher->addPath(it.key());
-                    }
-                }
-                if (m_host.log) {
-                    m_host.log(aborted ? tr("批量算哈希：停下了（%1 / %2）")
-                                             .arg(rows.size())
-                                             .arg(stamps.size() + failed)
-                                       : tr("批量算哈希：%1 个文件，%2 个没算成")
-                                             .arg(rows.size())
-                                             .arg(failed));
-                }
-                if (m_hashThread != nullptr) {
-                    m_hashThread = nullptr;
-                }
-            },
-            Qt::QueuedConnection);
-    });
-    m_hashThread->setParent(this);
-    // 自己收自己；清指针排在删除之前（`shutdown()` 里那句 wait() 在析构时跑）。
-    connect(m_hashThread, &QThread::finished, this, [this, thread = m_hashThread] {
-        if (m_hashThread == thread) m_hashThread = nullptr;
-    });
-    connect(m_hashThread, &QThread::finished, m_hashThread, &QObject::deleteLater);
-    m_hashThread->start();
-}
-
-void ToolboxController::exportHashBatch(const QString &path, const QString &text) {
-    if (path.isEmpty() || text.isEmpty()) {
-        return;
-    }
-    QSaveFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        InlineMessage::information(m_overlay, tr("没写成"),
-                                   tr("「%1」打不开：%2").arg(QDir::toNativeSeparators(path),
-                                                             file.errorString()));
-        return;
-    }
-    file.write(text.toUtf8());
-    if (!file.commit()) {
-        InlineMessage::information(m_overlay, tr("没写成"),
-                                   tr("「%1」没写完：%2").arg(QDir::toNativeSeparators(path),
-                                                             file.errorString()));
-        return;
-    }
-    if (m_host.log) {
-        m_host.log(tr("哈希清单导出：%1").arg(path));
-    }
-    InlineMessage::information(m_overlay, tr("存好了"),
-                               tr("清单写到 %1").arg(QDir::toNativeSeparators(path)));
-}
-
-void ToolboxController::onHashFileChanged(const QString &path) {
-    if (m_page == nullptr) {
-        return;
-    }
-    // ---------- 批量那一档：清单里哪个文件变了 ----------
-    auto batch = m_hashBatchStamps.constFind(path);
-    if (batch != m_hashBatchStamps.constEnd()) {
-        const FileHash::Stamp before = batch.value();
-        const FileHash::Stamp now = FileHash::stampOf(path);
-        if (now.ok && now.bytes == before.bytes && now.lastModifiedMs == before.lastModifiedMs) {
-            // 只是被别的程序碰了一下（读打开之类的通知），文件本身没变 —— 继续盯着。
-            if (m_hashWatcher != nullptr) {
-                m_hashWatcher->addPath(path);
-            }
-            return;
-        }
-        // 这一条只提醒一次：从"盯着的"表里摘掉，免得每存一次盘就再弹一遍同一句话。
-        m_hashBatchStamps.erase(batch);
-        if (m_hashWatcher != nullptr) {
-            m_hashWatcher->removePath(path);
-        }
-        const QString name = QFileInfo(path).fileName();
-        m_page->setHashStaleNote(
-            now.ok ? tr("「%1」在算完之后变过（大小 / 修改时间对不上）—— 清单里那一串不是它"
-                       "现在的摘要了，重新算一遍。")
-                         .arg(name)
-                   : tr("「%1」在算完之后被移走或删掉了 —— 清单里那一串不是它现在的样子。")
-                         .arg(name));
-        return;
-    }
-    // ---------- 单文件那一档 ----------
-    if (!m_hashWatched || path != m_hashWatchedPath) {
-        return;
-    }
-    // 这一发只提醒一次：先把"盯着"这件事收掉，免得用户每存一次盘就再弹一遍同一句话。
-    m_hashWatched = false;
-    if (m_hashWatcher != nullptr) {
-        m_hashWatcher->removePath(m_hashWatchedPath);
-    }
-    const FileHash::Stamp now = FileHash::stampOf(path);
-    if (!now.ok) {
-        m_page->setHashStaleNote(tr("这个文件算完之后被移走或删掉了 —— 上面那串摘要不是它现在的样子。"));
-        return;
-    }
-    if (now.bytes == m_hashWatchedBytes && now.lastModifiedMs == m_hashWatchedModifiedMs) {
-        // 只是被别的程序碰了一下（读打开之类的通知），文件本身没变 —— 继续盯着。
-        m_hashWatched = true;
-        if (m_hashWatcher != nullptr) {
-            m_hashWatcher->addPath(path);
-        }
-        return;
-    }
-    m_page->setHashStaleNote(
-        tr("这个文件在算完之后变过（大小 / 修改时间对不上）—— 上面那串摘要不是它现在的样子，再算一遍。"));
-}
-
-// ---------------------------------------------------------------------------
-// 六、信标计算 / 七、酿造助手
+// 五、信标计算 / 六、酿造助手
 // ---------------------------------------------------------------------------
 
 void ToolboxController::refreshBeacon(int fromLevel, int level, int materialIndex,

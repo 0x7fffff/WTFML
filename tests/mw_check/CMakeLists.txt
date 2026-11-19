@@ -321,7 +321,7 @@ set(SOURCE_FILES
     # 服务器列表那一页的「测速」：MainWindow::pingServers() 直接调它。少了
     # 这一个文件，mw_check 会在链接那一步报一串 `ServerPing::…` 的 undefined reference。
     ${REPO_ROOT}/src/util/ServerPing.cpp
-    # 工具箱那十件工具：MainWindow.cpp 里那几句把导航轨底部的「工具箱」接到
+    # 工具箱那九件工具：MainWindow.cpp 里那几句把导航轨底部的「工具箱」接到
     # ToolboxController 上，而 controller 自己要用这四个纯逻辑模块 + 那一页。少任何一个都会在
     # 链接那一步报一串 undefined reference。
     ${REPO_ROOT}/src/controllers/ToolboxController.cpp

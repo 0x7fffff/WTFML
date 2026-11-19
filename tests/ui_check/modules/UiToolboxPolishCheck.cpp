@@ -102,10 +102,6 @@ int UiToolboxPolishCheck(QApplication &app) {
                "server history caps at 20 and removes the oldest address first");
         page.showCatalog();
         expect(history && history->count() == 0, "leaving the server tool clears history");
-        bool hasHashKey = true;
-        ToolboxPage::toolFromKey(QStringLiteral("hash"), &hasHashKey);
-        expect(!hasHashKey && !ToolboxPage::tools().contains(ToolboxPage::Tool::Hash),
-               "file hashing is absent from the toolbox catalog and switcher");
         page.showTool(ToolboxPage::Tool::Text);
         auto *editor = page.findChild<QTextEdit *>(QStringLiteral("textPreview"));
         auto *source = page.findChild<QPlainTextEdit *>(QStringLiteral("textSource"));
