@@ -73,6 +73,34 @@ function Invoke-Stage([string]$Name, [string]$Program, [string[]]$Arguments, [in
     }
 }
 
+function Get-CTestSelectedTests([string]$CTestExe, [string]$BuildPath, [string[]]$FilterArgs) {
+    $allArgs = @('--test-dir', $BuildPath, '--show-only=json-v1') + $FilterArgs
+    $raw = & $CTestExe @allArgs
+    if ($LASTEXITCODE -ne 0) {
+        throw "CTest enumeration failed (exit $LASTEXITCODE) for: $($allArgs -join ' ')"
+    }
+    $parsed = ($raw -join "`n") | ConvertFrom-Json
+    return @($parsed.tests)
+}
+
+function Assert-ModuleSelectionNonEmpty([string]$CTestExe, [string]$BuildPath, [string]$SuiteName, [string]$ModulesArg, [string]$Pattern, [object[]]$SelectedTests) {
+    if ($SelectedTests.Count -gt 0) { return }
+    $allModuleTests = @(Get-CTestSelectedTests $CTestExe $BuildPath @('-R', $Pattern))
+    if ($allModuleTests.Count -eq 0) {
+        throw "No tests matched -Suite $SuiteName with -Modules $ModulesArg (pattern: $Pattern)."
+    }
+    $partitions = [Collections.Generic.HashSet[string]]::new()
+    $details = foreach ($t in $allModuleTests) {
+        $labels = @($t.properties | Where-Object { $_.name -eq 'LABELS' } | Select-Object -ExpandProperty value)
+        $ciLabels = @($labels | Where-Object { $_ -like 'ci-*' -or $_ -eq 'visual' })
+        foreach ($lbl in $ciLabels) { $null = $partitions.Add($lbl) }
+        $tagText = if ($ciLabels.Count) { $ciLabels -join ',' } else { 'unlabeled' }
+        "$($t.name) [$tagText]"
+    }
+    $partSummary = if ($partitions.Count) { ($partitions | Sort-Object) -join ', ' } else { 'none' }
+    throw "No tests matched -Suite $SuiteName with -Modules $ModulesArg. Actual partition(s): $partSummary ($($details -join '; '))."
+}
+
 try {
     try { $ownsMutex = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $ownsMutex = $true }
     if (-not $ownsMutex) { throw "Another verification run owns this build directory: $build" }
@@ -90,25 +118,31 @@ try {
     $ctest = (Get-Command ctest -ErrorAction Stop).Source
     . (Join-Path $PSScriptRoot 'test-impact.ps1')
     . (Join-Path $PSScriptRoot 'test-build-plan.ps1')
+    $explicitModules = -not [string]::IsNullOrWhiteSpace($Modules)
     $impact = $null
-    if ($Suite -eq 'affected') {
+    if ($Suite -eq 'affected' -and -not $explicitModules) {
         $paths = if ($PSBoundParameters.ContainsKey('ChangedPath')) { $ChangedPath } else { @(Get-ChangedTestPaths $BaseRef) }
         $impact = Get-TestImpact $paths
         $impact | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $run 'impact.json') -Encoding utf8
         $Modules = if ($impact.full) { '' } else { $impact.modules -join ',' }
         Write-Host "Affected modules: $Modules"
     }
+    $moduleList = @()
     $moduleTests = @()
-    if ($Modules) {
+    if (-not [string]::IsNullOrWhiteSpace($Modules)) {
         if ($Suite -ne 'affected' -and $Suite -notlike 'ci-*') { throw '-Modules requires -Suite affected or a CI partition.' }
         $catalog = (Get-TestImpact @() $true).testMap
         foreach ($module in $Modules.Split(',', [StringSplitOptions]::RemoveEmptyEntries)) {
-            if (-not $catalog.Contains($module)) { throw "Unknown test module: $module" }
-            $moduleTests += $catalog[$module]
+            $trimmed = $module.Trim()
+            if (-not $trimmed) { continue }
+            if (-not $catalog.Contains($trimmed)) { throw "Unknown test module: $trimmed" }
+            $moduleList += $trimmed
+            $moduleTests += $catalog[$trimmed]
         }
         $moduleTests = @($moduleTests | Sort-Object -Unique)
+        if ($moduleTests.Count -eq 0) { throw "No valid test modules specified: $Modules" }
     }
-    $skip = $Suite -eq 'affected' -and $impact.suites.Count -eq 0
+    $skip = $Suite -eq 'affected' -and $null -ne $impact -and $impact.suites.Count -eq 0
     if ($skip) { Write-Host 'No build/tests required: documentation-only changes or no changes.'; $result = 0; exit 0 }
     $selection = switch ($Suite) {
         'affected' { @('-LE', 'visual') }
@@ -123,12 +157,12 @@ try {
         'visual' { @('-L', 'visual') }
         'full' { @('-LE', 'visual') }
     }
-    if ($Modules) {
+    if ($moduleTests.Count -gt 0) {
         $pattern = '^wtfml\.(' + (($moduleTests | ForEach-Object { [regex]::Escape($_) }) -join '|') + ')$'
         $selection += @('-R', $pattern)
     }
     if (-not $NoBuild -and -not $ListOnly) {
-        $compact = Get-CompactTestRunnerMode $RunnerMode $Suite ([bool]$Modules)
+        $compact = Get-CompactTestRunnerMode $RunnerMode $Suite ($moduleTests.Count -gt 0)
         $runnerOption = "-DWTFML_COMPACT_TEST_RUNNERS=$compact"
         Get-Process WTFMinecraftLauncher -ErrorAction SilentlyContinue | Stop-Process -Force
         if (-not (Test-Path -LiteralPath (Join-Path $build 'CMakeCache.txt'))) {
@@ -137,11 +171,14 @@ try {
         # CTest is the source of truth for selection, including future registered tests.
         Invoke-Stage 'refresh-test-graph' $cmake @('-S', $repo, '-B', $build, $runnerOption) $BuildTimeoutSeconds
         Invoke-Stage 'selected-tests' $ctest (@('--test-dir', $build, '--show-only=json-v1') + $selection) 60
-        $registered = (Get-Content -LiteralPath (Join-Path $run 'selected-tests.stdout.log') -Raw | ConvertFrom-Json).tests
+        $registered = @((Get-Content -LiteralPath (Join-Path $run 'selected-tests.stdout.log') -Raw | ConvertFrom-Json).tests)
+        if ($moduleTests.Count -gt 0) {
+            Assert-ModuleSelectionNonEmpty $ctest $build $Suite $Modules $pattern $registered
+        }
         $targetList = [Collections.Generic.HashSet[string]]::new()
         $manifest = Get-Content -LiteralPath (Join-Path $build 'test-targets.txt') | ConvertFrom-Csv -Delimiter '|'
         foreach ($target in @(Get-TestBuildTargets $registered $manifest)) { $null = $targetList.Add($target) }
-        if ($Suite -eq 'ci-app' -or ($Suite -eq 'affected' -and 'app' -in $impact.modules) -or $Suite -eq 'full') {
+        if ($Suite -eq 'ci-app' -or ($Suite -eq 'affected' -and (($null -ne $impact -and 'app' -in $impact.modules) -or ('app' -in $moduleList))) -or $Suite -eq 'full') {
             $null = $targetList.Add('WTFMinecraftLauncher')
             $null = $targetList.Add('WTFMLNetworkDiag')
         }
@@ -175,6 +212,10 @@ try {
             }
             Invoke-Stage "build-$target" $cmake @('--build', $build, '--target', $target, '--parallel', "$BuildJobs") $BuildTimeoutSeconds
         }
+    }
+    if ($moduleTests.Count -gt 0 -and ($NoBuild -or $ListOnly)) {
+        $selected = @(Get-CTestSelectedTests $ctest $build $selection)
+        Assert-ModuleSelectionNonEmpty $ctest $build $Suite $Modules $pattern $selected
     }
     $testArgs = @('--test-dir', $build, '--no-tests=error', '--output-on-failure', '--parallel', "$TestJobs", '--timeout', '900') + $selection
     if ($ListOnly) { $testArgs += @('--show-only=json-v1') }

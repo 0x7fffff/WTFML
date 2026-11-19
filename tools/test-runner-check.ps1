@@ -79,6 +79,33 @@ try {
     $impactReport = Get-ChildItem (Join-Path $work 'impact-reports') -Filter impact.json -Recurse | Select-Object -First 1
     $record = Get-Content -LiteralPath $impactReport.FullName -Raw | ConvertFrom-Json
     Check ('mods' -in $record.modules -and -not $record.full) 'affected command records the expected module selection'
+    & (Join-Path $PSScriptRoot 'test.ps1') -Suite affected -ChangedPath 'src/MainWindow.hpp' -Modules 'core' `
+        -BuildDir $fixture -NoBuild -ListOnly -ReportRoot (Join-Path $work 'explicit-full-reports') *> (Join-Path $work 'explicit-full.output.log')
+    $explicitFullCode = $LASTEXITCODE
+    $explicitFullTests = @((Get-Content -LiteralPath (Get-ChildItem (Join-Path $work 'explicit-full-reports') -Filter test.stdout.log -Recurse | Select-Object -First 1).FullName -Raw | ConvertFrom-Json).tests | ForEach-Object { $_.name })
+    Check ($explicitFullCode -eq 0 -and $explicitFullTests.Count -eq 1 -and $explicitFullTests[0] -eq 'wtfml.core') 'explicit -Modules is not overwritten by full impact analysis'
+    & (Join-Path $PSScriptRoot 'test.ps1') -Suite affected -ChangedPath 'README.md' -Modules 'core' `
+        -BuildDir $fixture -NoBuild -ListOnly -ReportRoot (Join-Path $work 'explicit-doc-reports') *> (Join-Path $work 'explicit-doc.output.log')
+    $explicitDocCode = $LASTEXITCODE
+    $explicitDocTests = @((Get-Content -LiteralPath (Get-ChildItem (Join-Path $work 'explicit-doc-reports') -Filter test.stdout.log -Recurse | Select-Object -First 1).FullName -Raw | ConvertFrom-Json).tests | ForEach-Object { $_.name })
+    Check ($explicitDocCode -eq 0 -and $explicitDocTests.Count -eq 1 -and $explicitDocTests[0] -eq 'wtfml.core') 'explicit -Modules is not skipped on documentation-only paths'
+    & (Join-Path $PSScriptRoot 'test.ps1') -Suite quick -Modules 'core' `
+        -BuildDir $fixture -NoBuild -ListOnly -ReportRoot (Join-Path $work 'invalid-suite-reports') *> (Join-Path $work 'invalid-suite.output.log')
+    $invalidSuiteCode = $LASTEXITCODE
+    $invalidSuiteOut = Get-Content -LiteralPath (Join-Path $work 'invalid-suite.output.log') -Raw
+    Check ($invalidSuiteCode -ne 0 -and $invalidSuiteOut -like '*-Modules requires -Suite affected or a CI partition*') '-Modules rejects non-affected, non-CI suites with matching error text'
+    $emptyPartitionFixture = Join-Path $work 'empty-partition'
+    $null = New-Item -ItemType Directory -Path $emptyPartitionFixture -Force
+    Set-Content -LiteralPath (Join-Path $emptyPartitionFixture 'CTestTestfile.cmake') -Value @'
+find_program(RUNNER_CMAKE NAMES cmake REQUIRED)
+add_test(wtfml.workspace "${RUNNER_CMAKE}" -E true)
+set_tests_properties(wtfml.workspace PROPERTIES LABELS "ci-integration")
+'@
+    & (Join-Path $PSScriptRoot 'test.ps1') -Suite ci-ui -Modules 'workspace' `
+        -BuildDir $emptyPartitionFixture -NoBuild -ListOnly -ReportRoot (Join-Path $work 'empty-partition-reports') *> (Join-Path $work 'empty-partition.output.log')
+    $emptyPartitionCode = $LASTEXITCODE
+    $emptyPartitionOut = Get-Content -LiteralPath (Join-Path $work 'empty-partition.output.log') -Raw
+    Check ($emptyPartitionCode -ne 0 -and $emptyPartitionOut -like '*ci-integration*') 'empty partition/module intersection fails non-zero and lists actual partitions'
     . (Join-Path $PSScriptRoot 'ci-object-batches.ps1')
     $objectFixture = @(
         'CMakeFiles/WTFMinecraftLauncher.dir/src/one.cpp.obj: CXX_COMPILER__WTFMinecraftLauncher_unscanned_Release',

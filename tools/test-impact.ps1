@@ -24,8 +24,10 @@ function Get-TestImpact([string[]]$Paths, [bool]$ForceFull = $false) {
         'core-agent' = @('core-agent')
         'ui-agent' = @('ui-agent')
         'agent-window' = @('main-window-agent')
-        runner = @('test-runner', 'test-modules', 'ci-partitions')
-        ui = @('ui-refresh', 'install-layout', 'lifecycle', 'input-widths', 'window-size'); theme = @('theme')
+        runner = @('test-runner', 'test-modules', 'ci-partitions', 'surface-registry')
+        ui = @('ui-refresh', 'install-layout', 'lifecycle', 'input-widths', 'window-size', 'files-rows',
+               'ui-daily-quote', 'ui-long-instance-name', 'surface-sweep', 'fold-motion', 'loading-state',
+               'design-defaults', 'group-editor'); theme = @('theme')
         popups = @('popups', 'popups-scale')
         'ui-history' = @('ui-bootstrap', 'ui-language')
         window = @('main-window', 'window-chrome'); workspace = @('workspace', 'activity-selection')
@@ -72,6 +74,7 @@ function Get-TestImpact([string[]]$Paths, [bool]$ForceFull = $false) {
         # 主页「每日一言」那一行：挨着主题/字号走，归 ui 那一组。
         'tests/ui_check/modules/UiDailyQuoteCheck.cpp' = 'ui'
         'tests/ui_check/modules/UiLongInstanceNameChecks.cpp' = 'ui'
+        'tests/ui_check/modules/UiFilesRowsCheck.cpp' = 'ui'
     }
     $modules = [Collections.Generic.HashSet[string]]::new()
     $reasons = [Collections.Generic.List[string]]::new()

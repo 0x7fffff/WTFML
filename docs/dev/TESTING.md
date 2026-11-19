@@ -45,10 +45,11 @@ exe 在 `build/verification-mingw13/WTFMinecraftLauncher.exe`，改完代码重�
 | `visual` | `visual` 标签：完整历史 UI（`wtfml.ui`） |
 | `ci-app` / `ci-core` / `ci-ui` / `ci-integration` | 各自分片标签的非 visual 测试，CI 用，见「CI 分片」 |
 
-`-Modules <名,…>` 只能配 `affected` 或 `ci-*` 套件，按测试名与所属分区取交集，例如：
+`-Modules <名,…>` 只能配 `affected` 或 `ci-*` 套件，按测试名与所属分区取交集；`affected` 显式传 `-Modules` 时以传入的为准（不再用改动影响分析覆盖，也不因无改动/仅文档改动跳过），交集为空时直接报错退出并列出这些模块里的测试实际所在分区。例如：
 
 ```powershell
 ./tools/test.ps1 -Suite affected -ChangedPath tests/core_modules/AsciiAliasTests.cpp
+./tools/test.ps1 -Suite affected -Modules ui
 ./tools/test.ps1 -Suite ci-core -Modules core-java
 ./tools/test.ps1 -Suite ci-ui -Modules theme
 ```
@@ -98,7 +99,7 @@ ctest --preset visual                        # 只跑 visual 标签（完整历�
 ./tools/test.ps1 -Suite quick
 ```
 
-`check-test-modules.ps1` 即 CTest 的 `wtfml.test-modules`：入口不超过 4000 行、职责模块不超过 5000 行，禁止入口 include `.cpp`，并核对核心用例的归属表。新增用例放进相应模块，不靠抬高阈值堆入口。`check-surface-registry.ps1` 即 CTest 的 `wtfml.surface-registry`，判据与豁免写法见「新增测试约定」下面那条。
+`check-test-modules.ps1` 即 CTest 的 `wtfml.test-modules`：入口不超过 4000 行、职责模块不超过 5000 行，禁止入口 include `.cpp`，核对核心用例的归属表，检查设置沙盒隔离，并确认所有带 `ci-*` 分区标签的非 `visual` 测试都归入 `tools/test-impact.ps1` 的某个模块。新增用例放进相应模块，不靠抬高阈值堆入口。`check-surface-registry.ps1` 即 CTest 的 `wtfml.surface-registry`，判据与豁免写法见「新增测试约定」下面那条。
 
 ## 环境变量
 
