@@ -19,7 +19,9 @@
 #include "WorldSettingsPage.hpp"
 #include "VersionIcons.hpp"
 #include "Theme.hpp"
+#include <QEventLoop>
 #include <QFutureWatcher>
+#include "manage/WorldFiles.hpp"
 #include <QtConcurrent/QtConcurrentRun>
 #include <QProgressBar>
 #include <QPlainTextEdit>
@@ -63,6 +65,28 @@
 #include "schematic/SchematicInfo.hpp"
 
 namespace {
+/// 取中文方块名表。只缓存读到内容的结果：资源还没下载时下一次点击要能重新找。
+QJsonObject cachedChineseBlockNames(const QString &assetsRoot, const QString &assetIndexId) {
+    static QMutex mutex;
+    static QHash<QString, QJsonObject> cache;
+    const QString key = assetsRoot + QLatin1Char('|') + assetIndexId;
+    {
+        const QMutexLocker locker(&mutex);
+        if (const auto hit = cache.constFind(key); hit != cache.constEnd()) return *hit;
+    }
+    const QJsonObject names = SchematicInfo::loadChineseBlockNames(assetsRoot, assetIndexId);
+    if (!names.isEmpty()) {
+        const QMutexLocker locker(&mutex);
+        cache.insert(key, names);
+    }
+    return names;
+}
+
+QString assetIndexIdOf(const QJsonObject &version) {
+    return version.value(QStringLiteral("assetIndex")).toObject()
+        .value(QStringLiteral("id")).toString(version.value(QStringLiteral("assets")).toString());
+}
+
 void showSchematicDetails(OverlayHost *overlay, QWidget *parent, const QString &path,
                           const QString &assetsRoot, const QString &assetIndexId) {
     ChromeDialog detail(parent, true);
@@ -134,7 +158,7 @@ void showSchematicDetails(OverlayHost *overlay, QWidget *parent, const QString &
             copy->setEnabled(true);
         });
     watcher->setFuture(QtConcurrent::run([path, assetsRoot, assetIndexId] {
-        return Details{SchematicInfo::read(path), SchematicInfo::loadChineseBlockNames(assetsRoot, assetIndexId)};
+        return Details{SchematicInfo::read(path), cachedChineseBlockNames(assetsRoot, assetIndexId)};
     }));
     overlay->execPrompt(&detail, false);
 }
@@ -390,6 +414,112 @@ void showLogFileInfo(InstanceSettingsDialog &dialog, const QString &key, const Q
 
 }  // namespace
 
+void InstanceDialogController::applyWorldBatch(InstanceSettingsDialog &dialog, QString instanceId,
+                                               const QStringList &paths, bool remove) {
+    if (paths.isEmpty()) return;
+    const QPointer<InstanceSettingsDialog> liveDialog(&dialog);
+    auto *overlay = m_owner->m_ui->overlay();
+    const QString title = remove ? tr("删除世界") : tr("复制世界");
+    const auto running = [&] {
+        if (instanceId.isEmpty() || !m_owner->m_launcherManager->isVersionRunning(instanceId)) return false;
+        InlineMessage::warning(overlay, title, tr("游戏正在运行，请先关闭游戏再操作存档。"));
+        return true;
+    };
+    // 删除还要看有没有别的操作占着这个实例（和单个世界删除同一条判据与同一句话）。
+    const auto occupied = [&] {
+        if (!remove || instanceId.isEmpty() || !m_owner->installingVersionIds().contains(instanceId)) return false;
+        InlineMessage::warning(overlay, title,
+                               tr("「%1」正在被另一项操作占用（安装、导入、复制、备份或还原），等它结束之后再删这个世界。")
+                                   .arg(m_owner->instanceDisplayName(instanceId)));
+        return true;
+    };
+    if (running() || occupied()) return;
+    // 只认当前实例 saves 下的直接子目录；列表是旧的（目录已被改名 / 删除）就按新盘面重列，不动盘。
+    const QString saves = InstanceFiles::canonicalPath(AppPaths::versionDir(instanceId) + QStringLiteral("/saves"));
+    for (const QString &path : paths) {
+        const QFileInfo info(path);
+        if (!info.isDir() || InstanceFiles::canonicalPath(info.absolutePath()) != saves) {
+            dialog.refreshLifecycleBatchFiles(QStringLiteral("save"));
+            return;
+        }
+    }
+    if (remove) {
+        QStringList lines{tr("以下 %n 个世界将移入回收站：", nullptr, static_cast<int>(paths.size())), QString()};
+        constexpr qsizetype kListed = 12;
+        for (qsizetype index = 0; index < paths.size() && index < kListed; ++index)
+            lines.append(QFileInfo(paths.at(index)).fileName());
+        if (paths.size() > kListed) lines.append(tr("另有 %1 个世界").arg(paths.size() - kListed));
+        if (!InlineMessage::question(overlay, title, lines.join(QLatin1Char('\n')), tr("删除"), tr("取消"),
+                                     /*defaultYes=*/false, /*destructive=*/true)) return;
+        // 确认框期间游戏可能刚被启动，动盘前再看一遍。
+        if (!liveDialog || running() || occupied()) return;
+    }
+    QString destination;
+    if (!remove) {
+        destination = QFileDialog::getExistingDirectory(&dialog, title, saves,
+            QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
+        if (!liveDialog || destination.isEmpty() || running()) return;
+        destination = QDir::fromNativeSeparators(destination);
+    }
+    // 整批在同一个嵌套事件循环里做完：这期间界面可操作，批量工具条整排灰着，不会重复提交。
+    struct Outcome {
+        qsizetype done = 0;
+        QString problem;
+    };
+    Outcome outcome;
+    QEventLoop loop;
+    if (remove) {
+        // 逐个移入回收站，遇到失败即停（失败原因控制器已经弹过），没处理的世界保持选中。
+        auto next = std::make_shared<std::function<void()>>();
+        *next = [this, &loop, &outcome, instanceId, paths, next] {
+            if (outcome.done >= paths.size()) {
+                loop.quit();
+                return;
+            }
+            m_owner->m_instanceTransferController->deleteWorldInBackground(
+                instanceId, paths.at(outcome.done), [&loop, &outcome, next](bool success, const QString &error) {
+                    if (!success) {
+                        outcome.problem = error;
+                        loop.quit();
+                        return;
+                    }
+                    ++outcome.done;
+                    QTimer::singleShot(0, &loop, [next] { (*next)(); });
+                });
+        };
+        // 第一发也排进事件循环：deleteWorldInBackground 的早退路径会同步回调，
+        // 回调里的 loop.quit() 若发生在 exec() 之前就不生效，exec() 永不返回。
+        QTimer::singleShot(0, &loop, [next] { (*next)(); });
+        loop.exec();
+        *next = nullptr;  // 断开 next 对自己的引用环
+    } else {
+        QFutureWatcher<Outcome> watcher;
+        connect(&watcher, &QFutureWatcher<Outcome>::finished, &loop, &QEventLoop::quit);
+        watcher.setFuture(QtConcurrent::run([paths, destination] {
+            Outcome result;
+            for (const QString &path : paths) {
+                QString error;
+                if (!WorldFiles::copyWorldInto(path, destination, QFileInfo(path).fileName(), &error)) {
+                    result.problem = tr("无法复制「%1」：%2").arg(QFileInfo(path).fileName(), error);
+                    break;
+                }
+                ++result.done;
+            }
+            return result;
+        }));
+        loop.exec();
+        outcome = watcher.result();
+    }
+    if (!liveDialog) return;
+    liveDialog->refreshLifecycleBatchFiles(QStringLiteral("save"));
+    const QString summary = tr("%1：完成 %2 / %3 项。").arg(title).arg(outcome.done).arg(paths.size());
+    m_owner->appendLog(summary);
+    if (outcome.problem.isEmpty())
+        InlineMessage::information(overlay, title, summary);
+    else if (!remove)  // 删除失败时控制器已经弹过原因
+        InlineMessage::warning(overlay, title, summary + QStringLiteral("\n\n") + outcome.problem);
+}
+
 InstanceDialogController::InstanceDialogController(MainWindow *owner)
     : QObject(owner), m_owner(owner) {}
 
@@ -585,9 +715,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 schematics->setProperty("wtfmlSchematicInfoWired", true);
                 connect(schematics, &InstanceFilesPage::infoDetailsRequested, schematics,
                     [this, &targetId](const QString &path) {
-                        const auto version = m_owner->m_versionManager->getVersionJson(targetId);
-                        const QString indexId = version.value(QStringLiteral("assetIndex")).toObject()
-                            .value(QStringLiteral("id")).toString(version.value(QStringLiteral("assets")).toString());
+                        const QString indexId = assetIndexIdOf(m_owner->m_versionManager->getVersionJson(targetId));
                         showSchematicDetails(m_owner->m_ui->overlay(), m_owner, path, AppPaths::assetsDir(), indexId);
                     });
                 connect(
@@ -598,10 +726,12 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                             m_owner->m_versionManager->displayParts(targetId);
                         const QString targetVersion =
                             parts.realVersion.isEmpty() ? parts.id : parts.realVersion;
-                        auto *reader = new QFutureWatcher<SchematicInfo::Info>(schematics);
-                        connect(reader, &QFutureWatcher<SchematicInfo::Info>::finished, schematics,
+                        const QString indexId = assetIndexIdOf(m_owner->m_versionManager->getVersionJson(targetId));
+                        using Read = std::pair<SchematicInfo::Info, QJsonObject>;
+                        auto *reader = new QFutureWatcher<Read>(schematics);
+                        connect(reader, &QFutureWatcher<Read>::finished, schematics,
                             [reader, schematics, path, targetVersion] {
-                        const auto info = reader->result();
+                        const auto [info, language] = reader->result();
                         reader->deleteLater();
                         if (!info.ok) {
                             // 读失败也占着这一格（用户刚点的那一行，总得听到一句为什么）。
@@ -611,9 +741,12 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                         }
                         schematics->setInfoText(path,
                                                 SchematicInfo::summaryText(info, targetVersion),
-                                                SchematicInfo::topBlocksText(info));
+                                                SchematicInfo::topBlocksText(info, language));
                             });
-                        reader->setFuture(QtConcurrent::run([path] { return SchematicInfo::read(path); }));
+                        reader->setFuture(QtConcurrent::run([path, indexId] {
+                            return Read{SchematicInfo::read(path),
+                                        cachedChineseBlockNames(AppPaths::assetsDir(), indexId)};
+                        }));
                     });
             }
         }
@@ -655,6 +788,10 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
         using Request = InstanceSettingsDialog::LifecycleBatchAction;
         using Action = InstanceFileController::LifecycleAction;
         if (paths.isEmpty()) return;
+        if (key == QStringLiteral("save")) {
+            applyWorldBatch(dialog, targetId, paths, requested == Request::Remove);
+            return;
+        }
         for (const QString &path : paths)
             if (!InstanceSettingsDialog::isLifecycleBatchFile(key, path)) return;
 
@@ -664,9 +801,12 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
         const QString replayRoot = AppPaths::replayRecordingsDir();
         const bool replay = key == QStringLiteral("replay");
         // 崩溃报告页的目录不在 fileDirs() 里（见 refreshInstanceDirs()），单独认。
+        // 结构页列的是各存档 generated 下的文件，来源根目录是 saves。
+        const bool structure = key == QStringLiteral("structure");
         const QString root = replay ? replayRoot
                              : key == QStringLiteral("crash") ? AppPaths::crashReportsDir()
-                                                              : InstancePagesController::fileDirs(sourceId).value(key);
+                                                              : InstancePagesController::fileDirs(sourceId).value(
+                                                                    structure ? QStringLiteral("save") : key);
         const Action action = requested == Request::Copy ? Action::Copy
                             : requested == Request::Move ? Action::Move : Action::Remove;
         const QString title = action == Action::Copy ? tr("复制文件")
@@ -718,7 +858,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
             InlineMessage::warning(overlay, title, tr("回放目录由多个实例共用，请退出正在运行的游戏后再操作。"));
             return;
         }
-        const auto result = m_owner->m_instanceFileController->applyLifecycleBatch(action, root, paths, destination);
+        const auto result = m_owner->m_instanceFileController->applyLifecycleBatch(action, root, paths, destination, structure);
         if (!liveDialog) return;
         liveDialog->refreshLifecycleBatchFiles(key);
         const QString summary = tr("%1：完成 %2 / %3 项。").arg(title).arg(result.done).arg(paths.size());
@@ -766,9 +906,12 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                         key, path, tr("读取失败：%1").arg(info.problem));
                     return;
                 }
-                dialog.setLifecycleInfoText(key, path,
-                                            SchematicInfo::summaryText(info, targetVersion),
-                                            SchematicInfo::topBlocksText(info));
+                dialog.setLifecycleInfoText(
+                    key, path, SchematicInfo::summaryText(info, targetVersion),
+                    SchematicInfo::topBlocksText(
+                        info, cachedChineseBlockNames(
+                                  AppPaths::assetsDir(),
+                                  assetIndexIdOf(m_owner->m_versionManager->getVersionJson(targetId)))));
             });
 
     connect(&dialog, &InstanceSettingsDialog::diagnosisRequested, &dialog,
@@ -2493,6 +2636,12 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
         [this, &dialog](const QString &id) {
             m_owner->loadServerList(&dialog, id);
             m_owner->pingServers(&dialog, id);
+        },
+        [this](int count) {
+            return InlineMessage::question(
+                m_owner->m_ui->overlay(), tr("删除服务器"),
+                tr("从列表中删除选中的 %n 个服务器？", nullptr, count),
+                tr("移除"), tr("取消"), /*defaultYes=*/false, /*destructive=*/true);
         }});
     // 下面那三条接线按引用收它（和 targetId 同一个理由）—— 引用的必须是会话里那一份。
     ServerListController &serverEdits = *session->serverEdits;
@@ -2526,6 +2675,10 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     connect(&dialog, &InstanceSettingsDialog::deleteServerRequested, m_owner,
             [&serverEdits, &targetId](const QString &name, const QString &address) {
                 serverEdits.remove(targetId, name, address);
+            });
+    connect(&dialog, &InstanceSettingsDialog::deleteServersRequested, m_owner,
+            [&serverEdits, &targetId](const QList<QPair<QString, QString>> &entries) {
+                serverEdits.removeMany(targetId, entries);
             });
 
     // 「加入服务器」（**临时占位**）。和存档那一页那颗走的是同一条路

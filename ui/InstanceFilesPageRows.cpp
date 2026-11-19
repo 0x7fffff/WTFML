@@ -668,7 +668,7 @@ void InstanceFilesPage::rebuildRows() {
             const bool keptSelected =
                 m_selectedPaths.contains(entry.path)
                 || (renamedIdentities.contains(identity) && visibleIdentityCounts.value(identity) == 1);
-            if (m_batchMode && keptSelected) {
+            if (m_list->selectionMode() != QAbstractItemView::SingleSelection && keptSelected) {
                 item->setSelected(true);
             }
         }

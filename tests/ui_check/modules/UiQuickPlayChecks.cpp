@@ -126,7 +126,7 @@ int UiQuickPlayChecks(InstanceSettingsDialog &dialog, const QString &instanceDis
                   "U10S 前提：地址那一栏在屏幕上确实是**遮过**的",
                   tree->topLevelItem(0)->text(1));
 
-            tree->setCurrentItem(tree->topLevelItem(0));
+            tree->setCurrentItem(tree->topLevelItem(0), 0, QItemSelectionModel::ClearAndSelect);
             check(edit->isEnabled() && joinServer->isEnabled(),
                   "★ U10S 选中一行之后两颗都点得动了");
             check(edit->toolTip() == Dlg::serverEditTip(),
@@ -140,7 +140,7 @@ int UiQuickPlayChecks(InstanceSettingsDialog &dialog, const QString &instanceDis
                   QStringLiteral("「%1」/「%2」").arg(sentName, sentAddress));
 
             // 没名字的那一条：屏幕上「（无名）」，发出去的必须是**空串**。
-            tree->setCurrentItem(tree->topLevelItem(1));
+            tree->setCurrentItem(tree->topLevelItem(1), 0, QItemSelectionModel::ClearAndSelect);
             sentName = QStringLiteral("<没发>");
             sentAddress = QStringLiteral("<没发>");
             edit->click();

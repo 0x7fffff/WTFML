@@ -170,6 +170,8 @@ public:
     void setActionPanelEnabled(bool enabled);
     /// 存档专用布局：操作集中一排，搜索/路径一排，不提供启用状态筛选。
     void setWorldLayout(QPushButton *backupButton);
+    /// 把一个控件（批量工具条）挪到列表正上方、搜索框之下。
+    void placeAboveList(QWidget *widget);
     void setCompactHeader(QPushButton *leadingAction = nullptr);
 
     /// 顶上那颗「导入世界」（只有存档那一页给）。

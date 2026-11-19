@@ -94,12 +94,12 @@ void InstanceSettingsDialog::updateServerSelectionActions() {
     }
     // 「添加」**不在这儿** —— 它不依赖选中行（要加的那一台还没出现在表里），常亮。
     m_serverEdit->setEnabled(hasRow);
-    m_serverDelete->setEnabled(hasRow);
+    m_serverDelete->setEnabled(!selectedServerItems().isEmpty());
     m_serverJoin->setEnabled(hasRow);
     // 灰着的时候悬停提示换成"先说清为什么灰"—— 一颗点不动的按钮上写着"改选中的那一台
     // 的名字和地址"，用户会以为自己点错了地方。
     m_serverEdit->setToolTip(hasRow ? serverEditTip() : serverSelectFirstHint());
-    m_serverDelete->setToolTip(hasRow ? serverDeleteTip() : serverSelectFirstHint());
+    m_serverDelete->setToolTip(m_serverDelete->isEnabled() ? serverDeleteTip() : serverSelectFirstHint());
     if (!m_serverJoinTip.isEmpty()) {
         m_serverJoin->setToolTip(hasRow ? m_serverJoinTip : serverSelectFirstHint());
     }

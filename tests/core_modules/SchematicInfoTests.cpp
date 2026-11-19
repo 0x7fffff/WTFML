@@ -184,6 +184,13 @@ void runSchematicInfoTests() {
                   && SchematicInfo::topBlocksText(info).contains(QStringLiteral("minecraft:oak_planks：3")),
               "SG1 悬停提示里的方块排行",
               SchematicInfo::topBlocksText(info));
+        QJsonObject language;
+        language.insert(QStringLiteral("block.minecraft.oak_planks"), QStringLiteral("橡木木板"));
+        const QString localized = SchematicInfo::topBlocksText(info, language);
+        check(localized.contains(QStringLiteral("橡木木板：3")) && !localized.contains(QStringLiteral("minecraft:oak_planks")),
+              "SG1 方块排行有中文名时显示中文名", localized);
+        check(SchematicInfo::topBlocksText(info, QJsonObject()).contains(QStringLiteral("minecraft:oak_planks：3")),
+              "SG1 方块排行取不到中文名时回退显示 ID");
     }
 
     // ---------- SG2. Sponge（Palette + varint BlockData）----------

@@ -1407,10 +1407,20 @@ QTreeWidgetItem *InstanceSettingsDialog::selectedServerItem() const {
     if (m_serverTree == nullptr) {
         return nullptr;
     }
-    // Current index can outlive selection. Hidden or deselected rows must not
-    // remain actionable after switching the favorites filter.
-    auto *item = m_serverTree->currentItem();
-    return item && item->isSelected() && !item->isHidden() ? item : nullptr;
+    // 编辑 / 加入 / 收藏只认「恰好选中一行」；多选时只剩删除可用。
+    // 被筛掉的行不能再被操作（切收藏筛选之后）。
+    const auto selected = selectedServerItems();
+    return selected.size() == 1 ? selected.first() : nullptr;
+}
+
+QList<QTreeWidgetItem *> InstanceSettingsDialog::selectedServerItems() const {
+    QList<QTreeWidgetItem *> items;
+    if (m_serverTree == nullptr) {
+        return items;
+    }
+    for (auto *item : m_serverTree->selectedItems())
+        if (!item->isHidden()) items.append(item);
+    return items;
 }
 
 void InstanceSettingsDialog::refreshFilePages() {

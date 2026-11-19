@@ -562,7 +562,8 @@ void InstanceFilesPage::syncSelectedPaths() {
     // 同一个口径，只不过那一支是"用户点了"，这一支是"我们重列完了"）。
     // 重列那段把信号挡着，所以重列之后必须**自己**把账摆对 —— 就是这一句。
     m_selectedPaths.clear();
-    if (m_list == nullptr || !m_batchMode) {
+    // 没开批量管理但列表允许多选（存档 / 原理图）也记账：重列之后按路径把选择还回去。
+    if (m_list == nullptr || m_list->selectionMode() == QAbstractItemView::SingleSelection) {
         return;
     }
     // 选中底和选中墨都由 RowDelegate 按 State_Selected 画；挡着信号重列时视图不一定自己重画。

@@ -543,4 +543,29 @@ bool removeEntry(const QString &datPath, const QString &name, const QString &add
     return commitBytes(datPath, NbtTree::serialize(loaded.document), loaded.gzipped, problemOut);
 }
 
+bool removeEntries(const QString &datPath, const QList<QPair<QString, QString>> &entries,
+                   QString *problemOut) {
+    if (problemOut != nullptr) {
+        problemOut->clear();
+    }
+    if (datPath.trimmed().isEmpty() || entries.isEmpty()) {
+        return failWith(problemOut, QCoreApplication::translate("ServerListFile", "没有指定要从哪个 servers.dat 里删，或者没有选中任何一条。"));
+    }
+
+    LoadedList loaded;
+    QString problem;
+    if (!loadServers(datPath, &loaded, &problem)) {
+        return failWith(problemOut, problem);
+    }
+    // 每删一条树就变一次，所以逐条在**当前这棵树**上重新认；同名同地址的两条各删一个。
+    for (const auto &entry : entries) {
+        int index = -1;
+        if (!findEntryIndex(*loaded.servers, entry.first, entry.second, &index, &problem)) {
+            return failWith(problemOut, problem);
+        }
+        loaded.servers->items.removeAt(index);
+    }
+    return commitBytes(datPath, NbtTree::serialize(loaded.document), loaded.gzipped, problemOut);
+}
+
 }  // namespace ServerListFile

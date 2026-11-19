@@ -102,3 +102,18 @@ bool ServerListController::remove(const QString &instanceId, const QString &name
     m_host.changed(instanceId);
     return true;
 }
+
+bool ServerListController::removeMany(const QString &instanceId,
+                                      const QList<QPair<QString, QString>> &entries) {
+    if (entries.isEmpty() || !m_host.confirmRemoveMany(static_cast<int>(entries.size()))) {
+        return false;
+    }
+    QString problem;
+    if (!ServerListFile::removeEntries(ServerListFile::pathFor(instanceId), entries, &problem)) {
+        m_host.notice(Notice{Notice::Kind::RemoveFailed, problem});
+        return false;
+    }
+    m_host.log(tr("已删服务器：%1 台").arg(entries.size()));
+    m_host.changed(instanceId);
+    return true;
+}

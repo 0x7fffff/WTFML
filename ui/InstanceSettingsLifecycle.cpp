@@ -122,6 +122,7 @@ QStringList lifecycleBatchSuffixes(const QString &key) {
     if (key == QStringLiteral("screenshots"))
         return {QStringLiteral("png"), QStringLiteral("jpg"), QStringLiteral("jpeg")};
     if (key == QStringLiteral("replay")) return {QStringLiteral("mcpr")};
+    if (key == QStringLiteral("structure")) return {QStringLiteral("nbt")};
     if (key == QStringLiteral("schematic"))
         return {QStringLiteral("litematic"), QStringLiteral("schematic"),
                 QStringLiteral("schem"), QStringLiteral("nbt")};
@@ -133,13 +134,19 @@ bool lifecycleBatchAnyFile(const QString &key) {
     return key == QStringLiteral("logs") || key == QStringLiteral("crash");
 }
 
+/// 存档页的批量对象是世界文件夹，只做复制和删除，不做移动。
+bool lifecycleBatchWorlds(const QString &key) {
+    return key == QStringLiteral("save");
+}
+
 bool lifecycleBatchEnabled(const QString &key) {
     return lifecycleBatchAnyFile(key) || !lifecycleBatchSuffixes(key).isEmpty();
 }
 
 /// 单击后底下那一格要不要摆信息（只在恰好选中一行时）。
 bool lifecycleInfoBySelection(const QString &key) {
-    return key == QStringLiteral("replay") || lifecycleBatchAnyFile(key);
+    return key == QStringLiteral("replay") || key == QStringLiteral("structure")
+        || lifecycleBatchAnyFile(key);
 }
 }  // namespace
 
@@ -175,10 +182,16 @@ void InstanceSettingsDialog::addLifecycleBatchActions(const QString &key, QListW
     rows->addWidget(count, 0, 3);
     layout->addWidget(toolbar);
 
+    if (lifecycleBatchWorlds(key)) {
+        move->hide();
+        rows->removeWidget(remove);
+        rows->addWidget(remove, 1, 1);  // 没有「移动」时「删除」补到它的位置
+    }
     const auto eligible = [key](const QListWidgetItem *item) {
-        return !item->isHidden() && item->flags().testFlag(Qt::ItemIsSelectable)
-            && !item->data(InstanceFilesPage::isDirRole()).toBool()
-            && isLifecycleBatchFile(key, item->data(InstanceFilesPage::pathRole()).toString());
+        if (item->isHidden() || !item->flags().testFlag(Qt::ItemIsSelectable)) return false;
+        const QString path = item->data(InstanceFilesPage::pathRole()).toString();
+        if (lifecycleBatchWorlds(key)) return item->data(InstanceFilesPage::isDirRole()).toBool() && !path.isEmpty();
+        return !item->data(InstanceFilesPage::isDirRole()).toBool() && isLifecycleBatchFile(key, path);
     };
     const auto selectedPaths = [list, eligible] {
         QStringList paths;
@@ -254,7 +267,7 @@ void InstanceSettingsDialog::addLifecycleBatchActions(const QString &key, QListW
 }
 
 void InstanceSettingsDialog::refreshLifecycleBatchFiles(const QString &key) {
-    if (key == QStringLiteral("schematic")) {
+    if (key == QStringLiteral("schematic") || key == QStringLiteral("save")) {
         if (auto *files = m_filesPages.value(key)) files->refresh();
     } else {
         refreshLifecycleFiles(key);

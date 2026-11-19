@@ -684,6 +684,11 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
             list.append({QStringLiteral("final-toolbox-text-%1-1280x800.png").arg(theme), theme, {1280, 800}, false, home, QStringLiteral("toolbox:text")});
             list.append({QStringLiteral("final-instance-launch-%1-1280x800.png").arg(theme), theme, {1280, 800}, false, manage, QStringLiteral("launch")});
         }
+        // 批量操作（#54）：结构 / 存档页多选之后的样子，最小窗口与拉宽两档。
+        for (const char *page : {"structure", "save"})
+            for (const QSize &size : {QSize(900, 590), QSize(1400, 800)})
+                list.append({QStringLiteral("batch-%1-multi-dark-%2x%3.png").arg(QLatin1String(page)).arg(size.width()).arg(size.height()),
+                             QStringLiteral("dark"), size, false, manage, QStringLiteral("multi:%1").arg(QLatin1String(page))});
         // 只出名字含这段字的几张（逐页精修时不必每次跑满 56 张）。
         const QString only = qEnvironmentVariable("WTFML_DESIGN_SHOT_FILTER");
         if (!only.isEmpty())
@@ -881,6 +886,22 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
                 // 面板按屏幕可用区夹位置：窗口伸出屏外时它会被夹回来、不再贴着胶囊右沿。
                 window.move(window.screen()->availableGeometry().topLeft() + QPoint(60, 60));
                 window.ui()->getAccountSkinButton()->click();
+            } else if (shot.page.startsWith(QStringLiteral("multi:"))) {
+                // 「机械动力 Create」里摆四个世界、世界里摆四个结构文件，再开对应页。
+                const QString saves = AppPaths::versionDir(QStringLiteral("create")) + QStringLiteral("/saves");
+                for (const QString world : {QStringLiteral("生存档"), QStringLiteral("Creative Test"), QStringLiteral("红石实验场"), QStringLiteral("Skyblock-2")}) {
+                    const QString structures = saves + QLatin1Char('/') + world + QStringLiteral("/generated/minecraft/structures");
+                    QDir().mkpath(structures);
+                    QFile level(saves + QLatin1Char('/') + world + QStringLiteral("/level.dat"));
+                    if (level.open(QIODevice::WriteOnly)) level.write("stub");
+                    if (world != QStringLiteral("生存档")) continue;
+                    for (const QString name : {QStringLiteral("house"), QStringLiteral("farm-tower"), QStringLiteral("village-hall"), QStringLiteral("bridge")}) {
+                        QFile file(structures + QLatin1Char('/') + name + QStringLiteral(".nbt"));
+                        if (file.open(QIODevice::WriteOnly)) file.write("stub");
+                    }
+                }
+                QMetaObject::invokeMethod(&window, "openInstanceSettings", Q_ARG(QString, QStringLiteral("create")),
+                                          Q_ARG(QString, shot.page.section(QLatin1Char(':'), 1)));
             } else if (!shot.page.isEmpty()) QMetaObject::invokeMethod(&window, "openInstanceSettings", Q_ARG(QString, QStringLiteral("create")), Q_ARG(QString, shot.page));
             else if (shot.tab == MainWindowUI::instancesTabIndex()) hoverInstanceRow(window);
         });
@@ -897,6 +918,12 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
                     wizard->show();
                     for (int i = 0; i < 5; ++i) QApplication::processEvents();
                 }
+            }
+            if (shot.page.startsWith(QStringLiteral("multi:"))) {
+                // 点「全选」。
+                const QString key = shot.page.section(QLatin1Char(':'), 1);
+                if (auto *all = window.findChild<QPushButton *>(QStringLiteral("instanceLifecycleBatchAll_%1").arg(key))) all->click();
+                for (int i = 0; i < 5; ++i) QApplication::processEvents();
             }
             QPixmap shotImage = wizard != nullptr ? wizard->grab() : log != nullptr ? log->grab() : window.grab();
             if (wizard != nullptr) wizard->hide();

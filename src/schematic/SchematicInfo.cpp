@@ -761,14 +761,16 @@ QString chineseBlockName(const QJsonObject &language, const QString &blockId) {
         && !name.contains(QLatin1Char('\t')) ? name : QString();
 }
 
-QString topBlocksText(const Info &info) {
+QString topBlocksText(const Info &info, const QJsonObject &language) {
     if (!info.ok || info.topBlocks.isEmpty()) {
         return QString();
     }
     QStringList lines;
     lines.append(QCoreApplication::translate("SchematicInfo", "最多的方块："));
     for (const BlockCount &block : info.topBlocks) {
-        lines.append(QCoreApplication::translate("SchematicInfo", "  %1：%2").arg(block.id, numberText(block.count)));
+        const QString name = chineseBlockName(language, block.id);
+        lines.append(QCoreApplication::translate("SchematicInfo", "  %1：%2")
+                         .arg(name.isEmpty() ? block.id : name, numberText(block.count)));
     }
     return lines.join(QLatin1Char('\n'));
 }

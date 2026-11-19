@@ -1967,6 +1967,10 @@ signals:
      */
     void deleteServerRequested(const QString &name, const QString &address);
 
+    /// 选中了多台时按「删除」：(名字, 地址) 列表，含义同 `deleteServerRequested`。
+    /// 只选一台时仍发 `deleteServerRequested`。
+    void deleteServersRequested(const QList<QPair<QString, QString>> &entries);
+
     /**
      * @brief 用户按了服务器列表那一页的「加入服务器」（**临时占位**）。
      * @param name 选中那一台的名字（同上，可以是空串；回话里用得着）。
@@ -2012,6 +2016,8 @@ private:
     /// 选得中就一定改得动、也一定连得上。那两颗按钮的灰/亮再多判一层空地址只是
     /// 把同一条规矩写两遍。
     QTreeWidgetItem *selectedServerItem() const;
+    /// 当前选中且没被筛掉的所有行（按列表先后）。
+    QList<QTreeWidgetItem *> selectedServerItems() const;
 
     /// 造一行「跟随全局 / 自定义 + 控件」。返回值是**整格**（档位行 + 提示），控件要加进
     /// 里面的「档位那一行」（`choiceRowOf()` 取），内存那两行整格禁用靠的就是这个返回值。
