@@ -138,6 +138,9 @@ void showSchematicDetails(OverlayHost *overlay, QWidget *parent, const QString &
 }
 }
 #include "replay/ReplayInfo.hpp"
+#include "controllers/GameSessionController.hpp"
+#include "tools/FileHash.hpp"
+#include "util/LogFileReader.hpp"
 #include "diagnose/StartupDiagnosis.hpp"
 #include "operations/TransferApply.hpp"
 #include "operations/OperationReport.hpp"
@@ -329,6 +332,61 @@ struct InstanceSettingsSession : QObject {
 };
 
 } // namespace
+
+namespace {
+
+/// 日志页 / 崩溃报告页单击一行：先摆文件名、时间、大小，行数在后台数完再补。
+/// 数行数要读整份文件（`.log.gz` 还要先起 PowerShell 解压），所以只对**当前选中**的那一个做，
+/// 并且排队的任务开跑前先看一眼"我还是不是最新那一发"，不是就直接放弃。
+void showLogFileInfo(InstanceSettingsDialog &dialog, const QString &key, const QString &path) {
+    static std::atomic<int> latest{0};
+    // 数好的行数按「路径 + 修改时间 + 大小」记着：来回点同两个 gz 不必反复解压。只在主线程读写。
+    static QHash<QString, qint64> counted;
+    const QFileInfo info(path);
+    if (!info.isFile()) {
+        dialog.setLifecycleInfoText(key, path, QStringLiteral("读不出来：找不到这个文件。"));
+        return;
+    }
+    const auto text = [info](qint64 lines) {
+        const QString lineText = lines >= 0 ? QStringLiteral("%1 行").arg(lines) : QStringLiteral("行数统计中…");
+        return QStringList{info.fileName(),
+                           info.lastModified().toString(QStringLiteral("yyyy-MM-dd HH:mm")),
+                           FileHash::fileSizeText(info.size()), lineText}
+            .join(QStringLiteral(" / "));
+    };
+    const QString toolTip = QDir::toNativeSeparators(path);
+    const QString cacheKey = QStringLiteral("%1|%2|%3").arg(
+        path, QString::number(info.lastModified().toMSecsSinceEpoch()), QString::number(info.size()));
+    const auto hit = counted.constFind(cacheKey);
+    if (hit != counted.cend()) {
+        dialog.setLifecycleInfoText(key, path, text(hit.value()), toolTip);
+        return;
+    }
+    dialog.setLifecycleInfoText(key, path, text(-1), toolTip);
+    const int token = ++latest;
+    auto *watcher = new QFutureWatcher<LogFileReader::Counted>(&dialog);
+    QObject::connect(watcher, &QFutureWatcher<LogFileReader::Counted>::finished, &dialog,
+                     [&dialog, watcher, key, path, cacheKey, text, toolTip] {
+        const LogFileReader::Counted result = watcher->result();
+        watcher->deleteLater();
+        if (result.ok) {
+            counted.insert(cacheKey, result.lines);
+            dialog.setLifecycleInfoText(key, path, text(result.lines), toolTip);
+        } else if (result.lines >= 0) {  // 放弃的那发 lines 记 -1，不报错
+            dialog.setLifecycleInfoText(key, path, QStringLiteral("读不出来：%1").arg(result.problem));
+        }
+    });
+    watcher->setFuture(QtConcurrent::run([path, token] {
+        if (token != latest.load()) {
+            LogFileReader::Counted skipped;
+            skipped.lines = -1;
+            return skipped;
+        }
+        return LogFileReader::countLines(path);
+    }));
+}
+
+}  // namespace
 
 InstanceDialogController::InstanceDialogController(MainWindow *owner)
     : QObject(owner), m_owner(owner) {}
@@ -603,7 +661,10 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
         const QString dataRoot = AppPaths::minecraftDir();
         const QString replayRoot = AppPaths::replayRecordingsDir();
         const bool replay = key == QStringLiteral("replay");
-        const QString root = replay ? replayRoot : InstancePagesController::fileDirs(sourceId).value(key);
+        // 崩溃报告页的目录不在 fileDirs() 里（见 refreshInstanceDirs()），单独认。
+        const QString root = replay ? replayRoot
+                             : key == QStringLiteral("crash") ? AppPaths::crashReportsDir()
+                                                              : InstancePagesController::fileDirs(sourceId).value(key);
         const Action action = requested == Request::Copy ? Action::Copy
                             : requested == Request::Move ? Action::Move : Action::Remove;
         const QString title = action == Action::Copy ? tr("复制文件")
@@ -675,6 +736,10 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
     // 实例 id 会换一个，结构那一句的兼容性要跟新版本走。
     connect(&dialog, &InstanceSettingsDialog::lifecycleFileInfoRequested, &dialog,
             [this, &dialog, &targetId](const QString &key, const QString &path) {
+                if (key == QStringLiteral("logs") || key == QStringLiteral("crash")) {
+                    showLogFileInfo(dialog, key, path);
+                    return;
+                }
                 if (key == QStringLiteral("replay")) {
                     const ReplayInfo::Info info = ReplayInfo::read(path);
                     if (!info.ok) {
@@ -1558,6 +1623,15 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                     InlineMessage::warning(m_owner->m_ui->overlay(), tr("打开文件"),
                                            tr("无法打开文件：%1").arg(QDir::toNativeSeparators(path)));
                 }
+            });
+    connect(&dialog, &InstanceSettingsDialog::openLogFileRequested, m_owner,
+            [this](const QString &path) {
+                if (!QFileInfo(path).isFile()) {
+                    InlineMessage::warning(m_owner->m_ui->overlay(), tr("打开文件"),
+                                           tr("无法打开文件：%1").arg(QDir::toNativeSeparators(path)));
+                    return;
+                }
+                m_owner->m_gameSessionController->openLogFile(path);
             });
     connect(&dialog, &InstanceSettingsDialog::openInstanceFolderRequested, m_owner,
             [this](const QString &path) {

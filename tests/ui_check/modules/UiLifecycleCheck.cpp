@@ -404,7 +404,8 @@ int UiLifecycleCheck(QApplication &app) {
                     ++requests;
                 });
             for (const QString &key : {QStringLiteral("screenshots"), QStringLiteral("schematic"),
-                                       QStringLiteral("replay")}) {
+                                       QStringLiteral("replay"), QStringLiteral("logs"),
+                                       QStringLiteral("crash")}) {
                 dialog.showPage(key);
                 const auto button = [&](const QString &name) { return buttonFor(name, key); };
                 if (key == QStringLiteral("schematic")) {
@@ -471,9 +472,66 @@ int UiLifecycleCheck(QApplication &app) {
                 list->clearSelection();
             }
             QObject::disconnect(connection);
-            for (const QString &key : {QStringLiteral("logs"), QStringLiteral("crash"), QStringLiteral("structure")})
-                expect(!dialog.findChild<QWidget *>(QStringLiteral("instanceLifecycleBatch_%1").arg(key)),
-                       "other lifecycle lists do not gain write actions");
+            expect(!dialog.findChild<QWidget *>(QStringLiteral("instanceLifecycleBatch_structure")),
+                   "structure list does not gain write actions");
+            // 日志、崩溃报告不按后缀判断：任何文件都能批量；其余页仍按后缀。
+            expect(Dlg::isLifecycleBatchFile(QStringLiteral("logs"), QStringLiteral("/x/logs/2026-11-18-1.log.gz"))
+                       && Dlg::isLifecycleBatchFile(QStringLiteral("logs"), QStringLiteral("/x/logs/noext"))
+                       && Dlg::isLifecycleBatchFile(QStringLiteral("crash"), QStringLiteral("/x/crash-reports/crash-1.txt"))
+                       && !Dlg::isLifecycleBatchFile(QStringLiteral("logs"), QString()),
+                   "log and crash pages accept any file for batch actions");
+            expect(!Dlg::isLifecycleBatchFile(QStringLiteral("screenshots"), QStringLiteral("/x/a.txt"))
+                       && Dlg::isLifecycleBatchFile(QStringLiteral("screenshots"), QStringLiteral("/x/a.PNG"))
+                       && !Dlg::isLifecycleBatchFile(QStringLiteral("structure"), QStringLiteral("/x/a.nbt")),
+                   "other pages still judge batch files by suffix");
+            // 日志页：单击（恰好选中一行）要发信息请求；双击走内置查看器信号而不是外部打开。
+            {
+                dialog.showPage(QStringLiteral("logs"));
+                auto *logList = dialog.findChild<QListWidget *>(QStringLiteral("instanceLifecycleFiles_logs"));
+                auto *infoLabel = dialog.findChild<QLabel *>(Dlg::lifecycleInfoLabelName(QStringLiteral("logs")));
+                expect(logList && infoLabel && !infoLabel->isVisibleTo(&dialog),
+                       "log page has an info bar that starts hidden");
+                if (logList && infoLabel) {
+                    QString infoKey, infoPath, openedLog, openedExternal;
+                    const auto c1 = QObject::connect(&dialog, &Dlg::lifecycleFileInfoRequested, &dialog,
+                        [&](const QString &key, const QString &path) { infoKey = key; infoPath = path; });
+                    const auto c2 = QObject::connect(&dialog, &Dlg::openLogFileRequested, &dialog,
+                        [&](const QString &path) { openedLog = path; });
+                    const auto c3 = QObject::connect(&dialog, &Dlg::openInstanceFileRequested, &dialog,
+                        [&](const QString &path) { openedExternal = path; });
+                    logList->clearSelection();
+                    logList->item(0)->setSelected(true);
+                    expect(infoLabel->isVisibleTo(&dialog)
+                               && infoLabel->text() == Dlg::lifecycleInfoPendingText(),
+                           "clicking one log shows the pending text at once");
+                    QElapsedTimer waited;
+                    waited.start();
+                    while (infoKey.isEmpty() && waited.elapsed() < 2000) app.processEvents(QEventLoop::AllEvents, 20);
+                    expect(infoKey == QStringLiteral("logs")
+                               && infoPath == logList->item(0)->data(Qt::UserRole).toString(),
+                           "the info request fires after the debounce with the clicked path");
+                    dialog.setLifecycleInfoText(QStringLiteral("logs"), infoPath, QStringLiteral("a.log / 4 B / 1 行"));
+                    expect(infoLabel->text() == QStringLiteral("a.log / 4 B / 1 行"),
+                           "the answer for the current row replaces the pending text");
+                    dialog.setLifecycleInfoText(QStringLiteral("logs"), QStringLiteral("/stale"), QStringLiteral("过期"));
+                    expect(infoLabel->text() != QStringLiteral("过期"), "an answer for another row is dropped");
+                    logList->item(1)->setSelected(true);  // 多选：信息栏收起
+                    expect(!infoLabel->isVisibleTo(&dialog), "selecting several logs hides the info bar");
+                    emit logList->itemActivated(logList->item(0));
+                    expect(openedLog == logList->item(0)->data(Qt::UserRole).toString() && openedExternal.isEmpty(),
+                           "activating a log opens the built-in viewer, not the external program");
+                    dialog.showPage(QStringLiteral("screenshots"));
+                    auto *shotList = dialog.findChild<QListWidget *>(QStringLiteral("instanceLifecycleFiles_screenshots"));
+                    openedLog.clear();
+                    if (shotList) emit shotList->itemActivated(shotList->item(0));
+                    expect(openedLog.isEmpty() && !openedExternal.isEmpty(),
+                           "other pages still open files with the external program");
+                    QObject::disconnect(c1);
+                    QObject::disconnect(c2);
+                    QObject::disconnect(c3);
+                    logList->clearSelection();
+                }
+            }
         }
         {
             // 重列之后滚动位置和选择（issue #26）。夹具本来只有两张截图，先补到能滚起来。

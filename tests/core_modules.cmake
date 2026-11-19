@@ -224,6 +224,7 @@ add_library(core_cases_toolbox OBJECT
  core_modules/AnvilPlannerTests.cpp
  core_modules/SchematicInfoTests.cpp
  core_modules/ReplayInfoTests.cpp
+ core_modules/LogFileReaderTests.cpp
 )
 wtfml_core_compile(core_cases_toolbox)
 list(APPEND WTFML_CORE_CASE_OBJECTS $<TARGET_OBJECTS:core_cases_toolbox>)

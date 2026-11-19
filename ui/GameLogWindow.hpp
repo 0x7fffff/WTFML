@@ -101,6 +101,7 @@ class QPushButton;
 class QToolButton;
 class QAbstractButton;
 class WindowChrome;
+class ElidedLabel;
 
 class GameLogWindow : public QDialog {
     Q_OBJECT
@@ -156,6 +157,34 @@ public:
     explicit GameLogWindow(const QString &instanceName, QWidget *parent = nullptr);
 
     QString instanceName() const { return m_instanceName; }
+
+    // ---------- 打开一个文件（已结束的日志：不追加、不显示运行状态） ----------
+    //
+    // 查看器和游戏运行时的日志窗是同一个类：染色、级别筛选、搜索、行数上限、导出全都照旧，
+    // 只是内容来自盘上的一份文件。**读盘、gzip 解压不在这一层**（ui/ 不碰 src/，也不能在
+    // 主线程上做）：调用方在工作线程里读好，再把行递进来。
+
+    /// 切成文件查看器：标题与顶端写文件名，运行徽标、清空、导出错误报告收起，
+    /// 「用外部程序打开」露出来；正文先写「正在读取…」。
+    void beginFile(const QString &path);
+    /// 读好了：@p lines 是全部行，@p cutHeadBytes > 0 表示文件太大、开头那一截没读。
+    /// 行数超过 `maxLogBlocks()` 时把模型容量放大到装得下；默认只显示末尾
+    /// `fileTailLines()` 行，可用行数上限切到全部（分批上屏，见 .cpp）。
+    void setFileLines(const QStringList &lines, qint64 cutHeadBytes = 0);
+    /// 读失败：正文写原因。
+    void setFileProblem(const QString &problem);
+    QString filePath() const { return m_filePath; }
+    bool isFileViewer() const { return !m_filePath.isEmpty(); }
+    /// 超长日志默认显示的末尾行数。
+    static int fileTailLines() { return 5000; }
+    /// 「全部」档一批上屏多少行。
+    static int fileBatchLines() { return 4000; }
+    /// 分批上屏是否还没结束（验证工程等它为假再量）。
+    bool fileBatchPending() const { return m_batchPos < m_batchLines.size(); }
+    static QString fileWindowTitleText(const QString &fileName);
+    static QString fileHintText(qint64 cutHeadBytes, bool tailByDefault);
+    /// 右上「…」菜单里「用外部程序打开」那一项。
+    QAction *externalOpenAction() const { return m_externalAction; }
 
     /**
      * @brief 新窗摆哪儿：**优先贴在启动器旁边**（右 → 左 → 居中），不遮住它。
@@ -412,6 +441,8 @@ signals:
     /// 用户点了「导出日志…」。槽该读 `allLogText()`。
     void exportLogRequested();
     void exportReportRequested();
+    /// 文件查看器里点了「用外部程序打开」。
+    void openExternalRequested(const QString &path);
 
 public:
     static QString logViewName() { return QStringLiteral("gameLogView"); }
@@ -470,8 +501,23 @@ private:
     /// 空的时候该说哪句话（"还没有输出"还是"都被筛掉了"）。
     void refreshPlaceholder();
 
+    /// 一批一批把 `m_batchLines` 摆进视图（文件查看器的大日志用，见 .cpp）。
+    void pumpBatch();
+    /// 新开一轮分批上屏：清视图，之后每轮事件循环摆 `fileBatchLines()` 行。
+    void startBatch(QVector<RuntimeOutputModel::VisibleLine> lines);
+
     QLabel *m_hintLabel = nullptr;
     QLabel *m_stateBadge = nullptr;
+    QLabel *m_titleLabel = nullptr;
+    ElidedLabel *m_titleInstance = nullptr;
+    QAction *m_externalAction = nullptr;
+    /// 说明那行灰字的基础句（挤掉行的那句补在它后面）。
+    QString m_baseHint;
+    QString m_filePath;
+    QVector<RuntimeOutputModel::VisibleLine> m_batchLines;
+    int m_batchPos = 0;
+    /// 每开一轮 +1：排队中的旧批次见号不符就放弃。
+    int m_batchGeneration = 0;
     void setStateBadge(const QString &text, bool bad);
     QPlainTextEdit *m_view = nullptr;
     /// 正文区上面那一行搜索框。

@@ -1739,6 +1739,8 @@ signals:
      */
     void openInstanceFolderRequested(const QString &path);
     void openInstanceFileRequested(const QString &path);
+    /// 日志页 / 崩溃报告页双击一行：在内置查看器里打开（认 gzip 头，`.log.gz` 也行）。
+    void openLogFileRequested(const QString &path);
     void backupSelectedWorldRequested(const QString &path);
     void restoreSelectedWorldRequested(const QString &path);
 

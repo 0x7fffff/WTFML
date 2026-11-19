@@ -81,6 +81,18 @@ class LifecycleFileList : public QListWidget {
 public:
     using QListWidget::QListWidget;
 
+    /// 压低 sizeHint 的高度（QListWidget 默认 192）。页面是带自动换行说明的滚动区，总高度按各控件的
+    /// sizeHint 算而不是最小高度；上面控件多的页（日志）不压低的话，底下的信息栏会被挤出可视区。
+    void setCompactHeight(int height) {
+        m_compactHeight = height;
+        updateGeometry();
+    }
+    QSize sizeHint() const override {
+        QSize size = QListWidget::sizeHint();
+        if (m_compactHeight > 0) size.setHeight(qMin(size.height(), m_compactHeight));
+        return size;
+    }
+
 protected:
     QMimeData *mimeData(const QList<QListWidgetItem *> &items) const override {
         auto *data = new QMimeData;
@@ -100,6 +112,9 @@ protected:
         doItemsLayout();
         viewport()->update();
     }
+
+private:
+    int m_compactHeight = 0;
 };
 
 QStringList lifecycleBatchSuffixes(const QString &key) {
@@ -111,9 +126,24 @@ QStringList lifecycleBatchSuffixes(const QString &key) {
                 QStringLiteral("schem"), QStringLiteral("nbt")};
     return {};
 }
+
+/// 日志、崩溃报告不按后缀判断：目录里的任何文件都能批量操作（旧日志的后缀五花八门）。
+bool lifecycleBatchAnyFile(const QString &key) {
+    return key == QStringLiteral("logs") || key == QStringLiteral("crash");
+}
+
+bool lifecycleBatchEnabled(const QString &key) {
+    return lifecycleBatchAnyFile(key) || !lifecycleBatchSuffixes(key).isEmpty();
+}
+
+/// 单击后底下那一格要不要摆信息（只在恰好选中一行时）。
+bool lifecycleInfoBySelection(const QString &key) {
+    return key == QStringLiteral("replay") || lifecycleBatchAnyFile(key);
+}
 }  // namespace
 
 bool InstanceSettingsDialog::isLifecycleBatchFile(const QString &key, const QString &path) {
+    if (lifecycleBatchAnyFile(key)) return !path.isEmpty();
     return lifecycleBatchSuffixes(key).contains(QFileInfo(path).suffix(), Qt::CaseInsensitive);
 }
 
@@ -348,12 +378,17 @@ void InstanceSettingsDialog::buildLifecyclePage(const QString &key) {
                 crash->setChecked(key == QStringLiteral("crash"));
                 connect(log, &QPushButton::clicked, this, [this] { showPage(QStringLiteral("logs")); });
                 connect(crash, &QPushButton::clicked, this, [this] { showPage(QStringLiteral("crash")); });
-                buttonRow({log, crash});
+                // 刷新和两档按钮同一行：900×590 下这一页纵向很紧，单独一行会把底下的信息栏挤出可视区。
+                auto *refresh = new QPushButton(tr("刷新"), page);
+                connect(refresh, &QPushButton::clicked, this, [this, key]() { refreshLifecycleFiles(key); });
+                buttonRow({log, crash, refresh});
             }
             hint(key == QStringLiteral("structure")
                      ? tr("存档 generated 目录中的结构文件。双击打开，右键打开目录。")
+                 : lifecycleBatchAnyFile(key)
+                     ? tr("按修改时间从新到旧。单击查看信息，双击在启动器内打开，右键打开目录。")
                      : tr("按修改时间从新到旧。双击打开，右键打开目录。"));
-            action(tr("刷新"), [this, key]() { refreshLifecycleFiles(key); });
+            if (!lifecycleBatchAnyFile(key)) action(tr("刷新"), [this, key]() { refreshLifecycleFiles(key); });
             auto *search = new QLineEdit(page);
             search->setObjectName(QStringLiteral("instanceLifecycleSearch_%1").arg(key));
             search->setPlaceholderText(tr("搜索文件名或路径（空格分隔多个关键词）"));
@@ -375,11 +410,18 @@ void InstanceSettingsDialog::buildLifecyclePage(const QString &key) {
             list->setObjectName(QStringLiteral("instanceLifecycleFiles_%1").arg(key));
             list->setIconSize(QSize(96, 64));
             list->setContextMenuPolicy(Qt::CustomContextMenu);
-            const bool batch = !lifecycleBatchSuffixes(key).isEmpty();
+            const bool batch = lifecycleBatchEnabled(key);
             if (batch) addLifecycleBatchActions(key, list, layout, search);
+            // 日志页上面已有标签行、说明、搜索、计数、批量两行：900×590 下列表至少让出信息栏的位置，
+            // 不然点一行后信息栏被推到滚动区下面看不见。
+            if (lifecycleBatchAnyFile(key)) {
+                list->setMinimumHeight(96);
+                list->setCompactHeight(112);
+            }
             layout->addWidget(list, 1);
             m_lifecycleLists.insert(key, list);
-            if (key == QStringLiteral("replay") || key == QStringLiteral("structure")) {
+            if (key == QStringLiteral("replay") || key == QStringLiteral("structure")
+                || lifecycleBatchAnyFile(key)) {
                 auto *info = new QLabel(page);
                 info->setObjectName(lifecycleInfoLabelName(key));
                 info->setWordWrap(true);
@@ -411,9 +453,11 @@ void InstanceSettingsDialog::buildLifecyclePage(const QString &key) {
                         if (batch) list->clearSelection();
                         filterLifecycleFiles(key);
                     });
-            connect(list, &QListWidget::itemActivated, this, [this](QListWidgetItem *item) {
+            connect(list, &QListWidget::itemActivated, this, [this, key](QListWidgetItem *item) {
                 const QString path = item->data(Qt::UserRole).toString();
-                if (!path.isEmpty()) emit openInstanceFileRequested(path);
+                if (path.isEmpty()) return;
+                if (lifecycleBatchAnyFile(key)) emit openLogFileRequested(path);
+                else emit openInstanceFileRequested(path);
             });
             connect(list, &QListWidget::customContextMenuRequested, this, [this, list](const QPoint &point) {
                 if (auto *item = list->itemAt(point)) {
@@ -763,7 +807,7 @@ void InstanceSettingsDialog::updateLifecycleInfo(const QString &key) {
     auto *list = m_lifecycleLists.value(key);
     QString path;
     if (list != nullptr) {
-        if (key == QStringLiteral("replay")) {
+        if (lifecycleInfoBySelection(key)) {
             const auto selected = list->selectedItems();
             if (selected.size() == 1 && !selected.first()->isHidden())
                 path = selected.first()->data(Qt::UserRole).toString();

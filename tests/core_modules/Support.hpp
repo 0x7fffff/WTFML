@@ -2458,6 +2458,9 @@ void runSchematicInfoTests();
 
 void runReplayInfoTests();
 
+/// LF：日志文件（含 .log.gz）的读行、数行、末尾截取、gzip 头识别。
+void runLogFileReaderTests();
+
 void runStartupDiagnosisTests();
 
 // 「这块盘还在不在」那一句判据：正常卷不许误报，盘没了必须说得出话。

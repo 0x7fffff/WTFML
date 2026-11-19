@@ -23,6 +23,9 @@
 #include <QMenu>
 #include <QComboBox>
 #include <QCoreApplication>
+#include <QDir>
+#include <QFileInfo>
+#include <QTimer>
 #include <QEvent>
 #include <QFontDatabase>
 #include <QHBoxLayout>
@@ -287,20 +290,20 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
         auto *strip = new QHBoxLayout(m_titleStrip);
         strip->setContentsMargins(20, 0, 0, 0);
         strip->setSpacing(10);
-        auto *title = new QLabel(tr("游戏日志"), m_titleStrip);
-        title->setObjectName(QStringLiteral("gameLogTitle"));
-        title->setFont(Theme::textFont(title->font(), Theme::TextRole::Heading));
-        title->setAttribute(Qt::WA_TransparentForMouseEvents);
-        strip->addWidget(title, 0, Qt::AlignVCenter);
-        if (!instanceName.isEmpty()) {
-            auto *instance = new ElidedLabel(m_titleStrip);
-            instance->setText(instanceName);
-            instance->setMinimumWidth(1);  // 长名收省略号，不把窗口的最小宽撑开（全名在系统窗口标题里）
-            instance->setObjectName(QStringLiteral("gameLogTitleInstance"));
-            instance->setForegroundRole(QPalette::PlaceholderText);
-            instance->setAttribute(Qt::WA_TransparentForMouseEvents);
-            strip->addWidget(instance, 0, Qt::AlignVCenter);
-        }
+        m_titleLabel = new QLabel(tr("游戏日志"), m_titleStrip);
+        m_titleLabel->setObjectName(QStringLiteral("gameLogTitle"));
+        m_titleLabel->setFont(Theme::textFont(m_titleLabel->font(), Theme::TextRole::Heading));
+        m_titleLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+        strip->addWidget(m_titleLabel, 0, Qt::AlignVCenter);
+        // 实例名（文件查看器里是文件名）；没有名字时藏起来，`beginFile()` 再露出来。
+        m_titleInstance = new ElidedLabel(m_titleStrip);
+        m_titleInstance->setText(instanceName);
+        m_titleInstance->setMinimumWidth(1);  // 长名收省略号，不把窗口的最小宽撑开（全名在系统窗口标题里）
+        m_titleInstance->setObjectName(QStringLiteral("gameLogTitleInstance"));
+        m_titleInstance->setForegroundRole(QPalette::PlaceholderText);
+        m_titleInstance->setAttribute(Qt::WA_TransparentForMouseEvents);
+        m_titleInstance->setVisible(!instanceName.isEmpty());
+        strip->addWidget(m_titleInstance, 0, Qt::AlignVCenter);
         m_stateBadge = new QLabel(m_titleStrip);
         m_stateBadge->setObjectName(QStringLiteral("gameLogStateBadge"));
         m_stateBadge->setAttribute(Qt::WA_TransparentForMouseEvents);
@@ -320,6 +323,8 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
         m_exportLogAction->setToolTip(exportLogButtonTooltip());
         m_exportReportAction = menu->addAction(exportReportButtonText());
         m_exportReportAction->setToolTip(exportReportButtonTooltip());
+        m_externalAction = menu->addAction(tr("用外部程序打开"));
+        m_externalAction->setVisible(false);  // 只有文件查看器用得上，见 beginFile()
         menu->setToolTipsVisible(true);
         menu->addSeparator();
         m_clearAction = menu->addAction(clearButtonText());
@@ -460,7 +465,8 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
 
     layout->addLayout(filters);
 
-    m_hintLabel = new QLabel(hintText(), this);
+    m_baseHint = hintText();
+    m_hintLabel = new QLabel(m_baseHint, this);
     m_hintLabel->setObjectName(hintLabelName());
     m_hintLabel->setWordWrap(true);
     {
@@ -516,6 +522,8 @@ GameLogWindow::GameLogWindow(const QString &instanceName, QWidget *parent)
 
     connect(m_exportLogAction, &QAction::triggered, this, &GameLogWindow::exportLogRequested);
     connect(m_exportReportAction, &QAction::triggered, this, &GameLogWindow::exportReportRequested);
+    connect(m_externalAction, &QAction::triggered, this,
+            [this] { emit openExternalRequested(m_filePath); });
     connect(m_copyAction, &QAction::triggered, this,
             [this]() { QGuiApplication::clipboard()->setText(allLogText()); });
 
@@ -717,11 +725,21 @@ void GameLogWindow::rebuildView() {
 
     m_view->clear();
     m_viewLastBlockIsPending = false;
+    ++m_batchGeneration;  // 上一轮还没摆完的分批作废
+    m_batchLines.clear();
+    m_batchPos = 0;
+    QVector<RuntimeOutputModel::VisibleLine> visible = m_model.visibleLines();
+    if (isFileViewer() && visible.size() > fileBatchLines()) {
+        // 几万行的文件一次摆完要卡住界面：分批，每批之间让出事件循环。
+        // 实时日志窗不走这条（那条路上行数是一点点涨起来的，不会一次摆很多）。
+        startBatch(std::move(visible));
+        return;
+    }
     // 连续同一档的行攒成一段，一段一次写出去（理由见 insertRun）—— 重画一次的代价
     // 从"行数"降到"档数变化次数"，这正是"点一下筛选要等半秒"那条的解法。
     QStringList run;
     LogLevel runLevel = LogLevel::Info;
-    for (const RuntimeOutputModel::VisibleLine &line : m_model.visibleLines()) {
+    for (const RuntimeOutputModel::VisibleLine &line : visible) {
         const LogLevel level = static_cast<LogLevel>(int(line.level));
         if (!run.isEmpty() && level != runLevel) {
             insertRun(runLevel, run);
@@ -740,12 +758,94 @@ void GameLogWindow::rebuildView() {
     }
 }
 
+void GameLogWindow::startBatch(QVector<RuntimeOutputModel::VisibleLine> lines) {
+    m_batchLines = std::move(lines);
+    m_batchPos = 0;
+    pumpBatch();
+}
+
+void GameLogWindow::pumpBatch() {
+    if (m_batchPos >= m_batchLines.size()) return;
+    QScrollBar *bar = m_view->verticalScrollBar();
+    const bool followTail = bar->value() >= bar->maximum() - kFollowTailSlack;
+    const int end = qMin(int(m_batchLines.size()), m_batchPos + fileBatchLines());
+    QStringList run;
+    LogLevel runLevel = LogLevel::Info;
+    for (int i = m_batchPos; i < end; ++i) {
+        const RuntimeOutputModel::VisibleLine &line = m_batchLines.at(i);
+        const LogLevel level = static_cast<LogLevel>(int(line.level));
+        if (!run.isEmpty() && level != runLevel) {
+            insertRun(runLevel, run);
+            run.clear();
+        }
+        runLevel = level;
+        run.append(line.text);
+    }
+    insertRun(runLevel, run);
+    m_batchPos = end;
+    if (followTail) bar->setValue(bar->maximum());
+    if (m_batchPos < m_batchLines.size()) {
+        const int generation = m_batchGeneration;
+        QTimer::singleShot(0, this, [this, generation] {
+            if (generation == m_batchGeneration) pumpBatch();
+        });
+    } else {
+        m_batchLines.clear();
+        m_batchPos = 0;
+        refreshPlaceholder();
+    }
+}
+
+void GameLogWindow::beginFile(const QString &path) {
+    m_filePath = path;
+    const QString name = QFileInfo(path).fileName();
+    setWindowTitle(fileWindowTitleText(name));
+    m_titleLabel->setText(tr("查看日志"));
+    m_titleInstance->setText(name);
+    m_titleInstance->setToolTip(QDir::toNativeSeparators(path));
+    m_titleInstance->setVisible(true);
+    m_stateBadge->setVisible(false);
+    m_externalAction->setVisible(true);
+    m_exportReportAction->setVisible(false);  // 报告是按游戏会话出的，文件没有会话
+    m_clearAction->setVisible(false);
+    m_baseHint = tr("正在读取…");
+    updateHintLabel();
+    m_view->setPlaceholderText(tr("正在读取…"));
+}
+
+void GameLogWindow::setFileLines(const QStringList &lines, qint64 cutHeadBytes) {
+    m_model.clear();
+    m_pending.clear();
+    m_model.setCapacity(qMax(RuntimeOutputModel::defaultCapacity(), int(lines.size())));
+    for (const QString &line : lines) m_model.addLine(line);
+    m_baseHint = fileHintText(cutHeadBytes, int(lines.size()) > fileTailLines());
+    m_view->setPlaceholderText(emptyPlaceholderText());
+    updateFilterButtons();
+    // 超长日志默认只显示末尾；模型留着全部，切到「全部」时当场回来。
+    const int limit = lines.size() > fileTailLines() ? fileTailLines() : 0;
+    const bool unchanged = limit == m_model.displayLimit();
+    setDisplayLineLimit(limit);
+    if (unchanged) {
+        m_view->setMaximumBlockCount(viewBlockLimit());
+        rebuildView();
+    }
+}
+
+void GameLogWindow::setFileProblem(const QString &problem) {
+    m_model.clear();
+    m_pending.clear();
+    m_view->clear();
+    m_baseHint = tr("无法显示这份文件。");
+    updateFilterButtons();
+    m_view->setPlaceholderText(problem);
+}
+
 int GameLogWindow::viewBlockLimit() const {
     // 「全部」那一档喂的就是模型那个上限。两条上限对齐是不变量
     // （见构造函数里那段）：不对齐的话，模型里最早那一行会被视图悄悄丢掉、切一次筛选它
     // 又冒出来。
     const int shown = m_model.displayLimit();
-    const int limit = shown <= 0 ? maxLogBlocks() : qMin(shown, maxLogBlocks());
+    const int limit = shown <= 0 ? m_model.capacity() : qMin(shown, m_model.capacity());
     return limit + 1;  // 多出来那一格留给"还没等到换行的那半行"
 }
 
@@ -808,8 +908,8 @@ void GameLogWindow::updateHintLabel() {
     if (m_hintLabel == nullptr) {
         return;  // 构造期还没摆到这一格（updateFilterButtons 只在收行/清空时来）
     }
-    QString text = hintText();
-    const QString dropped = droppedHintText(m_model.droppedLineCount(), maxLogBlocks());
+    QString text = m_baseHint;
+    const QString dropped = droppedHintText(m_model.droppedLineCount(), m_model.capacity());
     if (!dropped.isEmpty()) {
         text += QLatin1Char(' ') + dropped;
     }
@@ -1165,6 +1265,22 @@ QString GameLogWindow::windowTitleText(const QString &instanceName) {
     return QCoreApplication::translate("GameLogWindow", "游戏日志 — %1").arg(instanceName);
 }
 
+QString GameLogWindow::fileWindowTitleText(const QString &fileName) {
+    return QCoreApplication::translate("GameLogWindow", "%1 — 日志查看").arg(fileName);
+}
+
+QString GameLogWindow::fileHintText(qint64 cutHeadBytes, bool tailByDefault) {
+    QString text = QCoreApplication::translate("GameLogWindow", "已保存的日志，不再更新。");
+    if (cutHeadBytes > 0) {
+        text += QCoreApplication::translate("GameLogWindow", "文件过大，只读取了末尾部分。");
+    }
+    if (tailByDefault) {
+        text += QCoreApplication::translate("GameLogWindow", "当前显示末尾 %1 行，可在右上角调整。")
+                    .arg(fileTailLines());
+    }
+    return text;
+}
+
 QString GameLogWindow::hintText() {
     return QStringLiteral("这里是这一份游戏自己的输出，和日志文件里的是同一份。"
                           "关掉这个窗口不会停游戏。");
@@ -1205,7 +1321,7 @@ QString GameLogWindow::filteredOutPlaceholderText() {
 }
 
 QString GameLogWindow::searchPlaceholderText() {
-    return QStringLiteral("在这里面找…（不区分大小写；与上方的级别筛选同时生效）");
+    return QCoreApplication::translate("GameLogWindow", "搜索日志（不区分大小写，与级别筛选同时生效）");
 }
 
 QString GameLogWindow::searchEmptyPlaceholderText() {
