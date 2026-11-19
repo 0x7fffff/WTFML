@@ -1,7 +1,7 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    刷新英文翻译源文件 assets/i18n/wtfml_en.ts：用 lupdate 重扫 src/ 与 ui/。
+    用 lupdate 刷新英文目录，并生成 Crowdin 使用的简体中文源目录。
 
 .DESCRIPTION
     跑完之后**必须**打开 .ts 把新出现的条目补上译文（构建设不会因为"没翻"失败，
@@ -15,16 +15,46 @@
 
 .PARAMETER RepoRoot
     仓库根目录。默认是脚本所在目录的上一级。
+
+.PARAMETER CrowdinSourceOnly
+    用现有英文目录生成 Crowdin 源文件，无需 lupdate。
 #>
 [CmdletBinding()]
 param(
     [string]$Lupdate = '',
-    [string]$RepoRoot = ''
+    [string]$RepoRoot = '',
+    [switch]$CrowdinSourceOnly
 )
 
 $ErrorActionPreference = 'Stop'
 if (-not $RepoRoot) { $RepoRoot = Split-Path $PSScriptRoot -Parent }
 $RepoRoot = [IO.Path]::GetFullPath($RepoRoot)
+
+function Write-CrowdinSource([string]$TranslationPath, [string]$SourcePath) {
+    $catalog = [System.Xml.XmlDocument]::new()
+    $catalog.PreserveWhitespace = $true
+    $catalog.Load($TranslationPath)
+    $catalog.DocumentElement.SetAttribute('language', 'zh_CN')
+    $catalog.DocumentElement.SetAttribute('sourcelanguage', 'zh_CN')
+    foreach ($translation in $catalog.SelectNodes('/TS/context/message/translation')) {
+        $translation.RemoveAll()
+        $translation.SetAttribute('type', 'unfinished')
+    }
+
+    $format = [System.Xml.XmlWriterSettings]::new()
+    $format.Encoding = [System.Text.UTF8Encoding]::new($false)
+    $format.NewLineChars = "`n"
+    $writer = [System.Xml.XmlWriter]::Create($SourcePath, $format)
+    try { $catalog.Save($writer) } finally { $writer.Dispose() }
+    Write-Host "已生成 Crowdin 源文件：$SourcePath"
+}
+
+$ts = Join-Path $RepoRoot 'assets/i18n/wtfml_en.ts'
+$crowdinSource = Join-Path $RepoRoot 'assets/i18n/wtfml_zh-CN.ts'
+if ($CrowdinSourceOnly) {
+    Write-CrowdinSource $ts $crowdinSource
+    exit 0
+}
 
 if (-not $Lupdate) {
     $candidates = [Collections.Generic.List[string]]::new()
@@ -42,7 +72,6 @@ if (-not $Lupdate -or -not (Test-Path -LiteralPath $Lupdate)) {
     exit 1
 }
 
-$ts = Join-Path $RepoRoot 'assets/i18n/wtfml_en.ts'
 Push-Location $RepoRoot
 try {
     & $Lupdate -locations none -no-obsolete src ui -ts $ts
@@ -50,6 +79,7 @@ try {
 } finally {
     Pop-Location
 }
+Write-CrowdinSource $ts $crowdinSource
 
 # 没翻的条目数：只报个数，判不判失败交给流程（第 1 期只翻试点那几句）。
 $text = [IO.File]::ReadAllText($ts)
