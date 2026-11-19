@@ -2005,7 +2005,7 @@ Please confirm that you have permission to use these game assets and read the Mi
         </message>
         <message>
             <source>这个版本的正版登录暂时用不了，可以先用离线账号进游戏。</source>
-            <translation>The genuine login of this version is temporarily unavailable. You can enter the game with an offline account first.</translation>
+            <translation>Microsoft sign-in is unavailable in this build. You can still play with an offline account.</translation>
         </message>
         <message>
             <source>无法启动回调服务器（端口 %1 被占用？）。</source>
@@ -2394,11 +2394,11 @@ The backup is placed here: %2
         </message>
         <message>
             <source>游戏正在运行。为防止存档损坏，请退出游戏后再备份。</source>
-            <translation>The game is running. To prevent archive damage, please exit the game before backing up.</translation>
+            <translation>The game is running. To prevent world save damage, please exit the game before backing up.</translation>
         </message>
         <message>
             <source>这个存档的整个文件夹</source>
-            <translation>The entire folder of this archive</translation>
+            <translation>The entire folder of this world save</translation>
         </message>
         <message>
             <source>备份世界「%1」</source>
@@ -2418,7 +2418,7 @@ The backup is placed here: %2
         </message>
         <message>
             <source>游戏正在运行，请退出游戏后再还原存档，避免数据覆盖。</source>
-            <translation>The game is running, please exit the game before restoring the archive to avoid data overwriting.</translation>
+            <translation>The game is running, please exit the game before restoring the world save to avoid data overwriting.</translation>
         </message>
         <message>
             <source>这个世界</source>
@@ -2460,7 +2460,7 @@ What you want to restore is this one:
         </message>
         <message>
             <source>「%1」正在运行。先关掉游戏再做快照 —— 游戏开着的时候存档、日志这些文件一直在变。</source>
-            <translation>"%1" is running. Close the game first and then take a snapshot - archives and log files are constantly changing while the game is open.</translation>
+            <translation>"%1" is running. Close the game first and then take a snapshot - world saves and log files are constantly changing while the game is open.</translation>
         </message>
         <message>
             <source>创建快照</source>
@@ -2494,7 +2494,7 @@ Assets and libraries are not packaged by default: these two parts can be re-down
         </message>
         <message>
             <source>实例目录（模组、配置、存档、日志…）</source>
-            <translation>Instance directory (modules, configurations, archives, logs...)</translation>
+            <translation>Instance directory (mods, configurations, world saves, logs...)</translation>
         </message>
         <message>
             <source>没打包：assets、libraries（能重新下回来）</source>
@@ -2531,11 +2531,11 @@ Assets and libraries are not packaged by default: these two parts can be re-down
 
 要还原的是这一份：
 %2</source>
-            <translation>"%1" The current file will be completely replaced by the one in the snapshot - modules, configurations, and saves are all included. 
+            <translation>"%1" The current file will be completely replaced by the one in the snapshot - mods, configurations, and saves are all included.&#32;
 
- Before restoring, a safe snapshot will be automatically left for the current copy, so this step can be rolled back. 
+ Before restoring, a safe snapshot will be automatically left for the current copy, so this step can be rolled back.&#32;
 
-What you want to restore is this one: 
+What you want to restore is this one:&#32;
 %2</translation>
         </message>
         <message>
@@ -4494,7 +4494,7 @@ The instance is ready, but some presets could not be applied:
         </message>
         <message>
             <source>模组适配替换不能单独续做；请重新打开实例更新向导，重新检查后执行。</source>
-            <translation>Module adaptation and replacement cannot be continued separately; please reopen the instance update wizard and recheck before executing.</translation>
+            <translation>Mod adaptation and replacement cannot be continued separately; please reopen the instance update wizard and recheck before executing.</translation>
         </message>
         <message>
             <source>报告里没有足够信息再导入这个世界（源 / 目标 / 名字缺失）。</source>
@@ -4662,9 +4662,9 @@ The instance is ready, but some presets could not be applied:
 
 存档、截图、自己放的模组都在这份目录里。
 若仅从列表中移除请使用「移除」操作，磁盘文件将予以保留。</source>
-            <translation>The folder "%1" and all the files in it will be deleted (it will go to the Recycle Bin and can be restored from there). 
+            <translation>The folder "%1" and all the files in it will be deleted (it will go to the Recycle Bin and can be restored from there).&#32;
 
-Archives, screenshots, and your own modules are all in this directory. 
+World saves, screenshots, and your own mods are all in this directory.&#32;
 To remove only from the list, please use the "Remove" operation, the disk file will be retained.</translation>
         </message>
         <message>
@@ -4925,7 +4925,7 @@ The part that has been moved is in the Recycle Bin and can be restored.</transla
         </message>
         <message>
             <source>日志里写着有模组的前置没装 —— 在「文件」那一页点「检查更新」能看到缺的是哪一个。</source>
-            <translation>The log states that the module's prerequisite is not installed - click "Check for Updates" on the "File" page to see which one is missing.</translation>
+            <translation>The log states that the mod's prerequisite is not installed - click "Check for Updates" on the "File" page to see which one is missing.</translation>
         </message>
         <message>
             <source>崩在「坏内存」那一类上（%1）—— 原版环境里这多半是本机的驱动或者安全软件插手了游戏进程。</source>
@@ -4933,7 +4933,7 @@ The part that has been moved is in the Recycle Bin and can be restored.</transla
         </message>
         <message>
             <source>崩在「坏内存」那一类上（%1）—— 模组（或者它没装上的前置）和这个游戏版本对不上时，最常见的症状就是这个。</source>
-            <translation>Crashes in the "Bad Memory" category (%1) - This is the most common symptom when a module (or its missing prerequisite) does not match the version of the game.</translation>
+            <translation>Crashes in the "Bad Memory" category (%1) - This is the most common symptom when a mod (or its missing prerequisite) does not match the version of the game.</translation>
         </message>
         <message>
             <source>进程在加载阶段就死了（%1）—— 常见于系统缺一个运行库（比如 VC++ 运行库），或者安全软件把加载器要的一个文件拦掉了。</source>
@@ -5055,19 +5055,19 @@ The part that has been moved is in the Recycle Bin and can be restored.</transla
         <name>GameRuleNames</name>
         <message>
             <source>允许进入下界</source>
-            <translation>Allowed to enter the Nether</translation>
+            <translation>Allow Nether portals</translation>
         </message>
         <message>
             <source>允许火在远离玩家处蔓延</source>
-            <translation>Allows fire to spread far away from the player</translation>
+            <translation>Update fire away from players</translation>
         </message>
         <message>
             <source>进度通知</source>
-            <translation>Progress notification</translation>
+            <translation>Announce advancements</translation>
         </message>
         <message>
             <source>在方块交互爆炸中，一些方块不会掉落战利品</source>
-            <translation>In block interactive explosions, some blocks do not drop loot</translation>
+            <translation>Reduce block drops from block interaction explosions</translation>
         </message>
         <message>
             <source>广播命令方块输出</source>
@@ -5079,87 +5079,87 @@ The part that has been moved is in the Recycle Bin and can be restored.</transla
         </message>
         <message>
             <source>命令修改方块数量限制</source>
-            <translation>Command to modify the limit on the number of blocks</translation>
+            <translation>Command block modification limit</translation>
         </message>
         <message>
             <source>禁用鞘翅移动检测</source>
-            <translation>Disable elytra movement detection</translation>
+            <translation>Disable Elytra movement checks</translation>
         </message>
         <message>
             <source>禁用玩家移动检测</source>
-            <translation>Disable player movement detection</translation>
+            <translation>Disable player movement checks</translation>
         </message>
         <message>
             <source>禁用袭击</source>
-            <translation>Disable raid</translation>
+            <translation>Disable raids</translation>
         </message>
         <message>
             <source>游戏内时间流逝</source>
-            <translation>In-game time passes</translation>
+            <translation>Advance time of day</translation>
         </message>
         <message>
             <source>非生物实体掉落</source>
-            <translation>Dropped by non-living entities</translation>
+            <translation>Drop items from non-mob entities</translation>
         </message>
         <message>
             <source>火焰蔓延</source>
-            <translation>Flame spread</translation>
+            <translation>Spread fire</translation>
         </message>
         <message>
             <source>立即重生</source>
-            <translation>Reborn immediately</translation>
+            <translation>Respawn immediately</translation>
         </message>
         <message>
             <source>生成幻翼</source>
-            <translation>Generate phantoms</translation>
+            <translation>Spawn phantoms</translation>
         </message>
         <message>
             <source>合成需要配方</source>
-            <translation>Synthesis requires recipe</translation>
+            <translation>Require recipes for crafting</translation>
         </message>
         <message>
             <source>生物战利品掉落</source>
-            <translation>Creature loot drops</translation>
+            <translation>Drop mob loot</translation>
         </message>
         <message>
             <source>生成生物</source>
-            <translation>Spawn creatures</translation>
+            <translation>Spawn mobs</translation>
         </message>
         <message>
             <source>生成灾厄巡逻队</source>
-            <translation>Spawn the Illager Patrol</translation>
+            <translation>Spawn pillager patrols</translation>
         </message>
         <message>
             <source>方块掉落</source>
-            <translation>Blocks falling</translation>
+            <translation>Drop blocks</translation>
         </message>
         <message>
             <source>生成流浪商人</source>
-            <translation>Generate wandering merchant</translation>
+            <translation>Spawn wandering traders</translation>
         </message>
         <message>
             <source>藤蔓蔓延</source>
-            <translation>Vines spreading</translation>
+            <translation>Spread vines</translation>
         </message>
         <message>
             <source>生成监守者</source>
-            <translation>Generate guardian</translation>
+            <translation>Spawn wardens</translation>
         </message>
         <message>
             <source>天气更替</source>
-            <translation>Weather changes</translation>
+            <translation>Advance the weather cycle</translation>
         </message>
         <message>
             <source>溺水伤害</source>
-            <translation>Drowning injury</translation>
+            <translation>Drowning damage</translation>
         </message>
         <message>
             <source>掷出的末影珍珠在死亡时消失</source>
-            <translation>Throwed ender pearls disappear on death</translation>
+            <translation>Thrown ender pearls vanish on death</translation>
         </message>
         <message>
             <source>被骑乘的实体能否使用传送门</source>
-            <translation>Can mounted entities use portals?</translation>
+            <translation>Allow entities with passengers to use portals</translation>
         </message>
         <message>
             <source>摔落伤害</source>
@@ -5187,59 +5187,59 @@ The part that has been moved is in the Recycle Bin and can be restored.</transla
         </message>
         <message>
             <source>允许流动熔岩转化为熔岩源</source>
-            <translation>Allows flowing lava to be converted into a lava source</translation>
+            <translation>Allow lava source conversion</translation>
         </message>
         <message>
             <source>启用玩家定位栏</source>
-            <translation>Enable player location bar</translation>
+            <translation>Enable the Locator Bar</translation>
         </message>
         <message>
             <source>通告管理员命令</source>
-            <translation>Notify administrator command</translation>
+            <translation>Broadcast admin commands</translation>
         </message>
         <message>
             <source>命令连锁执行数量限制</source>
-            <translation>Limit on the number of command chain executions</translation>
+            <translation>Command chain length limit</translation>
         </message>
         <message>
             <source>命令上下文数量限制</source>
-            <translation>Command context limit</translation>
+            <translation>Command fork limit</translation>
         </message>
         <message>
             <source>实体挤压上限</source>
-            <translation>Entity extrusion upper limit</translation>
+            <translation>Entity cramming limit</translation>
         </message>
         <message>
             <source>矿车最大速度</source>
-            <translation>Minecart maximum speed</translation>
+            <translation>Maximum minecart speed</translation>
         </message>
         <message>
             <source>在生物爆炸中，一些方块不会掉落战利品</source>
-            <translation>Some blocks do not drop loot during mob explosions</translation>
+            <translation>Reduce block drops from mob explosions</translation>
         </message>
         <message>
             <source>允许破坏性生物行为</source>
-            <translation>Allow destructive biological behavior</translation>
+            <translation>Allow mob griefing</translation>
         </message>
         <message>
             <source>生命值自然恢复</source>
-            <translation>HP naturally recovers</translation>
+            <translation>Regenerate health naturally</translation>
         </message>
         <message>
             <source>创造模式下玩家在下界传送门中等待的时间</source>
-            <translation>How long players wait in Nether portals in creative mode</translation>
+            <translation>Nether portal delay in Creative mode</translation>
         </message>
         <message>
             <source>非创造模式下玩家在下界传送门中等待的时间</source>
-            <translation>The time players wait in the nether portal in non-creative mode</translation>
+            <translation>Nether portal delay outside Creative mode</translation>
         </message>
         <message>
             <source>入睡占比</source>
-            <translation>Fall asleep ratio</translation>
+            <translation>Players required to sleep (%)</translation>
         </message>
         <message>
             <source>弹射物能否破坏方块</source>
-            <translation>Can projectiles break blocks?</translation>
+            <translation>Allow projectiles to break blocks</translation>
         </message>
         <message>
             <source>启用PvP</source>
@@ -5247,11 +5247,11 @@ The part that has been moved is in the Recycle Bin and can be restored.</transla
         </message>
         <message>
             <source>随机刻速率</source>
-            <translation>Random tick rate</translation>
+            <translation>Random tick speed</translation>
         </message>
         <message>
             <source>简化调试信息</source>
-            <translation>Simplified debugging information</translation>
+            <translation>Reduce debug information</translation>
         </message>
         <message>
             <source>发送命令反馈</source>
@@ -5259,15 +5259,15 @@ The part that has been moved is in the Recycle Bin and can be restored.</transla
         </message>
         <message>
             <source>显示死亡消息</source>
-            <translation>Show death message</translation>
+            <translation>Show death messages</translation>
         </message>
         <message>
             <source>积雪厚度</source>
-            <translation>Snow thickness</translation>
+            <translation>Snow accumulation height</translation>
         </message>
         <message>
             <source>出生区块半径</source>
-            <translation>Birth block radius</translation>
+            <translation>Spawn chunk radius</translation>
         </message>
         <message>
             <source>生成怪物</source>
@@ -5275,47 +5275,47 @@ The part that has been moved is in the Recycle Bin and can be restored.</transla
         </message>
         <message>
             <source>重生点半径</source>
-            <translation>Spawn point radius</translation>
+            <translation>Respawn radius</translation>
         </message>
         <message>
             <source>启用刷怪笼方块</source>
-            <translation>Enable monster spawner blocks</translation>
+            <translation>Enable mob spawners</translation>
         </message>
         <message>
             <source>允许旁观者生成地形</source>
-            <translation>Allow spectators to generate terrain</translation>
+            <translation>Allow spectators to generate chunks</translation>
         </message>
         <message>
             <source>允许TNT被点燃并爆炸</source>
-            <translation>Allows TNT to be ignited and explode</translation>
+            <translation>Allow TNT to ignite and explode</translation>
         </message>
         <message>
             <source>在TNT爆炸中，一些方块不会掉落战利品</source>
-            <translation>Some blocks do not drop loot during TNT explosions</translation>
+            <translation>Reduce block drops from TNT explosions</translation>
         </message>
         <message>
             <source>无差别愤怒</source>
-            <translation>Indiscriminate anger</translation>
+            <translation>Universal anger</translation>
         </message>
         <message>
             <source>允许流动水转化为水源</source>
-            <translation>Allows flowing water to be converted into water source</translation>
+            <translation>Allow water source conversion</translation>
         </message>
         <message>
             <source>启用袭击</source>
-            <translation>Enable raid</translation>
+            <translation>Enable raids</translation>
         </message>
         <message>
             <source>启用鞘翅移动检测</source>
-            <translation>Enable elytra movement detection</translation>
+            <translation>Enable Elytra movement checks</translation>
         </message>
         <message>
             <source>启用玩家移动检测</source>
-            <translation>Enable player movement detection</translation>
+            <translation>Enable player movement checks</translation>
         </message>
         <message>
             <source>火焰蔓延半径</source>
-            <translation>Flame spread radius</translation>
+            <translation>Fire spread radius</translation>
         </message>
     </context>
     <context>
@@ -6262,39 +6262,39 @@ Save or discard the changes, then drop the files again.</translation>
         <name>InstalledModInventory</name>
         <message>
             <source>实例或模组目录不安全，未读取已安装模组。</source>
-            <translation>The instance or module directory is not secure and the installed modules were not read.</translation>
+            <translation>The instance or mod directory is not secure and the installed mods were not read.</translation>
         </message>
         <message>
             <source>模组路径不是目录，未允许安装。</source>
-            <translation>The module path is not a directory and installation is not allowed.</translation>
+            <translation>The mod path is not a directory and installation is not allowed.</translation>
         </message>
         <message>
             <source>已安装模组超过安全扫描上限（10000 项）。</source>
-            <translation>The number of installed modules exceeds the security scan limit (10,000 items).</translation>
+            <translation>The number of installed mods exceeds the security scan limit (10,000 items).</translation>
         </message>
         <message>
             <source>模组文件是目录链接，未允许安装：%1</source>
-            <translation>The module file is a directory link and is not allowed to be installed: %1</translation>
+            <translation>The mod file is a directory link and is not allowed to be installed: %1</translation>
         </message>
         <message>
             <source>无法读取已安装模组：%1</source>
-            <translation>Unable to read installed modules: %1</translation>
+            <translation>Unable to read installed mods: %1</translation>
         </message>
         <message>
             <source>已安装模组扫描已取消或超时。</source>
-            <translation>Scan for installed modules was canceled or timed out.</translation>
+            <translation>Scan for installed mods was canceled or timed out.</translation>
         </message>
         <message>
             <source>读取已安装模组失败：%1</source>
-            <translation>Failed to read installed modules: %1</translation>
+            <translation>Failed to read installed mods: %1</translation>
         </message>
         <message>
             <source>模组安装记录的身份相互冲突：%1</source>
-            <translation>Module installation records have conflicting identities: %1</translation>
+            <translation>Mod installation records have conflicting identities: %1</translation>
         </message>
         <message>
             <source>已安装模组扫描已取消。</source>
-            <translation>Scan of installed modules has been cancelled.</translation>
+            <translation>Scan of installed mods has been cancelled.</translation>
         </message>
     </context>
     <context>
@@ -6585,11 +6585,11 @@ Minecraft %2 / %3 %4</translation>
         </message>
         <message>
             <source>移动模组</source>
-            <translation>Mobile module</translation>
+            <translation>Move mod</translation>
         </message>
         <message>
             <source>复制模组</source>
-            <translation>Copy module</translation>
+            <translation>Copy mod</translation>
         </message>
         <message>
             <source>没有其它已安装的实例。</source>
@@ -6606,7 +6606,7 @@ Minecraft %2 / %3 %4</translation>
 不会自动适配版本，不覆盖现有文件，不迁移配置。%5</source>
             <translation>%1
 
- Move %2 %3 modules to "%4". 
+ Move %2 %3 mods to "%4".&#32;
  will not automatically adapt versions, will not overwrite existing files, and will not migrate configurations. %5</translation>
         </message>
         <message>
@@ -6636,7 +6636,7 @@ Minecraft %2 / %3 %4</translation>
         </message>
         <message>
             <source>复制并校验模组文件</source>
-            <translation>Copy and verify the module files</translation>
+            <translation>Copy and verify the mod files</translation>
         </message>
         <message>
             <source>正在取消…</source>
@@ -6701,7 +6701,7 @@ Minecraft %2 / %3 %4</translation>
             <source>已备份存档信息。手动还原时把备份复制到存档目录并命名为 level.dat。
 
 备份位置：%1</source>
-            <translation>Archive information has been backed up. When restoring manually, copy the backup to the archive directory and name it level.dat. 
+            <translation>World save information has been backed up. When restoring manually, copy the backup to the world save directory and name it level.dat.&#32;
 
 Backup location: %1</translation>
         </message>
@@ -6715,7 +6715,7 @@ Backup location: %1</translation>
         </message>
         <message>
             <source>这个存档以后叫什么？</source>
-            <translation>What will this archive be called in the future?</translation>
+            <translation>What will this world save be called in the future?</translation>
         </message>
         <message>
             <source>删除世界</source>
@@ -6723,7 +6723,7 @@ Backup location: %1</translation>
         </message>
         <message>
             <source>游戏正在运行，请关闭后再删除存档。</source>
-            <translation>The game is running, please close it before deleting the archive.</translation>
+            <translation>The game is running, please close it before deleting the world save.</translation>
         </message>
         <message>
             <source>「%1」正在被另一项操作占用（安装、导入、复制、备份或还原），等它结束之后再删这个世界。</source>
@@ -6743,7 +6743,7 @@ Backup location: %1</translation>
         </message>
         <message>
             <source>将直接修改“%1”的存档名称、游戏模式、难度及规则。建议先备份存档信息。</source>
-            <translation>The archive name, game mode, difficulty and rules of "%1" will be modified directly. It is recommended to back up the archive information first.</translation>
+            <translation>The world save name, game mode, difficulty and rules of "%1" will be modified directly. It is recommended to back up the world save information first.</translation>
         </message>
         <message>
             <source>继续改</source>
@@ -6755,7 +6755,7 @@ Backup location: %1</translation>
         </message>
         <message>
             <source>备份当前 level.dat，不修改存档。</source>
-            <translation>Back up the current level.dat without modifying the archive.</translation>
+            <translation>Back up the current level.dat without modifying the world save.</translation>
         </message>
         <message>
             <source>没能备份</source>
@@ -6768,7 +6768,7 @@ Backup location: %1</translation>
         <message>
             <source>已备份“%1”的存档信息：
 %2</source>
-            <translation>The archive information of "%1" has been backed up: 
+            <translation>The world save information of "%1" has been backed up:&#32;
 %2</translation>
         </message>
         <message>
@@ -6872,7 +6872,7 @@ The corresponding records in the game servers.dat will be removed together.</tra
         </message>
         <message>
             <source>这份统计只看主世界 region/ 里的 .mca —— 模组生成的地形与维度不在里面，结果可能不完整。</source>
-            <translation>This statistics only looks at the .mca in the main world region/ - the terrain and dimensions generated by the module are not included, and the results may be incomplete.</translation>
+            <translation>This statistics only looks at the .mca in the main world region/ - the terrain and dimensions generated by the mod are not included, and the results may be incomplete.</translation>
         </message>
         <message>
             <source>有 %1 个区域文件的头部不完整（可能已损坏），它们没有计入区块数与范围。</source>
@@ -7502,7 +7502,7 @@ Discard changes?</translation>
         </message>
         <message>
             <source>搜索存档名称</source>
-            <translation>Search archive name</translation>
+            <translation>Search worlds</translation>
         </message>
         <message>
             <source>加入世界</source>
@@ -7570,11 +7570,11 @@ Discard changes?</translation>
         </message>
         <message>
             <source>请先选择存档。</source>
-            <translation>Please select archive first.</translation>
+            <translation>Select a world first.</translation>
         </message>
         <message>
             <source>存档</source>
-            <translation>Archive</translation>
+            <translation>Worlds</translation>
         </message>
         <message>
             <source>投影</source>
@@ -7638,7 +7638,7 @@ Discard changes?</translation>
         </message>
         <message>
             <source>更新</source>
-            <translation>Renew</translation>
+            <translation>Update</translation>
         </message>
         <message>
             <source>全选</source>
@@ -7730,7 +7730,7 @@ Discard changes?</translation>
         </message>
         <message>
             <source>复制选中模组清单</source>
-            <translation>Copy selected module list</translation>
+            <translation>Copy selected mod list</translation>
         </message>
         <message>
             <source>反转每项启用状态</source>
@@ -7738,7 +7738,7 @@ Discard changes?</translation>
         </message>
         <message>
             <source>选择仅针对当前筛选结果。删除模组不清理配置。</source>
-            <translation>Select only current filter results. Deleting the module does not clean up the configuration.</translation>
+            <translation>Select only current filter results. Deleting the mod does not clean up the configuration.</translation>
         </message>
         <message>
             <source>打开文件夹</source>
@@ -7755,18 +7755,18 @@ Discard changes?</translation>
         <message>
             <source>禁用 %1 个文件，%2 项不变。
 %3</source>
-            <translation>%1 files disabled, %2 items unchanged. 
+            <translation>%1 files disabled, %2 unchanged.
 %3</translation>
         </message>
         <message>
             <source>启用 %1 个文件，%2 项不变。
 %3</source>
-            <translation>Enable %1 files, %2 items unchanged. 
+            <translation>%1 files enabled, %2 unchanged.
 %3</translation>
         </message>
         <message>
             <source>共 %1 个模组</source>
-            <translation>Total %1 modules</translation>
+            <translation>%1 mods</translation>
         </message>
         <message>
             <source>已选 %1 项</source>
@@ -7774,7 +7774,7 @@ Discard changes?</translation>
         </message>
         <message>
             <source>启用 %1  /  禁用 %2</source>
-            <translation>Enable %1 / Disable %2</translation>
+            <translation>Enabled: %1 / Disabled: %2</translation>
         </message>
     </context>
     <context>
@@ -7894,7 +7894,7 @@ Discard changes?</translation>
         <name>InstanceMaintenanceController</name>
         <message>
             <source>这个存档里没有 level.dat。</source>
-            <translation>There is no level.dat in this archive.</translation>
+            <translation>There is no level.dat in this world save.</translation>
         </message>
         <message>
             <source>建不出备份目录：%1</source>
@@ -7906,15 +7906,15 @@ Discard changes?</translation>
         </message>
         <message>
             <source>存档备份没有搬：%1 不是一个普通目录。</source>
-            <translation>The archive backup was not moved: %1 is not an ordinary directory.</translation>
+            <translation>The world save backup was not moved: %1 is not an ordinary directory.</translation>
         </message>
         <message>
             <source>存档备份没有搬：%1 已经存在，旧的那一份留在原处。</source>
-            <translation>The archive backup has not been moved: %1 already exists, and the old copy remains where it is.</translation>
+            <translation>The world save backup has not been moved: %1 already exists, and the old copy remains where it is.</translation>
         </message>
         <message>
             <source>存档备份没有搬：%1 改不成 %2（可能有别的程序正开着它）。</source>
-            <translation>The archive backup has not been moved: %1 cannot be changed to %2 (there may be other programs running it).</translation>
+            <translation>The world save backup has not been moved: %1 cannot be changed to %2 (there may be other programs running it).</translation>
         </message>
     </context>
     <context>
@@ -7952,7 +7952,7 @@ Discard changes?</translation>
         </message>
         <message>
             <source>世界与联机</source>
-            <translation>World and online</translation>
+            <translation>Worlds and multiplayer</translation>
         </message>
         <message>
             <source>创作工具</source>
@@ -7964,7 +7964,7 @@ Discard changes?</translation>
         </message>
         <message>
             <source>日志</source>
-            <translation>Log</translation>
+            <translation>Logs</translation>
         </message>
         <message>
             <source>游戏目录</source>
@@ -7972,7 +7972,7 @@ Discard changes?</translation>
         </message>
         <message>
             <source>崩溃报告</source>
-            <translation>Crash report</translation>
+            <translation>Crash reports</translation>
         </message>
         <message>
             <source>配置</source>
@@ -8004,7 +8004,7 @@ Discard changes?</translation>
         </message>
         <message>
             <source>暂无模组，可通过“%1”添加。</source>
-            <translation>There is no module yet, you can add it through "%1".</translation>
+            <translation>No mods installed. Use “%1” to add mods.</translation>
         </message>
         <message>
             <source>暂无资源包，可通过“%1”添加。</source>
@@ -8016,11 +8016,11 @@ Discard changes?</translation>
         </message>
         <message>
             <source>暂无光影，可通过“%1”添加。</source>
-            <translation>There is currently no light and shadow, which can be added via "%1".</translation>
+            <translation>No shaderpacks installed. Use “%1” to add shaderpacks.</translation>
         </message>
         <message>
             <source>暂无结构或原理图</source>
-            <translation>No structure or schematic diagram yet</translation>
+            <translation>No structures or schematics</translation>
         </message>
         <message>
             <source>暂无配置文件，启动游戏后可自动生成。</source>
@@ -8028,15 +8028,15 @@ Discard changes?</translation>
         </message>
         <message>
             <source>暂无存档</source>
-            <translation>No archives yet</translation>
+            <translation>No worlds yet</translation>
         </message>
         <message>
             <source>使用光影需要 Iris 或 OptiFine，请先安装兼容版本。</source>
-            <translation>Using light and shadow requires Iris or OptiFine, please install a compatible version first.</translation>
+            <translation>Using shaderpack requires Iris or OptiFine, please install a compatible version first.</translation>
         </message>
         <message>
             <source>使用原理图需要安装 Litematica 等兼容模组。</source>
-            <translation>Using schematics requires installing compatible modules such as Litematica.</translation>
+            <translation>Using schematics requires installing compatible mods such as Litematica.</translation>
         </message>
         <message>
             <source>当前实例未安装模组加载器，无法加载 mods 目录中的模组。</source>
@@ -8044,7 +8044,7 @@ Discard changes?</translation>
         </message>
         <message>
             <source>当前游戏版本不支持数据包，需要 Minecraft 1.13 或更新版本。</source>
-            <translation>The current version of the game does not support data packs and requires Minecraft 1.13 or newer.</translation>
+            <translation>The current version of the game does not support datapacks and requires Minecraft 1.13 or newer.</translation>
         </message>
         <message>
             <source>下载新模组</source>
@@ -8060,7 +8060,7 @@ Discard changes?</translation>
         </message>
         <message>
             <source>下载新光影</source>
-            <translation>Download new light and shadow</translation>
+            <translation>Download shaderpacks</translation>
         </message>
         <message>
             <source>打开“%1”下载页。</source>
@@ -8104,11 +8104,11 @@ Discard changes?</translation>
         </message>
         <message>
             <source>最后启动：%1</source>
-            <translation>Last started: %1</translation>
+            <translation>Last launch: %1</translation>
         </message>
         <message>
             <source>从未启动</source>
-            <translation>Never started</translation>
+            <translation>Never launched</translation>
         </message>
         <message>
             <source>以成功创建游戏进程的时间为准，不代表进入世界的时间。</source>
@@ -8144,7 +8144,7 @@ Discard changes?</translation>
         </message>
         <message>
             <source>启用与顺序</source>
-            <translation>Enable and sequence</translation>
+            <translation>In-game sequence</translation>
         </message>
         <message>
             <source>返回文件管理</source>
@@ -8156,11 +8156,11 @@ Discard changes?</translation>
         </message>
         <message>
             <source>启动</source>
-            <translation>Start up</translation>
+            <translation>Launch options</translation>
         </message>
         <message>
             <source>存档</source>
-            <translation>Archive</translation>
+            <translation>Worlds</translation>
         </message>
         <message>
             <source>服务器列表</source>
@@ -8172,19 +8172,19 @@ Discard changes?</translation>
         </message>
         <message>
             <source>数据包</source>
-            <translation>Packet</translation>
+            <translation>Datapacks</translation>
         </message>
         <message>
             <source>模组</source>
-            <translation>Module</translation>
+            <translation>Mods</translation>
         </message>
         <message>
             <source>光影包</source>
-            <translation>Light and shadow package</translation>
+            <translation>Shaderpacks</translation>
         </message>
         <message>
             <source>结构/原理图</source>
-            <translation>Structure/schematic diagram</translation>
+            <translation>Structures / Schematics</translation>
         </message>
         <message>
             <source>配置文件</source>
@@ -8244,7 +8244,7 @@ Discard changes?</translation>
         </message>
         <message>
             <source>启动实例</source>
-            <translation>Start an instance</translation>
+            <translation>Launch</translation>
         </message>
         <message>
             <source>从实例设置的任意页面启动当前实例</source>
@@ -8292,7 +8292,7 @@ Discard changes?</translation>
         </message>
         <message>
             <source>复制模组、存档和配置，创建独立实例。</source>
-            <translation>Copy modules, saves and configurations to create independent instances.</translation>
+            <translation>Copy mods, saves and configurations to create independent instances.</translation>
         </message>
         <message>
             <source>选择目标游戏目录和副本名称。复制保留原实例，运行中的实例不能复制。</source>
@@ -8320,7 +8320,7 @@ Discard changes?</translation>
         </message>
         <message>
             <source>批量编辑存档（暂不可用）。</source>
-            <translation>Batch edit archives (not available yet).</translation>
+            <translation>Batch edit world saves (not available yet).</translation>
         </message>
         <message>
             <source>导出启动脚本</source>
@@ -8332,7 +8332,7 @@ Discard changes?</translation>
         </message>
         <message>
             <source>导出独立启动脚本。正版脚本不保存令牌，运行时需提供 WTFML_MC_ACCESS_TOKEN。</source>
-            <translation>Export standalone startup script. Genuine scripts do not save tokens and need to provide WTFML_MC_ACCESS_TOKEN when running.</translation>
+            <translation>Export standalone startup script. Scripts for Microsoft accounts do not save tokens and need to provide WTFML_MC_ACCESS_TOKEN when running.</translation>
         </message>
         <message>
             <source>校验并补齐客户端、库和资源；下载或安装期间不可执行。</source>
@@ -8504,7 +8504,7 @@ Discard changes?</translation>
         </message>
         <message>
             <source>跟随全局</source>
-            <translation>Follow the big picture</translation>
+            <translation>Global</translation>
         </message>
         <message>
             <source>自定义</source>
@@ -8512,7 +8512,7 @@ Discard changes?</translation>
         </message>
         <message>
             <source>跟随全局（当前 %1）</source>
-            <translation>Follow global (currently %1)</translation>
+            <translation>Global (current: %1)</translation>
         </message>
         <message>
             <source>自动分配内存时，手动设置不生效。</source>
@@ -8540,7 +8540,7 @@ Discard changes?</translation>
         </message>
         <message>
             <source>「跟随全局」使用全局设置，「自定义」仅用于本实例。</source>
-            <translation>"Follow global" uses global settings, and "Custom" is only used in this instance.</translation>
+            <translation>Global uses the launcher settings. Custom applies to this instance.</translation>
         </message>
         <message>
             <source>Java 路径</source>
@@ -8568,11 +8568,11 @@ Discard changes?</translation>
         </message>
         <message>
             <source>最大内存</source>
-            <translation>Maximum memory</translation>
+            <translation>Max memory</translation>
         </message>
         <message>
             <source>当前实例的最大内存。</source>
-            <translation>The maximum memory for the current instance.</translation>
+            <translation>Maximum memory allocated to this instance.</translation>
         </message>
         <message>
             <source>最小内存</source>
@@ -8648,7 +8648,7 @@ Discard changes?</translation>
         </message>
         <message>
             <source>存档 generated 目录中的结构文件。双击打开，右键打开目录。</source>
-            <translation>Archive the structure files in the generated directory. Double-click to open, right-click to open the directory.</translation>
+            <translation>Structure files in the world save's generated folder. Double-click to open a file or right-click to open its folder.</translation>
         </message>
         <message>
             <source>按修改时间从新到旧。双击打开，右键打开目录。</source>
@@ -8664,7 +8664,7 @@ Discard changes?</translation>
         </message>
         <message>
             <source>返回存档</source>
-            <translation>Return to archive</translation>
+            <translation>Return to world save</translation>
         </message>
         <message>
             <source>备份只覆盖选中的世界。</source>
@@ -8720,7 +8720,7 @@ Discard changes?</translation>
         </message>
         <message>
             <source>模组声明：正在读取…</source>
-            <translation>Module Statement: Reading...</translation>
+            <translation>Mod Statement: Reading...</translation>
         </message>
         <message>
             <source>重新检查</source>
@@ -8728,7 +8728,7 @@ Discard changes?</translation>
         </message>
         <message>
             <source>当前模组</source>
-            <translation>Current module</translation>
+            <translation>Current mod</translation>
         </message>
         <message>
             <source>状态</source>
@@ -8826,7 +8826,7 @@ Discard changes?</translation>
         </message>
         <message>
             <source>更新</source>
-            <translation>Renew</translation>
+            <translation>Update</translation>
         </message>
         <message>
             <source>文件与导出</source>
@@ -8854,7 +8854,7 @@ Discard changes?</translation>
         </message>
         <message>
             <source>启动设置</source>
-            <translation>Launch settings</translation>
+            <translation>Launch options</translation>
         </message>
         <message>
             <source>原理图</source>
@@ -8993,11 +8993,11 @@ Please select a valid game directory.</translation>
         </message>
         <message>
             <source>游戏正在运行，先关闭游戏再导入存档。</source>
-            <translation>The game is running. Close the game first and then import the archive.</translation>
+            <translation>The game is running. Close the game first and then import the world save.</translation>
         </message>
         <message>
             <source>实例正在安装或处理文件，完成后再导入存档。</source>
-            <translation>The instance is installing or processing the file and will import the archive when it is complete.</translation>
+            <translation>The instance is installing or processing the file and will import the world save when it is complete.</translation>
         </message>
         <message>
             <source>导入世界失败</source>
@@ -9005,7 +9005,7 @@ Please select a valid game directory.</translation>
         </message>
         <message>
             <source>认不出这个实例的存档目录。</source>
-            <translation>The archive directory for this instance is not recognized.</translation>
+            <translation>The world save directory for this instance is not recognized.</translation>
         </message>
         <message>
             <source>导入世界：%1 → %2</source>
@@ -9013,7 +9013,7 @@ Please select a valid game directory.</translation>
         </message>
         <message>
             <source>实例正在运行或处理文件，完成后再导入存档。</source>
-            <translation>The instance is running or processing the file and then importing the archive when complete.</translation>
+            <translation>The instance is running or processing the file and then importing the world save when complete.</translation>
         </message>
         <message>
             <source>已经有一个同名的世界</source>
@@ -9053,7 +9053,7 @@ Please select a valid game directory.</translation>
         </message>
         <message>
             <source>正在后台导入存档，请勿修改源世界。</source>
-            <translation>The archive is being imported in the background, please do not modify the source world.</translation>
+            <translation>The world save is being imported in the background, please do not modify the source world.</translation>
         </message>
         <message>
             <source>：</source>
@@ -9089,11 +9089,11 @@ Please select a valid game directory.</translation>
         </message>
         <message>
             <source>要删除的目录不是当前实例的直接存档目录，未执行删除。</source>
-            <translation>The directory to be deleted is not the direct archive directory of the current instance and deletion has not been performed.</translation>
+            <translation>The directory to be deleted is not the direct world save directory of the current instance and deletion has not been performed.</translation>
         </message>
         <message>
             <source>游戏正在运行，请退出游戏后再删除此存档。</source>
-            <translation>The game is running, please exit the game before deleting this archive.</translation>
+            <translation>The game is running, please exit the game before deleting this world save.</translation>
         </message>
         <message>
             <source>「%1」正在被另一项操作占用（安装、导入、复制、备份或还原），等它结束之后再删这个世界。</source>
@@ -9137,7 +9137,7 @@ Please select a valid game directory.</translation>
         </message>
         <message>
             <source>游戏正在运行，请退出游戏后再重命名存档。</source>
-            <translation>The game is running, please exit the game before renaming the archive.</translation>
+            <translation>The game is running, please exit the game before renaming the world save.</translation>
         </message>
         <message>
             <source>「%1」正在被另一项操作占用（安装、导入、复制、备份或还原），等它结束之后再改这个世界。</source>
@@ -9169,15 +9169,15 @@ Please select a valid game directory.</translation>
         </message>
         <message>
             <source>旧模组处理</source>
-            <translation>Handling old modules</translation>
+            <translation>Handling old mods</translation>
         </message>
         <message>
             <source>游戏版本或加载器将变化，旧模组尚未验证适配。
 
 建议先禁用旧模组（文件保留，后缀改为 .disabled）。保留启用状态可能导致游戏无法启动。</source>
-            <translation>Game versions or loaders will change, and old mods have not yet been verified for adaptation. 
+            <translation>Game versions or loaders will change, and old mods have not yet been verified for adaptation.&#32;
 
-It is recommended to disable the old module first (the file is retained and the suffix is ​​changed to .disabled). Leaving it enabled may cause the game to fail to launch.</translation>
+It is recommended to disable the old mod first (the file is retained and the suffix is ​​changed to .disabled). Leaving it enabled may cause the game to fail to launch.</translation>
         </message>
         <message>
             <source>禁用旧模组</source>
@@ -9197,9 +9197,9 @@ It is recommended to disable the old module first (the file is retained and the 
 存档、截图、配置及其它用户文件全部保留，不导入目标实例的用户文件。先创建并逐文件校验完整快照，再替换；原目录另行保留，可用「回滚原地升级」恢复。
 
 以磁盘内容为准：未保存的设置请先取消并保存，替换后会关闭当前设置页。这不会自动适配或下载模组。继续吗？</source>
-            <translation>Replace the core of "%1" with %2 / %3. 
+            <translation>Replace the core of "%1" with %2 / %3.&#32;
 
-Archives, screenshots, configurations, and other user files are all retained, and user files of the target instance are not imported. First create and verify a complete snapshot file by file before replacing it; the original directory is retained separately and can be restored using "Rollback in-place upgrade". 
+World saves, screenshots, configurations, and other user files are all retained, and user files of the target instance are not imported. First create and verify a complete snapshot file by file before replacing it; the original directory is retained separately and can be restored using "Rollback in-place upgrade".&#32;
 
 Subject to disk content: Please cancel and save unsaved settings first. After replacement, the current settings page will be closed. This will not automatically adapt or download mods. Continue?</translation>
         </message>
@@ -9255,9 +9255,9 @@ Subject to disk content: Please cancel and save unsaved settings first. After re
             <source>恢复「%1」最近一次原地升级前的完整目录。
 
 当前版本也会另行保留，不删除文件。升级之后的新存档进度不会合并到旧目录；如需保留，可从事务目录中的 replaced 取回。</source>
-            <translation>Restore the complete directory of "%1" before the latest in-place upgrade. 
+            <translation>Restore the complete directory of "%1" before the latest in-place upgrade.&#32;
 
-The current version will also be retained separately and the file will not be deleted. The new archive progress after the upgrade will not be merged into the old directory; if it needs to be retained, it can be retrieved from replaced in the transaction directory.</translation>
+The current version will also be retained separately and the file will not be deleted. The new world save progress after the upgrade will not be merged into the old directory; if it needs to be retained, it can be retrieved from replaced in the transaction directory.</translation>
         </message>
         <message>
             <source>恢复原实例</source>
@@ -9499,19 +9499,19 @@ The current version will also be retained separately and the file will not be de
         </message>
         <message>
             <source>同名模组已存在且内容不同，未覆盖：%1</source>
-            <translation>The module with the same name already exists and the content is different, not covered: %1</translation>
+            <translation>The mod with the same name already exists and the content is different, not covered: %1</translation>
         </message>
         <message>
             <source>无法写入适配模组：%1</source>
-            <translation>Unable to write adaptation module: %1</translation>
+            <translation>Unable to write adaptation mod: %1</translation>
         </message>
         <message>
             <source>适配模组写入失败：%1</source>
-            <translation>Adaptation module writing failed: %1</translation>
+            <translation>Adaptation mod writing failed: %1</translation>
         </message>
         <message>
             <source>适配模组提交后校验失败：%1</source>
-            <translation>Verification failed after submission of the adaptation module: %1</translation>
+            <translation>Verification failed after submission of the adaptation mod: %1</translation>
         </message>
         <message>
             <source>嵌套 JAR 随父 JAR 一起替换，不单独列出或替换。</source>
@@ -9571,15 +9571,15 @@ The current version will also be retained separately and the file will not be de
         </message>
         <message>
             <source>无法创建候选模组目录，本次更新未发布。</source>
-            <translation>Unable to create candidate module directory, this update has not been released.</translation>
+            <translation>Unable to create candidate mod directory, this update has not been released.</translation>
         </message>
         <message>
             <source>适配模组文件名不安全，本次更新未发布：%1</source>
-            <translation>The adapter module file name is unsafe and this update has not been released: %1</translation>
+            <translation>The adapter mod file name is unsafe and this update has not been released: %1</translation>
         </message>
         <message>
             <source>适配模组未通过校验，整趟更新已回滚：%1</source>
-            <translation>The adaptation module failed the verification and the entire update has been rolled back: %1</translation>
+            <translation>The adaptation mod failed the verification and the entire update has been rolled back: %1</translation>
         </message>
         <message>
             <source>要替换的旧模组是链接，未动它：%1</source>
@@ -9591,7 +9591,7 @@ The current version will also be retained separately and the file will not be de
         </message>
         <message>
             <source>适配模组写入失败，整趟更新已回滚：%1</source>
-            <translation>The writing of the adaptation module failed and the entire update has been rolled back: %1</translation>
+            <translation>The writing of the adaptation mod failed and the entire update has been rolled back: %1</translation>
         </message>
         <message>
             <source>无法禁用尚未验证兼容性的旧模组，原实例未改变。</source>
@@ -10785,7 +10785,7 @@ The game was not launched. You can set the Java path manually in Instance Settin
         </message>
         <message>
             <source>下载：从实例设置里点「下载新模组」时不再问存哪儿，直接放进该实例。</source>
-            <translation>Download: When you click "Download New Module" from the instance settings, you no longer need to ask where to save it, just put it directly into the instance.</translation>
+            <translation>Download: When you click "Download New Mod" from the instance settings, you no longer need to ask where to save it, just put it directly into the instance.</translation>
         </message>
         <message>
             <source>下载：不管从哪儿点进来的，每次都会问存哪儿。</source>
@@ -10793,7 +10793,7 @@ The game was not launched. You can set the Java path manually in Instance Settin
         </message>
         <message>
             <source>下载：点下载模组 / 光影包时会先检查那个实例缺不缺前置。</source>
-            <translation>Download: When you click to download the module/light and shadow package, it will first check whether the instance is missing the prerequisite.</translation>
+            <translation>Download: When you click to download the mod/shaderpack, it will first check whether the instance is missing the prerequisite.</translation>
         </message>
         <message>
             <source>下载：不再检查前置，只下你点的那一版。</source>
@@ -10838,7 +10838,7 @@ The game was not launched. You can set the Java path manually in Instance Settin
         </message>
         <message>
             <source>检查模组、前置与配置</source>
-            <translation>Check modules, prerequisites and configurations</translation>
+            <translation>Check mods, prerequisites and configurations</translation>
         </message>
         <message>
             <source>正在检查并应用实例预设…</source>
@@ -10846,11 +10846,11 @@ The game was not launched. You can set the Java path manually in Instance Settin
         </message>
         <message>
             <source>预设在确认后发生变化或已损坏，未继续下载模组；请重新预览并确认。</source>
-            <translation>The default has changed or been damaged after confirmation, and the module download has not continued; please preview and confirm again.</translation>
+            <translation>The default has changed or been damaged after confirmation, and the mod download has not continued; please preview and confirm again.</translation>
         </message>
         <message>
             <source>正在应用实例预设：检查模组及必要前置…</source>
-            <translation>Applying instance presets: Checking modules and necessary prerequisites...</translation>
+            <translation>Applying instance presets: Checking mods and necessary prerequisites...</translation>
         </message>
         <message>
             <source>预设在确认后发生变化或已损坏，未使用旧确认覆盖新内容，请重新预览。</source>
@@ -11198,7 +11198,7 @@ Verify and repair missing or damaged files?</translation>
         </message>
         <message>
             <source>前置模组的名字没取到：%1</source>
-            <translation>The name of the pre-module was not found: %1</translation>
+            <translation>The name of the pre-mod was not found: %1</translation>
         </message>
         <message>
             <source>知道了</source>
@@ -11248,7 +11248,7 @@ Verify and repair missing or damaged files?</translation>
         </message>
         <message>
             <source>%1 个前置按模组装进 %2。</source>
-            <translation>%1 front button modules are loaded into %2.</translation>
+            <translation>%1 front button mods are loaded into %2.</translation>
         </message>
         <message>
             <source>暂时无法操作</source>
@@ -11457,7 +11457,7 @@ If you change the zip, you need to recalculate SHA-1; the new value will be used
         </message>
         <message>
             <source>选模组 jar</source>
-            <translation>Select module jar</translation>
+            <translation>Select mod jar</translation>
         </message>
         <message>
             <source>数据包 (*.zip);;所有文件 (*.*)</source>
@@ -11465,7 +11465,7 @@ If you change the zip, you need to recalculate SHA-1; the new value will be used
         </message>
         <message>
             <source>模组 (*.jar);;所有文件 (*.*)</source>
-            <translation>Module (*.jar);;All files (*.*)</translation>
+            <translation>Mod (*.jar);;All files (*.*)</translation>
         </message>
         <message>
             <source>建不出这个文件夹：%1</source>
@@ -11619,7 +11619,7 @@ If you change the zip, you need to recalculate SHA-1; the new value will be used
         </message>
         <message>
             <source>请先停止服务端再备份，以避免读取正在写入的存档数据。</source>
-            <translation>Please stop the server first before backing up to avoid reading the archive data being written.</translation>
+            <translation>Please stop the server first before backing up to avoid reading the world save data being written.</translation>
         </message>
         <message>
             <source>无法备份</source>
@@ -11801,7 +11801,7 @@ Confirm deletion?</translation>
         </message>
         <message>
             <source>起服务端 %1：%2 个模组、存档 %3 MB，停下来最多等 %4 秒。</source>
-            <translation>Start server %1: %2 modules, archive %3 MB, stop and wait up to %4 seconds.</translation>
+            <translation>Start server %1: %2 mods, world save %3 MB, stop and wait up to %4 seconds.</translation>
         </message>
         <message>
             <source>%1：让它停的那一句没能写进去，只能强制结束。</source>
@@ -12703,7 +12703,7 @@ What to do when closing the launcher?
         </message>
         <message>
             <source>已关掉启动器，但服务端没能正常停下来：%1。最后那一小段存档可能没来得及写完。</source>
-            <translation>The launcher has been closed, but the server failed to stop normally: %1. The last short section of the archive may not have had time to be written.</translation>
+            <translation>The launcher has been closed, but the server failed to stop normally: %1. The last short section of the world save may not have had time to be written.</translation>
         </message>
         <message>
             <source>已关掉启动器，服务端继续在跑。</source>
@@ -12881,7 +12881,7 @@ Go back to the "%1" tab, click the "←" in the upper left corner to close it, a
             <source>将删除服务端「%1」（含存档、模组与配置）。文件将移至回收站。
 
 确定删除？</source>
-            <translation>The server "%1" (including archives, modules and configurations) will be deleted. The file will be moved to the Recycle Bin. 
+            <translation>The server "%1" (including world saves, mods and configurations) will be deleted. The file will be moved to the Recycle Bin.&#32;
 
 Are you sure to delete?</translation>
         </message>
@@ -13313,7 +13313,7 @@ Are you sure to delete?</translation>
         </message>
         <message>
             <source>最大内存</source>
-            <translation>Maximum memory</translation>
+            <translation>Max memory</translation>
         </message>
         <message>
             <source>游戏窗口</source>
@@ -13337,7 +13337,7 @@ Are you sure to delete?</translation>
         </message>
         <message>
             <source>运行与日志</source>
-            <translation>Operation and log</translation>
+            <translation>Launching and logs</translation>
         </message>
         <message>
             <source>启动后</source>
@@ -13405,7 +13405,7 @@ Are you sure to delete?</translation>
         </message>
         <message>
             <source>同时运行可能损坏存档。</source>
-            <translation>Running them simultaneously may corrupt the archive.</translation>
+            <translation>Running them simultaneously may corrupt the world save.</translation>
         </message>
         <message>
             <source>下载时</source>
@@ -13413,7 +13413,7 @@ Are you sure to delete?</translation>
         </message>
         <message>
             <source>关闭后模组可能因缺前置无法运行。</source>
-            <translation>After closing, the module may not be able to run due to lack of front-end.</translation>
+            <translation>After closing, the mod may not be able to run due to lack of front-end.</translation>
         </message>
         <message>
             <source>主题</source>
@@ -14040,7 +14040,7 @@ Are you sure to delete?</translation>
         </message>
         <message>
             <source>下载后请将数据包放入对应存档的 datapacks 文件夹。</source>
-            <translation>After downloading, please put the data package into the datapacks folder of the corresponding archive.</translation>
+            <translation>After downloading, please put the data package into the datapacks folder of the corresponding world save.</translation>
         </message>
         <message>
             <source>新建服务端；安装完成后可在「管理 → 服务端」中启动并查看控制台</source>
@@ -14064,11 +14064,11 @@ Are you sure to delete?</translation>
         </message>
         <message>
             <source>模组</source>
-            <translation>Module</translation>
+            <translation>Mods</translation>
         </message>
         <message>
             <source>数据包</source>
-            <translation>Packet</translation>
+            <translation>Datapacks</translation>
         </message>
         <message>
             <source>资源包</source>
@@ -14076,7 +14076,7 @@ Are you sure to delete?</translation>
         </message>
         <message>
             <source>光影</source>
-            <translation>Light and shadow</translation>
+            <translation>Shaderpacks</translation>
         </message>
         <message>
             <source>安装完成后会出现在「管理 → 服务端」：启动、控制台和设置都在那里。</source>
@@ -14088,11 +14088,11 @@ Are you sure to delete?</translation>
         </message>
         <message>
             <source>搜索模组名称</source>
-            <translation>Search module name</translation>
+            <translation>Search mod name</translation>
         </message>
         <message>
             <source>搜索数据包名称</source>
-            <translation>Search packet name</translation>
+            <translation>Search datapack name</translation>
         </message>
         <message>
             <source>搜索资源包名称</source>
@@ -14100,7 +14100,7 @@ Are you sure to delete?</translation>
         </message>
         <message>
             <source>搜索光影包名称</source>
-            <translation>Search light and shadow package name</translation>
+            <translation>Search shaderpacks</translation>
         </message>
         <message>
             <source>← 返回实例设置</source>
@@ -14422,7 +14422,7 @@ It will not restart automatically when stopped manually or exited normally.</tra
         </message>
         <message>
             <source>启用中</source>
-            <translation>Activating</translation>
+            <translation>Enabled</translation>
         </message>
         <message>
             <source>文件夹：%1</source>
@@ -14558,7 +14558,7 @@ It will not restart automatically when stopped manually or exited normally.</tra
         </message>
         <message>
             <source>正版</source>
-            <translation>Genuine</translation>
+            <translation>Microsoft</translation>
         </message>
         <message>
             <source>离线</source>
@@ -14590,7 +14590,7 @@ It will not restart automatically when stopped manually or exited normally.</tra
         </message>
         <message>
             <source>日志</source>
-            <translation>Log</translation>
+            <translation>Logs</translation>
         </message>
         <message>
             <source>暂无后台任务</source>
@@ -14792,7 +14792,7 @@ It will not restart automatically when stopped manually or exited normally.</tra
         </message>
         <message>
             <source>更新</source>
-            <translation>Renew</translation>
+            <translation>Update</translation>
         </message>
         <message>
             <source>忽略这一版</source>
@@ -14876,7 +14876,7 @@ It will not restart automatically when stopped manually or exited normally.</tra
         </message>
         <message>
             <source>检查前置模组</source>
-            <translation>Check the front module</translation>
+            <translation>Check the front mod</translation>
         </message>
         <message>
             <source>游戏日志窗口</source>
@@ -15256,11 +15256,11 @@ It will not restart automatically when stopped manually or exited normally.</tra
         </message>
         <message>
             <source>此光影包缺失必要的前置：</source>
-            <translation>This light and shadow package is missing necessary prerequisites:</translation>
+            <translation>This shaderpack is missing necessary prerequisites:</translation>
         </message>
         <message>
             <source>此模组缺失必要的前置：</source>
-            <translation>This module is missing necessary prerequisites:</translation>
+            <translation>This mod is missing necessary prerequisites:</translation>
         </message>
         <message>
             <source>还有前置没装</source>
@@ -15292,7 +15292,7 @@ It will not restart automatically when stopped manually or exited normally.</tra
         </message>
         <message>
             <source>可以在设置中关闭此提示（设置 → 提示 →「检查前置模组」）。</source>
-            <translation>This prompt can be turned off in settings (Settings → Prompts → "Check pre-modules").</translation>
+            <translation>This prompt can be turned off in settings (Settings → Prompts → "Check pre-mods").</translation>
         </message>
         <message>
             <source>一起下载</source>
@@ -15316,7 +15316,7 @@ It will not restart automatically when stopped manually or exited normally.</tra
         </message>
         <message>
             <source>正在查询 %1 个前置模组的可用版本…</source>
-            <translation>Querying available versions of %1 front-end modules...</translation>
+            <translation>Querying available versions of %1 front-end mods...</translation>
         </message>
         <message>
             <source>这一版要装的前置：%1</source>
@@ -15328,7 +15328,7 @@ It will not restart automatically when stopped manually or exited normally.</tra
         </message>
         <message>
             <source>这一版要 %1 个前置模组（名字没取到）。</source>
-            <translation>This version requires %1 pre-modules (names not found).</translation>
+            <translation>This version requires %1 pre-mods (names not found).</translation>
         </message>
         <message>
             <source>已是最新</source>
@@ -15351,11 +15351,11 @@ It will not restart automatically when stopped manually or exited normally.</tra
         <name>ModpackExport</name>
         <message>
             <source>日志</source>
-            <translation>Log</translation>
+            <translation>Logs</translation>
         </message>
         <message>
             <source>崩溃报告</source>
-            <translation>Crash report</translation>
+            <translation>Crash reports</translation>
         </message>
         <message>
             <source>启动器解出来的运行时文件</source>
@@ -15407,7 +15407,7 @@ It will not restart automatically when stopped manually or exited normally.</tra
         </message>
         <message>
             <source>存档（没勾上才排）</source>
-            <translation>Archive (arranged only if not checked)</translation>
+            <translation>World save (arranged only if not checked)</translation>
         </message>
         <message>
             <source>截图（没勾上才排）</source>
@@ -15608,7 +15608,7 @@ It will not restart automatically when stopped manually or exited normally.</tra
         </message>
         <message>
             <source>问过 %1 个文件，认出来 %2 个（写进清单，装的人那边自己去下）；其余 %3 个原样打进了包里（模组本体、配置、资源包都在）。</source>
-            <translation>After asking for %1 files, %2 were recognized (written into the list and downloaded by the installer); the remaining %3 were put into the package as they were (module body, configuration, resource package are all there).</translation>
+            <translation>After asking for %1 files, %2 were recognized (written into the list and downloaded by the installer); the remaining %3 were put into the package as they were (mod body, configuration, resource package are all there).</translation>
         </message>
         <message>
             <source>其中 %1 个的作者关掉了第三方分发 —— 它们只能跟着包走。</source>
@@ -15628,7 +15628,7 @@ It will not restart automatically when stopped manually or exited normally.</tra
         </message>
         <message>
             <source>没进包：%1（共 %2 个文件）。存档和截图是你自己的东西，打进包里会盖掉收包那个人的。</source>
-            <translation>Not included: %1 (%2 files in total). Archives and screenshots are your own. Putting them into the bag will override the person who collected the bag.</translation>
+            <translation>Not included: %1 (%2 files in total). World saves and screenshots are your own. Putting them into the bag will override the person who collected the bag.</translation>
         </message>
         <message>
             <source>这是 %1 的包：别人在启动器里用「导入整合包…」即可导入安装。</source>
@@ -15663,11 +15663,11 @@ So there is no import. (Fabric / Forge / NeoForge / OptiFine can be installed di
 认得的是这几种：Modrinth 格式（根目录有一份 modrinth.index.json）、CurseForge 格式（有一份 manifest.json）、MultiMC / Prism 导出的实例（有一份 mmc-pack.json）、以及直接把 .minecraft 文件夹压进来的懒人包（里面有 mods/、config/ 或 options.txt）。
 
 都对不上的话，它多半只是一个普通的压缩包 —— 比如资源包、光影包，或者只放了几份说明文件的合集。</source>
-            <translation>There is no integrated package list in this compressed package, and I cannot recognize its format. 
+            <translation>There is no integrated package list in this compressed package, and I cannot recognize its format.&#32;
 
- recognizes these types: Modrinth format (there is a copy of modrinth.index.json in the root directory), CurseForge format (there is a copy of manifest.json), MultiMC / Prism exported examples (there is a copy of mmc-pack.json), and lazy packages that directly compress the .minecraft folder (with mods/, config/ or options.txt in it). If 
+ recognizes these types: Modrinth format (there is a copy of modrinth.index.json in the root directory), CurseForge format (there is a copy of manifest.json), MultiMC / Prism exported examples (there is a copy of mmc-pack.json), and lazy packages that directly compress the .minecraft folder (with mods/, config/ or options.txt in it). If&#32;
 
- doesn't match, it's probably just an ordinary compressed package - such as a resource package, a light and shadow package, or a collection of just a few description files.</translation>
+ doesn't match, it's probably just an ordinary compressed package - such as a resource package, a shaderpack, or a collection of just a few description files.</translation>
         </message>
         <message>
             <source>这个 MultiMC / Prism 实例的 mmc-pack.json 里没有 components，认不出它要哪个 Minecraft 版本。</source>
@@ -16450,7 +16450,7 @@ Project %2 / File %3 / %4
         </message>
         <message>
             <source>没有模组引用要检查。</source>
-            <translation>There are no module references to check.</translation>
+            <translation>There are no mod references to check.</translation>
         </message>
         <message>
             <source>检查中 %1/%2</source>
@@ -16577,7 +16577,7 @@ Project %2 / File %3 / %4
         </message>
         <message>
             <source>模组</source>
-            <translation>Module</translation>
+            <translation>Mods</translation>
         </message>
         <message>
             <source>按目标版本解析</source>
@@ -16597,11 +16597,11 @@ Project %2 / File %3 / %4
         </message>
         <message>
             <source>平台模组 %1 项；应用时联网检查发行版本、依赖和冲突，必要项无法确认则不安装。</source>
-            <translation>Platform module %1 item; check the release version, dependencies and conflicts online when applying. If necessary items cannot be confirmed, they will not be installed.</translation>
+            <translation>Platform mod %1 item; check the release version, dependencies and conflicts online when applying. If necessary items cannot be confirmed, they will not be installed.</translation>
         </message>
         <message>
             <source>；平台模组 %1 项（发行文件及前置待执行时确认）</source>
-            <translation>;Platform module %1 item (issued documents and prerequisites to be confirmed when executed)</translation>
+            <translation>;Platform mod %1 item (issued documents and prerequisites to be confirmed when executed)</translation>
         </message>
         <message>
             <source>预设不可读，无法核对执行报告。</source>
@@ -16661,7 +16661,7 @@ Project %2 / File %3 / %4
         </message>
         <message>
             <source>没有可读的模组执行报告，请重新预览。</source>
-            <translation>There is no readable module execution report, please preview again.</translation>
+            <translation>There is no readable mod execution report, please preview again.</translation>
         </message>
         <message>
             <source>报告格式不支持，未自动继续。</source>
@@ -16677,11 +16677,11 @@ Project %2 / File %3 / %4
         </message>
         <message>
             <source>正在检查并安装模组预设，必要前置将一并解析…</source>
-            <translation>Checking and installing module presets, necessary prerequisites will be parsed...</translation>
+            <translation>Checking and installing mod presets, necessary prerequisites will be parsed...</translation>
         </message>
         <message>
             <source>模组预设未全部应用，请查看逐项原因。</source>
-            <translation>Module defaults are not all applied, please check the reasons one by one.</translation>
+            <translation>Mod defaults are not all applied, please check the reasons one by one.</translation>
         </message>
         <message>
             <source>预设文件夹读不了：%1</source>
@@ -16689,7 +16689,7 @@ Project %2 / File %3 / %4
         </message>
         <message>
             <source>平台模组 %1 项：按目标版本解析发行文件与必要前置，缺失或查询失败会如实报告。</source>
-            <translation>Platform module %1 item: Parse release files and necessary prerequisites according to the target version. Missing or failed queries will be reported truthfully.</translation>
+            <translation>Platform mod %1 item: Parse release files and necessary prerequisites according to the target version. Missing or failed queries will be reported truthfully.</translation>
         </message>
         <message>
             <source>另一项模组预设仍在应用，请等待或取消。</source>
@@ -16709,7 +16709,7 @@ Project %2 / File %3 / %4
         </message>
         <message>
             <source>同一模组存在不同版本/加载器约束，未自动选择其中一项。</source>
-            <translation>There are different version/loader constraints for the same module, and one of them is not automatically selected.</translation>
+            <translation>There are different version/loader constraints for the same mod, and one of them is not automatically selected.</translation>
         </message>
         <message>
             <source>应用模组预设需要先安装模组加载器。</source>
@@ -16717,7 +16717,7 @@ Project %2 / File %3 / %4
         </message>
         <message>
             <source>应用模组预设：%1</source>
-            <translation>Apply module default: %1</translation>
+            <translation>Apply mod default: %1</translation>
         </message>
         <message>
             <source>无法读取预设，原文件保留。</source>
@@ -16793,7 +16793,7 @@ Project %2 / File %3 / %4
         </message>
         <message>
             <source>正在提取实例内容并识别模组来源…</source>
-            <translation>Extracting instance content and identifying module sources...</translation>
+            <translation>Extracting instance content and identifying mod sources...</translation>
         </message>
         <message>
             <source>无法保存提取的草稿。</source>
@@ -16801,7 +16801,7 @@ Project %2 / File %3 / %4
         </message>
         <message>
             <source>%1 个模组在 Modrinth 和 CurseForge 上都没认出来（可能手工改过、或者没传到任何一个平台），请在模组页补充 —— 那一页可以勾「只看没认出来的」先挑它们出来，或者点「移除没认出来的」整批删掉；也可以在概览中暂时禁用模组部分。</source>
-            <translation>%1 modules are not recognized on Modrinth and CurseForge (maybe they have been modified manually or not uploaded to any platform). Please add them on the module page - on that page, you can check "See only unrecognized ones" to select them first, or click "Remove unrecognized ones" to delete them in batches; you can also temporarily disable the module part in the overview.</translation>
+            <translation>%1 mods are not recognized on Modrinth and CurseForge (maybe they have been modified manually or not uploaded to any platform). Please add them on the mod page - on that page, you can check "See only unrecognized ones" to select them first, or click "Remove unrecognized ones" to delete them in batches; you can also temporarily disable the mod part in the overview.</translation>
         </message>
         <message>
             <source>游戏设置</source>
@@ -16829,7 +16829,7 @@ Project %2 / File %3 / %4
         </message>
         <message>
             <source>数据包</source>
-            <translation>Data packs</translation>
+            <translation>Datapacks</translation>
         </message>
         <message>
             <source>配置文件 config/</source>
@@ -16845,7 +16845,7 @@ Project %2 / File %3 / %4
         </message>
         <message>
             <source>光影包</source>
-            <translation>Shader packs</translation>
+            <translation>Shaderpacks</translation>
         </message>
         <message>
             <source>旧版（未分类）</source>
@@ -16861,7 +16861,7 @@ Project %2 / File %3 / %4
         </message>
         <message>
             <source>「游戏设置」预设不收资源包 / 光影包。</source>
-            <translation>Game settings presets do not include resource packs or shader packs.</translation>
+            <translation>Game settings presets do not include resource packs or shaderpacks.</translation>
         </message>
         <message>
             <source>仅提取资源包。</source>
@@ -16869,7 +16869,7 @@ Project %2 / File %3 / %4
         </message>
         <message>
             <source>仅提取光影包。</source>
-            <translation>Capture shader packs only.</translation>
+            <translation>Capture shaderpacks only.</translation>
         </message>
         <message>
             <source>模组预设请使用“编辑模组清单”添加平台项目，当前不从实例提取本地 JAR。</source>
@@ -16877,7 +16877,7 @@ Project %2 / File %3 / %4
         </message>
         <message>
             <source>数据包按存档应用；目标中没有同名存档时标记为「待应用」。</source>
-            <translation>Data packs are applied per world. If the target has no world with the same name, the pack is marked pending.</translation>
+            <translation>Datapacks are applied per world. If the target has no world with the same name, the pack is marked pending.</translation>
         </message>
         <message>
             <source>基础设置</source>
@@ -16973,7 +16973,7 @@ Project %2 / File %3 / %4
         </message>
         <message>
             <source>光影包 %1 个</source>
-            <translation>Shader packs: %1</translation>
+            <translation>Shaderpacks: %1</translation>
         </message>
         <message>
             <source>MaLiLib 热键 %1 格</source>
@@ -16985,7 +16985,7 @@ Project %2 / File %3 / %4
         </message>
         <message>
             <source>数据包 %1 个（%2 个存档）</source>
-            <translation>Data packs: %1 (worlds: %2)</translation>
+            <translation>Datapacks: %1 (worlds: %2)</translation>
         </message>
         <message>
             <source>没有收到任何内容。</source>
@@ -17192,7 +17192,7 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>模组</source>
-            <translation>Module</translation>
+            <translation>Mods</translation>
         </message>
         <message>
             <source>资源包</source>
@@ -17200,7 +17200,7 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>数据包</source>
-            <translation>Packet</translation>
+            <translation>Datapacks</translation>
         </message>
         <message>
             <source>保存为草稿</source>
@@ -17280,11 +17280,11 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>目标存档</source>
-            <translation>Target archive</translation>
+            <translation>Target world save</translation>
         </message>
         <message>
             <source>存档文件夹名称</source>
-            <translation>Archive folder name</translation>
+            <translation>World save folder name</translation>
         </message>
         <message>
             <source>添加文件</source>
@@ -17300,7 +17300,7 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>光影包</source>
-            <translation>Shader packs</translation>
+            <translation>Shaderpacks</translation>
         </message>
     </context>
     <context>
@@ -17589,11 +17589,11 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>新实例第一次启动时模组会照它生成配置。</source>
-            <translation>The module will generate the configuration according to the new instance when it is started for the first time.</translation>
+            <translation>The mod will generate the configuration according to the new instance when it is started for the first time.</translation>
         </message>
         <message>
             <source>资源包 / 光影</source>
-            <translation>Resource Pack/Light and Shadow</translation>
+            <translation>Resource packs / Shaderpacks</translation>
         </message>
         <message>
             <source>资源包</source>
@@ -17605,7 +17605,7 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>光影包</source>
-            <translation>Light and shadow package</translation>
+            <translation>Shaderpacks</translation>
         </message>
         <message>
             <source>shaderpacks/；同上，默认不收。</source>
@@ -17617,7 +17617,7 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>按结构认这一族，一个模组一段；默认只收绑好的热键。</source>
-            <translation>This family is identified according to the structure, one module and one section; by default, only the bound hotkeys are included.</translation>
+            <translation>This family is identified according to the structure, one mod and one section; by default, only the bound hotkeys are included.</translation>
         </message>
         <message>
             <source>连值一起收</source>
@@ -17629,15 +17629,15 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>数据包</source>
-            <translation>Packet</translation>
+            <translation>Datapacks</translation>
         </message>
         <message>
             <source>存档数据包</source>
-            <translation>Archived packets</translation>
+            <translation>Archived datapacks</translation>
         </message>
         <message>
             <source>saves/&lt;世界&gt;/datapacks/；目标实例没有该存档时先记为「待应用」。</source>
-            <translation>Saves/&lt;world&gt;/datapacks/; if the target instance does not have the archive, it will be recorded as "to be applied".</translation>
+            <translation>Saves/&lt;world&gt;/datapacks/; if the target instance does not have the world save, it will be recorded as "to be applied".</translation>
         </message>
         <message>
             <source>来源实例</source>
@@ -17669,7 +17669,7 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>执行报告</source>
-            <translation>Executive report</translation>
+            <translation>Execution report</translation>
         </message>
         <message>
             <source>继续未完成</source>
@@ -17845,11 +17845,11 @@ Not supported by this preset category: %1.</translation>
         <name>PresetModEditor</name>
         <message>
             <source>编辑模组预设</source>
-            <translation>Edit module presets</translation>
+            <translation>Edit mod presets</translation>
         </message>
         <message>
             <source>版本和加载器留空时跟随实例；标为必要的模组失败会中止安装。</source>
-            <translation>Follow the instance when version and loader are left empty; failure of a module marked as necessary will abort the installation.</translation>
+            <translation>Follow the instance when version and loader are left empty; failure of a mod marked as necessary will abort the installation.</translation>
         </message>
         <message>
             <source>Modrinth 链接或项目 ID，例如 https://modrinth.com/mod/sodium</source>
@@ -17921,7 +17921,7 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>这个模组已经在清单中，已定位到该行。</source>
-            <translation>This module is already in the manifest and is located in this row.</translation>
+            <translation>This mod is already in the manifest and is located in this row.</translation>
         </message>
         <message>
             <source>保存</source>
@@ -17944,7 +17944,7 @@ Not supported by this preset category: %1.</translation>
         <name>PresetModInstaller</name>
         <message>
             <source>已安装模组的识别缓存与安装记录冲突，未允许安装。</source>
-            <translation>The identification cache of the installed module conflicts with the installation record, and the installation is not allowed.</translation>
+            <translation>The identification cache of the installed mod conflicts with the installation record, and the installation is not allowed.</translation>
         </message>
         <message>
             <source>：</source>
@@ -18456,7 +18456,7 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>这一份的类别和内容对不上（模组引用只属于「模组」这一类）</source>
-            <translation>The category and content of this one do not match (module references only belong to the "module" category)</translation>
+            <translation>The category and content of this one do not match (mod references only belong to the "mod" category)</translation>
         </message>
         <message>
             <source>这一份的类别和内容对不上（里面有一段不属于这一类）</source>
@@ -18774,11 +18774,11 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>这一段不是数据包那一段。</source>
-            <translation>This section is not the section of the data packet.</translation>
+            <translation>This section is not the section of the data datapack.</translation>
         </message>
         <message>
             <source>数据包这一段里有不是对象的一项。</source>
-            <translation>There is an item in this section of the data packet that is not an object.</translation>
+            <translation>There is an item in this section of the data datapack that is not an object.</translation>
         </message>
         <message>
             <source>「%1」不是 saves/&lt;世界&gt;/datapacks/&lt;包&gt; 这种路径。</source>
@@ -18790,11 +18790,11 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>数据包</source>
-            <translation>Packet</translation>
+            <translation>Datapacks</translation>
         </message>
         <message>
             <source>这个实例的目录不在，没法收数据包。</source>
-            <translation>The directory of this instance is not there and the data packet cannot be received.</translation>
+            <translation>The directory of this instance is not there and the data datapack cannot be received.</translation>
         </message>
         <message>
             <source>没有指定这份预设的 files 目录。</source>
@@ -18802,7 +18802,7 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>这个实例还没有存档（saves/），数据包这一趟没有可收的。</source>
-            <translation>This instance has not been archived (saves/), and there are no data packets to receive this time.</translation>
+            <translation>This instance has not been archived (saves/), and there are no data datapacks to receive this time.</translation>
         </message>
         <message>
             <source>「%1」是一根链接，没有跟着它走。</source>
@@ -18814,19 +18814,19 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>存档「%1」是一根链接，没有跟着它走。</source>
-            <translation>The archive "%1" is a link and is not followed.</translation>
+            <translation>The world save "%1" is a link and is not followed.</translation>
         </message>
         <message>
             <source>存档名「%1」不能当目录名，这一趟没有碰它。</source>
-            <translation>The archive name "%1" cannot be used as a directory name, so I didn't touch it this time.</translation>
+            <translation>The world save name "%1" cannot be used as a directory name, so I didn't touch it this time.</translation>
         </message>
         <message>
             <source>存档「%1」的 datapacks/ 是一根链接，没有动它。</source>
-            <translation>The datapacks/ of the archive "%1" is a link and has not been touched.</translation>
+            <translation>The datapacks/ of the world save "%1" is a link and has not been touched.</translation>
         </message>
         <message>
             <source>存档「%1」的 datapacks 不是一个目录，没有动它。</source>
-            <translation>The datapacks of the archive "%1" are not a directory and have not been touched.</translation>
+            <translation>The datapacks of the world save "%1" are not a directory and have not been touched.</translation>
         </message>
         <message>
             <source>「%1」里的「%2」是一根链接，没有收它。</source>
@@ -18842,27 +18842,27 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>存档里的 datapacks/ 都是空的。</source>
-            <translation>Datapacks/ in the archive are all empty.</translation>
+            <translation>Datapacks/ in the world save are all empty.</translation>
         </message>
         <message>
             <source>saves/ 底下没有哪个存档带 datapacks/。</source>
-            <translation>There are no archives under saves/ with datapacks/.</translation>
+            <translation>There are no world saves under saves/ with datapacks/.</translation>
         </message>
         <message>
             <source>收了 %1 个存档里的 %2 个数据包。</source>
-            <translation>Received %2 packets from %1 archives.</translation>
+            <translation>Received %2 datapacks from %1 world saves.</translation>
         </message>
         <message>
             <source>没有指定目标实例，算不出数据包这一趟要做什么。</source>
-            <translation>Without specifying a target instance, there is no way to figure out what the packet is doing on this trip.</translation>
+            <translation>Select a target instance to preview datapack changes.</translation>
         </message>
         <message>
             <source>预设里的数据包项「%1」形状不对。</source>
-            <translation>The packet item "%1" in the default shape is wrong.</translation>
+            <translation>The preset contains an invalid datapack entry: "%1".</translation>
         </message>
         <message>
             <source>目标上的存档「%1」是一根链接（或者 `saves/` 这一层是），没有往里写。</source>
-            <translation>The archive "%1" on the target is a link (or `saves/` at this level) and is not written into it.</translation>
+            <translation>The world save "%1" on the target is a link (or `saves/` at this level) and is not written into it.</translation>
         </message>
         <message>
             <source>目标上的「saves/%1」不是个目录，没有往里写。</source>
@@ -18870,7 +18870,7 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>目标实例的目录不在，没法把数据包落下去。</source>
-            <translation>The directory of the target instance is not there and the data packet cannot be dropped.</translation>
+            <translation>The directory of the target instance is not there and the data datapack cannot be dropped.</translation>
         </message>
         <message>
             <source>没有给出预设那一侧的文件根（files/），拷不到数据包。</source>
@@ -18878,7 +18878,7 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>「覆盖」还没有确认过，这一趟没有动数据包。</source>
-            <translation>The "coverage" has not been confirmed yet, and no data packets have been touched this time.</translation>
+            <translation>The "coverage" has not been confirmed yet, and no data datapacks have been touched this time.</translation>
         </message>
         <message>
             <source>预设里那一份「%1」不在（files/ 底下找不到）。</source>
@@ -18902,7 +18902,7 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>目标上已经有 %1 个同名数据包，这一档没有动它们。</source>
-            <translation>There are already %1 packets with the same name on the target, and they are not touched by this file.</translation>
+            <translation>There are already %1 datapacks with the same name on the target, and they are not touched by this file.</translation>
         </message>
         <message>
             <source>读不了「%1」：%2</source>
@@ -19090,7 +19090,7 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>「%1」：目标上还没有这一项（模组版本不一样？），跳过。</source>
-            <translation>"%1": This item does not exist on the target (the module version is different?), skip it.</translation>
+            <translation>"%1": This item does not exist on the target (the mod version is different?), skip it.</translation>
         </message>
         <message>
             <source>「%1」：目标上是%2、预设里是%3 —— 类型对不上，这一项没动。</source>
@@ -19110,11 +19110,11 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>模组名是空的。</source>
-            <translation>The module name is empty.</translation>
+            <translation>The mod name is empty.</translation>
         </message>
         <message>
             <source>这个模组名当不了文件名：%1</source>
-            <translation>This module name cannot be used as a file name: %1</translation>
+            <translation>This mod name cannot be used as a file name: %1</translation>
         </message>
         <message>
             <source>「%1」：%2</source>
@@ -19138,7 +19138,7 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>MaLiLib 那一段里第 %1 项的模组名不能用：%2</source>
-            <translation>The module name of item %1 in the section of MaLiLib cannot be used: %2</translation>
+            <translation>The mod name of item %1 in the section of MaLiLib cannot be used: %2</translation>
         </message>
         <message>
             <source>MaLiLib 那一段里第 %1 项的 type（%2）认不出来。</source>
@@ -19166,7 +19166,7 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>有一条没有模组名，整段跳过。</source>
-            <translation>There is a section without a module name, so the entire section is skipped.</translation>
+            <translation>There is a section without a mod name, so the entire section is skipped.</translation>
         </message>
         <message>
             <source>「%1」那一份没动：%2</source>
@@ -19454,7 +19454,7 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>没有未完成的预设段；待应用数据包仍等待目标世界。</source>
-            <translation>There are no outstanding preset segments; pending application packets are still waiting for the target world.</translation>
+            <translation>There are no outstanding preset segments; pending application datapacks are still waiting for the target world.</translation>
         </message>
         <message>
             <source>这一段读不回来（载荷不是这一层认得的那样），这一趟不动它。</source>
@@ -19578,7 +19578,7 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>数据包没收成：%1</source>
-            <translation>Data packet not received: %1</translation>
+            <translation>Data datapack not received: %1</translation>
         </message>
         <message>
             <source>勾了的那几样都没有收到东西，这一趟没有可存的内容。</source>
@@ -19614,7 +19614,7 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>没有给出预设那一侧的文件根（files/），不知道这些数据包从哪儿拷。</source>
-            <translation>The file root (files/) on the default side is not given, so I don’t know where these data packets are copied from.</translation>
+            <translation>The file root (files/) on the default side is not given, so I don’t know where these data datapacks are copied from.</translation>
         </message>
         <message>
             <source>合并</source>
@@ -19697,31 +19697,31 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>模组预设：安装 %1 项，可选项失败/跳过 %2 项。</source>
-            <translation>Module default: install %1 items, optionally fail/skip %2 items.</translation>
+            <translation>Mod default: install %1 items, optionally fail/skip %2 items.</translation>
         </message>
         <message>
             <source>实例或模组目录已变化，未重新创建或继续写入。</source>
-            <translation>The instance or module directory has changed and has not been re-created or written to.</translation>
+            <translation>The instance or mod directory has changed and has not been re-created or written to.</translation>
         </message>
         <message>
             <source>必要模组暂存内容已变化，已停止部署。</source>
-            <translation>The temporary content of necessary modules has changed and deployment has been stopped.</translation>
+            <translation>The temporary content of necessary mods has changed and deployment has been stopped.</translation>
         </message>
         <message>
             <source>目标模组路径已变为链接，未继续写入。</source>
-            <translation>The target module path has become a link and is not being written further.</translation>
+            <translation>The target mod path has become a link and is not being written further.</translation>
         </message>
         <message>
             <source>同名模组已存在且内容不同，未覆盖：%1</source>
-            <translation>The module with the same name already exists and the content is different, not covered: %1</translation>
+            <translation>The mod with the same name already exists and the content is different, not covered: %1</translation>
         </message>
         <message>
             <source>无法写入模组：%1</source>
-            <translation>Unable to write to module: %1</translation>
+            <translation>Unable to write to mod: %1</translation>
         </message>
         <message>
             <source>模组写入失败：%1</source>
-            <translation>Module writing failed: %1</translation>
+            <translation>Mod writing failed: %1</translation>
         </message>
         <message>
             <source>无法提交完整模组文件：%1</source>
@@ -19733,7 +19733,7 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>发布模组失败或目标已被其它程序创建，未覆盖：%1</source>
-            <translation>Failed to publish the module or the target has been created by other programs and not covered: %1</translation>
+            <translation>Failed to publish the mod or the target has been created by other programs and not covered: %1</translation>
         </message>
         <message>
             <source>文件已写入，但报告更新失败，已停止后续部署。</source>
@@ -19741,7 +19741,7 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>正在后台检查模组目录，完成后恢复文件下载。</source>
-            <translation>Checking the module directory in the background and resuming file download after completion.</translation>
+            <translation>Checking the mod directory in the background and resuming file download after completion.</translation>
         </message>
         <message>
             <source>正在检查模组目录。</source>
@@ -19749,7 +19749,7 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>模组目录或实例状态已被外部修改，请取消并重新预览。</source>
-            <translation>The module directory or instance status has been modified externally, please cancel and preview again.</translation>
+            <translation>The mod directory or instance status has been modified externally, please cancel and preview again.</translation>
         </message>
         <message>
             <source>请取消并重新预览。</source>
@@ -19769,7 +19769,7 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>部分已安装模组身份未确认：%1</source>
-            <translation>The identity of some installed modules has not been confirmed: %1</translation>
+            <translation>The identity of some installed mods has not been confirmed: %1</translation>
         </message>
         <message>
             <source>文件身份反查与已有记录不一致，未自动改写：%1</source>
@@ -19781,23 +19781,23 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>模组依赖超过本次安全检查上限（256 项）。</source>
-            <translation>Module dependencies exceed the upper limit of this security check (256 items).</translation>
+            <translation>Mod dependencies exceed the upper limit of this security check (256 items).</translation>
         </message>
         <message>
             <source>正在后台建立模组目录快照…</source>
-            <translation>Creating module directory snapshot in the background...</translation>
+            <translation>Creating mod directory snapshot in the background...</translation>
         </message>
         <message>
             <source>无法确认模组目录或预设状态，请重新预览；未继续下载或部署。</source>
-            <translation>Unable to confirm module directory or preset status, please preview again; downloading or deployment will not continue.</translation>
+            <translation>Unable to confirm mod directory or preset status, please preview again; downloading or deployment will not continue.</translation>
         </message>
         <message>
             <source>正在检查已安装模组与预设依赖…</source>
-            <translation>Checking installed modules and default dependencies...</translation>
+            <translation>Checking installed mods and default dependencies...</translation>
         </message>
         <message>
             <source>已安装模组在检查期间发生变化，未写入；请刷新后重试。</source>
-            <translation>The installed module changed during the check and was not written; please refresh and try again.</translation>
+            <translation>The installed mod changed during the check and was not written; please refresh and try again.</translation>
         </message>
         <message>
             <source>所选预设内容已变化，请重新预览和确认；未继续应用。</source>
@@ -19809,7 +19809,7 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>精确前置身份查询超过安全上限（256 项），未安装模组。</source>
-            <translation>The precise front-end identity query exceeds the safe limit (256 items) and the module is not installed.</translation>
+            <translation>The precise front-end identity query exceeds the safe limit (256 items) and the mod is not installed.</translation>
         </message>
         <message>
             <source>多个模组要求不同的精确前置版本，未安装：%1</source>
@@ -19817,7 +19817,7 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>精确前置约束未收敛，未安装模组。</source>
-            <translation>The exact forward constraints are not converged and the module is not installed.</translation>
+            <translation>The exact forward constraints are not converged and the mod is not installed.</translation>
         </message>
         <message>
             <source>无法识别的模组平台。</source>
@@ -19841,7 +19841,7 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>必要模组或前置尚未解决，未允许下载。</source>
-            <translation>The necessary modules or prerequisites have not been resolved and are not allowed to be downloaded.</translation>
+            <translation>The necessary mods or prerequisites have not been resolved and are not allowed to be downloaded.</translation>
         </message>
         <message>
             <source>%1 个启用模组的项目身份尚未确认，未将它们当作前置已满足。</source>
@@ -19849,11 +19849,11 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>必要模组或前置缺失、未知或冲突；未写入模组文件。</source>
-            <translation>Necessary modules or prerequisites are missing, unknown or conflicting; the module file is not written.</translation>
+            <translation>Necessary mods or prerequisites are missing, unknown or conflicting; the mod file is not written.</translation>
         </message>
         <message>
             <source>已有模组文件可能对应「%1」的多个项目或发行版，无法确认是否重复，未写入。</source>
-            <translation>Existing module files may correspond to multiple projects or releases of "%1". It is impossible to confirm whether they are duplicates and have not been written.</translation>
+            <translation>Existing mod files may correspond to multiple projects or releases of "%1". It is impossible to confirm whether they are duplicates and have not been written.</translation>
         </message>
         <message>
             <source>已安装「%1」有重复文件或发行版依赖身份尚未确认，未自动覆盖。</source>
@@ -19865,7 +19865,7 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>模组「%1」要求精确前置版本，当前解析结果不满足，未写入模组。</source>
-            <translation>Module "%1" requires an accurate pre-version. The current analysis result is not satisfactory and has not been written into the module.</translation>
+            <translation>Mod "%1" requires an accurate pre-version. The current analysis result is not satisfactory and has not been written into the mod.</translation>
         </message>
         <message>
             <source>无法保存下载前执行报告，未开始下载。</source>
@@ -19873,7 +19873,7 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>实例或模组目录不安全，未写入文件。</source>
-            <translation>The instance or module directory is not secure and no files were written.</translation>
+            <translation>The instance or mod directory is not secure and no files were written.</translation>
         </message>
         <message>
             <source>无法创建安全的模组下载暂存目录。</source>
@@ -19889,15 +19889,15 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>必要模组「%1」未通过下载校验，未写入模组文件。保存文件名或校验信息也可能无效。</source>
-            <translation>The necessary module "%1" failed the download verification and the module file was not written. The saved file name or checksum information may also be invalid.</translation>
+            <translation>The necessary mod "%1" failed the download verification and the mod file was not written. The saved file name or checksum information may also be invalid.</translation>
         </message>
         <message>
             <source>可选文件下载失败，跳过对应模组及依赖它的父项：%1；其它独立项继续。</source>
-            <translation>Optional file download failed, skipping the corresponding module and its dependent parent items: %1; continue with other independent items.</translation>
+            <translation>Optional file download failed, skipping the corresponding mod and its dependent parent items: %1; continue with other independent items.</translation>
         </message>
         <message>
             <source>实例状态已变化，未写入模组。</source>
-            <translation>The instance status has changed and the module has not been written.</translation>
+            <translation>The instance status has changed and the mod has not been written.</translation>
         </message>
         <message>
             <source>无法创建模组目录。</source>
@@ -19905,15 +19905,15 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>多个模组使用相同文件名但内容不同，未写入：%1</source>
-            <translation>Multiple modules use the same file name but different content, not written: %1</translation>
+            <translation>Multiple mods use the same file name but different content, not written: %1</translation>
         </message>
         <message>
             <source>无法保存部署阶段报告，未写入模组。</source>
-            <translation>Unable to save deployment phase report, module not written.</translation>
+            <translation>Unable to save deployment phase report, mod not written.</translation>
         </message>
         <message>
             <source>模组预设应用已取消或超时；基础实例保留。</source>
-            <translation>Module default application has been canceled or timed out; the base instance remains.</translation>
+            <translation>Mod default application has been canceled or timed out; the base instance remains.</translation>
         </message>
         <message>
             <source>预设执行记录保存失败；请保留本次任务报告。</source>
@@ -19921,7 +19921,7 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>失败前已写入 %1 个模组；基础实例和已写入文件保留。</source>
-            <translation>%1 modules were written before failure; base instance and written files retained.</translation>
+            <translation>%1 mods were written before failure; base instance and written files retained.</translation>
         </message>
     </context>
     <context>
@@ -20039,7 +20039,7 @@ Not supported by this preset category: %1.</translation>
         </message>
         <message>
             <source>当前模组</source>
-            <translation>Current module</translation>
+            <translation>Current mod</translation>
         </message>
         <message>
             <source>兼容检查</source>
@@ -20061,7 +20061,7 @@ Minecraft %2 / %3
             <translation>Current instance: %1
 Minecraft %2 / %3
 
- Please select an updated game and loader version. The next step is to check for existing modules, and the instance will not be modified until confirmed.</translation>
+ Please select an updated game and loader version. The next step is to check for existing mods, and the instance will not be modified until confirmed.</translation>
         </message>
         <message>
             <source>纯原版</source>
@@ -20101,7 +20101,7 @@ Minecraft %2 / %3
         </message>
         <message>
             <source>兼容声明不是运行保证。未知项必须明确选择处理方式，不会自动禁用；只有平台明确给出目标发行版的模组才提供「替换为平台适配版」，必要前置会自动补齐，替换失败会整趟回滚。</source>
-            <translation>Compatibility statements are not guarantees of operation. Unknown items must be explicitly processed and will not be automatically disabled; only modules whose target release version is clearly specified by the platform will be "replaced with a platform-adapted version", and the necessary prerequisites will be automatically filled in. If the replacement fails, the entire process will be rolled back.</translation>
+            <translation>Compatibility statements are not guarantees of operation. Unknown items must be explicitly processed and will not be automatically disabled; only mods whose target release version is clearly specified by the platform will be "replaced with a platform-adapted version", and the necessary prerequisites will be automatically filled in. If the replacement fails, the entire process will be rolled back.</translation>
         </message>
         <message>
             <source>开始更新</source>
@@ -20125,7 +20125,7 @@ Minecraft %2 / %3
         </message>
         <message>
             <source>执行前的文件变更（模组适配替换）：</source>
-            <translation>File changes before execution (module adaptation replacement):</translation>
+            <translation>File changes before execution (mod adaptation replacement):</translation>
         </message>
         <message>
             <source>点击“开始更新”后在这里显示进度</source>
@@ -20153,7 +20153,7 @@ Minecraft %2 / %3
         </message>
         <message>
             <source>已请求取消下载适配模组；停下后整趟更新不会执行。</source>
-            <translation>A request has been made to cancel the download of the adaptation module; the entire update will not be executed after stopping.</translation>
+            <translation>A request has been made to cancel the download of the adaptation mod; the entire update will not be executed after stopping.</translation>
         </message>
         <message>
             <source>正在提交文件，请等待完成。</source>
@@ -20235,7 +20235,7 @@ A world may not downgrade across versions; disk space is checked before executio
             <source>
 
 将下载并替换 %1 个模组；必要前置失败或任一替换失败时整趟回滚，并写出原因报告。</source>
-            <translation>Will download and replace %1 modules; if necessary prerequisites fail or any replacement fails, the entire process will be rolled back and a reason report will be written.</translation>
+            <translation>Will download and replace %1 mods; if necessary prerequisites fail or any replacement fails, the entire process will be rolled back and a reason report will be written.</translation>
         </message>
         <message>
             <source>准备就绪</source>
@@ -20254,8 +20254,8 @@ A world may not downgrade across versions; disk space is checked before executio
 创建副本保留全部用户文件；更新当前实例会先创建并校验完整快照。
 平台发行版与本地声明分别显示，旧模组按下方选择保留或禁用。</source>
             <translation>Minecraft %1 / %2 %3
- Create a copy retaining all user files; updating the current instance will first create and verify a complete snapshot. 
-The platform release version and local statement are displayed separately. Old modules can be retained or disabled by clicking below.</translation>
+ Create a copy retaining all user files; updating the current instance will first create and verify a complete snapshot.&#32;
+The platform release version and local statement are displayed separately. Old mods can be retained or disabled by clicking below.</translation>
         </message>
         <message>
             <source>无需加载器</source>
@@ -20283,7 +20283,7 @@ The platform release version and local statement are displayed separately. Old m
         </message>
         <message>
             <source>下载并校验平台适配模组</source>
-            <translation>Download and verify the platform adaptation module</translation>
+            <translation>Download and verify the platform adaptation mod</translation>
         </message>
         <message>
             <source>准备并校验用户文件副本</source>
@@ -20311,7 +20311,7 @@ The platform release version and local statement are displayed separately. Old m
         </message>
         <message>
             <source>模组适配替换：%1</source>
-            <translation>Module adaptation replacement: %1</translation>
+            <translation>Mod adaptation replacement: %1</translation>
         </message>
         <message>
             <source>替换文件 %1</source>
@@ -20359,11 +20359,11 @@ The platform release version and local statement are displayed separately. Old m
         </message>
         <message>
             <source>正在下载并校验平台适配模组…</source>
-            <translation>Downloading and verifying platform adaptation module...</translation>
+            <translation>Downloading and verifying platform adaptation mod...</translation>
         </message>
         <message>
             <source>正在下载并校验 %1 个平台适配模组（必要前置会自动补齐）…</source>
-            <translation>Downloading and verifying %1 platform adaptation modules (necessary prerequisites will be automatically completed)…</translation>
+            <translation>Downloading and verifying %1 platform adaptation mods (necessary prerequisites will be automatically completed)…</translation>
         </message>
         <message>
             <source>适配替换 %1</source>
@@ -20379,15 +20379,15 @@ The platform release version and local statement are displayed separately. Old m
         </message>
         <message>
             <source>已取消模组适配替换</source>
-            <translation>Module adaptation replacement has been canceled</translation>
+            <translation>Mod adaptation replacement has been canceled</translation>
         </message>
         <message>
             <source>模组适配替换失败</source>
-            <translation>Module adaptation and replacement failed</translation>
+            <translation>Mod adaptation and replacement failed</translation>
         </message>
         <message>
             <source>已取消下载适配模组；整趟更新未执行，源实例没有任何改动。</source>
-            <translation>The download of the adaptation module has been cancelled; the entire update has not been executed, and there are no changes to the source instance.</translation>
+            <translation>The download of the adaptation mod has been cancelled; the entire update has not been executed, and there are no changes to the source instance.</translation>
         </message>
         <message>
             <source>必要前置或适配文件缺失/校验失败。</source>
@@ -20395,11 +20395,11 @@ The platform release version and local statement are displayed separately. Old m
         </message>
         <message>
             <source>模组适配下载或必要前置失败；整趟更新已回滚，源实例没有任何改动。</source>
-            <translation>The module adaptation download or necessary prerequisites failed; the entire update has been rolled back, and there are no changes to the source instance.</translation>
+            <translation>The mod adaptation download or necessary prerequisites failed; the entire update has been rolled back, and there are no changes to the source instance.</translation>
         </message>
         <message>
             <source>读不到适配模组的下载清单，整趟更新未执行。</source>
-            <translation>The download list of the adaptation module cannot be read, and the entire update has not been executed.</translation>
+            <translation>The download list of the adaptation mod cannot be read, and the entire update has not been executed.</translation>
         </message>
         <message>
             <source>平台发行版在确认后发生变化（预览 %1，实际 %2）；更新已完整回滚，请重新检查配置后重试。</source>
@@ -20452,7 +20452,7 @@ The platform release version and local statement are displayed separately. Old m
         </message>
         <message>
             <source>确认替换模组</source>
-            <translation>Confirm replacement module</translation>
+            <translation>Confirm replacement mod</translation>
         </message>
         <message>
             <source>执行替换</source>
@@ -20510,10 +20510,10 @@ The platform release version and local statement are displayed separately. Old m
 有目标发行版的模组可替换为适配版（缺的前置会自动补齐），其余按保留或禁用处理；无法确认的需先选处理方式。
 替换失败或前置失败会整趟回滚，并写出报告。
 存档跨版本后可能无法降级；请勿同时运行实例。</source>
-            <translation>Updated to Minecraft %1 / %2 %3. 
+            <translation>Updated to Minecraft %1 / %2 %3.&#32;
 
-Modules with a target release version can be replaced with an adapted version (missing prefixes will be automatically filled in), and the rest should be retained or disabled; if it cannot be confirmed, you need to choose a processing method first. 
- If the replacement fails or the prefix fails, the entire process will be rolled back and a report will be written. 
+Mods with a target release version can be replaced with an adapted version (missing prefixes will be automatically filled in), and the rest should be retained or disabled; if it cannot be confirmed, you need to choose a processing method first.&#32;
+ If the replacement fails or the prefix fails, the entire process will be rolled back and a report will be written.&#32;
 Archiving across versions may not be downgraded; do not run instances simultaneously.</translation>
         </message>
         <message>
@@ -20534,7 +20534,7 @@ Archiving across versions may not be downgraded; do not run instances simultaneo
         </message>
         <message>
             <source>核心已准备。模组检查完成后，点击开始更新继续。</source>
-            <translation>The core is ready. After the module check is completed, click Start Update to continue.</translation>
+            <translation>The core is ready. After the mod check is completed, click Start Update to continue.</translation>
         </message>
         <message>
             <source>关闭这个实例（直接结束游戏进程，游戏不会存档）</source>
@@ -20622,7 +20622,7 @@ Archiving across versions may not be downgraded; do not run instances simultaneo
         </message>
         <message>
             <source>模组目录是链接，未扫描。</source>
-            <translation>The module directory is a link and has not been scanned.</translation>
+            <translation>The mod directory is a link and has not been scanned.</translation>
         </message>
         <message>
             <source>模组超过 10000 个，列表已截断。</source>
@@ -20638,11 +20638,11 @@ Archiving across versions may not be downgraded; do not run instances simultaneo
         </message>
         <message>
             <source>读取模组嵌套 JAR 列表</source>
-            <translation>Read module nested JAR list</translation>
+            <translation>Read mod nested JAR list</translation>
         </message>
         <message>
             <source>读不到模组条目表，旧 Forge 注解无法检查：%1</source>
-            <translation>Unable to read module entry table, old Forge annotations cannot be checked: %1</translation>
+            <translation>Unable to read mod entry table, old Forge annotations cannot be checked: %1</translation>
         </message>
         <message>
             <source>读取旧 Forge 注解</source>
@@ -20706,7 +20706,7 @@ Archiving across versions may not be downgraded; do not run instances simultaneo
         </message>
         <message>
             <source>纯原版不会加载模组</source>
-            <translation>The pure original version will not load the module</translation>
+            <translation>The pure original version will not load the mod</translation>
         </message>
         <message>
             <source>目标不使用模组加载器</source>
@@ -20722,7 +20722,7 @@ Archiving across versions may not be downgraded; do not run instances simultaneo
         </message>
         <message>
             <source>（按 Fabric 声明；Quilt 可加载 Fabric 模组）</source>
-            <translation>(Declared by Fabric; Quilt can load Fabric modules)</translation>
+            <translation>(Declared by Fabric; Quilt can load Fabric mods)</translation>
         </message>
         <message>
             <source>本地明确排除此版本</source>
@@ -20876,7 +20876,7 @@ Archiving across versions may not be downgraded; do not run instances simultaneo
         </message>
         <message>
             <source>%1 个启用模组。%2</source>
-            <translation>%1 enabled modules. %2</translation>
+            <translation>%1 enabled mods. %2</translation>
         </message>
         <message>
             <source>正在后台读取本地声明…</source>
@@ -21489,7 +21489,7 @@ Recovery records are retained in %3, please check manually.</translation>
         </message>
         <message>
             <source>这是一个世界存档（里面有 level.dat）</source>
-            <translation>This is a world archive (with level.dat in it)</translation>
+            <translation>This is a world world save (with level.dat in it)</translation>
         </message>
         <message>
             <source>里面是一个 .minecraft 游戏目录；`bin/` 下那份启动器 jar 说明加载器不写在版本清单里（旧版 Technic / 老式 Forge 包），导入后要自己补装一次加载器</source>
@@ -21501,7 +21501,7 @@ Recovery records are retained in %3, please check manually.</translation>
         </message>
         <message>
             <source>里面只有一堆模组，没有整合包清单</source>
-            <translation>There are only a bunch of modules in it, and there is no integration package list.</translation>
+            <translation>There are only a bunch of mods in it, and there is no integration package list.</translation>
         </message>
         <message>
             <source>这份 mmc-pack.json 无法解析（%1）。这个文件可能已损坏。</source>
@@ -22162,7 +22162,7 @@ Recovery records are retained in %3, please check manually.</translation>
         </message>
         <message>
             <source>模组</source>
-            <translation>Module</translation>
+            <translation>Mods</translation>
         </message>
         <message>
             <source>整合包</source>
@@ -22170,11 +22170,11 @@ Recovery records are retained in %3, please check manually.</translation>
         </message>
         <message>
             <source>数据包</source>
-            <translation>Packet</translation>
+            <translation>Datapacks</translation>
         </message>
         <message>
             <source>光影</source>
-            <translation>Light and shadow</translation>
+            <translation>Shaderpacks</translation>
         </message>
         <message>
             <source>资源包</source>
@@ -22643,7 +22643,7 @@ Recovery records are retained in %3, please check manually.</translation>
         </message>
         <message>
             <source>已启用（上方优先覆盖）</source>
-            <translation>Enabled (top priority coverage)</translation>
+            <translation>Enabled (top packs take priority)</translation>
         </message>
         <message>
             <source>启用 →</source>
@@ -22667,7 +22667,7 @@ Recovery records are retained in %3, please check manually.</translation>
         </message>
         <message>
             <source>（内置 / 模组提供）</source>
-            <translation>(built-in / provided by module)</translation>
+            <translation>(built-in / provided by mod)</translation>
         </message>
         <message>
             <source>自动保存生效，不修改源文件。内置项不可移除。</source>
@@ -22712,7 +22712,7 @@ Recovery records are retained in %3, please check manually.</translation>
         </message>
         <message>
             <source>前置模组的名字没取到：%1</source>
-            <translation>The name of the pre-module was not found: %1</translation>
+            <translation>The name of the pre-mod was not found: %1</translation>
         </message>
         <message>
             <source>%1 已由用户取消下载。</source>
@@ -22810,11 +22810,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
         </message>
         <message>
             <source>识别已安装模组</source>
-            <translation>Identify installed modules</translation>
+            <translation>Identify installed mods</translation>
         </message>
         <message>
             <source>模组哈希查询响应不是有效对象。</source>
-            <translation>The module hash query response is not a valid object.</translation>
+            <translation>The mod hash query response is not a valid object.</translation>
         </message>
         <message>
             <source>部分模组身份响应缺少项目/发行版，或文件哈希不符；未采信这些条目。</source>
@@ -23027,7 +23027,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
         </message>
         <message>
             <source>认不出这是什么结构 / 原理图（没有 Regions、Palette、palette 这几格）。</source>
-            <translation>I don’t recognize what kind of structure/schematic diagram this is (there are no Regions, Palette, and Palette boxes).</translation>
+            <translation>I don’t recognize what kind of structure/schematic this is (there are no Regions, Palette, and Palette boxes).</translation>
         </message>
         <message>
             <source>数据版本 %1</source>
@@ -23228,7 +23228,7 @@ Please close the program occupying the port, or change the port in "Common Setti
         </message>
         <message>
             <source>新增或更改模组后需重启服务端。</source>
-            <translation>After adding or changing a module, you need to restart the server.</translation>
+            <translation>After adding or changing a mod, you need to restart the server.</translation>
         </message>
         <message>
             <source>配置包含 %1 项未提供表单编辑的设置</source>
@@ -23316,7 +23316,7 @@ Please close the program occupying the port, or change the port in "Common Setti
         </message>
         <message>
             <source>不等待保存就强制结束进程，可能丢失存档。</source>
-            <translation>If you force the process to end without waiting for saving, you may lose the archive.</translation>
+            <translation>If you force the process to end without waiting for saving, you may lose the world save.</translation>
         </message>
         <message>
             <source>让它自己存盘、收尾，然后退出（推荐）。</source>
@@ -23347,11 +23347,11 @@ Please close the program occupying the port, or change the port in "Common Setti
         <name>ServerContent</name>
         <message>
             <source>数据包</source>
-            <translation>Packet</translation>
+            <translation>Datapacks</translation>
         </message>
         <message>
             <source>模组</source>
-            <translation>Module</translation>
+            <translation>Mods</translation>
         </message>
     </context>
     <context>
@@ -23374,19 +23374,19 @@ Please close the program occupying the port, or change the port in "Common Setti
         </message>
         <message>
             <source>轻量加载器，模组偏原版风格的小改</source>
-            <translation>Lightweight loader, a slight modification of the module to the original style</translation>
+            <translation>Lightweight loader, a slight modification of the mod to the original style</translation>
         </message>
         <message>
             <source>老牌模组加载器，1.20.1 及更早的服务端模组大多在它上面</source>
-            <translation>Old-fashioned module loader, most of the server-side modules 1.20.1 and earlier are on it</translation>
+            <translation>Old-fashioned mod loader, most of the server-side mods 1.20.1 and earlier are on it</translation>
         </message>
         <message>
             <source>Forge 分家出来的那支，1.20.2 起的服务端模组主流</source>
-            <translation>The branch of Forge, the mainstream server module starting from 1.20.2</translation>
+            <translation>The branch of Forge, the mainstream server mod starting from 1.20.2</translation>
         </message>
         <message>
             <source>Fabric 的分支，模组基本通用，服务端侧用得少</source>
-            <translation>A branch of Fabric, the modules are basically universal and are rarely used on the server side.</translation>
+            <translation>A branch of Fabric, the mods are basically universal and are rarely used on the server side.</translation>
         </message>
         <message>
             <source>插件服务端的老底子，官方不发成品，得现编一份</source>
@@ -23988,11 +23988,11 @@ Please close the program occupying the port, or change the port in "Common Setti
         </message>
         <message>
             <source>极限模式</source>
-            <translation>Extreme mode</translation>
+            <translation>Hardcore</translation>
         </message>
         <message>
             <source>开启后死亡一次即无法再进入该世界</source>
-            <translation>If you die once after opening it, you will no longer be able to enter the world.</translation>
+            <translation>Players cannot rejoin the world after dying in Hardcore.</translation>
         </message>
         <message>
             <source>世界目录名</source>
@@ -24028,11 +24028,11 @@ Please close the program occupying the port, or change the port in "Common Setti
         </message>
         <message>
             <source>正版验证</source>
-            <translation>Genuine verification</translation>
+            <translation>Microsoft account authentication</translation>
         </message>
         <message>
             <source>开启后仅允许正版账号加入；关闭后玩家可冒用他人名称</source>
-            <translation>After turning it on, only genuine accounts are allowed to join; after turning it off, players can impersonate other people's names.</translation>
+            <translation>Require authenticated Microsoft accounts to join. Disabling this allows players to impersonate other usernames.</translation>
         </message>
         <message>
             <source>白名单</source>
@@ -24650,7 +24650,7 @@ Please close the program occupying the port, or change the port in "Common Setti
         </message>
         <message>
             <source>留一点给系统和其他程序，尤其模组整合包还要加载资源。</source>
-            <translation>Leave some space for the system and other programs, especially module integration packages to load resources.</translation>
+            <translation>Leave some space for the system and other programs, especially mod integration packages to load resources.</translation>
         </message>
         <message>
             <source>内存分配</source>
@@ -24678,11 +24678,11 @@ Please close the program occupying the port, or change the port in "Common Setti
         </message>
         <message>
             <source>第一次往里面放模组时目录会自动建出来。</source>
-            <translation>The directory will be created automatically the first time you put a module into it.</translation>
+            <translation>The directory will be created automatically the first time you put a mod into it.</translation>
         </message>
         <message>
             <source>已启用 %1 个模组</source>
-            <translation>%1 modules enabled</translation>
+            <translation>%1 mods enabled</translation>
         </message>
         <message>
             <source>mods/ 里没有启用的模组</source>
@@ -24718,7 +24718,7 @@ Please close the program occupying the port, or change the port in "Common Setti
         </message>
         <message>
             <source>把 Xmx 调大（先确认机器真的有空闲内存），或者减少同时加载的模组。</source>
-            <translation>Increase Xmx (make sure the machine really has free memory first), or reduce the number of modules loaded at the same time.</translation>
+            <translation>Increase Xmx (make sure the machine really has free memory first), or reduce the number of mods loaded at the same time.</translation>
         </message>
         <message>
             <source>最近一份崩溃报告是 Java 版本不对（UnsupportedClassVersionError）</source>
@@ -24734,15 +24734,15 @@ Please close the program occupying the port, or change the port in "Common Setti
         </message>
         <message>
             <source>多半是模组依赖没装齐，或者装了一个给别的游戏版本编的模组；看报告里那个类名属于哪个模组。</source>
-            <translation>Most likely, the module dependencies are not installed properly, or a module compiled for another game version is installed; see which module the class name in the report belongs to.</translation>
+            <translation>Most likely, the mod dependencies are not installed properly, or a mod compiled for another game version is installed; see which mod the class name in the report belongs to.</translation>
         </message>
         <message>
             <source>最近一份崩溃报告发生在模组注入阶段（Mixin）</source>
-            <translation>The most recent crash report occurred during the module injection phase (Mixin)</translation>
+            <translation>The most recent crash report occurred during the mod injection phase (Mixin)</translation>
         </message>
         <message>
             <source>报告里通常会点名一个模组；先单独移走它再启动，确认是不是它引起的。</source>
-            <translation>A module is usually named in the report; remove it individually and then enable it to see if it is the cause.</translation>
+            <translation>A mod is usually named in the report; remove it individually and then enable it to see if it is the cause.</translation>
         </message>
         <message>
             <source>最近一份崩溃报告：%1</source>
@@ -24762,7 +24762,7 @@ Please close the program occupying the port, or change the port in "Common Setti
         </message>
         <message>
             <source>换一个更新的 Java；具体要哪个版本查版本 json 或模组说明。</source>
-            <translation>Change to a newer Java; check the version json or module description for the specific version.</translation>
+            <translation>Change to a newer Java; check the version json or mod description for the specific version.</translation>
         </message>
         <message>
             <source>日志末尾没有 [Game Error] 那一行。</source>
@@ -25171,7 +25171,7 @@ Please close the program occupying the port, or change the port in "Common Setti
         </message>
         <message>
             <source>跟随全局</source>
-            <translation>Follow the big picture</translation>
+            <translation>Global</translation>
         </message>
         <message>
             <source>文字不透明度</source>
@@ -26658,19 +26658,19 @@ The changes you made yourself will not be retained.</translation>
         </message>
         <message>
             <source>目标版本（%1 / %2）与源一致：模组与配置可以原样搬过去。</source>
-            <translation>The target version (%1 / %2) is consistent with the source: modules and configurations can be moved over unchanged.</translation>
+            <translation>The target version (%1 / %2) is consistent with the source: mods and configurations can be moved over unchanged.</translation>
         </message>
         <message>
             <source>目标版本是 %1，源是 %2 —— 模组与部分配置可能不兼容，所以「模组」默认不勾选。</source>
-            <translation>The target version is %1, the source is %2 - the module may be incompatible with some configurations, so "Module" is not checked by default.</translation>
+            <translation>The target version is %1, the source is %2 - the mod may be incompatible with some configurations, so "Mod" is not checked by default.</translation>
         </message>
         <message>
             <source>目标加载器是 %1，源是 %2（游戏版本都是 %3）—— 模组与加载器相关配置可能不兼容，所以「模组」默认不勾选。</source>
-            <translation>The target loader is %1 and the source is %2 (the game versions are all %3) - the module and loader related configurations may be incompatible, so "Module" is not checked by default.</translation>
+            <translation>The target loader is %1 and the source is %2 (the game versions are all %3) - the mod and loader related configurations may be incompatible, so "Mod" is not checked by default.</translation>
         </message>
         <message>
             <source>目标版本是 %1 / %2，源是 %3 / %4 —— 模组与部分配置可能不兼容，所以「模组」默认不勾选。</source>
-            <translation>The target version is %1 / %2, the source is %3 / %4 - the module may be incompatible with some configurations, so "Module" is not checked by default.</translation>
+            <translation>The target version is %1 / %2, the source is %3 / %4 - the mod may be incompatible with some configurations, so "Mod" is not checked by default.</translation>
         </message>
         <message>
             <source>有一边的游戏版本或加载器读不出来 —— 不做猜测：「模组」默认不勾选，请自己判断要不要原样搬过去。</source>
@@ -26746,15 +26746,15 @@ The changes you made yourself will not be retained.</translation>
         </message>
         <message>
             <source>存档</source>
-            <translation>Archive</translation>
+            <translation>World saves</translation>
         </message>
         <message>
             <source>模组</source>
-            <translation>Module</translation>
+            <translation>Mods</translation>
         </message>
         <message>
             <source>模组配置</source>
-            <translation>Module configuration</translation>
+            <translation>Mod configuration</translation>
         </message>
         <message>
             <source>默认配置</source>
@@ -26766,7 +26766,7 @@ The changes you made yourself will not be retained.</translation>
         </message>
         <message>
             <source>光影包</source>
-            <translation>Light and shadow package</translation>
+            <translation>Shaderpacks</translation>
         </message>
         <message>
             <source>游戏设置</source>
@@ -26786,15 +26786,15 @@ The changes you made yourself will not be retained.</translation>
         </message>
         <message>
             <source>日志</source>
-            <translation>Log</translation>
+            <translation>Logs</translation>
         </message>
         <message>
             <source>崩溃报告</source>
-            <translation>Crash report</translation>
+            <translation>Crash reports</translation>
         </message>
         <message>
             <source>目标版本 / 加载器与源不一致，模组可能起不来；确认要原样搬过去再自己勾上。</source>
-            <translation>The target version/loader is inconsistent with the source, and the module may not be launched; make sure to move it as it is and then hook it up yourself.</translation>
+            <translation>The target version/loader is inconsistent with the source, and the mod may not be launched; make sure to move it as it is and then hook it up yourself.</translation>
         </message>
         <message>
             <source>只是记录，默认不搬。</source>
@@ -26813,7 +26813,7 @@ The changes you made yourself will not be retained.</translation>
         </message>
         <message>
             <source>更新选中的模组可能让它的启动配置（主类 / JVM 参数 / 专用库）对不上，更新后可能起不来。建议先备份实例。仍然继续吗？</source>
-            <translation>Updating the selected module may cause its startup configuration (main class/JVM parameters/special libraries) to be inconsistent, and it may not be able to start after the update. It is recommended to back up the instance first. Still continue?</translation>
+            <translation>Updating the selected mod may cause its startup configuration (main class/JVM parameters/special libraries) to be inconsistent, and it may not be able to start after the update. It is recommended to back up the instance first. Still continue?</translation>
         </message>
         <message>
             <source>仍要继续</source>
@@ -27156,7 +27156,7 @@ The changes you made yourself will not be retained.</translation>
         </message>
         <message>
             <source>光影包</source>
-            <translation>Light and shadow package</translation>
+            <translation>Shaderpacks</translation>
         </message>
         <message>
             <source>截图</source>
@@ -27164,7 +27164,7 @@ The changes you made yourself will not be retained.</translation>
         </message>
         <message>
             <source>原理图</source>
-            <translation>Schematic diagram</translation>
+            <translation>Schematics</translation>
         </message>
         <message>
             <source>服务器列表</source>
@@ -27176,7 +27176,7 @@ The changes you made yourself will not be retained.</translation>
         </message>
         <message>
             <source>没有勾选 Mod 文件，却要搬 Mod 配置 —— 这些配置在新实例里可能对不上任何模组。</source>
-            <translation>The Mod file is not checked, but the Mod configuration needs to be moved - these configurations may not match any module in the new instance.</translation>
+            <translation>The Mod file is not checked, but the Mod configuration needs to be moved - these configurations may not match any mod in the new instance.</translation>
         </message>
         <message>
             <source>搬了游戏设置却没搬资源包 —— 设置里的资源包启用列表可能指向新实例里不存在的包。</source>
@@ -27184,7 +27184,7 @@ The changes you made yourself will not be retained.</translation>
         </message>
         <message>
             <source>光影包只在装了对应渲染器时才会生效；新实例不会替你装渲染器。</source>
-            <translation>The light and shadow package will only take effect when the corresponding renderer is installed; new instances will not install the renderer for you.</translation>
+            <translation>The shaderpack will only take effect when the corresponding renderer is installed; new instances will not install the renderer for you.</translation>
         </message>
     </context>
     <context>
@@ -27330,7 +27330,7 @@ The changes you made yourself will not be retained.</translation>
 有 %2 个文件没能确认该放进哪个目录，都按模组放进 mods/ 了。</source>
             <translation>%1
 
-There are %2 files that cannot be confirmed as to which directory they should be placed in. They are all put into mods/ according to the module.</translation>
+There are %2 files that cannot be confirmed as to which directory they should be placed in. They are all put into mods/ according to the mod.</translation>
         </message>
         <message>
             <source>尚未获取到该版本的 version.json。</source>
@@ -27645,7 +27645,7 @@ Downloaded files are retained in %3; import them again using the same integratio
         </message>
         <message>
             <source>这个实例的 wtfml.meta 里写着加载器「%1」，本启动器不认识这个名字，不敢往外导 ——把一个装了几百个模组的实例导成纯原版包，用户装回来会发现模组都在、游戏起不来，而包看上去是好的。要导出的话，把 wtfml.meta 里的 loaderName 改成 Fabric / Forge / NeoForge 之一。</source>
-            <translation>The wtfml.meta of this instance says loader "%1". This launcher does not recognize this name and does not dare to export it - import an instance with hundreds of modules installed into a pure original package. When the user installs it back, he will find that the modules are not there and the game cannot start, but the package looks good. To export, change the loaderName in wtfml.meta to one of Fabric / Forge / NeoForge.</translation>
+            <translation>The wtfml.meta of this instance says loader "%1". This launcher does not recognize this name and does not dare to export it - import an instance with hundreds of mods installed into a pure original package. When the user installs it back, he will find that the mods are not there and the game cannot start, but the package looks good. To export, change the loaderName in wtfml.meta to one of Fabric / Forge / NeoForge.</translation>
         </message>
         <message>
             <source>内部错误：没有给出放结果的地方。</source>
@@ -28183,7 +28183,7 @@ Installer output:
         </message>
         <message>
             <source>这个整合包没有模组加载器，先把原版 %1 装好...</source>
-            <translation>This integration package does not have a module loader. Install the original version %1 first...</translation>
+            <translation>This integration package does not have a mod loader. Install the original version %1 first...</translation>
         </message>
         <message>
             <source>使用包内启动补丁，先补齐原版 %1，再安装专用运行库...</source>
@@ -28231,7 +28231,7 @@ Installer output:
 （清单里那些文件已经下好在 %2 里了，缺的是 config、资源包、光影这些。）</source>
             <translation>The overlay files in the integration package could not be unlocked: %1
 
- (The files in the list have been downloaded in %2, what is missing are config, resource packages, light and shadow, etc.)</translation>
+ (The files in the list have been downloaded in %2, what is missing are config, resource packages, shaderpack, etc.)</translation>
         </message>
         <message>
             <source>正在后台校验安装文件并保存安装凭据（可取消，最多 900 秒）...</source>
@@ -28447,7 +28447,7 @@ Itemized list: %2
         </message>
         <message>
             <source>「%1」里面没有 level.dat，看起来不是一个世界存档（是不是选错了上一层的文件夹？）</source>
-            <translation>There is no level.dat in "%1", and it does not look like a world archive (did you select the wrong folder on the upper level?)</translation>
+            <translation>There is no level.dat in "%1", and it does not look like a world world save (did you select the wrong folder on the upper level?)</translation>
         </message>
         <message>
             <source>这个实例里还没有 saves 文件夹（先启动一次游戏，或者手动建一个）。</source>
@@ -28487,7 +28487,7 @@ Itemized list: %2
         </message>
         <message>
             <source>导入已取消、超时或源世界在复制期间发生变化，未发布存档。</source>
-            <translation>The import was canceled, timed out, or the source world changed during copying and the archive was not published.</translation>
+            <translation>The import was canceled, timed out, or the source world changed during copying and the world save was not published.</translation>
         </message>
         <message>
             <source>无法发布导入的世界，目标可能已被其它程序创建，未覆盖。</source>
@@ -28507,7 +28507,7 @@ Itemized list: %2
         </message>
         <message>
             <source>重命名失败，存档文件可能正被其他程序占用。</source>
-            <translation>Rename failed. The archive file may be occupied by another program.</translation>
+            <translation>Rename failed. The world save file may be occupied by another program.</translation>
         </message>
         <message>
             <source>和平</source>
@@ -28535,11 +28535,11 @@ Itemized list: %2
         </message>
         <message>
             <source>「允许作弊」没写进去（盘上那一格不是 0/1 那种数）。</source>
-            <translation>"Cheating is allowed" is not written in (the space on the board is not a number like 0/1).</translation>
+            <translation>Could not save Cheating. The stored value must be 0 or 1.</translation>
         </message>
         <message>
             <source>「极限模式」没写进去（盘上那一格不是 0/1 那种数）。</source>
-            <translation>"Extreme Mode" is not written in (the space on the disk is not a number like 0/1).</translation>
+            <translation>Could not save Hardcore. The stored value must be 0 or 1.</translation>
         </message>
         <message>
             <source>「难度」没写进去（盘上那一格不是 0/1/2/3 那种数）。</source>
@@ -28551,7 +28551,7 @@ Itemized list: %2
         </message>
         <message>
             <source>这个存档里没有 level.dat，它不是一个世界（或已损坏）。</source>
-            <translation>There is no level.dat in this archive, it is not a world (or is corrupted).</translation>
+            <translation>There is no level.dat in this world save, it is not a world (or is corrupted).</translation>
         </message>
         <message>
             <source>读不动 level.dat：%1</source>
@@ -28571,11 +28571,11 @@ Itemized list: %2
         </message>
         <message>
             <source>level.dat 里的内容无法解析（这个存档可能已损坏）：%1</source>
-            <translation>The content in level.dat cannot be parsed (the archive may be damaged): %1</translation>
+            <translation>The content in level.dat cannot be parsed (the world save may be damaged): %1</translation>
         </message>
         <message>
             <source>level.dat 的根不是一张表（这个存档可能已损坏）。</source>
-            <translation>The root of level.dat is not a table (this archive may be corrupted).</translation>
+            <translation>The root of level.dat is not a table (this world save may be corrupted).</translation>
         </message>
         <message>
             <source>读取期间 level.dat 已变化或无法重读，请重新打开世界设置。</source>
@@ -28587,7 +28587,7 @@ Itemized list: %2
         </message>
         <message>
             <source>这个存档里没有 level.dat —— 不往一个不存在的世界里写。</source>
-            <translation>There is no level.dat in this archive - you are not writing to a world that does not exist.</translation>
+            <translation>There is no level.dat in this world save - you are not writing to a world that does not exist.</translation>
         </message>
         <message>
             <source>建不出临时文件：%1</source>
@@ -28665,7 +28665,7 @@ Itemized list: %2
         </message>
         <message>
             <source>搜索规则</source>
-            <translation>Search rules</translation>
+            <translation>Search game rules</translation>
         </message>
         <message>
             <source>修改存档文件</source>
@@ -28677,7 +28677,7 @@ Itemized list: %2
         </message>
         <message>
             <source>未找到匹配的规则</source>
-            <translation>No matching rules</translation>
+            <translation>No matching game rules</translation>
         </message>
         <message>
             <source>无法读取游戏规则</source>
@@ -28717,11 +28717,11 @@ Itemized list: %2
         </message>
         <message>
             <source>改这个存档的文件夹名。游戏的世界列表里显示的也是它。</source>
-            <translation>Change the folder name of this archive. It is also shown in the game's world list.</translation>
+            <translation>Rename the world folder shown in the game's world list.</translation>
         </message>
         <message>
             <source>将完整存档保存为压缩包并校验。</source>
-            <translation>Save the complete archive as a compressed package and verify it.</translation>
+            <translation>Archive and verify a complete copy of the world save.</translation>
         </message>
         <message>
             <source>选择备份还原，还原前自动备份当前文件。</source>
@@ -28729,7 +28729,7 @@ Itemized list: %2
         </message>
         <message>
             <source>打开存档备份目录。</source>
-            <translation>Open the archive backup directory.</translation>
+            <translation>Open the world backup folder.</translation>
         </message>
         <message>
             <source>删除这个世界及其全部文件，会先确认。</source>
@@ -28737,11 +28737,11 @@ Itemized list: %2
         </message>
         <message>
             <source>备份存档信息，保存修改前也会自动备份。</source>
-            <translation>Back up archive information and automatically back it up before saving changes.</translation>
+            <translation>Back up world metadata. Saving changes also creates a backup.</translation>
         </message>
         <message>
             <source>世界名、难度、游戏规则等写在存档文件里，修改前会先确认。</source>
-            <translation>The world name, difficulty, game rules, etc. are written in the archive file and will be confirmed before modification.</translation>
+            <translation>Confirm changes to the world name, difficulty, or game rules before writing to the world save.</translation>
         </message>
         <message>
             <source>世界名</source>
@@ -28749,11 +28749,11 @@ Itemized list: %2
         </message>
         <message>
             <source>存档信息中保存的世界名称。</source>
-            <translation>The name of the world saved in the archive information.</translation>
+            <translation>World name stored in the save.</translation>
         </message>
         <message>
             <source>允许作弊</source>
-            <translation>Cheating is allowed</translation>
+            <translation>Cheating</translation>
         </message>
         <message>
             <source>打开之后，这个世界里能用指令（单机也要开作弊）。</source>
@@ -28761,11 +28761,11 @@ Itemized list: %2
         </message>
         <message>
             <source>极限模式</source>
-            <translation>Extreme mode</translation>
+            <translation>Hardcore</translation>
         </message>
         <message>
             <source>极限模式：死一次这个世界就不能再玩了。</source>
-            <translation>Extreme mode: If you die once, you will no longer be able to play in this world.</translation>
+            <translation>In Hardcore, you cannot continue playing after you die.</translation>
         </message>
         <message>
             <source>难度</source>
@@ -28785,7 +28785,7 @@ Itemized list: %2
         </message>
         <message>
             <source>存档格式 %1</source>
-            <translation>Archive format %1</translation>
+            <translation>Save format %1</translation>
         </message>
         <message>
             <source>上次游玩 %1</source>
@@ -28809,7 +28809,7 @@ Itemized list: %2
         </message>
         <message>
             <source>存档读取失败：%1</source>
-            <translation>Archive read failed: %1</translation>
+            <translation>Could not read world save: %1</translation>
         </message>
         <message>
             <source>默认</source>
@@ -28823,7 +28823,7 @@ Itemized list: %2
             <source>%1
 这个世界现在只能看和备份：无法读取存档内容，所以不会写入任何内容。</source>
             <translation>%1
-This world can now only be viewed and backed up: the archive content cannot be read, so nothing will be written.</translation>
+This world can now only be viewed and backed up: the world save content cannot be read, so nothing will be written.</translation>
         </message>
         <message>
             <source>已保存（%1），原文件已备份。</source>
@@ -28835,7 +28835,7 @@ This world can now only be viewed and backed up: the archive content cannot be r
         </message>
         <message>
             <source>已有存档信息备份，可再次创建。</source>
-            <translation>The archive information has been backed up and can be created again.</translation>
+            <translation>A world metadata backup already exists. You can create another one.</translation>
         </message>
     </context>
 </TS>
