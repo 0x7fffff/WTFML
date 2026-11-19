@@ -822,11 +822,10 @@ if(WTFML_DIAG_DOWNLOAD)
         COMPILE_DEFINITIONS "WTFML_DIAG_DOWNLOAD=1;WTFML_BUILD_FLAVOR=\"download-diagnostics\"")
 endif()
 
-# 正版登录使用项目自己的 Azure 应用注册。未配置时仍可构建和离线使用，
-# 登录/刷新在发起网络请求前明确提示；不借用其它项目的应用 ID。
-# cmake -DWTFML_CLIENT_ID=<项目应用ID> -DWTFML_REDIRECT_URI=http://localhost:38226/ ...
-set(WTFML_CLIENT_ID "" CACHE STRING "项目自己的 Microsoft OAuth 客户端 ID（空 = 禁用在线授权）")
-set(WTFML_REDIRECT_URI "" CACHE STRING "OAuth 回调地址（空 = http://localhost:38226/）")
+# 正版登录默认使用 WTFML 自己的 Microsoft Entra 应用。客户端 ID 是 OAuth 的公开标识。
+set(WTFML_CLIENT_ID "b24d0030-cedb-454a-96f4-690ba85fcf98" CACHE STRING
+    "Microsoft OAuth 客户端 ID（空 = 禁用在线授权）")
+set(WTFML_REDIRECT_URI "" CACHE STRING "OAuth 本地回调基址（空 = http://localhost/，端口由系统分配）")
 
 if(WTFML_CLIENT_ID)
     target_compile_definitions(WTFMinecraftLauncher PRIVATE WTFML_CLIENT_ID="${WTFML_CLIENT_ID}")

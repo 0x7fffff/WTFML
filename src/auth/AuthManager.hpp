@@ -11,6 +11,7 @@
 #include <QJsonObject>
 #include <QObject>
 #include <QString>
+#include <QUrl>
 
 class QTcpServer;
 class QTcpSocket;
@@ -207,11 +208,8 @@ private:
     /// 它只负责收，收全了才交给这里走令牌链。解析失败的分支自己断开连接。
     void processCallbackRequest(QTcpSocket *socket, const QByteArray &requestData);
 
-    bool startCallbackServer();
-    QString buildAuthUrl();
-    QString createCodeVerifier() const;
-    QString createCodeChallenge(const QString &verifier) const;
-    QByteArray base64UrlEncode(const QByteArray &input) const;
+    QUrl buildAuthUrl() const;
+    void resetLoginAttempt();
 
     /// 授权码 → 微软令牌。成功时把微软那份落盘，并把新的 access_token 交给 *accessToken。
     bool exchangeAuthorizationCode(const QString &code, QString *accessToken,
@@ -258,9 +256,10 @@ private:
     QString m_codeVerifier;
     /// 当前 OAuth 请求的一次性关联值；回调必须逐字匹配，完成后立即清空。
     QString m_oauthState;
+    /// 绑定回环端口后确定的完整 URI，授权与换取令牌共用。
+    QUrl m_oauthRedirectUri;
     QTcpServer *m_callbackServer;
     QNetworkAccessManager *m_networkManager;
-    int m_callbackPort;
     // 登录流程在走：从 loginMicrosoft() 起，到回调处理完（或超时）为止。见 loginInFlight()。
     bool m_loginInFlight = false;
     // 只有 exchangeAuthorizationCode() 会把它点起来（不是 requestMicrosoftTokenRefresh() ——

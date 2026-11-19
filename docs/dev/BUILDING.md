@@ -53,6 +53,16 @@ Windows 系统 DLL。
 版本号**只有一个出处**：`CMakeLists.txt` 的 `project(... VERSION x.y.z)`，编成
 `WTFML_VERSION` 宏交给界面显示。
 
+### 微软正版登录
+
+构建默认使用 WTFML 的 Microsoft Entra 客户端 ID。应用注册的「身份验证 → 移动和桌面应用程序」
+注册 `http://localhost`。每次登录的端口由系统分配，启动器把实际端口用于授权和令牌交换。
+沿用旧构建目录时，配置命令加 `-U WTFML_CLIENT_ID` 可清除旧缓存并采用项目默认值。
+自定义应用用 `-DWTFML_CLIENT_ID=<客户端ID>`，离线专用构建用 `-DWTFML_CLIENT_ID=`。
+自定义回调路径时，用 `-DWTFML_REDIRECT_URI=http://localhost/<路径>`，并在 Entra 中注册相同路径。
+旧配置中的端口采用系统分配值。回调基址使用 HTTP 和 `localhost`。
+旧构建若显式设置过回调，配置时加 `-U WTFML_REDIRECT_URI` 恢复默认值。
+
 ## 跑起来之后
 
 **数据目录 = 当前选中的游戏文件夹**，不是 exe 所在目录。

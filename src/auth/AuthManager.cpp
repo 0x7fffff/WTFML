@@ -11,16 +11,14 @@
 #include "AuthManager.hpp"
 
 #include "AccountStore.hpp"    // 刷新成功后把新凭据写回列表
-#include "OAuthEndpoints.hpp"  // 回调地址 → 监听端口（唯一出处）
+#include "OAuthEndpoints.hpp"  // 动态回调、PKCE 与 state
 #include "TokenStore.hpp"      // 凭据落盘的字节格式（唯一出处）
 #include "../net/HttpClient.hpp"  // 同步 HTTP（唯一出处）
 
 #include <QCoreApplication>
-#include <QCryptographicHash>
 #include <QDebug>
 #include <QDesktopServices>
 #include <QEventLoop>
-#include <QHostAddress>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -28,11 +26,9 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QPointer>
-#include <QRandomGenerator>
 #include <QSettings>
 #include <QTcpServer>
 #include <QTcpSocket>
-#include <QTextStream>
 #include <QTimer>
 #include <QUrl>
 #include <QUrlQuery>
@@ -62,13 +58,10 @@ static constexpr const char kMinecraftLoginUrl[] =
 static constexpr const char kMinecraftProfileUrl[] =
     "https://api.minecraftservices.com/minecraft/profile";
 #ifdef WTFML_REDIRECT_URI
-static constexpr const char kRedirectUri[] = WTFML_REDIRECT_URI;
+static constexpr const char kRedirectBase[] = WTFML_REDIRECT_URI;
 #else
-static constexpr const char kRedirectUri[] = "http://localhost:38226/";
+static constexpr const char kRedirectBase[] = "http://localhost/";
 #endif
-// 回调地址**读不出端口**时的那一位（地址本来就不是一条 http/https 地址）。正常构建里
-// 用不到它：地址里写没写端口都算得出来，读不出来才是这条。
-static constexpr int kFallbackCallbackPort = 38226;
 static constexpr const char kOAuthScope[] = "XboxLive.signin offline_access";
 // 等浏览器回来的上限。见 AuthManager::loginInFlight() 的说明。
 static constexpr int kLoginTimeoutMinutes = 5;
@@ -157,10 +150,7 @@ AuthManager::AuthManager(QObject *parent)
       // 登录成功之后会被档案里的真名替掉，见 applyMinecraftTokenData()。
       m_playerName(QString::fromLatin1(kDefaultPlayerName)),
       m_callbackServer(new QTcpServer(this)),
-      m_networkManager(new QNetworkAccessManager(this)),
-      // 监听端口 = 回调地址里那个端口（唯一出处，见 OAuthEndpoints.hpp）。
-      m_callbackPort(OAuthEndpoints::callbackPort(QString::fromLatin1(kRedirectUri),
-                                                  kFallbackCallbackPort)) {
+      m_networkManager(new QNetworkAccessManager(this)) {
     connect(m_callbackServer, &QTcpServer::newConnection, this, &AuthManager::handleNewConnection);
     // 开窗时把上次登录的账户读回来：底栏一上来就显示上次那个名字，而不是占位的 "Player"。
     // 这一句**不碰网络**（loadMinecraftTokenData() 只读一遍 QSettings、再解一层
@@ -174,7 +164,7 @@ QString AuthManager::loginConfigurationError() {
     if (QString::fromLatin1(kClientId).trimmed().isEmpty()) {
         return tr("这个版本暂时不能登录正版账号，可以先用离线账号进游戏。已保存的账号不会丢失。");
     }
-    if (!OAuthEndpoints::isUsableRedirectUri(QString::fromLatin1(kRedirectUri))) {
+    if (OAuthEndpoints::loopbackRedirectBase(QString::fromLatin1(kRedirectBase)).isEmpty()) {
         return tr("这个版本的正版登录暂时用不了，可以先用离线账号进游戏。");
     }
     return {};
@@ -193,22 +183,18 @@ bool AuthManager::loginMicrosoft() {
         return false;
     }
 
-    if (!startCallbackServer()) {
-        emit loginFailed(tr("无法启动回调服务器（端口 %1 被占用？）。").arg(m_callbackPort));
+    m_oauthRedirectUri = OAuthEndpoints::listenForCallback(
+        *m_callbackServer, OAuthEndpoints::loopbackRedirectBase(QString::fromLatin1(kRedirectBase)));
+    if (m_oauthRedirectUri.isEmpty()) {
+        emit loginFailed(tr("无法启动本地登录回调：%1").arg(m_callbackServer->errorString()));
         return false;
     }
 
-    m_codeVerifier = createCodeVerifier();
+    m_codeVerifier = OAuthEndpoints::randomToken();
     SecretRedactor::remember(m_codeVerifier);
-    m_oauthState = createCodeVerifier();
-    const QUrl authUrl(buildAuthUrl());
-    if (!QDesktopServices::openUrl(authUrl)) {
-        m_callbackServer->close();
-        m_oauthState.clear();
-        emit loginFailed(tr("无法打开默认浏览器。"));
-        return false;
-    }
-
+    m_oauthState = OAuthEndpoints::randomToken();
+    SecretRedactor::remember(m_oauthState);
+    const QUrl authUrl = buildAuthUrl();
     m_loginInFlight = true;
     // 新的一趟开始了，上一趟留下的"覆盖过微软槽"这一笔不许跟过来（见 handleNewConnection()）。
     m_microsoftTokenOverwritten = false;
@@ -230,9 +216,7 @@ bool AuthManager::loginMicrosoft() {
             if (m_handlingCallback) {
                 return;
             }
-            m_callbackServer->close();
-            m_loginInFlight = false;
-            m_oauthState.clear();
+            resetLoginAttempt();
             // 走 loginFailed 而不是自己憋着：界面就是靠它把几个按钮放回可点状态的。
             // NOTE: 这句**不许点名某个按钮**：用户手上看到的文案会变，
             // 这里只说下一步做什么。
@@ -244,10 +228,26 @@ bool AuthManager::loginMicrosoft() {
     m_loginTimeout->start(kLoginTimeoutMinutes * 60 * 1000);
 
     emit loginStarted();
+    if (!QDesktopServices::openUrl(authUrl)) {
+        resetLoginAttempt();
+        emit loginFailed(tr("无法打开默认浏览器。"));
+        return false;
+    }
     return true;
 }
 
 bool AuthManager::loginInFlight() const { return m_loginInFlight; }
+
+void AuthManager::resetLoginAttempt() {
+    m_callbackServer->close();
+    m_oauthRedirectUri.clear();
+    m_oauthState.clear();
+    m_codeVerifier.clear();
+    m_loginInFlight = false;
+    if (m_loginTimeout != nullptr) {
+        m_loginTimeout->stop();
+    }
+}
 
 QString AuthManager::loadSavedToken(QString *errorMessage) {
     const auto fail = [errorMessage](const QString &message) {
@@ -449,7 +449,7 @@ void AuthManager::handleNewConnection() {
     // 处理真回调那条路上有网络请求（内嵌事件循环），这段时间里浏览器顺手来要的
     // /favicon.ico 会**重入**到这里。它没有授权码 —— 放它进来只会变成一次假的
     // "登录失败"（用户正等着登录，结果先挨一个失败弹窗）。
-    if (m_handlingCallback) {
+    if (!m_loginInFlight || m_handlingCallback) {
         socket->disconnectFromHost();
         return;
     }
@@ -483,42 +483,20 @@ void AuthManager::processCallbackRequest(QTcpSocket *socket, const QByteArray &r
     // 另一个回调已经在走令牌链了（内嵌事件循环期间别的连接照样收得到）—— 同
     // `handleNewConnection()` 开头那道闸，这里再判一次：异步收之后，"另一个连接"
     // 完全可能在第一条已经开跑之后才把请求头收全。
-    if (m_handlingCallback) {
+    if (!m_loginInFlight || m_handlingCallback) {
         socket->disconnectFromHost();
         return;
     }
 
-    const QString requestText = QString::fromUtf8(requestData);
-    const QStringList requestLines = requestText.split(QLatin1String("\r\n"), Qt::SkipEmptyParts);
-    if (requestLines.isEmpty()) {
+    const auto parameters = OAuthEndpoints::callbackParameters(
+        requestData.left(requestData.indexOf("\r\n")), m_oauthRedirectUri, m_oauthState);
+    if (!parameters) {
         socket->disconnectFromHost();
         return;
     }
-
-    const QString requestLine = requestLines.first();
-    const QStringList parts = requestLine.split(' ');
-    if (parts.size() < 2) {
-        socket->disconnectFromHost();
-        return;
-    }
-
-    const QUrl requestedUrl(QStringLiteral("http://localhost") + parts.at(1));
-    // 只认根路径。别的路径（favicon 之类）不是回调，不产生任何信号 —— 关掉连接走人，
-    // 真回调随后会另开一条连接进来。
-    if (requestedUrl.path() != QStringLiteral("/")) {
-        socket->disconnectFromHost();
-        return;
-    }
-
-    const QUrlQuery query(requestedUrl.query());
-    const QString state = query.queryItemValue("state");
-    if (m_oauthState.isEmpty() || state != m_oauthState) {
-        socket->disconnectFromHost();
-        return;
-    }
-    const QString code = query.queryItemValue("code");
+    const QString code = parameters->queryItemValue(QStringLiteral("code"), QUrl::FullyDecoded);
     SecretRedactor::remember(code);
-    const QString error = query.queryItemValue("error");
+    const QString error = SecretRedactor::redact(parameters->queryItemValue(QStringLiteral("error")));
 
     // NOTE: 这里**不要**把 code / error 的内容写进日志。授权码是密钥材料（PKCE 挡的是
     // "被别人截走后换成令牌"，不是"被别人抄走"），而 Qt 的 qDebug 默认打到 stderr，
@@ -526,6 +504,8 @@ void AuthManager::processCallbackRequest(QTcpSocket *socket, const QByteArray &r
     // loginSucceeded/loginFailed 信号就够了。
 
     m_handlingCallback = true;
+    // 已接收有效回调，关掉监听。当前连接继续用于返回登录结果。
+    m_callbackServer->close();
 
     const QPointer<QTcpSocket> socketGuard(socket);
 
@@ -566,6 +546,7 @@ void AuthManager::processCallbackRequest(QTcpSocket *socket, const QByteArray &r
     response.reserve(responseBody.size() + 256);
     response.append("HTTP/1.1 200 OK\r\n");
     response.append("Content-Type: text/html; charset=UTF-8\r\n");
+    response.append("Cache-Control: no-store\r\nReferrer-Policy: no-referrer\r\n");
     response.append("Content-Length: ");
     response.append(QByteArray::number(responseBody.size()));
     response.append("\r\nConnection: close\r\n\r\n");
@@ -585,15 +566,8 @@ void AuthManager::processCallbackRequest(QTcpSocket *socket, const QByteArray &r
         }
     }
 
-    // 回调服务器用完就关：它只在"等这一次回调"这段时间里该开着。留着就是一个一直张着的
-    // 本地端口，本机别的程序随手连一下就能触发一次假的登录失败。
     m_handlingCallback = false;
-    m_oauthState.clear();
-    m_callbackServer->close();
-    m_loginInFlight = false;
-    if (m_loginTimeout != nullptr) {
-        m_loginTimeout->stop();
-    }
+    resetLoginAttempt();
 
     // 信号**放在最后**发：接收方要弹模态窗，而模态窗会卡住它后面那句 —— 先发信号的话，
     // 浏览器那个标签页得等用户把启动器的弹窗点掉才能显示结果。
@@ -667,57 +641,27 @@ void AuthManager::processCallbackRequest(QTcpSocket *socket, const QByteArray &r
     }
 }
 
-bool AuthManager::startCallbackServer() {
-    if (m_callbackServer->isListening()) {
-        return true;
-    }
-
-    return m_callbackServer->listen(QHostAddress::LocalHost, m_callbackPort);
-}
-
-QString AuthManager::buildAuthUrl() {
-    const QString codeChallenge = createCodeChallenge(m_codeVerifier);
+QUrl AuthManager::buildAuthUrl() const {
     QUrl url(kOAuthAuthorizeUrl);
     QUrlQuery query;
     query.addQueryItem(QStringLiteral("client_id"), kClientId);
     query.addQueryItem(QStringLiteral("response_type"), QStringLiteral("code"));
     query.addQueryItem(QStringLiteral("response_mode"), QStringLiteral("query"));
-    query.addQueryItem(QStringLiteral("redirect_uri"), kRedirectUri);
+    OAuthEndpoints::addRedirectUri(query, m_oauthRedirectUri);
     query.addQueryItem(QStringLiteral("scope"), kOAuthScope);
-    query.addQueryItem(QStringLiteral("code_challenge"), codeChallenge);
+    query.addQueryItem(QStringLiteral("code_challenge"), OAuthEndpoints::codeChallenge(m_codeVerifier));
     query.addQueryItem(QStringLiteral("code_challenge_method"), QStringLiteral("S256"));
     query.addQueryItem(QStringLiteral("state"), m_oauthState);
     url.setQuery(query);
-    return url.toString();
-}
-
-QString AuthManager::createCodeVerifier() const {
-    QByteArray randomBytes;
-    randomBytes.reserve(32);
-    for (int i = 0; i < 32; ++i) {
-        randomBytes.append(static_cast<char>(QRandomGenerator::global()->bounded(0, 256)));
-    }
-    return base64UrlEncode(randomBytes);
-}
-
-QString AuthManager::createCodeChallenge(const QString &verifier) const {
-    const QByteArray sha256 =
-        QCryptographicHash::hash(verifier.toUtf8(), QCryptographicHash::Sha256);
-    return base64UrlEncode(sha256);
-}
-
-QByteArray AuthManager::base64UrlEncode(const QByteArray &input) const {
-    QByteArray encoded =
-        input.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals);
-    return encoded;
+    return url;
 }
 
 bool AuthManager::exchangeAuthorizationCode(const QString &code, QString *accessToken,
                                             QString *errorMessage) {
     QUrlQuery body;
     body.addQueryItem(QStringLiteral("client_id"), kClientId);
-    body.addQueryItem(QStringLiteral("code"), code);
-    body.addQueryItem(QStringLiteral("redirect_uri"), kRedirectUri);
+    body.addQueryItem(QStringLiteral("code"), QString::fromLatin1(QUrl::toPercentEncoding(code)));
+    OAuthEndpoints::addRedirectUri(body, m_oauthRedirectUri);
     body.addQueryItem(QStringLiteral("grant_type"), QStringLiteral("authorization_code"));
     body.addQueryItem(QStringLiteral("code_verifier"), m_codeVerifier);
 
