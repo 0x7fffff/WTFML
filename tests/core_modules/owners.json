@@ -129,6 +129,9 @@
   "AgentMcpProtocolTests.cpp": "agent",
   "AgentMcpTrustTests.cpp": "agent",
   "AgentMcpClientTests.cpp": "agent",
+  "AgentWebPolicyTests.cpp": "agent",
+  "AgentWebToolsTests.cpp": "agent",
+  "AgentCommandToolsTests.cpp": "agent",
   "DailyQuoteTests.cpp": "resources",
   "HomeGreetingTests.cpp": "resources"
 }

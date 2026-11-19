@@ -332,6 +332,27 @@ int MwAgentChecks(QApplication &app) {
         check(controller->mcpManager()->tools().isEmpty(), "真窗口：没有 MCP 工具时清单为空");
     }
 
+    // Stage 3：联网与诊断命令都接上了；诊断命令默认关闭，联网工具每次都要审批。
+    {
+        Agent::ToolCall commandCall;
+        commandCall.id = QStringLiteral("mw-cmd-1");
+        commandCall.name = QStringLiteral("command.diagnose");
+        commandCall.arguments = QJsonObject{{QStringLiteral("command"),
+                                             QStringLiteral("java-version")}};
+        const AgentToolResult commandResult = controller->compositeEngine()->invoke(commandCall);
+        check(commandResult.status == AgentToolResult::Status::Error,
+              "真窗口：诊断命令默认关闭");
+        Agent::ToolCall fetchCall;
+        fetchCall.id = QStringLiteral("mw-web-1");
+        fetchCall.name = QStringLiteral("web.fetch");
+        fetchCall.arguments = QJsonObject{{QStringLiteral("url"),
+                                           QStringLiteral("https://example.com/")}};
+        const AgentToolResult fetchResult = controller->compositeEngine()->invoke(fetchCall);
+        check(fetchResult.status == AgentToolResult::Status::ApprovalRequired,
+              "真窗口：联网抓取要审批");
+        controller->compositeEngine()->cancelPending();
+    }
+
     // 「API 设置」被别的页占着覆盖层时也要打得开（用户报的「点了没反应」：别的选项卡上开的页收着、仍占着这一位，
     // showPage() 返回 false，按钮静默无事发生）。
     {

@@ -152,6 +152,11 @@ set(HEADER_FILES
     src/agent/McpClient.hpp
     src/agent/McpManager.hpp
     src/agent/AgentMcpToolEngine.hpp
+    src/agent/AgentWebPolicy.hpp
+    src/agent/AgentWebTransport.hpp
+    src/agent/QtAgentWebTransport.hpp
+    src/agent/AgentWebTools.hpp
+    src/agent/AgentCommandTools.hpp
     src/controllers/AgentController.hpp
     src/controllers/AgentLauncherHostImpl.hpp
     ui/AgentMarkdown.hpp
@@ -486,6 +491,10 @@ set(SOURCE_FILES
     src/agent/McpClient.cpp
     src/agent/McpManager.cpp
     src/agent/AgentMcpToolEngine.cpp
+    src/agent/AgentWebPolicy.cpp
+    src/agent/QtAgentWebTransport.cpp
+    src/agent/AgentWebTools.cpp
+    src/agent/AgentCommandTools.cpp
     src/controllers/AgentController.cpp
     src/controllers/AgentLauncherHostImpl.cpp
     src/net/HttpClient.cpp

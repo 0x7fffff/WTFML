@@ -211,6 +211,19 @@ AgentSettingsPage::AgentSettingsPage(QWidget *parent) : QDialog(parent) {
     // ---------- 高级：协议适配（默认收起） ----------
     m_advanced = new ExpandSection(QStringLiteral("高级"), content);
     m_advanced->setObjectName(QStringLiteral("agentAdvancedGroup"));
+    // ---------- 联网与诊断（Stage 3）----------
+    SettingsGroup *tools = addGroup(QStringLiteral("联网与诊断"));
+    m_searxng = new QLineEdit(content);
+    m_searxng->setObjectName(QStringLiteral("agentSearxngEdit"));
+    m_searxng->setPlaceholderText(QStringLiteral("https://searx.example.com"));
+    InputSizing::longValue(m_searxng, "网址：路径长度不定");
+    row(tools, QStringLiteral("SearXNG 地址"), m_searxng, Placement::Wide, QString(),
+        QStringLiteral("填了你自己的 SearXNG 实例地址才能联网搜索；搜索词会发给这个实例。"));
+    m_diagnoseToggle = toggle("agentDiagnoseCommandsToggle", false);
+    row(tools, QStringLiteral("允许诊断命令"), m_diagnoseToggle, Placement::Column,
+        QStringLiteral("默认关闭。打开后可以执行固定的诊断命令（java -version、ping、nslookup、"
+                       "netstat -ano 等），每次都要确认；任意命令始终不开放。"));
+
     form->addWidget(m_advanced);
     auto *protocol = new SettingsGroup(QStringLiteral("协议适配"), m_advanced);
     m_advanced->bodyLayout()->addWidget(protocol);
@@ -438,6 +451,22 @@ void AgentSettingsPage::setTestResult(const QString &text, bool ok) {
 void AgentSettingsPage::setPrivacyText(const QString &text) {
     m_privacyOverride = text;
     updatePrivacyText();
+}
+
+void AgentSettingsPage::setWebSearchEndpoint(const QString &endpoint) {
+    if (m_searxng != nullptr) m_searxng->setText(endpoint);
+}
+
+QString AgentSettingsPage::webSearchEndpoint() const {
+    return m_searxng != nullptr ? m_searxng->text().trimmed() : QString();
+}
+
+void AgentSettingsPage::setDiagnoseCommands(bool enabled) {
+    if (m_diagnoseToggle != nullptr) m_diagnoseToggle->setChecked(enabled);
+}
+
+bool AgentSettingsPage::diagnoseCommands() const {
+    return m_diagnoseToggle != nullptr && m_diagnoseToggle->isChecked();
 }
 
 void AgentSettingsPage::setStrictEgress(bool strict) { m_strict->setChecked(strict); }

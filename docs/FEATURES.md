@@ -493,6 +493,13 @@
 - 服务器 stdout 只走协议，stderr 进脱敏日志；垃圾行超限终止会话；进程用 Job Object 管，退出/超时清理整棵进程树。
 - 环境变量只记名字、只透传父进程同名变量；MCP 工具不进入维护工作流的技能白名单。
 
+**联网与固定诊断命令（Stage 3）**
+
+- `web.fetch`：只抓 http/https 公网地址。解析目标 host 的全部 A/AAAA，任一为 loopback/私网/链路本地/组播/保留地址就整条拒绝；连接**已校验的 IP**，Host 头与 TLS 主机名校验仍用原 host；重定向最多 5 跳且每跳重新解析校验；强制直连不继承系统代理；只读文本类内容，响应 2 MB、正文 20 万字符封顶；HTML 转纯文本并遮凭据。
+- `web.search`：用设置里的 SearXNG 实例搜索，最多 20 条；每次调用都要审批（搜索词会发给第三方），摘要同样遮凭据。
+- `command.diagnose`：只执行固定诊断命令（`java -version`、`where java`、`ping <host>`、`nslookup <host>`、`netstat -ano`、`ipconfig /all`），host 参数只接受域名/IP 字面量；默认关闭，打开后每次执行仍要审批；进程树随超时/取消清理，输出 256 KB 封顶。
+- 任意可执行文件（`command.run`）不开放；联网与命令工具只在自由对话模式可用。
+
 **硬约束**
 
 - 没有会话级目录放行；配置文件每次确认，确认后也只发送脱敏片段；`versions/libraries/assets/java/Servers` 原始写一律拒绝。

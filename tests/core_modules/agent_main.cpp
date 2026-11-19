@@ -41,6 +41,9 @@ void runAgentWorkflowTests();
 void runAgentMcpProtocolTests();
 void runAgentMcpTrustTests();
 void runAgentMcpClientTests();
+void runAgentWebPolicyTests();
+void runAgentWebToolsTests();
+void runAgentCommandToolsTests();
 
 
 // ---------------------------------------------------------------------------
@@ -215,6 +218,9 @@ int main(int argc, char **argv) {
     runAgentMcpProtocolTests();
     runAgentMcpTrustTests();
     runAgentMcpClientTests();
+    runAgentWebPolicyTests();
+    runAgentWebToolsTests();
+    runAgentCommandToolsTests();
 
     out() << "agent: " << g_checks - g_failures << "/" << g_checks << "\n";
     return g_failures == 0 ? 0 : 1;
