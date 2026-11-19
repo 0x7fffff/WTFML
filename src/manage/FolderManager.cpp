@@ -9,7 +9,6 @@
 
 #include <QDebug>
 #include <QDir>
-#include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
 #include <QUuid>
@@ -372,21 +371,6 @@ bool moveToRecycleBin(const QString &path, QString *error) {
 
     // 一棵树里的链接先剥掉（理由见 stripLinksBelow()）。
     if (info.isDir()) {
-        // Windows 的回收站（IFileOperation）对只读文件并不总能处理：CI 的 Windows
-        // runner 上会直接回 0x80270021，而用户在只读介质上拷来的实例也常带只读位。
-        // 删除本来就会把只读属性一起带走，这里先把子树里的只读位清掉；清不掉的项交给
-        // 下面那一趟报真实原因。
-        for (QDirIterator it(target, QDir::Files | QDir::Dirs | QDir::Hidden | QDir::System
-                                          | QDir::NoDotAndDotDot,
-                             QDirIterator::Subdirectories); it.hasNext();) {
-            const QString entry = it.next();
-            const QFileInfo entryInfo(entry);
-            if (entryInfo.isSymLink()) continue;
-            const QFileDevice::Permissions perms = entryInfo.permissions();
-            if (!perms.testFlag(QFileDevice::WriteOwner) && !perms.testFlag(QFileDevice::WriteUser)) {
-                QFile::setPermissions(entry, perms | QFileDevice::WriteOwner | QFileDevice::WriteUser);
-            }
-        }
         QString linkProblem;
         if (!stripLinksBelow(target, &linkProblem)) {
             return fail(FolderManager::tr("「%1」没有往回收站移：里面有一个链接没能摘掉。\n\n%2")
@@ -443,7 +427,7 @@ bool moveToRecycleBin(const QString &path, QString *error) {
                         .arg(systemMessage(hr), QDir::toNativeSeparators(target)));
     }
     if (FAILED(hr)) {
-        // 树里有只读文件/目录：shell 不肯替我们摘只读位，这一趟回的是"源访问被拒绝"。
+        // 目标本身或子树里有只读文件/目录：shell 不肯替我们摘只读位，这一趟回的是"源访问被拒绝"。
         // 摘掉只读位再试一次（理由见 clearReadOnlyBelow()；一次就成功的那趟一个属性都不碰）。
         if (clearReadOnlyBelow(target) > 0) {
             hr = recycleOnce(&aborted);
