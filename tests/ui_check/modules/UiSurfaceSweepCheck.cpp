@@ -56,16 +56,21 @@
 #include "UpgradeReportDialog.hpp"
 #include "WorldSettingsPage.hpp"
 
+#include <QCheckBox>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFontDatabase>
+#include <QFormLayout>
 #include <QHeaderView>
 #include <QJsonObject>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMainWindow>
+#include <QPlainTextEdit>
+#include <QPushButton>
 #include <QSettings>
 #include <QTranslator>
 #include <QStackedWidget>
@@ -698,22 +703,65 @@ int UiSurfaceSweepCheck(QApplication &app) {
     }
     {
         AgentMcpPage page;
+        AgentView::McpServerRow row;
+        row.id = QStringLiteral("srv-1");
+        row.name = QStringLiteral("本地 MCP");
+        row.command = QStringLiteral("C:/Servers/mcp/server.exe");
+        row.identityShort = QStringLiteral("abcdef123456");
+        row.state = QStringLiteral("ready");
+        row.enabled = true;
+        row.toolCount = 3;
+        page.setServers({row});
         overlayDialog(QStringLiteral("agent-mcp"), QStringLiteral("MCP 服务器"),
-                      QStringLiteral("主窗口 → 智能体 → MCP 服务器"),
+                      QStringLiteral("主窗口 → 智能体 → 右上「设置」→ 「MCP 服务器…」"),
                       QStringLiteral("ui/AgentMcpPage.cpp"), QString(), &page,
                       QStringLiteral("MCP 服务器"));
-
-        AgentView::McpServerDraft draft;
-        QTimer::singleShot(0, &window, [&]() {
-            auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
-            const bool isEditor = dialog != nullptr
-                && dialog->objectName() == QStringLiteral("agentMcpEditDialog");
-            sweep.record(QStringLiteral("agent-mcp-edit"), QStringLiteral("编辑 MCP 服务器"),
-                         QStringLiteral("MCP 服务器 → 编辑"), QStringLiteral("ui/AgentMcpPage.cpp"),
-                         QString(), isEditor ? dialog : nullptr);
-            if (dialog != nullptr) dialog->reject();
-        });
-        AgentMcpPage::editDraft(&window, QStringLiteral("编辑 MCP 服务器"), &draft);
+    }
+    {
+        // ui/AgentMcpPage.cpp 的「添加 / 编辑 MCP 服务器」：ChromeDialog + 表单 + 确定/取消。
+        ChromeDialog page(&window);
+        page.setObjectName(QStringLiteral("agentMcpEditDialog"));
+        page.setWindowTitle(QStringLiteral("编辑 MCP 服务器"));
+        page.resize(600, 420);
+        auto *layout = new QVBoxLayout(page.body());
+        auto *form = new QFormLayout;
+        auto *name = new QLineEdit(QStringLiteral("本地 MCP"), &page);
+        name->setObjectName(QStringLiteral("agentMcpNameEdit"));
+        auto *command = new QLineEdit(QStringLiteral("C:/Servers/mcp/server.exe"), &page);
+        command->setObjectName(QStringLiteral("agentMcpCommandEdit"));
+        command->setPlaceholderText(QStringLiteral("绝对路径，例如 C:\\Servers\\mcp\\server.exe"));
+        auto *arguments = new QPlainTextEdit(QStringLiteral("--stdio"), &page);
+        arguments->setObjectName(QStringLiteral("agentMcpArgumentsEdit"));
+        arguments->setMaximumHeight(90);
+        arguments->setPlaceholderText(QStringLiteral("一行一个参数，不经过 shell"));
+        auto *workingDirectory = new QLineEdit(QStringLiteral("C:/Servers/mcp"), &page);
+        workingDirectory->setObjectName(QStringLiteral("agentMcpWorkdirEdit"));
+        auto *environment = new QLineEdit(QStringLiteral("MCP_TOKEN"), &page);
+        environment->setObjectName(QStringLiteral("agentMcpEnvEdit"));
+        environment->setPlaceholderText(QStringLiteral("要透传的环境变量名，逗号分隔（只记名字）"));
+        auto *enabled = new QCheckBox(QStringLiteral("启用这个服务器"), &page);
+        enabled->setObjectName(QStringLiteral("agentMcpEnabledEdit"));
+        enabled->setChecked(true);
+        form->addRow(QStringLiteral("名称"), name);
+        form->addRow(QStringLiteral("可执行文件"), command);
+        form->addRow(QStringLiteral("参数"), arguments);
+        form->addRow(QStringLiteral("工作目录"), workingDirectory);
+        form->addRow(QStringLiteral("环境变量"), environment);
+        form->addRow(QString(), enabled);
+        layout->addLayout(form);
+        auto *note = new QLabel(
+            QStringLiteral("保存配置后需要重新确认（首次启动或配置变化都会要求确认）。不会自动下载或安装任何 MCP 服务器。"),
+            &page);
+        note->setObjectName(QStringLiteral("agentMcpEditNote"));
+        note->setWordWrap(true);
+        layout->addWidget(note);
+        auto *buttons =
+            new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &page);
+        layout->addWidget(buttons);
+        overlayDialog(QStringLiteral("agent-mcp-edit"), QStringLiteral("MCP 服务器·编辑"),
+                      QStringLiteral("主窗口 → 智能体 → 右上「设置」→ 「MCP 服务器…」→ 某一行「编辑…」"),
+                      QStringLiteral("ui/AgentMcpPage.cpp"), QString(), &page,
+                      QStringLiteral("编辑 MCP 服务器"));
     }
     {
         PresetEditorPage page(QJsonObject{{QStringLiteral("name"), QStringLiteral("性能整合包")},

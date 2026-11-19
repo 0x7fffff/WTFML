@@ -162,6 +162,49 @@ void runFolderRemovalTests() {
               QStringLiteral("前提=%1 错误=%2").arg(made && wrote).arg(problem));
     }
 
+    // ---------- ZAO2b. 只读的单个文件 ----------
+    {
+        const QString path = temp.filePath(QStringLiteral("回收站-只读文件.txt"));
+        const bool wrote = writeBytesAt(path, QByteArrayLiteral("ro-file"));
+        const bool marked =
+            wrote && QFile::setPermissions(path, QFileDevice::ReadOwner | QFileDevice::ReadUser);
+        const DWORD attrs = GetFileAttributesW(reinterpret_cast<LPCWSTR>(path.utf16()));
+        const bool isReadOnly =
+            attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_READONLY) != 0;
+        check(wrote && marked && isReadOnly,
+              "★ ZAO2b 前提：只读单文件落盘并带 FILE_ATTRIBUTE_READONLY");
+        QString problem;
+        const bool moved = wrote && isReadOnly && moveToRecycleBin(path, &problem);
+        check(moved && !QFileInfo::exists(path),
+              "★★ ZAO2b 只读的单个文件移进回收站：调用成功，盘上已不在",
+              problem);
+        check(problem.isEmpty(), "★ ZAO2b 成功时不带错误话术", problem);
+    }
+
+    // ---------- ZAO2c. 只读的根目录（目录自身带 FILE_ATTRIBUTE_READONLY）----------
+    {
+        const QString root = temp.filePath(QStringLiteral("回收站-只读根目录"));
+        const QString child = root + QStringLiteral("/里面.txt");
+        const bool made = QDir().mkpath(root);
+        const bool wrote = made && writeBytesAt(child, QByteArrayLiteral("inside"));
+        const LPCWSTR wideRoot = reinterpret_cast<LPCWSTR>(root.utf16());
+        const DWORD beforeAttrs = GetFileAttributesW(wideRoot);
+        const bool marked =
+            wrote && beforeAttrs != INVALID_FILE_ATTRIBUTES &&
+            SetFileAttributesW(wideRoot, beforeAttrs | FILE_ATTRIBUTE_READONLY) != 0;
+        const DWORD afterAttrs = GetFileAttributesW(wideRoot);
+        const bool isReadOnly =
+            afterAttrs != INVALID_FILE_ATTRIBUTES && (afterAttrs & FILE_ATTRIBUTE_READONLY) != 0;
+        check(made && wrote && marked && isReadOnly,
+              "★ ZAO2c 前提：只读根目录自身带 FILE_ATTRIBUTE_READONLY");
+        QString problem;
+        const bool moved = made && wrote && isReadOnly && moveToRecycleBin(root, &problem);
+        check(moved && !QDir(root).exists(),
+              "★★ ZAO2c 只读的根目录（含内部文件）移进回收站：调用成功，盘上已不在",
+              problem);
+        check(problem.isEmpty(), "★ ZAO2c 成功时不带错误话术", problem);
+    }
+
     // ---------- ZAO3. 本来就不在：算成功（和 removeTree 同一条约定）----------
     {
         const QString gone = temp.filePath(QStringLiteral("压根没有/也没有.txt"));
