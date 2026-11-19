@@ -166,7 +166,8 @@ QString readProcessError(const QString &raw) {
 /// 而全程根本没解压。
 bool runPowershell(const QString &script, int timeoutMs, QByteArray *stdoutOut,
                    QString *errorOut, const QString &what,
-                   const std::function<bool()> &cancelled = {}) {
+                   const std::function<bool()> &cancelled = {},
+                   const std::function<void(const QByteArray &)> &onStdoutLine = {}) {
     if (cancelled && cancelled()) {
         if (errorOut) *errorOut = QStringLiteral("%1已取消或超时。").arg(what);
         return false;
@@ -197,15 +198,42 @@ bool runPowershell(const QString &script, int timeoutMs, QByteArray *stdoutOut,
                    QStringLiteral("-EncodedCommand"), encoded});
     bool finished = false;
     bool interrupted = false;
-    if (!cancelled) {
+    QByteArray stdoutBuf;
+    if (!cancelled && !onStdoutLine) {
         finished = process.waitForFinished(timeoutMs);
     } else {
+        const auto drainStdout = [&]() {
+            if (!onStdoutLine) {
+                return;
+            }
+            stdoutBuf += process.readAllStandardOutput();
+            while (true) {
+                const int nl = stdoutBuf.indexOf('\n');
+                if (nl < 0) {
+                    break;
+                }
+                const QByteArray line = stdoutBuf.left(nl).trimmed();
+                stdoutBuf.remove(0, nl + 1);
+                if (!line.isEmpty()) {
+                    onStdoutLine(line);
+                }
+            }
+        };
         QElapsedTimer elapsed;
         elapsed.start();
         while (elapsed.elapsed() < timeoutMs) {
-            if (cancelled()) { interrupted = true; break; }
-            if (process.waitForFinished(100)) { finished = true; break; }
+            if (cancelled && cancelled()) { interrupted = true; break; }
+            if (process.waitForFinished(50)) {
+                finished = true;
+                drainStdout();
+                break;
+            }
+            drainStdout();
             if (process.state() == QProcess::NotRunning) break;
+        }
+        if (finished && onStdoutLine && !stdoutBuf.trimmed().isEmpty()) {
+            onStdoutLine(stdoutBuf.trimmed());
+            stdoutBuf.clear();
         }
     }
     if (!finished) {
@@ -247,7 +275,8 @@ bool runPowershell(const QString &script, int timeoutMs, QByteArray *stdoutOut,
 }  // namespace
 
 bool ZipUtil::extractArchives(const QStringList &archives, const QString &targetDir,
-                              const QStringList &excludePrefixes, QString *errorOut) {
+                              const QStringList &excludePrefixes, QString *errorOut,
+                              const std::function<void(int done, int total)> &progress) {
     if (archives.isEmpty()) {
         if (errorOut) {
             *errorOut = QStringLiteral("没有需要解压的压缩包");
@@ -329,6 +358,8 @@ bool ZipUtil::extractArchives(const QStringList &archives, const QString &target
                        "      [System.IO.Compression.ZipFileExtensions]::ExtractToFile($e,$dest,$true)\n"
                        "      $total=$total+$e.Length\n"
                        "    }\n"
+                       "    [Console]::Out.WriteLine('__WTFML_ARCHIVE_DONE__')\n"
+                       "    [Console]::Out.Flush()\n"
                        "  } catch {\n"
                        // 这一段 catch 是**必须的**，理由和 gunzipTo / createZip
                        // 里那两段一模一样（见 readProcessError 上面那段）：没兜住的话 PowerShell
@@ -348,8 +379,23 @@ bool ZipUtil::extractArchives(const QStringList &archives, const QString &target
             .arg(psFilePath(QDir(targetDir).absolutePath()), psArray(processIoPaths(archives)),
                  QStringLiteral("(") + skipConditions.join(QStringLiteral(" -or ")) + QLatin1Char(')'));
 
+    const int totalArchives = int(archives.size());
+    int doneArchives = 0;
+    if (progress) {
+        progress(0, totalArchives);
+    }
+    const std::function<void(const QByteArray &)> onLine =
+        progress ? std::function<void(const QByteArray &)>(
+                       [&](const QByteArray &line) {
+                           if (line == "__WTFML_ARCHIVE_DONE__") {
+                               ++doneArchives;
+                               progress(qMin(doneArchives, totalArchives), totalArchives);
+                           }
+                       })
+                 : std::function<void(const QByteArray &)>{};
+
     QString failure;
-    if (!runPowershell(script, 180000, nullptr, &failure, QStringLiteral("解压"))) {
+    if (!runPowershell(script, 180000, nullptr, &failure, QStringLiteral("解压"), {}, onLine)) {
         if (errorOut) {
             *errorOut = failure.isEmpty()
                             ? QStringLiteral("解压失败（%1 个压缩包）").arg(archives.size())

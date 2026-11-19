@@ -354,7 +354,8 @@ bool LauncherManager::checkPreLaunch(const QString &versionId, QStringList *erro
 }
 
 QString LauncherManager::prepareNatives(const QJsonObject &versionJson, const QString &versionId,
-                                        QStringList *errors) const {
+                                        QStringList *errors,
+                                        const std::function<void(int done, int total)> &progress) const {
     if (versionJson.isEmpty()) {
         return QString();
     }
@@ -422,6 +423,10 @@ QString LauncherManager::prepareNatives(const QJsonObject &versionJson, const QS
     }
     qDebug() << "Extracting" << jarCount << "natives archives to" << nativesDir
              << "in" << jarsByExcludes.size() << "group(s)";
+    if (progress) {
+        progress(0, jarCount);
+    }
+    int completedOffset = 0;
     QString error;
     for (auto it = jarsByExcludes.constBegin(); it != jarsByExcludes.constEnd(); ++it) {
         // 键是排序后拼起来的排除项；空键 = 这一组一条排除项都没有（**不是**"排除项为空串"，
@@ -429,7 +434,12 @@ QString LauncherManager::prepareNatives(const QJsonObject &versionJson, const QS
         // 看着无害，但那是靠巧合）。
         const QStringList ownExcludes =
             it.key().isEmpty() ? QStringList() : it.key().split(QLatin1Char('\n'));
-        if (!ZipUtil::extractArchives(it.value(), nativesDir, ownExcludes, &error)) {
+        const std::function<void(int, int)> groupProgress =
+            progress ? std::function<void(int, int)>([&](int done, int) {
+                           progress(qMin(completedOffset + done, jarCount), jarCount);
+                       })
+                     : std::function<void(int, int)>{};
+        if (!ZipUtil::extractArchives(it.value(), nativesDir, ownExcludes, &error, groupProgress)) {
             // 这一组没解完，前面几组已经躺进目录里了 —— 整个删掉，不留半套（见
             // `kNativeReadyMarker` 那段 NOTE：留着它，下一趟会被当成"解压过了"复用）。
             removeTreeWithoutFollowingLinks(nativesDir);
@@ -438,6 +448,7 @@ QString LauncherManager::prepareNatives(const QJsonObject &versionJson, const QS
             }
             return QString();
         }
+        completedOffset += int(it.value().size());
     }
 
     if (!hasNativeLibraries(nativesDir)) {

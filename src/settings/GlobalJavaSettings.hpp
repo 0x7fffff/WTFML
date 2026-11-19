@@ -4,6 +4,8 @@
 #include <QString>
 #include <QVariantMap>
 
+#include <functional>
+
 #include "../util/SystemMemory.hpp"
 #include "EffectiveJavaSettings.hpp"
 
@@ -162,7 +164,8 @@ public:
     bool ensureJavaForVersion(EffectiveJavaSettings &io, int majorVersion,
                               const QString &component, bool allowAutoSelect,
                               QString *errorOut = nullptr, bool allowMismatchedPath = false,
-                              bool allowDownload = true);
+                              bool allowDownload = true,
+                              const std::function<void(qint64 done, qint64 total)> &progress = {});
 
     /**
      * @brief Scans local installations for Java versions.
@@ -270,7 +273,9 @@ public:
      * ensureJavaForVersion 的值版）。它若自己存进全局配置，"给某个实例下载一个运行时"
      * 就会顺手改掉全局的 Java 路径。
      */
-    static bool downloadJavaFromMojang(int majorVersion, QString *javaPathOut = nullptr);
+    static bool downloadJavaFromMojang(
+        int majorVersion, QString *javaPathOut = nullptr,
+        const std::function<void(qint64 done, qint64 total)> &progress = {});
 
     /**
      * @brief Current maximum heap size in megabytes.

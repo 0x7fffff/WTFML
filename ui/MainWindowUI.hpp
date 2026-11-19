@@ -2100,6 +2100,10 @@ public:
         /// 除了正显示的这一项之外，还有几项在跑 —— 右边那句「另有 2 项」的数就是它。
         int extraCount = 0;
         QString title;
+        /// 真实任务标题；同步等待期间底栏可显示等待文案，tooltip 仍保留任务名。
+        QString taskTitle;
+        /// 当前步骤或详情，供 tooltip 展示（导航轨折叠时也可见）。
+        QString currentStep;
     };
 
     /// 摆上底栏中间那一格**现在该说什么**。**由 MainWindow 每次重画底栏时给**
@@ -2149,6 +2153,30 @@ public:
     /// 悬停在那一格上显示什么（它现在是一整颗能点的按钮）。
     static QString taskSummaryTip() {
         return QCoreApplication::translate("MainWindowUI", "点一下展开任务中心");
+    }
+    /// 有活跃或近期任务时，悬停在进度环或摘要卡片上的提示（任务名、步骤、百分比）。
+    static QString taskSummaryToolTip(const BottomBarTaskSummary &summary) {
+        if (!summary.hasTask) {
+            return taskSummaryTip();
+        }
+        const QString displayTask = !summary.taskTitle.isEmpty() ? summary.taskTitle : summary.title;
+        if (displayTask.isEmpty()) {
+            return taskSummaryTip();
+        }
+        QStringList lines;
+        lines << taskSummaryText(displayTask, summary.state);
+        if (!summary.currentStep.isEmpty()) {
+            lines << summary.currentStep;
+        } else if (!summary.title.isEmpty() && summary.title != displayTask) {
+            lines << summary.title;
+        }
+        if (summary.percent >= 0) {
+            lines << QCoreApplication::translate("MainWindowUI", "进度：%1%").arg(summary.percent);
+        }
+        if (summary.extraCount > 0) {
+            lines << taskSummaryMoreText(summary.extraCount);
+        }
+        return lines.join(QLatin1Char('\n'));
     }
     /// 那一格右边小字（「另有 N 项」）的宽度上限（像素）—— `ElidedLabel` 的 sizeHint 就
     /// 封在这个数上，所以再长的句子也顶不宽中间那一格。

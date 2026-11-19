@@ -131,9 +131,51 @@ int UiTaskSummaryChecks(MainWindowUI &ui) {
                   "E4 除了正显示的这项还有别的在跑时，右边写「另有 2 项」",
                   extra->text());
 
+            // ---- ⑥ 进度环 / 摘要按钮悬停提示（展开 & 导航轨折叠） ----
+            Summary detailed;
+            detailed.hasTask = true;
+            detailed.title = QStringLiteral("正在准备 Java 运行时...");
+            detailed.taskTitle = QStringLiteral("启动 1.20.1");
+            detailed.currentStep = QStringLiteral("第 3 / 5 步 · 准备 Java 运行环境");
+            detailed.percent = 42;
+            ui.setBottomBarTaskSummary(detailed);
+            QApplication::processEvents();
+            const QString tip = progress->toolTip();
+            check(tip == cell->toolTip()
+                      && tip.contains(QStringLiteral("启动 1.20.1"))
+                      && tip.contains(QStringLiteral("第 3 / 5 步 · 准备 Java 运行环境"))
+                      && tip.contains(QStringLiteral("42%")),
+                  "★ E4 进度环与摘要按钮 tooltip 包含任务名、当前步骤和百分比",
+                  tip);
+
+            // 不可数时不编造 0% 放进 tooltip
+            Summary indet = detailed;
+            indet.percent = -1;
+            ui.setBottomBarTaskSummary(indet);
+            QApplication::processEvents();
+            check(!progress->toolTip().contains(QLatin1Char('%'))
+                      && progress->toolTip().contains(QStringLiteral("启动 1.20.1")),
+                  "E4 不可数任务 tooltip 不编造 0%", progress->toolTip());
+
+            // 导航轨折叠（窄窗 < 1024）时进度环依然保留完整 tooltip
+            if (host != nullptr) {
+                host->resize(960, 680);
+                QApplication::processEvents();
+            }
+            ui.setBottomBarTaskSummary(detailed);
+            QApplication::processEvents();
+            check(progress->isVisible() && progress->toolTip() == tip && cell->toolTip() == tip,
+                  "★★ E4 导航轨折叠后进度环仍保留完整悬停提示", progress->toolTip());
+            if (host != nullptr) {
+                host->resize(1280, 800);
+                QApplication::processEvents();
+            }
+
             // 收尾：还回开局那一份（后面的节还可能量这一格）
             ui.setBottomBarTaskSummary(Summary());
             QApplication::processEvents();
+            check(cell->toolTip() == MainWindowUI::taskSummaryTip(),
+                  "E4 无任务时 tooltip 回到默认提示", cell->toolTip());
         }
     }
     if (host != nullptr) host->resize(hostSize);

@@ -20,10 +20,14 @@
 #include <QDateTime>
 #include <QEventLoop>
 #include <QGuiApplication>
+#include <QMetaObject>
+#include <QPointer>
 #include <QScreen>
 #include <QThread>
 
+#include <atomic>
 #include <functional>
+#include <memory>
 
 LaunchController::LaunchController(MainWindow *owner) : QObject(owner), m_owner(owner) {}
 
@@ -448,9 +452,30 @@ void LaunchController::onStartButtonClicked() {
     QString nativesDir;
     LauncherManager *launcher = m_owner->m_launcherManager;
     m_owner->enterSyncWait(m_owner->tr("正在准备游戏文件..."));
-    runOffUiThread([&] {
-        nativesDir = launcher->prepareNatives(versionJson, versionId, &nativeErrors);
-    });
+    {
+        auto stageActive = std::make_shared<std::atomic_bool>(true);
+        const QPointer<MainWindow> weakOwner(m_owner);
+        const auto onNativeProgress = [weakOwner, stageActive, launchTask](int done, int total) {
+            if (!stageActive->load()) {
+                return;
+            }
+            QMetaObject::invokeMethod(
+                weakOwner.data(),
+                [weakOwner, stageActive, launchTask, done, total]() {
+                    if (!weakOwner || !stageActive->load()) {
+                        return;
+                    }
+                    weakOwner->m_activityCenter->tasks()->setProgress(launchTask, done, total);
+                },
+                Qt::QueuedConnection);
+        };
+        runOffUiThread([&] {
+            nativesDir =
+                launcher->prepareNatives(versionJson, versionId, &nativeErrors, onNativeProgress);
+        });
+        stageActive->store(false);
+        m_owner->m_activityCenter->tasks()->setProgress(launchTask, 0, 0);
+    }
     m_owner->leaveSyncWait();
     if (nativesDir.isEmpty() && !nativeErrors.isEmpty()) {
         m_owner->appendLog(m_owner->tr("准备 natives 失败："));
@@ -610,11 +635,31 @@ void LaunchController::onStartButtonClicked() {
     bool javaReady = false;
     GlobalJavaSettings *javaStore = m_owner->m_javaSettings;
     m_owner->enterSyncWait(m_owner->tr("正在准备 Java 运行时..."));
-    runOffUiThread([&] {
-        javaReady = javaStore->ensureJavaForVersion(javaSettings, javaMajorVersion, javaComponent,
-                                                    allowAutoSelect, &javaError,
-                                                    allowMismatchedPath);
-    });
+    {
+        auto stageActive = std::make_shared<std::atomic_bool>(true);
+        const QPointer<MainWindow> weakOwner(m_owner);
+        const auto onJavaProgress = [weakOwner, stageActive, launchTask](qint64 done, qint64 total) {
+            if (!stageActive->load()) {
+                return;
+            }
+            QMetaObject::invokeMethod(
+                weakOwner.data(),
+                [weakOwner, stageActive, launchTask, done, total]() {
+                    if (!weakOwner || !stageActive->load()) {
+                        return;
+                    }
+                    weakOwner->m_activityCenter->tasks()->setProgress(launchTask, done, total);
+                },
+                Qt::QueuedConnection);
+        };
+        runOffUiThread([&] {
+            javaReady = javaStore->ensureJavaForVersion(javaSettings, javaMajorVersion, javaComponent,
+                                                        allowAutoSelect, &javaError,
+                                                        allowMismatchedPath, true, onJavaProgress);
+        });
+        stageActive->store(false);
+        m_owner->m_activityCenter->tasks()->setProgress(launchTask, 0, 0);
+    }
     m_owner->leaveSyncWait();
     if (shouldStop()) {
         m_owner->appendLog(m_owner->tr("启动已取消：启动器正在关闭。"));

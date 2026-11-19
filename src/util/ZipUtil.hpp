@@ -82,7 +82,8 @@ enum class EntryStatus {
  */
 bool extractArchives(const QStringList &archives, const QString &targetDir,
                      const QStringList &excludePrefixes = QStringList(),
-                     QString *errorOut = nullptr);
+                     QString *errorOut = nullptr,
+                     const std::function<void(int done, int total)> &progress = {});
 
 /**
  * @brief 读压缩包里**一个条目**的原始字节（不解压其它任何东西）。

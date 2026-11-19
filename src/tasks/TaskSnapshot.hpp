@@ -233,6 +233,61 @@ inline int summaryPriority(const TaskSnapshot &task, bool unreadFailure) {
     return 8;  // Succeeded / Cancelled / Interrupted：只在"刚完成"那个窗口里露一下
 }
 
+/// 任务当前步骤的摘要。
+struct TaskStepSummary {
+    int index = -1;  // 0-based，无步骤时为 -1
+    int total = 0;
+    QString name;
+};
+
+/// 找出任务当前最值得展示的那一步。
+inline TaskStepSummary currentStepOf(const TaskSnapshot &task) {
+    TaskStepSummary result;
+    const int total = task.steps.size();
+    if (total <= 0) {
+        return result;
+    }
+    result.total = total;
+    for (int i = 0; i < total; ++i) {
+        if (task.steps.at(i).state == TaskStepState::Running) {
+            result.index = i;
+            result.name = task.steps.at(i).name;
+            return result;
+        }
+    }
+    if (task.state == TaskState::Failed) {
+        for (int i = 0; i < total; ++i) {
+            if (task.steps.at(i).state == TaskStepState::Failed) {
+                result.index = i;
+                result.name = task.steps.at(i).name;
+                return result;
+            }
+        }
+    }
+    if (isActiveState(task.state)) {
+        for (int i = 0; i < total; ++i) {
+            if (task.steps.at(i).state == TaskStepState::Pending) {
+                result.index = i;
+                result.name = task.steps.at(i).name;
+                return result;
+            }
+        }
+        result.index = total - 1;
+        result.name = task.steps.at(total - 1).name;
+        return result;
+    }
+    for (int i = total - 1; i >= 0; --i) {
+        if (task.steps.at(i).state == TaskStepState::Done) {
+            result.index = i;
+            result.name = task.steps.at(i).name;
+            return result;
+        }
+    }
+    result.index = 0;
+    result.name = task.steps.at(0).name;
+    return result;
+}
+
 /// 收起态那一格要画的东西。
 struct TaskSummary {
     TaskId id = invalidTaskId();  // 0 = 一个任务都没有（画「暂无后台任务」）
@@ -240,6 +295,9 @@ struct TaskSummary {
     TaskKind kind = TaskKind::Other;
     QString title;
     QString detail;
+    QString currentStep;
+    int currentStepIndex = -1;
+    int stepCount = 0;
     int percent = -1;      // < 0 = 不可测
     int extraCount = 0;    // 「另有 N 项」（除了显示的这一项以外，还有几项在进行中）
     bool hasFailure = false;  // 红点：用户还没看过的失败任务存在
@@ -318,6 +376,10 @@ inline TaskSummary collapsedSummary(const QList<TaskSnapshot> &tasks,
     summary.kind = best->kind;
     summary.title = best->title;
     summary.detail = best->detail;
+    const TaskStepSummary step = currentStepOf(*best);
+    summary.currentStep = step.name;
+    summary.currentStepIndex = step.index;
+    summary.stepCount = step.total;
     summary.percent = percentOf(*best);
     // 「另有 N 项」数的是**还在进行中**的那几项（显示的这一项是活动的话要减掉它自己）。
     summary.extraCount = activeCount - (isActiveState(best->state) ? 1 : 0);
@@ -325,6 +387,32 @@ inline TaskSummary collapsedSummary(const QList<TaskSnapshot> &tasks,
         summary.extraCount = 0;
     }
     return summary;
+}
+
+/// 同步等待期间与当前账本摘要的合并口径（纯函数）。
+/// 界面此时确实阻塞，因此底栏展示 `syncWaitStatus` 文案；只要账本里存在活动任务且
+/// 报得出百分比（`percent >= 0`），进度环保留确定百分比，不用 -1 覆盖。刚完成的最近任务
+/// 不参与同步等待的进度借用（保持 -1）。
+inline TaskSummary applySyncWait(const TaskSummary &base, const QString &syncWaitStatus) {
+    if (syncWaitStatus.isEmpty()) {
+        return base;
+    }
+    const bool activeTask = (base.id != invalidTaskId() && isActiveState(base.state));
+    TaskSummary merged;
+    merged.hasFailure = base.hasFailure;
+    merged.extraCount = activeTask ? base.extraCount : 0;
+    merged.state = TaskState::Running;
+    merged.title = syncWaitStatus;
+    if (activeTask) {
+        merged.id = base.id;
+        merged.kind = base.kind;
+        merged.detail = base.detail;
+        merged.currentStep = base.currentStep;
+        merged.currentStepIndex = base.currentStepIndex;
+        merged.stepCount = base.stepCount;
+        merged.percent = base.percent >= 0 ? base.percent : -1;
+    }
+    return merged;
 }
 
 }  // namespace Tasks

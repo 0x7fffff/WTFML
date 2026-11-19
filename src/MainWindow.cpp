@@ -748,10 +748,14 @@ MainWindow::MainWindow(QWidget *parent)
         GameSessionController::Host{
             [this](const QString &text) { appendLog(text); },
             [this](Tasks::TaskId id) {
-                const auto steps = m_activityCenter->tasks()->snapshot(id).steps;
-                for (int index = 0; index < steps.size(); ++index)
-                    if (steps.at(index).state == Tasks::TaskStepState::Running || index == steps.size() - 1)
+                const auto snap = m_activityCenter->tasks()->snapshot(id);
+                for (int index = 0; index < snap.steps.size(); ++index)
+                    if (snap.steps.at(index).state == Tasks::TaskStepState::Running
+                        || index == snap.steps.size() - 1)
                         m_activityCenter->tasks()->setStepState(id, index, Tasks::TaskStepState::Done);
+                if (snap.totalUnits <= 0) {
+                    m_activityCenter->tasks()->setProgress(id, 1, 1);
+                }
             },
             // 进程起来的这一刻把账本上那件「启动 X」和会话号对上。
             [this](Tasks::TaskId id, int sessionId) {

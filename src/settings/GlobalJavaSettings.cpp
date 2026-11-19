@@ -483,7 +483,8 @@ QString userAgent() {
     return QStringLiteral("WTFML/") + (version.isEmpty() ? QStringLiteral("dev") : version);
 }
 
-bool downloadFileToLocal(const QUrl &url, const QString &destinationPath) {
+bool downloadFileToLocal(const QUrl &url, const QString &destinationPath,
+                         const std::function<void(qint64 done, qint64 total)> &progress = {}) {
     QString lockProblem;
     if (!WriteDirectoryGuard::acquire(QFileInfo(destinationPath).absolutePath(), &lockProblem))
         return false;
@@ -502,9 +503,30 @@ bool downloadFileToLocal(const QUrl &url, const QString &destinationPath) {
     // NOTE: 这一发**不进** `RequestBudget::ControlGet`：它是几十到两百兆的运行时压缩包，
     // 属于 Bulk 那一档的量级，不是"问一句就完事"的元数据。
     request.setTransferTimeout(30000);
+    if (progress) {
+        progress(0, 0);
+    }
     QNetworkReply *reply = manager.get(request);
     QEventLoop loop;
     bool writeFailed = false;
+    QElapsedTimer progressTimer;
+    progressTimer.start();
+    if (progress) {
+        QObject::connect(reply, &QNetworkReply::downloadProgress,
+                         [&](qint64 bytesReceived, qint64 bytesTotal) {
+                             if (bytesTotal <= 0) {
+                                 if (progressTimer.elapsed() >= 150) {
+                                     progressTimer.restart();
+                                     progress(0, 0);
+                                 }
+                                 return;
+                             }
+                             if (bytesReceived >= bytesTotal || progressTimer.elapsed() >= 150) {
+                                 progressTimer.restart();
+                                 progress(bytesReceived, bytesTotal);
+                             }
+                         });
+    }
     QObject::connect(reply, &QNetworkReply::readyRead, [&] {
         const QByteArray chunk = reply->readAll();
         if (!chunk.isEmpty() && file.write(chunk) != chunk.size()) {
@@ -553,7 +575,8 @@ namespace {
 /// 存在的理由：Adoptium API 在很多国内网络下连不上（`Connection closed`），而同一台机器上
 /// Microsoft OpenJDK 的下载链接（aka.ms）通常可用。安装布局保持和 Adoptium 那条一致：
 /// `java/<major>/bin/java.exe`，扫描本地 Java 时不用为来源分叉。
-bool installZipRuntime(const QUrl &url, const QString &dir, int expectMajor, QString *javaPathOut) {
+bool installZipRuntime(const QUrl &url, const QString &dir, int expectMajor, QString *javaPathOut,
+                       const std::function<void(qint64 done, qint64 total)> &progress = {}) {
     if (!url.isValid() || dir.isEmpty()) return false;
     {
         QString lockProblem;
@@ -561,7 +584,11 @@ bool installZipRuntime(const QUrl &url, const QString &dir, int expectMajor, QSt
     }
     if (!QDir().mkpath(dir)) return false;
     const QString tempZip = QDir(dir).absoluteFilePath(QStringLiteral("java_runtime.zip"));
-    if (!downloadFileToLocal(url, tempZip)) return false;
+    if (!downloadFileToLocal(url, tempZip, progress)) {
+        if (progress) progress(0, 0);
+        return false;
+    }
+    if (progress) progress(0, 0);  // 解压阶段无法按条目计数，切回不确定态
     const bool extracted = extractZipWithPowerShell(tempZip, dir);
     QFile::remove(tempZip);
     if (!extracted) return false;
@@ -627,19 +654,24 @@ QUrl microsoftJdkUrl(int major) {
     return {};
 }
 
-bool downloadMicrosoftRuntime(int major, QString *javaPathOut) {
+bool downloadMicrosoftRuntime(int major, QString *javaPathOut,
+                             const std::function<void(qint64 done, qint64 total)> &progress = {}) {
     const QUrl url = microsoftJdkUrl(major);
     if (!url.isValid()) return false;
     if (const QUrl mirror = tunaJdkUrl(major); mirror.isValid()) {
         qInfo() << "改从清华 TUNA 镜像安装 Java" << major;
-        if (installZipRuntime(mirror, AppPaths::javaVersionDir(major), major, javaPathOut)) return true;
+        if (installZipRuntime(mirror, AppPaths::javaVersionDir(major), major, javaPathOut,
+                              progress)) {
+            return true;
+        }
     }
     qInfo() << "Adoptium 不可用，改从 Microsoft OpenJDK 安装 Java" << major;
-    return installZipRuntime(url, AppPaths::javaVersionDir(major), major, javaPathOut);
+    return installZipRuntime(url, AppPaths::javaVersionDir(major), major, javaPathOut, progress);
 }
 }  // namespace
 bool downloadJavaRuntime(const QString &destinationDir, const QString &component,
-                         QString *javaPathOut) {
+                         QString *javaPathOut,
+                         const std::function<void(qint64 done, qint64 total)> &progress = {}) {
     QList<QUrl> urls;
     // 每个 component 到底要哪个主版本，**以 version.json 里那份为准**（这个函数只负责
     // "按 component 名下一份**对得上**的"）：下面这几档是照着 Mojang 那张表来的 ——
@@ -715,11 +747,13 @@ bool downloadJavaRuntime(const QString &destinationDir, const QString &component
     const QString tempZip = QDir(subDir).absoluteFilePath("java_runtime.zip");
 
     for (const QUrl &url : urls) {
-        if (!downloadFileToLocal(url, tempZip)) {
+        if (!downloadFileToLocal(url, tempZip, progress)) {
+            if (progress) progress(0, 0);
             continue;
         }
 
         // 解压到子文件夹
+        if (progress) progress(0, 0);
         if (!extractZipWithPowerShell(tempZip, subDir)) {
             continue;
         }
@@ -1156,13 +1190,15 @@ bool GlobalJavaSettings::installerJavaFor(int requiredMajor, const QString &conf
     return true;
 }
 
-bool GlobalJavaSettings::downloadJavaFromMojang(int majorVersion, QString *javaPathOut) {
+bool GlobalJavaSettings::downloadJavaFromMojang(
+    int majorVersion, QString *javaPathOut,
+    const std::function<void(qint64 done, qint64 total)> &progress) {
     // 先试清华 TUNA 镜像：国内网络里 Adoptium API 也许能通，但 GitHub release 的下载
     // 十有八九被掐（`Connection closed`）；镜像里是同一批 Temurin 资产。
     if (const QUrl mirror = tunaJdkUrl(majorVersion); mirror.isValid()) {
         qInfo() << "改从清华 TUNA 镜像安装 Java" << majorVersion;
         if (installZipRuntime(mirror, AppPaths::javaVersionDir(majorVersion), majorVersion,
-                              javaPathOut)) {
+                              javaPathOut, progress)) {
             return true;
         }
     }
@@ -1203,7 +1239,7 @@ bool GlobalJavaSettings::downloadJavaFromMojang(int majorVersion, QString *javaP
 
     if (!problem.isEmpty()) {
         qDebug() << "Network error fetching from Adoptium API:" << problem;
-        return downloadMicrosoftRuntime(majorVersion, javaPathOut);
+        return downloadMicrosoftRuntime(majorVersion, javaPathOut, progress);
     }
 
     qDebug() << "Adoptium API response received successfully";
@@ -1212,7 +1248,7 @@ bool GlobalJavaSettings::downloadJavaFromMojang(int majorVersion, QString *javaP
     QJsonArray assets = doc.array();
     if (assets.isEmpty()) {
         qDebug() << "No assets found in Adoptium API response";
-        return downloadMicrosoftRuntime(majorVersion, javaPathOut);
+        return downloadMicrosoftRuntime(majorVersion, javaPathOut, progress);
     }
 
     // 在 Windows x64 的包里挑一个：优先 JRE，没有 JRE 才退到 JDK（见下面的 downloadUrl 选取）
@@ -1246,7 +1282,7 @@ bool GlobalJavaSettings::downloadJavaFromMojang(int majorVersion, QString *javaP
     downloadUrl = jreUrl.isEmpty() ? jdkUrl : jreUrl;
     if (downloadUrl.isEmpty()) {
         qDebug() << "No suitable Windows x64 JRE/JDK found in Adoptium API response";
-        return downloadMicrosoftRuntime(majorVersion, javaPathOut);
+        return downloadMicrosoftRuntime(majorVersion, javaPathOut, progress);
     }
     qDebug() << "Chosen download URL:" << downloadUrl;
 
@@ -1266,12 +1302,14 @@ bool GlobalJavaSettings::downloadJavaFromMojang(int majorVersion, QString *javaP
     qDebug() << "Temp ZIP path:" << tempZip;
 
     qDebug() << "Downloading ZIP from:" << downloadUrl;
-    if (!downloadFileToLocal(QUrl(downloadUrl), tempZip)) {
+    if (!downloadFileToLocal(QUrl(downloadUrl), tempZip, progress)) {
         qDebug() << "Failed to download ZIP file";
-        return downloadMicrosoftRuntime(majorVersion, javaPathOut);
+        if (progress) progress(0, 0);
+        return downloadMicrosoftRuntime(majorVersion, javaPathOut, progress);
     }
     qDebug() << "ZIP downloaded successfully";
 
+    if (progress) progress(0, 0);
     qDebug() << "Extracting ZIP...";
     if (!extractZipWithPowerShell(tempZip, downloadDir)) {
         qDebug() << "Failed to extract ZIP";
@@ -1335,10 +1373,10 @@ void GlobalJavaSettings::adoptJavaPath(const QString &path) {
     save();
 }
 
-bool GlobalJavaSettings::ensureJavaForVersion(EffectiveJavaSettings &io, int majorVersion,
-                                              const QString &component, bool allowAutoSelect,
-                                              QString *errorOut, bool allowMismatchedPath,
-                                              bool allowDownload) {
+bool GlobalJavaSettings::ensureJavaForVersion(
+    EffectiveJavaSettings &io, int majorVersion, const QString &component, bool allowAutoSelect,
+    QString *errorOut, bool allowMismatchedPath, bool allowDownload,
+    const std::function<void(qint64 done, qint64 total)> &progress) {
     const auto fail = [errorOut](const QString &reason) {
         if (errorOut != nullptr) {
             *errorOut = reason;
@@ -1423,7 +1461,7 @@ bool GlobalJavaSettings::ensureJavaForVersion(EffectiveJavaSettings &io, int maj
         qDebug() << "Downloading runtime component" << component << "for Java" << majorVersion;
         const QString javaBase = AppPaths::javaDir();
         QString downloaded;
-        if (downloadJavaRuntime(javaBase, component, &downloaded) &&
+        if (downloadJavaRuntime(javaBase, component, &downloaded, progress) &&
             javaMatchesMajor(downloaded, majorVersion)) {
             qDebug() << "Downloaded and verified Java" << majorVersion << "at:" << downloaded;
             io.javaPath = downloaded;
@@ -1438,7 +1476,7 @@ bool GlobalJavaSettings::ensureJavaForVersion(EffectiveJavaSettings &io, int maj
     // NOTE: 这一条**不**再认一次主版本（downloadJavaFromMojang 内部
     // 已经确认解压出来的 java.exe 能跑，而 Adoptium 是照 majorVersion 要的包）。
     // 多判一次会让"本来能启动"变成"报错"。
-    if (downloadJavaFromMojang(majorVersion, &downloaded)) {
+    if (downloadJavaFromMojang(majorVersion, &downloaded, progress)) {
         qDebug() << "Downloaded Java version" << majorVersion;
         io.javaPath = downloaded;
         return true;

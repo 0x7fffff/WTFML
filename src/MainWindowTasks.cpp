@@ -60,36 +60,39 @@ void MainWindow::updateBottomBarTaskSummary() {
     const Tasks::TaskSummary picked = m_activityCenter->collapsedSummary(
         now, MainWindowUI::taskSummaryRecentWindowMs());
 
-    MainWindowUI::BottomBarTaskSummary summary;
-    summary.hasTask = picked.id != Tasks::invalidTaskId();
-    summary.state = ActivityCenterController::presentationState(picked.state);
-    summary.percent = picked.percent;
-    summary.extraCount = picked.extraCount;
-    summary.title = picked.title;
+    QString title = picked.title;
     if (picked.state == Tasks::TaskState::Running && m_activityCenter->transferSpeed(picked.id) >= 0)
-        summary.title += QStringLiteral(" / %1/s").arg(
+        title += QStringLiteral(" / %1/s").arg(
             InstanceFilesPage::formatSize(m_activityCenter->transferSpeed(picked.id)));
+
+    // ---------- 同步等待与账本进度的合并 ----------
+    // 同步等待期间 UI 处于等待网络或子进程的状态，因此底栏标题保留"正在准备..."之类的
+    // 等待文案；但只要账本里当前有活动任务且能报出确定百分比（如准备 natives 的完成数、
+    // 下载 Java 运行时的字节进度），进度环照样显示确定进度，不一律抹成 -1 转圈。
+    // 若当前没有活动任务（或该任务本身不可测），Tasks::applySyncWait() 仍返回 percent = -1
+    // 让进度环维持不确定态，也不会借用"刚完成任务"的 100%。
+    const Tasks::TaskSummary resolved = Tasks::applySyncWait(picked, m_syncWaitStatus);
+
+    MainWindowUI::BottomBarTaskSummary summary;
+    summary.hasTask = resolved.id != Tasks::invalidTaskId() || !m_syncWaitStatus.isEmpty();
+    summary.state = ActivityCenterController::presentationState(resolved.state);
+    summary.percent = resolved.percent;
+    summary.extraCount = resolved.extraCount;
+    summary.title = m_syncWaitStatus.isEmpty() ? title : resolved.title;
+    summary.taskTitle = resolved.id != Tasks::invalidTaskId() ? picked.title : QString();
+    if (!resolved.currentStep.isEmpty() && resolved.currentStepIndex >= 0 && resolved.stepCount > 0) {
+        summary.currentStep = tr("第 %1 / %2 步 · %3")
+                                  .arg(resolved.currentStepIndex + 1)
+                                  .arg(resolved.stepCount)
+                                  .arg(resolved.currentStep);
+    } else if (!resolved.detail.isEmpty()) {
+        summary.currentStep = resolved.detail;
+    } else if (!m_syncWaitStatus.isEmpty() && summary.taskTitle != m_syncWaitStatus) {
+        summary.currentStep = m_syncWaitStatus;
+    }
     // 红点看的是"**有没有没看过的失败**"，和正显示的是哪一项无关（正在下载而上一件
     // 事失败了，两个信号都该看得见）—— 这条也是账本层算的。
-    summary.unreadFailure = picked.hasFailure;
-
-    // ---------- 同步等待压在账本上面 ----------
-    // 界面这一刻**是真的不响应**的（见 enterSyncWait()：UI 线程在等网络或等进程），
-    // "在等什么"这句话比"哪件任务排第一"更该被看见。
-    //
-    // 不压的话还有一个具体的坏处：一份正在跑的下载每 200 ms 来一帧（见
-    // onVersionDownloadStats），那一帧会把这句话顶掉。那几帧只改**任务自己的** detail，
-    // 改不到这一格的标题。
-    //
-    // NOTE: 它**不假装是一件任务**（不往账本里塞一行）：要的只是"别画成占位话、条子画成
-    // 不确定态"。点开的那块面板画的是**账本**，所以那句等待话在面板里看不到 ——
-    // 它属于哪件任务，那件任务的 detail 里会写（启动那一路就是启动任务）。
-    if (!m_syncWaitStatus.isEmpty()) {
-        summary.hasTask = true;
-        summary.state = TaskCenter::State::Running;
-        summary.percent = -1;
-        summary.title = m_syncWaitStatus;
-    }
+    summary.unreadFailure = resolved.hasFailure;
 
     m_ui->setBottomBarTaskSummary(summary);
 

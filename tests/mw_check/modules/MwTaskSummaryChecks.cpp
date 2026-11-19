@@ -31,6 +31,10 @@ int MwTaskSummaryChecks(MainWindow &window) {
             check(abStatus->text() == QStringLiteral("下载游戏文件"),
                   "AB1 起一批下载：中间那格写的是**这件任务的标题**（不再是一根空条）",
                   abStatus->text());
+            check(abCell->toolTip().contains(QStringLiteral("下载游戏文件"))
+                      && abBar->toolTip() == abCell->toolTip(),
+                  "AB1 悬停提示随账本摘要更新到进度环和摘要按钮",
+                  abBar->toolTip());
             // 还没报过数 ⇒ 数量不可测 ⇒ 条走不确定态（range 0..0）。**绝不编一个 0% 出来**。
             check(abBar->isVisible() && abBar->minimum() == 0 && abBar->maximum() == 0,
                   "AB1 还没报过总数：条是不确定态（不编 0%）",

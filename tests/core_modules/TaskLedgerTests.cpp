@@ -935,5 +935,87 @@ void runTaskLedgerTests() {
                   && manager.finished().isEmpty(),
               "AN6 「清除已完成」连子任务一起清掉");
     }
+
+    // ------------------------------------------------------------------
+    // § AO 当前步骤摘取、收起态摘要步骤字段、同步等待与进度合并口径（pure functions）
+    // ------------------------------------------------------------------
+    {
+        const QDateTime now(QDate(2026, 11, 19), QTime(12, 0, 0));
+
+        Tasks::TaskSnapshot launch;
+        launch.id = 42;
+        launch.kind = Tasks::TaskKind::Launch;
+        launch.state = Tasks::TaskState::Running;
+        launch.title = QStringLiteral("启动 1.20.1");
+        launch.startedAt = now.addSecs(-5);
+        launch.steps = {
+            {QStringLiteral("校验登录状态"), Tasks::TaskStepState::Done, {}},
+            {QStringLiteral("检查启动文件"), Tasks::TaskStepState::Running, {}},
+            {QStringLiteral("准备 Java 运行环境"), Tasks::TaskStepState::Pending, {}},
+            {QStringLiteral("等待游戏启动"), Tasks::TaskStepState::Pending, {}},
+            {QStringLiteral("完成"), Tasks::TaskStepState::Pending, {}},
+        };
+        launch.doneUnits = 3;
+        launch.totalUnits = 10;
+
+        const Tasks::TaskStepSummary activeStep = Tasks::currentStepOf(launch);
+        check(activeStep.index == 1 && activeStep.total == 5
+                  && activeStep.name == QStringLiteral("检查启动文件"),
+              "AO1 currentStepOf 返回正在跑的那一步（index=1/5）",
+              QStringLiteral("%1/%2 %3").arg(activeStep.index).arg(activeStep.total).arg(activeStep.name));
+
+        const Tasks::TaskSummary activeSummary =
+            Tasks::collapsedSummary({launch}, {}, now, 8000);
+        check(activeSummary.currentStep == QStringLiteral("检查启动文件")
+                  && activeSummary.currentStepIndex == 1 && activeSummary.stepCount == 5
+                  && activeSummary.percent == 30,
+              "AO2 collapsedSummary 带出当前步骤和确定百分比（30%）",
+              QStringLiteral("step=%1 idx=%2/%3 pct=%4")
+                  .arg(activeSummary.currentStep)
+                  .arg(activeSummary.currentStepIndex)
+                  .arg(activeSummary.stepCount)
+                  .arg(activeSummary.percent));
+
+        const Tasks::TaskSummary waitCountable =
+            Tasks::applySyncWait(activeSummary, QStringLiteral("正在准备游戏文件..."));
+        check(waitCountable.id == 42 && waitCountable.state == Tasks::TaskState::Running
+                  && waitCountable.title == QStringLiteral("正在准备游戏文件...")
+                  && waitCountable.percent == 30
+                  && waitCountable.currentStep == QStringLiteral("检查启动文件"),
+              "★★ AO3 同步等待期间只要有活动可数任务就保留百分比（30%）且文案照旧",
+              QStringLiteral("title=%1 pct=%2").arg(waitCountable.title).arg(waitCountable.percent));
+
+        // 不可数活动任务（totalUnits == 0 -> percent == -1）：同步等待仍维持 -1，不编造 0%
+        Tasks::TaskSnapshot unknownLaunch = launch;
+        unknownLaunch.doneUnits = 0;
+        unknownLaunch.totalUnits = 0;
+        const Tasks::TaskSummary unknownSummary =
+            Tasks::collapsedSummary({unknownLaunch}, {}, now, 8000);
+        const Tasks::TaskSummary waitUnknown =
+            Tasks::applySyncWait(unknownSummary, QStringLiteral("正在准备游戏文件..."));
+        check(waitUnknown.percent == -1 && waitUnknown.title == QStringLiteral("正在准备游戏文件..."),
+              "AO4 活动任务不可数时同步等待仍为 -1（不确定态）",
+              QString::number(waitUnknown.percent));
+
+        // 刚完成的任务（8s 时间窗里 percent=100）不能被下一次同步等待误借走 100%
+        Tasks::TaskSnapshot finished = launch;
+        finished.state = Tasks::TaskState::Succeeded;
+        finished.doneUnits = 1;
+        finished.totalUnits = 1;
+        finished.finishedAt = now.addSecs(-2);
+        for (Tasks::TaskStep &st : finished.steps) {
+            st.state = Tasks::TaskStepState::Done;
+        }
+        const Tasks::TaskStepSummary doneStep = Tasks::currentStepOf(finished);
+        check(doneStep.index == 4 && doneStep.name == QStringLiteral("完成"),
+              "AO5 启动成功后 currentStepOf 落在第 5 步「完成」");
+        const Tasks::TaskSummary doneSummary =
+            Tasks::collapsedSummary({finished}, {}, now, 8000);
+        const Tasks::TaskSummary waitAfterDone =
+            Tasks::applySyncWait(doneSummary, QStringLiteral("正在校验登录状态..."));
+        check(waitAfterDone.percent == -1 && waitAfterDone.id == Tasks::invalidTaskId(),
+              "★★ AO6 已完成任务在 8s 窗口内的 100% 不会漏进下一次同步等待",
+              QString::number(waitAfterDone.percent));
+    }
 }
 

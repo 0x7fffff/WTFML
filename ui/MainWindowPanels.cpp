@@ -2195,6 +2195,11 @@ void MainWindowUI::setBottomBarTaskSummary(const BottomBarTaskSummary &summary) 
     }
     m_lastTaskSummary = summary;
     syncHomeLaunchButton();  // 没实例时主按钮写「安装中 N%」
+    const QString tip = MainWindowUI::taskSummaryToolTip(summary);
+    if (taskSummaryButton != nullptr) {
+        taskSummaryButton->setToolTip(tip);
+    }
+    progressBar->setToolTip(tip);
     // ---------- 那一行字 ----------
     // 占位那一档（一项任务都没有）用调色板里的 PlaceholderText：要的是**低强调度**
     // 的一句"暂无后台任务"，和"真有一件事在跑"的标题不能长成一个样子。

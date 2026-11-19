@@ -14,6 +14,7 @@
 #include <QStringConverter>
 #include <QStringList>
 
+#include <functional>
 #include <memory>
 
 #include "../settings/EffectiveJavaSettings.hpp"
@@ -108,7 +109,8 @@ public:
      * （只判"有一个 .dll"会把残缺的一套当成齐了，崩在 UnsatisfiedLinkError）。
      */
     QString prepareNatives(const QJsonObject &versionJson, const QString &versionId,
-                           QStringList *errors = nullptr) const;
+                           QStringList *errors = nullptr,
+                           const std::function<void(int done, int total)> &progress = {}) const;
 
     /**
      * @brief 为 Minecraft 启动生成 JVM 参数。
