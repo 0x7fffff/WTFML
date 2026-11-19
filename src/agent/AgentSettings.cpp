@@ -202,6 +202,22 @@ void AgentSettings::setStrictEgress(bool strict) {
     settings.sync();
 }
 
+QString AgentSettings::webSearchEndpoint() {
+    return QSettings().value(webSearchKey()).toString().trimmed();
+}
+
+void AgentSettings::setWebSearchEndpoint(const QString &endpoint) {
+    QSettings().setValue(webSearchKey(), endpoint.trimmed());
+}
+
+bool AgentSettings::diagnoseCommandsEnabled() {
+    return QSettings().value(diagnoseCommandsKey(), false).toBool();
+}
+
+void AgentSettings::setDiagnoseCommandsEnabled(bool enabled) {
+    QSettings().setValue(diagnoseCommandsKey(), enabled);
+}
+
 QString AgentSettings::activeProfileId() {
     QSettings settings;
     return settings.value(activeKey()).toString();

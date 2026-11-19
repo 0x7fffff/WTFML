@@ -103,7 +103,17 @@ PNG、BMP、WebP 等格式的头部信息可能声明超大分辨率，引发解
 - stdout 只走协议（垃圾行有上限），stderr 进脱敏日志；环境变量只记名字，不落盘秘密值。
 - 服务器反向请求只回 `ping`，其它方法统一 `-32601`，不挂起。
 
-### 4.6 当前限制
+### 4.6 联网与固定诊断命令（Stage 3）
+
+- 只允许 `http/https`；拒绝 userinfo、片段、空 host；`file:`/`data:`/`ftp:` 一律拒绝。
+- 解析目标 host 的**全部** A/AAAA，任一落入 loopback/私网/链路本地/组播/保留/未指定（含 `::ffff:` 映射）就整条拒绝。
+- 连接**已校验的 IP**（pinned-IP）；`Host` 头与 TLS 主机名校验用原 host；重定向最多 5 跳，每跳重新解析 + 全地址校验 + pinned 连接；第一版不继承系统代理。
+- 只读文本类 Content-Type；响应 2 MB、正文 20 万字符封顶；HTML 去 script/style 后转文本；结果遮凭据、标不可信。
+- `web.search` 只支持用户自己的 SearXNG；搜索词会发给该实例，每次调用都要审批。
+- `command.diagnose` 只执行编译进程序的固定 spec，host 参数只接受域名/IP 字面量，不经过 shell；默认关闭、每次审批；Job Object 清理进程树；输出 256 KB 封顶。
+- `command.run`（任意可执行文件）未开放。
+
+### 4.7 当前限制
 
 - `AgentRedaction` 是键名词根 + 固定令牌形态匹配，不能当作通用凭据兜底：词根表之外的自造字段名要靠形态匹配命中；值少于 6 个字符的字段不遮。
 - 凭据文件识别按 dotenv 家族（`.env`、`*.env`、`*.env.*`）、证书后缀和 `credential`/`secret`/`token`/`apikey`/`api_key`/`api-key` 词根判定，文件名里不含这些词根的名字进入普通文本审批。

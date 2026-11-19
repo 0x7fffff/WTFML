@@ -425,6 +425,22 @@ int UiAgentCheck() {
     }
     {
         AgentSettingsPage settingsPage;
+        settingsPage.setWebSearchEndpoint(QStringLiteral("https://searx.example.com"));
+        settingsPage.setDiagnoseCommands(true);
+        settingsPage.show();
+        QApplication::processEvents();
+        auto *searxng = settingsPage.findChild<QLineEdit *>(QStringLiteral("agentSearxngEdit"));
+        check(searxng != nullptr &&
+                  searxng->text() == QStringLiteral("https://searx.example.com"),
+              "智能体 UI：设置页有 SearXNG 地址并回填");
+        auto *diagnose = settingsPage.findChild<QWidget *>(
+            QStringLiteral("agentDiagnoseCommandsToggle"));
+        check(diagnose != nullptr, "智能体 UI：设置页有诊断命令开关");
+        check(settingsPage.diagnoseCommands(), "智能体 UI：诊断命令开关状态能读回");
+        settingsPage.close();
+    }
+    {
+        AgentSettingsPage settingsPage;
         QApplication::processEvents();
         check(settingsPage.findChild<QPushButton *>(QStringLiteral("agentSettingsMcpButton")) !=
                   nullptr,

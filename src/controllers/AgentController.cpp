@@ -173,11 +173,19 @@ AgentController::AgentController(AgentPage *page, OverlayHost *overlay, QObject 
     }
     m_mcpTools = new AgentMcpToolEngine(
         m_mcpManager, [this](QString *problem) { return toolContext(problem); }, this);
+    // Stage 3：联网与固定诊断命令。联网工具强制直连 + pinned-IP；诊断命令默认关闭。
+    m_webTransport = new QtAgentWebTransport(this);
+    m_webTools = new AgentWebTools(
+        m_webTransport, [this](QString *problem) { return toolContext(problem); }, this);
+    m_commandTools = new AgentCommandTools(
+        [this](QString *problem) { return toolContext(problem); }, this);
     m_compositeEngine = new AgentCompositeToolEngine;
     m_compositeEngine->addEngine(m_toolEngine);
     m_compositeEngine->addEngine(m_launcherTools);
     m_compositeEngine->addEngine(m_workflowEngine);
     m_compositeEngine->addEngine(m_mcpTools);
+    m_compositeEngine->addEngine(m_webTools);
+    m_compositeEngine->addEngine(m_commandTools);
     m_compositeEngine->setWorkflow(&m_workflow);
     m_loop->setToolEngine(m_compositeEngine);
     m_saveTimer = new QTimer(this);
@@ -346,6 +354,10 @@ void AgentController::shutdown() {
         m_workflowEngine = nullptr;
         delete m_mcpTools;
         m_mcpTools = nullptr;
+        delete m_webTools;
+        m_webTools = nullptr;
+        delete m_commandTools;
+        m_commandTools = nullptr;
         delete m_toolEngine;
         m_toolEngine = nullptr;
     }
@@ -1342,6 +1354,8 @@ void AgentController::openSettings() {
                          ? QStringLiteral("dpapi-fallback")
                          : QStringLiteral("credential-manager"));
     page->setStrictEgress(AgentSettings::strictEgress());
+    page->setWebSearchEndpoint(AgentSettings::webSearchEndpoint());
+    page->setDiagnoseCommands(AgentSettings::diagnoseCommandsEnabled());
     connect(page, &AgentSettingsPage::saveRequested, this, &AgentController::onSettingsSave);
     connect(page, &AgentSettingsPage::testRequested, this, &AgentController::onSettingsTest);
     connect(page, &AgentSettingsPage::mcpSettingsRequested, this,
@@ -1395,6 +1409,18 @@ void AgentController::onSettingsSave() {
     }
     AgentSettings::setActiveProfileId(profile.id);
     AgentSettings::setStrictEgress(page->strictEgress());
+    // Stage 3：SearXNG 地址必须是 http/https；诊断命令开关原样保存（默认关闭）。
+    const QString endpoint = page->webSearchEndpoint();
+    if (!endpoint.isEmpty()) {
+        const QUrl url(endpoint);
+        if (!url.isValid() || (url.scheme() != QStringLiteral("http") &&
+                               url.scheme() != QStringLiteral("https"))) {
+            page->setStatus(QStringLiteral("SearXNG 地址必须是 http/https。"), true);
+            return;
+        }
+    }
+    AgentSettings::setWebSearchEndpoint(endpoint);
+    AgentSettings::setDiagnoseCommandsEnabled(page->diagnoseCommands());
     if (m_toolEngine != nullptr) m_toolEngine->setStrictEgress(page->strictEgress());
     if (m_launcherTools != nullptr) m_launcherTools->setStrictEgress(page->strictEgress());
     m_profile = profile;
