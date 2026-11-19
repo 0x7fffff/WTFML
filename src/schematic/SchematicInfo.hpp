@@ -123,7 +123,8 @@ QString compatibilityText(const Info &info, const QString &targetGameVersion);
 QString summaryText(const Info &info, const QString &targetGameVersion);
 
 /// 悬停提示里的方块排行（"最多的是哪几种"）。空串 = 没有统计。
-QString topBlocksText(const Info &info);
+/// @p language 是 `loadChineseBlockNames()` 的结果；查不到中文名的方块显示 ID。
+QString topBlocksText(const Info &info, const QJsonObject &language = {});
 
 /// 从现有游戏资源查中文语言文件；没有本地资源时返回空表，不下载。
 QJsonObject loadChineseBlockNames(const QString &assetsRoot, const QString &indexId);

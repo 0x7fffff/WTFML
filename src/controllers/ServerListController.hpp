@@ -33,6 +33,9 @@
 #include <QObject>
 #include <QString>
 
+#include <QList>
+#include <QPair>
+
 #include <functional>
 
 class ServerListController final : public QObject {
@@ -91,6 +94,8 @@ public:
         /// 带 @p instanceId 而不是收一份捕获好的：那三条链路上 @p instanceId 是**按引用**
         /// 活着的那个 `targetId`（改名之后它变了），而这一层每次调用都现传一次。
         std::function<void(const QString &instanceId)> changed;
+        /// 「删选中的 N 台吗」那一句（批量删除）。放在末尾：前面几格按位置初始化。
+        std::function<bool(int count)> confirmRemoveMany;
     };
 
     explicit ServerListController(Host host, QObject *parent = nullptr);
@@ -127,6 +132,14 @@ public:
      * 理由见 `ServerListFile` 那段。
      */
     bool remove(const QString &instanceId, const QString &name, const QString &address);
+
+    /**
+     * @brief 删多台：问一句（点数量）→ 一次读写 `servers.dat` → 记一行 → 重读重测。
+     *
+     * 任何一条认不出就整批不写，选择保持原样（界面不重读）。
+     * @param entries (名字, 地址) 列表，每条的含义同 `remove()`。
+     */
+    bool removeMany(const QString &instanceId, const QList<QPair<QString, QString>> &entries);
 
 private:
     Host m_host;

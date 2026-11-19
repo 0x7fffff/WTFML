@@ -1,5 +1,6 @@
 #include "Support.hpp"
 #include <QScrollBar>
+#include <QThread>
 int UiLifecycleCheck(QApplication &app) {
 
         if (app.arguments().contains(QStringLiteral("--lifecycle-preview"))) {
@@ -404,8 +405,8 @@ int UiLifecycleCheck(QApplication &app) {
                     ++requests;
                 });
             for (const QString &key : {QStringLiteral("screenshots"), QStringLiteral("schematic"),
-                                       QStringLiteral("replay"), QStringLiteral("logs"),
-                                       QStringLiteral("crash")}) {
+                                       QStringLiteral("replay"), QStringLiteral("structure"),
+                                       QStringLiteral("logs"), QStringLiteral("crash")}) {
                 dialog.showPage(key);
                 const auto button = [&](const QString &name) { return buttonFor(name, key); };
                 if (key == QStringLiteral("schematic")) {
@@ -471,9 +472,119 @@ int UiLifecycleCheck(QApplication &app) {
                        "delete leaves the selection alone when nothing was deleted");
                 list->clearSelection();
             }
+            // 存档页：批量对象是世界文件夹，只有复制和删除（没有移动）；选择在重列后按路径保持。
+            {
+                const QString worldsDir = scratch.filePath(QStringLiteral("worlds"));
+                for (const QString &name : {QStringLiteral("WorldA"), QStringLiteral("WorldB")})
+                    expect(QDir().mkpath(worldsDir + QLatin1Char('/') + name), "create world batch fixtures");
+                auto worldDirs = dirs;
+                worldDirs.insert(QStringLiteral("save"), worldsDir);
+                dialog.setFileDirs(worldDirs);
+                dialog.showPage(QStringLiteral("save"));
+                app.processEvents();
+                auto *page = dialog.filesPage(QStringLiteral("save"));
+                list = page ? page->list() : nullptr;
+                const auto world = [&](const QString &name) {
+                    return buttonFor(name, QStringLiteral("save"));
+                };
+                auto *worldAll = world(QStringLiteral("All"));
+                auto *worldCopy = world(QStringLiteral("Copy"));
+                auto *worldMove = world(QStringLiteral("Move"));
+                auto *worldRemove = world(QStringLiteral("Remove"));
+                expect(list && worldAll && worldCopy && worldMove && worldRemove
+                           && !worldMove->isVisibleTo(&dialog) && worldCopy->isVisibleTo(&dialog)
+                           && worldRemove->isVisibleTo(&dialog),
+                       "saves page has batch copy and delete but no move");
+                if (list && worldAll && worldCopy && worldRemove) {
+                    expect(list->selectionMode() == QAbstractItemView::ExtendedSelection && !worldRemove->isEnabled(),
+                           "saves page selects several worlds and cannot delete an empty selection");
+                    worldAll->click();
+                    expect(list->selectedItems().size() == 2, "saves page select all picks every world folder");
+                    const int before = requests;
+                    worldCopy->click();
+                    expect(requests == before + 1 && requestedPage == QStringLiteral("save")
+                               && requestedAction == Action::Copy && requestedPaths.size() == 2
+                               && requestedPaths.first().startsWith(worldsDir),
+                           "saves page copy sends the selected world folders");
+                    worldRemove->click();
+                    expect(requests == before + 2 && requestedAction == Action::Remove && requestedPaths.size() == 2,
+                           "saves page delete sends the selected world folders");
+                    // 失败后保持选中：重列后按路径把选择还回去，只剩没处理掉的那几个。
+                    dialog.refreshLifecycleBatchFiles(QStringLiteral("save"));
+                    app.processEvents();
+                    expect(list->selectedItems().size() == 2, "saves page keeps the selection across a refresh");
+                    expect(QDir(worldsDir + QStringLiteral("/WorldA")).removeRecursively(), "remove one world fixture");
+                    dialog.refreshLifecycleBatchFiles(QStringLiteral("save"));
+                    app.processEvents();
+                    expect(list->count() == 1 && list->selectedItems().size() == 1
+                               && list->selectedItems().first()->data(InstanceFilesPage::pathRole()).toString()
+                                      == worldsDir + QStringLiteral("/WorldB"),
+                           "saves page restores only the worlds that are still on disk");
+                }
+                dialog.setFileDirs(dirs);
+                dialog.showPage(QStringLiteral("screenshots"));
+                app.processEvents();
+            }
+            // 样张：WTFML_LIFECYCLE_SHOTS=<目录> 时，结构 / 存档 / 服务器列表三页各拍一张选中多项的样子
+            // （最小窗口 900×590 与拉宽 1400 两档）。不设就不拍。
+            if (const QString shotDir = qEnvironmentVariable("WTFML_LIFECYCLE_SHOTS"); !shotDir.isEmpty()) {
+                QDir().mkpath(shotDir);
+                const QString worldsDir = scratch.filePath(QStringLiteral("shot-worlds"));
+                for (const QString &name : {QStringLiteral("生存档"), QStringLiteral("Creative Test"),
+                                            QStringLiteral("红石实验场"), QStringLiteral("Skyblock-2")})
+                    QDir().mkpath(worldsDir + QLatin1Char('/') + name);
+                for (const QString &name : {QStringLiteral("house"), QStringLiteral("farm-tower"),
+                                            QStringLiteral("village-hall"), QStringLiteral("bridge")}) {
+                    const QString folder = worldsDir + QStringLiteral("/生存档/generated/minecraft/structures");
+                    QDir().mkpath(folder);
+                    QFile file(folder + QLatin1Char('/') + name + QStringLiteral(".nbt"));
+                    if (file.open(QIODevice::WriteOnly)) file.write("test");
+                }
+                auto shotDirs = dirs;
+                shotDirs.insert(QStringLiteral("save"), worldsDir);
+                dialog.setFileDirs(shotDirs);
+                dialog.setServerList({qMakePair(QStringLiteral("主服务器"), QStringLiteral("play.example.com")),
+                                      qMakePair(QStringLiteral("朋友的服"), QStringLiteral("1.2.3.4:25566")),
+                                      qMakePair(QStringLiteral("建筑服"), QStringLiteral("build.example.org")),
+                                      qMakePair(QStringLiteral("旧服"), QStringLiteral("old.example.net"))},
+                                     QString());
+                for (const QSize &size : {QSize(900, 590), QSize(1400, 720)}) {
+                    dialog.resize(size);
+                    for (const QString &key : {QStringLiteral("structure"), QStringLiteral("save"),
+                                               QStringLiteral("server")}) {
+                        dialog.showPage(key);
+                        if (key == QStringLiteral("structure")) dialog.refreshLifecycleBatchFiles(key);
+                        app.processEvents();
+                        if (key == QStringLiteral("server")) {
+                            if (auto *tree = dialog.serverTree()) {
+                                tree->clearSelection();
+                                tree->topLevelItem(0)->setSelected(true);
+                                tree->topLevelItem(2)->setSelected(true);
+                            }
+                        } else {
+                            QListWidget *shotList = key == QStringLiteral("save")
+                                ? (dialog.filesPage(key) ? dialog.filesPage(key)->list() : nullptr)
+                                : dialog.findChild<QListWidget *>(QStringLiteral("instanceLifecycleFiles_%1").arg(key));
+                            if (auto *all = buttonFor(QStringLiteral("All"), key)) all->click();
+                            if (shotList && key == QStringLiteral("save") && shotList->count() > 3)
+                                shotList->item(3)->setSelected(false);
+                        }
+                        app.processEvents();
+                        for (int wait = 0; wait < 10; ++wait) {
+                            QThread::msleep(20);
+                            app.processEvents();
+                        }
+                        dialog.grab().save(QStringLiteral("%1/%2-%3.png").arg(shotDir, key).arg(size.width()));
+                    }
+                }
+                dialog.setFileDirs(dirs);
+                dialog.showPage(QStringLiteral("screenshots"));
+                app.processEvents();
+            }
             QObject::disconnect(connection);
-            expect(!dialog.findChild<QWidget *>(QStringLiteral("instanceLifecycleBatch_structure")),
-                   "structure list does not gain write actions");
+            expect(Dlg::isLifecycleBatchFile(QStringLiteral("structure"), QStringLiteral("/x/a.NBT"))
+                       && !Dlg::isLifecycleBatchFile(QStringLiteral("structure"), QStringLiteral("/x/a.txt")),
+                   "structure page batches nbt files only");
             // 日志、崩溃报告不按后缀判断：任何文件都能批量；其余页仍按后缀。
             expect(Dlg::isLifecycleBatchFile(QStringLiteral("logs"), QStringLiteral("/x/logs/2026-11-18-1.log.gz"))
                        && Dlg::isLifecycleBatchFile(QStringLiteral("logs"), QStringLiteral("/x/logs/noext"))
@@ -482,7 +593,7 @@ int UiLifecycleCheck(QApplication &app) {
                    "log and crash pages accept any file for batch actions");
             expect(!Dlg::isLifecycleBatchFile(QStringLiteral("screenshots"), QStringLiteral("/x/a.txt"))
                        && Dlg::isLifecycleBatchFile(QStringLiteral("screenshots"), QStringLiteral("/x/a.PNG"))
-                       && !Dlg::isLifecycleBatchFile(QStringLiteral("structure"), QStringLiteral("/x/a.nbt")),
+                       && !Dlg::isLifecycleBatchFile(QStringLiteral("replay"), QStringLiteral("/x/a.nbt")),
                    "other pages still judge batch files by suffix");
             // 日志页：单击（恰好选中一行）要发信息请求；双击走内置查看器信号而不是外部打开。
             {

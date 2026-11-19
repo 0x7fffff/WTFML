@@ -354,9 +354,8 @@ int UiBatchManagementChecks(const QString &instanceDisplayName, const QString &i
             check(saves != nullptr && saves->list() != nullptr && !saves->batchMode(),
                   "U10Q 前提：存档那一页是**没开批量**的那一页");
             if (saves != nullptr && saves->list() != nullptr) {
-                check(saves->list()->selectionMode() == QAbstractItemView::SingleSelection,
-                      "★★ U10Q 没开批量的页仍是**单选**（Ctrl+A 自然也就不通 —— 这正是"
-                      "「这一套只铺那四页」的落法）",
+                check(saves->list()->selectionMode() == QAbstractItemView::ExtendedSelection,
+                      "★★ U10Q 存档页自己的批量工具条开了**多选**（批量管理那一套仍只铺那四页）",
                       QString::number(static_cast<int>(saves->list()->selectionMode())));
                 check(saves->list()->count() > 0 ? uiDetailAt(saves, 0) == nullptr : true,
                       "★★ U10Q 没开批量的页上**没有**那颗「详情」（它只在开了批量的页上建）");

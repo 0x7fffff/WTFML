@@ -137,6 +137,15 @@ bool addEntry(const QString &datPath, const QString &name, const QString &addres
 bool removeEntry(const QString &datPath, const QString &name, const QString &address,
                  QString *problemOut);
 
+/**
+ * @brief 一次删掉多条：读一次、逐条按值认出并拿掉、写一次。
+ *
+ * 认条目的规矩和 `removeEntry()` 相同。**任何一条认不出就整批不写**，盘上那份保持原样。
+ * @param entries (名字, 地址) 列表。
+ */
+bool removeEntries(const QString &datPath, const QList<QPair<QString, QString>> &entries,
+                   QString *problemOut);
+
 // ---------------------------------------------------------------------------
 // 实例预设那一段用的那几口
 //

@@ -39,8 +39,11 @@ public:
     };
 
     /// @brief 对已获确认的批次先整体校验；执行时遇到首个失败即停止，不覆盖目标。
+    /// @param nested 来源文件可以在 @p sourceRoot 的子目录里（结构页：各存档 generated 下的 nbt）。
+    ///        复制 / 移动落到 @p destination 的一层，所选文件里有重名的整批拒绝。
     LifecycleResult applyLifecycleBatch(LifecycleAction action, const QString &sourceRoot,
-                                        const QStringList &paths, const QString &destination = {});
+                                        const QStringList &paths, const QString &destination = {},
+                                        bool nested = false);
 
 private:
     void log(const QString &text) const;

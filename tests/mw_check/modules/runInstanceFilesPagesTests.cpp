@@ -230,6 +230,35 @@ void runInstanceFilesPagesTests() {
                   && contents(first) == "FIRST" && busy.isEmpty(),
               "copy preserves the original and releases busy state");
         check(QFile::remove(firstTarget), "remove the isolated copy before the move test");
+        {
+            // 结构页：来源在各存档 generated 的子目录里，复制落到目标目录的一层。
+            const QString saves = root.filePath(QStringLiteral("lifecycle-batch/saves"));
+            const QString structures = QStringLiteral("/generated/minecraft/structures/");
+            const QString nestedA = saves + QStringLiteral("/W1") + structures + QStringLiteral("a.nbt");
+            const QString nestedB = saves + QStringLiteral("/W2") + structures + QStringLiteral("b.nbt");
+            const QString nestedSame = saves + QStringLiteral("/W2") + structures + QStringLiteral("a.nbt");
+            const QString elsewhere = saves + QStringLiteral("/W1/other/a.nbt");
+            for (const QString &path : {nestedA, nestedB, nestedSame, elsewhere}) {
+                check(QDir().mkpath(QFileInfo(path).absolutePath()), "create nested structure fixture folder");
+                writeFileAt(path, QByteArrayLiteral("NESTED"));
+            }
+            result = controller.applyLifecycleBatch(Action::Copy, saves, {nestedA, nestedB}, target);
+            check(result.done == 0 && !result.problem.isEmpty(),
+                  "files below the source root are rejected unless nested sources are enabled");
+            result = controller.applyLifecycleBatch(Action::Copy, saves, {nestedA, nestedSame}, target, true);
+            check(result.done == 0 && !result.problem.isEmpty() && !QFileInfo::exists(target + QStringLiteral("/a.nbt")),
+                  "nested copy rejects same-named files from different worlds before writing");
+            result = controller.applyLifecycleBatch(Action::Copy, saves, {elsewhere}, target, true);
+            check(result.done == 0 && !result.problem.isEmpty(),
+                  "nested sources must be inside a generated folder");
+            result = controller.applyLifecycleBatch(Action::Copy, saves, {nestedA, nestedB}, target, true);
+            check(result.done == 2 && result.problem.isEmpty() && contents(nestedA) == "NESTED"
+                      && contents(target + QStringLiteral("/a.nbt")) == "NESTED"
+                      && contents(target + QStringLiteral("/b.nbt")) == "NESTED",
+                  "nested copy lands every file in the destination folder and keeps the originals");
+            check(QFile::remove(target + QStringLiteral("/a.nbt")) && QFile::remove(target + QStringLiteral("/b.nbt")),
+                  "remove the isolated nested copies");
+        }
 #ifdef Q_OS_WIN
         if (!qEnvironmentVariableIsSet("WTFML_SKIP_JUNCTION")) {
             const QString alias = root.filePath(QStringLiteral("lifecycle-batch/target-link"));
@@ -3075,7 +3104,7 @@ void runInstanceFilesPagesTests() {
                         auto *only = page->findChild<QCheckBox *>(QStringLiteral("serverFavoritesOnly"));
                         auto *first = tree->topLevelItem(0);
                         auto *second = tree->topLevelItem(1);
-                        tree->setCurrentItem(first);
+                        tree->setCurrentItem(first, 0, QItemSelectionModel::ClearAndSelect);
                         if (visit == 0) {
                             favorite->click();
                             // 三个条件**分开钉**。合成一条时 CI 上只知道"这组挂了"，
@@ -3097,7 +3126,7 @@ void runInstanceFilesPagesTests() {
                             check(persisted,
                                   "server favorite is acknowledged and persisted by real window wiring",
                                   QStringLiteral("等了 5 秒仍是「没收藏」：%1").arg(address));
-                            tree->setCurrentItem(second);
+                            tree->setCurrentItem(second, 0, QItemSelectionModel::ClearAndSelect);
                             only->setChecked(true);
                             check(!first->isHidden() && second->isHidden() && tree->currentItem() == nullptr &&
                                   !page->serverJoinButton()->isEnabled(), "favorite filter clears hidden current selection and disables join");

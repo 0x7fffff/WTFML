@@ -38,6 +38,34 @@ int UiServerPageChecks(InstanceSettingsDialog &dialog) {
                                         QStringLiteral("5.6.7.8"))},
                              QString());
         check(tree->topLevelItemCount() == 3, "U10L 三台服务器摆了三行");
+        // 多选：删除按选中的全部发一条批量信号，只选一台时仍发原来的单条信号；编辑 / 加入只认恰好一行。
+        {
+            QList<QPair<QString, QString>> batch;
+            QString singleAddress;
+            int singles = 0;
+            const auto many = QObject::connect(&dialog, &Dlg::deleteServersRequested, &dialog,
+                [&](const QList<QPair<QString, QString>> &entries) { batch = entries; });
+            const auto one = QObject::connect(&dialog, &Dlg::deleteServerRequested, &dialog,
+                [&](const QString &, const QString &address) { singleAddress = address; ++singles; });
+            check(tree->selectionMode() == QAbstractItemView::ExtendedSelection, "服务器列表允许多选");
+            tree->topLevelItem(0)->setSelected(true);
+            tree->topLevelItem(2)->setSelected(true);
+            check(remove->isEnabled() && !dialog.serverEditButton()->isEnabled(),
+                  "多选时「删除」可点、「编辑」灰着");
+            remove->click();
+            check(batch.size() == 2 && batch.at(0).second == QStringLiteral("mc.example.com")
+                      && batch.at(1).second == QStringLiteral("5.6.7.8") && singles == 0,
+                  "多选按「删除」发一条带全部选中项的批量信号");
+            tree->clearSelection();
+            tree->topLevelItem(1)->setSelected(true);
+            check(dialog.serverEditButton()->isEnabled(), "只选一台时「编辑」可点");
+            remove->click();
+            check(singles == 1 && singleAddress == QStringLiteral("1.2.3.4:25566") && batch.size() == 2,
+                  "只选一台时仍发单条删除信号");
+            tree->clearSelection();
+            QObject::disconnect(many);
+            QObject::disconnect(one);
+        }
         QStringList headers;
         for (int i = 0; i < tree->columnCount(); ++i) {
             headers.append(tree->headerItem() != nullptr ? tree->headerItem()->text(i)

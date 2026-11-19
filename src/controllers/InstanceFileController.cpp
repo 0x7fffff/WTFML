@@ -357,7 +357,8 @@ void InstanceFileController::removeMany(const QStringList &paths) {
 }
 
 InstanceFileController::LifecycleResult InstanceFileController::applyLifecycleBatch(
-    LifecycleAction action, const QString &sourceRoot, const QStringList &paths, const QString &destination) {
+    LifecycleAction action, const QString &sourceRoot, const QStringList &paths, const QString &destination,
+    bool nested) {
     LifecycleResult result;
     const bool transferring = action != LifecycleAction::Remove;
     const auto invalidSource = [](const QString &path) {
@@ -383,9 +384,12 @@ InstanceFileController::LifecycleResult InstanceFileController::applyLifecycleBa
     QSet<QString> names;
     qint64 bytes = 0;
     constexpr qint64 copyLimit = 512LL * 1024 * 1024;
-    const auto sourceAllowed = [&sourceRoot](const QString &path) {
+    const auto sourceAllowed = [&sourceRoot, nested](const QString &path) {
         const QFileInfo info(path);
-        return info.isFile() && info.absolutePath() == sourceRoot && plainLifecyclePath(path);
+        const bool inside = nested
+            ? info.absolutePath().startsWith(sourceRoot + QLatin1Char('/')) && path.contains(QStringLiteral("/generated/"))
+            : info.absolutePath() == sourceRoot;
+        return info.isFile() && inside && plainLifecyclePath(path);
     };
     const auto targetOccupied = [](const QString &path) {
         const QFileInfo info(path);
@@ -395,11 +399,19 @@ InstanceFileController::LifecycleResult InstanceFileController::applyLifecycleBa
         const QString path = QDir::fromNativeSeparators(rawPath);
         const QFileInfo info(path);
         const QString name = info.fileName();
-        if (!sourceAllowed(path) || names.contains(name.toCaseFolded())) {
+        // 子目录来源里不同存档可以有同名文件：删除按完整路径判重，复制 / 移动按文件名判重（落在同一层）。
+        const QString identity = nested && !transferring ? path.toCaseFolded() : name.toCaseFolded();
+        if (!sourceAllowed(path)) {
             result.problem = invalidSource(path);
             return result;
         }
-        names.insert(name.toCaseFolded());
+        if (names.contains(identity)) {
+            result.problem = nested && transferring
+                ? tr("所选文件中有重名文件，请分批操作：%1").arg(name)
+                : invalidSource(path);
+            return result;
+        }
+        names.insert(identity);
         affected.append(path);
         if (transferring) {
             const QString target = QDir(destination).filePath(name);

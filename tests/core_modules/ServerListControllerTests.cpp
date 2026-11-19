@@ -25,6 +25,7 @@ void runServerListControllerTests() {
         int cancelAt = -1;                      ///< 第几问取消；-1 = 一路答完
         bool confirmAnswer = true;              ///< 「删这一台吗」怎么答
         QStringList confirmations;              ///< 那句问话（`名字@地址`）
+        QList<int> manyConfirmations;           ///< 批量删除那句问话里的台数
         QList<ServerListController::Notice> notices;
         QStringList logs;
         QStringList reloads;
@@ -46,6 +47,10 @@ void runServerListControllerTests() {
             };
             host.confirmRemove = [this](const QString &who, const QString &address) {
                 confirmations.append(who + QStringLiteral("@") + address);
+                return confirmAnswer;
+            };
+            host.confirmRemoveMany = [this](int count) {
+                manyConfirmations.append(count);
                 return confirmAnswer;
             };
             host.notice = [this](const ServerListController::Notice &notice) {
@@ -260,6 +265,46 @@ void runServerListControllerTests() {
               fake.notices.isEmpty() ? QString() : fake.notices.at(0).detail);
         check(readBytesAt(datPath) == before, "ZK27 盘上逐字节没动");
         check(fake.logs.isEmpty() && fake.reloads.isEmpty(), "ZK27 没记日志、没喊重读");
+    }
+
+    section("ZK28. 批量删：问数量、整批认得出才写、一次落盘");
+    {
+        check(seed(), "ZK28 夹具还原");
+        const QByteArray before = readBytesAt(datPath);
+        const QList<QPair<QString, QString>> both{
+            qMakePair(QStringLiteral("A服"), QStringLiteral("a.example.com:25565")),
+            qMakePair(QString(), QStringLiteral("c.example.com"))};
+        {
+            FakeHost fake;
+            ServerListController controller(fake.make());
+            fake.confirmAnswer = false;
+            check(!controller.removeMany(instanceId, both) && fake.manyConfirmations == QList<int>{2},
+                  "ZK28 点了「不删」⇒ 回头，问的是台数");
+            check(readBytesAt(datPath) == before && fake.logs.isEmpty() && fake.reloads.isEmpty(),
+                  "ZK28 没删 ⇒ 盘上逐字节没动、没记日志");
+        }
+        {
+            FakeHost fake;
+            ServerListController controller(fake.make());
+            auto withMissing = both;
+            withMissing.append(qMakePair(QStringLiteral("不存在"), QStringLiteral("nowhere.example.com")));
+            check(!controller.removeMany(instanceId, withMissing),
+                  "ZK28 有一条认不出来 ⇒ 整批删不动");
+            check(fake.notices.size() == 1 &&
+                      fake.notices.at(0).kind == ServerListController::Notice::Kind::RemoveFailed,
+                  "ZK28 弹的是「删不动」那一档");
+            check(readBytesAt(datPath) == before && fake.logs.isEmpty() && fake.reloads.isEmpty(),
+                  "ZK28 整批不写：前两条也没删");
+        }
+        {
+            FakeHost fake;
+            ServerListController controller(fake.make());
+            check(controller.removeMany(instanceId, both), "ZK28 全认得出 ⇒ 删得掉");
+            check(rowsOf() == QStringList{QStringLiteral("B服|b.example.com")},
+                  "ZK28 盘上只剩没选的那一台", rowsOf().join(QStringLiteral(" / ")));
+            check(fake.logs == QStringList{QStringLiteral("已删服务器：2 台")} && fake.reloads == QStringList{instanceId},
+                  "ZK28 记一行日志、喊一次重读重测");
+        }
     }
 
     AppPaths::setMinecraftDir(originalDir);  // 收摊：后面那些节读的还是原来那一份

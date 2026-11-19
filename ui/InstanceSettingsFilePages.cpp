@@ -319,7 +319,7 @@ void InstanceSettingsDialog::buildFilePage(const QString &key) {
             if (m_pageAvailable.contains(key) && !m_pageAvailable.value(key))
                 files->setUnavailable(pageUnavailableText(key));
             m_filesPages.insert(key, files);
-            if (key == QStringLiteral("schematic"))
+            if (key == QStringLiteral("schematic") || isSave)
                 addLifecycleBatchActions(key, files->list(), target);
             target->addWidget(files, 1);
             if (!batch && !isSave && key != QStringLiteral("schematic") && key != QStringLiteral("structure")) {
@@ -405,13 +405,22 @@ void InstanceSettingsDialog::buildServerPage() {
                 m_serverDelete->setToolTip(serverDeleteTip());
                 Theme::markButton(m_serverDelete, Theme::ButtonKind::Danger);
                 connect(m_serverDelete, &QPushButton::clicked, this, [this] {
-                    QTreeWidgetItem *item = selectedServerItem();
-                    if (item == nullptr) {
+                    const auto items = selectedServerItems();
+                    if (items.isEmpty()) {
                         return;  // 同上：这一颗本来就是灰的。
                     }
-                    emit deleteServerRequested(
-                        item->data(0, MainWindowUI::serverNameRole()).toString(),
-                        item->data(1, MainWindowUI::serverAddressRole()).toString());
+                    const auto entry = [](const QTreeWidgetItem *item) {
+                        return qMakePair(item->data(0, MainWindowUI::serverNameRole()).toString(),
+                                         item->data(1, MainWindowUI::serverAddressRole()).toString());
+                    };
+                    if (items.size() == 1) {
+                        const auto one = entry(items.first());
+                        emit deleteServerRequested(one.first, one.second);
+                        return;
+                    }
+                    QList<QPair<QString, QString>> entries;
+                    for (const auto *item : items) entries.append(entry(item));
+                    emit deleteServersRequested(entries);
                 });
                 // 「加入服务器」：用游戏自己的 `--quickPlayMultiplayer` 直接连进去。
                 // 世界和服务器都做一个临时占位（加入选中的世界，仅限有这个参数的版本 /
@@ -477,7 +486,7 @@ void InstanceSettingsDialog::buildServerPage() {
                 // 「一行一个服务器」是平表不是树：不要每行前面那个展开三角。
                 m_serverTree->setRootIsDecorated(false);
                 m_serverTree->setUniformRowHeights(true);
-                m_serverTree->setSelectionMode(QAbstractItemView::SingleSelection);
+                m_serverTree->setSelectionMode(QAbstractItemView::ExtendedSelection);
                 m_serverTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
                 // 状态那一格是两行（`42 ms` / `7/20 人`，见 setServerStatuses）：
                 // 这一句是那个换行**真的会换行**的前提 —— 条目代理只在开了 wordWrap 时
