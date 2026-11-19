@@ -109,7 +109,7 @@ bool parse(const QByteArray &json, Manifest *out, QString *error) {
     }
     const QJsonObject root = document.object();
     if (root.value(QStringLiteral("formatVersion")).toInt(-1) != kFormatVersion) {
-        return fail(QCoreApplication::translate("AssetDirectorKnownSet", "不认识的已知集合清单格式版本。"));
+        return fail(QCoreApplication::translate("AssetDirectorKnownSet", "不支持此已知资源清单的格式版本。"));
     }
     const QJsonValue setsValue = root.value(QStringLiteral("knownSets"));
     if (!setsValue.isArray() || setsValue.toArray().isEmpty() || setsValue.toArray().size() > kMaxSets) {
@@ -203,7 +203,7 @@ bool parse(const QByteArray &json, Manifest *out, QString *error) {
         // 而"少算的字节数"正是上限判据要用的那一格。
         const double declared = object.value(QStringLiteral("totalBytes")).toDouble(-1);
         if (declared != static_cast<double>(sum)) {
-            return fail(QCoreApplication::translate("AssetDirectorKnownSet", "%1 的总字节数和对象列表对不上。").arg(set.id));
+            return fail(QCoreApplication::translate("AssetDirectorKnownSet", "%1 的总大小与对象列表不一致。").arg(set.id));
         }
         set.totalBytes = sum;
         out->sets.append(set);

@@ -204,7 +204,7 @@ ServerPlayers::Content ServerSettingsController::readPlayers(const QString &serv
     if (!file.open(QIODevice::ReadOnly)) {
         ServerPlayers::Content content;
         content.ok = false;
-        content.problem = QCoreApplication::translate("ServerSettingsController", "%1 打不开：%2")
+        content.problem = QCoreApplication::translate("ServerSettingsController", "无法打开 %1：%2")
                               .arg(ServerPlayers::fileName(list), file.errorString());
         return content;
     }
@@ -224,7 +224,7 @@ bool ServerSettingsController::writePlayers(const QString &serverId, ServerPlaye
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly)) {
         if (problemOut != nullptr) {
-            *problemOut = QCoreApplication::translate("ServerSettingsController", "%1 写不进去：%2")
+            *problemOut = QCoreApplication::translate("ServerSettingsController", "无法写入 %1：%2")
                               .arg(ServerPlayers::fileName(list), file.errorString());
         }
         return false;
@@ -237,7 +237,7 @@ bool ServerSettingsController::writePlayers(const QString &serverId, ServerPlaye
     }
     if (!file.commit()) {
         if (problemOut != nullptr) {
-            *problemOut = QCoreApplication::translate("ServerSettingsController", "%1 写不进去：%2")
+            *problemOut = QCoreApplication::translate("ServerSettingsController", "无法写入 %1：%2")
                               .arg(ServerPlayers::fileName(list), file.errorString());
         }
         return false;

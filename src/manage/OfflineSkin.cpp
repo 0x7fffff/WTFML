@@ -76,13 +76,13 @@ bool save(const QString &uuid, const QImage &image, const QString &variant, QStr
     const QString path = skinPathFor(uuid);
     if (path.isEmpty()) {
         if (errorOut != nullptr) {
-            *errorOut = QCoreApplication::translate("OfflineSkin", "认不出这个账号的 uuid，没法按账号存皮肤。");
+            *errorOut = QCoreApplication::translate("OfflineSkin", "无法识别账号 UUID，皮肤未保存。");
         }
         return false;
     }
     if (image.isNull()) {
         if (errorOut != nullptr) {
-            *errorOut = QCoreApplication::translate("OfflineSkin", "这张图读不出来。");
+            *errorOut = QCoreApplication::translate("OfflineSkin", "无法读取图片。");
         }
         return false;
     }
@@ -92,7 +92,7 @@ bool save(const QString &uuid, const QImage &image, const QString &variant, QStr
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly)) {
         if (errorOut != nullptr) {
-            *errorOut = QCoreApplication::translate("OfflineSkin", "写不进「%1」：%2").arg(path, file.errorString());
+            *errorOut = QCoreApplication::translate("OfflineSkin", "无法保存「%1」：%2").arg(path, file.errorString());
         }
         return false;
     }

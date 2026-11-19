@@ -49,7 +49,7 @@ EntriesCheck checkEntries(const QStringList &entries) {
         names.append(normalized(entry));
     }
     if (names.isEmpty()) {
-        result.problem = QCoreApplication::translate("ServerResourcePack", "这个压缩包是空的 —— 里面一个条目都没有。");
+        result.problem = QCoreApplication::translate("ServerResourcePack", "压缩包没有文件。");
         return result;
     }
 
@@ -68,14 +68,14 @@ EntriesCheck checkEntries(const QStringList &entries) {
     if (!result.hasPackMeta && nestedMeta) {
         // 最常见的一种错：把整个文件夹一起压了。游戏只认最外层那一份。
         result.problem =
-            QCoreApplication::translate("ServerResourcePack", "pack.mcmeta 被套在一个文件夹里 —— 游戏只认压缩包最外层的那一份。把包里的东西重新压到最外层再试。");
+            QCoreApplication::translate("ServerResourcePack", "pack.mcmeta 不在压缩包根目录。请重新打包，使 pack.mcmeta 位于根目录。");
         return result;
     }
     if (!result.hasPackMeta) {
         if (result.looksLikeDataPack) {
-            result.problem = QCoreApplication::translate("ServerResourcePack", "这里面是 data/ 而不是 assets/ —— 它像是数据包，不是资源包。服务端资源包要选改了客户端贴图/声音的那一份。");
+            result.problem = QCoreApplication::translate("ServerResourcePack", "此压缩包可能是数据包，包含 data/ 且缺少 assets/。请选择包含客户端纹理或声音的资源包。");
         } else {
-            result.problem = QCoreApplication::translate("ServerResourcePack", "里面没有 pack.mcmeta —— 这不像是资源包。资源包解开来最外层一定有一份 pack.mcmeta。");
+            result.problem = QCoreApplication::translate("ServerResourcePack", "压缩包根目录缺少 pack.mcmeta，无法识别为资源包。");
         }
         return result;
     }
@@ -92,7 +92,7 @@ Inspect inspect(const QString &zipPath) {
     Inspect result;
     const QFileInfo info(zipPath);
     if (!info.exists() || !info.isFile()) {
-        result.problem = QCoreApplication::translate("ServerResourcePack", "找不到这个文件 —— 它可能已经被移走或者改名了。");
+        result.problem = QCoreApplication::translate("ServerResourcePack", "未找到文件。请确认文件位置和名称。");
         return result;
     }
 
@@ -102,11 +102,11 @@ Inspect inspect(const QString &zipPath) {
     const ZipUtil::EntryStatus status =
         ZipUtil::listEntries(zipPath, &entries, &error, QCoreApplication::translate("ServerResourcePack", "读这个资源包"));
     if (status == ZipUtil::EntryStatus::NotAnArchive) {
-        result.problem = QCoreApplication::translate("ServerResourcePack", "这不是一个 zip 压缩包（或文件已损坏）：资源包要选 .zip 那一份。");
+        result.problem = QCoreApplication::translate("ServerResourcePack", "无法打开资源包。请选择格式正确且完整的 ZIP 文件。");
         return result;
     }
     if (status != ZipUtil::EntryStatus::Ok) {
-        result.problem = error.isEmpty() ? QCoreApplication::translate("ServerResourcePack", "读不出这个压缩包的条目表。") : error;
+        result.problem = error.isEmpty() ? QCoreApplication::translate("ServerResourcePack", "无法读取压缩包的文件列表。") : error;
         return result;
     }
 

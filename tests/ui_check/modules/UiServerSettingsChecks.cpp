@@ -414,7 +414,7 @@ int UiServerSettingsChecks() {
             row2.path = QStringLiteral("C:/backups/world-2.zip");
             row2.when = QStringLiteral("2026-10-12 09:30");
             row2.safety = true;
-            row2.scope = QStringLiteral("还原之前自动做的那一份");
+            row2.scope = QStringLiteral("还原前的自动快照");
             page.setBackupRows(QList<ServerSettingsPage::BackupRow>{row1, row2});
             QApplication::processEvents();
             check(backupList->topLevelItemCount() == 2 &&

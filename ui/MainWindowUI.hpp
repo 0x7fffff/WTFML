@@ -823,7 +823,7 @@ public:
     static QString downloadBackButtonText() { return QCoreApplication::translate("MainWindowUI", "← 返回实例设置"); }
     /// 鼠标停上去那句话：说清"回的是哪个实例的那一页"，以及"从这儿下的东西照旧"。
     static QString downloadBackTooltip() {
-        return QCoreApplication::translate("MainWindowUI", "回到刚才那个实例的设置页。从这儿下的东西还是下进那个实例。");
+        return QCoreApplication::translate("MainWindowUI", "返回当前实例的设置页。下载内容将保存到此实例。");
     }
 
     // ---- 每一页顶上那一行筛子----
@@ -1095,7 +1095,7 @@ public:
         return QCoreApplication::translate("MainWindowUI", "可以导入一个整合包，或者去「下载」页装一个新版本。");
     }
     /// 空态大标题、容器与两颗按钮（设计稿 manage-empty）。
-    static QString instanceEmptyTitleText() { return QCoreApplication::translate("MainWindowUI", "这里还没有实例"); }
+    static QString instanceEmptyTitleText() { return QCoreApplication::translate("MainWindowUI", "此目录暂无实例"); }
     static QString instanceEmptyStateName() { return QStringLiteral("instanceEmptyState"); }
     static QString instanceEmptyDownloadText() { return QCoreApplication::translate("MainWindowUI", "去下载页装新版本"); }
     static QString instanceEmptyLabelName() { return QStringLiteral("instanceEmpty"); }
@@ -1543,7 +1543,7 @@ public:
     /// 这一页顶上那句说明（哪个文件夹、禁用是什么意思、在跑时为什么改了也不生效）。
     static QString serverSettingsContentNoteText(const QString &folder, bool running) {
         QString text = QCoreApplication::translate("MainWindowUI", "文件夹：%1").arg(folder);
-        text += QCoreApplication::translate("MainWindowUI", "\n禁用只改后缀为 .disabled，文件内容不变；再点「启用」即可恢复。");
+        text += QCoreApplication::translate("MainWindowUI", "\n禁用会将文件改为 .disabled 后缀，保留文件内容。选择「启用」可恢复。");
         if (running) {
             text += QCoreApplication::translate("MainWindowUI", "\n服务端运行中，修改将在重启后生效。");
         }
@@ -3374,7 +3374,7 @@ public:
     static QString launchingStatusText(const QString &displayName) {
         // 这个类不是 QObject（没有 tr()），所以用带上下文的静态形式。
         // NOTE: 上下文写死 "MainWindowUI" 是为了以后真要做翻译时 lupdate 认得这一条。
-        return QCoreApplication::translate("MainWindowUI", "正在启动 %1 ...").arg(displayName);
+        return QCoreApplication::translate("MainWindowUI", "正在启动 %1…").arg(displayName);
     }
 
     // 控件访问接口

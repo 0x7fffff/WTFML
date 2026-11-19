@@ -466,7 +466,7 @@ QWidget *PresetManagePage::buildPresetContentSection(QWidget *parent) {
     m_duplicateButton = new QPushButton(QCoreApplication::translate("PresetManagePage", "复制"), section);
     m_duplicateButton->setObjectName(duplicateButtonName());
     m_duplicateButton->setAutoDefault(false);
-    m_duplicateButton->setToolTip(QCoreApplication::translate("PresetManagePage", "复制一份，内容和文件原样保留。"));
+    m_duplicateButton->setToolTip(QCoreApplication::translate("PresetManagePage", "复制预设及其文件。"));
     m_defaultButton = new QPushButton(QCoreApplication::translate("PresetManagePage", "设为默认"), section);
     m_defaultButton->setObjectName(defaultButtonName());
     m_defaultButton->setAutoDefault(false);
@@ -596,16 +596,16 @@ QWidget *PresetManagePage::buildCaptureSection(QWidget *parent) {
              &m_captureDefaultConfigs);
     captureGrid->addWidget(new QLabel(QCoreApplication::translate("PresetManagePage", "资源包 / 光影"), section), 3, 0);
     addCheck(3, 1, QCoreApplication::translate("PresetManagePage", "资源包"),
-             QCoreApplication::translate("PresetManagePage", "resourcepacks/；这一档动辄几十上百 MB，默认不收。"), false,
+             QCoreApplication::translate("PresetManagePage", "resourcepacks/。文件通常较大，默认排除。"), false,
              &m_captureResourcePacks);
     addCheck(3, 2, QCoreApplication::translate("PresetManagePage", "光影包"),
-             QCoreApplication::translate("PresetManagePage", "shaderpacks/；同上，默认不收。"), false, &m_captureShaderPacks);
+             QCoreApplication::translate("PresetManagePage", "shaderpacks/。文件通常较大，默认排除。"), false, &m_captureShaderPacks);
     captureGrid->addWidget(new QLabel(QStringLiteral("MaLiLib"), section), 4, 0);
     addCheck(4, 1, QCoreApplication::translate("PresetManagePage", "热键"),
              QCoreApplication::translate("PresetManagePage", "按结构认这一族，一个模组一段；默认只收绑好的热键。"),
              true, &m_captureMalilib);
     addCheck(4, 2, QCoreApplication::translate("PresetManagePage", "连值一起收"),
-             QCoreApplication::translate("PresetManagePage", "把开关和别的值也收进来。"),
+             QCoreApplication::translate("PresetManagePage", "包含开关和其他设置。"),
              false, &m_captureMalilibValues);
     captureGrid->addWidget(new QLabel(QCoreApplication::translate("PresetManagePage", "数据包"), section), 5, 0);
     addCheck(5, 1, QCoreApplication::translate("PresetManagePage", "存档数据包"),
@@ -631,7 +631,7 @@ QWidget *PresetManagePage::buildCaptureSection(QWidget *parent) {
     m_captureButton->setObjectName(captureButtonName());
     m_captureButton->setAutoDefault(false);
     m_captureButton->setToolTip(
-        QCoreApplication::translate("PresetManagePage", "收进来的那几段替换掉这一份里同名的那几段；这一份里别的段原样留着。"));
+        QCoreApplication::translate("PresetManagePage", "提取的内容会替换现有预设中的同名部分，其他部分保留。"));
     Theme::markButton(m_captureButton, Theme::ButtonKind::Accent);
     captureButtons->addWidget(m_captureButton);
     m_newPresetNameEdit = new QLineEdit(section);
@@ -722,7 +722,7 @@ QWidget *PresetManagePage::buildApplySection(QWidget *parent) {
         if (resumeButton->property("armedSelection").toString() != selection) {
             emit executionReportRequested(currentPresetId(), comboInstanceId(m_applyInstanceCombo));
             resumeButton->setProperty("armedSelection", selection);
-            resumeButton->setText(tr("再点一次继续未完成"));
+            resumeButton->setText(tr("再次选择以继续未完成的操作"));
             QTimer::singleShot(4000, resumeButton, [resumeButton] {
                 resumeButton->setProperty("armedSelection", QString()); resumeButton->setText(tr("继续未完成"));
             });
@@ -883,7 +883,7 @@ void PresetManagePage::rebuildPresetList(const QString &selectId, bool emitSelec
     // 这一组**不跟着搜索走**（它们没有可信的名字可比），和原先"在全部那一档里一直露着"
     // 是同一条规矩。
     if (!m_broken.isEmpty()) {
-        auto *group = makeGroup(tr("读不出来"));
+        auto *group = makeGroup(tr("无法读取"));
         // 这一组的钥匙要**真的**写成 `brokenGroupKey()`：下面按搜索藏行时靠它把这一组
         // 摘出去（组里那几行没有可比的名字，跟着搜索一起消失才是撒谎）。
         group->setData(0, MainWindowUI::groupIdRole(), brokenGroupKey());
@@ -891,7 +891,7 @@ void PresetManagePage::rebuildPresetList(const QString &selectId, bool emitSelec
             auto *item = new QTreeWidgetItem(group);
             QString name = one.id;
             if (name.size() > 12) name = name.left(12) + QStringLiteral("…");
-            item->setText(0, TextMarks::warning(QCoreApplication::translate("PresetManagePage", "读不出来：%1").arg(name)));
+            item->setText(0, TextMarks::warning(QCoreApplication::translate("PresetManagePage", "读取失败：%1").arg(name)));
             item->setData(0, kRoleId, one.id);
             item->setData(0, kRoleBroken, true);
             item->setFlags(Qt::NoItemFlags);
@@ -1264,7 +1264,7 @@ void PresetManagePage::showPlan(const PlanView &plan) {
     if (!plan.blockedReason.isEmpty()) {
         hint = plan.blockedReason;
     } else if (plan.needsConfirm) {
-        hint = QCoreApplication::translate("PresetManagePage", "有「覆盖」段：点「应用」之后还要再点一次确认。");
+        hint = QCoreApplication::translate("PresetManagePage", "预设包含覆盖操作。选择「应用」后需要再次确认。");
     } else if (!plan.canApply) {
         hint = QCoreApplication::translate("PresetManagePage", "本次没有可应用的内容。");
     }
@@ -1282,10 +1282,10 @@ void PresetManagePage::showApplyResult(const ApplyView &result) {
     m_applyToken++;
 
     if (result.needsConfirm) {
-        auto *item = new QListWidgetItem(QCoreApplication::translate("PresetManagePage", "有「覆盖」段，尚未确认；" "再点一次「应用」即按覆盖执行。"),
+        auto *item = new QListWidgetItem(QCoreApplication::translate("PresetManagePage", "尚未确认覆盖。再次选择「应用」将执行覆盖。"),
                                          m_planList);
         item->setFlags(Qt::NoItemFlags);
-        m_planHint->setText(QCoreApplication::translate("PresetManagePage", "点「应用」确认覆盖（会先备份）。"));
+        m_planHint->setText(QCoreApplication::translate("PresetManagePage", "选择「应用」确认覆盖。覆盖前会创建备份。"));
         m_planCanApply = true;
         m_planNeedsConfirm = true;
         m_applyButton->setText(QCoreApplication::translate("PresetManagePage", "应用"));
@@ -1356,7 +1356,7 @@ void PresetManagePage::showPresetReadError(const QString &reason) {
     m_detailsAvailable = false;
     m_presetMeta->setText(tr("无法读取预设内容"));
     // 原因和「重试」就摆在内容那一格上（重试 = 原样再选一次这一份，控制器重新读盘）。
-    LoadingState::fail(m_sectionList, tr("这一份读不出来：%1").arg(reason),
+    LoadingState::fail(m_sectionList, tr("无法读取此预设：%1").arg(reason),
                        [this] { emit presetSelected(m_currentId); });
     refreshActions();
 }
@@ -1485,7 +1485,7 @@ void PresetManagePage::refreshCaptureEnabled() {
 
 void PresetManagePage::armDelete() {
     m_deleteArmed = true;
-    m_deleteButton->setText(QCoreApplication::translate("PresetManagePage", "再点一次确认删除"));
+    m_deleteButton->setText(QCoreApplication::translate("PresetManagePage", "再次选择以确认删除"));
     const int token = ++m_deleteToken;
     QTimer::singleShot(4000, this, [this, token] {
         if (token == m_deleteToken && m_deleteArmed) {
@@ -1502,7 +1502,7 @@ void PresetManagePage::disarmDelete() {
 
 void PresetManagePage::armApply() {
     m_applyArmed = true;
-    m_applyButton->setText(QCoreApplication::translate("PresetManagePage", "再点一次确认覆盖"));
+    m_applyButton->setText(QCoreApplication::translate("PresetManagePage", "再次选择以确认覆盖"));
     const int token = ++m_applyToken;
     QTimer::singleShot(4000, this, [this, token] {
         if (token == m_applyToken && m_applyArmed) {

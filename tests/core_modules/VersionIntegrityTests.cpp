@@ -134,7 +134,7 @@ void runVersionIntegrityTests() {
               "★ ZN3 字节数一样、内容不对 ⇒ WrongSha1（这一档只能是 sha1 判的：字节数那一关"
               "它已经过了）",
               verdict.detail());
-        check(verdict.detail() == QStringLiteral("校验不过（内容与 sha1 对不上）"),
+        check(verdict.detail() == QStringLiteral("SHA-1 校验失败"),
               "ZN3 那句话是给用户看的，钉住它", verdict.detail());
     }
 
@@ -268,7 +268,7 @@ void runVersionIntegrityTests() {
               report.summary());
 
         VersionIntegrity::Report failed;
-        failed.error = QStringLiteral("读不出这个实例的 version.json，没法知道它该有哪些文件。");
+        failed.error = QStringLiteral("无法读取实例的 version.json，无法列出所需文件。");
         check(failed.summary() == failed.error && !failed.ok() && failed.checked == 0,
               "★ ZN5 没跑起来那一档：summary() 原样回 error（和「跑了、发现一堆问题」分开）",
               failed.summary());
@@ -404,7 +404,7 @@ void runVersionIntegrityTests() {
 
         // 没跑起来那一档：只出两行。
         VersionIntegrity::Report failed;
-        failed.error = QStringLiteral("读不出这个实例的 version.json，没法知道它该有哪些文件。");
+        failed.error = QStringLiteral("无法读取实例的 version.json，无法列出所需文件。");
         const QString failedText = VersionIntegrity::plainReport(failed, QStringLiteral("X"));
         check(failedText == QStringLiteral("实例「X」完整性检查\n") + failed.error,
               "★ ZN7 没跑起来那一档：纯文本只有标题 + 那句 error", failedText);

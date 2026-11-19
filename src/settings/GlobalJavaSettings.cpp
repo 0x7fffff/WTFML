@@ -1087,10 +1087,10 @@ bool GlobalJavaSettings::installerJavaFor(int requiredMajor, const QString &conf
                    << configuredPath << "highest local:" << highest;
         if (reasonOut != nullptr) {
             *reasonOut =
-                QCoreApplication::translate("GlobalJavaSettings", "这个版本要 Java %1，而「设置」里选的那份是 Java %2，本机也没有更合适的（扫到的最高是 Java %3）。\n\n先装一个 Java %1，或者到「设置」里把路径指过去。")
+                QCoreApplication::translate("GlobalJavaSettings", "此版本需要 Java %1，当前使用 Java %2，检测到的最高版本为 Java %3。\n\n请安装 Java %1，或在设置中指定 Java 路径。")
                     .arg(requiredMajor)
                     .arg(configuredMajor > 0 ? QString::number(configuredMajor)
-                                             : QCoreApplication::translate("GlobalJavaSettings", "认不出来"))
+                                             : QCoreApplication::translate("GlobalJavaSettings", "版本未知"))
                     .arg(highest > 0 ? QString::number(highest) : QCoreApplication::translate("GlobalJavaSettings", "没有"));
         }
         return false;
@@ -1315,11 +1315,11 @@ bool GlobalJavaSettings::ensureJavaForVersion(EffectiveJavaSettings &io, int maj
     // 只会得到 UnsupportedClassVersionError，而且看不出是启动器换的。报错好过猜。
     if (!allowAutoSelect) {
         const QString reason =
-            QCoreApplication::translate("GlobalJavaSettings", "Java 选的是「手动指定」，而")
-            + (io.javaPath.isEmpty() ? QCoreApplication::translate("GlobalJavaSettings", "还没指定路径")
+            QCoreApplication::translate("GlobalJavaSettings", "当前设置为手动指定 Java，")
+            + (io.javaPath.isEmpty() ? QCoreApplication::translate("GlobalJavaSettings", "未指定路径")
                                      : io.javaPath + QCoreApplication::translate("GlobalJavaSettings", " 的主版本不是 ")
                                            + QString::number(majorVersion))
-            + QCoreApplication::translate("GlobalJavaSettings", " —— 不自动更换，直接失败。");
+            + QCoreApplication::translate("GlobalJavaSettings", "，未找到兼容版本时取消启动。");
         qWarning() << reason;
         return fail(reason);
     }

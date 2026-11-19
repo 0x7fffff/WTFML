@@ -243,7 +243,7 @@ Store load(const QString &path, QString *problemOut) {
     }
     if (!file.open(QIODevice::ReadOnly)) {
         if (problemOut != nullptr) {
-            *problemOut = QObject::tr("读不动「%1」：%2").arg(path, file.errorString());
+            *problemOut = QObject::tr("读取「%1」失败：%2").arg(path, file.errorString());
         }
         return Store{};
     }
@@ -266,7 +266,7 @@ bool save(const Store &store, const QString &path, QString *problemOut) {
     const QFileInfo info(path);
     if (!QDir().mkpath(info.absolutePath())) {
         if (problemOut != nullptr) {
-            *problemOut = QObject::tr("建不了目录「%1」。").arg(info.absolutePath());
+            *problemOut = QObject::tr("创建目录「%1」失败。").arg(info.absolutePath());
         }
         return false;
     }
@@ -282,7 +282,7 @@ bool save(const Store &store, const QString &path, QString *problemOut) {
     const QByteArray bytes = toJson(store);
     if (file.write(bytes) != bytes.size() || !file.commit()) {
         if (problemOut != nullptr) {
-            *problemOut = QObject::tr("「%1」没能写完：%2").arg(path, file.errorString());
+            *problemOut = QObject::tr("「%1」写入不完整：%2").arg(path, file.errorString());
         }
         return false;
     }

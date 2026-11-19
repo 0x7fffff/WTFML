@@ -163,7 +163,7 @@ bool ensureRoot(QString *problemOut) {
         return true;
     }
     if (problemOut != nullptr) {
-        *problemOut = QCoreApplication::translate("ServerRegistry", "建不了服务端目录：%1").arg(QDir::toNativeSeparators(root));
+        *problemOut = QCoreApplication::translate("ServerRegistry", "无法创建服务端目录：%1").arg(QDir::toNativeSeparators(root));
     }
     return false;
 }
@@ -299,7 +299,7 @@ ServerModel::Info readMeta(const QString &serverId, QString *problemOut) {
     if (!ok && problemOut != nullptr) {
         // "文件在、但读不懂"这件事**必须说出来**（别当成"这个服务端什么设置都没有"）——
         // 和 `UpdatePolicy::load()` 里那句同源。
-        *problemOut = QCoreApplication::translate("ServerRegistry", "这份服务端记录无法解析（%1），已按没有记录处理；重新安装一次或手动修正后即可恢复")
+        *problemOut = QCoreApplication::translate("ServerRegistry", "无法解析服务端记录（%1）。请重新安装，或修正记录文件后重试。")
                           .arg(ServerModel::formatTag());
     }
     return info;
@@ -313,7 +313,7 @@ bool writeMeta(const QString &serverId, const ServerModel::Info &info, QString *
     const QString dir = AppPaths::serverDir(serverId);
     if (!QDir().mkpath(dir)) {
         if (problemOut != nullptr) {
-            *problemOut = QCoreApplication::translate("ServerRegistry", "建不了服务端目录：%1")
+            *problemOut = QCoreApplication::translate("ServerRegistry", "无法创建服务端目录：%1")
                               .arg(QDir::toNativeSeparators(dir));
         }
         return false;
@@ -359,7 +359,7 @@ bool writeMeta(const QString &serverId, const ServerModel::Info &info, QString *
     const QByteArray bytes = QJsonDocument(merged).toJson(QJsonDocument::Indented);
     if (file.write(bytes) != bytes.size() || !file.commit()) {
         if (problemOut != nullptr) {
-            *problemOut = QCoreApplication::translate("ServerRegistry", "写 %1 没落盘：%2")
+            *problemOut = QCoreApplication::translate("ServerRegistry", "无法保存 %1：%2")
                               .arg(ServerModel::formatTag(), file.errorString());
         }
         return false;
@@ -376,7 +376,7 @@ bool setRestartOnCrash(const QString &serverId, bool on, QString *problemOut) {
     ServerModel::Info info = readMeta(serverId, &readProblem);
     if (!readProblem.isEmpty()) {
         if (problemOut != nullptr) {
-            *problemOut = QCoreApplication::translate("ServerRegistry", "%1。这一项没有改 —— 照这份空记录写回去会把它顶掉。")
+            *problemOut = QCoreApplication::translate("ServerRegistry", "%1。为保留原有记录，已取消写入。")
                               .arg(readProblem);
         }
         return false;
@@ -539,7 +539,7 @@ bool acceptEula(const QString &serverId, QString *problemOut) {
     const QString dir = AppPaths::serverDir(serverId);
     if (!QDir(dir).exists() && !QDir().mkpath(dir)) {
         if (problemOut != nullptr) {
-            *problemOut = QCoreApplication::translate("ServerRegistry", "建不了服务端目录：%1")
+            *problemOut = QCoreApplication::translate("ServerRegistry", "无法创建服务端目录：%1")
                               .arg(QDir::toNativeSeparators(dir));
         }
         return false;
@@ -559,7 +559,7 @@ bool acceptEula(const QString &serverId, QString *problemOut) {
     }
     if (!file.commit()) {
         if (problemOut != nullptr) {
-            *problemOut = QCoreApplication::translate("ServerRegistry", "eula.txt 没落盘：%1").arg(file.errorString());
+            *problemOut = QCoreApplication::translate("ServerRegistry", "无法保存 eula.txt：%1").arg(file.errorString());
         }
         return false;
     }
@@ -597,7 +597,7 @@ bool writeProperties(const QString &serverId, const ServerModel::Properties &pro
     const QString dir = AppPaths::serverDir(serverId);
     if (!QDir(dir).exists() && !QDir().mkpath(dir)) {
         if (problemOut != nullptr) {
-            *problemOut = QCoreApplication::translate("ServerRegistry", "建不了服务端目录：%1")
+            *problemOut = QCoreApplication::translate("ServerRegistry", "无法创建服务端目录：%1")
                               .arg(QDir::toNativeSeparators(dir));
         }
         return false;
@@ -620,7 +620,7 @@ bool writeProperties(const QString &serverId, const ServerModel::Properties &pro
     }
     if (!file.commit()) {
         if (problemOut != nullptr) {
-            *problemOut = QCoreApplication::translate("ServerRegistry", "server.properties 没落盘：%1").arg(file.errorString());
+            *problemOut = QCoreApplication::translate("ServerRegistry", "无法保存 server.properties：%1").arg(file.errorString());
         }
         return false;
     }

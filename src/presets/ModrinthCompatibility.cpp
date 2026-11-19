@@ -139,7 +139,7 @@ CompatibilityProvider::Cancel PlatformCompatibilityProvider::queryCancelable(
     } else if (platform == QLatin1String("curseforge")) {
         queryCurseForge(reference, context, reply, 0, state);
     } else {
-        reply(CompatibilityState::Invalid, QCoreApplication::translate("ModrinthCompatibility", "平台认不出来。"));
+        reply(CompatibilityState::Invalid, QCoreApplication::translate("ModrinthCompatibility", "无法识别资源平台。"));
     }
     return [state] {
         state->cancelled = true;
@@ -244,7 +244,7 @@ void PlatformCompatibilityProvider::queryModrinth(const ModReference &reference,
             const QJsonDocument document = QJsonDocument::fromJson(networkReply->readAll(), &error);
             if (error.error != QJsonParseError::NoError || !document.isArray()) {
                 reply(CompatibilityState::Unknown,
-                      QCoreApplication::translate("ModrinthCompatibility", "接口返回的内容看不懂，暂时无法确认。"));
+                      QCoreApplication::translate("ModrinthCompatibility", "平台返回格式异常，暂时无法确认兼容性。"));
                 return;
             }
             const QJsonArray versions = document.array();
@@ -357,7 +357,7 @@ void PlatformCompatibilityProvider::queryCurseForge(const ModReference &referenc
             const QJsonDocument document = QJsonDocument::fromJson(networkReply->readAll(), &error);
             if (error.error != QJsonParseError::NoError || !document.isObject()) {
                 reply(CompatibilityState::Unknown,
-                      QCoreApplication::translate("ModrinthCompatibility", "接口返回的内容看不懂，暂时无法确认。"));
+                      QCoreApplication::translate("ModrinthCompatibility", "平台返回格式异常，暂时无法确认兼容性。"));
                 return;
             }
             if (!document.object().value(QStringLiteral("data")).isArray()) {

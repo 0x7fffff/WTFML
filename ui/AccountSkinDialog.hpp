@@ -173,7 +173,7 @@ public:
         return tr("选一张 PNG（64×64 或 64×32）作为这个离线账号在启动器里的外观。只影响启动器预览，游戏内皮肤由游戏自己决定。");
     }
     static QString offlineSkinResetButtonToolTip() {
-        return tr("撤掉自己挑的那张，回到按这个账号算出来的 / 随机挑的那一张。");
+        return tr("移除手动设置的皮肤，恢复此账号的默认或随机皮肤。");
     }
     static QString applyCapeButtonText() { return tr("显示所选披风"); }
     static QString hideCapeButtonText() { return tr("不显示披风"); }

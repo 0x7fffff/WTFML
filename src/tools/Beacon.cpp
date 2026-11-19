@@ -116,7 +116,7 @@ int unitsForBlocks(int index, int blocks) {
 
 QString materialText(int index, int blocks) {
     if (!isValidMaterial(index)) {
-        return QCoreApplication::translate("Beacon", "认不出这种底座方块（%1）。").arg(index);
+        return QCoreApplication::translate("Beacon", "无效的信标底座方块（%1）。").arg(index);
     }
     if (blocks <= 0) return QString();
     return QCoreApplication::translate("Beacon", "%1 块%2 = %3 个%4（每块 %5 个）")
@@ -246,7 +246,7 @@ QString sharedBaseText(int level, int beaconCount) {
     }
     const Layout layout = compactLayout(level, beaconCount);
     const int separate = beaconCount * totalBlocks(level);
-    QString text = QCoreApplication::translate("Beacon", "%1 颗信标挨着摆（%2 × %3 的一团）能共用底座：%4 级只要 %5 块，各盖一座则要 %6 块 —— 共用的是重叠的那些方块，不是「一颗信标一座金字塔」。")
+    QString text = QCoreApplication::translate("Beacon", "%1 个信标按 %2 × %3 相邻排列时，可共用底座。%4 级底座共需 %5 块方块，分别建造则需 %6 块。")
                        .arg(beaconCount)
                        .arg(layout.width)
                        .arg(layout.depth)
@@ -299,13 +299,13 @@ QString detailText(int fromLevel, int level) {
                  .arg(2 * level + 1)
                  .arg(layerBlocks(level));
     if (fromLevel > 0 && fromLevel < level) {
-        lines << QCoreApplication::translate("Beacon", "• 你现在是 %1 级：再补 %2 块")
+        lines << QCoreApplication::translate("Beacon", "• 当前为 %1 级，还需 %2 块方块")
                      .arg(fromLevel)
                      .arg(blocksToAdd(fromLevel, level));
     } else if (fromLevel == level) {
-        lines << QCoreApplication::translate("Beacon", "• 你现在是 %1 级：不需要再加方块").arg(level);
+        lines << QCoreApplication::translate("Beacon", "• 当前为 %1 级，无需添加方块").arg(level);
     } else if (fromLevel > level) {
-        lines << QCoreApplication::translate("Beacon", "• 你现在是 %1 级，高于目标；降级要自己拆").arg(fromLevel);
+        lines << QCoreApplication::translate("Beacon", "• 当前为 %1 级，高于目标级别；降低级别需要拆除方块").arg(fromLevel);
     }
     lines << QCoreApplication::translate("Beacon", "• 效果：%1").arg(effectsForLevel(level).join(QCoreApplication::translate("Beacon", "、")));
     if (level < maxLevel()) {

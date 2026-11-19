@@ -440,7 +440,7 @@ void MainWindow::rebuildInstanceTree() {
     const QString root = AppPaths::minecraftDir();
     QString folderText = tr("当前文件夹：%1").arg(QDir::toNativeSeparators(root));
     if (!QDir(root).exists()) {
-        folderText += tr("（这个目录不在盘上了）");
+        folderText += tr("（目录已丢失）");
     } else {
         folderText += filtering
                           ? tr("（%1 个实例，筛出 %2 个）").arg(parts.size()).arg(shown.size())

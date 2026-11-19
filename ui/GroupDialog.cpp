@@ -146,7 +146,7 @@ GroupDialog::GroupDialog(const QList<Group> &groups, const QHash<QString, int> &
         m_pinnedCheck->setObjectName(pinnedCheckName());
         m_pinnedCheck->setAccessibleName(pinnedCheckText());
         m_pinnedCheck->setToolTip(
-            tr("只能有一个收藏组 —— 打开这一颗，别的组就不再作为收藏来源。"));
+            tr("只能设置一个收藏组。启用此组会取消其他组的收藏状态。"));
         Theme::markSwitch(m_pinnedCheck);
         layout->addWidget(MainWindowPageLayout::makeSettingRow(
             detail, MainWindowPageLayout::makeSettingRowTitle(pinnedCheckText(), detail), pinnedHintText(),

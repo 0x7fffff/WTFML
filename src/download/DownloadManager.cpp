@@ -1512,7 +1512,7 @@ void DownloadManager::downloadAssets(const AssetIndex &assetIndex) {
         ++m_doneJobs;
         ++m_failedJobs;
         emit downloadFinished(assetIndex.id, false,
-                              tr("这份 version.json 里的资源索引号不能当文件名用，没有下载资源。"));
+                              tr("version.json 中的资源索引名称无效，已跳过资源下载。"));
         emitBatchProgress(assetIndex.id);
         checkAllDownloadsFinished();
         return;
@@ -2041,7 +2041,7 @@ void DownloadManager::onVersionJsonReplyFinished() {
             const QString actual = QString::fromLatin1(
                 QCryptographicHash::hash(bytes, QCryptographicHash::Sha1).toHex());
             if (actual != job.expectedSha1) {
-                problem = QCoreApplication::translate("DownloadManager", "sha1 对不上（期望 %1，实际 %2）")
+                problem = QCoreApplication::translate("DownloadManager", "SHA-1 校验失败（预期 %1，实际 %2）")
                               .arg(job.expectedSha1, actual);
             }
         }

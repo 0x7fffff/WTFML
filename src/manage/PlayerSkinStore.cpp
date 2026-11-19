@@ -105,7 +105,7 @@ PlayerSkinProfile PlayerSkinStore::parseProfileJson(const QByteArray &body, QStr
         }
     }
     if (encoded.isEmpty()) {
-        return fail(QCoreApplication::translate("PlayerSkinStore", "档案里没有 textures 那一条（没设过皮肤的账号？官方换协议了？）"));
+        return fail(QCoreApplication::translate("PlayerSkinStore", "玩家档案缺少 textures 字段，未获取皮肤。"));
     }
 
     // 里面那层 base64 解出来才是真档案。
@@ -115,7 +115,7 @@ PlayerSkinProfile PlayerSkinStore::parseProfileJson(const QByteArray &body, QStr
     const auto decoded = QByteArray::fromBase64Encoding(
         encoded.toLatin1(), QByteArray::Base64Encoding | QByteArray::AbortOnBase64DecodingErrors);
     if (!decoded) {
-        return fail(QCoreApplication::translate("PlayerSkinStore", "textures 那一段不是合法的 base64"));
+        return fail(QCoreApplication::translate("PlayerSkinStore", "textures 字段不是有效的 Base64 数据"));
     }
 
     const QJsonDocument inner = QJsonDocument::fromJson(decoded.decoded, &parseError);
@@ -315,7 +315,7 @@ bool PlayerSkinStore::saveProfile(const QString &uuid, const PlayerSkinProfile &
 
     const QString path = cachedProfilePath(uuid);
     if (path.isEmpty()) {
-        return fail(QCoreApplication::translate("PlayerSkinStore", "uuid 认不出来，不存档案"));
+        return fail(QCoreApplication::translate("PlayerSkinStore", "无法识别玩家 UUID，未缓存玩家档案"));
     }
     if (profile.isEmpty()) {
         return fail(QCoreApplication::translate("PlayerSkinStore", "档案里没有皮肤，不存"));

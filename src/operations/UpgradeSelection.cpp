@@ -115,11 +115,11 @@ QStringList warnings(const Plan &plan) {
     QStringList out;
     const State &state = plan.state;
     if (state.contains(QStringLiteral("config")) && !state.contains(QStringLiteral("mods"))) {
-        out.append(QCoreApplication::translate("UpgradeSelection", "没有勾选 Mod 文件，却要搬 Mod 配置 —— 这些配置在新实例里可能对不上任何模组。"));
+        out.append(QCoreApplication::translate("UpgradeSelection", "已选中模组配置，未选中模组文件。部分配置可能在新实例中无效。"));
     }
     if (state.contains(QStringLiteral("options"))
         && !state.contains(QStringLiteral("resourcepacks"))) {
-        out.append(QCoreApplication::translate("UpgradeSelection", "搬了游戏设置却没搬资源包 —— 设置里的资源包启用列表可能指向新实例里不存在的包。"));
+        out.append(QCoreApplication::translate("UpgradeSelection", "已选中游戏设置，未选中资源包。新实例的设置可能引用缺失的资源包。"));
     }
     if (state.contains(QStringLiteral("shaderpacks"))) {
         out.append(QCoreApplication::translate("UpgradeSelection", "光影包只在装了对应渲染器时才会生效；新实例不会替你装渲染器。"));

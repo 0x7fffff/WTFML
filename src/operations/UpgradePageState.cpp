@@ -100,7 +100,7 @@ Blocker firstBlocker(const State &state) {
 QString blockerText(Blocker blocker) {
     switch (blocker) {
     case Blocker::TargetIncomplete:
-        return QCoreApplication::translate("UpgradePageState", "先把目标版本和加载器选全。");
+        return QCoreApplication::translate("UpgradePageState", "请选择目标游戏版本和加载器。");
     case Blocker::InstanceBusy:
         return QCoreApplication::translate("UpgradePageState", "这个实例正在运行或被别的操作占用，等它停下来再升级。");
     case Blocker::NameEmpty:
@@ -110,7 +110,7 @@ QString blockerText(Blocker blocker) {
     case Blocker::NoSelection:
         return QCoreApplication::translate("UpgradePageState", "至少选一类要迁移的内容。");
     case Blocker::ConfigWithoutMods:
-        return QCoreApplication::translate("UpgradePageState", "勾了 Mod 配置却没勾 Mod 文件 —— 配置归属不能按文件名猜：要么把 Mod 一起搬，要么别搬配置。");
+        return QCoreApplication::translate("UpgradePageState", "已选中模组配置，未选中模组文件。请同时迁移模组，或取消迁移相关配置。");
     case Blocker::ReportMissing:
         return QCoreApplication::translate("UpgradePageState", "先做一次兼容性检查，再确认迁移。");
     case Blocker::ReportStale:

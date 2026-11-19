@@ -287,7 +287,7 @@ void ServerConsolePage::rebuildView() {
 
     // 空的时候说清**为什么**空（三句话和三件事对应，和游戏日志窗那边同一套）。
     if (m_model.lines().isEmpty()) {
-        m_logView->setPlaceholderText(QCoreApplication::translate("ServerConsolePage", "还没有输出（服务端尚未产生日志）"));
+        m_logView->setPlaceholderText(QCoreApplication::translate("ServerConsolePage", "等待服务端输出日志…"));
     } else if (m_model.matchingLineCount() == 0) {
         m_logView->setPlaceholderText(
             m_model.searchText().isEmpty()

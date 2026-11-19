@@ -1166,7 +1166,7 @@ QString GameLogWindow::windowTitleText(const QString &instanceName) {
 }
 
 QString GameLogWindow::hintText() {
-    return QCoreApplication::translate("GameLogWindow", "这里是这一份游戏自己的输出，和日志文件里的是同一份。" "关掉这个窗口不会停游戏。");
+    return QCoreApplication::translate("GameLogWindow", "此窗口显示本次运行的游戏日志。关闭窗口后，游戏会继续运行。");
 }
 
 QString GameLogWindow::droppedHintText(int dropped, int capacity) {
@@ -1196,10 +1196,10 @@ QString GameLogWindow::exportReportButtonTooltip() {
     return QCoreApplication::translate("GameLogWindow", "存一份可以直接发给别人的报告：启动器版本、系统、这个实例、退出码，" "加上错误那几行和完整日志。");
 }
 
-QString GameLogWindow::emptyPlaceholderText() { return QCoreApplication::translate("GameLogWindow", "还没有输出…"); }
+QString GameLogWindow::emptyPlaceholderText() { return QCoreApplication::translate("GameLogWindow", "等待游戏输出…"); }
 
 QString GameLogWindow::filteredOutPlaceholderText() {
-    return QCoreApplication::translate("GameLogWindow", "当前筛选下没有日志，勾选上方对应的级别即可显示。");
+    return QCoreApplication::translate("GameLogWindow", "当前筛选无日志。勾选要查看的日志级别。");
 }
 
 QString GameLogWindow::searchPlaceholderText() {

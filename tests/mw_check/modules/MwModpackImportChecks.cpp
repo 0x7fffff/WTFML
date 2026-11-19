@@ -82,7 +82,7 @@ int MwModpackImportChecks(const QDir &versionsDir, MainWindow &window, GlobalJav
         dismissNextPrompt();
         check(!tryImport(QByteArrayLiteral(R"({"hello":"world"})"), QStringLiteral("新实例")),
               "AA2 合法 json 但不是清单 → 拒绝");
-        check(g_modalText.contains(QStringLiteral("不是整合包清单")),
+        check(g_modalText.contains(QStringLiteral("无法作为整合包清单读取")),
               "AA2 弹窗指出它缺了什么", g_modalText);
 
         // ---- AA3 是清单，但 files 一条都没有 ----
@@ -91,7 +91,7 @@ int MwModpackImportChecks(const QDir &versionsDir, MainWindow &window, GlobalJav
                                            R"("dependencies":{"minecraft":"1.20.1"},"files":[]})"),
                          QStringLiteral("新实例")),
               "AA3 空清单 → 拒绝");
-        check(g_modalText.contains(QStringLiteral("文件清单是空的")),
+        check(g_modalText.contains(QStringLiteral("整合包清单未列出待下载文件")),
               "AA3 弹窗说的是「一条文件都没有」", g_modalText);
 
         // 下面三条要走到"加载器 / 名字"那几步，得有一份**读得出来**的清单。
@@ -358,7 +358,7 @@ int MwModpackImportChecks(const QDir &versionsDir, MainWindow &window, GlobalJav
                                                "{\"version\":\"1.20.1\"},\"files\":[]}"),
                              QStringLiteral("新实例"), ModpackImport::Format::CurseForge),
                   "AA9 文件清单是空的 → 拒");
-            check(g_modalText.contains(QStringLiteral("文件清单是空的")),
+            check(g_modalText.contains(QStringLiteral("整合包清单未列出待下载文件")),
                   "AA9 说清了是清单空的", g_modalText);
 
             // ③ 加载器那一关认得 CF 那个写法：`quilt-0.20.0` 翻译成 `quilt-loader`。

@@ -99,7 +99,7 @@ TomlRequirements tomlRequirements(const QByteArray &bytes, const QString &loader
             continue;
         }
         if (!value.startsWith('[') && !value.startsWith('(')) {
-            result.problem = QObject::tr("%1 的版本范围语法不认识：%2").arg(key, value);
+            result.problem = QObject::tr("%1 的版本范围语法无效：%2").arg(key, value);
             continue;
         }
         if (ranges.contains(key) && ranges.value(key) != value) {
@@ -314,7 +314,7 @@ QStringList constantPoolStrings(const QByteArray &bytes, QString *problem) {
         case 9: case 10: case 11: case 12: case 17: case 18: pos += 4; break;
         case 15: pos += 3; break;
         default:
-            if (problem) *problem = QObject::tr("class 常量池 tag %1 不认识").arg(tag);
+            if (problem) *problem = QObject::tr("无法识别 Java 类文件常量池的标签 %1").arg(tag);
             return strings;
         }
         if (pos > bytes.size()) {
@@ -348,7 +348,7 @@ QString annotationAcceptedVersions(const QStringList &strings, bool *found, QStr
         const QString value = strings.at(index);
         if (range.match(value).hasMatch()) return value;
     }
-    if (problem) *problem = QObject::tr("旧 Forge @Mod 的 acceptedMinecraftVersions 读不出来");
+    if (problem) *problem = QObject::tr("无法读取旧版 Forge @Mod 的 acceptedMinecraftVersions");
     return QString();
 }
 
@@ -531,7 +531,7 @@ Scan scan(const QString &root, const QString &sourceId, const QString &cache, co
                     QObject::tr("读取旧 Forge 注解"), 4 * 1024 * 1024);
                 if (read != ZipUtil::EntryStatus::Ok) {
                     annotationProblem = readProblem.isEmpty()
-                        ? QObject::tr("旧 Forge 注解 class 读不出来") : readProblem;
+                        ? QObject::tr("无法读取旧版 Forge 的注解类文件") : readProblem;
                     continue;
                 }
                 QString parseProblem;
@@ -587,7 +587,7 @@ Scan scan(const QString &root, const QString &sourceId, const QString &cache, co
                     NestedCheck check;
                     check.name = entry;
                     check.problem = readProblem.isEmpty()
-                        ? QObject::tr("嵌套 JAR 读不出来") : readProblem;
+                        ? QObject::tr("无法读取嵌套 JAR") : readProblem;
                     mod.nestedChecks.append(check);
                     continue;
                 }

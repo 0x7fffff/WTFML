@@ -151,7 +151,7 @@ QString validatePathSegment(const QString &segment) {
     }
 
     if (segment == QLatin1String(".") || segment == QLatin1String("..")) {
-        return QCoreApplication::translate("InstanceFiles", "“.” 和 “..” 是目录自己的名字，不能拿来用。");
+        return QCoreApplication::translate("InstanceFiles", "「.」和「..」是保留名称，请使用其他目录名。");
     }
 
     // Windows 会**静默**删掉结尾的空格和点：输入 `abc ` 建出来就是 `abc`。静默是关键 ——
@@ -163,14 +163,14 @@ QString validatePathSegment(const QString &segment) {
     // 中间不经过任何 trim，于是 `mods/x.jar ` 这一条能过判据、Windows 建出来却是
     // `mods/x.jar` —— 名字和清单里写的对不上。两种字符被吃掉的后果一模一样，判据也就该一样。
     if (segment.endsWith(QLatin1Char('.')) || segment.endsWith(QLatin1Char(' '))) {
-        return QCoreApplication::translate("InstanceFiles", "名字不能以点或空格结尾（Windows 会把它悄悄去掉）。");
+        return QCoreApplication::translate("InstanceFiles", "名称不能以句点或空格结尾。");
     }
 
     // 主名 = 第一个点之前的那一段。用 section 而不是 QFileInfo::baseName()：
     // 后者对 `CON.txt` 给 `CON`、对没有点的 `CON` 也给 `CON`，两者都对这里合适，
     // 但它还会做别的规整（比如把 `..x` 当成扩展名），没必要。
     if (isReservedDeviceName(segment.section(QLatin1Char('.'), 0, 0))) {
-        return QCoreApplication::translate("InstanceFiles", "“%1”是 Windows 的保留设备名（CON/PRN/AUX/NUL/COM1-9/LPT1-9），建不出目录来。")
+        return QCoreApplication::translate("InstanceFiles", "「%1」是 Windows 保留设备名，无法创建目录。")
             .arg(segment);
     }
 
@@ -183,7 +183,7 @@ QString validateFileName(const QString &name) {
         return problem;
     }
     if (name.length() > kMaxFileNameLength) {
-        return QCoreApplication::translate("InstanceFiles", "文件名太长了，最多 %1 个字符（现在 %2 个）。")
+        return QCoreApplication::translate("InstanceFiles", "文件名长度为 %2 个字符，上限为 %1 个字符。")
             .arg(kMaxFileNameLength)
             .arg(name.length());
     }
@@ -201,7 +201,7 @@ QString validateDirName(const QString &rawName) {
     }
 
     if (name.length() > kMaxDirNameLength) {
-        return QCoreApplication::translate("InstanceFiles", "名字太长了，最多 %1 个字符（现在 %2 个）。")
+        return QCoreApplication::translate("InstanceFiles", "名称长度为 %2 个字符，上限为 %1 个字符。")
             .arg(kMaxDirNameLength)
             .arg(name.length());
     }
@@ -306,7 +306,7 @@ ImportNameVerdict checkImportTargetName(const QString &rawName, QString *problem
         if (!recorded.isEmpty() && !manifestFingerprint.isEmpty()
             && recorded.compare(manifestFingerprint, Qt::CaseInsensitive) != 0) {
             if (problemOut != nullptr) {
-                *problemOut = QCoreApplication::translate("InstanceFiles", "「%1」里是上一次没导完的另一个整合包（那一份的清单和这一份对不上）。\n\n换一个名字导入不会碰它，已经下好的那些还留在原处。要接着导上一次那一份，请取消这一步，重新选中上一次那个整合包文件。")
+                *problemOut = QCoreApplication::translate("InstanceFiles", "「%1」中有另一个整合包的未完成导入记录。\n\n使用其他实例名称可保留原有进度。若要继续上次的导入，请重新选择上次的整合包。")
                     .arg(name);
             }
             return ImportNameVerdict::Taken;
@@ -812,12 +812,12 @@ QStringList migrateInstanceCacheDirs(const QString &oldId, const QString &newId,
         }
         // 目标格子已经有东西：不合并（见头文件那条 —— 两边的"第 N 代"没法排先后）。
         if (QFileInfo::exists(to)) {
-            problems.append(QCoreApplication::translate("InstanceFiles", "缓存备份没有搬：%1 里已经有另一个格子叫「%2」，旧的那一份留在原处。")
+            problems.append(QCoreApplication::translate("InstanceFiles", "%1 中已存在名为「%2」的备份，旧备份保留在原位置。")
                                 .arg(QDir::toNativeSeparators(root), newId));
             continue;
         }
         if (!QDir().rename(from, to)) {
-            problems.append(QCoreApplication::translate("InstanceFiles", "缓存备份没有搬：%1 改不成 %2（可能有别的程序正开着它）。")
+            problems.append(QCoreApplication::translate("InstanceFiles", "无法将缓存备份从 %1 移至 %2。请检查文件是否被占用。")
                                 .arg(QDir::toNativeSeparators(from),
                                      QDir::toNativeSeparators(to)));
             continue;

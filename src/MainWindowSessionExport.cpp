@@ -185,7 +185,7 @@ void MainWindow::exportGameLog(int sessionId) {
         // 错误要弹窗（这一条是产品的硬约束）—— 弹的是启动器那一层，日志窗这时还在旁边
         // 摆着，用户回头看得到。
         InlineMessage::warning(m_ui->overlay(), tr("导出失败"),
-                               tr("这个文件没能写出来（%1）：\n%2")
+                               tr("文件写入失败（%1）：\n%2")
                                    .arg(QDir::toNativeSeparators(path), writeError));
         return;
     }
@@ -250,7 +250,7 @@ void MainWindow::exportGameErrorReport(int sessionId) {
     if (!writeError.isEmpty()) {
         appendLog(tr("导出错误报告失败：%1").arg(writeError));
         InlineMessage::warning(m_ui->overlay(), tr("导出失败"),
-                               tr("这个文件没能写出来（%1）：\n%2")
+                               tr("文件写入失败（%1）：\n%2")
                                    .arg(QDir::toNativeSeparators(path), writeError));
         return;
     }
@@ -272,7 +272,7 @@ void MainWindow::exportLaunchScript(const QString &versionId, const QString &pat
     if (versionJson.isEmpty()) {
         appendLog(tr("导出启动脚本失败：找不到版本 %1 的 version.json").arg(versionId));
         InlineMessage::warning(m_ui->overlay(), tr("导出失败"),
-                               tr("找不到版本 %1 的 version.json，导出来的脚本跑不起来。")
+                               tr("找不到版本 %1 的 version.json，导出的启动脚本无法运行。")
                                    .arg(versionId));
         return;
     }
@@ -285,7 +285,7 @@ void MainWindow::exportLaunchScript(const QString &versionId, const QString &pat
         QString tokenError;
         // 这一段是同步的（要换令牌时它要在 UI 线程上发请求，单次超时 15 秒）—— 和启动一样
         // 先给一句话再进去。
-        enterSyncWait(tr("正在校验登录状态..."));
+        enterSyncWait(tr("正在检查登录状态…"));
         token = m_authManager->loadSavedToken(&tokenError);
         leaveSyncWait();
         if (token.isEmpty()) {
@@ -347,7 +347,7 @@ void MainWindow::exportLaunchScript(const QString &versionId, const QString &pat
         }
         appendLog(tr("导出启动脚本失败：%1").arg(writeError));
         InlineMessage::warning(m_ui->overlay(), tr("导出失败"),
-                               tr("这个文件没能写出来（%1）：\n%2")
+                               tr("文件写入失败（%1）：\n%2")
                                    .arg(QDir::toNativeSeparators(path), writeError));
         return;
     }
@@ -358,9 +358,9 @@ void MainWindow::exportLaunchScript(const QString &versionId, const QString &pat
     notes.append(offlineMode ? tr("这一份用的是离线身份（游戏里就是这个名字）。")
                              : tr("脚本不保存登录令牌。正版建议从启动器启动；高级用法需在运行环境中提供 WTFML_MC_ACCESS_TOKEN。"));
     if (javaSettings.javaPath.isEmpty()) {
-        notes.append(tr("脚本里写的是 PATH 上的 java（这个实例还没挑过 Java）。"));
+        notes.append(tr("此实例未指定 Java。脚本将使用 PATH 中的 java 命令。"));
     }
-    notes.append(tr("参数和启动器这次启动用的那一份是同一份；要改就改完再导一遍。"));
+    notes.append(tr("导出的是本次启动使用的参数。修改后可重新导出。"));
     InlineMessage::information(
         m_ui->overlay(), tr("导出完成"),
         tr("已经写到：\n%1\n\n%2").arg(shown, notes.join(QStringLiteral("\n"))));
@@ -386,9 +386,7 @@ void MainWindow::exportModpack(const QString &versionId, const QString &targetPa
     if (customLaunch) {
         instanceExport = InlineMessage::question(
             m_ui->overlay(), tr("这个实例带自定义启动配置"),
-            tr("它改过主类或 JVM 参数（lwjgl3ify 一类）：写成 CurseForge 清单会把这段丢掉，"
-               "别人装回去起不来。\n\n按「普通实例」导出（Prism / MultiMC 能直接拖进去），"
-               "还是仍然按 CurseForge 清单导出（会丢启动配置）？"),
+            tr("此实例修改了主类或 JVM 参数。使用 CurseForge 格式会丢失启动配置，导入后可能无法运行。\n\n可导出为 Prism / MultiMC 可导入的普通实例，或继续导出 CurseForge 清单。"),
             tr("普通实例（Prism）"), tr("仍然导出 CurseForge 清单"), true);
     }
     if (!instanceExport) {

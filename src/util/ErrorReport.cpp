@@ -121,7 +121,7 @@ QString text(const Facts &facts, const QDateTime &now, const QString &errors, co
     // 而不是几百行日志。一句都没有时这一节整个不写 —— "暂时无法判断"那种话写上去，
     // 看的人会以为我们判过一轮然后放弃了。
     if (!facts.hints.isEmpty()) {
-        out += sectionDivider(QCoreApplication::translate("ErrorReport", "可能的原因（按规则判的，不是猜的）"));
+        out += sectionDivider(QCoreApplication::translate("ErrorReport", "可能原因"));
         out += QLatin1Char('\n');
         for (const QString &hint : facts.hints) {
             out += QStringLiteral("• ") + hint + QLatin1Char('\n');

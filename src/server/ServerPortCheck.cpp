@@ -17,7 +17,7 @@ State stateOf(int port, QString *problemOut) {
     }
     if (port < 1 || port > 65535) {
         if (problemOut != nullptr) {
-            *problemOut = QObject::tr("端口 %1 不在 1 ~ 65535 里，没法查。").arg(port);
+            *problemOut = QObject::tr("端口 %1 超出有效范围（1–65535）。").arg(port);
         }
         return State::Unknown;
     }
@@ -40,7 +40,7 @@ State stateOf(int port, QString *problemOut) {
     }
     if (problemOut != nullptr) {
         *problemOut = probe.errorString().isEmpty()
-                          ? QObject::tr("没能在这个端口上试听一次。")
+                          ? QObject::tr("无法在指定端口启动测试监听。")
                           : probe.errorString();
     }
     return State::Unknown;

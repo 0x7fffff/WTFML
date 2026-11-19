@@ -343,7 +343,7 @@ TaskCenter::Item ActivityCenterController::item(const Tasks::TaskSnapshot &task,
     result.cancelBlockedReason = task.capabilities.cancelBlockedReason;
     if (Tasks::isActiveState(task.state) && !result.capabilities.cancel
         && result.cancelBlockedReason.isEmpty() && task.capabilities.canCancel) {
-        result.cancelBlockedReason = tr("当前这一步停不得（停下来会留下半成品），等它走完这一段再取消。");
+        result.cancelBlockedReason = tr("当前步骤无法安全中止。请在此步骤完成后取消。");
     }
 
     result.steps.reserve(task.steps.size());
@@ -410,7 +410,7 @@ Tasks::TaskCapabilities ActivityCenterController::defaultCapabilities(Tasks::Tas
         break;
     case Tasks::TaskKind::Export:
         caps.cancelBlockedReason =
-            tr("导出会把整理好的文件打成一个压缩包，中途停止会留下不完整的包；这一项不支持取消。");
+            tr("导出正在生成压缩包。为避免留下不完整的文件，压缩阶段无法取消。");
         break;
     case Tasks::TaskKind::Backup:
         caps.cancelBlockedReason = tr("这一项正在发布结果，发布过程中不能取消。");

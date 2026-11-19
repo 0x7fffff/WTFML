@@ -290,7 +290,7 @@ void InstanceTransferController::copyInstanceInBackground(
                                         .arg(name);
                 } else if (!QFileInfo::exists(destDir + QLatin1Char('/')
                                               + AppPaths::versionMetaFileName())) {
-                    verifyProblem = tr("副本里没有 %1 —— 启动器认不出它是谁。")
+                    verifyProblem = tr("副本缺少 %1，无法识别实例。")
                                         .arg(AppPaths::versionMetaFileName());
                 }
                 if (!verifyProblem.isEmpty()) {
@@ -340,7 +340,7 @@ bool InstanceTransferController::importWorld(const QString &instanceId,
     const QString savesDir = m_host.instanceDirForKey
         ? m_host.instanceDirForKey(instanceId, QStringLiteral("save")) : QString();
     if (savesDir.isEmpty()) {
-        InlineMessage::critical(m_overlay, tr("导入世界失败"), tr("认不出这个实例的存档目录。"));
+        InlineMessage::critical(m_overlay, tr("导入世界失败"), tr("无法识别实例的存档目录。"));
         return false;
     }
     QString error;
@@ -368,7 +368,7 @@ void InstanceTransferController::importWorldInBackground(
     const QString savesDir = m_host.instanceDirForKey
         ? m_host.instanceDirForKey(instanceId, QStringLiteral("save")) : QString();
     if (savesDir.isEmpty()) {
-        reject(tr("认不出这个实例的存档目录。"));
+        reject(tr("无法识别实例的存档目录。"));
         return;
     }
     // 同名冲突（2.1.2）：默认「取消」，另一个选项是「跳过已有项」。
@@ -377,7 +377,7 @@ void InstanceTransferController::importWorldInBackground(
     if (QFileInfo::exists(savesDir + QLatin1Char('/') + name.trimmed())) {
         const int choice = InlineMessage::ask(
             m_overlay, MessageKind::Question, tr("已经有一个同名的世界"),
-            tr("这个实例里已经有一个叫「%1」的世界了。\n\n「跳过已有项」不会动那一份，也不会再拷一遍。")
+            tr("此实例中已存在世界「%1」。\n\n选择「跳过已有项」会保留原存档。")
                 .arg(name.trimmed()),
             {tr("取消"), tr("跳过已有项")}, 0, -1, false);
         if (choice != 1) {
@@ -565,7 +565,7 @@ void InstanceTransferController::deleteWorldInBackground(
         InlineMessage::warning(m_overlay, tr("删除失败"), problem);
     };
     if (worldDir.isEmpty()) {
-        reject(tr("认不出要删除哪个世界。"));
+        reject(tr("未找到要删除的世界存档。"));
         return;
     }
     QString lockProblem;
@@ -623,7 +623,7 @@ void InstanceTransferController::deleteWorldInBackground(
                     ? QString()
                     // 原因为什么由 `moveToRecycleBin()` 给全（权限 / 被占着 / 回收站本身）；
                     // 这里不替它补「先把游戏关掉再试」—— 权限不够时那句话是错的。
-                    : tr("没能把「%1」移进回收站。\n\n%2")
+                    : tr("移入回收站失败：「%1」。\n\n%2")
                           .arg(QDir::toNativeSeparators(worldDir), result.error);
             if (m_host.setTaskStepState) m_host.setTaskStepState(task, 0,
                 result.ok ? Tasks::TaskStepState::Done : Tasks::TaskStepState::Failed);
@@ -658,7 +658,7 @@ bool InstanceTransferController::cancelTask(Tasks::TaskId id) {
     (*it)->cancelledByUser.store(true, std::memory_order_relaxed);
     (*it)->abort.store(true, std::memory_order_release);
     // 说清"取消之后会怎样"：导入是没拷完的不发布，升级 / 回滚是原实例不变。
-    log(tr("已请求取消后台任务；正在进行的那一份会停在最近的安全点，没做完的暂存不会发布。"));
+    log(tr("已请求取消。当前项目将在安全时停止，未完成的数据不会写入目标。"));
     return true;
 }
 

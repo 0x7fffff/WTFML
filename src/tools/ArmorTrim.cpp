@@ -209,34 +209,34 @@ Plan plan(int armorMaterial, int part, int patternIndex, int trimMaterial, int p
           bool wholeSet) {
     Plan result;
     if (!validArmorMaterial(armorMaterial)) {
-        result.error = QCoreApplication::translate("ArmorTrim", "盔甲材质认不出来（下标 %1）。").arg(armorMaterial);
+        result.error = QCoreApplication::translate("ArmorTrim", "盔甲材质编号无效（%1）。").arg(armorMaterial);
         return result;
     }
     if (!validPattern(patternIndex)) {
-        result.error = QCoreApplication::translate("ArmorTrim", "纹饰图案认不出来（下标 %1）。").arg(patternIndex);
+        result.error = QCoreApplication::translate("ArmorTrim", "纹饰图案编号无效（%1）。").arg(patternIndex);
         return result;
     }
     if (!validTrimMaterial(trimMaterial)) {
-        result.error = QCoreApplication::translate("ArmorTrim", "纹饰材料认不出来（下标 %1）。").arg(trimMaterial);
+        result.error = QCoreApplication::translate("ArmorTrim", "纹饰材料编号无效（%1）。").arg(trimMaterial);
         return result;
     }
     if (wholeSet) {
         // 整套 = 四个部位各一件；海龟壳只有头盔，做不了整套。
         if (armorMaterial == kTurtleShell) {
-            result.error = QCoreApplication::translate("ArmorTrim", "海龟壳只有头盔那一件 —— 没有整套。");
+            result.error = QCoreApplication::translate("ArmorTrim", "海龟壳只能用作头部装备。");
             return result;
         }
     } else {
         if (!validPart(part)) {
-            result.error = QCoreApplication::translate("ArmorTrim", "部位认不出来（下标 %1）。").arg(part);
+            result.error = QCoreApplication::translate("ArmorTrim", "装备部位编号无效（%1）。").arg(part);
             return result;
         }
         if (pieces < 1 || pieces > 4) {
-            result.error = QCoreApplication::translate("ArmorTrim", "做几件只能是 1–4 件（你给了 %1）。").arg(pieces);
+            result.error = QCoreApplication::translate("ArmorTrim", "装备数量须在 1 至 4 之间，当前为 %1 件。").arg(pieces);
             return result;
         }
         if (!armorMaterialFitsPart(armorMaterial, part)) {
-            result.error = QCoreApplication::translate("ArmorTrim", "海龟壳只有头盔那一件 —— 没有%1。").arg(partName(part));
+            result.error = QCoreApplication::translate("ArmorTrim", "海龟壳只能用作头部装备，无法用于%1。").arg(partName(part));
             return result;
         }
     }
@@ -250,12 +250,12 @@ Plan plan(int armorMaterial, int part, int patternIndex, int trimMaterial, int p
     result.notes.append(QCoreApplication::translate("ArmorTrim", "这枚%1来自：%2；复制用%3。")
                             .arg(templateName, pattern.source, pattern.duplicate));
     if (pattern.since != QStringLiteral("1.20")) {
-        result.notes.append(QCoreApplication::translate("ArmorTrim", "%1是 Java %2 才加入的 —— 更早的版本里没有这枚模板。")
+        result.notes.append(QCoreApplication::translate("ArmorTrim", "%1 纹饰模板自 Java 版 %2 起可用。")
                                 .arg(templateName, pattern.since));
     }
     const QString materialSince = trimMaterialSince(trimMaterial);
     if (!materialSince.isEmpty() && materialSince != QStringLiteral("1.20")) {
-        result.notes.append(QCoreApplication::translate("ArmorTrim", "「%1」是 Java %2 才加入的纹饰材料 —— 更早的版本里没有。")
+        result.notes.append(QCoreApplication::translate("ArmorTrim", "「%1」纹饰材料自 Java 版 %2 起可用。")
                                 .arg(material.name, materialSince));
     }
 
@@ -267,7 +267,7 @@ Plan plan(int armorMaterial, int part, int patternIndex, int trimMaterial, int p
         }
         const QString setLabel = QCoreApplication::translate("ArmorTrim", "%1四件套").arg(armorMaterialName(armorMaterial));
 
-        result.steps.append(QCoreApplication::translate("ArmorTrim", "去锻造台，把%1 + %2 + 每件盔甲各摆一次（一共四次）")
+        result.steps.append(QCoreApplication::translate("ArmorTrim", "在锻造台中，用%1和%2分别处理四件盔甲。")
                                 .arg(templateName, material.item));
         for (const QString &piece : pieceNames) {
             result.steps.append(
@@ -290,7 +290,7 @@ Plan plan(int armorMaterial, int part, int patternIndex, int trimMaterial, int p
     // ---------- 单件 / 同一件做几份 ----------
     const QString armor = armorPieceName(armorMaterial, part);
 
-    result.steps.append(QCoreApplication::translate("ArmorTrim", "去锻造台：把%1 + %2 + %3 摆进去")
+    result.steps.append(QCoreApplication::translate("ArmorTrim", "在锻造台中放入%1、%2和%3。")
                             .arg(templateName, material.item, armor));
     result.steps.append(QCoreApplication::translate("ArmorTrim", "一次锻造消耗 1 个模板、1 份材料、1 件%1 → 「%2 / %3纹饰的%1」")
                             .arg(armor, material.name, pattern.name));

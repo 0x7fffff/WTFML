@@ -255,5 +255,5 @@ void DownloadFilterController::resetDownloadFilters(ResourceCatalog::Kind kind) 
     //
     // NOTE: 这一层**只清**，搜不搜是调用方的事 —— 那颗键上接着"清完重搜一发"（
     // 要求「修改任何内容…都刷新一下」，接线见构造函数里那段）。
-    m_owner.appendLog(tr("已清空%1那一页的搜索条件。").arg(ResourceCatalog::kindLabel(kind)));
+    m_owner.appendLog(tr("已清空%1页面的搜索条件。").arg(ResourceCatalog::kindLabel(kind)));
 }

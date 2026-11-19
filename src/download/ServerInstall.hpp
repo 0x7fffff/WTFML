@@ -213,7 +213,7 @@ inline QString flavorNote(Flavor flavor) {
     case Flavor::Vanilla:
         return QCoreApplication::translate("ServerInstall", "Mojang 官方服务端，什么都不改");
     case Flavor::Paper:
-        return QCoreApplication::translate("ServerInstall", "原版端的高性能分支，插件服务端里最常用的那一档");
+        return QCoreApplication::translate("ServerInstall", "支持插件的高性能服务端，基于原版服务端。");
     case Flavor::Purpur:
         return QCoreApplication::translate("ServerInstall", "Paper 的下游，玩法开关比 Paper 多");
     case Flavor::Fabric:
@@ -846,7 +846,7 @@ inline Plan planFor(const Request &request) {
                                         QStringLiteral("quilt-server-launch.jar"),
                                         QStringLiteral("nogui")};
         plan.firstLaunchNeedsNetwork = false;
-        plan.note = QCoreApplication::translate("ServerInstall", "装的时候带 --download-server，原版 server.jar 由安装器下好；Quilt 那份 quilt-server-launch.jar 只是个壳，第一次跑不联网");
+        plan.note = QCoreApplication::translate("ServerInstall", "安装时使用 --download-server 下载原版 server.jar。Quilt 的 quilt-server-launch.jar 可在安装后离线启动");
         return plan;
     }
 
@@ -865,12 +865,12 @@ inline Plan planFor(const Request &request) {
         plan.ok = true;
         plan.firstLaunchNeedsNetwork = true;  // 编的过程中要 git clone + maven 拉依赖
         // 产物名带 `-R0.1-SNAPSHOT` 后缀，从游戏版本号拼不出来 ⇒ 只能扫目录（见 pickSpigotJar）。
-        plan.note = QCoreApplication::translate("ServerInstall", "编完的 jar 在 BuildTools 那个子目录里，要搬上来；它的名字带自己的后缀（spigot-<版本>-R0.1-SNAPSHOT.jar），扫到哪个算哪个（见 pickSpigotJar），启动参数拿它现拼");
+        plan.note = QCoreApplication::translate("ServerInstall", "BuildTools 在子目录中生成 spigot-<版本>-R0.1-SNAPSHOT.jar。安装时将选中的 JAR 移到服务端目录，并据此生成启动参数。");
         return plan;
     }
     }
 
-    plan.problem = QCoreApplication::translate("ServerInstall", "不认识的类型");
+    plan.problem = QCoreApplication::translate("ServerInstall", "未知的服务端类型");
     return plan;
 }
 

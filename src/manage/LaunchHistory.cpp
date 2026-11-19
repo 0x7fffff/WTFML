@@ -281,7 +281,7 @@ QString resultNote(const Record &record) {
     case Result::Running:
         return QCoreApplication::translate("LaunchHistory", "（还在玩）");
     case Result::StartFailed:
-        return QCoreApplication::translate("LaunchHistory", "（上次没起来）");
+        return QCoreApplication::translate("LaunchHistory", "（上次启动失败）");
     case Result::NormalExit:
         break;
     }

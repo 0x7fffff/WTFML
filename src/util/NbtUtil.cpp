@@ -235,7 +235,7 @@ bool skipListElements(Cursor &cursor, quint8 elementType, qint32 count, int dept
         return cursor.fail(QCoreApplication::translate("NbtUtil", "NBT 嵌套超过 %1 层").arg(kMaxDepth));
     }
     if (count > cursor.remaining()) {
-        return cursor.fail(QCoreApplication::translate("NbtUtil", "列表说有 %1 个元素，剩下的字节装不下").arg(count));
+        return cursor.fail(QCoreApplication::translate("NbtUtil", "列表声明包含 %1 个元素，实际数据长度不足").arg(count));
     }
     for (qint32 i = 0; i < count; ++i) {
         if (!skipPayload(cursor, elementType, depth + 1)) {
@@ -318,7 +318,7 @@ bool skipPayload(Cursor &cursor, quint8 type, int depth) {
         return cursor.skipRaw(static_cast<qint64>(count) * 8);
     }
     default:
-        return cursor.fail(QCoreApplication::translate("NbtUtil", "不认识的标签类型 %1").arg(type));
+        return cursor.fail(QCoreApplication::translate("NbtUtil", "未知的标签类型 %1").arg(type));
     }
 }
 
@@ -387,7 +387,7 @@ bool readServerListTag(Cursor &cursor, QList<ServerEntry> *out, QString *problem
         return false;
     }
     if (count > cursor.remaining()) {
-        *problem = QCoreApplication::translate("NbtUtil", "servers 说有 %1 条，剩下的字节装不下").arg(count);
+        *problem = QCoreApplication::translate("NbtUtil", "servers 声明包含 %1 条记录，实际数据长度不足").arg(count);
         return false;
     }
     for (qint32 i = 0; i < count; ++i) {
@@ -412,7 +412,7 @@ bool readServers(const QByteArray &bytes, QList<ServerEntry> *out, QString *prob
         return false;
     }
     if (rootType != kTagCompound) {
-        *problem = QCoreApplication::translate("NbtUtil", "根标签的类型是 %1，不是 TAG_Compound（这看起来不是一份 NBT）")
+        *problem = QCoreApplication::translate("NbtUtil", "根标签应为 TAG_Compound，实际类型为 %1")
                        .arg(rootType);
         return false;
     }
@@ -440,7 +440,7 @@ bool readServers(const QByteArray &bytes, QList<ServerEntry> *out, QString *prob
         }
         if (tagName == QLatin1String("servers")) {
             if (type != kTagList) {
-                *problem = QCoreApplication::translate("NbtUtil", "servers 那一格的类型是 %1，不是 TAG_List").arg(type);
+                *problem = QCoreApplication::translate("NbtUtil", "servers 字段应为 TAG_List，实际类型为 %1。").arg(type);
                 return false;
             }
             return readServerListTag(cursor, out, problem);
@@ -462,7 +462,7 @@ bool looksGzipped(const QByteArray &bytes) {
 bool readWholeFile(const QString &path, QByteArray *out, QString *problem) {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
-        *problem = QCoreApplication::translate("NbtUtil", "打不开 %1（%2）").arg(path, file.errorString());
+        *problem = QCoreApplication::translate("NbtUtil", "无法打开 %1（%2）").arg(path, file.errorString());
         return false;
     }
     const qint64 size = file.size();
@@ -522,7 +522,7 @@ Status readServerList(const QString &datPath, QList<ServerEntry> *out, QString *
         QTemporaryDir tempDir(QDir::tempPath() + QStringLiteral("/wtfml-nbt-XXXXXX"));
         if (!tempDir.isValid()) {
             if (problemOut != nullptr) {
-                *problemOut = QCoreApplication::translate("NbtUtil", "建不出临时目录（%1）").arg(tempDir.errorString());
+                *problemOut = QCoreApplication::translate("NbtUtil", "无法创建临时目录（%1）").arg(tempDir.errorString());
             }
             return Status::Unreadable;
         }
@@ -535,8 +535,8 @@ Status readServerList(const QString &datPath, QList<ServerEntry> *out, QString *
                 // 自己就带着「解压」两个字（解压超时 / 解压没跑起来），前面再冠一个
                 // 「解压失败」就成了「解压失败：解压超时」这种自己跟自己绕的话。
                 *problemOut = error.isEmpty()
-                                  ? QCoreApplication::translate("NbtUtil", "servers.dat 读不动：gzip 解不开")
-                                  : QCoreApplication::translate("NbtUtil", "servers.dat 读不动：%1").arg(error);
+                                  ? QCoreApplication::translate("NbtUtil", "无法解压 servers.dat 中的 gzip 数据")
+                                  : QCoreApplication::translate("NbtUtil", "无法读取 servers.dat：%1").arg(error);
             }
             return Status::Unreadable;
         }
@@ -562,7 +562,7 @@ Status readServerList(const QString &datPath, QList<ServerEntry> *out, QString *
         }
         if (bytes.isEmpty()) {
             if (problemOut != nullptr) {
-                *problemOut = QCoreApplication::translate("NbtUtil", "servers.dat 解压出来是空的（这份 gzip 多半是坏的或者没下完）");
+                *problemOut = QCoreApplication::translate("NbtUtil", "servers.dat 解压后没有数据；请确认文件是否完整");
             }
             return Status::Unreadable;
         }

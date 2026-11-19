@@ -54,9 +54,9 @@ QString Verdict::detail() const {
     case Status::WrongSize:
         return QCoreApplication::translate("VersionIntegrity", "大小 %1 字节，应为 %2").arg(actualSize).arg(expectedSize);
     case Status::WrongSha1:
-        return QCoreApplication::translate("VersionIntegrity", "校验不过（内容与 sha1 对不上）");
+        return QCoreApplication::translate("VersionIntegrity", "SHA-1 校验失败");
     case Status::Unreadable:
-        return QCoreApplication::translate("VersionIntegrity", "读不动（打不开或读出错）");
+        return QCoreApplication::translate("VersionIntegrity", "文件无法打开或读取失败");
     }
     return QCoreApplication::translate("VersionIntegrity", "未知");
 }

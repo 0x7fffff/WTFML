@@ -230,7 +230,7 @@ static ModInstallPlan planModInstallPass(const ModInstallRequest &request) {
 
         if (key.isEmpty()) {
             row.status = ModInstallStatus::Blocked;
-            row.problem = QCoreApplication::translate("Presets", "这一条引用认不出来（平台或项目号是空的）。");
+            row.problem = QCoreApplication::translate("Presets", "模组引用缺少平台或项目 ID。");
             plan.rows.append(row);
             return;
         }
@@ -279,14 +279,14 @@ static ModInstallPlan planModInstallPass(const ModInstallRequest &request) {
         if (input == nullptr) {
             row.status = ModInstallStatus::Unknown;
             row.problem = fromDependency
-                              ? QCoreApplication::translate("Presets", "还没问到这一个必要前置的版本列表。")
-                              : QCoreApplication::translate("Presets", "还没问到平台：这一条现在不能下。");
+                              ? QCoreApplication::translate("Presets", "尚未取得此必需依赖的版本列表。")
+                              : QCoreApplication::translate("Presets", "尚未从平台取得下载信息，暂时无法下载。");
             plan.rows.append(row);
             return;
         }
         if (!input->queried) {
             row.status = ModInstallStatus::Unknown;
-            row.problem = QCoreApplication::translate("Presets", "还没轮到问平台。");
+            row.problem = QCoreApplication::translate("Presets", "等待查询平台。");
             plan.rows.append(row);
             return;
         }
@@ -347,7 +347,7 @@ static ModInstallPlan planModInstallPass(const ModInstallRequest &request) {
                     row.status = ModInstallStatus::Missing;
                     row.problem = why;
                     row.details.append(
-                        QCoreApplication::translate("Presets", "按你确认换成了「%1」，见它在表上那一行。").arg(altTitle));
+                        QCoreApplication::translate("Presets", "已按确认结果替换为「%1」。").arg(altTitle));
                     plan.rows.append(row);
                 }
                 return;
@@ -406,7 +406,7 @@ static ModInstallPlan planModInstallPass(const ModInstallRequest &request) {
             }
             const QString otherTitle = titleByKey.value(other, other);
             row.status = ModInstallStatus::Incompatible;
-            row.problem = QCoreApplication::translate("Presets", "这一版声明和「%1」不兼容，没有把它排进这一趟。")
+            row.problem = QCoreApplication::translate("Presets", "此版本与「%1」不兼容，未加入安装计划。")
                               .arg(otherTitle);
             plan.conflicts.append(
                 QCoreApplication::translate("Presets", "「%1」和「%2」不能一起装。").arg(row.title, otherTitle));
@@ -595,7 +595,7 @@ DownloadVerification verifyDownloadedFile(const QString &path, qint64 expectedSi
     DownloadVerification out;
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
-        out.problem = QCoreApplication::translate("Presets", "读不动刚下下来的文件「%1」：%2").arg(path, file.errorString());
+        out.problem = QCoreApplication::translate("Presets", "无法读取刚下载的文件「%1」：%2").arg(path, file.errorString());
         return out;
     }
     out.size = file.size();
@@ -615,14 +615,14 @@ DownloadVerification verifyDownloadedFile(const QString &path, qint64 expectedSi
     out.sha1 = QString::fromLatin1(hash.result().toHex());
 
     if (expectedSize >= 0 && total != expectedSize) {
-        out.problem = QCoreApplication::translate("Presets", "大小对不上：期望 %1 字节，实际 %2 字节。")
+        out.problem = QCoreApplication::translate("Presets", "文件大小不符。预期 %1 字节，实际 %2 字节。")
                           .arg(expectedSize)
                           .arg(total);
         return out;
     }
     if (!expectedSha1.trimmed().isEmpty()) {
         if (out.sha1.compare(expectedSha1.trimmed(), Qt::CaseInsensitive) != 0) {
-            out.problem = QCoreApplication::translate("Presets", "sha1 对不上：期望 %1，实际 %2。")
+            out.problem = QCoreApplication::translate("Presets", "SHA-1 校验失败。预期 %1，实际 %2。")
                               .arg(expectedSha1.trimmed(), out.sha1);
             return out;
         }
@@ -632,7 +632,7 @@ DownloadVerification verifyDownloadedFile(const QString &path, qint64 expectedSi
     // 接口没给哈希：大小对上了也不能说"校验通过"。
     out.ok = true;
     out.unverified = true;
-    out.problem = QCoreApplication::translate("Presets", "平台没有给出这个文件的 sha1，只对过大小。");
+    out.problem = QCoreApplication::translate("Presets", "平台未提供此文件的 SHA-1，仅核对了文件大小。");
     return out;
 }
 
@@ -653,7 +653,7 @@ QString modInstallStatusText(ModInstallStatus status) {
     case ModInstallStatus::Incompatible:
         return QCoreApplication::translate("Presets", "不兼容");
     case ModInstallStatus::AlternativeNeedsConfirm:
-        return QCoreApplication::translate("Presets", "等你确认替代项目");
+        return QCoreApplication::translate("Presets", "待确认的替代项目");
     case ModInstallStatus::Blocked:
         return QCoreApplication::translate("Presets", "做不了");
     }
@@ -678,7 +678,7 @@ QString modInstallSummaryText(const ModInstallPlan &plan) {
         parts.append(QCoreApplication::translate("Presets", "不兼容 %1 个").arg(plan.incompatible));
     }
     if (plan.needsConfirm > 0) {
-        parts.append(QCoreApplication::translate("Presets", "等你确认替代项目 %1 个").arg(plan.needsConfirm));
+        parts.append(QCoreApplication::translate("Presets", "有 %1 个替代项目待确认").arg(plan.needsConfirm));
     }
     if (plan.blocked > 0) {
         parts.append(QCoreApplication::translate("Presets", "做不了 %1 个").arg(plan.blocked));
@@ -694,11 +694,11 @@ QString modInstallSummaryText(const ModInstallPlan &plan) {
 }
 
 QString modInstallSubstitutedText(const QString &title) {
-    return QCoreApplication::translate("Presets", "按你确认换成了「%1」。").arg(title);
+    return QCoreApplication::translate("Presets", "已确认并替换为「%1」。").arg(title);
 }
 
 QString modInstallAlternativeText(const QStringList &names) {
-    return QCoreApplication::translate("Presets", "这几个有替代项目，换不换要你点头：%1。")
+    return QCoreApplication::translate("Presets", "以下替代项目需要确认：%1。")
         .arg(names.join(QCoreApplication::translate("Presets", "、")));
 }
 

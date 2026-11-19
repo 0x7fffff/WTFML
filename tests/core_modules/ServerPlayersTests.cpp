@@ -47,11 +47,11 @@ void runServerPlayersTests() {
               "★★ ZAE1 读不懂的 JSON ⇒ `ok = false` + 一句毛病（**不是**空名单 —— 那会让"
               "「写回去」把用户手改坏的记录抹掉）", broken.problem);
         check(broken.problem.contains(QStringLiteral("whitelist.json"))
-                  && broken.problem.contains(QStringLiteral("没有改动")),
+                  && broken.problem.contains(QStringLiteral("没有改动它")),
               "★ ZAE1 那句毛病点了文件名、并且说清楚**没有改动它**", broken.problem);
         const ServerPlayers::Content notArray =
             ServerPlayers::parse(ServerPlayers::List::Ops, QByteArrayLiteral("{\"a\":1}"));
-        check(!notArray.ok && notArray.problem.contains(QStringLiteral("不是一个数组")),
+        check(!notArray.ok && notArray.problem.contains(QStringLiteral("应为数组")),
               "★ ZAE1 不是数组（手改成一个对象）⇒ 同样 `ok = false`，不猜", notArray.problem);
     }
 

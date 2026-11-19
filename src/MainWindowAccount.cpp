@@ -422,7 +422,7 @@ void MainWindow::useAccountFromPanel(const QString &uuid) {
     }
     QString error;
     // 这一段**是同步的**（15 秒超时的那种请求），先给用户一句话再进去。
-    enterSyncWait(tr("正在刷新登录令牌..."));
+    enterSyncWait(tr("正在刷新登录凭据…"));
     const bool refreshed = m_authManager->refreshMinecraftToken(&error);
     leaveSyncWait();
     if (refreshed) {
@@ -436,8 +436,8 @@ void MainWindow::useAccountFromPanel(const QString &uuid) {
     // NOTE: 已知的两种失败原因（Azure 应用没被 Mojang 批准 / 盘上凭据属于另一个应用）
     // 都不是这里能修的，只能重新登录一次 —— 所以那句话得指出**下一步**，不能只说
     // "刷新失败"。
-    appendLog(tr("「%1」的登录令牌没能刷新：%2").arg(AccountStore::nameOf(uuid), error));
-    InlineMessage::warning(m_ui->overlay(), tr("登录令牌没能刷新"),
+    appendLog(tr("无法刷新「%1」的登录凭据：%2").arg(AccountStore::nameOf(uuid), error));
+    InlineMessage::warning(m_ui->overlay(), tr("登录凭据刷新失败"),
                          tr("已切换至「%1」，但登录凭据已失效：%2。请在账号管理中重新登录。")
                              .arg(AccountStore::nameOf(uuid), error));
 }

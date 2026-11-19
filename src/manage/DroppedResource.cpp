@@ -69,7 +69,7 @@ DroppedResource::Result DroppedResource::classify(const QString &path) {
         // 拖进来的可能是个目录（有人习惯拖文件夹）或者干脆是不存在的东西。两种都算
         // "认不出来"，但**理由不一样**，detail 里说清楚。
         result.detail = info.isDir() ? QCoreApplication::translate("DroppedResource", "那是一个文件夹，不是文件")
-                                     : QCoreApplication::translate("DroppedResource", "找不到这份文件");
+                                     : QCoreApplication::translate("DroppedResource", "找不到文件");
         return result;
     }
 
@@ -94,7 +94,7 @@ DroppedResource::Result DroppedResource::classify(const QString &path) {
     }
     if (suffix != QLatin1String("zip") && suffix != QLatin1String("mrpack")) {
         result.detail = suffix.isEmpty()
-                            ? QCoreApplication::translate("DroppedResource", "它没有后缀名，认不出是哪一类")
+                            ? QCoreApplication::translate("DroppedResource", "文件缺少扩展名，无法识别类型")
                             : QCoreApplication::translate("DroppedResource", "`.%1` 不是能装进来的东西").arg(suffix);
         return result;
     }
@@ -109,7 +109,7 @@ DroppedResource::Result DroppedResource::classify(const QString &path) {
         return result;
     }
     if (status != ZipUtil::EntryStatus::Ok) {
-        result.detail = error.isEmpty() ? QCoreApplication::translate("DroppedResource", "它读不动") : error;
+        result.detail = error.isEmpty() ? QCoreApplication::translate("DroppedResource", "无法读取文件") : error;
         return result;
     }
 
@@ -171,7 +171,7 @@ DroppedResource::Result DroppedResource::classify(const QString &path) {
     }
     result.detail = entries.isEmpty()
                         ? QCoreApplication::translate("DroppedResource", "这个压缩包是空的")
-                        : QCoreApplication::translate("DroppedResource", "里面既没有整合包清单、也没有 pack.mcmeta 或 shaders/，认不出是哪一类");
+                        : QCoreApplication::translate("DroppedResource", "未找到整合包清单、pack.mcmeta 或 shaders/，无法识别压缩包类型");
     return result;
 }
 

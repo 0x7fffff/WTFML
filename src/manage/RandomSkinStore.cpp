@@ -155,7 +155,7 @@ bool RandomSkinStore::saveChosenSkinUrl(const QString &uuid, const QString &skin
     const QString path = chosenPathFor(uuid);
     if (path.isEmpty()) {
         if (errorOut != nullptr) {
-            *errorOut = QCoreApplication::translate("RandomSkinStore", "认不出这个账号的 uuid，随机皮肤没法记下来。");
+            *errorOut = QCoreApplication::translate("RandomSkinStore", "无法识别账号的 UUID，未保存随机皮肤。");
         }
         return false;
     }

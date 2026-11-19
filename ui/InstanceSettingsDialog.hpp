@@ -1370,7 +1370,7 @@ public:
     /// 「刷新」正在重读 + 重测的时候那颗按钮上的字。
     static QString serverPingingText() { return QCoreApplication::translate("InstanceSettingsDialog", "刷新中…"); }
     /// 还没测过的那一格写什么（**不是空着**：空着和"测了没通"在屏幕上是同一个样子）。
-    static QString serverUntestedText() { return QCoreApplication::translate("InstanceSettingsDialog", "还没测"); }
+    static QString serverUntestedText() { return QCoreApplication::translate("InstanceSettingsDialog", "未检测"); }
     /// 超时那一档在界面上**就写这两个字**，不加别的解释。
     ///
     /// NOTE: 和 `Status::timedOut` 那一位配着用 —— 那一位才是判据，这一句只是写出来的字。
@@ -1471,7 +1471,7 @@ public:
     /// 长了会把整页的 sizeHint 顶起来 —— 页面上那条 E5 断言钉的就是它），而 tooltip
     /// 该说全（.mrpack / .zip 的区别、认不出来的东西会怎样）。所以拆成两个函数。
     static QString exportHint() {
-        return QCoreApplication::translate("InstanceSettingsDialog", "导出为 Modrinth 或 CurseForge 整合包，包含可识别的资源清单和配置。" "保留完整用户数据请使用快照。");
+        return QCoreApplication::translate("InstanceSettingsDialog", "导出可识别的资源清单和配置为 Modrinth 或 CurseForge 整合包。需要保留完整的实例数据时，请创建快照。");
     }
     /// 那颗按钮的 tooltip（**说全的那一份**）。
     static QString exportButtonTooltip() {

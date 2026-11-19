@@ -323,7 +323,7 @@ void runSchematicInfoTests() {
         const QString compat = SchematicInfo::compatibilityText(info, QStringLiteral("1.20.1"));
         check(compat.contains(QStringLiteral("1.18.2"))
                   && compat.contains(QStringLiteral("1.20.1"))
-                  && compat.contains(QStringLiteral("可能有方块兼容问题")),
+                  && compat.contains(QStringLiteral("部分方块无法识别")),
               "★ SG4 版本不一样 ⇒ 说清两边分别是什么、不把话说死", compat);
     }
 
@@ -350,7 +350,7 @@ void runSchematicInfoTests() {
         const QString mysteryPath = root + QStringLiteral("/mystery.nbt");
         writeTree(mysteryPath, mystery);
         const SchematicInfo::Info info = SchematicInfo::read(mysteryPath);
-        check(!info.ok && info.problem.contains(QStringLiteral("认不出")),
+        check(!info.ok && info.problem.contains(QStringLiteral("无法识别结构文件格式")),
               "★ SG6 根里没有那三格 ⇒ 如实说「认不出」，不猜格式", info.problem);
         check(SchematicInfo::summaryText(info, QString()) == info.problem,
               "SG6 读失败时那一行字就是 `problem` 原文");
@@ -381,7 +381,7 @@ void runSchematicInfoTests() {
             huge.close();
         }
         const SchematicInfo::Info oversized = SchematicInfo::read(hugePath);
-        check(!oversized.ok && oversized.problem.contains(QStringLiteral("太大")),
+        check(!oversized.ok && oversized.problem.contains(QStringLiteral("超出预览上限")),
               "★ SG6 超过 96 MB 的：明说太大、不展开读（同步解析不能把界面按在那儿）",
               oversized.problem);
 
@@ -395,7 +395,7 @@ void runSchematicInfoTests() {
               QStringLiteral("ok=%1 完整=%2 数=%3")
                   .arg(noData.ok).arg(noData.countsComplete).arg(noData.blockCount));
         const QString noDataSummary = SchematicInfo::summaryText(noData, QString());
-        check(noDataSummary.contains(QStringLiteral("没解出来")),
+        check(noDataSummary.contains(QStringLiteral("方块数据读取失败")),
               "★ SG6 那种情况那一行字要**明说**只读到元数据", noDataSummary);
     }
 

@@ -1583,14 +1583,14 @@ void MainWindow::onVersionDetailsFetched(const QString &versionId, const QJsonOb
         // 账本上那件任务也到此为止（这一步还没进到"下载文件"，但用户点的那件事已经黄了）。
         // NOTE: 收尾也在 setDownloadUiBusy(false) **之前**，理由和
         // `DownloadCompletionController::onFinished` 那边逐字一样。
-        m_downloadTaskLedger->finish(tr("没能取到版本 %1 的信息。").arg(versionId));
+        m_downloadTaskLedger->finish(tr("无法获取版本 %1 的信息。").arg(versionId));
         setDownloadUiBusy(false);
         InlineMessage::warning(m_ui->overlay(), tr("下载失败"),
                              tr("无法获取版本 %1 的信息，请检查网络后重试。").arg(versionId));
         return;
     }
 
-    appendLog(tr("版本信息获取成功，开始下载游戏文件..."));
+    appendLog(tr("已获取版本信息，正在下载游戏文件…"));
     const QString versionsPath = AppPaths::versionDir(versionId);
     // 这条槽是 VersionManager 的 versionDetailsFetched 唤起来的，而那条信号是在
     // DownloadManager 收完版本 json 的那个槽里同步发出来的 —— 直接在这里起下载批次，

@@ -108,7 +108,7 @@ QString segmentsToHtml(const QList<TextFormat::Segment> &segments, const QColor 
         html.append(QStringLiteral("<span style='%1'>%2</span>")
                         .arg(styles.join(QChar(';')), segment.text.toHtmlEscaped()));
     }
-    return html.isEmpty() ? QCoreApplication::translate("ToolboxController", "<span style='opacity:0.6'>（这里还没有字）</span>")
+    return html.isEmpty() ? QCoreApplication::translate("ToolboxController", "<span style='opacity:0.6'>（暂无文字）</span>")
                           : html;
 }
 
@@ -237,7 +237,7 @@ void ToolboxController::ensurePage() {
         quint32 rgb = 0;
         if (!TextFormat::parseHexColor(hex, &rgb)) {
             // 不猜：三位缩写、写错位数都直接说清楚要什么形状。
-            m_page->setTextNotice(tr("自定颜色要写成 `#RRGGBB` 那种六位十六进制，比如 `#ff8800`（`#f80` 这种缩写游戏那边不认）。"));
+            m_page->setTextNotice(tr("请输入六位十六进制颜色值，如 `#ff8800`。游戏不支持 `#f80` 这样的缩写。"));
             return;
         }
         m_page->insertTextAtCursor(TextFormat::legacyHexColor(rgb));
@@ -501,7 +501,7 @@ void ToolboxController::open(const QString &toolKey) {
 void ToolboxController::runAnvilPlan() {
     const QList<ToolboxPage::AnvilRow> rows = m_page->anvilRows();
     if (rows.isEmpty()) {
-        InlineMessage::information(m_overlay, tr("还没有东西要合"),
+        InlineMessage::information(m_overlay, tr("没有可合并的内容"),
                                    tr("先在表里加一两行：选一条附魔、写上等级。"));
         return;
     }
@@ -586,7 +586,7 @@ void ToolboxController::runAnvilPlan() {
     view.anyTooExpensive = plan.anyTooExpensive;
     if (plan.approximate) {
         // 搜索额度到顶：这一条仍然照常给，但不能说它是最省的那条。
-        view.notes.append(tr("★ 材料组合太多，这次没有穷举完所有次序 —— 这一条是**近似**最优；想拿到确定的最优解请减少材料件数。"));
+        view.notes.append(tr("材料组合较多，当前结果为近似最优。减少材料数量可计算精确最优解。"));
     }
     if (plan.anyTooExpensive) {
         view.notes.append(tr("★ 计划中有一步的代价超过 39 级；生存模式下铁砧会拒绝该步骤（创造模式不受限制）。请调整顺序，或先降低部分材料的先前工作惩罚。"));
@@ -674,7 +674,7 @@ void ToolboxController::convertCoordinates(int dimensionIndex, double x, double 
                         .arg(CoordConvert::dimensionText(to),
                              CoordConvert::positionText(converted)));
     };
-    rows.append(QCoreApplication::translate("ToolboxController", "%1 里这一格：%2")
+    rows.append(QCoreApplication::translate("ToolboxController", "%1 中的字段：%2")
                     .arg(CoordConvert::dimensionText(from), CoordConvert::positionText(position)));
     for (CoordConvert::Dimension to :
          {CoordConvert::Dimension::Overworld, CoordConvert::Dimension::Nether,
@@ -726,7 +726,7 @@ void ToolboxController::parseTeleport(const QString &text) {
         m_page->setCoordinates(m_page->dimensionIndex(), parsed.position.x, parsed.position.y,
                                parsed.position.z);
     }
-    QString message = tr("认出来了：%1")
+    QString message = tr("识别结果：%1")
                           .arg(CoordConvert::positionText(parsed.position));
     if (parsed.hasDimension) {
         message.append(tr("，维度 %1").arg(CoordConvert::dimensionText(parsed.dimension)));
@@ -873,7 +873,7 @@ void ToolboxController::runHash(const QString &path, int algorithmIndex, const Q
                     view.verdict = verdict.text;
                     // 已知值点的是**另一档**算法：比出来的"不一样"没有意义，得说清楚。
                     if (want.hasAlgorithm && want.algorithm != algorithm) {
-                        view.verdict = tr("这一串是按 %1 算的，和上面选的 %2 不是一档 —— 换个算法再算一遍。")
+                        view.verdict = tr("此摘要使用 %1 算法，当前选择的是 %2。请切换到对应算法后重新计算。")
                                            .arg(FileHash::algorithmName(want.algorithm),
                                                 FileHash::algorithmName(algorithm));
                         view.matches = false;
@@ -1077,7 +1077,7 @@ void ToolboxController::exportHashBatch(const QString &path, const QString &text
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
         InlineMessage::information(m_overlay, tr("没写成"),
-                                   tr("「%1」打不开：%2").arg(QDir::toNativeSeparators(path),
+                                   tr("无法打开「%1」：%2").arg(QDir::toNativeSeparators(path),
                                                              file.errorString()));
         return;
     }
@@ -1118,9 +1118,9 @@ void ToolboxController::onHashFileChanged(const QString &path) {
         }
         const QString name = QFileInfo(path).fileName();
         m_page->setHashStaleNote(
-            now.ok ? tr("「%1」在算完之后变过（大小 / 修改时间对不上）—— 清单里那一串不是它现在的摘要了，重新算一遍。")
+            now.ok ? tr("「%1」在计算后发生变化（文件大小或修改时间不同）。请重新计算摘要。")
                          .arg(name)
-                   : tr("「%1」在算完之后被移走或删掉了 —— 清单里那一串不是它现在的样子。")
+                   : tr("「%1」在计算后已移除或移动，清单中的摘要已失效。")
                          .arg(name));
         return;
     }
@@ -1135,7 +1135,7 @@ void ToolboxController::onHashFileChanged(const QString &path) {
     }
     const FileHash::Stamp now = FileHash::stampOf(path);
     if (!now.ok) {
-        m_page->setHashStaleNote(tr("这个文件算完之后被移走或删掉了 —— 上面那串摘要不是它现在的样子。"));
+        m_page->setHashStaleNote(tr("文件在计算后已移除或移动，当前摘要已失效。"));
         return;
     }
     if (now.bytes == m_hashWatchedBytes && now.lastModifiedMs == m_hashWatchedModifiedMs) {
@@ -1147,7 +1147,7 @@ void ToolboxController::onHashFileChanged(const QString &path) {
         return;
     }
     m_page->setHashStaleNote(
-        tr("这个文件在算完之后变过（大小 / 修改时间对不上）—— 上面那串摘要不是它现在的样子，再算一遍。"));
+        tr("文件在计算后发生变化（文件大小或修改时间不同）。请重新计算摘要。"));
 }
 
 // ---------------------------------------------------------------------------
@@ -1186,7 +1186,7 @@ void ToolboxController::refreshBrewing(int potionIndex, bool extended, bool leve
     const QString version = m_page->brewingVersion();
     if (potionIndex >= 0 && potionIndex < Brewing::potionCount()
         && !Brewing::available(potionIndex, version)) {
-        prefix = tr("目标版本 %1 里还没有%2 —— 这种药水要 Java %3 起才有。\n\n")
+        prefix = tr("目标版本 %1 不含%2。此药水自 Java 版 %3 起可用。\n\n")
                      .arg(version,
                           Brewing::potionAt(potionIndex).name + QCoreApplication::translate("ToolboxController", "药水"),
                           Brewing::potionSince(potionIndex));
@@ -1299,7 +1299,7 @@ void ToolboxController::refreshTrim() {
     }
     QString text;
     if (!unsupported.isEmpty()) {
-        text = tr("目标版本 %1 里还没有：%2。已保留当前搭配 —— 请调整纹饰 / 材料，或者换一个目标版本。\n\n")
+        text = tr("目标版本 %1 不支持以下内容：%2。当前搭配已保留，可调整纹饰或材料，也可更换目标版本。\n\n")
                    .arg(version, unsupported.join(QCoreApplication::translate("ToolboxController", "、")));
     }
     text += tr("材料：") + items.join(QStringLiteral(" / "));

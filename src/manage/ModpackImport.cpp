@@ -58,7 +58,7 @@ QString unsupportedLoaderText(const QString &loaderKey, const QString &loaderVer
     // 整合包导入现在认得 fabric-loader / forge / neoforge / quilt-loader 四个键。
     // OptiFine 在整合包依赖表里没有标准键，仍然拒绝；不能因为安装页能装 OptiFine 就
     // 把这种包当成能装 —— 那会装出一个进不去的实例。
-    return QCoreApplication::translate("ModpackImport", "这个整合包要「%1」%2，而整合包导入这条路只认得 fabric-loader / forge / neoforge / quilt-loader 四个加载器键。\n\n所以没有导入。（安装页里能直接装 Fabric / Forge / NeoForge / OptiFine，那是另一条路；OptiFine 在整合包的依赖表里没有对应的键。）")
+    return QCoreApplication::translate("ModpackImport", "此整合包需要加载器「%1」%2。导入整合包仅支持 fabric-loader、forge、neoforge 和 quilt-loader，导入已取消。\n\n如需单独安装 Fabric、Forge、NeoForge 或 OptiFine，请使用「安装」页。整合包的依赖清单无法指定 OptiFine。")
         .arg(loaderKey, version);
 }
 
@@ -66,7 +66,7 @@ QString unsupportedFormatText(Format format) {
     // NOTE: 参数现在**用不上**了 —— 每种认得的格式都有自己的入口，走到这里的一律是
     // `Unknown`。留着形状是为了调用点不用改。
     Q_UNUSED(format);
-    return QCoreApplication::translate("ModpackImport", "这个压缩包里没有整合包清单，认不出它是什么格式。\n\n认得的是这几种：Modrinth 格式（根目录有一份 modrinth.index.json）、CurseForge 格式（有一份 manifest.json）、MultiMC / Prism 导出的实例（有一份 mmc-pack.json）、以及直接把 .minecraft 文件夹压进来的懒人包（里面有 mods/、config/ 或 options.txt）。\n\n都对不上的话，它多半只是一个普通的压缩包 —— 比如资源包、光影包，或者只放了几份说明文件的合集。");
+    return QCoreApplication::translate("ModpackImport", "无法识别整合包格式，因为压缩包缺少有效清单。\n\n支持 Modrinth（modrinth.index.json）、CurseForge（manifest.json）、MultiMC / Prism（mmc-pack.json），以及含 mods/、config/ 或 options.txt 的 .minecraft 压缩包。");
 }
 
 bool isSafeRelativePath(const QString &path) {
@@ -309,7 +309,7 @@ QString multiInstanceDetail(const QStringList &entries, const QString &prefix) {
     if (tops.size() < 2) {
         return QString();
     }
-    return QObject::tr("里面有好几个 .minecraft 目录（像是把多个实例打在一个压缩包里），没有导入 —— 解压之后把要的那一份拖进来。");
+    return QObject::tr("压缩包中有多个 .minecraft 目录。请解压后选择要导入的目录。");
 }
 
 bool hasLoaderKeyword(const QString &lowerId) {
@@ -684,7 +684,7 @@ ArchiveLayout detectArchiveLayout(const QStringList &entries) {
             !findRelativeEntry(entries, prefix, QStringLiteral("bin/modpack.jar")).isEmpty()
             || !findRelativeEntry(entries, prefix, QStringLiteral("bin/minecraft.jar")).isEmpty();
         layout.detail = layout.legacyLauncherJar
-            ? QObject::tr("里面是一个 .minecraft 游戏目录；`bin/` 下那份启动器 jar 说明加载器不写在版本清单里（旧版 Technic / 老式 Forge 包），导入后要自己补装一次加载器")
+            ? QObject::tr("检测到旧版 Technic / Forge 整合包。版本清单未声明加载器，导入后需手动安装。")
             : QObject::tr("里面是一个 .minecraft 游戏目录");
         return layout;
     }
@@ -753,14 +753,14 @@ Result parseMultiMCInstance(const QByteArray &mmcPackJson, const QByteArray &ins
     QJsonParseError parseError;
     const QJsonDocument doc = QJsonDocument::fromJson(mmcPackJson, &parseError);
     if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
-        result.problem = QObject::tr("这份 mmc-pack.json 无法解析（%1）。这个文件可能已损坏。")
+        result.problem = QObject::tr("无法解析 mmc-pack.json（%1）。请检查文件是否完整。")
                              .arg(parseError.errorString());
         return result;
     }
 
     const QJsonArray components = doc.object().value(QStringLiteral("components")).toArray();
     if (components.isEmpty()) {
-        result.problem = QCoreApplication::translate("ModpackImport", "这个 MultiMC / Prism 实例的 mmc-pack.json 里没有 components，认不出它要哪个 Minecraft 版本。");
+        result.problem = QCoreApplication::translate("ModpackImport", "mmc-pack.json 缺少 components，无法确定 MultiMC / Prism 实例的 Minecraft 版本。");
         return result;
     }
 
@@ -866,7 +866,7 @@ Result parseMultiMCInstance(const QByteArray &mmcPackJson, const QByteArray &ins
         pack.name = QObject::tr("整合包");
     }
 
-    QString note = QCoreApplication::translate("ModpackImport", "这个包是从 MultiMC / Prism 导出的实例。导入的是它 .minecraft 里的内容（mods、config、资源包这些）；MultiMC 自己的 patches/、libraries/ 和启动设置没有一起导入。");
+    QString note = QCoreApplication::translate("ModpackImport", "此整合包来自 MultiMC 或 Prism。将导入 .minecraft 中的模组、配置及资源包等内容。原启动器的 patches/、libraries/ 和启动设置不会导入。");
     pack.supportNote = note;
 
     result.ok = true;
@@ -913,7 +913,7 @@ Result parseGameFolderInstance(const QStringList &entries, const QByteArray &ver
         }
     }
     if (chosenId.isEmpty() && versionIds.size() > 1) {
-        result.problem = QCoreApplication::translate("ModpackImport", "这个 .minecraft 里有 %1 个版本，但没有版本 json 能说明该导入哪一个（目录名里也看不出带加载器的那一个）。\n\n没有导入 —— 猜一个装出来多半进不去游戏。把带加载器的那个版本目录（连着里面的 json）单独打包，或者换 Modrinth / CurseForge 格式。")
+        result.problem = QCoreApplication::translate("ModpackImport", "找到 %1 个版本，但缺少可确定目标版本的 JSON 清单。导入已取消。\n\n请将目标版本目录及其 JSON 清单一起打包，或改用 Modrinth / CurseForge 格式。")
                              .arg(versionIds.size());
         return result;
     }
@@ -942,7 +942,7 @@ Result parseGameFolderInstance(const QStringList &entries, const QByteArray &ver
         }
     }
     if (gameVersion.isEmpty()) {
-        result.problem = QCoreApplication::translate("ModpackImport", "认得出这是一个 .minecraft 目录（里面有 mods/ 或 config/），但推不出它基于哪个 Minecraft 版本：versions/ 里没有版本 json，目录名里也看不出来。\n\n没有导入 —— 猜一个版本装出来多半进不去游戏。可以把 versions/ 里那份 json 一起打包再导入，或者换 Modrinth / CurseForge 格式。");
+        result.problem = QCoreApplication::translate("ModpackImport", "压缩包中有 .minecraft 目录，但 versions/ 中缺少版本 JSON。无法确定所需的 Minecraft 版本，导入已取消。\n\n请补入版本 JSON 后重试，或使用 Modrinth / CurseForge 格式。");
         return result;
     }
 
@@ -997,7 +997,7 @@ Result parseGameFolderInstance(const QStringList &entries, const QByteArray &ver
     }
 
     if (!versionIds.isEmpty() && !jsonId.isEmpty()) {
-        pack.supportNote = QCoreApplication::translate("ModpackImport", "这个包自带 versions/，导入时没有用它 —— 启动器会按包里的版本信息重新装一份原版和加载器，再把 mods、config 这些解进实例里。");
+        pack.supportNote = QCoreApplication::translate("ModpackImport", "已按清单重新安装原版游戏和加载器，跳过包内的 versions/。mods 和 config 等内容会解压到实例目录。");
     }
 
     result.ok = true;
@@ -1022,7 +1022,7 @@ Result parseModrinthIndex(const QByteArray &json, bool allowEmptyFiles) {
     // 是 Mojang 无关的格式标记，缺了它们说明拿到的不是清单（比如是个空的同名文件）。
     if (!root.value(QStringLiteral("formatVersion")).isDouble() ||
         !root.value(QStringLiteral("files")).isArray()) {
-        result.problem = QCoreApplication::translate("ModpackImport", "压缩包里那份 %1 不是整合包清单（缺少 formatVersion 或者 files）。")
+        result.problem = QCoreApplication::translate("ModpackImport", "%1 缺少 formatVersion 或 files，无法作为整合包清单读取。")
                              .arg(modrinthIndexName());
         return result;
     }
@@ -1031,7 +1031,7 @@ Result parseModrinthIndex(const QByteArray &json, bool allowEmptyFiles) {
     if (game != QLatin1String("minecraft")) {
         result.problem =
             game.isEmpty()
-                ? QObject::tr("这份 %1 里没写它是哪个游戏的整合包，无法安装。")
+                ? QObject::tr("%1 缺少游戏标识，无法安装。")
                       .arg(modrinthIndexName())
                 : QObject::tr("这不是 Minecraft 的整合包：清单里写的是「%1」。").arg(game);
         return result;
@@ -1041,7 +1041,7 @@ Result parseModrinthIndex(const QByteArray &json, bool allowEmptyFiles) {
     const QJsonObject dependencies = root.value(QStringLiteral("dependencies")).toObject();
     const QString gameVersion = dependencies.value(QStringLiteral("minecraft")).toString();
     if (gameVersion.isEmpty()) {
-        result.problem = QCoreApplication::translate("ModpackImport", "这份整合包的依赖表里没写它基于哪个 Minecraft 版本（dependencies.minecraft），无法安装。");
+        result.problem = QCoreApplication::translate("ModpackImport", "整合包清单缺少 dependencies.minecraft，无法确定要安装的 Minecraft 版本。");
         return result;
     }
 
@@ -1103,7 +1103,7 @@ Result parseModrinthIndex(const QByteArray &json, bool allowEmptyFiles) {
         // **路径不安全 = 整包拒绝**（不是跳过这一条）。理由写在 .hpp 里。
         if (!isSafeRelativePath(path)) {
             result.problem =
-                QObject::tr("这个整合包的文件清单里有一条不能用的路径：\n%1\n\n（路径不能跑到实例目录外面去，也不允许某一段以点或空格结尾 —— Windows 会把那些字符悄悄吃掉，写出来的名字和清单里写的不一样。）所以整个包都没有导入。")
+                QObject::tr("整合包清单中有无效路径：\n%1\n\n路径须位于实例目录内，且名称不能以句点或空格结尾。导入已取消。")
                     .arg(path);
             return result;
         }
@@ -1170,7 +1170,7 @@ Result parseModrinthIndex(const QByteArray &json, bool allowEmptyFiles) {
         // 看不到压缩包。所以默认仍然拒；调用方确认过 overrides 有内容时传
         // `allowEmptyFiles = true` 放行。
         if (!allowEmptyFiles) {
-            result.problem = QCoreApplication::translate("ModpackImport", "这份整合包的文件清单是空的（一条要下载的文件都没有），没有导入。");
+            result.problem = QCoreApplication::translate("ModpackImport", "整合包清单未列出待下载文件，导入已取消。");
             return result;
         }
     }
@@ -1286,7 +1286,7 @@ Result parseCurseForgeManifest(const QByteArray &json, bool allowEmptyFiles) {
     // `manifestVersion` + `files` 是那份清单的骨架，缺了它们说明拿到的不是清单。
     if (!root.value(QStringLiteral("manifestVersion")).isDouble() ||
         !root.value(QStringLiteral("files")).isArray()) {
-        result.problem = QCoreApplication::translate("ModpackImport", "压缩包里那份 %1 不是整合包清单（缺少 manifestVersion 或者 files）。")
+        result.problem = QCoreApplication::translate("ModpackImport", "%1 缺少 manifestVersion 或 files，无法作为整合包清单读取。")
                              .arg(curseForgeManifestName());
         return result;
     }
@@ -1305,7 +1305,7 @@ Result parseCurseForgeManifest(const QByteArray &json, bool allowEmptyFiles) {
     const QJsonObject minecraft = root.value(QStringLiteral("minecraft")).toObject();
     const QString gameVersion = minecraft.value(QStringLiteral("version")).toString().trimmed();
     if (gameVersion.isEmpty()) {
-        result.problem = QCoreApplication::translate("ModpackImport", "这份整合包的清单里没写它基于哪个 Minecraft 版本（minecraft.version），无法安装。");
+        result.problem = QCoreApplication::translate("ModpackImport", "整合包清单缺少 minecraft.version，无法确定要安装的 Minecraft 版本。");
         return result;
     }
 
@@ -1388,14 +1388,14 @@ Result parseCurseForgeManifest(const QByteArray &json, bool allowEmptyFiles) {
 
     if (pack.pendingRefs.isEmpty() && pack.declaredFileCount > 0) {
         // 清单点了名，却一条都读不出号。这是坏清单，不是"纯 overrides 包"。
-        result.problem = QCoreApplication::translate("ModpackImport", "这份整合包的文件清单里有 %1 条，但没有一条写着能用的 projectID / fileID。清单可能被改坏了，没有导入。")
+        result.problem = QCoreApplication::translate("ModpackImport", "整合包清单有 %1 条文件记录，但均缺少有效的 projectID 或 fileID。导入已取消。")
                              .arg(pack.declaredFileCount);
         return result;
     }
     if (pack.pendingRefs.isEmpty() && !allowEmptyFiles) {
         // 一个空数组本身是合法的「纯 overrides 包」，但只有压缩包里真有 overrides 那一层
         // 时才成立 —— 这一层看不到压缩包，所以默认仍然拒（调用方确认过再放行）。
-        result.problem = QCoreApplication::translate("ModpackImport", "这份整合包的文件清单是空的（一条要下载的文件都没有），没有导入。");
+        result.problem = QCoreApplication::translate("ModpackImport", "整合包清单未列出待下载文件，导入已取消。");
         return result;
     }
 

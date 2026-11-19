@@ -66,7 +66,7 @@ inline bool flavorSupported(ServerInstall::Flavor flavor) {
 /// 为什么没接。**空 = 接好了**（给用户看的那句话，界面照抄，别自己另写）。
 inline QString unsupportedReason(ServerInstall::Flavor flavor) {
     if (flavor == ServerInstall::Flavor::Spigot) {
-        return QCoreApplication::translate("ServerInstallRun", "这一档官方不发成品，要用它的 BuildTools 现编一份 —— 那一步要几分钟、要联网、还要求本机装着 git，这一版还没接。先装另外七档里的一个吧。");
+        return QCoreApplication::translate("ServerInstallRun", "Spigot 官方提供 BuildTools，需联网并使用本机的 Git 构建。当前版本暂不支持此安装方式，请选择其他服务端类型。");
     }
     return QString();
 }

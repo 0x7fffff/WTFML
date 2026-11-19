@@ -148,7 +148,7 @@ Result digestOfFile(const QString &path, Algorithm algorithm, const ProgressFn &
     Result result;
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
-        result.error = QCoreApplication::translate("FileHash", "打不开这个文件：%1").arg(file.errorString());
+        result.error = QCoreApplication::translate("FileHash", "无法打开文件：%1").arg(file.errorString());
         return result;
     }
     const qint64 total = file.size();
@@ -213,7 +213,7 @@ Expected parseExpected(const QString &text) {
     }
     const QString hex = normalizeHex(body);
     if (hex.isEmpty()) {
-        expected.error = QCoreApplication::translate("FileHash", "这一格里没有十六进制的字符。");
+        expected.error = QCoreApplication::translate("FileHash", "请输入十六进制摘要。");
         return expected;
     }
     for (const QChar ch : hex) {
@@ -233,12 +233,12 @@ Expected parseExpected(const QString &text) {
         }
     }
     if (!lengthKnown) {
-        expected.error = QCoreApplication::translate("FileHash", "长度对不上：这一串有 %1 位，SHA-256 是 64 位、SHA-1 是 40 位、MD5 是 32 位。")
+        expected.error = QCoreApplication::translate("FileHash", "摘要有 %1 个字符。SHA-256、SHA-1 和 MD5 分别要求 64、40 和 32 个十六进制字符。")
                              .arg(hex.size());
         return expected;
     }
     if (expected.hasAlgorithm && expected.algorithm != byLength) {
-        expected.error = QCoreApplication::translate("FileHash", "写的算法和长度对不上：标的是 %1（%2 位），实际是 %3 位。")
+        expected.error = QCoreApplication::translate("FileHash", "摘要长度与所选算法不匹配。%1 要求 %2 个字符，实际为 %3 个。")
                              .arg(algorithmName(expected.algorithm))
                              .arg(hexLength(expected.algorithm))
                              .arg(hex.size());

@@ -239,7 +239,7 @@ void ServerSettingsPageController::refresh() {
             row.when = info.lastModified().toString(QStringLiteral("yyyy-MM-dd HH:mm"));
             row.size = BackupFiles::sizeText(info.size());
             row.safety = BackupFiles::nameIsSafety(info.fileName(), prefix);
-            row.scope = row.safety ? MainWindow::tr("还原之前自动做的那一份")
+            row.scope = row.safety ? MainWindow::tr("还原前的自动快照")
                                    : MainWindow::tr("这个世界的整个文件夹");
             rows.append(row);
         }
@@ -330,7 +330,7 @@ void ServerSettingsPageController::save() {
         // 写一半再报错，用户看着的是"保存了"而盘上是半份 —— 宁可让他把那一格改对再来。
         InlineMessage::warning(
             m_owner.m_ui->overlay(), MainWindow::tr("有几项改不了"),
-            MainWindow::tr("这几项的值不正确，所以本次没有写入任何内容：\n%1\n\n把这几项改对（表单里的格子、或者「原始文本」里那一行），再按一次保存。")
+            MainWindow::tr("以下设置值无效，未保存：\n%1\n\n请在表单或「原始文本」中更正后重新保存。")
                 .arg(result.rejected.join(QStringLiteral("\n"))));
         return;
     }

@@ -46,7 +46,7 @@ QString StorageAvailability::unavailableReason(const QString &path)
 
     const QString probe = nearestExistingAncestor(path);
     if (probe.isEmpty()) {
-        return QObject::tr("没法判断「%1」落在哪块盘上。")
+        return QObject::tr("无法识别「%1」所在的磁盘。")
             .arg(QDir::toNativeSeparators(path));
     }
 

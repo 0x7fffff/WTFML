@@ -155,7 +155,7 @@ ParsedTp parseTeleportCommand(const QString &text) {
     ParsedTp result;
     QString line = text.trimmed();
     if (line.isEmpty()) {
-        result.error = QCoreApplication::translate("CoordConvert", "这一格是空的：把游戏里 F3+C 复制的那一条粘进来。");
+        result.error = QCoreApplication::translate("CoordConvert", "请粘贴在游戏中按 F3+C 复制的坐标命令。");
         return result;
     }
     if (line.startsWith(QChar('/'))) {
@@ -167,13 +167,13 @@ ParsedTp parseTeleportCommand(const QString &text) {
     QStringList tokens = line.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
     if (!tokens.isEmpty() && tokens.first().compare(QLatin1String("execute"), Qt::CaseInsensitive) == 0) {
         if (tokens.size() < 4 || tokens.at(1).compare(QLatin1String("in"), Qt::CaseInsensitive) != 0) {
-            result.error = QCoreApplication::translate("CoordConvert", "这条 `execute` 看不懂：只认 `execute in <维度> run <命令>` 这一种。");
+            result.error = QCoreApplication::translate("CoordConvert", "仅支持格式为 `execute in <维度> run <命令>` 的 `execute` 命令。");
             return result;
         }
         result.dimension = dimensionFromId(tokens.at(2));
         result.hasDimension = result.dimension != Dimension::Unknown;
         if (!result.hasDimension) {
-            result.error = QCoreApplication::translate("CoordConvert", "维度认不出来：`%1`。").arg(tokens.at(2));
+            result.error = QCoreApplication::translate("CoordConvert", "无法识别维度：`%1`。").arg(tokens.at(2));
             return result;
         }
         // 后面必须跟着 `run`
@@ -216,7 +216,7 @@ ParsedTp parseTeleportCommand(const QString &text) {
         }
     }
     if (result.relative) {
-        result.error = QCoreApplication::translate("CoordConvert", "这三个数里有 `~` / `^`（相对坐标）：它说的是「从这里往前几格」，得先知道你现在站在哪儿才能算 —— 先站到你那一点再复制一次。");
+        result.error = QCoreApplication::translate("CoordConvert", "输入含 `~` 或 `^` 相对坐标。请站到目标位置后复制绝对坐标。");
         return result;
     }
     result.position = Position{values[0], values[1], values[2]};

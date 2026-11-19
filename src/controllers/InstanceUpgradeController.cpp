@@ -77,7 +77,7 @@ void InstanceTransferController::upgradeInPlace(QString sourceId, QString target
         core.keepOldMods = reviewedKeptMods;
     } else if (contextChanged && QFileInfo(AppPaths::versionDir(sourceId) + "/mods").isDir()) {
         const int choice = InlineMessage::ask(m_overlay, MessageKind::Question, tr("旧模组处理"),
-            tr("游戏版本或加载器将变化，旧模组尚未验证适配。\n\n建议先禁用旧模组（文件保留，后缀改为 .disabled）。保留启用状态可能导致游戏无法启动。"),
+            tr("游戏版本或加载器将变更，原有模组可能不兼容。\n\n建议禁用原有模组，文件将以 .disabled 后缀保留。"),
             {tr("禁用旧模组"), tr("保持原状"), tr("取消升级")}, 0, -1, false);
         if (choice != 0 && choice != 1) {
             if (whenSettled) whenSettled(false, true);
@@ -89,7 +89,7 @@ void InstanceTransferController::upgradeInPlace(QString sourceId, QString target
         core.disableOldMods = false;
     }
     if (!InlineMessage::question(m_overlay, tr("原地升级"),
-        tr("将「%1」的核心替换为 %2 / %3。\n\n存档、截图、配置及其它用户文件全部保留，不导入目标实例的用户文件。先创建并逐文件校验完整快照，再替换；原目录另行保留，可用「回滚原地升级」恢复。\n\n以磁盘内容为准：未保存的设置请先取消并保存，替换后会关闭当前设置页。这不会自动适配或下载模组。继续吗？")
+        tr("将「%1」的游戏核心替换为 %2 / %3。\n\n本次升级保留当前实例的存档、截图、配置和其他用户文件。替换前将创建并校验快照，原目录可通过「回滚原地升级」恢复。\n\n请保存设置后再升级。确认继续？")
             .arg(displayName(sourceId), core.gameVersion, core.loaderName.isEmpty() ? tr("原版") : core.loaderName),
         tr("备份并升级"), tr("取消"), false, true)) {
         if (whenSettled) whenSettled(false, true);

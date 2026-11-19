@@ -68,7 +68,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>撤掉自己挑的那张，回到按这个账号算出来的 / 随机挑的那一张。</source>
+            <source>移除手动设置的皮肤，恢复此账号的默认或随机皮肤。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -155,111 +155,111 @@
     <context>
         <name>AccountStore</name>
         <message>
-            <source>已保存的账号列表读不出来：盘上那一格在，但解不开（Windows 账户环境变更或迁移设备之后会这样）。现在写回去会把列表里其它账号一起抹掉，所以这次没有保存。想重新开始的话，先删掉那个键再试。</source>
+            <source>无法解密已保存的账号列表。为保留原有账号，本次未写入。请在原设备上使用保存列表时的 Windows 账户重试。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>切到离线账号之前，没能把当前账号收进列表：</source>
+            <source>切换离线账号前，保存当前账号失败：</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能先把当前登录的账号保存下来（%1），所以这次没有切换。
+            <source>无法保存当前账号（%1），已取消切换。
 
-现在还是登录着原来那个账号；盘上那份登录凭据一个字节都没动。</source>
+当前账号的登录凭据已保留。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>切到离线账号失败（清活动槽）：</source>
+            <source>切换离线账号时清除当前登录信息失败：</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能把现在登录着的状态从盘上清掉（%1），所以这次没有切过去。
+            <source>无法清除当前登录信息（%1），已取消切换。
 
-再点一次它试试；一直不行的话，可能是这台机器上的启动器配置写不进去。</source>
+请重试。若仍失败，请检查启动器设置的写入权限。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能把「当前账号」记到盘上（%1）。</source>
+            <source>未能保存当前账号设置（%1）。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>切到离线账号失败（写 QSettings）：</source>
+            <source>切换离线账号时保存设置失败：</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个账号已经保存在列表里了，但%1
+            <source>账号已添加到列表。%1
 
-再点一次它试试；一直不行的话，可能是这台机器上的启动器配置写不进去。</source>
+请重新选择该账号。若仍失败，请检查启动器设置的写入权限。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>盘上没有可保存的登录凭据。</source>
+            <source>未找到可保存的登录凭据。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>微软令牌不完整，这份登录凭据没法保存。</source>
+            <source>微软登录凭据不完整，无法保存该账号。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>当前账号记不下来（QSettings 状态异常）：</source>
+            <source>保存当前账号设置失败：</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个账号不在已保存的列表里。</source>
+            <source>此账号不在已保存的账号列表中。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个账号保存的登录凭据不完整，请重新登录一次。</source>
+            <source>此账号的登录凭据不完整，请重新登录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>切换账号时没能把新的启动令牌写下去，而且原来那份刷新令牌也放不回去了（%1）。
+            <source>切换账号时无法保存新凭据，也未能恢复原账号的凭据（%1）。
 
-现在盘上的登录状态对不上，请在这台机器上重新登录一次。</source>
+请在此设备上重新登录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
             <source>
 
-已经退回原来的账号，盘上的登录状态没有变。</source>
+已恢复原账号及其登录状态。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>删掉当前账号后，盘上的登录状态没能清干净：</source>
+            <source>已移除当前账号，清除登录信息失败：</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>账号已经从列表里删掉了，但盘上那份登录状态没能清干净（%1）。
+            <source>账号已从列表移除，但未能清除登录信息（%1）。
 
-再删一次不会有了（列表里已经没有它）；点一次「登出」把它们清掉即可。</source>
+请选择「退出登录」重试。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>删掉了当前账号，已一并清除盘上的登录状态。</source>
+            <source>已移除当前账号并清除其登录信息。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>登出之前，没能把当前账号收进列表：</source>
+            <source>退出登录前，保存当前账号失败：</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>退出登录：盘上的登录状态没能清干净：</source>
+            <source>退出登录时清除登录信息失败：</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>已退出登录（账号仍然留在已保存的列表里）。</source>
+            <source>已退出登录，账号仍保存在列表中。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>离线账号得有个名字。</source>
+            <source>离线账号名称不能为空。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>离线账号的名字最多 16 个字符。</source>
+            <source>离线账号名称最多为 16 个字符。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>离线账号的名字里不能有空格或控制字符。</source>
+            <source>离线账号名称不能含空格或控制字符。</source>
             <translation type="unfinished"></translation>
         </message>
     </context>
@@ -274,7 +274,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>当前这一步停不得（停下来会留下半成品），等它走完这一段再取消。</source>
+            <source>当前步骤无法安全中止。请在此步骤完成后取消。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -282,7 +282,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>导出会把整理好的文件打成一个压缩包，中途停止会留下不完整的包；这一项不支持取消。</source>
+            <source>导出正在生成压缩包。为避免留下不完整的文件，压缩阶段无法取消。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -387,7 +387,7 @@
     <context>
         <name>AgentComposer</name>
         <message>
-            <source>描述你遇到的问题…</source>
+            <source>描述遇到的问题…</source>
             <translation type="unfinished"></translation>
         </message>
     </context>
@@ -402,7 +402,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>本次自动读取的日志/元数据可能发送给当前模型服务：%1</source>
+            <source>自动读取的以下日志或元数据可能发送给当前模型服务：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -482,7 +482,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>本会话已改回明文存储</source>
+            <source>此会话改为明文存储</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -494,7 +494,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>实例锁定写盘失败：%1</source>
+            <source>保存实例锁定设置失败：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -586,7 +586,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>会删除这份模型配置和它保存的 API 密钥。会话本身保留。确定吗？</source>
+            <source>将删除此模型配置及其 API 密钥，保留会话记录。确认删除？</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -780,7 +780,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>描述你遇到的问题…</source>
+            <source>描述遇到的问题…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -950,7 +950,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>不自动读取任何日志和文件，每次发送前先给你看要发出去的内容。</source>
+            <source>关闭自动读取，发送前显示将发送的内容。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -1038,7 +1038,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这份配置</source>
+            <source>当前配置</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -1046,7 +1046,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>删除这份配置</source>
+            <source>删除此配置</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -1062,7 +1062,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>点「保存」后清除已存密钥。</source>
+            <source>保存后清除已存密钥。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -1074,7 +1074,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>还没保存密钥。填好后点「保存」。</source>
+            <source>尚未保存密钥。填写后选择「保存」。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -1086,11 +1086,11 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>只发送你输入的文字。日志、崩溃报告和任何文件都要你逐次同意后才读取，发送前会先给你看内容。</source>
+            <source>仅发送输入的文字。读取日志、崩溃报告或文件前，须逐次确认。发送前会显示内容。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>你输入的文字，以及关联实例的日志末尾、最新一份崩溃报告和版本信息（都会先去掉账号信息）。配置文件和其他文件，读取前会先问你。</source>
+            <source>发送输入的文字，以及关联实例的日志末尾、最新崩溃报告和版本信息。发送前移除账号信息。读取配置及其他文件前须确认。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -1312,7 +1312,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>一次最多算 %1 件（再多要穷举的次序就太多了）。</source>
+            <source>最多支持计算 %1 件物品。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -1324,7 +1324,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>算不出计划来（这一组东西可能会有互斥的附魔）。</source>
+            <source>无法生成合并方案。请检查附魔是否互斥。</source>
             <translation type="unfinished"></translation>
         </message>
     </context>
@@ -1635,31 +1635,31 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>盔甲材质认不出来（下标 %1）。</source>
+            <source>盔甲材质编号无效（%1）。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>纹饰图案认不出来（下标 %1）。</source>
+            <source>纹饰图案编号无效（%1）。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>纹饰材料认不出来（下标 %1）。</source>
+            <source>纹饰材料编号无效（%1）。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>海龟壳只有头盔那一件 —— 没有整套。</source>
+            <source>海龟壳只能用作头部装备。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>部位认不出来（下标 %1）。</source>
+            <source>装备部位编号无效（%1）。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>做几件只能是 1–4 件（你给了 %1）。</source>
+            <source>装备数量须在 1 至 4 之间，当前为 %1 件。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>海龟壳只有头盔那一件 —— 没有%1。</source>
+            <source>海龟壳只能用作头部装备，无法用于%1。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -1671,11 +1671,11 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1是 Java %2 才加入的 —— 更早的版本里没有这枚模板。</source>
+            <source>%1 纹饰模板自 Java 版 %2 起可用。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」是 Java %2 才加入的纹饰材料 —— 更早的版本里没有。</source>
+            <source>「%1」纹饰材料自 Java 版 %2 起可用。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -1683,7 +1683,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>去锻造台，把%1 + %2 + 每件盔甲各摆一次（一共四次）</source>
+            <source>在锻造台中，用%1和%2分别处理四件盔甲。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -1699,7 +1699,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>去锻造台：把%1 + %2 + %3 摆进去</source>
+            <source>在锻造台中放入%1、%2和%3。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -1745,7 +1745,7 @@
     <context>
         <name>ArmorTrimPreviewController</name>
         <message>
-            <source>预览资源下载超过 600 秒，已停止；可重新点击下载续传。</source>
+            <source>预览资源下载超过 600 秒，已停止。重新下载可继续未完成的部分。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -1832,11 +1832,11 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>打不开浏览器</source>
+            <source>无法打开浏览器</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能打开这一条网址：
+            <source>无法打开网址：
 %1</source>
             <translation type="unfinished"></translation>
         </message>
@@ -1903,7 +1903,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>不认识的已知集合清单格式版本。</source>
+            <source>不支持此已知资源清单的格式版本。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -1975,7 +1975,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 的总字节数和对象列表对不上。</source>
+            <source>%1 的总大小与对象列表不一致。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -1986,15 +1986,15 @@
     <context>
         <name>AuthManager</name>
         <message>
-            <source>这个版本暂时不能登录正版账号，可以先用离线账号进游戏。已保存的账号不会丢失。</source>
+            <source>此版本未配置微软登录。已保存的账号仍会保留，可使用离线账号进入游戏。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个版本的正版登录暂时用不了，可以先用离线账号进游戏。</source>
+            <source>此版本的微软登录配置有误。可使用离线账号进入游戏。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>无法启动回调服务器（端口 %1 被占用？）。</source>
+            <source>无法在本机端口 %1 启动登录回调。请检查该端口是否被占用。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -2002,17 +2002,17 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>登录没有完成（等了 %1 分钟，浏览器那头一直没回来）。
-再试一次，或者检查一下网络和代理设置。</source>
+            <source>等待浏览器返回授权结果超过 %1 分钟，登录已超时。
+请重新登录，或检查网络和代理设置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>还没有登录过，或者登录信息已经不完整了。</source>
+            <source>未找到完整的登录信息，请重新登录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1：这份登录凭据是另一个应用签发的，当前这个应用换不了它（AADSTS70000）。
-重新登录一次就会作废旧的、存下新的，重试没有用。</source>
+            <source>%1：登录凭据由另一个应用签发（AADSTS70000）。
+请重新登录以获取当前应用的凭据。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -2020,25 +2020,25 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>该微软账号已被 Xbox Live 封禁，请更换账号登录。</source>
+            <source>此微软账号已被 Xbox Live 封禁，请更换账号。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>该微软账号尚未注册 Xbox 档案，无法获取 Minecraft 令牌。
-请用同一账号在 xbox.com 登录一次（会提示创建档案），然后重试。</source>
+            <source>此微软账号尚未创建 Xbox 档案。
+请使用同一账号在 xbox.com 创建档案，再重新登录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>该微软账号所在国家或地区不支持 Xbox Live。
-请更换账号，或修改账号的国家或地区设置。</source>
+            <source>Xbox Live 在此微软账号所属的国家或地区不可用。
+请更换账号，或检查微软账号的地区设置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>该微软账号需先在 Xbox 官网完成成人验证后才能登录。</source>
+            <source>此账号需要验证年龄。请在 Xbox 官网完成成人验证后重新登录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>该账号为未成年账号，需由家长将其加入 Microsoft 家庭组后才能登录。</source>
+            <source>此账号需要监护人授权。请由监护人将其加入 Microsoft 家庭组后重新登录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -2046,13 +2046,12 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个 Azure 应用还没有被 Mojang 批准调用 Minecraft 接口，所以换不出 Minecraft 令牌。
-账号本身没问题（Xbox Live 认证和 XSTS 授权都过了），不用换账号、也不用重登。
-拿这个应用的 App ID（客户端 ID）到 https://aka.ms/mce-reviewappid 提交申请，批准之后同一个账户就能登录。</source>
+            <source>该 Azure 应用尚未获准访问 Minecraft 登录服务。
+请由应用管理员在 https://aka.ms/mce-reviewappid 提交应用程序（客户端）ID。获批后可使用同一账号重新登录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>&lt;html&gt;&lt;body&gt;&lt;h1&gt;登录成功&lt;/h1&gt;&lt;p&gt;你可以关闭此窗口。&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+            <source>&lt;html&gt;&lt;body&gt;&lt;h1&gt;登录成功&lt;/h1&gt;&lt;p&gt;可关闭此窗口。&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -2068,23 +2067,23 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一趟登录换了账号但没换到底，已把盘上的微软令牌一并清掉（下次启动不会再拿它续成别人的登录）。</source>
+            <source>账号切换未完成。已清除本次登录获取的微软令牌，请重新登录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>换取微软令牌失败</source>
+            <source>获取微软登录令牌失败</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>登录信息保存失败（写不进配置文件）。</source>
+            <source>无法写入启动器设置，登录信息未保存。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>微软的响应里没有令牌。</source>
+            <source>微软登录服务未返回令牌。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没有可用的刷新凭据，请重新登录。</source>
+            <source>登录凭据无法续期，请重新登录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -2092,7 +2091,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>刷新登录时切换了账号，本次刷新已作废（磁盘上的登录信息未改动）。</source>
+            <source>刷新期间切换了账号，已取消刷新，原有登录信息已保留。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -2100,7 +2099,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>Xbox Live 认证的响应里没有令牌。</source>
+            <source>Xbox Live 未返回认证令牌。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -2108,7 +2107,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>XSTS 授权的响应里没有令牌。</source>
+            <source>Xbox 未返回 XSTS 授权令牌。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -2116,12 +2115,12 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>Minecraft 服务的响应里没有令牌。</source>
+            <source>Minecraft 登录服务未返回令牌。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>该微软账号未购买 Minecraft，无法获取游戏档案。
-请更换已购买游戏的账号登录。</source>
+            <source>此微软账号没有 Minecraft 游戏档案。
+请使用已购买游戏且已创建档案的账号登录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -2129,7 +2128,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>游戏档案里没有玩家名。</source>
+            <source>Minecraft 游戏档案缺少玩家名称。</source>
             <translation type="unfinished"></translation>
         </message>
     </context>
@@ -2178,8 +2177,7 @@
 还原前目录：
 %2
 
-标记已检查只归档日志，两份数据均保留，不会删除任何一份。
-点「用旧目录替换」会换成还原前目录，换下来的当前目录留在旁边，并登记一条可退回的恢复记录。</source>
+「标记已检查」将归档此记录并保留两个目录。「用旧目录替换」将恢复还原前的目录，另存当前目录，并记录恢复操作。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -2225,7 +2223,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>将用这份旧目录替换当前目录：
+            <source>将使用旧目录替换当前目录。
 
 旧目录：
 %1
@@ -2233,7 +2231,7 @@
 当前目录：
 %2
 
-被替换下来的当前目录会原样保留在旁边，两份都不删除；这一步会先登记一条可退回的恢复记录。</source>
+当前目录将另存于同级目录。启动器会记录本次替换，以便恢复。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -2263,7 +2261,7 @@
         <message>
             <source>
 
-被替换下来的当前目录原样保留在：
+已保留替换前的目录：
 %1</source>
             <translation type="unfinished"></translation>
         </message>
@@ -2306,23 +2304,20 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>备份目录里有 %1 个名字对得上的压缩包，但包里那份清单说的不是%2备份元数据无效或非本启动器生成。
-
-为了不把不相干的东西解到你的目录里，它们一个都没有列出来：
+            <source>找到 %1 个文件名匹配的备份，但其中的元数据与%2不匹配、无效或来自其他工具。以下文件未列入可还原备份：
 %3
 
-备份放在这儿：%4</source>
+备份目录：%4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>还没有备份</source>
+            <source>没有可还原的备份</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1还没有备份过，所以没有能还原的东西。
+            <source>%1 暂无备份。请先在此页面创建备份。
 
-备份放在这儿：%2
-（在这一页上先做一份备份，再来还原。）</source>
+备份目录：%2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -2330,7 +2325,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>要还原哪一份？（越上面越新）</source>
+            <source>选择要还原的备份。列表按时间从新到旧排列。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -2378,11 +2373,9 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」现在的文件会被备份里那一份整个换掉。
+            <source>还原将替换「%1」的文件。启动器会先创建安全快照，以便撤销还原。
 
-还原之前会自动给现在这一份留一份安全快照，所以这一步是能退回来的。
-
-要还原的是这一份：
+待还原备份：
 %2</source>
             <translation type="unfinished"></translation>
         </message>
@@ -2403,11 +2396,11 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」正在安装、导入或检查，请完成后再做快照 —— 要打包的正是正在被修改的文件。</source>
+            <source>「%1」的文件正在修改。请等待安装、导入或检查完成后再创建快照。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」正在运行。先关掉游戏再做快照 —— 游戏开着的时候存档、日志这些文件一直在变。</source>
+            <source>「%1」正在运行。请退出游戏后再创建快照，避免备份尚未写完的存档和日志。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -2415,9 +2408,9 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>快照会把「%1」整个目录打成一个压缩包，需要时可整体还原。
+            <source>快照将「%1」的实例目录打包，以便整体还原。
 
-默认不打包 assets 和 libraries：这两部分能重新下载，通常有几百 MB 到几个 GB。</source>
+默认跳过可重新下载的 assets 和 libraries。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -2458,7 +2451,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」正在安装或运行，请停止后再还原 —— 这一步会替换整个实例目录。</source>
+            <source>「%1」正在安装或运行。还原将替换实例目录，请先停止相关操作。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -2470,11 +2463,9 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」现在的文件会被快照里那一份整个换掉 —— 模组、配置、存档全算。
+            <source>还原快照将替换「%1」的模组、配置和存档。启动器会先备份当前实例，以便撤销还原。
 
-还原之前会自动给现在这一份留一份安全快照，所以这一步是能退回来的。
-
-要还原的是这一份：
+待还原快照：
 %2</source>
             <translation type="unfinished"></translation>
         </message>
@@ -2499,7 +2490,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>把现在这一份收起来</source>
+            <source>备份当前实例</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -2526,7 +2517,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1：已取消，没有留下半成品。</source>
+            <source>%1：已取消，未保留不完整的文件。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -2534,11 +2525,11 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>核对过 %1 个文件，全都对得上</source>
+            <source>已校验 %1 个文件，全部通过。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>已经还原好了。核对过 %1 个文件，全都对得上。</source>
+            <source>还原完成。已校验 %1 个文件，全部通过。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -2548,12 +2539,12 @@
         <message>
             <source>
 
-还原之前的「现在这一份」也留着，在这儿：
+还原前的快照已保存在：
 %1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>核对过 %1 个文件</source>
+            <source>已校验 %1 个文件</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -2855,19 +2846,19 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>底色认不出来（下标 %1）—— 十六色里挑一个。</source>
+            <source>底色编号无效（%1）。请从 16 种颜色中选择。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>原版织布机最多叠 %1 层（你现在排了 %2 层）—— 去掉几层再来。</source>
+            <source>原版织布机最多支持 %1 层，当前有 %2 层。请移除多余图层。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>第 %1 层的图案认不出来（下标 %2）。</source>
+            <source>第 %1 层的图案编号无效（%2）。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>第 %1 层的颜色认不出来（下标 %2）。</source>
+            <source>第 %1 层的颜色编号无效（%2）。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -2891,11 +2882,11 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」是 %2 起才加的图案 —— 更早的版本里织布机里找不到这一样。</source>
+            <source>图案「%1」自 %2 版起可用。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>第 %1 层和第 %2 层完全一样 —— 画面上等于只叠了一层。</source>
+            <source>第 %1 层和第 %2 层图案及颜色相同，显示效果与单层相同。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -2990,7 +2981,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>认不出这种底座方块（%1）。</source>
+            <source>无效的信标底座方块（%1）。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -3010,7 +3001,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 颗信标挨着摆（%2 × %3 的一团）能共用底座：%4 级只要 %5 块，各盖一座则要 %6 块 —— 共用的是重叠的那些方块，不是「一颗信标一座金字塔」。</source>
+            <source>%1 个信标按 %2 × %3 相邻排列时，可共用底座。%4 级底座共需 %5 块方块，分别建造则需 %6 块。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -3030,15 +3021,15 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>• 你现在是 %1 级：再补 %2 块</source>
+            <source>• 当前为 %1 级，还需 %2 块方块</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>• 你现在是 %1 级：不需要再加方块</source>
+            <source>• 当前为 %1 级，无需添加方块</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>• 你现在是 %1 级，高于目标；降级要自己拆</source>
+            <source>• 当前为 %1 级，高于目标级别；降低级别需要拆除方块</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -3241,23 +3232,23 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>认不出这种药水（下标越界）。</source>
+            <source>药水类型编号超出范围。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>红石粉（延长）和荧石粉（升一级）在游戏里是二选一：后加的那一样会把先加的冲掉。</source>
+            <source>红石粉仅延长时长，荧石粉仅提高等级。两种效果互斥，以最后添加的材料为准。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1没有延长版本（游戏里不能给它加红石粉）。</source>
+            <source>%1不支持用红石粉延长时长。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1没有强化版本（游戏里不能给它加荧石粉）。</source>
+            <source>%1不支持用荧石粉提高等级。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>认不出这种形态（下标越界）。</source>
+            <source>药水形态编号超出范围。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -3265,7 +3256,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>玻璃瓶装水 → 水瓶（要几瓶就摆几瓶，一次最多 %1 瓶）</source>
+            <source>将玻璃瓶装满水，准备最多 %1 瓶水瓶。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -3398,11 +3389,11 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>文件不是 UTF-8 编码，保存会把内容弄坏，只能查看。</source>
+            <source>文件使用非 UTF-8 编码。为保护内容，已按只读方式打开。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个文件太大了（%1 MB 是这里给的上限），只给看不给改。</source>
+            <source>文件超过 %1 MB 的编辑上限，已按只读方式打开。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -3438,7 +3429,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这份文件里没认出设置项</source>
+            <source>文件中未找到可编辑的设置项</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -3446,7 +3437,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>改完点「保存」写到盘上。原来是什么行尾、有没有 BOM，都不动。</source>
+            <source>选择「保存」后写入文件。保留原文件的换行格式和 BOM。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -3480,15 +3471,15 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一格是空的：把游戏里 F3+C 复制的那一条粘进来。</source>
+            <source>请粘贴在游戏中按 F3+C 复制的坐标命令。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这条 `execute` 看不懂：只认 `execute in &lt;维度&gt; run &lt;命令&gt;` 这一种。</source>
+            <source>仅支持格式为 `execute in &lt;维度&gt; run &lt;命令&gt;` 的 `execute` 命令。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>维度认不出来：`%1`。</source>
+            <source>无法识别维度：`%1`。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -3508,7 +3499,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这三个数里有 `~` / `^`（相对坐标）：它说的是「从这里往前几格」，得先知道你现在站在哪儿才能算 —— 先站到你那一点再复制一次。</source>
+            <source>输入含 `~` 或 `^` 相对坐标。请站到目标位置后复制绝对坐标。</source>
             <translation type="unfinished"></translation>
         </message>
     </context>
@@ -3571,7 +3562,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个文件没能写出来（%1）：
+            <source>无法写入文件（%1）：
 %2</source>
             <translation type="unfinished"></translation>
         </message>
@@ -3584,16 +3575,16 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>游戏没有在 %1 下写过崩溃报告。
+            <source>未在 %1 中找到崩溃报告。
 
-游戏跑到一半被强制结束、或者压根没跑到能写报告那一步时，是不会有这一份的。</source>
+进程被强制终止或在生成报告前退出时，可能没有报告。</source>
             <translation type="unfinished"></translation>
         </message>
     </context>
     <context>
         <name>DefaultSkin</name>
         <message>
-            <source>建不出皮肤缓存目录 %1。</source>
+            <source>无法创建皮肤缓存目录 %1。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -3605,7 +3596,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>认不出这个名字对应的 uuid。</source>
+            <source>找不到此玩家名称对应的 UUID。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -3828,7 +3819,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>已暂停；完整分段保留。继续时重新取得地址并校验缓存，未完成分段可能重下。</source>
+            <source>已暂停下载。继续时将重新获取下载地址并校验分段缓存，未完成分段可能需要重新下载。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -3950,15 +3941,15 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」的首启资源已预取：%2</source>
+            <source>「%1」的首次启动资源已预取：%2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」的首启资源预取已由用户取消（已下好的文件留在原处）。</source>
+            <source>已取消「%1」的首次启动资源预取。已下载的文件会保留。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」的首启资源没预取完：%2</source>
+            <source>「%1」的首次启动资源下载不完整：%2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -3988,7 +3979,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>已清空%1那一页的搜索条件。</source>
+            <source>已清空%1页面的搜索条件。</source>
             <translation type="unfinished"></translation>
         </message>
     </context>
@@ -3999,11 +3990,11 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这份 version.json 里的资源索引号不能当文件名用，没有下载资源。</source>
+            <source>version.json 中的资源索引名称无效，已跳过资源下载。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>sha1 对不上（期望 %1，实际 %2）</source>
+            <source>SHA-1 校验失败（预期 %1，实际 %2）</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -4146,7 +4137,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>找不到这份文件</source>
+            <source>找不到文件</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -4162,7 +4153,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>它没有后缀名，认不出是哪一类</source>
+            <source>文件缺少扩展名，无法识别类型</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -4178,7 +4169,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>它读不动</source>
+            <source>无法读取文件</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -4198,7 +4189,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>里面既没有整合包清单、也没有 pack.mcmeta 或 shaders/，认不出是哪一类</source>
+            <source>未找到整合包清单、pack.mcmeta 或 shaders/，无法识别压缩包类型</source>
             <translation type="unfinished"></translation>
         </message>
     </context>
@@ -4265,7 +4256,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>可能的原因（按规则判的，不是猜的）</source>
+            <source>可能原因</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -4308,7 +4299,7 @@
     <context>
         <name>FileHash</name>
         <message>
-            <source>打不开这个文件：%1</source>
+            <source>无法打开文件：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -4320,7 +4311,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一格里没有十六进制的字符。</source>
+            <source>请输入十六进制摘要。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -4328,11 +4319,11 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>长度对不上：这一串有 %1 位，SHA-256 是 64 位、SHA-1 是 40 位、MD5 是 32 位。</source>
+            <source>摘要有 %1 个字符。SHA-256、SHA-1 和 MD5 分别要求 64、40 和 32 个十六进制字符。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>写的算法和长度对不上：标的是 %1（%2 位），实际是 %3 位。</source>
+            <source>摘要长度与所选算法不匹配。%1 要求 %2 个字符，实际为 %3 个。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -4359,11 +4350,11 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>建不出目录 %1</source>
+            <source>无法创建目录 %1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>写不进 %1（%2）</source>
+            <source>无法写入 %1（%2）</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -4387,7 +4378,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一项的现场已经不在（启动器重启或报告被清掉了），请重新开始那一次操作。</source>
+            <source>原操作的恢复记录已清除。请重新发起操作。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -4446,7 +4437,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>续做结果没能写回报告：%1</source>
+            <source>无法将继续执行的结果写入报告：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -4493,15 +4484,13 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」会从上面这个列表里移除。
-
-文件夹本身和里面的文件都不会被删掉 —— 这一步只动启动器的列表，盘上一个字节都不动。</source>
+            <source>将从启动器列表中移除「%1」。该目录和其中的文件将保留。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
             <source>
 
-它是启动器当前在用的那一份，移除之后改用「%1」。</source>
+移除当前游戏目录后，将使用「%1」。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -4517,7 +4506,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能把「%1」从列表里移除。</source>
+            <source>无法从列表中移除「%1」。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -4525,7 +4514,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>不认识的文件夹动作：%1</source>
+            <source>未知的游戏目录操作：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -4541,9 +4530,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>新名字（现在显示的是「%1」）。
-它只用在启动器的这个列表上，磁盘上的目录名一个字都不动；
-清空这一行就恢复默认的名字。</source>
+            <source>当前显示名称为「%1」。仅修改启动器列表中的名称。留空可恢复默认名称。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -4563,11 +4550,11 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」现在不在盘上（U 盘没插、或者目录被挪走了）。</source>
+            <source>找不到「%1」。请确认目录仍在原位置，且存储设备已连接。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能打开「%1」。</source>
+            <source>无法打开「%1」。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -4583,16 +4570,15 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」这个文件夹和里面的全部文件都会被删掉（会进回收站，可以从那里还原）。
+            <source>「%1」及其中的存档、截图、模组等文件将移入回收站，可从回收站恢复。
 
-存档、截图、自己放的模组都在这份目录里。
-若仅从列表中移除请使用「移除」操作，磁盘文件将予以保留。</source>
+如需保留磁盘上的文件，请改用「移除」。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
             <source>
 
-它是启动器当前在用的那一份，删掉之后改用「%1」。</source>
+删除当前游戏目录后，将切换到「%1」。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -4607,7 +4593,7 @@
     <context>
         <name>FolderManager</name>
         <message>
-            <source>「%1」这个链接摘不掉（可能正被别的程序占着）。</source>
+            <source>无法移除链接「%1」。请检查是否被其他程序占用。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -4615,7 +4601,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能把链接「%1」删掉（可能正被别的程序占着）。</source>
+            <source>无法删除链接「%1」。请检查链接是否被其他程序占用。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -4623,55 +4609,50 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」在 %2 上，那里没有回收站。
-
-为了不永久删掉，这一项没有动。</source>
+            <source>「%1」所在的 %2 不支持回收站。为避免永久删除，已保留文件。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」的权限不允许删除：这一项（或者它所在的目录）上面挂了拒绝删除的 ACL。
-
-在「属性 → 安全 → 高级」里找到那条拒绝项去掉，或者用管理员身份重试。这一项没有动。</source>
+            <source>「%1」或其上级目录的权限阻止删除。请检查「属性 → 安全 → 高级」中的删除权限，再重试。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」正被别的程序占着（多半是游戏还开着）。
+            <source>「%1」正被其他程序占用，未执行删除。
 
-把它关掉再试。这一项没有动。</source>
+请关闭相关程序后重试。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」没有往回收站移：里面有一个链接没能摘掉。
+            <source>未能移除「%1」中的链接，目录未移入回收站。
 
 %2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这台机器上起不了回收站那一套组件，为了不永久删掉，「%1」没有动。</source>
+            <source>系统回收站组件无法启动，已保留「%1」。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>打不开回收站：%1
-
-为了不永久删掉，「%2」没有动。</source>
+            <source>无法访问回收站：%1
+「%2」已保留。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
             <source>无法将「%1」移入回收站：%2
 
-（原因可能是回收站不可用、空间不足，或其中的文件正被其他程序占用；请先关闭游戏再试。）</source>
+请检查回收站与磁盘空间，关闭占用文件的程序后重试。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」移进回收站的过程被打断了，盘上可能剩了一部分 —— 看一眼回收站和原目录再决定下一步。</source>
+            <source>「%1」未完全移入回收站。请核对回收站与原目录中的文件。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」仍在磁盘上，移入回收站未生效。</source>
+            <source>未能将「%1」移入回收站。目录仍在原位置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个平台没有回收站，「%1」没有动。</source>
+            <source>此平台不支持回收站，已保留「%1」。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -4739,9 +4720,9 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」没能整个移进回收站：%2
+            <source>「%1」未完全移入回收站：%2
 
-已经移走的那部分在回收站里，可以还原。</source>
+已移入的文件可从回收站恢复。</source>
             <translation type="unfinished"></translation>
         </message>
     </context>
@@ -4820,39 +4801,39 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>给游戏分了 %1 MB 堆内存，而这台机器总共只有 %2 MB —— JVM 会因为分配不到内存起不来、或者跑一半被系统杀掉。可以在「设置 → 启动」里把它调小。</source>
+            <source>分配给游戏的堆内存为 %1 MB，设备总内存为 %2 MB。游戏可能无法启动或在运行中退出。请在「设置 → 启动」中调低内存分配。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>给游戏分了 %1 MB 堆内存，占了这台机器 %2 MB 的四分之三以上 —— 系统和其他程序一起抢的时候容易不够用。</source>
+            <source>游戏分配了 %1 MB 堆内存，超过设备总内存 %2 MB 的四分之三。请为系统和其他程序预留内存。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>日志里有 OutOfMemoryError —— 这一次是真的把分给它的内存用完了。</source>
+            <source>日志记录了 OutOfMemoryError，游戏可用内存不足。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>日志里写着有模组的前置没装 —— 在「文件」那一页点「检查更新」能看到缺的是哪一个。</source>
+            <source>日志显示缺少模组依赖。请在「文件」页选择「检查更新」，查看所需依赖。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>崩在「坏内存」那一类上（%1）—— 原版环境里这多半是本机的驱动或者安全软件插手了游戏进程。</source>
+            <source>游戏出现内存访问错误（%1）。请检查设备驱动和安全软件是否影响游戏进程。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>崩在「坏内存」那一类上（%1）—— 模组（或者它没装上的前置）和这个游戏版本对不上时，最常见的症状就是这个。</source>
+            <source>游戏出现内存访问错误（%1）。请检查模组及其依赖是否与游戏版本兼容。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>进程在加载阶段就死了（%1）—— 常见于系统缺一个运行库（比如 VC++ 运行库），或者安全软件把加载器要的一个文件拦掉了。</source>
+            <source>游戏在加载阶段退出（%1）。请检查系统运行库及加载器文件是否完整。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>日志里一条 ERROR/Fatal 都没有 —— 这多半不是崩溃，是游戏自己退出的（比如点了退出，或者这个存档已经在别的地方开着）。</source>
+            <source>日志中未记录 ERROR 或 Fatal。请确认游戏是否正常退出，或存档是否在其他进程中打开。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>本次没有收到游戏的输出：进程启动后没有任何输出。多半是 JVM 尚未初始化就退出了，请先确认「设置 → 启动」中的 Java 是否正确、内存是否设置过高。</source>
+            <source>游戏进程退出前未生成日志。请在「设置 → 启动」中确认 Java 路径及内存分配。</source>
             <translation type="unfinished"></translation>
         </message>
     </context>
@@ -4903,7 +4884,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这里是这一份游戏自己的输出，和日志文件里的是同一份。关掉这个窗口不会停游戏。</source>
+            <source>此窗口显示本次运行的游戏日志。关闭窗口后，游戏会继续运行。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -4931,11 +4912,11 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>还没有输出…</source>
+            <source>等待游戏输出…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>当前筛选下没有日志，勾选上方对应的级别即可显示。</source>
+            <source>当前筛选无日志。勾选要查看的日志级别。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -5237,7 +5218,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一场游戏已经结束了，它那份日志窗也跟着没了。</source>
+            <source>游戏已退出，日志窗口已关闭。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -5273,17 +5254,15 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」正在运行（共 %2 个游戏进程，这一下全部停止）。
+            <source>「%1」正在运行，将强制结束全部 %2 个游戏进程。
 
-停止会直接结束游戏进程 —— 游戏不会存档，没保存的进度会丢。
-要停止它吗？</source>
+未保存的进度会丢失。确认停止？</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」正在运行。
+            <source>「%1」正在运行。强制结束游戏会丢失未保存的进度。
 
-停止会直接结束游戏进程 —— 游戏不会存档，没保存的进度会丢。
-要停止它吗？</source>
+确认停止？</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -5349,13 +5328,13 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个版本要 Java %1，而「设置」里选的那份是 Java %2，本机也没有更合适的（扫到的最高是 Java %3）。
+            <source>此版本需要 Java %1，当前使用 Java %2，检测到的最高版本为 Java %3。
 
-先装一个 Java %1，或者到「设置」里把路径指过去。</source>
+请安装 Java %1，或在设置中指定 Java 路径。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>认不出来</source>
+            <source>版本未知</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -5363,11 +5342,11 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>Java 选的是「手动指定」，而</source>
+            <source>当前设置为手动指定 Java，</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>还没指定路径</source>
+            <source>未指定路径</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -5375,7 +5354,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source> —— 不自动更换，直接失败。</source>
+            <source>，未找到兼容版本时取消启动。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -5448,7 +5427,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>只能有一个收藏组 —— 打开这一颗，别的组就不再作为收藏来源。</source>
+            <source>只能设置一个收藏组。启用此组会取消其他组的收藏状态。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -5573,7 +5552,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>平台未提供规范项目网址，无法可靠打开文件页。请按报告中的项目和文件编号手动查找；这不代表文件已下架。</source>
+            <source>平台未返回可用的项目链接。请根据报告中的项目编号和文件编号查找。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -5638,7 +5617,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>报告没有规范项目网址，不能可靠打开文件页。请按项目和文件编号手动查找，或重新导入原包刷新元数据；这不代表文件已下架。</source>
+            <source>报告缺少可用的项目链接。请按项目编号和文件编号查找，或重新导入整合包以更新记录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -5733,9 +5712,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>无法打开这个文件：它不是 zip 压缩包（也可能已损坏）。
-
-整合包得是 zip：Modrinth 的 .mrpack 也是 zip，只是换了个后缀。</source>
+            <source>无法打开 ZIP 压缩包。请检查整合包格式和文件完整性。Modrinth 的 .mrpack 文件也使用 ZIP 格式。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -5756,12 +5733,12 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个压缩包里那份 %1 没能解出来：
+            <source>无法从压缩包中解出 %1：
 %2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个压缩包里那份 %1 打不开：
+            <source>无法打开压缩包中的 %1：
 %2</source>
             <translation type="unfinished"></translation>
         </message>
@@ -5770,9 +5747,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个压缩包里是一个服务端包（里面没有客户端要的 config、资源包这些，只有服务端启动用的文件）。
-
-客户端无法安装它。要开服的话用「新建服务端」，把这份包解到服务端目录里。</source>
+            <source>这是服务端整合包。请使用「新建服务端」，并将内容解压到服务端目录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -5780,15 +5755,15 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个压缩包里是一个世界存档（里面有 level.dat），不是整合包。
+            <source>压缩包包含 level.dat，是世界存档。
 
-存档请放进实例的 saves/ 目录：在「存档」页点「导入存档…」，或者直接把压缩包拖到那一页上。</source>
+请在实例的「存档」页选择「导入存档」，或将压缩包拖到该页。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个压缩包里只有一堆模组（mods/ 或者几份 .jar），没有整合包清单。
+            <source>压缩包包含模组文件，缺少整合包清单。
 
-它不是整合包，按整合包导进来只会建一个空实例。要用这些模组的话：在实例的「模组」页点「安装模组…」逐份添加，或者把它解压后把 jar 拖到那一页上。</source>
+请解压后将 JAR 文件拖到实例的模组列表，或在「模组」页选择「安装模组」。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -5796,7 +5771,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>无法打开这个文件：它不是 zip 压缩包（也可能已损坏）。</source>
+            <source>无法打开 ZIP 压缩包。请检查文件格式和完整性。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -5846,9 +5821,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这份整合包的清单里一条文件都没有，压缩包里也没有它说的那一层（%1）。
-
-清单可能被改坏了，没有导入。</source>
+            <source>整合包清单未列出文件，压缩包中也缺少目录 %1。导入已取消。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -5865,11 +5838,9 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>versions 下面已经有一个「%1」了，是上一次没下完的导入。
+            <source>versions 目录中已有未完成的导入「%1」。
 
-接着往它里面下吗？已经下好的文件会按 sha1 跳过、不会重下，没下成的那几个会重新下。
-
-选「否」就换个名字重新导入 —— 那样已经下好的那些要重下一遍。</source>
+继续时会复用通过 SHA-1 校验的文件，并下载缺失文件。选择「否」将以其他名称重新导入。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -5885,7 +5856,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>正在向 CurseForge 换取文件清单...</source>
+            <source>正在获取 CurseForge 文件清单…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -5930,9 +5901,9 @@ Minecraft：%2%3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>选中文件可打开对应网页。可以先安装其余内容，但文件未补齐时不会标记为成功。
-补齐位置：%1
-重新导入同一个包和实例名可重新校验。</source>
+            <source>选中文件可打开项目页面。缺失文件补齐前，安装会保留未完成状态。
+文件应放到：%1
+请使用同一整合包及实例名称重新导入，以校验补齐的文件。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -5956,9 +5927,9 @@ Minecraft：%2%3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 里已经有一个「%2」了。
+            <source>%1 中已存在「%2」。
 
-「跳过已有项」保留现在那一份、不装这一份；「取消」会停掉这一批剩下的文件。</source>
+「跳过已有项」会保留原文件。「取消」将停止处理剩余文件。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -5970,19 +5941,19 @@ Minecraft：%2%3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>建不出 %1。</source>
+            <source>无法创建 %1。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>建不出目录。</source>
+            <source>无法创建导入目录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>写不进 %1：%2</source>
+            <source>写入 %1 失败：%2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>读不了拖进来的那一份 %1。</source>
+            <source>无法读取拖入的 %1。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -5990,7 +5961,7 @@ Minecraft：%2%3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>读不了拖进来的那一份 %1（%2）。</source>
+            <source>无法读取拖入的 %1（%2）。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -6002,13 +5973,11 @@ Minecraft：%2%3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>先处理一下没保存的改动</source>
+            <source>有未保存的修改</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个实例的设置里还有没保存的改动，现在不能离开这一页。
-
-先把它处理掉（存下来或者丢掉），再拖一次。</source>
+            <source>当前设置有未保存的修改。保存或丢弃修改后，再拖入文件。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -6016,7 +5985,7 @@ Minecraft：%2%3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>认不出来</source>
+            <source>无法识别文件类型</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -6048,7 +6017,7 @@ Minecraft：%2%3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>拖进来的东西认不出来</source>
+            <source>无法识别拖入的文件</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -6070,11 +6039,11 @@ Minecraft：%2%3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>还没有实例</source>
+            <source>没有可用实例</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>盘上还没有装好的实例，先把文件拖到某个实例的设置页里，或者先装一个。</source>
+            <source>未找到已安装的实例。请先安装实例，再将文件拖到实例设置页。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -6219,7 +6188,7 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>一项都没勾 —— 没有什么可搬的。</source>
+            <source>未选中要迁移的项目。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -6345,7 +6314,7 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>快速启动区显示的就是收藏的那几份；「保留原入口」保持现在的样子，「不加入」会把原来那一条也收起来（以后随时能再加回来）。</source>
+            <source>快速启动显示收藏的实例。「保留原入口」维持当前设置，「不加入」会移除现有入口，可随时恢复。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -6546,13 +6515,13 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>已备份存档信息。手动还原时把备份复制到存档目录并命名为 level.dat。
+            <source>已备份存档信息。手动还原时，将备份复制到存档目录并命名为 level.dat。
 
 备份位置：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能留成备份：%1</source>
+            <source>备份创建失败：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -6604,7 +6573,7 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能备份</source>
+            <source>备份创建失败</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -6671,7 +6640,7 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>读不出来：%1</source>
+            <source>读取失败：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -6714,11 +6683,11 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这份统计只看主世界 region/ 里的 .mca —— 模组生成的地形与维度不在里面，结果可能不完整。</source>
+            <source>仅统计主世界 region/ 目录中的 .mca 文件。模组生成的地形和其他维度可能未计入。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>有 %1 个区域文件的头部不完整（可能已损坏），它们没有计入区块数与范围。</source>
+            <source>有 %1 个区域文件的头部不完整，未计入区块数及范围统计。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -6754,7 +6723,7 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>打不开这个文件</source>
+            <source>无法打开文件</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -6768,21 +6737,17 @@ Minecraft %2 / %3 %4</source>
         <message>
             <source>%1
 
-游戏里那份配置是它自己读进去的，它退出（或者你在游戏里改一次设置）的时候会整份写回来，现在存下去的东西会被它盖掉。
-
-先把游戏关掉，再回来改。</source>
+游戏正在运行，退出或保存设置时可能覆盖本次修改。请先退出游戏。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>盘上那个文件没有了</source>
+            <source>源文件已丢失</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
             <source>%1
 
-打开它的时候它还在，现在盘上已经没有了（被删掉、或者你把它挪走了）。
-
-现在存下去，它会照你框里这一份重新建出来。</source>
+原文件已移除或移动。保存时会用当前编辑内容在原位置重新创建文件。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -6790,13 +6755,13 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>盘上那份被人改过了</source>
+            <source>源文件已被修改</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
             <source>%1
 
-这份文件在你打开之后被别的东西改过（多半是游戏退出时写回，也可能是另一个编辑器）。现在存下去，改它的那一次就没有了。</source>
+文件在打开后发生了变化。继续保存会覆盖外部修改。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -6804,7 +6769,7 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>读盘上那一份</source>
+            <source>重新读取文件</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -6816,26 +6781,26 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>保存之前没能读到原来那一份</source>
+            <source>无法读取原文件</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
             <source>%1
 
-读它读不完（%2），所以这一次没有存 —— 直接写下去的话，它原来是什么样就再也找不回来了。</source>
+无法完整读取原文件（%2），已取消保存以保留原有内容。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>保存之前没能留下原来那一份</source>
+            <source>原文件备份失败</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
             <source>%1
 
-没能往这里写一份备份（%2）：
+无法写入备份（%2）：
 %3
 
-所以这一次没有存 —— 这一页改错了此操作不可撤销，请确认是否覆盖。</source>
+原文件已保留，本次修改未保存。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -6874,7 +6839,7 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>找不到原来那一份了</source>
+            <source>原文件已丢失</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -6886,24 +6851,24 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这份历史版本已被移除或不再位于有效的备份目录中，请重新选择。</source>
+            <source>此历史版本已删除或已移出备份目录，请选择其他版本。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>打不开备份里的那一份</source>
+            <source>无法打开备份文件</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>备份太大，未载入</source>
+            <source>备份超过编辑大小上限</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这份备份超过文本编辑上限，请通过文件管理器查看：
+            <source>此备份超过文本编辑器的大小限制。可在文件管理器中查看：
 %1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>读不完备份里的那一份</source>
+            <source>备份文件读取不完整</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -6918,11 +6883,11 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>改过的东西还没存</source>
+            <source>有未保存的更改</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」上改的那几格还没写下去。现在就返回的话，改的那些就没了。</source>
+            <source>「%1」有未保存的更改。返回会丢弃这些更改。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -6934,11 +6899,9 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」所在的实例还开着游戏。
+            <source>「%1」所在的实例正在运行。游戏保存时可能覆盖本次修改。
 
-游戏里那份存档是它自己读进去的，它退出（或者你在游戏里存一次档）的时候会整份写回来，现在写下去的东西会被它盖掉。
-
-先把游戏关掉，再回来改。</source>
+请退出游戏后再编辑。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -6948,15 +6911,13 @@ Minecraft %2 / %3 %4</source>
         <message>
             <source>%1
 
-之前还在，现在磁盘上已没有它，本次未写入任何内容。</source>
+原文件已丢失，本次未写入。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」的 level.dat 在你打开这一页之后被改过（游戏在跑？别的工具？）。
+            <source>「%1」的 level.dat 在打开后发生了变化。
 
-现在存下去，改它的那一次就没有了。
-
-（仅应用已修改的配置项。）</source>
+保存会将修改过的设置应用到文件，同一设置的外部修改将被覆盖。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -6964,15 +6925,15 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>读不出这个存档了</source>
+            <source>无法读取存档</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」的存档内容读不出来：
+            <source>无法读取存档「%1」：
 
 %2
 
-所以这一次没有存 —— 我们不会在一份读不出来的存档上写东西。</source>
+已取消保存，原存档已保留。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -6984,7 +6945,7 @@ Minecraft %2 / %3 %4</source>
 
 %2
 
-所以这一次没有存，盘上那份原样没动。</source>
+保存已取消，原文件已保留。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -7006,13 +6967,13 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>改过还没保存</source>
+            <source>世界设置有未保存的更改</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个文件刚才改的地方还没写到盘上，离开就会丢掉这些改动。
+            <source>离开后将丢弃尚未保存的修改。
 
-要丢掉吗？</source>
+确认丢弃？</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -7020,13 +6981,13 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>留在这儿</source>
+            <source>继续编辑</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个世界的游戏规则 / 那几格刚才改的地方还没写下去，关掉就丢了。
+            <source>此世界有未保存的设置。关闭后会丢弃这些更改。
 
-要丢掉吗？</source>
+丢弃更改？</source>
             <translation type="unfinished"></translation>
         </message>
     </context>
@@ -7037,11 +6998,11 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>认不出这个实例的原版版本号，无法写 mmc-pack.json。</source>
+            <source>无法识别实例的原版游戏版本，未生成 mmc-pack.json。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>建不了临时目录。</source>
+            <source>无法创建导出临时目录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -7057,11 +7018,11 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个实例带自定义启动配置（改过主类或 JVM 参数，例如 lwjgl3ify 一类）：导出的包在 Prism/MultiMC 里能识别，但对方启动器不会带上这些配置，可能无法正常启动。建议仍然用原整合包分发。</source>
+            <source>实例修改了主类或 JVM 参数。Prism / MultiMC 能识别导出的包，但可能缺少这些启动配置并导致启动失败。建议分发原整合包。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个实例超过 1 GB：导出会花较长时间，对方导入也要再解压一遍，大型整合包在别的启动器上还可能因为内存/Java 版本不同而跑不起来。</source>
+            <source>实例超过 1 GB，导出和导入需要较长时间。接收方须使用兼容的 Java 版本，并预留足够内存和磁盘空间。</source>
             <translation type="unfinished"></translation>
         </message>
     </context>
@@ -7072,7 +7033,7 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」现在不在盘上。</source>
+            <source>找不到「%1」。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -7086,7 +7047,7 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>重命名「%1」失败。文件可能被占用，请退出游戏后重试。</source>
+            <source>无法重命名「%1」。请关闭占用文件的程序后重试。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -7114,7 +7075,7 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能把「%1」移进回收站。
+            <source>无法将「%1」移入回收站。
 
 %2</source>
             <translation type="unfinished"></translation>
@@ -7144,7 +7105,7 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>有 %1 个文件没能改动。
+            <source>有 %1 个文件修改失败。
 
 %2</source>
             <translation type="unfinished"></translation>
@@ -7207,29 +7168,29 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>“.” 和 “..” 是目录自己的名字，不能拿来用。</source>
+            <source>「.」和「..」是保留名称，请使用其他目录名。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>名字不能以点或空格结尾（Windows 会把它悄悄去掉）。</source>
+            <source>名称不能以句点或空格结尾。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>“%1”是 Windows 的保留设备名（CON/PRN/AUX/NUL/COM1-9/LPT1-9），建不出目录来。</source>
+            <source>「%1」是 Windows 保留设备名，无法创建目录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>文件名太长了，最多 %1 个字符（现在 %2 个）。</source>
+            <source>文件名长度为 %2 个字符，上限为 %1 个字符。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>名字太长了，最多 %1 个字符（现在 %2 个）。</source>
+            <source>名称长度为 %2 个字符，上限为 %1 个字符。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」里是上一次没导完的另一个整合包（那一份的清单和这一份对不上）。
+            <source>「%1」中有另一个整合包的未完成导入记录。
 
-换一个名字导入不会碰它，已经下好的那些还留在原处。要接着导上一次那一份，请取消这一步，重新选中上一次那个整合包文件。</source>
+使用其他实例名称可保留原有进度。若要继续上次的导入，请重新选择上次的整合包。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -7253,11 +7214,11 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>缓存备份没有搬：%1 里已经有另一个格子叫「%2」，旧的那一份留在原处。</source>
+            <source>%1 中已存在名为「%2」的备份，旧备份保留在原位置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>缓存备份没有搬：%1 改不成 %2（可能有别的程序正开着它）。</source>
+            <source>无法将缓存备份从 %1 移至 %2。请检查文件是否被占用。</source>
             <translation type="unfinished"></translation>
         </message>
     </context>
@@ -7592,15 +7553,15 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 打不开，这次的改动没有保存。</source>
+            <source>无法打开 %1，分组设置未保存。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 大得不像一份分组表（%2 字节），为避免覆盖掉你的内容，这次没有改动它。</source>
+            <source>分组文件 %1 超出大小限制（%2 字节）。原文件已保留。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 的内容不是合法的 JSON，为避免覆盖掉你写的东西，这次没有改动它。</source>
+            <source>分组文件 %1 不是有效的 JSON。原文件已保留。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -7616,7 +7577,7 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>找不到那个分组，可能刚刚被删掉了。</source>
+            <source>找不到指定分组，请刷新分组列表。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -7655,7 +7616,7 @@ Minecraft %2 / %3 %4</source>
     <context>
         <name>InstanceIconController</name>
         <message>
-            <source>正在认「%1」里的资源图标（%2 个文件）...</source>
+            <source>正在读取「%1」的资源图标（%2 个文件）…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -7667,7 +7628,7 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>有 %1 个文件读不动（多半被别的程序占着），这一批里没有它们的图标。</source>
+            <source>无法读取 %1 个文件，已跳过这些文件的图标。</source>
             <translation type="unfinished"></translation>
         </message>
     </context>
@@ -7678,11 +7639,11 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>建不出备份目录：%1</source>
+            <source>无法创建备份目录：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能把 level.dat 抄到 %1（磁盘满了？还是那个文件打不开？）</source>
+            <source>无法将 level.dat 复制到 %1。请检查磁盘空间和文件访问权限。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -7690,11 +7651,11 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>存档备份没有搬：%1 已经存在，旧的那一份留在原处。</source>
+            <source>%1 已存在，旧存档备份保留在原位置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>存档备份没有搬：%1 改不成 %2（可能有别的程序正开着它）。</source>
+            <source>无法将存档备份从 %1 移至 %2。请检查文件是否被占用。</source>
             <translation type="unfinished"></translation>
         </message>
     </context>
@@ -8208,7 +8169,7 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>还没测</source>
+            <source>未检测</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -8272,7 +8233,7 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>导出为 Modrinth 或 CurseForge 整合包，包含可识别的资源清单和配置。保留完整用户数据请使用快照。</source>
+            <source>导出可识别的资源清单和配置为 Modrinth 或 CurseForge 整合包。需要保留完整的实例数据时，请创建快照。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -8645,7 +8606,7 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>连不上</source>
+            <source>连接失败</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -8756,7 +8717,7 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>副本里没有 %1 —— 启动器认不出它是谁。</source>
+            <source>副本缺少 %1，无法识别实例。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -8776,7 +8737,7 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>认不出这个实例的存档目录。</source>
+            <source>无法识别实例的存档目录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -8792,9 +8753,9 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个实例里已经有一个叫「%1」的世界了。
+            <source>此实例中已存在世界「%1」。
 
-「跳过已有项」不会动那一份，也不会再拷一遍。</source>
+选择「跳过已有项」会保留原存档。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -8854,7 +8815,7 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>认不出要删除哪个世界。</source>
+            <source>未找到要删除的世界存档。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -8886,7 +8847,7 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能把「%1」移进回收站。
+            <source>移入回收站失败：「%1」。
 
 %2</source>
             <translation type="unfinished"></translation>
@@ -8896,7 +8857,7 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>已请求取消后台任务；正在进行的那一份会停在最近的安全点，没做完的暂存不会发布。</source>
+            <source>已请求取消。当前项目将在安全时停止，未完成的数据不会写入目标。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -8940,9 +8901,9 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>游戏版本或加载器将变化，旧模组尚未验证适配。
+            <source>游戏版本或加载器将变更，原有模组可能不兼容。
 
-建议先禁用旧模组（文件保留，后缀改为 .disabled）。保留启用状态可能导致游戏无法启动。</source>
+建议禁用原有模组，文件将以 .disabled 后缀保留。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -8958,11 +8919,11 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>将「%1」的核心替换为 %2 / %3。
+            <source>将「%1」的游戏核心替换为 %2 / %3。
 
-存档、截图、配置及其它用户文件全部保留，不导入目标实例的用户文件。先创建并逐文件校验完整快照，再替换；原目录另行保留，可用「回滚原地升级」恢复。
+本次升级保留当前实例的存档、截图、配置和其他用户文件。替换前将创建并校验快照，原目录可通过「回滚原地升级」恢复。
 
-以磁盘内容为准：未保存的设置请先取消并保存，替换后会关闭当前设置页。这不会自动适配或下载模组。继续吗？</source>
+请保存设置后再升级。确认继续？</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -9396,7 +9357,7 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>源实例不在这次事务的游戏目录里，未复制任何文件。</source>
+            <source>源实例不在当前游戏目录中，未复制文件。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -9468,7 +9429,7 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>更新副本发布后校验失败，且自动撤回失败；请手动检查：</source>
+            <source>升级副本校验失败，自动撤回也未完成。请检查以下内容：</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -9480,7 +9441,7 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>找不到这次升级保留的原目录，没有执行回滚。</source>
+            <source>未找到升级前的实例目录，未执行回滚。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -9632,7 +9593,7 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>（暂存未能删除，请手动检查）</source>
+            <source>（未能删除暂存文件，需检查）</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -9672,7 +9633,7 @@ Minecraft %2 / %3 %4</source>
     <context>
         <name>InstanceUpgradePage</name>
         <message>
-            <source>整个世界目录，原样复制</source>
+            <source>完整复制世界目录</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -9760,7 +9721,7 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>还没选要迁移的内容</source>
+            <source>未选择迁移内容</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -9811,7 +9772,7 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>开始检查「%1」的文件（%2 个）...</source>
+            <source>正在检查「%1」的文件（%2 个）…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -9913,7 +9874,7 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>重新下一份 Java %1 覆盖掉这一份（比如它已经打不开了）。</source>
+            <source>重新下载 Java %1 并替换已安装的版本。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -9924,7 +9885,7 @@ Minecraft %2 / %3 %4</source>
     <context>
         <name>JavaMismatchDialog</name>
         <message>
-            <source>Java 版本对不上</source>
+            <source>Java 版本不兼容</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -9932,7 +9893,7 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>记在这个实例的设置里，可随时在「高级选项 → 版本提醒」改回来。</source>
+            <source>此设置仅对当前实例生效，可在「高级选项 → 版本提醒」中修改。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -9956,9 +9917,9 @@ Minecraft %2 / %3 %4</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>实例「%1」在「实例设置…」里指定了 %2，而这个版本要求 Java %3。
+            <source>实例「%1」配置的 Java 为 %2，此版本需要 Java %3。
 
-Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本。
+版本不兼容可能导致启动失败。建议切换到支持的 Java 版本。
 
 %4</source>
             <translation type="unfinished"></translation>
@@ -9967,11 +9928,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
     <context>
         <name>JavaRuntimeController</name>
         <message>
-            <source>正在检测本机已安装的 Java...</source>
+            <source>正在检测本机的 Java…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>正在下载 Java %1 运行时（界面可以继续使用）...</source>
+            <source>正在后台下载 Java %1 运行时…</source>
             <translation type="unfinished"></translation>
         </message>
     </context>
@@ -9990,8 +9951,8 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能下到 Java %1。多半是网络不通（下载走的是 Adoptium）。
-可以自己装一个，再回来按「检测已有 Java」；或者去「实例设置…」里把某一份现成的 Java 指过去。</source>
+            <source>Java %1 未从 Adoptium 下载成功。
+请重试，或在安装 Java 后选择「检测已有 Java」。也可在实例设置中指定 Java。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -9999,12 +9960,12 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>有些 Java 没下成</source>
+            <source>部分 Java 下载失败</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>下好了 %1 份，有 %2 份没下成。多半是网络不通（下载走的是 Adoptium）。
-可以隔一会儿再点一次，或者自己装好之后按「检测已有 Java」。</source>
+            <source>已下载 %1 个 Java 运行时，%2 个下载失败。
+请重试，或手动安装后选择「检测已有 Java」。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -10036,7 +9997,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>手动指定的 Java 不在了：%1</source>
+            <source>找不到手动指定的 Java：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -10051,11 +10012,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>正在确认这份 Java 的主版本：%1</source>
+            <source>正在识别 Java 主版本：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>认不出这份 Java 的主版本：%1</source>
+            <source>无法识别 Java 主版本：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -10063,9 +10024,8 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能认出 %1 的主版本。
-
-如果它确实是一份 Java，请选它 bin 目录下的 java.exe；如果它装在别的盘上，启动器不认识也没关系 —— 这一条路就是为它留的，只是它得真的能跑起来。</source>
+            <source>无法识别 %1 的 Java 主版本。
+请从 Java 安装目录的 bin 文件夹中选择可运行的 java.exe。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -10081,7 +10041,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>盘上记的最大内存</source>
+            <source>已保存的最大内存</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -10089,11 +10049,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>自动分配：读不到系统内存，先用内置值 %1 MB。切回「手动分配」会恢复你上次手动设的 %2 MB。</source>
+            <source>无法读取系统内存，自动分配暂用 %1 MB。切回「手动分配」可恢复之前设置的 %2 MB。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>自动分配：系统总内存 %1、当前可用 %2；自动给到最大内存 %3 MB（最小内存 %4 MB）。这个数会随系统可用内存自动更新；切回「手动分配」会恢复你上次手动设的 %5 MB。</source>
+            <source>系统总内存为 %1，当前可用 %2。自动分配最大 %3 MB、最小 %4 MB，随可用内存变化。切回「手动分配」可恢复之前设置的 %5 MB。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -10135,9 +10095,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」刚刚才启动过一次，那一份现在还在跑。
-
-再启动一份会开出第二个一模一样的游戏进程：同一个账号、同一个实例，两份游戏开着同一份存档。</source>
+            <source>「%1」仍在运行。再次启动会使用同一账号和实例，两个进程可能同时访问同一存档。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -10157,9 +10115,9 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」现在还有一份在跑。
+            <source>「%1」仍在运行。
 
-两份游戏同时打开同一份存档时，后保存（或者后退出）的那一份会盖掉另一份的进度 —— 存档可能回退，也可能坏掉。</source>
+同时打开同一存档会使后保存的进度覆盖先前的修改，并可能损坏存档。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -10190,19 +10148,17 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」正在被另一项操作占用（安装、导入、复制、备份或还原），请等它结束后再启动。
-
-别的实例不受影响，可以直接启动。</source>
+            <source>「%1」正在安装、导入、复制、备份或还原。请等待操作完成后再启动此实例。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个实例还没装完</source>
+            <source>实例安装未完成</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」是上一次没导完的整合包，文件不齐，启动会崩在缺库上。
+            <source>「%1」的整合包尚未导入完成，部分游戏文件缺失。
 
-重新导入同一个整合包、用同一个名字，就能接着上次下好的部分往下装。</source>
+请用相同的实例名称重新导入该整合包，以继续下载。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -10230,7 +10186,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>正在校验登录状态...</source>
+            <source>正在校验登录状态…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -10265,7 +10221,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>正在准备游戏文件...</source>
+            <source>正在准备游戏文件…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -10285,17 +10241,17 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>内存可能不够</source>
+            <source>可用内存不足</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个实例要 %1 MB 堆内存（已开着的实例合计 %3 MB），而系统当前可用物理内存约 %2 MB。
+            <source>此实例需要 %1 MB 堆内存，运行中的实例共分配 %3 MB。系统可用物理内存约 %2 MB。
 
-可用物理内存不足，启动可能导致卡顿。建议关闭不必要的应用程序，或到设置里把内存调小。仍然继续吗？</source>
+继续启动可能导致卡顿。可关闭其他程序或调低内存分配。确认启动？</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>正在准备 Java 运行时...</source>
+            <source>正在准备 Java 运行时…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -10316,10 +10272,8 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>准备 Java 运行环境的时候账号从「%1」换成了「%2」。
-这一次没有启动 —— 不然游戏会带着另一个账号的身份配原来那个账号的登录令牌起来，联机时会被服务器拒绝。
-
-请再点一次启动。</source>
+            <source>准备 Java 时，当前账号由「%1」切换为「%2」。
+为避免账号信息与凭据不匹配，已取消启动。请重新启动游戏。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -10327,10 +10281,10 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>找到了匹配的 Java（%1），但没能把它记到实例「%2」的设置里：
+            <source>已找到兼容的 Java（%1），但无法保存在实例「%2」的设置中：
 %3
 
-没有启动。你可以在「实例设置…」里手动指定这条路径。</source>
+请在「实例设置」中手动指定路径，再启动游戏。</source>
             <translation type="unfinished"></translation>
         </message>
     </context>
@@ -10365,7 +10319,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>（上次没起来）</source>
+            <source>（上次启动失败）</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -10388,11 +10342,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
     <context>
         <name>LaunchHistoryController</name>
         <message>
-            <source>没能把这次启动记进「上次游玩」：%1 写不进去。</source>
+            <source>无法记录本次启动时间，写入失败：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能把这次启动的结局写进「上次游玩」：%1 写不进去。</source>
+            <source>无法记录本次运行结果，写入失败：%1</source>
             <translation type="unfinished"></translation>
         </message>
     </context>
@@ -10483,7 +10437,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>地址还没填，暂时仍按系统代理走</source>
+            <source>未填写代理地址，当前使用系统代理。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -10495,7 +10449,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>网络：手动代理的地址还空着，暂时仍按系统代理走。</source>
+            <source>手动代理地址未填写，暂时使用系统代理。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -10503,7 +10457,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>下载：从实例设置里点「下载新模组」时不再问存哪儿，直接放进该实例。</source>
+            <source>从实例设置下载的模组将直接保存到该实例。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -10515,7 +10469,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>下载：不再检查前置，只下你点的那一版。</source>
+            <source>仅下载所选版本，跳过依赖检查。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -10610,35 +10564,35 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>实例「%1」有文件没能拿到。
+            <source>未能取得实例「%1」的部分文件。
 
 %2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」的首启资源已齐全，本次无需下载。</source>
+            <source>「%1」的首次启动资源已齐全，本次无需下载。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>首启资源已预取</source>
+            <source>首次启动资源已预取</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」的首启资源已就绪，第一次启动不会再卡在下载上。
+            <source>「%1」的首次启动资源已就绪。
 
 %2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>首启资源没预取完</source>
+            <source>首次启动资源下载不完整</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」的 GTNH 首启资源没能全部拿到。
+            <source>「%1」的 GTNH 首次启动资源下载不完整。
 
 %2
 
-不影响启动。游戏首次运行时将自动下载所需资源。是否重试？</source>
+游戏仍可启动，并会在首次运行时下载缺失资源。重试下载？</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -10682,7 +10636,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>预取 %1 的首启资源</source>
+            <source>预取「%1」的首次启动资源</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -10698,7 +10652,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 还没有支持 %2 的版本。</source>
+            <source>%1 暂无支持 %2 的版本。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -10706,7 +10660,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一份启动器里预设那一层没有初始化，没法挑预设。</source>
+            <source>预设功能尚未初始化，无法选择预设。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -10808,7 +10762,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>开始校验 %1 的文件（已存在的会跳过）...</source>
+            <source>正在校验 %1 的文件，跳过已存在的文件…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -10820,15 +10774,15 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一份启动器里预设那一层没有初始化，没法应用预设。</source>
+            <source>预设功能尚未初始化，无法应用预设。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这份预设现在不能应用</source>
+            <source>无法应用此预设</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1那一份「%2」：%3</source>
+            <source>%1「%2」：%3</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -10840,7 +10794,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>装好「%1」之后会把这些预设应用上去：
+            <source>安装「%1」后将应用以下预设：
 
 %2</source>
             <translation type="unfinished"></translation>
@@ -10854,11 +10808,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>应用前会把要改写的文件先备份到预设目录下的 backups/ 里。</source>
+            <source>应用前会将受影响的文件备份到预设目录的 backups/ 子目录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>已取消这次带预设的安装。</source>
+            <source>已取消带预设的安装。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -10886,11 +10840,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>正在检查「%1」里的资源有没有新版本（%2 个文件）...</source>
+            <source>正在检查「%1」的资源更新（%2 个文件）…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>有 %1 个文件读不动（多半被别的程序占着），这一批里没有它们。</source>
+            <source>有 %1 个文件无法读取，已跳过。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -10922,18 +10876,17 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一版的文件名没法用（%1）：%2
-没有下载。</source>
+            <source>版本文件名无效，已取消下载（%1）：%2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>加载器对不上</source>
+            <source>加载器不匹配</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个实例是 %1 %2，而这一版是给 %3 用的。
+            <source>当前实例为 %1 %2，所选文件适用于 %3。
 
-版本不兼容，安装后游戏可能无法启动。是否继续安装？</source>
+安装不兼容的文件可能导致游戏无法启动。确认安装？</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -11021,7 +10974,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一版的下载信息还没取到。把上面那个游戏版本收起再点开一次，然后重试。</source>
+            <source>尚未取得此版本的下载信息。请折叠后重新展开上方的游戏版本，再试一次。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -11052,9 +11005,9 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>玩家名是什么？
+            <source>输入玩家名称。
 
-离线模式（online-mode=false）的服务端按名字算 UUID；正版服务器的名单要在控制台里用 whitelist add / op 加，那一边才会解析成 Mojang 的 UUID。</source>
+离线服务端根据名称计算 UUID。在线服务端请在控制台使用 whitelist add 或 op，以查询玩家的 Mojang UUID。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -11074,27 +11027,27 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>从%1里拿掉</source>
+            <source>从%1中移除</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」会从封禁名单上拿掉（等于解封这个地址）。</source>
+            <source>将解除对地址「%1」的封禁。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」会从封禁名单上拿掉（等于解封）。</source>
+            <source>将解除对玩家「%1」的封禁。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」会从这份名单上拿掉。</source>
+            <source>将从服务器列表中移除「%1」。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>拿掉</source>
+            <source>移除条目</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>服务端 %1 的%2里拿掉了「%3」。</source>
+            <source>已从服务端 %1 的%2中移除「%3」。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -11118,13 +11071,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>本地这一份「%1」的 SHA-1 已经填入「资源包 SHA-1」：
+            <source>已将「%1」的 SHA-1 填入「资源包 SHA-1」字段：
 
 %2
 
-「资源包地址」那一格还得你自己填 —— 要一个别的玩家连得到的 http(s) 链接（自己的网站 / 网盘直链 / 对象存储都行）。本机文件路径别人打不开，启动器不会把它填进去。
-
-换了 zip 就要重新算一遍 SHA-1；服务端下一次启动时才会用上新值。</source>
+请在「资源包地址」中填写其他玩家可访问的 HTTP(S) 链接。更换 ZIP 文件后需重新计算 SHA-1。设置将在服务端重启后生效。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -11136,7 +11087,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个服务端的 level-name 认不出来，不知道世界在哪儿。</source>
+            <source>无法根据服务端的 level-name 确定世界存档目录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -11156,7 +11107,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>建不出这个文件夹：%1</source>
+            <source>无法创建文件夹：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -11182,7 +11133,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
         <message>
             <source>
 
-重名的那几份没有覆盖 —— 要换版本，先在「打开文件夹」里把旧的挪走。</source>
+同名文件已保留。若要替换，选择「打开文件夹」并移走旧文件。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -11222,7 +11173,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个文件夹还没建出来</source>
+            <source>游戏目录尚未创建</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -11243,7 +11194,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「踢出」是把一条 kick 命令送进正在跑的服务端 —— 它现在没在跑，所以踢不了人。</source>
+            <source>服务端已停止，无法踢出玩家。启动服务端后再试。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -11251,7 +11202,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>服务端的输入通道已经不在了（它可能刚好在退出）。</source>
+            <source>服务端命令输入已关闭。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -11267,7 +11218,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」已经送进服务端控制台。它答的那一行会出现在控制台里 —— 去「控制台」看一眼结果（那才是真正说了算的）。</source>
+            <source>已向服务端发送「%1」。可在控制台查看执行结果。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -11279,18 +11230,18 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>改回缺省值</source>
+            <source>恢复默认值</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这几项会被改回这张表上的缺省值（别的行一个字节都不动）：
+            <source>以下设置将恢复默认值，其余设置保留：
 %1
 
-要改吗？</source>
+确认恢复？</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>服务端 %1 的 server.properties 里有 %2 项改回了缺省值。</source>
+            <source>服务端 %1 的 server.properties 已恢复 %2 项默认值。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -11319,7 +11270,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」这个目录还不存在 —— 服务端第一次启动之后才会生成它，现在没有能备份的东西。</source>
+            <source>「%1」尚未生成。首次启动服务端后再创建备份。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -11343,7 +11294,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个服务端正在跑。先让它停下来再还原 —— 不然它退出的时候会把内存里那份旧存档重新写一遍，把刚还原出来的盖掉。</source>
+            <source>服务端仍在运行。停止服务端后再还原，以免服务端保存时覆盖还原的存档。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -11447,11 +11398,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>它的世界正在备份或还原，请完成后再启动 —— 否则会读写到一半新、一半旧的存档。</source>
+            <source>世界存档正在备份或还原。请等待操作完成后再启动。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个服务端还不能启动</source>
+            <source>服务端暂时无法启动</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -11475,7 +11426,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1：让它停的那一句没能写进去，只能强制结束。</source>
+            <source>%1：无法发送停止命令，将强制结束服务端。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -11513,7 +11464,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
         <message>
             <source>「%1」%2。
 
-控制台里最后那几行写着它退出之前在说什么 ——右键这一行点「打开控制台」就能看见。</source>
+右键该服务端并选择「打开控制台」，可查看退出前的日志。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -11521,7 +11472,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>还原之前自动做的那一份</source>
+            <source>还原前的自动快照</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -11538,10 +11489,10 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这几项的值不正确，所以本次没有写入任何内容：
+            <source>以下设置值无效，未保存：
 %1
 
-把这几项改对（表单里的格子、或者「原始文本」里那一行），再按一次保存。</source>
+请在表单或「原始文本」中更正后重新保存。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -11557,7 +11508,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个实例还没查过更新。</source>
+            <source>此实例尚未检查更新。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -11565,7 +11516,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「更新中心」那份记录没能写进盘：%1</source>
+            <source>无法保存更新中心的记录：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -11573,7 +11524,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没有查出可记录的版本（多半是本次检测结果已经过期）。请重新点「检查更新」再试。</source>
+            <source>未找到可固定的版本。请重新检查更新。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -11589,7 +11540,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>无法读取这份文件的内容（或上次检测未算出它的 SHA-1），因此不能固定这一版。</source>
+            <source>无法读取文件或计算其 SHA-1，因此无法固定此版本。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -11609,12 +11560,12 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>把「%1」退回上一次更新之前：
+            <source>将撤销「%1」的上次更新。
 
-• 换回去 %2 个文件
-• 删掉那次更新新添的 %3 个文件
+• 恢复 %2 个文件
+• 移除更新新增的 %3 个文件
 
-这一趟更新之后你自己改过的东西会一起被改回去。</source>
+更新后对这些文件所做的修改将被覆盖。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -11630,15 +11581,15 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能全退回去</source>
+            <source>部分文件回滚失败</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>换回去 %1 个、删掉 %2 个，有 %3 个没能动。
+            <source>已恢复 %1 个文件，移除 %2 个文件，%3 个文件操作失败。
 
 %4
 
-回滚点留着，可以再按一次。</source>
+回滚点已保留，可重试。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -11666,7 +11617,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能取到版本 %1 的信息。</source>
+            <source>无法获取版本 %1 的信息。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -11674,7 +11625,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>版本信息获取成功，开始下载游戏文件...</source>
+            <source>已获取版本信息，正在下载游戏文件…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -11714,7 +11665,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>正在刷新登录令牌...</source>
+            <source>正在刷新登录凭据…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -11722,11 +11673,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」的登录令牌没能刷新：%2</source>
+            <source>无法刷新「%1」的登录凭据：%2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>登录令牌没能刷新</source>
+            <source>登录凭据刷新失败</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -11858,7 +11809,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>正在准备下载...</source>
+            <source>正在准备下载…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -11874,12 +11825,12 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>要把 MC 独有的文件交给本启动器打开吗？
+            <source>将以下文件类型关联到 WTFML？
 
-· .nbt / .litematic / .schematic / .schem / .mrpack：设为默认（双击就打开）
-· .jar / .zip：只加进「打开方式」列表，不改默认
+· .nbt / .litematic / .schematic / .schem / .mrpack：设为默认应用
+· .jar / .zip：加入「打开方式」，保留默认应用
 
-以后可以在系统设置里改回来。</source>
+可在系统设置中调整。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -11945,7 +11896,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」里还有 %2 个实例没能移出来：
+            <source>「%1」中的 %2 个实例未能移出：
 %3</source>
             <translation type="unfinished"></translation>
         </message>
@@ -12010,47 +11961,47 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>实例已经改名为「%1」，但它原来的分组归属没能搬过去：
+            <source>实例已重命名为「%1」，但分组未能迁移：
 %2
 
-可在「分组」中重新调整。</source>
+可在「分组」中重新设置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>实例设置没能保存</source>
+            <source>实例设置保存失败</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」的 wtfml.meta 写不进去，这次的设置没有保存。
+            <source>无法写入「%1」的 wtfml.meta，设置未保存。
 
-（这份文件可能被别的程序占着，或者它所在的目录不可写。）</source>
+请检查文件是否被占用，或所在目录是否可写。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」的分组归属没能搬过去：
+            <source>「%1」的分组迁移失败：
 %2
 
-可在「分组」中重新调整。</source>
+可在「分组」中重新设置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>图标没能保存</source>
+            <source>图标保存失败</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能改这一台</source>
+            <source>编辑服务器失败</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能加这一台</source>
+            <source>添加服务器失败</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>地址不能是空的 —— 没有地址，这一行在游戏里是一条点不动的空气。</source>
+            <source>服务器地址不能为空。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能删这一台</source>
+            <source>移除服务器失败</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -12086,13 +12037,9 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>要删除实例「%1」吗？
+            <source>将实例「%1」及其目录 %2 中的所有文件移入回收站。此游戏目录及其他实例会保留。
 
-会把 %2 这整个目录删掉（jar、json、以及这个实例自己的设置都在里面）。
-
-删掉的东西会进回收站，要恢复可以从那里找回来。
-
-所属游戏目录及其他实例不受影响。</source>
+确认移入回收站？</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -12144,7 +12091,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这几条都没查到该换成哪一版。先在概览那一栏点一下「检查更新」，再点「更新中心」那一颗。</source>
+            <source>未找到这些文件的可用更新。请在「概览」中检查更新，再打开「更新中心」。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -12156,13 +12103,13 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能给这一批文件留一份回滚点，所以一个都没动。
+            <source>无法为待更新文件创建回滚点，已取消更新。
 
 %1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>更新「%1」没开始：回滚点没摆成（%2）。</source>
+            <source>「%1」未更新，创建回滚点失败（%2）。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -12182,7 +12129,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能开始这一批更新。</source>
+            <source>无法开始批量更新。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -12202,7 +12149,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>（这个目录不在盘上了）</source>
+            <source>（目录已丢失）</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -12239,7 +12186,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能记住「以后不再提醒」：%1</source>
+            <source>无法保存「不再提醒」设置：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -12247,10 +12194,9 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>启动器正在启动游戏（校验登录、准备 Java 运行时）。
+            <source>正在校验登录并准备 Java。退出启动器将取消本次启动。
 
-现在关掉会取消这次启动，游戏不会开起来。
-要现在关掉吗？</source>
+确认退出？</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -12266,17 +12212,15 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>游戏「%1」还在运行。
+            <source>「%1」仍在运行。关闭启动器后，游戏、存档和联机会继续运行。
 
-关掉启动器不会关掉游戏 —— 它会继续跑，存档、联机都照常。
-要现在关掉启动器吗？</source>
+确认关闭启动器？</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>还有 %1 个游戏在运行：%2。
+            <source>仍有 %1 个游戏在运行：%2。
 
-关掉启动器不会关掉游戏 —— 它们会继续跑，存档、联机都照常。
-要现在关掉启动器吗？</source>
+关闭启动器后，这些游戏会继续运行。确认关闭启动器？</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -12288,17 +12232,15 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>服务端「%1」正在运行。
+            <source>服务端「%1」仍在运行。
 
-关闭启动器时如何处理？
-「停止服务端」将等待其保存后退出（可能需要一段时间）；「保持后台运行」将在关闭启动器后继续运行。</source>
+可选择保存并停止服务端，或关闭启动器后让它在后台继续运行。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>还有 %1 个服务端在运行：%2。
+            <source>仍有 %1 个服务端在运行：%2。
 
-关闭启动器时如何处理？
-「停止服务端」将等待它们保存后退出（可能需要一段时间）；「保持后台运行」将在关闭启动器后继续运行。</source>
+可选择保存并停止服务端，或让它们在后台继续运行。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -12318,7 +12260,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>已关掉启动器，但服务端没能正常停下来：%1。最后那一小段存档可能没来得及写完。</source>
+            <source>启动器已关闭，但服务端 %1 未正常停止。最近的存档修改可能未保存。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -12342,9 +12284,9 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」那一页还开着。切到别的选项卡时它会收起来，但它一直占着这个位置 —— 顶上那四颗导航按钮一次只放得下一个页面。
+            <source>「%1」仍有一个页面打开。切换选项卡会隐藏该页面。
 
-回到「%1」那一颗选项卡，点左上角的「←」把它关掉，再回来开这个。</source>
+请返回「%1」，选择左上角的返回按钮关闭该页面，再重试。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -12376,35 +12318,35 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>开始校验「%1」的文件（已存在的会跳过）...</source>
+            <source>正在校验「%1」的文件，跳过已存在的文件…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」的首启资源没有预取：%2</source>
+            <source>未预取「%1」的首次启动资源：%2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>首启资源没有预取</source>
+            <source>未预取首次启动资源</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」的首启资源没有预取：
+            <source>未预取「%1」的首次启动资源。
 
 %2
 
-不影响启动。游戏首次运行时将自动补全资源。</source>
+游戏可正常启动，并会在首次运行时下载缺失资源。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」首启资源已完整（%2 个对象），跳过下载。</source>
+            <source>「%1」的首次启动资源已齐全（%2 项），本次无需下载。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」的首启资源这次没有预取（有别的下载或安装正在进行）。</source>
+            <source>其他下载或安装正在运行，已跳过「%1」的首次启动资源预取。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>正在预取「%1」的 GTNH 首启资源（%2 个对象，预计 %3 MiB，写入 %4）…</source>
+            <source>正在预取「%1」的 GTNH 首次启动资源（%2 项，预计 %3 MiB，保存到 %4）…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -12432,7 +12374,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一档还没接</source>
+            <source>暂不支持此选项</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -12452,21 +12394,20 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>打不开这个文件夹</source>
+            <source>无法打开目录</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能打开：
+            <source>无法打开目录：
 %1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没法重装这一个</source>
+            <source>无法重新安装此实例</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一个不是启动器装的（目录里没有我们记的那一份），所以我们不知道该按哪一档把它补齐。
-让它自己下好入口文件，或者删了重新建一个。</source>
+            <source>实例缺少安装记录，无法确定需补充的启动文件。请使用原启动器补齐文件，或重新安装实例。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -12504,16 +12445,16 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>打不开浏览器</source>
+            <source>无法打开默认浏览器</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能打开这一条网址：
+            <source>无法打开此网址：
 %1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没有同意 EULA，%1 这次不启动。</source>
+            <source>未接受 EULA，%1 未启动。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -12521,11 +12462,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1：你已经同意 EULA，eula.txt 里写上了 eula=true。</source>
+            <source>%1：已接受 EULA，已将 eula=true 写入 eula.txt。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>还没装好 —— 点它把该下的下下来。</source>
+            <source>实例尚未安装完成。选择该实例以下载缺失文件。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -12537,7 +12478,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>起这个服务端。右键那一列里还有控制台、目录、删除。</source>
+            <source>启动服务端。右键可打开控制台或目录，也可删除服务端。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -12557,7 +12498,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个文件没能写出来（%1）：
+            <source>文件写入失败（%1）：
 %2</source>
             <translation type="unfinished"></translation>
         </message>
@@ -12598,11 +12539,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>找不到版本 %1 的 version.json，导出来的脚本跑不起来。</source>
+            <source>找不到版本 %1 的 version.json，导出的启动脚本无法运行。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>正在校验登录状态...</source>
+            <source>正在检查登录状态…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -12640,11 +12581,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>脚本里写的是 PATH 上的 java（这个实例还没挑过 Java）。</source>
+            <source>此实例未指定 Java。脚本将使用 PATH 中的 java 命令。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>参数和启动器这次启动用的那一份是同一份；要改就改完再导一遍。</source>
+            <source>导出的是本次启动使用的参数。修改后可重新导出。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -12663,9 +12604,9 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>它改过主类或 JVM 参数（lwjgl3ify 一类）：写成 CurseForge 清单会把这段丢掉，别人装回去起不来。
+            <source>此实例修改了主类或 JVM 参数。使用 CurseForge 格式会丢失启动配置，导入后可能无法运行。
 
-按「普通实例」导出（Prism / MultiMC 能直接拖进去），还是仍然按 CurseForge 清单导出（会丢启动配置）？</source>
+可导出为 Prism / MultiMC 可导入的普通实例，或继续导出 CurseForge 清单。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -12780,7 +12721,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>下载已取消。已经下好的文件留在原处。</source>
+            <source>下载已取消，已下载的文件会保留。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -12792,7 +12733,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能开始重试。</source>
+            <source>无法重试下载。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -12820,7 +12761,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>更新「%1」没跑完：%2</source>
+            <source>「%1」的更新未完成：%2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -12918,7 +12859,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>游戏可能沿用自身保存的尺寸。</source>
+            <source>游戏可能使用上次保存的窗口尺寸。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -12946,7 +12887,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>高于「正常」可能拖慢其他程序。</source>
+            <source>提高进程优先级可能影响其他程序。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -12986,7 +12927,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>关闭后版本不符可能启动失败。</source>
+            <source>停用提醒后，Java 与游戏版本不兼容时仍可能启动失败。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -13002,7 +12943,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>关闭后模组可能因缺前置无法运行。</source>
+            <source>关闭依赖检查后，安装的模组可能因缺少依赖而无法运行。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -13054,7 +12995,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>摆放方式</source>
+            <source>窗口布局</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -13066,7 +13007,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>主页、管理、下载和设置页，铺满整窗。</source>
+            <source>主页、管理、下载和设置页占满窗口。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -13293,7 +13234,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一份的更多操作（自带的那一份移不掉、也删不掉）</source>
+            <source>更多操作。内置条目无法移除或删除。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -13337,11 +13278,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>重新扫一遍这个文件夹（里面多了或少了一个版本，按一下就能看到）</source>
+            <source>重新扫描游戏目录以刷新实例列表</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>只改列表上显示的名字，磁盘上的目录名不动</source>
+            <source>仅更改列表显示名称</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -13697,7 +13638,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>回到刚才那个实例的设置页。从这儿下的东西还是下进那个实例。</source>
+            <source>返回当前实例的设置页。下载内容将保存到此实例。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -13769,7 +13710,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这里还没有实例</source>
+            <source>此目录暂无实例</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -14019,7 +13960,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
         </message>
         <message>
             <source>
-禁用只改后缀为 .disabled，文件内容不变；再点「启用」即可恢复。</source>
+禁用会将文件改为 .disabled 后缀，保留文件内容。选择「启用」可恢复。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -14611,7 +14552,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>正在启动 %1 ...</source>
+            <source>正在启动 %1…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -14803,15 +14744,15 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>作者钉的那一版（%1）在这个实例的版本下找不到。</source>
+            <source>未找到作者指定的兼容版本（%1）。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>挑出来的那一版（%1）没有文件。</source>
+            <source>所选版本（%1）无文件。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>挑出来的那一版（%1）没有可下载的文件。</source>
+            <source>所选版本（%1）没有可下载的文件。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -14823,7 +14764,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>认不出盘上这个文件是哪一版。</source>
+            <source>无法识别本地文件的版本。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -14831,11 +14772,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一版不在列表里（可能不是给这个实例的，或者作者已经删了它）。</source>
+            <source>未找到该版本。请确认文件仍可下载，且与当前实例兼容。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没查到它能用的版本（这个项目在这个游戏版本/加载器下没有版本）。</source>
+            <source>未找到同时兼容当前游戏版本和加载器的文件。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -14863,11 +14804,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1（还没看过这个实例里装了什么，不知道你有没有）：
+            <source>%1
 
 %2
 
-要一起下载吗？</source>
+尚未核对实例中已安装的依赖。确认一并下载？</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -14883,11 +14824,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>有几个前置没找到能装的版本：
+            <source>以下依赖缺少兼容版本：
 
 %1
 
-部分依赖下载失败，其余文件已完成。可在项目主页手动下载。</source>
+其余文件已下载。可在对应项目页面查找并手动安装依赖。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -14958,7 +14899,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>别的启动器的账号状态</source>
+            <source>其他启动器的账号状态</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -14966,7 +14907,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>启动器自己的实例图标</source>
+            <source>启动器保存的实例图标</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -14978,7 +14919,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>别的启动器的打包设置</source>
+            <source>其他启动器的打包设置</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -14990,11 +14931,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>启动器自己的实例设置</source>
+            <source>启动器保存的实例设置</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个实例自己的版本文件</source>
+            <source>当前实例的版本文件</source>
             <translation type="unfinished"></translation>
         </message>
     </context>
@@ -15029,7 +14970,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」正在安装、导入或检查，请完成后再导出 —— 打包要读取的正是正在被修改的文件。</source>
+            <source>「%1」的文件正在变动。等待安装、导入或检查完成后再导出。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -15046,29 +14987,29 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>导出失败：读不出 %1 基于哪个原版</source>
+            <source>无法导出 %1，因为未识别其原版游戏版本</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>读不出这个实例基于哪个原版</source>
+            <source>无法识别原版游戏版本</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>整合包清单里必须写清楚「基于哪个原版游戏」，而这一份读不出来 —— 要么本地没有一处写着它（wtfml.meta 里没有 realVersion，版本 json 里没有 clientVersion、也顺不出指得到原版的 inheritsFrom 链），要么写着的那个不是一个真能装出来的版本号（自己改过的名字就属于这种：清单里记着它，别人那边却没有这个版本可装）。
+            <source>整合包清单需要有效的原版游戏版本。此实例的版本记录缺失或无效。
 
-未检测到有效版本标识，可能被手动修改或格式已过时的话，建议重装一份再导出。</source>
+可重新安装所需版本后导出。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>导出失败：认不出 %1 的加载器</source>
+            <source>无法导出 %1，因为未识别其加载器</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个实例没法按整合包规范导出</source>
+            <source>此实例不符合整合包导出要求</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>开始导出「%1」（%2）...</source>
+            <source>正在导出「%1」（%2）…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -15100,15 +15041,15 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>规划完成：问过 %1 个文件，认出来 %2 个。</source>
+            <source>资源识别完成：已查询 %1 个文件，识别出 %2 个。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>一个资源都没认出来 —— 这样的包里没有任何一条能自动下载的条目，我们自己的「导入整合包…」会直接判它无效。</source>
+            <source>未识别可由平台下载的资源。生成的清单无法用于整合包导入。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>等你确认：清单里有些东西认不出出处。</source>
+            <source>部分文件的来源未知</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -15118,7 +15059,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
         <message>
             <source>%1
 
-继续的话，认不出出处的文件会原样打进包里：别人装上照样能用，只是启动器不能替他单独更新或者去重。</source>
+继续导出会保留来源未知的文件。导入后，启动器无法单独更新这些文件或去除重复项。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -15146,7 +15087,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>打包进程说写完了，但盘上没有这个文件：%1</source>
+            <source>打包已结束，但未找到输出文件：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -15154,7 +15095,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>写出来的文件打不开：%1
+            <source>无法打开导出的文件：%1
 %2</source>
             <translation type="unfinished"></translation>
         </message>
@@ -15176,27 +15117,27 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>问过 %1 个文件，认出来 %2 个（写进清单，装的人那边自己去下）；其余 %3 个原样打进了包里（模组本体、配置、资源包都在）。</source>
+            <source>已识别 %1 个待检查文件中的 %2 个，并写入下载清单。其余 %3 个文件已包含在整合包中。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>其中 %1 个的作者关掉了第三方分发 —— 它们只能跟着包走。</source>
+            <source>有 %1 个文件禁止第三方从平台下载，已包含在整合包内。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>其中 %1 个是你改过名字（或者禁用着）的 —— 它们也原样进包，名字和状态都照你盘上那样留着，装的人那边不会被改回启用。</source>
+            <source>有 %1 个文件已重命名或禁用。导出时会保留这些文件的名称和启用状态。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>另外 %1 个没能问出能不能分发（CurseForge 的回复里没有这一项）—— 它们也原样进了包，装的人照样能用，只是不能替他单独更新或者去重。</source>
+            <source>无法从 CurseForge 确认另外 %1 个文件的分发权限。文件已随包导出，导入后无法自动更新或去除重复项。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>有 %1 个文件连哈希都没算出来（读取失败），它们也原样进了包。</source>
+            <source>有 %1 个文件读取失败，无法计算摘要，已随整合包导出。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没进包：%1（共 %2 个文件）。存档和截图是你自己的东西，打进包里会盖掉收包那个人的。</source>
+            <source>未导出 %1（共 %2 个文件）。保留接收方原有存档和截图。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -15219,21 +15160,19 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
     <context>
         <name>ModpackImport</name>
         <message>
-            <source>这个整合包要「%1」%2，而整合包导入这条路只认得 fabric-loader / forge / neoforge / quilt-loader 四个加载器键。
+            <source>此整合包需要加载器「%1」%2。导入整合包仅支持 fabric-loader、forge、neoforge 和 quilt-loader，导入已取消。
 
-所以没有导入。（安装页里能直接装 Fabric / Forge / NeoForge / OptiFine，那是另一条路；OptiFine 在整合包的依赖表里没有对应的键。）</source>
+如需单独安装 Fabric、Forge、NeoForge 或 OptiFine，请使用「安装」页。整合包的依赖清单无法指定 OptiFine。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个压缩包里没有整合包清单，认不出它是什么格式。
+            <source>无法识别整合包格式，因为压缩包缺少有效清单。
 
-认得的是这几种：Modrinth 格式（根目录有一份 modrinth.index.json）、CurseForge 格式（有一份 manifest.json）、MultiMC / Prism 导出的实例（有一份 mmc-pack.json）、以及直接把 .minecraft 文件夹压进来的懒人包（里面有 mods/、config/ 或 options.txt）。
-
-都对不上的话，它多半只是一个普通的压缩包 —— 比如资源包、光影包，或者只放了几份说明文件的合集。</source>
+支持 Modrinth（modrinth.index.json）、CurseForge（manifest.json）、MultiMC / Prism（mmc-pack.json），以及含 mods/、config/ 或 options.txt 的 .minecraft 压缩包。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个 MultiMC / Prism 实例的 mmc-pack.json 里没有 components，认不出它要哪个 Minecraft 版本。</source>
+            <source>mmc-pack.json 缺少 components，无法确定 MultiMC / Prism 实例的 Minecraft 版本。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -15251,47 +15190,47 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个包是从 MultiMC / Prism 导出的实例。导入的是它 .minecraft 里的内容（mods、config、资源包这些）；MultiMC 自己的 patches/、libraries/ 和启动设置没有一起导入。</source>
+            <source>此整合包来自 MultiMC 或 Prism。将导入 .minecraft 中的模组、配置及资源包等内容。原启动器的 patches/、libraries/ 和启动设置不会导入。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个 .minecraft 里有 %1 个版本，但没有版本 json 能说明该导入哪一个（目录名里也看不出带加载器的那一个）。
+            <source>找到 %1 个版本，但缺少可确定目标版本的 JSON 清单。导入已取消。
 
-没有导入 —— 猜一个装出来多半进不去游戏。把带加载器的那个版本目录（连着里面的 json）单独打包，或者换 Modrinth / CurseForge 格式。</source>
+请将目标版本目录及其 JSON 清单一起打包，或改用 Modrinth / CurseForge 格式。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>认得出这是一个 .minecraft 目录（里面有 mods/ 或 config/），但推不出它基于哪个 Minecraft 版本：versions/ 里没有版本 json，目录名里也看不出来。
+            <source>压缩包中有 .minecraft 目录，但 versions/ 中缺少版本 JSON。无法确定所需的 Minecraft 版本，导入已取消。
 
-没有导入 —— 猜一个版本装出来多半进不去游戏。可以把 versions/ 里那份 json 一起打包再导入，或者换 Modrinth / CurseForge 格式。</source>
+请补入版本 JSON 后重试，或使用 Modrinth / CurseForge 格式。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个包自带 versions/，导入时没有用它 —— 启动器会按包里的版本信息重新装一份原版和加载器，再把 mods、config 这些解进实例里。</source>
+            <source>已按清单重新安装原版游戏和加载器，跳过包内的 versions/。mods 和 config 等内容会解压到实例目录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>压缩包里那份 %1 不是整合包清单（缺少 formatVersion 或者 files）。</source>
+            <source>%1 缺少 formatVersion 或 files，无法作为整合包清单读取。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这份整合包的依赖表里没写它基于哪个 Minecraft 版本（dependencies.minecraft），无法安装。</source>
+            <source>整合包清单缺少 dependencies.minecraft，无法确定要安装的 Minecraft 版本。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这份整合包的文件清单是空的（一条要下载的文件都没有），没有导入。</source>
+            <source>整合包清单未列出待下载文件，导入已取消。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>压缩包里那份 %1 不是整合包清单（缺少 manifestVersion 或者 files）。</source>
+            <source>%1 缺少 manifestVersion 或 files，无法作为整合包清单读取。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这份整合包的清单里没写它基于哪个 Minecraft 版本（minecraft.version），无法安装。</source>
+            <source>整合包清单缺少 minecraft.version，无法确定要安装的 Minecraft 版本。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这份整合包的文件清单里有 %1 条，但没有一条写着能用的 projectID / fileID。清单可能被改坏了，没有导入。</source>
+            <source>整合包清单有 %1 条文件记录，但均缺少有效的 projectID 或 fileID。导入已取消。</source>
             <translation type="unfinished"></translation>
         </message>
     </context>
@@ -15319,7 +15258,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>平台认不出来。</source>
+            <source>无法识别资源平台。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -15347,7 +15286,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>接口返回的内容看不懂，暂时无法确认。</source>
+            <source>平台返回格式异常，暂时无法确认兼容性。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -15569,31 +15508,31 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这份 level.dat 里没有「游戏规则」那一格（老存档，或者游戏还没存过）。</source>
+            <source>level.dat 缺少游戏规则数据。存档可能尚未初始化或来自旧版本。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「游戏规则」那一格不是一张表（是%1）。</source>
+            <source>游戏规则数据类型无效（%1），无法读取。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这份 level.dat 里没有「游戏规则」那一格，改不了。</source>
+            <source>level.dat 缺少游戏规则数据，无法修改。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>规则「%1」在盘上不是文字，不动它。</source>
+            <source>规则「%1」的值不是文本，已跳过。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>规则「%1」的这个值太长了。</source>
+            <source>规则「%1」的值过长，无法保存。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>规则名太长了，写不进去。</source>
+            <source>游戏规则名称过长，无法保存。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个世界里没有叫「%1」的规则 —— 这一页只改世界里已经有的那些。</source>
+            <source>此存档中没有规则「%1」。可编辑已存在的规则。</source>
             <translation type="unfinished"></translation>
         </message>
     </context>
@@ -15612,11 +15551,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>列表说有 %1 个元素，剩下的字节装不下</source>
+            <source>列表声明包含 %1 个元素，实际数据长度不足</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>不认识的标签类型 %1</source>
+            <source>未知的标签类型 %1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -15624,7 +15563,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>servers 说有 %1 条，剩下的字节装不下</source>
+            <source>servers 声明包含 %1 条记录，实际数据长度不足</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -15632,15 +15571,15 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>根标签的类型是 %1，不是 TAG_Compound（这看起来不是一份 NBT）</source>
+            <source>根标签应为 TAG_Compound，实际类型为 %1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>servers 那一格的类型是 %1，不是 TAG_List</source>
+            <source>servers 字段应为 TAG_List，实际类型为 %1。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>打不开 %1（%2）</source>
+            <source>无法打开 %1（%2）</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -15656,15 +15595,15 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>建不出临时目录（%1）</source>
+            <source>无法创建临时目录（%1）</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>servers.dat 读不动：gzip 解不开</source>
+            <source>无法解压 servers.dat 中的 gzip 数据</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>servers.dat 读不动：%1</source>
+            <source>无法读取 servers.dat：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -15672,7 +15611,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>servers.dat 解压出来是空的（这份 gzip 多半是坏的或者没下完）</source>
+            <source>servers.dat 解压后没有数据；请确认文件是否完整</source>
             <translation type="unfinished"></translation>
         </message>
     </context>
@@ -15731,7 +15670,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>先给它起个名字，目录名是照着名字来的。</source>
+            <source>服务端名称将用作目录名称。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -15742,15 +15681,15 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
     <context>
         <name>OfflineSkin</name>
         <message>
-            <source>认不出这个账号的 uuid，没法按账号存皮肤。</source>
+            <source>无法识别账号 UUID，皮肤未保存。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这张图读不出来。</source>
+            <source>无法读取图片。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>写不进「%1」：%2</source>
+            <source>无法保存「%1」：%2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -15829,7 +15768,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>可以这样处理：关掉占用这些文件的程序（游戏、服务端、杀毒扫描）后，在任务中心对这一项按「继续未完成操作」；已经做完的项会跳过，不会重拷贝。如果仍然失败，请把这份报告和启动器日志一起提供。</source>
+            <source>关闭占用相关文件的程序后，在任务中心选择「继续未完成操作」。已完成项目会跳过。若仍失败，可提供此报告及启动器日志。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -15845,15 +15784,15 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>建不出报告目录：%1</source>
+            <source>无法创建报告目录：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>写不进报告：%1（%2）</source>
+            <source>无法写入报告：%1（%2）</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>写不进失败说明：%1</source>
+            <source>无法保存失败详情：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -15865,7 +15804,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>报告格式不认识或内容越界，未采用。</source>
+            <source>报告格式无效或内容超出允许范围，未读取。</source>
             <translation type="unfinished"></translation>
         </message>
     </context>
@@ -15929,11 +15868,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>档案里没有 textures 那一条（没设过皮肤的账号？官方换协议了？）</source>
+            <source>玩家档案缺少 textures 字段，未获取皮肤。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>textures 那一段不是合法的 base64</source>
+            <source>textures 字段不是有效的 Base64 数据</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -15945,7 +15884,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>uuid 认不出来，不存档案</source>
+            <source>无法识别玩家 UUID，未缓存玩家档案</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -16044,7 +15983,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>平台认不出来（只能是 Modrinth 或 CurseForge）。</source>
+            <source>仅支持 Modrinth 或 CurseForge 平台。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -16052,7 +15991,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一项钉的是 %1，这次装的是 %2。</source>
+            <source>预设要求 %1，本次安装的是 %2。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -16076,11 +16015,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这次没有可用的平台查询，暂时无法确认。</source>
+            <source>资源平台查询不可用，暂时无法确认兼容性。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>不知道这次要装哪个游戏版本，暂时无法确认。</source>
+            <source>未指定游戏版本，暂时无法确认兼容性。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -16339,11 +16278,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>Modrinth 那一侧没问成：%1</source>
+            <source>查询 Modrinth 失败：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>CurseForge 那一侧没问成：%1</source>
+            <source>查询 CurseForge 失败：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -16355,7 +16294,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 个模组在 Modrinth 和 CurseForge 上都没认出来（可能手工改过、或者没传到任何一个平台），请在模组页补充 —— 那一页可以勾「只看没认出来的」先挑它们出来，或者点「移除没认出来的」整批删掉；也可以在概览中暂时禁用模组部分。</source>
+            <source>Modrinth 和 CurseForge 均未识别 %1 个模组。可在模组页筛选来源未知的项目，补充或移除它们，也可在概览中停用模组部分。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -16455,7 +16394,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能建出新的一份（预设目录写不进去）。</source>
+            <source>预设目录不可写，无法创建预设。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -16463,11 +16402,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>复制失败：这一份读不回来，或者新目录建不出来。</source>
+            <source>复制预设失败。请检查原预设可读且目标目录可写。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一份读不出来：%1</source>
+            <source>无法读取源预设：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -16568,11 +16507,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个实例没有认得出平台身份的模组：安装记录里没有它们，或者文件已经被换过。模组类预设没有收进任何东西。</source>
+            <source>未找到带有效平台安装记录的模组，未提取模组预设内容。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>提取到了内容，但这一份预设写不进去。</source>
+            <source>内容已提取，但无法保存预设。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -16580,11 +16519,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>（这次新增 %1 条）</source>
+            <source>（新增 %1 条）</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>；另有 %1 件认不出身份 —— 在「预设编辑器 → 从本地模组导入」里会按指纹再认一次，也可以在模组页手动补充。</source>
+            <source>；另有 %1 个模组的来源未知。可在「预设编辑器 → 从本地模组导入」中重新识别，或在模组页手动补充。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -16609,11 +16548,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个实例没有认得出平台身份的模组：安装记录里没有它们，或者文件已经被换过；新预设没有创建。</source>
+            <source>无法确认此实例中的模组来自哪个平台。其安装记录可能缺失，或文件已被替换。预设未创建。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>预设目录写不进去，新预设没有建。</source>
+            <source>预设目录不可写，未创建新预设。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -16693,15 +16632,15 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一份预设读不出来：%1</source>
+            <source>无法读取待导入的预设：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>预设读不出来：%1</source>
+            <source>预设读取失败：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>预设里有一段是「覆盖」，需要先确认计划才能应用（可以在实例页 →「预设」那一档里看计划并确认）。</source>
+            <source>此预设包含覆盖操作。请在实例的「预设」页查看并确认应用计划。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -17073,7 +17012,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>复制一份，内容和文件原样保留。</source>
+            <source>复制预设及其文件。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -17153,7 +17092,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>resourcepacks/；这一档动辄几十上百 MB，默认不收。</source>
+            <source>resourcepacks/。文件通常较大，默认排除。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -17161,7 +17100,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>shaderpacks/；同上，默认不收。</source>
+            <source>shaderpacks/。文件通常较大，默认排除。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -17177,7 +17116,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>把开关和别的值也收进来。</source>
+            <source>包含开关和其他设置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -17201,7 +17140,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>收进来的那几段替换掉这一份里同名的那几段；这一份里别的段原样留着。</source>
+            <source>提取的内容会替换现有预设中的同名部分，其他部分保留。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -17229,7 +17168,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>再点一次继续未完成</source>
+            <source>再次选择以继续未完成的操作</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -17246,11 +17185,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>读不出来</source>
+            <source>无法读取</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>读不出来：%1</source>
+            <source>读取失败：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -17326,7 +17265,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>有「覆盖」段：点「应用」之后还要再点一次确认。</source>
+            <source>预设包含覆盖操作。选择「应用」后需要再次确认。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -17334,11 +17273,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>有「覆盖」段，尚未确认；再点一次「应用」即按覆盖执行。</source>
+            <source>尚未确认覆盖。再次选择「应用」将执行覆盖。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>点「应用」确认覆盖（会先备份）。</source>
+            <source>选择「应用」确认覆盖。覆盖前会创建备份。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -17370,7 +17309,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一份读不出来：%1</source>
+            <source>无法读取此预设：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -17382,11 +17321,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>再点一次确认删除</source>
+            <source>再次选择以确认删除</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>再点一次确认覆盖</source>
+            <source>再次选择以确认覆盖</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -17445,27 +17384,27 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>只看没认出来的</source>
+            <source>仅显示未识别项</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>只留下平台那格还是「未知来源（请选择）」的行；藏起来不等于删掉，取消勾选就都回来。</source>
+            <source>仅显示平台为「未知来源（请选择）」的条目。取消筛选可显示全部条目。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>移除没认出来的</source>
+            <source>移除未识别项</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>把平台那格还是「未知来源（请选择）」的行一次删掉；整个编辑点「取消」仍然能撤回。</source>
+            <source>移除平台为「未知来源（请选择）」的所有条目。选择「取消」可撤回本次编辑。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>已移除 %1 行没认出平台的（整个编辑点「取消」仍然能撤回）。</source>
+            <source>已移除 %1 条来源未知的记录。选择「取消」可撤回本次编辑。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没有没认出来的行。</source>
+            <source>没有未识别的模组。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18008,11 +17947,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一份的类别和内容对不上（模组引用只属于「模组」这一类）</source>
+            <source>类别与内容不匹配。模组引用应归入「模组」类别</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一份的类别和内容对不上（里面有一段不属于这一类）</source>
+            <source>预设包含不属于所选类别的内容</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18032,7 +17971,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>打不开</source>
+            <source>无法打开预设文件</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18048,11 +17987,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>读不回来（不是合法 JSON、不是我们写的格式、版本比这个启动器新、或者缺了 id / 名字）</source>
+            <source>预设有误。请检查 JSON 格式、版本、ID 和名称</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>记的 id 是「%1」，和目录名对不上</source>
+            <source>预设 ID「%1」与目录名不一致</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18150,11 +18089,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
     <context>
         <name>Presets</name>
         <message>
-            <source>预设里有一条服务器没有地址，这一步整份都没有动（没有地址的那一行在游戏里是一条点不动的空气）。</source>
+            <source>预设中的服务器地址为空，服务器列表未修改。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「覆盖」会把目标上的服务器列表换成预设里的那些（对不上的条目会被拿掉），这一步需要先确认。</source>
+            <source>覆盖将使用预设列表替换目标服务器列表，并移除只存在于目标中的条目。需要确认。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18162,7 +18101,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>servers.dat 里「%1」那一条的 ip 或 name 不是字符串，没有动它。</source>
+            <source>servers.dat 中「%1」的 ip 或 name 字段不是字符串，已保留原条目。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18170,15 +18109,15 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>服务器列表那一段里第 %1 项不是一个对象。</source>
+            <source>服务器列表的第 %1 项应为对象。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>服务器列表那一段里第 %1 项缺了 name 或者 address（或者那两格不是字符串）。</source>
+            <source>服务器列表第 %1 项缺少有效的 name 或 address 字段。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>服务器列表那一段里第 %1 项的地址是空的。</source>
+            <source>服务器列表第 %1 项的地址为空。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18186,15 +18125,15 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「覆盖」会把目标上这一类的设置整个换成预设里那些，需要先确认过才动手。</source>
+            <source>覆盖将用预设替换目标中的同类配置。确认后执行。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」不是一份普通文件，待应用清单读不出来。</source>
+            <source>「%1」不是普通文件，无法读取待应用清单。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>读不动待应用清单「%1」：%2</source>
+            <source>无法读取待应用清单「%1」：%2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18202,15 +18141,15 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>待应用清单「%1」不是一份能读的 JSON，这一趟没有动它。</source>
+            <source>待应用清单「%1」不是有效的 JSON，文件已保留。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>待应用清单「%1」的格式不是这一版认得的那样，这一趟没有动它。</source>
+            <source>待应用清单「%1」的格式不受此版本支持，文件已保留。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>待应用清单「%1」里的 `worlds` 不是数组，这一趟没有动它。</source>
+            <source>待应用清单「%1」的 `worlds` 字段应为数组，文件已保留。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18226,7 +18165,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」是一根链接，没有动它。</source>
+            <source>已跳过链接「%1」。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18254,7 +18193,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>登记文件读不动</source>
+            <source>无法读取登记文件</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18266,15 +18205,15 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>登记的格式不是这一版认得的</source>
+            <source>此版本不支持记录中的文件格式。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>登记点名的那一项是一根链接</source>
+            <source>登记记录引用的项目是链接</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>登记里的名字或状态对不上</source>
+            <source>登记文件中的名称或状态不一致</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18298,11 +18237,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>登记文件名与它自称的目标对不上</source>
+            <source>登记文件名与目标名称不一致</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>建不了目录「%1」。</source>
+            <source>无法创建目录「%1」。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18310,11 +18249,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>换不掉目标上已有的「%1」（它可能正被占用）。</source>
+            <source>无法替换目标中的「%1」。请检查文件是否被占用。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>换包登记写不下去，这一趟没有换「%1」：%2</source>
+            <source>无法写入替换记录，已取消替换「%1」：%2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18326,7 +18265,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一段不是数据包那一段。</source>
+            <source>此部分不是数据包配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18338,7 +18277,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」的世界名和它自己的路径对不上。</source>
+            <source>世界「%1」的名称与路径不一致。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18346,15 +18285,15 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个实例的目录不在，没法收数据包。</source>
+            <source>找不到实例目录，无法提取数据包。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没有指定这份预设的 files 目录。</source>
+            <source>未指定预设的 files 目录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个实例还没有存档（saves/），数据包这一趟没有可收的。</source>
+            <source>实例缺少 saves/ 目录，无法提取数据包。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18370,15 +18309,15 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>存档名「%1」不能当目录名，这一趟没有碰它。</source>
+            <source>存档名称「%1」无法用作目录名，已跳过。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>存档「%1」的 datapacks/ 是一根链接，没有动它。</source>
+            <source>存档「%1」的 datapacks/ 是链接，已跳过。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>存档「%1」的 datapacks 不是一个目录，没有动它。</source>
+            <source>存档「%1」的 datapacks 不是目录，已跳过。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18390,7 +18329,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」没收进来：%2</source>
+            <source>无法提取「%1」：%2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18398,7 +18337,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>saves/ 底下没有哪个存档带 datapacks/。</source>
+            <source>未找到包含 datapacks/ 的世界存档。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18406,7 +18345,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没有指定目标实例，算不出数据包这一趟要做什么。</source>
+            <source>未指定目标实例，无法制定数据包操作计划。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18422,23 +18361,23 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>目标实例的目录不在，没法把数据包落下去。</source>
+            <source>找不到目标实例目录，无法应用数据包。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没有给出预设那一侧的文件根（files/），拷不到数据包。</source>
+            <source>预设缺少 files/ 根目录，无法复制数据包。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「覆盖」还没有确认过，这一趟没有动数据包。</source>
+            <source>覆盖操作尚未确认，数据包未修改。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>预设里那一份「%1」不在（files/ 底下找不到）。</source>
+            <source>预设的 files/ 目录中找不到「%1」。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>预设里那一份「%1」是一根链接，没有跟着它走。</source>
+            <source>预设中的「%1」是链接，已跳过。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18446,7 +18385,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>目标上的「%1」是一根链接，没有动它。</source>
+            <source>目标「%1」是链接，已跳过。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18454,7 +18393,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>目标上已经有 %1 个同名数据包，这一档没有动它们。</source>
+            <source>已保留目标中的 %1 个同名数据包。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18462,7 +18401,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>写不进「%1」：%2</source>
+            <source>无法写入「%1」：%2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18482,15 +18421,15 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」落到这一组目录外面去了（链接？），没有动它。</source>
+            <source>「%1」指向允许范围以外的位置，已跳过。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>要写进去的「%1」在这一组目录外面，没有动它。</source>
+            <source>目标路径「%1」超出允许范围，已跳过。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>建不出目录「%1」，没有接着拷。</source>
+            <source>无法创建目录「%1」，复制已停止。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18506,7 +18445,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>建不出「%1」那一层目录，没有接着拷。</source>
+            <source>无法创建上级目录「%1」，复制已停止。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18518,7 +18457,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」里那一段「%2」不能这么叫：%3</source>
+            <source>「%1」中的「%2」名称无效：%3</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18550,19 +18489,19 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>要你选</source>
+            <source>需要选择处理方式</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一段里有一项的路径不能用（%1），整段都没有动。</source>
+            <source>此部分包含无效路径（%1），未应用任何项目。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>同名的那一份换成预设里的（目标上多出来的文件不动）。</source>
+            <source>以预设文件替换同名文件，保留目标中的其他文件。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」不属于这一层管的任何一个目录，整段都没有动。</source>
+            <source>「%1」不在允许的目录内，此部分未应用。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18574,11 +18513,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一趟不动。</source>
+            <source>未修改此部分。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一项只有复制和覆盖两种做法（我们认不出它的结构）。</source>
+            <source>无法解析此项结构，仅支持复制或覆盖。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18598,11 +18537,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>通用文件组那一段里第 %1 项不是一个对象。</source>
+            <source>通用文件组的第 %1 项应为对象。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>通用文件组那一段里第 %1 项的路径不能用：%2</source>
+            <source>通用文件组的第 %1 项路径无效：%2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18634,7 +18573,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」：目标上「%2」那一大格是个%3，不是一大格，这一格没动。</source>
+            <source>「%1」中，目标「%2」的类型为%3，已保留原值。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18642,23 +18581,23 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」：目标上还没有这一项（模组版本不一样？），跳过。</source>
+            <source>目标中缺少「%1」，已跳过。请检查模组版本是否一致。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」：目标上是%2、预设里是%3 —— 类型对不上，这一项没动。</source>
+            <source>「%1」的类型不匹配。目标为%2，预设为%3，已跳过。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一份不是有效的 JSON（%1，第 %2 个字节那儿）。</source>
+            <source>JSON 格式无效（%1，字节偏移 %2）。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一份的顶层不是一个对象 —— 不是 MaLiLib 那一族的样子。</source>
+            <source>MaLiLib 配置的顶层必须是 JSON 对象。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一份不像 MaLiLib 那一族（没有一格热键），不认它。</source>
+            <source>未找到快捷键字段，无法识别为 MaLiLib 配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18686,23 +18625,23 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>MaLiLib 那一段里第 %1 项不是一个对象。</source>
+            <source>MaLiLib 配置的第 %1 项应为对象。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>MaLiLib 那一段里第 %1 项的模组名不能用：%2</source>
+            <source>MaLiLib 配置第 %1 项的模组名称无效：%2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>MaLiLib 那一段里第 %1 项的 type（%2）认不出来。</source>
+            <source>MaLiLib 配置第 %1 项的 type 无法识别（%2）。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>MaLiLib 那一段里第 %1 项的 keys 不是一张表。</source>
+            <source>MaLiLib 配置第 %1 项的 keys 字段类型无效。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>MaLiLib 那一段里第 %1 项的 extra 不是一格对象。</source>
+            <source>MaLiLib 配置第 %1 项的 extra 字段应为对象。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18714,7 +18653,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「覆盖」会把目标上其余的热键整个解绑，需要先确认过才动手。</source>
+            <source>覆盖会解除目标配置中其余快捷键的绑定，需要确认。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18722,23 +18661,23 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」那一份没动：%2</source>
+            <source>已跳过「%1」：%2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」：这一格这一趟没归上号，算没动。</source>
+            <source>「%1」未匹配到配置项，已保留原值。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」这一条路上有链接目录（junction / 符号链接），没有写到那儿。</source>
+            <source>「%1」的路径包含目录联接或符号链接，已跳过写入。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>建不了「%1」这个目录，写到这一份就停下了。</source>
+            <source>无法创建目录「%1」，写入已停止。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没给实例目录，收不了 MaLiLib 那一族。</source>
+            <source>未指定实例目录，无法提取 MaLiLib 配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18774,7 +18713,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一条引用认不出来（平台或项目号是空的）。</source>
+            <source>模组引用缺少平台或项目 ID。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18782,15 +18721,15 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>还没问到这一个必要前置的版本列表。</source>
+            <source>尚未取得此必需依赖的版本列表。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>还没问到平台：这一条现在不能下。</source>
+            <source>尚未从平台取得下载信息，暂时无法下载。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>还没轮到问平台。</source>
+            <source>等待查询平台。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18802,11 +18741,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>按你确认换成了「%1」，见它在表上那一行。</source>
+            <source>已按确认结果替换为「%1」。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一版声明和「%1」不兼容，没有把它排进这一趟。</source>
+            <source>此版本与「%1」不兼容，未加入安装计划。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18842,19 +18781,19 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>读不动刚下下来的文件「%1」：%2</source>
+            <source>无法读取刚下载的文件「%1」：%2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>大小对不上：期望 %1 字节，实际 %2 字节。</source>
+            <source>文件大小不符。预期 %1 字节，实际 %2 字节。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>sha1 对不上：期望 %1，实际 %2。</source>
+            <source>SHA-1 校验失败。预期 %1，实际 %2。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>平台没有给出这个文件的 sha1，只对过大小。</source>
+            <source>平台未提供此文件的 SHA-1，仅核对了文件大小。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18878,7 +18817,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>等你确认替代项目</source>
+            <source>待确认的替代项目</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18906,7 +18845,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>等你确认替代项目 %1 个</source>
+            <source>有 %1 个替代项目待确认</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18930,11 +18869,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>按你确认换成了「%1」。</source>
+            <source>已确认并替换为「%1」。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这几个有替代项目，换不换要你点头：%1。</source>
+            <source>以下替代项目需要确认：%1。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18946,7 +18885,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>读不动「%1」：%2</source>
+            <source>无法读取「%1」：%2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18958,7 +18897,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>建不了备份目录「%1」。</source>
+            <source>无法创建备份目录「%1」。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -18994,15 +18933,15 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」不是一份普通文件，不敢拿预设去改它。</source>
+            <source>「%1」不是普通文件，已跳过应用预设。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这份预设的 id 不合法，没法应用。</source>
+            <source>预设 ID 无效，无法应用。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个实例的目录不在，没法把预设落到它上面。</source>
+            <source>找不到目标实例目录，无法应用预设。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -19010,7 +18949,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一段读不回来（载荷不是这一层认得的那样），这一趟不动它。</source>
+            <source>预设内容格式无效，已跳过此部分。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -19022,23 +18961,23 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>认不出这一段是哪一组文件，这一趟不动它。</source>
+            <source>无法识别此部分所属的文件组，已跳过。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一段里的路径不属于那四个文件组，这一趟不动它。</source>
+            <source>此部分包含文件组范围以外的路径，已跳过。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一档下这一组里有 %1 项做不了主，没有动。</source>
+            <source>当前模式无法处理此组中的 %1 项，已跳过。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>有 %1 格因为类型对不上被拒绝转换。</source>
+            <source>有 %1 个值的类型不匹配，已跳过转换。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一段没有任何适配器接手，这一趟不动它。</source>
+            <source>此部分的格式不受支持，已跳过。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -19078,19 +19017,19 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个实例的目录不在，没法从它收预设。</source>
+            <source>找不到实例目录，无法提取预设。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>建不了预设的文件目录：%1</source>
+            <source>无法创建预设文件目录：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一趟没有勾任何内容。</source>
+            <source>未选择要提取的内容。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」不是一份普通文件，这一趟没收游戏设置。</source>
+            <source>「%1」不是普通文件，未提取游戏设置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -19102,11 +19041,11 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>实例里还没有服务器列表（servers.dat）。</source>
+            <source>实例中没有服务器列表文件（servers.dat）。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>服务器列表读不动：%1</source>
+            <source>无法读取服务器列表：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -19118,15 +19057,15 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>资源包的启用顺序也收进来了（%1 个开着）。</source>
+            <source>已保存资源包启用顺序，共 %1 个已启用。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>MaLiLib 那一族没收成：%1</source>
+            <source>提取 MaLiLib 配置失败：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>config/ 底下没认出 MaLiLib 那一族配置。</source>
+            <source>config/ 中未找到 MaLiLib 配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -19134,15 +19073,15 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>勾了的那几样都没有收到东西，这一趟没有可存的内容。</source>
+            <source>选中的类别没有可提取的内容，预设未保存。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「覆盖」会把目标上这一类的设置整个换成预设里那些，需要先确认。</source>
+            <source>覆盖会用预设替换目标中的同类设置，需要确认。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「覆盖」会拿掉目标上对不上的服务器条目，需要先确认。</source>
+            <source>覆盖会移除只存在于目标中的服务器条目，需要确认。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -19150,23 +19089,23 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一段的种类（%1）这一版的启动器不认识，这一段这一趟不动。</source>
+            <source>当前版本不支持类别 %1，已跳过此部分。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一段说不清是哪个文件组（id 不认得、载荷又是空的），这一趟不动它。</source>
+            <source>文件组 ID 无法识别且内容为空，已跳过此部分。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一段的身份（%1）和它的内容（%2）对不上，这一趟不动它。</source>
+            <source>此部分的标识（%1）与内容（%2）不匹配，已跳过。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没有给出预设那一侧的文件根（files/），数不出这一组缺哪几份。</source>
+            <source>未指定预设的 files/ 根目录，无法核对缺失文件。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没有给出预设那一侧的文件根（files/），不知道这些数据包从哪儿拷。</source>
+            <source>未指定预设的 files/ 根目录，无法定位数据包。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -19210,7 +19149,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没有指定目标实例，算不出这一趟要做什么。</source>
+            <source>未指定目标实例，无法制定应用计划。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -19218,7 +19157,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没有指定实例目录，没法把资源包的启用顺序写回去。</source>
+            <source>未指定实例目录，无法保存资源包启用顺序。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -19234,7 +19173,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>已按预设启用 %1 个资源包（顺序按提取时的那一份）。</source>
+            <source>已按预设中保存的顺序启用 %1 个资源包。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -19480,7 +19419,7 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
     <context>
         <name>QCoreApplication</name>
         <message>
-            <source>，按「保存」才写回盘上。</source>
+            <source>，选择「保存」后写入文件。</source>
             <translation type="unfinished"></translation>
         </message>
     </context>
@@ -19571,21 +19510,21 @@ Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>本来就已是目标状态</source>
+            <source>已是目标状态</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>读不出这张图：%1
+            <source>无法读取图片：%1
 
-（它可能不是图片格式，也可能已经不在那儿了。）</source>
+请确认文件存在且格式受支持。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>图标写不进去：%1</source>
+            <source>无法保存图标：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>图标没能放到 %1：%2</source>
+            <source>无法将图标写入 %1：%2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -19724,7 +19663,9 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>升级可能让它的启动配置（主类 / JVM 参数 / 专用库）对不上，升级后可能起不来。建议先备份实例。仍然继续吗？</source>
+            <source>升级后，主类、JVM 参数或专用库可能与新版本不兼容，导致实例无法启动。
+
+建议先备份实例。确认继续？</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -20081,7 +20022,7 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 的版本范围语法不认识：%2</source>
+            <source>%1 的版本范围语法无效：%2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -20133,7 +20074,7 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>class 常量池 tag %1 不认识</source>
+            <source>无法识别 Java 类文件常量池的标签 %1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -20145,7 +20086,7 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>旧 Forge @Mod 的 acceptedMinecraftVersions 读不出来</source>
+            <source>无法读取旧版 Forge @Mod 的 acceptedMinecraftVersions</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -20177,7 +20118,7 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>旧 Forge 注解 class 读不出来</source>
+            <source>无法读取旧版 Forge 的注解类文件</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -20201,7 +20142,7 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>嵌套 JAR 读不出来</source>
+            <source>无法读取嵌套 JAR</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -20503,7 +20444,7 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>读不动这个文件：%1</source>
+            <source>读取文件失败：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -20555,11 +20496,11 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能写出这份备份的清单（临时文件建不出来）：%1</source>
+            <source>无法创建临时文件以保存备份清单：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能写出这份备份的清单（临时文件写不完整）：%1</source>
+            <source>备份清单写入不完整：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -20575,7 +20516,7 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>读这份备份的清单</source>
+            <source>读取备份清单</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -20583,29 +20524,29 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>打不开这个文件：它不是一个压缩包，或者已经损坏了。</source>
+            <source>文件无法作为压缩包打开。请检查格式及完整性。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>读这份备份的清单时出错了。</source>
+            <source>读取备份清单失败。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这份备份的清单读不动（格式对不上，可能是别的工具做的包）。</source>
+            <source>无法读取备份清单。请确认备份格式受当前版本支持。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>还原已取消或超时；盘上原有的东西没有动。</source>
+            <source>还原已取消或超时，原有文件已保留。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这份备份里记的落点（%1）不是一个能找到的目录名，为了不动到别的东西，这一份没有解开。</source>
+            <source>找不到备份记录中的目标目录（%1），未解压备份。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这块盘放不下这一份备份：解开大约要 %1，只剩 %2。
-清一清空间、或者把它还原到别的盘上再试。
-现在盘上原有的东西一个字节都没动。</source>
+            <source>目标磁盘空间不足。解压备份预计需要 %1，可用空间为 %2。
+请释放空间，或将备份还原到其他磁盘。
+原有文件已保留。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -20613,11 +20554,11 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个目录里有链接：%1
+            <source>目标中包含链接：%1
 
-还原会把链接本身换成备份里的普通目录（链接指向的内容不会丢），而「这里是个链接」这件事还原不回来 —— 还原前的安全快照同样不含链接。
+还原会用普通目录替换链接，安全快照无法恢复链接本身。已取消还原，原有内容已保留。
 
-为了不动你的链接，这一份没有解开；现在盘上原有的东西一个字节都没动。要接着还原的话，先把那个链接挪走，或者删掉整个目录再还原。</source>
+若要继续，请先移走链接，再重试。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -20625,8 +20566,8 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能在还原之前给「现在这一份」做安全快照：%1
-为了不让你丢东西，这个目录没有被改动。</source>
+            <source>未能为当前目录创建安全快照：%1
+还原已取消，原有内容已保留。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -20642,7 +20583,7 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>解压没能完成：%1</source>
+            <source>未完成解压：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -20651,7 +20592,7 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>备份解开了，但解出来的文件和清单里记的对不上（%1 / %2 个）。</source>
+            <source>解压结果与备份清单不一致（%1 / %2 个文件）。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -20743,7 +20684,7 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>认不出这个游戏目录，一个目录都没动。</source>
+            <source>无法识别游戏目录，未替换任何文件。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -20751,15 +20692,15 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一对目录没法互相换，一个目录都没动。</source>
+            <source>无法交换这两个目录，原目录已保留。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这两只目录里有启动器自己的暂存或记录，不能拿来互相对换，一个目录都没动。</source>
+            <source>所选目录中有启动器的临时文件或操作记录，已取消交换。原有目录保留。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这两份不在同一个父目录下，没法用改名换过来，一个目录都没动。</source>
+            <source>两个目录不在同一个父目录下，无法通过重命名交换。原目录已保留。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -20771,7 +20712,7 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>挑中的那一份旧目录不在了：%1</source>
+            <source>找不到所选旧目录：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -20783,19 +20724,19 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一份旧目录还登记在另一条恢复记录里（目标是 %1）。
-请先处理那一条，再来替换这份目录。</source>
+            <source>旧目录已用于另一条恢复记录（目标为 %1）。
+请先完成该恢复操作，再替换目录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个目录另有一条还没处理完的恢复记录，它记的旧目录在：
+            <source>此目录已有一条未处理的恢复记录。记录中的旧目录为：
 %1
 
-请先用那一条替换（或先标记已检查），再来替换这一份。</source>
+请先处理该记录或将其标记为已检查，再替换目录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>同一个目录上有不止一条恢复记录，顺序不敢替用户定；请先在「中断恢复检查」里逐条核对，未换任何目录。</source>
+            <source>同一目录有多条恢复记录。请在「中断恢复检查」中逐条核对，再确定恢复顺序。原有目录保留。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -20807,7 +20748,7 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>读不回那一条恢复记录，未换任何目录。</source>
+            <source>无法读取恢复记录，未替换目录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -20834,7 +20775,7 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>恢复记录没能更新成「已发布」；下次启动会把它列为待检查事务。两份目录都已保留。</source>
+            <source>未能将恢复记录标记为「已发布」。两个目录均已保留，下次启动时可检查此事务。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -20922,7 +20863,7 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>打不开这个文件：%1</source>
+            <source>打开文件失败：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -20978,7 +20919,7 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>里面有好几个 .minecraft 目录（像是把多个实例打在一个压缩包里），没有导入 —— 解压之后把要的那一份拖进来。</source>
+            <source>压缩包中有多个 .minecraft 目录。请解压后选择要导入的目录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -21006,7 +20947,7 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>里面是一个 .minecraft 游戏目录；`bin/` 下那份启动器 jar 说明加载器不写在版本清单里（旧版 Technic / 老式 Forge 包），导入后要自己补装一次加载器</source>
+            <source>检测到旧版 Technic / Forge 整合包。版本清单未声明加载器，导入后需手动安装。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -21018,7 +20959,7 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这份 mmc-pack.json 无法解析（%1）。这个文件可能已损坏。</source>
+            <source>无法解析 mmc-pack.json（%1）。请检查文件是否完整。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -21046,7 +20987,7 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这份 %1 里没写它是哪个游戏的整合包，无法安装。</source>
+            <source>%1 缺少游戏标识，无法安装。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -21054,10 +20995,10 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个整合包的文件清单里有一条不能用的路径：
+            <source>整合包清单中有无效路径：
 %1
 
-（路径不能跑到实例目录外面去，也不允许某一段以点或空格结尾 —— Windows 会把那些字符悄悄吃掉，写出来的名字和清单里写的不一样。）所以整个包都没有导入。</source>
+路径须位于实例目录内，且名称不能以句点或空格结尾。导入已取消。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -21214,7 +21155,7 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个包用了 +files（旧格式的额外文件表）：它的落点依赖旧启动器的行为，本启动器按 +libraries 那一套走，不猜这几种混着写的顺序。</source>
+            <source>整合包包含旧版 +files 文件表。该表依赖原启动器确定目标路径，当前导入流程仅处理 +libraries。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -21222,15 +21163,15 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个包用了 +traits（启动器行为提示，例如 legacyLaunch）：这些提示会改变启动参数的组织方式，本启动器不认它们。</source>
+            <source>此整合包使用了 +traits（例如 legacyLaunch）来指定启动方式。当前版本不支持导入这些启动设置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个包用了 +luac（Lua 补丁，LiteLoader 那一类）：本启动器不支持。</source>
+            <source>此整合包使用当前版本不支持的 +luac 补丁（如 LiteLoader）。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>读不动「%1」：%2</source>
+            <source>读取「%1」失败：%2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -21238,7 +21179,7 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>建不了目录「%1」。</source>
+            <source>创建目录「%1」失败。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -21246,7 +21187,7 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」没能写完：%2</source>
+            <source>「%1」写入不完整：%2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -21258,7 +21199,7 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>有一个文件不在实例目录里（%1），没有动手。</source>
+            <source>文件「%1」不在实例目录内，操作已取消。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -21274,7 +21215,7 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source> 上一次的回滚点仍保留在 %1，但没能恢复原位。</source>
+            <source> 上一次的回滚点仍位于 %1，但未能恢复到原位置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -21282,7 +21223,7 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能把上一次的回滚点先收起来（%1）。</source>
+            <source>无法暂存上一次的回滚点（%1）。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -21290,19 +21231,19 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>建不了回滚点目录（%1）。</source>
+            <source>无法创建回滚点目录（%1）。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>建不了回滚点里的目录（%1）。</source>
+            <source>无法创建回滚点的子目录（%1）。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>抄不动「%1」（多半被别的程序占着，或者盘满了）。</source>
+            <source>无法复制「%1」。请检查文件占用和磁盘空间。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>备份的「%1」无法读取或不完整，这份回滚点无法使用。</source>
+            <source>回滚点中的「%1」无法读取或不完整，无法回滚。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -21310,7 +21251,7 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>读不动回滚点的清单：%1</source>
+            <source>无法读取回滚清单：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -21322,7 +21263,7 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>删不掉「%1」（多半被占着）。</source>
+            <source>无法删除「%1」。请检查文件是否被占用。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -21330,7 +21271,7 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>建不了「%1」的目录。</source>
+            <source>无法创建「%1」的目录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -21342,15 +21283,15 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>放回去的「%1」和记下来的对不上。</source>
+            <source>恢复后的「%1」与备份记录不一致。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个实例是 OptiFine%1 装的。两种整合包格式的清单里都没有 OptiFine 那一格（依赖表只认 minecraft / forge / neoforge / fabric-loader / quilt-loader），写不出一个别的启动器能照着重装的包 —— 所以没有导出。</source>
+            <source>此实例使用 OptiFine%1。当前整合包清单格式无法记录 OptiFine 依赖，导出已取消。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个实例的加载器是「%1」（%2），本启动器不认识它，不敢往外导。</source>
+            <source>不支持导出使用「%1」（%2）加载器的整合包。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -21370,27 +21311,27 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个实例是 NeoForge 装的，但读不出是哪一版 —— 这份 json 里没有 --fml.neoForgeVersion，而 fancymodloader 那个版本号（4.x）和 neoforge-&lt;版本&gt; 不是同一个号，填进清单就是错的。</source>
+            <source>无法确定实例的 NeoForge 版本。版本文件缺少 --fml.neoForgeVersion，不能用 FML 版本号替代。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>最新那一档，连测试版一起算</source>
+            <source>最新版本（含测试版）</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>稳定那一档，上游自己标着正式版的那个</source>
+            <source>最新稳定版</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>稳定那一档，可上游一条正式版都没有，退回了最新的那个</source>
+            <source>未找到稳定版，已选择最新版本</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>设置里那份 CurseForge API key 可能不对、或者已经失效了，可以换一份。</source>
+            <source>CurseForge API 密钥无效或已失效。请在下载设置中检查密钥。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>网络本身没问题的话，多半是那台公共接口的事了 —— 可以在设置页「下载」栏里填一份自己的 CurseForge API key（免费申请），填了就改走官方接口。现在这一发走的是别人搭的一台社区镜像，它可能限流、也可能哪天就停了。</source>
+            <source>社区镜像请求失败。请稍后重试，或在「设置 → 下载」中填写自己的 CurseForge API 密钥以使用官方接口。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -21402,8 +21343,8 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1：请求太频繁，服务器暂时挡下了（HTTP 429）。
-等一两分钟再试 —— 这不是账号或者网络的问题，短时间里连着重试，它只会挡得更久。</source>
+            <source>%1：请求频率过高，服务器已暂时限制访问（HTTP 429）。
+请等待一两分钟后重试。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -21415,7 +21356,7 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>端口 %1 不在 1 ~ 65535 里，没法查。</source>
+            <source>端口 %1 超出有效范围（1–65535）。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -21423,11 +21364,11 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能在这个端口上试听一次。</source>
+            <source>无法在指定端口启动测试监听。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一格里不能换行。</source>
+            <source>输入不能包含换行。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -21467,7 +21408,7 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没法判断「%1」落在哪块盘上。</source>
+            <source>无法识别「%1」所在的磁盘。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -21538,7 +21479,7 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>认不出这个账号的 uuid，随机皮肤没法记下来。</source>
+            <source>无法识别账号的 UUID，未保存随机皮肤。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -21585,7 +21526,7 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>打不开这个压缩包，不是 Replay 录像</source>
+            <source>无法打开录像压缩包。请确认文件是有效的 Replay 录像。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -22195,11 +22136,11 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>打不开浏览器</source>
+            <source>无法打开默认浏览器</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能打开这一条网址：
+            <source>无法打开网址：
 %1</source>
             <translation type="unfinished"></translation>
         </message>
@@ -22242,7 +22183,7 @@ Minecraft %2 / %3
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 下好了：%2</source>
+            <source>%1 下载完成：%2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -22459,15 +22400,15 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
     <context>
         <name>SchematicInfo</name>
         <message>
-            <source>这份投影里没有 Regions 那一格，读不出内容。</source>
+            <source>投影文件缺少 Regions 字段，无法读取方块数据。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这份原理图里没有 Palette 那一格，读不出内容。</source>
+            <source>原理图缺少 Palette 字段，无法读取方块数据。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这份结构文件里没有 palette 那一格，读不出内容。</source>
+            <source>结构文件缺少 palette 字段，无法读取方块数据。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -22479,11 +22420,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这份文件太大了（%1 MB），这一页不展开读。</source>
+            <source>文件大小为 %1 MB，超出预览上限。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>打不开这个文件：%1</source>
+            <source>无法打开结构文件：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -22491,7 +22432,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这份文件是 gzip 包着的，但解不开：%1</source>
+            <source>gzip 解压失败：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -22503,7 +22444,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>解压出来的临时文件打不开。</source>
+            <source>无法打开解压后的临时文件。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -22519,19 +22460,19 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>不认识</source>
+            <source>无法识别</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这份文件不是能读懂的 NBT：%1</source>
+            <source>无法解析 NBT 文件：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这份文件的根不是复合标签，不是结构 / 原理图。</source>
+            <source>根标签不是复合标签，无法作为结构或原理图读取。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>认不出这是什么结构 / 原理图（没有 Regions、Palette、palette 这几格）。</source>
+            <source>缺少 Regions、Palette 或 palette 字段，无法识别结构文件格式。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -22539,7 +22480,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这份文件来自 %1，这个实例是 %2 —— 版本不一样，可能有方块兼容问题（也可能没事，进游戏再看）。</source>
+            <source>文件版本为 %1，当前实例版本为 %2。版本差异可能导致部分方块无法识别。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -22564,7 +22505,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
         </message>
         <message>
             <source>
-（这份文件的方块表没解出来，只读到元数据）</source>
+（方块数据读取失败，仅显示元数据）</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -22606,7 +22547,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没有发现问题 —— 入口文件齐、配置文件的值都对、端口也没人占。</source>
+            <source>启动入口、配置和端口检查均通过。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -22753,11 +22694,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>还没有日志</source>
+            <source>暂无日志</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个控制台还没有收到任何输出，导出来会是一个空文件。</source>
+            <source>控制台尚无输出。导出的日志文件将为空。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -22777,7 +22718,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个文件没能写出来（%1）：
+            <source>无法写入文件（%1）：
 %2</source>
             <translation type="unfinished"></translation>
         </message>
@@ -22825,7 +22766,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>还没有输出（服务端尚未产生日志）</source>
+            <source>等待服务端输出日志…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -22867,7 +22808,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>原版端的高性能分支，插件服务端里最常用的那一档</source>
+            <source>支持插件的高性能服务端，基于原版服务端。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -22951,22 +22892,22 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>装的时候带 --download-server，原版 server.jar 由安装器下好；Quilt 那份 quilt-server-launch.jar 只是个壳，第一次跑不联网</source>
+            <source>安装时使用 --download-server 下载原版 server.jar。Quilt 的 quilt-server-launch.jar 可在安装后离线启动</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>编完的 jar 在 BuildTools 那个子目录里，要搬上来；它的名字带自己的后缀（spigot-&lt;版本&gt;-R0.1-SNAPSHOT.jar），扫到哪个算哪个（见 pickSpigotJar），启动参数拿它现拼</source>
+            <source>BuildTools 在子目录中生成 spigot-&lt;版本&gt;-R0.1-SNAPSHOT.jar。安装时将选中的 JAR 移到服务端目录，并据此生成启动参数。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>不认识的类型</source>
+            <source>未知的服务端类型</source>
             <translation type="unfinished"></translation>
         </message>
     </context>
     <context>
         <name>ServerInstallController</name>
         <message>
-            <source>这一档要跑它的安装器，而安装器是一个 Java 程序 —— 没找到能用的 Java。去「设置 → 启动 → Java 管理」里选一个，或者先把游戏跑起来一次让它自己挑。</source>
+            <source>未找到可运行服务端安装器的 Java。请在「设置 → 启动 → Java 管理」中选择兼容版本。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -22974,7 +22915,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>服务端安装器已达到总截止（%1 秒），半成品保留，请检查网络后修复。</source>
+            <source>服务端安装超过 %1 秒，已停止。部分文件已保留，请检查网络后修复。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -22982,7 +22923,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>服务端安装器重试后仍连续 %1 秒无输出，已停止；半成品保留。
+            <source>重试后，服务端安装器仍连续 %1 秒没有输出。已停止安装，部分文件已保留。
 %2</source>
             <translation type="unfinished"></translation>
         </message>
@@ -22999,7 +22940,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>建不出服务端目录：%1</source>
+            <source>无法创建服务端目录：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -23043,7 +22984,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>等版本信息的这会儿，已经有别的下载开始了。等那一批结束再装这个服务端。</source>
+            <source>检查版本期间已有其他下载开始。请等待下载完成后再安装服务端。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -23067,7 +23008,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>要跑的安装器 %1 不在目录里（上一步没下成）。</source>
+            <source>找不到安装器 %1。请重新下载安装器。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -23079,7 +23020,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>安装器退出码是 %1，没装成。</source>
+            <source>安装失败。安装器退出码：%1。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -23102,7 +23043,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
     <context>
         <name>ServerInstallRun</name>
         <message>
-            <source>这一档官方不发成品，要用它的 BuildTools 现编一份 —— 那一步要几分钟、要联网、还要求本机装着 git，这一版还没接。先装另外七档里的一个吧。</source>
+            <source>Spigot 官方提供 BuildTools，需联网并使用本机的 Git 构建。当前版本暂不支持此安装方式，请选择其他服务端类型。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -23180,7 +23121,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>建不出临时文件：%1</source>
+            <source>无法创建临时文件：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -23192,11 +23133,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>写不进 servers.dat：%1</source>
+            <source>无法写入 servers.dat：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>压好的那一份没能落到 servers.dat 上（盘满了？）</source>
+            <source>无法用压缩文件替换 servers.dat。请检查磁盘空间和写入权限。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -23204,35 +23145,35 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个实例还没有 servers.dat —— 游戏里加过一台之后它才会出现。</source>
+            <source>此实例尚无 servers.dat。进入游戏添加服务器后将生成该文件。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>servers.dat 里找不到地址是「%1」的那一条 —— 是不是游戏里改过了？</source>
+            <source>servers.dat 中找不到地址为「%1」的条目。请刷新服务器列表。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个地址在 servers.dat 里出现了 %1 次，认不准是哪一条，没有动它。</source>
+            <source>servers.dat 中有 %1 条记录使用此地址，无法确定要修改的条目。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>servers.dat 那个位置上是个文件夹，没有动它。</source>
+            <source>servers.dat 所在位置是目录，未执行修改。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>servers.dat 有 %1 MB，太大了，没有动它。</source>
+            <source>servers.dat 大小为 %1 MB，超出处理上限，未执行修改。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>servers.dat 读不动：gzip 解不开</source>
+            <source>无法解压 servers.dat 中的 gzip 数据。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>servers.dat 读不动：%1</source>
+            <source>无法读取 servers.dat：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>servers.dat 里那一格 servers 不是一张服务器表，没有动它。</source>
+            <source>servers.dat 的 servers 字段类型无效，文件未修改。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -23240,15 +23181,15 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>地址不能是空的 —— 没有地址，这一行在游戏里是一条点不动的空气。</source>
+            <source>服务器地址不能为空。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>servers.dat 里「ip」那一格不是字符串，没有改。</source>
+            <source>servers.dat 的 ip 字段不是字符串，已保留原值。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>servers.dat 里「name」那一格不是字符串，没有改。</source>
+            <source>servers.dat 的 name 字段不是字符串，已保留原值。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -23290,7 +23231,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>地址看不懂</source>
+            <source>服务器地址格式无效</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -23314,7 +23255,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>应答看不懂</source>
+            <source>服务器响应格式无效</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -23342,7 +23283,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个地址看不懂（要写成 主机名:端口，不写端口就是 25565）</source>
+            <source>服务器地址格式无效。请输入主机名和端口，省略端口时使用 25565。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -23350,11 +23291,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>服务器答的包看不懂（长度不对）</source>
+            <source>服务器响应长度无效</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>服务器答的包看不懂（开头不是一个长度）</source>
+            <source>服务器响应缺少有效的长度字段</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -23366,7 +23307,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>服务器答的包看不懂（正文长度不对）</source>
+            <source>服务器响应的正文长度无效</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -23397,7 +23338,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 不是一个数组 —— 没有改动它。</source>
+            <source>%1 应为数组，文件未修改。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -23619,7 +23560,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
     <context>
         <name>ServerRegistry</name>
         <message>
-            <source>建不了服务端目录：%1</source>
+            <source>无法创建服务端目录：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -23647,7 +23588,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这份服务端记录无法解析（%1），已按没有记录处理；重新安装一次或手动修正后即可恢复</source>
+            <source>无法解析服务端记录（%1）。请重新安装，或修正记录文件后重试。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -23655,11 +23596,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>写 %1 没落盘：%2</source>
+            <source>无法保存 %1：%2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1。这一项没有改 —— 照这份空记录写回去会把它顶掉。</source>
+            <source>%1。为保留原有记录，已取消写入。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -23688,7 +23629,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>eula.txt 没落盘：%1</source>
+            <source>无法保存 eula.txt：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -23704,30 +23645,30 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>server.properties 没落盘：%1</source>
+            <source>无法保存 server.properties：%1</source>
             <translation type="unfinished"></translation>
         </message>
     </context>
     <context>
         <name>ServerResourcePack</name>
         <message>
-            <source>这个压缩包是空的 —— 里面一个条目都没有。</source>
+            <source>压缩包没有文件。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>pack.mcmeta 被套在一个文件夹里 —— 游戏只认压缩包最外层的那一份。把包里的东西重新压到最外层再试。</source>
+            <source>pack.mcmeta 不在压缩包根目录。请重新打包，使 pack.mcmeta 位于根目录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这里面是 data/ 而不是 assets/ —— 它像是数据包，不是资源包。服务端资源包要选改了客户端贴图/声音的那一份。</source>
+            <source>此压缩包可能是数据包，包含 data/ 且缺少 assets/。请选择包含客户端纹理或声音的资源包。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>里面没有 pack.mcmeta —— 这不像是资源包。资源包解开来最外层一定有一份 pack.mcmeta。</source>
+            <source>压缩包根目录缺少 pack.mcmeta，无法识别为资源包。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>找不到这个文件 —— 它可能已经被移走或者改名了。</source>
+            <source>未找到文件。请确认文件位置和名称。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -23735,11 +23676,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这不是一个 zip 压缩包（或文件已损坏）：资源包要选 .zip 那一份。</source>
+            <source>无法打开资源包。请选择格式正确且完整的 ZIP 文件。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>读不出这个压缩包的条目表。</source>
+            <source>无法读取压缩包的文件列表。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -23770,7 +23711,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>已经连着自动重启 %1 次都没起来，这一次不再自动重启。</source>
+            <source>连续自动重启 %1 次均失败，已停止自动重启。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -23781,7 +23722,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
     <context>
         <name>ServerRun::ServerProcess</name>
         <message>
-            <source>服务端进程没起来（%1 起不来？看看 Java 那一项配得对不对）。</source>
+            <source>服务端进程未启动（%1）。请检查 Java 设置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -23820,11 +23761,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 打不开：%2</source>
+            <source>无法打开 %1：%2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 写不进去：%2</source>
+            <source>无法写入 %1：%2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -23891,15 +23832,15 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1：登录令牌已经失效，重新登录一次再试。</source>
+            <source>%1：登录已失效，请重新登录后重试。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1：服务器不接受这个应用的请求（HTTP 403）。</source>
+            <source>%1：服务器拒绝应用的请求（HTTP 403）。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1：这个账号没有可改的 Minecraft 档案（HTTP 404）。</source>
+            <source>%1：未找到可修改的 Minecraft 档案（HTTP 404）。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -24049,7 +23990,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>读不出这个实例真正的游戏版本</source>
+            <source>无法识别实例的实际游戏版本</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -24057,7 +23998,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>检查版本 json 是否完整（「完整性检查」那一页可以扫）。</source>
+            <source>请在「完整性检查」中检查版本 JSON 是否完整。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -24141,7 +24082,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>把 Xmx 调小到机器内存以内；分得比物理内存还大，JVM 起来后很可能在分配堆的时候就失败。</source>
+            <source>请将 Xmx 调低至物理内存容量以内，并为系统保留内存。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -24161,7 +24102,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>模组整合包很容易 OutOfMemoryError；原版 1.20 起也建议至少 1024 MB。</source>
+            <source>模组整合包通常需要更多内存。原版 1.20 及以上建议至少分配 1024 MB。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -24169,7 +24110,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>内存那一栏只报了配置值，没法判断相对大小。</source>
+            <source>仅获得配置的内存值，无法与设备容量比较。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -24197,7 +24138,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>它们在盘上叫 `*.jar.disabled`，游戏不会加载。</source>
+            <source>这些模组以 `*.jar.disabled` 保存，游戏会跳过它们。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -24209,7 +24150,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>完整内容在「崩溃报告」那一页。</source>
+            <source>完整信息见「崩溃报告」页。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -24233,7 +24174,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>多半是模组依赖没装齐，或者装了一个给别的游戏版本编的模组；看报告里那个类名属于哪个模组。</source>
+            <source>请检查日志中对应类所属的模组，确认依赖已安装且与当前游戏版本兼容。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -24249,11 +24190,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>还没有启动日志</source>
+            <source>暂无启动日志</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个启动器还没在这个数据目录里启动过游戏。</source>
+            <source>此数据目录下没有使用该启动器运行游戏的记录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -24265,7 +24206,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>日志末尾没有 [Game Error] 那一行。</source>
+            <source>日志末尾未找到 [Game Error] 标记。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -24273,7 +24214,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「日志」那一页有完整输出；崩溃报告能对上同一个时间的话，「崩溃报告」那一页有现场。</source>
+            <source>「日志」页提供完整输出。若有同一时间的崩溃报告，可在「崩溃报告」页查看。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -24285,7 +24226,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>可能是启动还没走完；「日志」那一页看最后几行。</source>
+            <source>尚未获取完整的启动结果。可在「日志」页查看最新记录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -24293,7 +24234,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>可能是这次启动器启动之后还没启动过游戏。</source>
+            <source>当前会话没有游戏启动记录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -24482,7 +24423,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>还没有日志</source>
+            <source>暂无任务日志</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -24490,7 +24431,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>打不开这一项的目标位置</source>
+            <source>无法打开目标位置</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -24555,7 +24496,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>铺满（裁剪）</source>
+            <source>填满并裁剪</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -24563,7 +24504,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>拉伸铺满</source>
+            <source>拉伸填满</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -24603,7 +24544,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>选中那一块上的字</source>
+            <source>选中项文字</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -24631,7 +24572,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>里面认不出任何一项主题设置（没有 preset / accent / roles / parts / semantic 中的任何一条）</source>
+            <source>未找到受支持的主题字段：preset、accent、roles、parts 或 semantic。</source>
             <translation type="unfinished"></translation>
         </message>
     </context>
@@ -24733,7 +24674,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>现在铺的是：%1</source>
+            <source>当前主题：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -24753,8 +24694,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>配色、区域与控件覆盖、文字不透明度、语义色和背景图，都会回到出厂那一份。
-你自己改的那些不会留着。</source>
+            <source>将配色、区域和控件样式覆盖、文字不透明度、语义色及背景图恢复默认设置。自定义内容将被清除。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -24778,19 +24718,19 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>写不进这个文件：
+            <source>无法写入文件：
 %1
 
 %2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>写到一半写不进去了：
+            <source>文件写入不完整：
 %1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>文件没能保存下来：
+            <source>无法保存文件：
 %1
 
 %2</source>
@@ -24832,11 +24772,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这份主题已经铺上了。</source>
+            <source>主题已应用。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>颜色都铺上了，但这些背景图在这台机器上找不到（主题文件里只有路径，不含图）：
+            <source>主题配色已应用。主题文件仅保存背景图路径，以下文件在本机未找到：
 %1</source>
             <translation type="unfinished"></translation>
         </message>
@@ -24883,7 +24823,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>&lt;span style='opacity:0.6'&gt;（这里还没有字）&lt;/span&gt;</source>
+            <source>&lt;span style='opacity:0.6'&gt;（暂无文字）&lt;/span&gt;</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -24943,7 +24883,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>自定颜色要写成 `#RRGGBB` 那种六位十六进制，比如 `#ff8800`（`#f80` 这种缩写游戏那边不认）。</source>
+            <source>请输入六位十六进制颜色值，如 `#ff8800`。游戏不支持 `#f80` 这样的缩写。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -24951,7 +24891,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>还没有东西要合</source>
+            <source>没有可合并的内容</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -25007,7 +24947,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>★ 材料组合太多，这次没有穷举完所有次序 —— 这一条是**近似**最优；想拿到确定的最优解请减少材料件数。</source>
+            <source>材料组合较多，当前结果为近似最优。减少材料数量可计算精确最优解。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -25055,7 +24995,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 里这一格：%2</source>
+            <source>%1 中的字段：%2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -25071,7 +25011,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>认出来了：%1</source>
+            <source>识别结果：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -25111,7 +25051,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一串是按 %1 算的，和上面选的 %2 不是一档 —— 换个算法再算一遍。</source>
+            <source>此摘要使用 %1 算法，当前选择的是 %2。请切换到对应算法后重新计算。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -25159,7 +25099,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」打不开：%2</source>
+            <source>无法打开「%1」：%2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -25179,23 +25119,23 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」在算完之后变过（大小 / 修改时间对不上）—— 清单里那一串不是它现在的摘要了，重新算一遍。</source>
+            <source>「%1」在计算后发生变化（文件大小或修改时间不同）。请重新计算摘要。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」在算完之后被移走或删掉了 —— 清单里那一串不是它现在的样子。</source>
+            <source>「%1」在计算后已移除或移动，清单中的摘要已失效。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个文件算完之后被移走或删掉了 —— 上面那串摘要不是它现在的样子。</source>
+            <source>文件在计算后已移除或移动，当前摘要已失效。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个文件在算完之后变过（大小 / 修改时间对不上）—— 上面那串摘要不是它现在的样子，再算一遍。</source>
+            <source>文件在计算后发生变化（文件大小或修改时间不同）。请重新计算摘要。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>目标版本 %1 里还没有%2 —— 这种药水要 Java %3 起才有。
+            <source>目标版本 %1 不含%2。此药水自 Java 版 %3 起可用。
 
 </source>
             <translation type="unfinished"></translation>
@@ -25235,7 +25175,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>目标版本 %1 里还没有：%2。已保留当前搭配 —— 请调整纹饰 / 材料，或者换一个目标版本。
+            <source>目标版本 %1 不支持以下内容：%2。当前搭配已保留，可调整纹饰或材料，也可更换目标版本。
 
 </source>
             <translation type="unfinished"></translation>
@@ -26133,7 +26073,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>认不出来</source>
+            <source>未知</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -26145,19 +26085,19 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>目标版本是 %1，源是 %2 —— 模组与部分配置可能不兼容，所以「模组」默认不勾选。</source>
+            <source>目标游戏版本为 %1，源版本为 %2。模组和部分配置可能不兼容，默认不迁移模组。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>目标加载器是 %1，源是 %2（游戏版本都是 %3）—— 模组与加载器相关配置可能不兼容，所以「模组」默认不勾选。</source>
+            <source>源加载器为 %2，目标加载器为 %1，游戏版本均为 %3。模组和相关配置可能不兼容，默认不迁移模组。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>目标版本是 %1 / %2，源是 %3 / %4 —— 模组与部分配置可能不兼容，所以「模组」默认不勾选。</source>
+            <source>目标版本和加载器为 %1 / %2，源配置为 %3 / %4。模组和部分配置可能不兼容，默认不迁移模组。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>有一边的游戏版本或加载器读不出来 —— 不做猜测：「模组」默认不勾选，请自己判断要不要原样搬过去。</source>
+            <source>无法识别源或目标的游戏版本或加载器。默认不迁移模组，可确认兼容性后手动勾选。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -26173,11 +26113,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>以下是这次升级副本里要搬的内容：</source>
+            <source>将复制以下内容到升级副本：</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>以下是这次迁移里要搬的内容：</source>
+            <source>本次迁移包括：</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -26189,7 +26129,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>日志、截图、崩溃报告只是记录，默认不搬（想搬就手动勾上）。</source>
+            <source>日志、截图和崩溃报告默认不迁移，可手动选择。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -26281,11 +26221,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>只是记录，默认不搬。</source>
+            <source>这些文件用于记录，默认不迁移。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>认不出目标版本：这一项是否兼容不确定，要不要搬请自己判断。</source>
+            <source>无法识别目标版本。确认兼容性后再选择是否迁移。</source>
             <translation type="unfinished"></translation>
         </message>
     </context>
@@ -26296,7 +26236,9 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>更新选中的模组可能让它的启动配置（主类 / JVM 参数 / 专用库）对不上，更新后可能起不来。建议先备份实例。仍然继续吗？</source>
+            <source>更新所选模组可能影响主类、JVM 参数或专用库，导致实例无法启动。
+
+建议先备份实例。确认继续？</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -26365,7 +26307,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>升级历史写不进去：%1</source>
+            <source>无法保存升级历史：%1</source>
             <translation type="unfinished"></translation>
         </message>
     </context>
@@ -26388,7 +26330,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个实例还没有升级记录。</source>
+            <source>此实例暂无升级记录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -26470,7 +26412,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
     <context>
         <name>UpgradePageState</name>
         <message>
-            <source>先把目标版本和加载器选全。</source>
+            <source>请选择目标游戏版本和加载器。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -26490,7 +26432,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>勾了 Mod 配置却没勾 Mod 文件 —— 配置归属不能按文件名猜：要么把 Mod 一起搬，要么别搬配置。</source>
+            <source>已选中模组配置，未选中模组文件。请同时迁移模组，或取消迁移相关配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -26659,11 +26601,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没有勾选 Mod 文件，却要搬 Mod 配置 —— 这些配置在新实例里可能对不上任何模组。</source>
+            <source>已选中模组配置，未选中模组文件。部分配置可能在新实例中无效。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>搬了游戏设置却没搬资源包 —— 设置里的资源包启用列表可能指向新实例里不存在的包。</source>
+            <source>已选中游戏设置，未选中资源包。新实例的设置可能引用缺失的资源包。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -26710,11 +26652,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>校验不过（内容与 sha1 对不上）</source>
+            <source>SHA-1 校验失败</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>读不动（打不开或读出错）</source>
+            <source>文件无法打开或读取失败</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -26757,11 +26699,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
     <context>
         <name>VersionManager</name>
         <message>
-            <source>目录 %1 是上一次没导完的整合包（没有顶层 jar），先不列在启动列表里；重新导入同一个整合包、用同一个名字就能接着下。</source>
+            <source>目录 %1 中的整合包尚未导入完成，缺少客户端 JAR，暂不显示在启动列表中。使用相同名称重新导入可延续下载。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>目录 %1 里有 %2 个 jar（%3），认不出哪个是客户端，已忽略。</source>
+            <source>目录 %1 有 %2 个 JAR（%3），无法确定客户端文件，已跳过。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -26773,7 +26715,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>下载过程中出了内部错误（%1），这一步已经停下。重启启动器后再试一次。</source>
+            <source>下载发生内部错误（%1），任务已停止。请重启启动器后重试。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -26781,7 +26723,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>已取消。已经下好的文件留在原处，一个都没删。</source>
+            <source>下载已取消，已下载的文件会保留。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -26807,7 +26749,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
         <message>
             <source>%1
 
-有 %2 个文件没能确认该放进哪个目录，都按模组放进 mods/ 了。</source>
+有 %2 个文件的目标目录未能识别，已放入 mods/。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -26829,11 +26771,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>读不出这个实例的 version.json，没法校验它要哪些文件。</source>
+            <source>无法读取实例的 version.json，无法校验所需文件。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>启动器自带的 AssetDirector 已知集合清单读不出来（%1）。</source>
+            <source>无法读取启动器内置的 AssetDirector 清单（%1）。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -26841,7 +26783,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>读不出这个实例的 version.json，没法知道它该有哪些文件。</source>
+            <source>无法读取实例的 version.json，无法列出所需文件。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -26857,13 +26799,12 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一版的文件名没法用（%1）：%2
-没有装。</source>
+            <source>版本文件名无效（%1）：%2
+安装已取消。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>版本「%1」的继承链接成环了（指回 %2），没法确定它到底基于什么。
-这个版本的 json 是被改坏过的，建议删掉重装。</source>
+            <source>版本「%1」的继承链中出现循环，指向 %2。请重新安装此版本以恢复版本清单。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -26872,7 +26813,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>版本「%1」的继承链太长了（超过 %2 层），没法确定它到底基于什么。</source>
+            <source>版本「%1」的继承链超出 %2 层，无法确定基础版本。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -26880,21 +26821,19 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」本身是一个链接（它指向另一个目录）。
-
-给链接改名会动到它指向的那一边，所以这里不做。请到那个目录上直接改名，或者先把它换成普通文件夹。</source>
+            <source>「%1」是目录链接。请在原目录所在位置重命名，或先将链接替换为普通目录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
             <source>%1
 
-磁盘上的东西已经全部改回去了，可以直接重试。</source>
+已恢复原有文件，可重新导入。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
             <source>%1
 
-自动回滚也没能做完，下面这些还停在半路上，需要你手动看一眼：
+自动回滚未完成。请检查以下项目：
 %2</source>
             <translation type="unfinished"></translation>
         </message>
@@ -26915,11 +26854,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>目标文件夹 %1 不在盘上。</source>
+            <source>找不到目标目录 %1。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>不能把「%1」复制到它自己里面去（%2 就是这一份实例自己的目录，或者是它底下的一个子目录）。换一个游戏文件夹再试。</source>
+            <source>目标路径 %2 与实例「%1」的目录相同，或位于该目录内。请选择其他游戏目录后重试。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -26931,7 +26870,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>建不出目录 %1。</source>
+            <source>无法创建目录 %1。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -26939,7 +26878,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>建不出暂存目录 %1。</source>
+            <source>无法创建暂存目录 %1。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -26953,11 +26892,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>复制出来了，但里面的 jar / json 没能跟着改名，这一份用不了。%1</source>
+            <source>实例已复制，但未能重命名副本中的 JAR 或 JSON，副本无法使用。%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这一份的 %1 没能改对：%2%3</source>
+            <source>更新副本中的 %1 失败：%2%3</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -26965,7 +26904,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>复制完成，但没能把副本发布到 %1（它可能正被别人占着）。%2</source>
+            <source>复制完成，但无法将副本移至 %1。请检查目标是否被其他程序占用。%2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -26977,8 +26916,8 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>没能把 %1 整个删掉：%2
-已经移进回收站的那部分可以还原。</source>
+            <source>未能完全将 %1 移入回收站：%2
+已移入的部分可从回收站恢复。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -26990,11 +26929,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>拿不到原版 %1 的版本信息，实例没有装成（检查网络后重试）。</source>
+            <source>无法获取原版 %1 的版本信息，安装已取消。请检查网络后重试。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>首启资源已预取：下载 %1 个文件（%2 MiB），复用 %3 个（其中启动器共享 assets/objects 里 %4 个）。</source>
+            <source>首次启动资源预取完成：已下载 %1 个文件（%2 MiB），复用 %3 个文件（其中 %4 个来自启动器共享的 assets/objects）。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27057,25 +26996,25 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>原版 %1 的文件没下全，%2 没有安装。先把原版装好再试。
+            <source>原版 %1 文件不完整，未安装 %2。请先补齐原版文件再重试。
 %3</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>原版 %1 就绪，接着跑 %2 的安装器...</source>
+            <source>原版 %1 已就绪，正在启动 %2 安装器…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>原版 %1 就绪，接着装 %2 自己的文件...</source>
+            <source>原版 %1 已就绪，正在安装 %2 文件…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>原版 %1 的文件没下全，整合包没有导入。先把原版装好再试。
+            <source>原版 %1 文件不完整，整合包未导入。请先安装原版后重试。
 %2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>原版 %1 就绪，接着下整合包自己那些文件...</source>
+            <source>原版 %1 已就绪，正在下载整合包文件…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27086,7 +27025,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>原版文件没下全，实例没有装成。
+            <source>原版文件不完整，实例安装失败。
 %1</source>
             <translation type="unfinished"></translation>
         </message>
@@ -27095,11 +27034,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个实例的加载器是「%1」，但它还没有对应的整合包写法，没有导出。</source>
+            <source>当前导出格式不支持加载器「%1」，导出已取消。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个实例的 wtfml.meta 里写着加载器「%1」，本启动器不认识这个名字，不敢往外导 ——把一个装了几百个模组的实例导成纯原版包，用户装回来会发现模组都在、游戏起不来，而包看上去是好的。要导出的话，把 wtfml.meta 里的 loaderName 改成 Fabric / Forge / NeoForge 之一。</source>
+            <source>实例的 wtfml.meta 声明了未知加载器「%1」，导出已取消。若实例实际使用 Fabric、Forge 或 NeoForge，请将 loaderName 改为相应名称后重试。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27125,11 +27064,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>内部错误：这份导出计划里没有实例目录，认不出信息的那些文件取不出来。</source>
+            <source>导出计划缺少实例目录，无法读取来源未知的文件。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>建不了临时目录，没法准备整合包的内容：%1</source>
+            <source>无法创建临时目录以准备整合包：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27141,17 +27080,17 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>盘上原来那份 %1 挪不开（它可能正被别的程序占着），没有替换它。
-新打好的包在：%2</source>
+            <source>无法移走原文件 %1，已保留原文件。
+新整合包位于 %2。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>整合包打好了，但没能放到 %1，而原来那份也放不回去了 —— 它还在 %2。</source>
+            <source>整合包已生成，但无法替换 %1，也无法恢复原文件。原文件位于 %2。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>整合包打好了，但没能放到 %1（它可能正被别的程序占着）。
-它现在在：%2</source>
+            <source>整合包已生成，但无法写入 %1。请检查目标是否被占用。
+新整合包位于 %2。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27159,7 +27098,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 的安装还没接通。</source>
+            <source>暂不支持安装 %1。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27187,19 +27126,19 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>正在装指定的 %1 %2（不去问版本列表了）...</source>
+            <source>正在安装指定版本 %1 %2…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>正在获取 %1 %2 的加载器版本列表...</source>
+            <source>正在获取 %1 %2 加载器版本列表…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>正在获取 %1 %2 该用哪个版本...</source>
+            <source>正在查找适用于 %1 %2 的版本…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>正在装指定的 %1 %2（不去问版本表了）...</source>
+            <source>正在安装预先指定的 %1 %2…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27207,11 +27146,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 还没有给 %2 发正式版加载器（列表里只有测试版）。可以选「最新版」或具体版本再装。</source>
+            <source>%1 暂无适用于 %2 的稳定版加载器。可选择「最新版」或指定版本进行安装。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 还没有支持 %2 的加载器（拿到的列表是空的）。</source>
+            <source>%1 暂无适用于 %2 的加载器。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27235,11 +27174,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>原版 %1 已安装，直接安装 %2 自己的文件。</source>
+            <source>原版 %1 已安装，继续安装 %2 的文件。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>原版 %1 还没装，先把它的文件下全（客户端 jar + 库 + 资源）...</source>
+            <source>正在安装原版 %1 的客户端 JAR、运行库和资源…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27247,7 +27186,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>开始下载 %1 %2 自己的文件（maven 库）...</source>
+            <source>正在下载 %1 %2 的 Maven 依赖…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27267,7 +27206,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 还没有支持 %2 的版本。</source>
+            <source>%1 暂无支持 %2 的版本。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27275,27 +27214,27 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>正在下载 %1 %2 的安装器...</source>
+            <source>正在下载 %1 %2 安装器…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 %2 的安装器不在常规坐标上（老游戏版本是这样），换一种坐标再下一遍...</source>
+            <source>未在常规位置找到 %1 %2 安装器，正在尝试旧版下载地址…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个游戏目录里还没有 %1（%2 的安装器认它才肯干活），而它建不出来（%3）。</source>
+            <source>无法在游戏目录中创建 %2 安装器所需的 %1：%3</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个游戏目录里还没有 %1（%2 的安装器认它才肯干活），而它写不下去（%3）。</source>
+            <source>%2 的安装器需要游戏目录中的 %1，但无法创建此文件（%3）。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>OptiFine 的安装器只认 Windows 上的 APPDATA，这个平台上还没接通。</source>
+            <source>OptiFine 的安装器需要 Windows 的 APPDATA 目录，当前平台暂不支持此安装方式。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个游戏目录里还没有 %1，先补一份最小的（没有它 %2 的安装器拒绝干活；原版启动器、PCL 都往这个文件里记自己的档案，所以补的是最小的一份、不动别的东西）。</source>
+            <source>正在创建 %2 安装器所需的 %1，仅写入安装所需的内容。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27304,22 +27243,21 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>先问一下 %1 的安装器认哪些命令行开关...</source>
+            <source>正在检查 %1 安装器支持的命令行选项…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个安装器不认 --mirror，它自己下库那一段只好走官方（启动器这边下的库仍然走镜像）。</source>
+            <source>安装器不支持 --mirror，将从官方源下载其依赖。启动器负责的下载仍使用当前镜像。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 %2 的安装器没有命令行安装这条路（它的帮助里只有 --extract / --installServer / --offline）—— 那个年代它把「装客户端」做成了图形界面。
-我们不去开那个界面：它自己 jar 里那份安装说明（install_profile.json）写明了该怎么装，本启动器照着那份说明装（不用点，也不用起那个安装器）。</source>
+            <source>%1 %2 安装器仅提供图形客户端安装入口。启动器将根据 JAR 中的 install_profile.json 安装客户端文件。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 %2 的安装器没有命令行安装这条路，我们本想照它自己 jar 里的安装说明（install_profile.json）自己装，但那份说明用不上：%3
-（%4 这一份的格式不是那个年代的，或者下下来的 jar 本身坏了。）
-这个版本请用原版启动器或 PCL 装一次 %5：装完本启动器认得出它、也能正常启动。</source>
+            <source>无法根据 %1 %2 的 install_profile.json 安装客户端：%3
+请检查 %4 的格式和完整性。
+可在原版启动器或 PCL 中安装 %5，再由本启动器识别。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27335,11 +27273,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>里面没有 install / versionInfo 这两节（这是新格式的安装器，本来该走它自己的命令行安装）</source>
+            <source>安装器中缺少 install 或 versionInfo 字段。此格式应通过安装器的命令行安装。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>install 那一节缺 %1</source>
+            <source>install 字段缺少 %1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27347,7 +27285,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>认不出它基于哪个原版（inheritsFrom / install.minecraft 都是空的）</source>
+            <source>继承字段 inheritsFrom 和 install.minecraft 均为空，无法确定原版游戏版本</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27355,7 +27293,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>它的安装说明说这份版本基于「%1」，不是我们选的「%2」</source>
+            <source>安装包声明的原版版本为「%1」，所选版本为「%2」</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27367,11 +27305,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>建不出目录 %1</source>
+            <source>创建目录失败：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>写不进 %1（%2）</source>
+            <source>无法写入 %1（%2）</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27379,7 +27317,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 %2 的版本文件写好了（%3 条库，其中 %4 条原版已经带着、不用下）。接着补原版 %5 的文件，然后下加载器自己那几个库...</source>
+            <source>已保存 %1 %2 的版本清单（%3 项运行库，其中 %4 项由原版提供）。正在补齐原版 %5 及加载器的运行库…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27391,23 +27329,23 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 的安装器已经 %2 秒没有任何输出，像是卡在一条死连接上了。把它停掉重起一次（已经下好的库不会重下）...</source>
+            <source>%1 安装器已连续 %2 秒未输出，正在重启安装器。已下载的库会保留…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 的安装器连续 %2 秒没有任何输出；重起一次之后还是这样，就先停掉了。
-它最后打出来的是：%3
-多半是网络（安装器自己那条连接）卡住了，过一会儿重试；一直这样就把日志发来。</source>
+            <source>%1 安装器重试后仍连续 %2 秒未输出，已停止安装。
+最后输出：%3
+请检查网络后重试。若仍失败，可提供安装日志。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 的安装器跑了 %2 分钟还没结束，已经把它停掉了。
-它最后打出来的是：%3
-网络连接超时，请稍后重试；若持续失败请导出日志排查。</source>
+            <source>%1 的安装器运行超过 %2 分钟，已停止。
+安装器的最后一条输出：%3
+网络连接超时。请稍后重试，或在反复失败时导出日志。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 的安装器还在跑（%2 秒）...</source>
+            <source>%1 安装器已运行 %2 秒…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27415,12 +27353,12 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 的安装器起不来（那个 Java 进程没能启动）。
-到「设置」里换一个 Java 试试。</source>
+            <source>无法启动 %1 安装器的 Java 进程。
+请在「设置」中选择可用的 Java 后重试。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>安装器使用的旧 Java 证书校验失败，改用本机较新的 Java 重试一次：%1。不会更改游戏使用的 Java。HTTPS 证书校验保持开启。</source>
+            <source>安装器使用的 Java 无法验证 HTTPS 证书，正在改用本机较新的 Java 重试：%1。游戏仍使用原来配置的 Java，证书校验保持开启。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27436,8 +27374,8 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 %2 的安装器报了错（退出码 %3），没有装成。
-它最后打出来的是：
+            <source>%1 %2 安装失败，安装器退出码为 %3。
+安装器的最后一条输出：
 %4</source>
             <translation type="unfinished"></translation>
         </message>
@@ -27448,7 +27386,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 %2 装出来的版本 json 里的 id 是「%3」，和我们算的「%4」对不上，没有记成装好。</source>
+            <source>%1 %2 生成的版本 ID 为「%3」，预期为「%4」，未登记为已安装。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27460,7 +27398,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 安装完成，接下来补齐原版 %2 的文件（安装器不下载资源文件）...</source>
+            <source>%1 已安装，正在补齐原版 %2 的资源文件…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27468,23 +27406,23 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 还没有支持 %2 的正式版；去列表里挑最新那一档，那一档连预览版一起算。</source>
+            <source>%1 没有支持 %2 的稳定版。可在列表中选择包含预览版的最新版本。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>最新那一档，挑中的是预览版</source>
+            <source>所选最新版本为预览版</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>最新那一档，连预览版一起算</source>
+            <source>最新版本（含预览版）</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 的版本号 %2 认不出下载地址，换一个版本试试。</source>
+            <source>找不到 %1 版本 %2 的下载地址。请选择其他版本。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>正在取 %1 %2 的下载地址...</source>
+            <source>正在获取 %1 %2 下载地址…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27500,15 +27438,15 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 的安装器要拿原版 %2 的客户端 jar 当输入，先把原版装好...</source>
+            <source>%1 安装器需要原版 %2 的客户端 JAR，正在安装原版…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>建不出临时工作目录（%1）。%2 的安装器只认 APPDATA 指的那个目录，没它装不了。</source>
+            <source>无法创建临时工作目录（%1）。%2 安装器需要可用的 APPDATA 路径。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>建不出临时目录里的 versions/%1（%2）。</source>
+            <source>无法创建临时版本目录 versions/%1（%2）。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27520,8 +27458,8 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 的安装器在临时目录里装出了不止一个版本（%2、%3），认不出该用哪一个，没有安装。
-它最后打出来的是：
+            <source>%1 安装器在临时目录生成多个版本（%2、%3），无法确定安装目标。
+最后输出：
 %4</source>
             <translation type="unfinished"></translation>
         </message>
@@ -27540,7 +27478,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 %2 装出来的版本 json 里的 id 是「%3」，和目录名「%4」对不上，没有安装。</source>
+            <source>%1 %2 生成的版本 ID 为「%3」，与目录名「%4」不一致，安装已取消。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27552,11 +27490,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 %2 的库（libraries/optifine/）没能从临时目录搬回游戏目录（%3），没有安装。</source>
+            <source>无法将 %1 %2 的库（libraries/optifine/）移至游戏目录（%3），安装已取消。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 %2 的库搬回来了，但版本目录没能搬回 %3，游戏目录里可能留下了半个版本 —— 再装一次就能盖好。</source>
+            <source>%1 %2 的库已复制，但版本目录无法移至 %3。请重新安装以补齐文件。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27564,11 +27502,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 %2 安装完成，接下来落实例文件...</source>
+            <source>%1 %2 已安装，正在写入实例文件…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 %2 没有装成，实例没有装成。%3</source>
+            <source>实例安装失败：%1 %2 未能安装。%3</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27576,19 +27514,19 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 %2 没有装成。%3</source>
+            <source>%1 %2 安装失败。%3</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>安装完成，但未能写入 wtfml.meta（%1）——「版本名」中将缺少「%2 %3」。</source>
+            <source>安装已完成，但无法保存 wtfml.meta（%1）。显示的版本名称将缺少「%2 %3」。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 没装成，整合包没有导入。%2</source>
+            <source>未能安装 %1，整合包导入失败。%2</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>实例「%1」没有装成（%2 没装成）。%3</source>
+            <source>实例「%1」安装失败：%2 未能安装。%3</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27596,11 +27534,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 在这个启动器里还没接通，整合包没有导入。</source>
+            <source>当前启动器暂不支持 %1，整合包未导入。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个 CurseForge 整合包的文件清单没有换成下载地址：那种清单里只有编号，要先问一次 CurseForge 的接口才换得出来。没有导入，再试一次；一直这样的话，在设置页「下载」栏里填一份自己的 CurseForge API key。</source>
+            <source>无法从 CurseForge 获取此整合包文件的下载地址，导入已取消。请重试。若问题持续，请在「设置 → 下载」中填写自己的 CurseForge API 密钥。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27612,11 +27550,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个整合包没有模组加载器，先把原版 %1 装好...</source>
+            <source>整合包未声明加载器，正在安装原版 %1…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>使用包内启动补丁，先补齐原版 %1，再安装专用运行库...</source>
+            <source>将使用整合包内的启动补丁。正在补齐原版 %1，随后安装专用运行库…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27628,39 +27566,39 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>实例的版本文件没能写进 %1：%2
+            <source>无法将版本文件保存到 %1：%2
 
-（这份文件是启动器认这个实例的凭据，写不进去就等于没导入。）</source>
+导入未完成，请修复目录权限后重试。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>正在补齐专用运行库和客户端文件，完成后解压整合包内容...</source>
+            <source>正在补齐专用运行库和客户端文件，之后将解压整合包…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个整合包里没有要下载的文件，内容都在压缩包里，直接解开...</source>
+            <source>整合包没有待下载文件，正在解压内置文件…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>清单里 %1 个文件，开始下载（已经下好的会按 sha1 跳过）...</source>
+            <source>开始下载清单中的 %1 个文件。通过 SHA-1 校验的本地文件会复用…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>正在把压缩包里的游戏目录解进实例（mods、config、资源包这些）...</source>
+            <source>正在将 mods、config 和资源包等目录解压到实例…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>正在解开整合包里的覆盖文件（config、资源包、光影这些）...</source>
+            <source>正在解压整合包的配置、资源包和光影包等覆盖文件…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>整合包里的覆盖文件没能解开：%1
+            <source>无法解压整合包中的覆盖文件：%1
 
-（清单里那些文件已经下好在 %2 里了，缺的是 config、资源包、光影这些。）</source>
+已下载的内容位于 %2。配置、资源包或光影包等覆盖文件可能尚未安装。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>正在后台校验安装文件并保存安装凭据（可取消，最多 900 秒）...</source>
+            <source>正在校验文件并保存安装记录（可取消，最长 900 秒）…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27672,16 +27610,16 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>整合包仍不完整，已下载文件和覆盖内容均保留，没有标记为安装成功。
+            <source>整合包安装尚未完成。已下载的文件和已应用的覆盖文件均已保留。
 
 %1
 
 逐项清单：%2
-补齐后可在报告中点击“完成安装”；缺少有效安装凭据的旧安装仍需原包同名继续导入。</source>
+补齐后可在报告中选择「完成安装」。如果旧安装缺少有效的安装记录，请用原整合包和原实例名称继续导入。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>文件已全部安装，但 %1 未被识别为实例（版本 json 有误？）——列表中将看不到它。整个目录位于 %2；请删除该目录后重新导入。</source>
+            <source>文件已全部安装，但 %1 未被识别为实例，启动列表中不会显示。请检查 %2 中的版本 JSON，或移走该目录后重新导入。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27689,7 +27627,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>文件已保留，但未完成标记无法移除，没有报告安装成功。</source>
+            <source>文件已保留。因无法移除未完成标记，安装仍显示为未完成。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27737,29 +27675,29 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>正在装原版 %1...</source>
+            <source>正在安装原版 %1…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>正在装 %1（基于原版 %2）...</source>
+            <source>正在安装 %1（基于原版 %2）…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>%1 的安装还没接通，没有安装。</source>
+            <source>当前版本暂不支持安装 %1。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>正在装 %1（%2，基于原版 %3）...</source>
+            <source>正在安装 %1（%2，基于原版 %3）…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>正在装 %1（%2 %3，基于原版 %4）...</source>
+            <source>正在安装 %1（%2 %3，基于原版 %4）…</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>实例的版本文件没能写进 %1：%2
+            <source>无法将版本文件保存到 %1：%2
 
-（这份文件是启动器认这个实例的凭据，写不进去就等于没装成。）</source>
+安装未完成，请检查目录权限后重试。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27775,7 +27713,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>写不进 %1（%2）。</source>
+            <source>无法写入目标路径 %1（%2）。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27809,11 +27747,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>建不出目录 %1</source>
+            <source>无法创建目录 %1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>写不进 %1（%2）</source>
+            <source>无法写入 %1（%2）</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27849,7 +27787,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>有文件没能复制到暂存副本。</source>
+            <source>部分文件无法复制到暂存目录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27865,11 +27803,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」里面没有 level.dat，看起来不是一个世界存档（是不是选错了上一层的文件夹？）</source>
+            <source>「%1」缺少 level.dat，无法识别为世界存档。请选择存档所在目录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个实例里还没有 saves 文件夹（先启动一次游戏，或者手动建一个）。</source>
+            <source>此实例中没有 saves 目录。请先启动一次游戏，或手动创建该目录。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27917,7 +27855,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「%1」已经不在盘上了。</source>
+            <source>存档「%1」已丢失。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27945,23 +27883,23 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>规则「%1」没写进去。</source>
+            <source>无法保存游戏规则「%1」。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>世界名没写进去（那一格在盘上不是文字）。</source>
+            <source>存档中的世界名称字段类型无效，未保存修改。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「允许作弊」没写进去（盘上那一格不是 0/1 那种数）。</source>
+            <source>存档中的「允许作弊」不是有效布尔值（0 或 1），未保存修改。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「极限模式」没写进去（盘上那一格不是 0/1 那种数）。</source>
+            <source>存档中的「极限模式」不是有效布尔值（0 或 1），未保存修改。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>「难度」没写进去（盘上那一格不是 0/1/2/3 那种数）。</source>
+            <source>存档中的「难度」值无效（有效值为 0 至 3），未保存修改。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27973,11 +27911,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>读不动 level.dat：%1</source>
+            <source>无法读取 level.dat：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>level.dat 没能完整读取：%1</source>
+            <source>level.dat 读取不完整：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -27985,7 +27923,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>解出来的临时文件读不动：%1</source>
+            <source>无法读取解压后的临时文件：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -28005,11 +27943,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个存档里没有 level.dat —— 不往一个不存在的世界里写。</source>
+            <source>存档缺少 level.dat，未保存修改。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>建不出临时文件：%1</source>
+            <source>无法创建临时文件：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -28021,11 +27959,11 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>写不进 level.dat：%1</source>
+            <source>无法写入 level.dat：%1</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>压好的那一份没能落到 level.dat 上（盘满了？）</source>
+            <source>无法替换压缩后的 level.dat。请检查磁盘空间和写入权限。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -28107,7 +28045,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>这个存档里还没有「游戏规则」那一格（工具做出来的、还没进过的档常常是这样）—— 下面每一条摆的都是游戏的默认值，改过哪一条才会把哪一条写进存档。</source>
+            <source>存档尚未保存游戏规则。列表显示游戏默认值，保存时仅写入修改过的规则。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -28115,7 +28053,7 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>注意：盘上这份 level.dat「不是」gzip 包着的（正常存档都是）。我们按原样写回，不改它的形状。</source>
+            <source>此 level.dat 未使用 gzip 压缩。保存时将保留原有格式。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>

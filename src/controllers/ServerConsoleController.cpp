@@ -136,8 +136,8 @@ void ServerConsoleController::exportLog() {
     OverlayHost *overlay = m_ui == nullptr ? nullptr : m_ui->overlay();
     const QString text = SecretRedactor::redact(m_page->allLogText());
     if (text.isEmpty()) {
-        InlineMessage::warning(overlay, tr("还没有日志"),
-                               tr("这个控制台还没有收到任何输出，导出来会是一个空文件。"));
+        InlineMessage::warning(overlay, tr("暂无日志"),
+                               tr("控制台尚无输出。导出的日志文件将为空。"));
         return;
     }
     const ServerRegistry::Entry entry = ServerRegistry::describe(m_serverId);
@@ -166,7 +166,7 @@ void ServerConsoleController::exportLog() {
             m_host.log(tr("导出服务端日志失败：%1").arg(error));
         }
         InlineMessage::warning(overlay, tr("导出失败"),
-                               tr("这个文件没能写出来（%1）：\n%2")
+                               tr("无法写入文件（%1）：\n%2")
                                    .arg(QDir::toNativeSeparators(path), error));
         return;
     }

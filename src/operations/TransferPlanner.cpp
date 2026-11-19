@@ -69,7 +69,7 @@ QString compatibilityName(Compatibility compatibility) {
     case Compatibility::GameVersionDiffers: return QCoreApplication::translate("TransferPlanner", "游戏版本不同");
     case Compatibility::LoaderDiffers: return QCoreApplication::translate("TransferPlanner", "加载器不同");
     case Compatibility::BothDiffer: return QCoreApplication::translate("TransferPlanner", "版本与加载器都不同");
-    case Compatibility::Unknown: return QCoreApplication::translate("TransferPlanner", "认不出来");
+    case Compatibility::Unknown: return QCoreApplication::translate("TransferPlanner", "未知");
     }
     return QString();
 }
@@ -85,17 +85,17 @@ QString compatibilityText(Compatibility compatibility, const QString &sourceGame
         return QCoreApplication::translate("TransferPlanner", "目标版本（%1 / %2）与源一致：模组与配置可以原样搬过去。")
             .arg(sourceGameVersion, loaderWord(sourceLoaderName));
     case Compatibility::GameVersionDiffers:
-        return QCoreApplication::translate("TransferPlanner", "目标版本是 %1，源是 %2 —— 模组与部分配置可能不兼容，" "所以「模组」默认不勾选。")
+        return QCoreApplication::translate("TransferPlanner", "目标游戏版本为 %1，源版本为 %2。模组和部分配置可能不兼容，默认不迁移模组。")
             .arg(targetGameVersion, sourceGameVersion);
     case Compatibility::LoaderDiffers:
-        return QCoreApplication::translate("TransferPlanner", "目标加载器是 %1，源是 %2（游戏版本都是 %3）—— " "模组与加载器相关配置可能不兼容，所以「模组」默认不勾选。")
+        return QCoreApplication::translate("TransferPlanner", "源加载器为 %2，目标加载器为 %1，游戏版本均为 %3。模组和相关配置可能不兼容，默认不迁移模组。")
             .arg(loaderWord(targetLoaderName), loaderWord(sourceLoaderName), sourceGameVersion);
     case Compatibility::BothDiffer:
-        return QCoreApplication::translate("TransferPlanner", "目标版本是 %1 / %2，源是 %3 / %4 —— 模组与部分配置可能不兼容，" "所以「模组」默认不勾选。")
+        return QCoreApplication::translate("TransferPlanner", "目标版本和加载器为 %1 / %2，源配置为 %3 / %4。模组和部分配置可能不兼容，默认不迁移模组。")
             .arg(targetGameVersion, loaderWord(targetLoaderName), sourceGameVersion,
                  loaderWord(sourceLoaderName));
     case Compatibility::Unknown:
-        return QCoreApplication::translate("TransferPlanner", "有一边的游戏版本或加载器读不出来 —— 不做猜测：" "「模组」默认不勾选，请自己判断要不要原样搬过去。");
+        return QCoreApplication::translate("TransferPlanner", "无法识别源或目标的游戏版本或加载器。默认不迁移模组，可确认兼容性后手动勾选。");
     }
     return QString();
 }
@@ -146,8 +146,8 @@ QString Plan::detailText() const {
     lines << headline();
     lines << compatibilitySentence;
     lines << QString();
-    lines << (upgrade ? QCoreApplication::translate("TransferPlanner", "以下是这次升级副本里要搬的内容：")
-                      : QCoreApplication::translate("TransferPlanner", "以下是这次迁移里要搬的内容："));
+    lines << (upgrade ? QCoreApplication::translate("TransferPlanner", "将复制以下内容到升级副本：")
+                      : QCoreApplication::translate("TransferPlanner", "本次迁移包括："));
     for (const Item &item : items) {
         if (!item.exists) {
             lines << QCoreApplication::translate("TransferPlanner", "• %1：这一份实例里没有").arg(item.label);
@@ -161,7 +161,7 @@ QString Plan::detailText() const {
         if (!item.note.isEmpty()) lines << QStringLiteral("    %1").arg(item.note);
     }
     lines << QString();
-    lines << QCoreApplication::translate("TransferPlanner", "日志、截图、崩溃报告只是记录，默认不搬（想搬就手动勾上）。");
+    lines << QCoreApplication::translate("TransferPlanner", "日志、截图和崩溃报告默认不迁移，可手动选择。");
     lines << QCoreApplication::translate("TransferPlanner", "迁移只增加文件、不删除、不覆盖目标里已有的同名文件；" "两边的游戏都必须先关掉。");
     return lines.join(QLatin1Char('\n'));
 }
@@ -272,10 +272,10 @@ Plan plan(const Inputs &inputs) {
             && result.compatibility != Compatibility::Same) {
             item.note = QCoreApplication::translate("TransferPlanner", "目标版本 / 加载器与源不一致，模组可能起不来；" "确认要原样搬过去再自己勾上。");
         } else if (neverDefaultSelected(item.key) && item.exists) {
-            item.note = QCoreApplication::translate("TransferPlanner", "只是记录，默认不搬。");
+            item.note = QCoreApplication::translate("TransferPlanner", "这些文件用于记录，默认不迁移。");
         } else if (result.compatibility == Compatibility::Unknown && item.exists
                    && item.key != QStringLiteral("saves")) {
-            item.note = QCoreApplication::translate("TransferPlanner", "认不出目标版本：这一项是否兼容不确定，" "要不要搬请自己判断。");
+            item.note = QCoreApplication::translate("TransferPlanner", "无法识别目标版本。确认兼容性后再选择是否迁移。");
         }
         result.items.append(item);
     }

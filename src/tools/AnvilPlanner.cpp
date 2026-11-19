@@ -282,7 +282,7 @@ Plan plan(const QList<Unit> &units, bool includeRename) {
         return plan;
     }
     if (units.size() > kMaxUnits) {
-        plan.error = QCoreApplication::translate("AnvilPlanner", "一次最多算 %1 件（再多要穷举的次序就太多了）。").arg(kMaxUnits);
+        plan.error = QCoreApplication::translate("AnvilPlanner", "最多支持计算 %1 件物品。").arg(kMaxUnits);
         return plan;
     }
     // ---------- 先把表里没有的那几条拦下来（宁可不算，也不给一条基于猜测的计划）----------
@@ -424,7 +424,7 @@ Plan plan(const QList<Unit> &units, bool includeRename) {
 
     const QList<State> &finalStates = best[size_t(total - 1)];
     if (finalStates.isEmpty()) {
-        plan.error = QCoreApplication::translate("AnvilPlanner", "算不出计划来（这一组东西可能会有互斥的附魔）。");
+        plan.error = QCoreApplication::translate("AnvilPlanner", "无法生成合并方案。请检查附魔是否互斥。");
         return plan;
     }
 

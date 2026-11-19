@@ -77,7 +77,7 @@ void runToolboxExtraTests() {
 
         const QString detail = Beacon::detailText(2, 4);
         check(detail.contains(QStringLiteral("9 × 9 = 81"))
-                  && detail.contains(QStringLiteral("再补 130 块"))
+                  && detail.contains(QStringLiteral("还需 130 块"))
                   && detail.contains(QStringLiteral("50 格"))
                   && detail.contains(QStringLiteral("力量")),
               "★★ ZAI1 明细里写清最上面那层、还差多少块、范围与效果",
@@ -109,7 +109,7 @@ void runToolboxExtraTests() {
         check(material.contains(QStringLiteral("164 块金块"))
                   && material.contains(QStringLiteral("1476 个金锭")),
               "★★ ZAI1b 折算那一句把方块与锭都写出来", material);
-        check(Beacon::materialText(9, 164).contains(QStringLiteral("认不出")),
+        check(Beacon::materialText(9, 164).contains(QStringLiteral("无效的信标底座方块")),
               "ZAI1b 材质下标越界时说「认不出」，不装作知道");
 
         check(Beacon::maxBeaconCount() == 9,
@@ -192,7 +192,7 @@ void runToolboxExtraTests() {
               "★ ZAI3 延时：最后一步加红石粉，名字带「（延长）」", extended.summary);
 
         const Brewing::Plan both = Brewing::plan(0, true, true, Brewing::Form::Normal);
-        check(!both.ok && both.error.contains(QStringLiteral("二选一")),
+        check(!both.ok && both.error.contains(QStringLiteral("两种效果互斥")),
               "★★ ZAI3 红石 + 荧石同时要 ⇒ 直接报错（游戏里后加的会冲掉先加的）",
               both.error);
 
@@ -510,7 +510,7 @@ void runToolboxExtraTests() {
         same.append({0, 1});
         const Banner::Plan duplicate = Banner::plan(0, same);
         check(duplicate.ok && !duplicate.notes.isEmpty()
-                  && duplicate.notes.first().contains(QStringLiteral("只叠了一层")),
+                  && duplicate.notes.first().contains(QStringLiteral("显示效果与单层相同")),
               "★ ZAJ2 连续两层完全一样 ⇒ 一条提醒（不是错误 —— 游戏允许这么叠）",
               duplicate.notes.join(QStringLiteral(" / ")));
 
@@ -700,7 +700,7 @@ void runToolboxExtraTests() {
               "★★ ZAJ4 海龟壳 + 胸甲 ⇒ 报错，不悄悄换成皮革", badShell.error);
 
         const ArmorTrim::Plan badPieces = ArmorTrim::plan(0, 0, coast, 0, 5);
-        check(!badPieces.ok && badPieces.error.contains(QStringLiteral("1–4")),
+        check(!badPieces.ok && badPieces.error.contains(QStringLiteral("1 至 4")),
               "★ ZAJ4 件数越界 ⇒ 报错（最多四件）", badPieces.error);
 
         const ArmorTrim::Plan badIndex = ArmorTrim::plan(0, 0, -1, 0, 1);
@@ -786,7 +786,7 @@ void runToolboxExtraTests() {
 
         const int turtle = ArmorTrim::armorMaterialCount() - 1;
         const ArmorTrim::Plan turtleSet = ArmorTrim::plan(turtle, 0, coast, 0, 1, true);
-        check(!turtleSet.ok && turtleSet.error.contains(QStringLiteral("整套")),
+        check(!turtleSet.ok && turtleSet.error.contains(QStringLiteral("只能用作头部装备")),
               "★★ ZAJ5 海龟壳没有整套 ⇒ 报错，不悄悄只做头盔", turtleSet.error);
     }
 

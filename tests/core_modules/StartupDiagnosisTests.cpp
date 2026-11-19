@@ -48,7 +48,7 @@ void runStartupDiagnosisTests() {
         check(hasTitle(report, QStringLiteral("加载器：Forge 47.2.0")),
               "DX1 加载器那一条");
         check(hasTitle(report, QStringLiteral("没有崩溃报告"))
-                  && hasTitle(report, QStringLiteral("还没有启动日志")),
+                  && hasTitle(report, QStringLiteral("暂无启动日志")),
               "DX1 没崩溃报告、没日志时如实说「没有」，不编");
         check(textOf(report).contains(QStringLiteral("【正常】"))
                   && textOf(report).contains(QStringLiteral("【信息】")),

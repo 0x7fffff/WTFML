@@ -462,7 +462,7 @@ QString kindName(Kind kind) {
     case Kind::Ok:
         return QCoreApplication::translate("ServerPing", "通了");
     case Kind::InvalidAddress:
-        return QCoreApplication::translate("ServerPing", "地址看不懂");
+        return QCoreApplication::translate("ServerPing", "服务器地址格式无效");
     case Kind::HostNotFound:
         return QCoreApplication::translate("ServerPing", "找不到主机");
     case Kind::Refused:
@@ -474,7 +474,7 @@ QString kindName(Kind kind) {
     case Kind::ConnectionLost:
         return QCoreApplication::translate("ServerPing", "连接断了");
     case Kind::Protocol:
-        return QCoreApplication::translate("ServerPing", "应答看不懂");
+        return QCoreApplication::translate("ServerPing", "服务器响应格式无效");
     case Kind::Other:
         return QCoreApplication::translate("ServerPing", "其余");
     }
@@ -692,7 +692,7 @@ Status ping(const QString &address) {
     if (!resolved.valid) {
         status.kind = Kind::InvalidAddress;
         status.error =
-            QCoreApplication::translate("ServerPing", "这个地址看不懂（要写成 主机名:端口，不写端口就是 25565）");
+            QCoreApplication::translate("ServerPing", "服务器地址格式无效。请输入主机名和端口，省略端口时使用 25565。");
         return status;
     }
     const Address target = resolved.address;
@@ -742,7 +742,7 @@ Status ping(const QString &address) {
             if (readVarInt(buffer, &offset, &size)) {
                 if (size < 0 || size > kMaxPacketBytes) {
                     status.kind = Kind::Protocol;
-                    status.error = QCoreApplication::translate("ServerPing", "服务器答的包看不懂（长度不对）");
+                    status.error = QCoreApplication::translate("ServerPing", "服务器响应长度无效");
                     return status;
                 }
                 bodyStart = offset;
@@ -750,7 +750,7 @@ Status ping(const QString &address) {
             } else if (buffer.size() > 5) {
                 status.kind = Kind::Protocol;
                 status.error =
-                    QCoreApplication::translate("ServerPing", "服务器答的包看不懂（开头不是一个长度）");
+                    QCoreApplication::translate("ServerPing", "服务器响应缺少有效的长度字段");
                 return status;
             }
         }
@@ -792,7 +792,7 @@ Status ping(const QString &address) {
     if (!readVarInt(buffer, &pos, &jsonLength) || jsonLength < 0
         || jsonLength > buffer.size() - pos) {
         status.kind = Kind::Protocol;
-        status.error = QCoreApplication::translate("ServerPing", "服务器答的包看不懂（正文长度不对）");
+        status.error = QCoreApplication::translate("ServerPing", "服务器响应的正文长度无效");
         return status;
     }
     const QJsonDocument document = QJsonDocument::fromJson(buffer.mid(pos, jsonLength));

@@ -254,7 +254,7 @@ CellApply applyCell(QJsonObject &root, const MalilibEntry &entry, ApplyMode mode
     const QString optionKey = entry.optionName;
     const QJsonValue groupValue = root.value(entry.groupId);
     if (!groupValue.isUndefined() && !groupValue.isObject()) {
-        details->append(QCoreApplication::translate("Presets", "「%1」：目标上「%2」那一大格是个%3，不是一大格，这一格没动。")
+        details->append(QCoreApplication::translate("Presets", "「%1」中，目标「%2」的类型为%3，已保留原值。")
                             .arg(entry.label(), entry.groupId, jsonTypeName(groupValue)));
         result.typeMismatch = true;
         return result;
@@ -284,7 +284,7 @@ CellApply applyCell(QJsonObject &root, const MalilibEntry &entry, ApplyMode mode
         }
         const bool absent = !cellPresent;
         if (absent && mode != ApplyMode::CopyIfMissing) {
-            details->append(QCoreApplication::translate("Presets", "「%1」：目标上还没有这一项（模组版本不一样？），跳过。")
+            details->append(QCoreApplication::translate("Presets", "目标中缺少「%1」，已跳过。请检查模组版本是否一致。")
                                 .arg(entry.label()));
             result.skipped = true;
             return result;
@@ -294,7 +294,7 @@ CellApply applyCell(QJsonObject &root, const MalilibEntry &entry, ApplyMode mode
             return result;
         }
         if (!absent && cellValue.type() != entry.value.type()) {
-            details->append(QCoreApplication::translate("Presets", "「%1」：目标上是%2、预设里是%3 —— 类型对不上，这一项没动。")
+            details->append(QCoreApplication::translate("Presets", "「%1」的类型不匹配。目标为%2，预设为%3，已跳过。")
                                 .arg(entry.label(), jsonTypeName(cellValue),
                                      jsonTypeName(entry.value)));
             result.typeMismatch = true;
@@ -505,13 +505,13 @@ MalilibFileFacts malilibInspect(const QByteArray &bytes) {
     QJsonParseError error{};
     const QJsonDocument doc = QJsonDocument::fromJson(bytes, &error);
     if (error.error != QJsonParseError::NoError) {
-        facts.problem = QCoreApplication::translate("Presets", "这一份不是有效的 JSON（%1，第 %2 个字节那儿）。")
+        facts.problem = QCoreApplication::translate("Presets", "JSON 格式无效（%1，字节偏移 %2）。")
                             .arg(error.errorString())
                             .arg(error.offset);
         return facts;
     }
     if (!doc.isObject()) {
-        facts.problem = QCoreApplication::translate("Presets", "这一份的顶层不是一个对象 —— 不是 MaLiLib 那一族的样子。");
+        facts.problem = QCoreApplication::translate("Presets", "MaLiLib 配置的顶层必须是 JSON 对象。");
         return facts;
     }
 
@@ -541,7 +541,7 @@ MalilibFileFacts malilibInspect(const QByteArray &bytes) {
     // 开关 + 热键）。光有顶层对象不够 —— 那会把一大堆别的模组的 json 都圈进来。
     facts.recognized = facts.categories > 0 && (facts.hotkeys + facts.hotkeyedValues) > 0;
     if (!facts.recognized) {
-        facts.problem = QCoreApplication::translate("Presets", "这一份不像 MaLiLib 那一族（没有一格热键），不认它。");
+        facts.problem = QCoreApplication::translate("Presets", "未找到快捷键字段，无法识别为 MaLiLib 配置。");
     }
     return facts;
 }
@@ -751,7 +751,7 @@ bool malilibEntriesFromSections(const QList<PresetSection> &sections, QList<Mali
         for (int i = 0; i < section.items.size(); ++i) {
             const QJsonValue value = section.items.at(i);
             if (!value.isObject()) {
-                failWith(problemOut, QCoreApplication::translate("Presets", "MaLiLib 那一段里第 %1 项不是一个对象。")
+                failWith(problemOut, QCoreApplication::translate("Presets", "MaLiLib 配置的第 %1 项应为对象。")
                                          .arg(i + 1));
                 return false;
             }
@@ -767,7 +767,7 @@ bool malilibEntriesFromSections(const QList<PresetSection> &sections, QList<Mali
             const QString itemMod = modValue.toString();
             const QString modProblem = malilibModIdProblem(itemMod);
             if (!modProblem.isEmpty()) {
-                failWith(problemOut, QCoreApplication::translate("Presets", "MaLiLib 那一段里第 %1 项的模组名不能用：%2")
+                failWith(problemOut, QCoreApplication::translate("Presets", "MaLiLib 配置第 %1 项的模组名称无效：%2")
                                          .arg(i + 1)
                                          .arg(modProblem));
                 return false;
@@ -787,7 +787,7 @@ bool malilibEntriesFromSections(const QList<PresetSection> &sections, QList<Mali
 
             MalilibEntryKind kind = MalilibEntryKind::Value;
             if (!malilibEntryKindFromKey(item.value(QStringLiteral("type")).toString(), &kind)) {
-                failWith(problemOut, QCoreApplication::translate("Presets", "MaLiLib 那一段里第 %1 项的 type（%2）认不出来。")
+                failWith(problemOut, QCoreApplication::translate("Presets", "MaLiLib 配置第 %1 项的 type 无法识别（%2）。")
                                          .arg(i + 1)
                                          .arg(item.value(QStringLiteral("type")).toString()));
                 return false;
@@ -814,7 +814,7 @@ bool malilibEntriesFromSections(const QList<PresetSection> &sections, QList<Mali
                     const QJsonValue keysValue = item.value(QStringLiteral("keys"));
                     if (!keysValue.isArray()) {
                         failWith(problemOut,
-                                 QCoreApplication::translate("Presets", "MaLiLib 那一段里第 %1 项的 keys 不是一张表。")
+                                 QCoreApplication::translate("Presets", "MaLiLib 配置第 %1 项的 keys 字段类型无效。")
                                      .arg(i + 1));
                         return false;
                     }
@@ -865,7 +865,7 @@ bool malilibEntriesFromSections(const QList<PresetSection> &sections, QList<Mali
                 const QJsonValue extraValue = item.value(QStringLiteral("extra"));
                 if (!extraValue.isObject()) {
                     failWith(problemOut,
-                             QCoreApplication::translate("Presets", "MaLiLib 那一段里第 %1 项的 extra 不是一格对象。")
+                             QCoreApplication::translate("Presets", "MaLiLib 配置第 %1 项的 extra 字段应为对象。")
                                  .arg(i + 1));
                     return false;
                 }
@@ -1061,7 +1061,7 @@ MalilibApplyResult applyMalilibEntries(const QList<MalilibEntry> &entries,
     // ---- ① 「覆盖」要用户明确确认过才动手（和原版设置那一层同一个形状）----
     if (mode == ApplyMode::Replace && !replaceConfirmed) {
         report.needsConfirm = true;
-        report.problem = QCoreApplication::translate("Presets", "「覆盖」会把目标上其余的热键整个解绑，需要先确认过才动手。");
+        report.problem = QCoreApplication::translate("Presets", "覆盖会解除目标配置中其余快捷键的绑定，需要确认。");
         return result;
     }
 
@@ -1093,7 +1093,7 @@ MalilibApplyResult applyMalilibEntries(const QList<MalilibEntry> &entries,
         const MalilibTargetFile *file = target.find(modId);
         if (file != nullptr && !file->problem.isEmpty()) {
             report.skipped += static_cast<int>(group.size());
-            report.details << QCoreApplication::translate("Presets", "「%1」那一份没动：%2").arg(modId, file->problem);
+            report.details << QCoreApplication::translate("Presets", "已跳过「%1」：%2").arg(modId, file->problem);
             continue;
         }
         const bool present = file != nullptr && file->present;
@@ -1135,7 +1135,7 @@ MalilibApplyResult applyMalilibEntries(const QList<MalilibEntry> &entries,
             } else {
                 // 走到这儿说明 `applyCell()` 有一档没归上号 —— 算"没动"，但报出来。
                 ++report.skipped;
-                report.details << QCoreApplication::translate("Presets", "「%1」：这一格这一趟没归上号，算没动。")
+                report.details << QCoreApplication::translate("Presets", "「%1」未匹配到配置项，已保留原值。")
                                       .arg(entry->label());
             }
         }
@@ -1206,7 +1206,7 @@ MalilibApplyReport applyMalilibToInstance(const QString &instanceRoot,
         if (InstanceFiles::pathHasLinkComponent(instanceRoot, relativePath)) {
             report.ok = false;
             report.problem =
-                QCoreApplication::translate("Presets", "「%1」这一条路上有链接目录（junction / 符号链接），没有写到那儿。")
+                QCoreApplication::translate("Presets", "「%1」的路径包含目录联接或符号链接，已跳过写入。")
                     .arg(relativePath);
             return report;
         }
@@ -1214,13 +1214,13 @@ MalilibApplyReport applyMalilibToInstance(const QString &instanceRoot,
         const QString dirPath = QFileInfo(path).absolutePath();
         if (!QDir().mkpath(dirPath)) {
             report.ok = false;
-            report.problem = QCoreApplication::translate("Presets", "建不了「%1」这个目录，写到这一份就停下了。").arg(dirPath);
+            report.problem = QCoreApplication::translate("Presets", "无法创建目录「%1」，写入已停止。").arg(dirPath);
             return report;
         }
         QSaveFile out(path);
         if (!out.open(QIODevice::WriteOnly)) {
             report.ok = false;
-            report.problem = QCoreApplication::translate("Presets", "写不进「%1」：%2").arg(path, out.errorString());
+            report.problem = QCoreApplication::translate("Presets", "无法写入「%1」：%2").arg(path, out.errorString());
             return report;
         }
         if (out.write(file.bytes) != file.bytes.size()) {
@@ -1245,7 +1245,7 @@ MalilibApplyReport applyMalilibToInstance(const QString &instanceRoot,
 MalilibExtractReport extractMalilibSections(const MalilibExtractRequest &request) {
     MalilibExtractReport report;
     if (request.instanceRoot.trimmed().isEmpty()) {
-        report.problem = QCoreApplication::translate("Presets", "没给实例目录，收不了 MaLiLib 那一族。");
+        report.problem = QCoreApplication::translate("Presets", "未指定实例目录，无法提取 MaLiLib 配置。");
         return report;
     }
 

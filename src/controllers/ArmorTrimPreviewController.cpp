@@ -78,7 +78,7 @@ ArmorTrimPreviewController::ArmorTrimPreviewController(ToolboxPage *page, Overla
         // 先记下"是超时"，再置 m_cancelled：finished 那一发只看 m_cancelled 的话，
         // 超时会被当成用户取消（屏幕上就看到"已取消"，看不到为什么停）。
         m_timedOut=true; m_cancelled=true; m_download->cancel();
-        status(tr("预览资源下载超过 600 秒，已停止；可重新点击下载续传。"));
+        status(tr("预览资源下载超过 600 秒，已停止。重新下载可继续未完成的部分。"));
     });
     connect(m_download,&ResumableDownload::progress,this,[this](qint64 done,qint64 total) {
         if (!m_page || m_cancelled) return;
@@ -89,7 +89,7 @@ ArmorTrimPreviewController::ArmorTrimPreviewController(ToolboxPage *page, Overla
         m_deadline->stop();
         if (m_timedOut) {
             m_timedOut=false;
-            status(tr("预览资源下载超过 600 秒，已停止；可重新点击下载续传。"));
+            status(tr("预览资源下载超过 600 秒，已停止。重新下载可继续未完成的部分。"));
             return;
         }
         if (m_cancelled) { status(tr("已取消资源获取；未修改任何实例。")); return; }
@@ -232,8 +232,8 @@ void ArmorTrimPreviewController::download() {
     connect(&question,&InlineMessageBox::linkActivated,this,[this](const QString &url) {
         if(url.isEmpty()) return;
         if(!QDesktopServices::openUrl(QUrl(url)))
-            InlineMessage::warning(m_overlay,tr("打不开浏览器"),
-                                   tr("没能打开这一条网址：\n%1").arg(url));
+            InlineMessage::warning(m_overlay,tr("无法打开浏览器"),
+                                   tr("无法打开网址：\n%1").arg(url));
     });
     m_overlay->execPrompt(&question,false);
     if(question.clickedIndex()!=0) return;

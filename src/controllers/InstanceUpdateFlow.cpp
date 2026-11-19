@@ -516,8 +516,7 @@ void InstanceUpdateFlow::attach(MainWindow *owner, InstanceSettingsDialog *dialo
                              && !InlineMessage::question(
                                  owner->m_ui->overlay(),
                                  QObject::tr("这个整合包带自定义启动配置"),
-                                 QObject::tr("升级可能让它的启动配置（主类 / JVM 参数 / 专用库）对不上，"
-                                             "升级后可能起不来。建议先备份实例。仍然继续吗？"),
+                                 QObject::tr("升级后，主类、JVM 参数或专用库可能与新版本不兼容，导致实例无法启动。\n\n建议先备份实例。确认继续？"),
                                  QObject::tr("仍要继续"), QObject::tr("取消"), false)) {
                              return;
                          }

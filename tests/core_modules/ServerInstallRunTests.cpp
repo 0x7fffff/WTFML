@@ -25,11 +25,11 @@ void runServerInstallRunTests() {
               "★★ ZY0 「接没接」和「有没有那句原因」永远是同一件事（两处判据不许漂开）");
         const QString reason =
             ServerInstallRun::unsupportedReason(ServerInstall::Flavor::Spigot);
-        check(reason.contains(QStringLiteral("git")),
+        check(reason.contains(QStringLiteral("Git")),
               "★ ZY0 那句话里点明了**为什么要本机装 git**（用户得知道卡在哪儿）", reason);
-        check(!reason.contains(QStringLiteral("暂不支持")) ||
-                  reason.contains(QStringLiteral("这一版还没接")),
-              "ZY0 措辞是「这一版还没接」那种说法（不是「暂不支持」这种不交代原因的话）", reason);
+        check(reason.contains(QStringLiteral("暂不支持此安装方式")) &&
+                  reason.contains(QStringLiteral("选择其他服务端类型")),
+              "ZY0 说明当前版本不支持此安装方式，并引导选择其他类型", reason);
     }
 
     // ---------- ZY1. 这一档还差哪一份元数据 ----------

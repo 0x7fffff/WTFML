@@ -228,7 +228,7 @@ void JavaManageDialog::setRuntime(int major, const QString &javaPath) {
     // 有权利知道这一下是要**覆盖**掉现有的那份。
     entry.button->setToolTip(
         entry.installed
-            ? QCoreApplication::translate("JavaManageDialog", "重新下一份 Java %1 覆盖掉这一份（比如它已经打不开了）。").arg(major)
+            ? QCoreApplication::translate("JavaManageDialog", "重新下载 Java %1 并替换已安装的版本。").arg(major)
             : QCoreApplication::translate("JavaManageDialog", "下载并安装 Java %1。").arg(major));
     // 「选用」在没装的那几行上是**藏起来**的，不是画灰 —— 灰按钮的位置上写着一个
     // "现在不能按"，而这一行压根没有可选的路径，那不是"暂时不行"，是"还没有"。

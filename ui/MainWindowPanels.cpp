@@ -633,7 +633,7 @@ public:
         Theme::markIconButton(gear);
         gear->setCursor(Qt::PointingHandCursor);
         gear->setToolTip(row.assistant
-                             ? QCoreApplication::translate("MainWindowUI", "这一份的更多操作（自带的那一份移不掉、也删不掉）")
+                             ? QCoreApplication::translate("MainWindowUI", "更多操作。内置条目无法移除或删除。")
                              : QCoreApplication::translate("MainWindowUI", "这一份的更多操作"));
         applyPanelActionStyle(gear, palette(), false);
         // 点的是**哪一行**靠这里捕下来的值认（不认"第几行"）。菜单弹出来到用户点某一项
@@ -1506,11 +1506,11 @@ QString MainWindowUI::folderActionText(int action) {
 QString MainWindowUI::folderActionTooltip(int action) {
     switch (action) {
     case FolderActionRefresh:
-        return QCoreApplication::translate("MainWindowUI", "重新扫一遍这个文件夹（里面多了或少了一个版本，按一下就能看到）");
+        return QCoreApplication::translate("MainWindowUI", "重新扫描游戏目录以刷新实例列表");
     case FolderActionRename:
         // 这句是用户最容易误会的一步：「重命名」听起来像要把磁盘上的目录改个名，
         // 而它改的只是一个**显示用的名字**。所以正文里把"目录名不动"写死。
-        return QCoreApplication::translate("MainWindowUI", "只改列表上显示的名字，磁盘上的目录名不动");
+        return QCoreApplication::translate("MainWindowUI", "仅更改列表显示名称");
     case FolderActionOpen:
         return QCoreApplication::translate("MainWindowUI", "用文件资源管理器打开这个文件夹");
     case FolderActionRemove:

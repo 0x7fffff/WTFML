@@ -39,7 +39,7 @@ UpgradeHistoryDialog::UpgradeHistoryDialog(QWidget *parent) : ChromeDialog(paren
     m_tree->header()->setStretchLastSection(true);
     root->addWidget(m_tree, 2);
 
-    m_empty = new QLabel(QCoreApplication::translate("UpgradeHistoryDialog", "这个实例还没有升级记录。"), this);
+    m_empty = new QLabel(QCoreApplication::translate("UpgradeHistoryDialog", "此实例暂无升级记录。"), this);
     m_empty->setObjectName(emptyName());
     root->addWidget(m_empty);
 

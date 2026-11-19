@@ -76,33 +76,30 @@ void MainWindow::showInstanceSettingsNotice(const InstanceSettingsController::No
     case InstanceSettingsController::Notice::Kind::RenameGroupNotMoved:
         // 说清楚"名字改成了、归属没搬"：不能只弹"改名失败"，那会让人再点一次。
         InlineMessage::warning(m_ui->overlay(), tr("分组归属没跟着搬"),
-                               tr("实例已经改名为「%1」，但它原来的分组归属没能搬过去：\n%2\n\n"
-                                  "可在「分组」中重新调整。")
+                               tr("实例已重命名为「%1」，但分组未能迁移：\n%2\n\n可在「分组」中重新设置。")
                                    .arg(notice.instanceId, notice.detail));
         break;
     case InstanceSettingsController::Notice::Kind::SettingsIdFailed:
         // 连身份都写不下去 ⇒ **整次没保存**（说清这一点的同时把"为什么"也给出来：
         // 文件被占着 / 目录不可写，这两条用户自己能查）。
-        InlineMessage::critical(m_ui->overlay(), tr("实例设置没能保存"),
-                                tr("「%1」的 wtfml.meta 写不进去，这次的设置没有保存。\n\n"
-                                   "（这份文件可能被别的程序占着，或者它所在的目录不可写。）")
+        InlineMessage::critical(m_ui->overlay(), tr("实例设置保存失败"),
+                                tr("无法写入「%1」的 wtfml.meta，设置未保存。\n\n请检查文件是否被占用，或所在目录是否可写。")
                                     .arg(instanceDisplayName(notice.instanceId)));
         break;
     case InstanceSettingsController::Notice::Kind::SettingsGroupNotMoved:
         // 和改名那一条同款，只是没有新名字：设置**存上了**，只是归属没搬 ⇒ 不能说成
         // "没能保存"（那会让用户重来一次）。
         InlineMessage::warning(m_ui->overlay(), tr("分组归属没跟着搬"),
-                               tr("「%1」的分组归属没能搬过去：\n%2\n\n"
-                                  "可在「分组」中重新调整。")
+                               tr("「%1」的分组迁移失败：\n%2\n\n可在「分组」中重新设置。")
                                    .arg(instanceDisplayName(notice.instanceId), notice.detail));
         break;
     case InstanceSettingsController::Notice::Kind::IconNotSaved:
         // 只有图标这一项没成 —— 说清"别的东西照常保存了"（否则用户会以为整次白改）。
-        InlineMessage::warning(m_ui->overlay(), tr("图标没能保存"), notice.detail);
+        InlineMessage::warning(m_ui->overlay(), tr("图标保存失败"), notice.detail);
         break;
     case InstanceSettingsController::Notice::Kind::SettingsSaveFailed:
         // 数据层不弹窗是约定，所以弹在这一层。detail 里已经写清了"是哪个文件、为什么"。
-        InlineMessage::critical(m_ui->overlay(), tr("实例设置没能保存"), notice.detail);
+        InlineMessage::critical(m_ui->overlay(), tr("实例设置保存失败"), notice.detail);
         break;
     }
 }
@@ -112,20 +109,19 @@ void MainWindow::showServerListNotice(const ServerListController::Notice &notice
     // 每一句话都被验证工程按原文对数，改一个字都会红。
     switch (notice.kind) {
     case ServerListController::Notice::Kind::UpdateFailed:
-        InlineMessage::warning(m_ui->overlay(), tr("没能改这一台"), notice.detail);
+        InlineMessage::warning(m_ui->overlay(), tr("编辑服务器失败"), notice.detail);
         break;
     case ServerListController::Notice::Kind::AddRejected:
         // 地址为空这一档**没有** detail（`detail` 是数据层给的原因，而这一档根本没走到
         // 数据层）—— 所以这句话写在弹窗这一边，和 `updateEntry` 那边是同一句。
-        InlineMessage::warning(m_ui->overlay(), tr("没能加这一台"),
-                               tr("地址不能是空的 —— 没有地址，"
-                                  "这一行在游戏里是一条点不动的空气。"));
+        InlineMessage::warning(m_ui->overlay(), tr("添加服务器失败"),
+                               tr("服务器地址不能为空。"));
         break;
     case ServerListController::Notice::Kind::AddFailed:
-        InlineMessage::warning(m_ui->overlay(), tr("没能加这一台"), notice.detail);
+        InlineMessage::warning(m_ui->overlay(), tr("添加服务器失败"), notice.detail);
         break;
     case ServerListController::Notice::Kind::RemoveFailed:
-        InlineMessage::warning(m_ui->overlay(), tr("没能删这一台"), notice.detail);
+        InlineMessage::warning(m_ui->overlay(), tr("移除服务器失败"), notice.detail);
         break;
     }
 }
@@ -221,10 +217,7 @@ bool MainWindow::confirmDeleteInstance(const QString &versionId) {
     // 完整路径写出来：用户要能看清删的是哪一个目录、它长在哪，而不是只知道"某个实例"。
     const auto answer = InlineMessage::question(
         m_ui->overlay(), tr("删除实例"),
-        tr("要删除实例「%1」吗？\n\n"
-           "会把 %2 这整个目录删掉（jar、json、以及这个实例自己的设置都在里面）。\n\n"
-           "删掉的东西会进回收站，要恢复可以从那里找回来。\n\n"
-           "所属游戏目录及其他实例不受影响。")
+        tr("将实例「%1」及其目录 %2 中的所有文件移入回收站。此游戏目录及其他实例会保留。\n\n确认移入回收站？")
             .arg(name, QDir::toNativeSeparators(AppPaths::versionDir(versionId))),
         tr("删除"), tr("取消"), false, /*destructive=*/true);
     if (!answer) {

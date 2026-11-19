@@ -99,7 +99,7 @@ void runFileHashTests() {
               "★ ZAC3 不是十六进制的字符 ⇒ 报出来（不是「不一致」，是这一格本身读不懂）", notHex.error);
 
         const FileHash::Expected wrongLength = FileHash::parseExpected(sha256.left(63));
-        check(!wrongLength.valid && wrongLength.error.contains(QStringLiteral("长度")),
+        check(!wrongLength.valid && wrongLength.error.contains(QStringLiteral("63 个字符")),
               "★ ZAC3 长度对不上任何一档 ⇒ 报长度（63 位既不是 64 也不是 40/32）", wrongLength.error);
 
         const FileHash::Expected mismatch =

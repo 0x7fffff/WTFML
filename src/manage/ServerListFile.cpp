@@ -106,7 +106,7 @@ bool commitBytes(const QString &target, const QByteArray &body, bool gzipped, QS
         const QString tempPlain = tempPathFor(QStringLiteral("serverlist"));
         QFile plain(tempPlain);
         if (!plain.open(QIODevice::WriteOnly)) {
-            *problem = QCoreApplication::translate("ServerListFile", "建不出临时文件：%1").arg(plain.errorString());
+            *problem = QCoreApplication::translate("ServerListFile", "无法创建临时文件：%1").arg(plain.errorString());
             return false;
         }
         const qint64 written = plain.write(body);
@@ -133,7 +133,7 @@ bool commitBytes(const QString &target, const QByteArray &body, bool gzipped, QS
     QSaveFile out(target);
     if (!out.open(QIODevice::WriteOnly)) {
         QFile::remove(tempGz);
-        *problem = QCoreApplication::translate("ServerListFile", "写不进 servers.dat：%1").arg(out.errorString());
+        *problem = QCoreApplication::translate("ServerListFile", "无法写入 servers.dat：%1").arg(out.errorString());
         return false;
     }
 
@@ -165,7 +165,7 @@ bool commitBytes(const QString &target, const QByteArray &body, bool gzipped, QS
         QFile::remove(tempGz);
         if (!wroteOk) {
             out.cancelWriting();
-            *problem = QCoreApplication::translate("ServerListFile", "压好的那一份没能落到 servers.dat 上（盘满了？）");
+            *problem = QCoreApplication::translate("ServerListFile", "无法用压缩文件替换 servers.dat。请检查磁盘空间和写入权限。");
             return false;
         }
     } else if (out.write(body) != body.size()) {
@@ -209,7 +209,7 @@ bool loadServers(const QString &datPath, LoadedList *out, QString *problem) {
         // 三个入口共用这一句，所以不能写成"先在游戏里加一台服务器"（那是**改**那一条路该
         // 给的提示，"删"读起来就成了让人去加一台再加了删）。只说清"为什么现在没得动"。
         *problem =
-            QCoreApplication::translate("ServerListFile", "这个实例还没有 servers.dat —— 游戏里加过一台之后它才会出现。");
+            QCoreApplication::translate("ServerListFile", "此实例尚无 servers.dat。进入游戏添加服务器后将生成该文件。");
         return false;
     }
     if (state == ServerListFile::FileState::Unreadable) {
@@ -249,7 +249,7 @@ bool findEntryIndex(const NbtTree::Node &servers, const QString &name, const QSt
     }
     if (addressOnly == 0) {
         *problem =
-            QCoreApplication::translate("ServerListFile", "servers.dat 里找不到地址是「%1」的那一条 —— 是不是游戏里改过了？")
+            QCoreApplication::translate("ServerListFile", "servers.dat 中找不到地址为「%1」的条目。请刷新服务器列表。")
                 .arg(address);
         return false;
     }
@@ -257,7 +257,7 @@ bool findEntryIndex(const NbtTree::Node &servers, const QString &name, const QSt
         // 两台同名同地址的服务器在盘上是合法的，但"名字没对上"时挑哪一条就不再唯一。
         // 与其猜一个，不如说清楚。
         *problem =
-            QCoreApplication::translate("ServerListFile", "这个地址在 servers.dat 里出现了 %1 次，认不准是哪一条，没有动它。")
+            QCoreApplication::translate("ServerListFile", "servers.dat 中有 %1 条记录使用此地址，无法确定要修改的条目。")
                 .arg(addressOnly);
         return false;
     }
@@ -294,13 +294,13 @@ FileState loadDocument(const QString &datPath, NbtTree::Document *out, bool *gzi
     if (info.isDir()) {
         // 同名的一个目录摆在那儿：既不是文件也不是"还没有" —— 这一档谁都不许动它。
         if (problemOut != nullptr) {
-            *problemOut = QCoreApplication::translate("ServerListFile", "servers.dat 那个位置上是个文件夹，没有动它。");
+            *problemOut = QCoreApplication::translate("ServerListFile", "servers.dat 所在位置是目录，未执行修改。");
         }
         return FileState::Unreadable;
     }
     if (info.size() > kMaxFileSize) {
         if (problemOut != nullptr) {
-            *problemOut = QCoreApplication::translate("ServerListFile", "servers.dat 有 %1 MB，太大了，没有动它。")
+            *problemOut = QCoreApplication::translate("ServerListFile", "servers.dat 大小为 %1 MB，超出处理上限，未执行修改。")
                               .arg(QString::number(info.size() / (1024.0 * 1024.0), 'f', 1));
         }
         return FileState::Unreadable;
@@ -324,8 +324,8 @@ FileState loadDocument(const QString &datPath, NbtTree::Document *out, bool *gzi
         if (!ZipUtil::gunzipTo(datPath, tempPlain, &why)) {
             if (problemOut != nullptr) {
                 *problemOut = why.isEmpty()
-                                  ? QCoreApplication::translate("ServerListFile", "servers.dat 读不动：gzip 解不开")
-                                  : QCoreApplication::translate("ServerListFile", "servers.dat 读不动：%1").arg(why);
+                                  ? QCoreApplication::translate("ServerListFile", "无法解压 servers.dat 中的 gzip 数据。")
+                                  : QCoreApplication::translate("ServerListFile", "无法读取 servers.dat：%1").arg(why);
             }
             return FileState::Unreadable;
         }
@@ -344,7 +344,7 @@ FileState loadDocument(const QString &datPath, NbtTree::Document *out, bool *gzi
         if (problemOut != nullptr) {
             // `NbtTree::parse()` 拒绝的每一档（类型不认识 / 长度越界 / 嵌套太深 / 末尾多
             // 出来一截）都算"我们看不懂这一份" —— 不留"部分解出来"的树，也就没有下文。
-            *problemOut = QCoreApplication::translate("ServerListFile", "servers.dat 读不动：%1").arg(problem);
+            *problemOut = QCoreApplication::translate("ServerListFile", "无法读取 servers.dat：%1").arg(problem);
         }
         return FileState::Unreadable;
     }
@@ -362,7 +362,7 @@ bool serversListOf(NbtTree::Document *document, NbtTree::Node **out, QString *pr
     if (servers == nullptr || servers->type != NbtTree::Type::List) {
         if (problemOut != nullptr) {
             *problemOut =
-                QCoreApplication::translate("ServerListFile", "servers.dat 里那一格 servers 不是一张服务器表，没有动它。");
+                QCoreApplication::translate("ServerListFile", "servers.dat 的 servers 字段类型无效，文件未修改。");
         }
         return false;
     }
@@ -379,7 +379,7 @@ bool serversListOf(NbtTree::Document *document, NbtTree::Node **out, QString *pr
     if (servers->itemType != NbtTree::Type::Compound) {
         if (problemOut != nullptr) {
             *problemOut =
-                QCoreApplication::translate("ServerListFile", "servers.dat 里那一格 servers 不是一张服务器表，没有动它。");
+                QCoreApplication::translate("ServerListFile", "servers.dat 的 servers 字段类型无效，文件未修改。");
         }
         return false;
     }
@@ -443,7 +443,7 @@ bool updateEntry(const QString &datPath, const QString &oldName, const QString &
     if (newAddress.trimmed().isEmpty()) {
         return failWith(
             problemOut,
-            QCoreApplication::translate("ServerListFile", "地址不能是空的 —— 没有地址，这一行在游戏里是一条点不动的空气。"));
+            QCoreApplication::translate("ServerListFile", "服务器地址不能为空。"));
     }
 
     LoadedList loaded;
@@ -462,11 +462,11 @@ bool updateEntry(const QString &datPath, const QString &oldName, const QString &
     NbtTree::Node *hit = &loaded.servers->items[index];
     if (!setStringField(hit, QStringLiteral("ip"), newAddress)) {
         return failWith(problemOut,
-                        QCoreApplication::translate("ServerListFile", "servers.dat 里「ip」那一格不是字符串，没有改。"));
+                        QCoreApplication::translate("ServerListFile", "servers.dat 的 ip 字段不是字符串，已保留原值。"));
     }
     if (!setStringField(hit, QStringLiteral("name"), newName)) {
         return failWith(problemOut,
-                        QCoreApplication::translate("ServerListFile", "servers.dat 里「name」那一格不是字符串，没有改。"));
+                        QCoreApplication::translate("ServerListFile", "servers.dat 的 name 字段不是字符串，已保留原值。"));
     }
 
     return commitBytes(datPath, NbtTree::serialize(loaded.document), loaded.gzipped, problemOut);
@@ -483,14 +483,14 @@ bool addEntry(const QString &datPath, const QString &name, const QString &addres
     if (address.trimmed().isEmpty()) {
         return failWith(
             problemOut,
-            QCoreApplication::translate("ServerListFile", "地址不能是空的 —— 没有地址，这一行在游戏里是一条点不动的空气。"));
+            QCoreApplication::translate("ServerListFile", "服务器地址不能为空。"));
     }
 
     const QFileInfo info(datPath);
     if (info.isDir()) {
         // 同名的一个目录摆在那儿：既不是文件也不是"还没有"，不动它。
         return failWith(problemOut,
-                        QCoreApplication::translate("ServerListFile", "servers.dat 那个位置上是个文件夹，没有动它。"));
+                        QCoreApplication::translate("ServerListFile", "servers.dat 所在位置是目录，未执行修改。"));
     }
 
     if (!info.exists()) {

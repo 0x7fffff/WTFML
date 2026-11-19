@@ -188,14 +188,14 @@ bool copyOneFile(const QString &source, const QString &target,
     const QFileInfo targetInfo(target);
     if (!QDir().mkpath(targetInfo.absolutePath())) {
         if (problem != nullptr) {
-            *problem = QCoreApplication::translate("WorldFiles", "建不出目录 %1").arg(targetInfo.absolutePath());
+            *problem = QCoreApplication::translate("WorldFiles", "无法创建目录 %1").arg(targetInfo.absolutePath());
         }
         return false;
     }
     QSaveFile out(target);
     if (!out.open(QIODevice::WriteOnly)) {
         if (problem != nullptr) {
-            *problem = QCoreApplication::translate("WorldFiles", "写不进 %1（%2）")
+            *problem = QCoreApplication::translate("WorldFiles", "无法写入 %1（%2）")
                            .arg(QDir::toNativeSeparators(target), out.errorString());
         }
         return false;
@@ -217,7 +217,7 @@ bool copyOneFile(const QString &source, const QString &target,
         }
         if (out.write(chunk) != chunk.size()) {
             if (problem != nullptr) {
-                *problem = QCoreApplication::translate("WorldFiles", "写不进 %1（%2）")
+                *problem = QCoreApplication::translate("WorldFiles", "无法写入 %1（%2）")
                                .arg(QDir::toNativeSeparators(target), out.errorString());
             }
             return false;
@@ -326,7 +326,7 @@ CopyTreeOutcome copyWorldTree(const QString &source, const QString &candidate,
     }
     outcome.ok = outcome.failedFiles == 0;
     if (!outcome.ok && outcome.problem.isEmpty()) {
-        outcome.problem = QCoreApplication::translate("WorldFiles", "有文件没能复制到暂存副本。");
+        outcome.problem = QCoreApplication::translate("WorldFiles", "部分文件无法复制到暂存目录。");
     }
     return outcome;
 }
@@ -361,11 +361,11 @@ ImportResult importWorld(const QString &worldDir, const QString &savesDir, const
         return fail(QCoreApplication::translate("WorldFiles", "「%1」不是一个目录。").arg(source));
     }
     if (!looksLikeWorld(source)) {
-        return fail(QCoreApplication::translate("WorldFiles", "「%1」里面没有 level.dat，看起来不是一个世界存档" "（是不是选错了上一层的文件夹？）")
+        return fail(QCoreApplication::translate("WorldFiles", "「%1」缺少 level.dat，无法识别为世界存档。请选择存档所在目录。")
                         .arg(QDir(source).dirName()));
     }
     if (!QFileInfo(target).isDir()) {
-        return fail(QCoreApplication::translate("WorldFiles", "这个实例里还没有 saves 文件夹（先启动一次游戏，" "或者手动建一个）。"));
+        return fail(QCoreApplication::translate("WorldFiles", "此实例中没有 saves 目录。请先启动一次游戏，或手动创建该目录。"));
     }
     const QString destDir = target + QLatin1Char('/') + dirName;
     if (QFileInfo::exists(destDir)) {
@@ -527,7 +527,7 @@ bool renameWorld(const QString &worldDir, const QString &newName, QString *probl
 
     const QFileInfo sourceInfo(source);
     if (!sourceInfo.isDir()) {
-        return fail(QCoreApplication::translate("WorldFiles", "「%1」已经不在盘上了。").arg(source));
+        return fail(QCoreApplication::translate("WorldFiles", "存档「%1」已丢失。").arg(source));
     }
 
     // 只差大小写（`Foo` → `foo`）是**合法**的改名：它改的就是磁盘上那个名字的大小写。
@@ -696,7 +696,7 @@ bool applyChangedGameRules(NbtTree::Document *document, const QList<NbtTree::Gam
         if (!NbtTree::setGameRule(&document->root, rule.name, rule.value, &why,
                                   NbtTree::MissingRule::Create)) {
             if (problemOut != nullptr) {
-                *problemOut = why.isEmpty() ? QCoreApplication::translate("WorldFiles", "规则「%1」没写进去。").arg(rule.name)
+                *problemOut = why.isEmpty() ? QCoreApplication::translate("WorldFiles", "无法保存游戏规则「%1」。").arg(rule.name)
                                             : why;
             }
             return false;
@@ -781,24 +781,24 @@ bool applyWorldInfo(NbtTree::Document *document, const WorldInfo &info, QString 
     if (info.hasLevelName &&
         !writeFieldOrCreate(root, QStringLiteral("Data/LevelName"), info.levelName,
                             NbtTree::Type::String, whenMissing)) {
-        return fail(QCoreApplication::translate("WorldFiles", "世界名没写进去（那一格在盘上不是文字）。"));
+        return fail(QCoreApplication::translate("WorldFiles", "存档中的世界名称字段类型无效，未保存修改。"));
     }
     if (info.hasAllowCommands &&
         !writeFieldOrCreate(root, QStringLiteral("Data/allowCommands"),
                             info.allowCommands ? QStringLiteral("1") : QStringLiteral("0"),
                             NbtTree::Type::Byte, whenMissing)) {
-        return fail(QCoreApplication::translate("WorldFiles", "「允许作弊」没写进去（盘上那一格不是 0/1 那种数）。"));
+        return fail(QCoreApplication::translate("WorldFiles", "存档中的「允许作弊」不是有效布尔值（0 或 1），未保存修改。"));
     }
     if (info.hasHardcore &&
         !writeFieldOrCreate(root, QStringLiteral("Data/hardcore"),
                             info.hardcore ? QStringLiteral("1") : QStringLiteral("0"),
                             NbtTree::Type::Byte, whenMissing)) {
-        return fail(QCoreApplication::translate("WorldFiles", "「极限模式」没写进去（盘上那一格不是 0/1 那种数）。"));
+        return fail(QCoreApplication::translate("WorldFiles", "存档中的「极限模式」不是有效布尔值（0 或 1），未保存修改。"));
     }
     if (info.hasDifficulty &&
         !writeFieldOrCreate(root, QStringLiteral("Data/Difficulty"),
                             QString::number(info.difficulty), NbtTree::Type::Byte, whenMissing)) {
-        return fail(QCoreApplication::translate("WorldFiles", "「难度」没写进去（盘上那一格不是 0/1/2/3 那种数）。"));
+        return fail(QCoreApplication::translate("WorldFiles", "存档中的「难度」值无效（有效值为 0 至 3），未保存修改。"));
     }
 
     // 游戏规则：逐条走 `setGameRule()`。它**只改已有的**（不发明），名字对不上就是"没写
@@ -812,7 +812,7 @@ bool applyWorldInfo(NbtTree::Document *document, const WorldInfo &info, QString 
         QString why;
         if (!NbtTree::setGameRule(root, rule.name, rule.value, &why)) {
             return fail(why.isEmpty()
-                            ? QCoreApplication::translate("WorldFiles", "规则「%1」没写进去。").arg(rule.name)
+                            ? QCoreApplication::translate("WorldFiles", "无法保存游戏规则「%1」。").arg(rule.name)
                             : why);
         }
     }
@@ -843,11 +843,11 @@ bool readLevelData(const QString &worldDir, LevelData *out, QString *problemOut)
         return fail(QCoreApplication::translate("WorldFiles", "这个存档里没有 level.dat，它不是一个世界（或已损坏）。"));
     }
     if (!file.open(QIODevice::ReadOnly)) {
-        return fail(QCoreApplication::translate("WorldFiles", "读不动 level.dat：%1").arg(file.errorString()));
+        return fail(QCoreApplication::translate("WorldFiles", "无法读取 level.dat：%1").arg(file.errorString()));
     }
     const QByteArray raw = file.readAll();
     if (file.error() != QFileDevice::NoError) {
-        return fail(QCoreApplication::translate("WorldFiles", "level.dat 没能完整读取：%1").arg(file.errorString()));
+        return fail(QCoreApplication::translate("WorldFiles", "level.dat 读取不完整：%1").arg(file.errorString()));
     }
     file.close();
 
@@ -872,7 +872,7 @@ bool readLevelData(const QString &worldDir, LevelData *out, QString *problemOut)
         QFile bodyFile(temp);
         if (!bodyFile.open(QIODevice::ReadOnly)) {
             QFile::remove(temp);
-            return fail(QCoreApplication::translate("WorldFiles", "解出来的临时文件读不动：%1").arg(bodyFile.errorString()));
+            return fail(QCoreApplication::translate("WorldFiles", "无法读取解压后的临时文件：%1").arg(bodyFile.errorString()));
         }
         body = bodyFile.readAll();
         bodyFile.close();
@@ -920,7 +920,7 @@ bool writeLevelData(const QString &worldDir, const LevelData &data, QString *pro
         return fail(QCoreApplication::translate("WorldFiles", "没有指定要写哪一个世界。"));
     }
     if (!looksLikeWorld(dir)) {
-        return fail(QCoreApplication::translate("WorldFiles", "这个存档里没有 level.dat —— 不往一个不存在的世界里写。"));
+        return fail(QCoreApplication::translate("WorldFiles", "存档缺少 level.dat，未保存修改。"));
     }
 
     const QByteArray body = NbtTree::serialize(data.document);
@@ -938,7 +938,7 @@ bool writeLevelData(const QString &worldDir, const LevelData &data, QString *pro
         const QString tempPlain = tempPathFor(QDir::tempPath(), QStringLiteral("write-level"));
         QFile plain(tempPlain);
         if (!plain.open(QIODevice::WriteOnly)) {
-            return fail(QCoreApplication::translate("WorldFiles", "建不出临时文件：%1").arg(plain.errorString()));
+            return fail(QCoreApplication::translate("WorldFiles", "无法创建临时文件：%1").arg(plain.errorString()));
         }
         const qint64 written = plain.write(body);
         plain.close();
@@ -973,7 +973,7 @@ bool writeLevelData(const QString &worldDir, const LevelData &data, QString *pro
     QSaveFile out(target);
     if (!out.open(QIODevice::WriteOnly)) {
         QFile::remove(tempGz);
-        return fail(QCoreApplication::translate("WorldFiles", "写不进 level.dat：%1").arg(out.errorString()));
+        return fail(QCoreApplication::translate("WorldFiles", "无法写入 level.dat：%1").arg(out.errorString()));
     }
 
     bool wroteOk = false;
@@ -1014,7 +1014,7 @@ bool writeLevelData(const QString &worldDir, const LevelData &data, QString *pro
         QFile::remove(tempGz);
         if (!wroteOk) {
             out.cancelWriting();
-            return fail(QCoreApplication::translate("WorldFiles", "压好的那一份没能落到 level.dat 上（盘满了？）"));
+            return fail(QCoreApplication::translate("WorldFiles", "无法替换压缩后的 level.dat。请检查磁盘空间和写入权限。"));
         }
     } else if (out.write(body) != body.size()) {
         out.cancelWriting();

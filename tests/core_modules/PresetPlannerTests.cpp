@@ -288,7 +288,7 @@ void runPresetPlannerTests() {
         request.sections = wrongId;
         plan = Presets::planPresetApplication(request);
         check(plan.rows.at(0).blocked &&
-                  plan.rows.at(0).problem.contains(QStringLiteral("对不上")),
+                  plan.rows.at(0).problem.contains(QStringLiteral("不匹配")),
               "★★★ PE6 段说自己是光影那一组、可里面的路径全在 `config/` 底下 ⇒ 整段不认"
               "（两份说法对不上时，我们没有资格拿它去改用户的实例）",
               plan.rows.at(0).problem);
@@ -298,7 +298,7 @@ void runPresetPlannerTests() {
         request.presetFilesRoot.clear();
         plan = Presets::planPresetApplication(request);
         check(plan.rows.at(0).blocked &&
-                  plan.rows.at(0).problem.contains(QStringLiteral("文件根")),
+                  plan.rows.at(0).problem.contains(QStringLiteral("files/ 根目录")),
               "★★ PE6 没给预设那一侧的文件根 ⇒ 这一段做不了（当成「没有东西要拷」的话，用户会"
               "以为预设里那几份配置是空的）",
               plan.rows.at(0).problem);

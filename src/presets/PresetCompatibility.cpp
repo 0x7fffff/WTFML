@@ -107,7 +107,7 @@ CompatibilityState localCompatibilityCheck(const ModReference &reference,
     };
     if (normalizeModPlatform(reference.platform).isEmpty()) {
         return report(CompatibilityState::Invalid,
-                      QCoreApplication::translate("PresetCompatibility", "平台认不出来（只能是 Modrinth 或 CurseForge）。"));
+                      QCoreApplication::translate("PresetCompatibility", "仅支持 Modrinth 或 CurseForge 平台。"));
     }
     if (reference.projectId.isEmpty()) {
         return report(CompatibilityState::Invalid, QCoreApplication::translate("PresetCompatibility", "这一条没有项目 id。"));
@@ -115,7 +115,7 @@ CompatibilityState localCompatibilityCheck(const ModReference &reference,
     if (!reference.gameVersion.isEmpty() &&
         reference.gameVersion.compare(context.gameVersion.trimmed(), Qt::CaseInsensitive) != 0) {
         return report(CompatibilityState::Missing,
-                      QCoreApplication::translate("PresetCompatibility", "这一项钉的是 %1，这次装的是 %2。")
+                      QCoreApplication::translate("PresetCompatibility", "预设要求 %1，本次安装的是 %2。")
                           .arg(reference.gameVersion,
                                context.gameVersion.isEmpty() ? QCoreApplication::translate("PresetCompatibility", "（未指定）")
                                                             : context.gameVersion));
@@ -125,7 +125,7 @@ CompatibilityState localCompatibilityCheck(const ModReference &reference,
         const QString have = normalizeCompatibilityLoader(context.loader);
         if (want != have) {
             return report(CompatibilityState::Missing,
-                          QCoreApplication::translate("PresetCompatibility", "这一项钉的是 %1，这次装的是 %2。")
+                          QCoreApplication::translate("PresetCompatibility", "预设要求 %1，本次安装的是 %2。")
                               .arg(reference.loader,
                                    context.loader.isEmpty() ? QCoreApplication::translate("PresetCompatibility", "原版")
                                                             : context.loader));
@@ -302,10 +302,10 @@ void CompatibilityChecker::resolveLocalAndQueue(const QList<ModReference> &refer
                 // 没有查询实现（测试替身没装 / 这一趟不联网）：如实报"暂时无法确认"，
                 // 不谎报缺失，也不把弹窗挂住。
                 item.state = CompatibilityState::Unknown;
-                item.detail = QCoreApplication::translate("PresetCompatibility", "这次没有可用的平台查询，暂时无法确认。");
+                item.detail = QCoreApplication::translate("PresetCompatibility", "资源平台查询不可用，暂时无法确认兼容性。");
             } else if (context.gameVersion.trimmed().isEmpty()) {
                 item.state = CompatibilityState::Unknown;
-                item.detail = QCoreApplication::translate("PresetCompatibility", "不知道这次要装哪个游戏版本，暂时无法确认。");
+                item.detail = QCoreApplication::translate("PresetCompatibility", "未指定游戏版本，暂时无法确认兼容性。");
             } else {
                 item.queued = true;
                 m_queue.enqueue(static_cast<int>(m_items.size()));

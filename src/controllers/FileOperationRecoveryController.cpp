@@ -64,12 +64,12 @@ bool copyFileAtomically(const QString &source, const QString &target, QString *p
     }
     const QFileInfo info(target);
     if (!QDir().mkpath(info.absolutePath())) {
-        if (problem) *problem = QCoreApplication::translate("FileOperationRecoveryController", "建不出目录 %1").arg(info.absolutePath());
+        if (problem) *problem = QCoreApplication::translate("FileOperationRecoveryController", "无法创建目录 %1").arg(info.absolutePath());
         return false;
     }
     QSaveFile out(target);
     if (!out.open(QIODevice::WriteOnly)) {
-        if (problem) *problem = QCoreApplication::translate("FileOperationRecoveryController", "写不进 %1（%2）").arg(target, out.errorString());
+        if (problem) *problem = QCoreApplication::translate("FileOperationRecoveryController", "无法写入 %1（%2）").arg(target, out.errorString());
         return false;
     }
     while (!in.atEnd()) {
@@ -79,7 +79,7 @@ bool copyFileAtomically(const QString &source, const QString &target, QString *p
             return false;
         }
         if (out.write(chunk) != chunk.size()) {
-            if (problem) *problem = QCoreApplication::translate("FileOperationRecoveryController", "写不进 %1（%2）").arg(target, out.errorString());
+            if (problem) *problem = QCoreApplication::translate("FileOperationRecoveryController", "无法写入 %1（%2）").arg(target, out.errorString());
             return false;
         }
     }
@@ -173,7 +173,7 @@ bool FileOperationRecoveryController::resume(const QString &token) {
     const auto it = m_jobs.constFind(token);
     if (it == m_jobs.cend()) {
         InlineMessage::warning(m_overlay, tr("继续未完成操作"),
-                               tr("这一项的现场已经不在（启动器重启或报告被清掉了），请重新开始那一次操作。"));
+                               tr("原操作的恢复记录已清除。请重新发起操作。"));
         return false;
     }
     // 已经在续做的那一份（连点两下那颗按钮）：**不许**再开一条。两条续做会共用同一个
@@ -447,7 +447,7 @@ void FileOperationRecoveryController::settle(Tasks::TaskId task, OperationReport
     }
     QString saveProblem;
     if (!OperationReport::saveReport(reportPath, report, &saveProblem) && m_host.log) {
-        m_host.log(tr("续做结果没能写回报告：%1").arg(saveProblem));
+        m_host.log(tr("无法将继续执行的结果写入报告：%1").arg(saveProblem));
     }
     const QString token = report.id;
     m_jobs[token] = Job{reportPath, m_jobs.value(token).dataRoot, report};

@@ -35,12 +35,12 @@ Result exportInstance(const QString &instanceId, const QString &gameVersion,
         return result;
     }
     if (gameVersion.trimmed().isEmpty()) {
-        result.problem = QCoreApplication::translate("InstanceExport", "认不出这个实例的原版版本号，无法写 mmc-pack.json。");
+        result.problem = QCoreApplication::translate("InstanceExport", "无法识别实例的原版游戏版本，未生成 mmc-pack.json。");
         return result;
     }
     QTemporaryDir staging;
     if (!staging.isValid()) {
-        result.problem = QCoreApplication::translate("InstanceExport", "建不了临时目录。");
+        result.problem = QCoreApplication::translate("InstanceExport", "无法创建导出临时目录。");
         return result;
     }
     // 导入时留过原包身份（MultiMC/Prism 的 patches）就原样带回去：特殊启动配置
@@ -116,9 +116,9 @@ Result exportInstance(const QString &instanceId, const QString &gameVersion,
     result.files = sources.size();
     result.bytes = bytes;
     if (customLaunch && !preservesSource) {
-        result.warning = QCoreApplication::translate("InstanceExport", "这个实例带自定义启动配置（改过主类或 JVM 参数，例如 lwjgl3ify 一类）：导出的包在 Prism/MultiMC 里能识别，但对方启动器不会带上这些配置，可能无法正常启动。建议仍然用原整合包分发。");
+        result.warning = QCoreApplication::translate("InstanceExport", "实例修改了主类或 JVM 参数。Prism / MultiMC 能识别导出的包，但可能缺少这些启动配置并导致启动失败。建议分发原整合包。");
     } else if (bytes > 1024LL * 1024 * 1024) {
-        result.warning = QCoreApplication::translate("InstanceExport", "这个实例超过 1 GB：导出会花较长时间，对方导入也要再解压一遍，大型整合包在别的启动器上还可能因为内存/Java 版本不同而跑不起来。");
+        result.warning = QCoreApplication::translate("InstanceExport", "实例超过 1 GB，导出和导入需要较长时间。接收方须使用兼容的 Java 版本，并预留足够内存和磁盘空间。");
     }
     return result;
 }

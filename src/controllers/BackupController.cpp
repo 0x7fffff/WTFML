@@ -128,7 +128,7 @@ void BackupController::inspectRecovery() {
     const bool canSwap = item.problem.isEmpty() && QFileInfo(item.retained).isDir()
                          && (!QFileInfo::exists(item.target) || QFileInfo(item.target).isDir());
     const QString text = item.problem.isEmpty()
-        ? tr("当前目录：\n%1\n\n还原前目录：\n%2\n\n标记已检查只归档日志，两份数据均保留，不会删除任何一份。\n点「用旧目录替换」会换成还原前目录，换下来的当前目录留在旁边，并登记一条可退回的恢复记录。")
+        ? tr("当前目录：\n%1\n\n还原前目录：\n%2\n\n「标记已检查」将归档此记录并保留两个目录。「用旧目录替换」将恢复还原前的目录，另存当前目录，并记录恢复操作。")
               .arg(QDir::toNativeSeparators(item.target), QDir::toNativeSeparators(item.retained))
         : item.problem + tr("\n\n日志：%1").arg(QDir::toNativeSeparators(item.journal));
     QStringList buttons{tr("打开所在目录")};
@@ -166,7 +166,7 @@ void BackupController::inspectRecovery() {
         }
         if (!InlineMessage::question(
                 m_overlay, tr("用旧目录替换"),
-                tr("将用这份旧目录替换当前目录：\n\n旧目录：\n%1\n\n当前目录：\n%2\n\n被替换下来的当前目录会原样保留在旁边，两份都不删除；这一步会先登记一条可退回的恢复记录。")
+                tr("将使用旧目录替换当前目录。\n\n旧目录：\n%1\n\n当前目录：\n%2\n\n当前目录将另存于同级目录。启动器会记录本次替换，以便恢复。")
                     .arg(QDir::toNativeSeparators(item.retained),
                          QDir::toNativeSeparators(item.target)),
                 tr("替换"), tr("取消"), false, true)) {
@@ -188,7 +188,7 @@ void BackupController::inspectRecovery() {
                                                 QDir::toNativeSeparators(item.target)));
         QString done = tr("替换完成。");
         if (!swapped.retainedPath.isEmpty()) {
-            done += tr("\n\n被替换下来的当前目录原样保留在：\n%1")
+            done += tr("\n\n已保留替换前的目录：\n%1")
                         .arg(QDir::toNativeSeparators(swapped.retainedPath));
         }
         if (!swapped.journalPath.isEmpty()) {
@@ -265,14 +265,14 @@ void BackupController::pickZip(BackupFiles::Kind kind, const QString &label, con
         if (!rejected.isEmpty()) {
             InlineMessage::information(
                 m_overlay, tr("没有能还原的备份"),
-                tr("备份目录里有 %1 个名字对得上的压缩包，但包里那份清单说的不是%2备份元数据无效或非本启动器生成。\n\n为了不把不相干的东西解到你的目录里，它们一个都没有列出来：\n%3\n\n备份放在这儿：%4")
+                tr("找到 %1 个文件名匹配的备份，但其中的元数据与%2不匹配、无效或来自其他工具。以下文件未列入可还原备份：\n%3\n\n备份目录：%4")
                     .arg(QString::number(rejected.size()), what,
                          rejected.join(QLatin1Char('\n')), QDir::toNativeSeparators(dir)));
             return;
         }
         InlineMessage::information(
-            m_overlay, tr("还没有备份"),
-            tr("%1还没有备份过，所以没有能还原的东西。\n\n备份放在这儿：%2\n（在这一页上先做一份备份，再来还原。）")
+            m_overlay, tr("没有可还原的备份"),
+            tr("%1 暂无备份。请先在此页面创建备份。\n\n备份目录：%2")
                 .arg(what, QDir::toNativeSeparators(dir)));
         return;
     }
@@ -289,7 +289,7 @@ void BackupController::pickZip(BackupFiles::Kind kind, const QString &label, con
     int row = -1;
     const QPointer<BackupController> alive(this);
     if (!InlineMessage::pickFromList(m_overlay, tr("选择备份"),
-                                     tr("要还原哪一份？（越上面越新）"), items, 0, &row)
+                                     tr("选择要还原的备份。列表按时间从新到旧排列。"), items, 0, &row)
         || row < 0 || row >= zips.size()) {
         return;
     }
@@ -374,7 +374,7 @@ void BackupController::restoreWorld(const QString &worldDir, InstanceSettingsDia
     const QPointer<BackupController> alive(this);
     if (!InlineMessage::question(
             m_overlay, tr("恢复备份"),
-            tr("「%1」现在的文件会被备份里那一份整个换掉。\n\n还原之前会自动给现在这一份留一份安全快照，所以这一步是能退回来的。\n\n要还原的是这一份：\n%2")
+            tr("还原将替换「%1」的文件。启动器会先创建安全快照，以便撤销还原。\n\n待还原备份：\n%2")
                 .arg(worldName, QDir::toNativeSeparators(zip)),
             tr("还原"), tr("取消"), false, true)) {
         return;
@@ -408,19 +408,19 @@ void BackupController::snapshotInstance(const QString &versionId) {
     }
     if (m_host.isBeingModified && m_host.isBeingModified(versionId)) {
         InlineMessage::information(m_overlay, tr("暂时无法操作"),
-                                   tr("「%1」正在安装、导入或检查，请完成后再做快照 —— 要打包的正是正在被修改的文件。")
+                                   tr("「%1」的文件正在修改。请等待安装、导入或检查完成后再创建快照。")
                                        .arg(displayName(versionId)));
         return;
     }
     if (m_host.isRunning && m_host.isRunning(versionId)) {
         InlineMessage::information(m_overlay, tr("暂时无法操作"),
-                                   tr("「%1」正在运行。先关掉游戏再做快照 —— 游戏开着的时候存档、日志这些文件一直在变。")
+                                   tr("「%1」正在运行。请退出游戏后再创建快照，避免备份尚未写完的存档和日志。")
                                        .arg(displayName(versionId)));
         return;
     }
     const int picked = InlineMessage::ask(
         m_overlay, MessageKind::Question, tr("创建快照"),
-        tr("快照会把「%1」整个目录打成一个压缩包，需要时可整体还原。\n\n默认不打包 assets 和 libraries：这两部分能重新下载，通常有几百 MB 到几个 GB。")
+        tr("快照将「%1」的实例目录打包，以便整体还原。\n\n默认跳过可重新下载的 assets 和 libraries。")
             .arg(displayName(versionId)),
         {tr("创建快照"), tr("完整快照（含可重新下载的部分）"), tr("取消")}, 0, -1, false);
     if (picked != 0 && picked != 1) return;
@@ -484,7 +484,7 @@ void BackupController::restoreInstance(const QString &versionId, InstanceSetting
     if ((m_host.isBeingModified && m_host.isBeingModified(versionId))
         || (m_host.isRunning && m_host.isRunning(versionId))) {
         InlineMessage::information(m_overlay, tr("暂时无法操作"),
-                                   tr("「%1」正在安装或运行，请停止后再还原 —— 这一步会替换整个实例目录。")
+                                   tr("「%1」正在安装或运行。还原将替换实例目录，请先停止相关操作。")
                                        .arg(displayName(versionId)));
         return;
     }
@@ -501,7 +501,7 @@ void BackupController::restoreInstance(const QString &versionId, InstanceSetting
     const QPointer<BackupController> alive(this);
     if (!InlineMessage::question(
             m_overlay, tr("从快照恢复"),
-            tr("「%1」现在的文件会被快照里那一份整个换掉 —— 模组、配置、存档全算。\n\n还原之前会自动给现在这一份留一份安全快照，所以这一步是能退回来的。\n\n要还原的是这一份：\n%2")
+            tr("还原快照将替换「%1」的模组、配置和存档。启动器会先备份当前实例，以便撤销还原。\n\n待还原快照：\n%2")
                 .arg(displayName(versionId), QDir::toNativeSeparators(zip)),
             tr("还原"), tr("取消"), false, true)) {
         return;
@@ -594,7 +594,7 @@ Tasks::TaskId BackupController::startRestore(const QString &zipPath,
                                               const QString &refreshServerId,
                                               const QString &failureTitle) {
     QList<Tasks::TaskStep> steps{{tr("读清单"), Tasks::TaskStepState::Running, {}},
-                                 {tr("把现在这一份收起来"), Tasks::TaskStepState::Pending, {}},
+                                 {tr("备份当前实例"), Tasks::TaskStepState::Pending, {}},
                                  {tr("解出备份里的文件"), Tasks::TaskStepState::Pending, {}},
                                  {tr("核对并替换目录"), Tasks::TaskStepState::Pending, {}}};
     m_taskId = m_activity->begin(Tasks::TaskKind::Backup, title, targetId, steps);
@@ -690,7 +690,7 @@ void BackupController::writeFinished(const BackupFiles::WriteResult &result,
                                        .arg(result.manifest.fileCount())
                                        .arg(sizeText(result.manifest.totalBytes)));
     } else if (cancelled) {
-        log(tr("%1：已取消，没有留下半成品。").arg(successTitle));
+        log(tr("%1：已取消，未保留不完整的文件。").arg(successTitle));
     } else {
         // 失败这一路必须用失败标题：拿**成功标题**去弹，「备份完成」下面的正文却说
         // "没打成"。标题和正文自相矛盾，用户扫一眼标题就当成功了。
@@ -741,7 +741,7 @@ void BackupController::restoreFinished(const BackupFiles::RestoreResult &result,
     if (id != Tasks::invalidTaskId() && m_activity->tasks()->has(id)) {
         if (result.ok) {
             for (int i = 0; i < 4; ++i) m_activity->tasks()->setStepState(id, i, Tasks::TaskStepState::Done);
-            m_activity->tasks()->setDetail(id, tr("核对过 %1 个文件，全都对得上").arg(result.checked));
+            m_activity->tasks()->setDetail(id, tr("已校验 %1 个文件，全部通过。").arg(result.checked));
             m_activity->finish(id, true, {}, false);
         } else if (cancelled) {
             // 取消不是失败：账本收成 Cancelled，不把"停下"写成一次失败。
@@ -759,7 +759,7 @@ void BackupController::restoreFinished(const BackupFiles::RestoreResult &result,
         }
     }
     if (result.ok) {
-        QString text = tr("已经还原好了。核对过 %1 个文件，全都对得上。").arg(result.checked);
+        QString text = tr("还原完成。已校验 %1 个文件，全部通过。").arg(result.checked);
         if (!result.retainedPath.isEmpty()) {
             const QString warning = tr("旧目录未能清理，已保留在：%1")
                 .arg(QDir::toNativeSeparators(result.retainedPath));
@@ -767,10 +767,10 @@ void BackupController::restoreFinished(const BackupFiles::RestoreResult &result,
             log(warning);
         }
         if (!result.safetyZip.isEmpty()) {
-            text += tr("\n\n还原之前的「现在这一份」也留着，在这儿：\n%1")
+            text += tr("\n\n还原前的快照已保存在：\n%1")
                         .arg(QDir::toNativeSeparators(result.safetyZip));
         }
-        log(tr("%1：%2").arg(successTitle, tr("核对过 %1 个文件").arg(result.checked)));
+        log(tr("%1：%2").arg(successTitle, tr("已校验 %1 个文件").arg(result.checked)));
         InlineMessage::information(m_overlay, successTitle, text);
     } else if (cancelled) {
         log(tr("%1：已取消。").arg(failureTitle.isEmpty() ? tr("还原") : failureTitle));

@@ -60,13 +60,13 @@ PendingList readPendingList(const QString &instanceRoot) {
     out.exists = true;
     if (!info.isFile()) {
         out.ok = false;
-        out.problem = QCoreApplication::translate("Presets", "「%1」不是一份普通文件，待应用清单读不出来。").arg(path);
+        out.problem = QCoreApplication::translate("Presets", "「%1」不是普通文件，无法读取待应用清单。").arg(path);
         return out;
     }
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
         out.ok = false;
-        out.problem = QCoreApplication::translate("Presets", "读不动待应用清单「%1」：%2").arg(path, file.errorString());
+        out.problem = QCoreApplication::translate("Presets", "无法读取待应用清单「%1」：%2").arg(path, file.errorString());
         return out;
     }
     const QByteArray bytes = file.readAll();
@@ -80,7 +80,7 @@ PendingList readPendingList(const QString &instanceRoot) {
     const QJsonDocument document = QJsonDocument::fromJson(bytes, &error);
     if (error.error != QJsonParseError::NoError || !document.isObject()) {
         out.ok = false;
-        out.problem = QCoreApplication::translate("Presets", "待应用清单「%1」不是一份能读的 JSON，这一趟没有动它。")
+        out.problem = QCoreApplication::translate("Presets", "待应用清单「%1」不是有效的 JSON，文件已保留。")
                           .arg(path);
         return out;
     }
@@ -88,14 +88,14 @@ PendingList readPendingList(const QString &instanceRoot) {
     if (root.value(QStringLiteral("format")).toString() != QLatin1String(kPendingFormatTag) ||
         root.value(QStringLiteral("schemaVersion")).toInt() != kPendingSchemaVersion) {
         out.ok = false;
-        out.problem = QCoreApplication::translate("Presets", "待应用清单「%1」的格式不是这一版认得的那样，这一趟没有动它。")
+        out.problem = QCoreApplication::translate("Presets", "待应用清单「%1」的格式不受此版本支持，文件已保留。")
                           .arg(path);
         return out;
     }
     const QJsonValue worlds = root.value(QStringLiteral("worlds"));
     if (!worlds.isUndefined() && !worlds.isArray()) {
         out.ok = false;
-        out.problem = QCoreApplication::translate("Presets", "待应用清单「%1」里的 `worlds` 不是数组，这一趟没有动它。")
+        out.problem = QCoreApplication::translate("Presets", "待应用清单「%1」的 `worlds` 字段应为数组，文件已保留。")
                           .arg(path);
         return out;
     }
@@ -172,7 +172,7 @@ bool removeTreeNoLinks(const QString &path, QString *problem) {
         return true;
     }
     if (isLink(info)) {
-        *problem = QCoreApplication::translate("Presets", "「%1」是一根链接，没有动它。").arg(path);
+        *problem = QCoreApplication::translate("Presets", "已跳过链接「%1」。").arg(path);
         return false;
     }
     if (!info.isDir()) {
@@ -296,7 +296,7 @@ bool readJournal(const QString &path, const QString &base, const QString &parent
                  ReplaceJournal *out, QString *problem) {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
-        *problem = manualCheckText(base, parent, QCoreApplication::translate("Presets", "登记文件读不动"));
+        *problem = manualCheckText(base, parent, QCoreApplication::translate("Presets", "无法读取登记文件"));
         return false;
     }
     const QByteArray bytes = file.readAll();
@@ -312,7 +312,7 @@ bool readJournal(const QString &path, const QString &base, const QString &parent
     }
     const QJsonObject root = document.object();
     if (root.value(QStringLiteral("format")).toString() != QLatin1String(kTxnFormatTag)) {
-        *problem = manualCheckText(base, parent, QCoreApplication::translate("Presets", "登记的格式不是这一版认得的"));
+        *problem = manualCheckText(base, parent, QCoreApplication::translate("Presets", "此版本不支持记录中的文件格式。"));
         return false;
     }
     out->target = root.value(QStringLiteral("target")).toString();
@@ -328,7 +328,7 @@ bool removeRegisteredTree(const QString &path, const QString &base, const QStrin
     if (!pathExists(path)) return true;
     const QFileInfo info(path);
     if (isLink(info)) {
-        *problem = manualCheckText(base, parent, QCoreApplication::translate("Presets", "登记点名的那一项是一根链接"));
+        *problem = manualCheckText(base, parent, QCoreApplication::translate("Presets", "登记记录引用的项目是链接"));
         return false;
     }
     return removeTreeNoLinks(path, problem);
@@ -361,7 +361,7 @@ bool recoverJournal(const QString &parent, const QString &base, QString *problem
                             journal.state == QLatin1String("published");
     if (journal.target != base || !knownState || !namedOk(journal.staging, copyPrefix) ||
         !namedOk(journal.displaced, oldPrefix)) {
-        *problem = manualCheckText(base, parent, QCoreApplication::translate("Presets", "登记里的名字或状态对不上"));
+        *problem = manualCheckText(base, parent, QCoreApplication::translate("Presets", "登记文件中的名称或状态不一致"));
         return false;
     }
 
@@ -461,7 +461,7 @@ bool recoverJournalFile(const QString &parent, const QString &fileName, QString 
     }
     if (txnJournalPath(parent, journal.target) != path) {
         *problem = manualCheckText(fileName, parent,
-                                   QCoreApplication::translate("Presets", "登记文件名与它自称的目标对不上"));
+                                   QCoreApplication::translate("Presets", "登记文件名与目标名称不一致"));
         return false;
     }
     return recoverJournal(parent, journal.target, problem);
@@ -510,7 +510,7 @@ bool recoverInterruptedReplace(const QString &parent, const QString &base, QStri
 bool copyOverwrite(const QString &source, const QString &target, QString *problem) {
     const QString parent = QFileInfo(target).absolutePath();
     if (!parent.isEmpty() && !QDir().mkpath(parent)) {
-        *problem = QCoreApplication::translate("Presets", "建不了目录「%1」。").arg(parent);
+        *problem = QCoreApplication::translate("Presets", "无法创建目录「%1」。").arg(parent);
         return false;
     }
 
@@ -567,7 +567,7 @@ bool copyOverwrite(const QString &source, const QString &target, QString *proble
         if (!QDir().rename(target, displaced)) {
             removeTreeNoLinks(staging, &scratch);
             clearJournal(parent, base);
-            *problem = QCoreApplication::translate("Presets", "换不掉目标上已有的「%1」（它可能正被占用）。").arg(target);
+            *problem = QCoreApplication::translate("Presets", "无法替换目标中的「%1」。请检查文件是否被占用。").arg(target);
             return false;
         }
         QString journalWhy;
@@ -578,7 +578,7 @@ bool copyOverwrite(const QString &source, const QString &target, QString *proble
                 removeTreeNoLinks(staging, &scratch);
                 clearJournal(parent, base);
             }
-            *problem = QCoreApplication::translate("Presets", "换包登记写不下去，这一趟没有换「%1」：%2")
+            *problem = QCoreApplication::translate("Presets", "无法写入替换记录，已取消替换「%1」：%2")
                            .arg(target, journalWhy);
             return false;
         }
@@ -591,7 +591,7 @@ bool copyOverwrite(const QString &source, const QString &target, QString *proble
             removeTreeNoLinks(staging, &scratch);
             clearJournal(parent, base);
         }
-        *problem = QCoreApplication::translate("Presets", "换包登记写不下去，这一趟没有换「%1」：%2")
+        *problem = QCoreApplication::translate("Presets", "无法写入替换记录，已取消替换「%1」：%2")
                        .arg(target, publishWhy);
         return false;
     }
@@ -601,7 +601,7 @@ bool copyOverwrite(const QString &source, const QString &target, QString *proble
         if (existed && QDir().rename(displaced, target)) {
             removeTreeNoLinks(staging, &scratch);
             clearJournal(parent, base);
-            *problem = QCoreApplication::translate("Presets", "换不掉目标上已有的「%1」（它可能正被占用）。").arg(target);
+            *problem = QCoreApplication::translate("Presets", "无法替换目标中的「%1」。请检查文件是否被占用。").arg(target);
             return false;
         }
         *problem = existed
@@ -704,7 +704,7 @@ bool dataPackItemsFromSection(const PresetSection &section, QList<DataPackItem> 
     }
     if (!dataPackHandlesSection(section)) {
         if (problemOut != nullptr) {
-            *problemOut = QCoreApplication::translate("Presets", "这一段不是数据包那一段。");
+            *problemOut = QCoreApplication::translate("Presets", "此部分不是数据包配置。");
         }
         return false;
     }
@@ -736,7 +736,7 @@ bool dataPackItemsFromSection(const PresetSection &section, QList<DataPackItem> 
         const QString world = object.value(QStringLiteral("world")).toString();
         if (!world.isEmpty() && world != parsed.world) {
             if (problemOut != nullptr) {
-                *problemOut = QCoreApplication::translate("Presets", "「%1」的世界名和它自己的路径对不上。").arg(relative);
+                *problemOut = QCoreApplication::translate("Presets", "世界「%1」的名称与路径不一致。").arg(relative);
             }
             return false;
         }
@@ -792,11 +792,11 @@ DataPackCaptureReport captureDataPacks(const QString &instanceRoot,
     DataPackCaptureReport report;
 
     if (instanceRoot.trimmed().isEmpty() || !QFileInfo(instanceRoot).isDir()) {
-        report.problem = QCoreApplication::translate("Presets", "这个实例的目录不在，没法收数据包。");
+        report.problem = QCoreApplication::translate("Presets", "找不到实例目录，无法提取数据包。");
         return report;
     }
     if (presetFilesRoot.trimmed().isEmpty()) {
-        report.problem = QCoreApplication::translate("Presets", "没有指定这份预设的 files 目录。");
+        report.problem = QCoreApplication::translate("Presets", "未指定预设的 files 目录。");
         return report;
     }
 
@@ -804,7 +804,7 @@ DataPackCaptureReport captureDataPacks(const QString &instanceRoot,
     const QFileInfo savesInfo(savesPath);
     if (!savesInfo.exists()) {
         report.ok = true;
-        report.notes.append(QCoreApplication::translate("Presets", "这个实例还没有存档（saves/），数据包这一趟没有可收的。"));
+        report.notes.append(QCoreApplication::translate("Presets", "实例缺少 saves/ 目录，无法提取数据包。"));
         return report;
     }
     if (isLink(savesInfo)) {
@@ -833,7 +833,7 @@ DataPackCaptureReport captureDataPacks(const QString &instanceRoot,
         const QString world = worldDir.fileName();
         if (!InstanceFiles::validatePathSegment(world).isEmpty()) {
             report.problems.append(
-                QCoreApplication::translate("Presets", "存档名「%1」不能当目录名，这一趟没有碰它。").arg(world));
+                QCoreApplication::translate("Presets", "存档名称「%1」无法用作目录名，已跳过。").arg(world));
             continue;
         }
         const QString packsPath = worldDir.absoluteFilePath() + QLatin1Char('/') +
@@ -844,12 +844,12 @@ DataPackCaptureReport captureDataPacks(const QString &instanceRoot,
         }
         sawAnyDatapacksDir = true;
         if (isLink(packsInfo)) {
-            report.problems.append(QCoreApplication::translate("Presets", "存档「%1」的 datapacks/ 是一根链接，没有动它。")
+            report.problems.append(QCoreApplication::translate("Presets", "存档「%1」的 datapacks/ 是链接，已跳过。")
                                        .arg(world));
             continue;
         }
         if (!packsInfo.isDir()) {
-            report.problems.append(QCoreApplication::translate("Presets", "存档「%1」的 datapacks 不是一个目录，没有动它。")
+            report.problems.append(QCoreApplication::translate("Presets", "存档「%1」的 datapacks 不是目录，已跳过。")
                                        .arg(world));
             continue;
         }
@@ -893,7 +893,7 @@ DataPackCaptureReport captureDataPacks(const QString &instanceRoot,
             QString why;
             if (!copyOverwrite(entry.absoluteFilePath(), target, &why)) {
                 report.problems.append(
-                    QCoreApplication::translate("Presets", "「%1」没收进来：%2").arg(relative, why));
+                    QCoreApplication::translate("Presets", "无法提取「%1」：%2").arg(relative, why));
                 continue;
             }
             DataPackItem item;
@@ -909,7 +909,7 @@ DataPackCaptureReport captureDataPacks(const QString &instanceRoot,
         report.ok = true;
         report.notes.append(sawAnyDatapacksDir
                                 ? QCoreApplication::translate("Presets", "存档里的 datapacks/ 都是空的。")
-                                : QCoreApplication::translate("Presets", "saves/ 底下没有哪个存档带 datapacks/。"));
+                                : QCoreApplication::translate("Presets", "未找到包含 datapacks/ 的世界存档。"));
         return report;
     }
 
@@ -933,7 +933,7 @@ DataPackPlan planDataPacks(const QString &instanceRoot, const QList<DataPackItem
                            ApplyMode mode) {
     DataPackPlan plan;
     if (instanceRoot.trimmed().isEmpty()) {
-        plan.problem = QCoreApplication::translate("Presets", "没有指定目标实例，算不出数据包这一趟要做什么。");
+        plan.problem = QCoreApplication::translate("Presets", "未指定目标实例，无法制定数据包操作计划。");
         return plan;
     }
 
@@ -1019,11 +1019,11 @@ DataPackApplyReport applyDataPacks(const QString &presetFilesRoot, const QString
     }
 
     if (instanceRoot.trimmed().isEmpty() || !QFileInfo(instanceRoot).isDir()) {
-        report.problem = QCoreApplication::translate("Presets", "目标实例的目录不在，没法把数据包落下去。");
+        report.problem = QCoreApplication::translate("Presets", "找不到目标实例目录，无法应用数据包。");
         return report;
     }
     if (presetFilesRoot.trimmed().isEmpty()) {
-        report.problem = QCoreApplication::translate("Presets", "没有给出预设那一侧的文件根（files/），拷不到数据包。");
+        report.problem = QCoreApplication::translate("Presets", "预设缺少 files/ 根目录，无法复制数据包。");
         return report;
     }
 
@@ -1042,7 +1042,7 @@ DataPackApplyReport applyDataPacks(const QString &presetFilesRoot, const QString
         return report;
     }
     if (mode == ApplyMode::Replace && !replaceConfirmed) {
-        report.problem = QCoreApplication::translate("Presets", "「覆盖」还没有确认过，这一趟没有动数据包。");
+        report.problem = QCoreApplication::translate("Presets", "覆盖操作尚未确认，数据包未修改。");
         return report;
     }
 
@@ -1077,13 +1077,13 @@ DataPackApplyReport applyDataPacks(const QString &presetFilesRoot, const QString
         const QString source = presetFilesRoot + QLatin1Char('/') + item.relativePath;
         const QFileInfo sourceInfo(source);
         if (!sourceInfo.exists()) {
-            report.problem = QCoreApplication::translate("Presets", "预设里那一份「%1」不在（files/ 底下找不到）。")
+            report.problem = QCoreApplication::translate("Presets", "预设的 files/ 目录中找不到「%1」。")
                                  .arg(item.relativePath);
             // 已经落下去的那些留在盘上（和通用文件组那一条一致）。
             return report;
         }
         if (isLink(sourceInfo)) {
-            report.problem = QCoreApplication::translate("Presets", "预设里那一份「%1」是一根链接，没有跟着它走。")
+            report.problem = QCoreApplication::translate("Presets", "预设中的「%1」是链接，已跳过。")
                                  .arg(item.relativePath);
             return report;
         }
@@ -1105,7 +1105,7 @@ DataPackApplyReport applyDataPacks(const QString &presetFilesRoot, const QString
         }
         if (targetExists && isLink(targetInfo)) {
             report.problem =
-                QCoreApplication::translate("Presets", "目标上的「%1」是一根链接，没有动它。").arg(target);
+                QCoreApplication::translate("Presets", "目标「%1」是链接，已跳过。").arg(target);
             return report;
         }
         // 落点**上面那几层**（`saves/`、`saves/<世界>/datapacks/`、`datapacks-pending/`）
@@ -1171,7 +1171,7 @@ DataPackApplyReport applyDataPacks(const QString &presetFilesRoot, const QString
                                .arg(dataPackPendingDirName(), dataPackPendingFileName()));
     }
     if (skipped > 0) {
-        report.details.append(QCoreApplication::translate("Presets", "目标上已经有 %1 个同名数据包，这一档没有动它们。")
+        report.details.append(QCoreApplication::translate("Presets", "已保留目标中的 %1 个同名数据包。")
                                   .arg(skipped));
     }
     return report;

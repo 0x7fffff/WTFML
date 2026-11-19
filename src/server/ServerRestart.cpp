@@ -66,7 +66,7 @@ Decision decide(const Policy &policy, Why why, int attemptsUsed) {
         return decision;
     }
     if (attemptsUsed >= normalized.maxAttempts) {
-        decision.note = QCoreApplication::translate("ServerRestart", "已经连着自动重启 %1 次都没起来，这一次不再自动重启。")
+        decision.note = QCoreApplication::translate("ServerRestart", "连续自动重启 %1 次均失败，已停止自动重启。")
                             .arg(normalized.maxAttempts);
         return decision;
     }

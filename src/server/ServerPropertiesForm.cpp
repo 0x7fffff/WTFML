@@ -232,7 +232,7 @@ bool accepts(const Field &field, const QString &raw, QString *normalized, QStrin
     // 换行会把这一项切成两行 —— 落盘之后那一份 `server.properties` 就再也解不回来了
     // （下面那半截会变成一个**没有值的键**）。四种控件一律挡在这儿。
     if (trimmed.contains(QLatin1Char('\n')) || trimmed.contains(QLatin1Char('\r'))) {
-        return fail(QObject::tr("这一格里不能换行。"));
+        return fail(QObject::tr("输入不能包含换行。"));
     }
 
     switch (field.kind) {

@@ -189,25 +189,25 @@ QString dyeName(int index) {
 Plan plan(int baseColorIndex, const QList<Layer> &layers, const QString &version) {
     Plan result;
     if (!validColor(baseColorIndex)) {
-        result.error = QCoreApplication::translate("Banner", "底色认不出来（下标 %1）—— 十六色里挑一个。")
+        result.error = QCoreApplication::translate("Banner", "底色编号无效（%1）。请从 16 种颜色中选择。")
                            .arg(baseColorIndex);
         return result;
     }
     if (layers.size() > kMaxLayers) {
-        result.error = QCoreApplication::translate("Banner", "原版织布机最多叠 %1 层（你现在排了 %2 层）—— 去掉几层再来。")
+        result.error = QCoreApplication::translate("Banner", "原版织布机最多支持 %1 层，当前有 %2 层。请移除多余图层。")
                            .arg(kMaxLayers)
                            .arg(layers.size());
         return result;
     }
     for (int index = 0; index < layers.size(); ++index) {
         if (!validPattern(layers[index].patternIndex)) {
-            result.error = QCoreApplication::translate("Banner", "第 %1 层的图案认不出来（下标 %2）。")
+            result.error = QCoreApplication::translate("Banner", "第 %1 层的图案编号无效（%2）。")
                                .arg(index + 1)
                                .arg(layers[index].patternIndex);
             return result;
         }
         if (!validColor(layers[index].colorIndex)) {
-            result.error = QCoreApplication::translate("Banner", "第 %1 层的颜色认不出来（下标 %2）。")
+            result.error = QCoreApplication::translate("Banner", "第 %1 层的颜色编号无效（%2）。")
                                .arg(index + 1)
                                .arg(layers[index].colorIndex);
             return result;
@@ -237,7 +237,7 @@ Plan plan(int baseColorIndex, const QList<Layer> &layers, const QString &version
         materials.add(pattern.item, 1);
         if (pattern.since != QStringLiteral("1.14") && !newerPatterns.contains(pattern.name)) {
             newerPatterns.append(pattern.name);
-            result.notes.append(QCoreApplication::translate("Banner", "「%1」是 %2 起才加的图案 —— 更早的版本里织布机" "里找不到这一样。")
+            result.notes.append(QCoreApplication::translate("Banner", "图案「%1」自 %2 版起可用。")
                                     .arg(pattern.name, pattern.since));
         }
 
@@ -245,7 +245,7 @@ Plan plan(int baseColorIndex, const QList<Layer> &layers, const QString &version
                                 .arg(layers[index].patternIndex)
                                 .arg(layers[index].colorIndex);
         if (index > 0 && key == previousKey) {
-            result.notes.append(QCoreApplication::translate("Banner", "第 %1 层和第 %2 层完全一样 —— 画面上等于只叠了一层。")
+            result.notes.append(QCoreApplication::translate("Banner", "第 %1 层和第 %2 层图案及颜色相同，显示效果与单层相同。")
                                     .arg(index + 1)
                                     .arg(index));
         }

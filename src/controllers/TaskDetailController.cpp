@@ -195,7 +195,7 @@ void TaskDetailController::openLog(const QString &key) {
     }
     const QString path = AppPaths::minecraftDir() + QStringLiteral("/logs/wtfml.log");
     if (!QFile::exists(path)) {
-        InlineMessage::warning(m_overlay, tr("还没有日志"), tr("这一次启动到现在没有写过日志。"));
+        InlineMessage::warning(m_overlay, tr("暂无任务日志"), tr("这一次启动到现在没有写过日志。"));
         return;
     }
     QDesktopServices::openUrl(QUrl::fromLocalFile(path));
@@ -228,7 +228,7 @@ void TaskDetailController::openTarget(const QString &key) {
         }
     }
     if (!QDir().exists(dir)) {
-        InlineMessage::warning(m_overlay, tr("打不开这一项的目标位置"),
+        InlineMessage::warning(m_overlay, tr("无法打开目标位置"),
                                tr("这一项说的是 %1，而那个目录现在不在。")
                                    .arg(QDir::toNativeSeparators(dir)));
         return;

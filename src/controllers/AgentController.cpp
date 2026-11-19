@@ -237,7 +237,7 @@ AgentController::AgentController(AgentPage *page, OverlayHost *overlay, QObject 
                     if (m_autoNoticeShownFor != host) {
                         m_autoNoticeShownFor = host;
                         m_page->showNotice(
-                            QCoreApplication::translate("AgentController", "本次自动读取的日志/元数据可能发送给当前模型服务：%1")
+                            QCoreApplication::translate("AgentController", "自动读取的以下日志或元数据可能发送给当前模型服务：%1")
                                 .arg(host));
                     }
                 }
@@ -733,7 +733,7 @@ void AgentController::onEncryptToggled(bool encrypted) {
     if (m_page != nullptr) {
         m_page->setEncryptionChecked(encrypted);
         m_page->showNotice(encrypted ? QCoreApplication::translate("AgentController", "本会话已加密存储（绑定当前 Windows 用户）")
-                                     : QCoreApplication::translate("AgentController", "本会话已改回明文存储"));
+                                     : QCoreApplication::translate("AgentController", "此会话改为明文存储"));
     }
     refreshSessions();
 }
@@ -812,7 +812,7 @@ AgentToolContext AgentController::toolContext(QString *problem) {
         QString saveProblem;
         if (!m_store.save(m_session, true, &saveProblem)) {
             m_session.meta.instanceLock = {};
-            if (problem != nullptr) *problem = QCoreApplication::translate("AgentController", "实例锁定写盘失败：%1").arg(saveProblem);
+            if (problem != nullptr) *problem = QCoreApplication::translate("AgentController", "保存实例锁定设置失败：%1").arg(saveProblem);
             return context;
         }
         if (m_page != nullptr) {
@@ -1123,7 +1123,7 @@ void AgentController::onSettingsDeleteProfile() {
     if (m_overlay == nullptr) return;
     const int choice = InlineMessage::ask(
         m_overlay, MessageKind::Question, QCoreApplication::translate("AgentController", "删除模型配置"),
-        QCoreApplication::translate("AgentController", "会删除这份模型配置和它保存的 API 密钥。" "会话本身保留。确定吗？"),
+        QCoreApplication::translate("AgentController", "将删除此模型配置及其 API 密钥，保留会话记录。确认删除？"),
         QStringList{QCoreApplication::translate("AgentController", "删除"), QCoreApplication::translate("AgentController", "取消")}, 1, 0);
     if (choice != 0) return;
     QString problem;

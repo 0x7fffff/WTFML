@@ -169,7 +169,7 @@ void InstanceGroupStore::ensureLoaded() const {
     }
     if (!file.open(QIODevice::ReadOnly)) {
         qWarning() << "Instance group file exists but cannot be opened:" << path;
-        m_unreadableReason = tr("%1 打不开，这次的改动没有保存。").arg(path);
+        m_unreadableReason = tr("无法打开 %1，分组设置未保存。").arg(path);
         return;
     }
     // 大小上限：这份文件只有组名和成员表，几 MB 已经宽得离谱。超过就当"读不懂"，
@@ -179,7 +179,7 @@ void InstanceGroupStore::ensureLoaded() const {
         qWarning() << "Instance group file is too large:" << path << file.size();
         file.close();
         m_unreadableReason =
-            tr("%1 大得不像一份分组表（%2 字节），为避免覆盖掉你的内容，这次没有改动它。")
+            tr("分组文件 %1 超出大小限制（%2 字节）。原文件已保留。")
                 .arg(path)
                 .arg(file.size());
         return;
@@ -192,7 +192,7 @@ void InstanceGroupStore::ensureLoaded() const {
         qWarning() << "Failed to parse instance group file" << path << ":"
                    << parseError.errorString();
         m_unreadableReason =
-            tr("%1 的内容不是合法的 JSON，为避免覆盖掉你写的东西，这次没有改动它。").arg(path);
+            tr("分组文件 %1 不是有效的 JSON。原文件已保留。").arg(path);
         return;
     }
 
@@ -392,7 +392,7 @@ bool InstanceGroupStore::setGroupExpanded(const QString &groupId, bool expanded,
     const auto found = std::find_if(list.begin(), list.end(),
                                     [&groupId](const Group &group) { return group.id == groupId; });
     if (found == list.end()) {
-        return fail(tr("找不到那个分组，可能刚刚被删掉了。"));
+        return fail(tr("找不到指定分组，请刷新分组列表。"));
     }
     if (found->expanded == expanded) {
         // 已经就是这个状态了（比如双击那两发里第二发又点了一次）：不写盘。
@@ -427,7 +427,7 @@ bool InstanceGroupStore::setGroupPinned(const QString &groupId, bool pinned, QSt
     const auto found = std::find_if(list.begin(), list.end(),
                                     [&groupId](const Group &group) { return group.id == groupId; });
     if (found == list.end()) {
-        return fail(tr("找不到那个分组，可能刚刚被删掉了。"));
+        return fail(tr("找不到指定分组，请刷新分组列表。"));
     }
     if (found->pinned == pinned) {
         // 已经就是这个状态了：不写盘（和 setGroupExpanded() 那条空操作同一条规矩）。
@@ -478,7 +478,7 @@ bool InstanceGroupStore::assign(const QString &instanceKey, const QString &group
             std::find_if(known.constBegin(), known.constEnd(),
                          [&groupId](const Group &group) { return group.id == groupId; });
         if (found == known.constEnd()) {
-            return fail(tr("找不到那个分组，可能刚刚被删掉了。"));
+            return fail(tr("找不到指定分组，请刷新分组列表。"));
         }
     }
 
@@ -630,7 +630,7 @@ bool InstanceGroupStore::setInstanceHomeGroup(const QString &instanceKey, const 
             std::find_if(known.constBegin(), known.constEnd(),
                          [&groupId](const Group &group) { return group.id == groupId; });
         if (found == known.constEnd()) {
-            return fail(tr("找不到那个分组，可能刚刚被删掉了。"));
+            return fail(tr("找不到指定分组，请刷新分组列表。"));
         }
     }
 

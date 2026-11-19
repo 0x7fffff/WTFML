@@ -111,10 +111,7 @@ void MainWindow::offerFileAssociations(bool force) {
     settings.setValue(QStringLiteral("Associations/Asked"), true);
     if (!InlineMessage::question(
             m_ui->overlay(), tr("文件关联"),
-            tr("要把 MC 独有的文件交给本启动器打开吗？\n\n"
-               "· .nbt / .litematic / .schematic / .schem / .mrpack：设为默认（双击就打开）\n"
-               "· .jar / .zip：只加进「打开方式」列表，不改默认\n\n"
-               "以后可以在系统设置里改回来。"),
+            tr("将以下文件类型关联到 WTFML？\n\n· .nbt / .litematic / .schematic / .schem / .mrpack：设为默认应用\n· .jar / .zip：加入「打开方式」，保留默认应用\n\n可在系统设置中调整。"),
             tr("设为默认"), tr("跳过"), false)) {
         return;
     }

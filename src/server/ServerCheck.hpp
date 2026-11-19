@@ -156,7 +156,7 @@ QString summaryText(const QList<Finding> &findings);
 // ---------------------------------------------------------------------------
 
 inline QString allGoodText() {
-    return QCoreApplication::translate("ServerCheck", "没有发现问题 —— 入口文件齐、配置文件的值都对、端口也没人占。");
+    return QCoreApplication::translate("ServerCheck", "启动入口、配置和端口检查均通过。");
 }
 
 inline QString summaryText(const QList<Finding> &findings) {

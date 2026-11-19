@@ -270,7 +270,7 @@ void MainWindow::cancelTaskFromDetail(const QString &key) {
         const bool cancelled = m_versionManager->cancelActiveDownload();
         m_downloadTaskLedger->setUserCancelInFlight(false);
         if (cancelled) {
-            appendLog(tr("下载已取消。已经下好的文件留在原处。"));
+            appendLog(tr("下载已取消，已下载的文件会保留。"));
         }
     }
 }
@@ -321,7 +321,7 @@ void MainWindow::retryTaskFromDetail(const QString &key) {
     m_downloadTaskLedger->setResourceLabel(retryLabel);
     if (!m_versionManager->retryDownload()) {
         // 正常走不到（忙态上面刚问过）：别在账本里留一条永远"进行中"的行。
-        m_activityCenter->tasks()->fail(newTask, tr("没能开始重试。"));
+        m_activityCenter->tasks()->fail(newTask, tr("无法重试下载。"));
         m_downloadTaskLedger->clear();
         return;
     }

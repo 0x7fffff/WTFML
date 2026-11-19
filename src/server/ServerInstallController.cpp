@@ -48,7 +48,7 @@ constexpr int kInstallerTailChars = 1200;
 /// 跑安装器那条路的失败措辞：**没有 java** 和 **java 跑了但退出码不是 0** 是两件不同的事，
 /// 两句得分开写（前者用户要去「设置 → 启动 → Java 管理」看一眼，后者要看安装器自己说了什么）。
 QString javaMissingMessage() {
-    return QCoreApplication::translate("ServerInstallController", "这一档要跑它的安装器，而安装器是一个 Java 程序 —— 没找到能用的 Java。去「设置 → 启动 → Java 管理」里选一个，或者先把游戏跑起来一次让它自己挑。");
+    return QCoreApplication::translate("ServerInstallController", "未找到可运行服务端安装器的 Java。请在「设置 → 启动 → Java 管理」中选择兼容版本。");
 }
 
 /// 没有回复（排队到点 / 被掐 / 管理器先没）时的失败措辞：`what` 是"取 xxx"，
@@ -68,14 +68,14 @@ ServerInstallController::ServerInstallController(QObject *parent) : QObject(pare
     connect(m_installerWatchdog, &QTimer::timeout, this, [this] {
         if (!m_running || m_cancelling || !m_process || m_process->state() == QProcess::NotRunning) return;
         if (m_installerTotal.elapsed() >= m_installerTotalMs) {
-            fail(QCoreApplication::translate("ServerInstallController", "服务端安装器已达到总截止（%1 秒），半成品保留，请检查网络后修复。").arg(m_installerTotalMs / 1000)); return;
+            fail(QCoreApplication::translate("ServerInstallController", "服务端安装超过 %1 秒，已停止。部分文件已保留，请检查网络后修复。").arg(m_installerTotalMs / 1000)); return;
         }
         if (m_installerProgress.elapsed() < m_installerSilentMs || m_installerRestartPending) return;
         if (m_installerRetries == 0) {
             ++m_installerRetries; m_installerRestartPending = true;
             emit message(QCoreApplication::translate("ServerInstallController", "服务端安装器连续 %1 秒无输出，可能卡在内部下载；保留文件并重启安装器一次。").arg(m_installerSilentMs / 1000));
             m_process->kill();
-        } else fail(QCoreApplication::translate("ServerInstallController", "服务端安装器重试后仍连续 %1 秒无输出，已停止；半成品保留。\n%2").arg(m_installerSilentMs / 1000).arg(m_installerTail));
+        } else fail(QCoreApplication::translate("ServerInstallController", "重试后，服务端安装器仍连续 %1 秒没有输出。已停止安装，部分文件已保留。\n%2").arg(m_installerSilentMs / 1000).arg(m_installerTail));
     });
 }
 
@@ -141,7 +141,7 @@ void ServerInstallController::start(const ServerInstall::Request &request,
     if (!QDir().mkpath(m_dir)) {
         m_running = false;
         emit finished(Outcome::Failed,
-                      QCoreApplication::translate("ServerInstallController", "建不出服务端目录：%1").arg(QDir::toNativeSeparators(m_dir)));
+                      QCoreApplication::translate("ServerInstallController", "无法创建服务端目录：%1").arg(QDir::toNativeSeparators(m_dir)));
         return;
     }
 
@@ -422,7 +422,7 @@ void ServerInstallController::beginDownloads() {
     // `endBatch()`），别人的那一批于是永远等不到 `allDownloadsFinished`：任务中心那一行
     // 停在「进行中」，取消也取消不掉（收尾信号已经不会来了）。
     if (m_downloads->isBusy()) {
-        fail(QCoreApplication::translate("ServerInstallController", "等版本信息的这会儿，已经有别的下载开始了。等那一批结束再装这个服务端。"));
+        fail(QCoreApplication::translate("ServerInstallController", "检查版本期间已有其他下载开始。请等待下载完成后再安装服务端。"));
         return;
     }
 
@@ -516,7 +516,7 @@ void ServerInstallController::beginInstaller() {
 
     const QString jarPath = m_dir + QLatin1Char('/') + jarName;
     if (!QFileInfo::exists(jarPath)) {
-        fail(QCoreApplication::translate("ServerInstallController", "要跑的安装器 %1 不在目录里（上一步没下成）。").arg(jarName));
+        fail(QCoreApplication::translate("ServerInstallController", "找不到安装器 %1。请重新下载安装器。").arg(jarName));
         return;
     }
 
@@ -574,7 +574,7 @@ void ServerInstallController::onInstallerFinished(int exitCode) {
     }
     m_installerWatchdog->stop();
     if (exitCode != 0) {
-        QString problem = QCoreApplication::translate("ServerInstallController", "安装器退出码是 %1，没装成。").arg(exitCode);
+        QString problem = QCoreApplication::translate("ServerInstallController", "安装失败。安装器退出码：%1。").arg(exitCode);
         const QString tail = m_installerTail.trimmed();
         if (!tail.isEmpty()) {
             problem += QLatin1Char('\n') + tail.right(600);

@@ -215,7 +215,7 @@ void CrashReportController::exportReport(const QString &key) {
     if (!error.isEmpty()) {
         log(tr("导出错误报告失败：%1").arg(error));
         InlineMessage::warning(m_overlay, tr("导出失败"),
-                               tr("这个文件没能写出来（%1）：\n%2")
+                               tr("无法写入文件（%1）：\n%2")
                                    .arg(QDir::toNativeSeparators(path), error));
         return;
     }
@@ -226,7 +226,7 @@ void CrashReportController::openReportsDirectory() {
     const QString dir = AppPaths::crashReportsDir();
     if (!QDir().exists(dir)) {
         InlineMessage::warning(m_overlay, tr("还没有崩溃报告"),
-            tr("游戏没有在 %1 下写过崩溃报告。\n\n游戏跑到一半被强制结束、或者压根没跑到能写报告那一步时，是不会有这一份的。")
+            tr("未在 %1 中找到崩溃报告。\n\n进程被强制终止或在生成报告前退出时，可能没有报告。")
                 .arg(QDir::toNativeSeparators(dir)));
         return;
     }

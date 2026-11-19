@@ -35,7 +35,7 @@ QLabel *mutedLabel(QWidget *parent, const QString &objectName) {
 }
 
 QString categoryDescription(const QString &key) {
-    if (key == QStringLiteral("saves")) return QCoreApplication::translate("InstanceUpgradePage", "整个世界目录，原样复制");
+    if (key == QStringLiteral("saves")) return QCoreApplication::translate("InstanceUpgradePage", "完整复制世界目录");
     if (key == QStringLiteral("mods")) return QCoreApplication::translate("InstanceUpgradePage", "按兼容性结果替换或跳过");
     if (key == QStringLiteral("config")) return QCoreApplication::translate("InstanceUpgradePage", "config 与 defaultconfigs");
     if (key == QStringLiteral("options")) return QCoreApplication::translate("InstanceUpgradePage", "键位、视频、声音");
@@ -373,7 +373,7 @@ void InstanceUpgradePage::setCategoryAmounts(
 void InstanceUpgradePage::rebuildSummary() {
     const int count = m_state.selection.state.ordered().size();
     QString summary = count > 0 ? QCoreApplication::translate("InstanceUpgradePage", "已选 %1 类").arg(count)
-                                : QCoreApplication::translate("InstanceUpgradePage", "还没选要迁移的内容");
+                                : QCoreApplication::translate("InstanceUpgradePage", "未选择迁移内容");
     if (!m_categoryAmounts.isEmpty()) {
         int files = 0;
         qint64 bytes = 0;

@@ -587,14 +587,14 @@ QString WorldSettingsPage::rulesSourceHint(bool hasRules) {
     if (hasRules) {
         return tr("未写入存档的规则显示默认值，仅保存修改过的规则。");
     }
-    return tr("这个存档里还没有「游戏规则」那一格（工具做出来的、还没进过的档常常是这样）—— 下面每一条摆的都是游戏的默认值，改过哪一条才会把哪一条写进存档。");
+    return tr("存档尚未保存游戏规则。列表显示游戏默认值，保存时仅写入修改过的规则。");
 }
 QString WorldSettingsPage::defaultedHintText() {
     return tr("这个存档里没有这一项：屏幕上显示的是游戏默认值，修改后才会写入。");
 }
 QString WorldSettingsPage::notGzippedText() {
     // 同上：`**不是**` 那两个星号会原样画在屏幕上，改成「不是」。
-    return tr("注意：盘上这份 level.dat「不是」gzip 包着的（正常存档都是）。我们按原样写回，不改它的形状。");
+    return tr("此 level.dat 未使用 gzip 压缩。保存时将保留原有格式。");
 }
 
 QString WorldSettingsPage::difficultyOptionText(int difficulty) {

@@ -61,16 +61,16 @@ QString unsupportedFieldReason(const QString &field) {
         return QObject::tr("这个包用了 +jarMods（旧式核心 mod）：它要求把 jar 合并进游戏本体，本启动器不做这一步，装上也起不来。");
     }
     if (field == QLatin1String("+files")) {
-        return QObject::tr("这个包用了 +files（旧格式的额外文件表）：它的落点依赖旧启动器的行为，本启动器按 +libraries 那一套走，不猜这几种混着写的顺序。");
+        return QObject::tr("整合包包含旧版 +files 文件表。该表依赖原启动器确定目标路径，当前导入流程仅处理 +libraries。");
     }
     if (field == QLatin1String("addnatives")) {
         return QObject::tr("这个包用了 addnatives（额外 natives）：本启动器只从版本 json 的 libraries 里取 natives。");
     }
     if (field == QLatin1String("+traits")) {
-        return QObject::tr("这个包用了 +traits（启动器行为提示，例如 legacyLaunch）：这些提示会改变启动参数的组织方式，本启动器不认它们。");
+        return QObject::tr("此整合包使用了 +traits（例如 legacyLaunch）来指定启动方式。当前版本不支持导入这些启动设置。");
     }
     if (field == QLatin1String("+luac")) {
-        return QObject::tr("这个包用了 +luac（Lua 补丁，LiteLoader 那一类）：本启动器不支持。");
+        return QObject::tr("此整合包使用当前版本不支持的 +luac 补丁（如 LiteLoader）。");
     }
     return QString();
 }

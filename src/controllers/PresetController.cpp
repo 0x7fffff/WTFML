@@ -742,7 +742,7 @@ void PresetController::createPreset(const QString &categoryKey) {
         Presets::create(presetsRoot(), newPresetName(), QString(), category);
     if (created.id.isEmpty()) {
         if (m_page != nullptr) {
-            m_page->showStatus(tr("没能建出新的一份（预设目录写不进去）。"));
+            m_page->showStatus(tr("预设目录不可写，无法创建预设。"));
         }
         return;
     }
@@ -758,7 +758,7 @@ void PresetController::duplicatePreset(const QString &id) {
     const Presets::PresetManifest copy = Presets::duplicate(presetsRoot(), id);
     if (copy.id.isEmpty()) {
         if (m_page != nullptr) {
-            m_page->showStatus(tr("复制失败：这一份读不回来，或者新目录建不出来。"));
+            m_page->showStatus(tr("复制预设失败。请检查原预设可读且目标目录可写。"));
         }
         return;
     }
@@ -774,7 +774,7 @@ void PresetController::saveDetails(const QString &id, const QString &name,
     Presets::PresetManifest manifest = Presets::loadManifest(root, id, &ok, &reason);
     if (!ok) {
         if (m_page != nullptr) {
-            m_page->showStatus(tr("这一份读不出来：%1").arg(reason));
+            m_page->showStatus(tr("无法读取源预设：%1").arg(reason));
         }
         return;
     }
@@ -936,7 +936,7 @@ void PresetController::captureInto(const QString &presetId, const QString &insta
     Presets::PresetManifest manifest = Presets::loadManifest(root, presetId, &ok, &reason);
     if (!ok) {
         if (m_page != nullptr) {
-            m_page->showStatus(tr("这一份读不出来：%1").arg(reason));
+            m_page->showStatus(tr("无法读取源预设：%1").arg(reason));
         }
         return;
     }
@@ -966,7 +966,7 @@ void PresetController::captureInto(const QString &presetId, const QString &insta
         if (added == 0 && manifest.modReferences.isEmpty()) {
             if (m_page != nullptr) {
                 m_page->showStatus(
-                    tr("这个实例没有认得出平台身份的模组：安装记录里没有它们，或者文件已经被换过。模组类预设没有收进任何东西。"));
+                    tr("未找到带有效平台安装记录的模组，未提取模组预设内容。"));
             }
             return;
         }
@@ -974,7 +974,7 @@ void PresetController::captureInto(const QString &presetId, const QString &insta
         manifest.updatedAt = QDateTime::currentDateTime();
         if (!Presets::saveManifest(root, manifest)) {
             if (m_page != nullptr) {
-                m_page->showStatus(tr("提取到了内容，但这一份预设写不进去。"));
+                m_page->showStatus(tr("内容已提取，但无法保存预设。"));
             }
             return;
         }
@@ -986,12 +986,12 @@ void PresetController::captureInto(const QString &presetId, const QString &insta
         if (m_page != nullptr) {
             QString status = tr("收到 %1 条平台模组引用").arg(manifest.modReferences.size());
             if (added > 0) {
-                status += tr("（这次新增 %1 条）").arg(added);
+                status += tr("（新增 %1 条）").arg(added);
             }
             if (unidentified > 0) {
                 // 认不出的那几件怎么处理**要说出来**：编辑器那条「从本地模组导入」会按
                 // CurseForge 指纹 + Modrinth sha1 再认一遍（这一层只认安装记录，不联网）。
-                status += tr("；另有 %1 件认不出身份 —— 在「预设编辑器 → 从本地模组导入」里会按指纹再认一次，也可以在模组页手动补充。")
+                status += tr("；另有 %1 个模组的来源未知。可在「预设编辑器 → 从本地模组导入」中重新识别，或在模组页手动补充。")
                               .arg(unidentified);
             }
             status += tr("。");
@@ -1025,7 +1025,7 @@ void PresetController::captureInto(const QString &presetId, const QString &insta
     manifest.updatedAt = QDateTime::currentDateTime();
     if (!Presets::saveManifest(root, manifest)) {
         if (m_page != nullptr) {
-            m_page->showStatus(tr("提取到了内容，但这一份预设写不进去。"));
+            m_page->showStatus(tr("内容已提取，但无法保存预设。"));
         }
         return;
     }
@@ -1068,7 +1068,7 @@ void PresetController::captureAsNew(const QString &instanceId, const QString &na
     Presets::PresetManifest created = Presets::create(root, wanted, QString(), category);
     if (created.id.isEmpty()) {
         if (m_page != nullptr) {
-            m_page->showStatus(tr("没能建出新的一份（预设目录写不进去）。"));
+            m_page->showStatus(tr("预设目录不可写，无法创建预设。"));
         }
         return;
     }
@@ -1097,7 +1097,7 @@ void PresetController::captureAsNew(const QString &instanceId, const QString &na
             Presets::remove(root, created.id);
             if (m_page != nullptr) {
                 m_page->showStatus(
-                    tr("这个实例没有认得出平台身份的模组：安装记录里没有它们，或者文件已经被换过；新预设没有创建。"));
+                    tr("无法确认此实例中的模组来自哪个平台。其安装记录可能缺失，或文件已被替换。预设未创建。"));
             }
             return;
         }
@@ -1106,7 +1106,7 @@ void PresetController::captureAsNew(const QString &instanceId, const QString &na
         if (!Presets::saveManifest(root, created)) {
             Presets::remove(root, created.id);
             if (m_page != nullptr) {
-                m_page->showStatus(tr("预设目录写不进去，新预设没有建。"));
+                m_page->showStatus(tr("预设目录不可写，未创建新预设。"));
             }
             return;
         }
@@ -1119,7 +1119,7 @@ void PresetController::captureAsNew(const QString &instanceId, const QString &na
             if (unidentified > 0) {
                 // 认不出的那几件怎么处理**要说出来**：编辑器那条「从本地模组导入」会按
                 // CurseForge 指纹 + Modrinth sha1 再认一遍（这一层只认安装记录，不联网）。
-                status += tr("；另有 %1 件认不出身份 —— 在「预设编辑器 → 从本地模组导入」里会按指纹再认一次，也可以在模组页手动补充。")
+                status += tr("；另有 %1 个模组的来源未知。可在「预设编辑器 → 从本地模组导入」中重新识别，或在模组页手动补充。")
                               .arg(unidentified);
             }
             status += tr("。");
@@ -1158,7 +1158,7 @@ void PresetController::captureAsNew(const QString &instanceId, const QString &na
     if (!Presets::saveManifest(root, created)) {
         Presets::remove(root, created.id);
         if (m_page != nullptr) {
-            m_page->showStatus(tr("预设目录写不进去，新预设没有建。"));
+            m_page->showStatus(tr("预设目录不可写，未创建新预设。"));
         }
         return;
     }
@@ -1372,7 +1372,7 @@ void PresetController::applyPlanImpl(const QString &presetId, const QString &ins
     const Presets::PresetManifest manifest =
         Presets::loadManifest(presetsRoot(), presetId, &ok, &reason);
     if (!ok) {
-        view.problem = tr("这一份读不出来：%1").arg(reason);
+        view.problem = tr("无法读取源预设：%1").arg(reason);
         m_page->showApplyResult(view);
         return;
     }
@@ -1684,7 +1684,7 @@ PresetController::InstallPreview PresetController::previewForInstall(
     const Presets::PresetManifest manifest =
         Presets::loadManifest(presetsRoot(), presetId, &ok, &reason);
     if (!ok) {
-        view.problem = tr("这一份预设读不出来：%1").arg(reason);
+        view.problem = tr("无法读取待导入的预设：%1").arg(reason);
         return view;
     }
     view.presetName = manifest.name;
@@ -1772,7 +1772,7 @@ PresetController::InstallApply PresetController::applyAfterInstall(const QString
     const Presets::PresetManifest manifest =
         Presets::loadManifest(presetsRoot(), presetId, &ok, &reason);
     if (!ok) {
-        out.message = tr("预设读不出来：%1").arg(reason);
+        out.message = tr("预设读取失败：%1").arg(reason);
         log(QStringLiteral("预设：%1").arg(out.message));  // i18n-ignore
         return out;
     }
@@ -1803,7 +1803,7 @@ PresetController::InstallApply PresetController::applyAfterInstall(const QString
     }
 
     if (result.needsConfirm) {
-        out.message = tr("预设里有一段是「覆盖」，需要先确认计划才能应用（可以在实例页 →「预设」那一档里看计划并确认）。");
+        out.message = tr("此预设包含覆盖操作。请在实例的「预设」页查看并确认应用计划。");
     } else if (!result.blockedReason.isEmpty()) {
         out.message = result.blockedReason;
     } else if (!result.ok) {

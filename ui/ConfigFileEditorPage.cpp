@@ -508,12 +508,12 @@ void ConfigFileEditorPage::refreshNote() {
     }
     if (!m_loaded.utf8Ok) {
         m_note->setText(readOnlyPrefix() +
-                        tr("文件不是 UTF-8 编码，保存会把内容弄坏，只能查看。"));
+                        tr("文件使用非 UTF-8 编码。为保护内容，已按只读方式打开。"));
         return;
     }
     if (m_loaded.tooBig) {
         m_note->setText(readOnlyPrefix() +
-                        tr("这个文件太大了（%1 MB 是这里给的上限），只给看不给改。")
+                        tr("文件超过 %1 MB 的编辑上限，已按只读方式打开。")
                             .arg(ConfigFileText::editableByteLimit() / (1024 * 1024)));
         return;
     }
@@ -521,7 +521,7 @@ void ConfigFileEditorPage::refreshNote() {
     // 用户会以为"还原"已经落盘了（那是这一页唯一一处"正文变了但盘上没变"的情形）。
     if (!m_restoredFrom.isEmpty()) {
         m_note->setText(restoredPrefix() + m_restoredFrom + QCoreApplication::translate("ConfigFileEditorPage", "）") +
-                        tr("，按「保存」才写回盘上。"));
+                        tr("，选择「保存」后写入文件。"));
         return;
     }
     m_note->setText(hintText());
@@ -817,9 +817,9 @@ QString ConfigFileEditorPage::indexToggleText() { return QCoreApplication::trans
 QString ConfigFileEditorPage::indexFilterPlaceholder() { return QCoreApplication::translate("ConfigFileEditorPage", "在条目里找…"); }
 QString ConfigFileEditorPage::restoreText() { return QCoreApplication::translate("ConfigFileEditorPage", "还原上一次"); }
 QString ConfigFileEditorPage::restoredPrefix() { return QCoreApplication::translate("ConfigFileEditorPage", "已恢复上次保存前的内容（"); }
-QString ConfigFileEditorPage::indexEmptyHint() { return QCoreApplication::translate("ConfigFileEditorPage", "这份文件里没认出设置项"); }
+QString ConfigFileEditorPage::indexEmptyHint() { return QCoreApplication::translate("ConfigFileEditorPage", "文件中未找到可编辑的设置项"); }
 QString ConfigFileEditorPage::readOnlyPrefix() { return QCoreApplication::translate("ConfigFileEditorPage", "只读："); }
 QString ConfigFileEditorPage::hintText() {
-    return QCoreApplication::translate("ConfigFileEditorPage", "改完点「保存」写到盘上。原来是什么行尾、有没有 BOM，都不动。");
+    return QCoreApplication::translate("ConfigFileEditorPage", "选择「保存」后写入文件。保留原文件的换行格式和 BOM。");
 }
 QString ConfigFileEditorPage::savedPrefix() { return QCoreApplication::translate("ConfigFileEditorPage", "已保存（"); }

@@ -89,7 +89,7 @@ void ServerProcess::start(const QString &serverId, const QString &dir, const QSt
             m_gracefulTimer->stop();
             m_forceKillAllowed = false;
             setStatus(ServerModel::Status::Crashed);
-            emit message(tr("服务端进程没起来（%1 起不来？看看 Java 那一项配得对不对）。")
+            emit message(tr("服务端进程未启动（%1）。请检查 Java 设置。")
                              .arg(QDir::toNativeSeparators(m_program)) +
                          ProcessPathLimit::tooLongHint({m_program, m_dir}));
             emit exited(m_serverId, -1);

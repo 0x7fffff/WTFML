@@ -418,7 +418,7 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
         WheelGuard::install(gameWindowHeightSpin);
         addRow(windowGroup, QCoreApplication::translate("MainWindowSettingsPage", "窗口大小"),
                hbox(form, {gameWindowWidthSpin, gameWindowSizeTimesLabel, gameWindowHeightSpin}, kWindowSizeRowSpacing),
-               Placement::Natural, QCoreApplication::translate("MainWindowSettingsPage", "游戏可能沿用自身保存的尺寸。"),
+               Placement::Natural, QCoreApplication::translate("MainWindowSettingsPage", "游戏可能使用上次保存的窗口尺寸。"),
                QCoreApplication::translate("MainWindowSettingsPage", "退出全屏后使用此尺寸。"));
     }
 
@@ -436,7 +436,7 @@ void MainWindowUI::setupSettingsLaunchPanel(QStackedWidget *stack) {
     processPriorityCombo->setObjectName(processPriorityComboName());
     WheelGuard::install(processPriorityCombo);
     addRow(runGroup, QCoreApplication::translate("MainWindowSettingsPage", "进程优先级"), processPriorityCombo, Placement::Column,
-           QCoreApplication::translate("MainWindowSettingsPage", "高于「正常」可能拖慢其他程序。"));
+           QCoreApplication::translate("MainWindowSettingsPage", "提高进程优先级可能影响其他程序。"));
 
     // ---------- 文件关联 ----------
     SettingsGroup *files = addGroup(panel, QCoreApplication::translate("MainWindowSettingsPage", "文件关联"));
@@ -479,7 +479,7 @@ void MainWindowUI::setupSettingsWarnPanel(QStackedWidget *stack) {
     SettingsGroup *launch = addGroup(panel, QCoreApplication::translate("MainWindowSettingsPage", "启动前"));
     javaWarnMismatchCheck = new QCheckBox(javaWarnMismatchRowText(), form);
     javaWarnMismatchCheck->setObjectName(javaWarnMismatchCheckName());
-    addSwitch(launch, javaWarnMismatchCheck, javaWarnMismatchRowText(), QCoreApplication::translate("MainWindowSettingsPage", "关闭后版本不符可能启动失败。"));
+    addSwitch(launch, javaWarnMismatchCheck, javaWarnMismatchRowText(), QCoreApplication::translate("MainWindowSettingsPage", "停用提醒后，Java 与游戏版本不兼容时仍可能启动失败。"));
     warnDuplicateLaunchCheck = new QCheckBox(warnDuplicateLaunchCheckText(), form);
     warnDuplicateLaunchCheck->setObjectName(warnDuplicateLaunchCheckName());
     addSwitch(launch, warnDuplicateLaunchCheck, warnDuplicateLaunchRowText(),
@@ -492,7 +492,7 @@ void MainWindowUI::setupSettingsWarnPanel(QStackedWidget *stack) {
     warnMissingDependenciesCheck = new QCheckBox(warnMissingDependenciesCheckText(), form);
     warnMissingDependenciesCheck->setObjectName(warnMissingDependenciesCheckName());
     addSwitch(download, warnMissingDependenciesCheck, warnMissingDependenciesRowText(),
-              QCoreApplication::translate("MainWindowSettingsPage", "关闭后模组可能因缺前置无法运行。"));
+              QCoreApplication::translate("MainWindowSettingsPage", "关闭依赖检查后，安装的模组可能因缺少依赖而无法运行。"));
     panel.layout->addStretch(1);
 }
 
@@ -654,7 +654,7 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
             const auto fit = static_cast<Theme::ImageFit>(i);
             widgets.fit->addItem(Theme::imageFitName(fit), Theme::imageFitKey(fit));
         }
-        addRow(group, QCoreApplication::translate("MainWindowSettingsPage", "摆放方式"), widgets.fit);
+        addRow(group, QCoreApplication::translate("MainWindowSettingsPage", "窗口布局"), widgets.fit);
         widgets.opacity = new QSlider(Qt::Horizontal, form);
         widgets.opacity->setObjectName(themeImageOpacityName(key));
         widgets.opacity->setRange(0, 100);
@@ -665,7 +665,7 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         m_themeImageRows.append(widgets);
     };
     addImageGroup(Theme::Part::PageBackground, QCoreApplication::translate("MainWindowSettingsPage", "背景图"),
-                  QCoreApplication::translate("MainWindowSettingsPage", "主页、管理、下载和设置页，铺满整窗。"));
+                  QCoreApplication::translate("MainWindowSettingsPage", "主页、管理、下载和设置页占满窗口。"));
 
     // ---------- 外观 ----------
     SettingsGroup *look = addGroup(panel, QCoreApplication::translate("MainWindowSettingsPage", "外观"));

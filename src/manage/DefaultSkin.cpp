@@ -92,7 +92,7 @@ bool writeCacheFile(const QString &path, const QByteArray &bytes, QString *error
     const QString dir = QFileInfo(path).absolutePath();
     if (!QDir().mkpath(dir)) {
         if (errorOut != nullptr) {
-            *errorOut = QCoreApplication::translate("DefaultSkin", "建不出皮肤缓存目录 %1。").arg(dir);
+            *errorOut = QCoreApplication::translate("DefaultSkin", "无法创建皮肤缓存目录 %1。").arg(dir);
         }
         return false;
     }
@@ -208,7 +208,7 @@ DefaultSkin::Result DefaultSkin::resolve(const QString &playerName, const QStrin
         // 到不了这儿（offlineUuidFor 给的一定是 32 位十六进制）。留着是为了这一条路自己
         // 读起来是完整的，不靠"上面那个函数不会出错"。
         if (reasonOut != nullptr) {
-            *reasonOut = QCoreApplication::translate("DefaultSkin", "认不出这个名字对应的 uuid。");
+            *reasonOut = QCoreApplication::translate("DefaultSkin", "找不到此玩家名称对应的 UUID。");
         }
         return Result::Unavailable;
     }

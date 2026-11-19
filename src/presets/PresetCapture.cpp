@@ -42,7 +42,7 @@ constexpr qint64 kOptionsMaxBytes = 32LL * 1024 * 1024;
 bool readWholeFile(const QString &path, QByteArray *out, QString *problem) {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
-        *problem = QCoreApplication::translate("Presets", "读不动「%1」：%2").arg(path, file.errorString());
+        *problem = QCoreApplication::translate("Presets", "无法读取「%1」：%2").arg(path, file.errorString());
         return false;
     }
     *out = file.readAll();
@@ -131,11 +131,11 @@ CaptureReport captureFromInstance(const CaptureRequest &request) {
 
     if (request.instanceRoot.trimmed().isEmpty() ||
         !QFileInfo(request.instanceRoot).isDir()) {
-        report.problem = QCoreApplication::translate("Presets", "这个实例的目录不在，没法从它收预设。");
+        report.problem = QCoreApplication::translate("Presets", "找不到实例目录，无法提取预设。");
         return report;
     }
     if (request.presetFilesRoot.trimmed().isEmpty()) {
-        report.problem = QCoreApplication::translate("Presets", "没有指定这份预设的 files 目录。");
+        report.problem = QCoreApplication::translate("Presets", "未指定预设的 files 目录。");
         return report;
     }
     // 这一趟会往预设库里那一份的 `files/` 底下写东西（下面第一件事就是建目录）。
@@ -149,14 +149,14 @@ CaptureReport captureFromInstance(const CaptureRequest &request) {
         }
     }
     if (!QDir().mkpath(request.presetFilesRoot)) {
-        report.problem = QCoreApplication::translate("Presets", "建不了预设的文件目录：%1").arg(request.presetFilesRoot);
+        report.problem = QCoreApplication::translate("Presets", "无法创建预设文件目录：%1").arg(request.presetFilesRoot);
         return report;
     }
     if (request.selection.isEmpty()) {
         // 一样都没勾：这是一趟"什么都不做"，不是失败。调用方不该把这一趟当成"收成了
         // 一份空预设"存下去 —— 空段表和"一份新预设"在界面上是两件事。
         report.ok = true;
-        report.notes.append(QCoreApplication::translate("Presets", "这一趟没有勾任何内容。"));
+        report.notes.append(QCoreApplication::translate("Presets", "未选择要提取的内容。"));
         return report;
     }
 
@@ -170,7 +170,7 @@ CaptureReport captureFromInstance(const CaptureRequest &request) {
             report.notes.append(captureText("实例里还没有 options.txt（游戏还没跑过），"
                                             "游戏设置和按键这一趟没有可收的。"));
         } else if (!info.isFile()) {
-            report.problems.append(QCoreApplication::translate("Presets", "「%1」不是一份普通文件，这一趟没收游戏设置。")
+            report.problems.append(QCoreApplication::translate("Presets", "「%1」不是普通文件，未提取游戏设置。")
                                        .arg(path));
         } else if (info.size() > kOptionsMaxBytes) {
             report.problems.append(captureText("「%1」大到不像是 options.txt（%2 字节），"
@@ -221,9 +221,9 @@ CaptureReport captureFromInstance(const CaptureRequest &request) {
         QString why;
         const NbtUtil::Status status = ServerListFile::read(path, &entries, &why);
         if (status == NbtUtil::Status::Missing) {
-            report.notes.append(QCoreApplication::translate("Presets", "实例里还没有服务器列表（servers.dat）。"));
+            report.notes.append(QCoreApplication::translate("Presets", "实例中没有服务器列表文件（servers.dat）。"));
         } else if (status == NbtUtil::Status::Unreadable) {
-            report.problems.append(QCoreApplication::translate("Presets", "服务器列表读不动：%1").arg(why));
+            report.problems.append(QCoreApplication::translate("Presets", "无法读取服务器列表：%1").arg(why));
         } else if (entries.isEmpty()) {
             // 盘上有一份好好的、但一条都没有 —— 收一段空段下来没有意义（应用"追加 0 条"
             // 什么都不做）。这是"这一样是空的"，不是错误。
@@ -256,7 +256,7 @@ CaptureReport captureFromInstance(const CaptureRequest &request) {
                 report.notes.append(captureText("实例的 options.txt 里还没有资源包列表，"
                                                 "这一份只收文件、不带启用状态。"));
             } else if (annotateResourcePackSection(section, state)) {
-                report.notes.append(QCoreApplication::translate("Presets", "资源包的启用顺序也收进来了（%1 个开着）。")
+                report.notes.append(QCoreApplication::translate("Presets", "已保存资源包启用顺序，共 %1 个已启用。")
                                         .arg(state.enabledOrder.size()));
             }
         }
@@ -279,7 +279,7 @@ CaptureReport captureFromInstance(const CaptureRequest &request) {
         extract.mode = ApplyMode::Merge;
         const MalilibExtractReport malilib = extractMalilibSections(extract);
         if (!malilib.ok) {
-            report.problems.append(QCoreApplication::translate("Presets", "MaLiLib 那一族没收成：%1").arg(malilib.problem));
+            report.problems.append(QCoreApplication::translate("Presets", "提取 MaLiLib 配置失败：%1").arg(malilib.problem));
         } else {
             report.sections.append(malilib.sections);
             report.malilibFiles += malilib.files;
@@ -287,7 +287,7 @@ CaptureReport captureFromInstance(const CaptureRequest &request) {
             report.malilibValues += malilib.values;
             report.problems.append(malilib.skipped);
             if (malilib.files == 0) {
-                report.notes.append(QCoreApplication::translate("Presets", "config/ 底下没认出 MaLiLib 那一族配置。"));
+                report.notes.append(QCoreApplication::translate("Presets", "config/ 中未找到 MaLiLib 配置。"));
             }
         }
     }
@@ -314,7 +314,7 @@ CaptureReport captureFromInstance(const CaptureRequest &request) {
     // ------------------------------------------------------------------
     if (report.sections.isEmpty()) {
         report.problem = report.problems.isEmpty()
-                             ? QCoreApplication::translate("Presets", "勾了的那几样都没有收到东西，这一趟没有可存的内容。")
+                             ? QCoreApplication::translate("Presets", "选中的类别没有可提取的内容，预设未保存。")
                              : report.problems.first();
         return report;
     }

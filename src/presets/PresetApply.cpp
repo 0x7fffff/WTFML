@@ -40,7 +40,7 @@ constexpr qint64 kOptionsMaxBytes = 32LL * 1024 * 1024;
 bool readWholeFile(const QString &path, QByteArray *out, QString *problem) {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
-        *problem = QCoreApplication::translate("Presets", "读不动「%1」：%2").arg(path, file.errorString());
+        *problem = QCoreApplication::translate("Presets", "无法读取「%1」：%2").arg(path, file.errorString());
         return false;
     }
     *out = file.readAll();
@@ -117,7 +117,7 @@ bool backupOne(const QString &instanceRoot, const QString &backupDir, const QStr
     const QString target = backupDir + QLatin1Char('/') + relative;
     const QString parent = QFileInfo(target).absolutePath();
     if (!QDir().mkpath(parent)) {
-        *problem = QCoreApplication::translate("Presets", "建不了备份目录「%1」。").arg(parent);
+        *problem = QCoreApplication::translate("Presets", "无法创建备份目录「%1」。").arg(parent);
         return false;
     }
     QString copyProblem;
@@ -184,7 +184,7 @@ TargetSnapshot readTargetSnapshot(const QString &instanceRoot, QString *problemO
     if (optionsInfo.exists()) {
         if (!optionsInfo.isFile()) {
             if (problemOut != nullptr) {
-                *problemOut = QCoreApplication::translate("Presets", "「%1」不是一份普通文件，不敢拿预设去改它。")
+                *problemOut = QCoreApplication::translate("Presets", "「%1」不是普通文件，已跳过应用预设。")
                                   .arg(optionsPath);
             }
             return snapshot;
@@ -245,12 +245,12 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
     const auto finish = [&]() { checkpoint(true); return result; };
 
     if (!isValidPresetId(manifest.id)) {
-        result.problem = QCoreApplication::translate("Presets", "这份预设的 id 不合法，没法应用。");
+        result.problem = QCoreApplication::translate("Presets", "预设 ID 无效，无法应用。");
         return finish();
     }
     if (request.instanceRoot.trimmed().isEmpty() ||
         !QFileInfo(request.instanceRoot).isDir()) {
-        result.problem = QCoreApplication::translate("Presets", "这个实例的目录不在，没法把预设落到它上面。");
+        result.problem = QCoreApplication::translate("Presets", "找不到目标实例目录，无法应用预设。");
         return finish();
     }
 
@@ -553,7 +553,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
             const OptionsFile source = optionsFromSections({section}, &readable);
             if (!readable) {
                 row.blocked = true;
-                row.problem = QCoreApplication::translate("Presets", "这一段读不回来（载荷不是这一层认得的那样），这一趟不动它。");
+                row.problem = QCoreApplication::translate("Presets", "预设内容格式无效，已跳过此部分。");
                 result.rows.append(row); checkpoint(false);
                 continue;
             }
@@ -627,14 +627,14 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
             if (!fileGroupFromSectionId(section.id, &group)) {
                 if (items.isEmpty()) {
                     row.blocked = true;
-                    row.problem = QCoreApplication::translate("Presets", "认不出这一段是哪一组文件，这一趟不动它。");
+                    row.problem = QCoreApplication::translate("Presets", "无法识别此部分所属的文件组，已跳过。");
                     result.rows.append(row); checkpoint(false);
                     continue;
                 }
                 // 路径自己说了算（`fileGroupOfPath()` 已经有那一口；这里按第一项推）。
                 if (!fileGroupOfPath(items.at(0).relativePath, &group)) {
                     row.blocked = true;
-                    row.problem = QCoreApplication::translate("Presets", "这一段里的路径不属于那四个文件组，这一趟不动它。");
+                    row.problem = QCoreApplication::translate("Presets", "此部分包含文件组范围以外的路径，已跳过。");
                     result.rows.append(row); checkpoint(false);
                     continue;
                 }
@@ -653,7 +653,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
                 row.details.append(one);
             }
             if (applied.needsChoice > 0) {
-                row.details.append(QCoreApplication::translate("Presets", "这一档下这一组里有 %1 项做不了主，没有动。")
+                row.details.append(QCoreApplication::translate("Presets", "当前模式无法处理此组中的 %1 项，已跳过。")
                                        .arg(applied.needsChoice));
             }
             if (applied.ok && group == FileGroup::ResourcePacks &&
@@ -717,7 +717,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
             row.skippedItems = applied.skipped;
             row.details.append(applied.details);
             if (applied.typeMismatch > 0) {
-                row.details.append(QCoreApplication::translate("Presets", "有 %1 格因为类型对不上被拒绝转换。")
+                row.details.append(QCoreApplication::translate("Presets", "有 %1 个值的类型不匹配，已跳过转换。")
                                        .arg(applied.typeMismatch));
             }
             result.rows.append(row); checkpoint(false);
@@ -725,7 +725,7 @@ PresetApplyResult applyPresetToInstance(const QString &presetsRoot, const Preset
         }
 
         row.blocked = true;
-        row.problem = QCoreApplication::translate("Presets", "这一段没有任何适配器接手，这一趟不动它。");
+        row.problem = QCoreApplication::translate("Presets", "此部分的格式不受支持，已跳过。");
         result.rows.append(row); checkpoint(false);
     }
 

@@ -80,14 +80,14 @@ PresetModEditor::PresetModEditor(const QList<Entry> &entries, QWidget *parent) :
     Theme::markButton(remove, Theme::ButtonKind::Neutral);
     // 提取实例时两个平台都没认出来的那些行：平台那格停在「未知来源（请选择）」。这两件
     // 是给人工收拾它们用的 —— 先把它们挑出来看，再逐条补或者整批删掉。
-    auto *onlyUnknown = new QCheckBox(QCoreApplication::translate("PresetModEditor", "只看没认出来的"), this);
+    auto *onlyUnknown = new QCheckBox(QCoreApplication::translate("PresetModEditor", "仅显示未识别项"), this);
     onlyUnknown->setObjectName(QStringLiteral("presetModOnlyUnknown"));
-    onlyUnknown->setToolTip(QCoreApplication::translate("PresetModEditor", "只留下平台那格还是「未知来源（请选择）」的行；藏起来不等于删掉，取消勾选就都回来。"));
+    onlyUnknown->setToolTip(QCoreApplication::translate("PresetModEditor", "仅显示平台为「未知来源（请选择）」的条目。取消筛选可显示全部条目。"));
     m_onlyUnknown = onlyUnknown;
-    auto *removeUnknown = new QPushButton(QCoreApplication::translate("PresetModEditor", "移除没认出来的"), this);
+    auto *removeUnknown = new QPushButton(QCoreApplication::translate("PresetModEditor", "移除未识别项"), this);
     removeUnknown->setObjectName(QStringLiteral("presetModRemoveUnknown"));
     removeUnknown->setAutoDefault(false);
-    removeUnknown->setToolTip(QCoreApplication::translate("PresetModEditor", "把平台那格还是「未知来源（请选择）」的行一次删掉；整个编辑点「取消」仍然能撤回。"));
+    removeUnknown->setToolTip(QCoreApplication::translate("PresetModEditor", "移除平台为「未知来源（请选择）」的所有条目。选择「取消」可撤回本次编辑。"));
     Theme::markButton(removeUnknown, Theme::ButtonKind::Neutral);
     actions->addWidget(add); actions->addWidget(remove); actions->addStretch();
     actions->addWidget(onlyUnknown); actions->addWidget(removeUnknown);
@@ -103,9 +103,9 @@ PresetModEditor::PresetModEditor(const QList<Entry> &entries, QWidget *parent) :
         }
         applyUnknownFilter();
         m_problem->setText(removed > 0
-                               ? QCoreApplication::translate("PresetModEditor", "已移除 %1 行没认出平台的（整个编辑点「取消」仍然能撤回）。")
+                               ? QCoreApplication::translate("PresetModEditor", "已移除 %1 条来源未知的记录。选择「取消」可撤回本次编辑。")
                                      .arg(removed)
-                               : QCoreApplication::translate("PresetModEditor", "没有没认出来的行。"));
+                               : QCoreApplication::translate("PresetModEditor", "没有未识别的模组。"));
     });
     connect(add, &QPushButton::clicked, this, [this] {
         append({QStringLiteral("modrinth"), {}, {}, {}, {}, true});

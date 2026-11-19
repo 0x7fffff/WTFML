@@ -156,7 +156,7 @@ void runGenericFilesTests() {
         check(plan.ok && plan.needsChoice == 4 && !plan.writesAnything(),
               "★★ PD3「合并」：一坨字节谈不上合并 ⇒ **四项全是要你选、一个字节都不写**"
               "（悄悄按复制做的话，用户以为合并过的那份配置里其实有几格是旧的）");
-        check(plan.items.at(0).reason.contains(QStringLiteral("复制和覆盖")),
+        check(plan.items.at(0).reason.contains(QStringLiteral("复制或覆盖")),
               "★★ PD3 而且理由说的是「只有复制和覆盖两种做法」",
               plan.items.at(0).reason);
 

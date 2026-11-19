@@ -46,9 +46,9 @@ QString confirmReason(SectionKind kind) {
     switch (kind) {
     case SectionKind::VanillaOptions:
     case SectionKind::VanillaKeys:
-        return QCoreApplication::translate("Presets", "「覆盖」会把目标上这一类的设置整个换成预设里那些，需要先确认。");
+        return QCoreApplication::translate("Presets", "覆盖会用预设替换目标中的同类设置，需要确认。");
     case SectionKind::ServerList:
-        return QCoreApplication::translate("Presets", "「覆盖」会拿掉目标上对不上的服务器条目，需要先确认。");
+        return QCoreApplication::translate("Presets", "覆盖会移除只存在于目标中的服务器条目，需要确认。");
     case SectionKind::GenericFiles:
         return plannerText("「覆盖」会把目标上同名的那几份换成预设里的（多出来的文件不动），"
                            "需要先确认。");
@@ -74,7 +74,7 @@ bool plannerKnowsKind(SectionKind kind) {
 QString unknownKindReason(SectionKind kind) {
     // 把**盘上那个词**写进理由里（`sectionKindKey()` 那一套，不翻译）：用户看见"custom"
     // 才知道去预设里删哪一段，跟他说"不认识的种类"他只能猜。
-    return QCoreApplication::translate("Presets", "这一段的种类（%1）这一版的启动器不认识，这一段这一趟不动。")
+    return QCoreApplication::translate("Presets", "当前版本不支持类别 %1，已跳过此部分。")
         .arg(sectionKindKey(kind));
 }
 
@@ -98,7 +98,7 @@ void planOptionsRow(const PlanRequest &request, const PresetSection &section, Ap
     const OptionsFile source = optionsFromSections({section}, &readable);
     if (!readable) {
         row->blocked = true;
-        row->problem = QCoreApplication::translate("Presets", "这一段读不回来（载荷不是这一层认得的那样），这一趟不动它。");
+        row->problem = QCoreApplication::translate("Presets", "预设内容格式无效，已跳过此部分。");
         return;
     }
 
@@ -173,7 +173,7 @@ void planGenericFilesRow(const PlanRequest &request, const PresetSection &sectio
     if (!idSays && items.isEmpty()) {
         row->blocked = true;
         row->problem =
-            QCoreApplication::translate("Presets", "这一段说不清是哪个文件组（id 不认得、载荷又是空的），这一趟不动它。");
+            QCoreApplication::translate("Presets", "文件组 ID 无法识别且内容为空，已跳过此部分。");
         return;
     }
     if (idSays && !items.isEmpty()) {
@@ -182,7 +182,7 @@ void planGenericFilesRow(const PlanRequest &request, const PresetSection &sectio
         FileGroup fromPaths = FileGroup::Config;
         if (fileGroupOfPath(items.at(0).relativePath, &fromPaths) && fromPaths != group) {
             row->blocked = true;
-            row->problem = QCoreApplication::translate("Presets", "这一段的身份（%1）和它的内容（%2）对不上，这一趟不动它。")
+            row->problem = QCoreApplication::translate("Presets", "此部分的标识（%1）与内容（%2）不匹配，已跳过。")
                                .arg(fileGroupDirName(group), fileGroupDirName(fromPaths));
             return;
         }
@@ -191,7 +191,7 @@ void planGenericFilesRow(const PlanRequest &request, const PresetSection &sectio
         // 没有源根就数不出"目标上缺哪几份"。★ 这一档**不许**当成"没有东西要拷"（那会让
         // 用户以为预设里那几份配置是空的）。
         row->blocked = true;
-        row->problem = QCoreApplication::translate("Presets", "没有给出预设那一侧的文件根（files/），数不出这一组缺哪几份。");
+        row->problem = QCoreApplication::translate("Presets", "未指定预设的 files/ 根目录，无法核对缺失文件。");
         return;
     }
 
@@ -278,7 +278,7 @@ void planDataPackRow(const PlanRequest &request, const PresetSection &section, A
     if (request.presetFilesRoot.trimmed().isEmpty() && !items.isEmpty()) {
         row->blocked = true;
         row->problem =
-            QCoreApplication::translate("Presets", "没有给出预设那一侧的文件根（files/），不知道这些数据包从哪儿拷。");
+            QCoreApplication::translate("Presets", "未指定预设的 files/ 根目录，无法定位数据包。");
         return;
     }
     const DataPackPlan plan =
@@ -442,7 +442,7 @@ ApplyPlan planPresetApplication(const PlanRequest &request) {
     ApplyPlan plan;
 
     if (request.target.instanceRoot.trimmed().isEmpty()) {
-        plan.problem = QCoreApplication::translate("Presets", "没有指定目标实例，算不出这一趟要做什么。");
+        plan.problem = QCoreApplication::translate("Presets", "未指定目标实例，无法制定应用计划。");
         return plan;
     }
 
@@ -480,7 +480,7 @@ ApplyPlan planPresetApplication(const PlanRequest &request) {
             // 四张分派表都不认 —— 那说明"认识的种类"和"有人接手的种类"对不上了（加适配器
             // 时漏改一处）。落 `blocked` 而不是崩：这一趟少一段，用户看得见。
             row.blocked = true;
-            row.problem = QCoreApplication::translate("Presets", "这一段没有任何适配器接手，这一趟不动它。");
+            row.problem = QCoreApplication::translate("Presets", "此部分的格式不受支持，已跳过。");
         }
 
         if (!row.blocked && row.mode == ApplyMode::Skip) {

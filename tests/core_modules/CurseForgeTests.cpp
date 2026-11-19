@@ -295,7 +295,7 @@ void runCurseForgeTests() {
                   .contains(QStringLiteral("minecraft.version")),
               "ZG2 没写基于哪个版本：拒绝（连装个纯原版都不知道装哪个）");
         check(problemOf(R"json({"manifestVersion":1,"files":[],"minecraft":{"version":"1.21"}})json")
-                  .contains(QStringLiteral("空的")),
+                  .contains(QStringLiteral("未列出待下载文件")),
               "ZG2 一条文件都没有：拒绝（装出来会是个空实例）");
 
         // 加载器那一条：`primary` 在第二条时不许挑第一条（真包里有写好几条的）。
@@ -836,7 +836,7 @@ void runCurseForgeTests() {
                               problem.contains(QStringLiteral("Invalid API key")),
                           "ZG7c 那句话里带着 HTTP 码和接口的原话", problem);
                     // 反代是**别人的服务** ⇒ 必须给出一条用户自己走得了的路。
-                    check(problem.contains(QStringLiteral("CurseForge API key")),
+                    check(problem.contains(QStringLiteral("CurseForge API 密钥")),
                           "ZG7c 那句话里指出了「可以填自己的 key」这条出路", problem);
                     check(pack.files.isEmpty() && pack.pendingRefs.size() == 2,
                           "ZG7c 换不成时 files 还是空的、号**一个都没清**（用户再点一次还能再换）",
@@ -860,7 +860,7 @@ void runCurseForgeTests() {
                     freshPack(&pack);
                     const QString problem = manager.resolveCurseForgeFiles(&pack);
                     check(problem.contains(QStringLiteral("HTTP 429")) &&
-                              problem.contains(QStringLiteral("请求太频繁")),
+                              problem.contains(QStringLiteral("请求频率过高")),
                           "ZG7d 429 走「限流」那句话（唯一出处是 HttpClient::throttledText）",
                           problem);
                 }

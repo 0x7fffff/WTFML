@@ -125,7 +125,7 @@ bool readFileChunks(const QString &path, Sink &&sink, QString *errorOut) {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
         if (errorOut != nullptr) {
-            *errorOut = QObject::tr("打不开这个文件：%1").arg(file.errorString());
+            *errorOut = QObject::tr("打开文件失败：%1").arg(file.errorString());
         }
         return false;
     }
@@ -454,9 +454,9 @@ QString instanceExclusionReason(const QString &relativePath, const QString &inst
         {".quilt", QT_TRANSLATE_NOOP("ModpackExport", "Quilt 的重映射缓存")},
         // 别的启动器的状态。**尤其是凭据** —— 打包是把登录信息泄出去最容易的一条路：
         // 这些名字底下放的是账号、令牌、上一次登录取到的档案。
-        {".hmcl", QT_TRANSLATE_NOOP("ModpackExport", "别的启动器的账号状态")},
-        {"PCL", QT_TRANSLATE_NOOP("ModpackExport", "别的启动器的账号状态")},
-        {".curseclient", QT_TRANSLATE_NOOP("ModpackExport", "别的启动器的账号状态")},
+        {".hmcl", QT_TRANSLATE_NOOP("ModpackExport", "其他启动器的账号状态")},
+        {"PCL", QT_TRANSLATE_NOOP("ModpackExport", "其他启动器的账号状态")},
+        {".curseclient", QT_TRANSLATE_NOOP("ModpackExport", "其他启动器的账号状态")},
     };
     static const Rule kFileRules[] = {
         {".ds_store", QT_TRANSLATE_NOOP("ModpackExport", "系统的垃圾文件")},
@@ -467,17 +467,17 @@ QString instanceExclusionReason(const QString &relativePath, const QString &inst
         // NOTE: 实例设置那份文件名**不写死在这张表里**：`AppPaths::versionMetaFileName()`
         // 是唯一出处（见下面那一条现算的判据）。表是静态初始化的，改文件名时它不跟着动，
         // 而漏掉的症状是"导出整合包时那份实例设置没被排除"——不报错、也看不出来。
-        {"icon.png", QT_TRANSLATE_NOOP("ModpackExport", "启动器自己的实例图标")},
+        {"icon.png", QT_TRANSLATE_NOOP("ModpackExport", "启动器保存的实例图标")},
         {"launcher_accounts.json", QT_TRANSLATE_NOOP("ModpackExport", "登录凭据")},
         {"launcher_msa_credentials.bin", QT_TRANSLATE_NOOP("ModpackExport", "登录凭据")},
-        {"launcher_profiles.json", QT_TRANSLATE_NOOP("ModpackExport", "别的启动器的账号状态")},
+        {"launcher_profiles.json", QT_TRANSLATE_NOOP("ModpackExport", "其他启动器的账号状态")},
         {"usernamecache.json", QT_TRANSLATE_NOOP("ModpackExport", "账号名缓存")},
-        {"minecraftinstance.json", QT_TRANSLATE_NOOP("ModpackExport", "别的启动器的账号状态")},
-        {"pcl.ini", QT_TRANSLATE_NOOP("ModpackExport", "别的启动器的账号状态")},
+        {"minecraftinstance.json", QT_TRANSLATE_NOOP("ModpackExport", "其他启动器的账号状态")},
+        {"pcl.ini", QT_TRANSLATE_NOOP("ModpackExport", "其他启动器的账号状态")},
         // Prism 那份「打这个实例时别带哪些东西」的名单。它自己**不**进包（这是上一个
         // 导出者的状态，不是包的内容），而且**它的内容我们也不看** —— 这一点是条已知的
         // 缺口：真照它办的话，是我们替用户决定少带哪些文件，而界面上没有那一套勾选项。
-        {".packignore", QT_TRANSLATE_NOOP("ModpackExport", "别的启动器的打包设置")},
+        {".packignore", QT_TRANSLATE_NOOP("ModpackExport", "其他启动器的打包设置")},
     };
 
     QString path = relativePath;
@@ -510,7 +510,7 @@ QString instanceExclusionReason(const QString &relativePath, const QString &inst
         // 表是静态初始化的，抄一份字面量进来就等于改文件名时必然漏掉这一处（漏掉的
         // 症状是"导出整合包时那份实例设置没被排除"，不报错、也看不出来）。
         if (lower == AppPaths::versionMetaFileName().toLower()) {
-            return QCoreApplication::translate("ModpackExport", "启动器自己的实例设置");
+            return QCoreApplication::translate("ModpackExport", "启动器保存的实例设置");
         }
         for (const Rule &rule : kFileRules) {
             if (lower == QLatin1String(rule.name)) {
@@ -523,7 +523,7 @@ QString instanceExclusionReason(const QString &relativePath, const QString &inst
         const QString id = instanceId.trimmed();
         if (!id.isEmpty() &&
             (first == id + QLatin1String(".jar") || first == id + QLatin1String(".json"))) {
-            return QCoreApplication::translate("ModpackExport", "这个实例自己的版本文件");
+            return QCoreApplication::translate("ModpackExport", "当前实例的版本文件");
         }
     }
     return QString();

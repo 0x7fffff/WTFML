@@ -256,7 +256,7 @@ QStringList InstanceSettingsDialog::serverStatusLines(const ServerRowStatus &sta
         // 其余没通的**理由来自 ServerPing**（中文，见那边的 connectionErrorText）。真要是
         // 空的也别留一格空白 —— 那就是"看着像没测过"。没通这一档**只有一行**：那句话本来
         // 就长（「没有回应（对面没开，或者端口不对）」），拆成两行反而更难读。
-        return {status.error.isEmpty() ? tr("连不上") : status.error};
+        return {status.error.isEmpty() ? tr("连接失败") : status.error};
     }
     // 通了就是两行：第一行延迟、第二行几个人。人**不并进第一行**（那是另一件事，而且这一格
     // 窄）—— 在线延迟和人数就是这两行。

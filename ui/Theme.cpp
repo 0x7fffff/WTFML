@@ -478,9 +478,9 @@ struct ImageFitInfo {
 };
 
 const ImageFitInfo kImageFitInfos[] = {
-    {"cover", QT_TRANSLATE_NOOP("Theme", "铺满（裁剪）")},
+    {"cover", QT_TRANSLATE_NOOP("Theme", "填满并裁剪")},
     {"contain", QT_TRANSLATE_NOOP("Theme", "完整放下")},
-    {"stretch", QT_TRANSLATE_NOOP("Theme", "拉伸铺满")},
+    {"stretch", QT_TRANSLATE_NOOP("Theme", "拉伸填满")},
     {"tile", QT_TRANSLATE_NOOP("Theme", "平铺")},
 };
 static_assert(sizeof(kImageFitInfos) / sizeof(kImageFitInfos[0]) ==
@@ -571,7 +571,7 @@ const RoleInfo kRoleInfos[] = {
     {"button", QT_TRANSLATE_NOOP("Theme", "按钮底色"), QPalette::Button},
     {"buttonText", QT_TRANSLATE_NOOP("Theme", "按钮上的字"), QPalette::ButtonText},
     {"highlight", QT_TRANSLATE_NOOP("Theme", "选中/悬停"), QPalette::Highlight},
-    {"highlightedText", QT_TRANSLATE_NOOP("Theme", "选中那一块上的字"), QPalette::HighlightedText},
+    {"highlightedText", QT_TRANSLATE_NOOP("Theme", "选中项文字"), QPalette::HighlightedText},
     {"placeholderText", QT_TRANSLATE_NOOP("Theme", "次要文字"), QPalette::PlaceholderText},
     {"mid", QT_TRANSLATE_NOOP("Theme", "分隔线"), QPalette::Mid},
 };
@@ -3303,7 +3303,7 @@ bool specFromJson(const QJsonObject &json, Spec *out, QString *error) {
         }
     }
     if (!recognised) {
-        return fail(QCoreApplication::translate("Theme", "里面认不出任何一项主题设置（没有 preset / accent / roles / parts / semantic 中的任何一条）"));
+        return fail(QCoreApplication::translate("Theme", "未找到受支持的主题字段：preset、accent、roles、parts 或 semantic。"));
     }
 
     Spec spec = defaultSpec();  // 从出厂那一份出发：**缺的那几项就是出厂**，不是"没有"

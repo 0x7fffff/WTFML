@@ -149,7 +149,7 @@ bool InstanceMaintenanceController::backupWorldLevelData(const QString &worldDir
     const QString folder = ConfigFileText::backupFolderName(QDateTime::currentDateTime(), existing);
     const QString target = ConfigFileText::backupPathFor(root, slot, worldDir, path, folder);
     if (!QDir().mkpath(QFileInfo(target).absolutePath())) {
-        return fail(QCoreApplication::translate("InstanceMaintenanceController", "建不出备份目录：%1").arg(QDir::toNativeSeparators(target)));
+        return fail(QCoreApplication::translate("InstanceMaintenanceController", "无法创建备份目录：%1").arg(QDir::toNativeSeparators(target)));
     }
     // 用 QSaveFile（目标旁写临时文件、commit 时原子改名），**不用 `QFile::copy`**：
     // 这一步抄出来的东西是"改世界设置之前的那一份"，而 `latestWorldBackup()` 认的是
@@ -159,7 +159,7 @@ bool InstanceMaintenanceController::backupWorldLevelData(const QString &worldDir
     QFile source(path);
     QSaveFile backup(target);
     if (!source.open(QIODevice::ReadOnly) || !backup.open(QIODevice::WriteOnly)) {
-        return fail(QCoreApplication::translate("InstanceMaintenanceController", "没能把 level.dat 抄到 %1（磁盘满了？还是那个文件打不开？）")
+        return fail(QCoreApplication::translate("InstanceMaintenanceController", "无法将 level.dat 复制到 %1。请检查磁盘空间和文件访问权限。")
                         .arg(QDir::toNativeSeparators(target)));
     }
     bool copied = true;
@@ -172,7 +172,7 @@ bool InstanceMaintenanceController::backupWorldLevelData(const QString &worldDir
         }
     }
     if (!copied || !backup.commit()) {
-        return fail(QCoreApplication::translate("InstanceMaintenanceController", "没能把 level.dat 抄到 %1（磁盘满了？还是那个文件打不开？）")
+        return fail(QCoreApplication::translate("InstanceMaintenanceController", "无法将 level.dat 复制到 %1。请检查磁盘空间和文件访问权限。")
                         .arg(QDir::toNativeSeparators(target)));
     }
 
@@ -241,12 +241,12 @@ QStringList InstanceMaintenanceController::migrateWorldBackupSlots(
             continue;
         }
         if (QFileInfo::exists(to)) {
-            problems.append(QCoreApplication::translate("InstanceMaintenanceController", "存档备份没有搬：%1 已经存在，旧的那一份留在原处。")
+            problems.append(QCoreApplication::translate("InstanceMaintenanceController", "%1 已存在，旧存档备份保留在原位置。")
                                 .arg(QDir::toNativeSeparators(to)));
             continue;
         }
         if (!QDir().rename(from, to)) {
-            problems.append(QCoreApplication::translate("InstanceMaintenanceController", "存档备份没有搬：%1 改不成 %2（可能有别的程序正开着它）。")
+            problems.append(QCoreApplication::translate("InstanceMaintenanceController", "无法将存档备份从 %1 移至 %2。请检查文件是否被占用。")
                                 .arg(QDir::toNativeSeparators(from),
                                      QDir::toNativeSeparators(to)));
             continue;

@@ -136,7 +136,7 @@ ResourcePackOrderReport applyResourcePackOrdering(const QString &instanceRoot,
 
     if (instanceRoot.trimmed().isEmpty()) {
         report.ok = false;
-        report.problem = QCoreApplication::translate("Presets", "没有指定实例目录，没法把资源包的启用顺序写回去。");
+        report.problem = QCoreApplication::translate("Presets", "未指定实例目录，无法保存资源包启用顺序。");
         return report;
     }
 
@@ -265,7 +265,7 @@ ResourcePackOrderReport applyResourcePackOrdering(const QString &instanceRoot,
     }
     report.wrote = true;
     if (report.enabled > 0) {
-        report.details.append(QCoreApplication::translate("Presets", "已按预设启用 %1 个资源包（顺序按提取时的那一份）。")
+        report.details.append(QCoreApplication::translate("Presets", "已按预设中保存的顺序启用 %1 个资源包。")
                                   .arg(report.enabled));
     }
     if (report.disabled > 0) {

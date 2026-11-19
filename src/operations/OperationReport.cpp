@@ -190,7 +190,7 @@ QString Report::failureText(const QString &path) const {
         lines.append(QCoreApplication::translate("OperationReport", "未完成项："));
         lines.append(unfinished.join(QLatin1Char('\n')));
     }
-    lines.append(QCoreApplication::translate("OperationReport", "可以这样处理：关掉占用这些文件的程序（游戏、服务端、杀毒扫描）后，在任务中心对这一项按「继续未完成操作」；已经做完的项会跳过，不会重拷贝。如果仍然失败，请把这份报告和启动器日志一起提供。"));
+    lines.append(QCoreApplication::translate("OperationReport", "关闭占用相关文件的程序后，在任务中心选择「继续未完成操作」。已完成项目会跳过。若仍失败，可提供此报告及启动器日志。"));
     return lines.join(QLatin1Char('\n')) + QLatin1Char('\n');
 }
 
@@ -345,7 +345,7 @@ bool saveReport(const QString &path, const Report &report, QString *problem) {
     const QFileInfo info(path);
     if (!info.absoluteDir().exists() && !QDir().mkpath(info.absolutePath())) {
         if (problem != nullptr) {
-            *problem = QCoreApplication::translate("OperationReport", "建不出报告目录：%1").arg(info.absolutePath());
+            *problem = QCoreApplication::translate("OperationReport", "无法创建报告目录：%1").arg(info.absolutePath());
         }
         return false;
     }
@@ -353,7 +353,7 @@ bool saveReport(const QString &path, const Report &report, QString *problem) {
     if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size()
         || !file.commit()) {
         if (problem != nullptr) {
-            *problem = QCoreApplication::translate("OperationReport", "写不进报告：%1（%2）")
+            *problem = QCoreApplication::translate("OperationReport", "无法写入报告：%1（%2）")
                            .arg(QDir::toNativeSeparators(path), file.errorString());
         }
         return false;
@@ -371,7 +371,7 @@ QString writeFailureText(const QString &path, const Report &report, QString *pro
     if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size()
         || !file.commit()) {
         if (problem != nullptr) {
-            *problem = QCoreApplication::translate("OperationReport", "写不进失败说明：%1").arg(target);
+            *problem = QCoreApplication::translate("OperationReport", "无法保存失败详情：%1").arg(target);
         }
         return QString();
     }
@@ -405,7 +405,7 @@ Report loadReport(const QString &path, bool *ok, QString *problem) {
     Report report = Report::fromJson(bytes, &parsed);
     if (!parsed) {
         if (problem != nullptr) {
-            *problem = QCoreApplication::translate("OperationReport", "报告格式不认识或内容越界，未采用。");
+            *problem = QCoreApplication::translate("OperationReport", "报告格式无效或内容超出允许范围，未读取。");
         }
         return Report();
     }

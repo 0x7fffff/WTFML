@@ -436,7 +436,7 @@ void InstallPageController::onLoaderVersionsFetched(const QString &gameVersion, 
         none->setText(MainWindowUI::loaderTreeKeyColumn(),
                       MainWindowUI::loaderVersionUnavailableText());
         none->setDisabled(true);
-        m_owner.appendLog(MainWindow::tr("%1 还没有支持 %2 的版本。")
+        m_owner.appendLog(MainWindow::tr("%1 暂无支持 %2 的版本。")
                       .arg(VersionManager::loaderDisplayName(kind), gameVersion));
         return;
     }
@@ -564,7 +564,7 @@ QList<QPair<QString, QString>> InstallPageController::currentPresetSelections() 
 void InstallPageController::openPresetPicker() {
     if (m_owner.m_presetController == nullptr) {
         InlineMessage::warning(m_owner.m_ui->overlay(), MainWindow::tr("预设不可用"),
-                               MainWindow::tr("这一份启动器里预设那一层没有初始化，没法挑预设。"));
+                               MainWindow::tr("预设功能尚未初始化，无法选择预设。"));
         return;
     }
     // 弹框一点就出来（这一张开着时整页盖着，点不到第二下）。真有一张提示开着就不做事：
@@ -925,7 +925,7 @@ void InstallPageController::installClicked() {
             m_owner.appendLog(MainWindow::tr("已取消对 %1 的校验。").arg(name));
             return;
         }
-        m_owner.appendLog(MainWindow::tr("开始校验 %1 的文件（已存在的会跳过）...").arg(name));
+        m_owner.appendLog(MainWindow::tr("正在校验 %1 的文件，跳过已存在的文件…").arg(name));
     }
 
     const bool supportsMods = withLoader && (kind == VersionManager::LoaderKind::Fabric ||
@@ -954,7 +954,7 @@ void InstallPageController::installClicked() {
     if (!presetSelections.isEmpty()) {
         if (m_owner.m_presetController == nullptr) {
             InlineMessage::warning(m_owner.m_ui->overlay(), MainWindow::tr("预设不可用"),
-                                   MainWindow::tr("这一份启动器里预设那一层没有初始化，没法应用预设。"));
+                                   MainWindow::tr("预设功能尚未初始化，无法应用预设。"));
             return;
         }
         // 四类里那几句标题（"游戏设置 / 模组 …"）只从 controller 拿，界面这边不抄一份。
@@ -978,8 +978,8 @@ void InstallPageController::installClicked() {
                     }
                 }
                 InlineMessage::warning(
-                    m_owner.m_ui->overlay(), MainWindow::tr("这份预设现在不能应用"),
-                    MainWindow::tr("%1那一份「%2」：%3")
+                    m_owner.m_ui->overlay(), MainWindow::tr("无法应用此预设"),
+                    MainWindow::tr("%1「%2」：%3")
                         .arg(title, preview.presetName,
                              why.isEmpty() ? MainWindow::tr("这一份算不出计划。") : why));
                 return;
@@ -992,13 +992,13 @@ void InstallPageController::installClicked() {
         }
         InlineMessageBox box(
             MessageKind::Question, MainWindow::tr("安装完成后应用预设"),
-            MainWindow::tr("装好「%1」之后会把这些预设应用上去：\n\n%2")
+            MainWindow::tr("安装「%1」后将应用以下预设：\n\n%2")
                 .arg(name, summaryLines.join(QLatin1Char('\n'))),
             {MainWindow::tr("安装并应用"), MainWindow::tr("取消")}, 0, -1, &m_owner);
-        box.setNote(MainWindow::tr("应用前会把要改写的文件先备份到预设目录下的 backups/ 里。"));
+        box.setNote(MainWindow::tr("应用前会将受影响的文件备份到预设目录的 backups/ 子目录。"));
         m_owner.m_ui->overlay()->execPrompt(&box);
         if (box.clickedIndex() != 0) {
-            m_owner.appendLog(MainWindow::tr("已取消这次带预设的安装。"));
+            m_owner.appendLog(MainWindow::tr("已取消带预设的安装。"));
             return;
         }
         m_owner.m_downloadCompletion->begin(name, pending, fingerprints);

@@ -204,7 +204,7 @@ AgentSettingsPage::AgentSettingsPage(QWidget *parent) : QDialog(parent) {
     SettingsGroup *privacy = addGroup(QCoreApplication::translate("AgentSettingsPage", "隐私"));
     m_strict = toggle("agentEgressStrictCheck", false);
     row(privacy, QCoreApplication::translate("AgentSettingsPage", "严格模式"), m_strict, Placement::Natural,
-        QCoreApplication::translate("AgentSettingsPage", "不自动读取任何日志和文件，每次发送前先给你看要发出去的内容。"));
+        QCoreApplication::translate("AgentSettingsPage", "关闭自动读取，发送前显示将发送的内容。"));
     m_privacy = captionLabel(content, QStringLiteral("agentPrivacyText"));
     row(privacy, QCoreApplication::translate("AgentSettingsPage", "会发出去什么"), m_privacy, Placement::Wide);
 
@@ -249,12 +249,12 @@ AgentSettingsPage::AgentSettingsPage(QWidget *parent) : QDialog(parent) {
         QCoreApplication::translate("AgentSettingsPage", "有些服务不接受 tool_choice，报错时关掉。"));
 
     // ---------- 删除配置：危险操作单独一组，不和「保存」挤在一行 ----------
-    SettingsGroup *manage = addGroup(QCoreApplication::translate("AgentSettingsPage", "这份配置"));
+    SettingsGroup *manage = addGroup(QCoreApplication::translate("AgentSettingsPage", "当前配置"));
     m_deleteProfile = new QPushButton(QCoreApplication::translate("AgentSettingsPage", "删除"), content);
     m_deleteProfile->setObjectName(QStringLiteral("agentDeleteProfileButton"));
     m_deleteProfile->setCursor(Qt::PointingHandCursor);
     Theme::markButton(m_deleteProfile, Theme::ButtonKind::Danger);
-    row(manage, QCoreApplication::translate("AgentSettingsPage", "删除这份配置"), m_deleteProfile, Placement::Natural,
+    row(manage, QCoreApplication::translate("AgentSettingsPage", "删除此配置"), m_deleteProfile, Placement::Natural,
         QCoreApplication::translate("AgentSettingsPage", "连同已存的密钥一起删掉；会话记录保留。"));
     form->addStretch(1);
 
@@ -301,7 +301,7 @@ AgentSettingsPage::AgentSettingsPage(QWidget *parent) : QDialog(parent) {
         m_clearKey = true;
         m_secret->clear();
         m_secret->setStoredKey(false);
-        m_storage->setText(QCoreApplication::translate("AgentSettingsPage", "点「保存」后清除已存密钥。"));
+        m_storage->setText(QCoreApplication::translate("AgentSettingsPage", "保存后清除已存密钥。"));
         m_clearKeyButton->hide();
         setStatus(QCoreApplication::translate("AgentSettingsPage", "点了保存后才会真正清除已存凭据。"));
         emit clearKeyRequestedSignal();
@@ -323,7 +323,7 @@ void AgentSettingsPage::updateKeyNote() {
     if (m_clearKey || m_secret->hasStoredKey()) return;
     const bool none = m_authMode->currentData().toString() == QLatin1String("none");
     m_storage->setText(none ? QCoreApplication::translate("AgentSettingsPage", "认证方式是「不认证」，用不到 API Key，留空即可。")
-                            : QCoreApplication::translate("AgentSettingsPage", "还没保存密钥。填好后点「保存」。"));
+                            : QCoreApplication::translate("AgentSettingsPage", "尚未保存密钥。填写后选择「保存」。"));
     m_secret->lineEdit()->setPlaceholderText(none ? QCoreApplication::translate("AgentSettingsPage", "不认证，可留空")
                                                   : QCoreApplication::translate("AgentSettingsPage", "尚未保存 API Key"));
 }
@@ -336,8 +336,8 @@ void AgentSettingsPage::updatePrivacyText() {
     // 边界照 docs/features/AGENT.md §5.6.2（D11）：标准模式自动读脱敏日志 / 最新崩溃报告 / 关联实例的版本信息，
     // 其余文件逐次确认；严格模式把自动那一列也改成逐次确认。凭据两种模式都不发。
     const QString what = m_strict->isChecked()
-        ? QCoreApplication::translate("AgentSettingsPage", "只发送你输入的文字。日志、崩溃报告和任何文件都要你逐次同意后才读取，发送前会先给你看内容。")
-        : QCoreApplication::translate("AgentSettingsPage", "你输入的文字，以及关联实例的日志末尾、最新一份崩溃报告和版本信息（都会先去掉账号信息）。" "配置文件和其他文件，读取前会先问你。");
+        ? QCoreApplication::translate("AgentSettingsPage", "仅发送输入的文字。读取日志、崩溃报告或文件前，须逐次确认。发送前会显示内容。")
+        : QCoreApplication::translate("AgentSettingsPage", "发送输入的文字，以及关联实例的日志末尾、最新崩溃报告和版本信息。发送前移除账号信息。读取配置及其他文件前须确认。");
     m_privacy->setText(what + QLatin1Char('\n') +
                        QCoreApplication::translate("AgentSettingsPage", "账号令牌、API 密钥这类凭据永远不会发送。云端服务商怎么保存对话由服务商决定；" "WTFML 自己不收集使用数据。"));
 }
@@ -376,7 +376,7 @@ void AgentSettingsPage::setProfile(const AgentView::ProviderDraft &profile, bool
                            ? (storageBackend == QLatin1String("dpapi-fallback")
                                   ? QCoreApplication::translate("AgentSettingsPage", "已加密保存在本机，只有当前 Windows 账户能读；不会显示出来。")
                                   : QCoreApplication::translate("AgentSettingsPage", "已保存在 Windows 凭据管理器，只有当前账户能读；不会显示出来。"))
-                           : QCoreApplication::translate("AgentSettingsPage", "还没保存密钥。填好后点「保存」。"));
+                           : QCoreApplication::translate("AgentSettingsPage", "尚未保存密钥。填写后选择「保存」。"));
     m_clearKeyButton->setVisible(hasStoredKey);
     updateKeyNote();
     updateUrlPreview();

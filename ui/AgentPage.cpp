@@ -1049,7 +1049,7 @@ void AgentPage::updateEmptyState() {
                                       : QCoreApplication::translate("AgentPage", "填写服务地址和密钥后即可开始对话。"));
     m_emptyAction->setVisible(!m_configured);
     if (!m_configured) m_composer->setPlaceholderText(QCoreApplication::translate("AgentPage", "配置 API 后可输入"));
-    else m_composer->setPlaceholderText(empty ? QCoreApplication::translate("AgentPage", "描述你遇到的问题…") : QCoreApplication::translate("AgentPage", "继续追问…"));
+    else m_composer->setPlaceholderText(empty ? QCoreApplication::translate("AgentPage", "描述遇到的问题…") : QCoreApplication::translate("AgentPage", "继续追问…"));
 }
 
 void AgentPage::updateComposerHint() {

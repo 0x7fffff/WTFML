@@ -967,13 +967,13 @@ bool gameRulesOf(const Node &root, QList<GameRule> *out, QString *problemOut) {
     if (rules == nullptr) {
         if (problemOut != nullptr) {
             *problemOut = QCoreApplication::translate(
-                "NbtTree", "这份 level.dat 里没有「游戏规则」那一格（老存档，或者游戏还没存过）。");
+                "NbtTree", "level.dat 缺少游戏规则数据。存档可能尚未初始化或来自旧版本。");
         }
         return false;
     }
     if (rules->type != Type::Compound) {
         if (problemOut != nullptr) {
-            *problemOut = QCoreApplication::translate("NbtTree", "「游戏规则」那一格不是一张表（是%1）。")
+            *problemOut = QCoreApplication::translate("NbtTree", "游戏规则数据类型无效（%1），无法读取。")
                               .arg(typeName(rules->type));
         }
         return false;
@@ -1023,18 +1023,18 @@ bool setGameRule(Node *root, const QString &name, const QString &value, QString 
     }
     if (rules == nullptr || rules->type != Type::Compound) {
         return missing(QCoreApplication::translate(
-            "NbtTree", "这份 level.dat 里没有「游戏规则」那一格，改不了。"));
+            "NbtTree", "level.dat 缺少游戏规则数据，无法修改。"));
     }
     for (Field &item : rules->fields) {
         if (item.first != name) {
             continue;
         }
         if (item.second.type != Type::String) {
-            return missing(QCoreApplication::translate("NbtTree", "规则「%1」在盘上不是文字，不动它。")
+            return missing(QCoreApplication::translate("NbtTree", "规则「%1」的值不是文本，已跳过。")
                                .arg(name));
         }
         if (encodeModifiedUtf8(value).size() > 0xFFFF) {
-            return missing(QCoreApplication::translate("NbtTree", "规则「%1」的这个值太长了。")
+            return missing(QCoreApplication::translate("NbtTree", "规则「%1」的值过长，无法保存。")
                                .arg(name));
         }
         item.second.text = value;
@@ -1044,7 +1044,7 @@ bool setGameRule(Node *root, const QString &name, const QString &value, QString 
         // 表里没有这一条 ⇒ 往表尾接一条。名字太长的话 NBT 那一格写不下（长度前缀 2 字节），
         // 当场拒绝 —— 加一条**写不进去**的规则不该被当成成功。
         if (encodeModifiedUtf8(name).size() > 0xFFFF) {
-            return missing(QCoreApplication::translate("NbtTree", "规则名太长了，写不进去。"));
+            return missing(QCoreApplication::translate("NbtTree", "游戏规则名称过长，无法保存。"));
         }
         Field fresh;
         fresh.first = name;
@@ -1055,7 +1055,7 @@ bool setGameRule(Node *root, const QString &name, const QString &value, QString 
     }
     // 默认那一档：不发明新规则（理由见 .hpp 里那一段）。
     return missing(QCoreApplication::translate(
-        "NbtTree", "这个世界里没有叫「%1」的规则 —— 这一页只改世界里已经有的那些。")
+        "NbtTree", "此存档中没有规则「%1」。可编辑已存在的规则。")
                        .arg(name));
 }
 

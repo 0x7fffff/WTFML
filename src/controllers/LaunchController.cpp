@@ -147,7 +147,7 @@ bool LaunchController::confirmLaunchWhileRunning(const QString &versionId) {
             const int choice = InlineMessage::ask(
                 m_owner->m_ui->overlay(), MessageKind::Question,
                 tr("已经有一个相同的运行中游戏进程了！"),
-                tr("「%1」刚刚才启动过一次，那一份现在还在跑。\n\n再启动一份会开出第二个一模一样的游戏进程：同一个账号、同一个实例，两份游戏开着同一份存档。")
+                tr("「%1」仍在运行。再次启动会使用同一账号和实例，两个进程可能同时访问同一存档。")
                     .arg(displayName),
                 QStringList{tr("取消"), tr("仍要启动")}, -1, 1, false,
                 tr("可以在设置中关闭此提示（设置 → 提示 →「重复启动时确认」）。"));
@@ -164,7 +164,7 @@ bool LaunchController::confirmLaunchWhileRunning(const QString &versionId) {
     if (m_owner->m_settings->warnWorldLoss() && sameInstanceRunning) {
         const int choice = InlineMessage::ask(
             m_owner->m_ui->overlay(), MessageKind::Warning, tr("进入单人世界可能会丢失进度"),
-            tr("「%1」现在还有一份在跑。\n\n两份游戏同时打开同一份存档时，后保存（或者后退出）的那一份会盖掉另一份的进度 —— 存档可能回退，也可能坏掉。")
+            tr("「%1」仍在运行。\n\n同时打开同一存档会使后保存的进度覆盖先前的修改，并可能损坏存档。")
                 .arg(displayName),
             QStringList{tr("取消"), tr("仍要启动")}, -1, 1, false,
             tr("可以在设置中关闭此提示（设置 → 提示 →「同一实例已运行时提醒」）。"));
@@ -309,7 +309,7 @@ void LaunchController::onStartButtonClicked() {
         // 复制 / 快照 / 还原那几类（它们也在读写这棵目录树）。说成"没下载完"会让
         // 正在做快照的用户以为程序记错了，所以把几类都点出来。
         InlineMessage::warning(m_owner->m_ui->overlay(), tr("这个实例正忙"),
-                             tr("「%1」正在被另一项操作占用（安装、导入、复制、备份或还原），请等它结束后再启动。\n\n别的实例不受影响，可以直接启动。")
+                             tr("「%1」正在安装、导入、复制、备份或还原。请等待操作完成后再启动此实例。")
                                  .arg(m_owner->instanceDisplayName(versionId)));
         return;
     }
@@ -320,8 +320,8 @@ void LaunchController::onStartButtonClicked() {
     // `updateVersionMeta()` 会写出 wtfml.meta —— `isUnfinishedImport()` 从此认不出它，
     // "接着上次的导入"（`ImportNameVerdict::OkResume`）那条路就永久断了。
     if (InstanceFiles::isUnfinishedImport(versionId)) {
-        InlineMessage::warning(m_owner->m_ui->overlay(), tr("这个实例还没装完"),
-                             tr("「%1」是上一次没导完的整合包，文件不齐，启动会崩在缺库上。\n\n重新导入同一个整合包、用同一个名字，就能接着上次下好的部分往下装。")
+        InlineMessage::warning(m_owner->m_ui->overlay(), tr("实例安装未完成"),
+                             tr("「%1」的整合包尚未导入完成，部分游戏文件缺失。\n\n请用相同的实例名称重新导入该整合包，以继续下载。")
                                  .arg(m_owner->instanceDisplayName(versionId)));
         return;
     }
@@ -367,7 +367,7 @@ void LaunchController::onStartButtonClicked() {
         QString tokenError;
         // 这一段**是同步的**：令牌需要换的时候它要在 UI 线程上发请求（单次超时 15 秒），
         // 期间界面完全不重绘。先给用户一句话再进去，别让他以为点了没反应。
-        m_owner->enterSyncWait(tr("正在校验登录状态..."));
+        m_owner->enterSyncWait(tr("正在校验登录状态…"));
         token = m_owner->m_authManager->loadSavedToken(&tokenError);
         m_owner->leaveSyncWait();
         if (token.isEmpty()) {
@@ -436,7 +436,7 @@ void LaunchController::onStartButtonClicked() {
     QStringList nativeErrors;
     QString nativesDir;
     LauncherManager *launcher = m_owner->m_launcherManager;
-    m_owner->enterSyncWait(tr("正在准备游戏文件..."));
+    m_owner->enterSyncWait(tr("正在准备游戏文件…"));
     runOffUiThread([&] {
         nativesDir = launcher->prepareNatives(versionJson, versionId, &nativeErrors);
     });
@@ -564,8 +564,8 @@ void LaunchController::onStartButtonClicked() {
         }
         if (MemoryBudget::lowMemoryFor(javaSettings.xmx, alreadyRunningMb, availableMb)) {
             if (!InlineMessage::question(
-                    m_owner->m_ui->overlay(), tr("内存可能不够"),
-                    tr("这个实例要 %1 MB 堆内存（已开着的实例合计 %3 MB），而系统当前可用物理内存约 %2 MB。\n\n可用物理内存不足，启动可能导致卡顿。建议关闭不必要的应用程序，或到设置里把内存调小。仍然继续吗？")
+                    m_owner->m_ui->overlay(), tr("可用内存不足"),
+                    tr("此实例需要 %1 MB 堆内存，运行中的实例共分配 %3 MB。系统可用物理内存约 %2 MB。\n\n继续启动可能导致卡顿。可关闭其他程序或调低内存分配。确认启动？")
                         .arg(javaSettings.xmx)
                         .arg(availableMb)
                         .arg(alreadyRunningMb),
@@ -594,7 +594,7 @@ void LaunchController::onStartButtonClicked() {
     QString javaError;
     bool javaReady = false;
     GlobalJavaSettings *javaStore = m_owner->m_javaSettings;
-    m_owner->enterSyncWait(tr("正在准备 Java 运行时..."));
+    m_owner->enterSyncWait(tr("正在准备 Java 运行时…"));
     runOffUiThread([&] {
         javaReady = javaStore->ensureJavaForVersion(javaSettings, javaMajorVersion, javaComponent,
                                                     allowAutoSelect, &javaError,
@@ -622,7 +622,7 @@ void LaunchController::onStartButtonClicked() {
         m_owner->appendLog(m_owner->tr("启动已取消：准备 Java 的途中账号被切换了（%1）。")
                                .arg(launchPlayerName));
         InlineMessage::warning(m_owner->m_ui->overlay(), tr("账号被切换了"),
-            tr("准备 Java 运行环境的时候账号从「%1」换成了「%2」。\n这一次没有启动 —— 不然游戏会带着另一个账号的身份配原来那个账号的登录令牌起来，联机时会被服务器拒绝。\n\n请再点一次启动。")
+            tr("准备 Java 时，当前账号由「%1」切换为「%2」。\n为避免账号信息与凭据不匹配，已取消启动。请重新启动游戏。")
                 .arg(launchPlayerName, m_owner->m_authManager->playerName()));
         return;
     }
@@ -647,7 +647,7 @@ void LaunchController::onStartButtonClicked() {
                 &writeError)) {
             m_owner->appendLog(m_owner->tr("把匹配的 Java 写进实例设置失败：%1").arg(writeError));
             InlineMessage::warning(m_owner->m_ui->overlay(), tr("实例设置写入失败"),
-                tr("找到了匹配的 Java（%1），但没能把它记到实例「%2」的设置里：\n%3\n\n没有启动。你可以在「实例设置…」里手动指定这条路径。")
+                tr("已找到兼容的 Java（%1），但无法保存在实例「%2」的设置中：\n%3\n\n请在「实例设置」中手动指定路径，再启动游戏。")
                     .arg(javaSettings.javaPath, m_owner->instanceDisplayName(versionId), writeError));
             return;
         }

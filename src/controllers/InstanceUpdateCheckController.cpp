@@ -83,7 +83,7 @@ void InstanceUpdateCheckController::checkInstanceUpdates(const QString &instance
     m_updateCheck.pathKinds = pathKinds;
     // 结果回来时要递给**同一页**（见 UpdateCheckRun::dialog 那段）。弱引用：收页了就不递。
     m_updateCheck.dialog = dialog;
-    m_owner.appendLog(MainWindow::tr("正在检查「%1」里的资源有没有新版本（%2 个文件）...")
+    m_owner.appendLog(MainWindow::tr("正在检查「%1」的资源更新（%2 个文件）…")
                   .arg(m_owner.instanceDisplayName(instanceId))
                   .arg(paths.size()));
 
@@ -121,7 +121,7 @@ void InstanceUpdateCheckController::onUpdateCheckLookupFinished(const InstanceIc
         m_updateCheck.lookupNote = result.problem;
     } else if (result.unreadable > 0) {
         m_updateCheck.lookupNote =
-            MainWindow::tr("有 %1 个文件读不动（多半被别的程序占着），这一批里没有它们。")
+            MainWindow::tr("有 %1 个文件无法读取，已跳过。")
                 .arg(result.unreadable);
     }
 

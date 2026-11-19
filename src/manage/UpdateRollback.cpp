@@ -206,7 +206,7 @@ Snapshot create(const QString &instanceDir, const QString &instanceId,
     for (const QString &path : relativePaths) {
         if (!isSafeRelativePath(path)) {
             if (problemOut != nullptr) {
-                *problemOut = QObject::tr("有一个文件不在实例目录里（%1），没有动手。").arg(path);
+                *problemOut = QObject::tr("文件「%1」不在实例目录内，操作已取消。").arg(path);
             }
             return Snapshot{};
         }
@@ -255,7 +255,7 @@ Snapshot create(const QString &instanceDir, const QString &instanceId,
             && problemOut != nullptr) {
             // 半份已清掉、旧回滚点却没能搬回来：两份都还在盘上，必须说清楚旧的在哪儿，
             // 否则用户只看到"没创建新快照"，下一次更新又会把 `.previous` 清掉。
-            problemOut->append(QObject::tr(" 上一次的回滚点仍保留在 %1，但没能恢复原位。")
+            problemOut->append(QObject::tr(" 上一次的回滚点仍位于 %1，但未能恢复到原位置。")
                                    .arg(QDir::toNativeSeparators(previous)));
         }
     };
@@ -269,7 +269,7 @@ Snapshot create(const QString &instanceDir, const QString &instanceId,
         }
         if (QFileInfo::exists(dir) && !QDir().rename(dir, previous)) {
             if (problemOut != nullptr) {
-                *problemOut = QObject::tr("没能把上一次的回滚点先收起来（%1）。")
+                *problemOut = QObject::tr("无法暂存上一次的回滚点（%1）。")
                                   .arg(QDir::toNativeSeparators(dir));
             }
             return Snapshot{};
@@ -287,7 +287,7 @@ Snapshot create(const QString &instanceDir, const QString &instanceId,
     }
     if (!QDir().mkpath(filesDirOf(dir))) {
         if (problemOut != nullptr) {
-            *problemOut = QObject::tr("建不了回滚点目录（%1）。").arg(QDir::toNativeSeparators(dir));
+            *problemOut = QObject::tr("无法创建回滚点目录（%1）。").arg(QDir::toNativeSeparators(dir));
         }
         restorePrevious();
         return Snapshot{};
@@ -306,7 +306,7 @@ Snapshot create(const QString &instanceDir, const QString &instanceId,
             const QString target = filesDirOf(dir) + QLatin1Char('/') + relative;
             if (!QDir().mkpath(QFileInfo(target).absolutePath())) {
                 if (problemOut != nullptr) {
-                    *problemOut = QObject::tr("建不了回滚点里的目录（%1）。")
+                    *problemOut = QObject::tr("无法创建回滚点的子目录（%1）。")
                                       .arg(QDir::toNativeSeparators(QFileInfo(target).absolutePath()));
                 }
                 restorePrevious();
@@ -314,7 +314,7 @@ Snapshot create(const QString &instanceDir, const QString &instanceId,
             }
             if (!QFile::copy(source, target)) {
                 if (problemOut != nullptr) {
-                    *problemOut = QObject::tr("抄不动「%1」（多半被别的程序占着，或者盘满了）。")
+                    *problemOut = QObject::tr("无法复制「%1」。请检查文件占用和磁盘空间。")
                                       .arg(QDir::toNativeSeparators(source));
                 }
                 restorePrevious();
@@ -330,7 +330,7 @@ Snapshot create(const QString &instanceDir, const QString &instanceId,
             // 抄下来这一份自己读不动 = 这一份回滚点靠不住（"能退回来"这句话要能兑现）。
             if (entry.sha1.isEmpty() || entry.size != info.size()) {
                 if (problemOut != nullptr) {
-                    *problemOut = QObject::tr("备份的「%1」无法读取或不完整，这份回滚点无法使用。")
+                    *problemOut = QObject::tr("回滚点中的「%1」无法读取或不完整，无法回滚。")
                                       .arg(QDir::toNativeSeparators(target));
                 }
                 restorePrevious();
@@ -383,7 +383,7 @@ Snapshot read(const QString &instanceId, bool *ok, QString *problemOut) {
     }
     if (!manifest.open(QIODevice::ReadOnly)) {
         if (problemOut != nullptr) {
-            *problemOut = QObject::tr("读不动回滚点的清单：%1").arg(manifest.errorString());
+            *problemOut = QObject::tr("无法读取回滚清单：%1").arg(manifest.errorString());
         }
         return Snapshot{};
     }
@@ -458,7 +458,7 @@ RestoreResult restore(const Snapshot &snapshot, const QString &instanceDir) {
                     ++result.removed;
                 } else {
                     ++result.failed;
-                    note(QObject::tr("删不掉「%1」（多半被占着）。").arg(entry.relativePath));
+                    note(QObject::tr("无法删除「%1」。请检查文件是否被占用。").arg(entry.relativePath));
                 }
             }
             continue;
@@ -471,7 +471,7 @@ RestoreResult restore(const Snapshot &snapshot, const QString &instanceDir) {
         }
         if (!QDir().mkpath(QFileInfo(target).absolutePath())) {
             ++result.failed;
-            note(QObject::tr("建不了「%1」的目录。").arg(entry.relativePath));
+            note(QObject::tr("无法创建「%1」的目录。").arg(entry.relativePath));
             continue;
         }
         // QSaveFile 在目标旁写临时文件并原子替换。不能先删 target 再 rename：后一动作失败
@@ -500,7 +500,7 @@ RestoreResult restore(const Snapshot &snapshot, const QString &instanceDir) {
         // 放回去的**对不对**：照清单里记的那个 sha1 对一遍（文件在那儿 ≠ 文件是对的）。
         if (!entry.sha1.isEmpty() && sha1OfFile(target) != entry.sha1) {
             ++result.failed;
-            note(QObject::tr("放回去的「%1」和记下来的对不上。").arg(entry.relativePath));
+            note(QObject::tr("恢复后的「%1」与备份记录不一致。").arg(entry.relativePath));
             continue;
         }
         ++result.restored;

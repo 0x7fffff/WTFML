@@ -316,7 +316,7 @@ void NewServerPage::setTargetDir(const QString &dir) {
     m_targetDirLabel->setText(dir);
     m_targetDirLabel->setVisible(!dir.isEmpty());
     m_targetDirLabel->setToolTip(dir.isEmpty()
-                                     ? tr("先给它起个名字，目录名是照着名字来的。")
+                                     ? tr("服务端名称将用作目录名称。")
                                      : dir);
 }
 

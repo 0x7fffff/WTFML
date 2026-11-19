@@ -465,7 +465,7 @@ QList<FileRecord> collectFiles(const QString &rootDir, const QStringList &exclud
                 if (problemOut != nullptr) {
                     *problemOut = cancelled && cancelled()
                         ? QObject::tr("备份扫描已取消或超时。")
-                        : QObject::tr("读不动这个文件：%1")
+                        : QObject::tr("读取文件失败：%1")
                                       .arg(QDir::toNativeSeparators(entry.absoluteFilePath()));
                 }
                 return QList<FileRecord>();
@@ -624,14 +624,14 @@ WriteResult writeBackup(const Manifest &manifest, const QString &sourceDir,
     {
         QFile manifestFile(manifestPath);
         if (!manifestFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-            result.problem = QObject::tr("没能写出这份备份的清单（临时文件建不出来）：%1")
+            result.problem = QObject::tr("无法创建临时文件以保存备份清单：%1")
                                  .arg(QDir::toNativeSeparators(manifestPath));
             return result;
         }
         // 短写（盘刚好在半路满）也算失败：半截 JSON 装进包里，读回来时是"清单读不动"，
         // 而那句话说不到这个真因上。
         if (manifestFile.write(manifestBytes) != manifestBytes.size() || !manifestFile.flush()) {
-            result.problem = QObject::tr("没能写出这份备份的清单（临时文件写不完整）：%1")
+            result.problem = QObject::tr("备份清单写入不完整：%1")
                                  .arg(QDir::toNativeSeparators(manifestPath));
             manifestFile.close();
             QFile::remove(manifestPath);
@@ -708,7 +708,7 @@ Manifest readManifest(const QString &zipPath, bool *ok, QString *problemOut) {
     QString error;
     const ZipUtil::EntryStatus status =
         ZipUtil::readEntry(zipPath, manifestEntryName(), &bytes, &error,
-                           QObject::tr("读这份备份的清单"));
+                           QObject::tr("读取备份清单"));
     // 「不是我们做的包」和「读不动」在这个 switch 里是**两句不同的话**：
     // 前者是用户拿错了文件（或者那个包是别的启动器做的），后者是这个文件本身坏了。
     // 合成一句的话，用户会去怀疑一个其实好好的文件。
@@ -721,12 +721,12 @@ Manifest readManifest(const QString &zipPath, bool *ok, QString *problemOut) {
         return Manifest();
     case ZipUtil::EntryStatus::NotAnArchive:
         if (problemOut != nullptr) {
-            *problemOut = QObject::tr("打不开这个文件：它不是一个压缩包，或者已经损坏了。");
+            *problemOut = QObject::tr("文件无法作为压缩包打开。请检查格式及完整性。");
         }
         return Manifest();
     case ZipUtil::EntryStatus::Failed:
         if (problemOut != nullptr) {
-            *problemOut = error.isEmpty() ? QObject::tr("读这份备份的清单时出错了。") : error;
+            *problemOut = error.isEmpty() ? QObject::tr("读取备份清单失败。") : error;
         }
         return Manifest();
     case ZipUtil::EntryStatus::Ok:
@@ -737,7 +737,7 @@ Manifest readManifest(const QString &zipPath, bool *ok, QString *problemOut) {
     const Manifest manifest = manifestFromJson(bytes, &parsed);
     if (!parsed) {
         if (problemOut != nullptr) {
-            *problemOut = QObject::tr("这份备份的清单读不动（格式对不上，可能是别的工具做的包）。");
+            *problemOut = QObject::tr("无法读取备份清单。请确认备份格式受当前版本支持。");
         }
         return Manifest();
     }
@@ -779,7 +779,7 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
     elapsed.start();
     const auto stopped = [&] { return elapsed.elapsed() >= 900000 || (cancelled && cancelled()); };
     const QString stoppedText =
-        QObject::tr("还原已取消或超时；盘上原有的东西没有动。");
+        QObject::tr("还原已取消或超时，原有文件已保留。");
 
     if (stopped()) {
         result.stage = RestoreResult::Stage::ReadManifest;
@@ -802,7 +802,7 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
     // 会替换这个路径，拼错一层就会动到别人的东西。
     if (QFileInfo(target).fileName().compare(manifest.root, Qt::CaseInsensitive) != 0) {
         result.stage = RestoreResult::Stage::ReadManifest;
-        result.problem = QObject::tr("这份备份里记的落点（%1）不是一个能找到的目录名，为了不动到别的东西，这一份没有解开。")
+        result.problem = QObject::tr("找不到备份记录中的目标目录（%1），未解压备份。")
                              .arg(manifest.root);
         return result;
     }
@@ -821,7 +821,7 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
         const qint64 needed = restoreSpaceNeeded(manifest);
         if (!hasRoomFor(free, needed)) {
             result.stage = RestoreResult::Stage::Space;
-            result.problem = QObject::tr("这块盘放不下这一份备份：解开大约要 %1，只剩 %2。\n清一清空间、或者把它还原到别的盘上再试。\n现在盘上原有的东西一个字节都没动。")
+            result.problem = QObject::tr("目标磁盘空间不足。解压备份预计需要 %1，可用空间为 %2。\n请释放空间，或将备份还原到其他磁盘。\n原有文件已保留。")
                                  .arg(QLocale().formattedDataSize(needed),
                                       QLocale().formattedDataSize(free));
             return result;
@@ -847,7 +847,7 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
         const QString link = firstLinkInside(target);
         if (!link.isEmpty()) {
             result.stage = RestoreResult::Stage::SafetySnapshot;
-            result.problem = QObject::tr("这个目录里有链接：%1\n\n还原会把链接本身换成备份里的普通目录（链接指向的内容不会丢），而「这里是个链接」这件事还原不回来 —— 还原前的安全快照同样不含链接。\n\n为了不动你的链接，这一份没有解开；现在盘上原有的东西一个字节都没动。要接着还原的话，先把那个链接挪走，或者删掉整个目录再还原。")
+            result.problem = QObject::tr("目标中包含链接：%1\n\n还原会用普通目录替换链接，安全快照无法恢复链接本身。已取消还原，原有内容已保留。\n\n若要继续，请先移走链接，再重试。")
                                  .arg(QDir::toNativeSeparators(link));
             return result;
         }
@@ -898,7 +898,7 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
                 const QList<FileRecord> present = collectFiles(target, QStringList(), &probeProblem);
                 if (!probeProblem.isEmpty() || !present.isEmpty()) {
                     result.stage = RestoreResult::Stage::SafetySnapshot;
-                    result.problem = QObject::tr("没能在还原之前给「现在这一份」做安全快照：%1\n为了不让你丢东西，这个目录没有被改动。")
+                    result.problem = QObject::tr("未能为当前目录创建安全快照：%1\n还原已取消，原有内容已保留。")
                                          .arg(snapshot.problem);
                     return result;
                 }
@@ -958,7 +958,7 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
                                   QStringList{manifest.root + QLatin1Char('/')}, nullptr, &error,
                                   stopped)) {
         result.stage = RestoreResult::Stage::Extract;
-        QString message = QObject::tr("解压没能完成：%1").arg(error);
+        QString message = QObject::tr("未完成解压：%1").arg(error);
         if (!result.safetyZip.isEmpty()) {
             message += QObject::tr("\n还原之前的「现在这一份」在：%1")
                            .arg(QDir::toNativeSeparators(result.safetyZip));
@@ -979,7 +979,7 @@ RestoreResult restoreBackup(const QString &zipPath, const QString &targetParentD
     result.ok = result.mismatched == 0;
     if (!result.ok) {
         result.stage = RestoreResult::Stage::Verify;
-        QString message = QObject::tr("备份解开了，但解出来的文件和清单里记的对不上（%1 / %2 个）。")
+        QString message = QObject::tr("解压结果与备份清单不一致（%1 / %2 个文件）。")
                               .arg(result.mismatched)
                               .arg(result.checked);
         if (!result.safetyZip.isEmpty()) {

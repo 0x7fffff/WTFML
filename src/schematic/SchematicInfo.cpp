@@ -198,7 +198,7 @@ bool parseLitematic(const NbtTree::Node &root, Info *info, QString *problem) {
     const NbtTree::Node *regions = NbtTree::field(root, QStringLiteral("Regions"));
     if (regions == nullptr || regions->type != NbtTree::Type::Compound) {
         if (problem != nullptr) {
-            *problem = QCoreApplication::translate("SchematicInfo", "这份投影里没有 Regions 那一格，读不出内容。");
+            *problem = QCoreApplication::translate("SchematicInfo", "投影文件缺少 Regions 字段，无法读取方块数据。");
         }
         return false;
     }
@@ -329,7 +329,7 @@ bool parseSponge(const NbtTree::Node &root, Info *info, QString *problem) {
     const NbtTree::Node *palette = NbtTree::field(root, QStringLiteral("Palette"));
     if (palette == nullptr || palette->type != NbtTree::Type::Compound) {
         if (problem != nullptr) {
-            *problem = QCoreApplication::translate("SchematicInfo", "这份原理图里没有 Palette 那一格，读不出内容。");
+            *problem = QCoreApplication::translate("SchematicInfo", "原理图缺少 Palette 字段，无法读取方块数据。");
         }
         return false;
     }
@@ -421,7 +421,7 @@ bool parseStructure(const NbtTree::Node &root, Info *info, QString *problem) {
     const NbtTree::Node *palette = NbtTree::field(root, QStringLiteral("palette"));
     if (palette == nullptr || palette->type != NbtTree::Type::List) {
         if (problem != nullptr) {
-            *problem = QCoreApplication::translate("SchematicInfo", "这份结构文件里没有 palette 那一格，读不出内容。");
+            *problem = QCoreApplication::translate("SchematicInfo", "结构文件缺少 palette 字段，无法读取方块数据。");
         }
         return false;
     }
@@ -483,7 +483,7 @@ bool readBytes(const QString &path, QByteArray *out, QString *problem) {
     }
     if (info.size() > kMaxCompressedBytes) {
         if (problem != nullptr) {
-            *problem = QCoreApplication::translate("SchematicInfo", "这份文件太大了（%1 MB），这一页不展开读。")
+            *problem = QCoreApplication::translate("SchematicInfo", "文件大小为 %1 MB，超出预览上限。")
                            .arg(QLocale(QLocale::English).toString(info.size() / (1024.0 * 1024.0), 'f', 1));
         }
         return false;
@@ -492,7 +492,7 @@ bool readBytes(const QString &path, QByteArray *out, QString *problem) {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
         if (problem != nullptr) {
-            *problem = QCoreApplication::translate("SchematicInfo", "打不开这个文件：%1").arg(file.errorString());
+            *problem = QCoreApplication::translate("SchematicInfo", "无法打开结构文件：%1").arg(file.errorString());
         }
         return false;
     }
@@ -504,7 +504,7 @@ bool readBytes(const QString &path, QByteArray *out, QString *problem) {
     if (!gzip) {
         if (!file.open(QIODevice::ReadOnly)) {
             if (problem != nullptr) {
-                *problem = QCoreApplication::translate("SchematicInfo", "打不开这个文件：%1").arg(file.errorString());
+                *problem = QCoreApplication::translate("SchematicInfo", "无法打开结构文件：%1").arg(file.errorString());
             }
             return false;
         }
@@ -524,7 +524,7 @@ bool readBytes(const QString &path, QByteArray *out, QString *problem) {
     QString error;
     if (!ZipUtil::gunzipTo(path, plainPath, &error)) {
         if (problem != nullptr) {
-            *problem = QCoreApplication::translate("SchematicInfo", "这份文件是 gzip 包着的，但解不开：%1").arg(error);
+            *problem = QCoreApplication::translate("SchematicInfo", "gzip 解压失败：%1").arg(error);
         }
         return false;
     }
@@ -545,7 +545,7 @@ bool readBytes(const QString &path, QByteArray *out, QString *problem) {
     QFile plain(plainPath);
     if (!plain.open(QIODevice::ReadOnly)) {
         if (problem != nullptr) {
-            *problem = QCoreApplication::translate("SchematicInfo", "解压出来的临时文件打不开。");
+            *problem = QCoreApplication::translate("SchematicInfo", "无法打开解压后的临时文件。");
         }
         return false;
     }
@@ -591,7 +591,7 @@ QString formatName(Format format) {
     case Format::Unknown:
         break;
     }
-    return QCoreApplication::translate("SchematicInfo", "不认识");
+    return QCoreApplication::translate("SchematicInfo", "无法识别");
 }
 
 Info read(const QString &path) {
@@ -605,11 +605,11 @@ Info read(const QString &path) {
     NbtTree::Document document;
     QString problem;
     if (!NbtTree::parse(raw, &document, &problem)) {
-        info.problem = QCoreApplication::translate("SchematicInfo", "这份文件不是能读懂的 NBT：%1").arg(problem);
+        info.problem = QCoreApplication::translate("SchematicInfo", "无法解析 NBT 文件：%1").arg(problem);
         return info;
     }
     if (document.root.type != NbtTree::Type::Compound) {
-        info.problem = QCoreApplication::translate("SchematicInfo", "这份文件的根不是复合标签，不是结构 / 原理图。");
+        info.problem = QCoreApplication::translate("SchematicInfo", "根标签不是复合标签，无法作为结构或原理图读取。");
         return info;
     }
 
@@ -629,7 +629,7 @@ Info read(const QString &path) {
             return info;
         }
     } else {
-        info.problem = QCoreApplication::translate("SchematicInfo", "认不出这是什么结构 / 原理图（没有 Regions、Palette、palette 这几格）。");
+        info.problem = QCoreApplication::translate("SchematicInfo", "缺少 Regions、Palette 或 palette 字段，无法识别结构文件格式。");
         return info;
     }
 
@@ -677,7 +677,7 @@ QString compatibilityText(const Info &info, const QString &targetGameVersion) {
                                    ? QCoreApplication::translate("SchematicInfo", "数据版本 %1").arg(info.dataVersion)
                                    : sourceName;
     const QString targetText = targetName.isEmpty() ? targetGameVersion : targetName;
-    return QCoreApplication::translate("SchematicInfo", "这份文件来自 %1，这个实例是 %2 —— 版本不一样，可能有方块兼容问题（也可能没事，进游戏再看）。")
+    return QCoreApplication::translate("SchematicInfo", "文件版本为 %1，当前实例版本为 %2。版本差异可能导致部分方块无法识别。")
         .arg(sourceText, targetText);
 }
 
@@ -715,7 +715,7 @@ QString summaryText(const Info &info, const QString &targetGameVersion) {
     }
     QString text = parts.join(QStringLiteral(" / "));
     if (!info.countsComplete) {
-        text += QCoreApplication::translate("SchematicInfo", "\n（这份文件的方块表没解出来，只读到元数据）");
+        text += QCoreApplication::translate("SchematicInfo", "\n（方块数据读取失败，仅显示元数据）");
     }
     const QString compatibility = compatibilityText(info, targetGameVersion);
     if (!compatibility.isEmpty()) {

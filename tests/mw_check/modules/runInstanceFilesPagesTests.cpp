@@ -1291,7 +1291,7 @@ void runInstanceFilesPagesTests() {
             check(savedNotDirty,
                   "★ T20.7 存完那一格不脏了（不脏的话用户接着点「返回」又被问一次"
                   "「改过要不要丢掉」——它明明刚存过）");
-            check(promptCount == 1 && promptTitle == QStringLiteral("改过还没保存"),
+            check(promptCount == 1 && promptTitle == QStringLiteral("世界设置有未保存的更改"),
                   "★★ T20.7 改过之后点「返回」**先问一句**（那一问的字是 MainWindow 给的，"
                   "两处共用同一份）",
                   QStringLiteral("%1 条 / %2").arg(promptCount).arg(promptTitle));
@@ -2277,7 +2277,7 @@ void runInstanceFilesPagesTests() {
                   QStringLiteral("盘上=%1 那份留了备份=%2")
                       .arg(QString::fromUtf8(diskAfterRestoreSave))
                       .arg(int(restoreBackupMade)));
-            check(stampPromptCount == 1 && stampPromptTitle == QStringLiteral("盘上那份被人改过了") &&
+            check(stampPromptCount == 1 && stampPromptTitle == QStringLiteral("源文件已被修改") &&
                       stampPromptButtons.size() == 2,
                   "★★ T20.10 盘上那份在中间被别的东西改过 ⇒ 保存**先问一句**（不是静静盖掉）"
                   "—— 那一趟多半是游戏退出时写回，用户改了半天、被盖掉的时候屏幕上什么都不会"

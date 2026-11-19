@@ -254,7 +254,7 @@ void runLaunchHistoryTests() {
     check(LaunchHistory::resultNote(note) == QStringLiteral("（还在玩）"),
           "★ ZR7 还在跑也明说（卡片上那颗按钮点下去会提醒「已经有一份在跑」）");
     note.result = LaunchHistory::Result::StartFailed;
-    check(LaunchHistory::resultNote(note) == QStringLiteral("（上次没起来）"),
+    check(LaunchHistory::resultNote(note) == QStringLiteral("（上次启动失败）"),
           "ZR7 没起来那一档也有话说");
     note.result = LaunchHistory::Result::NormalExit;
     check(LaunchHistory::resultNote(note).isEmpty(),

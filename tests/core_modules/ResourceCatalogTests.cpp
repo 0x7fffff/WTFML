@@ -890,7 +890,7 @@ void runResourceCatalogTests() {
             ModDependencies::dependencyPromptUnknownText(ResourceCatalog::Kind::Mod, names(1));
         check(ModDependencies::dependencyPromptUnknownText(ResourceCatalog::Kind::Mod, {}).isEmpty() &&
                   unknown.contains(QStringLiteral("- Dep0")) &&
-                  unknown.contains(QStringLiteral("不知道你有没有")) &&
+                  unknown.contains(QStringLiteral("尚未核对实例中已安装的依赖")) &&
                   unknown.startsWith(
                       ModDependencies::dependencyPromptHead(ResourceCatalog::Kind::Mod)),
               "★ Z6d 不知道装没装的那一版补一句「不知道你有没有」，名单照旧（不替用户认下来）",

@@ -711,11 +711,11 @@ QString categoryMismatch(const PresetManifest &manifest) {
     // 模组引用只属于「模组」这一类。放进别的类别 = 串类别（一条验收），
     // 拼出来的安装计划会去改一类用户没选的东西。
     if (!manifest.modReferences.isEmpty() && manifest.category != PresetCategory::Mods) {
-        return QCoreApplication::translate("PresetStore", "这一份的类别和内容对不上（模组引用只属于「模组」这一类）");
+        return QCoreApplication::translate("PresetStore", "类别与内容不匹配。模组引用应归入「模组」类别");
     }
     for (const PresetSection &section : manifest.sections) {
         if (!sectionFitsCategory(manifest.category, section)) {
-            return QCoreApplication::translate("PresetStore", "这一份的类别和内容对不上（里面有一段不属于这一类）");
+            return QCoreApplication::translate("PresetStore", "预设包含不属于所选类别的内容");
         }
     }
     return QString();
@@ -757,7 +757,7 @@ PresetManifest loadManifest(const QString &root, const QString &id, bool *ok, QS
     }
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
-        return fail(faultAt(path, QCoreApplication::translate("PresetStore", "打不开")));
+        return fail(faultAt(path, QCoreApplication::translate("PresetStore", "无法打开预设文件")));
     }
     if (file.size() > kManifestLimit)
         return fail(faultAt(path, QCoreApplication::translate("PresetStore", "清单超过 16 MiB，未读取")));
@@ -773,12 +773,12 @@ PresetManifest loadManifest(const QString &root, const QString &id, bool *ok, QS
         QJsonDocument::fromJson(bytes, &syntax);
         if (syntax.error != QJsonParseError::NoError)
             return fail(faultAt(path, QCoreApplication::translate("PresetStore", "JSON字节位置 %1：%2").arg(syntax.offset).arg(syntax.errorString())));
-        return fail(faultAt(path, QCoreApplication::translate("PresetStore", "读不回来（不是合法 JSON、不是我们写的格式、版本比这个启动器新、或者缺了 id / 名字）")));
+        return fail(faultAt(path, QCoreApplication::translate("PresetStore", "预设有误。请检查 JSON 格式、版本、ID 和名称")));
     }
     // 记的 id 和目录名对不上 ⇒ 这一份被人动过（拷串了、或者手改过）。这种时候**宁可
     // 把它报成坏的**，也不要拿着"目录 A 里的内容属于 B"去覆盖用户的实例。
     if (manifest.id != id) {
-        return fail(faultAt(path, QCoreApplication::translate("PresetStore", "记的 id 是「%1」，和目录名对不上").arg(manifest.id)));
+        return fail(faultAt(path, QCoreApplication::translate("PresetStore", "预设 ID「%1」与目录名不一致").arg(manifest.id)));
     }
     // `category` 与段表对不上（比如有人手改过、或者以后的数据被降级写回来）⇒ 同样报坏：
     // 拿一份"类别说 A、内容其实是 B"的预设去改用户实例，比少一份预设危险得多。

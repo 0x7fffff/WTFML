@@ -152,7 +152,7 @@ bool append(const QString &instanceDir, const Entry &entry, QString *problem) {
     const QByteArray bytes = QJsonDocument(root).toJson(QJsonDocument::Indented);
     if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() || !file.commit()) {
         if (problem != nullptr) {
-            *problem = QCoreApplication::translate("UpgradeHistory", "升级历史写不进去：%1").arg(file.errorString());
+            *problem = QCoreApplication::translate("UpgradeHistory", "无法保存升级历史：%1").arg(file.errorString());
         }
         return false;
     }

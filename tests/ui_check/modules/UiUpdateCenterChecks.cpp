@@ -286,7 +286,7 @@ int UiUpdateCenterChecks() {
             QApplication::processEvents();
             UpdateCenterPage::Report none;
             none.instanceName = QStringLiteral("1.20.1-我的整合包");
-            none.error = QStringLiteral("这个实例还没查过更新。");
+            none.error = QStringLiteral("此实例尚未检查更新。");
             fresh.setReport(none);
             QApplication::processEvents();
 

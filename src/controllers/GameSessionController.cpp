@@ -292,7 +292,7 @@ void GameSessionController::openGameLogForSession(int sessionId) {
     // （异常退出那一路另有去处：任务中心那一项记着当时那两段日志，见 openTaskLog()。）
     const LauncherManager::GameSession game = m_launcherManager->session(sessionId);
     if (game.sessionId == 0) {
-        m_host.log(tr("这一场游戏已经结束了，它那份日志窗也跟着没了。"));
+        m_host.log(tr("游戏已退出，日志窗口已关闭。"));
         return;
     }
     GameLogWindow *window = ensureGameLogWindow(sessionId, /*userAsked=*/true);
@@ -472,10 +472,10 @@ bool GameSessionController::confirmStopGame(const QString &displayName, int sess
     // （"一次停几份"这件事问话里要说清），不是因为还有人在用。
     const QString text =
         sessions > 1
-            ? tr("「%1」正在运行（共 %2 个游戏进程，这一下全部停止）。\n\n停止会直接结束游戏进程 —— 游戏不会存档，没保存的进度会丢。\n要停止它吗？")
+            ? tr("「%1」正在运行，将强制结束全部 %2 个游戏进程。\n\n未保存的进度会丢失。确认停止？")
                   .arg(displayName)
                   .arg(sessions)
-            : tr("「%1」正在运行。\n\n停止会直接结束游戏进程 —— 游戏不会存档，没保存的进度会丢。\n要停止它吗？")
+            : tr("「%1」正在运行。强制结束游戏会丢失未保存的进度。\n\n确认停止？")
                   .arg(displayName);
     // 内嵌提示（不再另开一个窗）。默认那一边照旧是**取消**（下标 1），
     // 「停止游戏」是那一档里的危险动作（下标 0）。

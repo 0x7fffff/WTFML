@@ -209,7 +209,7 @@ bool stripLinksBelow(const QString &root, QString *problem) {
                 info.isDir() ? QDir().rmdir(path) : removeFileAllowingReadOnly(path);
             if (!removed) {
                 if (problem != nullptr) {
-                    *problem = FolderManager::tr("「%1」这个链接摘不掉（可能正被别的程序占着）。")
+                    *problem = FolderManager::tr("无法移除链接「%1」。请检查是否被其他程序占用。")
                                    .arg(QDir::toNativeSeparators(path));
                 }
                 return false;
@@ -255,7 +255,7 @@ bool moveToRecycleBin(const QString &path, QString *error) {
     if (isLinkToElsewhere(info)) {
         const bool removed = info.isDir() ? QDir().rmdir(path) : removeFileAllowingReadOnly(path);
         return removed ? succeed()
-                       : fail(FolderManager::tr("没能把链接「%1」删掉（可能正被别的程序占着）。")
+                       : fail(FolderManager::tr("无法删除链接「%1」。请检查链接是否被其他程序占用。")
                                   .arg(QDir::toNativeSeparators(path)));
     }
     if (!info.exists()) {
@@ -281,7 +281,7 @@ bool moveToRecycleBin(const QString &path, QString *error) {
     if (GetVolumePathNameW(wide.c_str(), volume, MAX_PATH + 1) != 0) {
         const UINT type = GetDriveTypeW(volume);
         if (type == DRIVE_REMOTE || type == DRIVE_CDROM || type == DRIVE_NO_ROOT_DIR) {
-            return fail(FolderManager::tr("「%1」在 %2 上，那里没有回收站。\n\n为了不永久删掉，这一项没有动。")
+            return fail(FolderManager::tr("「%1」所在的 %2 不支持回收站。为避免永久删除，已保留文件。")
                             .arg(target, QString::fromWCharArray(volume)));
         }
     }
@@ -316,11 +316,11 @@ bool moveToRecycleBin(const QString &path, QString *error) {
             CloseHandle(probe);
         }
         if (probeError == ERROR_ACCESS_DENIED) {
-            return fail(FolderManager::tr("「%1」的权限不允许删除：这一项（或者它所在的目录）上面挂了拒绝删除的 ACL。\n\n在「属性 → 安全 → 高级」里找到那条拒绝项去掉，或者用管理员身份重试。这一项没有动。")
+            return fail(FolderManager::tr("「%1」或其上级目录的权限阻止删除。请检查「属性 → 安全 → 高级」中的删除权限，再重试。")
                             .arg(QDir::toNativeSeparators(target)));
         }
         if (probeError == ERROR_SHARING_VIOLATION || probeError == ERROR_LOCK_VIOLATION) {
-            return fail(FolderManager::tr("「%1」正被别的程序占着（多半是游戏还开着）。\n\n把它关掉再试。这一项没有动。")
+            return fail(FolderManager::tr("「%1」正被其他程序占用，未执行删除。\n\n请关闭相关程序后重试。")
                             .arg(QDir::toNativeSeparators(target)));
         }
     }
@@ -329,14 +329,14 @@ bool moveToRecycleBin(const QString &path, QString *error) {
     if (info.isDir()) {
         QString linkProblem;
         if (!stripLinksBelow(target, &linkProblem)) {
-            return fail(FolderManager::tr("「%1」没有往回收站移：里面有一个链接没能摘掉。\n\n%2")
+            return fail(FolderManager::tr("未能移除「%1」中的链接，目录未移入回收站。\n\n%2")
                             .arg(QDir::toNativeSeparators(target), linkProblem));
         }
     }
 
     ComApartment com;
     if (!com.usable()) {
-        return fail(FolderManager::tr("这台机器上起不了回收站那一套组件，为了不永久删掉，「%1」没有动。")
+        return fail(FolderManager::tr("系统回收站组件无法启动，已保留「%1」。")
                         .arg(QDir::toNativeSeparators(target)));
     }
 
@@ -345,7 +345,7 @@ bool moveToRecycleBin(const QString &path, QString *error) {
                                   reinterpret_cast<void **>(&operation));
     if (FAILED(hr) || operation == nullptr) {
         if (operation != nullptr) operation->Release();
-        return fail(FolderManager::tr("打不开回收站：%1\n\n为了不永久删掉，「%2」没有动。")
+        return fail(FolderManager::tr("无法访问回收站：%1\n「%2」已保留。")
                         .arg(systemMessage(hr), QDir::toNativeSeparators(target)));
     }
 
@@ -371,23 +371,23 @@ bool moveToRecycleBin(const QString &path, QString *error) {
     operation->Release();
 
     if (FAILED(hr)) {
-        return fail(FolderManager::tr("无法将「%1」移入回收站：%2\n\n（原因可能是回收站不可用、空间不足，或其中的文件正被其他程序占用；请先关闭游戏再试。）")
+        return fail(FolderManager::tr("无法将「%1」移入回收站：%2\n\n请检查回收站与磁盘空间，关闭占用文件的程序后重试。")
                         .arg(QDir::toNativeSeparators(target), systemMessage(hr)));
     }
     if (aborted != FALSE) {
-        return fail(FolderManager::tr("「%1」移进回收站的过程被打断了，盘上可能剩了一部分 —— 看一眼回收站和原目录再决定下一步。")
+        return fail(FolderManager::tr("「%1」未完全移入回收站。请核对回收站与原目录中的文件。")
                         .arg(QDir::toNativeSeparators(target)));
     }
     if (QFileInfo::exists(target)) {
         // 没报错、也没打断，东西却还在：不能当作删成功（调用方会照实说"还在"）。
-        return fail(FolderManager::tr("「%1」仍在磁盘上，移入回收站未生效。")
+        return fail(FolderManager::tr("未能将「%1」移入回收站。目录仍在原位置。")
                         .arg(QDir::toNativeSeparators(target)));
     }
     return succeed();
 #else
     // 非 Windows 平台没有"回收站"这个概念。这里**不**退回永久删除（那就是这一整套要防的
     // 事）；调用方会看到一句明确的失败。当前产品只发 Windows 版。
-    return fail(FolderManager::tr("这个平台没有回收站，「%1」没有动。")
+    return fail(FolderManager::tr("此平台不支持回收站，已保留「%1」。")
                     .arg(QDir::toNativeSeparators(target)));
 #endif
 }
@@ -767,7 +767,7 @@ bool FolderManager::deleteFolder(const QString &path, QString *error) {
             if (error != nullptr) {
                 // 失败原因照实说：移到一半失败时目录是**半截**的（前面那些已经进了回收站），
                 // 而用户需要知道现在盘上和回收站里到底是什么状态。
-                *error = tr("「%1」没能整个移进回收站：%2\n\n已经移走的那部分在回收站里，可以还原。")
+                *error = tr("「%1」未完全移入回收站：%2\n\n已移入的文件可从回收站恢复。")
                              .arg(QDir::toNativeSeparators(target), recycleProblem);
             }
             return false;

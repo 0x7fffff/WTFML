@@ -327,7 +327,7 @@ void MainWindow::installServer(const QString &serverId, const ServerInstall::Req
     // 这一档这一轮接没接。**判据的唯一出处是 `ServerInstallRun::flavorSupported()`** ——
     // 页面上那颗「创建」的禁用读的也是它（Spigot：列出但明说暂不支持）。
     if (!ServerInstallRun::flavorSupported(request.flavor)) {
-        InlineMessage::warning(m_ui->overlay(), tr("这一档还没接"),
+        InlineMessage::warning(m_ui->overlay(), tr("暂不支持此选项"),
                                ServerInstallRun::unsupportedReason(request.flavor));
         return;
     }
@@ -442,8 +442,8 @@ void MainWindow::openServerFolder(const QString &serverId) {
     // 走 QDesktopServices 而不是自己 QProcess 起 explorer.exe（和"打开实例文件夹"同一条路）。
     // 开不了要说一句：静静地什么都不发生，用户只会一遍遍点它。
     if (!QDesktopServices::openUrl(QUrl::fromLocalFile(dir))) {
-        InlineMessage::warning(m_ui->overlay(), tr("打不开这个文件夹"),
-                               tr("没能打开：\n%1").arg(QDir::toNativeSeparators(dir)));
+        InlineMessage::warning(m_ui->overlay(), tr("无法打开目录"),
+                               tr("无法打开目录：\n%1").arg(QDir::toNativeSeparators(dir)));
     }
 }
 
@@ -456,9 +456,8 @@ void MainWindow::repairServer(const QString &serverId) {
         // 从外面拖进来的服务端就是这样：盘上有，但那一份"我们记的"不在 ⇒ 不知道它该按
         // 哪一档重装。这句话要给出下一步，不能只说"修不了"。
         InlineMessage::warning(
-            m_ui->overlay(), tr("没法重装这一个"),
-            tr("这一个不是启动器装的（目录里没有我们记的那一份），所以我们不知道该按哪一档"
-               "把它补齐。\n让它自己下好入口文件，或者删了重新建一个。"));
+            m_ui->overlay(), tr("无法重新安装此实例"),
+            tr("实例缺少安装记录，无法确定需补充的启动文件。请使用原启动器补齐文件，或重新安装实例。"));
         return;
     }
     ServerInstall::Request request;
@@ -639,15 +638,15 @@ bool MainWindow::ensureServerEula(const QString &serverId) {
         }
         appendLog(tr("正在打开 %1。").arg(url));
         if (!QDesktopServices::openUrl(QUrl(url))) {
-            InlineMessage::warning(m_ui->overlay(), tr("打不开浏览器"),
-                                   tr("没能打开这一条网址：\n%1").arg(url));
+            InlineMessage::warning(m_ui->overlay(), tr("无法打开默认浏览器"),
+                                   tr("无法打开此网址：\n%1").arg(url));
         }
     });
     overlay->execPrompt(&box, false);
     // 两道都要过：点了「同意并启动」**并且**那个框是勾上的。只按前者的话，那个勾就成了
     // 摆设（而那正是"只有你自己摁出来"这句话唯一的技术落点）。
     if (box.clickedIndex() != 0 || !box.checkBoxChecked()) {
-        appendLog(tr("没有同意 EULA，%1 这次不启动。").arg(serverId));
+        appendLog(tr("未接受 EULA，%1 未启动。").arg(serverId));
         return false;
     }
     QString problem;
@@ -655,7 +654,7 @@ bool MainWindow::ensureServerEula(const QString &serverId) {
         InlineMessage::critical(m_ui->overlay(), tr("写不了 eula.txt"), problem);
         return false;
     }
-    appendLog(tr("%1：你已经同意 EULA，eula.txt 里写上了 eula=true。").arg(serverId));
+    appendLog(tr("%1：已接受 EULA，已将 eula=true 写入 eula.txt。").arg(serverId));
     return true;
 }
 
@@ -710,7 +709,7 @@ void MainWindow::updateServerRow(const QString &serverId) {
     if (!entry.installed) {
         button->setText(MainWindowUI::serverRepairText());
         button->setEnabled(true);
-        button->setToolTip(tr("还没装好 —— 点它把该下的下下来。"));
+        button->setToolTip(tr("实例尚未安装完成。选择该实例以下载缺失文件。"));
         Theme::markButton(button, Theme::ButtonKind::Accent);
     } else if (process != nullptr && process->isRunning()) {
         const bool stopping = status == ServerModel::Status::Stopping;
@@ -724,7 +723,7 @@ void MainWindow::updateServerRow(const QString &serverId) {
     } else {
         button->setText(MainWindowUI::serverStartText());
         button->setEnabled(true);
-        button->setToolTip(tr("起这个服务端。右键那一列里还有控制台、目录、删除。"));
+        button->setToolTip(tr("启动服务端。右键可打开控制台或目录，也可删除服务端。"));
         Theme::markButton(button, Theme::ButtonKind::Accent);
     }
 }

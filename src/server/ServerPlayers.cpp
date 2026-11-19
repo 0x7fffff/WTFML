@@ -103,7 +103,7 @@ Content parse(List list, const QByteArray &json) {
     }
     if (!document.isArray()) {
         content.ok = false;
-        content.problem = QCoreApplication::translate("ServerPlayers", "%1 不是一个数组 —— 没有改动它。").arg(fileName(list));
+        content.problem = QCoreApplication::translate("ServerPlayers", "%1 应为数组，文件未修改。").arg(fileName(list));
         return content;
     }
     const QJsonArray array = document.array();

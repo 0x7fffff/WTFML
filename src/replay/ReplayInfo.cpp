@@ -79,7 +79,7 @@ Info read(const QString &path) {
         info.problem = QCoreApplication::translate("ReplayInfo", "压缩包里没有 metaData.json，不是 Replay 录像");
         return info;
     case ZipUtil::EntryStatus::NotAnArchive:
-        info.problem = QCoreApplication::translate("ReplayInfo", "打不开这个压缩包，不是 Replay 录像");
+        info.problem = QCoreApplication::translate("ReplayInfo", "无法打开录像压缩包。请确认文件是有效的 Replay 录像。");
         return info;
     case ZipUtil::EntryStatus::Failed:
         info.problem = error.isEmpty() ? QCoreApplication::translate("ReplayInfo", "读压缩包失败") : error;

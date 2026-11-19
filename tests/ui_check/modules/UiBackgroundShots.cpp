@@ -134,7 +134,7 @@ int UiBackgroundShots(QApplication &app) {
         {
             const MainWindowUI::ThemeImageRow &row = ui.getThemeImageRow(0);
             if (row.state != nullptr) {
-                row.state->setText(QStringLiteral("现在铺的是：%1").arg(style.imageName));
+                row.state->setText(QStringLiteral("当前主题：%1").arg(style.imageName));
                 const int fitIndex = row.fit->findData(Theme::imageFitKey(style.fit));
                 if (fitIndex >= 0) row.fit->setCurrentIndex(fitIndex);
                 row.opacity->setValue(style.imageOpacity);

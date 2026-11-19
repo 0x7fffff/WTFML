@@ -82,7 +82,7 @@ void DownloadTaskLedgerController::begin() {
     case InstallOccupancy::Batch::Prefetch:
         // 预取 = "把这些文件拿下来"，不是装东西；它下的是共享的 assets/asset_director。
         kind = Tasks::TaskKind::Download;
-        title = MainWindow::tr("预取 %1 的首启资源").arg(m_owner.instanceDisplayName(active.instanceId));
+        title = MainWindow::tr("预取「%1」的首次启动资源").arg(m_owner.instanceDisplayName(active.instanceId));
         break;
     case InstallOccupancy::Batch::None:
         // 兜底那一支：今天从界面上**走不到**（能置忙的三条路都会先写上那四档之一 ——

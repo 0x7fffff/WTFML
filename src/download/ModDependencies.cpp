@@ -314,7 +314,7 @@ bool resolveDependency(const ResourceCatalog::Dependency &dependency,
         if (picked == nullptr) {
             // **不退而求其次挑最新的一条**。作者钉版本往往是因为新旧不兼容，悄悄换一版
             // 装进去，症状是"这几个模组一起不生效"，而那一刻离这里已经很远了。
-            return fail(QCoreApplication::translate("ModDependencies", "作者钉的那一版（%1）在这个实例的版本下找不到。")
+            return fail(QCoreApplication::translate("ModDependencies", "未找到作者指定的兼容版本（%1）。")
                             .arg(dependency.versionId));
         }
     } else {
@@ -323,13 +323,13 @@ bool resolveDependency(const ResourceCatalog::Dependency &dependency,
 
     const ResourceCatalog::FileEntry *file = picked->primaryFile();
     if (file == nullptr) {
-        return fail(QCoreApplication::translate("ModDependencies", "挑出来的那一版（%1）没有文件。").arg(picked->versionNumber));
+        return fail(QCoreApplication::translate("ModDependencies", "所选版本（%1）无文件。").arg(picked->versionNumber));
     }
     if (file->url.isEmpty()) {
         // 作者关掉了第三方分发时，那边写好的那句话比"没有可下载的文件"准确得多
         // （见 FileEntry::unavailableNote 那段），有就用它。
         return fail(file->unavailableNote.isEmpty()
-                        ? QCoreApplication::translate("ModDependencies", "挑出来的那一版（%1）没有可下载的文件。")
+                        ? QCoreApplication::translate("ModDependencies", "所选版本（%1）没有可下载的文件。")
                               .arg(picked->versionNumber)
                         : file->unavailableNote);
     }
@@ -383,7 +383,7 @@ UpdateVerdict judgeUpdate(const InstalledItem &item,
 
     if (item.sha1.isEmpty()) {
         // 认不出来是哪个文件（读不动、或者哈希那一步没成）—— 这一条**不是**"已是最新"。
-        verdict.reason = QCoreApplication::translate("ModDependencies", "认不出盘上这个文件是哪一版。");
+        verdict.reason = QCoreApplication::translate("ModDependencies", "无法识别本地文件的版本。");
         return verdict;
     }
     if (versions.isEmpty()) {
@@ -407,7 +407,7 @@ UpdateVerdict judgeUpdate(const InstalledItem &item,
     if (found < 0) {
         // 三种情况合成一句（列表筛过、作者删了老版本、用户改过那个 jar），
         // 见头文件里那段 —— 下一步都是"去项目页自己看"。
-        verdict.reason = QCoreApplication::translate("ModDependencies", "这一版不在列表里（可能不是给这个实例的，或者作者已经删" "了它）。");
+        verdict.reason = QCoreApplication::translate("ModDependencies", "未找到该版本。请确认文件仍可下载，且与当前实例兼容。");
         return verdict;
     }
 
@@ -430,7 +430,7 @@ UpdateVerdict judgeUpdateAgainstLatest(const InstalledItem &item,
 
     if (item.sha1.isEmpty()) {
         // 和上面那条**逐字同一句话**：认不出来是哪一版，就谈不上"是不是最新的"。
-        verdict.reason = QCoreApplication::translate("ModDependencies", "认不出盘上这个文件是哪一版。");
+        verdict.reason = QCoreApplication::translate("ModDependencies", "无法识别本地文件的版本。");
         return verdict;
     }
     if (latest.id.isEmpty()) {
@@ -440,7 +440,7 @@ UpdateVerdict judgeUpdateAgainstLatest(const InstalledItem &item,
         // 见 .hpp 里那段：真因不许被吞成"网络没成"）。
         verdict.reason =
             problem.isEmpty()
-                ? QCoreApplication::translate("ModDependencies", "没查到它能用的版本（这个项目在这个游戏版本/加载器下没有" "版本）。")
+                ? QCoreApplication::translate("ModDependencies", "未找到同时兼容当前游戏版本和加载器的文件。")
                 : problem;
         return verdict;
     }
@@ -532,7 +532,7 @@ QString dependencyPromptUnknownText(ResourceCatalog::Kind kind, const QStringLis
     if (names.isEmpty()) {
         return QString();
     }
-    return QCoreApplication::translate("ModDependencies", "%1（还没看过这个实例里装了什么，不知道你有没有）：\n\n%2\n\n" "要一起下载吗？")
+    return QCoreApplication::translate("ModDependencies", "%1\n\n%2\n\n尚未核对实例中已安装的依赖。确认一并下载？")
         .arg(dependencyPromptHead(kind), dependencyNameLines(names));
 }
 
@@ -550,7 +550,7 @@ QString unresolvedNoteText(const QStringList &lines) {
     if (lines.isEmpty()) {
         return QString();
     }
-    return QCoreApplication::translate("ModDependencies", "有几个前置没找到能装的版本：\n\n%1\n\n" "部分依赖下载失败，其余文件已完成。可在项目主页手动下载。")
+    return QCoreApplication::translate("ModDependencies", "以下依赖缺少兼容版本：\n\n%1\n\n其余文件已下载。可在对应项目页面查找并手动安装依赖。")
         .arg(lines.join(QLatin1Char('\n')));
 }
 

@@ -174,26 +174,26 @@ QString Plan::detailText() const {
 Plan plan(int potionIndex, bool extended, bool level2, Form form, int bottles) {
     Plan result;
     if (potionIndex < 0 || potionIndex >= recipeCount()) {
-        result.error = QCoreApplication::translate("Brewing", "认不出这种药水（下标越界）。");
+        result.error = QCoreApplication::translate("Brewing", "药水类型编号超出范围。");
         return result;
     }
     if (extended && level2) {
-        result.error = QCoreApplication::translate("Brewing", "红石粉（延长）和荧石粉（升一级）在游戏里是二选一：" "后加的那一样会把先加的冲掉。");
+        result.error = QCoreApplication::translate("Brewing", "红石粉仅延长时长，荧石粉仅提高等级。两种效果互斥，以最后添加的材料为准。");
         return result;
     }
     const PotionInfo target = potionAt(potionIndex);
     if (extended && !target.extendable) {
-        result.error = QCoreApplication::translate("Brewing", "%1没有延长版本（游戏里不能给它加红石粉）。")
+        result.error = QCoreApplication::translate("Brewing", "%1不支持用红石粉延长时长。")
                            .arg(potionText(target.name));
         return result;
     }
     if (level2 && !target.upgradable) {
-        result.error = QCoreApplication::translate("Brewing", "%1没有强化版本（游戏里不能给它加荧石粉）。")
+        result.error = QCoreApplication::translate("Brewing", "%1不支持用荧石粉提高等级。")
                            .arg(potionText(target.name));
         return result;
     }
     if (int(form) < 0 || int(form) >= formCount()) {
-        result.error = QCoreApplication::translate("Brewing", "认不出这种形态（下标越界）。");
+        result.error = QCoreApplication::translate("Brewing", "药水形态编号超出范围。");
         return result;
     }
     if (bottles < 1 || bottles > maxBottles()) {
@@ -224,7 +224,7 @@ Plan plan(int potionIndex, bool extended, bool level2, Form form, int bottles) {
         cursor = potionAt(cursor).parent;
     }
 
-    result.steps << QCoreApplication::translate("Brewing", "玻璃瓶装水 → 水瓶（要几瓶就摆几瓶，一次最多 %1 瓶）")
+    result.steps << QCoreApplication::translate("Brewing", "将玻璃瓶装满水，准备最多 %1 瓶水瓶。")
                         .arg(maxBottlesPerOperation());
     bool first = true;
     for (int index : chain) {

@@ -21,8 +21,8 @@ void runServerResourcePackTests() {
         // 最常见的错：整个文件夹一起压 —— 游戏只认最外层那一份。
         const ServerResourcePack::EntriesCheck nested = ServerResourcePack::checkEntries(
             {QStringLiteral("MyPack/pack.mcmeta"), QStringLiteral("MyPack/assets/x.png")});
-        check(!nested.ok && nested.problem.contains(QStringLiteral("最外层"))
-                  && nested.problem.contains(QStringLiteral("重新压")),
+        check(!nested.ok && nested.problem.contains(QStringLiteral("根目录"))
+                  && nested.problem.contains(QStringLiteral("重新打包")),
               "★★ ZAG0 `pack.mcmeta` 套在文件夹里 ⇒ 不许用，而且要说清「重新压到最外层」",
               nested.problem);
 
@@ -112,7 +112,7 @@ void runServerResourcePackTests() {
         check(writeFile(junkPath, QByteArrayLiteral("this is not a zip")),
               "ZAG1 造一份「假 zip」");
         const ServerResourcePack::Inspect junk = ServerResourcePack::inspect(junkPath);
-        check(!junk.ok && junk.problem.contains(QStringLiteral("zip")),
+        check(!junk.ok && junk.problem.contains(QStringLiteral("ZIP")),
               "★★ ZAG1 不是 zip 的文件 ⇒ 明说「这不是一个 zip」，不是一句读失败", junk.problem);
 
         // 套在文件夹里的那一份：条目表能读出来，但判据得拦住（游戏认不出它）。
@@ -122,14 +122,14 @@ void runServerResourcePackTests() {
             nestedPath, {{QStringLiteral("MyPack/pack.mcmeta"), metaPath}}, &nestedError);
         if (nestedMade) {
             const ServerResourcePack::Inspect nested = ServerResourcePack::inspect(nestedPath);
-            check(!nested.ok && nested.problem.contains(QStringLiteral("最外层")),
+            check(!nested.ok && nested.problem.contains(QStringLiteral("根目录")),
                   "★★ ZAG1 套了一层的 zip 在 `inspect()` 那一层就被拦住（不白算一遍 SHA-1）",
                   nested.problem);
         }
 
         const ServerResourcePack::Inspect missing =
             ServerResourcePack::inspect(root.path() + QStringLiteral("/nope.zip"));
-        check(!missing.ok && missing.problem.contains(QStringLiteral("找不到")),
+        check(!missing.ok && missing.problem.contains(QStringLiteral("未找到文件")),
               "★ ZAG1 文件不在 ⇒ 那句话说的是「找不到」，不是「读不出来」", missing.problem);
     }
 }

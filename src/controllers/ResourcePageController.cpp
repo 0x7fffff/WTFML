@@ -52,8 +52,8 @@ void ResourcePageController::setup() {
                 // 开不了要说一句：那颗按钮看着像是我们自己开的页面，静静地什么都不发生，
                 // 用户只会一遍遍点它。
                 if (!QDesktopServices::openUrl(QUrl(url))) {
-                    InlineMessage::warning(m_owner.m_ui->overlay(), tr("打不开浏览器"),
-                                           tr("没能打开这一条网址：\n%1").arg(url));
+                    InlineMessage::warning(m_owner.m_ui->overlay(), tr("无法打开默认浏览器"),
+                                           tr("无法打开网址：\n%1").arg(url));
                 }
             });
     connect(m_page, &ResourceDetailPage::copyNameRequested, this,
@@ -524,7 +524,7 @@ void ResourcePageController::onDownloadFinished(const QString &label, bool succe
     // 成功那一发照样认领得到；用户再也不重试的话，它只是内存里一条记录。
     const QString pendingModpack = m_owner.m_pendingModpackImports.take(label);
 
-    m_owner.appendLog(TextMarks::done(tr("%1 下好了：%2").arg(label, errorMessage)));
+    m_owner.appendLog(TextMarks::done(tr("%1 下载完成：%2").arg(label, errorMessage)));
     if (!pendingModpack.isEmpty()) {
         // 不弹"下载完成"：整合包下回来只是第一步，紧接着那个导入框就是用户的下一步，
         // 中间夹一个"下好了"等于让他白点一次。

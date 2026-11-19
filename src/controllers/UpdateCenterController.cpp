@@ -86,7 +86,7 @@ UpdateCenterPage::Report UpdateCenterController::reportFor(const QString &instan
     const auto result = m_owner.m_instanceUpdateResults.constFind(instanceId);
     if (result == m_owner.m_instanceUpdateResults.constEnd()) {
         // 没查过：这一页**没有结论**可摆（列表整个空着），用户要看到的是这句话 + 下一步。
-        out.error = MainWindow::tr("这个实例还没查过更新。");
+        out.error = MainWindow::tr("此实例尚未检查更新。");
         return out;
     }
     const QString instanceDir = AppPaths::versionDir(instanceId);
@@ -189,7 +189,7 @@ bool UpdateCenterController::savePolicy() {
     }
     // 写不成**只写日志**：用户按的是一颗"以后别提示我"，弹一个"存不进去"的框除了让他分心
     // 以外没有下一步可做 —— 而那一份记录在这一次会话里仍然是生效的（内存里那份还在）。
-    m_owner.appendLog(MainWindow::tr("「更新中心」那份记录没能写进盘：%1").arg(problem));
+    m_owner.appendLog(MainWindow::tr("无法保存更新中心的记录：%1").arg(problem));
     return false;
 }
 
@@ -220,7 +220,7 @@ void UpdateCenterController::onUpdateRequested(const QStringList &paths) {
             if (customLaunch
                 && !InlineMessage::question(
                     m_owner.m_ui->overlay(), tr("这个整合包带自定义启动配置"),
-                    tr("更新选中的模组可能让它的启动配置（主类 / JVM 参数 / 专用库）对不上，更新后可能起不来。建议先备份实例。仍然继续吗？"),
+                    tr("更新所选模组可能影响主类、JVM 参数或专用库，导致实例无法启动。\n\n建议先备份实例。确认继续？"),
                     tr("仍要继续"), tr("取消"), false)) {
                 return;
             }
@@ -263,7 +263,7 @@ void UpdateCenterController::onIgnoreToggled(const QString &path, bool ignored) 
             // 拼不出"要换成哪一版"就**不许记这一条**：记下去的是"忽略某一版"，而那一版是谁
             // 都不知道 —— 那样记出来的记录永远对不上任何一次检测（等于一颗点了没反应的按钮）。
             InlineMessage::warning(m_owner.m_ui->overlay(), MainWindow::tr("无法忽略这一条"),
-                                   MainWindow::tr("没有查出可记录的版本（多半是本次检测结果已经过期）。请重新点「检查更新」再试。"));
+                                   MainWindow::tr("未找到可固定的版本。请重新检查更新。"));
             return;
         }
     }
@@ -306,7 +306,7 @@ void UpdateCenterController::onPinToggled(const QString &path, bool pinned) {
         }
         if (sha1.isEmpty()) {
             InlineMessage::warning(m_owner.m_ui->overlay(), MainWindow::tr("固定不了这一条"),
-                                   MainWindow::tr("无法读取这份文件的内容（或上次检测未算出它的 SHA-1），因此不能固定这一版。"));
+                                   MainWindow::tr("无法读取文件或计算其 SHA-1，因此无法固定此版本。"));
             return;
         }
     }
@@ -338,7 +338,7 @@ void UpdateCenterController::onUndoRequested() {
     // 问一次再动手：这一下**会覆盖盘上现在的文件**（用户可能已经在游戏里玩了半天、
     // 自己换过东西）。撤销不是一个"点错了也没事"的动作。
     const QString text =
-        MainWindow::tr("把「%1」退回上一次更新之前：\n\n• 换回去 %2 个文件\n• 删掉那次更新新添的 %3 个文件\n\n这一趟更新之后你自己改过的东西会一起被改回去。")
+        MainWindow::tr("将撤销「%1」的上次更新。\n\n• 恢复 %2 个文件\n• 移除更新新增的 %3 个文件\n\n更新后对这些文件所做的修改将被覆盖。")
             .arg(m_owner.instanceDisplayName(instanceId))
             .arg(snapshot.fileCount())
             .arg(snapshot.addedCount());
@@ -362,8 +362,8 @@ void UpdateCenterController::onUndoRequested() {
         // **一条失败不影响其余**（见 UpdateRollback::restore 那段）：照实说清现在是半新半旧，
         // 并且**留着回滚点**（下一次再按还能把没退回去的那几条退回来）。
         InlineMessage::warning(
-            m_owner.m_ui->overlay(), MainWindow::tr("没能全退回去"),
-            MainWindow::tr("换回去 %1 个、删掉 %2 个，有 %3 个没能动。\n\n%4\n\n回滚点留着，可以再按一次。")
+            m_owner.m_ui->overlay(), MainWindow::tr("部分文件回滚失败"),
+            MainWindow::tr("已恢复 %1 个文件，移除 %2 个文件，%3 个文件操作失败。\n\n%4\n\n回滚点已保留，可重试。")
                 .arg(result.restored)
                 .arg(result.removed)
                 .arg(result.failed)

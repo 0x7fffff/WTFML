@@ -875,7 +875,7 @@ static Result prepareCopyAndCommitImpl(Request r, const Core &core, const QStrin
     // 第一版不允许"跨游戏根"复制：源实例必须在这次事务的游戏目录里。
     // 跨根要同时处理两个根的锁、空间、路径与历史归属，不能只改一个路径字符串。
     if (!InstanceFiles::pathIsSameOrInside(r.gameDir, sourceDir)) {
-        result.problem = QCoreApplication::translate("InstanceUpgrade", "源实例不在这次事务的游戏目录里，未复制任何文件。");
+        result.problem = QCoreApplication::translate("InstanceUpgrade", "源实例不在当前游戏目录中，未复制文件。");
         return result;
     }
     if (QFileInfo::exists(original) || QFileInfo::exists(candidate)) {
@@ -1040,7 +1040,7 @@ static Result prepareCopyAndCommitImpl(Request r, const Core &core, const QStrin
         result.problem = QCoreApplication::translate("InstanceUpgrade", "更新副本发布后校验失败，已保留在被拒绝目录：")
             + rejected;
     } else {
-        result.problem = QCoreApplication::translate("InstanceUpgrade", "更新副本发布后校验失败，且自动撤回失败；请手动检查：")
+        result.problem = QCoreApplication::translate("InstanceUpgrade", "升级副本校验失败，自动撤回也未完成。请检查以下内容：")
             + original;
     }
     return result;
@@ -1097,7 +1097,7 @@ static Result rollbackImpl(const Request &r, bool verifyRetained,
     const QString displaced = transactionDir(r) + "/replaced";
     const QString original = originalDir(r);
     if (journal.isEmpty() || !QFileInfo(retained).isDir()) {
-        result.problem = QCoreApplication::translate("InstanceUpgrade", "找不到这次升级保留的原目录，没有执行回滚。");
+        result.problem = QCoreApplication::translate("InstanceUpgrade", "未找到升级前的实例目录，未执行回滚。");
         return result;
     }
     result.snapshotZip = journal.value("snapshotZip").toString();
@@ -1443,7 +1443,7 @@ QStringList recoverInterrupted(const QString &gameDir) {
             messages.append(published
                 ? QCoreApplication::translate("InstanceUpgrade", "上次的更新副本已发布（事务记录未更新），已清理暂存：%1").arg(r.instanceId)
                 : QCoreApplication::translate("InstanceUpgrade", "已清理未发布的更新副本暂存：%1%2")
-                      .arg(r.instanceId, cleaned ? QString() : QCoreApplication::translate("InstanceUpgrade", "（暂存未能删除，请手动检查）")));
+                      .arg(r.instanceId, cleaned ? QString() : QCoreApplication::translate("InstanceUpgrade", "（未能删除暂存文件，需检查）")));
             continue;
         }
         if (state == QLatin1String("copy_rejected")) {

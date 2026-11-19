@@ -132,7 +132,7 @@ void runModpackImportTests(const QString &sandbox) {
         check(multi.format == Format::Unknown && !multi.gameFolderMarkers &&
                   !multi.modsBundle && multi.gameDirPrefix.isEmpty(),
               "V0 多实例懒人包不猜（不拼成一个实例、也不当成模组合集）", multi.detail);
-        check(multi.detail.contains(QStringLiteral("实例")) &&
+        check(multi.detail.contains(QStringLiteral("多个")) &&
                   multi.detail.contains(QStringLiteral(".minecraft")),
               "V0 多实例懒人包说清楚为什么没导入", multi.detail);
         // 套在一层目录里的多实例也认得出（`commonRootPrefix()` 那一趟）。
@@ -141,7 +141,7 @@ void runModpackImportTests(const QString &sandbox) {
              QStringLiteral("整合包/实例B/.minecraft/config/b.json")});
         check(wrappedMulti.format == Format::Unknown &&
                   wrappedMulti.rootPrefix == QStringLiteral("整合包/") &&
-                  wrappedMulti.detail.contains(QStringLiteral("实例")),
+                  wrappedMulti.detail.contains(QStringLiteral("多个 .minecraft 目录")),
               "V0 套在一层目录里的多实例也说得清", wrappedMulti.detail);
         // 只有一个 `.minecraft` 的兄弟目录（说明、启动器本体）**不算**多实例。
         const auto singleInDir = detectArchiveLayout(
@@ -469,7 +469,7 @@ void runModpackImportTests(const QString &sandbox) {
         })json";
         const ModpackImport::Result bad = ModpackImport::parseModrinthIndex(traversal);
         check(!bad.ok && bad.problem.contains(QStringLiteral("../../外面的文件.txt")) &&
-                  bad.problem.contains(QStringLiteral("整个包")),
+                  bad.problem.contains(QStringLiteral("导入已取消")),
               "V4 有一条往外跳的路径：整包拒绝，而且把那一条原样指出来", bad.problem);
 
         // 跳过的两类：只给服务端用的、没有下载地址的。两个都要**记一笔**（用户看不到
@@ -776,7 +776,7 @@ void runModpackImportTests(const QString &sandbox) {
               "★★ V5z 单模组压成 .zip ⇒ 认不出来，并说它是模组（不是当成整合包建个空实例）",
               kindOf(modZip).detail);
         check(!kindOf(multiZip).known &&
-                  kindOf(multiZip).detail.contains(QStringLiteral("实例")),
+                  kindOf(multiZip).detail.contains(QStringLiteral("多个 .minecraft 目录")),
               "★★ V5z 几个实例打在一起 ⇒ 不导入，并说清是多个实例（不是一句「认不出来」）",
               kindOf(multiZip).detail);
         const QString notZip = work + "/其实是文本.zip";

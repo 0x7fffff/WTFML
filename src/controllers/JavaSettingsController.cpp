@@ -54,7 +54,7 @@ JavaSettingsController::JavaSettingsController(MainWindowUI *ui, GlobalJavaSetti
             log(tr("Java %1 运行时下载失败").arg(major));
             if (!batch && m_page != nullptr && m_page->isVisible())
                 InlineMessage::warning(m_ui->overlay(), tr("Java 运行时下载失败"),
-                    tr("没能下到 Java %1。多半是网络不通（下载走的是 Adoptium）。\n可以自己装一个，再回来按「检测已有 Java」；或者去「实例设置…」里把某一份现成的 Java 指过去。")
+                    tr("Java %1 未从 Adoptium 下载成功。\n请重试，或在安装 Java 后选择「检测已有 Java」。也可在实例设置中指定 Java。")
                         .arg(major));
         }
     });
@@ -62,8 +62,8 @@ JavaSettingsController::JavaSettingsController(MainWindowUI *ui, GlobalJavaSetti
             [this](bool batch, int okCount, int failCount, bool cancelled) {
         if (cancelled) log(tr("Java 下载队列已停止；当前下载完成后没有再开始下一份。"));
         if (batch && failCount > 0 && m_page != nullptr && m_page->isVisible())
-            InlineMessage::warning(m_ui->overlay(), tr("有些 Java 没下成"),
-                tr("下好了 %1 份，有 %2 份没下成。多半是网络不通（下载走的是 Adoptium）。\n可以隔一会儿再点一次，或者自己装好之后按「检测已有 Java」。")
+            InlineMessage::warning(m_ui->overlay(), tr("部分 Java 下载失败"),
+                tr("已下载 %1 个 Java 运行时，%2 个下载失败。\n请重试，或手动安装后选择「检测已有 Java」。")
                     .arg(okCount).arg(failCount));
     });
 
@@ -266,7 +266,7 @@ void JavaSettingsController::setManualJava(const QString &path) {
     const QFileInfo info(path.trimmed());
     if (info.fileName().isEmpty()) return;
     if (!info.isFile()) {
-        log(tr("手动指定的 Java 不在了：%1").arg(QDir::toNativeSeparators(info.filePath())));
+        log(tr("找不到手动指定的 Java：%1").arg(QDir::toNativeSeparators(info.filePath())));
         InlineMessage::warning(
             m_ui->overlay(), tr("没选到 java.exe"),
             tr("这条路线上没有那个文件：\n%1\n\n要选的是 Java 安装目录下 bin 里的 java.exe。")
@@ -278,7 +278,7 @@ void JavaSettingsController::setManualJava(const QString &path) {
     const QString absolute = info.absoluteFilePath();
     // 认主版本可能要真跑一次 `java -version`（最多 5 秒），所以先进后台；日志里留一句，
     // 免得那几秒里用户以为这一下没反应。
-    log(tr("正在确认这份 Java 的主版本：%1").arg(QDir::toNativeSeparators(absolute)));
+    log(tr("正在识别 Java 主版本：%1").arg(QDir::toNativeSeparators(absolute)));
     const quint64 generation = ++m_manualGeneration;
     auto *watcher = new QFutureWatcher<int>(this);
     connect(watcher, &QFutureWatcher<int>::finished, this,
@@ -287,11 +287,11 @@ void JavaSettingsController::setManualJava(const QString &path) {
                 if (generation != m_manualGeneration) return;
                 const int major = watcher->result();
                 if (major <= 0) {
-                    log(tr("认不出这份 Java 的主版本：%1")
+                    log(tr("无法识别 Java 主版本：%1")
                             .arg(QDir::toNativeSeparators(absolute)));
                     InlineMessage::warning(
                         m_ui->overlay(), tr("这不是一份能用的 Java"),
-                        tr("没能认出 %1 的主版本。\n\n如果它确实是一份 Java，请选它 bin 目录下的 java.exe；如果它装在别的盘上，启动器不认识也没关系 —— 这一条路就是为它留的，只是它得真的能跑起来。")
+                        tr("无法识别 %1 的 Java 主版本。\n请从 Java 安装目录的 bin 文件夹中选择可运行的 java.exe。")
                             .arg(QDir::toNativeSeparators(absolute)));
                     return;
                 }
@@ -370,7 +370,7 @@ void JavaSettingsController::refreshMemory() {
     int xmx = m_settings->xmx();
     if (xmx > cap) {
         log(tr("内存：%1 %2 MB 超过这台机器的物理内存上限，已降到 %3 MB。")
-                .arg(autoMode ? tr("自动给出的最大内存") : tr("盘上记的最大内存"))
+                .arg(autoMode ? tr("自动给出的最大内存") : tr("已保存的最大内存"))
                 .arg(xmx)
                 .arg(cap));
         m_settings->setXmx(cap);
@@ -406,11 +406,11 @@ void JavaSettingsController::refreshMemory() {
     QString hint;
     if (autoMode) {
         if (usage.totalMb <= 0) {
-            hint = tr("自动分配：读不到系统内存，先用内置值 %1 MB。切回「手动分配」会恢复你上次手动设的 %2 MB。")
+            hint = tr("无法读取系统内存，自动分配暂用 %1 MB。切回「手动分配」可恢复之前设置的 %2 MB。")
                        .arg(xmx)
                        .arg(m_settings->manualXmx());
         } else {
-            hint = tr("自动分配：系统总内存 %1、当前可用 %2；自动给到最大内存 %3 MB（最小内存 %4 MB）。这个数会随系统可用内存自动更新；切回「手动分配」会恢复你上次手动设的 %5 MB。")
+            hint = tr("系统总内存为 %1，当前可用 %2。自动分配最大 %3 MB、最小 %4 MB，随可用内存变化。切回「手动分配」可恢复之前设置的 %5 MB。")
                        .arg(memoryText(usage.totalMb), memoryText(usage.availableMb))
                        .arg(xmx)
                        .arg(m_settings->xms())
