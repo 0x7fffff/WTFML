@@ -18,16 +18,6 @@
 
 #include <functional>
 
-struct AgentToolContext {
-    QString sessionId;
-    QString instanceId;
-    QString instanceName;
-    QString gameRootId;
-    QString rootPath;
-    QString providerHost;
-    bool strictEgress = false;
-};
-
 class AgentFileToolEngine : public AgentToolEngine {
 public:
     using ContextProvider = std::function<AgentToolContext(QString *problem)>;
@@ -40,6 +30,7 @@ public:
     AgentToolResult resolveApproval(const QString &approvalId, bool approved) override;
     void cancelPending() override;
     bool committing() const override { return m_committing; }
+    bool handles(const QString &internalName) const override;
 
     void setStrictEgress(bool strict) { m_strictEgress = strict; }
     bool strictEgress() const { return m_strictEgress; }

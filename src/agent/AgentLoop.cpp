@@ -69,7 +69,15 @@ void AgentLoop::setClient(AgentModelClient *client) {
 
 void AgentLoop::setConfig(const Config &config) { m_config = config; }
 
-void AgentLoop::setToolEngine(AgentToolEngine *engine) { m_toolEngine = engine; }
+void AgentLoop::setToolEngine(AgentToolEngine *engine) {
+    m_toolEngine = engine;
+    if (m_toolEngine != nullptr) {
+        m_toolEngine->setCompletionSink(
+            [this](const Agent::ToolCall &call, const AgentToolResult &result) {
+                onAsyncToolDone(call, result);
+            });
+    }
+}
 
 void AgentLoop::setHistory(const QList<Agent::Message> &history) { m_history = history; }
 
@@ -323,6 +331,12 @@ void AgentLoop::processToolCalls() {
         }
         setState(State::ExecutingTool);
         const AgentToolResult result = m_toolEngine->invoke(call);
+        if (result.status == AgentToolResult::Status::Pending) {
+            // 异步工具（MCP）：等它自己回来，不推进 m_nextToolCall。
+            m_asyncPending = true;
+            m_asyncGeneration = m_generation;
+            return;
+        }
         if (result.status == AgentToolResult::Status::ApprovalRequired) {
             m_pendingCall = call;
             m_approvalId = result.approval.value(QStringLiteral("approvalId")).toString();
@@ -375,6 +389,13 @@ void AgentLoop::resolveApproval(bool approved) {
     m_approvalId.clear();
     setState(State::ExecutingTool);
     const AgentToolResult result = m_toolEngine->resolveApproval(approvalId, approved);
+    if (result.status == AgentToolResult::Status::Pending) {
+        // 批准之后才开始真正的异步调用：等 sink 回来再推进。
+        m_asyncPending = true;
+        m_asyncGeneration = m_generation;
+        m_pendingCall = {};
+        return;
+    }
     handleToolOutcome(m_pendingCall, result);
     m_pendingCall = {};
     ++m_nextToolCall;
@@ -389,9 +410,20 @@ void AgentLoop::invalidateRequest() {
     m_requestId.clear();
 }
 
+void AgentLoop::onAsyncToolDone(const Agent::ToolCall &call, const AgentToolResult &result) {
+    if (!m_asyncPending) return;
+    if (m_generation != m_asyncGeneration) return;  // 换会话/取消后的旧回调
+    if (m_state != State::ExecutingTool) return;
+    m_asyncPending = false;
+    handleToolOutcome(call, result);
+    ++m_nextToolCall;
+    processToolCalls();
+}
+
 void AgentLoop::cancel() {
     if (!busy() || m_cancelled) return;
     m_cancelled = true;
+    m_asyncPending = false;
     if (m_toolEngine != nullptr) m_toolEngine->cancelPending();
     m_approvalId.clear();
     m_pendingCall = {};

@@ -27,38 +27,32 @@
 ## 2. P0 与已确认回归
 
 - **P0**：维持原件保护、完整校验、保守恢复与有界取消。验证范围见 [ACCEPTANCE_LOG](archive/ACCEPTANCE_LOG.md)（2026-10-25 节）。
-- [x] 服务端已知字段恢复默认不能落盘：`ServerRegistry::writeMeta()` 先清模型拥有的键（`ServerModel::ownedMetaKeys()`）再合并，未知字段保留；`ServerRegistryTests`（ZX8 系列）覆盖。
 
 ## 3. P1：实例升级页面与选择性迁移
 
 复用现有升级事务，不重写下载器、模组识别和原地恢复。
 
-- [x] **U1–U7**：页面与状态模型（来源/目标、九类选择、底部确认区）；九类内容只读计划（存档、模组、配置、游戏设置、资源包、光影、截图、原理图、服务器列表，稳定类别键、去重、计数、链接/占用检查、计划指纹）；兼容性报告与处理；配置与资源策略；选择性副本事务；同一事务的双向历史；恢复入口与旧模式兼容。
 - [ ] **U8 专项验收**：见 §1 第一行。真机清单 [UPGRADE_ACCEPTANCE](features/UPGRADE_ACCEPTANCE.md)；离屏布局与原生 1000×750 检查分开记录。
 
-## 4. 智能体（Agent，PR #13）
+## 4. 智能体（Agent）
 
-设计与阶段规划见 [AGENT](features/AGENT.md)，实现与自动验收见 [AGENT_STAGE1A](features/AGENT_STAGE1A.md)、[AGENT_STAGE1B](features/AGENT_STAGE1B.md)，人工验收结论见 [ACCEPTANCE_LOG](archive/ACCEPTANCE_LOG.md)（2026-11-10 节）。
+现行行为见 [AGENT](features/AGENT.md)、[Stage 1A](features/AGENT_STAGE1A.md)、[Stage 1B](features/AGENT_STAGE1B.md)、[Stage 2B](features/AGENT_STAGE2B.md)、[Stage 2A](features/AGENT_STAGE2A.md)、[Stage 3](features/AGENT_STAGE3.md)、[Stage 4](features/AGENT_STAGE4.md)，安全边界见 [SECURITY_BOUNDARIES](features/SECURITY_BOUNDARIES.md)，人工记录见 [ACCEPTANCE_LOG](archive/ACCEPTANCE_LOG.md)。
 
-- [x] **Stage 1A**：Provider（OpenAI-compatible 基础子集）＋无工具 Loop＋会话存储/DPAPI 加密＋基础聊天 UI；`verify_agent` 自动验收已过。
-- [x] **G1A 人工审查**（2026-11-10）：除网络错误外全部通过。
-- [x] **Stage 1B**：受控文件工具（`fs.list`/`fs.listNames`/`fs.read`/`fs.write`/`artifact.read`）、逐次审批、D11 外发策略、实例锁定；自动验收 core-agent 306/306、ui-agent 39/39、main-window-agent 31/31。
-- [ ] **G1B 人工审查**：首轮未通过；B1、B2、B3 已在 2026-11-13 修掉（见 [REVIEW_LOG](archive/REVIEW_LOG.md)）：
-  - 修完后复测 R1–R4、R6、R7，补做 W4/W5、A1、P4、P5；P0/P1 清零前不进入 Stage 2。
-- [ ] **网络错误验收**（延后，未执行）：401/403、429、断网、流中断、重定向、TLS 证书错误、代理、400 错误体，清单见 ACCEPTANCE_LOG 2026-11-10 节末尾。
-- [ ] **Stage 2**：维护工作流（体检、崩溃急救、升级接入、模组维护）＋ stdio MCP，单独验收。日志/诊断工具须按字段白名单投影（用户名、启动参数回显、绝对路径、硬件指纹不整段送模型）。
-- [ ] **Stage 3**：联网搜索/抓取、固定诊断命令（参数白名单）、资源维护、更多 MCP 形态。
-- [ ] **Stage 4**：完整回归、真机/实网验收、文档与发布。
+- [ ] **G1B 人工复测**：B1、B2、B3 已在代码里修复；复测 R1–R4、R6、R7，补做 W4/W5、A1、P4、P5，以及真实路径/junction/长路径、真实文件系统竞争/占用。P0/P1 清零前不进入 Stage 2。
+- [ ] **网络错误验收**：401/403、429、断网、流中断、重定向、TLS 证书错误、代理、400 错误体；清单见 ACCEPTANCE_LOG 的「延后：网络错误」一节。
+- [ ] **G2B 人工验收**：崩溃急救的「发现 → 计划 → 批准 → 执行 → 验证 → 回退」、计划跳步被拦、失败后锁写、备份创建/恢复、诊断字段白名单。清单见 [AGENT_STAGE2B](features/AGENT_STAGE2B.md) §6。
+- [ ] **G2A 人工验收**：真实 Node/Python MCP 服务器的首次启动确认、配置修改、可执行文件替换、重连确认、工具逐次审批、崩溃不自动重启、进程清理。清单见 [AGENT_STAGE2A](features/AGENT_STAGE2A.md) §7。
+- [ ] **G3 人工验收**：DNS 多地址/重绑定、系统代理已配置仍直连、证书主机名校验、真实搜索与真实固定诊断命令。清单见 [AGENT_STAGE3_4_ACCEPTANCE](features/AGENT_STAGE3_4_ACCEPTANCE.md)。
+- [ ] **Stage 3 剩余项**：资源搜索/安装/更新工具、Brave/Tavily provider、HTTP/SSE MCP（若批准）。
+- [ ] **G4 人工验收**：真机发布物、真机/实网、高 DPI/读屏、长路径/中文路径/受限权限、换用户解密、视觉套件与样张。自动化回归、性能基线与发布检查已完成，结果见 [AGENT_STAGE4](features/AGENT_STAGE4.md)；清单见 [AGENT_STAGE3_4_ACCEPTANCE](features/AGENT_STAGE3_4_ACCEPTANCE.md) 的 G4 一节。
 
 ## 5. P2：性能与体验
 
 - [ ] **实网来源与过期链接**：补当前网络下 Modrinth/CurseForge 无备用源、签名 URL 过期、ETag/表示变化和重试边界。共享请求预算、元数据截止、分段持续低速比较已实现。见 [高速下载](features/HIGH_SPEED_DOWNLOAD.md)、[网络诊断](dev/NETWORK_DIAGNOSTICS.md)。
 - [ ] **复杂预设的剩余 I/O**：父清单/索引的批量保存仍逐份同步刷盘，列表摘要按预算读取未做；保留原子写、错误可见、取消与预览/执行指纹门禁。子清单快速原子写、摘要缓存、并行冷读已完成。见 [预设并行读取](dev/perf-notes/PRESET_LIST_IO.md)、[卡顿采样](dev/perf-notes/MAIN_THREAD_STALLS.md)。
-- [x] **实例文件页/存档页的大列表**：分帧建行（首帧 80 行、其后每轮 120 行）、可见范围行控件回收/重建、目录统计缓存已完成（1000 行 362 ms 建完；500 个存档页 PASS）。见 [大列表](dev/perf-notes/LIST_PAINT.md)。
 - [ ] **其它列表与复杂预设详情**在多任务下的首绘/滚动测量。
 - [ ] **错误反馈与外部工具边界**：批量/详情/迁移长错误、非常用服务器属性与 MOTD、外部 Java/安装器长路径与占用组合验收。长错误提示滚动已完成。
 - [ ] **复杂页面与动效收口**：完整 hover 过渡、焦点/禁用对比、背景叠加阅读性、克制的空间动效。退出转场统一 200 ms、任务中心提示层已完成。
-- [x] **本机构建剩余对照**：冷/增量对照已补；主程序 PCH、主线程调用栈、多任务基线和静态头扇出已有测量。Actions 缓存效果见 §7。
 
 ## 6. P3：低优先级
 

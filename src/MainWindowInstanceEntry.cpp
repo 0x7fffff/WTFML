@@ -27,6 +27,10 @@
 #include "controllers/MainWindowViewData.hpp"
 #include "launcher/QuickPlay.hpp"
 #include "manage/VersionManager.hpp"
+#include "settings/EffectiveJavaSettings.hpp"
+#include "settings/GlobalJavaSettings.hpp"
+#include "util/AppPaths.hpp"
+#include "util/SystemMemory.hpp"
 
 using namespace MainWindowViewData;
 
@@ -113,4 +117,46 @@ QStringList MainWindow::instanceCommonFolderKeys(const QString &versionId,
     // 是界面的事（`InstanceSettingsDialog::shortcutPathKeys()`），所以从这儿递进去。
     return InstancePagesController::commonFolderKeys(versionId, dirs,
                                                      InstanceSettingsDialog::shortcutPathKeys());
+}
+
+StartupDiagnosis::Inputs MainWindow::startupDiagnosisInputs(const QString &versionId) {
+    StartupDiagnosis::Inputs inputs;
+    if (versionId.isEmpty()) return inputs;
+    inputs.instanceName = instanceDisplayName(versionId);
+    inputs.versionId = versionId;
+    const VersionDisplayParts parts = m_versionManager->displayParts(versionId);
+    inputs.gameVersion = parts.realVersion.isEmpty() ? parts.id : parts.realVersion;
+    // 加载器名 / 版本走 `InstancePagesController::loaderName()`，**不直接读**
+    // `parts.loaderName`：那一格只有我们自己的安装器会写，合并实例（加载器只写在
+    // 版本 json 的 `libraries` 里）在那儿是空的，诊断会把 Fabric 实例说成原版。
+    QString loaderVersion;
+    inputs.loaderName = InstancePagesController::loaderName(parts, m_versionManager, &loaderVersion);
+    inputs.loaderVersion = loaderVersion;
+    inputs.requiredJavaMajor = m_versionManager->getVersionJson(versionId)
+                                  .value(QStringLiteral("javaVersion"))
+                                  .toObject()
+                                  .value(QStringLiteral("majorVersion"))
+                                  .toInt(-1);
+
+    const JavaSettingsOverride override = javaOverrideFromJson(m_versionManager->versionMeta(versionId));
+    const EffectiveJavaSettings java = resolveJavaSettings(m_javaSettings->effective(), override);
+    inputs.configuredJavaPath = java.javaPath;
+    inputs.autoSelectJava = m_javaSettings->autoSelectJava() && !override.javaPath.has_value();
+    inputs.autoMemory = java.autoMemory;
+    const SystemMemory::Usage usage = SystemMemory::read();
+    inputs.systemTotalMb = usage.totalMb;
+    inputs.systemAvailableMb = usage.availableMb;
+    if (java.autoMemory) {
+        inputs.xmxMb = GlobalJavaSettings::suggestXmxMb(usage.totalMb, usage.availableMb,
+                                                       instanceModCount(versionId));
+        inputs.xmsMb = GlobalJavaSettings::suggestXmsMb(inputs.xmxMb);
+    } else {
+        inputs.xmxMb = java.xmx;
+        inputs.xmsMb = java.xms;
+    }
+
+    inputs.modsDir = InstancePagesController::fileDirs(versionId).value(QStringLiteral("mod"));
+    inputs.logPath = AppPaths::minecraftDir() + QStringLiteral("/logs/wtfml.log");
+    inputs.crashDir = AppPaths::crashReportsDir();
+    return inputs;
 }

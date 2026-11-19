@@ -9,6 +9,7 @@
 #include "AgentMarkdown.hpp"
 #include "AgentComposer.hpp"
 #include "AgentMessageView.hpp"
+#include "AgentMcpPage.hpp"
 #include "AgentPage.hpp"
 #include "AgentSecretEdit.hpp"
 #include "AgentApprovalCard.hpp"
@@ -18,6 +19,7 @@
 #include "ToggleSwitch.hpp"
 
 #include <QCheckBox>
+#include <QElapsedTimer>
 #include <QComboBox>
 #include <QGroupBox>
 #include <QKeyEvent>
@@ -320,6 +322,32 @@ int UiAgentCheck() {
                .contains(QStringLiteral("<img")),
           "智能体 UI：不生成远程 img");
 
+    // 性能基线：2000 条消息一次性摆进对话流（Stage 4 记录，见 perf-notes）。
+    {
+        QList<AgentView::Message> many;
+        for (int i = 0; i < 2000; ++i) {
+            AgentView::Message message;
+            message.id = QStringLiteral("perf-%1").arg(i);
+            message.user = (i % 2 == 0);
+            message.content = QStringLiteral("第 %1 条：启动失败，日志里说缺少前置模组。").arg(i);
+            message.status = AgentView::MessageStatus::Complete;
+            many.append(message);
+        }
+        QElapsedTimer timer;
+        timer.start();
+        page->setMessages(many);
+        QApplication::processEvents();
+        const qint64 elapsed = timer.elapsed();
+        std::printf("[perf] agent-page-2000-messages=%lldms\n", static_cast<long long>(elapsed));
+        std::fflush(stdout);
+        check(elapsed < 8000, "智能体 UI：2000 条消息渲染在 8 秒内",
+              QStringLiteral("%1ms").arg(elapsed));
+        check(page->findChildren<AgentMessageView *>().size() >= 2,
+              "智能体 UI：大量消息里最后几条仍在");
+        page->clearMessages();
+        QApplication::processEvents();
+    }
+
     AgentView::ToolCard toolCard;
     toolCard.id = QStringLiteral("call-1");
     toolCard.title = QStringLiteral("查看目录概况");
@@ -349,6 +377,103 @@ int UiAgentCheck() {
                          {QStringLiteral("egress"),
                           QJsonObject{{QStringLiteral("kind"), QStringLiteral("config-file")},
                                       {QStringLiteral("reason"), QStringLiteral("逐次确认")}}}};
+    // 模式卡片（Stage 2）：五颗胶囊按钮，选中的那颗可勾选；换选中态后状态行跟着变。
+    page->setSkills({{QStringLiteral("general"), QStringLiteral("自由对话"),
+                      QStringLiteral("对话 + 受控工具")},
+                     {QStringLiteral("inspection"), QStringLiteral("实例体检"),
+                      QStringLiteral("只读诊断")}},
+                    QStringLiteral("general"));
+    QApplication::processEvents();
+    auto *generalChip = page->findChild<QPushButton *>(QStringLiteral("agentSkill_general"));
+    auto *inspectionChip = page->findChild<QPushButton *>(QStringLiteral("agentSkill_inspection"));
+    check(generalChip != nullptr && inspectionChip != nullptr,
+          "智能体 UI：模式卡片按技能 id 摆出来");
+    check(generalChip != nullptr && generalChip->isChecked(),
+          "智能体 UI：默认停在自由对话");
+    page->setSkills({{QStringLiteral("general"), QStringLiteral("自由对话"),
+                      QStringLiteral("对话 + 受控工具")},
+                     {QStringLiteral("inspection"), QStringLiteral("实例体检"),
+                      QStringLiteral("只读诊断")}},
+                    QStringLiteral("inspection"));
+    QApplication::processEvents();
+    inspectionChip = page->findChild<QPushButton *>(QStringLiteral("agentSkill_inspection"));
+    check(inspectionChip != nullptr && inspectionChip->isChecked(),
+          "智能体 UI：换模式后选中态跟着走");
+    page->setWorkflowStatus(QStringLiteral("模式：实例体检 · 阶段：collect"));
+    QApplication::processEvents();
+    auto *statusLabel = page->findChild<QLabel *>(QStringLiteral("agentWorkflowStatus"));
+    check(statusLabel != nullptr && statusLabel->isVisible() &&
+              statusLabel->text().contains(QStringLiteral("实例体检")),
+          "智能体 UI：工作流状态行可见");
+    page->setWorkflowStatus(QString());
+    QApplication::processEvents();
+    check(statusLabel != nullptr && !statusLabel->isVisible(),
+          "智能体 UI：状态行为空时收起");
+
+    // MCP 服务器页（Stage 2A）：本机权限提示、服务器行、连接按钮、空态。
+    {
+        AgentMcpPage mcpPage;
+        AgentView::McpServerRow row;
+        row.id = QStringLiteral("srv-1");
+        row.name = QStringLiteral("测试服务器");
+        row.command = QStringLiteral("C:/Servers/mcp/server.exe");
+        row.identityShort = QStringLiteral("abcdef123456");
+        row.state = QStringLiteral("ready");
+        row.enabled = true;
+        row.toolCount = 3;
+        mcpPage.setServers({row});
+        mcpPage.show();
+        QApplication::processEvents();
+        auto *note = mcpPage.findChild<QLabel *>(QStringLiteral("agentMcpNote"));
+        check(note != nullptr && note->text().contains(QStringLiteral("Windows 用户权限")),
+              "智能体 UI：MCP 页写明本机用户权限");
+        auto *name = mcpPage.findChild<QLabel *>(QStringLiteral("agentMcpRowName"));
+        check(name != nullptr && name->text() == QStringLiteral("测试服务器"),
+              "智能体 UI：MCP 服务器行显示名称");
+        auto *identity = mcpPage.findChild<QLabel *>(QStringLiteral("agentMcpRowIdentity"));
+        check(identity != nullptr && identity->text().contains(QStringLiteral("abcdef123456")),
+              "智能体 UI：MCP 行显示可执行文件身份摘要");
+        auto *state = mcpPage.findChild<QLabel *>(QStringLiteral("agentMcpRowState"));
+        check(state != nullptr && state->text().contains(QStringLiteral("已连接")),
+              "智能体 UI：MCP 行显示连接状态与工具数");
+        check(mcpPage.findChild<QPushButton *>(QStringLiteral("agentMcpConnect_srv-1")) != nullptr &&
+                  mcpPage.findChild<QPushButton *>(QStringLiteral("agentMcpDisconnect_srv-1")) !=
+                      nullptr,
+              "智能体 UI：MCP 行有连接/断开按钮");
+        check(mcpPage.findChild<QPushButton *>(QStringLiteral("agentMcpConnect_srv-1"))
+                      ->text()
+                      .contains(QStringLiteral("重新连接")),
+              "智能体 UI：已连接时按钮写重新连接");
+        mcpPage.setServers({});
+        QApplication::processEvents();
+        check(mcpPage.findChild<QLabel *>(QStringLiteral("agentMcpEmpty"))->isVisible(),
+              "智能体 UI：没有服务器时显示空态");
+        mcpPage.close();
+    }
+    {
+        AgentSettingsPage settingsPage;
+        settingsPage.setWebSearchEndpoint(QStringLiteral("https://searx.example.com"));
+        settingsPage.setDiagnoseCommands(true);
+        settingsPage.show();
+        QApplication::processEvents();
+        auto *searxng = settingsPage.findChild<QLineEdit *>(QStringLiteral("agentSearxngEdit"));
+        check(searxng != nullptr &&
+                  searxng->text() == QStringLiteral("https://searx.example.com"),
+              "智能体 UI：设置页有 SearXNG 地址并回填");
+        auto *diagnose = settingsPage.findChild<QWidget *>(
+            QStringLiteral("agentDiagnoseCommandsToggle"));
+        check(diagnose != nullptr, "智能体 UI：设置页有诊断命令开关");
+        check(settingsPage.diagnoseCommands(), "智能体 UI：诊断命令开关状态能读回");
+        settingsPage.close();
+    }
+    {
+        AgentSettingsPage settingsPage;
+        QApplication::processEvents();
+        check(settingsPage.findChild<QPushButton *>(QStringLiteral("agentSettingsMcpButton")) !=
+                  nullptr,
+              "智能体 UI：API 设置页有「MCP 服务器…」入口");
+    }
+
     page->showApproval(approval);
     QApplication::processEvents();
     auto *approvalCard = page->findChild<AgentApprovalCard *>();

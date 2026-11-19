@@ -91,6 +91,8 @@ private:
     void processToolCalls();
     void handleToolOutcome(const Agent::ToolCall &call, const AgentToolResult &result);
     void invalidateRequest();
+    /// 异步工具（MCP）的最终结果从这里回来；generation 或状态不对就丢弃。
+    void onAsyncToolDone(const Agent::ToolCall &call, const AgentToolResult &result);
     Agent::Error configurationError() const;
 
     AgentModelClient *m_client = nullptr;
@@ -111,4 +113,7 @@ private:
     Agent::ToolCall m_pendingCall;
     bool m_cancelled = false;
     bool m_assistantAppended = false;
+    /// 正在等一个异步工具的结果：期间不能再发请求，也不能按"同步完成"推进。
+    bool m_asyncPending = false;
+    int m_asyncGeneration = 0;
 };

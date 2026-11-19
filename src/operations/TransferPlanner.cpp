@@ -62,6 +62,21 @@ QString joinSize(int files, qint64 bytes) {
 
 }  // namespace
 
+Compatibility compatibility(const QString &sourceGameVersion, const QString &sourceLoaderName,
+                            const QString &targetGameVersion, const QString &targetLoaderName) {
+    const bool sourceVersionKnown = !sourceGameVersion.trimmed().isEmpty();
+    const bool targetVersionKnown = !targetGameVersion.trimmed().isEmpty();
+    // 「原版」是一个**读得出来**的结论（加载器那一格空着且版本 json 里没有 inheritsFrom），
+    // 所以这里不把空加载器当成"认不出来"；只有版本那一格空着才进入 Unknown。
+    if (!sourceVersionKnown || !targetVersionKnown) return Compatibility::Unknown;
+    const bool sameGame = sourceGameVersion.compare(targetGameVersion, Qt::CaseInsensitive) == 0;
+    const bool sameLoader = sourceLoaderName.compare(targetLoaderName, Qt::CaseInsensitive) == 0;
+    if (sameGame && sameLoader) return Compatibility::Same;
+    if (!sameGame && !sameLoader) return Compatibility::BothDiffer;
+    if (!sameGame) return Compatibility::GameVersionDiffers;
+    return Compatibility::LoaderDiffers;
+}
+
 QString compatibilityName(Compatibility compatibility) {
     switch (compatibility) {
     case Compatibility::Same: return QStringLiteral("一致");
@@ -196,27 +211,8 @@ Plan plan(const Inputs &inputs) {
         return result;
     }
 
-    const bool sourceVersionKnown = !inputs.sourceGameVersion.trimmed().isEmpty();
-    const bool targetVersionKnown = !inputs.targetGameVersion.trimmed().isEmpty();
-    // 「原版」是一个**读得出来**的结论（加载器那一格空着且版本 json 里没有 inheritsFrom），
-    // 所以这里不把空加载器当成"认不出来"；只有版本那一格空着才进入 Unknown。
-    if (!sourceVersionKnown || !targetVersionKnown) {
-        result.compatibility = Compatibility::Unknown;
-    } else {
-        const bool sameGame =
-            inputs.sourceGameVersion.compare(inputs.targetGameVersion, Qt::CaseInsensitive) == 0;
-        const bool sameLoader =
-            inputs.sourceLoaderName.compare(inputs.targetLoaderName, Qt::CaseInsensitive) == 0;
-        if (sameGame && sameLoader) {
-            result.compatibility = Compatibility::Same;
-        } else if (!sameGame && !sameLoader) {
-            result.compatibility = Compatibility::BothDiffer;
-        } else if (!sameGame) {
-            result.compatibility = Compatibility::GameVersionDiffers;
-        } else {
-            result.compatibility = Compatibility::LoaderDiffers;
-        }
-    }
+    result.compatibility = compatibility(inputs.sourceGameVersion, inputs.sourceLoaderName,
+                                         inputs.targetGameVersion, inputs.targetLoaderName);
     result.compatibilitySentence = compatibilityText(
         result.compatibility, inputs.sourceGameVersion, inputs.sourceLoaderName,
         inputs.targetGameVersion, inputs.targetLoaderName);

@@ -151,6 +151,38 @@ set(PROJECT_SOURCES
     ${REPO_ROOT}/src/agent/AgentApprovalPolicy.hpp
     ${REPO_ROOT}/src/agent/AgentFileToolEngine.cpp
     ${REPO_ROOT}/src/agent/AgentFileToolEngine.hpp
+    ${REPO_ROOT}/src/agent/AgentDiagnosticProjection.cpp
+    ${REPO_ROOT}/src/agent/AgentDiagnosticProjection.hpp
+    ${REPO_ROOT}/src/agent/AgentLauncherHost.hpp
+    ${REPO_ROOT}/src/agent/AgentLauncherTools.cpp
+    ${REPO_ROOT}/src/agent/AgentLauncherTools.hpp
+    ${REPO_ROOT}/src/agent/AgentWorkflow.cpp
+    ${REPO_ROOT}/src/agent/AgentWorkflow.hpp
+    ${REPO_ROOT}/src/agent/AgentWorkflowEngine.cpp
+    ${REPO_ROOT}/src/agent/AgentWorkflowEngine.hpp
+    ${REPO_ROOT}/src/agent/AgentCompositeToolEngine.cpp
+    ${REPO_ROOT}/src/agent/AgentCompositeToolEngine.hpp
+    ${REPO_ROOT}/src/agent/McpTypes.cpp
+    ${REPO_ROOT}/src/agent/McpTypes.hpp
+    ${REPO_ROOT}/src/agent/McpProtocol.cpp
+    ${REPO_ROOT}/src/agent/McpProtocol.hpp
+    ${REPO_ROOT}/src/agent/McpTrustStore.cpp
+    ${REPO_ROOT}/src/agent/McpTrustStore.hpp
+    ${REPO_ROOT}/src/agent/McpClient.cpp
+    ${REPO_ROOT}/src/agent/McpClient.hpp
+    ${REPO_ROOT}/src/agent/McpManager.cpp
+    ${REPO_ROOT}/src/agent/McpManager.hpp
+    ${REPO_ROOT}/src/agent/AgentMcpToolEngine.cpp
+    ${REPO_ROOT}/src/agent/AgentMcpToolEngine.hpp
+    ${REPO_ROOT}/src/agent/AgentWebPolicy.cpp
+    ${REPO_ROOT}/src/agent/AgentWebPolicy.hpp
+    ${REPO_ROOT}/src/agent/AgentWebTransport.hpp
+    ${REPO_ROOT}/src/agent/QtAgentWebTransport.cpp
+    ${REPO_ROOT}/src/agent/QtAgentWebTransport.hpp
+    ${REPO_ROOT}/src/agent/AgentWebTools.cpp
+    ${REPO_ROOT}/src/agent/AgentWebTools.hpp
+    ${REPO_ROOT}/src/agent/AgentCommandTools.cpp
+    ${REPO_ROOT}/src/agent/AgentCommandTools.hpp
     ${REPO_ROOT}/ui/AgentMarkdown.cpp
     ${REPO_ROOT}/ui/AgentMarkdown.hpp
     ${REPO_ROOT}/src/net/HttpClient.cpp

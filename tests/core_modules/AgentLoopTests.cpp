@@ -108,9 +108,50 @@ public:
         return result;
     }
     void cancelPending() override { cancelled = true; }
+    bool handles(const QString &internalName) const override {
+        return internalName == QStringLiteral("fs.list");
+    }
     int invokeCount = 0;
     int resolvedCount = 0;
     bool cancelled = false;
+};
+
+/// 异步引擎：invoke 立刻回 Pending，结果从 completion sink 回来（MCP 就是这个形状）。
+class AsyncFakeEngine : public AgentToolEngine {
+public:
+    QJsonArray schemas() const override {
+        return QJsonArray{QJsonObject{
+            {QStringLiteral("type"), QStringLiteral("function")},
+            {QStringLiteral("function"),
+             QJsonObject{{QStringLiteral("name"), QStringLiteral("fs.list")}}}}};
+    }
+    AgentToolResult invoke(const Agent::ToolCall &) override {
+        ++invokeCount;
+        AgentToolResult result;
+        result.status = AgentToolResult::Status::Pending;
+        result.summary = QStringLiteral("等异步结果");
+        return result;
+    }
+    AgentToolResult resolveApproval(const QString &, bool) override { return {}; }
+    void cancelPending() override { cancelled = true; }
+    bool handles(const QString &internalName) const override {
+        return internalName == QStringLiteral("fs.list");
+    }
+    void setCompletionSink(AgentToolSink sink) override { m_sink = std::move(sink); }
+    void deliver(const QString &toolName) {
+        Agent::ToolCall call;
+        call.id = QStringLiteral("call-1");
+        call.name = toolName;
+        AgentToolResult result;
+        result.status = AgentToolResult::Status::Ok;
+        result.summary = QStringLiteral("异步完成");
+        result.data = QJsonObject{{QStringLiteral("entries"), 3}};
+        if (m_sink) m_sink(call, result);
+    }
+
+    int invokeCount = 0;
+    bool cancelled = false;
+    AgentToolSink m_sink;
 };
 
 bool waitFor(const std::function<bool()> &predicate, int timeoutMs = 2000) {
@@ -325,4 +366,55 @@ void runAgentLoopTests() {
         check(loop.state() == AgentLoop::State::Cancelled && engine.cancelled,
               "Loop 工具：待审批时取消会清空 pending，不执行");
     }
+    {
+        FakeModelClient client;
+        client.useTools = true;
+        AsyncFakeEngine engine;
+        AgentLoop loop(&client);
+        loop.setToolEngine(&engine);
+        AgentLoop::Config config;
+        config.profile.baseUrl = QStringLiteral("https://api.example.com/v1");
+        config.profile.model = QStringLiteral("m");
+        config.apiKey = QStringLiteral("k");
+        loop.setConfig(config);
+        loop.setHistory({user(QStringLiteral("异步工具"))});
+        loop.start();
+        check(waitFor([&] { return loop.state() == AgentLoop::State::ExecutingTool; }),
+              "Loop 异步：异步工具进入执行中");
+        check(loop.busy(), "Loop 异步：等待异步结果时仍算忙");
+        engine.deliver(QStringLiteral("fs.list"));
+        check(waitFor([&] { return loop.state() == AgentLoop::State::Completed; }),
+              "Loop 异步：结果回来后这一轮完成");
+        bool sawToolMessage = false;
+        for (const Agent::Message &message : loop.history()) {
+            if (message.role == Agent::Role::Tool &&
+                message.content.contains(QStringLiteral("异步完成"))) {
+                sawToolMessage = true;
+            }
+        }
+        check(sawToolMessage, "Loop 异步：异步工具结果进了历史");
+    }
+    {
+        FakeModelClient client;
+        client.useTools = true;
+        AsyncFakeEngine engine;
+        AgentLoop loop(&client);
+        loop.setToolEngine(&engine);
+        AgentLoop::Config config;
+        config.profile.baseUrl = QStringLiteral("https://api.example.com/v1");
+        config.profile.model = QStringLiteral("m");
+        config.apiKey = QStringLiteral("k");
+        loop.setConfig(config);
+        loop.setHistory({user(QStringLiteral("异步工具然后取消"))});
+        loop.start();
+        check(waitFor([&] { return loop.state() == AgentLoop::State::ExecutingTool; }),
+              "Loop 异步：取消前在等结果");
+        loop.cancel();
+        check(engine.cancelled, "Loop 异步：取消会通知引擎");
+        engine.deliver(QStringLiteral("fs.list"));
+        QCoreApplication::processEvents();
+        check(loop.state() == AgentLoop::State::Cancelled,
+              "Loop 异步：取消后的迟到结果被丢弃");
+    }
+
 }

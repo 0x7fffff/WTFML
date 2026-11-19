@@ -119,6 +119,100 @@ bool AgentBackupIndex::createFromBytes(const QString &sourceSessionId, const QSt
     return true;
 }
 
+bool AgentBackupIndex::createFromFiles(const QString &sourceSessionId, const QString &instanceId,
+                                      const QList<QPair<QString, QByteArray>> &files,
+                                      const QString &reason, QString *backupId, QString *problem) {
+    if (files.isEmpty()) {
+        if (problem != nullptr) *problem = QStringLiteral("没有可备份的文件。");
+        return false;
+    }
+    QJsonArray array;
+    QStringList paths;
+    for (const auto &file : files) {
+        // base64：配置与 mods 里都有二进制（servers.dat、jar 里的字节），不能按文本拼。
+        array.append(QJsonObject{{QStringLiteral("path"), file.first},
+                                 {QStringLiteral("data"),
+                                  QString::fromLatin1(file.second.toBase64())}});
+        paths.append(file.first);
+    }
+    const QByteArray payload = QJsonDocument(
+        QJsonObject{{QStringLiteral("format"), QStringLiteral("agent-maintenance-files")},
+                    {QStringLiteral("files"), array}}).toJson(QJsonDocument::Compact);
+    const QString id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    const QString dir = dirFor(id);
+    if (!QDir().mkpath(dir)) {
+        if (problem != nullptr) *problem = QStringLiteral("无法创建维护备份目录。");
+        return false;
+    }
+    const QByteArray encrypted = SecretProtector::protect(payload, backupMagic());
+    if (encrypted.isEmpty()) {
+        QDir(dir).removeRecursively();
+        if (problem != nullptr) *problem = QStringLiteral("备份 DPAPI 加密失败，拒绝保存。");
+        return false;
+    }
+    {
+        QSaveFile file(dir + QStringLiteral("/original.enc"));
+        if (!file.open(QIODevice::WriteOnly) || file.write(encrypted) != encrypted.size() ||
+            !file.commit()) {
+            QDir(dir).removeRecursively();
+            if (problem != nullptr) *problem = QStringLiteral("备份内容写盘失败。");
+            return false;
+        }
+    }
+    AgentBackupEntry entry;
+    entry.backupId = id;
+    entry.sourceSessionId = sourceSessionId;
+    entry.instanceId = instanceId;
+    entry.reason = reason;
+    entry.originalPaths = paths;
+    entry.sha256 = QString::fromLatin1(
+        QCryptographicHash::hash(payload, QCryptographicHash::Sha256).toHex());
+    entry.restoreHint = QStringLiteral("本机当前 Windows 用户可通过 Agent 备份元数据恢复。");
+    entry.size = payload.size();
+    entry.createdAt = QDateTime::currentDateTimeUtc();
+    if (!writeMeta(entry, problem)) {
+        QDir(dir).removeRecursively();
+        return false;
+    }
+    if (backupId != nullptr) *backupId = id;
+    return true;
+}
+
+bool AgentBackupIndex::readFiles(const QString &backupId,
+                                 QList<QPair<QString, QByteArray>> *files, QString *problem) {
+    QByteArray payload;
+    if (!readOriginal(backupId, &payload, problem)) return false;
+    const QJsonObject root = QJsonDocument::fromJson(payload).object();
+    QList<QPair<QString, QByteArray>> result;
+    if (root.value(QStringLiteral("format")).toString() ==
+        QStringLiteral("agent-maintenance-files")) {
+        for (const QJsonValue &value : root.value(QStringLiteral("files")).toArray()) {
+            const QJsonObject object = value.toObject();
+            const QString path = object.value(QStringLiteral("path")).toString();
+            const QByteArray data = QByteArray::fromBase64(
+                object.value(QStringLiteral("data")).toString().toLatin1());
+            if (path.isEmpty()) continue;
+            result.append({path, data});
+        }
+    } else {
+        // 单文件备份（`createFromBytes`）：原样回那一个文件，路径取元数据里那一条。
+        QList<AgentBackupEntry> entries;
+        list(&entries);
+        for (const AgentBackupEntry &entry : entries) {
+            if (entry.backupId != backupId) continue;
+            if (entry.originalPaths.isEmpty()) break;
+            result.append({entry.originalPaths.constFirst(), payload});
+            break;
+        }
+    }
+    if (result.isEmpty()) {
+        if (problem != nullptr) *problem = QStringLiteral("备份内容为空或格式认不出来。");
+        return false;
+    }
+    if (files != nullptr) *files = result;
+    return true;
+}
+
 bool AgentBackupIndex::writeMeta(const AgentBackupEntry &entry, QString *problem) {
     const QString path = dirFor(entry.backupId) + QStringLiteral("/meta.json");
     QSaveFile file(path);

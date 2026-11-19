@@ -140,7 +140,25 @@ set(HEADER_FILES
     src/agent/AgentTool.hpp
     src/agent/AgentApprovalPolicy.hpp
     src/agent/AgentFileToolEngine.hpp
+    src/agent/AgentDiagnosticProjection.hpp
+    src/agent/AgentLauncherHost.hpp
+    src/agent/AgentLauncherTools.hpp
+    src/agent/AgentWorkflow.hpp
+    src/agent/AgentWorkflowEngine.hpp
+    src/agent/AgentCompositeToolEngine.hpp
+    src/agent/McpTypes.hpp
+    src/agent/McpProtocol.hpp
+    src/agent/McpTrustStore.hpp
+    src/agent/McpClient.hpp
+    src/agent/McpManager.hpp
+    src/agent/AgentMcpToolEngine.hpp
+    src/agent/AgentWebPolicy.hpp
+    src/agent/AgentWebTransport.hpp
+    src/agent/QtAgentWebTransport.hpp
+    src/agent/AgentWebTools.hpp
+    src/agent/AgentCommandTools.hpp
     src/controllers/AgentController.hpp
+    src/controllers/AgentLauncherHostImpl.hpp
     ui/AgentMarkdown.hpp
     ui/AgentViewTypes.hpp
     ui/AgentMessageView.hpp
@@ -152,6 +170,7 @@ set(HEADER_FILES
     ui/AgentToolCard.hpp
     ui/AgentPanelPaint.hpp
     ui/AgentApprovalCard.hpp
+    ui/AgentMcpPage.hpp
     src/net/HttpClient.hpp
     src/manage/DroppedResource.hpp
     src/manage/FolderManager.hpp
@@ -461,7 +480,23 @@ set(SOURCE_FILES
     src/agent/AgentToolRegistry.cpp
     src/agent/AgentApprovalPolicy.cpp
     src/agent/AgentFileToolEngine.cpp
+    src/agent/AgentDiagnosticProjection.cpp
+    src/agent/AgentLauncherTools.cpp
+    src/agent/AgentWorkflow.cpp
+    src/agent/AgentWorkflowEngine.cpp
+    src/agent/AgentCompositeToolEngine.cpp
+    src/agent/McpTypes.cpp
+    src/agent/McpProtocol.cpp
+    src/agent/McpTrustStore.cpp
+    src/agent/McpClient.cpp
+    src/agent/McpManager.cpp
+    src/agent/AgentMcpToolEngine.cpp
+    src/agent/AgentWebPolicy.cpp
+    src/agent/QtAgentWebTransport.cpp
+    src/agent/AgentWebTools.cpp
+    src/agent/AgentCommandTools.cpp
     src/controllers/AgentController.cpp
+    src/controllers/AgentLauncherHostImpl.cpp
     src/net/HttpClient.cpp
     src/manage/DroppedResource.cpp
     src/manage/FolderManager.cpp
@@ -624,6 +659,7 @@ set(SOURCE_FILES
     ui/AgentSettingsPage.cpp
     ui/AgentToolCard.cpp
     ui/AgentApprovalCard.cpp
+    ui/AgentMcpPage.cpp
     ${WTFML_UI_PAGE_SOURCES}
     ui/MemorySlider.cpp
     ui/MotdText.cpp
@@ -795,11 +831,10 @@ if(WTFML_DIAG_DOWNLOAD)
         COMPILE_DEFINITIONS "WTFML_DIAG_DOWNLOAD=1;WTFML_BUILD_FLAVOR=\"download-diagnostics\"")
 endif()
 
-# 正版登录使用项目自己的 Azure 应用注册。未配置时仍可构建和离线使用，
-# 登录/刷新在发起网络请求前明确提示；不借用其它项目的应用 ID。
-# cmake -DWTFML_CLIENT_ID=<项目应用ID> -DWTFML_REDIRECT_URI=http://localhost:38226/ ...
-set(WTFML_CLIENT_ID "" CACHE STRING "项目自己的 Microsoft OAuth 客户端 ID（空 = 禁用在线授权）")
-set(WTFML_REDIRECT_URI "" CACHE STRING "OAuth 回调地址（空 = http://localhost:38226/）")
+# 正版登录默认使用 WTFML 自己的 Microsoft Entra 应用。客户端 ID 是 OAuth 的公开标识。
+set(WTFML_CLIENT_ID "b24d0030-cedb-454a-96f4-690ba85fcf98" CACHE STRING
+    "Microsoft OAuth 客户端 ID（空 = 禁用在线授权）")
+set(WTFML_REDIRECT_URI "" CACHE STRING "OAuth 本地回调基址（空 = http://localhost/，端口由系统分配）")
 
 if(WTFML_CLIENT_ID)
     target_compile_definitions(WTFMinecraftLauncher PRIVATE WTFML_CLIENT_ID="${WTFML_CLIENT_ID}")

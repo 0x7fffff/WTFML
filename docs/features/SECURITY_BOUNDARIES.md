@@ -1,6 +1,6 @@
 # 外部输入路径与数据安全边界
 
-本文档汇总 WTFML 对外部输入名称、文件路径、图片解码及脚本执行的安全防护边界与校验规范，供核心与功能模块开发者查阅。
+本文档汇总 WTFML 对外部输入名称、文件路径、图片解码、脚本执行和智能体数据外发的安全边界与校验规范，供核心与功能模块开发者查阅。
 
 ---
 
@@ -55,63 +55,86 @@ PNG、BMP、WebP 等格式的头部信息可能声明超大分辨率，引发解
 
 ---
 
-## 4. 智能体（Agent）安全边界
+## 4. 智能体（Agent）
 
-- **网络边界**：仅允许访问配置的模型 API 端点；仅接受 `https://`（环回 `http://` 需显式确认）；不跟随 HTTP 重定向，严格校验 TLS 证书。
-- **凭据隔离**：API Key 仅存储于 Windows 凭据管理器或 DPAPI，不写入日志、会话文件或错误报告；界面默认遮挡并不提供回显与直接复制。
-- **数据脱敏**：出站文本统一过 `AgentRedaction`，对已知令牌、密钥块与凭据字段进行本地遮盖。凭据字段按键名词根判定：键名按 `_`、`-`、`.` 和小写接大写的驼峰边界切 token，任一词根是 `password`/`passwd`/`pwd`/`secret`/`token`/`credential`/`credentials`/`cookie`/`csrf`/`session`/`apikey`，或相邻两个词根组成 `api`+`key`，就遮掉值、保留键名；`sk-`、JWT、`AKIA…`、PEM 私钥块、`Authorization`/`Bearer` 这些形态匹配照旧。限制：词根表之外的自造字段名（如 `azure_kv`）仍要靠形态匹配兜，值少于 6 个字符的不遮。
-- **受控文件工具（Stage 1B）**：
-  - 工具操作仅限锁定实例根目录；
-  - 路径校验结合字符串拒绝与 Windows 句柄级最终路径核对（`GetFinalPathNameByHandleW`、`FileIdInfo`、`FileAttributeTagInfo`），防范 junction 绕过；
-  - 写入范围限定在 `config/**`、`defaultconfigs/**` 及 `options.txt`，写前强制执行 DPAPI 自动备份与用户逐次审批。
+### 4.1 网络与凭据
 
----
+- 模型 API 只允许 `https://`；loopback `http://` 需显式勾选并持续提示；拒绝 userinfo、片段、查询串。
+- 不跟随重定向，不忽略 TLS 证书错误；API Key 只进认证头，不进 URL、日志、会话或错误。
+- API Key 只落 Windows 凭据管理器，主路径不可用时用 DPAPI 后备；两条路都失败拒绝保存并保留旧值，不降级为明文或 QSettings 明文。
+- 界面默认星号遮挡，不主动回显；换 Windows 用户或换机器后凭据读不到，需要重新输入。
 
-## 5. 验证基线
+### 4.2 外发与脱敏
 
-核心数据层与安全边界断言的现行自动化验证基线如下：
+- 文件、日志、工具结果先过 `AgentEgressPolicy`，再按需过 `AgentRedaction`。
+- 自动读取：日志、崩溃报告、锁定实例元数据、目录元数据、全局实例总数；首次使用提示「可能发送给当前模型服务」。
+- 逐次确认：配置文件、完整文件名清单、其他文本、全局实例完整列表；没有会话级目录放行。
+- 硬阻断：凭据文件、凭据存储、二进制内容。
+- 严格模式把自动读取类别改为逐次确认，硬阻断不变。
+- `AgentRedaction` 当前方案：键名按 `_`、`-`、`.` 和小写/数字后接大写切词根；命中 `password/passwd/pwd/secret/token/credential(s)/cookie/csrf/session/apikey` 或相邻 `api/key`、`private/key`、`access/key` 时遮值；值少于 6 字符不遮；固定形态覆盖 Bearer、`sk-`、JWT、`AKIA…`、PEM 私钥块。完整说明见 [AGENT.md](AGENT.md) §8.2。
+- 凭据文件名按 dotenv 家族（`.env`、`*.env`、`*.env.*`）、证书后缀（`pem/key/p12/pfx/jks`）和 `credential`/`secret`/`token`/`apikey`/`api_key`/`api-key` 词根判定；不命中的文件名进入普通文本审批。
 
-| 验证工程 | 现行断言数 | 重点安全覆盖断言 |
-| --- | --- | --- |
-| `verify`（核心全套） | 6508/6508 | 含 `LongPathTests`（PowerShell 系统绝对路径解析） |
-| `verify_downloads` | 244/244 | 含 ZAO1（40 位 SHA-1 严格校验）与 ZAO2（资源索引号安全段校验）共 34 条 |
-| `verify_instances` | 1622/1622 | 含 N0（文件名安全校验 15 条）与 ZC3（路径穿越防御 10 条） |
-| `verify_agent` | 306/306 | 智能体出站脱敏、路径校验、会话加密与受控工具权限 |
-| `mw_check` | 2766/2766 | 真实主窗口、跨控制器集成与网络异常隔离 |
-| `ui_check` | 3177/3177 | 界面控件与样式边界 |
+### 4.3 文件工具与审批
 
-自动化架构检查脚本 `tools/check-test-modules.ps1` 与 `tools/check-ci-partitions.ps1` 保持全部通过。
+- 工具只接受相对路径；实例来自会话 `instanceLock`，不接受模型传入的实例 id。
+- 路径校验：字符串拒绝绝对路径、`..`、盘符、UNC、ADS、保留名、尾点/空格、控制字符；已存在路径再用 `CreateFileW` + `GetFinalPathNameByHandleW` + `FileIdInfo` + `FileAttributeTagInfo` 核最终路径、卷序列/文件 ID、reparse。句柄校验降低 TOCTOU 竞争窗口，不宣称彻底解决。
+- `fs.list` 只发目录元数据；`fs.listNames` 每次审批；`fs.read` 拒绝二进制和凭据文件；`fs.write` 只开放 `config/**`、`defaultconfigs/**`、`options.txt`。
+- `fs.write` 必须带旧哈希与身份 token；写前 DPAPI 备份、原子替换、写后回读；对象/内容变化拒绝。`versions/libraries/assets/java/Servers` 原始写拒绝。
+- 模型可读 artifact 只存脱敏内容并 DPAPI 加密；本地原始存档 id 不在模型可见空间；`artifact.read` 每次重新脱敏。
+- 审批请求持久化但不存「已批准」布尔；重启后作废，只能重新请求。
+- 维护备份 `owner=agent`，元数据保留 `sourceSessionId`；删除会话不删备份；`owner=launcher/user/shared` 不允许 Agent 清理。
 
-## 6. 智能体 Stage 1A：模型 API 与凭据（2026-11-10）
+### 4.4 维护工作流与启动器工具（Stage 2B）
 
-设计与范围见 [AGENT.md](AGENT.md)，实现见 [AGENT_STAGE1A.md](AGENT_STAGE1A.md)。
+- 诊断结果先过 `AgentDiagnosticProjection` 再进模型上下文：只留 severity/code/title/hint、计数、Java 主版本、退出码、OOM/缺前置等布尔事实；Java 可执行文件路径、数据根、日志/崩溃报告绝对路径、账户与环境变量、原始 stack trace 一律不进模型。
+- 日志与崩溃报告片段在发送前把本机绝对路径替换成 `<path>`（`AgentDiagnosticProjection::scrubPaths`），再遮凭据形态内容。
+- 完整实例清单、完整模组文件名、设置写、模组启停、备份创建与恢复逐次审批；`settings.get` 不返回 `java.path`，路径类字段从结果里剔除。
+- 工作流只读模式拒绝一切写工具；要求计划的模式里，写工具必须等于**已批准计划的当前一步**，跳步被拒绝；某一步失败后写工具全部锁住。
+- `workflow.finish` 本地核对计划/验证步/证据，缺一项就拒绝；模型不能靠自然语言声称完成。
+- 维护备份路径全部是实例目录内的相对路径；恢复前先做快照，恢复时拒绝绝对路径与 `..`；只恢复 `owner=agent` 的备份。
 
-- **网络**：只有模型 API 一处。只接受 `https://`；loopback `http://` 需显式勾选并持续提示；拒绝 userinfo、片段、查询串；不跟随重定向；不忽略 TLS 错误；key 只进认证头。
-- **凭据**：API Key 只落 Windows 凭据管理器（主）或 DPAPI 后备；两条路都失败则拒绝保存并保留旧值，不降级为明文或 QSettings 明文。界面默认星号遮挡，不回显、不复制，不写日志/会话/错误。
-- **会话**：默认明文 JSON，不含密钥；可选整会话 DPAPI 加密（`.enc`），失败保留明文并报错，解密失败不回退明文。加密只保护本地落盘，发送给模型的内容不变。
-- **脱敏**：发送前过 `AgentRedaction`，Bearer / JWT / 私钥块 / 云 key / 凭据字段值在本机遮挡；用户消息命中时提示"已遮挡后再发送"。
-- **上限**：响应 16 MB、SSE 单行 1 MB；流式分块边界、坏 JSON、超限都中止并可见。
-- **能力边界**：不读文件/日志/实例元数据，不调用工具，不启动 MCP；模型不能修改系统提示、API 配置、工具白名单或审批策略。
-- **取消**：关闭窗口/切换会话/切换选项卡取消在飞请求，流中断保留已收到内容并标"已中断"。
-- **人工验收**：G1A 除网络错误外通过；网络错误项（401/403、429、断网、流中断、重定向、证书、代理、400 错误体）延后到 [ACCEPTANCE_LOG](../archive/ACCEPTANCE_LOG.md)，完成前不算通过。
+### 4.5 MCP（Stage 2A，stdio）
 
-## 7. 智能体 Stage 1B：文件工具与审批（2026-11-10）
+- 服务器必须由用户显式添加：绝对路径可执行文件 + 参数数组，不解析 `PATH`、不自动下载、不把 `npx`/`uvx` 当默认。
+- 启动闸：首次启动、配置修改、手动重连都要确认；确认记录绑定 `configHash` 与可执行文件身份（路径、SHA-256、大小、mtime、卷序列+文件 ID）。任一项变化旧确认失效；文件缺失/读不动直接拒绝启动。
+- 不自动重连、不自动重启；崩溃后 pending 请求以错误结束，进程树用 Job Object 清理。
+- 每个 MCP 工具逐次审批，不信任服务器声明的只读注解；启动确认与工具审批互相独立。
+- 工具结果按不可信数据处理：遮凭据、16 KB 截断、标 `untrusted`；`isError` 映射成工具错误。
+- stdout 只走协议（垃圾行有上限），stderr 进脱敏日志；环境变量只记名字，不落盘秘密值。
+- 服务器反向请求只回 `ping`，其它方法统一 `-32601`，不挂起。
 
-实现见 [AGENT_STAGE1B.md](AGENT_STAGE1B.md)。
+### 4.6 联网与固定诊断命令（Stage 3）
 
-- **路径**：字符串快速拒绝（绝对路径、`..`、盘符、UNC、ADS、保留名、尾点/空格、控制字符）之后，已存在路径再用 `CreateFileW` + `GetFinalPathNameByHandleW` + `FileIdInfo` + `FileAttributeTagInfo` 核最终路径、卷序列/文件 ID、reparse。句柄校验用于降低 TOCTOU 竞争风险。
-- **工具根**：会话锁定实例；模型不能传实例 id；换游戏文件夹或实例删除返回 `InstanceUnavailable`，不自动换同名实例。
-- **外发**：`fs.list` 只发目录元数据；完整文件名清单/配置/其他文本逐次确认，没有会话级目录放行；凭据文件/凭据存储/二进制硬阻断；普通文本里的凭据字段只发脱敏片段；自动读取也告知"可能发送给当前模型服务"；严格模式关闭所有自动读取。
-- **写入**：`fs.write` 只允许 `config/**`、`defaultconfigs/**`、`options.txt`，每次审批；必须带旧内容哈希与身份 token；写前 DPAPI 备份、原子替换、写后回读，对象/内容变化则拒绝。`versions/libraries/assets/java/Servers` 原始写拒绝，这些目录的高层操作走现有事务。
-- **artifact**：模型可读 artifact 只存脱敏内容并 DPAPI 加密；本地原始存档 id 不在模型可见空间；`artifact.read` 每次重新脱敏，先前审批不豁免。
-- **审批**：请求持久化但不存"已批准"布尔，重启后作废、只能重新请求。
-- **备份**：维护备份 `owner=agent`，元数据保留 `sourceSessionId`；删除会话不删备份；`owner=launcher/user/shared` 不允许 Agent 清理。
+- 只允许 `http/https`；拒绝 userinfo、片段、空 host；`file:`/`data:`/`ftp:` 一律拒绝。
+- 解析目标 host 的**全部** A/AAAA，任一落入 loopback/私网/链路本地/组播/保留/未指定（含 `::ffff:` 映射）就整条拒绝。
+- 连接**已校验的 IP**（pinned-IP）；`Host` 头与 TLS 主机名校验用原 host；重定向最多 5 跳，每跳重新解析 + 全地址校验 + pinned 连接；第一版不继承系统代理。
+- 只读文本类 Content-Type；响应 2 MB、正文 20 万字符封顶；HTML 去 script/style 后转文本；结果遮凭据、标不可信。
+- `web.search` 只支持用户自己的 SearXNG；搜索词会发给该实例，每次调用都要审批。
+- `command.diagnose` 只执行编译进程序的固定 spec，host 参数只接受域名/IP 字面量，不经过 shell；默认关闭、每次审批；Job Object 清理进程树；输出 256 KB 封顶。
+- `command.run`（任意可执行文件）未开放。
 
-## 8. 已知缺口：G1B 首轮人工发现（修复前 G1B 不通过）
+### 4.7 当前限制
 
-详细记录见 [ACCEPTANCE_LOG](../archive/ACCEPTANCE_LOG.md)。
-
-- `AgentRedaction` 是键名词根 + 固定令牌形态匹配，不能作为通用凭据兜底：词根表之外的自造字段名要靠形态匹配命中。
+- `AgentRedaction` 是键名词根 + 固定令牌形态匹配，不能当作通用凭据兜底：词根表之外的自造字段名要靠形态匹配命中；值少于 6 个字符的字段不遮。
 - 凭据文件识别按 dotenv 家族（`.env`、`*.env`、`*.env.*`）、证书后缀和 `credential`/`secret`/`token`/`apikey`/`api_key`/`api-key` 词根判定，文件名里不含这些词根的名字进入普通文本审批。
-- 大文本 `truncated=true` 时仍生成模型可读 artifact。artifact 只存本次读取窗口（默认 256 KB、最大 1 MB），脱敏未命中时仍可被 `artifact.read` 分段取回；
-- 日志自动读取仍可能带出 Windows 用户名、启动参数回显、绝对路径、显卡/驱动/音频设备等硬件指纹，留给 Stage 2 的日志/诊断字段投影处理。
+- 大文本 `truncated=true` 时 artifact 只保存本次读取窗口（默认 256 KB、最大 1 MB），不是整个原文件；脱敏未命中时仍可被 `artifact.read` 分段取回。
+- 日志自动读取仍可能带出 Windows 用户名、启动参数回显、绝对路径、显卡/驱动/音频设备等硬件指纹；这些留给后续日志/诊断字段投影。
+
+## 5. 验证入口
+
+自动化范围与断言数见 [docs/dev/TESTING.md](../dev/TESTING.md)；智能体专项为 `verify_agent`、`ui_check_agent`、`main-window-agent`。
+
+## 6. 未覆盖
+
+| 项 | 状态 |
+| --- | --- |
+| 网络错误矩阵（401/403、429、断网、流中断、重定向、TLS、代理、400 错误体） | 待人工执行 |
+| 真实文件系统竞争/杀毒软件占用 | 未覆盖 |
+| 真机高 DPI/读屏 | 未覆盖 |
+| 日志字段投影（用户名/参数/路径/硬件指纹） | 留给后续阶段 |
+
+## 7. 微软登录回调
+
+- 启动器先绑定本地回环，由系统分配端口，再打开浏览器。授权请求与令牌交换使用同一次绑定得到的完整回调 URI。
+- 每次授权用系统随机源分别生成 32 字节的 PKCE `code_verifier` 和 `state`。授权使用 S256，换取令牌时提交同一个 verifier。
+- 回调检查 `GET`、已配置的回调路径与本次唯一 `state`，匹配后关闭监听并处理授权结果。打开浏览器失败、超时或处理结束时清理本次状态。

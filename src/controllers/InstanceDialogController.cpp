@@ -706,52 +706,8 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
 
     connect(&dialog, &InstanceSettingsDialog::diagnosisRequested, &dialog,
             [this, &dialog, &targetId] {
-                StartupDiagnosis::Inputs inputs;
-                inputs.instanceName = m_owner->instanceDisplayName(targetId);
-                inputs.versionId = targetId;
-                const VersionDisplayParts parts =
-                    m_owner->m_versionManager->displayParts(targetId);
-                inputs.gameVersion =
-                    parts.realVersion.isEmpty() ? parts.id : parts.realVersion;
-                // 加载器名 / 版本走 `InstancePagesController::loaderName()`，**不直接读
-                // `parts.loaderName`**：那一格只有我们自己的安装器会写，合并实例（加载器只写在
-                // 版本 json 的 `libraries` 里）在那儿是空的，诊断那一页会把 Fabric 实例说成原版。
-                QString loaderVersion;
-                inputs.loaderName = InstancePagesController::loaderName(
-                    parts, m_owner->m_versionManager, &loaderVersion);
-                inputs.loaderVersion = loaderVersion;
-                const QJsonObject versionJson =
-                    m_owner->m_versionManager->getVersionJson(targetId);
-                inputs.requiredJavaMajor = versionJson.value(QStringLiteral("javaVersion"))
-                                               .toObject()
-                                               .value(QStringLiteral("majorVersion"))
-                                               .toInt(-1);
-
-                const JavaSettingsOverride override =
-                    javaOverrideFromJson(m_owner->m_versionManager->versionMeta(targetId));
-                const EffectiveJavaSettings java =
-                    resolveJavaSettings(m_owner->m_javaSettings->effective(), override);
-                inputs.configuredJavaPath = java.javaPath;
-                inputs.autoSelectJava =
-                    m_owner->m_javaSettings->autoSelectJava() && !override.javaPath.has_value();
-                inputs.autoMemory = java.autoMemory;
-                const SystemMemory::Usage usage = SystemMemory::read();
-                inputs.systemTotalMb = usage.totalMb;
-                inputs.systemAvailableMb = usage.availableMb;
-                if (java.autoMemory) {
-                    inputs.xmxMb = GlobalJavaSettings::suggestXmxMb(
-                        usage.totalMb, usage.availableMb, m_owner->instanceModCount(targetId));
-                    inputs.xmsMb = GlobalJavaSettings::suggestXmsMb(inputs.xmxMb);
-                } else {
-                    inputs.xmxMb = java.xmx;
-                    inputs.xmsMb = java.xms;
-                }
-
-                inputs.modsDir = InstancePagesController::fileDirs(targetId)
-                                     .value(QStringLiteral("mod"));
-                inputs.logPath =
-                    AppPaths::minecraftDir() + QStringLiteral("/logs/wtfml.log");
-                inputs.crashDir = AppPaths::crashReportsDir();
+                const StartupDiagnosis::Inputs inputs =
+                    m_owner->startupDiagnosisInputs(targetId);
                 dialog.setDiagnosisText(StartupDiagnosis::analyze(inputs).toText());
             });
 

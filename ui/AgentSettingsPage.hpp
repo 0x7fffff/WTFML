@@ -18,6 +18,7 @@ class QComboBox;
 class QDoubleSpinBox;
 class QLabel;
 class QLineEdit;
+class ToggleSwitch;
 class QPushButton;
 class QSpinBox;
 class AgentSecretEdit;
@@ -42,10 +43,17 @@ public:
     void setPrivacyText(const QString &text);
     void setStrictEgress(bool strict);
     bool strictEgress() const;
+    /// Stage 3：联网搜索与诊断命令。
+    void setWebSearchEndpoint(const QString &endpoint);
+    QString webSearchEndpoint() const;
+    void setDiagnoseCommands(bool enabled);
+    bool diagnoseCommands() const;
 
 signals:
     void saveRequested();
     void testRequested();
+    /// 「MCP 服务器…」：打开 MCP 服务器列表（阶段 2A）。
+    void mcpSettingsRequested();
     void clearKeyRequestedSignal();
     void deleteProfileRequested();
 
@@ -80,6 +88,9 @@ private:
     QLabel *m_privacy = nullptr;
     ToggleSwitch *m_strict = nullptr;
     QPushButton *m_test = nullptr;
+    QPushButton *m_mcp = nullptr;
+    QLineEdit *m_searxng = nullptr;
+    ToggleSwitch *m_diagnoseToggle = nullptr;
     QPushButton *m_save = nullptr;
     QPushButton *m_clearKeyButton = nullptr;
     QPushButton *m_deleteProfile = nullptr;

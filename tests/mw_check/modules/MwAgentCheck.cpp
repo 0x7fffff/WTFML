@@ -11,6 +11,7 @@
 #include "AgentSettingsPage.hpp"
 #include "OverlayHost.hpp"
 #include "agent/AgentPaths.hpp"
+#include "util/AppPaths.hpp"
 #include "agent/AgentSessionStore.hpp"
 #include "controllers/AgentController.hpp"
 #include "agent/AgentModelClient.hpp"
@@ -250,6 +251,106 @@ int MwAgentChecks(QApplication &app) {
         check(!controller->sessionStore()->load(toDelete, &gone, nullptr),
               "真窗口：删除后会话不可读回");
         QDir(root).removeRecursively();
+    }
+
+    // Stage 2：模式切换 + 启动器工具（真 MainWindow 里的宿主）+ 计划闸。
+    {
+        // 宿主按 AppPaths::versionDir() 找实例目录，所以这里造在同一个位置 —— 真窗口里
+        // 两条路（会话上下文 vs 启动器工具宿主）必须指向同一个实例。
+        const QString root = AppPaths::versionDir(QStringLiteral("mw-stage2"));
+        QDir().mkpath(root + QStringLiteral("/mods"));
+        QFile mod(root + QStringLiteral("/mods/example.jar"));
+        check(mod.open(QIODevice::WriteOnly), "真窗口：造一个模组文件", mod.fileName());
+        mod.write("jar");
+        mod.close();
+        AgentInstanceInfo info;
+        info.id = QStringLiteral("mw-stage2");
+        info.name = QStringLiteral("Stage 2 实例");
+        info.gameRootId = AgentInstanceLocks::gameRootId(root);
+        controller->setInstanceContextForTest(root, info);
+
+        // 先有一个会话：模式记在会话元数据里，工具也要有会话才能取上下文。
+        fake.toolCallNext = false;
+        fake.toolRounds = 0;
+        controller->sendForTest(QStringLiteral("Stage 2 模式测试"));
+        check(waitFor([&] { return controller->loop()->state() == AgentLoop::State::Completed; }),
+              "真窗口：Stage 2 用例先建立一个会话");
+        controller->chooseSkillForTest(QStringLiteral("inspection"));
+        check(controller->workflow()->skill().id == QStringLiteral("inspection"),
+              "真窗口：切到实例体检模式");
+        check(page->findChild<QPushButton *>(QStringLiteral("agentSkill_inspection")) != nullptr,
+              "真窗口：模式卡片跟着换");
+        AgentSession skillSession;
+        controller->sessionStore()->load(controller->currentSessionId(), &skillSession, nullptr);
+        check(skillSession.meta.skill == QStringLiteral("inspection"),
+              "真窗口：会话记住当前模式");
+
+        // 只读模式：写工具在复合层就被拦下，不会走到工具执行。
+        Agent::ToolCall write;
+        write.id = QStringLiteral("mw-stage2-write");
+        write.name = QStringLiteral("mods.setEnabled");
+        write.arguments = QJsonObject{{QStringLiteral("fileName"), QStringLiteral("example.jar")},
+                                      {QStringLiteral("enabled"), false}};
+        const AgentToolResult blocked = controller->compositeEngine()->invoke(write);
+        check(blocked.status == AgentToolResult::Status::Error,
+              "真窗口：只读模式拒绝写工具");
+        check(QFile::exists(root + QStringLiteral("/mods/example.jar")),
+              "真窗口：被拒的写工具没有动盘");
+
+        // 启动器工具走真宿主：模组概况只给数量，不给文件名。
+        Agent::ToolCall modsList;
+        modsList.id = QStringLiteral("mw-stage2-mods");
+        modsList.name = QStringLiteral("mods.list");
+        const AgentToolResult modsResult = controller->compositeEngine()->invoke(modsList);
+        check(modsResult.status == AgentToolResult::Status::Ok, "真窗口：mods.list 走真宿主");
+        check(modsResult.data.value(QStringLiteral("mods")).toInt() == 1,
+              "真窗口：真宿主数出 1 个模组",
+              QString::number(modsResult.data.value(QStringLiteral("mods")).toInt()));
+        check(!modsResult.data.contains(QStringLiteral("names")),
+              "真窗口：模组概况不带文件名");
+
+        // 结束：回到自由对话，别影响后面的用例。
+        controller->chooseSkillForTest(QStringLiteral("general"));
+        check(controller->workflow()->skill().id == QStringLiteral("general"),
+              "真窗口：切回自由对话");
+        QDir(root).removeRecursively();
+    }
+
+    // Stage 2A：MCP 管理器和工具引擎都接上了；没配置服务器时调用被拒、不会起进程。
+    {
+        check(controller->mcpManager() != nullptr, "真窗口：MCP 管理器已接线");
+        check(controller->mcpManager()->servers().isEmpty() ||
+                  !controller->mcpManager()->anyReady(),
+              "真窗口：没有服务器自动连上");
+        Agent::ToolCall mcpCall;
+        mcpCall.id = QStringLiteral("mw-mcp-1");
+        mcpCall.name = QStringLiteral("mcp__none__ping");
+        mcpCall.arguments = QJsonObject{};
+        const AgentToolResult mcpResult = controller->compositeEngine()->invoke(mcpCall);
+        check(mcpResult.status == AgentToolResult::Status::Error,
+              "真窗口：未知 MCP 工具被拒");
+        check(controller->mcpManager()->tools().isEmpty(), "真窗口：没有 MCP 工具时清单为空");
+    }
+
+    // Stage 3：联网与诊断命令都接上了；诊断命令默认关闭，联网工具每次都要审批。
+    {
+        Agent::ToolCall commandCall;
+        commandCall.id = QStringLiteral("mw-cmd-1");
+        commandCall.name = QStringLiteral("command.diagnose");
+        commandCall.arguments = QJsonObject{{QStringLiteral("command"),
+                                             QStringLiteral("java-version")}};
+        const AgentToolResult commandResult = controller->compositeEngine()->invoke(commandCall);
+        check(commandResult.status == AgentToolResult::Status::Error,
+              "真窗口：诊断命令默认关闭");
+        Agent::ToolCall fetchCall;
+        fetchCall.id = QStringLiteral("mw-web-1");
+        fetchCall.name = QStringLiteral("web.fetch");
+        fetchCall.arguments = QJsonObject{{QStringLiteral("url"),
+                                           QStringLiteral("https://example.com/")}};
+        const AgentToolResult fetchResult = controller->compositeEngine()->invoke(fetchCall);
+        check(fetchResult.status == AgentToolResult::Status::ApprovalRequired,
+              "真窗口：联网抓取要审批");
+        controller->compositeEngine()->cancelPending();
     }
 
     // 「API 设置」被别的页占着覆盖层时也要打得开（用户报的「点了没反应」：别的选项卡上开的页收着、仍占着这一位，

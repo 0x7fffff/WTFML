@@ -1,9 +1,10 @@
 /**
  * @file AgentSkill.hpp
- * @brief Stage 1A/1B 的技能**结构与注册表骨架**：只有“自由对话”一档。
+ * @brief 内置技能（模式）注册表：自由对话 + Stage 2 的四条维护工作流。
  *
- * NOTE: 这里**没有**工作流状态机 / 步骤执行 / 计划校验。docs/features/AGENT.md D3/D4 明确把
- * workflow engine 放到 Stage 2；现在先留类型和注册表，避免以后大改调用方。
+ * 技能编译进程序、版本随程序走，不从远程下载。技能**只能缩小**工具集合，改不了审批策略
+ * 和外发策略（docs/features/AGENT.md §11.1）。工作流状态机在 `AgentWorkflow`，这里只放
+ * 定义：白名单、是否只读、是否必须先提交计划、最大步数、完成判据。
  */
 
 #pragma once
@@ -17,15 +18,29 @@ struct AgentSkill {
     QString name;
     QString description;
     QString systemPrompt;
-    /// Stage 1A 一律为空（不调用任何工具）。
+    /// 工具内部名白名单。空 = 不限制（自由对话沿用 Stage 1B 的全部工具）。
     QStringList allowedTools;
+    /// 完成这条工作流至少要碰过的工具（缺了 `workflow.finish` 就拒绝）。
+    QStringList requiredTools;
     bool readOnly = true;
+    int maxSteps = 20;
+    /// 必须先 `workflow.submitPlan` 并通过计划审批，才能调写类工具。
+    bool requiresPlan = false;
+    QString completionCriteria;
+    int version = 1;
+
+    bool restrictsTools() const { return !allowedTools.isEmpty(); }
+    bool allows(const QString &toolName) const {
+        return allowedTools.isEmpty() || allowedTools.contains(toolName);
+    }
 };
 
 class AgentSkillRegistry {
 public:
-    /// 编译进程序的技能；现在只有 `general`（自由对话）。
+    /// 编译进程序的技能：`general` + 体检 / 崩溃急救 / 版本升级 / 模组维护。
     static QList<AgentSkill> builtins();
     static bool contains(const QString &id);
     static AgentSkill find(const QString &id);
+    /// 界面上按这个顺序摆模式卡片（`general` 在最前）。
+    static QStringList orderedIds();
 };
