@@ -1,4 +1,4 @@
-﻿#Requires -Version 7.0
+#Requires -Version 7.0
 [CmdletBinding()]
 param(
     [ValidateSet('affected', 'quick', 'full', 'core', 'window', 'java', 'mods', 'upgrade', 'network', 'visual',
@@ -30,34 +30,6 @@ $stages = [Collections.Generic.List[object]]::new()
 $oldTemp = $env:TEMP
 $oldTmp = $env:TMP
 $hasher = [Security.Cryptography.SHA256]::Create()
-function Get-CTestSelectedTests([string]$CTestExe, [string]$BuildPath, [string[]]$FilterArgs) {
-    $allArgs = @('--test-dir', $BuildPath, '--show-only=json-v1') + $FilterArgs
-    $raw = & $CTestExe @allArgs
-    if ($LASTEXITCODE -ne 0) {
-        throw "CTest enumeration failed (exit $LASTEXITCODE) for: $($allArgs -join ' ')"
-    }
-    $parsed = ($raw -join "`n") | ConvertFrom-Json
-    return @($parsed.tests)
-}
-
-function Assert-ModuleSelectionNonEmpty([string]$CTestExe, [string]$BuildPath, [string]$SuiteName, [string]$ModulesArg, [string]$Pattern, [object[]]$SelectedTests) {
-    if ($SelectedTests.Count -gt 0) { return }
-    $allModuleTests = @(Get-CTestSelectedTests $CTestExe $BuildPath @('-R', $Pattern))
-    if ($allModuleTests.Count -eq 0) {
-        throw "No tests matched -Suite $SuiteName with -Modules $ModulesArg (pattern: $Pattern)."
-    }
-    $partitions = [Collections.Generic.HashSet[string]]::new()
-    $details = foreach ($t in $allModuleTests) {
-        $labels = @($t.properties | Where-Object { $_.name -eq 'LABELS' } | Select-Object -ExpandProperty value)
-        $ciLabels = @($labels | Where-Object { $_ -like 'ci-*' -or $_ -eq 'visual' })
-        foreach ($lbl in $ciLabels) { $null = $partitions.Add($lbl) }
-        $tagText = if ($ciLabels.Count) { $ciLabels -join ',' } else { 'unlabeled' }
-        "$($t.name) [$tagText]"
-    }
-    $partSummary = if ($partitions.Count) { ($partitions | Sort-Object) -join ', ' } else { 'none' }
-    throw "No tests matched -Suite $SuiteName with -Modules $ModulesArg. Actual partition(s): $partSummary ($($details -join '; '))."
-}
-
 try { $lockKey = [BitConverter]::ToString($hasher.ComputeHash([Text.Encoding]::UTF8.GetBytes($build.ToLowerInvariant()))).Replace('-', '') }
 finally { $hasher.Dispose() }
 $mutex = [Threading.Mutex]::new($false, "Local\WTFML.Tests.$lockKey")

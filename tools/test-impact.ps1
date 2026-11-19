@@ -1,4 +1,4 @@
-﻿#Requires -Version 7.0
+#Requires -Version 7.0
 [CmdletBinding()]
 param([Alias('ChangedPath')][string[]]$ImpactChangedPath,
     [Alias('BaseRef')][string]$ImpactBaseRef = 'origin/main',

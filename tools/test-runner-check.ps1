@@ -1,4 +1,4 @@
-﻿#Requires -Version 7.0
+#Requires -Version 7.0
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 $work = Join-Path $repo ('build/test-runner-selfchecks/' + [guid]::NewGuid().ToString('N'))
