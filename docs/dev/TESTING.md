@@ -272,8 +272,10 @@ CTest 名：`wtfml.core-agent`、`wtfml.ui-agent`、`wtfml.main-window-agent`（
 
 - Stage 1A 覆盖：SSE、适配、会话、加密、凭据、上下文、Loop、技能、Markdown。
 - Stage 1B 覆盖：路径攻击矩阵与句柄级校验、外发边界表、审批矩阵、artifact 分离、实例锁、维护备份生命周期、文件工具引擎、Loop 工具调用/审批/拒绝回灌、UI 工具卡/审批卡；本地假服务器验证 400 错误体保留，工具线上名不含点号。
+- Stage 2B 覆盖：诊断字段白名单投影、19 个启动器工具的分派与审批、工作流计划校验/顺序闸/失败锁写/完成闸、多文件维护备份往返、模式胶囊与工作流状态行、真 MainWindow 里只读模式拒绝写工具。
+- Stage 2A 覆盖：MCP 帧与上限、`configHash`/身份变化失效、确认闸与重连确认、逐次审批与异步交付（`Pending` + completion sink）、stdout 垃圾行、崩溃不自动重启。`verify_agent --mcp-fake-server` 是假 MCP 服务器的入口（同一个可执行文件的隐藏模式），客户端用例用它起真子进程。
 - junction 夹具建不出来时输出 `SKIP`，不计入通过。
-- 计数见 [TEST_RUN_HISTORY.md](../archive/TEST_RUN_HISTORY.md)；真机验收清单见 [Stage 1A](../features/AGENT_STAGE1A.md) / [Stage 1B](../features/AGENT_STAGE1B.md)。G1A 人工审查除网络错误外通过；G1B 首轮人工发现脱敏只命中精确字段名、凭据文件识别过窄、artifact 可取回未脱敏内容等隐私问题，G1B 未通过，记录见 [ACCEPTANCE_LOG.md](../archive/ACCEPTANCE_LOG.md)。
+- 计数见 [TEST_RUN_HISTORY.md](../archive/TEST_RUN_HISTORY.md)；待人工测试项见 [Stage 1A](../features/AGENT_STAGE1A.md) / [Stage 1B](../features/AGENT_STAGE1B.md)。G1B 的脱敏/凭据文件/artifact 三项已在代码里修复，仍需复测 R1–R4、R6、R7 与 W4/W5、A1、P4、P5；网络错误单独延后。记录见 [ACCEPTANCE_LOG.md](../archive/ACCEPTANCE_LOG.md)。
 
 ## network-diag 在本机怎么跑
 

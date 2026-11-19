@@ -250,6 +250,12 @@ add_library(core_cases_agent OBJECT
  core_modules/AgentBackupLifecycleTests.cpp
  core_modules/AgentToolTests.cpp
  core_modules/AgentOpenAiClientTests.cpp
+ core_modules/AgentDiagnosticProjectionTests.cpp
+ core_modules/AgentLauncherToolsTests.cpp
+ core_modules/AgentWorkflowTests.cpp
+ core_modules/AgentMcpProtocolTests.cpp
+ core_modules/AgentMcpTrustTests.cpp
+ core_modules/AgentMcpClientTests.cpp
 )
 wtfml_core_compile(core_cases_agent)
 list(APPEND WTFML_CORE_CASE_OBJECTS $<TARGET_OBJECTS:core_cases_agent>)

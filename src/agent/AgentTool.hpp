@@ -17,6 +17,20 @@
 
 enum class AgentRisk { ReadOnly, NetworkRead, Write, Destructive, Command, ExternalMcp };
 
+/**
+ * 一次工具调用所处的位置：会话、锁定的实例、根目录、当前模型服务。
+ * 实例 id 只由控制器填（会话锁定的结果），模型参数里的 instanceId 一律不看。
+ */
+struct AgentToolContext {
+    QString sessionId;
+    QString instanceId;
+    QString instanceName;
+    QString gameRootId;
+    QString rootPath;
+    QString providerHost;
+    bool strictEgress = false;
+};
+
 struct AgentToolSpec {
     QString name;
     QString displayName;
@@ -26,7 +40,7 @@ struct AgentToolSpec {
 };
 
 struct AgentToolResult {
-    enum class Status { Ok, Error, ApprovalRequired, Blocked, Cancelled };
+    enum class Status { Ok, Error, ApprovalRequired, Blocked, Cancelled, Pending };
     Status status = Status::Error;
     QString summary;
     QJsonObject data;
@@ -35,6 +49,10 @@ struct AgentToolResult {
 
     bool ok() const { return status == Status::Ok; }
 };
+
+/// 异步工具的交付回调：`invoke()`/`resolveApproval()` 可以先回 `Status::Pending`，
+/// 之后由引擎通过这个回调交最终结果（MCP 的工具调用就是这样）。
+using AgentToolSink = std::function<void(const Agent::ToolCall &, const AgentToolResult &)>;
 
 class AgentToolEngine {
 public:
@@ -45,10 +63,16 @@ public:
     virtual void cancelPending() = 0;
     /// 文件提交阶段：取消只能登记“提交后停止”，不能强杀。
     virtual bool committing() const { return false; }
+    /// 这个引擎认不认这个内部工具名（复合引擎按它分派，不用试错）。
+    virtual bool handles(const QString &internalName) const = 0;
+    /// 只有会回 `Pending` 的引擎需要接这条线；同步引擎忽略。
+    virtual void setCompletionSink(AgentToolSink sink) { Q_UNUSED(sink); }
 };
 
 class AgentToolRegistry {
 public:
+    /// 文件工具（Stage 1B）与全部静态内建工具（含 Stage 2 的启动器/工作流工具）。
+    static QList<AgentToolSpec> fileBuiltins();
     static QList<AgentToolSpec> builtins();
     static AgentToolSpec find(const QString &name);
     /// 线上 function name 只允许 `[A-Za-z0-9_-]`：内部名里的点在这里换成下划线。

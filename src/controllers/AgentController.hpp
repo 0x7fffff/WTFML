@@ -10,7 +10,15 @@
 
 #include "agent/AgentArtifactStore.hpp"
 #include "agent/AgentBackupIndex.hpp"
+#include "agent/AgentCompositeToolEngine.hpp"
 #include "agent/AgentFileToolEngine.hpp"
+#include "agent/AgentLauncherHost.hpp"
+#include "agent/AgentLauncherTools.hpp"
+#include "agent/AgentMcpToolEngine.hpp"
+#include "agent/AgentWorkflow.hpp"
+#include "agent/AgentWorkflowEngine.hpp"
+#include "agent/McpManager.hpp"
+#include "agent/McpTrustStore.hpp"
 #include "agent/AgentFileTools.hpp"
 #include "agent/AgentInstanceLock.hpp"
 #include "agent/AgentLoop.hpp"
@@ -26,6 +34,7 @@
 
 #include <functional>
 
+class AgentMcpPage;
 class AgentPage;
 class AgentSettingsPage;
 class AgentModelClient;
@@ -46,6 +55,13 @@ public:
     AgentSessionStore *sessionStore() { return &m_store; }
     AgentLoop *loop() { return m_loop; }
     AgentFileToolEngine *toolEngine() { return m_toolEngine; }
+    AgentCompositeToolEngine *compositeEngine() { return m_compositeEngine; }
+    AgentWorkflow *workflow() { return &m_workflow; }
+    McpManager *mcpManager() { return m_mcpManager; }
+    /// 打开 MCP 服务器页（API 设置里的「MCP 服务器…」和测试入口都走它）。
+    void openMcpSettings();
+    /// 主窗口建好的启动器能力宿主（不转移所有权）。没有宿主时启动器工具一律拒绝。
+    void setLauncherHost(AgentLauncherHost *host);
 
     /// 主窗口提供“当前主页选中的实例 + 游戏根身份”；首次实例工具调用时锁定。
     using InstanceProvider = std::function<AgentInstanceInfo()>;
@@ -67,6 +83,8 @@ public:
     void applyProfileForTest(const AgentProviderProfile &profile, const QString &apiKey);
     void cancelForTest() { onStop(); }
     void sendForTest(const QString &text) { onSend(text); }
+    /// 测试专用：直接切模式（等价于点模式卡片）。
+    void chooseSkillForTest(const QString &skillId) { onSkillChosen(skillId); }
     QString currentSessionId() const { return m_session.meta.id; }
 
 public slots:
@@ -109,6 +127,21 @@ private:
     QList<AgentInstanceInfo> instances() const;
     AgentInstanceInfo lockedInstance() const;
     void onApproval(bool approved);
+    void onSkillChosen(const QString &skillId);
+    void refreshMcpPage();
+    void onMcpConnect(const QString &serverId);
+    void onMcpDisconnect(const QString &serverId);
+    void onMcpAdd();
+    void onMcpEdit(const QString &serverId);
+    void onMcpRemove(const QString &serverId);
+    /// 起服务器前的那一次确认：确认了就写确认记录并启动。
+    bool confirmAndStart(const QString &serverId, bool reconnect);
+    AgentView::McpServerDraft draftFrom(const McpServerConfig &server) const;
+    McpServerConfig serverFrom(const AgentView::McpServerDraft &draft) const;
+    void stopMcpServers();
+    /// 把当前模式的系统提示与工具闸同步给 Loop（切模式、换会话、发消息前都走它）。
+    void applySkillToLoop();
+    void refreshSkillUi();
     AgentToolContext toolContext(QString *problem);
     void updateInstanceChip();
     void showToolCardsFromHistory();
@@ -121,6 +154,15 @@ private:
     AgentBackupIndex m_backups;
     AgentFileTools m_files;
     AgentFileToolEngine *m_toolEngine = nullptr;
+    AgentLauncherHost *m_launcherHost = nullptr;
+    AgentWorkflow m_workflow;
+    AgentWorkflowEngine *m_workflowEngine = nullptr;
+    AgentLauncherTools *m_launcherTools = nullptr;
+    AgentCompositeToolEngine *m_compositeEngine = nullptr;
+    McpTrustStore m_mcpStore;
+    McpManager *m_mcpManager = nullptr;
+    AgentMcpToolEngine *m_mcpTools = nullptr;
+    QPointer<AgentMcpPage> m_mcpPage;
     AgentSession m_session;
     InstanceProvider m_instanceProvider;
     InstanceListProvider m_instanceListProvider;

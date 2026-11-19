@@ -11,6 +11,12 @@
 #include "agent/AgentRedaction.hpp"
 #include "agent/AgentSecretStore.hpp"
 #include "agent/AgentSkill.hpp"
+#include "agent/McpTypes.hpp"
+
+#include "AgentMcpPage.hpp"
+#include "AgentViewTypes.hpp"
+#include "InlineMessage.hpp"
+#include "OverlayHost.hpp"
 #include "AgentComposer.hpp"
 #include "AgentMessageView.hpp"
 #include "AgentPage.hpp"
@@ -151,7 +157,29 @@ AgentController::AgentController(AgentPage *page, OverlayHost *overlay, QObject 
     m_toolEngine = new AgentFileToolEngine(
         &m_files, &m_artifacts, [this](QString *problem) { return toolContext(problem); });
     m_toolEngine->setStrictEgress(AgentSettings::strictEgress());
-    m_loop->setToolEngine(m_toolEngine);
+    // Stage 2：文件工具 + 启动器工具 + 工作流工具合成一个引擎交给 Loop。技能白名单与
+    // “写步骤必须在已批准计划里”这两道闸在复合层，子引擎不知道当前是哪个模式。
+    m_workflow.setSkill(AgentSkillRegistry::find(QStringLiteral("general")));
+    m_launcherTools = new AgentLauncherTools(
+        nullptr, [this](QString *problem) { return toolContext(problem); });
+    m_launcherTools->setStrictEgress(AgentSettings::strictEgress());
+    m_workflowEngine = new AgentWorkflowEngine(&m_workflow);
+    // Stage 2A：MCP。确认闸在 McpTrustStore，生命周期在 McpManager；这里的引擎只管
+    // 逐次审批与异步交付。配置读不出来就当作没有服务器，不阻断其它功能。
+    QString mcpProblem;
+    m_mcpManager = new McpManager(&m_mcpStore, this);
+    if (!m_mcpManager->reload(&mcpProblem) && m_page != nullptr) {
+        m_page->showNotice(QStringLiteral("MCP 配置读取失败：%1").arg(mcpProblem));
+    }
+    m_mcpTools = new AgentMcpToolEngine(
+        m_mcpManager, [this](QString *problem) { return toolContext(problem); }, this);
+    m_compositeEngine = new AgentCompositeToolEngine;
+    m_compositeEngine->addEngine(m_toolEngine);
+    m_compositeEngine->addEngine(m_launcherTools);
+    m_compositeEngine->addEngine(m_workflowEngine);
+    m_compositeEngine->addEngine(m_mcpTools);
+    m_compositeEngine->setWorkflow(&m_workflow);
+    m_loop->setToolEngine(m_compositeEngine);
     m_saveTimer = new QTimer(this);
     m_saveTimer->setSingleShot(true);
     m_saveTimer->setInterval(2000);
@@ -284,6 +312,13 @@ void AgentController::wirePage() {
     connect(m_page, &AgentPage::instanceChipRequested, this, &AgentController::onInstanceMenuRequested);
     connect(m_page, &AgentPage::instanceChosen, this, &AgentController::onInstanceChosen);
     connect(m_page, &AgentPage::sessionExportRequested, this, &AgentController::onExport);
+    connect(m_page, &AgentPage::skillChosen, this, &AgentController::onSkillChosen);
+    connect(m_loop, &AgentLoop::toolCallFinished, this,
+            [this](const Agent::ToolCall &call, const AgentToolResult &result) {
+                Q_UNUSED(call);
+                Q_UNUSED(result);
+                if (m_page != nullptr) m_page->setWorkflowStatus(m_workflow.statusLine());
+            });
 }
 
 void AgentController::shutdown() {
@@ -299,9 +334,18 @@ void AgentController::shutdown() {
     if (m_settingsPage != nullptr) {
         m_settingsPage->close();
     }
+    stopMcpServers();
     if (m_toolEngine != nullptr) {
         m_toolEngine->cancelPending();
         if (m_loop != nullptr) m_loop->setToolEngine(nullptr);
+        delete m_compositeEngine;
+        m_compositeEngine = nullptr;
+        delete m_launcherTools;
+        m_launcherTools = nullptr;
+        delete m_workflowEngine;
+        m_workflowEngine = nullptr;
+        delete m_mcpTools;
+        m_mcpTools = nullptr;
         delete m_toolEngine;
         m_toolEngine = nullptr;
     }
@@ -434,6 +478,9 @@ void AgentController::selectSession(const QString &sessionId) {
     m_savePending = false;
     m_saveTimer->stop();
     updateHeader();
+    // 会话里记着它上一轮用哪个模式；换会话时工作流从头开始，旧计划不留。
+    m_workflow.setSkill(AgentSkillRegistry::find(m_session.meta.skill));
+    refreshSkillUi();
 }
 
 void AgentController::updateHeader() {
@@ -611,11 +658,7 @@ void AgentController::onSend(const QString &text) {
     flushSave(true);
     refreshSessions();
 
-    AgentLoop::Config config;
-    config.profile = m_profile;
-    config.apiKey = currentApiKey();
-    config.systemPrompt = AgentSkillRegistry::find(QStringLiteral("general")).systemPrompt;
-    m_loop->setConfig(config);
+    applySkillToLoop();
     m_loop->setHistory(m_session.messages);
     m_loop->start();
 }
@@ -639,11 +682,7 @@ void AgentController::onRetry(const QString &messageId) {
     if (last.id != messageId || last.role != Agent::Role::Assistant) return;
     removeTrailingFailedAssistant();
     flushSave(false);
-    AgentLoop::Config config;
-    config.profile = m_profile;
-    config.apiKey = currentApiKey();
-    config.systemPrompt = AgentSkillRegistry::find(QStringLiteral("general")).systemPrompt;
-    m_loop->setConfig(config);
+    applySkillToLoop();
     m_loop->setHistory(m_session.messages);
     m_loop->start();
 }
@@ -683,7 +722,7 @@ void AgentController::onDelete(const QString &sessionId) {
 
     if (m_session.meta.id == sessionId && m_loop->busy()) {
         m_loop->cancel();
-        if (m_toolEngine != nullptr && m_toolEngine->committing()) {
+        if (m_compositeEngine != nullptr && m_compositeEngine->committing()) {
             if (m_page != nullptr) {
                 m_page->showNotice(QStringLiteral("文件正在提交，无法安全停止，暂不删除会话。"));
             }
@@ -741,7 +780,7 @@ void AgentController::onEncryptToggled(bool encrypted) {
 bool AgentController::deleteSessionForTest(const QString &sessionId) {
     if (sessionId.isEmpty()) return false;
     if (m_loop->busy()) m_loop->cancel();
-    if (m_toolEngine != nullptr && m_toolEngine->committing()) return false;
+    if (m_compositeEngine != nullptr && m_compositeEngine->committing()) return false;
     QString problem;
     if (!m_store.requestDeletion(sessionId, &problem) ||
         !m_store.completeDeletion(sessionId, &problem, nullptr)) {
@@ -949,6 +988,288 @@ void AgentController::onExport(const QString &sessionId) {
     m_page->showNotice(QStringLiteral("会话已导出：%1").arg(QDir::toNativeSeparators(path)));
 }
 
+void AgentController::stopMcpServers() {
+    if (m_mcpManager != nullptr) m_mcpManager->stopAll();
+}
+
+AgentView::McpServerDraft AgentController::draftFrom(const McpServerConfig &server) const {
+    AgentView::McpServerDraft draft;
+    draft.id = server.id;
+    draft.name = server.name;
+    draft.command = server.command;
+    draft.arguments = server.arguments.join(QChar('\n'));
+    draft.workingDirectory = server.workingDirectory;
+    draft.environmentNames = server.environmentNames.join(QStringLiteral(", "));
+    draft.enabled = server.enabled;
+    return draft;
+}
+
+McpServerConfig AgentController::serverFrom(const AgentView::McpServerDraft &draft) const {
+    McpServerConfig server;
+    server.id = draft.id.isEmpty() ? QUuid::createUuid().toString(QUuid::WithoutBraces) : draft.id;
+    server.name = draft.name;
+    server.command = draft.command;
+    for (const QString &line : draft.arguments.split(QChar('\n'), Qt::SkipEmptyParts)) {
+        const QString argument = line.trimmed();
+        if (!argument.isEmpty()) server.arguments.append(argument);
+    }
+    server.workingDirectory = draft.workingDirectory;
+    const QStringList names =
+        draft.environmentNames.split(QRegularExpression(QStringLiteral("[,;\\s]+")),
+                                     Qt::SkipEmptyParts);
+    for (const QString &name : names) {
+        if (!name.trimmed().isEmpty()) server.environmentNames.append(name.trimmed());
+    }
+    server.enabled = draft.enabled;
+    return server;
+}
+
+void AgentController::refreshMcpPage() {
+    if (m_mcpPage == nullptr || m_mcpManager == nullptr) return;
+    QList<AgentView::McpServerRow> rows;
+    for (const McpServerConfig &server : m_mcpManager->servers()) {
+        AgentView::McpServerRow row;
+        row.id = server.id;
+        row.name = server.name;
+        row.command = server.command;
+        row.enabled = server.enabled;
+        row.state = McpClient::stateName(m_mcpManager->state(server.id));
+        row.detail = m_mcpManager->stateDetail(server.id);
+        McpConfirmation confirmation;
+        if (m_mcpStore.confirmation(server.id, &confirmation) &&
+            confirmation.configHash == server.configHash()) {
+            row.identityShort = confirmation.identity.sha256.left(12);
+        }
+        for (const McpToolDescriptor &tool : m_mcpManager->tools()) {
+            if (tool.serverId == server.id) ++row.toolCount;
+        }
+        rows.append(row);
+    }
+    m_mcpPage->setServers(rows);
+}
+
+bool AgentController::confirmAndStart(const QString &serverId, bool reconnect) {
+    if (m_mcpManager == nullptr) return false;
+    McpTrustStore::GateResult gate;
+    QString problem;
+    const McpManager::StartResult result =
+        reconnect ? m_mcpManager->reconnect(serverId, &gate, &problem)
+                  : m_mcpManager->start(serverId, &gate, &problem);
+    if (result == McpManager::StartResult::Blocked) {
+        if (m_page != nullptr) m_page->showNotice(problem);
+        if (m_mcpPage != nullptr) m_mcpPage->setLog(problem);
+        refreshMcpPage();
+        return false;
+    }
+    if (result == McpManager::StartResult::Started) {
+        refreshMcpPage();
+        return true;
+    }
+    QString text = QStringLiteral("服务器：%1\n%2\n\n参数：%3\n工作目录：%4\n环境变量：%5\n\n"
+                                  "该服务器以当前 Windows 用户权限运行，可能读写本机文件和网络；"
+                                  "只添加你信任的服务器。")
+                       .arg(gate.server.name, gate.identity.summary(),
+                            gate.server.arguments.isEmpty()
+                                ? QStringLiteral("（无）")
+                                : gate.server.arguments.join(QStringLiteral("  ")),
+                            gate.server.workingDirectory.isEmpty()
+                                ? QStringLiteral("（agent 数据目录）")
+                                : gate.server.workingDirectory,
+                            gate.server.environmentNames.isEmpty()
+                                ? QStringLiteral("（不继承）")
+                                : gate.server.environmentNames.join(QStringLiteral("、")));
+    if (!gate.reason.isEmpty()) text = gate.reason + QStringLiteral("\n\n") + text;
+    const int choice = InlineMessage::ask(
+        m_overlay, MessageKind::Question,
+        reconnect ? QStringLiteral("重新连接 MCP 服务器") : QStringLiteral("启动 MCP 服务器"),
+        text, QStringList{QStringLiteral("确认并连接"), QStringLiteral("取消")}, 1, 1);
+    if (choice != 0) {
+        if (m_mcpPage != nullptr) m_mcpPage->setLog(QStringLiteral("已取消：没有启动服务器。"));
+        refreshMcpPage();
+        return false;
+    }
+    McpTrustStore::GateResult confirmed;
+    if (!m_mcpStore.confirm(serverId,
+                            reconnect ? QStringLiteral("reconnect") : QStringLiteral("start"),
+                            &confirmed, &problem)) {
+        if (m_page != nullptr) m_page->showNotice(problem);
+        refreshMcpPage();
+        return false;
+    }
+    const McpManager::StartResult started = m_mcpManager->startConfirmed(serverId, &problem);
+    if (started != McpManager::StartResult::Started) {
+        if (m_page != nullptr) m_page->showNotice(problem);
+        if (m_mcpPage != nullptr) m_mcpPage->setLog(problem);
+    }
+    refreshMcpPage();
+    return started == McpManager::StartResult::Started;
+}
+
+void AgentController::onMcpConnect(const QString &serverId) {
+    const bool wasConnected = m_mcpManager != nullptr &&
+                              m_mcpManager->state(serverId) != McpClient::State::Idle;
+    confirmAndStart(serverId, wasConnected);
+}
+
+void AgentController::onMcpDisconnect(const QString &serverId) {
+    if (m_mcpManager == nullptr) return;
+    m_mcpManager->stop(serverId);
+    if (m_mcpPage != nullptr) m_mcpPage->setLog(QStringLiteral("已断开。重新连接前会再次要求确认。"));
+    refreshMcpPage();
+}
+
+void AgentController::onMcpAdd() {
+    if (m_mcpManager == nullptr || m_mcpPage == nullptr) return;
+    AgentView::McpServerDraft draft;
+    draft.enabled = true;
+    if (!AgentMcpPage::editDraft(m_mcpPage, QStringLiteral("添加 MCP 服务器"), &draft)) return;
+    const McpServerConfig server = serverFrom(draft);
+    const QString problem = McpTrustStore::validateConfig(server);
+    if (!problem.isEmpty()) {
+        m_mcpPage->setLog(problem);
+        return;
+    }
+    QString saveProblem;
+    if (!m_mcpStore.upsert(server, &saveProblem)) {
+        m_mcpPage->setLog(saveProblem);
+        return;
+    }
+    m_mcpManager->reload(&saveProblem);
+    m_mcpPage->setLog(QStringLiteral("已保存「%1」，首次启动前会确认可执行文件身份。")
+                          .arg(server.name));
+    refreshMcpPage();
+}
+
+void AgentController::onMcpEdit(const QString &serverId) {
+    if (m_mcpManager == nullptr || m_mcpPage == nullptr) return;
+    McpServerConfig existing;
+    for (const McpServerConfig &server : m_mcpManager->servers()) {
+        if (server.id == serverId) existing = server;
+    }
+    if (!existing.isValid()) return;
+    AgentView::McpServerDraft draft = draftFrom(existing);
+    if (!AgentMcpPage::editDraft(m_mcpPage, QStringLiteral("编辑 MCP 服务器"), &draft)) return;
+    const McpServerConfig updated = serverFrom(draft);
+    const QString problem = McpTrustStore::validateConfig(updated);
+    if (!problem.isEmpty()) {
+        m_mcpPage->setLog(problem);
+        return;
+    }
+    if (m_mcpManager->state(serverId) != McpClient::State::Idle) {
+        // 改配置就断开：重启必须重新确认，不能拿旧确认继续跑。
+        m_mcpManager->stop(serverId);
+    }
+    QString saveProblem;
+    if (!m_mcpStore.upsert(updated, &saveProblem)) {
+        m_mcpPage->setLog(saveProblem);
+        return;
+    }
+    m_mcpManager->reload(&saveProblem);
+    m_mcpPage->setLog(QStringLiteral("已保存「%1」；配置变了，下次启动要重新确认。")
+                          .arg(updated.name));
+    refreshMcpPage();
+}
+
+void AgentController::onMcpRemove(const QString &serverId) {
+    if (m_mcpManager == nullptr || m_mcpPage == nullptr) return;
+    const int choice = InlineMessage::ask(
+        m_overlay, MessageKind::Question, QStringLiteral("删除 MCP 服务器"),
+        QStringLiteral("删除这个服务器的配置和确认记录；只删配置，不删你机器上的程序。"),
+        QStringList{QStringLiteral("删除"), QStringLiteral("取消")}, 1, 1);
+    if (choice != 0) return;
+    m_mcpManager->stop(serverId);
+    QString problem;
+    if (!m_mcpStore.remove(serverId, &problem)) {
+        m_mcpPage->setLog(problem);
+        return;
+    }
+    m_mcpManager->reload(&problem);
+    m_mcpPage->setLog(QStringLiteral("已删除。"));
+    refreshMcpPage();
+}
+
+void AgentController::openMcpSettings() {
+    if (m_overlay == nullptr || m_mcpManager == nullptr) return;
+    if (m_mcpPage == nullptr) {
+        auto *page = new AgentMcpPage(nullptr);
+        m_mcpPage = page;
+        connect(page, &AgentMcpPage::addRequested, this, &AgentController::onMcpAdd);
+        connect(page, &AgentMcpPage::editRequested, this, &AgentController::onMcpEdit);
+        connect(page, &AgentMcpPage::removeRequested, this, &AgentController::onMcpRemove);
+        connect(page, &AgentMcpPage::connectRequested, this, &AgentController::onMcpConnect);
+        connect(page, &AgentMcpPage::disconnectRequested, this, &AgentController::onMcpDisconnect);
+        connect(page, &AgentMcpPage::refreshRequested, this, &AgentController::refreshMcpPage);
+        connect(m_mcpManager, &McpManager::serversChanged, this, &AgentController::refreshMcpPage);
+        connect(m_mcpManager, &McpManager::toolsChanged, this, &AgentController::refreshMcpPage);
+        connect(m_mcpManager, &McpManager::serverStateChanged, this,
+                [this](const QString &, const QString &, const QString &detail) {
+                    if (m_mcpPage != nullptr && !detail.isEmpty()) m_mcpPage->setLog(detail);
+                    refreshMcpPage();
+                });
+        connect(m_mcpManager, &McpManager::logLine, this,
+                [this](const QString &serverId, const QString &text) {
+                    if (m_mcpPage != nullptr) {
+                        m_mcpPage->setLog(QStringLiteral("%1：%2").arg(serverId, text));
+                    }
+                });
+    }
+    m_mcpManager->reload(nullptr);
+    refreshMcpPage();
+    m_overlay->showPage(m_mcpPage, QStringLiteral("MCP 服务器"));
+}
+
+void AgentController::setLauncherHost(AgentLauncherHost *host) {
+    m_launcherHost = host;
+    if (m_launcherTools != nullptr) m_launcherTools->setHost(host);
+}
+
+void AgentController::applySkillToLoop() {
+    AgentLoop::Config config = m_loop->config();
+    config.profile = m_profile;
+    config.apiKey = currentApiKey();
+    QString prompt = m_workflow.skill().systemPrompt;
+    const QString status = m_workflow.statusLine();
+    if (!status.isEmpty()) {
+        prompt += QStringLiteral("\n\n当前工作流状态（本地记账，不要复述给用户）：%1。").arg(status);
+    }
+    config.systemPrompt = prompt;
+    m_loop->setConfig(config);
+}
+
+void AgentController::refreshSkillUi() {
+    if (m_page == nullptr) return;
+    QList<AgentView::SkillOption> options;
+    for (const QString &id : AgentSkillRegistry::orderedIds()) {
+        const AgentSkill skill = AgentSkillRegistry::find(id);
+        if (skill.id.isEmpty()) continue;
+        options.append(AgentView::SkillOption{skill.id, skill.name, skill.description});
+    }
+    m_page->setSkills(options, m_workflow.skill().id);
+}
+
+void AgentController::onSkillChosen(const QString &skillId) {
+    const AgentSkill skill = AgentSkillRegistry::find(skillId);
+    if (skill.id.isEmpty()) return;
+    if (m_loop->busy()) {
+        if (m_page != nullptr) m_page->showNotice(QStringLiteral("先停止当前回复再切换模式。"));
+        return;
+    }
+    if (m_workflow.skill().id == skill.id) return;
+    m_workflow.setSkill(skill);
+    if (!m_session.meta.id.isEmpty()) {
+        m_session.meta.skill = skill.id;
+        flushSave(false);
+        refreshSessions();
+    }
+    applySkillToLoop();
+    refreshSkillUi();
+    if (m_page != nullptr) {
+        m_page->showNotice(skill.id == QStringLiteral("general")
+                               ? QStringLiteral("已回到自由对话。")
+                               : QStringLiteral("已切到「%1」：%2").arg(skill.name, skill.description));
+    }
+}
+
 void AgentController::onApproval(bool approved) {
     if (m_session.meta.id.isEmpty() || m_session.pendingApproval.isEmpty()) return;
     const QString approvalId =
@@ -1023,6 +1344,8 @@ void AgentController::openSettings() {
     page->setStrictEgress(AgentSettings::strictEgress());
     connect(page, &AgentSettingsPage::saveRequested, this, &AgentController::onSettingsSave);
     connect(page, &AgentSettingsPage::testRequested, this, &AgentController::onSettingsTest);
+    connect(page, &AgentSettingsPage::mcpSettingsRequested, this,
+            &AgentController::openMcpSettings);
     connect(page, &AgentSettingsPage::deleteProfileRequested, this,
             &AgentController::onSettingsDeleteProfile);
     connect(page, &AgentSettingsPage::clearKeyRequestedSignal, this, [page] {
@@ -1073,6 +1396,7 @@ void AgentController::onSettingsSave() {
     AgentSettings::setActiveProfileId(profile.id);
     AgentSettings::setStrictEgress(page->strictEgress());
     if (m_toolEngine != nullptr) m_toolEngine->setStrictEgress(page->strictEgress());
+    if (m_launcherTools != nullptr) m_launcherTools->setStrictEgress(page->strictEgress());
     m_profile = profile;
     refreshApiState();
     refreshSessions();

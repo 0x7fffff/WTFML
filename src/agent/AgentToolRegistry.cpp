@@ -5,6 +5,9 @@
 
 #include "AgentTool.hpp"
 
+#include "AgentLauncherTools.hpp"
+#include "AgentWorkflowEngine.hpp"
+
 #include <QJsonValue>
 
 namespace {
@@ -102,7 +105,7 @@ QString AgentToolRegistry::riskKey(AgentRisk risk) {
     return QStringLiteral("external-mcp");
 }
 
-QList<AgentToolSpec> AgentToolRegistry::builtins() {
+QList<AgentToolSpec> AgentToolRegistry::fileBuiltins() {
     QList<AgentToolSpec> list;
     list.append(AgentToolSpec{
         QStringLiteral("fs.list"), QStringLiteral("查看目录概况"),
@@ -165,6 +168,13 @@ QList<AgentToolSpec> AgentToolRegistry::builtins() {
                       {QStringLiteral("length"),
                        QJsonObject{{QStringLiteral("type"), QStringLiteral("integer")},
                                    {QStringLiteral("maximum"), 1048576}}}})});
+    return list;
+}
+
+QList<AgentToolSpec> AgentToolRegistry::builtins() {
+    QList<AgentToolSpec> list = fileBuiltins();
+    list.append(AgentLauncherTools::specs());
+    list.append(AgentWorkflowEngine::specs());
     return list;
 }
 

@@ -39,6 +39,11 @@ enum class Compatibility {
 
 QString compatibilityName(Compatibility compatibility);
 
+/// 两边盘上写着的版本/加载器事实 → 兼容结论。**判据唯一出处**：`plan()` 与智能体的
+/// `upgrade.inspect` 都调它，别在别处再写一遍。
+Compatibility compatibility(const QString &sourceGameVersion, const QString &sourceLoaderName,
+                            const QString &targetGameVersion, const QString &targetLoaderName);
+
 /// 一句话说清"为什么是这个结论"（完整句子，界面直接用）。
 QString compatibilityText(Compatibility compatibility, const QString &sourceGameVersion,
                           const QString &sourceLoaderName, const QString &targetGameVersion,

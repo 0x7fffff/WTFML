@@ -85,4 +85,41 @@ void runAgentBackupLifecycleTests() {
     check(!backups.removeOwnedBackup(foreignId, &problem), "备份：owner=user 不允许 Agent 清理");
     check(QFileInfo::exists(backups.dirFor(foreignId) + QStringLiteral("/meta.json")),
           "备份：共享/外部备份未被误删");
+
+    // ---------- 多文件备份（Stage 2 的 backup.create）----------
+    QList<QPair<QString, QByteArray>> files{
+        {QStringLiteral("config/a.toml"), QByteArray("maxMemory = 4096\n")},
+        {QStringLiteral("mods/sodium.jar"), QByteArray::fromHex("504b0304")},
+        {QStringLiteral("servers.dat"), QByteArray::fromHex("0a0d0a00")}};
+    QString multiId;
+    check(backups.createFromFiles(QStringLiteral("session-1"), QStringLiteral("1.20.1"),
+                                  files, QStringLiteral("backup.create：config+mods"), &multiId,
+                                  &problem),
+          "备份：多文件备份写入成功", problem);
+    QList<AgentBackupEntry> multiEntries;
+    backups.list(&multiEntries, nullptr);
+    bool foundMulti = false;
+    for (const AgentBackupEntry &entry : multiEntries) {
+        if (entry.backupId != multiId) continue;
+        foundMulti = entry.originalPaths.size() == 3 && entry.owner == QStringLiteral("agent");
+    }
+    check(foundMulti, "备份：多文件备份的元数据记下三条相对路径");
+    QList<QPair<QString, QByteArray>> restoredFiles;
+    check(backups.readFiles(multiId, &restoredFiles, &problem), "备份：多文件备份可读回", problem);
+    check(restoredFiles.size() == 3, "备份：读回三个文件", QString::number(restoredFiles.size()));
+    check(restoredFiles.constFirst().second == QByteArray("maxMemory = 4096\n"),
+          "备份：文本内容逐字节一致");
+    check(restoredFiles.at(1).second == QByteArray::fromHex("504b0304"),
+          "备份：二进制内容逐字节一致");
+
+    // 单文件备份（createFromBytes）也要能被 readFiles 读回（前面那份已经被清理过）。
+    QString singleId;
+    check(backups.createFromBytes(QStringLiteral("session-1"), QStringLiteral("1.20.1"),
+                                  QStringLiteral("options.txt"), QByteArray("fov:0.0\n"),
+                                  QStringLiteral("单元测试"), &singleId, &problem),
+          "备份：单文件备份写入成功", problem);
+    QList<QPair<QString, QByteArray>> single;
+    check(backups.readFiles(singleId, &single, &problem), "备份：单文件备份也能走 readFiles",
+          problem);
+    check(single.size() == 1, "备份：单文件备份读回一条");
 }

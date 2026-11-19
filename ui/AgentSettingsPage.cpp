@@ -282,6 +282,9 @@ AgentSettingsPage::AgentSettingsPage(QWidget *parent) : QDialog(parent) {
     Theme::markButton(m_save, Theme::ButtonKind::Primary);
     m_save->setMinimumWidth(96);
     buttons->addWidget(m_test);
+    m_mcp = new QPushButton(QStringLiteral("MCP 服务器…"), this);
+    m_mcp->setObjectName(QStringLiteral("agentSettingsMcpButton"));
+    buttons->addWidget(m_mcp);
     buttons->addStretch(1);
     buttons->addWidget(m_save);
     footerLayout->addLayout(buttons);
@@ -299,6 +302,7 @@ AgentSettingsPage::AgentSettingsPage(QWidget *parent) : QDialog(parent) {
     connect(m_strict, &QAbstractButton::toggled, this, [this] { updatePrivacyText(); });
     connect(m_save, &QPushButton::clicked, this, &AgentSettingsPage::saveRequested);
     connect(m_test, &QPushButton::clicked, this, &AgentSettingsPage::testRequested);
+    connect(m_mcp, &QPushButton::clicked, this, &AgentSettingsPage::mcpSettingsRequested);
     connect(m_clearKeyButton, &QPushButton::clicked, this, [this] {
         m_clearKey = true;
         m_secret->clear();
