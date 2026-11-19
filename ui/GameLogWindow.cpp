@@ -1270,12 +1270,12 @@ QString GameLogWindow::fileWindowTitleText(const QString &fileName) {
 }
 
 QString GameLogWindow::fileHintText(qint64 cutHeadBytes, bool tailByDefault) {
-    QString text = QCoreApplication::translate("GameLogWindow", "这是一份已保存的日志，内容不会再增加。");
+    QString text = QCoreApplication::translate("GameLogWindow", "已保存的日志，不再更新。");
     if (cutHeadBytes > 0) {
         text += QCoreApplication::translate("GameLogWindow", "文件过大，只读取了末尾部分。");
     }
     if (tailByDefault) {
-        text += QCoreApplication::translate("GameLogWindow", "默认显示末尾 %1 行，可在右上角切换行数上限。")
+        text += QCoreApplication::translate("GameLogWindow", "当前显示末尾 %1 行，可在右上角调整。")
                     .arg(fileTailLines());
     }
     return text;
@@ -1321,7 +1321,7 @@ QString GameLogWindow::filteredOutPlaceholderText() {
 }
 
 QString GameLogWindow::searchPlaceholderText() {
-    return QStringLiteral("在这里面找…（不区分大小写；与上方的级别筛选同时生效）");
+    return QCoreApplication::translate("GameLogWindow", "搜索日志（不区分大小写，与级别筛选同时生效）");
 }
 
 QString GameLogWindow::searchEmptyPlaceholderText() {
