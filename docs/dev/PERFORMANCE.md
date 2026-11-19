@@ -569,7 +569,6 @@ pwsh -File tools/perf-startup.ps1 -Probe -Runs 3 -Instances 0 -Exe build/perf-pr
 | `toolbox:tool:trim` | 22.5 | **56.5 / 54.6** | **63.1** |
 | `toolbox:tool:download` | 17.8 | 27.0 / 24.4 | 23.9 |
 | `toolbox:tool:server` | 16.2 | 19.6 / 18.9 | 18.7 |
-| `toolbox:tool:hash` | 15.4 | 26.7 / 22.2 | 25.6 |
 | `toolbox:catalog` | 8.9 | 11.2 / 10.5 | 10.4 |
 
 B 比 A 多做了一件事：纹饰页那十二个下拉框改成一个框一次整批插入。负载变了，所以这一项单独省了多少看不出来。

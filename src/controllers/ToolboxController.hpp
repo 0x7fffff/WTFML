@@ -9,20 +9,19 @@
  * 【这个 controller 管什么、不管什么】
  *
  * 管：
- * - **哈希**（`FileHash`）：一个可能几百 MB 的文件要**一条线程**去算，进度和取消都在这儿；
  * - **服务器在线检测**（`ServerPing::Pinger`）：异步那一套本来就在 `ServerPing` 里
  * （服务器列表「测速」用的是同一个），这里只是拿它问一台；
- * - **另三件**（附魔顺序、文本生成器、坐标换算）：当场就能算的纯函数，这里只做
- * "把页面上的控件读成参数 → 调 `src/tools/` → 把结果翻成页面认的那几个字符串"。
+ * - **当场就能算的纯函数**（附魔顺序、文本生成器、坐标换算、信标、酿造、旗帜、纹饰）：
+ * 这里只做"把页面上的控件读成参数 → 调 `src/tools/` → 把结果翻成页面认的那几个字符串"。
  *
  * 不改现有游戏文件。「高速下载」由 DirectDownloadController 写用户指定目标；
  * 纹饰预览资源由 ArmorTrimPreviewController 写独立 cache/preview-resources，不安装或执行客户端。
  *
  * 【为什么那几张表由 controller 喂给页面】
  *
- * `ui/` 不 include `src/`（全仓的约定）。所以"十六色是哪十六个""算法有哪三档""维度有
- * 哪几个""附魔表长什么样"这四张表都由这里读出来、翻成**字符串**再交给页面 —— 表本身
- * 各自只有一处出处（`TextFormat` / `FileHash` / `CoordConvert` / `Anvil`）。
+ * `ui/` 不 include `src/`（全仓的约定）。所以"十六色是哪十六个""维度有哪几个""附魔表
+ * 长什么样"这几张表都由这里读出来、翻成**字符串**再交给页面 —— 表本身各自只有一处
+ * 出处（`TextFormat` / `CoordConvert` / `Anvil`）。
  */
 
 #pragma once
@@ -30,19 +29,15 @@
 #include <QObject>
 #include <QString>
 
-#include <QAtomicInt>
 #include <QHash>
 #include <QImage>
 #include <QStringList>
 
 #include "ToolboxPage.hpp"
-#include "tools/FileHash.hpp"
 
 #include <functional>
 
 class OverlayHost;
-class QFileSystemWatcher;
-class QThread;
 class QWidget;
 class ToolboxPage;
 class DirectDownloadController;
@@ -106,15 +101,6 @@ private:
     // ---------- 服务器在线检测 ----------
     void checkServer(const QString &address);
     void cancelServerCheck();
-    // ---------- 文件哈希校验 ----------
-    void runHash(const QString &path, int algorithmIndex, const QString &expected);
-    /// 批量算（「补多文件」）：一个线程里逐个算，中途可以取消。
-    void runHashBatch(const QStringList &paths, int algorithmIndex);
-    /// 把批量清单写到用户挑的那个路径（写盘只在这一层做）。
-    void exportHashBatch(const QString &path, const QString &text);
-    void cancelHash();
-    /// 算完之后盯着的那个文件被改过 / 被删了（`QFileSystemWatcher` 那一发）。
-    void onHashFileChanged(const QString &path);
     // ---------- 信标计算 / 酿造助手 ----------
     void refreshBeacon(int fromLevel, int level, int materialIndex, int beaconCount);
     void refreshBrewing(int potionIndex, bool extended, bool level2, int formIndex, int bottles);
@@ -141,19 +127,6 @@ private:
     ArmorTrimPreviewController *m_trimPreview = nullptr;
     ServerPing::Pinger *m_pinger = nullptr;
 
-    /// 哈希那一趟的线程（`QThread::create` 那种，和 `IntegrityController` 同一套做法）。
-    QThread *m_hashThread = nullptr;
-    /// 用户点了「停下」置 1（工作线程每一块读之前看一眼）。
-    QAtomicInt m_hashAbort{0};
-    /// 算完之后盯着的那个文件（"文件变化使结果失效"）。
-    QFileSystemWatcher *m_hashWatcher = nullptr;
-    QString m_hashWatchedPath;
-    qint64 m_hashWatchedBytes = -1;
-    qint64 m_hashWatchedModifiedMs = -1;
-    bool m_hashWatched = false;
-    /// 批量那一趟算成功的那些文件（路径 → 算完那一刻的长相）。哪一条对不上了就从这里摘掉
-    /// 并提醒一次（`onHashFileChanged()`）。
-    QHash<QString, FileHash::Stamp> m_hashBatchStamps;
     /// 这一趟问的是哪个地址（`Pinger::oneFinished` 只给下标、不给地址，所以自己记着）。
     QString m_serverAddress;
 };

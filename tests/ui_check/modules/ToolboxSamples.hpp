@@ -1,4 +1,4 @@
-// 工具箱十片的样例数据（toolbox-layout 与 review-shots 共用）。
+// 工具箱九片的样例数据（toolbox-layout 与 review-shots 共用）。
 #pragma once
 
 #include "ToolboxPage.hpp"
@@ -54,16 +54,6 @@ inline void fillToolboxSamples(ToolboxPage &page, ToolboxPage::Tool tool) {
         page.setCoordinateRows({QStringLiteral("下界：x 10.00 y 64.00 z -9.50"), QStringLiteral("区块 (0, -1) 一带"),
                                 QStringLiteral("region 文件 r.0.-1.mca")});
         break;
-    case Tool::Hash: {
-        page.setAlgorithmChoices({QStringLiteral("SHA-256"), QStringLiteral("SHA-1"), QStringLiteral("MD5")});
-        ToolboxPage::HashView hash;
-        hash.ok = true;
-        hash.hex = QStringLiteral("a3f9c1d4e5b6a7980123456789abcdef0123456789abcdef0123456789abcdef");
-        hash.sizeText = QStringLiteral("12.4 MB");
-        hash.algorithm = QStringLiteral("SHA-256");
-        page.setHashView(hash);
-        break;
-    }
     case Tool::Server: {
         ToolboxPage::ServerView server;
         server.ok = true;

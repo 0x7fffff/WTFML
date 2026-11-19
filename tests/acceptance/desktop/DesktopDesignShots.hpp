@@ -460,7 +460,7 @@ private:
 };
 
 /// 焦点那一列：逐格取真焦点（键盘那一档）后从整窗截那一小块，拼回总图。
-/// 设计稿里坐标 / 延迟 / SHA 三页填一份样例结果，让结果面板有东西可看（只摆界面，不联网不读文件）。
+/// 设计稿里坐标 / 延迟两页填一份样例结果，让结果面板有东西可看（只摆界面，不联网不读文件）。
 inline void fillToolboxSample(ToolboxPage &page, const QString &key) {
     if (key == QStringLiteral("coord")) {
         page.setCoordinates(0, 1024, 72, -384);
@@ -473,12 +473,6 @@ inline void fillToolboxSample(ToolboxPage &page, const QString &key) {
         view.version = QStringLiteral("Paper 1.21.4"); view.players = QStringLiteral("7 / 20");
         view.latency = QStringLiteral("26 ms");
         page.setServerView(view);
-    } else if (key == QStringLiteral("hash")) {
-        page.setHashPath(QStringLiteral("D:/Downloads/example-mod-1.2.0.jar"));
-        ToolboxPage::HashView view;
-        view.ok = true; view.algorithm = QStringLiteral("SHA-256"); view.sizeText = QStringLiteral("1.8 MB");
-        view.hex = QStringLiteral("3f2a9c1e7b0d4e58a6c2f19b8e07d3a4c5b6e1f20983a7d4c6e5b2a1f0d9c8e7");
-        page.setHashView(view);
     }
 }
 
@@ -625,7 +619,7 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         // 精修轮逐页自检：启动设置三主题、工具箱其余九页三主题。
         for (const QString &theme : {QStringLiteral("emerald"), QStringLiteral("ocean")})
             list.append({QStringLiteral("instance-launch-%1.png").arg(theme), theme, {1280, 800}, false, manage, QStringLiteral("launch")});
-        for (const char *key : {"anvil", "text", "coord", "server", "hash", "beacon", "brewing", "banner", "trim", "download"})
+        for (const char *key : {"anvil", "text", "coord", "server", "beacon", "brewing", "banner", "trim", "download"})
             for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("emerald"), QStringLiteral("ocean")})
                 list.append({QStringLiteral("tool-%1-%2.png").arg(QLatin1String(key), theme), theme, {1280, 800}, false, home,
                              QStringLiteral("toolbox:") + QLatin1String(key)});

@@ -8,7 +8,7 @@
  * 面包屑「工具箱 / 附魔助手」：「工具箱」点了回目录，工具名点了弹浮层（`GlassPopover`）直接
  * 换到别的工具。**没有页内页签，也没有导航轨底部的弹出框。**
  *
- * 【每件工具一片】十片各自一层滚动区，放在 `QStackedWidget` 里换着露。构造时只搭页头和目录页；
+ * 【每件工具一片】九片各自一层滚动区，放在 `QStackedWidget` 里换着露。构造时只搭页头和目录页；
  * 某件工具第一次进去才搭那一片（`showTool()` → `ensureTool()`），搭完发 `toolBuilt()`，之后一直
  * 留着，再进只换格。**某片没搭之前，它那一组 set / get 都不能调** —— 灌表、恢复输入、算初值一律
  * 接 `toolBuilt()` 做。窄窗口下每片自己重排（内容宽 < 640 时折行 / 叠放），不出横向滚动条。
@@ -16,9 +16,9 @@
  * 【这一页自己一根手指都不碰游戏目录】
  *
  * `ui/` **不 include `src/`**（全仓的规矩）。这一页只干两件事：把用户敲的东西**收成信号**
- * 发出去、把 `ToolboxController` 算好的**字符串**摆上去。算哈希、认坐标、拼 `tellraw`、排附魔
- * 顺序全在 `src/tools/`（纯函数，各自有判据）。哈希要读大文件、服务器检测要联网，这两件是慢活，
- * 由 controller 派到线程上去。「高速下载」整条链在 `DirectDownloadController` 里，这一片只管
+ * 发出去、把 `ToolboxController` 算好的**字符串**摆上去。认坐标、拼 `tellraw`、排附魔
+ * 顺序全在 `src/tools/`（纯函数，各自有判据）。服务器检测要联网，这件事由 controller 派到
+ * 线程上去。「高速下载」整条链在 `DirectDownloadController` 里，这一片只管
  * 收输入、摆状态（`DownloadToolPanel`）。
  */
 
@@ -38,8 +38,6 @@ class QCheckBox;
 class QColor;
 class QComboBox;
 class QDoubleSpinBox;
-class QDragEnterEvent;
-class QDropEvent;
 class QGridLayout;
 class QLabel;
 class QLineEdit;
@@ -59,8 +57,8 @@ class ToolboxPage : public QWidget {
     Q_OBJECT
 
 public:
-    /// 十件工具。**`tools()` 是目录页格子与切换浮层的次序唯一出处。**
-    enum class Tool { Anvil, Text, Coord, Server, Hash, Beacon, Brewing, Banner, Trim, Download };
+    /// 九件工具。**`tools()` 是目录页格子与切换浮层的次序唯一出处。**
+    enum class Tool { Anvil, Text, Coord, Server, Beacon, Brewing, Banner, Trim, Download };
 
     /// 工具的键（`ToolboxController::open()` 用它认人）。
     static QString toolKey(Tool tool);
@@ -70,7 +68,7 @@ public:
     static QString toolName(Tool tool);
     /// 目录格里的一句用途（≤14 字）。
     static QString toolSummary(Tool tool);
-    /// 十件，**次序唯一出处**（目录页格子、切换浮层）。
+    /// 九件，**次序唯一出处**（目录页格子、切换浮层）。
     static QList<Tool> tools();
     /// 一枚 24×24 线稿图标。**不是位图资源** —— 现画，颜色由调用方给。
     static QIcon toolIcon(Tool tool, const QColor &ink);
@@ -127,10 +125,6 @@ public:
     static QString trimResultName() { return QStringLiteral("toolboxTrimResult"); }
     /// 「显示披风」那个勾（默认不勾；没有披风的账号那一格是灰的）。
     static QString trimCapeCheckName() { return QStringLiteral("toolboxTrimCape"); }
-    /// 哈希那一件：算完之后文件被改过的那句提醒（空串 = 收起来）。
-    static QString hashNoticeName() { return QStringLiteral("toolboxHashNotice"); }
-    static QString hashCopyAllName() { return QStringLiteral("toolboxHashCopyAll"); }
-    static QString hashExportName() { return QStringLiteral("toolboxHashExport"); }
 
     explicit ToolboxPage(QWidget *parent = nullptr);
 
@@ -272,60 +266,7 @@ public:
     /// 正在问 / 问完了（按钮那两颗跟着换）。
     void setServerBusy(bool busy);
 
-    // ================= 五、文件哈希校验 =================
-
-    /// 算法那三档（名字由 controller 从 `FileHash::algorithmName()` 拿，页面上不写死）。
-    void setAlgorithmChoices(const QStringList &names);
-    int algorithmIndex() const;
-    /// 要算的那个文件（拖进来 / 浏览选 / 手敲都在这一格）。
-    QString hashPath() const;
-    void setHashPath(const QString &path);
-    /// 用户粘进来的"已知值"（可以为空 = 只想看摘要）。
-    QString hashExpected() const;
-    /// 算出来的结论。
-    struct HashView {
-        bool ok = false;
-        QString error;        ///< 非空 = 没算成（打不开 / 取消了）
-        QString hex;          ///< 摘要本身
-        QString sizeText;     ///< 文件多大
-        QString verdict;      ///< 和已知值对照的那句话
-        bool hasVerdict = false;
-        bool matches = false;
-        QString algorithm;    ///< 算的是哪一档
-    };
-    void setHashView(const HashView &view);
-    /// 批量算完之后那一列（文件名 / 大小 / 摘要；没算成的那几个带原因）。
-    ///
-    /// 和 `setHashView()` **是两档**：单文件那一份是"一个大摘要摆在正中间"，批量这一份是
-    /// 一张清单 —— 两档各自把对方那份收掉（按钮、`hashBatchText()` 都跟着走），免得屏幕上
-    /// 一半是上一次的单文件结果、一半是这一次的清单。
-    struct HashBatchRow {
-        QString name;      ///< 文件名（清单里那一行开头就是它）
-        QString path;      ///< 完整路径（tooltip 与导出用）
-        QString sizeText;  ///< 文件多大
-        QString hex;       ///< 摘要（没算成时为空）
-        bool ok = false;
-        QString error;     ///< 没算成的原因
-    };
-    /// @param rows 已算完的那几个（顺序就是选文件的顺序）
-    /// @param summary 顶上那句（"共 3 个文件 / SHA-256 / 1 个没算成"这种，controller 拼）
-    void setHashBatchView(const QList<HashBatchRow> &rows, const QString &summary);
-    /// 批量结果导出/复制的**纯文本**（`<摘要> <文件名>` 一行一个，标准校验和格式）。
-    /// 没有批量结果时是空串。
-    QString hashBatchText() const;
-    /// 批量时那句"第 i / n 个：名字"（单文件那一趟不受影响）。
-    void setHashProgressNote(const QString &text);
-    /// 进度（`done` / `total`，一共那个是 -1 时写成"读了 X"）。
-    void setHashProgress(qint64 done, qint64 total);
-    void setHashBusy(bool busy);
-    /// 算完之后那个文件被改过 / 不在了 ⇒ 摆这句提醒（空串 = 收起来）。
-    ///
-    /// 为什么这句必须露在结果旁边：屏幕上那串十六进制**看上去和刚才一模一样**，
-    /// 但它已经不是这个文件现在的摘要了。不说的话，用户会拿它去和人家给的比，
-    /// 然后得出一个反的结论（"明明重新下载过了还是对不上"）。
-    void setHashStaleNote(const QString &text);
-
-    // ================= 六、信标计算 =================
+    // ================= 五、信标计算 =================
 
     /// 结果那一整段（`Beacon::detailText()` 拼好的；由 controller 摆进来）。
     void setBeaconResult(const QString &text);
@@ -344,7 +285,7 @@ public:
     /// 程序摆这两格（**不发 `beaconRequested`** —— 开页时给一个合理的默认）。
     void setBeaconLevels(int fromLevel, int targetLevel);
 
-    // ================= 七、酿造助手 =================
+    // ================= 六、酿造助手 =================
 
     /// 药水下拉框的那几项（名字由 controller 从 `Brewing::potionNames()` 拿）。
     void setBrewingPotions(const QStringList &names);
@@ -363,7 +304,7 @@ public:
     /// 目标版本（空串 = 不限版本）。
     QString brewingVersion() const;
 
-    // ================= 八、旗帜设计 =================
+    // ================= 七、旗帜设计 =================
 
     /// 底色 / 当前这一层的图案 / 当前这一层的颜色（三张表的次序都由 controller 给）。
     /// @p swatches 与 @p names 一一对应时，下拉框与图层清单的每个颜色名前画一颗色点。
@@ -383,7 +324,7 @@ public:
     QString bannerVersion() const;
     void setBannerPatternAvailability(const QList<bool> &available);
 
-    // ================= 九、纹饰搭配 =================
+    // ================= 八、纹饰搭配 =================
 
     void setTrimArmorMaterials(const QStringList &names);
     void setTrimParts(const QStringList &names);
@@ -445,13 +386,6 @@ signals:
     void serverCheckRequested(const QString &address);
     void serverCheckCancelRequested();
     void serverToolExited();
-    // ---- 文件哈希校验 ----
-    void hashRequested(const QString &path, int algorithmIndex, const QString &expected);
-    void hashCancelRequested();
-    /// 批量算（「补多文件」）。`paths` 是用户一次选中的那几个。
-    void hashBatchRequested(const QStringList &paths, int algorithmIndex);
-    /// 把批量结果的纯文本写到 @p path（写盘那一半在 controller；这一层只给路和字）。
-    void hashExportRequested(const QString &path, const QString &text);
     // ---- 信标计算 / 酿造助手 ----
     void beaconRequested(int fromLevel, int targetLevel, int materialIndex, int beaconCount);
     void brewingRequested(int potionIndex, bool extended, bool level2, int formIndex,
@@ -464,20 +398,15 @@ signals:
 
 protected:
     void hideEvent(QHideEvent *event) override;
-    /// 拖一个文件进来（只对「SHA 校验」这一片有意义 —— 别的工具不吃文件）。
-    /// 判据见 .cpp：当前不是哈希那一片、或者拖进来的不是本地文件，就原样交给基类。
-    void dragEnterEvent(QDragEnterEvent *event) override;
-    void dropEvent(QDropEvent *event) override;
 
 private:
     /// 搭 @p tool 那一片（已搭过就直接返回），返回 `m_stack` 里那一页。
     QWidget *ensureTool(Tool tool);
-    /// 十片各自搭一次（`ensureTool()` 调，之后切的时候只是换 `QStackedWidget` 那一格）。
+    /// 九片各自搭一次（`ensureTool()` 调，之后切的时候只是换 `QStackedWidget` 那一格）。
     QWidget *buildAnvilPanel();
     QWidget *buildTextPanel();
     QWidget *buildCoordPanel();
     QWidget *buildServerPanel();
-    QWidget *buildHashPanel();
     QWidget *buildBeaconPanel();
     QWidget *buildBrewingPanel();
     QWidget *buildBannerPanel();
@@ -493,8 +422,6 @@ private:
     void appendAnvilRow();
     /// 删掉 / 加上一行之后重新摆一遍：第一行的「同上一件」去掉、悬停删除钮、窄时折行。
     void refreshAnvilRows();
-    /// 哈希结果区右上那组钮：单文件只留「复制」，批量清单才出「复制全部 / 导出…」。
-    void syncHashActions();
     /// 旗帜那一排层的列表按 `m_bannerLayers` 重画一遍（行名从两张下拉框里取）。
     void syncBannerList();
     /// 旗帜这一份改了（底色 / 层序）之后发一发。
@@ -552,32 +479,14 @@ private:
     QLabel *m_serverResult = nullptr;
     QListWidget *m_serverHistory = nullptr;
 
-    // 五、文件哈希校验
-    QLineEdit *m_hashPath = nullptr;
-    QComboBox *m_hashAlgorithm = nullptr;
-    QLineEdit *m_hashExpected = nullptr;
-    QPushButton *m_hashRun = nullptr;
-    QPushButton *m_hashCancel = nullptr;
-    QLabel *m_hashResult = nullptr;
-    QLabel *m_hashProgress = nullptr;
-    /// 算完之后文件变过的那句提醒（见 `setHashStaleNote()`）。
-    QLabel *m_hashNotice = nullptr;
-    /// 算出来的那一串摘要（「复制」那颗拷的是它 —— 结果标签里画的带 HTML，不能整段拷）。
-    QString m_hashHex;
-    /// 批量那一档（「补多文件」+「复制/导出列表」）。
-    QPushButton *m_hashCopyAll = nullptr;  ///< 「复制全部」（标准校验和文本）
-    QPushButton *m_hashExport = nullptr;   ///< 「导出…」（写一个 .txt）
-    /// 批量结果的纯文本（`<摘要> <文件名>` 一行一个）。空串 = 没有批量结果。
-    QString m_hashBatchText;
-
-    // 六、信标计算
+    // 五、信标计算
     QSpinBox *m_beaconFrom = nullptr;
     QSpinBox *m_beaconLevel = nullptr;
     QComboBox *m_beaconMaterial = nullptr;
     QSpinBox *m_beaconCount = nullptr;
     QLabel *m_beaconResult = nullptr;
 
-    // 七、酿造助手
+    // 六、酿造助手
     QComboBox *m_brewingPotion = nullptr;
     QCheckBox *m_brewingExtended = nullptr;
     QCheckBox *m_brewingLevel2 = nullptr;
@@ -585,7 +494,7 @@ private:
     QSpinBox *m_brewingBottles = nullptr;
     QLabel *m_brewingResult = nullptr;
 
-    // 八、旗帜设计
+    // 七、旗帜设计
     QComboBox *m_bannerBase = nullptr;
     QComboBox *m_bannerPattern = nullptr;
     QComboBox *m_bannerColor = nullptr;
@@ -607,7 +516,7 @@ private:
     /// 程序拽列表行时挡一下（`currentRowChanged` 只影响按钮可用性，不影响层）。
     bool m_bannerSyncing = false;
 
-    // 九、纹饰搭配
+    // 八、纹饰搭配
     QComboBox *m_trimArmor = nullptr;
     QComboBox *m_trimPart = nullptr;
     QComboBox *m_trimPattern = nullptr;

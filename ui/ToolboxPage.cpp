@@ -16,9 +16,6 @@
 #include <QClipboard>
 #include <QComboBox>
 #include <QDoubleSpinBox>
-#include <QDragEnterEvent>
-#include <QDropEvent>
-#include <QFileDialog>
 #include <QFont>
 #include <QFontDatabase>
 #include <QFrame>
@@ -32,7 +29,6 @@
 #include <QListWidget>
 #include <QListView>
 #include <QStandardItemModel>
-#include <QMimeData>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPixmap>
@@ -56,7 +52,7 @@
 
 namespace {
 
-/// 十件工具的那张表（**键 / 名字 / 目录里那一句的唯一出处**，次序 = 目录页与切换浮层的次序）。
+/// 九件工具的那张表（**键 / 名字 / 目录里那一句的唯一出处**，次序 = 目录页与切换浮层的次序）。
 struct ToolInfo {
     ToolboxPage::Tool tool;
     const char *key;
@@ -74,7 +70,6 @@ const ToolInfo kToolInfos[] = {
     {ToolboxPage::Tool::Trim, "trim", "纹饰搭配", "盔甲纹饰与材料搭配"},
     {ToolboxPage::Tool::Download, "download", "高速下载", "直链下载，可断点续传"},
     {ToolboxPage::Tool::Server, "server", "延迟测试", "服务器状态与延迟"},
-    {ToolboxPage::Tool::Hash, "hash", "SHA 校验", "计算并核对文件哈希"},
 };
 
 const ToolInfo *infoOf(ToolboxPage::Tool tool) {
@@ -94,7 +89,7 @@ const ToolInfo *infoOf(ToolboxPage::Tool tool) {
 // 坐标系里 = 屏幕上 1.7 px —— 和界面里正文笔画差不多粗细。色由调用方给：面板那边
 // 拿主题色的 `Ink` 档（深色主题下换 `Pure`），不在这里另立一条配色。
 //
-// NOTE: 十件一件一个 switch 分支，**没有 default 省略** —— 以后往 `Tool` 里加一件，
+// NOTE: 九件一件一个 switch 分支，**没有 default 省略** —— 以后往 `Tool` 里加一件，
 // 编译器会在这里点名。
 QIcon drawToolIcon(ToolboxPage::Tool tool, const QColor &ink) {
     constexpr int kSide = 48;
@@ -107,13 +102,6 @@ QIcon drawToolIcon(ToolboxPage::Tool tool, const QColor &ink) {
     painter.setBrush(Qt::NoBrush);
 
     switch (tool) {
-    case ToolboxPage::Tool::Hash:
-        // 摘要符号，避免小尺寸下指纹多重弧线糊成一团。
-        painter.drawLine(QPointF(20, 9), QPointF(15, 39));
-        painter.drawLine(QPointF(33, 9), QPointF(28, 39));
-        painter.drawLine(QPointF(10, 19), QPointF(39, 19));
-        painter.drawLine(QPointF(8, 30), QPointF(37, 30));
-        break;
     case ToolboxPage::Tool::Download:
         // 往托盘里落一支箭头。
         painter.drawLine(QPointF(24, 6), QPointF(24, 27));
@@ -1226,7 +1214,7 @@ private:
 }  // namespace
 
 // ---------------------------------------------------------------------------
-// 十件工具那张表（键 / 名字 / 用途）
+// 九件工具那张表（键 / 名字 / 用途）
 // ---------------------------------------------------------------------------
 
 QString ToolboxPage::toolKey(Tool tool) {
@@ -1235,7 +1223,7 @@ QString ToolboxPage::toolKey(Tool tool) {
 
 ToolboxPage::Tool ToolboxPage::toolFromKey(const QString &key, bool *ok) {
     for (const ToolInfo &info : kToolInfos) {
-        if (info.tool != Tool::Hash && key == QLatin1String(info.key)) {
+        if (key == QLatin1String(info.key)) {
             if (ok != nullptr) {
                 *ok = true;
             }
@@ -1258,9 +1246,7 @@ QString ToolboxPage::toolSummary(Tool tool) {
 
 QList<ToolboxPage::Tool> ToolboxPage::tools() {
     QList<Tool> list;
-    for (const ToolInfo &info : kToolInfos) {
-        if (info.tool != Tool::Hash) list.append(info.tool);
-    }
+    for (const ToolInfo &info : kToolInfos) list.append(info.tool);
     return list;
 }
 
@@ -1288,7 +1274,6 @@ ToolboxPage::ToolboxPage(QWidget *parent) : QWidget(parent) {
     setObjectName(QStringLiteral("toolboxPage"));
     setWindowTitle(pageTitle());
     resize(900, 560);  // 单独拿出来用（验证工程）时的默认尺寸；嵌在选项卡里时拿内容区整幅
-    setAcceptDrops(true);  // SHA 校验那一片要能"拖一个文件进来"
 
     m_tools = tools();
 
@@ -1435,7 +1420,6 @@ QWidget *ToolboxPage::ensureTool(Tool tool) {
     case Tool::Text: panel = buildTextPanel(); break;
     case Tool::Coord: panel = buildCoordPanel(); break;
     case Tool::Server: panel = buildServerPanel(); break;
-    case Tool::Hash: panel = buildHashPanel(); break;
     case Tool::Beacon: panel = buildBeaconPanel(); break;
     case Tool::Brewing: panel = buildBrewingPanel(); break;
     case Tool::Banner: panel = buildBannerPanel(); break;
@@ -2476,308 +2460,7 @@ void ToolboxPage::setServerBusy(bool busy) {
 }
 
 // ---------------------------------------------------------------------------
-// 五、文件哈希校验
-// ---------------------------------------------------------------------------
-
-QWidget *ToolboxPage::buildHashPanel() {
-    auto *panel = new QWidget(this);
-    auto *layout = new QVBoxLayout(panel);
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(8);
-
-
-    // ---------- 输入区：文件 / 算法 + 对照摘要 ----------
-    FormGrid form(panel);
-    m_hashPath = new QLineEdit(panel);
-    m_hashPath->setObjectName(QStringLiteral("hashPath"));
-    InputSizing::longValue(m_hashPath, "文件路径：深度不定");
-    m_hashPath->setPlaceholderText(QStringLiteral("拖入文件或点击选择"));
-    auto *browse = new QPushButton(QStringLiteral("选择…"), panel);
-    browse->setToolTip(QStringLiteral("可多选，多个文件逐个计算。"));
-    browse->setObjectName(QStringLiteral("hashBrowse"));
-    browse->setAutoDefault(false);
-    Theme::markButton(browse, Theme::ButtonKind::Neutral);
-    auto *fileLine = form.addRow(QStringLiteral("文件"), {m_hashPath, browse});
-    fileLine->setStretchFactor(m_hashPath, 1);
-    delete fileLine->takeAt(fileLine->count() - 1);
-
-    m_hashAlgorithm = new QComboBox(panel);
-    m_hashAlgorithm->setObjectName(QStringLiteral("hashAlgorithm"));
-    m_hashAlgorithm->setMinimumWidth(140);
-    m_hashAlgorithm->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-    form.add(QStringLiteral("算法"), m_hashAlgorithm);
-    m_hashExpected = new QLineEdit(panel);
-    m_hashExpected->setObjectName(QStringLiteral("hashExpected"));
-    InputSizing::longValue(m_hashExpected, "对照摘要：SHA-256 是 64 个十六进制字符，要能看全");
-    m_hashExpected->setPlaceholderText(QStringLiteral("对照摘要（可选）"));
-
-    m_hashProgress = makeMutedLabel(panel, QStringLiteral("hashProgress"));
-    m_hashRun = new QPushButton(QStringLiteral("计算"), panel);
-    m_hashRun->setObjectName(QStringLiteral("hashRun"));
-    m_hashRun->setAutoDefault(false);
-    Theme::markButton(m_hashRun, Theme::ButtonKind::Primary);
-    m_hashCancel = new QPushButton(QStringLiteral("取消"), panel);
-    m_hashCancel->setObjectName(QStringLiteral("hashCancel"));
-    m_hashCancel->setAutoDefault(false);
-    Theme::markButton(m_hashCancel, Theme::ButtonKind::Ghost);
-    m_hashCancel->setEnabled(false);
-    m_hashCancel->hide();  // 只在计算中出现
-    // 「计算」是这一块唯一的主钮，跟在最后一格输入后面；「取消」只在算的时候冒出来。
-    auto *expectedLine = form.addRow(QStringLiteral("对照摘要"), {m_hashExpected, m_hashCancel, m_hashRun});
-    expectedLine->setStretchFactor(m_hashExpected, 1);
-    delete expectedLine->takeAt(expectedLine->count() - 1);
-    layout->addLayout(form.grid);
-    m_hashProgress->setContentsMargins(kFormLabelWidth + 12, 0, 0, 0);
-    m_hashProgress->hide();  // 只在算的时候有字
-    layout->addWidget(m_hashProgress);
-
-    // ---------- 结果区：右上角一组复制 / 导出 ----------
-    auto *card = new SoftPanel(panel);
-    auto *head = new QHBoxLayout;
-    head->setContentsMargins(0, 0, 0, 0);
-    head->setSpacing(4);
-    head->addWidget(makePanelCaption(card, QStringLiteral("校验结果")));
-    head->addStretch(1);
-    auto *copy = makeGlyphButton(card, QStringLiteral("hashCopy"), Glyph::Copy,
-                                 QStringLiteral("复制摘要"), QStringLiteral("复制"));
-    copy->setEnabled(false);
-    m_hashCopyAll = makeGlyphButton(card, hashCopyAllName(), Glyph::Copy,
-                                    QStringLiteral("复制成标准的校验和格式（一行一个「摘要  文件名」）。"),
-                                    QStringLiteral("复制全部"));
-    m_hashExport = new QPushButton(QStringLiteral("导出…"), card);
-    m_hashExport->setObjectName(hashExportName());
-    m_hashExport->setToolTip(QStringLiteral("把这张清单存成一个 .txt。"));
-    m_hashExport->setAutoDefault(false);
-    Theme::markButton(m_hashExport, Theme::ButtonKind::Ghost);
-    m_hashExport->setStyleSheet(QStringLiteral("QPushButton { padding: 0px 8px; min-height: 26px; max-height: 26px; }"));
-    m_hashCopyAll->setEnabled(false);
-    m_hashExport->setEnabled(false);
-    m_hashCopyAll->hide();  // 只在批量清单出来后出现
-    m_hashExport->hide();
-    head->addWidget(copy);
-    head->addWidget(m_hashCopyAll);
-    head->addWidget(m_hashExport);
-    card->box()->addLayout(head);
-
-    // 算完之后文件变过的那句提醒：平时一个像素都不占（空文本 + 收起来）。
-    m_hashNotice = new QLabel(card);
-    m_hashNotice->setObjectName(hashNoticeName());
-    m_hashNotice->setWordWrap(true);
-    m_hashNotice->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    m_hashNotice->hide();
-    card->box()->addWidget(m_hashNotice);
-
-    m_hashResult = new QLabel(card);
-    m_hashResult->setObjectName(QStringLiteral("hashResult"));
-    m_hashResult->setTextFormat(Qt::RichText);
-    m_hashResult->setWordWrap(true);
-    m_hashResult->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    m_hashResult->setAlignment(Qt::AlignTop | Qt::AlignLeft);
-    card->box()->addWidget(m_hashResult);
-    card->hide();  // 没有结果不画
-    layout->addWidget(card);
-    layout->addStretch(1);
-
-    connect(browse, &QPushButton::clicked, this, [this]() {
-        // 可多选：一个文件填进路径框；多个文件按同一档算法逐个算（清单）。
-        const QStringList paths = QFileDialog::getOpenFileNames(this, QStringLiteral("选择文件"), QString(), QString(),
-                                                                nullptr, QFileDialog::DontResolveSymlinks);
-        if (paths.size() == 1) {
-            m_hashPath->setText(paths.first());
-        } else if (paths.size() > 1) {
-            emit hashBatchRequested(paths, m_hashAlgorithm != nullptr ? m_hashAlgorithm->currentIndex() : 0);
-        }
-    });
-    connect(m_hashRun, &QPushButton::clicked, this, [this]() {
-        emit hashRequested(m_hashPath->text().trimmed(), m_hashAlgorithm->currentIndex(),
-                           m_hashExpected->text());
-    });
-    connect(m_hashPath, &QLineEdit::returnPressed, this, [this]() {
-        emit hashRequested(m_hashPath->text().trimmed(), m_hashAlgorithm->currentIndex(),
-                           m_hashExpected->text());
-    });
-    connect(m_hashCancel, &QPushButton::clicked, this, [this]() { emit hashCancelRequested(); });
-    connect(copy, &QPushButton::clicked, this, [this]() {
-        // 拷的是**摘要那一串本身**（`m_hashHex`），不是结果标签里那一段带 HTML 的排版 ——
-        // 把标签的文字整段拷出去，用户粘到人家那格里是"一行说明 + 一串摘要"。
-        copyToClipboard(m_hashHex);
-    });
-    connect(m_hashCopyAll, &QPushButton::clicked, this,
-            [this]() { copyToClipboard(m_hashBatchText); });
-    connect(m_hashExport, &QPushButton::clicked, this, [this]() {
-        if (m_hashBatchText.isEmpty()) {
-            return;
-        }
-        const QString path = QFileDialog::getSaveFileName(
-            this, QStringLiteral("把清单存成一个 .txt"),
-            QStringLiteral("checksums.txt"),
-            QStringLiteral("文本文件 (*.txt)"));
-        if (!path.isEmpty()) {
-            emit hashExportRequested(path, m_hashBatchText);
-        }
-    });
-    return panel;
-}
-
-void ToolboxPage::setAlgorithmChoices(const QStringList &names) {
-    if (m_hashAlgorithm == nullptr) {
-        return;
-    }
-    const int previous = m_hashAlgorithm->currentIndex();
-    m_hashAlgorithm->clear();
-    m_hashAlgorithm->addItems(names);
-    if (previous >= 0 && previous < m_hashAlgorithm->count()) {
-        m_hashAlgorithm->setCurrentIndex(previous);
-    }
-}
-
-int ToolboxPage::algorithmIndex() const {
-    return m_hashAlgorithm != nullptr ? m_hashAlgorithm->currentIndex() : 0;
-}
-
-QString ToolboxPage::hashPath() const {
-    return m_hashPath != nullptr ? m_hashPath->text().trimmed() : QString();
-}
-
-void ToolboxPage::setHashPath(const QString &path) {
-    if (m_hashPath != nullptr) {
-        m_hashPath->setText(path);
-    }
-}
-
-QString ToolboxPage::hashExpected() const {
-    return m_hashExpected != nullptr ? m_hashExpected->text() : QString();
-}
-
-void ToolboxPage::setHashView(const HashView &view) {
-    if (m_hashResult == nullptr) {
-        return;
-    }
-    m_hashHex = view.hex;
-    // 单文件这一档把批量那一份收掉：屏幕上只留"这一次算的是什么"。
-    m_hashBatchText.clear();
-    syncHashActions();
-    const QString muted = Theme::tokens().secondary.name(QColor::HexRgb);
-    QString html;
-    if (!view.ok) {
-        html = QStringLiteral("<div style='font-size:16px;font-weight:600'>计算失败</div>"
-                              "<div style='color:%1;margin-top:4px'>%2</div>")
-                   .arg(muted, view.error.toHtmlEscaped());
-    } else {
-        // 结论一行：有对照就说一致 / 不一样，没对照就是「算法 · 大小」；下面才是那串摘要（等宽）。
-        const QString headline = view.hasVerdict
-            ? (view.matches ? QStringLiteral("一致") : QStringLiteral("不一致"))
-            : QStringLiteral("%1 摘要已算好").arg(view.algorithm);
-        html.append(QStringLiteral("<div style='font-size:16px;font-weight:600'>%1</div>").arg(headline.toHtmlEscaped()));
-        if (view.hasVerdict) {
-            html.append(QStringLiteral("<div style='color:%1;margin-top:2px'>%2</div>")
-                            .arg(muted, view.verdict.toHtmlEscaped()));
-        }
-        QString meta = view.algorithm.toHtmlEscaped();
-        if (!view.sizeText.isEmpty()) {
-            meta += QStringLiteral(" · 文件大小 %1").arg(view.sizeText.toHtmlEscaped());
-        }
-        html.append(QStringLiteral("<div style='color:%1;margin-top:%2'>%3</div>")
-                        .arg(muted, view.hasVerdict ? QStringLiteral("10px") : QStringLiteral("4px"), meta));
-        html.append(QStringLiteral("<div style='font-family:Consolas,monospace;font-size:14px;margin-top:4px'>%1</div>")
-                        .arg(view.hex.toHtmlEscaped()));
-    }
-    m_hashResult->setText(html);
-    m_hashResult->parentWidget()->show();
-}
-
-void ToolboxPage::setHashBatchView(const QList<HashBatchRow> &rows, const QString &summary) {
-    if (m_hashResult == nullptr) {
-        return;
-    }
-    // 批量这一档把单文件那一串收掉（两档各自摆自己那份）。
-    m_hashHex.clear();
-    const QString muted = Theme::tokens().secondary.name(QColor::HexRgb);
-    QString html = QStringLiteral("<div style='font-size:16px;font-weight:600'>%1</div>").arg(summary.toHtmlEscaped());
-    QStringList checksumLines;
-    for (const HashBatchRow &row : rows) {
-        html.append(QStringLiteral("<div style='margin-top:10px'>%1</div>").arg(row.name.toHtmlEscaped()));
-        if (row.ok) {
-            html.append(QStringLiteral("<div style='font-family:Consolas,monospace'>%1</div>").arg(row.hex.toHtmlEscaped()));
-            if (!row.sizeText.isEmpty()) {
-                html.append(QStringLiteral("<div style='color:%1'>%2</div>").arg(muted, row.sizeText.toHtmlEscaped()));
-            }
-            // 标准校验和格式：一行一个「摘要 文件名」。导出/复制都走这一份文本。
-            checksumLines.append(QStringLiteral("%1  %2").arg(row.hex, row.name));
-        } else {
-            html.append(QStringLiteral("<div style='color:%1'>计算失败：%2</div>")
-                            .arg(muted, (row.error.isEmpty() ? QStringLiteral("（没给原因）") : row.error).toHtmlEscaped()));
-        }
-    }
-    m_hashBatchText =
-        checksumLines.isEmpty() ? QString() : checksumLines.join(QLatin1Char('\n')) + QLatin1Char('\n');
-    m_hashResult->setText(html);
-    m_hashResult->parentWidget()->show();
-    syncHashActions();
-}
-
-QString ToolboxPage::hashBatchText() const { return m_hashBatchText; }
-
-void ToolboxPage::syncHashActions() {
-    const bool batch = !m_hashBatchText.isEmpty();
-    for (QPushButton *button : {m_hashCopyAll, m_hashExport}) {
-        if (button != nullptr) {
-            button->setEnabled(batch);
-            button->setVisible(batch);
-        }
-    }
-    if (auto *copy = findChild<QPushButton *>(QStringLiteral("hashCopy"))) {
-        copy->setEnabled(!m_hashHex.isEmpty());
-        copy->setVisible(!batch);
-    }
-}
-
-void ToolboxPage::setHashProgressNote(const QString &text) {
-    if (m_hashProgress != nullptr) {
-        m_hashProgress->setText(text);
-        m_hashProgress->setVisible(!text.isEmpty());
-    }
-}
-
-void ToolboxPage::setHashProgress(qint64 done, qint64 total) {    if (m_hashProgress == nullptr) {
-        return;
-    }
-    m_hashProgress->show();
-    if (total <= 0) {
-        m_hashProgress->setText(QStringLiteral("已读取 %1").arg(done));
-        return;
-    }
-    m_hashProgress->setText(QStringLiteral("已读取 %1 / %2（%3%）")
-                                .arg(done)
-                                .arg(total)
-                                .arg(total > 0 ? done * 100 / total : 0));
-}
-
-void ToolboxPage::setHashStaleNote(const QString &text) {
-    if (m_hashNotice == nullptr) {
-        return;
-    }
-    m_hashNotice->setText(text);
-    m_hashNotice->setVisible(!text.isEmpty());
-}
-
-void ToolboxPage::setHashBusy(bool busy) {
-    if (m_hashRun != nullptr) {
-        m_hashRun->setEnabled(!busy);
-        m_hashRun->setText(busy ? QStringLiteral("正在计算…") : QStringLiteral("计算"));
-    }
-    if (m_hashCancel != nullptr) {
-        m_hashCancel->setEnabled(busy);
-        m_hashCancel->setVisible(busy);
-    }
-    if (!busy && m_hashProgress != nullptr) {
-        m_hashProgress->clear();
-        m_hashProgress->hide();
-    }
-}
-
-// ---------------------------------------------------------------------------
-// 六、信标计算
+// 五、信标计算
 // ---------------------------------------------------------------------------
 
 QWidget *ToolboxPage::buildBeaconPanel() {
@@ -3008,7 +2691,7 @@ void ToolboxPage::setBeaconResult(const QString &text) {
 }
 
 // ---------------------------------------------------------------------------
-// 七、酿造助手
+// 六、酿造助手
 // ---------------------------------------------------------------------------
 
 QWidget *ToolboxPage::buildBrewingPanel() {
@@ -3128,7 +2811,7 @@ int ToolboxPage::brewingBottles() const {
 }
 
 // ---------------------------------------------------------------------------
-// 八、旗帜设计
+// 七、旗帜设计
 // ---------------------------------------------------------------------------
 
 QWidget *ToolboxPage::buildBannerPanel() {
@@ -3597,7 +3280,7 @@ void ToolboxPage::setBannerLayers(const QStringList &layers) {
 }
 
 // ---------------------------------------------------------------------------
-// 九、纹饰搭配
+// 八、纹饰搭配
 // ---------------------------------------------------------------------------
 
 QWidget *ToolboxPage::buildTrimPanel() {
@@ -3885,41 +3568,4 @@ int ToolboxPage::trimMaterialIndex() const {
 
 int ToolboxPage::trimPieces() const {
     return m_trimPieces != nullptr ? m_trimPieces->value() : 1;
-}
-
-// ---------------------------------------------------------------------------
-// 拖一个文件进来（哈希那一件；别的工具不管文件）
-// ---------------------------------------------------------------------------
-
-void ToolboxPage::dragEnterEvent(QDragEnterEvent *event) {
-    if (!m_inCatalog && m_current == Tool::Hash && event->mimeData()->hasUrls()
-        && !event->mimeData()->urls().isEmpty()) {
-        event->acceptProposedAction();
-        return;
-    }
-    QWidget::dragEnterEvent(event);
-}
-
-void ToolboxPage::dropEvent(QDropEvent *event) {
-    if (!m_inCatalog && m_current == Tool::Hash && event->mimeData()->hasUrls()) {
-        const QList<QUrl> urls = event->mimeData()->urls();
-        if (!urls.isEmpty()) {
-            // 只认本地文件（拖一个网址进来不是"要算哈希"）；拖进多个按同一档算法逐个算。
-            QStringList paths;
-            for (const QUrl &url : urls) {
-                if (url.isLocalFile()) paths << url.toLocalFile();
-            }
-            if (paths.size() == 1) {
-                setHashPath(paths.first());
-                event->acceptProposedAction();
-                return;
-            }
-            if (paths.size() > 1) {
-                emit hashBatchRequested(paths, algorithmIndex());
-                event->acceptProposedAction();
-                return;
-            }
-        }
-    }
-    QWidget::dropEvent(event);
 }
