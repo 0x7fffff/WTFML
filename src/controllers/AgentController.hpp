@@ -17,8 +17,11 @@
 #include "agent/AgentMcpToolEngine.hpp"
 #include "agent/AgentWorkflow.hpp"
 #include "agent/AgentWorkflowEngine.hpp"
+#include "agent/AgentCommandTools.hpp"
+#include "agent/AgentWebTools.hpp"
 #include "agent/McpManager.hpp"
 #include "agent/McpTrustStore.hpp"
+#include "agent/QtAgentWebTransport.hpp"
 #include "agent/AgentFileTools.hpp"
 #include "agent/AgentInstanceLock.hpp"
 #include "agent/AgentLoop.hpp"
@@ -162,6 +165,9 @@ private:
     McpTrustStore m_mcpStore;
     McpManager *m_mcpManager = nullptr;
     AgentMcpToolEngine *m_mcpTools = nullptr;
+    QtAgentWebTransport *m_webTransport = nullptr;
+    AgentWebTools *m_webTools = nullptr;
+    AgentCommandTools *m_commandTools = nullptr;
     QPointer<AgentMcpPage> m_mcpPage;
     AgentSession m_session;
     InstanceProvider m_instanceProvider;

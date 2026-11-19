@@ -5,7 +5,9 @@
 
 #include "AgentTool.hpp"
 
+#include "AgentCommandTools.hpp"
 #include "AgentLauncherTools.hpp"
+#include "AgentWebTools.hpp"
 #include "AgentWorkflowEngine.hpp"
 
 #include <QJsonValue>
@@ -175,6 +177,8 @@ QList<AgentToolSpec> AgentToolRegistry::builtins() {
     QList<AgentToolSpec> list = fileBuiltins();
     list.append(AgentLauncherTools::specs());
     list.append(AgentWorkflowEngine::specs());
+    list.append(AgentWebTools::specs());
+    list.append(AgentCommandTools::specs());
     return list;
 }
 

@@ -59,6 +59,16 @@ public:
     static QString activeProfileId();
     static void setActiveProfileId(const QString &profileId);
 
+    /// Stage 3：SearXNG 实例地址（`web.search` 用）。空 = 没配，联网搜索不可用。
+    static QString webSearchEndpoint();
+    static void setWebSearchEndpoint(const QString &endpoint);
+    /// Stage 3：诊断命令总开关，**默认关闭**（§9.5.1）。
+    static bool diagnoseCommandsEnabled();
+    static void setDiagnoseCommandsEnabled(bool enabled);
+
+    static QString webSearchKey() { return QStringLiteral("Agent/WebSearchEndpoint"); }
+    static QString diagnoseCommandsKey() { return QStringLiteral("Agent/DiagnoseCommands"); }
+
     static QString profilesKey() { return QStringLiteral("Agent/Profiles"); }
     static QString activeKey() { return QStringLiteral("Agent/ActiveProfile"); }
     static QString strictEgressKey() { return QStringLiteral("Agent/StrictEgress"); }

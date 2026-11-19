@@ -174,6 +174,15 @@ set(PROJECT_SOURCES
     ${REPO_ROOT}/src/agent/McpManager.hpp
     ${REPO_ROOT}/src/agent/AgentMcpToolEngine.cpp
     ${REPO_ROOT}/src/agent/AgentMcpToolEngine.hpp
+    ${REPO_ROOT}/src/agent/AgentWebPolicy.cpp
+    ${REPO_ROOT}/src/agent/AgentWebPolicy.hpp
+    ${REPO_ROOT}/src/agent/AgentWebTransport.hpp
+    ${REPO_ROOT}/src/agent/QtAgentWebTransport.cpp
+    ${REPO_ROOT}/src/agent/QtAgentWebTransport.hpp
+    ${REPO_ROOT}/src/agent/AgentWebTools.cpp
+    ${REPO_ROOT}/src/agent/AgentWebTools.hpp
+    ${REPO_ROOT}/src/agent/AgentCommandTools.cpp
+    ${REPO_ROOT}/src/agent/AgentCommandTools.hpp
     ${REPO_ROOT}/ui/AgentMarkdown.cpp
     ${REPO_ROOT}/ui/AgentMarkdown.hpp
     ${REPO_ROOT}/src/net/HttpClient.cpp
