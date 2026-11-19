@@ -22,6 +22,7 @@
 
 class QListWidgetItem;
 class QPoint;
+class QHBoxLayout;
 
 class QCheckBox;
 class QFrame;
@@ -66,6 +67,10 @@ public:
     void setConfigured(bool configured, const QString &statusText = QString());
     /// 当前模型（「配置名 · 模型 ID」），写进 ⚙ 的悬停提示。
     void setModelLabel(const QString &label);
+    /// 模式卡片（自由对话 / 体检 / 崩溃急救 / 升级 / 模组维护）。@p currentId 是选中的那个。
+    void setSkills(const QList<AgentView::SkillOption> &skills, const QString &currentId);
+    /// 工作流的阶段/计划进度那一行（空串收起）。
+    void setWorkflowStatus(const QString &text);
     /// 「实例」胶囊右半边的值：已关联的实例名，未关联时是主页当前实例或「无」。
     void setInstanceChip(const QString &text, bool locked);
     /// 弹出实例下拉：第一行「跟随主页」，下面每个实例一行；@p lockedId 为空表示跟随主页。
@@ -106,6 +111,8 @@ signals:
     void instanceChosen(const QString &instanceId);
     void approvalAllowed(const QString &approvalId);
     void approvalDenied(const QString &approvalId);
+    /// 点了模式卡片。
+    void skillChosen(const QString &skillId);
 
 private:
     void rebuildSessionRow(QListWidgetItem *item, const AgentView::SessionMeta &meta);
@@ -147,6 +154,9 @@ private:
     QPushButton *m_emptyAction = nullptr;
     QWidget *m_notice = nullptr;
     QLabel *m_noticeText = nullptr;
+    QWidget *m_skillBar = nullptr;
+    QHBoxLayout *m_skillLayout = nullptr;
+    QLabel *m_workflowStatus = nullptr;
     AgentComposer *m_composer = nullptr;
     QLabel *m_keyHint = nullptr;
     QPushButton *m_send = nullptr;

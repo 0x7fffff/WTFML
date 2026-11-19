@@ -1,5 +1,6 @@
 #include "controllers/ServerVersionPicker.hpp"
 #include "controllers/AgentController.hpp"
+#include "controllers/AgentLauncherHostImpl.hpp"
 #include "AgentPage.hpp"
 #include "agent/AgentInstanceLock.hpp"
 #include "util/AppPaths.hpp"
@@ -326,6 +327,10 @@ MainWindow::MainWindow(QWidget *parent)
     // 没有页面时控制器不建 —— 但产品里 MainWindowUI 总是会建第五页。
     if (m_ui->getAgentPage() != nullptr) {
         m_agentController = new AgentController(m_ui->getAgentPage(), m_ui->overlay(), this);
+        // Stage 2：启动器工具（诊断/设置/模组/备份/升级检查）走这一层；智能体核心只认
+        // `AgentLauncherHost` 那张纯虚表，不认识 VersionManager / MainWindow。
+        m_agentLauncherHost = std::make_unique<AgentLauncherHostImpl>(this);
+        m_agentController->setLauncherHost(m_agentLauncherHost.get());
         m_agentController->setInstanceContextProvider([this] {
             AgentInstanceInfo info;
             QComboBox *combo = m_ui->getInstalledVersionCombo();

@@ -36,6 +36,13 @@ struct SessionMeta {
     bool isValid() const { return !id.isEmpty(); }
 };
 
+/// 模式卡片（技能）一行。
+struct SkillOption {
+    QString id;
+    QString name;
+    QString description;
+};
+
 /// 实例下拉里的一行。
 struct InstanceOption {
     QString id;

@@ -32,6 +32,9 @@ void runAgentInstanceLockTests();
 void runAgentBackupLifecycleTests();
 void runAgentToolTests();
 void runAgentOpenAiClientTests();
+void runAgentDiagnosticProjectionTests();
+void runAgentLauncherToolsTests();
+void runAgentWorkflowTests();
 
 int main(int argc, char **argv) {
     QCoreApplication app(argc, argv);
@@ -71,6 +74,9 @@ int main(int argc, char **argv) {
     runAgentBackupLifecycleTests();
     runAgentToolTests();
     runAgentOpenAiClientTests();
+    runAgentDiagnosticProjectionTests();
+    runAgentLauncherToolsTests();
+    runAgentWorkflowTests();
 
     out() << "agent: " << g_checks - g_failures << "/" << g_checks << "\n";
     return g_failures == 0 ? 0 : 1;

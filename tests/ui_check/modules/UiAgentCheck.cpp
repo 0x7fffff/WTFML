@@ -349,6 +349,39 @@ int UiAgentCheck() {
                          {QStringLiteral("egress"),
                           QJsonObject{{QStringLiteral("kind"), QStringLiteral("config-file")},
                                       {QStringLiteral("reason"), QStringLiteral("逐次确认")}}}};
+    // 模式卡片（Stage 2）：五颗胶囊按钮，选中的那颗可勾选；换选中态后状态行跟着变。
+    page->setSkills({{QStringLiteral("general"), QStringLiteral("自由对话"),
+                      QStringLiteral("对话 + 受控工具")},
+                     {QStringLiteral("inspection"), QStringLiteral("实例体检"),
+                      QStringLiteral("只读诊断")}},
+                    QStringLiteral("general"));
+    QApplication::processEvents();
+    auto *generalChip = page->findChild<QPushButton *>(QStringLiteral("agentSkill_general"));
+    auto *inspectionChip = page->findChild<QPushButton *>(QStringLiteral("agentSkill_inspection"));
+    check(generalChip != nullptr && inspectionChip != nullptr,
+          "智能体 UI：模式卡片按技能 id 摆出来");
+    check(generalChip != nullptr && generalChip->isChecked(),
+          "智能体 UI：默认停在自由对话");
+    page->setSkills({{QStringLiteral("general"), QStringLiteral("自由对话"),
+                      QStringLiteral("对话 + 受控工具")},
+                     {QStringLiteral("inspection"), QStringLiteral("实例体检"),
+                      QStringLiteral("只读诊断")}},
+                    QStringLiteral("inspection"));
+    QApplication::processEvents();
+    inspectionChip = page->findChild<QPushButton *>(QStringLiteral("agentSkill_inspection"));
+    check(inspectionChip != nullptr && inspectionChip->isChecked(),
+          "智能体 UI：换模式后选中态跟着走");
+    page->setWorkflowStatus(QStringLiteral("模式：实例体检 · 阶段：collect"));
+    QApplication::processEvents();
+    auto *statusLabel = page->findChild<QLabel *>(QStringLiteral("agentWorkflowStatus"));
+    check(statusLabel != nullptr && statusLabel->isVisible() &&
+              statusLabel->text().contains(QStringLiteral("实例体检")),
+          "智能体 UI：工作流状态行可见");
+    page->setWorkflowStatus(QString());
+    QApplication::processEvents();
+    check(statusLabel != nullptr && !statusLabel->isVisible(),
+          "智能体 UI：状态行为空时收起");
+
     page->showApproval(approval);
     QApplication::processEvents();
     auto *approvalCard = page->findChild<AgentApprovalCard *>();

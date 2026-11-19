@@ -108,6 +108,9 @@ public:
         return result;
     }
     void cancelPending() override { cancelled = true; }
+    bool handles(const QString &internalName) const override {
+        return internalName == QStringLiteral("fs.list");
+    }
     int invokeCount = 0;
     int resolvedCount = 0;
     bool cancelled = false;

@@ -7,6 +7,7 @@
 #pragma once
 
 #include <QAtomicInt>
+#include <memory>
 #include <QDateTime>
 #include <QElapsedTimer>
 #include <QHash>
@@ -37,6 +38,7 @@
 #include "manage/VersionIntegrity.hpp"
 namespace BackupFiles { enum class Kind; }
 #include "diag/GameExitDiagnosis.hpp"
+#include "diagnose/StartupDiagnosis.hpp"
 #include "manage/LaunchHistory.hpp"
 #include "controllers/GameSessionController.hpp"
 #include "controllers/LaunchHistoryController.hpp"
@@ -68,6 +70,7 @@ class DownloadTaskLedgerController;
 class ServerMenuController;
 class ResourceInstallController;
 class AgentController;
+class AgentLauncherHostImpl;
 class ServerSettingsController;
 class ServerManagementActions;
 class InstanceUpdateFlow;
@@ -1338,6 +1341,7 @@ protected:
 
 private:
     friend class InstanceDialogController;
+    friend class AgentLauncherHostImpl;
     friend class ServerManagementActions;
     friend class InstanceUpdateFlow;
     friend class InstanceEditorController;
@@ -2126,6 +2130,11 @@ private:
     /// 一个版本号在界面上的显示名（"已安装版本"下拉框里的那条文本）。
     /// 下拉框里没有它时退回版本号本身。
     QString instanceDisplayName(const QString &versionId) const;
+    /// 启动诊断要的那一袋事实（Java/内存/日志/崩溃目录都按这一个实例现算）。
+    ///
+    /// 唯一出处：实例设置里的「检查与诊断」和智能体的 `diagnostics.startup` 都走它 ——
+    /// 两边各拼一份的话，同一个实例会给出两套数字。
+    StartupDiagnosis::Inputs startupDiagnosisInputs(const QString &versionId);
     /// 底栏中间那格"正在启动 X"里的 X：只有一份在启动时是它的显示名，
     /// 两份以上时是"N 个实例"。唯一一处拼它（见 .cpp 里的说明）。
     QString launchingInstanceName() const;
@@ -2651,6 +2660,8 @@ private:
     // 后者在构造函数里就要读盘（「游戏文件夹」列表），晚于它构造的话拿到的
     // 指针是空的，读出来就是"一份文件夹都没添加过"。
     LauncherSettings *m_settings;
+    /// Stage 2：智能体启动器工具的能力宿主（生命周期跟着主窗口）。
+    std::unique_ptr<AgentLauncherHostImpl> m_agentLauncherHost;
     LauncherManager *m_launcherManager;
     AuthManager *m_authManager;
     FolderManager *m_folderManager;

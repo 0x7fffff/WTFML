@@ -151,6 +151,17 @@ set(PROJECT_SOURCES
     ${REPO_ROOT}/src/agent/AgentApprovalPolicy.hpp
     ${REPO_ROOT}/src/agent/AgentFileToolEngine.cpp
     ${REPO_ROOT}/src/agent/AgentFileToolEngine.hpp
+    ${REPO_ROOT}/src/agent/AgentDiagnosticProjection.cpp
+    ${REPO_ROOT}/src/agent/AgentDiagnosticProjection.hpp
+    ${REPO_ROOT}/src/agent/AgentLauncherHost.hpp
+    ${REPO_ROOT}/src/agent/AgentLauncherTools.cpp
+    ${REPO_ROOT}/src/agent/AgentLauncherTools.hpp
+    ${REPO_ROOT}/src/agent/AgentWorkflow.cpp
+    ${REPO_ROOT}/src/agent/AgentWorkflow.hpp
+    ${REPO_ROOT}/src/agent/AgentWorkflowEngine.cpp
+    ${REPO_ROOT}/src/agent/AgentWorkflowEngine.hpp
+    ${REPO_ROOT}/src/agent/AgentCompositeToolEngine.cpp
+    ${REPO_ROOT}/src/agent/AgentCompositeToolEngine.hpp
     ${REPO_ROOT}/ui/AgentMarkdown.cpp
     ${REPO_ROOT}/ui/AgentMarkdown.hpp
     ${REPO_ROOT}/src/net/HttpClient.cpp

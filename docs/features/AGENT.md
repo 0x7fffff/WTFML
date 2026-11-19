@@ -8,7 +8,8 @@
 | --- | --- | --- | --- | --- |
 | Stage 1A：Provider + Loop + 会话 + 基础聊天 | 已实现 | `verify_agent` / `ui-agent` / `main-window-agent` | G1A 除网络错误外通过；网络错误延后 | [AGENT_STAGE1A](AGENT_STAGE1A.md) |
 | Stage 1B：文件工具 + 审批 + 外发策略 | 已实现 | `verify_agent` / `ui-agent` / `main-window-agent` | G1B 复测待做：B1/B2/B3 已修，R1–R4、R6、R7、W4/W5、A1、P4、P5 未完成 | [AGENT_STAGE1B](AGENT_STAGE1B.md) |
-| Stage 2：维护工作流 + MCP | 未实现 | — | G2A / G2B 未开始 | §14 |
+| Stage 2B：维护工作流 + 启动器工具 | 已实现 | `verify_agent` / `ui-agent` / `main-window-agent` | G2B 待人工验收 | [AGENT_STAGE2B](AGENT_STAGE2B.md) |
+| Stage 2A：stdio MCP | 未实现 | — | G2A 未开始 | §10 |
 | Stage 3：网络与命令工具 | 未实现 | — | G3 未开始 | §14 |
 | Stage 4：收口与发布 | 未开始 | — | G4 未开始 | §14 |
 
@@ -664,7 +665,9 @@ Collect → Analyze → Plan → AwaitPlanApproval → ExecuteStep* → Verify �
 | `AgentLoopTests.cpp` | 文本→完成、工具→结果→完成、多工具、未知工具、坏 JSON、最大步数、重复无进展、取消、401/429/5xx、部分流、持久化、审批拒绝 | 已有 |
 | `AgentSkillsTests.cpp` | Stage 1A/1B 仅接口/自由对话；调用未注册技能拒绝 | 已有；Stage 2 补白名单/计划校验/验证失败 |
 | `AgentMarkdownTests.cpp` | HTML 转义、script/iframe/img 去除、代码围栏、未闭合围栏、链接、表格、CJK、超长输入、无远程资源 | 已有 |
-| `AgentDiagnosticProjectionTests.cpp` | 允许字段保留；绝对路径/账户/环境/原始日志剔除；空结果不报成功；超白名单走确认 | Stage 2 |
+| `AgentDiagnosticProjectionTests.cpp` | 允许字段保留；绝对路径/账户/环境/原始日志剔除；空结果不报成功；`scrubPaths` | 已有 |
+| `AgentLauncherToolsTests.cpp` | 19 个启动器工具的分派与审批；默认不带文件名；`settings.get` 不含路径；拒绝不改盘；模型传实例 id 被拒 | 已有 |
+| `AgentWorkflowTests.cpp` | 计划字段/工具/只读/验证步/步数校验；计划卡拒绝作废；计划外写与跳步被拦；失败后锁写；完成闸 | 已有 |
 | `AgentMcpProtocolTests.cpp` / `AgentMcpTrustTests.cpp` | JSON-RPC 帧、握手、分页、调用、isError、通知、stdout 垃圾、超时、崩溃、消息上限；首次启动确认、`configHash` 与可执行文件身份变化失效、重连确认、不自动重连、启动确认≠工具审批 | Stage 2 |
 | `AgentWebPolicyTests.cpp` | 全部 A/AAAA 校验、私网/环回/保留地址、pinned-IP、校验后 DNS 变化、连接 IP 不一致、重定向逐跳重检、系统代理已配置仍直连、IPv6、证书主机名、content-type、大小、超时、查询脱敏 | Stage 3 |
 
@@ -740,7 +743,8 @@ Collect → Analyze → Plan → AwaitPlanApproval → ExecuteStep* → Verify �
 | --- | --- | --- | --- |
 | Stage 1A | 已实现 | G1A：人工通过，网络错误延后 | 实现范围、盘上格式、待测项见 [AGENT_STAGE1A](AGENT_STAGE1A.md) |
 | Stage 1B | 已实现 | G1B 复测待做：B1/B2/B3 已修，R1–R4、R6、R7、W4/W5、A1、P4、P5 未完成 | 范围、安全边界、待测项见 [AGENT_STAGE1B](AGENT_STAGE1B.md)；清单在 §12.6 |
-| Stage 2 | 未开始（约 12–17 工作日） | G2A（MCP）、G2B（工作流） | 见下 |
+| Stage 2B | 已实现 | G2B：人工验收待做 | 范围、边界、待测项见 [AGENT_STAGE2B](AGENT_STAGE2B.md) |
+| Stage 2A | 未开始 | G2A：MCP 单独验收 | 见 §10 |
 | Stage 3 | 未开始（约 10–14 工作日） | G3 | 见下 |
 | Stage 4 | 未开始（约 5–8 工作日） | G4 | 见下 |
 
@@ -751,6 +755,8 @@ G1B 通过前不得写成已通过；未完成的真机项：真实路径/juncti
 聊天底座（Provider、流式回复、会话、停止/重试、DPAPI 整会话加密）和锁定实例内的受控文件工具（目录元数据、文件名清单、文本读写、artifact、审批、备份）已经实现。当前行为和待测项见 [AGENT_STAGE1A](AGENT_STAGE1A.md)、[AGENT_STAGE1B](AGENT_STAGE1B.md)；G1B 的 B1/B2/B3 已在代码里修复，复测 R1–R4、R6、R7、W4/W5、A1、P4、P5 待做。
 
 ### Stage 2：维护工作流 + MCP（单独验收）（约 12–17 个工作日）
+
+**当前状态：2B（工作流 + 启动器工具）已实现，G2B 待人工验收；2A（stdio MCP）未开始。** 实现范围与边界见 [AGENT_STAGE2B](AGENT_STAGE2B.md)。
 
 目标：体检、崩溃急救、升级接入、证据与审批闭环；实现 Skill 工作流引擎；**stdio MCP 作为本阶段独立子项单独验收**。
 
@@ -821,7 +827,7 @@ Stage1A 凭据/会话/provider/loop/UI（无工具）
 
 ### 15.1 文件布局
 
-已实现的文件（行数见 `git ls-files`）；标"计划"的是后续阶段才会新增的。
+已实现的文件（行数见 `git ls-files`）；标"计划"的是后续阶段才会新增的。Stage 2B 新增的模块已标"已实现"。
 
 ```
 src/agent/                                   （已实现）
@@ -833,10 +839,13 @@ src/agent/                                   （已实现）
   AgentSseParser, AgentModelClient.hpp, OpenAiCompatibleClient, AgentProviderAdapters
   AgentContextBuilder, AgentLoop
   AgentTool.hpp, AgentToolRegistry.cpp, AgentFileToolEngine, AgentFileTools, AgentWinPath
-  AgentSkill                   （骨架）
-  计划：AgentDiagnosticProjection（Stage 2）、AgentWorkflow、AgentLauncherTools（Stage 2）、
-        McpClient / McpManager / McpTrustStore（Stage 2）、AgentWebTools / AgentCommandTools（Stage 3）
+  AgentSkill                   （Stage 2B：五个技能）
+  AgentWorkflow, AgentWorkflowEngine, AgentCompositeToolEngine
+  AgentLauncherHost.hpp, AgentLauncherTools, AgentDiagnosticProjection   （Stage 2B）
+  计划：McpClient / McpManager / McpTrustStore（Stage 2A）、
+        AgentWebTools / AgentCommandTools（Stage 3）
 src/controllers/AgentController.hpp/.cpp     （已实现）
+src/controllers/AgentLauncherHostImpl.hpp/.cpp  （Stage 2B：启动器能力宿主）
 src/util/SecretProtector.hpp/.cpp            （已实现；从 TokenStore 抽出的 DPAPI 封装，TokenStore 委托它）
 ui/
   AgentPage, AgentMessageView, AgentComposer, AgentSettingsPage, AgentSecretEdit,
@@ -899,7 +908,7 @@ D1–D11 已确认，内容见 §2。
 | D4 | 用户可见"模式"，内部 Skill；Stage 1 只有自由对话 | 已确认 |
 | D5 | 只读自动；写/删/升级/命令/外部 MCP 逐次确认；`backup.create` 也审批；无全自动模式 | 已确认，已实现 |
 | D6 | OpenAI-compatible 基础兼容子集 + 枚举化协议适配项 | 已确认，已实现 |
-| D7 | stdio MCP 单独验收；首次启动/配置修改/重连均确认；文件身份变化重新确认；不自动重连；工具逐次审批 | 已确认，Stage 2 实现 |
+| D7 | stdio MCP 单独验收；首次启动/配置修改/重连均确认；文件身份变化重新确认；不自动重连；工具逐次审批 | 已确认，Stage 2A 实现 |
 | D8 | 首次实例操作锁定；切换显式确认；工具不接受模型传入实例 id | 已确认，已实现 |
 | D9 | 第一版固定诊断命令 + 参数白名单；任意可执行文件单独高风险授权、默认关闭 | 已确认，Stage 3 实现 |
 | D10 | 删除 Session 不删维护备份；备份带 `owner/source`；只清理 Agent 自有；来源 Session 删除后可恢复 | 已确认，已实现（G1B 备份项待复核） |
@@ -910,7 +919,7 @@ D1–D11 已确认，内容见 §2。
 | **G1A** | Provider / Credential Manager / DPAPI / 会话 / 聊天 UI，无工具 | 人工通过；网络错误项延后，见 [网络错误验收](../archive/ACCEPTANCE_LOG.md) |
 | **G1B** | 路径句柄校验 / 审批 / 外发 / 写入 / 活动会话删除 / artifact 分离 | B1/B2/B3 已修，复测待做；清单见 §12.6 |
 | **G2A** | Stage 2 MCP 单独验收：确认闸、身份变化复核、工具审批、进程清理 | 未开始 |
-| **G2B** | Stage 2 工作流：真实临时实例"发现 → 计划 → 批准 → 执行 → 验证 → 回退"；诊断字段白名单复核 | 未开始 |
+| **G2B** | Stage 2 工作流：真实临时实例"发现 → 计划 → 批准 → 执行 → 验证 → 回退"；诊断字段白名单复核 | 2B 已实现，人工验收待做；清单见 [AGENT_STAGE2B](AGENT_STAGE2B.md) §6 |
 | **G3** | Stage 3 网络/命令安全审查：pinned-IP/无代理、固定诊断命令、高风险授权（若批准） | 未开始 |
 | **G4** | 发布验收：全量回归、真机/实网、备份/加密/外发范围、发布检查 | 未开始 |
 

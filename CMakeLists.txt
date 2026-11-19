@@ -140,7 +140,14 @@ set(HEADER_FILES
     src/agent/AgentTool.hpp
     src/agent/AgentApprovalPolicy.hpp
     src/agent/AgentFileToolEngine.hpp
+    src/agent/AgentDiagnosticProjection.hpp
+    src/agent/AgentLauncherHost.hpp
+    src/agent/AgentLauncherTools.hpp
+    src/agent/AgentWorkflow.hpp
+    src/agent/AgentWorkflowEngine.hpp
+    src/agent/AgentCompositeToolEngine.hpp
     src/controllers/AgentController.hpp
+    src/controllers/AgentLauncherHostImpl.hpp
     ui/AgentMarkdown.hpp
     ui/AgentViewTypes.hpp
     ui/AgentMessageView.hpp
@@ -461,7 +468,13 @@ set(SOURCE_FILES
     src/agent/AgentToolRegistry.cpp
     src/agent/AgentApprovalPolicy.cpp
     src/agent/AgentFileToolEngine.cpp
+    src/agent/AgentDiagnosticProjection.cpp
+    src/agent/AgentLauncherTools.cpp
+    src/agent/AgentWorkflow.cpp
+    src/agent/AgentWorkflowEngine.cpp
+    src/agent/AgentCompositeToolEngine.cpp
     src/controllers/AgentController.cpp
+    src/controllers/AgentLauncherHostImpl.cpp
     src/net/HttpClient.cpp
     src/manage/DroppedResource.cpp
     src/manage/FolderManager.cpp

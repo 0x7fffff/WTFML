@@ -151,7 +151,19 @@ AgentController::AgentController(AgentPage *page, OverlayHost *overlay, QObject 
     m_toolEngine = new AgentFileToolEngine(
         &m_files, &m_artifacts, [this](QString *problem) { return toolContext(problem); });
     m_toolEngine->setStrictEgress(AgentSettings::strictEgress());
-    m_loop->setToolEngine(m_toolEngine);
+    // Stage 2：文件工具 + 启动器工具 + 工作流工具合成一个引擎交给 Loop。技能白名单与
+    // “写步骤必须在已批准计划里”这两道闸在复合层，子引擎不知道当前是哪个模式。
+    m_workflow.setSkill(AgentSkillRegistry::find(QStringLiteral("general")));
+    m_launcherTools = new AgentLauncherTools(
+        nullptr, [this](QString *problem) { return toolContext(problem); });
+    m_launcherTools->setStrictEgress(AgentSettings::strictEgress());
+    m_workflowEngine = new AgentWorkflowEngine(&m_workflow);
+    m_compositeEngine = new AgentCompositeToolEngine;
+    m_compositeEngine->addEngine(m_toolEngine);
+    m_compositeEngine->addEngine(m_launcherTools);
+    m_compositeEngine->addEngine(m_workflowEngine);
+    m_compositeEngine->setWorkflow(&m_workflow);
+    m_loop->setToolEngine(m_compositeEngine);
     m_saveTimer = new QTimer(this);
     m_saveTimer->setSingleShot(true);
     m_saveTimer->setInterval(2000);
@@ -284,6 +296,13 @@ void AgentController::wirePage() {
     connect(m_page, &AgentPage::instanceChipRequested, this, &AgentController::onInstanceMenuRequested);
     connect(m_page, &AgentPage::instanceChosen, this, &AgentController::onInstanceChosen);
     connect(m_page, &AgentPage::sessionExportRequested, this, &AgentController::onExport);
+    connect(m_page, &AgentPage::skillChosen, this, &AgentController::onSkillChosen);
+    connect(m_loop, &AgentLoop::toolCallFinished, this,
+            [this](const Agent::ToolCall &call, const AgentToolResult &result) {
+                Q_UNUSED(call);
+                Q_UNUSED(result);
+                if (m_page != nullptr) m_page->setWorkflowStatus(m_workflow.statusLine());
+            });
 }
 
 void AgentController::shutdown() {
@@ -302,6 +321,12 @@ void AgentController::shutdown() {
     if (m_toolEngine != nullptr) {
         m_toolEngine->cancelPending();
         if (m_loop != nullptr) m_loop->setToolEngine(nullptr);
+        delete m_compositeEngine;
+        m_compositeEngine = nullptr;
+        delete m_launcherTools;
+        m_launcherTools = nullptr;
+        delete m_workflowEngine;
+        m_workflowEngine = nullptr;
         delete m_toolEngine;
         m_toolEngine = nullptr;
     }
@@ -434,6 +459,9 @@ void AgentController::selectSession(const QString &sessionId) {
     m_savePending = false;
     m_saveTimer->stop();
     updateHeader();
+    // 会话里记着它上一轮用哪个模式；换会话时工作流从头开始，旧计划不留。
+    m_workflow.setSkill(AgentSkillRegistry::find(m_session.meta.skill));
+    refreshSkillUi();
 }
 
 void AgentController::updateHeader() {
@@ -611,11 +639,7 @@ void AgentController::onSend(const QString &text) {
     flushSave(true);
     refreshSessions();
 
-    AgentLoop::Config config;
-    config.profile = m_profile;
-    config.apiKey = currentApiKey();
-    config.systemPrompt = AgentSkillRegistry::find(QStringLiteral("general")).systemPrompt;
-    m_loop->setConfig(config);
+    applySkillToLoop();
     m_loop->setHistory(m_session.messages);
     m_loop->start();
 }
@@ -639,11 +663,7 @@ void AgentController::onRetry(const QString &messageId) {
     if (last.id != messageId || last.role != Agent::Role::Assistant) return;
     removeTrailingFailedAssistant();
     flushSave(false);
-    AgentLoop::Config config;
-    config.profile = m_profile;
-    config.apiKey = currentApiKey();
-    config.systemPrompt = AgentSkillRegistry::find(QStringLiteral("general")).systemPrompt;
-    m_loop->setConfig(config);
+    applySkillToLoop();
     m_loop->setHistory(m_session.messages);
     m_loop->start();
 }
@@ -683,7 +703,7 @@ void AgentController::onDelete(const QString &sessionId) {
 
     if (m_session.meta.id == sessionId && m_loop->busy()) {
         m_loop->cancel();
-        if (m_toolEngine != nullptr && m_toolEngine->committing()) {
+        if (m_compositeEngine != nullptr && m_compositeEngine->committing()) {
             if (m_page != nullptr) {
                 m_page->showNotice(QStringLiteral("文件正在提交，无法安全停止，暂不删除会话。"));
             }
@@ -741,7 +761,7 @@ void AgentController::onEncryptToggled(bool encrypted) {
 bool AgentController::deleteSessionForTest(const QString &sessionId) {
     if (sessionId.isEmpty()) return false;
     if (m_loop->busy()) m_loop->cancel();
-    if (m_toolEngine != nullptr && m_toolEngine->committing()) return false;
+    if (m_compositeEngine != nullptr && m_compositeEngine->committing()) return false;
     QString problem;
     if (!m_store.requestDeletion(sessionId, &problem) ||
         !m_store.completeDeletion(sessionId, &problem, nullptr)) {
@@ -949,6 +969,58 @@ void AgentController::onExport(const QString &sessionId) {
     m_page->showNotice(QStringLiteral("会话已导出：%1").arg(QDir::toNativeSeparators(path)));
 }
 
+void AgentController::setLauncherHost(AgentLauncherHost *host) {
+    m_launcherHost = host;
+    if (m_launcherTools != nullptr) m_launcherTools->setHost(host);
+}
+
+void AgentController::applySkillToLoop() {
+    AgentLoop::Config config = m_loop->config();
+    config.profile = m_profile;
+    config.apiKey = currentApiKey();
+    QString prompt = m_workflow.skill().systemPrompt;
+    const QString status = m_workflow.statusLine();
+    if (!status.isEmpty()) {
+        prompt += QStringLiteral("\n\n当前工作流状态（本地记账，不要复述给用户）：%1。").arg(status);
+    }
+    config.systemPrompt = prompt;
+    m_loop->setConfig(config);
+}
+
+void AgentController::refreshSkillUi() {
+    if (m_page == nullptr) return;
+    QList<AgentView::SkillOption> options;
+    for (const QString &id : AgentSkillRegistry::orderedIds()) {
+        const AgentSkill skill = AgentSkillRegistry::find(id);
+        if (skill.id.isEmpty()) continue;
+        options.append(AgentView::SkillOption{skill.id, skill.name, skill.description});
+    }
+    m_page->setSkills(options, m_workflow.skill().id);
+}
+
+void AgentController::onSkillChosen(const QString &skillId) {
+    const AgentSkill skill = AgentSkillRegistry::find(skillId);
+    if (skill.id.isEmpty()) return;
+    if (m_loop->busy()) {
+        if (m_page != nullptr) m_page->showNotice(QStringLiteral("先停止当前回复再切换模式。"));
+        return;
+    }
+    if (m_workflow.skill().id == skill.id) return;
+    m_workflow.setSkill(skill);
+    if (!m_session.meta.id.isEmpty()) {
+        m_session.meta.skill = skill.id;
+        flushSave(false);
+        refreshSessions();
+    }
+    applySkillToLoop();
+    refreshSkillUi();
+    if (m_page != nullptr) {
+        m_page->showNotice(skill.id == QStringLiteral("general")
+                               ? QStringLiteral("已回到自由对话。")
+                               : QStringLiteral("已切到「%1」：%2").arg(skill.name, skill.description));
+    }
+}
+
 void AgentController::onApproval(bool approved) {
     if (m_session.meta.id.isEmpty() || m_session.pendingApproval.isEmpty()) return;
     const QString approvalId =
@@ -1073,6 +1145,7 @@ void AgentController::onSettingsSave() {
     AgentSettings::setActiveProfileId(profile.id);
     AgentSettings::setStrictEgress(page->strictEgress());
     if (m_toolEngine != nullptr) m_toolEngine->setStrictEgress(page->strictEgress());
+    if (m_launcherTools != nullptr) m_launcherTools->setStrictEgress(page->strictEgress());
     m_profile = profile;
     refreshApiState();
     refreshSessions();

@@ -123,6 +123,9 @@
   "AgentBackupLifecycleTests.cpp": "agent",
   "AgentToolTests.cpp": "agent",
   "AgentOpenAiClientTests.cpp": "agent",
+  "AgentDiagnosticProjectionTests.cpp": "agent",
+  "AgentLauncherToolsTests.cpp": "agent",
+  "AgentWorkflowTests.cpp": "agent",
   "DailyQuoteTests.cpp": "resources",
   "HomeGreetingTests.cpp": "resources"
 }

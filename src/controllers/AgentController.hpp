@@ -10,7 +10,12 @@
 
 #include "agent/AgentArtifactStore.hpp"
 #include "agent/AgentBackupIndex.hpp"
+#include "agent/AgentCompositeToolEngine.hpp"
 #include "agent/AgentFileToolEngine.hpp"
+#include "agent/AgentLauncherHost.hpp"
+#include "agent/AgentLauncherTools.hpp"
+#include "agent/AgentWorkflow.hpp"
+#include "agent/AgentWorkflowEngine.hpp"
 #include "agent/AgentFileTools.hpp"
 #include "agent/AgentInstanceLock.hpp"
 #include "agent/AgentLoop.hpp"
@@ -46,6 +51,10 @@ public:
     AgentSessionStore *sessionStore() { return &m_store; }
     AgentLoop *loop() { return m_loop; }
     AgentFileToolEngine *toolEngine() { return m_toolEngine; }
+    AgentCompositeToolEngine *compositeEngine() { return m_compositeEngine; }
+    AgentWorkflow *workflow() { return &m_workflow; }
+    /// 主窗口建好的启动器能力宿主（不转移所有权）。没有宿主时启动器工具一律拒绝。
+    void setLauncherHost(AgentLauncherHost *host);
 
     /// 主窗口提供“当前主页选中的实例 + 游戏根身份”；首次实例工具调用时锁定。
     using InstanceProvider = std::function<AgentInstanceInfo()>;
@@ -67,6 +76,8 @@ public:
     void applyProfileForTest(const AgentProviderProfile &profile, const QString &apiKey);
     void cancelForTest() { onStop(); }
     void sendForTest(const QString &text) { onSend(text); }
+    /// 测试专用：直接切模式（等价于点模式卡片）。
+    void chooseSkillForTest(const QString &skillId) { onSkillChosen(skillId); }
     QString currentSessionId() const { return m_session.meta.id; }
 
 public slots:
@@ -109,6 +120,10 @@ private:
     QList<AgentInstanceInfo> instances() const;
     AgentInstanceInfo lockedInstance() const;
     void onApproval(bool approved);
+    void onSkillChosen(const QString &skillId);
+    /// 把当前模式的系统提示与工具闸同步给 Loop（切模式、换会话、发消息前都走它）。
+    void applySkillToLoop();
+    void refreshSkillUi();
     AgentToolContext toolContext(QString *problem);
     void updateInstanceChip();
     void showToolCardsFromHistory();
@@ -121,6 +136,11 @@ private:
     AgentBackupIndex m_backups;
     AgentFileTools m_files;
     AgentFileToolEngine *m_toolEngine = nullptr;
+    AgentLauncherHost *m_launcherHost = nullptr;
+    AgentWorkflow m_workflow;
+    AgentWorkflowEngine *m_workflowEngine = nullptr;
+    AgentLauncherTools *m_launcherTools = nullptr;
+    AgentCompositeToolEngine *m_compositeEngine = nullptr;
     AgentSession m_session;
     InstanceProvider m_instanceProvider;
     InstanceListProvider m_instanceListProvider;

@@ -26,6 +26,7 @@
 #include "server/ServerRegistry.hpp"
 #include "..\ui\WindowChrome.hpp"
 #include "controllers/AgentController.hpp"
+#include "controllers/AgentLauncherHostImpl.hpp"
 #include "controllers/BackupController.hpp"
 #include "controllers/DownloadBatchController.hpp"
 #include "controllers/GameSessionController.hpp"

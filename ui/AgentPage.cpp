@@ -666,6 +666,34 @@ AgentPage::AgentPage(QWidget *parent)
     m_scroll->setWidget(host);
     chatLayout->addWidget(m_scroll, 1);
 
+    // ---------- 模式卡片（Stage 2）----------
+    // 一行胶囊按钮：自由对话 / 实例体检 / 崩溃急救 / 版本升级 / 模组维护。点一下切技能；
+    // 工具箱与提示词跟着换（控制器负责），这里只画和发信号。
+    m_skillBar = new QWidget(chat);
+    m_skillBar->setObjectName(QStringLiteral("agentSkillBar"));
+    m_skillBar->setMaximumWidth(kColumnMax);
+    m_skillLayout = new QHBoxLayout(m_skillBar);
+    m_skillLayout->setContentsMargins(0, 0, 0, 6);
+    m_skillLayout->setSpacing(6);
+    m_workflowStatus = new QLabel(chat);
+    m_workflowStatus->setObjectName(QStringLiteral("agentWorkflowStatus"));
+    m_workflowStatus->setFont(pxFont(m_workflowStatus->font(), 12));
+    m_workflowStatus->setForegroundRole(QPalette::PlaceholderText);
+    m_workflowStatus->hide();
+    {
+        auto *skillLine = new QHBoxLayout;
+        skillLine->setContentsMargins(0, 0, 0, 0);
+        auto *skillColumn = new QVBoxLayout;
+        skillColumn->setContentsMargins(0, 0, 0, 0);
+        skillColumn->setSpacing(2);
+        skillColumn->addWidget(m_skillBar);
+        skillColumn->addWidget(m_workflowStatus);
+        skillLine->addWidget(new QWidget(chat), 1);
+        skillLine->addLayout(skillColumn);
+        skillLine->addWidget(new QWidget(chat), 1);
+        chatLayout->addLayout(skillLine);
+    }
+
     // ---------- 输入岛 ----------
     auto *composerRow = new ComposerBox(chat);
     composerRow->setObjectName(QStringLiteral("agentComposerRow"));
@@ -1022,6 +1050,42 @@ void AgentPage::openMoreMenu() {
                                                                      : QStringLiteral("固定"));
     markOpen(m_moreButton, true);
     static_cast<PopMenu *>(m_moreMenu)->popBelow(m_moreButton);
+}
+
+void AgentPage::setSkills(const QList<AgentView::SkillOption> &skills,
+                          const QString &currentId) {
+    if (m_skillLayout == nullptr) return;
+    while (QLayoutItem *item = m_skillLayout->takeAt(0)) {
+        // 先摘父级再 deleteLater：旧按钮立刻不在 findChild() 的范围里，重建后不会
+        // 查出上一轮的控件（测试和读屏都会拿到错的那个）。
+        if (QWidget *widget = item->widget()) {
+            widget->hide();
+            widget->setParent(nullptr);
+            widget->deleteLater();
+        }
+        delete item;
+    }
+    for (const AgentView::SkillOption &skill : skills) {
+        auto *button = new QPushButton(skill.name, m_skillBar);
+        button->setObjectName(QStringLiteral("agentSkill_") + skill.id);
+        button->setCheckable(true);
+        button->setChecked(skill.id == currentId);
+        button->setCursor(Qt::PointingHandCursor);
+        button->setToolTip(skill.description);
+        button->setAccessibleName(skill.name);
+        Theme::markButton(button, skill.id == currentId ? Theme::ButtonKind::Primary
+                                                       : Theme::ButtonKind::Ghost);
+        const QString id = skill.id;
+        connect(button, &QPushButton::clicked, this, [this, id] { emit skillChosen(id); });
+        m_skillLayout->addWidget(button);
+    }
+    m_skillLayout->addStretch(1);
+}
+
+void AgentPage::setWorkflowStatus(const QString &text) {
+    if (m_workflowStatus == nullptr) return;
+    m_workflowStatus->setText(text);
+    m_workflowStatus->setVisible(!text.isEmpty());
 }
 
 void AgentPage::setEncryptionChecked(bool checked) {

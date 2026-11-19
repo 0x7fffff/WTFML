@@ -1,0 +1,46 @@
+/**
+ * @file AgentCompositeToolEngine.hpp
+ * @brief 把文件工具、启动器工具、工作流工具（以及后续 MCP）合成一个给 `AgentLoop` 用的引擎。
+ *
+ * 分派按内部工具名走 `handles()`，不试错调用；审批请求记住是哪个子引擎发出来的，决定时
+ * 只交回给那一个。技能白名单与“写步骤必须在已批准计划里”这两道闸也在这里——子引擎不知道
+ * 当前是哪个模式，也不该知道。
+ */
+
+#pragma once
+
+#include "AgentTool.hpp"
+#include "AgentWorkflow.hpp"
+
+#include <QHash>
+#include <QList>
+#include <QString>
+
+class AgentCompositeToolEngine : public AgentToolEngine {
+public:
+    AgentCompositeToolEngine() = default;
+
+    void addEngine(AgentToolEngine *engine);
+    QList<AgentToolEngine *> engines() const { return m_engines; }
+    void setWorkflow(AgentWorkflow *workflow) { m_workflow = workflow; }
+
+    QJsonArray schemas() const override;
+    AgentToolResult invoke(const Agent::ToolCall &call) override;
+    AgentToolResult resolveApproval(const QString &approvalId, bool approved) override;
+    void cancelPending() override;
+    bool committing() const override;
+    bool handles(const QString &internalName) const override;
+
+    /// 当前错误/拒绝对话用的一句人话（给 UI 的提示用）。
+    static QString riskBlockedMessage(const QString &skillName, const QString &toolName);
+
+private:
+    AgentToolEngine *findEngine(const QString &internalName) const;
+    /// 技能白名单 + 只读 + 已批准计划三道闸；空串表示放行。
+    QString gate(const QString &internalName) const;
+
+    QList<AgentToolEngine *> m_engines;
+    AgentWorkflow *m_workflow = nullptr;
+    QHash<QString, AgentToolEngine *> m_approvalOwner;
+    QHash<QString, Agent::ToolCall> m_approvalCalls;
+};

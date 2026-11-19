@@ -32,7 +32,7 @@ AgentFileToolEngine::AgentFileToolEngine(AgentFileTools *files, AgentArtifactSto
 
 QJsonArray AgentFileToolEngine::schemas() const {
     QJsonArray result;
-    for (const AgentToolSpec &spec : AgentToolRegistry::builtins()) {
+    for (const AgentToolSpec &spec : AgentToolRegistry::fileBuiltins()) {
         result.append(QJsonObject{{QStringLiteral("type"), QStringLiteral("function")},
                                   {QStringLiteral("function"),
                                    QJsonObject{{QStringLiteral("name"), AgentToolRegistry::wireName(spec.name)},
@@ -391,3 +391,10 @@ AgentToolResult AgentFileToolEngine::resolveApproval(const QString &approvalId, 
 }
 
 void AgentFileToolEngine::cancelPending() { m_pending.clear(); }
+
+bool AgentFileToolEngine::handles(const QString &internalName) const {
+    for (const AgentToolSpec &item : AgentToolRegistry::fileBuiltins()) {
+        if (item.name == internalName) return true;
+    }
+    return false;
+}
