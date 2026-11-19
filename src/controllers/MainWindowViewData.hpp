@@ -40,6 +40,7 @@
 
 #include "auth/AccountStore.hpp"
 #include "launcher/LauncherManager.hpp"
+#include "launcher/RunningProcesses.hpp"
 #include "controllers/InstancePagesController.hpp"
 #include "manage/InstanceFiles.hpp"
 #include "manage/InstanceGroupStore.hpp"
@@ -149,7 +150,7 @@ QString defaultGroupIdFor(const VersionDisplayParts &part, const VersionManager 
 QString homeGroupIdOf(const InstanceGroupStore *groups, const QString &key,
                       const VersionDisplayParts &part, const VersionManager *versions,
                       const QSet<QString> &knownGroupIds);
-QList<MainWindowUI::PanelRow> runningGamePanelRows(const QList<LauncherManager::GameSession> &games,
+QList<MainWindowUI::PanelRow> runningGamePanelRows(QList<RunningProcesses::Entry> processes,
                                                   const VersionManager *versions,
                                                   const QColor &ink, qint64 nowMs,
                                                   const std::function<QString(int)> &playTimeText);

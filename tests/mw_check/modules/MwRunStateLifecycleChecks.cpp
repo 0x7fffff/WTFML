@@ -96,52 +96,32 @@ int MwRunStateLifecycleChecks(const QDir &root, const QDir &versionsDir) {
                 // （Y 段的预设弹窗）当成自己的点掉。这里作废它。
                 ++g_modalHandlerGeneration;
 
-                // ---- 黄：正在启动 ----
-                // 名字那一条是**逐字**钉的：自定义名来自沙盒里那份 wtfml.meta，
-                // 所以它同时证了"这句话里的名字是从实例身上读出来的"。
-                check(run->text() ==
-                          MainWindowUI::runStateLaunchingText(customName),
-                      "AG2 启动中那句 = 盘上那个自定义名 + 「启动中...」", run->text());
-                check(!run->text().contains(id),
-                      "AG2 有自定义名时**不**退成版本号/目录名（名字就是名字）", run->text());
+                // ---- 进程起来后（包括尚未吐出第一行输出时）：左下角只显示「%1 个进程运行中」+ 绿点 ----
+                // #52 约定：去掉「启动中」「异常退出」等其余状态，启动/崩溃提示统一进任务中心。
+                check(run->text() == MainWindowUI::runStateRunningCountText(1),
+                      "AG2 进程启动后左下角直接写「1 个进程运行中」（不再写启动中）",
+                      run->text());
                 check(!detail->isVisible(),
-                      "AG2 启动中第二行不显示（名字已经在第一行那句话里）",
+                      "AG2 停在主页且选中的正是这个在跑的实例时，第二行照旧收起",
                       detail->text());
                 const QPalette markPalette = runStateMarkPalette(&w);
-                const QColor wantYellow = MainWindowUI::runStateMarkColor(
-                    MainWindowUI::RunStateMark::Launching, markPalette);
+                const QColor wantGreen = MainWindowUI::runStateMarkColor(
+                    MainWindowUI::RunStateMark::Running, markPalette);
                 const QImage shot = mark->pixmap().toImage();
                 check(!shot.isNull() &&
-                          shot.pixelColor(shot.width() / 2, shot.height() / 2) == wantYellow &&
+                          shot.pixelColor(shot.width() / 2, shot.height() / 2) == wantGreen &&
                           shot.pixelColor(shot.width() / 2, shot.height() / 2) !=
                               MainWindowUI::runStateMarkColor(
                                   MainWindowUI::RunStateMark::Idle, markPalette) &&
                           shot.pixelColor(shot.width() / 2, shot.height() / 2) !=
                               MainWindowUI::runStateMarkColor(
-                                  MainWindowUI::RunStateMark::Running, markPalette) &&
-                          shot.pixelColor(shot.width() / 2, shot.height() / 2) !=
-                              MainWindowUI::runStateMarkColor(
                                   MainWindowUI::RunStateMark::Error, markPalette),
-                      "AG2 启动中 → 方块画的是**黄**那一档（不是灰、绿、红里任何一个）",
-                      QStringLiteral("量到 %1，黄该是 %2")
+                      "AG2 进程在跑 → 方块画的是**绿**那一档（不再画黄）",
+                      QStringLiteral("量到 %1，绿该是 %2")
                           .arg(shot.pixelColor(shot.width() / 2, shot.height() / 2).name())
-                          .arg(wantYellow.name()));
-                check(runStateHueBand(shot.pixelColor(shot.width() / 2, shot.height() / 2)) == 1,
-                      "AG2 而且那个像素的**色相**就在黄那一段（30~60）",
-                      shot.pixelColor(shot.width() / 2, shot.height() / 2).name());
+                          .arg(wantGreen.name()));
 
-                // ---- ③ 会话被**硬停**掉之后 → 红（「有实例异常退出」） ----
-                // 用户改了这一档：「黄和绿不变，红色改有实例报错，没有实例用灰
-                // 色」。所以"停掉之后"现在**不是**"没实例"那一档（那是灰），而是"账上还有
-                // 没处理的异常退出"那一档 —— 而这一步正好造出那种情形：
-                //
-                // 这里走的是 `LauncherManager::stopGame()` 这个**裸**接口（产品那条路是
-                // `GameSessionController::stopGameSession()`，它会先把会话记成"用户主动
-                // 停止"，见 `m_userStoppedSessions`）。少了那一笔，这一趟在会话那一层就是
-                // 一次**异常退出**（`kill()` 是 TerminateProcess，Qt 报的是
-                // CrashExit / 0xf291）⇒ 账本上补一项「游戏异常退出」，方块该是红的。
-                // 换句话说：这一节同时把"红是从哪来的"这条链路真跑了一遍（进程 → 会话 →
-                // 账本 → 底栏那一格），这正是红那一档唯一说得出话的判据。
+                // ---- ③ 会话被**硬停**掉之后：崩溃只进任务中心，运行状态格回到灰「未运行」 ----
                 LauncherManager *manager = w.findChild<LauncherManager *>();
                 check(manager != nullptr, "AG3 拿得到那个 LauncherManager");
                 if (manager != nullptr) {
@@ -152,29 +132,21 @@ int MwRunStateLifecycleChecks(const QDir &root, const QDir &versionsDir) {
                         pumpUntil([manager] { return manager->runningGames().isEmpty(); }, 8000);
                     check(empty, "AG3 那一份会话停掉了（假 java 那一趟收到 kill）");
                     repaintBottomBar(&w);
-                    check(run->text() == MainWindowUI::runStateErrorText(),
-                          "AG3 硬停掉之后写「有实例异常退出」（不再是「当前没有运行中的实例」）",
+                    check(run->text() == MainWindowUI::runStateNotRunningText(),
+                          "AG3 进程退掉之后运行状态回到「未运行」（异常退出只在任务中心提示）",
                           run->text());
-                    // 第二行说出事的是谁。名字来自那一趟的**启动事实**（`instanceDisplayName()`
-                    // 那一份 = 名字 + "-" + 目录名，和绿那一支第二行、下拉框里那一句同一个写法）
-                    // —— **不是**上面「启动中...」那句里那个（那一句走 launchingStatusName()，
-                    // 只看自定义名、不受显示设置影响）。两者在这一节里正好分得开：这里拼出来的
-                    // 是「我的整合包-特别版-状态方块测试」，那句话里只有「我的整合包-特别版」。
-                    check(detail->isVisible() &&
-                              detail->text() == QStringLiteral("%1-%2").arg(customName, id),
-                          "AG3 第二行写出事的那个实例（显示名 = 自定义名-目录名）", detail->text());
+                    check(!detail->isVisible() && detail->text().isEmpty(),
+                          "AG3 回到「未运行」后第二行清空收起", detail->text());
                     const QImage back = mark->pixmap().toImage();
-                    // 空图**不许**调 pixelColor()（它在图是空的时候是没定义的），所以先出图
-                    // 再量色 —— 判据本身照样是"量到的那一格"。
                     const QColor backColor = back.isNull()
                                                  ? QColor()
                                                  : back.pixelColor(back.width() / 2, back.height() / 2);
                     check(!back.isNull() && backColor ==
                                                 MainWindowUI::runStateMarkColor(
-                                                    MainWindowUI::RunStateMark::Error,
+                                                    MainWindowUI::RunStateMark::Idle,
                                                     markPalette) &&
-                              !runStateIsGrey(backColor) && runStateHueBand(backColor) == 0,
-                          "AG3 方块跟着变成**红**那一档（颜色是每次重画重新要的，不是只设一次）",
+                              runStateIsGrey(backColor),
+                          "AG3 方块跟着回到**灰**那一档（未运行）",
                           backColor.name());
                 }
             }

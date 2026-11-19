@@ -2858,12 +2858,10 @@ int main(int argc, char *argv[]) {
                 window.findChild<QPushButton *>(MainWindowUI::runStateButtonName());
             check(runButton != nullptr && !runButton->isVisible() &&
                       runState->text() == MainWindowUI::runStateNotRunningText(),
-                  "没有实例在跑时轨底运行状态那一格收起（文字备着「未运行」）", runState->text());
-            check(runState->text() != MainWindowUI::runStateRunningText() &&
-                      runState->text() !=
-                          MainWindowUI::runStateLaunchingText(QStringLiteral("X")) &&
-                      runState->text() != MainWindowUI::runStateErrorText(),
-                  "（不会说成「实例运行中」、也不是「启动中」/「有实例异常退出」那两句）",
+                  "没有进程在跑时轨底运行状态那一格收起（文字备着「未运行」）", runState->text());
+            check(runState->text() != MainWindowUI::runStateRunningCountText(1) &&
+                      runState->text() != MainWindowUI::runStateRunningCountText(2),
+                  "（不会说成「%1 个进程运行中」）",
                   runState->text());
             // 那颗方块这时候是**灰的**（★ 用户改的：「黄和绿不变，红色改有实例
             // 报错，没有实例用灰色」），而且不是藏着的（四档都有一颗亮的方块）。
@@ -3368,7 +3366,7 @@ int main(int argc, char *argv[]) {
             // 宽度是钉死的、文字改了宽度也不改，resizeEvent 不触发，缓存就永不失效 ——
             // 第一句话会一直挂在底栏上（三个实例跑着，写的还是「实例运行中」）。
             // 所以量的是**像素**，不是宽高：宽高在这儿本来就不会动。
-            acRun->setText(MainWindowUI::runStateRunningText());
+            acRun->setText(MainWindowUI::runStateRunningCountText(1));
             QApplication::processEvents();
             const QImage acShotBefore = acRun->grab().toImage();
             acRun->setText(MainWindowUI::runStateRunningCountText(3));
@@ -3407,7 +3405,7 @@ int main(int argc, char *argv[]) {
             adStatus->setVisible(true);
             adRun->setVisible(true);
             adRunDetail->setVisible(true);
-            adRun->setText(MainWindowUI::runStateRunningText());
+            adRun->setText(MainWindowUI::runStateRunningCountText(1));
             adRunDetail->setText(QStringLiteral("1.20.1"));
             QApplication::processEvents();
             const int adShown = adBar->width();

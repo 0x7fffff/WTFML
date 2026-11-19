@@ -1886,67 +1886,29 @@ int main(int argc, char *argv[]) {
 
     if (const int result = UiTaskActionsChecks(window, ui); result != 0) return result;
 
-    std::printf("===== I3. 多开时那几行字（多账户多实例） =====\n");
+    std::printf("===== I3. 左下角运行状态文案（未运行 / %1 个进程运行中） =====\n");
     {
-        // 同时开着好几份时，底栏左下角那格不能再说「实例运行中」（跑着三个却说一个，
-        // 是那种没人看得出错的错）。三句话都放在 MainWindowUI 里当唯一出处。
-        check(MainWindowUI::runStateRunningCountText(2) == QStringLiteral("2 个实例运行中"),
-              "两份以上时报个数", MainWindowUI::runStateRunningCountText(2));
+        // 左下角那一格只留「未运行」和「%1 个进程运行中」（客户端和服务端合计），
+        // 启动中和异常退出只在任务中心提示。
+        check(MainWindowUI::runStateRunningCountText(1) == QStringLiteral("1 个进程运行中")
+                  && MainWindowUI::runStateRunningCountText(2) == QStringLiteral("2 个进程运行中"),
+              "★ 运行进程数文案统一用「%1 个进程运行中」（客户端与服务端合计）",
+              MainWindowUI::runStateRunningCountText(2));
         check(MainWindowUI::runStateRunningCountText(2) !=
                   MainWindowUI::runStateRunningCountText(3),
               "个数不一样，那句话就不一样（不是写死的常量）");
-        check(MainWindowUI::runStateRunningCountText(3) != MainWindowUI::runStateRunningText(),
-              "和「一份」那句是两句不同的话（不然多开就看不出来）");
 
-        // 另外两句：没有东西在跑 / 正在启动；再加上那一句「有实例异常退出」。
-        // 四句话**两两不同**是这一节的要点 —— 那句话本来就是为了让人一眼看出是哪个状态。
-        // NOTE: 这一格**不只是实例** —— 服务端页起的服务端也在这台机器上跑着，所以
-        // 「什么都没有」那句不写死「实例」，服务端单跑时另有自己的一句。
         check(MainWindowUI::runStateNotRunningText() == QStringLiteral("未运行"),
               "一个都没在跑时那句是「未运行」（服务端也算）："
               "字宽还要落在 bottomBarRunStateTextWidth() 那一档里，再长就被截成省略号",
               MainWindowUI::runStateNotRunningText());
-        check(MainWindowUI::runStateServerRunningText() == QStringLiteral("服务端运行中") &&
-                  MainWindowUI::runStateServerRunningCountText(2) ==
-                      QStringLiteral("2 个服务端运行中"),
-              "服务端单跑 / 两个以上在跑各有一句（和实例那两句分开说）",
-              MainWindowUI::runStateServerRunningText());
-        check(MainWindowUI::runStateServerRunningText() != MainWindowUI::runStateRunningText() &&
-                  MainWindowUI::runStateServerRunningCountText(2) !=
-                      MainWindowUI::runStateRunningCountText(2),
-              "★ 「服务端运行中」和「实例运行中」不是同一句话（那一格要说得清是谁在跑）");
-        check(MainWindowUI::runStateNotRunningText() != MainWindowUI::runStateRunningText() &&
-                  MainWindowUI::runStateNotRunningText() !=
-                      MainWindowUI::runStateRunningCountText(2) &&
-                  MainWindowUI::runStateNotRunningText() !=
-                      MainWindowUI::runStateServerRunningText(),
-              "「没有在跑」和那几句「运行中」是不同的话");
+        check(MainWindowUI::runStateNotRunningText() != MainWindowUI::runStateRunningCountText(1)
+                  && MainWindowUI::runStateNotRunningText() !=
+                         MainWindowUI::runStateRunningCountText(2),
+              "「未运行」和「%1 个进程运行中」是不同的话");
         check(MainWindowUI::runStateNotRunningText() != QStringLiteral("实例未运行"),
               "（不再是「实例未运行」）",
               MainWindowUI::runStateNotRunningText());
-
-        // 第四句：「有实例异常退出」。要求就是这五个字。
-        // NOTE: 这一句和「暂无实例或服务端」**必须**是两句 —— 红那一档说的是"出过事"，
-        // 灰那一档说的是"没在跑"，两句混成一句的话用户根本分不出"要不要去看一眼"。
-        check(MainWindowUI::runStateErrorText() == QStringLiteral("异常退出"),
-              "异常退出时那句是「异常退出」", MainWindowUI::runStateErrorText());
-        check(MainWindowUI::runStateErrorText() != MainWindowUI::runStateNotRunningText() &&
-                  MainWindowUI::runStateErrorText() != MainWindowUI::runStateRunningText() &&
-                  MainWindowUI::runStateErrorText() !=
-                      MainWindowUI::runStateLaunchingText(QStringLiteral("X")),
-              "「异常退出」和另外三句都不是同一句话");
-        // 启动中那句 = 名字 + 「启动中...」。名字**不由这里拼**（走 launchingStatusName()），
-        // 这里只钉"名字被原样放进去了、后面缀的是那三个点"。
-        check(MainWindowUI::runStateLaunchingText(QStringLiteral("我的整合包")) ==
-                  QStringLiteral("我的整合包 启动中…"),
-              "启动中那句 = 实例名 + 「启动中...」",
-              MainWindowUI::runStateLaunchingText(QStringLiteral("我的整合包")));
-        check(MainWindowUI::runStateLaunchingText(QStringLiteral("26.2-Fabric")) !=
-                  MainWindowUI::runStateLaunchingText(QStringLiteral("1.20.1")),
-              "名字不一样那句话就不一样（不是写死的常量）");
-        check(MainWindowUI::runStateLaunchingText(QStringLiteral("我的整合包")) !=
-                  MainWindowUI::launchingStatusText(QStringLiteral("我的整合包")),
-              "和中间那格的「正在启动 X ...」**不是同一句话**（两句各有一个出处是刻意的）");
 
         // 多开最要紧的一件事是"哪个实例是哪个账号"，所以第二行里每个实例都要带身份。
         check(MainWindowUI::runStateDetailWithAccount(QStringLiteral("我的包"),
@@ -2011,7 +1973,7 @@ int main(int argc, char *argv[]) {
             if (mark != nullptr) {
                 mark->show();
             }
-            runState->setText(MainWindowUI::runStateRunningText());
+            runState->setText(MainWindowUI::runStateRunningCountText(1));
             runDetail->setText(QStringLiteral("我的整合包-1.20.1-NeoForge"));
             status->setText(QStringLiteral("已下载 2814 / 5123  client.jar"));
             progress->setRange(0, 5123);

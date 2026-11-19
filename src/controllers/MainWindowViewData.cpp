@@ -567,8 +567,8 @@ GameWindowOverride toWindowOverride(const InstanceSettingsDialog::Override &from
 // 底栏那两块上拉面板（左：正在跑的实例 · 右：最近用过的账号）
 // ---------------------------------------------------------------------------
 
-/// 左面板里一行的那三颗按钮（电源 = 关掉这份会话，齿轮 = 进这个实例的设置，
-/// 「日志」= 打开这一场的日志窗）。
+/// 左面板 / 任务中心运行中进程行行尾的三颗按钮（客户端和服务端位置、图标一致）：
+/// 电源（0）= 结束/停止，齿轮（1）= 实例或服务端设置，日志图标（2）= 打开日志窗/控制台。
 /// @param ink 图标那一档颜色（和底栏那几行字同一个墨色 —— 画的图标不带自己的颜色）。
 QList<MainWindowUI::PanelAction> runningPanelActions(const QColor &ink) {
     const int iconSize = MainWindowUI::bottomBarPanelActionIconSize();
@@ -579,13 +579,49 @@ QList<MainWindowUI::PanelAction> runningPanelActions(const QColor &ink) {
     MainWindowUI::PanelAction settings;
     settings.icon = VersionIcons::gear(iconSize, Theme::tokens().primary);
     settings.tooltip = QObject::tr("打开这个实例的设置");
-    // 这一颗是**字的**（理由见 bottomBarPanelLogText() 那段：14 px 上画不出一个一眼认得出
-    // 的"日志"符号）。NOTE: 图标那两颗是 `setFixedSize(actionSize)` 的正方形，这一颗按字
-    // 撑宽 —— 行尾那几颗是"齐着右边摆"的，混着摆不会错位（见行控件那一段）。
     MainWindowUI::PanelAction log;
-    log.text = MainWindowUI::bottomBarPanelLogText();
+    log.icon = VersionIcons::line(QStringLiteral("log"), iconSize, ink);
     log.tooltip = QObject::tr("打开这一场游戏的日志窗");
     return {stop, settings, log};
+}
+
+QList<MainWindowUI::PanelAction> runningServerPanelActions(const QColor &ink, bool stopping,
+                                                           bool forceKillAllowed) {
+    const int iconSize = MainWindowUI::bottomBarPanelActionIconSize();
+    MainWindowUI::PanelAction stop;
+    stop.icon = VersionIcons::power(iconSize, ink);
+    if (!stopping) {
+        stop.enabled = true;
+        stop.tooltip = QObject::tr("停止这个服务端（先存盘并正常退出）");
+    } else if (forceKillAllowed) {
+        stop.enabled = true;
+        stop.tooltip = QObject::tr("存盘等待已超时，点击强制结束这个服务端");
+    } else {
+        stop.enabled = false;
+        stop.tooltip = QObject::tr("正在发送停服指令并等待存盘退出…");
+    }
+    MainWindowUI::PanelAction settings;
+    settings.icon = VersionIcons::gear(iconSize, Theme::tokens().primary);
+    settings.tooltip = QObject::tr("打开这个服务端的设置");
+    MainWindowUI::PanelAction console;
+    console.icon = VersionIcons::line(QStringLiteral("log"), iconSize, ink);
+    console.tooltip = QObject::tr("打开服务端控制台");
+    return {stop, settings, console};
+}
+
+QPixmap serverRowMark(ServerInstall::Flavor flavor, const QString &serverId, int size) {
+    switch (flavor) {
+    case ServerInstall::Flavor::Fabric:
+        return VersionIcons::loaderMark(0, size);
+    case ServerInstall::Flavor::Forge:
+        return VersionIcons::loaderMark(1, size);
+    case ServerInstall::Flavor::NeoForge:
+        return VersionIcons::loaderMark(2, size);
+    case ServerInstall::Flavor::Vanilla:
+        return VersionIcons::grassBlock(size);
+    default:
+        return VersionIcons::isoBlock(VersionIcons::isoBlockKindFor(serverId), size);
+    }
 }
 
 /// 这个实例属于哪个分类（正式版 / 快照版 / 远古版 / 愚人节版）。
@@ -845,43 +881,69 @@ QString homeGroupIdOf(const InstanceGroupStore *groups, const QString &key,
     return knownGroupIds.contains(origin) ? origin : QString();
 }
 
-/// **一行 = 一份会话**（不是"一个实例"）：同一个实例多开时那两行的名字一样，靠第二行那个
-/// "已运行 …"分开（一行一个会话，有时长）。行尾那颗电源
-/// 关的也就是**这一份**会话。那一行是谁由 `PanelRow::key` 带着（= 会话号，见下面那一段）。
-QList<MainWindowUI::PanelRow> runningGamePanelRows(const QList<LauncherManager::GameSession> &games,
+/// **一行 = 一个运行中进程**（客户端会话或服务端进程），按启动时间倒序排（最新启动的在最上面）。
+QList<MainWindowUI::PanelRow> runningGamePanelRows(QList<RunningProcesses::Entry> processes,
                                                    const VersionManager *versions, const QColor &ink,
                                                    qint64 nowMs,
                                                    const std::function<QString(int)> &playTimeText) {
     QList<MainWindowUI::PanelRow> rows;
-    rows.reserve(games.size());
+    rows.reserve(processes.size());
     // 一份都没在跑：摆一句说明（**不是**空白面板 —— 用户点开是想知道"有没有在跑"，
     // 空白答不了这个问题）。
-    if (games.isEmpty()) {
+    if (processes.isEmpty()) {
         MainWindowUI::PanelRow empty;
         empty.title = MainWindowUI::bottomBarPanelNoRunningTitle();
         empty.placeholder = true;
         rows.append(empty);
         return rows;
     }
-    for (const LauncherManager::GameSession &game : games) {
+    RunningProcesses::sortNewestFirst(processes);
+    const int iconSize = MainWindowUI::bottomBarPanelIconSize();
+    for (const RunningProcesses::Entry &proc : processes) {
         MainWindowUI::PanelRow row;
+        if (proc.kind == RunningProcesses::Entry::Kind::Server) {
+            row.icon = serverRowMark(proc.serverFlavor, proc.serverId, iconSize);
+            row.title = proc.displayName;
+            const auto serverSubtitle = [startedAtMs = proc.startedAtMs,
+                                         stopping = proc.serverStopping]() -> QString {
+                if (startedAtMs <= 0) {
+                    return stopping ? QObject::tr("正在停止（存盘中）") : QObject::tr("服务端");
+                }
+                const QString dur = MainWindowUI::runningDurationText(
+                    startedAtMs, QDateTime::currentMSecsSinceEpoch());
+                return stopping ? QObject::tr("正在停止 · %1").arg(dur)
+                                : QObject::tr("服务端 · %1").arg(dur);
+            };
+            if (proc.startedAtMs <= 0) {
+                row.subtitle = serverSubtitle();
+            } else {
+                const QString dur = MainWindowUI::runningDurationText(proc.startedAtMs, nowMs);
+                row.subtitle = proc.serverStopping
+                                   ? QObject::tr("正在停止 · %1").arg(dur)
+                                   : QObject::tr("服务端 · %1").arg(dur);
+                row.liveSubtitle = serverSubtitle;
+            }
+            row.actions = runningServerPanelActions(ink, proc.serverStopping,
+                                                    proc.serverForceKillAllowed);
+            row.key = proc.key.isEmpty() ? RunningProcesses::makeServerKey(proc.serverId) : proc.key;
+            rows.append(row);
+            continue;
+        }
         // 图标走**和实例树同一个函数**（instanceRowMark）：用户挑过就画他挑的那张，没挑过
         // 才按版本分类 / 加载器给。
-        row.icon = instanceRowMark(versions->displayParts(game.versionId), versions,
-                                   MainWindowUI::bottomBarPanelIconSize());
-        row.title = game.displayName;
-        row.subtitle = playTimeText(game.sessionId);
+        row.icon = instanceRowMark(versions->displayParts(proc.versionId), versions, iconSize);
+        row.title = proc.displayName;
+        row.subtitle = playTimeText(proc.sessionId);
         if (row.subtitle.isEmpty()) {
-            row.subtitle = MainWindowUI::runningDurationText(game.startedAtMs, nowMs);
+            row.subtitle = MainWindowUI::runningDurationText(proc.startedAtMs, nowMs);
         } else {
-            row.liveSubtitle = [playTimeText, sessionId = game.sessionId] {
+            row.liveSubtitle = [playTimeText, sessionId = proc.sessionId] {
                 return playTimeText(sessionId);
             };
         }
         row.actions = runningPanelActions(ink);
-        // 这一行是谁 = 那一份会话的编号（回来时按它认人，**不按"第几行"**：面板开着的时候
-        // 哪个实例先结束是它自己的事，按行号认会关错游戏）。
-        row.key = QString::number(game.sessionId);
+        // 这一行是谁 = 那一份会话的编号（回来时按它认人，**不按"第几行"**）。
+        row.key = proc.key.isEmpty() ? QString::number(proc.sessionId) : proc.key;
         rows.append(row);
     }
     return rows;

@@ -30,6 +30,7 @@
 #include "manage/ModpackImport.hpp"
 #include "manage/InstanceIconLookup.hpp"
 #include "launcher/QuickPlay.hpp"
+#include "launcher/RunningProcesses.hpp"
 #include "util/ServerPing.hpp"
 #include "tasks/TaskManager.hpp"
 #include "..\ui\TaskCenterPanel.hpp"
@@ -2043,7 +2044,9 @@ private:
     /// 启动、账号变化（走 updateBottomBar）、应用重新激活时重算；文字没变不重画。
     void updateHomeGreeting();
 
-    /// 底栏右下那一格（"当前实例运行状态"）：方块的颜色 + 两行字，整个重画一遍。
+    /// 当前所有运行中进程（客户端会话 + 服务端进程），按启动时间倒序。
+    QList<RunningProcesses::Entry> runningProcessEntries() const;
+    /// 底栏左下那一格（运行状态）：方块颜色 + 两行字，整个重画一遍。
     void updateBottomBarRunState();
 
     // ---------- 任务中心 ----------

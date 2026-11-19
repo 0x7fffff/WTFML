@@ -36,8 +36,10 @@
 #include "controllers/GameSessionController.hpp"
 #include "controllers/InstallPageController.hpp"
 #include "controllers/MainWindowViewData.hpp"
+#include "controllers/ServerRunController.hpp"
 #include "controllers/ServerWorkspaceController.hpp"
 #include "launcher/LauncherManager.hpp"
+#include "server/ServerProcess.hpp"
 #include "server/ServerRegistry.hpp"
 #include "tasks/TaskSnapshot.hpp"
 
@@ -216,116 +218,73 @@ void MainWindow::updateBottomBar() {
     updateBottomBarRunState();
 }
 
-/// 底栏右下那一格（"当前实例运行状态"）整个重画一遍 —— 方块的颜色、第一行、第二行。
-///
-/// **唯一出处**在下面那段注释里（四档的顺序）；这里只管画。
+QList<RunningProcesses::Entry> MainWindow::runningProcessEntries() const {
+    const QList<LauncherManager::GameSession> games = m_launcherManager->runningGames();
+    const QStringList runningServers =
+        m_serverWorkspace != nullptr ? m_serverWorkspace->runningServerIds() : QStringList();
+    QList<RunningProcesses::Entry> entries;
+    entries.reserve(games.size() + runningServers.size());
+    for (const LauncherManager::GameSession &game : games) {
+        RunningProcesses::Entry entry;
+        entry.kind = RunningProcesses::Entry::Kind::Client;
+        entry.key = QString::number(game.sessionId);
+        entry.startedAtMs = game.startedAtMs;
+        entry.sessionId = game.sessionId;
+        entry.versionId = game.versionId;
+        entry.displayName = game.displayName.isEmpty() ? instanceDisplayName(game.versionId) : game.displayName;
+        entry.accountName = game.accountName;
+        entries.append(entry);
+    }
+    for (const QString &serverId : runningServers) {
+        const ServerRegistry::Entry desc = ServerRegistry::describe(serverId);
+        const ServerRun::ServerProcess *process = m_serverWorkspace->process(serverId);
+        RunningProcesses::Entry entry;
+        entry.kind = RunningProcesses::Entry::Kind::Server;
+        entry.key = RunningProcesses::makeServerKey(serverId);
+        qint64 startedAtMs = m_serverRun != nullptr ? m_serverRun->startedAtMs(serverId) : 0;
+        if (startedAtMs <= 0 && process != nullptr) {
+            startedAtMs = process->startedAtMs();
+        }
+        entry.startedAtMs = startedAtMs;
+        entry.serverId = serverId;
+        entry.displayName = desc.name.isEmpty() ? serverId : desc.name;
+        entry.serverFlavor = desc.flavor;
+        entry.serverStopping =
+            process != nullptr && process->status() == ServerModel::Status::Stopping;
+        entry.serverForceKillAllowed = process != nullptr && process->forceKillAllowed();
+        entries.append(entry);
+    }
+    RunningProcesses::sortNewestFirst(entries);
+    return entries;
+}
+
+/// 底栏左下那一格（运行状态）整个重画一遍 —— 方块的颜色、第一行、第二行。
+/// 只显示两种状态：「未运行」（灰）与「%1 个进程运行中」（绿，客户端与服务端合计）；
+/// 启动与崩溃提示交由任务中心处理。
 void MainWindow::updateBottomBarRunState() {
-    // 与底栏使用同一份会话事实；队列刷新避免删除正在发 clicked 的行内按钮。
+    // 与底栏使用同一份进程事实；队列刷新避免删除正在发 clicked 的行内按钮。
     m_ui->refreshTaskCenterPanel();
     QLabel *runStateLabel = m_ui->getRunStateLabel();
     QLabel *runStateDetailLabel = m_ui->getRunStateDetailLabel();
     QLabel *runStateMarkLabel = m_ui->getRunStateMarkLabel();
-    const QList<LauncherManager::GameSession> games = m_launcherManager->runningGames();
+    const QList<RunningProcesses::Entry> entries = runningProcessEntries();
     // 主页启动区主按钮：当前实例在跑就写「停止游戏」（和这一格看的是同一份会话事实）。
     const QString currentId = selectedVersionId(m_ui->getInstalledVersionCombo());
     m_ui->setHomeLaunchRunning(!currentId.isEmpty() && m_launcherManager->isVersionRunning(currentId));
-    // 服务端也在这台机器上跑（服务端页起的那些进程，见 `ServerWorkspaceController`）。
-    // 底栏这一格是**全局**的：用户不区分"这是哪一页起的东西"，只有服务端在跑时
-    // 也得说出来（否则起了服务端还写着「暂无…」，那一格就是在说假话）。
-    const QStringList runningServers = m_serverWorkspace->runningServerIds();
-    const bool anyRunning = !games.isEmpty() || !runningServers.isEmpty();
 
-    // 四档的顺序是**唯一的判据**（放这里当唯一出处，下面几支只负责画）：
-    // · 正在启动优先（黄）—— 那一段里进程已经起来了（所以 runningGames() 里已经有它），
-    // 但用户等的是"游戏窗口出来"，这时候该说的是"启动中"，不是"运行中"；
-    // · 然后是**账上还有没处理的异常退出**（红）——
-    // "出过事"比"此刻还在跑"更需要被看见；
-    // · 然后是"一个都没有"（灰）；
-    // · 剩下的就是真的在跑（绿）。
-    //
-    // NOTE: 判据里**没有**"选中的是哪个实例"——要的是"这台机器上有没有
-    // 实例在跑"，那件事跟下拉框选着谁没关系（第二行的显示规则才看那个，见
-    // runStateShowsDetail()）。
-    //
-    // NOTE: 这个判据（`launching`）是**这一格自己的**，和中间那格的"任务摘要"没有关系：
-    // 中间那格现在看的是账本（哪件任务该被显示），左边这一格看的是"会话起没起来"。
-    // 一件 Launch 任务已经收过尾（游戏出话了）而这一份还在"启动中"是可能的
-    // —— 两者本来就是先后关系，谁也不该去问对方要判据。
-    //
-    // 红那一档问的是 `CrashReportController::pendingRecordIds()`（"账上还有没有那一项"），
-    // **不是** `runningGames()`：红说的是"发生过的事"，跟此刻有没有进程在跑是两个维度
-    // （两份东西可以同时为真）。灰那一档是"一个都没有且没欠着事"。
-    // 三档的判据：黄和绿不变，红色 = 有实例报错，什么都不在跑用灰色。
-    const bool launching = m_gameSessionController->hasLaunchingSessions();
-    const bool pendingCrash = !m_crashReports->pendingRecordIds().isEmpty();
+    const int totalCount = RunningProcesses::totalCount(entries);
+    const bool anyRunning = totalCount > 0;
     const MainWindowUI::RunStateMark mark =
-        launching ? MainWindowUI::RunStateMark::Launching
-                  : (pendingCrash
-                         ? MainWindowUI::RunStateMark::Error
-                         : (anyRunning ? MainWindowUI::RunStateMark::Running
-                                       : MainWindowUI::RunStateMark::Idle));
-    // 那颗方块的图**每次重画都重新要一张**（VersionIcons 里按"边长+颜色"缓存着，
-    // 所以这一步不贵）：状态变了颜色就得跟着变，而这里正是"状态唯一定下来"的地方。
+        anyRunning ? MainWindowUI::RunStateMark::Running : MainWindowUI::RunStateMark::Idle;
     runStateMarkLabel->setPixmap(
         MainWindowUI::runStateMarkPixmap(mark, m_ui->getBottomBar()->palette()));
     runStateMarkLabel->setVisible(true);
 
-    // 左下那一格**现在点不点得开**。判据就是"左面板里会不会有行"—— 那几行是拿
-    // runningGames() 翻出来的（见 setBottomBarPanelContent() 里那个 provider），所以
-    // 空不空和这里**同源**。没有运行中的实例时让那个实例栏点不开，箭头隐藏。
-    // NOTE: 黄灯那一档（"正在启动"）在这里也是**点得开**的：那一段里会话已经在
-    // runningGames() 里了（见上面三态那段注释），面板里列得出它。
-    m_ui->setRunPanelAvailable(!games.isEmpty());
-    m_ui->setRunStateActive(mark != MainWindowUI::RunStateMark::Idle);
+    // 左下那一格现在点不点得开 = 运行进程面板里有没有进程（客户端或服务端任一在跑即可展开）。
+    m_ui->setRunPanelAvailable(anyRunning);
+    m_ui->setRunStateActive(anyRunning);
 
-    if (mark == MainWindowUI::RunStateMark::Launching) {
-        // 黄：正在启动。名字的写法不走显示名那一套（见 launchingStatusName()）。
-        runStateLabel->setText(MainWindowUI::runStateLaunchingText(launchingStatusName()));
-        runStateLabel->setVisible(true);
-        // 第二行在这一档**一律不显示**：第一行那句话里已经带着实例名了（判据在
-        // runStateShowsDetail() 里，和别的那几种情况同一处）。
-        runStateDetailLabel->setText(QString());
-        runStateDetailLabel->setVisible(false);
-        return;
-    }
-
-    if (mark == MainWindowUI::RunStateMark::Error) {
-        // 红：有实例异常退出、账上那一项还没处理掉。
-        runStateLabel->setText(MainWindowUI::runStateErrorText());
-        runStateLabel->setVisible(true);
-        // 第二行写**出事的那个实例**（和绿那一支写实例名是同一个意思：这一格说状态的时候
-        // 总是连着说是谁）。名字空了就整行收起来 —— 宁可少一行，也不要一行空白。
-        const QString crashedName = m_crashReports->latestPendingInstanceName();
-        runStateDetailLabel->setText(crashedName);
-        runStateDetailLabel->setVisible(!crashedName.isEmpty());
-        return;
-    }
-
-    if (games.isEmpty()) {
-        if (!runningServers.isEmpty()) {
-            // 只有服务端在跑（实例一个都没有）：这一格要说的是它，不是"暂无…"。
-            // 第二行写它的显示名（和绿那一支写实例名是同一个意思），多个用「、」连起来。
-            runStateLabel->setText(
-                runningServers.size() == 1
-                    ? MainWindowUI::runStateServerRunningText()
-                    : MainWindowUI::runStateServerRunningCountText(runningServers.size()));
-            runStateLabel->setVisible(true);
-            QStringList names;
-            names.reserve(runningServers.size());
-            for (const QString &serverId : runningServers) {
-                const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
-                names.append(entry.name.isEmpty() ? serverId : entry.name);
-            }
-            runStateDetailLabel->setText(names.join(QStringLiteral("、")));
-            runStateDetailLabel->setVisible(!names.isEmpty());
-            return;
-        }
-        // 什么都没在跑：写「暂无实例或服务端」。**不是藏起来** —— 这一格要的
-        // 就是这句话，而且那一格现在还兼着"点开看实例列表"那颗按钮，藏起来连按钮一起没了。
-        // NOTE: 连带的好处是那一格的文字**任何时候都非空**，布局上不再有"从无到有"这一步
-        // （那一步正是"中间那根条突然缩短一截"的来源）。
-        // NOTE: 这一档的方块是灰的（红只留给"出过事"）—— 那句话本身
-        // 一个字没动，见 runStateNotRunningText() 那段。
+    if (!anyRunning) {
         runStateLabel->setText(MainWindowUI::runStateNotRunningText());
         runStateLabel->setVisible(true);
         runStateDetailLabel->setText(QString());
@@ -333,36 +292,37 @@ void MainWindow::updateBottomBarRunState() {
         return;
     }
 
-    // 只有一份在跑时用「实例运行中」那句，多份时报个数。同一句话在两个地方
-    // 各拼一半，就会出现"跑了三个却说实例运行中"这种没人看得出错的说法。
-    runStateLabel->setText(games.size() == 1
-                               ? MainWindowUI::runStateRunningText()
-                               : MainWindowUI::runStateRunningCountText(games.size()));
+    runStateLabel->setText(MainWindowUI::runStateRunningCountText(totalCount));
     runStateLabel->setVisible(true);
 
-    if (games.size() == 1) {
-        // 第二行要不要出，判据在 runStateShowsDetail() 里（那里也是它唯一的出处）。
+    if (totalCount == 1 && entries.first().kind == RunningProcesses::Entry::Kind::Client) {
+        const RunningProcesses::Entry &only = entries.first();
         const bool showDetail = MainWindowUI::runStateShowsDetail(
-            m_ui->isHomeTabCurrent(), selectedVersionId(m_ui->getInstalledVersionCombo()),
-            games.first().versionId, launching);
+            m_ui->isHomeTabCurrent(), currentId, only.versionId, false);
         runStateDetailLabel->setVisible(showDetail);
-        runStateDetailLabel->setText(showDetail ? instanceDisplayName(games.first().versionId)
-                                                : QString());
+        runStateDetailLabel->setText(showDetail ? instanceDisplayName(only.versionId) : QString());
         return;
     }
 
-    // 两份以上：这一行**一定**要出，而且**必须带上身份**（"哪个实例是哪个账号"正是
-    // 多开这件事本身要回答的问题 —— 三个同版本实例跑在三个账号上时，光列名字分不出谁是谁）。
-    // NOTE: 只在这一支里带账号，是想让"只开了一个"那种绝大多数情况下的界面一个字都不变。
-    QStringList lines;
-    lines.reserve(games.size());
-    for (const LauncherManager::GameSession &game : games) {
-        const QString name = instanceDisplayName(game.versionId);
-        lines.append(game.accountName.isEmpty()
-                         ? name
-                         : MainWindowUI::runStateDetailWithAccount(name, game.accountName));
+    int clientCount = 0;
+    for (const RunningProcesses::Entry &entry : entries) {
+        if (entry.kind == RunningProcesses::Entry::Kind::Client) {
+            ++clientCount;
+        }
     }
-    runStateDetailLabel->setVisible(true);
+    QStringList lines;
+    lines.reserve(entries.size());
+    for (const RunningProcesses::Entry &entry : entries) {
+        if (entry.kind == RunningProcesses::Entry::Kind::Client) {
+            const QString name = instanceDisplayName(entry.versionId);
+            lines.append((clientCount > 1 && !entry.accountName.isEmpty())
+                             ? MainWindowUI::runStateDetailWithAccount(name, entry.accountName)
+                             : name);
+        } else {
+            lines.append(entry.displayName);
+        }
+    }
+    runStateDetailLabel->setVisible(!lines.isEmpty());
     runStateDetailLabel->setText(lines.join(QStringLiteral("、")));
 }
 

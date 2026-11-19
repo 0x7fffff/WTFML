@@ -1824,7 +1824,9 @@ public:
     ///
     /// NOTE: 这里是它的**唯一出处**：装控件的时候挂一次，点不开的时候要把它摘掉
     /// （见 setRunPanelAvailable()），两处抄同一句话迟早会对不上。
-    static QString bottomBarRunPanelTip() { return QStringLiteral("点一下向上展开实例列表"); }
+    static QString bottomBarRunPanelTip() {
+        return QCoreApplication::translate("MainWindowUI", "点一下查看运行中的进程");
+    }
 
     static QString runStateButtonName() { return QStringLiteral("runStateButton"); }
     static QString accountButtonName() { return QStringLiteral("accountButton"); }
@@ -2011,8 +2013,10 @@ public:
     /// 的那个账号。
     static QString bottomBarPanelOnlineAccountText() { return QStringLiteral("正版"); }
     static QString bottomBarPanelOfflineAccountText() { return QStringLiteral("离线"); }
-    /// 左面板里"一份实例都没在跑"时那一句（面板只在有实例在跑时点得开，这一句是兜底）。
-    static QString bottomBarPanelNoRunningTitle() { return QStringLiteral("没有在运行的实例"); }
+    /// 左面板里"一个进程都没在跑"时那一句（面板只在有进程在跑时点得开，这一句是兜底）。
+    static QString bottomBarPanelNoRunningTitle() {
+        return QCoreApplication::translate("MainWindowUI", "没有运行中的进程");
+    }
     /// 账号弹层里"一个账号都没保存"时那一行，下面紧跟一行「登录」。
     static QString bottomBarPanelNoAccountTitle() { return QStringLiteral("未登录"); }
     /// 左面板**运行中那一行**最后那颗按钮上的字（运行中实例弹层优先展示实例名、
@@ -3282,10 +3286,9 @@ public:
     static QString runStateLaunchingText(const QString &name) {
         return QCoreApplication::translate("MainWindowUI", "%1 启动中…").arg(name);
     }
-    /// 两份以上在跑时第一行写什么。**一份时不用这一句**（那时是上面那句），
-    /// 所以这个函数只接 count >= 2 的输入。
+    /// 有进程在跑时第一行写什么（客户端会话与服务端进程合计，`count >= 1`）。
     static QString runStateRunningCountText(int count) {
-        return QCoreApplication::translate("MainWindowUI", "%1 个实例运行中").arg(count);
+        return QCoreApplication::translate("MainWindowUI", "%1 个进程运行中").arg(count);
     }
     /// 两个以上**服务端**在跑、实例一个都没跑时第一行写什么（同上，count >= 2）。
     static QString runStateServerRunningCountText(int count) {

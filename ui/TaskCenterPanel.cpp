@@ -512,9 +512,9 @@ TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider
     auto *toolbar = new QHBoxLayout(m_toolbar);
     toolbar->setContentsMargins(0, 0, 0, 0);
     toolbar->setSpacing(8);
-    // 「运行中实例」那一栏的开关摆在工具条最前：按下 = 左栏露出来，弹起 = 整栏让给任务列表。
+    // 「运行中的进程」那一栏的开关摆在工具条最前：按下 = 左栏露出来，弹起 = 整栏让给任务列表。
     // 原来是左栏顶上一颗「收起 / 展开」，收起后那一栏只剩 36 px，按钮被竖着摆到半中间、字也被切。
-    m_collapseRunning = new QPushButton(tr("运行中实例"), m_toolbar);
+    m_collapseRunning = new QPushButton(tr("运行中的进程"), m_toolbar);
     m_collapseRunning->setObjectName(QStringLiteral("taskCenterRunningCollapse"));
     m_collapseRunning->setCheckable(true);
     m_collapseRunning->setChecked(true);
@@ -562,7 +562,7 @@ TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider
     workspace->setContentsMargins(kPanelPadding, kPanelPadding, kPanelPadding, kPanelPadding);
     workspace->setSpacing(kSectionSpacing);
 
-    // 左列：运行中实例。工具条上那颗开关可以把整列收掉，给任务列表让位置。
+    // 左列：运行中的进程。工具条上那颗开关可以把整列收掉，给任务列表让位置。
     m_runningPane = new QWidget(this);
     m_runningPane->setObjectName(QStringLiteral("taskCenterRunningPane"));
     m_runningPane->setFixedWidth(kRunningWidth);
@@ -570,7 +570,7 @@ TaskCenterPanel::TaskCenterPanel(QWidget *anchor, const TaskCenter::ItemProvider
     runningLayout->setContentsMargins(0, 0, 0, 0);
     runningLayout->setSpacing(kRowSpacing);
     auto *runningHeader = new QHBoxLayout;
-    m_runningTitle = new QLabel(tr("运行中实例"), m_runningPane);
+    m_runningTitle = new QLabel(tr("运行中的进程"), m_runningPane);
     m_runningTitle->setObjectName(QStringLiteral("taskCenterRunningTitle"));
     runningHeader->addWidget(m_runningTitle);
     runningHeader->addStretch(1);
@@ -728,8 +728,8 @@ void TaskCenterPanel::updateDetailPaneWidth() {
 
 void TaskCenterPanel::applyRunningCollapsed() {
     m_runningPane->setVisible(!m_runningCollapsed && !(m_embedded && m_compact));
-    m_collapseRunning->setToolTip(m_runningCollapsed ? tr("显示运行中实例")
-                                                     : tr("收起运行中实例"));
+    m_collapseRunning->setToolTip(m_runningCollapsed ? tr("显示运行中的进程")
+                                                     : tr("收起运行中的进程"));
     m_collapseRunning->setAccessibleName(m_collapseRunning->toolTip());
     // 勾选状态要和这一套对齐，但**不能惊动 toggled**：那一发是"用户点了"的专用通道。
     const bool wantChecked = !m_runningCollapsed;
@@ -1152,9 +1152,10 @@ void TaskCenterPanel::rebuildRunning() {
     if (!m_runningUserToggled) {
         setRunningCollapsed(rows.isEmpty(), /*animate=*/false);
     }
-    m_collapseRunning->setText(rows.isEmpty() ? tr("运行中实例") : tr("运行中实例 %1").arg(rows.size()));
+    m_collapseRunning->setText(rows.isEmpty() ? tr("运行中的进程")
+                                              : tr("运行中的进程 %1").arg(rows.size()));
     if (rows.isEmpty()) {
-        auto *empty = new QLabel(tr("当前没有运行中的实例"), m_runningContent);
+        auto *empty = new QLabel(tr("当前没有运行中的进程"), m_runningContent);
         empty->setWordWrap(true);
         applyMutedFont(empty, -1);
         layout->addWidget(empty);

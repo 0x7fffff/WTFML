@@ -70,6 +70,8 @@ public:
     /// 这一趟最后是**我们按了强杀**才收场的（`exited` 的接收方据此换一句话 ——
     /// "异常退出"和"你让我强杀的"是两件事，后者不该弹一个预警框）。
     bool wasForceKilled() const { return m_killed; }
+    /// 进程本次启动的时间戳（毫秒，未运行或已退出时为 0）。
+    qint64 startedAtMs() const { return m_startedAtMs; }
 
     /**
      * @brief 起手。
@@ -153,6 +155,7 @@ private:
     bool m_forceKillAllowed = false;
     bool m_started = false;  ///< 读到过 `Done (` 没有。
     bool m_killed = false;   ///< 这一趟是不是我们按过强杀（`statusAfterExit()` 要它）。
+    qint64 m_startedAtMs = 0;
 };
 
 }  // namespace ServerRun
