@@ -25,6 +25,7 @@ int UiTopLevelDialogChecks(QApplication &app) {
         {QStringLiteral("JavaMismatchDialog"), QStringLiteral("只经 overlay()->execPrompt 摆进内容区（MainWindowLaunchJava）")},
         {QStringLiteral("AccountSkinDialog"), QStringLiteral("OverlayHost::showPage 覆盖页（MainWindowAccount）；摆不上只写日志")},
         {QStringLiteral("AgentSettingsPage"), QStringLiteral("OverlayHost::showPage 覆盖页（AgentController）；摆不上就删掉")},
+        {QStringLiteral("AgentMcpPage"), QStringLiteral("OverlayHost::showPage 覆盖页（AgentController）；摆不上就删掉")},
         {QStringLiteral("GroupDialog"), QStringLiteral("OverlayHost::showPage 覆盖页（MainWindowGroup）；摆不上就删掉")},
         {QStringLiteral("InstanceSettingsDialog"), QStringLiteral("OverlayHost::showPage 覆盖页（InstanceDialogController）")},
         {QStringLiteral("IntegrityReportPage"), QStringLiteral("OverlayHost::showPage 覆盖页（IntegrityController）；摆不上只写日志")},
