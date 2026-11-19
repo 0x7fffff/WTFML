@@ -288,8 +288,8 @@ Delete it again and it will no longer exist (it is no longer in the list); click
             <translation>You cannot stop the current step (stopping will leave a semi-finished product), wait until it completes this section before canceling it.</translation>
         </message>
         <message>
-            <source>启动已经开始，要停下来请关掉游戏窗口。</source>
-            <translation>The startup has started. To stop, please close the game window.</translation>
+            <source>游戏进程启动后可取消此任务。</source>
+            <translation>You can cancel once the game process starts.</translation>
         </message>
         <message>
             <source>导出正在生成压缩包。为避免留下不完整的文件，压缩阶段无法取消。</source>

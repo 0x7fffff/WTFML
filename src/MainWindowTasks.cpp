@@ -36,6 +36,7 @@
 #include "controllers/DownloadTaskLedgerController.hpp"
 #include "controllers/InstanceTransferController.hpp"
 #include "download/DownloadManager.hpp"
+#include "launcher/LauncherManager.hpp"
 #include "manage/VersionManager.hpp"
 
 #include <QDateTime>
@@ -115,15 +116,18 @@ void MainWindow::updateBottomBarTaskSummary() {
 
 /// 「这一项**此刻**按『取消』真的会做点什么吗」。
 ///
-/// 判据必须和 `onTaskDetailAction()` 里那条取消分派**逐字对齐** —— 那儿能做的只有三件
-/// 事（服务端安装那一趟、`VersionManager` 那一批下载、后台导入世界那一趟）。所以这里也只问这几处，
-/// **不在这一层按 kind 或状态另推一遍**（推错的下场：装作某一阶段还能取消）。
+/// 判据和 `cancelTaskFromDetail()` 的分派共用执行器状态。启动任务按绑定的会话号查找进程，
+/// 同一实例开了多份时也只停对应会话。
 ///
 /// 为什么非要现问一遍：账本里那位 `canCancel` 是 `begin()` 按**种类**记的（"这一类活
 /// **允许**取消"），可这一类活里有几段**就是取消不掉**的 —— 加载器的安装器进程正在跑
 /// 的时候（那是个 `QProcess`，不在下载批次里）。整合包后台解压和最终校验则已有合作式取消，
 /// 由 `VersionManager::canCancelDownload()` 现问工人状态，不再仅依赖下载器是否繁忙。
 bool MainWindow::cancelWouldWork(const Tasks::TaskSnapshot &task) const {
+    if (task.kind == Tasks::TaskKind::Launch) {
+        return Tasks::isActiveState(task.state) && task.sessionId > 0
+               && m_launcherManager->session(task.sessionId).sessionId == task.sessionId;
+    }
     if (m_modTransferCancels.contains(task.id)) return true;
     // ⓪ 「实例更新」父任务：准备核心那一段可以取消（文件事务那一段由流程自己
     // 把能力位关掉，这里也问同一份入口）。
@@ -213,6 +217,13 @@ void MainWindow::onTaskDetailAction(const QString &key, TaskDetailPage::Action a
 void MainWindow::cancelTaskFromDetail(const QString &key) {
     bool transferParsed = false;
     const auto transferId = key.toULongLong(&transferParsed);
+    if (transferParsed) {
+        const auto task = m_activityCenter->tasks()->snapshot(transferId);
+        if (task.kind == Tasks::TaskKind::Launch) {
+            if (cancelWouldWork(task)) stopGameSession(task.sessionId);
+            return;
+        }
+    }
     // 「实例更新」父任务：准备阶段这一颗接到真的那一批下载上（文件事务阶段流程会把
     // 能力位关掉，所以这里不会把提交中的副本/快照打断）。
     if (transferParsed && m_updateFlowTask != Tasks::invalidTaskId()

@@ -1,4 +1,7 @@
 #include "Support.hpp"
+#include "controllers/ActivityCenterController.hpp"
+#include "controllers/TaskDetailController.hpp"
+
 void runBottomBarPanelTests() {
     const QString originalDir = AppPaths::minecraftDir();
     QTemporaryDir root;
@@ -584,6 +587,55 @@ void runBottomBarPanelTests() {
             QApplication::processEvents();
             check(w.findChild<QWidget *>(MainWindowUI::bottomBarPanelName()) == nullptr,
                   "AH6 点它**什么都不弹**（不是弹一块只有那句空话的面板）");
+        }
+    }
+
+    {
+        auto *activity = w.findChild<ActivityCenterController *>();
+        auto *sessions = w.findChild<GameSessionController *>();
+        auto *detail = w.findChild<TaskDetailController *>();
+        check(activity && sessions && detail, "Launch task controllers are available");
+        if (activity && sessions && detail) {
+            const auto task = activity->begin(Tasks::TaskKind::Launch, QStringLiteral("Launch test"), releaseId);
+            const QString key = QString::number(task);
+            detail->open(key);
+            auto *cancel = w.findChild<QPushButton *>(MainWindowUI::taskDetailCancelName());
+            check(cancel && cancel->isHidden(), "Launch cannot be cancelled before a process is bound");
+
+            const int target = manager->startGame(holderArgs, holderSettings, releaseId, releaseId);
+            const int other = manager->startGame(holderArgs, holderSettings, releaseId, releaseId);
+            check(target > 0 && other > 0, "Two test processes for the same instance are running");
+            if (target > 0 && other > 0) {
+                GameSessionController::GameSessionFacts facts;
+                facts.instanceId = releaseId;
+                facts.instanceName = releaseId;
+                sessions->beginSession(target, releaseId, task, facts);
+                const bool offered = pumpUntil([cancel] { return cancel && !cancel->isHidden(); }, 1000);
+                check(offered, "Launch task displays Cancel when its process starts");
+                if (offered) {
+                    answerNextPrompt(1);
+                    cancel->click();
+                    check(g_modalTitle == QStringLiteral("停止游戏") && manager->session(target).sessionId == target,
+                          "Declining the stop confirmation leaves the game running");
+
+                    answerStopGamePrompt();
+                    cancel->click();
+                    const bool stopped = pumpUntil([&] {
+                        return manager->session(target).sessionId == 0
+                               && activity->tasks()->snapshot(task).state == Tasks::TaskState::Cancelled;
+                    }, 5000);
+                    check(stopped && manager->session(other).sessionId == other,
+                          "Cancelling a launch stops only its process and records the task as cancelled");
+                }
+            }
+            w.ui()->overlay()->dismiss();
+            for (int session : {target, other}) {
+                if (manager->session(session).sessionId == 0) continue;
+                w.markGameStopRequestedForTest(session);
+                manager->stopGame(session);
+            }
+            pumpUntil([&] { return manager->runningGames().isEmpty(); }, 5000);
+            if (Tasks::isActiveState(activity->tasks()->snapshot(task).state)) activity->tasks()->cancel(task);
         }
     }
 

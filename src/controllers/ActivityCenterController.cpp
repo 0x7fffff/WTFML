@@ -172,7 +172,17 @@ Tasks::TaskId ActivityCenterController::begin(Tasks::TaskKind kind, const QStrin
 }
 
 bool ActivityCenterController::bindSession(Tasks::TaskId id, int sessionId) {
-    return m_tasks.setSessionId(id, sessionId);
+    if (!m_tasks.setSessionId(id, sessionId)) {
+        return false;
+    }
+    const auto task = m_tasks.snapshot(id);
+    if (task.kind == Tasks::TaskKind::Launch) {
+        auto capabilities = task.capabilities;
+        capabilities.canCancel = true;
+        capabilities.cancelBlockedReason.clear();
+        m_tasks.setCapabilities(id, capabilities);
+    }
+    return true;
 }
 
 void ActivityCenterController::finish(Tasks::TaskId id, bool success,
@@ -406,7 +416,7 @@ Tasks::TaskCapabilities ActivityCenterController::defaultCapabilities(Tasks::Tas
         caps.canCancel = true;
         break;
     case Tasks::TaskKind::Launch:
-        caps.cancelBlockedReason = tr("启动已经开始，要停下来请关掉游戏窗口。");
+        caps.cancelBlockedReason = tr("游戏进程启动后可取消此任务。");
         break;
     case Tasks::TaskKind::Export:
         caps.cancelBlockedReason =

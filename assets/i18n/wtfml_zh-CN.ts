@@ -278,7 +278,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>启动已经开始，要停下来请关掉游戏窗口。</source>
+            <source>游戏进程启动后可取消此任务。</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
