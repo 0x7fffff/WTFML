@@ -1,4 +1,4 @@
-#Requires -Version 7.0
+﻿#Requires -Version 7.0
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 
@@ -81,7 +81,143 @@ try {
             throw "tools/$($script.Name) 起真 exe 却没隔离：加 --acceptance-profile，或补一行「$optOut（为什么必须动真设置）」"
         }
     }
-    Write-Host 'PASS test entry/module size limits, core build ownership and settings isolation'
+
+    # ---- 分区标签覆盖：所有带 ci-* 分区标签的非 visual 测试都必须归入某个模块 ----
+    . (Join-Path $PSScriptRoot 'test-impact.ps1')
+    $catalog = (Get-TestImpact @() $true).testMap
+    $mappedTests = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($key in $catalog.Keys) {
+        foreach ($name in $catalog[$key]) { $null = $mappedTests.Add("wtfml.$name") }
+    }
+
+    function Strip-CMakeComments([string]$Text) {
+        $sb = [Text.StringBuilder]::new($Text.Length)
+        $inQuote = $false
+        $inComment = $false
+        for ($i = 0; $i -lt $Text.Length; $i++) {
+            $ch = $Text[$i]
+            if ($inComment) {
+                if ($ch -eq "`n") { $inComment = $false; [void]$sb.Append($ch) }
+                continue
+            }
+            if ($inQuote) {
+                [void]$sb.Append($ch)
+                if ($ch -eq '\' -and $i + 1 -lt $Text.Length) { $i++; [void]$sb.Append($Text[$i]) }
+                elseif ($ch -eq '"') { $inQuote = $false }
+                continue
+            }
+            if ($ch -eq '#') { $inComment = $true; continue }
+            if ($ch -eq '"') { $inQuote = $true }
+            [void]$sb.Append($ch)
+        }
+        [regex]::Replace($sb.ToString(), '(?is)\bfunction\s*\(.*?\bendfunction\s*\([^)]*\)', '')
+    }
+
+    function Get-CMakeCallArgs([string]$Text, [string]$CommandRegex) {
+        $calls = [Collections.Generic.List[string]]::new()
+        foreach ($m in [regex]::Matches($Text, $CommandRegex)) {
+            $depth = 1
+            $inQuote = $false
+            $start = $m.Index + $m.Length
+            for ($i = $start; $i -lt $Text.Length; $i++) {
+                $ch = $Text[$i]
+                if ($inQuote) {
+                    if ($ch -eq '\' -and $i + 1 -lt $Text.Length) { $i++ }
+                    elseif ($ch -eq '"') { $inQuote = $false }
+                    continue
+                }
+                if ($ch -eq '"') { $inQuote = $true; continue }
+                if ($ch -eq '(') { $depth++ }
+                elseif ($ch -eq ')') {
+                    $depth--
+                    if ($depth -eq 0) {
+                        $calls.Add($Text.Substring($start, $i - $start))
+                        break
+                    }
+                }
+            }
+        }
+        return @($calls)
+    }
+
+    function Split-CMakeTokens([string]$ArgsText) {
+        $tokens = [Collections.Generic.List[string]]::new()
+        foreach ($m in [regex]::Matches($ArgsText, '"((?:\\.|[^"\\])*)"|(\S+)')) {
+            $val = if ($m.Groups[1].Success) { $m.Groups[1].Value } else { $m.Groups[2].Value }
+            if ($val) { $tokens.Add($val) }
+        }
+        return @($tokens)
+    }
+
+    $cmakeGroups = @(
+        @{ Files = @('tests/CMakeLists.txt', 'tests/core_modules.cmake'); DefaultPartition = 'ci-core' },
+        @{ Files = @('tests/ui_check/CMakeLists.txt'); DefaultPartition = 'ci-ui' },
+        @{ Files = @('tests/mw_check/CMakeLists.txt'); DefaultPartition = 'ci-integration' },
+        @{ Files = @('tools/network_diag/CMakeLists.txt'); DefaultPartition = $null }
+    )
+    $knownCMake = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($g in $cmakeGroups) { foreach ($f in $g.Files) { $null = $knownCMake.Add($f) } }
+    $extraFiles = @(foreach ($dirName in @('tests', 'tools')) {
+        $dir = Join-Path $repo $dirName
+        if (-not (Test-Path -LiteralPath $dir)) { continue }
+        Get-ChildItem -LiteralPath $dir -Recurse -File -Include 'CMakeLists.txt', '*.cmake' | ForEach-Object {
+            $rel = ([IO.Path]::GetRelativePath($repo, $_.FullName)) -replace '\\', '/'
+            if ($rel -notmatch '^tests/test_runner/' -and -not $knownCMake.Contains($rel)) { $rel }
+        }
+    })
+    if ($extraFiles.Count -gt 0) {
+        $cmakeGroups += @{ Files = $extraFiles; DefaultPartition = $null }
+    }
+
+    $totalPartitionedTests = 0
+    foreach ($group in $cmakeGroups) {
+        $groupTests = [ordered]@{}
+        foreach ($rel in $group.Files) {
+            $full = Join-Path $repo $rel
+            if (-not (Test-Path -LiteralPath $full)) { continue }
+            $clean = Strip-CMakeComments ([IO.File]::ReadAllText($full))
+            foreach ($argsText in Get-CMakeCallArgs $clean '(?i)\b(?:wtfml_)?add_test\s*\(') {
+                $tokens = Split-CMakeTokens $argsText
+                if ($tokens.Count -eq 0) { continue }
+                $testName = if ($tokens[0] -eq 'NAME' -and $tokens.Count -ge 2) { $tokens[1] } else { $tokens[0] }
+                if ($testName -match '^\$') { continue }
+                if (-not $groupTests.Contains($testName)) {
+                    $groupTests[$testName] = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+                }
+                if ($group.DefaultPartition) {
+                    $null = $groupTests[$testName].Add($group.DefaultPartition)
+                }
+            }
+            foreach ($argsText in Get-CMakeCallArgs $clean '(?i)\bset_tests_properties\s*\(') {
+                $tokens = Split-CMakeTokens $argsText
+                $propIdx = [Array]::IndexOf($tokens, 'PROPERTIES')
+                if ($propIdx -lt 1) { continue }
+                $targets = @($tokens[0..($propIdx - 1)])
+                $labels = @()
+                for ($j = $propIdx + 1; $j + 1 -lt $tokens.Count; $j += 2) {
+                    if ($tokens[$j] -eq 'LABELS') {
+                        $labels += @($tokens[$j + 1] -split '[;\s]+' | Where-Object { $_ })
+                    }
+                }
+                foreach ($t in $targets) {
+                    if ($t -match '^\$' -or -not $groupTests.Contains($t)) { continue }
+                    foreach ($lbl in $labels) { $null = $groupTests[$t].Add($lbl) }
+                }
+            }
+        }
+        foreach ($testName in $groupTests.Keys) {
+            $labels = $groupTests[$testName]
+            $ciLabels = @($labels | Where-Object { $_ -like 'ci-*' })
+            if ($ciLabels.Count -eq 0 -or $labels.Contains('visual')) { continue }
+            $totalPartitionedTests++
+            if (-not $mappedTests.Contains($testName)) {
+                throw "Test '$testName' has CI partition label(s) ($($ciLabels -join ', ')) but is not mapped to any module in tools/test-impact.ps1."
+            }
+        }
+    }
+    if ($totalPartitionedTests -eq 0) { throw 'No CI-partitioned tests discovered; check CMake test parsing.' }
+
+    Write-Host "PASS test entry/module size limits, core build ownership, settings isolation and CI module coverage ($totalPartitionedTests tests)"
 } catch {
     Write-Host "FAIL $_"
     exit 1
