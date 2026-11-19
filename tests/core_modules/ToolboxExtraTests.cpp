@@ -53,23 +53,23 @@ void runToolboxExtraTests() {
               "ZAI1 一共六种效果", QString::number(Beacon::effectNames().size()));
         const auto same = [](const QStringList &a, const QStringList &b) { return a == b; };
         check(same(Beacon::effectsForLevel(1),
-                   {QStringLiteral("速度"), QStringLiteral("急迫")}),
+                   {QStringLiteral("迅捷"), QStringLiteral("急迫")}),
               "★ ZAI1 1 级：速度 / 急迫",
               Beacon::effectsForLevel(1).join(QStringLiteral("、")));
         check(same(Beacon::effectsForLevel(2),
-                   {QStringLiteral("速度"), QStringLiteral("急迫"),
+                   {QStringLiteral("迅捷"), QStringLiteral("急迫"),
                     QStringLiteral("抗性提升"), QStringLiteral("跳跃提升")}),
               "★ ZAI1 2 级再加抗性提升 / 跳跃提升",
               Beacon::effectsForLevel(2).join(QStringLiteral("、")));
         check(same(Beacon::effectsForLevel(3),
-                   {QStringLiteral("速度"), QStringLiteral("急迫"),
+                   {QStringLiteral("迅捷"), QStringLiteral("急迫"),
                     QStringLiteral("抗性提升"), QStringLiteral("跳跃提升"),
                     QStringLiteral("力量")}),
               "★ ZAI1 3 级再加力量", Beacon::effectsForLevel(3).join(QStringLiteral("、")));
         check(same(Beacon::effectsForLevel(4),
-                   {QStringLiteral("速度"), QStringLiteral("急迫"),
+                   {QStringLiteral("迅捷"), QStringLiteral("急迫"),
                     QStringLiteral("抗性提升"), QStringLiteral("跳跃提升"),
-                    QStringLiteral("力量"), QStringLiteral("再生")}),
+                    QStringLiteral("力量"), QStringLiteral("生命恢复")}),
               "★ ZAI1 4 级再加再生（六种全开）",
               Beacon::effectsForLevel(4).join(QStringLiteral("、")));
         check(Beacon::effectsForLevel(0).isEmpty() && Beacon::effectsForLevel(5).isEmpty(),
@@ -167,7 +167,7 @@ void runToolboxExtraTests() {
                   && Brewing::potionAt(Brewing::potionCount()).name.isEmpty(),
               "★ ZAI2 越界下标回空的那一项（不猜一种药水出来）");
         const Brewing::PotionInfo swift = Brewing::potionAt(0);
-        check(swift.name == QStringLiteral("迅捷") && swift.ingredient == QStringLiteral("糖")
+        check(swift.name == QStringLiteral("迅捷药水") && swift.ingredient == QStringLiteral("糖")
                   && swift.parent == -1 && !swift.fromWater && swift.extendable
                   && swift.upgradable,
               "ZAI2 第一种是迅捷（糖，从粗制的药水来，可延时也可 II 级）");
@@ -225,8 +225,8 @@ void runToolboxExtraTests() {
         int invisibility = -1;
         int weakness = -1;
         for (int i = 0; i < Brewing::potionCount(); ++i) {
-            if (Brewing::potionAt(i).name == QStringLiteral("隐身")) invisibility = i;
-            if (Brewing::potionAt(i).name == QStringLiteral("虚弱")) weakness = i;
+            if (Brewing::potionAt(i).name == QStringLiteral("隐身药水")) invisibility = i;
+            if (Brewing::potionAt(i).name == QStringLiteral("虚弱药水")) weakness = i;
         }
         check(invisibility >= 0 && weakness >= 0, "ZAI4 表里有隐身和虚弱");
         if (invisibility >= 0) {
@@ -306,8 +306,8 @@ void runToolboxExtraTests() {
         int regeneration = -1;
         int slowness = -1;
         for (int i = 0; i < Brewing::potionCount(); ++i) {
-            if (Brewing::potionAt(i).name == QStringLiteral("再生")) regeneration = i;
-            if (Brewing::potionAt(i).name == QStringLiteral("迟缓")) slowness = i;
+            if (Brewing::potionAt(i).name == QStringLiteral("再生药水")) regeneration = i;
+            if (Brewing::potionAt(i).name == QStringLiteral("迟缓药水")) slowness = i;
         }
         check(regeneration >= 0 && Brewing::potionAt(regeneration).extendable,
               "★★ ZAI3b 再生能加红石延长（表里原来标成不能）");
@@ -329,10 +329,10 @@ void runToolboxExtraTests() {
         const auto indexOf = [](const QString &name) {
             return Brewing::potionNames().indexOf(name);
         };
-        const int weaving = indexOf(QStringLiteral("盘丝"));
-        const int wind = indexOf(QStringLiteral("蓄风"));
-        const int oozing = indexOf(QStringLiteral("渗浆"));
-        const int infested = indexOf(QStringLiteral("虫蚀"));
+        const int weaving = indexOf(QStringLiteral("盘丝药水"));
+        const int wind = indexOf(QStringLiteral("蓄风药水"));
+        const int oozing = indexOf(QStringLiteral("渗浆药水"));
+        const int infested = indexOf(QStringLiteral("虫蚀药水"));
         check(weaving >= 0 && wind >= 0 && oozing >= 0 && infested >= 0,
               "★★ ZAI5 1.21 加的四瓶都在表里（盘丝 / 蓄风 / 渗浆 / 虫蚀）",
               QStringLiteral("%1 / %2 / %3 / %4")

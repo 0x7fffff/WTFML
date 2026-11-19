@@ -14,10 +14,10 @@ namespace {
 
 /// 效果的解锁表：第 i 项是"到第 i+1 级才出现的那一批"。
 const char *const kUnlockedByLevel[][2] = {
-    {QT_TRANSLATE_NOOP("Beacon", "速度"), QT_TRANSLATE_NOOP("Beacon", "急迫")},
+    {QT_TRANSLATE_NOOP("Beacon", "迅捷"), QT_TRANSLATE_NOOP("Beacon", "急迫")},
     {QT_TRANSLATE_NOOP("Beacon", "抗性提升"), QT_TRANSLATE_NOOP("Beacon", "跳跃提升")},
     {QT_TRANSLATE_NOOP("Beacon", "力量"), nullptr},
-    {QT_TRANSLATE_NOOP("Beacon", "再生"), nullptr},
+    {QT_TRANSLATE_NOOP("Beacon", "生命恢复"), nullptr},
 };
 
 }  // namespace

@@ -1151,23 +1151,23 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         <name>AnvilPlanner</name>
         <message>
             <source>保护</source>
-            <translation>Protect</translation>
+            <translation>Protection</translation>
         </message>
         <message>
             <source>火焰保护</source>
-            <translation>Flame protection</translation>
+            <translation>Fire Protection</translation>
         </message>
         <message>
-            <source>摔落保护</source>
-            <translation>Drop protection</translation>
+            <source>摔落缓冲</source>
+            <translation>Feather Falling</translation>
         </message>
         <message>
             <source>爆炸保护</source>
-            <translation>Explosion protection</translation>
+            <translation>Blast Protection</translation>
         </message>
         <message>
             <source>弹射物保护</source>
-            <translation>Projectile protection</translation>
+            <translation>Projectile Protection</translation>
         </message>
         <message>
             <source>荆棘</source>
@@ -1175,43 +1175,43 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>水下呼吸</source>
-            <translation>Breathing underwater</translation>
+            <translation>Respiration</translation>
         </message>
         <message>
             <source>深海探索者</source>
-            <translation>Deep sea explorer</translation>
+            <translation>Depth Strider</translation>
         </message>
         <message>
             <source>水下速掘</source>
-            <translation>Underwater rapid digging</translation>
+            <translation>Aqua Affinity</translation>
         </message>
         <message>
             <source>锋利</source>
-            <translation>Sharp</translation>
+            <translation>Sharpness</translation>
         </message>
         <message>
             <source>亡灵杀手</source>
-            <translation>Undead Killer</translation>
+            <translation>Smite</translation>
         </message>
         <message>
             <source>节肢杀手</source>
-            <translation>Arthropod killer</translation>
+            <translation>Bane of Arthropods</translation>
         </message>
         <message>
             <source>击退</source>
-            <translation>Repel</translation>
+            <translation>Knockback</translation>
         </message>
         <message>
             <source>火焰附加</source>
-            <translation>Fire add-on</translation>
+            <translation>Fire Aspect</translation>
         </message>
         <message>
             <source>抢夺</source>
-            <translation>Snatch</translation>
+            <translation>Looting</translation>
         </message>
         <message>
             <source>横扫之刃</source>
-            <translation>Sweeping Blade</translation>
+            <translation>Sweeping Edge</translation>
         </message>
         <message>
             <source>效率</source>
@@ -1219,11 +1219,11 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>精准采集</source>
-            <translation>Accurate collection</translation>
+            <translation>Silk Touch</translation>
         </message>
         <message>
             <source>耐久</source>
-            <translation>Durable</translation>
+            <translation>Unbreaking</translation>
         </message>
         <message>
             <source>时运</source>
@@ -1231,27 +1231,27 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>力量</source>
-            <translation>Strength</translation>
+            <translation>Power</translation>
         </message>
         <message>
             <source>冲击</source>
-            <translation>Impact</translation>
+            <translation>Punch</translation>
         </message>
         <message>
             <source>火矢</source>
-            <translation>Fire arrow</translation>
+            <translation>Flame</translation>
         </message>
         <message>
             <source>无限</source>
-            <translation>Unlimited</translation>
+            <translation>Infinity</translation>
         </message>
         <message>
             <source>海之眷顾</source>
-            <translation>The favor of the sea</translation>
+            <translation>Luck of the Sea</translation>
         </message>
         <message>
             <source>饵钓</source>
-            <translation>Bait fishing</translation>
+            <translation>Lure</translation>
         </message>
         <message>
             <source>冰霜行者</source>
@@ -1259,23 +1259,23 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>经验修补</source>
-            <translation>Experience patching</translation>
+            <translation>Mending</translation>
         </message>
         <message>
             <source>绑定诅咒</source>
-            <translation>Binding curse</translation>
+            <translation>Curse of Binding</translation>
         </message>
         <message>
             <source>消失诅咒</source>
-            <translation>Disappearing curse</translation>
+            <translation>Curse of Vanishing</translation>
         </message>
         <message>
             <source>穿刺</source>
-            <translation>Puncture</translation>
+            <translation>Impaling</translation>
         </message>
         <message>
             <source>激流</source>
-            <translation>Rapids</translation>
+            <translation>Riptide</translation>
         </message>
         <message>
             <source>忠诚</source>
@@ -1283,39 +1283,39 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>引雷</source>
-            <translation>Draw thunder</translation>
+            <translation>Channeling</translation>
         </message>
         <message>
             <source>多重射击</source>
-            <translation>Multi shot</translation>
+            <translation>Multishot</translation>
         </message>
         <message>
             <source>穿透</source>
-            <translation>Penetrate</translation>
+            <translation>Piercing</translation>
         </message>
         <message>
             <source>快速装填</source>
-            <translation>Quick reload</translation>
+            <translation>Quick Charge</translation>
         </message>
         <message>
             <source>灵魂疾行</source>
-            <translation>The soul rushes</translation>
+            <translation>Soul Speed</translation>
         </message>
         <message>
             <source>迅捷潜行</source>
-            <translation>Swift Stealth</translation>
+            <translation>Swift Sneak</translation>
         </message>
         <message>
             <source>风爆</source>
-            <translation>Wind blast</translation>
+            <translation>Wind Burst</translation>
         </message>
         <message>
-            <source>密度</source>
+            <source>致密</source>
             <translation>Density</translation>
         </message>
         <message>
             <source>破甲</source>
-            <translation>Armor piercing</translation>
+            <translation>Breach</translation>
         </message>
         <message>
             <source>尚未添加任何物品，请先添加。</source>
@@ -1342,7 +1342,7 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         <name>ArmorTrim</name>
         <message>
             <source>紫水晶质</source>
-            <translation>Amethyst</translation>
+            <translation>Amethyst Material</translation>
         </message>
         <message>
             <source>紫水晶碎片</source>
@@ -1350,15 +1350,15 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>铜质</source>
-            <translation>Copper</translation>
+            <translation>Copper Material</translation>
         </message>
         <message>
             <source>铜锭</source>
-            <translation>Copper ingot</translation>
+            <translation>Copper Ingot</translation>
         </message>
         <message>
             <source>钻石质</source>
-            <translation>Diamond quality</translation>
+            <translation>Diamond Material</translation>
         </message>
         <message>
             <source>钻石</source>
@@ -1366,7 +1366,7 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>绿宝石质</source>
-            <translation>Emerald</translation>
+            <translation>Emerald Material</translation>
         </message>
         <message>
             <source>绿宝石</source>
@@ -1374,31 +1374,31 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>金质</source>
-            <translation>Gold</translation>
+            <translation>Gold Material</translation>
         </message>
         <message>
             <source>金锭</source>
-            <translation>Gold ingot</translation>
+            <translation>Gold Ingot</translation>
         </message>
         <message>
             <source>铁质</source>
-            <translation>Iron</translation>
+            <translation>Iron Material</translation>
         </message>
         <message>
             <source>铁锭</source>
-            <translation>Iron ingot</translation>
+            <translation>Iron Ingot</translation>
         </message>
         <message>
             <source>青金石质</source>
-            <translation>Lapis lazuli</translation>
+            <translation>Lapis Material</translation>
         </message>
         <message>
             <source>青金石</source>
-            <translation>Lapis lazuli</translation>
+            <translation>Lapis Lazuli</translation>
         </message>
         <message>
             <source>下界合金质</source>
-            <translation>Netherite</translation>
+            <translation>Netherite Material</translation>
         </message>
         <message>
             <source>下界合金锭</source>
@@ -1406,7 +1406,7 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>石英质</source>
-            <translation>Quartz</translation>
+            <translation>Quartz Material</translation>
         </message>
         <message>
             <source>石英</source>
@@ -1414,23 +1414,23 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>红石质</source>
-            <translation>Red stone</translation>
+            <translation>Redstone Material</translation>
         </message>
         <message>
             <source>红石粉</source>
-            <translation>Redstone powder</translation>
+            <translation>Redstone Dust</translation>
         </message>
         <message>
             <source>树脂质</source>
-            <translation>Resin</translation>
+            <translation>Resin Material</translation>
         </message>
         <message>
             <source>树脂砖</source>
-            <translation>Resin brick</translation>
+            <translation>Resin Brick</translation>
         </message>
         <message>
             <source>海岸</source>
-            <translation>Coastal</translation>
+            <translation>Coast</translation>
         </message>
         <message>
             <source>沉船（藏宝箱）</source>
@@ -1438,11 +1438,11 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>圆石</source>
-            <translation>Round stone</translation>
+            <translation>Cobblestone</translation>
         </message>
         <message>
             <source>哨兵</source>
-            <translation>Sentinel</translation>
+            <translation>Sentry</translation>
         </message>
         <message>
             <source>掠夺者前哨站</source>
@@ -1462,7 +1462,7 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>荒野</source>
-            <translation>Wilderness</translation>
+            <translation>Wild</translation>
         </message>
         <message>
             <source>丛林神庙</source>
@@ -1470,11 +1470,11 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>苔石</source>
-            <translation>Moss stone</translation>
+            <translation>Mossy Cobblestone</translation>
         </message>
         <message>
             <source>监守</source>
-            <translation>Guard</translation>
+            <translation>Ward</translation>
         </message>
         <message>
             <source>远古城市</source>
@@ -1482,11 +1482,11 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>深板岩圆石</source>
-            <translation>Dark slate cobblestone</translation>
+            <translation>Cobbled Deepslate</translation>
         </message>
         <message>
             <source>眼眸</source>
-            <translation>Eyes</translation>
+            <translation>Eye</translation>
         </message>
         <message>
             <source>要塞</source>
@@ -1494,11 +1494,11 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>末地石</source>
-            <translation>End stone</translation>
+            <translation>End Stone</translation>
         </message>
         <message>
             <source>恼鬼</source>
-            <translation>Angry ghost</translation>
+            <translation>Vex</translation>
         </message>
         <message>
             <source>林地府邸</source>
@@ -1506,7 +1506,7 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>潮汐</source>
-            <translation>Tidal</translation>
+            <translation>Tide</translation>
         </message>
         <message>
             <source>远古守卫者（击杀掉落）</source>
@@ -1518,7 +1518,7 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>猪鼻</source>
-            <translation>Pig snout</translation>
+            <translation>Snout</translation>
         </message>
         <message>
             <source>堡垒遗迹</source>
@@ -1526,11 +1526,11 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>黑石</source>
-            <translation>Black stone</translation>
+            <translation>Blackstone</translation>
         </message>
         <message>
             <source>肋骨</source>
-            <translation>Rib cage</translation>
+            <translation>Rib</translation>
         </message>
         <message>
             <source>下界要塞</source>
@@ -1538,11 +1538,11 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>下界岩</source>
-            <translation>Netherrock</translation>
+            <translation>Netherrack</translation>
         </message>
         <message>
             <source>尖塔</source>
-            <translation>Minaret</translation>
+            <translation>Spire</translation>
         </message>
         <message>
             <source>末地城</source>
@@ -1550,11 +1550,11 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>紫珀块</source>
-            <translation>Purple amber block</translation>
+            <translation>Purpur Block</translation>
         </message>
         <message>
             <source>向导</source>
-            <translation>Wizard</translation>
+            <translation>Wayfinder</translation>
         </message>
         <message>
             <source>古迹废墟（可疑的沙砾）</source>
@@ -1566,19 +1566,19 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>塑造</source>
-            <translation>Shape</translation>
+            <translation>Shaper</translation>
         </message>
         <message>
             <source>幽静</source>
-            <translation>Quiet</translation>
+            <translation>Silence</translation>
         </message>
         <message>
             <source>牧民</source>
-            <translation>Herdsmen</translation>
+            <translation>Raiser</translation>
         </message>
         <message>
             <source>雇主</source>
-            <translation>Employer</translation>
+            <translation>Host</translation>
         </message>
         <message>
             <source>涡流</source>
@@ -1602,7 +1602,7 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>铜块</source>
-            <translation>Copper block</translation>
+            <translation>Block of Copper</translation>
         </message>
         <message>
             <source>头盔</source>
@@ -1642,7 +1642,7 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>海龟壳</source>
-            <translation>Turtle shell</translation>
+            <translation>Turtle Shell</translation>
         </message>
         <message>
             <source>盔甲材质编号无效（%1）。</source>
@@ -2626,8 +2626,8 @@ What you want to restore is this one:&#32;
     <context>
         <name>Banner</name>
         <message>
-            <source>边框</source>
-            <translation>Frame</translation>
+            <source>方框边</source>
+            <translation>Bordure</translation>
         </message>
         <message>
             <source>砖块</source>
@@ -2639,43 +2639,43 @@ What you want to restore is this one:&#32;
         </message>
         <message>
             <source>藤蔓</source>
-            <translation>Vine</translation>
+            <translation>Vines</translation>
         </message>
         <message>
             <source>圆形</source>
-            <translation>Round</translation>
+            <translation>Roundel</translation>
         </message>
         <message>
             <source>旗帜图案</source>
-            <translation>Flag pattern</translation>
+            <translation>Banner Pattern</translation>
         </message>
         <message>
-            <source>苦力怕</source>
-            <translation>Creeper</translation>
+            <source>苦力怕盾徽</source>
+            <translation>Creeper Charge</translation>
         </message>
         <message>
             <source>苦力怕头颅</source>
             <translation>Creeper Head</translation>
         </message>
         <message>
-            <source>十字</source>
-            <translation>Cross</translation>
+            <source>斜十字</source>
+            <translation>Saltire</translation>
         </message>
         <message>
-            <source>卷曲边框</source>
-            <translation>Curl border</translation>
+            <source>波纹边</source>
+            <translation>Bordure Indented</translation>
         </message>
         <message>
-            <source>砖墙纹</source>
-            <translation>Brick wall pattern</translation>
+            <source>砖纹</source>
+            <translation>Field Masoned</translation>
         </message>
         <message>
-            <source>花朵</source>
-            <translation>Flowers</translation>
+            <source>花朵盾徽</source>
+            <translation>Flower Charge</translation>
         </message>
         <message>
             <source>滨菊</source>
-            <translation>Binju</translation>
+            <translation>Oxeye Daisy</translation>
         </message>
         <message>
             <source>涡流</source>
@@ -2683,11 +2683,11 @@ What you want to restore is this one:&#32;
         </message>
         <message>
             <source>地球</source>
-            <translation>Earth</translation>
+            <translation>Globe</translation>
         </message>
         <message>
             <source>橡树树苗</source>
-            <translation>Oak sapling</translation>
+            <translation>Oak Sapling</translation>
         </message>
         <message>
             <source>渐变</source>
@@ -2698,8 +2698,8 @@ What you want to restore is this one:&#32;
             <translation>Upper gradient</translation>
         </message>
         <message>
-            <source>狂风</source>
-            <translation>Strong wind</translation>
+            <source>旋风</source>
+            <translation>Guster</translation>
         </message>
         <message>
             <source>上半</source>
@@ -2718,8 +2718,8 @@ What you want to restore is this one:&#32;
             <translation>Right half</translation>
         </message>
         <message>
-            <source>Mojang 标志</source>
-            <translation>Mojang logo</translation>
+            <source>Mojang徽标</source>
+            <translation>Thing</translation>
         </message>
         <message>
             <source>附魔金苹果</source>
@@ -2731,15 +2731,15 @@ What you want to restore is this one:&#32;
         </message>
         <message>
             <source>菱形</source>
-            <translation>Diamond</translation>
+            <translation>Lozenge</translation>
         </message>
         <message>
-            <source>骷髅</source>
-            <translation>Skeleton</translation>
+            <source>头颅盾徽</source>
+            <translation>Skull Charge</translation>
         </message>
         <message>
             <source>凋灵骷髅头颅</source>
-            <translation>Wither Skull</translation>
+            <translation>Wither Skeleton Skull</translation>
         </message>
         <message>
             <source>猪鼻</source>
@@ -2747,11 +2747,11 @@ What you want to restore is this one:&#32;
         </message>
         <message>
             <source>金胡萝卜</source>
-            <translation>Golden carrot</translation>
+            <translation>Golden Carrot</translation>
         </message>
         <message>
             <source>正十字</source>
-            <translation>Right Cross</translation>
+            <translation>Cross</translation>
         </message>
         <message>
             <source>底横条</source>
@@ -2847,7 +2847,7 @@ What you want to restore is this one:&#32;
         </message>
         <message>
             <source>橙色</source>
-            <translation>Orange color</translation>
+            <translation>Orange</translation>
         </message>
         <message>
             <source>品红色</source>
@@ -2855,7 +2855,7 @@ What you want to restore is this one:&#32;
         </message>
         <message>
             <source>淡蓝色</source>
-            <translation>Light blue</translation>
+            <translation>Light Blue</translation>
         </message>
         <message>
             <source>黄色</source>
@@ -2863,7 +2863,7 @@ What you want to restore is this one:&#32;
         </message>
         <message>
             <source>黄绿色</source>
-            <translation>Yellow-green</translation>
+            <translation>Lime</translation>
         </message>
         <message>
             <source>粉红色</source>
@@ -2871,15 +2871,15 @@ What you want to restore is this one:&#32;
         </message>
         <message>
             <source>灰色</source>
-            <translation>Grey</translation>
+            <translation>Gray</translation>
         </message>
         <message>
             <source>淡灰色</source>
-            <translation>Light gray</translation>
+            <translation>Light Gray</translation>
         </message>
         <message>
             <source>青色</source>
-            <translation>Blue</translation>
+            <translation>Cyan</translation>
         </message>
         <message>
             <source>紫色</source>
@@ -2981,7 +2981,7 @@ What you want to restore is this one:&#32;
     <context>
         <name>Beacon</name>
         <message>
-            <source>速度</source>
+            <source>迅捷</source>
             <translation>Speed</translation>
         </message>
         <message>
@@ -3001,7 +3001,7 @@ What you want to restore is this one:&#32;
             <translation>Strength</translation>
         </message>
         <message>
-            <source>再生</source>
+            <source>生命恢复</source>
             <translation>Regeneration</translation>
         </message>
         <message>
@@ -3116,148 +3116,144 @@ What you want to restore is this one:&#32;
     <context>
         <name>Brewing</name>
         <message>
-            <source>迅捷</source>
-            <translation>Swift</translation>
+            <source>迅捷药水</source>
+            <translation>Potion of Swiftness</translation>
         </message>
         <message>
             <source>糖</source>
             <translation>Sugar</translation>
         </message>
         <message>
-            <source>跳跃</source>
-            <translation>Jump</translation>
+            <source>跳跃药水</source>
+            <translation>Potion of Leaping</translation>
         </message>
         <message>
             <source>兔子脚</source>
-            <translation>Rabbit foot</translation>
+            <translation>Rabbit&apos;s Foot</translation>
         </message>
         <message>
-            <source>治疗</source>
-            <translation>Treat</translation>
+            <source>治疗药水</source>
+            <translation>Potion of Healing</translation>
         </message>
         <message>
             <source>闪烁的西瓜片</source>
-            <translation>Flashing watermelon slices</translation>
+            <translation>Glistering Melon Slice</translation>
         </message>
         <message>
-            <source>伤害</source>
-            <translation>Harm</translation>
+            <source>伤害药水</source>
+            <translation>Potion of Harming</translation>
         </message>
         <message>
             <source>发酵蜘蛛眼</source>
             <translation>Fermented spider eyes</translation>
         </message>
         <message>
-            <source>中毒</source>
-            <translation>Poisoned</translation>
+            <source>剧毒药水</source>
+            <translation>Potion of Poison</translation>
         </message>
         <message>
             <source>蜘蛛眼</source>
-            <translation>Spider eyes</translation>
+            <translation>Spider Eye</translation>
         </message>
         <message>
-            <source>力量</source>
-            <translation>Strength</translation>
+            <source>力量药水</source>
+            <translation>Potion of Strength</translation>
         </message>
         <message>
             <source>烈焰粉</source>
-            <translation>Blaze powder</translation>
+            <translation>Blaze Powder</translation>
         </message>
         <message>
-            <source>再生</source>
-            <translation>Regeneration</translation>
+            <source>再生药水</source>
+            <translation>Potion of Regeneration</translation>
         </message>
         <message>
             <source>恶魂之泪</source>
-            <translation>Ghast's Tears</translation>
+            <translation>Ghast Tear</translation>
         </message>
         <message>
-            <source>抗火</source>
-            <translation>Fire resistant</translation>
+            <source>抗火药水</source>
+            <translation>Potion of Fire Resistance</translation>
         </message>
         <message>
             <source>岩浆膏</source>
-            <translation>Magma paste</translation>
+            <translation>Magma Cream</translation>
         </message>
         <message>
-            <source>水肺</source>
-            <translation>Scuba</translation>
+            <source>水肺药水</source>
+            <translation>Potion of Water Breathing</translation>
         </message>
         <message>
             <source>河豚</source>
-            <translation>Puffer fish</translation>
+            <translation>Pufferfish</translation>
         </message>
         <message>
-            <source>夜视</source>
-            <translation>Night vision</translation>
+            <source>夜视药水</source>
+            <translation>Potion of Night Vision</translation>
         </message>
         <message>
             <source>金胡萝卜</source>
-            <translation>Golden carrot</translation>
+            <translation>Golden Carrot</translation>
         </message>
         <message>
-            <source>隐身</source>
-            <translation>Stealth</translation>
+            <source>隐身药水</source>
+            <translation>Potion of Invisibility</translation>
         </message>
         <message>
-            <source>迟缓</source>
-            <translation>Slow</translation>
+            <source>迟缓药水</source>
+            <translation>Potion of Slowness</translation>
         </message>
         <message>
-            <source>缓降</source>
-            <translation>Slow down</translation>
+            <source>缓降药水</source>
+            <translation>Potion of Slow Falling</translation>
         </message>
         <message>
             <source>幻翼膜</source>
-            <translation>Phantom membrane</translation>
+            <translation>Phantom Membrane</translation>
         </message>
         <message>
-            <source>虚弱</source>
-            <translation>Weak</translation>
+            <source>虚弱药水</source>
+            <translation>Potion of Weakness</translation>
         </message>
         <message>
-            <source>海龟大师</source>
-            <translation>Turtle master</translation>
+            <source>神龟药水</source>
+            <translation>Potion of the Turtle Master</translation>
         </message>
         <message>
             <source>海龟壳</source>
-            <translation>Turtle shell</translation>
+            <translation>Turtle Shell</translation>
         </message>
         <message>
-            <source>盘丝</source>
-            <translation>Pansi</translation>
+            <source>盘丝药水</source>
+            <translation>Potion of Weaving</translation>
         </message>
         <message>
             <source>蜘蛛网</source>
-            <translation>Spider web</translation>
+            <translation>Cobweb</translation>
         </message>
         <message>
-            <source>蓄风</source>
-            <translation>Gather the wind</translation>
+            <source>蓄风药水</source>
+            <translation>Potion of Wind Charging</translation>
         </message>
         <message>
             <source>旋风棒</source>
-            <translation>Cyclone Stick</translation>
+            <translation>Breeze Rod</translation>
         </message>
         <message>
-            <source>渗浆</source>
-            <translation>Slurry</translation>
+            <source>渗浆药水</source>
+            <translation>Potion of Oozing</translation>
         </message>
         <message>
             <source>黏液块</source>
-            <translation>Slime clumps</translation>
+            <translation>Slime Block</translation>
         </message>
         <message>
-            <source>虫蚀</source>
-            <translation>Insect erosion</translation>
+            <source>虫蚀药水</source>
+            <translation>Potion of Infestation</translation>
         </message>
         <message>
             <source>石头</source>
             <translation>Stone</translation>
-        </message>
-        <message>
-            <source>药水</source>
-            <translation>Potion</translation>
         </message>
         <message>
             <source>喷溅型</source>
@@ -3333,11 +3329,11 @@ What you want to restore is this one:&#32;
         </message>
         <message>
             <source>下界疣</source>
-            <translation>Nether wart</translation>
+            <translation>Nether Wart</translation>
         </message>
         <message>
             <source>粗制的药水</source>
-            <translation>Crude potion</translation>
+            <translation>Awkward Potion</translation>
         </message>
         <message>
             <source>红石粉 → 时长延长</source>
@@ -3345,7 +3341,7 @@ What you want to restore is this one:&#32;
         </message>
         <message>
             <source>红石粉</source>
-            <translation>Redstone powder</translation>
+            <translation>Redstone Dust</translation>
         </message>
         <message>
             <source>荧石粉 → 等级提升到 %1</source>
@@ -3353,7 +3349,7 @@ What you want to restore is this one:&#32;
         </message>
         <message>
             <source>荧石粉</source>
-            <translation>Glowstone powder</translation>
+            <translation>Glowstone Dust</translation>
         </message>
         <message>
             <source>火药 → 喷溅型</source>
@@ -3369,7 +3365,7 @@ What you want to restore is this one:&#32;
         </message>
         <message>
             <source>龙息</source>
-            <translation>Dragon breath</translation>
+            <translation>Dragon&apos;s Breath</translation>
         </message>
         <message>
             <source>一共 %1 步 / 产出：%2</source>
@@ -3378,6 +3374,14 @@ What you want to restore is this one:&#32;
         <message>
             <source> / %1 瓶（酿 %2 次）</source>
             <translation>/ %1 bottles (brewed %2 times)</translation>
+        </message>
+        <message>
+            <source>喷溅型%1</source>
+            <translation>Splash %1</translation>
+        </message>
+        <message>
+            <source>滞留型%1</source>
+            <translation>Lingering %1</translation>
         </message>
     </context>
     <context>
@@ -5036,11 +5040,11 @@ The part that has been moved is in the Recycle Bin and can be restored.</transla
         <name>GameRuleNames</name>
         <message>
             <source>允许进入下界</source>
-            <translation>Allow Nether portals</translation>
+            <translation>Allow Nether</translation>
         </message>
         <message>
             <source>允许火在远离玩家处蔓延</source>
-            <translation>Update fire away from players</translation>
+            <translation>Tick fire away from players</translation>
         </message>
         <message>
             <source>进度通知</source>
@@ -5048,7 +5052,7 @@ The part that has been moved is in the Recycle Bin and can be restored.</transla
         </message>
         <message>
             <source>在方块交互爆炸中，一些方块不会掉落战利品</source>
-            <translation>Reduce block drops from block interaction explosions</translation>
+            <translation>In block interaction explosions, some blocks won&apos;t drop their loot</translation>
         </message>
         <message>
             <source>广播命令方块输出</source>
@@ -5056,19 +5060,19 @@ The part that has been moved is in the Recycle Bin and can be restored.</transla
         </message>
         <message>
             <source>启用命令方块</source>
-            <translation>Enable command blocks</translation>
+            <translation>Enable Command Blocks</translation>
         </message>
         <message>
             <source>命令修改方块数量限制</source>
-            <translation>Command block modification limit</translation>
+            <translation>Command modification block limit</translation>
         </message>
         <message>
             <source>禁用鞘翅移动检测</source>
-            <translation>Disable Elytra movement checks</translation>
+            <translation>Disable elytra movement check</translation>
         </message>
         <message>
             <source>禁用玩家移动检测</source>
-            <translation>Disable player movement checks</translation>
+            <translation>Disable player movement check</translation>
         </message>
         <message>
             <source>禁用袭击</source>
@@ -5080,11 +5084,11 @@ The part that has been moved is in the Recycle Bin and can be restored.</transla
         </message>
         <message>
             <source>非生物实体掉落</source>
-            <translation>Drop items from non-mob entities</translation>
+            <translation>Drop entity equipment</translation>
         </message>
         <message>
             <source>火焰蔓延</source>
-            <translation>Spread fire</translation>
+            <translation>Update fire</translation>
         </message>
         <message>
             <source>立即重生</source>
@@ -5096,7 +5100,7 @@ The part that has been moved is in the Recycle Bin and can be restored.</transla
         </message>
         <message>
             <source>合成需要配方</source>
-            <translation>Require recipes for crafting</translation>
+            <translation>Require recipe for crafting</translation>
         </message>
         <message>
             <source>生物战利品掉落</source>
@@ -5116,39 +5120,39 @@ The part that has been moved is in the Recycle Bin and can be restored.</transla
         </message>
         <message>
             <source>生成流浪商人</source>
-            <translation>Spawn wandering traders</translation>
+            <translation>Spawn Wandering Traders</translation>
         </message>
         <message>
             <source>藤蔓蔓延</source>
-            <translation>Spread vines</translation>
+            <translation>Vines spread</translation>
         </message>
         <message>
             <source>生成监守者</source>
-            <translation>Spawn wardens</translation>
+            <translation>Spawn Wardens</translation>
         </message>
         <message>
             <source>天气更替</source>
-            <translation>Advance the weather cycle</translation>
+            <translation>Update weather</translation>
         </message>
         <message>
             <source>溺水伤害</source>
-            <translation>Drowning damage</translation>
+            <translation>Deal drowning damage</translation>
         </message>
         <message>
             <source>掷出的末影珍珠在死亡时消失</source>
-            <translation>Thrown ender pearls vanish on death</translation>
+            <translation>Thrown Ender Pearls vanish on death</translation>
         </message>
         <message>
             <source>被骑乘的实体能否使用传送门</source>
-            <translation>Allow entities with passengers to use portals</translation>
+            <translation>Entities with passengers can use portals</translation>
         </message>
         <message>
             <source>摔落伤害</source>
-            <translation>Fall damage</translation>
+            <translation>Deal fall damage</translation>
         </message>
         <message>
             <source>火焰伤害</source>
-            <translation>Fire damage</translation>
+            <translation>Deal fire damage</translation>
         </message>
         <message>
             <source>宽恕死亡玩家</source>
@@ -5156,7 +5160,7 @@ The part that has been moved is in the Recycle Bin and can be restored.</transla
         </message>
         <message>
             <source>冰冻伤害</source>
-            <translation>Freeze damage</translation>
+            <translation>Deal freeze damage</translation>
         </message>
         <message>
             <source>全局声音事件</source>
@@ -5168,11 +5172,11 @@ The part that has been moved is in the Recycle Bin and can be restored.</transla
         </message>
         <message>
             <source>允许流动熔岩转化为熔岩源</source>
-            <translation>Allow lava source conversion</translation>
+            <translation>Lava converts to source</translation>
         </message>
         <message>
             <source>启用玩家定位栏</source>
-            <translation>Enable the Locator Bar</translation>
+            <translation>Enable player Locator Bar</translation>
         </message>
         <message>
             <source>通告管理员命令</source>
@@ -5180,59 +5184,59 @@ The part that has been moved is in the Recycle Bin and can be restored.</transla
         </message>
         <message>
             <source>命令连锁执行数量限制</source>
-            <translation>Command chain length limit</translation>
+            <translation>Command chain size limit</translation>
         </message>
         <message>
             <source>命令上下文数量限制</source>
-            <translation>Command fork limit</translation>
+            <translation>Command context limit</translation>
         </message>
         <message>
             <source>实体挤压上限</source>
-            <translation>Entity cramming limit</translation>
+            <translation>Entity cramming threshold</translation>
         </message>
         <message>
             <source>矿车最大速度</source>
-            <translation>Maximum minecart speed</translation>
+            <translation>Minecart max speed</translation>
         </message>
         <message>
             <source>在生物爆炸中，一些方块不会掉落战利品</source>
-            <translation>Reduce block drops from mob explosions</translation>
+            <translation>In mob explosions, some blocks won&apos;t drop their loot</translation>
         </message>
         <message>
             <source>允许破坏性生物行为</source>
-            <translation>Allow mob griefing</translation>
+            <translation>Allow destructive mob actions</translation>
         </message>
         <message>
             <source>生命值自然恢复</source>
-            <translation>Regenerate health naturally</translation>
+            <translation>Regenerate health</translation>
         </message>
         <message>
             <source>创造模式下玩家在下界传送门中等待的时间</source>
-            <translation>Nether portal delay in Creative mode</translation>
+            <translation>Player&apos;s Nether Portal delay in creative mode</translation>
         </message>
         <message>
             <source>非创造模式下玩家在下界传送门中等待的时间</source>
-            <translation>Nether portal delay outside Creative mode</translation>
+            <translation>Player&apos;s Nether Portal delay in non-creative mode</translation>
         </message>
         <message>
             <source>入睡占比</source>
-            <translation>Players required to sleep (%)</translation>
+            <translation>Sleep percentage</translation>
         </message>
         <message>
             <source>弹射物能否破坏方块</source>
-            <translation>Allow projectiles to break blocks</translation>
+            <translation>Projectiles can break blocks</translation>
         </message>
         <message>
             <source>启用PvP</source>
-            <translation>Enable PvP</translation>
+            <translation>Enable pvp</translation>
         </message>
         <message>
             <source>随机刻速率</source>
-            <translation>Random tick speed</translation>
+            <translation>Random tick speed rate</translation>
         </message>
         <message>
             <source>简化调试信息</source>
-            <translation>Reduce debug information</translation>
+            <translation>Reduce debug info</translation>
         </message>
         <message>
             <source>发送命令反馈</source>
@@ -5252,27 +5256,27 @@ The part that has been moved is in the Recycle Bin and can be restored.</transla
         </message>
         <message>
             <source>生成怪物</source>
-            <translation>Spawn monsters</translation>
+            <translation>Spawn Monsters</translation>
         </message>
         <message>
             <source>重生点半径</source>
-            <translation>Respawn radius</translation>
+            <translation>Respawn location radius</translation>
         </message>
         <message>
             <source>启用刷怪笼方块</source>
-            <translation>Enable mob spawners</translation>
+            <translation>Enable Spawner Blocks</translation>
         </message>
         <message>
             <source>允许旁观者生成地形</source>
-            <translation>Allow spectators to generate chunks</translation>
+            <translation>Allow spectators to generate terrain</translation>
         </message>
         <message>
             <source>允许TNT被点燃并爆炸</source>
-            <translation>Allow TNT to ignite and explode</translation>
+            <translation>Allow TNT to be activated and to explode</translation>
         </message>
         <message>
             <source>在TNT爆炸中，一些方块不会掉落战利品</source>
-            <translation>Reduce block drops from TNT explosions</translation>
+            <translation>In TNT explosions, some blocks won&apos;t drop their loot</translation>
         </message>
         <message>
             <source>无差别愤怒</source>
@@ -5280,19 +5284,19 @@ The part that has been moved is in the Recycle Bin and can be restored.</transla
         </message>
         <message>
             <source>允许流动水转化为水源</source>
-            <translation>Allow water source conversion</translation>
+            <translation>Water converts to source</translation>
         </message>
         <message>
             <source>启用袭击</source>
-            <translation>Enable raids</translation>
+            <translation>Do raids</translation>
         </message>
         <message>
             <source>启用鞘翅移动检测</source>
-            <translation>Enable Elytra movement checks</translation>
+            <translation>Do elytra movement check</translation>
         </message>
         <message>
             <source>启用玩家移动检测</source>
-            <translation>Enable player movement checks</translation>
+            <translation>Do player movement check</translation>
         </message>
         <message>
             <source>火焰蔓延半径</source>
@@ -25655,10 +25659,6 @@ The changes you made yourself will not be retained.</translation>
 
 </source>
             <translation>%2 is not yet available in target version %1 - this potion requires Java %3 and above.</translation>
-        </message>
-        <message>
-            <source>药水</source>
-            <translation>Potion</translation>
         </message>
         <message>
             <source>目标版本 %1 不支持：%2。已保留图层，请调整设计或目标版本。

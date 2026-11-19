@@ -1188,7 +1188,7 @@ void ToolboxController::refreshBrewing(int potionIndex, bool extended, bool leve
         && !Brewing::available(potionIndex, version)) {
         prefix = tr("目标版本 %1 不含%2。此药水自 Java 版 %3 起可用。\n\n")
                      .arg(version,
-                          Brewing::potionAt(potionIndex).name + QCoreApplication::translate("ToolboxController", "药水"),
+                          Brewing::potionAt(potionIndex).name,
                           Brewing::potionSince(potionIndex));
     }
     m_page->setBrewingResult(prefix + plan.detailText());

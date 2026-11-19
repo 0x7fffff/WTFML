@@ -1148,7 +1148,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>摔落保护</source>
+            <source>摔落缓冲</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -1300,7 +1300,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>密度</source>
+            <source>致密</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -2562,7 +2562,7 @@
     <context>
         <name>Banner</name>
         <message>
-            <source>边框</source>
+            <source>方框边</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -2586,7 +2586,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>苦力怕</source>
+            <source>苦力怕盾徽</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -2594,19 +2594,19 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>十字</source>
+            <source>斜十字</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>卷曲边框</source>
+            <source>波纹边</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>砖墙纹</source>
+            <source>砖纹</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>花朵</source>
+            <source>花朵盾徽</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -2634,7 +2634,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>狂风</source>
+            <source>旋风</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -2654,7 +2654,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>Mojang 标志</source>
+            <source>Mojang徽标</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -2670,7 +2670,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>骷髅</source>
+            <source>头颅盾徽</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -2917,7 +2917,7 @@
     <context>
         <name>Beacon</name>
         <message>
-            <source>速度</source>
+            <source>迅捷</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -2937,7 +2937,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>再生</source>
+            <source>生命恢复</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -3052,7 +3052,7 @@
     <context>
         <name>Brewing</name>
         <message>
-            <source>迅捷</source>
+            <source>迅捷药水</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -3060,7 +3060,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>跳跃</source>
+            <source>跳跃药水</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -3068,7 +3068,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>治疗</source>
+            <source>治疗药水</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -3076,7 +3076,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>伤害</source>
+            <source>伤害药水</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -3084,7 +3084,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>中毒</source>
+            <source>剧毒药水</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -3092,7 +3092,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>力量</source>
+            <source>力量药水</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -3100,7 +3100,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>再生</source>
+            <source>再生药水</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -3108,7 +3108,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>抗火</source>
+            <source>抗火药水</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -3116,7 +3116,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>水肺</source>
+            <source>水肺药水</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -3124,7 +3124,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>夜视</source>
+            <source>夜视药水</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -3132,15 +3132,15 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>隐身</source>
+            <source>隐身药水</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>迟缓</source>
+            <source>迟缓药水</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>缓降</source>
+            <source>缓降药水</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -3148,11 +3148,11 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>虚弱</source>
+            <source>虚弱药水</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>海龟大师</source>
+            <source>神龟药水</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -3160,7 +3160,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>盘丝</source>
+            <source>盘丝药水</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -3168,7 +3168,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>蓄风</source>
+            <source>蓄风药水</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -3176,7 +3176,7 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>渗浆</source>
+            <source>渗浆药水</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -3184,15 +3184,11 @@
             <translation type="unfinished"></translation>
         </message>
         <message>
-            <source>虫蚀</source>
+            <source>虫蚀药水</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
             <source>石头</source>
-            <translation type="unfinished"></translation>
-        </message>
-        <message>
-            <source>药水</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
@@ -3313,6 +3309,14 @@
         </message>
         <message>
             <source> / %1 瓶（酿 %2 次）</source>
+            <translation type="unfinished"></translation>
+        </message>
+        <message>
+            <source>喷溅型%1</source>
+            <translation type="unfinished"></translation>
+        </message>
+        <message>
+            <source>滞留型%1</source>
             <translation type="unfinished"></translation>
         </message>
     </context>
@@ -25138,10 +25142,6 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
             <source>目标版本 %1 不含%2。此药水自 Java 版 %3 起可用。
 
 </source>
-            <translation type="unfinished"></translation>
-        </message>
-        <message>
-            <source>药水</source>
             <translation type="unfinished"></translation>
         </message>
         <message>
