@@ -58,7 +58,6 @@
 #include <stdexcept>
 
 #include "auth/AccountStore.hpp"
-#include "auth/OAuthEndpoints.hpp"
 #include "auth/SkinApi.hpp"
 #include "auth/TokenStore.hpp"
 // version.json 里那两个会变成盘上路径的名字（资源索引号 / 对象哈希）。见 ZAO 节。
@@ -2255,18 +2254,7 @@ void runFolderRemovalTests();
 void runToolboxExtraTests();
 
 // ---------------------------------------------------------------------------
-// ZA. 回调地址 → 监听端口（客户端 ID 和回调地址通过构建配置注入）
-//
-// 这两个常数随构建配置注入（CMake 那两条 `-DWTFML_CLIENT_ID` / `-DWTFML_REDIRECT_URI`），
-// 地址是谁给的就不一定了 —— 所以端口**从地址里算**（`OAuthEndpoints::callbackPort()`，
-// 唯一出处）。这里钉的就是那个算法。
-//
-// 这一节最要紧的两条：
-// · "地址里没写端口"**不等于**读不出来 —— 浏览器那时会连协议默认端口（http 80 /
-// https 443），我们照它听才对；回一个别的数（比如兜底的 38226）就是「听着一个没人会
-// 连的端口」，症状只有一句转圈到超时。
-// · 真读不出来（不是 http/https、没有主机名）时**回调用方给的兜底值**，而不是 0 ——
-// 0 会让 `listen()` 去要一个随机端口，那就更没人连得上了。
+// ZA. 微软登录的回环端口、PKCE 和 state。
 // ---------------------------------------------------------------------------
 void runOAuthEndpointTests();
 

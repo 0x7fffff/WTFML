@@ -1,71 +1,85 @@
 /**
  * @file OAuthEndpoints.hpp
- * @brief 正版登录那两条"随构建配置走"的常数里，唯一需要**算**的那一格：回调地址里的端口
- * （「客户端 ID 和回调地址通过构建配置注入」）。
- *
- * 【为什么端口要从地址里读，而不是再写一个常数】
- *
- * 回调地址和本地监听端口**是同一件事的两半**：浏览器照 `redirect_uri` 去连，而我们在
- * `kCallbackPort` 上听。两个常数各写一份、谁改了一个忘了另一个，症状是"点登录、浏览器
- * 打开了、授权也点了、然后启动器一直转圈到超时" —— 一点错都不报，因为那一头根本不认识
- * 我们。所以从 起 `kCallbackPort` **不再是独立常数**：它由这里从
- * `kRedirectUri` 里读出来（`AuthManager` 构造里那一次）。
- *
- * 【为什么没写端口时回 http=80 / https=443 而不是报错】
- *
- * 地址里不写端口时，浏览器会连**协议默认的那个端口**（80 或 443）—— 那是用户真正告诉
- * 微软的东西。我们照它听才叫"跟着用户说的做"；回一个别的数（比如"回兜底 38226"）等于
- * 假装地址写的是那个数，最后还是一样连不上、还是同一句转圈到超时。
- * 代价要写在明处：这么改之后，"我不写端口"就等于"我要占用 80（或 443）"。那是个特权
- * 端口，绑不上时 `QTcpServer::listen()` 会失败 —— 那时该说的是"这个端口绑不上、换一个
- * 带端口的回调地址"，而不是悄悄退回 38226（那只会让人对着一个永远等不到的回调发呆）。
- *
- * 这个头文件**没有网络、没有 QObject、不看时钟**：纯字符串进、int 出。所以 verify 能
- * 直接喂一串地址进来断言它读出的端口（见 tests/main.cpp 的 ZW 节）。
+ * @brief 微软 OAuth 的动态回调、PKCE 与 state 校验。
  */
 
 #pragma once
 
+#include <QByteArray>
+#include <QCryptographicHash>
+#include <QHostAddress>
+#include <QRandomGenerator>
 #include <QString>
+#include <QStringList>
+#include <QTcpServer>
 #include <QUrl>
+#include <QUrlQuery>
+
+#include <optional>
 
 namespace OAuthEndpoints {
 
-/// 回调地址里那个端口：浏览器会连哪个端口，我们就在哪个端口上听。
-///
-/// @param redirectUri 构建时注进去的那个回调地址（`WTFML_REDIRECT_URI`，没注就是源码里
-/// 那份兜底值）。
-/// @param fallback 这个地址**根本读不出端口**时回什么（调用方传自己那份默认值）。
-/// 注意："地址里没写端口"**不算**读不出来 —— 那种情况按协议默认端口回
-/// （见文件头那段）；这里说的是地址本身不是一条能用的 http/https 地址。
-inline int callbackPort(const QString &redirectUri, int fallback) {
-    const QUrl url(redirectUri, QUrl::StrictMode);
-    if (!url.isValid() || url.host().isEmpty()) {
-        return fallback;
+/// Entra 只对 localhost 忽略端口。保留旧构建配置的路径，端口统一交给系统分配。
+inline QUrl loopbackRedirectBase(const QString &configuredUri) {
+    QUrl url(configuredUri, QUrl::StrictMode);
+    if (!url.isValid() || url.scheme() != QStringLiteral("http") ||
+        url.host() != QStringLiteral("localhost") || url.authority().contains(u'@') ||
+        url.hasQuery() || url.hasFragment()) {
+        return {};
     }
-    const QString scheme = url.scheme().toLower();
-    if (scheme != QStringLiteral("http") && scheme != QStringLiteral("https")) {
-        return fallback;
+    url.setPort(-1);
+    if (url.path().isEmpty()) {
+        url.setPath(QStringLiteral("/"));
     }
-    const int port = url.port();
-    if (port > 0 && port <= 65535) {
-        return port;
-    }
-    return scheme == QStringLiteral("https") ? 443 : 80;
+    return url;
 }
 
-/// 这个地址是不是一条**能拿来做本地回调**的地址：http/https、有主机名、其余随它去
-/// （路径带不带 `/`、末尾带不带查询串都不影响"我们听哪个端口"）。
-///
-/// NOTE: 只有"设置页要不要提醒一句"和验证工程会问这个 —— 构建出来一条错地址时的表现是
-/// 登录卡到超时，所以宁可在构建/自检的时候问一声。
-inline bool isUsableRedirectUri(const QString &redirectUri) {
-    const QUrl url(redirectUri, QUrl::StrictMode);
-    if (!url.isValid() || url.host().isEmpty()) {
-        return false;
+/// 监听成功后立刻使用已占有的端口组装 URI，避免查空闲端口和实际绑定之间的竞态。
+inline QUrl listenForCallback(QTcpServer &server, QUrl redirectBase) {
+    if (redirectBase.isEmpty() || !server.listen(QHostAddress::LocalHost, 0)) {
+        return {};
     }
-    const QString scheme = url.scheme().toLower();
-    return scheme == QStringLiteral("http") || scheme == QStringLiteral("https");
+    redirectBase.setPort(server.serverPort());
+    return redirectBase;
+}
+
+inline QString randomToken() {
+    quint32 words[8];
+    QRandomGenerator::system()->fillRange(words);
+    const auto bytes = QByteArray::fromRawData(reinterpret_cast<const char *>(words), sizeof(words));
+    return QString::fromLatin1(bytes.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals));
+}
+
+inline QString codeChallenge(const QString &verifier) {
+    const auto hash = QCryptographicHash::hash(verifier.toLatin1(), QCryptographicHash::Sha256);
+    return QString::fromLatin1(hash.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals));
+}
+
+inline void addRedirectUri(QUrlQuery &parameters, const QUrl &redirectUri) {
+    // redirect_uri 是嵌套在参数里的完整 URI，路径已有的百分号也要编码一层。
+    parameters.addQueryItem(QStringLiteral("redirect_uri"),
+                            QString::fromLatin1(QUrl::toPercentEncoding(redirectUri.toString(QUrl::FullyEncoded))));
+}
+
+/// 回调的目标必须匹配本次路径，并恰好带有一个与当前请求相符的 state。
+inline std::optional<QUrlQuery> callbackParameters(const QByteArray &requestLine,
+                                                   const QUrl &redirectUri,
+                                                   const QString &expectedState) {
+    const auto parts = requestLine.split(' ');
+    if (expectedState.isEmpty() || parts.size() != 3 || parts.first() != "GET" ||
+        !parts.at(1).startsWith('/') || parts.at(1).startsWith("//")) {
+        return std::nullopt;
+    }
+    const QUrl target = QUrl::fromEncoded(parts.at(1), QUrl::StrictMode);
+    if (!target.isValid() || target.hasFragment() ||
+        target.path(QUrl::FullyEncoded) != redirectUri.path(QUrl::FullyEncoded)) {
+        return std::nullopt;
+    }
+    const QUrlQuery query(target);
+    if (query.allQueryItemValues(QStringLiteral("state")) != QStringList{expectedState}) {
+        return std::nullopt;
+    }
+    return query;
 }
 
 }  // namespace OAuthEndpoints
