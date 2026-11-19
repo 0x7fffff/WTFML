@@ -28,6 +28,7 @@
 #include "MainWindow.hpp"
 
 #include "..\ui\InlineMessage.hpp"
+#include "..\ui\ListRowDelegate.hpp"
 #include "..\ui\LoadingState.hpp"
 #include "..\ui\VersionIcons.hpp"
 #include "..\ui\OverlayHost.hpp"
@@ -74,9 +75,9 @@ namespace {
 
 /// 服务端那一档在 `VersionIcons::loaderMark()` 那张表里的下标。
 ///
-/// 那张表的顺序是 0 Fabric / 1 Forge / 2 NeoForge / 3 OptiFine / 4 草方块（「不装（纯原版）」）。
-/// 服务端八档里只有三个加载器有自己那张图，其余（原版 / Paper / Purpur / Quilt / Spigot）
-/// 一律拿草方块 —— 和"认不出下标就给草方块"是同一条规矩，别去新画一张。
+/// 那张表的顺序是 0 Fabric / 1 Forge / 2 NeoForge / 3 OptiFine / 4 Quilt，5（「不装（纯原版）」）
+/// 和越界的下标给草方块。服务端八档里 Fabric / Forge / NeoForge / Quilt 有自己那张图，
+/// 其余（原版 / Paper / Purpur / Spigot）一律拿草方块 —— 别去新画一张，也别借 OptiFine 的。
 int loaderMarkIndexForServerFlavor(ServerInstall::Flavor flavor) {
     switch (flavor) {
     case ServerInstall::Flavor::Fabric:
@@ -85,8 +86,10 @@ int loaderMarkIndexForServerFlavor(ServerInstall::Flavor flavor) {
         return 1;
     case ServerInstall::Flavor::NeoForge:
         return 2;
-    default:
+    case ServerInstall::Flavor::Quilt:
         return 4;
+    default:
+        return 5;
     }
 }
 
@@ -112,26 +115,15 @@ void MainWindow::refreshServerList() {
 
     tree->clear();
     const QList<ServerRegistry::Entry> entries = ServerRegistry::scanAll();
-    const QSize rowSize(0, MainWindowUI::serverWorkspaceRowHeight());
+    const QSize rowSize(0, ListRowDelegate::rowHeight());
     for (const ServerRegistry::Entry &entry : entries) {
         auto *item = new QTreeWidgetItem(tree);
         item->setData(0, Qt::UserRole, entry.serverId);
         // 行首那张图：档名对应的加载器标志（认不出来的档一律草方块，见那一处）。
-        item->setIcon(0, QIcon(VersionIcons::loaderMark(
-                            loaderMarkIndexForServerFlavor(entry.flavor),
-                            MainWindowUI::instanceTreeIconSize())));
+        item->setData(0, ListRowDelegate::CoverRole,
+                      QIcon(VersionIcons::loaderMark(loaderMarkIndexForServerFlavor(entry.flavor), 48)));
         item->setSizeHint(0, rowSize);
-        item->setSizeHint(1, rowSize);
-        // 第 1 列那颗按钮：一个服务端一颗（行尾）。**整行做成控件是不行的** —— 名字那一截
-        // 的文字渲染已经在了，为了塞一颗按钮把整行换成自绘控件，等于把这一页推回重画。
-        // 摆两列、第二列固定宽，是把"行尾有一颗按钮"这件事塞进现成列表里最省的做法。
-        auto *button = new QPushButton(tree);
-        button->setObjectName(MainWindowUI::serverRowActionName());
-        button->setFixedWidth(MainWindowUI::serverRowActionWidth());
-        connect(button, &QPushButton::clicked, this,
-                [this, id = entry.serverId] { activateServerRow(id); });
-        tree->setItemWidget(item, 1, button);
-        // 名字 / 状态字 / 那颗按钮的字与颜色 —— **全在 updateServerRow() 一处**
+        // 名字 / 副行 / 第三格的字与种类 —— **全在 updateServerRow() 一处**
         // （刚建出来的那一行也要走一遍，别在这儿再抄一份摆法）。
         updateServerRow(entry.serverId);
     }
@@ -647,10 +639,13 @@ void MainWindow::activateServerRow(const QString &serverId) {
     }
     const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
     if (!entry.installed) {
-        repairServer(serverId);  // 未装好 ⇒ 那颗按钮就是「修复」
+        repairServer(serverId);  // 未装好 ⇒ 第三格就是「修复」
         return;
     }
     const ServerRun::ServerProcess *process = m_serverWorkspace->process(serverId);
+    if (process != nullptr && process->status() == ServerModel::Status::Stopping) {
+        return;  // 停止中：第三格是灰的，等它自己退干净
+    }
     if (process != nullptr && process->isRunning()) {
         m_serverRun->stop(serverId);
         return;
@@ -922,46 +917,40 @@ void MainWindow::updateServerRow(const QString &serverId) {
             ? process->status()
             : (entry.installed ? ServerModel::Status::Ready : ServerModel::Status::NotInstalled);
 
-    // 第 0 列：名字 — 档 · 状态。**服务端没有"图标"那一栏能替它说话**（实例行行首有
-    // 图标，这一页是名字 + 状态两个字）。
-    item->setText(0, QStringLiteral("%1  —  %2 / %3")
-                         .arg(entry.name, ServerInstall::flavorName(entry.flavor),
-                              ServerModel::statusName(status)));
+    // 和客户端同一种行（ListRowDelegate）：第一行自定义名，第二行「Minecraft 版本 · 端类型 · 状态」。
+    QStringList facts;
+    if (!entry.gameVersion.isEmpty()) {
+        facts << tr("Minecraft %1").arg(entry.gameVersion);
+    }
+    facts << ServerInstall::flavorName(entry.flavor) << ServerModel::statusName(status);
+    item->setText(0, entry.name);
+    item->setData(0, ListRowDelegate::SubtitleRole, facts.join(QStringLiteral(" · ")));
     QString tip = entry.note;
     if (!tip.isEmpty()) {
-        tip += QStringLiteral("\n");
+        tip += QLatin1Char('\n');
     }
     tip += QDir::toNativeSeparators(entry.dirPath);
     item->setToolTip(0, tip);
-    // 没装好的那一行给个"灰一点"的观感（这一页还没有自绘代理）。
-    item->setDisabled(!entry.installed);
 
-    // 第 1 列：那颗按钮。**一行只有一颗**，按状态换身份
-    // （行尾按钮 + 右键菜单；其余几项全在右键里）。
-    auto *button = qobject_cast<QPushButton *>(tree->itemWidget(item, 1));
-    if (button == nullptr) {
-        return;
-    }
+    // 第三格（悬停才露）一行只有一个，按状态换身份：修复 / 停止 / 启动；其余项在「更多」与右键里。
+    ListRowDelegate::LaunchKind kind = ListRowDelegate::LaunchKind::Start;
+    QString text = MainWindowUI::serverStartText();
+    QString launchTip = tr("启动这个服务端");
     if (!entry.installed) {
-        button->setText(MainWindowUI::serverRepairText());
-        button->setEnabled(true);
-        button->setToolTip(tr("还没装好 —— 点它把该下的下下来。"));
-        Theme::markButton(button, Theme::ButtonKind::Accent);
+        kind = ListRowDelegate::LaunchKind::Repair;
+        text = MainWindowUI::serverRepairText();
+        launchTip = tr("还没装好，点它补装缺的文件");
     } else if (process != nullptr && process->isRunning()) {
         const bool stopping = status == ServerModel::Status::Stopping;
-        button->setText(stopping ? MainWindowUI::serverStoppingText()
-                                 : MainWindowUI::serverStopText());
-        button->setEnabled(!stopping);
-        button->setToolTip(stopping
-                               ? tr("已发送停止请求，正在等待保存并退出。")
-                               : tr("保存后自行退出（推荐）。"));
-        Theme::markButton(button, Theme::ButtonKind::Danger);
-    } else {
-        button->setText(MainWindowUI::serverStartText());
-        button->setEnabled(true);
-        button->setToolTip(tr("起这个服务端。右键那一列里还有控制台、目录、删除。"));
-        Theme::markButton(button, Theme::ButtonKind::Accent);
+        kind = stopping ? ListRowDelegate::LaunchKind::Busy : ListRowDelegate::LaunchKind::Stop;
+        text = stopping ? MainWindowUI::serverStoppingText() : MainWindowUI::serverStopText();
+        launchTip = stopping ? tr("已发送停止请求，正在等待保存并退出")
+                             : tr("保存后自行退出（推荐）");
     }
+    item->setData(0, ListRowDelegate::LaunchKindRole, static_cast<int>(kind));
+    item->setData(0, ListRowDelegate::LaunchTextRole, text);
+    item->setData(0, ListRowDelegate::ActionTipRole,
+                  QStringList{tr("打开服务端目录"), tr("更多操作"), launchTip});
 }
 
 void MainWindow::onServerStatusChanged(const QString &serverId, ServerModel::Status status) {

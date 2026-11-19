@@ -145,20 +145,35 @@ void ConnectionsController::setup() {
         if (QPushButton *newServer = m_owner->m_ui->getNewServerButton()) {
             connect(newServer, &QPushButton::clicked, m_owner, &MainWindow::openNewServerPage);
         }
-        // 服务端列表里双击一行 = 开控制台（ 定的：双击那一下最想看的正是"它现在
-        // 在说什么"；"打开目录"退到右键菜单里那一项 —— 行尾那颗按钮和右键菜单一共六件事，
-        // 双击只能占一件）。
+        // 服务端列表和客户端列表同一套手势：单击一行 = 进这个服务端的设置；悬停三格 =
+        // 文件夹 / 更多（同右键菜单，含控制台）/ 启动·停止·修复；双击不再开控制台
+        // （单击已经跳走，双击的第一下就把页换了）。
         if (QTreeWidget *serverList = m_owner->m_ui->getServerList()) {
-            connect(serverList, &QTreeWidget::itemDoubleClicked, m_owner,
-                    [this](QTreeWidgetItem *item, int) {
-                        if (item == nullptr) {
-                            return;
-                        }
-                        const QString id = item->data(0, Qt::UserRole).toString();
-                        if (!id.isEmpty()) {
-                            m_owner->openServerConsole(id);
-                        }
-                    });
+            connectRowActivation(serverList, [this](QTreeWidgetItem *item) {
+                const QString id = item->data(0, Qt::UserRole).toString();
+                if (!id.isEmpty()) {
+                    m_owner->openServerSettingsPage(id);
+                }
+            });
+            // 悬停三格由 MainWindow::eventFilter 在视口上认下（几何同 ListRowDelegate::actionRect）。
+            serverList->viewport()->installEventFilter(m_owner);
+            if (auto *rowDelegate = qobject_cast<ListRowDelegate *>(serverList->itemDelegate())) {
+                connect(rowDelegate, &ListRowDelegate::actionTriggered, m_owner,
+                        [this, serverList](const QModelIndex &index, ListRowDelegate::Action action) {
+                    const QString id = index.data(Qt::UserRole).toString();
+                    if (id.isEmpty()) return;
+                    if (action == ListRowDelegate::Action::Folder) {
+                        m_owner->openServerFolder(id);
+                    } else if (action == ListRowDelegate::Action::Launch) {
+                        m_owner->activateServerRow(id);
+                    } else {
+                        const QRect more = ListRowDelegate::actionRect(serverList->visualRect(index),
+                                                                       ListRowDelegate::Action::More);
+                        m_owner->m_serverMenu->showFor(
+                            id, serverList->viewport()->mapToGlobal(more.bottomLeft()));
+                    }
+                });
+            }
             // 右键那一发（`setContextMenuPolicy(Qt::CustomContextMenu)` 在 MainWindowUI 里设的）。
             connect(serverList, &QTreeWidget::customContextMenuRequested, m_owner->m_serverMenu,
                     &ServerMenuController::showAt);

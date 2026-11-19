@@ -31,6 +31,10 @@ void ServerMenuController::showAt(const QPoint &pos) {
         return;  // 空白处右键：什么都不弹（这一页没有"对整个列表做的事"）
     }
     tree->setCurrentItem(item);
+    showFor(serverId, tree->viewport()->mapToGlobal(pos));
+}
+
+void ServerMenuController::showFor(const QString &serverId, const QPoint &globalPos) {
     const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
     const ServerRun::ServerProcess *process = m_owner.m_serverWorkspace->process(serverId);
     const bool running = process != nullptr && process->isRunning();
@@ -71,7 +75,7 @@ void ServerMenuController::showAt(const QPoint &pos) {
     if (menu.isEmpty()) {
         return;
     }
-    menu.exec(tree->viewport()->mapToGlobal(pos));
+    menu.exec(globalPos);
 }
 
 void ServerMenuController::run(const QString &serverId, int action) {

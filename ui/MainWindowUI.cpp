@@ -15,6 +15,7 @@
 #include "Glass.hpp"
 #include "GlassPopover.hpp"
 #include "InstanceGroupDelegate.hpp"
+#include "ListRowDelegate.hpp"
 #include "MemorySlider.hpp"
 #include "OverlayHost.hpp"
 #include "PopupPlacement.hpp"
@@ -1830,18 +1831,13 @@ QWidget *MainWindowUI::setupInstancePage() {
         serverList->setRootIsDecorated(false);
         serverList->setUniformRowHeights(true);
         serverList->setSelectionMode(QAbstractItemView::SingleSelection);
-        serverList->setColumnCount(2);
-        if (QHeaderView *header = serverList->header()) {
-            header->setStretchLastSection(false);
-            header->setSectionResizeMode(0, QHeaderView::Stretch);
-            header->setSectionResizeMode(1, QHeaderView::Fixed);
-            header->resizeSection(1, serverRowActionWidth());
-        }
-        // 行尾那颗按钮要能从行上右键弹出来（"其余几项进右键菜单"）。
+        // 和客户端列表同一种行：自绘代理（悬停三格），一列撑满，窄窗靠省略号收字、不出横向滚动条。
+        ListRowDelegate::install(serverList);
+        serverList->setIndentation(0);
+        serverList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        serverList->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+        // 右键菜单与行尾「更多」是同一份（ServerMenuController）。
         serverList->setContextMenuPolicy(Qt::CustomContextMenu);
-        // 行首那个图标（按档画的那张 64×64 瓦片，见 assets/loader/*.png 与
-        // MainWindow::refreshServerList()）—— 边长和实例行同一个数，两处对不上 QIcon 会重采样。
-        serverList->setIconSize(QSize(instanceTreeIconSize(), instanceTreeIconSize()));
         serverList->setMouseTracking(true);
         serverLayout->addWidget(serverList, 1);
 

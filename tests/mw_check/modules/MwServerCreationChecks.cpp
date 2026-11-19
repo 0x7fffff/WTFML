@@ -1,4 +1,7 @@
 #include "Support.hpp"
+#include "ListRowDelegate.hpp"
+#include "VersionIcons.hpp"
+#include "ServerSettingsPage.hpp"
 int MwServerCreationChecks(const QDir &root) {
     // 判据层（洗名字 / 认档 / 读写 meta）在 verify 的 ZW / ZX 段；这一节只验"这一按接出去
     // 是什么效果"。服务端根目录按用户的答复落在 `<数据目录>/Servers`（一个自己的文件夹，
@@ -103,17 +106,22 @@ int MwServerCreationChecks(const QDir &root) {
                 check(row != nullptr &&
                           row->data(0, Qt::UserRole).toString() == QStringLiteral("甲服务端"),
                       "★ T39.3 那一行的身份（UserRole）是 serverId（= 目录名），不是显示名");
+                const QString sub =
+                    row != nullptr ? row->data(0, ListRowDelegate::SubtitleRole).toString() : QString();
                 check(row != nullptr && row->text(0).contains(QStringLiteral("甲服务端")) &&
-                          row->text(0).contains(
-                              ServerModel::statusName(ServerModel::Status::NotInstalled)),
-                      "★★ T39.3 文字里有显示名 + 状态；这一档**还没装 server.jar** ⇒ 是「未安装」",
-                      row != nullptr ? row->text(0) : QStringLiteral("<没有行>"));
-                check(row != nullptr && row->isDisabled(),
-                      "★ T39.3 没装好的那一行是**灰的**（和能启动的那些分开）");
+                          sub.contains(ServerModel::statusName(ServerModel::Status::NotInstalled)),
+                      "★★ T39.3 第一行是显示名、第二行有状态；这一档**还没装 server.jar** ⇒ 是「未安装」",
+                      row != nullptr ? row->text(0) + QStringLiteral(" / ") + sub : QStringLiteral("<没有行>"));
+                check(row != nullptr && !row->isDisabled() &&
+                          row->data(0, ListRowDelegate::LaunchKindRole).toInt() ==
+                              static_cast<int>(ListRowDelegate::LaunchKind::Repair) &&
+                          row->data(0, ListRowDelegate::LaunchTextRole).toString() ==
+                              MainWindowUI::serverRepairText(),
+                      "★ T39.3 没装好的那一行**点得动**（不置灰：单击进设置、第三格是「修复」）");
                 check(row != nullptr &&
                           row->toolTip(0).contains(QDir::toNativeSeparators(
                               AppPaths::serverDir(QStringLiteral("甲服务端")))),
-                      "★ T39.3 tooltip 里有那个目录的绝对路径（双击开的就是它）");
+                      "★ T39.3 tooltip 里有那个目录的绝对路径（悬停提示里给目录）");
             }
 
             // ---------- ④ 丢一个 server.jar 进去 ⇒ 再扫就是「可启动」 ----------
@@ -130,11 +138,115 @@ int MwServerCreationChecks(const QDir &root) {
                 serverChip->click();  // 再切一次 = 再重扫一遍
                 QApplication::processEvents();
                 QTreeWidgetItem *row = serverTree->topLevelItem(0);
-                check(row != nullptr && !row->isDisabled() &&
-                          row->text(0).contains(
-                              ServerModel::statusName(ServerModel::Status::Ready)),
-                      "★★ T39.4 丢进 server.jar 再扫 ⇒ 这一档变成「可启动」、那一行不再灰",
-                      row != nullptr ? row->text(0) : QStringLiteral("<没有行>"));
+                const QString sub =
+                    row != nullptr ? row->data(0, ListRowDelegate::SubtitleRole).toString() : QString();
+                check(row != nullptr &&
+                          sub.contains(ServerModel::statusName(ServerModel::Status::Ready)) &&
+                          row->data(0, ListRowDelegate::LaunchTextRole).toString() ==
+                              MainWindowUI::serverStartText(),
+                      "★★ T39.4 丢进 server.jar 再扫 ⇒ 这一档变成「可启动」、第三格是「启动」",
+                      row != nullptr ? sub : QStringLiteral("<没有行>"));
+
+                // ---- 单击一行 = 进这个服务端的设置（和客户端一致）；点在行尾「更多」那格上不算 ----
+                // 切到实例页并放宽窗口：行要有真实宽度，行身那个点才不会落到行尾三格上
+                if (auto *tabs = w.findChild<QTabWidget *>()) {
+                    tabs->setCurrentIndex(MainWindowUI::instancesTabIndex());
+                }
+                w.resize(1000, 700);
+                QApplication::processEvents();
+                const QRect rowRect = serverTree->visualItemRect(row);
+                const auto clickAt = [&](const QPoint &at) {
+                    QMouseEvent press(QEvent::MouseButtonPress, at, serverTree->viewport()->mapToGlobal(at),
+                                      Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                    QMouseEvent release(QEvent::MouseButtonRelease, at, serverTree->viewport()->mapToGlobal(at),
+                                        Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+                    QApplication::sendEvent(serverTree->viewport(), &press);
+                    QApplication::sendEvent(serverTree->viewport(), &release);
+                    QApplication::processEvents();
+                };
+                check(w.findChild<ServerSettingsPage *>() == nullptr ||
+                          !w.findChild<ServerSettingsPage *>()->isVisible(),
+                      "T39.4b 前提：服务端设置页还没开");
+                const QPoint bodyPoint(rowRect.left() + 20, rowRect.center().y());
+                check(bodyPoint.x() < ListRowDelegate::actionRect(rowRect, ListRowDelegate::Action::Folder).left(),
+                      "T39.4b 前提：行身那个点落在行尾三格的左边", QString::number(rowRect.width()));
+                clickAt(bodyPoint);
+                auto *settingsPage = w.findChild<ServerSettingsPage *>();
+                check(settingsPage != nullptr && settingsPage->isVisible(),
+                      "★★ T39.4b 单击服务端行（行身）⇒ 打开这个服务端的设置页");
+                if (settingsPage != nullptr) {
+                    settingsPage->reject();
+                    QApplication::processEvents();
+                }
+            }
+
+            // ---------- ④b 每一档对应哪张图 + 页头那句计数 == 列表行数 ----------
+            {
+                struct FlavorIcon { ServerInstall::Flavor flavor; int mark; };
+                // loaderMark 表：0 Fabric / 1 Forge / 2 NeoForge / 3 OptiFine / 4 Quilt / 5 草方块。
+                // 服务端只有这四档有自己的图；Paper / Purpur / Spigot（和原版）是草方块，不借 OptiFine / Quilt 的。
+                const FlavorIcon expected[] = {
+                    {ServerInstall::Flavor::Paper, 5},    {ServerInstall::Flavor::Purpur, 5},
+                    {ServerInstall::Flavor::Fabric, 0},   {ServerInstall::Flavor::Forge, 1},
+                    {ServerInstall::Flavor::NeoForge, 2}, {ServerInstall::Flavor::Quilt, 4},
+                    {ServerInstall::Flavor::Spigot, 5},
+                };
+                QStringList ids;
+                for (const FlavorIcon &f : expected) {
+                    ServerModel::Info info;
+                    info.name = QStringLiteral("图标-") + ServerInstall::flavorToken(f.flavor);
+                    info.flavor = f.flavor;
+                    info.flavorKnown = true;
+                    info.gameVersion = QStringLiteral("1.20.1");
+                    QString why;
+                    check(ServerRegistry::createServer(info.name, info, &why),
+                          "T39.4c 前提：摆下这一档的服务端", why);
+                    ids << info.name;
+                }
+                clientChip->click();
+                serverChip->click();
+                QApplication::processEvents();
+                const auto imageOf = [](const QVariant &icon) {
+                    return icon.value<QIcon>().pixmap(96, 96).toImage();
+                };
+                for (const FlavorIcon &f : expected) {
+                    const QString id = QStringLiteral("图标-") + ServerInstall::flavorToken(f.flavor);
+                    QTreeWidgetItem *hit = nullptr;
+                    for (int i = 0; i < serverTree->topLevelItemCount(); ++i) {
+                        if (serverTree->topLevelItem(i)->data(0, Qt::UserRole).toString() == id) {
+                            hit = serverTree->topLevelItem(i);
+                        }
+                    }
+                    check(hit != nullptr &&
+                              imageOf(hit->data(0, ListRowDelegate::CoverRole)) ==
+                                  QIcon(VersionIcons::loaderMark(f.mark, 48)).pixmap(96, 96).toImage(),
+                          "★★ T39.4c 每一档端类型挂对应的图（Fabric/Forge/NeoForge/Quilt 各一张，Paper/Purpur/Spigot 草方块）",
+                          ServerInstall::flavorToken(f.flavor));
+                }
+                // 前提：5 张图两两不同（不然上面的逐档比较分不出借错图）
+                bool allDistinct = true;
+                for (const int i : {0, 1, 2, 4, 5}) {
+                    for (const int j : {0, 1, 2, 4, 5}) {
+                        allDistinct = allDistinct && (i == j || VersionIcons::loaderMark(i, 48).toImage() !=
+                                                                   VersionIcons::loaderMark(j, 48).toImage());
+                    }
+                }
+                check(allDistinct, "T39.4c 前提：Fabric / Forge / NeoForge / Quilt / 草方块五张图两两不同");
+                // 页头计数 = 列表行数
+                auto *folderLabel = byObjectName<QLabel>(&w, MainWindowUI::instanceFolderLabelName());
+                check(folderLabel != nullptr &&
+                          folderLabel->text().contains(
+                              QStringLiteral("（%1 个服务端）").arg(serverTree->topLevelItemCount())),
+                      "★★ T39.4d 页头那句「（N 个服务端）」的 N 等于列表行数",
+                      folderLabel != nullptr ? folderLabel->text() + QStringLiteral(" / 行数 ") +
+                                                   QString::number(serverTree->topLevelItemCount())
+                                             : QStringLiteral("<没有标签>"));
+                for (const QString &id : ids) {
+                    QDir(AppPaths::serverDir(id)).removeRecursively();
+                }
+                clientChip->click();
+                serverChip->click();  // 清掉临时的几个，后面几节按原来的行数数
+                QApplication::processEvents();
             }
 
             // ---------- ⑤ 点「新建服务端…」：收页之后真的建了目录 ----------

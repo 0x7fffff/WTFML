@@ -98,25 +98,30 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
     }
     // 同一个实例树上**实例行**悬停那三格（ListRowDelegate：文件夹 / 更多 / 启动）。也接双击：
     // 点得快时第二发是双击事件，不吃掉会漏给"点中这一行"那条路（进实例设置）。
-    if (instanceTree != nullptr && watched == instanceTree->viewport()
+    // 服务端列表（同一个 ListRowDelegate）认同一套三格。
+    QTreeWidget *rowTree = instanceTree != nullptr && watched == instanceTree->viewport() ? instanceTree : nullptr;
+    if (rowTree == nullptr && m_ui->getServerList() != nullptr && watched == m_ui->getServerList()->viewport()) {
+        rowTree = m_ui->getServerList();
+    }
+    if (rowTree != nullptr
         && (event->type() == QEvent::MouseButtonPress
             || event->type() == QEvent::MouseButtonRelease
             || event->type() == QEvent::MouseButtonDblClick)) {
         auto *mouse = static_cast<QMouseEvent *>(event);
         QTreeWidgetItem *item =
-            mouse->button() == Qt::LeftButton ? instanceTree->itemAt(mouse->position().toPoint())
+            mouse->button() == Qt::LeftButton ? rowTree->itemAt(mouse->position().toPoint())
                                               : nullptr;
         // 悬停快捷操作三格（文件夹 / 更多 / 启动，几何同 ListRowDelegate::actionRect）：
         // 按下就发 actionTriggered，松开和双击只负责被吃掉，免得漏给"点中这一行 = 进实例设置"。
-        auto *rowDelegate = qobject_cast<ListRowDelegate *>(instanceTree->itemDelegate());
+        auto *rowDelegate = qobject_cast<ListRowDelegate *>(rowTree->itemDelegate());
         if (item != nullptr && rowDelegate != nullptr && !item->data(0, MainWindowUI::groupIdRole()).isValid()) {
-            const QRect row = instanceTree->visualItemRect(item);
+            const QRect row = rowTree->visualItemRect(item);
             const QPoint pos = mouse->position().toPoint();
             for (const auto action : {ListRowDelegate::Action::Folder, ListRowDelegate::Action::More,
                                       ListRowDelegate::Action::Launch}) {
                 if (!ListRowDelegate::actionRect(row, action).contains(pos)) continue;
                 if (event->type() == QEvent::MouseButtonPress)
-                    emit rowDelegate->actionTriggered(instanceTree->indexAt(pos), action);
+                    emit rowDelegate->actionTriggered(rowTree->indexAt(pos), action);
                 return true;
             }
         }

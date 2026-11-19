@@ -7,6 +7,8 @@
  * MetaRole = 行尾那句（如「2 小时前」）。行高 60（设计稿令牌），用 install() 挂到视图上。
  * 可选：CoverRole 给了就用它当封面（DecorationRole 留给别处用）；MetaIconRole 给了，元信息改成
  * 行中部一列「小图标 + 字」（设计稿 manage 的加载器那一列），悬停时也不让位。
+ * 服务端行借同一个代理：LaunchTextRole / LaunchKindRole 把第三格换成「启动 / 停止 / 修复 / 停止中…」，
+ * ActionTipRole 给三格各一句悬停说明（文件夹、更多、第三格）。
  */
 #pragma once
 
@@ -19,8 +21,17 @@ class QAbstractItemView;
 class ListRowDelegate : public QStyledItemDelegate {
     Q_OBJECT
 public:
-    enum Role { SubtitleRole = Qt::UserRole + 0x4C52, MetaRole, CoverRole, MetaIconRole };
+    enum Role {
+        SubtitleRole = Qt::UserRole + 0x4C52,
+        MetaRole,
+        CoverRole,
+        MetaIconRole,
+        LaunchTextRole,  ///< 第三格的字；空 = 「启动」
+        LaunchKindRole,  ///< LaunchKind（int）；空 = Start
+        ActionTipRole,   ///< QStringList{文件夹, 更多, 第三格} 的悬停说明
+    };
     enum class Action { Folder, More, Launch };
+    enum class LaunchKind { Start = 0, Stop, Repair, Busy };
 
     using QStyledItemDelegate::QStyledItemDelegate;
 
@@ -35,7 +46,11 @@ public:
     void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override;
     /// 上一次画的时候这一行的标题收了省略号（悬停提示据此给全名）。
     bool titleElided(const QModelIndex &index) const { return m_elidedTitles.contains(index); }
+    bool subtitleElided(const QModelIndex &index) const { return m_elidedSubs.contains(index); }
     QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override;
+    /// 三格的说明；标题或第二行被省略时给全文（后面接条目自己的 ToolTipRole）。
+    bool helpEvent(QHelpEvent *event, QAbstractItemView *view, const QStyleOptionViewItem &option,
+                   const QModelIndex &index) override;
 
 signals:
     void actionTriggered(const QModelIndex &index, ListRowDelegate::Action action);
@@ -46,4 +61,5 @@ protected:
 
 private:
     mutable QSet<QPersistentModelIndex> m_elidedTitles;
+    mutable QSet<QPersistentModelIndex> m_elidedSubs;
 };
