@@ -44,6 +44,7 @@ void runAgentMcpClientTests();
 void runAgentWebPolicyTests();
 void runAgentWebToolsTests();
 void runAgentCommandToolsTests();
+void runAgentPerformanceTests();
 
 
 // ---------------------------------------------------------------------------
@@ -221,6 +222,7 @@ int main(int argc, char **argv) {
     runAgentWebPolicyTests();
     runAgentWebToolsTests();
     runAgentCommandToolsTests();
+    runAgentPerformanceTests();
 
     out() << "agent: " << g_checks - g_failures << "/" << g_checks << "\n";
     return g_failures == 0 ? 0 : 1;

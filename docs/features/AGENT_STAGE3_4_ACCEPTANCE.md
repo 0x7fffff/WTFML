@@ -2,7 +2,11 @@
 
 本文是 Stage 3（联网与固定诊断命令）与 Stage 4（收口与发布）的**人工验收清单**，给测试和发布负责人看。现行行为见 [AGENT_STAGE3.md](AGENT_STAGE3.md)、[AGENT.md](AGENT.md) §14，安全边界见 [SECURITY_BOUNDARIES.md](SECURITY_BOUNDARIES.md)，结果记进 [ACCEPTANCE_LOG](../archive/ACCEPTANCE_LOG.md)（一行一条，格式：日期｜做了什么｜结论｜意外发现）。
 
-## 0. 怎么记
+## 0. 本轮状态（2026-11-19）
+
+自动化能覆盖的部分已经跑过，结果见 [AGENT_STAGE4](AGENT_STAGE4.md)：core 15/15、window 3/3、network 6/6、ci-ui 23/23、智能体三套件全绿（`verify_agent` 767 / `ui_check_agent` 77 / `mw_check_agent` 76），发布检查脚本 PASS。下面清单里标 **[自动]** 的条目已有自动化证据，人工只需要抽查；标 **[人工]** 的必须真机执行。视觉套件本轮未跑。
+
+## 0.1 怎么记
 
 - 每条只写结论：通过 / 不通过 / 未执行。不通过就写下复现步骤和证据路径。
 - 同一项复测就**新写一行**，不覆盖上一行。
