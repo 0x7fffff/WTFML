@@ -75,9 +75,9 @@ namespace {
 
 /// 服务端那一档在 `VersionIcons::loaderMark()` 那张表里的下标。
 ///
-/// 那张表的顺序是 0 Fabric / 1 Forge / 2 NeoForge / 3 OptiFine / 4 草方块（「不装（纯原版）」）。
-/// 服务端八档里只有三个加载器有自己那张图，其余（原版 / Paper / Purpur / Quilt / Spigot）
-/// 一律拿草方块 —— 和"认不出下标就给草方块"是同一条规矩，别去新画一张。
+/// 那张表的顺序是 0 Fabric / 1 Forge / 2 NeoForge / 3 OptiFine / 4 Quilt，5（「不装（纯原版）」）
+/// 和越界的下标给草方块。服务端八档里 Fabric / Forge / NeoForge / Quilt 有自己那张图，
+/// 其余（原版 / Paper / Purpur / Spigot）一律拿草方块 —— 别去新画一张，也别借 OptiFine 的。
 int loaderMarkIndexForServerFlavor(ServerInstall::Flavor flavor) {
     switch (flavor) {
     case ServerInstall::Flavor::Fabric:
@@ -86,8 +86,10 @@ int loaderMarkIndexForServerFlavor(ServerInstall::Flavor flavor) {
         return 1;
     case ServerInstall::Flavor::NeoForge:
         return 2;
-    default:
+    case ServerInstall::Flavor::Quilt:
         return 4;
+    default:
+        return 5;
     }
 }
 

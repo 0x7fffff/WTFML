@@ -1,5 +1,6 @@
 #include "Support.hpp"
 #include "ListRowDelegate.hpp"
+#include "VersionIcons.hpp"
 #include "ServerSettingsPage.hpp"
 int MwServerCreationChecks(const QDir &root) {
     // 判据层（洗名字 / 认档 / 读写 meta）在 verify 的 ZW / ZX 段；这一节只验"这一按接出去
@@ -177,6 +178,75 @@ int MwServerCreationChecks(const QDir &root) {
                     settingsPage->reject();
                     QApplication::processEvents();
                 }
+            }
+
+            // ---------- ④b 每一档对应哪张图 + 页头那句计数 == 列表行数 ----------
+            {
+                struct FlavorIcon { ServerInstall::Flavor flavor; int mark; };
+                // loaderMark 表：0 Fabric / 1 Forge / 2 NeoForge / 3 OptiFine / 4 Quilt / 5 草方块。
+                // 服务端只有这四档有自己的图；Paper / Purpur / Spigot（和原版）是草方块，不借 OptiFine / Quilt 的。
+                const FlavorIcon expected[] = {
+                    {ServerInstall::Flavor::Paper, 5},    {ServerInstall::Flavor::Purpur, 5},
+                    {ServerInstall::Flavor::Fabric, 0},   {ServerInstall::Flavor::Forge, 1},
+                    {ServerInstall::Flavor::NeoForge, 2}, {ServerInstall::Flavor::Quilt, 4},
+                    {ServerInstall::Flavor::Spigot, 5},
+                };
+                QStringList ids;
+                for (const FlavorIcon &f : expected) {
+                    ServerModel::Info info;
+                    info.name = QStringLiteral("图标-") + ServerInstall::flavorToken(f.flavor);
+                    info.flavor = f.flavor;
+                    info.flavorKnown = true;
+                    info.gameVersion = QStringLiteral("1.20.1");
+                    QString why;
+                    check(ServerRegistry::createServer(info.name, info, &why),
+                          "T39.4c 前提：摆下这一档的服务端", why);
+                    ids << info.name;
+                }
+                clientChip->click();
+                serverChip->click();
+                QApplication::processEvents();
+                const auto imageOf = [](const QVariant &icon) {
+                    return icon.value<QIcon>().pixmap(96, 96).toImage();
+                };
+                for (const FlavorIcon &f : expected) {
+                    const QString id = QStringLiteral("图标-") + ServerInstall::flavorToken(f.flavor);
+                    QTreeWidgetItem *hit = nullptr;
+                    for (int i = 0; i < serverTree->topLevelItemCount(); ++i) {
+                        if (serverTree->topLevelItem(i)->data(0, Qt::UserRole).toString() == id) {
+                            hit = serverTree->topLevelItem(i);
+                        }
+                    }
+                    check(hit != nullptr &&
+                              imageOf(hit->data(0, ListRowDelegate::CoverRole)) ==
+                                  QIcon(VersionIcons::loaderMark(f.mark, 48)).pixmap(96, 96).toImage(),
+                          "★★ T39.4c 每一档端类型挂对应的图（Fabric/Forge/NeoForge/Quilt 各一张，Paper/Purpur/Spigot 草方块）",
+                          ServerInstall::flavorToken(f.flavor));
+                }
+                // 前提：5 张图两两不同（不然上面的逐档比较分不出借错图）
+                bool allDistinct = true;
+                for (const int i : {0, 1, 2, 4, 5}) {
+                    for (const int j : {0, 1, 2, 4, 5}) {
+                        allDistinct = allDistinct && (i == j || VersionIcons::loaderMark(i, 48).toImage() !=
+                                                                   VersionIcons::loaderMark(j, 48).toImage());
+                    }
+                }
+                check(allDistinct, "T39.4c 前提：Fabric / Forge / NeoForge / Quilt / 草方块五张图两两不同");
+                // 页头计数 = 列表行数
+                auto *folderLabel = byObjectName<QLabel>(&w, MainWindowUI::instanceFolderLabelName());
+                check(folderLabel != nullptr &&
+                          folderLabel->text().contains(
+                              QStringLiteral("（%1 个服务端）").arg(serverTree->topLevelItemCount())),
+                      "★★ T39.4d 页头那句「（N 个服务端）」的 N 等于列表行数",
+                      folderLabel != nullptr ? folderLabel->text() + QStringLiteral(" / 行数 ") +
+                                                   QString::number(serverTree->topLevelItemCount())
+                                             : QStringLiteral("<没有标签>"));
+                for (const QString &id : ids) {
+                    QDir(AppPaths::serverDir(id)).removeRecursively();
+                }
+                clientChip->click();
+                serverChip->click();  // 清掉临时的几个，后面几节按原来的行数数
+                QApplication::processEvents();
             }
 
             // ---------- ⑤ 点「新建服务端…」：收页之后真的建了目录 ----------
