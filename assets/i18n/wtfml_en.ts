@@ -41,7 +41,7 @@
         </message>
         <message>
             <source>切换到所选</source>
-            <translation>Use this account</translation>
+            <translation>Switch to this account</translation>
         </message>
         <message>
             <source>删除所选</source>
@@ -109,7 +109,7 @@
         </message>
         <message>
             <source>离线账号不校验在线凭据，直接以此名称启动游戏。</source>
-            <translation>Offline accounts launch the game with this name without verifying online credentials.</translation>
+            <translation>The game uses this name without checking online credentials.</translation>
         </message>
         <message>
             <source>已登录为「%1」（离线登录）</source>
@@ -141,11 +141,11 @@
         </message>
         <message>
             <source>登录取自 %1</source>
-            <translation>Login taken from %1</translation>
+            <translation>Saved on %1</translation>
         </message>
         <message>
             <source>选择皮肤图片</source>
-            <translation>Select skin picture</translation>
+            <translation>Select skin image</translation>
         </message>
         <message>
             <source>PNG 图片 (*.png)</source>
@@ -156,39 +156,39 @@
         <name>AccountStore</name>
         <message>
             <source>无法解密已保存的账号列表。为保留原有账号，本次未写入。请在原设备上使用保存列表时的 Windows 账户重试。</source>
-            <translation>The saved account list cannot be read: the space on the disk is there but cannot be opened (this happens after the Windows account environment is changed or the device is migrated). Writing it back now will erase other accounts in the list, so it is not saved this time. If you want to start over, delete that key and try again.</translation>
+            <translation>The saved account list could not be decrypted. To keep your accounts, the launcher did not overwrite the list. Try again on the original device using the Windows account that saved it.</translation>
         </message>
         <message>
             <source>切换离线账号前，保存当前账号失败：</source>
-            <translation>Before switching to the offline account, the current account could not be included in the list:</translation>
+            <translation>Failed to save the current account before switching to an offline account:</translation>
         </message>
         <message>
             <source>无法保存当前账号（%1），已取消切换。
 
 当前账号的登录凭据已保留。</source>
-            <translation>I failed to save the currently logged in account first (%1), so there was no switch this time. 
+            <translation>Could not save the current account (%1). The switch was canceled.
 
- I am still logged in with the original account; not a single byte of the login credentials on the disk has been changed.</translation>
+The current account’s sign-in credentials are still available.</translation>
         </message>
         <message>
             <source>切换离线账号时清除当前登录信息失败：</source>
-            <translation>Failed to switch to offline account (clear activity slot):</translation>
+            <translation>Failed to clear sign-in information while switching to an offline account:</translation>
         </message>
         <message>
             <source>无法清除当前登录信息（%1），已取消切换。
 
 请重试。若仍失败，请检查启动器设置的写入权限。</source>
-            <translation>The currently logged-in status could not be cleared from the disk (%1), so I did not switch to it this time. 
+            <translation>Could not clear sign-in information (%1). The switch was canceled.
 
-Click it again and try; if it still doesn’t work, it may be that the launcher configuration on this machine cannot be written.</translation>
+Try again. If the problem persists, check whether the launcher can write to its settings.</translation>
         </message>
         <message>
             <source>未能保存当前账号设置（%1）。</source>
-            <translation>Failed to write "current account" to disk (%1).</translation>
+            <translation>Failed to save current account settings (%1).</translation>
         </message>
         <message>
             <source>切换离线账号时保存设置失败：</source>
-            <translation>Failed to switch to offline account (write QSettings):</translation>
+            <translation>Failed to save settings while switching to an offline account:</translation>
         </message>
         <message>
             <source>账号已添加到列表。%1
@@ -200,65 +200,67 @@ Click it again and try; if it still doesn’t work, it may be that the launcher 
         </message>
         <message>
             <source>未找到可保存的登录凭据。</source>
-            <translation>There are no login credentials to save on disk.</translation>
+            <translation>No sign-in credentials are available to save.</translation>
         </message>
         <message>
             <source>微软登录凭据不完整，无法保存该账号。</source>
-            <translation>The Microsoft token is incomplete and the login credentials cannot be saved.</translation>
+            <translation>This account could not be saved because its Microsoft sign-in credentials are incomplete.</translation>
         </message>
         <message>
             <source>保存当前账号设置失败：</source>
-            <translation>The current account cannot be remembered (QSettings status is abnormal):</translation>
+            <translation>Failed to save current account settings:</translation>
         </message>
         <message>
             <source>此账号不在已保存的账号列表中。</source>
-            <translation>This account is not in the saved list.</translation>
+            <translation>This account is not in the saved account list.</translation>
         </message>
         <message>
             <source>此账号的登录凭据不完整，请重新登录。</source>
-            <translation>The saved login credentials for this account are incomplete, please log in again.</translation>
+            <translation>This account’s sign-in credentials are incomplete. Sign in again.</translation>
         </message>
         <message>
             <source>切换账号时无法保存新凭据，也未能恢复原账号的凭据（%1）。
 
 请在此设备上重新登录。</source>
-            <translation>When switching accounts, I failed to write down the new activation token, and the original refresh token cannot be put back (%1). 
+            <translation>Could not save the new account’s credentials or restore the previous account’s credentials (%1).
 
-The current login status on the disk does not match. Please log in again on this machine.</translation>
+Sign in again on this device.</translation>
         </message>
         <message>
             <source>
 
 已恢复原账号及其登录状态。</source>
-            <translation>Has been returned to the original account, and the login status on the disk has not changed.</translation>
+            <translation>
+
+The previous account and its sign-in session were restored.</translation>
         </message>
         <message>
             <source>已移除当前账号，清除登录信息失败：</source>
-            <translation>After deleting the current account, the login status on the disk cannot be cleared:</translation>
+            <translation>Removed the current account but could not clear its sign-in information:</translation>
         </message>
         <message>
             <source>账号已从列表移除，但未能清除登录信息（%1）。
 
 请选择「退出登录」重试。</source>
-            <translation>The account has been deleted from the list, but the login status on the disk has not been cleared (%1). 
+            <translation>The account was removed from the list, but its sign-in information could not be cleared (%1).
 
-Delete it again and it will no longer exist (it is no longer in the list); click "Logout" once to clear them.</translation>
+Select “Log out” to try again.</translation>
         </message>
         <message>
             <source>已移除当前账号并清除其登录信息。</source>
-            <translation>The current account has been deleted and the login status on the disk has been cleared.</translation>
+            <translation>Removed the current account and cleared its sign-in information.</translation>
         </message>
         <message>
             <source>退出登录前，保存当前账号失败：</source>
-            <translation>Before logging out, the current account could not be included in the list:</translation>
+            <translation>Failed to save the current account before logging out:</translation>
         </message>
         <message>
             <source>退出登录时清除登录信息失败：</source>
-            <translation>Log out: The login status on the disk cannot be cleared:</translation>
+            <translation>Failed to clear sign-in information while logging out:</translation>
         </message>
         <message>
             <source>已退出登录，账号仍保存在列表中。</source>
-            <translation>Logged out (the account remains in the saved list).</translation>
+            <translation>Logged out. The account is still in the saved list.</translation>
         </message>
         <message>
             <source>离线账号名称不能为空。</source>
@@ -277,7 +279,7 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         <name>ActivityCenterController</name>
         <message>
             <source>等待执行；可拖动手柄调整同队列内的顺序。</source>
-            <translation>Waiting for execution; drag the handle to adjust the order within the same queue.</translation>
+            <translation>Waiting to start. Drag the handle to reorder tasks in this queue.</translation>
         </message>
         <message>
             <source>已下载 %1 / %2</source>
@@ -285,7 +287,7 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>当前步骤无法安全中止。请在此步骤完成后取消。</source>
-            <translation>You cannot stop the current step (stopping will leave a semi-finished product), wait until it completes this section before canceling it.</translation>
+            <translation>This step cannot be stopped safely. Wait for it to finish before canceling.</translation>
         </message>
         <message>
             <source>游戏进程启动后可取消此任务。</source>
@@ -293,23 +295,23 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>导出正在生成压缩包。为避免留下不完整的文件，压缩阶段无法取消。</source>
-            <translation>The export will package the organized files into a compressed package, and stopping midway will leave an incomplete package; this option does not support cancellation.</translation>
+            <translation>The export is creating an archive. Canceling is disabled during compression to avoid leaving an incomplete file.</translation>
         </message>
         <message>
             <source>这一项正在发布结果，发布过程中不能取消。</source>
-            <translation>The results of this item are being published and cannot be canceled during the publishing process.</translation>
+            <translation>Publishing results. This task cannot be canceled during publication.</translation>
         </message>
         <message>
             <source>正在准备 Java 运行环境，完成后会自动继续；这一项不支持取消。</source>
-            <translation>The Java runtime environment is being prepared and will continue automatically after completion; this item does not support cancellation.</translation>
+            <translation>Preparing the Java runtime. The task will resume automatically when Java is ready. Canceling is unavailable during setup.</translation>
         </message>
         <message>
             <source>完整性检查在后台只读扫描，不会改动任何文件；它停不了，跑完会统一报结果。</source>
-            <translation>The integrity check is a read-only scan in the background and will not change any files; it cannot be stopped and the results will be reported uniformly after running.</translation>
+            <translation>The integrity check scans files in the background without modifying them. It cannot be canceled. Results will appear when the scan finishes.</translation>
         </message>
         <message>
             <source>网络请求已中止</source>
-            <translation>Network request canceled</translation>
+            <translation>Network request aborted</translation>
         </message>
     </context>
     <context>
@@ -324,7 +326,7 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>整页查看：筛选、搜索、历史与详情</source>
-            <translation>Full page view: filter, search, history and details</translation>
+            <translation>Open the task center to filter, search, or view task history and details</translation>
         </message>
         <message>
             <source>暂无进行中的任务</source>
@@ -336,7 +338,7 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>第 %1 个</source>
-            <translation>%1th</translation>
+            <translation>Position %1</translation>
         </message>
         <message>
             <source>上移</source>
@@ -364,14 +366,14 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>重试</source>
-            <translation>Try again</translation>
+            <translation>Retry</translation>
         </message>
     </context>
     <context>
         <name>AgentApprovalCard</name>
         <message>
             <source>本会话允许此目录</source>
-            <translation>Allow this folder for this session</translation>
+            <translation>Allow this directory for this session</translation>
         </message>
         <message>
             <source>允许本次</source>
@@ -379,7 +381,7 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>拒绝</source>
-            <translation>Deny</translation>
+            <translation>Reject</translation>
         </message>
         <message>
             <source>需要确认：%1</source>
@@ -485,19 +487,19 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>文件正在提交，无法安全停止，暂不删除会话。</source>
-            <translation>The file is being submitted and cannot be stopped safely. The session will not be deleted yet.</translation>
+            <translation>File changes are being saved and cannot be stopped safely. Wait for them to finish before deleting the session.</translation>
         </message>
         <message>
             <source>本会话已加密存储（绑定当前 Windows 用户）</source>
-            <translation>This session is stored encrypted (bound to the current Windows user)</translation>
+            <translation>This session is encrypted with the current Windows account.</translation>
         </message>
         <message>
             <source>此会话改为明文存储</source>
-            <translation>This session has been changed back to clear text storage</translation>
+            <translation>This session is now stored in plain text.</translation>
         </message>
         <message>
             <source>先新建会话再使用文件工具。</source>
-            <translation>Create a new session first and then use the file tool.</translation>
+            <translation>Create a new session before using the file tool.</translation>
         </message>
         <message>
             <source>NeedsInstanceLock：先在主页选择一个实例；不会自动挑一个。</source>
@@ -545,11 +547,11 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>本会话已关联实例：%1</source>
-            <translation>This session has associated instances: %1</translation>
+            <translation>This session is linked to %1.</translation>
         </message>
         <message>
             <source>本会话改为跟随主页实例</source>
-            <translation>This session is changed to follow the home page instance</translation>
+            <translation>This session now follows the instance selected on the home page.</translation>
         </message>
         <message>
             <source>导出失败</source>
@@ -565,7 +567,7 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>无法写入 %1：%2。请换一个位置再试。</source>
-            <translation>Unable to write to %1: %2. Please try again in a different position.</translation>
+            <translation>Could not write to %1 (%2). Try a different location.</translation>
         </message>
         <message>
             <source>会话已导出：%1</source>
@@ -585,7 +587,7 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>没有可用的 API Key；先填写或保存后再测试。</source>
-            <translation>No API Key available; fill it out or save before testing.</translation>
+            <translation>Enter or save an API key before testing the connection.</translation>
         </message>
         <message>
             <source>正在测试连接…</source>
@@ -597,7 +599,7 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>将删除此模型配置及其 API 密钥，保留会话记录。确认删除？</source>
-            <translation>This model configuration and its saved API keys will be deleted. The session itself is preserved. Are you sure?</translation>
+            <translation>Delete this model configuration and its saved API keys? Your conversation history will be kept.</translation>
         </message>
         <message>
             <source>配置已删除。</source>
@@ -636,7 +638,7 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>等待工具…</source>
-            <translation>Waiting for tool…</translation>
+            <translation>Waiting for tools…</translation>
         </message>
         <message>
             <source>等待确认…</source>
@@ -655,7 +657,7 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>搜索会话</source>
-            <translation>Search session</translation>
+            <translation>Search sessions</translation>
         </message>
         <message>
             <source>新对话</source>
@@ -671,7 +673,7 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>实例</source>
-            <translation>Example</translation>
+            <translation>Instance</translation>
         </message>
         <message>
             <source>选择本会话关联的实例</source>
@@ -695,7 +697,7 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>固定</source>
-            <translation>Fixed</translation>
+            <translation>Pin</translation>
         </message>
         <message>
             <source>加密存储</source>
@@ -715,11 +717,11 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>配置 API</source>
-            <translation>Configuration API</translation>
+            <translation>Configure API</translation>
         </message>
         <message>
             <source>Enter 发送 · Shift+Enter 换行</source>
-            <translation>Enter to send · Shift+Enter to wrap</translation>
+            <translation>Enter to send · Shift+Enter for a new line</translation>
         </message>
         <message>
             <source>发送</source>
@@ -731,19 +733,19 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>刚刚</source>
-            <translation>Just</translation>
+            <translation>Just now</translation>
         </message>
         <message>
             <source>%1 分钟前</source>
-            <translation>%1 minutes ago</translation>
+            <translation>%1 min ago</translation>
         </message>
         <message>
             <source>%1 小时前</source>
-            <translation>%1 hours ago</translation>
+            <translation>%1 hr ago</translation>
         </message>
         <message>
             <source>%1 天前</source>
-            <translation>%1 days ago</translation>
+            <translation>%1 d ago</translation>
         </message>
         <message>
             <source>今天</source>
@@ -779,7 +781,7 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>可查看关联实例的文件；写入文件前会先征得确认。</source>
-            <translation>Files associated with the instance can be viewed; confirmation is sought before writing to the file.</translation>
+            <translation>The assistant can read files in the linked instance and will ask before writing to them.</translation>
         </message>
         <message>
             <source>填写服务地址和密钥后即可开始对话。</source>
@@ -787,7 +789,7 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>配置 API 后可输入</source>
-            <translation>After configuring the API, you can enter</translation>
+            <translation>Configure the API to start chatting</translation>
         </message>
         <message>
             <source>描述遇到的问题…</source>
@@ -795,7 +797,7 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>继续追问…</source>
-            <translation>Keep asking...</translation>
+            <translation>Ask a follow-up…</translation>
         </message>
         <message>
             <source>会话标题</source>
@@ -921,7 +923,7 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>等待超时</source>
-            <translation>Wait timeout</translation>
+            <translation>Request timeout</translation>
         </message>
         <message>
             <source>连接</source>
@@ -933,7 +935,7 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>本机服务</source>
-            <translation>Native service</translation>
+            <translation>Local service</translation>
         </message>
         <message>
             <source>服务在哪</source>
@@ -1001,7 +1003,7 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>流式输出（SSE）。服务不支持时关掉。</source>
-            <translation>Streaming output (SSE). Shut down the service if it is not supported.</translation>
+            <translation>Stream responses as they are generated. Turn this off if the service does not support SSE.</translation>
         </message>
         <message>
             <source>输出上限字段</source>
@@ -1049,7 +1051,7 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>当前配置</source>
-            <translation>This configuration</translation>
+            <translation>Current configuration</translation>
         </message>
         <message>
             <source>删除</source>
@@ -1061,7 +1063,7 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>连同已存的密钥一起删掉；会话记录保留。</source>
-            <translation>Deleted together with existing keys; session records retained.</translation>
+            <translation>Deletes the saved keys for this configuration and keeps your conversation history.</translation>
         </message>
         <message>
             <source>测试连接</source>
@@ -1117,11 +1119,11 @@ Delete it again and it will no longer exist (it is no longer in the list); click
         </message>
         <message>
             <source>已加密保存在本机，只有当前 Windows 账户能读；不会显示出来。</source>
-            <translation>It is encrypted and saved locally and can only be read by the current Windows account; it will not be displayed.</translation>
+            <translation>Stored locally with encryption. Only the current Windows account can read it. The key stays hidden.</translation>
         </message>
         <message>
             <source>已保存在 Windows 凭据管理器，只有当前账户能读；不会显示出来。</source>
-            <translation>Saved in Windows Credential Manager, only the current account can read it; it will not be displayed.</translation>
+            <translation>Saved in Windows Credential Manager. Only the current account can read it. The key stays hidden.</translation>
         </message>
     </context>
     <context>
