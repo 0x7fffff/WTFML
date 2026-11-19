@@ -191,6 +191,70 @@ int UiGameLogActionsChecks(QFrame * &bar) {
             delete log;  // 上面已经红好几条了，这里只负责别漏内存
         }
     }
+    {
+        // ---- 文件查看器：同一个窗，内容来自盘上的一份文件 ----
+        auto *viewer = new GameLogWindow(QString());
+        QPointer<GameLogWindow> guard(viewer);
+        viewer->beginFile(QStringLiteral("C:/logs/2026-11-18-1.log.gz"));
+        viewer->show();
+        QApplication::processEvents();
+        check(viewer->isFileViewer() && viewer->windowTitle().contains(QStringLiteral("2026-11-18-1.log.gz")),
+              "Z9a 查看器的窗口标题写文件名", viewer->windowTitle());
+        const auto *instanceLabel = viewer->findChild<QLabel *>(QStringLiteral("gameLogTitleInstance"));
+        check(instanceLabel != nullptr && instanceLabel->isVisible()
+                  && instanceLabel->text() == QStringLiteral("2026-11-18-1.log.gz"),
+              "Z9b 标题条上也写文件名");
+        const auto *badge = viewer->findChild<QLabel *>(QStringLiteral("gameLogStateBadge"));
+        check(badge != nullptr && !badge->isVisible(), "Z9c 已结束的文件不显示运行状态");
+        check(viewer->externalOpenAction()->isVisible() && !viewer->exportReportAction()->isVisible()
+                  && !viewer->clearAction()->isVisible(),
+              "Z9d 菜单里有「用外部程序打开」，没有错误报告与清空");
+        QString externalPath;
+        QObject::connect(viewer, &GameLogWindow::openExternalRequested, viewer,
+                         [&externalPath](const QString &path) { externalPath = path; });
+        viewer->externalOpenAction()->trigger();
+        check(externalPath == QStringLiteral("C:/logs/2026-11-18-1.log.gz"), "Z9e 「用外部程序打开」带出文件路径");
+
+        // 30000 行（超过模型默认的 20000）：默认只显示末尾，模型留着全部，切到「全部」分批摆完
+        QStringList lines;
+        for (int i = 0; i < 30000; ++i) lines << QStringLiteral("[12:00:00] [main/INFO]: line %1").arg(i);
+        viewer->setFileLines(lines, 0);
+        QApplication::processEvents();
+        check(viewer->lineCount() == 30000 && viewer->droppedLineCount() == 0,
+              "Z9f 超过 20000 行也整份留在模型里，没有被挤掉", QString::number(viewer->lineCount()));
+        check(viewer->displayLineLimit() == GameLogWindow::fileTailLines(), "Z9g 超长日志默认只显示末尾");
+        check(viewer->getLogView()->toPlainText().trimmed().endsWith(QStringLiteral("line 29999"))
+                  && !viewer->getLogView()->toPlainText().contains(QStringLiteral("line 24999\n")),
+              "Z9h 默认视图是末尾 5000 行");
+        viewer->setDisplayLineLimit(0);
+        check(viewer->fileBatchPending() || viewer->getLogView()->blockCount() > 1,
+              "Z9i 切到「全部」后开始上屏");
+        QElapsedTimer waited;
+        waited.start();
+        while (viewer->fileBatchPending() && waited.elapsed() < 20000) QApplication::processEvents(QEventLoop::AllEvents, 20);
+        check(!viewer->fileBatchPending() && viewer->getLogView()->blockCount() == 30001,
+              "Z9j 「全部」分批摆完：30000 行 + 光标行", QString::number(viewer->getLogView()->blockCount()));
+        check(viewer->getLogView()->toPlainText().startsWith(QStringLiteral("[12:00:00] [main/INFO]: line 0\n")),
+              "Z9k 全部显示时从第一行开始");
+        viewer->setLevelVisible(GameLogWindow::LogLevel::Info, false);
+        check(viewer->getLogView()->blockCount() <= 1, "Z9l 关掉 INFO 后视图里没有 INFO 行");
+        viewer->setLevelVisible(GameLogWindow::LogLevel::Info, true);
+        check(viewer->fileBatchPending(), "Z9m 筛选触发重画时同样分批（不一次摆几万行）");
+        while (viewer->fileBatchPending() && waited.elapsed() < 40000) QApplication::processEvents(QEventLoop::AllEvents, 20);
+        check(viewer->getLogView()->blockCount() == 30001, "Z9n 重画摆完后内容完整");
+
+        // 不超长的文件：默认就是全部
+        viewer->setFileLines(lines.mid(0, 300), 0);
+        check(viewer->displayLineLimit() == 0 && viewer->lineCount() == 300, "Z9o 短日志默认显示全部");
+        viewer->setFileLines(lines.mid(0, 10), 1024);
+        check(viewer->getHintLabel()->text().contains(QStringLiteral("只读取了末尾")), "Z9p 文件被截过头时说明里写明");
+        viewer->setFileProblem(QStringLiteral("解不开"));
+        check(viewer->lineCount() == 0 && viewer->getLogView()->placeholderText() == QStringLiteral("解不开"),
+              "Z9q 读失败时正文写原因");
+        viewer->close();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        check(guard.isNull(), "Z9r 关掉查看器即销毁");
+    }
     return 0;
 }
 

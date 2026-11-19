@@ -2,6 +2,7 @@
 
 #include <QHash>
 #include <QObject>
+#include <QPointer>
 #include <QProcess>
 #include <QRect>
 #include <QSet>
@@ -145,6 +146,11 @@ public:
     /// 关掉启动器之后屏幕上会留着几扇无主的日志窗。
     void closeAllGameLogWindows();
 
+    /// 在内置查看器里打开一份日志文件（`.log` / `.txt` / `.log.gz`，认 gzip 头）。
+    /// 读盘与解压在工作线程；同一路径已经开着就抬到前面。和游戏会话无关，
+    /// 窗同样没有父窗口，`closeAllGameLogWindows()` 一并收掉。
+    void openLogFile(const QString &path);
+
     /// 「收起启动器，游戏退出后回来」那一档：窗口是为**启动游戏**才藏起来的。
     /// 只有它被记下来，游戏退出时才会把窗口叫回来 —— 用户自己最小化、自己收起来的不算。
     void noteHiddenForGame() { m_hiddenForGame = true; }
@@ -235,6 +241,8 @@ private:
     /// 存裸指针却在别处直接用：除了 showGameLogLine() 和 onGameFinished()，
     /// 没有第三处读它。
     QHash<int, GameLogWindow *> m_gameLogWindows;
+    /// 文件查看器（路径 → 窗）。窗关掉即销毁，QPointer 自己变空。
+    QHash<QString, QPointer<GameLogWindow>> m_logFileWindows;
     /// 用户**手动关掉过**日志窗的那几份会话。关掉之后这一份不再自动开新窗 ——
     /// "我刚把它关了、下一行输出又给我弹回来"是这类窗最招人烦的失败模式。
     /// 会话结束（onGameFinished）时清掉：下一份游戏是另一回事。

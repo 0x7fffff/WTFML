@@ -8,6 +8,8 @@
 #include <qt_windows.h>  // T20.13：占住一份假截图（允许读写共享、不允许删除共享）
 #endif
 #include "controllers/InstanceFileController.hpp"
+#include "controllers/InstancePagesController.hpp"
+#include "GameLogWindow.hpp"
 void runInstanceFilesPagesTests() {
     const QString originalDir = AppPaths::minecraftDir();
     QTemporaryDir root;
@@ -1721,6 +1723,125 @@ void runInstanceFilesPagesTests() {
             check(replayRowText.contains(QStringLiteral(" / ")),
                   "★ T20.12 列表行第二行是「时间 / 大小」那一条细节（不只是时间戳）",
                   replayRowText);
+        }
+
+        // ---------- ⑦.8 日志页：单击出信息（行数在后台数）、双击在内置查看器里打开 ----------
+        {
+            const QString logsDir = InstancePagesController::fileDirs(idV).value(QStringLiteral("logs"));
+            QDir().mkpath(logsDir);
+            QByteArray latest;
+            for (int i = 0; i < 6000; ++i)
+                latest += "[12:00:00] [main/INFO]: 第 " + QByteArray::number(i) + " 行日志"
+                          + QByteArray(i % 50 == 0 ? " [main/WARN]" : "") + QByteArray(1, 10);
+            writeFileAt(logsDir + QStringLiteral("/latest.log"), latest);
+            QByteArray oldBody;
+            for (int i = 0; i < 300; ++i)
+                oldBody += "[11:00:00] [main/INFO]: 旧日志第 " + QByteArray::number(i) + " 行" + QByteArray(1, 10);
+            const QString oldPlain = dirV + QStringLiteral("/old-log-source.txt");
+            writeFileAt(oldPlain, oldBody);
+            const QString gzPath = logsDir + QStringLiteral("/2026-11-18-1.log.gz");
+            QString gzWhy;
+            const bool gzBuilt = ZipUtil::gzipFrom(oldPlain, gzPath, &gzWhy);
+            check(gzBuilt, "★ T20.13b 造一份 .log.gz", gzWhy);
+
+            QString infoText, infoTip;
+            bool pendingSeen = false;
+            bool viewerFound = false;
+            QString viewerTitle, viewerLast;
+            int viewerLines = -1;
+            QString latestViewerTitle;
+            int latestLimit = -1, latestLines = -1;
+            QTimer::singleShot(0, [&] {
+                OverlayHost *host = currentPageOverlay();
+                auto *page = host != nullptr ? host->findChild<InstanceSettingsDialog *>() : nullptr;
+                if (page == nullptr) return;
+                page->showPage(QStringLiteral("logs"));
+                QApplication::processEvents();
+                auto *list = page->findChild<QListWidget *>(QStringLiteral("instanceLifecycleFiles_logs"));
+                QLabel *info = page->findChild<QLabel *>(
+                    InstanceSettingsDialog::lifecycleInfoLabelName(QStringLiteral("logs")));
+                if (list == nullptr || info == nullptr) return;
+                const auto itemFor = [list](const QString &name) -> QListWidgetItem * {
+                    for (int i = 0; i < list->count(); ++i)
+                        if (list->item(i)->data(Qt::UserRole).toString().endsWith(name)) return list->item(i);
+                    return nullptr;
+                };
+                const auto waitUntil = [](const std::function<bool()> &done, int ms) {
+                    QElapsedTimer timer;
+                    timer.start();
+                    while (timer.elapsed() < ms && !done()) {
+                        QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+                        QThread::msleep(5);
+                    }
+                };
+                // 单击 gz：先是「正在读取…」，后台解压数完后补成「300 行」
+                QListWidgetItem *gzItem = itemFor(QStringLiteral("2026-11-18-1.log.gz"));
+                QListWidgetItem *latestItem = itemFor(QStringLiteral("latest.log"));
+                if (gzItem == nullptr || latestItem == nullptr) return;
+                list->setCurrentItem(gzItem);
+                gzItem->setSelected(true);
+                QApplication::processEvents();
+                pendingSeen = info->isVisible() && info->text() == InstanceSettingsDialog::lifecycleInfoPendingText();
+                waitUntil([&] { return info->text().contains(QStringLiteral("300 行")); }, 15000);
+                infoText = info->text();
+                infoTip = info->toolTip();
+                // 双击 gz：内置查看器
+                emit list->itemActivated(gzItem);
+                GameLogWindow *viewer = nullptr;
+                const auto findViewer = [&](const QString &name) {
+                    for (QWidget *top : QApplication::topLevelWidgets())
+                        if (auto *candidate = qobject_cast<GameLogWindow *>(top))
+                            if (candidate->isFileViewer() && candidate->filePath().endsWith(name)) return candidate;
+                    return static_cast<GameLogWindow *>(nullptr);
+                };
+                waitUntil([&] {
+                    viewer = findViewer(QStringLiteral("2026-11-18-1.log.gz"));
+                    return viewer != nullptr && viewer->lineCount() > 0;
+                }, 20000);
+                viewerFound = viewer != nullptr;
+                if (viewer != nullptr) {
+                    viewerTitle = viewer->windowTitle();
+                    viewerLines = viewer->lineCount();
+                    viewerLast = viewer->allLogText().trimmed().section(QLatin1Char(10), -1);
+                    viewer->close();
+                }
+                // 双击 latest.log：6000 行 > 默认末尾 5000
+                list->clearSelection();
+                emit list->itemActivated(latestItem);
+                GameLogWindow *latestViewer = nullptr;
+                waitUntil([&] {
+                    latestViewer = findViewer(QStringLiteral("latest.log"));
+                    return latestViewer != nullptr && latestViewer->lineCount() > 0;
+                }, 20000);
+                if (latestViewer != nullptr) {
+                    latestViewerTitle = latestViewer->windowTitle();
+                    latestLimit = latestViewer->displayLineLimit();
+                    latestLines = latestViewer->lineCount();
+                    latestViewer->close();
+                }
+                QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+                if (auto *back = host->findChild<QPushButton *>(OverlayHost::overlayBackButtonName())) {
+                    back->click();
+                } else if (host->pageOpen()) {
+                    host->closeOverlay();
+                }
+            });
+            QMetaObject::invokeMethod(&w, "openInstanceSettings", Qt::DirectConnection, Q_ARG(QString, idV));
+            QApplication::processEvents();
+
+            check(pendingSeen, "★ T20.13b 单击一份日志 ⇒ 立即写「正在读取…」");
+            check(infoText.contains(QStringLiteral("2026-11-18-1.log.gz")) && infoText.contains(QStringLiteral("300 行")),
+                  "★★ T20.13b 后台解压并数完行数后，信息栏补上文件名与行数", infoText);
+            check(infoTip.contains(QStringLiteral("2026-11-18-1.log.gz")), "★ T20.13b 悬停提示是完整路径", infoTip);
+            check(viewerFound && viewerTitle.contains(QStringLiteral("2026-11-18-1.log.gz")),
+                  "★★ T20.13b 双击 .log.gz 在内置查看器里打开，标题是文件名", viewerTitle);
+            check(viewerLines == 300 && viewerLast == QStringLiteral("[11:00:00] [main/INFO]: 旧日志第 299 行"),
+                  "★★ T20.13b .log.gz 解压后整份显示（300 行，末行是最后一行）",
+                  QString::number(viewerLines) + QStringLiteral(" / ") + viewerLast);
+            check(latestViewerTitle.contains(QStringLiteral("latest.log")) && latestLines == 6000
+                      && latestLimit == GameLogWindow::fileTailLines(),
+                  "★★ T20.13b 6000 行的 latest.log 全部读进模型，默认只显示末尾",
+                  QString::number(latestLines) + QStringLiteral(" / ") + QString::number(latestLimit));
         }
 
         // `instanceDiagnosisReport` 里那份字是 `InstanceDialogController` 把实例 / Java /

@@ -14,9 +14,20 @@
 #include "settings/LauncherSettings.hpp"
 #include "tasks/TaskManager.hpp"
 
+#include "util/LogFileReader.hpp"
+
 #include <QDateTime>
+#include <QDesktopServices>
+#include <QDir>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QFutureWatcher>
 #include <QGuiApplication>
+#include <QSaveFile>
 #include <QScreen>
+#include <QStandardPaths>
+#include <QUrl>
+#include <QtConcurrent>
 
 namespace {
 QString sessionLogTag(const LauncherManager::GameSession &game) {
@@ -59,6 +70,72 @@ void GameSessionController::closeAllGameLogWindows() {
     for (GameLogWindow *window : logWindows) {
         delete window;
     }
+    const auto fileWindows = m_logFileWindows.values();
+    m_logFileWindows.clear();
+    for (const QPointer<GameLogWindow> &window : fileWindows) {
+        delete window.data();
+    }
+}
+
+void GameSessionController::openLogFile(const QString &path) {
+    if (GameLogWindow *open = m_logFileWindows.value(path).data()) {
+        open->showNormal();
+        open->raise();
+        open->activateWindow();
+        return;
+    }
+    // 父窗口传 nullptr：理由同 ensureGameLogWindow()。
+    auto *window = new GameLogWindow(QString(), nullptr);
+    window->beginFile(path);
+    m_logFileWindows.insert(path, window);
+    const int cascade = m_logFileWindows.size() - 1;
+    // 读盘 + gzip 解压（起 PowerShell）都在工作线程；窗在读的时候被关掉就丢弃结果。
+    auto *watcher = new QFutureWatcher<LogFileReader::Loaded>(window);
+    connect(watcher, &QFutureWatcher<LogFileReader::Loaded>::finished, window, [window, watcher] {
+        const LogFileReader::Loaded loaded = watcher->result();
+        if (loaded.ok) {
+            window->setFileLines(loaded.lines, loaded.cutHead);
+        } else {
+            window->setFileProblem(loaded.problem);
+        }
+    });
+    watcher->setFuture(QtConcurrent::run([path] { return LogFileReader::load(path); }));
+    connect(window, &GameLogWindow::openExternalRequested, this, [this](const QString &file) {
+        if (!QFileInfo(file).isFile() || !QDesktopServices::openUrl(QUrl::fromLocalFile(file))) {
+            InlineMessage::warning(m_ui->overlay(), tr("打开文件"),
+                                   tr("无法打开文件：%1").arg(QDir::toNativeSeparators(file)));
+        }
+    });
+    connect(window, &GameLogWindow::exportLogRequested, window, [this, window, path] {
+        // 先取文本再弹框：保存框是嵌套事件循环，期间窗可能被关掉。
+        const QString text = window->allLogText();
+        QString name = QFileInfo(path).fileName();
+        if (name.endsWith(QStringLiteral(".gz"), Qt::CaseInsensitive)) name.chop(3);
+        if (!name.endsWith(QStringLiteral(".txt"), Qt::CaseInsensitive)
+            && !name.endsWith(QStringLiteral(".log"), Qt::CaseInsensitive))
+            name += QStringLiteral(".txt");
+        const QString suggested = QDir(QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation))
+                                      .filePath(name);
+        const QString target = QFileDialog::getSaveFileName(
+            window, tr("导出日志"), suggested, tr("文本文件 (*.log *.txt);;所有文件 (*)"));
+        if (target.isEmpty()) return;
+        const QByteArray bytes = text.toUtf8();
+        QSaveFile file(target);
+        const bool ok = file.open(QIODevice::WriteOnly | QIODevice::Truncate)
+                        && file.write(bytes) == bytes.size() && file.commit();
+        if (!ok) {
+            InlineMessage::warning(m_ui->overlay(), tr("导出失败"),
+                                   tr("这个文件没能写出来（%1）：\n%2")
+                                       .arg(QDir::toNativeSeparators(target), file.errorString()));
+        }
+    });
+    const QRect frame = m_host.launcherFrame();
+    const QScreen *screen = QGuiApplication::screenAt(frame.center());
+    if (screen == nullptr) screen = QGuiApplication::primaryScreen();
+    if (screen != nullptr) {
+        window->move(GameLogWindow::placementFor(frame, window->size(), screen->availableGeometry(), cascade));
+    }
+    window->show();
 }
 
 void GameSessionController::onProcessOutput(int sessionId, const QString &rawText) {

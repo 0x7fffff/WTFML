@@ -232,6 +232,8 @@ set(HEADER_FILES
     # Replay 录像（`.mcpr`）的元数据：
     # 只读 zip 里的 metaData.json，不读那份几百 MB 的 recording.tmcpr。
     src/replay/ReplayInfo.hpp
+    # 日志文件（含 .log.gz）的读行与数行，给内置日志查看器用。
+    src/util/LogFileReader.hpp
     # 启动诊断：
     # 版本 / 加载器 / Java / 内存 / 模组 / 日志 / 崩溃报告，只读盘、只算。
     src/diagnose/StartupDiagnosis.hpp
@@ -557,6 +559,7 @@ set(SOURCE_FILES
     src/schematic/SchematicInfo.cpp
     # Replay 录像的元数据。
     src/replay/ReplayInfo.cpp
+    src/util/LogFileReader.cpp
     # 启动诊断。
     src/diagnose/StartupDiagnosis.cpp
     # 迁移 / 升级副本。

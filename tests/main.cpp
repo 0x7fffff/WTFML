@@ -1956,6 +1956,10 @@ runReplayInfoTests();
 #endif
 
 #ifndef WTFML_CORE_BASELINE
+runLogFileReaderTests();
+#endif
+
+#ifndef WTFML_CORE_BASELINE
 runStartupDiagnosisTests();
 #endif
 

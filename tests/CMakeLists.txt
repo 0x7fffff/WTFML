@@ -363,6 +363,9 @@ set(PROJECT_SOURCES
     # 少了 metaData.json 各一路）。
     ${REPO_ROOT}/src/replay/ReplayInfo.cpp
     ${REPO_ROOT}/src/replay/ReplayInfo.hpp
+    # 日志文件读行 / 数行（含 gzip）。
+    ${REPO_ROOT}/src/util/LogFileReader.cpp
+    ${REPO_ROOT}/src/util/LogFileReader.hpp
     # 启动诊断。`verify` 的 **DX** 一节造临时
     # mods/日志/崩溃报告，逐条念「问题 / 提醒 / 信息」的判据。
     ${REPO_ROOT}/src/diagnose/StartupDiagnosis.cpp

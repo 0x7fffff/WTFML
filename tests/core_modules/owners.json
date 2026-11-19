@@ -101,6 +101,7 @@
   "AnvilPlannerTests.cpp": "toolbox",
   "SchematicInfoTests.cpp": "toolbox",
   "ReplayInfoTests.cpp": "toolbox",
+  "LogFileReaderTests.cpp": "toolbox",
   "LongPathTests.cpp": "instances",
   "ModpackExportFormatTests.cpp": "resources",
   "ModpackExportLookupTests.cpp": "resources",
