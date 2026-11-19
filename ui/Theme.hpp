@@ -429,7 +429,7 @@ QPalette selectionPalette(const QPalette &palette, bool selected);
  * 少染一颗只是那颗按钮朴素一点。
  */
 enum class ButtonKind {
-    Accent,   ///< 确认性：淡主题色底 + 主题色文字（**默认**，不挂属性）
+    Accent,   ///< 确认性（**默认**，不挂属性）：现行样式表里与 Neutral 画法相同，底取调色板 button，字为正文色
     Primary,  ///< 页面唯一主动作：主题色实底 + 白字（例如主页的「启动游戏」）
     Neutral,  ///< 一般性：浅中性色底 + 深色文字，默认不画边
     Ghost,    ///< 低频辅助：没有底、没有边，只有字（边留成透明的 1px，**几何不变**）

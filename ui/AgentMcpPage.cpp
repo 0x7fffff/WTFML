@@ -5,6 +5,7 @@
 
 #include "AgentMcpPage.hpp"
 
+#include "ChromeDialog.hpp"
 #include "Theme.hpp"
 
 #include <QCheckBox>
@@ -210,10 +211,12 @@ void AgentMcpPage::rebuild() {
 bool AgentMcpPage::editDraft(QWidget *parent, const QString &title,
                              AgentView::McpServerDraft *draft) {
     if (draft == nullptr) return false;
-    QDialog dialog(parent);
+    ChromeDialog dialog(parent);
+    dialog.setObjectName(QStringLiteral("agentMcpEditDialog"));
     dialog.setWindowTitle(title);
     dialog.setModal(true);
-    auto *layout = new QVBoxLayout(&dialog);
+    dialog.resize(600, 420);
+    auto *layout = new QVBoxLayout(dialog.body());
     auto *form = new QFormLayout;
     auto *name = new QLineEdit(draft->name, &dialog);
     name->setObjectName(QStringLiteral("agentMcpNameEdit"));
