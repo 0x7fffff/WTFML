@@ -9,6 +9,7 @@
 #include "AgentMarkdown.hpp"
 #include "AgentComposer.hpp"
 #include "AgentMessageView.hpp"
+#include "AgentMcpPage.hpp"
 #include "AgentPage.hpp"
 #include "AgentSecretEdit.hpp"
 #include "AgentApprovalCard.hpp"
@@ -381,6 +382,54 @@ int UiAgentCheck() {
     QApplication::processEvents();
     check(statusLabel != nullptr && !statusLabel->isVisible(),
           "智能体 UI：状态行为空时收起");
+
+    // MCP 服务器页（Stage 2A）：本机权限提示、服务器行、连接按钮、空态。
+    {
+        AgentMcpPage mcpPage;
+        AgentView::McpServerRow row;
+        row.id = QStringLiteral("srv-1");
+        row.name = QStringLiteral("测试服务器");
+        row.command = QStringLiteral("C:/Servers/mcp/server.exe");
+        row.identityShort = QStringLiteral("abcdef123456");
+        row.state = QStringLiteral("ready");
+        row.enabled = true;
+        row.toolCount = 3;
+        mcpPage.setServers({row});
+        mcpPage.show();
+        QApplication::processEvents();
+        auto *note = mcpPage.findChild<QLabel *>(QStringLiteral("agentMcpNote"));
+        check(note != nullptr && note->text().contains(QStringLiteral("Windows 用户权限")),
+              "智能体 UI：MCP 页写明本机用户权限");
+        auto *name = mcpPage.findChild<QLabel *>(QStringLiteral("agentMcpRowName"));
+        check(name != nullptr && name->text() == QStringLiteral("测试服务器"),
+              "智能体 UI：MCP 服务器行显示名称");
+        auto *identity = mcpPage.findChild<QLabel *>(QStringLiteral("agentMcpRowIdentity"));
+        check(identity != nullptr && identity->text().contains(QStringLiteral("abcdef123456")),
+              "智能体 UI：MCP 行显示可执行文件身份摘要");
+        auto *state = mcpPage.findChild<QLabel *>(QStringLiteral("agentMcpRowState"));
+        check(state != nullptr && state->text().contains(QStringLiteral("已连接")),
+              "智能体 UI：MCP 行显示连接状态与工具数");
+        check(mcpPage.findChild<QPushButton *>(QStringLiteral("agentMcpConnect_srv-1")) != nullptr &&
+                  mcpPage.findChild<QPushButton *>(QStringLiteral("agentMcpDisconnect_srv-1")) !=
+                      nullptr,
+              "智能体 UI：MCP 行有连接/断开按钮");
+        check(mcpPage.findChild<QPushButton *>(QStringLiteral("agentMcpConnect_srv-1"))
+                      ->text()
+                      .contains(QStringLiteral("重新连接")),
+              "智能体 UI：已连接时按钮写重新连接");
+        mcpPage.setServers({});
+        QApplication::processEvents();
+        check(mcpPage.findChild<QLabel *>(QStringLiteral("agentMcpEmpty"))->isVisible(),
+              "智能体 UI：没有服务器时显示空态");
+        mcpPage.close();
+    }
+    {
+        AgentSettingsPage settingsPage;
+        QApplication::processEvents();
+        check(settingsPage.findChild<QPushButton *>(QStringLiteral("agentSettingsMcpButton")) !=
+                  nullptr,
+              "智能体 UI：API 设置页有「MCP 服务器…」入口");
+    }
 
     page->showApproval(approval);
     QApplication::processEvents();

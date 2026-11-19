@@ -36,13 +36,13 @@
 
 ## 4. 智能体（Agent）
 
-现行行为见 [AGENT](features/AGENT.md)、[Stage 1A](features/AGENT_STAGE1A.md)、[Stage 1B](features/AGENT_STAGE1B.md)、[Stage 2B](features/AGENT_STAGE2B.md)，安全边界见 [SECURITY_BOUNDARIES](features/SECURITY_BOUNDARIES.md)，人工记录见 [ACCEPTANCE_LOG](archive/ACCEPTANCE_LOG.md)。
+现行行为见 [AGENT](features/AGENT.md)、[Stage 1A](features/AGENT_STAGE1A.md)、[Stage 1B](features/AGENT_STAGE1B.md)、[Stage 2B](features/AGENT_STAGE2B.md)、[Stage 2A](features/AGENT_STAGE2A.md)，安全边界见 [SECURITY_BOUNDARIES](features/SECURITY_BOUNDARIES.md)，人工记录见 [ACCEPTANCE_LOG](archive/ACCEPTANCE_LOG.md)。
 
 - [ ] **G1B 人工复测**：B1、B2、B3 已在代码里修复；复测 R1–R4、R6、R7，补做 W4/W5、A1、P4、P5，以及真实路径/junction/长路径、真实文件系统竞争/占用。P0/P1 清零前不进入 Stage 2。
 - [ ] **网络错误验收**：401/403、429、断网、流中断、重定向、TLS 证书错误、代理、400 错误体；清单见 ACCEPTANCE_LOG 的「延后：网络错误」一节。
 - [ ] **G2B 人工验收**：崩溃急救的「发现 → 计划 → 批准 → 执行 → 验证 → 回退」、计划跳步被拦、失败后锁写、备份创建/恢复、诊断字段白名单。清单见 [AGENT_STAGE2B](features/AGENT_STAGE2B.md) §6。
-- [ ] **Stage 2A（stdio MCP）**：`McpClient` / `McpManager` / `McpTrustStore`、首次启动与重连确认、可执行文件身份复核、MCP 设置页、假 MCP 服务器测试与 G2A 验收。
-- [ ] **Stage 3**：联网搜索/抓取、固定诊断命令（参数白名单）、资源维护、更多 MCP 形态。
+- [ ] **G2A 人工验收**：真实 Node/Python MCP 服务器的首次启动确认、配置修改、可执行文件替换、重连确认、工具逐次审批、崩溃不自动重启、进程清理。清单见 [AGENT_STAGE2A](features/AGENT_STAGE2A.md) §7。
+- [ ] **Stage 3**：联网搜索/抓取、固定诊断命令（参数白名单）、资源维护、HTTP/SSE MCP（若批准）。
 - [ ] **Stage 4**：完整回归、真机/实网验收、文档与发布。
 
 ## 5. P2：性能与体验

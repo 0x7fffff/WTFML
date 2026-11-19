@@ -162,6 +162,18 @@ set(PROJECT_SOURCES
     ${REPO_ROOT}/src/agent/AgentWorkflowEngine.hpp
     ${REPO_ROOT}/src/agent/AgentCompositeToolEngine.cpp
     ${REPO_ROOT}/src/agent/AgentCompositeToolEngine.hpp
+    ${REPO_ROOT}/src/agent/McpTypes.cpp
+    ${REPO_ROOT}/src/agent/McpTypes.hpp
+    ${REPO_ROOT}/src/agent/McpProtocol.cpp
+    ${REPO_ROOT}/src/agent/McpProtocol.hpp
+    ${REPO_ROOT}/src/agent/McpTrustStore.cpp
+    ${REPO_ROOT}/src/agent/McpTrustStore.hpp
+    ${REPO_ROOT}/src/agent/McpClient.cpp
+    ${REPO_ROOT}/src/agent/McpClient.hpp
+    ${REPO_ROOT}/src/agent/McpManager.cpp
+    ${REPO_ROOT}/src/agent/McpManager.hpp
+    ${REPO_ROOT}/src/agent/AgentMcpToolEngine.cpp
+    ${REPO_ROOT}/src/agent/AgentMcpToolEngine.hpp
     ${REPO_ROOT}/ui/AgentMarkdown.cpp
     ${REPO_ROOT}/ui/AgentMarkdown.hpp
     ${REPO_ROOT}/src/net/HttpClient.cpp

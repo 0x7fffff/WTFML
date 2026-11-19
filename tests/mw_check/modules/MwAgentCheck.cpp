@@ -316,6 +316,22 @@ int MwAgentChecks(QApplication &app) {
         QDir(root).removeRecursively();
     }
 
+    // Stage 2A：MCP 管理器和工具引擎都接上了；没配置服务器时调用被拒、不会起进程。
+    {
+        check(controller->mcpManager() != nullptr, "真窗口：MCP 管理器已接线");
+        check(controller->mcpManager()->servers().isEmpty() ||
+                  !controller->mcpManager()->anyReady(),
+              "真窗口：没有服务器自动连上");
+        Agent::ToolCall mcpCall;
+        mcpCall.id = QStringLiteral("mw-mcp-1");
+        mcpCall.name = QStringLiteral("mcp__none__ping");
+        mcpCall.arguments = QJsonObject{};
+        const AgentToolResult mcpResult = controller->compositeEngine()->invoke(mcpCall);
+        check(mcpResult.status == AgentToolResult::Status::Error,
+              "真窗口：未知 MCP 工具被拒");
+        check(controller->mcpManager()->tools().isEmpty(), "真窗口：没有 MCP 工具时清单为空");
+    }
+
     // 「API 设置」被别的页占着覆盖层时也要打得开（用户报的「点了没反应」：别的选项卡上开的页收着、仍占着这一位，
     // showPage() 返回 false，按钮静默无事发生）。
     {

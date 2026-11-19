@@ -40,7 +40,7 @@ struct AgentToolSpec {
 };
 
 struct AgentToolResult {
-    enum class Status { Ok, Error, ApprovalRequired, Blocked, Cancelled };
+    enum class Status { Ok, Error, ApprovalRequired, Blocked, Cancelled, Pending };
     Status status = Status::Error;
     QString summary;
     QJsonObject data;
@@ -49,6 +49,10 @@ struct AgentToolResult {
 
     bool ok() const { return status == Status::Ok; }
 };
+
+/// 异步工具的交付回调：`invoke()`/`resolveApproval()` 可以先回 `Status::Pending`，
+/// 之后由引擎通过这个回调交最终结果（MCP 的工具调用就是这样）。
+using AgentToolSink = std::function<void(const Agent::ToolCall &, const AgentToolResult &)>;
 
 class AgentToolEngine {
 public:
@@ -61,6 +65,8 @@ public:
     virtual bool committing() const { return false; }
     /// 这个引擎认不认这个内部工具名（复合引擎按它分派，不用试错）。
     virtual bool handles(const QString &internalName) const = 0;
+    /// 只有会回 `Pending` 的引擎需要接这条线；同步引擎忽略。
+    virtual void setCompletionSink(AgentToolSink sink) { Q_UNUSED(sink); }
 };
 
 class AgentToolRegistry {

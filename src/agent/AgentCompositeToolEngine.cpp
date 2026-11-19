@@ -26,6 +26,17 @@ AgentToolEngine *AgentCompositeToolEngine::findEngine(const QString &internalNam
     return nullptr;
 }
 
+void AgentCompositeToolEngine::setCompletionSink(AgentToolSink sink) {
+    m_sink = std::move(sink);
+    for (AgentToolEngine *engine : m_engines) {
+        engine->setCompletionSink([this](const Agent::ToolCall &call,
+                                         const AgentToolResult &result) {
+            if (m_workflow != nullptr) m_workflow->recordResult(call, result);
+            if (m_sink) m_sink(call, result);
+        });
+    }
+}
+
 bool AgentCompositeToolEngine::handles(const QString &internalName) const {
     return findEngine(internalName) != nullptr;
 }
@@ -111,6 +122,7 @@ AgentToolResult AgentCompositeToolEngine::invoke(const Agent::ToolCall &call) {
         return result;
     }
     const AgentToolResult result = engine->invoke(routed);
+    if (result.status == AgentToolResult::Status::Pending) return result;  // 结果从 sink 回来
     if (result.status == AgentToolResult::Status::ApprovalRequired) {
         const QString approvalId =
             result.approval.value(QStringLiteral("approvalId")).toString();
@@ -136,6 +148,7 @@ AgentToolResult AgentCompositeToolEngine::resolveApproval(const QString &approva
     }
     const Agent::ToolCall call = m_approvalCalls.take(approvalId);
     const AgentToolResult result = engine->resolveApproval(approvalId, approved);
+    if (result.status == AgentToolResult::Status::Pending) return result;
     // 审批通过后的只读结果也带证据：照样记账，否则完成闸会漏掉这一条。
     if (m_workflow != nullptr && !call.name.isEmpty() && !call.name.startsWith(QStringLiteral("workflow."))) {
         m_workflow->recordResult(call, result);

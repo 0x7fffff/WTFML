@@ -43,6 +43,29 @@ struct SkillOption {
     QString description;
 };
 
+/// MCP 服务器列表一行（阶段 2A）。
+struct McpServerRow {
+    QString id;
+    QString name;
+    QString command;
+    QString identityShort;   ///< SHA-256 前 12 位；没确认过时为空
+    QString state;           ///< idle / starting / handshaking / listing / ready / failed
+    QString detail;
+    bool enabled = false;
+    int toolCount = 0;
+};
+
+/// MCP 编辑对话框收集的字段。
+struct McpServerDraft {
+    QString id;                 ///< 空 = 新建
+    QString name;
+    QString command;
+    QString arguments;          ///< 一行一个参数
+    QString workingDirectory;
+    QString environmentNames;   ///< 逗号或空白分隔，只记名字
+    bool enabled = false;
+};
+
 /// 实例下拉里的一行。
 struct InstanceOption {
     QString id;

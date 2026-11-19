@@ -146,6 +146,12 @@ set(HEADER_FILES
     src/agent/AgentWorkflow.hpp
     src/agent/AgentWorkflowEngine.hpp
     src/agent/AgentCompositeToolEngine.hpp
+    src/agent/McpTypes.hpp
+    src/agent/McpProtocol.hpp
+    src/agent/McpTrustStore.hpp
+    src/agent/McpClient.hpp
+    src/agent/McpManager.hpp
+    src/agent/AgentMcpToolEngine.hpp
     src/controllers/AgentController.hpp
     src/controllers/AgentLauncherHostImpl.hpp
     ui/AgentMarkdown.hpp
@@ -159,6 +165,7 @@ set(HEADER_FILES
     ui/AgentToolCard.hpp
     ui/AgentPanelPaint.hpp
     ui/AgentApprovalCard.hpp
+    ui/AgentMcpPage.hpp
     src/net/HttpClient.hpp
     src/manage/DroppedResource.hpp
     src/manage/FolderManager.hpp
@@ -473,6 +480,12 @@ set(SOURCE_FILES
     src/agent/AgentWorkflow.cpp
     src/agent/AgentWorkflowEngine.cpp
     src/agent/AgentCompositeToolEngine.cpp
+    src/agent/McpTypes.cpp
+    src/agent/McpProtocol.cpp
+    src/agent/McpTrustStore.cpp
+    src/agent/McpClient.cpp
+    src/agent/McpManager.cpp
+    src/agent/AgentMcpToolEngine.cpp
     src/controllers/AgentController.cpp
     src/controllers/AgentLauncherHostImpl.cpp
     src/net/HttpClient.cpp
@@ -637,6 +650,7 @@ set(SOURCE_FILES
     ui/AgentSettingsPage.cpp
     ui/AgentToolCard.cpp
     ui/AgentApprovalCard.cpp
+    ui/AgentMcpPage.cpp
     ${WTFML_UI_PAGE_SOURCES}
     ui/MemorySlider.cpp
     ui/MotdText.cpp

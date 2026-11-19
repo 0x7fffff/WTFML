@@ -30,6 +30,8 @@ public:
     void cancelPending() override;
     bool committing() const override;
     bool handles(const QString &internalName) const override;
+    /// 异步子引擎（MCP）的结果先记进工作流账，再交给 Loop。
+    void setCompletionSink(AgentToolSink sink) override;
 
     /// 当前错误/拒绝对话用的一句人话（给 UI 的提示用）。
     static QString riskBlockedMessage(const QString &skillName, const QString &toolName);
@@ -43,4 +45,5 @@ private:
     AgentWorkflow *m_workflow = nullptr;
     QHash<QString, AgentToolEngine *> m_approvalOwner;
     QHash<QString, Agent::ToolCall> m_approvalCalls;
+    AgentToolSink m_sink;
 };

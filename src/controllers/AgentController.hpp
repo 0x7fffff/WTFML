@@ -14,8 +14,11 @@
 #include "agent/AgentFileToolEngine.hpp"
 #include "agent/AgentLauncherHost.hpp"
 #include "agent/AgentLauncherTools.hpp"
+#include "agent/AgentMcpToolEngine.hpp"
 #include "agent/AgentWorkflow.hpp"
 #include "agent/AgentWorkflowEngine.hpp"
+#include "agent/McpManager.hpp"
+#include "agent/McpTrustStore.hpp"
 #include "agent/AgentFileTools.hpp"
 #include "agent/AgentInstanceLock.hpp"
 #include "agent/AgentLoop.hpp"
@@ -31,6 +34,7 @@
 
 #include <functional>
 
+class AgentMcpPage;
 class AgentPage;
 class AgentSettingsPage;
 class AgentModelClient;
@@ -53,6 +57,9 @@ public:
     AgentFileToolEngine *toolEngine() { return m_toolEngine; }
     AgentCompositeToolEngine *compositeEngine() { return m_compositeEngine; }
     AgentWorkflow *workflow() { return &m_workflow; }
+    McpManager *mcpManager() { return m_mcpManager; }
+    /// 打开 MCP 服务器页（API 设置里的「MCP 服务器…」和测试入口都走它）。
+    void openMcpSettings();
     /// 主窗口建好的启动器能力宿主（不转移所有权）。没有宿主时启动器工具一律拒绝。
     void setLauncherHost(AgentLauncherHost *host);
 
@@ -121,6 +128,17 @@ private:
     AgentInstanceInfo lockedInstance() const;
     void onApproval(bool approved);
     void onSkillChosen(const QString &skillId);
+    void refreshMcpPage();
+    void onMcpConnect(const QString &serverId);
+    void onMcpDisconnect(const QString &serverId);
+    void onMcpAdd();
+    void onMcpEdit(const QString &serverId);
+    void onMcpRemove(const QString &serverId);
+    /// 起服务器前的那一次确认：确认了就写确认记录并启动。
+    bool confirmAndStart(const QString &serverId, bool reconnect);
+    AgentView::McpServerDraft draftFrom(const McpServerConfig &server) const;
+    McpServerConfig serverFrom(const AgentView::McpServerDraft &draft) const;
+    void stopMcpServers();
     /// 把当前模式的系统提示与工具闸同步给 Loop（切模式、换会话、发消息前都走它）。
     void applySkillToLoop();
     void refreshSkillUi();
@@ -141,6 +159,10 @@ private:
     AgentWorkflowEngine *m_workflowEngine = nullptr;
     AgentLauncherTools *m_launcherTools = nullptr;
     AgentCompositeToolEngine *m_compositeEngine = nullptr;
+    McpTrustStore m_mcpStore;
+    McpManager *m_mcpManager = nullptr;
+    AgentMcpToolEngine *m_mcpTools = nullptr;
+    QPointer<AgentMcpPage> m_mcpPage;
     AgentSession m_session;
     InstanceProvider m_instanceProvider;
     InstanceListProvider m_instanceListProvider;

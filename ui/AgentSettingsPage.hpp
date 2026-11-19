@@ -46,6 +46,8 @@ public:
 signals:
     void saveRequested();
     void testRequested();
+    /// 「MCP 服务器…」：打开 MCP 服务器列表（阶段 2A）。
+    void mcpSettingsRequested();
     void clearKeyRequestedSignal();
     void deleteProfileRequested();
 
@@ -80,6 +82,7 @@ private:
     QLabel *m_privacy = nullptr;
     ToggleSwitch *m_strict = nullptr;
     QPushButton *m_test = nullptr;
+    QPushButton *m_mcp = nullptr;
     QPushButton *m_save = nullptr;
     QPushButton *m_clearKeyButton = nullptr;
     QPushButton *m_deleteProfile = nullptr;
