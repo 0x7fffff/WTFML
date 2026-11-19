@@ -335,6 +335,8 @@ Base URL 只接受 `https://`；loopback `http://` 需显式勾选并持续提�
 
 ### 9.4 Stage 2 启动器工具
 
+状态：**Stage 2B 已实现**，19 个工具与 2 个工作流工具的现行行为、边界与待测项见 [AGENT_STAGE2B](AGENT_STAGE2B.md)；本节保留设计约定。
+
 结论：包装现有能力，不重写业务判据；所有实例工具使用会话锁定的实例。
 
 - `instance.list`：默认只返回实例总数（自动读取）；`detail="full"` 返回名称/版本/加载器，**逐次确认**，不锁定实例，不返回绝对路径/账户信息。
@@ -419,6 +421,8 @@ Base URL 只接受 `https://`；loopback `http://` 需显式勾选并持续提�
 ---
 
 ## 10. MCP（Stage 2 单独验收，只做 stdio）
+
+状态：**未实现**（Stage 2A）。这一节仍是设计约束，实现与验收都还没开始；Stage 2B 的启动器工具不依赖它。
 
 ### 10.1 配置
 
@@ -517,6 +521,8 @@ struct AgentSkill {
 列表、依赖检查、更新检查走现有 `ModDependencies` / `ResourceStore`；删除/禁用走现有文件操作（移动而非永久删除，保留恢复路径）；安装/更新走现有安装控制器，展示来源、版本、前置、覆盖/新增文件；不按文件名猜兼容性，不确定时显示未知让用户决定。
 
 ### 11.3 工作流状态机（Stage 2）
+
+状态：**Stage 2B 已实现**（`AgentWorkflow` + `AgentWorkflowEngine` + `AgentCompositeToolEngine`），现行行为见 [AGENT_STAGE2B](AGENT_STAGE2B.md) §1.3。
 
 ```
 Collect → Analyze → Plan → AwaitPlanApproval → ExecuteStep* → Verify → Report
