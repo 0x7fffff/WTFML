@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "ListRowDelegate.hpp"
 int UiServerModeChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs) {
     // ---------- U34 实例页顶部模式切换 + 服务端那半页（M4-1）----------
     //
@@ -151,6 +152,37 @@ int UiServerModeChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs
                   "★ U34.4 服务端那棵树不画根展开箭头、单选（和实例树同一档观感）");
             check(newServer->text() == MainWindowUI::newServerText(),
                   "★ U34.4 「新建服务端…」那颗的文字逐字就是约定的那一句", newServer->text());
+
+            // ---- 服务端行和客户端行同一个代理（issue #53）：行高同 60、窄窗不出横向滚动条、
+            // 名字或第二行太长时收省略号 ----
+            auto *rowDelegate = qobject_cast<ListRowDelegate *>(serverTree->itemDelegate());
+            check(rowDelegate != nullptr && serverTree->columnCount() == 1 &&
+                      serverTree->horizontalScrollBarPolicy() == Qt::ScrollBarAlwaysOff,
+                  "★ U34.4b 服务端列表用 ListRowDelegate、单列、横向滚动条关着（和客户端同一种画法）");
+            ui.setInstanceMode(MainWindowUI::InstanceMode::Server);
+            window.resize(900, 590);
+            auto *longRow = new QTreeWidgetItem(serverTree);
+            longRow->setText(0, QString(80, QLatin1Char('N')));
+            longRow->setData(0, ListRowDelegate::SubtitleRole,
+                             QStringLiteral("Minecraft ") + QString(80, QLatin1Char('9')) +
+                                 QStringLiteral(" · Paper · 可启动"));
+            auto *shortRow = new QTreeWidgetItem(serverTree);
+            shortRow->setText(0, QStringLiteral("生存服"));
+            shortRow->setData(0, ListRowDelegate::SubtitleRole,
+                              QStringLiteral("Minecraft 1.21.4 · Fabric · 运行中"));
+            QApplication::processEvents();
+            serverTree->viewport()->grab();  // 画一遍，省略判据在 paint 里落
+            const QModelIndex longIdx = serverTree->indexFromItem(longRow, 0);
+            const QModelIndex shortIdx = serverTree->indexFromItem(shortRow, 0);
+            check(rowDelegate != nullptr && serverTree->visualItemRect(longRow).height() == ListRowDelegate::rowHeight() &&
+                      rowDelegate->titleElided(longIdx) && rowDelegate->subtitleElided(longIdx) &&
+                      !rowDelegate->titleElided(shortIdx) && !rowDelegate->subtitleElided(shortIdx),
+                  "★★ U34.4b 服务端行 60 高；900×590 下超长名字 / 版本收省略号，正常行不收");
+            check(!serverTree->horizontalScrollBar()->isVisible(),
+                  "★★ U34.4b 超长名字下服务端列表不出横向滚动条");
+            delete longRow;
+            delete shortRow;
+            ui.setInstanceMode(MainWindowUI::InstanceMode::Client);
         }
 
         // ---------- ⑤ 「新建服务端」那一页自身的形状 ----------

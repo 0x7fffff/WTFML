@@ -75,5 +75,17 @@ int UiListRowDelegateChecks() {
     QApplication::sendEvent(list.viewport(), &release);
     check(fired == 1 && firedRow == 1 && firedAction == ListRowDelegate::Action::Launch,
           "LR8 点启动胶囊发出 actionTriggered(第 2 行, Launch)", QString::number(fired));
+
+    // 服务端行借用第三格：「停止」换成危险色软底，「停止中…」灰着，字由 LaunchTextRole 给。
+    list.item(1)->setData(ListRowDelegate::LaunchKindRole, static_cast<int>(ListRowDelegate::LaunchKind::Stop));
+    list.item(1)->setData(ListRowDelegate::LaunchTextRole, QStringLiteral("停止"));
+    QApplication::processEvents();
+    const QImage stopImg = grab();
+    check(stopImg.pixelColor(pillProbe) != primary, "LR9 第三格是「停止」时不再是主色胶囊",
+          stopImg.pixelColor(pillProbe).name());
+    list.item(1)->setData(ListRowDelegate::LaunchKindRole, static_cast<int>(ListRowDelegate::LaunchKind::Busy));
+    list.item(1)->setData(ListRowDelegate::LaunchTextRole, QStringLiteral("停止中…"));
+    QApplication::processEvents();
+    check(grab().pixelColor(pillProbe) != primary, "LR10 「停止中…」灰着，不画主色");
     return 0;
 }

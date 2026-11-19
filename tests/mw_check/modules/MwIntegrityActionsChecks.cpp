@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "ListRowDelegate.hpp"
 #include "ActivityPopover.hpp"
 int MwIntegrityActionsChecks(const QDir &root) {
     // 全程一个外网请求都不发：原版那一档的地址取自**本地**那份版本 json，而那份 json 里
@@ -262,12 +263,14 @@ int MwIntegrityActionsChecks(const QDir &root) {
               QStringLiteral("%1 次").arg(files.hits));
         {
             QTreeWidgetItem *row = rowForId(installedId);
-            check(row != nullptr && !row->isDisabled() &&
-                      row->text(0).contains(
-                          ServerModel::statusName(ServerModel::Status::Ready)),
-                  "★★ T40.4 装完那一行变成「可启动」、不再灰"
+            const QString sub =
+                row != nullptr ? row->data(0, ListRowDelegate::SubtitleRole).toString() : QString();
+            check(row != nullptr && sub.contains(ServerModel::statusName(ServerModel::Status::Ready)) &&
+                      row->data(0, ListRowDelegate::LaunchTextRole).toString() ==
+                          MainWindowUI::serverStartText(),
+                  "★★ T40.4 装完那一行变成「可启动」、第三格是「启动」"
                   "（判据和任务中心那句「装好了」是**同一个出处**：`ServerRegistry::describe()`）",
-                  row != nullptr ? row->text(0) : QStringLiteral("<没有这一行>"));
+                  row != nullptr ? sub : QStringLiteral("<没有这一行>"));
         }
 
         // ---------- ③ Spigot：列着，但「创建」点不动 + 摘要就是那句话 ----------
@@ -410,11 +413,12 @@ int MwIntegrityActionsChecks(const QDir &root) {
             check(!QFile::exists(AppPaths::serverDir(cancelId) + QStringLiteral("/server.jar")),
                   "★★ T40.6 而且盘上**没有半份 server.jar**（取消不留一个会被当成成品的半成品）");
             QTreeWidgetItem *row = rowForId(cancelId);
+            const QString cancelSub =
+                row != nullptr ? row->data(0, ListRowDelegate::SubtitleRole).toString() : QString();
             check(row != nullptr &&
-                      row->text(0).contains(
-                          ServerModel::statusName(ServerModel::Status::NotInstalled)),
+                      cancelSub.contains(ServerModel::statusName(ServerModel::Status::NotInstalled)),
                   "★ T40.6 那一行照旧「未安装」（取消之后它还是个没装好的服务端）",
-                  row != nullptr ? row->text(0) : QStringLiteral("<没有这一行>"));
+                  row != nullptr ? cancelSub : QStringLiteral("<没有这一行>"));
         }
 
         w.close();

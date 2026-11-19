@@ -37,6 +37,9 @@ public:
     /// 右键落在空白处什么都不做（这一页没有"对整个列表做的事"）。
     void showAt(const QPoint &pos);
 
+    /// 在 @p globalPos 处给 @p serverId 摆菜单（行尾「更多」与右键共用）。
+    void showFor(const QString &serverId, const QPoint &globalPos);
+
     /// 执行某一项（下标 = `MainWindowUI::ServerMenuAction`）。
     void run(const QString &serverId, int action);
 

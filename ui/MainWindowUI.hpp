@@ -1243,27 +1243,17 @@ public:
     static QString newServerSummaryLabelName() { return QStringLiteral("newServerSummary"); }
     static QString newServerCreateButtonName() { return QStringLiteral("newServerCreateButton"); }
 
-    // ---------- 服务端行尾那颗主操作 ----------
+    // ---------- 服务端行的第三格 ----------
     //
-    // 行尾按钮 + 右键菜单。一行上**只有一颗**主操作按钮
-    // （未装好 = 修复 / 能启动 = 启动 / 在跑 = 停止），其余的（强制结束、打开控制台、
-    // 打开目录、删掉…）全在右键菜单里 —— 一行塞四颗按钮，扫一眼就不知道点哪颗了。
-    //
-    // 那一颗挂在列表的**第 1 列**上（第 0 列是名字/状态那串字，宽度自适应；第 1 列定宽）。
-    // 认它走 objectName，**不认文字**（文字按状态变）。
-    static QString serverRowActionName() { return QStringLiteral("serverRowAction"); }
-    /// 行尾那一列多宽（够一颗「强制结束」四个字还有余量）。
-    static int serverRowActionWidth() { return 96; }
-    /// 服务端那一行的行高。摆得下一颗 24 高的按钮还要留出上下间距。
-    /// NOTE: 名字**故意**不叫 `serverRowHeight()` —— 那个是上面「服务器列表」（`servers.dat`
-    /// 那一页，一行两行小字的那种）的行高，两件事差得远，重名只会让人读错。
-    static int serverWorkspaceRowHeight() { return 44; }
+    // 服务端行和客户端行同一个代理（ListRowDelegate）：悬停时行尾三格 = 文件夹 / 更多 / 第三格。
+    // 第三格一行只有一个主操作（未装好 = 修复 / 能启动 = 启动 / 在跑 = 停止），其余（强制结束、
+    // 控制台、设置、删除…）全在「更多」与右键菜单里；单击一行 = 进服务端设置。
 
-    /// 行尾那颗按钮上的字。**唯一出处** —— 界面照它摆，验证工程照它核。
+    /// 第三格上的字。**唯一出处** —— 界面照它摆，验证工程照它核。
     static QString serverStartText() { return QStringLiteral("启动"); }
     static QString serverStopText() { return QStringLiteral("停止"); }
     static QString serverRepairText() { return QStringLiteral("修复"); }
-    /// 停止中（那颗按钮是灰的，等它自己退干净）。
+    /// 停止中（第三格是灰的，等它自己退干净）。
     /// NOTE: **没有"启动中"那一档** —— 启动中照样让用户按得动「停止」（它就在读 stdin 了，
     /// 写进去那一句会被它在起来之后读到）。摆一颗灰着的名字，只会让"起不来"那一刻
     /// 没有出路。

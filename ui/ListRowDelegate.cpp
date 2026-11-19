@@ -1,9 +1,11 @@
 #include "ListRowDelegate.hpp"
 
+#include "Popups.hpp"
 #include "Theme.hpp"
 #include "VersionIcons.hpp"
 
 #include <QAbstractItemView>
+#include <QHelpEvent>
 #include <QItemSelectionModel>
 #include <QMouseEvent>
 #include <QPainter>
@@ -109,20 +111,29 @@ void ListRowDelegate::paint(QPainter *painter, const QStyleOptionViewItem &optio
                                     QRectF(box).adjusted(6, 6, -6, -6), t.secondary, a == Action::More ? 2.6 : 1.6);
         }
         const QRect launch = actionRect(r, Action::Launch);
+        const auto kind = static_cast<LaunchKind>(index.data(LaunchKindRole).toInt());
+        const QColor fill = kind == LaunchKind::Stop ? t.dangerSoft : kind == LaunchKind::Busy ? t.subtle : t.primary;
+        const QColor ink = kind == LaunchKind::Stop ? t.dangerInk : kind == LaunchKind::Busy ? t.disabled : t.onPrimary;
         QPainterPath pill;
         pill.addRoundedRect(QRectF(launch), launch.height() / 2.0, launch.height() / 2.0);
-        painter->fillPath(pill, t.primary);
+        painter->fillPath(pill, fill);
         QFont f = option.font;
         f.setWeight(QFont::Medium);
         painter->setFont(f);
-        const QString text = QStringLiteral("启动");
+        const QString custom = index.data(LaunchTextRole).toString();
+        const QString text = custom.isEmpty() ? QStringLiteral("启动") : custom;
+        const QString icon = kind == LaunchKind::Stop     ? QStringLiteral("stop")
+                             : kind == LaunchKind::Repair ? QStringLiteral("refresh")
+                             : kind == LaunchKind::Busy   ? QString()
+                                                          : QStringLiteral("play");
         const int textW = painter->fontMetrics().horizontalAdvance(text);
-        const int iconW = 14;
-        const int startX = launch.center().x() - (iconW + 6 + textW) / 2;
-        VersionIcons::paintLine(*painter, QStringLiteral("play"),
-                                QRectF(startX, launch.center().y() - iconW / 2.0 + 1, iconW, iconW), t.onPrimary);
-        painter->setPen(t.onPrimary);
-        painter->drawText(QRect(startX + iconW + 6, launch.top(), textW + 2, launch.height()),
+        const int iconW = icon.isEmpty() ? 0 : 14;
+        const int gap = icon.isEmpty() ? 0 : 6;
+        const int startX = launch.center().x() - (iconW + gap + textW) / 2;
+        if (!icon.isEmpty())
+            VersionIcons::paintLine(*painter, icon, QRectF(startX, launch.center().y() - iconW / 2.0 + 1, iconW, iconW), ink);
+        painter->setPen(ink);
+        painter->drawText(QRect(startX + iconW + gap, launch.top(), textW + 2, launch.height()),
                           Qt::AlignVCenter | Qt::AlignLeft, text);
         if (!metaIcon.isValid()) textRight = actionRect(r, Action::Folder).left() - kGap;
     } else if (!metaIcon.isValid()) {
@@ -161,10 +172,42 @@ void ListRowDelegate::paint(QPainter *painter, const QStyleOptionViewItem &optio
     if (!sub.isEmpty()) {
         painter->setFont(subFont);
         painter->setPen(t.secondary);
+        const QString shownSub = painter->fontMetrics().elidedText(sub, Qt::ElideRight, textBox.width());
         painter->drawText(QRect(textBox.left(), top + titleH, textBox.width(), subH), Qt::AlignVCenter | Qt::AlignLeft,
-                          painter->fontMetrics().elidedText(sub, Qt::ElideRight, textBox.width()));
+                          shownSub);
+        if (shownSub != sub) m_elidedSubs.insert(index);
+        else m_elidedSubs.remove(index);
+    } else {
+        m_elidedSubs.remove(index);
     }
     painter->restore();
+}
+
+bool ListRowDelegate::helpEvent(QHelpEvent *event, QAbstractItemView *view, const QStyleOptionViewItem &option,
+                                const QModelIndex &index) {
+    if (event == nullptr || event->type() != QEvent::ToolTip) return QStyledItemDelegate::helpEvent(event, view, option, index);
+    QString tip;
+    const QStringList actionTips = index.data(ActionTipRole).toStringList();
+    if (actionTips.size() == 3) {
+        const Action actions[] = {Action::Folder, Action::More, Action::Launch};
+        for (int i = 0; i < 3; ++i)
+            if (actionRect(option.rect, actions[i]).contains(event->pos())) tip = actionTips.at(i);
+    }
+    if (tip.isEmpty()) {
+        // 名字或第二行被省略：给全文；条目自己的说明（路径等）接在后面。
+        QStringList lines;
+        if (titleElided(index) || subtitleElided(index)) {
+            lines << index.data(Qt::DisplayRole).toString();
+            const QString sub = index.data(SubtitleRole).toString();
+            if (!sub.isEmpty()) lines << sub;
+        }
+        const QString own = index.data(Qt::ToolTipRole).toString();
+        if (!own.isEmpty()) lines << own;
+        tip = lines.join(QLatin1Char('\n'));
+    }
+    if (tip.isEmpty()) return false;
+    Popups::showTooltip(tip, event->globalPos(), view);
+    return true;
 }
 
 bool ListRowDelegate::editorEvent(QEvent *event, QAbstractItemModel *model, const QStyleOptionViewItem &option,
