@@ -181,7 +181,11 @@ void InstanceSettingsDialog::addLifecycleBatchActions(const QString &key, QListW
     rows->addWidget(count, 0, 3);
     layout->addWidget(toolbar);
 
-    if (lifecycleBatchWorlds(key)) move->hide();
+    if (lifecycleBatchWorlds(key)) {
+        move->hide();
+        rows->removeWidget(remove);
+        rows->addWidget(remove, 1, 1);  // 没有「移动」时「删除」补到它的位置
+    }
     const auto eligible = [key](const QListWidgetItem *item) {
         if (item->isHidden() || !item->flags().testFlag(Qt::ItemIsSelectable)) return false;
         const QString path = item->data(InstanceFilesPage::pathRole()).toString();

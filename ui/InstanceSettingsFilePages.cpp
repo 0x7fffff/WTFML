@@ -319,8 +319,12 @@ void InstanceSettingsDialog::buildFilePage(const QString &key) {
             if (m_pageAvailable.contains(key) && !m_pageAvailable.value(key))
                 files->setUnavailable(pageUnavailableText(key));
             m_filesPages.insert(key, files);
-            if (key == QStringLiteral("schematic") || isSave)
-                addLifecycleBatchActions(key, files->list(), target);
+            if (key == QStringLiteral("schematic") || isSave) {
+                // 工具条属于列表：挂在文件页自己的布局里，再挪到搜索框之下、列表之上
+                // （和截图 / 结构页同一个位置）。
+                addLifecycleBatchActions(key, files->list(), qobject_cast<QVBoxLayout *>(files->layout()));
+                files->placeAboveList(files->findChild<QWidget *>(QStringLiteral("instanceLifecycleBatch_%1").arg(key)));
+            }
             target->addWidget(files, 1);
             if (!batch && !isSave && key != QStringLiteral("schematic") && key != QStringLiteral("structure")) {
                 files->setToolTip(filesHint(key));

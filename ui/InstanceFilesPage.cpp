@@ -648,6 +648,13 @@ void InstanceFilesPage::setWorldLayout(QPushButton *backupButton) {
     applyState();
 }
 
+void InstanceFilesPage::placeAboveList(QWidget *widget) {
+    auto *outer = qobject_cast<QVBoxLayout *>(layout());
+    if (widget == nullptr || outer == nullptr) return;
+    outer->removeWidget(widget);
+    outer->insertWidget(outer->indexOf(m_contentHost), widget);
+}
+
 void InstanceFilesPage::setCompactHeader(QPushButton *leadingAction) {
     if (m_compactHeader) return;
     m_compactHeader = true;

@@ -483,10 +483,12 @@ void InstanceDialogController::applyWorldBatch(InstanceSettingsDialog &dialog, Q
                         return;
                     }
                     ++outcome.done;
-                    QTimer::singleShot(0, [next] { (*next)(); });
+                    QTimer::singleShot(0, &loop, [next] { (*next)(); });
                 });
         };
-        (*next)();
+        // 第一发也排进事件循环：deleteWorldInBackground 的早退路径会同步回调，
+        // 回调里的 loop.quit() 若发生在 exec() 之前就不生效，exec() 永不返回。
+        QTimer::singleShot(0, &loop, [next] { (*next)(); });
         loop.exec();
         *next = nullptr;  // 断开 next 对自己的引用环
     } else {

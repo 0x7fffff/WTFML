@@ -1,4 +1,6 @@
 #include "Support.hpp"
+#include "util/DirectorySessionLock.hpp"
+#include <QLockFile>
 #include "ui_check/modules/UiInstanceFilesTestHelpers.hpp"
 void runCopyAndSavePageTests() {
     const QString originalDir = AppPaths::minecraftDir();
@@ -557,6 +559,46 @@ void runCopyAndSavePageTests() {
             srcBytes = srcJar.readAll();
         }
         check(srcBytes == QByteArray("jar-bytes"), "★ T27.3b 源实例一个字节都没动");
+    }
+
+    header("T27.3e 存档页批量删除：目录锁拿不到（deleteWorldInBackground 同步拒绝）时不挂死");
+    {
+        // 回归：第一发同步回调 whenDone(false) 时 loop.quit() 早于 loop.exec()，exec() 永不返回。
+        const QString world = versionDir + QStringLiteral("/saves/我的世界");
+        QMetaObject::invokeMethod(&window, "openInstanceSettings", Qt::DirectConnection,
+                                  Q_ARG(QString, id));
+        OverlayHost *host = currentPageOverlay();
+        auto *page = host != nullptr ? host->findChild<InstanceSettingsDialog *>() : nullptr;
+        check(page != nullptr, "T27.3e 设置页开出来了");
+        if (page != nullptr) {
+            const bool lockWas = DirectorySessionLock::enabled;
+            DirectorySessionLock::enabled = true;
+            QLockFile foreign(DirectorySessionLock::lockFilePath(DirectorySessionLock::keyFor(root.path())));
+            check(foreign.tryLock(0), "T27.3e 前提：这个数据目录的锁已被「另一份启动器」占着");
+            PromptAnswerer answerer({0});  // 确认框点「删除」，失败提示点第一颗
+            answerer.start();
+            bool returned = false;
+            emit page->lifecycleBatchRequested(QStringLiteral("save"), QStringList{world},
+                                               InstanceSettingsDialog::LifecycleBatchAction::Remove);
+            returned = true;
+            answerer.stop();
+            DirectorySessionLock::enabled = lockWas;
+            foreign.unlock();
+            check(returned, "★★ T27.3e 同步拒绝时批量删除也能返回（不卡在 loop.exec()）");
+            check(QFileInfo::exists(world + QStringLiteral("/level.dat")),
+                  "T27.3e 被拒绝的那个世界一个字节没动");
+            check(answerer.answered.size() >= 2,
+                  "T27.3e 先问「删除世界」确认，再弹失败原因",
+                  QStringLiteral("收到 %1 句").arg(answerer.answered.size()));
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            if (OverlayHost *open = currentPageOverlay()) {
+                if (auto *back = open->findChild<QPushButton *>(OverlayHost::overlayBackButtonName()))
+                    back->click();
+                else
+                    open->closeOverlay();
+            }
+            QApplication::processEvents();
+        }
     }
 
     header("T27.3c 「正在搬文件」是引用计数：叠两趟、收掉一趟，标记还在");
