@@ -354,7 +354,7 @@ void MainWindow::updateDownloadProgressUi(int done, int total, int failed,
     // 或者加载器安装器那类还算不出要下几个文件）——不是"这一批下了 0 个"。
     QString detail;
     if (total <= 0) {
-        detail = done > 0 ? tr("已下载 %1 个文件").arg(done) : tr("正在准备下载...");
+        detail = done > 0 ? tr("已下载 %1 个文件").arg(done) : tr("正在准备下载…");
     } else {
         detail = tr("已下载 %1 / %2").arg(done).arg(total);
         if (failed > 0) {

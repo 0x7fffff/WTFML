@@ -92,7 +92,7 @@ MainWindow::JavaMismatchAnswer MainWindow::askAboutJavaMismatch(
         if (!m_versionManager->updateVersionMeta(
                 versionId, {{VersionManager::skipJavaVersionWarningField(), QJsonValue(true)}},
                 &error)) {
-            appendLog(tr("没能记住「以后不再提醒」：%1").arg(error));
+            appendLog(tr("无法保存「不再提醒」设置：%1").arg(error));
         } else {
             appendLog(tr("「%1」以后不再提醒 Java 版本不符。").arg(instanceDisplayName(versionId)));
         }

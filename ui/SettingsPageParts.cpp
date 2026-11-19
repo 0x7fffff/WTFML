@@ -8,6 +8,7 @@
 #include <QAbstractSpinBox>
 #include <QApplication>
 #include <QComboBox>
+#include <QCoreApplication>
 #include <QEnterEvent>
 #include <QEvent>
 #include <QFontMetrics>
@@ -71,7 +72,7 @@ public:
     explicit InfoDot(const QString &tip, QWidget *parent) : QWidget(parent) {
         setFixedSize(16, 16);
         setToolTip(tip);
-        setAccessibleName(QStringLiteral("说明"));
+        setAccessibleName(QCoreApplication::translate("SettingsParts", "说明"));
         setAccessibleDescription(tip);
         setCursor(Qt::WhatsThisCursor);
         setProperty("settingsInfoDot", true);
@@ -89,6 +90,10 @@ protected:
         p.drawText(QRectF(0, 0, 16, 16), Qt::AlignCenter, QStringLiteral("i"));
     }
 };
+
+QString savedToastText() {
+    return QCoreApplication::translate("SettingsParts", "已保存");
+}
 
 }  // namespace
 
@@ -552,7 +557,7 @@ SavedToast::SavedToast(QWidget *parent) : QWidget(parent) {
 
 QSize SavedToast::sizeHint() const {
     const QFontMetrics fm(uiFont(Theme::textSize(Theme::TextRole::Caption)));
-    return QSize(fm.horizontalAdvance(QStringLiteral("已保存")) + 42, 26);
+    return QSize(fm.horizontalAdvance(savedToastText()) + 42, 26);
 }
 
 void SavedToast::anchor() {
@@ -598,7 +603,7 @@ void SavedToast::paintEvent(QPaintEvent *) {
     p.drawPolyline(QPolygonF({QPointF(11, 13.5), QPointF(14.2, 16.5), QPointF(19, 10)}));
     p.setFont(uiFont(Theme::textSize(Theme::TextRole::Caption)));
     p.drawText(QRectF(24, 0, width() - 24, height()), Qt::AlignLeft | Qt::AlignVCenter,
-               QStringLiteral("已保存"));
+               savedToastText());
 }
 
 // ---------------------------------------------------------------------------

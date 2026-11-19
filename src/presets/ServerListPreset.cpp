@@ -190,8 +190,7 @@ ServerListPlan planServerList(const QList<NbtUtil::ServerEntry> &target, int tar
         if (source.at(i).address.trimmed().isEmpty()) {
             plan.problem = QCoreApplication::translate(
                 "Presets",
-                "预设里有一条服务器没有地址，这一步整份都没有动（没有地址的那一行在游戏里"
-                "是一条点不动的空气）。");
+                "预设中的服务器地址为空，服务器列表未修改。");
             return plan;
         }
     }
@@ -274,8 +273,7 @@ ServerListReport planServerListApply(ApplyMode mode, const QList<NbtUtil::Server
             report.needsConfirm = true;
             report.problem = QCoreApplication::translate(
                 "Presets",
-                "「覆盖」会把目标上的服务器列表换成预设里的那些（对不上的条目会被拿掉），"
-                "这一步需要先确认。");
+                "覆盖将使用预设列表替换目标服务器列表，并移除只存在于目标中的条目。需要确认。");
             return report;
         }
     }
@@ -385,8 +383,7 @@ ServerListReport applyServerListToInstance(const QString &datPath, ApplyMode mod
                 report.ok = false;
                 report.problem = QCoreApplication::translate(
                                      "Presets",
-                                     "servers.dat 里「%1」那一条的 ip 或 name 不是字符串，"
-                                     "没有动它。")
+                                     "servers.dat 中「%1」的 ip 或 name 字段不是字符串，已保留原条目。")
                                      .arg(one.address);
                 return report;
             }
@@ -474,7 +471,7 @@ bool serverListFromSection(const PresetSection &section, QList<NbtUtil::ServerEn
         if (!value.isObject()) {
             if (problemOut != nullptr) {
                 *problemOut = QCoreApplication::translate(
-                                  "Presets", "服务器列表那一段里第 %1 项不是一个对象。")
+                                  "Presets", "服务器列表的第 %1 项应为对象。")
                                   .arg(i + 1);
             }
             return false;
@@ -486,8 +483,7 @@ bool serverListFromSection(const PresetSection &section, QList<NbtUtil::ServerEn
             if (problemOut != nullptr) {
                 *problemOut = QCoreApplication::translate(
                                   "Presets",
-                                  "服务器列表那一段里第 %1 项缺了 name 或者 address（或者那两格"
-                                  "不是字符串）。")
+                                  "服务器列表第 %1 项缺少有效的 name 或 address 字段。")
                                   .arg(i + 1);
             }
             return false;
@@ -495,7 +491,7 @@ bool serverListFromSection(const PresetSection &section, QList<NbtUtil::ServerEn
         if (address.toString().trimmed().isEmpty()) {
             if (problemOut != nullptr) {
                 *problemOut = QCoreApplication::translate(
-                                  "Presets", "服务器列表那一段里第 %1 项的地址是空的。")
+                                  "Presets", "服务器列表第 %1 项的地址为空。")
                                   .arg(i + 1);
             }
             return false;

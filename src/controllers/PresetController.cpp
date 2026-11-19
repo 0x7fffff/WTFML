@@ -124,23 +124,23 @@ Presets::CaptureSelection toSelection(const PresetManagePage::CaptureChoice &cho
     return selection;
 }
 
-/// 段种类 → 中文。★ 只有这一处（页面那一层不认识 `SectionKind`）。
+/// 段种类 → 显示文案。★ 只有这一处（页面那一层不认识 `SectionKind`）。
 QString kindTextOf(Presets::SectionKind kind) {
     switch (kind) {
     case Presets::SectionKind::VanillaOptions:
-        return QStringLiteral("游戏设置");
+        return PresetController::tr("游戏设置");
     case Presets::SectionKind::VanillaKeys:
-        return QStringLiteral("原版按键");
+        return PresetController::tr("原版按键");
     case Presets::SectionKind::ServerList:
-        return QStringLiteral("服务器列表");
+        return PresetController::tr("服务器列表");
     case Presets::SectionKind::MalilibKeys:
-        return QStringLiteral("MaLiLib 热键");
+        return PresetController::tr("MaLiLib 热键");
     case Presets::SectionKind::GenericFiles:
-        return QStringLiteral("通用文件组");
+        return PresetController::tr("通用文件组");
     case Presets::SectionKind::Custom:
         break;
     }
-    return QStringLiteral("自定义");
+    return PresetController::tr("自定义");
 }
 
 /// 筛选项那把钥匙。★ `Unset` 在盘上**没有**类别字段（`presetCategoryKey()` 回空串），
@@ -154,27 +154,27 @@ QString categoryFilterKey(Presets::PresetCategory category) {
 
 QString sectionKindText(const Presets::PresetSection &section) {
     if (Presets::dataPackHandlesSection(section)) {
-        return QStringLiteral("数据包");
+        return PresetController::tr("数据包");
     }
     if (section.kind == Presets::SectionKind::GenericFiles) {
         const QString subKey = Presets::fileGroupDirName(Presets::FileGroup::Config);
         if (section.id == Presets::sectionIdFor(section.kind, subKey)) {
-            return QStringLiteral("配置文件 config/");
+            return PresetController::tr("配置文件 config/");
         }
         if (section.id == Presets::sectionIdFor(
                                 section.kind,
                                 Presets::fileGroupDirName(Presets::FileGroup::DefaultConfigs))) {
-            return QStringLiteral("默认配置 defaultconfigs/");
+            return PresetController::tr("默认配置 defaultconfigs/");
         }
         if (section.id == Presets::sectionIdFor(
                                 section.kind,
                                 Presets::fileGroupDirName(Presets::FileGroup::ResourcePacks))) {
-            return QStringLiteral("资源包");
+            return PresetController::tr("资源包");
         }
         if (section.id == Presets::sectionIdFor(
                                 section.kind,
                                 Presets::fileGroupDirName(Presets::FileGroup::ShaderPacks))) {
-            return QStringLiteral("光影包");
+            return PresetController::tr("光影包");
         }
         return kindTextOf(section.kind);
     }
@@ -368,19 +368,19 @@ void PresetController::refreshInstances() {
 QString PresetController::categoryText(Presets::PresetCategory category) {
     switch (category) {
     case Presets::PresetCategory::Unset:
-        return QStringLiteral("旧版（未分类）");
+        return tr("旧版（未分类）");
     case Presets::PresetCategory::GameSettings:
-        return QStringLiteral("游戏设置");
+        return tr("游戏设置");
     case Presets::PresetCategory::Mods:
-        return QStringLiteral("模组");
+        return tr("模组");
     case Presets::PresetCategory::ResourcePacks:
-        return QStringLiteral("资源包");
+        return tr("资源包");
     case Presets::PresetCategory::DataPacks:
-        return QStringLiteral("数据包");
+        return tr("数据包");
     case Presets::PresetCategory::ShaderPacks:
-        return QStringLiteral("光影包");
+        return tr("光影包");
     }
-    return QStringLiteral("旧版（未分类）");
+    return tr("旧版（未分类）");
 }
 
 void PresetController::pushCategories() {
@@ -390,7 +390,7 @@ void PresetController::pushCategories() {
     QList<PresetManagePage::CategoryOption> options;
 
     PresetManagePage::CategoryOption all;
-    all.text = QStringLiteral("全部");
+    all.text = tr("全部");
     all.filterOnly = true;
     options.append(all);
 
@@ -445,17 +445,17 @@ quint32 PresetController::captureMaskFor(Presets::PresetCategory category) {
 QString PresetController::captureNoteFor(Presets::PresetCategory category) {
     switch (category) {
     case Presets::PresetCategory::Unset:
-        return QStringLiteral("旧版预设没写类别，九样都能收。");
+        return tr("旧版预设没写类别，九样都能收。");
     case Presets::PresetCategory::GameSettings:
-        return QStringLiteral("「游戏设置」预设不收资源包 / 光影包。");
+        return tr("「游戏设置」预设不收资源包 / 光影包。");
     case Presets::PresetCategory::ResourcePacks:
-        return QStringLiteral("仅提取资源包。");
+        return tr("仅提取资源包。");
     case Presets::PresetCategory::ShaderPacks:
-        return QStringLiteral("仅提取光影包。");
+        return tr("仅提取光影包。");
     case Presets::PresetCategory::Mods:
-        return QStringLiteral("模组预设请使用“编辑模组清单”添加平台项目，当前不从实例提取本地 JAR。");
+        return tr("模组预设请使用“编辑模组清单”添加平台项目，当前不从实例提取本地 JAR。");
     case Presets::PresetCategory::DataPacks:
-        return QStringLiteral("数据包按存档应用；目标中没有同名存档时标记为「待应用」。");
+        return tr("数据包按存档应用；目标中没有同名存档时标记为「待应用」。");
     }
     return QString();
 }
@@ -465,25 +465,25 @@ Presets::CaptureSelection PresetController::filterCapture(
     QStringList *skipped) {
     const quint32 mask = captureMaskFor(category);
     Presets::CaptureSelection out = selection;
-    auto drop = [mask, skipped](quint32 bit, bool &flag, const char *label) {
+    auto drop = [mask, skipped](quint32 bit, bool &flag, const QString &label) {
         if ((mask & bit) == 0 && flag) {
             flag = false;
             if (skipped != nullptr) {
-                skipped->append(QString::fromUtf8(label));
+                skipped->append(label);
             }
         }
     };
     using Bits = PresetManagePage;
-    drop(Bits::CaptureVanillaOptions, out.vanillaOptions, "基础设置");
-    drop(Bits::CaptureVanillaKeys, out.vanillaKeys, "标准按键");
-    drop(Bits::CaptureServers, out.servers, "服务器列表");
-    drop(Bits::CaptureConfig, out.config, "config/");
-    drop(Bits::CaptureDefaultConfigs, out.defaultConfigs, "defaultconfigs/");
-    drop(Bits::CaptureResourcePacks, out.resourcePacks, "资源包");
-    drop(Bits::CaptureShaderPacks, out.shaderPacks, "光影包");
-    drop(Bits::CaptureMalilib, out.malilib, "MaLiLib 热键");
-    drop(Bits::CaptureMalilibValues, out.malilibValues, "MaLiLib 值");
-    drop(Bits::CaptureDataPacks, out.dataPacks, "数据包");
+    drop(Bits::CaptureVanillaOptions, out.vanillaOptions, tr("基础设置"));
+    drop(Bits::CaptureVanillaKeys, out.vanillaKeys, tr("标准按键"));
+    drop(Bits::CaptureServers, out.servers, tr("服务器列表"));
+    drop(Bits::CaptureConfig, out.config, QStringLiteral("config/"));
+    drop(Bits::CaptureDefaultConfigs, out.defaultConfigs, QStringLiteral("defaultconfigs/"));
+    drop(Bits::CaptureResourcePacks, out.resourcePacks, tr("资源包"));
+    drop(Bits::CaptureShaderPacks, out.shaderPacks, tr("光影包"));
+    drop(Bits::CaptureMalilib, out.malilib, tr("MaLiLib 热键"));
+    drop(Bits::CaptureMalilibValues, out.malilibValues, tr("MaLiLib 值"));
+    drop(Bits::CaptureDataPacks, out.dataPacks, tr("数据包"));
     return out;
 }
 
@@ -569,7 +569,7 @@ void PresetController::pushCatalog(const Presets::CatalogSnapshot &snapshot, con
         item.description = summary.description;
         if (summary.updatedAt.isValid()) {
             item.updatedText =
-                QStringLiteral("最后修改：%1")
+                tr("最后修改：%1")
                     .arg(summary.updatedAt.toString(QStringLiteral("yyyy-MM-dd HH:mm")));
         }
         item.sectionCount = summary.sectionCount;
@@ -707,7 +707,7 @@ QString PresetController::kindText(const Presets::PresetSection &section) {
 QString PresetController::newPresetName() const {
     // Use the complete loaded catalog, including entries hidden by UI filters.
     // Reopening/refreshing the page updates it after external edits.
-    const QString base = QStringLiteral("新预设");
+    const QString base = QStringLiteral("新预设");  // i18n-ignore
     if (!m_catalogNames.contains(base)) {
         return base;
     }
@@ -733,7 +733,7 @@ void PresetController::createPreset(const QString &categoryKey) {
     }
     if (!categoryOk || category == Presets::PresetCategory::Unset) {
         if (m_page != nullptr) {
-            m_page->showStatus(QStringLiteral("请选择预设类别。"));
+            m_page->showStatus(tr("请选择预设类别。"));
         }
         return;
     }
@@ -741,15 +741,15 @@ void PresetController::createPreset(const QString &categoryKey) {
         Presets::create(presetsRoot(), newPresetName(), QString(), category);
     if (created.id.isEmpty()) {
         if (m_page != nullptr) {
-            m_page->showStatus(QStringLiteral("没能建出新的一份（预设目录写不进去）。"));
+            m_page->showStatus(tr("预设目录不可写，无法创建预设。"));
         }
         return;
     }
-    log(QStringLiteral("预设：新建了「%1」（%2）。")
+    log(QStringLiteral("预设：新建了「%1」（%2）。")  // i18n-ignore
             .arg(created.name, categoryText(created.category)));
     refreshList(created.id);
     if (m_page != nullptr) {
-        m_page->showStatus(QStringLiteral("建好了。在右边改名字和说明，然后从实例提取内容。"));
+        m_page->showStatus(tr("建好了。在右边改名字和说明，然后从实例提取内容。"));
     }
 }
 
@@ -757,11 +757,11 @@ void PresetController::duplicatePreset(const QString &id) {
     const Presets::PresetManifest copy = Presets::duplicate(presetsRoot(), id);
     if (copy.id.isEmpty()) {
         if (m_page != nullptr) {
-            m_page->showStatus(QStringLiteral("复制失败：这一份读不回来，或者新目录建不出来。"));
+            m_page->showStatus(tr("复制预设失败。请检查原预设可读且目标目录可写。"));
         }
         return;
     }
-    log(QStringLiteral("预设：复制出「%1」。").arg(copy.name));
+    log(QStringLiteral("预设：复制出「%1」。").arg(copy.name));  // i18n-ignore
     refreshList(copy.id);
 }
 
@@ -773,21 +773,21 @@ void PresetController::saveDetails(const QString &id, const QString &name,
     Presets::PresetManifest manifest = Presets::loadManifest(root, id, &ok, &reason);
     if (!ok) {
         if (m_page != nullptr) {
-            m_page->showStatus(QStringLiteral("这一份读不出来：%1").arg(reason));
+            m_page->showStatus(tr("无法读取源预设：%1").arg(reason));
         }
         return;
     }
     const QString cleaned = Presets::cleanDisplayName(name);
     if (cleaned.isEmpty()) {
         if (m_page != nullptr) {
-            m_page->showStatus(QStringLiteral("名字不能空着。"));
+            m_page->showStatus(tr("名字不能空着。"));
         }
         return;
     }
     const bool renamed = cleaned != manifest.name;
     if (!renamed && description == manifest.description) {
         if (m_page != nullptr) {
-            m_page->showStatus(QStringLiteral("没有要保存的改动。"));
+            m_page->showStatus(tr("没有要保存的改动。"));
         }
         return;
     }
@@ -796,16 +796,16 @@ void PresetController::saveDetails(const QString &id, const QString &name,
     manifest.updatedAt = QDateTime::currentDateTime();
     if (!Presets::saveManifest(root, manifest)) {
         if (m_page != nullptr) {
-            m_page->showStatus(QStringLiteral("保存失败：无法写入预设文件。"));
+            m_page->showStatus(tr("保存失败：无法写入预设文件。"));
         }
         return;
     }
     if (renamed) {
-        log(QStringLiteral("预设：改名为「%1」。").arg(cleaned));
+        log(QStringLiteral("预设：改名为「%1」。").arg(cleaned));  // i18n-ignore
     }
     refreshList(id);
     if (m_page != nullptr) {
-        m_page->showStatus(QStringLiteral("保存了。"));
+        m_page->showStatus(tr("保存了。"));
     }
 }
 
@@ -818,17 +818,17 @@ void PresetController::removePreset(const QString &id) {
     const QString name = ok ? manifest.name : displayName(id);
     if (!Presets::remove(presetsRoot(), id)) {
         if (m_page != nullptr) {
-            m_page->showStatus(QStringLiteral("删除失败：无法删除预设目录。"));
+            m_page->showStatus(tr("删除失败：无法删除预设目录。"));
         }
         return;
     }
-    log(QStringLiteral("预设：删除了「%1」。").arg(name));
+    log(QStringLiteral("预设：删除了「%1」。").arg(name));  // i18n-ignore
     if (m_currentId == id) {
         m_currentId.clear();
     }
     refreshList(QString());
     if (m_page != nullptr) {
-        m_page->showStatus(QStringLiteral("删掉了「%1」。").arg(name));
+        m_page->showStatus(tr("删掉了「%1」。").arg(name));
     }
 }
 
@@ -862,14 +862,14 @@ void PresetController::setDefaultPreset(const QString &id, bool makeDefault) {
     if (!changed) {
         if (m_page != nullptr) {
             m_page->showStatus(makeDefault && ok
-                                   ? QStringLiteral("综合预设和旧版混合预设不设默认：默认只对四类预设生效。")
-                                   : QStringLiteral("设置默认预设失败：该预设已不存在。"));
+                                   ? tr("综合预设和旧版混合预设不设默认：默认只对四类预设生效。")
+                                   : tr("设置默认预设失败：该预设已不存在。"));
         }
         return;
     }
     log(makeDefault
-            ? QStringLiteral("预设：%1那一类的默认项改成了「%2」。").arg(categoryText(category), displayName(id))
-            : QStringLiteral("预设：取消了「%1」在%2那一类的默认。").arg(displayName(id), categoryText(category)));
+            ? QStringLiteral("预设：%1那一类的默认项改成了「%2」。").arg(categoryText(category), displayName(id))  // i18n-ignore
+            : QStringLiteral("预设：取消了「%1」在%2那一类的默认。").arg(displayName(id), categoryText(category)));  // i18n-ignore
     refreshList(id);
 }
 
@@ -887,42 +887,42 @@ void PresetController::movePreset(const QString &id, int delta) {
 QString PresetController::captureSummary(const Presets::CaptureReport &report) const {
     QStringList parts;
     if (report.optionKeys > 0) {
-        parts.append(QStringLiteral("游戏设置 %1 项").arg(report.optionKeys));
+        parts.append(tr("游戏设置 %1 项").arg(report.optionKeys));
     }
     if (report.keybindings > 0) {
-        parts.append(QStringLiteral("按键 %1 项").arg(report.keybindings));
+        parts.append(tr("按键 %1 项").arg(report.keybindings));
     }
     if (report.servers > 0) {
-        parts.append(QStringLiteral("服务器 %1 个").arg(report.servers));
+        parts.append(tr("服务器 %1 个").arg(report.servers));
     }
     if (report.configItems > 0) {
-        parts.append(QStringLiteral("config %1 个").arg(report.configItems));
+        parts.append(tr("config %1 个").arg(report.configItems));
     }
     if (report.defaultConfigItems > 0) {
-        parts.append(QStringLiteral("defaultconfigs %1 个").arg(report.defaultConfigItems));
+        parts.append(tr("defaultconfigs %1 个").arg(report.defaultConfigItems));
     }
     if (report.resourcePackItems > 0) {
-        parts.append(QStringLiteral("资源包 %1 个").arg(report.resourcePackItems));
+        parts.append(tr("资源包 %1 个").arg(report.resourcePackItems));
     }
     if (report.shaderPackItems > 0) {
-        parts.append(QStringLiteral("光影包 %1 个").arg(report.shaderPackItems));
+        parts.append(tr("光影包 %1 个").arg(report.shaderPackItems));
     }
     if (report.malilibHotkeys > 0) {
-        parts.append(QStringLiteral("MaLiLib 热键 %1 格").arg(report.malilibHotkeys));
+        parts.append(tr("MaLiLib 热键 %1 格").arg(report.malilibHotkeys));
     }
     if (report.malilibValues > 0) {
-        parts.append(QStringLiteral("MaLiLib 值 %1 格").arg(report.malilibValues));
+        parts.append(tr("MaLiLib 值 %1 格").arg(report.malilibValues));
     }
     if (report.dataPackItems > 0) {
-        parts.append(QStringLiteral("数据包 %1 个（%2 个存档）")
+        parts.append(tr("数据包 %1 个（%2 个存档）")
                          .arg(report.dataPackItems)
                          .arg(report.dataPackWorlds));
     }
-    QString text = parts.isEmpty() ? QStringLiteral("没有收到任何内容。")
-                                   : QStringLiteral("已提取：%1。").arg(parts.join(QStringLiteral("，")));
+    QString text = parts.isEmpty() ? tr("没有收到任何内容。")
+                                   : tr("已提取：%1。").arg(parts.join(tr("，")));
     if (!report.problems.isEmpty()) {
-        text += QStringLiteral("\n未提取：%1")
-                    .arg(report.problems.join(QStringLiteral("；")));
+        text += tr("\n未提取：%1")
+                    .arg(report.problems.join(tr("；")));
     }
     return text;
 }
@@ -935,7 +935,7 @@ void PresetController::captureInto(const QString &presetId, const QString &insta
     Presets::PresetManifest manifest = Presets::loadManifest(root, presetId, &ok, &reason);
     if (!ok) {
         if (m_page != nullptr) {
-            m_page->showStatus(QStringLiteral("这一份读不出来：%1").arg(reason));
+            m_page->showStatus(tr("无法读取源预设：%1").arg(reason));
         }
         return;
     }
@@ -958,15 +958,14 @@ void PresetController::captureInto(const QString &presetId, const QString &insta
                                        &unidentified);
         if (!problem.isEmpty()) {
             if (m_page != nullptr) {
-                m_page->showStatus(QStringLiteral("提取失败：%1").arg(problem));
+                m_page->showStatus(tr("提取失败：%1").arg(problem));
             }
             return;
         }
         if (added == 0 && manifest.modReferences.isEmpty()) {
             if (m_page != nullptr) {
                 m_page->showStatus(
-                    QStringLiteral("这个实例没有认得出平台身份的模组：安装记录里没有它们，"
-                                   "或者文件已经被换过。模组类预设没有收进任何东西。"));
+                    tr("未找到带有效平台安装记录的模组，未提取模组预设内容。"));
             }
             return;
         }
@@ -974,28 +973,27 @@ void PresetController::captureInto(const QString &presetId, const QString &insta
         manifest.updatedAt = QDateTime::currentDateTime();
         if (!Presets::saveManifest(root, manifest)) {
             if (m_page != nullptr) {
-                m_page->showStatus(QStringLiteral("提取到了内容，但这一份预设写不进去。"));
+                m_page->showStatus(tr("内容已提取，但无法保存预设。"));
             }
             return;
         }
-        log(QStringLiteral("预设「%1」：从 %2 收了 %3 条模组引用（新增 %4）。")
+        log(QStringLiteral("预设「%1」：从 %2 收了 %3 条模组引用（新增 %4）。")  // i18n-ignore
                 .arg(manifest.name, displayName(instanceId))
                 .arg(manifest.modReferences.size())
                 .arg(added));
         refreshList(presetId);
         if (m_page != nullptr) {
-            QString status = QStringLiteral("收到 %1 条平台模组引用").arg(manifest.modReferences.size());
+            QString status = tr("收到 %1 条平台模组引用").arg(manifest.modReferences.size());
             if (added > 0) {
-                status += QStringLiteral("（这次新增 %1 条）").arg(added);
+                status += tr("（新增 %1 条）").arg(added);
             }
             if (unidentified > 0) {
                 // 认不出的那几件怎么处理**要说出来**：编辑器那条「从本地模组导入」会按
                 // CurseForge 指纹 + Modrinth sha1 再认一遍（这一层只认安装记录，不联网）。
-                status += QStringLiteral("；另有 %1 件认不出身份 —— 在「预设编辑器 → 从本地模组"
-                                         "导入」里会按指纹再认一次，也可以在模组页手动补充。")
+                status += tr("；另有 %1 个模组的来源未知。可在「预设编辑器 → 从本地模组导入」中重新识别，或在模组页手动补充。")
                               .arg(unidentified);
             }
-            status += QStringLiteral("。");
+            status += tr("。");
             m_page->showStatus(status);
         }
         return;
@@ -1004,9 +1002,9 @@ void PresetController::captureInto(const QString &presetId, const QString &insta
         if (m_page != nullptr) {
             m_page->showStatus(
                 skipped.isEmpty()
-                    ? QStringLiteral("未选择任何项。")
-                    : QStringLiteral("这类预设不收录：%1。")
-                          .arg(skipped.join(QStringLiteral("、"))));
+                    ? tr("未选择任何项。")
+                    : tr("这类预设不收录：%1。")
+                          .arg(skipped.join(tr("、"))));
         }
         return;
     }
@@ -1015,8 +1013,8 @@ void PresetController::captureInto(const QString &presetId, const QString &insta
     if (!report.ok) {
         if (m_page != nullptr) {
             m_page->showStatus(report.problem.isEmpty()
-                                   ? QStringLiteral("没有收到任何内容。")
-                                   : QStringLiteral("提取失败：%1").arg(report.problem));
+                                   ? tr("没有收到任何内容。")
+                                   : tr("提取失败：%1").arg(report.problem));
         }
         return;
     }
@@ -1026,20 +1024,20 @@ void PresetController::captureInto(const QString &presetId, const QString &insta
     manifest.updatedAt = QDateTime::currentDateTime();
     if (!Presets::saveManifest(root, manifest)) {
         if (m_page != nullptr) {
-            m_page->showStatus(QStringLiteral("提取到了内容，但这一份预设写不进去。"));
+            m_page->showStatus(tr("内容已提取，但无法保存预设。"));
         }
         return;
     }
 
-    log(QStringLiteral("预设「%1」：从 %2 收了 %3 段。")
+    log(QStringLiteral("预设「%1」：从 %2 收了 %3 段。")  // i18n-ignore
             .arg(manifest.name, displayName(instanceId))
             .arg(report.sectionCount()));
     refreshList(presetId);
     if (m_page != nullptr) {
         QString status = captureSummary(report);
         if (!skipped.isEmpty()) {
-            status += QStringLiteral("\n这一类预设不收：%1。")
-                          .arg(skipped.join(QStringLiteral("、")));
+            status += tr("\n这一类预设不收：%1。")
+                          .arg(skipped.join(tr("、")));
         }
         m_page->showStatus(status);
     }
@@ -1056,20 +1054,20 @@ void PresetController::captureAsNew(const QString &instanceId, const QString &na
     }
     if (!categoryOk || category == Presets::PresetCategory::Unset) {
         if (m_page != nullptr) {
-            m_page->showStatus(QStringLiteral("请选择预设类别。"));
+            m_page->showStatus(tr("请选择预设类别。"));
         }
         return;
     }
 
     QString wanted = Presets::cleanDisplayName(name);
     if (wanted.isEmpty()) {
-        wanted = QStringLiteral("%1 预设").arg(displayName(instanceId));
+        wanted = QStringLiteral("%1 预设").arg(displayName(instanceId));  // i18n-ignore
     }
     const QString root = presetsRoot();
     Presets::PresetManifest created = Presets::create(root, wanted, QString(), category);
     if (created.id.isEmpty()) {
         if (m_page != nullptr) {
-            m_page->showStatus(QStringLiteral("没能建出新的一份（预设目录写不进去）。"));
+            m_page->showStatus(tr("预设目录不可写，无法创建预设。"));
         }
         return;
     }
@@ -1089,7 +1087,7 @@ void PresetController::captureAsNew(const QString &instanceId, const QString &na
         if (!problem.isEmpty()) {
             Presets::remove(root, created.id);
             if (m_page != nullptr) {
-                m_page->showStatus(QStringLiteral("提取失败：%1").arg(problem));
+                m_page->showStatus(tr("提取失败：%1").arg(problem));
             }
             return;
         }
@@ -1098,8 +1096,7 @@ void PresetController::captureAsNew(const QString &instanceId, const QString &na
             Presets::remove(root, created.id);
             if (m_page != nullptr) {
                 m_page->showStatus(
-                    QStringLiteral("这个实例没有认得出平台身份的模组：安装记录里没有它们，"
-                                   "或者文件已经被换过；新预设没有创建。"));
+                    tr("无法确认此实例中的模组来自哪个平台。其安装记录可能缺失，或文件已被替换。预设未创建。"));
             }
             return;
         }
@@ -1108,24 +1105,23 @@ void PresetController::captureAsNew(const QString &instanceId, const QString &na
         if (!Presets::saveManifest(root, created)) {
             Presets::remove(root, created.id);
             if (m_page != nullptr) {
-                m_page->showStatus(QStringLiteral("预设目录写不进去，新预设没有建。"));
+                m_page->showStatus(tr("预设目录不可写，未创建新预设。"));
             }
             return;
         }
-        log(QStringLiteral("预设「%1」：从 %2 收了 %3 条模组引用。")
+        log(QStringLiteral("预设「%1」：从 %2 收了 %3 条模组引用。")  // i18n-ignore
                 .arg(created.name, displayName(instanceId))
                 .arg(created.modReferences.size()));
         refreshList(created.id);
         if (m_page != nullptr) {
-            QString status = QStringLiteral("收到 %1 条平台模组引用").arg(created.modReferences.size());
+            QString status = tr("收到 %1 条平台模组引用").arg(created.modReferences.size());
             if (unidentified > 0) {
                 // 认不出的那几件怎么处理**要说出来**：编辑器那条「从本地模组导入」会按
                 // CurseForge 指纹 + Modrinth sha1 再认一遍（这一层只认安装记录，不联网）。
-                status += QStringLiteral("；另有 %1 件认不出身份 —— 在「预设编辑器 → 从本地模组"
-                                         "导入」里会按指纹再认一次，也可以在模组页手动补充。")
+                status += tr("；另有 %1 个模组的来源未知。可在「预设编辑器 → 从本地模组导入」中重新识别，或在模组页手动补充。")
                               .arg(unidentified);
             }
-            status += QStringLiteral("。");
+            status += tr("。");
             m_page->showStatus(status);
         }
         return;
@@ -1136,9 +1132,9 @@ void PresetController::captureAsNew(const QString &instanceId, const QString &na
         if (m_page != nullptr) {
             m_page->showStatus(
                 skipped.isEmpty()
-                    ? QStringLiteral("未选择任何项，新预设没有创建。")
-                    : QStringLiteral("这类预设不收录：%1；新预设没有创建。")
-                          .arg(skipped.join(QStringLiteral("、"))));
+                    ? tr("未选择任何项，新预设没有创建。")
+                    : tr("这类预设不收录：%1；新预设没有创建。")
+                          .arg(skipped.join(tr("、"))));
         }
         return;
     }
@@ -1149,8 +1145,8 @@ void PresetController::captureAsNew(const QString &instanceId, const QString &na
         Presets::remove(root, created.id);
         if (m_page != nullptr) {
             m_page->showStatus(report.problem.isEmpty()
-                                   ? QStringLiteral("没有收到任何内容，新预设没有创建。")
-                                   : QStringLiteral("提取失败：%1").arg(report.problem));
+                                   ? tr("没有收到任何内容，新预设没有创建。")
+                                   : tr("提取失败：%1").arg(report.problem));
         }
         return;
     }
@@ -1161,20 +1157,20 @@ void PresetController::captureAsNew(const QString &instanceId, const QString &na
     if (!Presets::saveManifest(root, created)) {
         Presets::remove(root, created.id);
         if (m_page != nullptr) {
-            m_page->showStatus(QStringLiteral("预设目录写不进去，新预设没有建。"));
+            m_page->showStatus(tr("预设目录不可写，未创建新预设。"));
         }
         return;
     }
 
-    log(QStringLiteral("预设：从 %1 提取出「%2」（%3 段）。")
+    log(QStringLiteral("预设：从 %1 提取出「%2」（%3 段）。")  // i18n-ignore
             .arg(displayName(instanceId), created.name)
             .arg(report.sectionCount()));
     refreshList(created.id);
     if (m_page != nullptr) {
         QString status = captureSummary(report);
         if (!skipped.isEmpty()) {
-            status += QStringLiteral("\n这一类预设不收：%1。")
-                          .arg(skipped.join(QStringLiteral("、")));
+            status += tr("\n这一类预设不收：%1。")
+                          .arg(skipped.join(tr("、")));
         }
         m_page->showStatus(status);
     }
@@ -1191,7 +1187,7 @@ QString PresetController::rowText(const Presets::ApplyPlanRow &row) const {
     }
     QString text = QStringLiteral("%1  %2").arg(head, Presets::applyPlanRowText(row));
     if (!row.problem.isEmpty()) {
-        text += QStringLiteral("（%1）").arg(row.problem);
+        text += tr("（%1）").arg(row.problem);
     }
     return text;
 }
@@ -1267,12 +1263,12 @@ void PresetController::showPreview(const Presets::PreviewSnapshot &snapshot) {
             QStringLiteral("%1 ← %2").arg(conflict.keys, conflict.claims.join(QStringLiteral(" / "))));
     }
     if (plan.ok) {
-        QString summary = QStringLiteral("%1 段，会动 %2 项").arg(plan.rows.size()).arg(plan.totalCount());
+        QString summary = tr("%1 段，会动 %2 项").arg(plan.rows.size()).arg(plan.totalCount());
         if (plan.blockedRowCount() > 0) {
-            summary += QStringLiteral("，%1 段做不了").arg(plan.blockedRowCount());
+            summary += tr("，%1 段做不了").arg(plan.blockedRowCount());
         }
         if (plan.riskyRowCount() > 0) {
-            summary += QStringLiteral("，%1 段要留意").arg(plan.riskyRowCount());
+            summary += tr("，%1 段要留意").arg(plan.riskyRowCount());
         }
         view.summary = summary;
     }
@@ -1288,35 +1284,35 @@ QString PresetController::applyRowText(const Presets::PresetApplyRow &row) const
     }
     QString state;
     if (row.blocked) {
-        state = QStringLiteral("做不了%1").arg(row.problem.isEmpty()
+        state = tr("做不了%1").arg(row.problem.isEmpty()
                                                   ? QString()
-                                                  : QStringLiteral("（%1）").arg(row.problem));
+                                                  : tr("（%1）").arg(row.problem));
     } else if (row.skipped) {
-        state = QStringLiteral("跳过");
+        state = tr("跳过");
     } else if (!row.ok) {
-        state = QStringLiteral("没做成%1").arg(row.problem.isEmpty()
+        state = tr("没做成%1").arg(row.problem.isEmpty()
                                                    ? QString()
-                                                   : QStringLiteral("（%1）").arg(row.problem));
+                                                   : tr("（%1）").arg(row.problem));
     } else if (row.written == 0 && row.removed == 0 && row.deferred == 0) {
-        state = QStringLiteral("没有变化");
+        state = tr("没有变化");
     } else {
         QStringList bits;
         if (row.written > 0) {
-            bits.append(QStringLiteral("写入 %1").arg(row.written));
+            bits.append(tr("写入 %1").arg(row.written));
         }
         if (row.added > 0) {
-            bits.append(QStringLiteral("新增 %1").arg(row.added));
+            bits.append(tr("新增 %1").arg(row.added));
         }
         if (row.removed > 0) {
-            bits.append(QStringLiteral("删掉 %1").arg(row.removed));
+            bits.append(tr("删掉 %1").arg(row.removed));
         }
         if (row.deferred > 0) {
-            bits.append(QStringLiteral("待应用 %1").arg(row.deferred));
+            bits.append(tr("待应用 %1").arg(row.deferred));
         }
         if (row.skippedItems > 0) {
-            bits.append(QStringLiteral("跳过 %1").arg(row.skippedItems));
+            bits.append(tr("跳过 %1").arg(row.skippedItems));
         }
-        state = bits.join(QStringLiteral("，"));
+        state = bits.join(tr("，"));
     }
     return QStringLiteral("%1  %2").arg(head, state);
 }
@@ -1344,7 +1340,7 @@ void PresetController::showExecutionReport(const QString &presetId, const QStrin
         {"blocked", tr("未解决")}, {"skipped", tr("已跳过")}, {"pending-world", tr("待应用：等待目标世界")}};
     for (const auto &value : rows) {
         const auto row = value.toObject(); const QString state = row.value("state").toString();
-        view.lines.append(QStringLiteral("%1：%2；写入 %3 项 %4")
+        view.lines.append(tr("%1：%2；写入 %3 项 %4")
             .arg(row.value(mods ? "filename" : "title").toString(), states.value(state, tr("状态无法确认")))
             .arg(row.value("written").toInt()).arg(row.value("reason").toString()));
     }
@@ -1365,8 +1361,7 @@ void PresetController::applyPlanImpl(const QString &presetId, const QString &ins
     PresetManagePage::ApplyView view;
 
     if (m_host.isInstanceBusy && m_host.isInstanceBusy(instanceId)) {
-        view.problem = tr("这个实例正在安装、补全文件或后台搬文件（复制、还原、导入），"
-                          "等它收尾之后再应用预设。");
+        view.problem = tr("这个实例正在安装、补全文件或后台搬文件（复制、还原、导入），等它收尾之后再应用预设。");
         m_page->showApplyResult(view);
         return;
     }
@@ -1376,7 +1371,7 @@ void PresetController::applyPlanImpl(const QString &presetId, const QString &ins
     const Presets::PresetManifest manifest =
         Presets::loadManifest(presetsRoot(), presetId, &ok, &reason);
     if (!ok) {
-        view.problem = QStringLiteral("这一份读不出来：%1").arg(reason);
+        view.problem = tr("无法读取源预设：%1").arg(reason);
         m_page->showApplyResult(view);
         return;
     }
@@ -1462,7 +1457,7 @@ void PresetController::applyPlanImpl(const QString &presetId, const QString &ins
         view.lines.append(applyRowText(row));
     }
     for (const Presets::MalilibConflict &conflict : result.keyConflicts) {
-        view.lines.append(TextMarks::warning(QStringLiteral("键位冲突：%1 ← %2"))
+        view.lines.append(TextMarks::warning(tr("键位冲突：%1 ← %2"))
                               .arg(conflict.keys,
                                    conflict.claims.join(QStringLiteral(" / "))));
     }
@@ -1472,25 +1467,25 @@ void PresetController::applyPlanImpl(const QString &presetId, const QString &ins
         return;  // 盘上一个字节都没动，日志里也不写"应用了"
     }
     if (!result.blockedReason.isEmpty()) {
-        log(QStringLiteral("预设：%1 现在不能应用（%2）。")
+        log(QStringLiteral("预设：%1 现在不能应用（%2）。")  // i18n-ignore
                 .arg(displayName(instanceId), result.blockedReason));
         return;
     }
     if (!result.ok) {
-        log(QStringLiteral("预设：应用到 %1 没有完成%2。")
+        log(QStringLiteral("预设：应用到 %1 没有完成%2。")  // i18n-ignore
                 .arg(displayName(instanceId),
                      result.problem.isEmpty() ? QString()
-                                               : QStringLiteral("：%1").arg(result.problem)));
+                                               : QStringLiteral("：%1").arg(result.problem)));  // i18n-ignore
         return;
     }
-    QString line = QStringLiteral("预设「%1」：应用到 %2，写入 %3 项")
+    QString line = QStringLiteral("预设「%1」：应用到 %2，写入 %3 项")  // i18n-ignore
                        .arg(manifest.name, displayName(instanceId))
                        .arg(result.written);
     if (result.removed > 0) {
-        line += QStringLiteral("、删掉 %1 项").arg(result.removed);
+        line += QStringLiteral("、删掉 %1 项").arg(result.removed);  // i18n-ignore
     }
     if (!result.backupDir.isEmpty()) {
-        line += QStringLiteral("；备份在 %1").arg(QDir::toNativeSeparators(result.backupDir));
+        line += QStringLiteral("；备份在 %1").arg(QDir::toNativeSeparators(result.backupDir));  // i18n-ignore
     }
     log(line);
 }
@@ -1679,7 +1674,7 @@ PresetController::InstallPreview PresetController::previewForInstall(
     const QString &presetId, const QString &instanceName) const {
     InstallPreview view;
     if (!Presets::isValidPresetId(presetId)) {
-        view.problem = QStringLiteral("没有选中有效的预设。");
+        view.problem = tr("没有选中有效的预设。");
         return view;
     }
 
@@ -1688,7 +1683,7 @@ PresetController::InstallPreview PresetController::previewForInstall(
     const Presets::PresetManifest manifest =
         Presets::loadManifest(presetsRoot(), presetId, &ok, &reason);
     if (!ok) {
-        view.problem = QStringLiteral("这一份预设读不出来：%1").arg(reason);
+        view.problem = tr("无法读取待导入的预设：%1").arg(reason);
         return view;
     }
     view.presetName = manifest.name;
@@ -1725,7 +1720,7 @@ PresetController::InstallPreview PresetController::previewForInstall(
         view.lines.append(rowText(row));
     }
     for (const Presets::MalilibConflict &conflict : plan.keyConflicts) {
-        const QString line = TextMarks::warning(QStringLiteral("键位冲突：%1 ← %2"))
+        const QString line = TextMarks::warning(tr("键位冲突：%1 ← %2"))
                                  .arg(conflict.keys,
                                       conflict.claims.join(QStringLiteral(" / ")));
         view.lines.append(line);
@@ -1747,14 +1742,14 @@ PresetController::InstallPreview PresetController::previewForInstall(
     }
     // 这一段和 `previewPlan()` 里那句小结**同口径**：界面里两处说"会动几项"不该有两种说法。
     if (plan.ok) {
-        QString summary = QStringLiteral("%1 段，会动 %2 项")
+        QString summary = tr("%1 段，会动 %2 项")
                               .arg(plan.rows.size())
                               .arg(plan.totalCount());
         if (plan.blockedRowCount() > 0) {
-            summary += QStringLiteral("，%1 段做不了").arg(plan.blockedRowCount());
+            summary += tr("，%1 段做不了").arg(plan.blockedRowCount());
         }
         if (plan.riskyRowCount() > 0) {
-            summary += QStringLiteral("，%1 段要留意").arg(plan.riskyRowCount());
+            summary += tr("，%1 段要留意").arg(plan.riskyRowCount());
         }
         view.summary = summary;
     }
@@ -1776,8 +1771,8 @@ PresetController::InstallApply PresetController::applyAfterInstall(const QString
     const Presets::PresetManifest manifest =
         Presets::loadManifest(presetsRoot(), presetId, &ok, &reason);
     if (!ok) {
-        out.message = QStringLiteral("预设读不出来：%1").arg(reason);
-        log(QStringLiteral("预设：%1").arg(out.message));
+        out.message = tr("预设读取失败：%1").arg(reason);
+        log(QStringLiteral("预设：%1").arg(out.message));  // i18n-ignore
         return out;
     }
 
@@ -1807,39 +1802,38 @@ PresetController::InstallApply PresetController::applyAfterInstall(const QString
     }
 
     if (result.needsConfirm) {
-        out.message = QStringLiteral("预设里有一段是「覆盖」，需要先确认计划才能应用（"
-                                     "可以在实例页 →「预设」那一档里看计划并确认）。");
+        out.message = tr("此预设包含覆盖操作。请在实例的「预设」页查看并确认应用计划。");
     } else if (!result.blockedReason.isEmpty()) {
         out.message = result.blockedReason;
     } else if (!result.ok) {
         out.message = result.problem.isEmpty()
-                          ? QStringLiteral("本次操作未完成。")
-                          : QStringLiteral("本次操作未完成：%1").arg(result.problem);
+                          ? tr("本次操作未完成。")
+                          : tr("本次操作未完成：%1").arg(result.problem);
     } else {
         out.ok = failed == 0;
-        out.message = QStringLiteral("实例预设「%1」已应用：写入 %2 项")
+        out.message = tr("实例预设「%1」已应用：写入 %2 项")
                           .arg(manifest.name)
                           .arg(result.written);
         if (result.removed > 0) {
-            out.message += QStringLiteral("、删掉 %1 项").arg(result.removed);
+            out.message += tr("、删掉 %1 项").arg(result.removed);
         }
         if (failed > 0) {
-            out.message += QStringLiteral("，%1 段没做成（管理页里可以看详情）").arg(failed);
+            out.message += tr("，%1 段没做成（管理页里可以看详情）").arg(failed);
         }
         for (const auto &row : result.rows) {
             if (row.deferred > 0 || !row.problem.isEmpty())
                 out.message += QLatin1Char('\n') + applyRowText(row);
         }
         if (!result.backupDir.isEmpty()) {
-            out.message += QStringLiteral("；备份在 %1")
+            out.message += tr("；备份在 %1")
                                .arg(QDir::toNativeSeparators(result.backupDir));
         }
     }
 
     if (out.ok) {
-        log(QStringLiteral("预设：%1").arg(out.message));
+        log(QStringLiteral("预设：%1").arg(out.message));  // i18n-ignore
     } else {
-        log(QStringLiteral("预设：「%1」没有应用到 %2：%3")
+        log(QStringLiteral("预设：「%1」没有应用到 %2：%3")  // i18n-ignore
                 .arg(manifest.name, displayName(instanceName), out.message));
     }
     return out;

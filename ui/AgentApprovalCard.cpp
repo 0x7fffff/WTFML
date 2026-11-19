@@ -49,12 +49,12 @@ AgentApprovalCard::AgentApprovalCard(QWidget *parent) : QWidget(parent) {
     m_egress->setForegroundRole(QPalette::PlaceholderText);
     layout->addWidget(m_egress);
     auto *buttons = new QHBoxLayout;
-    m_sessionAllow = new QPushButton(QStringLiteral("本会话允许此目录"), this);
+    m_sessionAllow = new QPushButton(tr("本会话允许此目录"), this);
     m_sessionAllow->setObjectName(QStringLiteral("agentApprovalSessionAllow"));
     m_sessionAllow->hide();  // Stage 1B 不提供
-    m_allow = new QPushButton(QStringLiteral("允许本次"), this);
+    m_allow = new QPushButton(tr("允许本次"), this);
     m_allow->setObjectName(QStringLiteral("agentApprovalAllow"));
-    m_deny = new QPushButton(QStringLiteral("拒绝"), this);
+    m_deny = new QPushButton(tr("拒绝"), this);
     m_deny->setObjectName(QStringLiteral("agentApprovalDeny"));
     m_deny->setDefault(true);
     buttons->addWidget(m_sessionAllow);
@@ -72,9 +72,9 @@ AgentApprovalCard::AgentApprovalCard(QWidget *parent) : QWidget(parent) {
 
 void AgentApprovalCard::setRequest(const QJsonObject &request) {
     m_approvalId = request.value(QStringLiteral("approvalId")).toString();
-    m_title->setText(QStringLiteral("需要确认：%1")
+    m_title->setText(tr("需要确认：%1")
                          .arg(request.value(QStringLiteral("displayName")).toString()));
-    m_target->setText(QStringLiteral("目标：%1").arg(
+    m_target->setText(tr("目标：%1").arg(
         request.value(QStringLiteral("target")).toString()));
     m_summary->setText(request.value(QStringLiteral("summary")).toString());
     const QString diff = request.value(QStringLiteral("diff")).toString();
@@ -85,7 +85,7 @@ void AgentApprovalCard::setRequest(const QJsonObject &request) {
     m_backup->setText(backup);
     m_backup->setVisible(!backup.isEmpty());
     const QJsonObject egress = request.value(QStringLiteral("egress")).toObject();
-    m_egress->setText(QStringLiteral("外发：%1 · %2")
+    m_egress->setText(tr("外发：%1 · %2")
                           .arg(egress.value(QStringLiteral("kind")).toString(),
                                egress.value(QStringLiteral("reason")).toString()));
     m_sessionAllow->setVisible(

@@ -1,0 +1,10 @@
+project_id_env: CROWDIN_PROJECT_ID
+api_token_env: CROWDIN_PERSONAL_TOKEN
+base_path: ".."
+preserve_hierarchy: true
+export_languages: [en-US]
+
+files:
+  - source: /assets/i18n/wtfml_zh-CN.ts
+    translation: /assets/i18n/wtfml_%two_letters_code%.ts
+    type: qtts

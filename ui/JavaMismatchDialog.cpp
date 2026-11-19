@@ -26,7 +26,7 @@ QString describeActual(int actualMajor, const QString &actualVersionText) {
     if (text.isEmpty()) {
         return QStringLiteral("Java %1").arg(actualMajor);
     }
-    return QStringLiteral("Java %1（%2）").arg(actualMajor).arg(text);
+    return JavaMismatchDialog::tr("Java %1（%2）").arg(actualMajor).arg(text);
 }
 
 }  // namespace
@@ -34,10 +34,7 @@ QString describeActual(int actualMajor, const QString &actualVersionText) {
 QString JavaMismatchDialog::messageText(const QString &instanceName, int expectedMajor,
                                         int actualMajor, const QString &actualVersionText,
                                         const QString &javaPath) {
-    return QStringLiteral(
-               "实例「%1」在「实例设置…」里指定了 %2，而这个版本要求 Java %3。\n\n"
-               "Java 版本不匹配，启动可能失败。建议切换为推荐的兼容版本。\n\n"
-               "%4")
+    return tr("实例「%1」配置的 Java 为 %2，此版本需要 Java %3。\n\n版本不兼容可能导致启动失败。建议切换到支持的 Java 版本。\n\n%4")
         .arg(instanceName, describeActual(actualMajor, actualVersionText),
              QString::number(expectedMajor), javaPath);
 }
@@ -46,7 +43,7 @@ JavaMismatchDialog::JavaMismatchDialog(const QString &instanceName, int expected
                                        int actualMajor, const QString &actualVersionText,
                                        const QString &javaPath, QWidget *parent)
     : QDialog(parent) {
-    setWindowTitle(tr("Java 版本对不上"));
+    setWindowTitle(tr("Java 版本不兼容"));
 
     auto *layout = new QVBoxLayout(this);
     // 留白由卡片自己给（`promptPadding()`），这里再给一层就成了双层留白。
@@ -76,7 +73,7 @@ JavaMismatchDialog::JavaMismatchDialog(const QString &instanceName, int expected
     m_dontRemindCheck = new QCheckBox(tr("以后不再提醒这个实例"), this);
     m_dontRemindCheck->setObjectName(dontRemindCheckName());
     m_dontRemindCheck->setToolTip(
-        tr("记在这个实例的设置里，可随时在「高级选项 → 版本提醒」改回来。"));
+        tr("此设置仅对当前实例生效，可在「高级选项 → 版本提醒」中修改。"));
     layout->addWidget(m_dontRemindCheck);
     // 勾选框下那行说明直接摆出来（设计稿），缩进对齐勾选框的字。
     auto *remindHelp = new QLabel(m_dontRemindCheck->toolTip(), this);

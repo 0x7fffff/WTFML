@@ -83,6 +83,7 @@
 #pragma once
 
 #include "LoaderMeta.hpp"
+#include <QCoreApplication>
 
 #include <QByteArray>
 #include <QJsonArray>
@@ -187,7 +188,7 @@ inline bool flavorFromToken(const QString &token, Flavor *out) {
 inline QString flavorName(Flavor flavor) {
     switch (flavor) {
     case Flavor::Vanilla:
-        return QStringLiteral("原版（Vanilla）");
+        return QCoreApplication::translate("ServerInstall", "原版（Vanilla）");
     case Flavor::Paper:
         return QStringLiteral("Paper");
     case Flavor::Purpur:
@@ -210,21 +211,21 @@ inline QString flavorName(Flavor flavor) {
 inline QString flavorNote(Flavor flavor) {
     switch (flavor) {
     case Flavor::Vanilla:
-        return QStringLiteral("Mojang 官方服务端，什么都不改");
+        return QCoreApplication::translate("ServerInstall", "Mojang 官方服务端，什么都不改");
     case Flavor::Paper:
-        return QStringLiteral("原版端的高性能分支，插件服务端里最常用的那一档");
+        return QCoreApplication::translate("ServerInstall", "支持插件的高性能服务端，基于原版服务端。");
     case Flavor::Purpur:
-        return QStringLiteral("Paper 的下游，玩法开关比 Paper 多");
+        return QCoreApplication::translate("ServerInstall", "Paper 的下游，玩法开关比 Paper 多");
     case Flavor::Fabric:
-        return QStringLiteral("轻量加载器，模组偏原版风格的小改");
+        return QCoreApplication::translate("ServerInstall", "轻量加载器，模组偏原版风格的小改");
     case Flavor::Forge:
-        return QStringLiteral("老牌模组加载器，1.20.1 及更早的服务端模组大多在它上面");
+        return QCoreApplication::translate("ServerInstall", "老牌模组加载器，1.20.1 及更早的服务端模组大多在它上面");
     case Flavor::NeoForge:
-        return QStringLiteral("Forge 分家出来的那支，1.20.2 起的服务端模组主流");
+        return QCoreApplication::translate("ServerInstall", "Forge 分家出来的那支，1.20.2 起的服务端模组主流");
     case Flavor::Quilt:
-        return QStringLiteral("Fabric 的分支，模组基本通用，服务端侧用得少");
+        return QCoreApplication::translate("ServerInstall", "Fabric 的分支，模组基本通用，服务端侧用得少");
     case Flavor::Spigot:
-        return QStringLiteral("插件服务端的老底子，官方不发成品，得现编一份");
+        return QCoreApplication::translate("ServerInstall", "插件服务端的老底子，官方不发成品，得现编一份");
     }
     return QString();
 }
@@ -279,11 +280,11 @@ inline InstallMethod installMethod(Flavor flavor) {
 inline QString installMethodText(InstallMethod method) {
     switch (method) {
     case InstallMethod::DirectJar:
-        return QStringLiteral("下载后即为服务端，可直接运行");
+        return QCoreApplication::translate("ServerInstall", "下载后即为服务端，可直接运行");
     case InstallMethod::RunInstaller:
-        return QStringLiteral("下载的是安装器，需在安装目录中运行一次");
+        return QCoreApplication::translate("ServerInstall", "下载的是安装器，需在安装目录中运行一次");
     case InstallMethod::BuildRequired:
-        return QStringLiteral("官方不提供成品，需用其构建工具现场编译（需要几分钟并联网）");
+        return QCoreApplication::translate("ServerInstall", "官方不提供成品，需用其构建工具现场编译（需要几分钟并联网）");
     }
     return QString();
 }
@@ -352,8 +353,7 @@ inline QString quiltInstallerMetadataUrl() {
 
 /// Quilt 安装器 jar 的地址。
 inline QString quiltInstallerUrl(const QString &installerVersion) {
-    return QStringLiteral("https://maven.quiltmc.org/repository/release/org/quiltmc/"
-                          "quilt-installer/%1/quilt-installer-%1.jar")
+    return QStringLiteral("https://maven.quiltmc.org/repository/release/org/quiltmc/quilt-installer/%1/quilt-installer-%1.jar")
         .arg(installerVersion);
 }
 
@@ -362,8 +362,7 @@ inline QString quiltInstallerUrl(const QString &installerVersion) {
 /// BuildTools 的地址（jenkins 上"最后一次成功的构建"，没有版本号那种稳定直链 ——
 /// 这也正是 Spigot 这一档"装法不可复现"的地方：今天编和下周编出来的不是同一个文件）。
 inline QString spigotBuildToolsUrl() {
-    return QStringLiteral("https://hub.spigotmc.org/jenkins/job/BuildTools/"
-                          "lastSuccessfulBuild/artifact/target/BuildTools.jar");
+    return QStringLiteral("https://hub.spigotmc.org/jenkins/job/BuildTools/lastSuccessfulBuild/artifact/target/BuildTools.jar");
 }
 
 // ---------------------------------------------------------------------------
@@ -699,7 +698,7 @@ inline Plan planFor(const Request &request) {
     plan.method = installMethod(request.flavor);
 
     if (request.gameVersion.isEmpty()) {
-        plan.problem = QStringLiteral("请选择游戏版本");
+        plan.problem = QCoreApplication::translate("ServerInstall", "请选择游戏版本");
         return plan;
     }
 
@@ -710,8 +709,7 @@ inline Plan planFor(const Request &request) {
         plan.installedMarkers = QStringList{QStringLiteral("server.jar")};
         plan.launchTokens = QStringList{QStringLiteral("-jar"), QStringLiteral("server.jar"),
                                         QStringLiteral("nogui")};
-        plan.note = QStringLiteral("它是版本 json 里的一部分，地址跟着当前游戏版本走"
-                                   "（见 vanillaServerDownload）");
+        plan.note = QCoreApplication::translate("ServerInstall", "它是版本 json 里的一部分，地址跟着当前游戏版本走（见 vanillaServerDownload）");
         return plan;
 
     case Flavor::Paper: {
@@ -722,8 +720,7 @@ inline Plan planFor(const Request &request) {
         plan.installedMarkers = QStringList{QStringLiteral("server.jar")};
         plan.launchTokens = QStringList{QStringLiteral("-jar"), QStringLiteral("server.jar"),
                                         QStringLiteral("nogui")};
-        plan.note = QStringLiteral("下载地址要先取构建列表（见 paperBuildsUrl / paperBuildsFromJson），"
-                                   "取回来那条里才有地址和校验值");
+        plan.note = QCoreApplication::translate("ServerInstall", "下载地址要先取构建列表（见 paperBuildsUrl / paperBuildsFromJson），取回来那条里才有地址和校验值");
         return plan;
     }
 
@@ -741,18 +738,18 @@ inline Plan planFor(const Request &request) {
         plan.launchTokens = QStringList{QStringLiteral("-jar"), QStringLiteral("server.jar"),
                                         QStringLiteral("nogui")};
         if (request.buildId.isEmpty()) {
-            plan.note = QStringLiteral("没给构建号 ⇒ 下的是最新那条");
+            plan.note = QCoreApplication::translate("ServerInstall", "没给构建号 ⇒ 下的是最新那条");
         }
         return plan;
     }
 
     case Flavor::Fabric: {
         if (request.loaderVersion.isEmpty()) {
-            plan.problem = QStringLiteral("请选择 Fabric 加载器版本");
+            plan.problem = QCoreApplication::translate("ServerInstall", "请选择 Fabric 加载器版本");
             return plan;
         }
         if (request.installerVersion.isEmpty()) {
-            plan.problem = QStringLiteral("这一档的地址里必须带安装器版本（少一段就是 404）");
+            plan.problem = QCoreApplication::translate("ServerInstall", "这一档的地址里必须带安装器版本（少一段就是 404）");
             return plan;
         }
         Download jar;
@@ -769,8 +766,7 @@ inline Plan planFor(const Request &request) {
                                         QStringLiteral("fabric-server-launch.jar"),
                                         QStringLiteral("nogui")};
         plan.firstLaunchNeedsNetwork = true;
-        plan.note = QStringLiteral("下载的是启动器而非服务端：首次运行会自动下载依赖库"
-                                   "（需要联网），之后为纯本地运行");
+        plan.note = QCoreApplication::translate("ServerInstall", "下载的是启动器而非服务端：首次运行会自动下载依赖库（需要联网），之后为纯本地运行");
         return plan;
     }
 
@@ -778,8 +774,8 @@ inline Plan planFor(const Request &request) {
     case Flavor::NeoForge: {
         const bool neo = request.flavor == Flavor::NeoForge;
         if (request.loaderVersion.isEmpty()) {
-            plan.problem = neo ? QStringLiteral("请选择 NeoForge 版本")
-                               : QStringLiteral("请选择 Forge 版本");
+            plan.problem = neo ? QCoreApplication::translate("ServerInstall", "请选择 NeoForge 版本")
+                               : QCoreApplication::translate("ServerInstall", "请选择 Forge 版本");
             return plan;
         }
         // 两张参数文件的路径都是**安装器自己定的**，我们只是照着算出来（LoaderMeta 里
@@ -815,14 +811,13 @@ inline Plan planFor(const Request &request) {
         // 我们的内存那几项夹在两张参数文件**中间**（理由与那条被改掉的旧说法见
         // `launchJvmArgsIndex` 上面那段）。
         plan.launchJvmArgsIndex = 1;
-        plan.note = QStringLiteral("装完的入口不是 jar，是它生成的两张参数文件；启动时我们不跑"
-                                   "它的 run.bat，直接自己拼这条命令");
+        plan.note = QCoreApplication::translate("ServerInstall", "装完的入口不是 jar，是它生成的两张参数文件；启动时我们不跑它的 run.bat，直接自己拼这条命令");
         return plan;
     }
 
     case Flavor::Quilt: {
         if (request.installerVersion.isEmpty()) {
-            plan.problem = QStringLiteral("请选择 Quilt 安装器版本");
+            plan.problem = QCoreApplication::translate("ServerInstall", "请选择 Quilt 安装器版本");
             return plan;
         }
         Download installer;
@@ -851,8 +846,7 @@ inline Plan planFor(const Request &request) {
                                         QStringLiteral("quilt-server-launch.jar"),
                                         QStringLiteral("nogui")};
         plan.firstLaunchNeedsNetwork = false;
-        plan.note = QStringLiteral("装的时候带 --download-server，原版 server.jar 由安装器下好；"
-                                   "Quilt 那份 quilt-server-launch.jar 只是个壳，第一次跑不联网");
+        plan.note = QCoreApplication::translate("ServerInstall", "安装时使用 --download-server 下载原版 server.jar。Quilt 的 quilt-server-launch.jar 可在安装后离线启动");
         return plan;
     }
 
@@ -871,14 +865,12 @@ inline Plan planFor(const Request &request) {
         plan.ok = true;
         plan.firstLaunchNeedsNetwork = true;  // 编的过程中要 git clone + maven 拉依赖
         // 产物名带 `-R0.1-SNAPSHOT` 后缀，从游戏版本号拼不出来 ⇒ 只能扫目录（见 pickSpigotJar）。
-        plan.note = QStringLiteral("编完的 jar 在 BuildTools 那个子目录里，要搬上来；"
-                                   "它的名字带自己的后缀（spigot-<版本>-R0.1-SNAPSHOT.jar），"
-                                   "扫到哪个算哪个（见 pickSpigotJar），启动参数拿它现拼");
+        plan.note = QCoreApplication::translate("ServerInstall", "BuildTools 在子目录中生成 spigot-<版本>-R0.1-SNAPSHOT.jar。安装时将选中的 JAR 移到服务端目录，并据此生成启动参数。");
         return plan;
     }
     }
 
-    plan.problem = QStringLiteral("不认识的类型");
+    plan.problem = QCoreApplication::translate("ServerInstall", "未知的服务端类型");
     return plan;
 }
 

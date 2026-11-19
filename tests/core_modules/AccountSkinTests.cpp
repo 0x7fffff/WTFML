@@ -776,11 +776,11 @@ void runAccountSkinTests(const QString &sandbox) {
         check(hint.contains(QStringLiteral("aka.ms/mce-reviewappid")),
               "X6 403 +「Invalid app registration」→ 给出提交申请那个地址（和登录那条路一致）",
               hint);
-        check(hint.contains(QStringLiteral("不用换账号")),
-              "X6 那段话要说明账号本身没问题（否则用户会去换账号、重登）");
+        check(hint.contains(QStringLiteral("同一账号重新登录")),
+              "X6 应说明应用获批后可用同一账号重新登录");
 
         const QString missing = SkinApi::failureText(httpReply(404, QByteArray()), what);
-        check(missing.contains(QStringLiteral("没有可改的 Minecraft 档案")),
+        check(missing.contains(QStringLiteral("未找到可修改的 Minecraft 档案")),
               "X6 404 → 说清是「这个账号没有档案」（比如没买游戏）", missing);
 
         // 429：限流。**不许**跟下面那条通用分支走 —— 通用分支认的正是正文里那个 `error`
@@ -794,10 +794,10 @@ void runAccountSkinTests(const QString &sandbox) {
               "X6 429 → 说清哪一步、什么状态码（日志里那行要能对得上）", throttled);
         check(!throttled.contains(QStringLiteral("TOO_MANY_REQUESTS")),
               "X6 429 **不**把官方那个错误码端给用户（它一个字都没说该干什么）", throttled);
-        check(throttled.contains(QStringLiteral("等一两分钟")),
+        check(throttled.contains(QStringLiteral("等待一两分钟")),
               "X6 429 → 下一步是等一会儿（不是重新登录、也不是换账号）", throttled);
-        check(throttled.contains(QStringLiteral("这不是账号")),
-              "X6 429 → 说明这跟账号无关（否则用户会去换账号、重登，那都没用）", throttled);
+        check(throttled.contains(QStringLiteral("请求频率过高")),
+              "X6 429 → 说明服务器限制了请求频率", throttled);
         check(throttled == HttpClient::throttledText(what),
               "X6 429 那句话的唯一出处是 HttpClient::throttledText()（登录链说的是同一句）");
 

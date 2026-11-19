@@ -4,6 +4,7 @@
  */
 
 #include "tools/Banner.hpp"
+#include <QCoreApplication>
 
 #include "tools/GameVersion.hpp"
 
@@ -27,53 +28,53 @@ struct PatternRow {
 };
 
 const PatternRow kPatterns[] = {
-    {"bordure", "边框", "砖块", nullptr},
+    {"bordure", QT_TRANSLATE_NOOP("Banner", "方框边"), QT_TRANSLATE_NOOP("Banner", "砖块"), nullptr},
     // 1.21.2 added the pattern ITEMS, not these already-existing loom designs:
     // https://www.minecraft.net/en-us/article/minecraft-java-edition-1-21-2
-    {"bordure_indented", "波纹边框", "藤蔓", nullptr},
-    {"circle", "圆形", "旗帜图案", nullptr},
-    {"creeper_charge", "苦力怕", "苦力怕头颅", nullptr},
-    {"cross", "十字", "旗帜图案", nullptr},
-    {"curly_border", "卷曲边框", "旗帜图案", nullptr},
-    {"field_masoned", "砖墙纹", "砖块", nullptr},
-    {"flower_charge", "花朵", "滨菊", nullptr},
-    {"flow", "涡流", "旗帜图案", "1.21"},
-    {"globe", "地球", "橡树树苗", nullptr},
-    {"gradient", "渐变", "旗帜图案", nullptr},
-    {"gradient_up", "上渐变", "旗帜图案", nullptr},
-    {"guster", "狂风", "旗帜图案", "1.21"},
-    {"half_horizontal", "上半", "旗帜图案", nullptr},
-    {"half_horizontal_bottom", "下半", "旗帜图案", nullptr},
-    {"half_vertical", "左半", "旗帜图案", nullptr},
-    {"half_vertical_right", "右半", "旗帜图案", nullptr},
-    {"mojang", "Mojang 标志", "附魔金苹果", nullptr},
-    {"piglin", "猪灵", "旗帜图案", "1.16"},
-    {"rhombus", "菱形", "旗帜图案", nullptr},
-    {"skull_charge", "骷髅", "凋灵骷髅头颅", nullptr},
-    {"snout", "猪鼻", "金胡萝卜", "1.16"},
-    {"straight_cross", "正十字", "旗帜图案", nullptr},
-    {"stripe_bottom", "底横条", "旗帜图案", nullptr},
-    {"stripe_center", "中竖条", "旗帜图案", nullptr},
-    {"stripe_downleft", "左下斜条", "旗帜图案", nullptr},
-    {"stripe_downright", "右下斜条", "旗帜图案", nullptr},
-    {"stripe_left", "左侧竖条", "旗帜图案", nullptr},
-    {"stripe_middle", "中横条", "旗帜图案", nullptr},
-    {"stripe_right", "右侧竖条", "旗帜图案", nullptr},
-    {"stripe_small", "细横条", "旗帜图案", nullptr},
-    {"stripe_top", "顶横条", "旗帜图案", nullptr},
-    {"square_bottom_left", "左下角", "旗帜图案", nullptr},
-    {"square_bottom_right", "右下角", "旗帜图案", nullptr},
-    {"square_top_left", "左上角", "旗帜图案", nullptr},
-    {"square_top_right", "右上角", "旗帜图案", nullptr},
-    {"thing", "神秘图案", "附魔金苹果", nullptr},
-    {"triangle_bottom", "底三角", "旗帜图案", nullptr},
-    {"triangle_top", "顶三角", "旗帜图案", nullptr},
-    {"triangles_bottom", "底双三角", "旗帜图案", nullptr},
-    {"triangles_top", "顶双三角", "旗帜图案", nullptr},
-    {"diagonal_left", "左斜条", "旗帜图案", nullptr},
-    {"diagonal_right", "右斜条", "旗帜图案", nullptr},
-    {"diagonal_up_left", "左上斜条", "旗帜图案", nullptr},
-    {"diagonal_up_right", "右上斜条", "旗帜图案", nullptr},
+    {"bordure_indented", QT_TRANSLATE_NOOP("Banner", "波纹边框"), QT_TRANSLATE_NOOP("Banner", "藤蔓"), nullptr},
+    {"circle", QT_TRANSLATE_NOOP("Banner", "圆形"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), nullptr},
+    {"creeper_charge", QT_TRANSLATE_NOOP("Banner", "苦力怕盾徽"), QT_TRANSLATE_NOOP("Banner", "苦力怕头颅"), nullptr},
+    {"cross", QT_TRANSLATE_NOOP("Banner", "斜十字"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), nullptr},
+    {"curly_border", QT_TRANSLATE_NOOP("Banner", "波纹边"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), nullptr},
+    {"field_masoned", QT_TRANSLATE_NOOP("Banner", "砖纹"), QT_TRANSLATE_NOOP("Banner", "砖块"), nullptr},
+    {"flower_charge", QT_TRANSLATE_NOOP("Banner", "花朵盾徽"), QT_TRANSLATE_NOOP("Banner", "滨菊"), nullptr},
+    {"flow", QT_TRANSLATE_NOOP("Banner", "涡流"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), "1.21"},
+    {"globe", QT_TRANSLATE_NOOP("Banner", "地球"), QT_TRANSLATE_NOOP("Banner", "橡树树苗"), nullptr},
+    {"gradient", QT_TRANSLATE_NOOP("Banner", "渐变"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), nullptr},
+    {"gradient_up", QT_TRANSLATE_NOOP("Banner", "上渐变"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), nullptr},
+    {"guster", QT_TRANSLATE_NOOP("Banner", "旋风"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), "1.21"},
+    {"half_horizontal", QT_TRANSLATE_NOOP("Banner", "上半"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), nullptr},
+    {"half_horizontal_bottom", QT_TRANSLATE_NOOP("Banner", "下半"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), nullptr},
+    {"half_vertical", QT_TRANSLATE_NOOP("Banner", "左半"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), nullptr},
+    {"half_vertical_right", QT_TRANSLATE_NOOP("Banner", "右半"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), nullptr},
+    {"mojang", QT_TRANSLATE_NOOP("Banner", "Mojang徽标"), QT_TRANSLATE_NOOP("Banner", "附魔金苹果"), nullptr},
+    {"piglin", QT_TRANSLATE_NOOP("Banner", "猪灵"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), "1.16"},
+    {"rhombus", QT_TRANSLATE_NOOP("Banner", "菱形"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), nullptr},
+    {"skull_charge", QT_TRANSLATE_NOOP("Banner", "头颅盾徽"), QT_TRANSLATE_NOOP("Banner", "凋灵骷髅头颅"), nullptr},
+    {"snout", QT_TRANSLATE_NOOP("Banner", "猪鼻"), QT_TRANSLATE_NOOP("Banner", "金胡萝卜"), "1.16"},
+    {"straight_cross", QT_TRANSLATE_NOOP("Banner", "正十字"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), nullptr},
+    {"stripe_bottom", QT_TRANSLATE_NOOP("Banner", "底横条"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), nullptr},
+    {"stripe_center", QT_TRANSLATE_NOOP("Banner", "中竖条"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), nullptr},
+    {"stripe_downleft", QT_TRANSLATE_NOOP("Banner", "左下斜条"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), nullptr},
+    {"stripe_downright", QT_TRANSLATE_NOOP("Banner", "右下斜条"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), nullptr},
+    {"stripe_left", QT_TRANSLATE_NOOP("Banner", "左侧竖条"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), nullptr},
+    {"stripe_middle", QT_TRANSLATE_NOOP("Banner", "中横条"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), nullptr},
+    {"stripe_right", QT_TRANSLATE_NOOP("Banner", "右侧竖条"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), nullptr},
+    {"stripe_small", QT_TRANSLATE_NOOP("Banner", "细横条"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), nullptr},
+    {"stripe_top", QT_TRANSLATE_NOOP("Banner", "顶横条"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), nullptr},
+    {"square_bottom_left", QT_TRANSLATE_NOOP("Banner", "左下角"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), nullptr},
+    {"square_bottom_right", QT_TRANSLATE_NOOP("Banner", "右下角"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), nullptr},
+    {"square_top_left", QT_TRANSLATE_NOOP("Banner", "左上角"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), nullptr},
+    {"square_top_right", QT_TRANSLATE_NOOP("Banner", "右上角"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), nullptr},
+    {"thing", QT_TRANSLATE_NOOP("Banner", "神秘图案"), QT_TRANSLATE_NOOP("Banner", "附魔金苹果"), nullptr},
+    {"triangle_bottom", QT_TRANSLATE_NOOP("Banner", "底三角"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), nullptr},
+    {"triangle_top", QT_TRANSLATE_NOOP("Banner", "顶三角"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), nullptr},
+    {"triangles_bottom", QT_TRANSLATE_NOOP("Banner", "底双三角"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), nullptr},
+    {"triangles_top", QT_TRANSLATE_NOOP("Banner", "顶双三角"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), nullptr},
+    {"diagonal_left", QT_TRANSLATE_NOOP("Banner", "左斜条"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), nullptr},
+    {"diagonal_right", QT_TRANSLATE_NOOP("Banner", "右斜条"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), nullptr},
+    {"diagonal_up_left", QT_TRANSLATE_NOOP("Banner", "左上斜条"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), nullptr},
+    {"diagonal_up_right", QT_TRANSLATE_NOOP("Banner", "右上斜条"), QT_TRANSLATE_NOOP("Banner", "旗帜图案"), nullptr},
 };
 
 /// 十六色（id / 中文名）。**次序和游戏里染料、羊毛的次序一致**（0 = 白 … 15 = 黑）。
@@ -83,12 +84,12 @@ struct ColorRow {
 };
 
 const ColorRow kColors[] = {
-    {"white", "白色"},       {"orange", "橙色"},     {"magenta", "品红色"},
-    {"light_blue", "淡蓝色"}, {"yellow", "黄色"},     {"lime", "黄绿色"},
-    {"pink", "粉红色"},      {"gray", "灰色"},       {"light_gray", "淡灰色"},
-    {"cyan", "青色"},        {"purple", "紫色"},     {"blue", "蓝色"},
-    {"brown", "棕色"},       {"green", "绿色"},      {"red", "红色"},
-    {"black", "黑色"},
+    {"white", QT_TRANSLATE_NOOP("Banner", "白色")},       {"orange", QT_TRANSLATE_NOOP("Banner", "橙色")},     {"magenta", QT_TRANSLATE_NOOP("Banner", "品红色")},
+    {"light_blue", QT_TRANSLATE_NOOP("Banner", "淡蓝色")}, {"yellow", QT_TRANSLATE_NOOP("Banner", "黄色")},     {"lime", QT_TRANSLATE_NOOP("Banner", "黄绿色")},
+    {"pink", QT_TRANSLATE_NOOP("Banner", "粉红色")},      {"gray", QT_TRANSLATE_NOOP("Banner", "灰色")},       {"light_gray", QT_TRANSLATE_NOOP("Banner", "淡灰色")},
+    {"cyan", QT_TRANSLATE_NOOP("Banner", "青色")},        {"purple", QT_TRANSLATE_NOOP("Banner", "紫色")},     {"blue", QT_TRANSLATE_NOOP("Banner", "蓝色")},
+    {"brown", QT_TRANSLATE_NOOP("Banner", "棕色")},       {"green", QT_TRANSLATE_NOOP("Banner", "绿色")},      {"red", QT_TRANSLATE_NOOP("Banner", "红色")},
+    {"black", QT_TRANSLATE_NOOP("Banner", "黑色")},
 };
 
 constexpr int kPatternCount = int(sizeof(kPatterns) / sizeof(kPatterns[0]));
@@ -135,8 +136,8 @@ PatternInfo patternAt(int index) {
     if (!validPattern(index)) {
         return {};
     }
-    return {QString::fromLatin1(kPatterns[index].id), QString::fromUtf8(kPatterns[index].name),
-            QString::fromUtf8(kPatterns[index].item),
+    return {QString::fromLatin1(kPatterns[index].id), QCoreApplication::translate("Banner", kPatterns[index].name),
+            QCoreApplication::translate("Banner", kPatterns[index].item),
             kPatterns[index].since != nullptr ? QString::fromLatin1(kPatterns[index].since)
                                               : QStringLiteral("1.14")};
 }
@@ -144,7 +145,7 @@ PatternInfo patternAt(int index) {
 QStringList patternNames() {
     QStringList list;
     for (const PatternRow &row : kPatterns) {
-        list.append(QString::fromUtf8(row.name));
+        list.append(QCoreApplication::translate("Banner", row.name));
     }
     return list;
 }
@@ -168,7 +169,7 @@ QString colorName(int index) {
     if (!validColor(index)) {
         return {};
     }
-    return QString::fromUtf8(kColors[index].name);
+    return QCoreApplication::translate("Banner", kColors[index].name);
 }
 
 QString colorId(int index) {
@@ -182,31 +183,31 @@ QString dyeName(int index) {
     if (!validColor(index)) {
         return {};
     }
-    return QStringLiteral("%1染料").arg(colorName(index));
+    return QCoreApplication::translate("Banner", "%1染料").arg(colorName(index));
 }
 
 Plan plan(int baseColorIndex, const QList<Layer> &layers, const QString &version) {
     Plan result;
     if (!validColor(baseColorIndex)) {
-        result.error = QStringLiteral("底色认不出来（下标 %1）—— 十六色里挑一个。")
+        result.error = QCoreApplication::translate("Banner", "底色编号无效（%1）。请从 16 种颜色中选择。")
                            .arg(baseColorIndex);
         return result;
     }
     if (layers.size() > kMaxLayers) {
-        result.error = QStringLiteral("原版织布机最多叠 %1 层（你现在排了 %2 层）—— 去掉几层再来。")
+        result.error = QCoreApplication::translate("Banner", "原版织布机最多支持 %1 层，当前有 %2 层。请移除多余图层。")
                            .arg(kMaxLayers)
                            .arg(layers.size());
         return result;
     }
     for (int index = 0; index < layers.size(); ++index) {
         if (!validPattern(layers[index].patternIndex)) {
-            result.error = QStringLiteral("第 %1 层的图案认不出来（下标 %2）。")
+            result.error = QCoreApplication::translate("Banner", "第 %1 层的图案编号无效（%2）。")
                                .arg(index + 1)
                                .arg(layers[index].patternIndex);
             return result;
         }
         if (!validColor(layers[index].colorIndex)) {
-            result.error = QStringLiteral("第 %1 层的颜色认不出来（下标 %2）。")
+            result.error = QCoreApplication::translate("Banner", "第 %1 层的颜色编号无效（%2）。")
                                .arg(index + 1)
                                .arg(layers[index].colorIndex);
             return result;
@@ -221,9 +222,9 @@ Plan plan(int baseColorIndex, const QList<Layer> &layers, const QString &version
     for (int index = 0; index < layers.size(); ++index) {
         const PatternInfo pattern = patternAt(layers[index].patternIndex);
         const QString dye = dyeName(layers[index].colorIndex);
-        const QString banner = index == 0 ? QStringLiteral("%1空白旗帜").arg(baseName)
-                                          : QStringLiteral("上一层的旗帜");
-        result.steps.append(QStringLiteral("第 %1 层：织布机里放%2 + %3 + %4%5 → 叠出「%6」")
+        const QString banner = index == 0 ? QCoreApplication::translate("Banner", "%1空白旗帜").arg(baseName)
+                                          : QCoreApplication::translate("Banner", "上一层的旗帜");
+        result.steps.append(QCoreApplication::translate("Banner", "第 %1 层：织布机里放%2 + %3 + %4%5 → 叠出「%6」")
                                 .arg(index + 1)
                                 .arg(banner, dye, pattern.name, pattern.item)
                                 .arg(pattern.name));
@@ -231,8 +232,7 @@ Plan plan(int baseColorIndex, const QList<Layer> &layers, const QString &version
         materials.add(pattern.item, 1);
         if (pattern.since != QStringLiteral("1.14") && !newerPatterns.contains(pattern.name)) {
             newerPatterns.append(pattern.name);
-            result.notes.append(QStringLiteral("「%1」是 %2 起才加的图案 —— 更早的版本里织布机"
-                                               "里找不到这一样。")
+            result.notes.append(QCoreApplication::translate("Banner", "图案「%1」自 %2 版起可用。")
                                     .arg(pattern.name, pattern.since));
         }
 
@@ -240,7 +240,7 @@ Plan plan(int baseColorIndex, const QList<Layer> &layers, const QString &version
                                 .arg(layers[index].patternIndex)
                                 .arg(layers[index].colorIndex);
         if (index > 0 && key == previousKey) {
-            result.notes.append(QStringLiteral("第 %1 层和第 %2 层完全一样 —— 画面上等于只叠了一层。")
+            result.notes.append(QCoreApplication::translate("Banner", "第 %1 层和第 %2 层图案及颜色相同，显示效果与单层相同。")
                                     .arg(index + 1)
                                     .arg(index));
         }
@@ -283,7 +283,7 @@ Plan plan(int baseColorIndex, const QList<Layer> &layers, const QString &version
                                             .arg(patternTags.join(QChar(','))));
     }
 
-    result.summary = QStringLiteral("底色 %1 · %2/%3 层").arg(baseName).arg(layers.size()).arg(kMaxLayers);
+    result.summary = QCoreApplication::translate("Banner", "底色 %1 · %2/%3 层").arg(baseName).arg(layers.size()).arg(kMaxLayers);
     result.materials = materials.rows();
     result.ok = true;
     return result;
@@ -291,18 +291,18 @@ Plan plan(int baseColorIndex, const QList<Layer> &layers, const QString &version
 
 QString Plan::detailText() const {
     if (!ok) {
-        return error.isEmpty() ? QStringLiteral("排不出来。") : error;
+        return error.isEmpty() ? QCoreApplication::translate("Banner", "排不出来。") : error;
     }
     QStringList lines;
     lines.append(summary);
     lines.append(QString());
-    lines.append(QStringLiteral("一步一步："));
+    lines.append(QCoreApplication::translate("Banner", "一步一步："));
     for (const QString &step : steps) {
         lines.append(QStringLiteral("• %1").arg(step));
     }
     if (!materials.isEmpty()) {
         lines.append(QString());
-        lines.append(QStringLiteral("材料清单："));
+        lines.append(QCoreApplication::translate("Banner", "材料清单："));
         for (const QString &row : materials) {
             lines.append(QStringLiteral("• %1").arg(row));
         }
@@ -310,13 +310,12 @@ QString Plan::detailText() const {
     if (!notes.isEmpty()) {
         lines.append(QString());
         for (const QString &note : notes) {
-            lines.append(QStringLiteral("（%1）").arg(note));
+            lines.append(QCoreApplication::translate("Banner", "（%1）").arg(note));
         }
     }
     if (!command.isEmpty()) {
         lines.append(QString());
-        lines.append(QStringLiteral("指令（1.13–1.20.4 的 NBT 写法；1.20.5 起换成了组件写法，"
-                                    "这一版不出）："));
+        lines.append(QCoreApplication::translate("Banner", "指令（1.13–1.20.4 的 NBT 写法；1.20.5 起换成了组件写法，" "这一版不出）："));
         lines.append(command);
     }
     return lines.join(QChar('\n'));

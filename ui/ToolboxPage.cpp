@@ -4,6 +4,7 @@
  */
 
 #include "ToolboxPage.hpp"
+#include <QCoreApplication>
 #include "InputSizing.hpp"
 #include "FlowLayout.hpp"
 #include "ArmorTrimPreview.hpp"
@@ -61,15 +62,15 @@ struct ToolInfo {
 };
 
 const ToolInfo kToolInfos[] = {
-    {ToolboxPage::Tool::Anvil, "anvil", "附魔助手", "算最省等级的合并顺序"},
-    {ToolboxPage::Tool::Coord, "coord", "坐标换算", "主世界与下界坐标互换"},
-    {ToolboxPage::Tool::Beacon, "beacon", "信标计算", "底座方块与效果范围"},
-    {ToolboxPage::Tool::Brewing, "brewing", "酿造助手", "从水瓶起的配方与效果"},
-    {ToolboxPage::Tool::Text, "text", "彩色文本", "§ 文本与 JSON 互转"},
-    {ToolboxPage::Tool::Banner, "banner", "旗帜设计", "叠图案，算织布机步骤"},
-    {ToolboxPage::Tool::Trim, "trim", "纹饰搭配", "盔甲纹饰与材料搭配"},
-    {ToolboxPage::Tool::Download, "download", "高速下载", "直链下载，可断点续传"},
-    {ToolboxPage::Tool::Server, "server", "延迟测试", "服务器状态与延迟"},
+    {ToolboxPage::Tool::Anvil, "anvil", QT_TRANSLATE_NOOP("ToolboxPage", "附魔助手"), QT_TRANSLATE_NOOP("ToolboxPage", "算最省等级的合并顺序")},
+    {ToolboxPage::Tool::Coord, "coord", QT_TRANSLATE_NOOP("ToolboxPage", "坐标换算"), QT_TRANSLATE_NOOP("ToolboxPage", "主世界与下界坐标互换")},
+    {ToolboxPage::Tool::Beacon, "beacon", QT_TRANSLATE_NOOP("ToolboxPage", "信标计算"), QT_TRANSLATE_NOOP("ToolboxPage", "底座方块与效果范围")},
+    {ToolboxPage::Tool::Brewing, "brewing", QT_TRANSLATE_NOOP("ToolboxPage", "酿造助手"), QT_TRANSLATE_NOOP("ToolboxPage", "从水瓶起的配方与效果")},
+    {ToolboxPage::Tool::Text, "text", QT_TRANSLATE_NOOP("ToolboxPage", "彩色文本"), QT_TRANSLATE_NOOP("ToolboxPage", "§ 文本与 JSON 互转")},
+    {ToolboxPage::Tool::Banner, "banner", QT_TRANSLATE_NOOP("ToolboxPage", "旗帜设计"), QT_TRANSLATE_NOOP("ToolboxPage", "叠图案，算织布机步骤")},
+    {ToolboxPage::Tool::Trim, "trim", QT_TRANSLATE_NOOP("ToolboxPage", "纹饰搭配"), QT_TRANSLATE_NOOP("ToolboxPage", "盔甲纹饰与材料搭配")},
+    {ToolboxPage::Tool::Download, "download", QT_TRANSLATE_NOOP("ToolboxPage", "高速下载"), QT_TRANSLATE_NOOP("ToolboxPage", "直链下载，可断点续传")},
+    {ToolboxPage::Tool::Server, "server", QT_TRANSLATE_NOOP("ToolboxPage", "延迟测试"), QT_TRANSLATE_NOOP("ToolboxPage", "服务器状态与延迟")},
 };
 
 const ToolInfo *infoOf(ToolboxPage::Tool tool) {
@@ -442,9 +443,9 @@ QWidget *makeNumberField(QWidget *parent, QAbstractSpinBox *spin, bool steppers,
     spin->setFixedWidth(width);
     if (steppers) {
         auto *minus = makeGlyphButton(field, spin->objectName() + QStringLiteral("Minus"), Glyph::Minus,
-                                      QStringLiteral("减一"), QString(), 30);
+                                      QCoreApplication::translate("ToolboxPage", "减一"), QString(), 30);
         auto *plus = makeGlyphButton(field, spin->objectName() + QStringLiteral("Plus"), Glyph::Plus,
-                                     QStringLiteral("加一"), QString(), 30);
+                                     QCoreApplication::translate("ToolboxPage", "加一"), QString(), 30);
         minus->setFocusPolicy(Qt::NoFocus);
         plus->setFocusPolicy(Qt::NoFocus);
         QObject::connect(minus, &QPushButton::clicked, spin, &QAbstractSpinBox::stepDown);
@@ -631,7 +632,7 @@ ResultBox makeResultBox(QWidget *parent, const QString &caption, const QString &
     box.card->box()->addWidget(box.details);
     if (withCopy) {
         box.copy = makeGlyphButton(box.card, objectName + QStringLiteral("Copy"), Glyph::Copy,
-                                   QStringLiteral("把结果复制到剪贴板"), QStringLiteral("复制"));
+                                   QCoreApplication::translate("ToolboxPage", "把结果复制到剪贴板"), QCoreApplication::translate("ToolboxPage", "复制"));
         box.copy->setEnabled(false);
         box.head->addWidget(box.copy);
         QLabel *headline = box.headline;
@@ -656,7 +657,7 @@ QString reportDetailHtml(const QStringList &lines) {
         }
         const QString top = html.isEmpty() ? QStringLiteral("0") : gap ? QStringLiteral("10px") : QStringLiteral("4px");
         gap = false;
-        if (line.endsWith(QStringLiteral("：")) || line.endsWith(QLatin1Char(':')))
+        if (line.endsWith(QCoreApplication::translate("ToolboxPage", "：")) || line.endsWith(QLatin1Char(':')))
             html += QStringLiteral("<div style='margin-top:%1;color:%2;font-size:13px'>%3</div>")
                         .arg(top, muted, line.toHtmlEscaped());
         else
@@ -1055,13 +1056,13 @@ public:
         enchant->setFixedHeight(Theme::inputHeight());
         enchant->setMinimumWidth(200);
         enchant->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-        level = makeUnitSpin(this, 1, 9, QStringLiteral(" 级"), kAnvilLevelWidth);  // 附魔等级没有超过 5 的，给到 9 留余地
+        level = makeUnitSpin(this, 1, 9, QCoreApplication::translate("ToolboxPage", " 级"), kAnvilLevelWidth);  // 附魔等级没有超过 5 的，给到 9 留余地
         level->setValue(1);
         kind = new QComboBox(this);
         kind->setFixedSize(kAnvilKindWidth, Theme::inputHeight());
-        uses = makeUnitSpin(this, 0, 9, QStringLiteral(" 次"), kAnvilUsesWidth);
-        uses->setToolTip(QStringLiteral("在铁砧上用过几次。"));
-        remove = makeGlyphButton(this, QStringLiteral("anvilRemoveRow"), Glyph::Remove, QStringLiteral("删除这一行"),
+        uses = makeUnitSpin(this, 0, 9, QCoreApplication::translate("ToolboxPage", " 次"), kAnvilUsesWidth);
+        uses->setToolTip(QCoreApplication::translate("ToolboxPage", "在铁砧上用过几次。"));
+        remove = makeGlyphButton(this, QStringLiteral("anvilRemoveRow"), Glyph::Remove, QCoreApplication::translate("ToolboxPage", "删除这一行"),
                                  QString(), kAnvilRemoveWidth);
         // 悬停才出现；键盘到达时（焦点在行里）也出现。
         auto *fade = new QGraphicsOpacityEffect(remove);
@@ -1154,8 +1155,8 @@ public:
         auto *grid = new QGridLayout(this);
         grid->setContentsMargins(0, 0, 0, 0);
         grid->setHorizontalSpacing(10);
-        const QStringList names{QStringLiteral("附魔"), QStringLiteral("等级"), QStringLiteral("物品"),
-                                QStringLiteral("已用次数")};
+        const QStringList names{QCoreApplication::translate("ToolboxPage", "附魔"), QCoreApplication::translate("ToolboxPage", "等级"), QCoreApplication::translate("ToolboxPage", "物品"),
+                                QCoreApplication::translate("ToolboxPage", "已用次数")};
         const int widths[] = {0, kAnvilLevelWidth, kAnvilKindWidth, kAnvilUsesWidth};
         for (int i = 0; i < 4; ++i) {
             auto *label = makeMutedLabel(this);
@@ -1237,11 +1238,11 @@ ToolboxPage::Tool ToolboxPage::toolFromKey(const QString &key, bool *ok) {
 }
 
 QString ToolboxPage::toolName(Tool tool) {
-    return QString::fromUtf8(infoOf(tool)->name);
+    return QCoreApplication::translate("ToolboxPage", infoOf(tool)->name);
 }
 
 QString ToolboxPage::toolSummary(Tool tool) {
-    return QString::fromUtf8(infoOf(tool)->summary);
+    return QCoreApplication::translate("ToolboxPage", infoOf(tool)->summary);
 }
 
 QList<ToolboxPage::Tool> ToolboxPage::tools() {
@@ -1330,12 +1331,12 @@ QWidget *ToolboxPage::buildHeader() {
     title->setMinimumHeight(36);
     catalogRow->addWidget(title);
     catalogRow->addStretch(1);
-    auto *rememberLabel = new QLabel(QStringLiteral("记住输入"), m_catalogHead);
+    auto *rememberLabel = new QLabel(QCoreApplication::translate("ToolboxPage", "记住输入"), m_catalogHead);
     rememberLabel->setProperty(Theme::textRolePropertyName().toUtf8().constData(), Theme::secondaryTextRoleValue());
     m_remember = new QCheckBox(m_catalogHead);
     m_remember->setObjectName(QStringLiteral("toolboxRememberInputs"));
-    m_remember->setText(QStringLiteral("记住输入"));  // 开关只画胶囊；文字作无障碍名
-    m_remember->setToolTip(QStringLiteral("关闭后清除已记住的输入。"));
+    m_remember->setText(QCoreApplication::translate("ToolboxPage", "记住输入"));  // 开关只画胶囊；文字作无障碍名
+    m_remember->setToolTip(QCoreApplication::translate("ToolboxPage", "关闭后清除已记住的输入。"));
     m_remember->setChecked(true);
     Theme::markSwitch(m_remember);
     rememberLabel->setToolTip(m_remember->toolTip());
@@ -1349,7 +1350,7 @@ QWidget *ToolboxPage::buildHeader() {
     crumbRow->setContentsMargins(0, 0, 0, 0);
     crumbRow->setSpacing(2);
     m_crumbRoot = makeCrumbButton(m_crumbHead, crumbRootName(), pageTitle(), false);
-    m_crumbRoot->setToolTip(QStringLiteral("回到工具箱目录"));
+    m_crumbRoot->setToolTip(QCoreApplication::translate("ToolboxPage", "回到工具箱目录"));
     crumbRow->addWidget(m_crumbRoot);
     auto *slash = new QLabel(QStringLiteral("/"), m_crumbHead);
     {
@@ -1360,7 +1361,7 @@ QWidget *ToolboxPage::buildHeader() {
     }
     crumbRow->addWidget(slash);
     m_crumbTool = makeCrumbButton(m_crumbHead, crumbToolName(), QString(), true);
-    m_crumbTool->setToolTip(QStringLiteral("切换工具"));
+    m_crumbTool->setToolTip(QCoreApplication::translate("ToolboxPage", "切换工具"));
     crumbRow->addWidget(m_crumbTool);
     crumbRow->addStretch(1);
     inner->addWidget(m_crumbHead);
@@ -1507,18 +1508,18 @@ QWidget *ToolboxPage::buildAnvilPanel() {
     rowButtons->setContentsMargins(0, 6, 0, 0);
     rowButtons->setSpacing(10);
     auto *addRow = makeGlyphButton(panel, QStringLiteral("anvilAddRow"), Glyph::Plus,
-                                   QStringLiteral("在末尾加一行"), QStringLiteral("加一行"), 36);
-    auto *renameLabel = new QLabel(QStringLiteral("顺带改名"), panel);
+                                   QCoreApplication::translate("ToolboxPage", "在末尾加一行"), QCoreApplication::translate("ToolboxPage", "加一行"), 36);
+    auto *renameLabel = new QLabel(QCoreApplication::translate("ToolboxPage", "顺带改名"), panel);
     renameLabel->setProperty(Theme::textRolePropertyName().toUtf8().constData(), Theme::secondaryTextRoleValue());
     auto *rename = new QCheckBox(panel);
     rename->setObjectName(QStringLiteral("anvilRename"));
-    rename->setText(QStringLiteral("顺带改名"));  // 开关只画胶囊；文字作无障碍名
+    rename->setText(QCoreApplication::translate("ToolboxPage", "顺带改名"));  // 开关只画胶囊；文字作无障碍名
     Theme::markSwitch(rename);
     // 铁砧改名只加在一次操作上：合的时候顺手改（+1 级），或合完单独改一次；规则在结果那一句里说明。
-    rename->setToolTip(QStringLiteral("按「要改名」算，多 1 级。"));
+    rename->setToolTip(QCoreApplication::translate("ToolboxPage", "按「要改名」算，多 1 级。"));
     renameLabel->setToolTip(rename->toolTip());
     m_anvilRename = rename;
-    auto *plan = new QPushButton(QStringLiteral("计算"), panel);
+    auto *plan = new QPushButton(QCoreApplication::translate("ToolboxPage", "计算"), panel);
     plan->setObjectName(QStringLiteral("anvilPlan"));
     Theme::markButton(plan, Theme::ButtonKind::Primary);
     plan->setAutoDefault(false);
@@ -1539,7 +1540,7 @@ QWidget *ToolboxPage::buildAnvilPanel() {
     auto *resultHead = new QHBoxLayout;
     resultHead->setContentsMargins(0, 0, 0, 0);
     resultHead->setSpacing(12);
-    auto *resultTitle = new QLabel(QStringLiteral("合并顺序"), m_anvilResultBox);
+    auto *resultTitle = new QLabel(QCoreApplication::translate("ToolboxPage", "合并顺序"), m_anvilResultBox);
     {
         QFont font = resultTitle->font();
         font.setPixelSize(Theme::textSize(Theme::TextRole::Heading));
@@ -1584,8 +1585,8 @@ void ToolboxPage::appendAnvilRow() {
     for (const auto &pair : m_anvilChoices) {
         row->enchant->addItem(pair.second, pair.first);
     }
-    row->kind->addItem(QStringLiteral("附魔书"), QStringLiteral("book"));
-    row->kind->addItem(QStringLiteral("装备"), QStringLiteral("gear"));
+    row->kind->addItem(QCoreApplication::translate("ToolboxPage", "附魔书"), QStringLiteral("book"));
+    row->kind->addItem(QCoreApplication::translate("ToolboxPage", "装备"), QStringLiteral("gear"));
     host->addRow(row);
     m_anvilRowWidgets.append(row);
     connect(row->kind, &QComboBox::currentIndexChanged, this, [this](int) { refreshAnvilRows(); });
@@ -1612,7 +1613,7 @@ void ToolboxPage::refreshAnvilRows() {
                 if (row->kind->currentIndex() == same) row->kind->setCurrentIndex(0);
                 row->kind->removeItem(same);
             } else if (index > 0 && same < 0) {
-                row->kind->addItem(QStringLiteral("同上一件"), QStringLiteral("same"));
+                row->kind->addItem(QCoreApplication::translate("ToolboxPage", "同上一件"), QStringLiteral("same"));
             }
         }
         // 并进上一行时，「已用次数」归上一行那一件管，这一格灰掉。
@@ -1703,7 +1704,7 @@ void ToolboxPage::setAnvilView(const AnvilView &view) {
     }
     m_anvilResultBox->show();
     m_anvilResult->show();
-    m_anvilStepCount->setText(view.steps.isEmpty() ? QString() : QStringLiteral("%1 步").arg(view.steps.size()));
+    m_anvilStepCount->setText(view.steps.isEmpty() ? QString() : QCoreApplication::translate("ToolboxPage", "%1 步").arg(view.steps.size()));
     // 先一行结论大字，再是说明（次要色），最后一步一步的列表。
     QString html;
     if (!view.summary.isEmpty()) {
@@ -1744,11 +1745,11 @@ QWidget *ToolboxPage::buildTextPanel() {
     auto *inputCard = new SoftPanel(panel);
     auto *inputBox = inputCard->box();
     inputBox->setSpacing(10);
-    inputBox->addWidget(makePanelCaption(inputCard, QStringLiteral("编辑预览")));
+    inputBox->addWidget(makePanelCaption(inputCard, QCoreApplication::translate("ToolboxPage", "编辑预览")));
     m_textPreview = new QTextEdit(inputCard);
     m_textPreview->setObjectName(QStringLiteral("textPreview"));
     m_textPreview->setAcceptRichText(false);
-    m_textPreview->setPlaceholderText(QStringLiteral("输入或粘贴文本，再为选中文字设置颜色和格式。"));
+    m_textPreview->setPlaceholderText(QCoreApplication::translate("ToolboxPage", "输入或粘贴文本，再为选中文字设置颜色和格式。"));
     m_textPreview->setFixedHeight(96);
     connect(m_textPreview, &QTextEdit::textChanged, this, &ToolboxPage::textPreviewEdited);
 
@@ -1771,19 +1772,19 @@ QWidget *ToolboxPage::buildTextPanel() {
     m_textHex->setPlaceholderText(QStringLiteral("#ff8800"));
     m_textHex->setMaxLength(7);
     m_textHex->setFixedWidth(104);
-    m_textHex->setToolTip(QStringLiteral("需 1.16 起。"));
+    m_textHex->setToolTip(QCoreApplication::translate("ToolboxPage", "需 1.16 起。"));
     auto *hexInsert = makeGlyphButton(inputCard, QStringLiteral("textHexInsert"), Glyph::Plus,
-                                      m_textHex->toolTip(), QStringLiteral("插自定颜色"), 32);
+                                      m_textHex->toolTip(), QCoreApplication::translate("ToolboxPage", "插自定颜色"), 32);
     connect(hexInsert, &QPushButton::clicked, this,
             [this]() { emit textHexColorRequested(m_textHex->text().trimmed()); });
     connect(m_textHex, &QLineEdit::returnPressed, this,
             [this]() { emit textHexColorRequested(m_textHex->text().trimmed()); });
 
-    auto *fromJson = new QPushButton(QStringLiteral("应用 JSON"), inputCard);
+    auto *fromJson = new QPushButton(QCoreApplication::translate("ToolboxPage", "应用 JSON"), inputCard);
     fromJson->setObjectName(QStringLiteral("textFromJson"));
-    fromJson->setToolTip(QStringLiteral("把下面 JSON 里的内容读回原文。"));
+    fromJson->setToolTip(QCoreApplication::translate("ToolboxPage", "把下面 JSON 里的内容读回原文。"));
     Theme::markButton(fromJson, Theme::ButtonKind::Ghost);
-    auto *clear = new QPushButton(QStringLiteral("清空"), inputCard);
+    auto *clear = new QPushButton(QCoreApplication::translate("ToolboxPage", "清空"), inputCard);
     clear->setObjectName(QStringLiteral("textClear"));
     Theme::markButton(clear, Theme::ButtonKind::Ghost);
     for (QPushButton *button : {fromJson, clear}) button->setAutoDefault(false);
@@ -1813,12 +1814,12 @@ QWidget *ToolboxPage::buildTextPanel() {
     // 源码区：§ 文本即时同步，JSON 由用户确认应用，MOTD 只读。
     const struct {
         const char *objectName;
-        const char *title;
-        const char *tooltip;
+        QString title;
+        QString tooltip;
     } kOutputs[] = {
-        {"textSource", "§ 源码", "输入或粘贴 § 文本，同步更新预览。"},
-        {"textJson", "JSON", "命令里的 text 字段、物品名称用它。"},
-        {"textMotd", "motd", "整行写进 server.properties，非 ASCII 已转成 \\uXXXX。"},
+        {"textSource", QCoreApplication::translate("ToolboxPage", "§ 源码"), QCoreApplication::translate("ToolboxPage", "输入或粘贴 § 文本，同步更新预览。")},
+        {"textJson", "JSON", QCoreApplication::translate("ToolboxPage", "命令里的 text 字段、物品名称用它。")},
+        {"textMotd", "motd", QCoreApplication::translate("ToolboxPage", "整行写进 server.properties，非 ASCII 已转成 \\uXXXX。")},
     };
     QFrame *outCard = makeSectionCard(panel);
     auto *outBox = static_cast<QVBoxLayout *>(outCard->layout());
@@ -1835,8 +1836,8 @@ QWidget *ToolboxPage::buildTextPanel() {
     auto *outStack = new QStackedWidget(outCard);
     outStack->setObjectName(QStringLiteral("textOutputStack"));
     for (const auto &spec : kOutputs) {
-        auto *button = new QPushButton(QString::fromUtf8(spec.title), segment);
-        button->setToolTip(QString::fromUtf8(spec.tooltip));
+        auto *button = new QPushButton(spec.title, segment);
+        button->setToolTip(spec.tooltip);
         segmentLayout->addWidget(button);
         segments.append(button);
         QPlainTextEdit *box = makeOutputBox(outCard, QString::fromLatin1(spec.objectName));
@@ -1865,7 +1866,7 @@ QWidget *ToolboxPage::buildTextPanel() {
     outHead->addWidget(segment);
     outHead->addStretch(1);
     auto *copy = makeGlyphButton(outCard, QStringLiteral("textOutputCopy"), Glyph::Copy,
-                                 QStringLiteral("复制当前这一种写法"), QStringLiteral("复制"));
+                                 QCoreApplication::translate("ToolboxPage", "复制当前这一种写法"), QCoreApplication::translate("ToolboxPage", "复制"));
     outHead->addWidget(copy);
     outBox->addLayout(outHead);
     outBox->addWidget(outStack, 1);
@@ -1921,7 +1922,7 @@ void ToolboxPage::setTextPalette(const QList<PaletteEntry> &entries) {
     for (const PaletteEntry &entry : entries) {
         auto *button = new QPushButton(m_textPaletteRow);
         button->setObjectName(QStringLiteral("textCode_%1").arg(entry.code));
-        button->setToolTip(QStringLiteral("%1（§%2）").arg(entry.name, entry.code));
+        button->setToolTip(QCoreApplication::translate("ToolboxPage", "%1（§%2）").arg(entry.name, entry.code));
         button->setAccessibleName(button->toolTip());
         button->setAutoDefault(false);
         button->setCursor(Qt::PointingHandCursor);
@@ -1955,7 +1956,7 @@ void ToolboxPage::setTextPalette(const QList<PaletteEntry> &entries) {
             Theme::markChipButton(button);
             button->setFixedHeight(28);
             button->setStyleSheet(QStringLiteral("padding: 2px 10px; min-height: 18px;"));
-            button->setText(entry.code == QStringLiteral("r") ? QStringLiteral("复位") : entry.name);
+            button->setText(entry.code == QStringLiteral("r") ? QCoreApplication::translate("ToolboxPage", "复位") : entry.name);
             styleRow->addWidget(button);
         }
         const QString code = entry.code;
@@ -1990,9 +1991,9 @@ void ToolboxPage::setTextPalette(const QList<PaletteEntry> &entries) {
         label->setWordWrap(false);
         return label;
     };
-    m_textPaletteLayout->addWidget(caption(QStringLiteral("颜色")), 0, 0, Qt::AlignTop);
+    m_textPaletteLayout->addWidget(caption(QCoreApplication::translate("ToolboxPage", "颜色")), 0, 0, Qt::AlignTop);
     m_textPaletteLayout->addLayout(colorRow, 0, 1);
-    m_textPaletteLayout->addWidget(caption(QStringLiteral("格式")), 1, 0, Qt::AlignTop);
+    m_textPaletteLayout->addWidget(caption(QCoreApplication::translate("ToolboxPage", "格式")), 1, 0, Qt::AlignTop);
     m_textPaletteLayout->addLayout(styleRow, 1, 1);
 }
 
@@ -2098,7 +2099,7 @@ QWidget *ToolboxPage::buildCoordPanel() {
     m_coordDimension->setObjectName(QStringLiteral("coordDimension"));
     m_coordDimension->setMinimumWidth(200);
     m_coordDimension->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-    form.add(QStringLiteral("所在维度"), m_coordDimension);
+    form.add(QCoreApplication::translate("ToolboxPage", "所在维度"), m_coordDimension);
 
     const auto makeSpin = [panel](const QString &objectName, double value) {
         auto *spin = new QDoubleSpinBox(panel);
@@ -2117,7 +2118,7 @@ QWidget *ToolboxPage::buildCoordPanel() {
         label->setWordWrap(false);
         return label;
     };
-    auto *convert = new QPushButton(QStringLiteral("换算"), panel);
+    auto *convert = new QPushButton(QCoreApplication::translate("ToolboxPage", "换算"), panel);
     convert->setObjectName(QStringLiteral("coordConvert"));
     convert->setAutoDefault(false);
     Theme::markButton(convert, Theme::ButtonKind::Primary);
@@ -2142,7 +2143,7 @@ QWidget *ToolboxPage::buildCoordPanel() {
         return group;
     };
     // 「换算」是这一块唯一的主钮，紧跟在三格坐标后面。
-    form.addFlowRow(QStringLiteral("坐标"),
+    form.addFlowRow(QCoreApplication::translate("ToolboxPage", "坐标"),
                     {axisGroup(QStringLiteral("X"), m_coordX), axisGroup(QStringLiteral("Y"), m_coordY),
                      axisGroup(QStringLiteral("Z"), m_coordZ), pasteCommand, convert});
 
@@ -2159,7 +2160,7 @@ QWidget *ToolboxPage::buildCoordPanel() {
 
 
     // ---------- 结果区：结论一行 + 其余几行 + tp 命令 ----------
-    ResultBox result = makeResultBox(panel, QStringLiteral("换算结果"), QStringLiteral("coordResult"));
+    ResultBox result = makeResultBox(panel, QCoreApplication::translate("ToolboxPage", "换算结果"), QStringLiteral("coordResult"));
     m_coordResult = result.headline;
     setReport(m_coordResult, QString());
 
@@ -2169,14 +2170,14 @@ QWidget *ToolboxPage::buildCoordPanel() {
     m_tpCommand = new QLineEdit(result.card);
     m_tpCommand->setObjectName(QStringLiteral("coordTpCommand"));
     m_tpCommand->setReadOnly(true);
-    InputSizing::longValue(m_tpCommand, "只读结果：整条 tp 命令，方便选中复制");
+    InputSizing::longValue(m_tpCommand, QCoreApplication::translate("ToolboxPage", "只读结果：整条 tp 命令，方便选中复制"));
     m_tpCommand->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
-    auto *makeCommand = new QPushButton(QStringLiteral("生成 tp 命令"), result.card);
+    auto *makeCommand = new QPushButton(QCoreApplication::translate("ToolboxPage", "生成 tp 命令"), result.card);
     makeCommand->setObjectName(QStringLiteral("coordMakeTp"));
     makeCommand->setAutoDefault(false);
     Theme::markButton(makeCommand, Theme::ButtonKind::Ghost);
     auto *copyCommand = makeGlyphButton(result.card, QStringLiteral("coordCopyTp"), Glyph::Copy,
-                                        QStringLiteral("复制这条 tp 命令"));
+                                        QCoreApplication::translate("ToolboxPage", "复制这条 tp 命令"));
     commandRow->addWidget(m_tpCommand, 1);
     commandRow->addWidget(makeCommand);
     commandRow->addWidget(copyCommand);
@@ -2282,19 +2283,19 @@ QWidget *ToolboxPage::buildServerPanel() {
     FormGrid form(panel);
     m_serverInput = new QLineEdit(panel);
     m_serverInput->setObjectName(QStringLiteral("serverAddress"));
-    m_serverInput->setPlaceholderText(QStringLiteral("host:port，默认 25565"));
+    m_serverInput->setPlaceholderText(QCoreApplication::translate("ToolboxPage", "host:port，默认 25565"));
     InputSizing::shortValue(m_serverInput, 40);  // 域名:端口，常见不超过 30 个字符
-    m_serverCheck = new QPushButton(QStringLiteral("检测"), panel);
+    m_serverCheck = new QPushButton(QCoreApplication::translate("ToolboxPage", "检测"), panel);
     m_serverCheck->setObjectName(QStringLiteral("serverCheck"));
     m_serverCheck->setAutoDefault(false);
     Theme::markButton(m_serverCheck, Theme::ButtonKind::Primary);
-    m_serverCancel = new QPushButton(QStringLiteral("取消"), panel);
+    m_serverCancel = new QPushButton(QCoreApplication::translate("ToolboxPage", "取消"), panel);
     m_serverCancel->setObjectName(QStringLiteral("serverCancel"));
     m_serverCancel->setAutoDefault(false);
     Theme::markButton(m_serverCancel, Theme::ButtonKind::Ghost);
     m_serverCancel->setEnabled(false);
     m_serverCancel->hide();  // 只在检测中出现
-    auto *line = form.addRow(QStringLiteral("服务器地址"), {m_serverInput, m_serverCheck, m_serverCancel});
+    auto *line = form.addRow(QCoreApplication::translate("ToolboxPage", "服务器地址"), {m_serverInput, m_serverCheck, m_serverCancel});
     line->setStretchFactor(m_serverInput, 100);
     delete line->takeAt(line->count() - 1);
     line->addStretch(1);  // 地址框封顶后，「检测」紧跟在它后面，别被拉成一长条
@@ -2302,7 +2303,7 @@ QWidget *ToolboxPage::buildServerPanel() {
 
     // 结果区：左边服务器图标，右边 MOTD 与几行细项。
     auto *card = new SoftPanel(panel);
-    card->box()->addWidget(makePanelCaption(card, QStringLiteral("检测结果")));
+    card->box()->addWidget(makePanelCaption(card, QCoreApplication::translate("ToolboxPage", "检测结果")));
     auto *body = new QHBoxLayout;
     body->setContentsMargins(0, 0, 0, 0);
     body->setSpacing(14);
@@ -2395,18 +2396,18 @@ void ToolboxPage::setServerView(const ServerView &view) {
         // socket 错误原文更好懂 —— 「连上了但没答话」和「连接被拒」不是同一件事。
         const QString headline = !view.kind.isEmpty()
                                      ? view.kind
-                                     : (view.timedOut ? QStringLiteral("超时")
-                                                      : QStringLiteral("检测失败"));
+                                     : (view.timedOut ? QCoreApplication::translate("ToolboxPage", "超时")
+                                                      : QCoreApplication::translate("ToolboxPage", "检测失败"));
         html.append(QStringLiteral("<div style='font-size:16px;font-weight:600'>%1</div>").arg(headline.toHtmlEscaped()));
         html.append(QStringLiteral("<div style='color:%1;margin-top:4px'>%2</div>").arg(muted, view.error.toHtmlEscaped()));
     } else {
         // MOTD 那一行是**服务器自己配的富文本**（controller 已经把 § 码翻成 HTML 了）。
         html.append(QStringLiteral("<div style='font-size:14px'>%1</div>").arg(view.motd));
-        line(QStringLiteral("版本"), view.version);
-        line(QStringLiteral("在线"), view.players);
-        line(QStringLiteral("延迟"), view.latency);
+        line(QCoreApplication::translate("ToolboxPage", "版本"), view.version);
+        line(QCoreApplication::translate("ToolboxPage", "在线"), view.players);
+        line(QCoreApplication::translate("ToolboxPage", "延迟"), view.latency);
     }
-    line(QStringLiteral("地址"), view.address);
+    line(QCoreApplication::translate("ToolboxPage", "地址"), view.address);
     if (!rows.isEmpty()) {
         html.append(QStringLiteral("<table style='margin-top:8px' cellspacing='0' cellpadding='0'>%1</table>").arg(rows));
     }
@@ -2451,7 +2452,7 @@ void ToolboxPage::clearServerResults() {
 void ToolboxPage::setServerBusy(bool busy) {
     if (m_serverCheck != nullptr) {
         m_serverCheck->setEnabled(!busy);
-        m_serverCheck->setText(busy ? QStringLiteral("检测中…") : QStringLiteral("检测"));
+        m_serverCheck->setText(busy ? QCoreApplication::translate("ToolboxPage", "检测中…") : QCoreApplication::translate("ToolboxPage", "检测"));
     }
     if (m_serverCancel != nullptr) {
         m_serverCancel->setEnabled(busy);
@@ -2477,15 +2478,15 @@ QWidget *ToolboxPage::buildBeaconPanel() {
     m_beaconFrom->setObjectName(beaconFromSpinName());
     m_beaconFrom->setRange(0, 4);
     m_beaconFrom->setValue(0);
-    m_beaconFrom->setSuffix(QStringLiteral(" 级"));
-    m_beaconFrom->setSpecialValueText(QStringLiteral("未搭建"));  // 0 = 还没搭
+    m_beaconFrom->setSuffix(QCoreApplication::translate("ToolboxPage", " 级"));
+    m_beaconFrom->setSpecialValueText(QCoreApplication::translate("ToolboxPage", "未搭建"));  // 0 = 还没搭
     m_beaconLevel = new QSpinBox(panel);
     m_beaconLevel->setObjectName(beaconLevelSpinName());
     m_beaconLevel->setRange(1, 4);
     m_beaconLevel->setValue(4);
-    m_beaconLevel->setSuffix(QStringLiteral(" 级"));
-    form.add(QStringLiteral("现在已有"), makeNumberField(panel, m_beaconFrom, true, 64),
-             QStringLiteral("想搭到"), makeNumberField(panel, m_beaconLevel, true, 64));
+    m_beaconLevel->setSuffix(QCoreApplication::translate("ToolboxPage", " 级"));
+    form.add(QCoreApplication::translate("ToolboxPage", "现在已有"), makeNumberField(panel, m_beaconFrom, true, 64),
+             QCoreApplication::translate("ToolboxPage", "想搭到"), makeNumberField(panel, m_beaconLevel, true, 64));
 
     // 第二排：底座材质 + 同一座金字塔上放几颗（「矿物折算」「多信标共用底座」）。
     m_beaconMaterial = new QComboBox(panel);
@@ -2496,10 +2497,10 @@ QWidget *ToolboxPage::buildBeaconPanel() {
     m_beaconCount->setObjectName(beaconCountSpinName());
     m_beaconCount->setRange(1, 9);
     m_beaconCount->setValue(1);
-    m_beaconCount->setSuffix(QStringLiteral(" 颗"));
-    m_beaconCount->setToolTip(QStringLiteral("可共用底座，最多 9 颗。"));
-    form.add(QStringLiteral("底座方块"), m_beaconMaterial,
-             QStringLiteral("信标颗数"), makeNumberField(panel, m_beaconCount, true, 64));
+    m_beaconCount->setSuffix(QCoreApplication::translate("ToolboxPage", " 颗"));
+    m_beaconCount->setToolTip(QCoreApplication::translate("ToolboxPage", "可共用底座，最多 9 颗。"));
+    form.add(QCoreApplication::translate("ToolboxPage", "底座方块"), m_beaconMaterial,
+             QCoreApplication::translate("ToolboxPage", "信标颗数"), makeNumberField(panel, m_beaconCount, true, 64));
     layout->addLayout(form.grid);
 
     // 下半：左边结果，右边光柱配色（玻璃清单 + 光柱示意），整页在 900×620 下不出纵向滚动条。
@@ -2507,7 +2508,7 @@ QWidget *ToolboxPage::buildBeaconPanel() {
     body->setContentsMargins(0, 0, 0, 0);
     body->setSpacing(14);
 
-    ResultBox result = makeResultBox(panel, QStringLiteral("结果"), beaconResultName());
+    ResultBox result = makeResultBox(panel, QCoreApplication::translate("ToolboxPage", "结果"), beaconResultName());
     m_beaconResult = result.headline;
     setReport(m_beaconResult, QString());
     result.card->box()->addStretch(1);  // 文字贴着上沿，面板跟右边那块等高
@@ -2518,7 +2519,7 @@ QWidget *ToolboxPage::buildBeaconPanel() {
     auto *beamHead = new QHBoxLayout;
     beamHead->setContentsMargins(0, 0, 0, 0);
     beamHead->setSpacing(4);
-    beamHead->addWidget(makePanelCaption(beamCard, QStringLiteral("光柱配色 · 从下往上")));
+    beamHead->addWidget(makePanelCaption(beamCard, QCoreApplication::translate("ToolboxPage", "光柱配色 · 从下往上")));
     beamHead->addStretch(1);
     beamCard->box()->addLayout(beamHead);
 
@@ -2526,7 +2527,7 @@ QWidget *ToolboxPage::buildBeaconPanel() {
     glassColor->setObjectName(QStringLiteral("beamGlassColor"));
     glassColor->setMinimumWidth(110);
     auto *glassAdd = makeGlyphButton(beamCard, QStringLiteral("beamGlassAdd"), Glyph::Plus,
-                                     QStringLiteral("把这一色玻璃加到最上面"), QStringLiteral("添加玻璃"), 32);
+                                     QCoreApplication::translate("ToolboxPage", "把这一色玻璃加到最上面"), QCoreApplication::translate("ToolboxPage", "添加玻璃"), 32);
     auto *glassList = new QListWidget(beamCard);
     glassList->setObjectName(QStringLiteral("beamGlassList"));
     glassList->setFrameShape(QFrame::NoFrame);
@@ -2536,9 +2537,9 @@ QWidget *ToolboxPage::buildBeaconPanel() {
     glassList->setStyleSheet(QStringLiteral("QListWidget { background: transparent; border: none; }"
                                             "QListWidget::item { padding: 3px 6px; border-radius: 6px; }"));
     // 上移 / 下移 / 删除：一组小图标钮，靠右挨着「添加」那一行。
-    const QList<QPair<Glyph, QString>> actions{{Glyph::Up, QStringLiteral("上移")},
-                                               {Glyph::Down, QStringLiteral("下移")},
-                                               {Glyph::Remove, QStringLiteral("删除")}};
+    const QList<QPair<Glyph, QString>> actions{{Glyph::Up, QCoreApplication::translate("ToolboxPage", "上移")},
+                                               {Glyph::Down, QCoreApplication::translate("ToolboxPage", "下移")},
+                                               {Glyph::Remove, QCoreApplication::translate("ToolboxPage", "删除")}};
     QList<QWidget *> group;
     const auto recalculate = [this, glassList] {
         QList<int> colors;
@@ -2573,14 +2574,14 @@ QWidget *ToolboxPage::buildBeaconPanel() {
     glassBody->addWidget(beam, 0, Qt::AlignTop);
     beamCard->box()->addLayout(glassBody);
 
-    auto *beamReport = new QLabel(QStringLiteral("未放置染色玻璃：白色光柱。"), beamCard);
+    auto *beamReport = new QLabel(QCoreApplication::translate("ToolboxPage", "未放置染色玻璃：白色光柱。"), beamCard);
     beamReport->setObjectName(QStringLiteral("beamColorReport")); beamReport->setWordWrap(true);
     beamReport->setTextFormat(Qt::PlainText);
     beamReport->setTextInteractionFlags(Qt::TextSelectableByMouse);
     beamCard->box()->addWidget(beamReport);
     beamCard->box()->addStretch(1);
     auto *reportCopy = makeGlyphButton(beamCard, QStringLiteral("beamColorReportCopy"), Glyph::Copy,
-                                       QStringLiteral("复制配色说明"), QStringLiteral("复制"));
+                                       QCoreApplication::translate("ToolboxPage", "复制配色说明"), QCoreApplication::translate("ToolboxPage", "复制"));
     reportCopy->setEnabled(false);
     beamHead->addWidget(reportCopy);
     connect(reportCopy, &QPushButton::clicked, beamReport, [beamReport] {
@@ -2595,7 +2596,7 @@ QWidget *ToolboxPage::buildBeaconPanel() {
 
     connect(glassAdd, &QPushButton::clicked, this, [glassList, glassColor, recalculate] {
         if (glassList->count() >= 64 || glassColor->currentIndex() < 0) return;
-        auto *item = new QListWidgetItem(glassColor->currentText() + QStringLiteral("玻璃"), glassList);
+        auto *item = new QListWidgetItem(glassColor->currentText() + QCoreApplication::translate("ToolboxPage", "玻璃"), glassList);
         item->setData(Qt::UserRole, glassColor->currentIndex());
         glassList->setCurrentItem(item); recalculate();
     });
@@ -2624,7 +2625,7 @@ void ToolboxPage::setBeamLayers(const QList<int> &colors) {
     list->clear();
     for (int color : colors.mid(0, 64)) {
         if (color < 0 || color >= combo->count()) continue;
-        auto *item = new QListWidgetItem(combo->itemText(color) + QStringLiteral("玻璃"), list);
+        auto *item = new QListWidgetItem(combo->itemText(color) + QCoreApplication::translate("ToolboxPage", "玻璃"), list);
         item->setData(Qt::UserRole, color);
     }
     emit beamRequested(colors.mid(0, 64));
@@ -2707,26 +2708,26 @@ QWidget *ToolboxPage::buildBrewingPanel() {
     m_brewingPotion->setObjectName(brewingPotionComboName());
     m_brewingForm = new QComboBox(panel);
     m_brewingForm->setObjectName(brewingFormComboName());
-    form.add(QStringLiteral("要做"), m_brewingPotion, QStringLiteral("形态"), m_brewingForm);
+    form.add(QCoreApplication::translate("ToolboxPage", "要做"), m_brewingPotion, QCoreApplication::translate("ToolboxPage", "形态"), m_brewingForm);
 
     m_brewingBottles = new QSpinBox(panel);
     m_brewingBottles->setObjectName(brewingBottlesSpinName());
     m_brewingBottles->setRange(1, 64);
     m_brewingBottles->setValue(1);
-    m_brewingBottles->setSuffix(QStringLiteral(" 瓶"));
+    m_brewingBottles->setSuffix(QCoreApplication::translate("ToolboxPage", " 瓶"));
     auto *version = new QComboBox(panel);
     version->setObjectName(brewingVersionComboName());
-    form.add(QStringLiteral("瓶数"), makeNumberField(panel, m_brewingBottles, true, 72),
-             QStringLiteral("目标版本"), version);
+    form.add(QCoreApplication::translate("ToolboxPage", "瓶数"), makeNumberField(panel, m_brewingBottles, true, 72),
+             QCoreApplication::translate("ToolboxPage", "目标版本"), version);
 
-    m_brewingExtended = new QCheckBox(QStringLiteral("延时（红石）"), panel);
+    m_brewingExtended = new QCheckBox(QCoreApplication::translate("ToolboxPage", "延时（红石）"), panel);
     m_brewingExtended->setObjectName(brewingExtendedName());
-    m_brewingLevel2 = new QCheckBox(QStringLiteral("升一级（荧石）"), panel);
+    m_brewingLevel2 = new QCheckBox(QCoreApplication::translate("ToolboxPage", "升一级（荧石）"), panel);
     m_brewingLevel2->setObjectName(brewingLevel2Name());
-    form.addRow(QStringLiteral("加料"), {m_brewingExtended, m_brewingLevel2})->setSpacing(24);
+    form.addRow(QCoreApplication::translate("ToolboxPage", "加料"), {m_brewingExtended, m_brewingLevel2})->setSpacing(24);
     layout->addLayout(form.grid);
 
-    ResultBox result = makeResultBox(panel, QStringLiteral("结果"), brewingResultName());
+    ResultBox result = makeResultBox(panel, QCoreApplication::translate("ToolboxPage", "结果"), brewingResultName());
     m_brewingResult = result.headline;
     setReport(m_brewingResult, QString());
     layout->addWidget(result.card);
@@ -2775,7 +2776,7 @@ void ToolboxPage::setBrewingVersions(const QStringList &versions) {
     const QSignalBlocker blocker(combo);
     combo->clear();
     for (const auto &version : versions) {
-        combo->addItem(version.isEmpty() ? QStringLiteral("不限版本") : version, version);
+        combo->addItem(version.isEmpty() ? QCoreApplication::translate("ToolboxPage", "不限版本") : version, version);
     }
 }
 
@@ -2834,7 +2835,7 @@ QWidget *ToolboxPage::buildBannerPanel() {
     auto *baseGroupRow = new QHBoxLayout(baseGroup);
     baseGroupRow->setContentsMargins(0, 0, 0, 0);
     baseGroupRow->setSpacing(10);
-    baseGroupRow->addWidget(form.label(QStringLiteral("底色")));
+    baseGroupRow->addWidget(form.label(QCoreApplication::translate("ToolboxPage", "底色")));
     baseGroupRow->addWidget(m_bannerBase);
     auto *versionFlow = new FlowLayout(16, 8);
     versionFlow->addWidget(version);
@@ -2843,14 +2844,14 @@ QWidget *ToolboxPage::buildBannerPanel() {
     versionLine->setContentsMargins(0, 0, 0, 0);
     versionLine->setSpacing(10);
     versionLine->addLayout(versionFlow, 1);
-    QLabel *versionLabel = form.label(QStringLiteral("目标版本"));
+    QLabel *versionLabel = form.label(QCoreApplication::translate("ToolboxPage", "目标版本"));
     versionLabel->setContentsMargins(0, 8, 0, 0);  // 与第一行下拉框的文字对齐
     form.grid->addWidget(versionLabel, 0, 0, Qt::AlignTop);
     form.grid->addLayout(versionLine, 0, 1, 1, 4);
     for (bool save : {true, false}) {
-        auto *button = new QPushButton(save ? QStringLiteral("保存设计…") : QStringLiteral("载入设计…"), panel);
+        auto *button = new QPushButton(save ? QCoreApplication::translate("ToolboxPage", "保存设计…") : QCoreApplication::translate("ToolboxPage", "载入设计…"), panel);
         button->setObjectName(save ? QStringLiteral("bannerSaveDesign") : QStringLiteral("bannerLoadDesign"));
-        button->setToolTip(save ? QStringLiteral("保存 / 导出这面旗的设计") : QStringLiteral("载入 / 导入一份旗帜设计"));
+        button->setToolTip(save ? QCoreApplication::translate("ToolboxPage", "保存 / 导出这面旗的设计") : QCoreApplication::translate("ToolboxPage", "载入 / 导入一份旗帜设计"));
         button->setAutoDefault(false);
         Theme::markButton(button, Theme::ButtonKind::Ghost);
         versionLine->addWidget(button, 0, Qt::AlignTop);
@@ -2870,13 +2871,13 @@ QWidget *ToolboxPage::buildBannerPanel() {
     auto *layerHead = new QHBoxLayout;
     layerHead->setContentsMargins(0, 0, 0, 0);
     layerHead->setSpacing(2);
-    layerHead->addWidget(makePanelCaption(layerCard, QStringLiteral("图层（从下往上）")));
+    layerHead->addWidget(makePanelCaption(layerCard, QCoreApplication::translate("ToolboxPage", "图层（从下往上）")));
     layerHead->addStretch(1);
-    m_bannerUp = makeGlyphButton(layerCard, bannerUpName(), Glyph::Up, QStringLiteral("上移"));
-    m_bannerDown = makeGlyphButton(layerCard, bannerDownName(), Glyph::Down, QStringLiteral("下移"));
-    m_bannerRemove = makeGlyphButton(layerCard, bannerRemoveName(), Glyph::Remove, QStringLiteral("删除这一层"));
+    m_bannerUp = makeGlyphButton(layerCard, bannerUpName(), Glyph::Up, QCoreApplication::translate("ToolboxPage", "上移"));
+    m_bannerDown = makeGlyphButton(layerCard, bannerDownName(), Glyph::Down, QCoreApplication::translate("ToolboxPage", "下移"));
+    m_bannerRemove = makeGlyphButton(layerCard, bannerRemoveName(), Glyph::Remove, QCoreApplication::translate("ToolboxPage", "删除这一层"));
     m_bannerUndo = makeGlyphButton(layerCard, bannerUndoName(), Glyph::Undo,
-                                   QStringLiteral("撤销：把列表退回上一步（最多留最近二十步）"));
+                                   QCoreApplication::translate("ToolboxPage", "撤销：把列表退回上一步（最多留最近二十步）"));
     for (QPushButton *button : {m_bannerUp, m_bannerDown, m_bannerRemove, m_bannerUndo}) layerHead->addWidget(button);
     layerCard->box()->addLayout(layerHead);
 
@@ -2887,7 +2888,7 @@ QWidget *ToolboxPage::buildBannerPanel() {
     m_bannerColor = new QComboBox(layerCard);
     m_bannerColor->setObjectName(bannerColorComboName());
     m_bannerColor->setMinimumWidth(96);
-    m_bannerAdd = new QPushButton(QStringLiteral("加一层"), layerCard);
+    m_bannerAdd = new QPushButton(QCoreApplication::translate("ToolboxPage", "加一层"), layerCard);
     m_bannerAdd->setObjectName(bannerAddName());
     m_bannerAdd->setAutoDefault(false);
     Theme::markButton(m_bannerAdd, Theme::ButtonKind::Primary);
@@ -2927,11 +2928,11 @@ QWidget *ToolboxPage::buildBannerPanel() {
     layerCard->box()->addLayout(bannerPreviewRow);
 
     auto *bannerNotice = makeMutedLabel(layerCard, QStringLiteral("bannerVisualNotice"));
-    bannerNotice->setText(QStringLiteral("加载游戏贴图后显示预览"));
+    bannerNotice->setText(QCoreApplication::translate("ToolboxPage", "加载游戏贴图后显示预览"));
     bannerNotice->setMinimumWidth(0); bannerNotice->setTextFormat(Qt::PlainText);
-    auto *loadTextures = new QPushButton(QStringLiteral("加载贴图…"), layerCard);
+    auto *loadTextures = new QPushButton(QCoreApplication::translate("ToolboxPage", "加载贴图…"), layerCard);
     loadTextures->setObjectName(QStringLiteral("bannerLoadTextures"));
-    loadTextures->setToolTip(QStringLiteral("加载游戏 JAR / 资源包贴图"));
+    loadTextures->setToolTip(QCoreApplication::translate("ToolboxPage", "加载游戏 JAR / 资源包贴图"));
     Theme::markButton(loadTextures, Theme::ButtonKind::Ghost); loadTextures->setAutoDefault(false);
     // 说明句独占卡宽那一行，「加载贴图…」紧跟其下、左对齐：两句并排时说明句被压窄，
     // 四十个字折成三行、按钮悬在折行文字右边（走查 j05）。挤在一行省不下高度 ——
@@ -2949,19 +2950,19 @@ QWidget *ToolboxPage::buildBannerPanel() {
     body->addWidget(layerCard, 1);
 
     // ---------- 结果卡：右上「复制指令」；结论一行，下面分段看 步骤 / 材料 / 指令（框高跟着左边那张卡） ----------
-    ResultBox result = makeResultBox(panel, QStringLiteral("结果"), bannerResultName(), false);
+    ResultBox result = makeResultBox(panel, QCoreApplication::translate("ToolboxPage", "结果"), bannerResultName(), false);
     m_bannerResult = result.headline;
     m_bannerCopy = makeGlyphButton(result.card, QStringLiteral("toolboxBannerCopy"), Glyph::Copy,
-                                   QStringLiteral("把 /give 指令复制走（1.13–1.20.4 的写法）"),
-                                   QStringLiteral("复制指令"));
+                                   QCoreApplication::translate("ToolboxPage", "把 /give 指令复制走（1.13–1.20.4 的写法）"),
+                                   QCoreApplication::translate("ToolboxPage", "复制指令"));
     m_bannerCopy->setEnabled(false);
     result.head->addWidget(m_bannerCopy);
     connect(m_bannerCopy, &QPushButton::clicked, this,
             [this]() { copyToClipboard(m_bannerCommand); });
     result.details->hide();  // 细项改由下面三个分段框装，这一格不再显示
     {
-        const struct { const char *objectName; const char *title; } kTabs[] = {
-            {"bannerStepsBox", "步骤"}, {"bannerMaterialsBox", "材料"}, {"bannerCommandBox", "指令"}};
+        const struct { const char *objectName; QString title; } kTabs[] = {
+            {"bannerStepsBox", QCoreApplication::translate("ToolboxPage", "步骤")}, {"bannerMaterialsBox", QCoreApplication::translate("ToolboxPage", "材料")}, {"bannerCommandBox", QCoreApplication::translate("ToolboxPage", "指令")}};
         auto *segment = new QWidget(result.card);
         segment->setObjectName(QStringLiteral("bannerResultSegments"));
         auto *segmentLayout = new QHBoxLayout(segment);
@@ -2971,7 +2972,7 @@ QWidget *ToolboxPage::buildBannerPanel() {
         resultStack->setObjectName(QStringLiteral("bannerResultStack"));
         QList<QPushButton *> tabs;
         for (const auto &spec : kTabs) {
-            auto *tab = new QPushButton(QString::fromUtf8(spec.title), segment);
+            auto *tab = new QPushButton(spec.title, segment);
             segmentLayout->addWidget(tab);
             tabs.append(tab);
             QPlainTextEdit *box = makeOutputBox(result.card, QString::fromLatin1(spec.objectName));
@@ -3015,7 +3016,7 @@ QWidget *ToolboxPage::buildBannerPanel() {
         // Do not rebuild the model inside rowsMoved: the drop handler still owns its indexes.
         for (int i = 0; i < m_bannerList->count(); ++i) {
             const auto parts = reordered.at(i).split(QChar(':'));
-            m_bannerList->item(i)->setText(QStringLiteral("第 %1 层：%2（%3）")
+            m_bannerList->item(i)->setText(QCoreApplication::translate("ToolboxPage", "第 %1 层：%2（%3）")
                 .arg(i + 1).arg(m_bannerPattern->itemText(parts.value(0).toInt()))
                 .arg(m_bannerColor->itemText(parts.value(1).toInt())));
         }
@@ -3109,7 +3110,7 @@ void ToolboxPage::syncBannerList() {
             m_bannerPattern != nullptr ? m_bannerPattern->itemText(pattern) : QString();
         const QString colorName =
             m_bannerColor != nullptr ? m_bannerColor->itemText(color) : QString();
-        m_bannerList->addItem(QStringLiteral("第 %1 层：%2（%3）")
+        m_bannerList->addItem(QCoreApplication::translate("ToolboxPage", "第 %1 层：%2（%3）")
                                   .arg(index + 1)
                                   .arg(patternName)
                                   .arg(colorName));
@@ -3193,10 +3194,10 @@ void ToolboxPage::setBannerResult(const QString &text) {
             continue;
         }
         if (line.isEmpty()) continue;
-        if (line == QStringLiteral("一步一步：")) current = &steps;
-        else if (line == QStringLiteral("材料清单：")) current = &materials;
-        else if (line.startsWith(QStringLiteral("指令（"))) current = &command;
-        else if (line.startsWith(QStringLiteral("（")) && line.endsWith(QStringLiteral("）"))) notes << line;
+        if (line == QCoreApplication::translate("ToolboxPage", "一步一步：")) current = &steps;
+        else if (line == QCoreApplication::translate("ToolboxPage", "材料清单：")) current = &materials;
+        else if (line.startsWith(QCoreApplication::translate("ToolboxPage", "指令（"))) current = &command;
+        else if (line.startsWith(QCoreApplication::translate("ToolboxPage", "（")) && line.endsWith(QCoreApplication::translate("ToolboxPage", "）"))) notes << line;
         else *current << line;
     }
     const auto fill = [card](const char *name, const QStringList &lines) {
@@ -3247,7 +3248,7 @@ void ToolboxPage::setBannerVersions(const QStringList &versions) {
     const QSignalBlocker blocker(combo);
     combo->clear();
     for (const auto &version : versions)
-        combo->addItem(version.isEmpty() ? QStringLiteral("不限版本") : version, version);
+        combo->addItem(version.isEmpty() ? QCoreApplication::translate("ToolboxPage", "不限版本") : version, version);
 }
 void ToolboxPage::setBannerDesign(int base, const QStringList &layers, const QString &version) {
     auto *combo = findChild<QComboBox *>(QStringLiteral("bannerGameVersion"));

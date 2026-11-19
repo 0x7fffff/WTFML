@@ -79,6 +79,19 @@ public:
     QString lastSelectedVersion() const { return m_lastSelectedVersion; }
     void setLastSelectedVersion(const QString &versionId);
 
+    // ------------------------------------------------------------------
+    // 界面语言（设置页「个性化 → 外观」里的「语言」那一行）
+    // ------------------------------------------------------------------
+    // 存的就是 `General/Language` 那一格：`system` / `zh_CN` / `en`。
+    // 「这一档该用哪一份界面语言」「翻译从哪儿装」的唯一出处是 `ui/UiLanguage.hpp`
+    // —— 这一层只管存取那一个记号，不在这里再判一遍系统语言。
+
+    /// 当前档位（已归一化）。默认跟随系统。
+    QString language() const { return m_language; }
+
+    /// 设置档位并立刻落盘。认不出来的值按默认档存。
+    void setLanguage(const QString &value);
+
     int homeFavoriteCount() const { return m_homeFavoriteCount; }
     int homeRecentCount() const { return m_homeRecentCount; }
     void setHomeFavoriteCount(int count);
@@ -418,6 +431,8 @@ private:
 
     QString m_lastLaunchedVersion;
     QString m_lastSelectedVersion;
+    /// 界面语言档位（`system` / `zh_CN` / `en`）。见上面那一节。
+    QString m_language;
     int m_homeFavoriteCount = 3;
     int m_homeRecentCount = 3;
     QStringList m_folders;

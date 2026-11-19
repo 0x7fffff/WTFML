@@ -155,7 +155,7 @@ public slots:
     // 验证工程靠这些名字认控件，别改回按条目文本去认（组名是用户起的，随时会变）。
     // / 这一页叫什么。**唯一出处** —— 覆盖层的页眉和这个窗自己的标题栏写的是同一句
     // / （页面型那一档里页眉就是标题栏，两边各写各的迟早会对不上）。
-    static QString windowTitle() { return QStringLiteral("分组设置"); }
+    static QString windowTitle() { return tr("分组设置"); }
 
     static QString groupListName() { return QStringLiteral("groupList"); }
     static QString addGroupButtonName() { return QStringLiteral("addGroupButton"); }
@@ -168,13 +168,13 @@ public slots:
     /// 「设为收藏组」那颗开关（右边卡片里「默认展开」下面那一行）。
     static QString pinnedCheckName() { return QStringLiteral("groupPinnedCheck"); }
     /// 那一行的标题。**唯一出处** —— 勾选框、验证工程认的那句话都念它。
-    static QString pinnedCheckText() { return QStringLiteral("设为收藏组"); }
+    static QString pinnedCheckText() { return tr("设为收藏组"); }
     /// 那一行标题下的说明。
     ///
     /// NOTE: 「收藏组」光看那五个字不知道打开会怎样 —— 所以紧挨着它写一句。
     /// **要短**（40 个汉字以内）：右边那张卡片只占半张窗，说明一长就折成好几行。
     static QString pinnedHintText() {
-        return QStringLiteral("收藏的实例会同时显示在这个组和主页快速启动区。");
+        return tr("收藏的实例会同时显示在这个组和主页快速启动区。");
     }
     static QString restoreDefaultsButtonName() {
         return QStringLiteral("restoreDefaultsButton");

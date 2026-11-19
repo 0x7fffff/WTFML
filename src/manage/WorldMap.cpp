@@ -4,6 +4,7 @@
  */
 
 #include "manage/WorldMap.hpp"
+#include <QCoreApplication>
 
 #include <QDir>
 #include <QFile>
@@ -187,7 +188,7 @@ Snapshot scan(const QString &worldDir) {
     Snapshot out;
     const QFileInfo worldInfo(worldDir);
     if (worldDir.isEmpty() || !worldInfo.isDir()) {
-        out.problem = QStringLiteral("这个世界的目录不在了。");
+        out.problem = QCoreApplication::translate("WorldMap", "这个世界的目录不在了。");
         return out;
     }
 

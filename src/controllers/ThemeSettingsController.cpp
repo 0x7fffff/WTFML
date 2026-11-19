@@ -1,4 +1,5 @@
 #include "controllers/ThemeSettingsController.hpp"
+#include <QCoreApplication>
 
 #include "MainWindowUI.hpp"
 #include "Animations.hpp"
@@ -302,8 +303,7 @@ void ThemeSettingsController::resetSemantic() {
 void ThemeSettingsController::resetAll() {
     if (!InlineMessage::question(
             m_ui->overlay(), tr("恢复全部默认"),
-            tr("配色、区域与控件覆盖、文字不透明度、语义色和背景图，都会回到出厂那一份。\n"
-               "你自己改的那些不会留着。"),
+            tr("将配色、区域和控件样式覆盖、文字不透明度、语义色及背景图恢复默认设置。自定义内容将被清除。"),
             tr("恢复"), tr("取消"), false, true)) return;
     for (int i = 0; i < MainWindowUI::themeImageRowCount(); ++i) {
         const QString key = m_ui->getThemeImageRow(i).partKey;
@@ -324,7 +324,7 @@ void ThemeSettingsController::exportTheme() {
     QSaveFile file(target);
     if (!file.open(QIODevice::WriteOnly)) {
         InlineMessage::warning(m_ui->overlay(), tr("导出失败"),
-                               tr("写不进这个文件：\n%1\n\n%2")
+                               tr("无法写入文件：\n%1\n\n%2")
                                    .arg(QDir::toNativeSeparators(target), file.errorString()));
         return;
     }
@@ -333,12 +333,12 @@ void ThemeSettingsController::exportTheme() {
     if (file.write(json) != json.size()) {
         file.cancelWriting();
         InlineMessage::warning(m_ui->overlay(), tr("导出失败"),
-                               tr("写到一半写不进去了：\n%1").arg(file.errorString()));
+                               tr("文件写入不完整：\n%1").arg(file.errorString()));
         return;
     }
     if (!file.commit()) {
         InlineMessage::warning(m_ui->overlay(), tr("导出失败"),
-                               tr("文件没能保存下来：\n%1\n\n%2")
+                               tr("无法保存文件：\n%1\n\n%2")
                                    .arg(QDir::toNativeSeparators(target), file.errorString()));
         return;
     }
@@ -382,8 +382,8 @@ void ThemeSettingsController::importTheme() {
     }
     InlineMessage::information(
         m_ui->overlay(), tr("导入完成"),
-        missing.isEmpty() ? tr("这份主题已经铺上了。")
-                          : tr("颜色都铺上了，但这些背景图在这台机器上找不到（主题文件里只有路径，不含图）：\n%1")
+        missing.isEmpty() ? tr("主题已应用。")
+                          : tr("主题配色已应用。主题文件仅保存背景图路径，以下文件在本机未找到：\n%1")
                                 .arg(missing.join(QLatin1Char('\n'))));
 }
 

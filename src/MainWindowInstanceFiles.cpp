@@ -136,8 +136,7 @@ void MainWindow::updateInstanceFiles(const QString &instanceId, const QString &p
         // 一条都拼不出来：多半是**还没查过**（那一页上「可更新」的计数是 0、按钮本该是灰的，
         // 所以正常也走不到这儿）。说清下一步怎么办，别只是"没反应"。
         InlineMessage::warning(m_ui->overlay(), tr("更新失败"),
-                               tr("这几条都没查到该换成哪一版。先在概览那一栏点一下「检查更新」，"
-                                  "再点「更新中心」那一颗。"));
+                               tr("未找到这些文件的可用更新。请在「概览」中检查更新，再打开「更新中心」。"));
         return;
     }
     if (!skipped.isEmpty()) {
@@ -159,9 +158,9 @@ void MainWindow::updateInstanceFiles(const QString &instanceId, const QString &p
                                /*keepPrevious=*/true);
     if (!snapshot.isValid()) {
         InlineMessage::warning(m_ui->overlay(), tr("没有更新"),
-                               tr("没能给这一批文件留一份回滚点，所以一个都没动。\n\n%1")
+                               tr("无法为待更新文件创建回滚点，已取消更新。\n\n%1")
                                    .arg(rollbackProblem));
-        appendLog(tr("更新「%1」没开始：回滚点没摆成（%2）。")
+        appendLog(tr("「%1」未更新，创建回滚点失败（%2）。")
                       .arg(instanceDisplayName(instanceId), rollbackProblem));
         return;
     }
@@ -212,7 +211,7 @@ void MainWindow::updateInstanceFiles(const QString &instanceId, const QString &p
         // 没开起来（已经有别的批次在跑 / 那三套安装状态机占着）：账本里那一条**当场收尾**，
         // 别留一条永远"正在跑"的记录，回滚点也一起撤掉（一个字节都没动过，留着只会让
         // 更新中心上那颗「撤销上一次更新」指向一次没发生的更新）。
-        m_activityCenter->tasks()->fail(m_updateBatch.task, tr("没能开始这一批更新。"));
+        m_activityCenter->tasks()->fail(m_updateBatch.task, tr("无法开始批量更新。"));
         m_downloadTaskLedger->clearOwnerIf(m_updateBatch.task);
         m_updateBatch = UpdateBatchRun{};
         UpdateRollback::discard(instanceId);

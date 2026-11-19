@@ -24,6 +24,7 @@
 #include <QButtonGroup>
 #include <QMenu>
 #include <QColor>
+#include <QCoreApplication>
 #include <QEvent>
 #include <QFont>
 #include <QGridLayout>
@@ -101,8 +102,9 @@ QWidget *MainWindowUI::setupDownloadPage() {
             source->setCursor(Qt::PointingHandCursor);
             const auto sync = [this, source] {
                 const QString name = downloadSourceCombo != nullptr ? downloadSourceCombo->currentText() : QString();
-                source->setText(name.isEmpty() ? QStringLiteral("下载源") : QStringLiteral("下载源 · %1").arg(name));
-                source->setToolTip(QStringLiteral("优先源速度缓慢时，自动改用另一个源。"));
+                source->setText(name.isEmpty() ? QCoreApplication::translate("MainWindowUI", "下载源")
+                                               : QCoreApplication::translate("MainWindowUI", "下载源 · %1").arg(name));
+                source->setToolTip(QCoreApplication::translate("MainWindowUI", "优先源速度缓慢时，自动改用另一个源。"));
             };
             sync();
             QObject::connect(source, &QPushButton::clicked, source, [this, source, sync] {
@@ -326,10 +328,10 @@ void MainWindowUI::setupDownloadGamePage() {
         segmentLayout->setContentsMargins(3, 3, 3, 3);
         segmentLayout->setSpacing(2);
         const QList<QPair<QString, QString>> channels = {
-            {QString(), QStringLiteral("全部")},
-            {QStringLiteral("release"), QStringLiteral("正式版")},
-            {QStringLiteral("snapshot"), QStringLiteral("快照")},
-            {QStringLiteral("old"), QStringLiteral("远古版")}};
+            {QString(), QCoreApplication::translate("MainWindowUI", "全部")},
+            {QStringLiteral("release"), QCoreApplication::translate("MainWindowUI", "正式版")},
+            {QStringLiteral("snapshot"), QCoreApplication::translate("MainWindowUI", "快照")},
+            {QStringLiteral("old"), QCoreApplication::translate("MainWindowUI", "远古版")}};
         for (const auto &channel : channels) {
             auto *button = new QPushButton(channel.second, segment);
             button->setObjectName(versionChannelButtonName(channel.first));
@@ -756,7 +758,7 @@ void MainWindowUI::setupDownloadServerPage() {
         // 结果那句话：没有清单时说"刷新重试"，筛过就说找到几个 / 一个都没匹配上
         // （和「游戏」那一页的说法逐字一致 —— `versionFilterMatchText()` 那一处）。
         if (versions->topLevelItemCount() == 0) {
-            hint->setText(QStringLiteral("暂无可用版本，请刷新重试。"));
+            hint->setText(QCoreApplication::translate("MainWindowUI", "暂无可用版本，请刷新重试。"));
             hint->setVisible(true);
             return;
         }
@@ -944,7 +946,7 @@ void MainWindowUI::setupDownloadResourcePages() {
         auto *search = new QLineEdit(filterRow);
         search->setObjectName(downloadSearchEditName(categoryKey));
         search->setPlaceholderText(downloadSearchHint(i));
-        InputSizing::longValue(search, "搜索框：关键词长度不定，占满筛选行");
+        InputSizing::longValue(search, "搜索框：关键词长度不定，占满筛选行");  // i18n-ignore
         addSearchIcon(search);
         filterTop->addWidget(search, 1);
 
@@ -1063,7 +1065,7 @@ void MainWindowUI::setupDownloadResourcePages() {
         tree->setColumnCount(1);
         stabilizeDownloadTree(tree);
         auto *resourceDelegate = new VersionTreeDelegate(tree, /*leafArrow=*/true, resourceTreeIconSize());
-        resourceDelegate->setLeafVerb(QStringLiteral("下载"));  // 第三层点一下就是下它
+        resourceDelegate->setLeafVerb(QCoreApplication::translate("MainWindowUI", "下载"));  // 第三层点一下就是下它
         resourceDelegate->setResourceRows(true);
         tree->setItemDelegate(resourceDelegate);
         // 悬停底色要它，理由见版本树那第一处：视图不填 State_MouseOver 就不出底色，也不报错。
@@ -1199,7 +1201,8 @@ void MainWindowUI::applyVersionFilter() {
     }
     for (QPushButton *button : std::as_const(versionChannelButtons)) {
         const QString key = button->property("wtfmlChannelKey").toString();
-        button->setToolTip(QStringLiteral("%1 个版本").arg(key.isEmpty() ? total : counts.value(key)));
+        button->setToolTip(QCoreApplication::translate("MainWindowUI", "%1 个版本")
+                               .arg(key.isEmpty() ? total : counts.value(key)));
     }
 
     if (versionFilterHint != nullptr) {

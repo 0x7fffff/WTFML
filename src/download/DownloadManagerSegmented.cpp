@@ -8,6 +8,7 @@
  */
 
 #include "DownloadManager.hpp"
+#include <QCoreApplication>
 
 #include "DownloadCache.hpp"
 #include "ResumableDownload.hpp"
@@ -85,8 +86,7 @@ void DownloadManager::startSegmentedDownload(const PendingJob &job) {
             });
 
     if (DownloadDiag::enabled()) {
-        DownloadDiag::line(QStringLiteral("segment start gen=%1 url=%2 dest=%3 sha1=%4 size=%5 "
-                                          "parts=%6 official=%7")
+        DownloadDiag::line(QStringLiteral("segment start gen=%1 url=%2 dest=%3 sha1=%4 size=%5 parts=%6 official=%7")
                                .arg(m_batchGeneration)
                                .arg(DownloadDiag::safeUrl(targetUrl),
                                     QDir::toNativeSeparators(job.destinationPath),
@@ -184,12 +184,11 @@ void DownloadManager::finishSegmentedJob(ResumableDownload *task, bool success,
             m_failedPaths << record.destinationPath;
         }
         emit downloadFinished(fileName, false,
-                              error.isEmpty() ? QStringLiteral("分段下载失败") : error);
+                              error.isEmpty() ? QCoreApplication::translate("DownloadManagerSegmented", "分段下载失败") : error);
     }
 
     if (DownloadDiag::enabled()) {
-        DownloadDiag::line(QStringLiteral("segment finish gen=%1 dest=%2 result=%3 error=%4 "
-                                          "stale=%5 retried=%6")
+        DownloadDiag::line(QStringLiteral("segment finish gen=%1 dest=%2 result=%3 error=%4 stale=%5 retried=%6")
                                .arg(record.generation)
                                .arg(QDir::toNativeSeparators(record.destinationPath),
                                     success ? QStringLiteral("ok") : QStringLiteral("fail"),

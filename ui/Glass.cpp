@@ -274,12 +274,17 @@ QString modeKey(Mode mode) {
 
 QString modeName(Mode mode) {
     switch (mode) {
-    case Mode::Acrylic: return QStringLiteral("亚克力");
-    case Mode::Mica: return QStringLiteral("云母");
-    case Mode::Scene: return QStringLiteral("风景底");
-    case Mode::Solid: return QStringLiteral("纯色");
+    case Mode::Acrylic: return QCoreApplication::translate("Glass", "亚克力");
+    case Mode::Mica: return QCoreApplication::translate("Glass", "云母");
+    case Mode::Scene: return QCoreApplication::translate("Glass", "风景");
+    case Mode::Solid: return QCoreApplication::translate("Glass", "纯色");
     }
     return QString();
+}
+
+QString modeShortName(Mode mode) {
+    if (mode == Mode::Scene) return QCoreApplication::translate("Glass", "风景");
+    return modeName(mode);
 }
 
 Mode factoryMode(int threadCount, bool legacyGlassOff) {
@@ -306,10 +311,14 @@ QString fallbackReason() {
     const BackdropSettings &settings = cachedSettings();
     const Mode chosen = settings.chosen;
     if (chosen == Mode::Solid) return QString();
-    if (settings.highContrast) return QStringLiteral("系统开着高对比度，用纯色。");
-    if (settings.transparencyOff) return QStringLiteral("系统关了透明效果，用纯色。");
+    if (settings.highContrast) {
+        return QCoreApplication::translate("Glass", "系统开着高对比度，用纯色。");
+    }
+    if (settings.transparencyOff) {
+        return QCoreApplication::translate("Glass", "系统关了透明效果，用纯色。");
+    }
     if ((chosen == Mode::Acrylic || chosen == Mode::Mica) && !settings.systemBackdrop)
-        return QStringLiteral("需要 Windows 11 22H2 或更新，已改用风景底。");
+        return QCoreApplication::translate("Glass", "需要 Windows 11 22H2 或更新，已改用风景底。");
     return QString();
 }
 
@@ -876,3 +885,4 @@ void Backdrop::paintEvent(QPaintEvent *) {
 }
 
 }  // namespace Glass
+

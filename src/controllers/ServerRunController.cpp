@@ -7,6 +7,7 @@
  */
 
 #include "controllers/ServerRunController.hpp"
+#include <QCoreApplication>
 
 #include "InlineMessage.hpp"
 #include "MainWindow.hpp"
@@ -49,8 +50,7 @@ void ServerRunController::start(const QString &serverId, bool automatic) {
         } else {
             InlineMessage::information(
                 m_owner.m_ui->overlay(), MainWindow::tr("暂时不能启动"),
-                MainWindow::tr("它的世界正在备份或还原，请完成后再启动 —— 否则会读写到"
-                   "一半新、一半旧的存档。"));
+                MainWindow::tr("世界存档正在备份或还原。请等待操作完成后再启动。"));
         }
         return;
     }
@@ -64,7 +64,7 @@ void ServerRunController::start(const QString &serverId, bool automatic) {
     // 和那一行上写着「未安装」的是同一个出处。
     const ServerRegistry::Entry entry = ServerRegistry::describe(serverId);
     if (!entry.installed) {
-        InlineMessage::warning(m_owner.m_ui->overlay(), MainWindow::tr("这个服务端还不能启动"),
+        InlineMessage::warning(m_owner.m_ui->overlay(), MainWindow::tr("服务端暂时无法启动"),
                                ServerRun::notInstalledMessage());
         return;
     }
@@ -146,7 +146,7 @@ void ServerRunController::stop(const QString &serverId) {
     }
     // 那一句写不进去（它的 stdin 已经关了 / 它根本不在读）⇒ 只剩强杀一条路。这时候还
     // 摆着"再等 X 秒"就是骗人，直接说实话。
-    m_owner.appendLog(MainWindow::tr("%1：让它停的那一句没能写进去，只能强制结束。").arg(serverId));
+    m_owner.appendLog(MainWindow::tr("%1：无法发送停止命令，将强制结束服务端。").arg(serverId));
     process->forceKill();
 }
 
@@ -231,7 +231,6 @@ void ServerRunController::onExited(const QString &serverId, int exitCode) {
     // 弹窗 —— 用户点了启动之后常常就去干别的了，不弹一下他看不见。
     InlineMessage::warning(
         m_owner.m_ui->overlay(), MainWindow::tr("这个服务端退出了"),
-        MainWindow::tr("「%1」%2。\n\n控制台里最后那几行写着它退出之前在说什么 ——"
-           "右键这一行点「打开控制台」就能看见。")
+        MainWindow::tr("「%1」%2。\n\n右键该服务端并选择「打开控制台」，可查看退出前的日志。")
             .arg(shown, exitReason));
 }

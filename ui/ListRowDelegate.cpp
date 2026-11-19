@@ -121,7 +121,7 @@ void ListRowDelegate::paint(QPainter *painter, const QStyleOptionViewItem &optio
         f.setWeight(QFont::Medium);
         painter->setFont(f);
         const QString custom = index.data(LaunchTextRole).toString();
-        const QString text = custom.isEmpty() ? QStringLiteral("启动") : custom;
+        const QString text = custom.isEmpty() ? tr("启动") : custom;
         const QString icon = kind == LaunchKind::Stop     ? QStringLiteral("stop")
                              : kind == LaunchKind::Repair ? QStringLiteral("refresh")
                              : kind == LaunchKind::Busy   ? QString()

@@ -207,7 +207,7 @@ public:
         box->setSpacing(4);
         m_search = new QLineEdit(this);
         m_search->setObjectName(QStringLiteral("homePickerSearch"));
-        m_search->setPlaceholderText(QStringLiteral("搜索实例"));
+        m_search->setPlaceholderText(QCoreApplication::translate("MainWindowUI", "搜索实例"));
         m_search->setClearButtonEnabled(true);
         m_search->setFixedHeight(34);
         addSearchIcon(m_search);
@@ -223,7 +223,7 @@ public:
                                              "QListWidget::item { background: transparent; border: none; }"));
         m_list->viewport()->setAutoFillBackground(false);
         box->addWidget(m_list, 1);
-        m_empty = popLabel(QStringLiteral("没有符合的实例"), 13, QFont::Normal, this);
+        m_empty = popLabel(QCoreApplication::translate("MainWindowUI", "没有符合的实例"), 13, QFont::Normal, this);
         m_empty->setObjectName(QStringLiteral("homePickerEmpty"));
         m_empty->setAlignment(Qt::AlignCenter);
         m_empty->setMinimumHeight(64);
@@ -385,9 +385,9 @@ public:
             foot->addWidget(b);
             return b;
         };
-        footButton(QStringLiteral("homePickerNew"), QStringLiteral("新建实例"), QStringLiteral("plus"), std::move(onNew));
+        footButton(QStringLiteral("homePickerNew"), QCoreApplication::translate("MainWindowUI", "新建实例"), QStringLiteral("plus"), std::move(onNew));
         foot->addStretch(1);
-        footButton(QStringLiteral("homePickerManage"), QStringLiteral("管理全部实例"), QString(), std::move(onManage));
+        footButton(QStringLiteral("homePickerManage"), QCoreApplication::translate("MainWindowUI", "管理全部实例"), QString(), std::move(onManage));
         box->addLayout(foot);
 
         markAnchorOpen(anchor, true);
@@ -441,10 +441,10 @@ void InstancePickerList::rebuild() {
                              [](const auto &a, const auto &b) { return a.recentRank < b.recentRank; });
             if (recent.size() > kPickerRecentLimit) recent = recent.mid(0, kPickerRecentLimit);
             if (!recent.isEmpty()) {
-                addHead(QStringLiteral("最近"));
+                addHead(QCoreApplication::translate("MainWindowUI", "最近"));
                 for (const auto &instance : recent) addRow(instance);
             }
-            addHead(QStringLiteral("全部 · %1").arg(m_instances.size()));
+            addHead(QCoreApplication::translate("MainWindowUI", "全部 · %1").arg(m_instances.size()));
             for (const auto &instance : m_instances) addRow(instance);
         }
         m_selectedId.clear();

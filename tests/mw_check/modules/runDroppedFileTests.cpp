@@ -248,7 +248,7 @@ void runDroppedFileTests() {
             dropFilesOn(page, {notRes});
             QApplication::processEvents();
         });
-        check(g_modalTitle.contains(QStringLiteral("认不出来")) &&
+        check(g_modalTitle.contains(QStringLiteral("无法识别拖入的文件")) &&
                   g_modalText.contains(QStringLiteral("说明.txt")),
               "★ T30.8 认不出来的东西：说一句人话，而且**指名道姓**说是哪一个文件",
               g_modalTitle + QStringLiteral(" / ") + g_modalText);

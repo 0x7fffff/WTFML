@@ -44,6 +44,13 @@ cmake --build build/static-release --target WTFMinecraftLauncher -j 8
 ★ **PATH 先按上面那行重写**：只留 MinGW 13.1、ninja、CMake 和系统目录。混进 Git / MSYS
 的 `mingw64/bin` 或 `sh.exe`，CMake 会挑错编译器。编译器也显式指定，不靠 PATH 的运气。
 
+**英文翻译在构建时生成**：`assets/i18n/wtfml_en.ts` 由 `lrelease` 编成 `wtfml_en.qm`、
+再编进 exe 的资源（路径 `:/i18n/wtfml_en.qm`）。有 Qt6LinguistTools 就用它的 `lrelease`；
+静态 Qt 只编了 qtbase、没有那一包，默认到 `D:/Qt/Qt/6.10.1/mingw_64/bin` 找动态 Qt 那份，
+找不到就 `-DWTFML_LRELEASE=<lrelease.exe>` 指一个。两个都找不到时**配置阶段直接失败**，
+只有显式 `-DWTFML_I18N=OFF` 才跳过（那一份 exe 没有英文界面）。改文案与刷新 .ts 的流程见
+[I18N.md](I18N.md)。
+
 0.6.0 实测（2026-11-14，`-j 8`）：334 步 215 秒，exe 76 MB，去符号后 48 MB；导入表只有
 Windows 系统 DLL。
 

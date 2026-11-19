@@ -17,7 +17,7 @@ namespace Presets {
 
 namespace {
 
-QString planText(const char *source) { return QCoreApplication::translate("Presets", source); }
+[[maybe_unused]] QString planText(const char *source) { return QCoreApplication::translate("Presets", source); }
 
 QString resolvedTitle(const ModResolveInput &input, const ModReference &reference) {
     if (!input.title.trimmed().isEmpty()) {
@@ -88,7 +88,7 @@ bool chooseVersion(const QList<ResourceCatalog::VersionEntry> &versions,
                    const QString &gameVersion, const QString &loader,
                    ResourceCatalog::VersionEntry *out, QString *why) {
     if (versions.isEmpty()) {
-        *why = planText("平台没有给出任何可用的版本。");
+        *why = QCoreApplication::translate("Presets", "平台没有给出任何可用的版本。");
         return false;
     }
     bool sawMatch = false;
@@ -100,7 +100,7 @@ bool chooseVersion(const QList<ResourceCatalog::VersionEntry> &versions,
         sawMatch = true;
         const ResourceCatalog::FileEntry *file = version.primaryFile();
         if (file == nullptr) {
-            fileWhy = planText("这一版没有可下载的文件。");
+            fileWhy = QCoreApplication::translate("Presets", "这一版没有可下载的文件。");
             continue;
         }
         if (!file->unavailableNote.trimmed().isEmpty()) {
@@ -108,7 +108,7 @@ bool chooseVersion(const QList<ResourceCatalog::VersionEntry> &versions,
             continue;
         }
         if (file->url.trimmed().isEmpty()) {
-            fileWhy = planText("这一版的文件没有下载地址。");
+            fileWhy = QCoreApplication::translate("Presets", "这一版的文件没有下载地址。");
             continue;
         }
         *out = version;
@@ -119,8 +119,8 @@ bool chooseVersion(const QList<ResourceCatalog::VersionEntry> &versions,
     } else {
         const QString context = contextText(gameVersion, loader);
         *why = context.isEmpty()
-                   ? planText("版本列表里没有能装进这个实例的发行版。")
-                   : planText("版本列表里没有匹配「%1」的发行版。").arg(context);
+                   ? QCoreApplication::translate("Presets", "版本列表里没有能装进这个实例的发行版。")
+                   : QCoreApplication::translate("Presets", "版本列表里没有匹配「%1」的发行版。").arg(context);
     }
     return false;
 }
@@ -212,7 +212,7 @@ static ModInstallPlan planModInstallPass(const ModInstallRequest &request) {
                 cut.required = depRef.required;
                 cut.fromDependency = true;
                 cut.status = ModInstallStatus::Unknown;
-                cut.problem = planText("前置链超过 %1 层，没有继续往下展开。").arg(request.maxDependencyDepth);
+                cut.problem = QCoreApplication::translate("Presets", "前置链超过 %1 层，没有继续往下展开。").arg(request.maxDependencyDepth);
                 plan.rows.append(cut);
                 continue;
             }
@@ -230,7 +230,7 @@ static ModInstallPlan planModInstallPass(const ModInstallRequest &request) {
 
         if (key.isEmpty()) {
             row.status = ModInstallStatus::Blocked;
-            row.problem = planText("这一条引用认不出来（平台或项目号是空的）。");
+            row.problem = QCoreApplication::translate("Presets", "模组引用缺少平台或项目 ID。");
             plan.rows.append(row);
             return;
         }
@@ -247,7 +247,7 @@ static ModInstallPlan planModInstallPass(const ModInstallRequest &request) {
             if (!row.version.id.isEmpty() && !versionMatches(row.version,
                 effectiveGameVersion(request, reference), effectiveLoader(request, reference))) {
                 row.status = ModInstallStatus::Incompatible;
-                row.problem = planText("已安装发行版不兼容目标游戏版本或加载器，未自动替换。");
+                row.problem = QCoreApplication::translate("Presets", "已安装发行版不兼容目标游戏版本或加载器，未自动替换。");
             }
             plan.rows.append(row);
             if (row.status == ModInstallStatus::AlreadyInstalled)
@@ -279,21 +279,21 @@ static ModInstallPlan planModInstallPass(const ModInstallRequest &request) {
         if (input == nullptr) {
             row.status = ModInstallStatus::Unknown;
             row.problem = fromDependency
-                              ? planText("还没问到这一个必要前置的版本列表。")
-                              : planText("还没问到平台：这一条现在不能下。");
+                              ? QCoreApplication::translate("Presets", "尚未取得此必需依赖的版本列表。")
+                              : QCoreApplication::translate("Presets", "尚未从平台取得下载信息，暂时无法下载。");
             plan.rows.append(row);
             return;
         }
         if (!input->queried) {
             row.status = ModInstallStatus::Unknown;
-            row.problem = planText("还没轮到问平台。");
+            row.problem = QCoreApplication::translate("Presets", "等待查询平台。");
             plan.rows.append(row);
             return;
         }
         if (input->queryFailed) {
             row.status = ModInstallStatus::Unknown;
             row.problem = input->queryProblem.trimmed().isEmpty()
-                              ? planText("问平台没成（网络或接口没有回答）。")
+                              ? QCoreApplication::translate("Presets", "问平台没成（网络或接口没有回答）。")
                               : input->queryProblem.trimmed();
             plan.rows.append(row);
             return;
@@ -336,7 +336,7 @@ static ModInstallPlan planModInstallPass(const ModInstallRequest &request) {
                     candidate.substitutedKey = confirmed.key();
                     candidate.replacesKeys.append(key);
                     candidate.replacesKeys.removeDuplicates();
-                    candidate.details.append(planText("本次替代：%1 → %2。").arg(key, candidate.key));
+                    candidate.details.append(QCoreApplication::translate("Presets", "本次替代：%1 → %2。").arg(key, candidate.key));
                     candidate.details.append(modInstallSubstitutedText(altTitle));
                     marked = true;
                     break;
@@ -347,7 +347,7 @@ static ModInstallPlan planModInstallPass(const ModInstallRequest &request) {
                     row.status = ModInstallStatus::Missing;
                     row.problem = why;
                     row.details.append(
-                        planText("按你确认换成了「%1」，见它在表上那一行。").arg(altTitle));
+                        QCoreApplication::translate("Presets", "已按确认结果替换为「%1」。").arg(altTitle));
                     plan.rows.append(row);
                 }
                 return;
@@ -406,10 +406,10 @@ static ModInstallPlan planModInstallPass(const ModInstallRequest &request) {
             }
             const QString otherTitle = titleByKey.value(other, other);
             row.status = ModInstallStatus::Incompatible;
-            row.problem = planText("这一版声明和「%1」不兼容，没有把它排进这一趟。")
+            row.problem = QCoreApplication::translate("Presets", "此版本与「%1」不兼容，未加入安装计划。")
                               .arg(otherTitle);
             plan.conflicts.append(
-                planText("「%1」和「%2」不能一起装。").arg(row.title, otherTitle));
+                QCoreApplication::translate("Presets", "「%1」和「%2」不能一起装。").arg(row.title, otherTitle));
             break;
         }
     }
@@ -455,12 +455,12 @@ static ModInstallPlan planModInstallPass(const ModInstallRequest &request) {
             if (!dependency.required()) continue;
             if (dependency.projectId.trimmed().isEmpty() && dependency.versionId.trimmed().isEmpty()) {
                 row.status = ModInstallStatus::Unknown;
-                row.problem = planText("必要前置缺少有效的项目 / 发行版身份，未允许安装。"); break;
+                row.problem = QCoreApplication::translate("Presets", "必要前置缺少有效的项目 / 发行版身份，未允许安装。"); break;
             }
             if (dependency.versionId.trimmed().isEmpty()) continue;
             if (dependency.projectId.trimmed().isEmpty()) {
                 row.status = ModInstallStatus::Unknown;
-                row.problem = planText("必要前置只提供发行版 ID（%1），尚无法确认所属项目，未允许安装。")
+                row.problem = QCoreApplication::translate("Presets", "必要前置只提供发行版 ID（%1），尚无法确认所属项目，未允许安装。")
                                   .arg(dependency.versionId);
                 break;
             }
@@ -469,7 +469,7 @@ static ModInstallPlan planModInstallPass(const ModInstallRequest &request) {
                 QStringList versions = exactVersions.value(key).values();
                 versions.sort();
                 row.status = ModInstallStatus::Incompatible;
-                row.problem = planText("「%1」存在互不相容的精确前置版本要求：%2。")
+                row.problem = QCoreApplication::translate("Presets", "「%1」存在互不相容的精确前置版本要求：%2。")
                                   .arg(key, versions.join(QStringLiteral(" / ")));
                 if (!plan.conflicts.contains(row.problem)) plan.conflicts.append(row.problem);
                 break;
@@ -479,9 +479,9 @@ static ModInstallPlan planModInstallPass(const ModInstallRequest &request) {
             if (installed == dependency.versionId.trimmed()) continue;
             row.status = installed.isEmpty() ? ModInstallStatus::Unknown : ModInstallStatus::Incompatible;
             row.problem = installed.isEmpty()
-                ? planText("已安装「%1」，但发行版身份未知，无法确认所需版本 %2。")
+                ? QCoreApplication::translate("Presets", "已安装「%1」，但发行版身份未知，无法确认所需版本 %2。")
                       .arg(key, dependency.versionId)
-                : planText("已安装「%1」的版本 %2，不满足所需版本 %3；需确认替换。")
+                : QCoreApplication::translate("Presets", "已安装「%1」的版本 %2，不满足所需版本 %3；需确认替换。")
                       .arg(key, installed, dependency.versionId);
             if (!installed.isEmpty()) plan.conflicts.append(row.problem);
             break;
@@ -504,7 +504,7 @@ static ModInstallPlan planModInstallPass(const ModInstallRequest &request) {
                 if (!child.isFailure()) continue;
                 row.status = child.status == ModInstallStatus::Incompatible
                     ? ModInstallStatus::Incompatible : ModInstallStatus::Unknown;
-                row.problem = planText("必要前置「%1」未解决：%2").arg(child.title, child.problem);
+                row.problem = QCoreApplication::translate("Presets", "必要前置「%1」未解决：%2").arg(child.title, child.problem);
                 changed = true; break;
             }
         }
@@ -581,7 +581,7 @@ ModInstallPlan planModInstall(const ModInstallRequest &request) {
             filter(it.key(), it.value());
     }
     plan.ok = false;
-    plan.conflicts.append(planText("精确前置约束循环变化，无法生成稳定计划；未允许安装。"));
+    plan.conflicts.append(QCoreApplication::translate("Presets", "精确前置约束循环变化，无法生成稳定计划；未允许安装。"));
     for (auto &row : plan.rows) if (row.isDownload()) {
         row.status = ModInstallStatus::Unknown;
         row.problem = plan.conflicts.last();
@@ -595,7 +595,7 @@ DownloadVerification verifyDownloadedFile(const QString &path, qint64 expectedSi
     DownloadVerification out;
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
-        out.problem = planText("读不动刚下下来的文件「%1」：%2").arg(path, file.errorString());
+        out.problem = QCoreApplication::translate("Presets", "无法读取刚下载的文件「%1」：%2").arg(path, file.errorString());
         return out;
     }
     out.size = file.size();
@@ -605,7 +605,7 @@ DownloadVerification verifyDownloadedFile(const QString &path, qint64 expectedSi
     while (!file.atEnd()) {
         const QByteArray chunk = file.read(1 << 16);
         if (chunk.isEmpty() && file.error() != QFileDevice::NoError) {
-            out.problem = planText("读「%1」读到一半出错了：%2").arg(path, file.errorString());
+            out.problem = QCoreApplication::translate("Presets", "读「%1」读到一半出错了：%2").arg(path, file.errorString());
             return out;
         }
         total += chunk.size();
@@ -615,14 +615,14 @@ DownloadVerification verifyDownloadedFile(const QString &path, qint64 expectedSi
     out.sha1 = QString::fromLatin1(hash.result().toHex());
 
     if (expectedSize >= 0 && total != expectedSize) {
-        out.problem = planText("大小对不上：期望 %1 字节，实际 %2 字节。")
+        out.problem = QCoreApplication::translate("Presets", "文件大小不符。预期 %1 字节，实际 %2 字节。")
                           .arg(expectedSize)
                           .arg(total);
         return out;
     }
     if (!expectedSha1.trimmed().isEmpty()) {
         if (out.sha1.compare(expectedSha1.trimmed(), Qt::CaseInsensitive) != 0) {
-            out.problem = planText("sha1 对不上：期望 %1，实际 %2。")
+            out.problem = QCoreApplication::translate("Presets", "SHA-1 校验失败。预期 %1，实际 %2。")
                               .arg(expectedSha1.trimmed(), out.sha1);
             return out;
         }
@@ -632,7 +632,7 @@ DownloadVerification verifyDownloadedFile(const QString &path, qint64 expectedSi
     // 接口没给哈希：大小对上了也不能说"校验通过"。
     out.ok = true;
     out.unverified = true;
-    out.problem = planText("平台没有给出这个文件的 sha1，只对过大小。");
+    out.problem = QCoreApplication::translate("Presets", "平台未提供此文件的 SHA-1，仅核对了文件大小。");
     return out;
 }
 
@@ -643,19 +643,19 @@ DownloadVerification verifyDownloadedFile(const QString &path, qint64 expectedSi
 QString modInstallStatusText(ModInstallStatus status) {
     switch (status) {
     case ModInstallStatus::Download:
-        return planText("下载");
+        return QCoreApplication::translate("Presets", "下载");
     case ModInstallStatus::AlreadyInstalled:
-        return planText("已经在实例里");
+        return QCoreApplication::translate("Presets", "已经在实例里");
     case ModInstallStatus::Missing:
-        return planText("缺失");
+        return QCoreApplication::translate("Presets", "缺失");
     case ModInstallStatus::Unknown:
-        return planText("暂无法确认");
+        return QCoreApplication::translate("Presets", "暂无法确认");
     case ModInstallStatus::Incompatible:
-        return planText("不兼容");
+        return QCoreApplication::translate("Presets", "不兼容");
     case ModInstallStatus::AlternativeNeedsConfirm:
-        return planText("等你确认替代项目");
+        return QCoreApplication::translate("Presets", "待确认的替代项目");
     case ModInstallStatus::Blocked:
-        return planText("做不了");
+        return QCoreApplication::translate("Presets", "做不了");
     }
     return QString();
 }
@@ -663,47 +663,47 @@ QString modInstallStatusText(ModInstallStatus status) {
 QString modInstallSummaryText(const ModInstallPlan &plan) {
     QStringList parts;
     if (plan.download > 0) {
-        parts.append(planText("下载 %1 个").arg(plan.download));
+        parts.append(QCoreApplication::translate("Presets", "下载 %1 个").arg(plan.download));
     }
     if (plan.alreadyInstalled > 0) {
-        parts.append(planText("已经在实例里 %1 个").arg(plan.alreadyInstalled));
+        parts.append(QCoreApplication::translate("Presets", "已经在实例里 %1 个").arg(plan.alreadyInstalled));
     }
     if (plan.missing > 0) {
-        parts.append(planText("缺失 %1 个").arg(plan.missing));
+        parts.append(QCoreApplication::translate("Presets", "缺失 %1 个").arg(plan.missing));
     }
     if (plan.unknown > 0) {
-        parts.append(planText("暂无法确认 %1 个").arg(plan.unknown));
+        parts.append(QCoreApplication::translate("Presets", "暂无法确认 %1 个").arg(plan.unknown));
     }
     if (plan.incompatible > 0) {
-        parts.append(planText("不兼容 %1 个").arg(plan.incompatible));
+        parts.append(QCoreApplication::translate("Presets", "不兼容 %1 个").arg(plan.incompatible));
     }
     if (plan.needsConfirm > 0) {
-        parts.append(planText("等你确认替代项目 %1 个").arg(plan.needsConfirm));
+        parts.append(QCoreApplication::translate("Presets", "有 %1 个替代项目待确认").arg(plan.needsConfirm));
     }
     if (plan.blocked > 0) {
-        parts.append(planText("做不了 %1 个").arg(plan.blocked));
+        parts.append(QCoreApplication::translate("Presets", "做不了 %1 个").arg(plan.blocked));
     }
     const int required = plan.requiredFailures();
     if (required > 0) {
-        parts.append(planText("其中必要项失败 %1 个").arg(required));
+        parts.append(QCoreApplication::translate("Presets", "其中必要项失败 %1 个").arg(required));
     }
     if (parts.isEmpty()) {
-        return planText("没有要动的东西。");
+        return QCoreApplication::translate("Presets", "没有要动的东西。");
     }
-    return parts.join(planText("，")) + planText("。");
+    return parts.join(QCoreApplication::translate("Presets", "，")) + QCoreApplication::translate("Presets", "。");
 }
 
 QString modInstallSubstitutedText(const QString &title) {
-    return planText("按你确认换成了「%1」。").arg(title);
+    return QCoreApplication::translate("Presets", "已确认并替换为「%1」。").arg(title);
 }
 
 QString modInstallAlternativeText(const QStringList &names) {
-    return planText("这几个有替代项目，换不换要你点头：%1。")
-        .arg(names.join(planText("、")));
+    return QCoreApplication::translate("Presets", "以下替代项目需要确认：%1。")
+        .arg(names.join(QCoreApplication::translate("Presets", "、")));
 }
 
 QString modInstallPartialText() {
-    return planText("实例可用，预设部分应用。");
+    return QCoreApplication::translate("Presets", "实例可用，预设部分应用。");
 }
 
 }  // namespace Presets

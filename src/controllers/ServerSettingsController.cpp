@@ -1,4 +1,5 @@
 #include "controllers/ServerSettingsController.hpp"
+#include <QCoreApplication>
 
 #include "controllers/ServerWorkspaceController.hpp"
 #include "manage/BackupFiles.hpp"
@@ -44,11 +45,11 @@ ServerSettingsController::SaveResult ServerSettingsController::save(
     QFile current(ServerRegistry::propertiesPath(serverId));
     const bool absent = m_propertySnapshots.value(serverId) == QByteArray("absent") && !QFileInfo::exists(current.fileName());
     if (!m_propertySnapshots.contains(serverId) || (!absent && (!current.open(QIODevice::ReadOnly) || current.size() > 4 * 1024 * 1024))) {
-        result.problem = QStringLiteral("无法确认原属性文件，请重新加载后再保存；未覆盖。"); return result;
+        result.problem = QCoreApplication::translate("ServerSettingsController", "无法确认原属性文件，请重新加载后再保存；未覆盖。"); return result;
     }
     const auto currentBytes = absent ? QByteArray() : current.readAll();
     if (!absent && (current.error() != QFileDevice::NoError || QCryptographicHash::hash(currentBytes, QCryptographicHash::Sha256) != m_propertySnapshots.value(serverId))) {
-        result.problem = QStringLiteral("server.properties 已被服务端或其它程序修改，请重新加载后再编辑；未覆盖。"); return result;
+        result.problem = QCoreApplication::translate("ServerSettingsController", "server.properties 已被服务端或其它程序修改，请重新加载后再编辑；未覆盖。"); return result;
     }
     current.close();
     ServerModel::Properties properties = ServerModel::parseProperties(raw);
@@ -61,7 +62,7 @@ ServerSettingsController::SaveResult ServerSettingsController::save(
         QString normalized;
         QString problem;
         if (!ServerPropertiesForm::accepts(*field, edit.second, &normalized, &problem)) {
-            result.rejected.append(QStringLiteral("•「%1」：%2").arg(field->label, problem));
+            result.rejected.append(QCoreApplication::translate("ServerSettingsController", "•「%1」：%2").arg(field->label, problem));
             continue;
         }
         accepted.append(qMakePair(edit.first, normalized));
@@ -192,7 +193,7 @@ ServerPlayers::Content ServerSettingsController::readPlayers(const QString &serv
     if (path.isEmpty()) {
         ServerPlayers::Content content;
         content.ok = false;
-        content.problem = QStringLiteral("找不到这个服务端的目录。");
+        content.problem = QCoreApplication::translate("ServerSettingsController", "找不到这个服务端的目录。");
         return content;
     }
     QFile file(path);
@@ -203,7 +204,7 @@ ServerPlayers::Content ServerSettingsController::readPlayers(const QString &serv
     if (!file.open(QIODevice::ReadOnly)) {
         ServerPlayers::Content content;
         content.ok = false;
-        content.problem = QStringLiteral("%1 打不开：%2")
+        content.problem = QCoreApplication::translate("ServerSettingsController", "无法打开 %1：%2")
                               .arg(ServerPlayers::fileName(list), file.errorString());
         return content;
     }
@@ -216,14 +217,14 @@ bool ServerSettingsController::writePlayers(const QString &serverId, ServerPlaye
     if (!ServerWriteGuard::acquireFile(serverId, ServerPlayers::fileName(list), problemOut)) return false;
     const QString path = playersPath(serverId, list);
     if (path.isEmpty()) {
-        if (problemOut != nullptr) *problemOut = QStringLiteral("找不到这个服务端的目录。");
+        if (problemOut != nullptr) *problemOut = QCoreApplication::translate("ServerSettingsController", "找不到这个服务端的目录。");
         return false;
     }
     QDir().mkpath(QFileInfo(path).absolutePath());
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly)) {
         if (problemOut != nullptr) {
-            *problemOut = QStringLiteral("%1 写不进去：%2")
+            *problemOut = QCoreApplication::translate("ServerSettingsController", "无法写入 %1：%2")
                               .arg(ServerPlayers::fileName(list), file.errorString());
         }
         return false;
@@ -231,12 +232,12 @@ bool ServerSettingsController::writePlayers(const QString &serverId, ServerPlaye
     const auto bytes = ServerPlayers::serialize(list, entries);
     if (file.write(bytes) != bytes.size()) {
         file.cancelWriting();
-        if (problemOut) *problemOut = QStringLiteral("玩家名单写入不完整，原文件未替换。");
+        if (problemOut) *problemOut = QCoreApplication::translate("ServerSettingsController", "玩家名单写入不完整，原文件未替换。");
         return false;
     }
     if (!file.commit()) {
         if (problemOut != nullptr) {
-            *problemOut = QStringLiteral("%1 写不进去：%2")
+            *problemOut = QCoreApplication::translate("ServerSettingsController", "无法写入 %1：%2")
                               .arg(ServerPlayers::fileName(list), file.errorString());
         }
         return false;

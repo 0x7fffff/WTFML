@@ -72,9 +72,9 @@ public:
     static QString reasonsLabelName(int i) { return QStringLiteral("presetInstallReasonsText%1").arg(i); }
     static QString emptyLabelName(int i) { return QStringLiteral("presetInstallEmpty%1").arg(i); }
     static QString manageButtonName(int i) { return QStringLiteral("presetInstallManage%1").arg(i); }
-    static QString noneText() { return QStringLiteral("不使用"); }
-    static QString manageText() { return QStringLiteral("管理预设"); }
-    static QString reasonsText() { return QStringLiteral("兼容性详情"); }
+    static QString noneText() { return tr("不使用"); }
+    static QString manageText() { return tr("管理预设"); }
+    static QString reasonsText() { return tr("兼容性详情"); }
 signals:
     void selectionChanged(const QString &categoryKey, const QString &presetId);
     void manageRequested();

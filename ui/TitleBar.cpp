@@ -68,13 +68,21 @@ QColor blendedColor(const QColor &from, const QColor &to, qreal progress) {
                             from.alphaF() + (to.alphaF() - from.alphaF()) * t);
 }
 
-TitleBarButton::NavIcon iconForLabel(const QString &label) {
-    if (label == QStringLiteral("主页")) return TitleBarButton::NavIcon::Home;
-    if (label == QStringLiteral("管理")) return TitleBarButton::NavIcon::Instances;
-    if (label == QStringLiteral("下载")) return TitleBarButton::NavIcon::Download;
-    if (label == QStringLiteral("设置")) return TitleBarButton::NavIcon::Settings;
-    if (label == QStringLiteral("智能体")) return TitleBarButton::NavIcon::Agent;
-    if (label == QStringLiteral("工具箱")) return TitleBarButton::NavIcon::Toolbox;
+TitleBarButton::NavIcon iconForIndex(int index) {
+    // 按**序号**认，不按文字：条上的字是 `MainWindowUI` 那五个标签的文本，会跟着界面语言变
+    //（装了英文翻译时就是英文）。按文字认等于每加一门语言都要来这里加一列，漏了就是几个
+    // "没有图标"的按钮。
+    //
+    // 顺序契约：和 `MainWindowUI` 里那五个 `addTab` 的先后一致（home / instance / download /
+    // settings / agent，见 `homeTabIndex()` 那一组常量）。加语言不动这里；**重排页面**才要动。
+    switch (index) {
+    case 0: return TitleBarButton::NavIcon::Home;
+    case 1: return TitleBarButton::NavIcon::Instances;
+    case 2: return TitleBarButton::NavIcon::Download;
+    case 3: return TitleBarButton::NavIcon::Settings;
+    case 4: return TitleBarButton::NavIcon::Agent;
+    default: break;
+    }
     return TitleBarButton::NavIcon::None;
 }
 
@@ -146,8 +154,6 @@ QPair<QColor, QColor> brandMarkStops() {
     return {base.lighter(118), base};
 }
 
-/// 把 @p color 往 @p ink 那头挪，直到它在 @p backgrounds 每一种底上都有 3:1（WCAG 图形对比度）。
-/// @p ink 是这一处文字用的墨（主题保证它在这些底上读得清），所以一定收得住。
 /// @p c 叠在 @p backgrounds 每一种底上之后最低的那个对比度（半透明的墨按叠出来的色算）。
 double worstContrast(const QColor &c, const QList<QColor> &backgrounds) {
     double low = 21.0;
@@ -155,6 +161,8 @@ double worstContrast(const QColor &c, const QList<QColor> &backgrounds) {
     return low;
 }
 
+/// 把 @p color 往 @p ink 那头挪，直到它在 @p backgrounds 每一种底上都有 3:1（WCAG 图形对比度）。
+/// @p ink 是这一处文字用的墨（主题保证它在这些底上读得清），所以一定收得住。
 QColor ensureGraphicContrast(QColor color, const QColor &ink, const QList<QColor> &backgrounds) {
     const auto worst = [&](const QColor &c) { return worstContrast(c, backgrounds); };
     // 小步挪（每步 5%），刚够 3:1 就停：离主题色越近越好（出厂暮色雪山的下端只需挪一点）。
@@ -458,10 +466,10 @@ TitleBar::TitleBar(QWidget *parent) : QWidget(parent) {
     captionLayout->addStretch(1);
     m_minimize = new TitleBarButton(TitleBarButton::Glyph::Minimize, QColor(), QColor(), m_caption);
     m_minimize->setObjectName(QStringLiteral("titleBarMinimize"));
-    m_minimize->setToolTip(QStringLiteral("最小化"));
+    m_minimize->setToolTip(tr("最小化"));
     m_close = new TitleBarButton(TitleBarButton::Glyph::Close, QColor(), QColor(), m_caption);
     m_close->setObjectName(QStringLiteral("titleBarClose"));
-    m_close->setToolTip(QStringLiteral("关闭"));
+    m_close->setToolTip(tr("关闭"));
     captionLayout->addWidget(m_minimize, 0, Qt::AlignTop);
     captionLayout->addWidget(m_close, 0, Qt::AlignTop);
     connect(m_minimize, &QAbstractButton::clicked, this, &TitleBar::minimizeRequested);
@@ -593,11 +601,11 @@ void TitleBar::layoutForWidth(int w) {
     // 中线对准导航图标：图标轨时导航图标居中，展开时图标中心在 pad + 14 + 10。
     const int logoX = compact ? (w - kLogoSize) / 2 : pad + kNavPaddingX + kNavIconSize / 2 - kLogoSize / 2;
     m_logo->move(logoX, kRailTopPadding + (kBrandHeight - kLogoSize) / 2);
-    const QString action = isCollapsed() ? QStringLiteral("展开导航") : QStringLiteral("收起导航");
+    const QString action = isCollapsed() ? tr("展开导航") : tr("收起导航");
     m_logo->setCursor(m_narrow ? Qt::ArrowCursor : Qt::PointingHandCursor);
-    m_logo->setToolTip(m_narrow ? QStringLiteral("窗口加宽后才能展开") : action);
+    m_logo->setToolTip(m_narrow ? tr("窗口加宽后才能展开") : action);
     m_logo->setAccessibleName(action);
-    m_logo->setAccessibleDescription(m_narrow ? QStringLiteral("窗口加宽后才能展开") : QString());
+    m_logo->setAccessibleDescription(m_narrow ? tr("窗口加宽后才能展开") : QString());
     update();
 }
 
@@ -623,7 +631,7 @@ void TitleBar::setNavItems(const QStringList &labels) {
         auto *button = new TitleBarButton(TitleBarButton::Glyph::Text, QColor(), QColor(), this);
         button->setObjectName(QStringLiteral("titleBarNav%1").arg(i));
         button->setLabel(labels.at(i));
-        button->setNavIcon(iconForLabel(labels.at(i)));
+        button->setNavIcon(iconForIndex(i));
         button->setFont(navFont);
         button->setFixedSize(width() - 2 * pad, kNavItemHeight);
         button->setAccessibleName(labels.at(i));

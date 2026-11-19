@@ -490,6 +490,8 @@ int UiBackgroundShots(QApplication &app);
 int UiThemeCheck(QApplication &app);
 int UiPopupCheck(QApplication &app);
 int UiNavigationChecks(QMainWindow &window, MainWindowUI &ui, QComboBox * &installed, QPushButton * &startBtn, QStackedWidget * &gameStack, QTreeWidget * &versionTree, QLineEdit * &installNameEdit, QPushButton * &installBtn, QPushButton * &installBackBtn, QTreeWidget * &loaderTree, QListWidget * &folderList, QTreeWidget * &instanceList, QLabel * &instanceFolderLabel, QTabWidget * &tabs);
+// 界面语言那一条链路：解析纯函数 + 装翻译后导航轨变英文（见 UiLanguageChecks.cpp）。
+int UiLanguageChecks(MainWindowUI &ui, QTabWidget *tabs);
 int UiVersionTreeGeometryChecks(QMainWindow &window, QTreeWidget * &versionTree);
 int UiInstallFormLayoutChecks(MainWindowUI &ui, QLineEdit * &installNameEdit, QLabel * &installNameError, QPushButton * &installBtn, QTreeWidget * &loaderTree, QWidget * &downloadPage, const QRect &rEdit, const QRect &rInstall, QFrame * &loaderCard, QFrame * &installFooter, const QByteArray &surfaceKey, const std::function<QRect(QWidget *)> &rectInPage);
 int UiDownloadCategoriesChecks(MainWindowUI &ui, QStackedWidget * &gameStack, QWidget * &downloadPage, const std::function<QRect(QWidget *)> &rectInPage);

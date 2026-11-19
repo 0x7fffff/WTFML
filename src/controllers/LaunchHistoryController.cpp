@@ -91,7 +91,7 @@ void LaunchHistoryController::recordStart(const QString &instanceId, const QStri
     // 主页那张卡下次少一条记录 / 还显示上一条 —— 拿一个提示拦在用户和"进游戏"之间不成
     // 比例。和 `ResourceStore` / `InstanceIconLookup` 那几处"best-effort 写盘"同一个口径。
     if (!LaunchHistory::save(LaunchHistory::historyPath(), m_records)) {
-        emit logMessage(tr("没能把这次启动记进「上次游玩」：%1 写不进去。")
+        emit logMessage(tr("无法记录本次启动时间，写入失败：%1")
                             .arg(QDir::toNativeSeparators(LaunchHistory::historyPath())));
     }
     emit changed();
@@ -115,7 +115,7 @@ void LaunchHistoryController::recordFinish(qint64 startedAtMs, LaunchHistory::Re
             record.durationSeconds = (finishedAtMs - startedAtMs) / 1000;
         }
         if (!LaunchHistory::save(LaunchHistory::historyPath(), m_records)) {
-            emit logMessage(tr("没能把这次启动的结局写进「上次游玩」：%1 写不进去。")
+            emit logMessage(tr("无法记录本次运行结果，写入失败：%1")
                                 .arg(QDir::toNativeSeparators(LaunchHistory::historyPath())));
         }
         emit changed();

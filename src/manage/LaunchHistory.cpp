@@ -5,6 +5,7 @@
 
 #include "LaunchHistory.hpp"
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -320,10 +321,10 @@ QString whenText(const QDateTime &at, const QDateTime &now) {
         return clock;
     }
     if (days == 1) {
-        return QStringLiteral("昨天 %1").arg(clock);
+        return QCoreApplication::translate("LaunchHistory", "昨天 %1").arg(clock);
     }
     if (days == 2) {
-        return QStringLiteral("前天 %1").arg(clock);
+        return QCoreApplication::translate("LaunchHistory", "前天 %1").arg(clock);
     }
     // 将来的时间（钟被改过 / 文件被人动过）落到这儿会写出一个未来的日子 —— 那也是**真的**
     // 那一格里的内容，比编一句"刚刚"强。
@@ -337,10 +338,10 @@ QString whenText(const QDateTime &at) {
 QString targetLine(const Record &record) {
     switch (record.target) {
     case Target::World:
-        return QStringLiteral("单人世界：%1").arg(
+        return QCoreApplication::translate("LaunchHistory", "单人世界：%1").arg(
             record.targetDisplayName.isEmpty() ? record.targetId : record.targetDisplayName);
     case Target::Server:
-        return QStringLiteral("服务器：%1").arg(
+        return QCoreApplication::translate("LaunchHistory", "服务器：%1").arg(
             record.targetDisplayName.isEmpty() ? record.targetId : record.targetDisplayName);
     case Target::None:
         break;
@@ -351,11 +352,11 @@ QString targetLine(const Record &record) {
 QString resultNote(const Record &record) {
     switch (record.result) {
     case Result::Crash:
-        return QStringLiteral("（上次是异常退出）");
+        return QCoreApplication::translate("LaunchHistory", "（上次是异常退出）");
     case Result::Running:
-        return QStringLiteral("（还在玩）");
+        return QCoreApplication::translate("LaunchHistory", "（还在玩）");
     case Result::StartFailed:
-        return QStringLiteral("（上次没起来）");
+        return QCoreApplication::translate("LaunchHistory", "（上次启动失败）");
     case Result::NormalExit:
         break;
     }
@@ -370,18 +371,18 @@ QString durationText(qint64 seconds) {
     // 时长（结局）"拼出来的，量词不同（分钟 / 小时）时"玩了"两个字必须一起挪 ——
     // 让调用方去拼会拼出「玩了 不到 1 分钟」这种话。
     if (seconds < 60) {
-        return QStringLiteral("玩了不到 1 分钟");
+        return QCoreApplication::translate("LaunchHistory", "玩了不到 1 分钟");
     }
     const qint64 minutes = seconds / 60;
     if (minutes < 60) {
-        return QStringLiteral("玩了 %1 分钟").arg(minutes);
+        return QCoreApplication::translate("LaunchHistory", "玩了 %1 分钟").arg(minutes);
     }
     const qint64 hours = minutes / 60;
     const qint64 rest = minutes % 60;
     if (rest == 0) {
-        return QStringLiteral("玩了 %1 小时").arg(hours);
+        return QCoreApplication::translate("LaunchHistory", "玩了 %1 小时").arg(hours);
     }
-    return QStringLiteral("玩了 %1 小时 %2 分").arg(hours).arg(rest);
+    return QCoreApplication::translate("LaunchHistory", "玩了 %1 小时 %2 分").arg(hours).arg(rest);
 }
 
 }  // namespace LaunchHistory

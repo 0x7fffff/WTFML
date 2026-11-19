@@ -6,6 +6,8 @@ class QTreeWidget;
 class QLabel;
 
 class PresetModReview final : public ChromeDialog {
+    Q_OBJECT
+
 public:
     explicit PresetModReview(const Presets::ModInstallPlan &plan, QWidget *parent = nullptr);
     Presets::PresetModInstaller::ReviewDecision decision() const { return m_decision; }

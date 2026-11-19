@@ -561,7 +561,7 @@ int main(int argc, char *argv[]) {
                 // 首启资源那两问（"没预取完，再试一次吗？"）点**最后一颗**（知道了）：
                 // 探针要的是记录现场，不是在这一跑里无限重试。
                 int index = 0;
-                if (g_modalText.contains(QStringLiteral("首启资源"))) {
+                if (g_modalText.contains(QStringLiteral("首次启动资源"))) {
                     index = qMax(0, box->findChildren<QPushButton *>().size() - 1);
                 }
                 if (auto *button = box->findChild<QPushButton *>(InlineMessageBox::buttonName(index))) {
@@ -576,11 +576,11 @@ int main(int argc, char *argv[]) {
                 const bool failed = line.contains(QStringLiteral("没有导入"));
                 // 首启资源预取在"导入完成"那一问关掉之后才开始，所以不能一见「导入好了」
                 // 就退 —— 那正是它会被漏掉的地方。预取有它自己那几句终态话。
-                const bool prefetchDone = line.contains(QStringLiteral("首启资源已预取"))
-                                          || line.contains(QStringLiteral("首启资源没预取完"))
-                                          || line.contains(QStringLiteral("首启资源本来就齐了"))
-                                          || line.contains(QStringLiteral("这次没有预取"))
-                                          || line.contains(QStringLiteral("没有预取"));
+                const bool prefetchDone = line.contains(QStringLiteral("首次启动资源已预取"))
+                                          || line.contains(QStringLiteral("首次启动资源下载不完整"))
+                                          || line.contains(QStringLiteral("首次启动资源已齐全"))
+                                          || line.contains(QStringLiteral("的首次启动资源预取。"))
+                                          || line.contains(QStringLiteral("未预取"));
                 std::printf("[%7.1fs] %s\n", clock.elapsed() / 1000.0, qPrintable(line));
                 std::fflush(stdout);
                 if (imported) {

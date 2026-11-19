@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QByteArray>
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -34,7 +35,7 @@ struct Document {
 inline Document parse(const QByteArray &bytes) {
     Document out;
     out.bytes = bytes;
-    if (bytes.size() > byteLimit) { out.problem = QStringLiteral("options.txt 超过 1 MiB，未开放编辑。"); return out; }
+    if (bytes.size() > byteLimit) { out.problem = QCoreApplication::translate("ResourcePackOptions", "options.txt 超过 1 MiB，未开放编辑。"); return out; }
     for (qsizetype start = 0; start < bytes.size();) {
         const qsizetype end = bytes.indexOf('\n', start);
         qsizetype contentEnd = end < 0 ? bytes.size() : end;
@@ -51,16 +52,16 @@ inline Document parse(const QByteArray &bytes) {
     QJsonParseError error;
     const QJsonDocument json = QJsonDocument::fromJson(bytes.mid(out.valueOffset, out.valueLength), &error);
     if (error.error != QJsonParseError::NoError || !json.isArray()) {
-        out.problem = QStringLiteral("resourcePacks 不是有效的 JSON 数组，未改写原文件。"); return out;
+        out.problem = QCoreApplication::translate("ResourcePackOptions", "resourcePacks 不是有效的 JSON 数组，未改写原文件。"); return out;
     }
     QSet<QString> seen;
     for (const auto &value : json.array()) {
         if (!value.isString() || value.toString().isEmpty() || seen.contains(value.toString())) {
-            out.problem = QStringLiteral("资源包列表包含空值、重复项或非文本项，未开放编辑。"); return out;
+            out.problem = QCoreApplication::translate("ResourcePackOptions", "资源包列表包含空值、重复项或非文本项，未开放编辑。"); return out;
         }
         const QString id = value.toString();
         if (isLocal(id) && !safeLocal(id)) {
-            out.problem = QStringLiteral("资源包标识包含不支持的路径，未开放编辑。"); return out;
+            out.problem = QCoreApplication::translate("ResourcePackOptions", "资源包标识包含不支持的路径，未开放编辑。"); return out;
         }
         seen.insert(id);
         out.selected.append(id);
@@ -77,12 +78,12 @@ inline bool rewrite(const Document &document, const QStringList &ids, QByteArray
     const auto fail = [problem](const QString &why) { if (problem) *problem = why; return false; };
     if (!document.problem.isEmpty()) return fail(document.problem);
     if (builtins(document.selected) != builtins(ids))
-        return fail(QStringLiteral("内置或模组注入资源包必须保留，且不能改变它们彼此的顺序。"));
+        return fail(QCoreApplication::translate("ResourcePackOptions", "内置或模组注入资源包必须保留，且不能改变它们彼此的顺序。"));
     QSet<QString> seen;
     QJsonArray array;
     for (const auto &id : ids) {
         if (id.isEmpty() || seen.contains(id) || (isLocal(id) && !safeLocal(id)))
-            return fail(QStringLiteral("资源包名单包含无效标识或重复项。"));
+            return fail(QCoreApplication::translate("ResourcePackOptions", "资源包名单包含无效标识或重复项。"));
         seen.insert(id);
         array.append(id);
     }
@@ -109,7 +110,7 @@ inline Snapshot read(const QString &path) {
     const QFileInfo info(path);
     out.exists = info.exists();
     if (info.isSymLink() || (out.exists && !info.isFile())) {
-        out.problem = QStringLiteral("options.txt 不是普通文件，未开放编辑。"); return out;
+        out.problem = QCoreApplication::translate("ResourcePackOptions", "options.txt 不是普通文件，未开放编辑。"); return out;
     }
     if (!out.exists) return out;
     QFile file(path);
@@ -128,33 +129,33 @@ inline bool save(const QString &path, const QByteArray &expected, bool expectedE
     if (problem) problem->clear();
     const auto fail = [problem](const QString &why) { if (problem) *problem = why; return false; };
     QLockFile lock(path + QStringLiteral(".wtfml.lock"));
-    if (!lock.tryLock(0)) return fail(QStringLiteral("无法锁定 options.txt：可能有其他操作正在使用，或目录不可写。"));
+    if (!lock.tryLock(0)) return fail(QCoreApplication::translate("ResourcePackOptions", "无法锁定 options.txt：可能有其他操作正在使用，或目录不可写。"));
     const Snapshot current = read(path);
     if (!current.problem.isEmpty()) return fail(current.problem);
     if (current.exists != expectedExists || current.document.bytes != expected)
-        return fail(QStringLiteral("options.txt 已被外部修改；本次没有覆盖，请刷新后重新操作。"));
+        return fail(QCoreApplication::translate("ResourcePackOptions", "options.txt 已被外部修改；本次没有覆盖，请刷新后重新操作。"));
     for (const auto &id : ids)
         if (isLocal(id) && !current.document.selected.contains(id) && !available.contains(id))
-            return fail(QStringLiteral("待启用的资源包已不存在，请刷新后重试。"));
+            return fail(QCoreApplication::translate("ResourcePackOptions", "待启用的资源包已不存在，请刷新后重试。"));
     QByteArray bytes;
     if (!rewrite(current.document, ids, &bytes, problem)) return false;
     if (bytes == current.document.bytes) return true;
     if (current.exists) {
-        if (!QDir().mkpath(backupRoot)) return fail(QStringLiteral("无法创建资源包设置备份目录，未保存。"));
+        if (!QDir().mkpath(backupRoot)) return fail(QCoreApplication::translate("ResourcePackOptions", "无法创建资源包设置备份目录，未保存。"));
         const QString name = QStringLiteral("options-%1-%2.txt")
             .arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmsszzz")),
                  QUuid::createUuid().toString(QUuid::Id128));
         QSaveFile backup(QDir(backupRoot).filePath(name));
         if (!backup.open(QIODevice::WriteOnly) || backup.write(expected) != expected.size() || !backup.commit())
-            return fail(QStringLiteral("无法完整保存原 options.txt 的备份，未修改原文件。"));
+            return fail(QCoreApplication::translate("ResourcePackOptions", "无法完整保存原 options.txt 的备份，未修改原文件。"));
     }
     // 写盘前再核对一次，避免扫描、备份期间其他程序改动文件。
     const Snapshot latest = read(path);
     if (!latest.problem.isEmpty() || latest.exists != current.exists || latest.document.bytes != expected)
-        return fail(QStringLiteral("保存期间 options.txt 发生变化，未覆盖原文件。"));
+        return fail(QCoreApplication::translate("ResourcePackOptions", "保存期间 options.txt 发生变化，未覆盖原文件。"));
     QSaveFile output(path);
     if (!output.open(QIODevice::WriteOnly) || output.write(bytes) != bytes.size() || !output.commit())
-        return fail(QStringLiteral("资源包设置保存失败，原文件未被完整替换。"));
+        return fail(QCoreApplication::translate("ResourcePackOptions", "资源包设置保存失败，原文件未被完整替换。"));
     if (problem) problem->clear();
     return true;
 }

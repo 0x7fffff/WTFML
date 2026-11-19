@@ -3,6 +3,7 @@
  * @brief 见头文件：九类选择、指纹与依赖提示（纯逻辑，不碰控件、不碰盘）。
  */
 #include "UpgradeSelection.hpp"
+#include <QCoreApplication>
 
 #include <QCryptographicHash>
 #include <QDir>
@@ -14,15 +15,15 @@ namespace UpgradeSelection {
 QList<Category> categories() {
     // 顺序 = 规范 4 节的三列表格阅读顺序；键沿用 `TransferPlanner::Item::key` 的叫法。
     return {
-        {QStringLiteral("saves"), QStringLiteral("游戏存档"), true},
-        {QStringLiteral("mods"), QStringLiteral("Mod 文件"), true},
-        {QStringLiteral("config"), QStringLiteral("Mod 配置"), true},
-        {QStringLiteral("options"), QStringLiteral("游戏设置"), true},
-        {QStringLiteral("resourcepacks"), QStringLiteral("资源包"), true},
-        {QStringLiteral("shaderpacks"), QStringLiteral("光影包"), true},
-        {QStringLiteral("screenshots"), QStringLiteral("截图"), false},
-        {QStringLiteral("schematics"), QStringLiteral("原理图"), false},
-        {QStringLiteral("servers"), QStringLiteral("服务器列表"), true},
+        {QStringLiteral("saves"), QCoreApplication::translate("UpgradeSelection", "游戏存档"), true},
+        {QStringLiteral("mods"), QCoreApplication::translate("UpgradeSelection", "Mod 文件"), true},
+        {QStringLiteral("config"), QCoreApplication::translate("UpgradeSelection", "Mod 配置"), true},
+        {QStringLiteral("options"), QCoreApplication::translate("UpgradeSelection", "游戏设置"), true},
+        {QStringLiteral("resourcepacks"), QCoreApplication::translate("UpgradeSelection", "资源包"), true},
+        {QStringLiteral("shaderpacks"), QCoreApplication::translate("UpgradeSelection", "光影包"), true},
+        {QStringLiteral("screenshots"), QCoreApplication::translate("UpgradeSelection", "截图"), false},
+        {QStringLiteral("schematics"), QCoreApplication::translate("UpgradeSelection", "原理图"), false},
+        {QStringLiteral("servers"), QCoreApplication::translate("UpgradeSelection", "服务器列表"), true},
     };
 }
 
@@ -86,7 +87,7 @@ Plan makePlan(const QList<TransferPlanner::Item> &items, const QString &sourceId
     plan.targetId = targetId;
     if (items.isEmpty()) {
         plan.ok = false;
-        plan.problem = QStringLiteral("这一份里没有可迁移的内容。");
+        plan.problem = QCoreApplication::translate("UpgradeSelection", "这一份里没有可迁移的内容。");
         return plan;
     }
     QSet<QString> present;
@@ -114,16 +115,14 @@ QStringList warnings(const Plan &plan) {
     QStringList out;
     const State &state = plan.state;
     if (state.contains(QStringLiteral("config")) && !state.contains(QStringLiteral("mods"))) {
-        out.append(QStringLiteral("没有勾选 Mod 文件，却要搬 Mod 配置 —— "
-                                  "这些配置在新实例里可能对不上任何模组。"));
+        out.append(QCoreApplication::translate("UpgradeSelection", "已选中模组配置，未选中模组文件。部分配置可能在新实例中无效。"));
     }
     if (state.contains(QStringLiteral("options"))
         && !state.contains(QStringLiteral("resourcepacks"))) {
-        out.append(QStringLiteral("搬了游戏设置却没搬资源包 —— 设置里的资源包启用列表"
-                                  "可能指向新实例里不存在的包。"));
+        out.append(QCoreApplication::translate("UpgradeSelection", "已选中游戏设置，未选中资源包。新实例的设置可能引用缺失的资源包。"));
     }
     if (state.contains(QStringLiteral("shaderpacks"))) {
-        out.append(QStringLiteral("光影包只在装了对应渲染器时才会生效；新实例不会替你装渲染器。"));
+        out.append(QCoreApplication::translate("UpgradeSelection", "光影包只在装了对应渲染器时才会生效；新实例不会替你装渲染器。"));
     }
     return out;
 }

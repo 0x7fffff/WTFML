@@ -39,6 +39,7 @@
 | [BUILDING.md](dev/BUILDING.md) | 构建（动态 / 静态单文件）、跑起来之后数据与日志在哪、源码目录结构、开发与验证的常用命令 |
 | [COMMENT_STYLE.md](dev/COMMENT_STYLE.md) | 注释规范：写“为什么/约束”、不写“做了什么”；文件头、行内、类注释、TODO/FIXME/NOTE、正反例 |
 | [TESTING.md](dev/TESTING.md) | 测试怎么跑：`tools/test.ps1` 14 个套件、`ctest --preset`、CI 分片、超时与环境变量、模块与夹具边界、新增用例约定、Agent 套件、未覆盖项；日常看效果用 `tools/dev-build.ps1` / `tools/dev-run.ps1` |
+| [I18N.md](dev/I18N.md) | 界面英文：翻译文件与构建管线、怎么刷新 .ts、不翻标记、守卫 `tools/check-i18n.ps1`、测试为什么钉 zh_CN |
 | [PERFORMANCE.md](dev/PERFORMANCE.md) | 性能基线：构建耗时、启动/就绪、CI 分片缓存、界面交互与并发下载的量法与数字 |
 | [REFACTORING.md](dev/REFACTORING.md) | 当前代码布局速览（主窗口/页面/控制器/下载与版本管理怎么拆的）、按状态所有权拆分的依据与新增文件规则、拆分历史附录 |
 | [UI_MODERNIZE.md](dev/UI_MODERNIZE.md) | `tools/ui_modernize.py` 用法：audit/apply/verify、`ui-modernize.json` 配置档、截图迭代法 |

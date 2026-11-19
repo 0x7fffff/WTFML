@@ -635,8 +635,7 @@ QString homeLaunchMeta(const MainWindowUI::HomeQuickItem &item) {
     const QString loader = versionLine.section(QStringLiteral(" / "), 1).trimmed();
     if (!loader.isEmpty()) parts << loader;
     if (!game.isEmpty()) parts << game;
-    QString when = activityLine.section(QStringLiteral(" / "), 0, 0).trimmed();
-    when.replace(QStringLiteral("上次启动："), QStringLiteral("上次游玩 "));
+    const QString when = activityLine.section(QStringLiteral(" / "), 0, 0).trimmed();
     if (!when.isEmpty()) parts << when;
     return parts.join(QStringLiteral("  ·  "));
 }
@@ -838,12 +837,15 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
     agentPage = new AgentPage(tabWidget);
 
     // NOTE: 顺序就是契约：homeTabIndex() == 0 靠的就是"主页第一个 addTab"。
-    tabWidget->addTab(homeTab, QStringLiteral("主页"));
-    tabWidget->addTab(instanceTab, QStringLiteral("管理"));
-    tabWidget->addTab(downloadTab, QStringLiteral("下载"));
-    tabWidget->addTab(settingsTab, QStringLiteral("设置"));
+    // NOTE: 这五个是 **要翻的**（`QCoreApplication::translate` 的上下文是 "MainWindowUI"，
+    // 译文在 `assets/i18n/wtfml_en.ts`）。标签文字同时是顶上导航条那五个按钮的字
+    // （下面 `bar->setNavItems(tabText…)` 抄的就是这一份），所以一处翻译两处生效。
+    tabWidget->addTab(homeTab, QCoreApplication::translate("MainWindowUI", "主页"));
+    tabWidget->addTab(instanceTab, QCoreApplication::translate("MainWindowUI", "管理"));
+    tabWidget->addTab(downloadTab, QCoreApplication::translate("MainWindowUI", "下载"));
+    tabWidget->addTab(settingsTab, QCoreApplication::translate("MainWindowUI", "设置"));
     // D1：智能体**放最后**；启动默认仍停在主页（下面 setCurrentIndex(homeTabIndex())）。
-    tabWidget->addTab(agentPage, QStringLiteral("智能体"));
+    tabWidget->addTab(agentPage, QCoreApplication::translate("MainWindowUI", "智能体"));
     // 工具箱：第六个选项卡，**不上顶上那条导航**（入口是导航轨底部那颗「工具箱」，见 setupBottomBar）。
     // 页本身由 ToolboxController 首次打开时挂进来（避免没用过工具箱的人白搭九片控件）。
     {
@@ -852,7 +854,7 @@ void MainWindowUI::setupUi(QMainWindow *parent) {
         auto *toolboxLayout = new QVBoxLayout(toolboxHost);
         toolboxLayout->setContentsMargins(0, 0, 0, 0);
         toolboxLayout->setSpacing(0);
-        tabWidget->addTab(toolboxHost, QStringLiteral("工具箱"));
+        tabWidget->addTab(toolboxHost, QCoreApplication::translate("MainWindowUI", "工具箱"));
     }
     tabWidget->setCurrentIndex(homeTabIndex());
     mainLayout->addWidget(tabWidget, 1);
@@ -1136,7 +1138,7 @@ QWidget *MainWindowUI::setupHomePage() {
         // 问候语由 MainWindow::updateHomeGreeting() 灌（规则在 src/util/HomeGreeting）；
         // 灌之前先写「欢迎来到 WTFML」，不留空。
         auto *welcome = new HomeGreetingLabel(home.left.widget);
-        welcome->setGreeting(QStringLiteral("欢迎来到 WTFML"), QString());
+        welcome->setGreeting(QCoreApplication::translate("MainWindowUI", "欢迎来到 WTFML"), QString());
         welcome->setObjectName(homeHeroTitleName());
         welcome->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
         welcome->setContentsMargins(kHomeHeroInset, 0, 0, 0);
@@ -1210,7 +1212,7 @@ QWidget *MainWindowUI::setupHomePage() {
         installedVersionCombo->setObjectName(installedVersionComboName());
         installedVersionCombo->hide();
 
-        startButton = new QPushButton(QStringLiteral("启动游戏"), home.left.widget);
+        startButton = new QPushButton(QCoreApplication::translate("MainWindowUI", "启动游戏"), home.left.widget);
         // 文字是两行（"启动游戏\n<显示名>"，由 MainWindow::updateStartButtonText() 维护；
         // 高度固定给足，免得两行被压成一行半。
         startButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -1273,19 +1275,19 @@ QWidget *MainWindowUI::setupHomePage() {
         };
         // 「当前」不再是实例带里的一页（当前实例就是上面那块启动区，一直摆着）；这颗页签
         // 留着给既有接口，不显示。
-        homeQuickCurrentTab = makeQuickTab(QStringLiteral("当前"),
+        homeQuickCurrentTab = makeQuickTab(QCoreApplication::translate("MainWindowUI", "当前"),
                                             QStringLiteral("homeQuickCurrentTab"),
                                             HomeQuickMode::Current);
         homeQuickCurrentTab->hide();
-        homeQuickRecentTab = makeQuickTab(QStringLiteral("最近"),
+        homeQuickRecentTab = makeQuickTab(QCoreApplication::translate("MainWindowUI", "最近"),
                                            QStringLiteral("homeQuickRecentTab"),
                                            HomeQuickMode::Recent);
-        homeQuickFavoriteTab = makeQuickTab(QStringLiteral("收藏"),
+        homeQuickFavoriteTab = makeQuickTab(QCoreApplication::translate("MainWindowUI", "收藏"),
                                              QStringLiteral("homeQuickFavoriteTab"),
                                              HomeQuickMode::Favorite);
         quickTabs->addStretch(1);
         // 「管理 ›」：去实例页（导航，不在主页里展开列表）。
-        homeInstanceSelectButton = new QPushButton(QStringLiteral("管理"), homeQuickSection);
+        homeInstanceSelectButton = new QPushButton(QCoreApplication::translate("MainWindowUI", "管理"), homeQuickSection);
         homeInstanceSelectButton->setObjectName(homeInstanceSelectButtonName());
         homeInstanceSelectButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
         homeInstanceSelectButton->setLayoutDirection(Qt::RightToLeft);  // 箭头在字右边
@@ -1330,7 +1332,7 @@ QWidget *MainWindowUI::setupHomePage() {
         // 账号唯一的入口。名字 / 小状态 / 头像由 MainWindow::updateBottomBar() 灌。
         accountSkinButton = new HomeAccountPill(profileCard);
         accountSkinButton->setObjectName(accountSkinButtonName());
-        accountSkinButton->setAccessibleName(QStringLiteral("账号"));
+        accountSkinButton->setAccessibleName(QCoreApplication::translate("MainWindowUI", "账号"));
         accountSkinButton->setToolTip(accountSkinButtonText());
         auto *accountRow = new QHBoxLayout(accountSkinButton);
         accountRow->setContentsMargins(6, 0, 16, 0);
@@ -1556,7 +1558,7 @@ QWidget *MainWindowUI::setupInstancePage() {
         importModpackButton->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
         instance.right.actions->insertWidget(0, importModpackButton);
 
-        importModpackButton->setToolTip(QStringLiteral("导入平台整合包或可识别的本地压缩包。"));
+        importModpackButton->setToolTip(QCoreApplication::translate("MainWindowUI", "导入平台整合包或可识别的本地压缩包。"));
 
     }
     {
@@ -1935,7 +1937,7 @@ void MainWindowUI::setInstanceMode(InstanceMode mode) {
     // so the game folder pill stays visible in every mode.
     if (auto *page = tabWidget->widget(instancesTabIndex())) {
         if (auto *title = page->findChild<QLabel *>(pageTitleName(QStringLiteral("instance"))))
-            title->setText(mode==InstanceMode::Preset ? QStringLiteral("预设") : QStringLiteral("实例"));
+            title->setText(mode==InstanceMode::Preset ? QCoreApplication::translate("MainWindowUI", "预设") : QCoreApplication::translate("MainWindowUI", "实例"));
     }
     if (groupInstanceButton) groupInstanceButton->setVisible(mode != InstanceMode::Preset);
     // 导入整合包只在客户端 / 服务端标签露面，预设标签收起。
@@ -1983,7 +1985,7 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             } else {
                 auto *picker = new HomeInstBlock(card);
                 picker->setObjectName(homeCurrentPickerName());
-                picker->setAccessibleName(QStringLiteral("切换实例：%1").arg(item.name));
+                picker->setAccessibleName(QCoreApplication::translate("MainWindowUI", "切换实例：%1").arg(item.name));
                 QObject::connect(picker, &QAbstractButton::clicked, picker, [this, key = item.key]() {
                     if (m_homeQuickActionHandler) m_homeQuickActionHandler(key, HomeQuickAction::SwitchInstance);
                 });
@@ -1995,7 +1997,7 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             blockColumn->setContentsMargins(kHomeHeroInset, 6, 14, 10);
             blockColumn->setSpacing(0);
             if (!item.empty) {
-                auto *eyebrow = new QLabel(QStringLiteral("当前实例"), block);
+                auto *eyebrow = new QLabel(QCoreApplication::translate("MainWindowUI", "当前实例"), block);
                 eyebrow->setObjectName(QStringLiteral("homeCurrentEyebrow"));
                 QFont eyebrowFont = eyebrow->font();
                 eyebrowFont.setPixelSize(13);
@@ -2007,7 +2009,7 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             }
             auto *name = new ElidedLabel(block);
             name->setObjectName(QStringLiteral("homeCurrentName"));
-            name->setText(item.empty ? QStringLiteral("还没有实例") : item.name);
+            name->setText(item.empty ? QCoreApplication::translate("MainWindowUI", "还没有实例") : item.name);
             name->setMinimumWidth(1);
             // 零实例：「还没有实例」只是一句状态，用普通字阶（16），大标题才是这一屏唯一的手写大字。
             name->setMinimumHeight(item.empty ? 28 : 52);
@@ -2111,7 +2113,7 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
                 edit->setObjectName(QStringLiteral("homeCurrentEdit"));
                 edit->setProperty("wtfmlHeroSquare", true);
                 edit->setFixedSize(52, 52);
-                edit->setToolTip(QStringLiteral("实例设置"));
+                edit->setToolTip(QCoreApplication::translate("MainWindowUI", "实例设置"));
                 edit->setAccessibleName(edit->toolTip());
                 edit->setIconSize(QSize(18, 18));
                 const auto applyIcon = [edit]() {
@@ -2185,7 +2187,7 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             followHeroInk(name, false);
             nameRow->addWidget(name);
             if (item.current) {
-                auto *badge = new QLabel(QStringLiteral("当前"), card);
+                auto *badge = new QLabel(QCoreApplication::translate("MainWindowUI", "当前"), card);
                 badge->setObjectName(QStringLiteral("homeQuickCurrentBadge"));
                 QFont badgeFont = badge->font();
                 badgeFont.setPixelSize(Theme::textSize(Theme::TextRole::Caption));
@@ -2224,7 +2226,7 @@ void MainWindowUI::setHomeQuickRows(const QList<HomeQuickItem> &current,
             QSizePolicy playPolicy = play->sizePolicy();
             playPolicy.setRetainSizeWhenHidden(true);
             play->setSizePolicy(playPolicy);
-            play->setAccessibleName(QStringLiteral("启动 %1").arg(item.name));
+            play->setAccessibleName(QCoreApplication::translate("MainWindowUI", "启动 %1").arg(item.name));
             play->setFocusPolicy(Qt::NoFocus);  // 键盘：焦点在卡片上时它就露出来
             play->setIconSize(QSize(13, 13));
             const auto applyPlay = [play]() {
@@ -2314,15 +2316,15 @@ void MainWindowUI::syncHomeLaunchButton() {
     QString mode, text, icon;
     if (!empty) {
         mode = m_homeLaunchRunning ? QStringLiteral("stop") : QStringLiteral("launch");
-        text = m_homeLaunchRunning ? QStringLiteral("停止游戏") : QStringLiteral("启动游戏");
+        text = m_homeLaunchRunning ? QCoreApplication::translate("MainWindowUI", "停止游戏") : QCoreApplication::translate("MainWindowUI", "启动游戏");
         icon = m_homeLaunchRunning ? QStringLiteral("power") : QStringLiteral("play");
     } else if (installing) {
         mode = QStringLiteral("installing");
-        text = task.percent >= 0 ? QStringLiteral("安装中 %1%").arg(task.percent) : QStringLiteral("安装中");
+        text = task.percent >= 0 ? QCoreApplication::translate("MainWindowUI", "安装中 %1%").arg(task.percent) : QCoreApplication::translate("MainWindowUI", "安装中");
         icon = QStringLiteral("download");
     } else {
         mode = QStringLiteral("download");
-        text = QStringLiteral("下载游戏");
+        text = QCoreApplication::translate("MainWindowUI", "下载游戏");
         icon = QStringLiteral("download");
     }
     launch->setProperty("wtfmlLaunchMode", mode);
@@ -2334,3 +2336,4 @@ void MainWindowUI::syncHomeLaunchButton() {
                                                          : VersionIcons::line(icon, side, ink, 2.0)));
     launch->setIconSize(QSize(side, side));
 }
+

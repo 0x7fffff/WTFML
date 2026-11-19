@@ -29,7 +29,7 @@ function Get-TestImpact([string[]]$Paths, [bool]$ForceFull = $false) {
                'ui-daily-quote', 'ui-long-instance-name', 'surface-sweep', 'fold-motion', 'loading-state',
                'design-defaults', 'group-editor'); theme = @('theme')
         popups = @('popups', 'popups-scale')
-        'ui-history' = @('ui-bootstrap')
+        'ui-history' = @('ui-bootstrap', 'ui-language')
         window = @('main-window', 'window-chrome'); workspace = @('workspace', 'activity-selection')
         java = @('java-manage'); mods = @('mod-action-panel'); upgrade = @('instance-upgrade')
         network = @('download-retry', 'high-speed-download', 'segmented-download', 'segment-install')
@@ -44,6 +44,7 @@ function Get-TestImpact([string[]]$Paths, [bool]$ForceFull = $false) {
         'tests/ui_check/modules/UiAgentCheck.cpp' = 'ui-agent'
         'tests/mw_check/modules/MwAgentCheck.cpp' = 'agent-window'
         'tests/ui_check/modules/UiLifecycleCheck.cpp' = 'ui'
+        'tests/ui_check/modules/UiLanguageChecks.cpp' = 'ui-history'
         'tests/ui_check/modules/UiInputWidthCheck.cpp' = 'ui'
         'tests/ui_check/modules/UiPopupCheck.cpp' = 'popups'
         'tests/ui_check/modules/UiWindowSizeCheck.cpp' = 'ui'
@@ -109,6 +110,7 @@ function Get-TestImpact([string[]]$Paths, [bool]$ForceFull = $false) {
             # 首启资源的已知集合清单与它的生成脚本：改的是 core-resources 那一套断言
             # （清单校验/嵌入字节一致）。不加这一条会落进 default ⇒ 整个 full。
             '^assets/assetdirector/|^tools/assetdirector-knownset\.py$' { @('core-resources'); break }
+            '^assets/i18n/' { @('ui-history'); break }
             '^(src/download/|tools/network_diag/)|(?i:Download|RangeChecks|SegmentInstall)' { @('core','network','presets'); break }
             '^(tools/.*\.ps1|tests/test_runner/)' { @('runner'); break }
             '^ui/Agent' { @('ui-agent'); break }

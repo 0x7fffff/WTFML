@@ -4,6 +4,7 @@
  */
 
 #include "tools/ArmorTrim.hpp"
+#include <QCoreApplication>
 
 #include "tools/GameVersion.hpp"
 
@@ -19,17 +20,17 @@ struct TrimMaterialRow {
 // 名字照游戏 `zh_cn.json` 的 `trim_material.minecraft.*` 写（「紫水晶质」那一列），
 // 不是自己另起一套简称；`item` 是锻造台里真正摆进去的那件东西。
 const TrimMaterialRow kTrimMaterials[] = {
-    {"amethyst", "紫水晶质", "紫水晶碎片", "1.20"},
-    {"copper", "铜质", "铜锭", "1.20"},
-    {"diamond", "钻石质", "钻石", "1.20"},
-    {"emerald", "绿宝石质", "绿宝石", "1.20"},
-    {"gold", "金质", "金锭", "1.20"},
-    {"iron", "铁质", "铁锭", "1.20"},
-    {"lapis", "青金石质", "青金石", "1.20"},
-    {"netherite", "下界合金质", "下界合金锭", "1.20"},
-    {"quartz", "石英质", "石英", "1.20"},
-    {"redstone", "红石质", "红石粉", "1.20"},
-    {"resin", "树脂质", "树脂砖", "1.21.4"},
+    {"amethyst", QT_TRANSLATE_NOOP("ArmorTrim", "紫水晶质"), QT_TRANSLATE_NOOP("ArmorTrim", "紫水晶碎片"), "1.20"},
+    {"copper", QT_TRANSLATE_NOOP("ArmorTrim", "铜质"), QT_TRANSLATE_NOOP("ArmorTrim", "铜锭"), "1.20"},
+    {"diamond", QT_TRANSLATE_NOOP("ArmorTrim", "钻石质"), QT_TRANSLATE_NOOP("ArmorTrim", "钻石"), "1.20"},
+    {"emerald", QT_TRANSLATE_NOOP("ArmorTrim", "绿宝石质"), QT_TRANSLATE_NOOP("ArmorTrim", "绿宝石"), "1.20"},
+    {"gold", QT_TRANSLATE_NOOP("ArmorTrim", "金质"), QT_TRANSLATE_NOOP("ArmorTrim", "金锭"), "1.20"},
+    {"iron", QT_TRANSLATE_NOOP("ArmorTrim", "铁质"), QT_TRANSLATE_NOOP("ArmorTrim", "铁锭"), "1.20"},
+    {"lapis", QT_TRANSLATE_NOOP("ArmorTrim", "青金石质"), QT_TRANSLATE_NOOP("ArmorTrim", "青金石"), "1.20"},
+    {"netherite", QT_TRANSLATE_NOOP("ArmorTrim", "下界合金质"), QT_TRANSLATE_NOOP("ArmorTrim", "下界合金锭"), "1.20"},
+    {"quartz", QT_TRANSLATE_NOOP("ArmorTrim", "石英质"), QT_TRANSLATE_NOOP("ArmorTrim", "石英"), "1.20"},
+    {"redstone", QT_TRANSLATE_NOOP("ArmorTrim", "红石质"), QT_TRANSLATE_NOOP("ArmorTrim", "红石粉"), "1.20"},
+    {"resin", QT_TRANSLATE_NOOP("ArmorTrim", "树脂质"), QT_TRANSLATE_NOOP("ArmorTrim", "树脂砖"), "1.21.4"},
 };
 
 struct TrimPatternRow {
@@ -45,38 +46,38 @@ struct TrimPatternRow {
 // `duplicate` 抄的是游戏自己的复制配方（`data/minecraft/recipe/*_armor_trim_smithing_template.json`
 // 里那个 `C` 位），方块名照 `zh_cn.json`；四块陶瓦、四块圆石那几组是游戏原样，不是取整。
 const TrimPatternRow kPatterns[] = {
-    {"coast", "海岸", "沉船（藏宝箱）", "圆石", "1.20"},
-    {"sentry", "哨兵", "掠夺者前哨站", "圆石", "1.20"},
-    {"dune", "沙丘", "沙漠神殿", "砂岩", "1.20"},
-    {"wild", "荒野", "丛林神庙", "苔石", "1.20"},
-    {"ward", "监守", "远古城市", "深板岩圆石", "1.20"},
-    {"eye", "眼眸", "要塞", "末地石", "1.20"},
-    {"vex", "恼鬼", "林地府邸", "圆石", "1.20"},
-    {"tide", "潮汐", "远古守卫者（击杀掉落）", "海晶石", "1.20"},
-    {"snout", "猪鼻", "堡垒遗迹", "黑石", "1.20"},
-    {"rib", "肋骨", "下界要塞", "下界岩", "1.20"},
-    {"spire", "尖塔", "末地城", "紫珀块", "1.20"},
-    {"wayfinder", "向导", "古迹废墟（可疑的沙砾）", "陶瓦", "1.20"},
-    {"shaper", "塑造", "古迹废墟（可疑的沙砾）", "陶瓦", "1.20"},
-    {"silence", "幽静", "远古城市", "深板岩圆石", "1.20"},
-    {"raiser", "牧民", "古迹废墟（可疑的沙砾）", "陶瓦", "1.20"},
-    {"host", "雇主", "古迹废墟（可疑的沙砾）", "陶瓦", "1.20"},
-    {"flow", "涡流", "试炼密室（不祥宝库）", "旋风棒", "1.21"},
-    {"bolt", "镶铆", "试炼密室（宝库）", "铜块", "1.21"},
+    {"coast", QT_TRANSLATE_NOOP("ArmorTrim", "海岸"), QT_TRANSLATE_NOOP("ArmorTrim", "沉船（藏宝箱）"), QT_TRANSLATE_NOOP("ArmorTrim", "圆石"), "1.20"},
+    {"sentry", QT_TRANSLATE_NOOP("ArmorTrim", "哨兵"), QT_TRANSLATE_NOOP("ArmorTrim", "掠夺者前哨站"), QT_TRANSLATE_NOOP("ArmorTrim", "圆石"), "1.20"},
+    {"dune", QT_TRANSLATE_NOOP("ArmorTrim", "沙丘"), QT_TRANSLATE_NOOP("ArmorTrim", "沙漠神殿"), QT_TRANSLATE_NOOP("ArmorTrim", "砂岩"), "1.20"},
+    {"wild", QT_TRANSLATE_NOOP("ArmorTrim", "荒野"), QT_TRANSLATE_NOOP("ArmorTrim", "丛林神庙"), QT_TRANSLATE_NOOP("ArmorTrim", "苔石"), "1.20"},
+    {"ward", QT_TRANSLATE_NOOP("ArmorTrim", "监守"), QT_TRANSLATE_NOOP("ArmorTrim", "远古城市"), QT_TRANSLATE_NOOP("ArmorTrim", "深板岩圆石"), "1.20"},
+    {"eye", QT_TRANSLATE_NOOP("ArmorTrim", "眼眸"), QT_TRANSLATE_NOOP("ArmorTrim", "要塞"), QT_TRANSLATE_NOOP("ArmorTrim", "末地石"), "1.20"},
+    {"vex", QT_TRANSLATE_NOOP("ArmorTrim", "恼鬼"), QT_TRANSLATE_NOOP("ArmorTrim", "林地府邸"), QT_TRANSLATE_NOOP("ArmorTrim", "圆石"), "1.20"},
+    {"tide", QT_TRANSLATE_NOOP("ArmorTrim", "潮汐"), QT_TRANSLATE_NOOP("ArmorTrim", "远古守卫者（击杀掉落）"), QT_TRANSLATE_NOOP("ArmorTrim", "海晶石"), "1.20"},
+    {"snout", QT_TRANSLATE_NOOP("ArmorTrim", "猪鼻"), QT_TRANSLATE_NOOP("ArmorTrim", "堡垒遗迹"), QT_TRANSLATE_NOOP("ArmorTrim", "黑石"), "1.20"},
+    {"rib", QT_TRANSLATE_NOOP("ArmorTrim", "肋骨"), QT_TRANSLATE_NOOP("ArmorTrim", "下界要塞"), QT_TRANSLATE_NOOP("ArmorTrim", "下界岩"), "1.20"},
+    {"spire", QT_TRANSLATE_NOOP("ArmorTrim", "尖塔"), QT_TRANSLATE_NOOP("ArmorTrim", "末地城"), QT_TRANSLATE_NOOP("ArmorTrim", "紫珀块"), "1.20"},
+    {"wayfinder", QT_TRANSLATE_NOOP("ArmorTrim", "向导"), QT_TRANSLATE_NOOP("ArmorTrim", "古迹废墟（可疑的沙砾）"), QT_TRANSLATE_NOOP("ArmorTrim", "陶瓦"), "1.20"},
+    {"shaper", QT_TRANSLATE_NOOP("ArmorTrim", "塑造"), QT_TRANSLATE_NOOP("ArmorTrim", "古迹废墟（可疑的沙砾）"), QT_TRANSLATE_NOOP("ArmorTrim", "陶瓦"), "1.20"},
+    {"silence", QT_TRANSLATE_NOOP("ArmorTrim", "幽静"), QT_TRANSLATE_NOOP("ArmorTrim", "远古城市"), QT_TRANSLATE_NOOP("ArmorTrim", "深板岩圆石"), "1.20"},
+    {"raiser", QT_TRANSLATE_NOOP("ArmorTrim", "牧民"), QT_TRANSLATE_NOOP("ArmorTrim", "古迹废墟（可疑的沙砾）"), QT_TRANSLATE_NOOP("ArmorTrim", "陶瓦"), "1.20"},
+    {"host", QT_TRANSLATE_NOOP("ArmorTrim", "雇主"), QT_TRANSLATE_NOOP("ArmorTrim", "古迹废墟（可疑的沙砾）"), QT_TRANSLATE_NOOP("ArmorTrim", "陶瓦"), "1.20"},
+    {"flow", QT_TRANSLATE_NOOP("ArmorTrim", "涡流"), QT_TRANSLATE_NOOP("ArmorTrim", "试炼密室（不祥宝库）"), QT_TRANSLATE_NOOP("ArmorTrim", "旋风棒"), "1.21"},
+    {"bolt", QT_TRANSLATE_NOOP("ArmorTrim", "镶铆"), QT_TRANSLATE_NOOP("ArmorTrim", "试炼密室（宝库）"), QT_TRANSLATE_NOOP("ArmorTrim", "铜块"), "1.21"},
 };
 
-const char *kParts[] = {"头盔", "胸甲", "护腿", "靴子"};
+const char *kParts[] = {QT_TRANSLATE_NOOP("ArmorTrim", "头盔"), QT_TRANSLATE_NOOP("ArmorTrim", "胸甲"), QT_TRANSLATE_NOOP("ArmorTrim", "护腿"), QT_TRANSLATE_NOOP("ArmorTrim", "靴子")};
 
-/// 盔甲材质：id / 中文名 / 全名里那个"前缀"。
+/// 盔甲材质：id / 中文名 / 全名里那个QT_TRANSLATE_NOOP("ArmorTrim", "前缀")。
 struct ArmorMaterialRow {
     const char *id;
     const char *name;
 };
 
 const ArmorMaterialRow kArmorMaterials[] = {
-    {"leather", "皮革"},   {"chainmail", "锁链"}, {"iron", "铁"},
-    {"gold", "金"},        {"diamond", "钻石"},   {"netherite", "下界合金"},
-    {"turtle", "海龟壳"},
+    {"leather", QT_TRANSLATE_NOOP("ArmorTrim", "皮革")},   {"chainmail", QT_TRANSLATE_NOOP("ArmorTrim", "锁链")}, {"iron", QT_TRANSLATE_NOOP("ArmorTrim", "铁")},
+    {"gold", QT_TRANSLATE_NOOP("ArmorTrim", "金")},        {"diamond", QT_TRANSLATE_NOOP("ArmorTrim", "钻石")},   {"netherite", QT_TRANSLATE_NOOP("ArmorTrim", "下界合金")},
+    {"turtle", QT_TRANSLATE_NOOP("ArmorTrim", "海龟壳")},
 };
 
 constexpr int kTrimMaterialCount = int(sizeof(kTrimMaterials) / sizeof(kTrimMaterials[0]));
@@ -104,8 +105,8 @@ TrimMaterial trimMaterialAt(int index) {
         return {};
     }
     return {QString::fromLatin1(kTrimMaterials[index].id),
-            QString::fromUtf8(kTrimMaterials[index].name),
-            QString::fromUtf8(kTrimMaterials[index].item)};
+            QCoreApplication::translate("ArmorTrim", kTrimMaterials[index].name),
+            QCoreApplication::translate("ArmorTrim", kTrimMaterials[index].item)};
 }
 
 QString trimMaterialSince(int index) {
@@ -120,7 +121,7 @@ bool trimMaterialAvailable(int index, const QString &version) {
 QStringList trimMaterialNames() {
     QStringList list;
     for (const TrimMaterialRow &row : kTrimMaterials) {
-        list.append(QString::fromUtf8(row.name));
+        list.append(QCoreApplication::translate("ArmorTrim", row.name));
     }
     return list;
 }
@@ -131,24 +132,24 @@ TrimPattern patternAt(int index) {
     if (!validPattern(index)) {
         return {};
     }
-    return {QString::fromLatin1(kPatterns[index].id), QString::fromUtf8(kPatterns[index].name),
-            QString::fromUtf8(kPatterns[index].source),
-            QString::fromUtf8(kPatterns[index].duplicate),
+    return {QString::fromLatin1(kPatterns[index].id), QCoreApplication::translate("ArmorTrim", kPatterns[index].name),
+            QCoreApplication::translate("ArmorTrim", kPatterns[index].source),
+            QCoreApplication::translate("ArmorTrim", kPatterns[index].duplicate),
             QString::fromLatin1(kPatterns[index].since)};
 }
 
 QString patternSource(int index) {
-    return validPattern(index) ? QString::fromUtf8(kPatterns[index].source) : QString();
+    return validPattern(index) ? QCoreApplication::translate("ArmorTrim", kPatterns[index].source) : QString();
 }
 
 QString patternDuplicate(int index) {
-    return validPattern(index) ? QString::fromUtf8(kPatterns[index].duplicate) : QString();
+    return validPattern(index) ? QCoreApplication::translate("ArmorTrim", kPatterns[index].duplicate) : QString();
 }
 
 QStringList patternNames() {
     QStringList list;
     for (const TrimPatternRow &row : kPatterns) {
-        list.append(QString::fromUtf8(row.name));
+        list.append(QCoreApplication::translate("ArmorTrim", row.name));
     }
     return list;
 }
@@ -168,7 +169,7 @@ QString partName(int index) {
     if (!validPart(index)) {
         return {};
     }
-    return QString::fromUtf8(kParts[index]);
+    return QCoreApplication::translate("ArmorTrim", kParts[index]);
 }
 
 int armorMaterialCount() { return kArmorMaterialCount; }
@@ -181,7 +182,7 @@ QString armorMaterialName(int index) {
     if (!validArmorMaterial(index)) {
         return {};
     }
-    return QString::fromUtf8(kArmorMaterials[index].name);
+    return QCoreApplication::translate("ArmorTrim", kArmorMaterials[index].name);
 }
 
 QString armorPieceName(int armorMaterial, int part) {
@@ -189,7 +190,7 @@ QString armorPieceName(int armorMaterial, int part) {
         return {};
     }
     if (armorMaterial == kTurtleShell) {
-        return QStringLiteral("海龟壳");
+        return QCoreApplication::translate("ArmorTrim", "海龟壳");
     }
     return QStringLiteral("%1%2").arg(armorMaterialName(armorMaterial), partName(part));
 }
@@ -208,53 +209,53 @@ Plan plan(int armorMaterial, int part, int patternIndex, int trimMaterial, int p
           bool wholeSet) {
     Plan result;
     if (!validArmorMaterial(armorMaterial)) {
-        result.error = QStringLiteral("盔甲材质认不出来（下标 %1）。").arg(armorMaterial);
+        result.error = QCoreApplication::translate("ArmorTrim", "盔甲材质编号无效（%1）。").arg(armorMaterial);
         return result;
     }
     if (!validPattern(patternIndex)) {
-        result.error = QStringLiteral("纹饰图案认不出来（下标 %1）。").arg(patternIndex);
+        result.error = QCoreApplication::translate("ArmorTrim", "纹饰图案编号无效（%1）。").arg(patternIndex);
         return result;
     }
     if (!validTrimMaterial(trimMaterial)) {
-        result.error = QStringLiteral("纹饰材料认不出来（下标 %1）。").arg(trimMaterial);
+        result.error = QCoreApplication::translate("ArmorTrim", "纹饰材料编号无效（%1）。").arg(trimMaterial);
         return result;
     }
     if (wholeSet) {
         // 整套 = 四个部位各一件；海龟壳只有头盔，做不了整套。
         if (armorMaterial == kTurtleShell) {
-            result.error = QStringLiteral("海龟壳只有头盔那一件 —— 没有整套。");
+            result.error = QCoreApplication::translate("ArmorTrim", "海龟壳只能用作头部装备。");
             return result;
         }
     } else {
         if (!validPart(part)) {
-            result.error = QStringLiteral("部位认不出来（下标 %1）。").arg(part);
+            result.error = QCoreApplication::translate("ArmorTrim", "装备部位编号无效（%1）。").arg(part);
             return result;
         }
         if (pieces < 1 || pieces > 4) {
-            result.error = QStringLiteral("做几件只能是 1–4 件（你给了 %1）。").arg(pieces);
+            result.error = QCoreApplication::translate("ArmorTrim", "装备数量须在 1 至 4 之间，当前为 %1 件。").arg(pieces);
             return result;
         }
         if (!armorMaterialFitsPart(armorMaterial, part)) {
-            result.error = QStringLiteral("海龟壳只有头盔那一件 —— 没有%1。").arg(partName(part));
+            result.error = QCoreApplication::translate("ArmorTrim", "海龟壳只能用作头部装备，无法用于%1。").arg(partName(part));
             return result;
         }
     }
 
     const TrimPattern pattern = patternAt(patternIndex);
     const TrimMaterial material = trimMaterialAt(trimMaterial);
-    const QString templateName = QStringLiteral("%1纹饰模板").arg(pattern.name);
+    const QString templateName = QCoreApplication::translate("ArmorTrim", "%1纹饰模板").arg(pattern.name);
 
     // 一句话把"从哪来"和"再要一枚拿什么换"说完 —— 这两样是用户看这页真正要查的。
     // 模板本身和那七颗钻石不必写：前者就是这一枚，后者谁都备得住。
-    result.notes.append(QStringLiteral("这枚%1来自：%2；复制用%3。")
+    result.notes.append(QCoreApplication::translate("ArmorTrim", "这枚%1来自：%2；复制用%3。")
                             .arg(templateName, pattern.source, pattern.duplicate));
     if (pattern.since != QStringLiteral("1.20")) {
-        result.notes.append(QStringLiteral("%1是 Java %2 才加入的 —— 更早的版本里没有这枚模板。")
+        result.notes.append(QCoreApplication::translate("ArmorTrim", "%1 纹饰模板自 Java 版 %2 起可用。")
                                 .arg(templateName, pattern.since));
     }
     const QString materialSince = trimMaterialSince(trimMaterial);
     if (!materialSince.isEmpty() && materialSince != QStringLiteral("1.20")) {
-        result.notes.append(QStringLiteral("「%1」是 Java %2 才加入的纹饰材料 —— 更早的版本里没有。")
+        result.notes.append(QCoreApplication::translate("ArmorTrim", "「%1」纹饰材料自 Java 版 %2 起可用。")
                                 .arg(material.name, materialSince));
     }
 
@@ -264,13 +265,13 @@ Plan plan(int armorMaterial, int part, int patternIndex, int trimMaterial, int p
         for (int index = 0; index < kPartCount; ++index) {
             pieceNames.append(armorPieceName(armorMaterial, index));
         }
-        const QString setLabel = QStringLiteral("%1四件套").arg(armorMaterialName(armorMaterial));
+        const QString setLabel = QCoreApplication::translate("ArmorTrim", "%1四件套").arg(armorMaterialName(armorMaterial));
 
-        result.steps.append(QStringLiteral("去锻造台，把%1 + %2 + 每件盔甲各摆一次（一共四次）")
+        result.steps.append(QCoreApplication::translate("ArmorTrim", "在锻造台中，用%1和%2分别处理四件盔甲。")
                                 .arg(templateName, material.item));
         for (const QString &piece : pieceNames) {
             result.steps.append(
-                QStringLiteral("%1 + %2 + %3 → 「%2 / %4纹饰的%3」")
+                QCoreApplication::translate("ArmorTrim", "%1 + %2 + %3 → 「%2 / %4纹饰的%3」")
                     .arg(templateName, material.item, piece, pattern.name));
         }
         result.materials.append(QStringLiteral("%1 × %2").arg(templateName).arg(kPartCount));
@@ -278,9 +279,9 @@ Plan plan(int armorMaterial, int part, int patternIndex, int trimMaterial, int p
         for (const QString &piece : pieceNames) {
             result.materials.append(QStringLiteral("%1 × 1").arg(piece));
         }
-        result.notes.append(QStringLiteral("整套需要 %1 次锻造，模板和材料各 %1 份。")
+        result.notes.append(QCoreApplication::translate("ArmorTrim", "整套需要 %1 次锻造，模板和材料各 %1 份。")
                                 .arg(kPartCount));
-        result.summary = QStringLiteral("%1 / %2纹饰的%3")
+        result.summary = QCoreApplication::translate("ArmorTrim", "%1 / %2纹饰的%3")
                              .arg(material.name, pattern.name, setLabel);
         result.ok = true;
         return result;
@@ -289,9 +290,9 @@ Plan plan(int armorMaterial, int part, int patternIndex, int trimMaterial, int p
     // ---------- 单件 / 同一件做几份 ----------
     const QString armor = armorPieceName(armorMaterial, part);
 
-    result.steps.append(QStringLiteral("去锻造台：把%1 + %2 + %3 摆进去")
+    result.steps.append(QCoreApplication::translate("ArmorTrim", "在锻造台中放入%1、%2和%3。")
                             .arg(templateName, material.item, armor));
-    result.steps.append(QStringLiteral("一次锻造消耗 1 个模板、1 份材料、1 件%1 → 「%2 / %3纹饰的%1」")
+    result.steps.append(QCoreApplication::translate("ArmorTrim", "一次锻造消耗 1 个模板、1 份材料、1 件%1 → 「%2 / %3纹饰的%1」")
                             .arg(armor, material.name, pattern.name));
 
     result.materials.append(QStringLiteral("%1 × %2").arg(templateName).arg(pieces));
@@ -299,10 +300,10 @@ Plan plan(int armorMaterial, int part, int patternIndex, int trimMaterial, int p
     result.materials.append(QStringLiteral("%1 × %2").arg(armor).arg(pieces));
 
     if (pieces > 1) {
-        result.notes.append(QStringLiteral("模板每打一件消耗一个：%1 件共需 %1 个。")
+        result.notes.append(QCoreApplication::translate("ArmorTrim", "模板每打一件消耗一个：%1 件共需 %1 个。")
                                 .arg(pieces));
     }
-    result.summary = QStringLiteral("%1 / %2纹饰的%3 × %4")
+    result.summary = QCoreApplication::translate("ArmorTrim", "%1 / %2纹饰的%3 × %4")
                          .arg(material.name, pattern.name, armor)
                          .arg(pieces);
     result.ok = true;
@@ -311,18 +312,18 @@ Plan plan(int armorMaterial, int part, int patternIndex, int trimMaterial, int p
 
 QString Plan::detailText() const {
     if (!ok) {
-        return error.isEmpty() ? QStringLiteral("排不出来。") : error;
+        return error.isEmpty() ? QCoreApplication::translate("ArmorTrim", "排不出来。") : error;
     }
     QStringList lines;
     lines.append(summary);
     lines.append(QString());
-    lines.append(QStringLiteral("一步一步："));
+    lines.append(QCoreApplication::translate("ArmorTrim", "一步一步："));
     for (const QString &step : steps) {
         lines.append(QStringLiteral("• %1").arg(step));
     }
     if (!materials.isEmpty()) {
         lines.append(QString());
-        lines.append(QStringLiteral("材料清单："));
+        lines.append(QCoreApplication::translate("ArmorTrim", "材料清单："));
         for (const QString &row : materials) {
             lines.append(QStringLiteral("• %1").arg(row));
         }
@@ -330,7 +331,7 @@ QString Plan::detailText() const {
     if (!notes.isEmpty()) {
         lines.append(QString());
         for (const QString &note : notes) {
-            lines.append(QStringLiteral("（%1）").arg(note));
+            lines.append(QCoreApplication::translate("ArmorTrim", "（%1）").arg(note));
         }
     }
     return lines.join(QChar('\n'));

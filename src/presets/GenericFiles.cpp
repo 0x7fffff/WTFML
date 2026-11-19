@@ -34,7 +34,7 @@ namespace Presets {
 namespace {
 
 /// 这一层的提示语都在同一个上下文里（和 `VanillaOptions` / `ServerListPreset` 同一个名字）。
-QString presetText(const char *source) { return QCoreApplication::translate("Presets", source); }
+[[maybe_unused]] QString presetText(const char *source) { return QCoreApplication::translate("Presets", source); }
 
 /// 一根链接（symbolic link / junction）。★ **两个都要判**：junction 的 `isSymLink()` 是
 /// false（见 `InstanceFiles.hpp` 那段）。全仓四处都是这么写的，判法必须一致。
@@ -75,12 +75,12 @@ qint64 treeSize(const QString &absolutePath) {
 bool copyOneFile(const QString &source, const QString &target, QString *problemOut) {
     QFile in(source);
     if (!in.open(QIODevice::ReadOnly)) {
-        failWith(problemOut, presetText("读不了「%1」：%2").arg(source, in.errorString()));
+        failWith(problemOut, QCoreApplication::translate("Presets", "读不了「%1」：%2").arg(source, in.errorString()));
         return false;
     }
     QSaveFile out(target);
     if (!out.open(QIODevice::WriteOnly)) {
-        failWith(problemOut, presetText("写不进「%1」：%2").arg(target, out.errorString()));
+        failWith(problemOut, QCoreApplication::translate("Presets", "无法写入「%1」：%2").arg(target, out.errorString()));
         return false;
     }
 
@@ -91,7 +91,7 @@ bool copyOneFile(const QString &source, const QString &target, QString *problemO
         // "抄完了"，一份截断的配置照样原子地盖上去（`ServerListFile::commitBytes()` 同一条）。
         if (got < 0) {
             out.cancelWriting();
-            failWith(problemOut, presetText("读「%1」读到一半出错了：%2")
+            failWith(problemOut, QCoreApplication::translate("Presets", "读「%1」读到一半出错了：%2")
                                      .arg(source, in.errorString()));
             return false;
         }
@@ -100,14 +100,14 @@ bool copyOneFile(const QString &source, const QString &target, QString *problemO
         }
         if (out.write(buffer, got) != got) {
             out.cancelWriting();
-            failWith(problemOut, presetText("写「%1」写到一半出错了：%2")
+            failWith(problemOut, QCoreApplication::translate("Presets", "写「%1」写到一半出错了：%2")
                                      .arg(target, out.errorString()));
             return false;
         }
     }
 
     if (!out.commit()) {
-        failWith(problemOut, presetText("换掉「%1」失败了：%2").arg(target, out.errorString()));
+        failWith(problemOut, QCoreApplication::translate("Presets", "换掉「%1」失败了：%2").arg(target, out.errorString()));
         return false;
     }
     return true;
@@ -134,7 +134,7 @@ bool walkDir(const QString &sourceDir, const QString &targetDir, const QString &
     // 那头去** —— 而名字那两道闸看这条路径完全正常（`config/子目录/深.txt`）。挡住它的
     // 只可能是"目标这一层是不是链接"这一条。
     if (isLink(QFileInfo(targetDir))) {
-        failWith(problemOut, presetText("目标上的「%1」是一根链接，没有动它。").arg(targetDir));
+        failWith(problemOut, QCoreApplication::translate("Presets", "目标「%1」是链接，已跳过。").arg(targetDir));
         return false;
     }
     QDir dir(sourceDir);
@@ -148,14 +148,14 @@ bool walkDir(const QString &sourceDir, const QString &targetDir, const QString &
 
         if (isLink(entry)) {
             // 源那一侧夹着一根链接 ⇒ **整项失败**（见文件头那段）。
-            failWith(problemOut, presetText("「%1」里夹着一根链接（%2），没有跟着它走。")
+            failWith(problemOut, QCoreApplication::translate("Presets", "「%1」里夹着一根链接（%2），没有跟着它走。")
                                      .arg(groupDirName, entry.fileName()));
             return false;
         }
         // 第 3 道闸（第 1、2 道在扫和读段那一趟判过了，但那两道判的都是**字面**路径）：
         // 真正挡住"链接逃逸"的是这两个 —— `pathIsSameOrInside()` 自己会解 junction。
         if (!InstanceFiles::pathIsSameOrInside(sourceGroupDir, sourceFile)) {
-            failWith(problemOut, presetText("「%1」落到这一组目录外面去了（链接？），没有动它。")
+            failWith(problemOut, QCoreApplication::translate("Presets", "「%1」指向允许范围以外的位置，已跳过。")
                                      .arg(sourceFile));
             return false;
         }
@@ -166,12 +166,12 @@ bool walkDir(const QString &sourceDir, const QString &targetDir, const QString &
         // 同一道闸挡的还有**目录**：目标上某一层是链接时，接着递归就会写到链接那头去。
         const QFileInfo targetInfo(targetFile);
         if (isLink(targetInfo)) {
-            failWith(problemOut, presetText("目标上的「%1」是一根链接，没有动它。")
+            failWith(problemOut, QCoreApplication::translate("Presets", "目标「%1」是链接，已跳过。")
                                      .arg(targetFile));
             return false;
         }
         if (!InstanceFiles::pathIsSameOrInside(targetGroupDir, targetFile)) {
-            failWith(problemOut, presetText("要写进去的「%1」在这一组目录外面，没有动它。")
+            failWith(problemOut, QCoreApplication::translate("Presets", "目标路径「%1」超出允许范围，已跳过。")
                                      .arg(targetFile));
             return false;
         }
@@ -179,7 +179,7 @@ bool walkDir(const QString &sourceDir, const QString &targetDir, const QString &
         if (entry.isDir()) {
             if (!dryRun && !QDir().mkpath(targetFile)) {
                 failWith(problemOut,
-                         presetText("建不出目录「%1」，没有接着拷。").arg(targetFile));
+                         QCoreApplication::translate("Presets", "无法创建目录「%1」，复制已停止。").arg(targetFile));
                 return false;
             }
             if (!walkDir(sourceFile, targetFile, sourceGroupDir, targetGroupDir, groupDirName,
@@ -202,7 +202,7 @@ bool walkDir(const QString &sourceDir, const QString &targetDir, const QString &
             continue;
         }
         if (!QDir().mkpath(targetDir)) {
-            failWith(problemOut, presetText("建不出目录「%1」，没有接着拷。").arg(targetDir));
+            failWith(problemOut, QCoreApplication::translate("Presets", "无法创建目录「%1」，复制已停止。").arg(targetDir));
             return false;
         }
         if (!copyOneFile(sourceFile, targetFile, problemOut)) {
@@ -229,13 +229,13 @@ bool walkItem(const QString &sourceRoot, const QString &targetRoot, FileGroup gr
     // `applyFileGroup(…, items)` 那一档的清单可以来自预设段（那一趟没有扫盘）。
     if (isLink(QFileInfo(sourceGroupDir))) {
         failWith(problemOut,
-                 presetText("「%1」是一根链接（符号链接 / junction），没有跟着它走。")
+                 QCoreApplication::translate("Presets", "「%1」是一根链接（符号链接 / junction），没有跟着它走。")
                      .arg(sourceGroupDir));
         return false;
     }
     if (isLink(QFileInfo(targetGroupDir))) {
         failWith(problemOut,
-                 presetText("目标上的「%1」是一根链接，没有往它里面写。").arg(targetGroupDir));
+                 QCoreApplication::translate("Presets", "目标上的「%1」是一根链接，没有往它里面写。").arg(targetGroupDir));
         return false;
     }
 
@@ -243,12 +243,12 @@ bool walkItem(const QString &sourceRoot, const QString &targetRoot, FileGroup gr
     const QFileInfo sourceInfo(sourceAbs);
     if (!sourceInfo.exists()) {
         failWith(problemOut,
-                 presetText("「%1」不在了（预设里说有这一项）。").arg(item.relativePath));
+                 QCoreApplication::translate("Presets", "「%1」不在了（预设里说有这一项）。").arg(item.relativePath));
         return false;
     }
     if (isLink(sourceInfo)) {
         failWith(problemOut,
-                 presetText("「%1」是一根链接，没有跟着它走。").arg(item.relativePath));
+                 QCoreApplication::translate("Presets", "「%1」是一根链接，没有跟着它走。").arg(item.relativePath));
         return false;
     }
 
@@ -261,12 +261,12 @@ bool walkItem(const QString &sourceRoot, const QString &targetRoot, FileGroup gr
     // 次序同 `walkDir()` 那一段（链接先、逃逸后）—— 理由也在那儿。
     const QFileInfo targetInfo(targetAbs);
     if (isLink(targetInfo)) {
-        failWith(problemOut, presetText("目标上的「%1」是一根链接，没有往它里面写。")
+        failWith(problemOut, QCoreApplication::translate("Presets", "目标上的「%1」是一根链接，没有往它里面写。")
                                  .arg(targetAbs));
         return false;
     }
     if (!InstanceFiles::pathIsSameOrInside(targetGroupDir, targetAbs)) {
-        failWith(problemOut, presetText("要写进去的「%1」在这一组目录外面，没有动它。")
+        failWith(problemOut, QCoreApplication::translate("Presets", "目标路径「%1」超出允许范围，已跳过。")
                                  .arg(targetAbs));
         return false;
     }
@@ -281,7 +281,7 @@ bool walkItem(const QString &sourceRoot, const QString &targetRoot, FileGroup gr
         return true;
     }
     if (!QDir().mkpath(QFileInfo(targetAbs).absolutePath())) {
-        failWith(problemOut, presetText("建不出「%1」那一层目录，没有接着拷。").arg(targetAbs));
+        failWith(problemOut, QCoreApplication::translate("Presets", "无法创建上级目录「%1」，复制已停止。").arg(targetAbs));
         return false;
     }
     return copyOneFile(sourceAbs, targetAbs, problemOut);
@@ -380,14 +380,14 @@ bool genericPathIsSafe(const QString &relativePath, QString *problemOut) {
         problemOut->clear();
     }
     if (relativePath.isEmpty()) {
-        failWith(problemOut, presetText("这一项的路径是空的。"));
+        failWith(problemOut, QCoreApplication::translate("Presets", "这一项的路径是空的。"));
         return false;
     }
     if (QDir::isAbsolutePath(relativePath) || relativePath.startsWith(QLatin1Char('\\')) ||
         relativePath.startsWith(QLatin1Char('/')) || relativePath.contains(QLatin1Char(':'))) {
         // `C:/x`、`/x`、`\\server\share` 都是"绝对的"，`:` 还得单判一道（`C:x` 在
         // `QDir::isAbsolutePath()` 那儿不算绝对的，但它照样能跑到别处去）。
-        failWith(problemOut, presetText("「%1」不是一条相对路径。").arg(relativePath));
+        failWith(problemOut, QCoreApplication::translate("Presets", "「%1」不是一条相对路径。").arg(relativePath));
         return false;
     }
 
@@ -398,7 +398,7 @@ bool genericPathIsSafe(const QString &relativePath, QString *problemOut) {
         const QString why = InstanceFiles::validatePathSegment(segment);
         if (!why.isEmpty()) {
             failWith(problemOut,
-                     presetText("「%1」里那一段「%2」不能这么叫：%3")
+                     QCoreApplication::translate("Presets", "「%1」中的「%2」名称无效：%3")
                          .arg(relativePath, segment, why));
             return false;
         }
@@ -477,7 +477,7 @@ bool scanFileGroup(const QString &root, FileGroup group, QList<GenericItem> *out
         problemOut->clear();
     }
     if (root.trimmed().isEmpty()) {
-        failWith(problemOut, presetText("没有指定要扫哪个目录。"));
+        failWith(problemOut, QCoreApplication::translate("Presets", "没有指定要扫哪个目录。"));
         return false;
     }
     const QString groupDirName = fileGroupDirName(group);
@@ -491,7 +491,7 @@ bool scanFileGroup(const QString &root, FileGroup group, QList<GenericItem> *out
     // 放过去的话，后面 `mkpath()` 会顺着它建到链接那一头。
     if (isLink(groupInfo)) {
         failWith(problemOut,
-                 presetText("「%1」是一根链接（符号链接 / junction），没有扫它。").arg(groupDir));
+                 QCoreApplication::translate("Presets", "「%1」是一根链接（符号链接 / junction），没有扫它。").arg(groupDir));
         return false;
     }
     if (!groupInfo.exists()) {
@@ -501,7 +501,7 @@ bool scanFileGroup(const QString &root, FileGroup group, QList<GenericItem> *out
     }
     if (!groupInfo.isDir()) {
         failWith(problemOut,
-                 presetText("「%1」那个位置上不是个目录，没有扫它。").arg(groupDir));
+                 QCoreApplication::translate("Presets", "「%1」那个位置上不是个目录，没有扫它。").arg(groupDir));
         return false;
     }
 
@@ -522,7 +522,7 @@ bool scanFileGroup(const QString &root, FileGroup group, QList<GenericItem> *out
         if (isLink(entry)) {
             if (refusedOut != nullptr) {
                 refusedOut->append(relative +
-                                   presetText("：是一根链接（符号链接 / junction），没有跟着它走。"));
+                                   QCoreApplication::translate("Presets", "：是一根链接（符号链接 / junction），没有跟着它走。"));
             }
             continue;
         }
@@ -545,13 +545,13 @@ bool scanFileGroup(const QString &root, FileGroup group, QList<GenericItem> *out
 QString genericActionName(GenericAction action) {
     switch (action) {
     case GenericAction::Replace:
-        return presetText("覆盖");
+        return QCoreApplication::translate("Presets", "覆盖");
     case GenericAction::CopyIfMissing:
-        return presetText("缺了才拷");
+        return QCoreApplication::translate("Presets", "缺了才拷");
     case GenericAction::Skip:
-        return presetText("跳过");
+        return QCoreApplication::translate("Presets", "跳过");
     case GenericAction::NeedsChoice:
-        return presetText("要你选");
+        return QCoreApplication::translate("Presets", "需要选择处理方式");
     }
     return QString();
 }
@@ -564,7 +564,7 @@ GenericPlan planFileGroup(const QString &sourceRoot, const QList<GenericItem> &i
         if (!genericPathIsSafe(item.relativePath, &why)) {
             // 一份自己带着非法路径的预设：**整组不认**（不是"跳过那一项"）。
             return refusePlan(plan,
-                              presetText("这一段里有一项的路径不能用（%1），整段都没有动。")
+                              QCoreApplication::translate("Presets", "此部分包含无效路径（%1），未应用任何项目。")
                                   .arg(item.relativePath + QStringLiteral("：") + why));
         }
 
@@ -573,13 +573,13 @@ GenericPlan planFileGroup(const QString &sourceRoot, const QList<GenericItem> &i
         switch (mode) {
         case ApplyMode::Replace:
             row.action = GenericAction::Replace;
-            row.reason = presetText("同名的那一份换成预设里的（目标上多出来的文件不动）。");
+            row.reason = QCoreApplication::translate("Presets", "以预设文件替换同名文件，保留目标中的其他文件。");
             break;
         case ApplyMode::CopyIfMissing: {
             FileGroup group = FileGroup::Config;
             if (!fileGroupOfPath(item.relativePath, &group)) {
                 return refusePlan(
-                    plan, presetText("「%1」不属于这一层管的任何一个目录，整段都没有动。")
+                    plan, QCoreApplication::translate("Presets", "「%1」不在允许的目录内，此部分未应用。")
                               .arg(item.relativePath));
             }
             WalkCounts counts;
@@ -589,16 +589,16 @@ GenericPlan planFileGroup(const QString &sourceRoot, const QList<GenericItem> &i
             }
             if (counts.written == 0) {
                 row.action = GenericAction::Skip;
-                row.reason = presetText("目标上已经有这一份了。");
+                row.reason = QCoreApplication::translate("Presets", "目标上已经有这一份了。");
             } else {
                 row.action = GenericAction::CopyIfMissing;
-                row.reason = presetText("目标上缺的那几份拷进去（已经有的一个都不动）。");
+                row.reason = QCoreApplication::translate("Presets", "目标上缺的那几份拷进去（已经有的一个都不动）。");
             }
             break;
         }
         case ApplyMode::Skip:
             row.action = GenericAction::Skip;
-            row.reason = presetText("这一趟不动。");
+            row.reason = QCoreApplication::translate("Presets", "未修改此部分。");
             break;
         case ApplyMode::Merge:
         case ApplyMode::Append: {
@@ -614,7 +614,7 @@ GenericPlan planFileGroup(const QString &sourceRoot, const QList<GenericItem> &i
                  genericItemIsCopyOnly(groupOfItem, item.relativePath,
                                        genericJoined(sourceRoot, item.relativePath)));
             row.reason = copyOnly
-                             ? presetText("这一项只有复制和覆盖两种做法（我们认不出它的结构）。")
+                             ? QCoreApplication::translate("Presets", "无法解析此项结构，仅支持复制或覆盖。")
                              : presetText("这一份是 MaLiLib 那一族的配置（结构我们认得）—— "
                                           "要搬的是它里面的热键，那是「模组热键」那一段的活；"
                                           "通用文件组这一层只做整份的复制和覆盖。");
@@ -639,7 +639,7 @@ GenericReport applyFileGroupItems(const QString &sourceRoot, const QString &targ
     GenericReport report;
     report.refused = refused;
     if (sourceRoot.trimmed().isEmpty() || targetRoot.trimmed().isEmpty()) {
-        report.problem = presetText("没有指定要落到哪个实例上。");
+        report.problem = QCoreApplication::translate("Presets", "没有指定要落到哪个实例上。");
         return report;
     }
 
@@ -705,7 +705,7 @@ GenericReport extractFileGroup(const QString &sourceRoot, const QString &presetF
                                FileGroup group) {
     GenericReport report;
     if (sourceRoot.trimmed().isEmpty() || presetFilesRoot.trimmed().isEmpty()) {
-        report.problem = presetText("没有指定要把这一组收到哪儿去。");
+        report.problem = QCoreApplication::translate("Presets", "没有指定要把这一组收到哪儿去。");
         return report;
     }
 
@@ -750,7 +750,7 @@ bool sectionsFromFileGroup(FileGroup group, const QList<GenericItem> &items, App
         if (!genericPathIsSafe(item.relativePath, problemOut) ||
             !fileGroupOfPath(item.relativePath, &belongsTo) || belongsTo != group) {
             if (problemOut != nullptr && problemOut->isEmpty()) {
-                *problemOut = presetText("「%1」不属于这一组（%2）。")
+                *problemOut = QCoreApplication::translate("Presets", "「%1」不属于这一组（%2）。")
                                   .arg(item.relativePath, fileGroupDirName(group));
             }
             return false;
@@ -788,7 +788,7 @@ bool fileGroupFromSection(const PresetSection &section, QList<GenericItem> *out,
         problemOut->clear();
     }
     if (!genericFilesHandlesSection(section.kind)) {
-        failWith(problemOut, presetText("这一段不归通用文件组这一层管。"));
+        failWith(problemOut, QCoreApplication::translate("Presets", "这一段不归通用文件组这一层管。"));
         return false;
     }
 
@@ -800,7 +800,7 @@ bool fileGroupFromSection(const PresetSection &section, QList<GenericItem> *out,
     for (int i = 0; i < section.items.size(); ++i) {
         const QJsonValue value = section.items.at(i);
         if (!value.isObject()) {
-            failWith(problemOut, presetText("通用文件组那一段里第 %1 项不是一个对象。")
+            failWith(problemOut, QCoreApplication::translate("Presets", "通用文件组的第 %1 项应为对象。")
                                      .arg(i + 1));
             return false;
         }
@@ -815,7 +815,7 @@ bool fileGroupFromSection(const PresetSection &section, QList<GenericItem> *out,
 
         QString why;
         if (!genericPathIsSafe(relative, &why)) {
-            failWith(problemOut, presetText("通用文件组那一段里第 %1 项的路径不能用：%2")
+            failWith(problemOut, QCoreApplication::translate("Presets", "通用文件组的第 %1 项路径无效：%2")
                                      .arg(i + 1)
                                      .arg(why));
             return false;

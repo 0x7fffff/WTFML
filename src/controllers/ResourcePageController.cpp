@@ -52,8 +52,8 @@ void ResourcePageController::setup() {
                 // 开不了要说一句：那颗按钮看着像是我们自己开的页面，静静地什么都不发生，
                 // 用户只会一遍遍点它。
                 if (!QDesktopServices::openUrl(QUrl(url))) {
-                    InlineMessage::warning(m_owner.m_ui->overlay(), tr("打不开浏览器"),
-                                           tr("没能打开这一条网址：\n%1").arg(url));
+                    InlineMessage::warning(m_owner.m_ui->overlay(), tr("无法打开默认浏览器"),
+                                           tr("无法打开网址：\n%1").arg(url));
                 }
             });
     connect(m_page, &ResourceDetailPage::copyNameRequested, this,
@@ -587,7 +587,7 @@ void ResourcePageController::onDownloadFinished(const QString &label, bool succe
         return;
     }
 
-    m_owner.appendLog(TextMarks::done(tr("%1 下好了：%2").arg(label, errorMessage)));
+    m_owner.appendLog(TextMarks::done(tr("%1 下载完成：%2").arg(label, errorMessage)));
     InlineMessage::information(m_owner.m_ui->overlay(), tr("下载完成"),
                              tr("%1 已经装进实例里了。\n\n%2").arg(label, errorMessage));
 }

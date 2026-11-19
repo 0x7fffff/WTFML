@@ -117,7 +117,7 @@ bool DirectDownloadController::pause(Tasks::TaskId id) {
     m_running = false;
     if (!m_activity->tasks()->pause(id)) return false;
     m_activity->tasks()->setRecovery(id, m_recoveries.value(id).token, true);
-    m_activity->tasks()->setDetail(id, tr("已暂停；完整分段保留。继续时重新取得地址并校验缓存，未完成分段可能重下。"));
+    m_activity->tasks()->setDetail(id, tr("已暂停下载。继续时将重新获取下载地址并校验分段缓存，未完成分段可能需要重新下载。"));
     m_status = tr("已暂停，可在任务中心继续下载。");
     if (m_panel) { m_panel->setBusy(false); m_panel->showStatus(m_status); }
     m_activity->releaseLane(id);

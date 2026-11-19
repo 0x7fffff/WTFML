@@ -259,12 +259,12 @@ void runModpackExportTests() {
             const QString report = promptText(answered, 0);
             check(report.contains(QDir::toNativeSeparators(packA)),
                   "T21.1 报告里写着包落在哪儿");
-            check(report.contains(QStringLiteral("问过 3 个文件，认出来 1 个")) &&
-                      report.contains(QStringLiteral("其余 3 个")),
+            check(report.contains(QStringLiteral("已识别 3 个待检查文件中的 1 个")) &&
+                      report.contains(QStringLiteral("其余 3 个文件已包含在整合包中")),
                   "★ T21.1 报告里的那几个数是**照实报的**：问了 3 个、认出来 1 个、"
                   "其余 3 个（两个认不出的 + 一个配置）原样进包",
                   report.left(120));
-            check(report.contains(QStringLiteral("没进包：logs、saves（共 5 个文件）")),
+            check(report.contains(QStringLiteral("未导出 logs、saves（共 5 个文件）")),
                   "★ T21.1 被排掉的目录照实说出来（存档和截图是用户自己的东西，"
                   "打进包里会盖掉收包那个人的），而且数的是**连目录里面一起**多少文件",
                   report);
@@ -489,12 +489,12 @@ void runModpackExportTests() {
                   "★ T21.5 一个都没认出来时也问一句（不是错误弹窗：包是能用的，"
                   "只是启动器不能替收包的人单独更新或者去重）",
                   answered.isEmpty() ? QStringLiteral("没弹") : answered.at(0).title);
-            check(promptText(answered, 0).contains(QStringLiteral("一个资源都没认出来")) &&
+            check(promptText(answered, 0).contains(QStringLiteral("未识别可由平台下载的资源")) &&
                       !promptText(answered, 0).contains(QStringLiteral("HTTP")),
                   "★ T21.5 说的是**「一个资源都没认出来」**，不是「接口没连上」 ——"
                   " 这两句话对应的是完全不同的两件事（一个是网络、一个是这个包自己）",
                   promptText(answered, 0));
-            check(promptText(answered, 1).contains(QStringLiteral("认出来 0 个")),
+            check(promptText(answered, 1).contains(QStringLiteral("已识别 1 个待检查文件中的 0 个")),
                   "T21.5 报告里如实写着认出来 0 个", promptText(answered, 1).left(80));
             QByteArray got;
             QString entryError;
@@ -514,7 +514,7 @@ void runModpackExportTests() {
             const int requestsBeforeO = api.requests.size();
             const QList<PromptAnswerer::Answered> answered = runExport(idO, packO, {0});
             check(answered.size() == 1 &&
-                      answered.at(0).title == QStringLiteral("这个实例没法按整合包规范导出"),
+                      answered.at(0).title == QStringLiteral("此实例不符合整合包导出要求"),
                   "★ T21.6 OptiFine 实例**认得出、写不下去**（两种规范的依赖表里都没有它那一格）"
                   "⇒ 如实报一句，而不是照原版导出一个「进去全是没光影的模组」的包",
                   answered.isEmpty() ? QStringLiteral("没弹") : answered.at(0).title);
@@ -530,7 +530,7 @@ void runModpackExportTests() {
             const QString packU = root.filePath(QStringLiteral("T21 没版本号.mrpack"));
             const QList<PromptAnswerer::Answered> answered2 = runExport(idU, packU, {0});
             check(answered2.size() == 1 &&
-                      answered2.at(0).title == QStringLiteral("读不出这个实例基于哪个原版"),
+                      answered2.at(0).title == QStringLiteral("无法识别原版游戏版本"),
                   "★ T21.6 连「基于哪个原版」都读不出来时也拦下来（清单里那一格是必需的，"
                   "编一个数字出来等于给收包的人一个假版本号）",
                   answered2.isEmpty() ? QStringLiteral("没弹") : answered2.at(0).title);

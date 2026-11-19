@@ -365,7 +365,7 @@ void runModInstallPlanTests() {
             makeReference(QStringLiteral("P-WAIT"), QStringLiteral("还没问")), {}, false));
         const Presets::ModInstallPlan waitPlan = Presets::planModInstall(notQueried);
         check(waitPlan.unknown == 1 && !waitPlan.rows.isEmpty() &&
-                  waitPlan.rows.first().problem.contains(QStringLiteral("还没轮到")),
+                  waitPlan.rows.first().problem.contains(QStringLiteral("等待查询平台")),
               "★ PM9 没问过 ⇒ 暂无法确认（「还没轮到」，不是「没有」）",
               waitPlan.rows.isEmpty() ? QString() : waitPlan.rows.first().problem);
     }
@@ -563,14 +563,14 @@ void runModInstallPlanTests() {
             Presets::verifyDownloadedFile(
                 path, payload.size(),
                 QStringLiteral("0000000000000000000000000000000000000000"));
-        check(!wrongHash.ok && wrongHash.problem.contains(QStringLiteral("sha1")),
+        check(!wrongHash.ok && wrongHash.problem.contains(QStringLiteral("SHA-1 校验失败")),
               "★★★ PM12 sha1 对不上 ⇒ 不过（这一条就是「不错装坏文件」）",
               wrongHash.problem);
 
         const Presets::DownloadVerification noHash =
             Presets::verifyDownloadedFile(path, -1, QString());
         check(noHash.ok && noHash.unverified &&
-                  noHash.problem.contains(QStringLiteral("没有给出")),
+                  noHash.problem.contains(QStringLiteral("未提供此文件的 SHA-1")),
               "★★ PM12 接口没给 sha1 ⇒ 只能说「没校验」，不许说「校验通过」",
               noHash.problem);
 
@@ -597,7 +597,7 @@ void runModInstallPlanTests() {
         const QString text = Presets::modInstallSummaryText(summary);
         check(text.contains(QStringLiteral("下载 3 个")) &&
                   text.contains(QStringLiteral("缺失 1 个")) &&
-                  text.contains(QStringLiteral("等你确认替代项目 1 个")),
+                  text.contains(QStringLiteral("有 1 个替代项目待确认")),
               "★ PM13 总账把三类都数出来", text);
 
         check(Presets::modInstallPartialText().contains(QStringLiteral("部分应用")),

@@ -5,6 +5,9 @@
 #include "controllers/ServerWorkspaceController.hpp"
 #include "manage/InstanceMetaFile.hpp"
 #include "server/ServerProcess.hpp"
+#include "controllers/ActivityCenterController.hpp"
+#include "controllers/TaskDetailController.hpp"
+
 void runBottomBarPanelTests() {
     const QString originalDir = AppPaths::minecraftDir();
     QTemporaryDir root;
@@ -531,7 +534,7 @@ void runBottomBarPanelTests() {
                   "AH4 点电源会先问一句（那是强杀，游戏不会存档）",
                   g_modalTitle + QStringLiteral(" / ") + g_modalText);
             check(g_modalText.contains(QStringLiteral("1.20.1")) &&
-                      g_modalText.contains(QStringLiteral("不会存档")),
+                      g_modalText.contains(QStringLiteral("丢失未保存的进度")),
                   "AH4 那一问里点了实例名、也说清了会丢进度", g_modalText);
             const bool s2Gone = pumpUntil([&manager, s2] { return manager->session(s2).sessionId == 0; },
                                           5000);
@@ -732,8 +735,57 @@ void runBottomBarPanelTests() {
         QDir(AppPaths::serversDir()).removeRecursively();
     }
 
+    {
+        auto *activity = w.findChild<ActivityCenterController *>();
+        auto *sessions = w.findChild<GameSessionController *>();
+        auto *detail = w.findChild<TaskDetailController *>();
+        check(activity && sessions && detail, "Launch task controllers are available");
+        if (activity && sessions && detail) {
+            const auto task = activity->begin(Tasks::TaskKind::Launch, QStringLiteral("Launch test"), releaseId);
+            const QString key = QString::number(task);
+            detail->open(key);
+            auto *cancel = w.findChild<QPushButton *>(MainWindowUI::taskDetailCancelName());
+            check(cancel && cancel->isHidden(), "Launch cannot be cancelled before a process is bound");
+
+            const int target = manager->startGame(holderArgs, holderSettings, releaseId, releaseId);
+            const int other = manager->startGame(holderArgs, holderSettings, releaseId, releaseId);
+            check(target > 0 && other > 0, "Two test processes for the same instance are running");
+            if (target > 0 && other > 0) {
+                GameSessionController::GameSessionFacts facts;
+                facts.instanceId = releaseId;
+                facts.instanceName = releaseId;
+                sessions->beginSession(target, releaseId, task, facts);
+                const bool offered = pumpUntil([cancel] { return cancel && !cancel->isHidden(); }, 1000);
+                check(offered, "Launch task displays Cancel when its process starts");
+                if (offered) {
+                    answerNextPrompt(1);
+                    cancel->click();
+                    check(g_modalTitle == QStringLiteral("停止游戏") && manager->session(target).sessionId == target,
+                          "Declining the stop confirmation leaves the game running");
+
+                    answerStopGamePrompt();
+                    cancel->click();
+                    const bool stopped = pumpUntil([&] {
+                        return manager->session(target).sessionId == 0
+                               && activity->tasks()->snapshot(task).state == Tasks::TaskState::Cancelled;
+                    }, 5000);
+                    check(stopped && manager->session(other).sessionId == other,
+                          "Cancelling a launch stops only its process and records the task as cancelled");
+                }
+            }
+            w.ui()->overlay()->dismiss();
+            for (int session : {target, other}) {
+                if (manager->session(session).sessionId == 0) continue;
+                w.markGameStopRequestedForTest(session);
+                manager->stopGame(session);
+            }
+            pumpUntil([&] { return manager->runningGames().isEmpty(); }, 5000);
+            if (Tasks::isActiveState(activity->tasks()->snapshot(task).state)) activity->tasks()->cancel(task);
+        }
+    }
+
     // ---- AH7 账号弹层：最近登录的三个账户（缓存里拿）+ 菜单区 ----
-    const int refreshFailedBefore = countOccurrences(messagesSnapshot(), QStringLiteral("没能刷新"));
+    const int refreshFailedBefore = countOccurrences(messagesSnapshot(), QStringLiteral("无法刷新「"));
     const int refreshedOnceBefore =
         countOccurrences(messagesSnapshot(), QStringLiteral("已自动更新"));
     {
@@ -877,13 +929,13 @@ void runBottomBarPanelTests() {
                 check(title != nullptr && title->text().endsWith(QStringLiteral(" Carol")),
                       "AH8 主页大标题问候跟着换成 Carol", title != nullptr ? title->text() : QString());
             }
-            check(g_modalTitle == QStringLiteral("登录令牌没能刷新") && g_modalWasWarning,
+            check(g_modalTitle == QStringLiteral("登录凭据刷新失败") && g_modalWasWarning,
                   "AH8 令牌换不出来**要弹窗**（产品级约束：错误要弹窗，不能只写日志）",
                   g_modalTitle + QStringLiteral(" / ") + g_modalText);
             check(g_modalText.contains(QStringLiteral("已切换至「Carol」")) &&
                       g_modalText.contains(QStringLiteral("重新登录")),
                   "AH8 弹窗把「切过去了」和「令牌没换到」分开说，并指出下一步", g_modalText);
-            check(countOccurrences(messagesSnapshot(), QStringLiteral("没能刷新")) ==
+            check(countOccurrences(messagesSnapshot(), QStringLiteral("无法刷新「")) ==
                       refreshFailedBefore + 1,
                   "AH8 日志里也留了一行（命令行那一路看得见）");
             check(countOccurrences(messagesSnapshot(), QStringLiteral("已自动更新")) ==
@@ -1025,7 +1077,7 @@ void runBottomBarPanelTests() {
                       .arg(AccountStore::activeUuid()));
         }
 
-        const int noRefreshBefore = countOccurrences(messagesSnapshot(), QStringLiteral("没能刷新"));
+        const int noRefreshBefore = countOccurrences(messagesSnapshot(), QStringLiteral("无法刷新「"));
         const int noExtraTokenBefore =
             countOccurrences(messagesSnapshot(), QStringLiteral("已自动更新"));
         QWidget *panel = openPanel(accountsButton);
@@ -1055,7 +1107,7 @@ void runBottomBarPanelTests() {
                       auth->playerName() == QStringLiteral("Bob"),
                   "AH11 没换人：活动槽和内存里都还是 Bob",
                   QStringLiteral("%1 / %2").arg(AccountStore::activeUuid(), auth->playerName()));
-            check(countOccurrences(messagesSnapshot(), QStringLiteral("没能刷新")) == noRefreshBefore,
+            check(countOccurrences(messagesSnapshot(), QStringLiteral("无法刷新「")) == noRefreshBefore,
                   "AH11 也没有拿 Bob 的令牌去换（点的是别人的那一行，这条缺了守卫就会红）");
             check(countOccurrences(messagesSnapshot(), QStringLiteral("已自动更新")) ==
                       noExtraTokenBefore,

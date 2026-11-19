@@ -16,12 +16,12 @@ int UiTaskCenterChecks(QMainWindow &window, MainWindowUI &ui, QTabWidget * &tabs
         check(cell != nullptr && cell->isVisible() && cell->isEnabled(),
               "I2 中间那格是一颗**亮着的**、能点的按钮（不再整格藏起来）");
 
-        // 「正在启动 <显示名> ...」这句话仍然只有**一个**出处：startGame() 之前那次
+        // 「正在启动 <显示名>…」这句话仍然只有**一个**出处：startGame() 之前那次
         // enterSyncWait() 和进程起来之后的 updateBottomBar() 都用它，两处各写一遍
         // 就会出现"文字在启动的那一瞬间跳一下"（ui_shot 那张 02-launching.png 也引它）。
         check(MainWindowUI::launchingStatusText(QStringLiteral("26.2")) ==
-                  QStringLiteral("正在启动 26.2 ..."),
-              "启动中那句文案：前缀 + 空格 + 显示名 + 空格 + 三个点",
+                  QStringLiteral("正在启动 26.2…"),
+              "启动状态显示实例名称，并以省略号结尾",
               MainWindowUI::launchingStatusText(QStringLiteral("26.2")));
         check(MainWindowUI::launchingStatusText(QStringLiteral("26.2")) !=
                   MainWindowUI::launchingStatusText(QStringLiteral("1.20.1")),

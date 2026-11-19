@@ -4,6 +4,7 @@
  */
 
 #include "SkinModel.hpp"
+#include <QCoreApplication>
 
 #include <QFont>
 #include <QHash>
@@ -374,12 +375,12 @@ const QVector<Face> &allFaces() {
 
 QString faceName(Face face) {
     switch (face) {
-    case Face::Right:  return QStringLiteral("右侧");
-    case Face::Front:  return QStringLiteral("正面");
-    case Face::Left:   return QStringLiteral("左侧");
-    case Face::Back:   return QStringLiteral("背面");
-    case Face::Top:    return QStringLiteral("顶面");
-    case Face::Bottom: return QStringLiteral("底面");
+    case Face::Right:  return QCoreApplication::translate("SkinModel", "右侧");
+    case Face::Front:  return QCoreApplication::translate("SkinModel", "正面");
+    case Face::Left:   return QCoreApplication::translate("SkinModel", "左侧");
+    case Face::Back:   return QCoreApplication::translate("SkinModel", "背面");
+    case Face::Top:    return QCoreApplication::translate("SkinModel", "顶面");
+    case Face::Bottom: return QCoreApplication::translate("SkinModel", "底面");
     }
     return QStringLiteral("?");
 }
@@ -405,7 +406,7 @@ QVector<Cuboid> playerCuboids(bool slim) {
     const double armWidth = slim ? 3.0 : 4.0;
 
     Cuboid head;
-    head.name = QStringLiteral("头");
+    head.name = QCoreApplication::translate("SkinModel", "头");
     head.lo = QVector3D(-4, 24, -4);
     head.hi = QVector3D(4, 32, 4);
     head.base = QPoint(0, 0);
@@ -413,35 +414,35 @@ QVector<Cuboid> playerCuboids(bool slim) {
     head.overlayInLegacy = true;  // 帽子层老皮肤里也有
 
     Cuboid body;
-    body.name = QStringLiteral("身体");
+    body.name = QCoreApplication::translate("SkinModel", "身体");
     body.lo = QVector3D(-4, 12, -2);
     body.hi = QVector3D(4, 24, 2);
     body.base = QPoint(16, 16);
     body.overlayBase = QPoint(16, 32);
 
     Cuboid rightArm;
-    rightArm.name = QStringLiteral("右臂");
+    rightArm.name = QCoreApplication::translate("SkinModel", "右臂");
     rightArm.lo = QVector3D(static_cast<float>(-4 - armWidth), 12, -2);
     rightArm.hi = QVector3D(-4, 24, 2);
     rightArm.base = QPoint(40, 16);
     rightArm.overlayBase = QPoint(40, 32);
 
     Cuboid leftArm;
-    leftArm.name = QStringLiteral("左臂");
+    leftArm.name = QCoreApplication::translate("SkinModel", "左臂");
     leftArm.lo = QVector3D(4, 12, -2);
     leftArm.hi = QVector3D(static_cast<float>(4 + armWidth), 24, 2);
     leftArm.base = QPoint(32, 48);
     leftArm.overlayBase = QPoint(48, 48);
 
     Cuboid rightLeg;
-    rightLeg.name = QStringLiteral("右腿");
+    rightLeg.name = QCoreApplication::translate("SkinModel", "右腿");
     rightLeg.lo = QVector3D(-4, 0, -2);
     rightLeg.hi = QVector3D(0, 12, 2);
     rightLeg.base = QPoint(0, 16);
     rightLeg.overlayBase = QPoint(0, 32);
 
     Cuboid leftLeg;
-    leftLeg.name = QStringLiteral("左腿");
+    leftLeg.name = QCoreApplication::translate("SkinModel", "左腿");
     leftLeg.lo = QVector3D(0, 0, -2);
     leftLeg.hi = QVector3D(4, 12, 2);
     leftLeg.base = QPoint(16, 48);
@@ -464,7 +465,7 @@ QVector<Cuboid> playerCuboids(bool slim) {
 
 Cuboid capeCuboid() {
     Cuboid cape;
-    cape.name = QStringLiteral("披风");
+    cape.name = QCoreApplication::translate("SkinModel", "披风");
     // 挂在后背，从肩膀（y=24）垂到 y=8。
     // NOTE: z 是**负**的 —— 玩家面朝 +z，所以"背后"在 -z 那侧（身体占 z -2..2）。
     // 从 -2.2 起是留了一条 0.2 的缝：和身体共面的话两个面会互相穿插着闪。

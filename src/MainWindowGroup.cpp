@@ -282,7 +282,7 @@ void MainWindow::clearGroupMembers(const QString &groupId, const QString &groupN
         // 半路写失败了。**已经写下去的那些是落盘了的**（说不说它都变了），所以只说清
         // 哪几个没成，别让用户以为整件事都没发生。
         InlineMessage::critical(m_ui->overlay(), tr("移出分组失败"),
-            tr("「%1」里还有 %2 个实例没能移出来：\n%3").arg(groupName).arg(keys.size() - moved).arg(error));
+            tr("「%1」中的 %2 个实例未能移出：\n%3").arg(groupName).arg(keys.size() - moved).arg(error));
         return;
     }
     appendLog(tr("已把「%1」里的 %2 个实例移出分组").arg(groupName).arg(moved));

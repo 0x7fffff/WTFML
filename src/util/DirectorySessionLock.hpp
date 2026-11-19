@@ -107,4 +107,14 @@ inline bool acquire(const QString &root, QString *problem = nullptr) {
     held.insert(key, std::move(lock));
     return true;
 }
+
+/// 主动放掉本进程拿到的**全部**锁。
+///
+/// 只有「立即重启」那一条路会调它（见 `MainWindow::onLanguageChanged()`）：新进程起来
+/// 第一件事就是取同一把锁，旧进程不先放，它会停在「启动器已在运行」那一屏。`QLockFile`
+/// 的析构会解锁文件，所以清掉这一表就够了。
+inline void releaseAll() {
+    QMutexLocker guard(&mutex);
+    held.clear();
+}
 } // namespace DirectorySessionLock

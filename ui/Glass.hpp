@@ -38,6 +38,7 @@ enum class Mode { Acrylic, Mica, Scene, Solid };
 QString settingsKey();
 QString modeKey(Mode mode);
 QString modeName(Mode mode);
+    QString modeShortName(Mode mode);
 /// 用户选的那一档。
 Mode mode();
 /// 盘上没写过材质时的那一档（出厂）：风景底；≤ 2 线程的机器、旧版关过「磨砂效果」的是纯色。
@@ -194,3 +195,4 @@ private:
 };
 
 }  // namespace Glass
+

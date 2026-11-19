@@ -10,6 +10,8 @@
 #include "controllers/DownloadCompletionController.hpp"
 #include "TextMarks.hpp"
 
+#include <QCoreApplication>
+
 #include "InlineMessage.hpp"
 #include "MainWindow.hpp"
 #include "MainWindowUI.hpp"
@@ -144,8 +146,8 @@ void DownloadCompletionController::onFinished(const QString &versionId, bool suc
                 resultMessage = errorMessage + QStringLiteral("\n\n") +
                                 applied.join(QLatin1Char('\n'));
             } else {
-                resultMessage = errorMessage + QStringLiteral("\n\n实例可用，预设部分应用：\n") +
-                                (applied + failed).join(QLatin1Char('\n'));
+                resultMessage = QCoreApplication::translate("DownloadCompletionController", "%1\n\n实例可用，预设部分应用：\n%2")
+                                    .arg(errorMessage, (applied + failed).join(QLatin1Char('\n')));
             }
         }
     }
@@ -369,7 +371,7 @@ void DownloadCompletionController::onFinished(const QString &versionId, bool suc
         } else {
             m_owner.appendLog(TextMarks::failed(tr("实例「%1」的文件没补齐：%2").arg(displayName, errorMessage)));
             InlineMessage::warning(m_owner.m_ui->overlay(), MainWindow::tr("文件没补齐"),
-                                   MainWindow::tr("实例「%1」有文件没能拿到。\n\n%2")
+                                   MainWindow::tr("未能取得实例「%1」的部分文件。\n\n%2")
                                        .arg(displayName, errorMessage));
         }
         return;
@@ -382,26 +384,25 @@ void DownloadCompletionController::onFinished(const QString &versionId, bool suc
         const QString displayName = m_owner.instanceDisplayName(versionId);
         if (success) {
             if (errorMessage.isEmpty()) {
-                m_owner.appendLog(MainWindow::tr("「%1」的首启资源已齐全，本次无需下载。").arg(displayName));
+                m_owner.appendLog(MainWindow::tr("「%1」的首次启动资源已齐全，本次无需下载。").arg(displayName));
             } else {
-                m_owner.appendLog(TextMarks::done(tr("「%1」的首启资源已预取：%2").arg(displayName, errorMessage)));
+                m_owner.appendLog(TextMarks::done(tr("「%1」的首次启动资源已预取：%2").arg(displayName, errorMessage)));
                 InlineMessage::information(
-                    m_owner.m_ui->overlay(), MainWindow::tr("首启资源已预取"),
-                    MainWindow::tr("「%1」的首启资源已就绪，第一次启动不会再卡在下载上。\n\n%2")
+                    m_owner.m_ui->overlay(), MainWindow::tr("首次启动资源已预取"),
+                    MainWindow::tr("「%1」的首次启动资源已就绪。\n\n%2")
                         .arg(displayName, errorMessage));
             }
         } else if (userCancelled) {
-            m_owner.appendLog(TextMarks::failed(tr("「%1」的首启资源预取已由用户取消（已下好的文件留在原处）。"))
+            m_owner.appendLog(TextMarks::failed(tr("已取消「%1」的首次启动资源预取。已下载的文件会保留。"))
                           .arg(displayName));
         } else {
-            m_owner.appendLog(TextMarks::failed(tr("「%1」的首启资源没预取完：%2").arg(displayName, errorMessage)));
+            m_owner.appendLog(TextMarks::failed(tr("「%1」的首次启动资源下载不完整：%2").arg(displayName, errorMessage)));
             // 重试 = 再发起一次预取（数据层那边会跳过校验通过的部分，不会从头再来）。
             // 这条不走账本里那颗"重试"：那一颗是给"失败清单"用的，而预取失败之后
             // 最该做的事是"再核一遍盘上那些、把缺的补上"，不是"把这份清单重下一遍"。
             const bool retry = InlineMessage::question(
-                m_owner.m_ui->overlay(), MainWindow::tr("首启资源没预取完"),
-                MainWindow::tr("「%1」的 GTNH 首启资源没能全部拿到。\n\n%2\n\n"
-                   "不影响启动。游戏首次运行时将自动下载所需资源。是否重试？")
+                m_owner.m_ui->overlay(), MainWindow::tr("首次启动资源下载不完整"),
+                MainWindow::tr("「%1」的 GTNH 首次启动资源下载不完整。\n\n%2\n\n游戏仍可启动，并会在首次运行时下载缺失资源。重试下载？")
                     .arg(displayName, errorMessage),
                 MainWindow::tr("重试"), MainWindow::tr("完成"), true);
             if (retry) {

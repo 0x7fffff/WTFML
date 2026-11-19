@@ -1,4 +1,5 @@
 #include "PresetModInstaller.hpp"
+#include <QCoreApplication>
 #include "PresetWriteLock.hpp"
 #include "PresetCompatibility.hpp"
 #include "download/DownloadManager.hpp"
@@ -272,7 +273,7 @@ void PresetModInstaller::readInventory(bool beforeCommit) {
             const QString key = ResourceCatalog::sourceKey(found.hit.source) + QLatin1Char(':') + found.hit.projectId;
             if (!file.projectKey.isEmpty() && (file.projectKey != key
                 || (!file.versionId.isEmpty() && !found.currentVersion.id.isEmpty() && file.versionId != found.currentVersion.id))) {
-                inventory.problem = QStringLiteral("已安装模组的识别缓存与安装记录冲突，未允许安装。");
+                inventory.problem = QCoreApplication::translate("PresetModInstaller", "已安装模组的识别缓存与安装记录冲突，未允许安装。");
                 return inventory;
             }
             file.projectKey = key;
@@ -476,7 +477,7 @@ void PresetModInstaller::resolveNext() {
         });
         return;
     }
-    for (const auto &row : m_plan.rows) if (row.isFailure()) m_result.lines.append(row.title + QStringLiteral("：") + row.problem);
+    for (const auto &row : m_plan.rows) if (row.isFailure()) m_result.lines.append(row.title + QCoreApplication::translate("PresetModInstaller", "：") + row.problem);
     const int unidentified = static_cast<int>(m_inventory.files.size() - m_identifiedFiles.size());
     if (unidentified > 0) m_result.lines.append(tr("%1 个启用模组的项目身份尚未确认，未将它们当作前置已满足。") .arg(unidentified));
     m_result.optionalFailures = m_plan.optionalFailures();
@@ -620,7 +621,7 @@ void PresetModInstaller::commit() {
     if (!skipOptional.isEmpty()) {
         m_result.optionalFailures += skipOptional.size();
         m_result.lines.append(tr("可选文件下载失败，跳过对应模组及依赖它的父项：%1；其它独立项继续。")
-            .arg(QStringList(skipOptional.values()).join(QStringLiteral("、"))));
+            .arg(QStringList(skipOptional.values()).join(QCoreApplication::translate("PresetModInstaller", "、"))));
     }
     if ((m_running && m_running()) || redirected(m_root) ||
         redirected(QDir(m_root).filePath(QStringLiteral("mods")))) {

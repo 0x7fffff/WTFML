@@ -694,7 +694,7 @@ void PresetInstallPicker::setComposites(const QList<Composite> &presets) {
             if (replacements.isEmpty()) apply();
             else {
                 { const QSignalBlocker blocker(list); list->clearSelection(); list->setCurrentRow(-1); }
-                confirmReplacement(tr("替换%1，使用「%2」").arg(replacements.join(QStringLiteral("、")), preset.name), apply);
+        confirmReplacement(tr("替换%1，使用「%2」").arg(replacements.join(tr("、")), preset.name), apply);
             }
         });
     }

@@ -1,4 +1,5 @@
 #include "controllers/ArmorTrimPreviewController.hpp"
+#include <QCoreApplication>
 #include "ToolboxPage.hpp"
 #include "ArmorTrimScene.hpp"
 #include "InlineMessage.hpp"
@@ -77,7 +78,7 @@ ArmorTrimPreviewController::ArmorTrimPreviewController(ToolboxPage *page, Overla
         // 先记下"是超时"，再置 m_cancelled：finished 那一发只看 m_cancelled 的话，
         // 超时会被当成用户取消（屏幕上就看到"已取消"，看不到为什么停）。
         m_timedOut=true; m_cancelled=true; m_download->cancel();
-        status(tr("预览资源下载超过 600 秒，已停止；可重新点击下载续传。"));
+        status(tr("预览资源下载超过 600 秒，已停止。重新下载可继续未完成的部分。"));
     });
     connect(m_download,&ResumableDownload::progress,this,[this](qint64 done,qint64 total) {
         if (!m_page || m_cancelled) return;
@@ -88,7 +89,7 @@ ArmorTrimPreviewController::ArmorTrimPreviewController(ToolboxPage *page, Overla
         m_deadline->stop();
         if (m_timedOut) {
             m_timedOut=false;
-            status(tr("预览资源下载超过 600 秒，已停止；可重新点击下载续传。"));
+            status(tr("预览资源下载超过 600 秒，已停止。重新下载可继续未完成的部分。"));
             return;
         }
         if (m_cancelled) { status(tr("已取消资源获取；未修改任何实例。")); return; }
@@ -192,7 +193,7 @@ void ArmorTrimPreviewController::load(const QStringList &archives,bool verifyCac
                     hash.addData(chunk);
                 }
                 if(!valid || QString::fromLatin1(hash.result().toHex())!=kSha1) {
-                    result->error=QStringLiteral("资源缓存校验失败，请重新下载。"); continue;
+                    result->error=QCoreApplication::translate("ArmorTrimPreviewController", "资源缓存校验失败，请重新下载。"); continue;
                 }
             }
             *result=ArmorTrimAssets::load(archive);
@@ -225,16 +226,14 @@ void ArmorTrimPreviewController::download() {
     // 「不出现独立窗口」：这一问和别处一样开在内容区中间（宽度只有一套，见 OverlayHost）。
     // EULA 那一行是**可点的链接**，点了由这里开浏览器 —— 光摆一串网址没人会去读。
     InlineMessageBox question(MessageKind::Question,tr("下载预览资源"),
-        tr("将从 Mojang 官方下载 Java 1.21.4 客户端压缩包（27.0 MiB），校验后仅在内存读取预览纹理。\n"
-           "缓存保存在游戏目录 cache/preview-resources；不安装实例、不执行 JAR、不下载依赖库。\n\n"
-           "请确认你有权使用这些游戏资源，并阅读 Minecraft EULA。用户下载不代表获得额外的分发授权。"),
+        tr("将从 Mojang 官方下载 Java 1.21.4 客户端压缩包（27.0 MiB），校验后仅在内存读取预览纹理。\n缓存保存在游戏目录 cache/preview-resources；不安装实例、不执行 JAR、不下载依赖库。\n\n请确认你有权使用这些游戏资源，并阅读 Minecraft EULA。用户下载不代表获得额外的分发授权。"),
         QStringList{tr("确认并下载"),tr("取消")},-1,-1);
     question.setLink(tr("打开 Minecraft EULA"),QStringLiteral("https://www.minecraft.net/eula"));
     connect(&question,&InlineMessageBox::linkActivated,this,[this](const QString &url) {
         if(url.isEmpty()) return;
         if(!QDesktopServices::openUrl(QUrl(url)))
-            InlineMessage::warning(m_overlay,tr("打不开浏览器"),
-                                   tr("没能打开这一条网址：\n%1").arg(url));
+            InlineMessage::warning(m_overlay,tr("无法打开浏览器"),
+                                   tr("无法打开网址：\n%1").arg(url));
     });
     m_overlay->execPrompt(&question,false);
     if(question.clickedIndex()!=0) return;

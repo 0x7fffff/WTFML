@@ -857,10 +857,11 @@ int runPresetInstallChecks() {
                       && left.first().projectId == QStringLiteral("abc123"),
                   "★★ 「移除没认出来的」只删平台还不认识的那几行，认出来的原样留着",
                   QString::number(left.size()));
-            check(problem->text().contains(QStringLiteral("已移除 2 行")),
+            check(problem->text().contains(QStringLiteral("已移除 2 条来源未知的记录")) &&
+                      problem->text().contains(QStringLiteral("选择「取消」可撤回本次编辑")),
                   "★ 删完说清楚删了几行（并且提醒「取消」能撤回）", problem->text());
             removeUnknown->click();
-            check(problem->text().contains(QStringLiteral("没有没认出来的")),
+            check(problem->text().contains(QStringLiteral("没有未识别的模组")),
                   "★ 再点一次 ⇒ 说「没有没认出来的行」，不是默默无反应", problem->text());
         }
     }
@@ -952,7 +953,7 @@ int runPresetInstallChecks() {
               "large preset list keeps every entry and the requested identity");
         check(view && view->topLevelItemCount() == 3 && view->topLevelItem(0)->text(0) == QStringLiteral("设置") &&
                   view->topLevelItem(1)->text(0) == QStringLiteral("模组") &&
-                  view->topLevelItem(2)->text(0) == QStringLiteral("读不出来"),
+                  view->topLevelItem(2)->text(0) == QStringLiteral("无法读取"),
               "groups follow the category order the controller supplies and unreadable presets get their own last group");
         bool grouped = view != nullptr;
         for (int g = 0; g < (view ? view->topLevelItemCount() : 0); ++g) {

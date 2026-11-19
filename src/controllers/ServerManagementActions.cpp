@@ -4,6 +4,7 @@
  */
 
 #include "ServerManagementActions.hpp"
+#include <QCoreApplication>
 #include "MainWindow.hpp"
 #include "manage/BackupFiles.hpp"
 #include "MainWindowUI.hpp"
@@ -105,10 +106,7 @@ void ServerManagementActions::addServerPlayer(MainWindow *owner) {
         InlineMessage::getText(
             owner->m_ui->overlay(), MainWindow::tr("加进%1").arg(listTitle),
             ipList ? MainWindow::tr("要封哪个地址？\n\n只写一个 IPv4 / IPv6 地址（不带端口）。")
-                   : MainWindow::tr("玩家名是什么？\n\n"
-                        "离线模式（online-mode=false）的服务端按名字算 UUID；"
-                        "正版服务器的名单要在控制台里用 whitelist add / op 加，"
-                        "那一边才会解析成 Mojang 的 UUID。"),
+                   : MainWindow::tr("输入玩家名称。\n\n离线服务端根据名称计算 UUID。在线服务端请在控制台使用 whitelist add 或 op，以查询玩家的 Mojang UUID。"),
             QString(), &ok)
             .trimmed();
     if (!ok || typed.isEmpty()) {
@@ -167,7 +165,7 @@ void ServerManagementActions::removeServerPlayer(MainWindow *owner, const QStrin
     const ServerPlayers::Content content =
         owner->m_serverSettingsController->readPlayers(serverId, list);
     if (!content.ok) {
-        InlineMessage::critical(owner->m_ui->overlay(), MainWindow::tr("从%1里拿掉").arg(listTitle),
+        InlineMessage::critical(owner->m_ui->overlay(), MainWindow::tr("从%1中移除").arg(listTitle),
                                 content.problem);
         return;
     }
@@ -183,22 +181,22 @@ void ServerManagementActions::removeServerPlayer(MainWindow *owner, const QStrin
                             ? entry.ip
                             : (entry.name.isEmpty() ? entry.uuid : entry.name);
     if (!InlineMessage::question(
-            owner->m_ui->overlay(), MainWindow::tr("从%1里拿掉").arg(listTitle),
+            owner->m_ui->overlay(), MainWindow::tr("从%1中移除").arg(listTitle),
             list == ServerPlayers::List::BannedIps
-                ? MainWindow::tr("「%1」会从封禁名单上拿掉（等于解封这个地址）。").arg(who)
+                ? MainWindow::tr("将解除对地址「%1」的封禁。").arg(who)
                 : list == ServerPlayers::List::BannedPlayers
-                      ? MainWindow::tr("「%1」会从封禁名单上拿掉（等于解封）。").arg(who)
-                      : MainWindow::tr("「%1」会从这份名单上拿掉。").arg(who),
-            MainWindow::tr("拿掉"), MainWindow::tr("取消"), /*defaultYes=*/false, /*destructive=*/false)) {
+                      ? MainWindow::tr("将解除对玩家「%1」的封禁。").arg(who)
+                      : MainWindow::tr("将从服务器列表中移除「%1」。").arg(who),
+            MainWindow::tr("移除条目"), MainWindow::tr("取消"), /*defaultYes=*/false, /*destructive=*/false)) {
         return;
     }
     entries.removeAt(at);
     QString problem;
     if (!owner->m_serverSettingsController->writePlayers(serverId, list, entries, &problem)) {
-        InlineMessage::critical(owner->m_ui->overlay(), MainWindow::tr("从%1里拿掉").arg(listTitle), problem);
+        InlineMessage::critical(owner->m_ui->overlay(), MainWindow::tr("从%1中移除").arg(listTitle), problem);
         return;
     }
-    owner->appendLog(MainWindow::tr("服务端 %1 的%2里拿掉了「%3」。").arg(serverId, listTitle, who));
+    owner->appendLog(MainWindow::tr("已从服务端 %1 的%2中移除「%3」。").arg(serverId, listTitle, who));
     owner->refreshServerPlayers();
 }
 
@@ -237,11 +235,7 @@ void ServerManagementActions::pickServerResourcePack(MainWindow *owner) {
     //   填进 `resource-pack`（别人连不到你的硬盘，那会让每个人进来都卡一下）。
     InlineMessage::information(
         owner->m_ui->overlay(), MainWindow::tr("SHA-1 算好了"),
-        MainWindow::tr("本地这一份「%1」的 SHA-1 已经填入「资源包 SHA-1」：\n\n%2\n\n"
-           "「资源包地址」那一格还得你自己填 —— 要一个别的玩家连得到的 http(s) "
-           "链接（自己的网站 / 网盘直链 / 对象存储都行）。本机文件路径别人打不开，"
-           "启动器不会把它填进去。\n\n"
-           "换了 zip 就要重新算一遍 SHA-1；服务端下一次启动时才会用上新值。")
+        MainWindow::tr("已将「%1」的 SHA-1 填入「资源包 SHA-1」字段：\n\n%2\n\n请在「资源包地址」中填写其他玩家可访问的 HTTP(S) 链接。更换 ZIP 文件后需重新计算 SHA-1。设置将在服务端重启后生效。")
             .arg(QFileInfo(chosen).fileName(), inspect.sha1));
 }
 
@@ -274,8 +268,7 @@ void ServerManagementActions::refreshServerContent(MainWindow *owner) {
         // 数据包那一类：世界在哪儿都还不知道 —— 别摆一个假路径，说清楚该去哪儿改。
         page->setContentRows({});
         page->setContentNote(
-            MainWindow::tr("level-name 无效，无法确定世界目录。"
-               "请在「常用设置」中填写有效的世界目录名。"));
+            MainWindow::tr("level-name 无效，无法确定世界目录。请在「常用设置」中填写有效的世界目录名。"));
         return;
     }
     page->setContentNote(MainWindowUI::serverSettingsContentNoteText(
@@ -311,7 +304,7 @@ void ServerManagementActions::addServerContent(MainWindow *owner) {
     const QString folder = owner->serverContentFolder();
     if (folder.isEmpty()) {
         InlineMessage::warning(owner->m_ui->overlay(), MainWindow::tr("加不了"),
-                               MainWindow::tr("这个服务端的 level-name 认不出来，不知道世界在哪儿。"));
+                               MainWindow::tr("无法根据服务端的 level-name 确定世界存档目录。"));
         return;
     }
     const int kindIndex = qBound(0, page->contentKind(), ServerContent::kindCount() - 1);
@@ -333,7 +326,7 @@ void ServerManagementActions::addServerContent(MainWindow *owner) {
     // 文件夹可能还不存在（服务端还没跑过）—— 这一次"要往里放东西"了，建出来。
     if (!QDir().mkpath(folder)) {
         InlineMessage::critical(owner->m_ui->overlay(), MainWindow::tr("加不了"),
-                                MainWindow::tr("建不出这个文件夹：%1").arg(QDir::toNativeSeparators(folder)));
+                                MainWindow::tr("无法创建文件夹：%1").arg(QDir::toNativeSeparators(folder)));
         return;
     }
     QStringList added;
@@ -360,14 +353,14 @@ void ServerManagementActions::addServerContent(MainWindow *owner) {
     if (!added.isEmpty()) {
         owner->appendLog(MainWindow::tr("服务端 %1 的%2里加进了 %3 份：%4")
                       .arg(serverId, MainWindowUI::serverSettingsContentKindTitle(kindIndex),
-                           QString::number(added.size()), added.join(QStringLiteral("、"))));
+                           QString::number(added.size()), added.join(QCoreApplication::translate("ServerManagementActions", "、"))));
         owner->refreshServerContent();
     }
     if (!skipped.isEmpty()) {
         InlineMessage::warning(
             owner->m_ui->overlay(), MainWindow::tr("有几份没有加进去"),
             skipped.join(QStringLiteral("\n"))
-                + MainWindow::tr("\n\n重名的那几份没有覆盖 —— 要换版本，先在「打开文件夹」里把旧的挪走。"));
+                + MainWindow::tr("\n\n同名文件已保留。若要替换，选择「打开文件夹」并移走旧文件。"));
     } else if (!added.isEmpty()) {
         InlineMessage::information(
             owner->m_ui->overlay(), MainWindow::tr("加好了"),
@@ -430,14 +423,14 @@ void ServerManagementActions::openServerContentFolder(MainWindow *owner) {
     const QString folder = owner->serverContentFolder();
     if (folder.isEmpty()) {
         InlineMessage::warning(owner->m_ui->overlay(), MainWindow::tr("找不到这个文件夹"),
-                               MainWindow::tr("这个服务端的 level-name 认不出来，不知道世界在哪儿。"));
+                               MainWindow::tr("无法根据服务端的 level-name 确定世界存档目录。"));
         return;
     }
     if (!QFileInfo(folder).isDir()) {
         // 还没往里放过东西（服务端还没跑过 / 还没装过任何内容）——说清楚它该在哪儿，
         // 别弹一个"打开失败"（`QDesktopServices` 对不存在的路径只会静默不受理）。
         InlineMessage::information(
-            owner->m_ui->overlay(), MainWindow::tr("这个文件夹还没建出来"),
+            owner->m_ui->overlay(), MainWindow::tr("游戏目录尚未创建"),
             MainWindow::tr("先往里放一份文件（「添加…」），或者自己建一个：\n%1")
                 .arg(QDir::toNativeSeparators(folder)));
         return;
@@ -458,8 +451,7 @@ void ServerManagementActions::kickServerPlayer(MainWindow *owner, const QString 
     ServerRun::ServerProcess *process = owner->m_serverWorkspace->process(serverId);
     if (process == nullptr || !process->isRunning()) {
         InlineMessage::warning(owner->m_ui->overlay(), MainWindow::tr("没有在跑的服务端"),
-                               MainWindow::tr("「踢出」是把一条 kick 命令送进正在跑的服务端 —— "
-                                  "它现在没在跑，所以踢不了人。"));
+                               MainWindow::tr("服务端已停止，无法踢出玩家。启动服务端后再试。"));
         return;
     }
     // 在线动作**必须走运行控制台**（不是偷偷改名单 —— 那要等它重启才生效，
@@ -467,7 +459,7 @@ void ServerManagementActions::kickServerPlayer(MainWindow *owner, const QString 
     const QString command = QStringLiteral("kick ") + name;
     if (!process->sendCommand(command)) {
         InlineMessage::critical(owner->m_ui->overlay(), MainWindow::tr("命令没有送出去"),
-                                MainWindow::tr("服务端的输入通道已经不在了（它可能刚好在退出）。"));
+                                MainWindow::tr("服务端命令输入已关闭。"));
         return;
     }
     // 回显：服务端答的那一行会走日志通道进控制台；这一条 `[wtfml]` 只是把"我们发了什么"
@@ -476,8 +468,7 @@ void ServerManagementActions::kickServerPlayer(MainWindow *owner, const QString 
     owner->appendLog(MainWindow::tr("服务端 %1：%2").arg(serverId, command));
     InlineMessage::information(
         owner->m_ui->overlay(), MainWindow::tr("命令送出去了"),
-        MainWindow::tr("「%1」已经送进服务端控制台。它答的那一行会出现在控制台里 —— "
-           "去「控制台」看一眼结果（那才是真正说了算的）。").arg(command));
+        MainWindow::tr("已向服务端发送「%1」。可在控制台查看执行结果。").arg(command));
 }
 
 void ServerManagementActions::runServerCheckAction(MainWindow *owner, const QString &token) {
@@ -526,10 +517,10 @@ void ServerManagementActions::runServerCheckAction(MainWindow *owner, const QStr
             }
         }
         if (!InlineMessage::question(
-                owner->m_ui->overlay(), MainWindow::tr("改回缺省值"),
-                MainWindow::tr("这几项会被改回这张表上的缺省值（别的行一个字节都不动）：\n%1\n\n要改吗？")
+                owner->m_ui->overlay(), MainWindow::tr("恢复默认值"),
+                MainWindow::tr("以下设置将恢复默认值，其余设置保留：\n%1\n\n确认恢复？")
                     .arg(lines.join(QStringLiteral("\n"))),
-                MainWindow::tr("改回缺省值"), MainWindow::tr("取消"), /*defaultYes=*/true, /*destructive=*/false)) {
+                MainWindow::tr("恢复默认值"), MainWindow::tr("取消"), /*defaultYes=*/true, /*destructive=*/false)) {
             return;
         }
         const ServerSettingsController::SaveResult result = owner->m_serverSettingsController->save(
@@ -539,7 +530,7 @@ void ServerManagementActions::runServerCheckAction(MainWindow *owner, const QStr
             InlineMessage::critical(owner->m_ui->overlay(), MainWindow::tr("改不了"), result.problem);
             return;
         }
-        owner->appendLog(MainWindow::tr("服务端 %1 的 server.properties 里有 %2 项改回了缺省值。")
+        owner->appendLog(MainWindow::tr("服务端 %1 的 server.properties 已恢复 %2 项默认值。")
                       .arg(serverId)
                       .arg(result.changed));
         owner->m_serverSettings->refresh();
@@ -581,8 +572,7 @@ void ServerManagementActions::backupServerWorld(MainWindow *owner, const QString
         // 和"游戏在跑不给备份世界"同一条理由：它每隔几秒就在往存档里写，这时候抄出来的
         // 那一份可能正好截在半截写入上。
         InlineMessage::warning(owner->m_ui->overlay(), MainWindow::tr("备份世界"),
-                               MainWindow::tr("请先停止服务端再备份，以避免读取正在写入的"
-                                  "存档数据。"));
+                               MainWindow::tr("请先停止服务端再备份，以避免读取正在写入的存档数据。"));
         return;
     }
     const QString worldName = owner->serverWorldName(serverId);
@@ -590,15 +580,13 @@ void ServerManagementActions::backupServerWorld(MainWindow *owner, const QString
     if (worldName.isEmpty()) {
         InlineMessage::warning(
             owner->m_ui->overlay(), MainWindow::tr("无法备份"),
-            MainWindow::tr("level-name 无效，无法确定世界目录。哪儿。\n"
-               "请在「常用设置」中填写有效的世界目录名。"));
+            MainWindow::tr("level-name 无效，无法确定世界目录。哪儿。\n请在「常用设置」中填写有效的世界目录名。"));
         return;
     }
     if (!QFileInfo(worldDir).isDir()) {
         InlineMessage::information(
             owner->m_ui->overlay(), MainWindow::tr("世界尚未生成"),
-            MainWindow::tr("「%1」这个目录还不存在 —— 服务端第一次启动之后才会生成它，"
-               "现在没有能备份的东西。")
+            MainWindow::tr("「%1」尚未生成。首次启动服务端后再创建备份。")
                 .arg(worldName));
         return;
     }
@@ -642,8 +630,7 @@ void ServerManagementActions::restoreServerWorldBackup(MainWindow *owner, const 
     const ServerRun::ServerProcess *process = owner->m_serverWorkspace->process(serverId);
     if (process != nullptr && process->isRunning()) {
         InlineMessage::warning(owner->m_ui->overlay(), MainWindow::tr("恢复备份"),
-                               MainWindow::tr("这个服务端正在跑。先让它停下来再还原 —— 不然它退出的时候"
-                                  "会把内存里那份旧存档重新写一遍，把刚还原出来的盖掉。"));
+                               MainWindow::tr("服务端仍在运行。停止服务端后再还原，以免服务端保存时覆盖还原的存档。"));
         return;
     }
     const QString worldName = owner->serverWorldName(serverId);
@@ -660,8 +647,7 @@ void ServerManagementActions::restoreServerWorldBackup(MainWindow *owner, const 
         || manifest.root.compare(worldName, Qt::CaseInsensitive) != 0) {
         InlineMessage::warning(
             owner->m_ui->overlay(), MainWindow::tr("备份与当前世界不匹配"),
-            readable ? MainWindow::tr("备份世界为「%1」，当前世界为「%2」。"
-                         "为避免覆盖其他世界，已取消恢复。")
+            readable ? MainWindow::tr("备份世界为「%1」，当前世界为「%2」。为避免覆盖其他世界，已取消恢复。")
                            .arg(manifest.root.isEmpty() ? MainWindow::tr("（没写）") : manifest.root,
                                 worldName.isEmpty() ? serverId : worldName)
                      : MainWindow::tr("无法读取备份清单，已取消恢复。\n\n%1")
@@ -672,9 +658,7 @@ void ServerManagementActions::restoreServerWorldBackup(MainWindow *owner, const 
     // 默认**不**落在「还原」上：这一步会把这个世界现在的文件整个换掉（和删世界同一档）。
     if (!InlineMessage::question(
             owner->m_ui->overlay(), MainWindow::tr("恢复备份"),
-            MainWindow::tr("将使用备份替换世界「%1」的当前文件。\n\n"
-               "恢复前将自动创建安全快照，以便回滚。\n\n"
-               "备份文件：\n%2")
+            MainWindow::tr("将使用备份替换世界「%1」的当前文件。\n\n恢复前将自动创建安全快照，以便回滚。\n\n备份文件：\n%2")
                 .arg(worldName.isEmpty() ? serverId : worldName,
                      QDir::toNativeSeparators(zipPath)),
             MainWindow::tr("还原"), MainWindow::tr("取消"), /*defaultYes=*/false, /*destructive=*/true)) {

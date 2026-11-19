@@ -315,7 +315,7 @@ void runInstanceStartActionsTests() {
             check(combo->findData(idA) >= 0 && selectedId(combo) == idA,
                   "★ T19.5 补全完它**回到**下拉框里、而且被选中（补全期间它是被滤掉的，"
                   "刷新只保得住「原来选中的」那一项，保不住「被滤掉的那一个」）");
-            check(newLogContains(QStringLiteral("开始校验「%1」的文件（已存在的会跳过）").arg(displayA)),
+            check(newLogContains(QStringLiteral("正在校验「%1」的文件，跳过已存在的文件").arg(displayA)),
                   "T19.5 日志里「开始」那一行说的是显示名（点下去就该有一行，用户要看得见它动了）");
             check(newLogContains(TextMarks::done() + QStringLiteral(" 实例「%1」的文件校验完成：").arg(displayA)),
                   "T19.5 日志里「结束」那一行也是");
@@ -431,7 +431,7 @@ void runInstanceStartActionsTests() {
                           "T19.9 正文把落点写全了（用户要照着双击它）", one.text);
                     check(one.text.contains(QStringLiteral("这一份用的是离线身份")),
                           "★ T19.9 离线那一趟的备注：说清游戏里就是这个名字", one.text);
-                    check(one.text.contains(QStringLiteral("参数和启动器这次启动用的那一份是同一份")),
+                    check(one.text.contains(QStringLiteral("导出的是本次启动使用的参数")),
                           "T19.9 最后那句「改了要再导一遍」的依据也在", one.text);
                 }
             }

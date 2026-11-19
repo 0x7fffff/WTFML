@@ -37,12 +37,12 @@ AgentSecretEdit::AgentSecretEdit(QWidget *parent) : QWidget(parent) {
     m_edit->setEchoMode(QLineEdit::Password);
     m_edit->setStyle(new StarPasswordStyle(m_edit->style()));
     m_edit->setAutoFillBackground(true);
-    InputSizing::longValue(m_edit, "API 密钥：一般 40~100 个字符，要能看全");
+    InputSizing::longValue(m_edit, "API 密钥：一般 40~100 个字符，要能看全");  // i18n-ignore
     layout->addWidget(m_edit, 1);
     m_reveal = new QToolButton(this);
     m_reveal->setCheckable(true);
     m_reveal->setIconSize(QSize(18, 18));
-    m_reveal->setAccessibleName(QStringLiteral("显示密钥"));
+    m_reveal->setAccessibleName(tr("显示密钥"));
     m_reveal->setFocusPolicy(Qt::StrongFocus);
     // 扁平：不留系统 QToolButton 那圈方框（悬停 / 按住才出底）。
     m_reveal->setAutoRaise(true);
@@ -52,7 +52,7 @@ AgentSecretEdit::AgentSecretEdit(QWidget *parent) : QWidget(parent) {
     const auto paintIcon = [this] {
         const bool shown = m_reveal->isChecked();
         m_reveal->setIcon(QIcon(VersionIcons::eye(18 * 2, Theme::tokens().secondary, shown)));
-        m_reveal->setToolTip(shown ? QStringLiteral("遮住密钥") : QStringLiteral("显示密钥（失焦后自动遮住）"));
+        m_reveal->setToolTip(shown ? tr("遮住密钥") : tr("显示密钥（失焦后自动遮住）"));
     };
     paintIcon();
     Theme::follow(m_reveal, paintIcon);
@@ -74,7 +74,5 @@ bool AgentSecretEdit::isRevealed() const { return m_edit->echoMode() == QLineEdi
 
 void AgentSecretEdit::setStoredKey(bool stored) {
     m_hasStored = stored;
-    m_edit->setPlaceholderText(
-        stored ? QStringLiteral("已保存（留空不修改）")
-               : QStringLiteral("尚未保存 API Key"));
+    m_edit->setPlaceholderText(stored ? tr("已保存（留空不修改）") : tr("尚未保存 API Key"));
 }

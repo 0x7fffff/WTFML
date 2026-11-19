@@ -164,7 +164,7 @@ QString SkinApi::failureText(const HttpClient::Reply &reply, const QString &what
     if (status == 401) {
         // 令牌不认了。**这句不说"重新登录"就够了吗**：不够 —— 用户多半刚换过账号或者
         // 令牌过期了，所以要说清是登录态那件事，而不是"权限不够"。
-        return tr("%1：登录令牌已经失效，重新登录一次再试。").arg(what);
+        return tr("%1：登录已失效，请重新登录后重试。").arg(what);
     }
     if (status == 403) {
         // 和登录那条路同一个口径：如果是"这个应用没被 Mojang 批准"，说那句能照着做的。
@@ -173,11 +173,11 @@ QString SkinApi::failureText(const HttpClient::Reply &reply, const QString &what
             return tr("%1：%2").arg(what, hint);
         }
         // NOTE: 授权码换来的令牌权限不够也会走到这儿（令牌是对的、但这个应用没被批准改皮肤）。
-        return tr("%1：服务器不接受这个应用的请求（HTTP 403）。").arg(what);
+        return tr("%1：服务器拒绝应用的请求（HTTP 403）。").arg(what);
     }
     if (status == 404) {
         // 官方对"这个账号没有档案"（比如没买游戏）回 404。
-        return tr("%1：这个账号没有可改的 Minecraft 档案（HTTP 404）。").arg(what);
+        return tr("%1：未找到可修改的 Minecraft 档案（HTTP 404）。").arg(what);
     }
     if (status == HttpClient::kStatusTooManyRequests) {
         // 429：限流。**不许走下面那条通用分支** —— 通用分支会把正文里那句

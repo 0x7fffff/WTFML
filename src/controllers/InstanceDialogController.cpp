@@ -1,4 +1,5 @@
 #include "controllers/PresetController.hpp"
+#include <QCoreApplication>
 #include <QElapsedTimer>
 #include "InstanceDialogController.hpp"
 #include "UpgradeAssessment.hpp"
@@ -91,7 +92,8 @@ void showSchematicDetails(OverlayHost *overlay, QWidget *parent, const QString &
     copy->setEnabled(false);
     QObject::connect(close, &QPushButton::clicked, &detail, &QDialog::reject);
     QObject::connect(copy, &QPushButton::clicked, &detail, [table] {
-        QStringList lines{QStringLiteral("方块\t数量")};
+        QStringList lines{table->horizontalHeaderItem(0)->text() + QLatin1Char('\t') +
+                          table->horizontalHeaderItem(1)->text()};
         for (int row = 0; row < table->rowCount(); ++row)
             if (!table->isRowHidden(row)) lines.append(table->item(row, 0)->text() + '\t' + table->item(row, 1)->text());
         QApplication::clipboard()->setText(lines.join('\n'));
@@ -604,7 +606,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                         if (!info.ok) {
                             // 读失败也占着这一格（用户刚点的那一行，总得听到一句为什么）。
                             schematics->setInfoText(
-                                path, QStringLiteral("读不出来：%1").arg(info.problem));
+                                path, tr("读取失败：%1").arg(info.problem));
                             return;
                         }
                         schematics->setInfoText(path,
@@ -744,7 +746,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                     const ReplayInfo::Info info = ReplayInfo::read(path);
                     if (!info.ok) {
                         dialog.setLifecycleInfoText(
-                            key, path, QStringLiteral("读不出来：%1").arg(info.problem));
+                            key, path, tr("读取失败：%1").arg(info.problem));
                         return;
                     }
                     dialog.setLifecycleInfoText(key, path, ReplayInfo::summaryText(info),
@@ -761,7 +763,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 const SchematicInfo::Info info = SchematicInfo::read(path);
                 if (!info.ok) {
                     dialog.setLifecycleInfoText(
-                        key, path, QStringLiteral("读不出来：%1").arg(info.problem));
+                        key, path, tr("读取失败：%1").arg(info.problem));
                     return;
                 }
                 dialog.setLifecycleInfoText(key, path,
@@ -802,11 +804,10 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
             const QString gameVersion = parts.realVersion.isEmpty() ? parts.id : parts.realVersion;
             QString label = m_owner->instanceDisplayName(id);
             if (label.isEmpty()) label = id;
-            label += QStringLiteral("（%1").arg(gameVersion);
             const QString loaderName =
                 InstancePagesController::loaderName(parts, m_owner->m_versionManager);
-            if (!loaderName.isEmpty()) label += QStringLiteral(" / %1").arg(loaderName);
-            label += QStringLiteral("）");
+            label = loaderName.isEmpty() ? tr("%1（%2）").arg(label, gameVersion)
+                                         : tr("%1（%2 / %3）").arg(label, gameVersion, loaderName);
             targets.append(qMakePair(label, id));
         }
         return targets;
@@ -839,7 +840,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 if (!item.exists) continue;  // 没有的东西不摆勾选框（正文里已经说了「没有」）
                 QString label = item.label;
                 if (item.fileCount > 0) {
-                    label += QStringLiteral(" / %1 个文件 / %2")
+                    label += tr(" / %1 个文件 / %2")
                                  .arg(item.fileCount)
                                  .arg(FileHash::fileSizeText(item.bytes));
                 }
@@ -962,7 +963,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                 }
                 if (keys.isEmpty()) {
                     InlineMessage::warning(m_owner->m_ui->overlay(), title,
-                                           tr("一项都没勾 —— 没有什么可搬的。"));
+                                           tr("未选中要迁移的项目。"));
                     return;
                 }
                 // 两个实例任何一个在跑都不能动：游戏开着的时候拷出来的是一份写到一半的
@@ -1090,10 +1091,8 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                         upgrade ? Tasks::TaskKind::Install : Tasks::TaskKind::Other);
                     caps.canCancel = false;
                     caps.cancelBlockedReason = upgrade
-                        ? tr("升级副本要先整棵复制、再逐文件搬并校验；中途停下会留下半份副本，"
-                             "这一项不支持取消。")
-                        : tr("迁移是一边搬一边记账的；中途停下会留下半搬的文件，"
-                             "这一项不支持取消（可以重新执行，已经搬过去的会跳过）。");
+                        ? tr("升级副本要先整棵复制、再逐文件搬并校验；中途停下会留下半份副本，这一项不支持取消。")
+                        : tr("迁移是一边搬一边记账的；中途停下会留下半搬的文件，这一项不支持取消（可以重新执行，已经搬过去的会跳过）。");
                     ledger->setCapabilities(taskId, caps);
                 }
                 const auto finishTask = [this, taskId](bool success, const QString &summary) {
@@ -1373,9 +1372,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                                 tr("「%1」要不要放进主页的快速启动区？").arg(entryName),
                                 {tr("保留原入口"), tr("创建新入口"), tr("不加入")}, 0, -1,
                                 false,
-                                tr("快速启动区显示的就是收藏的那几份；「保留原入口」保持"
-                                   "现在的样子，「不加入」会把原来那一条也收起来（以后随时"
-                                   "能再加回来）。"));
+                                tr("快速启动显示收藏的实例。「保留原入口」维持当前设置，「不加入」会移除现有入口，可随时恢复。"));
                             if (launchChoice == 1) {
                                 m_owner->pinInstance(entryId);
                             } else if (launchChoice == 2) {
@@ -2072,11 +2069,11 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                     if (m_owner->backupWorldLevelData(m_owner->m_worldDir, &why)) {
                         InlineMessage::information(
                             m_owner->m_ui->overlay(), tr("创建备份"),
-                            tr("已备份存档信息。手动还原时把备份复制到存档目录并命名为 level.dat。\n\n备份位置：%1")
+                            tr("已备份存档信息。手动还原时，将备份复制到存档目录并命名为 level.dat。\n\n备份位置：%1")
                                 .arg(QDir::toNativeSeparators(m_owner->latestWorldBackup(m_owner->m_worldDir))));
                     } else {
                         InlineMessage::warning(m_owner->m_ui->overlay(), tr("创建备份"),
-                                               tr("没能留成备份：%1").arg(why));
+                                               tr("备份创建失败：%1").arg(why));
                     }
                 });
         // 存档目录一定存在（这一格能开着就是刚从这个目录底下读出来的），所以**不 mkpath**
@@ -2165,8 +2162,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                         m_owner->installingVersionIds().contains(instanceId)) {
                         InlineMessage::warning(
                             m_owner->m_ui->overlay(), tr("删除世界"),
-                            tr("「%1」正在被另一项操作占用（安装、导入、复制、备份或还原），"
-                               "等它结束之后再删这个世界。")
+                            tr("「%1」正在被另一项操作占用（安装、导入、复制、备份或还原），等它结束之后再删这个世界。")
                                 .arg(m_owner->instanceDisplayName(instanceId)));
                         return;
                     }
@@ -2174,8 +2170,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                     // 用户几百 MB 的游玩记录删掉（和 `m_owner->deleteInstanceFile()` 一个方向）。
                     if (!InlineMessage::question(
                             m_owner->m_ui->overlay(), tr("删除世界"),
-                            tr("把「%1」连同里面的东西一起删掉？它们会进回收站，"
-                               "要恢复可以从那里找回来。")
+                            tr("把「%1」连同里面的东西一起删掉？它们会进回收站，要恢复可以从那里找回来。")
                                 .arg(worldName),
                             tr("删除"), tr("取消"), /*defaultYes=*/false,
                             /*destructive=*/true)) {
@@ -2249,7 +2244,7 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                     if (choice == 1) {
                         QString problem;
                         if (!m_owner->backupWorldLevelData(m_owner->m_worldDir, &problem)) {
-                            InlineMessage::warning(m_owner->m_ui->overlay(), tr("没能备份"), problem);
+                            InlineMessage::warning(m_owner->m_ui->overlay(), tr("备份创建失败"), problem);
                             // 备份没留成 ⇒ **不许接着改**（这一整套的前提正是"改坏了能
                             // 回去"，而这四格没有撤销）—— 和 `m_owner->saveWorldSettings()` 里
                             // "留不下就不写"同一条规矩。

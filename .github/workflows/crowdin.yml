@@ -1,0 +1,117 @@
+name: Crowdin
+
+on:
+  push:
+    branches: [i18n-phase1]
+  workflow_dispatch:
+
+concurrency:
+  group: crowdin-i18n-phase1
+
+jobs:
+  sync:
+    if: >-
+      github.ref == 'refs/heads/i18n-phase1' && vars.CROWDIN_PROJECT_ID != '' &&
+      (vars.CROWDIN_MODE == 'seed' || vars.CROWDIN_MODE == 'sync')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Sync catalogs with Crowdin
+        uses: crowdin/github-action@v3
+        with:
+          config: .github/crowdin.yml
+          upload_sources: true
+          upload_translations: ${{ vars.CROWDIN_MODE == 'seed' }}
+          upload_language: en-US
+          auto_approve_imported: false
+          import_eq_suggestions: true
+          download_translations: ${{ vars.CROWDIN_MODE == 'sync' }}
+          download_language: en-US
+          push_sources: false
+          push_translations: false
+          create_pull_request: false
+        env:
+          CROWDIN_PROJECT_ID: ${{ vars.CROWDIN_PROJECT_ID }}
+          CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
+
+      - name: Open translation review PR
+        if: vars.CROWDIN_MODE == 'sync'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          catalog=assets/i18n/wtfml_en.ts
+          if [[ -n $(git status --porcelain -- assets/i18n ":(exclude)$catalog") ]]; then
+            echo 'Unexpected file changes in assets/i18n' >&2
+            exit 1
+          fi
+          if git diff --quiet -- "$catalog"; then
+            exit 0
+          fi
+
+          python3 - <<'PY'
+          from collections import Counter
+          from pathlib import Path
+          import re
+          import subprocess
+          import xml.etree.ElementTree as ET
+
+          def read_catalog(data):
+              root = ET.fromstring(data)
+              rows = {}
+              for context in root.findall('context'):
+                  for message in context.findall('message'):
+                      key = (context.findtext('name'), message.findtext('source'), message.findtext('comment', ''))
+                      if key in rows:
+                          raise SystemExit(f'Duplicate Qt message: {key!r}')
+                      rows[key] = message.find('translation')
+              return root.get('language'), rows
+
+          path = 'assets/i18n/wtfml_en.ts'
+          _, source = read_catalog(Path('assets/i18n/wtfml_zh-CN.ts').read_bytes())
+          _, baseline = read_catalog(subprocess.check_output(['git', 'show', f'HEAD:{path}']))
+          language, exported = read_catalog(Path(path).read_bytes())
+          if language not in ('en_US', 'en-US') or exported.keys() != source.keys():
+              raise SystemExit('Crowdin export language or Qt message keys differ from the configured catalog')
+
+          def finished_text(translation):
+              if translation is None or translation.get('type') in ('unfinished', 'obsolete', 'vanished'):
+                  return ()
+              forms = translation.findall('numerusform') or [translation]
+              return tuple(''.join(form.itertext()) for form in forms if ''.join(form.itertext()).strip())
+
+          placeholders = re.compile(r'%L?\d+|%n')
+          for key, translation in exported.items():
+              original = key[1]
+              values = finished_text(translation)
+              previous = finished_text(baseline.get(key))
+              if previous and (not values or (values == (original,) and previous != values)):
+                  raise SystemExit(f'Crowdin export lost an existing translation: {key!r}')
+              expected = Counter(placeholders.findall(original))
+              if any(Counter(placeholders.findall(value)) != expected for value in values):
+                  raise SystemExit(f'Crowdin export changed Qt placeholders: {key!r}')
+          PY
+
+          branch="l10n/crowdin-$(git hash-object "$catalog")"
+          gh auth setup-git
+          remote_ref=$(git ls-remote --heads origin "$branch")
+          if [[ -z "$remote_ref" ]]; then
+            git switch --create "$branch"
+            git add -- "$catalog"
+            git -c user.name='github-actions[bot]' \
+              -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+              commit -m '同步 Crowdin 英文译文'
+            git push origin "HEAD:refs/heads/$branch"
+          fi
+
+          pr=$(gh pr list --base i18n-phase1 --head "$branch" --state all --json number --jq '.[0].number // empty')
+          if [[ -z "$pr" ]]; then
+            gh pr create --base i18n-phase1 --head "$branch" \
+              --title '审校 Crowdin 英文译文' \
+              --body '核对 Qt 上下文、占位符和英文界面后合并。'
+          fi

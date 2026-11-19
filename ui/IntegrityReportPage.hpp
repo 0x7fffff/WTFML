@@ -71,7 +71,7 @@ public:
     explicit IntegrityReportPage(QWidget *parent = nullptr);
 
     /// 这一页的标题（`OverlayHost::showPage` 顶上那一条写的字）。
-    static QString windowTitle() { return QStringLiteral("完整性检查"); }
+    static QString windowTitle() { return tr("完整性检查"); }
 
     void setReport(const Report &report);
 

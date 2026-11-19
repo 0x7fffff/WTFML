@@ -162,10 +162,10 @@ AuthManager::AuthManager(QObject *parent)
 // 两句写给玩家：账号页「正版」页签事先摆的就是它，刷新正版账号失败时也弹它。
 QString AuthManager::loginConfigurationError() {
     if (QString::fromLatin1(kClientId).trimmed().isEmpty()) {
-        return tr("这个版本暂时不能登录正版账号，可以先用离线账号进游戏。已保存的账号不会丢失。");
+        return tr("此版本未配置微软登录。已保存的账号仍会保留，可使用离线账号进入游戏。");
     }
     if (OAuthEndpoints::loopbackRedirectBase(QString::fromLatin1(kRedirectBase)).isEmpty()) {
-        return tr("这个版本的正版登录暂时用不了，可以先用离线账号进游戏。");
+        return tr("此版本的微软登录配置有误。可使用离线账号进入游戏。");
     }
     return {};
 }
@@ -220,8 +220,7 @@ bool AuthManager::loginMicrosoft() {
             // 走 loginFailed 而不是自己憋着：界面就是靠它把几个按钮放回可点状态的。
             // NOTE: 这句**不许点名某个按钮**：用户手上看到的文案会变，
             // 这里只说下一步做什么。
-            emit loginFailed(tr("登录没有完成（等了 %1 分钟，浏览器那头一直没回来）。\n"
-                                "再试一次，或者检查一下网络和代理设置。")
+            emit loginFailed(tr("等待浏览器返回授权结果超过 %1 分钟，登录已超时。\n请重新登录，或检查网络和代理设置。")
                                  .arg(kLoginTimeoutMinutes));
         });
     }
@@ -297,7 +296,7 @@ bool AuthManager::refreshMinecraftToken(QString *errorMessage) {
     const QString refreshToken = loadMicrosoftTokenData().value("refresh_token").toString();
     SecretRedactor::remember(refreshToken);
     if (refreshToken.isEmpty()) {
-        return fail(tr("还没有登录过，或者登录信息已经不完整了。"));
+        return fail(tr("未找到完整的登录信息，请重新登录。"));
     }
     const QString refreshUuid = AccountStore::activeUuid();
 
@@ -389,8 +388,7 @@ QString AuthManager::oauthErrorText(const QString &code, const QString &descript
     // 见头文件那条 NOTE：这张 refresh_token 属于**另一个应用**，换不出来是必然的，
     // 重试没有意义。说清"只能重新登录"，别让用户去查网络或者账号。
     if (description.contains(QStringLiteral("AADSTS70000"), Qt::CaseInsensitive)) {
-        return tr("%1：这份登录凭据是另一个应用签发的，当前这个应用换不了它（AADSTS70000）。\n"
-                  "重新登录一次就会作废旧的、存下新的，重试没有用。")
+        return tr("%1：登录凭据由另一个应用签发（AADSTS70000）。\n请重新登录以获取当前应用的凭据。")
             .arg(what);
     }
 
@@ -407,18 +405,16 @@ QString AuthManager::xstsErrorMessage(qint64 xerr) {
     // NOTE: 参数是 qint64：这些码超过 int 的范围（2148916233 > 2^31-1）。
     switch (xerr) {
         case 2148916227LL:
-            return tr("该微软账号已被 Xbox Live 封禁，请更换账号登录。");
+            return tr("此微软账号已被 Xbox Live 封禁，请更换账号。");
         case 2148916233LL:
-            return tr("该微软账号尚未注册 Xbox 档案，无法获取 Minecraft 令牌。\n"
-                      "请用同一账号在 xbox.com 登录一次（会提示创建档案），然后重试。");
+            return tr("此微软账号尚未创建 Xbox 档案。\n请使用同一账号在 xbox.com 创建档案，再重新登录。");
         case 2148916235LL:
-            return tr("该微软账号所在国家或地区不支持 Xbox Live。\n"
-                      "请更换账号，或修改账号的国家或地区设置。");
+            return tr("Xbox Live 在此微软账号所属的国家或地区不可用。\n请更换账号，或检查微软账号的地区设置。");
         case 2148916236LL:
         case 2148916237LL:
-            return tr("该微软账号需先在 Xbox 官网完成成人验证后才能登录。");
+            return tr("此账号需要验证年龄。请在 Xbox 官网完成成人验证后重新登录。");
         case 2148916238LL:
-            return tr("该账号为未成年账号，需由家长将其加入 Microsoft 家庭组后才能登录。");
+            return tr("此账号需要监护人授权。请由监护人将其加入 Microsoft 家庭组后重新登录。");
         default:
             return tr("XSTS 授权失败（错误码 %1）。").arg(xerr);
     }
@@ -432,10 +428,7 @@ QString AuthManager::appRegistrationHint(const QString &bodyMessage) {
         return QString();
     }
 
-    return tr("这个 Azure 应用还没有被 Mojang 批准调用 Minecraft 接口，所以换不出 Minecraft 令牌。\n"
-              "账号本身没问题（Xbox Live 认证和 XSTS 授权都过了），不用换账号、也不用重登。\n"
-              "拿这个应用的 App ID（客户端 ID）到 https://aka.ms/mce-reviewappid 提交申请，"
-              "批准之后同一个账户就能登录。");
+    return tr("该 Azure 应用尚未获准访问 Minecraft 登录服务。\n请由应用管理员在 https://aka.ms/mce-reviewappid 提交应用程序（客户端）ID。获批后可使用同一账号重新登录。");
 }
 
 void AuthManager::handleNewConnection() {
@@ -526,7 +519,7 @@ void AuthManager::processCallbackRequest(QTcpSocket *socket, const QByteArray &r
             runMinecraftChain(microsoftToken, &failureMessage)) {
             success = true;
             responseHtml =
-                tr("<html><body><h1>登录成功</h1><p>你可以关闭此窗口。</p></body></html>");
+                tr("<html><body><h1>登录成功</h1><p>可关闭此窗口。</p></body></html>");
         } else {
             responseHtml = tr("<html><body><h1>登录失败</h1><p>%1</p></body></html>")
                                .arg(failureMessage.toHtmlEscaped());
@@ -629,8 +622,7 @@ void AuthManager::processCallbackRequest(QTcpSocket *socket, const QByteArray &r
             TokenStore::clear(TokenStore::microsoftKey());
             m_microsoftTokenOverwritten = false;
             qWarning().noquote()
-                << "这一趟登录换了账号但没换到底，已把盘上的微软令牌一并清掉（下次启动不会"
-                   "再拿它续成别人的登录）。";
+                << QCoreApplication::translate("AuthManager", "账号切换未完成。已清除本次登录获取的微软令牌，请重新登录。");
         }
         const QString activeAfterFailure = AccountStore::activeUuid();
         if (!AccountStore::isOffline(activeAfterFailure)) {
@@ -671,7 +663,7 @@ bool AuthManager::exchangeAuthorizationCode(const QString &code, QString *access
                  QByteArray());
 
     if (!result.ok()) {
-        *errorMessage = oauthFailureText(result, tr("换取微软令牌失败"));
+        *errorMessage = oauthFailureText(result, tr("获取微软登录令牌失败"));
         return false;
     }
 
@@ -713,7 +705,7 @@ bool AuthManager::exchangeAuthorizationCode(const QString &code, QString *access
     TokenStore::clear(TokenStore::minecraftKey());
 
     if (!storeMicrosoftTokenData(result.json)) {
-        *errorMessage = tr("登录信息保存失败（写不进配置文件）。");
+        *errorMessage = tr("无法写入启动器设置，登录信息未保存。");
         return false;
     }
     // 从这一句起，盘上的微软槽已经是**新账号**的了。这一趟后面还有
@@ -724,7 +716,7 @@ bool AuthManager::exchangeAuthorizationCode(const QString &code, QString *access
 
     *accessToken = result.json.value("access_token").toString();
     if (accessToken->isEmpty()) {
-        *errorMessage = tr("微软的响应里没有令牌。");
+        *errorMessage = tr("微软登录服务未返回令牌。");
         return false;
     }
     return true;
@@ -740,7 +732,7 @@ bool AuthManager::requestMicrosoftTokenRefresh(const QString &refreshToken, QStr
     }
     SecretRedactor::remember(refreshToken);
     if (refreshToken.isEmpty()) {
-        *errorMessage = tr("没有可用的刷新凭据，请重新登录。");
+        *errorMessage = tr("登录凭据无法续期，请重新登录。");
         return false;
     }
 
@@ -766,17 +758,17 @@ bool AuthManager::requestMicrosoftTokenRefresh(const QString &refreshToken, QStr
         tokenData.insert(QStringLiteral("refresh_token"), refreshToken);
     }
     if (!expectedActiveUuid.isEmpty() && AccountStore::activeUuid() != expectedActiveUuid) {
-        *errorMessage = tr("刷新登录时切换了账号，本次刷新已作废（磁盘上的登录信息未改动）。");
+        *errorMessage = tr("刷新期间切换了账号，已取消刷新，原有登录信息已保留。");
         return false;
     }
     if (!storeMicrosoftTokenData(tokenData)) {
-        *errorMessage = tr("登录信息保存失败（写不进配置文件）。");
+        *errorMessage = tr("无法写入启动器设置，登录信息未保存。");
         return false;
     }
 
     *accessToken = tokenData.value("access_token").toString();
     if (accessToken->isEmpty()) {
-        *errorMessage = tr("微软的响应里没有令牌。");
+        *errorMessage = tr("微软登录服务未返回令牌。");
         return false;
     }
     return true;
@@ -810,11 +802,11 @@ bool AuthManager::runMinecraftChain(const QString &microsoftAccessToken, QString
     }
 
     if (!expectedActiveUuid.isEmpty() && AccountStore::activeUuid() != expectedActiveUuid) {
-        *errorMessage = tr("刷新登录时切换了账号，本次刷新已作废（磁盘上的登录信息未改动）。");
+        *errorMessage = tr("刷新期间切换了账号，已取消刷新，原有登录信息已保留。");
         return false;
     }
     if (!storeMinecraftTokenData(mcToken, expiresIn, name, uuid)) {
-        *errorMessage = tr("登录信息保存失败（写不进配置文件）。");
+        *errorMessage = tr("无法写入启动器设置，登录信息未保存。");
         return false;
     }
     return true;
@@ -848,7 +840,7 @@ bool AuthManager::requestXboxLiveToken(const QString &microsoftAccessToken, QStr
     *xblToken = result.json.value(QStringLiteral("Token")).toString();
     *userHash = firstUserHash(result.json);
     if (xblToken->isEmpty() || userHash->isEmpty()) {
-        *errorMessage = tr("Xbox Live 认证的响应里没有令牌。");
+        *errorMessage = tr("Xbox Live 未返回认证令牌。");
         return false;
     }
     return true;
@@ -886,7 +878,7 @@ bool AuthManager::requestXstsToken(const QString &xblToken, QString *xstsToken, 
         *userHash = hash;
     }
     if (xstsToken->isEmpty() || userHash->isEmpty()) {
-        *errorMessage = tr("XSTS 授权的响应里没有令牌。");
+        *errorMessage = tr("Xbox 未返回 XSTS 授权令牌。");
         return false;
     }
     return true;
@@ -917,7 +909,7 @@ bool AuthManager::requestMinecraftToken(const QString &userHash, const QString &
     *mcToken = result.json.value(QStringLiteral("access_token")).toString();
     *expiresIn = result.json.value(QStringLiteral("expires_in")).toInt(0);
     if (mcToken->isEmpty()) {
-        *errorMessage = tr("Minecraft 服务的响应里没有令牌。");
+        *errorMessage = tr("Minecraft 登录服务未返回令牌。");
         return false;
     }
     return true;
@@ -931,8 +923,7 @@ bool AuthManager::fetchPlayerProfile(const QString &mcToken, QString *name, QStr
     // 404 在这一步的意思很具体：令牌是好的，但这个账户没买过 Minecraft（或者买游戏的是
     // 另一个账户）。这条要单独说 —— 否则用户看到的是"登录失败"，会以为是密码或者网络问题。
     if (result.status == 404) {
-        *errorMessage = tr("该微软账号未购买 Minecraft，无法获取游戏档案。\n"
-                           "请更换已购买游戏的账号登录。");
+        *errorMessage = tr("此微软账号没有 Minecraft 游戏档案。\n请使用已购买游戏且已创建档案的账号登录。");
         return false;
     }
     if (!result.ok()) {
@@ -943,7 +934,7 @@ bool AuthManager::fetchPlayerProfile(const QString &mcToken, QString *name, QStr
     *name = result.json.value(QStringLiteral("name")).toString();
     *uuid = result.json.value(QStringLiteral("id")).toString();
     if (name->isEmpty() || uuid->isEmpty()) {
-        *errorMessage = tr("游戏档案里没有玩家名。");
+        *errorMessage = tr("Minecraft 游戏档案缺少玩家名称。");
         return false;
     }
     return true;

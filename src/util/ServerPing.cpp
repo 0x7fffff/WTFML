@@ -5,6 +5,7 @@
 #include "ServerPing.hpp"
 
 #include <QAbstractSocket>
+#include <QCoreApplication>
 #include <QDnsLookup>
 #include <QElapsedTimer>
 #include <QEventLoop>
@@ -382,14 +383,14 @@ SrvOutcome lookupSrv(const QString &host, int budgetMs) {
     }
 
     if (timedOut) {
-        outcome.error = QStringLiteral("SRV 查询超时");
+        outcome.error = QCoreApplication::translate("ServerPing", "SRV 查询超时");
         return outcome;
     }
     if (lookup.error() != QDnsLookup::NoError) {
         if (lookup.error() == QDnsLookup::NotFoundError) {
-            outcome.error = QStringLiteral("没有 SRV 记录");
+            outcome.error = QCoreApplication::translate("ServerPing", "没有 SRV 记录");
         } else {
-            outcome.error = QStringLiteral("SRV 查询失败");
+            outcome.error = QCoreApplication::translate("ServerPing", "SRV 查询失败");
         }
         return outcome;
     }
@@ -407,7 +408,7 @@ SrvOutcome lookupSrv(const QString &host, int budgetMs) {
     }
     SrvRecord picked;
     if (!pickSrvRecord(candidates, QRandomGenerator::global()->generate(), &picked)) {
-        outcome.error = QStringLiteral("没有能用的 SRV 记录");
+        outcome.error = QCoreApplication::translate("ServerPing", "没有能用的 SRV 记录");
         return outcome;
     }
     outcome.found = true;
@@ -459,25 +460,25 @@ Resolution resolve(const QString &text, int budgetMs) {
 QString kindName(Kind kind) {
     switch (kind) {
     case Kind::Ok:
-        return QStringLiteral("通了");
+        return QCoreApplication::translate("ServerPing", "通了");
     case Kind::InvalidAddress:
-        return QStringLiteral("地址看不懂");
+        return QCoreApplication::translate("ServerPing", "服务器地址格式无效");
     case Kind::HostNotFound:
-        return QStringLiteral("找不到主机");
+        return QCoreApplication::translate("ServerPing", "找不到主机");
     case Kind::Refused:
-        return QStringLiteral("连接被拒");
+        return QCoreApplication::translate("ServerPing", "连接被拒");
     case Kind::Unreachable:
-        return QStringLiteral("网络不通");
+        return QCoreApplication::translate("ServerPing", "网络不通");
     case Kind::NoAnswer:
-        return QStringLiteral("没有回话");
+        return QCoreApplication::translate("ServerPing", "没有回话");
     case Kind::ConnectionLost:
-        return QStringLiteral("连接断了");
+        return QCoreApplication::translate("ServerPing", "连接断了");
     case Kind::Protocol:
-        return QStringLiteral("应答看不懂");
+        return QCoreApplication::translate("ServerPing", "服务器响应格式无效");
     case Kind::Other:
-        return QStringLiteral("其余");
+        return QCoreApplication::translate("ServerPing", "其余");
     }
-    return QStringLiteral("其余");
+    return QCoreApplication::translate("ServerPing", "其余");
 }
 
 Kind kindForSocketError(int socketError) {
@@ -648,18 +649,18 @@ QByteArray decodeFavicon(const QString &dataUrl) {
 QString connectionErrorText(int socketError) {
     switch (static_cast<QAbstractSocket::SocketError>(socketError)) {
     case QAbstractSocket::ConnectionRefusedError:
-        return QStringLiteral("连接被拒绝");
+        return QCoreApplication::translate("ServerPing", "连接被拒绝");
     case QAbstractSocket::HostNotFoundError:
-        return QStringLiteral("找不到主机");
+        return QCoreApplication::translate("ServerPing", "找不到主机");
     case QAbstractSocket::SocketTimeoutError:
     case QAbstractSocket::NetworkError:
-        return QStringLiteral("连接超时");
+        return QCoreApplication::translate("ServerPing", "连接超时");
     case QAbstractSocket::RemoteHostClosedError:
-        return QStringLiteral("连接已断开");
+        return QCoreApplication::translate("ServerPing", "连接已断开");
     case QAbstractSocket::SocketAccessError:
-        return QStringLiteral("连接受限");
+        return QCoreApplication::translate("ServerPing", "连接受限");
     default:
-        return QStringLiteral("连接失败");
+        return QCoreApplication::translate("ServerPing", "连接失败");
     }
 }
 
@@ -690,7 +691,8 @@ Status ping(const QString &address) {
     status.srvUsed = resolved.srvUsed;
     if (!resolved.valid) {
         status.kind = Kind::InvalidAddress;
-        status.error = QStringLiteral("这个地址看不懂（要写成 主机名:端口，不写端口就是 25565）");
+        status.error =
+            QCoreApplication::translate("ServerPing", "服务器地址格式无效。请输入主机名和端口，省略端口时使用 25565。");
         return status;
     }
     const Address target = resolved.address;
@@ -724,7 +726,7 @@ Status ping(const QString &address) {
     socket.write(packet(requestBody));
     if (!socket.waitForBytesWritten(left())) {
         status.kind = Kind::ConnectionLost;
-        status.error = QStringLiteral("发不出去（连接刚建立就断了）");
+        status.error = QCoreApplication::translate("ServerPing", "发不出去（连接刚建立就断了）");
         return status;
     }
 
@@ -740,14 +742,15 @@ Status ping(const QString &address) {
             if (readVarInt(buffer, &offset, &size)) {
                 if (size < 0 || size > kMaxPacketBytes) {
                     status.kind = Kind::Protocol;
-                    status.error = QStringLiteral("服务器答的包看不懂（长度不对）");
+                    status.error = QCoreApplication::translate("ServerPing", "服务器响应长度无效");
                     return status;
                 }
                 bodyStart = offset;
                 need = offset + size;
             } else if (buffer.size() > 5) {
                 status.kind = Kind::Protocol;
-                status.error = QStringLiteral("服务器答的包看不懂（开头不是一个长度）");
+                status.error =
+                    QCoreApplication::translate("ServerPing", "服务器响应缺少有效的长度字段");
                 return status;
             }
         }
@@ -763,7 +766,7 @@ Status ping(const QString &address) {
             if (socket.error() == QAbstractSocket::SocketTimeoutError ||
                 socket.error() == QAbstractSocket::UnknownSocketError) {
                 status.kind = Kind::NoAnswer;
-                status.error = QStringLiteral("超时（连上了，但服务器没有回答）");
+                status.error = QCoreApplication::translate("ServerPing", "超时（连上了，但服务器没有回答）");
                 status.timedOut = true;
             } else {
                 status.kind = kindForSocketError(socket.error());
@@ -779,7 +782,7 @@ Status ping(const QString &address) {
     int packetId = 0;
     if (!readVarInt(buffer, &pos, &packetId) || packetId != 0x00) {
         status.kind = Kind::Protocol;
-        status.error = QStringLiteral("服务器答的不是状态包");
+        status.error = QCoreApplication::translate("ServerPing", "服务器答的不是状态包");
         return status;
     }
     int jsonLength = 0;
@@ -789,13 +792,13 @@ Status ping(const QString &address) {
     if (!readVarInt(buffer, &pos, &jsonLength) || jsonLength < 0
         || jsonLength > buffer.size() - pos) {
         status.kind = Kind::Protocol;
-        status.error = QStringLiteral("服务器答的包看不懂（正文长度不对）");
+        status.error = QCoreApplication::translate("ServerPing", "服务器响应的正文长度无效");
         return status;
     }
     const QJsonDocument document = QJsonDocument::fromJson(buffer.mid(pos, jsonLength));
     if (!document.isObject()) {
         status.kind = Kind::Protocol;
-        status.error = QStringLiteral("服务器答的不是一段 JSON");
+        status.error = QCoreApplication::translate("ServerPing", "服务器答的不是一段 JSON");
         return status;
     }
     const QJsonObject root = document.object();

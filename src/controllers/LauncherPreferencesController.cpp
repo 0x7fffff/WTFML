@@ -73,7 +73,7 @@ void LauncherPreferencesController::downloadProxyModeChanged() {
     case DownloadProxy::Mode::Manual:
         log(tr("网络：使用手动指定的代理（%1）。")
                 .arg(m_settings->proxyManualText().isEmpty()
-                         ? tr("地址还没填，暂时仍按系统代理走")
+                         ? tr("未填写代理地址，当前使用系统代理。")
                          : m_settings->proxyManualText()));
         break;
     case DownloadProxy::Mode::System:
@@ -101,7 +101,7 @@ void LauncherPreferencesController::downloadProxyManualChanged() {
         return;
     }
     if (text.isEmpty()) {
-        log(tr("网络：手动代理的地址还空着，暂时仍按系统代理走。"));
+        log(tr("手动代理地址未填写，暂时使用系统代理。"));
         return;
     }
     if (DownloadProxy::parseManual(text, &endpoint)) {
@@ -115,7 +115,7 @@ void LauncherPreferencesController::downloadProxyManualChanged() {
 void LauncherPreferencesController::downloadAutoIntoInstanceChanged() {
     const bool on = m_ui->getDownloadAutoIntoInstanceCheck()->isChecked();
     m_settings->setDownloadAutoIntoInstance(on);
-    log(on ? tr("下载：从实例设置里点「下载新模组」时不再问存哪儿，直接放进该实例。")
+    log(on ? tr("从实例设置下载的模组将直接保存到该实例。")
            : tr("下载：不管从哪儿点进来的，每次都会问存哪儿。"));
 }
 
@@ -123,7 +123,7 @@ void LauncherPreferencesController::warnMissingDependenciesChanged() {
     const bool on = m_ui->getWarnMissingDependenciesCheck()->isChecked();
     m_settings->setWarnMissingDependencies(on);
     log(on ? tr("下载：点下载模组 / 光影包时会先检查那个实例缺不缺前置。")
-           : tr("下载：不再检查前置，只下你点的那一版。"));
+           : tr("仅下载所选版本，跳过依赖检查。"));
 }
 
 void LauncherPreferencesController::showGameLogChanged() {

@@ -71,7 +71,7 @@ void MainWindow::repairInstanceFiles(const QString &versionId) {
     // 不弹一次"确定吗"：这颗按钮自己就是那一下确认（它写着"开始检查…"，下面那句说明也把
     // 要干的事说全了），再问一遍只是让用户多点一次。真的会花时间的地方在底栏那根进度条上。
     const QStringList flagged = m_integrityController->flaggedPaths(versionId);
-    appendLog(tr("开始校验「%1」的文件（已存在的会跳过）...").arg(instanceDisplayName(versionId)));
+    appendLog(tr("正在校验「%1」的文件，跳过已存在的文件…").arg(instanceDisplayName(versionId)));
     // 顺序：**先记名字再置忙**。setDownloadUiBusy() 里那句 refreshInstalledVersions() 读的
     // 就是这个判据（正在补全的实例不该出现在启动列表里），反过来的话它漏得出那一次刷新。
     m_installOccupancy.setBatch(InstallOccupancy::Batch::Repair, versionId);
@@ -92,16 +92,15 @@ void MainWindow::maybePrefetchAssetDirector(const QString &versionId) {
     }
     if (!plan.refusal.isEmpty()) {
         // 超上限：说清是哪套、多大，一个字节都不下。这条只在真的点了导入时出现。
-        appendLog(TextMarks::failed(tr("「%1」的首启资源没有预取：%2"))
+        appendLog(TextMarks::failed(tr("未预取「%1」的首次启动资源：%2"))
                       .arg(instanceDisplayName(versionId), plan.refusal));
-        InlineMessage::warning(m_ui->overlay(), tr("首启资源没有预取"),
-                               tr("「%1」的首启资源没有预取：\n\n%2\n\n"
-                                  "不影响启动。游戏首次运行时将自动补全资源。")
+        InlineMessage::warning(m_ui->overlay(), tr("未预取首次启动资源"),
+                               tr("未预取「%1」的首次启动资源。\n\n%2\n\n游戏可正常启动，并会在首次运行时下载缺失资源。")
                                    .arg(instanceDisplayName(versionId), plan.refusal));
         return;
     }
     if (plan.upToDate) {
-        appendLog(tr("「%1」首启资源已完整（%2 个对象），跳过下载。")
+        appendLog(tr("「%1」的首次启动资源已齐全（%2 项），本次无需下载。")
                       .arg(instanceDisplayName(versionId))
                       .arg(plan.objects));
         return;
@@ -109,14 +108,14 @@ void MainWindow::maybePrefetchAssetDirector(const QString &versionId) {
     // 三道守卫：这个实例（或别的批次）正忙就不抢批次状态。数据层那边还会再挡一次。
     if (m_downloadInFlight || m_versionManager->isDownloading()
         || m_installOccupancy.anyModifying()) {
-        appendLog(tr("「%1」的首启资源这次没有预取（有别的下载或安装正在进行）。")
+        appendLog(tr("其他下载或安装正在运行，已跳过「%1」的首次启动资源预取。")
                       .arg(instanceDisplayName(versionId)));
         return;
     }
     // 顺序：**先记名字再置忙**（`DownloadTaskLedgerController::begin()` 的判据就是这几个 id）。
     m_installOccupancy.setBatch(InstallOccupancy::Batch::Prefetch, versionId);
     setDownloadUiBusy(true);
-    appendLog(tr("正在预取「%1」的 GTNH 首启资源（%2 个对象，预计 %3 MiB，写入 %4）…")
+    appendLog(tr("正在预取「%1」的 GTNH 首次启动资源（%2 项，预计 %3 MiB，保存到 %4）…")
                   .arg(instanceDisplayName(versionId))
                   .arg(plan.objects)
                   .arg(plan.bytesToDownload / (1024.0 * 1024.0), 0, 'f', 1)

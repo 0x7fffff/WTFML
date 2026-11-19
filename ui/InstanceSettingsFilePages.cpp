@@ -7,6 +7,7 @@
  */
 
 #include "InstanceSettingsDialog.hpp"
+#include <QCoreApplication>
 #include "ResourcePackPage.hpp"
 #include "WheelSafeComboBox.hpp"
 

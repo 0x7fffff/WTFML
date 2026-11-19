@@ -3,6 +3,7 @@
  * @brief 实现服务端进程集合与信号汇聚。
  */
 #include "controllers/ServerWorkspaceController.hpp"
+#include <QCoreApplication>
 
 #include <algorithm>
 
@@ -78,8 +79,7 @@ ServerInstall::Plan ServerWorkspaceController::launchPlan(const QString &serverI
     const ServerModel::Info info = ServerRegistry::readMeta(serverId);
     if (info.isEmpty()) {
         if (problem != nullptr) {
-            *problem = QStringLiteral("服务端安装记录缺失，无法确定启动参数。"
-                                      "请检查启动文件，或通过启动器重新创建服务端。");
+            *problem = QCoreApplication::translate("ServerWorkspaceController", "服务端安装记录缺失，无法确定启动参数。请检查启动文件，或通过启动器重新创建服务端。");
         }
         return {};
     }

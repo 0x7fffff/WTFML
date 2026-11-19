@@ -1,4 +1,5 @@
 #include "DownloadManager.hpp"
+#include <QCoreApplication>
 #include "DownloadCheckpoint.hpp"
 #include "ResumableDownload.hpp"
 #include <QSignalBlocker>
@@ -100,15 +101,15 @@ std::function<QString()> DownloadManager::checkpointGuard(const QString &path) c
             const auto original = verified.value();
             return [path, original] {
                 return DownloadCheckpoint::fingerprint(path) == original ? QString()
-                    : QStringLiteral("下载期间目标已变化，未覆盖，请重新预览：%1").arg(path);
+                    : QCoreApplication::translate("DownloadManagerRecovery", "下载期间目标已变化，未覆盖，请重新预览：%1").arg(path);
             };
         }
         const auto &entry = *found;
-        if (!DownloadCheckpoint::unchanged(entry)) return [path] { return QStringLiteral("目标已被外部修改，未覆盖：%1").arg(path); };
+        if (!DownloadCheckpoint::unchanged(entry)) return [path] { return QCoreApplication::translate("DownloadManagerRecovery", "目标已被外部修改，未覆盖：%1").arg(path); };
         const auto original = DownloadCheckpoint::fingerprint(path);
         return [path, original] {
             return !original.isEmpty() && DownloadCheckpoint::fingerprint(path) == original ? QString()
-                : QStringLiteral("下载期间目标已变化，未覆盖，请重新预览：%1").arg(path);
+                : QCoreApplication::translate("DownloadManagerRecovery", "下载期间目标已变化，未覆盖，请重新预览：%1").arg(path);
         };
     }
     return m_commitGuard;

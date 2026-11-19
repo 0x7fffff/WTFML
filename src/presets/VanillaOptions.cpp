@@ -568,8 +568,7 @@ OptionsApplyResult applyOptions(SectionKind kind, const OptionsFile &target,
         result.bytes = target.toBytes();
         result.report.needsConfirm = true;
         result.report.problem =
-            QCoreApplication::translate("Presets", "「覆盖」会把目标上这一类的设置整个换成预设里"
-                                                   "那些，需要先确认过才动手。");
+            QCoreApplication::translate("Presets", "覆盖将用预设替换目标中的同类配置。确认后执行。");
         return result;
     }
 
