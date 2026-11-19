@@ -135,7 +135,7 @@ using RowActionHandler = std::function<void(const QString &key, RowAction action
 /// 「清除已完成」被点了。**清完由调用方让面板刷新一次**（refresh()），面板不知道账本在哪。
 using ClearFinishedHandler = std::function<void()>;
 
-/// 左栏里的一份运行中实例。复用底栏实例面板已经算好的标题、时长、图标和动作。
+/// 左栏里的一份运行中进程（客户端会话或服务端进程）。复用底栏面板已经算好的标题、时长、图标和动作。
 struct RunningAction {
     QPixmap icon;
     QString text;

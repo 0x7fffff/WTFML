@@ -997,6 +997,7 @@ void MainWindow::onServerForceKillAvailable(const QString &serverId) {
     // 得有个说法）—— 页不在就不做，判据在控制器里。
     m_serverConsole->announceForceKill(serverId, seconds);
     updateServerRow(serverId);
+    updateBottomBarRunState();
 }
 
 int MainWindow::countServerMods(const QString &dirPath) {

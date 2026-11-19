@@ -1152,7 +1152,7 @@ MainWindow::MainWindow(QWidget *parent)
                 return rows;
             }
             return runningGamePanelRows(
-                m_launcherManager->runningGames(), m_versionManager,
+                runningProcessEntries(), m_versionManager,
                 // 图标那一档颜色 = 底栏那几行字的墨色（画的图标不带自己的颜色）。
                 m_ui->getBottomBar()->palette().color(QPalette::WindowText),
                 QDateTime::currentMSecsSinceEpoch(),

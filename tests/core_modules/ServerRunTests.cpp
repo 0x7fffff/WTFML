@@ -1,4 +1,5 @@
 #include "Support.hpp"
+#include "launcher/RunningProcesses.hpp"
 
 void runServerRunTests() {
     section("ZZ. 服务端跑起来 / 停下来：命令怎么拼、起来没有、宽限多久");
@@ -440,6 +441,80 @@ void runServerRunTests() {
             check(done.size() == 1 && done.first() == QStringLiteral("no newline yet"),
                   "★ ZZ5 行尾终于到了 ⇒ 攒着的那些一次性成行", done.join(QLatin1Char('|')));
         }
+    }
+
+    // ---------- ZZ6. 运行中进程混排（客户端 + 服务端）、计数与 key 区分 ----------
+    {
+        // 数字目录名的服务端不能和客户端会话号相撞
+        const QString serverKey = RunningProcesses::makeServerKey(QStringLiteral("1"));
+        check(serverKey != QStringLiteral("1"),
+              "ZZ6 服务端面板行 key 带前缀，数字目录名不与客户端会话号相撞", serverKey);
+        QString parsed;
+        check(RunningProcesses::parseServerKey(serverKey, &parsed) && parsed == QStringLiteral("1"),
+              "ZZ6 服务端 key 可反解回原 serverId", parsed);
+        check(!RunningProcesses::parseServerKey(QStringLiteral("1"), &parsed)
+                  && !RunningProcesses::parseServerKey(RunningProcesses::serverKeyPrefix(), &parsed),
+              "ZZ6 客户端会话号与空 serverId 不被误判为服务端 key");
+
+        RunningProcesses::Entry c1;
+        c1.kind = RunningProcesses::Entry::Kind::Client;
+        c1.sessionId = 1;
+        c1.key = QStringLiteral("1");
+        c1.displayName = QStringLiteral("1.20.1");
+        c1.startedAtMs = 1000;
+
+        RunningProcesses::Entry s1;
+        s1.kind = RunningProcesses::Entry::Kind::Server;
+        s1.serverId = QStringLiteral("survival");
+        s1.key = RunningProcesses::makeServerKey(s1.serverId);
+        s1.displayName = QStringLiteral("生存服");
+        s1.startedAtMs = 2000;
+
+        RunningProcesses::Entry c2;
+        c2.kind = RunningProcesses::Entry::Kind::Client;
+        c2.sessionId = 2;
+        c2.key = QStringLiteral("2");
+        c2.displayName = QStringLiteral("1.21.4");
+        c2.startedAtMs = 3000;
+
+        RunningProcesses::Entry s2;
+        s2.kind = RunningProcesses::Entry::Kind::Server;
+        s2.serverId = QStringLiteral("creative");
+        s2.key = RunningProcesses::makeServerKey(s2.serverId);
+        s2.displayName = QStringLiteral("创造服");
+        s2.startedAtMs = 2500;
+
+        QList<RunningProcesses::Entry> mixed{c1, s1, c2, s2};
+        check(RunningProcesses::totalCount(mixed) == 4
+                  && RunningProcesses::totalCount(2, 2) == 4
+                  && RunningProcesses::totalCount(0, 1) == 1
+                  && RunningProcesses::totalCount(0, 0) == 0,
+              "ZZ6 进程合计数按客户端 + 服务端总和计算");
+
+        RunningProcesses::sortNewestFirst(mixed);
+        check(mixed.size() == 4
+                  && mixed.at(0).key == QStringLiteral("2")
+                  && mixed.at(1).key == RunningProcesses::makeServerKey(QStringLiteral("creative"))
+                  && mixed.at(2).key == RunningProcesses::makeServerKey(QStringLiteral("survival"))
+                  && mixed.at(3).key == QStringLiteral("1"),
+              "★★ ZZ6 客户端与服务端按启动时间倒序混排（最新启动的排在最上面）",
+              QStringLiteral("%1 > %2 > %3 > %4")
+                  .arg(mixed.value(0).key, mixed.value(1).key,
+                       mixed.value(2).key, mixed.value(3).key));
+
+        // 同一毫秒内的两个客户端按更大 sessionId 排前（后启动的排上面）
+        RunningProcesses::Entry cSameA = c1;
+        cSameA.sessionId = 5;
+        cSameA.key = QStringLiteral("5");
+        cSameA.startedAtMs = 5000;
+        RunningProcesses::Entry cSameB = c1;
+        cSameB.sessionId = 8;
+        cSameB.key = QStringLiteral("8");
+        cSameB.startedAtMs = 5000;
+        QList<RunningProcesses::Entry> sameMs{cSameA, cSameB};
+        RunningProcesses::sortNewestFirst(sameMs);
+        check(sameMs.at(0).sessionId == 8 && sameMs.at(1).sessionId == 5,
+              "ZZ6 同毫秒启动的两个客户端按后发起的 sessionId 排在上面");
     }
 }
 

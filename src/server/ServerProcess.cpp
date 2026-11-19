@@ -6,6 +6,7 @@
 #include "ServerProcess.hpp"
 #include "util/WriteDirectoryGuard.hpp"
 
+#include <QDateTime>
 #include <QDir>
 #include <QTimer>
 
@@ -73,6 +74,7 @@ void ServerProcess::start(const QString &serverId, const QString &dir, const QSt
                     drainOutput();
                     m_gracefulTimer->stop();
                     m_forceKillAllowed = false;
+                    m_startedAtMs = 0;
                     // 原版端口绑定失败也可能返回 0；从未就绪且不是用户停止，不能伪装正常结束。
                     const bool startupFailed = !m_started && !m_killed
                         && m_status != ServerModel::Status::Stopping;
@@ -88,6 +90,7 @@ void ServerProcess::start(const QString &serverId, const QString &dir, const QSt
             }
             m_gracefulTimer->stop();
             m_forceKillAllowed = false;
+            m_startedAtMs = 0;
             setStatus(ServerModel::Status::Crashed);
             emit message(tr("服务端进程没起来（%1 起不来？看看 Java 那一项配得对不对）。")
                              .arg(QDir::toNativeSeparators(m_program)) +
@@ -117,6 +120,7 @@ void ServerProcess::start(const QString &serverId, const QString &dir, const QSt
     m_forceKillAllowed = false;
     m_started = false;
     m_killed = false;
+    m_startedAtMs = QDateTime::currentMSecsSinceEpoch();
 
     m_process->setProgram(program);
     m_process->setArguments(arguments);
@@ -197,6 +201,7 @@ void ServerProcess::detach() {
     // 系统回收。指针不置空会更危险，留一个活着的壳子在这儿没有任何用处。
     m_process = nullptr;
     m_status = ServerModel::Status::Stopped;
+    m_startedAtMs = 0;
 }
 
 bool ServerProcess::sendCommand(const QString &command) {

@@ -87,8 +87,8 @@ int UiBottomBarGeometryChecks(MainWindowUI &ui, QFrame * &bar) {
 
             // 运行状态那一格的两行文字：正文的出处就在界面上，两个验证工程都引它，
             // 免得产品里改一个字、两边测试各写一遍字面量。
-            check(MainWindowUI::runStateRunningText() == QStringLiteral("运行中"),
-                  "状态正文是「运行中」", MainWindowUI::runStateRunningText());
+            check(MainWindowUI::runStateRunningCountText(1) == QStringLiteral("1 个进程运行中"),
+                  "状态正文是「%1 个进程运行中」", MainWindowUI::runStateRunningCountText(1));
             check(runState->alignment().testFlag(Qt::AlignLeft) &&
                       runDetail->alignment().testFlag(Qt::AlignLeft),
                   "两行都靠左对齐（贴着窗口左下角）");

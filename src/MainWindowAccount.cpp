@@ -35,8 +35,13 @@
 #include "controllers/GameSessionController.hpp"
 #include "controllers/MainWindowViewData.hpp"
 #include "controllers/PlayerSkinController.hpp"
+#include "controllers/ServerRunController.hpp"
+#include "controllers/ServerWorkspaceController.hpp"
 #include "launcher/LauncherManager.hpp"
+#include "launcher/RunningProcesses.hpp"
 #include "manage/OfflineSkin.hpp"
+#include "server/ServerProcess.hpp"
+#include "server/ServerRegistry.hpp"
 #include "util/ImageDecode.hpp"
 
 #include <QApplication>
@@ -332,7 +337,41 @@ void MainWindow::onBottomBarPanelAction(bool account, const QString &key, int ac
         return;
     }
 
-    // 左面板（key = 会话号，见 runningGamePanelRows()）。两个编号各是一颗按钮，
+    // 服务端进程那一档（key = "server:" + serverId），和客户端会话号彻底分开。
+    QString serverId;
+    if (RunningProcesses::parseServerKey(key, &serverId)) {
+        switch (action) {
+            case kRunningPanelStopAction: {
+                ServerRun::ServerProcess *process = m_serverWorkspace->process(serverId);
+                if (process == nullptr || !process->isRunning()) {
+                    appendLog(tr("这个服务端刚刚已经停止了。"));
+                    return;
+                }
+                if (process->status() != ServerModel::Status::Stopping) {
+                    m_serverRun->stop(serverId);
+                } else if (process->forceKillAllowed()) {
+                    m_serverRun->forceKill(serverId);
+                } else {
+                    appendLog(tr("%1：正在停服并等待存盘，宽限期内暂不强制结束。").arg(serverId));
+                }
+                return;
+            }
+            case kRunningPanelSettingsAction:
+                if (!ServerRegistry::serverExists(serverId)) {
+                    appendLog(tr("找不到这个服务端的目录。"));
+                    return;
+                }
+                openServerSettingsPage(serverId);
+                return;
+            case kRunningPanelLogAction:
+                openServerConsole(serverId);
+                return;
+            default:
+                return;
+        }
+    }
+
+    // 客户端会话（key = 会话号）。两个编号各是一颗按钮，
     // "关"和"改设置"是两件完全不同的事 —— 认编号，不认按钮上画着什么。
     switch (action) {
         case kRunningPanelStopAction:

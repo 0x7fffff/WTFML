@@ -1,5 +1,10 @@
 #include "Support.hpp"
+#include "ActivityPopover.hpp"
+#include "ServerConsolePage.hpp"
+#include "ServerSettingsPage.hpp"
+#include "controllers/ServerWorkspaceController.hpp"
 #include "manage/InstanceMetaFile.hpp"
+#include "server/ServerProcess.hpp"
 void runBottomBarPanelTests() {
     const QString originalDir = AppPaths::minecraftDir();
     QTemporaryDir root;
@@ -334,10 +339,10 @@ void runBottomBarPanelTests() {
         QWidget *panel = openPanel(instancesButton);
         check(panel != nullptr && panel->isVisible(), "AH2 点底栏左边那颗按钮弹出了左面板");
         if (panel != nullptr) {
-            check(rowTitle(panel, 0) == QStringLiteral("1.20.1") &&
+            check(rowTitle(panel, 0) == QStringLiteral("a1.2.6") &&
                       rowTitle(panel, 1) == QStringLiteral("1.20.1") &&
-                      rowTitle(panel, 2) == QStringLiteral("a1.2.6"),
-                  "AH2 三份会话就是三行（同一个实例那两份是**两行**、名字一样）",
+                      rowTitle(panel, 2) == QStringLiteral("1.20.1"),
+                  "AH2 三份会话按最新启动排最上（a1.2.6 在第 0 行，两个 1.20.1 在后）",
                   QStringLiteral("[%1] [%2] [%3]")
                       .arg(rowTitle(panel, 0), rowTitle(panel, 1), rowTitle(panel, 2)));
             check(panel->findChild<QLabel *>(MainWindowUI::bottomBarPanelRowTitleName(3)) ==
@@ -358,14 +363,14 @@ void runBottomBarPanelTests() {
                   "AH2 面板不用重新打开便会刷新游玩时长");
             // 行首那个方块按**分类**给：正式版（草方块）和远古版（土块）不是同一张图，
             // 而同一类的两份是同一张。分类那一套判据和产品是同一个出处（VersionCategory）。
-            check(!rowIcon(panel, 0).isNull() && !rowIcon(panel, 2).isNull() &&
-                      rowIcon(panel, 0).toImage() == rowIcon(panel, 1).toImage() &&
-                      rowIcon(panel, 0).toImage() != rowIcon(panel, 2).toImage(),
+            check(!rowIcon(panel, 0).isNull() && !rowIcon(panel, 1).isNull() &&
+                      rowIcon(panel, 1).toImage() == rowIcon(panel, 2).toImage() &&
+                      rowIcon(panel, 0).toImage() != rowIcon(panel, 1).toImage(),
                   "AH2 行首那块的图按实例分类给（两个正式版一样、远古版不一样）");
-            // 行尾前两颗按钮：电源 + 齿轮，都得有图形和一句能看懂的说明。
+            // 行尾三颗按钮（结束/设置/日志控制台图标）：均有图形与 tooltip。
             int missing = 0;
             for (int row = 0; row < 3; ++row) {
-                for (int action = 0; action < 2; ++action) {
+                for (int action = 0; action < 3; ++action) {
                     QPushButton *button = rowAction(panel, row, action);
                     if (button == nullptr || button->icon().isNull() ||
                         button->toolTip().isEmpty() || !button->text().isEmpty()) {
@@ -374,39 +379,24 @@ void runBottomBarPanelTests() {
                 }
             }
             check(missing == 0,
-                  "AH2 每一行行尾都有那两颗图标按钮（电源/齿轮，各带一句 tooltip）",
+                  "AH2 每一行行尾都有三颗图标按钮（结束/设置/日志，各带一句 tooltip）",
                   QStringLiteral("不合格 %1 颗").arg(missing));
-            // 第三颗（ 加的那颗「日志」）：**字的**、带 tooltip、三行都有。
-            // 和上面那两颗的判据正好相反（那两颗不许有 text，这颗不许有 icon）——
-            // 合起来钉的是"PanelAction 的两种形态各走各的那一支"。
-            int textMissing = 0;
-            for (int row = 0; row < 3; ++row) {
-                QPushButton *button = rowAction(panel, row, 2);
-                if (button == nullptr || !button->icon().isNull() ||
-                    button->text() != MainWindowUI::bottomBarPanelLogText() ||
-                    button->toolTip().isEmpty()) {
-                    ++textMissing;
-                }
-            }
-            check(textMissing == 0,
-                  "AH2 每一行行尾第三颗是那句「日志」（文字按钮，带一句 tooltip）",
-                  QStringLiteral("不合格 %1 颗").arg(textMissing));
             check(rowAction(panel, 0, 3) == nullptr,
                   "AH2 行尾就三颗（多一颗说明编号和产品对不上了）");
         }
     }
 
     // ---- AH3 齿轮：开的是**这一行那个实例**的设置 ----
-    // 点的是最后一行（a1.2.6），而"当前选中的实例"是另一个 —— 标题里写的是哪一个，
+    // 点的是第 0 行（a1.2.6），而"当前选中的实例"是另一个 —— 标题里写的是哪一个，
     // 就说明它认的是行里带的版本号，不是下拉框里那个。
     {
         QWidget *panel = openPanel(instancesButton);
         // 行尾那颗齿轮是**第 1 颗**（第 0 颗是电源）—— 这两个号数是产品那边的约定
         // （MainWindow.cpp 里 kRunningPanelStopAction / kRunningPanelSettingsAction），
         // 这里刻意写死：真把两颗换了位置，这一节会红（点成电源 → 弹的是「停止游戏」）。
-        QPushButton *gear = rowAction(panel, 2, 1);
+        QPushButton *gear = rowAction(panel, 0, 1);
         QString dialogTitle;
-        check(gear != nullptr, "AH3 最后一行那颗齿轮找得到");
+        check(gear != nullptr, "AH3 第 0 行那颗齿轮找得到");
         if (gear != nullptr) {
             gear->click();
             // 面板先收、动作排到下一轮（见 MainWindowUI 里 dispatch 那段），所以要转事件循环
@@ -456,11 +446,9 @@ void runBottomBarPanelTests() {
               "AH3b 前提：盘上「显示游戏日志」是关着的（这一颗点出来才算跨过了那道闸）");
 
         QWidget *panel = openPanel(instancesButton);
-        // 第 2 颗 = 「日志」（第 0 = 电源 / 第 1 = 齿轮，见 MainWindow.cpp 里那三个
-        // kRunningPanel*Action）。点的是**最后一行**（a1.2.6）—— 和 AH3 同一行，于是
-        // "标题里那个名字"只可能是那一行带下来的，不是当前选中的那个实例。
-        QPushButton *logButton = rowAction(panel, 2, 2);
-        check(logButton != nullptr, "AH3b 最后一行那颗「日志」找得到");
+        // 第 2 颗 = 日志图标；a1.2.6 现在排在第 0 行（最新启动排最上）。
+        QPushButton *logButton = rowAction(panel, 0, 2);
+        check(logButton != nullptr, "AH3b 第 0 行（a1.2.6）那颗「日志」找得到");
         if (logButton != nullptr) {
             logButton->click();
             // 面板先收、动作排到下一轮（见 MainWindowUI 里 dispatch 那段）。
@@ -486,7 +474,7 @@ void runBottomBarPanelTests() {
 
             // ② 同一个会话再点一次：还是那一扇（已经开着就抬到前面，一个字都不重开）。
             QWidget *panelAgain = openPanel(instancesButton);
-            QPushButton *logAgain = rowAction(panelAgain, 2, 2);
+            QPushButton *logAgain = rowAction(panelAgain, 0, 2);
             check(logAgain != nullptr, "AH3b 再点开面板，那颗「日志」还在原位");
             if (logAgain != nullptr) {
                 logAgain->click();
@@ -502,7 +490,7 @@ void runBottomBarPanelTests() {
             dropLogWindows();
             check(logWindowsNow().isEmpty(), "AH3b 用户把那一扇关掉了（关掉就销毁）");
             QWidget *panelThird = openPanel(instancesButton);
-            QPushButton *logThird = rowAction(panelThird, 2, 2);
+            QPushButton *logThird = rowAction(panelThird, 0, 2);
             if (logThird != nullptr) {
                 logThird->click();
                 QApplication::processEvents();
@@ -604,6 +592,144 @@ void runBottomBarPanelTests() {
             check(w.findChild<QWidget *>(MainWindowUI::bottomBarPanelName()) == nullptr,
                   "AH6 点它**什么都不弹**（不是弹一块只有那句空话的面板）");
         }
+    }
+
+    // ---- AH6b 服务端 + 客户端混排进运行进程面板与任务中心「运行中的进程」----
+    {
+        const QString serverId = QStringLiteral("42");
+        const QString serverName = QStringLiteral("测试服务端42");
+        ServerModel::Info info;
+        info.name = serverName;
+        info.flavor = ServerInstall::Flavor::Vanilla;
+        info.flavorKnown = true;
+        info.gameVersion = QStringLiteral("1.20.1");
+        QString problem;
+        check(ServerRegistry::createServer(serverId, info, &problem),
+              "AH6b 前提：在盘上创建数字 id 的服务端 42", problem);
+        const QString serverDir = AppPaths::serverDir(serverId);
+        {
+            QFile jar(serverDir + QStringLiteral("/server.jar"));
+            if (jar.open(QIODevice::WriteOnly)) {
+                jar.close();
+            }
+        }
+        auto *workspace = w.findChild<ServerWorkspaceController *>();
+        auto *runStateLbl = w.findChild<QLabel *>(MainWindowUI::runStateLabelName());
+        check(workspace != nullptr && runStateLbl != nullptr,
+              "AH6b 拿得到 ServerWorkspaceController 和 runStateLabel");
+        if (workspace != nullptr && runStateLbl != nullptr) {
+            ServerRun::ServerProcess *srv = workspace->ensureProcess(serverId);
+            srv->start(serverId, serverDir, QCoreApplication::applicationFilePath(),
+                       {QStringLiteral("--fake-server"), QStringLiteral("normal")}, 4000);
+            check(pumpUntil([srv] { return srv->status() == ServerModel::Status::Running; }, 20000),
+                  "AH6b 假服务端起来了");
+            check(runStateLbl->text() == MainWindowUI::runStateRunningCountText(1)
+                      && instancesButton != nullptr
+                      && !instancesButton->testAttribute(Qt::WA_TransparentForMouseEvents),
+                  "★★ AH6b 只有服务端在跑时左下角显示「1 个进程运行中」且面板可展开",
+                  runStateLbl->text());
+
+            // 隔至少 25ms 再起一个客户端会话，确保客户端启动时间更晚、混排排第 0 行
+            QThread::msleep(30);
+            const int sMixed =
+                manager->startGame(holderArgs, holderSettings, releaseId, QStringLiteral("1.20.1"));
+            check(sMixed > 0, "AH6b 再起一个客户端形成客户端+服务端混排");
+            repaintBottomBar(&w);
+            check(runStateLbl->text() == MainWindowUI::runStateRunningCountText(2),
+                  "★★ AH6b 1 客户端 + 1 服务端合计显示「2 个进程运行中」", runStateLbl->text());
+
+            QWidget *panel = openPanel(instancesButton);
+            check(rowTitle(panel, 0) == QStringLiteral("1.20.1")
+                      && rowTitle(panel, 1) == serverName,
+                  "★★ AH6b 面板按启动时间混排（后起的客户端 1.20.1 在第 0 行，服务端在第 1 行）",
+                  QStringLiteral("[%1] [%2]").arg(rowTitle(panel, 0), rowTitle(panel, 1)));
+            // 行尾图标一致校验：客户端第 2 颗日志图标与服务端第 2 颗控制台图标同一图标像素
+            QPushButton *cliLog = rowAction(panel, 0, 2);
+            QPushButton *srvCon = rowAction(panel, 1, 2);
+            check(cliLog != nullptr && srvCon != nullptr && !cliLog->icon().isNull()
+                      && !srvCon->icon().isNull()
+                      && cliLog->icon().pixmap(14, 14).toImage()
+                             == srvCon->icon().pixmap(14, 14).toImage(),
+                  "★★ AH6b 客户端「日志」与服务端「控制台」使用同一个图标");
+
+            // 点服务端第 2 颗：开控制台
+            if (srvCon != nullptr) {
+                srvCon->click();
+                QApplication::processEvents();
+            }
+            auto *consolePage = w.findChild<ServerConsolePage *>();
+            check(consolePage != nullptr && consolePage->isVisible(),
+                  "★★ AH6b 点服务端行的控制台图标打开了 ServerConsolePage");
+            if (w.ui() != nullptr && w.ui()->overlay() != nullptr && w.ui()->overlay()->isOpen()) {
+                w.ui()->overlay()->evict();
+                QApplication::processEvents();
+                QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            }
+
+            // 验证任务中心「运行中的进程」栏
+            if (auto *summaryBtn = w.findChild<QPushButton *>(MainWindowUI::taskSummaryButtonName())) {
+                summaryBtn->click();
+                QApplication::processEvents();
+                ActivityPopover::openAllIn(&w);
+                QApplication::processEvents();
+            }
+            if (QWidget *tcPanel = w.findChild<QWidget *>(MainWindowUI::taskCenterPanelName())) {
+                auto *tcTitle = tcPanel->findChild<QLabel *>(QStringLiteral("taskCenterRunningTitle"));
+                auto *tcToggle =
+                    w.findChild<QPushButton *>(QStringLiteral("taskCenterRunningCollapse"));
+                const int tcRows =
+                    tcPanel->findChildren<QWidget *>(QStringLiteral("taskCenterRunningRow")).size();
+                check(tcTitle != nullptr && tcTitle->text() == QStringLiteral("运行中的进程")
+                          && tcToggle != nullptr
+                          && tcToggle->text() == QStringLiteral("运行中的进程 2") && tcRows == 2,
+                      "★★ AH6b 任务中心左栏改名「运行中的进程 2」并同步列出客户端+服务端",
+                      QStringLiteral("title=%1 toggle=%2 rows=%3")
+                          .arg(tcTitle ? tcTitle->text() : QString(),
+                               tcToggle ? tcToggle->text() : QString())
+                          .arg(tcRows));
+                if (w.ui() != nullptr && w.ui()->overlay() != nullptr && w.ui()->overlay()->isOpen()) {
+                    w.ui()->overlay()->evict();
+                    QApplication::processEvents();
+                    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+                }
+            }
+
+            // 点服务端第 1 颗（设置）：进服务端设置页
+            QWidget *panelForSettings = openPanel(instancesButton);
+            if (QPushButton *srvGear = rowAction(panelForSettings, 1, 1)) {
+                srvGear->click();
+                QApplication::processEvents();
+            }
+            auto *srvSettingsPage = w.findChild<ServerSettingsPage *>();
+            check(srvSettingsPage != nullptr && srvSettingsPage->isVisible(),
+                  "★★ AH6b 点服务端行的设置图标进入服务端管理页");
+            if (w.ui() != nullptr && w.ui()->overlay() != nullptr && w.ui()->overlay()->isOpen()) {
+                w.ui()->overlay()->evict();
+                QApplication::processEvents();
+                QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            }
+
+            // 点服务端第 0 颗（停止）：走正常停服存盘流程，不直接强杀
+            QWidget *panelForStop = openPanel(instancesButton);
+            bool sawStopping = false;
+            if (QPushButton *srvStop = rowAction(panelForStop, 1, 0)) {
+                srvStop->click();
+                QApplication::processEvents();
+                sawStopping = (srv->status() == ServerModel::Status::Stopping)
+                              || (srv->status() == ServerModel::Status::Stopped);
+            }
+            const bool srvStoppedCleanly =
+                pumpUntil([srv] { return !srv->isRunning(); }, 10000);
+            check(sawStopping && srvStoppedCleanly
+                      && srv->status() == ServerModel::Status::Stopped && !srv->wasForceKilled(),
+                  "★★ AH6b 点服务端行「结束」走正常停服存盘流程，未直接强杀",
+                  ServerModel::statusName(srv->status()));
+
+            // 收尾停掉客户端会话
+            manager->stopGame(sMixed);
+            pumpUntil([manager] { return manager->runningGames().isEmpty(); }, 5000);
+        }
+        QDir(AppPaths::serversDir()).removeRecursively();
     }
 
     // ---- AH7 账号弹层：最近登录的三个账户（缓存里拿）+ 菜单区 ----

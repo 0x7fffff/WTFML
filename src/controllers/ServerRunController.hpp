@@ -60,6 +60,12 @@ public:
     /// 用户把「异常退出后自动重启」关掉了：这一轮的计数清零（再打开时从第 1 次算起）。
     void forgetRestartAttempts(const QString &serverId) { m_restartAttempts.remove(serverId); }
 
+    /// 进程本次启动的时间戳（毫秒；若未登记则返回 0）。
+    qint64 startedAtMs(const QString &serverId) const {
+        const QDateTime dt = m_startedAt.value(serverId);
+        return dt.isValid() ? dt.toMSecsSinceEpoch() : 0;
+    }
+
 private:
     MainWindow &m_owner;
     /// 这一轮连着崩了几次（下标 = 服务端 id）。跑够久再崩算新的一轮，见 `onExited()`。
