@@ -61,6 +61,7 @@ constexpr int kNameRole = Qt::UserRole + 2;
 constexpr int kOfflineRole = Qt::UserRole + 3;
 constexpr int kSavedRole = Qt::UserRole + 4;
 constexpr int kFaceRole = Qt::UserRole + 5;
+constexpr int kReloginRole = Qt::UserRole + 6;
 // 来源那一行小字（「微软账号 · 登录取自 …」/「离线账号」）放在无障碍描述里：测试和读屏读它，行里画的也是它。
 constexpr int kSourceRole = Qt::AccessibleDescriptionRole;
 
@@ -120,7 +121,13 @@ public:
         const int textLeft = avatar.right() + 13;
         // 选中那一行行尾压着「切换 / 删除」两颗（placeRowActions()），字给它们让位。
         const int actions = selected ? option.widget->property("wtfmlRowActionsWidth").toInt() : 0;
-        const int textRight = int(r.right()) - (current && !selected ? 40 : 16) - actions;
+        // 需要重新登录的行：行尾有一颗「重新登录」（真按钮，见 placeReloginButtons()），字再让出它的宽。
+        const bool relogin = index.data(kReloginRole).toBool();
+        const int reloginRoom =
+            relogin ? option.widget->property("wtfmlReloginWidth").toInt() + (selected ? 4 : 8) : 0;
+        // 选中的行尾已压着一排按钮，需要重新登录时再多一颗，右边距收紧到 6 好让来源那句放得下。
+        const int rightGap = selected && relogin ? 6 : (current && !selected && !relogin ? 40 : 16);
+        const int textRight = int(r.right()) - rightGap - actions - reloginRoom;
         const QFont nameFont = pixelFont(option.font, 14, QFont::DemiBold);
         const QFont subFont = pixelFont(option.font, Theme::textSize(Theme::TextRole::Caption));
         const QFontMetrics nm(nameFont);
@@ -149,11 +156,11 @@ public:
 
         const QString sub = index.data(kSourceRole).toString();
         painter->setFont(subFont);
-        painter->setPen(t.secondary);
+        painter->setPen(relogin ? Theme::textTone(t.dangerInk, t.danger) : t.secondary);
         painter->drawText(QRect(textLeft, blockTop + nm.height() + 2, textRight - textLeft, sm.height()),
                           Qt::AlignLeft | Qt::AlignVCenter, sm.elidedText(sub, Qt::ElideRight, textRight - textLeft));
 
-        if (current && !selected) {
+        if (current && !selected && !relogin) {
             VersionIcons::paintLine(*painter, QStringLiteral("check"),
                                     QRectF(r.right() - 32, r.center().y() - 8, 16, 16), t.secondary);
         }
@@ -705,6 +712,7 @@ void AccountSkinDialog::placeRowActions() {
     QListWidgetItem *item = m_accountList->currentItem();
     if (item == nullptr || selectedUuid().isEmpty()) {
         m_rowActions->hide();
+        placeReloginButtons();
         return;
     }
     const QRect row = m_accountList->visualItemRect(item);
@@ -720,9 +728,41 @@ void AccountSkinDialog::placeRowActions() {
         m_accountList->setProperty("wtfmlRowActionsWidth", size.width() + 10);
         m_accountList->viewport()->update();
     }
+    placeReloginButtons();
+}
+
+void AccountSkinDialog::placeReloginButtons() {
+    const QRect viewport = m_accountList->viewport()->rect();
+    for (QPushButton *button : std::as_const(m_reloginButtons)) {
+        QListWidgetItem *item = nullptr;
+        const QString uuid = button->property("wtfmlReloginUuid").toString();
+        for (int i = 0; i < m_accountList->count() && item == nullptr; ++i) {
+            if (m_accountList->item(i)->data(Qt::UserRole).toString() == uuid) item = m_accountList->item(i);
+        }
+        const QRect row = item != nullptr ? m_accountList->visualItemRect(item) : QRect();
+        if (row.isNull() || !viewport.intersects(row)) {
+            button->hide();
+            continue;
+        }
+        // 选中那一行：贴在「复制 UUID」左边（间距 4，同行尾那几颗）；没选中：贴行尾（右留 10）。
+        const bool selectedRow = item == m_accountList->currentItem() && m_rowActions->isVisible();
+        const int right = selectedRow ? m_rowActions->geometry().left() - 4 : row.right() - 10;
+        const QSize size = button->sizeHint();
+        button->setGeometry(right - size.width(), row.center().y() - size.height() / 2, size.width(), size.height());
+        button->show();
+        button->raise();
+    }
 }
 
 void AccountSkinDialog::setAccounts(const QList<AccountRow> &rows) {
+    // 按钮可能正是点击它的那一刻触发了重建：摘下来、排到下一轮再删。
+    for (QPushButton *button : std::as_const(m_reloginButtons)) {
+        button->hide();
+        button->setParent(nullptr);
+        button->deleteLater();
+    }
+    m_reloginButtons.clear();
+    m_accountList->setProperty("wtfmlReloginWidth", 0);
     m_accountList->clear();
     for (const AccountRow &row : rows) {
         addAccountRow(row);
@@ -745,7 +785,7 @@ void AccountSkinDialog::setAccounts(const QList<AccountRow> &rows) {
     const int shown = qBound(1, int(m_accountList->count()), 4);
     m_accountList->setFixedHeight(shown * kAccountRowHeight + 2);
     refreshButtonStates();
-    placeRowActions();
+    placeRowActions();  // 末尾会顺带摆「重新登录」
 }
 
 void AccountSkinDialog::addAccountRow(const AccountRow &row) {
@@ -766,13 +806,31 @@ void AccountSkinDialog::addAccountRow(const AccountRow &row) {
     item->setData(kOfflineRole, row.offline);
     item->setData(kSavedRole, row.savedAt);
     item->setData(kFaceRole, row.face);
+    const bool relogin = row.needsRelogin && !row.offline;
+    item->setData(kReloginRole, relogin);
     // 名字下面那行小字：账号来源；微软账号后面照旧带「登录取自 …」。
     QString source = row.offline ? offlineAccountText() : microsoftAccountText();
     const QDateTime saved = QDateTime::fromString(row.savedAt, Qt::ISODate);
-    if (!row.offline && saved.isValid()) {
+    if (relogin) {
+        source = needsReloginText();
+    } else if (!row.offline && saved.isValid()) {
         source += QStringLiteral(" · ") + tr("登录取自 %1").arg(saved.toLocalTime().toString(tr("M 月 d 日")));
     }
     item->setData(kSourceRole, source);
+    if (relogin) {
+        // 和「添加账号 → 微软账号」同一条浏览器登录流程；成功后标记被清掉、列表刷新，这一行恢复原样。
+        auto *button = new QPushButton(reloginButtonText(), m_accountList->viewport());
+        button->setObjectName(reloginButtonName());
+        button->setProperty("wtfmlReloginUuid", row.uuid);
+        button->setEnabled(m_loginUnavailable.isEmpty());
+        button->setToolTip(m_loginUnavailable);
+        Theme::markButton(button, Theme::ButtonKind::Ghost);
+        button->hide();
+        button->ensurePolished();  // 量宽要等样式表套上
+        connect(button, &QPushButton::clicked, this, &AccountSkinDialog::loginRequested);
+        m_reloginButtons.append(button);
+        m_accountList->setProperty("wtfmlReloginWidth", button->sizeHint().width());
+    }
     if (row.offline) {
         // 离线账号没有"登录取自什么时候"这回事 —— 摆一个空的 tooltip 还不如说清它是哪一种。
         item->setToolTip(offlineRowTooltip());
@@ -782,6 +840,10 @@ void AccountSkinDialog::addAccountRow(const AccountRow &row) {
             item->setToolTip(tr("登录取自 %1")
                                  .arg(savedAt.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm"))));
         }
+    }
+    if (relogin) {
+        // 选中时行尾按钮多，来源那句可能被截断：全文放进悬停提示。
+        item->setToolTip(item->toolTip().isEmpty() ? needsReloginText() : needsReloginText() + QLatin1Char('\n') + item->toolTip());
     }
 }
 
@@ -800,6 +862,11 @@ bool AccountSkinDialog::offlineAddRowShown() const { return !m_offlineRow->isHid
 void AccountSkinDialog::setOnlineLoginUnavailable(const QString &reason) {
     m_addMicrosoftAction->setEnabled(reason.isEmpty());
     m_addMicrosoftAction->setToolTip(reason);
+    m_loginUnavailable = reason;
+    for (QPushButton *button : std::as_const(m_reloginButtons)) {
+        button->setEnabled(reason.isEmpty());
+        button->setToolTip(reason);
+    }
 }
 
 void AccountSkinDialog::setStatusText(const QString &text) {

@@ -148,6 +148,14 @@
             <translation>Copy UUID</translation>
         </message>
         <message>
+            <source>需要重新登录</source>
+            <translation>Sign-in required</translation>
+        </message>
+        <message>
+            <source>重新登录</source>
+            <translation>Sign in again</translation>
+        </message>
+        <message>
             <source>重试</source>
             <translation>Retry</translation>
         </message>

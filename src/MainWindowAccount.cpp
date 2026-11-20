@@ -148,6 +148,28 @@ QString MainWindow::accountSkinStatusText() const {
     return AccountSkinDialog::identityText(m_authManager->playerName());
 }
 
+void MainWindow::refreshAccountRows() {
+    if (m_accountSkinDialog == nullptr) {
+        return;
+    }
+    QList<AccountSkinDialog::AccountRow> rows;
+    const QList<SavedAccount> accounts = AccountStore::accounts();
+    rows.reserve(accounts.size());
+    for (const SavedAccount &account : accounts) {
+        AccountSkinDialog::AccountRow row;
+        row.uuid = account.uuid;
+        row.name = account.name;
+        row.savedAt = account.savedAt;
+        row.current = account.isCurrent;
+        row.offline = account.offline;
+        row.needsRelogin = account.needsRelogin;
+        // 每个账号自己的头像：只读本地缓存（和主页右上账号面板同一个函数），没有才是首字母。
+        row.face = accountFacePixmap(account, 64).toImage();
+        rows.append(row);
+    }
+    m_accountSkinDialog->setAccounts(rows);
+}
+
 void MainWindow::refreshAccountSkin(bool allowTokenRefresh) {
     // NOTE: **这一句只挡窗里那些东西**（账号列表 / 状态行 / 披风），预览那一份照刷 ——
     // 主页那个小人、底栏头像、那个窗里的 3D 预览**都只在
@@ -160,21 +182,8 @@ void MainWindow::refreshAccountSkin(bool allowTokenRefresh) {
     }
 
     // 1) 账号列表：**纯本地**（读 SavedAccounts 那个键），不联网、不碰令牌。
-    QList<AccountSkinDialog::AccountRow> rows;
+    refreshAccountRows();
     const QList<SavedAccount> accounts = AccountStore::accounts();
-    rows.reserve(accounts.size());
-    for (const SavedAccount &account : accounts) {
-        AccountSkinDialog::AccountRow row;
-        row.uuid = account.uuid;
-        row.name = account.name;
-        row.savedAt = account.savedAt;
-        row.current = account.isCurrent;
-        row.offline = account.offline;
-        // 每个账号自己的头像：只读本地缓存（和主页右上账号面板同一个函数），没有才是首字母。
-        row.face = accountFacePixmap(account, 64).toImage();
-        rows.append(row);
-    }
-    m_accountSkinDialog->setAccounts(rows);
 
     // 2) 状态行回到"当前身份"那一档，忙态也在这里松开 —— 能走到这一句就说明上一步那个
     // 同步请求已经回来了（下面第 4 步会再离开这个方法去联网）。

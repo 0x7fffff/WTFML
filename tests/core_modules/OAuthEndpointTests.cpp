@@ -262,6 +262,8 @@ void runOAuthEndpointTests() {
 
         // 4) 微软返回 invalid_grant：分类为 ReloginRequired，标记「需要重新登录」，切走再切回仍保留
         AuthManager::setEndpointOverridesForTest(overrides);
+        int reloginChanges = 0;  // 标记真变化才发 needsReloginChanged()，账号页靠它刷新列表
+        QObject::connect(&auth, &AuthManager::needsReloginChanged, &auth, [&reloginChanges] { ++reloginChanges; });
         mock.oauthStatus = 400;
         mock.oauthErrorBody = QByteArrayLiteral(
             "{\"error\":\"invalid_grant\",\"error_description\":\"AADSTS70000: expired refresh token\"}");
@@ -272,6 +274,7 @@ void runOAuthEndpointTests() {
                   auth.needsRelogin() && AccountStore::needsRelogin(uuidA) &&
                   AccountStore::find(uuidA, &foundA) && foundA.needsRelogin,
               "ZB5 invalid_grant 分类为 ReloginRequired 并持久化「需要重新登录」状态", err);
+        check(reloginChanges == 1, "ZB5 打上标记发一次 needsReloginChanged()", QString::number(reloginChanges));
 
         // 添加另一个健康账号 B 并切过去；再切回 A 时应恢复「需要重新登录」查询结果
         check(seedAccount(uuidB, QStringLiteral("Bob"), QStringLiteral("mc-bob"), 86400),
@@ -293,6 +296,7 @@ void runOAuthEndpointTests() {
                   !auth.needsRelogin() && !AccountStore::needsRelogin(uuidA) &&
                   AccountStore::find(uuidA, &foundA) && !foundA.needsRelogin,
               "ZB6 重新刷新成功后清除「需要重新登录」状态", err);
+        check(reloginChanges == 2, "ZB6 清掉标记再发一次 needsReloginChanged()", QString::number(reloginChanges));
 
         AuthManager::setEndpointOverridesForTest({});
         TokenStore::clear(TokenStore::microsoftKey());

@@ -111,7 +111,7 @@ inline QImage demoSkin(const QColor &skin, const QColor &hair, const QColor &eye
 
 /// 账号页夹具（演示数据，只喂这个窗、不写盘）：两个微软账号 + 两个离线账号。
 /// @param current 当前账号的 uuid；@param localSkinForCurrent 当前离线账号用本地皮肤。
-inline AccountSkinDialog *accountFixture(MainWindow &w, const QString &current) {
+inline AccountSkinDialog *accountFixture(MainWindow &w, const QString &current, bool reloginDemo = false) {
     auto *dialog = w.findChild<AccountSkinDialog *>();
     if (!dialog) return nullptr;
     dialog->clearOfflineNameDraft();            // 页面是同一个对象：上一张样张展开过的离线行先收起
@@ -128,6 +128,7 @@ inline AccountSkinDialog *accountFixture(MainWindow &w, const QString &current) 
         r.offline = offline;
         r.current = r.uuid == current;
         r.face = faceImage;
+        r.needsRelogin = reloginDemo && r.uuid == QLatin1String("ms-notch");  // #67：刷新令牌失效的那个微软账号
         return r;
     };
     dialog->setAccounts({row("ms-wanderer", "Wanderer", "2026-11-09T10:00:00Z", false, face(wanderer)),
@@ -155,11 +156,12 @@ inline AccountSkinDialog *accountFixture(MainWindow &w, const QString &current) 
 }
 
 /// 打开账号页，450 ms 之后（页面自己那发刷新跑完）摆演示数据，再过 250 ms 跑 after。
-inline QWidget *accountPage(MainWindow &w, const QString &current, std::function<void(AccountSkinDialog *)> after = {}) {
+inline QWidget *accountPage(MainWindow &w, const QString &current, std::function<void(AccountSkinDialog *)> after = {},
+                            bool reloginDemo = false) {
     w.ui()->getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
     QMetaObject::invokeMethod(&w, "onAccountSkinButtonClicked", Qt::QueuedConnection);
-    QTimer::singleShot(450, &w, [&w, current, after] {
-        if (auto *dialog = accountFixture(w, current)) {
+    QTimer::singleShot(450, &w, [&w, current, after, reloginDemo] {
+        if (auto *dialog = accountFixture(w, current, reloginDemo)) {
             // 列表高度变了要等一轮布局，菜单按按钮位置弹，晚一点再点。
             if (after) QTimer::singleShot(250, dialog, [dialog, after] { after(dialog); });
         }
@@ -234,6 +236,15 @@ inline QList<Shot> shots() {
         // issue #66：每个账号自己的头像和来源、添加账号菜单、离线账号用本地皮肤、请求失败（演示数据）。
         list.append({"account-list-" + theme + ".png", theme, [](MainWindow &w, const Fixture &) {
             return accountPage(w, QStringLiteral("ms-wanderer"));
+        }});
+        // issue #67：一个微软账号需要重新登录（Notch_fan），Wanderer 正常（当前、选中），另有离线账号。
+        list.append({"account-relogin-" + theme + ".png", theme, [](MainWindow &w, const Fixture &) {
+            return accountPage(w, QStringLiteral("ms-wanderer"), {}, true);
+        }});
+        list.append({"account-relogin-selected-" + theme + ".png", theme, [](MainWindow &w, const Fixture &) {
+            return accountPage(w, QStringLiteral("ms-wanderer"), [](AccountSkinDialog *dialog) {
+                if (auto *list = dialog->findChild<QListWidget *>(AccountSkinDialog::accountListName())) list->setCurrentRow(1);
+            }, true);
         }});
         list.append({"account-add-menu-" + theme + ".png", theme, [](MainWindow &w, const Fixture &) {
             return accountPage(w, QStringLiteral("ms-wanderer"), [](AccountSkinDialog *dialog) {

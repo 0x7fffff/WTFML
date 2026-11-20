@@ -58,6 +58,8 @@ public:
         bool offline = false;
         /// 这个账号自己的头像（调用方裁好的方形脸）。空 = 画首字母。
         QImage face = {};
+        /// 刷新令牌失效、必须重新登录（微软账号才有）。来源那行改写「需要重新登录」，行尾给「重新登录」。
+        bool needsRelogin = false;
     };
 
     /// 一件披风。
@@ -152,6 +154,8 @@ public:
     static QString offlineRowName() { return QStringLiteral("accountOfflineRow"); }
     static QString statusLabelName() { return QStringLiteral("accountSkinStatus"); }
     static QString statusErrorLabelName() { return QStringLiteral("accountSkinStatusError"); }
+    /// 需要重新登录的行尾按钮（每个这样的行一颗，同名；uuid 在动态属性 `wtfmlReloginUuid` 上）。
+    static QString reloginButtonName() { return QStringLiteral("accountSkinReloginButton"); }
     static QString retryButtonName() { return QStringLiteral("accountSkinRetryButton"); }
     static QString previewNoteName() { return QStringLiteral("accountSkinPreviewNote"); }
     static QString copyUuidButtonName() { return QStringLiteral("accountSkinCopyUuidButton"); }
@@ -188,6 +192,9 @@ public:
     static QString microsoftAccountText() { return tr("微软账号"); }
     static QString offlineAccountText() { return tr("离线账号"); }
     static QString copyUuidText() { return tr("复制 UUID"); }
+    /// 需要重新登录的微软账号：来源那行小字（危险色）与行尾按钮。
+    static QString needsReloginText() { return tr("需要重新登录"); }
+    static QString reloginButtonText() { return tr("重新登录"); }
     static QString retryButtonText() { return tr("重试"); }
     /// 离线账号预览下面的说明（预览和游戏一致时不显示）。
     static QString previewNoteLocalSkin() {
@@ -299,6 +306,8 @@ private:
     void addAccountRow(const AccountRow &row);
     /// 「切换 / 删除」两颗跟着选中那一行摆在行尾（设计稿 .acct-row 悬停操作）。
     void placeRowActions();
+    /// 「重新登录」摆在各自那一行的行尾；选中那一行让到「复制 UUID」「删除」左边。
+    void placeReloginButtons();
     bool eventFilter(QObject *watched, QEvent *event) override;
 
     /// 现在是不是有一件请求在走。**它必须参与** refreshButtonStates() 的判断：
@@ -345,6 +354,10 @@ private:
     QPushButton *m_applyCapeButton = nullptr;
     QPushButton *m_closeButton = nullptr;
     QWidget *m_rowActions = nullptr;
+    /// 每个需要重新登录的行一颗，挂在列表 viewport 上；setAccounts() 时整批重建。
+    QList<QPushButton *> m_reloginButtons;
+    /// 非空 = 微软登录用不了（见 setOnlineLoginUnavailable()），「重新登录」跟着置灰。
+    QString m_loginUnavailable;
     /// 当前账号那一行的头像取自这张（setLooks() 喂进来的皮肤）。
     QImage m_currentSkin;
     /// 按贴图地址缓存，列表重建时先把已有的贴图塞回去，别等下一次网络回调。

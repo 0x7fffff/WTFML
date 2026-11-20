@@ -2645,6 +2645,8 @@ private:
     /// 披风列表（页面可见时：@p allowTokenRefresh 为 true 走 loadSavedToken 按 6 小时窗口刷新后拉取；
     /// false 则只用未过期的本地令牌直接拉取，已过期时在失败行提示，不刷新令牌）。窗还没建时只刷新主页预览。
     void refreshAccountSkin(bool allowTokenRefresh = true);
+    /// 只按本地账号列表重建这个窗里的账号行（「需要重新登录」标记变化时用，不联网、不碰预览与披风）。
+    void refreshAccountRows();
     /// 这个窗顶部那句话应该写什么（当前身份）。**唯一一处**决定它 —— 离线身份、未登录、
     /// 正版三种状态要是散在各条路上，迟早出现"底栏说离线、这里说正版"。
     QString accountSkinStatusText() const;

@@ -231,6 +231,8 @@ signals:
     void loginStarted();
     void loginSucceeded(const QString &playerName);
     void loginFailed(const QString &errorMessage);
+    /// 某个账号的「需要重新登录」标记变了（打上或清掉）。账号页据此刷新列表。
+    void needsReloginChanged();
 
 private slots:
     void handleNewConnection();
@@ -241,6 +243,9 @@ private:
     /// NOTE: 拆出来是因为 `handleNewConnection()` 不再阻塞等字节（见那里的说明）：
     /// 它只负责收，收全了才交给这里走令牌链。解析失败的分支自己断开连接。
     void processCallbackRequest(QTcpSocket *socket, const QByteArray &requestData);
+
+    /// 改账号列表里的「需要重新登录」标记；标记真的变了才发 needsReloginChanged()。
+    void persistNeedsRelogin(const QString &uuid, bool required);
 
     QUrl buildAuthUrl() const;
     void resetLoginAttempt();

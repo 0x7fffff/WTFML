@@ -515,6 +515,75 @@ int UiAccountSkinChecks() {
                       "selectedUuid() 给的是离线那一条", dialog.selectedUuid());
             }
 
+            // ---- X12 需要重新登录：来源行改写、行尾「重新登录」、点了走登录流程、标记清掉后恢复（issue #67） ----
+            {
+                AccountSkinDialog::AccountRow stale;
+                stale.uuid = QStringLiteral("uuid-stale");
+                stale.name = QStringLiteral("Alice");
+                stale.savedAt = QStringLiteral("2026-09-22T10:00:00Z");
+                stale.current = true;
+                stale.needsRelogin = true;
+                AccountSkinDialog::AccountRow healthy;
+                healthy.uuid = QStringLiteral("uuid-healthy");
+                healthy.name = QStringLiteral("Bob");
+                healthy.savedAt = QStringLiteral("2026-09-22T10:00:00Z");
+                AccountSkinDialog::AccountRow offlineMarked;
+                offlineMarked.uuid = QStringLiteral("uuid-offline-marked");
+                offlineMarked.name = QStringLiteral("Steve");
+                offlineMarked.offline = true;
+                offlineMarked.needsRelogin = true;  // 离线账号没有凭据，标记不生效
+                dialog.setAccounts({stale, healthy, offlineMarked});
+                QApplication::processEvents();
+                const auto source = [&](int row) {
+                    return accountList->item(row)->data(Qt::AccessibleDescriptionRole).toString();
+                };
+                const auto reloginButtons = [&] {
+                    return dialog.findChildren<QPushButton *>(AccountSkinDialog::reloginButtonName());
+                };
+                check(source(0) == AccountSkinDialog::needsReloginText() &&
+                          source(1).startsWith(AccountSkinDialog::microsoftAccountText()) &&
+                          source(2) == AccountSkinDialog::offlineAccountText(),
+                      "需要重新登录的微软账号来源行改写，正常账号与离线账号不变",
+                      source(0) + " | " + source(1) + " | " + source(2));
+                auto buttons = reloginButtons();
+                check(buttons.size() == 1 && buttons.first()->text() == AccountSkinDialog::reloginButtonText() &&
+                          buttons.first()->isVisibleTo(&dialog),
+                      "只有那一行有「重新登录」，选中时也在", QString::number(buttons.size()));
+                auto *copyBtn = dialog.findChild<QPushButton *>(AccountSkinDialog::copyUuidButtonName());
+                QWidget *viewport = accountList->viewport();
+                if (!buttons.isEmpty() && copyBtn != nullptr) {
+                    QPushButton *relogin = buttons.first();
+                    check(relogin->geometry().right() < copyBtn->mapTo(viewport, QPoint()).x(),
+                          "选中那一行：「重新登录」在「复制 UUID」「删除」左边");
+                    accountList->setCurrentRow(1);
+                    QApplication::processEvents();
+                    check(relogin->isVisibleTo(&dialog) &&
+                              relogin->geometry().x() + relogin->width() + 10 == accountList->visualItemRect(accountList->item(0)).right(),
+                          "不选中也显示，贴行尾",
+                          QString::number(relogin->geometry().right()));
+                    int logins = 0;
+                    const auto link = QObject::connect(&dialog, &AccountSkinDialog::loginRequested, &dialog,
+                                                       [&logins] { ++logins; });
+                    relogin->click();
+                    check(logins == 1, "点「重新登录」发 loginRequested（和「添加账号 → 微软账号」同一条）");
+                    dialog.setBusy(true, QStringLiteral("x"));
+                    check(!relogin->isEnabled(), "忙的时候「重新登录」置灰");
+                    dialog.setBusy(false);
+                    dialog.setOnlineLoginUnavailable(QStringLiteral("不可用"));
+                    check(!relogin->isEnabled() && relogin->toolTip() == QStringLiteral("不可用"),
+                          "微软登录用不了时「重新登录」置灰并带原因");
+                    dialog.setOnlineLoginUnavailable(QString());
+                    check(relogin->isEnabled(), "说明清空后「重新登录」回来");
+                    QObject::disconnect(link);
+                }
+                stale.needsRelogin = false;
+                dialog.setAccounts({stale, healthy, offlineMarked});
+                QApplication::processEvents();
+                check(reloginButtons().isEmpty() &&
+                          source(0).startsWith(AccountSkinDialog::microsoftAccountText()),
+                      "标记清掉后：按钮消失，来源行恢复「微软账号 · 登录取自…」", source(0));
+            }
+
             // ---- X11 账号行：来源、头像、复制 UUID；请求失败行；预览说明（issue #66） ----
             {
                 QImage blue(64, 64, QImage::Format_ARGB32);

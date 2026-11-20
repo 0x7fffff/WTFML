@@ -375,7 +375,7 @@ bool AuthManager::refreshMinecraftToken(QString *errorMessage) {
         const QString targetUuid = !refreshUuid.isEmpty() ? refreshUuid : m_uuid;
         if (!targetUuid.isEmpty() && !AccountStore::isOffline(targetUuid)) {
             m_needsRelogin = true;
-            AccountStore::setNeedsRelogin(targetUuid, true);
+            persistNeedsRelogin(targetUuid, true);
         }
         return fail(tr("未找到完整的登录信息，请重新登录。"));
     }
@@ -391,7 +391,7 @@ bool AuthManager::refreshMinecraftToken(QString *errorMessage) {
             const QString targetUuid = !refreshUuid.isEmpty() ? refreshUuid : m_uuid;
             m_needsRelogin = true;
             if (!targetUuid.isEmpty() && !AccountStore::isOffline(targetUuid)) {
-                AccountStore::setNeedsRelogin(targetUuid, true);
+                persistNeedsRelogin(targetUuid, true);
             }
         }
         // 走到这儿的原因多数是网络或者账户本身的问题，写一行给命令行看
@@ -1121,8 +1121,16 @@ bool AuthManager::storeMinecraftTokenData(const QString &mcToken, int expiresIn,
     }
     m_needsRelogin = false;
     m_lastRefreshFailureKind = RefreshFailureKind::None;
-    AccountStore::setNeedsRelogin(uuid, false);
+    persistNeedsRelogin(uuid, false);
     return true;
+}
+
+void AuthManager::persistNeedsRelogin(const QString &uuid, bool required) {
+    const bool before = AccountStore::needsRelogin(uuid);
+    AccountStore::setNeedsRelogin(uuid, required);
+    if (AccountStore::needsRelogin(uuid) != before) {
+        emit needsReloginChanged();
+    }
 }
 
 QJsonObject AuthManager::loadMicrosoftTokenData() const {

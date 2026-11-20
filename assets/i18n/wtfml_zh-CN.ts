@@ -148,6 +148,14 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>需要重新登录</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>重新登录</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>重试</source>
         <translation type="unfinished"></translation>
     </message>

@@ -555,6 +555,29 @@ int MwAccountAppearanceChecks() {
                                     } else {
                                         check(false, "Z9b 列表里有 Zoe 那一行");
                                     }
+
+                                    // ---- Z9c 需要重新登录（issue #67）：标记一变，开着的账号页列表就跟着刷新 ----
+                                    QString aliceUuid;
+                                    for (const SavedAccount &saved : AccountStore::accounts()) {
+                                        if (saved.name == QStringLiteral("Alice")) aliceUuid = saved.uuid;
+                                    }
+                                    check(!aliceUuid.isEmpty() && AccountStore::setNeedsRelogin(aliceUuid, true),
+                                          "Z9c 前提：给 Alice 打上「需要重新登录」");
+                                    emit auth->needsReloginChanged();
+                                    const auto reloginButtons = [dialog] {
+                                        return dialog->findChildren<QPushButton *>(
+                                            AccountSkinDialog::reloginButtonName());
+                                    };
+                                    check(sourceOf(QStringLiteral("Alice")) == AccountSkinDialog::needsReloginText() &&
+                                              reloginButtons().size() == 1,
+                                          "Z9c 标记变化后列表刷新：Alice 来源行改写、行尾有「重新登录」",
+                                          sourceOf(QStringLiteral("Alice")));
+                                    AccountStore::setNeedsRelogin(aliceUuid, false);
+                                    emit auth->needsReloginChanged();
+                                    check(sourceOf(QStringLiteral("Alice")).startsWith(AccountSkinDialog::microsoftAccountText()) &&
+                                              reloginButtons().isEmpty(),
+                                          "Z9c 标记清掉后列表刷新：Alice 恢复「微软账号」，按钮消失",
+                                          sourceOf(QStringLiteral("Alice")));
                                 }
 
                                 // ---- Z10 名字不合法：弹窗，而且底栏一个像素都不许变 ----

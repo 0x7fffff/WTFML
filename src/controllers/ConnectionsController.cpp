@@ -971,6 +971,9 @@ void ConnectionsController::setup() {
     connect(m_owner->m_authManager, &AuthManager::loginStarted, m_owner, &MainWindow::onLoginStarted);
     connect(m_owner->m_authManager, &AuthManager::loginSucceeded, m_owner, &MainWindow::onLoginSucceeded);
     connect(m_owner->m_authManager, &AuthManager::loginFailed, m_owner, &MainWindow::onLoginFailed);
+    // 刷新令牌失效 / 重新登录成功会改「需要重新登录」标记；账号页开着时列表要跟着变。
+    connect(m_owner->m_authManager, &AuthManager::needsReloginChanged, m_owner,
+            &MainWindow::refreshAccountRows);
 
     // 玩家外观那三条（Store 的三个信号）接在 PlayerSkinController 自己身上
     // （见那个 const 函数里的接线），因为"档案到了怎么办"已经是它的判断（认人、落盘、
