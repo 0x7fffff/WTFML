@@ -31,7 +31,6 @@ public:
     void exportTheme();
     void importTheme();
     void changeTextOpacity(int value);
-    void setAnimationsEnabled(bool enabled);
     void refresh();
     void applySpec(const Theme::Spec &spec);
     void setPartImage(const QString &partKey, const QString &imagePath,

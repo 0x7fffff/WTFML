@@ -269,11 +269,6 @@ int main(int argc, char *argv[]) {
     Theme::setSpec(Theme::load());
     Theme::apply(app);
 
-    // 动效那一层：`load()` 读本程序自己的总开关（`Look/Animations`，**不在 `Theme/` 底下** ——
-    // `Theme::save()` 会把 `Theme` 这一整组清掉重写，开关放那儿会被顺手抹了）。
-    // 不跟随 Windows 的「动画效果」：那一档关掉时整套动效会被静默关掉（见 `Anim::enabled()`）。
-    Anim::load();
-
     // 动效那一层（用户点名的那三样：按下按钮 / 切换页面 / 展开折叠）。
     //
     // 这一句是**按钮那一份动效的唯一接线点**：它往 `QApplication` 上挂一个事件过滤器，

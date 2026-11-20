@@ -34,8 +34,8 @@ TaskProgressBar::TaskProgressBar(QWidget *parent) : QProgressBar(parent) {
     m_busyTimer = new QTimer(this);
     m_busyTimer->setInterval(kBusyTickMs);
     connect(m_busyTimer, &QTimer::timeout, this, [this] {
-        // 只在**动效开着**时推相位。关掉动效（`Look/Animations` 那把开关、或系统"减少动态
-        // 效果"）⇒ 相位定在 0，那截带子**不动**（颜色照旧，只是不滚）。
+        // 只在**动效开着**时推相位。产品里动效始终开；测试 / 验收截图调
+        // `Anim::setEnabled(false)` 跳终态时 ⇒ 相位定在 0，那截带子**不动**（颜色照旧，只是不滚）。
         if (!Anim::enabled()) {
             return;
         }

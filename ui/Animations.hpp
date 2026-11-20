@@ -122,18 +122,14 @@ constexpr qreal pageStartOpacity() { return 0.12; }
 // NOTE: 起手那一位钉在 `pageStartOpacity()`（不是 0）。
 constexpr int pressDepthPercent() { return 12; }
 
-/// 这一趟要不要动：**只认本程序自己的开关**（设置页「界面动画」那个勾，默认开）。
+/// 动效是否开启。产品里始终开（11-20 定：启动器强制动效，不提供关闭）；
+/// `setEnabled(false)` 只给测试和验收截图跳到终态用。
 ///
 /// 不读 Windows 的「动画效果」（`SPI_GETCLIENTAREAANIMATION`）：那一档关掉时整套动效会被
-/// 静默关掉，用户看到的是"动效一个都没有"，而且他多半不知道是这个开关在起作用。
-/// 要减少动效就在本程序设置里关。
+/// 静默关掉，用户看到的是"动效一个都没有"。
 bool enabled();
+/// 仅用于测试与验收截图跳到终态；产品流程始终保持开启。
 void setEnabled(bool on);
-/// 把用户那把开关存到 `QSettings`（键 `Look/Animations`）并从那儿读回来。
-/// 键**不在** `Theme/` 底下：`Theme::save()` 会整组 `remove("Theme")` 再重写，
-/// 挂在那个前缀下会被"改一次主题色"顺手抹掉。`src/main.cpp` 启动时调一次 `load()`。
-void load();
-void save();
 
 /// 给整个应用装上"按下按钮"那个事件过滤器。**幂等**（`Theme::apply()` 会被调好几次，
 /// 这里也一样可能被调好几次）。`src/main.cpp` 调它一次，验证工程不调（它们不要动效）。

@@ -20,7 +20,6 @@
 #include "MainWindow.hpp"
 #include "controllers/DailyQuoteController.hpp"
 
-#include "..\ui\Animations.hpp"
 #include "..\ui\InlineMessage.hpp"
 #include "..\ui\Theme.hpp"
 #include "auth/SkinApi.hpp"
@@ -172,9 +171,9 @@ void MainWindow::applySettingsToUi() {
     // 那边连滑块带下拉框一起挡，理由写在那儿）。
     refreshThemeImageRows();
 
-    // 「主题」那一节（配色 / 主题色 / 文字不透明度 / 语义色 / 动效开关）。和上面那一句一样，
-    // 画的是 `Theme::current()` 和 `Anim::enabled()` 里的东西 —— 主题和动效都不归
-    // LauncherSettings 管，各自另有一组键（见 Theme.hpp / Animations.hpp）。
+    // 「主题」那一节（配色 / 主题色 / 文字不透明度 / 语义色）。和上面那一句一样，
+    // 画的是 `Theme::current()` 里的东西 —— 主题不归 LauncherSettings 管，
+    // 各自在 QSettings 里另有一组键（见 Theme.hpp）。
     // NOTE: 这一句**必须**排在 `Theme::setSpec(Theme::load())` 之后（那一步在 src/main.cpp
     // 里、比 MainWindow 构造还早），不然画出来的是出厂那一份。
     refreshThemeControls();
@@ -569,10 +568,6 @@ void MainWindow::onThemeImportClicked() {
 
 void MainWindow::onThemeTextOpacityChanged(int value) {
     m_themeSettingsController->changeTextOpacity(value);
-}
-
-void MainWindow::onAnimationsToggled(bool enabled) {
-    m_themeSettingsController->setAnimationsEnabled(enabled);
 }
 
 void MainWindow::syncDownloadSource() {

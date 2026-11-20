@@ -955,11 +955,6 @@ void ConnectionsController::setup() {
         connect(m_owner->m_ui->getThemeTextOpacitySlider(), &QSlider::valueChanged, m_owner,
                 &MainWindow::onThemeTextOpacityChanged);
     }
-    // 「动效」那个总开关。
-    if (m_owner->m_ui->getAnimationsCheck() != nullptr) {
-        connect(m_owner->m_ui->getAnimationsCheck(), &QCheckBox::toggled, m_owner,
-                &MainWindow::onAnimationsToggled);
-    }
     // CurseForge 的 API key：**编辑完才存**（editingFinished = 回车或者焦点离开）。
     // 理由写在 m_owner->onCurseForgeApiKeyEdited() 里。
     connect(m_owner->m_ui->getCurseForgeApiKeyEdit(), &QLineEdit::editingFinished, m_owner,

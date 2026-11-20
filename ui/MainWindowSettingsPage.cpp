@@ -728,12 +728,6 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
 
     // NOTE: 「版本名格式」那一组（自定义名 / 版本名 / 加载器名 / 加载器版本四个开关）在
     // UI 问题 #14 里撤掉了：显示名固定按出厂那一份拼（见 manage/VersionDisplay.hpp）。
-    // ---------- 动效 ----------
-    // 只看这一个勾，不跟随 Windows 的「动画效果」（那一档关掉会让整套动效被静默关掉）。
-    SettingsGroup *motion = addGroup(panel, QCoreApplication::translate("MainWindowSettingsPage", "动效"));
-    animationsCheck = new QCheckBox(animationsCheckText(), form);
-    animationsCheck->setObjectName(animationsCheckName());
-    addSwitch(motion, animationsCheck, animationsCheckText(), QCoreApplication::translate("MainWindowSettingsPage", "系统开启「减少动画」时自动关闭。"));
 
     // ---------- 主页快速启动 ----------
     SettingsGroup *quick = addGroup(panel, QCoreApplication::translate("MainWindowSettingsPage", "主页快速启动"));

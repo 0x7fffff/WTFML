@@ -2,14 +2,12 @@
 #include <QCoreApplication>
 
 #include "MainWindowUI.hpp"
-#include "Animations.hpp"
 #include "InlineMessage.hpp"
 #include "ThemeAdvancedEditor.hpp"
 #include "settings/LauncherSettings.hpp"
 #include "util/ThemeImage.hpp"
 
 #include <QApplication>
-#include <QCheckBox>
 #include <QComboBox>
 #include <QDir>
 #include <QFile>
@@ -249,10 +247,6 @@ void ThemeSettingsController::refresh() {
     for (int i = 0; i < MainWindowUI::themeSemanticCount(); ++i)
         if (QPushButton *swatch = m_ui->getThemeSemanticButton(i))
             Theme::markColorSwatch(swatch, semanticColor(spec, i));
-    if (QCheckBox *check = m_ui->getAnimationsCheck()) {
-        const QSignalBlocker block(check);
-        check->setChecked(Anim::enabled());
-    }
     refreshImages();
 }
 
@@ -391,9 +385,4 @@ void ThemeSettingsController::changeTextOpacity(int value) {
     Theme::Spec spec = Theme::current();
     spec.textOpacity = value;
     applySpecThrottled(spec);
-}
-
-void ThemeSettingsController::setAnimationsEnabled(bool enabled) {
-    Anim::setEnabled(enabled);
-    Anim::save();
 }
