@@ -20,10 +20,8 @@ void runDownloadFilterTests() {
         sandbox.setValue(kBaseKey, api.baseUrl());
         sandbox.sync();
     }
-    // 身份：一个**新加的离线账号**，而且先给它预置一张随机皮肤 —— 这样 `MainWindow` 构造
-    // 末尾那次 startPlayerSkinLoad() 是同步命中，一个请求都不发（见 seedOfflineRandomSkin）。
+    // 身份：一个**新加的离线账号**（外观走本地，不发请求）。
     const QString accountName = QStringLiteral("Filters");
-    seedOfflineRandomSkin(accountName, kSeededSkinUrl, QColor(0x30, 0x90, 0xD0));
     {
         QString offlineError;
         check(AccountStore::addOffline(accountName, &offlineError),

@@ -27,7 +27,7 @@
 | 服务端安装 | `ServerInstallController`：Paper 构建列表、版本清单、版本 json（含镜像失败退官方） | 15 秒（`HttpClient::kDefaultTimeoutMs`） | 2 MiB | `unansweredText()`，界面文案与超时相同 |
 | Java 管理 | `GlobalJavaSettings::downloadJavaFromMojang` 的 Adoptium 列表 | 30 秒 | 2 MiB | 同步返回 `bool`（嵌套事件循环里等作业收尾） |
 | 预设兼容 | `Presets::PlatformCompatibilityProvider`：Modrinth `/project/{id}/version`、CurseForge `/mods/{id}/files` | 12 秒（`m_transferTimeoutMs`） | **8 MiB**（`kVersionBodyLimit`，版本表每发带 changelog 全文） | 结论「查询超时，暂时无法确认」，不算缺失，不再挂重试 |
-| 皮肤 | `PlayerSkinStore::refreshForUuid()`（档案）、`fetchTexture()`（贴图）、`RandomSkinStore::fetchRandomSkin()`（随机皮肤列表） | 10 秒（`kTransferTimeoutMs`） | 2 MiB | 发 `failed()`，`PlayerSkinController` 靠它复位「正在获取」 |
+| 皮肤 | `PlayerSkinStore::refreshForUuid()`（档案）、`fetchTexture()`（贴图） | 10 秒（`kTransferTimeoutMs`） | 2 MiB | 发 `failed()`，`PlayerSkinController` 靠它复位「正在获取」 |
 | 资源商店 | `ResourceStore`：搜索、版本表、批量项目（CurseForge `POST /mods`）、`POST /version_files`、精确前置版本/文件、检查更新 `POST /version_files/update` | 15 秒 | 2 MiB | 带 `unansweredText(what, jobError)` 的收尾；检查更新记入 `LatestRun::problem` |
 | 资源商店图标 | `ResourceStore::startIconRequest()` | 8 秒（`kIconTimeoutMs`） | 2 MiB | 记一次失败并发回占位图（`iconReady` 契约：每一发都回一次） |
 
@@ -35,7 +35,7 @@
 
 ## 各调用方保留的约定
 
-- **皮肤**：档案那条路在 429 退避窗口内一个请求都不发（在进入 ControlGet 之前）；贴图按内容寻址缓存，命中即同步发信号、不发请求；`textureRequestUrl()` 做 http→https 与 host 白名单。`RandomSkinStore` 的 `m_inFlight` 闸在收尾处先放开再发信号，否则一次排队超时会把"挑一张"永久卡死。`RandomSkinStore::setEndpointOverride()`（空串 = 官方地址）只给验证工程用。
+- **皮肤**：档案那条路在 429 退避窗口内一个请求都不发（在进入 ControlGet 之前）；贴图按内容寻址缓存，命中即同步发信号、不发请求；`textureRequestUrl()` 做 http→https 与 host 白名单。
 - **资源商店**：`m_replies` 是 `QHash<QString, ControlGet*>`，同一把钥匙上换一发 = `delete` 旧作业；回调里不再比较"这一发是不是手上这个"（被换掉的作业不会回调）；钥匙在回调**开头**摘掉，因为收尾信号发出后接收方可能立刻在同一把钥匙上再开一发。429 话术（`throttledText`）、CurseForge key 提示、图标的 304 / 缓存 / 主次地址回退 / 连续三次不通就放弃，不在这一层。
 - **预设兼容**：429 窗口、瞬态失败退避重试、`Unknown` 不进缓存，都在 ControlGet 之外。
 - **服务端安装**：`m_metadataReply` 是作业指针，`finishWith()` 里直接 `delete`。
@@ -46,7 +46,7 @@
 
 - `tests/mw_check/RequestBudgetChecks.cpp`：跨两个 QNAM 的 8 次本机 HTTP 请求、Control 额度耗尽、排队超时、释放后继续、删除排队作业/页面、活动请求取消、传输绝对截止、`VersionManager` 换版本取消、正文上限是逐作业参数（超限掐断、默认上限照常完成、无残留租约）。网络四组回归 4/4（80.06 秒），记录在 `build/test-runs/20261031-005941-ee57bd98/`；扩展后的专项 1/1（9.30 秒）。
 - `tests/core_modules/PresetCompatibilityTests.cpp` PH6（6 条）：额度占满时只排队、删掉排队作业后不发、名额回来照常发出、截止到点报超时且不算缺失、超时那发归还名额。`verify_presets` 762/762。
-- `tests/core_modules/PlayerSkinTests.cpp` T8（9 条）：档案、贴图、随机皮肤列表各自在额度占满时只排队，名额回来后到达；排队作业随对象删除后不发、不残留租约。`verify_accounts` 376/376。
+- `tests/core_modules/PlayerSkinTests.cpp` T8：档案、贴图各自在额度占满时只排队，名额回来后到达；排队作业随对象删除后不发、不残留租约。`verify_accounts` 376/376。
 - `tests/core_modules/ResourceStoreBudgetTests.cpp` ZI 节（13 条）：搜索、带正文 POST、图标额度占满时只排队；出发的确实是带正文的 POST；同一把钥匙换一发只发一次、只回一次；排队作业随 `ResourceStore` 删除后不发。`verify_resources` 913/913。
 - 安装与 Java 三条路没有本机 HTTP 夹具（`LoaderInstallLive` 需要真沙箱），语义由上面的 ControlGet 专项保证。迁移完成时全量 `verify` 6102/6102，`mw_check` 2722/2722，`mw_check_download_retry` 56 PASS / 0 FAIL。
 

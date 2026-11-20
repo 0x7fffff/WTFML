@@ -247,11 +247,6 @@ set(PROJECT_SOURCES
     ${REPO_ROOT}/src/manage/ModpackExport.hpp
     ${REPO_ROOT}/src/manage/PlayerSkinStore.cpp
     ${REPO_ROOT}/src/manage/PlayerSkinStore.hpp
-    # RandomSkinStore：离线账号那张随机皮肤的地址怎么拼、列表怎么解、挑下标越界了怎么办、
-    # 盘上记的那一行还算不算数。全是纯函数，一条都不联网（真去要去要 MineSkin 那个端点，
-    # 见 mw_check 的 AH 段之外那几条一次性探针）。
-    ${REPO_ROOT}/src/manage/RandomSkinStore.cpp
-    ${REPO_ROOT}/src/manage/RandomSkinStore.hpp
     # OfflineSkin：离线账号自己挑的那张图存在哪、模型那一行怎么归一化、撤掉之后
     # 是不是真的一张都不剩。纯文件读写，不联网。
     ${REPO_ROOT}/src/manage/OfflineSkin.cpp

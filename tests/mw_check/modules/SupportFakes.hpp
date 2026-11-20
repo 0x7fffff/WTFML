@@ -30,53 +30,6 @@ static QByteArray solidPngBytes(const QColor &color, int side = 32) {
 /// 记着"来问过几次"和"那一发带了哪些条件头"—— ZB8 要验的东西全在这两件事上。用它就
 /// 不碰外网，在哪台机器上跑都是同一个结果；而"核对那一发"是这次改动最要紧的那条路，
 /// 光靠 icon-live 那条只报数的探针是钉不住的。
-/// 预置用的两个地址。哈希是**真的**（从 `api.mineskin.org/v2/skins` 拿回来的
-/// 那一页里抄的，见 verify 的 ZE 段），形态和产品里会落到盘上的一模一样。
-///
-/// 两张是为了 AF 段能验"又挑中了一张"这件事：只给一张的话，"换上了"和"还是原来那张"
-/// 在屏幕上长得一样，断言就恒真了。
-static const QString kSeededSkinUrl = QStringLiteral(
-    "https://textures.minecraft.net/texture/"
-    "ba61d4e3a112c1959cfc5c7811ee442f055334ef787eee1795f9d947d56bfa39");
-static const QString kSeededSkinUrl2 = QStringLiteral(
-    "https://textures.minecraft.net/texture/"
-    "a48f69d77cb323c5bbe0250143759cd7abff5e08774f7888556fa641cfa75f12");
-
-/// 给某个离线账号**预置一张随机皮肤**：盘上记下"挑中的是这一张"，并把那张图本体按
-/// 内容寻址塞进贴图缓存（`<skinsDir>/<sha1(url)>.png`）。
-///
-/// 为什么非预置不可： 起，**离线账号**的外观走的是 RandomSkinStore ——
-/// 盘上还没记过就真的去问 MineSkin 要一页列表。而这个工程里凡是"当前账号是离线账号"
-/// 的地方都会触发它：
-/// - 每一次 `MainWindow w;` —— 构造函数末尾那句 startPlayerSkinLoad()（见 MainWindow.cpp）；
-/// - 每一次切到离线账号（refreshAccountSkin → startPlayerSkinLoad）；
-/// - 打开「账号与外观…」窗（那个窗会刷新外观）。
-/// 不预置的话这一跑就会真发请求：有网时快、没网时要等满 10 秒超时，而**回来的那条信号
-/// 还会去写日志、还可能把屏幕上那张脸换掉** —— 等于给别的断言掺进一个看运气的因素
-/// （正是 U 段"每一步都要点启动、每一步都要看弹窗"最怕的那种）。
-///
-/// 预置之后这条路就变成**同步命中**：RandomSkinStore 读出盘上那一行 → requestSkinTexture
-/// → PlayerSkinStore 发现缓存里有 → 同步发 textureReady → 立刻画上。一个包都不发。
-///
-/// NOTE: 用 `AccountStore::offlineUuidFor(name)` 算 uuid，所以**账号还没建出来就能先摆好**
-/// （这是它作为 public static 存在的理由之一）。三处都要提前调 —— 建账号那一下
-/// 本身就会把它设成当前身份。
-static void seedOfflineRandomSkin(const QString &name, const QString &skinUrl,
-                                  const QColor &tint) {
-    QDir().mkpath(AppPaths::skinsDir());
-    const QString cached = PlayerSkinStore::cachePathForUrl(skinUrl);
-    // 皮肤贴图是 64×64 那种（X5 那几条塞的也是这个尺寸）。
-    QImage image(64, 64, QImage::Format_ARGB32_Premultiplied);
-    image.fill(tint);
-    image.save(cached);
-    RandomSkinStore::saveChosenSkinUrl(AccountStore::offlineUuidFor(name), skinUrl);
-}
-
-/// 一个只答一种话的假图标服务器（127.0.0.1、随机端口）。
-///
-/// 记着"来问过几次"和"那一发带了哪些条件头"—— ZB8 要验的东西全在这两件事上。用它就
-/// 不碰外网，在哪台机器上跑都是同一个结果；而"核对那一发"是这次改动最要紧的那条路，
-/// 光靠 icon-live 那条只报数的探针是钉不住的。
 struct FakeIconServer {
     QTcpServer server;
     QByteArray body;      ///< 200 时发回去的正文

@@ -196,7 +196,6 @@
 #include "manage/ModpackExport.hpp"
 #include "manage/ModpackImport.hpp"
 #include "manage/PlayerSkinStore.hpp"
-#include "manage/RandomSkinStore.hpp"
 #include "manage/VersionManager.hpp"
 // T38：服务端工作区那一套（M4-1）。三份各一角：`ServerInstall` 是"这一档
 // 装什么、装完长什么样"，`ServerModel` 是"一个服务端是什么 / 状态怎么叫"，`ServerRegistry`

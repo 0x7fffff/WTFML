@@ -26,7 +26,6 @@
  * mw_check.exe icon-live [数量] 真网络量一次"一页图标多久回来、几张空手"
  * mw_check.exe icon-lookup-live <目录> 真网络 + **用户自己的盘**：一个目录里的模组
  * 各认出了什么、拿到几条真图标地址（**只读**）
- * mw_check.exe random-skin-live 真网络要一页随机皮肤、挑一条、真下一张
  * mw_check.exe modpack-import-live <包.zip> <实例名> <游戏根目录> [java]
  * 真跑一次整合包导入（几个 GB，几个钟头）
  */
@@ -1105,7 +1104,6 @@ int MwModpackImportChecks(const QDir &versionsDir, MainWindow &window, GlobalJav
 int MwTaskSummaryChecks(MainWindow &window);
 int MwTaskStressChecks(MainWindow &window);
 int MwGameLogLifecycleChecks(const bool settingsWired, MainWindow &window, QCheckBox * &showLogCheck, QComboBox * &priorityCombo, QSpinBox * &windowWidthSpin, QSpinBox * &windowHeightSpin, QComboBox * &windowModeCombo, QLabel * &windowSizeTimes);
-int MwRandomSkinChecks();
 
 
 

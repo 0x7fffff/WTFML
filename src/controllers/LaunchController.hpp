@@ -32,7 +32,7 @@ public:
     void abortStart(StartCancelSource source);
     /// 启动流程早退时给那件任务收尾（`TaskAbortGuard` 调的就是这一句）：中途被取消的
     /// 按「已取消」收（用户自己按的，不是失败），其余早退照旧按失败收。
-    void finishAbortedStart(Tasks::TaskId launchTask);
+    void finishAbortedStart(Tasks::TaskId launchTask, const QString &failReason = QString());
 
     /// 测试用：直接摆出/读回「这一趟正在走」和取消旗子 —— 真实入口只有
     /// `onStartButtonClicked()`、`abortStart()` 两处。

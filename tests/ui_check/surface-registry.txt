@@ -29,7 +29,7 @@ task-center | TaskCenterPanel | 任务中心整页
 instance-folder-popup | MainWindowUI, FolderPopupSurface | 实例页·文件夹浮层
 instance-group-menu | MainWindowUI, GroupMenu | 实例页·分组齿轮菜单
 account-skin | AccountSkinDialog | 账号与外观
-account-offline | AccountSkinDialog | 账号与外观·离线页签
+account-offline | AccountSkinDialog | 账号与外观·添加离线账号
 group-settings | GroupDialog | 分组设置
 java-manage | JavaManageDialog | Java 管理
 java-mismatch | JavaMismatchDialog | Java 版本不符

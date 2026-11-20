@@ -258,7 +258,7 @@ void runDefaultSkinTests(const QString &sandbox) {
     // ---- ZF8 取不到 / 坏掉，各是哪一种 ----
     {
         // ① 两条都没有（不是原版客户端：第三方安装器做的薄壳 JAR 就长这样）→ Unavailable，
-        // 这是**常态**：调用方会退回"随机挑一张"，不报错。
+        // 这是**常态**：调用方会显示内置 Steve，不报错。
         const QString emptyId = QStringLiteral("1.19.9-noskin");
         const QString emptyJar = sandbox + QStringLiteral("/versions/") + emptyId + QLatin1Char('/') +
                                  emptyId + QStringLiteral(".jar");

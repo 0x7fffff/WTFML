@@ -158,9 +158,6 @@ void runInstanceStartActionsTests() {
     TokenStore::clear(TokenStore::accountsKey());
     TokenStore::clear(TokenStore::currentUuidKey());
     const QString accountName = QStringLiteral("T19User");
-    // 先给他预置一张随机皮肤（理由见 seedOfflineRandomSkin() 那一段）：不预置的话
-    // `MainWindow w;` 构造末尾那次 startPlayerSkinLoad() 会真去问 MineSkin。
-    seedOfflineRandomSkin(accountName, kSeededSkinUrl, QColor(0x60, 0xA0, 0x40));
     QString offlineError;
     check(AccountStore::addOffline(accountName, &offlineError),
           "T19.0 建一个离线账号并设成当前身份（离线 ⇒ 导出那条路不用令牌）", offlineError);

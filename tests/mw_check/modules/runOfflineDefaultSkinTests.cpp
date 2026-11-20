@@ -11,9 +11,6 @@ void runOfflineDefaultSkinTests() {
     const QString uuid = AccountStore::offlineUuidFor(name);
     const QColor tintModern(0x21, 0x80, 0xC1);
     const QColor tintOld(0x90, 0x60, 0x30);
-    const QColor tintRandom(0x7A, 0xC8, 0x66);
-    // 第二张随机皮肤：「随机那条路有没有被动过」的刻度（见 ZG1 末尾那一段）。
-    const QColor tintRandom2(0xE0, 0x70, 0x20);
     const QString modernId = QStringLiteral("1.20.1-defskin");
     const QString oldId = QStringLiteral("1.18.2-defskin");
     const QString noRuleId = QStringLiteral("1.19.9-noskin");
@@ -53,9 +50,7 @@ void runOfflineDefaultSkinTests() {
     // 第四个故意的：stub 字节，不是一个 zip。
     makeInstalledVersion(versionsDir, brokenId);
 
-    // 随机那张**先预置好**（理由见 seedOfflineRandomSkin 那段）：起窗口那一下还没选中
-    // 任何版本 → 走的正是退路。不预置的话这里会真去问 MineSkin。
-    seedOfflineRandomSkin(name, kSeededSkinUrl, tintRandom);
+    // 起窗口那一下还没选中任何版本 → 走的正是退路（内置 Steve），全程不联网。
     QString offlineError;
     check(AccountStore::addOffline(name, &offlineError),
           "ZG0 建一个离线账号并设成当前身份（只有离线账号会算这个）", offlineError);
@@ -73,7 +68,7 @@ void runOfflineDefaultSkinTests() {
             const int failedBefore =
                 countOccurrences(messagesSnapshot(), QStringLiteral("算离线默认皮肤失败"));
 
-            // ---- ZG1 没有当前实例：算不出默认皮肤，退回随机那张 ----
+            // ---- ZG1 没有当前实例：算不出默认皮肤，退回内置 Steve ----
             // 有实例必有当前实例（resolveCurrentInstance()），所以一起来就选中了一个；
             // "没有当前实例"只在一个实例都没有时出现 —— 这里手动清掉选中项来走那一档。
             check(combo->currentIndex() >= 0,
@@ -81,16 +76,9 @@ void runOfflineDefaultSkinTests() {
                   QString::number(combo->currentIndex()));
             combo->setCurrentIndex(-1);
             QApplication::processEvents();
-            check(viewer->skin().pixelColor(0, 0) == tintRandom &&
+            check(viewer->skin() == SkinModel::defaultSteveSkin() &&
                       hint->text() == MainWindowUI::skinHintOfflineLoadedText(name),
-                  "ZG1 没选中版本 → 画的是随机挑的那张，那句话也还是随机那档", hint->text());
-
-            // 把「随机挑的那一张」换成**第二张**（图本体 + 盘上那一行，和 AF 段同一个做法）。
-            // 下面选中版本之后，盘上那行还是第二张、而屏幕上已经是 JAR 里那一张 —— 两件事
-            // 同时成立就等于"随机那条路一个字节都没动"（比"看日志里没有失败"强：那句只在
-            // 失败时才说话）。**不能把记录删掉** —— 删了就是"还没挑过"，ZG4 那一档会真去
-            // 问 MineSkin，这一节就联网了（这一整节的约定是全程离线）。
-            seedOfflineRandomSkin(name, kSeededSkinUrl2, tintRandom2);
+                  "ZG1 没选中版本 → 画的是内置 Steve，那句话是离线本地预览那档", hint->text());
 
             // ---- ZG2 新规矩那条在：画的就是 JAR 里那张，而且是窄模型 ----
             combo->setCurrentIndex(combo->findData(modernId));
@@ -105,10 +93,8 @@ void runOfflineDefaultSkinTests() {
                   "ZG2 那句话改口说「游戏会给的默认皮肤」，而且点名是哪个实例", hint->text());
             check(hint->text() != MainWindowUI::skinHintOfflineLoadedText(name),
                   "ZG2 而且不再说随机那句（两张图长得一样也不许说错话）");
-            check(hint->text() != MainWindowUI::skinHintLoadingText(name) &&
-                      RandomSkinStore::loadChosenSkinUrl(uuid) == kSeededSkinUrl2,
-                  "ZG2 算得出来时随机那条路**整条没走**：没在加载、盘上那行还是上一张",
-                  RandomSkinStore::loadChosenSkinUrl(uuid));
+            check(hint->text() != MainWindowUI::skinHintLoadingText(name),
+                  "ZG2 算得出来时没有「正在获取」那句", hint->text());
 
             // ---- ZG3 换到只有旧版布局那条的版本：图换了，模型也跟着换 ----
             // 这一条同时验了"换版本会重算"（下拉框 currentIndexChanged → startPlayerSkinLoad）
@@ -126,26 +112,23 @@ void runOfflineDefaultSkinTests() {
                   "ZG3 那句话跟着换成这个实例（两句不一样，所以上面那条不是碰巧对的）",
                   hint->text());
 
-            // ---- ZG4 两条规矩都不在（真机上就是"第三方安装器做的薄壳 JAR"）：退回随机 ----
+            // ---- ZG4 两条规矩都不在（真机上就是"第三方安装器做的薄壳 JAR"）：退回内置 Steve ----
             combo->setCurrentIndex(combo->findData(noRuleId));
             QApplication::processEvents();
-            check(viewer->skin().pixelColor(0, 0) == tintRandom2 &&
+            check(viewer->skin() == SkinModel::defaultSteveSkin() &&
                       hint->text() == MainWindowUI::skinHintOfflineLoadedText(name),
-                  "ZG4 jar 里两条都没有 → 退回随机那张（**常态**，不报错不弹窗）", hint->text());
-            check(RandomSkinStore::loadChosenSkinUrl(uuid) == kSeededSkinUrl2,
-                  "ZG4 而且退的是**盘上记着的那一张**（同一个账号不会每次开窗都换脸）",
-                  RandomSkinStore::loadChosenSkinUrl(uuid));
+                  "ZG4 jar 里两条都没有 → 退回内置 Steve（**常态**，不报错不弹窗）", hint->text());
 
-            // ---- ZG5 jar 打不开：记一行日志，然后照样退回随机 ----
+            // ---- ZG5 jar 打不开：记一行日志，然后照样退回内置 Steve ----
             combo->setCurrentIndex(combo->findData(brokenId));
             QApplication::processEvents();
             check(countOccurrences(messagesSnapshot(), QStringLiteral("算离线默认皮肤失败")) >
                           failedBefore &&
-                      viewer->skin().pixelColor(0, 0) == tintRandom2,
-                  "ZG5 jar 不是 zip → 日志里留一行，屏幕上照样有脸（不是空白、不是内置 Steve）");
+                      viewer->skin() == SkinModel::defaultSteveSkin(),
+                  "ZG5 jar 不是 zip → 日志里留一行，屏幕上照样有脸（内置 Steve，不是空白）");
             // 那一行**不能是个悬空的冒号**：这一档（NotAnArchive）底层不给原因，照抄过来
             // 就是「算离线默认皮肤失败：」后面什么都没有 —— 而那行日志的全部意义正是
-            // "怎么老是随机那张"有个交代。
+            // "怎么老是 Steve"有个交代。
             QString lastFailedLine;
             for (const QString &message : messagesSnapshot()) {
                 if (message.contains(QStringLiteral("算离线默认皮肤失败"))) {

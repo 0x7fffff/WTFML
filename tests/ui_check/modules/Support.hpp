@@ -586,6 +586,8 @@ int UiTopLevelDialogChecks(QApplication &app);
 
 /// 外框在真 HWND 上的行为（专门模块 ui_check_window_chrome，平台插件要 windows）。
 int UiWindowChromeCheck(QApplication &app);
+// 主页启动卡片（#65）：卡片几态、W 循环接缝与失败铺满转灰（见 UiLaunchCardChecks.cpp）。
+int UiLaunchCardChecks(QApplication &app);
 
 
 /// 智能体页/设置页的 offscreen 检查（专门模块 ui_check_agent）。

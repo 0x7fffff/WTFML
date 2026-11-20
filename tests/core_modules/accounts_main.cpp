@@ -12,7 +12,6 @@ int main(int argc, char **argv) {
  app.setProperty("wtfml.testDefaultMinecraftDir", sandbox);
  const QString metaDir=QStringLiteral(REPO_ROOT_PATH)+"/tests/meta";
     runPlayerSkinTests(sandbox);
-    runRandomSkinTests(sandbox);
     runOfflineSkinTests(sandbox);
     runDefaultSkinTests(sandbox);
     runAccountSkinTests(sandbox);

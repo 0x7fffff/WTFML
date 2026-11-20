@@ -120,7 +120,6 @@ void runUpdateCenterActionTests() {
     TokenStore::clear(TokenStore::accountsKey());
     TokenStore::clear(TokenStore::currentUuidKey());
     const QString accountName = QStringLiteral("T38User");
-    seedOfflineRandomSkin(accountName, kSeededSkinUrl, QColor(0x60, 0x40, 0x90));
     QString offlineError;
     check(AccountStore::addOffline(accountName, &offlineError),
           "T38.0 建一个离线账号并设成当前身份（这一节一个外网请求都不发）", offlineError);

@@ -143,10 +143,10 @@ int UiUiRefreshCheck(QApplication &app) {
         auto *viewer = account.findChild<SkinViewer *>(AccountSkinDialog::viewerName());
         expect(viewer && viewer->width() == 288 && viewer->height() == 432,
                "account character preview has bounded dimensions");
-        auto *login = account.findChild<QPushButton *>(AccountSkinDialog::loginButtonName());
+        auto *login = account.findChild<QPushButton *>(AccountSkinDialog::addAccountButtonName());
         auto *body = account.findChild<QWidget *>(QStringLiteral("accountBody"));
         expect(body && body->height() < 520 && login &&
-               login->mapTo(&account, QPoint()).y() < 280,  // 大标题 + 副标题之下：小节名、账号列表、「登录新账号…」
+               login->mapTo(&account, QPoint()).y() < 280,  // 大标题 + 副标题之下：小节名、账号列表、「添加账号」
                "account controls stay top aligned without distributing surplus height into gaps");
         expect(login && login->grab().toImage().pixelColor(8, 8) == Theme::tokens().primary,
                "default login button keeps solid primary background");

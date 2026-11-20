@@ -591,7 +591,6 @@ set(SOURCE_FILES
     src/manage/ServerListFile.cpp
     src/manage/DefaultSkin.cpp
     src/manage/PlayerSkinStore.cpp
-    src/manage/RandomSkinStore.cpp
     # 离线账号自己挑的那张皮肤。
     src/manage/OfflineSkin.cpp
     src/manage/InstanceMetaFile.cpp
@@ -805,6 +804,7 @@ set(SOURCE_FILES
     ui/InstanceGroupDelegate.cpp
     ui/SkinViewer.cpp
     ui/TitleBar.cpp
+    ui/BrandMark.cpp
     ui/DesignDefaults.cpp
     ui/Theme.cpp
     ui/ThemeAdvancedEditor.cpp

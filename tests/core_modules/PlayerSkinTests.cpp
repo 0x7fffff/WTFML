@@ -345,7 +345,6 @@ void runPlayerSkinTests(const QString &sandbox) {
         const QByteArray png = fakeSkinPng(64, 64);
         const QString base = QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort());
         PlayerSkinStore::setEndpointOverrides(base + QStringLiteral("/profile/"), base);
-        RandomSkinStore::setEndpointOverride(base + QStringLiteral("/skins"));
         // 档案里那张贴图**指着夹具**（走 textureUrlForHash 的覆盖那条路），于是"档案到了
         // → 拿它的 skinUrl 去下贴图"这一整条链在本地闭环。
         const QString textureUrl = PlayerSkinStore::textureUrlForHash(hash);
@@ -444,22 +443,6 @@ void runPlayerSkinTests(const QString &sandbox) {
                   "T8 名额回来就下贴图、过 PNG 判据、落盘",
                   QDir::toNativeSeparators(gotPath));
 
-            RandomSkinStore random;
-            QString randomUrl;
-            int randomFailures = 0;
-            QObject::connect(&random, &RandomSkinStore::skinReady, &random,
-                             [&](const QString &url) { randomUrl = url; });
-            QObject::connect(&random, &RandomSkinStore::failed, &random,
-                             [&](const QString &) { ++randomFailures; });
-            holds = fillControlLane();
-            check(random.fetchRandomSkin(), "T8 挑一张：这一趟真的开工了");
-            pump(150);
-            check(listRequests == 0 && randomUrl.isEmpty() && randomFailures == 0,
-                  "T8 额度占满时列表那一发也只排队");
-            holds.clear();
-            check(pumpUntil([&] { return !randomUrl.isEmpty(); }, 2000) && listRequests == 1 &&
-                      randomUrl == textureUrl,
-                  "T8 名额回来就挑出一张（地址还是官方 CDN 那个形状）", randomUrl);
         }
 
         // 排队中的作业跟着对象一起删掉：名额腾出来也不许偷偷发。
@@ -478,7 +461,6 @@ void runPlayerSkinTests(const QString &sandbox) {
         }
 
         PlayerSkinStore::setEndpointOverrides({}, {});
-        RandomSkinStore::setEndpointOverride({});
         QFile::remove(cached);
     }
 }

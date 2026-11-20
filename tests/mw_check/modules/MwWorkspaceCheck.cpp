@@ -130,7 +130,6 @@ int MwWorkspaceCheck(QApplication &app) {
             settings.setValue(QStringLiteral("Launcher/CurrentFolder"), gameRoot);
         }
         AppPaths::setMinecraftDir(gameRoot);
-        seedOfflineRandomSkin(QStringLiteral("WorkspaceCheck"), kSeededSkinUrl, QColor("#4080c0"));
         QString accountError;
         AccountStore::addOffline(QStringLiteral("WorkspaceCheck"), &accountError);
         // 这一条也会构造 MainWindow ⇒ 一构造就发版本清单。不装夹具的话这一跑实际打的是

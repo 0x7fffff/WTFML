@@ -1735,6 +1735,30 @@ public:
     QString chooseResourceDownloadInstance(const QList<HomePickerInstance> &instances);
     /// 当前实例在不在跑：启动区主按钮在「启动游戏」/「停止游戏」之间换（MainWindow 每次重画底栏时给）。
     void setHomeLaunchRunning(bool running);
+    /// 主页启动卡片（issue #65）：点「启动游戏」后，启动区那一行原地换成「手写 W + 步骤 / 进度 + 取消」，
+    /// 眉题、实例名、元信息三行只换字，整块高度不变。数据由 MainWindow 从任务中心那一项启动任务翻过来。
+    struct LaunchCard {
+        enum class Phase { Idle, Running, Succeeded, Failed };
+        Phase phase = Phase::Idle;
+        quint64 taskId = 0;      ///< 任务中心里这次启动那一项（只显示最近的一次）
+        QString instanceKey;     ///< 启动的实例；和启动区当前实例对不上时卡片不出来
+        QString stage;           ///< 阶段名；失败时是「停在」的那一段
+        qint64 done = 0;         ///< 已完成（件或字节）
+        qint64 total = 0;        ///< 总量；<= 0 = 不定进度
+        bool bytes = false;      ///< 件数按 MB 写（下载 Java）
+        QString reason;          ///< 失败原因（一句话）
+        QString login;           ///< 元信息末项：「离线登录」/「微软账号登录」
+    };
+    enum class LaunchCardAction { Cancel, Details };
+    using LaunchCardActionHandler = std::function<void(quint64 taskId, LaunchCardAction action)>;
+    /// 换一份卡片数据。成功态停 launchCardSuccessHoldMs() 后自己还原成平常的启动行；
+    /// 「取消」「关闭」点了当场还原（同一项启动任务之后再来的数据不再把它叫出来）。
+    void setLaunchCard(const LaunchCard &card);
+    const LaunchCard &launchCard() const { return m_launchCard; }
+    /// 卡片此刻是不是顶替了平常的启动行。
+    bool launchCardShown() const;
+    void setLaunchCardActionHandler(const LaunchCardActionHandler &handler) { m_launchCardHandler = handler; }
+    static int launchCardSuccessHoldMs() { return 1500; }
     static QString bottomBarName() { return QStringLiteral("bottomBar"); }
     static QString avatarLabelName() { return QStringLiteral("avatarLabel"); }
     /// 底栏头像那一块的边长（像素）。**唯一出处**：主窗口拿它去裁头像
@@ -3307,10 +3331,10 @@ public:
     static QString skinHintNotLoggedInText() {
         return QCoreApplication::translate("MainWindowUI", "未登录（默认外观）");
     }
-    /// 离线账号要到了一张随机外观。
+    /// 离线账号取不到默认皮肤，显示的是内置 Steve。
     ///
     /// NOTE: 这一句非有不可：上面那两句都不对 —— skinHintLoadedText() 说的是「正版外观」，
-    /// 而这张图跟正版没有任何关系（它是随机挑的）；skinHintNotLoggedInText() 说的是
+    /// 而这张图跟正版没有任何关系；skinHintNotLoggedInText() 说的是
     /// 「显示的是默认外观」，而这时候屏幕上恰恰不是那张默认外观。
     /// 后面那半句也不是废话：这张图**只在启动器里**显示，游戏里那张脸是游戏自己定的。
     static QString skinHintOfflineLoadedText(const QString &name) {
@@ -4127,6 +4151,15 @@ private:
     bool m_homeLaunchRunning = false;
     /// 按 m_homeLaunchRunning / m_lastTaskSummary 把启动区主按钮的字、图标、动作对上。
     void syncHomeLaunchButton();
+    /// 启动卡片：数据、那一行控件（随启动区重建换父控件，不跟着重建，W 的动画不断）、
+    /// 已还原的那一项、当前实例（元信息要按它重拼）。见 setLaunchCard()。
+    LaunchCard m_launchCard;
+    quint64 m_launchCardDismissed = 0;
+    QWidget *m_launchRow = nullptr;
+    HomeQuickItem m_homeCurrentItem;
+    LaunchCardActionHandler m_launchCardHandler;
+    void syncLaunchCard();
+    void onLaunchCardAction(LaunchCardAction action);
     QLabel *runStateLabel = nullptr;
     QLabel *runStateDetailLabel = nullptr;
     QLabel *runStateMarkLabel = nullptr;

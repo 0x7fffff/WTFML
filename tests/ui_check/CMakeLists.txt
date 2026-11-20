@@ -136,6 +136,7 @@ ${REPO_ROOT}/ui/InstanceSettingsSignature.cpp
                                 ${REPO_ROOT}/ui/RuntimeOutputModel.cpp
                                 ${REPO_ROOT}/ui/SkinViewer.cpp
                                 ${REPO_ROOT}/ui/TitleBar.cpp
+                                ${REPO_ROOT}/ui/BrandMark.cpp
                                 ${REPO_ROOT}/ui/DesignDefaults.cpp
                                 ${REPO_ROOT}/ui/Theme.cpp
                                 # 「预设管理」与「原理图信息」这两页：表面巡检要真的把它们摆出来。
@@ -291,6 +292,7 @@ add_ui_module(ui_check_group_editor modules/UiGroupEditorChecks.cpp UiGroupEdito
 add_ui_module(ui_check_daily_quote modules/UiDailyQuoteCheck.cpp UiDailyQuoteCheck)
 add_ui_module(ui_check_daily_quote_shots modules/UiDailyQuoteShots.cpp UiDailyQuoteShots)  # 样张，不进 ctest
 add_ui_module(ui_check_long_instance_name modules/UiLongInstanceNameChecks.cpp UiLongInstanceNameChecks)
+add_ui_module(ui_check_launch_card modules/UiLaunchCardChecks.cpp UiLaunchCardChecks)
 add_ui_module(ui_check_long_instance_name_shots modules/UiLongInstanceNameShots.cpp UiLongInstanceNameShots)  # 样张，不进 ctest
 add_ui_module(ui_check_loading_state_shots modules/UiLoadingStateShots.cpp UiLoadingStateShots)  # 样张，不进 ctest
 add_ui_module(ui_check_detail_chip_shots modules/UiDetailChipShots.cpp UiDetailChipShots)  # 样张，不进 ctest
@@ -334,6 +336,12 @@ set_tests_properties(wtfml.files-rows PROPERTIES
 )
 wtfml_add_test(NAME wtfml.ui-daily-quote COMMAND ui_check_daily_quote)
 set_tests_properties(wtfml.ui-daily-quote PROPERTIES
+    LABELS "ui;theme"
+    TIMEOUT 60
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"
+)
+wtfml_add_test(NAME wtfml.launch-card COMMAND ui_check_launch_card)
+set_tests_properties(wtfml.launch-card PROPERTIES
     LABELS "ui;theme"
     TIMEOUT 60
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;${WTFML_TEST_RUNTIME_ENVIRONMENT}"

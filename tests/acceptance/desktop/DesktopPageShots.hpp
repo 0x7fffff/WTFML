@@ -11,8 +11,15 @@
 #include "controllers/ActivityCenterController.hpp"
 #include "controllers/CrashReportController.hpp"
 #include "controllers/TaskDetailController.hpp"
+#include "SkinModel.hpp"
+#include <QAction>
 #include <QListWidget>
+#include <QMenu>
+#include <QPainter>
 #include <QPointer>
+#include <QPushButton>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <QTimer>
 
 namespace PageShots {
@@ -81,7 +88,84 @@ struct Shot {
     QString file;
     QString theme;
     std::function<QWidget *(MainWindow &, const Fixture &)> setup;
+    bool popups = false;  // 弹出菜单是独立窗口，grab() 不含它：true 时把可见的 QMenu 合成进图
+    QSize size = {1280, 800};
 };
+
+/// 夹具用的演示皮肤：整张铺衣服色，头正面 8×8 在 (8,8) 画肤色、头发、眼睛，足够认出头像和立绘。
+inline QImage demoSkin(const QColor &skin, const QColor &hair, const QColor &eyes) {
+    QImage image(64, 64, QImage::Format_ARGB32);
+    image.fill(hair.lighter(160));
+    QPainter p(&image);
+    p.setCompositionMode(QPainter::CompositionMode_Source);
+    p.fillRect(32, 0, 32, 16, Qt::transparent);  // 头部第二层（帽子）不盖住脸
+    p.setCompositionMode(QPainter::CompositionMode_SourceOver);
+    p.fillRect(8, 8, 8, 8, skin);
+    p.fillRect(8, 8, 8, 2, hair);
+    p.fillRect(8, 10, 1, 2, hair);
+    p.fillRect(15, 10, 1, 2, hair);
+    p.fillRect(9, 11, 2, 1, eyes);
+    p.fillRect(13, 11, 2, 1, eyes);
+    return image;
+}
+
+/// 账号页夹具（演示数据，只喂这个窗、不写盘）：两个微软账号 + 两个离线账号。
+/// @param current 当前账号的 uuid；@param localSkinForCurrent 当前离线账号用本地皮肤。
+inline AccountSkinDialog *accountFixture(MainWindow &w, const QString &current) {
+    auto *dialog = w.findChild<AccountSkinDialog *>();
+    if (!dialog) return nullptr;
+    dialog->clearOfflineNameDraft();            // 页面是同一个对象：上一张样张展开过的离线行先收起
+    dialog->setOnlineLoginUnavailable(QString());  // 演示数据按「已配置微软登录」摆
+    const QImage wanderer = demoSkin(QColor(0xE0, 0xAC, 0x82), QColor(0x4A, 0x32, 0x20), QColor(0x30, 0x40, 0xA0));
+    const QImage notch = demoSkin(QColor(0xC9, 0x90, 0x6A), QColor(0x20, 0x20, 0x28), QColor(0x20, 0x80, 0x30));
+    const QImage local = demoSkin(QColor(0x8F, 0xC8, 0x6A), QColor(0x2E, 0x7D, 0x32), QColor(0x10, 0x10, 0x10));
+    const auto face = [](const QImage &skin) { return SkinModel::headAvatar(skin, 64); };
+    auto row = [&](const char *uuid, const char *name, const char *saved, bool offline, const QImage &faceImage) {
+        AccountSkinDialog::AccountRow r;
+        r.uuid = QString::fromLatin1(uuid);
+        r.name = QString::fromLatin1(name);
+        r.savedAt = QString::fromLatin1(saved);
+        r.offline = offline;
+        r.current = r.uuid == current;
+        r.face = faceImage;
+        return r;
+    };
+    dialog->setAccounts({row("ms-wanderer", "Wanderer", "2026-11-09T10:00:00Z", false, face(wanderer)),
+                         row("ms-notch", "Notch_fan", "2026-11-02T08:30:00Z", false, face(notch)),
+                         row("off-steve", "Steve_test", "", true, face(local)),
+                         row("off-builder", "Builder", "", true, QImage())});
+    const bool offline = current.startsWith(QLatin1String("off-"));
+    const bool localSkin = current == QLatin1String("off-steve");
+    dialog->setOfflineSkinState(offline, localSkin);
+    const QString name = current == QLatin1String("ms-wanderer") ? QStringLiteral("Wanderer")
+                         : current == QLatin1String("off-steve") ? QStringLiteral("Steve_test")
+                                                                  : QStringLiteral("Builder");
+    dialog->setStatusText(offline ? AccountSkinDialog::offlineIdentityText(name) : AccountSkinDialog::identityText(name));
+    dialog->setLooks(current == QLatin1String("ms-wanderer") ? wanderer : localSkin ? local : QImage(), QImage(), false);
+    dialog->setPreviewNote(localSkin ? AccountSkinDialog::previewNoteLocalSkin()
+                                     : offline ? AccountSkinDialog::previewNoteSteve() : QString());
+    if (!offline) {
+        dialog->setCapes({{"migrator", "Migrator", true}, {"vanilla", "Vanilla", false},
+                          {"cherry", "Cherry Blossom", false}});
+        dialog->setCapesOwner(current);
+    } else {
+        dialog->setCapes({});
+    }
+    return dialog;
+}
+
+/// 打开账号页，450 ms 之后（页面自己那发刷新跑完）摆演示数据，再过 250 ms 跑 after。
+inline QWidget *accountPage(MainWindow &w, const QString &current, std::function<void(AccountSkinDialog *)> after = {}) {
+    w.ui()->getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
+    QMetaObject::invokeMethod(&w, "onAccountSkinButtonClicked", Qt::QueuedConnection);
+    QTimer::singleShot(450, &w, [&w, current, after] {
+        if (auto *dialog = accountFixture(w, current)) {
+            // 列表高度变了要等一轮布局，菜单按按钮位置弹，晚一点再点。
+            if (after) QTimer::singleShot(250, dialog, [dialog, after] { after(dialog); });
+        }
+    });
+    return &w;
+}
 
 inline QWidget *settings(MainWindow &window, int row) {
     window.ui()->getTabWidget()->setCurrentIndex(MainWindowUI::settingsTabIndex());
@@ -147,22 +231,47 @@ inline QList<Shot> shots() {
             QMetaObject::invokeMethod(&w, "onAccountSkinButtonClicked", Qt::QueuedConnection);
             return &w;
         }});
-        if (dark) {  // 设计稿那一态：三个账号、三件披风（夹具数据，只喂这个窗，不写盘）
-            list.append({"account-list-dark.png", theme, [](MainWindow &w, const Fixture &) {
-                w.ui()->getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
-                QMetaObject::invokeMethod(&w, "onAccountSkinButtonClicked", Qt::QueuedConnection);
-                QTimer::singleShot(600, &w, [&w] {
-                    auto *dialog = w.findChild<AccountSkinDialog *>();
-                    if (!dialog) return;
-                    dialog->setAccounts({{"a", "Wanderer", "2026-11-09T10:00:00Z", true, false},
-                                         {"b", "Steve_test", {}, false, true},
-                                         {"c", "Builder", {}, false, true}});
-                    dialog->setCapes({{"migrator", "Migrator", true}, {"vanilla", "Vanilla", false},
-                                      {"cherry", "Cherry Blossom", false}});
+        // issue #66：每个账号自己的头像和来源、添加账号菜单、离线账号用本地皮肤、请求失败（演示数据）。
+        list.append({"account-list-" + theme + ".png", theme, [](MainWindow &w, const Fixture &) {
+            return accountPage(w, QStringLiteral("ms-wanderer"));
+        }});
+        list.append({"account-add-menu-" + theme + ".png", theme, [](MainWindow &w, const Fixture &) {
+            return accountPage(w, QStringLiteral("ms-wanderer"), [](AccountSkinDialog *dialog) {
+                if (auto *button = dialog->findChild<QPushButton *>(AccountSkinDialog::addAccountButtonName())) button->click();
+            });
+        }, true});
+        list.append({"account-add-offline-" + theme + ".png", theme, [](MainWindow &w, const Fixture &) {
+            return accountPage(w, QStringLiteral("ms-wanderer"), [](AccountSkinDialog *dialog) {
+                if (auto *action = dialog->findChild<QAction *>(AccountSkinDialog::addOfflineActionName())) action->trigger();
+            });
+        }});
+        if (dark) {  // 微软登录没配置：菜单里「微软账号」置灰
+            list.append({"account-add-menu-unavailable-dark.png", theme, [](MainWindow &w, const Fixture &) {
+                return accountPage(w, QStringLiteral("ms-wanderer"), [](AccountSkinDialog *dialog) {
+                    dialog->setOnlineLoginUnavailable(QStringLiteral("这个版本暂时不能登录微软账号。"));
+                    if (auto *button = dialog->findChild<QPushButton *>(AccountSkinDialog::addAccountButtonName())) button->click();
                 });
-                return &w;
-            }});
+            }, true});
         }
+        list.append({"account-offline-local-" + theme + ".png", theme, [](MainWindow &w, const Fixture &) {
+            return accountPage(w, QStringLiteral("off-steve"));
+        }});
+        if (dark) {  // 最小窗口 900×590 下的预览说明
+            list.append({"account-offline-local-min-dark.png", theme, [](MainWindow &w, const Fixture &) {
+                return accountPage(w, QStringLiteral("off-steve"), [](AccountSkinDialog *dialog) {
+                    for (QWidget *p = dialog->parentWidget(); p; p = p->parentWidget())
+                        if (auto *scroll = qobject_cast<QScrollArea *>(p)) {  // 窄窗口页面要滚，滚到底看预览说明
+                            scroll->verticalScrollBar()->setValue(scroll->verticalScrollBar()->maximum());
+                            break;
+                        }
+                });
+            }, false, {900, 590}});
+        }
+        list.append({"account-error-" + theme + ".png", theme, [](MainWindow &w, const Fixture &) {
+            return accountPage(w, QStringLiteral("ms-wanderer"), [](AccountSkinDialog *dialog) {
+                dialog->setStatusError(QStringLiteral("无法连接到 Minecraft 服务，请检查网络后重试。"));
+            });
+        }});
         list.append({"gamelog-running-" + theme + ".png", theme, [](MainWindow &, const Fixture &) { return gameLog(logFixture(), false); }});
         if (dark) {
             list.append({"gamelog-empty-dark.png", theme, [](MainWindow &, const Fixture &) { return gameLog(logFixture(), true); }});
@@ -231,11 +340,18 @@ inline void run(QApplication &app, MainWindow &window, const QString &root) {
         Theme::setSpec(Theme::presetSpec(shot.theme));
         Theme::apply(app);
         window.showNormal();
-        window.resize(1280, 800);
+        window.resize(shot.size);
         QPointer<QWidget> target = shot.setup(window, fixture);
-        QTimer::singleShot(300, &window, [&window]() { window.resize(1280, 800); });
+        QTimer::singleShot(300, &window, [&window, size = shot.size]() { window.resize(size); });
         QTimer::singleShot(1000, &window, [&window, root, shot, target]() {
-            const bool saved = target && target->grab().save(root + QLatin1Char('/') + shot.file);
+            QImage image = target ? target->grab().toImage() : QImage();
+            if (shot.popups && !image.isNull()) {
+                QPainter painter(&image);
+                for (QWidget *top : QApplication::topLevelWidgets())
+                    if (auto *menu = qobject_cast<QMenu *>(top); menu && menu->isVisible())
+                        painter.drawPixmap(target->mapFromGlobal(menu->pos()), menu->grab());
+            }
+            const bool saved = !image.isNull() && image.save(root + QLatin1Char('/') + shot.file);
             report.append(QJsonObject{{"file", shot.file}, {"saved", saved}});
             if (target && target != &window) target->close();
             if (auto *pop = window.findChild<QFrame *>(ActivityPopover::objectNameValue())) pop->close();

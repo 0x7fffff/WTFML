@@ -27,7 +27,7 @@ function Get-TestImpact([string[]]$Paths, [bool]$ForceFull = $false) {
         runner = @('test-runner', 'test-modules', 'ci-partitions', 'surface-registry')
         ui = @('ui-refresh', 'install-layout', 'lifecycle', 'input-widths', 'window-size', 'files-rows',
                'ui-daily-quote', 'ui-long-instance-name', 'surface-sweep', 'fold-motion', 'loading-state',
-               'design-defaults', 'group-editor', 'window-motion'); theme = @('theme')
+               'design-defaults', 'group-editor', 'window-motion', 'launch-card'); theme = @('theme')
         popups = @('popups', 'popups-scale')
         'ui-history' = @('ui-bootstrap', 'ui-language')
         window = @('main-window', 'window-chrome'); workspace = @('workspace', 'activity-selection')

@@ -15,7 +15,7 @@ int UiAccountSkinChecks() {
         QListWidget *capeList =
             qobject_cast<QListWidget *>(child(AccountSkinDialog::capeListName()));
         QPushButton *loginBtn =
-            qobject_cast<QPushButton *>(child(AccountSkinDialog::loginButtonName()));
+            qobject_cast<QPushButton *>(child(AccountSkinDialog::addAccountButtonName()));
         QPushButton *switchBtn =
             qobject_cast<QPushButton *>(child(AccountSkinDialog::switchButtonName()));
         QPushButton *removeBtn =
@@ -26,8 +26,6 @@ int UiAccountSkinChecks() {
             qobject_cast<QPushButton *>(child(AccountSkinDialog::uploadButtonName()));
         QPushButton *applyCapeBtn =
             qobject_cast<QPushButton *>(child(AccountSkinDialog::applyCapeButtonName()));
-        QPushButton *hideCapeBtn =
-            qobject_cast<QPushButton *>(child(AccountSkinDialog::hideCapeButtonName()));
         QPushButton *closeBtn =
             qobject_cast<QPushButton *>(child(AccountSkinDialog::closeButtonName()));
         QLabel *statusLabel =
@@ -48,7 +46,7 @@ int UiAccountSkinChecks() {
                               loginBtn != nullptr && switchBtn != nullptr &&
                               removeBtn != nullptr && refreshBtn != nullptr &&
                               uploadBtn != nullptr && applyCapeBtn != nullptr &&
-                              hideCapeBtn != nullptr && closeBtn != nullptr &&
+                              closeBtn != nullptr &&
                               statusLabel != nullptr && variantCombo != nullptr &&
                               viewer != nullptr && offlineEdit != nullptr &&
                               addOfflineBtn != nullptr && pickOfflineBtn != nullptr &&
@@ -60,52 +58,51 @@ int UiAccountSkinChecks() {
             // ---- X1 文案与初始状态 ----
             check(dialog.windowTitle() == AccountSkinDialog::windowTitle(),
                   "窗口标题是产品那句", dialog.windowTitle());
-            check(loginBtn->text() == AccountSkinDialog::loginButtonText() &&
+            check(loginBtn->text() == AccountSkinDialog::addAccountButtonText() &&
                       switchBtn->text() == AccountSkinDialog::switchButtonText() &&
                       removeBtn->toolTip() == AccountSkinDialog::removeButtonText() &&
                       removeBtn->text().isEmpty() && !removeBtn->icon().isNull() &&
                       refreshBtn->text() == AccountSkinDialog::refreshButtonText(),
                   "左边四个按钮的文字都是产品文案");
-            // 披风是一个「显示 / 隐藏」分段：露出来的字是短的那两个，长的那两句是 tooltip。
-            // 删除是行尾一颗垃圾桶（字只在 tooltip / 读屏名里）。
-            check(uploadBtn->text() == AccountSkinDialog::uploadButtonText() &&
-                      applyCapeBtn->text() == QStringLiteral("显示") &&
-                      applyCapeBtn->toolTip() == AccountSkinDialog::applyCapeButtonText() &&
-                      hideCapeBtn->text() == QStringLiteral("隐藏") &&
-                      hideCapeBtn->toolTip() == AccountSkinDialog::hideCapeButtonText() &&
-                      closeBtn->text() == AccountSkinDialog::closeButtonText(),
-                  "右边三个 + 底的「关闭」也都是产品文案",
-                  QStringLiteral("显示=%1 / 隐藏=%2 / 关闭=%3")
-                      .arg(applyCapeBtn->text(), hideCapeBtn->text(), closeBtn->text()));
             check(offlineEdit->placeholderText() == AccountSkinDialog::offlineNamePlaceholder() &&
                       offlineEdit->text().isEmpty(),
                   "离线名字那个框一开始是空的，占位文字说明这里填什么",
                   offlineEdit->placeholderText());
             check(addOfflineBtn->toolTip() == AccountSkinDialog::addOfflineButtonText()
                       && !addOfflineBtn->isVisibleTo(&dialog) && !offlineEdit->isVisibleTo(&dialog),
-                  "默认在「正版」页签：离线那一行不露，按钮说明仍是产品文案",
+                  "默认不展开离线那一行，按钮说明仍是产品文案",
                   addOfflineBtn->toolTip());
             {
-                auto *online = qobject_cast<QPushButton *>(child(AccountSkinDialog::onlineKindButtonName()));
-                auto *offline = qobject_cast<QPushButton *>(child(AccountSkinDialog::offlineKindButtonName()));
-                auto *note = child(AccountSkinDialog::onlineUnavailableLabelName());
-                check(online != nullptr && offline != nullptr && note != nullptr && online->isChecked()
-                          && loginBtn->isVisibleTo(&dialog) && !note->isVisibleTo(&dialog),
-                      "「正版」页签只露「登录新账号…」");
-                if (online != nullptr && offline != nullptr && note != nullptr) {
-                    offline->click();
-                    check(offline->isChecked() && !online->isChecked() && dialog.offlineKindShown()
-                              && offlineEdit->isVisibleTo(&dialog) && addOfflineBtn->isVisibleTo(&dialog)
-                              && !loginBtn->isVisibleTo(&dialog),
-                          "点「离线」页签：只露名字框 +「添加」，「登录新账号…」收起");
-                    dialog.setOnlineLoginUnavailable(QStringLiteral("这个版本暂时不能登录正版账号。"));
-                    online->click();
-                    check(!dialog.offlineKindShown() && note->isVisibleTo(&dialog) && !loginBtn->isVisibleTo(&dialog)
-                              && !offlineEdit->isVisibleTo(&dialog),
-                          "正版登录用不了：「正版」页签摆那句说明，不摆登录按钮（不给点了再报错的机会）");
+                check(child(QStringLiteral("accountKindSegment")) == nullptr,
+                      "账号列表上方没有「正版 / 离线」滑块");
+                auto *menu = dialog.findChild<QMenu *>(AccountSkinDialog::addAccountMenuName());
+                auto *microsoft = dialog.findChild<QAction *>(AccountSkinDialog::addMicrosoftActionName());
+                auto *offlineAction = dialog.findChild<QAction *>(AccountSkinDialog::addOfflineActionName());
+                check(menu != nullptr && microsoft != nullptr && offlineAction != nullptr &&
+                          microsoft->text() == AccountSkinDialog::microsoftAccountText() &&
+                          offlineAction->text() == AccountSkinDialog::offlineAccountText() &&
+                          microsoft->isEnabled() && menu->actions().size() == 2,
+                      "「添加账号」菜单两项：微软账号 / 离线账号，微软账号默认可选");
+                if (microsoft != nullptr && offlineAction != nullptr) {
+                    int logins = 0;
+                    const auto link = QObject::connect(&dialog, &AccountSkinDialog::loginRequested, &dialog,
+                                                       [&logins] { ++logins; });
+                    microsoft->trigger();
+                    check(logins == 1 && !offlineEdit->isVisibleTo(&dialog),
+                          "选「微软账号」：直接发 loginRequested，不展开名字框");
+                    offlineAction->trigger();
+                    check(dialog.offlineAddRowShown() && offlineEdit->isVisibleTo(&dialog) &&
+                              addOfflineBtn->isVisibleTo(&dialog),
+                          "选「离线账号」：就地展开名字框 +「添加」");
+                    const QString unavailable = QStringLiteral("这个版本暂时不能登录微软账号。");
+                    dialog.setOnlineLoginUnavailable(unavailable);
+                    microsoft->trigger();
+                    check(!microsoft->isEnabled() && microsoft->toolTip() == unavailable && logins == 1,
+                          "微软登录用不了：「微软账号」置灰、悬停是那句说明，点不出登录");
                     dialog.setOnlineLoginUnavailable(QString());
-                    check(loginBtn->isVisibleTo(&dialog) && !note->isVisibleTo(&dialog),
-                          "说明清空后「登录新账号…」回来");
+                    check(microsoft->isEnabled(), "说明清空后「微软账号」回来");
+                    QObject::disconnect(link);
+                    dialog.clearOfflineNameDraft();
                 }
             }
             check(statusLabel->text() == AccountSkinDialog::notLoggedInNote(),
@@ -283,14 +280,16 @@ int UiAccountSkinChecks() {
                                                         QStringLiteral("https://textures.example/cape-2")});
                 dialog.setCapes(capes);
                 QApplication::processEvents();
+                check(qAbs(viewer->yaw() - 25.0) < 1.0,
+                      "打开页面/刷新披风列表时不自动把人物转到背面", QString::number(viewer->yaw()));
                 {
                     // 披风贴图到了：只补进地址对得上的那一格（另一格仍画占位色条）。
                     QImage texture(64, 32, QImage::Format_ARGB32);
                     texture.fill(Qt::red);
                     dialog.setCapeTexture(QStringLiteral("https://textures.example/cape-2"), texture);
                     dialog.setCapeTexture(QStringLiteral("https://textures.example/other"), texture);
-                    check(capeList->item(1)->data(Qt::UserRole + 3).value<QImage>().size() == QSize(64, 32) &&
-                              capeList->item(0)->data(Qt::UserRole + 3).isNull(),
+                    check(capeList->item(2)->data(Qt::UserRole + 3).value<QImage>().size() == QSize(64, 32) &&
+                              capeList->item(1)->data(Qt::UserRole + 3).isNull(),
                           "★ 披风贴图按地址认领：对得上的那一格换成贴图，对不上的不动");
                     check(viewer->cape().isNull(),
                           "没选中的非当前披风贴图到了，不要把人物身上的披风换掉");
@@ -299,38 +298,60 @@ int UiAccountSkinChecks() {
                               viewer->cape().pixelColor(0, 0) == Qt::red,
                           "当前披风的贴图到了才贴到人物身上");
                 }
-                check(capeList->count() == 2, "两件披风都摆出来了",
+                check(capeList->count() == 3, "「无披风」+ 两件披风都摆出来了",
                       QString::number(capeList->count()));
-                check(capeList->item(0)->text() ==
-                          QStringLiteral("Migrator") + AccountSkinDialog::currentMark(),
-                      "正显示着的那一件挂着「（当前）」", capeList->item(0)->text());
-                check(capeList->item(1)->text() == QStringLiteral("MineCon 2016"),
-                      "另一件不挂标记", capeList->item(1)->text());
+                check(capeList->item(1)->text().isEmpty() &&
+                          capeList->item(1)->data(Qt::AccessibleTextRole).toString() == QStringLiteral("Migrator"),
+                      "披风格不显示披风名，只留无障碍名字", capeList->item(1)->text());
+                check(capeList->item(2)->text().isEmpty(),
+                      "另一件也不显示名字", capeList->item(2)->text());
                 check(dialog.selectedCapeId().isEmpty() && !applyCapeBtn->isEnabled(),
-                      "还没选披风时「显示所选披风」灰着");
+                      "还没选披风时「应用」灰着");
 
-                capeList->setCurrentRow(1);
+                capeList->setCurrentRow(2);
                 QApplication::processEvents();
                 check(dialog.selectedCapeId() == QStringLiteral("cape-2"),
-                      "选中第 2 件的 id 认得出来", dialog.selectedCapeId());
+                      "选中第 3 行（cape-2）的 id 认得出来", dialog.selectedCapeId());
                 check(applyCapeBtn->isEnabled(), "选中之后那个按钮可点");
 
                 applyCapeBtn->click();
                 check(selectCount == 1 && selectedCape == QStringLiteral("cape-2"),
-                      "点「显示所选披风」发的是选中那件的 id", selectedCape);
-
-                // 「不显示披风」**不看选中项**：它是一个独立的动作（取消），列表里选中
-                // 哪一件都跟它没关系。
-                capeList->setCurrentRow(-1);
+                      "点「应用」发的是选中那件的 id", selectedCape);
+                check(viewer->cape().size() == QSize(64, 32) &&
+                          viewer->cape().pixelColor(0, 0) == Qt::red,
+                      "点「应用」后人物预览当场披上选中那件");
+                check(qAbs(viewer->yaw() - 205.0) < 1.0,
+                      "点「应用」后转到背面 3/4", QString::number(viewer->yaw()));
+                dialog.setCapes(capes);  // 模拟接口刷新回来：列表重建、选中被清掉
                 QApplication::processEvents();
-                check(!applyCapeBtn->isEnabled(), "取消选中之后「显示所选披风」又灰回去");
-                hideCapeBtn->click();
-                check(hideCount == 1, "没选中任何披风时「不显示披风」照样发信号");
+                check(viewer->cape().size() == QSize(64, 32) &&
+                          viewer->cape().pixelColor(0, 0) == Qt::red,
+                      "刷新列表后预览仍是刚才点「应用」的那件，不退回旧当前披风");
+                {
+                    QImage stale(64, 32, QImage::Format_ARGB32);
+                    stale.fill(Qt::blue);
+                    dialog.setLooks(QImage(), stale, false);
+                    check(viewer->cape().pixelColor(0, 0) == Qt::red,
+                          "换皮肤/资料刷新带回旧披风图时，不会把刚选的那件盖掉");
+                }
+
+                // 列表第一项「无披风」：选中后点「应用」= 取消当前披风。
+                capeList->setCurrentRow(0);
+                QApplication::processEvents();
+                check(capeList->item(0)->text().isEmpty() && capeList->item(0)->data(Qt::UserRole + 4).toBool(),
+                      "列表第一项是「无披风」（只留斜杠格，不显示文字）");
+                check(applyCapeBtn->isEnabled(), "选中「无披风」后「应用」可点");
+                applyCapeBtn->click();
+                check(hideCount == 1, "应用「无披风」发的是取消披风信号");
+                check(viewer->cape().isNull(), "应用「无披风」后人物预览当场把披风摘掉");
+                check(qAbs(viewer->yaw() - 25.0) < 1.0,
+                      "应用「无披风」后回到正面视角", QString::number(viewer->yaw()));
 
                 dialog.setCapes({});
                 QApplication::processEvents();
-                check(capeList->count() == 0 && !applyCapeBtn->isEnabled(),
-                      "一件披风都没有时列表是空的、按钮灰着（披风列表不摆占位行）");
+                check(capeList->count() == 1 && capeList->item(0)->data(Qt::UserRole + 4).toBool() &&
+                          !applyCapeBtn->isEnabled(),
+                      "一件披风都没有时列表仍摆「无披风」，未选中时按钮灰着");
             }
 
             // ---- X7 setLooks：同一份贴图进预览，下拉框跟着当前模型走 ----
@@ -348,9 +369,15 @@ int UiAccountSkinChecks() {
                     painter.fillRect(0, 0, 64, 32, QColor(200, 30, 30));
                 }
 
+                QList<AccountSkinDialog::CapeRow> lookCapes;
+                lookCapes.append(AccountSkinDialog::CapeRow{QStringLiteral("look-cape"),
+                                                            QStringLiteral("Look"), true,
+                                                            QStringLiteral("look-url")});
+                dialog.setCapes(lookCapes);
+                dialog.setCapeTexture(QStringLiteral("look-url"), testCape);
                 dialog.setLooks(testSkin, testCape, true);
                 check(viewer->skin() == testSkin && viewer->cape() == testCape,
-                      "喂进去的皮肤和披风都进了预览");
+                      "喂进去的皮肤进预览，披风由披风列表贴上去");
                 check(dialog.selectedVariant() == AccountSkinDialog::variantSlimValue(),
                       "纤细模型 → 下拉框自动切到「纤细（Alex）」（用户多半是在当前模型上调）",
                       dialog.selectedVariant());
@@ -358,7 +385,8 @@ int UiAccountSkinChecks() {
                 dialog.setLooks(testSkin, QImage(), false);
                 check(dialog.selectedVariant() == AccountSkinDialog::variantClassicValue(),
                       "经典模型 → 下拉框切回「经典（Steve）」");
-                check(viewer->cape().isNull(), "披风传空图 → 预览上就没披风了");
+                check(viewer->cape() == testCape,
+                      "setLooks 的披风参数不再覆盖列表里的当前披风（旧资料图不能闪一下）");
 
                 // 空皮肤不许把预览留成空白 —— 那个控件任何一档都得有东西可看。
                 dialog.setLooks(QImage(), QImage(), false);
@@ -440,11 +468,12 @@ int UiAccountSkinChecks() {
                       "在框里回车也交一次（回车 = 点那个按钮）",
                       requested.join(QStringLiteral(" / ")));
 
-                dialog.showAccountKind(true);
+                dialog.showOfflineAddRow();
                 offlineEdit->setText(QStringLiteral("留着没提交的名字"));
                 dialog.clearOfflineNameDraft();
-                check(offlineEdit->text().isEmpty() && offlineEdit->isVisibleTo(&dialog) && dialog.offlineKindShown(),
-                      "clearOfflineNameDraft() 只清空框，页签留在「离线」（接着能加下一个）");
+                check(offlineEdit->text().isEmpty() && !dialog.offlineAddRowShown(),
+                      "clearOfflineNameDraft()（添加成功之后）清空框并收起这一行");
+                dialog.showOfflineAddRow();
 
                 // 忙的时候这一行也得灰：它一旦成功就会把活动槽清空（切到离线身份），而正飞着的
                 // 那次登录回来还要往活动槽里写 —— 两个人会打架。
@@ -486,6 +515,130 @@ int UiAccountSkinChecks() {
                       "selectedUuid() 给的是离线那一条", dialog.selectedUuid());
             }
 
+            // ---- X11 账号行：来源、头像、复制 UUID；请求失败行；预览说明（issue #66） ----
+            {
+                QImage blue(64, 64, QImage::Format_ARGB32);
+                blue.fill(QColor(0x30, 0x90, 0xD0));
+                AccountSkinDialog::AccountRow microsoftRow;
+                microsoftRow.uuid = QStringLiteral("uuid-ms");
+                microsoftRow.name = QStringLiteral("Alice");
+                microsoftRow.savedAt = QStringLiteral("2026-09-22T10:00:00Z");
+                microsoftRow.current = true;
+                AccountSkinDialog::AccountRow offlineRow;
+                offlineRow.uuid = QStringLiteral("uuid-off");
+                offlineRow.name = QStringLiteral("Bob");
+                offlineRow.offline = true;
+                offlineRow.face = blue;  // 非当前账号也画自己的头像
+                AccountSkinDialog::AccountRow letterRow;
+                letterRow.uuid = QStringLiteral("uuid-ms2");
+                letterRow.name = QStringLiteral("Carol");  // 没有缓存：退回首字母
+                dialog.setAccounts({microsoftRow, offlineRow, letterRow});
+                QApplication::processEvents();
+                const auto source = [&](int row) {
+                    return accountList->item(row)->data(Qt::AccessibleDescriptionRole).toString();
+                };
+                check(source(0).startsWith(AccountSkinDialog::microsoftAccountText()) &&
+                          source(1) == AccountSkinDialog::offlineAccountText() &&
+                          source(2) == AccountSkinDialog::microsoftAccountText(),
+                      "每一行名字下面都有来源文字：微软账号 / 离线账号",
+                      source(0) + " | " + source(1) + " | " + source(2));
+
+                const QImage painted = accountList->viewport()->grab().toImage();
+                const QRect offlineRect = accountList->visualItemRect(accountList->item(1));
+                const QColor centre = painted.pixelColor(offlineRect.left() + 12 + 16, offlineRect.center().y());
+                check(centre.rgb() == QColor(0x30, 0x90, 0xD0).rgb(),
+                      "非当前账号画的是它自己的头像（不是首字母）", centre.name());
+                const QRect letterRect = accountList->visualItemRect(accountList->item(2));
+                check(painted.pixelColor(letterRect.left() + 12 + 16, letterRect.center().y()).rgb() !=
+                          QColor(0x30, 0x90, 0xD0).rgb(),
+                      "没有头像的行退回首字母（和有头像的行不同）");
+
+                // 复制 UUID：选中非当前行，行尾依次是 切换 / 复制 UUID / 删除
+                accountList->setCurrentRow(1);
+                QApplication::processEvents();
+                auto *copyBtn = dialog.findChild<QPushButton *>(AccountSkinDialog::copyUuidButtonName());
+                check(copyBtn != nullptr && copyBtn->toolTip() == AccountSkinDialog::copyUuidText() &&
+                          copyBtn->text().isEmpty() && !copyBtn->icon().isNull() &&
+                          switchBtn->x() < copyBtn->x() && copyBtn->x() < removeBtn->x(),
+                      "行尾「复制 UUID」图标钮在「切换」和「删除」之间，悬停提示是「复制 UUID」");
+                if (copyBtn != nullptr) {
+                    QGuiApplication::clipboard()->setText(QStringLiteral("旧内容"));
+                    copyBtn->click();
+                    check(QGuiApplication::clipboard()->text() == QStringLiteral("uuid-off"),
+                          "点「复制 UUID」：剪贴板里是选中那一行的 uuid",
+                          QGuiApplication::clipboard()->text());
+                }
+
+                // 请求失败：身份那一句不动，原因另起一行，后面跟「重试」
+                dialog.setStatusText(AccountSkinDialog::identityText(QStringLiteral("Alice")));
+                auto *errorLabel = dialog.findChild<QLabel *>(AccountSkinDialog::statusErrorLabelName());
+                auto *retryBtn = dialog.findChild<QPushButton *>(AccountSkinDialog::retryButtonName());
+                check(errorLabel != nullptr && retryBtn != nullptr && !errorLabel->isVisibleTo(&dialog) &&
+                          !retryBtn->isVisibleTo(&dialog),
+                      "没有失败时不显示失败行");
+                if (errorLabel != nullptr && retryBtn != nullptr) {
+                    dialog.setStatusError(QStringLiteral("网络不可用"));
+                    check(statusLabel->text() == AccountSkinDialog::identityText(QStringLiteral("Alice")) &&
+                              errorLabel->text() == QStringLiteral("网络不可用") &&
+                              errorLabel->isVisibleTo(&dialog) && retryBtn->isVisibleTo(&dialog) &&
+                              retryBtn->text() == AccountSkinDialog::retryButtonText() &&
+                              errorLabel->mapTo(&dialog, QPoint()).y() > statusLabel->mapTo(&dialog, QPoint()).y(),
+                          "失败时「已登录为…」不变，原因在它下面另起一行，后面是「重试」",
+                          statusLabel->text());
+                    int refreshes = 0;
+                    const auto link = QObject::connect(&dialog, &AccountSkinDialog::refreshRequested, &dialog,
+                                                       [&refreshes] { ++refreshes; });
+                    retryBtn->click();
+                    check(refreshes == 1, "点「重试」发 refreshRequested");
+                    QObject::disconnect(link);
+                    dialog.setStatusError(QString());
+                    check(!errorLabel->isVisibleTo(&dialog) && !retryBtn->isVisibleTo(&dialog),
+                          "清空原因后失败行收起");
+                }
+
+                // 披风列表所属账号：调用方靠它判断失败时留不留
+                dialog.setCapesOwner(QStringLiteral("uuid-off"));
+                check(dialog.capesOwner() == QStringLiteral("uuid-off"), "披风列表记着它属于谁");
+
+                // 离线皮肤预览说明
+                auto *note = dialog.findChild<QLabel *>(AccountSkinDialog::previewNoteName());
+                check(note != nullptr && !note->isVisibleTo(&dialog), "预览和游戏一致时不显示说明");
+                if (note != nullptr) {
+                    dialog.setPreviewNote(AccountSkinDialog::previewNoteLocalSkin());
+                    check(note->isVisibleTo(&dialog) && note->text() == AccountSkinDialog::previewNoteLocalSkin(),
+                          "用了本地皮肤：预览下面显示那句说明");
+                    dialog.setPreviewNote(AccountSkinDialog::previewNoteSteve());
+                    check(note->text() == AccountSkinDialog::previewNoteSteve(), "显示 Steve：换成另一句说明");
+                    dialog.setPreviewNote(QString());
+                    check(!note->isVisibleTo(&dialog), "说明清空后收起");
+                }
+                dialog.setAccounts(rows);
+
+                // 预览说明：默认窗口宽度（1280×800）下一行放下，可以比 3D 预览宽
+                const QSize oldSize = dialog.size();
+                dialog.resize(1280, 800);
+                dialog.setPreviewNote(AccountSkinDialog::previewNoteLocalSkin());
+                QApplication::processEvents();
+                if (note != nullptr) {
+                    check(note->height() < note->fontMetrics().lineSpacing() * 3 / 2 &&
+                              note->width() > viewer->width(),
+                          "默认窗口下预览说明一行放下，宽度比 3D 预览宽",
+                          QStringLiteral("%1×%2 / 预览 %3").arg(note->width()).arg(note->height()).arg(viewer->width()));
+                }
+                dialog.setPreviewNote(QString());
+                dialog.resize(oldSize);
+
+                // 离开这一页（隐藏）再回来：离线名字框收起、输入清空
+                dialog.showOfflineAddRow();
+                offlineEdit->setText(QStringLiteral("没提交的名字"));
+                dialog.hide();
+                QApplication::processEvents();
+                dialog.show();
+                QApplication::processEvents();
+                check(!dialog.offlineAddRowShown() && offlineEdit->text().isEmpty(),
+                      "离开页面再回来：离线名字框收起、输入清空");
+            }
+
             // ---- X10 信号接线 ----
             {
                 int loginCount = 0;
@@ -494,9 +647,9 @@ int UiAccountSkinChecks() {
                                  [&] { ++loginCount; });
                 QObject::connect(&dialog, &AccountSkinDialog::refreshRequested, &dialog,
                                  [&] { ++refreshCount; });
-                loginBtn->click();
+                dialog.findChild<QAction *>(AccountSkinDialog::addMicrosoftActionName())->trigger();
                 refreshBtn->click();
-                check(loginCount == 1, "点「登录新账号…」发 loginRequested");
+                check(loginCount == 1, "选「添加账号」里的「微软账号」发 loginRequested");
                 check(refreshCount == 1, "点「刷新外观」发 refreshRequested");
                 // NOTE: 「上传皮肤…」**故意不点** —— 它会开一个模态的 QFileDialog，
                 // 在 offscreen 上会一直等下去（看着像死循环）。它那条路的两个半边
@@ -509,6 +662,7 @@ int UiAccountSkinChecks() {
     }
     return 0;
 }
+
 
 
 

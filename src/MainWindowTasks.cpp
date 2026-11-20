@@ -228,6 +228,57 @@ void MainWindow::onTaskDetailAction(const QString &key, TaskDetailPage::Action a
     m_taskDetail->action(key, action);
 }
 
+MainWindowUI::LaunchCard MainWindow::launchCardFor(const Tasks::TaskSnapshot &task, bool offline) {
+    using Phase = MainWindowUI::LaunchCard::Phase;
+    MainWindowUI::LaunchCard card;
+    card.taskId = task.id;
+    card.instanceKey = task.targetId;
+    card.login = offline ? tr("离线登录") : tr("微软账号登录");
+    // 步骤见 LaunchController：校验登录状态 / 检查启动文件 / 准备 Java 运行环境 / 等待游戏启动 / 完成。
+    int step = 0;
+    while (step < task.steps.size() && task.steps.at(step).state == Tasks::TaskStepState::Done) ++step;
+    const bool counted = task.totalUnits > 0 && (step == 1 || step == 2);
+    switch (step) {
+    case 0: card.stage = tr("校验登录"); break;
+    case 1: card.stage = counted ? tr("补全文件与资源") : tr("检查文件"); break;
+    case 2: card.stage = tr("准备 Java"); break;
+    default: card.stage = tr("等待游戏窗口"); break;
+    }
+    switch (task.state) {
+    case Tasks::TaskState::Succeeded:
+        card.phase = Phase::Succeeded;
+        break;
+    case Tasks::TaskState::Failed:
+        card.phase = task.errorSummary.isEmpty() ? Phase::Idle : Phase::Failed;
+        card.reason = task.errorSummary;
+        break;
+    case Tasks::TaskState::Cancelled:
+    case Tasks::TaskState::Interrupted:
+        card.phase = Phase::Idle;
+        break;
+    default:
+        card.phase = Phase::Running;
+        if (counted) {
+            card.done = task.doneUnits;
+            card.total = task.totalUnits;
+            card.bytes = step == 2;  // 下 Java 按字节报
+        }
+        break;
+    }
+    return card;
+}
+
+void MainWindow::syncLaunchCard(Tasks::TaskId id) {
+    if (id < m_launchCardTask) return;  // 更早那一次启动：卡片只说最新的
+    const Tasks::TaskSnapshot task = m_activityCenter->tasks()->snapshot(id);
+    if (task.kind != Tasks::TaskKind::Launch) return;
+    if (id != m_launchCardTask) {
+        if (!Tasks::isActiveState(task.state)) return;
+        m_launchCardTask = id;
+    }
+    m_ui->setLaunchCard(launchCardFor(task, offlineIdentity()));
+}
+
 bool MainWindow::cancelLaunch(const Tasks::TaskSnapshot &task) {
     if (!cancelWouldWork(task)) {
         return false;

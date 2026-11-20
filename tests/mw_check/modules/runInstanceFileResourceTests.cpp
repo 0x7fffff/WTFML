@@ -152,7 +152,6 @@ void runInstanceFileResourceTests() {
     TokenStore::clear(TokenStore::accountsKey());
     TokenStore::clear(TokenStore::currentUuidKey());
     const QString accountName = QStringLiteral("T24User");
-    seedOfflineRandomSkin(accountName, kSeededSkinUrl, QColor(0x80, 0x60, 0x20));
     QString offlineError;
     check(AccountStore::addOffline(accountName, &offlineError),
           "T24.0 建一个离线账号并设成当前身份（这一节一个外网请求都不发）", offlineError);

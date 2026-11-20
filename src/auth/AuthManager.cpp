@@ -199,7 +199,7 @@ AuthManager::AuthManager(QObject *parent)
     }
 }
 
-// 两句写给玩家：账号页「正版」页签事先摆的就是它，刷新正版账号失败时也弹它。
+// 两句写给玩家：账号页「添加账号」菜单里「微软账号」置灰时悬停的就是它，刷新正版账号失败时也弹它。
 QString AuthManager::loginConfigurationError() {
     if (QString::fromLatin1(kClientId).trimmed().isEmpty()) {
         return tr("此版本未配置微软登录。已保存的账号仍会保留，可使用离线账号进入游戏。");
