@@ -10,7 +10,32 @@
 #include "download/ResourceStore.hpp"
 #include <QComboBox>
 #include <QLineEdit>
+#include <QSet>
 #include <QTreeWidget>
+
+namespace {
+
+/// 新版本号（26.1 / 26.2 …）在下载树里归成 `26.x` 一行；1.21 这类旧写法保持原样。
+QString downloadVersionRowKey(const QString &version)
+{
+    const QString series = ResourceCatalog::gameVersionSeriesOf(version);
+    if (series.isEmpty()) return version;
+    bool ok = false;
+    const int major = series.section(QLatin1Char('.'), 0, 0).toInt(&ok);
+    return ok && major >= 26 ? QStringLiteral("%1.x").arg(major) : version;
+}
+
+bool isDownloadVersionSeriesKey(const QString &key)
+{
+    return key.endsWith(QStringLiteral(".x"));
+}
+
+QString downloadVersionSeries(const QString &key)
+{
+    return isDownloadVersionSeriesKey(key) ? key.left(key.size() - 2) : QString();
+}
+
+}  // namespace
 
 ResourceSearchController::ResourceSearchController(MainWindow *owner) : QObject(owner), m_owner(*owner) {}
 
@@ -119,11 +144,16 @@ void ResourceSearchController::fillResourceHitRows(QTreeWidget *tree, ResourceCa
             m_owner.addResourcePlaceholderChild(item, MainWindow::tr("这个%1没有列出支持的游戏版本。")
                                                   .arg(ResourceCatalog::kindLabel(kind)));
         }
+        QStringList rows;
         for (const QString &gameVersion : choices) {
+            const QString row = downloadVersionRowKey(gameVersion);
+            if (!rows.contains(row)) rows.append(row);
+        }
+        for (const QString &row : rows) {
             auto *gameItem = new QTreeWidgetItem(item);
-            // 身份 = 游戏版本号。第三层还不建（点开这一条才去问，见 onResourceItemActivated）。
-            gameItem->setData(column, Qt::UserRole, gameVersion);
-            gameItem->setText(column, gameVersion);
+            // 身份 = 行 key（26.x 或 1.21）。第三层点开才建。
+            gameItem->setData(column, Qt::UserRole, row);
+            gameItem->setText(column, row);
         }
 
         // 整条 hit 存一份（键就是上面那个图标身份，也是"这一行是哪个资源"的钥匙）。
@@ -300,9 +330,12 @@ void ResourceSearchController::requestResourceVersions(QTreeWidgetItem *item) {
     // （categories 是整个资源的标签，不是某个版本的）。要按加载器筛就得先知道
     // 用户在给哪个实例装 —— 那件事在点版本号那一下才定（见
     // downloadResourceVersion 里那道加载器对不上的闸口）。
+    // 26.x 是本地归并出来的行：问接口时不要带单个版本号，回来在 fillResourceVersionRows()
+    // 里按 series 过滤；否则接口只认 26.1 这种精确值，这一行会是空的。
+    const QString requestVersion = isDownloadVersionSeriesKey(gameVersion) ? QString() : gameVersion;
     m_owner.m_resourceStore->fetchVersions(
         ResourceCatalog::versionsRequestKey(projectId, gameVersion, QString(), source),
-        projectId, source, gameVersion);
+        projectId, source, requestVersion);
 }
 
 void ResourceSearchController::fillResourceVersionRows(QTreeWidgetItem *gameItem,
@@ -326,7 +359,23 @@ void ResourceSearchController::fillResourceVersionRows(QTreeWidgetItem *gameItem
         });
         return;
     }
-    if (versions.isEmpty()) {
+    const QString series = downloadVersionSeries(
+        gameItem->data(column, Qt::UserRole).toString());
+    QList<ResourceCatalog::VersionEntry> shown;
+    shown.reserve(versions.size());
+    for (const ResourceCatalog::VersionEntry &version : versions) {
+        if (series.isEmpty()) {
+            shown.append(version);
+            continue;
+        }
+        for (const QString &gameVersion : version.gameVersions) {
+            if (ResourceCatalog::gameVersionSeriesOf(gameVersion).section(QLatin1Char('.'), 0, 0) == series) {
+                shown.append(version);
+                break;
+            }
+        }
+    }
+    if (shown.isEmpty()) {
         m_owner.addResourcePlaceholderChild(gameItem, MainWindow::tr("这个游戏版本上没有可下载的版本。"));
         return;
     }
@@ -339,7 +388,7 @@ void ResourceSearchController::fillResourceVersionRows(QTreeWidgetItem *gameItem
             ? QVariant()
             : gameItem->parent()->data(column, MainWindowUI::rowIconRole());
 
-    for (const ResourceCatalog::VersionEntry &version : versions) {
+    for (const ResourceCatalog::VersionEntry &version : shown) {
         auto *item = new QTreeWidgetItem(gameItem);
         // 身份 = 版本 **id**（不是版本号）：点它那一下要拿它回 m_owner.m_resourceVersions 里换
         // "这一版的文件是哪几个"，而文件清单是按 id 找的。
@@ -489,3 +538,4 @@ void ResourceSearchController::downloadResourceVersion(QTreeWidgetItem *item) {
     // 全在 installResourceVersion 里 —— **这一条路不自己再算一份**。
     m_owner.installResourceVersion(kind, resourceItem->text(column), *chosen, source);
 }
+
