@@ -28,6 +28,7 @@
 #include "..\ui\InstanceGroupDelegate.hpp"
 #include "..\ui\MainWindowUI.hpp"
 #include "..\ui\OverlayHost.hpp"
+#include "..\ui\Theme.hpp"
 #include "..\ui\VersionTreeDelegate.hpp"
 #include "controllers/ActivityCenterController.hpp"
 #include "controllers/InstallPageController.hpp"
@@ -45,6 +46,8 @@
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QTreeWidget>
+
+#include <limits>
 
 namespace {
 
@@ -261,6 +264,73 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
         }
     }
     return QMainWindow::eventFilter(watched, event);
+}
+
+namespace {
+
+/// 这个窗口里露着、点得动的那几颗「刷新」（`Theme::markRefreshButton()` 认人）。
+QList<QPushButton *> visibleRefreshButtons(QWidget *host) {
+    QList<QPushButton *> found;
+    if (host == nullptr) {
+        return found;
+    }
+    const QByteArray marker = Theme::refreshActionPropertyName().toUtf8();
+    for (QPushButton *button : host->findChildren<QPushButton *>()) {
+        if (!button->property(marker.constData()).toBool()) {
+            continue;
+        }
+        if (!button->isVisible() || !button->isEnabled()) {
+            continue;
+        }
+        found.append(button);
+    }
+    return found;
+}
+
+/// 同一窗口里露着好几颗时，取**离焦点最近**的那一颗：从焦点往上走，谁先罩住它用谁。
+/// 一路没罩住（焦点不在这棵树里）就给第一颗 —— 顺序是建页顺序，够用。
+QPushButton *nearestToFocus(const QList<QPushButton *> &candidates) {
+    QWidget *focus = QApplication::focusWidget();
+    if (focus == nullptr || candidates.size() <= 1) {
+        return candidates.value(0);
+    }
+    QPushButton *best = candidates.first();
+    int bestDistance = std::numeric_limits<int>::max();
+    for (QPushButton *candidate : candidates) {
+        int distance = 0;
+        for (QWidget *widget = focus; widget != nullptr; widget = widget->parentWidget(), ++distance) {
+            if (widget->isAncestorOf(candidate)) {
+                break;
+            }
+        }
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            best = candidate;
+        }
+    }
+    return best;
+}
+
+}  // namespace
+
+/// F5：点当前最上层可见页面上那颗刷新按钮。
+///
+/// 只看 `Theme::markRefreshButton()` 标过的那几颗，所以"这一页有没有刷新"仍由各页自己说；
+/// 没有标记、或者标记的那一颗此刻收着/灰着，就什么都不做。开着对话框时先点对话框里那颗
+/// （`activeWindow()` 是它）。
+void MainWindow::refreshTopmostPage() {
+    QWidget *host = QApplication::activeWindow();
+    if (host == nullptr) {
+        host = this;
+    }
+    QList<QPushButton *> candidates = visibleRefreshButtons(host);
+    if (candidates.isEmpty() && host != this) {
+        candidates = visibleRefreshButtons(this);
+    }
+    QPushButton *target = nearestToFocus(candidates);
+    if (target != nullptr) {
+        target->click();
+    }
 }
 
 /// 「主页可见、没有浮层占着、焦点不在可交互控件上」时，回车 = 点那颗「启动游戏」。

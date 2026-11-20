@@ -1241,6 +1241,14 @@ QString sectionTitleTextRoleValue() { return QString::fromLatin1(kTextRoleSectio
 QString secondaryTextRoleValue() { return QString::fromLatin1(kTextRoleSecondary); }
 QString displayPropertyName() { return QStringLiteral("wtfmlDisplay"); }
 
+QString refreshActionPropertyName() { return QStringLiteral("wtfmlRefreshAction"); }
+
+void markRefreshButton(QWidget *button) {
+    if (button != nullptr) {
+        button->setProperty(refreshActionPropertyName().toUtf8().constData(), true);
+    }
+}
+
 void markDisplay(QWidget *widget, const QFont &font) {
     if (widget == nullptr) return;
     widget->setFont(font);

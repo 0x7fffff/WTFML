@@ -443,6 +443,7 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
 
     m_refreshButton = new QPushButton(refreshButtonText(), this);
     m_refreshButton->setObjectName(refreshButtonName());
+    Theme::markRefreshButton(m_refreshButton);  // F5 认它
     // 「刷新外观」刷的是**这一整个窗**（账号列表 + 皮肤 + 披风），所以放页头，不放某一栏里。
     Theme::markButton(m_refreshButton, Theme::ButtonKind::Neutral);
     {  // 图标颜色跟主题走（构造时上色的话换主题后还是上一套的字色）

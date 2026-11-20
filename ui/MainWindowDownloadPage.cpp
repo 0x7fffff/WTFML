@@ -76,6 +76,7 @@ QWidget *MainWindowUI::setupDownloadPage() {
         // 页头工具钮：和左边「下载源」同高同底的圆钮（字进悬停提示），两颗并排对得齐。
         downloadHeaderRefreshButton = new QPushButton(download.right.header);
         downloadHeaderRefreshButton->setObjectName(downloadHeaderRefreshButtonName());
+        Theme::markRefreshButton(downloadHeaderRefreshButton);  // F5 认它
         Theme::markButton(downloadHeaderRefreshButton, Theme::ButtonKind::Ghost);
         Theme::markIconButton(downloadHeaderRefreshButton);
         downloadHeaderRefreshButton->setFixedSize(28, 28);

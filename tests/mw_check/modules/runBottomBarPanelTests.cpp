@@ -13,6 +13,7 @@
 #include <QAbstractButton>
 #include <QKeyEvent>
 #include <QLineEdit>
+#include <QShortcut>
 #include <QTabWidget>
 
 void runBottomBarPanelTests() {
@@ -1772,6 +1773,49 @@ void runBottomBarPanelTests() {
             if (Tasks::isActiveState(activity->tasks()->snapshot(task).state)) {
                 activity->tasks()->cancel(task);
             }
+        }
+    }
+
+    // ---- AH16 键盘入口：F5 点当前页那颗刷新 ----
+    //
+    // F5 走的是 QShortcut（`QKeySequence::Refresh`）：这里按它自己的信号驱动一次，
+    // 判据是"当前页那颗刷新被点了、换到没有刷新的页面就不再点"。产品那条接线先摘掉，
+    // 免得这一下真去发请求（这一跑末尾会核对假外网有没有收到没路由的地址）。
+    {
+        QShortcut *f5 = nullptr;
+        for (QShortcut *shortcut : w.findChildren<QShortcut *>()) {
+            if (shortcut->key() == QKeySequence(QKeySequence::Refresh)) {
+                f5 = shortcut;
+                break;
+            }
+        }
+        check(f5 != nullptr, "AH16 主窗口上挂着 F5 那一条快捷键");
+
+        if (QTabWidget *tabs = w.ui()->getTabWidget()) {
+            tabs->setCurrentIndex(MainWindowUI::downloadTabIndex());
+            QApplication::processEvents();
+        }
+        QPushButton *refresh = w.ui()->getDownloadHeaderRefreshButton();
+        check(refresh != nullptr && refresh->isVisible() && refresh->isEnabled(),
+              "AH16 下载页页头那颗刷新露着、点得动");
+        if (f5 != nullptr && refresh != nullptr) {
+            QObject::disconnect(refresh, nullptr, nullptr, nullptr);
+            int clicks = 0;
+            QObject::connect(refresh, &QPushButton::clicked, &w, [&clicks] { ++clicks; });
+            QMetaObject::invokeMethod(f5, "activated");
+            QApplication::processEvents();
+            check(clicks == 1, "AH16 下载页上按 F5 点一次页头那颗刷新",
+                  QStringLiteral("%1 次").arg(clicks));
+
+            // 换到没有刷新按钮的那一页：F5 什么都不做（而不是回头点上一页那颗）。
+            if (QTabWidget *tabs = w.ui()->getTabWidget()) {
+                tabs->setCurrentIndex(MainWindowUI::toolboxTabIndex());
+                QApplication::processEvents();
+            }
+            QMetaObject::invokeMethod(f5, "activated");
+            QApplication::processEvents();
+            check(clicks == 1, "AH16 没有刷新按钮的页面上 F5 什么都不做",
+                  QStringLiteral("%1 次").arg(clicks));
         }
     }
 

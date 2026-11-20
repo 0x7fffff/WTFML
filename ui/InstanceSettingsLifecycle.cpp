@@ -394,6 +394,7 @@ void InstanceSettingsDialog::buildLifecyclePage(const QString &key) {
                 connect(crash, &QPushButton::clicked, this, [this] { showPage(QStringLiteral("crash")); });
                 // 刷新和两档按钮同一行：900×590 下这一页纵向很紧，单独一行会把底下的信息栏挤出可视区。
                 auto *refresh = new QPushButton(tr("刷新"), page);
+                Theme::markRefreshButton(refresh);  // F5 认它
                 connect(refresh, &QPushButton::clicked, this, [this, key]() { refreshLifecycleFiles(key); });
                 buttonRow({log, crash, refresh});
             }
@@ -402,7 +403,10 @@ void InstanceSettingsDialog::buildLifecyclePage(const QString &key) {
                  : lifecycleBatchAnyFile(key)
                      ? tr("按修改时间从新到旧。单击查看信息，双击在启动器内打开，右键打开目录。")
                      : tr("按修改时间从新到旧。双击打开，右键打开目录。"));
-            if (!lifecycleBatchAnyFile(key)) action(tr("刷新"), [this, key]() { refreshLifecycleFiles(key); });
+            if (!lifecycleBatchAnyFile(key)) {
+                auto *refresh = action(tr("刷新"), [this, key]() { refreshLifecycleFiles(key); });
+                Theme::markRefreshButton(refresh);  // F5 认它
+            }
             auto *search = new QLineEdit(page);
             search->setObjectName(QStringLiteral("instanceLifecycleSearch_%1").arg(key));
             search->setPlaceholderText(tr("搜索文件名或路径（空格分隔多个关键词）"));

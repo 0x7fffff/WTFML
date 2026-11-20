@@ -93,6 +93,7 @@
 // 添加以下头文件（防止hpp变动导致文件失效）
 #include <QApplication>
 #include <QCheckBox>
+#include <QShortcut>
 #include <QClipboard>
 #include <QCloseEvent>
 #include <QComboBox>
@@ -991,6 +992,9 @@ MainWindow::MainWindow(QWidget *parent)
     // 键盘入口：窗口级过滤器挂在自己身上（键从焦点控件冒泡上来才看得到），
     // 见 MainWindowEventFilter.cpp 开头那一段。
     installEventFilter(this);
+    // F5：不绑某一段逻辑，只去点"当前页上那颗刷新"（见 `refreshTopmostPage()`）。
+    m_refreshShortcut = new QShortcut(QKeySequence::Refresh, this);
+    connect(m_refreshShortcut, &QShortcut::activated, this, &MainWindow::refreshTopmostPage);
     // 下载页那五页的筛子先灌上（来源 / 类型 / 加载器那三项这一刻就定得下来；「版本」那一栏
     // 等在线清单一到才有的灌，见 onVersionsFetched）。界面那边只搭空框 —— ui/ 不 include
     // src/，"每一项是什么"只能由这一层灌进去。
