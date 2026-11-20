@@ -141,7 +141,7 @@ int UiUiRefreshCheck(QApplication &app) {
                    status->mapTo(&account, QPoint()).y() > pageTitle->mapTo(&account, QPoint()).y(),
                "account page has a big title with the identity as its one-line subtitle (design .page-head)");
         auto *viewer = account.findChild<SkinViewer *>(AccountSkinDialog::viewerName());
-        expect(viewer && viewer->width() == 208 && viewer->height() == 312,
+        expect(viewer && viewer->width() == 288 && viewer->height() == 432,
                "account character preview has bounded dimensions");
         auto *login = account.findChild<QPushButton *>(AccountSkinDialog::loginButtonName());
         auto *body = account.findChild<QWidget *>(QStringLiteral("accountBody"));
@@ -901,3 +901,6 @@ int UiUiRefreshCheck(QApplication &app) {
     
  return 0;
 }
+
+
+
