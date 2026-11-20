@@ -11,9 +11,10 @@ ToggleSwitch::ToggleSwitch(QWidget *parent) : QAbstractButton(parent) {
     setCheckable(true);
     // 光标停在上面要看得出来（这一格是可以点的一件事，不是一行文字）。
     setCursor(Qt::PointingHandCursor);
-    // 这一格自己不画焦点框：键盘走到它上面时由 Fusion 画的那个虚线矩形在这枚小控件上
-    // 比控件本身还大一圈（它按 sizeHint 铺，而那是个药丸形）。
-    setFocusPolicy(Qt::NoFocus);
+    // 能用 Tab 走到，空格切换（QAbstractButton 自带）。只给 Tab 焦点：鼠标点它不抢输入框的焦点。
+    // 焦点环不用 Fusion 的虚线矩形（它按 sizeHint 铺，比药丸形的控件还大一圈）：
+    // paintEvent 里按「键盘焦点」自己画一圈药丸形的环。
+    setFocusPolicy(Qt::TabFocus);
 }
 
 int ToggleSwitch::switchWidth() {
@@ -45,6 +46,17 @@ void ToggleSwitch::paintEvent(QPaintEvent *event) {
     QPainter painter(this);
     paintSwitch(&painter, rect(), palette().color(QPalette::Accent), isChecked(), m_hovered, isDown(),
                 isEnabled());
+    // 键盘焦点环：只在键盘到达时画（`wtfmlKeyboardFocus` 由 Theme 的焦点过滤器按「最后一次输入是键盘」挂，
+    // 不看 QFocusEvent::reason()），和 QCheckBox 开关（Theme 里的 SwitchPainter）同一个形状同一个色。
+    if (hasFocus() && property("wtfmlKeyboardFocus").toBool()) {
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        QPen ring(Theme::focusRingColor(palette()));
+        ring.setWidthF(2.0);
+        painter.setPen(ring);
+        painter.setBrush(Qt::NoBrush);
+        const QRectF track = QRectF(rect()).adjusted(1, 1, -1, -1);
+        painter.drawRoundedRect(track, track.height() / 2.0, track.height() / 2.0);
+    }
 }
 
 void ToggleSwitch::paintSwitch(QPainter *painter, const QRect &area, const QColor &accent, bool on,

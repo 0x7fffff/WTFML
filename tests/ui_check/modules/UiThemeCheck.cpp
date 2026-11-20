@@ -3,6 +3,9 @@
 #include "Glass.hpp"
 #include "InlineMessage.hpp"
 #include "TitleBar.hpp"
+#include "ItemViewContextMenu.hpp"
+#include "ListRowDelegate.hpp"
+#include <QMouseEvent>
 #include <QToolButton>
 #include <QSpinBox>
 int UiThemeCheck(QApplication &app) {
@@ -242,6 +245,185 @@ int UiThemeCheck(QApplication &app) {
                 expect(segments.property("wtfmlKeyboardFocus").toBool() &&
                            segKeyboard.pixelColor(2, segKeyboard.height() / 2) != segMouse.pixelColor(2, segMouse.height() / 2),
                        "segmented tabs: keyboard arrival still draws the focus ring (F1)");
+            }
+            // ---- 键盘走到的那一行露出行尾按钮（#70 第二批 ①）：判据 = 悬停，或（当前行且列表带键盘焦点）----
+            {
+                QListWidget keyed;
+                keyed.setFrameShape(QFrame::NoFrame);
+                keyed.resize(520, 3 * ListRowDelegate::rowHeight() + 4);
+                ListRowDelegate::install(&keyed);
+                for (int i = 0; i < 3; ++i) {
+                    auto *item = new QListWidgetItem(QStringLiteral("实例 %1").arg(i), &keyed);
+                    item->setData(ListRowDelegate::SubtitleRole, QStringLiteral("Fabric 0.16.9 · 1.21.4"));
+                }
+                keyed.move(420, 260);  // 离开屏幕左上角：免得假光标停在第一行上、算成悬停
+                keyed.show();
+                keyed.activateWindow();
+                keyed.setFocus(Qt::OtherFocusReason);
+                app.processEvents();
+                keyed.setCurrentRow(1);
+                app.processEvents();
+                const QColor primary = Theme::tokens().primary;
+                const auto launchProbe = [&keyed](int row) {
+                    const QRect launch = ListRowDelegate::actionRect(keyed.visualItemRect(keyed.item(row)),
+                                                                     ListRowDelegate::Action::Launch);
+                    return QPoint(launch.left() + 4, launch.center().y());
+                };
+                const auto pillAt = [&keyed, &launchProbe](int row) {
+                    return keyed.viewport()->grab().toImage().pixelColor(launchProbe(row));
+                };
+                // 鼠标点进来：当前行不露按钮。
+                const QRect row1 = keyed.visualItemRect(keyed.item(1));
+                const QPoint edge(row1.left() + 2, row1.top() + 2);
+                QMouseEvent mouseDown(QEvent::MouseButtonPress, edge, keyed.viewport()->mapToGlobal(edge),
+                                      Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                QApplication::sendEvent(keyed.viewport(), &mouseDown);
+                app.processEvents();
+                expect(keyed.hasFocus() && keyed.currentRow() == 1 && !keyed.property("wtfmlKeyboardFocus").toBool() &&
+                           pillAt(1) != primary,
+                       "★ LR-K1 鼠标点到的当前行不露行尾按钮（没有悬停、也不是键盘焦点）");
+                // 键盘到达：当前行露出主色启动胶囊，别的行不露。
+                QKeyEvent anyKey(QEvent::KeyPress, Qt::Key_F13, Qt::NoModifier);
+                QApplication::sendEvent(&keyed, &anyKey);
+                app.processEvents();
+                expect(keyed.property("wtfmlKeyboardFocus").toBool() && pillAt(1) == primary,
+                       "★ LR-K2 键盘走到的当前行露出行尾按钮（主色启动胶囊）");
+                expect(pillAt(0) != primary && pillAt(2) != primary, "LR-K3 键盘焦点只让当前行露行尾按钮，别的行不露");
+                // 再点一下鼠标：收回。
+                QApplication::sendEvent(keyed.viewport(), &mouseDown);
+                app.processEvents();
+                expect(!keyed.property("wtfmlKeyboardFocus").toBool() && pillAt(1) != primary,
+                       "★ LR-K4 鼠标一点，当前行的行尾按钮收回去");
+            }
+            // ---- 菜单键落点（#70 第二批 ②）：键盘来源的 ContextMenu 统一换算成「当前行附近」的视口坐标 ----
+            {
+                QListWidget menuList;
+                menuList.setFrameShape(QFrame::NoFrame);
+                menuList.resize(300, 200);
+                for (int i = 0; i < 40; ++i) new QListWidgetItem(QStringLiteral("条目 %1").arg(i), &menuList);
+                menuList.setContextMenuPolicy(Qt::CustomContextMenu);
+                ItemViewContextMenu::install(&menuList);
+                int requested = 0;
+                QPoint requestedAt(-1, -1);
+                QObject::connect(&menuList, &QListWidget::customContextMenuRequested, &menuList,
+                                 [&](const QPoint &pos) { ++requested; requestedAt = pos; });
+                menuList.show();
+                menuList.setFocus(Qt::OtherFocusReason);
+                app.processEvents();
+                menuList.setCurrentRow(30);  // 视口外：菜单键要先把它滚进来
+                app.processEvents();
+                QContextMenuEvent keyMenu(QContextMenuEvent::Keyboard, QPoint(0, 0), menuList.mapToGlobal(QPoint(0, 0)));
+                QApplication::sendEvent(&menuList, &keyMenu);
+                app.processEvents();
+                const QRect currentRow = menuList.visualItemRect(menuList.item(30));
+                expect(requested == 1 && currentRow.isValid() && currentRow.contains(requestedAt),
+                       "★ 菜单键：只发一次，落点在当前行里（视口坐标），视口外的当前行先滚进来");
+                menuList.setCurrentRow(-1);
+                menuList.setCurrentItem(nullptr);
+                requested = 0;
+                QApplication::sendEvent(&menuList, &keyMenu);
+                expect(requested == 1 && menuList.viewport()->rect().contains(requestedAt),
+                       "菜单键：没有当前行时也只发一次，落在视口里");
+            }
+            // ---- 列表的键盘焦点标记（#70 第二批 ③）：键盘焦点时当前行一圈焦点环色，鼠标时不画 ----
+            {
+                QListWidget marked;  // 默认代理：条目的画法不管标记
+                marked.setFrameShape(QFrame::NoFrame);
+                marked.resize(260, 200);
+                for (int i = 0; i < 5; ++i) {
+                    auto *item = new QListWidgetItem(QStringLiteral("条目 %1").arg(i), &marked);
+                    item->setSizeHint(QSize(0, 44));  // 够高：圆角之间才有一段直边可量
+                }
+                marked.move(420, 260);
+                marked.show();
+                marked.activateWindow();
+                marked.setFocus(Qt::OtherFocusReason);
+                app.processEvents();
+                marked.setCurrentRow(2);
+                const auto settle = [&app] { for (int i = 0; i < 4; ++i) app.processEvents(); };
+                settle();
+                const auto markerOf = [&marked]() {
+                    return marked.viewport()->findChild<QWidget *>(QStringLiteral("wtfmlItemViewFocusMarker"));
+                };
+                const QRect row = marked.visualItemRect(marked.item(2));
+                // 焦点环色带透明度：量「左缘那一列和没有标记时不同」，不量等于令牌原值。
+                QImage plain;
+                const auto ringHits = [&marked, row, &plain]() {
+                    const QImage shot = marked.viewport()->grab().toImage();
+                    int hits = 0;
+                    for (int y = row.top() + 10; y < row.bottom() - 10; ++y) {
+                        if (plain.isNull() || shot.pixelColor(row.left() + 2, y) != plain.pixelColor(row.left() + 2, y)) ++hits;
+                    }
+                    return hits;
+                };
+                // 鼠标点进来：没有标记。
+                const QPoint edge(row.left() + 2, row.top() + 2);
+                QMouseEvent press(QEvent::MouseButtonPress, edge, marked.viewport()->mapToGlobal(edge), Qt::LeftButton,
+                                  Qt::LeftButton, Qt::NoModifier);
+                QApplication::sendEvent(marked.viewport(), &press);
+                settle();
+                plain = marked.viewport()->grab().toImage();
+                expect(marked.currentRow() == 2 && (markerOf() == nullptr || !markerOf()->isVisible()) && ringHits() == 0,
+                       "★ 列表标记：鼠标点到的当前行没有键盘焦点标记");
+                // 键盘到达：当前行左缘一整段是焦点环色。
+                QKeyEvent anyKey(QEvent::KeyPress, Qt::Key_F13, Qt::NoModifier);
+                QApplication::sendEvent(&marked, &anyKey);
+                settle();
+                expect(markerOf() != nullptr && markerOf()->isVisible() && row.contains(markerOf()->geometry()) &&
+                           ringHits() >= (row.height() - 20) * 8 / 10,
+                       "★ 列表标记：键盘焦点时当前行有一圈焦点环色的标记");
+                // 换当前行：标记跟着走。
+                marked.setCurrentRow(3);
+                settle();
+                expect(markerOf() != nullptr && markerOf()->isVisible() &&
+                           marked.visualItemRect(marked.item(3)).contains(markerOf()->geometry()),
+                       "列表标记：当前行换了，标记跟着挪过去");
+                // 鼠标一点：收回。
+                QApplication::sendEvent(marked.viewport(), &press);
+                settle();
+                expect(markerOf() == nullptr || !markerOf()->isVisible(), "★ 列表标记：鼠标一点就收回");
+            }
+            // ---- 开关控件能用 Tab 到达，只在键盘焦点时画环（#70 第二批 ④）----
+            {
+                QWidget switchHost;
+                switchHost.resize(220, 90);
+                auto *before = new QLineEdit(&switchHost);
+                before->setGeometry(10, 8, 190, 30);
+                auto *tabSwitch = new ToggleSwitch(&switchHost);
+                tabSwitch->move(10, 50);
+                tabSwitch->resize(tabSwitch->sizeHint());
+                switchHost.move(420, 260);
+                switchHost.show();
+                switchHost.activateWindow();
+                before->setFocus(Qt::OtherFocusReason);
+                app.processEvents();
+                expect((tabSwitch->focusPolicy() & Qt::TabFocus) != 0 && (tabSwitch->focusPolicy() & Qt::ClickFocus) == 0,
+                       "★ 开关：能用 Tab 到达（鼠标点它不抢焦点）");
+                const QImage unfocused = tabSwitch->grab().toImage();
+                // 真按 Tab：键盘到达 → 画环。
+                QKeyEvent tabKey(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier);
+                QApplication::sendEvent(before, &tabKey);
+                app.processEvents();
+                const QImage ringed = tabSwitch->grab().toImage();
+                expect(tabSwitch->hasFocus() && tabSwitch->property("wtfmlKeyboardFocus").toBool() && ringed != unfocused,
+                       "★ 开关：Tab 到达后画键盘焦点环");
+                // 空格切换（QAbstractButton 自带）。
+                QKeyEvent spaceDown(QEvent::KeyPress, Qt::Key_Space, Qt::NoModifier, QStringLiteral(" "));
+                QKeyEvent spaceUp(QEvent::KeyRelease, Qt::Key_Space, Qt::NoModifier, QStringLiteral(" "));
+                QApplication::sendEvent(tabSwitch, &spaceDown);
+                QApplication::sendEvent(tabSwitch, &spaceUp);
+                app.processEvents();
+                expect(tabSwitch->isChecked(), "开关：焦点在上面按空格切换");
+                // 鼠标按下：环收掉（焦点仍在，不再画）。
+                const QPoint at = tabSwitch->rect().center();
+                QMouseEvent press(QEvent::MouseButtonPress, QPointF(at), QPointF(tabSwitch->mapToGlobal(at)),
+                                  Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                QApplication::sendEvent(tabSwitch, &press);
+                QMouseEvent release(QEvent::MouseButtonRelease, QPointF(at), QPointF(tabSwitch->mapToGlobal(at)),
+                                    Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+                QApplication::sendEvent(tabSwitch, &release);
+                app.processEvents();
+                expect(!tabSwitch->property("wtfmlKeyboardFocus").toBool(), "★ 开关：鼠标点过之后不再画键盘焦点环");
             }
             ToggleSwitch toggle;
             toggle.resize(toggle.sizeHint());

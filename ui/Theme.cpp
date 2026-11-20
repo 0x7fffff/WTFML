@@ -10,6 +10,7 @@
 #include "Popups.hpp"
 
 #include <QAbstractItemView>
+#include <QTreeView>
 #include <QAbstractButton>
 #include <QButtonGroup>
 #include <QCache>
@@ -255,6 +256,80 @@ namespace {
 // **判据不能是 `QFocusEvent::reason()`**：Qt 把焦点从藏起来的那一页交接给新页、以及代码里
 // `setFocus(Qt::TabFocusReason)`，报的都是 `TabFocusReason` —— 和用户真按 Tab 一模一样。
 // 不清除真实焦点、不改 Tab 顺序，也不影响输入框和列表的焦点行为。
+// 条目视图（列表 / 树）带着键盘焦点时，当前行上有一圈可见标记（和别的控件的焦点环同一个色）。
+//
+// 行是各个代理自己画的，样式那条 `PE_FrameFocusRect` 管不到它们，所以标记是视口上的一块
+// 透明小控件：只在「视图有键盘焦点（`wtfmlKeyboardFocus`）且有当前行」时露出，盖在当前行上；
+// 视口一重画（滚动、展开、换当前行、挂 / 摘属性都会引起）就按当前行重算一次位置。
+// 鼠标点进来、或焦点离开，属性被摘掉，标记随之收起。
+class ItemViewFocusMarker : public QWidget {
+public:
+    static void refresh(QAbstractItemView *view) {
+        if (view == nullptr || view->viewport() == nullptr) return;
+        auto *marker = static_cast<ItemViewFocusMarker *>(
+            view->viewport()->findChild<QWidget *>(QStringLiteral("wtfmlItemViewFocusMarker"), Qt::FindDirectChildrenOnly));
+        if (marker == nullptr) {
+            if (!itemViewKeyboardFocus(view)) return;  // 没有要露的东西，也就不必建
+            marker = new ItemViewFocusMarker(view);
+        }
+        marker->sync();
+    }
+
+protected:
+    void paintEvent(QPaintEvent *) override {
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        QPen pen(focusRingColor(palette()));
+        pen.setWidthF(2.0);
+        painter.setPen(pen);
+        painter.setBrush(Qt::NoBrush);
+        painter.drawRoundedRect(QRectF(rect()).adjusted(1, 1, -1, -1), 8, 8);
+    }
+    bool eventFilter(QObject *watched, QEvent *event) override {
+        if (watched == m_view->viewport() && (event->type() == QEvent::Paint || event->type() == QEvent::Resize) &&
+            !m_pending) {
+            m_pending = true;  // 画完这一帧再摆：过滤器跑在绘制之前
+            QTimer::singleShot(0, this, [this] {
+                m_pending = false;
+                sync();
+            });
+        }
+        return false;
+    }
+
+private:
+    explicit ItemViewFocusMarker(QAbstractItemView *view) : QWidget(view->viewport()), m_view(view) {
+        setObjectName(QStringLiteral("wtfmlItemViewFocusMarker"));
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+        hide();
+        view->viewport()->installEventFilter(this);
+    }
+    void sync() {
+        QRect target;
+        if (m_view != nullptr && itemViewKeyboardFocus(m_view)) {
+            const QModelIndex current = m_view->currentIndex();
+            if (current.isValid()) {
+                QRect row = m_view->visualRect(current);
+                // 树的行要铺满视口宽（visualRect 只给第 0 列那一格）。
+                if (qobject_cast<QTreeView *>(m_view) != nullptr) row = QRect(0, row.y(), m_view->viewport()->width(), row.height());
+                target = row.adjusted(1, 0, -1, 0).intersected(m_view->viewport()->rect());
+            }
+        }
+        if (target.isEmpty()) {
+            hide();
+            return;
+        }
+        const bool wasHidden = isHidden();
+        if (geometry() != target) setGeometry(target);
+        if (wasHidden) {
+            show();
+            raise();
+        }
+    }
+    QPointer<QAbstractItemView> m_view;
+    bool m_pending = false;
+};
+
 class ControlFocusVisibility : public QObject {
 public:
     explicit ControlFocusVisibility(QApplication &app) : QObject(&app) {
@@ -425,11 +500,17 @@ private:
         button->update();
     }
     /// 自绘焦点环的控件（挂了 `wtfmlFocusRingOwner`，如设置页分段页签）：和按钮同一条判据。
+    /// 条目视图（列表 / 树）同样按这一条判据挂属性：行尾按钮和当前行标记都读它。
     static void setRingOwner(QWidget *widget, bool visible) {
-        if (widget == nullptr || !widget->property("wtfmlFocusRingOwner").toBool() ||
+        auto *view = qobject_cast<QAbstractItemView *>(widget);
+        if (widget == nullptr || (view == nullptr && !widget->property("wtfmlFocusRingOwner").toBool()) ||
             widget->property("wtfmlKeyboardFocus").toBool() == visible) return;
         widget->setProperty("wtfmlKeyboardFocus", visible);
         widget->update();
+        if (view != nullptr) {
+            view->viewport()->update();  // 行是画在视口上的
+            ItemViewFocusMarker::refresh(view);
+        }
     }
     bool m_keyboard = false;
 };
@@ -1191,6 +1272,17 @@ QColor focusRingColor(const QPalette &palette) {
     // 别在这儿另立一条"看主题名"的规矩。
     return isDarkPalette(palette) ? accentShade(AccentShade::Hover)
                                   : accentShade(AccentShade::Ink);
+}
+
+bool itemViewKeyboardFocus(const QWidget *view) {
+    return view != nullptr && view->hasFocus() && view->property("wtfmlKeyboardFocus").toBool();
+}
+
+bool isKeyboardCurrentRow(const QStyleOptionViewItem &option, const QModelIndex &index) {
+    const auto *view = qobject_cast<const QAbstractItemView *>(option.widget);
+    if (view == nullptr || !index.isValid() || !itemViewKeyboardFocus(view)) return false;
+    const QModelIndex current = view->currentIndex();
+    return current.isValid() && current.siblingAtColumn(0) == index.siblingAtColumn(0);
 }
 
 QColor progressTrackColor(const QPalette &palette) {

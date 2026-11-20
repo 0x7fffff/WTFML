@@ -4,6 +4,7 @@
 #include "UiInstanceFilesTestHelpers.hpp"
 
 #include <QKeyEvent>
+#include <QMouseEvent>
 #include <QScrollBar>
 #include <QTemporaryDir>
 
@@ -147,6 +148,41 @@ int UiFilesRowsCheck(QApplication &app) {
         expect(bar->value() == midValue && topIdentity() == topBefore,
                "U10M path: the visible stretch does not move (same scroll value, same top row)",
                QStringLiteral("%1 -> %2 / %3 -> %4").arg(midValue).arg(bar->value()).arg(topBefore, topIdentity()));
+    }
+
+    // ---- #70 第二批 ①：键盘走到的当前行露出行尾「详情」按钮，鼠标时不露 ----
+    {
+        page.setBatchMode(true);  // 「详情」按钮只在批量页上有
+        QEventLoop rebuilt;
+        QTimer::singleShot(80, &rebuilt, &QEventLoop::quit);
+        rebuilt.exec();
+        bar->setValue(0);
+        list->scrollToTop();
+        app.processEvents();
+        list->clearSelection();
+        list->setCurrentRow(0, QItemSelectionModel::NoUpdate);
+        page.activateWindow();
+        list->setFocus(Qt::OtherFocusReason);
+        app.processEvents();
+        const QRect firstRow = list->visualItemRect(list->item(0));
+        const auto rowImage = [list, firstRow]() { return list->viewport()->grab(firstRow).toImage(); };
+        // 鼠标按一下（落在不吃事件的页面本身上）：把"最后一次输入是键盘"摘掉。
+        const QPoint nowhere(2, 2);
+        QMouseEvent mouseDown(QEvent::MouseButtonPress, nowhere, page.mapToGlobal(nowhere), Qt::LeftButton,
+                              Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(&page, &mouseDown);
+        app.processEvents();
+        const QImage mouseMode = rowImage();
+        QKeyEvent keyDown(QEvent::KeyPress, Qt::Key_F13, Qt::NoModifier);
+        QApplication::sendEvent(list, &keyDown);
+        app.processEvents();
+        const QImage keyboardMode = rowImage();
+        expect(list->property("wtfmlKeyboardFocus").toBool() && keyboardMode != mouseMode,
+               "keyboard-current row shows its end-of-row Details button (pixels differ from mouse mode)");
+        QApplication::sendEvent(&page, &mouseDown);
+        app.processEvents();
+        expect(!list->property("wtfmlKeyboardFocus").toBool() && rowImage() == mouseMode,
+               "a mouse press hides it again (back to the mouse-mode pixels)");
     }
 
     printf("%s files-rows: %d failure(s)\n", failures == 0 ? "PASS" : "FAIL", failures);

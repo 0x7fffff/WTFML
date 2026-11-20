@@ -1,5 +1,6 @@
 // Maintenance/creation pages, file inspection and transfer/upgrade presentation.
 #include "InstanceSettingsDialog.hpp"
+#include "ItemViewContextMenu.hpp"
 #include <QCoreApplication>
 #include "ResourcePackPage.hpp"
 #include "WheelSafeComboBox.hpp"
@@ -424,6 +425,7 @@ void InstanceSettingsDialog::buildLifecyclePage(const QString &key) {
             list->setObjectName(QStringLiteral("instanceLifecycleFiles_%1").arg(key));
             list->setIconSize(QSize(96, 64));
             list->setContextMenuPolicy(Qt::CustomContextMenu);
+            ItemViewContextMenu::install(list);  // 菜单键 / Shift+F10：弹在当前行
             const bool batch = lifecycleBatchEnabled(key);
             if (batch) addLifecycleBatchActions(key, list, layout, search);
             // 日志页上面已有标签行、说明、搜索、计数、批量两行：900×590 下列表至少让出信息栏的位置，

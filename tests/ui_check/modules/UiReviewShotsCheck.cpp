@@ -112,6 +112,9 @@ struct ShotOptions {
     /// `--r179c`：步骤 179 UI 问题 C（设置页居中、实例设置最小窗、左栏字重、任务中心运行中开关、W 焦点），
     /// 自己换尺寸；文件名 r179c-<主题>-<宽>x<高>-<页面>.png。
     bool r179c = false;
+    /// `--r70kbd`：#70 第二批（列表键盘可用性），实例页用键盘选中一行：行尾按钮露出、当前行有焦点标记。
+    /// 开发用截图工具，不进启动器；文件名 r70kbd-<主题>-<宽>x<高>-<页面>.png。
+    bool r70kbd = false;
     /// `--site`：步骤 174（官网「功能详解」页候选截图），1120×760、默认暮色雪山，
     /// 一次跑完整张清单；文件名就按官网那一列（look-home-<主题> / install-* / inst-* / …）。
     bool site = false;
@@ -826,6 +829,43 @@ int shootR157(QApplication &app, QMainWindow &window, MainWindowUI &ui, const Sh
 
 QList<TaskCenter::Item> siteTaskItems();
 
+/// `--r70kbd`：实例页用键盘（方向键）选中一行：当前行行尾按钮露出、当前行一圈焦点标记；
+/// 前面先点一下鼠标再切回键盘，再拍一张鼠标时的对照（行尾按钮和标记都不在）。
+int shootR70Keyboard(QApplication &app, QMainWindow &window, MainWindowUI &ui, const ShotOptions &options) {
+    int saved = 0;
+    const auto pump = [&app] { for (int i = 0; i < 4; ++i) app.processEvents(); };
+    const auto name = [&](const QString &what) {
+        return QStringLiteral("r70kbd-%1-%2x%3-%4").arg(options.theme).arg(window.width()).arg(window.height()).arg(what);
+    };
+    ui.getTabWidget()->setCurrentIndex(MainWindowUI::instancesTabIndex());
+    fillInstanceTree(ui);
+    ui.setInstanceMode(MainWindowUI::InstanceMode::Client);
+    QTreeWidget *tree = ui.getInstanceList();
+    pump();
+    window.activateWindow();
+    tree->setFocus(Qt::OtherFocusReason);
+    pump();
+    // 鼠标对照：点一下当前行（按下事件送进视口），不露按钮、没有标记。
+    if (tree->currentItem() != nullptr) {
+        const QPoint at = tree->visualItemRect(tree->currentItem()).center();
+        QMouseEvent press(QEvent::MouseButtonPress, QPointF(at), QPointF(tree->viewport()->mapToGlobal(at)), Qt::LeftButton,
+                          Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(tree->viewport(), &press);
+        pump();
+    }
+    pump();
+    saveShot(app, window, options.out, name(QStringLiteral("mouse")), &saved);
+    // 键盘：向下选一行（真按键，Theme 的焦点过滤器据此记「键盘在用」）。
+    QKeyEvent down(QEvent::KeyPress, Qt::Key_Down, Qt::NoModifier);
+    QApplication::sendEvent(tree, &down);
+    pump();
+    std::printf("  键盘焦点属性 %d，当前行 %s\n", tree->property("wtfmlKeyboardFocus").toBool() ? 1 : 0,
+                tree->currentItem() != nullptr ? qPrintable(tree->currentItem()->text(0)) : "无");
+    saveShot(app, window, options.out, name(QStringLiteral("keyboard")), &saved);
+    std::printf("\nr70kbd shots: %d saved -> %s\n", saved, qPrintable(options.out));
+    return saved > 0 ? 0 : 1;
+}
+
 /// `--r179c`：步骤 179 UI 问题 C（#5 #6 #7 #24 #16），自己换尺寸，不看 `--size`；
 /// 文件名 r179c-<主题>-<宽>x<高>-<页面>.png。实例设置每一页顺带打印露着的滚动区里横向 / 纵向可滚多少（#6 判据）。
 int shootR179c(QApplication &app, QMainWindow &window, MainWindowUI &ui, const ShotOptions &options) {
@@ -1153,6 +1193,7 @@ int runExtended(QApplication &app, const ShotOptions &options) {
     if (options.r155) return shootR155(app, window, ui, options);
     if (options.r157) return shootR157(app, window, ui, options);
     if (options.r179c) return shootR179c(app, window, ui, options);
+    if (options.r70kbd) return shootR70Keyboard(app, window, ui, options);
 
     // ---- 主页：零实例 / 有实例 ----
     ui.getTabWidget()->setCurrentIndex(MainWindowUI::homeTabIndex());
@@ -2953,6 +2994,9 @@ int UiReviewShotsCheck(QApplication &app) {
             options.extended = true;
         } else if (arg == QLatin1String("--r179c")) {
             options.r179c = true;
+            options.extended = true;
+        } else if (arg == QLatin1String("--r70kbd")) {
+            options.r70kbd = true;
             options.extended = true;
         } else if (arg == QLatin1String("--site")) {
             options.site = true;

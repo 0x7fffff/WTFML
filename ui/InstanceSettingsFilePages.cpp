@@ -7,6 +7,7 @@
  */
 
 #include "InstanceSettingsDialog.hpp"
+#include "ItemViewContextMenu.hpp"
 #include <QCoreApplication>
 #include "ResourcePackPage.hpp"
 #include "WheelSafeComboBox.hpp"
@@ -611,6 +612,7 @@ void InstanceSettingsDialog::buildServerPage() {
                 // Qt::Popup 手搭的，理由写在 MainWindowUI.hpp 里 folderMenuName()
                 // 那段（offscreen 上的验证工程驱动不了 exec()）。
                 m_serverTree->setContextMenuPolicy(Qt::CustomContextMenu);
+                ItemViewContextMenu::install(m_serverTree);  // 菜单键 / Shift+F10：弹在当前行
                 connect(m_serverTree, &QTreeWidget::customContextMenuRequested, this,
                         [this](const QPoint &pos) {
                             // pos 是 viewport 坐标（条目视图自己就是这么发的）。

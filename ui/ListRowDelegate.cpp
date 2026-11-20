@@ -53,6 +53,9 @@ void ListRowDelegate::paint(QPainter *painter, const QStyleOptionViewItem &optio
     const Theme::Tokens t = Theme::tokens();
     const QRect r = option.rect;
     const bool hovered = rowHovered(option);
+    // 行尾按钮：悬停，或者键盘走到这一行（PCL 的做法：键盘导航到达时同样露出行内按钮）。
+    const bool showActions =
+        hovered || (option.state.testFlag(QStyle::State_Enabled) && Theme::isKeyboardCurrentRow(option, index));
     const bool selected = option.state.testFlag(QStyle::State_Selected);
     painter->save();
     painter->setRenderHint(QPainter::Antialiasing, true);
@@ -104,7 +107,7 @@ void ListRowDelegate::paint(QPainter *painter, const QStyleOptionViewItem &optio
                           painter->fontMetrics().elidedText(index.data(MetaRole).toString(), Qt::ElideRight, r.width() / 4));
         textRight = x - kGap;
     }
-    if (hovered) {
+    if (showActions) {
         for (const Action a : {Action::Folder, Action::More}) {
             const QRect box = actionRect(r, a);
             VersionIcons::paintLine(*painter, a == Action::Folder ? QStringLiteral("folder") : QStringLiteral("more"),
