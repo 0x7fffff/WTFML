@@ -262,7 +262,7 @@ ResourceDetailPage::ResourceDetailPage(QWidget *parent) : QDialog(parent) {
             [this] { emit openExternalRequested(m_header.openUrl); });
     buttonRow->addWidget(m_open);
 
-    m_mcmod = new QPushButton(tr("转到 MC 百科"), card);
+    m_mcmod = new QPushButton(tr("在 MC 百科搜索"), card);
     m_mcmod->setObjectName(mcmodButtonName());
     // 这几颗都是「看一眼 / 拿一份出去」（一般性）—— 转到网页、
     // 复制名字，一件都不改盘上的东西。
@@ -751,3 +751,4 @@ void ResourceDetailPage::keyPressEvent(QKeyEvent *event) {
     // 别的一律交给基类（Esc 归它管）。
     QDialog::keyPressEvent(event);
 }
+

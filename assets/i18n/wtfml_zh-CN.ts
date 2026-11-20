@@ -7030,6 +7030,10 @@ Minecraft %2 / %3 %4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>已复制服务器地址</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>编辑服务器</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8673,7 +8677,11 @@ Minecraft %2 / %3 %4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>右键复制完整的地址</source>
+        <source>加入</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>复制地址</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -10728,11 +10736,47 @@ Minecraft %2 / %3 %4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>网络连接失败</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>无法刷新登录凭据</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>无法刷新登录凭据：%1。可以重试，或以离线方式进入游戏（无法加入正版服务器）。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>重试</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>离线游玩</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>需要重新登录</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>登录凭据已失效，请重新登录微软账号，或在「账号与外观…」中添加离线账号。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>登录凭据已失效，需要重新登录。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>登录状态失效，请重新登录</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>离线账号，无需联网登录</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>离线游玩（使用本地档案）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -12241,6 +12285,10 @@ Minecraft %2 / %3 %4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>登录凭据已过期，披风列表未更新。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>正在获取披风列表…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -12282,26 +12330,6 @@ Minecraft %2 / %3 %4</source>
     </message>
     <message>
         <source>已退出账号「%1」（账号仍保留在列表中，点该行的「选择」或「登录」即可重新登录）。</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>正在刷新登录凭据…</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>「%1」的登录令牌剩余不足 6 小时，已自动更新。</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>无法刷新「%1」的登录凭据：%2</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>登录凭据刷新失败</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>已切换至「%1」，但登录凭据已失效：%2。请在账号管理中重新登录。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -13675,6 +13703,14 @@ Minecraft %2 / %3 %4</source>
     </message>
     <message>
         <source>日志颜色显示</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>隐藏服务器地址</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>实例设置的服务器列表中，域名只显示每段首字母，IP 只显示前两段。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -22635,7 +22671,7 @@ Minecraft %2 / %3
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>转到 MC 百科</source>
+        <source>在 MC 百科搜索</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

@@ -11020,12 +11020,48 @@ Import the same modpack under the same name to resume using the files already do
 Sign in to your Microsoft account again or add an offline account under Accounts &amp; appearance.</translation>
         </message>
         <message>
+            <source>网络连接失败</source>
+            <translation>Network connection failed</translation>
+        </message>
+        <message>
+            <source>无法刷新登录凭据</source>
+            <translation>Could not refresh sign-in credentials</translation>
+        </message>
+        <message>
+            <source>无法刷新登录凭据：%1。可以重试，或以离线方式进入游戏（无法加入正版服务器）。</source>
+            <translation>Could not refresh sign-in credentials: %1. You can retry, or continue offline (online servers unavailable).</translation>
+        </message>
+        <message>
+            <source>重试</source>
+            <translation>Retry</translation>
+        </message>
+        <message>
+            <source>离线游玩</source>
+            <translation>Play offline</translation>
+        </message>
+        <message>
+            <source>需要重新登录</source>
+            <translation>Sign-in required</translation>
+        </message>
+        <message>
+            <source>登录凭据已失效，请重新登录微软账号，或在「账号与外观…」中添加离线账号。</source>
+            <translation>Sign-in credentials have expired. Sign in to your Microsoft account again, or add an offline account in Account &amp; Appearance…</translation>
+        </message>
+        <message>
+            <source>登录凭据已失效，需要重新登录。</source>
+            <translation>Sign-in credentials have expired. Please sign in again.</translation>
+        </message>
+        <message>
             <source>登录状态失效，请重新登录</source>
             <translation>Login status is invalid, please log in again</translation>
         </message>
         <message>
             <source>离线账号，无需联网登录</source>
             <translation>Offline account: online sign-in is not required</translation>
+        </message>
+        <message>
+            <source>离线游玩（使用本地档案）</source>
+            <translation>Play offline (local profile)</translation>
         </message>
         <message>
             <source>版本信息缺失</source>
@@ -11363,7 +11399,7 @@ The game was not launched. You can set the Java path manually in Instance Settin
         <name>LoadingOverlay</name>
         <message>
             <source>重试</source>
-            <translation>Try again</translation>
+            <translation>Retry</translation>
         </message>
     </context>
     <context>
@@ -11482,7 +11518,7 @@ The game was not launched. You can set the Java path manually in Instance Settin
         </message>
         <message>
             <source>重试</source>
-            <translation>Try again</translation>
+            <translation>Retry</translation>
         </message>
         <message>
             <source>完成</source>
@@ -12611,6 +12647,10 @@ Anything you changed after that update will also be reverted.</translation>
             <translation>Unable to open the account and appearance page: the interface is already occupied by another page.</translation>
         </message>
         <message>
+            <source>登录凭据已过期，披风列表未更新。</source>
+            <translation>Sign-in credentials have expired; the cape list was not updated.</translation>
+        </message>
+        <message>
             <source>正在获取披风列表…</source>
             <translation>Getting list of cloaks...</translation>
         </message>
@@ -12653,26 +12693,6 @@ Anything you changed after that update will also be reverted.</translation>
         <message>
             <source>已退出账号「%1」（账号仍保留在列表中，点该行的「选择」或「登录」即可重新登录）。</source>
             <translation>The account "%1" has been logged out (the account remains in the list, click "Select" or "Login" in the row to log in again).</translation>
-        </message>
-        <message>
-            <source>正在刷新登录凭据…</source>
-            <translation>Refreshing login token...</translation>
-        </message>
-        <message>
-            <source>「%1」的登录令牌剩余不足 6 小时，已自动更新。</source>
-            <translation>The login token for "%1" has less than 6 hours remaining and has been automatically renewed.</translation>
-        </message>
-        <message>
-            <source>无法刷新「%1」的登录凭据：%2</source>
-            <translation>The login token for "%1" failed to refresh: %2</translation>
-        </message>
-        <message>
-            <source>登录凭据刷新失败</source>
-            <translation>Login token failed to refresh</translation>
-        </message>
-        <message>
-            <source>已切换至「%1」，但登录凭据已失效：%2。请在账号管理中重新登录。</source>
-            <translation>Switched to '%1' but the login credentials are no longer valid: %2. Please log in again in account management.</translation>
         </message>
         <message>
             <source>切换账号失败</source>
@@ -15271,7 +15291,7 @@ It will not restart automatically when stopped manually or exited normally.</tra
         </message>
         <message>
             <source>重试</source>
-            <translation>Try again</translation>
+            <translation>Retry</translation>
         </message>
         <message>
             <source>打开日志</source>
@@ -22659,7 +22679,7 @@ Recovery records are retained in %3, please check manually.</translation>
         </message>
         <message>
             <source>重试</source>
-            <translation>Try again</translation>
+            <translation>Retry</translation>
         </message>
         <message>
             <source> / %1 项</source>
@@ -23154,8 +23174,8 @@ Recovery records are retained in %3, please check manually.</translation>
             <translation>Resource details</translation>
         </message>
         <message>
-            <source>转到 MC 百科</source>
-            <translation>Go to MC Encyclopedia</translation>
+            <source>在 MC 百科搜索</source>
+            <translation>Search on MCMod</translation>
         </message>
         <message>
             <source>复制名称</source>
@@ -25558,7 +25578,7 @@ Please close the program occupying the port, or change the port in "Common Setti
         </message>
         <message>
             <source>重试</source>
-            <translation>Try again</translation>
+            <translation>Retry</translation>
         </message>
         <message>
             <source>导出错误报告</source>
