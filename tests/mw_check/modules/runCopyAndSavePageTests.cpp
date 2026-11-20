@@ -1389,6 +1389,61 @@ void runCopyAndSavePageTests() {
                           crumbHost->pageTitle());
                 }
 
+                // ---------- #70 Esc 统一返回：世界设置页有改动先确认 → 返回存档列表 → 顶层 Esc 关闭 ----------
+                const int rowEsc = rowOfWorld(worldDir);
+                if (const auto penEsc = rowEsc >= 0 ? uiEditAt(saves, rowEsc) : nullptr) {
+                    penEsc->click();
+                    QApplication::processEvents();
+                }
+                if (world != nullptr && !world->isHidden()) {
+                    {
+                        PromptAnswerer expandAnswerer({2});
+                        expandAnswerer.start();
+                        world->fileToggle()->click();
+                        expandAnswerer.stop();
+                    }
+                    // 下拉打开时按 Esc 只关下拉，不返回存档列表。
+                    if (QComboBox *diff = world->difficultyCombo()) {
+                        diff->showPopup();
+                        QApplication::processEvents();
+                        if (QWidget *popup = QApplication::activePopupWidget()) {
+                            QKeyEvent escPopup(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+                            QApplication::sendEvent(popup, &escPopup);
+                            QApplication::processEvents();
+                        }
+                        check(QApplication::activePopupWidget() == nullptr && !world->isHidden(),
+                              "★★ #70 世界设置页下拉打开时按 Esc 只关下拉，不退出世界设置");
+                    }
+                    // 有未保存改动时按 Esc 与点「返回」一样先弹确认框；在确认框里按 Esc 只关确认框。
+                    world->nameEdit()->setText(QStringLiteral("Esc临时改动"));
+                    QList<PromptAnswerer::Answered> escDirtyAsks;
+                    {
+                        PromptAnswerer answerer({-1});  // -1 = 确认框上按 Esc / 取消
+                        answerer.start();
+                        QKeyEvent escDirty(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+                        QApplication::sendEvent(world->nameEdit(), &escDirty);
+                        answerer.stop();
+                        escDirtyAsks = answerer.answered;
+                    }
+                    check(escDirtyAsks.size() == 1 &&
+                              askTitle(escDirtyAsks, 0) == QStringLiteral("有未保存的更改") &&
+                              !world->isHidden(),
+                          "★★ #70 世界设置页有未保存改动时按 Esc 先弹确认框，取消后仍留在世界设置页");
+                    // 确认丢弃后按 Esc 回到存档列表，不关掉整个实例设置页。
+                    {
+                        PromptAnswerer answerer({0});  // 0 = 「返回并丢掉」
+                        answerer.start();
+                        QKeyEvent escLeave(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+                        QApplication::sendEvent(world->nameEdit(), &escLeave);
+                        answerer.stop();
+                    }
+                    QApplication::processEvents();
+                    check(world->isHidden() && currentPageOverlay() != nullptr &&
+                              currentPageOverlay()->pageOpen() &&
+                              currentPageOverlay()->pageTitle() == QStringLiteral("实例设置"),
+                          "★★ #70 世界设置页按 Esc 回到存档列表，整页未关、页眉恢复「实例设置」");
+                }
+
                 // ---------- B：坏档 ----------
                 //
                 // 读不动的那一份**也走同一个入口**（点笔 → 直接开页），只是开出来的是"读

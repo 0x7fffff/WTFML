@@ -1589,14 +1589,6 @@ void TaskCenterPanel::rebuildDetail(const QList<TaskCenter::Item> &items) {
     m_detailFooter->show();
 }
 
-void TaskCenterPanel::keyPressEvent(QKeyEvent *event) {
-    if (!m_embedded && event->key() == Qt::Key_Escape) {
-        close();
-        return;
-    }
-    QWidget::keyPressEvent(event);
-}
-
 void TaskCenterPanel::resizeEvent(QResizeEvent *event) {
     QWidget::resizeEvent(event);
     if (!m_embedded) {

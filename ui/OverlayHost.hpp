@@ -460,6 +460,10 @@ private:
     QWidget *coveredPage() const;
     /// 放掉"按住"的那一页。
     void releaseCoveredPage();
+    /// 点击页眉返回 / 在页面上按 Esc 时的统一出口：先问 `m_backOverride`，未接管则发 `backPressed()`。
+    void triggerBack();
+    /// 当前是否有弹出层或模态子窗抢占 Esc。
+    bool shouldDeferEscape() const;
     /// `execPage` / `execPrompt` 共用的那一段（见实现）。
     int execEmbedded(QDialog *dialog, const QString &title, bool asPage, bool dismissOnOutside,
                      int ownerTab = -1);
@@ -507,6 +511,10 @@ private:
     /// `showPage()` 摆着的那一个页面（空 = 现在这一页不是 `showPage()` 开的，而是
     /// `execPage()` 那一个嵌套循环在管）。QPointer：控制器先走一步时别留下悬空的。
     QPointer<QDialog> m_pageWidget;
+    /// 当前整页模式嵌进来的 QDialog（`showPage()` 与 `execPage()` 共用）：拦截它吞掉 Esc 直接
+    /// `reject()`，统一转到 `triggerBack()`。
+    QPointer<QDialog> m_escWatchedDialog;
+    QPointer<QWidget> m_watchedWindow;
     /// 上面那一页的两条收页接线（见 `showPage()`）—— 收页时一并断掉，下次摆上来重接。
     QMetaObject::Connection m_pageWidgetBack;
     std::function<bool()> m_backOverride;

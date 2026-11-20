@@ -1138,16 +1138,6 @@ void WorldSettingsPage::refreshNote() {
     m_note->setText(lines.join(QLatin1Char('\n')));
 }
 
-void WorldSettingsPage::keyPressEvent(QKeyEvent *event) {
-    // Esc = 返回世界列表（理由见 .hpp 里那一段：不然它会冒到整个实例设置上去）。
-    if (event->key() == Qt::Key_Escape) {
-        emit backRequested();
-        event->accept();
-        return;
-    }
-    QWidget::keyPressEvent(event);
-}
-
 bool WorldSettingsPage::eventFilter(QObject *watched, QEvent *event) {
     // 视口一变（滚动条露出来 / 收起来、页宽变了）就让视图**按这个新视口重摆一遍** ——
     // 理由见 .hpp 里那个 ★★（视图那份"每一行在哪、多宽"的缓存停在旧视口上，Qt 自己

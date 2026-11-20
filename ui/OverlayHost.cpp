@@ -207,12 +207,7 @@ OverlayHost::OverlayHost(QWidget *anchor, QWidget *parent) : QWidget(parent), m_
     // 但它自己的高度要等尺寸约束算完），那一步会以 LayoutRequest 的形状落到卡片身上。
     card->installEventFilter(this);
 
-    connect(m_backButton, &QPushButton::clicked, this, [this] {
-        if (m_backOverride && m_backOverride()) {
-            return;
-        }
-        emit backPressed();
-    });
+    connect(m_backButton, &QPushButton::clicked, this, [this] { triggerBack(); });
 
     if (m_anchor != nullptr) {
         // 锚点一动（窗口缩放、标签栏换行、页面换掉）几何就得重算 —— 覆盖层不归布局管，
@@ -330,6 +325,13 @@ void OverlayHost::applyVisibility() {
         // 浮在上面这一条**每回露面都得重申**：锚点换了一页，新那一页在子控件次序上可能
         // 压过我们（Qt 新加的子控件默认排在最后，也就是"最上面"）。
         raise();
+        if (QWidget *win = window(); win != nullptr && win != m_watchedWindow) {
+            if (m_watchedWindow != nullptr) {
+                m_watchedWindow->removeEventFilter(this);
+            }
+            m_watchedWindow = win;
+            m_watchedWindow->installEventFilter(this);
+        }
     }
     retargetCoveredPage();
     relayout();
@@ -611,6 +613,10 @@ void OverlayHost::closeOverlay() {
         }
         setPageHeaderWidget(nullptr);
         m_backOverride = nullptr;
+        if (m_escWatchedDialog != nullptr) {
+            m_escWatchedDialog->removeEventFilter(this);
+            m_escWatchedDialog = nullptr;
+        }
         // `showPage()` 摆着的那一页：两条收页接线先断掉（这一页的调用方不是卡在循环里
         // 等我们的，收尾就在这儿）。`execPage()` 那一档这两个本来就是空的。
         disconnect(m_pageWidgetBack);
@@ -834,6 +840,11 @@ bool OverlayHost::showPage(QDialog *dialog, const QString &title, int ownerTab) 
     disconnect(m_pageWidgetBack);
     disconnect(m_pageWidgetFinished);
     m_pageWidget = dialog;
+    if (m_escWatchedDialog != nullptr && m_escWatchedDialog != dialog) {
+        m_escWatchedDialog->removeEventFilter(this);
+    }
+    m_escWatchedDialog = dialog;
+    dialog->installEventFilter(this);
     m_pageWidgetBack =
         connect(this, &OverlayHost::backPressed, dialog, [dialog] { dialog->reject(); });
     m_pageWidgetFinished = connect(dialog, &QDialog::finished, this, [this, dialog] {
@@ -888,6 +899,13 @@ int OverlayHost::execEmbedded(QDialog *dialog, const QString &title, bool asPage
     }
     area->layout()->addWidget(dialog);
     dialog->setVisible(true);
+    if (asPage) {
+        if (m_escWatchedDialog != nullptr && m_escWatchedDialog != dialog) {
+            m_escWatchedDialog->removeEventFilter(this);
+        }
+        m_escWatchedDialog = dialog;
+        dialog->installEventFilter(this);
+    }
     // 内容到位了，卡片按真实内容再量一次（`openPrompt()` 那一次量的时候里面还是空的）。
     relayout();
     if (asPage) animatePageIn();
@@ -953,6 +971,33 @@ int OverlayHost::execEmbedded(QDialog *dialog, const QString &title, bool asPage
 }
 
 bool OverlayHost::eventFilter(QObject *watched, QEvent *event) {
+    if (event->type() == QEvent::KeyPress &&
+        (watched == m_escWatchedDialog || watched == m_watchedWindow)) {
+        auto *keyEvent = static_cast<QKeyEvent *>(event);
+        const Qt::KeyboardModifiers mods =
+            keyEvent->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier |
+                                     Qt::AltModifier | Qt::MetaModifier);
+        if (keyEvent->key() == Qt::Key_Escape && mods == Qt::NoModifier &&
+            isVisible() && !shouldDeferEscape()) {
+            if (watched == m_escWatchedDialog && m_mode == Mode::Page && !parked()) {
+                triggerBack();
+                keyEvent->accept();
+                return true;
+            }
+            if (watched == m_watchedWindow) {
+                if (m_mode == Mode::Prompt) {
+                    emit promptDismissed();
+                    keyEvent->accept();
+                    return true;
+                }
+                if (m_mode == Mode::Page && !parked()) {
+                    triggerBack();
+                    keyEvent->accept();
+                    return true;
+                }
+            }
+        }
+    }
     // 被盖住的那一页不再 setEnabled(false)：应用级过滤器替它吞掉键盘与焦点。
     if (m_disabledPage != nullptr) {
         QWidget *widget = qobject_cast<QWidget *>(watched);
@@ -1103,13 +1148,50 @@ void OverlayHost::mousePressEvent(QMouseEvent *event) {
     QWidget::mousePressEvent(event);
 }
 
-void OverlayHost::keyPressEvent(QKeyEvent *event) {
-    if (event->key() == Qt::Key_Escape && m_mode == Mode::Prompt) {
-        // Esc 是"离开"的通用键，**不问 m_dismissOnOutsideClick** —— 那一格管的是
-        // "点外面"，而按 Esc 是明确表态（各对话框本来就是这么接的：Esc = reject）。
-        emit promptDismissed();
-        event->accept();
+void OverlayHost::triggerBack() {
+    if (m_backOverride && m_backOverride()) {
         return;
+    }
+    emit backPressed();
+}
+
+bool OverlayHost::shouldDeferEscape() const {
+    if (QApplication::activePopupWidget() != nullptr) {
+        return true;
+    }
+    QWidget *win = window();
+    if (QWidget *modal = QApplication::activeModalWidget(); modal != nullptr && modal != win) {
+        return true;
+    }
+    if (win != nullptr) {
+        for (QFrame *frame : win->findChildren<QFrame *>()) {
+            if (auto *pop = dynamic_cast<GlassPopover *>(frame); pop != nullptr && pop->isVisible()) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+void OverlayHost::keyPressEvent(QKeyEvent *event) {
+    if (event->key() == Qt::Key_Escape) {
+        const Qt::KeyboardModifiers mods =
+            event->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier |
+                                  Qt::AltModifier | Qt::MetaModifier);
+        if (mods == Qt::NoModifier && !shouldDeferEscape()) {
+            if (m_mode == Mode::Prompt) {
+                // Esc 是"离开"的通用键，**不问 m_dismissOnOutsideClick** —— 那一格管的是
+                // "点外面"，而按 Esc 是明确表态（各对话框本来就是这么接的：Esc = reject）。
+                emit promptDismissed();
+                event->accept();
+                return;
+            }
+            if (m_mode == Mode::Page && !parked()) {
+                triggerBack();
+                event->accept();
+                return;
+            }
+        }
     }
     QWidget::keyPressEvent(event);
 }

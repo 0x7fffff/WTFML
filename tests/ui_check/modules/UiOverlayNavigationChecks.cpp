@@ -1,5 +1,7 @@
 #include "Support.hpp"
+#include <QComboBox>
 #include <QDialog>
+#include <QVBoxLayout>
 int UiOverlayNavigationChecks() {
     {
         QWidget home;
@@ -289,6 +291,53 @@ int UiOverlayNavigationChecks() {
             check(closedPages.size() == 3 && closedPages.last() == &dialog,
                   "★ O2c evict() 收页同样发 pageClosed()（让路也不算漏收尾）",
                   QStringLiteral("发了 %1 次").arg(closedPages.size()));
+
+            // ④ 焦点在页眉返回钮上按 Esc：顶层浮层关闭；有 setBackOverride 时先走上一级；
+            //    下拉框打开时按 Esc 只关下拉，不触发返回。
+            QDialog subDialog;
+            auto *subLayout = new QVBoxLayout(&subDialog);
+            auto *combo = new QComboBox(&subDialog);
+            combo->addItems({QStringLiteral("A"), QStringLiteral("B")});
+            subLayout->addWidget(combo);
+            check(host.showPage(&subDialog, QStringLiteral("带下拉页")), "O2d 打开带下拉的浮层页");
+            QApplication::processEvents();
+            int overrideCalls = 0;
+            host.setBackOverride([&overrideCalls, &host] {
+                ++overrideCalls;
+                host.setBackOverride(nullptr);
+                return true;
+            });
+            combo->showPopup();
+            QApplication::processEvents();
+            QWidget *popup = QApplication::activePopupWidget();
+            check(popup != nullptr && popup->isVisible(), "O2d 下拉弹出层已打开");
+            if (popup != nullptr) {
+                QKeyEvent escPopup(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+                QApplication::sendEvent(popup, &escPopup);
+                QApplication::processEvents();
+            }
+            check(QApplication::activePopupWidget() == nullptr && overrideCalls == 0 && host.pageOpen(),
+                  "★ O2d 下拉打开时按 Esc 只关下拉，不触发返回也不关浮层",
+                  QStringLiteral("override=%1 open=%2").arg(overrideCalls).arg(host.pageOpen()));
+
+            if (back != nullptr) {
+                back->setFocus();
+                QKeyEvent escBack(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+                QApplication::sendEvent(back, &escBack);
+                QApplication::processEvents();
+            }
+            check(overrideCalls == 1 && host.pageOpen(),
+                  "★ O2d 焦点在页眉返回钮时按 Esc 先触发 setBackOverride 返回上一级",
+                  QStringLiteral("override=%1 open=%2").arg(overrideCalls).arg(host.pageOpen()));
+
+            if (back != nullptr) {
+                back->setFocus();
+                QKeyEvent escClose(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+                QApplication::sendEvent(back, &escClose);
+                QApplication::processEvents();
+            }
+            check(!host.isOpen() && !subDialog.isVisible(),
+                  "★ O2d 无上一级时在页眉按 Esc 关闭顶层浮层");
         }
     }
     return 0;
