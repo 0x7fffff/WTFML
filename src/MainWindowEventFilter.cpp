@@ -69,10 +69,16 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
     // 判据全部在 `handleHomeEnter()` 里（主页是否露着、有没有浮层、焦点在谁身上）。
     if (watched == this && event->type() == QEvent::KeyPress) {
         auto *key = static_cast<QKeyEvent *>(event);
-        if (!key->isAutoRepeat() && key->modifiers() == Qt::NoModifier &&
-            (key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter) && handleHomeEnter()) {
-            key->accept();
-            return true;
+        if (!key->isAutoRepeat() && key->modifiers() == Qt::NoModifier) {
+            if ((key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter) && handleHomeEnter()) {
+                key->accept();
+                return true;
+            }
+            // ---------- 启动中 Esc = 取消启动 ----------
+            if (key->key() == Qt::Key_Escape && handleEscCancelLaunch()) {
+                key->accept();
+                return true;
+            }
         }
     }
     // 安装页那棵树上**唯一一个"行里的按钮"**：选中那条加载器右边的「取消」小叉
@@ -292,4 +298,27 @@ bool MainWindow::handleHomeEnter() {
     }
     start->click();
     return true;
+}
+
+/// 启动走到一半（游戏进程还没起来）时，Esc = 点启动卡片上那颗「取消」。
+///
+/// 浮层 / 弹出层 / 下拉开着时先归它们（Esc 是它们收起自己的那个键），这里不发取消；
+/// 游戏已经起来之后（`task.sessionId > 0`）也不碰 —— 那一段的退出走会话那一套。
+bool MainWindow::handleEscCancelLaunch() {
+    if (QApplication::activePopupWidget() != nullptr) {
+        return false;
+    }
+    OverlayHost *overlay = m_ui != nullptr ? m_ui->overlay() : nullptr;
+    if (overlay != nullptr && overlay->isOpen()) {
+        return false;
+    }
+    if (m_activityCenter == nullptr || m_launchCardTask == Tasks::invalidTaskId()) {
+        return false;
+    }
+    const Tasks::TaskSnapshot task = m_activityCenter->tasks()->snapshot(m_launchCardTask);
+    if (task.sessionId > 0) {
+        return false;
+    }
+    // 和点卡片上那颗「取消」同一条路：`cancelLaunch()` 自己会问"这会儿取消得动吗"。
+    return cancelLaunch(task);
 }

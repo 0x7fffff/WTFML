@@ -1378,6 +1378,9 @@ private:
     /// 键盘入口（实现在 MainWindowEventFilter.cpp）：主页回车启动。
     /// 返回 true = 这一发归窗口处理掉了（调用方把事件吃掉）。
     bool handleHomeEnter();
+    /// 启动中按 Esc：游戏进程还没起来时走 `cancelLaunch()`（和点卡片上那颗取消同一条路）。
+    /// 浮层/弹出层/下拉开着、或进程已经起来时返回 false（这一发不归窗口）。
+    bool handleEscCancelLaunch();
 
     // ---------- 「世界设置」那两格状态----------
     //

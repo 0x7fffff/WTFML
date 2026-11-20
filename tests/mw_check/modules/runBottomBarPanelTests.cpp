@@ -1729,6 +1729,52 @@ void runBottomBarPanelTests() {
         }
     }
 
+    // ---- AH15 键盘入口：启动中 Esc = 取消启动 ----
+    //
+    // "流程走在半路、游戏进程还没起来"这一态用产品自己的测试钩子搭出来（和 AH6c 同一招），
+    // 然后按真键：判据是取消请求有没有交到启动流程、来源是不是"任务中心"。
+    {
+        auto *activity = w.findChild<ActivityCenterController *>();
+        auto *launch = w.findChild<LaunchController *>();
+        check(activity != nullptr && launch != nullptr, "AH15 拿到任务账本和启动流程");
+        if (activity != nullptr && launch != nullptr) {
+            // 先看浮层挡着那一档：Esc 归浮层，不该把取消发下去。
+            w.ui()->overlay()->openPrompt(false);
+            QApplication::processEvents();
+            QKeyEvent escToOverlay(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+            QApplication::sendEvent(&w, &escToOverlay);
+            check(!launch->abortRequestedForTest(), "AH15 浮层开着时 Esc 不取消启动（先归浮层）");
+            w.ui()->overlay()->dismiss();
+            if (w.ui()->overlay()->isOpen()) {
+                w.ui()->overlay()->closeOverlay();
+            }
+            QApplication::processEvents();
+            check(w.ui()->overlay() == nullptr || !w.ui()->overlay()->isOpen(),
+                  "AH15 浮层收干净了（下面那一发才是真按 Esc）");
+            check(QApplication::activePopupWidget() == nullptr, "AH15 没有弹出层占着 Esc");
+
+            const auto task = activity->begin(Tasks::TaskKind::Launch, QStringLiteral("Esc cancel"), releaseId);
+            QApplication::processEvents();
+            launch->setStartingForTest(true);
+            check(w.taskCancelWouldWorkForTest(activity->tasks()->snapshot(task)),
+                  "AH15 这一档「取消得动」（流程在半路、进程还没起来）");
+            QKeyEvent esc(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+            QApplication::sendEvent(&w, &esc);
+            QApplication::processEvents();
+            check(launch->abortRequestedForTest(), "AH15 启动中按 Esc 把取消请求交给启动流程",
+                  QStringLiteral("starting=%1 popup=%2 overlayOpen=%3")
+                      .arg(launch->isStarting())
+                      .arg(QApplication::activePopupWidget() != nullptr)
+                      .arg(w.ui()->overlay() != nullptr && w.ui()->overlay()->isOpen()));
+            check(launch->cancelSourceForTest() == LaunchController::StartCancelSource::TaskCenter,
+                  "AH15 Esc 和启动卡片上那颗「取消」同一条路（来源 = 任务中心）");
+            launch->setStartingForTest(false);
+            if (Tasks::isActiveState(activity->tasks()->snapshot(task).state)) {
+                activity->tasks()->cancel(task);
+            }
+        }
+    }
+
     // ---- AH12 收尾：会话一份不剩、账号清掉、目录换回来 ----
     stopAllSessions();
     const bool empty = pumpUntil([&manager] { return manager->runningGames().isEmpty(); }, 5000);
