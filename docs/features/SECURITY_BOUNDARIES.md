@@ -79,7 +79,7 @@ PNG、BMP、WebP 等格式的头部信息可能声明超大分辨率，引发解
 - 工具只接受相对路径；实例来自会话 `instanceLock`，不接受模型传入的实例 id。
 - 路径校验：字符串拒绝绝对路径、`..`、盘符、UNC、ADS、保留名、尾点/空格、控制字符；已存在路径再用 `CreateFileW` + `GetFinalPathNameByHandleW` + `FileIdInfo` + `FileAttributeTagInfo` 核最终路径、卷序列/文件 ID、reparse。句柄校验降低 TOCTOU 竞争窗口，不宣称彻底解决。
 - `fs.list` 只发目录元数据；`fs.listNames` 每次审批；`fs.read` 拒绝二进制和凭据文件；`fs.write` 只开放 `config/**`、`defaultconfigs/**`、`options.txt`。
-- `fs.write` 必须带旧哈希与身份 token；写前 DPAPI 备份、原子替换、写后回读；对象/内容变化拒绝。`versions/libraries/assets/java/Servers` 原始写拒绝。
+- `fs.write` 必须带旧哈希与身份 token；写前 DPAPI 备份、原子替换、写后回读；对象/内容变化拒绝。`versions/libraries/assets/java/servers` 原始写拒绝。
 - 模型可读 artifact 只存脱敏内容并 DPAPI 加密；本地原始存档 id 不在模型可见空间；`artifact.read` 每次重新脱敏。
 - 审批请求持久化但不存「已批准」布尔；重启后作废，只能重新请求。
 - 维护备份 `owner=agent`，元数据保留 `sourceSessionId`；删除会话不删备份；`owner=launcher/user/shared` 不允许 Agent 清理。
@@ -138,3 +138,4 @@ PNG、BMP、WebP 等格式的头部信息可能声明超大分辨率，引发解
 - 启动器先绑定本地回环，由系统分配端口，再打开浏览器。授权请求与令牌交换使用同一次绑定得到的完整回调 URI。
 - 每次授权用系统随机源分别生成 32 字节的 PKCE `code_verifier` 和 `state`。授权使用 S256，换取令牌时提交同一个 verifier。
 - 回调检查 `GET`、已配置的回调路径与本次唯一 `state`，匹配后关闭监听并处理授权结果。打开浏览器失败、超时或处理结束时清理本次状态。
+

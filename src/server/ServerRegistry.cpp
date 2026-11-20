@@ -1,6 +1,6 @@
 /**
  * @file ServerRegistry.cpp
- * @brief `ServerRegistry` 的实现 —— 扫 `<数据目录>/Servers`、读/写 `.wtfml-server` 与那两个
+ * @brief `ServerRegistry` 的实现 —— 扫 `<数据目录>/servers`、读/写 `.wtfml-server` 与那两个
  * 配置文件。
  *
  * 这里**是**那一层碰盘的代码（见头文件的分工）：扫目录、读文件、写文件、建目录、删目录。
@@ -628,4 +628,5 @@ bool writeProperties(const QString &serverId, const ServerModel::Properties &pro
 }
 
 }  // namespace ServerRegistry
+
 

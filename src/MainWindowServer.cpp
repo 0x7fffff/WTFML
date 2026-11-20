@@ -1007,7 +1007,7 @@ void MainWindow::updateNewServerSummary(NewServerPage *page) {
         page->setSummary(QString(), QStringLiteral("先给它起个名字（会当成目录名）。"));
         return;
     }
-    // 「目录」那一行：服务端根目录只有一份（`<数据目录>/Servers`，就是左栏那一列里的根），
+    // 「目录」那一行：服务端根目录只有一份（`<数据目录>/servers`，就是左栏那一列里的根），
     // 这一格是**算出来的** —— 走的和按下「创建」之后真建的那一个**同一条路**（sanitize →
     // unique），所以这一行写的地址和它最后落在盘上的那一个是同一个。
     page->setTargetDir(QDir::toNativeSeparators(
@@ -1043,3 +1043,4 @@ void MainWindow::updateNewServerSummary(NewServerPage *page) {
     // 由上面那几处 `setSummary(…, problem)` 露出来。
     page->setSummary(QString(), QString());
 }
+

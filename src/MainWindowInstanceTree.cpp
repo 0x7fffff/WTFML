@@ -243,7 +243,7 @@ void MainWindow::applyInstalledVersions(const QStringList &installed,
                 << "installed versions";
     }
 
-    // 服务端那一页也顺手重扫一遍：它扫的是 `<数据目录>/Servers`，和上面那条实例目录同源，
+    // 服务端那一页也顺手重扫一遍：它扫的是 `<数据目录>/servers`，和上面那条实例目录同源，
     // 而"换数据目录"正是这个函数被叫的场合之一（另一处是启动那一刻）。两页各自重灌，
     // 谁也不去猜对方缓存了什么。
     refreshServerList();
@@ -681,4 +681,5 @@ void MainWindow::openInstallPage(const QString &gameVersion) {
 void MainWindow::backToVersionTree() {
     m_installPage->backToVersionTree();
 }
+
 

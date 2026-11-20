@@ -253,7 +253,7 @@ int MwIntegrityActionsChecks(const QDir &root) {
             }
         }
         check(!onDisk.isEmpty() && onDisk == jarBody,
-              "★★ T40.3 盘上那份 `Servers/<id>/server.jar` 就是假服务器发出来的那些字节"
+              "★★ T40.3 盘上那份 `servers/<id>/server.jar` 就是假服务器发出来的那些字节"
               "（**真的下下来了**，不是一个空壳）",
               QStringLiteral("盘上 %1 字节 / 期望 %2 字节")
                   .arg(onDisk.size())
@@ -431,5 +431,6 @@ int MwIntegrityActionsChecks(const QDir &root) {
     }
     return 0;
 }
+
 
 

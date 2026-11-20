@@ -48,7 +48,7 @@
 
 ## 5. 写入口约定（2026-10-22 审计）
 
-**规则**：写到「当前游戏数据根 / 启动器默认数据根 / `versions`、`Servers` 所属根」里的用户数据，必须先过 `WriteDirectoryGuard::acquire()`（把路径归并到数据根）。`ServerWriteGuard` 与直接调 `DirectorySessionLock::acquire(AppPaths::minecraftDir())` 用同一把键，算等价。
+**规则**：写到「当前游戏数据根 / 启动器默认数据根 / `versions`、`servers` 所属根」里的用户数据，必须先过 `WriteDirectoryGuard::acquire()`（把路径归并到数据根）。`ServerWriteGuard` 与直接调 `DirectorySessionLock::acquire(AppPaths::minecraftDir())` 用同一把键，算等价。
 
 审计覆盖 `src/` 下所有 `QSaveFile` / `QIODevice::WriteOnly` / `QFile::copy` / `QDir().mkpath` / `QFile::rename` 的 54 个文件：
 
@@ -111,3 +111,4 @@
 ## 11. 创建备份时关闭窗口
 
 创建世界备份和实例快照把关闭取消传给目录扫描、分块哈希和打包进程。打包等待每 100 ms 检查停止条件，停止子进程后清理本次不完整归档，不删已有归档。控制器发起的创建备份和还原整项预算均 600 秒。文件系统读取是协作式取消，故障磁盘的系统调用不保证立即返回。还原的停止条件**只在挪走「现在这一份」之前**生效（读清单、空间检查、安全快照这一步；刚做的安全快照会删掉）；一旦开始替换目录就必须走完，停在那儿会让用户既没有旧的也没有新的。不强杀线程。
+

@@ -70,7 +70,7 @@ inline QString minecraftDir() {
 /// 已安装版本的根目录：<数据目录>/versions
 inline QString versionsDir() { return minecraftDir() + QStringLiteral("/versions"); }
 
-/// 服务端工作区的根目录：<数据目录>/Servers。**一个服务端一个子目录**。
+/// 服务端工作区的根目录：<数据目录>/servers。**一个服务端一个子目录**。
 ///
 /// 为什么**不**复用 `versions/`（这是最容易顺手做的一个选择，也是错的）：`versions/`
 /// 底下每一个子目录都会被当成一个**客户端实例**（版本列表、图标、分组、`--version` 全按
@@ -80,17 +80,17 @@ inline QString versionsDir() { return minecraftDir() + QStringLiteral("/versions
 ///
 /// NOTE: 和 `versions/`、`cache/` 平级，挂在数据根目录下，理由同上头那几位：换一份 .minecraft
 /// 就是另一套服务端（"整个启动器连带数据可以整体拷走"这条在这里同样适用）。
-/// NOTE: 目录名首字母大写（`Servers`）是照用户自己那份的叫法（`E:\MC\Server1.20.1` 那种）
-/// 顺手定的；它底下那些子目录名由用户定（新建时默认 `Server<游戏版本>`）。
-inline QString serversDir() { return minecraftDir() + QStringLiteral("/Servers"); }
+/// NOTE: 目录名小写 `servers`，和 `versions/` 对应；Windows 大小写不敏感，旧的 `Servers`
+/// 照常读得到，不需要迁移。它底下那些子目录名由用户定（新建时默认 `Server<游戏版本>`）。
+inline QString serversDir() { return minecraftDir() + QStringLiteral("/servers"); }
 
-/// 单个服务端的目录：Servers/<id>。@p serverId 就是目录名（和 versions 那边同一个约定：
+/// 单个服务端的目录：servers/<id>。@p serverId 就是目录名（和 versions 那边同一个约定：
 /// 目录名即身份，可以是中文/空格）。
 inline QString serverDir(const QString &serverId) {
     return serversDir() + QLatin1Char('/') + serverId;
 }
 
-/// 启动器给一个服务端记的那一份：Servers/<id>/.wtfml-server（可选文件）。
+/// 启动器给一个服务端记的那一份：servers/<id>/.wtfml-server（可选文件）。
 ///
 /// NOTE: 点开头 + 不叫 .json，理由和 `wtfml.meta` / `wtfml.folders` 同源：它住在**服务端自己
 /// 的目录里**，而那个目录是游戏进程的工作目录 —— 服务端自己会往里写一堆东西
@@ -98,7 +98,7 @@ inline QString serverDir(const QString &serverId) {
 /// 点开头 + 我们自己的格式标记（见 `ServerModel::formatTag()`）能让两边互不打扰。
 inline QString serverMetaFileName() { return QStringLiteral(".wtfml-server"); }
 
-/// Servers/<id>/.wtfml-server
+/// servers/<id>/.wtfml-server
 inline QString serverMetaPath(const QString &serverId) {
     return serverDir(serverId) + QLatin1Char('/') + serverMetaFileName();
 }
@@ -376,3 +376,4 @@ inline QString instanceIconCacheDir() {
 }
 
 }  // namespace AppPaths
+

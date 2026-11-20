@@ -554,7 +554,7 @@ Collect → Analyze → Plan → AwaitPlanApproval → ExecuteStep* → Verify �
 
 - 只用"实例 id + 相对路径"的接口；字符串检查只是第一道；已存在目标用句柄级校验，新建先校验父目录，写前记录对象身份、写后复核，对象变化报错并保留备份（§9.3）。
 - 覆盖/删除必须有 `expectedSha256`/对象身份或明确的"已确认覆盖"；写前备份、临时文件 + 原子替换，失败保留原文件。
-- 保护目录（versions/libraries/assets/java/Servers）Stage 1B 原始写一律拒绝。
+- 保护目录（versions/libraries/assets/java/servers）Stage 1B 原始写一律拒绝。
 - 并发替换与文件竞争检测：对象身份复核失败作为可捕获错误处理。
 
 ### 12.3 并发与生命周期
@@ -937,3 +937,4 @@ D1–D11 已确认，内容见 §2。
 | **G4** | 发布验收：全量回归、真机/实网、备份/加密/外发范围、发布检查 | 自动化与发布检查已完成，真机项待做；见 [AGENT_STAGE4](AGENT_STAGE4.md) |
 
 每个阶段结束按 G1A–G4 做人工验收；未验收的计划项不写成"已完成"。
+

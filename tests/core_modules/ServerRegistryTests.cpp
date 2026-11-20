@@ -38,8 +38,8 @@ void runServerRegistryTests() {
     }
 
     // ---------- ZX1. 根目录与空表 ----------
-    check(ServerRegistry::rootDir() == temp.path() + QStringLiteral("/Servers"),
-          "ZX1 根就是 `<数据目录>/Servers`", ServerRegistry::rootDir());
+    check(ServerRegistry::rootDir() == temp.path() + QStringLiteral("/servers"),
+          "ZX1 根就是 `<数据目录>/servers`", ServerRegistry::rootDir());
     check(ServerRegistry::serverIds().isEmpty(),
           "★ ZX1 根还没建出来 ⇒ 空表（不是错误）");
     QString rootProblem;
@@ -363,5 +363,6 @@ void runServerRegistryTests() {
     AppPaths::setMinecraftDir(originalDir);
     check(AppPaths::minecraftDir() == originalDir, "ZX9 数据根目录换回来了");
 }
+
 
 
