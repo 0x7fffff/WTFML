@@ -27,6 +27,7 @@
 #pragma once
 
 #include <QDialog>
+#include <QHash>
 #include <QImage>
 #include <QList>
 #include <QString>
@@ -314,6 +315,8 @@ private:
     QLabel *m_capeCaption = nullptr;
     /// 当前账号那一行的头像取自这张（setLooks() 喂进来的皮肤）。
     QImage m_currentSkin;
+    /// 按贴图地址缓存，列表重建时先把已有的贴图塞回去，别等下一次网络回调。
+    QHash<QString, QImage> m_capeTextures;
+    /// 用户最后点「显示」的那件披风；资料刷新时预览以它为准，别退回旧 active。
+    QString m_previewCapeId;
 };
-
-

@@ -320,6 +320,16 @@ int UiAccountSkinChecks() {
                 applyCapeBtn->click();
                 check(selectCount == 1 && selectedCape == QStringLiteral("cape-2"),
                       "点「显示所选披风」发的是选中那件的 id", selectedCape);
+                check(viewer->cape().size() == QSize(64, 32) &&
+                          viewer->cape().pixelColor(0, 0) == Qt::red,
+                      "点「显示」后人物预览当场披上选中那件");
+                check(qAbs(viewer->yaw() - 205.0) < 1.0,
+                      "点「显示」后转到背面 3/4", QString::number(viewer->yaw()));
+                dialog.setCapes(capes);  // 模拟接口刷新回来：列表重建、选中被清掉
+                QApplication::processEvents();
+                check(viewer->cape().size() == QSize(64, 32) &&
+                          viewer->cape().pixelColor(0, 0) == Qt::red,
+                      "刷新列表后预览仍是刚才点「显示」的那件，不退回旧当前披风");
 
                 // 「不显示披风」**不看选中项**：它是一个独立的动作（取消），列表里选中
                 // 哪一件都跟它没关系。
@@ -328,6 +338,9 @@ int UiAccountSkinChecks() {
                 check(!applyCapeBtn->isEnabled(), "取消选中之后「显示所选披风」又灰回去");
                 hideCapeBtn->click();
                 check(hideCount == 1, "没选中任何披风时「不显示披风」照样发信号");
+                check(viewer->cape().isNull(), "点「隐藏」后人物预览当场把披风摘掉");
+                check(qAbs(viewer->yaw() - 25.0) < 1.0,
+                      "点「隐藏」后回到正面视角", QString::number(viewer->yaw()));
 
                 dialog.setCapes({});
                 QApplication::processEvents();

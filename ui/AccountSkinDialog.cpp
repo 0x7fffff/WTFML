@@ -579,11 +579,13 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     connect(m_applyCapeButton, &QPushButton::clicked, this, [this] {
         const QString id = selectedCapeId();
         if (!id.isEmpty()) {
+            m_previewCapeId = id;
             updatePreviewCape(true, true);
             emit capeSelectRequested(id);
         }
     });
     connect(m_hideCapeButton, &QPushButton::clicked, this, [this] {
+        m_previewCapeId.clear();
         updatePreviewCape(false, true);
         emit hideCapeRequested();
     });
@@ -744,8 +746,11 @@ void AccountSkinDialog::setLooks(const QImage &skin, const QImage &cape, bool sl
     QImage effectiveCape = cape;
     if (effectiveCape.isNull() && m_applyCapeButton != nullptr && m_applyCapeButton->isChecked()) {
         for (int i = 0; i < m_capeList->count(); ++i) {
-            const QListWidgetItem *row = m_capeList->item(i);
-            if (row->data(Qt::UserRole + 1).toBool()) {
+            QListWidgetItem *row = m_capeList->item(i);
+            const bool wanted = !m_previewCapeId.isEmpty()
+                ? row->data(Qt::UserRole).toString() == m_previewCapeId
+                : row->data(Qt::UserRole + 1).toBool();
+            if (wanted) {
                 effectiveCape = row->data(Qt::UserRole + 3).value<QImage>();
                 break;
             }
@@ -771,6 +776,9 @@ void AccountSkinDialog::setCapes(const QList<CapeRow> &capes) {
         item->setData(Qt::UserRole, cape.id);
         item->setData(Qt::UserRole + 1, cape.active);
         item->setData(Qt::UserRole + 2, cape.url);
+        if (m_capeTextures.contains(cape.url)) {
+            item->setData(Qt::UserRole + 3, m_capeTextures.value(cape.url));
+        }
     }
     m_capeList->setCurrentRow(-1);  // 别让第一格自动变成「已选中」；预览跟当前披风走
     m_capeList->setVisible(!capes.isEmpty());
@@ -786,9 +794,12 @@ void AccountSkinDialog::setCapeTexture(const QString &url, const QImage &texture
     for (int i = 0; i < m_capeList->count(); ++i) {
         QListWidgetItem *item = m_capeList->item(i);
         if (item->data(Qt::UserRole + 2).toString() == url) {
+            m_capeTextures.insert(url, texture);
             item->setData(Qt::UserRole + 3, texture);
             const bool active = item->data(Qt::UserRole + 1).toBool();
-            if (item == m_capeList->currentItem() ||
+            const bool preview = !m_previewCapeId.isEmpty() &&
+                                 item->data(Qt::UserRole).toString() == m_previewCapeId;
+            if (preview || item == m_capeList->currentItem() ||
                 (m_capeList->currentItem() == nullptr && active)) {
                 updatePreviewCape(true);
             }
@@ -799,12 +810,21 @@ void AccountSkinDialog::setCapeTexture(const QString &url, const QImage &texture
 void AccountSkinDialog::updatePreviewCape(bool wearing, bool turnToBack) {
     QImage cape;
     if (wearing) {
-        const QListWidgetItem *item = m_capeList->currentItem();
+        QListWidgetItem *item = m_capeList->currentItem();
+        if (item == nullptr && !m_previewCapeId.isEmpty()) {
+            for (int i = 0; i < m_capeList->count(); ++i) {
+                QListWidgetItem *row = m_capeList->item(i);
+                if (row->data(Qt::UserRole).toString() == m_previewCapeId) {
+                    item = row;
+                    break;
+                }
+            }
+        }
         if (item != nullptr) {
             cape = item->data(Qt::UserRole + 3).value<QImage>();
         } else {
             for (int i = 0; i < m_capeList->count(); ++i) {
-                const QListWidgetItem *row = m_capeList->item(i);
+                QListWidgetItem *row = m_capeList->item(i);
                 if (row->data(Qt::UserRole + 1).toBool()) {
                     cape = row->data(Qt::UserRole + 3).value<QImage>();
                     break;
@@ -923,10 +943,3 @@ void AccountSkinDialog::refreshButtonStates() {
     m_offlineSkinButton->setEnabled(idle && m_offlineSkin);
     m_offlineSkinResetButton->setEnabled(idle && m_offlineSkin && m_hasCustomSkin);
 }
-
-
-
-
-
-
-
