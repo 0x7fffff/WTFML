@@ -19,6 +19,7 @@
 GlassPopover::GlassPopover(QWidget *anchor)
     : QFrame(anchor != nullptr ? anchor->window() : nullptr), m_anchor(anchor) {
     setAttribute(Qt::WA_DeleteOnClose);
+    setProperty("wtfmlGlassPopover", true);
     setFocusPolicy(Qt::StrongFocus);
     applyShadow();
     qApp->installEventFilter(this);

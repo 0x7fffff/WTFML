@@ -47,14 +47,14 @@ public:
         Theme::markButton(this, Theme::ButtonKind::Neutral);
         setToolTip(QCoreApplication::translate("KeyCapture", "点击后按下键盘或鼠标按键；Esc 取消，退格清除"));
         connect(this, &QPushButton::clicked, this, [this] {
-            armed = true; setText(QCoreApplication::translate("KeyCapture", "请按键…")); setFocus();
+            armed = true; setProperty("wtfmlKeyCaptureArmed", true); setText(QCoreApplication::translate("KeyCapture", "请按键…")); setFocus();
         });
     }
     void setValue(const QString &value) { current = value; setText(keyLabel(value)); }
     std::function<void(const QString &)> changed;
 protected:
     void focusOutEvent(QFocusEvent *event) override {
-        armed = false; setText(keyLabel(current)); QPushButton::focusOutEvent(event);
+        armed = false; setProperty("wtfmlKeyCaptureArmed", false); setText(keyLabel(current)); QPushButton::focusOutEvent(event);
     }
     bool event(QEvent *event) override {
         if (armed && event->type() == QEvent::ShortcutOverride) { event->accept(); return true; }
@@ -66,7 +66,7 @@ protected:
     void keyPressEvent(QKeyEvent *event) override {
         if (!armed) { QPushButton::keyPressEvent(event); return; }
         if (event->isAutoRepeat()) return;
-        if (event->key() == Qt::Key_Escape) { armed = false; setText(keyLabel(current)); return; }
+        if (event->key() == Qt::Key_Escape) { armed = false; setProperty("wtfmlKeyCaptureArmed", false); setText(keyLabel(current)); return; }
         QString suffix;
         const int key = event->key();
         if (key >= Qt::Key_A && key <= Qt::Key_Z) suffix = QChar('a' + key - Qt::Key_A);
@@ -108,7 +108,7 @@ protected:
     }
 private:
     void commit(const QString &value) {
-        armed = false; setValue(value);
+        armed = false; setProperty("wtfmlKeyCaptureArmed", false); setValue(value);
         if (changed) changed(value);
     }
     QString current;

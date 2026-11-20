@@ -567,7 +567,7 @@ int UiWorldEditorChecks() {
             broken.hide();
         }
 
-        // ---- 四条信号 + 这一层接住的 Esc ----
+        // ---- 四条信号 + 覆盖层 Esc 统一走页眉返回 ----
         int saveCount = 0;
         int openCount = 0;
         int backCount = 0;
@@ -577,8 +577,6 @@ int UiWorldEditorChecks() {
                          [&saveCount] { ++saveCount; });
         QObject::connect(&page, &WorldSettingsPage::openFolderRequested, &page,
                          [&openCount] { ++openCount; });
-        QObject::connect(&page, &WorldSettingsPage::backRequested, &page,
-                         [&backCount] { ++backCount; });
         QObject::connect(&page, &WorldSettingsPage::renameRequested, &page,
                          [&renameCount] { ++renameCount; });
         QObject::connect(&page, &WorldSettingsPage::deleteRequested, &page,
@@ -587,8 +585,7 @@ int UiWorldEditorChecks() {
         page.openFolderButton()->click();
         page.renameButton()->click();
         page.deleteButton()->click();
-        check(saveCount == 1 && openCount == 1 && backCount == 0 && renameCount == 1 &&
-                  deleteCount == 1,
+        check(saveCount == 1 && openCount == 1 && renameCount == 1 && deleteCount == 1,
               "Z16g 四颗按钮各发各的信号（这一层不自己写盘、也不自己切格子 / 不自己弹框；"
               "页内没有「返回」，返回在覆盖层页眉的面包屑上）",
               QStringLiteral("%1/%2/%3/%4")
@@ -600,14 +597,35 @@ int UiWorldEditorChecks() {
                   page.deleteButton()->text() == WorldSettingsPage::deleteText(),
               "Z16g 那两颗的字就是「重命名…」「删除世界…」", page.deleteButton()->text());
 
-        // Esc 得**在这一层被接住**：不然它会冒到「实例设置」那个 QDialog 上，那一下关掉的
-        // 是**整个实例设置页**，而用户想的是"退回存档列表"。
-        QKeyEvent esc(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
-        QApplication::sendEvent(page.nameEdit(), &esc);
-        check(backCount == 1 && esc.isAccepted(),
-              "★★ Z16g 在世界名那个框上按 Esc = 「返回」：框自己不认它、它冒到这一层被接住"
-              "并吃掉（和「配置文件」那一页同一个坑）",
-              QStringLiteral("收到 %1 次").arg(backCount));
+        // Esc 统一由 OverlayHost 接管，按 Esc 等同于点页眉「返回」（先走 setBackOverride，
+        // 不直接关掉外层 QDialog）。
+        {
+            QWidget shell;
+            shell.resize(700, 500);
+            auto *anchor = new QWidget(&shell);
+            anchor->setGeometry(0, 0, 700, 500);
+            OverlayHost host(anchor, &shell);
+            QDialog outerDialog;
+            auto *outerLayout = new QVBoxLayout(&outerDialog);
+            page.setParent(&outerDialog);
+            outerLayout->addWidget(&page);
+            shell.show();
+            host.showPage(&outerDialog, QStringLiteral("世界设置：测试"));
+            host.setBackOverride([&backCount] {
+                ++backCount;
+                return true;
+            });
+            QApplication::processEvents();
+            QKeyEvent esc(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+            QApplication::sendEvent(page.nameEdit(), &esc);
+            QApplication::processEvents();
+            check(backCount == 1 && esc.isAccepted() && host.pageOpen() && outerDialog.isVisible(),
+                  "★★ Z16g 世界设置页里按 Esc = 点页眉返回（走 setBackOverride，不关掉外层对话框）",
+                  QStringLiteral("收到 %1 次 / pageOpen=%2").arg(backCount).arg(host.pageOpen()));
+            host.closeOverlay();
+            QApplication::processEvents();
+            page.setParent(nullptr);
+        }
 
         // ---- ：`deltaFromOpened()` —— "用户到底动了哪几格" ----
         //

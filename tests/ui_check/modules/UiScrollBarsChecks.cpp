@@ -374,6 +374,112 @@ int UiScrollBarsChecks(QApplication &app, QFrame * &bar) {
 
         Anim::setEnabled(wasEnabled);
     }
+
+    // ---------- ⑮ 方向键与 PageUp/PageDown 滚动页面（不在输入/列表等控件上才滚） ----------
+    {
+        QWidget host;
+        host.resize(500, 360);
+        auto *layout = new QVBoxLayout(&host);
+        layout->setContentsMargins(0, 0, 0, 0);
+
+        auto *headerBtn = new QPushButton(QStringLiteral("页眉按钮"), &host);
+        layout->addWidget(headerBtn);
+
+        auto *tabs = new QTabWidget(&host);
+        tabs->setObjectName(QStringLiteral("mainTabWidget"));
+        auto *tabScroll = new Theme::GutterScrollArea(tabs);
+        tabScroll->setWidgetResizable(true);
+        auto *tabBody = new QWidget(tabScroll);
+        auto *tabBodyLayout = new QVBoxLayout(tabBody);
+        auto *edit = new QLineEdit(tabBody);
+        auto *list = new QListWidget(tabBody);
+        for (int i = 0; i < 6; ++i) {
+            list->addItem(QStringLiteral("条目 %1").arg(i));
+        }
+        list->setCurrentRow(0);
+        list->setFixedHeight(120);
+        auto *spacer = new QWidget(tabBody);
+        spacer->setFixedHeight(1200);
+        tabBodyLayout->addWidget(edit);
+        tabBodyLayout->addWidget(list);
+        tabBodyLayout->addWidget(spacer);
+        tabScroll->setWidget(tabBody);
+        tabs->addTab(tabScroll, QStringLiteral("Tab"));
+        layout->addWidget(tabs, 1);
+
+        OverlayHost overlay(tabs, &host);
+        host.show();
+        QApplication::processEvents();
+
+        QScrollBar *tabBar = tabScroll->verticalScrollBar();
+        check(tabBar != nullptr && tabBar->maximum() > 0, "⑮ 前提：页面滚动条有范围");
+
+        // 1) 无焦点 / 焦点在滚动区外部按钮上：方向键和 PageUp/PageDown 滚页
+        headerBtn->setFocus();
+        QKeyEvent downFromBtn(QEvent::KeyPress, Qt::Key_Down, Qt::NoModifier);
+        QApplication::sendEvent(headerBtn, &downFromBtn);
+        const int afterDown = tabBar->value();
+        check(afterDown > 0 && downFromBtn.isAccepted(),
+              "⑮ 焦点在滚动区外按钮上时，按 Down 滚动页面一步",
+              QString::number(afterDown));
+
+        QKeyEvent pageDown(QEvent::KeyPress, Qt::Key_PageDown, Qt::NoModifier);
+        QApplication::sendEvent(&host, &pageDown);
+        const int afterPageDown = tabBar->value();
+        check(afterPageDown > afterDown,
+              "⑮ 按 PageDown 向下滚一页",
+              QStringLiteral("%1 -> %2").arg(afterDown).arg(afterPageDown));
+
+        QKeyEvent pageUp(QEvent::KeyPress, Qt::Key_PageUp, Qt::NoModifier);
+        QApplication::sendEvent(&host, &pageUp);
+        const int afterPageUp = tabBar->value();
+        check(afterPageUp < afterPageDown,
+              "⑮ 按 PageUp 向上滚一页",
+              QStringLiteral("%1 -> %2").arg(afterPageDown).arg(afterPageUp));
+
+        tabBar->setValue(0);
+
+        // 2) 焦点在输入框（QLineEdit）里时：方向键不滚动页面
+        edit->setFocus();
+        QKeyEvent downInEdit(QEvent::KeyPress, Qt::Key_Down, Qt::NoModifier);
+        QApplication::sendEvent(edit, &downInEdit);
+        check(tabBar->value() == 0,
+              "⑮ 焦点在输入框里时按 Down 不滚动页面",
+              QString::number(tabBar->value()));
+
+        // 3) 焦点在列表（QListWidget）里时：方向键归列表，不滚动页面
+        list->setFocus();
+        QKeyEvent downInList(QEvent::KeyPress, Qt::Key_Down, Qt::NoModifier);
+        QApplication::sendEvent(list, &downInList);
+        check(tabBar->value() == 0 && list->currentRow() == 1,
+              "⑮ 焦点在列表里时按 Down 只移动列表选中项，不滚动外层页面",
+              QStringLiteral("scroll=%1 row=%2").arg(tabBar->value()).arg(list->currentRow()));
+
+        // 4) 浮层打开时，按方向键只滚最上层浮层，不滚底下被盖住的页面
+        QWidget *overlayContent = overlay.openPage(QStringLiteral("测试浮层"));
+        auto *tallOverlayWidget = new QWidget;
+        tallOverlayWidget->setFixedHeight(1200);
+        overlayContent->layout()->addWidget(tallOverlayWidget);
+        for (int i = 0; i < 3; ++i) {
+            QApplication::processEvents();
+        }
+        auto *overlayScroll = overlay.findChild<QScrollArea *>(OverlayHost::overlayPageScrollName());
+        auto *backBtn = overlay.findChild<QPushButton *>(OverlayHost::overlayBackButtonName());
+        QScrollBar *overlayBar = overlayScroll != nullptr ? overlayScroll->verticalScrollBar() : nullptr;
+        check(overlayBar != nullptr && overlayBar->maximum() > 0 && backBtn != nullptr,
+              "⑮ 浮层前提：浮层滚动条有范围且页眉返回钮在");
+        if (backBtn != nullptr && overlayBar != nullptr) {
+            backBtn->setFocus();
+            QKeyEvent downInOverlay(QEvent::KeyPress, Qt::Key_Down, Qt::NoModifier);
+            QApplication::sendEvent(backBtn, &downInOverlay);
+            check(overlayBar->value() > 0 && tabBar->value() == 0,
+                  "⑮ 浮层打开且焦点在返回钮上时，按 Down 只滚浮层不滚底页",
+                  QStringLiteral("overlay=%1 tab=%2").arg(overlayBar->value()).arg(tabBar->value()));
+        }
+        overlay.closeOverlay();
+        QApplication::processEvents();
+        delete tallOverlayWidget;
+    }
     return 0;
 }
 

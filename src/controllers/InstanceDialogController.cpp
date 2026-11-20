@@ -2234,8 +2234,6 @@ void InstanceDialogController::open(const QString &versionId, const QString &pag
                         m_owner->onFolderOpenRequested(m_owner->m_worldDir);
                     }
                 });
-        connect(world, &WorldSettingsPage::backRequested, m_owner,
-                [this, &dialog]() { m_owner->leaveWorldSettings(&dialog); });
 
         // ---------- 整份存档的备份 / 还原 / 打开备份目录 ----------
         //

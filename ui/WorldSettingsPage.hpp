@@ -368,10 +368,6 @@ signals:
     void openBackupFolderRequested();
     /// 用户点了「打开文件夹」。
     void openFolderRequested();
-    /// 用户想回到世界列表（在这一页里按了 Esc；页眉面包屑上的「返回」由覆盖层接，
-    /// 走的是同一条 `leaveWorldSettings()`）。切格是 InstanceSettingsDialog 那两格的事，
-    /// 这一层不自己切。
-    void backRequested();
     /// 用户点了「重命名…」（改目录名那一路全在 MainWindow：它要弹输入框、要碰盘、还要
     /// 把新名字通过 `setDirName()` 摆回来）。
     void renameRequested();
@@ -385,9 +381,6 @@ signals:
     void fileEditingRequested(bool wanted);
 
 protected:
-    /// Esc = 返回世界列表。**得在这一层接住**：不然它会冒到「实例设置」那个 QDialog 上，
-    /// 那一下关掉的是整个实例设置页（和 ConfigFileEditorPage 同一个坑）。
-    void keyPressEvent(QKeyEvent *event) override;
     /// **焦点只能在这一刻补**（`setParent()` 会清焦点，见 OverlayHost 那一段）——
     /// 切到这一格时把光标放进第一格能打字的地方（世界名）。
     void showEvent(QShowEvent *event) override;
