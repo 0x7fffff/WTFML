@@ -579,12 +579,12 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     connect(m_applyCapeButton, &QPushButton::clicked, this, [this] {
         const QString id = selectedCapeId();
         if (!id.isEmpty()) {
-            updatePreviewCape(true);
+            updatePreviewCape(true, true);
             emit capeSelectRequested(id);
         }
     });
     connect(m_hideCapeButton, &QPushButton::clicked, this, [this] {
-        updatePreviewCape(false);
+        updatePreviewCape(false, true);
         emit hideCapeRequested();
     });
 
@@ -796,7 +796,7 @@ void AccountSkinDialog::setCapeTexture(const QString &url, const QImage &texture
     }
 }
 
-void AccountSkinDialog::updatePreviewCape(bool wearing) {
+void AccountSkinDialog::updatePreviewCape(bool wearing, bool turnToBack) {
     QImage cape;
     if (wearing) {
         const QListWidgetItem *item = m_capeList->currentItem();
@@ -816,8 +816,8 @@ void AccountSkinDialog::updatePreviewCape(bool wearing) {
                       m_variantCombo->currentData().toString() == variantSlimValue();
     m_viewer->setSkin(m_currentSkin.isNull() ? SkinModel::defaultSteveSkin() : m_currentSkin,
                       cape, slim);
-    // 披风在背后：显示时转到背面 3/4，隐藏时回正面。
-    m_viewer->setBackView(wearing);
+    // 只有用户主动点「显示 / 隐藏」才转视角；打开页面时保持默认正面。
+    if (turnToBack) m_viewer->setBackView(wearing);
 }
 
 void AccountSkinDialog::updateCapeCaption() {
@@ -923,6 +923,7 @@ void AccountSkinDialog::refreshButtonStates() {
     m_offlineSkinButton->setEnabled(idle && m_offlineSkin);
     m_offlineSkinResetButton->setEnabled(idle && m_offlineSkin && m_hasCustomSkin);
 }
+
 
 
 

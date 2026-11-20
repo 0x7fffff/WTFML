@@ -283,6 +283,8 @@ int UiAccountSkinChecks() {
                                                         QStringLiteral("https://textures.example/cape-2")});
                 dialog.setCapes(capes);
                 QApplication::processEvents();
+                check(qAbs(viewer->yaw() - 25.0) < 1.0,
+                      "打开页面/刷新披风列表时不自动把人物转到背面", QString::number(viewer->yaw()));
                 {
                     // 披风贴图到了：只补进地址对得上的那一格（另一格仍画占位色条）。
                     QImage texture(64, 32, QImage::Format_ARGB32);

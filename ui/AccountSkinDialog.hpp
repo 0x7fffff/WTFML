@@ -112,7 +112,7 @@ public:
     QString selectedCapeId() const;
 
     /// 让 3D 预览立即跟着「显示 / 隐藏」走，不等下一次资料刷新。
-    void updatePreviewCape(bool wearing);
+    void updatePreviewCape(bool wearing, bool turnToBack = false);
     /// 「模型」下拉框里选的 variant（已经是小写形态：classic / slim）。
     QString selectedVariant() const;
 
@@ -315,4 +315,5 @@ private:
     /// 当前账号那一行的头像取自这张（setLooks() 喂进来的皮肤）。
     QImage m_currentSkin;
 };
+
 
