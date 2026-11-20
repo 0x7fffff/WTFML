@@ -124,5 +124,24 @@ void runJavaWarnMismatchTests(const QString &sandbox) {
               "S3 放行时不动那条路径 —— 用户要的就是它", io.javaPath);
         check(error.isEmpty(), "S3 放行那一次没有留下失败原因", error);
     }
+
+    // ---- S4 合作式取消位：进来之前就取消了 → 不扫盘、不下载 ----
+    // 任务中心 / 主页启动卡片在启动流程半路按「取消」时传的就是这一位（见
+    // `LaunchController::abortStart()`）。这里用一个**不允许下载**的自动档夹具证它判在
+    // 一切探测之前：置着取消位时立刻返回 false，不会去扫目录、也不会联网下运行时。
+    {
+        GlobalJavaSettings settings;
+        EffectiveJavaSettings io;
+        io.javaPath.clear();
+        std::atomic_bool cancel{true};
+        QString error;
+        check(!settings.ensureJavaForVersion(io, 17, QString(), /*allowAutoSelect=*/true, &error,
+                                             /*allowMismatchedPath=*/false,
+                                             /*allowDownload=*/false, {}, &cancel),
+              "S4 取消位已置真：直接失败返回（不扫盘、不下载）");
+        check(error.contains(QStringLiteral("已取消")),
+              "S4 失败原因写的是「已取消准备 Java 运行时」", error);
+        check(io.javaPath.isEmpty(), "S4 失败时不动调用方那一份值", io.javaPath);
+    }
 }
 

@@ -35,6 +35,7 @@
 #include "controllers/ToolboxController.hpp"
 #include "controllers/DownloadTaskLedgerController.hpp"
 #include "controllers/InstanceTransferController.hpp"
+#include "controllers/LaunchController.hpp"
 #include "download/DownloadManager.hpp"
 #include "launcher/LauncherManager.hpp"
 #include "manage/VersionManager.hpp"
@@ -119,8 +120,10 @@ void MainWindow::updateBottomBarTaskSummary() {
 
 /// 「这一项**此刻**按『取消』真的会做点什么吗」。
 ///
-/// 判据和 `cancelTaskFromDetail()` 的分派共用执行器状态。启动任务按绑定的会话号查找进程，
-/// 同一实例开了多份时也只停对应会话。
+/// 判据和 `cancelTaskFromDetail()` 的分派共用执行器状态。启动任务分两段：进程起来之后
+/// 按绑定的会话号查找进程（同一实例开了多份时也只停对应会话），起来之前看启动流程还在
+/// 不在半路（`LaunchController::isStarting()`）—— 那几段（换令牌 / natives / 下 Java）
+/// 现在都能在下一个检查点停下。
 ///
 /// 为什么非要现问一遍：账本里那位 `canCancel` 是 `begin()` 按**种类**记的（"这一类活
 /// **允许**取消"），可这一类活里有几段**就是取消不掉**的 —— 加载器的安装器进程正在跑
@@ -128,8 +131,16 @@ void MainWindow::updateBottomBarTaskSummary() {
 /// 由 `VersionManager::canCancelDownload()` 现问工人状态，不再仅依赖下载器是否繁忙。
 bool MainWindow::cancelWouldWork(const Tasks::TaskSnapshot &task) const {
     if (task.kind == Tasks::TaskKind::Launch) {
-        return Tasks::isActiveState(task.state) && task.sessionId > 0
-               && m_launcherManager->session(task.sessionId).sessionId == task.sessionId;
+        if (!Tasks::isActiveState(task.state)) {
+            return false;
+        }
+        // 进程已经起来了：只认**这一项自己绑定的那一份会话**（同一实例开了多份时也只停对应会话）。
+        if (task.sessionId > 0) {
+            return m_launcherManager->session(task.sessionId).sessionId == task.sessionId;
+        }
+        // 还没起来：启动流程还在半路（换令牌 / 准备 natives / 下 Java 运行时那几段，
+        // 最长几分钟）就能取消 —— 点了之后流程在下一个检查点停下，不拉起游戏。
+        return m_launchController != nullptr && m_launchController->isStarting();
     }
     if (m_modTransferCancels.contains(task.id)) return true;
     // ⓪ 「实例更新」父任务：准备核心那一段可以取消（文件事务那一段由流程自己
@@ -217,13 +228,29 @@ void MainWindow::onTaskDetailAction(const QString &key, TaskDetailPage::Action a
     m_taskDetail->action(key, action);
 }
 
+bool MainWindow::cancelLaunch(const Tasks::TaskSnapshot &task) {
+    if (!cancelWouldWork(task)) {
+        return false;
+    }
+    if (task.sessionId > 0) {
+        // 进程已经在跑：停那份会话（带那一问"游戏不会存档"的确认）。
+        stopGameSession(task.sessionId);
+        return true;
+    }
+    // 还没起来：让启动流程在下一个检查点停下（取消来源写「任务中心」，日志与终态按它分）。
+    m_launchController->abortStart(LaunchController::StartCancelSource::TaskCenter);
+    return true;
+}
+
 void MainWindow::cancelTaskFromDetail(const QString &key) {
     bool transferParsed = false;
     const auto transferId = key.toULongLong(&transferParsed);
     if (transferParsed) {
         const auto task = m_activityCenter->tasks()->snapshot(transferId);
         if (task.kind == Tasks::TaskKind::Launch) {
-            if (cancelWouldWork(task)) stopGameSession(task.sessionId);
+            // 进程起来前后走的是同一条入口（见 `cancelLaunch()`）—— 主页启动卡片
+            // （#65）那颗「取消」也调它，两处不能各推一遍。
+            cancelLaunch(task);
             return;
         }
     }

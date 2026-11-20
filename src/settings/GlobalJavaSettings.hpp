@@ -4,6 +4,7 @@
 #include <QString>
 #include <QVariantMap>
 
+#include <atomic>
 #include <functional>
 
 #include "../util/SystemMemory.hpp"
@@ -160,12 +161,19 @@ public:
      * 那一节直接调它，于是"跑单元测试"变成了"当场下一次 Java" —— CI 上慢网络跑满 900 秒
      * 的阶段上限，整个 ci-core 判死（2026-11-03 的那次）。传 false 时它只在本机找，
      * 找不到就带着原因返回 false，不碰网络。
+     *
+     * @param cancel 合作式取消位（可空 = 不可取消）。调用方在**别的线程**上置真时，
+     * 下载循环在下一个数据块 / 下一个步骤上停下，删掉半截压缩包与这一次解出来的运行时
+     * 目录，返回 false。本地扫描（含 Program Files）不打断 —— 它是一次几百毫秒的目录遍历，
+     * 打断它只会留下更多要收的东西。启动路径用它接任务中心 / 主页卡片那颗「取消」
+     * （见 `LaunchController::abortStart()`）；整合包导入那条路不传（默认空），行为不变。
      */
     bool ensureJavaForVersion(EffectiveJavaSettings &io, int majorVersion,
                               const QString &component, bool allowAutoSelect,
                               QString *errorOut = nullptr, bool allowMismatchedPath = false,
                               bool allowDownload = true,
-                              const std::function<void(qint64 done, qint64 total)> &progress = {});
+                              const std::function<void(qint64 done, qint64 total)> &progress = {},
+                              const std::atomic_bool *cancel = nullptr);
 
     /**
      * @brief Scans local installations for Java versions.
@@ -272,10 +280,12 @@ public:
      * NOTE: 它**不**写 m_javaPath、**不**落盘：下载归下载、存哪由调用方决定（见
      * ensureJavaForVersion 的值版）。它若自己存进全局配置，"给某个实例下载一个运行时"
      * 就会顺手改掉全局的 Java 路径。
+     * @param cancel 合作式取消位（可空 = 不可取消），同 ensureJavaForVersion 的值版。
      */
     static bool downloadJavaFromMojang(
         int majorVersion, QString *javaPathOut = nullptr,
-        const std::function<void(qint64 done, qint64 total)> &progress = {});
+        const std::function<void(qint64 done, qint64 total)> &progress = {},
+        const std::atomic_bool *cancel = nullptr);
 
     /**
      * @brief Current maximum heap size in megabytes.

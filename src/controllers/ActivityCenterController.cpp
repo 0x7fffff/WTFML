@@ -172,17 +172,9 @@ Tasks::TaskId ActivityCenterController::begin(Tasks::TaskKind kind, const QStrin
 }
 
 bool ActivityCenterController::bindSession(Tasks::TaskId id, int sessionId) {
-    if (!m_tasks.setSessionId(id, sessionId)) {
-        return false;
-    }
-    const auto task = m_tasks.snapshot(id);
-    if (task.kind == Tasks::TaskKind::Launch) {
-        auto capabilities = task.capabilities;
-        capabilities.canCancel = true;
-        capabilities.cancelBlockedReason.clear();
-        m_tasks.setCapabilities(id, capabilities);
-    }
-    return true;
+    // NOTE: 不再在这里给 Launch 补 `canCancel`：那一类从 `defaultCapabilities()` 起就
+    // 按"能取消"记（进程起来前由启动流程自己停下，起来后停会话），见那边。
+    return m_tasks.setSessionId(id, sessionId);
 }
 
 void ActivityCenterController::finish(Tasks::TaskId id, bool success,
@@ -423,10 +415,11 @@ Tasks::TaskCapabilities ActivityCenterController::defaultCapabilities(Tasks::Tas
     case Tasks::TaskKind::Download:
     case Tasks::TaskKind::Install:
     case Tasks::TaskKind::Import:
-        caps.canCancel = true;
-        break;
     case Tasks::TaskKind::Launch:
-        caps.cancelBlockedReason = tr("游戏进程启动后可取消此任务。");
+        // Launch 从**进程起来之前**就允许取消：启动流程在下一个检查点停下
+        // （见 LaunchController::abortStart()）。进程起来之后那一颗改为停会话，
+        // 分派在 MainWindow::cancelLaunch() 里。
+        caps.canCancel = true;
         break;
     case Tasks::TaskKind::Export:
         caps.cancelBlockedReason =

@@ -302,10 +302,6 @@ Select “Log out” to try again.</translation>
             <translation>This step cannot be stopped safely. Wait for it to finish before canceling.</translation>
         </message>
         <message>
-            <source>游戏进程启动后可取消此任务。</source>
-            <translation>You can cancel once the game process starts.</translation>
-        </message>
-        <message>
             <source>导出正在生成压缩包。为避免留下不完整的文件，压缩阶段无法取消。</source>
             <translation>The export is creating an archive. Canceling is disabled during compression to avoid leaving an incomplete file.</translation>
         </message>
@@ -5632,6 +5628,10 @@ First install a Java %1, or go to "Settings" and point the path there.</translat
         <message>
             <source>找不到也下载不到 Java %1。</source>
             <translation>Java %1 cannot be found or downloaded.</translation>
+        </message>
+        <message>
+            <source>已取消准备 Java 运行时。</source>
+            <translation>Preparing the Java runtime was canceled.</translation>
         </message>
     </context>
     <context>
@@ -11050,6 +11050,14 @@ Click Launch again.</translation>
 %3
 
 The game was not launched. You can set the Java path manually in Instance Settings.</translation>
+        </message>
+        <message>
+            <source>启动已取消。</source>
+            <translation>Launch canceled.</translation>
+        </message>
+        <message>
+            <source>启动已取消：启动器正在关闭。</source>
+            <translation>Launch canceled: the launcher is closing.</translation>
         </message>
     </context>
     <context>
