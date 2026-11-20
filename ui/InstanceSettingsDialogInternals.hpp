@@ -214,8 +214,12 @@ public:
 
     /// 贴着 @p anchor 那一格的**下边缘**弹出来（超出屏幕时往里收）。
     void popUpBelow(const QWidget *anchor) {
+        popUpAt(anchor->mapToGlobal(QPoint(0, anchor->height() + kMenuGap)));
+    }
+
+    /// 左上角落在全局坐标 @p target（超出屏幕时往里收）。右键菜单用它。
+    void popUpAt(QPoint target) {
         adjustSize();
-        QPoint target = anchor->mapToGlobal(QPoint(0, anchor->height() + kMenuGap));
         if (const QScreen *screen = QGuiApplication::screenAt(target)) {
             const QRect available = screen->availableGeometry();
             target.setX(qBound(available.left(), target.x(),

@@ -24,12 +24,10 @@ int UiServerListChecks(InstanceSettingsDialog &dialog) {
                                         QStringLiteral("mc.example.com")),
                               qMakePair(QString(), QStringLiteral("1.2.3.4:25565"))},
                              QString());
-        // NOTE: 地址那一格是**遮过**的（服务端地址不往屏幕上摆全，见 U10L-8）；完整的
-        // 那一份在悬停提示里。所以这里核的是行数 + 名字 + 遮过的地址，别拿原始
-        // 字符串来比 —— 那不是产品行为。
+        // NOTE: 地址那一格默认显示原文，开关打开后才是遮过的（见 U10L-8）。
         check(!tree->isHidden() && tree->topLevelItemCount() == 2 &&
                   tree->topLevelItem(0)->text(0) == QStringLiteral("我的服") &&
-                  tree->topLevelItem(0)->text(1) == QStringLiteral("m-.e-.c-"),
+                  tree->topLevelItem(0)->text(1) == QStringLiteral("mc.example.com"),
               "U10g 读到几条就摆几行，名字和地址各占一列");
         check(tree->topLevelItem(1)->text(0) == Dlg::unnamedMark(),
               "★ U10g 名字那一格是空串时顶上一个记号（不是留一栏空白）",

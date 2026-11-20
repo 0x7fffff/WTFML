@@ -717,6 +717,15 @@ void MainWindowUI::setupSettingsLookPanel(QStackedWidget *stack) {
         addSwitch(look, colors, QCoreApplication::translate("MainWindowSettingsPage", "日志颜色"), QCoreApplication::translate("MainWindowSettingsPage", "对新日志窗口生效。"));
     }
     {
+        auto *hide = new QCheckBox(QCoreApplication::translate("MainWindowSettingsPage", "隐藏服务器地址"), form);
+        hide->setObjectName(QStringLiteral("hideServerAddressCheck"));
+        hide->setChecked(QSettings().value(QStringLiteral("Look/HideServerAddress"), false).toBool());
+        QObject::connect(hide, &QCheckBox::toggled, hide,
+                         [](bool enabled) { QSettings().setValue(QStringLiteral("Look/HideServerAddress"), enabled); });
+        addSwitch(look, hide, QCoreApplication::translate("MainWindowSettingsPage", "隐藏服务器地址"),
+                  QCoreApplication::translate("MainWindowSettingsPage", "实例设置的服务器列表中，域名只显示每段首字母，IP 只显示前两段。"));
+    }
+    {
         // 「每日一言」：默认开。checked 状态由 MainWindow 灌（值在 LauncherSettings，
         // 和上面「日志颜色」那种自己落盘的不一样 —— 它还要驱动主页那一行）。
         auto *quote = new QCheckBox(QCoreApplication::translate("MainWindowSettingsPage", "每日一言"), form);
