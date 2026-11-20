@@ -94,6 +94,48 @@ int UiToolboxPolishCheck(QApplication &app) {
                "server card shows the 在线 line when the count is known");
         auto *history = page.findChild<QListWidget *>(QStringLiteral("serverHistory"));
         expect(history != nullptr && history->count() == 1, "checking the same server updates one row");
+        {
+            noCountsView.address = QStringLiteral("mc.example.com");
+            noCountsView.addressKey.clear();
+            noCountsView.ok = true;
+            noCountsView.timedOut = false;
+            noCountsView.kind.clear();
+            noCountsView.latencyMs = 42;
+            noCountsView.latency = QStringLiteral("42 ms");
+            page.setServerView(noCountsView);
+            noCountsView.latencyMs = 51;
+            noCountsView.latency = QStringLiteral("51 ms");
+            page.setServerView(noCountsView);
+            noCountsView.latencyMs = 38;
+            noCountsView.latency = QStringLiteral("38 ms");
+            page.setServerView(noCountsView);
+            QString statsText;
+            for (int row = 0; history && row < history->count(); ++row) {
+                if (history->item(row)->data(Qt::UserRole).toString() ==
+                    QStringLiteral("mc.example.com")) {
+                    statsText = history->item(row)->text();
+                    break;
+                }
+            }
+            expect(statsText.contains(QStringLiteral("3 次 38–51 ms")),
+                   "same address keeps this session's count and latency range");
+
+            noCountsView.ok = false;
+            noCountsView.timedOut = true;
+            noCountsView.latencyMs = -1;
+            noCountsView.latency.clear();
+            page.setServerView(noCountsView);
+            statsText.clear();
+            for (int row = 0; history && row < history->count(); ++row) {
+                if (history->item(row)->data(Qt::UserRole).toString() ==
+                    QStringLiteral("mc.example.com")) {
+                    statsText = history->item(row)->text();
+                    break;
+                }
+            }
+            expect(statsText.contains(QStringLiteral("超时 1 次")),
+                   "timeout count is appended to the same row");
+        }
         for (int index = 0; index < 21; ++index) {
             noCountsView.address = QStringLiteral("server-%1.test").arg(index);
             page.setServerView(noCountsView);
@@ -143,4 +185,5 @@ int UiToolboxPolishCheck(QApplication &app) {
     
  return 0;
 }
+
 

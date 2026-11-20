@@ -2416,9 +2416,28 @@ void ToolboxPage::setServerView(const ServerView &view) {
     const QString key = view.addressKey.isEmpty() ? view.address.trimmed().toCaseFolded() : view.addressKey;
     if (m_serverHistory == nullptr || key.isEmpty()) return;
     constexpr int historyLimit = 20;
+    ServerHistoryStat &stat = m_serverHistoryStats[key];
+    ++stat.attempts;
+    if (view.latencyMs >= 0) {
+        if (stat.successes == 0 || view.latencyMs < stat.minMs) stat.minMs = view.latencyMs;
+        if (stat.successes == 0 || view.latencyMs > stat.maxMs) stat.maxMs = view.latencyMs;
+        ++stat.successes;
+    }
+    if (view.timedOut) ++stat.timeouts;
     const QString result = view.ok ? view.latency : !view.kind.isEmpty() ? view.kind
                           : view.timedOut ? QStringLiteral("超时") : QStringLiteral("检测失败");
-    const QString label = QStringLiteral("%1 · %2").arg(view.address, result);
+    QString label = QStringLiteral("%1 · %2").arg(view.address, result);
+    if (stat.attempts > 1) {
+        if (stat.successes > 0) {
+            label += QCoreApplication::translate("ToolboxPage", " · %1 次 %2–%3 ms")
+                         .arg(stat.attempts)
+                         .arg(stat.minMs)
+                         .arg(stat.maxMs);
+        }
+        if (stat.timeouts > 0) {
+            label += QCoreApplication::translate("ToolboxPage", " · 超时 %1 次").arg(stat.timeouts);
+        }
+    }
     QListWidgetItem *entry = nullptr;
     for (int row = 0; row < m_serverHistory->count(); ++row) {
         if (m_serverHistory->item(row)->data(Qt::UserRole).toString() == key) {
@@ -2446,6 +2465,7 @@ void ToolboxPage::clearServerResults() {
         m_serverHistory->clear();
         m_serverHistory->parentWidget()->hide();
     }
+    m_serverHistoryStats.clear();
     emit serverToolExited();
 }
 

@@ -26136,6 +26136,14 @@ CurseForge API Key 无效或已过期，请重新配置。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source> · %1 次 %2–%3 ms</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source> · 超时 %1 次</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>检测中…</source>
         <translation type="unfinished"></translation>
     </message>

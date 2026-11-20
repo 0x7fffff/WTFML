@@ -26666,6 +26666,14 @@ The changes you made yourself will not be retained.</translation>
             <translation>Address</translation>
         </message>
         <message>
+            <source> · %1 次 %2–%3 ms</source>
+            <translation> · %1 checks %2–%3 ms</translation>
+        </message>
+        <message>
+            <source> · 超时 %1 次</source>
+            <translation> · %1 timeout(s)</translation>
+        </message>
+        <message>
             <source>检测中…</source>
             <translation>Under detection…</translation>
         </message>
