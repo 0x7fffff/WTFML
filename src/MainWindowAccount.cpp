@@ -668,6 +668,11 @@ void MainWindow::onCapeSelectRequested(const QString &capeId) {
     if (capeId.isEmpty()) {
         return;
     }
+    if (m_lastCapeAction.isValid() && m_lastCapeAction.elapsed() < 1500) {
+        appendLog(tr("换披风太频繁，请稍后再试。"));
+        return;
+    }
+    m_lastCapeAction.start();
     QString error;
     const QString token = m_authManager->loadSavedToken(&error);
     if (token.isEmpty()) {
@@ -683,6 +688,11 @@ void MainWindow::onCapeSelectRequested(const QString &capeId) {
 }
 
 void MainWindow::onCapeHideRequested() {
+    if (m_lastCapeAction.isValid() && m_lastCapeAction.elapsed() < 1500) {
+        appendLog(tr("换披风太频繁，请稍后再试。"));
+        return;
+    }
+    m_lastCapeAction.start();
     QString error;
     const QString token = m_authManager->loadSavedToken(&error);
     if (token.isEmpty()) {

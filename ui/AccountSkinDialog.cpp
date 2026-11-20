@@ -189,7 +189,12 @@ public:
         painter->drawRoundedRect(cell.adjusted(0.5, 0.5, -0.5, -0.5), 10, 10);
         const QImage texture = index.data(Qt::UserRole + 3).value<QImage>();
         painter->setPen(Qt::NoPen);
-        if (!texture.isNull() && texture.width() >= 64) {
+        if (index.data(Qt::UserRole + 4).toBool()) {
+            // 「无披风」：一支斜杠，和真实披风格区分开。
+            painter->setPen(QPen(t.text, 2));
+            painter->drawLine(QPointF(cell.left() + 12, cell.bottom() - 12),
+                              QPointF(cell.right() - 12, cell.top() + 12));
+        } else if (!texture.isNull() && texture.width() >= 64) {
             // 披风贴图正面在 (1,1) 起 10×16（按 64 宽的比例换算高清贴图），放大 2 倍、最近邻不糊。
             const int unit = texture.width() / 64;
             const QRectF front(cell.center().x() - 10, cell.center().y() - 16, 20, 32);
@@ -200,10 +205,6 @@ public:
             QColor swatch = SkinModel::avatarFallbackColor(index.data(Qt::UserRole).toString());
             painter->setBrush(swatch);
             painter->drawRoundedRect(QRectF(cell.center().x() - 8, cell.top() + 14, 16, 32), 3, 3);
-        }
-        if (index.data(Qt::UserRole + 1).toBool()) {  // 正披着的那件：右上角一个小圆点
-            painter->setBrush(t.ok);
-            painter->drawEllipse(QPointF(cell.right() - 8, cell.top() + 8), 3, 3);
         }
         painter->restore();
     }
@@ -238,15 +239,6 @@ QLabel *makeSectionTitle(const QString &text, QWidget *parent) {
     return label;
 }
 
-QLabel *makeCaption(const QString &text, QWidget *parent) {
-    auto *label = new QLabel(text, parent);
-    label->setWordWrap(true);
-    label->setFont(Theme::textFont(label->font(), Theme::TextRole::Caption));
-    QPalette palette = label->palette();
-    palette.setColor(QPalette::WindowText, palette.color(QPalette::PlaceholderText));
-    label->setPalette(palette);
-    return label;
-}
 }  // namespace
 
 AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
@@ -550,7 +542,19 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_offlineSkinResetButton->hide();
 
     controls->addSpacing(10);
-    controls->addWidget(makeSectionTitle(capeSectionTitle(), this));
+    {
+        auto *capeHeader = new QHBoxLayout();
+        capeHeader->setContentsMargins(0, 0, 0, 0);
+        capeHeader->setSpacing(8);
+        capeHeader->addWidget(makeSectionTitle(capeSectionTitle(), this));
+        capeHeader->addStretch(1);
+        m_applyCapeButton = new QPushButton(tr("应用"), this);
+        m_applyCapeButton->setObjectName(applyCapeButtonName());
+        m_applyCapeButton->setToolTip(applyCapeButtonText());
+        Theme::markButton(m_applyCapeButton, Theme::ButtonKind::Neutral);
+        capeHeader->addWidget(m_applyCapeButton);
+        controls->addLayout(capeHeader);
+    }
 
     m_capeList = new QListWidget(this);
     m_capeList->setObjectName(capeListName());
@@ -562,36 +566,9 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
     m_capeList->setMovement(QListView::Static);
     m_capeList->setSpacing(0);
     m_capeList->setItemDelegate(new CapeCellDelegate(m_capeList));
-    // 至少露出两排：披风多的时候不用先滚一下才知道下面还有。
-    m_capeList->setFixedHeight(2 * (kCapeCellHeight + kCapeGap) + 4);
     m_capeList->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     controls->addWidget(m_capeList);
     m_capeList->hide();  // 没有披风时不留一块空格子（setCapes() 按有没有再露出来）
-    m_capeCaption = makeCaption(QString(), this);
-    controls->addWidget(m_capeCaption);
-
-    // 披风只有两种状态：披着所选那件 / 不披。做成一个分段，勾着的那段 = 现在的样子
-    // （setCapes() 按"有没有正披着的"同步）；长句在 tooltip 里。
-    QHBoxLayout *capeButtons = new QHBoxLayout();
-    capeButtons->setSpacing(8);
-    controls->addLayout(capeButtons);
-    auto *capeSegment = new QWidget(this);
-    capeSegment->setObjectName(QStringLiteral("accountCapeSegment"));
-    auto *capeSegmentLayout = new QHBoxLayout(capeSegment);
-    capeSegmentLayout->setContentsMargins(3, 3, 3, 3);
-    capeSegmentLayout->setSpacing(2);
-    m_applyCapeButton = new QPushButton(tr("显示"), capeSegment);
-    m_applyCapeButton->setObjectName(applyCapeButtonName());
-    m_applyCapeButton->setToolTip(applyCapeButtonText());
-    m_hideCapeButton = new QPushButton(tr("隐藏"), capeSegment);
-    m_hideCapeButton->setObjectName(hideCapeButtonName());
-    m_hideCapeButton->setToolTip(hideCapeButtonText());
-    capeSegmentLayout->addWidget(m_applyCapeButton);
-    capeSegmentLayout->addWidget(m_hideCapeButton);
-    Theme::markSegmented(capeSegment, {m_applyCapeButton, m_hideCapeButton});
-    m_hideCapeButton->setChecked(true);
-    capeButtons->addWidget(capeSegment);
-    capeButtons->addStretch(1);
 
     // ---------- 底：关闭 ----------
     // NOTE: 只有「关闭」，没有「确定」—— 这个窗里的每一件事（切换、上传、换披风）**当场
@@ -639,8 +616,6 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
             &AccountSkinDialog::placeRowActions);
     connect(m_capeList, &QListWidget::itemSelectionChanged, this,
             &AccountSkinDialog::refreshButtonStates);
-    connect(m_capeList, &QListWidget::itemSelectionChanged, this,
-            &AccountSkinDialog::updateCapeCaption);
     connect(m_switchButton, &QPushButton::clicked, this, [this] {
         const QString uuid = selectedUuid();
         if (!uuid.isEmpty()) {
@@ -654,18 +629,22 @@ AccountSkinDialog::AccountSkinDialog(QWidget *parent) : QDialog(parent) {
         }
     });
     connect(m_applyCapeButton, &QPushButton::clicked, this, [this] {
-        const QString id = selectedCapeId();
-        if (!id.isEmpty()) {
-            updatePreviewCape(true);
-            emit capeSelectRequested(id);
+        const QListWidgetItem *item = m_capeList->currentItem();
+        if (item == nullptr) return;
+        const QString id = item->data(Qt::UserRole).toString();
+        if (id.isEmpty()) {  // 「无披风」那一项
+            m_previewCapeId.clear();
+            m_noCapeApplied = true;
+            updatePreviewCape(false, true);
+            emit hideCapeRequested();
+            return;
         }
-    });
-    connect(m_hideCapeButton, &QPushButton::clicked, this, [this] {
-        updatePreviewCape(false);
-        emit hideCapeRequested();
+        m_previewCapeId = id;
+        m_noCapeApplied = false;
+        updatePreviewCape(true, true);
+        emit capeSelectRequested(id);
     });
 
-    updateCapeCaption();
     refreshButtonStates();
 }
 
@@ -841,12 +820,17 @@ void AccountSkinDialog::setPreviewNote(const QString &text) {
 }
 
 void AccountSkinDialog::setLooks(const QImage &skin, const QImage &cape, bool slim) {
-    // 资料接口不一定当场带回披风贴图；只要「显示」还勾着，就用披风列表里那件的缓存补上。
-    QImage effectiveCape = cape;
-    if (effectiveCape.isNull() && m_applyCapeButton != nullptr && m_applyCapeButton->isChecked()) {
+    Q_UNUSED(cape);
+    QImage effectiveCape;
+    if (m_capesLoaded && !m_noCapeApplied) {
+        // 只认披风列表里「应用过的那件」/当前披风。资料接口常常带回旧图
+        // （你这里永远是 15 周年），打开动画播到一半更不能先闪它一下。
         for (int i = 0; i < m_capeList->count(); ++i) {
-            const QListWidgetItem *row = m_capeList->item(i);
-            if (row->data(Qt::UserRole + 1).toBool()) {
+            QListWidgetItem *row = m_capeList->item(i);
+            const bool wanted = !m_previewCapeId.isEmpty()
+                ? row->data(Qt::UserRole).toString() == m_previewCapeId
+                : row->data(Qt::UserRole + 1).toBool();
+            if (wanted) {
                 effectiveCape = row->data(Qt::UserRole + 3).value<QImage>();
                 break;
             }
@@ -864,21 +848,35 @@ void AccountSkinDialog::setLooks(const QImage &skin, const QImage &cape, bool sl
 }
 
 void AccountSkinDialog::setCapes(const QList<CapeRow> &capes) {
+    if (capes.isEmpty()) {
+        m_previewCapeId.clear();
+        m_noCapeApplied = false;
+    }
+    m_capesLoaded = !capes.isEmpty();
+    const bool wearing = std::any_of(capes.cbegin(), capes.cend(), [](const CapeRow &cape) { return cape.active; });
     m_capeList->clear();
+    QListWidgetItem *none = new QListWidgetItem(m_capeList);
+    none->setData(Qt::AccessibleTextRole, noCapeText());
+    none->setData(Qt::UserRole, QString());
+    none->setData(Qt::UserRole + 1, !wearing);
+    none->setData(Qt::UserRole + 4, true);
     for (const CapeRow &cape : capes) {
         QListWidgetItem *item = new QListWidgetItem(m_capeList);
-        item->setText(cape.active ? cape.alias + currentMark() : cape.alias);
-        item->setToolTip(cape.alias);
+        item->setData(Qt::AccessibleTextRole, cape.alias);
         item->setData(Qt::UserRole, cape.id);
         item->setData(Qt::UserRole + 1, cape.active);
         item->setData(Qt::UserRole + 2, cape.url);
+        if (m_capeTextures.contains(cape.url)) {
+            item->setData(Qt::UserRole + 3, m_capeTextures.value(cape.url));
+        }
     }
+    // 高度按实际件数算，不再固定两排：有几排就露几排，超长时由外层滚动。
+    const int columns = qMax(1, (kControlsWidth - 8) / (kCapeCell + kCapeGap));
+    const int rows = qMax(1, (m_capeList->count() + columns - 1) / columns);
+    m_capeList->setFixedHeight(rows * (kCapeCellHeight + kCapeGap) + 4);
     m_capeList->setCurrentRow(-1);  // 别让第一格自动变成「已选中」；预览跟当前披风走
-    m_capeList->setVisible(!capes.isEmpty());
-    const bool wearing = std::any_of(capes.cbegin(), capes.cend(), [](const CapeRow &cape) { return cape.active; });
-    (wearing ? m_applyCapeButton : m_hideCapeButton)->setChecked(true);
+    m_capeList->setVisible(true);
     updatePreviewCape(wearing);  // 新列表的 active 标记才是准的，预览跟着它重新贴一次
-    updateCapeCaption();
     refreshButtonStates();
 }
 
@@ -887,9 +885,12 @@ void AccountSkinDialog::setCapeTexture(const QString &url, const QImage &texture
     for (int i = 0; i < m_capeList->count(); ++i) {
         QListWidgetItem *item = m_capeList->item(i);
         if (item->data(Qt::UserRole + 2).toString() == url) {
+            m_capeTextures.insert(url, texture);
             item->setData(Qt::UserRole + 3, texture);
             const bool active = item->data(Qt::UserRole + 1).toBool();
-            if (item == m_capeList->currentItem() ||
+            const bool preview = !m_previewCapeId.isEmpty() &&
+                                 item->data(Qt::UserRole).toString() == m_previewCapeId;
+            if (preview || item == m_capeList->currentItem() ||
                 (m_capeList->currentItem() == nullptr && active)) {
                 updatePreviewCape(true);
             }
@@ -897,15 +898,24 @@ void AccountSkinDialog::setCapeTexture(const QString &url, const QImage &texture
     }
 }
 
-void AccountSkinDialog::updatePreviewCape(bool wearing) {
+void AccountSkinDialog::updatePreviewCape(bool wearing, bool turnToBack) {
     QImage cape;
     if (wearing) {
-        const QListWidgetItem *item = m_capeList->currentItem();
+        QListWidgetItem *item = m_capeList->currentItem();
+        if (item == nullptr && !m_previewCapeId.isEmpty()) {
+            for (int i = 0; i < m_capeList->count(); ++i) {
+                QListWidgetItem *row = m_capeList->item(i);
+                if (row->data(Qt::UserRole).toString() == m_previewCapeId) {
+                    item = row;
+                    break;
+                }
+            }
+        }
         if (item != nullptr) {
             cape = item->data(Qt::UserRole + 3).value<QImage>();
         } else {
             for (int i = 0; i < m_capeList->count(); ++i) {
-                const QListWidgetItem *row = m_capeList->item(i);
+                QListWidgetItem *row = m_capeList->item(i);
                 if (row->data(Qt::UserRole + 1).toBool()) {
                     cape = row->data(Qt::UserRole + 3).value<QImage>();
                     break;
@@ -917,18 +927,8 @@ void AccountSkinDialog::updatePreviewCape(bool wearing) {
                       m_variantCombo->currentData().toString() == variantSlimValue();
     m_viewer->setSkin(m_currentSkin.isNull() ? SkinModel::defaultSteveSkin() : m_currentSkin,
                       cape, slim);
-    // 披风在背后：显示时转到背面 3/4，隐藏时回正面。
-    m_viewer->setBackView(wearing);
-}
-
-void AccountSkinDialog::updateCapeCaption() {
-    // 格子里只有色块，名字写在格子下面（设计稿 .cape-name）：选中的那件，没选就写正披着的那件。
-    const QListWidgetItem *shown = m_capeList->currentItem();
-    for (int i = 0; shown == nullptr && i < m_capeList->count(); ++i) {
-        if (m_capeList->item(i)->data(Qt::UserRole + 1).toBool()) shown = m_capeList->item(i);
-    }
-    m_capeCaption->setText(shown != nullptr ? shown->text() : QString());
-    m_capeCaption->setVisible(shown != nullptr);
+    // 只有用户主动点「显示 / 隐藏」才转视角；打开页面时保持默认正面。
+    if (turnToBack) m_viewer->setBackView(wearing);
 }
 
 void AccountSkinDialog::setBusy(bool busy, const QString &what) {
@@ -1014,17 +1014,15 @@ void AccountSkinDialog::refreshButtonStates() {
     const bool haveAccount = !selectedUuid().isEmpty();
     m_switchButton->setEnabled(idle && haveAccount);
     m_removeButton->setEnabled(idle && haveAccount);
-    m_applyCapeButton->setEnabled(idle && !selectedCapeId().isEmpty());
+    m_applyCapeButton->setEnabled(idle && m_capeList->currentItem() != nullptr);
     // 加离线账号要跟着"忙不忙"灰：它一旦成功就会把活动槽清空（切到离线身份），而正飞着的
     // 那次登录回来还要往活动槽里写 —— 两个人会打架。
     m_offlineNameEdit->setEnabled(idle);
     m_addOfflineButton->setEnabled(idle);
-    m_hideCapeButton->setEnabled(idle);
     // 离线那一档：露着的时候才按 idle 判；「恢复默认外观」还要**确实有东西可撤**。
     m_offlineSkinButton->setEnabled(idle && m_offlineSkin);
     m_offlineSkinResetButton->setEnabled(idle && m_offlineSkin && m_hasCustomSkin);
 }
-
 
 
 

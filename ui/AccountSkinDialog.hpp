@@ -27,6 +27,7 @@
 #pragma once
 
 #include <QDialog>
+#include <QHash>
 #include <QImage>
 #include <QList>
 #include <QString>
@@ -122,7 +123,7 @@ public:
     QString selectedCapeId() const;
 
     /// 让 3D 预览立即跟着「显示 / 隐藏」走，不等下一次资料刷新。
-    void updatePreviewCape(bool wearing);
+    void updatePreviewCape(bool wearing, bool turnToBack = false);
     /// 「模型」下拉框里选的 variant（已经是小写形态：classic / slim）。
     QString selectedVariant() const;
 
@@ -175,7 +176,6 @@ public:
     static QString variantComboName() { return QStringLiteral("accountSkinVariantCombo"); }
     static QString capeListName() { return QStringLiteral("accountSkinCapeList"); }
     static QString applyCapeButtonName() { return QStringLiteral("accountSkinApplyCapeButton"); }
-    static QString hideCapeButtonName() { return QStringLiteral("accountSkinHideCapeButton"); }
     static QString closeButtonName() { return QStringLiteral("accountSkinCloseButton"); }
 
     // ---------- 产品文案 ----------
@@ -208,8 +208,8 @@ public:
     static QString offlineSkinResetButtonToolTip() {
         return tr("移除手动设置的皮肤，恢复此账号的默认皮肤。");
     }
-    static QString applyCapeButtonText() { return tr("显示所选披风"); }
-    static QString hideCapeButtonText() { return tr("不显示披风"); }
+    static QString applyCapeButtonText() { return tr("应用所选披风"); }
+    static QString noCapeText() { return tr("无披风"); }
     static QString closeButtonText() { return tr("关闭"); }
     static QString variantClassicText() { return tr("经典（Steve）"); }
     static QString variantSlimText() { return tr("纤细（Alex）"); }
@@ -299,7 +299,6 @@ private:
     void addAccountRow(const AccountRow &row);
     /// 「切换 / 删除」两颗跟着选中那一行摆在行尾（设计稿 .acct-row 悬停操作）。
     void placeRowActions();
-    void updateCapeCaption();
     bool eventFilter(QObject *watched, QEvent *event) override;
 
     /// 现在是不是有一件请求在走。**它必须参与** refreshButtonStates() 的判断：
@@ -344,11 +343,19 @@ private:
     QComboBox *m_variantCombo = nullptr;
     QListWidget *m_capeList = nullptr;
     QPushButton *m_applyCapeButton = nullptr;
-    QPushButton *m_hideCapeButton = nullptr;
     QPushButton *m_closeButton = nullptr;
     QWidget *m_rowActions = nullptr;
-    QLabel *m_capeCaption = nullptr;
     /// 当前账号那一行的头像取自这张（setLooks() 喂进来的皮肤）。
     QImage m_currentSkin;
+    /// 按贴图地址缓存，列表重建时先把已有的贴图塞回去，别等下一次网络回调。
+    QHash<QString, QImage> m_capeTextures;
+    /// 用户最后点「应用」的那件披风；资料刷新时预览以它为准，别退回旧 active。
+    QString m_previewCapeId;
+    /// 用户应用了「无披风」：资料刷新带回旧披风也不能再贴回来。
+    bool m_noCapeApplied = false;
+    /// 披风列表已经喂过（之后资料接口再带旧披风图也不信它）。
+    bool m_capesLoaded = false;
 };
+
+
 
